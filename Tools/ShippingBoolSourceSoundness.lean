@@ -11,9 +11,16 @@ open Tools.ShippingTranslateSoundness Tools.ShippingMuxLoweringSoundness
 
 abbrev BoolValuation := FVarId → Option Bool
 
-def compareName (le : Bool) : Name := if le then ``Signal.ule else ``Signal.ult
-def compareValue {n : Nat} (le : Bool) (a b : BitVec n) : Bool :=
-  if le then BitVec.ule a b else BitVec.ult a b
+def compareName : SignalCompareKind → Name
+  | .ult => ``Signal.ult
+  | .ule => ``Signal.ule
+  | .slt => ``Signal.slt
+  | .sle => ``Signal.sle
+def compareValue {n : Nat} : SignalCompareKind → BitVec n → BitVec n → Bool
+  | .ult => BitVec.ult
+  | .ule => BitVec.ule
+  | .slt => BitVec.slt
+  | .sle => BitVec.sle
 def boolName (b : Bool) : Name := if b then ``Bool.true else ``Bool.false
 
 /-- Source semantics on the actual input Expr. Width-changing comparisons
@@ -23,7 +30,7 @@ inductive BoolDenotes (ρ : BoolValuation) (β : Valuation) : Lean.Expr → Bool
   | pureLit {e : Lean.Expr} {us : List Level} {b : Bool} :
       e.getAppFn = .const ``Signal.pure us →
       e.getAppArgs.back? = some (.const (boolName b) []) → BoolDenotes ρ β e b
-  | compare {e : Lean.Expr} {us : List Level} {n : Nat} {a b : BitVec n} (le : Bool) :
+  | compare {e : Lean.Expr} {us : List Level} {n : Nat} {a b : BitVec n} (le : SignalCompareKind) :
       e.getAppFn = .const (compareName le) us →
       Denotes β e.getAppArgs[e.getAppArgs.size - 2]! n a →
       Denotes β e.getAppArgs[e.getAppArgs.size - 1]! n b →
@@ -43,10 +50,16 @@ theorem library_ult {dom : DomainConfig} {n : Nat}
 theorem library_ule {dom : DomainConfig} {n : Nat}
     (a b : Signal dom (BitVec n)) (t : Nat) :
     (Signal.ule a b).val t = compareValue true (a.val t) (b.val t) := rfl
+theorem library_slt {dom : DomainConfig} {n : Nat}
+    (a b : Signal dom (BitVec n)) (t : Nat) :
+    (Signal.slt a b).val t = compareValue .slt (a.val t) (b.val t) := rfl
+theorem library_sle {dom : DomainConfig} {n : Nat}
+    (a b : Signal dom (BitVec n)) (t : Nat) :
+    (Signal.sle a b).val t = compareValue .sle (a.val t) (b.val t) := rfl
 theorem library_bool_mux {dom : DomainConfig} (c a b : Signal dom Bool) (t : Nat) :
     (Signal.mux c a b).val t = if c.val t then a.val t else b.val t := rfl
 
-theorem compareName_inj {a b : Bool} (h : compareName a = compareName b) : a = b := by
+theorem compareName_inj {a b : SignalCompareKind} (h : compareName a = compareName b) : a = b := by
   cases a <;> cases b <;> simp_all [compareName]
 theorem boolName_inj {a b : Bool} (h : boolName a = boolName b) : a = b := by
   cases a <;> cases b <;> simp_all [boolName]
@@ -96,7 +109,7 @@ open Tools.ShippingEntrySoundness Tools.ShippingMuxTypeSoundness
 inductive BExpr where
   | inp (j : Nat)
   | lit (b : Bool)
-  | compare (le : Bool) (a b : FExpr)
+  | compare (le : SignalCompareKind) (a b : FExpr)
   | mux (c a b : BExpr)
 
 def BExpr.WF (kb kv n : Nat) : BExpr → Prop
@@ -115,8 +128,11 @@ def denoteB {dom : DomainConfig} (n : Nat) (bools : Nat → Signal dom Bool)
     (bits : Nat → Signal dom (BitVec n)) : BExpr → Signal dom Bool
   | .inp j => bools j
   | .lit b => Signal.pure b
-  | .compare le a b => if le then Signal.ule (denoteFE n bits a) (denoteFE n bits b)
-      else Signal.ult (denoteFE n bits a) (denoteFE n bits b)
+  | .compare le a b => match le with
+      | .ult => Signal.ult (denoteFE n bits a) (denoteFE n bits b)
+      | .ule => Signal.ule (denoteFE n bits a) (denoteFE n bits b)
+      | .slt => Signal.slt (denoteFE n bits a) (denoteFE n bits b)
+      | .sle => Signal.sle (denoteFE n bits a) (denoteFE n bits b)
   | .mux c a b => Signal.mux (denoteB n bools bits c) (denoteB n bools bits a) (denoteB n bools bits b)
 
 theorem denoteB_val {dom : DomainConfig} (n : Nat) (bools : Nat → Signal dom Bool)
@@ -125,9 +141,7 @@ theorem denoteB_val {dom : DomainConfig} (n : Nat) (bools : Nat → Signal dom B
   | .inp _ => rfl
   | .lit _ => rfl
   | .compare le a b => by
-      cases le <;>
-        simp only [denoteB, evalB, Bool.false_eq_true, ↓reduceIte,
-          library_ult, library_ule, denoteFE_val]
+      cases le <;> simp [denoteB, evalB, library_ult, library_ule, library_slt, library_sle, denoteFE_val]
   | .mux c a b => by
       simp only [denoteB, evalB, library_bool_mux, denoteB_val n bools bits t c,
         denoteB_val n bools bits t a, denoteB_val n bools bits t b]
@@ -179,7 +193,7 @@ theorem BoolDenotes.quotePure {ρ β} (dom : Lean.Expr) (b : Bool) :
       (.const (boolName b) [])) b :=
   .pureLit (us := [.zero]) rfl rfl
 
-theorem BoolDenotes.quoteCompare {ρ β n} (dom ae be : Lean.Expr) (le : Bool)
+theorem BoolDenotes.quoteCompare {ρ β n} (dom ae be : Lean.Expr) (le : SignalCompareKind)
     {a b : BitVec n} (ha : Denotes β ae n a) (hb : Denotes β be n b) :
     BoolDenotes ρ β (mkApp4 (.const (compareName le) []) dom (natE n) ae be)
       (compareValue le a b) := by

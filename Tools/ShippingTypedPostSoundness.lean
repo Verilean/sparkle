@@ -31,6 +31,9 @@ theorem typed_rename {we e n} (h : TypedExpr we e n) (σ : String → String)
       cases op <;> cases b <;>
         simp_all only [Binary.operator, renameE, Sparkle.IR.PrintCheck.shiftShape]
     simpa only [renameE, renameE.renameL] using TypedExpr.bin op ia ib hs'
+  | signedCompare a b ho hn he =>
+    simpa only [renameE, renameE.renameL] using
+      TypedExpr.signedCompare (we := we) (σ a) (σ b) ho (by simpa [hw] using hn) (by simpa [hw] using he)
   | compare ho _ _ ia ib =>
     simpa only [renameE, renameE.renameL] using TypedExpr.compare ho ia ib
   | mux _ _ _ ic it iff =>
@@ -177,6 +180,7 @@ theorem dzExpr_typed {we e n} (h : TypedExpr we e n) (wm : Sparkle.IR.Optimize.W
   induction h with
   | ref | const => rfl
   | bin _ _ _ _ ia ib | compare _ _ _ ia ib => simp [dzExpr, dzList, ia, ib]
+  | signedCompare => simp [dzExpr, dzList]
   | mux _ _ _ ic it iff => simp [dzExpr, dzList, ic, it, iff]
 
 /-- Internal scalar declarations also occur in the cleanup width map.

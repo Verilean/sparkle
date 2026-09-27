@@ -4,7 +4,8 @@ For continuing work in Codex or Claude Code, start with the
 [current milestones](ShippingCompiler-Milestones.md) and
 [active TODO](CertifiedRoundtrip-TODO.md#current-shipping-compiler-todo).
 These define the current work unit and exit criteria; dated entries below
-record earlier states. S2 completed after baseline `2ad67ae` (2026-09-27).
+record earlier states. S2 completed in `075e9f4`; S3 signed comparison is now
+connected (2026-09-27).
 
 The target agreed on 2026-09-24 is the existing compiler's successful domain:
 
@@ -30,10 +31,23 @@ The mixed Bool/BitVec endpoint `execution_source_of_env` now joins the same
 shipping text/AST to SV evaluation, a unique bounded simultaneous solution, and
 finite parallel delta settling. `EnvDefines`, ordinary source input agreement
 and bounded initialization remain explicit. The domain is Bool inputs/literals,
-unsigned comparisons and nested Bool-result mux over common positive-width
-BitVec arithmetic. It does not cover every successful legacy compilation path.
+unsigned and signed (`slt`/`sle`) comparisons and nested Bool-result mux over
+common positive-width BitVec arithmetic. It does not cover every successful legacy compilation path.
 
-Validation: `lake build Tests.AllTests` passed (622 jobs). The new execution
+The S3 signed extension generalizes comparison source meaning, recursive
+contracts, caching and order through the existing endpoint. Its backend proof
+uses the actual generated wires' widths to justify two's-complement comparison.
+The exact emitted sign-bit-bias expression is connected to the concrete grammar;
+printer fallback syntax is also covered without claiming those fallback widths
+are admitted by the positive-width source theorem. The optimizer still retains
+control-bearing originals instead of accepting an unproved normalization.
+
+Validation: `lake build Tests.AllTests` passed (623 jobs), including 2,250 signed
+source/old-handler/SV/delta cases at widths 1, 8 and 65, plus a theorem for arbitrary Signals/times on a real nested signed
+source. Five real declarations were verified to compile before this extension.
+The axiom audit includes that instance and the extended general endpoint.
+
+S2 baseline validation: `lake build Tests.AllTests` passed (622 jobs). The new execution
 regression compares source values, SV folds and parallel rounds in 2,700 cases,
 including three bounded internal seeds, reordered/unused inputs and shared
 expressions. Eighteen pipeline paths include six optimizer acceptances and

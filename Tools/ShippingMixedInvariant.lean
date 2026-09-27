@@ -347,22 +347,20 @@ theorem translateStep_bits_input_mixed {ctx ρ β we mems initial s t prior rec 
 
 /-- Comparison operands can retain Bool records while producing BitVec values;
 the comparison result then preserves those BitVec records as well. -/
-theorem translateUnsignedCompare_mixed {ctx ρ β we mems initial s t prior rec ae be hint named w le n}
+theorem translateSignalCompare_mixed {ctx ρ β we mems initial s t prior rec ae be hint named w le n}
     (x y : BitVec n) (hn : 0 < n) (h : MixedInv ctx ρ β we mems initial s prior)
     (ha : ChildSpec rec ctx we mems initial (MixedInv ctx ρ β we mems initial) ae "a" n x.toNat)
     (hb : ChildSpec rec ctx we mems initial (MixedInv ctx ρ β we mems initial) be "b" n y.toNat)
     (widths : ScalarWidthsAgree we t)
-    (hr : Returns (translateUnsignedCompare rec le ae be hint named) ctx s w t) :
+    (hr : Returns (translateSignalCompare rec le ae be hint named) ctx s w t) :
     Outcome ctx ρ β we mems initial prior s t w 1 (encodeBool (compareValue le x y)) := by
-  obtain ⟨aw, bw, sa, sb, ra, rb, re⟩ := translateUnsignedCompare_returns hr
+  obtain ⟨aw, bw, sa, sb, ra, rb, re⟩ := translateSignalCompare_returns hr
   obtain ⟨va, ga, ea, ua, wa, xa, ma, fa⟩ := ha s sa aw prior h h.runs ra
   obtain ⟨vb, gb, eb, ub, wb, yb, mb, fb⟩ := hb sa sb bw va ga ea rb
   have xb : vb aw = x.toNat := (fb aw ua).trans xa
   have step := emitBoolResult_mixed gb
-    (.compare (n := n) (by cases le <;> rfl)
-      (wa ▸ TypedExpr.ref (we := we) aw (by omega))
-      (wb ▸ TypedExpr.ref (we := we) bw (by omega)))
-    (compare_rhs_correct le x y we vb aw bw xb yb) widths re
+    (typed_compare_refs le hn wa wb)
+    (compare_rhs_correct le x y we vb aw bw xb yb wa wb) widths re
   obtain ⟨result, inv, val, frame⟩ := step.execution
   exact ⟨step.used, step.width_eq, fun z hz => step.grows z (mb z (ma z hz)), result, inv, val,
     fun z hz => (frame z (mb z (ma z hz))).trans ((fb z (ma z hz)).trans (fa z hz))⟩
@@ -381,6 +379,6 @@ theorem translateFallback_compare_mixed {ctx ρ β we mems initial s t prior rec
   apply translateControlCachedWith_mixed h (BoolDenotes.quoteCompare dom ae be le da db) widths ?_ hr
   intro sm r wm miss
   rw [translateBoolUncachedWith_compare] at miss
-  exact translateUnsignedCompare_mixed x y hn h ha hb wm miss
+  exact translateSignalCompare_mixed x y hn h ha hb wm miss
 
 end Tools.ShippingMixedInvariant

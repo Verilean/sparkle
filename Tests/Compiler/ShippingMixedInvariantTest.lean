@@ -36,7 +36,7 @@ run_cmd do
       ``translateBoolMux_mixed, ``translateControlCachedWith_mixed,
       ``translateFallback_boolMux_mixed, ``translateStep_fvar_returns,
       ``translateStep_bool_input_mixed, ``translateStep_bits_input_mixed,
-      ``translateUnsignedCompare_mixed, ``translateFallback_compare_mixed,
+      ``translateSignalCompare_mixed, ``translateFallback_compare_mixed,
       ``bool_literal_keeps_bitvec_input, ``bool_is_not_bitvec_one] do
     for ax in (← liftCoreM <| collectAxioms name) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do

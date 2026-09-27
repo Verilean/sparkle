@@ -16,6 +16,7 @@ Unsupported forms are rejected rather than treated as having no references. -/
 def ExprBound (declared : String → Prop) : SVExpr → Prop
   | .lit _ => True
   | .ident x => declared x
+  | .unary .signed a => ExprBound declared a
   | .binary _ a b => ExprBound declared a ∧ ExprBound declared b
   | .ternary c t f => ExprBound declared c ∧ ExprBound declared t ∧ ExprBound declared f
   | _ => False
@@ -90,7 +91,11 @@ theorem emitExpr_bound {e : Sparkle.IR.AST.Expr} {sv : SVExpr}
     have bb := ib (fun x hx => hr x (by
       simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList, hx])) hsb
     cases op <;> simp_all [isCompareOp, Sparkle.IR.OptCheck.isControlBinOp, emitAstExpr, binOpOf]
-    all_goals subst sv; exact ⟨ba, bb⟩
+    all_goals
+      try split at he
+      all_goals try split at he
+      all_goals try simp_all [bind, Option.bind_some]
+      all_goals subst sv; simp_all [ExprBound]
   | mux hc ht hf ic it iff =>
     obtain ⟨sc, hsc, _⟩ := emitExpr_render_all hc wof
     obtain ⟨st, hst, _⟩ := emitExpr_render_all ht wof

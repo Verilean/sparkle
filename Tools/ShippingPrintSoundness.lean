@@ -79,6 +79,10 @@ def renderBin : SVBinOp → Option String
 def renderExpr : SVExpr → Option String
   | .lit (.decimal (some w) v) => if w = 0 then none else some s!"{w}'d{v}"
   | .lit (.hex (some w) v) => if w = 0 then none else some s!"{w}'h{String.ofList (Nat.toDigits 16 v)}"
+  | .lit (.binary (some 1) 0) => some "1'b0"
+  | .unary .signed a => do
+    let sa ← renderExpr a
+    some s!"$signed({sa})"
   | .ident n => some n
   | .binary op a b => do
     let tok ← renderBin op
@@ -92,7 +96,7 @@ def renderExpr : SVExpr → Option String
     some s!"({sc} ? {st} : {sf})"
   | _ => none
 
-/-- Unsigned comparison operators, independent of optimizer acceptance. -/
+/-- Comparison operators, independent of optimizer acceptance. -/
 abbrev isCompareOp : Operator → Bool := isControlBinOp
 
 /-- Byte rendering needs no numerical fit premise. Negative constants are
@@ -124,6 +128,24 @@ theorem printShape_simple {e : Expr} (h : simpleRhs e = true) : PrintShape e := 
     · exact .compare h (.ref a) (.ref b)
   | .op .mux [.ref c, .ref t, .ref f], _ => exact .mux (.ref c) (.ref t) (.ref f)
 
+/-- Width inference agrees for the whole printable expression fragment. -/
+theorem PrintShape.width_lookup {e : Expr} (h : PrintShape e) (wof : String → Option Nat) :
+    exprWidthT wof e = Sparkle.Backend.Verilog.exprWidthV wof e := by
+  induction h with
+  | const | ref => simp [exprWidthT, Sparkle.Backend.Verilog.exprWidthV]
+  | @bin op a b hop _ _ ia ib =>
+    cases op <;> simp_all [isPrintBinOp_eq_true, isBinOp]
+    all_goals
+      simp only [exprWidthT, exprWidthT.goMax, Sparkle.Backend.Verilog.exprWidthV,
+        List.foldl_cons, List.foldl_nil, ia, ib]
+    all_goals
+      cases Sparkle.Backend.Verilog.exprWidthV wof a <;>
+        cases Sparkle.Backend.Verilog.exprWidthV wof b <;> simp [Nat.max_assoc, Nat.max_comm, Nat.max_left_comm]
+  | compare hop => cases ‹Operator› <;> simp_all [isCompareOp, isControlBinOp, exprWidthT, Sparkle.Backend.Verilog.exprWidthV]
+  | @mux c t f _ _ _ _ it iff =>
+    simp only [exprWidthT, Sparkle.Backend.Verilog.exprWidthV, it, iff]
+    cases Sparkle.Backend.Verilog.exprWidthV wof t <;> cases Sparkle.Backend.Verilog.exprWidthV wof f <;> rfl
+
 theorem emitExpr_render_all {e : Expr} (h : PrintShape e) (wof : String → Option Nat) :
     ∃ sv, emitAstExpr wof e = some sv ∧
       renderExpr sv = some (Sparkle.Backend.Verilog.emitExpr wof e) := by
@@ -151,13 +173,26 @@ theorem emitExpr_render_all {e : Expr} (h : PrintShape e) (wof : String → Opti
       simp [emitAstExpr, hsa, hsb, binOpOf, renderExpr, renderBin, hra, hrb,
         Sparkle.Backend.Verilog.emitExpr, Sparkle.Backend.Verilog.emitOperator]
 
-  | @compare op a b hop _ _ ia ib =>
+  | @compare op a b hop ha hb ia ib =>
+    have wa := ha.width_lookup wof
+    have wb := hb.width_lookup wof
     obtain ⟨sa, hsa, hra⟩ := ia
     obtain ⟨sb, hsb, hrb⟩ := ib
     cases op <;> simp_all [isCompareOp, isControlBinOp]
     all_goals
-      simp [emitAstExpr, hsa, hsb, binOpOf, renderExpr, renderBin, hra, hrb,
-        Sparkle.Backend.Verilog.emitExpr, Sparkle.Backend.Verilog.emitOperator]
+      simp only [emitAstExpr, hsa, hsb, bind, Option.bind_some, wa, wb]
+      cases wa' : Sparkle.Backend.Verilog.exprWidthV wof a <;>
+        cases wb' : Sparkle.Backend.Verilog.exprWidthV wof b <;>
+        simp [wa', wb', binOpOf, renderExpr, renderBin, hra, hrb,
+          Sparkle.Backend.Verilog.emitExpr, Sparkle.Backend.Verilog.emitOperator]
+      all_goals try split
+      all_goals simp_all [renderExpr, renderBin, hra, hrb, String.append_assoc, ToString.toString]
+      all_goals try simp_all only [← not_and]
+      all_goals try simp_all only [ite_false, Option.bind_some, Option.some.injEq]
+      all_goals
+        apply String.toList_injective
+        simp only [String.toList_append, List.append_assoc]
+        rfl
   | mux _ _ _ ic it iff =>
     obtain ⟨sc, hsc, hrc⟩ := ic
     obtain ⟨st, hst, hrt⟩ := it

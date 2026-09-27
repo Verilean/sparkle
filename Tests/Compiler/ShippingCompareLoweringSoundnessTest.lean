@@ -19,7 +19,7 @@ run_cmd liftTermElabM do
   -- actually select the new total route, without invoking MetaM type inference.
   let legacy : TranslateFn := fun _ _ _ _ => throwError "comparison reached legacy handler"
   for n in [1, 8, 65] do
-    for le in [false, true] do
+    for le in ([.ult, .ule, .slt, .sle] : List SignalCompareKind) do
       for named in [false, true] do
         for (x, y) in [(0, 0), (0, 2^n-1), (2^n-1, 0), (2^n-1, 2^n-1)] do
           let order ← IO.mkRef ([] : List String)
@@ -61,7 +61,7 @@ run_cmd liftTermElabM do
 run_cmd do
   if (← get).messages.hasErrors then throwError "comparison lowering regression failed"
   for name in [``compare_rhs_correct, ``emitCompareResult_returns, ``emitCompareResult_correct,
-      ``translateUnsignedCompare_returns, ``translateUnsignedCompare_correct,
+      ``translateSignalCompare_returns, ``translateSignalCompare_correct,
       ``translateBoolUncachedWith_compare, ``translateFallback_compare_correct] do
     for ax in (← liftCoreM <| collectAxioms name) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do

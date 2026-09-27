@@ -27,7 +27,7 @@ theorem choice_typed {n op} (hn : 0 < n) (hop : isCompareOp op = true) :
     simpa [widths] using TypedExpr.ref (we := widths n) "_b" (by simpa [widths] using hn)
   have hs : TypedExpr (widths n) (.ref "_s") 1 := by
     simpa [widths] using TypedExpr.ref (we := widths n) "_s" (by simp [widths])
-  exact .mux (.compare hop ha hb) (.bin .add ha hb rfl)
+  exact .mux (TypedExpr.compareRefs hop hn (by simp [widths]) (by simp [widths])) (.bin .add ha hb rfl)
     (.mux hs (.bin .shr (.bin .shl ha hb rfl) hb rfl) hb)
 
 theorem choice_printed {n op} (hn : 0 < n) (hop : isCompareOp op = true) :
@@ -60,7 +60,7 @@ def sourceChoice {dom : DomainConfig} (a b : Signal dom (BitVec 8)) : Signal dom
 
 run_cmd liftTermElabM do
   for n in [1, 8, 65] do
-    for op in [Operator.eq, .lt_u, .le_u, .gt_u, .ge_u] do
+    for op in [Operator.eq, .lt_u, .le_u, .gt_u, .ge_u, .lt_s, .le_s, .gt_s, .ge_s] do
       let wof := fun x => some (widths n x)
       let e := choice op
       unless sf4Check wof (widths n) e do throwError "typed choice escaped forward checker"
@@ -74,7 +74,9 @@ run_cmd liftTermElabM do
             let y := BitVec.ofNat n b
             let condition := match op with
               | .eq => x == y | .lt_u => x.ult y | .le_u => x.ule y
-              | .gt_u => y.ult x | .ge_u => y.ule x | _ => false
+              | .gt_u => y.ult x | .ge_u => y.ule x
+              | .lt_s => x.slt y | .le_s => x.sle y
+              | .gt_s => y.slt x | .ge_s => y.sle x | _ => false
             let expected := if condition then x + y else if s == 1 then
                 (x <<< y.toNat).ushiftRight y.toNat else y
             let env := fun name => if name == "_a" then x.toNat else

@@ -42,17 +42,35 @@ theorem renderExpr_syntax {e text} (hr : renderExpr e = some text)
     (hn : ExprBound Identifier e) : Expression e text := by
   cases e with
   | lit l =>
-    cases l <;> try simp only [renderExpr] at hr
+    cases l with
+    | binary w v =>
+      cases w with
+      | none => simp [renderExpr] at hr
+      | some w =>
+        by_cases hw : w = 1
+        · subst w
+          by_cases hv : v = 0
+          · subst v; cases hr; exact .binaryZero
+          · simp [renderExpr, hv] at hr
+        · simp [renderExpr, hw] at hr
+    | decimal w v | hex w v =>
+      cases w <;> simp only [renderExpr] at hr
+      all_goals try { cases hr }
+      all_goals rename_i w; split at hr
+      all_goals try { cases hr }
+      all_goals
+        cases hr
+        first
+        | exact Expression.decimal (by omega) (numeral_decimal _) (numeral_decimal _)
+        | exact Expression.hex (by omega) (numeral_decimal _) (numeral_toDigits (by decide) _)
+    | _ => simp [renderExpr] at hr
+  | unary op a =>
+    cases op <;> simp only [renderExpr] at hr
     all_goals try { cases hr }
-    all_goals rename_i w v; cases w <;> simp only [renderExpr] at hr
-    all_goals try { cases hr }
-    all_goals rename_i w; split at hr
-    all_goals try { cases hr }
-    all_goals
-      cases hr
-      first
-      | exact Expression.decimal (by omega) (numeral_decimal _) (numeral_decimal _)
-      | exact Expression.hex (by omega) (numeral_decimal _) (numeral_toDigits (by decide) _)
+    simp only [bind, Option.bind_eq_some_iff] at hr
+    obtain ⟨sa, ha, he⟩ := hr
+    cases he
+    exact .signed (renderExpr_syntax ha hn)
   | ident name => cases hr; exact .ident hn
   | binary op a b =>
     simp only [renderExpr, bind, Option.bind_eq_some_iff] at hr
@@ -155,6 +173,9 @@ private theorem exprBound_mono {P Q : String → Prop} {e : SVExpr}
   cases e with
   | lit => trivial
   | ident x => exact hi x h
+  | unary op a =>
+    cases op <;> try exact False.elim h
+    exact exprBound_mono (e := a) h hi
   | binary op a b => exact ⟨exprBound_mono h.1 hi, exprBound_mono h.2 hi⟩
   | ternary c t f => exact ⟨exprBound_mono h.1 hi, exprBound_mono h.2.1 hi,
       exprBound_mono h.2.2 hi⟩

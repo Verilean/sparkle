@@ -43,6 +43,8 @@ inductive Expression : SVExpr → String → Prop
       Expression (.lit (.decimal (some w) v)) (sw ++ "'d" ++ sv)
   | hex {w v sw sv} : 0 < w → Numeral 10 w sw → Numeral 16 v sv →
       Expression (.lit (.hex (some w) v)) (sw ++ "'h" ++ sv)
+  | binaryZero : Expression (.lit (.binary (some 1) 0)) "1'b0"
+  | signed {a sa} : Expression a sa → Expression (.unary .signed a) ("$signed(" ++ sa ++ ")")
   | ident {name} : Identifier name → Expression (.ident name) name
   | binary {op a b tok sa sb} : BinaryToken op tok → Expression a sa → Expression b sb →
       Expression (.binary op a b) ("(" ++ sa ++ " " ++ tok ++ " " ++ sb ++ ")")

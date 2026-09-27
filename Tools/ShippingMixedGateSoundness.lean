@@ -69,7 +69,7 @@ theorem gateBody_inputs {kinds : Array GateBinder} {dom : Lean.Expr} {n k : Nat}
       gateBody_inputs hi a ha, gateBody_inputs hi b hb]
 
 theorem mixed_compare_gate (kinds : Array MixedGateBinder) (dom a b : Lean.Expr)
-    (n : Nat) (le : Bool) :
+    (n : Nat) (le : SignalCompareKind) :
     mixedGateBoolBody kinds (mkApp4 (.const (compareName le) []) dom (natE n) a b) =
       (decide (0 < n) && gateBody (mixedBitKinds kinds) n a && gateBody (mixedBitKinds kinds) n b) := by
   cases le <;> simp [compareName, mixedGateBoolBody, canonicalNatLitValue?_natE]

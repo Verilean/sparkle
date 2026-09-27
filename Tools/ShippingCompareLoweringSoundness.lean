@@ -1,6 +1,6 @@
 import Tools.ShippingBoolSourceSoundness
 
-/-! Shipping unsigned-comparison lowering. The comparison node itself is
+/-! Shipping unsigned/signed comparison lowering. The comparison node itself is
 proved, including allocation, typing, execution and Bool-record preservation.
 Recursive operand contracts and the joint entry invariant remain explicit. -/
 namespace Tools.ShippingCompareLoweringSoundness
@@ -15,13 +15,35 @@ open Tools.ShippingMuxRecursionSoundness Tools.ShippingEntrySoundness
 def ScalarWidthsAgree (we : WEnv) (s : CircuitState) : Prop :=
   ∀ p ∈ s.module.wires, we p.name = p.ty.bitWidth
 
-theorem compare_rhs_correct {n : Nat} (le : Bool) (x y : BitVec n)
+/-- The IR signed interpretation agrees with the source bit vector, including
+width one. Width agreement is essential: the sign bit is width dependent. -/
+theorem signed_toInt {n : Nat} (x : BitVec n) : toSigned n x.toNat = x.toInt := by
+  unfold toSigned
+  rw [BitVec.toInt_eq_toNat_cond]
+  rcases Nat.eq_zero_or_pos n with h | h
+  · subst h
+    have hx : x.toNat = 0 := by have := x.isLt; omega
+    simp [hx]
+  · have hp : 2 ^ n = 2 ^ (n - 1) * 2 := by
+      have hp := Nat.pow_succ 2 (n - 1)
+      rwa [show (n - 1).succ = n from Nat.succ_pred_eq_of_pos h] at hp
+    have hx := x.isLt
+    split <;> split <;> omega
+
+theorem typed_compare_refs (op : SignalCompareKind) {we : WEnv} {a b : String} {n : Nat}
+    (hn : 0 < n) (wa : we a = n) (wb : we b = n) :
+    TypedExpr we (.op (signalCompareOp op) [.ref a, .ref b]) 1 := by
+  exact TypedExpr.compareRefs (by cases op <;> rfl) hn wa wb
+
+theorem compare_rhs_correct {n : Nat} (le : SignalCompareKind) (x y : BitVec n)
     (we : WEnv) (env : Env) (a b : String)
-    (ha : env a = x.toNat) (hb : env b = y.toNat) :
-    evalExpr we env (.op (unsignedCompareOp le) [.ref a, .ref b]) =
+    (ha : env a = x.toNat) (hb : env b = y.toNat)
+    (wa : we a = n) (wb : we b = n) :
+    evalExpr we env (.op (signalCompareOp le) [.ref a, .ref b]) =
       some (encodeBool (compareValue le x y)) := by
-  cases le <;> simp [unsignedCompareOp, compareValue, evalExpr, evalList, evalOp,
-    ha, hb, encodeBool, BitVec.ult_eq_decide, BitVec.ule_eq_decide]
+  cases le <;> simp [signalCompareOp, compareValue, evalExpr, evalList, evalOp,
+    ha, hb, wa, wb, widthOf, signed_toInt, encodeBool, BitVec.ult_eq_decide, BitVec.ule_eq_decide,
+    BitVec.slt, BitVec.sle]
 
 theorem emitBoolResult_returns {rhs : Sparkle.IR.AST.Expr} {hint w : String} {named : Bool}
     {ctx : CompilerState} {s s' : CircuitState}
@@ -38,11 +60,11 @@ theorem emitBoolResult_returns {rhs : Sparkle.IR.AST.Expr} {hint w : String} {na
   subst w s'
   exact ⟨hr, by rw [hem, hs]⟩
 
-theorem emitCompareResult_returns {le : Bool} {a b hint w : String} {named : Bool}
+theorem emitCompareResult_returns {le : SignalCompareKind} {a b hint w : String} {named : Bool}
     {ctx : CompilerState} {s s' : CircuitState}
     (h : Returns (emitCompareResult le a b hint named) ctx s w s') :
     w = (CircuitM.makeWire hint .bit named s).1 ∧
-    s' = (CircuitM.emitAssign w (.op (unsignedCompareOp le) [.ref a, .ref b])
+    s' = (CircuitM.emitAssign w (.op (signalCompareOp le) [.ref a, .ref b])
       (CircuitM.makeWire hint .bit named s).2).2 := emitBoolResult_returns h
 
 /-- Facts needed by parent control nodes and by the validated cache wrapper. -/
@@ -95,7 +117,7 @@ theorem emitBoolResult_correct {ρ β we mems initial prior s s' ctx}
   · simp [result, write]
 
 theorem emitCompareResult_correct {ρ β we mems initial prior s s' ctx}
-    {a b hint w : String} {named le : Bool} {n : Nat} (x y : BitVec n)
+    {a b hint w : String} {named : Bool} {le : SignalCompareKind} {n : Nat} (x y : BitVec n)
     (hr : Returns (emitCompareResult le a b hint named) ctx s w s')
     (hp : Runs we mems initial s prior) (hrec : BoolRecordOk ρ β we s prior)
     (hbody : TypedBody we s) (hn : 0 < n)
@@ -103,27 +125,25 @@ theorem emitCompareResult_correct {ρ β we mems initial prior s s' ctx}
     (wa : we a = n) (wb : we b = n) (hwidth : ScalarWidthsAgree we s') :
     BoolStep ρ β we mems initial prior s s' w (compareValue le x y) :=
   emitBoolResult_correct hr hp hrec hbody
-    (.compare (n := n) (by cases le <;> rfl)
-      (wa ▸ TypedExpr.ref (we := we) a (by omega))
-      (wb ▸ TypedExpr.ref (we := we) b (by omega)))
-    (compare_rhs_correct le x y we prior a b ha hb) hwidth
+    (typed_compare_refs le hn wa wb)
+    (compare_rhs_correct le x y we prior a b ha hb wa wb) hwidth
 
 /-- Both recursive operand calls are visible in the successful run. -/
-theorem translateUnsignedCompare_returns {rec : TranslateFn} {le : Bool} {a b : Lean.Expr}
+theorem translateSignalCompare_returns {rec : TranslateFn} {le : SignalCompareKind} {a b : Lean.Expr}
     {hint w : String} {named : Bool} {ctx : CompilerState} {s s' : CircuitState}
-    (h : Returns (translateUnsignedCompare rec le a b hint named) ctx s w s') :
+    (h : Returns (translateSignalCompare rec le a b hint named) ctx s w s') :
     ∃ aw bw sa sb, Returns (rec a "a" false false) ctx s aw sa ∧
       Returns (rec b "b" false false) ctx sa bw sb ∧
       Returns (emitCompareResult le aw bw hint named) ctx sb w s' := by
-  unfold translateUnsignedCompare at h
+  unfold translateSignalCompare at h
   obtain ⟨aw, sa, ha, h⟩ := Returns.bind h
   obtain ⟨bw, sb, hb, he⟩ := Returns.bind h
   exact ⟨aw, bw, sa, sb, ha, hb, he⟩
 
 /-- Complete simulation of a comparison node, given recursive child contracts.
 No result-type query or uncached comparison-handler correctness is assumed. -/
-theorem translateUnsignedCompare_correct {ρ β we mems initial prior s s' ctx}
-    {rec : TranslateFn} {ae be : Lean.Expr} {hint w : String} {named le : Bool} {n : Nat}
+theorem translateSignalCompare_correct {ρ β we mems initial prior s s' ctx}
+    {rec : TranslateFn} {ae be : Lean.Expr} {hint w : String} {named : Bool} {le : SignalCompareKind} {n : Nat}
     (x y : BitVec n) (good : CircuitState → Env → Prop)
     (ha : ChildSpec rec ctx we mems initial good ae "a" n x.toNat)
     (hb : ChildSpec rec ctx we mems initial good be "b" n y.toNat)
@@ -131,9 +151,9 @@ theorem translateUnsignedCompare_correct {ρ β we mems initial prior s s' ctx}
     (ht : ∀ st env, good st env → TypedBody we st)
     (hc : ∀ st env, good st env → BoolRecordOk ρ β we st env)
     (hw : ScalarWidthsAgree we s')
-    (hr : Returns (translateUnsignedCompare rec le ae be hint named) ctx s w s') :
+    (hr : Returns (translateSignalCompare rec le ae be hint named) ctx s w s') :
     BoolStep ρ β we mems initial prior s s' w (compareValue le x y) := by
-  obtain ⟨aw, bw, sa, sb, ra, rb, re⟩ := translateUnsignedCompare_returns hr
+  obtain ⟨aw, bw, sa, sb, ra, rb, re⟩ := translateSignalCompare_returns hr
   obtain ⟨va, ga, ea, ua, wa, xa, ma, fa⟩ := ha s sa aw prior hg hp ra
   obtain ⟨vb, gb, eb, ub, wb, yb, mb, fb⟩ := hb sa sb bw va ga ea rb
   have xb : vb aw = x.toNat := (fb aw ua).trans xa
@@ -152,16 +172,16 @@ theorem translateUnsignedCompare_correct {ρ β we mems initial prior s s' ctx}
 /-- The canonical source quotation selects this exact lowering, independent
 of the legacy handler supplied by the shipping fallback. -/
 theorem translateBoolUncachedWith_compare (rec legacy : TranslateFn) (dom ae be : Lean.Expr)
-    (n : Nat) (le : Bool) (hint : String) (top named : Bool) :
+    (n : Nat) (le : SignalCompareKind) (hint : String) (top named : Bool) :
     translateBoolUncachedWith rec legacy
       (mkApp4 (.const (compareName le) []) dom (natE n) ae be) hint top named =
-      translateUnsignedCompare rec le ae be hint named := by cases le <;> rfl
+      translateSignalCompare rec le ae be hint named := by cases le <;> rfl
 
 /-- Shipping comparison fallback, through BOTH validated cache branches.
 The only translation assumptions are about the two children; the comparison
 handler and its record insertion are discharged by the preceding theorems. -/
 theorem translateFallback_compare_correct {ρ β we mems initial prior s s' ctx}
-    {rec : TranslateFn} {dom ae be : Lean.Expr} {hint w : String} {top named le : Bool} {n : Nat}
+    {rec : TranslateFn} {dom ae be : Lean.Expr} {hint w : String} {top named : Bool} {le : SignalCompareKind} {n : Nat}
     (x y : BitVec n) (good : CircuitState → Env → Prop)
     (da : Denotes β ae n x) (db : Denotes β be n y)
     (ha : ChildSpec rec ctx we mems initial good ae "a" n x.toNat)
@@ -188,7 +208,7 @@ theorem translateFallback_compare_correct {ρ β we mems initial prior s s' ctx}
       apply hw p
       rw [hs]
       exact hp
-    have step := translateUnsignedCompare_correct x y good ha hb hg hp hn ht hc wm miss
+    have step := translateSignalCompare_correct x y good ha hb hg hp hn ht hc wm miss
     obtain ⟨result, er, cr, vr, fr⟩ := step.execution
     refine ⟨result, ?_, recordTranslation_bool cr hd step.used vr step.width record,
       ?_, step.width, vr⟩

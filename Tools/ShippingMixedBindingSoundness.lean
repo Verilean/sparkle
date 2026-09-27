@@ -107,7 +107,8 @@ theorem sized_of_flat {we e n} (h : TypedExpr we e n)
       cases op <;> cases a <;> cases b <;> simp_all [Tools.ShippingScalarSoundness.Binary.operator, simpleRhs]
     obtain ⟨x, y, rfl, rfl⟩ := refs
     exact .bin op (ha.width ▸ .ref x) (hb.width ▸ .ref y) hs
-  | compare hc => cases ‹Operator› <;> simp_all [isCompareOp, isControlExpr, isControlBinOp]
+  | compare hc => cases ‹Operator› <;> simp_all [isUnsignedCompare, isControlExpr, isControlBinOp]
+  | signedCompare _ _ hc _ _ => cases ‹Operator› <;> simp_all [isSignedCompare, isControlExpr, isControlBinOp]
   | mux => cases control
 
 theorem printWidths_decl {m : Sparkle.IR.AST.Module} {p : Port}

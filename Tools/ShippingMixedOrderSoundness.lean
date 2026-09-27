@@ -263,9 +263,9 @@ theorem compare_order {ctx ρ β we mems initial rec ae be le hint named n va vb
     (cb : Child rec ctx ρ β we mems initial be "b" n vb)
     (oa : ActionOrder (rec ae "a" false false) ctx ρ β we mems initial)
     (ob : ActionOrder (rec be "b" false false) ctx ρ β we mems initial) :
-    ActionOrder (translateUnsignedCompare rec le ae be hint named) ctx ρ β we mems initial := by
+    ActionOrder (translateSignalCompare rec le ae be hint named) ctx ρ β we mems initial := by
   intro s t w prior hr h widths order
-  obtain ⟨a, b, sa, sb, ra, rb, re⟩ := translateUnsignedCompare_returns hr
+  obtain ⟨a, b, sa, sb, ra, rb, re⟩ := translateSignalCompare_returns hr
   have fa := ca.frame s sa a (Lookup.ofInputs h.inputs) ra
   have fb := cb.frame sa sb b ((Lookup.ofInputs h.inputs).transfer fa) rb
   have fe := (emit_bool_frame (by cases le <;> rfl) re).1

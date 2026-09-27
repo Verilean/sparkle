@@ -37,10 +37,10 @@ remains smaller: a shift-bearing original cannot pass `optCheckCore`, so the
 checked route retains that original rather than accepting an unchecked result. -/
 def isPrintBinOp (op : Operator) : Bool := isBinOp op || op == .shr || op == .shl
 
-/-- Unsigned comparison nodes admitted to the checked route. Their semantic
+/-- Comparison nodes admitted to the checked route. Their semantic
 normalization is not yet supported, so the original module is retained. -/
 def isControlBinOp : Operator → Bool
-  | .eq | .lt_u | .le_u | .gt_u | .ge_u => true
+  | .eq | .lt_u | .le_u | .gt_u | .ge_u | .lt_s | .le_s | .gt_s | .ge_s => true
   | _ => false
 
 /-- Normalise one expression against the definitions seen so far. `ins`: the

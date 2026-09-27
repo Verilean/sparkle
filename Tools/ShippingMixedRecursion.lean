@@ -249,9 +249,9 @@ theorem compare_shape {ctx ρ β we mems initial rec ae be le hint named n va vb
     (ca : Child rec ctx ρ β we mems initial ae "a" n va)
     (cb : Child rec ctx ρ β we mems initial be "b" n vb)
     (lookup : Lookup ctx ρ β s)
-    (hr : Returns (translateUnsignedCompare rec le ae be hint named) ctx s w t) :
+    (hr : Returns (translateSignalCompare rec le ae be hint named) ctx s w t) :
     Frame s t ∧ s.usedNames.contains w = false := by
-  obtain ⟨a, b, sa, sb, ra, rb, re⟩ := translateUnsignedCompare_returns hr
+  obtain ⟨a, b, sa, sb, ra, rb, re⟩ := translateSignalCompare_returns hr
   have fa := ca.frame s sa a lookup ra
   have fb := cb.frame sa sb b (lookup.transfer fa) rb
   obtain ⟨fe, fresh⟩ := emit_bool_frame (by cases le <;> rfl) re
@@ -264,12 +264,12 @@ theorem compare_fresh {ctx ρ β we mems initial rec ae be le hint named n}
     (x y : BitVec n) (hn : 0 < n)
     (ca : Child rec ctx ρ β we mems initial ae "a" n x.toNat)
     (cb : Child rec ctx ρ β we mems initial be "b" n y.toNat) :
-    FreshAction (translateUnsignedCompare rec le ae be hint named) ctx ρ β we mems initial
+    FreshAction (translateSignalCompare rec le ae be hint named) ctx ρ β we mems initial
       1 (encodeBool (compareValue le x y)) := by
   refine ⟨⟨fun _ _ _ lookup hr => (compare_shape ca cb lookup hr).1, ?_⟩,
     fun _ _ _ lookup hr => (compare_shape ca cb lookup hr).2⟩
   intro s t w prior h widths hr
-  obtain ⟨a, b, sa, sb, ra, rb, re⟩ := translateUnsignedCompare_returns hr
+  obtain ⟨a, b, sa, sb, ra, rb, re⟩ := translateSignalCompare_returns hr
   have fa := ca.frame s sa a (Lookup.ofInputs h.inputs) ra
   have fb := cb.frame sa sb b ((Lookup.ofInputs h.inputs).transfer fa) rb
   have fe := (emit_bool_frame (by cases le <;> rfl) re).1
@@ -278,16 +278,14 @@ theorem compare_fresh {ctx ρ β we mems initial rec ae be le hint named n}
   have bout := cb.sem sa sb b va ia (fe.decls.widths widths) rb
   obtain ⟨vb, ib, bv, bf⟩ := bout.execution
   have step := emitBoolResult_mixed ib
-    (.compare (n := n) (by cases le <;> rfl)
-      (aout.width_eq ▸ TypedExpr.ref (we := we) a (by rw [aout.width_eq]; exact hn))
-      (bout.width_eq ▸ TypedExpr.ref (we := we) b (by rw [bout.width_eq]; exact hn)))
-    (compare_rhs_correct le x y we vb a b ((bf a aout.used).trans av) bv) widths re
+    (typed_compare_refs le hn aout.width_eq bout.width_eq)
+    (compare_rhs_correct le x y we vb a b ((bf a aout.used).trans av) bv aout.width_eq bout.width_eq) widths re
   obtain ⟨result, inv, val, frame⟩ := step.execution
   exact ⟨step.used, step.width_eq, fun z hz => step.grows z (fb.used z (fa.used z hz)),
     result, inv, val, fun z hz => (frame z (fb.used z (fa.used z hz))).trans
       ((bf z (fa.used z hz)).trans (af z hz))⟩
 
-theorem compare_step (rec : TranslateFn) (dom ae be : Lean.Expr) (n : Nat) (le : Bool)
+theorem compare_step (rec : TranslateFn) (dom ae be : Lean.Expr) (n : Nat) (le : SignalCompareKind)
     (hint : String) (top named : Bool) :
     translateStepWith translateFallback rec (mkApp4 (.const (compareName le) []) dom (natE n) ae be)
       hint top named = translateFallback rec (mkApp4 (.const (compareName le) []) dom (natE n) ae be)

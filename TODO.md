@@ -8,13 +8,15 @@ work) and add an "Owner / status" line once someone picks one up.
 
 ## Compiler proof — current work
 
-Owner/status: S2 complete; next is successful combinational coverage (S3).
+Owner/status: S2 complete; S3 active, signed comparisons connected.
 
 - [x] Original BitVec fragment: syntax and RTL settling endpoint.
 - [x] Current mixed fragment: selected IR value preservation, output syntax and
   declaration/reference binding (`2ad67ae`).
 - [x] Current mixed fragment: emitted RTL semantics and finite settling
   (`execution_source_of_env`; 622 build jobs, standard-axiom audit).
+- [x] S3 extension: recursive `Signal.slt`/`Signal.sle` connected through the
+  same syntax and RTL settling theorem; sign-width and legacy-path regressions.
 - [ ] Remaining successful combinational paths, state/reset, memory, hierarchy,
   and full successful-domain composition; `EnvDefines` remains explicit.
 

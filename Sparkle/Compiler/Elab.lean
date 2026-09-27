@@ -1843,6 +1843,15 @@ def mixedBitKinds (kinds : Array MixedGateBinder) : Array GateBinder :=
     | .bits n => .signal n
     | _ => .domain
 
+/-- Canonical same-width Signal comparisons returning Bool. -/
+inductive SignalCompareKind where
+  | ult | ule | slt | sle
+  deriving DecidableEq, BEq, Repr
+
+/-- Preserve the existing unsigned comparison API. -/
+instance : Coe Bool SignalCompareKind where
+  coe le := if le then .ule else .ult
+
 /-- Total, syntax-only recognition of the mixed Bool-output source fragment.
     Recursion follows actual expression subterms; type inference is not called. -/
 def mixedGateBoolBody (kinds : Array MixedGateBinder) : Lean.Expr → Bool
@@ -1854,7 +1863,8 @@ def mixedGateBoolBody (kinds : Array MixedGateBinder) : Lean.Expr → Bool
   | .app (.app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.mux _) _) (.const ``Bool _)) c) a) b =>
       mixedGateBoolBody kinds c && mixedGateBoolBody kinds a && mixedGateBoolBody kinds b
   | .app (.app (.app (.app (.const m _) _) wE) a) b =>
-      if m == ``Sparkle.Core.Signal.Signal.ult || m == ``Sparkle.Core.Signal.Signal.ule then
+      if m == ``Sparkle.Core.Signal.Signal.ult || m == ``Sparkle.Core.Signal.Signal.ule ||
+          m == ``Sparkle.Core.Signal.Signal.slt || m == ``Sparkle.Core.Signal.Signal.sle then
         match canonicalNatLitValue? wE with
         | some n => 0 < n && gateBody (mixedBitKinds kinds) n a && gateBody (mixedBitKinds kinds) n b
         | none => false
@@ -4502,6 +4512,8 @@ def isBoolControl : Lean.Expr → Bool
       (.const ``Bool _)) _ => true
   | .app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.ult _) _) _) _) _ => true
   | .app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.ule _) _) _) _) _ => true
+  | .app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.slt _) _) _) _) _ => true
+  | .app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.sle _) _) _) _) _ => true
   | e => match canonicalMuxType? e with | some .bit => true | _ => false
 
 /-- The cache wrapper for Bool controls, exposed for simulation proofs. A miss
@@ -4515,23 +4527,27 @@ def translateControlCachedWith (lower : TranslateFn) : TranslateFn :=
     recordTranslation e w cacheable
     return w
 
-/-- Exact unsigned library comparisons have Bool results without type inference. -/
-def unsignedCompareOp (le : Bool) : Operator := if le then .le_u else .lt_u
+/-- Exact library comparisons have Bool results without type inference. -/
+def signalCompareOp : SignalCompareKind → Operator
+  | .ult => .lt_u
+  | .ule => .le_u
+  | .slt => .lt_s
+  | .sle => .le_s
 
 def emitBoolResult (rhs : Sparkle.IR.AST.Expr) (hint : String) (named : Bool) : CompilerM String := do
   let w ← CompilerM.makeWire hint .bit (named := named)
   CompilerM.emitAssign w rhs
   return w
 
-def emitCompareResult (le : Bool) (a b hint : String) (named : Bool) : CompilerM String :=
-  emitBoolResult (.op (unsignedCompareOp le) [.ref a, .ref b]) hint named
+def emitCompareResult (le : SignalCompareKind) (a b hint : String) (named : Bool) : CompilerM String :=
+  emitBoolResult (.op (signalCompareOp le) [.ref a, .ref b]) hint named
 
 def emitBoolLiteral (value : Bool) (hint : String) (named : Bool) : CompilerM String :=
   emitBoolResult (.const (if value then 1 else 0) 1) hint named
 
 /-- Recursive comparison lowering, exposed to proofs. The child order and
     hints match the applicative lowering used before this direct route. -/
-def translateUnsignedCompare (rec : TranslateFn) (le : Bool) (a b : Lean.Expr)
+def translateSignalCompare (rec : TranslateFn) (le : SignalCompareKind) (a b : Lean.Expr)
     (hint : String) (named : Bool) : CompilerM String := do
   let aw ← rec a "a" false false
   let bw ← rec b "b" false false
@@ -4547,9 +4563,13 @@ def translateBoolUncachedWith (rec legacy : TranslateFn) : TranslateFn :=
     | .app (.app (.app (.const ``Sparkle.Core.Signal.Signal.pure _) _) (.const ``Bool _))
         (.const ``Bool.false _) => emitBoolLiteral false hint named
     | .app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.ult _) _) _) a) b =>
-      translateUnsignedCompare rec false a b hint named
+      translateSignalCompare rec false a b hint named
     | .app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.ule _) _) _) a) b =>
-      translateUnsignedCompare rec true a b hint named
+      translateSignalCompare rec true a b hint named
+    | .app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.slt _) _) _) a) b =>
+      translateSignalCompare rec .slt a b hint named
+    | .app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.sle _) _) _) a) b =>
+      translateSignalCompare rec .sle a b hint named
     | .app (.app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.mux _) _)
         (.const ``Bool _)) c) a) b =>
       translateMuxWith rec (pure .bit) c a b hint named

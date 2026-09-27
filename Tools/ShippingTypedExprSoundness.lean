@@ -1,6 +1,6 @@
 import Tools.ShippingSyntaxSoundness
 
-/-! Width-indexed backend correctness for unsigned comparisons and mux.
+/-! Width-indexed backend correctness for comparisons and mux.
 This extends the printable/semantic IR domain, not the quoted Signal source
 fragment. In particular it adds no unchecked optimizer acceptance path. -/
 namespace Tools.ShippingTypedExprSoundness
@@ -8,6 +8,14 @@ open Sparkle.IR.AST Sparkle.IR.Semantics
 open Tools.ShippingScalarSoundness Tools.ShippingTranslateSoundness
 open Tools.ShippingPrintSoundness Tools.ShippingNameBinding Tools.ShippingSyntaxSoundness
 open Tools.SVParser.EmitAst Tools.SVParser.EmitSem
+
+def isUnsignedCompare : Operator → Bool
+  | .eq | .lt_u | .le_u | .gt_u | .ge_u => true
+  | _ => false
+
+def isSignedCompare : Operator → Bool
+  | .lt_s | .le_s | .gt_s | .ge_s => true
+  | _ => false
 
 /-- Positive-width expressions, with one-bit comparison results and mux
 conditions. Branches and comparison operands agree in width; the whole tree
@@ -20,25 +28,42 @@ inductive TypedExpr (we : WEnv) : Expr → Nat → Prop
       Sparkle.IR.PrintCheck.shiftShape op.operator b = true →
       TypedExpr we (.op op.operator [a, b]) n
   | compare {op : Operator} {a b : Expr} {n : Nat} :
-      isCompareOp op = true → TypedExpr we a n → TypedExpr we b n →
+      isUnsignedCompare op = true → TypedExpr we a n → TypedExpr we b n →
       TypedExpr we (.op op [a, b]) 1
+  /-- Actual signed lowering compares wires, whose declaration widths are known.
+  Arbitrary compound signed operands require a separate width-visibility proof. -/
+  | signedCompare {op : Operator} (a b : String) :
+      isSignedCompare op = true → 0 < we a → we a = we b →
+      TypedExpr we (.op op [.ref a, .ref b]) 1
   | mux {c t f : Expr} {n : Nat} :
       TypedExpr we c 1 → TypedExpr we t n → TypedExpr we f n →
       TypedExpr we (.op .mux [c, t, f]) n
+
+/-- Flat same-width comparisons cover both unsigned and signed operators. -/
+theorem TypedExpr.compareRefs {we : WEnv} {op : Operator} {a b : String} {n : Nat}
+    (ho : isCompareOp op = true) (hn : 0 < n) (wa : we a = n) (wb : we b = n) :
+    TypedExpr we (.op op [.ref a, .ref b]) 1 := by
+  cases op <;> simp_all only [isCompareOp, Sparkle.IR.OptCheck.isControlBinOp, Bool.false_eq_true]
+  all_goals first
+    | exact .compare (n := n) rfl
+        (wa ▸ TypedExpr.ref (we := we) a (by omega))
+        (wb ▸ TypedExpr.ref (we := we) b (by omega))
+    | exact .signedCompare a b rfl (by omega) (wa.trans wb.symm)
 
 theorem TypedExpr.width {we e n} (h : TypedExpr we e n) : widthOf we e = n := by
   induction h with
   | ref => rfl
   | const => rfl
   | bin op _ _ _ ha hb => cases op <;> simp [Binary.operator, widthOf, ha, hb]
-  | compare hop _ _ ha hb => cases ‹Operator› <;> simp_all [isCompareOp, Sparkle.IR.OptCheck.isControlBinOp, widthOf]
+  | compare hop _ _ ha hb => cases ‹Operator› <;> simp_all [isUnsignedCompare, Sparkle.IR.OptCheck.isControlBinOp, widthOf]
+  | signedCompare _ _ ho _ _ => cases ‹Operator› <;> simp_all [isSignedCompare, widthOf]
   | mux _ _ _ _ ht _ => simp [widthOf, ht]
 
 theorem TypedExpr.positive {we e n} (h : TypedExpr we e n) : 0 < n := by
   induction h with
   | ref _ hn | const _ _ hn => exact hn
   | bin _ _ _ _ ha _ => exact ha
-  | compare => decide
+  | compare | signedCompare => decide
   | mux _ _ _ _ ht _ => exact ht
 
 /-- Every typed reference has a positive internal declaration width. -/
@@ -52,6 +77,13 @@ theorem TypedExpr.refs_positive {we e n} (h : TypedExpr we e n) :
     simp only [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList,
       List.append_nil, List.mem_append] at hx
     exact hx.elim (ha x) (hb x)
+  | signedCompare a b ho hn hw =>
+    intro x hx
+    simp only [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList,
+      List.append_nil, List.mem_append, List.mem_singleton] at hx
+    rcases hx with rfl | rfl
+    · exact hn
+    · simpa only [← hw] using hn
   | mux _ _ _ hc ht hf =>
     intro x hx
     simp only [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList,
@@ -79,6 +111,10 @@ theorem TypedExpr.we_congr {we we' e n} (h : TypedExpr we e n)
       simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList, hx])))
       (hb (fun x hx => hw x (by
         simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList, hx])))
+  | signedCompare a b ho hn he =>
+    have ha := hw a (by simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList])
+    have hb := hw b (by simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList])
+    exact .signedCompare a b ho (by simpa only [ha] using hn) (by simpa only [ha, hb] using he)
   | mux _ _ _ hc ht hf =>
     apply TypedExpr.mux
     · exact hc (fun x hx => hw x (by simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList, hx]))
@@ -98,7 +134,10 @@ theorem TypedExpr.printShape {we e n} (h : TypedExpr we e n) : PrintShape e := b
   | const v n => exact .const v n
   | bin op _ _ _ ha hb =>
     exact .bin (by cases op <;> decide) ha hb
-  | compare ho _ _ ha hb => exact .compare ho ha hb
+  | compare ho _ _ ha hb =>
+    exact .compare (by cases ‹Operator› <;> simp_all [isUnsignedCompare, isCompareOp, Sparkle.IR.OptCheck.isControlBinOp]) ha hb
+  | signedCompare a b ho _ _ =>
+    exact .compare (by cases ‹Operator› <;> simp_all [isSignedCompare, isCompareOp, Sparkle.IR.OptCheck.isControlBinOp]) (.ref a) (.ref b)
   | mux _ _ _ hc ht hf => exact .mux hc ht hf
 
 theorem TypedExpr.notShl {we e n} (h : TypedExpr we e n) :
@@ -109,7 +148,8 @@ theorem TypedExpr.notShl {we e n} (h : TypedExpr we e n) :
     | @bin op a b n ha hb hs =>
       cases op <;> cases b <;>
         simp_all [Binary.operator, Sparkle.IR.PrintCheck.shiftShape, isShlLit]
-    | compare ho => cases ‹Operator› <;> simp_all [isCompareOp, Sparkle.IR.OptCheck.isControlBinOp, isShlLit]
+    | signedCompare _ _ ho _ _ => cases ‹Operator› <;> simp_all [isSignedCompare, isShlLit]
+    | compare ho => cases ‹Operator› <;> simp_all [isUnsignedCompare, Sparkle.IR.OptCheck.isControlBinOp, isShlLit]
   exact ⟨hn, shlOperand_id hn⟩
 
 theorem TypedExpr.forward {we e n} (h : TypedExpr we e n)
@@ -134,8 +174,12 @@ theorem TypedExpr.forward {we e n} (h : TypedExpr we e n)
       simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList, hx]))
     have ib := ib (fun x hx => hname x (by
       simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList, hx]))
-    cases ‹Operator› <;> simp_all [isCompareOp, Sparkle.IR.OptCheck.isControlBinOp]
+    cases ‹Operator› <;> simp_all [isUnsignedCompare, Sparkle.IR.OptCheck.isControlBinOp]
     all_goals simp [sf4Check, ha.width, hb.width, ha.notShl.1, ha.notShl.2, ia, ib]
+  | signedCompare a b ho hn hw =>
+    obtain ⟨sa, wa⟩ := hname a (by simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList])
+    obtain ⟨sb, wb⟩ := hname b (by simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList])
+    cases ‹Operator› <;> simp_all [isSignedCompare, sf4Check, widthOf, exprWidthT, isShlLit, shlOperand]
   | mux hc ht hf ic it iff =>
     have ic := ic (fun x hx => hname x (by
       simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList, hx]))
