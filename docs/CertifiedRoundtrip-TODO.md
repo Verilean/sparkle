@@ -6,7 +6,7 @@ group is rough priority.  Update as items land.
 
 ## Current shipping compiler TODO
 
-Updated 2026-09-27, S2 at `075e9f4`; S3 ordered comparisons and standard BitVec equality connected. This section is the current
+Updated 2026-09-27, S2 at `075e9f4`; S3 comparisons and canonical Bool logic/equality connected. This section is the current
 execution checklist for the CompCert-style **existing successful compiler**
 goal. The older sections below retain historical/per-instance tracks; their
 “next” items do not override this list. Milestone definitions and exit criteria:
@@ -61,12 +61,17 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   custom-BEq miscompilation and add constant/reordered-instance regressions.
   `ShippingEqualityTest` instantiates the general endpoint on a real nested
   source and checks 2,250 execution cases plus 32 custom-instance cases.
+- [x] **S3 / canonical Bool logic and equality:** Connect library Bool
+  `&&&`, `|||`, `^^^`, `~~~` and standard Bool `Signal.beq` through the actual
+  recursive compiler, syntax and finite RTL settling. Preserve cache determinacy
+  and separation from BitVec meanings. Instantiate the general endpoint on
+  mixed nested sources. Other overloads and mapped/unfolded forms remain open.
 - [ ] **S3:** Build a branch/feature coverage inventory of the actual compiler's
   successful entry/dispatcher/pass paths; identify exact uncovered cases.
   [Initial structural inventory](ShippingCompiler-Coverage.md) added; detailed
   success witnesses and exhaustive branch reconciliation remain open.
 - [ ] **S3:** Remaining combinational operations and interfaces: BitVec-result
-  mux, other Bool/comparison/shift paths, mixed/changed widths, successful
+  mux, remaining Bool surface forms/comparison/shift paths, mixed/changed widths, successful
   aggregate and parameterized/symbolic forms. Close syntax and RTL meaning for
   each extension; inventory determines the complete list.
 - [ ] **S4:** Actual state/register/reset compilation and arbitrary admissible
@@ -81,9 +86,11 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
 - [ ] **S7 / trust:** Resolve or explicitly retain `EnvDefines` in the final
   claim; record execution-model/external-tool boundaries without hiding them.
 
-Latest validation: `lake build Tests.AllTests` passed all 624 jobs, with
-standard-axiom audits of the general endpoint and signed/equality source
-instantiations. There are 2,250 signed and 2,250 equality execution cases,
+Latest validation: `lake build Tests.AllTests` passed all 626 jobs, with
+standard-axiom audits of the general endpoint and real signed/equality/Bool-logic
+source instantiations. New Bool equality and logic tests check 1,890 and 1,962
+source/legacy/SV/delta cases; custom asymmetric Bool BEq is checked on all inputs.
+Existing coverage includes 2,250 signed and 2,250 BitVec equality execution cases,
 32 custom-BEq cases and 14 exhaustive applicative compilations. The existing
 2,700 mixed source/SV/delta cases cover 18 paths, 6 accepted and 12 retained optimizer
 selections, three bounded internal seeds, and shared expressions.

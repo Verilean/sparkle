@@ -281,6 +281,29 @@ theorem compare_order {ctx ρ β we mems initial rec ae be le hint named n va vb
   · exact fb.used _ aout.used
   · exact bout.used
 
+theorem boolBin_order {ctx ρ β we mems initial rec ae be kind hint named n va vb}
+    (ca : Child rec ctx ρ β we mems initial ae "a" n va)
+    (cb : Child rec ctx ρ β we mems initial be "b" n vb)
+    (oa : ActionOrder (rec ae "a" false false) ctx ρ β we mems initial)
+    (ob : ActionOrder (rec be "b" false false) ctx ρ β we mems initial) :
+    ActionOrder (translateBoolBinary rec kind ae be hint named) ctx ρ β we mems initial := by
+  intro s t w prior hr h widths order
+  obtain ⟨a, b, sa, sb, ra, rb, re⟩ := translateBoolBinary_returns hr
+  have fa := ca.frame s sa a (Lookup.ofInputs h.inputs) ra
+  have fb := cb.frame sa sb b ((Lookup.ofInputs h.inputs).transfer fa) rb
+  have fe := (emit_bool_frame (by cases kind <;> rfl) re).1
+  have wa := (fb.decls.trans fe.decls).widths widths
+  have wb := fe.decls.widths widths
+  have aout := ca.sem s sa a prior h wa ra
+  obtain ⟨va, ia, _, _⟩ := aout.execution
+  have bout := cb.sem sa sb b va ia wb rb
+  apply emit_bool_order re (ob _ _ _ _ rb ia wb (oa _ _ _ _ ra h wa order))
+  intro x hx
+  have hx : x = a ∨ x = b := by simpa [refsOf, refsOf.refsList] using hx
+  rcases hx with rfl | rfl
+  · exact fb.used _ aout.used
+  · exact bout.used
+
 theorem mux_order {ctx ρ β we mems initial rec ce ae be hint named vc va vb}
     (cc : Child rec ctx ρ β we mems initial ce "mux_cond" 1 vc)
     (ca : Child rec ctx ρ β we mems initial ae "mux_then" 1 va)
@@ -350,6 +373,34 @@ theorem bool_fuel_orders (fuel : Nat) {ctx ρ β we mems initial dom n kb kv}
         ((bits_fuel_contract fuel hn db).child "b")
         (fun s t w prior hr h widths order => fuel_orders fuel _ _ _ _ _ _ _ _ _ hn da hr h widths order)
         (fun s t w prior hr h widths order => fuel_orders fuel _ _ _ _ _ _ _ _ _ hn db hr h widths order)
+    | boolBin kind a b =>
+      obtain ⟨ha, hb'⟩ := he
+      simp only [quoteB]
+      rw [boolBin_step, translateFallback_bool _ _ hint false named (by cases kind <;> rfl)]
+      apply cached_order
+      rw [translateBoolUncachedWith_boolBin]
+      exact boolBin_order ((bool_fuel_contract fuel hn hb hv a ha).child "a")
+        ((bool_fuel_contract fuel hn hb hv b hb').child "b")
+        (ih a ha "a" false) (ih b hb' "b" false)
+    | boolNot a =>
+      simp only [quoteB]
+      rw [boolNot_step, translateFallback_bool _ _ hint false named rfl]
+      apply cached_order
+      change ActionOrder (translateSignalCompare _ .eq _
+        (mkApp3 (.const ``Sparkle.Core.Signal.Signal.pure [.zero]) dom (.const ``Bool [])
+          (.const ``Bool.false [])) hint named) _ _ _ _ _ _
+      exact compare_order ((bool_fuel_contract fuel hn hb hv a he).child "a")
+        ((bool_fuel_contract fuel hn hb hv (.lit false) trivial).child "b")
+        (ih a he "a" false) (ih (.lit false) trivial "b" false)
+    | boolEq a b =>
+      obtain ⟨ha, hb'⟩ := he
+      simp only [quoteB]
+      rw [boolEq_step, translateFallback_bool _ _ hint false named rfl]
+      apply cached_order
+      change ActionOrder (translateSignalCompare _ .eq _ _ hint named) _ _ _ _ _ _
+      exact compare_order ((bool_fuel_contract fuel hn hb hv a ha).child "a")
+        ((bool_fuel_contract fuel hn hb hv b hb').child "b")
+        (ih a ha "a" false) (ih b hb' "b" false)
     | mux c a b =>
       obtain ⟨hc, ha, hb'⟩ := he
       simp only [quoteB]

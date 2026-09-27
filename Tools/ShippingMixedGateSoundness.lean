@@ -20,6 +20,20 @@ theorem instFVars_quoteB (xs : Array Lean.Expr) (d : Nat) (dom : Lean.Expr) (n :
       (instFVars xs d (quoteF dom n vinp b)) = _
     rw [instFVars_quoteF, instFVars_quoteF]
     cases le <;> rfl
+  | .boolBin k a b => by
+    show Lean.Expr.app (.app (instFVars xs d _) (instFVars xs d (quoteB dom n binp vinp a)))
+      (instFVars xs d (quoteB dom n binp vinp b)) = _
+    rw [instFVars_quoteB, instFVars_quoteB]
+    cases k <;> rfl
+  | .boolNot a => by
+    show Lean.Expr.app (instFVars xs d _) (instFVars xs d (quoteB dom n binp vinp a)) = _
+    rw [instFVars_quoteB]
+    rfl
+  | .boolEq a b => by
+    show Lean.Expr.app (.app (instFVars xs d _) (instFVars xs d (quoteB dom n binp vinp a)))
+      (instFVars xs d (quoteB dom n binp vinp b)) = _
+    rw [instFVars_quoteB, instFVars_quoteB]
+    rfl
   | .mux c a b => by
     show Lean.Expr.app (.app (.app (instFVars xs d _) (instFVars xs d (quoteB dom n binp vinp c)))
       (instFVars xs d (quoteB dom n binp vinp a))) (instFVars xs d (quoteB dom n binp vinp b)) = _
@@ -33,6 +47,11 @@ theorem quoteB_congr {dom : Lean.Expr} {n kb kv : Nat} {binp binp' vinp vinp' : 
   | .lit _, _ => rfl
   | .compare le a b, ⟨ha, hb'⟩ => by
     simp only [quoteB, quoteF_congr hv a ha, quoteF_congr hv b hb']
+  | .boolBin k a b, ⟨ha, hb'⟩ => by
+    simp only [quoteB, quoteB_congr hb hv a ha, quoteB_congr hb hv b hb']
+  | .boolNot a, ha => by simp only [quoteB, quoteB_congr hb hv a ha]
+  | .boolEq a b, ⟨ha, hb'⟩ => by
+    simp only [quoteB, quoteB_congr hb hv a ha, quoteB_congr hb hv b hb']
   | .mux c a b, ⟨hc, ha, hb'⟩ => by
     simp only [quoteB, quoteB_congr hb hv c hc, quoteB_congr hb hv a ha, quoteB_congr hb hv b hb']
 
@@ -73,7 +92,7 @@ theorem mixed_compare_gate (kinds : Array MixedGateBinder) (dom a b : Lean.Expr)
     mixedGateBoolBody kinds (compareE le dom n a b) =
       (decide (0 < n) && gateBody (mixedBitKinds kinds) n a && gateBody (mixedBitKinds kinds) n b) := by
   cases le <;> simp [compareE, compareName, mkApp2, mkApp3, mkAppB, mkApp,
-    mixedGateBoolBody, bitVecEqualityWidth?, canonicalNatLitValue?_natE]
+    mixedGateBoolBody, isBoolEquality, bitVecEqualityWidth?, canonicalNatLitValue?_natE]
 
 theorem mixedGateBool_quote {kinds : Array MixedGateBinder} {dom : Lean.Expr} {n kb kv : Nat}
     {binp vinp : Nat → Lean.Expr} (hn : 0 < n)
@@ -85,6 +104,21 @@ theorem mixedGateBool_quote {kinds : Array MixedGateBinder} {dom : Lean.Expr} {n
   | .compare le a b, ⟨ha, hb'⟩ => by
     rw [quoteB, mixed_compare_gate, gateBody_inputs hv a ha, gateBody_inputs hv b hb']
     simp [hn]
+  | .boolBin kind a b, ⟨ha, hb'⟩ => by
+    have gate : mixedGateBoolBody kinds (boolBinE kind dom
+        (quoteB dom n binp vinp a) (quoteB dom n binp vinp b)) =
+        (mixedGateBoolBody kinds (quoteB dom n binp vinp a) &&
+          mixedGateBoolBody kinds (quoteB dom n binp vinp b)) := by cases kind <;> rfl
+    rw [quoteB, gate, mixedGateBool_quote hn hb hv a ha, mixedGateBool_quote hn hb hv b hb']
+    rfl
+  | .boolNot a, ha => by
+    change mixedGateBoolBody kinds (quoteB dom n binp vinp a) = true
+    exact mixedGateBool_quote hn hb hv a ha
+  | .boolEq a b, ⟨ha, hb'⟩ => by
+    change (mixedGateBoolBody kinds (quoteB dom n binp vinp a) &&
+      mixedGateBoolBody kinds (quoteB dom n binp vinp b)) = true
+    rw [mixedGateBool_quote hn hb hv a ha, mixedGateBool_quote hn hb hv b hb']
+    rfl
   | .mux c a b, ⟨hc, ha, hb'⟩ => by
     change (mixedGateBoolBody kinds (quoteB dom n binp vinp c) &&
       mixedGateBoolBody kinds (quoteB dom n binp vinp a) &&

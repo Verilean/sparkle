@@ -28,6 +28,26 @@ def compareE (kind : SignalCompareKind) (dom : Lean.Expr) (n : Nat) (a b : Lean.
         (mkApp2 (.const ``instBEqOfDecidableEq [.zero]) ty (mkApp (.const ``instDecidableEqBitVec []) w))
     | _ => mkApp2 (.const (compareName kind) []) dom w
   mkApp2 head a b
+def boolEqE (dom a b : Lean.Expr) : Lean.Expr :=
+  mkApp5 (.const ``Signal.beq []) (.const ``Bool []) dom
+    (mkApp2 (.const ``instBEqOfDecidableEq [.zero]) (.const ``Bool [])
+      (.const ``instDecidableEqBool [])) a b
+
+def boolBinE (kind : SignalBoolBinKind) (dom a b : Lean.Expr) : Lean.Expr :=
+  let ty := mkApp2 (.const ``Signal [.zero]) dom (.const ``Bool [])
+  mkApp6 (.const (signalBoolBinName kind) [.zero, .zero, .zero]) ty ty ty
+    (mkApp (.const (signalBoolBinInst kind) []) dom) a b
+
+def boolNotE (dom a : Lean.Expr) : Lean.Expr :=
+  mkApp3 (.const ``Complement.complement [.zero])
+    (mkApp2 (.const ``Signal [.zero]) dom (.const ``Bool []))
+    (mkApp (.const ``Sparkle.Core.Signal.instComplementSignalBool []) dom) a
+
+def boolBinValue : SignalBoolBinKind → Bool → Bool → Bool
+  | .band => Bool.and
+  | .bor => Bool.or
+  | .bxor => Bool.xor
+
 def compareValue {n : Nat} : SignalCompareKind → BitVec n → BitVec n → Bool
   | .ult => BitVec.ult
   | .ule => BitVec.ule
@@ -45,9 +65,25 @@ inductive BoolDenotes (ρ : BoolValuation) (β : Valuation) : Lean.Expr → Bool
       e.getAppArgs.back? = some (.const (boolName b) []) → BoolDenotes ρ β e b
   | compare {e : Lean.Expr} {us : List Level} {n : Nat} {a b : BitVec n} (le : SignalCompareKind) :
       e.getAppFn = .const (compareName le) us →
+      (le = .eq → e.getAppArgs[0]? ≠ some (.const ``Bool [])) →
       Denotes β e.getAppArgs[e.getAppArgs.size - 2]! n a →
       Denotes β e.getAppArgs[e.getAppArgs.size - 1]! n b →
       BoolDenotes ρ β e (compareValue le a b)
+  | boolBin {e : Lean.Expr} {us : List Level} {a b : Bool} (kind : SignalBoolBinKind) :
+      e.getAppFn = .const (signalBoolBinName kind) us →
+      canonicalSignalBitVecWidth e.getAppArgs = none →
+      BoolDenotes ρ β e.getAppArgs[e.getAppArgs.size - 2]! a →
+      BoolDenotes ρ β e.getAppArgs[e.getAppArgs.size - 1]! b →
+      BoolDenotes ρ β e (boolBinValue kind a b)
+  | boolNot {e : Lean.Expr} {us : List Level} {a : Bool} :
+      e.getAppFn = .const ``Complement.complement us →
+      BoolDenotes ρ β e.getAppArgs.back! a → BoolDenotes ρ β e (!a)
+  | boolEq {e : Lean.Expr} {us : List Level} {a b : Bool} :
+      e.getAppFn = .const ``Signal.beq us →
+      e.getAppArgs[0]? = some (.const ``Bool []) →
+      BoolDenotes ρ β e.getAppArgs[e.getAppArgs.size - 2]! a →
+      BoolDenotes ρ β e.getAppArgs[e.getAppArgs.size - 1]! b →
+      BoolDenotes ρ β e (a == b)
   | mux {e : Lean.Expr} {us : List Level} {c a b : Bool} :
       e.getAppFn = .const ``Signal.mux us →
       BoolDenotes ρ β e.getAppArgs[e.getAppArgs.size - 3]! c →
@@ -77,6 +113,10 @@ theorem library_bool_mux {dom : DomainConfig} (c a b : Signal dom Bool) (t : Nat
 
 theorem compareName_inj {a b : SignalCompareKind} (h : compareName a = compareName b) : a = b := by
   cases a <;> cases b <;> simp_all [compareName]
+theorem signalBoolBinName_inj {a b : SignalBoolBinKind}
+    (h : signalBoolBinName a = signalBoolBinName b) : a = b := by
+  cases a <;> cases b <;> simp_all [signalBoolBinName]
+
 theorem boolName_inj {a b : Bool} (h : boolName a = boolName b) : a = b := by
   cases a <;> cases b <;> simp_all [boolName]
 
@@ -88,7 +128,7 @@ theorem BoolDenotes.det {ρ β e a b} (h : BoolDenotes ρ β e a)
   | fvar hv =>
     cases h' with
     | fvar hv' => rw [hv] at hv'; exact Option.some.inj hv'
-    | pureLit hf _ | compare _ hf _ _ | mux hf _ _ _ =>
+    | pureLit hf _ | compare _ hf _ _ _ | boolBin _ hf _ _ _ | boolNot hf _ | boolEq hf _ _ _ | mux hf _ _ _ =>
       simp [Lean.Expr.getAppFn] at hf
   | pureLit hf hv =>
     cases h' with
@@ -96,13 +136,14 @@ theorem BoolDenotes.det {ρ β e a b} (h : BoolDenotes ρ β e a)
     | pureLit hf' hv' =>
       rw [hv] at hv'
       exact boolName_inj (Lean.Expr.const.inj (Option.some.inj hv')).1
-    | compare le hf' _ _ => cases le <;> simp_all [compareName]
-    | mux hf' _ _ _ => simp_all
-  | @compare e us n x y le hf hx hy =>
+    | compare le hf' _ _ _ => cases le <;> simp_all [compareName]
+    | boolBin kind hf' _ _ _ => cases kind <;> simp_all [signalBoolBinName]
+    | boolNot hf' _ | boolEq hf' _ _ _ | mux hf' _ _ _ => simp_all
+  | @compare e us n x y le hf ht hx hy =>
     cases h' with
     | fvar _ => simp [Lean.Expr.getAppFn] at hf
     | pureLit hf' _ => cases le <;> simp_all [compareName]
-    | @compare _ us' n' x' y' le' hf' hx' hy' =>
+    | @compare _ us' n' x' y' le' hf' _ hx' hy' =>
       have he : le = le' := compareName_inj (Lean.Expr.const.inj (hf.symm.trans hf')).1
       subst le'
       obtain ⟨hn, hxn⟩ := Denotes.det hx hx'
@@ -111,12 +152,38 @@ theorem BoolDenotes.det {ρ β e a b} (h : BoolDenotes ρ β e a)
       have hyy := BitVec.eq_of_toNat_eq (Denotes.det hy hy').2
       subst x' y'
       rfl
-    | mux hf' _ _ _ => cases le <;> simp_all [compareName]
+    | boolBin kind hf' _ _ _ => cases le <;> cases kind <;> simp_all [compareName, signalBoolBinName]
+    | boolEq hf' ht' _ _ => cases le <;> simp_all [compareName]
+    | boolNot hf' _ | mux hf' _ _ _ => cases le <;> simp_all [compareName]
+  | @boolBin e us x y kind hf ht _ _ iha ihb =>
+    cases h' with
+    | fvar _ => simp [Lean.Expr.getAppFn] at hf
+    | pureLit hf' _ | boolNot hf' _ | boolEq hf' _ _ _ | mux hf' _ _ _ =>
+      cases kind <;> simp_all [signalBoolBinName]
+    | compare le hf' _ _ _ => cases le <;> cases kind <;> simp_all [compareName, signalBoolBinName]
+    | boolBin kind' hf' _ ha hb =>
+      have hk := signalBoolBinName_inj (Lean.Expr.const.inj (hf.symm.trans hf')).1
+      subst kind'; rw [iha ha, ihb hb]
+  | boolNot hf _ ih =>
+    cases h' with
+    | fvar _ => simp [Lean.Expr.getAppFn] at hf
+    | pureLit hf' _ | boolEq hf' _ _ _ | mux hf' _ _ _ => simp_all
+    | compare le hf' _ _ _ => cases le <;> simp_all [compareName]
+    | boolBin kind hf' _ _ _ => cases kind <;> simp_all [signalBoolBinName]
+    | boolNot _ ha => rw [ih ha]
+  | boolEq hf ht _ _ iha ihb =>
+    cases h' with
+    | fvar _ => simp [Lean.Expr.getAppFn] at hf
+    | pureLit hf' _ | boolNot hf' _ | mux hf' _ _ _ => simp_all
+    | compare le hf' ht' _ _ => cases le <;> simp_all [compareName]
+    | boolBin kind hf' _ _ _ => cases kind <;> simp_all [signalBoolBinName]
+    | boolEq _ _ ha hb => rw [iha ha, ihb hb]
   | mux hf _ _ _ ihc iha ihb =>
     cases h' with
     | fvar _ => simp [Lean.Expr.getAppFn] at hf
-    | pureLit hf' _ => simp_all
-    | compare le hf' _ _ => cases le <;> simp_all [compareName]
+    | pureLit hf' _ | boolNot hf' _ | boolEq hf' _ _ _ => simp_all
+    | compare le hf' _ _ _ => cases le <;> simp_all [compareName]
+    | boolBin kind hf' _ _ _ => cases kind <;> simp_all [signalBoolBinName]
     | mux _ hc ha hb => rw [ihc hc, iha ha, ihb hb]
 
 open Tools.ShippingEntrySoundness Tools.ShippingMuxTypeSoundness
@@ -126,18 +193,27 @@ inductive BExpr where
   | inp (j : Nat)
   | lit (b : Bool)
   | compare (le : SignalCompareKind) (a b : FExpr)
+  | boolBin (kind : SignalBoolBinKind) (a b : BExpr)
+  | boolNot (a : BExpr)
+  | boolEq (a b : BExpr)
   | mux (c a b : BExpr)
 
 def BExpr.WF (kb kv n : Nat) : BExpr → Prop
   | .inp j => j < kb
   | .lit _ => True
   | .compare _ a b => a.WF kv n ∧ b.WF kv n
+  | .boolBin _ a b => a.WF kb kv n ∧ b.WF kb kv n
+  | .boolNot a => a.WF kb kv n
+  | .boolEq a b => a.WF kb kv n ∧ b.WF kb kv n
   | .mux c a b => c.WF kb kv n ∧ a.WF kb kv n ∧ b.WF kb kv n
 
 def evalB (n : Nat) (bools : Nat → Bool) (bits : Nat → BitVec n) : BExpr → Bool
   | .inp j => bools j
   | .lit b => b
   | .compare le a b => compareValue le (evalFE n bits a) (evalFE n bits b)
+  | .boolBin k a b => boolBinValue k (evalB n bools bits a) (evalB n bools bits b)
+  | .boolNot a => !(evalB n bools bits a)
+  | .boolEq a b => evalB n bools bits a == evalB n bools bits b
   | .mux c a b => if evalB n bools bits c then evalB n bools bits a else evalB n bools bits b
 
 def denoteB {dom : DomainConfig} (n : Nat) (bools : Nat → Signal dom Bool)
@@ -150,6 +226,12 @@ def denoteB {dom : DomainConfig} (n : Nat) (bools : Nat → Signal dom Bool)
       | .slt => Signal.slt (denoteFE n bits a) (denoteFE n bits b)
       | .sle => Signal.sle (denoteFE n bits a) (denoteFE n bits b)
       | .eq => Signal.beq (denoteFE n bits a) (denoteFE n bits b)
+  | .boolBin k a b => match k with
+      | .band => denoteB n bools bits a &&& denoteB n bools bits b
+      | .bor => denoteB n bools bits a ||| denoteB n bools bits b
+      | .bxor => denoteB n bools bits a ^^^ denoteB n bools bits b
+  | .boolNot a => ~~~(denoteB n bools bits a)
+  | .boolEq a b => Signal.beq (denoteB n bools bits a) (denoteB n bools bits b)
   | .mux c a b => Signal.mux (denoteB n bools bits c) (denoteB n bools bits a) (denoteB n bools bits b)
 
 theorem denoteB_val {dom : DomainConfig} (n : Nat) (bools : Nat → Signal dom Bool)
@@ -159,6 +241,17 @@ theorem denoteB_val {dom : DomainConfig} (n : Nat) (bools : Nat → Signal dom B
   | .lit _ => rfl
   | .compare le a b => by
       cases le <;> simp [denoteB, evalB, library_ult, library_ule, library_slt, library_sle, library_beq, denoteFE_val]
+  | .boolBin k a b => by
+      have step : (denoteB n bools bits (.boolBin k a b)).val t =
+          boolBinValue k ((denoteB n bools bits a).val t) ((denoteB n bools bits b).val t) := by
+        cases k <;> rfl
+      rw [step, denoteB_val, denoteB_val]; rfl
+  | .boolNot a => by
+      change (!(denoteB n bools bits a).val t) = _
+      rw [denoteB_val]; rfl
+  | .boolEq a b => by
+      change ((denoteB n bools bits a).val t == (denoteB n bools bits b).val t) = _
+      rw [denoteB_val, denoteB_val]; rfl
   | .mux c a b => by
       simp only [denoteB, evalB, library_bool_mux, denoteB_val n bools bits t c,
         denoteB_val n bools bits t a, denoteB_val n bools bits t b]
@@ -168,6 +261,9 @@ def quoteB (dom : Lean.Expr) (n : Nat) (bools bits : Nat → Lean.Expr) : BExpr 
   | .lit b => mkApp3 (.const ``Signal.pure [.zero]) dom (.const ``Bool []) (.const (boolName b) [])
   | .compare le a b => compareE le dom n
       (quoteF dom n bits a) (quoteF dom n bits b)
+  | .boolBin k a b => boolBinE k dom (quoteB dom n bools bits a) (quoteB dom n bools bits b)
+  | .boolNot a => boolNotE dom (quoteB dom n bools bits a)
+  | .boolEq a b => boolEqE dom (quoteB dom n bools bits a) (quoteB dom n bools bits b)
   | .mux c a b => muxE dom (.const ``Bool [])
       (quoteB dom n bools bits c) (quoteB dom n bools bits a) (quoteB dom n bools bits b)
 
@@ -177,6 +273,9 @@ theorem quotedBool_control (dom : Lean.Expr) (n : Nat) (bools bits : Nat → Lea
   | inp j => exact False.elim (he j rfl)
   | lit b => rfl
   | compare le a b => cases le <;> rfl
+  | boolBin k a b => cases k <;> rfl
+  | boolNot a => rfl
+  | boolEq a b => rfl
   | mux c a b => rfl
 
 /-- The real fallback routes these source expressions through the proved
@@ -215,7 +314,13 @@ theorem BoolDenotes.quoteCompare {ρ β n} (dom ae be : Lean.Expr) (le : SignalC
     BoolDenotes ρ β (compareE le dom n ae be)
       (compareValue le a b) := by
   refine @BoolDenotes.compare ρ β (compareE le dom n ae be)
-    [] n a b le (by cases le <;> rfl) ?_ ?_
+    [] n a b le (by cases le <;> rfl) ?_ ?_ ?_
+  · intro he; subst le
+    have args : (compareE .eq dom n ae be).getAppArgs =
+        #[mkApp (.const ``BitVec []) (natE n), dom,
+          mkApp2 (.const ``instBEqOfDecidableEq [.zero]) (mkApp (.const ``BitVec []) (natE n))
+            (mkApp (.const ``instDecidableEqBitVec []) (natE n)), ae, be] := rfl
+    rw [args]; simp [mkApp]
   all_goals
     have args : (compareE le dom n ae be).getAppArgs =
         (match le with
@@ -225,6 +330,47 @@ theorem BoolDenotes.quoteCompare {ρ β n} (dom ae be : Lean.Expr) (le : SignalC
         | _ => #[dom, natE n, ae, be]) := by cases le <;> rfl
     rw [args]
     cases le <;> assumption
+
+theorem boolBin_width_none (kind : SignalBoolBinKind) (dom ae be : Lean.Expr) :
+    canonicalSignalBitVecWidth (boolBinE kind dom ae be).getAppArgs = none := by
+  have args : (boolBinE kind dom ae be).getAppArgs =
+      #[mkApp2 (.const ``Signal [.zero]) dom (.const ``Bool []),
+        mkApp2 (.const ``Signal [.zero]) dom (.const ``Bool []),
+        mkApp2 (.const ``Signal [.zero]) dom (.const ``Bool []),
+        mkApp (.const (signalBoolBinInst kind) []) dom, ae, be] := rfl
+  rw [args]
+  cases kind <;> simp [canonicalSignalBitVecWidth, signalBoolBinInst, canonicalSignalBoolInsts, mkApp, Lean.Expr.getAppFn]
+
+theorem BoolDenotes.quoteBoolBin {ρ β} (kind : SignalBoolBinKind) (dom ae be : Lean.Expr)
+    {a b : Bool} (ha : BoolDenotes ρ β ae a) (hb : BoolDenotes ρ β be b) :
+    BoolDenotes ρ β (boolBinE kind dom ae be) (boolBinValue kind a b) := by
+  have args : (boolBinE kind dom ae be).getAppArgs =
+      #[mkApp2 (.const ``Signal [.zero]) dom (.const ``Bool []),
+        mkApp2 (.const ``Signal [.zero]) dom (.const ``Bool []),
+        mkApp2 (.const ``Signal [.zero]) dom (.const ``Bool []),
+        mkApp (.const (signalBoolBinInst kind) []) dom, ae, be] := rfl
+  refine @BoolDenotes.boolBin ρ β (boolBinE kind dom ae be) [.zero, .zero, .zero] a b kind rfl ?_ ?_ ?_
+  · exact boolBin_width_none kind dom ae be
+  · rw [args]; exact ha
+  · rw [args]; exact hb
+
+theorem BoolDenotes.quoteBoolNot {ρ β} (dom ae : Lean.Expr)
+    {a : Bool} (ha : BoolDenotes ρ β ae a) :
+    BoolDenotes ρ β (boolNotE dom ae) (!a) := by
+  refine @BoolDenotes.boolNot ρ β (boolNotE dom ae) [.zero] a rfl ?_
+  have arg : (boolNotE dom ae).getAppArgs.back! = ae := rfl
+  rw [arg]; exact ha
+
+theorem BoolDenotes.quoteBoolEq {ρ β} (dom ae be : Lean.Expr)
+    {a b : Bool} (ha : BoolDenotes ρ β ae a) (hb : BoolDenotes ρ β be b) :
+    BoolDenotes ρ β (boolEqE dom ae be) (a == b) := by
+  have args : (boolEqE dom ae be).getAppArgs = #[.const ``Bool [], dom,
+      mkApp2 (.const ``instBEqOfDecidableEq [.zero]) (.const ``Bool [])
+        (.const ``instDecidableEqBool []), ae, be] := rfl
+  refine BoolDenotes.boolEq (us := []) rfl ?_ ?_ ?_
+  · rw [args]; rfl
+  · rw [args]; exact ha
+  · rw [args]; exact hb
 
 theorem BoolDenotes.quoteMux {ρ β} (dom ce ae be : Lean.Expr)
     {c a b : Bool} (hc : BoolDenotes ρ β ce c) (ha : BoolDenotes ρ β ae a)
@@ -248,6 +394,13 @@ theorem denotesB_quote {ρ : BoolValuation} {β : Valuation} {dom : Lean.Expr} {
   | .lit b, _ => BoolDenotes.quotePure dom b
   | .compare le a b, ⟨ha, hb'⟩ => BoolDenotes.quoteCompare dom _ _ le
       (denotesF_inputs (dom := dom) hv a ha) (denotesF_inputs (dom := dom) hv b hb')
+  | .boolBin k a b, ⟨ha, hb'⟩ =>
+      BoolDenotes.quoteBoolBin k dom _ _ (denotesB_quote (dom := dom) hb hv a ha)
+        (denotesB_quote (dom := dom) hb hv b hb')
+  | .boolNot a, ha => BoolDenotes.quoteBoolNot dom _ (denotesB_quote (dom := dom) hb hv a ha)
+  | .boolEq a b, ⟨ha, hb'⟩ =>
+      BoolDenotes.quoteBoolEq dom _ _ (denotesB_quote (dom := dom) hb hv a ha)
+        (denotesB_quote (dom := dom) hb hv b hb')
   | .mux c a b, ⟨hc, ha, hb'⟩ =>
       BoolDenotes.quoteMux dom _ _ _ (denotesB_quote (dom := dom) hb hv c hc)
         (denotesB_quote (dom := dom) hb hv a ha) (denotesB_quote (dom := dom) hb hv b hb')

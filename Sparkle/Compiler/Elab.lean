@@ -1859,6 +1859,39 @@ def bitVecEqualityWidth? : Lean.Expr → Lean.Expr → Option Lean.Expr
       .app (.app (.const ``instBEqOfDecidableEq _) _) _ => some w
   | _, _ => none
 
+/-- The standard Bool equality instance; custom BEq keeps its legacy meaning. -/
+def isBoolEquality : Lean.Expr → Lean.Expr → Bool
+  | .const ``Bool _, .app (.app (.const ``instBEqOfDecidableEq _) _) _ => true
+  | _, _ => false
+
+inductive SignalBoolBinKind where
+  | band | bor | bxor
+  deriving DecidableEq, BEq, Repr
+
+def signalBoolBinName : SignalBoolBinKind → Name
+  | .band => ``HAnd.hAnd
+  | .bor => ``HOr.hOr
+  | .bxor => ``HXor.hXor
+
+def signalBoolBinInst : SignalBoolBinKind → Name
+  | .band => ``Sparkle.Core.Signal.instHAndSignalBool
+  | .bor => ``Sparkle.Core.Signal.instHOrSignalBool
+  | .bxor => ``Sparkle.Core.Signal.instHXorSignalBool
+
+def signalBoolBinOp : SignalBoolBinKind → Operator
+  | .band => .and
+  | .bor => .or
+  | .bxor => .xor
+
+/-- Only canonical Bool instances select the direct Boolean lowering. -/
+def signalBoolBinKind? (method : Name) : Lean.Expr → Option SignalBoolBinKind
+  | .app (.const inst _) _ =>
+    if method == ``HAnd.hAnd && inst == ``Sparkle.Core.Signal.instHAndSignalBool then some .band
+    else if method == ``HOr.hOr && inst == ``Sparkle.Core.Signal.instHOrSignalBool then some .bor
+    else if method == ``HXor.hXor && inst == ``Sparkle.Core.Signal.instHXorSignalBool then some .bxor
+    else none
+  | _ => none
+
 /-- Total, syntax-only recognition of the mixed Bool-output source fragment.
     Recursion follows actual expression subterms; type inference is not called. -/
 def mixedGateBoolBody (kinds : Array MixedGateBinder) : Lean.Expr → Bool
@@ -1867,9 +1900,15 @@ def mixedGateBoolBody (kinds : Array MixedGateBinder) : Lean.Expr → Bool
       (.const ``Bool.true _) => true
   | .app (.app (.app (.const ``Sparkle.Core.Signal.Signal.pure _) _) (.const ``Bool _))
       (.const ``Bool.false _) => true
+  | .app (.app (.app (.const ``Complement.complement _) _)
+      (.app (.const ``Sparkle.Core.Signal.instComplementSignalBool _) _)) a =>
+      mixedGateBoolBody kinds a
   | .app (.app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.mux _) _) (.const ``Bool _)) c) a) b =>
       mixedGateBoolBody kinds c && mixedGateBoolBody kinds a && mixedGateBoolBody kinds b
+  | .app (.app (.app (.app (.app (.app (.const m _) _) _) _) inst) a) b =>
+      (signalBoolBinKind? m inst).isSome && mixedGateBoolBody kinds a && mixedGateBoolBody kinds b
   | .app (.app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.beq _) ty) _) inst) a) b =>
+      if isBoolEquality ty inst then mixedGateBoolBody kinds a && mixedGateBoolBody kinds b else
       match bitVecEqualityWidth? ty inst with
       | some wE => match canonicalNatLitValue? wE with
         | some n => 0 < n && gateBody (mixedBitKinds kinds) n a && gateBody (mixedBitKinds kinds) n b
@@ -4549,8 +4588,12 @@ def isBoolControl : Lean.Expr → Bool
   | .app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.ule _) _) _) _) _ => true
   | .app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.slt _) _) _) _) _ => true
   | .app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.sle _) _) _) _) _ => true
+  | .app (.app (.app (.app (.app (.app (.const m _) _) _) _) inst) _) _ =>
+      (signalBoolBinKind? m inst).isSome
   | .app (.app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.beq _) ty) _) inst) _) _ =>
-      (bitVecEqualityWidth? ty inst).isSome
+      isBoolEquality ty inst || (bitVecEqualityWidth? ty inst).isSome
+  | .app (.app (.app (.const ``Complement.complement _) _)
+      (.app (.const ``Sparkle.Core.Signal.instComplementSignalBool _) _)) _ => true
   | e => match canonicalMuxType? e with | some .bit => true | _ => false
 
 /-- The cache wrapper for Bool controls, exposed for simulation proofs. A miss
@@ -4583,6 +4626,12 @@ def emitCompareResult (le : SignalCompareKind) (a b hint : String) (named : Bool
 def emitBoolLiteral (value : Bool) (hint : String) (named : Bool) : CompilerM String :=
   emitBoolResult (.const (if value then 1 else 0) 1) hint named
 
+def translateBoolBinary (rec : TranslateFn) (kind : SignalBoolBinKind) (a b : Lean.Expr)
+    (hint : String) (named : Bool) : CompilerM String := do
+  let aw ← rec a "a" false false
+  let bw ← rec b "b" false false
+  emitBoolResult (.op (signalBoolBinOp kind) [.ref aw, .ref bw]) hint named
+
 /-- Recursive comparison lowering, exposed to proofs. The child order and
     hints match the applicative lowering used before this direct route. -/
 def translateSignalCompare (rec : TranslateFn) (le : SignalCompareKind) (a b : Lean.Expr)
@@ -4608,13 +4657,25 @@ def translateBoolUncachedWith (rec legacy : TranslateFn) : TranslateFn :=
       translateSignalCompare rec .slt a b hint named
     | .app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.sle _) _) _) a) b =>
       translateSignalCompare rec .sle a b hint named
+    | .app (.app (.app (.app (.app (.app (.const m _) _) _) _) inst) a) b =>
+      match signalBoolBinKind? m inst with
+      | some kind => translateBoolBinary rec kind a b hint named
+      | none => legacy e hint top named
     | .app (.app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.beq _) ty) _) inst) a) b =>
+      if isBoolEquality ty inst then translateSignalCompare rec .eq a b hint named else
       match bitVecEqualityWidth? ty inst with
       | some _ => translateSignalCompare rec .eq a b hint named
       | none => legacy e hint top named
     | .app (.app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.mux _) _)
         (.const ``Bool _)) c) a) b =>
       translateMuxWith rec (pure .bit) c a b hint named
+    | .app (.app (.app (.const ``Complement.complement _) _)
+        (.app (.const ``Sparkle.Core.Signal.instComplementSignalBool _) dom)) a =>
+      -- A one-bit equality with false is Boolean negation. Reuse the proved
+      -- comparison pipeline, including its recursive constant allocation.
+      translateSignalCompare rec .eq a
+        (mkApp3 (.const ``Sparkle.Core.Signal.Signal.pure [.zero]) dom
+          (.const ``Bool []) (.const ``Bool.false [])) hint named
     | _ => legacy e hint top named
 
 /-- The shapes `translateCore` handles (decides whether the validated lookup is

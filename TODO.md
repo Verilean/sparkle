@@ -8,7 +8,7 @@ work) and add an "Owner / status" line once someone picks one up.
 
 ## Compiler proof — current work
 
-Owner/status: S2 complete; S3 active, signed comparisons and standard BitVec equality connected.
+Owner/status: S2 complete; S3 active, comparisons and canonical Bool logic/equality connected.
 
 - [x] Original BitVec fragment: syntax and RTL settling endpoint.
 - [x] Current mixed fragment: selected IR value preservation, output syntax and
@@ -19,6 +19,8 @@ Owner/status: S2 complete; S3 active, signed comparisons and standard BitVec equ
   same syntax and RTL settling theorem; sign-width and legacy-path regressions.
 - [x] S3 extension: standard BitVec `Signal.beq` through the RTL endpoint;
   fix applicative lowering that discarded custom BEq implementations.
+- [x] S3 extension: canonical Bool and/or/xor/not and standard Bool equality,
+  recursively through the same syntax and RTL settling endpoint.
 - [ ] Remaining successful combinational paths, state/reset, memory, hierarchy,
   and full successful-domain composition; `EnvDefines` remains explicit.
 

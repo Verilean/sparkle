@@ -4,8 +4,8 @@ For continuing work in Codex or Claude Code, start with the
 [current milestones](ShippingCompiler-Milestones.md) and
 [active TODO](CertifiedRoundtrip-TODO.md#current-shipping-compiler-todo).
 These define the current work unit and exit criteria; dated entries below
-record earlier states. S2 completed in `075e9f4`; S3 signed comparisons and
-standard BitVec equality are now connected (2026-09-27).
+record earlier states. S2 completed in `075e9f4`; S3 signed comparisons,
+standard BitVec/Bool equality and canonical Bool logic are now connected (2026-09-27).
 
 The target agreed on 2026-09-24 is the existing compiler's successful domain:
 
@@ -31,8 +31,8 @@ The mixed Bool/BitVec endpoint `execution_source_of_env` now joins the same
 shipping text/AST to SV evaluation, a unique bounded simultaneous solution, and
 finite parallel delta settling. `EnvDefines`, ordinary source input agreement
 and bounded initialization remain explicit. The domain is Bool inputs/literals,
-unsigned and signed (`slt`/`sle`) comparisons, standard BitVec equality
-(`Signal.beq`) and nested Bool-result mux over
+unsigned and signed (`slt`/`sle`) comparisons, standard BitVec/Bool equality
+(`Signal.beq`), canonical Bool `&&&`/`|||`/`^^^`/`~~~` and nested Bool-result mux over
 common positive-width BitVec arithmetic. It does not cover every successful legacy compilation path.
 
 The S3 signed extension generalizes comparison source meaning, recursive
@@ -46,8 +46,17 @@ control-bearing originals instead of accepting an unproved normalization.
 The equality extension quotes the actual type/instance arguments and extends
 the same recursive contracts and endpoint. Its source theorem covers the
 standard BitVec BEq instance, including comparisons of arithmetic results,
-aliased operands and nesting with ordered comparisons. Bool equality and
-arbitrary custom instances remain outside that theorem.
+aliased operands and nesting with ordered comparisons. The subsequent Bool
+extension covers standard Bool equality and canonical Boolean logic recursively
+through the same endpoint. Type/width separation keeps cached Bool and BitVec
+meanings disjoint. Arbitrary custom instances remain outside that theorem.
+
+Canonical Bool negation now lowers to equality with a generated false wire.
+That constant allocation and the resulting emitted text/AST are included in the
+proof, using the existing comparison backend. Other not/map/unfolded spellings
+still require separate source coverage. `ShippingBoolEqualityTest` and
+`ShippingBoolLogicTest` instantiate the general endpoint on real nested mixed
+sources for arbitrary input Signals and observation times.
 
 Equality regressions also exposed a preexisting compiler bug: the legacy
 applicative shortcut discarded custom BEq semantics and operand order. Signal
@@ -57,7 +66,13 @@ reversed-comparison instances and surface applicative expressions (including
 constants and arithmetic right shifts) have regression coverage; this is not a
 general proof of legacy application lowering.
 
-Latest validation: `lake build Tests.AllTests` passed (624 jobs), including
+Latest validation: `lake build Tests.AllTests` passed (626 jobs). New tests
+check 1,890 Bool-equality and 1,962 Bool-logic source/legacy/SV/delta cases, with
+all Boolean inputs, mixed arithmetic boundary values and three bounded internal
+seeds. The general endpoint and both real nested-source instantiations use only
+`propext`, `Classical.choice`, `Quot.sound`; no `sorry` or executable oracle.
+
+BitVec-equality validation: `lake build Tests.AllTests` passed (624 jobs), including
 2,250 equality source/legacy/SV/delta cases at widths 1, 8 and 65, 32 custom-BEq
 cases and 14 exhaustive applicative compilations. The extended general endpoint
 and the real nested equality source theorem pass the standard-axiom audit

@@ -32,13 +32,32 @@ theorem denotes_disjoint {ρ β e b n} {x : BitVec n} (sep : Separate ρ β)
     | pureLit _ hl' hv =>
       rw [hl] at hl'; cases hl'
       cases b <;> simp [bitVecLitValue?] at hv
-  | compare le hf _ _ =>
+  | compare le hf _ _ _ =>
     cases hv with
     | fvar _ => simp [Lean.Expr.getAppFn] at hf
     | binary hf' hop _ _ _ _ =>
       rw [hf] at hf'; cases hf'
       cases le <;> simp [compareName, signalBinOpOf] at hop
     | pureLit hf' _ _ => cases le <;> simp_all [compareName]
+  | boolBin kind hf ht _ _ =>
+    cases hv with
+    | fvar _ => simp [Lean.Expr.getAppFn] at hf
+    | binary _ _ _ hw _ _ => rw [ht] at hw; cases hw
+    | pureLit hf' _ _ => cases kind <;> simp_all [signalBoolBinName]
+  | boolNot hf _ =>
+    cases hv with
+    | fvar _ => simp [Lean.Expr.getAppFn] at hf
+    | binary hf' hop _ _ _ _ =>
+      rw [hf] at hf'; cases hf'
+      simp [signalBinOpOf] at hop
+    | pureLit hf' _ _ => simp_all
+  | boolEq hf _ _ _ =>
+    cases hv with
+    | fvar _ => simp [Lean.Expr.getAppFn] at hf
+    | binary hf' hop _ _ _ _ =>
+      rw [hf] at hf'; cases hf'
+      simp [signalBinOpOf] at hop
+    | pureLit hf' _ _ => simp_all
   | mux hf _ _ _ =>
     cases hv with
     | fvar _ => simp [Lean.Expr.getAppFn] at hf

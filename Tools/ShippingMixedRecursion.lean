@@ -312,6 +312,184 @@ theorem compare_contract {rec ctx ρ β we mems initial dom ae be n le}
   exact ⟨fun hint top named => (step hint top named).frame,
     fun hint top named => (step hint top named).sem⟩
 
+theorem translateBoolUncachedWith_boolBin (rec legacy : TranslateFn) (kind : SignalBoolBinKind)
+    (dom ae be : Lean.Expr) (hint : String) (top named : Bool) :
+    translateBoolUncachedWith rec legacy (boolBinE kind dom ae be) hint top named =
+      translateBoolBinary rec kind ae be hint named := by cases kind <;> rfl
+
+theorem translateBoolBinary_returns {rec : TranslateFn} {kind : SignalBoolBinKind} {a b : Lean.Expr}
+    {hint w : String} {named : Bool} {ctx : CompilerState} {s t : CircuitState}
+    (h : Returns (translateBoolBinary rec kind a b hint named) ctx s w t) :
+    ∃ aw bw sa sb, Returns (rec a "a" false false) ctx s aw sa ∧
+      Returns (rec b "b" false false) ctx sa bw sb ∧
+      Returns (emitBoolResult (.op (signalBoolBinOp kind) [.ref aw, .ref bw]) hint named) ctx sb w t := by
+  unfold translateBoolBinary at h
+  obtain ⟨aw, sa, ha, h⟩ := Returns.bind h
+  obtain ⟨bw, sb, hb, he⟩ := Returns.bind h
+  exact ⟨aw, bw, sa, sb, ha, hb, he⟩
+
+theorem typed_bool_bin {we : WEnv} (kind : SignalBoolBinKind) (a b : String)
+    (wa : we a = 1) (wb : we b = 1) :
+    TypedExpr we (.op (signalBoolBinOp kind) [.ref a, .ref b]) 1 := by
+  have ha : TypedExpr we (.ref a) 1 := wa ▸ TypedExpr.ref a (by omega)
+  have hb : TypedExpr we (.ref b) 1 := wb ▸ TypedExpr.ref b (by omega)
+  cases kind
+  · exact .bin .and ha hb rfl
+  · exact .bin .or ha hb rfl
+  · exact .bin .xor ha hb rfl
+
+theorem bool_bin_rhs (kind : SignalBoolBinKind) (we : WEnv) (env : Env)
+    (a b : String) (x y : Bool) (ha : env a = encodeBool x) (hb : env b = encodeBool y)
+    (wa : we a = 1) (wb : we b = 1) :
+    evalExpr we env (.op (signalBoolBinOp kind) [.ref a, .ref b]) =
+      some (encodeBool (boolBinValue kind x y)) := by
+  cases kind <;> cases x <;> cases y <;>
+    simp [signalBoolBinOp, boolBinValue, evalExpr, evalList, evalOp, widthOf, ha, hb, wa, wb, encodeBool, mask]
+
+theorem boolBin_shape {ctx ρ β we mems initial rec ae be kind hint named n va vb s t w}
+    (ca : Child rec ctx ρ β we mems initial ae "a" n va)
+    (cb : Child rec ctx ρ β we mems initial be "b" n vb)
+    (lookup : Lookup ctx ρ β s)
+    (hr : Returns (translateBoolBinary rec kind ae be hint named) ctx s w t) :
+    Frame s t ∧ s.usedNames.contains w = false := by
+  obtain ⟨a, b, sa, sb, ra, rb, re⟩ := translateBoolBinary_returns hr
+  have fa := ca.frame s sa a lookup ra
+  have fb := cb.frame sa sb b (lookup.transfer fa) rb
+  obtain ⟨fe, fresh⟩ := emit_bool_frame (by cases kind <;> rfl) re
+  refine ⟨(fa.trans fb).trans fe, ?_⟩
+  cases hu : s.usedNames.contains w
+  · rfl
+  · have := fb.used w (fa.used w hu); simp [fresh] at this
+
+theorem boolBin_fresh {ctx ρ β we mems initial rec ae be kind hint named}
+    (x y : Bool)
+    (ca : Child rec ctx ρ β we mems initial ae "a" 1 (encodeBool x))
+    (cb : Child rec ctx ρ β we mems initial be "b" 1 (encodeBool y)) :
+    FreshAction (translateBoolBinary rec kind ae be hint named) ctx ρ β we mems initial
+      1 (encodeBool (boolBinValue kind x y)) := by
+  refine ⟨⟨fun _ _ _ lookup hr => (boolBin_shape ca cb lookup hr).1, ?_⟩,
+    fun _ _ _ lookup hr => (boolBin_shape ca cb lookup hr).2⟩
+  intro s t w prior h widths hr
+  obtain ⟨a, b, sa, sb, ra, rb, re⟩ := translateBoolBinary_returns hr
+  have fa := ca.frame s sa a (Lookup.ofInputs h.inputs) ra
+  have fb := cb.frame sa sb b ((Lookup.ofInputs h.inputs).transfer fa) rb
+  have fe := (emit_bool_frame (by cases kind <;> rfl) re).1
+  have aout := ca.sem s sa a prior h ((fb.decls.trans fe.decls).widths widths) ra
+  obtain ⟨va, ia, av, af⟩ := aout.execution
+  have bout := cb.sem sa sb b va ia (fe.decls.widths widths) rb
+  obtain ⟨vb, ib, bv, bf⟩ := bout.execution
+  have step := emitBoolResult_mixed ib
+    (typed_bool_bin kind a b aout.width_eq bout.width_eq)
+    (bool_bin_rhs kind we vb a b x y ((bf a aout.used).trans av) bv aout.width_eq bout.width_eq) widths re
+  obtain ⟨result, inv, val, frame⟩ := step.execution
+  exact ⟨step.used, step.width_eq, fun z hz => step.grows z (fb.used z (fa.used z hz)),
+    result, inv, val, fun z hz => (frame z (fb.used z (fa.used z hz))).trans
+      ((bf z (fa.used z hz)).trans (af z hz))⟩
+
+theorem boolBin_step (rec : TranslateFn) (kind : SignalBoolBinKind) (dom ae be : Lean.Expr)
+    (hint : String) (top named : Bool) :
+    translateStepWith translateFallback rec (boolBinE kind dom ae be) hint top named =
+      translateFallback rec (boolBinE kind dom ae be) hint top named := by
+  have hf : (boolBinE kind dom ae be).getAppFn =
+      .const (signalBoolBinName kind) [.zero, .zero, .zero] := rfl
+  have shape : translateCoreShape (boolBinE kind dom ae be) = false := by
+    simp only [translateCoreShape, hf, boolBin_width_none]
+    cases kind <;> simp [signalBoolBinName, signalBinOpOf]
+  have core : translateCore rec (boolBinE kind dom ae be) hint top named = pure none := by
+    unfold translateCore
+    change (if signalBoolBinName kind == ``Sparkle.Core.Signal.Signal.pure then _ else _) = _
+    rw [boolBin_width_none]
+    cases kind <;> simp [signalBoolBinName, signalBinOpOf]
+  simp [translateStepWith, shape, core]
+  rfl
+
+theorem boolBin_contract {rec ctx ρ β we mems initial dom ae be}
+    (kind : SignalBoolBinKind) (a b : Bool)
+    (da : BoolDenotes ρ β ae a) (db : BoolDenotes ρ β be b)
+    (ca : Child rec ctx ρ β we mems initial ae "a" 1 (encodeBool a))
+    (cb : Child rec ctx ρ β we mems initial be "b" 1 (encodeBool b)) :
+    Contract (translateStepWith translateFallback rec) ctx ρ β we mems initial
+      (boolBinE kind dom ae be) 1 (encodeBool (boolBinValue kind a b)) := by
+  have step : ∀ hint top named, ActionSpec
+      (translateStepWith translateFallback rec (boolBinE kind dom ae be) hint top named)
+      ctx ρ β we mems initial 1 (encodeBool (boolBinValue kind a b)) := by
+    intro hint top named
+    rw [boolBin_step, translateFallback_bool rec _ hint top named (by cases kind <;> rfl)]
+    apply cached_action (BoolDenotes.quoteBoolBin kind dom ae be da db)
+    rw [translateBoolUncachedWith_boolBin]
+    exact boolBin_fresh a b ca cb
+  exact ⟨fun hint top named => (step hint top named).frame,
+    fun hint top named => (step hint top named).sem⟩
+
+theorem boolEq_step (rec : TranslateFn) (dom ae be : Lean.Expr)
+    (hint : String) (top named : Bool) :
+    translateStepWith translateFallback rec (boolEqE dom ae be) hint top named =
+      translateFallback rec (boolEqE dom ae be) hint top named := by
+  have shape : translateCoreShape (boolEqE dom ae be) = false := rfl
+  have core : translateCore rec (boolEqE dom ae be) hint top named = pure none := rfl
+  simp [translateStepWith, shape, core]
+  rfl
+
+theorem boolEq_contract {rec ctx ρ β we mems initial dom ae be}
+    (a b : Bool) (da : BoolDenotes ρ β ae a) (db : BoolDenotes ρ β be b)
+    (ca : Child rec ctx ρ β we mems initial ae "a" 1 (encodeBool a))
+    (cb : Child rec ctx ρ β we mems initial be "b" 1 (encodeBool b)) :
+    Contract (translateStepWith translateFallback rec) ctx ρ β we mems initial
+      (boolEqE dom ae be) 1 (encodeBool (a == b)) := by
+  have step : ∀ hint top named, ActionSpec
+      (translateStepWith translateFallback rec (boolEqE dom ae be) hint top named)
+      ctx ρ β we mems initial 1 (encodeBool (a == b)) := by
+    intro hint top named
+    rw [boolEq_step, translateFallback_bool rec _ hint top named rfl]
+    apply cached_action (BoolDenotes.quoteBoolEq dom ae be da db)
+    change FreshAction (translateSignalCompare rec .eq ae be hint named)
+      ctx ρ β we mems initial 1 (encodeBool (a == b))
+    have av : (BitVec.ofNat 1 (encodeBool a)).toNat = encodeBool a := by cases a <;> rfl
+    have bv : (BitVec.ofNat 1 (encodeBool b)).toNat = encodeBool b := by cases b <;> rfl
+    have val : compareValue .eq (BitVec.ofNat 1 (encodeBool a)) (BitVec.ofNat 1 (encodeBool b)) =
+        (a == b) := by cases a <;> cases b <;> rfl
+    rw [← val]
+    apply compare_fresh _ _ (by decide)
+    · simpa only [av] using ca
+    · simpa only [bv] using cb
+  exact ⟨fun hint top named => (step hint top named).frame,
+    fun hint top named => (step hint top named).sem⟩
+
+theorem boolNot_step (rec : TranslateFn) (dom ae : Lean.Expr)
+    (hint : String) (top named : Bool) :
+    translateStepWith translateFallback rec (boolNotE dom ae) hint top named =
+      translateFallback rec (boolNotE dom ae) hint top named := by
+  have shape : translateCoreShape (boolNotE dom ae) = false := rfl
+  have core : translateCore rec (boolNotE dom ae) hint top named = pure none := rfl
+  simp [translateStepWith, shape, core]
+  rfl
+
+theorem boolNot_contract {rec ctx ρ β we mems initial dom ae}
+    (a : Bool) (da : BoolDenotes ρ β ae a)
+    (ca : Child rec ctx ρ β we mems initial ae "a" 1 (encodeBool a))
+    (cb : Child rec ctx ρ β we mems initial
+      (mkApp3 (.const ``Sparkle.Core.Signal.Signal.pure [.zero]) dom (.const ``Bool [])
+        (.const ``Bool.false [])) "b" 1 0) :
+    Contract (translateStepWith translateFallback rec) ctx ρ β we mems initial
+      (boolNotE dom ae) 1 (encodeBool (!a)) := by
+  have step : ∀ hint top named, ActionSpec
+      (translateStepWith translateFallback rec (boolNotE dom ae) hint top named)
+      ctx ρ β we mems initial 1 (encodeBool (!a)) := by
+    intro hint top named
+    rw [boolNot_step, translateFallback_bool rec _ hint top named rfl]
+    apply cached_action (BoolDenotes.quoteBoolNot dom ae da)
+    change FreshAction (translateSignalCompare rec .eq ae
+      (mkApp3 (.const ``Sparkle.Core.Signal.Signal.pure [.zero]) dom (.const ``Bool [])
+        (.const ``Bool.false [])) hint named) ctx ρ β we mems initial 1 (encodeBool (!a))
+    have av : (BitVec.ofNat 1 (encodeBool a)).toNat = encodeBool a := by cases a <;> rfl
+    have val : compareValue .eq (BitVec.ofNat 1 (encodeBool a)) (0#1) = !a := by cases a <;> rfl
+    rw [← val]
+    apply compare_fresh _ _ (by decide)
+    · simpa only [av] using ca
+    · exact cb
+  exact ⟨fun hint top named => (step hint top named).frame,
+    fun hint top named => (step hint top named).sem⟩
+
 theorem mux_shape {ctx ρ β we mems initial rec ce ae be hint named vc va vb s t w}
     (cc : Child rec ctx ρ β we mems initial ce "mux_cond" 1 vc)
     (ca : Child rec ctx ρ β we mems initial ae "mux_then" 1 va)
@@ -418,6 +596,17 @@ theorem bool_fuel_contract (fuel : Nat) {ctx ρ β we mems initial dom n kb kv}
       have db := denotesF_inputs (dom := dom) vd b hb'
       exact compare_contract _ _ hn da db ((bits_fuel_contract fuel hn da).child "a")
         ((bits_fuel_contract fuel hn db).child "b")
+    | boolBin k a b =>
+      obtain ⟨ha, hb'⟩ := he
+      exact boolBin_contract k _ _ (denotesB_quote (dom := dom) bd vd a ha)
+        (denotesB_quote (dom := dom) bd vd b hb') ((ih a ha).child "a") ((ih b hb').child "b")
+    | boolNot a =>
+      exact boolNot_contract _ (denotesB_quote (dom := dom) bd vd a he)
+        ((ih a he).child "a") ((ih (.lit false) trivial).child "b")
+    | boolEq a b =>
+      obtain ⟨ha, hb'⟩ := he
+      exact boolEq_contract _ _ (denotesB_quote (dom := dom) bd vd a ha)
+        (denotesB_quote (dom := dom) bd vd b hb') ((ih a ha).child "a") ((ih b hb').child "b")
     | mux c a b =>
       obtain ⟨hc, ha, hb'⟩ := he
       exact mux_contract _ _ _ (denotesB_quote (dom := dom) bd vd c hc)
