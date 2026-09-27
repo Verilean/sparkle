@@ -52,6 +52,39 @@ X/Z and physical delays are not modeled. Module-name validity and
 normalization collisions are no longer outstanding on the checked synthesis
 paths described below. The dated entries preserve earlier intermediate states.
 
+## Bool mux connected to the shipping translator (2026-09-27)
+
+Exact library `Signal.mux` applications returning Bool now take the total
+`translateMuxWith` route with scalar `.bit` result type. The condition, then
+branch and else branch are translated in that order, including both branches
+when the condition is constant. Other mux shapes retain their existing route.
+
+`Tools/ShippingBoolMuxSoundness.lean` proves
+`translateExprToWire_boolMux_correct` for the actual translator step, including
+validated cache hits and new allocation. Its emission proof reuses
+`emitBoolResult_correct`; the recursive composition preserves earlier operand
+values and all reserved wires. There is no legacy-handler or inferred-type
+oracle premise for the Bool mux node.
+
+**Remaining connection:** the theorem still assumes the three recursive
+`ChildSpec` contracts and the execution, typed-body, Bool-record and declaration
+width invariants. A joint Bool/BitVec invariant, its preservation by recursive
+translation, and its initialization and discharge at synthesis are still open.
+Then the mixed source theorem must be connected through postprocessing and
+checked optimization to output text and settling. The proved endpoint above
+has not yet gained Bool/comparison/mux source coverage. Different-width
+operations, other Bool operations, registers/reset, memory and hierarchy remain
+larger extensions; `EnvDefines` remains an explicit trust boundary.
+
+Regression coverage includes all Bool truth-table cases, reused literal-cache
+entries, named allocation and input-name collisions, child order and strict
+failure propagation, and whole-entry nested mux synthesis. These executable
+checks supplement the general conditional theorem; they do not discharge its
+recursive hypotheses. Icarus passes the nested Bool mux truth table (8 inputs)
+and the existing arithmetic/comparison/Bool mux circuit (131,072 inputs).
+The theorem axiom audit permits only `propext`, `Classical.choice` and
+`Quot.sound`. `lake build Tests.AllTests` passes (596 jobs).
+
 ## Bool literals connected to the shipping translator (2026-09-27)
 
 Exact library `Signal.pure true` and `Signal.pure false` applications now emit

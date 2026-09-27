@@ -4445,7 +4445,7 @@ def translateUnsignedCompare (rec : TranslateFn) (le : Bool) (a b : Lean.Expr)
   let bw ← rec b "b" false false
   emitCompareResult le aw bw hint named
 
-/-- Canonical literals and comparisons use the total lowering above. Other Bool forms
+/-- Canonical literals, comparisons and Bool muxes use total lowering. Other Bool forms
     still use their existing handlers on a validated-cache miss. -/
 def translateBoolUncachedWith (rec legacy : TranslateFn) : TranslateFn :=
   fun e hint top named =>
@@ -4458,6 +4458,9 @@ def translateBoolUncachedWith (rec legacy : TranslateFn) : TranslateFn :=
       translateUnsignedCompare rec false a b hint named
     | .app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.ule _) _) _) a) b =>
       translateUnsignedCompare rec true a b hint named
+    | .app (.app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.mux _) _)
+        (.const ``Bool _)) c) a) b =>
+      translateMuxWith rec (pure .bit) c a b hint named
     | _ => legacy e hint top named
 
 /-- The shapes `translateCore` handles (decides whether the validated lookup is
