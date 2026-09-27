@@ -52,6 +52,47 @@ X/Z and physical delays are not modeled. Module-name validity and
 normalization collisions are no longer outstanding on the checked synthesis
 paths described below. The dated entries preserve earlier intermediate states.
 
+## Mixed declarations connected (2026-09-27)
+
+The existing `synthesizeCombinational_mixed_rendered` and
+`rendered_source_of_env` endpoints now additionally prove that the emitted SV
+AST has legal data identifiers, no duplicate data declarations, and a width
+lookup derived from those declarations equal to the printer's width lookup.
+`RenderedValue` carries these facts for the **same** AST whose rendering is the
+actual whole output string and whose selected IR preserves the source value.
+No declaration/name certificate is added to either endpoint's hypotheses.
+
+`Tools/ShippingMixedDeclSoundness.lean` supplies the structural connection:
+
+* The mixed recursive `Frame` tracks allocated wire names through literals,
+  arithmetic, comparisons, mux, cache hits and record insertion.
+* The actual binder walk establishes that inputs form a sublist of wires,
+  including unused inputs. Raw synthesis derives unique input names, matching
+  input/wire declarations, allocated internal names and the singleton `out`
+  output. The allocator's underscore prefix separates internal names from
+  `out`; uniqueness comes from fresh allocation, not injective sanitization.
+* Cleanup and both checked merge branches only remove wire declarations and
+  preserve ports. Both selections of the checked optimizer inherit name/type
+  consistency and uniqueness. Port-name wire suppression then yields unique
+  emitted declarations, and `astWidths_emitted` establishes the actual AST's
+  declaration-width lookup.
+
+This completes the mixed **data declaration** part of the next connection.
+It does not yet prove that all RHS references and assignment targets are
+bound, the whole `ConcreteSyntax.Module` judgment, or SV evaluation/parallel
+settling. The width equality here is AST declarations versus the printer's
+lookup; translating it into the per-expression semantic checks is still work.
+The old `compiledFragment_execution` remains the complete endpoint for the
+original BitVec fragment. Wider successful DSL coverage (including state,
+reset, memory and hierarchy) and the `EnvDefines` boundary remain outstanding.
+Compiler acceptance and generated RTL are unchanged.
+
+Validation: the strengthened nested-source theorem and declaration lemmas are
+included in the standard-axiom audit (only `propext`, `Classical.choice`,
+`Quot.sound`; no `sorry` dependency). The existing 15 real synthesis/cleanup/
+merge paths additionally check AST declaration uniqueness and declaration
+width lookup agreement. `lake build Tests.AllTests` passes (616 jobs).
+
 ## Mixed whole-module rendering connected (2026-09-27)
 
 `Tools/ShippingMixedPrintSoundness.lean` proves
@@ -82,9 +123,9 @@ The rendering preconditions are derived from successful compilation:
 This covers the complete string, including scalar/vector declarations, ports,
 assignments, comments and layout, rather than isolated expressions. It is a
 byte-equality/rendering theorem, **not yet** the independent
-`ConcreteSyntax.Module` grammar theorem for the mixed domain. It also does not
-establish declaration uniqueness/binding in the emitted mixed SV AST or transfer
-the IR evaluation to SV concurrent semantics. These distinctions remain
+`ConcreteSyntax.Module` grammar theorem for the mixed domain. The later mixed-declaration connection above now establishes declaration
+uniqueness and width lookup agreement. Reference/target binding and transfer
+of the IR evaluation to SV concurrent semantics remain open. These distinctions remain
 explicit rather than being hidden in the word “RTL”.
 
 Validation: `lake build Tests.AllTests` passes (615 jobs). The focused regression
@@ -95,8 +136,8 @@ corollary, metadata/binder lemmas and their strengthened recursive dependencies
 pass the standard-axiom audit; no `sorry` dependency is added. Compiler behavior
 is unchanged.
 
-**Next connections:** derive identifier/reference/declaration-width facts for
-this same mixed emitted tree, then connect assignment dependency order and the
+**Next connections:** derive reference/target binding and the independent
+grammar judgment for this same mixed emitted tree, then connect assignment dependency order and the
 parallel settling model. The old BitVec-only `compiledFragment_execution`
 remains the complete grammar/execution endpoint for its original scope. The
 mixed source domain and `EnvDefines` boundary remain as below; successful-domain

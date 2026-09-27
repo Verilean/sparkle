@@ -429,6 +429,42 @@ def MixedSourcePreserves (declName : Name) (bs : List (Name × MixedGateBinder))
       quoteB dom n (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) e →
     observes initial mems (encodeBool (evalB n bvals vvals e))
 
+/-- Input allocation maintains a sublist of declared wires, including unused
+arguments; names come from the actual fresh-name allocator. -/
+theorem input_declarations {s name ty}
+    (sub : s.module.inputs.Sublist s.module.wires)
+    (names : ∀ p ∈ s.module.wires, Sparkle.IR.NameHints.Allocated p.name) :
+    (inputState s name ty).module.inputs.Sublist (inputState s name ty).module.wires ∧
+      (∀ p ∈ (inputState s name ty).module.wires, Sparkle.IR.NameHints.Allocated p.name) := by
+  constructor
+  · rw [input_wires]
+    change (_ :: (CircuitM.makeWire name ty true s).2.module.inputs).Sublist (_ :: s.module.wires)
+    rw [makeWire_inputs]
+    exact sub.cons_cons _
+  · intro p hp
+    rw [input_wires] at hp
+    rcases List.mem_cons.mp hp with rfl | hp
+    · exact CircuitM.makeWire_allocated name ty true s
+    · exact names p hp
+
+theorem prepare_declarations {bools bits} (L : List ((Name × MixedGateBinder) × FVarId))
+    (a : Setup) (sub : a.state.module.inputs.Sublist a.state.module.wires)
+    (names : ∀ p ∈ a.state.module.wires, Sparkle.IR.NameHints.Allocated p.name) :
+    (prepare bools bits L a).state.module.inputs.Sublist (prepare bools bits L a).state.module.wires ∧
+      (∀ p ∈ (prepare bools bits L a).state.module.wires, Sparkle.IR.NameHints.Allocated p.name) := by
+  induction L generalizing a with
+  | nil => exact ⟨sub, names⟩
+  | cons binder rest ih =>
+    obtain ⟨⟨name, kind⟩, id⟩ := binder
+    cases kind with
+    | domain => exact ih a sub names
+    | bool =>
+      have h := input_declarations (name := name.toString) (ty := .bit) sub names
+      exact ih (extend a ((name, .bool), id) bools bits) h.1 h.2
+    | bits n =>
+      have h := input_declarations (name := name.toString) (ty := .bitVector n) sub names
+      exact ih (extend a ((name, .bits n), id) bools bits) h.1 h.2
+
 /-- Metadata before zero-width cleanup. Internal zero-width declarations may
 still be present; input/output declarations are already printable. -/
 structure PrintBase (m : Sparkle.IR.AST.Module) : Prop where
@@ -437,6 +473,10 @@ structure PrintBase (m : Sparkle.IR.AST.Module) : Prop where
   inputs : ∀ p ∈ m.inputs, PrintableType p.ty
   outputs : ∀ p ∈ m.outputs, PrintableType p.ty
   wires : ∀ p ∈ m.wires, p.ty = .bit ∨ ∃ n, p.ty = .bitVector n
+  wireNames : ∀ p ∈ m.wires, Sparkle.IR.NameHints.Allocated p.name
+  inputNames : (m.inputs.map Port.name).Nodup
+  inputWires : ∀ p ∈ m.inputs, p ∈ m.wires
+  output : ∃ ty, m.outputs = [{name := "out", ty := ty}]
 
 /-- The raw entry establishes both value preservation and the preconditions
 needed by the real cleanup and optimizer passes. -/
@@ -518,7 +558,9 @@ theorem synthesizeMixedCertified_sound {logProf declName bs body m d}
       obtain ⟨l, rhs, n, eq, _⟩ := typed stmt (List.mem_reverse.mpr hs)
       exact ⟨l, rhs, eq⟩)
     have mi : m.inputs = st.module.inputs.reverse := by rw [hm, noSeq]; rfl
-    refine ⟨?_, ?_, ?_, printOutputs, ?_⟩
+    have decls := prepare_declarations (bools := bools) (bits := bits) (bs.zip ids) a
+      (List.Sublist.refl []) (by intro port hp; cases hp)
+    refine ⟨?_, ?_, ?_, printOutputs, ?_, ?_, ?_, ?_, ?_⟩
     · rw [hm, noSeq]
       change st.module.isPrimitive = false
       rw [ht]; change sm.module.isPrimitive = false
@@ -533,6 +575,25 @@ theorem synthesizeMixedCertified_sound {logProf declName bs body m d}
     · intro port hp
       rw [wireEq, List.mem_reverse, ht, emitAssign_wires] at hp
       exact frame.scalar shape.1 port hp
+    · intro port hp
+      rw [wireEq, List.mem_reverse, ht, emitAssign_wires] at hp
+      exact (frame.wireNames port hp).elim (decls.2 port) id
+    · rw [mi, List.map_reverse]
+      apply nodup_reverse
+      rw [ht, emitAssign_inputs]
+      change (sm.module.inputs.map Port.name).Nodup
+      rw [frame.inputs]
+      exact prepared.2.1.1.sublist (decls.1.map _)
+    · intro port hp
+      rw [mi, List.mem_reverse, ht, emitAssign_inputs] at hp
+      change port ∈ sm.module.inputs at hp
+      rw [frame.inputs] at hp
+      rw [wireEq, List.mem_reverse, ht, emitAssign_wires]
+      exact frame.decls port (decls.1.subset hp)
+    · refine ⟨ty, ?_⟩
+      rw [outputEq, ht, emitAssign_outputs]
+      change ( {name := "out", ty := ty} :: sm.module.outputs).reverse = _
+      rw [frame.outputs, shape.2]; rfl
 
 /-- The actual declaration dispatcher selects this proved input/translation
 path. Both gate decisions are pure, checkable conditions on that declaration. -/

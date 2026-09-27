@@ -8,6 +8,7 @@ open Sparkle.IR.OptCheck Sparkle.IR.ZeroWidth Sparkle.IR.RegDedup
 open Tools.ShippingEntrySoundness Tools.ShippingMixedEntrySoundness
 open Tools.ShippingMixedPrintSoundness Tools.ShippingModulePrintSoundness
 open Tools.SVParser.EmitAst
+open Tools.ShippingMixedDeclSoundness Tools.ShippingDeclWidths Tools.ShippingPrintSoundness
 
 /-- The public endpoint asks for no printable-declaration certificate. -/
 theorem shipping_rendered {declName : Name} {mctx : Meta.Context}
@@ -60,6 +61,12 @@ run_cmd liftTermElabM do
       let countWires := (m.wires.filter fun p => !((m.inputs ++ m.outputs).map (·.name)).contains p.name).length
       unless renderModule m.name countWires sv == some (verilogOf post) do
         throwError "mixed full-module rendering mismatch: {name}"
+      let declarations := declarationTable sv
+      unless (declarations.map Prod.fst).eraseDups.length == declarations.length do
+        throwError "duplicate mixed AST declaration: {name}"
+      for entry in declarations do
+        unless astWidths sv entry.1 == printWidths (m.wires ++ m.inputs ++ m.outputs) entry.1 do
+          throwError "mixed AST declaration width mismatch: {name}: {entry.1}"
       count := count + 1
   unless count == 15 do throwError "wrong rendering case count"
   logInfo "MIXED FULL MODULE RENDERING: 15 shipping/postprocessing paths; scalar Bool, BitVec 1, nested mux/comparison and unused mixed-width inputs"
@@ -67,6 +74,7 @@ run_cmd liftTermElabM do
 run_cmd do
   if (← get).messages.hasErrors then throwError "mixed printing regression failed"
   for name in [``input_print, ``prepare_print, ``emitLeaves_postReady,
+      ``input_declarations, ``prepare_declarations, ``post_layout, ``checked_layout, ``checked_declarations,
       ``synthesizeMixedCertified_sound, ``synthesizeFromConst_mixed_sound,
       ``printBase_concrete, ``printBase_cleanup, ``mixed_post_printDecls,
       ``mixedBinder_positive, ``mixedPeel_positive, ``mixedShape_positive,
@@ -74,6 +82,6 @@ run_cmd do
     for ax in (← liftCoreM <| collectAxioms name) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do
         throwError "unexpected mixed printing axiom: {name}: {ax}"
-  logInfo "MIXED PRINT ENDPOINT: actual entry to complete module rendering; grammar/binding and concurrent settling remain open"
+  logInfo "MIXED PRINT ENDPOINT: actual entry to rendering, legal unique declarations and AST widths; grammar/binding and concurrent settling remain open"
 
 end Sparkle.Tests.Compiler.ShippingMixedPrintTest

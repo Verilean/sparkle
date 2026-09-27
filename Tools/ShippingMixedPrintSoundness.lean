@@ -1,10 +1,11 @@
 import Tools.ShippingMixedPostSoundness
+import Tools.ShippingMixedDeclSoundness
 import Tools.ShippingMixedSourceBridge
 import Tools.ShippingPrintEntrySoundness
 
 /-! Complete shipping module rendering for the mixed source fragment.
-This layer proves text/AST rendering equality, separately from identifier,
-binding and concurrent-execution obligations. -/
+This layer proves text/AST rendering equality, legal unique declarations and
+declaration-derived widths. Binding and concurrent-execution obligations remain. -/
 namespace Tools.ShippingMixedPrintSoundness
 open Lean Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Type Sparkle.IR.Semantics
 open Sparkle.IR.OptCheck Sparkle.IR.ZeroWidth Sparkle.IR.RegDedup
@@ -12,6 +13,7 @@ open Tools.ShippingEntrySoundness Tools.ShippingPostSoundness Tools.ShippingType
 open Tools.ShippingMixedEntrySoundness Tools.ShippingMixedPostSoundness
 open Tools.ShippingPrintEntrySoundness Tools.ShippingModulePrintSoundness Tools.ShippingPrintSoundness
 open Tools.SVParser.AST Tools.SVParser.EmitAst
+open Tools.ShippingMixedDeclSoundness
 
 theorem printBase_concrete {m : Sparkle.IR.AST.Module} (h : PrintBase m) : allConcrete m = true := by
   unfold allConcrete
@@ -108,7 +110,7 @@ theorem mixed_rendered {declName bs body m m'} (source : MixedPreserves declName
         renderModule (checkedOptimize m').name
           ((checkedOptimize m').wires.filter fun p =>
             !(((checkedOptimize m').inputs ++ (checkedOptimize m').outputs).map (·.name)).contains p.name).length sv
-          = some (verilogOf m') := by
+          = some (verilogOf m') ∧ Declarations (checkedOptimize m') sv := by
   apply MixedSourcePreserves.map source
   intro initial mems expected h
   obtain ⟨result, run, value, ready, simple, widths, out, bounds, base⟩ := h
@@ -128,7 +130,8 @@ theorem mixed_rendered {declName bs body m m'} (source : MixedPreserves declName
   obtain ⟨port, hp, name⟩ := List.mem_map.mp out
   have val := agrees port (outputs ▸ hp)
   rw [name, value] at val
-  exact ⟨final, sv, finalRun, val, ast, text⟩
+  exact ⟨final, sv, finalRun, val, ast, text,
+    checked_declarations (base positive) ready simple post pd (checkedOptimize_printShape gate) ast⟩
 
 /-- The source value and the complete shipping text describe the same selected
 IR module. This rendering relation is not yet the concrete grammar judgment. -/
@@ -138,7 +141,7 @@ def RenderedValue (m : Sparkle.IR.AST.Module) (initial : Env) (mems : MEnv) (exp
     renderModule (checkedOptimize m).name
       ((checkedOptimize m).wires.filter fun p =>
         !(((checkedOptimize m).inputs ++ (checkedOptimize m).outputs).map (·.name)).contains p.name).length sv
-      = some (verilogOf m)
+      = some (verilogOf m) ∧ Declarations (checkedOptimize m) sv
 
 theorem synthesizeCombinational_mixed_rendered {declName : Name} {mctx : Meta.Context}
     {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
