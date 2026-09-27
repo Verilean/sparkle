@@ -52,6 +52,41 @@ X/Z and physical delays are not modeled. Module-name validity and
 normalization collisions are no longer outstanding on the checked synthesis
 paths described below. The dated entries preserve earlier intermediate states.
 
+## BitVec binary nodes preserve the mixed invariant (2026-09-27)
+
+`Tools/ShippingMixedBinarySoundness.lean` proves joint Bool/BitVec preservation
+for all eight existing `Binary` operators: arithmetic/bitwise operations and
+same-width logical shifts. `translateExprToWire_binary_mixed` reaches the actual
+fuel-bounded translator, including validated cache hits and new lowering with
+record insertion. It still assumes contracts for the smaller-fuel operand calls.
+
+The shipping implementation allocates its result before translating operands.
+The new `Frame` contract preserves declarations, reserved names and source
+bindings, and carries `RecordFresh`. Its reserved-name consequence prevents
+children from adding a new record at the parent's preallocated result. The
+final assignment is proved safe for both input families and both record
+interpretations, even though the result name is already reserved at that point.
+
+`Child` separates structural and semantic guarantees. Structural guarantees
+require only environment-free `Lookup` facts about bound source inputs; they
+do not require final widths or a semantic execution invariant. This binding
+premise excludes the legacy unbound-fvar inlining route. Declaration growth
+then transports the parent's final widths backward to each operand's final
+state before invoking its semantic guarantee. `translateStep_binary_frame`
+provides the independent structural result through the actual core/cache step.
+
+The binary-node connection is now established under those child contracts.
+Still open: equip the input/literal and Bool-control cases with the same
+structural/semantic contract, close the fuel induction for the mixed fragment,
+and initialize and discharge its premises at synthesis entry. The final
+source-to-RTL theorem has not yet gained Bool/comparison/mux source coverage.
+Successful-domain coverage and the `EnvDefines` boundary remain unchanged.
+
+Validation: `lake build Tests.AllTests` passes (602 jobs). New theorem axioms
+are restricted to `propext`, `Classical.choice` and `Quot.sound`. Consumers
+check preservation of a live Bool input and exclusion of new reserved-name
+records. Compiler behavior is unchanged.
+
 ## BitVec literals preserve the mixed invariant (2026-09-27)
 
 `Tools/ShippingMixedLiteralSoundness.lean` connects positive-width BitVec
