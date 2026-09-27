@@ -15,13 +15,14 @@ structure Frame (s t : CircuitState) : Prop where
   used : ∀ z, s.usedNames.contains z = true → t.usedNames.contains z = true
   bindings : t.sourceBindings = s.sourceBindings
   records : RecordFresh s t
+  wires : WiresOk s → WiresOk t
 
 theorem Frame.refl (s : CircuitState) : Frame s s :=
-  ⟨fun _ hp => hp, fun _ hp => hp, rfl, fun _ _ he => Or.inl he⟩
+  ⟨fun _ hp => hp, fun _ hp => hp, rfl, fun _ _ he => Or.inl he, fun h => h⟩
 
 theorem Frame.trans {s t u} (h : Frame s t) (k : Frame t u) : Frame s u :=
   ⟨h.decls.trans k.decls, fun z hz => k.used z (h.used z hz),
-    k.bindings.trans h.bindings, h.records.trans k.records h.used⟩
+    k.bindings.trans h.bindings, h.records.trans k.records h.used, fun hw => k.wires (h.wires hw)⟩
 
 theorem Frame.record_reserved {s t w e} (h : Frame s t)
     (used : s.usedNames.contains w = true) (he : t.translateRecord.get? w = some e) :
@@ -33,14 +34,15 @@ theorem Frame.record_reserved {s t w e} (h : Frame s t)
 theorem Frame.makeWire (s : CircuitState) (hint : String) (n : Nat) (named : Bool) :
     Frame s (CircuitM.makeWire hint (.bitVector n) named s).2 := by
   have hm := CircuitM.makeWire_spec hint (.bitVector n) named s
-  refine ⟨?_, ?_, CircuitM.makeWire_sourceBindings _ _ _ _, ?_⟩
+  refine ⟨?_, ?_, CircuitM.makeWire_sourceBindings _ _ _ _, ?_, ?_⟩
   · intro p hp; rw [hm.2.2.2]; exact List.mem_cons_of_mem _ hp
   · intro z hz; rw [hm.2.1]; simp [Std.HashSet.contains_insert, hz]
   · intro w e he; left; rw [CircuitM.makeWire_translateRecord] at he; exact he
+  · exact WiresOk.fresh hm.1 hm.2.1 hm.2.2.2
 
 theorem Frame.emitAssign (s : CircuitState) (w : String) (rhs : Sparkle.IR.AST.Expr) :
     Frame s (CircuitM.emitAssign w rhs s).2 :=
-  ⟨fun _ hp => hp, fun _ hp => hp, rfl, fun _ _ he => Or.inl he⟩
+  ⟨fun _ hp => hp, fun _ hp => hp, rfl, fun _ _ he => Or.inl he, fun h => h⟩
 
 /-- Environment-free binding facts prevent an input fvar from taking the
 legacy inlining route while structural child properties are established. -/
@@ -247,7 +249,7 @@ theorem Frame.record_new {s t u e w cacheable ctx resultUnit} (h : Frame s t)
     (fresh : s.usedNames.contains w = false)
     (hr : Returns (recordTranslation e w cacheable) ctx t resultUnit u) : Frame s u := by
   have hs := recordTranslation_returns hr
-  refine ⟨?_, ?_, ?_, ?_⟩
+  refine ⟨?_, ?_, ?_, ?_, ?_⟩
   · intro p hp; rw [hs]; exact h.decls p hp
   · intro z hz; rw [hs]; exact h.used z hz
   · rw [hs]; exact h.bindings
@@ -259,6 +261,7 @@ theorem Frame.record_new {s t u e w cacheable ctx resultUnit} (h : Frame s t)
         have eq' : w = z := by simpa using eq
         subst z; exact Or.inr fresh
     · exact h.records z ex he
+  · intro hw; rw [hs]; exact h.wires hw
 
 theorem core_binary_recorded {ctx ρ β we mems initial s t prior rec e m us hint named top w n cacheable}
     {K : Option String → CompilerM String} (op : Binary) (x y : BitVec n) (hn : 0 < n)

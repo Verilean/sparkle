@@ -52,6 +52,62 @@ X/Z and physical delays are not modeled. Module-name validity and
 normalization collisions are no longer outstanding on the checked synthesis
 paths described below. The dated entries preserve earlier intermediate states.
 
+## Mixed recursive translation closed (2026-09-27)
+
+The recursive-child hypotheses are now discharged, not merely restated in
+another node contract. `Tools/ShippingMixedRecursion.lean` proves
+`bits_fuel_contract` and `bool_fuel_contract` by induction on the shipping
+translator's actual fuel. `translateExprToWire_bool_contract` specializes the
+result to its real fuel limit. All hints and top/named flags, validated cache
+hits and fresh lowering are covered. Fuel exhaustion has no successful run.
+
+The closed source domain is the existing positive-width `Denotes` BitVec
+fragment (inputs/literals, arithmetic/bitwise operations and same-width logical
+shifts), plus quoted `BExpr` Bool inputs/literals, unsigned comparisons over
+that arithmetic fragment, and arbitrarily nested **Bool-result muxes**.
+BitVec-result muxes and other Bool operators are not in this closed source
+relation. The old final theorem's domain is unchanged.
+
+The structural `Frame` now also preserves declaration uniqueness (`WiresOk`).
+`Tools/ShippingMixedOutputSoundness.lean` connects closed recursive translation
+to the actual `emitLeaves` output assignment. `emitLeaves_bool_from_ports`
+derives the initial invariant, valuation separation and final width agreement
+from typed input-port layout and declarations. Its conclusion includes the
+output value, preservation of earlier reserved values and the typed statement
+property needed by mixed postprocessing. `emitLeaves_bool_signal` relates the
+output to the actual library Signal value at a source observation time.
+Neither result assumes recursive child correctness, a legacy lowering oracle,
+or externally supplied final width agreement.
+
+`Tools/ShippingMixedInputSoundness.lean` proves the real `bindInputPort`
+continuation receives the required layout for Bool and BitVec inputs, while
+preserving an empty body/record and unique declarations. These binder rules
+can be composed starting from `CircuitM.init`; admissible input values are
+supplied as values at the allocated input wires.
+
+**Remaining top-level connection:** derive the complete input layout and source
+quotation from the actual synthesis telescope walk/type recognition, then
+connect module finishing, postprocessing, checked optimization, output text
+and settling for this mixed domain. The existing certified entry's gate is
+BitVec-input-only; Bool inputs currently use `bindInputsLegacy`. The new
+input/output boundary theorems do not claim that this entire entry walk is
+proved. `EnvDefines`, coverage of the whole successful DSL, and the declared
+RTL execution-model boundary remain as before.
+
+In the earlier three-part checklist, Bool mux node lowering is closed and
+mixed recursive translation is now closed for the source domain above. The
+third part (the top-level source-to-output RTL theorem) is still open, with
+input-binder and output-emitter components proved. This is a proof-only change;
+compiler acceptance and generated RTL are unchanged.
+
+Validation: `lake build Tests.AllTests` passes (606 jobs). The new theorem
+audit permits only `propext`, `Classical.choice` and `Quot.sound`. Actual
+recursive translation passes 400 value/frame cases across cache and top/named
+flags with colliding name hints; insufficient-fuel cases fail as expected.
+The elaborated nested source matches its quotation. Its synthesized RTL passes
+Icarus for all 131,072 input combinations. These executable checks remain
+separate from the general proof and do not close the outstanding entry link.
+
 ## BitVec binary nodes preserve the mixed invariant (2026-09-27)
 
 `Tools/ShippingMixedBinarySoundness.lean` proves joint Bool/BitVec preservation
