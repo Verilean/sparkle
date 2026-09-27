@@ -1811,6 +1811,66 @@ def certifiedShape? (symbolicMode : Bool) (parameters : List (String × Nat)) :
     | none => none
   | _ => none
 
+/-- Scalar input kinds for the mixed Bool/BitVec certified entry. Kept separate
+    from `GateBinder` so the existing uniform-width entry contract is unchanged. -/
+inductive MixedGateBinder where
+  | domain
+  | bool
+  | bits (width : Nat)
+  deriving DecidableEq, Repr
+
+def mixedGateBinderKind? (ty : Lean.Expr) : Option MixedGateBinder :=
+  if ty.isConstOf ``Sparkle.Core.Domain.DomainConfig then some .domain
+  else match ty with
+    | .app (.app (.const ``Sparkle.Core.Signal.Signal _) _) (.const ``Bool _) => some .bool
+    | .app (.app (.const ``Sparkle.Core.Signal.Signal _) _) (.app (.const ``BitVec _) wE) =>
+      (canonicalNatLitValue? wE).bind fun n => if 0 < n then some (.bits n) else none
+    | _ => none
+
+def mixedGatePeel : Lean.Expr → Option (List (Name × MixedGateBinder) × Lean.Expr)
+  | .lam nm ty body _ =>
+    match mixedGateBinderKind? ty, mixedGatePeel body with
+    | some kind, some (binders, e) => some ((nm, kind) :: binders, e)
+    | _, _ => none
+  | e => some ([], e)
+
+def mixedGateBVar? (kinds : Array MixedGateBinder) (i : Nat) : Option MixedGateBinder :=
+  if i < kinds.size then kinds[kinds.size - 1 - i]? else none
+
+/-- Bool binders cannot be used as arithmetic inputs, including at width one. -/
+def mixedBitKinds (kinds : Array MixedGateBinder) : Array GateBinder :=
+  kinds.map fun k => match k with
+    | .bits n => .signal n
+    | _ => .domain
+
+/-- Total, syntax-only recognition of the mixed Bool-output source fragment.
+    Recursion follows actual expression subterms; type inference is not called. -/
+def mixedGateBoolBody (kinds : Array MixedGateBinder) : Lean.Expr → Bool
+  | .bvar i => mixedGateBVar? kinds i == some .bool
+  | .app (.app (.app (.const ``Sparkle.Core.Signal.Signal.pure _) _) (.const ``Bool _))
+      (.const ``Bool.true _) => true
+  | .app (.app (.app (.const ``Sparkle.Core.Signal.Signal.pure _) _) (.const ``Bool _))
+      (.const ``Bool.false _) => true
+  | .app (.app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.mux _) _) (.const ``Bool _)) c) a) b =>
+      mixedGateBoolBody kinds c && mixedGateBoolBody kinds a && mixedGateBoolBody kinds b
+  | .app (.app (.app (.app (.const m _) _) wE) a) b =>
+      if m == ``Sparkle.Core.Signal.Signal.ult || m == ``Sparkle.Core.Signal.Signal.ule then
+        match canonicalNatLitValue? wE with
+        | some n => 0 < n && gateBody (mixedBitKinds kinds) n a && gateBody (mixedBitKinds kinds) n b
+        | none => false
+      else false
+  | _ => false
+
+def mixedCertifiedShape? (symbolicMode : Bool) (parameters : List (String × Nat)) :
+    ConstantInfo → Option (List (Name × MixedGateBinder) × Lean.Expr)
+  | .defnInfo d =>
+    if symbolicMode || !parameters.isEmpty then none else
+    match mixedGatePeel d.value with
+    | some (bs, body) =>
+      if mixedGateBoolBody (bs.map (·.2)).toArray body then some (bs, body) else none
+    | none => none
+  | _ => none
+
 /-- Replace the loose bound variables `≥ d` by `xs` (in `instantiateRev`
     order: `.bvar d` is the LAST element).  A pure twin of the `extern`
     `Expr.instantiateRev`, used only on certified-shape bodies (trees of the
@@ -1863,6 +1923,31 @@ def synthesizeCertified (translate : TranslateFn) (logProf : String → IO Unit)
   else
     throw (Exception.error .missing "fresh free variables are not distinct")
 
+/-- The mixed entry uses the same actual input binder as the legacy entry. -/
+def bindMixedCertifiedInputs {α : Type} (k : CompilerM α) :
+    List ((Name × MixedGateBinder) × FVarId) → CompilerM α
+  | [] => k
+  | ((_, .domain), _) :: rest => bindMixedCertifiedInputs k rest
+  | ((nm, .bool), id) :: rest =>
+    bindInputPort id nm.toString .bit (bindMixedCertifiedInputs k rest)
+  | ((nm, .bits n), id) :: rest =>
+    bindInputPort id nm.toString (.bitVector n) (bindMixedCertifiedInputs k rest)
+
+def synthesizeMixedCertified (translate : TranslateFn) (logProf : String → IO Unit)
+    (declName : Name) (bs : List (Name × MixedGateBinder)) (body : Lean.Expr) :
+    MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) := do
+  let ids ← bs.mapM fun _ => mkFreshFVarId
+  if hids : ids.Nodup ∧ ids.length = bs.length then
+    let innerBody := instFVars (ids.map Lean.Expr.fvar).toArray 0 body
+    let cacheRef ← IO.mkRef ({} : Lean.ExprStructMap String)
+    let compiler := bindMixedCertifiedInputs
+      (emitLeaves translate cacheRef logProf [("out", innerBody)] none 0) (bs.zip ids)
+    let (_, finalCircuitState) ←
+      (compiler.run (entryCompilerState false cacheRef)).run (CircuitM.init declName.toString)
+    finishSynth declName [] false finalCircuitState
+  else
+    throw (Exception.error .missing "fresh free variables are not distinct")
+
 /-- Everything the entry does AFTER reading the declaration, as a function of the
     `ConstantInfo` it read.  `synthesizeCombinationalCoreWith` calls it with the
     result of `getConstInfo declName`, so a theorem about this function applies to
@@ -1875,6 +1960,13 @@ def synthesizeFromConst (translate : TranslateFn) (logProf : String → IO Unit)
   | some (bs, body) =>
     logProf s!"[profile] synthesizeCombinational {declName} certified front end"
     let result ← synthesizeCertified translate logProf declName bs body
+    sparkleSubModuleCache.modify (·.insert declName result)
+    return result
+  | none =>
+  match (if certifiedFrontEnd then mixedCertifiedShape? symbolicMode parameters constInfo else none) with
+  | some (bs, body) =>
+    logProf s!"[profile] synthesizeCombinational {declName} mixed certified front end"
+    let result ← synthesizeMixedCertified translate logProf declName bs body
     sparkleSubModuleCache.modify (·.insert declName result)
     return result
   | none =>

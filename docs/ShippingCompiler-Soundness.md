@@ -52,6 +52,58 @@ X/Z and physical delays are not modeled. Module-name validity and
 normalization collisions are no longer outstanding on the checked synthesis
 paths described below. The dated entries preserve earlier intermediate states.
 
+## Mixed synthesis entry connected (2026-09-27)
+
+The shipping dispatcher now recognizes an additional syntax-only mixed
+Bool-output path, after the original BitVec gate and before the legacy fallback.
+It accepts canonical positive-width BitVec and Bool inputs, arithmetic operands,
+unsigned comparisons, Bool literals and nested Bool-result muxes. Unrecognized
+programs still go through the existing fallback; symbolic/parameter compilation
+is unchanged. This is integrated into `synthesizeFromConst`, not a separate
+compiler offered in place of the shipping compiler.
+
+`Tools/ShippingMixedEntrySoundness.lean` proves the complete real mixed input
+walk (`prepare_returns`, `prepare_layout`), recursive translation and output
+emission, and `finishSynth`'s returned module. `synthesizeMixedCertified_sound`
+and `synthesizeFromConst_mixed_sound` establish `MixedPreserves`: the raw
+returned module evaluates to the quoted source value for all admissible input
+values. Widths are read from its actual declarations, and reversing the wire
+list during module finishing is proved harmless using declaration uniqueness.
+`synthesizeCombinationalCore_mixed_sound` connects this result to the exact
+`getConstInfo` read of the same execution, retaining the `EnvDefines` boundary.
+No recursive child-correctness, legacy-handler-correctness, final-width oracle
+or replay premise appears in these results.
+
+`Tools/ShippingMixedGateSoundness.lean` proves the mixed gate accepts well-formed
+quotations, distinguishes Bool from BitVec 1 binders, and commutes quotation
+with the actual `instFVars` substitution. `instantiated_quoteB` reduces source
+identification to the telescope's ordinary input mapping. The relational entry
+statement still explicitly requires source quotation, well-formedness, valuation
+lookup and admissible port values. It is not yet a theorem that every gate
+acceptance produces such a source witness, nor a whole-DSL success theorem.
+
+**Remaining:** compose this mixed entry with postprocessing, checked
+optimization, full text grammar and operational settling. Derive the source
+and input correspondence from a general mixed declaration telescope in the
+final source-Signal theorem. The old `compiledFragment_execution` still covers
+only its stated BitVec fragment. Width-changing operations, other Bool
+operations, BitVec-result muxes, state/reset, memory and hierarchy also remain
+outside the closed recursive domain. No outstanding obligation is filled by
+`sorry` in the audited endpoint theorems.
+
+The new entry keeps Bool ports scalar and BitVec ports explicitly vector typed,
+including BitVec 1. For the latter, the legacy path used a scalar declaration;
+this is a one-bit RTL declaration spelling change, with width and output values
+preserved in the regression. Do not claim byte-identical output for all sources.
+
+Validation: `lake build Tests.AllTests` passes (609 jobs). The nested source's
+shipping RTL passes Icarus for all 131,072 input combinations. The focused test
+covers five sources, 250 comparisons against both source meaning and the legacy
+entry (including a source rejected by the new gate but accepted by fallback),
+Bool versus BitVec 1, zero/noncanonical width rejection by the new gate, and
+symbolic/parameter bypass. All new theorems are checked for dependence only on
+`propext`, `Classical.choice`, and `Quot.sound`.
+
 ## Mixed recursive translation closed (2026-09-27)
 
 The recursive-child hypotheses are now discharged, not merely restated in
@@ -85,7 +137,7 @@ preserving an empty body/record and unique declarations. These binder rules
 can be composed starting from `CircuitM.init`; admissible input values are
 supplied as values at the allocated input wires.
 
-**Remaining top-level connection:** derive the complete input layout and source
+**At that checkpoint (superseded by the mixed-entry section above):** derive the complete input layout and source
 quotation from the actual synthesis telescope walk/type recognition, then
 connect module finishing, postprocessing, checked optimization, output text
 and settling for this mixed domain. The existing certified entry's gate is

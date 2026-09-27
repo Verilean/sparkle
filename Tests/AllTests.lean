@@ -102,6 +102,7 @@ import Tests.Compiler.ShippingMixedInvariantTest
 import Tests.Compiler.ShippingMixedLiteralSoundnessTest
 import Tests.Compiler.ShippingMixedBinarySoundnessTest
 import Tests.Compiler.ShippingMixedRecursionTest
+import Tests.Compiler.ShippingMixedEntryTest
 import Tests.Compiler.ShippingTypedPostSoundnessTest
 import Tests.Compiler.ShippingControlOptSoundnessTest
 import Tests.Compiler.ShippingModuleNamesTest
