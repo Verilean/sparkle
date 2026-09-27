@@ -52,6 +52,35 @@ X/Z and physical delays are not modeled. Module-name validity and
 normalization collisions are no longer outstanding on the checked synthesis
 paths described below. The dated entries preserve earlier intermediate states.
 
+## BitVec literals preserve the mixed invariant (2026-09-27)
+
+`Tools/ShippingMixedLiteralSoundness.lean` connects positive-width BitVec
+literals to `MixedInv` through the actual `translateExprToWire`, including a
+validated cache hit or fresh allocation followed by `recordTranslation`.
+No recursive-child or legacy-handler premise is required for this leaf.
+Existing Bool input values and both record interpretations are preserved.
+The source relation, initial mixed invariant and final declaration-width
+agreement remain explicit premises.
+
+`DeclGrows` supplies the declaration-inclusion relation and transports width
+agreement backward. The literal core's structural growth is proved without
+any semantic width environment, so it can support future intermediate-state
+width arguments. Allocation followed by assignment also has a reusable mixed
+preservation theorem. A theorem consumer verifies that a BitVec literal keeps
+a live Bool input and recovers the earlier state's width agreement.
+
+BitVec binary recursion is still open. Unlike Bool mux/comparison lowering,
+`translateCanonicalSignalBinary` reserves its output wire before translating
+children. Semantic value preservation alone does not rule out a child adding
+a translation record for that reserved output. The recursive structural
+contract must also carry reserved-name record preservation (the existing
+`RecordFresh` relation is available), alongside declaration growth. Closing
+that contract, fuel induction and mixed synthesis entry remains necessary;
+this change does not expand `compiledFragment_execution`'s source domain.
+
+Validation: `lake build Tests.AllTests` passes (600 jobs). The new theorem
+audit permits only `propext`, `Classical.choice` and `Quot.sound`.
+
 ## Joint Bool/BitVec invariant (2026-09-27)
 
 `Tools/ShippingMixedInvariant.lean` introduces `MixedInv`, which retains the

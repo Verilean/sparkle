@@ -99,6 +99,7 @@ import Tests.Compiler.ShippingCompareLoweringSoundnessTest
 import Tests.Compiler.ShippingBoolLiteralSoundnessTest
 import Tests.Compiler.ShippingBoolMuxSoundnessTest
 import Tests.Compiler.ShippingMixedInvariantTest
+import Tests.Compiler.ShippingMixedLiteralSoundnessTest
 import Tests.Compiler.ShippingTypedPostSoundnessTest
 import Tests.Compiler.ShippingControlOptSoundnessTest
 import Tests.Compiler.ShippingModuleNamesTest
