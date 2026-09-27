@@ -34,6 +34,7 @@ Owner/status: S2 complete; S3 active, comparisons, Bool logic/equality and BitVe
 
 Use the [active proof TODO](docs/CertifiedRoundtrip-TODO.md#current-shipping-compiler-todo)
 and [milestones with completion criteria](docs/ShippingCompiler-Milestones.md).
+For continuation from `52ab4c3`, see the [Claude Code handoff](docs/ShippingCompiler-ClaudeCode-Handoff.md).
 These are domain-specific coverage steps, not three independent global checks.
 Continue to the active milestone's endpoint; intermediate commits are review
 checkpoints rather than requests for another “continue”.
