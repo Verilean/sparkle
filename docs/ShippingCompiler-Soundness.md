@@ -52,6 +52,42 @@ X/Z and physical delays are not modeled. Module-name validity and
 normalization collisions are no longer outstanding on the checked synthesis
 paths described below. The dated entries preserve earlier intermediate states.
 
+## Joint Bool/BitVec invariant (2026-09-27)
+
+`Tools/ShippingMixedInvariant.lean` introduces `MixedInv`, which retains the
+execution prefix, typed body, both families of source input bindings/values,
+and both Bool and BitVec translation-record interpretations. It replaces the
+Bool-only invariant in the new composition theorems without changing compiler
+behavior or the existing final theorem.
+
+The `Separate` premise says that a source variable belongs to at most one input
+valuation. `denotes_disjoint` proves the two source relations cannot interpret
+the same expression under that premise, even when the BitVec width is one.
+Consequently, actual `recordTranslation` calls for either type preserve both
+record invariants. This cross-type obligation was not established by the
+previous Bool-only node results.
+
+The shared Bool emitter now preserves `MixedInv`. The actual shipping literal
+translator preserves it through both cache layers, with no child-translation
+premise. Both kinds of bound input reference preserve it without changing the
+state. Comparison and Bool mux composition, including validated fallback cache
+hits/misses, now return the same joint invariant, given joint child contracts.
+These theorems also preserve all previously reserved wire values. A theorem
+consumer checks that Bool literal translation retains an arbitrary live BitVec
+input and produces a joint invariant suitable for another call.
+
+Still open: connect BitVec literal/binary lowering to this invariant; prove
+structural declaration growth so final width agreement can be transported to
+intermediate children; close the fuel induction and initialize the invariant
+at mixed synthesis entry. Comparison/mux child contracts, final declaration
+width agreement and source valuation separation remain explicit premises.
+The mixed source-to-output theorem, other successful DSL paths and the
+`EnvDefines` trust boundary are unchanged. This establishes common invariant
+preservation for the listed nodes, not the full recursive translation theorem.
+
+Validation: `lake build Tests.AllTests` passes (598 jobs). All new theorem
+axioms are restricted to `propext`, `Classical.choice` and `Quot.sound`.
+
 ## Bool mux connected to the shipping translator (2026-09-27)
 
 Exact library `Signal.mux` applications returning Bool now take the total
