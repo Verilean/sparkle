@@ -6,7 +6,7 @@ group is rough priority.  Update as items land.
 
 ## Current shipping compiler TODO
 
-Updated 2026-09-27, S2 at `075e9f4`; S3 comparisons and canonical Bool logic/equality connected. This section is the current
+Updated 2026-09-28, S2 at `075e9f4`; S3 comparisons, Bool logic/equality and BitVec mux trees connected. This section is the current
 execution checklist for the CompCert-style **existing successful compiler**
 goal. The older sections below retain historical/per-instance tracks; their
 “next” items do not override this list. Milestone definitions and exit criteria:
@@ -66,12 +66,25 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   recursive compiler, syntax and finite RTL settling. Preserve cache determinacy
   and separation from BitVec meanings. Instantiate the general endpoint on
   mixed nested sources. Other overloads and mapped/unfolded forms remain open.
+- [x] **S3 / BitVec mux trees:** `VExpr` covers same positive-width nested mux
+  branches, existing arithmetic leaves and existing `BExpr` conditions. The
+  actual recursive translation, source entry, output grammar/binding and finite
+  RTL settling are connected by `ShippingVectorMuxSoundness.execution_source_of_env`.
+  Backend output invariants now carry arbitrary width; existing Bool wrappers
+  remain valid. Real nested-source theorem and 2,772 source/legacy/SV/delta cases
+  at widths 1/8/65 pass the standard-axiom audit.
+- [ ] **S3 / mutual mux composition:** A vector mux under arithmetic or comparison
+  is still outside `VExpr`, despite compiling successfully (`underArithmetic`
+  regression). Extend the mutually recursive source relation and cache invariant.
+  Vector mux nodes currently bypass cache lookup/recording; children retain the
+  existing cache. Restore safe mux-node reuse with that stronger invariant;
+  repeated mux trees can currently generate extra intermediate wires.
 - [ ] **S3:** Build a branch/feature coverage inventory of the actual compiler's
   successful entry/dispatcher/pass paths; identify exact uncovered cases.
   [Initial structural inventory](ShippingCompiler-Coverage.md) added; detailed
   success witnesses and exhaustive branch reconciliation remain open.
-- [ ] **S3:** Remaining combinational operations and interfaces: BitVec-result
-  mux, remaining Bool surface forms/comparison/shift paths, mixed/changed widths, successful
+- [ ] **S3:** Remaining combinational operations and interfaces: remaining mux forms,
+  remaining Bool surface forms/comparison/shift paths, mixed/changed widths, successful
   aggregate and parameterized/symbolic forms. Close syntax and RTL meaning for
   each extension; inventory determines the complete list.
 - [ ] **S4:** Actual state/register/reset compilation and arbitrary admissible
@@ -86,9 +99,11 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
 - [ ] **S7 / trust:** Resolve or explicitly retain `EnvDefines` in the final
   claim; record execution-model/external-tool boundaries without hiding them.
 
-Latest validation: `lake build Tests.AllTests` passed all 626 jobs, with
+Latest validation: `lake build Tests.AllTests` passed all 630 jobs, with
 standard-axiom audits of the general endpoint and real signed/equality/Bool-logic
-source instantiations. New Bool equality and logic tests check 1,890 and 1,962
+source instantiations. Vector mux adds 2,772 source/legacy/SV/delta cases and
+real source theorems for nested and computed-condition muxes (no Bool input
+required). Bool equality and logic tests check 1,890 and 1,962
 source/legacy/SV/delta cases; custom asymmetric Bool BEq is checked on all inputs.
 Existing coverage includes 2,250 signed and 2,250 BitVec equality execution cases,
 32 custom-BEq cases and 14 exhaustive applicative compilations. The existing

@@ -135,15 +135,17 @@ theorem mergeDuplicates_typed {m : Sparkle.IR.AST.Module}
     exact validateMerge_typed hz hv hs
   · exact hs
 
-/-- The distinguished Bool output keeps its one-bit RHS through merging. -/
-def OutputTyped (we : WEnv) (body : List Stmt) : Prop :=
-  ∀ e, Stmt.assign "out" e ∈ body → TypedExpr we e 1
+/-- The distinguished output keeps its source width through merging. -/
+def OutputTypedAt (outWidth : Nat) (we : WEnv) (body : List Stmt) : Prop :=
+  ∀ e, Stmt.assign "out" e ∈ body → TypedExpr we e outWidth
+
+abbrev OutputTyped := OutputTypedAt 1
 
 theorem validateMerge_go_output {we : WEnv} {allLhs : List String} (hz : we "out" = 0) :
     ∀ (old new : List Stmt) (st : MergeCheck),
-      validateMerge.go we allLhs st old new = true → TypedStmts we old → OutputTyped we old →
+      validateMerge.go we allLhs st old new = true → TypedStmts we old → OutputTypedAt outWidth we old →
       (∀ x, we (aliasOf st.S x) = we x) →
-      (∀ x ∈ st.defined, 0 < we x ∨ x = "out") → OutputTyped we new
+      (∀ x ∈ st.defined, 0 < we x ∨ x = "out") → OutputTypedAt outWidth we new
   | [], [], _, _, _, _, _, _ => fun _ h => by cases h
   | [], _ :: _, _, h, _, _, _, _ => by simp [validateMerge.go] at h
   | _ :: _, [], _, h, _, _, _, _ => by simp [validateMerge.go] at h
@@ -166,8 +168,8 @@ theorem validateMerge_go_output {we : WEnv} {allLhs : List String} (hz : we "out
 
 theorem mergeDuplicates_output {m : Sparkle.IR.AST.Module}
     (hz : weOf m "out" = 0) (hs : TypedStmts (weOf m) m.body)
-    (ho : OutputTyped (weOf m) m.body) :
-    OutputTyped (weOf (mergeDuplicates m)) (mergeDuplicates m).body := by
+    (ho : OutputTypedAt outWidth (weOf m) m.body) :
+    OutputTypedAt outWidth (weOf (mergeDuplicates m)) (mergeDuplicates m).body := by
   unfold mergeDuplicates
   simp only [hs.isAssign, if_true]
   split

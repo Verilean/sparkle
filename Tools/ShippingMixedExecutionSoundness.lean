@@ -18,7 +18,7 @@ open Tools.SVParser.AST Tools.SVParser.EmitAst Tools.SVParser.EmitSem
 
 /-- Order survives both actual postprocessing choices and optimizer selections. -/
 theorem checked_order {m m' : Sparkle.IR.AST.Module}
-    (base : PrintBase m) (ready : TypedPostReady m) (simple : SimpleStmts m.body)
+    (base : PrintBaseAt outWidth m) (ready : TypedPostReady m) (simple : SimpleStmts m.body)
     (post : m' = dropZeroWidthModule m ∨ m' = mergeDuplicates (dropZeroWidthModule m)) :
     Acyclic (checkedOptimize m').body := by
   have hd : Acyclic (dropZeroWidthModule m).body := by rw [(dropZeroWidth_typed ready).1]; exact base.order
@@ -47,11 +47,11 @@ theorem emitted_bit_output {m : Sparkle.IR.AST.Module} {sv : SVModule} {p : Port
   simp [hnone, declaredPortWidth, show (SVPortDir.output == .output) = true from rfl]
 
 theorem checked_output {m m' : Sparkle.IR.AST.Module} {sv : SVModule}
-    (base : PrintBase m) (ready : TypedPostReady m) (simple : SimpleStmts m.body)
+    (base : PrintBaseAt outWidth m) (ready : TypedPostReady m) (simple : SimpleStmts m.body)
     (post : m' = dropZeroWidthModule m ∨ m' = mergeDuplicates (dropZeroWidthModule m))
     (ast : emitAstModule (checkedOptimize m') = some sv)
     (decls : Declarations (checkedOptimize m') sv) :
-    declaredOutputWidth sv "out" = some 1 ∧ astWidths sv "out" = some 1 := by
+    declaredOutputWidth sv "out" = some outWidth ∧ astWidths sv "out" = some outWidth := by
   have simple' : SimpleStmts m'.body := by
     have hs : SimpleStmts (dropZeroWidthModule m).body := by rw [(dropZeroWidth_typed ready).1]; exact simple
     rcases post with rfl | rfl
@@ -68,9 +68,11 @@ theorem checked_output {m m' : Sparkle.IR.AST.Module} {sv : SVModule}
     simp [Sparkle.Backend.Verilog.sanitizeName, String.all_bool_eq]
   constructor
   · cases pt with
-    | bit => simpa only [cleanOut] using emitted_bit_output ast output rfl
+    | bit =>
+      change 1 = outWidth at width
+      simpa only [cleanOut, width] using emitted_bit_output ast output rfl
     | bits n hn =>
-      change n = 1 at width
+      change n = outWidth at width
       subst n
       simpa only [cleanOut] using emitAstModule_outputWidth ast output rfl hn
   · obtain ⟨names, consistent, _, _⟩ := checked_layout base ready simple post
@@ -99,7 +101,7 @@ def ExecutionValue (m : Sparkle.IR.AST.Module) (initial : Env) (mems : MEnv) (ex
         SettlesTo sv pairs initial expected)
 
 theorem execution_of_entry {bs m m' initial mems expected}
-    (h : RawValue bs m initial mems expected) (positive : PositiveBinders bs)
+    (h : RawValueAt outWidth bs m initial mems expected) (positive : PositiveBinders bs)
     (post : m' = dropZeroWidthModule m ∨ m' = mergeDuplicates (dropZeroWidthModule m)) :
     ExecutionValue m' initial mems expected := by
   have render := rendered_of_entry h positive post
@@ -146,7 +148,7 @@ theorem execution_of_entry {bs m m' initial mems expected}
   rw [run] at irRun
   cases irRun
   have observed : observeUnsignedOutput sv result "out" = some expected := by
-    have b := stableWidths "out" 1 output.2
+    have b := stableWidths "out" outWidth output.2
     simp only [observeUnsignedOutput, output.1, bind, Option.bind_some]
     rw [Nat.mod_eq_of_lt b, value]
   refine ⟨result, stableRun, observed, solution, ?_, ?_⟩

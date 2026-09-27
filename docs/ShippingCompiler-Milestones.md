@@ -1,6 +1,6 @@
 # Shipping compiler proof — milestones
 
-Updated 2026-09-27; S2 completed in `075e9f4`; S3 signed comparisons, standard BitVec/Bool equality and canonical Bool logic connected.
+Updated 2026-09-28; S2 completed in `075e9f4`; S3 comparisons, Bool logic/equality and BitVec mux trees connected.
 This is the current milestone plan for the existing compiler. The dated entries
 in [the proof record](ShippingCompiler-Soundness.md), and the earlier
 certificate/typed-frontend milestones, are evidence and history, not this plan's
@@ -27,7 +27,7 @@ proved and audited, not when a certain number of lemmas or commits have landed.
 | S0 | Original positive-width BitVec combinational fragment | Done | Actual shipping text has concrete syntax and unique bound declarations; emitted AST has the unique bounded solution and finite delta settling to the source value. `compiledFragment_execution` supplies the endpoint. |
 | S1 | Current mixed Bool/BitVec fragment: source IR and syntax | Done, `2ad67ae` | Actual entry, cleanup/checked merge and both checked optimizer selections connect source IR values to the exact printed AST, concrete grammar, legal names and all reference/target bindings. `syntax_source_of_env` supplies the endpoint. |
 | S2 | Current mixed fragment: RTL semantics and settling | Done | One general shipping-source endpoint combines S1 with AST semantic preservation, unique bounded solution, and existence/convergence of every permitted delta trace to the source output. No caller-supplied expression-check, acyclicity, child-correctness or compiler-replay certificate. |
-| S3 | Remaining successful combinational paths | Active — comparisons and canonical Bool logic connected | Inventory the existing successful paths, then connect remaining Bool surface forms, BitVec-result mux, other comparisons/shifts, width-changing/mixed-width operations and successful interface forms through syntax and RTL semantics. Completion requires the inventory's combinational entries to be covered, not one more chosen example. |
+| S3 | Remaining successful combinational paths | Active — comparisons, Bool logic and BitVec mux trees connected | Inventory the existing successful paths, then connect remaining Bool surface forms, BitVec-result mux, other comparisons/shifts, width-changing/mixed-width operations and successful interface forms through syntax and RTL semantics. Completion requires the inventory's combinational entries to be covered, not one more chosen example. |
 | S4 | State and reset | Pending | Derive a general state/trace correspondence from the actual stateful compilation path, including initialization, clock/update observation, enable/hold and supported reset behavior; preserve it through actual postprocessing, optimization and emitted RTL. Separate typed single-register results do not close this milestone. |
 | S5 | Memory | Pending | Model and prove the actual successful memory paths: initialization assumptions, read latency, writes/masks, read/write ordering and collisions where applicable. Connect arbitrary admissible traces through actual compilation and emitted RTL. |
 | S6 | Hierarchy | Pending | Give instances compositional execution semantics; prove port/parameter/width linkage and state/memory composition for actual successful hierarchical entry points. Name validation alone does not close this milestone. |
@@ -42,7 +42,9 @@ establish general mixed-width arithmetic or BitVec-result mux. S3 now extends
 the same general endpoint to `Signal.slt`, `Signal.sle` and standard BitVec
 `Signal.beq`, standard Bool equality and canonical Bool `&&&`/`|||`/`^^^`/`~~~`,
 recursively combined with Bool-result mux, over the same common positive-width
-arithmetic operands.
+arithmetic operands. The new `VExpr` endpoint additionally covers BitVec-result
+mux trees with `BExpr` conditions and `FExpr` leaves. It does not allow a vector
+mux below an arithmetic/comparison node, or mixed result/operand widths.
 
 The chosen proof order is S2, then extension work S3–S6, then S7. State/memory/
 hierarchy do not logically depend on completing every combinational extension;
@@ -144,9 +146,27 @@ source theorems and legacy-path comparisons are in `ShippingBoolEqualityTest`
 and `ShippingBoolLogicTest`. This does not cover arbitrary user instances or
 all mapped/unfolded spellings.
 
-Next: BitVec-result mux, followed by varying widths
-and the remaining successful interfaces. S3 remains open until the inventory
-is reconciled; the comparison and Bool extensions do not close it.
+Completed S3 extension: positive common-width BitVec mux trees. The general
+`ShippingVectorMuxSoundness.execution_source_of_env` endpoint connects actual
+recursive translation and source input positions to arbitrary-width output,
+concrete syntax/binding, unique bounded equations and finite RTL settling.
+`ShippingVectorMuxRecursion` proves both value and dependency-order contracts;
+`ShippingContractEntrySoundness` derives output facts from those contracts.
+The original Bool endpoint remains a one-bit specialization of the backend.
+`ShippingVectorMuxTest` instantiates nested and computed-condition sources
+(including a source without Bool inputs) and checks 2,772
+source/legacy/SV/delta cases at widths 1/8/65, including shared arithmetic leaves.
+
+Vector mux nodes currently use direct total lowering without cache lookup or
+recording; child translations still use the existing cache. Repeated muxes may
+therefore produce extra intermediate wires. This is an explicit temporary
+implementation tradeoff, not a proof of the legacy mux cache behavior.
+
+Next: vector mux results below arithmetic/comparison nodes and the associated
+mutual source/cache invariants, then varying widths and remaining successful
+interfaces. `underArithmetic` already compiles and is regression-tested, but is
+not in the source theorem. S3 remains open until the inventory is reconciled;
+S4–S7 (state/reset, memory, hierarchy and final composition) remain unfinished.
 
 ## Trust, validation and work cadence
 
@@ -157,7 +177,7 @@ is reconciled; the comparison and Bool extensions do not close it.
   rounds with fixed inputs; delta rounds are not source clock cycles. External
   simulator equivalence, arbitrary event scheduling, X/Z and physical delays
   are not proved. Stateful extensions must state their clock/trace models.
-- The S0–S2 endpoints and S3 comparison/Bool-logic extensions have no `sorry` dependency.
+- The S0–S2 endpoints and S3 comparison/Bool-logic/vector-mux-tree extensions have no `sorry` dependency.
   Other files in the repository can contain placeholders or executable-oracle
   proofs; do not use a repository-wide placeholder count as the endpoint audit.
 - Latest validation: `lake build Tests.AllTests`, 626 jobs. New Bool equality

@@ -16,7 +16,7 @@ open Tools.SVParser.AST Tools.SVParser.EmitAst Tools.SVParser.EmitSem
 /-- The output's separate declaration is included in the execution width map;
 all referenced internal widths agree with that map. -/
 theorem post_forwardCheck {m m' : Sparkle.IR.AST.Module}
-    (base : PrintBase m) (ready : TypedPostReady m)
+    (base : PrintBaseAt outWidth m) (ready : TypedPostReady m)
     (post : m' = dropZeroWidthModule m ∨ m' = mergeDuplicates (dropZeroWidthModule m)) :
     forwardCheck m' = true := by
   obtain ⟨hi, ho, sub⟩ := post_layout ready post
@@ -28,9 +28,9 @@ theorem post_forwardCheck {m m' : Sparkle.IR.AST.Module}
     · exact sanitizeName_of_clean h.1
     · rw [h]; simp [Sparkle.Backend.Verilog.sanitizeName, String.all_bool_eq]
   have typed : TypedStmts (Tools.ShippingEntrySoundness.weOf m') m'.body ∧
-      OutputTyped (Tools.ShippingEntrySoundness.weOf m') m'.body := by
+      OutputTypedAt outWidth (Tools.ShippingEntrySoundness.weOf m') m'.body := by
     have hd := dropZeroWidth_typed ready
-    have out : OutputTyped (Tools.ShippingEntrySoundness.weOf (dropZeroWidthModule m))
+    have out : OutputTypedAt outWidth (Tools.ShippingEntrySoundness.weOf (dropZeroWidthModule m))
         (dropZeroWidthModule m).body := by rw [hd.1, hd.2.1]; exact base.outputTyped
     rcases post with rfl | rfl
     · exact ⟨hd.2.2.2.2, out⟩
@@ -97,7 +97,7 @@ theorem post_forwardCheck {m m' : Sparkle.IR.AST.Module}
 /-- The existing guard transfers the arithmetic branch; control modules keep
 the postprocessed original. No forward-check certificate is supplied. -/
 theorem checked_forwardCheck {m m' : Sparkle.IR.AST.Module}
-    (base : PrintBase m) (ready : TypedPostReady m) (simple : SimpleStmts m.body)
+    (base : PrintBaseAt outWidth m) (ready : TypedPostReady m) (simple : SimpleStmts m.body)
     (post : m' = dropZeroWidthModule m ∨ m' = mergeDuplicates (dropZeroWidthModule m)) :
     forwardCheck (checkedOptimize m') = true := by
   have simple' : SimpleStmts m'.body := by
@@ -123,7 +123,7 @@ def ForwardValue (m : Sparkle.IR.AST.Module) (initial : Env) (mems : MEnv) (expe
       evalAssignsSV (astWidths sv) mems pairs initial = some result ∧ result "out" = expected)
 
 theorem forward_of_entry {bs m m' initial mems expected}
-    (h : RawValue bs m initial mems expected) (positive : PositiveBinders bs)
+    (h : RawValueAt outWidth bs m initial mems expected) (positive : PositiveBinders bs)
     (post : m' = dropZeroWidthModule m ∨ m' = mergeDuplicates (dropZeroWidthModule m)) :
     ForwardValue m' initial mems expected := by
   have render := rendered_of_entry h positive post

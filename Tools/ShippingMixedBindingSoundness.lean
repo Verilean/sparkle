@@ -136,7 +136,7 @@ theorem printWidths_decl {m : Sparkle.IR.AST.Module} {p : Port}
 /-- In the branch without comparison/mux, the existing optimizer guard's
 printing premise is derived, including the one-bit output assignment. -/
 theorem post_printCheck {m m' : Sparkle.IR.AST.Module}
-    (base : PrintBase m) (ready : TypedPostReady m) (simple : SimpleStmts m'.body)
+    (base : PrintBaseAt outWidth m) (ready : TypedPostReady m) (simple : SimpleStmts m'.body)
     (post : m' = dropZeroWidthModule m ∨ m' = mergeDuplicates (dropZeroWidthModule m))
     (control : ¬ HasControl m'.body) : Sparkle.IR.PrintCheck.moduleCheck m' = true := by
   obtain ⟨hi, ho, sub⟩ := post_layout ready post
@@ -148,9 +148,9 @@ theorem post_printCheck {m m' : Sparkle.IR.AST.Module}
     · exact sanitizeName_of_clean h.1
     · rw [h]; simp [Sparkle.Backend.Verilog.sanitizeName, String.all_bool_eq]
   have typed : TypedStmts (Tools.ShippingEntrySoundness.weOf m') m'.body ∧
-      OutputTyped (Tools.ShippingEntrySoundness.weOf m') m'.body := by
+      OutputTypedAt outWidth (Tools.ShippingEntrySoundness.weOf m') m'.body := by
     have hd := dropZeroWidth_typed ready
-    have out : OutputTyped (Tools.ShippingEntrySoundness.weOf (dropZeroWidthModule m))
+    have out : OutputTypedAt outWidth (Tools.ShippingEntrySoundness.weOf (dropZeroWidthModule m))
         (dropZeroWidthModule m).body := by rw [hd.1, hd.2.1]; exact base.outputTyped
     rcases post with rfl | rfl
     · exact ⟨hd.2.2.2.2, out⟩
@@ -204,7 +204,7 @@ theorem post_name {m m' : Sparkle.IR.AST.Module} (ready : TypedPostReady m)
     split <;> exact hd
 
 theorem post_syntax {m m' : Sparkle.IR.AST.Module}
-    (base : PrintBase m) (ready : TypedPostReady m)
+    (base : PrintBaseAt outWidth m) (ready : TypedPostReady m)
     (post : m' = dropZeroWidthModule m ∨ m' = mergeDuplicates (dropZeroWidthModule m)) :
     SyntaxBound m' (Sparkle.Backend.Verilog.toVerilog m') := by
   obtain ⟨hi, ho, sub⟩ := post_layout ready post
@@ -231,7 +231,7 @@ theorem post_syntax {m m' : Sparkle.IR.AST.Module}
 /-- Control-bearing mixed modules retain the proved postprocessed AST in the
 actual checked optimizer, so the grammar derivation describes `verilogOf`. -/
 theorem post_control_syntax {m m' : Sparkle.IR.AST.Module}
-    (base : PrintBase m) (ready : TypedPostReady m) (simple : SimpleStmts m.body)
+    (base : PrintBaseAt outWidth m) (ready : TypedPostReady m) (simple : SimpleStmts m.body)
     (control : HasControl m.body)
     (post : m' = dropZeroWidthModule m ∨ m' = mergeDuplicates (dropZeroWidthModule m)) :
     SyntaxBound (checkedOptimize m') (verilogOf m') := by
@@ -252,7 +252,7 @@ theorem post_control_syntax {m m' : Sparkle.IR.AST.Module}
 /-- Full binding and concrete grammar for the real selected module. Both
 optimizer retention and acceptance are covered without a caller certificate. -/
 theorem checked_syntax {m m' : Sparkle.IR.AST.Module}
-    (base : PrintBase m) (ready : TypedPostReady m) (simple : SimpleStmts m.body)
+    (base : PrintBaseAt outWidth m) (ready : TypedPostReady m) (simple : SimpleStmts m.body)
     (post : m' = dropZeroWidthModule m ∨ m' = mergeDuplicates (dropZeroWidthModule m)) :
     SyntaxBound (checkedOptimize m') (verilogOf m') := by
   have simple' : SimpleStmts m'.body := by

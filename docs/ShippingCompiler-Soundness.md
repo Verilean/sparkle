@@ -5,7 +5,7 @@ For continuing work in Codex or Claude Code, start with the
 [active TODO](CertifiedRoundtrip-TODO.md#current-shipping-compiler-todo).
 These define the current work unit and exit criteria; dated entries below
 record earlier states. S2 completed in `075e9f4`; S3 signed comparisons,
-standard BitVec/Bool equality and canonical Bool logic are now connected (2026-09-27).
+standard BitVec/Bool equality, canonical Bool logic and BitVec mux trees are connected (2026-09-28).
 
 The target agreed on 2026-09-24 is the existing compiler's successful domain:
 
@@ -2799,3 +2799,34 @@ The current bounded frontend and crc16's per-instance certificates do not close
 these rows. Generic theorem/axiom checks are the primary criterion. For the
 state-storage change, synthesis and scope regressions check integration; they
 do not discharge additional rows of the general proof.
+
+
+## 2026-09-28 — BitVec mux trees through emitted RTL
+
+`Tools.ShippingVectorMuxSoundness.execution_source_of_env` connects successful
+shipping compilation of the quoted `VExpr` domain to `ExecutionValue`: the same
+actual text/AST, legal unique declarations and bound references, forward SV
+semantics, unique bounded solution and finite parallel delta settling to the
+library Signal output at any source observation time. `EnvDefines` and input
+agreement/bounded initialization remain explicit. No X/Z, delay or external
+simulator equivalence is added.
+
+`VExpr` has arithmetic leaves and nested same-width vector muxes selected by the
+existing recursive Bool domain. `vector_fuel_contract` and `vector_fuel_orders`
+close actual recursion; arbitrary-width output contracts connect to the shared
+backend, retaining existing one-bit Bool aliases. This is not the full mutually
+recursive Bool/BitVec language: a mux under arithmetic/comparison, varying widths,
+state/reset, memory and hierarchy remain open. The vector mux route bypasses
+mux-node cache lookup/recording, while retaining child caches, pending a stronger
+source/cache invariant. Repeated muxes can generate duplicate intermediate wires.
+
+The real nested source theorem and endpoint have only `propext`,
+`Classical.choice` and `Quot.sound` dependencies. `ShippingVectorMuxTest` checks
+2,772 source/legacy/SV/parallel-delta cases at widths 1/8/65. The legacy comparison
+uses the original cached handler chain at every recursive step; this is
+regression evidence, not a universal proof of that chain.
+
+Validation: `lake build Tests.AllTests` passes all 630 jobs. The additional
+computed-condition source theorem has no Bool-input requirement: the old-gate
+miss is stated on the pure declaration shape, rather than requiring its
+BitVec-only telescope peeler itself to fail.

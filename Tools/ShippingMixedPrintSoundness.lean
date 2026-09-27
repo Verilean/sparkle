@@ -15,7 +15,7 @@ open Tools.ShippingPrintEntrySoundness Tools.ShippingModulePrintSoundness Tools.
 open Tools.SVParser.AST Tools.SVParser.EmitAst
 open Tools.ShippingMixedDeclSoundness
 
-theorem printBase_concrete {m : Sparkle.IR.AST.Module} (h : PrintBase m) : allConcrete m = true := by
+theorem printBase_concrete {m : Sparkle.IR.AST.Module} (h : PrintBaseAt outWidth m) : allConcrete m = true := by
   unfold allConcrete
   rw [List.all_eq_true]
   intro p hp
@@ -29,7 +29,7 @@ theorem printBase_concrete {m : Sparkle.IR.AST.Module} (h : PrintBase m) : allCo
       cases ht <;> rfl
   · rcases h.wires p hp with ht | ⟨n, ht⟩ <;> simp [ht, HWType.bitWidth?]
 
-theorem printBase_cleanup {m : Sparkle.IR.AST.Module} (h : PrintBase m) :
+theorem printBase_cleanup {m : Sparkle.IR.AST.Module} (h : PrintBaseAt outWidth m) :
     PrintableDecls (dropZeroWidthModule m) := by
   unfold PrintableDecls dropZeroWidthModule
   simp only [printBase_concrete h, Bool.not_true, Bool.false_eq_true, if_false]
@@ -47,7 +47,7 @@ theorem printBase_cleanup {m : Sparkle.IR.AST.Module} (h : PrintBase m) :
       omega
 
 theorem mixed_post_printDecls {m m' : Sparkle.IR.AST.Module}
-    (base : PrintBase m) (ready : TypedPostReady m)
+    (base : PrintBaseAt outWidth m) (ready : TypedPostReady m)
     (post : m' = dropZeroWidthModule m ∨ m' = mergeDuplicates (dropZeroWidthModule m)) :
     PrintableDecls m' := by
   have hp := printBase_cleanup base
@@ -112,7 +112,7 @@ def RenderedValue (m : Sparkle.IR.AST.Module) (initial : Env) (mems : MEnv) (exp
 optimizer path, alongside the source value. Positivity is a pure source-binder
 condition, discharged by `mixedShape_positive` at the real entry. -/
 theorem rendered_of_entry {bs m m' initial mems expected}
-    (h : RawValue bs m initial mems expected) (positive : PositiveBinders bs)
+    (h : RawValueAt outWidth bs m initial mems expected) (positive : PositiveBinders bs)
     (post : m' = dropZeroWidthModule m ∨ m' = mergeDuplicates (dropZeroWidthModule m)) :
     RenderedValue m' initial mems expected := by
   obtain ⟨result, run, value, ready, simple, widths, out, bounds, base⟩ := h

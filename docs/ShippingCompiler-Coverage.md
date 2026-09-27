@@ -1,6 +1,6 @@
 # Shipping compiler coverage inventory
 
-Updated 2026-09-27, including signed comparisons, standard BitVec/Bool equality and canonical Bool logic. This is an initial structural inventory of the
+Updated 2026-09-28, including comparisons, Bool logic/equality and BitVec mux trees. This is an initial structural inventory of the
 existing compiler, not an exhaustive success-domain theorem or a new acceptance
 policy. A registered operator/handler is a possible route, not evidence that
 every source spelling succeeds. S3 must attach successful source witnesses and
@@ -14,10 +14,11 @@ Use declaration names as anchors; source line numbers move during extensions.
 | Actual route | Current shipping theorem coverage | Remaining obligation |
 | --- | --- | --- |
 | `synthesizeFromConst` → `certifiedShape?` → `synthesizeCertified` | S0: quoted positive-width BitVec fragment, `compiledFragment_execution` | Extend source/interface forms outside this gate without treating refusal by this gate as compiler failure. |
-| `synthesizeFromConst` → `mixedCertifiedShape?` → `synthesizeMixedCertified` | S1/S2: Bool inputs/literals, canonical `&&&`/`|||`/`^^^`/`~~~`, `ult`/`ule`/`slt`/`sle`, standard BitVec/Bool `beq`, Bool-result mux over common-width BitVec operands; `execution_source_of_env` | Extend operations/results and recursive width invariants. |
+| `synthesizeFromConst` → `mixedCertifiedShape?` → `synthesizeMixedCertified` | S1/S2: Bool inputs/literals, canonical `&&&`/`|||`/`^^^`/`~~~`, `ult`/`ule`/`slt`/`sle`, standard BitVec/Bool `beq`, Bool-result mux over common-width BitVec operands; BitVec mux trees via `ShippingVectorMuxSoundness.execution_source_of_env` | Extend operations/results and recursive width invariants. |
 | Both shape gates miss → existing synthesis/cache path | No general source-to-shipping-RTL theorem | Reconcile source opening, normalization, output leaf splitting, cached submodules and all successful legacy handlers. |
 | `translateStepWith` → `translateCore` | Existing fragment's literals, inputs and eight binary operations; mixed order proof reuses protected pending names | Other supported surface forms must be related to the quoted source, not assumed equal. |
 | `translateFallback` → Bool control/cache path | Current quoted Bool domain, including validated cache hit/miss behavior | Other Bool surface forms/custom instances and additional comparison forms. |
+| `translateFallback` → direct literal-width BitVec mux | `VExpr`: nested mux branches, `BExpr` conditions, `FExpr` leaves; no mux-node cache records | Mutual composition below arithmetic/comparison parents and proved mux cache reuse. |
 | `translateFallback` → `Rec.translateExprToWireCached` / `translateExprToWireImpl` | No blanket fallback theorem | Unfolding/type queries, application normalization, primitive and structural routes below. |
 | `synthesizeCombinationalWithParameters`, symbolic dimensions | Not covered by S0–S2 endpoint | Parameter interpretation, width positivity/zero-width behavior, emitted parameter syntax and instantiated execution. |
 | `synthesizeHierarchical*` / `validateDesignNames` | Name validation is implemented; no general hierarchy semantic theorem | S6 instance/port/parameter semantics and composition. |
@@ -31,7 +32,7 @@ Use declaration names as anchors; source line numbers move during extensions.
 | Standard BitVec `Signal.beq` | The general quoted-source endpoint now includes equality at a common positive width, recursively with all ordered comparisons and Bool-result mux. The direct route checks that BEq comes from decidable equality; arbitrary user BEq is not reinterpreted as RTL `==`. |
 | Canonical Bool `&&&` / `|||` / `^^^` / `~~~`, standard Bool `Signal.beq` | Recursive quoted-source endpoint connected, including mixed nested comparisons/muxes. Mapped/unfolded spellings and custom instances are not generally proved. |
 | BitVec unary negation/complement | Outside the current shipping source endpoint; require their own source/recursive/backend connection. |
-| `handleMux` | Bool-result quoted mux is covered by the specialized control path. BitVec-result and other successful mux forms remain outside that theorem. |
+| `handleMux` | Bool-result mux and positive common-width BitVec mux trees are connected through separate general source endpoints. Vector mux under arithmetic/comparison parents and other successful forms remain unproved; `underArithmetic` is a compiling regression witness. |
 | `handleBitVecOps`, `translateShiftAmount` | Same-width logical shifts covered in the quoted domain. Nat amounts, other amount widths, arithmetic right shifts and extraction/unwrapping paths require their own connection. |
 | `handleBitVecOps`, primitive application handling inside `translateExprToWireImpl` | Slices, concatenation, zero extension/truncation and sign-extension handling require varying-width source semantics and matching AST/RTL rules. The application handler has additional paths; enumerating only `handleBitVecOps` is insufficient. |
 | `handleApplicative`, `handleTupleProjections`, `splitReturnLeaves`, `openRecordInputs` | General map/ap/tuple/record interfaces, flattened outputs and inputs are outside the scalar quoted endpoint. Track source-to-port mapping and multiple output observations. |
@@ -136,3 +137,20 @@ to an external simulator have not been proved.
    shipping endpoint. Do not close S3 after the first extension.
 3. Reconcile the remaining successful branches against this table before S7;
    maintain state, memory and hierarchy obligations under S4–S6.
+
+## BitVec mux-tree extension
+
+`VExpr` admits existing arithmetic leaves and nested BitVec mux branches with
+existing Bool conditions at a common positive width. Output typing, printing,
+binding and execution now carry that width instead of assuming one bit.
+[ShippingVectorMuxTest](../Tests/Compiler/ShippingVectorMuxTest.lean) instantiates
+a real source theorem and checks 2,772 execution cases (widths 1/8/65, both
+conditions, overflow, aliasing, three initial seeds and three postprocessing
+routes). `underArithmetic` is included only as a regression: it is a successful
+source outside `VExpr`. The former mux fallback witness in `ShippingMixedEntryTest`
+is now admitted by the expanded mixed gate.
+
+The direct total mux route intentionally avoids lookup and recording at vector
+mux nodes until the source/cache invariant includes their meanings. This can
+increase duplicate intermediate work; arithmetic/Bool children retain validated
+caching. The legacy recursive chain is compared in tests, not claimed proved.

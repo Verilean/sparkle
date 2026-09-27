@@ -1923,13 +1923,34 @@ def mixedGateBoolBody (kinds : Array MixedGateBinder) : Lean.Expr → Bool
       else false
   | _ => false
 
+/-- Same-width BitVec mux trees with the existing arithmetic leaves and Bool
+conditions. Arithmetic/comparison parents of vector muxes need a later mutually
+recursive source extension. -/
+def mixedGateVectorBody (kinds : Array MixedGateBinder) (n : Nat) : Lean.Expr → Bool
+  | .app (.app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.mux _) _)
+      (.app (.const ``BitVec _) w)) c) a) b =>
+    canonicalNatLitValue? w == some n && mixedGateBoolBody kinds c &&
+      mixedGateVectorBody kinds n a && mixedGateVectorBody kinds n b
+  | e => gateBody (mixedBitKinds kinds) n e
+
+def mixedGateVectorWidth? (kinds : Array MixedGateBinder) (e : Lean.Expr) : Option Nat :=
+  match canonicalMuxType? e with
+  | some (.bitVector n) => some n
+  | _ => gateTopWidth? (mixedBitKinds kinds) e
+
+def mixedGateVectorRoot (kinds : Array MixedGateBinder) (e : Lean.Expr) : Bool :=
+  match mixedGateVectorWidth? kinds e with
+  | some n => 0 < n && mixedGateVectorBody kinds n e
+  | none => false
+
 def mixedCertifiedShape? (symbolicMode : Bool) (parameters : List (String × Nat)) :
     ConstantInfo → Option (List (Name × MixedGateBinder) × Lean.Expr)
   | .defnInfo d =>
     if symbolicMode || !parameters.isEmpty then none else
     match mixedGatePeel d.value with
     | some (bs, body) =>
-      if mixedGateBoolBody (bs.map (·.2)).toArray body then some (bs, body) else none
+      if mixedGateBoolBody (bs.map (·.2)).toArray body ||
+          mixedGateVectorRoot (bs.map (·.2)).toArray body then some (bs, body) else none
     | none => none
   | _ => none
 
@@ -4742,7 +4763,14 @@ def translateFallback (rec : TranslateFn) : TranslateFn :=
         (translateBoolUncachedWith rec
           (fun e h t n => Rec.translateExprToWireImpl (fun e h t n => rec e h t n) e h t n))
         e hint top named
-    else Rec.translateExprToWireCached (fun e h t n => rec e h t n) e hint top named
+    else
+      match canonicalMuxType? e with
+      | some (.bitVector n) =>
+        -- Vector mux nodes are translated directly without cache records until
+        -- the recorded source relation includes them. Children retain caching.
+        translateMuxWith rec (pure (.bitVector n)) e.getAppArgs[e.getAppArgs.size - 3]!
+          e.getAppArgs[e.getAppArgs.size - 2]! e.getAppArgs.back! hint named
+      | _ => Rec.translateExprToWireCached (fun e h t n => rec e h t n) e hint top named
 
 def translateStep : TranslateFn → TranslateFn := translateStepWith translateFallback
 

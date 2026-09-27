@@ -425,6 +425,15 @@ lean_lib «Tools.ShippingMixedBinarySoundness» where
 lean_lib «Tools.ShippingMixedRecursion» where
   roots := #[`Tools.ShippingMixedRecursion]
 
+lean_lib «Tools.ShippingContractEntrySoundness» where
+  roots := #[`Tools.ShippingContractEntrySoundness]
+
+lean_lib «Tools.ShippingVectorMuxSoundness» where
+  roots := #[`Tools.ShippingVectorMuxSoundness]
+
+lean_lib «Tools.ShippingVectorMuxRecursion» where
+  roots := #[`Tools.ShippingVectorMuxRecursion]
+
 lean_lib «Tools.ShippingMixedOutputSoundness» where
   roots := #[`Tools.ShippingMixedOutputSoundness]
 

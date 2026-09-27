@@ -513,7 +513,7 @@ theorem prepare_declarations {bools bits} (L : List ((Name × MixedGateBinder) �
 
 /-- Metadata before zero-width cleanup. Internal zero-width declarations may
 still be present; input/output declarations are already printable. -/
-structure PrintBase (m : Sparkle.IR.AST.Module) : Prop where
+structure PrintBaseAt (outWidth : Nat) (m : Sparkle.IR.AST.Module) : Prop where
   primitive : m.isPrimitive = false
   parameters : m.parameters = []
   inputs : ∀ p ∈ m.inputs, PrintableType p.ty
@@ -523,20 +523,25 @@ structure PrintBase (m : Sparkle.IR.AST.Module) : Prop where
   inputNames : (m.inputs.map Port.name).Nodup
   inputWires : ∀ p ∈ m.inputs, p ∈ m.wires
   output : ∃ ty, m.outputs = [{name := "out", ty := ty}]
-  outputTyped : OutputTyped (weOf m) m.body
-  outputWidth : ∀ p ∈ m.outputs, p.ty.bitWidth = 1
+  outputTyped : OutputTypedAt outWidth (weOf m) m.body
+  outputWidth : ∀ p ∈ m.outputs, p.ty.bitWidth = outWidth
   order : Tools.ShippingSettledSoundness.Acyclic m.body
   moduleName : Sparkle.IR.ModuleNames.legal (Sparkle.Backend.Verilog.sanitizeName m.name) = true
 
+/-- Compatibility specialization for the existing Bool source endpoint. -/
+abbrev PrintBase := PrintBaseAt 1
+
 /-- The raw entry establishes both value preservation and the preconditions
-needed by the real cleanup and optimizer passes. -/
-def RawValue (bs : List (Name × MixedGateBinder)) (m : Sparkle.IR.AST.Module)
+needed by the real cleanup and optimizer passes, at its actual output width. -/
+def RawValueAt (outWidth : Nat) (bs : List (Name × MixedGateBinder)) (m : Sparkle.IR.AST.Module)
     (initial : Env) (mems : MEnv) (expected : Nat) : Prop :=
     ∃ result, evalAssigns (moduleWidths m) mems m.body initial = some result ∧
       result "out" = expected ∧
       TypedPostReady m ∧ SimpleStmts m.body ∧ weOf m = moduleWidths m ∧ "out" ∈ m.outputs.map (·.name) ∧
       (∀ p ∈ m.inputs, initial p.name < 2 ^ weOf m p.name) ∧
-      (PositiveBinders bs → PrintBase m)
+      (PositiveBinders bs → PrintBaseAt outWidth m)
+
+abbrev RawValue := RawValueAt 1
 
 def MixedPreserves (declName : Name) (bs : List (Name × MixedGateBinder)) (body : Lean.Expr)
     (m : Sparkle.IR.AST.Module) : Prop :=

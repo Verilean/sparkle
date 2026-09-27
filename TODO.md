@@ -8,7 +8,7 @@ work) and add an "Owner / status" line once someone picks one up.
 
 ## Compiler proof — current work
 
-Owner/status: S2 complete; S3 active, comparisons and canonical Bool logic/equality connected.
+Owner/status: S2 complete; S3 active, comparisons, Bool logic/equality and BitVec mux trees connected.
 
 - [x] Original BitVec fragment: syntax and RTL settling endpoint.
 - [x] Current mixed fragment: selected IR value preservation, output syntax and
@@ -21,6 +21,10 @@ Owner/status: S2 complete; S3 active, comparisons and canonical Bool logic/equal
   fix applicative lowering that discarded custom BEq implementations.
 - [x] S3 extension: canonical Bool and/or/xor/not and standard Bool equality,
   recursively through the same syntax and RTL settling endpoint.
+- [x] S3 extension: positive common-width BitVec mux trees, with Bool conditions
+  and arithmetic leaves, through syntax and RTL settling; arbitrary output width.
+- [ ] S3 next: mux results used by arithmetic/comparison parents, mutual typed
+  source/cache invariants, then mixed/changed widths and remaining interfaces.
 - [ ] Remaining successful combinational paths, state/reset, memory, hierarchy,
   and full successful-domain composition; `EnvDefines` remains explicit.
 

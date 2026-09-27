@@ -31,7 +31,7 @@ theorem post_layout {m m' : Sparkle.IR.AST.Module} (ready : TypedPostReady m)
 
 /-- Structural properties of the selected optimized module, independent of
 values or a successful evaluator run. -/
-theorem declaration_layout {m o : Sparkle.IR.AST.Module} (base : PrintBase m)
+theorem declaration_layout {m o : Sparkle.IR.AST.Module} (base : PrintBaseAt outWidth m)
     (ready : TypedPostReady m) (hi : o.inputs = m.inputs) (ho : o.outputs = m.outputs)
     (sub : o.wires.Sublist m.wires) :
     (∀ p ∈ o.wires ++ o.inputs ++ o.outputs, Sparkle.IR.NameHints.DataName p.name) ∧
@@ -73,7 +73,7 @@ theorem declaration_layout {m o : Sparkle.IR.AST.Module} (base : PrintBase m)
     obtain ⟨p, hp, he⟩ := List.mem_map.mp hx
     exact noOut p (base.inputWires p hp) (he.trans (eq.trans hy))
 
-theorem checked_layout {m m' : Sparkle.IR.AST.Module} (base : PrintBase m)
+theorem checked_layout {m m' : Sparkle.IR.AST.Module} (base : PrintBaseAt outWidth m)
     (ready : TypedPostReady m) (simple : SimpleStmts m.body)
     (post : m' = dropZeroWidthModule m ∨ m' = mergeDuplicates (dropZeroWidthModule m)) :
     let o := checkedOptimize m'
@@ -133,7 +133,7 @@ theorem declarations_of_layout {o : Sparkle.IR.AST.Module} {sv : SVModule}
     exact visibleDecls_nodup ports wires
 
 theorem checked_declarations {m m' : Sparkle.IR.AST.Module} {sv : SVModule}
-    (base : PrintBase m) (ready : TypedPostReady m) (simple : SimpleStmts m.body)
+    (base : PrintBaseAt outWidth m) (ready : TypedPostReady m) (simple : SimpleStmts m.body)
     (post : m' = dropZeroWidthModule m ∨ m' = mergeDuplicates (dropZeroWidthModule m))
     (pd : PrintableDecls (checkedOptimize m'))
     (shape : ∀ st ∈ (checkedOptimize m').body, ∃ l r, st = .assign l r ∧ PrintShape r)

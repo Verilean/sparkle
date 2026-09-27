@@ -12,7 +12,7 @@ def passthrough {dom : DomainConfig} (c : Signal dom Bool) := c
 def constant {dom : DomainConfig} : Signal dom Bool := Signal.pure false
 def oneBit {dom : DomainConfig} (c : Signal dom Bool) (a : Signal dom (BitVec 1)) :=
   Signal.mux c (Signal.ult a (Signal.pure 1)) (Signal.pure false)
-/-- BitVec-result mux remains outside both quoted entry gates. -/
+/-- Former fallback witness, now admitted by the BitVec mux-tree gate. -/
 def fallback {dom : DomainConfig} (a b : Signal dom (BitVec 8)) :=
   Signal.mux (Signal.ult a b) a b
 
@@ -25,7 +25,7 @@ run_cmd liftTermElabM do
         (mixedCertifiedShape? false [("WIDTH", 8)] ci).isNone do
       throwError "mixed gate incorrectly accepts symbolic/parameter mode"
   let fallbackInfo ← getConstInfo ``fallback
-  unless (mixedCertifiedShape? false [] fallbackInfo).isNone do throwError "fallback gate too broad"
+  unless (mixedCertifiedShape? false [] fallbackInfo).isSome do throwError "vector mux gate missed former fallback"
   -- Run each entry independently; the core clears synthesis caches on entry.
   -- Evaluation compares outputs through each run's own actual input names.
   for name in [``ShippingMixedRecursionTest.source, ``passthrough, ``constant, ``oneBit, ``fallback] do
