@@ -440,6 +440,9 @@ lean_lib «Tools.ShippingMixedGateSoundness» where
 lean_lib «Tools.ShippingMixedPostSoundness» where
   roots := #[`Tools.ShippingMixedPostSoundness]
 
+lean_lib «Tools.ShippingMixedSourceBridge» where
+  roots := #[`Tools.ShippingMixedSourceBridge]
+
 lean_lib «Tools.ShippingControlOptSoundness» where
   roots := #[`Tools.ShippingControlOptSoundness]
 

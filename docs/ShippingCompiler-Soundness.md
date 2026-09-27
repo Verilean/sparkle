@@ -52,6 +52,60 @@ X/Z and physical delays are not modeled. Module-name validity and
 normalization collisions are no longer outstanding on the checked synthesis
 paths described below. The dated entries preserve earlier intermediate states.
 
+## Mixed source argument correspondence (2026-09-27)
+
+`Tools/ShippingMixedSourceBridge.lean` closes the prepared-valuation and
+instantiated-body premises of the mixed entry for source bodies described by
+ordinary typed telescope positions. Bool and BitVec arguments may be interleaved;
+unused arguments of other widths are allowed. The source expression still uses
+the existing positive, common-width arithmetic `BExpr` domain.
+
+`prepare_bool_lookup` and `prepare_bits_lookup` derive the final input lookups
+from actual binder membership and the compiler's checked fresh-ID uniqueness.
+`instantiated_input` and `instantiated_quoteB` derive substitution of the whole
+body. `index_fresh` relates those IDs back to declaration positions, so source
+values in `source_positions` are indexed by the source telescope rather than
+opaque compiler IDs. `source_gate` derives mixed-gate acceptance from the same
+pure source syntax and typed argument positions.
+
+`shipping_source_signals` composes this correspondence with actual synthesis,
+cleanup and checked optimization, observing the **library Signal** value at any
+source time. Its premises contain pure gate/source-shape and well-formedness
+facts, typed argument positions, and ordinary input-port value agreement; they
+contain no prepared-valuation lookup, instantiated-body equality, child compiler
+contract, readiness certificate or optimizer-correctness hypothesis.
+
+`shipping_source_of_env` identifies the declaration read by that exact run using
+the existing explicit `EnvDefines` boundary. This convenience corollary assumes
+the old BitVec-only binder peel fails (as it does for the tested Bool-input
+telescopes). The more general `shipping_source_signals` keeps both gate decisions
+explicit and also accommodates declarations where the old binder peel succeeds
+but the old body gate rejects. Neither theorem is a completeness theorem for
+every program accepted by the mixed gate or by the entire compiler.
+
+`SourceInputs` is the allocated-input value agreement, still expressed using
+the actual fresh-ID list, cache handle and pure binder walk. It does not assert
+compiler semantic correctness or replay the translation. A public interface
+stated entirely as a source-position-to-physical-port map, hiding these internal
+witnesses, has not yet been provided. The cache handle is not read by this
+predicate, and no cache-correctness assumption has been introduced.
+
+Two real declarations now instantiate the general theorem with only successful
+compilation, `EnvDefines` and input agreement: the nested arithmetic/comparison/
+Bool-mux source and a reordered telescope with an unused 17-bit argument. Their
+corollaries quantify over all source Signals and observation times; they are
+not finite execution tests. Their elaborated declaration bodies are captured by
+`#def_decl_value`, with quotation/peeling equality proved by kernel reduction.
+`lake build Tests.AllTests` passes (613 jobs). The new general results and
+declaration corollaries pass the standard-axiom audit (`propext`, `Classical.choice`, `Quot.sound` only).
+
+**Remaining:** connect the mixed optimized AST to the full output-string grammar
+and parallel settling semantics. The source fragment, in-order IR observation
+model and `EnvDefines` boundary remain explicit. The old BitVec-only
+`compiledFragment_execution` statement is unchanged; whole successful-domain
+coverage, including additional operations, state/reset, memory and hierarchy,
+is still required for the overall goal.
+
 ## Mixed entry through checked optimization (2026-09-27)
 
 `Tools/ShippingMixedPostSoundness.lean` now proves
@@ -87,7 +141,7 @@ well-formedness, valuation lookup and admissible source-port values remain
 explicit. The final theorem does not ask callers for readiness, a final-width
 oracle, bounded RTL inputs, optimizer success or recursive-child correctness.
 
-**Remaining for this mixed domain:** derive the general mixed declaration's
+**At that checkpoint (source correspondence is advanced in the section above):** derive the general mixed declaration's
 source/input correspondence in the final Signal-level theorem; connect the
 optimized result to the full output text grammar and parallel settling model.
 The old `compiledFragment_execution` domain is unchanged. This is an in-order
