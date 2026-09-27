@@ -73,12 +73,26 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   Backend output invariants now carry arbitrary width; existing Bool wrappers
   remain valid. Real nested-source theorem and 2,772 source/legacy/SV/delta cases
   at widths 1/8/65 pass the standard-axiom audit.
-- [ ] **S3 / mutual mux composition:** A vector mux under arithmetic or comparison
-  is still outside `VExpr`, despite compiling successfully (`underArithmetic`
-  regression). Extend the mutually recursive source relation and cache invariant.
-  Vector mux nodes currently bypass cache lookup/recording; children retain the
-  existing cache. Restore safe mux-node reuse with that stronger invariant;
-  repeated mux trees can currently generate extra intermediate wires.
+- [x] **S3 / mutual source and cache foundation:** `ShippingUnifiedSource`
+  defines one typed recursive language for Bool and BitVec, preserving the old
+  FExpr/BExpr/VExpr quotations, values and well-formedness. `ShippingUnifiedMeaning`
+  connects it to actual library Signal observations and proves one value/type
+  per Lean expression, including Bool versus BitVec 1. `ShippingUnifiedCache`
+  and `ShippingUnifiedInvariant` prove actual validated-cache hit/miss and
+  record-update preservation, including execution, typed body and live-wire
+  values, conditional on the uncached lowering contract. Allocation and final
+  assignment to a reserved name have preservation lemmas too.
+- [ ] **S3 / mutual mux composition:** Close fuel recursion using the stronger
+  invariant and derive pending-parent protection through each child. Then
+  connect the expanded source gate, input preparation, output contracts and
+  RTL endpoint. Current `ShippingUnifiedSourceTest` supplies real nested-source
+  meaning proofs and 2,322 source/legacy/SV/delta regression cases, **not** a
+  general compilation theorem for these paths. Do not mark S3 coverage expanded
+  on the strength of the source language or cache lemmas alone.
+- [ ] **S3 / vector mux reuse:** Wire the stronger invariant through the actual
+  mux recursion and restore safe cache lookup/recording. Vector mux nodes still
+  bypass caching; repeated trees can generate extra intermediate wires. The
+  compiler dispatch and cache policy were not changed by the foundation work.
 - [ ] **S3:** Build a branch/feature coverage inventory of the actual compiler's
   successful entry/dispatcher/pass paths; identify exact uncovered cases.
   [Initial structural inventory](ShippingCompiler-Coverage.md) added; detailed
@@ -99,11 +113,12 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
 - [ ] **S7 / trust:** Resolve or explicitly retain `EnvDefines` in the final
   claim; record execution-model/external-tool boundaries without hiding them.
 
-Latest validation: `lake build Tests.AllTests` passed all 630 jobs, with
+Latest validation: `lake build Tests.AllTests` passed all 635 jobs, with
 standard-axiom audits of the general endpoint and real signed/equality/Bool-logic
 source instantiations. Vector mux adds 2,772 source/legacy/SV/delta cases and
 real source theorems for nested and computed-condition muxes (no Bool input
-required). Bool equality and logic tests check 1,890 and 1,962
+required). The unified source/cache foundation adds 2,322 regression cases and
+a standard-axiom audit, without extending the shipping endpoint yet. Bool equality and logic tests check 1,890 and 1,962
 source/legacy/SV/delta cases; custom asymmetric Bool BEq is checked on all inputs.
 Existing coverage includes 2,250 signed and 2,250 BitVec equality execution cases,
 32 custom-BEq cases and 14 exhaustive applicative compilations. The existing

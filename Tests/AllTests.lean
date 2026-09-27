@@ -113,6 +113,7 @@ import Tests.Compiler.ShippingEqualityTest
 import Tests.Compiler.ShippingBoolEqualityTest
 import Tests.Compiler.ShippingBoolLogicTest
 import Tests.Compiler.ShippingVectorMuxTest
+import Tests.Compiler.ShippingUnifiedSourceTest
 import Tests.Compiler.ShippingTypedPostSoundnessTest
 import Tests.Compiler.ShippingControlOptSoundnessTest
 import Tests.Compiler.ShippingModuleNamesTest

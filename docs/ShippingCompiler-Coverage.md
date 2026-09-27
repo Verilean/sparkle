@@ -154,3 +154,23 @@ The direct total mux route intentionally avoids lookup and recording at vector
 mux nodes until the source/cache invariant includes their meanings. This can
 increase duplicate intermediate work; arithmetic/Bool children retain validated
 caching. The legacy recursive chain is compared in tests, not claimed proved.
+
+## Mutual source/cache foundation (2026-09-28)
+
+`ShippingUnifiedSource.Term` represents both source sorts with arbitrary mutual
+nesting, at a common BitVec width. Its quotation, substitution and library-value
+proofs preserve the old FExpr/BExpr/VExpr fragments. `ShippingUnifiedMeaning`
+provides deterministic meanings on the actual Lean expressions; its syntax
+view checks canonical instances and literal widths without a MetaM type query.
+`ShippingUnifiedCache` connects those meanings to the real validated lookup and
+record write. `ShippingUnifiedInvariant.cached_outcome` preserves input values,
+execution, typed body and the live-wire frame, with an explicit uncached-handler
+contract still to be discharged by recursion.
+
+[ShippingUnifiedSourceTest](../Tests/Compiler/ShippingUnifiedSourceTest.lean)
+adds `arithmetic1`, `arithmetic8`, `arithmetic65`, `comparison`, and `nested` as
+existing successful paths outside the current certified gates. It identifies
+the real nested declaration with the typed quotation and library meaning, and
+checks 2,322 source/legacy/SV/delta cases. These are success witnesses and
+regressions, not universal compiler correctness for that larger domain.
+The remaining source-coverage boundary in the tables above is unchanged.

@@ -2830,3 +2830,30 @@ Validation: `lake build Tests.AllTests` passes all 630 jobs. The additional
 computed-condition source theorem has no Bool-input requirement: the old-gate
 miss is stated on the pure declaration shape, rather than requiring its
 BitVec-only telescope peeler itself to fail.
+
+
+## 2026-09-28 — Mutual source/cache foundation, recursion still open
+
+Added `ShippingUnifiedSource`, `ShippingUnifiedMeaning`, `ShippingUnifiedCache`
+and `ShippingUnifiedInvariant`. The typed source language permits mux values
+below arithmetic/comparison nodes, and Bool conditions to depend on such values.
+Its library observations, quotation and substitution are proved, with embeddings
+of the prior source languages preserving values, quotations and well-formedness.
+
+The unified expression-meaning relation is deterministic across Bool, BitVec and
+widths. Actual validated cache lookup and record updates preserve its record
+invariant without an ExprStructMap correctness oracle. The state-level cache
+wrapper also preserves input values, execution, typed assignments and previously
+live wire values. It still takes an uncached lowering contract: the larger
+source language does **not** yet have a closed shipping fuel-induction theorem.
+Allocation and reserved-name assignment preservation are available; recursive
+protection of the pending parent name, entry/gate/output connection and safe
+mux cache reuse remain open. Compiler dispatch/cache policy is unchanged.
+
+Validation: `ShippingUnifiedSourceTest` identifies a real mutually nested
+source with its typed quotation and library meaning, checks 2,322 actual
+source/legacy/SV/delta cases at widths 1/8/65, rejects custom instance spellings
+in the syntax view, and audits all key theorems for the standard three axioms.
+`lake build Tests.AllTests` passes 635 jobs. This does not expand the completed
+source-to-RTL coverage; state/reset, memory, hierarchy and final success-domain
+reconciliation also remain unfinished.

@@ -23,8 +23,12 @@ Owner/status: S2 complete; S3 active, comparisons, Bool logic/equality and BitVe
   recursively through the same syntax and RTL settling endpoint.
 - [x] S3 extension: positive common-width BitVec mux trees, with Bool conditions
   and arithmetic leaves, through syntax and RTL settling; arbitrary output width.
-- [ ] S3 next: mux results used by arithmetic/comparison parents, mutual typed
-  source/cache invariants, then mixed/changed widths and remaining interfaces.
+- [x] S3 foundation: unified Bool/BitVec source meanings, quotation/library
+  agreement, and preservation by the actual validated cache and record updates.
+- [ ] S3 next: close recursive translation with the unified state invariant,
+  protect reserved parent names, connect entry/output, and restore mux cache
+  reuse; then mixed/changed widths and remaining interfaces. The mutual source
+  language is defined, but its source-to-RTL endpoint is still open.
 - [ ] Remaining successful combinational paths, state/reset, memory, hierarchy,
   and full successful-domain composition; `EnvDefines` remains explicit.
 

@@ -162,8 +162,20 @@ recording; child translations still use the existing cache. Repeated muxes may
 therefore produce extra intermediate wires. This is an explicit temporary
 implementation tradeoff, not a proof of the legacy mux cache behavior.
 
-Next: vector mux results below arithmetic/comparison nodes and the associated
-mutual source/cache invariants, then varying widths and remaining successful
+Mutual source/cache foundation now implemented: `ShippingUnifiedSource` embeds
+all three previous source languages and agrees with library Signal observations.
+The deterministic `ShippingUnifiedMeaning.Meaning` relation covers arithmetic
+containing muxes and comparisons over those expressions. The actual validated
+cache wrapper and record updates preserve `ShippingUnifiedInvariant.Inv`, once
+its uncached child satisfies that stronger invariant. A reserved-name assignment
+lemma is available; protection of that name through recursive children is not
+assumed completed. `ShippingUnifiedSourceTest` proves a real nested source's
+meaning and checks 2,322 legacy/SV/delta cases, auditing standard axioms.
+
+This is foundation work, not a new shipping source-to-RTL endpoint. No compiler
+gate or mux cache policy was changed. Next: close the unified fuel recursion,
+including pending-parent protection; connect gate/input/output contracts to the
+backend; restore safe mux reuse. Then varying widths and remaining successful
 interfaces. `underArithmetic` already compiles and is regression-tested, but is
 not in the source theorem. S3 remains open until the inventory is reconciled;
 S4–S7 (state/reset, memory, hierarchy and final composition) remain unfinished.
