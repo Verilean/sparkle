@@ -372,7 +372,7 @@ theorem translateFallback_compare_mixed {ctx ρ β we mems initial s t prior rec
     (hb : ChildSpec rec ctx we mems initial (MixedInv ctx ρ β we mems initial) be "b" n y.toNat)
     (widths : ScalarWidthsAgree we t)
     (hr : Returns (translateFallback rec
-      (mkApp4 (.const (compareName le) []) dom (Tools.ShippingEntrySoundness.natE n) ae be)
+      (compareE le dom n ae be)
       hint top named) ctx s w t) :
     Outcome ctx ρ β we mems initial prior s t w 1 (encodeBool (compareValue le x y)) := by
   rw [translateFallback_bool rec _ hint top named (by cases le <;> rfl)] at hr

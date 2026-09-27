@@ -12,7 +12,9 @@ def passthrough {dom : DomainConfig} (c : Signal dom Bool) := c
 def constant {dom : DomainConfig} : Signal dom Bool := Signal.pure false
 def oneBit {dom : DomainConfig} (c : Signal dom Bool) (a : Signal dom (BitVec 1)) :=
   Signal.mux c (Signal.ult a (Signal.pure 1)) (Signal.pure false)
-def fallback {dom : DomainConfig} (a b : Signal dom (BitVec 8)) := Signal.beq a b
+/-- BitVec-result mux remains outside both quoted entry gates. -/
+def fallback {dom : DomainConfig} (a b : Signal dom (BitVec 8)) :=
+  Signal.mux (Signal.ult a b) a b
 
 run_cmd liftTermElabM do
   for name in [``ShippingMixedRecursionTest.source, ``passthrough, ``constant, ``oneBit] do
@@ -51,7 +53,7 @@ run_cmd liftTermElabM do
                 ShippingMixedRecursionTest.term)
             else if name == ``passthrough then encodeBool c
             else if name == ``oneBit then encodeBool (c && a % 2 == 0)
-            else if name == ``fallback then encodeBool (a == b) else 0
+            else if name == ``fallback then min a b else 0
           unless actual == some expected do throwError "mixed/source mismatch: {name}"
   -- The two scalar representations must never be conflated.
   unless mixedGateBinderKind? (sigT (.bvar 0) 1) == some (.bits 1) do

@@ -43,7 +43,7 @@ theorem compare_rhs_correct {n : Nat} (le : SignalCompareKind) (x y : BitVec n)
       some (encodeBool (compareValue le x y)) := by
   cases le <;> simp [signalCompareOp, compareValue, evalExpr, evalList, evalOp,
     ha, hb, wa, wb, widthOf, signed_toInt, encodeBool, BitVec.ult_eq_decide, BitVec.ule_eq_decide,
-    BitVec.slt, BitVec.sle]
+    BitVec.slt, BitVec.sle, BitVec.toNat_inj]
 
 theorem emitBoolResult_returns {rhs : Sparkle.IR.AST.Expr} {hint w : String} {named : Bool}
     {ctx : CompilerState} {s s' : CircuitState}
@@ -174,7 +174,7 @@ of the legacy handler supplied by the shipping fallback. -/
 theorem translateBoolUncachedWith_compare (rec legacy : TranslateFn) (dom ae be : Lean.Expr)
     (n : Nat) (le : SignalCompareKind) (hint : String) (top named : Bool) :
     translateBoolUncachedWith rec legacy
-      (mkApp4 (.const (compareName le) []) dom (natE n) ae be) hint top named =
+      (compareE le dom n ae be) hint top named =
       translateSignalCompare rec le ae be hint named := by cases le <;> rfl
 
 /-- Shipping comparison fallback, through BOTH validated cache branches.
@@ -191,7 +191,7 @@ theorem translateFallback_compare_correct {ρ β we mems initial prior s s' ctx}
     (hc : ∀ st env, good st env → BoolRecordOk ρ β we st env)
     (hw : ScalarWidthsAgree we s')
     (hr : Returns (translateFallback rec
-      (mkApp4 (.const (compareName le) []) dom (natE n) ae be) hint top named) ctx s w s') :
+      (compareE le dom n ae be) hint top named) ctx s w s') :
     ∃ result, Runs we mems initial s' result ∧ BoolRecordOk ρ β we s' result ∧
       s'.usedNames.contains w = true ∧ we w = 1 ∧
       result w = encodeBool (compareValue le x y) := by

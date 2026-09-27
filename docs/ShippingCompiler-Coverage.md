@@ -1,6 +1,6 @@
 # Shipping compiler coverage inventory
 
-Updated 2026-09-27, including the S3 signed-comparison extension. This is an initial structural inventory of the
+Updated 2026-09-27, including the S3 signed-comparison and standard BitVec equality extensions. This is an initial structural inventory of the
 existing compiler, not an exhaustive success-domain theorem or a new acceptance
 policy. A registered operator/handler is a possible route, not evidence that
 every source spelling succeeds. S3 must attach successful source witnesses and
@@ -14,7 +14,7 @@ Use declaration names as anchors; source line numbers move during extensions.
 | Actual route | Current shipping theorem coverage | Remaining obligation |
 | --- | --- | --- |
 | `synthesizeFromConst` → `certifiedShape?` → `synthesizeCertified` | S0: quoted positive-width BitVec fragment, `compiledFragment_execution` | Extend source/interface forms outside this gate without treating refusal by this gate as compiler failure. |
-| `synthesizeFromConst` → `mixedCertifiedShape?` → `synthesizeMixedCertified` | S1/S2: Bool inputs/literals, `ult`/`ule` and now `slt`/`sle`, Bool-result mux over common-width BitVec operands; `execution_source_of_env` | Extend operations/results and recursive width invariants. |
+| `synthesizeFromConst` → `mixedCertifiedShape?` → `synthesizeMixedCertified` | S1/S2: Bool inputs/literals, `ult`/`ule`/`slt`/`sle` and standard BitVec `beq`, Bool-result mux over common-width BitVec operands; `execution_source_of_env` | Extend operations/results and recursive width invariants. |
 | Both shape gates miss → existing synthesis/cache path | No general source-to-shipping-RTL theorem | Reconcile source opening, normalization, output leaf splitting, cached submodules and all successful legacy handlers. |
 | `translateStepWith` → `translateCore` | Existing fragment's literals, inputs and eight binary operations; mixed order proof reuses protected pending names | Other supported surface forms must be related to the quoted source, not assumed equal. |
 | `translateFallback` → Bool control/cache path | Current quoted Bool domain, including validated cache hit/miss behavior | General Bool operations and additional comparison forms. |
@@ -28,7 +28,8 @@ Use declaration names as anchors; source line numbers move during extensions.
 | --- | --- |
 | `primitiveRegistry`, `handleBitVecOps`: arithmetic and bitwise binary operations | Eight canonical common-width operations are covered in the quoted fragment. Registry membership alone does not cover direct, overloaded, unfolded or mapped spellings. |
 | `Signal.slt` / `Signal.sle` | General quoted-source endpoint now covers these at a positive common width, recursively under Bool mux. Five real success witnesses and 2,250 execution cases; direct/unfolded/constant variants still need source-coverage reconciliation. |
-| `primitiveRegistry`: `BEq.beq`, Bool `not`/`and`/`or`/`xor`, unary negation/complement | Outside the current shipping source endpoint. Add source constructors/recognition, recursive preservation, declaration typing, order and RTL execution. |
+| Standard BitVec `Signal.beq` | The general quoted-source endpoint now includes equality at a common positive width, recursively with all ordered comparisons and Bool-result mux. The direct route checks that BEq comes from decidable equality; arbitrary user BEq is not reinterpreted as RTL `==`. |
+| `primitiveRegistry`: Bool `not`/`and`/`or`/`xor`, unary negation/complement | Outside the current shipping source endpoint. Add source constructors/recognition, recursive preservation, declaration typing, order and RTL execution. |
 | `handleMux` | Bool-result quoted mux is covered by the specialized control path. BitVec-result and other successful mux forms remain outside that theorem. |
 | `handleBitVecOps`, `translateShiftAmount` | Same-width logical shifts covered in the quoted domain. Nat amounts, other amount widths, arithmetic right shifts and extraction/unwrapping paths require their own connection. |
 | `handleBitVecOps`, primitive application handling inside `translateExprToWireImpl` | Slices, concatenation, zero extension/truncation and sign-extension handling require varying-width source semantics and matching AST/RTL rules. The application handler has additional paths; enumerating only `handleBitVecOps` is insufficient. |
@@ -50,9 +51,36 @@ The source theorem is instantiated on `nested` for arbitrary source Signals and
 observation times, including arithmetic overflow before signed comparison.
 
 The new source coverage is exactly library `Signal.slt`/`Signal.sle` over the
-current quoted arithmetic domain. General `Signal.lt`/`le`, equality, `sltC`,
+current quoted arithmetic domain. General `Signal.lt`/`le`, `sltC`,
 alternative mapped/applicative expressions and zero/symbolic operand widths
 remain outside this claim even if they compile successfully.
+
+## Equality and applicative dispatch
+
+[ShippingEqualityTest](../Tests/Compiler/ShippingEqualityTest.lean) adds five
+standard equality sources, including width-one, width-65, aliased operands and
+a nested mixed-comparison source. These compiled before the extension; they
+now reach the mixed gate. The nested source instantiates the general execution
+theorem at arbitrary Signal observations. Bool equality, arbitrary user BEq,
+alternative mapped forms and zero/symbolic widths are not covered by this
+source theorem.
+
+A regression exposed an existing miscompilation: a custom BEq returning `true`
+was emitted as ordinary equality. The old `Seq.seq` shortcut read only the
+outer primitive name. Signal applicative notation now reaches the existing
+body-preserving `Signal.ap` handler; noncanonical BEq projection lowering
+extracts and applies the instance's actual method. This preserves both constant
+and reordered-argument custom implementations in regressions. It is a compiler
+fix with regression evidence, not a general proof of all legacy unfolding.
+`ApplicativeSemanticsTest` also checks reversed subtraction, nested arithmetic,
+arithmetic right shift and constants on either side of surface applicative
+notation. The body-preserving route beta-reduces Seq's delayed argument before
+literal recognition and preserves BitVec shift amounts before unfolding toNat.
+
+Do not infer success merely from a library/registry name: for example the
+attempted `Signal.lt` on BitVec 8 failed at `Decidable.rec` during this work.
+The retained fallback success witness in `ShippingMixedEntryTest` is now a
+BitVec-result mux, which remains outside the two quoted entry gates.
 
 ## Pass and theorem obligations
 
@@ -72,7 +100,7 @@ to an external simulator have not been proved.
 1. Add successful actual-source witnesses for uncovered combinational families,
    recording which gate/legacy branch each reaches. Include distinct surface
    forms and interface/parameter modes rather than testing registry names alone.
-2. Choose a coherent extension (Bool operators and additional comparisons, then
+2. Choose a coherent extension (Bool operators and Bool equality, then
    BitVec-result mux/varying-width expressions), and carry it through the whole
    shipping endpoint. Do not close S3 after the first extension.
 3. Reconcile the remaining successful branches against this table before S7;

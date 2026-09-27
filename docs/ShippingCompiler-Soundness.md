@@ -4,8 +4,8 @@ For continuing work in Codex or Claude Code, start with the
 [current milestones](ShippingCompiler-Milestones.md) and
 [active TODO](CertifiedRoundtrip-TODO.md#current-shipping-compiler-todo).
 These define the current work unit and exit criteria; dated entries below
-record earlier states. S2 completed in `075e9f4`; S3 signed comparison is now
-connected (2026-09-27).
+record earlier states. S2 completed in `075e9f4`; S3 signed comparisons and
+standard BitVec equality are now connected (2026-09-27).
 
 The target agreed on 2026-09-24 is the existing compiler's successful domain:
 
@@ -31,7 +31,8 @@ The mixed Bool/BitVec endpoint `execution_source_of_env` now joins the same
 shipping text/AST to SV evaluation, a unique bounded simultaneous solution, and
 finite parallel delta settling. `EnvDefines`, ordinary source input agreement
 and bounded initialization remain explicit. The domain is Bool inputs/literals,
-unsigned and signed (`slt`/`sle`) comparisons and nested Bool-result mux over
+unsigned and signed (`slt`/`sle`) comparisons, standard BitVec equality
+(`Signal.beq`) and nested Bool-result mux over
 common positive-width BitVec arithmetic. It does not cover every successful legacy compilation path.
 
 The S3 signed extension generalizes comparison source meaning, recursive
@@ -42,7 +43,27 @@ printer fallback syntax is also covered without claiming those fallback widths
 are admitted by the positive-width source theorem. The optimizer still retains
 control-bearing originals instead of accepting an unproved normalization.
 
-Validation: `lake build Tests.AllTests` passed (623 jobs), including 2,250 signed
+The equality extension quotes the actual type/instance arguments and extends
+the same recursive contracts and endpoint. Its source theorem covers the
+standard BitVec BEq instance, including comparisons of arithmetic results,
+aliased operands and nesting with ordered comparisons. Bool equality and
+arbitrary custom instances remain outside that theorem.
+
+Equality regressions also exposed a preexisting compiler bug: the legacy
+applicative shortcut discarded custom BEq semantics and operand order. Signal
+applicative notation now uses the existing body-preserving application handler,
+and noncanonical BEq lowering extracts the actual instance method. Constant and
+reversed-comparison instances and surface applicative expressions (including
+constants and arithmetic right shifts) have regression coverage; this is not a
+general proof of legacy application lowering.
+
+Latest validation: `lake build Tests.AllTests` passed (624 jobs), including
+2,250 equality source/legacy/SV/delta cases at widths 1, 8 and 65, 32 custom-BEq
+cases and 14 exhaustive applicative compilations. The extended general endpoint
+and the real nested equality source theorem pass the standard-axiom audit
+(`propext`, `Classical.choice`, `Quot.sound` only).
+
+Signed-extension validation: `lake build Tests.AllTests` passed (623 jobs), including 2,250 signed
 source/old-handler/SV/delta cases at widths 1, 8 and 65, plus a theorem for arbitrary Signals/times on a real nested signed
 source. Five real declarations were verified to compile before this extension.
 The axiom audit includes that instance and the extended general endpoint.

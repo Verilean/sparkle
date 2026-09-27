@@ -16,11 +16,24 @@ def compareName : SignalCompareKind → Name
   | .ule => ``Signal.ule
   | .slt => ``Signal.slt
   | .sle => ``Signal.sle
+  | .eq => ``Signal.beq
+
+/-- Equality has a type/instance argument telescope, unlike the four ordered
+comparisons. Quote the actual standard BitVec BEq instance explicitly. -/
+def compareE (kind : SignalCompareKind) (dom : Lean.Expr) (n : Nat) (a b : Lean.Expr) : Lean.Expr :=
+  let w := Tools.ShippingEntrySoundness.natE n
+  let ty := mkApp (.const ``BitVec []) w
+  let head := match kind with
+    | .eq => mkApp3 (.const ``Signal.beq []) ty dom
+        (mkApp2 (.const ``instBEqOfDecidableEq [.zero]) ty (mkApp (.const ``instDecidableEqBitVec []) w))
+    | _ => mkApp2 (.const (compareName kind) []) dom w
+  mkApp2 head a b
 def compareValue {n : Nat} : SignalCompareKind → BitVec n → BitVec n → Bool
   | .ult => BitVec.ult
   | .ule => BitVec.ule
   | .slt => BitVec.slt
   | .sle => BitVec.sle
+  | .eq => fun a b => a == b
 def boolName (b : Bool) : Name := if b then ``Bool.true else ``Bool.false
 
 /-- Source semantics on the actual input Expr. Width-changing comparisons
@@ -56,6 +69,9 @@ theorem library_slt {dom : DomainConfig} {n : Nat}
 theorem library_sle {dom : DomainConfig} {n : Nat}
     (a b : Signal dom (BitVec n)) (t : Nat) :
     (Signal.sle a b).val t = compareValue .sle (a.val t) (b.val t) := rfl
+theorem library_beq {dom : DomainConfig} {n : Nat}
+    (a b : Signal dom (BitVec n)) (t : Nat) :
+    (Signal.beq a b).val t = compareValue .eq (a.val t) (b.val t) := rfl
 theorem library_bool_mux {dom : DomainConfig} (c a b : Signal dom Bool) (t : Nat) :
     (Signal.mux c a b).val t = if c.val t then a.val t else b.val t := rfl
 
@@ -133,6 +149,7 @@ def denoteB {dom : DomainConfig} (n : Nat) (bools : Nat → Signal dom Bool)
       | .ule => Signal.ule (denoteFE n bits a) (denoteFE n bits b)
       | .slt => Signal.slt (denoteFE n bits a) (denoteFE n bits b)
       | .sle => Signal.sle (denoteFE n bits a) (denoteFE n bits b)
+      | .eq => Signal.beq (denoteFE n bits a) (denoteFE n bits b)
   | .mux c a b => Signal.mux (denoteB n bools bits c) (denoteB n bools bits a) (denoteB n bools bits b)
 
 theorem denoteB_val {dom : DomainConfig} (n : Nat) (bools : Nat → Signal dom Bool)
@@ -141,7 +158,7 @@ theorem denoteB_val {dom : DomainConfig} (n : Nat) (bools : Nat → Signal dom B
   | .inp _ => rfl
   | .lit _ => rfl
   | .compare le a b => by
-      cases le <;> simp [denoteB, evalB, library_ult, library_ule, library_slt, library_sle, denoteFE_val]
+      cases le <;> simp [denoteB, evalB, library_ult, library_ule, library_slt, library_sle, library_beq, denoteFE_val]
   | .mux c a b => by
       simp only [denoteB, evalB, library_bool_mux, denoteB_val n bools bits t c,
         denoteB_val n bools bits t a, denoteB_val n bools bits t b]
@@ -149,7 +166,7 @@ theorem denoteB_val {dom : DomainConfig} (n : Nat) (bools : Nat → Signal dom B
 def quoteB (dom : Lean.Expr) (n : Nat) (bools bits : Nat → Lean.Expr) : BExpr → Lean.Expr
   | .inp j => bools j
   | .lit b => mkApp3 (.const ``Signal.pure [.zero]) dom (.const ``Bool []) (.const (boolName b) [])
-  | .compare le a b => mkApp4 (.const (compareName le) []) dom (natE n)
+  | .compare le a b => compareE le dom n
       (quoteF dom n bits a) (quoteF dom n bits b)
   | .mux c a b => muxE dom (.const ``Bool [])
       (quoteB dom n bools bits c) (quoteB dom n bools bits a) (quoteB dom n bools bits b)
@@ -195,14 +212,19 @@ theorem BoolDenotes.quotePure {ρ β} (dom : Lean.Expr) (b : Bool) :
 
 theorem BoolDenotes.quoteCompare {ρ β n} (dom ae be : Lean.Expr) (le : SignalCompareKind)
     {a b : BitVec n} (ha : Denotes β ae n a) (hb : Denotes β be n b) :
-    BoolDenotes ρ β (mkApp4 (.const (compareName le) []) dom (natE n) ae be)
+    BoolDenotes ρ β (compareE le dom n ae be)
       (compareValue le a b) := by
-  have args : (mkApp4 (.const (compareName le) []) dom (natE n) ae be).getAppArgs =
-      #[dom, natE n, ae, be] := rfl
-  refine @BoolDenotes.compare ρ β (mkApp4 (.const (compareName le) []) dom (natE n) ae be)
-    [] n a b le rfl ?_ ?_
-  · rw [args]; exact ha
-  · rw [args]; exact hb
+  refine @BoolDenotes.compare ρ β (compareE le dom n ae be)
+    [] n a b le (by cases le <;> rfl) ?_ ?_
+  all_goals
+    have args : (compareE le dom n ae be).getAppArgs =
+        (match le with
+        | .eq => #[mkApp (.const ``BitVec []) (natE n), dom,
+            mkApp2 (.const ``instBEqOfDecidableEq [.zero]) (mkApp (.const ``BitVec []) (natE n))
+              (mkApp (.const ``instDecidableEqBitVec []) (natE n)), ae, be]
+        | _ => #[dom, natE n, ae, be]) := by cases le <;> rfl
+    rw [args]
+    cases le <;> assumption
 
 theorem BoolDenotes.quoteMux {ρ β} (dom ce ae be : Lean.Expr)
     {c a b : Bool} (hc : BoolDenotes ρ β ce c) (ha : BoolDenotes ρ β ae a)

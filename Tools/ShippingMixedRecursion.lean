@@ -287,11 +287,11 @@ theorem compare_fresh {ctx ρ β we mems initial rec ae be le hint named n}
 
 theorem compare_step (rec : TranslateFn) (dom ae be : Lean.Expr) (n : Nat) (le : SignalCompareKind)
     (hint : String) (top named : Bool) :
-    translateStepWith translateFallback rec (mkApp4 (.const (compareName le) []) dom (natE n) ae be)
-      hint top named = translateFallback rec (mkApp4 (.const (compareName le) []) dom (natE n) ae be)
+    translateStepWith translateFallback rec (compareE le dom n ae be)
+      hint top named = translateFallback rec (compareE le dom n ae be)
       hint top named := by
-  have shape : translateCoreShape (mkApp4 (.const (compareName le) []) dom (natE n) ae be) = false := by cases le <;> rfl
-  have core : translateCore rec (mkApp4 (.const (compareName le) []) dom (natE n) ae be) hint top named = pure none := by cases le <;> rfl
+  have shape : translateCoreShape (compareE le dom n ae be) = false := by cases le <;> rfl
+  have core : translateCore rec (compareE le dom n ae be) hint top named = pure none := by cases le <;> rfl
   simp [translateStepWith, shape, core]
   rfl
 
@@ -300,9 +300,9 @@ theorem compare_contract {rec ctx ρ β we mems initial dom ae be n le}
     (ca : Child rec ctx ρ β we mems initial ae "a" n x.toNat)
     (cb : Child rec ctx ρ β we mems initial be "b" n y.toNat) :
     Contract (translateStepWith translateFallback rec) ctx ρ β we mems initial
-      (mkApp4 (.const (compareName le) []) dom (natE n) ae be) 1 (encodeBool (compareValue le x y)) := by
+      (compareE le dom n ae be) 1 (encodeBool (compareValue le x y)) := by
   have step : ∀ hint top named, ActionSpec
-      (translateStepWith translateFallback rec (mkApp4 (.const (compareName le) []) dom (natE n) ae be)
+      (translateStepWith translateFallback rec (compareE le dom n ae be)
         hint top named) ctx ρ β we mems initial 1 (encodeBool (compareValue le x y)) := by
     intro hint top named
     rw [compare_step, translateFallback_bool rec _ hint top named (by cases le <;> rfl)]

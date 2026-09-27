@@ -17,6 +17,12 @@ open Lean Elab Command
 abbrev S := Signal defaultDomain (BitVec 4)
 
 def reversed (a b : S) : S := Signal.ap (Signal.map (fun x y => y - x) a) b
+-- Surface notation must reach the same body-preserving handler as explicit ap.
+def reversedSurface (a b : S) : S := (fun x y => y - x) <$> a <*> b
+def nestedSurface (a b : S) : S := (fun x y => (x + y) ^^^ (y - x)) <$> a <*> b
+def shiftSurface (a b : S) : S := (fun x y => BitVec.sshiftRight x y.toNat) <$> a <*> b
+def constantRight (a : S) : S := (· - ·) <$> a <*> Signal.pure 3#4
+def constantLeft (a : S) : S := (· - ·) <$> Signal.pure 3#4 <*> a
 def duplicate (a b : S) : S := Signal.ap (Signal.map (fun x (_ : BitVec 4) => x + x) a) b
 def withConstant (a b : S) : S := Signal.ap (Signal.map (fun x y => x + y + 3) a) b
 def nested (a b : S) : S := Signal.ap (Signal.map (fun x y => (x + y) ^^^ (y - x)) a) b
@@ -47,10 +53,13 @@ private def check (name : Name) (arity : Nat) (expected : List Nat → Nat) : Te
       throwError "source/IR mismatch: {name}, {values}, IR={result m.outputs.head!.name}, source={expected values}"
 
 run_cmd liftTermElabM do
-  for (name, f) in [(``reversed, reversed), (``duplicate, duplicate),
+  for (name, f) in [(``reversed, reversed), (``reversedSurface, reversedSurface),
+      (``nestedSurface, nestedSurface), (``shiftSurface, shiftSurface), (``duplicate, duplicate),
       (``withConstant, withConstant), (``nested, nested), (``complement, complement)] do
     check name 2 fun xs => ((f (Signal.pure (BitVec.ofNat 4 xs[0]!))
       (Signal.pure (BitVec.ofNat 4 xs[1]!))).val 0).toNat
+  for (name, f) in [(``constantRight, constantRight), (``constantLeft, constantLeft)] do
+    check name 1 fun xs => ((f (Signal.pure (BitVec.ofNat 4 xs[0]!))).val 0).toNat
   check ``concatReverse 2 fun xs => ((concatReverse
     (Signal.pure (BitVec.ofNat 4 xs[0]!)) (Signal.pure (BitVec.ofNat 4 xs[1]!))).val 0).toNat
   check ``orderedLess 2 fun xs => if (orderedLess
@@ -71,6 +80,6 @@ run_cmd do
     for a in (← liftCoreM <| collectAxioms n) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains a do
         throwError "unexpected axiom: {n}: {a}"
-  logInfo "APPLICATIVE SEMANTICS OK: 9 shipping compilations, exhaustive inputs, general source rule, standard axioms only"
+  logInfo "APPLICATIVE SEMANTICS OK: 14 shipping compilations, exhaustive inputs, general source rule, standard axioms only"
 
 end Sparkle.Tests.Compiler.ApplicativeSemanticsTest

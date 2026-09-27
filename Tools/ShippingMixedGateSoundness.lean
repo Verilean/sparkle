@@ -70,9 +70,10 @@ theorem gateBody_inputs {kinds : Array GateBinder} {dom : Lean.Expr} {n k : Nat}
 
 theorem mixed_compare_gate (kinds : Array MixedGateBinder) (dom a b : Lean.Expr)
     (n : Nat) (le : SignalCompareKind) :
-    mixedGateBoolBody kinds (mkApp4 (.const (compareName le) []) dom (natE n) a b) =
+    mixedGateBoolBody kinds (compareE le dom n a b) =
       (decide (0 < n) && gateBody (mixedBitKinds kinds) n a && gateBody (mixedBitKinds kinds) n b) := by
-  cases le <;> simp [compareName, mixedGateBoolBody, canonicalNatLitValue?_natE]
+  cases le <;> simp [compareE, compareName, mkApp2, mkApp3, mkAppB, mkApp,
+    mixedGateBoolBody, bitVecEqualityWidth?, canonicalNatLitValue?_natE]
 
 theorem mixedGateBool_quote {kinds : Array MixedGateBinder} {dom : Lean.Expr} {n kb kv : Nat}
     {binp vinp : Nat → Lean.Expr} (hn : 0 < n)

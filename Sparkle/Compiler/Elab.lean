@@ -1845,12 +1845,19 @@ def mixedBitKinds (kinds : Array MixedGateBinder) : Array GateBinder :=
 
 /-- Canonical same-width Signal comparisons returning Bool. -/
 inductive SignalCompareKind where
-  | ult | ule | slt | sle
+  | ult | ule | slt | sle | eq
   deriving DecidableEq, BEq, Repr
 
 /-- Preserve the existing unsigned comparison API. -/
 instance : Coe Bool SignalCompareKind where
   coe le := if le then .ule else .ult
+
+/-- Recognize equality derived from decidable equality on BitVec, rather than
+an arbitrary user BEq. All DecidableEq inhabitants decide the same proposition. -/
+def bitVecEqualityWidth? : Lean.Expr → Lean.Expr → Option Lean.Expr
+  | .app (.const ``BitVec _) w,
+      .app (.app (.const ``instBEqOfDecidableEq _) _) _ => some w
+  | _, _ => none
 
 /-- Total, syntax-only recognition of the mixed Bool-output source fragment.
     Recursion follows actual expression subterms; type inference is not called. -/
@@ -1862,6 +1869,12 @@ def mixedGateBoolBody (kinds : Array MixedGateBinder) : Lean.Expr → Bool
       (.const ``Bool.false _) => true
   | .app (.app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.mux _) _) (.const ``Bool _)) c) a) b =>
       mixedGateBoolBody kinds c && mixedGateBoolBody kinds a && mixedGateBoolBody kinds b
+  | .app (.app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.beq _) ty) _) inst) a) b =>
+      match bitVecEqualityWidth? ty inst with
+      | some wE => match canonicalNatLitValue? wE with
+        | some n => 0 < n && gateBody (mixedBitKinds kinds) n a && gateBody (mixedBitKinds kinds) n b
+        | none => false
+      | none => false
   | .app (.app (.app (.app (.const m _) _) wE) a) b =>
       if m == ``Sparkle.Core.Signal.Signal.ult || m == ``Sparkle.Core.Signal.Signal.ule ||
           m == ``Sparkle.Core.Signal.Signal.slt || m == ``Sparkle.Core.Signal.Signal.sle then
@@ -2789,6 +2802,12 @@ mutual
           | some wire => return wire
           | none => pure ()
 
+        -- Signal applicative syntax must lower the actual function body.
+        -- The outer-name shortcut below loses custom BEq instances (and
+        -- operand rearrangements); reuse the Signal.ap normalization/handler.
+        if name == ``Seq.seq && args.size >= 1 && args[0]!.isAppOf ``Sparkle.Core.Signal.Signal then
+          return ← translateExprToWireApp e hint isNamed
+
         -- Handle Seq.seq and Functor.map which might appear if Signal.ap reduces
         if name == ``Seq.seq && args.size >= 2 then
             let sf := args[args.size-2]!
@@ -3437,7 +3456,9 @@ mutual
         let ty ← CompilerM.liftMetaM <| whnf (← inferType f)
         let .forallE binder argTy _ _ := ty
           | CompilerM.liftMetaM <| throwError "Applicative lowering: function arity mismatch"
-        let wire ← translateExprToWire sig "app_arg"
+        -- Seq.seq supplies its last argument through a Unit thunk. Expose
+        -- that argument before early literal/Signal recognition runs.
+        let wire ← translateExprToWire sig.headBeta "app_arg"
         CompilerM.withLocalDecl binder argTy fun scalar =>
           CompilerM.withVarMapping scalar.fvarId! wire do
             lower (Lean.mkApp f scalar).headBeta rest
@@ -3491,6 +3512,17 @@ mutual
       let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
       CompilerM.emitAssign resWire (.concat [.ref hiWire, .ref loWire])
       return some resWire
+
+    -- BEq is a class projection. For a user instance, reduce that projection
+    -- before primitive dispatch so its actual function body is preserved.
+    if name == ``BEq.beq && args.size >= 4 && !canonicalMethodInst name args then
+      let inst ← CompilerM.liftMetaM <| withTransparency TransparencyMode.all
+        (whnf args[args.size - 3]!)
+      if inst.isAppOf ``BEq.mk then
+        -- Reduce the instance, not the applied comparison: whnf on the latter
+        -- can unfold a supported BitVec primitive into an unsupported recursor.
+        let body := (mkApp2 inst.getAppArgs.back! args[args.size - 2]! args.back!).headBeta
+        return some (← translateExprToWire body hint (isNamed := isNamed))
 
     -- isPrimitive dispatch.  An overloaded method is lowered by name only when
     -- its instance is canonical; otherwise fall through to unfolding.
@@ -4435,6 +4467,9 @@ mutual
       Unwraps BitVec.toNat / Fin.val if the Nat came from a BitVec signal,
       otherwise treats it as a constant shift amount. -/
   partial def translateShiftAmount (bvExpr natExpr : Lean.Expr) (hint : String) : CompilerM String := do
+    -- Preserve the BitVec source before whnf expands toNat into Fin.val.
+    if natExpr.isAppOf ``BitVec.toNat && natExpr.getAppArgs.size >= 2 then
+      return ← translateExprToWire natExpr.getAppArgs.back! hint
     let natExpr' ← CompilerM.liftMetaM (whnf natExpr)
     let natFn := natExpr'.getAppFn
     let natArgs := natExpr'.getAppArgs
@@ -4514,6 +4549,8 @@ def isBoolControl : Lean.Expr → Bool
   | .app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.ule _) _) _) _) _ => true
   | .app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.slt _) _) _) _) _ => true
   | .app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.sle _) _) _) _) _ => true
+  | .app (.app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.beq _) ty) _) inst) _) _ =>
+      (bitVecEqualityWidth? ty inst).isSome
   | e => match canonicalMuxType? e with | some .bit => true | _ => false
 
 /-- The cache wrapper for Bool controls, exposed for simulation proofs. A miss
@@ -4533,6 +4570,7 @@ def signalCompareOp : SignalCompareKind → Operator
   | .ule => .le_u
   | .slt => .lt_s
   | .sle => .le_s
+  | .eq => .eq
 
 def emitBoolResult (rhs : Sparkle.IR.AST.Expr) (hint : String) (named : Bool) : CompilerM String := do
   let w ← CompilerM.makeWire hint .bit (named := named)
@@ -4570,6 +4608,10 @@ def translateBoolUncachedWith (rec legacy : TranslateFn) : TranslateFn :=
       translateSignalCompare rec .slt a b hint named
     | .app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.sle _) _) _) a) b =>
       translateSignalCompare rec .sle a b hint named
+    | .app (.app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.beq _) ty) _) inst) a) b =>
+      match bitVecEqualityWidth? ty inst with
+      | some _ => translateSignalCompare rec .eq a b hint named
+      | none => legacy e hint top named
     | .app (.app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.mux _) _)
         (.const ``Bool _)) c) a) b =>
       translateMuxWith rec (pure .bit) c a b hint named

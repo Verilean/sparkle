@@ -109,6 +109,7 @@ import Tests.Compiler.ShippingMixedPrintTest
 import Tests.Compiler.ShippingMixedBindingTest
 import Tests.Compiler.ShippingMixedExecutionTest
 import Tests.Compiler.ShippingSignedComparisonTest
+import Tests.Compiler.ShippingEqualityTest
 import Tests.Compiler.ShippingTypedPostSoundnessTest
 import Tests.Compiler.ShippingControlOptSoundnessTest
 import Tests.Compiler.ShippingModuleNamesTest

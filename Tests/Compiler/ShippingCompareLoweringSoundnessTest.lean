@@ -19,7 +19,7 @@ run_cmd liftTermElabM do
   -- actually select the new total route, without invoking MetaM type inference.
   let legacy : TranslateFn := fun _ _ _ _ => throwError "comparison reached legacy handler"
   for n in [1, 8, 65] do
-    for le in ([.ult, .ule, .slt, .sle] : List SignalCompareKind) do
+    for le in ([.ult, .ule, .slt, .sle, .eq] : List SignalCompareKind) do
       for named in [false, true] do
         for (x, y) in [(0, 0), (0, 2^n-1), (2^n-1, 0), (2^n-1, 2^n-1)] do
           let order ← IO.mkRef ([] : List String)
@@ -30,8 +30,7 @@ run_cmd liftTermElabM do
             let w ← CompilerM.makeWire "collision" (.bitVector n) (named := true)
             CompilerM.emitAssign w (.const (Int.ofNat value) n)
             return w
-          let expr := mkApp4 (.const (compareName le) []) (.const ``defaultDomain [])
-            (natE n) (.const `left []) (.const `right [])
+          let expr := compareE le (.const ``defaultDomain []) n (.const `left []) (.const `right [])
           let (w, final) ← ((translateBoolUncachedWith translate legacy expr "collision" false named) {}).run
             (CircuitM.init "CompareStep")
           unless (← order.get) == ["a", "b"] do throwError "comparison child order changed"

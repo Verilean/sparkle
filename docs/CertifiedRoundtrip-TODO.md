@@ -6,7 +6,7 @@ group is rough priority.  Update as items land.
 
 ## Current shipping compiler TODO
 
-Updated 2026-09-27, S2 at `075e9f4`; S3 signed comparisons connected. This section is the current
+Updated 2026-09-27, S2 at `075e9f4`; S3 ordered comparisons and standard BitVec equality connected. This section is the current
 execution checklist for the CompCert-style **existing successful compiler**
 goal. The older sections below retain historical/per-instance tracks; their
 “next” items do not override this list. Milestone definitions and exit criteria:
@@ -54,6 +54,13 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   instantiation and 2,250 source/legacy/SV/delta cases at widths 1/8/65 pass the
   full 623-job build and standard-axiom audit. This does not close all of S3.
 
+- [x] **S3 / standard BitVec equality:** Connect the actual `Signal.beq`
+  type/instance arguments and recursive comparison to `execution_source_of_env`.
+  Standard equality is proved through syntax and finite settling; arbitrary
+  custom BEq is outside the theorem. Fix the legacy applicative shortcut's
+  custom-BEq miscompilation and add constant/reordered-instance regressions.
+  `ShippingEqualityTest` instantiates the general endpoint on a real nested
+  source and checks 2,250 execution cases plus 32 custom-instance cases.
 - [ ] **S3:** Build a branch/feature coverage inventory of the actual compiler's
   successful entry/dispatcher/pass paths; identify exact uncovered cases.
   [Initial structural inventory](ShippingCompiler-Coverage.md) added; detailed
@@ -74,8 +81,10 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
 - [ ] **S7 / trust:** Resolve or explicitly retain `EnvDefines` in the final
   claim; record execution-model/external-tool boundaries without hiding them.
 
-Latest validation: 623 build jobs and standard-axiom audits including the
-signed source endpoint; 2,250 signed cases cover 15 pipeline paths. The existing
+Latest validation: `lake build Tests.AllTests` passed all 624 jobs, with
+standard-axiom audits of the general endpoint and signed/equality source
+instantiations. There are 2,250 signed and 2,250 equality execution cases,
+32 custom-BEq cases and 14 exhaustive applicative compilations. The existing
 2,700 mixed source/SV/delta cases cover 18 paths, 6 accepted and 12 retained optimizer
 selections, three bounded internal seeds, and shared expressions.
 No schedule/session estimate is asserted. See the milestone plan for the
