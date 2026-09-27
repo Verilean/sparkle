@@ -11,6 +11,7 @@ open Tools.ShippingMixedOutputSoundness Tools.ShippingMixedInputSoundness
 open Tools.ShippingEntrySoundness Tools.ShippingBoolSourceSoundness Tools.ShippingMuxLoweringSoundness
 open Tools.ShippingMixedBinarySoundness Tools.ShippingMixedRecursion Tools.ShippingTypedPostSoundness
 open Tools.ShippingPostSoundness Tools.ShippingCompareLoweringSoundness
+open Tools.ShippingModulePrintSoundness Tools.ShippingPrintSoundness
 
 structure Setup where
   context : CompilerState
@@ -172,6 +173,50 @@ theorem prepare_inputBounds {bools bits initial} (L : List ((Name × MixedGateBi
     | bits n =>
       exact input_bounds h value (bits id n).isLt
 
+def PositiveBinders (bs : List (Name × MixedGateBinder)) : Prop :=
+  ∀ name n, (name, .bits n) ∈ bs → 0 < n
+
+theorem input_print {a : Setup} {name ty}
+    (hi : ∀ p ∈ a.state.module.inputs, PrintableType p.ty) (pt : PrintableType ty) :
+    (∀ p ∈ (inputState a.state name ty).module.inputs, PrintableType p.ty) ∧
+    (inputState a.state name ty).module.parameters = a.state.module.parameters ∧
+    (inputState a.state name ty).module.isPrimitive = a.state.module.isPrimitive := by
+  refine ⟨?_, ?_, ?_⟩
+  · intro p hp
+    change p ∈ {name := inputWire a.state name ty, ty := ty} ::
+      (CircuitM.makeWire name ty true a.state).2.module.inputs at hp
+    rw [makeWire_inputs] at hp
+    rcases List.mem_cons.mp hp with rfl | hp
+    · exact pt
+    · exact hi p hp
+  · change (CircuitM.makeWire name ty true a.state).2.module.parameters = _
+    rw [makeWire_module]; rfl
+  · change (CircuitM.makeWire name ty true a.state).2.module.isPrimitive = _
+    rw [makeWire_module]; rfl
+
+/-- Scalar inputs are printable, and binding introduces no module metadata. -/
+theorem prepare_print {bools bits} (L : List ((Name × MixedGateBinder) × FVarId)) (a : Setup)
+    (hi : ∀ p ∈ a.state.module.inputs, PrintableType p.ty)
+    (positive : ∀ name n id, ((name, .bits n), id) ∈ L → 0 < n) :
+    (∀ p ∈ (prepare bools bits L a).state.module.inputs, PrintableType p.ty) ∧
+    (prepare bools bits L a).state.module.parameters = a.state.module.parameters ∧
+    (prepare bools bits L a).state.module.isPrimitive = a.state.module.isPrimitive := by
+  induction L generalizing a with
+  | nil => exact ⟨hi, rfl, rfl⟩
+  | cons binder rest ih =>
+    have tail := fun name n id mem => positive name n id (List.mem_cons_of_mem _ mem)
+    obtain ⟨⟨name, kind⟩, id⟩ := binder
+    cases kind with
+    | domain => exact ih a hi tail
+    | bool =>
+      have inp := input_print (name := name.toString) hi PrintableType.bit
+      have next := ih (extend a ((name, .bool), id) bools bits) inp.1 tail
+      exact ⟨next.1, next.2.1.trans inp.2.1, next.2.2.trans inp.2.2⟩
+    | bits n =>
+      have inp := input_print (name := name.toString) hi (PrintableType.bits n (positive name n id List.mem_cons_self))
+      have next := ih (extend a ((name, .bits n), id) bools bits) inp.1 tail
+      exact ⟨next.1, next.2.1.trans inp.2.1, next.2.2.trans inp.2.2⟩
+
 /-- Every successful execution of the actual input walk reaches `prepare`.
 There are no binder-type inference or handler-correctness premises. -/
 theorem prepare_returns {α : Type} {bools bits} (L : List ((Name × MixedGateBinder) × FVarId))
@@ -266,7 +311,7 @@ theorem emitLeaves_postReady {mems : MEnv} {ctx ρ β initial s t dom n kb kv ca
     (hr : Returns (emitLeaves (fun e hint top named => translateExprToWire e hint top named)
       cache logProf [("out", quoteB dom n (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) e)] none 0)
       ctx s returned t) :
-    weOf m = declaredWidths t ∧ TypedPostReady m := by
+    weOf m = declaredWidths t ∧ TypedPostReady m ∧ (∀ p ∈ m.outputs, PrintableType p.ty) := by
   have contract := translateExprToWire_bool_contract (ctx := ctx) (we := declaredWidths t)
     (mems := mems) (initial := initial) (dom := dom) hn hb hv e he
   obtain ⟨unique, result, run, value, out, typed, rest⟩ := emitLeaves_bool_from_ports (mems := mems) hn hb hv e he body record wires ports hr
@@ -305,7 +350,7 @@ theorem emitLeaves_postReady {mems : MEnv} {ctx ρ β initial s t dom n kb kv ca
   have mo' : m.outputs = [{name := "out", ty := ty}] := by
     rw [mo, ht, emitAssign_outputs, addOutput_state]
     simp [Module.addOutput, frame.outputs, outputs]
-  refine ⟨wm, ?_, ?_, ?_, ?_⟩
+  refine ⟨wm, ⟨?_, ?_, ?_, ?_⟩, ?_⟩
   · rw [mw, List.map_reverse]; exact nodup_reverse unique.1
   · unfold weOf
     have none : m.wires.find? (fun p => p.name == "out") = none := by
@@ -319,6 +364,23 @@ theorem emitLeaves_postReady {mems : MEnv} {ctx ρ β initial s t dom n kb kv ca
     rw [wmFold_notin m.wires _ "out" noOut, mo']
     simp [tyWidth]
   · rw [wm, mb]; exact typed
+  · have printTy : PrintableType ty := by
+      rw [hty]
+      unfold leafOutputType
+      unfold declaredWidths at width
+      cases hf : sm.module.wires.find? (fun p => p.name == w) with
+      | none => simp [hf] at width
+      | some p =>
+        simp only [hf, Option.map_some, Option.getD_some] at width
+        change PrintableType p.ty
+        rcases smScalar p (List.mem_of_find?_eq_some hf) with bit | ⟨k, bits⟩
+        · rw [bit]; exact .bit
+        · rw [bits] at width ⊢
+          exact .bits k (by change k = 1 at width; omega)
+    intro p hp
+    rw [mo', List.mem_singleton] at hp
+    subst p
+    exact printTy
 
 /-- No inferred-type premise: this decomposes the actual mixed synthesis run. -/
 theorem synthesizeMixedCertified_returns {logProf declName bs body m d}
@@ -367,6 +429,15 @@ def MixedSourcePreserves (declName : Name) (bs : List (Name × MixedGateBinder))
       quoteB dom n (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) e →
     observes initial mems (encodeBool (evalB n bvals vvals e))
 
+/-- Metadata before zero-width cleanup. Internal zero-width declarations may
+still be present; input/output declarations are already printable. -/
+structure PrintBase (m : Sparkle.IR.AST.Module) : Prop where
+  primitive : m.isPrimitive = false
+  parameters : m.parameters = []
+  inputs : ∀ p ∈ m.inputs, PrintableType p.ty
+  outputs : ∀ p ∈ m.outputs, PrintableType p.ty
+  wires : ∀ p ∈ m.wires, p.ty = .bit ∨ ∃ n, p.ty = .bitVector n
+
 /-- The raw entry establishes both value preservation and the preconditions
 needed by the real cleanup and optimizer passes. -/
 def MixedPreserves (declName : Name) (bs : List (Name × MixedGateBinder)) (body : Lean.Expr)
@@ -375,7 +446,8 @@ def MixedPreserves (declName : Name) (bs : List (Name × MixedGateBinder)) (body
     ∃ result, evalAssigns (moduleWidths m) mems m.body initial = some result ∧
       result "out" = expected ∧
       TypedPostReady m ∧ SimpleStmts m.body ∧ weOf m = moduleWidths m ∧ "out" ∈ m.outputs.map (·.name) ∧
-      (∀ p ∈ m.inputs, initial p.name < 2 ^ weOf m p.name)
+      (∀ p ∈ m.inputs, initial p.name < 2 ^ weOf m p.name) ∧
+      (PositiveBinders bs → PrintBase m)
 
 theorem MixedSourcePreserves.map {declName bs body P Q}
     (h : MixedSourcePreserves declName bs body P)
@@ -406,14 +478,14 @@ theorem synthesizeMixedCertified_sound {logProf declName bs body m d}
   have outputEq : m.outputs = st.module.outputs.reverse := by
     rw [hm]; simp only [Module.finalize, (addClockReset_facts st.module).2.2.1]
   have shape := prepare_shape (bools := bools) (bits := bits) (bs.zip ids) a (by intro p hp; cases hp)
-  obtain ⟨wm, ready⟩ := emitLeaves_postReady (mems := mems) hn hb hv e he
+  obtain ⟨wm, ready, printOutputs⟩ := emitLeaves_postReady (mems := mems) hn hb hv e he
     prepared.2.2.1 prepared.2.2.2 prepared.2.1 prepared.1 shape.1 shape.2 wireEq bodyEq outputEq leaf
   have ib := prepare_inputBounds (bs.zip ids) a (by intro p hp; cases hp) values
   have contract := translateExprToWire_bool_contract (ctx := p.context) (we := declaredWidths st)
     (mems := mems) (initial := initial) (dom := dom) hn hb hv e he
   obtain ⟨w, sm, ty, tr, fresh, ht, hty⟩ := emitLeaves_single leaf
   have frame := contract.frame "out" false true p.state sm w (prepared.1.lookup prepared.2.1) tr
-  refine ⟨result, ?_, value, ready, ?_, ?_, ?_, ?_⟩
+  refine ⟨result, ?_, value, ready, ?_, ?_, ?_, ?_, ?_⟩
   · rw [moduleWidths_finish wireEq unique, bodyEq]; exact eval
   · have simple := frame.simple (by rw [prepared.2.2.1]; intro stmt hs; cases hs)
     intro stmt hs
@@ -438,6 +510,29 @@ theorem synthesizeMixedCertified_sound {logProf declName bs body m d}
     obtain ⟨decl, bound⟩ := ib port hp'
     rw [wm, declaredWidths_agree unique port (by rw [ht, emitAssign_wires]; exact frame.decls port decl)]
     exact bound
+  · intro positive
+    have pi := prepare_print (bools := bools) (bits := bits) (bs.zip ids) a
+      (by intro port hp; cases hp) (fun name n id hp => positive name n (List.of_mem_zip hp).1)
+    have noSeq := addClockReset_assigns st.module (by
+      intro stmt hs
+      obtain ⟨l, rhs, n, eq, _⟩ := typed stmt (List.mem_reverse.mpr hs)
+      exact ⟨l, rhs, eq⟩)
+    have mi : m.inputs = st.module.inputs.reverse := by rw [hm, noSeq]; rfl
+    refine ⟨?_, ?_, ?_, printOutputs, ?_⟩
+    · rw [hm, noSeq]
+      change st.module.isPrimitive = false
+      rw [ht]; change sm.module.isPrimitive = false
+      rw [frame.primitive]; exact pi.2.2
+    · rw [hm, noSeq]
+      change st.module.parameters.reverse = []
+      rw [ht]; change sm.module.parameters.reverse = []
+      rw [frame.parameters, pi.2.1]; rfl
+    · intro port hp
+      rw [mi, List.mem_reverse, ht, emitAssign_inputs] at hp
+      exact pi.1 port (frame.inputs ▸ hp)
+    · intro port hp
+      rw [wireEq, List.mem_reverse, ht, emitAssign_wires] at hp
+      exact frame.scalar shape.1 port hp
 
 /-- The actual declaration dispatcher selects this proved input/translation
 path. Both gate decisions are pure, checkable conditions on that declaration. -/

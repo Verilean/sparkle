@@ -66,7 +66,7 @@ theorem bits_core_frame {rec ctx β s t e us hint top named r n} {x : BitVec n}
       fun _ _ hr => Or.inl (by rw [records] at hr; exact hr), growth.2.2.1, fun hs p hp => by
         rcases growth.2.2.2.2.wireTypes p hp with old | new
         · exact hs p old
-        · exact Or.inr new, emits.1, emits.2.1, ?_⟩, fresh⟩
+        · exact Or.inr new, emits.1, emits.2.1, ?_, growth.2.2.2.2.parameters, growth.2.2.2.2.primitive⟩, fresh⟩
     intro hs stmt hmem
     obtain ⟨pre, eq, simple⟩ := emits.2.2
     rw [eq] at hmem
@@ -153,7 +153,7 @@ theorem emit_bool_frame {ctx s t w rhs hint named}
     Frame s t ∧ s.usedNames.contains w = false := by
   obtain ⟨hw, ht⟩ := emitBoolResult_returns hr
   have hm := CircuitM.makeWire_spec hint .bit named s
-  refine ⟨⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩, ?_⟩
+  refine ⟨⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩, ?_⟩
   · intro p hp; rw [ht, emitAssign_wires, hm.2.2.2]; exact List.mem_cons_of_mem _ hp
   · intro z hz; rw [ht, emitAssign_usedNames, hm.2.1]; simp [Std.HashSet.contains_insert, hz]
   · rw [ht, emitAssign_sourceBindings, CircuitM.makeWire_sourceBindings]
@@ -176,6 +176,10 @@ theorem emit_bool_frame {ctx s t w rhs hint named}
     rcases List.mem_cons.mp hmem with rfl | hp
     · exact ⟨_, _, rfl, shape⟩
     · exact hs stmt hp
+  · rw [ht]; change (CircuitM.makeWire hint .bit named s).2.module.parameters = _
+    rw [makeWire_module]; rfl
+  · rw [ht]; change (CircuitM.makeWire hint .bit named s).2.module.isPrimitive = _
+    rw [makeWire_module]; rfl
   · rw [hw]; exact hm.1
 
 theorem cached_action {ctx ρ β we mems initial lower e hint top named b}

@@ -25,14 +25,16 @@ structure Frame (s t : CircuitState) : Prop where
   outputs : t.module.outputs = s.module.outputs
   inputs : t.module.inputs = s.module.inputs
   simple : SimpleStmts s.module.body → SimpleStmts t.module.body
+  parameters : t.module.parameters = s.module.parameters
+  primitive : t.module.isPrimitive = s.module.isPrimitive
 
 theorem Frame.refl (s : CircuitState) : Frame s s :=
-  ⟨fun _ hp => hp, fun _ hp => hp, rfl, fun _ _ he => Or.inl he, fun h => h, fun h => h, rfl, rfl, fun h => h⟩
+  ⟨fun _ hp => hp, fun _ hp => hp, rfl, fun _ _ he => Or.inl he, fun h => h, fun h => h, rfl, rfl, fun h => h, rfl, rfl⟩
 
 theorem Frame.trans {s t u} (h : Frame s t) (k : Frame t u) : Frame s u :=
   ⟨h.decls.trans k.decls, fun z hz => k.used z (h.used z hz),
     k.bindings.trans h.bindings, h.records.trans k.records h.used, fun hw => k.wires (h.wires hw),
-    fun hs => k.scalar (h.scalar hs), k.outputs.trans h.outputs, k.inputs.trans h.inputs, fun hs => k.simple (h.simple hs)⟩
+    fun hs => k.scalar (h.scalar hs), k.outputs.trans h.outputs, k.inputs.trans h.inputs, fun hs => k.simple (h.simple hs), k.parameters.trans h.parameters, k.primitive.trans h.primitive⟩
 
 theorem Frame.record_reserved {s t w e} (h : Frame s t)
     (used : s.usedNames.contains w = true) (he : t.translateRecord.get? w = some e) :
@@ -44,7 +46,7 @@ theorem Frame.record_reserved {s t w e} (h : Frame s t)
 theorem Frame.makeWire (s : CircuitState) (hint : String) (n : Nat) (named : Bool) :
     Frame s (CircuitM.makeWire hint (.bitVector n) named s).2 := by
   have hm := CircuitM.makeWire_spec hint (.bitVector n) named s
-  refine ⟨?_, ?_, CircuitM.makeWire_sourceBindings _ _ _ _, ?_, ?_, ?_, makeWire_outputs _ _ _ _, makeWire_inputs _ _ _ _, ?_⟩
+  refine ⟨?_, ?_, CircuitM.makeWire_sourceBindings _ _ _ _, ?_, ?_, ?_, makeWire_outputs _ _ _ _, makeWire_inputs _ _ _ _, ?_, (DeclFrame.makeWire hint n named s).parameters, (DeclFrame.makeWire hint n named s).primitive⟩
   · intro p hp; rw [hm.2.2.2]; exact List.mem_cons_of_mem _ hp
   · intro z hz; rw [hm.2.1]; simp [Std.HashSet.contains_insert, hz]
   · intro w e he; left; rw [CircuitM.makeWire_translateRecord] at he; exact he
@@ -59,7 +61,7 @@ theorem Frame.makeWire (s : CircuitState) (hint : String) (n : Nat) (named : Boo
 theorem Frame.emitAssign (s : CircuitState) (w : String) (rhs : Sparkle.IR.AST.Expr)
     (hr : simpleRhs rhs = true) : Frame s (CircuitM.emitAssign w rhs s).2 := by
   refine ⟨fun _ hp => hp, fun _ hp => hp, rfl, fun _ _ he => Or.inl he,
-    fun h => h, fun h => h, rfl, rfl, ?_⟩
+    fun h => h, fun h => h, rfl, rfl, ?_, rfl, rfl⟩
   intro hs stmt hmem
   rw [emitAssign_body_cons] at hmem
   rcases List.mem_cons.mp hmem with rfl | hmem
@@ -271,7 +273,7 @@ theorem Frame.record_new {s t u e w cacheable ctx resultUnit} (h : Frame s t)
     (fresh : s.usedNames.contains w = false)
     (hr : Returns (recordTranslation e w cacheable) ctx t resultUnit u) : Frame s u := by
   have hs := recordTranslation_returns hr
-  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · intro p hp; rw [hs]; exact h.decls p hp
   · intro z hz; rw [hs]; exact h.used z hz
   · rw [hs]; exact h.bindings
@@ -288,6 +290,8 @@ theorem Frame.record_new {s t u e w cacheable ctx resultUnit} (h : Frame s t)
   · rw [hs]; exact h.outputs
   · rw [hs]; exact h.inputs
   · intro hb; rw [hs]; exact h.simple hb
+  · rw [hs]; exact h.parameters
+  · rw [hs]; exact h.primitive
 
 theorem core_binary_recorded {ctx ρ β we mems initial s t prior rec e m us hint named top w n cacheable}
     {K : Option String → CompilerM String} (op : Binary) (x y : BitVec n) (hn : 0 < n)

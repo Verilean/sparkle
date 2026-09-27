@@ -52,7 +52,7 @@ theorem mixed_postprocess_checked {declName bs body m m'}
         result "out" = expected ∧ "out" ∈ (checkedOptimize m').outputs.map (·.name) := by
   apply MixedSourcePreserves.map source
   intro initial mems expected h
-  obtain ⟨result, run, value, ready, simple, widths, out, bounds⟩ := h
+  obtain ⟨result, run, value, ready, simple, widths, out, bounds, _⟩ := h
   rw [← widths] at run
   have postWidths := typed_postprocess_widths ready post run
   obtain ⟨run', _, inputs, outputs⟩ := typed_postprocess_sound ready post mems initial result run

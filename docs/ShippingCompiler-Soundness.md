@@ -52,6 +52,57 @@ X/Z and physical delays are not modeled. Module-name validity and
 normalization collisions are no longer outstanding on the checked synthesis
 paths described below. The dated entries preserve earlier intermediate states.
 
+## Mixed whole-module rendering connected (2026-09-27)
+
+`Tools/ShippingMixedPrintSoundness.lean` proves
+`synthesizeCombinational_mixed_rendered`: the actual mixed synthesis entry,
+cleanup, optional checked merging and checked optimizer produce a module whose
+entire shipping output string is the rendering of its emitted SV AST. The same
+selected **IR** module evaluates to the source value. `RenderedValue` records
+both facts together; it does not yet assert SV evaluation or parallel execution.
+`rendered_source_of_env` connects this endpoint to library Signal observations
+at every source time, retaining the explicit `EnvDefines` boundary and ordinary
+source input-value agreement. The nested real declaration instantiates it in
+`Tests/Compiler/ShippingMixedPrintTest.lean`.
+
+The rendering preconditions are derived from successful compilation:
+
+* The mixed recursive `Frame` preserves parameter and primitive metadata.
+  The actual binder walk preserves metadata and produces printable input ports.
+* The output emitter derives a printable one-bit output declaration from its
+  real allocated wire. The raw entry now carries `PrintBase` under positive
+  source binder widths. Internal zero-width declarations may still be present
+  in this intermediate property; cleanup removes them.
+* `mixedShape_positive` derives positive source binder widths from the actual
+  syntax gate. `printBase_cleanup`, `mixed_post_printDecls` and the optimizer's
+  existing declaration check establish printable declarations after both
+  cleanup/merge choices and either checked optimizer selection. No public
+  caller supplies a printable-declaration certificate.
+
+This covers the complete string, including scalar/vector declarations, ports,
+assignments, comments and layout, rather than isolated expressions. It is a
+byte-equality/rendering theorem, **not yet** the independent
+`ConcreteSyntax.Module` grammar theorem for the mixed domain. It also does not
+establish declaration uniqueness/binding in the emitted mixed SV AST or transfer
+the IR evaluation to SV concurrent semantics. These distinctions remain
+explicit rather than being hidden in the word “RTL”.
+
+Validation: `lake build Tests.AllTests` passes (615 jobs). The focused regression
+compares whole rendered module texts across 15 actual entry/postprocessing
+paths: nested arithmetic/comparison/Bool mux, direct Bool input, Bool literal,
+BitVec 1 and an unused mixed-width input. The general endpoint, source Signal
+corollary, metadata/binder lemmas and their strengthened recursive dependencies
+pass the standard-axiom audit; no `sorry` dependency is added. Compiler behavior
+is unchanged.
+
+**Next connections:** derive identifier/reference/declaration-width facts for
+this same mixed emitted tree, then connect assignment dependency order and the
+parallel settling model. The old BitVec-only `compiledFragment_execution`
+remains the complete grammar/execution endpoint for its original scope. The
+mixed source domain and `EnvDefines` boundary remain as below; successful-domain
+coverage of additional operations, state/reset, memory and hierarchy is still
+required for the overall goal.
+
 ## Mixed source argument correspondence (2026-09-27)
 
 `Tools/ShippingMixedSourceBridge.lean` closes the prepared-valuation and
@@ -99,7 +150,7 @@ not finite execution tests. Their elaborated declaration bodies are captured by
 `lake build Tests.AllTests` passes (613 jobs). The new general results and
 declaration corollaries pass the standard-axiom audit (`propext`, `Classical.choice`, `Quot.sound` only).
 
-**Remaining:** connect the mixed optimized AST to the full output-string grammar
+**At that checkpoint (whole-module rendering is advanced above):** connect the mixed optimized AST to the full output-string grammar
 and parallel settling semantics. The source fragment, in-order IR observation
 model and `EnvDefines` boundary remain explicit. The old BitVec-only
 `compiledFragment_execution` statement is unchanged; whole successful-domain
