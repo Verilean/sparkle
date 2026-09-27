@@ -1,4 +1,5 @@
 import Tools.ShippingMixedInputSoundness
+import Tools.ShippingMixedOrderSoundness
 
 /-! The shipping mixed entry's complete input walk. Preparation below is a
 pure description of the states reached by the actual bindMixedCertifiedInputs;
@@ -312,7 +313,8 @@ theorem emitLeaves_postReady {mems : MEnv} {ctx ρ β initial s t dom n kb kv ca
       cache logProf [("out", quoteB dom n (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) e)] none 0)
       ctx s returned t) :
     weOf m = declaredWidths t ∧ TypedPostReady m ∧ (∀ p ∈ m.outputs, PrintableType p.ty) ∧
-      OutputTyped (weOf m) m.body ∧ (∀ p ∈ m.outputs, p.ty.bitWidth = 1) := by
+      OutputTyped (weOf m) m.body ∧ (∀ p ∈ m.outputs, p.ty.bitWidth = 1) ∧
+      Tools.ShippingSettledSoundness.Acyclic m.body := by
   have contract := translateExprToWire_bool_contract (ctx := ctx) (we := declaredWidths t)
     (mems := mems) (initial := initial) (dom := dom) hn hb hv e he
   obtain ⟨unique, result, run, value, out, typed, rest⟩ := emitLeaves_bool_from_ports (mems := mems) hn hb hv e he body record wires ports hr
@@ -351,7 +353,7 @@ theorem emitLeaves_postReady {mems : MEnv} {ctx ρ β initial s t dom n kb kv ca
   have mo' : m.outputs = [{name := "out", ty := ty}] := by
     rw [mo, ht, emitAssign_outputs, addOutput_state]
     simp [Module.addOutput, frame.outputs, outputs]
-  refine ⟨wm, ⟨?_, ?_, ?_, ?_⟩, ?_, ?_, ?_⟩
+  refine ⟨wm, ⟨?_, ?_, ?_, ?_⟩, ?_, ?_, ?_, ?_⟩
   · rw [mw, List.map_reverse]; exact nodup_reverse unique.1
   · unfold weOf
     have none : m.wires.find? (fun p => p.name == "out") = none := by
@@ -409,6 +411,22 @@ theorem emitLeaves_postReady {mems : MEnv} {ctx ρ β initial s t dom n kb kv ca
   · intro p hp
     rw [mo', List.mem_singleton] at hp
     subst p; exact tyWidth
+  · have order := Tools.ShippingMixedOrderSoundness.translateExprToWire_bool_orders
+      hn hb hv e he "out" true s sm w initial tr initialInv widths
+      (Tools.ShippingTranslationOrder.OrderInv.empty body)
+    have pending : "out" ∉ Tools.ShippingTranslationOrder.footprint sm.module.body.reverse := by
+      intro hs
+      have used := order.2 "out" ((Tools.ShippingTranslationOrder.footprint_reverse_mem _ _).mp hs)
+      rw [fresh] at used; cases used
+    have ne : w ≠ "out" := by
+      intro eq
+      have used := step.used
+      rw [eq, fresh] at used; cases used
+    rw [mb]
+    change Tools.ShippingSettledSoundness.Acyclic t.module.body.reverse
+    rw [ht, emitAssign_body_cons, List.reverse_cons]
+    exact Tools.ShippingTranslationOrder.acyclic_snoc order.1 pending
+      (by simpa [Sparkle.IR.Reorder.refsOf] using Ne.symm ne)
 
 /-- No inferred-type premise: this decomposes the actual mixed synthesis run. -/
 theorem synthesizeMixedCertified_returns {logProf declName bs body m d}
@@ -507,6 +525,7 @@ structure PrintBase (m : Sparkle.IR.AST.Module) : Prop where
   output : ∃ ty, m.outputs = [{name := "out", ty := ty}]
   outputTyped : OutputTyped (weOf m) m.body
   outputWidth : ∀ p ∈ m.outputs, p.ty.bitWidth = 1
+  order : Tools.ShippingSettledSoundness.Acyclic m.body
   moduleName : Sparkle.IR.ModuleNames.legal (Sparkle.Backend.Verilog.sanitizeName m.name) = true
 
 /-- The raw entry establishes both value preservation and the preconditions
@@ -552,7 +571,7 @@ theorem synthesizeMixedCertified_sound {logProf declName bs body m d}
   have outputEq : m.outputs = st.module.outputs.reverse := by
     rw [hm]; simp only [Module.finalize, (addClockReset_facts st.module).2.2.1]
   have shape := prepare_shape (bools := bools) (bits := bits) (bs.zip ids) a (by intro p hp; cases hp)
-  obtain ⟨wm, ready, printOutputs, outputTyped, outputWidth⟩ := emitLeaves_postReady (mems := mems) hn hb hv e he
+  obtain ⟨wm, ready, printOutputs, outputTyped, outputWidth, order⟩ := emitLeaves_postReady (mems := mems) hn hb hv e he
     prepared.2.2.1 prepared.2.2.2 prepared.2.1 prepared.1 shape.1 shape.2 wireEq bodyEq outputEq leaf
   have ib := prepare_inputBounds (bs.zip ids) a (by intro p hp; cases hp) values
   have contract := translateExprToWire_bool_contract (ctx := p.context) (we := declaredWidths st)
@@ -594,7 +613,7 @@ theorem synthesizeMixedCertified_sound {logProf declName bs body m d}
     have mi : m.inputs = st.module.inputs.reverse := by rw [hm, noSeq]; rfl
     have decls := prepare_declarations (bools := bools) (bits := bits) (bs.zip ids) a
       (List.Sublist.refl []) (by intro port hp; cases hp)
-    refine ⟨?_, ?_, ?_, printOutputs, ?_, ?_, ?_, ?_, ?_, outputTyped, outputWidth, nameLegal⟩
+    refine ⟨?_, ?_, ?_, printOutputs, ?_, ?_, ?_, ?_, ?_, outputTyped, outputWidth, order, nameLegal⟩
     · rw [hm, noSeq]
       change st.module.isPrimitive = false
       rw [ht]; change sm.module.isPrimitive = false

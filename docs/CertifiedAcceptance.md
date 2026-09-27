@@ -4,6 +4,12 @@ Implemented 2026-09-24. This is a proof-carrying acceptance boundary, **not a
 completed CompCert-class compiler proof**. The DSL reifier remains a partial,
 unverified meta-program. The underlying generator and its performance are unchanged.
 
+Current shipping-compiler milestones and their completion criteria are tracked
+in [ShippingCompiler-Milestones.md](ShippingCompiler-Milestones.md), with the
+active checklist in [CertifiedRoundtrip-TODO.md](CertifiedRoundtrip-TODO.md#current-shipping-compiler-todo).
+The numbered acceptance milestones below describe the earlier bounded API;
+they do not mark state/reset or full shipping-domain coverage complete.
+
 ## Contract and general theorem
 
 `Tools.CertifiedRoundtrip.Certificate source` contains the exact generated text,

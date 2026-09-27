@@ -4,6 +4,82 @@ Living checklist for the certified-compilation track (branch
 `poc/roundtrip-proof`, PR #134).  Grouped by area; ordering within a
 group is rough priority.  Update as items land.
 
+## Current shipping compiler TODO
+
+Updated 2026-09-27, S2 completed after proof baseline `2ad67ae`. This section is the current
+execution checklist for the CompCert-style **existing successful compiler**
+goal. The older sections below retain historical/per-instance tracks; their
+“next” items do not override this list. Milestone definitions and exit criteria:
+[ShippingCompiler-Milestones.md](ShippingCompiler-Milestones.md).
+
+### Completed foundations
+
+- [x] **S0:** Original BitVec fragment connected through actual output syntax,
+  bound/unique declarations, SV equations and finite delta settling
+  (`compiledFragment_execution`).
+- [x] **S1:** Mixed Bool/BitVec recursive translation and actual synthesis entry,
+  cleanup, checked merging and optimizer selections preserve source IR values.
+- [x] **S1:** Mixed output text has concrete grammar, legal unique declarations,
+  declaration-derived widths and all references/targets bound
+  (`syntax_source_of_env`, `2ad67ae`). The old BitVec theorem remains valid.
+
+### Completed: S2 — mixed RTL meaning and finite settling
+
+Owner/status: complete. Endpoint: `execution_source_of_env` in
+`Tools/ShippingMixedExecutionSoundness.lean`; initialization bounds and
+`EnvDefines` remain explicit.
+
+- [x] Derive per-expression and assignment SV semantic checks from the mixed
+  AST's actual declaration widths, including the Bool output; connect both
+  checked optimizer selections.
+- [x] Derive dependency order/single-assignment for mixed recursive translation,
+  including parent-before-child allocation, protected pending names, cache hits,
+  live Bool/BitVec bindings and the final output assignment.
+- [x] Carry these facts through the actual cleanup/merge/optimizer pipeline.
+- [x] Compose a general source-to-emitted-RTL theorem with unique bounded
+  solution and finite delta-trace existence/convergence, retaining the same
+  concrete text/AST and explicit `EnvDefines` boundary.
+- [x] Instantiate that endpoint on real sources, audit its axioms and pass the
+  full test-module build. No caller-supplied child/order/replay certificate.
+
+S2 now includes the RTL execution theorem, beyond IR values and grammar.
+Intermediate commits are checkpoints, not automatic turn/task endpoints.
+
+### Active S3 and planned extensions / final closure
+
+- [ ] **S3:** Build a branch/feature coverage inventory of the actual compiler's
+  successful entry/dispatcher/pass paths; identify exact uncovered cases.
+  [Initial structural inventory](ShippingCompiler-Coverage.md) added; detailed
+  success witnesses and exhaustive branch reconciliation remain open.
+- [ ] **S3:** Remaining combinational operations and interfaces: BitVec-result
+  mux, other Bool/comparison/shift paths, mixed/changed widths, successful
+  aggregate and parameterized/symbolic forms. Close syntax and RTL meaning for
+  each extension; inventory determines the complete list.
+- [ ] **S4:** Actual state/register/reset compilation and arbitrary admissible
+  source traces through emitted RTL; specify initialization and clock timing.
+- [ ] **S5:** Actual memory compilation and trace semantics, including latency,
+  masks and supported read/write interactions.
+- [ ] **S6:** Actual hierarchy compilation and compositional instance semantics,
+  port/parameter linkage and contained state/memory.
+- [ ] **S7:** Reconcile all successful cases and compose the full shipping
+  theorem; instantiate it on real circuits without substituting per-instance
+  replay for coverage.
+- [ ] **S7 / trust:** Resolve or explicitly retain `EnvDefines` in the final
+  claim; record execution-model/external-tool boundaries without hiding them.
+
+Latest validation: 622 build jobs and standard-axiom audits of the S2 endpoints;
+2,700 source/SV/delta cases cover 18 paths, 6 accepted and 12 retained optimizer
+selections, three bounded internal seeds, and shared expressions.
+No schedule/session estimate is asserted. See the milestone plan for the
+precise scope of the proved source fragments and S2's starting proof modules.
+
+## Historical and other certification tracks
+
+The sections below record older milestones and separate certification work.
+An unchecked item can be closed for a named shipping fragment while remaining
+open for the full domain or another route; use the current checklist above for
+active shipping priorities.
+
 ## A. Composition chain (Signal ≡ emitted SystemVerilog)
 
 - [x] The seam: `inlineConeT` / `resolveSlicesT` total twins +

@@ -1,6 +1,10 @@
 # Existing compiler: success implies semantic preservation
 
-For resuming work in Claude Code, start with [CompCert-Handoff.md](CompCert-Handoff.md).
+For continuing work in Codex or Claude Code, start with the
+[current milestones](ShippingCompiler-Milestones.md) and
+[active TODO](CertifiedRoundtrip-TODO.md#current-shipping-compiler-todo).
+These define the current work unit and exit criteria; dated entries below
+record earlier states. S2 completed after baseline `2ad67ae` (2026-09-27).
 
 The target agreed on 2026-09-24 is the existing compiler's successful domain:
 
@@ -21,6 +25,21 @@ the shipping allocator) or for performance measurements, rather than after
 every proof-only change. Report regression status separately from proof progress.
 
 ## Current proved endpoint (2026-09-27)
+
+The mixed Bool/BitVec endpoint `execution_source_of_env` now joins the same
+shipping text/AST to SV evaluation, a unique bounded simultaneous solution, and
+finite parallel delta settling. `EnvDefines`, ordinary source input agreement
+and bounded initialization remain explicit. The domain is Bool inputs/literals,
+unsigned comparisons and nested Bool-result mux over common positive-width
+BitVec arithmetic. It does not cover every successful legacy compilation path.
+
+Validation: `lake build Tests.AllTests` passed (622 jobs). The new execution
+regression compares source values, SV folds and parallel rounds in 2,700 cases,
+including three bounded internal seeds, reordered/unused inputs and shared
+expressions. Eighteen pipeline paths include six optimizer acceptances and
+twelve retentions. The general endpoint and real-source instantiations use only
+`propext`, `Classical.choice`, `Quot.sound`; no `sorry` or executable oracle.
+See [the coverage inventory](ShippingCompiler-Coverage.md) for the next domain.
 
 For the quoted positive-width combinational fragment (inputs, constants,
 `+ - * &&& ||| ^^^`, and same-width logical shifts `>>>` and `<<<`),
@@ -197,8 +216,9 @@ corollary, metadata/binder lemmas and their strengthened recursive dependencies
 pass the standard-axiom audit; no `sorry` dependency is added. Compiler behavior
 is unchanged.
 
-**Next connections:** derive reference/target binding and the independent
-grammar judgment for this same mixed emitted tree, then connect assignment dependency order and the
+**At this historical checkpoint**, reference/target binding and the independent
+grammar judgment were the next connections; they are now closed by `2ad67ae`.
+The active S2 milestone connects mixed AST execution, dependency order and the
 parallel settling model. The old BitVec-only `compiledFragment_execution`
 remains the complete grammar/execution endpoint for its original scope. The
 mixed source domain and `EnvDefines` boundary remain as below; successful-domain

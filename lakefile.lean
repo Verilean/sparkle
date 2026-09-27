@@ -443,6 +443,15 @@ lean_lib «Tools.ShippingMixedPostSoundness» where
 lean_lib «Tools.ShippingMixedSourceBridge» where
   roots := #[`Tools.ShippingMixedSourceBridge]
 
+lean_lib «Tools.ShippingMixedExecutionSoundness» where
+  roots := #[`Tools.ShippingMixedExecutionSoundness]
+
+lean_lib «Tools.ShippingMixedOrderSoundness» where
+  roots := #[`Tools.ShippingMixedOrderSoundness]
+
+lean_lib «Tools.ShippingMixedForwardSoundness» where
+  roots := #[`Tools.ShippingMixedForwardSoundness]
+
 lean_lib «Tools.ShippingMixedBindingSoundness» where
   roots := #[`Tools.ShippingMixedBindingSoundness]
 

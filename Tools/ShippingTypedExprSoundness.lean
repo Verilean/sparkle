@@ -61,6 +61,30 @@ theorem TypedExpr.refs_positive {we e n} (h : TypedExpr we e n) :
     · exact ht x hx
     · exact hf x hx
 
+/-- Typing only depends on widths at the expression's actual references. -/
+theorem TypedExpr.we_congr {we we' e n} (h : TypedExpr we e n)
+    (hw : ∀ x ∈ Sparkle.IR.Reorder.refsOf e, we' x = we x) : TypedExpr we' e n := by
+  induction h with
+  | ref x hn =>
+    have eq := hw x (by simp [Sparkle.IR.Reorder.refsOf])
+    simpa only [eq] using TypedExpr.ref (we := we') x (by rw [eq]; exact hn)
+  | const v n hn => exact .const v n hn
+  | bin op _ _ hs ha hb =>
+    exact .bin op (ha (fun x hx => hw x (by
+      simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList, hx])))
+      (hb (fun x hx => hw x (by
+        simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList, hx]))) hs
+  | compare ho _ _ ha hb =>
+    exact .compare ho (ha (fun x hx => hw x (by
+      simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList, hx])))
+      (hb (fun x hx => hw x (by
+        simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList, hx])))
+  | mux _ _ _ hc ht hf =>
+    apply TypedExpr.mux
+    · exact hc (fun x hx => hw x (by simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList, hx]))
+    · exact ht (fun x hx => hw x (by simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList, hx]))
+    · exact hf (fun x hx => hw x (by simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList, hx]))
+
 theorem TypedExpr.ofSized {we e n} (h : SizedExpr we e n) (hn : 0 < n) :
     TypedExpr we e n := by
   induction h with
