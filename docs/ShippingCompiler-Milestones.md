@@ -249,8 +249,9 @@ register (`Signal.loop (fun s => Signal.register initLit cone)`) is proved
 to the cycle recurrence at the current state (`loopRegister_step_of_env`;
 the loop binder is one more unified-source input bound to the pre-allocated
 register wire, so the combinational contract machinery is reused verbatim
-and no reserved-parent protection is needed), leaving open feedback's
-zero-width preservation, `circuit do`/`runCircuitH` reification (`Signal.loop`/`circuit do`), multiple registers,
+and no reserved-parent protection is needed; zero-width cleanup is proved
+preserved on all three register shapes), leaving open
+`circuit do`/`runCircuitH` reification (`Signal.loop`/`circuit do`), multiple registers,
 enable/hold (`registerWithEnable`'s pure semantics has a hold bug to fix
 first), user reset muxes, and sequential emitted-SV text (sequential modules
 pass through `optimizeModule`, unproved). S5–S7 remain unfinished.

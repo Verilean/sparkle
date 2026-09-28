@@ -182,13 +182,14 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   wire is used before the cone translates, so the execution frame preserves
   it. `trace_of_cycles` (state-reading updates) iterates it over `runModule`.
   `accLoop` passes the gate definitionally and 12 feedback cycles match the
-  loop recurrence; endpoint instantiated, standard axioms only.
+  loop recurrence; endpoint instantiated, standard axioms only. Zero-width
+  cleanup is proved preserved on this shape as well, so all three certified
+  register shapes cover the `SPARKLE_NO_REGDEDUP=1` configuration.
 - [ ] **S4:** Remaining state/reset scope: the sequential `mergeDuplicates`
   (the UNVALIDATED `mergeDuplicatesRaw`; needs register-bisimulation
   validation or proof — the register test exercises the merged default
   configuration numerically for 12 cycles),
-  zero-width cleanup preservation for the FEEDBACK shape (proved for the
-  plain and enabled shapes), `circuit do`/`runCircuitH` reification onto the
+  `circuit do`/`runCircuitH` reification onto the
   loop form, multiple registers, user-level reset muxes, and the sequential emitted-SV text
   (sequential modules currently pass through `optimizeModule` unproved).
 - [ ] **S5:** Actual memory compilation and trace semantics, including latency,

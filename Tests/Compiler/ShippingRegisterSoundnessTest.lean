@@ -171,6 +171,8 @@ theorem accLoop_step {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.Stat
       SourceInputs ``accLoop accLoopBinders ids cache bools bits env0 →
       env0 "rst" = 0 → env0 r < 2 ^ 8 →
       weOf m r = 8 ∧
+      (Sparkle.IR.ZeroWidth.dropZeroWidthModule m).body = m.body ∧
+      weOf (Sparkle.IR.ZeroWidth.dropZeroWidthModule m) = weOf m ∧
       ∃ envF, stepModule (weOf m) m.body env0 mems =
           some (envF, [(r, (eval (fun _ => bools 1)
             (fun j n => if j = 2 then BitVec.ofNat n (env0 r) else bits (j + 2) n)
@@ -312,6 +314,9 @@ run_cmd liftTermElabM do
     | .register o _ _ _ init => some (o, init)
     | _ => none
   let [(rL, initL)] := regsL | throwError "expected one feedback register"
+  let ml' := Sparkle.IR.ZeroWidth.dropZeroWidthModule ml
+  unless ml'.body == ml.body && ml'.wires == ml.wires do
+    throwError "dropZeroWidth changed the feedback-register module"
   unless initL == 0 do throwError "unexpected feedback-register init"
   let weL := Tools.ShippingEntrySoundness.weOf ml
   let mut stateL : Nat := 0
