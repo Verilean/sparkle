@@ -57,17 +57,25 @@ theorem synthesizeMixedCertified_vector_sound {logProf declName bs body m d}
     Tools.ShippingUnifiedExecutionSoundness.synthesizeMixedCertified_term_sound hr
   refine ⟨ids, nd, len, cache, ?_⟩
   intro bools bits initial mems a p values dom n kb kv binp vinp bvals vvals e hn he hb hv qeq
+  let vi : (j : Nat) → (w : Nat) → BitVec w := fun j w => if h : n = w then h ▸ vvals j else 0#w
+  have vin : ∀ j, vi j n = vvals j := fun j => dif_pos rfl
   have qeq' : instFVars (ids.map Lean.Expr.fvar).toArray 0 body =
-      Tools.ShippingUnifiedSource.quote dom n (fun j => .fvar (binp j)) (fun j => .fvar (vinp j))
-        (Tools.ShippingUnifiedSource.ofV e) := by
+      Tools.ShippingUnifiedSource.quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j))
+        (Tools.ShippingUnifiedSource.ofV n e) := by
     rw [qeq, Tools.ShippingUnifiedSource.quote_ofV]
-  have step := h bools bits initial mems values dom n kb kv binp vinp bvals vvals
-    (Tools.ShippingUnifiedSource.ofV e) hn
-    ((Tools.ShippingUnifiedSource.wf_ofV _ _ _ _).mpr he) hb hv qeq'
-  have veq : (Tools.ShippingUnifiedMeaning.pack n .bits
-      (Tools.ShippingUnifiedSource.eval n bvals vvals (Tools.ShippingUnifiedSource.ofV e))).toNat =
+  have hv' : ∀ j, j < kv → p.bits (vinp j) = some ⟨(fun _ => n) j, vi j ((fun _ => n) j)⟩ := by
+    intro j hj
+    show p.bits (vinp j) = some ⟨n, vi j n⟩
+    rw [vin j]
+    exact hv j hj
+  have step := h bools bits initial mems values dom kb kv (fun _ => n) binp vinp bvals vi
+    (Tools.ShippingUnifiedSource.ofV n e)
+    (Tools.ShippingUnifiedSource.wf_ofV kb kv n hn e he) hb hv' qeq'
+  have veq : (Tools.ShippingUnifiedMeaning.pack (.bits n)
+      (Tools.ShippingUnifiedSource.eval bvals vi (Tools.ShippingUnifiedSource.ofV n e))).toNat =
       (evalV n bvals vvals e).toNat := by
     rw [Tools.ShippingUnifiedSource.eval_ofV]
+    rw [show (fun j => vi j n) = vvals from funext vin]
     rfl
   rw [← veq]
   exact step

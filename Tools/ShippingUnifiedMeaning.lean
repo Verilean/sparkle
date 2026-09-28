@@ -35,9 +35,9 @@ theorem Value.bounded (v : Value) : v.toNat < 2 ^ v.kind.width := by
   | bool b => exact encodeBool_lt b
   | bits n v => exact v.isLt
 
-def pack (n : Nat) : (s : SType) → s.Type n → Value
+def pack : (s : SType) → s.Type → Value
   | .bool, b => .bool b
-  | .bits, v => .bits n v
+  | .bits w, v => .bits w v
 
 inductive BinOp where
   | bits (op : Binary) (n : Nat)
@@ -172,18 +172,18 @@ theorem view_boolNot (dom a : Lean.Expr) : view (boolNotE dom a) = some (.boolNo
 
 theorem view_boolEq (dom a b : Lean.Expr) : view (boolEqE dom a b) = some (.binary .boolEq a b) := rfl
 
-def kindOf (n : Nat) : SType → Kind
+def kindOf : SType → Kind
   | .bool => .bool
-  | .bits => .bits n
+  | .bits w => .bits w
 
-theorem pack_kind (n : Nat) (s : SType) (v : s.Type n) : (pack n s v).kind = kindOf n s := by cases s <;> rfl
+theorem pack_kind (s : SType) (v : s.Type) : (pack s v).kind = kindOf s := by cases s <;> rfl
 
-theorem view_mux (dom c a b : Lean.Expr) (n : Nat) (s : SType) :
-    view (muxE dom (s.quoteType n) c a b) = some (.mux (kindOf n s) c a b) := by
+theorem view_mux (dom c a b : Lean.Expr) (s : SType) :
+    view (muxE dom s.quoteType c a b) = some (.mux (kindOf s) c a b) := by
   cases s with
   | bool => rfl
-  | bits =>
-    change (match canonicalMuxType? (muxE dom (bitVecE n) c a b) with
+  | bits w =>
+    change (match canonicalMuxType? (muxE dom (bitVecE w) c a b) with
       | some .bit => some (Node.mux .bool c a b)
       | some (.bitVector n) => some (Node.mux (.bits n) c a b)
       | _ => none) = _
@@ -191,22 +191,25 @@ theorem view_mux (dom c a b : Lean.Expr) (n : Nat) (s : SType) :
 
 /-- Full source/library connection for the new recursive domain. This says
 what quoted sources mean, not that the compiler already preserves them. -/
-theorem meaning_quote {inputs : FVarId → Option Value} {dom : Lean.Expr} {n kb kv : Nat}
-    {bi vi : Nat → FVarId} {bools : Nat → Bool} {bits : Nat → BitVec n}
+theorem meaning_quote {inputs : FVarId → Option Value} {dom : Lean.Expr} {kb kv : Nat}
+    {vw : Nat → Nat} {bi vi : Nat → FVarId} {bools : Nat → Bool}
+    {bits : (j : Nat) → (w : Nat) → BitVec w}
     (hb : ∀ j, j < kb → inputs (bi j) = some (.bool (bools j)))
-    (hv : ∀ j, j < kv → inputs (vi j) = some (.bits n (bits j))) :
-    ∀ {s} (e : Term s), e.WF kb kv n →
-      Meaning inputs (quote dom n (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) e)
-        (pack n s (eval n bools bits e))
+    (hv : ∀ j, j < kv → inputs (vi j) = some (.bits (vw j) (bits j (vw j)))) :
+    ∀ {s} (e : Term s), e.WF kb kv vw →
+      Meaning inputs (quote dom (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) e)
+        (pack s (eval bools bits e))
   | _, .boolInput j, hj => .input rfl (hb j hj)
-  | _, .bitsInput j, hj => .input rfl (hv j hj)
+  | _, .bitsInput w j, hj => by
+    cases hj.2.1
+    exact .input rfl (hv j hj.1)
   | _, .boolLit b, _ => .value (view_boolLit dom b)
-  | _, .bitsLit v, hv => .value (view_bitsLit dom n v hv _)
-  | _, .binary op a b, ⟨ha, hb'⟩ => by
-    apply Meaning.binary (view_binary dom _ _ n op) (meaning_quote hb hv a ha) (meaning_quote hb hv b hb')
+  | _, .bitsLit w v, hv => .value (view_bitsLit dom w v hv.1 _)
+  | _, .binary op (w := w) a b, ⟨ha, hb'⟩ => by
+    apply Meaning.binary (view_binary dom _ _ w op) (meaning_quote hb hv a ha) (meaning_quote hb hv b hb')
     simp [BinOp.run, pack, eval]
-  | _, .compare op a b, ⟨ha, hb'⟩ => by
-    apply Meaning.binary (view_compare dom _ _ n op) (meaning_quote hb hv a ha) (meaning_quote hb hv b hb')
+  | _, .compare op (w := w) a b, ⟨ha, hb'⟩ => by
+    apply Meaning.binary (view_compare dom _ _ w op) (meaning_quote hb hv a ha) (meaning_quote hb hv b hb')
     simp [BinOp.run, pack, eval]
   | _, .boolBinary op a b, ⟨ha, hb'⟩ =>
     .binary (view_boolBinary dom _ _ op) (meaning_quote hb hv a ha) (meaning_quote hb hv b hb') rfl
@@ -214,9 +217,9 @@ theorem meaning_quote {inputs : FVarId → Option Value} {dom : Lean.Expr} {n kb
   | _, .boolEq a b, ⟨ha, hb'⟩ =>
     .binary (view_boolEq dom _ _) (meaning_quote hb hv a ha) (meaning_quote hb hv b hb') rfl
   | s, .mux c a b, ⟨hc, ha, hb'⟩ => by
-    apply Meaning.mux (view_mux dom _ _ _ n s) (meaning_quote hb hv c hc)
+    apply Meaning.mux (view_mux dom _ _ _ s) (meaning_quote hb hv c hc)
       (meaning_quote hb hv a ha) (meaning_quote hb hv b hb')
-    cases s <;> cases h : eval n bools bits c <;> simp [muxValue, pack, Value.kind, kindOf, eval, h]
+    cases s <;> cases h : eval bools bits c <;> simp [muxValue, pack, Value.kind, kindOf, eval, h]
 
 theorem bool_bits_disjoint {inputs e b n v}
     (hb : Meaning inputs e (.bool b)) (hv : Meaning inputs e (.bits n v)) : False := by
@@ -240,14 +243,14 @@ theorem inputValues_bits {bools bits id n v}
   | none => simp [inputValues, hb, h]
   | some b => have impossible := separate id b hb; rw [h] at impossible; cases impossible
 
-theorem meaning_quote_mixed {ρ β dom n kb kv} {bi vi : Nat → FVarId}
-    {bools : Nat → Bool} {bits : Nat → BitVec n}
+theorem meaning_quote_mixed {ρ β dom kb kv} {vw : Nat → Nat} {bi vi : Nat → FVarId}
+    {bools : Nat → Bool} {bits : (j : Nat) → (w : Nat) → BitVec w}
     (separate : Tools.ShippingMixedInvariant.Separate ρ β)
     (hb : ∀ j, j < kb → ρ (bi j) = some (bools j))
-    (hv : ∀ j, j < kv → β (vi j) = some ⟨n, bits j⟩)
-    {s} (e : Term s) (wf : e.WF kb kv n) :
-    Meaning (inputValues ρ β) (quote dom n (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) e)
-      (pack n s (eval n bools bits e)) :=
+    (hv : ∀ j, j < kv → β (vi j) = some ⟨vw j, bits j (vw j)⟩)
+    {s} (e : Term s) (wf : e.WF kb kv vw) :
+    Meaning (inputValues ρ β) (quote dom (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) e)
+      (pack s (eval bools bits e)) :=
   meaning_quote (fun j hj => inputValues_bool (hb j hj))
     (fun j hj => inputValues_bits separate (hv j hj)) e wf
 

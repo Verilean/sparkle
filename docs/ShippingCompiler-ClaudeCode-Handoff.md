@@ -7,7 +7,10 @@ S3「相互再帰する mux 合成」の作業単位は完了した。統合 `Te
 `mixedCertifiedShape?` に純追加の `unifiedGateRoot` 判定を足し、該当ソースは certified 経路に入る。
 以下の「証明済みと未完の境界」「次の作業単位」は完了分を反映して読むこと。
 vector mux のキャッシュ再利用も復旧済み(検証付きラッパー経由、旧 VExpr endpoint は ofV 埋め込みで導出)。
-次の候補: 異幅・幅変更演算、残る組合せ構文、S4–S7。
+演算ごとの異幅(per-operation mixed widths)も完了: `Term` は幅インデックス化され
+(`SType.bits w`)、endpoint は入力ごとの幅割当 `vw` を取る。
+次の候補: 幅変更演算(zext/trunc/slice/concat — `handleBitVecOps` の Returns 分解補題が前提)、
+残る組合せ構文、S4–S7。
 
 ## 最初に読むこと
 
@@ -37,7 +40,8 @@ vector mux のキャッシュ再利用も復旧済み(検証付きラッパー�
 | Bool 入力・定数・Bool mux・標準 Bool 論理／等値、上記 BitVec 式の ult/ule/slt/sle・標準等値 | 同じく一般的なソース → RTL 定理まで接続済み |
 | BitVec 結果の mux 木 | 条件が既存 `BExpr`、葉が既存 `FExpr` の `VExpr` について接続済み |
 | mux を算術・比較の子に置く相互再帰 | 完了。`ShippingUnifiedRecursion`(fuel 契約)+ `ShippingUnifiedProtection`(保護・順序)+ `ShippingUnifiedEntrySoundness` + `ShippingUnifiedExecutionSoundness.execution_source_of_env`(両ソート) |
-| 異幅／幅変更演算、残る組合せ構文・インターフェース | 未完。成功分岐との網羅的な突合せも必要 |
+| 演算ごとの異幅(サブツリー間で異なる正幅) | 完了。幅インデックス付き `Term` と入力別幅割当 `vw` で同じ endpoint に接続 |
+| 幅変更演算(extend/truncate/slice/concat)、残る組合せ構文・インターフェース | 未完。実 handler の Returns 分解と AST/RTL の幅規則が必要。成功分岐との網羅的な突合せも必要 |
 | 状態・reset、メモリ、階層、成功領域全体の最終合成 | S4–S7、未完 |
 
 既存の主要エンドポイント:

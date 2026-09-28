@@ -188,8 +188,20 @@ of the mutual domain. `ShippingUnifiedSourceTest` instantiates the endpoint on
 nested, comparison-root and width-65 arithmetic-root declarations and keeps
 2,322 source/legacy/SV/delta cases, now through the certified gate.
 
-Still open in S3: varying/mixed widths and the remaining successful interface
-forms from the inventory.
+Completed S3 extension: per-operation mixed widths. The unified source is
+width-indexed (`SType.bits w`); different subtrees may use different positive
+widths while each canonical operation keeps a common operand width, matching
+what the recognizers always accepted syntactically. The fuel contract,
+protection and order inductions quantify over a per-input width assignment,
+so one theorem instance covers e.g. an 8-bit comparison controlling a 65-bit
+mux (`mixedWidth` in `ShippingUnifiedSourceTest`: gated, 54 SV execution
+cases, endpoint instantiated). The old uniform-width embeddings (`ofF`/`ofB`/
+`ofV`) instantiate the width assignment constantly.
+
+Still open in S3: width-changing operations (zero/sign extension, truncation,
+slices, concatenation) — these need Returns-decomposition lemmas for the
+actual `handleBitVecOps`/legacy handler paths plus matching AST/RTL width
+rules — and the remaining successful interface forms from the inventory.
 S4–S7 (state/reset, memory, hierarchy and final composition) remain unfinished.
 
 ## Trust, validation and work cadence

@@ -103,12 +103,20 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   contract, protection and order inductions cover the cached mux node; the old
   `VExpr` endpoint keeps its statement and is now derived from the unified
   endpoint through the `ofV` embedding. Repeated mux subtrees share wires.
+- [x] **S3 / per-operation mixed widths:** Done. The unified `Term` is now
+  width-indexed (`SType.bits w`): different subtrees may use different positive
+  BitVec widths while each canonical operation keeps a common operand width.
+  One fuel contract/protection/order induction covers all widths at once; the
+  endpoint `execution_source_of_env` takes a per-input width assignment `vw`.
+  The recognizers already checked widths per node, so no compiler change was
+  needed. `mixedWidth` (an 8-bit comparison controlling a 65-bit mux) is
+  gated, executed against 54 SV cases and instantiates the endpoint.
 - [ ] **S3:** Build a branch/feature coverage inventory of the actual compiler's
   successful entry/dispatcher/pass paths; identify exact uncovered cases.
   [Initial structural inventory](ShippingCompiler-Coverage.md) added; detailed
   success witnesses and exhaustive branch reconciliation remain open.
 - [ ] **S3:** Remaining combinational operations and interfaces: remaining mux forms,
-  remaining Bool surface forms/comparison/shift paths, mixed/changed widths, successful
+  remaining Bool surface forms/comparison/shift paths, width-changing operations (extend/truncate/slice/concat), successful
   aggregate and parameterized/symbolic forms. Close syntax and RTL meaning for
   each extension; inventory determines the complete list.
 - [ ] **S4:** Actual state/register/reset compilation and arbitrary admissible
