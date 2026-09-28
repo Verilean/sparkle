@@ -241,7 +241,10 @@ certified: the total lowering mirrors the legacy order (hold mux reading the
 register output back), and `registerEnable_step_of_env` proves the
 capture/hold cycle recurrence — the fixed source semantics — at the raw core
 module, with `trace_of_cycles` generalized to state-reading updates for the
-`runModule` trace. Open in S4:
+`runModule` trace; the packaged `loopRegister_run_of_env` states the whole
+run: the compiled trace observes the `Signal.loop` register fixpoint stream
+itself, identified against the library `.val` via `loop_register_val`.
+Open in S4:
 the sequential `mergeDuplicates` (the unvalidated raw merge; the test
 exercises the merged default configuration numerically; zero-width cleanup
 is proved preserved for the plain and enabled shapes), the feedback

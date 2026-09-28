@@ -2651,6 +2651,76 @@ theorem loopRegister_step_of_env {declName : Name} {mctx : Meta.Context}
 
 /-! ## Trace iteration -/
 
+/-- Invariant-carrying trace iteration: the per-cycle step is available only
+at states satisfying `P` (e.g. width-boundedness for the hold/feedback
+paths), and the update preserves `P`. -/
+theorem trace_of_cycles_inv {we : WEnv} {body : List Stmt} {r : String} {mems : MEnv}
+    {seed : Nat → (String → Nat) → Env} {F : Nat → Nat → Nat} {P : Nat → Prop}
+    (step : ∀ t stv, P (stv r) → ∃ envF,
+      stepModule we body (seed t stv) mems = some (envF, [(r, F t (stv r))], mems) ∧
+      envF "out" = stv r)
+    (Pstep : ∀ t s, P s → P (F t s)) :
+    ∀ (k : Nat) (st0 : String → Nat) (S : Nat → Nat), P (st0 r) →
+      S 0 = st0 r → (∀ j, j + 1 ≤ k → S (j + 1) = F (k - 1 - j) (S j)) →
+      ∃ envs, runModule we body seed k st0 mems = some envs ∧ envs.length = k ∧
+        ∀ j (hj : j < envs.length), (envs[j]'hj) "out" = S j
+  | 0, st0, S, _, hS0, hSs => ⟨[], rfl, rfl, fun j hj => absurd hj (Nat.not_lt_zero j)⟩
+  | k + 1, st0, S, P0, hS0, hSs => by
+    obtain ⟨envF, hstep, hout⟩ := step k st0 P0
+    have hnext : applyNexts st0 [(r, F k (st0 r))] r = F k (st0 r) := by
+      simp [applyNexts]
+    obtain ⟨rest, hrun, hlen, hobs⟩ := trace_of_cycles_inv step Pstep k
+      (applyNexts st0 [(r, F k (st0 r))]) (fun j => S (j + 1))
+      (by rw [hnext]; exact Pstep k (st0 r) P0)
+      (by
+        show S (0 + 1) = _
+        rw [hnext, hSs 0 (by omega), hS0]
+        simp)
+      (by
+        intro j hj
+        show S (j + 1 + 1) = F (k - 1 - j) (S (j + 1))
+        rw [hSs (j + 1) (by omega)]
+        have hidx : k + 1 - 1 - (j + 1) = k - 1 - j := by omega
+        rw [hidx])
+    refine ⟨envF :: rest, ?_, by simp [hlen], ?_⟩
+    · unfold runModule
+      simp [hstep, bind, hrun]
+    · intro j hj
+      cases j with
+      | zero => rw [hS0]; simpa using hout
+      | succ i =>
+        have hi : i < rest.length := by simpa using hj
+        have hget : ((envF :: rest)[i + 1]'hj) = rest[i]'hi := by simp
+        rw [hget]
+        exact hobs i hi
+
+/-- The feedback loop's stream: at 0 the register initializes; afterwards the
+cone observes the loop itself one tick earlier. The cone only needs to be
+pointwise in its argument (true of every combinational denotation). -/
+theorem loop_register_val {D : Sparkle.Core.Domain.DomainConfig} {w : Nat} (init : BitVec w)
+    (cone : Sparkle.Core.Signal.Signal D (BitVec w) →
+      Sparkle.Core.Signal.Signal D (BitVec w))
+    (hcone : ∀ (s₁ s₂ : Sparkle.Core.Signal.Signal D (BitVec w)) (t : Nat),
+      s₁.val t = s₂.val t → (cone s₁).val t = (cone s₂).val t) :
+    ((Sparkle.Core.Signal.Signal.loop
+        (fun s => Sparkle.Core.Signal.Signal.register init (cone s))).val 0 = init) ∧
+    ∀ t, (Sparkle.Core.Signal.Signal.loop
+        (fun s => Sparkle.Core.Signal.Signal.register init (cone s))).val (t + 1) =
+      (cone (Sparkle.Core.Signal.Signal.loop
+        (fun s => Sparkle.Core.Signal.Signal.register init (cone s)))).val t := by
+  constructor
+  · show Sparkle.Core.Signal.Signal.loopGo _ 0 = init
+    rw [Sparkle.Core.Signal.Signal.loopGo_eq]
+    rfl
+  · intro t
+    show Sparkle.Core.Signal.Signal.loopGo _ (t + 1) = _
+    rw [Sparkle.Core.Signal.Signal.loopGo_eq]
+    show (cone ⟨fun i => if i < t + 1 then Sparkle.Core.Signal.Signal.loopGo _ i else default⟩).val t = _
+    apply hcone
+    show (if t < t + 1 then Sparkle.Core.Signal.Signal.loopGo _ t else default) = _
+    rw [if_pos (by omega)]
+    rfl
+
 /-- Iterating the per-cycle property along `runModule`: cycle `j` (wall
 clock, oldest first) observes the state sequence `S`, which follows the
 recurrence `S 0 = st0 r`, `S (j+1) = F (k-1-j) (S j)` (`runModule`'s seed
@@ -2693,5 +2763,66 @@ theorem trace_of_cycles {we : WEnv} {body : List Stmt} {r : String} {mems : MEnv
         have hget : ((envF :: rest)[i + 1]'hj) = rest[i]'hi := by simp
         rw [hget]
         exact hobs i hi
+
+/-- Packaged feedback trace at the real core entry: for every admissible
+per-cycle seeding discipline (inputs at the wall-clock cycle, reset low, the
+register wire reading the threaded state), the compiled module's `runModule`
+trace observes exactly the state sequence of the source recurrence
+`S 0 = st0 r`, `S (j+1) = cone(inputs_j, self := S j)` — the
+`Signal.loop`/`Signal.register` fixpoint stream (see `loop_register_val`). -/
+theorem loopRegister_run_of_env {declName : Name} {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {wst wst' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {design : Design} {value instE : Lean.Expr}
+    {bs : List (Name × MixedGateBinder)} {dpos : Nat} {w v kb kv : Nat}
+    {vw : Nat → Nat} {bpos vpos : Nat → Nat} {e : Term (.bits w)}
+    (hr : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref wst
+      (m, design) wst')
+    (env : EnvDefines mctx mref cctx cref declName value)
+    (old : ∀ d : DefinitionVal, d.value = value → certifiedShape? false [] (.defnInfo d) = none)
+    (peel : mixedGatePeel value = some (bs, loopRegisterE (inputExpr bs.length dpos)
+      (inputExpr (bs.length + 1) dpos) instE w v
+      (quote (inputExpr (bs.length + 1) dpos) (fun j => inputExpr (bs.length + 1) (bpos j))
+        (fun j => if j = kv then .bvar 0 else inputExpr (bs.length + 1) (vpos j)) e)))
+    (hdp : dpos < bs.length)
+    (hself : vw kv = w) (he : e.WF kb (kv + 1) vw) (hvlt : v < 2 ^ w)
+    (hb : ∀ j, j < kb → ∃ name, bs[bpos j]? = some (name, .bool))
+    (hvp : ∀ j, j < kv → ∃ name, bs[vpos j]? = some (name, .bits (vw j))) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = bs.length ∧
+    ∃ (cache : IO.Ref (ExprStructMap String)) (r : String),
+      ∀ (bools : Nat → Nat → Bool) (bits : Nat → (j : Nat) → (n : Nat) → BitVec n)
+        (mems : MEnv) (k : Nat) (seed : Nat → (String → Nat) → Env)
+        (st0 : String → Nat) (S : Nat → Nat),
+      (∀ t stv, SourceInputs declName bs ids cache (bools (k - 1 - t)) (bits (k - 1 - t))
+          (seed t stv) ∧ seed t stv "rst" = 0 ∧ seed t stv r = stv r) →
+      st0 r < 2 ^ w →
+      S 0 = st0 r →
+      (∀ j, j + 1 ≤ k → S (j + 1) = (eval (fun i => bools j (bpos i))
+        (fun i n => if i = kv then BitVec.ofNat n (S j) else bits j (vpos i) n) e).toNat) →
+      ∃ envs, runModule (weOf m) m.body seed k st0 mems = some envs ∧ envs.length = k ∧
+        ∀ j (hj : j < envs.length), (envs[j]'hj) "out" = S j := by
+  obtain ⟨ids, nd, len, cache, r, H⟩ :=
+    loopRegister_step_of_env hr env old peel hdp hself he hvlt hb hvp
+  refine ⟨ids, nd, len, cache, r, ?_⟩
+  intro bools bits mems k seed st0 S hseed hst0 hS0 hSs
+  apply trace_of_cycles_inv (P := fun s => s < 2 ^ w)
+    (F := fun t s => (eval (fun i => bools (k - 1 - t) (bpos i))
+      (fun i n => if i = kv then BitVec.ofNat n s else bits (k - 1 - t) (vpos i) n) e).toNat)
+    ?_ ?_ k st0 S hst0 hS0 ?_
+  · intro t stv hP
+    obtain ⟨hsrc, hrst, hread⟩ := hseed t stv
+    obtain ⟨-, -, -, envF, hstep, hout⟩ :=
+      H (bools (k - 1 - t)) (bits (k - 1 - t)) (seed t stv) mems hsrc hrst
+        (by rw [hread]; exact hP)
+    refine ⟨envF, ?_, by rw [hout, hread]⟩
+    rw [hread] at hstep
+    exact hstep
+  · intro t s hP
+    exact BitVec.isLt _
+  · intro j hj
+    rw [hSs j hj]
+    have hidx : k - 1 - (k - 1 - j) = j := by omega
+    rw [hidx]
+
 
 end Tools.ShippingRegisterSoundness

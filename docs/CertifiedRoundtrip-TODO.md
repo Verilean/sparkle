@@ -184,7 +184,13 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   `accLoop` passes the gate definitionally and 12 feedback cycles match the
   loop recurrence; endpoint instantiated, standard axioms only. Zero-width
   cleanup is proved preserved on this shape as well, so all three certified
-  register shapes cover the `SPARKLE_NO_REGDEDUP=1` configuration.
+  register shapes cover the `SPARKLE_NO_REGDEDUP=1` configuration. The
+  packaged trace endpoint `loopRegister_run_of_env` (via the
+  invariant-carrying `trace_of_cycles_inv` and the general
+  `loop_register_val` stream lemma) closes the full-run statement: for
+  every admissible seeding discipline, the compiled `runModule` trace
+  observes exactly the source `Signal.loop` register fixpoint's stream
+  (`accLoop_run` instantiates it against the library `.val` stream).
 - [ ] **S4:** Remaining state/reset scope: the sequential `mergeDuplicates`
   (the UNVALIDATED `mergeDuplicatesRaw`; needs register-bisimulation
   validation or proof — the register test exercises the merged default
