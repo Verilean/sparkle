@@ -171,10 +171,9 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   validation or proof — the register test exercises the merged default
   configuration numerically for 12 cycles),
   feedback (`Signal.loop`/`circuit do` register cones reading register
-  outputs), multiple registers, zero-width cleanup preservation for the
-  ENABLED-register shape (its cycle theorem is proved at the raw core
-  module; the source hold semantics was fixed by main's d53d5a9),
-  user-level reset muxes, and the sequential emitted-SV text
+  outputs), multiple registers (the enabled register's zero-width cleanup
+  preservation is now also proved, so both register shapes cover the
+  `SPARKLE_NO_REGDEDUP=1` configuration), user-level reset muxes, and the sequential emitted-SV text
   (sequential modules currently pass through `optimizeModule` unproved).
 - [ ] **S5:** Actual memory compilation and trace semantics, including latency,
   masks and supported read/write interactions.

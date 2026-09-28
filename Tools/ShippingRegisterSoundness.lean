@@ -837,6 +837,8 @@ def RegisterEnablePreserves (declName : Name) (bs : List (Name × MixedGateBinde
     (∀ j, j < kv → p.bits (vinp j) = some ⟨vw j, vvals j (vw j)⟩) →
     env0 "rst" = 0 → env0 r < 2 ^ w →
     weOf m r = w ∧
+    (Sparkle.IR.ZeroWidth.dropZeroWidthModule m).body = m.body ∧
+    weOf (Sparkle.IR.ZeroWidth.dropZeroWidthModule m) = weOf m ∧
     ∃ envF, stepModule (weOf m) m.body env0 mems =
         some (envF, [(r, if eval bvals vvals en then (eval bvals vvals e).toNat
           else env0 r)], mems) ∧
@@ -1223,7 +1225,102 @@ theorem synthesizeMixedCertified_registerEnable_sound {logProf declName bs body 
     rw [weOf_eq_moduleWidths (by
       intro q hq; rw [mWires, List.mem_reverse] at hq; exact scalarSt q hq)]
     exact moduleWidths_finish mWires wiresSt
-  refine ⟨by rw [wm]; exact wR, envF, ?_, by simp [envF, env3R]⟩
+  -- Sequential zero-width cleanup is the identity on this shape too.
+  have nodupM : (m.wires.map (·.name)).Nodup := by
+    rw [mWires, List.map_reverse]
+    exact nodup_reverse wiresSt.1
+  have allocM : ∀ q ∈ m.wires, Sparkle.IR.NameHints.Allocated q.name := by
+    intro q hq
+    rw [mWires, List.mem_reverse] at hq
+    exact allocSt q hq
+  have outNotWire : "out" ∉ m.wires.map (·.name) := by
+    intro hmem
+    obtain ⟨q, hq, eq⟩ := List.mem_map.mp hmem
+    exact not_allocated_out (eq ▸ allocM q hq)
+  have tyEq : ty = .bitVector w := by
+    rw [hty]
+    unfold Tools.ShippingEntrySoundness.leafOutputType
+    rw [show sm.module.wires = { name := rW, ty := .bitVector w } ::
+        { name := muxW, ty := .bitVector w } :: sc.module.wires from by
+      rw [smModule, hs5, emitAssign_wires, s4Module]
+      rw [show ∀ (mo : Sparkle.IR.AST.Module) q, (mo.addStmt q).wires = mo.wires from
+        fun _ _ => rfl]
+      rw [mws.2.2.2, ← hrWm, hs3, mws3.2.2.2, ← hmuxW]]
+    simp [List.find?]
+  have mOutputs : m.outputs = [{ name := "out", ty := ty }] := by
+    have outputsSm : sm.module.outputs = [] := by
+      rw [smModule, hs5]
+      show (CircuitM.emitAssign muxW _ s4).2.module.outputs = _
+      rw [emitAssign_outputs, s4Module]
+      rw [show ∀ (mo : Sparkle.IR.AST.Module) q, (mo.addStmt q).outputs = mo.outputs from
+        fun _ _ => rfl]
+      rw [makeWire_outputs, hs3]
+      rw [makeWire_outputs, fIn.outputs, fEn.outputs,
+        (prepare_shape (bs.zip ids) _ (by
+          intro q hq'
+          rw [show (start (entryCompilerState false cache) declName.toString).state =
+            CircuitM.init declName.toString from rfl, init_wires] at hq'
+          cases hq')).2]
+      rfl
+    rw [hm]
+    show ((addClockResetIfSequential st.module).finalize).outputs = _
+    simp only [Module.finalize, (addClockReset_facts st.module).2.2.1]
+    rw [ht, emitAssign_outputs, addOutput_state]
+    simp [Module.addOutput, outputsSm]
+  have wmOut : (Sparkle.IR.Optimize.buildWidthMap m).get? "out" = some w := by
+    unfold Sparkle.IR.Optimize.buildWidthMap
+    rw [Tools.ShippingPostSoundness.wmFold_notin m.wires _ "out" outNotWire, mOutputs]
+    simp [Std.HashMap.get?_insert, tyEq, Sparkle.IR.Type.HWType.bitWidth]
+  have hwPos : 0 < w := e.wf_pos he
+  have wMux : declaredWidths st muxW = w := by
+    unfold Tools.ShippingMixedOutputSoundness.declaredWidths
+    rw [stWires]
+    have hne : ¬ (rW == muxW) = true := by simpa using rNeMux
+    simp [List.find?, hne, Sparkle.IR.Type.HWType.bitWidth]
+  have bodyEq : (Sparkle.IR.ZeroWidth.dropZeroWidthModule m).body = m.body := by
+    unfold Sparkle.IR.ZeroWidth.dropZeroWidthModule
+    split
+    · rfl
+    · show m.body.filterMap (Sparkle.IR.ZeroWidth.dzStmt (Sparkle.IR.Optimize.buildWidthMap m))
+        = m.body
+      apply Tools.ShippingPostSoundness.filterMap_eq_self
+      intro stq hst
+      rw [mBody] at hst
+      rcases List.mem_append.mp hst with hpre | hrest
+      · obtain ⟨l, rhs, rfl, htyped⟩ := inv2.typed stq (List.mem_reverse.mp hpre)
+        have hpos : 0 < weOf m l := by rw [wm]; exact htyped.positive
+        have hg := Tools.ShippingTypedPostSoundness.widthMap_internal nodupM hpos
+        have htym : TypedExpr (weOf m) rhs (weOf m l) := by rw [wm]; exact htyped
+        have hwmr : ∀ x ∈ Sparkle.IR.Reorder.refsOf rhs,
+            Sparkle.IR.ZeroWidth.exprWidth (Sparkle.IR.Optimize.buildWidthMap m) (.ref x) ≠ 0 := by
+          intro x hx
+          have hpx := htym.refs_positive x hx
+          have hgx := Tools.ShippingTypedPostSoundness.widthMap_internal nodupM hpx
+          simp only [Sparkle.IR.ZeroWidth.exprWidth, Std.HashMap.getD_eq_getD_getElem?,
+            ← Std.HashMap.get?_eq_getElem?, hgx, Option.getD_some]
+          omega
+        rw [dzStmt_assign _ _ _ hg (by omega),
+          Tools.ShippingTypedPostSoundness.dzExpr_typed htym _ hwmr]
+      · rcases List.mem_cons.mp hrest with rfl | hrest
+        · simp [Sparkle.IR.ZeroWidth.dzStmt, Sparkle.IR.ZeroWidth.dzExpr]
+        · rcases List.mem_cons.mp hrest with rfl | hrest
+          · have hgMux : (Sparkle.IR.Optimize.buildWidthMap m).get? muxW = some w := by
+              have hposM : 0 < weOf m muxW := by rw [wm, wMux]; omega
+              have := Tools.ShippingTypedPostSoundness.widthMap_internal nodupM hposM
+              rw [wm, wMux] at this
+              exact this
+            rw [dzStmt_assign _ _ _ hgMux (by omega)]
+            simp [Sparkle.IR.ZeroWidth.dzExpr, Sparkle.IR.ZeroWidth.dzList]
+          · rcases List.mem_cons.mp hrest with rfl | hnil
+            · rw [dzStmt_assign _ _ _ wmOut (by omega)]
+              simp [Sparkle.IR.ZeroWidth.dzExpr]
+            · cases hnil
+  have weEq : weOf (Sparkle.IR.ZeroWidth.dropZeroWidthModule m) = weOf m := by
+    unfold Sparkle.IR.ZeroWidth.dropZeroWidthModule
+    split
+    · rfl
+    · exact (weOf_congr_wires rfl).trans (Tools.ShippingPostSoundness.weOf_dropWires m nodupM)
+  refine ⟨by rw [wm]; exact wR, bodyEq, weEq, envF, ?_, by simp [envF, env3R]⟩
   rw [wm]
   unfold stepModule
   simp [evalFull, nexts, mem0, bind]
@@ -1426,6 +1523,8 @@ theorem registerEnable_source {declName : Name} {bs : List (Name × MixedGateBin
       SourceInputs declName bs ids cache bools bits env0 →
       env0 "rst" = 0 → env0 r < 2 ^ w →
       weOf m r = w ∧
+      (Sparkle.IR.ZeroWidth.dropZeroWidthModule m).body = m.body ∧
+      weOf (Sparkle.IR.ZeroWidth.dropZeroWidthModule m) = weOf m ∧
       ∃ envF, stepModule (weOf m) m.body env0 mems =
           some (envF, [(r, if eval (fun j => bools (bpos j)) (fun j n => bits (vpos j) n) en
             then (eval (fun j => bools (bpos j)) (fun j n => bits (vpos j) n) e).toNat
@@ -1508,6 +1607,8 @@ theorem registerEnable_step_of_env {declName : Name} {mctx : Meta.Context}
       SourceInputs declName bs ids cache bools bits env0 →
       env0 "rst" = 0 → env0 r < 2 ^ w →
       weOf m r = w ∧
+      (Sparkle.IR.ZeroWidth.dropZeroWidthModule m).body = m.body ∧
+      weOf (Sparkle.IR.ZeroWidth.dropZeroWidthModule m) = weOf m ∧
       ∃ envF, stepModule (weOf m) m.body env0 mems =
           some (envF, [(r, if eval (fun j => bools (bpos j)) (fun j n => bits (vpos j) n) en
             then (eval (fun j => bools (bpos j)) (fun j n => bits (vpos j) n) e).toNat

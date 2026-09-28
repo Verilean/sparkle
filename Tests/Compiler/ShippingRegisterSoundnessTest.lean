@@ -109,6 +109,8 @@ theorem regHold_step {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.Stat
       SourceInputs ``regHold regHoldBinders ids cache bools bits env0 →
       env0 "rst" = 0 → env0 r < 2 ^ 8 →
       weOf m r = 8 ∧
+      (Sparkle.IR.ZeroWidth.dropZeroWidthModule m).body = m.body ∧
+      weOf (Sparkle.IR.ZeroWidth.dropZeroWidthModule m) = weOf m ∧
       ∃ envF, stepModule (weOf m) m.body env0 mems =
           some (envF, [(r, if bools 1 then (eval (fun j => bools (j + 1))
             (fun j n => bits (j + 3) n) regHoldTerm).toNat else env0 r)], mems) ∧
@@ -212,6 +214,9 @@ run_cmd liftTermElabM do
     | .register o _ _ _ init => some (o, init)
     | _ => none
   let [(rH, initH)] := regsH | throwError "expected one enabled register"
+  let mh' := Sparkle.IR.ZeroWidth.dropZeroWidthModule mh
+  unless mh'.body == mh.body && mh'.wires == mh.wires do
+    throwError "dropZeroWidth changed the enabled-register module"
   unless initH == 5 do throwError "unexpected enable-register init"
   let weH := Tools.ShippingEntrySoundness.weOf mh
   let entrace := fun (t : Nat) => t % 3 == 0

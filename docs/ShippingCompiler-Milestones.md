@@ -243,8 +243,8 @@ capture/hold cycle recurrence — the fixed source semantics — at the raw core
 module, with `trace_of_cycles` generalized to state-reading updates for the
 `runModule` trace. Open in S4:
 the sequential `mergeDuplicates` (the unvalidated raw merge; the test
-exercises the merged default configuration numerically), zero-width cleanup
-preservation for the ENABLED-register shape, feedback (`Signal.loop`/`circuit do`), multiple registers,
+exercises the merged default configuration numerically; zero-width cleanup
+is proved preserved for BOTH register shapes), feedback (`Signal.loop`/`circuit do`), multiple registers,
 enable/hold (`registerWithEnable`'s pure semantics has a hold bug to fix
 first), user reset muxes, and sequential emitted-SV text (sequential modules
 pass through `optimizeModule`, unproved). S5–S7 remain unfinished.
