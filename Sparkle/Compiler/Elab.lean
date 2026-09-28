@@ -1303,6 +1303,22 @@ def canonicalSetWidthTop? (e : Lean.Expr) : Option Nat :=
   | some (_, wt, _) => some wt
   | none => none
 
+/-- Canonical register: `Signal.register initLit s` at a literal positive
+    width, restricted to a POLYMORPHIC domain binder (`.fvar`/`.bvar`). A
+    concrete domain keeps the legacy handler, whose reset kind comes from
+    evaluating the domain — the polymorphic fallback there is asynchronous,
+    which is exactly what the total lowering emits. Returns
+    `(width, init value, input)`. -/
+def canonicalRegister? : Lean.Expr → Option (Nat × Nat × Lean.Expr)
+  | .app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.register _) dom)
+      (.app (.const ``BitVec _) wE)) initE) a =>
+    if dom.isFVar || dom.isBVar then
+      match canonicalNatLitValue? wE, bitVecLitValue? initE with
+      | some w, some (wi, v) => if 0 < w && wi == w then some (w, v, a) else none
+      | _, _ => none
+    else none
+  | _ => none
+
 /-- Exact canonical muxes need no MetaM result-type oracle. Kept as an action
     so the fallback inference still occurs after recursive child translation. -/
 def muxResultType (e : Lean.Expr) : CompilerM HWType :=
@@ -2041,6 +2057,14 @@ def mixedGateVectorRoot (kinds : Array MixedGateBinder) (e : Lean.Expr) : Bool :
   | some n => 0 < n && mixedGateVectorBody kinds n e
   | none => false
 
+/-- Root acceptance for a canonical register over the unified combinational
+    fragment: the whole declaration body is one register whose input is a
+    recognized width-`w` source. -/
+def unifiedRegisterRoot (kinds : Array MixedGateBinder) (e : Lean.Expr) : Bool :=
+  match canonicalRegister? e with
+  | some (w, _, a) => 0 < w && unifiedGateBitsBody kinds w a
+  | none => false
+
 def mixedCertifiedShape? (symbolicMode : Bool) (parameters : List (String × Nat)) :
     ConstantInfo → Option (List (Name × MixedGateBinder) × Lean.Expr)
   | .defnInfo d =>
@@ -2049,7 +2073,8 @@ def mixedCertifiedShape? (symbolicMode : Bool) (parameters : List (String × Nat
     | some (bs, body) =>
       if mixedGateBoolBody (bs.map (·.2)).toArray body ||
           mixedGateVectorRoot (bs.map (·.2)).toArray body ||
-          unifiedGateRoot (bs.map (·.2)).toArray body then some (bs, body) else none
+          unifiedGateRoot (bs.map (·.2)).toArray body ||
+          unifiedRegisterRoot (bs.map (·.2)).toArray body then some (bs, body) else none
     | none => none
   | _ => none
 
@@ -4882,6 +4907,16 @@ def translateSetWidthUncachedWith (rec : TranslateFn) (ws wt : Nat) : TranslateF
     let sw ← rec e.getAppArgs.back! "s" false false
     emitCastResult (setwRhs ws wt sw) wt hint named
 
+/-- Uncached lowering for the canonical polymorphic-domain register: the
+    input first, then one register statement on the shared clock/reset
+    names. The asynchronous kind matches the legacy handler's fallback for
+    a polymorphic domain; the step semantics samples reset per cycle for
+    either kind. -/
+def translateRegisterUncachedWith (rec : TranslateFn) (w v : Nat) : TranslateFn :=
+  fun e hint _top named => do
+    let cw ← rec e.getAppArgs.back! "reg_in" false false
+    CompilerM.emitRegister hint "clk" "rst" (.ref cw) v (.bitVector w) (named := named)
+
 /-- The existing handler chain (cache wrapper + dispatch) as the fallback. -/
 def translateFallback (rec : TranslateFn) : TranslateFn :=
   fun e hint top named =>
@@ -4902,7 +4937,13 @@ def translateFallback (rec : TranslateFn) : TranslateFn :=
           -- Canonical width-changing maps take the total certified lowering,
           -- sharing the same validated cache wrapper.
           translateControlCachedWith (translateSetWidthUncachedWith rec ws wt) e hint top named
-        | none => Rec.translateExprToWireCached (fun e h t n => rec e h t n) e hint top named
+        | none =>
+          match canonicalRegister? e with
+          | some (w, v, _) =>
+            -- Canonical polymorphic-domain registers take the total lowering;
+            -- concrete domains keep the legacy handler and its inferred kind.
+            translateControlCachedWith (translateRegisterUncachedWith rec w v) e hint top named
+          | none => Rec.translateExprToWireCached (fun e h t n => rec e h t n) e hint top named
 
 def translateStep : TranslateFn → TranslateFn := translateStepWith translateFallback
 

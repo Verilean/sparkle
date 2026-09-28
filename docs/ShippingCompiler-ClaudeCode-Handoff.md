@@ -14,8 +14,12 @@ vector mux のキャッシュ再利用も復旧済み(検証付きラッパー�
 に入り、`Term.setw` として同じ endpoint に接続済み。拡大は `{k'd0,x}`、縮小は `w'(x)` エンコード、
 同幅は alias。RTL 側連鎖(simpleRhs/TypedExpr/PrintShape/renderer/文法/束縛/zero-width/merge)も
 両 IR 形状を受理し、`checkedOptimize_cast` で cast を含む本体の非変換を証明済み。
-次の候補: 符号拡張(legacy の縮小挙動が未証明なので除外中)、一般の slice/concat 表面演算、
-シンボリック幅、残る組合せ構文、S4–S7。
+S4 も着手済み: 統合ドメイン上の単一 `Signal.register`(多相ドメイン・リテラル init)が
+total lowering + ゲート経由で certified になり、実 core エントリの生モジュールについて
+サイクル/トレース定理(`Tools/ShippingRegisterSoundness.lean`)が接続済み。
+次の候補: S4 の残り(sequential 後処理保存、フィードバック、複数レジスタ、enable、SV テキスト)、
+符号拡張(legacy の縮小挙動が未証明なので除外中)、一般の slice/concat 表面演算、
+シンボリック幅、残る組合せ構文、S5–S7。
 
 ## 最初に読むこと
 
@@ -48,7 +52,9 @@ vector mux のキャッシュ再利用も復旧済み(検証付きラッパー�
 | 演算ごとの異幅(サブツリー間で異なる正幅) | 完了。幅インデックス付き `Term` と入力別幅割当 `vw` で同じ endpoint に接続 |
 | 幅変更演算(setWidth/zeroExtend の canonical map、リテラル正幅) | 完了。`canonicalSetWidth?` 認識 + total lowering + `Term.setw` で同じ endpoint に接続。拡大 8→16・縮小 65→8・同幅・算術親下の 72 SV 実行ケースで検証 |
 | 符号拡張、一般 slice/concat 表面演算、シンボリック幅、残る組合せ構文・インターフェース | 未完。legacy 経路のまま(一般定理なし)。成功分岐との網羅的な突合せも必要 |
-| 状態・reset、メモリ、階層、成功領域全体の最終合成 | S4–S7、未完 |
+| 単一レジスタ(統合ドメイン上の `Signal.register initLit`、多相ドメイン) | S4 着手・第 1 単位完了。total lowering + ゲート + `ShippingRegisterSoundness`: 実 core エントリの生モジュールについてサイクル定理 `register_step_of_env`(out=現在値、次状態=ソース漸化式、rst=0)と `trace_of_cycles`(runModule トレース、初期値から)。公理は標準 3 つのみ |
+| S4 残り: sequential 後処理(mergeDuplicatesRaw は無検証)、フィードバック(Signal.loop/circuit do)、複数レジスタ、enable(`registerWithEnable` はソース意味論に hold バグあり—要修正)、reset mux、sequential の SV テキスト(optimizeModule 経由・未証明) | 未完 |
+| メモリ、階層、成功領域全体の最終合成 | S5–S7、未完 |
 
 既存の主要エンドポイント:
 

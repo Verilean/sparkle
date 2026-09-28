@@ -440,6 +440,9 @@ lean_lib «Tools.ShippingUnifiedEntrySoundness» where
 lean_lib «Tools.ShippingUnifiedExecutionSoundness» where
   roots := #[`Tools.ShippingUnifiedExecutionSoundness]
 
+lean_lib «Tools.ShippingRegisterSoundness» where
+  roots := #[`Tools.ShippingRegisterSoundness]
+
 lean_lib «Tools.ShippingUnifiedInvariant» where
   roots := #[`Tools.ShippingUnifiedInvariant]
 

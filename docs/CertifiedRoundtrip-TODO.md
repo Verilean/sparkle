@@ -132,8 +132,29 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   slice/concat surface operations, successful
   aggregate and parameterized/symbolic forms. Close syntax and RTL meaning for
   each extension; inventory determines the complete list.
-- [ ] **S4:** Actual state/register/reset compilation and arbitrary admissible
-  source traces through emitted RTL; specify initialization and clock timing.
+- [x] **S4 / first unit — one register over the unified domain:** Done. The
+  canonical polymorphic-domain `Signal.register initLit input` root has a
+  total lowering (`canonicalRegister?`/`translateRegisterUncachedWith`, child
+  first, shared clk/rst, asynchronous kind = the legacy fallback for a
+  polymorphic domain; concrete domains keep the legacy handler) and a gate
+  disjunct (`unifiedRegisterRoot`). `Tools/ShippingRegisterSoundness.lean`
+  proves, from the real core entry (`synthesizeCombinationalCore`, the raw
+  module of the `SPARKLE_NO_REGDEDUP=1` configuration): each cycle with
+  admissible inputs and reset low observes the current register value on
+  `out` and steps the register by the unified source cone's value
+  (`register_step_of_env`); `trace_of_cycles` iterates it along `runModule`
+  for the full trace from the declared initial value. The source register has
+  no reset primitive, so reset is held low; asserting it re-initializes RTL
+  state (outside the source's meaning). 12-cycle numeric regression and a
+  standard-axioms endpoint instantiation in `ShippingRegisterSoundnessTest`.
+- [ ] **S4:** Remaining state/reset scope: sequential post-processing
+  preservation (`dropZeroWidthModule`; the sequential `mergeDuplicates` is
+  the UNVALIDATED `mergeDuplicatesRaw` and needs validation or proof),
+  feedback (`Signal.loop`/`circuit do` register cones reading register
+  outputs), multiple registers, enable/hold (`registerWithEnable`'s pure
+  semantics has a hold bug — its `go` never carries state — fix before
+  proving), user-level reset muxes, and the sequential emitted-SV text
+  (sequential modules currently pass through `optimizeModule` unproved).
 - [ ] **S5:** Actual memory compilation and trace semantics, including latency,
   masks and supported read/write interactions.
 - [ ] **S6:** Actual hierarchy compilation and compositional instance semantics,

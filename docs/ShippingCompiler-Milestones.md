@@ -28,7 +28,7 @@ proved and audited, not when a certain number of lemmas or commits have landed.
 | S1 | Current mixed Bool/BitVec fragment: source IR and syntax | Done, `2ad67ae` | Actual entry, cleanup/checked merge and both checked optimizer selections connect source IR values to the exact printed AST, concrete grammar, legal names and all reference/target bindings. `syntax_source_of_env` supplies the endpoint. |
 | S2 | Current mixed fragment: RTL semantics and settling | Done | One general shipping-source endpoint combines S1 with AST semantic preservation, unique bounded solution, and existence/convergence of every permitted delta trace to the source output. No caller-supplied expression-check, acyclicity, child-correctness or compiler-replay certificate. |
 | S3 | Remaining successful combinational paths | Active — comparisons, Bool logic, BitVec mux trees, mixed widths and setWidth casts connected | Inventory the existing successful paths, then connect remaining Bool surface forms, BitVec-result mux, other comparisons/shifts, width-changing/mixed-width operations and successful interface forms through syntax and RTL semantics. Completion requires the inventory's combinational entries to be covered, not one more chosen example. |
-| S4 | State and reset | Pending | Derive a general state/trace correspondence from the actual stateful compilation path, including initialization, clock/update observation, enable/hold and supported reset behavior; preserve it through actual postprocessing, optimization and emitted RTL. Separate typed single-register results do not close this milestone. |
+| S4 | State and reset | Active — one register over the unified domain connected at the raw core entry | Derive a general state/trace correspondence from the actual stateful compilation path, including initialization, clock/update observation, enable/hold and supported reset behavior; preserve it through actual postprocessing, optimization and emitted RTL. Separate typed single-register results do not close this milestone. |
 | S5 | Memory | Pending | Model and prove the actual successful memory paths: initialization assumptions, read latency, writes/masks, read/write ordering and collisions where applicable. Connect arbitrary admissible traces through actual compilation and emitted RTL. |
 | S6 | Hierarchy | Pending | Give instances compositional execution semantics; prove port/parameter/width linkage and state/memory composition for actual successful hierarchical entry points. Name validation alone does not close this milestone. |
 | S7 | Successful-domain coverage and final composition | Pending | Reconcile all successful dispatcher/entry/pass branches with proved cases, compose the end-to-end theorem, and instantiate that theorem on representative real circuits. No silently omitted success branch or caller-provided replay proof. State the remaining trust assumptions explicitly. |
@@ -215,8 +215,29 @@ parent (72 SV execution cases in `ShippingUnifiedSourceTest`).
 Still open in S3: sign extension (the legacy lowering's narrowing behavior
 is not certified and stays on the fallback), general slice/concatenation
 surface operations, symbolic widths, and the remaining successful interface
-forms from the inventory. S4–S7 (state/reset, memory, hierarchy and final
-composition) remain unfinished.
+forms from the inventory.
+
+Started S4: one register over the unified combinational domain. The
+canonical polymorphic-domain `Signal.register initLit input` root takes a
+total lowering (`translateRegisterUncachedWith`; input cone first, then one
+register statement on the shared `clk`/`rst` with the asynchronous kind the
+legacy handler falls back to over a polymorphic domain — concrete domains
+keep the legacy handler and its inferred kind), and a gate disjunct
+(`unifiedRegisterRoot`). `Tools/ShippingRegisterSoundness.lean` proves from
+`synthesizeCombinationalCore` (the raw module; the actual
+`SPARKLE_NO_REGDEDUP=1` shipping configuration precedes cleanup): per cycle,
+under admissible inputs and reset low, `out` observes the register's current
+value and `regNexts` steps it by the unified source cone's value
+(`register_step_of_env`); `trace_of_cycles` iterates over `runModule`, so
+the observable trace from the declared initial value is exactly
+`Signal.register`'s stream. Non-interference needed no extra premises: every
+wire name is allocated (`_gen_*`/`_tmp_*`), so `rst`/`out` are never wires,
+and typed assigns have positive declared widths. Open in S4: sequential
+post-processing (the sequential `mergeDuplicates` is the unvalidated raw
+merge), feedback (`Signal.loop`/`circuit do`), multiple registers,
+enable/hold (`registerWithEnable`'s pure semantics has a hold bug to fix
+first), user reset muxes, and sequential emitted-SV text (sequential modules
+pass through `optimizeModule`, unproved). S5–S7 remain unfinished.
 
 ## Trust, validation and work cadence
 

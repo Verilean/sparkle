@@ -311,7 +311,7 @@ theorem term_gate {d : DefinitionVal} {bs : List (Name × MixedGateBinder)}
     (fun j hj => (hv j hj).elim fun name pos => input_top_width pos)
     (fun j hj => rfl) e he
   simp only [mixedCertifiedShape?, Bool.false_or, List.isEmpty_nil, Bool.not_true,
-    Bool.false_eq_true, if_false, peel, root, Bool.or_true, if_true]
+    Bool.false_eq_true, if_false, peel, root, Bool.or_true, Bool.true_or, if_true]
 
 /-- Relational source preservation for the unified entry: one statement for
 both sorts and all per-input widths, observing the packed value at the sort's
