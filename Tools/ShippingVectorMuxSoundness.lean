@@ -359,7 +359,7 @@ theorem source_gate {d : DefinitionVal} {bs : List (Name × MixedGateBinder)}
       canonicalMuxType?_bitVec]
     simpa only [decide_eq_true hn, Bool.true_and, quoteV] using body
   simp only [mixedCertifiedShape?, Bool.false_or, List.isEmpty_nil, Bool.not_true,
-    Bool.false_eq_true, if_false, peel, accepted, Bool.or_true, if_true]
+    Bool.false_eq_true, if_false, peel, accepted, Bool.or_true, Bool.true_or, if_true]
 
 theorem execution_source_of_env {declName : Name} {mctx : Meta.Context}
     {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}

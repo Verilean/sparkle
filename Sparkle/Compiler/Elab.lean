@@ -1933,6 +1933,71 @@ def mixedGateVectorBody (kinds : Array MixedGateBinder) (n : Nat) : Lean.Expr �
       mixedGateVectorBody kinds n a && mixedGateVectorBody kinds n b
   | e => gateBody (mixedBitKinds kinds) n e
 
+mutual
+
+/-- Unified mutually recursive source recognition: vector muxes may sit under
+    canonical arithmetic/comparison parents and vice versa. Purely syntactic,
+    total, and recursing on actual subterms; type inference is not called. -/
+def unifiedGateBoolBody (kinds : Array MixedGateBinder) : Lean.Expr → Bool
+  | .bvar i => mixedGateBVar? kinds i == some .bool
+  | .app (.app (.app (.const ``Sparkle.Core.Signal.Signal.pure _) _) (.const ``Bool _))
+      (.const ``Bool.true _) => true
+  | .app (.app (.app (.const ``Sparkle.Core.Signal.Signal.pure _) _) (.const ``Bool _))
+      (.const ``Bool.false _) => true
+  | .app (.app (.app (.const ``Complement.complement _) _)
+      (.app (.const ``Sparkle.Core.Signal.instComplementSignalBool _) _)) a =>
+      unifiedGateBoolBody kinds a
+  | .app (.app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.mux _) _) (.const ``Bool _)) c) a) b =>
+      unifiedGateBoolBody kinds c && unifiedGateBoolBody kinds a && unifiedGateBoolBody kinds b
+  | .app (.app (.app (.app (.app (.app (.const m _) _) _) _) inst) a) b =>
+      (signalBoolBinKind? m inst).isSome && unifiedGateBoolBody kinds a && unifiedGateBoolBody kinds b
+  | .app (.app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.beq _) ty) _) inst) a) b =>
+      if isBoolEquality ty inst then unifiedGateBoolBody kinds a && unifiedGateBoolBody kinds b else
+      match bitVecEqualityWidth? ty inst with
+      | some wE => match canonicalNatLitValue? wE with
+        | some n => 0 < n && unifiedGateBitsBody kinds n a && unifiedGateBitsBody kinds n b
+        | none => false
+      | none => false
+  | .app (.app (.app (.app (.const m _) _) wE) a) b =>
+      if m == ``Sparkle.Core.Signal.Signal.ult || m == ``Sparkle.Core.Signal.Signal.ule ||
+          m == ``Sparkle.Core.Signal.Signal.slt || m == ``Sparkle.Core.Signal.Signal.sle then
+        match canonicalNatLitValue? wE with
+        | some n => 0 < n && unifiedGateBitsBody kinds n a && unifiedGateBitsBody kinds n b
+        | none => false
+      else false
+  | _ => false
+
+def unifiedGateBitsBody (kinds : Array MixedGateBinder) (n : Nat) : Lean.Expr → Bool
+  | .bvar i => mixedGateBVar? kinds i == some (.bits n)
+  | .app (.app (.app (.const ``Sparkle.Core.Signal.Signal.pure _) _) _) c =>
+      match bitVecLitValue? c with
+      | some (w, _) => w == n
+      | none => false
+  | .app (.app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.mux _) _)
+      (.app (.const ``BitVec _) w)) c) a) b =>
+      canonicalNatLitValue? w == some n && unifiedGateBoolBody kinds c &&
+        unifiedGateBitsBody kinds n a && unifiedGateBitsBody kinds n b
+  | e@(.app (.app (.app (.app (.app (.app (.const m _) _) _) _) _) a) b) =>
+      match signalBinOpOf m, canonicalSignalBinKinds m e.getAppArgs,
+          canonicalSignalBitVecWidth e.getAppArgs with
+      | some _, some (true, true), some w =>
+        w == n && unifiedGateBitsBody kinds n a && unifiedGateBitsBody kinds n b
+      | _, _, _ => false
+  | _ => false
+
+end
+
+/-- Root acceptance for the unified fragment; the width comes from the same
+    syntactic sources as the established vector gate. -/
+def unifiedGateRoot (kinds : Array MixedGateBinder) (e : Lean.Expr) : Bool :=
+  unifiedGateBoolBody kinds e ||
+    (match canonicalMuxType? e with
+      | some (.bitVector n) => 0 < n && unifiedGateBitsBody kinds n e
+      | _ =>
+        match gateTopWidth? (mixedBitKinds kinds) e with
+        | some n => 0 < n && unifiedGateBitsBody kinds n e
+        | none => false)
+
 def mixedGateVectorWidth? (kinds : Array MixedGateBinder) (e : Lean.Expr) : Option Nat :=
   match canonicalMuxType? e with
   | some (.bitVector n) => some n
@@ -1950,7 +2015,8 @@ def mixedCertifiedShape? (symbolicMode : Bool) (parameters : List (String × Nat
     match mixedGatePeel d.value with
     | some (bs, body) =>
       if mixedGateBoolBody (bs.map (·.2)).toArray body ||
-          mixedGateVectorRoot (bs.map (·.2)).toArray body then some (bs, body) else none
+          mixedGateVectorRoot (bs.map (·.2)).toArray body ||
+          unifiedGateRoot (bs.map (·.2)).toArray body then some (bs, body) else none
     | none => none
   | _ => none
 

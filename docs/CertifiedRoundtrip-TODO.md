@@ -82,13 +82,19 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   record-update preservation, including execution, typed body and live-wire
   values, conditional on the uncached lowering contract. Allocation and final
   assignment to a reserved name have preservation lemmas too.
-- [ ] **S3 / mutual mux composition:** Close fuel recursion using the stronger
-  invariant and derive pending-parent protection through each child. Then
-  connect the expanded source gate, input preparation, output contracts and
-  RTL endpoint. Current `ShippingUnifiedSourceTest` supplies real nested-source
-  meaning proofs and 2,322 source/legacy/SV/delta regression cases, **not** a
-  general compilation theorem for these paths. Do not mark S3 coverage expanded
-  on the strength of the source language or cache lemmas alone.
+- [x] **S3 / mutual mux composition:** Done. `ShippingUnifiedRecursion` closes
+  the actual fuel recursion over the whole mutual `Term` domain (inputs,
+  literals, all eight binaries, comparisons, Bool logic/equality/negation and
+  both mux sorts), deriving the reserved-parent `inputSafe`/`recordSafe`
+  hypotheses of `Inv.emit_reserved` from child frames. `ShippingUnifiedProtection`
+  closes pending-parent protection and dependency order for every node kind,
+  including validated cache hits. `ShippingUnifiedEntrySoundness` connects the
+  contract to real output emission; `ShippingUnifiedExecutionSoundness` adds the
+  extended `unifiedGateRoot` acceptance in `mixedCertifiedShape?` and the general
+  `execution_source_of_env` endpoint for either result sort.
+  `ShippingUnifiedSourceTest` instantiates the endpoint on real nested,
+  comparison-root and width-65 arithmetic-root declarations and keeps the
+  2,322 source/legacy/SV/delta regression cases, now through the certified gate.
 - [ ] **S3 / vector mux reuse:** Wire the stronger invariant through the actual
   mux recursion and restore safe cache lookup/recording. Vector mux nodes still
   bypass caching; repeated trees can generate extra intermediate wires. The

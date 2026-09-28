@@ -1,4 +1,4 @@
-import Tools.ShippingUnifiedInvariant
+import Tools.ShippingUnifiedExecutionSoundness
 import Tests.Compiler.ShippingMixedExecutionTest
 
 /-! Source/cache foundation tests. Compilation comparisons below are regression
@@ -9,6 +9,7 @@ open Sparkle.Core.Domain Sparkle.Core.Signal
 open Tools.ShippingEntrySoundness Tools.ShippingBoolSourceSoundness
 open Tools.ShippingUnifiedSource Tools.ShippingUnifiedMeaning
 open Tools.ShippingMixedSourceBridge Tools.ShippingMuxLoweringSoundness
+open Tools.ShippingMixedExecutionSoundness Tools.ShippingUnifiedExecutionSoundness
 
 -- All of these already compile on the existing fallback path.
 def arithmetic1 {dom : DomainConfig} (c : Signal dom Bool) (a b : Signal dom (BitVec 1)) := Signal.mux c a b + a
@@ -63,6 +64,106 @@ theorem nested_meaning {inputs : FVarId → Option Value} {dom : Lean.Expr}
   rw [← denote_val 8 bools bits tick, nested_library] at meaning
   exact meaning
 
+#def_decl_value comparisonValue of comparison
+def comparisonBinders : List (Name × MixedGateBinder) :=
+  [(`dom, .domain), (`c, .bool), (`a, .bits 8), (`b, .bits 8)]
+theorem comparison_peel : mixedGatePeel comparisonValue = some (comparisonBinders,
+    quote (.bvar 3) 8 (fun _ => inputExpr comparisonBinders.length 1)
+      (fun j => inputExpr comparisonBinders.length (j + 2)) comparisonTerm) := rfl
+
+#def_decl_value arithmetic65Value of arithmetic65
+def arithmetic65Binders : List (Name × MixedGateBinder) :=
+  [(`dom, .domain), (`c, .bool), (`a, .bits 65), (`b, .bits 65)]
+theorem arithmetic65_peel : mixedGatePeel arithmetic65Value = some (arithmetic65Binders,
+    quote (.bvar 3) 65 (fun _ => inputExpr arithmetic65Binders.length 1)
+      (fun j => inputExpr arithmetic65Binders.length (j + 2)) arithmeticTerm) := rfl
+
+/-- The general unified endpoint instantiates on the real declaration whose
+mux trees sit under arithmetic, comparison and mux conditions at once. -/
+theorem nested_execution {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinational ``nested) mctx mref cctx cref w (m, design) w')
+    (env : EnvDefines mctx mref cctx cref ``nested nestedValue) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = binders.length ∧
+    ∃ cache : IO.Ref (ExprStructMap String),
+      ∀ {D : DomainConfig} (bools : Nat → Signal D Bool)
+        (bits : (j : Nat) → (n : Nat) → Signal D (BitVec n))
+        (tick : Nat) (initial : Env) (mems : MEnv),
+      SourceInputs ``nested binders ids cache
+        (fun j => (bools j).val tick) (fun j n => (bits j n).val tick) initial →
+      ExecutionValue m initial mems
+        ((nested (bools 1) (bools 2) (bits 3 8) (bits 4 8)).val tick).toNat := by
+  apply Tools.ShippingUnifiedExecutionSoundness.execution_source_of_env hr env
+    (by intro d hd; simp only [certifiedShape?, hd]; rfl) nested_peel (by decide) (nested_wf 8)
+  · intro j hj
+    have h : j = 0 ∨ j = 1 := by omega
+    rcases h with rfl | rfl
+    · exact ⟨`c, rfl⟩
+    · exact ⟨`d, rfl⟩
+  · intro j hj
+    have h : j = 0 ∨ j = 1 := by omega
+    rcases h with rfl | rfl
+    · exact ⟨`a, rfl⟩
+    · exact ⟨`b, rfl⟩
+
+/-- Bool-result composition through the same endpoint: a comparison whose
+operands contain vector muxes. -/
+theorem comparison_execution {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinational ``comparison) mctx mref cctx cref w (m, design) w')
+    (env : EnvDefines mctx mref cctx cref ``comparison comparisonValue) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = comparisonBinders.length ∧
+    ∃ cache : IO.Ref (ExprStructMap String),
+      ∀ {D : DomainConfig} (bools : Nat → Signal D Bool)
+        (bits : (j : Nat) → (n : Nat) → Signal D (BitVec n))
+        (tick : Nat) (initial : Env) (mems : MEnv),
+      SourceInputs ``comparison comparisonBinders ids cache
+        (fun j => (bools j).val tick) (fun j n => (bits j n).val tick) initial →
+      ExecutionValue m initial mems
+        (encodeBool ((comparison (bools 1) (bits 2 8) (bits 3 8)).val tick)) := by
+  apply Tools.ShippingUnifiedExecutionSoundness.execution_source_of_env (kb := 1) (kv := 2) hr env
+    (by intro d hd; simp only [certifiedShape?, hd]; rfl) comparison_peel (by decide)
+    (by simp [comparisonTerm, arithmeticTerm, Term.WF])
+  · intro j hj
+    have h : j = 0 := by omega
+    subst h
+    exact ⟨`c, rfl⟩
+  · intro j hj
+    have h : j = 0 ∨ j = 1 := by omega
+    rcases h with rfl | rfl
+    · exact ⟨`a, rfl⟩
+    · exact ⟨`b, rfl⟩
+
+/-- Arithmetic root above a vector mux at a nonuniform width. -/
+theorem arithmetic65_execution {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinational ``arithmetic65) mctx mref cctx cref w (m, design) w')
+    (env : EnvDefines mctx mref cctx cref ``arithmetic65 arithmetic65Value) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = arithmetic65Binders.length ∧
+    ∃ cache : IO.Ref (ExprStructMap String),
+      ∀ {D : DomainConfig} (bools : Nat → Signal D Bool)
+        (bits : (j : Nat) → (n : Nat) → Signal D (BitVec n))
+        (tick : Nat) (initial : Env) (mems : MEnv),
+      SourceInputs ``arithmetic65 arithmetic65Binders ids cache
+        (fun j => (bools j).val tick) (fun j n => (bits j n).val tick) initial →
+      ExecutionValue m initial mems
+        ((arithmetic65 (bools 1) (bits 2 65) (bits 3 65)).val tick).toNat := by
+  apply Tools.ShippingUnifiedExecutionSoundness.execution_source_of_env (kb := 1) (kv := 2) hr env
+    (by intro d hd; simp only [certifiedShape?, hd]; rfl) arithmetic65_peel (by decide)
+    (by simp [arithmeticTerm, Term.WF])
+  · intro j hj
+    have h : j = 0 := by omega
+    subst h
+    exact ⟨`c, rfl⟩
+  · intro j hj
+    have h : j = 0 ∨ j = 1 := by omega
+    rcases h with rfl | rfl
+    · exact ⟨`a, rfl⟩
+    · exact ⟨`b, rfl⟩
+
 open Sparkle.IR.OptCheck Sparkle.IR.ZeroWidth Sparkle.IR.RegDedup
 open Tools.SVParser.AST Tools.SVParser.EmitSem Tools.SVParser.EmitAst
 open Tools.ShippingDeclWidths Tools.ShippingModulePrintSoundness Tools.ShippingSVBridge
@@ -71,8 +172,8 @@ run_cmd liftTermElabM do
   let mut count := 0
   for name in [``arithmetic1, ``arithmetic8, ``arithmetic65, ``comparison, ``nested] do
     let ci ← getConstInfo name
-    unless (mixedCertifiedShape? false [] ci).isNone do
-      throwError "Unified-source test unexpectedly entered the previously proved gate"
+    unless (mixedCertifiedShape? false [] ci).isSome do
+      throwError "Unified-source test missed the extended mutual gate"
     let (raw, _) ← synthesizeCombinationalCore name [] false
     let (legacy, _) ← synthesizeCombinationalCoreWith
       (translateFuelFix (fun rec e h t named =>
@@ -118,7 +219,7 @@ run_cmd liftTermElabM do
                 throwError "Mutual mux source/SV/delta mismatch: {name}, {values}"
               count := count + 1
   unless count == 2322 do throwError "Mutual mux case count mismatch: {count}"
-  logInfo m!"UNIFIED SOURCE REGRESSION: {count} source/legacy/SV/delta cases; shipping endpoint extension still open"
+  logInfo m!"UNIFIED SOURCE REGRESSION: {count} source/legacy/SV/delta cases through the extended certified gate"
 
 -- The source view must not reinterpret a user instance as a library operation.
 example : view (mkApp6 (.const ``HAdd.hAdd [.zero, .zero, .zero])
@@ -129,12 +230,21 @@ example : view (mkApp5 (.const ``Signal.beq []) (.const ``Bool []) (.bvar 0)
 
 run_cmd do
   if (← get).messages.hasErrors then throwError "Unified source/cache regression failed"
-  for name in [``denote_val, ``meaning_quote, ``Meaning.deterministic, ``nested_meaning,
+  for name in [``denote_val, ``meaning_quote, ``meaning_quote_mixed, ``Meaning.deterministic,
+      ``nested_meaning,
       ``Tools.ShippingUnifiedCache.validated_hit, ``Tools.ShippingUnifiedCache.record_preserves,
-      ``Tools.ShippingUnifiedCache.cached_action, ``Tools.ShippingUnifiedInvariant.cached_outcome, ``Tools.ShippingUnifiedInvariant.Inv.emit_reserved] do
+      ``Tools.ShippingUnifiedCache.cached_action, ``Tools.ShippingUnifiedInvariant.cached_outcome,
+      ``Tools.ShippingUnifiedInvariant.Inv.emit_reserved,
+      ``Tools.ShippingUnifiedInvariant.Inputs.of_mixed,
+      ``Tools.ShippingUnifiedRecursion.fuel_contract,
+      ``Tools.ShippingUnifiedRecursion.translateExprToWire_contract,
+      ``Tools.ShippingUnifiedProtection.fuel_protects,
+      ``Tools.ShippingUnifiedProtection.fuel_orders,
+      ``Tools.ShippingUnifiedExecutionSoundness.execution_source_of_env,
+      ``nested_execution, ``comparison_execution, ``arithmetic65_execution] do
     for ax in (← liftCoreM <| collectAxioms name) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do
         throwError "unexpected unified source/cache axiom: {name}: {ax}"
-  logInfo "UNIFIED SOURCE/CACHE FOUNDATION: standard axioms only; recursive compiler/entry connection still open"
+  logInfo "UNIFIED MUTUAL RECURSION ENDPOINT: standard axioms only; general source-to-RTL theorem connected"
 
 end Sparkle.Tests.Compiler.ShippingUnifiedSourceTest

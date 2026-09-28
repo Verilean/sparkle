@@ -428,6 +428,18 @@ lean_lib «Tools.ShippingMixedRecursion» where
 lean_lib «Tools.ShippingContractEntrySoundness» where
   roots := #[`Tools.ShippingContractEntrySoundness]
 
+lean_lib «Tools.ShippingUnifiedRecursion» where
+  roots := #[`Tools.ShippingUnifiedRecursion]
+
+lean_lib «Tools.ShippingUnifiedProtection» where
+  roots := #[`Tools.ShippingUnifiedProtection]
+
+lean_lib «Tools.ShippingUnifiedEntrySoundness» where
+  roots := #[`Tools.ShippingUnifiedEntrySoundness]
+
+lean_lib «Tools.ShippingUnifiedExecutionSoundness» where
+  roots := #[`Tools.ShippingUnifiedExecutionSoundness]
+
 lean_lib «Tools.ShippingUnifiedInvariant» where
   roots := #[`Tools.ShippingUnifiedInvariant]
 

@@ -172,12 +172,24 @@ lemma is available; protection of that name through recursive children is not
 assumed completed. `ShippingUnifiedSourceTest` proves a real nested source's
 meaning and checks 2,322 legacy/SV/delta cases, auditing standard axioms.
 
-This is foundation work, not a new shipping source-to-RTL endpoint. No compiler
-gate or mux cache policy was changed. Next: close the unified fuel recursion,
-including pending-parent protection; connect gate/input/output contracts to the
-backend; restore safe mux reuse. Then varying widths and remaining successful
-interfaces. `underArithmetic` already compiles and is regression-tested, but is
-not in the source theorem. S3 remains open until the inventory is reconciled;
+Completed S3 extension: mutual mux composition. `ShippingUnifiedRecursion`
+closes the actual fuel recursion for the whole mutual `Term` domain with one
+induction, deriving the reserved-parent safety hypotheses of
+`Inv.emit_reserved` from child frames and `Frame.record_reserved`.
+`ShippingUnifiedProtection` proves pending-parent protection and dependency
+order across every node kind, including validated cache hits, so arithmetic
+that reserves its result before mux/comparison children stays acyclic.
+`ShippingUnifiedEntrySoundness` ports the width-polymorphic output contracts,
+and `ShippingUnifiedExecutionSoundness` connects the new `unifiedGateRoot`
+acceptance (a third, purely additive disjunct in `mixedCertifiedShape?`) to the
+same execution backend: `execution_source_of_env` now covers either result sort
+of the mutual domain. `ShippingUnifiedSourceTest` instantiates the endpoint on
+nested, comparison-root and width-65 arithmetic-root declarations and keeps
+2,322 source/legacy/SV/delta cases, now through the certified gate.
+
+Still open in S3: proved mux cache reuse (vector mux nodes keep the direct
+uncached lowering; repeated trees may allocate extra wires), varying/mixed
+widths, and the remaining successful interface forms from the inventory.
 S4–S7 (state/reset, memory, hierarchy and final composition) remain unfinished.
 
 ## Trust, validation and work cadence

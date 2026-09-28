@@ -1,8 +1,12 @@
 # Claude Code 引き継ぎ — Signal DSL → RTL の証明
 
-更新: 2026-09-28。対象ブランチ: `poc/roundtrip-proof`。
-コードの基準コミット: `52ab4c3` (`Unify recursive Bool and BitVec source meanings and prove cache preservation`)。
-この資料作成時点では、同コミット以降の証明・コンパイラ変更はない。
+更新: 2026-09-28(2 回目)。対象ブランチ: `poc/roundtrip-proof`。
+S3「相互再帰する mux 合成」の作業単位は完了した。統合 `Term` ドメインの実 fuel 再帰・
+予約親保護・依存順序・入口・出力 RTL 実行の一般定理
+`Tools/ShippingUnifiedExecutionSoundness.lean: execution_source_of_env` が接続済み。
+`mixedCertifiedShape?` に純追加の `unifiedGateRoot` 判定を足し、該当ソースは certified 経路に入る。
+以下の「証明済みと未完の境界」「次の作業単位」は完了分を反映して読むこと。
+次の候補: vector mux のキャッシュ再利用復旧、異幅・幅変更演算、S4–S7。
 
 ## 最初に読むこと
 
@@ -31,7 +35,7 @@
 | 正の共通幅 BitVec の入力・定数・加減乗・and/or/xor・同幅論理シフト | 出力構文、宣言・参照、RTL の一意な有界解、有限 delta 安定まで接続済み |
 | Bool 入力・定数・Bool mux・標準 Bool 論理／等値、上記 BitVec 式の ult/ule/slt/sle・標準等値 | 同じく一般的なソース → RTL 定理まで接続済み |
 | BitVec 結果の mux 木 | 条件が既存 `BExpr`、葉が既存 `FExpr` の `VExpr` について接続済み |
-| mux を算術・比較の子に置く相互再帰 | 実際のコンパイルは成功する。統一ソース意味・キャッシュ基盤は証明済みだが、一般的なコンパイル → RTL 定理は未完 |
+| mux を算術・比較の子に置く相互再帰 | 完了。`ShippingUnifiedRecursion`(fuel 契約)+ `ShippingUnifiedProtection`(保護・順序)+ `ShippingUnifiedEntrySoundness` + `ShippingUnifiedExecutionSoundness.execution_source_of_env`(両ソート) |
 | 異幅／幅変更演算、残る組合せ構文・インターフェース | 未完。成功分岐との網羅的な突合せも必要 |
 | 状態・reset、メモリ、階層、成功領域全体の最終合成 | S4–S7、未完 |
 
