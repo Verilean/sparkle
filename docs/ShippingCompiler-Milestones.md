@@ -241,23 +241,24 @@ certified: the total lowering mirrors the legacy order (hold mux reading the
 register output back), and `registerEnable_step_of_env` proves the
 capture/hold cycle recurrence — the fixed source semantics — at the raw core
 module, with `trace_of_cycles` generalized to state-reading updates for the
-`runModule` trace; the packaged `loopRegister_run_of_env` states the whole
-run: the compiled trace observes the `Signal.loop` register fixpoint stream
-itself, identified against the library `.val` via `loop_register_val`.
-Open in S4:
-the sequential `mergeDuplicates` (the unvalidated raw merge; the test
-exercises the merged default configuration numerically; zero-width cleanup
-is proved preserved for the plain and enabled shapes), the feedback
-register (`Signal.loop (fun s => Signal.register initLit cone)`) is proved
-to the cycle recurrence at the current state (`loopRegister_step_of_env`;
-the loop binder is one more unified-source input bound to the pre-allocated
-register wire, so the combinational contract machinery is reused verbatim
-and no reserved-parent protection is needed; zero-width cleanup is proved
-preserved on all three register shapes), leaving open
-`circuit do`/`runCircuitH` reification (`Signal.loop`/`circuit do`), multiple registers,
-enable/hold (`registerWithEnable`'s pure semantics has a hold bug to fix
-first), user reset muxes, and sequential emitted-SV text (sequential modules
-pass through `optimizeModule`, unproved). S5–S7 remain unfinished.
+`runModule` trace. The feedback register
+(`Signal.loop (fun s => Signal.register initLit cone)`) is proved to the
+cycle recurrence at the current state (`loopRegister_step_of_env`; the loop
+binder is one more unified-source input bound to the pre-allocated register
+wire, so the combinational contract machinery is reused verbatim and no
+reserved-parent protection is needed), and zero-width cleanup is proved
+preserved on all three register shapes. All three shapes also carry
+packaged full-run endpoints: `register_run_of_env`,
+`registerEnable_run_of_env` (width bound carried by `trace_of_cycles_inv`)
+and `loopRegister_run_of_env` state that the compiled `runModule` trace
+observes the source register stream itself, identified against the library
+`.val` streams via `loop_register_val` and the definitional
+`registerWithEnable_val` (`regAcc_run`/`regHold_run`/`accLoop_run`).
+Open in S4: the sequential `mergeDuplicates` (the unvalidated raw merge;
+the test exercises the merged default configuration numerically),
+`circuit do`/`runCircuitH` reification onto the loop form, multiple
+registers, user reset muxes, and sequential emitted-SV text (sequential
+modules pass through `optimizeModule`, unproved). S5–S7 remain unfinished.
 
 ## Trust, validation and work cadence
 

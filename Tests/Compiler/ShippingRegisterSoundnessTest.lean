@@ -265,6 +265,118 @@ theorem accLoop_run {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State
       simp [eval, accLoopTerm, Tools.ShippingScalarSoundness.Binary.apply, hc,
         BitVec.ofNat_toNat]
 
+/-- The full trace endpoint for the plain register: the compiled module's
+`runModule` trace observes exactly the source `Signal.register` stream. -/
+theorem regAcc_run {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+    {wst wst' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore ``regAcc [] false) mctx mref cctx cref wst
+      (m, design) wst')
+    (env : EnvDefines mctx mref cctx cref ``regAcc regAccValue) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = regAccBinders.length ∧
+    ∃ (cache : IO.Ref (ExprStructMap String)) (r : String),
+      ∀ {D : DomainConfig} (bools : Nat → Signal D Bool)
+        (bits : (j : Nat) → (n : Nat) → Signal D (BitVec n))
+        (mems : MEnv) (k : Nat) (seed : Nat → (String → Nat) → Env)
+        (st0 : String → Nat),
+      (∀ t stv, SourceInputs ``regAcc regAccBinders ids cache
+          (fun i => (bools i).val (k - 1 - t)) (fun i n => (bits i n).val (k - 1 - t))
+          (seed t stv) ∧ seed t stv "rst" = 0 ∧ seed t stv r = stv r) →
+      st0 r = 3 →
+      ∃ envs, runModule (weOf m) m.body seed k st0 mems = some envs ∧ envs.length = k ∧
+        ∀ j (hj : j < envs.length), (envs[j]'hj) "out" =
+          ((regAcc (bools 1) (bits 2 8) (bits 3 8)).val j).toNat := by
+  have packaged := Tools.ShippingRegisterSoundness.register_run_of_env (kb := 1) (kv := 2)
+    (vw := fun _ => 8) (bpos := fun _ => 1) (vpos := fun j => j + 2) hr env
+    (by intro d hd; simp only [certifiedShape?, hd]; rfl) regAcc_peel
+    (by simp [regAccBinders]) regAcc_wf (by decide)
+    (by
+      intro j hj
+      have h : j = 0 := by omega
+      subst h
+      exact ⟨`c, rfl⟩)
+    (by
+      intro j hj
+      have h : j = 0 ∨ j = 1 := by omega
+      rcases h with rfl | rfl
+      · exact ⟨`a, rfl⟩
+      · exact ⟨`b, rfl⟩)
+  obtain ⟨ids, nd, len, cache, r, H⟩ := packaged
+  refine ⟨ids, nd, len, cache, r, ?_⟩
+  intro D bools bits mems k seed st0 hseed hst0
+  apply H (fun wall i => (bools i).val wall) (fun wall i n => (bits i n).val wall)
+    mems k seed st0
+    (fun j => ((regAcc (bools 1) (bits 2 8) (bits 3 8)).val j).toNat)
+    hseed
+  · rw [hst0]
+    rfl
+  · intro j hj
+    show ((Signal.mux (bools 1) (bits 2 8) (bits 3 8) + bits 2 8).val j).toNat = _
+    show ((if (bools 1).val j then (bits 2 8).val j else (bits 3 8).val j)
+      + (bits 2 8).val j).toNat = _
+    cases hc : (bools 1).val j <;>
+      simp [eval, regAccTerm, Tools.ShippingScalarSoundness.Binary.apply, hc]
+
+/-- The full trace endpoint for the enabled register: the compiled module's
+`runModule` trace observes exactly the source capture/hold stream. -/
+theorem regHold_run {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+    {wst wst' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore ``regHold [] false) mctx mref cctx cref wst
+      (m, design) wst')
+    (env : EnvDefines mctx mref cctx cref ``regHold regHoldValue) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = regHoldBinders.length ∧
+    ∃ (cache : IO.Ref (ExprStructMap String)) (r : String),
+      ∀ {D : DomainConfig} (bools : Nat → Signal D Bool)
+        (bits : (j : Nat) → (n : Nat) → Signal D (BitVec n))
+        (mems : MEnv) (k : Nat) (seed : Nat → (String → Nat) → Env)
+        (st0 : String → Nat),
+      (∀ t stv, SourceInputs ``regHold regHoldBinders ids cache
+          (fun i => (bools i).val (k - 1 - t)) (fun i n => (bits i n).val (k - 1 - t))
+          (seed t stv) ∧ seed t stv "rst" = 0 ∧ seed t stv r = stv r) →
+      st0 r = 5 →
+      ∃ envs, runModule (weOf m) m.body seed k st0 mems = some envs ∧ envs.length = k ∧
+        ∀ j (hj : j < envs.length), (envs[j]'hj) "out" =
+          ((regHold (bools 1) (bools 2) (bits 3 8) (bits 4 8)).val j).toNat := by
+  have packaged := Tools.ShippingRegisterSoundness.registerEnable_run_of_env (kb := 2)
+    (kv := 2) (vw := fun _ => 8) (bpos := fun j => j + 1) (vpos := fun j => j + 3)
+    (en := .boolInput 0) hr env
+    (by intro d hd; simp only [certifiedShape?, hd]; rfl) regHold_peel
+    (by simp [regHoldBinders]) regHoldEn_wf regHoldTerm_wf (by decide)
+    (by
+      intro j hj
+      have h : j = 0 ∨ j = 1 := by omega
+      rcases h with rfl | rfl
+      · exact ⟨`en, rfl⟩
+      · exact ⟨`c, rfl⟩)
+    (by
+      intro j hj
+      have h : j = 0 ∨ j = 1 := by omega
+      rcases h with rfl | rfl
+      · exact ⟨`a, rfl⟩
+      · exact ⟨`b, rfl⟩)
+  obtain ⟨ids, nd, len, cache, r, H⟩ := packaged
+  refine ⟨ids, nd, len, cache, r, ?_⟩
+  intro D bools bits mems k seed st0 hseed hst0
+  apply H (fun wall i => (bools i).val wall) (fun wall i n => (bits i n).val wall)
+    mems k seed st0
+    (fun j => ((regHold (bools 1) (bools 2) (bits 3 8) (bits 4 8)).val j).toNat)
+    hseed (by rw [hst0]; decide)
+  · rw [hst0]
+    rfl
+  · intro j hj
+    change (if (bools 1).val j = true then
+        (Signal.mux (bools 2) (bits 3 8) (bits 4 8) + bits 3 8).val j
+      else (regHold (bools 1) (bools 2) (bits 3 8) (bits 4 8)).val j).toNat =
+      if (bools 1).val j = true then _ else _
+    cases hc : (bools 1).val j
+    · simp [hc]
+    · simp only [hc, if_pos rfl]
+      show ((if (bools 2).val j then (bits 3 8).val j else (bits 4 8).val j)
+        + (bits 3 8).val j).toNat = _
+      cases hc2 : (bools 2).val j <;>
+        simp [eval, regHoldTerm, Tools.ShippingScalarSoundness.Binary.apply, hc2]
+
 open Sparkle.IR.AST in
 run_cmd liftTermElabM do
   -- Gate acceptance and multi-cycle numeric regression on the raw module.
@@ -429,7 +541,8 @@ run_cmd do
       ``Tools.ShippingRegisterSoundness.trace_of_cycles_inv,
       ``Tools.ShippingRegisterSoundness.loop_register_val,
       ``Tools.ShippingRegisterSoundness.loopRegister_run_of_env,
-      ``regAcc_step, ``regHold_step, ``accLoop_step, ``accLoop_run] do
+      ``regAcc_step, ``regHold_step, ``accLoop_step,
+      ``regAcc_run, ``regHold_run, ``accLoop_run] do
     for ax in (← liftCoreM <| collectAxioms name) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do
         throwError "unexpected register soundness axiom: {name}: {ax}"

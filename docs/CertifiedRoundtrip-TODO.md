@@ -190,7 +190,14 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   `loop_register_val` stream lemma) closes the full-run statement: for
   every admissible seeding discipline, the compiled `runModule` trace
   observes exactly the source `Signal.loop` register fixpoint's stream
-  (`accLoop_run` instantiates it against the library `.val` stream).
+  (`accLoop_run` instantiates it against the library `.val` stream). The
+  plain and enabled shapes have the same packaged trace endpoints
+  (`register_run_of_env` via the state-ignoring `trace_of_cycles`,
+  `registerEnable_run_of_env` via `trace_of_cycles_inv` with the width
+  bound as the invariant, and the definitional `registerWithEnable_val`
+  stream recurrence); `regAcc_run`/`regHold_run` instantiate them against
+  the library `.val` streams, so all three certified register shapes now
+  expose the full `runModule` trace as the source stream.
 - [ ] **S4:** Remaining state/reset scope: the sequential `mergeDuplicates`
   (the UNVALIDATED `mergeDuplicatesRaw`; needs register-bisimulation
   validation or proof — the register test exercises the merged default
@@ -208,7 +215,7 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
 - [ ] **S7 / trust:** Resolve or explicitly retain `EnvDefines` in the final
   claim; record execution-model/external-tool boundaries without hiding them.
 
-Latest validation: `lake build Tests.AllTests` passed all 635 jobs, with
+Latest validation: `lake build Tests.AllTests` passed all 641 jobs, with
 standard-axiom audits of the general endpoint and real signed/equality/Bool-logic
 source instantiations. Vector mux adds 2,772 source/legacy/SV/delta cases and
 real source theorems for nested and computed-condition muxes (no Bool input

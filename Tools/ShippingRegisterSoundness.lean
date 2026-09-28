@@ -2825,4 +2825,131 @@ theorem loopRegister_run_of_env {declName : Name} {mctx : Meta.Context}
     rw [hidx]
 
 
+/-- The enabled register's stream, exposed as its defining recurrence. -/
+theorem registerWithEnable_val {D : Sparkle.Core.Domain.DomainConfig} {α : Type}
+    (init : α) (en : Sparkle.Core.Signal.Signal D Bool)
+    (input : Sparkle.Core.Signal.Signal D α) :
+    ((Sparkle.Core.Signal.Signal.registerWithEnable init en input).val 0 = init) ∧
+    ∀ t, (Sparkle.Core.Signal.Signal.registerWithEnable init en input).val (t + 1) =
+      if en.val t then input.val t
+      else (Sparkle.Core.Signal.Signal.registerWithEnable init en input).val t :=
+  ⟨rfl, fun _ => rfl⟩
+
+/-- Packaged plain-register trace at the real core entry: the `runModule`
+trace observes the source register stream (state 0 from the declared init,
+then the cone at the previous cycle's inputs). -/
+theorem register_run_of_env {declName : Name} {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {wst wst' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {design : Design} {value : Lean.Expr}
+    {bs : List (Name × MixedGateBinder)} {dpos : Nat} {w v kb kv : Nat}
+    {vw : Nat → Nat} {bpos vpos : Nat → Nat} {e : Term (.bits w)}
+    (hr : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref wst
+      (m, design) wst')
+    (env : EnvDefines mctx mref cctx cref declName value)
+    (old : ∀ d : DefinitionVal, d.value = value → certifiedShape? false [] (.defnInfo d) = none)
+    (peel : mixedGatePeel value = some (bs, registerE (inputExpr bs.length dpos) w v
+      (quote (inputExpr bs.length dpos) (fun j => inputExpr bs.length (bpos j))
+        (fun j => inputExpr bs.length (vpos j)) e)))
+    (hdp : dpos < bs.length)
+    (he : e.WF kb kv vw) (hvlt : v < 2 ^ w)
+    (hb : ∀ j, j < kb → ∃ name, bs[bpos j]? = some (name, .bool))
+    (hvp : ∀ j, j < kv → ∃ name, bs[vpos j]? = some (name, .bits (vw j))) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = bs.length ∧
+    ∃ (cache : IO.Ref (ExprStructMap String)) (r : String),
+      ∀ (bools : Nat → Nat → Bool) (bits : Nat → (j : Nat) → (n : Nat) → BitVec n)
+        (mems : MEnv) (k : Nat) (seed : Nat → (String → Nat) → Env)
+        (st0 : String → Nat) (S : Nat → Nat),
+      (∀ t stv, SourceInputs declName bs ids cache (bools (k - 1 - t)) (bits (k - 1 - t))
+          (seed t stv) ∧ seed t stv "rst" = 0 ∧ seed t stv r = stv r) →
+      S 0 = st0 r →
+      (∀ j, j + 1 ≤ k → S (j + 1) = (eval (fun i => bools j (bpos i))
+        (fun i n => bits j (vpos i) n) e).toNat) →
+      ∃ envs, runModule (weOf m) m.body seed k st0 mems = some envs ∧ envs.length = k ∧
+        ∀ j (hj : j < envs.length), (envs[j]'hj) "out" = S j := by
+  obtain ⟨ids, nd, len, cache, r, H⟩ :=
+    register_step_of_env hr env old peel hdp he hvlt hb hvp
+  refine ⟨ids, nd, len, cache, r, ?_⟩
+  intro bools bits mems k seed st0 S hseed hS0 hSs
+  apply trace_of_cycles
+    (F := fun t _ => (eval (fun i => bools (k - 1 - t) (bpos i))
+      (fun i n => bits (k - 1 - t) (vpos i) n) e).toNat)
+    ?_ k st0 S hS0 ?_
+  · intro t stv
+    obtain ⟨hsrc, hrst, hread⟩ := hseed t stv
+    obtain ⟨-, -, -, envF, hstep, hout⟩ :=
+      H (bools (k - 1 - t)) (bits (k - 1 - t)) (seed t stv) mems hsrc hrst
+    exact ⟨envF, hstep, by rw [hout, hread]⟩
+  · intro j hj
+    rw [hSs j hj]
+    have hidx : k - 1 - (k - 1 - j) = j := by omega
+    rw [hidx]
+
+/-- Packaged enabled-register trace at the real core entry: the `runModule`
+trace observes the source capture/hold stream. -/
+theorem registerEnable_run_of_env {declName : Name} {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {wst wst' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {design : Design} {value : Lean.Expr}
+    {bs : List (Name × MixedGateBinder)} {dpos : Nat} {w v kb kv : Nat}
+    {vw : Nat → Nat} {bpos vpos : Nat → Nat} {en : Term .bool} {e : Term (.bits w)}
+    (hr : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref wst
+      (m, design) wst')
+    (env : EnvDefines mctx mref cctx cref declName value)
+    (old : ∀ d : DefinitionVal, d.value = value → certifiedShape? false [] (.defnInfo d) = none)
+    (peel : mixedGatePeel value = some (bs, registerEnableE (inputExpr bs.length dpos) w v
+      (quote (inputExpr bs.length dpos) (fun j => inputExpr bs.length (bpos j))
+        (fun j => inputExpr bs.length (vpos j)) en)
+      (quote (inputExpr bs.length dpos) (fun j => inputExpr bs.length (bpos j))
+        (fun j => inputExpr bs.length (vpos j)) e)))
+    (hdp : dpos < bs.length)
+    (hen : en.WF kb kv vw) (he : e.WF kb kv vw) (hvlt : v < 2 ^ w)
+    (hb : ∀ j, j < kb → ∃ name, bs[bpos j]? = some (name, .bool))
+    (hvp : ∀ j, j < kv → ∃ name, bs[vpos j]? = some (name, .bits (vw j))) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = bs.length ∧
+    ∃ (cache : IO.Ref (ExprStructMap String)) (r : String),
+      ∀ (bools : Nat → Nat → Bool) (bits : Nat → (j : Nat) → (n : Nat) → BitVec n)
+        (mems : MEnv) (k : Nat) (seed : Nat → (String → Nat) → Env)
+        (st0 : String → Nat) (S : Nat → Nat),
+      (∀ t stv, SourceInputs declName bs ids cache (bools (k - 1 - t)) (bits (k - 1 - t))
+          (seed t stv) ∧ seed t stv "rst" = 0 ∧ seed t stv r = stv r) →
+      st0 r < 2 ^ w →
+      S 0 = st0 r →
+      (∀ j, j + 1 ≤ k → S (j + 1) =
+        (if eval (fun i => bools j (bpos i)) (fun i n => bits j (vpos i) n) en
+          then (eval (fun i => bools j (bpos i)) (fun i n => bits j (vpos i) n) e).toNat
+          else S j)) →
+      ∃ envs, runModule (weOf m) m.body seed k st0 mems = some envs ∧ envs.length = k ∧
+        ∀ j (hj : j < envs.length), (envs[j]'hj) "out" = S j := by
+  obtain ⟨ids, nd, len, cache, r, H⟩ :=
+    registerEnable_step_of_env hr env old peel hdp hen he hvlt hb hvp
+  refine ⟨ids, nd, len, cache, r, ?_⟩
+  intro bools bits mems k seed st0 S hseed hst0 hS0 hSs
+  apply trace_of_cycles_inv (P := fun s => s < 2 ^ w)
+    (F := fun t s => if eval (fun i => bools (k - 1 - t) (bpos i))
+        (fun i n => bits (k - 1 - t) (vpos i) n) en
+      then (eval (fun i => bools (k - 1 - t) (bpos i))
+        (fun i n => bits (k - 1 - t) (vpos i) n) e).toNat
+      else s)
+    ?_ ?_ k st0 S hst0 hS0 ?_
+  · intro t stv hP
+    obtain ⟨hsrc, hrst, hread⟩ := hseed t stv
+    obtain ⟨-, -, -, envF, hstep, hout⟩ :=
+      H (bools (k - 1 - t)) (bits (k - 1 - t)) (seed t stv) mems hsrc hrst
+        (by rw [hread]; exact hP)
+    refine ⟨envF, ?_, by rw [hout, hread]⟩
+    rw [hread] at hstep
+    exact hstep
+  · intro t s hP
+    by_cases hEn : eval (fun i => bools (k - 1 - t) (bpos i))
+        (fun i n => bits (k - 1 - t) (vpos i) n) en
+    · simp only [hEn, if_true]
+      exact BitVec.isLt _
+    · simp only [hEn, if_false]
+      exact hP
+  · intro j hj
+    rw [hSs j hj]
+    have hidx : k - 1 - (k - 1 - j) = j := by omega
+    rw [hidx]
+
 end Tools.ShippingRegisterSoundness
