@@ -1325,6 +1325,776 @@ theorem synthesizeMixedCertified_registerEnable_sound {logProf declName bs body 
   unfold stepModule
   simp [evalFull, nexts, mem0, bind]
 
+/-! ## The feedback (loop) register root -/
+
+/-- `Signal.loop (fun s => Signal.register (BitVec.ofNat w v) cone)`: the
+outer domain is `domO`, the occurrences under the binder are `domI`
+(one binder deeper), and the cone reads the register back as `.bvar 0`. -/
+def loopRegisterE (domO domI inst : Lean.Expr) (w v : Nat) (cone : Lean.Expr) : Lean.Expr :=
+  mkApp4 (.const ``Sparkle.Core.Signal.Signal.loop []) domO (bitVecE w) inst
+    (.lam `s (sigT domO w)
+      (mkApp4 (.const ``Sparkle.Core.Signal.Signal.register [.zero]) domI (bitVecE w)
+        (mkApp2 (.const ``BitVec.ofNat []) (natE w) (natE v)) cone) .default)
+
+theorem canonicalLoopRegister?_loopRegisterE {domO domI inst cone : Lean.Expr} {w v : Nat}
+    (hdom : (domO.isFVar || domO.isBVar) = true) (hw : 0 < w) (hv : v < 2 ^ w) :
+    canonicalLoopRegister? (loopRegisterE domO domI inst w v cone) = some (w, v, cone) := by
+  have hlit := litValue_natE w v hv
+  simp only [mkApp2, mkAppB, mkApp] at hlit
+  simp only [loopRegisterE, mkApp4, mkApp2, mkAppB, mkApp, bitVecE,
+    canonicalLoopRegister?, hdom, if_true, canonicalNatLitValue?_natE, hlit]
+  simp [hw]
+
+theorem instFVars_loopRegisterE (xs : Array Lean.Expr) (d : Nat)
+    (domO domI inst : Lean.Expr) (w v : Nat) (cone : Lean.Expr) :
+    instFVars xs d (loopRegisterE domO domI inst w v cone) =
+      loopRegisterE (instFVars xs d domO) (instFVars xs (d + 1) domI)
+        (instFVars xs d inst) w v (instFVars xs (d + 1) cone) := rfl
+
+theorem lookupVar_returns {id : FVarId} {ctx : CompilerState} {s s' : CircuitState}
+    {a : Option String} (h : Returns (CompilerM.lookupVar id) ctx s a s') :
+    s' = s ∧ a = Tools.ShippingBindingsSoundness.visible ctx s.sourceBindings id := by
+  obtain ⟨mctx, mref, cctx, cref, wo, wo', hrun⟩ := h
+  change EST.Out.ok (CircuitM.lookupSourceBinding (ctx.varMap.lookup id) id.name s) wo =
+    EST.Out.ok (a, s') wo' at hrun
+  cases hrun
+  refine ⟨rfl, ?_⟩
+  cases hv : ctx.varMap.lookup id <;>
+    simp [Tools.ShippingBindingsSoundness.visible, CircuitM.lookupSourceBinding, hv, Option.orElse]
+
+theorem bindSourceVariable_returns {id : FVarId} {wire : String} {ctx : CompilerState}
+    {s s' : CircuitState} {u : Unit}
+    (h : Returns (CompilerM.bindSourceVariable id wire) ctx s u s') :
+    s' = { s with sourceBindings := s.sourceBindings.insert id.name wire } := by
+  obtain ⟨mctx, mref, cctx, cref, wo, wo', hrun⟩ := h
+  change EST.Out.ok (CircuitM.bindSourceVariable id.name wire s) wo =
+    EST.Out.ok (u, s') wo' at hrun
+  cases hrun
+  rfl
+
+theorem emitRegisterStmt_returns {out clk rst : String} {input : Sparkle.IR.AST.Expr}
+    {initVal : Nat} {ctx : CompilerState} {s s' : CircuitState} {u : Unit}
+    (h : Returns (CompilerM.emitRegisterStmt out clk rst input initVal) ctx s u s') :
+    s' = { s with
+      module := s.module.addStmt (.register out clk (rst, .asynchronous) input initVal) } := by
+  unfold CompilerM.emitRegisterStmt at h
+  obtain ⟨cs, s1, hget, k1⟩ := Returns.bind h
+  obtain ⟨hcs, hs1⟩ := Returns.get hget
+  subst hcs hs1
+  exact Returns.set k1
+
+set_option maxHeartbeats 1000000 in
+theorem loopRegisterUncached_loopRegisterE (rec : TranslateFn)
+    (domO domI inst cone : Lean.Expr) (w v : Nat) (hint : String) (top named : Bool) :
+    translateLoopRegisterUncachedWith rec w v (loopRegisterE domO domI inst w v cone)
+        hint top named =
+      (do
+        let selfId ← CompilerM.liftMetaM Lean.mkFreshFVarId
+        if (← CompilerM.lookupVar selfId).isSome then
+          throw (Exception.error .missing "loop binder id collision")
+        let r ← CompilerM.makeWire hint (.bitVector w) (named := named)
+        CompilerM.bindSourceVariable selfId r
+        let cw ← rec (instFVars #[.fvar selfId] 0 cone) "loop_body" false false
+        CompilerM.emitRegisterStmt r "clk" "rst" (.ref cw) v
+        return r) := rfl
+
+set_option maxHeartbeats 1000000 in
+theorem loopRegister_step (rec : TranslateFn) (domO domI inst cone : Lean.Expr) (w v : Nat)
+    (hdom : (domO.isFVar || domO.isBVar) = true) (hw : 0 < w) (hv : v < 2 ^ w)
+    (hint : String) (top named : Bool) :
+    translateStepWith translateFallback rec (loopRegisterE domO domI inst w v cone)
+        hint top named =
+      translateControlCachedWith (translateLoopRegisterUncachedWith rec w v)
+        (loopRegisterE domO domI inst w v cone) hint top named := by
+  have shape : translateCoreShape (loopRegisterE domO domI inst w v cone) = false := rfl
+  have core : translateCore rec (loopRegisterE domO domI inst w v cone) hint top named =
+    pure none := rfl
+  have control : isBoolControl (loopRegisterE domO domI inst w v cone) = false := rfl
+  have mux : canonicalMuxType? (loopRegisterE domO domI inst w v cone) = none := rfl
+  have setw : canonicalSetWidth? (loopRegisterE domO domI inst w v cone) = none := rfl
+  have reg : canonicalRegister? (loopRegisterE domO domI inst w v cone) = none := rfl
+  have regEn : canonicalRegisterEnable? (loopRegisterE domO domI inst w v cone) = none := rfl
+  have loopReg := canonicalLoopRegister?_loopRegisterE (domI := domI) (inst := inst)
+    (cone := cone) hdom hw hv
+  have step : translateStepWith translateFallback rec (loopRegisterE domO domI inst w v cone)
+      hint top named =
+      translateFallback rec (loopRegisterE domO domI inst w v cone) hint top named := by
+    simp [translateStepWith, shape, core]
+    rfl
+  rw [step]
+  simp only [translateFallback, control, Bool.false_eq_true, if_false, mux, setw, reg,
+    regEn, loopReg]
+
+theorem fvarId_name_inj {a b : FVarId} (h : a.name = b.name) : a = b := by
+  cases a; cases b; cases h; rfl
+
+/-- One `stepModule` cycle of the compiled feedback-register module: the cone
+may read the register back (as one more width-`w` source input, at term input
+index `kv`), `out` observes the current value, and the register steps by the
+cone's value at the current state. -/
+def LoopRegisterPreserves (declName : Name) (bs : List (Name × MixedGateBinder))
+    (body : Lean.Expr) (m : Sparkle.IR.AST.Module) : Prop :=
+  ∃ ids : List FVarId, ids.Nodup ∧ ids.length = bs.length ∧
+  ∃ cache : IO.Ref (ExprStructMap String),
+    ∀ (dom domI inst : Lean.Expr) (kb kv : Nat) (vw : Nat → Nat) (binp vinp : Nat → FVarId)
+      {w v : Nat} (e : Term (.bits w)),
+    (dom.isFVar || dom.isBVar) = true → vw kv = w → e.WF kb (kv + 1) vw → v < 2 ^ w →
+    instFVars (ids.map Lean.Expr.fvar).toArray 0 body =
+      loopRegisterE dom domI inst w v
+        (quote domI (fun j => .fvar (binp j))
+          (fun j => if j = kv then .bvar 0 else .fvar (vinp j)) e) →
+    ∃ r : String,
+    ∀ (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n)
+      (env0 : Env) (mems : MEnv)
+      (bvals : Nat → Bool) (vvals : (j : Nat) → (n : Nat) → BitVec n),
+    let a := start (entryCompilerState false cache) declName.toString
+    let p := prepare bools bits (bs.zip ids) a
+    Admissible bools bits env0 (bs.zip ids) a →
+    (∀ j, j < kb → p.bools (binp j) = some (bvals j)) →
+    (∀ j, j < kv → p.bits (vinp j) = some ⟨vw j, vvals j (vw j)⟩) →
+    env0 "rst" = 0 → env0 r < 2 ^ w →
+    weOf m r = w ∧
+    ∃ envF, stepModule (weOf m) m.body env0 mems =
+        some (envF, [(r, (eval bvals
+          (fun j n => if j = kv then BitVec.ofNat n (env0 r) else vvals j n) e).toNat)],
+          mems) ∧
+      envF "out" = env0 r
+
+set_option maxHeartbeats 1000000 in
+theorem synthesizeMixedCertified_loopRegister_sound {logProf declName bs body m d}
+    (hr : MReturns (synthesizeMixedCertified
+      (fun e hint top named => translateExprToWire e hint top named) logProf declName bs body)
+      (m, d)) :
+    LoopRegisterPreserves declName bs body m := by
+  obtain ⟨ids, cache, returned, st, nd, len, run, hm, _, _⟩ := synthesizeMixedCertified_returns hr
+  refine ⟨ids, nd, len, cache, ?_⟩
+  intro dom domI inst kb kv vw binp vinp w v e hdom hself he hv qeq
+  have leaf := prepare_returns (bs.zip ids)
+    (start (entryCompilerState false cache) declName.toString) (bools := fun _ => false)
+    (bits := fun _ _ => 0) run
+  rw [qeq] at leaf
+  obtain ⟨rW, sm, ty, tr, freshOut, ht, hty⟩ := emitLeaves_single leaf
+  have hw : 0 < w := by
+    have := e.wf_pos he
+    exact this
+  have stepEq : translateExprToWire (loopRegisterE dom domI inst w v
+        (quote domI (fun j => .fvar (binp j))
+          (fun j => if j = kv then .bvar 0 else .fvar (vinp j)) e)) "out" false true =
+      translateControlCachedWith (translateLoopRegisterUncachedWith
+          (translateFuelFix translateStep 1048575) w v)
+        (loopRegisterE dom domI inst w v
+          (quote domI (fun j => .fvar (binp j))
+            (fun j => if j = kv then .bvar 0 else .fvar (vinp j)) e)) "out" false true := by
+    show translateStepWith translateFallback (translateFuelFix translateStep 1048575)
+      (loopRegisterE dom domI inst w v
+        (quote domI (fun j => .fvar (binp j))
+          (fun j => if j = kv then .bvar 0 else .fvar (vinp j)) e)) "out" false true = _
+    rw [loopRegister_step _ dom domI inst _ w v hdom hw hv]
+  rw [stepEq] at tr
+  have empty0 := empty_layout (entryCompilerState false cache) declName.toString (fun _ => 0)
+  have record0 : (prepare (fun _ => false) (fun _ _ => 0) (bs.zip ids)
+      (start (entryCompilerState false cache) declName.toString)).state.translateRecord = {} :=
+    (prepare_layout (bs.zip ids) _ empty0.1 empty0.2 (admissible_zero _ _)).2.2.2
+  rcases translateControlCachedWith_returns tr with hit | ⟨smR, missRun, record⟩
+  · obtain ⟨-, hrec⟩ := cacheLookupValidated_returns hit
+    have dead := hrec rW rfl
+    rw [record0] at dead
+    simp at dead
+  rw [loopRegisterUncached_loopRegisterE] at missRun
+  obtain ⟨selfId, sf, rfresh, missRun⟩ := Returns.bind missRun
+  have hsf : sf = _ := Returns.liftMetaM rfresh
+  subst hsf
+  obtain ⟨aOpt, sg, rlook, missRun⟩ := Returns.bind missRun
+  obtain ⟨hsg, hvisEq⟩ := lookupVar_returns rlook
+  subst hsg
+  cases hopt : aOpt.isSome with
+  | true =>
+    rw [hopt] at missRun
+    simp only [if_true] at missRun
+    obtain ⟨_, _, hthrow, _⟩ := Returns.bind missRun
+    exact (Returns.throw hthrow).elim
+  | false =>
+    rw [hopt] at missRun
+    simp only [Bool.false_eq_true, if_false] at missRun
+    have hvis : Tools.ShippingBindingsSoundness.visible
+        (prepare (fun _ => false) (fun _ _ => 0) (bs.zip ids)
+          (start (entryCompilerState false cache) declName.toString)).context
+        (prepare (fun _ => false) (fun _ _ => 0) (bs.zip ids)
+          (start (entryCompilerState false cache) declName.toString)).state.sourceBindings
+        selfId = none := by
+      rw [← hvisEq]
+      exact Option.not_isSome_iff_eq_none.mp (by simp [hopt])
+    have missRun2 : Returns (do
+        let r ← CompilerM.makeWire "out" (.bitVector w) (named := true)
+        CompilerM.bindSourceVariable selfId r
+        let cw ← translateFuelFix translateStep 1048575
+          (instFVars #[.fvar selfId] 0
+            (quote domI (fun j => .fvar (binp j))
+              (fun j => if j = kv then .bvar 0 else .fvar (vinp j)) e))
+          "loop_body" false false
+        CompilerM.emitRegisterStmt r "clk" "rst" (.ref cw) v
+        pure r)
+        (prepare (fun _ => false) (fun _ _ => 0) (bs.zip ids)
+          (start (entryCompilerState false cache) declName.toString)).context
+        (prepare (fun _ => false) (fun _ _ => 0) (bs.zip ids)
+          (start (entryCompilerState false cache) declName.toString)).state rW smR := missRun
+    obtain ⟨r0, s1, rmk, missRun3⟩ := Returns.bind missRun2
+    obtain ⟨hr0, hs1⟩ := makeWire_returns rmk
+    obtain ⟨ub, s2, rbind, missRun4⟩ := Returns.bind missRun3
+    have hs2 := bindSourceVariable_returns rbind
+    obtain ⟨cw, sc, rc, missRun5⟩ := Returns.bind missRun4
+    obtain ⟨ue, s4, remit, rpure⟩ := Returns.bind missRun5
+    have hs4 := emitRegisterStmt_returns remit
+    obtain ⟨hrWeq, hsmR⟩ := Returns.pure rpure
+    subst hrWeq
+    have hrec := recordTranslation_returns record
+    -- Static shapes.
+    have stBody : st.module.body =
+        .assign "out" (.ref rW) ::
+          .register rW "clk" ("rst", .asynchronous) (.ref cw) v :: sc.module.body := by
+      rw [ht, emitAssign_body_cons, addOutput_state]
+      show _ :: (sm.module.addOutput _).body = _
+      rw [show ∀ (mo : Sparkle.IR.AST.Module) q, (mo.addOutput q).body = mo.body from
+        fun _ _ => rfl, hrec]
+      show _ :: smR.module.body = _
+      rw [hsmR, hs4]
+      rfl
+    have stWires : st.module.wires = sc.module.wires := by
+      rw [ht, emitAssign_wires, addOutput_state]
+      show (sm.module.addOutput _).wires = _
+      rw [show ∀ (mo : Sparkle.IR.AST.Module) q, (mo.addOutput q).wires = mo.wires from
+        fun _ _ => rfl, hrec]
+      show smR.module.wires = _
+      rw [hsmR, hs4]
+      rfl
+    have stUsed : st.usedNames = sc.usedNames.insert "out" := by
+      rw [ht, emitAssign_usedNames, addOutput_state]
+      show sm.usedNames.insert "out" = _
+      rw [hrec]
+      show smR.usedNames.insert "out" = _
+      rw [hsmR, hs4]
+    have mBody : m.body = sc.module.body.reverse ++
+        [.register rW "clk" ("rst", .asynchronous) (.ref cw) v, .assign "out" (.ref rW)] := by
+      rw [hm]
+      show ((addClockResetIfSequential st.module).finalize).body = _
+      simp only [Module.finalize, (addClockReset_facts st.module).1, stBody]
+      simp
+    have mWires : m.wires = st.module.wires.reverse := by
+      rw [hm]; simp only [Module.finalize, (addClockReset_facts st.module).2.1]
+    refine ⟨rW, ?_⟩
+    intro bools bits env0 mems bvals vvals a p adm hb0 hv0 hrst0 hstb
+    have empty := empty_layout (entryCompilerState false cache) declName.toString env0
+    have prepared := prepare_layout (bs.zip ids)
+      (start (entryCompilerState false cache) declName.toString) empty.1 empty.2 adm
+    obtain ⟨pc, ps⟩ := prepare_const (fun _ => false) bools (fun _ _ => 0) bits
+      (bs.zip ids) _ _ rfl rfl
+    rw [pc] at rc
+    rw [ps] at hs1 hr0
+    rw [pc, ps] at hvis
+    have mws := CircuitM.makeWire_spec "out" (.bitVector w) true
+      (prepare bools bits (bs.zip ids)
+        (start (entryCompilerState false cache) declName.toString)).state
+    have freshR : (prepare bools bits (bs.zip ids)
+        (start (entryCompilerState false cache) declName.toString)).state.usedNames.contains rW
+        = false := by rw [hr0]; exact mws.1
+    -- The fresh binder differs from every prepared input binder.
+    have hvisVar : (prepare bools bits (bs.zip ids)
+        (start (entryCompilerState false cache) declName.toString)).context.varMap.lookup selfId
+        = none := by
+      revert hvis
+      unfold Tools.ShippingBindingsSoundness.visible
+      cases (prepare bools bits (bs.zip ids)
+        (start (entryCompilerState false cache) declName.toString)).context.varMap.lookup selfId
+      · intro _; rfl
+      · intro hcon; cases hcon
+    have hvisPer : (prepare bools bits (bs.zip ids)
+        (start (entryCompilerState false cache) declName.toString)).state.sourceBindings.get?
+        selfId.name = none := by
+      revert hvis
+      unfold Tools.ShippingBindingsSoundness.visible
+      rw [hvisVar]
+      intro h; exact h
+    have selfNe : ∀ id, Tools.ShippingBindingsSoundness.visible
+        (prepare bools bits (bs.zip ids)
+          (start (entryCompilerState false cache) declName.toString)).context
+        (prepare bools bits (bs.zip ids)
+          (start (entryCompilerState false cache) declName.toString)).state.sourceBindings id ≠
+        none → id ≠ selfId := by
+      intro id hne heq
+      subst heq
+      exact hne hvis
+    -- Bindings and visibility at the child entry state.
+    have s2Bind : s2.sourceBindings = (prepare bools bits (bs.zip ids)
+        (start (entryCompilerState false cache) declName.toString)).state.sourceBindings.insert
+        selfId.name rW := by
+      rw [hs2]
+      show s1.sourceBindings.insert selfId.name rW = _
+      rw [hs1, CircuitM.makeWire_sourceBindings]
+    have s2Used : s2.usedNames = (prepare bools bits (bs.zip ids)
+        (start (entryCompilerState false cache) declName.toString)).state.usedNames.insert rW := by
+      rw [hs2]
+      show s1.usedNames = _
+      rw [hs1, mws.2.1, hr0]
+    have s2Module : s2.module = (CircuitM.makeWire "out" (.bitVector w) true
+        (prepare bools bits (bs.zip ids)
+          (start (entryCompilerState false cache) declName.toString)).state).2.module := by
+      rw [hs2]
+      show s1.module = _
+      rw [hs1]
+    have visSelf : Tools.ShippingBindingsSoundness.visible
+        (prepare bools bits (bs.zip ids)
+          (start (entryCompilerState false cache) declName.toString)).context
+        s2.sourceBindings selfId = some rW := by
+      unfold Tools.ShippingBindingsSoundness.visible
+      rw [hvisVar, s2Bind]
+      simp [Std.HashMap.get?_insert]
+    have visOld : ∀ id z, id ≠ selfId →
+        Tools.ShippingBindingsSoundness.visible
+          (prepare bools bits (bs.zip ids)
+            (start (entryCompilerState false cache) declName.toString)).context
+          (prepare bools bits (bs.zip ids)
+            (start (entryCompilerState false cache) declName.toString)).state.sourceBindings id
+          = some z →
+        Tools.ShippingBindingsSoundness.visible
+          (prepare bools bits (bs.zip ids)
+            (start (entryCompilerState false cache) declName.toString)).context
+          s2.sourceBindings id = some z := by
+      intro id z hne hz
+      unfold Tools.ShippingBindingsSoundness.visible at hz ⊢
+      rw [s2Bind]
+      cases hvm : (prepare bools bits (bs.zip ids)
+          (start (entryCompilerState false cache) declName.toString)).context.varMap.lookup id with
+      | some u => rw [hvm] at hz; exact hz
+      | none =>
+        rw [hvm] at hz
+        have hz' : (prepare bools bits (bs.zip ids)
+            (start (entryCompilerState false cache) declName.toString)).state.sourceBindings.get?
+            id.name = some z := hz
+        have hname : ¬ (id.name == selfId.name) = true := by
+          simp only [beq_iff_eq]
+          intro h
+          exact hne (fvarId_name_inj h)
+        show ((prepare bools bits (bs.zip ids)
+          (start (entryCompilerState false cache) declName.toString)).state.sourceBindings.insert
+            selfId.name rW).get? id.name = some z
+        have hname' : ¬ (selfId.name = id.name) := fun h => hne (fvarId_name_inj h.symm)
+        simpa [Std.HashMap.getElem?_insert, hname'] using hz'
+    -- Extended per-cycle valuation: the loop binder is input `kv` at wire rW.
+    have selfNeB : ∀ j, j < kb → binp j ≠ selfId := by
+      intro j hj
+      obtain ⟨wj, hbnd, -⟩ := prepared.1.bool (binp j) (bvals j) (hb0 j hj)
+      exact selfNe _ (by rw [hbnd]; simp)
+    have selfNeV : ∀ j, j < kv → vinp j ≠ selfId := by
+      intro j hj
+      obtain ⟨wj, hbnd, -⟩ := prepared.1.bits (vinp j) (vw j) (vvals j (vw j)) (hv0 j hj)
+      exact selfNe _ (by rw [hbnd]; simp)
+    have hb' : ∀ j, j < kb →
+        (fun id => if id = selfId then some (Value.bits w (BitVec.ofNat w (env0 rW)))
+          else inputValues (prepare bools bits (bs.zip ids)
+            (start (entryCompilerState false cache) declName.toString)).bools
+            (prepare bools bits (bs.zip ids)
+              (start (entryCompilerState false cache) declName.toString)).bits id) (binp j) =
+        some (.bool (bvals j)) := by
+      intro j hj
+      simp only [if_neg (selfNeB j hj)]
+      exact inputValues_bool (hb0 j hj)
+    have separate := prepared.1.separate prepared.2.1
+    have hv' : ∀ j, j < kv + 1 →
+        (fun id => if id = selfId then some (Value.bits w (BitVec.ofNat w (env0 rW)))
+          else inputValues (prepare bools bits (bs.zip ids)
+            (start (entryCompilerState false cache) declName.toString)).bools
+            (prepare bools bits (bs.zip ids)
+              (start (entryCompilerState false cache) declName.toString)).bits id)
+          ((fun j => if j = kv then selfId else vinp j) j) =
+        some (.bits (vw j)
+          ((fun j n => if j = kv then BitVec.ofNat n (env0 rW) else vvals j n) j (vw j))) := by
+      intro j hj
+      by_cases hkv : j = kv
+      · subst hkv
+        have h1 : vw j = w := hself
+        simp only [if_pos rfl]
+        rw [← h1]
+        simp
+      · have hjlt : j < kv := by omega
+        simp only [if_neg hkv, if_neg (selfNeV j hjlt)]
+        exact inputValues_bits separate (hv0 j hjlt)
+    have contract := fuel_contract 1048575
+      (ctx := (prepare bools bits (bs.zip ids)
+        (start (entryCompilerState false cache) declName.toString)).context)
+      (inputs := fun id => if id = selfId then some (Value.bits w (BitVec.ofNat w (env0 rW)))
+        else inputValues (prepare bools bits (bs.zip ids)
+          (start (entryCompilerState false cache) declName.toString)).bools
+          (prepare bools bits (bs.zip ids)
+            (start (entryCompilerState false cache) declName.toString)).bits id)
+      (we := declaredWidths st) (mems := mems) (initial := env0)
+      (dom := instFVars #[.fvar selfId] 0 domI)
+      (bi := binp) (vi := fun j => if j = kv then selfId else vinp j)
+      (bools := bvals)
+      (bits := fun j n => if j = kv then BitVec.ofNat n (env0 rW) else vvals j n)
+      hb' hv' e he
+    have childEq : instFVars #[Lean.Expr.fvar selfId] 0
+        (quote domI (fun j => .fvar (binp j))
+          (fun j => if j = kv then .bvar 0 else .fvar (vinp j)) e) =
+        quote (instFVars #[Lean.Expr.fvar selfId] 0 domI)
+          (fun j => .fvar (binp j))
+          (fun j => .fvar ((fun j => if j = kv then selfId else vinp j) j)) e := by
+      rw [instFVars_quote]
+      apply quote_congr _ _ e he
+      · intro j hj
+        rfl
+      · intro j hj
+        by_cases hkv : j = kv
+        · subst hkv
+          simp only [if_pos rfl]
+          rfl
+        · simp only [if_neg hkv]
+          rfl
+    rw [childEq] at rc
+    have lookup2 : Lookup (prepare bools bits (bs.zip ids)
+        (start (entryCompilerState false cache) declName.toString)).context
+        (fun id => if id = selfId then some (Value.bits w (BitVec.ofNat w (env0 rW)))
+          else inputValues (prepare bools bits (bs.zip ids)
+            (start (entryCompilerState false cache) declName.toString)).bools
+            (prepare bools bits (bs.zip ids)
+              (start (entryCompilerState false cache) declName.toString)).bits id) s2 := by
+      constructor
+      intro id val hval
+      by_cases hid : id = selfId
+      · subst hid
+        refine ⟨rW, visSelf, ?_⟩
+        rw [s2Used]
+        simp [Std.HashSet.contains_insert]
+      · rw [if_neg hid] at hval
+        obtain ⟨wj, hbnd, hused⟩ :=
+          (lookup_of_ports prepared.1 prepared.2.1).lookup id val hval
+        refine ⟨wj, visOld id wj hid hbnd, ?_⟩
+        rw [s2Used]
+        simp [Std.HashSet.contains_insert, hused]
+    have frame := contract.frame "loop_body" false false s2 sc cw lookup2 rc
+    have wiresS2 : WiresOk s2 := by
+      constructor
+      · rw [s2Module, mws.2.2.2, ← hr0]
+        simp only [List.map_cons, List.nodup_cons]
+        refine ⟨?_, prepared.2.1.1⟩
+        intro hmem
+        obtain ⟨q, hq, eq⟩ := List.mem_map.mp hmem
+        have := prepared.2.1.2 q hq
+        rw [eq, freshR] at this
+        cases this
+      · intro q hq
+        rw [s2Module, mws.2.2.2, ← hr0] at hq
+        rw [s2Used]
+        rcases List.mem_cons.mp hq with rfl | hq
+        · simp [Std.HashSet.contains_insert]
+        · have := prepared.2.1.2 q hq
+          simp [Std.HashSet.contains_insert, this]
+    have wiresSc : WiresOk sc := frame.wires wiresS2
+    have wiresSt : WiresOk st := by
+      constructor
+      · rw [stWires]; exact wiresSc.1
+      · intro q hq
+        rw [stWires] at hq
+        rw [stUsed]
+        have := wiresSc.2 q hq
+        simp [Std.HashSet.contains_insert, this]
+    have rMem : ({ name := rW, ty := .bitVector w } : Sparkle.IR.AST.Port) ∈
+        st.module.wires := by
+      rw [stWires]
+      apply frame.decls
+      rw [s2Module, mws.2.2.2, ← hr0]
+      exact List.mem_cons_self
+    have wR : declaredWidths st rW = w := declaredWidths_agree wiresSt _ rMem
+    have widths : ScalarWidthsAgree (declaredWidths st) sc := by
+      intro q hq
+      exact declaredWidths_agree wiresSt q (by rw [stWires]; exact hq)
+    have s2Body : s2.module.body = [] := by
+      rw [s2Module, mws.2.2.1, prepared.2.2.1]
+      rfl
+    have runs2 : Runs (declaredWidths st) mems env0 s2 env0 := by
+      unfold Runs
+      have hfin : s2.module.finalize.body = [] := by simp [Module.finalize, s2Body]
+      rw [hfin]
+      rfl
+    have growth : ∀ q ∈ (prepare bools bits (bs.zip ids)
+        (start (entryCompilerState false cache) declName.toString)).state.module.wires,
+        q ∈ st.module.wires := by
+      intro q hq
+      rw [stWires]
+      exact frame.decls q (by
+        rw [s2Module, mws.2.2.2, ← hr0]
+        exact List.mem_cons_of_mem _ hq)
+    have mixedI := prepared.1.inputs prepared.2.1 growth (declaredWidths_agree wiresSt)
+    have inputsInv : Tools.ShippingUnifiedInvariant.Inputs
+        (prepare bools bits (bs.zip ids)
+          (start (entryCompilerState false cache) declName.toString)).context
+        (fun id => if id = selfId then some (Value.bits w (BitVec.ofNat w (env0 rW)))
+          else inputValues (prepare bools bits (bs.zip ids)
+            (start (entryCompilerState false cache) declName.toString)).bools
+            (prepare bools bits (bs.zip ids)
+              (start (entryCompilerState false cache) declName.toString)).bits id)
+        (declaredWidths st) s2 env0 := by
+      constructor
+      intro id val hval
+      by_cases hid : id = selfId
+      · subst hid
+        simp only [if_pos rfl] at hval
+        cases hval
+        refine ⟨rW, visSelf, ?_, ?_, ?_⟩
+        · rw [s2Used]
+          simp [Std.HashSet.contains_insert]
+        · show env0 rW = (Value.bits w (BitVec.ofNat w (env0 rW))).toNat
+          simp [Value.toNat, Nat.mod_eq_of_lt hstb]
+        · simpa using wR
+      · simp only [if_neg hid] at hval
+        obtain ⟨wj, hbnd, hused, hval2, hwid⟩ :=
+          (Tools.ShippingUnifiedInvariant.Inputs.of_mixed mixedI).lookup id val hval
+        refine ⟨wj, visOld id wj hid hbnd, ?_, hval2, hwid⟩
+        rw [s2Used]
+        simp [Std.HashSet.contains_insert, hused]
+    have s2Record : s2.translateRecord = {} := by
+      rw [hs2]
+      show s1.translateRecord = {}
+      rw [hs1, CircuitM.makeWire_translateRecord, prepared.2.2.2]
+      rfl
+    have inv2 : Inv (prepare bools bits (bs.zip ids)
+        (start (entryCompilerState false cache) declName.toString)).context
+        (fun id => if id = selfId then some (Value.bits w (BitVec.ofNat w (env0 rW)))
+          else inputValues (prepare bools bits (bs.zip ids)
+            (start (entryCompilerState false cache) declName.toString)).bools
+            (prepare bools bits (bs.zip ids)
+              (start (entryCompilerState false cache) declName.toString)).bits id)
+        (declaredWidths st) mems env0 s2 env0 :=
+      ⟨runs2, inputsInv, Records.empty s2Record, by
+        intro stq hq
+        rw [s2Body] at hq
+        cases hq⟩
+    have outcome := contract.sem "loop_body" false false s2 sc cw env0 inv2 widths rc
+    obtain ⟨res, invC, valCw, fvals⟩ := outcome.execution
+    have resR : res rW = env0 rW := by
+      apply fvals
+      rw [s2Used]
+      simp [Std.HashSet.contains_insert]
+    have allocSt : ∀ q ∈ st.module.wires, Sparkle.IR.NameHints.Allocated q.name := by
+      intro q hq
+      rw [stWires] at hq
+      rcases frame.wireNames q hq with hold | halloc
+      · rw [s2Module, mws.2.2.2, ← hr0] at hold
+        rcases List.mem_cons.mp hold with rfl | hold2
+        · rw [hr0]
+          exact CircuitM.makeWire_allocated "out" (.bitVector w) true _
+        · exact prepare_wires_allocated bools bits (bs.zip ids) _
+            (by
+              rw [show (start (entryCompilerState false cache) declName.toString).state =
+                CircuitM.init declName.toString from rfl, init_wires]
+              intro x hx
+              cases hx)
+            q hold2
+      · exact halloc
+    have widthRst : declaredWidths st "rst" = 0 := by
+      unfold Tools.ShippingMixedOutputSoundness.declaredWidths
+      cases hf : st.module.wires.find? (fun q => q.name == "rst") with
+      | none => simp [hf]
+      | some q =>
+        have hq := List.mem_of_find?_eq_some hf
+        have eq : q.name = "rst" := by simpa using List.find?_some hf
+        exact absurd (eq ▸ allocSt q hq) not_allocated_rst
+    have seqSc : SeqBody sc.module.finalize.body := by
+      intro stq hq
+      obtain ⟨l, rhs, eq, _⟩ := invC.typed stq (by
+        change stq ∈ sc.module.body.reverse at hq
+        exact List.mem_reverse.mp hq)
+      exact Or.inl ⟨l, rhs, eq⟩
+    have preAssigns : ∀ stq ∈ sc.module.finalize.body, ∃ l rhs, stq = .assign l rhs := by
+      intro stq hq
+      obtain ⟨l, rhs, eq, _⟩ := invC.typed stq (by
+        change stq ∈ sc.module.body.reverse at hq
+        exact List.mem_reverse.mp hq)
+      exact ⟨l, rhs, eq⟩
+    have preEq : sc.module.finalize.body = sc.module.body.reverse := by
+      simp [Module.finalize]
+    have rstNotW : "rst" ∉ Sparkle.IR.Reorder.writesOf sc.module.finalize.body := by
+      intro hwr
+      obtain ⟨stq, hst, hz⟩ := List.mem_flatMap.mp hwr
+      obtain ⟨l, rhs, eq, htyped⟩ := invC.typed stq (by
+        rw [preEq] at hst
+        exact List.mem_reverse.mp hst)
+      subst eq
+      simp only [Sparkle.IR.Reorder.stmtWrites, List.mem_singleton] at hz
+      subst hz
+      have pos := htyped.positive
+      rw [widthRst] at pos
+      exact Nat.lt_irrefl 0 pos
+    have runsC : evalAssigns (declaredWidths st) mems sc.module.finalize.body env0 = some res :=
+      invC.runs
+    have resRst : res "rst" = env0 "rst" := evalAssigns_preserved seqSc runsC rstNotW
+    have smUsed : sm.usedNames = sc.usedNames := by
+      rw [hrec]
+      show smR.usedNames = _
+      rw [hsmR, hs4]
+    have cwUsed : sc.usedNames.contains cw = true := outcome.used
+    have cwNotOut : cw ≠ "out" := by
+      intro eq
+      have hmem : sm.usedNames.contains cw = true := by rw [smUsed]; exact cwUsed
+      rw [eq, freshOut] at hmem
+      cases hmem
+    let envF : Env := fun n => if n = "out" then res rW else res n
+    have evalFull : evalAssigns (declaredWidths st) mems m.body env0 = some envF := by
+      rw [mBody, ← preEq, evalAssigns_append seqSc, runsC]
+      show evalAssigns _ mems
+        (.register rW "clk" ("rst", .asynchronous) (.ref cw) v ::
+          .assign "out" (.ref rW) :: []) res = _
+      simp [evalAssigns, evalExpr, envF]
+    have hcwF : envF cw = (eval bvals
+        (fun j n => if j = kv then BitVec.ofNat n (env0 rW) else vvals j n) e).toNat := by
+      simp only [envF, if_neg cwNotOut]
+      exact valCw
+    have hrstF : envF "rst" = 0 := by
+      have h1 : ("rst" : String) ≠ "out" := by decide
+      simp only [envF, if_neg h1]
+      rw [resRst, hrst0]
+    have nexts : regNexts (declaredWidths st) mems m.body envF =
+        some [(rW, (eval bvals
+          (fun j n => if j = kv then BitVec.ofNat n (env0 rW) else vvals j n) e).toNat)] := by
+      rw [mBody, ← preEq, regNexts_skip_assigns preAssigns]
+      show regNexts _ mems
+        (.register rW "clk" ("rst", .asynchronous) (.ref cw) v ::
+          .assign "out" (.ref rW) :: []) envF = _
+      have maskEq : mask (declaredWidths st rW) (eval bvals
+          (fun j n => if j = kv then BitVec.ofNat n (env0 rW) else vvals j n) e).toNat =
+          (eval bvals
+            (fun j n => if j = kv then BitVec.ofNat n (env0 rW) else vvals j n) e).toNat := by
+        rw [wR]
+        exact Nat.mod_eq_of_lt (BitVec.isLt _)
+      simp [regNexts, evalExpr, hcwF, hrstF, maskEq]
+    have seqM : SeqBody m.body := by
+      rw [mBody, ← preEq]
+      intro stq hq
+      rcases List.mem_append.mp hq with hq | hq
+      · exact Or.inl (preAssigns stq hq)
+      · rcases List.mem_cons.mp hq with rfl | hq
+        · exact Or.inr ⟨_, _, _, _, _, rfl⟩
+        · rcases List.mem_cons.mp hq with rfl | hq
+          · exact Or.inl ⟨_, _, rfl⟩
+          · cases hq
+    have mem0 : memNexts (declaredWidths st) m.body mems envF = some mems := memNexts_seq seqM
+    have scalarSt : ScalarWires st := by
+      intro q hq
+      rw [stWires] at hq
+      apply frame.scalar
+      · intro q2 hq2
+        rw [s2Module, mws.2.2.2, ← hr0] at hq2
+        rcases List.mem_cons.mp hq2 with rfl | hq2
+        · exact Or.inr ⟨w, rfl⟩
+        · exact (prepare_shape (bs.zip ids) _ (by
+            intro q3 hq3
+            rw [show (start (entryCompilerState false cache) declName.toString).state =
+              CircuitM.init declName.toString from rfl, init_wires] at hq3
+            cases hq3)).1 q2 hq2
+      · exact hq
+    have wm : weOf m = declaredWidths st := by
+      rw [weOf_eq_moduleWidths (by
+        intro q hq
+        rw [mWires, List.mem_reverse] at hq
+        exact scalarSt q hq)]
+      exact moduleWidths_finish mWires wiresSt
+    refine ⟨by rw [wm]; exact wR, envF, ?_, by simp [envF, resR]⟩
+    rw [wm]
+    unfold stepModule
+    simp [evalFull, nexts, mem0, bind]
+
+/-! ### Gate acceptance with the pushed loop binder -/
+
+theorem mixed_kind_at_push {bs : List (Name × MixedGateBinder)} {j : Nat} {name kind}
+    {k : MixedGateBinder} (pos : bs[j]? = some (name, kind)) :
+    mixedGateBVar? ((bs.map Prod.snd).toArray.push k) (bs.length + 1 - 1 - j) = some kind := by
+  have bound := (List.getElem_of_getElem? pos).choose
+  unfold mixedGateBVar?
+  simp only [Array.size_push, List.size_toArray, List.length_map]
+  rw [if_pos (by omega)]
+  have eq : bs.length + 1 - 1 - (bs.length + 1 - 1 - j) = j := by omega
+  rw [eq]
+  have hpush : ((bs.map Prod.snd).toArray.push k)[j]? = ((bs.map Prod.snd).toArray)[j]? := by
+    rw [Array.getElem?_push]
+    rw [if_neg (by simp; omega)]
+  rw [hpush]
+  simp [List.getElem?_map, pos]
+
+theorem mixed_kind_self {bs : List (Name × MixedGateBinder)} {k : MixedGateBinder} :
+    mixedGateBVar? ((bs.map Prod.snd).toArray.push k) 0 = some k := by
+  unfold mixedGateBVar?
+  simp only [Array.size_push, List.size_toArray, List.length_map]
+  rw [if_pos (by omega)]
+  simp
+
+theorem input_bool_accepted_push {bs : List (Name × MixedGateBinder)} {j : Nat} {name}
+    {k : MixedGateBinder} (pos : bs[j]? = some (name, .bool)) :
+    unifiedGateBoolBody ((bs.map Prod.snd).toArray.push k)
+      (inputExpr (bs.length + 1) j) = true := by
+  change (mixedGateBVar? ((bs.map Prod.snd).toArray.push k) (bs.length + 1 - 1 - j) ==
+    some MixedGateBinder.bool) = true
+  rw [mixed_kind_at_push pos]
+  rfl
+
+theorem input_bits_accepted_push {bs : List (Name × MixedGateBinder)} {j : Nat} {name n}
+    {k : MixedGateBinder} (pos : bs[j]? = some (name, .bits n)) :
+    unifiedGateBitsBody ((bs.map Prod.snd).toArray.push k) n
+      (inputExpr (bs.length + 1) j) = true := by
+  change (mixedGateBVar? ((bs.map Prod.snd).toArray.push k) (bs.length + 1 - 1 - j) ==
+    some (MixedGateBinder.bits n)) = true
+  rw [mixed_kind_at_push pos]
+  simp
+
+theorem self_bits_accepted {bs : List (Name × MixedGateBinder)} {w : Nat} :
+    unifiedGateBitsBody ((bs.map Prod.snd).toArray.push (.bits w)) w (.bvar 0) = true := by
+  change (mixedGateBVar? ((bs.map Prod.snd).toArray.push (.bits w)) 0 ==
+    some (MixedGateBinder.bits w)) = true
+  rw [mixed_kind_self]
+  simp
+
+theorem unifiedRegisterRoot_loopRegisterE {kinds : Array MixedGateBinder}
+    {domO domI inst cone : Lean.Expr} {w v : Nat}
+    (hdom : (domO.isFVar || domO.isBVar) = true) (hw : 0 < w) (hv : v < 2 ^ w)
+    (body : unifiedGateBitsBody (kinds.push (.bits w)) w cone = true) :
+    unifiedRegisterRoot kinds (loopRegisterE domO domI inst w v cone) = true := by
+  unfold unifiedRegisterRoot
+  have hreg : canonicalRegister? (loopRegisterE domO domI inst w v cone) = none := rfl
+  have hregEn : canonicalRegisterEnable? (loopRegisterE domO domI inst w v cone) = none := rfl
+  rw [hreg, hregEn, canonicalLoopRegister?_loopRegisterE hdom hw hv]
+  simp [hw, body]
+
+theorem loopRegister_term_gate {d : DefinitionVal} {bs : List (Name × MixedGateBinder)}
+    {domO domI inst : Lean.Expr} {w v : Nat} {kb kv : Nat} {vw : Nat → Nat}
+    {bpos vpos : Nat → Nat} {e : Term (.bits w)}
+    (peel : mixedGatePeel d.value = some (bs, loopRegisterE domO domI inst w v
+      (quote domI (fun j => inputExpr (bs.length + 1) (bpos j))
+        (fun j => if j = kv then .bvar 0 else inputExpr (bs.length + 1) (vpos j)) e)))
+    (hdom : (domO.isFVar || domO.isBVar) = true) (hself : vw kv = w) (hv : v < 2 ^ w)
+    (he : e.WF kb (kv + 1) vw)
+    (hb : ∀ j, j < kb → ∃ name, bs[bpos j]? = some (name, .bool))
+    (hvp : ∀ j, j < kv → ∃ name, bs[vpos j]? = some (name, .bits (vw j))) :
+    mixedCertifiedShape? false [] (.defnInfo d) = some (bs, loopRegisterE domO domI inst w v
+      (quote domI (fun j => inputExpr (bs.length + 1) (bpos j))
+        (fun j => if j = kv then .bvar 0 else inputExpr (bs.length + 1) (vpos j)) e)) := by
+  have body : unifiedGateBitsBody ((bs.map Prod.snd).toArray.push (.bits w)) w
+      (quote domI (fun j => inputExpr (bs.length + 1) (bpos j))
+        (fun j => if j = kv then .bvar 0 else inputExpr (bs.length + 1) (vpos j)) e) = true :=
+    unified_quote_accepted
+      (fun j hj => (hb j hj).elim fun name pos => input_bool_accepted_push pos)
+      (fun j hj => by
+        by_cases hkv : j = kv
+        · subst hkv
+          simp only [if_pos rfl]
+          rw [hself]
+          exact self_bits_accepted
+        · have hjlt : j < kv := by omega
+          simp only [if_neg hkv]
+          exact (hvp j hjlt).elim fun name pos => input_bits_accepted_push pos)
+      e he
+  have root := unifiedRegisterRoot_loopRegisterE (domI := domI) (inst := inst)
+    hdom (e.wf_pos he) hv body
+  simp only [mixedCertifiedShape?, Bool.false_or, List.isEmpty_nil, Bool.not_true,
+    Bool.false_eq_true, if_false, peel, root, Bool.or_true, Bool.true_or, if_true]
+
 /-! ## Real-entry connection -/
 
 theorem synthesizeFromConst_register_sound {logProf declName ci bs body m d}
@@ -1623,6 +2393,163 @@ theorem registerEnable_step_of_env {declName : Name} {mctx : Meta.Context}
   have mixedGate := registerEnable_term_gate (d := d)
     (by rw [definition]; exact peel) hdom hvlt hen he hb hvp
   exact registerEnable_source (source bs _ oldGate mixedGate) rfl hdp hen he hvlt hb hvp
+
+theorem synthesizeFromConst_loopRegister_sound {logProf declName ci bs body m d}
+    (old : certifiedShape? false [] ci = none)
+    (shape : mixedCertifiedShape? false [] ci = some (bs, body))
+    (hr : MReturns (synthesizeFromConst
+      (fun e hint top named => translateExprToWire e hint top named) logProf declName
+      [] false true ci) (m, d)) :
+    LoopRegisterPreserves declName bs body m := by
+  unfold synthesizeFromConst at hr
+  simp only [↓reduceIte, old, shape] at hr
+  peel_bind hr
+  obtain ⟨result, run, hr⟩ := MReturns.bind hr
+  peel_bind hr
+  have eq := MReturns.pure hr
+  subst result
+  exact synthesizeMixedCertified_loopRegister_sound run
+
+theorem synthesizeCombinationalCore_loopRegister_sound {declName : Name}
+    {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {d : Design}
+    (hr : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (m, d) w') :
+    ∃ (ci : ConstantInfo) (w1 w2 : Void IO.RealWorld),
+      RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧
+      ∀ bs body, certifiedShape? false [] ci = none →
+        mixedCertifiedShape? false [] ci = some (bs, body) →
+        LoopRegisterPreserves declName bs body m := by
+  obtain ⟨logProf, ci, w1, w2, w3, get, run⟩ := synthesizeCombinationalCore_reads hr
+  exact ⟨ci, w1, w2, get, fun _ _ old shape =>
+    synthesizeFromConst_loopRegister_sound old shape run.mreturns⟩
+
+/-- Instantiation of the shifted telescope under the loop binder. -/
+theorem instantiated_input_shift {bs : List (Name × MixedGateBinder)} {ids : List FVarId}
+    (len : ids.length = bs.length) {j : Nat} (hj : j < bs.length) :
+    instFVars (ids.map Lean.Expr.fvar).toArray 1 (inputExpr (bs.length + 1) j) =
+      .fvar ids[j]! := by
+  simp only [Tools.ShippingMixedSourceBridge.inputExpr, instFVars,
+    List.size_toArray, List.length_map]
+  rw [if_neg (by omega), if_pos (by omega)]
+  have eq : ids.length - 1 - (bs.length + 1 - 1 - j - 1) = j := by omega
+  rw [eq]
+  simp [List.getElem!_eq_getElem?_getD, List.getElem?_map,
+    List.getElem?_eq_getElem (by omega : j < ids.length)]
+
+/-- Position plumbing for the feedback register root. -/
+theorem loopRegister_source {declName : Name} {bs : List (Name × MixedGateBinder)}
+    {body : Lean.Expr} {m : Sparkle.IR.AST.Module} {instE : Lean.Expr} {dpos : Nat}
+    {w v kb kv : Nat} {vw : Nat → Nat} {bpos vpos : Nat → Nat} {e : Term (.bits w)}
+    (source : LoopRegisterPreserves declName bs body m)
+    (hbody : body = loopRegisterE (inputExpr bs.length dpos) (inputExpr (bs.length + 1) dpos)
+      instE w v
+      (quote (inputExpr (bs.length + 1) dpos) (fun j => inputExpr (bs.length + 1) (bpos j))
+        (fun j => if j = kv then .bvar 0 else inputExpr (bs.length + 1) (vpos j)) e))
+    (hdp : dpos < bs.length)
+    (hself : vw kv = w) (he : e.WF kb (kv + 1) vw) (hvlt : v < 2 ^ w)
+    (hb : ∀ j, j < kb → ∃ name, bs[bpos j]? = some (name, .bool))
+    (hvp : ∀ j, j < kv → ∃ name, bs[vpos j]? = some (name, .bits (vw j))) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = bs.length ∧
+    ∃ (cache : IO.Ref (ExprStructMap String)) (r : String),
+      ∀ (bools : Nat → Bool) (bits : (j : Nat) → (n : Nat) → BitVec n)
+        (env0 : Env) (mems : MEnv),
+      SourceInputs declName bs ids cache bools bits env0 →
+      env0 "rst" = 0 → env0 r < 2 ^ w →
+      weOf m r = w ∧
+      ∃ envF, stepModule (weOf m) m.body env0 mems =
+          some (envF, [(r, (eval (fun j => bools (bpos j))
+            (fun j n => if j = kv then BitVec.ofNat n (env0 r) else bits (vpos j) n)
+            e).toNat)], mems) ∧
+        envF "out" = env0 r := by
+  obtain ⟨ids, nd, len, cache, H⟩ := source
+  have qeq : instFVars (ids.map Lean.Expr.fvar).toArray 0 body =
+      loopRegisterE (.fvar ids[dpos]!) (.fvar ids[dpos]!)
+        (instFVars (ids.map Lean.Expr.fvar).toArray 0 instE) w v
+        (quote (.fvar ids[dpos]!) (fun j => .fvar ids[bpos j]!)
+          (fun j => if j = kv then .bvar 0 else .fvar ids[vpos j]!) e) := by
+    rw [hbody, instFVars_loopRegisterE, instantiated_input len hdp,
+      instantiated_input_shift len hdp]
+    congr 1
+    rw [show (Lean.Expr.fvar ids[dpos]!) =
+      instFVars (ids.map Lean.Expr.fvar).toArray 1 (inputExpr (bs.length + 1) dpos) from
+      (instantiated_input_shift len hdp).symm]
+    rw [instFVars_quote]
+    apply quote_congr _ _ e he
+    · intro j hj
+      exact instantiated_input_shift len (List.getElem_of_getElem? (hb j hj).choose_spec).choose
+    · intro j hj
+      by_cases hkv : j = kv
+      · subst hkv
+        simp only [if_pos rfl]
+        rfl
+      · have hjlt : j < kv := by omega
+        simp only [if_neg hkv]
+        exact instantiated_input_shift len
+          (List.getElem_of_getElem? (hvp j hjlt).choose_spec).choose
+  obtain ⟨r, H⟩ := H (.fvar ids[dpos]!) (.fvar ids[dpos]!)
+    (instFVars (ids.map Lean.Expr.fvar).toArray 0 instE) kb kv vw
+    (fun j => ids[bpos j]!) (fun j => ids[vpos j]!) e (by rfl) hself he hvlt qeq
+  refine ⟨ids, nd, len, cache, r, ?_⟩
+  intro bools bits env0 mems values hrst0 hstb
+  have fresh : ((bs.zip ids).map Prod.snd).Nodup := by rw [zip_ids len]; exact nd
+  apply H (boolValues ids bools) (bitValues ids bits) env0 mems
+    (fun j => bools (bpos j)) (fun j n => bits (vpos j) n) values _ _ hrst0 hstb
+  · intro j hj
+    obtain ⟨name, pos⟩ := hb j hj
+    have bound := (List.getElem_of_getElem? pos).choose
+    have lookup := prepare_bool_lookup (bools := boolValues ids bools)
+      (bits := bitValues ids bits) (bs.zip ids)
+      (start (entryCompilerState false cache) declName.toString) fresh (zip_member len pos)
+    simpa only [boolValues, index_fresh ids nd (bpos j) (by omega)] using lookup
+  · intro j hj
+    obtain ⟨name, pos⟩ := hvp j hj
+    have bound := (List.getElem_of_getElem? pos).choose
+    have lookup := prepare_bits_lookup (bools := boolValues ids bools)
+      (bits := bitValues ids bits) (bs.zip ids)
+      (start (entryCompilerState false cache) declName.toString) fresh (zip_member len pos)
+    simpa only [bitValues, index_fresh ids nd (vpos j) (by omega)] using lookup
+
+/-- General feedback-register endpoint at the real core entry. -/
+theorem loopRegister_step_of_env {declName : Name} {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {wst wst' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {design : Design} {value instE : Lean.Expr}
+    {bs : List (Name × MixedGateBinder)} {dpos : Nat} {w v kb kv : Nat}
+    {vw : Nat → Nat} {bpos vpos : Nat → Nat} {e : Term (.bits w)}
+    (hr : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref wst
+      (m, design) wst')
+    (env : EnvDefines mctx mref cctx cref declName value)
+    (old : ∀ d : DefinitionVal, d.value = value → certifiedShape? false [] (.defnInfo d) = none)
+    (peel : mixedGatePeel value = some (bs, loopRegisterE (inputExpr bs.length dpos)
+      (inputExpr (bs.length + 1) dpos) instE w v
+      (quote (inputExpr (bs.length + 1) dpos) (fun j => inputExpr (bs.length + 1) (bpos j))
+        (fun j => if j = kv then .bvar 0 else inputExpr (bs.length + 1) (vpos j)) e)))
+    (hdp : dpos < bs.length)
+    (hself : vw kv = w) (he : e.WF kb (kv + 1) vw) (hvlt : v < 2 ^ w)
+    (hb : ∀ j, j < kb → ∃ name, bs[bpos j]? = some (name, .bool))
+    (hvp : ∀ j, j < kv → ∃ name, bs[vpos j]? = some (name, .bits (vw j))) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = bs.length ∧
+    ∃ (cache : IO.Ref (ExprStructMap String)) (r : String),
+      ∀ (bools : Nat → Bool) (bits : (j : Nat) → (n : Nat) → BitVec n)
+        (env0 : Env) (mems : MEnv),
+      SourceInputs declName bs ids cache bools bits env0 →
+      env0 "rst" = 0 → env0 r < 2 ^ w →
+      weOf m r = w ∧
+      ∃ envF, stepModule (weOf m) m.body env0 mems =
+          some (envF, [(r, (eval (fun j => bools (bpos j))
+            (fun j n => if j = kv then BitVec.ofNat n (env0 r) else bits (vpos j) n)
+            e).toNat)], mems) ∧
+        envF "out" = env0 r := by
+  obtain ⟨ci, w1, w2, get, source⟩ := synthesizeCombinationalCore_loopRegister_sound hr
+  obtain ⟨d, rfl, definition⟩ := env w1 ci w2 get
+  have oldGate : certifiedShape? false [] (.defnInfo d) = none := old d definition
+  have hdom : ((inputExpr bs.length dpos).isFVar || (inputExpr bs.length dpos).isBVar) = true := by
+    simp only [Tools.ShippingMixedSourceBridge.inputExpr]
+    rfl
+  have mixedGate := loopRegister_term_gate (d := d)
+    (by rw [definition]; exact peel) hdom hself hvlt he hb hvp
+  exact loopRegister_source (source bs _ oldGate mixedGate) rfl hdp hself he hvlt hb hvp
 
 /-! ## Trace iteration -/
 

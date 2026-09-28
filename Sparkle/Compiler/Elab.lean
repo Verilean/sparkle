@@ -241,6 +241,13 @@ def emitRegister (hint : String) (clk : String) (rst : String)
     liftMetaM (sparkleWireWidthCache.modify (·.insert name width))
   return name
 
+/-- Statement-only register emission for a pre-allocated output wire. -/
+def emitRegisterStmt (out clk rst : String) (input : Sparkle.IR.AST.Expr) (initVal : Nat)
+    (resetKind : Sparkle.IR.Type.ResetKind := .asynchronous) : CompilerM Unit := do
+  let cs ← get
+  let ((), cs') := CircuitM.emitRegisterStmt out clk rst input initVal resetKind cs
+  set cs'
+
 /-- Look up a wire width without forcing retained dimensions to concrete Nats. -/
 def getWireWidthDim (wireName : String) : CompilerM DimExpr := do
   let cs ← get
@@ -1319,6 +1326,24 @@ def canonicalRegister? : Lean.Expr → Option (Nat × Nat × Lean.Expr)
     else none
   | _ => none
 
+/-- Canonical feedback register: `Signal.loop (fun s => Signal.register
+    initLit cone)` over a polymorphic domain at a literal positive width.
+    Returns `(width, init value, cone)`; the cone is the under-binder body,
+    reading the register output as `.bvar 0`. -/
+def canonicalLoopRegister? : Lean.Expr → Option (Nat × Nat × Lean.Expr)
+  | .app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.loop _) dom)
+      (.app (.const ``BitVec _) wE)) _inst)
+      (.lam _ _ (.app (.app (.app (.app
+        (.const ``Sparkle.Core.Signal.Signal.register _) _)
+        (.app (.const ``BitVec _) wE2)) initE) cone) _) =>
+    if dom.isFVar || dom.isBVar then
+      match canonicalNatLitValue? wE, canonicalNatLitValue? wE2, bitVecLitValue? initE with
+      | some w, some w2, some (wi, v) =>
+        if 0 < w && w2 == w && wi == w then some (w, v, cone) else none
+      | _, _, _ => none
+    else none
+  | _ => none
+
 /-- Canonical enabled register: `Signal.registerWithEnable initLit en input`
     over a polymorphic domain at a literal positive width. Returns
     `(width, init value, enable, input)`. -/
@@ -2081,7 +2106,12 @@ def unifiedRegisterRoot (kinds : Array MixedGateBinder) (e : Lean.Expr) : Bool :
     match canonicalRegisterEnable? e with
     | some (w, _, en, a) =>
       0 < w && unifiedGateBoolBody kinds en && unifiedGateBitsBody kinds w a
-    | none => false
+    | none =>
+      match canonicalLoopRegister? e with
+      | some (w, _, cone) =>
+        -- The loop binder is one more width-`w` input, at `.bvar 0`.
+        0 < w && unifiedGateBitsBody (kinds.push (.bits w)) w cone
+      | none => false
 
 def mixedCertifiedShape? (symbolicMode : Bool) (parameters : List (String × Nat)) :
     ConstantInfo → Option (List (Name × MixedGateBinder) × Lean.Expr)
@@ -4935,6 +4965,24 @@ def translateRegisterUncachedWith (rec : TranslateFn) (w v : Nat) : TranslateFn 
     let cw ← rec e.getAppArgs.back! "reg_in" false false
     CompilerM.emitRegister hint "clk" "rst" (.ref cw) v (.bitVector w) (named := named)
 
+/-- Uncached lowering for the canonical feedback register: allocate the
+    register output wire FIRST, bind the loop binder to it (guarded against
+    a source-binder collision), translate the cone — which may read the
+    register back — then add the register statement. -/
+def translateLoopRegisterUncachedWith (rec : TranslateFn) (w v : Nat) : TranslateFn :=
+  fun e hint _top named => do
+    let cone := match e.getAppArgs.back! with
+      | .lam _ _ (.app _ inner) _ => inner
+      | f => f
+    let selfId ← CompilerM.liftMetaM Lean.mkFreshFVarId
+    if (← CompilerM.lookupVar selfId).isSome then
+      throw (Exception.error .missing "loop binder id collision")
+    let r ← CompilerM.makeWire hint (.bitVector w) (named := named)
+    CompilerM.bindSourceVariable selfId r
+    let cw ← rec (instFVars #[.fvar selfId] 0 cone) "loop_body" false false
+    CompilerM.emitRegisterStmt r "clk" "rst" (.ref cw) v
+    return r
+
 /-- Uncached lowering for the canonical polymorphic-domain enabled register,
     in the legacy handler's exact order: both children, the hold mux wire,
     the register fed by the mux, then the mux assignment reading the register
@@ -4981,7 +5029,12 @@ def translateFallback (rec : TranslateFn) : TranslateFn :=
               translateControlCachedWith (translateRegisterEnableUncachedWith rec w v)
                 e hint top named
             | none =>
-              Rec.translateExprToWireCached (fun e h t n => rec e h t n) e hint top named
+              match canonicalLoopRegister? e with
+              | some (w, v, _) =>
+                translateControlCachedWith (translateLoopRegisterUncachedWith rec w v)
+                  e hint top named
+              | none =>
+                Rec.translateExprToWireCached (fun e h t n => rec e h t n) e hint top named
 
 def translateStep : TranslateFn → TranslateFn := translateStepWith translateFallback
 

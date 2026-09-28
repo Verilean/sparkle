@@ -131,6 +131,65 @@ theorem regHold_step {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.Stat
     · exact ⟨`a, rfl⟩
     · exact ⟨`b, rfl⟩
 
+/-- A feedback register: the next-state cone reads the register back through
+the loop binder (`Signal.loop`), muxed against an input and accumulated. -/
+def accLoop {dom : DomainConfig} (c : Signal dom Bool) (a b : Signal dom (BitVec 8)) :=
+  Signal.loop (fun s => Signal.register 0#8 (Signal.mux c s a + b))
+
+/-- The cone as a unified term: the loop binder is source input index 2. -/
+def accLoopTerm : Term (.bits 8) := .binary .add
+  (.mux (.boolInput 0) (.bitsInput 8 2) (.bitsInput 8 0)) (.bitsInput 8 1)
+
+theorem accLoopTerm_wf : accLoopTerm.WF 1 3 (fun _ => 8) := by simp [accLoopTerm, Term.WF]
+
+#def_decl_value accLoopValue of accLoop
+def accLoopBinders : List (Name × MixedGateBinder) :=
+  [(`dom, .domain), (`c, .bool), (`a, .bits 8), (`b, .bits 8)]
+def accLoopInst : Lean.Expr :=
+  .app (.const ``BitVec.instInhabited []) (Tools.ShippingEntrySoundness.natE 8)
+theorem accLoop_peel : mixedGatePeel accLoopValue = some (accLoopBinders,
+    Tools.ShippingRegisterSoundness.loopRegisterE
+      (inputExpr accLoopBinders.length 0) (inputExpr (accLoopBinders.length + 1) 0)
+      accLoopInst 8 0
+      (quote (inputExpr (accLoopBinders.length + 1) 0)
+        (fun _ => inputExpr (accLoopBinders.length + 1) 1)
+        (fun j => if j = 2 then .bvar 0 else inputExpr (accLoopBinders.length + 1) (j + 2))
+        accLoopTerm)) := rfl
+
+/-- The feedback endpoint on the real declaration: each cycle observes the
+register on `out` and steps by the cone at the current state. -/
+theorem accLoop_step {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+    {wst wst' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore ``accLoop [] false) mctx mref cctx cref wst
+      (m, design) wst')
+    (env : EnvDefines mctx mref cctx cref ``accLoop accLoopValue) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = accLoopBinders.length ∧
+    ∃ (cache : IO.Ref (ExprStructMap String)) (r : String),
+      ∀ (bools : Nat → Bool) (bits : (j : Nat) → (n : Nat) → BitVec n)
+        (env0 : Env) (mems : MEnv),
+      SourceInputs ``accLoop accLoopBinders ids cache bools bits env0 →
+      env0 "rst" = 0 → env0 r < 2 ^ 8 →
+      weOf m r = 8 ∧
+      ∃ envF, stepModule (weOf m) m.body env0 mems =
+          some (envF, [(r, (eval (fun _ => bools 1)
+            (fun j n => if j = 2 then BitVec.ofNat n (env0 r) else bits (j + 2) n)
+            accLoopTerm).toNat)], mems) ∧
+        envF "out" = env0 r := by
+  apply Tools.ShippingRegisterSoundness.loopRegister_step_of_env (kb := 1) (kv := 2)
+    (vw := fun _ => 8) (bpos := fun _ => 1) (vpos := fun j => j + 2) hr env
+    (by intro d hd; simp only [certifiedShape?, hd]; rfl) accLoop_peel
+    (by simp [accLoopBinders]) rfl accLoopTerm_wf (by decide)
+  · intro j hj
+    have h : j = 0 := by omega
+    subst h
+    exact ⟨`c, rfl⟩
+  · intro j hj
+    have h : j = 0 ∨ j = 1 := by omega
+    rcases h with rfl | rfl
+    · exact ⟨`a, rfl⟩
+    · exact ⟨`b, rfl⟩
+
 open Sparkle.IR.AST in
 run_cmd liftTermElabM do
   -- Gate acceptance and multi-cycle numeric regression on the raw module.
@@ -244,7 +303,40 @@ run_cmd liftTermElabM do
     stateH := next
     countH := countH + 1
   unless countH == 12 do throwError "enabled register cycle count mismatch: {countH}"
-  logInfo m!"REGISTER REGRESSION: {count} cycles of the raw synthesized module (and {count2} of the merged default configuration) match the source register recurrence (init 3, reset low); {countH} enabled-register cycles match the capture/hold recurrence (init 5)"
+  -- Feedback register: the cone reads the register back each cycle.
+  let ciL ← getConstInfo ``accLoop
+  unless (mixedCertifiedShape? false [] ciL).isSome do
+    throwError "feedback register missed the gate"
+  let (ml, _) ← synthesizeCombinationalCore ``accLoop [] false
+  let regsL := ml.body.filterMap fun st => match st with
+    | .register o _ _ _ init => some (o, init)
+    | _ => none
+  let [(rL, initL)] := regsL | throwError "expected one feedback register"
+  unless initL == 0 do throwError "unexpected feedback-register init"
+  let weL := Tools.ShippingEntrySoundness.weOf ml
+  let mut stateL : Nat := 0
+  let mut countL : Nat := 0
+  for t in List.range 12 do
+    let env0 := fun (n : String) =>
+      if n == "_gen_c" then (if ctrace t then 1 else 0)
+      else if n == "_gen_a" then atrace t
+      else if n == "_gen_b" then btrace t
+      else if n == rL then stateL
+      else 0
+    let some (envF, nexts, _) := stepModule weL ml.body env0 |
+      throwError "feedback stepModule failed at {t}"
+    unless envF "out" == stateL do
+      throwError "feedback cycle {t}: out={envF "out"} expected {stateL}"
+    let expected := ((if ctrace t then BitVec.ofNat 8 stateL else BitVec.ofNat 8 (atrace t))
+      + BitVec.ofNat 8 (btrace t)).toNat
+    let some (_, next) := nexts.find? (fun p => p.1 == rL) |
+      throwError "feedback register next missing"
+    unless next == expected do
+      throwError "feedback cycle {t}: next={next} expected {expected}"
+    stateL := next
+    countL := countL + 1
+  unless countL == 12 do throwError "feedback register cycle count mismatch: {countL}"
+  logInfo m!"REGISTER REGRESSION: {count} cycles of the raw synthesized module (and {count2} of the merged default configuration) match the source register recurrence (init 3, reset low); {countH} enabled-register cycles match the capture/hold recurrence (init 5); {countL} feedback cycles match the loop recurrence (init 0)"
 
 run_cmd do
   if (← get).messages.hasErrors then throwError "register regression failed"
@@ -254,7 +346,9 @@ run_cmd do
       ``Tools.ShippingRegisterSoundness.register_term_gate,
       ``Tools.ShippingRegisterSoundness.synthesizeMixedCertified_registerEnable_sound,
       ``Tools.ShippingRegisterSoundness.registerEnable_step_of_env,
-      ``regAcc_step, ``regHold_step] do
+      ``Tools.ShippingRegisterSoundness.synthesizeMixedCertified_loopRegister_sound,
+      ``Tools.ShippingRegisterSoundness.loopRegister_step_of_env,
+      ``regAcc_step, ``regHold_step, ``accLoop_step] do
     for ax in (← liftCoreM <| collectAxioms name) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do
         throwError "unexpected register soundness axiom: {name}: {ax}"

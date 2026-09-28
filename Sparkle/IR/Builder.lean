@@ -321,6 +321,14 @@ def emitRegister (hint : String) (clock : String) (reset : String)
   setModule m
   return outputName
 
+/-- Emit only a register statement for an ALREADY-allocated output wire.
+    The feedback lowering allocates the output wire first so the input cone
+    can read it back; this adds the statement without a fresh name. -/
+def emitRegisterStmt (out clock reset : String) (input : Expr) (initValue : Nat)
+    (resetKind : Sparkle.IR.Type.ResetKind := .asynchronous) : CircuitM Unit := do
+  let m ← getModule
+  setModule (m.addStmt (.register out clock (reset, resetKind) input initValue))
+
 /--
   Emit a synchronous memory (RAM/BRAM) primitive.
   Returns the name of the read data output wire.

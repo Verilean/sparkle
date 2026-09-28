@@ -166,14 +166,30 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   `trace_of_cycles` (state-reading updates) iterates it over `runModule`.
   12-cycle capture/hold regression and endpoint instantiation with standard
   axioms in `ShippingRegisterSoundnessTest`.
+- [x] **S4 / feedback register:** Done for the single-register loop. The
+  canonical `Signal.loop (fun s => Signal.register initLit cone)` root over
+  a polymorphic domain has a total lowering (`canonicalLoopRegister?` +
+  `translateLoopRegisterUncachedWith`: the register output wire is allocated
+  FIRST, the loop binder is bound to it — with a collision guard on the
+  fresh binder id — the cone is translated reading it back, then the
+  statement-only `emitRegisterStmt` closes the loop) and a gate disjunct
+  (the loop binder is one more width-`w` input pushed onto the gate kinds).
+  `synthesizeMixedCertified_loopRegister_sound`/`loopRegister_step_of_env`
+  prove, at the real core entry: each admissible cycle with reset low and a
+  width-bounded state observes the current value on `out` and steps the
+  register by the cone evaluated AT the current state (the loop binder is
+  unified-source input `kv`); no protection lemmas are needed — the register
+  wire is used before the cone translates, so the execution frame preserves
+  it. `trace_of_cycles` (state-reading updates) iterates it over `runModule`.
+  `accLoop` passes the gate definitionally and 12 feedback cycles match the
+  loop recurrence; endpoint instantiated, standard axioms only.
 - [ ] **S4:** Remaining state/reset scope: the sequential `mergeDuplicates`
   (the UNVALIDATED `mergeDuplicatesRaw`; needs register-bisimulation
   validation or proof — the register test exercises the merged default
   configuration numerically for 12 cycles),
-  feedback (`Signal.loop`/`circuit do` register cones reading register
-  outputs), multiple registers (the enabled register's zero-width cleanup
-  preservation is now also proved, so both register shapes cover the
-  `SPARKLE_NO_REGDEDUP=1` configuration), user-level reset muxes, and the sequential emitted-SV text
+  zero-width cleanup preservation for the FEEDBACK shape (proved for the
+  plain and enabled shapes), `circuit do`/`runCircuitH` reification onto the
+  loop form, multiple registers, user-level reset muxes, and the sequential emitted-SV text
   (sequential modules currently pass through `optimizeModule` unproved).
 - [ ] **S5:** Actual memory compilation and trace semantics, including latency,
   masks and supported read/write interactions.
