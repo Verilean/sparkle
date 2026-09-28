@@ -41,6 +41,7 @@ inductive Term : SType → Type where
   | boolNot (a : Term .bool) : Term .bool
   | boolEq (a b : Term .bool) : Term .bool
   | mux {s : SType} (c : Term .bool) (a b : Term s) : Term s
+  | setw {w : Nat} (w' : Nat) (a : Term (.bits w)) : Term (.bits w')
 
 /-- Inputs are positions into the prepared binder lists; `vw` assigns each
 BitVec input its declared width. Positivity is carried at BitVec leaves. -/
@@ -55,6 +56,7 @@ def Term.WF (kb kv : Nat) (vw : Nat → Nat) : {s : SType} → Term s → Prop
   | _, .boolNot a => a.WF kb kv vw
   | _, .boolEq a b => a.WF kb kv vw ∧ b.WF kb kv vw
   | _, .mux c a b => c.WF kb kv vw ∧ a.WF kb kv vw ∧ b.WF kb kv vw
+  | _, .setw w' a => a.WF kb kv vw ∧ 0 < w'
 
 /-- Every well-formed BitVec term has a positive width. -/
 theorem Term.wf_pos {kb kv : Nat} {vw : Nat → Nat} :
@@ -63,6 +65,7 @@ theorem Term.wf_pos {kb kv : Nat} {vw : Nat → Nat} :
   | _, .bitsLit _ _, h => h.2
   | _, .binary _ a _, h => a.wf_pos h.1
   | _, .mux _ a _, h => a.wf_pos h.2.1
+  | _, .setw _ _, h => h.2
 
 def eval (bools : Nat → Bool) (bits : (j : Nat) → (w : Nat) → BitVec w) :
     {s : SType} → Term s → s.Type
@@ -76,6 +79,7 @@ def eval (bools : Nat → Bool) (bits : (j : Nat) → (w : Nat) → BitVec w) :
   | _, .boolNot a => !(eval bools bits a)
   | _, .boolEq a b => eval bools bits a == eval bools bits b
   | _, .mux c a b => if eval bools bits c then eval bools bits a else eval bools bits b
+  | _, .setw w' a => BitVec.setWidth w' (eval bools bits a)
 
 def denote {dom : DomainConfig} (bools : Nat → Signal dom Bool)
     (bits : (j : Nat) → (w : Nat) → Signal dom (BitVec w)) :
@@ -98,6 +102,7 @@ def denote {dom : DomainConfig} (bools : Nat → Signal dom Bool)
   | _, .boolNot a => ~~~(denote bools bits a)
   | _, .boolEq a b => Signal.beq (denote bools bits a) (denote bools bits b)
   | _, .mux c a b => Signal.mux (denote bools bits c) (denote bools bits a) (denote bools bits b)
+  | _, .setw w' a => Signal.map (BitVec.setWidth w') (denote bools bits a)
 
 theorem denote_val {dom : DomainConfig} (bools : Nat → Signal dom Bool)
     (bits : (j : Nat) → (w : Nat) → Signal dom (BitVec w)) (tick : Nat) : ∀ {s} (e : Term s),
@@ -132,6 +137,15 @@ theorem denote_val {dom : DomainConfig} (bools : Nat → Signal dom Bool)
     change (if (denote bools bits c).val tick then (denote bools bits a).val tick else
       (denote bools bits b).val tick) = _
     rw [denote_val, denote_val, denote_val]; rfl
+  | _, .setw w' a => by
+    change BitVec.setWidth w' ((denote bools bits a).val tick) = _
+    rw [denote_val]; rfl
+
+/-- The canonical width-changing map node: `Signal.map (BitVec.setWidth w') a`
+    exactly as dot-notation elaborates it (a partial application, no lambda). -/
+def setwE (dom : Lean.Expr) (w w' : Nat) (a : Lean.Expr) : Lean.Expr :=
+  mkApp5 (.const ``Sparkle.Core.Signal.Signal.map [.zero]) dom (bitVecE w) (bitVecE w')
+    (mkApp2 (.const ``BitVec.setWidth []) (natE w) (natE w')) a
 
 def quote (dom : Lean.Expr) (bools bits : Nat → Lean.Expr) : {s : SType} → Term s → Lean.Expr
   | _, .boolInput j => bools j
@@ -145,6 +159,7 @@ def quote (dom : Lean.Expr) (bools bits : Nat → Lean.Expr) : {s : SType} → T
   | _, .boolEq a b => boolEqE dom (quote dom bools bits a) (quote dom bools bits b)
   | s, .mux c a b => muxE dom s.quoteType (quote dom bools bits c)
       (quote dom bools bits a) (quote dom bools bits b)
+  | _, .setw (w := w) w' a => setwE dom w w' (quote dom bools bits a)
 
 /-- Uniform-width embeddings of the three previous source languages. -/
 def ofF (n : Nat) : FExpr → Term (.bits n)
@@ -226,6 +241,9 @@ theorem instFVars_quote (xs : Array Lean.Expr) (d : Nat) (dom : Lean.Expr)
     show Lean.Expr.app (.app (.app (instFVars xs d _) (instFVars xs d (quote dom bi vi c)))
       (instFVars xs d (quote dom bi vi a))) (instFVars xs d (quote dom bi vi b)) = _
     rw [instFVars_quote, instFVars_quote, instFVars_quote]; cases s <;> rfl
+  | _, .setw _ a => by
+    show Lean.Expr.app (instFVars xs d _) (instFVars xs d (quote dom bi vi a)) = _
+    rw [instFVars_quote]; rfl
 
 theorem quote_congr {dom : Lean.Expr} {kb kv : Nat} {vw : Nat → Nat}
     {bi bi' vi vi' : Nat → Lean.Expr}
@@ -251,5 +269,6 @@ theorem quote_congr {dom : Lean.Expr} {kb kv : Nat} {vw : Nat → Nat}
   | s, .mux c a b, h => by
     obtain ⟨hc, ha, hb'⟩ := h
     simp only [quote, quote_congr hb hv c hc, quote_congr hb hv a ha, quote_congr hb hv b hb']
+  | _, .setw _ a, h => by simp only [quote, quote_congr hb hv a h.1]
 
 end Tools.ShippingUnifiedSource

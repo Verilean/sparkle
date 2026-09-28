@@ -220,6 +220,34 @@ theorem binary_protect {ctx inputs we mems initial rec e args hint named n va vb
       simp [refsOf, refsOf.refsList, Ne.symm hwa, Ne.symm hwb]
     · exact hpC.pending hmem
 
+/-- Every reference of a width-cast right-hand side is the child wire. -/
+theorem setwRhs_refs {ws wt : Nat} {sw x : String}
+    (hx : x ∈ refsOf (setwRhs ws wt sw)) : x = sw := by
+  unfold setwRhs at hx
+  split at hx
+  · simpa [refsOf, refsOf.refsList] using hx
+  · split at hx
+    · simpa [refsOf, refsOf.refsList] using hx
+    · simpa [refsOf] using hx
+
+/-- One-child width cast: the child protects, then the fresh target-width
+result reads only the child wire. -/
+theorem setw_protect {ctx inputs we mems initial rec ae hint named va} {ws wt : Nat}
+    (ca : Child rec ctx inputs we mems initial ae "s" va)
+    (pa : ActionProtect (rec ae "s" false false) ctx inputs) :
+    ActionProtect (do
+        let sw ← rec ae "s" false false
+        emitCastResult (setwRhs ws wt sw) wt hint named) ctx inputs := by
+  intro s w t p hr lookup hp
+  obtain ⟨sw, sm, ra, re⟩ := Returns.bind hr
+  have fa := ca.frame s sm sw lookup ra
+  obtain ⟨hpa, hwa⟩ := pa s sw sm p ra lookup hp
+  have hpA := hp.frame fa hpa
+  obtain ⟨hw, ht⟩ := emitCastResult_returns re
+  apply allocate_assign_protect hw ht hpA
+  intro hmem
+  exact hwa (setwRhs_refs hmem).symm
+
 /-- Input leaves return an existing binding: no state change, and the bound
 wire cannot be the pending name. -/
 theorem input_protect {ctx inputs id v rec hint named} (hi : inputs id = some v) :
@@ -574,6 +602,20 @@ theorem fuel_protects (fuel : Nat) {ctx : CompilerState} {inputs : FVarId → Op
           ((fc a ha).child "mux_then")
           ((fc b hb').child "mux_else")
           (ih c hc "mux_cond" false) (ih a ha "mux_then" false) (ih b hb' "mux_else" false)
+    | setw w' a =>
+      rename_i w
+      obtain ⟨ha, hpos⟩ := he
+      show ActionProtect (translateStepWith translateFallback
+        (translateFuelFix translateStep fuel)
+        (setwE dom w w' (quote dom (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) a))
+        hint false named) ctx inputs
+      rw [setw_step _ _ _ _ _ (a.wf_pos ha) hpos]
+      apply cached_protect (meaning_quote hb hv (.setw w' a) ⟨ha, hpos⟩)
+      show ActionProtect (translateSetWidthUncachedWith (translateFuelFix translateStep fuel) w w'
+        (setwE dom w w' (quote dom (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) a))
+        hint false named) ctx inputs
+      rw [setwUncached_setwE]
+      exact setw_protect ((fc a ha).child "s") (ih a ha "s" false)
 
 /-- Order obligation for one recursive/action call. -/
 def ActionOrder (action : CompilerM String) (ctx : CompilerState)
@@ -794,6 +836,47 @@ theorem vector_order {ctx inputs we mems initial rec ce ae be hint named n vc va
   · exact fb.used _ (fa.used _ cout.used)
   · exact fb.used _ aout.used
   · exact bout.used
+
+/-- Fresh width-cast emission keeps the acyclic order: the RHS reads only
+already-used wires and the target is new. -/
+theorem emit_cast_order {ctx s t w rhs wt hint named}
+    (hr : Returns (emitCastResult rhs wt hint named) ctx s w t) (order : OrderInv s)
+    (refs : ∀ x ∈ refsOf rhs, s.usedNames.contains x = true) : OrderInv t := by
+  obtain ⟨hw, ht⟩ := emitCastResult_returns hr
+  have alloc := CircuitM.makeWire_spec hint (.bitVector wt) named s
+  have fresh : s.usedNames.contains w = false := hw ▸ alloc.1
+  have old : w ∉ footprint s.module.body := by
+    intro hp; have used := order.2 w hp; rw [fresh] at used; cases used
+  have noSelf : w ∉ refsOf rhs := by
+    intro hp; have used := refs w hp; rw [fresh] at used; cases used
+  constructor
+  · rw [ht, emitAssign_body_cons, alloc.2.2.1, List.reverse_cons]
+    exact acyclic_snoc order.1
+      (fun h => old ((footprint_reverse_mem _ _).mp h)) noSelf
+  · intro x hx
+    rw [ht, emitAssign_body_cons, alloc.2.2.1, footprint_cons] at hx
+    rw [ht, emitAssign_usedNames, alloc.2.1, ← hw]
+    rcases List.mem_cons.mp hx with rfl | hx
+    · simp [Std.HashSet.contains_insert]
+    · rcases List.mem_append.mp hx with hx | hx
+      · simp [Std.HashSet.contains_insert, refs x hx]
+      · simp [Std.HashSet.contains_insert, order.2 x hx]
+
+theorem setw_order {ctx inputs we mems initial rec ae hint named va} {ws wt : Nat}
+    (hwt : 0 < wt)
+    (ca : Child rec ctx inputs we mems initial ae "s" va)
+    (oa : ActionOrder (rec ae "s" false false) ctx inputs we mems initial) :
+    ActionOrder (do
+        let sw ← rec ae "s" false false
+        emitCastResult (setwRhs ws wt sw) wt hint named) ctx inputs we mems initial := by
+  intro s t w prior hr h widths order
+  obtain ⟨sw, sm, ra, re⟩ := Returns.bind hr
+  have wa := (emit_cast_frame (setwRhs_simple ws wt hwt sw) re).1.decls.widths widths
+  have aout := ca.sem s sm sw prior h wa ra
+  apply emit_cast_order re (oa _ _ _ _ ra h wa order)
+  intro x hx
+  cases setwRhs_refs hx
+  exact aout.used
 
 /-- Order for the allocator-before-children binary node: protection carries
 the reserved parent through both recursive children. -/
@@ -1086,6 +1169,20 @@ theorem fuel_orders (fuel : Nat) {ctx : CompilerState} {inputs : FVarId → Opti
           ((fuel_contract fuel hb hv a ha).child "mux_then")
           ((fuel_contract fuel hb hv b hb').child "mux_else")
           (ih c hc "mux_cond" false) (ih a ha "mux_then" false) (ih b hb' "mux_else" false)
+    | setw w' a =>
+      rename_i w
+      obtain ⟨ha, hpos⟩ := he
+      show ActionOrder (translateStepWith translateFallback
+        (translateFuelFix translateStep fuel)
+        (setwE dom w w' (quote dom (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) a))
+        hint false named) ctx inputs we mems initial
+      rw [setw_step _ _ _ _ _ (a.wf_pos ha) hpos]
+      apply cached_order
+      show ActionOrder (translateSetWidthUncachedWith (translateFuelFix translateStep fuel) w w'
+        (setwE dom w w' (quote dom (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) a))
+        hint false named) ctx inputs we mems initial
+      rw [setwUncached_setwE]
+      exact setw_order hpos ((fuel_contract fuel hb hv a ha).child "s") (ih a ha "s" false)
 
 /-- Real-entry order for any unified quoted source. -/
 theorem translateExprToWire_orders {ctx : CompilerState} {inputs : FVarId → Option Value}

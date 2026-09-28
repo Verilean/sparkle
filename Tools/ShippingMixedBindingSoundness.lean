@@ -97,7 +97,8 @@ theorem typed_bindings {m : Sparkle.IR.AST.Module} {sv : SVModule}
 /-- A flat typed expression without a control root is in the arithmetic
 checker domain. Recursive control expressions cannot hide under flat operands. -/
 theorem sized_of_flat {we e n} (h : TypedExpr we e n)
-    (simple : simpleRhs e = true) (control : isControlExpr e = false) :
+    (simple : simpleRhs e = true) (control : isControlExpr e = false)
+    (cast : isCastExpr e = false) :
     Tools.ShippingTranslateSoundness.SizedExpr we e n := by
   cases h with
   | ref x => exact .ref x
@@ -110,6 +111,8 @@ theorem sized_of_flat {we e n} (h : TypedExpr we e n)
   | compare hc => cases ‹Operator› <;> simp_all [isUnsignedCompare, isControlExpr, isControlBinOp]
   | signedCompare _ _ hc _ _ => cases ‹Operator› <;> simp_all [isSignedCompare, isControlExpr, isControlBinOp]
   | mux => cases control
+  | zext => simp [isCastExpr] at cast
+  | trunc => simp [isCastExpr] at cast
 
 theorem printWidths_decl {m : Sparkle.IR.AST.Module} {p : Port}
     (hp : p ∈ m.wires ++ m.inputs ++ m.outputs)
@@ -138,7 +141,8 @@ printing premise is derived, including the one-bit output assignment. -/
 theorem post_printCheck {m m' : Sparkle.IR.AST.Module}
     (base : PrintBaseAt outWidth m) (ready : TypedPostReady m) (simple : SimpleStmts m'.body)
     (post : m' = dropZeroWidthModule m ∨ m' = mergeDuplicates (dropZeroWidthModule m))
-    (control : ¬ HasControl m'.body) : Sparkle.IR.PrintCheck.moduleCheck m' = true := by
+    (control : ¬ HasControl m'.body) (castFree : ¬ HasCast m'.body) :
+    Sparkle.IR.PrintCheck.moduleCheck m' = true := by
   obtain ⟨hi, ho, sub⟩ := post_layout ready post
   obtain ⟨names, consistent, _, _⟩ := declaration_layout base ready hi ho sub
   have clean : ∀ p ∈ m'.wires ++ m'.inputs ++ m'.outputs,
@@ -167,7 +171,11 @@ theorem post_printCheck {m m' : Sparkle.IR.AST.Module}
     cases hc : isControlExpr r
     · rfl
     · exact False.elim (control ⟨l, r, hs, hc⟩)
-  have sized := sized_of_flat ht flat noControl
+  have noCast : isCastExpr r = false := by
+    cases hc : isCastExpr r
+    · rfl
+    · exact False.elim (castFree ⟨l, r, hs, hc⟩)
+  have sized := sized_of_flat ht flat noControl noCast
   have wiresClean : ∀ p ∈ m'.wires, Sparkle.Backend.Verilog.sanitizeName p.name = p.name :=
     fun p hp => clean p (by simp [hp])
   have rhsCheck := printExpr_of_sized sized (fun x hx =>
@@ -265,7 +273,11 @@ theorem checked_syntax {m m' : Sparkle.IR.AST.Module}
   · unfold verilogOf
     rw [checkedOptimize_control gate control]
     exact post_syntax base ready post
-  · have check := checkedOptimize_printCheck gate (post_printCheck base ready simple' post control)
+  · by_cases cast : HasCast m'.body
+    · unfold verilogOf
+      rw [checkedOptimize_cast gate cast]
+      exact post_syntax base ready post
+    have check := checkedOptimize_printCheck gate (post_printCheck base ready simple' post control cast)
     have pd := checkedOptimize_printDecls gate (mixed_post_printDecls base ready post)
     have shape := checkedOptimize_printShape gate
     obtain ⟨sv, ast, render⟩ := emitModule_render _ pd.1 pd.2.1 pd.2.2 shape

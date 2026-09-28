@@ -58,12 +58,18 @@ def muxValue (kind : Kind) : Value → Value → Value → Option Value
   | .bool c, a, b => if a.kind = kind ∧ b.kind = kind then some (if c then a else b) else none
   | _, _, _ => none
 
+/-- Width change on a BitVec value: zero-extension or truncation. -/
+def setwValue (w w' : Nat) : Value → Option Value
+  | .bits k v => if h : k = w then some (.bits w' (BitVec.setWidth w' (h ▸ v))) else none
+  | _ => none
+
 inductive Node where
   | input (id : FVarId)
   | value (v : Value)
   | binary (op : BinOp) (a b : Lean.Expr)
   | boolNot (a : Lean.Expr)
   | mux (kind : Kind) (c a b : Lean.Expr)
+  | setw (w w' : Nat) (a : Lean.Expr)
 
 def binaryOfName? : Name → Option Binary
   | ``HAdd.hAdd => some .add
@@ -108,6 +114,14 @@ def view : Lean.Expr → Option Node
     | some .bit => some (Node.mux .bool c a b)
     | some (.bitVector n) => some (Node.mux (.bits n) c a b)
     | _ => none
+  | .app (.app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.map _) _)
+      (.app (.const ``BitVec _) wsE)) (.app (.const ``BitVec _) wtE))
+      (.app (.app (.const ``BitVec.setWidth _) wsE') wtE')) a => do
+    let ws ← canonicalNatLitValue? wsE
+    let wt ← canonicalNatLitValue? wtE
+    let ws' ← canonicalNatLitValue? wsE'
+    let wt' ← canonicalNatLitValue? wtE'
+    if ws' == ws && wt' == wt then pure (.setw ws wt a) else none
   | .app (.app (.app (.app (.const m _) _) w) a) b => do
     let op ← orderedOfName? m
     let n ← canonicalNatLitValue? w
@@ -127,6 +141,8 @@ inductive Meaning (inputs : FVarId → Option Value) : Lean.Expr → Value → P
   | mux {e kind c a b vc va vb v} : view e = some (.mux kind c a b) →
       Meaning inputs c vc → Meaning inputs a va → Meaning inputs b vb →
       muxValue kind vc va vb = some v → Meaning inputs e v
+  | setw {e w w' a va v} : view e = some (.setw w w' a) →
+      Meaning inputs a va → setwValue w w' va = some v → Meaning inputs e v
 
 /-- Even across the two sorts and different widths, a recorded expression has
 one source value. This is the key cache-insertion obligation. -/
@@ -169,6 +185,17 @@ theorem view_boolBinary (dom a b : Lean.Expr) (op : SignalBoolBinKind) :
     view (boolBinE op dom a b) = some (.binary (.bool op) a b) := by cases op <;> rfl
 
 theorem view_boolNot (dom a : Lean.Expr) : view (boolNotE dom a) = some (.boolNot a) := rfl
+
+theorem view_setw (dom a : Lean.Expr) (w w' : Nat) :
+    view (setwE dom w w' a) = some (.setw w w' a) := by
+  change (do
+    let ws ← canonicalNatLitValue? (natE w)
+    let wt ← canonicalNatLitValue? (natE w')
+    let ws' ← canonicalNatLitValue? (natE w)
+    let wt' ← canonicalNatLitValue? (natE w')
+    if ws' == ws && wt' == wt then pure (Node.setw ws wt a) else none) = _
+  rw [canonicalNatLitValue?_natE, canonicalNatLitValue?_natE]
+  simp
 
 theorem view_boolEq (dom a b : Lean.Expr) : view (boolEqE dom a b) = some (.binary .boolEq a b) := rfl
 
@@ -220,6 +247,9 @@ theorem meaning_quote {inputs : FVarId → Option Value} {dom : Lean.Expr} {kb k
     apply Meaning.mux (view_mux dom _ _ _ s) (meaning_quote hb hv c hc)
       (meaning_quote hb hv a ha) (meaning_quote hb hv b hb')
     cases s <;> cases h : eval bools bits c <;> simp [muxValue, pack, Value.kind, kindOf, eval, h]
+  | _, .setw (w := w) w' a, h => by
+    apply Meaning.setw (view_setw dom _ w w') (meaning_quote hb hv a h.1)
+    simp [setwValue, pack, eval]
 
 theorem bool_bits_disjoint {inputs e b n v}
     (hb : Meaning inputs e (.bool b)) (hv : Meaning inputs e (.bits n v)) : False := by

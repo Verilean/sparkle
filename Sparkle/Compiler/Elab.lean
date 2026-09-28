@@ -1280,6 +1280,29 @@ def canonicalMuxType? : Lean.Expr → Option HWType
     | _ => none
   | _ => none
 
+/-- Canonical width-changing map: `Signal.map (BitVec.setWidth wt) s` (or the
+    `zeroExtend` alias) with literal, positive and mutually consistent widths.
+    Returns `(source width, target width, child)`. Symbolic widths and other
+    map forms keep the existing fallback path. -/
+def canonicalSetWidth? : Lean.Expr → Option (Nat × Nat × Lean.Expr)
+  | .app (.app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.map _) _)
+      (.app (.const ``BitVec _) wsE)) (.app (.const ``BitVec _) wtE))
+      (.app (.app (.const f _) wsE') wtE')) a =>
+    if f == ``BitVec.setWidth || f == ``BitVec.zeroExtend then
+      match canonicalNatLitValue? wsE, canonicalNatLitValue? wtE,
+          canonicalNatLitValue? wsE', canonicalNatLitValue? wtE' with
+      | some ws, some wt, some ws', some wt' =>
+        if 0 < ws && 0 < wt && ws' == ws && wt' == wt then some (ws, wt, a) else none
+      | _, _, _, _ => none
+    else none
+  | _ => none
+
+/-- The target width of a canonical width-changing root. -/
+def canonicalSetWidthTop? (e : Lean.Expr) : Option Nat :=
+  match canonicalSetWidth? e with
+  | some (_, wt, _) => some wt
+  | none => none
+
 /-- Exact canonical muxes need no MetaM result-type oracle. Kept as an action
     so the fallback inference still occurs after recursive child translation. -/
 def muxResultType (e : Lean.Expr) : CompilerM HWType :=
@@ -1977,6 +2000,13 @@ def unifiedGateBitsBody (kinds : Array MixedGateBinder) (n : Nat) : Lean.Expr �
       (.app (.const ``BitVec _) w)) c) a) b =>
       canonicalNatLitValue? w == some n && unifiedGateBoolBody kinds c &&
         unifiedGateBitsBody kinds n a && unifiedGateBitsBody kinds n b
+  | .app (.app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.map _) _)
+      (.app (.const ``BitVec _) wsE)) (.app (.const ``BitVec _) wtE))
+      (.app (.app (.const ``BitVec.setWidth _) wsE') wtE')) a =>
+      canonicalNatLitValue? wtE == some n && canonicalNatLitValue? wtE' == some n &&
+      (match canonicalNatLitValue? wsE, canonicalNatLitValue? wsE' with
+       | some ws, some ws' => ws' == ws && 0 < ws && unifiedGateBitsBody kinds ws a
+       | _, _ => false)
   | e@(.app (.app (.app (.app (.app (.app (.const m _) _) _) _) _) a) b) =>
       match signalBinOpOf m, canonicalSignalBinKinds m e.getAppArgs,
           canonicalSignalBitVecWidth e.getAppArgs with
@@ -1996,7 +2026,10 @@ def unifiedGateRoot (kinds : Array MixedGateBinder) (e : Lean.Expr) : Bool :=
       | _ =>
         match gateTopWidth? (mixedBitKinds kinds) e with
         | some n => 0 < n && unifiedGateBitsBody kinds n e
-        | none => false)
+        | none =>
+          match canonicalSetWidthTop? e with
+          | some n => 0 < n && unifiedGateBitsBody kinds n e
+          | none => false)
 
 def mixedGateVectorWidth? (kinds : Array MixedGateBinder) (e : Lean.Expr) : Option Nat :=
   match canonicalMuxType? e with
@@ -4828,6 +4861,27 @@ def translateVectorMuxUncachedWith (rec : TranslateFn) (n : Nat) : TranslateFn :
     translateMuxWith rec (pure (.bitVector n)) e.getAppArgs[e.getAppArgs.size - 3]!
       e.getAppArgs[e.getAppArgs.size - 2]! e.getAppArgs.back! hint named
 
+/-- The width-cast right-hand side: a zero-extension concat, the canonical
+    size-cast slice, or a plain alias at equal widths. -/
+def setwRhs (ws wt : Nat) (sw : String) : Sparkle.IR.AST.Expr :=
+  if ws < wt then .concat [.const 0 (wt - ws), .ref sw]
+  else if wt < ws then .slice (.concat [.const 0 wt, .ref sw]) (wt - 1) 0
+  else .ref sw
+
+/-- Allocate the target-width result wire and assign one cast expression. -/
+def emitCastResult (rhs : Sparkle.IR.AST.Expr) (wt : Nat) (hint : String)
+    (named : Bool) : CompilerM String := do
+  let r ← CompilerM.makeWire hint (.bitVector wt) (named := named)
+  CompilerM.emitAssign r rhs
+  return r
+
+/-- Uncached lowering for the canonical width-changing map node: the child
+    first, then one width-cast assignment. -/
+def translateSetWidthUncachedWith (rec : TranslateFn) (ws wt : Nat) : TranslateFn :=
+  fun e hint _top named => do
+    let sw ← rec e.getAppArgs.back! "s" false false
+    emitCastResult (setwRhs ws wt sw) wt hint named
+
 /-- The existing handler chain (cache wrapper + dispatch) as the fallback. -/
 def translateFallback (rec : TranslateFn) : TranslateFn :=
   fun e hint top named =>
@@ -4842,7 +4896,13 @@ def translateFallback (rec : TranslateFn) : TranslateFn :=
         -- Vector mux nodes now share the validated cache wrapper: a hit is
         -- checked against the recorded expression, a miss lowers and records.
         translateControlCachedWith (translateVectorMuxUncachedWith rec n) e hint top named
-      | _ => Rec.translateExprToWireCached (fun e h t n => rec e h t n) e hint top named
+      | _ =>
+        match canonicalSetWidth? e with
+        | some (ws, wt, _) =>
+          -- Canonical width-changing maps take the total certified lowering,
+          -- sharing the same validated cache wrapper.
+          translateControlCachedWith (translateSetWidthUncachedWith rec ws wt) e hint top named
+        | none => Rec.translateExprToWireCached (fun e h t n => rec e h t n) e hint top named
 
 def translateStep : TranslateFn → TranslateFn := translateStepWith translateFallback
 

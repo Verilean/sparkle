@@ -51,6 +51,10 @@ inductive Expression : SVExpr → String → Prop
 
   | ternary {c t f sc st sf} : Expression c sc → Expression t st → Expression f sf →
       Expression (.ternary c t f) ("(" ++ sc ++ " ? " ++ st ++ " : " ++ sf ++ ")")
+  | concat2 {a b sa sb} : Expression a sa → Expression b sb →
+      Expression (.concat [a, b]) ("{" ++ sa ++ ", " ++ sb ++ "}")
+  | sizeCast {w a sw sa} : 0 < w → Numeral 10 w sw → Expression a sa →
+      Expression (.sizeCast w a) (sw ++ "'(" ++ sa ++ ")")
 
 inductive LogicType : Option (Nat × Nat) → String → Prop
   | scalar : LogicType none "logic"

@@ -38,6 +38,13 @@ theorem typed_rename {we e n} (h : TypedExpr we e n) (σ : String → String)
     simpa only [renameE, renameE.renameL] using TypedExpr.compare ho ia ib
   | mux _ _ _ ic it iff =>
     simpa only [renameE, renameE.renameL] using TypedExpr.mux ic it iff
+  | zext x k hk hx =>
+    have step := TypedExpr.zext (we := we) (σ x) k hk (by rw [hw]; exact hx)
+    rw [hw] at step
+    simpa only [renameE, renameE.renameL] using step
+  | trunc x w hwid hwx =>
+    have step := TypedExpr.trunc (we := we) (σ x) w hwid (by rw [hw]; exact hwx)
+    simpa only [renameE, renameE.renameL] using step
 
 theorem validateStep_typed {we : WEnv} {n : Nat} {allLhs : List String}
     {st st' : MergeCheck} {l : String} {e : Expr} {new : Stmt}
@@ -177,13 +184,40 @@ theorem mergeDuplicates_output {m : Sparkle.IR.AST.Module}
     exact validateMerge_go_output hz _ _ {} hv hs ho (fun _ => rfl) (fun _ hm => by cases hm)
   · exact ho
 
-theorem dzExpr_typed {we e n} (h : TypedExpr we e n) (wm : Sparkle.IR.Optimize.WidthMap) :
+theorem dzExpr_typed {we e n} (h : TypedExpr we e n) (wm : Sparkle.IR.Optimize.WidthMap)
+    (hwm : ∀ x ∈ Sparkle.IR.Reorder.refsOf e, Sparkle.IR.ZeroWidth.exprWidth wm (.ref x) ≠ 0) :
     dzExpr wm e = e := by
   induction h with
   | ref | const => rfl
-  | bin _ _ _ _ ia ib | compare _ _ _ ia ib => simp [dzExpr, dzList, ia, ib]
+  | bin _ _ _ _ ia ib | compare _ _ _ ia ib =>
+    have ia := ia (fun x hx => hwm x (by
+      simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList, hx]))
+    have ib := ib (fun x hx => hwm x (by
+      simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList, hx]))
+    simp [dzExpr, dzList, ia, ib]
   | signedCompare => simp [dzExpr, dzList]
-  | mux _ _ _ ic it iff => simp [dzExpr, dzList, ic, it, iff]
+  | mux _ _ _ ic it iff =>
+    have ic := ic (fun x hx => hwm x (by
+      simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList, hx]))
+    have it := it (fun x hx => hwm x (by
+      simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList, hx]))
+    have iff := iff (fun x hx => hwm x (by
+      simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList, hx]))
+    simp [dzExpr, dzList, ic, it, iff]
+  | zext y k hk hy =>
+    have hwy := hwm y (by
+      simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList])
+    have hyb : (Std.HashMap.getD wm y 0 != 0) = true := by
+      simpa [Sparkle.IR.ZeroWidth.exprWidth, bne_iff_ne] using hwy
+    have hk' : k ≠ 0 := by omega
+    simp [dzExpr, dzList, Sparkle.IR.ZeroWidth.exprWidth, hk', hyb]
+  | trunc y w hwid hwy' =>
+    have hwy := hwm y (by
+      simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList])
+    have hyb : (Std.HashMap.getD wm y 0 != 0) = true := by
+      simpa [Sparkle.IR.ZeroWidth.exprWidth, bne_iff_ne] using hwy
+    have hw' : w ≠ 0 := by omega
+    simp [dzExpr, dzList, Sparkle.IR.ZeroWidth.exprWidth, hw', hyb]
 
 /-- Internal scalar declarations also occur in the cleanup width map.
 In particular `bit` must be read as width one by both maps. -/
@@ -228,8 +262,16 @@ theorem dropZeroWidth_typed {m : Sparkle.IR.AST.Module} (h : TypedPostReady m) :
           have := ht.positive
           simp only [ne_eq, Option.some.injEq]; omega
         · exact h.outNotZero
+      have hwm : ∀ x ∈ Sparkle.IR.Reorder.refsOf e,
+          Sparkle.IR.ZeroWidth.exprWidth (Sparkle.IR.Optimize.buildWidthMap m) (.ref x) ≠ 0 := by
+        intro x hx
+        have hpos := ht.refs_positive x hx
+        have hg := widthMap_internal h.wiresNodup hpos
+        simp only [Sparkle.IR.ZeroWidth.exprWidth, Std.HashMap.getD_eq_getD_getElem?,
+          ← Std.HashMap.get?_eq_getElem?, hg, Option.getD_some]
+        omega
       simp only [dzStmt]
-      rw [dzExpr_typed ht]
+      rw [dzExpr_typed ht _ hwm]
   have hw : weOf (dropZeroWidthModule m) = weOf m := by
     unfold dropZeroWidthModule
     split

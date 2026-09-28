@@ -19,6 +19,8 @@ def ExprBound (declared : String → Prop) : SVExpr → Prop
   | .unary .signed a => ExprBound declared a
   | .binary _ a b => ExprBound declared a ∧ ExprBound declared b
   | .ternary c t f => ExprBound declared c ∧ ExprBound declared t ∧ ExprBound declared f
+  | .concat [.lit _, .ident x] => declared x
+  | .sizeCast _ a => ExprBound declared a
   | _ => False
 
 def Declared (sv : SVModule) (x : String) : Prop :=
@@ -59,6 +61,12 @@ theorem declared_of_width {sv : SVModule} {x : String} {n : Nat}
   unfold astWidths lookupTable at h
   obtain ⟨entry, hf, _⟩ := Option.bind_eq_some_iff.mp h
   exact ⟨entry, List.mem_of_find?_eq_some hf, by simpa using List.find?_some hf⟩
+
+theorem emitConst_bound {wof : String → Option Nat} {v : Int} {w : Nat} {sv : SVExpr}
+    {declared : String → Prop}
+    (he : emitAstExpr wof (.const v w) = some sv) : ExprBound declared sv := by
+  simp only [emitAstExpr] at he
+  split at he <;> cases he <;> trivial
 
 theorem emitExpr_bound {e : Sparkle.IR.AST.Expr} {sv : SVExpr}
     {wof : String → Option Nat} {declared : String → Prop}
@@ -105,6 +113,21 @@ theorem emitExpr_bound {e : Sparkle.IR.AST.Expr} {sv : SVExpr}
     refine ⟨ic ?_ hsc, it ?_ hst, iff ?_ hsf⟩
     all_goals intro x hx; exact hr x (by
       simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList, hx])
+  | zext v k x =>
+    obtain ⟨l, hsl, _⟩ := render_const wof v k
+    simp only [emitAstExpr, Tools.SVParser.EmitAst.emitConcatElems, bind] at hsl he
+    rw [hsl] at he
+    cases he
+    exact hr x (by
+      simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList])
+  | castRef x w hw =>
+    have harm : ((0 == 0 : Bool) && (w - 1 + 1 == w)) = true := by
+      simp only [beq_self_eq_true, Bool.true_and, beq_iff_eq]
+      omega
+    simp only [emitAstExpr, harm, if_true, bind, Option.bind_some] at he
+    cases he
+    exact hr x (by
+      simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList])
 
 /-- The checked expression facts supply widths for every read, not merely
 for wires that contribute to the final output. -/

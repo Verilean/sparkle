@@ -27,7 +27,7 @@ proved and audited, not when a certain number of lemmas or commits have landed.
 | S0 | Original positive-width BitVec combinational fragment | Done | Actual shipping text has concrete syntax and unique bound declarations; emitted AST has the unique bounded solution and finite delta settling to the source value. `compiledFragment_execution` supplies the endpoint. |
 | S1 | Current mixed Bool/BitVec fragment: source IR and syntax | Done, `2ad67ae` | Actual entry, cleanup/checked merge and both checked optimizer selections connect source IR values to the exact printed AST, concrete grammar, legal names and all reference/target bindings. `syntax_source_of_env` supplies the endpoint. |
 | S2 | Current mixed fragment: RTL semantics and settling | Done | One general shipping-source endpoint combines S1 with AST semantic preservation, unique bounded solution, and existence/convergence of every permitted delta trace to the source output. No caller-supplied expression-check, acyclicity, child-correctness or compiler-replay certificate. |
-| S3 | Remaining successful combinational paths | Active — comparisons, Bool logic and BitVec mux trees connected | Inventory the existing successful paths, then connect remaining Bool surface forms, BitVec-result mux, other comparisons/shifts, width-changing/mixed-width operations and successful interface forms through syntax and RTL semantics. Completion requires the inventory's combinational entries to be covered, not one more chosen example. |
+| S3 | Remaining successful combinational paths | Active — comparisons, Bool logic, BitVec mux trees, mixed widths and setWidth casts connected | Inventory the existing successful paths, then connect remaining Bool surface forms, BitVec-result mux, other comparisons/shifts, width-changing/mixed-width operations and successful interface forms through syntax and RTL semantics. Completion requires the inventory's combinational entries to be covered, not one more chosen example. |
 | S4 | State and reset | Pending | Derive a general state/trace correspondence from the actual stateful compilation path, including initialization, clock/update observation, enable/hold and supported reset behavior; preserve it through actual postprocessing, optimization and emitted RTL. Separate typed single-register results do not close this milestone. |
 | S5 | Memory | Pending | Model and prove the actual successful memory paths: initialization assumptions, read latency, writes/masks, read/write ordering and collisions where applicable. Connect arbitrary admissible traces through actual compilation and emitted RTL. |
 | S6 | Hierarchy | Pending | Give instances compositional execution semantics; prove port/parameter/width linkage and state/memory composition for actual successful hierarchical entry points. Name validation alone does not close this milestone. |
@@ -198,11 +198,25 @@ mux (`mixedWidth` in `ShippingUnifiedSourceTest`: gated, 54 SV execution
 cases, endpoint instantiated). The old uniform-width embeddings (`ofF`/`ofB`/
 `ofV`) instantiate the width assignment constantly.
 
-Still open in S3: width-changing operations (zero/sign extension, truncation,
-slices, concatenation) — these need Returns-decomposition lemmas for the
-actual `handleBitVecOps`/legacy handler paths plus matching AST/RTL width
-rules — and the remaining successful interface forms from the inventory.
-S4–S7 (state/reset, memory, hierarchy and final composition) remain unfinished.
+Completed S3 extension: width-changing setWidth casts. The canonical
+`Signal.map (BitVec.setWidth w)`/`zeroExtend` form (literal positive widths)
+no longer reaches the legacy handler: `translateFallback` recognizes it
+(`canonicalSetWidth?`) and lowers it totally behind the validated cache
+wrapper — a `{k'd0, x}` concat when widening, the size-cast `w'(x)` slice
+encode when narrowing, a plain alias at equal widths. Both IR shapes were
+threaded through the whole RTL chain (`simpleRhs`, `TypedExpr.zext/trunc`,
+`PrintShape`, renderer byte equality, concrete grammar, name binding,
+zero-width and merge passes), and `checkedOptimize` provably keeps cast
+bodies unchanged (`checkedOptimize_cast`). `Term.setw` extends the unified
+source; the same `execution_source_of_env` endpoint covers widening (8→16),
+narrowing (65→8), equal width and a widened operand under an arithmetic
+parent (72 SV execution cases in `ShippingUnifiedSourceTest`).
+
+Still open in S3: sign extension (the legacy lowering's narrowing behavior
+is not certified and stays on the fallback), general slice/concatenation
+surface operations, symbolic widths, and the remaining successful interface
+forms from the inventory. S4–S7 (state/reset, memory, hierarchy and final
+composition) remain unfinished.
 
 ## Trust, validation and work cadence
 

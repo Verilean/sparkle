@@ -61,6 +61,45 @@ theorem checkedOptimize_control {m : Sparkle.IR.AST.Module}
   have hn := normBody_control_none hc (declWidth m) (m.inputs.map (·.name)) []
   simp [checkedOptimize, hg, optCheck, optCheckCore, hn]
 
+/-- Width-cast roots (the zero-extension concat and the size-cast slice):
+shapes the normalizing optimizer rejects outright. -/
+def isCastExpr : Expr → Bool
+  | .concat _ => true
+  | .slice .. => true
+  | _ => false
+
+def HasCast (body : List Stmt) : Prop :=
+  ∃ l e, .assign l e ∈ body ∧ isCastExpr e = true
+
+theorem normE_cast_none {e : Expr} (hc : isCastExpr e = true)
+    (we : WEnv) (ins : List String) (defs : List (String × Expr)) :
+    normE we ins defs e = none := by
+  cases e <;> simp_all [isCastExpr, normE]
+
+theorem normBody_cast_none {body : List Stmt} (hc : HasCast body)
+    (we : WEnv) (ins : List String) (defs : List (String × Expr)) :
+    normBody we ins defs body = none := by
+  obtain ⟨l, e, hm, he⟩ := hc
+  induction body generalizing defs with
+  | nil => cases hm
+  | cons st rest ih =>
+    rcases List.mem_cons.mp hm with hst | htail
+    · subst st; simp [normBody, normE_cast_none he]
+    · cases st with
+      | assign l r =>
+        simp only [normBody]
+        cases hr : normE we ins defs r with
+        | none => rfl
+        | some e => exact ih _ htail
+      | _ => rfl
+
+/-- Like control roots, cast roots keep the postprocessed module unchanged
+through the checked optimizer. -/
+theorem checkedOptimize_cast {m : Sparkle.IR.AST.Module}
+    (hg : simpleBody m = true) (hc : HasCast m.body) : checkedOptimize m = m := by
+  have hn := normBody_cast_none hc (declWidth m) (m.inputs.map (·.name)) []
+  simp [checkedOptimize, hg, optCheck, optCheckCore, hn]
+
 /-- The representative table contains no control-root expressions. -/
 def NoControlDefs (defs : List (String × Expr)) : Prop :=
   ∀ x e, defs.lookup x = some e → isControlExpr e = false

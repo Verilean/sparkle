@@ -38,32 +38,35 @@ theorem renderBin_syntax {op tok} (h : renderBin op = some tok) : BinaryToken op
   cases op <;> simp [renderBin] at h <;> subst tok
   all_goals constructor
 
+theorem renderLit_syntax {l text} (hr : renderLit l = some text) :
+    Expression (.lit l) text := by
+  cases l with
+  | binary w v =>
+    cases w with
+    | none => simp [renderLit] at hr
+    | some w =>
+      by_cases hw : w = 1
+      · subst w
+        by_cases hv : v = 0
+        · subst v; cases hr; exact .binaryZero
+        · simp [renderLit, hv] at hr
+      · simp [renderLit, hw] at hr
+  | decimal w v | hex w v =>
+    cases w <;> simp only [renderLit] at hr
+    all_goals try { cases hr }
+    all_goals rename_i w; split at hr
+    all_goals try { cases hr }
+    all_goals
+      cases hr
+      first
+      | exact Expression.decimal (by omega) (numeral_decimal _) (numeral_decimal _)
+      | exact Expression.hex (by omega) (numeral_decimal _) (numeral_toDigits (by decide) _)
+  | _ => simp [renderLit] at hr
+
 theorem renderExpr_syntax {e text} (hr : renderExpr e = some text)
     (hn : ExprBound Identifier e) : Expression e text := by
   cases e with
-  | lit l =>
-    cases l with
-    | binary w v =>
-      cases w with
-      | none => simp [renderExpr] at hr
-      | some w =>
-        by_cases hw : w = 1
-        · subst w
-          by_cases hv : v = 0
-          · subst v; cases hr; exact .binaryZero
-          · simp [renderExpr, hv] at hr
-        · simp [renderExpr, hw] at hr
-    | decimal w v | hex w v =>
-      cases w <;> simp only [renderExpr] at hr
-      all_goals try { cases hr }
-      all_goals rename_i w; split at hr
-      all_goals try { cases hr }
-      all_goals
-        cases hr
-        first
-        | exact Expression.decimal (by omega) (numeral_decimal _) (numeral_decimal _)
-        | exact Expression.hex (by omega) (numeral_decimal _) (numeral_toDigits (by decide) _)
-    | _ => simp [renderExpr] at hr
+  | lit l => exact renderLit_syntax hr
   | unary op a =>
     cases op <;> simp only [renderExpr] at hr
     all_goals try { cases hr }
@@ -83,9 +86,25 @@ theorem renderExpr_syntax {e text} (hr : renderExpr e = some text)
     cases he
     exact .ternary (renderExpr_syntax hc hn.1) (renderExpr_syntax ht hn.2.1)
       (renderExpr_syntax hf hn.2.2)
+  | concat args =>
+    obtain _ | ⟨a, _ | ⟨b, _ | ⟨c, rest⟩⟩⟩ := args
+    · simp [renderExpr] at hr
+    · simp [renderExpr] at hr
+    · cases a <;> try simp [renderExpr] at hr
+      cases b <;> try simp [renderExpr] at hr
+      simp only [renderExpr, bind, Option.bind_eq_some_iff] at hr
+      obtain ⟨sa, ha, he⟩ := hr
+      cases he
+      exact .concat2 (renderLit_syntax ha) (.ident hn)
+    · simp [renderExpr] at hr
+  | sizeCast w a =>
+    by_cases hw : w = 0
+    · simp [renderExpr, hw] at hr
+    · simp only [renderExpr, hw, if_false, bind, Option.bind_eq_some_iff] at hr
+      obtain ⟨sa, ha, he⟩ := hr
+      cases he
+      exact .sizeCast (by omega) (numeral_decimal _) (renderExpr_syntax ha hn)
   | _ => simp [renderExpr] at hr
-
-termination_by sizeOf e
 
 theorem renderType_syntax (w) : LogicType w (renderType w) := by
   cases w with
@@ -179,9 +198,17 @@ private theorem exprBound_mono {P Q : String → Prop} {e : SVExpr}
   | binary op a b => exact ⟨exprBound_mono h.1 hi, exprBound_mono h.2 hi⟩
   | ternary c t f => exact ⟨exprBound_mono h.1 hi, exprBound_mono h.2.1 hi,
       exprBound_mono h.2.2 hi⟩
+  | concat args =>
+    obtain _ | ⟨a, _ | ⟨b, _ | ⟨c, rest⟩⟩⟩ := args
+    · exact False.elim h
+    · cases a <;> exact False.elim h
+    · cases a <;> try exact False.elim h
+      cases b <;> try exact False.elim h
+      exact hi _ h
+    · cases a <;> try exact False.elim h
+      cases b <;> exact False.elim h
+  | sizeCast w a => exact exprBound_mono (e := a) h hi
   | _ => exact False.elim h
-
-termination_by sizeOf e
 
 private theorem combItems_assignment {items pairs l rhs}
     (h : combItems items = some pairs) (hm : .contAssign (.ident l) rhs ∈ items) :

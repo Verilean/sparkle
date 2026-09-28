@@ -377,9 +377,27 @@ def RecordFresh (s0 s1 : CircuitState) : Prop :=
   ∀ w e', s1.translateRecord.get? w = some e' →
     s0.translateRecord.get? w = some e' ∨ s0.usedNames.contains w = false
 
-/-- The right-hand sides the fragment's translation emits: exactly the simple
-shapes `Sparkle.IR.OptCheck.simpleRhs` recognises. -/
-def ShapedRhs (r : Sparkle.IR.AST.Expr) : Prop := Sparkle.IR.OptCheck.simpleRhs r = true
+/-- The right-hand sides the ORIGINAL uniform-width fragment's translation
+emits. Deliberately frozen at the historic shapes: `simpleRhs` has since
+grown width-changing shapes whose zero-width cleanup needs reference-width
+facts this fragment does not carry. -/
+def shapedRhsB : Sparkle.IR.AST.Expr → Bool
+  | .const _ _ => true
+  | .ref _ => true
+  | .op o [.ref _, .ref _] =>
+    Sparkle.IR.OptCheck.isPrintBinOp o || Sparkle.IR.OptCheck.isControlBinOp o
+  | .op .mux [.ref _, .ref _, .ref _] => true
+  | _ => false
+
+def ShapedRhs (r : Sparkle.IR.AST.Expr) : Prop := shapedRhsB r = true
+
+theorem ShapedRhs.simple {r : Sparkle.IR.AST.Expr} (h : ShapedRhs r) :
+    Sparkle.IR.OptCheck.simpleRhs r = true :=
+  match r, h with
+  | .const _ _, _ => rfl
+  | .ref _, _ => rfl
+  | .op _ [.ref _, .ref _], h => h
+  | .op .mux [.ref _, .ref _, .ref _], _ => rfl
 
 /-- A translation at width `n` only PREPENDS statements, each an `assign` of a
 const or an operator on two references to a declared width-`n` wire. What the

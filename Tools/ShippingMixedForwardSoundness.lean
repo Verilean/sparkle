@@ -109,8 +109,11 @@ theorem checked_forwardCheck {m m' : Sparkle.IR.AST.Module}
   by_cases control : HasControl m'.body
   · rw [checkedOptimize_control gate control]
     exact post_forwardCheck base ready post
-  · exact printCheck_forward (checkedOptimize_printCheck gate
-      (post_printCheck base ready simple' post control))
+  · by_cases cast : HasCast m'.body
+    · rw [checkedOptimize_cast gate cast]
+      exact post_forwardCheck base ready post
+    · exact printCheck_forward (checkedOptimize_printCheck gate
+        (post_printCheck base ready simple' post control cast))
 
 /-- The SV assignment fold uses the width lookup of the emitted declarations.
 This is forward execution, not yet parallel settling. Initial wire bounds are

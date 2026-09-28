@@ -72,7 +72,7 @@ theorem bits_core_frame {rec ctx β s t e us hint top named r n} {x : BitVec n}
     rw [eq] at hmem
     rcases List.mem_append.mp hmem with hp | hp
     · obtain ⟨l, rhs, eq, shape, _⟩ := simple stmt hp
-      exact ⟨l, rhs, eq, shape⟩
+      exact ⟨l, rhs, eq, shape.simple⟩
     · exact hs stmt hp
 
 theorem bits_recorded_frame {rec ctx β s t e us hint top named w n cacheable}

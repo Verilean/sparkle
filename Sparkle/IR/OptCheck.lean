@@ -121,6 +121,8 @@ def simpleRhs : Expr → Bool
   | .ref _ => true
   | .op o [.ref _, .ref _] => isPrintBinOp o || isControlBinOp o
   | .op .mux [.ref _, .ref _, .ref _] => true
+  | .concat [.const _ _, .ref _] => true
+  | .slice (.concat [.const 0 w, .ref _]) hi lo => lo == 0 && hi + 1 == w
   | _ => false
 
 def simpleBody (m : Module) : Bool :=

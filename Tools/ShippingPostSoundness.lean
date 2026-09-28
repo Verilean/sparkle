@@ -644,6 +644,9 @@ theorem simpleRhs_renameE (σ : String → String) :
   | .ref _, _ => rfl
   | .op _ [.ref _, .ref _], h => by simpa [renameE, renameE.renameL, simpleRhs] using h
   | .op .mux [.ref _, .ref _, .ref _], _ => rfl
+  | .concat [.const _ _, .ref _], _ => rfl
+  | .slice (.concat [.const 0 w, .ref _]) hi lo, h => by
+    simpa [renameE, renameE.renameL, simpleRhs] using h
 
 theorem validateStep_shape {wOf : String → Nat} {allLhs : List String} {st st' : MergeCheck}
     {l : String} {e : Sparkle.IR.AST.Expr} {new : Stmt}
@@ -736,7 +739,7 @@ theorem postprocess_facts {M M' : Sparkle.IR.AST.Module} {n : Nat} (hn : 0 < n)
     intro st hst
     obtain ⟨l, r, rfl, hlr⟩ := hpr.2.2.1 st hst
     rcases hlr with ⟨hr, -⟩ | ⟨-, w, rfl⟩
-    · exact ⟨l, r, rfl, hr⟩
+    · exact ⟨l, r, rfl, hr.simple⟩
     · exact ⟨l, _, rfl, rfl⟩
   have hwdz : ∀ x, ({ name := x, ty := .bitVector n } : Port) ∈ M.wires →
       ({ name := x, ty := .bitVector n } : Port) ∈ (dropZeroWidthModule M).wires := by

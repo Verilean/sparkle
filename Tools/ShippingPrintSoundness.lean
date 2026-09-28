@@ -75,11 +75,18 @@ def renderBin : SVBinOp → Option String
   | .gt => some ">" | .ge => some ">="
   | _ => none
 
-/-- A deliberately small, total AST renderer. Unsupported forms fail. -/
+/-- Literal rendering shared by the leaf and concatenation arms. -/
+def renderLit : SVLiteral → Option String
+  | .decimal (some w) v => if w = 0 then none else some s!"{w}'d{v}"
+  | .hex (some w) v => if w = 0 then none else some s!"{w}'h{String.ofList (Nat.toDigits 16 v)}"
+  | .binary (some 1) 0 => some "1'b0"
+  | _ => none
+
+/-- A deliberately small, total AST renderer. Unsupported forms fail.
+Concatenation is restricted to the emitted zero-extension shape, a literal
+prefix over an identifier. -/
 def renderExpr : SVExpr → Option String
-  | .lit (.decimal (some w) v) => if w = 0 then none else some s!"{w}'d{v}"
-  | .lit (.hex (some w) v) => if w = 0 then none else some s!"{w}'h{String.ofList (Nat.toDigits 16 v)}"
-  | .lit (.binary (some 1) 0) => some "1'b0"
+  | .lit l => renderLit l
   | .unary .signed a => do
     let sa ← renderExpr a
     some s!"$signed({sa})"
@@ -94,6 +101,13 @@ def renderExpr : SVExpr → Option String
     let st ← renderExpr t
     let sf ← renderExpr f
     some s!"({sc} ? {st} : {sf})"
+  | .concat [.lit l, .ident n] => do
+    let sa ← renderLit l
+    some s!"\{{String.intercalate ", " [sa, n]}}"
+  | .sizeCast w a =>
+    if w = 0 then none else do
+      let sa ← renderExpr a
+      some s!"{w}'({sa})"
   | _ => none
 
 /-- Comparison operators, independent of optimizer acceptance. -/
@@ -111,6 +125,11 @@ inductive PrintShape : Expr → Prop
       PrintShape (.op o [a, b])
   | mux {c t f : Expr} : PrintShape c → PrintShape t → PrintShape f →
       PrintShape (.op .mux [c, t, f])
+  /-- Zero-extension: a constant prefix over a wire, `{k'dv, x}`. -/
+  | zext (v : Int) (k : Nat) (x : String) : PrintShape (.concat [.const v k, .ref x])
+  /-- The canonical size-cast encode, printed as `w'(x)`. -/
+  | castRef (x : String) (w : Nat) : 0 < w →
+      PrintShape (.slice (.concat [.const 0 w, .ref x]) (w - 1) 0)
 
 theorem PrintShape.ofShape {e : Expr} (h : Shape e) : PrintShape e := by
   induction h with
@@ -127,6 +146,13 @@ theorem printShape_simple {e : Expr} (h : simpleRhs e = true) : PrintShape e := 
     · exact .bin h (.ref a) (.ref b)
     · exact .compare h (.ref a) (.ref b)
   | .op .mux [.ref c, .ref t, .ref f], _ => exact .mux (.ref c) (.ref t) (.ref f)
+  | .concat [.const v k, .ref x], _ => exact .zext v k x
+  | .slice (.concat [.const 0 w, .ref x]) hi lo, h =>
+    simp only [simpleRhs, Bool.and_eq_true, beq_iff_eq] at h
+    obtain ⟨hlo, hhi⟩ := h
+    subst hlo
+    have shape := PrintShape.castRef x w (by omega)
+    rwa [show w - 1 = hi from by omega] at shape
 
 /-- Width inference agrees for the whole printable expression fragment. -/
 theorem PrintShape.width_lookup {e : Expr} (h : PrintShape e) (wof : String → Option Nat) :
@@ -145,25 +171,37 @@ theorem PrintShape.width_lookup {e : Expr} (h : PrintShape e) (wof : String → 
   | @mux c t f _ _ _ _ it iff =>
     simp only [exprWidthT, Sparkle.Backend.Verilog.exprWidthV, it, iff]
     cases Sparkle.Backend.Verilog.exprWidthV wof t <;> cases Sparkle.Backend.Verilog.exprWidthV wof f <;> rfl
+  | zext v k x =>
+    simp only [exprWidthT, exprWidthT.goSum, Sparkle.Backend.Verilog.exprWidthV,
+      List.foldl_cons, List.foldl_nil]
+    cases wof x <;> simp
+  | castRef x w hw =>
+    simp [exprWidthT, Sparkle.Backend.Verilog.exprWidthV]
+
+theorem render_const (wof : String → Option Nat) (v : Int) (w : Nat) :
+    ∃ l, emitAstExpr wof (.const v w) = some (.lit l) ∧
+      renderLit l = some (Sparkle.Backend.Verilog.emitExpr wof (.const v w)) := by
+  have hw : (if w = 0 then 1 else w) ≠ 0 := by split <;> simp_all
+  cases v with
+  | ofNat v =>
+    refine ⟨.decimal (some (if w == 0 then 1 else w)) v, ?_, ?_⟩
+    · simp [emitAstExpr]
+    · simp [renderLit, hw, Sparkle.Backend.Verilog.emitExpr, Int.repr]
+      intro hneg; omega
+  | negSucc v =>
+    have hn : Int.negSucc v < 0 := by omega
+    refine ⟨.hex (some (if w == 0 then 1 else w))
+      (encodeConst (Int.negSucc v) (if w == 0 then 1 else w)), ?_, ?_⟩
+    · simp [emitAstExpr, hn]
+    · simp [renderLit, hw, Sparkle.Backend.Verilog.emitExpr, hn, encodeConst]
 
 theorem emitExpr_render_all {e : Expr} (h : PrintShape e) (wof : String → Option Nat) :
     ∃ sv, emitAstExpr wof e = some sv ∧
       renderExpr sv = some (Sparkle.Backend.Verilog.emitExpr wof e) := by
   induction h with
   | const v w =>
-    have hw : (if w = 0 then 1 else w) ≠ 0 := by split <;> simp_all
-    cases v with
-    | ofNat v =>
-      refine ⟨.lit (.decimal (some (if w == 0 then 1 else w)) v), ?_, ?_⟩
-      · simp [emitAstExpr]
-      · simp [renderExpr, hw, Sparkle.Backend.Verilog.emitExpr, Int.repr]
-        intro hneg; omega
-    | negSucc v =>
-      have hn : Int.negSucc v < 0 := by omega
-      refine ⟨.lit (.hex (some (if w == 0 then 1 else w))
-        (encodeConst (Int.negSucc v) (if w == 0 then 1 else w))), ?_, ?_⟩
-      · simp [emitAstExpr, hn]
-      · simp [renderExpr, hw, Sparkle.Backend.Verilog.emitExpr, hn, encodeConst]
+    obtain ⟨l, he, hr⟩ := render_const wof v w
+    exact ⟨.lit l, he, hr⟩
   | ref x => exact ⟨.ident _, rfl, by simp [renderExpr, Sparkle.Backend.Verilog.emitExpr]⟩
   | @bin op a b hop _ _ ia ib =>
     obtain ⟨sa, hsa, hra⟩ := ia
@@ -183,10 +221,11 @@ theorem emitExpr_render_all {e : Expr} (h : PrintShape e) (wof : String → Opti
       simp only [emitAstExpr, hsa, hsb, bind, Option.bind_some, wa, wb]
       cases wa' : Sparkle.Backend.Verilog.exprWidthV wof a <;>
         cases wb' : Sparkle.Backend.Verilog.exprWidthV wof b <;>
-        simp [wa', wb', binOpOf, renderExpr, renderBin, hra, hrb,
+        simp [wa', wb', binOpOf, renderExpr, renderLit, renderBin, hra, hrb,
           Sparkle.Backend.Verilog.emitExpr, Sparkle.Backend.Verilog.emitOperator]
       all_goals try split
-      all_goals simp_all [renderExpr, renderBin, hra, hrb, String.append_assoc, ToString.toString]
+      all_goals simp_all [renderExpr, renderLit, renderBin, hra, hrb,
+        String.append_assoc, ToString.toString]
       all_goals try simp_all only [← not_and]
       all_goals try simp_all only [ite_false, Option.bind_some, Option.some.injEq]
       all_goals
@@ -199,6 +238,32 @@ theorem emitExpr_render_all {e : Expr} (h : PrintShape e) (wof : String → Opti
     obtain ⟨sf, hsf, hrf⟩ := iff
     exact ⟨.ternary sc st sf, by simp [emitAstExpr, hsc, hst, hsf],
       by simp [renderExpr, hrc, hrt, hrf, Sparkle.Backend.Verilog.emitExpr]⟩
+  | zext v k x =>
+    obtain ⟨l, hsl, hrl⟩ := render_const wof v k
+    have hstr : Sparkle.Backend.Verilog.emitExpr wof (.concat [.const v k, .ref x]) =
+        s!"\{{String.intercalate ", " [Sparkle.Backend.Verilog.emitExpr wof (.const v k),
+          Sparkle.Backend.Verilog.sanitizeName x]}}" := by
+      simp only [Sparkle.Backend.Verilog.emitExpr, List.attach, List.attachWith,
+        List.map_cons, List.map_nil, List.pmap]
+    refine ⟨.concat [.lit l, .ident (Sparkle.Backend.Verilog.sanitizeName x)], ?_, ?_⟩
+    · simp only [emitAstExpr, Tools.SVParser.EmitAst.emitConcatElems, bind] at hsl ⊢
+      rw [hsl]
+      rfl
+    · rw [hstr]
+      simp only [renderExpr, hrl, bind, Option.bind_some]
+  | castRef x w hw =>
+    have harm : ((0 == 0 : Bool) && (w - 1 + 1 == w)) = true := by
+      simp only [beq_self_eq_true, Bool.true_and, beq_iff_eq]
+      omega
+    have hstr : Sparkle.Backend.Verilog.emitExpr wof
+        (.slice (.concat [.const 0 w, .ref x]) (w - 1) 0) =
+        s!"{w}'({Sparkle.Backend.Verilog.sanitizeName x})" := by
+      simp only [Sparkle.Backend.Verilog.emitExpr, harm, if_true]
+    refine ⟨.sizeCast w (.ident (Sparkle.Backend.Verilog.sanitizeName x)), ?_, ?_⟩
+    · simp only [emitAstExpr, harm, if_true, bind, Option.bind_some]
+    · have hw' : ¬ w = 0 := by omega
+      rw [hstr]
+      simp only [renderExpr, hw', if_false, bind, Option.bind_some]
 
 /-- Arbitrarily nested expressions, including optimizer-inserted masks. -/
 theorem emitExpr_render {e : Expr} (h : Shape e) (wof : String → Option Nat) :
@@ -212,7 +277,7 @@ theorem emitExpr_render {e : Expr} (h : Shape e) (wof : String → Option Nat) :
     · simp [emitAstExpr, hn]
     · cases v with
       | ofNat v =>
-        simp [renderExpr, hw, Sparkle.Backend.Verilog.emitExpr, Int.repr]
+        simp [renderExpr, renderLit, hw, Sparkle.Backend.Verilog.emitExpr, Int.repr]
         intro hneg
         omega
       | negSucc v => omega

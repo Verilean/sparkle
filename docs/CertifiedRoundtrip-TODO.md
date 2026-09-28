@@ -115,8 +115,21 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   successful entry/dispatcher/pass paths; identify exact uncovered cases.
   [Initial structural inventory](ShippingCompiler-Coverage.md) added; detailed
   success witnesses and exhaustive branch reconciliation remain open.
+- [x] **S3 / width-changing operations (setWidth):** Done. The canonical
+  `Signal.map (BitVec.setWidth w)` / `zeroExtend` form at literal positive
+  widths now has a total certified lowering in `translateFallback`
+  (`translateSetWidthUncachedWith`, sharing the validated cache wrapper):
+  zero-extension emits `{k'd0, x}`, truncation the size-cast `w'(x)` encode,
+  equal widths a plain alias. `Term.setw` extends the unified source; the
+  RTL chain (`simpleRhs`/`TypedExpr`/`PrintShape`/renderer/grammar/binding/
+  zero-width/merge) accepts both IR shapes; `checkedOptimize` keeps cast
+  bodies unchanged (`checkedOptimize_cast`, like the control branch). Gated,
+  72 SV execution cases (`widen`/`narrow`/`rewidth`/`widenAdd`), endpoint
+  instantiated at 8→16, 65→8 and mixed widths. Sign extension is excluded
+  (legacy narrowing path is not certified).
 - [ ] **S3:** Remaining combinational operations and interfaces: remaining mux forms,
-  remaining Bool surface forms/comparison/shift paths, width-changing operations (extend/truncate/slice/concat), successful
+  remaining Bool surface forms/comparison/shift paths, sign extension and general
+  slice/concat surface operations, successful
   aggregate and parameterized/symbolic forms. Close syntax and RTL meaning for
   each extension; inventory determines the complete list.
 - [ ] **S4:** Actual state/register/reset compilation and arbitrary admissible

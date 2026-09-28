@@ -156,6 +156,19 @@ theorem unified_quote_accepted {kinds : Array MixedGateBinder} {dom : Lean.Expr}
       unifiedGateBitsBody kinds w (quote dom binp vinp b)) = true
     rw [canonicalNatLitValue?_natE, ic, ia, ib]
     simp
+  | _, .setw (w := w) w' a, h => by
+    obtain ⟨ha, hpos⟩ := h
+    show unifiedGateBitsBody kinds w' (setwE dom w w' (quote dom binp vinp a)) = true
+    have ia : unifiedGateBitsBody kinds w (quote dom binp vinp a) = true :=
+      unified_quote_accepted hb hv a ha
+    change (canonicalNatLitValue? (natE w') == some w' &&
+      canonicalNatLitValue? (natE w') == some w' &&
+      (match canonicalNatLitValue? (natE w), canonicalNatLitValue? (natE w) with
+       | some ws, some ws' => ws' == ws && 0 < ws &&
+           unifiedGateBitsBody kinds ws (quote dom binp vinp a)
+       | _, _ => false)) = true
+    rw [canonicalNatLitValue?_natE, canonicalNatLitValue?_natE]
+    simp [ia, a.wf_pos ha]
 
 /-- Root acceptance helpers for the unified gate. -/
 theorem root_of_bool {kinds : Array MixedGateBinder} {e : Lean.Expr}
@@ -177,6 +190,15 @@ theorem root_of_mux {kinds : Array MixedGateBinder} {n : Nat} {e : Lean.Expr} (h
     (body : unifiedGateBitsBody kinds n e = true) : unifiedGateRoot kinds e = true := by
   unfold unifiedGateRoot
   rw [mux]
+  simp [body, hn]
+
+theorem root_of_setw {kinds : Array MixedGateBinder} {n : Nat} {e : Lean.Expr} (hn : 0 < n)
+    (mux : canonicalMuxType? e = none)
+    (top : gateTopWidth? (mixedBitKinds kinds) e = none)
+    (swtop : canonicalSetWidthTop? e = some n)
+    (body : unifiedGateBitsBody kinds n e = true) : unifiedGateRoot kinds e = true := by
+  unfold unifiedGateRoot
+  rw [mux, top, swtop]
   simp [body, hn]
 
 set_option maxHeartbeats 1000000 in
@@ -230,6 +252,17 @@ theorem unified_root_accepted {kinds : Array MixedGateBinder} {dom : Lean.Expr} 
       unified_quote_accepted (dom := dom) hb hv (.mux c a b) he
     obtain ⟨hc, ha, hb'⟩ := he
     exact root_of_mux (a.wf_pos ha) (canonicalMuxType?_bitVec ..) body
+  | _, .setw (w := w) w' a, he => by
+    have body : unifiedGateBitsBody kinds w' (setwE dom w w' (quote dom binp vinp a)) = true :=
+      unified_quote_accepted (dom := dom) hb hv (.setw w' a) he
+    obtain ⟨ha, hpos⟩ := he
+    have mux : canonicalMuxType? (setwE dom w w' (quote dom binp vinp a)) = none := rfl
+    have top : gateTopWidth? (mixedBitKinds kinds)
+        (setwE dom w w' (quote dom binp vinp a)) = none := rfl
+    have swtop : canonicalSetWidthTop? (setwE dom w w' (quote dom binp vinp a)) = some w' := by
+      unfold canonicalSetWidthTop?
+      rw [Tools.ShippingUnifiedRecursion.canonicalSetWidth?_setwE dom _ (a.wf_pos ha) hpos]
+    exact root_of_setw hpos mux top swtop body
 
 theorem input_bool_accepted {bs : List (Name × MixedGateBinder)} {j name}
     (pos : bs[j]? = some (name, .bool)) :

@@ -224,6 +224,153 @@ theorem mixedWidth_execution {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld M
     · exact ⟨`x, rfl⟩
     · exact ⟨`y, rfl⟩
 
+-- Width-changing sources through the canonical `Signal.map (BitVec.setWidth w)`
+-- form: zero-extension, truncation, an equal-width cast, and a widened operand
+-- under an arithmetic parent.
+def widen {dom : DomainConfig} (c : Signal dom Bool) (a b : Signal dom (BitVec 8)) :=
+  Signal.map (BitVec.setWidth 16) (Signal.mux c a b + a)
+def narrow {dom : DomainConfig} (c : Signal dom Bool) (x y : Signal dom (BitVec 65)) :=
+  Signal.map (BitVec.setWidth 8) (Signal.mux c x y + x)
+def rewidth {dom : DomainConfig} (c : Signal dom Bool) (a b : Signal dom (BitVec 8)) :=
+  Signal.map (BitVec.setWidth 8) (Signal.mux c a b)
+def widenAdd {dom : DomainConfig} (c : Signal dom Bool) (a b : Signal dom (BitVec 8))
+    (x : Signal dom (BitVec 16)) :=
+  Signal.map (BitVec.setWidth 16) (Signal.mux c a b) + x
+
+def widenTerm : Term (.bits 16) := .setw 16 (.binary .add
+  (.mux (.boolInput 0) (.bitsInput 8 0) (.bitsInput 8 1)) (.bitsInput 8 0))
+def narrowTerm : Term (.bits 8) := .setw 8 (.binary .add
+  (.mux (.boolInput 0) (.bitsInput 65 0) (.bitsInput 65 1)) (.bitsInput 65 0))
+def rewidthTerm : Term (.bits 8) := .setw 8
+  (.mux (.boolInput 0) (.bitsInput 8 0) (.bitsInput 8 1))
+def widenAddVW : Nat → Nat := fun j => if j < 2 then 8 else 16
+def widenAddTerm : Term (.bits 16) := .binary .add
+  (.setw 16 (.mux (.boolInput 0) (.bitsInput 8 0) (.bitsInput 8 1))) (.bitsInput 16 2)
+
+theorem widen_wf : widenTerm.WF 1 2 (fun _ => 8) := by simp [widenTerm, Term.WF]
+theorem narrow_wf : narrowTerm.WF 1 2 (fun _ => 65) := by simp [narrowTerm, Term.WF]
+theorem widenAdd_wf : widenAddTerm.WF 1 3 widenAddVW := by
+  simp [widenAddTerm, Term.WF, widenAddVW]
+
+theorem widen_library {D : DomainConfig} (bi : Nat → Signal D Bool)
+    (vi : (j : Nat) → (w : Nat) → Signal D (BitVec w)) :
+    denote bi vi widenTerm = widen (bi 0) (vi 0 8) (vi 1 8) := rfl
+theorem narrow_library {D : DomainConfig} (bi : Nat → Signal D Bool)
+    (vi : (j : Nat) → (w : Nat) → Signal D (BitVec w)) :
+    denote bi vi narrowTerm = narrow (bi 0) (vi 0 65) (vi 1 65) := rfl
+theorem widenAdd_library {D : DomainConfig} (bi : Nat → Signal D Bool)
+    (vi : (j : Nat) → (w : Nat) → Signal D (BitVec w)) :
+    denote bi vi widenAddTerm = widenAdd (bi 0) (vi 0 8) (vi 1 8) (vi 2 16) := rfl
+
+#def_decl_value widenValue of widen
+def widenBinders : List (Name × MixedGateBinder) :=
+  [(`dom, .domain), (`c, .bool), (`a, .bits 8), (`b, .bits 8)]
+theorem widen_peel : mixedGatePeel widenValue = some (widenBinders,
+    quote (.bvar 3) (fun _ => inputExpr widenBinders.length 1)
+      (fun j => inputExpr widenBinders.length (j + 2)) widenTerm) := rfl
+
+#def_decl_value narrowValue of narrow
+def narrowBinders : List (Name × MixedGateBinder) :=
+  [(`dom, .domain), (`c, .bool), (`x, .bits 65), (`y, .bits 65)]
+theorem narrow_peel : mixedGatePeel narrowValue = some (narrowBinders,
+    quote (.bvar 3) (fun _ => inputExpr narrowBinders.length 1)
+      (fun j => inputExpr narrowBinders.length (j + 2)) narrowTerm) := rfl
+
+#def_decl_value widenAddValue of widenAdd
+def widenAddBinders : List (Name × MixedGateBinder) :=
+  [(`dom, .domain), (`c, .bool), (`a, .bits 8), (`b, .bits 8), (`x, .bits 16)]
+theorem widenAdd_peel : mixedGatePeel widenAddValue = some (widenAddBinders,
+    quote (.bvar 4) (fun _ => inputExpr widenAddBinders.length 1)
+      (fun j => inputExpr widenAddBinders.length (j + 2)) widenAddTerm) := rfl
+
+/-- The unified endpoint on a real zero-extension root: a 16-bit result from
+8-bit mux/arithmetic children. -/
+theorem widen_execution {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinational ``widen) mctx mref cctx cref w (m, design) w')
+    (env : EnvDefines mctx mref cctx cref ``widen widenValue) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = widenBinders.length ∧
+    ∃ cache : IO.Ref (ExprStructMap String),
+      ∀ {D : DomainConfig} (bools : Nat → Signal D Bool)
+        (bits : (j : Nat) → (n : Nat) → Signal D (BitVec n))
+        (tick : Nat) (initial : Env) (mems : MEnv),
+      SourceInputs ``widen widenBinders ids cache
+        (fun j => (bools j).val tick) (fun j n => (bits j n).val tick) initial →
+      ExecutionValue m initial mems
+        ((widen (bools 1) (bits 2 8) (bits 3 8)).val tick).toNat := by
+  apply Tools.ShippingUnifiedExecutionSoundness.execution_source_of_env (kb := 1) (kv := 2)
+    (vw := fun _ => 8) hr env
+    (by intro d hd; simp only [certifiedShape?, hd]; rfl) widen_peel widen_wf
+  · intro j hj
+    have h : j = 0 := by omega
+    subst h
+    exact ⟨`c, rfl⟩
+  · intro j hj
+    have h : j = 0 ∨ j = 1 := by omega
+    rcases h with rfl | rfl
+    · exact ⟨`a, rfl⟩
+    · exact ⟨`b, rfl⟩
+
+/-- The unified endpoint on a real truncation root: an 8-bit result from
+65-bit mux/arithmetic children. -/
+theorem narrow_execution {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinational ``narrow) mctx mref cctx cref w (m, design) w')
+    (env : EnvDefines mctx mref cctx cref ``narrow narrowValue) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = narrowBinders.length ∧
+    ∃ cache : IO.Ref (ExprStructMap String),
+      ∀ {D : DomainConfig} (bools : Nat → Signal D Bool)
+        (bits : (j : Nat) → (n : Nat) → Signal D (BitVec n))
+        (tick : Nat) (initial : Env) (mems : MEnv),
+      SourceInputs ``narrow narrowBinders ids cache
+        (fun j => (bools j).val tick) (fun j n => (bits j n).val tick) initial →
+      ExecutionValue m initial mems
+        ((narrow (bools 1) (bits 2 65) (bits 3 65)).val tick).toNat := by
+  apply Tools.ShippingUnifiedExecutionSoundness.execution_source_of_env (kb := 1) (kv := 2)
+    (vw := fun _ => 65) hr env
+    (by intro d hd; simp only [certifiedShape?, hd]; rfl) narrow_peel narrow_wf
+  · intro j hj
+    have h : j = 0 := by omega
+    subst h
+    exact ⟨`c, rfl⟩
+  · intro j hj
+    have h : j = 0 ∨ j = 1 := by omega
+    rcases h with rfl | rfl
+    · exact ⟨`x, rfl⟩
+    · exact ⟨`y, rfl⟩
+
+/-- The unified endpoint with a widened operand under an arithmetic parent
+at mixed widths. -/
+theorem widenAdd_execution {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinational ``widenAdd) mctx mref cctx cref w (m, design) w')
+    (env : EnvDefines mctx mref cctx cref ``widenAdd widenAddValue) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = widenAddBinders.length ∧
+    ∃ cache : IO.Ref (ExprStructMap String),
+      ∀ {D : DomainConfig} (bools : Nat → Signal D Bool)
+        (bits : (j : Nat) → (n : Nat) → Signal D (BitVec n))
+        (tick : Nat) (initial : Env) (mems : MEnv),
+      SourceInputs ``widenAdd widenAddBinders ids cache
+        (fun j => (bools j).val tick) (fun j n => (bits j n).val tick) initial →
+      ExecutionValue m initial mems
+        ((widenAdd (bools 1) (bits 2 8) (bits 3 8) (bits 4 16)).val tick).toNat := by
+  apply Tools.ShippingUnifiedExecutionSoundness.execution_source_of_env (kb := 1) (kv := 3)
+    (vw := widenAddVW) hr env
+    (by intro d hd; simp only [certifiedShape?, hd]; rfl) widenAdd_peel widenAdd_wf
+  · intro j hj
+    have h : j = 0 := by omega
+    subst h
+    exact ⟨`c, rfl⟩
+  · intro j hj
+    have h : j = 0 ∨ j = 1 ∨ j = 2 := by omega
+    rcases h with rfl | rfl | rfl
+    · exact ⟨`a, rfl⟩
+    · exact ⟨`b, rfl⟩
+    · exact ⟨`x, rfl⟩
+
 open Sparkle.IR.OptCheck Sparkle.IR.ZeroWidth Sparkle.IR.RegDedup
 open Tools.SVParser.AST Tools.SVParser.EmitSem Tools.SVParser.EmitAst
 open Tools.ShippingDeclWidths Tools.ShippingModulePrintSoundness Tools.ShippingSVBridge
@@ -311,7 +458,52 @@ run_cmd liftTermElabM do
             throwError "mixed-width source/SV mismatch: {values}"
           mcount := mcount + 1
   unless mcount == 54 do throwError "mixed-width case count mismatch: {mcount}"
-  logInfo m!"UNIFIED SOURCE REGRESSION: {count} uniform + 54 mixed-width source/SV cases through the extended certified gate"
+  -- Width-changing regression: zero-extension, truncation, equal-width cast,
+  -- and a widened operand under an arithmetic parent.
+  let mut scount : Nat := 0
+  for name in [``widen, ``narrow, ``rewidth, ``widenAdd] do
+    let ci ← getConstInfo name
+    unless (mixedCertifiedShape? false [] ci).isSome do
+      throwError "width-changing source missed the extended gate: {name}"
+    let (raw, _) ← synthesizeCombinationalCore name [] false
+    let (actual, _) ← synthesizeCombinational name
+    for post in [dropZeroWidthModule raw, mergeDuplicates (dropZeroWidthModule raw), actual] do
+      let m := checkedOptimize post
+      unless Tools.ShippingSVBridge.forwardCheck m && assignmentOrderCheck m.body do
+        throwError "width-changing semantic/order checks failed: {name}"
+      let some sv := emitAstModule m | throwError "width-changing AST emission failed: {name}"
+      let some pairs := combItems sv.items |
+        throwError "width-changing body extraction failed: {name}"
+      let widths := astWidths sv
+      for flag in [0, 1] do
+        for p in [(0, 1, 3), (5, 255, 12345), (254, 255, 65535)] do
+          let bs := fun (_ : Nat) => flag == 1
+          let (expected, values) :=
+            if name == ``widen then
+              ((eval bs (fun j w => BitVec.ofNat w (if j == 0 then p.1 else p.2.1))
+                widenTerm).toNat, [flag, p.1, p.2.1])
+            else if name == ``narrow then
+              ((eval bs (fun j w => BitVec.ofNat w
+                  (if j == 0 then p.1 * 2 ^ 40 + p.2.2 else p.2.1 * 2 ^ 30 + 77))
+                narrowTerm).toNat, [flag, p.1 * 2 ^ 40 + p.2.2, p.2.1 * 2 ^ 30 + 77])
+            else if name == ``rewidth then
+              ((eval bs (fun j w => BitVec.ofNat w (if j == 0 then p.1 else p.2.1))
+                rewidthTerm).toNat, [flag, p.1, p.2.1])
+            else
+              ((eval bs (fun j w => BitVec.ofNat w
+                  (if j == 0 then p.1 else if j == 1 then p.2.1 else p.2.2))
+                widenAddTerm).toNat, [flag, p.1, p.2.1, p.2.2])
+          let initial := fun w =>
+            match (((m.inputs.map (·.name)).zip values).find? (fun q => q.1 == w)) with
+            | some (_, v) => v
+            | none => 0
+          let some stable := evalAssignsSV widths (fun _ _ => 0) pairs initial |
+            throwError "width-changing SV evaluation failed: {name}"
+          unless observeUnsignedOutput sv stable "out" == some expected do
+            throwError "width-changing source/SV mismatch: {name}, {values}"
+          scount := scount + 1
+  unless scount == 72 do throwError "width-changing case count mismatch: {scount}"
+  logInfo m!"UNIFIED SOURCE REGRESSION: {count} uniform + 54 mixed-width + {scount} width-changing source/SV cases through the extended certified gate"
 
 -- The source view must not reinterpret a user instance as a library operation.
 example : view (mkApp6 (.const ``HAdd.hAdd [.zero, .zero, .zero])
@@ -334,7 +526,8 @@ run_cmd do
       ``Tools.ShippingUnifiedProtection.fuel_protects,
       ``Tools.ShippingUnifiedProtection.fuel_orders,
       ``Tools.ShippingUnifiedExecutionSoundness.execution_source_of_env,
-      ``nested_execution, ``comparison_execution, ``arithmetic65_execution] do
+      ``nested_execution, ``comparison_execution, ``arithmetic65_execution,
+      ``widen_execution, ``narrow_execution, ``widenAdd_execution] do
     for ax in (← liftCoreM <| collectAxioms name) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do
         throwError "unexpected unified source/cache axiom: {name}: {ax}"

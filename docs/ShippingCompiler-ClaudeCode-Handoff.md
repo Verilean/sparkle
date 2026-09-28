@@ -1,6 +1,6 @@
 # Claude Code 引き継ぎ — Signal DSL → RTL の証明
 
-更新: 2026-09-28(2 回目)。対象ブランチ: `poc/roundtrip-proof`。
+更新: 2026-09-28(3 回目)。対象ブランチ: `poc/roundtrip-proof`。
 S3「相互再帰する mux 合成」の作業単位は完了した。統合 `Term` ドメインの実 fuel 再帰・
 予約親保護・依存順序・入口・出力 RTL 実行の一般定理
 `Tools/ShippingUnifiedExecutionSoundness.lean: execution_source_of_env` が接続済み。
@@ -9,8 +9,13 @@ S3「相互再帰する mux 合成」の作業単位は完了した。統合 `Te
 vector mux のキャッシュ再利用も復旧済み(検証付きラッパー経由、旧 VExpr endpoint は ofV 埋め込みで導出)。
 演算ごとの異幅(per-operation mixed widths)も完了: `Term` は幅インデックス化され
 (`SType.bits w`)、endpoint は入力ごとの幅割当 `vw` を取る。
-次の候補: 幅変更演算(zext/trunc/slice/concat — `handleBitVecOps` の Returns 分解補題が前提)、
-残る組合せ構文、S4–S7。
+幅変更演算(setWidth)も完了: 正のリテラル幅の `Signal.map (BitVec.setWidth w)`/`zeroExtend`
+は `translateFallback` の total lowering(`translateSetWidthUncachedWith`、検証付きキャッシュ共有)
+に入り、`Term.setw` として同じ endpoint に接続済み。拡大は `{k'd0,x}`、縮小は `w'(x)` エンコード、
+同幅は alias。RTL 側連鎖(simpleRhs/TypedExpr/PrintShape/renderer/文法/束縛/zero-width/merge)も
+両 IR 形状を受理し、`checkedOptimize_cast` で cast を含む本体の非変換を証明済み。
+次の候補: 符号拡張(legacy の縮小挙動が未証明なので除外中)、一般の slice/concat 表面演算、
+シンボリック幅、残る組合せ構文、S4–S7。
 
 ## 最初に読むこと
 
@@ -41,7 +46,8 @@ vector mux のキャッシュ再利用も復旧済み(検証付きラッパー�
 | BitVec 結果の mux 木 | 条件が既存 `BExpr`、葉が既存 `FExpr` の `VExpr` について接続済み |
 | mux を算術・比較の子に置く相互再帰 | 完了。`ShippingUnifiedRecursion`(fuel 契約)+ `ShippingUnifiedProtection`(保護・順序)+ `ShippingUnifiedEntrySoundness` + `ShippingUnifiedExecutionSoundness.execution_source_of_env`(両ソート) |
 | 演算ごとの異幅(サブツリー間で異なる正幅) | 完了。幅インデックス付き `Term` と入力別幅割当 `vw` で同じ endpoint に接続 |
-| 幅変更演算(extend/truncate/slice/concat)、残る組合せ構文・インターフェース | 未完。実 handler の Returns 分解と AST/RTL の幅規則が必要。成功分岐との網羅的な突合せも必要 |
+| 幅変更演算(setWidth/zeroExtend の canonical map、リテラル正幅) | 完了。`canonicalSetWidth?` 認識 + total lowering + `Term.setw` で同じ endpoint に接続。拡大 8→16・縮小 65→8・同幅・算術親下の 72 SV 実行ケースで検証 |
+| 符号拡張、一般 slice/concat 表面演算、シンボリック幅、残る組合せ構文・インターフェース | 未完。legacy 経路のまま(一般定理なし)。成功分岐との網羅的な突合せも必要 |
 | 状態・reset、メモリ、階層、成功領域全体の最終合成 | S4–S7、未完 |
 
 既存の主要エンドポイント:
