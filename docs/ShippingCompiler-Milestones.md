@@ -235,9 +235,16 @@ wire name is allocated (`_gen_*`/`_tmp_*`), so `rst`/`out` are never wires,
 and typed assigns have positive declared widths. The zero-width cleanup is
 now proved to be the identity on this register shape (body and width
 environment preserved, so the theorems cover the cleaned
-`SPARKLE_NO_REGDEDUP=1` module of `synthesizeCombinational`). Open in S4:
+`SPARKLE_NO_REGDEDUP=1` module of `synthesizeCombinational`). The enabled register
+(`Signal.registerWithEnable initLit en input`, polymorphic domain) is also
+certified: the total lowering mirrors the legacy order (hold mux reading the
+register output back), and `registerEnable_step_of_env` proves the
+capture/hold cycle recurrence — the fixed source semantics — at the raw core
+module, with `trace_of_cycles` generalized to state-reading updates for the
+`runModule` trace. Open in S4:
 the sequential `mergeDuplicates` (the unvalidated raw merge; the test
-exercises the merged default configuration numerically), feedback (`Signal.loop`/`circuit do`), multiple registers,
+exercises the merged default configuration numerically), zero-width cleanup
+preservation for the ENABLED-register shape, feedback (`Signal.loop`/`circuit do`), multiple registers,
 enable/hold (`registerWithEnable`'s pure semantics has a hold bug to fix
 first), user reset muxes, and sequential emitted-SV text (sequential modules
 pass through `optimizeModule`, unproved). S5–S7 remain unfinished.

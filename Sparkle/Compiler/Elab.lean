@@ -1319,6 +1319,20 @@ def canonicalRegister? : Lean.Expr → Option (Nat × Nat × Lean.Expr)
     else none
   | _ => none
 
+/-- Canonical enabled register: `Signal.registerWithEnable initLit en input`
+    over a polymorphic domain at a literal positive width. Returns
+    `(width, init value, enable, input)`. -/
+def canonicalRegisterEnable? : Lean.Expr → Option (Nat × Nat × Lean.Expr × Lean.Expr)
+  | .app (.app (.app (.app (.app
+      (.const ``Sparkle.Core.Signal.Signal.registerWithEnable _) dom)
+      (.app (.const ``BitVec _) wE)) initE) enE) inpE =>
+    if dom.isFVar || dom.isBVar then
+      match canonicalNatLitValue? wE, bitVecLitValue? initE with
+      | some w, some (wi, v) => if 0 < w && wi == w then some (w, v, enE, inpE) else none
+      | _, _ => none
+    else none
+  | _ => none
+
 /-- Exact canonical muxes need no MetaM result-type oracle. Kept as an action
     so the fallback inference still occurs after recursive child translation. -/
 def muxResultType (e : Lean.Expr) : CompilerM HWType :=
@@ -2063,7 +2077,11 @@ def mixedGateVectorRoot (kinds : Array MixedGateBinder) (e : Lean.Expr) : Bool :
 def unifiedRegisterRoot (kinds : Array MixedGateBinder) (e : Lean.Expr) : Bool :=
   match canonicalRegister? e with
   | some (w, _, a) => 0 < w && unifiedGateBitsBody kinds w a
-  | none => false
+  | none =>
+    match canonicalRegisterEnable? e with
+    | some (w, _, en, a) =>
+      0 < w && unifiedGateBoolBody kinds en && unifiedGateBitsBody kinds w a
+    | none => false
 
 def mixedCertifiedShape? (symbolicMode : Bool) (parameters : List (String × Nat)) :
     ConstantInfo → Option (List (Name × MixedGateBinder) × Lean.Expr)
@@ -4917,6 +4935,20 @@ def translateRegisterUncachedWith (rec : TranslateFn) (w v : Nat) : TranslateFn 
     let cw ← rec e.getAppArgs.back! "reg_in" false false
     CompilerM.emitRegister hint "clk" "rst" (.ref cw) v (.bitVector w) (named := named)
 
+/-- Uncached lowering for the canonical polymorphic-domain enabled register,
+    in the legacy handler's exact order: both children, the hold mux wire,
+    the register fed by the mux, then the mux assignment reading the register
+    output back (the hold path). -/
+def translateRegisterEnableUncachedWith (rec : TranslateFn) (w v : Nat) : TranslateFn :=
+  fun e hint _top named => do
+    let enW ← rec e.getAppArgs[e.getAppArgs.size - 2]! "reg_en" false false
+    let inW ← rec e.getAppArgs.back! "reg_input" false false
+    let muxW ← CompilerM.makeWire (hint ++ "_mux") (.bitVector w)
+    let r ← CompilerM.emitRegister hint "clk" "rst" (.ref muxW) v (.bitVector w)
+      (named := named)
+    CompilerM.emitAssign muxW (.op .mux [.ref enW, .ref inW, .ref r])
+    return r
+
 /-- The existing handler chain (cache wrapper + dispatch) as the fallback. -/
 def translateFallback (rec : TranslateFn) : TranslateFn :=
   fun e hint top named =>
@@ -4943,7 +4975,13 @@ def translateFallback (rec : TranslateFn) : TranslateFn :=
             -- Canonical polymorphic-domain registers take the total lowering;
             -- concrete domains keep the legacy handler and its inferred kind.
             translateControlCachedWith (translateRegisterUncachedWith rec w v) e hint top named
-          | none => Rec.translateExprToWireCached (fun e h t n => rec e h t n) e hint top named
+          | none =>
+            match canonicalRegisterEnable? e with
+            | some (w, v, _, _) =>
+              translateControlCachedWith (translateRegisterEnableUncachedWith rec w v)
+                e hint top named
+            | none =>
+              Rec.translateExprToWireCached (fun e h t n => rec e h t n) e hint top named
 
 def translateStep : TranslateFn → TranslateFn := translateStepWith translateFallback
 

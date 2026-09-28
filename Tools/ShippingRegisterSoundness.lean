@@ -708,6 +708,526 @@ theorem synthesizeMixedCertified_register_sound {logProf declName bs body m d}
   unfold stepModule
   simp [evalFull, nexts, mem0, bind]
 
+/-! ## The enabled register root -/
+
+/-- `Signal.registerWithEnable (BitVec.ofNat w v) en a`, as the library call
+elaborates over a polymorphic domain. -/
+def registerEnableE (dom : Lean.Expr) (w v : Nat) (en a : Lean.Expr) : Lean.Expr :=
+  mkApp5 (.const ``Sparkle.Core.Signal.Signal.registerWithEnable [.zero]) dom (bitVecE w)
+    (mkApp2 (.const ``BitVec.ofNat []) (natE w) (natE v)) en a
+
+theorem canonicalRegisterEnable?_registerEnableE {dom en a : Lean.Expr} {w v : Nat}
+    (hdom : (dom.isFVar || dom.isBVar) = true) (hw : 0 < w) (hv : v < 2 ^ w) :
+    canonicalRegisterEnable? (registerEnableE dom w v en a) = some (w, v, en, a) := by
+  have hlit := litValue_natE w v hv
+  simp only [mkApp2, mkAppB, mkApp] at hlit
+  simp only [registerEnableE, mkApp5, mkApp4, mkApp2, mkAppB, mkApp, bitVecE,
+    canonicalRegisterEnable?, hdom, if_true, canonicalNatLitValue?_natE, hlit]
+  simp [hw]
+
+theorem instFVars_registerEnableE (xs : Array Lean.Expr) (d : Nat) (dom : Lean.Expr)
+    (w v : Nat) (en a : Lean.Expr) :
+    instFVars xs d (registerEnableE dom w v en a) =
+      registerEnableE (instFVars xs d dom) w v (instFVars xs d en) (instFVars xs d a) := rfl
+
+theorem unifiedRegisterRoot_registerEnableE {kinds : Array MixedGateBinder}
+    {dom en a : Lean.Expr} {w v : Nat}
+    (hdom : (dom.isFVar || dom.isBVar) = true) (hw : 0 < w) (hv : v < 2 ^ w)
+    (henB : unifiedGateBoolBody kinds en = true)
+    (body : unifiedGateBitsBody kinds w a = true) :
+    unifiedRegisterRoot kinds (registerEnableE dom w v en a) = true := by
+  unfold unifiedRegisterRoot
+  have hreg : canonicalRegister? (registerEnableE dom w v en a) = none := rfl
+  rw [hreg, canonicalRegisterEnable?_registerEnableE hdom hw hv]
+  simp [hw, henB, body]
+
+theorem registerEnable_term_gate {d : DefinitionVal} {bs : List (Name × MixedGateBinder)}
+    {dom : Lean.Expr} {w v : Nat} {kb kv : Nat} {vw : Nat → Nat}
+    {bpos vpos : Nat → Nat} {en : Term .bool} {e : Term (.bits w)}
+    (peel : mixedGatePeel d.value = some (bs, registerEnableE dom w v
+      (quote dom (fun j => inputExpr bs.length (bpos j))
+        (fun j => inputExpr bs.length (vpos j)) en)
+      (quote dom (fun j => inputExpr bs.length (bpos j))
+        (fun j => inputExpr bs.length (vpos j)) e)))
+    (hdom : (dom.isFVar || dom.isBVar) = true) (hv : v < 2 ^ w)
+    (hen : en.WF kb kv vw) (he : e.WF kb kv vw)
+    (hb : ∀ j, j < kb → ∃ name, bs[bpos j]? = some (name, .bool))
+    (hvp : ∀ j, j < kv → ∃ name, bs[vpos j]? = some (name, .bits (vw j))) :
+    mixedCertifiedShape? false [] (.defnInfo d) = some (bs, registerEnableE dom w v
+      (quote dom (fun j => inputExpr bs.length (bpos j))
+        (fun j => inputExpr bs.length (vpos j)) en)
+      (quote dom (fun j => inputExpr bs.length (bpos j))
+        (fun j => inputExpr bs.length (vpos j)) e)) := by
+  have henB : unifiedGateBoolBody (bs.map Prod.snd).toArray
+      (quote dom (fun j => inputExpr bs.length (bpos j))
+        (fun j => inputExpr bs.length (vpos j)) en) = true :=
+    unified_quote_accepted
+      (fun j hj => (hb j hj).elim fun name pos => input_bool_accepted pos)
+      (fun j hj => (hvp j hj).elim fun name pos => input_bits_accepted pos) en hen
+  have body : unifiedGateBitsBody (bs.map Prod.snd).toArray w
+      (quote dom (fun j => inputExpr bs.length (bpos j))
+        (fun j => inputExpr bs.length (vpos j)) e) = true :=
+    unified_quote_accepted
+      (fun j hj => (hb j hj).elim fun name pos => input_bool_accepted pos)
+      (fun j hj => (hvp j hj).elim fun name pos => input_bits_accepted pos) e he
+  have root := unifiedRegisterRoot_registerEnableE hdom (e.wf_pos he) hv henB body
+  simp only [mixedCertifiedShape?, Bool.false_or, List.isEmpty_nil, Bool.not_true,
+    Bool.false_eq_true, if_false, peel, root, Bool.or_true, Bool.true_or, if_true]
+
+set_option maxHeartbeats 1000000 in
+theorem registerEnableUncached_registerEnableE (rec : TranslateFn) (dom en ae : Lean.Expr)
+    (w v : Nat) (hint : String) (top named : Bool) :
+    translateRegisterEnableUncachedWith rec w v (registerEnableE dom w v en ae)
+        hint top named =
+      (do
+        let enW ← rec en "reg_en" false false
+        let inW ← rec ae "reg_input" false false
+        let muxW ← CompilerM.makeWire (hint ++ "_mux") (.bitVector w)
+        let r ← CompilerM.emitRegister hint "clk" "rst" (.ref muxW) v (.bitVector w)
+          (named := named)
+        CompilerM.emitAssign muxW (.op .mux [.ref enW, .ref inW, .ref r])
+        return r) := rfl
+
+set_option maxHeartbeats 1000000 in
+theorem registerEnable_step (rec : TranslateFn) (dom en ae : Lean.Expr) (w v : Nat)
+    (hdom : (dom.isFVar || dom.isBVar) = true) (hw : 0 < w) (hv : v < 2 ^ w)
+    (hint : String) (top named : Bool) :
+    translateStepWith translateFallback rec (registerEnableE dom w v en ae) hint top named =
+      translateControlCachedWith (translateRegisterEnableUncachedWith rec w v)
+        (registerEnableE dom w v en ae) hint top named := by
+  have shape : translateCoreShape (registerEnableE dom w v en ae) = false := rfl
+  have core : translateCore rec (registerEnableE dom w v en ae) hint top named =
+    pure none := rfl
+  have control : isBoolControl (registerEnableE dom w v en ae) = false := rfl
+  have mux : canonicalMuxType? (registerEnableE dom w v en ae) = none := rfl
+  have setw : canonicalSetWidth? (registerEnableE dom w v en ae) = none := rfl
+  have reg : canonicalRegister? (registerEnableE dom w v en ae) = none := rfl
+  have regEn := canonicalRegisterEnable?_registerEnableE (en := en) (a := ae) hdom hw hv
+  have step : translateStepWith translateFallback rec (registerEnableE dom w v en ae)
+      hint top named =
+      translateFallback rec (registerEnableE dom w v en ae) hint top named := by
+    simp [translateStepWith, shape, core]
+    rfl
+  rw [step]
+  simp only [translateFallback, control, Bool.false_eq_true, if_false, mux, setw, reg, regEn]
+
+/-- One `stepModule` cycle of the compiled enabled-register module: `out`
+observes the current register value, and the register updates to the input
+cone's value when the enable cone is true, else holds. The seed's register
+value must fit the width (the hold path stores it back). -/
+def RegisterEnablePreserves (declName : Name) (bs : List (Name × MixedGateBinder))
+    (body : Lean.Expr) (m : Sparkle.IR.AST.Module) : Prop :=
+  ∃ ids : List FVarId, ids.Nodup ∧ ids.length = bs.length ∧
+  ∃ cache : IO.Ref (ExprStructMap String),
+    ∀ (dom : Lean.Expr) (kb kv : Nat) (vw : Nat → Nat) (binp vinp : Nat → FVarId)
+      {w v : Nat} (en : Term .bool) (e : Term (.bits w)),
+    (dom.isFVar || dom.isBVar) = true → en.WF kb kv vw → e.WF kb kv vw → v < 2 ^ w →
+    instFVars (ids.map Lean.Expr.fvar).toArray 0 body =
+      registerEnableE dom w v
+        (quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) en)
+        (quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) e) →
+    ∃ r : String,
+    ∀ (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n)
+      (env0 : Env) (mems : MEnv)
+      (bvals : Nat → Bool) (vvals : (j : Nat) → (n : Nat) → BitVec n),
+    let a := start (entryCompilerState false cache) declName.toString
+    let p := prepare bools bits (bs.zip ids) a
+    Admissible bools bits env0 (bs.zip ids) a →
+    (∀ j, j < kb → p.bools (binp j) = some (bvals j)) →
+    (∀ j, j < kv → p.bits (vinp j) = some ⟨vw j, vvals j (vw j)⟩) →
+    env0 "rst" = 0 → env0 r < 2 ^ w →
+    weOf m r = w ∧
+    ∃ envF, stepModule (weOf m) m.body env0 mems =
+        some (envF, [(r, if eval bvals vvals en then (eval bvals vvals e).toNat
+          else env0 r)], mems) ∧
+      envF "out" = env0 r
+
+set_option maxHeartbeats 1000000 in
+theorem synthesizeMixedCertified_registerEnable_sound {logProf declName bs body m d}
+    (hr : MReturns (synthesizeMixedCertified
+      (fun e hint top named => translateExprToWire e hint top named) logProf declName bs body)
+      (m, d)) :
+    RegisterEnablePreserves declName bs body m := by
+  obtain ⟨ids, cache, returned, st, nd, len, run, hm, _, _⟩ := synthesizeMixedCertified_returns hr
+  refine ⟨ids, nd, len, cache, ?_⟩
+  intro dom kb kv vw binp vinp w v en e hdom hen he hv qeq
+  have leaf := prepare_returns (bs.zip ids)
+    (start (entryCompilerState false cache) declName.toString) (bools := fun _ => false)
+    (bits := fun _ _ => 0) run
+  rw [qeq] at leaf
+  obtain ⟨rW, sm, ty, tr, freshOut, ht, hty⟩ := emitLeaves_single leaf
+  have stepEq : translateExprToWire (registerEnableE dom w v
+        (quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) en)
+        (quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) e)) "out" false true =
+      translateControlCachedWith (translateRegisterEnableUncachedWith
+          (translateFuelFix translateStep 1048575) w v)
+        (registerEnableE dom w v
+          (quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) en)
+          (quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) e))
+        "out" false true := by
+    show translateStepWith translateFallback (translateFuelFix translateStep 1048575)
+      (registerEnableE dom w v
+        (quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) en)
+        (quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) e)) "out" false true = _
+    rw [registerEnable_step _ dom _ _ w v hdom (e.wf_pos he) hv]
+  rw [stepEq] at tr
+  have empty0 := empty_layout (entryCompilerState false cache) declName.toString (fun _ => 0)
+  have record0 : (prepare (fun _ => false) (fun _ _ => 0) (bs.zip ids)
+      (start (entryCompilerState false cache) declName.toString)).state.translateRecord = {} :=
+    (prepare_layout (bs.zip ids) _ empty0.1 empty0.2 (admissible_zero _ _)).2.2.2
+  rcases translateControlCachedWith_returns tr with hit | ⟨smR, missRun, record⟩
+  · obtain ⟨-, hrec⟩ := cacheLookupValidated_returns hit
+    have dead := hrec rW rfl
+    rw [record0] at dead
+    simp at dead
+  rw [registerEnableUncached_registerEnableE] at missRun
+  obtain ⟨enW, se, rcEn, missRun⟩ := Returns.bind missRun
+  obtain ⟨inW, sc, rcIn, missRun⟩ := Returns.bind missRun
+  obtain ⟨muxW, s3, rmk, missRun⟩ := Returns.bind missRun
+  obtain ⟨hmuxW, hs3⟩ := makeWire_returns rmk
+  obtain ⟨rW2, s4, remit, missRun⟩ := Returns.bind missRun
+  obtain ⟨hrW2, hs4⟩ := emitRegister_returns remit
+  obtain ⟨u5, s5, rassign, rpure⟩ := Returns.bind missRun
+  have hs5 := emitAssign_returns rassign
+  obtain ⟨hrWeq, hsmR⟩ := Returns.pure rpure
+  subst hrWeq
+  have hrec := recordTranslation_returns record
+  have mws3 := CircuitM.makeWire_spec ("out" ++ "_mux") (.bitVector w) false sc
+  obtain ⟨hrE1, hrE2⟩ :=
+    emitRegisterC_spec "out" "clk" "rst" (.ref muxW) v (.bitVector w) true .asynchronous s3
+  have mws := CircuitM.makeWire_spec "out" (.bitVector w) true s3
+  have hrWm : rW = (CircuitM.makeWire "out" (.bitVector w) true s3).1 := hrW2.trans hrE1
+  have s4Module : s4.module = ((CircuitM.makeWire "out" (.bitVector w) true s3).2.module.addStmt
+      (.register (CircuitM.makeWire "out" (.bitVector w) true s3).1 "clk"
+        ("rst", .asynchronous) (.ref muxW) v)) := by
+    rw [hs4, hrE2]
+  have smModule : sm.module = s5.module := by rw [hrec, hsmR]
+  have stBody : st.module.body =
+      .assign "out" (.ref rW) ::
+        .assign muxW (.op .mux [.ref enW, .ref inW, .ref rW]) ::
+        .register rW "clk" ("rst", .asynchronous) (.ref muxW) v :: sc.module.body := by
+    rw [ht, emitAssign_body_cons, addOutput_state]
+    show _ :: (sm.module.addOutput _).body = _
+    rw [show ∀ (mo : Sparkle.IR.AST.Module) q, (mo.addOutput q).body = mo.body from
+      fun _ _ => rfl, smModule, hs5, emitAssign_body_cons, s4Module]
+    show _ :: _ :: (_ :: (CircuitM.makeWire "out" (.bitVector w) true s3).2.module.body) = _
+    rw [mws.2.2.1, ← hrWm, hs3, mws3.2.2.1]
+  have stWires : st.module.wires = { name := rW, ty := .bitVector w } ::
+      { name := muxW, ty := .bitVector w } :: sc.module.wires := by
+    rw [ht, emitAssign_wires, addOutput_state]
+    show (sm.module.addOutput _).wires = _
+    rw [show ∀ (mo : Sparkle.IR.AST.Module) q, (mo.addOutput q).wires = mo.wires from
+      fun _ _ => rfl, smModule, hs5, emitAssign_wires, s4Module]
+    rw [show ∀ (mo : Sparkle.IR.AST.Module) q, (mo.addStmt q).wires = mo.wires from
+      fun _ _ => rfl]
+    rw [mws.2.2.2, ← hrWm, hs3, mws3.2.2.2, ← hmuxW]
+  have freshMux : sc.usedNames.contains muxW = false := by rw [hmuxW]; exact mws3.1
+  have s3Used : s3.usedNames = sc.usedNames.insert muxW := by
+    rw [hs3, mws3.2.1, ← hmuxW]
+  have freshR3 : s3.usedNames.contains rW = false := by rw [hrWm]; exact mws.1
+  have rNotSc : sc.usedNames.contains rW = false := by
+    rw [s3Used] at freshR3
+    by_cases h : sc.usedNames.contains rW = true
+    · rw [Std.HashSet.contains_insert] at freshR3
+      simp [h] at freshR3
+    · simpa using h
+  have rNeMux : rW ≠ muxW := by
+    intro eq
+    rw [s3Used, eq] at freshR3
+    simp [Std.HashSet.contains_insert] at freshR3
+  have smUsed : sm.usedNames = (sc.usedNames.insert muxW).insert rW := by
+    rw [hrec, hsmR]
+    show s5.usedNames = _
+    rw [hs5, emitAssign_usedNames, hs4, hrE2]
+    show (CircuitM.makeWire "out" (.bitVector w) true s3).2.usedNames = _
+    rw [mws.2.1, ← hrWm, s3Used]
+  have stUsed : st.usedNames = (((sc.usedNames.insert muxW).insert rW).insert "out") := by
+    rw [ht, emitAssign_usedNames, addOutput_state]
+    show (sm.usedNames.insert "out") = _
+    rw [smUsed]
+  have mBody : m.body = sc.module.body.reverse ++
+      [.register rW "clk" ("rst", .asynchronous) (.ref muxW) v,
+       .assign muxW (.op .mux [.ref enW, .ref inW, .ref rW]),
+       .assign "out" (.ref rW)] := by
+    rw [hm]
+    show ((addClockResetIfSequential st.module).finalize).body = _
+    simp only [Module.finalize, (addClockReset_facts st.module).1, stBody]
+    simp
+  have mWires : m.wires = st.module.wires.reverse := by
+    rw [hm]; simp only [Module.finalize, (addClockReset_facts st.module).2.1]
+  refine ⟨rW, ?_⟩
+  intro bools bits env0 mems bvals vvals a p adm hb0 hv0 hrst0 hstb
+  have empty := empty_layout (entryCompilerState false cache) declName.toString env0
+  have prepared := prepare_layout (bs.zip ids)
+    (start (entryCompilerState false cache) declName.toString) empty.1 empty.2 adm
+  obtain ⟨pc, ps⟩ := prepare_const (fun _ => false) bools (fun _ _ => 0) bits
+    (bs.zip ids) _ _ rfl rfl
+  rw [pc, ps] at rcEn
+  rw [pc] at rcIn
+  have hb' : ∀ j, j < kb →
+      inputValues (prepare bools bits (bs.zip ids)
+        (start (entryCompilerState false cache) declName.toString)).bools
+        (prepare bools bits (bs.zip ids)
+          (start (entryCompilerState false cache) declName.toString)).bits (binp j) =
+        some (.bool (bvals j)) :=
+    fun j hj => inputValues_bool (hb0 j hj)
+  have separate := prepared.1.separate prepared.2.1
+  have hv' : ∀ j, j < kv →
+      inputValues (prepare bools bits (bs.zip ids)
+        (start (entryCompilerState false cache) declName.toString)).bools
+        (prepare bools bits (bs.zip ids)
+          (start (entryCompilerState false cache) declName.toString)).bits (vinp j) =
+        some (.bits (vw j) (vvals j (vw j))) :=
+    fun j hj => inputValues_bits separate (hv0 j hj)
+  have contractEn := fuel_contract 1048575
+    (ctx := (prepare bools bits (bs.zip ids)
+      (start (entryCompilerState false cache) declName.toString)).context)
+    (we := declaredWidths st) (mems := mems) (initial := env0) (dom := dom) hb' hv' en hen
+  have contractIn := fuel_contract 1048575
+    (ctx := (prepare bools bits (bs.zip ids)
+      (start (entryCompilerState false cache) declName.toString)).context)
+    (we := declaredWidths st) (mems := mems) (initial := env0) (dom := dom) hb' hv' e he
+  have lookup := lookup_of_ports prepared.1 prepared.2.1
+  have fEn := contractEn.frame "reg_en" false false _ se enW lookup rcEn
+  have fIn := contractIn.frame "reg_input" false false se sc inW (lookup.transfer fEn) rcIn
+  have wiresSc : WiresOk sc := fIn.wires (fEn.wires prepared.2.1)
+  have muxNotSc : muxW ∉ sc.module.wires.map (·.name) := by
+    intro hmem
+    obtain ⟨q, hq, eq⟩ := List.mem_map.mp hmem
+    have := wiresSc.2 q hq
+    rw [eq, freshMux] at this
+    cases this
+  have rNotScW : rW ∉ sc.module.wires.map (·.name) := by
+    intro hmem
+    obtain ⟨q, hq, eq⟩ := List.mem_map.mp hmem
+    have := wiresSc.2 q hq
+    rw [eq, rNotSc] at this
+    cases this
+  have wiresSt : WiresOk st := by
+    constructor
+    · rw [stWires]
+      simp only [List.map_cons, List.nodup_cons, List.mem_cons]
+      refine ⟨?_, muxNotSc, wiresSc.1⟩
+      rintro (h | h)
+      · exact rNeMux h
+      · exact rNotScW h
+    · intro q hq
+      rw [stWires] at hq
+      rw [stUsed]
+      rcases List.mem_cons.mp hq with rfl | hq
+      · simp [Std.HashSet.contains_insert]
+      · rcases List.mem_cons.mp hq with rfl | hq
+        · simp [Std.HashSet.contains_insert]
+        · have := wiresSc.2 q hq
+          simp [Std.HashSet.contains_insert, this]
+  have allocSt : ∀ q ∈ st.module.wires, Sparkle.IR.NameHints.Allocated q.name := by
+    intro q hq
+    rw [stWires] at hq
+    rcases List.mem_cons.mp hq with rfl | hq
+    · rw [hrWm]; exact CircuitM.makeWire_allocated "out" (.bitVector w) true s3
+    · rcases List.mem_cons.mp hq with rfl | hq
+      · rw [hmuxW]; exact CircuitM.makeWire_allocated ("out" ++ "_mux") (.bitVector w) false sc
+      · rcases fIn.wireNames q hq with hold | halloc
+        · rcases fEn.wireNames q hold with hold2 | halloc2
+          · exact prepare_wires_allocated bools bits (bs.zip ids) _
+              (by rw [show (start (entryCompilerState false cache) declName.toString).state =
+                  CircuitM.init declName.toString from rfl, init_wires]
+                  intro x hx; cases hx)
+              q hold2
+          · exact halloc2
+        · exact halloc
+  have widthRst : declaredWidths st "rst" = 0 := by
+    unfold Tools.ShippingMixedOutputSoundness.declaredWidths
+    cases hf : st.module.wires.find? (fun q => q.name == "rst") with
+    | none => simp [hf]
+    | some q =>
+      have hq := List.mem_of_find?_eq_some hf
+      have eq : q.name = "rst" := by simpa using List.find?_some hf
+      exact absurd (eq ▸ allocSt q hq) not_allocated_rst
+  have wR : declaredWidths st rW = w := by
+    unfold Tools.ShippingMixedOutputSoundness.declaredWidths
+    rw [stWires]
+    simp [List.find?, Sparkle.IR.Type.HWType.bitWidth]
+  have widthsSc : ScalarWidthsAgree (declaredWidths st) sc := by
+    intro q hq
+    exact declaredWidths_agree wiresSt q (by
+      rw [stWires]; exact List.mem_cons_of_mem _ (List.mem_cons_of_mem _ hq))
+  have widthsSe : ScalarWidthsAgree (declaredWidths st) se := by
+    intro q hq
+    exact widthsSc q (fIn.decls q hq)
+  have inv0 : Inv _ (inputValues _ _) (declaredWidths st) mems env0 _ env0 :=
+    initial_unified
+      (by rw [prepared.2.2.1]; rfl)
+      (by rw [prepared.2.2.2]; rfl)
+      separate
+      (prepared.1.inputs prepared.2.1
+        (by intro q hq; rw [stWires]
+            exact List.mem_cons_of_mem _ (List.mem_cons_of_mem _
+              (fIn.decls q (fEn.decls q hq))))
+        (declaredWidths_agree wiresSt))
+  have enOut := contractEn.sem "reg_en" false false _ se enW env0 inv0 widthsSe rcEn
+  obtain ⟨res1, inv1, val1, fvals1⟩ := enOut.execution
+  have inOut := contractIn.sem "reg_input" false false se sc inW res1 inv1 widthsSc rcIn
+  obtain ⟨res2, inv2, val2, fvals2⟩ := inOut.execution
+  have orderedEn := fuel_orders 1048575 (we := declaredWidths st) (mems := mems)
+    (initial := env0) (dom := dom) hb' hv' en hen "reg_en" false _ se enW env0 rcEn inv0
+    widthsSe (OrderInv.empty (by rw [prepared.2.2.1]; rfl))
+  have orderedIn := fuel_orders 1048575 (we := declaredWidths st) (mems := mems)
+    (initial := env0) (dom := dom) hb' hv' e he "reg_input" false se sc inW res1 rcIn inv1
+    widthsSc orderedEn
+  have seqSc : SeqBody sc.module.finalize.body := by
+    intro stq hq
+    obtain ⟨l, rhs, eq, _⟩ := inv2.typed stq (by
+      change stq ∈ sc.module.body.reverse at hq
+      exact List.mem_reverse.mp hq)
+    exact Or.inl ⟨l, rhs, eq⟩
+  have preAssigns : ∀ stq ∈ sc.module.finalize.body, ∃ l rhs, stq = .assign l rhs := by
+    intro stq hq
+    obtain ⟨l, rhs, eq, _⟩ := inv2.typed stq (by
+      change stq ∈ sc.module.body.reverse at hq
+      exact List.mem_reverse.mp hq)
+    exact ⟨l, rhs, eq⟩
+  have preEq : sc.module.finalize.body = sc.module.body.reverse := by
+    simp [Module.finalize]
+  have notWrites : ∀ z, sc.usedNames.contains z = false →
+      z ∉ Sparkle.IR.Reorder.writesOf sc.module.finalize.body := by
+    intro z hz hwr
+    have hf := writes_mem_footprint hwr
+    rw [preEq] at hf
+    have hfp := (footprint_reverse_mem _ _).mp hf
+    have := orderedIn.2 z hfp
+    rw [hz] at this
+    cases this
+  have rstNotW : "rst" ∉ Sparkle.IR.Reorder.writesOf sc.module.finalize.body := by
+    intro hwr
+    obtain ⟨stq, hst, hz⟩ := List.mem_flatMap.mp hwr
+    obtain ⟨l, rhs, eq, htyped⟩ := inv2.typed stq (by
+      rw [preEq] at hst; exact List.mem_reverse.mp hst)
+    subst eq
+    simp only [Sparkle.IR.Reorder.stmtWrites, List.mem_singleton] at hz
+    subst hz
+    have pos := htyped.positive
+    rw [widthRst] at pos
+    exact Nat.lt_irrefl 0 pos
+  have runsC : evalAssigns (declaredWidths st) mems sc.module.finalize.body env0 = some res2 :=
+    inv2.runs
+  have resR : res2 rW = env0 rW :=
+    evalAssigns_preserved seqSc runsC (notWrites rW rNotSc)
+  have resRst : res2 "rst" = env0 "rst" := evalAssigns_preserved seqSc runsC rstNotW
+  have enUsedSe : se.usedNames.contains enW = true := enOut.used
+  have resEn : res2 enW = Tools.ShippingMuxLoweringSoundness.encodeBool (eval bvals vvals en) :=
+    (fvals2 enW enUsedSe).trans val1
+  have freshOutSm : sm.usedNames.contains "out" = false := freshOut
+  have rNotOut : rW ≠ "out" := by
+    intro eq
+    have hmem : sm.usedNames.contains rW = true := by
+      rw [smUsed]
+      simp [Std.HashSet.contains_insert]
+    rw [eq, freshOutSm] at hmem; cases hmem
+  have muxNotOut : muxW ≠ "out" := by
+    intro eq
+    have hmem : sm.usedNames.contains muxW = true := by
+      rw [smUsed]
+      simp [Std.HashSet.contains_insert]
+    rw [eq, freshOutSm] at hmem; cases hmem
+  have inUsedSc : sc.usedNames.contains inW = true := inOut.used
+  have inNeMux : inW ≠ muxW := by
+    intro eq; rw [eq, freshMux] at inUsedSc; cases inUsedSc
+  have inNeR : inW ≠ rW := by
+    intro eq; rw [eq, rNotSc] at inUsedSc; cases inUsedSc
+  have enUsedSc : sc.usedNames.contains enW = true := fIn.used enW enUsedSe
+  have enNeMux : enW ≠ muxW := by
+    intro eq; rw [eq, freshMux] at enUsedSc; cases enUsedSc
+  have enNeR : enW ≠ rW := by
+    intro eq; rw [eq, rNotSc] at enUsedSc; cases enUsedSc
+  have resIn : res2 inW = (eval bvals vvals e).toNat := val2
+  have hmuxVal : evalExpr (declaredWidths st) res2
+      (.op .mux [.ref enW, .ref inW, .ref rW]) =
+      some (if eval bvals vvals en then (eval bvals vvals e).toNat else env0 rW) := by
+    cases hEn : eval bvals vvals en <;>
+      simp [evalExpr, evalList, evalOp, resEn, resIn, resR, hEn,
+        Tools.ShippingMuxLoweringSoundness.encodeBool]
+  let env3 : Env := fun n => if n = muxW then
+    (if eval bvals vvals en then (eval bvals vvals e).toNat else env0 rW) else res2 n
+  let envF : Env := fun n => if n = "out" then env3 rW else env3 n
+  have evalFull : evalAssigns (declaredWidths st) mems m.body env0 = some envF := by
+    rw [mBody, ← preEq, evalAssigns_append seqSc, runsC]
+    show evalAssigns _ mems
+      (.register rW "clk" ("rst", .asynchronous) (.ref muxW) v ::
+        .assign muxW (.op .mux [.ref enW, .ref inW, .ref rW]) ::
+        .assign "out" (.ref rW) :: []) res2 = _
+    simp only [evalAssigns, bind]
+    rw [hmuxVal]
+    rfl
+  have env3R : env3 rW = env0 rW := by
+    simp only [env3, if_neg rNeMux]
+    exact resR
+  have envFMux : envF muxW =
+      (if eval bvals vvals en then (eval bvals vvals e).toNat else env0 rW) := by
+    simp [envF, env3, muxNotOut]
+  have envFRst : envF "rst" = 0 := by
+    have h1 : ("rst" : String) ≠ "out" := by decide
+    have h2 : ("rst" : String) ≠ muxW := by
+      intro eq
+      have := allocSt { name := muxW, ty := .bitVector w } (by
+        rw [stWires]; exact List.mem_cons_of_mem _ List.mem_cons_self)
+      rw [← eq] at this
+      exact not_allocated_rst this
+    simp only [envF, env3, if_neg h1, if_neg h2]
+    rw [resRst, hrst0]
+  have nexts : regNexts (declaredWidths st) mems m.body envF =
+      some [(rW, if eval bvals vvals en then (eval bvals vvals e).toNat else env0 rW)] := by
+    rw [mBody, ← preEq, regNexts_skip_assigns preAssigns]
+    show regNexts _ mems
+      (.register rW "clk" ("rst", .asynchronous) (.ref muxW) v ::
+        .assign muxW (.op .mux [.ref enW, .ref inW, .ref rW]) ::
+        .assign "out" (.ref rW) :: []) envF = _
+    have maskEq : mask (declaredWidths st rW)
+        (if eval bvals vvals en then (eval bvals vvals e).toNat else env0 rW) =
+        (if eval bvals vvals en then (eval bvals vvals e).toNat else env0 rW) := by
+      rw [wR]
+      cases eval bvals vvals en with
+      | true =>
+        show BitVec.toNat (eval bvals vvals e) % 2 ^ w = _
+        exact Nat.mod_eq_of_lt (BitVec.isLt _)
+      | false =>
+        show env0 rW % 2 ^ w = _
+        exact Nat.mod_eq_of_lt hstb
+    simp [regNexts, evalExpr, envFMux, envFRst, maskEq]
+  have seqM : SeqBody m.body := by
+    rw [mBody, ← preEq]
+    intro stq hq
+    rcases List.mem_append.mp hq with hq | hq
+    · exact Or.inl (preAssigns stq hq)
+    · rcases List.mem_cons.mp hq with rfl | hq
+      · exact Or.inr ⟨_, _, _, _, _, rfl⟩
+      · rcases List.mem_cons.mp hq with rfl | hq
+        · exact Or.inl ⟨_, _, rfl⟩
+        · rcases List.mem_cons.mp hq with rfl | hq
+          · exact Or.inl ⟨_, _, rfl⟩
+          · cases hq
+  have mem0 : memNexts (declaredWidths st) m.body mems envF = some mems := memNexts_seq seqM
+  have scalarSt : ScalarWires st := by
+    intro q hq
+    rw [stWires] at hq
+    rcases List.mem_cons.mp hq with rfl | hq
+    · exact Or.inr ⟨w, rfl⟩
+    · rcases List.mem_cons.mp hq with rfl | hq
+      · exact Or.inr ⟨w, rfl⟩
+      · exact fIn.scalar (fEn.scalar (prepare_shape (bs.zip ids) _ (by
+          intro q hq'
+          rw [show (start (entryCompilerState false cache) declName.toString).state =
+            CircuitM.init declName.toString from rfl, init_wires] at hq'
+          cases hq')).1) q hq
+  have wm : weOf m = declaredWidths st := by
+    rw [weOf_eq_moduleWidths (by
+      intro q hq; rw [mWires, List.mem_reverse] at hq; exact scalarSt q hq)]
+    exact moduleWidths_finish mWires wiresSt
+  refine ⟨by rw [wm]; exact wR, envF, ?_, by simp [envF, env3R]⟩
+  rw [wm]
+  unfold stepModule
+  simp [evalFull, nexts, mem0, bind]
+
 /-! ## Real-entry connection -/
 
 theorem synthesizeFromConst_register_sound {logProf declName ci bs body m d}
@@ -855,41 +1375,197 @@ theorem register_step_of_env {declName : Name} {mctx : Meta.Context}
     (by rw [definition]; exact peel) hdom hvlt he hb hvp
   exact register_source (source bs _ oldGate mixedGate) rfl hdp he hvlt hb hvp
 
+theorem synthesizeFromConst_registerEnable_sound {logProf declName ci bs body m d}
+    (old : certifiedShape? false [] ci = none)
+    (shape : mixedCertifiedShape? false [] ci = some (bs, body))
+    (hr : MReturns (synthesizeFromConst
+      (fun e hint top named => translateExprToWire e hint top named) logProf declName
+      [] false true ci) (m, d)) :
+    RegisterEnablePreserves declName bs body m := by
+  unfold synthesizeFromConst at hr
+  simp only [↓reduceIte, old, shape] at hr
+  peel_bind hr
+  obtain ⟨result, run, hr⟩ := MReturns.bind hr
+  peel_bind hr
+  have eq := MReturns.pure hr
+  subst result
+  exact synthesizeMixedCertified_registerEnable_sound run
+
+theorem synthesizeCombinationalCore_registerEnable_sound {declName : Name}
+    {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {d : Design}
+    (hr : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (m, d) w') :
+    ∃ (ci : ConstantInfo) (w1 w2 : Void IO.RealWorld),
+      RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧
+      ∀ bs body, certifiedShape? false [] ci = none →
+        mixedCertifiedShape? false [] ci = some (bs, body) →
+        RegisterEnablePreserves declName bs body m := by
+  obtain ⟨logProf, ci, w1, w2, w3, get, run⟩ := synthesizeCombinationalCore_reads hr
+  exact ⟨ci, w1, w2, get, fun _ _ old shape =>
+    synthesizeFromConst_registerEnable_sound old shape run.mreturns⟩
+
+/-- Position plumbing for the enabled register root. -/
+theorem registerEnable_source {declName : Name} {bs : List (Name × MixedGateBinder)}
+    {body : Lean.Expr} {m : Sparkle.IR.AST.Module} {dpos : Nat} {w v kb kv : Nat}
+    {vw : Nat → Nat} {bpos vpos : Nat → Nat} {en : Term .bool} {e : Term (.bits w)}
+    (source : RegisterEnablePreserves declName bs body m)
+    (hbody : body = registerEnableE (inputExpr bs.length dpos) w v
+      (quote (inputExpr bs.length dpos) (fun j => inputExpr bs.length (bpos j))
+        (fun j => inputExpr bs.length (vpos j)) en)
+      (quote (inputExpr bs.length dpos) (fun j => inputExpr bs.length (bpos j))
+        (fun j => inputExpr bs.length (vpos j)) e))
+    (hdp : dpos < bs.length)
+    (hen : en.WF kb kv vw) (he : e.WF kb kv vw) (hvlt : v < 2 ^ w)
+    (hb : ∀ j, j < kb → ∃ name, bs[bpos j]? = some (name, .bool))
+    (hvp : ∀ j, j < kv → ∃ name, bs[vpos j]? = some (name, .bits (vw j))) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = bs.length ∧
+    ∃ (cache : IO.Ref (ExprStructMap String)) (r : String),
+      ∀ (bools : Nat → Bool) (bits : (j : Nat) → (n : Nat) → BitVec n)
+        (env0 : Env) (mems : MEnv),
+      SourceInputs declName bs ids cache bools bits env0 →
+      env0 "rst" = 0 → env0 r < 2 ^ w →
+      weOf m r = w ∧
+      ∃ envF, stepModule (weOf m) m.body env0 mems =
+          some (envF, [(r, if eval (fun j => bools (bpos j)) (fun j n => bits (vpos j) n) en
+            then (eval (fun j => bools (bpos j)) (fun j n => bits (vpos j) n) e).toNat
+            else env0 r)], mems) ∧
+        envF "out" = env0 r := by
+  obtain ⟨ids, nd, len, cache, H⟩ := source
+  have qeq : instFVars (ids.map Lean.Expr.fvar).toArray 0 body =
+      registerEnableE (.fvar ids[dpos]!) w v
+        (quote (.fvar ids[dpos]!) (fun j => .fvar ids[bpos j]!)
+          (fun j => .fvar ids[vpos j]!) en)
+        (quote (.fvar ids[dpos]!) (fun j => .fvar ids[bpos j]!)
+          (fun j => .fvar ids[vpos j]!) e) := by
+    rw [hbody, instFVars_registerEnableE, instantiated_input len hdp]
+    rw [show (Lean.Expr.fvar ids[dpos]!) =
+      instFVars (ids.map Lean.Expr.fvar).toArray 0 (inputExpr bs.length dpos) from
+      (instantiated_input len hdp).symm]
+    congr 1
+    · apply instantiated_quote _ _ en hen
+      · intro j hj
+        obtain ⟨name, pos⟩ := hb j hj
+        exact instantiated_input len (List.getElem_of_getElem? pos).choose
+      · intro j hj
+        obtain ⟨name, pos⟩ := hvp j hj
+        exact instantiated_input len (List.getElem_of_getElem? pos).choose
+    · apply instantiated_quote _ _ e he
+      · intro j hj
+        obtain ⟨name, pos⟩ := hb j hj
+        exact instantiated_input len (List.getElem_of_getElem? pos).choose
+      · intro j hj
+        obtain ⟨name, pos⟩ := hvp j hj
+        exact instantiated_input len (List.getElem_of_getElem? pos).choose
+  obtain ⟨r, H⟩ := H (.fvar ids[dpos]!) kb kv vw (fun j => ids[bpos j]!)
+    (fun j => ids[vpos j]!) en e (by rfl) hen he hvlt qeq
+  refine ⟨ids, nd, len, cache, r, ?_⟩
+  intro bools bits env0 mems values hrst0 hstb
+  have fresh : ((bs.zip ids).map Prod.snd).Nodup := by rw [zip_ids len]; exact nd
+  apply H (boolValues ids bools) (bitValues ids bits) env0 mems
+    (fun j => bools (bpos j)) (fun j n => bits (vpos j) n) values _ _ hrst0 hstb
+  · intro j hj
+    obtain ⟨name, pos⟩ := hb j hj
+    have bound := (List.getElem_of_getElem? pos).choose
+    have lookup := prepare_bool_lookup (bools := boolValues ids bools)
+      (bits := bitValues ids bits) (bs.zip ids)
+      (start (entryCompilerState false cache) declName.toString) fresh (zip_member len pos)
+    simpa only [boolValues, index_fresh ids nd (bpos j) (by omega)] using lookup
+  · intro j hj
+    obtain ⟨name, pos⟩ := hvp j hj
+    have bound := (List.getElem_of_getElem? pos).choose
+    have lookup := prepare_bits_lookup (bools := boolValues ids bools)
+      (bits := bitValues ids bits) (bs.zip ids)
+      (start (entryCompilerState false cache) declName.toString) fresh (zip_member len pos)
+    simpa only [bitValues, index_fresh ids nd (vpos j) (by omega)] using lookup
+
+/-- General enabled-register endpoint at the real core entry: each cycle with
+admissible inputs, reset low and a width-bounded register seed observes the
+current value on `out` and updates by the enable/hold recurrence. -/
+theorem registerEnable_step_of_env {declName : Name} {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {wst wst' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {design : Design} {value : Lean.Expr}
+    {bs : List (Name × MixedGateBinder)} {dpos : Nat} {w v kb kv : Nat}
+    {vw : Nat → Nat} {bpos vpos : Nat → Nat} {en : Term .bool} {e : Term (.bits w)}
+    (hr : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref wst
+      (m, design) wst')
+    (env : EnvDefines mctx mref cctx cref declName value)
+    (old : ∀ d : DefinitionVal, d.value = value → certifiedShape? false [] (.defnInfo d) = none)
+    (peel : mixedGatePeel value = some (bs, registerEnableE (inputExpr bs.length dpos) w v
+      (quote (inputExpr bs.length dpos) (fun j => inputExpr bs.length (bpos j))
+        (fun j => inputExpr bs.length (vpos j)) en)
+      (quote (inputExpr bs.length dpos) (fun j => inputExpr bs.length (bpos j))
+        (fun j => inputExpr bs.length (vpos j)) e)))
+    (hdp : dpos < bs.length)
+    (hen : en.WF kb kv vw) (he : e.WF kb kv vw) (hvlt : v < 2 ^ w)
+    (hb : ∀ j, j < kb → ∃ name, bs[bpos j]? = some (name, .bool))
+    (hvp : ∀ j, j < kv → ∃ name, bs[vpos j]? = some (name, .bits (vw j))) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = bs.length ∧
+    ∃ (cache : IO.Ref (ExprStructMap String)) (r : String),
+      ∀ (bools : Nat → Bool) (bits : (j : Nat) → (n : Nat) → BitVec n)
+        (env0 : Env) (mems : MEnv),
+      SourceInputs declName bs ids cache bools bits env0 →
+      env0 "rst" = 0 → env0 r < 2 ^ w →
+      weOf m r = w ∧
+      ∃ envF, stepModule (weOf m) m.body env0 mems =
+          some (envF, [(r, if eval (fun j => bools (bpos j)) (fun j n => bits (vpos j) n) en
+            then (eval (fun j => bools (bpos j)) (fun j n => bits (vpos j) n) e).toNat
+            else env0 r)], mems) ∧
+        envF "out" = env0 r := by
+  obtain ⟨ci, w1, w2, get, source⟩ := synthesizeCombinationalCore_registerEnable_sound hr
+  obtain ⟨d, rfl, definition⟩ := env w1 ci w2 get
+  have oldGate : certifiedShape? false [] (.defnInfo d) = none := old d definition
+  have hdom : ((inputExpr bs.length dpos).isFVar || (inputExpr bs.length dpos).isBVar) = true := by
+    simp only [Tools.ShippingMixedSourceBridge.inputExpr]
+    rfl
+  have mixedGate := registerEnable_term_gate (d := d)
+    (by rw [definition]; exact peel) hdom hvlt hen he hb hvp
+  exact registerEnable_source (source bs _ oldGate mixedGate) rfl hdp hen he hvlt hb hvp
+
 /-! ## Trace iteration -/
 
-/-- Iterating the per-cycle property along `runModule`: cycle `j` (wall-clock,
-oldest first) observes the register state, which follows the recurrence
-`st0 r, F (k-1), F (k-2), …` (`runModule`'s seed index counts down). -/
+/-- Iterating the per-cycle property along `runModule`: cycle `j` (wall
+clock, oldest first) observes the state sequence `S`, which follows the
+recurrence `S 0 = st0 r`, `S (j+1) = F (k-1-j) (S j)` (`runModule`'s seed
+index counts down; the update may read the current state, covering the
+enabled register's hold path). -/
 theorem trace_of_cycles {we : WEnv} {body : List Stmt} {r : String} {mems : MEnv}
-    {seed : Nat → (String → Nat) → Env} {F : Nat → Nat}
+    {seed : Nat → (String → Nat) → Env} {F : Nat → Nat → Nat}
     (step : ∀ t stv, ∃ envF,
-      stepModule we body (seed t stv) mems = some (envF, [(r, F t)], mems) ∧
+      stepModule we body (seed t stv) mems = some (envF, [(r, F t (stv r))], mems) ∧
       envF "out" = stv r) :
-    ∀ (k : Nat) (st0 : String → Nat), ∃ envs,
-      runModule we body seed k st0 mems = some envs ∧ envs.length = k ∧
-      ∀ j (hj : j < envs.length), (envs[j]'hj) "out" =
-        (if j = 0 then st0 r else F (k - j))
-  | 0, st0 => ⟨[], rfl, rfl, fun j hj => absurd hj (Nat.not_lt_zero j)⟩
-  | k + 1, st0 => by
+    ∀ (k : Nat) (st0 : String → Nat) (S : Nat → Nat),
+      S 0 = st0 r → (∀ j, j + 1 ≤ k → S (j + 1) = F (k - 1 - j) (S j)) →
+      ∃ envs, runModule we body seed k st0 mems = some envs ∧ envs.length = k ∧
+        ∀ j (hj : j < envs.length), (envs[j]'hj) "out" = S j
+  | 0, st0, S, hS0, hSs => ⟨[], rfl, rfl, fun j hj => absurd hj (Nat.not_lt_zero j)⟩
+  | k + 1, st0, S, hS0, hSs => by
     obtain ⟨envF, hstep, hout⟩ := step k st0
-    obtain ⟨rest, hrun, hlen, hobs⟩ := trace_of_cycles step k (applyNexts st0 [(r, F k)])
+    have hnext : applyNexts st0 [(r, F k (st0 r))] r = F k (st0 r) := by
+      simp [applyNexts]
+    obtain ⟨rest, hrun, hlen, hobs⟩ := trace_of_cycles step k
+      (applyNexts st0 [(r, F k (st0 r))]) (fun j => S (j + 1))
+      (by
+        show S (0 + 1) = _
+        rw [hnext, hSs 0 (by omega), hS0]
+        simp)
+      (by
+        intro j hj
+        show S (j + 1 + 1) = F (k - 1 - j) (S (j + 1))
+        rw [hSs (j + 1) (by omega)]
+        have hidx : k + 1 - 1 - (j + 1) = k - 1 - j := by omega
+        rw [hidx])
     refine ⟨envF :: rest, ?_, by simp [hlen], ?_⟩
     · unfold runModule
       simp [hstep, bind, hrun]
     · intro j hj
       cases j with
-      | zero => simpa using hout
+      | zero => rw [hS0]; simpa using hout
       | succ i =>
         have hi : i < rest.length := by simpa using hj
-        have hrest := hobs i hi
         have hget : ((envF :: rest)[i + 1]'hj) = rest[i]'hi := by simp
-        rw [hget, hrest]
-        by_cases h0 : i = 0
-        · subst h0
-          simp [applyNexts]
-        · have hik : i < k := by omega
-          simp only [h0, if_false, Nat.succ_ne_zero]
-          congr 1
-          omega
+        rw [hget]
+        exact hobs i hi
 
 end Tools.ShippingRegisterSoundness

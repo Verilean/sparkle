@@ -155,14 +155,26 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   cleaned module — the full `SPARKLE_NO_REGDEDUP=1` configuration of
   `synthesizeCombinational`. The two facts are part of
   `register_step_of_env`'s conclusion.
+- [x] **S4 / enable-hold register:** Done. The canonical polymorphic-domain
+  `Signal.registerWithEnable initLit en input` root has a total lowering in
+  the legacy handler's exact order (enable cone, input cone, hold-mux wire,
+  register fed by the mux, mux assignment reading the register back) and a
+  gate disjunct; the cycle theorem `registerEnable_step_of_env` proves each
+  admissible cycle observes the current value on `out` and updates by the
+  capture/hold recurrence (matching the fixed source semantics from main's
+  d53d5a9), with a width-bounded register seed; the generalized
+  `trace_of_cycles` (state-reading updates) iterates it over `runModule`.
+  12-cycle capture/hold regression and endpoint instantiation with standard
+  axioms in `ShippingRegisterSoundnessTest`.
 - [ ] **S4:** Remaining state/reset scope: the sequential `mergeDuplicates`
   (the UNVALIDATED `mergeDuplicatesRaw`; needs register-bisimulation
   validation or proof — the register test exercises the merged default
   configuration numerically for 12 cycles),
   feedback (`Signal.loop`/`circuit do` register cones reading register
-  outputs), multiple registers, enable/hold (`registerWithEnable`'s pure
-  semantics has a hold bug — its `go` never carries state — fix before
-  proving), user-level reset muxes, and the sequential emitted-SV text
+  outputs), multiple registers, zero-width cleanup preservation for the
+  ENABLED-register shape (its cycle theorem is proved at the raw core
+  module; the source hold semantics was fixed by main's d53d5a9),
+  user-level reset muxes, and the sequential emitted-SV text
   (sequential modules currently pass through `optimizeModule` unproved).
 - [ ] **S5:** Actual memory compilation and trace semantics, including latency,
   masks and supported read/write interactions.
