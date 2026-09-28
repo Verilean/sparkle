@@ -1,4 +1,6 @@
 import Tools.ShippingUnifiedEntrySoundness
+import Tools.ShippingMixedExecutionSoundness
+import Tools.ShippingMixedSourceBridge
 
 /-! Entry and backend connection for the unified mutually recursive source
 domain: muxes under arithmetic/comparison parents and vice versa, at either

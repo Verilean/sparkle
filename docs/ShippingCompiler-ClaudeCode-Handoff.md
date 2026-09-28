@@ -6,7 +6,8 @@ S3「相互再帰する mux 合成」の作業単位は完了した。統合 `Te
 `Tools/ShippingUnifiedExecutionSoundness.lean: execution_source_of_env` が接続済み。
 `mixedCertifiedShape?` に純追加の `unifiedGateRoot` 判定を足し、該当ソースは certified 経路に入る。
 以下の「証明済みと未完の境界」「次の作業単位」は完了分を反映して読むこと。
-次の候補: vector mux のキャッシュ再利用復旧、異幅・幅変更演算、S4–S7。
+vector mux のキャッシュ再利用も復旧済み(検証付きラッパー経由、旧 VExpr endpoint は ofV 埋め込みで導出)。
+次の候補: 異幅・幅変更演算、残る組合せ構文、S4–S7。
 
 ## 最初に読むこと
 
@@ -104,10 +105,10 @@ S3「相互再帰する mux 合成」の作業単位は完了した。統合 `Te
 統合 `Term` のゲートは未接続で、統合テストは該当ソースが現在のゲートでは `none` になることも検査する。
 **ゲートに入らないことと、コンパイラ全体で失敗することは別**。該当ソースは fallback で成功する。
 
-現在、リテラル幅 BitVec mux の fallback は `translateMuxWith rec (pure (.bitVector n)) ...` を直接呼び、
-mux ノード自身ではキャッシュを参照・記録しない。Bool 制御は `translateControlCachedWith`、算術 core は既存キャッシュを使う。
-この回避策で繰り返し mux 木の中間ワイヤが増えることがある。統合基盤の追加だけではキャッシュは復旧していない。
-安全な再利用を復旧する場合は、新不変条件の適用と既存の証明・テストの追従を同時に行う。
+リテラル幅 BitVec mux の fallback は `translateControlCachedWith (translateVectorMuxUncachedWith rec n)` を
+経由するようになった(hit は記録式との構造一致を検証、miss は lowering 後に記録)。
+hit の正当化は統合 `Meaning`/`Records` 不変条件による。旧 `VExpr` endpoint は文を維持したまま
+`ofV` 埋め込みで統合 endpoint から導出される。
 
 ## 次の作業単位と完了条件
 

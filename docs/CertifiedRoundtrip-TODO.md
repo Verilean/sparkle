@@ -95,10 +95,14 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   `ShippingUnifiedSourceTest` instantiates the endpoint on real nested,
   comparison-root and width-65 arithmetic-root declarations and keeps the
   2,322 source/legacy/SV/delta regression cases, now through the certified gate.
-- [ ] **S3 / vector mux reuse:** Wire the stronger invariant through the actual
-  mux recursion and restore safe cache lookup/recording. Vector mux nodes still
-  bypass caching; repeated trees can generate extra intermediate wires. The
-  compiler dispatch and cache policy were not changed by the foundation work.
+- [x] **S3 / vector mux reuse:** Done. `translateFallback` now routes
+  literal-width vector muxes through the shared validated cache wrapper
+  (`translateControlCachedWith` over the new `translateVectorMuxUncachedWith`):
+  a hit is checked against the recorded expression and justified by the unified
+  `Meaning`/`Records` invariant, a miss lowers and records. The unified fuel
+  contract, protection and order inductions cover the cached mux node; the old
+  `VExpr` endpoint keeps its statement and is now derived from the unified
+  endpoint through the `ofV` embedding. Repeated mux subtrees share wires.
 - [ ] **S3:** Build a branch/feature coverage inventory of the actual compiler's
   successful entry/dispatcher/pass paths; identify exact uncovered cases.
   [Initial structural inventory](ShippingCompiler-Coverage.md) added; detailed

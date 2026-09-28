@@ -4821,6 +4821,13 @@ def translateFuelFix (step : TranslateFn → TranslateFn) : Nat → TranslateFn
   | 0 => fun _ _ _ _ => throw (Exception.error .missing "translation fuel exhausted")
   | k + 1 => step (translateFuelFix step k)
 
+/-- Uncached lowering for a canonical literal-width vector mux node. Exposed
+    as a `TranslateFn` so the shared validated-cache wrapper applies to it. -/
+def translateVectorMuxUncachedWith (rec : TranslateFn) (n : Nat) : TranslateFn :=
+  fun e hint _top named =>
+    translateMuxWith rec (pure (.bitVector n)) e.getAppArgs[e.getAppArgs.size - 3]!
+      e.getAppArgs[e.getAppArgs.size - 2]! e.getAppArgs.back! hint named
+
 /-- The existing handler chain (cache wrapper + dispatch) as the fallback. -/
 def translateFallback (rec : TranslateFn) : TranslateFn :=
   fun e hint top named =>
@@ -4832,10 +4839,9 @@ def translateFallback (rec : TranslateFn) : TranslateFn :=
     else
       match canonicalMuxType? e with
       | some (.bitVector n) =>
-        -- Vector mux nodes are translated directly without cache records until
-        -- the recorded source relation includes them. Children retain caching.
-        translateMuxWith rec (pure (.bitVector n)) e.getAppArgs[e.getAppArgs.size - 3]!
-          e.getAppArgs[e.getAppArgs.size - 2]! e.getAppArgs.back! hint named
+        -- Vector mux nodes now share the validated cache wrapper: a hit is
+        -- checked against the recorded expression, a miss lowers and records.
+        translateControlCachedWith (translateVectorMuxUncachedWith rec n) e hint top named
       | _ => Rec.translateExprToWireCached (fun e h t n => rec e h t n) e hint top named
 
 def translateStep : TranslateFn → TranslateFn := translateStepWith translateFallback

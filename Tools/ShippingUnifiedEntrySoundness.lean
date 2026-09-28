@@ -1,4 +1,5 @@
 import Tools.ShippingUnifiedProtection
+import Tools.ShippingContractEntrySoundness
 
 /-! Width-polymorphic output emission from the unified translation contract.
 The prepared port layout supplies the unified input lookup; callers pass no

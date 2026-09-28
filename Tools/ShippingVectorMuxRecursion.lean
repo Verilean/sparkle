@@ -189,10 +189,17 @@ theorem vector_order {ctx ρ β we mems initial rec ce ae be hint named n vc va 
 
 
 set_option maxHeartbeats 1000000 in
+theorem vectorMuxUncached_muxE (rec : TranslateFn) (dom ce ae be : Lean.Expr) (n : Nat)
+    (hint : String) (top named : Bool) :
+    translateVectorMuxUncachedWith rec n (muxE dom (bitVecE n) ce ae be) hint top named =
+      translateMuxWith rec (pure (.bitVector n)) ce ae be hint named := rfl
+
+set_option maxHeartbeats 1000000 in
 theorem vector_step (rec : TranslateFn) (dom ce ae be : Lean.Expr) (n : Nat)
     (hint : String) (top named : Bool) :
     translateStepWith translateFallback rec (muxE dom (bitVecE n) ce ae be) hint top named =
-      translateMuxWith rec (pure (.bitVector n)) ce ae be hint named := by
+      translateControlCachedWith (translateVectorMuxUncachedWith rec n)
+        (muxE dom (bitVecE n) ce ae be) hint top named := by
   have shape : translateCoreShape (muxE dom (bitVecE n) ce ae be) = false := rfl
   have core : translateCore rec (muxE dom (bitVecE n) ce ae be) hint top named = pure none := rfl
   have control : isBoolControl (muxE dom (bitVecE n) ce ae be) = false := by
@@ -205,77 +212,5 @@ theorem vector_step (rec : TranslateFn) (dom ce ae be : Lean.Expr) (n : Nat)
     rfl
   rw [step]
   simp only [translateFallback, control, Bool.false_eq_true, if_false, canonicalMuxType?_bitVec]
-  rfl
-
-theorem vector_contract {rec ctx ρ β we mems initial dom ce ae be n}
-    (c : Bool) (a b : BitVec n) (hn : 0 < n)
-    (cc : Child rec ctx ρ β we mems initial ce "mux_cond" 1 (encodeBool c))
-    (ca : Child rec ctx ρ β we mems initial ae "mux_then" n a.toNat)
-    (cb : Child rec ctx ρ β we mems initial be "mux_else" n b.toNat) :
-    Contract (translateStepWith translateFallback rec) ctx ρ β we mems initial
-      (muxE dom (bitVecE n) ce ae be) n (if c then a else b).toNat := by
-  constructor
-  · intro hint top named s t w lookup hr
-    rw [vector_step] at hr
-    exact (vector_shape cc ca cb lookup hr).1
-  · intro hint top named s t w prior h widths hr
-    rw [vector_step] at hr
-    exact (vector_fresh c a b hn cc ca cb).sem s t w prior h widths hr
-
-/-- No recursive-child or legacy-handler premise: induction follows the
-shipping fuel recursion, including nested vector mux branches. -/
-theorem vector_fuel_contract (fuel : Nat) {ctx ρ β we mems initial dom n kb kv}
-    {binp vinp : Nat → FVarId} {bools : Nat → Bool} {bits : Nat → BitVec n}
-    (hn : 0 < n) (hb : ∀ j, j < kb → ρ (binp j) = some (bools j))
-    (hv : ∀ j, j < kv → β (vinp j) = some ⟨n, bits j⟩) :
-    ∀ e, e.WF kb kv n → Contract (translateFuelFix translateStep fuel) ctx ρ β we mems initial
-      (quoteV dom n (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) e)
-      n (evalV n bools bits e).toNat := by
-  induction fuel with
-  | zero =>
-    intro e he
-    constructor
-    · intro hint top named s t w lookup hr; exact (Returns.throw hr).elim
-    · intro hint top named s t w prior h widths hr; exact (Returns.throw hr).elim
-  | succ fuel ih =>
-    intro e he
-    cases e with
-    | arith e =>
-      exact bits_fuel_contract (fuel + 1) hn
-        (denotesF_inputs (dom := dom) (fun j hj => .fvar (hv j hj)) e he)
-    | mux c a b =>
-      obtain ⟨hc, ha, hb'⟩ := he
-      exact vector_contract _ _ _ hn ((bool_fuel_contract fuel hn hb hv c hc).child "mux_cond")
-        ((ih a ha).child "mux_then") ((ih b hb').child "mux_else")
-
-theorem vector_fuel_orders (fuel : Nat) {ctx ρ β we mems initial dom n kb kv}
-    {binp vinp : Nat → FVarId} {bools : Nat → Bool} {bits : Nat → BitVec n}
-    (hn : 0 < n) (hb : ∀ j, j < kb → ρ (binp j) = some (bools j))
-    (hv : ∀ j, j < kv → β (vinp j) = some ⟨n, bits j⟩) :
-    ∀ e, e.WF kb kv n → ∀ hint named,
-      ActionOrder (translateFuelFix translateStep fuel
-        (quoteV dom n (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) e) hint false named)
-        ctx ρ β we mems initial := by
-  induction fuel with
-  | zero =>
-    intro e he hint named s t w prior hr h widths order
-    exact (Returns.throw hr).elim
-  | succ fuel ih =>
-    intro e he hint named
-    cases e with
-    | arith e =>
-      intro s t w prior hr h widths order
-      exact Tools.ShippingMixedOrderSoundness.fuel_orders (fuel + 1) _ _ _ _ _ _ _ _ _ hn
-        (denotesF_inputs (dom := dom) (fun j hj => .fvar (hv j hj)) e he) hr h widths order
-    | mux c a b =>
-      obtain ⟨hc, ha, hb'⟩ := he
-      change ActionOrder (translateStepWith translateFallback (translateFuelFix translateStep fuel)
-        (muxE dom (bitVecE n) _ _ _) hint false named) _ _ _ _ _ _
-      rw [vector_step]
-      exact vector_order ((bool_fuel_contract fuel hn hb hv c hc).child "mux_cond")
-        ((vector_fuel_contract fuel hn hb hv a ha).child "mux_then")
-        ((vector_fuel_contract fuel hn hb hv b hb').child "mux_else")
-        (bool_fuel_orders fuel hn hb hv c hc "mux_cond" false)
-        (ih a ha "mux_then" false) (ih b hb' "mux_else" false)
 
 end Tools.ShippingVectorMuxRecursion

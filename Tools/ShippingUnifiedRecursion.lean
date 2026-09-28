@@ -23,7 +23,7 @@ open Tools.ShippingMixedRecursion (emit_bool_frame compare_step boolBin_step boo
   boolNot_step translateBoolUncachedWith_boolBin translateBoolBinary_returns typed_bool_bin
   bool_bin_rhs bits_core_frame bits_recorded_frame)
 open Tools.ShippingMixedInvariant (translateStep_fvar_returns)
-open Tools.ShippingVectorMuxRecursion (emit_vector_frame vector_step)
+open Tools.ShippingVectorMuxRecursion (emit_vector_frame vector_step vectorMuxUncached_muxE)
 
 @[simp] theorem toNat_bool (b : Bool) : (Value.bool b).toNat = encodeBool b := rfl
 @[simp] theorem toNat_bits (n : Nat) (v : BitVec n) : (Value.bits n v).toNat = v.toNat := rfl
@@ -873,18 +873,24 @@ theorem vector_fresh {ctx inputs we mems initial rec ce ae be hint named n}
 
 theorem vector_contract {rec ctx inputs we mems initial dom ce ae be n}
     (c : Bool) (a b : BitVec n) (hn : 0 < n)
+    (meaning : Meaning inputs (muxE dom (bitVecE n) ce ae be) (.bits n (if c then a else b)))
     (cc : Child rec ctx inputs we mems initial ce "mux_cond" (.bool c))
     (ca : Child rec ctx inputs we mems initial ae "mux_then" (.bits n a))
     (cb : Child rec ctx inputs we mems initial be "mux_else" (.bits n b)) :
     Contract (translateStepWith translateFallback rec) ctx inputs we mems initial
       (muxE dom (bitVecE n) ce ae be) (.bits n (if c then a else b)) := by
-  constructor
-  · intro hint top named s t w lookup hr
-    rw [vector_step] at hr
-    exact (vector_shape cc ca cb lookup hr).1
-  · intro hint top named s t w prior h widths hr
-    rw [vector_step] at hr
-    exact (vector_fresh c a b hn cc ca cb).sem s t w prior h widths hr
+  have step : ∀ hint top named, ActionSpec
+      (translateStepWith translateFallback rec (muxE dom (bitVecE n) ce ae be) hint top named)
+      ctx inputs we mems initial (.bits n (if c then a else b)) := by
+    intro hint top named
+    rw [vector_step]
+    apply cached_action meaning
+    show FreshAction (translateVectorMuxUncachedWith rec n (muxE dom (bitVecE n) ce ae be)
+      hint top named) ctx inputs we mems initial (.bits n (if c then a else b))
+    rw [vectorMuxUncached_muxE]
+    exact vector_fresh c a b hn cc ca cb
+  exact ⟨fun hint top named => (step hint top named).frame,
+    fun hint top named => (step hint top named).sem⟩
 
 /-- Closed fuel induction for the unified mutually recursive source domain.
 Mux nodes may sit under arithmetic and comparison parents and vice versa. -/
@@ -954,7 +960,7 @@ theorem fuel_contract (fuel : Nat) {ctx : CompilerState} {inputs : FVarId → Op
         exact mux_contract _ _ _ (meaning_quote hb hv (.mux c a b) ⟨hc, ha, hb'⟩)
           ((ih c hc).child "mux_cond") ((ih a ha).child "mux_then") ((ih b hb').child "mux_else")
       | bits =>
-        exact vector_contract _ _ _ hn
+        exact vector_contract _ _ _ hn (meaning_quote hb hv (.mux c a b) ⟨hc, ha, hb'⟩)
           ((ih c hc).child "mux_cond") ((ih a ha).child "mux_then") ((ih b hb').child "mux_else")
 
 /-- Shipping translation needs no recursive-child premise for the unified

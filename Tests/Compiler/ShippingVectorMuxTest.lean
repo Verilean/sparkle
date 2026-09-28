@@ -157,7 +157,7 @@ run_cmd liftTermElabM do
 
 run_cmd do
   if (← get).messages.hasErrors then throwError "Vector mux regression failed"
-  for name in [``vector_fuel_contract, ``vector_fuel_orders,
+  for name in [``Tools.ShippingVectorMuxSoundness.synthesizeMixedCertified_vector_sound,
       ``Tools.ShippingVectorMuxSoundness.execution_source_of_env, ``nested_execution, ``computed_execution] do
     for ax in (← liftCoreM <| collectAxioms name) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do

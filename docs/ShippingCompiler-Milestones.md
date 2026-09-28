@@ -157,10 +157,11 @@ The original Bool endpoint remains a one-bit specialization of the backend.
 (including a source without Bool inputs) and checks 2,772
 source/legacy/SV/delta cases at widths 1/8/65, including shared arithmetic leaves.
 
-Vector mux nodes currently use direct total lowering without cache lookup or
-recording; child translations still use the existing cache. Repeated muxes may
-therefore produce extra intermediate wires. This is an explicit temporary
-implementation tradeoff, not a proof of the legacy mux cache behavior.
+Completed S3 extension: vector mux cache reuse. `translateFallback` now sends
+literal-width vector muxes through the shared validated cache wrapper, so
+repeated mux subtrees reuse one wire. Soundness of hits comes from the unified
+deterministic `Meaning` record invariant; the old `VExpr` vector endpoint keeps
+its statement and is derived from the unified endpoint via the `ofV` embedding.
 
 Mutual source/cache foundation now implemented: `ShippingUnifiedSource` embeds
 all three previous source languages and agrees with library Signal observations.
@@ -187,9 +188,8 @@ of the mutual domain. `ShippingUnifiedSourceTest` instantiates the endpoint on
 nested, comparison-root and width-65 arithmetic-root declarations and keeps
 2,322 source/legacy/SV/delta cases, now through the certified gate.
 
-Still open in S3: proved mux cache reuse (vector mux nodes keep the direct
-uncached lowering; repeated trees may allocate extra wires), varying/mixed
-widths, and the remaining successful interface forms from the inventory.
+Still open in S3: varying/mixed widths and the remaining successful interface
+forms from the inventory.
 S4–S7 (state/reset, memory, hierarchy and final composition) remain unfinished.
 
 ## Trust, validation and work cadence

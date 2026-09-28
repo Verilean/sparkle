@@ -23,7 +23,7 @@ open Tools.ShippingMixedBinarySoundness (Frame ScalarWires binary_returns core_b
 open Tools.ShippingMixedRecursion (emit_bool_frame compare_step boolBin_step boolEq_step
   boolNot_step translateBoolUncachedWith_boolBin translateBoolBinary_returns)
 open Tools.ShippingMixedInvariant (translateStep_fvar_returns)
-open Tools.ShippingVectorMuxRecursion (emit_vector_frame vector_step emit_vector_order)
+open Tools.ShippingVectorMuxRecursion (emit_vector_frame vector_step vectorMuxUncached_muxE emit_vector_order)
 open Tools.ShippingMixedOrderSoundness (emit_bool_order)
 
 /-- The protected name is reserved, absent from the body, not bound to any
@@ -555,6 +555,18 @@ theorem fuel_protects (fuel : Nat) {ctx : CompilerState} {inputs : FVarId → Op
             (quote dom n (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) a)
             (quote dom n (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) b)) hint false named) ctx inputs
         rw [vector_step]
+        have meaning : Meaning inputs
+            (muxE dom (bitVecE n) (quote dom n (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) c)
+              (quote dom n (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) a)
+              (quote dom n (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) b))
+            (pack n .bits (eval n bools bits (.mux c a b))) :=
+          meaning_quote hb hv (.mux c a b) ⟨hc, ha, hb'⟩
+        apply cached_protect meaning
+        show ActionProtect (translateVectorMuxUncachedWith (translateFuelFix translateStep fuel) n
+          (muxE dom (bitVecE n) (quote dom n (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) c)
+            (quote dom n (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) a)
+            (quote dom n (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) b)) hint false named) ctx inputs
+        rw [vectorMuxUncached_muxE]
         exact muxWith_protect _ rfl ((fc c hc).child "mux_cond")
           ((fc a ha).child "mux_then")
           ((fc b hb').child "mux_else")
@@ -1056,6 +1068,13 @@ theorem fuel_orders (fuel : Nat) {ctx : CompilerState} {inputs : FVarId → Opti
             (quote dom n (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) b))
           hint false named) ctx inputs we mems initial
         rw [vector_step]
+        apply cached_order
+        show ActionOrder (translateVectorMuxUncachedWith (translateFuelFix translateStep fuel) n
+          (muxE dom (bitVecE n) (quote dom n (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) c)
+            (quote dom n (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) a)
+            (quote dom n (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) b)) hint false named)
+          ctx inputs we mems initial
+        rw [vectorMuxUncached_muxE]
         exact vector_order ((fuel_contract fuel hn hb hv c hc).child "mux_cond")
           ((fuel_contract fuel hn hb hv a ha).child "mux_then")
           ((fuel_contract fuel hn hb hv b hb').child "mux_else")

@@ -1,4 +1,4 @@
-import Tools.ShippingVectorMuxSoundness
+import Tools.ShippingVectorMuxRecursion
 
 /-! A single source language for mutually nested Bool/BitVec expressions.
 This module describes source meanings and quotation, not compiler correctness.
@@ -10,7 +10,7 @@ open Sparkle.Core.Domain Sparkle.Core.Signal
 open Tools.ShippingEntrySoundness Tools.ShippingScalarSoundness
 open Tools.ShippingBoolSourceSoundness Tools.ShippingBoolLiteralSoundness
 open Tools.ShippingMuxTypeSoundness Tools.ShippingMuxLoweringSoundness
-open Tools.ShippingVectorMuxRecursion Tools.ShippingVectorMuxSoundness
+open Tools.ShippingVectorMuxRecursion
 
 inductive SType where
   | bool | bits
