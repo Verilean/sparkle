@@ -261,9 +261,16 @@ the per-cycle theorem shifts the inner register's value into the outer one
 while the inner steps by the cone, and
 `trace_of_cycles2`/`register2_run_of_env` package the full two-state
 `runModule` trace against the nested source register streams.
+The single-slot `circuit do` is reified onto the loop form: the macro
+destructures its handle tuple with `Prod` projections (matcher-free),
+`canonicalCircuitDo?` recognizes the shape purely and `cdoConeToLoop`
+rewrites coerced register reads into the loop binder, so the certified
+feedback lowering emits the byte-identical module, and
+`map_fst_loop_register`/`cdoAcc_val` identify the source streams.
 Open in S4: the sequential `mergeDuplicates` (the unvalidated raw merge;
 the test exercises the merged default configuration numerically),
-`circuit do`/`runCircuitH` reification onto the loop form, deeper register
+`circuit do` beyond the single-slot shape (multi-slot, Reg-operator
+reads, the endpoint chain stated on the cdo quote form), deeper register
 chains and register networks beyond depth two, user reset muxes, and
 sequential emitted-SV text (sequential modules pass through
 `optimizeModule`, unproved). S5–S7 remain unfinished.

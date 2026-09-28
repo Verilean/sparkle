@@ -1,5 +1,6 @@
 import Tools.ShippingRegisterSoundness
 import Tests.Compiler.ShippingMixedExecutionTest
+import Sparkle.Core.CircuitDo
 
 /-! S4 register foundation tests: a real `Signal.register` declaration over
 the unified combinational domain, its gate acceptance, cycle/trace regression
@@ -487,6 +488,37 @@ theorem regChain_run {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.Stat
   · intro j hj
     rfl
 
+/-- The feedback accumulator written as a single-slot `circuit do`. -/
+def cdoAcc {dom : DomainConfig} (c : Signal dom Bool) (a b : Signal dom (BitVec 8)) :
+    Signal dom (BitVec 8) :=
+  circuit do
+    let r ← Signal.reg (3#8)
+    r <~ Signal.mux c r a + b
+    return r
+
+/-- The same design as an explicit feedback register. -/
+def cdoLoopAcc {dom : DomainConfig} (c : Signal dom Bool) (a b : Signal dom (BitVec 8)) :=
+  Signal.loop (fun s => Signal.register 3#8 (Signal.mux c s a + b))
+
+/-- Source identification: the `circuit do` output stream IS the explicit
+feedback-register stream (definitional unfolding of the reduced single-slot
+`runCircuitH` state plus the `map_fst_loop_register` anchor). -/
+theorem cdoAcc_val {D : DomainConfig} (c : Signal D Bool) (a b : Signal D (BitVec 8))
+    (t : Nat) : (cdoAcc c a b).val t = (cdoLoopAcc c a b).val t := by
+  have hcone : ∀ (s₁ s₂ : Signal D (BitVec 8)) (j : Nat), s₁.val j = s₂.val j →
+      (Signal.mux c s₁ a + b).val j = (Signal.mux c s₂ a + b).val j := by
+    intro s1 s2 j h
+    show (if c.val j then s1.val j else a.val j) + b.val j = _
+    rw [h]
+    rfl
+  have hb : cdoAcc c a b = Signal.map Prod.fst (Signal.loop (fun live =>
+      Sparkle.Core.Signal.bundle2
+        (Signal.register 3#8 (Signal.mux c (Signal.map Prod.fst live) a + b))
+        (Signal.pure ()))) := rfl
+  rw [hb]
+  exact Tools.ShippingRegisterSoundness.map_fst_loop_register 3#8
+    (fun s => Signal.mux c s a + b) hcone t
+
 open Sparkle.IR.AST in
 run_cmd liftTermElabM do
   -- Gate acceptance and multi-cycle numeric regression on the raw module.
@@ -679,7 +711,19 @@ run_cmd liftTermElabM do
     s2 := nextI
     countC := countC + 1
   unless countC == 12 do throwError "chain cycle count mismatch: {countC}"
-  logInfo m!"REGISTER REGRESSION: {count} cycles of the raw synthesized module (and {count2} of the merged default configuration) match the source register recurrence (init 3, reset low); {countH} enabled-register cycles match the capture/hold recurrence (init 5); {countL} feedback cycles match the loop recurrence (init 0); {countC} two-stage chain cycles match the nested register recurrence (inits 1/2)"
+  -- Single-slot circuit do: gate-accepted and synthesized to the SAME
+  -- module as the explicit Signal.loop feedback form (whose cycle/trace
+  -- theorems therefore apply verbatim); source streams identified by
+  -- `cdoAcc_val`.
+  let ciD ← getConstInfo ``cdoAcc
+  unless (mixedCertifiedShape? false [] ciD).isSome do
+    throwError "circuit-do missed the gate"
+  let (md, _) ← synthesizeCombinationalCore ``cdoAcc [] false
+  let (mLoopTwin, _) ← synthesizeCombinationalCore ``cdoLoopAcc [] false
+  unless md.body == mLoopTwin.body && md.wires == mLoopTwin.wires &&
+      md.outputs == mLoopTwin.outputs do
+    throwError "circuit-do module differs from the explicit loop form"
+  logInfo m!"REGISTER REGRESSION: {count} cycles of the raw synthesized module (and {count2} of the merged default configuration) match the source register recurrence (init 3, reset low); {countH} enabled-register cycles match the capture/hold recurrence (init 5); {countL} feedback cycles match the loop recurrence (init 0); {countC} two-stage chain cycles match the nested register recurrence (inits 1/2); the single-slot circuit-do synthesizes to the identical loop-form module"
 
 run_cmd do
   if (← get).messages.hasErrors then throwError "register regression failed"
@@ -699,7 +743,8 @@ run_cmd do
       ``Tools.ShippingRegisterSoundness.trace_of_cycles2,
       ``Tools.ShippingRegisterSoundness.register2_run_of_env,
       ``regAcc_step, ``regHold_step, ``accLoop_step, ``regChain_step,
-      ``regAcc_run, ``regHold_run, ``accLoop_run, ``regChain_run] do
+      ``regAcc_run, ``regHold_run, ``accLoop_run, ``regChain_run,
+      ``Tools.ShippingRegisterSoundness.map_fst_loop_register, ``cdoAcc_val] do
     for ax in (← liftCoreM <| collectAxioms name) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do
         throwError "unexpected register soundness axiom: {name}: {ax}"

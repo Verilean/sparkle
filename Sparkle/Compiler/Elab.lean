@@ -1344,6 +1344,72 @@ def canonicalLoopRegister? : Lean.Expr → Option (Nat × Nat × Lean.Expr)
     else none
   | _ => none
 
+/-- Rewrite the canonical single-slot `circuit do` cone into the loop-binder
+    form: every coerced register read `Prod.fst _ _ r` becomes the binder
+    itself, and the vanished `RegList` binder's index is squeezed out.
+    Fails if the register handle or the handle tuple is used any other
+    way (`d` is the current index of the handle binder). -/
+def cdoConeToLoop : Nat → Lean.Expr → Option Lean.Expr
+  | d, .app (.app (.app (.const ``Prod.fst us) tyA) tyB) (.bvar i) =>
+    if i == d then some (.bvar d)
+    else if i == d + 1 then none
+    else do
+      let tyA' ← cdoConeToLoop d tyA
+      let tyB' ← cdoConeToLoop d tyB
+      some (mkApp3 (.const ``Prod.fst us) tyA' tyB'
+        (.bvar (if i > d + 1 then i - 1 else i)))
+  | d, .bvar i =>
+    if i == d || i == d + 1 then none
+    else some (.bvar (if i > d + 1 then i - 1 else i))
+  | d, .app f a => do some (.app (← cdoConeToLoop d f) (← cdoConeToLoop d a))
+  | d, .lam n t b bi => do
+    some (.lam n (← cdoConeToLoop d t) (← cdoConeToLoop (d + 1) b) bi)
+  | d, .forallE n t b bi => do
+    some (.forallE n (← cdoConeToLoop d t) (← cdoConeToLoop (d + 1) b) bi)
+  | d, .letE n t v b nd => do
+    some (.letE n (← cdoConeToLoop d t) (← cdoConeToLoop d v)
+      (← cdoConeToLoop (d + 1) b) nd)
+  | d, .mdata m b => do some (.mdata m (← cdoConeToLoop d b))
+  | d, .proj st i b => do some (.proj st i (← cdoConeToLoop d b))
+  | _, e => some e
+
+/-- Canonical single-slot `circuit do`: `runCircuitH` at one `BitVec w` slot
+    over a polymorphic domain, the projection-destructured handle, exactly
+    one register write, and the register's own read returned. Yields
+    `(width, init value, cone)` with the cone already in the loop-binder
+    form (`.bvar 0` = the register read), so the certified feedback-register
+    lowering applies unchanged. -/
+def canonicalCircuitDo? (e : Lean.Expr) : Option (Nat × Nat × Lean.Expr) :=
+  if !e.isAppOfArity ``Sparkle.Core.runCircuitH 8 then none else
+  let args := e.getAppArgs
+  let dom := args[0]!
+  if !(dom.isFVar || dom.isBVar) then none else
+  match args[1]!, args[6]!, args[7]! with
+  | .app (.app (.app (.const ``List.cons _) _) (.app (.const ``BitVec _) wE))
+      (.app (.const ``List.nil _) _),
+    .app (.app (.app (.app (.const ``Prod.mk _) _) _) initE) (.const ``Unit.unit _),
+    .lam _ _ (.letE _ _ rval bindBody _) _ =>
+    match canonicalNatLitValue? wE, bitVecLitValue? initE with
+    | some w, some (wi, v) =>
+      if !(0 < w && wi == w) then none else
+      if !(rval.isAppOfArity ``Prod.fst 3 && rval.appArg! == .bvar 0) then none else
+      if !(bindBody.isAppOfArity ``Sparkle.Core.Circuit.bind 6) then none else
+      let bindArgs := bindBody.getAppArgs
+      let nextApp := bindArgs[4]!
+      if !(nextApp.isAppOfArity ``Sparkle.Core.Circuit.next 6 &&
+          nextApp.getAppArgs[4]! == .bvar 0) then none else
+      match bindArgs[5]! with
+      | .lam _ _ pureApp _ =>
+        if !(pureApp.isAppOfArity ``Sparkle.Core.Circuit.pure' 4) then none else
+        let outE := pureApp.appArg!
+        if !(outE.isAppOfArity ``Prod.fst 3 && outE.appArg! == .bvar 1) then none else
+        match cdoConeToLoop 0 nextApp.appArg! with
+        | some cone => some (w, v, cone)
+        | none => none
+      | _ => none
+    | _, _ => none
+  | _, _, _ => none
+
 /-- Canonical enabled register: `Signal.registerWithEnable initLit en input`
     over a polymorphic domain at a literal positive width. Returns
     `(width, init value, enable, input)`. -/
@@ -2117,7 +2183,12 @@ def unifiedRegisterRoot (kinds : Array MixedGateBinder) (e : Lean.Expr) : Bool :
       | some (w, _, cone) =>
         -- The loop binder is one more width-`w` input, at `.bvar 0`.
         0 < w && unifiedGateBitsBody (kinds.push (.bits w)) w cone
-      | none => false
+      | none =>
+        match canonicalCircuitDo? e with
+        | some (w, _, cone) =>
+          -- The single-slot circuit-do cone, already in loop-binder form.
+          0 < w && unifiedGateBitsBody (kinds.push (.bits w)) w cone
+        | none => false
 
 def mixedCertifiedShape? (symbolicMode : Bool) (parameters : List (String × Nat)) :
     ConstantInfo → Option (List (Name × MixedGateBinder) × Lean.Expr)
@@ -5003,6 +5074,23 @@ def translateRegisterEnableUncachedWith (rec : TranslateFn) (w v : Nat) : Transl
     CompilerM.emitAssign muxW (.op .mux [.ref enW, .ref inW, .ref r])
     return r
 
+/-- Uncached lowering for the canonical single-slot `circuit do`: identical
+    to the feedback-register lowering, with the cone taken from the
+    recognizer's loop-form rewrite. -/
+def translateCircuitDoUncachedWith (rec : TranslateFn) (w v : Nat) : TranslateFn :=
+  fun e hint _top named => do
+    let cone := match canonicalCircuitDo? e with
+      | some (_, _, c) => c
+      | none => e
+    let selfId ← CompilerM.liftMetaM Lean.mkFreshFVarId
+    if (← CompilerM.lookupVar selfId).isSome then
+      throw (Exception.error .missing "circuit-do binder id collision")
+    let r ← CompilerM.makeWire hint (.bitVector w) (named := named)
+    CompilerM.bindSourceVariable selfId r
+    let cw ← rec (instFVars #[.fvar selfId] 0 cone) "loop_body" false false
+    CompilerM.emitRegisterStmt r "clk" "rst" (.ref cw) v
+    return r
+
 /-- The existing handler chain (cache wrapper + dispatch) as the fallback. -/
 def translateFallback (rec : TranslateFn) : TranslateFn :=
   fun e hint top named =>
@@ -5040,7 +5128,12 @@ def translateFallback (rec : TranslateFn) : TranslateFn :=
                 translateControlCachedWith (translateLoopRegisterUncachedWith rec w v)
                   e hint top named
               | none =>
-                Rec.translateExprToWireCached (fun e h t n => rec e h t n) e hint top named
+                match canonicalCircuitDo? e with
+                | some (w, v, _) =>
+                  translateControlCachedWith (translateCircuitDoUncachedWith rec w v)
+                    e hint top named
+                | none =>
+                  Rec.translateExprToWireCached (fun e h t n => rec e h t n) e hint top named
 
 def translateStep : TranslateFn → TranslateFn := translateStepWith translateFallback
 

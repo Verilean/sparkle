@@ -228,11 +228,23 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   `map_fst_loop_register` identifies the reduced single-slot
   `runCircuitH` state (`map Prod.fst` of the loop over
   `bundle2 (register …) (pure ())`) with the plain certified
-  feedback-register stream. Phase B (open): a pure recognizer for the
-  single-slot `runCircuitH` application must also normalize register
-  READS inside the cone — they elaborate as `Prod.fst r` coercions and
-  Reg-lifting operator-instance applications, not bare binders — then
-  the certified loop lowering and its whole proof stack apply unchanged.
+  feedback-register stream. Phase B (landed): `canonicalCircuitDo?` purely recognizes the
+  single-slot `runCircuitH` application (polymorphic domain, one
+  `BitVec w` slot, projection-destructured handle, one write, the
+  register's own read returned), `cdoConeToLoop` rewrites the cone into
+  the loop-binder form (coerced `Prod.fst _ _ r` reads become the
+  binder; the vanished `RegList` binder index is squeezed out; any other
+  use of the handle rejects), and `translateCircuitDoUncachedWith` plus
+  a gate disjunct route it through the certified feedback-register
+  lowering. The synthesized module is IDENTICAL to the explicit
+  `Signal.loop` form (checked statement-for-statement in the register
+  test), and `cdoAcc_val` identifies the source streams definitionally
+  through `map_fst_loop_register`, so the loop cycle/trace theorems
+  transfer to `circuit do` sources of this shape. Still open: stating
+  the general endpoint chain directly on the circuit-do quote form,
+  multiple slots, and cones whose reads go through the Reg-lifting
+  operator instances (`r + x` with `r` as a direct operand) rather than
+  the mux-argument coercion form.
 - [ ] **S4:** Remaining state/reset scope: the sequential `mergeDuplicates`
   (the UNVALIDATED `mergeDuplicatesRaw`; needs register-bisimulation
   validation or proof — the register test exercises the merged default
