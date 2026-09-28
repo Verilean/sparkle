@@ -216,6 +216,23 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   instantiated against the nested library `.val` streams, standard axioms
   only). Deeper chains (three or more stages) are gate-rejected and stay
   on the legacy handler.
+- [x] **S4: `circuit do` reification, phase A (groundwork).** The
+  `circuit do` macro now destructures the `RegList` handle tuple with
+  `Prod` projections (`.1`/`.2` `let`s) instead of pattern `let`s: a
+  pattern `let` compiles to a per-declaration auxiliary matcher constant
+  that a pure shape recognizer cannot see through (and accepting
+  arbitrary constants in that position would risk miscompiling sources
+  the legacy path correctly rejects), while the projection form is the
+  definitionally-equal plain term. Verified by rebuilding every
+  circuit-do consumer. The source-level anchor lemma
+  `map_fst_loop_register` identifies the reduced single-slot
+  `runCircuitH` state (`map Prod.fst` of the loop over
+  `bundle2 (register …) (pure ())`) with the plain certified
+  feedback-register stream. Phase B (open): a pure recognizer for the
+  single-slot `runCircuitH` application must also normalize register
+  READS inside the cone — they elaborate as `Prod.fst r` coercions and
+  Reg-lifting operator-instance applications, not bare binders — then
+  the certified loop lowering and its whole proof stack apply unchanged.
 - [ ] **S4:** Remaining state/reset scope: the sequential `mergeDuplicates`
   (the UNVALIDATED `mergeDuplicatesRaw`; needs register-bisimulation
   validation or proof — the register test exercises the merged default

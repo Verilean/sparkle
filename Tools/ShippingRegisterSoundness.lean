@@ -3761,4 +3761,39 @@ theorem register2_run_of_env {declName : Name} {mctx : Meta.Context}
     have hidx : k - 1 - (k - 1 - j) = j := by omega
     rw [hidx]
 
+/-- The reduced single-slot `circuit do` state: `runCircuitH` with one
+register slot builds `Signal.loop` over `bundle2 (register …) (pure ())` and
+observes it through `Signal.map Prod.fst`. That observation is exactly the
+plain feedback-register stream (the anchor for the planned `circuit do`
+reification onto the certified loop shape). -/
+theorem map_fst_loop_register {D : Sparkle.Core.Domain.DomainConfig} {w : Nat}
+    (init : BitVec w)
+    (cone : Sparkle.Core.Signal.Signal D (BitVec w) →
+      Sparkle.Core.Signal.Signal D (BitVec w))
+    (hcone : ∀ (s₁ s₂ : Sparkle.Core.Signal.Signal D (BitVec w)) (t : Nat),
+      s₁.val t = s₂.val t → (cone s₁).val t = (cone s₂).val t) :
+    ∀ t, (Sparkle.Core.Signal.Signal.map Prod.fst (Sparkle.Core.Signal.Signal.loop
+        (fun live => Sparkle.Core.Signal.bundle2
+          (Sparkle.Core.Signal.Signal.register init
+            (cone (Sparkle.Core.Signal.Signal.map Prod.fst live)))
+          (Sparkle.Core.Signal.Signal.pure ())))).val t =
+      (Sparkle.Core.Signal.Signal.loop
+        (fun s => Sparkle.Core.Signal.Signal.register init (cone s))).val t := by
+  have hR := loop_register_val init cone hcone
+  intro t
+  induction t with
+  | zero =>
+    show Prod.fst (Sparkle.Core.Signal.Signal.loopGo _ 0) = _
+    rw [Sparkle.Core.Signal.Signal.loopGo_eq, hR.1]
+    rfl
+  | succ t ih =>
+    show Prod.fst (Sparkle.Core.Signal.Signal.loopGo _ (t + 1)) = _
+    rw [Sparkle.Core.Signal.Signal.loopGo_eq, hR.2 t]
+    show (cone (Sparkle.Core.Signal.Signal.map Prod.fst
+      ⟨fun i => if i < t + 1 then Sparkle.Core.Signal.Signal.loopGo _ i else default⟩)).val t = _
+    apply hcone
+    show Prod.fst (if t < t + 1 then Sparkle.Core.Signal.Signal.loopGo _ t else default) = _
+    rw [if_pos (by omega)]
+    exact ih
+
 end Tools.ShippingRegisterSoundness
