@@ -232,9 +232,12 @@ value and `regNexts` steps it by the unified source cone's value
 the observable trace from the declared initial value is exactly
 `Signal.register`'s stream. Non-interference needed no extra premises: every
 wire name is allocated (`_gen_*`/`_tmp_*`), so `rst`/`out` are never wires,
-and typed assigns have positive declared widths. Open in S4: sequential
-post-processing (the sequential `mergeDuplicates` is the unvalidated raw
-merge), feedback (`Signal.loop`/`circuit do`), multiple registers,
+and typed assigns have positive declared widths. The zero-width cleanup is
+now proved to be the identity on this register shape (body and width
+environment preserved, so the theorems cover the cleaned
+`SPARKLE_NO_REGDEDUP=1` module of `synthesizeCombinational`). Open in S4:
+the sequential `mergeDuplicates` (the unvalidated raw merge; the test
+exercises the merged default configuration numerically), feedback (`Signal.loop`/`circuit do`), multiple registers,
 enable/hold (`registerWithEnable`'s pure semantics has a hold bug to fix
 first), user reset muxes, and sequential emitted-SV text (sequential modules
 pass through `optimizeModule`, unproved). S5–S7 remain unfinished.

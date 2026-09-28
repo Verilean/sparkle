@@ -52,6 +52,8 @@ theorem regAcc_step {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State
       SourceInputs ``regAcc regAccBinders ids cache bools bits env0 →
       env0 "rst" = 0 →
       weOf m r = 8 ∧
+      (Sparkle.IR.ZeroWidth.dropZeroWidthModule m).body = m.body ∧
+      weOf (Sparkle.IR.ZeroWidth.dropZeroWidthModule m) = weOf m ∧
       ∃ envF, stepModule (weOf m) m.body env0 mems =
           some (envF, [(r, (eval (fun _ => bools 1)
             (fun j n => bits (j + 2) n) regAccTerm).toNat)], mems) ∧
@@ -85,6 +87,10 @@ run_cmd liftTermElabM do
   unless rstName == "rst" && init == 3 do throwError "unexpected register fields"
   unless m.inputs.any (·.name == "clk") && m.inputs.any (·.name == "rst") do
     throwError "clock/reset ports missing"
+  -- The zero-width pass is the identity on this sequential shape.
+  let m' := Sparkle.IR.ZeroWidth.dropZeroWidthModule m
+  unless m'.body == m.body do throwError "dropZeroWidth changed the sequential body"
+  unless m'.wires == m.wires do throwError "dropZeroWidth changed the sequential wires"
   let we := Tools.ShippingEntrySoundness.weOf m
   -- Input traces: cycle t feeds (c, a, b); expected is the register recurrence.
   let ctrace := fun (t : Nat) => t % 2 == 1
@@ -110,7 +116,37 @@ run_cmd liftTermElabM do
     state := next
     count := count + 1
   unless count == 12 do throwError "register cycle count mismatch: {count}"
-  logInfo m!"REGISTER REGRESSION: {count} cycles of the raw synthesized module match the source register recurrence (init 3, reset low)"
+  -- Default-configuration evidence: the sequential (unvalidated) duplicate
+  -- merge also preserves the 12-cycle trace here. Its PROOF remains open.
+  let mm := Sparkle.IR.RegDedup.mergeDuplicates m'
+  let regs2 := mm.body.filterMap fun st => match st with
+    | .register o _ _ _ _ => some o
+    | _ => none
+  let [r2] := regs2 | throwError "merged module register count changed: {regs2.length}"
+  let we2 := Tools.ShippingEntrySoundness.weOf mm
+  let mut state2 : Nat := 3
+  let mut count2 : Nat := 0
+  for t in List.range 12 do
+    let env0 := fun (n : String) =>
+      if n == "_gen_c" then (if ctrace t then 1 else 0)
+      else if n == "_gen_a" then atrace t
+      else if n == "_gen_b" then btrace t
+      else if n == r2 then state2
+      else 0
+    let some (envF, nexts, _) := stepModule we2 mm.body env0 |
+      throwError "merged stepModule failed at {t}"
+    unless envF "out" == state2 do
+      throwError "merged cycle {t}: out={envF "out"} expected {state2}"
+    let expected := ((if ctrace t then BitVec.ofNat 8 (atrace t) else BitVec.ofNat 8 (btrace t))
+      + BitVec.ofNat 8 (atrace t)).toNat
+    let some (_, next) := nexts.find? (fun p => p.1 == r2) |
+      throwError "merged register next missing"
+    unless next == expected do
+      throwError "merged cycle {t}: next={next} expected {expected}"
+    state2 := next
+    count2 := count2 + 1
+  unless count2 == 12 do throwError "merged register cycle count mismatch: {count2}"
+  logInfo m!"REGISTER REGRESSION: {count} cycles of the raw synthesized module (and {count2} of the merged default configuration) match the source register recurrence (init 3, reset low)"
 
 run_cmd do
   if (← get).messages.hasErrors then throwError "register regression failed"

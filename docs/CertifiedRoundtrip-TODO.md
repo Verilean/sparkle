@@ -147,9 +147,18 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   no reset primitive, so reset is held low; asserting it re-initializes RTL
   state (outside the source's meaning). 12-cycle numeric regression and a
   standard-axioms endpoint instantiation in `ShippingRegisterSoundnessTest`.
-- [ ] **S4:** Remaining state/reset scope: sequential post-processing
-  preservation (`dropZeroWidthModule`; the sequential `mergeDuplicates` is
-  the UNVALIDATED `mergeDuplicatesRaw` and needs validation or proof),
+- [x] **S4 / zero-width cleanup on the register shape:** Done. On the
+  certified register module, `dropZeroWidthModule` is proved to preserve the
+  body and the whole width environment (every assign target and reference
+  has a positive declared width; the register input is a plain ref; `out` is
+  a positive-width output port), so the cycle/trace theorems transfer to the
+  cleaned module — the full `SPARKLE_NO_REGDEDUP=1` configuration of
+  `synthesizeCombinational`. The two facts are part of
+  `register_step_of_env`'s conclusion.
+- [ ] **S4:** Remaining state/reset scope: the sequential `mergeDuplicates`
+  (the UNVALIDATED `mergeDuplicatesRaw`; needs register-bisimulation
+  validation or proof — the register test exercises the merged default
+  configuration numerically for 12 cycles),
   feedback (`Signal.loop`/`circuit do` register cones reading register
   outputs), multiple registers, enable/hold (`registerWithEnable`'s pure
   semantics has a hold bug — its `go` never carries state — fix before

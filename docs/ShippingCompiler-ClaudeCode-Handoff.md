@@ -53,7 +53,7 @@ total lowering + ゲート経由で certified になり、実 core エントリ�
 | 幅変更演算(setWidth/zeroExtend の canonical map、リテラル正幅) | 完了。`canonicalSetWidth?` 認識 + total lowering + `Term.setw` で同じ endpoint に接続。拡大 8→16・縮小 65→8・同幅・算術親下の 72 SV 実行ケースで検証 |
 | 符号拡張、一般 slice/concat 表面演算、シンボリック幅、残る組合せ構文・インターフェース | 未完。legacy 経路のまま(一般定理なし)。成功分岐との網羅的な突合せも必要 |
 | 単一レジスタ(統合ドメイン上の `Signal.register initLit`、多相ドメイン) | S4 着手・第 1 単位完了。total lowering + ゲート + `ShippingRegisterSoundness`: 実 core エントリの生モジュールについてサイクル定理 `register_step_of_env`(out=現在値、次状態=ソース漸化式、rst=0)と `trace_of_cycles`(runModule トレース、初期値から)。公理は標準 3 つのみ |
-| S4 残り: sequential 後処理(mergeDuplicatesRaw は無検証)、フィードバック(Signal.loop/circuit do)、複数レジスタ、enable(`registerWithEnable` はソース意味論に hold バグあり—要修正)、reset mux、sequential の SV テキスト(optimizeModule 経由・未証明) | 未完 |
+| dropZeroWidth は certified レジスタ形状で body/weOf 保存を証明済み(SPARKLE_NO_REGDEDUP=1 構成をカバー)。S4 残り: sequential 重複マージ(mergeDuplicatesRaw は無検証・レジスタ双模倣が必要、テストは既定構成を 12 サイクル数値検証)、フィードバック(Signal.loop/circuit do)、複数レジスタ、enable(`registerWithEnable` はソース意味論に hold バグあり—要修正)、reset mux、sequential の SV テキスト(optimizeModule 経由・未証明) | 未完 |
 | メモリ、階層、成功領域全体の最終合成 | S5–S7、未完 |
 
 既存の主要エンドポイント:
