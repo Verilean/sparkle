@@ -2101,7 +2101,13 @@ def mixedGateVectorRoot (kinds : Array MixedGateBinder) (e : Lean.Expr) : Bool :
     recognized width-`w` source. -/
 def unifiedRegisterRoot (kinds : Array MixedGateBinder) (e : Lean.Expr) : Bool :=
   match canonicalRegister? e with
-  | some (w, _, a) => 0 < w && unifiedGateBitsBody kinds w a
+  | some (w, _, a) =>
+    -- A recognized width-`w` source, or one more cascaded register stage
+    -- (a shift chain of depth two) over such a source.
+    0 < w && (unifiedGateBitsBody kinds w a ||
+      match canonicalRegister? a with
+      | some (w2, _, a2) => w2 == w && unifiedGateBitsBody kinds w a2
+      | none => false)
   | none =>
     match canonicalRegisterEnable? e with
     | some (w, _, en, a) =>

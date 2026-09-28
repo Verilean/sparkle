@@ -254,11 +254,19 @@ and `loopRegister_run_of_env` state that the compiled `runModule` trace
 observes the source register stream itself, identified against the library
 `.val` streams via `loop_register_val` and the definitional
 `registerWithEnable_val` (`regAcc_run`/`regHold_run`/`accLoop_run`).
+Multiple registers have their first certified shape: the two-stage shift
+chain (`Signal.register i1 (Signal.register i2 cone)`) is gate-accepted
+and proved end to end — the monolith decomposes both fuel-fixpoint levels,
+the per-cycle theorem shifts the inner register's value into the outer one
+while the inner steps by the cone, and
+`trace_of_cycles2`/`register2_run_of_env` package the full two-state
+`runModule` trace against the nested source register streams.
 Open in S4: the sequential `mergeDuplicates` (the unvalidated raw merge;
 the test exercises the merged default configuration numerically),
-`circuit do`/`runCircuitH` reification onto the loop form, multiple
-registers, user reset muxes, and sequential emitted-SV text (sequential
-modules pass through `optimizeModule`, unproved). S5–S7 remain unfinished.
+`circuit do`/`runCircuitH` reification onto the loop form, deeper register
+chains and register networks beyond depth two, user reset muxes, and
+sequential emitted-SV text (sequential modules pass through
+`optimizeModule`, unproved). S5–S7 remain unfinished.
 
 ## Trust, validation and work cadence
 

@@ -198,6 +198,24 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   stream recurrence); `regAcc_run`/`regHold_run` instantiate them against
   the library `.val` streams, so all three certified register shapes now
   expose the full `runModule` trace as the source stream.
+- [x] **S4: multiple registers — the two-stage shift chain.** The gate's
+  register root now also accepts one cascaded register stage
+  (`Signal.register i1 (Signal.register i2 cone)`, same width both
+  stages); the translation itself was already recursive, so the compiler
+  is unchanged apart from the gate disjunct. The monolith
+  `synthesizeMixedCertified_register2_sound` decomposes BOTH fuel-fixpoint
+  levels (outer register at fuel 1048575, inner at 1048574, cone contract
+  at 1048574), kills both validated cache hits against the empty prepared
+  record, and proves the two-register cycle: `out` observes the outer
+  register, the outer register shifts in the inner one's (width-bounded)
+  value, and the inner register steps by the cone; zero-width cleanup is
+  proved to preserve the shape. `register2_step_of_env` exposes it at the
+  real core entry, `trace_of_cycles2` iterates the two-state recurrence,
+  and `register2_run_of_env` packages the full trace (`regChain` test:
+  gate acceptance, 12-cycle regression against both registers, endpoints
+  instantiated against the nested library `.val` streams, standard axioms
+  only). Deeper chains (three or more stages) are gate-rejected and stay
+  on the legacy handler.
 - [ ] **S4:** Remaining state/reset scope: the sequential `mergeDuplicates`
   (the UNVALIDATED `mergeDuplicatesRaw`; needs register-bisimulation
   validation or proof — the register test exercises the merged default

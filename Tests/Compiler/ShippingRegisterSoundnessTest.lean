@@ -377,6 +377,116 @@ theorem regHold_run {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State
       cases hc2 : (bools 2).val j <;>
         simp [eval, regHoldTerm, Tools.ShippingScalarSoundness.Binary.apply, hc2]
 
+/-- A two-stage shift chain: the mux/arithmetic cone feeds the inner
+register, whose output feeds the outer register. -/
+def regChain {dom : DomainConfig} (c : Signal dom Bool) (a b : Signal dom (BitVec 8)) :=
+  Signal.register 1#8 (Signal.register 2#8 (Signal.mux c a b + a))
+
+#def_decl_value regChainValue of regChain
+def regChainBinders : List (Name × MixedGateBinder) :=
+  [(`dom, .domain), (`c, .bool), (`a, .bits 8), (`b, .bits 8)]
+theorem regChain_peel : mixedGatePeel regChainValue = some (regChainBinders,
+    registerE (inputExpr regChainBinders.length 0) 8 1
+      (registerE (inputExpr regChainBinders.length 0) 8 2
+        (quote (inputExpr regChainBinders.length 0)
+          (fun _ => inputExpr regChainBinders.length 1)
+          (fun j => inputExpr regChainBinders.length (j + 2)) regAccTerm))) := rfl
+
+/-- The two-stage chain endpoint on the real declaration: each cycle
+observes the outer register, shifts the inner value outward, and steps the
+inner register by the source cone. -/
+theorem regChain_step {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+    {wst wst' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore ``regChain [] false) mctx mref cctx cref wst
+      (m, design) wst')
+    (env : EnvDefines mctx mref cctx cref ``regChain regChainValue) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = regChainBinders.length ∧
+    ∃ (cache : IO.Ref (ExprStructMap String)) (r1 r2 : String), r1 ≠ r2 ∧
+      ∀ (bools : Nat → Bool) (bits : (j : Nat) → (n : Nat) → BitVec n)
+        (env0 : Env) (mems : MEnv),
+      SourceInputs ``regChain regChainBinders ids cache bools bits env0 →
+      env0 "rst" = 0 → env0 r2 < 2 ^ 8 →
+      weOf m r1 = 8 ∧ weOf m r2 = 8 ∧
+      (Sparkle.IR.ZeroWidth.dropZeroWidthModule m).body = m.body ∧
+      weOf (Sparkle.IR.ZeroWidth.dropZeroWidthModule m) = weOf m ∧
+      ∃ envF, stepModule (weOf m) m.body env0 mems =
+          some (envF, [(r2, (eval (fun _ => bools 1)
+            (fun j n => bits (j + 2) n) regAccTerm).toNat), (r1, env0 r2)], mems) ∧
+        envF "out" = env0 r1 := by
+  apply Tools.ShippingRegisterSoundness.register2_step_of_env (kb := 1) (kv := 2)
+    (vw := fun _ => 8) (bpos := fun _ => 1) (vpos := fun j => j + 2) hr env
+    (by intro d hd; simp only [certifiedShape?, hd]; rfl) regChain_peel
+    (by simp [regChainBinders]) regAcc_wf (by decide) (by decide)
+  · intro j hj
+    have h : j = 0 := by omega
+    subst h
+    exact ⟨`c, rfl⟩
+  · intro j hj
+    have h : j = 0 ∨ j = 1 := by omega
+    rcases h with rfl | rfl
+    · exact ⟨`a, rfl⟩
+    · exact ⟨`b, rfl⟩
+
+/-- The full trace endpoint for the chain: the compiled module's `runModule`
+trace observes exactly the nested source `Signal.register` streams. -/
+theorem regChain_run {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+    {wst wst' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore ``regChain [] false) mctx mref cctx cref wst
+      (m, design) wst')
+    (env : EnvDefines mctx mref cctx cref ``regChain regChainValue) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = regChainBinders.length ∧
+    ∃ (cache : IO.Ref (ExprStructMap String)) (r1 r2 : String), r1 ≠ r2 ∧
+      ∀ {D : DomainConfig} (bools : Nat → Signal D Bool)
+        (bits : (j : Nat) → (n : Nat) → Signal D (BitVec n))
+        (mems : MEnv) (k : Nat) (seed : Nat → (String → Nat) → Env)
+        (st0 : String → Nat),
+      (∀ t stv, SourceInputs ``regChain regChainBinders ids cache
+          (fun i => (bools i).val (k - 1 - t)) (fun i n => (bits i n).val (k - 1 - t))
+          (seed t stv) ∧ seed t stv "rst" = 0 ∧
+          seed t stv r1 = stv r1 ∧ seed t stv r2 = stv r2) →
+      st0 r1 = 1 → st0 r2 = 2 →
+      ∃ envs, runModule (weOf m) m.body seed k st0 mems = some envs ∧ envs.length = k ∧
+        ∀ j (hj : j < envs.length), (envs[j]'hj) "out" =
+          ((regChain (bools 1) (bits 2 8) (bits 3 8)).val j).toNat := by
+  have packaged := Tools.ShippingRegisterSoundness.register2_run_of_env (kb := 1) (kv := 2)
+    (vw := fun _ => 8) (bpos := fun _ => 1) (vpos := fun j => j + 2) hr env
+    (by intro d hd; simp only [certifiedShape?, hd]; rfl) regChain_peel
+    (by simp [regChainBinders]) regAcc_wf (by decide) (by decide)
+    (by
+      intro j hj
+      have h : j = 0 := by omega
+      subst h
+      exact ⟨`c, rfl⟩)
+    (by
+      intro j hj
+      have h : j = 0 ∨ j = 1 := by omega
+      rcases h with rfl | rfl
+      · exact ⟨`a, rfl⟩
+      · exact ⟨`b, rfl⟩)
+  obtain ⟨ids, nd, len, cache, r1, r2, hne, H⟩ := packaged
+  refine ⟨ids, nd, len, cache, r1, r2, hne, ?_⟩
+  intro D bools bits mems k seed st0 hseed hst01 hst02
+  apply H (fun wall i => (bools i).val wall) (fun wall i n => (bits i n).val wall)
+    mems k seed st0
+    (fun j => ((regChain (bools 1) (bits 2 8) (bits 3 8)).val j).toNat)
+    (fun j => ((Signal.register 2#8
+      (Signal.mux (bools 1) (bits 2 8) (bits 3 8) + bits 2 8)).val j).toNat)
+    hseed (by rw [hst02]; decide)
+  · rw [hst01]
+    rfl
+  · rw [hst02]
+    rfl
+  · intro j hj
+    show ((Signal.mux (bools 1) (bits 2 8) (bits 3 8) + bits 2 8).val j).toNat = _
+    show ((if (bools 1).val j then (bits 2 8).val j else (bits 3 8).val j)
+      + (bits 2 8).val j).toNat = _
+    cases hc : (bools 1).val j <;>
+      simp [eval, regAccTerm, Tools.ShippingScalarSoundness.Binary.apply, hc]
+  · intro j hj
+    rfl
+
 open Sparkle.IR.AST in
 run_cmd liftTermElabM do
   -- Gate acceptance and multi-cycle numeric regression on the raw module.
@@ -526,7 +636,50 @@ run_cmd liftTermElabM do
     stateL := next
     countL := countL + 1
   unless countL == 12 do throwError "feedback register cycle count mismatch: {countL}"
-  logInfo m!"REGISTER REGRESSION: {count} cycles of the raw synthesized module (and {count2} of the merged default configuration) match the source register recurrence (init 3, reset low); {countH} enabled-register cycles match the capture/hold recurrence (init 5); {countL} feedback cycles match the loop recurrence (init 0)"
+  -- Two-stage chain: the module carries two registers; `out` observes the
+  -- outer one, which shifts from the inner one each cycle.
+  let ciC ← getConstInfo ``regChain
+  unless (mixedCertifiedShape? false [] ciC).isSome do
+    throwError "register chain missed the gate"
+  let (mc, _) ← synthesizeCombinationalCore ``regChain [] false
+  let regsC := mc.body.filterMap fun st => match st with
+    | .register o _ _ _ init => some (o, init)
+    | _ => none
+  let [(rInner, initInner), (rOuter, initOuter)] := regsC
+    | throwError "expected two chain registers"
+  unless initInner == 2 && initOuter == 1 do throwError "unexpected chain inits"
+  let mc' := Sparkle.IR.ZeroWidth.dropZeroWidthModule mc
+  unless mc'.body == mc.body && mc'.wires == mc.wires do
+    throwError "dropZeroWidth changed the chain module"
+  let weC := Tools.ShippingEntrySoundness.weOf mc
+  let mut s1 : Nat := 1
+  let mut s2 : Nat := 2
+  let mut countC : Nat := 0
+  for t in List.range 12 do
+    let env0 := fun (n : String) =>
+      if n == "_gen_c" then (if ctrace t then 1 else 0)
+      else if n == "_gen_a" then atrace t
+      else if n == "_gen_b" then btrace t
+      else if n == rOuter then s1
+      else if n == rInner then s2
+      else 0
+    let some (envF, nexts, _) := stepModule weC mc.body env0 |
+      throwError "chain stepModule failed at {t}"
+    unless envF "out" == s1 do
+      throwError "chain cycle {t}: out={envF "out"} expected {s1}"
+    let cone := ((if ctrace t then BitVec.ofNat 8 (atrace t) else BitVec.ofNat 8 (btrace t))
+      + BitVec.ofNat 8 (atrace t)).toNat
+    let some (_, nextI) := nexts.find? (fun p => p.1 == rInner) |
+      throwError "chain inner next missing"
+    let some (_, nextO) := nexts.find? (fun p => p.1 == rOuter) |
+      throwError "chain outer next missing"
+    unless nextI == cone && nextO == s2 do
+      throwError "chain cycle {t}: nexts=({nextI},{nextO}) expected ({cone},{s2})"
+    s1 := nextO
+    s2 := nextI
+    countC := countC + 1
+  unless countC == 12 do throwError "chain cycle count mismatch: {countC}"
+  logInfo m!"REGISTER REGRESSION: {count} cycles of the raw synthesized module (and {count2} of the merged default configuration) match the source register recurrence (init 3, reset low); {countH} enabled-register cycles match the capture/hold recurrence (init 5); {countL} feedback cycles match the loop recurrence (init 0); {countC} two-stage chain cycles match the nested register recurrence (inits 1/2)"
 
 run_cmd do
   if (← get).messages.hasErrors then throwError "register regression failed"
@@ -541,8 +694,12 @@ run_cmd do
       ``Tools.ShippingRegisterSoundness.trace_of_cycles_inv,
       ``Tools.ShippingRegisterSoundness.loop_register_val,
       ``Tools.ShippingRegisterSoundness.loopRegister_run_of_env,
-      ``regAcc_step, ``regHold_step, ``accLoop_step,
-      ``regAcc_run, ``regHold_run, ``accLoop_run] do
+      ``Tools.ShippingRegisterSoundness.synthesizeMixedCertified_register2_sound,
+      ``Tools.ShippingRegisterSoundness.register2_step_of_env,
+      ``Tools.ShippingRegisterSoundness.trace_of_cycles2,
+      ``Tools.ShippingRegisterSoundness.register2_run_of_env,
+      ``regAcc_step, ``regHold_step, ``accLoop_step, ``regChain_step,
+      ``regAcc_run, ``regHold_run, ``accLoop_run, ``regChain_run] do
     for ax in (← liftCoreM <| collectAxioms name) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do
         throwError "unexpected register soundness axiom: {name}: {ax}"
