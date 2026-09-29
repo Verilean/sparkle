@@ -499,35 +499,37 @@ theorem memNexts_seqStmtOk {we : WEnv} {mems : MEnv} {envF : Env} :
   | .memory .. :: rest, hok => by simp [seqStmtOk] at hok
   | .inst .. :: rest, hok => by simp [seqStmtOk] at hok
 
-open Sparkle.IR.RegDedup (declWidth) in
-set_option maxHeartbeats 4000000 in
-/-- **The sequential rename-equivalence check is sound for one cycle.**
-With reset low and fitting inputs and register states, both modules step:
-the outputs agree, the register updates pair up name-for-name with equal
-values, and the updated values stay width-bounded. -/
-theorem seqOptCheck_step_sound {m o : Sparkle.IR.AST.Module}
-    (hchk : seqOptCheck m o = true) {mems : MEnv} {init : Env}
-    (hins : ∀ x ∈ m.inputs.map (·.name),
-      init x < 2 ^ Sparkle.IR.RegDedup.declWidth m x)
-    (hregs : ∀ r ∈ seqRegs m, init r.1 < 2 ^ Sparkle.IR.RegDedup.declWidth m r.1)
-    (hrst : init "rst" = 0) :
-    ∃ envM envO nextsM nextsO,
-      stepModule (Sparkle.IR.RegDedup.declWidth m) m.body init mems
-        = some (envM, nextsM, mems) ∧
-      stepModule (Sparkle.IR.RegDedup.declWidth o) o.body
-        (fun x => init (renameT (seqSubst m o) x)) mems = some (envO, nextsO, mems) ∧
-      (∀ p ∈ m.outputs, envO p.name = envM p.name) ∧
-      nextsM.map (·.1) = (seqRegs m).map (·.1) ∧
-      nextsO.map (·.1) = (seqRegs o).map (·.1) ∧
-      nextsM.map (·.2) = nextsO.map (·.2) ∧
-      (∀ pr ∈ nextsM, pr.2 < 2 ^ Sparkle.IR.RegDedup.declWidth m pr.1) := by
-  simp only [seqOptCheck] at hchk
-  rw [Bool.and_eq_true] at hchk
-  obtain ⟨h1, h2⟩ := hchk
-  simp only [Bool.and_eq_true, decide_eq_true_eq, beq_iff_eq] at h1
-  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨hlen, hinEq⟩, houtEq⟩, hokM⟩, hokO⟩, hndM⟩, hndO⟩, hdisjM⟩,
-    hdisjO⟩, hzM⟩, hzO⟩, hpairs⟩ := h1
-  -- The pairing substitution as a plain fold, and its lookups.
+/-- Off the register pairing, the checker's substitution is the identity. -/
+theorem seqSubst_off {m o : Module}
+    (hlen : (seqRegs m).length = (seqRegs o).length) :
+    ∀ x, x ∉ (seqRegs o).map (·.1) → renameT (seqSubst m o) x = x := by
+  have hsubst : seqSubst m o = ((List.zip (seqRegs o) (seqRegs m)).map
+      (fun pr => (pr.1.1, pr.2.1))).foldl (fun acc p => acc.insert p.1 p.2) {} := by
+    rw [List.foldl_map]
+    rfl
+  have hkeys : (((List.zip (seqRegs o) (seqRegs m)).map (fun pr => (pr.1.1, pr.2.1))).map (·.1)) =
+      (seqRegs o).map (·.1) := by
+    have h1 : (((List.zip (seqRegs o) (seqRegs m)).map (fun pr => (pr.1.1, pr.2.1))).map (·.1)) =
+        ((List.zip (seqRegs o) (seqRegs m)).map Prod.fst).map (·.1) := by
+      rw [List.map_map, List.map_map]
+      rfl
+    rw [h1, List.map_fst_zip
+      (by omega : (seqRegs o).length ≤ (seqRegs m).length)]
+  intro x hx
+  have hnm : x ∉ ((List.zip (seqRegs o) (seqRegs m)).map (fun pr => (pr.1.1, pr.2.1))).map (·.1) := by
+    rw [hkeys]; exact hx
+  have := foldl_insert_lookup_notmem _ ({} : Std.HashMap String String) x hnm
+  rw [← hsubst] at this
+  simp [renameT, this]
+
+/-- The checker's substitution sends the i-th `o` register name to the
+i-th `m` register name. -/
+theorem seqSubst_pair {m o : Module}
+    (hlen : (seqRegs m).length = (seqRegs o).length)
+    (hndO : ((seqRegs o).map (·.1)).Nodup) :
+    ∀ i (hi : i < (seqRegs o).length),
+      renameT (seqSubst m o) (((seqRegs o)[i]'hi).1) =
+        (((seqRegs m)[i]'(by omega)).1) := by
   have hsubst : seqSubst m o = ((List.zip (seqRegs o) (seqRegs m)).map
       (fun pr => (pr.1.1, pr.2.1))).foldl (fun acc p => acc.insert p.1 p.2) {} := by
     rw [List.foldl_map]
@@ -542,33 +544,50 @@ theorem seqOptCheck_step_sound {m o : Sparkle.IR.AST.Module}
       (by omega : (seqRegs o).length ≤ (seqRegs m).length)]
   have hndKeys : (((List.zip (seqRegs o) (seqRegs m)).map (fun pr => (pr.1.1, pr.2.1))).map (·.1)).Nodup := by
     rw [hkeys]; exact hndO
-  have renPair : ∀ i (hi : i < (seqRegs o).length),
-      renameT (seqSubst m o) (((seqRegs o)[i]'hi).1) = (((seqRegs m)[i]'(by omega)).1) := by
-    intro i hi
-    have hmem : ((((seqRegs o)[i]'hi).1), (((seqRegs m)[i]'(by omega : i < (seqRegs m).length)).1)) ∈
-        (List.zip (seqRegs o) (seqRegs m)).map (fun pr => (pr.1.1, pr.2.1)) := by
-      refine List.mem_map.mpr ⟨(((seqRegs o)[i]'hi), ((seqRegs m)[i]'(by omega))), ?_, rfl⟩
-      rw [List.mem_iff_getElem]
-      exact ⟨i, by rw [List.length_zip]; omega, by rw [List.getElem_zip]⟩
-    have := foldl_insert_lookup _ ({} : Std.HashMap String String) hndKeys _ _ hmem
-    rw [← hsubst] at this
-    simp [renameT, this]
-  have renOff : ∀ x, x ∉ (seqRegs o).map (·.1) → renameT (seqSubst m o) x = x := by
-    intro x hx
-    have hnm : x ∉ ((List.zip (seqRegs o) (seqRegs m)).map (fun pr => (pr.1.1, pr.2.1))).map (·.1) := by
-      rw [hkeys]; exact hx
-    have := foldl_insert_lookup_notmem _ ({} : Std.HashMap String String) x hnm
-    rw [← hsubst] at this
-    simp [renameT, this]
-  have hrstNM : ("rst" : String) ∉ (seqRegs o).map (·.1) := by
-    intro hm
-    obtain ⟨r, hr, he⟩ := List.mem_map.mp hm
-    have := List.all_eq_true.mp hdisjO r hr
-    simp only [Bool.and_eq_true, bne_iff_ne, ne_eq] at this
-    exact this.2 he
-  have hrstO : init (renameT (seqSubst m o) "rst") = 0 := by
-    rw [renOff "rst" hrstNM]
-    exact hrst
+  intro i hi
+  have hmem : ((((seqRegs o)[i]'hi).1), (((seqRegs m)[i]'(by omega : i < (seqRegs m).length)).1)) ∈
+      (List.zip (seqRegs o) (seqRegs m)).map (fun pr => (pr.1.1, pr.2.1)) := by
+    refine List.mem_map.mpr ⟨(((seqRegs o)[i]'hi), ((seqRegs m)[i]'(by omega))), ?_, rfl⟩
+    rw [List.mem_iff_getElem]
+    exact ⟨i, by rw [List.length_zip]; omega, by rw [List.getElem_zip]⟩
+  have := foldl_insert_lookup _ ({} : Std.HashMap String String) hndKeys _ _ hmem
+  rw [← hsubst] at this
+  simp [renameT, this]
+
+open Sparkle.IR.RegDedup (declWidth) in
+set_option maxHeartbeats 4000000 in
+/-- **The sequential rename-equivalence check is sound for one cycle.**
+With reset low and fitting inputs and register states, both modules step:
+the outputs agree, the register updates pair up name-for-name with equal
+values, and the updated values stay width-bounded. -/
+theorem seqOptCheck_step_sound {m o : Sparkle.IR.AST.Module}
+    (hchk : seqOptCheck m o = true) {mems : MEnv} {init : Env}
+    (hins : ∀ x ∈ m.inputs.map (·.name),
+      init x < 2 ^ Sparkle.IR.RegDedup.declWidth m x)
+    (hregs : ∀ r ∈ seqRegs m, init r.1 < 2 ^ Sparkle.IR.RegDedup.declWidth m r.1)
+    (hrst : init "rst" = 0) {initO : Env}
+    (hagree : ∀ x ∈ ((m.inputs.map (·.name)).filter
+        (fun x => declWidth m x == declWidth o x) ++ (seqRegs o).map (·.1)),
+      initO x = init (renameT (seqSubst m o) x))
+    (hrstO : initO "rst" = 0) :
+    ∃ envM envO nextsM nextsO,
+      stepModule (Sparkle.IR.RegDedup.declWidth m) m.body init mems
+        = some (envM, nextsM, mems) ∧
+      stepModule (Sparkle.IR.RegDedup.declWidth o) o.body initO mems
+        = some (envO, nextsO, mems) ∧
+      (∀ p ∈ m.outputs, envO p.name = envM p.name) ∧
+      nextsM.map (·.1) = (seqRegs m).map (·.1) ∧
+      nextsO.map (·.1) = (seqRegs o).map (·.1) ∧
+      nextsM.map (·.2) = nextsO.map (·.2) ∧
+      (∀ pr ∈ nextsM, pr.2 < 2 ^ Sparkle.IR.RegDedup.declWidth m pr.1) := by
+  simp only [seqOptCheck] at hchk
+  rw [Bool.and_eq_true] at hchk
+  obtain ⟨h1, h2⟩ := hchk
+  simp only [Bool.and_eq_true, decide_eq_true_eq, beq_iff_eq] at h1
+  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨hlen, hinEq⟩, houtEq⟩, hokM⟩, hokO⟩, hndM⟩, hndO⟩, hdisjM⟩,
+    hdisjO⟩, hzM⟩, hzO⟩, hpairs⟩ := h1
+  have renPair := seqSubst_pair (m := m) (o := o) hlen hndO
+  have renOff := seqSubst_off (m := m) (o := o) hlen
   -- The paired static facts, index-wise.
   have hpairAt : ∀ i (hi : i < (seqRegs m).length),
       ((seqRegs m)[i]'hi).2.1 = ((seqRegs o)[i]'(by omega)).2.1 ∧
@@ -608,8 +627,9 @@ theorem seqOptCheck_step_sound {m o : Sparkle.IR.AST.Module}
     rw [List.contains_eq_mem] at hcon
     simp only [decide_eq_false_iff_not] at hcon
     exact hcon hxin
-  have hinsOfit : ∀ x ∈ ((m.inputs.map (·.name)).filter (fun x => declWidth m x == declWidth o x) ++ (seqRegs o).map (·.1)), (fun x => init (renameT (seqSubst m o) x)) x < 2 ^ (declWidth o) x := by
+  have hinsOfit : ∀ x ∈ ((m.inputs.map (·.name)).filter (fun x => declWidth m x == declWidth o x) ++ (seqRegs o).map (·.1)), initO x < 2 ^ (declWidth o) x := by
     intro x hx
+    rw [hagree x hx]
     rcases List.mem_append.mp hx with hx | hx
     · obtain ⟨hxin, hwx⟩ := List.mem_filter.mp hx
       have hwx' : (declWidth m) x = (declWidth o) x := by simpa using hwx
@@ -619,7 +639,6 @@ theorem seqOptCheck_step_sound {m o : Sparkle.IR.AST.Module}
     · obtain ⟨r, hr, he⟩ := List.mem_map.mp hx
       obtain ⟨i, hi, hri⟩ := List.mem_iff_getElem.mp hr
       subst he
-      simp only []
       have hrw := renPair i hi
       rw [hri] at hrw
       rw [hrw]
@@ -651,16 +670,16 @@ theorem seqOptCheck_step_sound {m o : Sparkle.IR.AST.Module}
   -- Run both normalizations from the fitting initial environments.
   have hd0M : SeqDefsOk (declWidth m) init init [] :=
     ⟨fun x d hx => by simp [List.lookup] at hx, fun _ _ => rfl⟩
-  have hd0O : SeqDefsOk (declWidth o) (fun x => init (renameT (seqSubst m o) x)) (fun x => init (renameT (seqSubst m o) x)) [] :=
+  have hd0O : SeqDefsOk (declWidth o) initO initO [] :=
     ⟨fun x d hx => by simp [List.lookup] at hx, fun _ _ => rfl⟩
   obtain ⟨envM, hevM, hdM⟩ :=
     seqNormBody_sound (mems := mems) hinsMfit (seqAssigns m) [] dm init hd0M hnm
   obtain ⟨envO, hevO, hdO⟩ :=
-    seqNormBody_sound (mems := mems) hinsOfit (seqAssigns o) [] dO (fun x => init (renameT (seqSubst m o) x)) hd0O hno
+    seqNormBody_sound (mems := mems) hinsOfit (seqAssigns o) [] dO initO hd0O hno
   have hevMfull : evalAssigns (declWidth m) mems m.body init = some envM := by
     rw [evalAssigns_seq_skip hokM]
     exact hevM
-  have hevOfull : evalAssigns (declWidth o) mems o.body (fun x => init (renameT (seqSubst m o) x)) = some envO := by
+  have hevOfull : evalAssigns (declWidth o) mems o.body initO = some envO := by
     rw [evalAssigns_seq_skip hokO]
     exact hevO
   -- Reset stays low through the assign segments.
@@ -715,7 +734,15 @@ theorem seqOptCheck_step_sound {m o : Sparkle.IR.AST.Module}
       simpa [List.contains_eq_mem] using this
     have hbr := evalExpr_renameT (subst := seqSubst m o) (weM := (declWidth m)) (init := init)
       hsO hcompat
-    rw [hren, hbr, hvO] at hvM
+    rw [hren, hbr] at hvM
+    have hcongr : evalExpr (declWidth o) initO eo =
+        evalExpr (declWidth o) (fun x => init (renameT (seqSubst m o) x)) eo := by
+      apply Sparkle.IR.Reorder.evalExpr_congr
+      intro n hn
+      apply hagree
+      have := List.all_eq_true.mp hrefsO n hn
+      simpa [List.contains_eq_mem] using this
+    rw [← hcongr, hvO] at hvM
     exact Option.some.inj hvM
   -- Paired register next-values agree.
   have hregNext : ∀ i (hi : i < (seqRegs m).length),
@@ -752,7 +779,15 @@ theorem seqOptCheck_step_sound {m o : Sparkle.IR.AST.Module}
       simpa [List.contains_eq_mem] using this
     have hbr := evalExpr_renameT (subst := seqSubst m o) (weM := (declWidth m)) (init := init)
       hsFo hcompat
-    rw [hrenf, hbr, hevalOf] at hevalMf
+    rw [hrenf, hbr] at hevalMf
+    have hcongrF : evalExpr (declWidth o) initO fo =
+        evalExpr (declWidth o) (fun x => init (renameT (seqSubst m o) x)) fo := by
+      apply Sparkle.IR.Reorder.evalExpr_congr
+      intro n hn
+      apply hagree
+      have := List.all_eq_true.mp hrefsO n hn
+      simpa [List.contains_eq_mem] using this
+    rw [← hcongrF, hevalOf] at hevalMf
     have hvals : vM = vO := (Option.some.inj hevalMf).symm
     refine ⟨?_, ?_, ?_⟩
     · rw [hevalMr]
@@ -818,5 +853,198 @@ theorem seqOptCheck_step_sound {m o : Sparkle.IR.AST.Module}
       else mask ((declWidth m) r.1) ((evalExpr (declWidth m) envM r.2.2.2.1).getD 0)) < 2 ^ (declWidth m) r.1
     rw [← hri, hkM1, hrstM, if_neg hif]
     exact Nat.mod_lt _ (Nat.two_pow_pos _)
+
+/-! ## Trace equivalence -/
+
+/-- With nodup names, `find?` at the i-th name returns the i-th entry. -/
+theorem find?_nodup_at :
+    ∀ (nexts : List (String × Nat)), ((nexts.map (·.1)).Nodup) →
+      ∀ (i : Nat) (hi : i < nexts.length),
+        nexts.find? (fun p => p.1 == (nexts[i]'hi).1) = some (nexts[i]'hi)
+  | (k, v) :: rest, _, 0, hi => by
+    rw [List.find?_cons_of_pos (by simp)]
+    rfl
+  | (k, v) :: rest, hnd, i + 1, hi => by
+    have hnd' : (rest.map (·.1)).Nodup := by
+      simp only [List.map_cons, List.nodup_cons] at hnd
+      exact hnd.2
+    have hk : k ∉ rest.map (·.1) := by
+      simp only [List.map_cons, List.nodup_cons] at hnd
+      exact hnd.1
+    have hi' : i < rest.length := by simpa using hi
+    have hne : (k == ((rest[i]'hi').1)) = false := by
+      rw [beq_eq_false_iff_ne]
+      intro he
+      exact hk (by
+        rw [he]
+        exact List.mem_map.mpr ⟨rest[i]'hi', List.getElem_mem hi', rfl⟩)
+    rw [List.find?_cons_of_neg (by simp [hne])]
+    exact find?_nodup_at rest hnd' i hi'
+
+/-- Applying a nodup update list at its i-th name yields the i-th value. -/
+theorem applyNexts_at {st : String → Nat} {nexts : List (String × Nat)}
+    (hnd : (nexts.map (·.1)).Nodup) (i : Nat) (hi : i < nexts.length) :
+    applyNexts st nexts ((nexts[i]'hi).1) = (nexts[i]'hi).2 := by
+  simp only [applyNexts, find?_nodup_at nexts hnd i hi]
+
+/-- The canonical seeding discipline: inputs from a stream, everything
+else read from the register state. -/
+def seedIn (m : Module) (ins : Nat → String → Nat) :
+    Nat → (String → Nat) → Env :=
+  fun t st n => if (m.inputs.map (·.name)).contains n then ins t n else st n
+
+open Sparkle.IR.RegDedup (declWidth) in
+set_option maxHeartbeats 2000000 in
+/-- **Accepted pairs are trace-equivalent.** Under the canonical seeding
+from any fitting input stream that holds reset low, and from any pair of
+register states equal across the pairing (with the `m` state
+width-bounded), both modules run for `k` cycles and their output streams
+coincide, cycle for cycle. -/
+theorem seqOptCheck_run_sound {m o : Sparkle.IR.AST.Module}
+    (hchk : seqOptCheck m o = true) (ins : Nat → String → Nat)
+    (hinsFit : ∀ t x, x ∈ m.inputs.map (·.name) → ins t x < 2 ^ declWidth m x)
+    (hrstIn : "rst" ∈ m.inputs.map (·.name))
+    (hrstZ : ∀ t, ins t "rst" = 0) :
+    ∀ (k : Nat) (stM stO : String → Nat) (mems : MEnv),
+      (∀ pr ∈ (seqRegs m).zip (seqRegs o), stO pr.2.1 = stM pr.1.1) →
+      (∀ r ∈ seqRegs m, stM r.1 < 2 ^ declWidth m r.1) →
+      ∃ trM trO,
+        runModule (declWidth m) m.body (seedIn m ins) k stM mems = some trM ∧
+        runModule (declWidth o) o.body (seedIn m ins) k stO mems = some trO ∧
+        ∀ p ∈ m.outputs, trO.map (fun e => e p.name) = trM.map (fun e => e p.name) := by
+  intro k
+  induction k with
+  | zero =>
+    intro stM stO mems hcpl hfit
+    exact ⟨[], [], rfl, rfl, fun p _ => rfl⟩
+  | succ k ih =>
+    intro stM stO mems hcpl hfit
+    have hstat := hchk
+    simp only [seqOptCheck] at hstat
+    rw [Bool.and_eq_true] at hstat
+    obtain ⟨h1, -⟩ := hstat
+    simp only [Bool.and_eq_true, decide_eq_true_eq, beq_iff_eq] at h1
+    obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨hlen, hinEq⟩, houtEq⟩, hokM⟩, hokO⟩, hndM⟩, hndO⟩, hdisjM⟩,
+      hdisjO⟩, hzM⟩, hzO⟩, hpairs⟩ := h1
+    have hcontains : ∀ x ∈ m.inputs.map (·.name),
+        ((m.inputs.map (·.name)).contains x) = true := by
+      intro x hx
+      simpa [List.contains_eq_mem] using hx
+    have hnotInM : ∀ r ∈ seqRegs m,
+        ((m.inputs.map (·.name)).contains r.1) = false := by
+      intro r hr
+      have hd := List.all_eq_true.mp hdisjM r hr
+      simp only [Bool.and_eq_true, Bool.not_eq_true'] at hd
+      exact hd.1
+    have hnotInO : ∀ r ∈ seqRegs o,
+        ((m.inputs.map (·.name)).contains r.1) = false := by
+      intro r hr
+      have hd := List.all_eq_true.mp hdisjO r hr
+      simp only [Bool.and_eq_true, Bool.not_eq_true'] at hd
+      exact hd.1
+    have hinsE : ∀ x ∈ m.inputs.map (·.name),
+        seedIn m ins k stM x < 2 ^ declWidth m x := by
+      intro x hx
+      simp only [seedIn]
+      rw [if_pos (hcontains x hx)]
+      exact hinsFit k x hx
+    have hregsE : ∀ r ∈ seqRegs m,
+        seedIn m ins k stM r.1 < 2 ^ declWidth m r.1 := by
+      intro r hr
+      simp only [seedIn]
+      rw [if_neg (by rw [hnotInM r hr]; exact Bool.false_ne_true)]
+      exact hfit r hr
+    have hrstE : seedIn m ins k stM "rst" = 0 := by
+      simp only [seedIn]
+      rw [if_pos (hcontains _ hrstIn)]
+      exact hrstZ k
+    have hrstOE : seedIn m ins k stO "rst" = 0 := by
+      simp only [seedIn]
+      rw [if_pos (hcontains _ hrstIn)]
+      exact hrstZ k
+    have hagreeE : ∀ x ∈ ((m.inputs.map (·.name)).filter
+        (fun x => declWidth m x == declWidth o x) ++ (seqRegs o).map (·.1)),
+        seedIn m ins k stO x = seedIn m ins k stM (renameT (seqSubst m o) x) := by
+      intro x hx
+      rcases List.mem_append.mp hx with hx | hx
+      · obtain ⟨hxin, -⟩ := List.mem_filter.mp hx
+        have hxO : x ∉ (seqRegs o).map (·.1) := by
+          intro hm
+          obtain ⟨r, hr, he⟩ := List.mem_map.mp hm
+          have hc := hnotInO r hr
+          rw [he] at hc
+          rw [List.contains_eq_mem] at hc
+          simp only [decide_eq_false_iff_not] at hc
+          exact hc hxin
+        rw [seqSubst_off hlen x hxO]
+        simp only [seedIn]
+        rw [if_pos (hcontains x hxin), if_pos (hcontains x hxin)]
+      · obtain ⟨r, hr, he⟩ := List.mem_map.mp hx
+        obtain ⟨i, hi, hri⟩ := List.mem_iff_getElem.mp hr
+        subst he
+        rw [← hri, seqSubst_pair hlen hndO i hi]
+        simp only [seedIn]
+        rw [if_neg (by rw [hnotInO _ (List.getElem_mem hi)]; exact Bool.false_ne_true),
+          if_neg (by
+            rw [hnotInM _ (List.getElem_mem (by omega : i < (seqRegs m).length))]
+            exact Bool.false_ne_true)]
+        exact hcpl (((seqRegs m)[i]'(by omega)), ((seqRegs o)[i]'hi)) (by
+          rw [List.mem_iff_getElem]
+          exact ⟨i, by rw [List.length_zip]; omega, by rw [List.getElem_zip]⟩)
+    obtain ⟨envM, envO, nextsM, nextsO, hstepM, hstepO, hout, hnmM, hnmO, hvals, hbnd⟩ :=
+      seqOptCheck_step_sound hchk (mems := mems) hinsE hregsE hrstE hagreeE hrstOE
+    have hlenM : nextsM.length = (seqRegs m).length := by
+      have := congrArg List.length hnmM
+      simpa using this
+    have hlenO : nextsO.length = (seqRegs o).length := by
+      have := congrArg List.length hnmO
+      simpa using this
+    have hndM' : (nextsM.map (·.1)).Nodup := by rw [hnmM]; exact hndM
+    have hndO' : (nextsO.map (·.1)).Nodup := by rw [hnmO]; exact hndO
+    have hnameM : ∀ i (hi : i < (seqRegs m).length),
+        ((nextsM[i]'(by omega)).1) = (((seqRegs m)[i]'hi).1) := by
+      intro i hi
+      have h1 := List.getElem_of_eq hnmM
+        (by simp only [List.length_map]; omega : i < (nextsM.map (·.1)).length)
+      simpa using h1
+    have hnameO : ∀ i (hi : i < (seqRegs o).length),
+        ((nextsO[i]'(by omega)).1) = (((seqRegs o)[i]'hi).1) := by
+      intro i hi
+      have h1 := List.getElem_of_eq hnmO
+        (by simp only [List.length_map]; omega : i < (nextsO.map (·.1)).length)
+      simpa using h1
+    have hvalEq : ∀ i (hi : i < nextsM.length),
+        (nextsM[i]'hi).2 = (nextsO[i]'(by omega)).2 := by
+      intro i hi
+      have h1 := List.getElem_of_eq hvals
+        (by simp only [List.length_map]; omega : i < (nextsM.map (·.2)).length)
+      simpa using h1
+    have hcpl' : ∀ pr ∈ (seqRegs m).zip (seqRegs o),
+        applyNexts stO nextsO pr.2.1 = applyNexts stM nextsM pr.1.1 := by
+      intro pr hpr
+      obtain ⟨i, hzi, hzri⟩ := List.mem_iff_getElem.mp hpr
+      rw [List.getElem_zip] at hzri
+      subst hzri
+      have hi : i < (seqRegs m).length := by rw [List.length_zip] at hzi; omega
+      have hiO : i < (seqRegs o).length := by omega
+      show applyNexts stO nextsO (((seqRegs o)[i]'hiO).1) =
+        applyNexts stM nextsM (((seqRegs m)[i]'hi).1)
+      rw [← hnameO i hiO, ← hnameM i hi]
+      rw [applyNexts_at hndO' i (by omega), applyNexts_at hndM' i (by omega)]
+      rw [hvalEq i (by omega)]
+    have hfit' : ∀ r ∈ seqRegs m,
+        applyNexts stM nextsM r.1 < 2 ^ declWidth m r.1 := by
+      intro r hr
+      obtain ⟨i, hi, hri⟩ := List.mem_iff_getElem.mp hr
+      rw [← hri, ← hnameM i hi, applyNexts_at hndM' i (by omega)]
+      exact hbnd _ (List.getElem_mem _)
+    obtain ⟨trM', trO', hrunM', hrunO', houts'⟩ :=
+      ih (applyNexts stM nextsM) (applyNexts stO nextsO) mems hcpl' hfit'
+    refine ⟨envM :: trM', envO :: trO', ?_, ?_, ?_⟩
+    · simp only [runModule, hstepM, Option.bind_eq_bind, Option.bind_some, hrunM']
+    · simp only [runModule, hstepO, Option.bind_eq_bind, Option.bind_some, hrunO']
+    · intro p hp
+      simp only [List.map_cons]
+      rw [hout p hp, houts' p hp]
 
 end Tools.ShippingSeqOptSoundness
