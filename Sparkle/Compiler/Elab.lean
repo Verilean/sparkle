@@ -5193,9 +5193,13 @@ def translateCircuitDo2UncachedWith (rec : TranslateFn) (w v0 v1 ret : Nat) : Tr
     let r1 ← CompilerM.makeWire (hint ++ "_slot1") (.bitVector w) (named := named && ret == 1)
     CompilerM.bindSourceVariable self0 r0
     CompilerM.bindSourceVariable self1 r1
+    -- Both cones translate BEFORE either register statement is emitted:
+    -- the combinational contract machinery covers one assign-only segment,
+    -- and the registers land after it (register order is semantically
+    -- irrelevant — updates read the post-assignment environment).
     let cw0 ← rec (instFVars #[.fvar self0, .fvar self1] 0 cone0) "loop_body" false false
-    CompilerM.emitRegisterStmt r0 "clk" "rst" (.ref cw0) v0
     let cw1 ← rec (instFVars #[.fvar self0, .fvar self1] 0 cone1) "loop_body" false false
+    CompilerM.emitRegisterStmt r0 "clk" "rst" (.ref cw0) v0
     CompilerM.emitRegisterStmt r1 "clk" "rst" (.ref cw1) v1
     return (if ret == 0 then r0 else r1)
 
