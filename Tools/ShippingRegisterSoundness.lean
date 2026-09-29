@@ -5398,4 +5398,128 @@ theorem unifiedRegisterRoot_cdo2E {kinds : Array MixedGateBinder} {nmX nmY : Nam
     canonicalCircuitDo2?_cdo2E hdom hw hv0 hv1 houtE hout hcone0 hcone1]
   simp [hw, body0, body1]
 
+/-- Both circuit-do cones normalize to the two-state quote at loose-bvar
+inputs (gate time): slot 0's read becomes `.bvar 1`, slot 1's `.bvar 0`. -/
+theorem cdo2ConeToLoop_quote_inputs {n dpos kb kv : Nat} {vw : Nat → Nat} {w : Nat}
+    {bpos vpos : Nat → Nat} (dx dy K : Nat)
+    (hdp : dpos < n) (hK : 2 ≤ K) (hdx : dx < K) (hdy : dy < K) (hne : dx ≠ dy)
+    (hb : ∀ j, j < kb → bpos j < n)
+    (hvp : ∀ j, j < kv → vpos j < n)
+    (e : Term (.bits w)) (he : e.WF kb (kv + 2) vw) :
+    cdo2ConeToLoop dx dy K 0 (quote (inputExpr (n + K) dpos)
+      (fun j => inputExpr (n + K) (bpos j))
+      (fun j => if j = kv then read2E (inputExpr (n + K) dpos) w (.bvar dx)
+        else if j = kv + 1 then read2E (inputExpr (n + K) dpos) w (.bvar dy)
+        else inputExpr (n + K) (vpos j)) e) =
+    some (quote (inputExpr (n + 2) dpos)
+      (fun j => inputExpr (n + 2) (bpos j))
+      (fun j => if j = kv then .bvar 1
+        else if j = kv + 1 then .bvar 0
+        else inputExpr (n + 2) (vpos j)) e) := by
+  apply cdo2ConeToLoop_quote (cdo2ConeToLoop_input hdp hK hdx hdy)
+    (fun j hj => cdo2ConeToLoop_input (hb j hj) hK hdx hdy) _ e he
+  intro j hj
+  by_cases hkv : j = kv
+  · subst hkv
+    simp only [if_pos rfl]
+    exact cdo2ConeToLoop_read_x _ _ hne
+  · by_cases hkv1 : j = kv + 1
+    · subst hkv1
+      simp only [if_neg (by omega : ¬(kv + 1 = kv)), if_pos rfl]
+      exact cdo2ConeToLoop_read_y _ _ hne
+    · have hjlt : j < kv := by omega
+      simp only [if_neg hkv, if_neg hkv1]
+      exact cdo2ConeToLoop_input (hvp j hjlt) hK hdx hdy
+
+/-- Gate acceptance for the peeled two-slot circuit-do declaration. -/
+theorem cdo2_term_gate {d : DefinitionVal} {bs : List (Name × MixedGateBinder)}
+    {nmX nmY : Name} {dpos : Nat} {w v0 v1 outIdx ret : Nat} {kb kv : Nat}
+    {vw : Nat → Nat} {bpos vpos : Nat → Nat} {e0 e1 : Term (.bits w)}
+    (peel : mixedGatePeel d.value = some (bs, cdo2E nmX nmY
+      (inputExpr bs.length dpos) (inputExpr (bs.length + 1) dpos)
+      (inputExpr (bs.length + 2) dpos) (inputExpr (bs.length + 3) dpos)
+      (inputExpr (bs.length + 4) dpos) (inputExpr (bs.length + 5) dpos)
+      (inputExpr (bs.length + 6) dpos) w v0 v1
+      (read2E (inputExpr (bs.length + 6) dpos) w (.bvar outIdx))
+      (quote (inputExpr (bs.length + 4) dpos)
+        (fun j => inputExpr (bs.length + 4) (bpos j))
+        (fun j => if j = kv then read2E (inputExpr (bs.length + 4) dpos) w (.bvar 2)
+          else if j = kv + 1 then read2E (inputExpr (bs.length + 4) dpos) w (.bvar 0)
+          else inputExpr (bs.length + 4) (vpos j)) e0)
+      (quote (inputExpr (bs.length + 5) dpos)
+        (fun j => inputExpr (bs.length + 5) (bpos j))
+        (fun j => if j = kv then read2E (inputExpr (bs.length + 5) dpos) w (.bvar 3)
+          else if j = kv + 1 then read2E (inputExpr (bs.length + 5) dpos) w (.bvar 1)
+          else inputExpr (bs.length + 5) (vpos j)) e1)))
+    (hdp : dpos < bs.length)
+    (hout : (if outIdx == 4 then some 0 else if outIdx == 2 then some 1 else none) =
+      some ret)
+    (hself0 : vw kv = w) (hself1 : vw (kv + 1) = w)
+    (hv0 : v0 < 2 ^ w) (hv1 : v1 < 2 ^ w)
+    (he0 : e0.WF kb (kv + 2) vw) (he1 : e1.WF kb (kv + 2) vw)
+    (hb : ∀ j, j < kb → ∃ name, bs[bpos j]? = some (name, .bool))
+    (hvp : ∀ j, j < kv → ∃ name, bs[vpos j]? = some (name, .bits (vw j))) :
+    mixedCertifiedShape? false [] (.defnInfo d) = some (bs, cdo2E nmX nmY
+      (inputExpr bs.length dpos) (inputExpr (bs.length + 1) dpos)
+      (inputExpr (bs.length + 2) dpos) (inputExpr (bs.length + 3) dpos)
+      (inputExpr (bs.length + 4) dpos) (inputExpr (bs.length + 5) dpos)
+      (inputExpr (bs.length + 6) dpos) w v0 v1
+      (read2E (inputExpr (bs.length + 6) dpos) w (.bvar outIdx))
+      (quote (inputExpr (bs.length + 4) dpos)
+        (fun j => inputExpr (bs.length + 4) (bpos j))
+        (fun j => if j = kv then read2E (inputExpr (bs.length + 4) dpos) w (.bvar 2)
+          else if j = kv + 1 then read2E (inputExpr (bs.length + 4) dpos) w (.bvar 0)
+          else inputExpr (bs.length + 4) (vpos j)) e0)
+      (quote (inputExpr (bs.length + 5) dpos)
+        (fun j => inputExpr (bs.length + 5) (bpos j))
+        (fun j => if j = kv then read2E (inputExpr (bs.length + 5) dpos) w (.bvar 3)
+          else if j = kv + 1 then read2E (inputExpr (bs.length + 5) dpos) w (.bvar 1)
+          else inputExpr (bs.length + 5) (vpos j)) e1)) := by
+  have hbLt : ∀ j, j < kb → bpos j < bs.length := fun j hj =>
+    (hb j hj).elim fun name pos => (List.getElem_of_getElem? pos).choose
+  have hvLt : ∀ j, j < kv → vpos j < bs.length := fun j hj =>
+    (hvp j hj).elim fun name pos => (List.getElem_of_getElem? pos).choose
+  have hcone0 := cdo2ConeToLoop_quote_inputs 2 0 4 hdp (by omega) (by omega) (by omega)
+    (by omega) hbLt hvLt e0 he0
+  have hcone1 := cdo2ConeToLoop_quote_inputs 3 1 5 hdp (by omega) (by omega) (by omega)
+    (by omega) hbLt hvLt e1 he1
+  have bodyOf : ∀ (e : Term (.bits w)), e.WF kb (kv + 2) vw →
+      unifiedGateBitsBody (((bs.map Prod.snd).toArray.push (.bits w)).push (.bits w)) w
+        (quote (inputExpr (bs.length + 2) dpos)
+          (fun j => inputExpr (bs.length + 2) (bpos j))
+          (fun j => if j = kv then .bvar 1
+            else if j = kv + 1 then .bvar 0
+            else inputExpr (bs.length + 2) (vpos j)) e) = true := by
+    intro e he
+    apply unified_quote_accepted
+      (fun j hj => (hb j hj).elim fun name pos => input_bool_accepted_push2 pos)
+      (fun j hj => by
+        by_cases hkv : j = kv
+        · subst hkv
+          simp only [if_pos rfl]
+          rw [hself0]
+          exact self0_bits_accepted
+        · by_cases hkv1 : j = kv + 1
+          · subst hkv1
+            simp only [if_neg (by omega : ¬(kv + 1 = kv)), if_pos rfl]
+            rw [hself1]
+            exact self1_bits_accepted
+          · have hjlt : j < kv := by omega
+            simp only [if_neg hkv, if_neg hkv1]
+            exact (hvp j hjlt).elim fun name pos => input_bits_accepted_push2 pos)
+      e he
+  have hdom : ((inputExpr bs.length dpos).isFVar || (inputExpr bs.length dpos).isBVar)
+      = true := by
+    simp only [Tools.ShippingMixedSourceBridge.inputExpr]
+    rfl
+  have root := unifiedRegisterRoot_cdo2E (nmX := nmX) (nmY := nmY)
+    (dom1 := inputExpr (bs.length + 1) dpos) (dom2 := inputExpr (bs.length + 2) dpos)
+    (dom3 := inputExpr (bs.length + 3) dpos) (dom4 := inputExpr (bs.length + 4) dpos)
+    (dom5 := inputExpr (bs.length + 5) dpos) (dom6 := inputExpr (bs.length + 6) dpos)
+    (outE := read2E (inputExpr (bs.length + 6) dpos) w (.bvar outIdx))
+    hdom (e0.wf_pos he0) hv0 hv1 rfl hout hcone0 hcone1
+    (bodyOf e0 he0) (bodyOf e1 he1)
+  simp only [mixedCertifiedShape?, Bool.false_or, List.isEmpty_nil, Bool.not_true,
+    Bool.false_eq_true, if_false, peel, root, Bool.or_true, Bool.true_or, if_true]
+
 end Tools.ShippingRegisterSoundness
