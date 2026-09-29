@@ -272,8 +272,15 @@ transcribes the elaborated call exactly, `cdoConeToLoop_quote`
 distributes the normalizer over the unified quote, and the
 `CdoPreserves` monolith feeds `cdo_step_of_env`/`cdo_run_of_env`,
 instantiated on the real declaration with standard axioms only.
-Open in S4: the sequential `mergeDuplicates` (the unvalidated raw merge;
-the test exercises the merged default configuration numerically),
+Open in S4: the sequential trust gaps are CLOSED by the proved
+rename-equivalence checker: `seqOptCheck_step_sound` and
+`seqOptCheck_run_sound` (Tools/ShippingSeqOptSoundness.lean) give
+one-cycle and k-cycle trace equivalence for any accepted module pair,
+the runtime gates pin acceptance of both the sequential merge and
+`optimizeModule`'s output on every certified shape, and
+`accLoop_run_optimized` composes checker and loop-register endpoint so
+the accepted optimized module observes the source stream (mechanical
+composition for the other five shapes remains). Still open:
 `circuit do` beyond the proved shapes (the two-slot cross-coupled form
 now carries its full proof chain for the returned-slot-0 shape — the
 Cdo2Preserves monolith with doubled self machinery and chained cone
@@ -283,8 +290,8 @@ with the trace identified against the actual circuit-do output stream
 through `loopPair_val`; open: slot-1 return, differing widths, more
 slots, Reg-operator reads), deeper register
 chains and register networks beyond depth two, user reset muxes, and
-sequential emitted-SV text (sequential modules pass through
-`optimizeModule`, unproved). S5–S7 remain unfinished.
+the sequential SV printer step (the `optimizeModule` pass-through is
+now checker-covered). S5–S7 remain unfinished.
 
 ## Trust, validation and work cadence
 

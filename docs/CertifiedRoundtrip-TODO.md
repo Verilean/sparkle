@@ -299,7 +299,7 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   or a sound rename/alias bisimulation checker for the general merge;
   a premise-based default endpoint does not work because the core module
   is existential in `synthesizeCombinational_reads`' decomposition.
-  Groundwork for BOTH sequential trust gaps landed together: the
+  BOTH sequential trust gaps are now closed by one proved checker: the
   rename-equivalence checker `seqOptCheck` (Sparkle/IR/OptCheck.lean)
   pairs the registers of two sequential modules in body order (same
   clock/reset/kind/init/width, outputs possibly renamed), treats
@@ -308,15 +308,22 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   output and every register's next-value expression agree under the
   renaming. It takes no part in the pipeline; the register test gates
   that it accepts, on every certified shape, both the optimizer's
-  output (the sequential printed-SV gap) and the sequential merge. The
-  recorded soundness obligation: a total twin of the `partial`
-  `renameRefs`, `seqNormE`'s soundness (mirroring `normE_sound` plus
-  the mux case), the σ-renamed register-next correspondence, and the
-  cycle-trace bisimulation.
-  Also open in S4:
-  `circuit do`/`runCircuitH` reification onto the
-  loop form, multiple registers, user-level reset muxes, and the sequential emitted-SV text
-  (sequential modules currently pass through `optimizeModule` unproved).
+  output (the sequential printed-SV gap) and the sequential merge. Its
+  soundness is PROVED (Tools/ShippingSeqOptSoundness.lean, standard
+  axioms only): `seqOptCheck_step_sound` (one cycle: both modules step,
+  outputs agree, register updates pair name-for-name with equal,
+  width-bounded values; the accepted module's environment is any env
+  agreeing with the σ-renamed original on its reference domain) and
+  `seqOptCheck_run_sound` (k-cycle `runModule` trace equivalence under
+  the canonical `seedIn` seeding, by induction with the register-state
+  coupling as the invariant). `accLoop_run_optimized` in the register
+  test composes it with the loop-register trace endpoint: any
+  checker-accepted module — in the real pipeline `optimizeModule` of
+  the merged module, whose acceptance the runtime gate pins — runs and
+  observes the same source `Signal.loop`/`Signal.register` stream.
+  Also open in S4: composing the exemplar for the other five certified
+  shapes (mechanical: same bridge as `accLoop_run_optimized`),
+  user-level reset muxes, and the remaining shape breadth below.
 - [ ] **S5:** Actual memory compilation and trace semantics, including latency,
   masks and supported read/write interactions.
 - [ ] **S6:** Actual hierarchy compilation and compositional instance semantics,
@@ -327,7 +334,7 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
 - [ ] **S7 / trust:** Resolve or explicitly retain `EnvDefines` in the final
   claim; record execution-model/external-tool boundaries without hiding them.
 
-Latest validation: `lake build Tests.AllTests` passed all 641 jobs, with
+Latest validation: `lake build Tests.AllTests` passed all 642 jobs, with
 standard-axiom audits of the general endpoint and real signed/equality/Bool-logic
 source instantiations. Vector mux adds 2,772 source/legacy/SV/delta cases and
 real source theorems for nested and computed-condition muxes (no Bool input
