@@ -1344,6 +1344,19 @@ def canonicalLoopRegister? : Lean.Expr → Option (Nat × Nat × Lean.Expr)
     else none
   | _ => none
 
+/-- Canonical single-port sync-read memory: `Signal.memory wa wd wen ra`
+    over a polymorphic domain at literal positive widths. Returns
+    `(addrWidth, dataWidth)`; the four operands stay in the application. -/
+def canonicalMemory? : Lean.Expr → Option (Nat × Nat)
+  | .app (.app (.app (.app (.app (.app (.app
+      (.const ``Sparkle.Core.Signal.Signal.memory _) dom) awE) dwE) _wa) _wd) _wen) _ra =>
+    if dom.isFVar || dom.isBVar then
+      match canonicalNatLitValue? awE, canonicalNatLitValue? dwE with
+      | some aw, some dw => if 0 < aw && 0 < dw then some (aw, dw) else none
+      | _, _ => none
+    else none
+  | _ => none
+
 /-- Rewrite the canonical single-slot `circuit do` cone into the loop-binder
     form: every coerced register read `Prod.fst _ _ r` becomes the binder
     itself, and the vanished `RegList` binder's index is squeezed out.
@@ -2293,6 +2306,24 @@ def unifiedRegisterRoot (kinds : Array MixedGateBinder) (e : Lean.Expr) : Bool :
               unifiedGateBitsBody ((kinds.push (.bits w)).push (.bits w)) w cone1
           | none => false
 
+/-- The canonical memory root: `Signal.memory` whose four operands are
+    bare input binders of the matching kinds. -/
+def unifiedMemoryRoot (kinds : Array MixedGateBinder) (e : Lean.Expr) : Bool :=
+  match canonicalMemory? e with
+  | some (aw, dw) =>
+    let args := e.getAppArgs
+    let isBits : Lean.Expr → Nat → Bool := fun a w =>
+      match a with
+      | .bvar i => mixedGateBVar? kinds i == some (.bits w)
+      | _ => false
+    let isBool : Lean.Expr → Bool := fun a =>
+      match a with
+      | .bvar i => mixedGateBVar? kinds i == some .bool
+      | _ => false
+    args.size == 7 && isBits args[3]! aw && isBits args[4]! dw &&
+      isBool args[5]! && isBits args[6]! aw
+  | none => false
+
 def mixedCertifiedShape? (symbolicMode : Bool) (parameters : List (String × Nat)) :
     ConstantInfo → Option (List (Name × MixedGateBinder) × Lean.Expr)
   | .defnInfo d =>
@@ -2302,7 +2333,8 @@ def mixedCertifiedShape? (symbolicMode : Bool) (parameters : List (String × Nat
       if mixedGateBoolBody (bs.map (·.2)).toArray body ||
           mixedGateVectorRoot (bs.map (·.2)).toArray body ||
           unifiedGateRoot (bs.map (·.2)).toArray body ||
-          unifiedRegisterRoot (bs.map (·.2)).toArray body then some (bs, body) else none
+          unifiedRegisterRoot (bs.map (·.2)).toArray body ||
+          unifiedMemoryRoot (bs.map (·.2)).toArray body then some (bs, body) else none
     | none => none
   | _ => none
 
@@ -5177,6 +5209,34 @@ def translateRegisterEnableUncachedWith (rec : TranslateFn) (w v : Nat) : Transl
     CompilerM.emitAssign muxW (.op .mux [.ref enW, .ref inW, .ref r])
     return r
 
+/-- Uncached lowering for the canonical sync-read memory, in the legacy
+    handler's exact order: the four operand wires, the module-body dedupe
+    scan, then one `.memory` statement whose read latches into the fresh
+    `rdata` wire. -/
+def translateMemoryUncachedWith (rec : TranslateFn) (aw dw : Nat) : TranslateFn :=
+  fun e hint _top named => do
+    let args := e.getAppArgs
+    let waW ← rec args[args.size - 4]! "mem_waddr" false false
+    let wdW ← rec args[args.size - 3]! "mem_wdata" false false
+    let weW ← rec args[args.size - 2]! "mem_we" false false
+    let raW ← rec args[args.size - 1]! "mem_raddr" false false
+    let parent := (← get).module
+    let cachedRD : Option String := parent.body.findSome? fun stmt =>
+      match stmt with
+      | .memory _ aw' dw' _clk wa wd we ra rd _cr .. =>
+        if aw' == aw ∧ dw' == dw then
+          match wa, wd, we, ra with
+          | .ref a, .ref d, .ref en, .ref r =>
+            if a == waW ∧ d == wdW ∧ en == weW ∧ r == raW then some rd else none
+          | _, _, _, _ => none
+        else none
+      | _ => none
+    match cachedRD with
+    | some rd => return rd
+    | none =>
+      CompilerM.emitMemory hint aw dw "clk" (.ref waW) (.ref wdW) (.ref weW)
+        (.ref raW) (named := named)
+
 /-- Uncached lowering for the canonical single-slot `circuit do`: identical
     to the feedback-register lowering, with the cone taken from the
     recognizer's loop-form rewrite. -/
@@ -5273,7 +5333,12 @@ def translateFallback (rec : TranslateFn) : TranslateFn :=
                     translateControlCachedWith
                       (translateCircuitDo2UncachedWith rec w v0 v1 ret) e hint top named
                   | none =>
-                    Rec.translateExprToWireCached (fun e h t n => rec e h t n) e hint top named
+                    match canonicalMemory? e with
+                    | some (aw, dw) =>
+                      translateControlCachedWith (translateMemoryUncachedWith rec aw dw)
+                        e hint top named
+                    | none =>
+                      Rec.translateExprToWireCached (fun e h t n => rec e h t n) e hint top named
 
 def translateStep : TranslateFn → TranslateFn := translateStepWith translateFallback
 
