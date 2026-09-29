@@ -300,4 +300,143 @@ theorem evalExpr_renameT {subst : Std.HashMap String String} {weO weM : WEnv} {i
       Option.bind_some]
     simp [evalOp]
 
+/-! ## The register pairing substitution -/
+
+theorem foldl_insert_lookup_notmem {β : Type} :
+    ∀ (l : List (String × β)) (h : Std.HashMap String β) (x : String),
+      x ∉ l.map (·.1) →
+      (l.foldl (fun acc p => acc.insert p.1 p.2) h)[x]? = h[x]?
+  | [], _, _, _ => rfl
+  | (k, v) :: rest, h, x, hnm => by
+    have hxk : x ≠ k := fun heq => hnm (by simp [heq])
+    have hrest : x ∉ rest.map (·.1) := fun hm => hnm (by simp [hm])
+    show (rest.foldl (fun acc p => acc.insert p.1 p.2) (h.insert k v))[x]? = h[x]?
+    rw [foldl_insert_lookup_notmem rest _ x hrest]
+    have hkx : (k == x) = false := by
+      simp only [beq_eq_false_iff_ne]
+      exact fun heq => hxk heq.symm
+    simp [Std.HashMap.getElem?_insert, hkx]
+
+theorem foldl_insert_lookup {β : Type} :
+    ∀ (l : List (String × β)) (h : Std.HashMap String β),
+      (l.map (·.1)).Nodup →
+      ∀ (k : String) (v : β), (k, v) ∈ l →
+        (l.foldl (fun acc p => acc.insert p.1 p.2) h)[k]? = some v
+  | [], _, _, _, _, hm => absurd hm (List.not_mem_nil)
+  | (k0, v0) :: rest, h, hnd, k, v, hm => by
+    have hnd' : (rest.map (·.1)).Nodup := by
+      simp only [List.map_cons, List.nodup_cons] at hnd
+      exact hnd.2
+    rcases List.mem_cons.mp hm with heq | hmem
+    · cases heq
+      have hknm : k0 ∉ rest.map (·.1) := by
+        simp only [List.map_cons, List.nodup_cons] at hnd
+        exact hnd.1
+      show (rest.foldl (fun acc p => acc.insert p.1 p.2) (h.insert k0 v0))[k0]? = some v0
+      rw [foldl_insert_lookup_notmem rest _ k0 hknm]
+      simp [Std.HashMap.getElem?_insert]
+    · show (rest.foldl (fun acc p => acc.insert p.1 p.2) (h.insert k0 v0))[k]? = some v
+      exact foldl_insert_lookup rest (h.insert k0 v0) hnd' k v hmem
+
+/-! ## Renaming and reference sets -/
+
+mutual
+theorem refsOf_renameRefsT (subst : Std.HashMap String String) :
+    ∀ (e : Expr), refsOf (renameRefsT subst e) = (refsOf e).map (renameT subst)
+  | .const _ _ => rfl
+  | .ref _ => rfl
+  | .op o args => by
+    show Sparkle.IR.Reorder.refsOf.refsList (renameRefsTList subst args) = _
+    rw [refsList_renameRefsTList subst args]
+    rfl
+  | .concat args => by
+    show Sparkle.IR.Reorder.refsOf.refsList (renameRefsTList subst args) = _
+    rw [refsList_renameRefsTList subst args]
+    rfl
+  | .slice e _ _ => refsOf_renameRefsT subst e
+  | .sliceDim e _ _ => refsOf_renameRefsT subst e
+  | .index a i => by
+    show refsOf (renameRefsT subst a) ++ refsOf (renameRefsT subst i) =
+      (refsOf a ++ refsOf i).map (renameT subst)
+    rw [refsOf_renameRefsT subst a, refsOf_renameRefsT subst i, List.map_append]
+
+theorem refsList_renameRefsTList (subst : Std.HashMap String String) :
+    ∀ (args : List Expr),
+      Sparkle.IR.Reorder.refsOf.refsList (renameRefsTList subst args) =
+        (Sparkle.IR.Reorder.refsOf.refsList args).map (renameT subst)
+  | [] => rfl
+  | a :: rest => by
+    show refsOf (renameRefsT subst a) ++
+        Sparkle.IR.Reorder.refsOf.refsList (renameRefsTList subst rest) =
+      (refsOf a ++ Sparkle.IR.Reorder.refsOf.refsList rest).map (renameT subst)
+    rw [refsOf_renameRefsT subst a, refsList_renameRefsTList subst rest, List.map_append]
+end
+
+/-! ## Sequential body projections -/
+
+def seqRegsL (body : List Stmt) :
+    List (String × String × (String × Sparkle.IR.Type.ResetKind) × Expr × Int) :=
+  body.filterMap fun st => match st with
+    | .register o c rk i iv => some (o, c, rk, i, iv)
+    | _ => none
+
+theorem seqRegs_eq (m : Module) : seqRegs m = seqRegsL m.body := rfl
+
+theorem evalAssigns_seq_skip {we : WEnv} {mems : MEnv} :
+    ∀ {body : List Stmt}, body.all seqStmtOk = true → ∀ (env : Env),
+      evalAssigns we mems body env =
+        evalAssigns we mems (body.filter (fun st => match st with
+          | .assign .. => true
+          | _ => false)) env
+  | [], _, env => rfl
+  | .assign l r :: rest, hok, env => by
+    have hrest : rest.all seqStmtOk = true := by
+      simp only [List.all_cons, Bool.and_eq_true] at hok
+      exact hok.2
+    show (evalExpr we env r).bind _ = (evalExpr we env r).bind _
+    cases evalExpr we env r with
+    | none => rfl
+    | some v =>
+      simp only [Option.bind_some]
+      exact evalAssigns_seq_skip hrest _
+  | .register o c rk i iv :: rest, hok, env => by
+    have hrest : rest.all seqStmtOk = true := by
+      simp only [List.all_cons, Bool.and_eq_true] at hok
+      exact hok.2
+    show evalAssigns we mems rest env = _
+    exact evalAssigns_seq_skip hrest env
+  | .memory .. :: rest, hok, env => by
+    simp [seqStmtOk] at hok
+  | .inst .. :: rest, hok, env => by
+    simp [seqStmtOk] at hok
+
+theorem regNexts_seq_map {we : WEnv} {mems : MEnv} {envF : Env} {f : Expr → Nat} :
+    ∀ {body : List Stmt}, body.all seqStmtOk = true →
+      (∀ r ∈ seqRegsL body, evalExpr we envF r.2.2.2.1 = some (f r.2.2.2.1)) →
+      regNexts we mems body envF = some ((seqRegsL body).map fun r =>
+        (r.1, if envF r.2.2.1.1 ≠ 0 then encodeInit r.2.2.2.2 (we r.1)
+          else mask (we r.1) (f r.2.2.2.1)))
+  | [], _, _ => rfl
+  | .assign l r :: rest, hok, hv => by
+    have hrest : rest.all seqStmtOk = true := by
+      simp only [List.all_cons, Bool.and_eq_true] at hok
+      exact hok.2
+    show regNexts we mems rest envF = _
+    exact regNexts_seq_map hrest hv
+  | .register o c rk i iv :: rest, hok, hv => by
+    have hrest : rest.all seqStmtOk = true := by
+      simp only [List.all_cons, Bool.and_eq_true] at hok
+      exact hok.2
+    have hhead : evalExpr we envF i = some (f i) :=
+      hv (o, c, rk, i, iv)
+        (List.mem_filterMap.mpr ⟨.register o c rk i iv, List.mem_cons_self, rfl⟩)
+    have htail := regNexts_seq_map (mems := mems) (envF := envF) (f := f) hrest
+      (fun r hr => hv r (by
+        obtain ⟨a, ha, he⟩ := List.mem_filterMap.mp hr
+        exact List.mem_filterMap.mpr ⟨a, List.mem_cons_of_mem _ ha, he⟩))
+    simp only [regNexts, hhead, htail, Option.bind_eq_bind, Option.bind_some,
+      seqRegsL, List.filterMap_cons, List.map_cons, Option.some.injEq]
+  | .memory .. :: rest, hok, hv => by simp [seqStmtOk] at hok
+  | .inst .. :: rest, hok, hv => by simp [seqStmtOk] at hok
+
 end Tools.ShippingSeqOptSoundness
