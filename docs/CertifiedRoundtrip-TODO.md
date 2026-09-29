@@ -320,10 +320,11 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   test composes it with the loop-register trace endpoint: any
   checker-accepted module — in the real pipeline `optimizeModule` of
   the merged module, whose acceptance the runtime gate pins — runs and
-  observes the same source `Signal.loop`/`Signal.register` stream.
-  Also open in S4: composing the exemplar for the other five certified
-  shapes (mechanical: same bridge as `accLoop_run_optimized`),
-  user-level reset muxes, and the remaining shape breadth below.
+  observes the same source stream. The composition is done for ALL SIX
+  certified shapes (`regAcc`/`regHold`/`accLoop`/`regChain`/`cdoAcc`/
+  `cdo2X` `_run_optimized`, via the packaged `seqOptCheck_transfer`),
+  each audited to standard axioms. Also open in S4: user-level reset
+  muxes and the remaining shape breadth below.
 - [ ] **S5:** Actual memory compilation and trace semantics, including latency,
   masks and supported read/write interactions.
 - [ ] **S6:** Actual hierarchy compilation and compositional instance semantics,

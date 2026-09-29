@@ -278,9 +278,9 @@ rename-equivalence checker: `seqOptCheck_step_sound` and
 one-cycle and k-cycle trace equivalence for any accepted module pair,
 the runtime gates pin acceptance of both the sequential merge and
 `optimizeModule`'s output on every certified shape, and
-`accLoop_run_optimized` composes checker and loop-register endpoint so
-the accepted optimized module observes the source stream (mechanical
-composition for the other five shapes remains). Still open:
+the packaged `seqOptCheck_transfer` composes checker and trace
+endpoints so the accepted optimized module observes the source stream
+on all six certified shapes (`*_run_optimized`). Still open:
 `circuit do` beyond the proved shapes (the two-slot cross-coupled form
 now carries its full proof chain for the returned-slot-0 shape — the
 Cdo2Preserves monolith with doubled self machinery and chained cone

@@ -911,12 +911,13 @@ theorem seqOptCheck_run_sound {m o : Sparkle.IR.AST.Module}
       ∃ trM trO,
         runModule (declWidth m) m.body (seedIn m ins) k stM mems = some trM ∧
         runModule (declWidth o) o.body (seedIn m ins) k stO mems = some trO ∧
+        trM.length = k ∧ trO.length = k ∧
         ∀ p ∈ m.outputs, trO.map (fun e => e p.name) = trM.map (fun e => e p.name) := by
   intro k
   induction k with
   | zero =>
     intro stM stO mems hcpl hfit
-    exact ⟨[], [], rfl, rfl, fun p _ => rfl⟩
+    exact ⟨[], [], rfl, rfl, rfl, rfl, fun p _ => rfl⟩
   | succ k ih =>
     intro stM stO mems hcpl hfit
     have hstat := hchk
@@ -1038,13 +1039,43 @@ theorem seqOptCheck_run_sound {m o : Sparkle.IR.AST.Module}
       obtain ⟨i, hi, hri⟩ := List.mem_iff_getElem.mp hr
       rw [← hri, ← hnameM i hi, applyNexts_at hndM' i (by omega)]
       exact hbnd _ (List.getElem_mem _)
-    obtain ⟨trM', trO', hrunM', hrunO', houts'⟩ :=
+    obtain ⟨trM', trO', hrunM', hrunO', hlenM', hlenO', houts'⟩ :=
       ih (applyNexts stM nextsM) (applyNexts stO nextsO) mems hcpl' hfit'
-    refine ⟨envM :: trM', envO :: trO', ?_, ?_, ?_⟩
+    refine ⟨envM :: trM', envO :: trO', ?_, ?_, by simp [hlenM'], by simp [hlenO'], ?_⟩
     · simp only [runModule, hstepM, Option.bind_eq_bind, Option.bind_some, hrunM']
     · simp only [runModule, hstepO, Option.bind_eq_bind, Option.bind_some, hrunO']
     · intro p hp
       simp only [List.map_cons]
       rw [hout p hp, houts' p hp]
+
+open Sparkle.IR.RegDedup (declWidth) in
+/-- Transfer an `m`-side canonical-seed run through the checker: the
+accepted module runs from any coupled state and its per-cycle outputs
+equal the given trace's. -/
+theorem seqOptCheck_transfer {m o : Sparkle.IR.AST.Module}
+    (hchk : seqOptCheck m o = true) (ins : Nat → String → Nat)
+    (hinsFit : ∀ t x, x ∈ m.inputs.map (·.name) → ins t x < 2 ^ declWidth m x)
+    (hrstIn : "rst" ∈ m.inputs.map (·.name))
+    (hrstZ : ∀ t, ins t "rst" = 0)
+    {k : Nat} {stM stO : String → Nat} {mems : MEnv}
+    (hcpl : ∀ pr ∈ (seqRegs m).zip (seqRegs o), stO pr.2.1 = stM pr.1.1)
+    (hfit : ∀ r ∈ seqRegs m, stM r.1 < 2 ^ declWidth m r.1)
+    {envs : List Env}
+    (hrun : runModule (declWidth m) m.body (seedIn m ins) k stM mems = some envs) :
+    ∃ envsO,
+      runModule (declWidth o) o.body (seedIn m ins) k stO mems = some envsO ∧
+      envsO.length = envs.length ∧
+      ∀ p ∈ m.outputs, ∀ j (hj : j < envsO.length) (hj' : j < envs.length),
+        (envsO[j]'hj) p.name = (envs[j]'hj') p.name := by
+  obtain ⟨trM, trO, hrunM, hrunO, hlenM, hlenO, houts⟩ :=
+    seqOptCheck_run_sound hchk ins hinsFit hrstIn hrstZ k stM stO mems hcpl hfit
+  rw [hrun] at hrunM
+  have htrM : trM = envs := (Option.some.inj hrunM.symm)
+  subst htrM
+  refine ⟨trO, hrunO, by omega, ?_⟩
+  intro p hp j hj hj'
+  have h1 := List.getElem_of_eq (houts p hp)
+    (by simp only [List.length_map]; omega : j < (trO.map (fun e => e p.name)).length)
+  simpa using h1
 
 end Tools.ShippingSeqOptSoundness

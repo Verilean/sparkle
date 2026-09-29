@@ -314,24 +314,16 @@ theorem accLoop_run_optimized {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld 
       simp only [Tools.ShippingSeqOptSoundness.seedIn]
       rw [if_pos (by simpa [List.contains_eq_mem] using hrstIn)]
       exact hrstZ t, (hseed t stv).2⟩) hst0
-  obtain ⟨trM, trO, hrunM, hrunO, houtsEq⟩ :=
-    Tools.ShippingSeqOptSoundness.seqOptCheck_run_sound hchk ins hinsFit hrstIn hrstZ
-      k st0 stO mems hcpl hfit
-  have hMM : runModule (Sparkle.IR.RegDedup.declWidth m) m.body
+  have hrun' : runModule (Sparkle.IR.RegDedup.declWidth m) m.body
       (Tools.ShippingSeqOptSoundness.seedIn m ins) k st0 mems = some envs := hrun
-  rw [hMM] at hrunM
-  have htrM : trM = envs := (Option.some.inj hrunM).symm
+  obtain ⟨envsO, hrunO, hlenO, hcorr⟩ :=
+    Tools.ShippingSeqOptSoundness.seqOptCheck_transfer hchk ins hinsFit hrstIn hrstZ
+      hcpl hfit hrun'
   obtain ⟨p, hp, hpname⟩ := hpout
-  have houts' := houtsEq p hp
-  rw [hpname, htrM] at houts'
-  have hlenEq : trO.length = envs.length := by
-    have := congrArg List.length houts'
-    simpa using this
-  refine ⟨trO, hrunO, by omega, ?_⟩
+  refine ⟨envsO, hrunO, by omega, ?_⟩
   intro j hj
-  have h1 := List.getElem_of_eq houts'
-    (by simp only [List.length_map]; omega : j < (trO.map (fun e => e "out")).length)
-  simp only [List.getElem_map] at h1
+  have h1 := hcorr p hp j hj (by omega)
+  rw [hpname] at h1
   rw [h1]
   exact houtE j (by omega)
 
@@ -913,6 +905,283 @@ theorem cdo2X_run_val {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.Sta
       simp [eval, cdo2XTerm1, Tools.ShippingScalarSoundness.Binary.apply, hc,
         BitVec.ofNat_toNat, hb]
 
+/-- Checker transfer of the plain-register trace endpoint to any accepted module. -/
+theorem regAcc_run_optimized {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+    {wst wst' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore ``regAcc [] false) mctx mref cctx cref wst
+      (m, design) wst')
+    (env : EnvDefines mctx mref cctx cref ``regAcc regAccValue)
+    {o : Sparkle.IR.AST.Module}
+    (hchk : Sparkle.IR.OptCheck.seqOptCheck m o = true)
+    (hrstIn : "rst" ∈ m.inputs.map (·.name))
+    (hpout : ∃ p ∈ m.outputs, p.name = "out") :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = regAccBinders.length ∧
+    ∃ (cache : IO.Ref (ExprStructMap String)) (r : String),
+      ∀ {D : DomainConfig} (bools : Nat → Signal D Bool)
+        (bits : (j : Nat) → (n : Nat) → Signal D (BitVec n))
+        (mems : MEnv) (k : Nat) (ins : Nat → String → Nat) (st0 stO : String → Nat),
+      (∀ t stv, SourceInputs ``regAcc regAccBinders ids cache
+          (fun i => (bools i).val (k - 1 - t)) (fun i n => (bits i n).val (k - 1 - t))
+          (Tools.ShippingSeqOptSoundness.seedIn m ins t stv) ∧
+        Tools.ShippingSeqOptSoundness.seedIn m ins t stv r = stv r) →
+      (∀ t x, x ∈ m.inputs.map (·.name) →
+        ins t x < 2 ^ Sparkle.IR.RegDedup.declWidth m x) →
+      (∀ t, ins t "rst" = 0) →
+      st0 r = 3 →
+      (∀ pr ∈ (Sparkle.IR.OptCheck.seqRegs m).zip (Sparkle.IR.OptCheck.seqRegs o),
+        stO pr.2.1 = st0 pr.1.1) →
+      (∀ rr ∈ Sparkle.IR.OptCheck.seqRegs m,
+        st0 rr.1 < 2 ^ Sparkle.IR.RegDedup.declWidth m rr.1) →
+      ∃ envsO, runModule (Sparkle.IR.RegDedup.declWidth o) o.body
+          (Tools.ShippingSeqOptSoundness.seedIn m ins) k stO mems = some envsO ∧
+        envsO.length = k ∧
+        ∀ j (hj : j < envsO.length), (envsO[j]'hj) "out" =
+          ((regAcc (bools 1) (bits 2 8) (bits 3 8)).val j).toNat := by
+  obtain ⟨ids, nd, len, cache, r, H⟩ := regAcc_run hr env
+  refine ⟨ids, nd, len, cache, r, ?_⟩
+  intro D bools bits mems k ins st0 stO hseed hinsFit hrstZ hst0 hcpl hfit
+  obtain ⟨envs, hrun, hlenE, houtE⟩ := H bools bits mems k
+    (Tools.ShippingSeqOptSoundness.seedIn m ins) st0
+    (fun t stv => ⟨(hseed t stv).1, by
+      simp only [Tools.ShippingSeqOptSoundness.seedIn]
+      rw [if_pos (by simpa [List.contains_eq_mem] using hrstIn)]
+      exact hrstZ t, (hseed t stv).2⟩) hst0
+  have hrun' : runModule (Sparkle.IR.RegDedup.declWidth m) m.body
+      (Tools.ShippingSeqOptSoundness.seedIn m ins) k st0 mems = some envs := hrun
+  obtain ⟨envsO, hrunO, hlenO, hcorr⟩ :=
+    Tools.ShippingSeqOptSoundness.seqOptCheck_transfer hchk ins hinsFit hrstIn hrstZ
+      hcpl hfit hrun'
+  obtain ⟨p, hp, hpname⟩ := hpout
+  refine ⟨envsO, hrunO, by omega, ?_⟩
+  intro j hj
+  have h1 := hcorr p hp j hj (by omega)
+  rw [hpname] at h1
+  rw [h1]
+  exact houtE j (by omega)
+
+/-- Checker transfer of the enabled-register trace endpoint to any accepted module. -/
+theorem regHold_run_optimized {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+    {wst wst' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore ``regHold [] false) mctx mref cctx cref wst
+      (m, design) wst')
+    (env : EnvDefines mctx mref cctx cref ``regHold regHoldValue)
+    {o : Sparkle.IR.AST.Module}
+    (hchk : Sparkle.IR.OptCheck.seqOptCheck m o = true)
+    (hrstIn : "rst" ∈ m.inputs.map (·.name))
+    (hpout : ∃ p ∈ m.outputs, p.name = "out") :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = regHoldBinders.length ∧
+    ∃ (cache : IO.Ref (ExprStructMap String)) (r : String),
+      ∀ {D : DomainConfig} (bools : Nat → Signal D Bool)
+        (bits : (j : Nat) → (n : Nat) → Signal D (BitVec n))
+        (mems : MEnv) (k : Nat) (ins : Nat → String → Nat) (st0 stO : String → Nat),
+      (∀ t stv, SourceInputs ``regHold regHoldBinders ids cache
+          (fun i => (bools i).val (k - 1 - t)) (fun i n => (bits i n).val (k - 1 - t))
+          (Tools.ShippingSeqOptSoundness.seedIn m ins t stv) ∧
+        Tools.ShippingSeqOptSoundness.seedIn m ins t stv r = stv r) →
+      (∀ t x, x ∈ m.inputs.map (·.name) →
+        ins t x < 2 ^ Sparkle.IR.RegDedup.declWidth m x) →
+      (∀ t, ins t "rst" = 0) →
+      st0 r = 5 →
+      (∀ pr ∈ (Sparkle.IR.OptCheck.seqRegs m).zip (Sparkle.IR.OptCheck.seqRegs o),
+        stO pr.2.1 = st0 pr.1.1) →
+      (∀ rr ∈ Sparkle.IR.OptCheck.seqRegs m,
+        st0 rr.1 < 2 ^ Sparkle.IR.RegDedup.declWidth m rr.1) →
+      ∃ envsO, runModule (Sparkle.IR.RegDedup.declWidth o) o.body
+          (Tools.ShippingSeqOptSoundness.seedIn m ins) k stO mems = some envsO ∧
+        envsO.length = k ∧
+        ∀ j (hj : j < envsO.length), (envsO[j]'hj) "out" =
+          ((regHold (bools 1) (bools 2) (bits 3 8) (bits 4 8)).val j).toNat := by
+  obtain ⟨ids, nd, len, cache, r, H⟩ := regHold_run hr env
+  refine ⟨ids, nd, len, cache, r, ?_⟩
+  intro D bools bits mems k ins st0 stO hseed hinsFit hrstZ hst0 hcpl hfit
+  obtain ⟨envs, hrun, hlenE, houtE⟩ := H bools bits mems k
+    (Tools.ShippingSeqOptSoundness.seedIn m ins) st0
+    (fun t stv => ⟨(hseed t stv).1, by
+      simp only [Tools.ShippingSeqOptSoundness.seedIn]
+      rw [if_pos (by simpa [List.contains_eq_mem] using hrstIn)]
+      exact hrstZ t, (hseed t stv).2⟩) hst0
+  have hrun' : runModule (Sparkle.IR.RegDedup.declWidth m) m.body
+      (Tools.ShippingSeqOptSoundness.seedIn m ins) k st0 mems = some envs := hrun
+  obtain ⟨envsO, hrunO, hlenO, hcorr⟩ :=
+    Tools.ShippingSeqOptSoundness.seqOptCheck_transfer hchk ins hinsFit hrstIn hrstZ
+      hcpl hfit hrun'
+  obtain ⟨p, hp, hpname⟩ := hpout
+  refine ⟨envsO, hrunO, by omega, ?_⟩
+  intro j hj
+  have h1 := hcorr p hp j hj (by omega)
+  rw [hpname] at h1
+  rw [h1]
+  exact houtE j (by omega)
+
+/-- Checker transfer of the single-slot `circuit do` trace endpoint to any accepted module. -/
+theorem cdoAcc_run_optimized {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+    {wst wst' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore ``cdoAcc [] false) mctx mref cctx cref wst
+      (m, design) wst')
+    (env : EnvDefines mctx mref cctx cref ``cdoAcc cdoAccValue)
+    {o : Sparkle.IR.AST.Module}
+    (hchk : Sparkle.IR.OptCheck.seqOptCheck m o = true)
+    (hrstIn : "rst" ∈ m.inputs.map (·.name))
+    (hpout : ∃ p ∈ m.outputs, p.name = "out") :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = cdoAccBinders.length ∧
+    ∃ (cache : IO.Ref (ExprStructMap String)) (r : String),
+      ∀ {D : DomainConfig} (bools : Nat → Signal D Bool)
+        (bits : (j : Nat) → (n : Nat) → Signal D (BitVec n))
+        (mems : MEnv) (k : Nat) (ins : Nat → String → Nat) (st0 stO : String → Nat),
+      (∀ t stv, SourceInputs ``cdoAcc cdoAccBinders ids cache
+          (fun i => (bools i).val (k - 1 - t)) (fun i n => (bits i n).val (k - 1 - t))
+          (Tools.ShippingSeqOptSoundness.seedIn m ins t stv) ∧
+        Tools.ShippingSeqOptSoundness.seedIn m ins t stv r = stv r) →
+      (∀ t x, x ∈ m.inputs.map (·.name) →
+        ins t x < 2 ^ Sparkle.IR.RegDedup.declWidth m x) →
+      (∀ t, ins t "rst" = 0) →
+      st0 r = 3 →
+      (∀ pr ∈ (Sparkle.IR.OptCheck.seqRegs m).zip (Sparkle.IR.OptCheck.seqRegs o),
+        stO pr.2.1 = st0 pr.1.1) →
+      (∀ rr ∈ Sparkle.IR.OptCheck.seqRegs m,
+        st0 rr.1 < 2 ^ Sparkle.IR.RegDedup.declWidth m rr.1) →
+      ∃ envsO, runModule (Sparkle.IR.RegDedup.declWidth o) o.body
+          (Tools.ShippingSeqOptSoundness.seedIn m ins) k stO mems = some envsO ∧
+        envsO.length = k ∧
+        ∀ j (hj : j < envsO.length), (envsO[j]'hj) "out" =
+          ((cdoAcc (bools 1) (bits 2 8) (bits 3 8)).val j).toNat := by
+  obtain ⟨ids, nd, len, cache, r, H⟩ := cdoAcc_run hr env
+  refine ⟨ids, nd, len, cache, r, ?_⟩
+  intro D bools bits mems k ins st0 stO hseed hinsFit hrstZ hst0 hcpl hfit
+  obtain ⟨envs, hrun, hlenE, houtE⟩ := H bools bits mems k
+    (Tools.ShippingSeqOptSoundness.seedIn m ins) st0
+    (fun t stv => ⟨(hseed t stv).1, by
+      simp only [Tools.ShippingSeqOptSoundness.seedIn]
+      rw [if_pos (by simpa [List.contains_eq_mem] using hrstIn)]
+      exact hrstZ t, (hseed t stv).2⟩) hst0
+  have hrun' : runModule (Sparkle.IR.RegDedup.declWidth m) m.body
+      (Tools.ShippingSeqOptSoundness.seedIn m ins) k st0 mems = some envs := hrun
+  obtain ⟨envsO, hrunO, hlenO, hcorr⟩ :=
+    Tools.ShippingSeqOptSoundness.seqOptCheck_transfer hchk ins hinsFit hrstIn hrstZ
+      hcpl hfit hrun'
+  obtain ⟨p, hp, hpname⟩ := hpout
+  refine ⟨envsO, hrunO, by omega, ?_⟩
+  intro j hj
+  have h1 := hcorr p hp j hj (by omega)
+  rw [hpname] at h1
+  rw [h1]
+  exact houtE j (by omega)
+
+/-- Checker transfer of the two-stage chain trace endpoint to any accepted module. -/
+theorem regChain_run_optimized {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+    {wst wst' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore ``regChain [] false) mctx mref cctx cref wst
+      (m, design) wst')
+    (env : EnvDefines mctx mref cctx cref ``regChain regChainValue)
+    {o : Sparkle.IR.AST.Module}
+    (hchk : Sparkle.IR.OptCheck.seqOptCheck m o = true)
+    (hrstIn : "rst" ∈ m.inputs.map (·.name))
+    (hpout : ∃ p ∈ m.outputs, p.name = "out") :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = regChainBinders.length ∧
+    ∃ (cache : IO.Ref (ExprStructMap String)) (r1 r2 : String), r1 ≠ r2 ∧
+      ∀ {D : DomainConfig} (bools : Nat → Signal D Bool)
+        (bits : (j : Nat) → (n : Nat) → Signal D (BitVec n))
+        (mems : MEnv) (k : Nat) (ins : Nat → String → Nat) (st0 stO : String → Nat),
+      (∀ t stv, SourceInputs ``regChain regChainBinders ids cache
+          (fun i => (bools i).val (k - 1 - t)) (fun i n => (bits i n).val (k - 1 - t))
+          (Tools.ShippingSeqOptSoundness.seedIn m ins t stv) ∧
+        Tools.ShippingSeqOptSoundness.seedIn m ins t stv r1 = stv r1 ∧
+        Tools.ShippingSeqOptSoundness.seedIn m ins t stv r2 = stv r2) →
+      (∀ t x, x ∈ m.inputs.map (·.name) →
+        ins t x < 2 ^ Sparkle.IR.RegDedup.declWidth m x) →
+      (∀ t, ins t "rst" = 0) →
+      st0 r1 = 1 → st0 r2 = 2 →
+      (∀ pr ∈ (Sparkle.IR.OptCheck.seqRegs m).zip (Sparkle.IR.OptCheck.seqRegs o),
+        stO pr.2.1 = st0 pr.1.1) →
+      (∀ rr ∈ Sparkle.IR.OptCheck.seqRegs m,
+        st0 rr.1 < 2 ^ Sparkle.IR.RegDedup.declWidth m rr.1) →
+      ∃ envsO, runModule (Sparkle.IR.RegDedup.declWidth o) o.body
+          (Tools.ShippingSeqOptSoundness.seedIn m ins) k stO mems = some envsO ∧
+        envsO.length = k ∧
+        ∀ j (hj : j < envsO.length), (envsO[j]'hj) "out" =
+          ((regChain (bools 1) (bits 2 8) (bits 3 8)).val j).toNat := by
+  obtain ⟨ids, nd, len, cache, r1, r2, hne, H⟩ := regChain_run hr env
+  refine ⟨ids, nd, len, cache, r1, r2, hne, ?_⟩
+  intro D bools bits mems k ins st0 stO hseed hinsFit hrstZ hst1 hst2 hcpl hfit
+  obtain ⟨envs, hrun, hlenE, houtE⟩ := H bools bits mems k
+    (Tools.ShippingSeqOptSoundness.seedIn m ins) st0
+    (fun t stv => ⟨(hseed t stv).1, by
+      simp only [Tools.ShippingSeqOptSoundness.seedIn]
+      rw [if_pos (by simpa [List.contains_eq_mem] using hrstIn)]
+      exact hrstZ t, (hseed t stv).2.1, (hseed t stv).2.2⟩) hst1 hst2
+  have hrun' : runModule (Sparkle.IR.RegDedup.declWidth m) m.body
+      (Tools.ShippingSeqOptSoundness.seedIn m ins) k st0 mems = some envs := hrun
+  obtain ⟨envsO, hrunO, hlenO, hcorr⟩ :=
+    Tools.ShippingSeqOptSoundness.seqOptCheck_transfer hchk ins hinsFit hrstIn hrstZ
+      hcpl hfit hrun'
+  obtain ⟨p, hp, hpname⟩ := hpout
+  refine ⟨envsO, hrunO, by omega, ?_⟩
+  intro j hj
+  have h1 := hcorr p hp j hj (by omega)
+  rw [hpname] at h1
+  rw [h1]
+  exact houtE j (by omega)
+
+/-- Checker transfer of the two-slot `circuit do` stream endpoint to any accepted module. -/
+theorem cdo2X_run_optimized {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+    {wst wst' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore ``cdo2X [] false) mctx mref cctx cref wst
+      (m, design) wst')
+    (env : EnvDefines mctx mref cctx cref ``cdo2X cdo2XValue)
+    {o : Sparkle.IR.AST.Module}
+    (hchk : Sparkle.IR.OptCheck.seqOptCheck m o = true)
+    (hrstIn : "rst" ∈ m.inputs.map (·.name))
+    (hpout : ∃ p ∈ m.outputs, p.name = "out") :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = cdo2XBinders.length ∧
+    ∃ (cache : IO.Ref (ExprStructMap String)) (r1 r2 : String), r1 ≠ r2 ∧
+      ∀ {D : DomainConfig} (bools : Nat → Signal D Bool)
+        (bits : (j : Nat) → (n : Nat) → Signal D (BitVec n))
+        (mems : MEnv) (k : Nat) (ins : Nat → String → Nat) (st0 stO : String → Nat),
+      (∀ t stv, SourceInputs ``cdo2X cdo2XBinders ids cache
+          (fun i => (bools i).val (k - 1 - t)) (fun i n => (bits i n).val (k - 1 - t))
+          (Tools.ShippingSeqOptSoundness.seedIn m ins t stv) ∧
+        Tools.ShippingSeqOptSoundness.seedIn m ins t stv r1 = stv r1 ∧
+        Tools.ShippingSeqOptSoundness.seedIn m ins t stv r2 = stv r2) →
+      (∀ t x, x ∈ m.inputs.map (·.name) →
+        ins t x < 2 ^ Sparkle.IR.RegDedup.declWidth m x) →
+      (∀ t, ins t "rst" = 0) →
+      st0 r1 = 1 → st0 r2 = 2 →
+      (∀ pr ∈ (Sparkle.IR.OptCheck.seqRegs m).zip (Sparkle.IR.OptCheck.seqRegs o),
+        stO pr.2.1 = st0 pr.1.1) →
+      (∀ rr ∈ Sparkle.IR.OptCheck.seqRegs m,
+        st0 rr.1 < 2 ^ Sparkle.IR.RegDedup.declWidth m rr.1) →
+      ∃ envsO, runModule (Sparkle.IR.RegDedup.declWidth o) o.body
+          (Tools.ShippingSeqOptSoundness.seedIn m ins) k stO mems = some envsO ∧
+        envsO.length = k ∧
+        ∀ j (hj : j < envsO.length), (envsO[j]'hj) "out" =
+          ((cdo2X (bools 1) (bits 2 8)).val j).toNat := by
+  obtain ⟨ids, nd, len, cache, r1, r2, hne, H⟩ := cdo2X_run_val hr env
+  refine ⟨ids, nd, len, cache, r1, r2, hne, ?_⟩
+  intro D bools bits mems k ins st0 stO hseed hinsFit hrstZ hst1 hst2 hcpl hfit
+  obtain ⟨envs, hrun, hlenE, houtE⟩ := H bools bits mems k
+    (Tools.ShippingSeqOptSoundness.seedIn m ins) st0
+    (fun t stv => ⟨(hseed t stv).1, by
+      simp only [Tools.ShippingSeqOptSoundness.seedIn]
+      rw [if_pos (by simpa [List.contains_eq_mem] using hrstIn)]
+      exact hrstZ t, (hseed t stv).2.1, (hseed t stv).2.2⟩) hst1 hst2
+  have hrun' : runModule (Sparkle.IR.RegDedup.declWidth m) m.body
+      (Tools.ShippingSeqOptSoundness.seedIn m ins) k st0 mems = some envs := hrun
+  obtain ⟨envsO, hrunO, hlenO, hcorr⟩ :=
+    Tools.ShippingSeqOptSoundness.seqOptCheck_transfer hchk ins hinsFit hrstIn hrstZ
+      hcpl hfit hrun'
+  obtain ⟨p, hp, hpname⟩ := hpout
+  refine ⟨envsO, hrunO, by omega, ?_⟩
+  intro j hj
+  have h1 := hcorr p hp j hj (by omega)
+  rw [hpname] at h1
+  rw [h1]
+  exact houtE j (by omega)
+
 open Sparkle.IR.AST in
 run_cmd liftTermElabM do
   -- Gate acceptance and multi-cycle numeric regression on the raw module.
@@ -1225,7 +1494,9 @@ run_cmd do
       ``Tools.ShippingRegisterSoundness.map_fst_loop_register, ``cdoAcc_val,
       ``Tools.ShippingSeqOptSoundness.seqOptCheck_step_sound,
       ``Tools.ShippingSeqOptSoundness.seqOptCheck_run_sound,
-      ``accLoop_run_optimized] do
+      ``Tools.ShippingSeqOptSoundness.seqOptCheck_transfer,
+      ``accLoop_run_optimized, ``regAcc_run_optimized, ``regHold_run_optimized,
+      ``cdoAcc_run_optimized, ``regChain_run_optimized, ``cdo2X_run_optimized] do
     for ax in (← liftCoreM <| collectAxioms name) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do
         throwError "unexpected register soundness axiom: {name}: {ax}"
