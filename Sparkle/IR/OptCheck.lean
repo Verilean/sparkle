@@ -267,7 +267,7 @@ def seqOptCheck (m o : Module) : Bool :=
     pairs.all (fun pr =>
       match pr with
       | ((nm, cm, km, _, vm), (no, co, ko, _, vo)) =>
-        cm == co && km.1 == ko.1 && decide (km.2 = ko.2) && vm == vo &&
+        cm == co && km.1 == "rst" && ko.1 == "rst" && decide (km.2 = ko.2) && vm == vo &&
         wm nm == wo no && decide (0 < wm nm))) &&
   (let renO := renameRefsT (seqSubst m o)
    let insBase := m.inputs.map (·.name)
@@ -279,7 +279,8 @@ def seqOptCheck (m o : Module) : Bool :=
        match dm.lookup p.name, dO.lookup p.name with
        | some em, some eo =>
          decide (em = renO eo) &&
-           (Sparkle.IR.Reorder.refsOf em).all (fun x => insM.contains x)
+           (Sparkle.IR.Reorder.refsOf em).all (fun x => insM.contains x) &&
+           (Sparkle.IR.Reorder.refsOf eo).all (fun x => insO.contains x)
        | _, _ => false) &&
      pairs.all (fun pr =>
        match pr with
@@ -287,7 +288,8 @@ def seqOptCheck (m o : Module) : Bool :=
          match seqNormE wm insM dm im, seqNormE wo insO dO io with
          | some fm, some fo =>
            decide (fm = renO fo) &&
-             (Sparkle.IR.Reorder.refsOf fm).all (fun x => insM.contains x)
+             (Sparkle.IR.Reorder.refsOf fm).all (fun x => insM.contains x) &&
+             (Sparkle.IR.Reorder.refsOf fo).all (fun x => insO.contains x)
          | _, _ => false)
    | _, _ => false)
 
