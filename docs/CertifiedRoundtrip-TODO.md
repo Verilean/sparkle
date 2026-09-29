@@ -333,10 +333,23 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   (`forward_trace_inv`), packaged as `seq_run_to_sv`; the register test
   gates `seqCheck` acceptance and the width agreement on all six
   optimized modules and instantiates `*_sv_optimized` for every shape
-  (standard axioms). Remaining for sequential text: the AST→rendered-
-  byte correspondence, shared with the combinational print route. Also
-  open in S4: user-level reset muxes and the remaining shape breadth
-  below.
+  (standard axioms). The BYTE-level connection is closed in the
+  PARSE direction: the emitted SV AST cannot carry the asynchronous
+  reset sensitivity (`SVSensitivity` holds a single edge), so instead
+  `seq_run_to_parsed` proves the module the shipping parser reads back
+  from the actual printed Verilog (`parseAndLowerHierarchical ∘
+  emitModule`) is trace-equal to the checked module — through the
+  roundtrip census (`bfragCheck_sound`/`body_trace_roundtrip`), a
+  clamped twin of the canonical seeding (`seedInC` + a seed congruence
+  on width-bounded states), and the width congruence; the register test
+  PARSES the real printed text of all six optimized modules, gates
+  `semFragCheck`/`bodyImage`/`bodyReorderCheck`/fragment membership, and
+  instantiates `*_parsed_optimized` per shape (standard axioms). The
+  remaining trusted step for sequential text is the parser/lowering
+  itself (byte→AST), the same boundary the corpus roundtrip validation
+  accepts; a render-direction proof would need the SV AST extended with
+  compound sensitivities. Also open in S4: user-level reset muxes and
+  the remaining shape breadth below.
 - [ ] **S5:** Actual memory compilation and trace semantics, including latency,
   masks and supported read/write interactions.
 - [ ] **S6:** Actual hierarchy compilation and compositional instance semantics,

@@ -280,7 +280,7 @@ the runtime gates pin acceptance of both the sequential merge and
 `optimizeModule`'s output on every certified shape, and
 the packaged `seqOptCheck_transfer` composes checker and trace
 endpoints so the accepted optimized module observes the source stream
-on all six certified shapes (`*_run_optimized`), and onward to the emitted-SV semantics (`seq_run_to_sv` + `*_sv_optimized`: the accepted optimized module's M4 `runModuleSV` trace observes the source stream, `seqCheck`/width-agreement gated). Still open:
+on all six certified shapes (`*_run_optimized`), onward to the emitted-SV semantics (`seq_run_to_sv` + `*_sv_optimized`: the accepted optimized module's M4 `runModuleSV` trace observes the source stream, `seqCheck`/width-agreement gated), and to the PRINTED BYTES in the parse direction (`seq_run_to_parsed` + `*_parsed_optimized`: the module the shipping parser reads back from the real printed text observes the source stream; the byte→AST parser step is the remaining trusted base). Still open:
 `circuit do` beyond the proved shapes (the two-slot cross-coupled form
 now carries its full proof chain for the returned-slot-0 shape — the
 Cdo2Preserves monolith with doubled self machinery and chained cone
