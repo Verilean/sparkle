@@ -299,6 +299,20 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   or a sound rename/alias bisimulation checker for the general merge;
   a premise-based default endpoint does not work because the core module
   is existential in `synthesizeCombinational_reads`' decomposition.
+  Groundwork for BOTH sequential trust gaps landed together: the
+  rename-equivalence checker `seqOptCheck` (Sparkle/IR/OptCheck.lean)
+  pairs the registers of two sequential modules in body order (same
+  clock/reset/kind/init/width, outputs possibly renamed), treats
+  register outputs as width-fitting inputs, normalizes both assign
+  segments with the mux-aware `seqNormE`, and accepts when every module
+  output and every register's next-value expression agree under the
+  renaming. It takes no part in the pipeline; the register test gates
+  that it accepts, on every certified shape, both the optimizer's
+  output (the sequential printed-SV gap) and the sequential merge. The
+  recorded soundness obligation: a total twin of the `partial`
+  `renameRefs`, `seqNormE`'s soundness (mirroring `normE_sound` plus
+  the mux case), the σ-renamed register-next correspondence, and the
+  cycle-trace bisimulation.
   Also open in S4:
   `circuit do`/`runCircuitH` reification onto the
   loop form, multiple registers, user-level reset muxes, and the sequential emitted-SV text

@@ -152,4 +152,103 @@ def checkedOptimize (m : Module) : Module :=
     if optCheck m o && assignmentOrderCheck o.body then o else m
   else o
 
+/-! ## Sequential rename-equivalence check
+
+A sequential module (assigns + registers) is accepted as equivalent to
+another when the registers correspond in body order — same clock, reset,
+kind, initial value and declared width, with outputs possibly renamed —
+and, treating register outputs as extra inputs (their values fit their
+widths: `regNexts` masks every update), the assign segments normalise so
+that every module output and every register's next-value expression agree
+under the register renaming. The checker takes no part in the pipeline; it
+is the decidable premise of the sequential printed-SV soundness theorems
+and a regression gate over the certified register shapes. -/
+
+/-- `normE` extended with the three-argument mux node the register cones
+carry. Only the sequential checker uses it: the combinational checked route
+keeps the original acceptance policy. -/
+def seqNormE (we : WEnv) (ins : List String) (defs : List (String × Expr)) : Expr → Option Expr
+  | .const v w => if 0 ≤ v ∧ v < ((2 ^ w : Nat) : Int) then some (.const v w) else none
+  | .ref x =>
+    match defs.lookup x with
+    | some d => if we x = widthOf we d then some d else none
+    | none => some (.ref x)
+  | .op .mux [c, a, b] => do
+    let c' ← seqNormE we ins defs c
+    let a' ← seqNormE we ins defs a
+    let b' ← seqNormE we ins defs b
+    some (.op .mux [c', a', b'])
+  | .op o [a, b] =>
+    if isBinOp o then do
+      let a' ← seqNormE we ins defs a
+      let b' ← seqNormE we ins defs b
+      match o, b' with
+      | .and, .const mv w =>
+        if mv = ((2 ^ w - 1 : Nat) : Int) ∧ widthOf we a' = w ∧
+            (Sparkle.IR.Reorder.refsOf a').all (fun x => ins.contains x) then some a'
+        else some (.op o [a', b'])
+      | _, _ => some (.op o [a', b'])
+    else none
+  | _ => none
+
+/-- `normBody` over `seqNormE`. -/
+def seqNormBody (we : WEnv) (ins : List String) :
+    List (String × Expr) → List Stmt → Option (List (String × Expr))
+  | defs, [] => some defs
+  | defs, .assign l r :: rest => do
+    let e ← seqNormE we ins defs r
+    seqNormBody we ins ((l, e) :: defs) rest
+  | _, _ :: _ => none
+
+/-- The registers of a body, in order: (out, clock, reset, input, init). -/
+def seqRegs (m : Module) : List (String × String × (String × Sparkle.IR.Type.ResetKind)
+    × Expr × Int) :=
+  m.body.filterMap fun st => match st with
+    | .register o c rk i iv => some (o, c, rk, i, iv)
+    | _ => none
+
+/-- The assign segment of a body, in order. -/
+def seqAssigns (m : Module) : List Stmt :=
+  m.body.filter fun st => match st with
+    | .assign .. => true
+    | _ => false
+
+def seqOptCheck (m o : Module) : Bool :=
+  let rM := seqRegs m
+  let rO := seqRegs o
+  let pairs := List.zip rM rO
+  let wm := Sparkle.IR.RegDedup.declWidth m
+  let wo := Sparkle.IR.RegDedup.declWidth o
+  (rM.length == rO.length && decide (o.inputs = m.inputs) &&
+    decide (o.outputs = m.outputs) &&
+    pairs.all (fun pr =>
+      match pr with
+      | ((nm, cm, km, _, vm), (no, co, ko, _, vo)) =>
+        cm == co && km.1 == ko.1 && decide (km.2 = ko.2) && vm == vo &&
+        wm nm == wo no && decide (0 < wm nm))) &&
+  (let subst : Std.HashMap String String := pairs.foldl
+    (fun h pr => match pr with
+      | ((nm, _), (no, _)) => h.insert no nm) {}
+   let renO := Sparkle.IR.Optimize.renameRefs subst
+   let insBase := m.inputs.map (·.name)
+   let insM := insBase ++ rM.map (·.1)
+   let insO := insBase.filter (fun x => wm x == wo x) ++ rO.map (·.1)
+   match seqNormBody wm insM [] (seqAssigns m), seqNormBody wo insO [] (seqAssigns o) with
+   | some dm, some dO =>
+     (m.outputs.all fun p =>
+       match dm.lookup p.name, dO.lookup p.name with
+       | some em, some eo =>
+         decide (em = renO eo) &&
+           (Sparkle.IR.Reorder.refsOf em).all (fun x => insM.contains x)
+       | _, _ => false) &&
+     pairs.all (fun pr =>
+       match pr with
+       | ((_, _, _, im, _), (_, _, _, io, _)) =>
+         match seqNormE wm insM dm im, seqNormE wo insO dO io with
+         | some fm, some fo =>
+           decide (fm = renO fo) &&
+             (Sparkle.IR.Reorder.refsOf fm).all (fun x => insM.contains x)
+         | _, _ => false)
+   | _, _ => false)
+
 end Sparkle.IR.OptCheck
