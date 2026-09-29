@@ -1,4 +1,5 @@
 import Tools.ShippingRegisterSoundness
+import Tools.ShippingSeqOptSoundness
 import Tests.Compiler.ShippingMixedExecutionTest
 import Sparkle.Core.CircuitDo
 
@@ -265,6 +266,74 @@ theorem accLoop_run {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State
     cases hc : (bools 1).val j <;>
       simp [eval, accLoopTerm, Tools.ShippingScalarSoundness.Binary.apply, hc,
         BitVec.ofNat_toNat]
+
+/-- **Printed-SV closure exemplar.** The loop-register trace endpoint
+carried through the sequential rename-equivalence checker: any module `o`
+the checker accepts against the compiled module `m` (in the real pipeline,
+`optimizeModule` of the merged module — the decidable premise the runtime
+gate below pins) runs under the canonical seeding, and its output stream
+observes the same source `Signal.loop`/`Signal.register` stream. -/
+theorem accLoop_run_optimized {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+    {wst wst' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore ``accLoop [] false) mctx mref cctx cref wst
+      (m, design) wst')
+    (env : EnvDefines mctx mref cctx cref ``accLoop accLoopValue)
+    {o : Sparkle.IR.AST.Module}
+    (hchk : Sparkle.IR.OptCheck.seqOptCheck m o = true)
+    (hrstIn : "rst" ∈ m.inputs.map (·.name))
+    (hpout : ∃ p ∈ m.outputs, p.name = "out") :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = accLoopBinders.length ∧
+    ∃ (cache : IO.Ref (ExprStructMap String)) (r : String),
+      ∀ {D : DomainConfig} (bools : Nat → Signal D Bool)
+        (bits : (j : Nat) → (n : Nat) → Signal D (BitVec n))
+        (mems : MEnv) (k : Nat) (ins : Nat → String → Nat) (st0 stO : String → Nat),
+      (∀ t stv, SourceInputs ``accLoop accLoopBinders ids cache
+          (fun i => (bools i).val (k - 1 - t)) (fun i n => (bits i n).val (k - 1 - t))
+          (Tools.ShippingSeqOptSoundness.seedIn m ins t stv) ∧
+        Tools.ShippingSeqOptSoundness.seedIn m ins t stv r = stv r) →
+      (∀ t x, x ∈ m.inputs.map (·.name) →
+        ins t x < 2 ^ Sparkle.IR.RegDedup.declWidth m x) →
+      (∀ t, ins t "rst" = 0) →
+      st0 r = 0 →
+      (∀ pr ∈ (Sparkle.IR.OptCheck.seqRegs m).zip (Sparkle.IR.OptCheck.seqRegs o),
+        stO pr.2.1 = st0 pr.1.1) →
+      (∀ rr ∈ Sparkle.IR.OptCheck.seqRegs m,
+        st0 rr.1 < 2 ^ Sparkle.IR.RegDedup.declWidth m rr.1) →
+      ∃ envsO, runModule (Sparkle.IR.RegDedup.declWidth o) o.body
+          (Tools.ShippingSeqOptSoundness.seedIn m ins) k stO mems = some envsO ∧
+        envsO.length = k ∧
+        ∀ j (hj : j < envsO.length), (envsO[j]'hj) "out" =
+          ((accLoop (bools 1) (bits 2 8) (bits 3 8)).val j).toNat := by
+  obtain ⟨ids, nd, len, cache, r, H⟩ := accLoop_run hr env
+  refine ⟨ids, nd, len, cache, r, ?_⟩
+  intro D bools bits mems k ins st0 stO hseed hinsFit hrstZ hst0 hcpl hfit
+  obtain ⟨envs, hrun, hlenE, houtE⟩ := H bools bits mems k
+    (Tools.ShippingSeqOptSoundness.seedIn m ins) st0
+    (fun t stv => ⟨(hseed t stv).1, by
+      simp only [Tools.ShippingSeqOptSoundness.seedIn]
+      rw [if_pos (by simpa [List.contains_eq_mem] using hrstIn)]
+      exact hrstZ t, (hseed t stv).2⟩) hst0
+  obtain ⟨trM, trO, hrunM, hrunO, houtsEq⟩ :=
+    Tools.ShippingSeqOptSoundness.seqOptCheck_run_sound hchk ins hinsFit hrstIn hrstZ
+      k st0 stO mems hcpl hfit
+  have hMM : runModule (Sparkle.IR.RegDedup.declWidth m) m.body
+      (Tools.ShippingSeqOptSoundness.seedIn m ins) k st0 mems = some envs := hrun
+  rw [hMM] at hrunM
+  have htrM : trM = envs := (Option.some.inj hrunM).symm
+  obtain ⟨p, hp, hpname⟩ := hpout
+  have houts' := houtsEq p hp
+  rw [hpname, htrM] at houts'
+  have hlenEq : trO.length = envs.length := by
+    have := congrArg List.length houts'
+    simpa using this
+  refine ⟨trO, hrunO, by omega, ?_⟩
+  intro j hj
+  have h1 := List.getElem_of_eq houts'
+    (by simp only [List.length_map]; omega : j < (trO.map (fun e => e "out")).length)
+  simp only [List.getElem_map] at h1
+  rw [h1]
+  exact houtE j (by omega)
 
 /-- The full trace endpoint for the plain register: the compiled module's
 `runModule` trace observes exactly the source `Signal.register` stream. -/
@@ -1153,7 +1222,10 @@ run_cmd do
       ``regAcc_run, ``regHold_run, ``accLoop_run, ``regChain_run, ``cdoAcc_step, ``cdoAcc_run,
       ``cdo2X_step, ``cdo2X_run, ``cdo2X_run_val,
       ``Tools.ShippingRegisterSoundness.loopPair_val,
-      ``Tools.ShippingRegisterSoundness.map_fst_loop_register, ``cdoAcc_val] do
+      ``Tools.ShippingRegisterSoundness.map_fst_loop_register, ``cdoAcc_val,
+      ``Tools.ShippingSeqOptSoundness.seqOptCheck_step_sound,
+      ``Tools.ShippingSeqOptSoundness.seqOptCheck_run_sound,
+      ``accLoop_run_optimized] do
     for ax in (← liftCoreM <| collectAxioms name) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do
         throwError "unexpected register soundness axiom: {name}: {ax}"
