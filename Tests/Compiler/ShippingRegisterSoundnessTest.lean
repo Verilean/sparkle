@@ -845,7 +845,21 @@ run_cmd liftTermElabM do
   unless md.body == mLoopTwin.body && md.wires == mLoopTwin.wires &&
       md.outputs == mLoopTwin.outputs do
     throwError "circuit-do module differs from the explicit loop form"
-  logInfo m!"REGISTER REGRESSION: {count} cycles of the raw synthesized module (and {count2} of the merged default configuration) match the source register recurrence (init 3, reset low); {countH} enabled-register cycles match the capture/hold recurrence (init 5); {countL} feedback cycles match the loop recurrence (init 0); {countC} two-stage chain cycles match the nested register recurrence (inits 1/2); the single-slot circuit-do synthesizes to the identical loop-form module"
+  -- The raw sequential merge is empirically the IDENTITY on every
+  -- certified register shape (the translator's expression cache leaves no
+  -- duplicate nodes, so the partition refinement ends discrete). This is
+  -- the evidence base for the planned structural merge-identity proof
+  -- that would carry the register theorems to the default (merged)
+  -- configuration; a change here means the default configuration departs
+  -- from the certified raw module.
+  for decl in [``regAcc, ``regHold, ``accLoop, ``regChain, ``cdoAcc] do
+    let (mr, _) ← synthesizeCombinationalCore decl [] false
+    let mrz := Sparkle.IR.ZeroWidth.dropZeroWidthModule mr
+    let mrm := Sparkle.IR.RegDedup.mergeDuplicatesRaw mrz
+    unless mrm.body == mrz.body && mrm.wires == mrz.wires &&
+        mrm.outputs == mrz.outputs do
+      throwError "sequential merge changed the certified module of {decl}"
+  logInfo m!"REGISTER REGRESSION: {count} cycles of the raw synthesized module (and {count2} of the merged default configuration) match the source register recurrence (init 3, reset low); {countH} enabled-register cycles match the capture/hold recurrence (init 5); {countL} feedback cycles match the loop recurrence (init 0); {countC} two-stage chain cycles match the nested register recurrence (inits 1/2); the single-slot circuit-do synthesizes to the identical loop-form module; the raw sequential merge is the identity on all five certified register modules"
 
 run_cmd do
   if (← get).messages.hasErrors then throwError "register regression failed"

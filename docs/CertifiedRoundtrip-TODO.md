@@ -257,7 +257,19 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
 - [ ] **S4:** Remaining state/reset scope: the sequential `mergeDuplicates`
   (the UNVALIDATED `mergeDuplicatesRaw`; needs register-bisimulation
   validation or proof — the register test exercises the merged default
-  configuration numerically for 12 cycles),
+  configuration numerically for 12 cycles). Groundwork landed:
+  `mergeDuplicates_seq` proves the shipped sequential merge IS the raw
+  merge (the validated path only covers pure-assign bodies), and the raw
+  merge is checked to be the IDENTITY on all five certified register
+  modules in the register test (the translator's expression cache leaves
+  no duplicate nodes, so the partition refinement ends discrete). The
+  remaining obligation for carrying the register theorems to the default
+  configuration is a structural proof of that identity on the certified
+  shapes (reasoning through the imperative partition-refinement loop),
+  or a sound rename/alias bisimulation checker for the general merge;
+  a premise-based default endpoint does not work because the core module
+  is existential in `synthesizeCombinational_reads`' decomposition.
+  Also open in S4:
   `circuit do`/`runCircuitH` reification onto the
   loop form, multiple registers, user-level reset muxes, and the sequential emitted-SV text
   (sequential modules currently pass through `optimizeModule` unproved).

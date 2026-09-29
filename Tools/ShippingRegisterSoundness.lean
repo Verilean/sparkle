@@ -4994,4 +4994,12 @@ theorem cdo_run_of_env {declName : Name} {mctx : Meta.Context}
     have hidx : k - 1 - (k - 1 - j) = j := by omega
     rw [hidx]
 
+/-- On a sequential body (any non-assign statement), the shipped merge is the
+UNVALIDATED raw merge: the validated path only covers pure-assign bodies. -/
+theorem mergeDuplicates_seq {m : Sparkle.IR.AST.Module}
+    (h : m.body.all Sparkle.IR.RegDedup.isAssign = false) :
+    Sparkle.IR.RegDedup.mergeDuplicates m = Sparkle.IR.RegDedup.mergeDuplicatesRaw m := by
+  unfold Sparkle.IR.RegDedup.mergeDuplicates
+  simp [h]
+
 end Tools.ShippingRegisterSoundness
