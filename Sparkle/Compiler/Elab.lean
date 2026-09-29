@@ -5205,6 +5205,9 @@ def translateCircuitDo2UncachedWith (rec : TranslateFn) (w v0 v1 ret : Nat) : Tr
       | none => (e, e)
     let self0 ← CompilerM.liftMetaM Lean.mkFreshFVarId
     let self1 ← CompilerM.liftMetaM Lean.mkFreshFVarId
+    -- Fresh ids are distinct in practice; the guard makes it a proof fact.
+    if self0 == self1 then
+      throw (Exception.error .missing "circuit-do slot binder ids collide")
     if (← CompilerM.lookupVar self0).isSome then
       throw (Exception.error .missing "circuit-do slot-0 binder id collision")
     if (← CompilerM.lookupVar self1).isSome then
