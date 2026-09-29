@@ -6970,4 +6970,92 @@ theorem cdo2_run_of_env {declName : Name} {mctx : Meta.Context}
     have hidx : k - 1 - (k - 1 - j) = j := by omega
     rw [hidx]
 
+/-- The reduced two-slot `circuit do` state: `Signal.loop` over the packed
+pair of registers, each cone reading both slots through the handle
+projections. -/
+def loopPair {D : Sparkle.Core.Domain.DomainConfig} {w : Nat} (i0 i1 : BitVec w)
+    (cone0 cone1 : Sparkle.Core.Signal.Signal D (BitVec w) →
+      Sparkle.Core.Signal.Signal D (BitVec w) →
+      Sparkle.Core.Signal.Signal D (BitVec w)) :
+    Sparkle.Core.Signal.Signal D (BitVec w × (BitVec w × Unit)) :=
+  Sparkle.Core.Signal.Signal.loop (fun live =>
+    Sparkle.Core.Signal.bundle2
+      (Sparkle.Core.Signal.Signal.register i0
+        (cone0 (Sparkle.Core.Signal.Signal.map Prod.fst live)
+          (Sparkle.Core.Signal.Signal.map Prod.fst
+            (Sparkle.Core.Signal.Signal.map Prod.snd live))))
+      (Sparkle.Core.Signal.bundle2
+        (Sparkle.Core.Signal.Signal.register i1
+          (cone1 (Sparkle.Core.Signal.Signal.map Prod.fst live)
+            (Sparkle.Core.Signal.Signal.map Prod.fst
+              (Sparkle.Core.Signal.Signal.map Prod.snd live))))
+        (Sparkle.Core.Signal.Signal.pure ())))
+
+/-- The two projected register streams of the reduced two-slot state follow
+the mutual recurrence: both start at their declared initial values, and each
+steps by its cone applied to the pair of live streams. -/
+theorem loopPair_val {D : Sparkle.Core.Domain.DomainConfig} {w : Nat} (i0 i1 : BitVec w)
+    (cone0 cone1 : Sparkle.Core.Signal.Signal D (BitVec w) →
+      Sparkle.Core.Signal.Signal D (BitVec w) →
+      Sparkle.Core.Signal.Signal D (BitVec w))
+    (hcone0 : ∀ (a a' b b' : Sparkle.Core.Signal.Signal D (BitVec w)) (t : Nat),
+      a.val t = a'.val t → b.val t = b'.val t →
+      (cone0 a b).val t = (cone0 a' b').val t)
+    (hcone1 : ∀ (a a' b b' : Sparkle.Core.Signal.Signal D (BitVec w)) (t : Nat),
+      a.val t = a'.val t → b.val t = b'.val t →
+      (cone1 a b).val t = (cone1 a' b').val t) :
+    ((Sparkle.Core.Signal.Signal.map Prod.fst (loopPair i0 i1 cone0 cone1)).val 0 = i0) ∧
+    ((Sparkle.Core.Signal.Signal.map Prod.fst
+      (Sparkle.Core.Signal.Signal.map Prod.snd (loopPair i0 i1 cone0 cone1))).val 0 = i1) ∧
+    (∀ t, (Sparkle.Core.Signal.Signal.map Prod.fst (loopPair i0 i1 cone0 cone1)).val (t + 1) =
+      (cone0 (Sparkle.Core.Signal.Signal.map Prod.fst (loopPair i0 i1 cone0 cone1))
+        (Sparkle.Core.Signal.Signal.map Prod.fst
+          (Sparkle.Core.Signal.Signal.map Prod.snd (loopPair i0 i1 cone0 cone1)))).val t) ∧
+    (∀ t, (Sparkle.Core.Signal.Signal.map Prod.fst
+        (Sparkle.Core.Signal.Signal.map Prod.snd (loopPair i0 i1 cone0 cone1))).val (t + 1) =
+      (cone1 (Sparkle.Core.Signal.Signal.map Prod.fst (loopPair i0 i1 cone0 cone1))
+        (Sparkle.Core.Signal.Signal.map Prod.fst
+          (Sparkle.Core.Signal.Signal.map Prod.snd (loopPair i0 i1 cone0 cone1)))).val t) := by
+  refine ⟨?_, ?_, ?_, ?_⟩
+  · show Prod.fst (Sparkle.Core.Signal.Signal.loopGo _ 0) = i0
+    rw [Sparkle.Core.Signal.Signal.loopGo_eq]
+    rfl
+  · show Prod.fst (Prod.snd (Sparkle.Core.Signal.Signal.loopGo _ 0)) = i1
+    rw [Sparkle.Core.Signal.Signal.loopGo_eq]
+    rfl
+  · intro t
+    show Prod.fst (Sparkle.Core.Signal.Signal.loopGo _ (t + 1)) = _
+    rw [Sparkle.Core.Signal.Signal.loopGo_eq]
+    show (cone0
+      (Sparkle.Core.Signal.Signal.map Prod.fst
+        ⟨fun i => if i < t + 1 then Sparkle.Core.Signal.Signal.loopGo _ i else default⟩)
+      (Sparkle.Core.Signal.Signal.map Prod.fst (Sparkle.Core.Signal.Signal.map Prod.snd
+        ⟨fun i => if i < t + 1 then Sparkle.Core.Signal.Signal.loopGo _ i else default⟩))).val t
+      = _
+    apply hcone0
+    · show Prod.fst (if t < t + 1 then Sparkle.Core.Signal.Signal.loopGo _ t else default) = _
+      rw [if_pos (by omega)]
+      rfl
+    · show Prod.fst (Prod.snd
+        (if t < t + 1 then Sparkle.Core.Signal.Signal.loopGo _ t else default)) = _
+      rw [if_pos (by omega)]
+      rfl
+  · intro t
+    show Prod.fst (Prod.snd (Sparkle.Core.Signal.Signal.loopGo _ (t + 1))) = _
+    rw [Sparkle.Core.Signal.Signal.loopGo_eq]
+    show (cone1
+      (Sparkle.Core.Signal.Signal.map Prod.fst
+        ⟨fun i => if i < t + 1 then Sparkle.Core.Signal.Signal.loopGo _ i else default⟩)
+      (Sparkle.Core.Signal.Signal.map Prod.fst (Sparkle.Core.Signal.Signal.map Prod.snd
+        ⟨fun i => if i < t + 1 then Sparkle.Core.Signal.Signal.loopGo _ i else default⟩))).val t
+      = _
+    apply hcone1
+    · show Prod.fst (if t < t + 1 then Sparkle.Core.Signal.Signal.loopGo _ t else default) = _
+      rw [if_pos (by omega)]
+      rfl
+    · show Prod.fst (Prod.snd
+        (if t < t + 1 then Sparkle.Core.Signal.Signal.loopGo _ t else default)) = _
+      rw [if_pos (by omega)]
+      rfl
+
 end Tools.ShippingRegisterSoundness

@@ -768,6 +768,82 @@ theorem cdo2X_run {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
     subst h
     exact ⟨`a, rfl⟩
 
+/-- The full trace endpoint identified against the source streams: the
+compiled two-slot module's `runModule` trace observes exactly the
+`circuit do` output stream (`x`), with the hidden second register (`y`)
+following its own source stream. -/
+theorem cdo2X_run_val {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+    {wst wst' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore ``cdo2X [] false) mctx mref cctx cref wst
+      (m, design) wst')
+    (env : EnvDefines mctx mref cctx cref ``cdo2X cdo2XValue) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = cdo2XBinders.length ∧
+    ∃ (cache : IO.Ref (ExprStructMap String)) (r0 r1 : String), r0 ≠ r1 ∧
+      ∀ {D : DomainConfig} (bools : Nat → Signal D Bool)
+        (bits : (j : Nat) → (n : Nat) → Signal D (BitVec n))
+        (mems : MEnv) (k : Nat) (seed : Nat → (String → Nat) → Env)
+        (st0 : String → Nat),
+      (∀ t stv, SourceInputs ``cdo2X cdo2XBinders ids cache
+          (fun i => (bools i).val (k - 1 - t)) (fun i n => (bits i n).val (k - 1 - t))
+          (seed t stv) ∧ seed t stv "rst" = 0 ∧
+          seed t stv r0 = stv r0 ∧ seed t stv r1 = stv r1) →
+      st0 r0 = 1 → st0 r1 = 2 →
+      ∃ envs, runModule (weOf m) m.body seed k st0 mems = some envs ∧ envs.length = k ∧
+        ∀ j (hj : j < envs.length), (envs[j]'hj) "out" =
+          ((cdo2X (bools 1) (bits 2 8)).val j).toNat := by
+  obtain ⟨ids, nd, len, cache, r0, r1, hne, H⟩ := cdo2X_run hr env
+  refine ⟨ids, nd, len, cache, r0, r1, hne, ?_⟩
+  intro D bools bits mems k seed st0 hseed hst0 hst1
+  have hb : cdo2X (bools 1) (bits 2 8) =
+      Signal.map Prod.fst (Tools.ShippingRegisterSoundness.loopPair 1#8 2#8
+        (fun _ y => Signal.mux (bools 1) y (bits 2 8))
+        (fun x y => Signal.mux (bools 1) x y + bits 2 8)) := rfl
+  have hcone0 : ∀ (a a' b b' : Signal D (BitVec 8)) (t : Nat),
+      a.val t = a'.val t → b.val t = b'.val t →
+      (Signal.mux (bools 1) b (bits 2 8)).val t =
+      (Signal.mux (bools 1) b' (bits 2 8)).val t := by
+    intro a a' b b' t ha hbv
+    show (if (bools 1).val t then b.val t else (bits 2 8).val t) = _
+    rw [hbv]
+    rfl
+  have hcone1 : ∀ (a a' b b' : Signal D (BitVec 8)) (t : Nat),
+      a.val t = a'.val t → b.val t = b'.val t →
+      (Signal.mux (bools 1) a b + bits 2 8).val t =
+      (Signal.mux (bools 1) a' b' + bits 2 8).val t := by
+    intro a a' b b' t ha hbv
+    show (if (bools 1).val t then a.val t else b.val t) + (bits 2 8).val t = _
+    rw [ha, hbv]
+    rfl
+  have hv := Tools.ShippingRegisterSoundness.loopPair_val 1#8 2#8
+    (fun _ y => Signal.mux (bools 1) y (bits 2 8))
+    (fun x y => Signal.mux (bools 1) x y + bits 2 8)
+    (fun a a' b b' t ha hbv => hcone0 a a' b b' t ha hbv)
+    (fun a a' b b' t ha hbv => hcone1 a a' b b' t ha hbv)
+  apply H (fun wall i => (bools i).val wall) (fun wall i n => (bits i n).val wall)
+    mems k seed st0
+    (fun j => ((cdo2X (bools 1) (bits 2 8)).val j).toNat)
+    (fun j => ((Signal.map Prod.fst (Signal.map Prod.snd
+      (Tools.ShippingRegisterSoundness.loopPair 1#8 2#8
+        (fun _ y => Signal.mux (bools 1) y (bits 2 8))
+        (fun x y => Signal.mux (bools 1) x y + bits 2 8)))).val j).toNat)
+    hseed (by rw [hst0]; decide) (by rw [hst1]; decide)
+  · rw [hst0, hb, hv.1]
+    rfl
+  · rw [hst1, hv.2.1]
+    rfl
+  · intro j hj
+    rw [hb, hv.2.2.1 j]
+    show ((if (bools 1).val j then _ else (bits 2 8).val j)).toNat = _
+    cases hc : (bools 1).val j <;>
+      simp [eval, cdo2XTerm0, hc, BitVec.ofNat_toNat, hb]
+  · intro j hj
+    rw [hv.2.2.2 j]
+    show ((if (bools 1).val j then _ else _) + (bits 2 8).val j).toNat = _
+    cases hc : (bools 1).val j <;>
+      simp [eval, cdo2XTerm1, Tools.ShippingScalarSoundness.Binary.apply, hc,
+        BitVec.ofNat_toNat, hb]
+
 open Sparkle.IR.AST in
 run_cmd liftTermElabM do
   -- Gate acceptance and multi-cycle numeric regression on the raw module.
@@ -1061,7 +1137,8 @@ run_cmd do
       ``Tools.ShippingRegisterSoundness.cdo2_run_of_env,
       ``regAcc_step, ``regHold_step, ``accLoop_step, ``regChain_step,
       ``regAcc_run, ``regHold_run, ``accLoop_run, ``regChain_run, ``cdoAcc_step, ``cdoAcc_run,
-      ``cdo2X_step, ``cdo2X_run,
+      ``cdo2X_step, ``cdo2X_run, ``cdo2X_run_val,
+      ``Tools.ShippingRegisterSoundness.loopPair_val,
       ``Tools.ShippingRegisterSoundness.map_fst_loop_register, ``cdoAcc_val] do
     for ax in (← liftCoreM <| collectAxioms name) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do

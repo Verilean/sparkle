@@ -279,8 +279,9 @@ now carries its full proof chain for the returned-slot-0 shape — the
 Cdo2Preserves monolith with doubled self machinery and chained cone
 contracts, the state-reading two-register trace lemma, and real-entry
 per-cycle/full-trace endpoints instantiated on the real declaration;
-open: slot-1 return, differing widths, more slots, Reg-operator reads,
-mutual-stream `.val` identification), deeper register
+with the trace identified against the actual circuit-do output stream
+through `loopPair_val`; open: slot-1 return, differing widths, more
+slots, Reg-operator reads), deeper register
 chains and register networks beyond depth two, user reset muxes, and
 sequential emitted-SV text (sequential modules pass through
 `optimizeModule`, unproved). S5–S7 remain unfinished.

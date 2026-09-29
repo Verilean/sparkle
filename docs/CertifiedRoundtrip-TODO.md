@@ -273,11 +273,17 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   `cdo2_step_of_env`/`trace_of_cycles2_inv`/`cdo2_run_of_env` expose the
   per-cycle and full-trace theorems at the real entry, instantiated on
   the real declaration (`cdo2X_step`/`cdo2X_run`, standard axioms only).
-  Still open: the returned-slot-1 mirror, slots at differing widths,
-  more than two slots, cones whose reads go through the Reg-lifting
-  operator instances, and the source-level `.val` identification of the
-  mutual two-register stream (the endpoints speak the state-pair
-  recurrence).
+  The source-level identification is
+  also closed: `loopPair`/`loopPair_val` show the reduced two-slot
+  `runCircuitH` state's projected register streams follow the mutual
+  cone recurrence (proved directly from `loopGo_eq`, no induction —
+  both sides reference the same fixpoint), and `cdo2X_run_val`
+  instantiates the packaged trace endpoint against the actual
+  `circuit do` output stream, the declaration being definitionally
+  `map Prod.fst` of the packed loop pair. Still open: the
+  returned-slot-1 mirror, slots at differing widths, more than two
+  slots, and cones whose reads go through the Reg-lifting operator
+  instances.
 - [ ] **S4:** Remaining state/reset scope: the sequential `mergeDuplicates`
   (the UNVALIDATED `mergeDuplicatesRaw`; needs register-bisimulation
   validation or proof — the register test exercises the merged default
