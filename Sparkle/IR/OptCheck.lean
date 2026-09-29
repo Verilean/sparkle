@@ -264,6 +264,12 @@ def seqOptCheck (m o : Module) : Bool :=
     decide ((rM.map (·.1)).Nodup) && decide ((rO.map (·.1)).Nodup) &&
     rM.all (fun r => !(m.inputs.map (·.name)).contains r.1 && r.1 != "rst") &&
     rO.all (fun r => !(m.inputs.map (·.name)).contains r.1 && r.1 != "rst") &&
+    (seqAssigns m).all (fun st => match st with
+      | .assign l _ => l != "rst"
+      | _ => true) &&
+    (seqAssigns o).all (fun st => match st with
+      | .assign l _ => l != "rst"
+      | _ => true) &&
     pairs.all (fun pr =>
       match pr with
       | ((nm, cm, km, _, vm), (no, co, ko, _, vo)) =>
