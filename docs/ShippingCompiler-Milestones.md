@@ -266,11 +266,16 @@ destructures its handle tuple with `Prod` projections (matcher-free),
 `canonicalCircuitDo?` recognizes the shape purely and `cdoConeToLoop`
 rewrites coerced register reads into the loop binder, so the certified
 feedback lowering emits the byte-identical module, and
-`map_fst_loop_register`/`cdoAcc_val` identify the source streams.
+`map_fst_loop_register`/`cdoAcc_val` identify the source streams. The
+endpoint chain is stated on the circuit-do quote form itself: `cdoE`
+transcribes the elaborated call exactly, `cdoConeToLoop_quote`
+distributes the normalizer over the unified quote, and the
+`CdoPreserves` monolith feeds `cdo_step_of_env`/`cdo_run_of_env`,
+instantiated on the real declaration with standard axioms only.
 Open in S4: the sequential `mergeDuplicates` (the unvalidated raw merge;
 the test exercises the merged default configuration numerically),
 `circuit do` beyond the single-slot shape (multi-slot, Reg-operator
-reads, the endpoint chain stated on the cdo quote form), deeper register
+reads), deeper register
 chains and register networks beyond depth two, user reset muxes, and
 sequential emitted-SV text (sequential modules pass through
 `optimizeModule`, unproved). S5–S7 remain unfinished.

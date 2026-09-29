@@ -240,11 +240,20 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   `Signal.loop` form (checked statement-for-statement in the register
   test), and `cdoAcc_val` identifies the source streams definitionally
   through `map_fst_loop_register`, so the loop cycle/trace theorems
-  transfer to `circuit do` sources of this shape. Still open: stating
-  the general endpoint chain directly on the circuit-do quote form,
-  multiple slots, and cones whose reads go through the Reg-lifting
-  operator instances (`r + x` with `r` as a direct operand) rather than
-  the mux-argument coercion form.
+  transfer to `circuit do` sources of this shape. The general endpoint chain is now
+  stated on the circuit-do quote form itself: `cdoE` transcribes the
+  elaborated single-slot `runCircuitH` application exactly (the register
+  `let` binder name is a parameter; the macro's continuation binder was
+  hardened to the hygiene-free `_cdoK`, since `Expr` equality compares
+  binder names), the pattern-match `canonicalCircuitDo?` recognizer is
+  proved on it, `cdoConeToLoop_quote` distributes the read-normalizer
+  over the unified quote, and the `CdoPreserves` monolith (the loop
+  monolith across the same fuel decomposition) feeds
+  `cdo_step_of_env`/`cdo_run_of_env` — instantiated on the real
+  `circuit do` declaration (`cdoAcc_step`/`cdoAcc_run`, standard axioms
+  only). Still open: multiple slots, and cones whose reads go through
+  the Reg-lifting operator instances (`r + x` with `r` as a direct
+  operand) rather than the mux-argument coercion form.
 - [ ] **S4:** Remaining state/reset scope: the sequential `mergeDuplicates`
   (the UNVALIDATED `mergeDuplicatesRaw`; needs register-bisimulation
   validation or proof — the register test exercises the merged default

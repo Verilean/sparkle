@@ -1663,6 +1663,13 @@ partial def reflExpr : Lean.Expr → Except String Lean.Expr
     return mkApp4 (mkConst ``Lean.Expr.lam) (toExpr n) rt rb (reflBinderInfo bi)
   | .lit (.natVal k) =>
     pure (mkApp (mkConst ``Lean.Expr.lit) (mkApp (mkConst ``Literal.natVal) (toExpr k)))
+  | .sort l => do
+    return mkApp (mkConst ``Lean.Expr.sort) (← reflLevel l)
+  | .letE n t v b nd => do
+    let rt ← reflExpr t
+    let rv ← reflExpr v
+    let rb ← reflExpr b
+    return mkApp5 (mkConst ``Lean.Expr.letE) (toExpr n) rt rv rb (toExpr nd)
   | e => throw s!"unsupported expression form {e}"
 
 /-- `#def_decl_value v of f` adds `def v : Lean.Expr := <the value of f, as

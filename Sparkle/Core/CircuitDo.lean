@@ -306,7 +306,11 @@ macro_rules
     let mut body : Lean.TSyntax `term ← `(Sparkle.Core.Circuit.pure' $retExpr)
     for i in [:steps.size] do
       let (action, _) := steps[steps.size - 1 - i]!
-      body ← `(Sparkle.Core.Circuit.bind $action (fun _ => $body))
+      -- A stable, hygiene-free continuation binder: the certified shape
+      -- recognizer compares the elaborated value against a quoted form,
+      -- and a quotation-hygienic `_` binder name varies per module.
+      let kIdent := Lean.mkIdent (Lean.Name.mkSimple "_cdoK")
+      body ← `(Sparkle.Core.Circuit.bind $action (fun $kIdent => $body))
     let doBody := body
     if regs.size == 0 then
       Lean.Macro.throwError

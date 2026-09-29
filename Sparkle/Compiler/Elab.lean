@@ -1379,36 +1379,32 @@ def cdoConeToLoop : Nat → Lean.Expr → Option Lean.Expr
     `(width, init value, cone)` with the cone already in the loop-binder
     form (`.bvar 0` = the register read), so the certified feedback-register
     lowering applies unchanged. -/
-def canonicalCircuitDo? (e : Lean.Expr) : Option (Nat × Nat × Lean.Expr) :=
-  if !e.isAppOfArity ``Sparkle.Core.runCircuitH 8 then none else
-  let args := e.getAppArgs
-  let dom := args[0]!
-  if !(dom.isFVar || dom.isBVar) then none else
-  match args[1]!, args[6]!, args[7]! with
-  | .app (.app (.app (.const ``List.cons _) _) (.app (.const ``BitVec _) wE))
-      (.app (.const ``List.nil _) _),
-    .app (.app (.app (.app (.const ``Prod.mk _) _) _) initE) (.const ``Unit.unit _),
-    .lam _ _ (.letE _ _ rval bindBody _) _ =>
-    match canonicalNatLitValue? wE, bitVecLitValue? initE with
-    | some w, some (wi, v) =>
-      if !(0 < w && wi == w) then none else
-      if !(rval.isAppOfArity ``Prod.fst 3 && rval.appArg! == .bvar 0) then none else
-      if !(bindBody.isAppOfArity ``Sparkle.Core.Circuit.bind 6) then none else
-      let bindArgs := bindBody.getAppArgs
-      let nextApp := bindArgs[4]!
-      if !(nextApp.isAppOfArity ``Sparkle.Core.Circuit.next 6 &&
-          nextApp.getAppArgs[4]! == .bvar 0) then none else
-      match bindArgs[5]! with
-      | .lam _ _ pureApp _ =>
-        if !(pureApp.isAppOfArity ``Sparkle.Core.Circuit.pure' 4) then none else
-        let outE := pureApp.appArg!
-        if !(outE.isAppOfArity ``Prod.fst 3 && outE.appArg! == .bvar 1) then none else
-        match cdoConeToLoop 0 nextApp.appArg! with
-        | some cone => some (w, v, cone)
-        | none => none
-      | _ => none
-    | _, _ => none
-  | _, _, _ => none
+def canonicalCircuitDo? : Lean.Expr → Option (Nat × Nat × Lean.Expr)
+  | .app (.app (.app (.app (.app (.app (.app (.app
+      (.const ``Sparkle.Core.runCircuitH _) dom)
+      (.app (.app (.app (.const ``List.cons _) _) (.app (.const ``BitVec _) wE))
+        (.app (.const ``List.nil _) _))) _) _) _) _)
+      (.app (.app (.app (.app (.const ``Prod.mk _) _) _) initE) (.const ``Unit.unit _)))
+      (.lam _ _ (.letE _ _
+        (.app (.app (.app (.const ``Prod.fst _) _) _) (.bvar 0))
+        (.app (.app (.app (.app (.app (.app
+            (.const ``Sparkle.Core.Circuit.bind _) _) _) _) _)
+          (.app (.app (.app (.app (.app (.app
+            (.const ``Sparkle.Core.Circuit.next _) _) _) _) _) (.bvar 0)) rhs))
+          (.lam _ _
+            (.app (.app (.app (.app (.const ``Sparkle.Core.Circuit.pure' _) _) _) _)
+              (.app (.app (.app (.const ``Prod.fst _) _) _) (.bvar 1))) _)) _) _) =>
+    if dom.isFVar || dom.isBVar then
+      match canonicalNatLitValue? wE, bitVecLitValue? initE with
+      | some w, some (wi, v) =>
+        if 0 < w && wi == w then
+          match cdoConeToLoop 0 rhs with
+          | some cone => some (w, v, cone)
+          | none => none
+        else none
+      | _, _ => none
+    else none
+  | _ => none
 
 /-- Canonical enabled register: `Signal.registerWithEnable initLit en input`
     over a polymorphic domain at a literal positive width. Returns
