@@ -260,12 +260,24 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   `(x : Signal dom (BitVec w))` ascription coercions real designs already
   use), and the lowering allocates and binds both register wires before
   either cone translates, so cross-coupled cones work; gate-accepted and
-  pinned by a 12-cycle two-register regression. Still open: the two-slot
-  PROOF chain (quote form, two-state distribution lemma, a monolith with
-  two state-reading cone contracts, a state-reading two-register trace
-  lemma — design recorded in the memory log), slots at differing widths,
-  more than two slots, and cones whose reads go through the Reg-lifting
-  operator instances (`r + x` with `r` as a direct operand).
+  pinned by a 12-cycle two-register regression. The two-slot PROOF chain is
+  closed on the quote form for the returned-slot-0 shape: `cdo2E`
+  transcribes the elaborated call (domain at seven binder depths, user
+  register-let names, the returned read as a parameter), the shallow
+  pattern-match recognizer's acceptance is proved through the two-state
+  `cdo2ConeToLoop_quote` distribution, the `Cdo2Preserves` monolith
+  replays the feedback monolith with doubled self machinery (an explicit
+  propositional distinctness guard between the fresh slot binders — the
+  monolith needs it as a proof fact) and chains the second cone's
+  contract from the first's outcome invariant, and
+  `cdo2_step_of_env`/`trace_of_cycles2_inv`/`cdo2_run_of_env` expose the
+  per-cycle and full-trace theorems at the real entry, instantiated on
+  the real declaration (`cdo2X_step`/`cdo2X_run`, standard axioms only).
+  Still open: the returned-slot-1 mirror, slots at differing widths,
+  more than two slots, cones whose reads go through the Reg-lifting
+  operator instances, and the source-level `.val` identification of the
+  mutual two-register stream (the endpoints speak the state-pair
+  recurrence).
 - [ ] **S4:** Remaining state/reset scope: the sequential `mergeDuplicates`
   (the UNVALIDATED `mergeDuplicatesRaw`; needs register-bisimulation
   validation or proof — the register test exercises the merged default

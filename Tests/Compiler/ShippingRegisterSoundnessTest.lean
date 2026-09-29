@@ -652,6 +652,122 @@ theorem cdoAcc_run {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
       simp [eval, accLoopTerm, Tools.ShippingScalarSoundness.Binary.apply, hc,
         BitVec.ofNat_toNat]
 
+#def_decl_value cdo2XValue of cdo2X
+def cdo2XBinders : List (Name × MixedGateBinder) :=
+  [(`dom, .domain), (`c, .bool), (`a, .bits 8)]
+/-- `x' = mux c y a`: the states are term inputs 1 (x) and 2 (y). -/
+def cdo2XTerm0 : Term (.bits 8) :=
+  .mux (.boolInput 0) (.bitsInput 8 2) (.bitsInput 8 0)
+/-- `y' = (mux c x y) + a`. -/
+def cdo2XTerm1 : Term (.bits 8) := .binary .add
+  (.mux (.boolInput 0) (.bitsInput 8 1) (.bitsInput 8 2)) (.bitsInput 8 0)
+theorem cdo2XTerm0_wf : cdo2XTerm0.WF 1 3 (fun _ => 8) := by simp [cdo2XTerm0, Term.WF]
+theorem cdo2XTerm1_wf : cdo2XTerm1.WF 1 3 (fun _ => 8) := by simp [cdo2XTerm1, Term.WF]
+
+theorem cdo2X_peel : mixedGatePeel cdo2XValue = some (cdo2XBinders,
+    Tools.ShippingRegisterSoundness.cdo2E `x `y
+      (inputExpr cdo2XBinders.length 0) (inputExpr (cdo2XBinders.length + 1) 0)
+      (inputExpr (cdo2XBinders.length + 2) 0) (inputExpr (cdo2XBinders.length + 3) 0)
+      (inputExpr (cdo2XBinders.length + 4) 0) (inputExpr (cdo2XBinders.length + 5) 0)
+      (inputExpr (cdo2XBinders.length + 6) 0) 8 1 2
+      (Tools.ShippingRegisterSoundness.read2E
+        (inputExpr (cdo2XBinders.length + 6) 0) 8 (.bvar 4))
+      (quote (inputExpr (cdo2XBinders.length + 4) 0)
+        (fun _ => inputExpr (cdo2XBinders.length + 4) 1)
+        (fun j => if j = 1 then Tools.ShippingRegisterSoundness.read2E
+            (inputExpr (cdo2XBinders.length + 4) 0) 8 (.bvar 2)
+          else if j = 2 then Tools.ShippingRegisterSoundness.read2E
+            (inputExpr (cdo2XBinders.length + 4) 0) 8 (.bvar 0)
+          else inputExpr (cdo2XBinders.length + 4) 2) cdo2XTerm0)
+      (quote (inputExpr (cdo2XBinders.length + 5) 0)
+        (fun _ => inputExpr (cdo2XBinders.length + 5) 1)
+        (fun j => if j = 1 then Tools.ShippingRegisterSoundness.read2E
+            (inputExpr (cdo2XBinders.length + 5) 0) 8 (.bvar 3)
+          else if j = 2 then Tools.ShippingRegisterSoundness.read2E
+            (inputExpr (cdo2XBinders.length + 5) 0) 8 (.bvar 1)
+          else inputExpr (cdo2XBinders.length + 5) 2) cdo2XTerm1)) := rfl
+
+/-- The general two-slot endpoint on the real declaration. -/
+theorem cdo2X_step {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+    {wst wst' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore ``cdo2X [] false) mctx mref cctx cref wst
+      (m, design) wst')
+    (env : EnvDefines mctx mref cctx cref ``cdo2X cdo2XValue) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = cdo2XBinders.length ∧
+    ∃ (cache : IO.Ref (ExprStructMap String)) (r0 r1 : String), r0 ≠ r1 ∧
+      ∀ (bools : Nat → Bool) (bits : (j : Nat) → (n : Nat) → BitVec n)
+        (env0 : Env) (mems : MEnv),
+      SourceInputs ``cdo2X cdo2XBinders ids cache bools bits env0 →
+      env0 "rst" = 0 → env0 r0 < 2 ^ 8 → env0 r1 < 2 ^ 8 →
+      weOf m r0 = 8 ∧ weOf m r1 = 8 ∧
+      (Sparkle.IR.ZeroWidth.dropZeroWidthModule m).body = m.body ∧
+      weOf (Sparkle.IR.ZeroWidth.dropZeroWidthModule m) = weOf m ∧
+      ∃ envF, stepModule (weOf m) m.body env0 mems =
+          some (envF,
+            [(r0, (eval (fun _ => bools 1)
+              (fun j n => if j = 1 then BitVec.ofNat n (env0 r0)
+                else if j = 2 then BitVec.ofNat n (env0 r1)
+                else bits 2 n) cdo2XTerm0).toNat),
+             (r1, (eval (fun _ => bools 1)
+              (fun j n => if j = 1 then BitVec.ofNat n (env0 r0)
+                else if j = 2 then BitVec.ofNat n (env0 r1)
+                else bits 2 n) cdo2XTerm1).toNat)], mems) ∧
+        envF "out" = env0 r0 := by
+  apply Tools.ShippingRegisterSoundness.cdo2_step_of_env (kb := 1) (kv := 1)
+    (vw := fun _ => 8) (bpos := fun _ => 1) (vpos := fun _ => 2) hr env
+    (by intro d hd; simp only [certifiedShape?, hd]; rfl) cdo2X_peel
+    (by simp [cdo2XBinders]) rfl rfl cdo2XTerm0_wf cdo2XTerm1_wf (by decide) (by decide)
+  · intro j hj
+    have h : j = 0 := by omega
+    subst h
+    exact ⟨`c, rfl⟩
+  · intro j hj
+    have h : j = 0 := by omega
+    subst h
+    exact ⟨`a, rfl⟩
+
+/-- The full trace endpoint on the real two-slot declaration. -/
+theorem cdo2X_run {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+    {wst wst' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore ``cdo2X [] false) mctx mref cctx cref wst
+      (m, design) wst')
+    (env : EnvDefines mctx mref cctx cref ``cdo2X cdo2XValue) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = cdo2XBinders.length ∧
+    ∃ (cache : IO.Ref (ExprStructMap String)) (r0 r1 : String), r0 ≠ r1 ∧
+      ∀ (bools : Nat → Nat → Bool) (bits : Nat → (j : Nat) → (n : Nat) → BitVec n)
+        (mems : MEnv) (k : Nat) (seed : Nat → (String → Nat) → Env)
+        (st0 : String → Nat) (S0 S1 : Nat → Nat),
+      (∀ t stv, SourceInputs ``cdo2X cdo2XBinders ids cache
+          (bools (k - 1 - t)) (bits (k - 1 - t)) (seed t stv) ∧
+          seed t stv "rst" = 0 ∧
+          seed t stv r0 = stv r0 ∧ seed t stv r1 = stv r1) →
+      st0 r0 < 2 ^ 8 → st0 r1 < 2 ^ 8 →
+      S0 0 = st0 r0 → S1 0 = st0 r1 →
+      (∀ j, j + 1 ≤ k → S0 (j + 1) = (eval (fun _ => bools j 1)
+        (fun i n => if i = 1 then BitVec.ofNat n (S0 j)
+          else if i = 2 then BitVec.ofNat n (S1 j)
+          else bits j 2 n) cdo2XTerm0).toNat) →
+      (∀ j, j + 1 ≤ k → S1 (j + 1) = (eval (fun _ => bools j 1)
+        (fun i n => if i = 1 then BitVec.ofNat n (S0 j)
+          else if i = 2 then BitVec.ofNat n (S1 j)
+          else bits j 2 n) cdo2XTerm1).toNat) →
+      ∃ envs, runModule (weOf m) m.body seed k st0 mems = some envs ∧ envs.length = k ∧
+        ∀ j (hj : j < envs.length), (envs[j]'hj) "out" = S0 j := by
+  apply Tools.ShippingRegisterSoundness.cdo2_run_of_env (kb := 1) (kv := 1)
+    (vw := fun _ => 8) (bpos := fun _ => 1) (vpos := fun _ => 2) hr env
+    (by intro d hd; simp only [certifiedShape?, hd]; rfl) cdo2X_peel
+    (by simp [cdo2XBinders]) rfl rfl cdo2XTerm0_wf cdo2XTerm1_wf (by decide) (by decide)
+  · intro j hj
+    have h : j = 0 := by omega
+    subst h
+    exact ⟨`c, rfl⟩
+  · intro j hj
+    have h : j = 0 := by omega
+    subst h
+    exact ⟨`a, rfl⟩
+
 open Sparkle.IR.AST in
 run_cmd liftTermElabM do
   -- Gate acceptance and multi-cycle numeric regression on the raw module.
@@ -938,8 +1054,14 @@ run_cmd do
       ``Tools.ShippingRegisterSoundness.cdoConeToLoop_quote,
       ``Tools.ShippingRegisterSoundness.cdo_step_of_env,
       ``Tools.ShippingRegisterSoundness.cdo_run_of_env,
+      ``Tools.ShippingRegisterSoundness.synthesizeMixedCertified_cdo2_sound,
+      ``Tools.ShippingRegisterSoundness.cdo2ConeToLoop_quote,
+      ``Tools.ShippingRegisterSoundness.cdo2_step_of_env,
+      ``Tools.ShippingRegisterSoundness.trace_of_cycles2_inv,
+      ``Tools.ShippingRegisterSoundness.cdo2_run_of_env,
       ``regAcc_step, ``regHold_step, ``accLoop_step, ``regChain_step,
       ``regAcc_run, ``regHold_run, ``accLoop_run, ``regChain_run, ``cdoAcc_step, ``cdoAcc_run,
+      ``cdo2X_step, ``cdo2X_run,
       ``Tools.ShippingRegisterSoundness.map_fst_loop_register, ``cdoAcc_val] do
     for ax in (← liftCoreM <| collectAxioms name) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do
