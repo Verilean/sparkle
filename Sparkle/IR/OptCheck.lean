@@ -239,6 +239,19 @@ def seqAssigns (m : Module) : List Stmt :=
     | .assign .. => true
     | _ => false
 
+/-- The register pairing substitution the sequential checker compares
+under: `o`'s i-th register output name maps to `m`'s. -/
+def seqSubst (m o : Module) : Std.HashMap String String :=
+  (List.zip (seqRegs o) (seqRegs m)).foldl
+    (fun h pr => match pr with
+      | ((no, _), (nm, _)) => h.insert no nm) {}
+
+/-- Statement shapes the sequential checker understands. -/
+def seqStmtOk : Stmt → Bool
+  | .assign .. => true
+  | .register .. => true
+  | _ => false
+
 def seqOptCheck (m o : Module) : Bool :=
   let rM := seqRegs m
   let rO := seqRegs o
@@ -247,15 +260,16 @@ def seqOptCheck (m o : Module) : Bool :=
   let wo := Sparkle.IR.RegDedup.declWidth o
   (rM.length == rO.length && decide (o.inputs = m.inputs) &&
     decide (o.outputs = m.outputs) &&
+    m.body.all seqStmtOk && o.body.all seqStmtOk &&
+    decide ((rM.map (·.1)).Nodup) && decide ((rO.map (·.1)).Nodup) &&
+    rM.all (fun r => !(m.inputs.map (·.name)).contains r.1 && r.1 != "rst") &&
+    rO.all (fun r => !(m.inputs.map (·.name)).contains r.1 && r.1 != "rst") &&
     pairs.all (fun pr =>
       match pr with
       | ((nm, cm, km, _, vm), (no, co, ko, _, vo)) =>
         cm == co && km.1 == ko.1 && decide (km.2 = ko.2) && vm == vo &&
         wm nm == wo no && decide (0 < wm nm))) &&
-  (let subst : Std.HashMap String String := pairs.foldl
-    (fun h pr => match pr with
-      | ((nm, _), (no, _)) => h.insert no nm) {}
-   let renO := renameRefsT subst
+  (let renO := renameRefsT (seqSubst m o)
    let insBase := m.inputs.map (·.name)
    let insM := insBase ++ rM.map (·.1)
    let insO := insBase.filter (fun x => wm x == wo x) ++ rO.map (·.1)
