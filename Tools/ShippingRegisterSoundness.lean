@@ -5002,4 +5002,400 @@ theorem mergeDuplicates_seq {m : Sparkle.IR.AST.Module}
   unfold Sparkle.IR.RegDedup.mergeDuplicates
   simp [h]
 
+/-! ## The two-slot `circuit do` root -/
+
+def cons2E (w : Nat) : Lean.Expr :=
+  mkApp3 (.const ``List.cons [.succ .zero]) sort1E (bitVecE w) (consTE w)
+def hl2E (w : Nat) : Lean.Expr := .app (.const ``Sparkle.Core.HList []) (cons2E w)
+def sigL2E (dom : Lean.Expr) (w : Nat) : Lean.Expr :=
+  mkApp2 (.const ``Sparkle.Core.Circuit.SigList []) dom (cons2E w)
+def regT2E (dom : Lean.Expr) (w : Nat) : Lean.Expr :=
+  mkApp4 (.const ``Sparkle.Core.Reg []) dom (hl2E w) (sigL2E dom w) (bitVecE w)
+def slotT2E (dom : Lean.Expr) (w : Nat) : Lean.Expr :=
+  mkApp4 (.const ``Sparkle.Core.Circuit.Slot []) dom (hl2E w) (sigL2E dom w) (bitVecE w)
+def rl2E (dom : Lean.Expr) (w : Nat) (tail : Lean.Expr) : Lean.Expr :=
+  mkApp4 (.const ``Sparkle.Core.RegList []) dom (hl2E w) (sigL2E dom w) tail
+
+/-- The coerced live read of a two-slot register handle. -/
+def read2E (dom : Lean.Expr) (w : Nat) (x : Lean.Expr) : Lean.Expr :=
+  mkApp3 (.const ``Prod.fst [.zero, .zero]) (sigT dom w) (slotT2E dom w) x
+
+/-- The two-slot `circuit do` exactly as the macro elaborates it over a
+polymorphic domain (`nmX`/`nmY` are the user's register binder names,
+`dom0`–`dom6` the domain at the successive binder depths, `outIdx` the
+`bvar` index of the returned handle: 4 for the first slot, 2 for the
+second). -/
+def cdo2E (nmX nmY : Name) (dom0 dom1 dom2 dom3 dom4 dom5 dom6 : Lean.Expr)
+    (w v0 v1 : Nat) (outE rhs0 rhs1 : Lean.Expr) : Lean.Expr :=
+  mkApp8 (.const ``Sparkle.Core.runCircuitH []) dom0 (cons2E w) (sigT dom0 w)
+    (mkApp2 (.const ``Sparkle.Core.instHasDomainSignal []) dom0 (bitVecE w))
+    (mkApp4 (.const ``Sparkle.Core.instHListWireableConsOfWireable []) (bitVecE w) (consTE w)
+      (.app (.const ``Sparkle.Core.instWireableBitVec []) (natE w))
+      (mkApp4 (.const ``Sparkle.Core.instHListWireableConsOfWireable []) (bitVecE w) nilTE
+        (.app (.const ``Sparkle.Core.instWireableBitVec []) (natE w))
+        (.const ``Sparkle.Core.instHListWireableNil [])))
+    (mkApp4 (.const ``instInhabitedProd [.zero, .zero]) (bitVecE w) (hlE w)
+      (.app (.const ``BitVec.instInhabited []) (natE w))
+      (mkApp4 (.const ``instInhabitedProd [.zero, .zero]) (bitVecE w) hlNilE
+        (.app (.const ``BitVec.instInhabited []) (natE w))
+        (.const ``instInhabitedPUnit [.succ .zero])))
+    (mkApp4 (.const ``Prod.mk [.zero, .zero]) (bitVecE w) (hlE w)
+      (mkApp2 (.const ``BitVec.ofNat []) (natE w) (natE v0))
+      (mkApp4 (.const ``Prod.mk [.zero, .zero]) (bitVecE w) hlNilE
+        (mkApp2 (.const ``BitVec.ofNat []) (natE w) (natE v1)) (.const ``Unit.unit [])))
+    (.lam `_cdoRegs (rl2E dom0 w (cons2E w))
+      (.letE nmX (regT2E dom1 w)
+        (mkApp3 (.const ``Prod.fst [.zero, .zero]) (regT2E dom1 w)
+          (rl2E dom1 w (consTE w)) (.bvar 0))
+        (.letE `_cdoRest_1 (rl2E dom2 w (consTE w))
+          (mkApp3 (.const ``Prod.snd [.zero, .zero]) (regT2E dom2 w)
+            (rl2E dom2 w (consTE w)) (.bvar 1))
+          (.letE nmY (regT2E dom3 w)
+            (mkApp3 (.const ``Prod.fst [.zero, .zero]) (regT2E dom3 w)
+              (rl2E dom3 w nilTE) (.bvar 0))
+            (mkApp6 (.const ``Sparkle.Core.Circuit.bind []) dom4 (sigL2E dom4 w)
+              (.const ``Unit []) (sigT dom4 w)
+              (mkApp6 (.const ``Sparkle.Core.Circuit.next []) dom4 (hl2E w) (bitVecE w)
+                (sigL2E dom4 w) (.bvar 2) rhs0)
+              (.lam `_cdoK (.const ``Unit [])
+                (mkApp6 (.const ``Sparkle.Core.Circuit.bind []) dom5 (sigL2E dom5 w)
+                  (.const ``Unit []) (sigT dom5 w)
+                  (mkApp6 (.const ``Sparkle.Core.Circuit.next []) dom5 (hl2E w) (bitVecE w)
+                    (sigL2E dom5 w) (.bvar 1) rhs1)
+                  (.lam `_cdoK (.const ``Unit [])
+                    (mkApp4 (.const ``Sparkle.Core.Circuit.pure' []) dom6 (sigL2E dom6 w)
+                      (sigT dom6 w) outE)
+                    .default))
+                .default))
+            true)
+          true)
+        true)
+      .default)
+
+theorem cdo2ConeToLoop_read_x {dx dy K : Nat} (dom : Lean.Expr) (w : Nat)
+    (hne : dx ≠ dy) :
+    cdo2ConeToLoop dx dy K 0 (read2E dom w (.bvar dx)) = some (.bvar 1) := by
+  simp [read2E, mkApp3, mkApp2, mkAppB, mkApp, cdo2ConeToLoop]
+
+theorem cdo2ConeToLoop_read_y {dx dy K : Nat} (dom : Lean.Expr) (w : Nat)
+    (hne : dx ≠ dy) :
+    cdo2ConeToLoop dx dy K 0 (read2E dom w (.bvar dy)) = some (.bvar 0) := by
+  simp only [read2E, mkApp3, mkApp2, mkAppB, mkApp, cdo2ConeToLoop]
+  rw [if_neg (by simp; omega), if_pos (by simp)]
+
+theorem cdo2ConeToLoop_input {dx dy K n i : Nat} (h : i < n) (hK : 2 ≤ K)
+    (hdx : dx < K) (hdy : dy < K) :
+    cdo2ConeToLoop dx dy K 0 (inputExpr (n + K) i) = some (inputExpr (n + 2) i) := by
+  show cdo2ConeToLoop dx dy K 0 (.bvar (n + K - 1 - i)) = some (.bvar (n + 2 - 1 - i))
+  have key : n + K - 1 - i - K + 2 = n + 2 - 1 - i := by omega
+  have hguard : (decide (0 ≤ n + K - 1 - i) && decide (n + K - 1 - i < 0 + K)) = false := by
+    simp only [Bool.and_eq_false_iff, decide_eq_false_iff_not]
+    right
+    omega
+  simp only [cdo2ConeToLoop, hguard, Bool.false_eq_true, if_false]
+  rw [if_pos (by omega : n + K - 1 - i ≥ 0 + K), key]
+
+theorem cdo2ConeToLoop_natE (dx dy K d n : Nat) :
+    cdo2ConeToLoop dx dy K d (natE n) = some (natE n) := rfl
+
+theorem cdo2ConeToLoop_bitVecE (dx dy K d n : Nat) :
+    cdo2ConeToLoop dx dy K d (bitVecE n) = some (bitVecE n) := rfl
+
+theorem cdo2ConeToLoop_fvar (dx dy K d : Nat) (id : FVarId) :
+    cdo2ConeToLoop dx dy K d (.fvar id) = some (.fvar id) := rfl
+
+theorem cdo2ConeToLoop_sigT {dx dy K : Nat} {domS domL : Lean.Expr}
+    (h : cdo2ConeToLoop dx dy K 0 domS = some domL) (w : Nat) :
+    cdo2ConeToLoop dx dy K 0 (sigT domS w) = some (sigT domL w) := by
+  simp [sigT, cdo2ConeToLoop, h, cdo2ConeToLoop_natE, mkApp2, mkAppB, mkApp]
+
+/-- `cdo2ConeToLoop` distributes over the unified quote. -/
+theorem cdo2ConeToLoop_quote {dx dy K : Nat} {domS domL : Lean.Expr}
+    {bi vi biL viL : Nat → Lean.Expr} {kb kv : Nat} {vw : Nat → Nat}
+    (hdom : cdo2ConeToLoop dx dy K 0 domS = some domL)
+    (hb : ∀ j, j < kb → cdo2ConeToLoop dx dy K 0 (bi j) = some (biL j))
+    (hv : ∀ j, j < kv → cdo2ConeToLoop dx dy K 0 (vi j) = some (viL j)) :
+    ∀ {s : SType} (e : Term s), e.WF kb kv vw →
+    cdo2ConeToLoop dx dy K 0 (quote domS bi vi e) = some (quote domL biL viL e)
+  | _, .boolInput j, he => hb j he
+  | _, .bitsInput _ j, he => hv j he.1
+  | _, .boolLit b, _ => by
+    cases b <;> simp [Tools.ShippingUnifiedSource.quote, literalE, boolName, cdo2ConeToLoop,
+      cdo2ConeToLoop_natE, cdo2ConeToLoop_bitVecE, hdom, mkApp8, mkApp6, mkApp5, mkApp4,
+      mkApp3, mkApp2, mkAppB, mkApp]
+  | _, .bitsLit w v, _ => by
+    simp [Tools.ShippingUnifiedSource.quote, quoteF, cdo2ConeToLoop, cdo2ConeToLoop_natE,
+      cdo2ConeToLoop_bitVecE, hdom, mkApp8, mkApp6, mkApp5, mkApp4, mkApp3, mkApp2,
+      mkAppB, mkApp]
+  | _, .binary op a b, he => by
+    have ia := cdo2ConeToLoop_quote hdom hb hv a he.1
+    have ib := cdo2ConeToLoop_quote hdom hb hv b he.2
+    cases op <;> simp [Tools.ShippingUnifiedSource.quote, binE, cdo2ConeToLoop,
+      cdo2ConeToLoop_natE, cdo2ConeToLoop_bitVecE, cdo2ConeToLoop_sigT hdom, hdom, sigT,
+      binMethod, binInst, mkApp8, mkApp6, mkApp5, mkApp4, mkApp3, mkApp2, mkAppB, mkApp,
+      ia, ib]
+  | _, .compare op a b, he => by
+    have ia := cdo2ConeToLoop_quote hdom hb hv a he.1
+    have ib := cdo2ConeToLoop_quote hdom hb hv b he.2
+    cases op <;> simp [Tools.ShippingUnifiedSource.quote, compareE, cdo2ConeToLoop,
+      cdo2ConeToLoop_natE, cdo2ConeToLoop_bitVecE, cdo2ConeToLoop_sigT hdom, hdom, sigT,
+      compareName, mkApp8, mkApp6, mkApp5, mkApp4, mkApp3, mkApp2, mkAppB, mkApp, ia, ib]
+  | _, .boolBinary op a b, he => by
+    have ia := cdo2ConeToLoop_quote hdom hb hv a he.1
+    have ib := cdo2ConeToLoop_quote hdom hb hv b he.2
+    cases op <;> simp [Tools.ShippingUnifiedSource.quote, boolBinE, cdo2ConeToLoop,
+      cdo2ConeToLoop_natE, cdo2ConeToLoop_bitVecE, cdo2ConeToLoop_sigT hdom, hdom, sigT,
+      signalBoolBinName, signalBoolBinInst, mkApp8, mkApp6, mkApp5, mkApp4, mkApp3,
+      mkApp2, mkAppB, mkApp, ia, ib]
+  | _, .boolNot a, he => by
+    have ia := cdo2ConeToLoop_quote hdom hb hv a he
+    simp [Tools.ShippingUnifiedSource.quote, boolNotE, cdo2ConeToLoop, cdo2ConeToLoop_natE,
+      cdo2ConeToLoop_bitVecE, cdo2ConeToLoop_sigT hdom, hdom, sigT, mkApp8, mkApp6, mkApp5,
+      mkApp4, mkApp3, mkApp2, mkAppB, mkApp, ia]
+  | _, .boolEq a b, he => by
+    have ia := cdo2ConeToLoop_quote hdom hb hv a he.1
+    have ib := cdo2ConeToLoop_quote hdom hb hv b he.2
+    simp [Tools.ShippingUnifiedSource.quote, boolEqE, cdo2ConeToLoop, cdo2ConeToLoop_natE,
+      cdo2ConeToLoop_bitVecE, cdo2ConeToLoop_sigT hdom, hdom, sigT, mkApp8, mkApp6, mkApp5,
+      mkApp4, mkApp3, mkApp2, mkAppB, mkApp, ia, ib]
+  | s, .mux c a b, he => by
+    have ic := cdo2ConeToLoop_quote hdom hb hv c he.1
+    have ia := cdo2ConeToLoop_quote hdom hb hv a he.2.1
+    have ib := cdo2ConeToLoop_quote hdom hb hv b he.2.2
+    cases s <;> simp [Tools.ShippingUnifiedSource.quote, muxE, SType.quoteType,
+      cdo2ConeToLoop, cdo2ConeToLoop_natE, cdo2ConeToLoop_bitVecE, cdo2ConeToLoop_sigT hdom,
+      hdom, sigT, mkApp8, mkApp6, mkApp5, mkApp4, mkApp3, mkApp2, mkAppB, mkApp, ic, ia, ib]
+  | _, .setw w' a, he => by
+    have ia := cdo2ConeToLoop_quote hdom hb hv a he.1
+    simp [Tools.ShippingUnifiedSource.quote, setwE, cdo2ConeToLoop, cdo2ConeToLoop_natE,
+      cdo2ConeToLoop_bitVecE, cdo2ConeToLoop_sigT hdom, hdom, sigT, mkApp8, mkApp6, mkApp5,
+      mkApp4, mkApp3, mkApp2, mkAppB, mkApp, ia]
+
+theorem mixed_kind_at_push2 {bs : List (Name × MixedGateBinder)} {j : Nat} {name kind}
+    {k1 k2 : MixedGateBinder} (pos : bs[j]? = some (name, kind)) :
+    mixedGateBVar? (((bs.map Prod.snd).toArray.push k1).push k2)
+      (bs.length + 2 - 1 - j) = some kind := by
+  have bound := (List.getElem_of_getElem? pos).choose
+  unfold mixedGateBVar?
+  simp only [Array.size_push, List.size_toArray, List.length_map]
+  rw [if_pos (by omega)]
+  have eq : bs.length + 1 + 1 - 1 - (bs.length + 2 - 1 - j) = j := by omega
+  rw [eq]
+  have hpush2 : (((bs.map Prod.snd).toArray.push k1).push k2)[j]? =
+      ((bs.map Prod.snd).toArray)[j]? := by
+    rw [Array.getElem?_push, if_neg (by simp; omega),
+      Array.getElem?_push, if_neg (by simp; omega)]
+  rw [hpush2]
+  simp [List.getElem?_map, pos]
+
+theorem mixed_kind_self0 {bs : List (Name × MixedGateBinder)}
+    {k1 k2 : MixedGateBinder} :
+    mixedGateBVar? (((bs.map Prod.snd).toArray.push k1).push k2) 1 = some k1 := by
+  unfold mixedGateBVar?
+  simp only [Array.size_push, List.size_toArray, List.length_map]
+  rw [if_pos (by omega)]
+  have eq : bs.length + 1 + 1 - 1 - 1 = bs.length := by omega
+  rw [eq]
+  rw [Array.getElem?_push,
+    if_neg (by simp only [Array.size_push, List.size_toArray, List.length_map]; omega),
+    Array.getElem?_push,
+    if_pos (by simp only [List.size_toArray, List.length_map])]
+
+theorem mixed_kind_self1 {bs : List (Name × MixedGateBinder)}
+    {k1 k2 : MixedGateBinder} :
+    mixedGateBVar? (((bs.map Prod.snd).toArray.push k1).push k2) 0 = some k2 := by
+  unfold mixedGateBVar?
+  simp only [Array.size_push, List.size_toArray, List.length_map]
+  rw [if_pos (by omega)]
+  simp
+
+theorem input_bool_accepted_push2 {bs : List (Name × MixedGateBinder)} {j : Nat} {name}
+    {k1 k2 : MixedGateBinder} (pos : bs[j]? = some (name, .bool)) :
+    unifiedGateBoolBody (((bs.map Prod.snd).toArray.push k1).push k2)
+      (inputExpr (bs.length + 2) j) = true := by
+  change (mixedGateBVar? (((bs.map Prod.snd).toArray.push k1).push k2)
+    (bs.length + 2 - 1 - j) == some MixedGateBinder.bool) = true
+  rw [mixed_kind_at_push2 pos]
+  rfl
+
+theorem input_bits_accepted_push2 {bs : List (Name × MixedGateBinder)} {j : Nat} {name n}
+    {k1 k2 : MixedGateBinder} (pos : bs[j]? = some (name, .bits n)) :
+    unifiedGateBitsBody (((bs.map Prod.snd).toArray.push k1).push k2) n
+      (inputExpr (bs.length + 2) j) = true := by
+  change (mixedGateBVar? (((bs.map Prod.snd).toArray.push k1).push k2)
+    (bs.length + 2 - 1 - j) == some (MixedGateBinder.bits n)) = true
+  rw [mixed_kind_at_push2 pos]
+  simp
+
+theorem self0_bits_accepted {bs : List (Name × MixedGateBinder)} {w : Nat}
+    {k2 : MixedGateBinder} :
+    unifiedGateBitsBody (((bs.map Prod.snd).toArray.push (.bits w)).push k2) w
+      (.bvar 1) = true := by
+  change (mixedGateBVar? (((bs.map Prod.snd).toArray.push (.bits w)).push k2) 1 ==
+    some (MixedGateBinder.bits w)) = true
+  rw [mixed_kind_self0]
+  simp
+
+theorem self1_bits_accepted {bs : List (Name × MixedGateBinder)} {w : Nat}
+    {k1 : MixedGateBinder} :
+    unifiedGateBitsBody (((bs.map Prod.snd).toArray.push k1).push (.bits w)) w
+      (.bvar 0) = true := by
+  change (mixedGateBVar? (((bs.map Prod.snd).toArray.push k1).push (.bits w)) 0 ==
+    some (MixedGateBinder.bits w)) = true
+  rw [mixed_kind_self1]
+  simp
+
+set_option maxHeartbeats 4000000 in
+set_option maxRecDepth 65536 in
+theorem canonicalCircuitDo2?_cdo2E {nmX nmY : Name}
+    {dom0 dom1 dom2 dom3 dom4 dom5 dom6 outE rhs0 rhs1 cone0 cone1 : Lean.Expr}
+    {w v0 v1 outIdx ret : Nat}
+    (hdom : (dom0.isFVar || dom0.isBVar) = true) (hw : 0 < w)
+    (hv0 : v0 < 2 ^ w) (hv1 : v1 < 2 ^ w)
+    (houtE : outE = read2E dom6 w (.bvar outIdx))
+    (hout : (if outIdx == 4 then some 0 else if outIdx == 2 then some 1 else none) =
+      some ret)
+    (hcone0 : cdo2ConeToLoop 2 0 4 0 rhs0 = some cone0)
+    (hcone1 : cdo2ConeToLoop 3 1 5 0 rhs1 = some cone1) :
+    canonicalCircuitDo2? (cdo2E nmX nmY dom0 dom1 dom2 dom3 dom4 dom5 dom6
+      w v0 v1 outE rhs0 rhs1) = some (w, v0, v1, ret, cone0, cone1) := by
+  subst houtE
+  have hlit0 := litValue_natE w v0 hv0
+  have hlit1 := litValue_natE w v1 hv1
+  simp only [mkApp2, mkAppB, mkApp] at hlit0 hlit1
+  -- Only spine positions the recognizer patterns inspect are unfolded;
+  -- type-argument towers stay folded so the match reduction is shallow.
+  dsimp only [cdo2E, cons2E, consTE, nilTE, sort1E, bitVecE, read2E,
+    mkApp8, mkApp6, mkApp5, mkApp4, mkApp3, mkApp2, mkAppB, mkApp]
+  simp only [canonicalCircuitDo2?, cdo2Slots?, cdo2Inits?, cdo2Body?, cdo2Chain?]
+  simp only [hdom, if_true, canonicalNatLitValue?_natE, hlit0, hlit1,
+    hout, hcone0, hcone1]
+  simp [hw]
+
+theorem instFVars_cdo2E (xs : Array Lean.Expr) (d : Nat) (nmX nmY : Name)
+    (dom0 dom1 dom2 dom3 dom4 dom5 dom6 : Lean.Expr) (w v0 v1 : Nat)
+    (outE rhs0 rhs1 : Lean.Expr) :
+    instFVars xs d (cdo2E nmX nmY dom0 dom1 dom2 dom3 dom4 dom5 dom6
+      w v0 v1 outE rhs0 rhs1) =
+      cdo2E nmX nmY (instFVars xs d dom0) (instFVars xs (d + 1) dom1)
+        (instFVars xs (d + 2) dom2) (instFVars xs (d + 3) dom3)
+        (instFVars xs (d + 4) dom4) (instFVars xs (d + 5) dom5)
+        (instFVars xs (d + 6) dom6) w v0 v1 (instFVars xs (d + 6) outE)
+        (instFVars xs (d + 4) rhs0) (instFVars xs (d + 5) rhs1) := rfl
+
+set_option maxHeartbeats 4000000 in
+set_option maxRecDepth 65536 in
+theorem cdo2Uncached_cdo2E (rec : TranslateFn) {nmX nmY : Name}
+    {dom0 dom1 dom2 dom3 dom4 dom5 dom6 outE rhs0 rhs1 cone0 cone1 : Lean.Expr}
+    {w v0 v1 outIdx ret : Nat}
+    (hdom : (dom0.isFVar || dom0.isBVar) = true) (hw : 0 < w)
+    (hv0 : v0 < 2 ^ w) (hv1 : v1 < 2 ^ w)
+    (houtE : outE = read2E dom6 w (.bvar outIdx))
+    (hout : (if outIdx == 4 then some 0 else if outIdx == 2 then some 1 else none) =
+      some ret)
+    (hcone0 : cdo2ConeToLoop 2 0 4 0 rhs0 = some cone0)
+    (hcone1 : cdo2ConeToLoop 3 1 5 0 rhs1 = some cone1)
+    (hint : String) (top named : Bool) :
+    translateCircuitDo2UncachedWith rec w v0 v1 ret
+        (cdo2E nmX nmY dom0 dom1 dom2 dom3 dom4 dom5 dom6 w v0 v1 outE rhs0 rhs1)
+        hint top named =
+      (do
+        let self0 ← CompilerM.liftMetaM Lean.mkFreshFVarId
+        let self1 ← CompilerM.liftMetaM Lean.mkFreshFVarId
+        if (← CompilerM.lookupVar self0).isSome then
+          throw (Exception.error .missing "circuit-do slot-0 binder id collision")
+        if (← CompilerM.lookupVar self1).isSome then
+          throw (Exception.error .missing "circuit-do slot-1 binder id collision")
+        let r0 ← CompilerM.makeWire hint (.bitVector w) (named := named && ret == 0)
+        let r1 ← CompilerM.makeWire (hint ++ "_slot1") (.bitVector w)
+          (named := named && ret == 1)
+        CompilerM.bindSourceVariable self0 r0
+        CompilerM.bindSourceVariable self1 r1
+        let cw0 ← rec (instFVars #[.fvar self0, .fvar self1] 0 cone0) "loop_body" false false
+        let cw1 ← rec (instFVars #[.fvar self0, .fvar self1] 0 cone1) "loop_body" false false
+        CompilerM.emitRegisterStmt r0 "clk" "rst" (.ref cw0) v0
+        CompilerM.emitRegisterStmt r1 "clk" "rst" (.ref cw1) v1
+        return (if ret == 0 then r0 else r1)) := by
+  unfold translateCircuitDo2UncachedWith
+  rw [canonicalCircuitDo2?_cdo2E hdom hw hv0 hv1 houtE hout hcone0 hcone1]
+
+set_option maxHeartbeats 4000000 in
+set_option maxRecDepth 65536 in
+theorem cdo2_step (rec : TranslateFn) {nmX nmY : Name}
+    {dom0 dom1 dom2 dom3 dom4 dom5 dom6 outE rhs0 rhs1 cone0 cone1 : Lean.Expr}
+    {w v0 v1 outIdx ret : Nat}
+    (hdom : (dom0.isFVar || dom0.isBVar) = true) (hw : 0 < w)
+    (hv0 : v0 < 2 ^ w) (hv1 : v1 < 2 ^ w)
+    (houtE : outE = read2E dom6 w (.bvar outIdx))
+    (hout : (if outIdx == 4 then some 0 else if outIdx == 2 then some 1 else none) =
+      some ret)
+    (hcone0 : cdo2ConeToLoop 2 0 4 0 rhs0 = some cone0)
+    (hcone1 : cdo2ConeToLoop 3 1 5 0 rhs1 = some cone1)
+    (hint : String) (top named : Bool) :
+    translateStepWith translateFallback rec
+        (cdo2E nmX nmY dom0 dom1 dom2 dom3 dom4 dom5 dom6 w v0 v1 outE rhs0 rhs1)
+        hint top named =
+      translateControlCachedWith (translateCircuitDo2UncachedWith rec w v0 v1 ret)
+        (cdo2E nmX nmY dom0 dom1 dom2 dom3 dom4 dom5 dom6 w v0 v1 outE rhs0 rhs1)
+        hint top named := by
+  have shape : translateCoreShape (cdo2E nmX nmY dom0 dom1 dom2 dom3 dom4 dom5 dom6
+    w v0 v1 outE rhs0 rhs1) = false := rfl
+  have core : translateCore rec (cdo2E nmX nmY dom0 dom1 dom2 dom3 dom4 dom5 dom6
+    w v0 v1 outE rhs0 rhs1) hint top named = pure none := rfl
+  have control : isBoolControl (cdo2E nmX nmY dom0 dom1 dom2 dom3 dom4 dom5 dom6
+    w v0 v1 outE rhs0 rhs1) = false := rfl
+  have mux : canonicalMuxType? (cdo2E nmX nmY dom0 dom1 dom2 dom3 dom4 dom5 dom6
+    w v0 v1 outE rhs0 rhs1) = none := rfl
+  have setw : canonicalSetWidth? (cdo2E nmX nmY dom0 dom1 dom2 dom3 dom4 dom5 dom6
+    w v0 v1 outE rhs0 rhs1) = none := rfl
+  have reg : canonicalRegister? (cdo2E nmX nmY dom0 dom1 dom2 dom3 dom4 dom5 dom6
+    w v0 v1 outE rhs0 rhs1) = none := rfl
+  have regEn : canonicalRegisterEnable? (cdo2E nmX nmY dom0 dom1 dom2 dom3 dom4 dom5 dom6
+    w v0 v1 outE rhs0 rhs1) = none := rfl
+  have loopReg : canonicalLoopRegister? (cdo2E nmX nmY dom0 dom1 dom2 dom3 dom4 dom5 dom6
+    w v0 v1 outE rhs0 rhs1) = none := rfl
+  have cdo1 : canonicalCircuitDo? (cdo2E nmX nmY dom0 dom1 dom2 dom3 dom4 dom5 dom6
+    w v0 v1 outE rhs0 rhs1) = none := rfl
+  have cdo2 := canonicalCircuitDo2?_cdo2E (nmX := nmX) (nmY := nmY) (dom1 := dom1)
+    (dom2 := dom2) (dom3 := dom3) (dom4 := dom4) (dom5 := dom5)
+    hdom hw hv0 hv1 houtE hout hcone0 hcone1
+  generalize hE : cdo2E nmX nmY dom0 dom1 dom2 dom3 dom4 dom5 dom6 w v0 v1 outE rhs0 rhs1
+    = E at shape core control mux setw reg regEn loopReg cdo1 cdo2 ⊢
+  have step : translateStepWith translateFallback rec E hint top named =
+      translateFallback rec E hint top named := by
+    simp [translateStepWith, shape, core]
+    rfl
+  rw [step]
+  simp only [translateFallback, control, Bool.false_eq_true, if_false, mux, setw, reg,
+    regEn, loopReg, cdo1, cdo2]
+
+set_option maxHeartbeats 4000000 in
+set_option maxRecDepth 65536 in
+theorem unifiedRegisterRoot_cdo2E {kinds : Array MixedGateBinder} {nmX nmY : Name}
+    {dom0 dom1 dom2 dom3 dom4 dom5 dom6 outE rhs0 rhs1 cone0 cone1 : Lean.Expr}
+    {w v0 v1 outIdx ret : Nat}
+    (hdom : (dom0.isFVar || dom0.isBVar) = true) (hw : 0 < w)
+    (hv0 : v0 < 2 ^ w) (hv1 : v1 < 2 ^ w)
+    (houtE : outE = read2E dom6 w (.bvar outIdx))
+    (hout : (if outIdx == 4 then some 0 else if outIdx == 2 then some 1 else none) =
+      some ret)
+    (hcone0 : cdo2ConeToLoop 2 0 4 0 rhs0 = some cone0)
+    (hcone1 : cdo2ConeToLoop 3 1 5 0 rhs1 = some cone1)
+    (body0 : unifiedGateBitsBody ((kinds.push (.bits w)).push (.bits w)) w cone0 = true)
+    (body1 : unifiedGateBitsBody ((kinds.push (.bits w)).push (.bits w)) w cone1 = true) :
+    unifiedRegisterRoot kinds (cdo2E nmX nmY dom0 dom1 dom2 dom3 dom4 dom5 dom6
+      w v0 v1 outE rhs0 rhs1) = true := by
+  unfold unifiedRegisterRoot
+  have hreg : canonicalRegister? (cdo2E nmX nmY dom0 dom1 dom2 dom3 dom4 dom5 dom6
+    w v0 v1 outE rhs0 rhs1) = none := rfl
+  have hregEn : canonicalRegisterEnable? (cdo2E nmX nmY dom0 dom1 dom2 dom3 dom4 dom5 dom6
+    w v0 v1 outE rhs0 rhs1) = none := rfl
+  have hloop : canonicalLoopRegister? (cdo2E nmX nmY dom0 dom1 dom2 dom3 dom4 dom5 dom6
+    w v0 v1 outE rhs0 rhs1) = none := rfl
+  have hcdo1 : canonicalCircuitDo? (cdo2E nmX nmY dom0 dom1 dom2 dom3 dom4 dom5 dom6
+    w v0 v1 outE rhs0 rhs1) = none := rfl
+  rw [hreg, hregEn, hloop, hcdo1,
+    canonicalCircuitDo2?_cdo2E hdom hw hv0 hv1 houtE hout hcone0 hcone1]
+  simp [hw, body0, body1]
+
 end Tools.ShippingRegisterSoundness

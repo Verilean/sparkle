@@ -1436,56 +1436,76 @@ def cdo2ConeToLoop (dx dy K : Nat) : Nat → Lean.Expr → Option Lean.Expr
   | d, .proj st i b => do some (.proj st i (← cdo2ConeToLoop dx dy K d b))
   | _, e => some e
 
+/-- The two-slot handle chain: `bind (next x rhs0) (fun _ => bind (next y
+    rhs1) (fun _ => pure' (read (x|y))))`, with the handles at the fixed
+    de-Bruijn indices the projection-destructuring produces. -/
+def cdo2Chain? : Lean.Expr → Option (Nat × Lean.Expr × Lean.Expr)
+  | .app (.app (.app (.app (.app (.app
+      (.const ``Sparkle.Core.Circuit.bind _) _) _) _) _)
+      (.app (.app (.app (.app (.app (.app
+        (.const ``Sparkle.Core.Circuit.next _) _) _) _) _) (.bvar 2)) rhs0))
+      (.lam _ _
+        (.app (.app (.app (.app (.app (.app
+            (.const ``Sparkle.Core.Circuit.bind _) _) _) _) _)
+          (.app (.app (.app (.app (.app (.app
+            (.const ``Sparkle.Core.Circuit.next _) _) _) _) _) (.bvar 1)) rhs1))
+          (.lam _ _
+            (.app (.app (.app (.app (.const ``Sparkle.Core.Circuit.pure' _) _) _) _)
+              (.app (.app (.app (.const ``Prod.fst _) _) _) (.bvar outIdx))) _)) _) =>
+    some (outIdx, rhs0, rhs1)
+  | _ => none
+
+/-- The two projected handles and the write/return chain under them. -/
+def cdo2Body? : Lean.Expr → Option (Nat × Lean.Expr × Lean.Expr)
+  | .lam _ _ (.letE _ _
+      (.app (.app (.app (.const ``Prod.fst _) _) _) (.bvar 0))
+      (.letE _ _
+        (.app (.app (.app (.const ``Prod.snd _) _) _) (.bvar 1))
+        (.letE _ _
+          (.app (.app (.app (.const ``Prod.fst _) _) _) (.bvar 0))
+          chain _) _) _) _ => cdo2Chain? chain
+  | _ => none
+
+/-- The nested two-slot initial-value pair. -/
+def cdo2Inits? : Lean.Expr → Option (Lean.Expr × Lean.Expr)
+  | .app (.app (.app (.app (.const ``Prod.mk _) _) _) init0E)
+      (.app (.app (.app (.app (.const ``Prod.mk _) _) _) init1E)
+        (.const ``Unit.unit _)) => some (init0E, init1E)
+  | _ => none
+
+/-- The two-slot type list `[BitVec w, BitVec w2]`. -/
+def cdo2Slots? : Lean.Expr → Option (Lean.Expr × Lean.Expr)
+  | .app (.app (.app (.const ``List.cons _) _) (.app (.const ``BitVec _) wE))
+      (.app (.app (.app (.const ``List.cons _) _) (.app (.const ``BitVec _) wE2))
+        (.app (.const ``List.nil _) _)) => some (wE, wE2)
+  | _ => none
+
 /-- Canonical two-slot `circuit do`: `runCircuitH` at two same-width
     `BitVec w` slots over a polymorphic domain, projection-destructured
     handles, one write per register, and one of the registers' own reads
     returned. Yields `(width, init0, init1, returned slot, cone0, cone1)`
     with both cones in the two-state form (`.bvar 1` = first register's
     read, `.bvar 0` = the second's). -/
-def canonicalCircuitDo2? (e : Lean.Expr) :
-    Option (Nat × Nat × Nat × Nat × Lean.Expr × Lean.Expr) :=
-  if !e.isAppOfArity ``Sparkle.Core.runCircuitH 8 then none else
-  let args := e.getAppArgs
-  let dom := args[0]!
-  if !(dom.isFVar || dom.isBVar) then none else
-  match args[1]!, args[6]!, args[7]! with
-  | .app (.app (.app (.const ``List.cons _) _) (.app (.const ``BitVec _) wE))
-      (.app (.app (.app (.const ``List.cons _) _) (.app (.const ``BitVec _) wE2))
-        (.app (.const ``List.nil _) _)),
-    .app (.app (.app (.app (.const ``Prod.mk _) _) _) init0E)
-      (.app (.app (.app (.app (.const ``Prod.mk _) _) _) init1E) (.const ``Unit.unit _)),
-    .lam _ _ (.letE _ _
-        (.app (.app (.app (.const ``Prod.fst _) _) _) (.bvar 0))
-        (.letE _ _
-          (.app (.app (.app (.const ``Prod.snd _) _) _) (.bvar 1))
-          (.letE _ _
-            (.app (.app (.app (.const ``Prod.fst _) _) _) (.bvar 0))
-            (.app (.app (.app (.app (.app (.app
-                (.const ``Sparkle.Core.Circuit.bind _) _) _) _) _)
-              (.app (.app (.app (.app (.app (.app
-                (.const ``Sparkle.Core.Circuit.next _) _) _) _) _) (.bvar 2)) rhs0))
-              (.lam _ _
-                (.app (.app (.app (.app (.app (.app
-                    (.const ``Sparkle.Core.Circuit.bind _) _) _) _) _)
-                  (.app (.app (.app (.app (.app (.app
-                    (.const ``Sparkle.Core.Circuit.next _) _) _) _) _) (.bvar 1)) rhs1))
-                  (.lam _ _
-                    (.app (.app (.app (.app (.const ``Sparkle.Core.Circuit.pure' _) _) _) _)
-                      (.app (.app (.app (.const ``Prod.fst _) _) _) (.bvar outIdx))) _)) _)) _)
-          _) _) _ =>
-    let retSlot := if outIdx == 4 then some 0 else if outIdx == 2 then some 1 else none
-    match retSlot with
-    | none => none
-    | some ret =>
-      match canonicalNatLitValue? wE, canonicalNatLitValue? wE2,
-          bitVecLitValue? init0E, bitVecLitValue? init1E with
-      | some w, some w2, some (wi0, v0), some (wi1, v1) =>
-        if !(0 < w && w2 == w && wi0 == w && wi1 == w) then none else
-        match cdo2ConeToLoop 2 0 4 0 rhs0, cdo2ConeToLoop 3 1 5 0 rhs1 with
-        | some cone0, some cone1 => some (w, v0, v1, ret, cone0, cone1)
-        | _, _ => none
-      | _, _, _, _ => none
-  | _, _, _ => none
+def canonicalCircuitDo2? : Lean.Expr → Option (Nat × Nat × Nat × Nat × Lean.Expr × Lean.Expr)
+  | .app (.app (.app (.app (.app (.app (.app (.app
+      (.const ``Sparkle.Core.runCircuitH _) dom) slots) _) _) _) _) inits) body =>
+    if !(dom.isFVar || dom.isBVar) then none else
+    (match cdo2Slots? slots, cdo2Inits? inits, cdo2Body? body with
+     | some (wE, wE2), some (init0E, init1E), some (outIdx, rhs0, rhs1) =>
+       let retSlot := if outIdx == 4 then some 0 else if outIdx == 2 then some 1 else none
+       (match retSlot with
+        | none => none
+        | some ret =>
+          match canonicalNatLitValue? wE, canonicalNatLitValue? wE2,
+              bitVecLitValue? init0E, bitVecLitValue? init1E with
+          | some w, some w2, some (wi0, v0), some (wi1, v1) =>
+            if !(0 < w && w2 == w && wi0 == w && wi1 == w) then none else
+            (match cdo2ConeToLoop 2 0 4 0 rhs0, cdo2ConeToLoop 3 1 5 0 rhs1 with
+             | some cone0, some cone1 => some (w, v0, v1, ret, cone0, cone1)
+             | _, _ => none)
+          | _, _, _, _ => none)
+     | _, _, _ => none)
+  | _ => none
 
 /-- Canonical enabled register: `Signal.registerWithEnable initLit en input`
     over a polymorphic domain at a literal positive width. Returns
