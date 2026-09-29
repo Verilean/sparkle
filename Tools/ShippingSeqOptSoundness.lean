@@ -439,4 +439,384 @@ theorem regNexts_seq_map {we : WEnv} {mems : MEnv} {envF : Env} {f : Expr → Na
   | .memory .. :: rest, hok, hv => by simp [seqStmtOk] at hok
   | .inst .. :: rest, hok, hv => by simp [seqStmtOk] at hok
 
+/-! ## One-cycle soundness of the sequential rename-equivalence checker -/
+
+/-- An accepted body's assign segment never writes a name `z` that no
+assign targets. -/
+theorem evalAssigns_keeps {we : WEnv} {mems : MEnv} (z : String) :
+    ∀ {body : List Stmt} {env envF : Env},
+      body.all seqStmtOk = true →
+      body.all (fun st => match st with
+        | .assign l _ => l != z
+        | _ => true) = true →
+      evalAssigns we mems body env = some envF → envF z = env z
+  | [], env, envF, _, _, h => by cases h; rfl
+  | .assign l r :: rest, env, envF, hok, hz, h => by
+    have hok' : rest.all seqStmtOk = true := by
+      simp only [List.all_cons, Bool.and_eq_true] at hok; exact hok.2
+    have hz' : (rest.all fun st => match st with
+        | .assign l _ => l != z
+        | _ => true) = true := by
+      simp only [List.all_cons, Bool.and_eq_true] at hz; exact hz.2
+    have hlz : l ≠ z := by
+      simp only [List.all_cons, Bool.and_eq_true, bne_iff_ne, ne_eq] at hz
+      exact hz.1
+    simp only [evalAssigns, Option.bind_eq_bind] at h
+    cases hv : evalExpr we env r with
+    | none => rw [hv] at h; cases h
+    | some v =>
+      rw [hv] at h
+      simp only [Option.bind_some] at h
+      have := evalAssigns_keeps z hok' hz' h
+      have hzl : ¬(z = l) := fun heq => hlz heq.symm
+      rw [this, if_neg hzl]
+  | .register .. :: rest, env, envF, hok, hz, h => by
+    have hok' : rest.all seqStmtOk = true := by
+      simp only [List.all_cons, Bool.and_eq_true] at hok; exact hok.2
+    have hz' : (rest.all fun st => match st with
+        | .assign l _ => l != z
+        | _ => true) = true := by
+      simp only [List.all_cons, Bool.and_eq_true] at hz; exact hz.2
+    exact evalAssigns_keeps z hok' hz' h
+  | .memory .. :: rest, env, envF, hok, _, h => by simp [seqStmtOk] at hok
+  | .inst .. :: rest, env, envF, hok, _, h => by simp [seqStmtOk] at hok
+
+/-- Accepted bodies carry no memories, so the memory state is unchanged. -/
+theorem memNexts_seqStmtOk {we : WEnv} {mems : MEnv} {envF : Env} :
+    ∀ {body : List Stmt}, body.all seqStmtOk = true →
+      memNexts we body mems envF = some mems
+  | [], _ => rfl
+  | .assign _ _ :: rest, hok => by
+    have hok' : rest.all seqStmtOk = true := by
+      simp only [List.all_cons, Bool.and_eq_true] at hok; exact hok.2
+    show memNexts we rest mems envF = some mems
+    exact memNexts_seqStmtOk hok'
+  | .register .. :: rest, hok => by
+    have hok' : rest.all seqStmtOk = true := by
+      simp only [List.all_cons, Bool.and_eq_true] at hok; exact hok.2
+    show memNexts we rest mems envF = some mems
+    exact memNexts_seqStmtOk hok'
+  | .memory .. :: rest, hok => by simp [seqStmtOk] at hok
+  | .inst .. :: rest, hok => by simp [seqStmtOk] at hok
+
+open Sparkle.IR.RegDedup (declWidth) in
+set_option maxHeartbeats 4000000 in
+/-- **The sequential rename-equivalence check is sound for one cycle.**
+With reset low and fitting inputs and register states, both modules step:
+the outputs agree, the register updates pair up name-for-name with equal
+values, and the updated values stay width-bounded. -/
+theorem seqOptCheck_step_sound {m o : Sparkle.IR.AST.Module}
+    (hchk : seqOptCheck m o = true) {mems : MEnv} {init : Env}
+    (hins : ∀ x ∈ m.inputs.map (·.name),
+      init x < 2 ^ Sparkle.IR.RegDedup.declWidth m x)
+    (hregs : ∀ r ∈ seqRegs m, init r.1 < 2 ^ Sparkle.IR.RegDedup.declWidth m r.1)
+    (hrst : init "rst" = 0) :
+    ∃ envM envO nextsM nextsO,
+      stepModule (Sparkle.IR.RegDedup.declWidth m) m.body init mems
+        = some (envM, nextsM, mems) ∧
+      stepModule (Sparkle.IR.RegDedup.declWidth o) o.body
+        (fun x => init (renameT (seqSubst m o) x)) mems = some (envO, nextsO, mems) ∧
+      (∀ p ∈ m.outputs, envO p.name = envM p.name) ∧
+      nextsM.map (·.1) = (seqRegs m).map (·.1) ∧
+      nextsO.map (·.1) = (seqRegs o).map (·.1) ∧
+      nextsM.map (·.2) = nextsO.map (·.2) ∧
+      (∀ pr ∈ nextsM, pr.2 < 2 ^ Sparkle.IR.RegDedup.declWidth m pr.1) := by
+  simp only [seqOptCheck] at hchk
+  rw [Bool.and_eq_true] at hchk
+  obtain ⟨h1, h2⟩ := hchk
+  simp only [Bool.and_eq_true, decide_eq_true_eq, beq_iff_eq] at h1
+  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨hlen, hinEq⟩, houtEq⟩, hokM⟩, hokO⟩, hndM⟩, hndO⟩, hdisjM⟩,
+    hdisjO⟩, hzM⟩, hzO⟩, hpairs⟩ := h1
+  -- The pairing substitution as a plain fold, and its lookups.
+  have hsubst : seqSubst m o = ((List.zip (seqRegs o) (seqRegs m)).map
+      (fun pr => (pr.1.1, pr.2.1))).foldl (fun acc p => acc.insert p.1 p.2) {} := by
+    rw [List.foldl_map]
+    rfl
+  have hkeys : (((List.zip (seqRegs o) (seqRegs m)).map (fun pr => (pr.1.1, pr.2.1))).map (·.1)) =
+      (seqRegs o).map (·.1) := by
+    have h1 : (((List.zip (seqRegs o) (seqRegs m)).map (fun pr => (pr.1.1, pr.2.1))).map (·.1)) =
+        ((List.zip (seqRegs o) (seqRegs m)).map Prod.fst).map (·.1) := by
+      rw [List.map_map, List.map_map]
+      rfl
+    rw [h1, List.map_fst_zip
+      (by omega : (seqRegs o).length ≤ (seqRegs m).length)]
+  have hndKeys : (((List.zip (seqRegs o) (seqRegs m)).map (fun pr => (pr.1.1, pr.2.1))).map (·.1)).Nodup := by
+    rw [hkeys]; exact hndO
+  have renPair : ∀ i (hi : i < (seqRegs o).length),
+      renameT (seqSubst m o) (((seqRegs o)[i]'hi).1) = (((seqRegs m)[i]'(by omega)).1) := by
+    intro i hi
+    have hmem : ((((seqRegs o)[i]'hi).1), (((seqRegs m)[i]'(by omega : i < (seqRegs m).length)).1)) ∈
+        (List.zip (seqRegs o) (seqRegs m)).map (fun pr => (pr.1.1, pr.2.1)) := by
+      refine List.mem_map.mpr ⟨(((seqRegs o)[i]'hi), ((seqRegs m)[i]'(by omega))), ?_, rfl⟩
+      rw [List.mem_iff_getElem]
+      exact ⟨i, by rw [List.length_zip]; omega, by rw [List.getElem_zip]⟩
+    have := foldl_insert_lookup _ ({} : Std.HashMap String String) hndKeys _ _ hmem
+    rw [← hsubst] at this
+    simp [renameT, this]
+  have renOff : ∀ x, x ∉ (seqRegs o).map (·.1) → renameT (seqSubst m o) x = x := by
+    intro x hx
+    have hnm : x ∉ ((List.zip (seqRegs o) (seqRegs m)).map (fun pr => (pr.1.1, pr.2.1))).map (·.1) := by
+      rw [hkeys]; exact hx
+    have := foldl_insert_lookup_notmem _ ({} : Std.HashMap String String) x hnm
+    rw [← hsubst] at this
+    simp [renameT, this]
+  have hrstNM : ("rst" : String) ∉ (seqRegs o).map (·.1) := by
+    intro hm
+    obtain ⟨r, hr, he⟩ := List.mem_map.mp hm
+    have := List.all_eq_true.mp hdisjO r hr
+    simp only [Bool.and_eq_true, bne_iff_ne, ne_eq] at this
+    exact this.2 he
+  have hrstO : init (renameT (seqSubst m o) "rst") = 0 := by
+    rw [renOff "rst" hrstNM]
+    exact hrst
+  -- The paired static facts, index-wise.
+  have hpairAt : ∀ i (hi : i < (seqRegs m).length),
+      ((seqRegs m)[i]'hi).2.1 = ((seqRegs o)[i]'(by omega)).2.1 ∧
+      ((seqRegs m)[i]'hi).2.2.1.1 = "rst" ∧ ((seqRegs o)[i]'(by omega)).2.2.1.1 = "rst" ∧
+      ((seqRegs m)[i]'hi).2.2.1.2 = ((seqRegs o)[i]'(by omega)).2.2.1.2 ∧
+      ((seqRegs m)[i]'hi).2.2.2.2 = ((seqRegs o)[i]'(by omega)).2.2.2.2 ∧
+      (declWidth m) ((seqRegs m)[i]'hi).1 = (declWidth o) ((seqRegs o)[i]'(by omega)).1 ∧
+      0 < (declWidth m) ((seqRegs m)[i]'hi).1 := by
+    intro i hi
+    have hp := List.all_eq_true.mp hpairs (((seqRegs m)[i]'hi), ((seqRegs o)[i]'(by omega))) (by
+      rw [List.mem_iff_getElem]
+      exact ⟨i, by rw [List.length_zip]; omega, by rw [List.getElem_zip]⟩)
+    have hp' : ((((seqRegs m)[i]'hi).2.1 == ((seqRegs o)[i]'(by omega : i < (seqRegs o).length)).2.1) &&
+        (((seqRegs m)[i]'hi).2.2.1.1 == "rst") &&
+        (((seqRegs o)[i]'(by omega : i < (seqRegs o).length)).2.2.1.1 == "rst") &&
+        decide (((seqRegs m)[i]'hi).2.2.1.2 = ((seqRegs o)[i]'(by omega : i < (seqRegs o).length)).2.2.1.2) &&
+        (((seqRegs m)[i]'hi).2.2.2.2 == ((seqRegs o)[i]'(by omega : i < (seqRegs o).length)).2.2.2.2) &&
+        ((declWidth m) ((seqRegs m)[i]'hi).1 == (declWidth o) ((seqRegs o)[i]'(by omega : i < (seqRegs o).length)).1) &&
+        decide (0 < (declWidth m) ((seqRegs m)[i]'hi).1)) = true := hp
+    simp only [Bool.and_eq_true, beq_iff_eq, decide_eq_true_eq] at hp'
+    exact ⟨hp'.1.1.1.1.1.1, hp'.1.1.1.1.1.2, hp'.1.1.1.1.2, hp'.1.1.1.2, hp'.1.1.2,
+      hp'.1.2, hp'.2⟩
+  -- Fitting environments over both reference domains.
+  have hinsMfit : ∀ x ∈ (m.inputs.map (·.name) ++ (seqRegs m).map (·.1)), init x < 2 ^ (declWidth m) x := by
+    intro x hx
+    rcases List.mem_append.mp hx with hx | hx
+    · exact hins x hx
+    · obtain ⟨r, hr, he⟩ := List.mem_map.mp hx
+      exact he ▸ hregs r hr
+  have hinNotReg : ∀ x ∈ (m.inputs.map (·.name)), x ∉ (seqRegs o).map (·.1) := by
+    intro x hxin hm
+    obtain ⟨r, hr, he⟩ := List.mem_map.mp hm
+    have := List.all_eq_true.mp hdisjO r hr
+    simp only [Bool.and_eq_true, Bool.not_eq_true'] at this
+    have hcon := this.1
+    rw [he] at hcon
+    rw [List.contains_eq_mem] at hcon
+    simp only [decide_eq_false_iff_not] at hcon
+    exact hcon hxin
+  have hinsOfit : ∀ x ∈ ((m.inputs.map (·.name)).filter (fun x => declWidth m x == declWidth o x) ++ (seqRegs o).map (·.1)), (fun x => init (renameT (seqSubst m o) x)) x < 2 ^ (declWidth o) x := by
+    intro x hx
+    rcases List.mem_append.mp hx with hx | hx
+    · obtain ⟨hxin, hwx⟩ := List.mem_filter.mp hx
+      have hwx' : (declWidth m) x = (declWidth o) x := by simpa using hwx
+      simp only [renOff x (hinNotReg x hxin)]
+      rw [← hwx']
+      exact hins x hxin
+    · obtain ⟨r, hr, he⟩ := List.mem_map.mp hx
+      obtain ⟨i, hi, hri⟩ := List.mem_iff_getElem.mp hr
+      subst he
+      simp only []
+      have hrw := renPair i hi
+      rw [hri] at hrw
+      rw [hrw]
+      have hwEq := (hpairAt i (by omega)).2.2.2.2.2.1
+      rw [hri] at hwEq
+      rw [← hwEq]
+      exact hregs _ (List.mem_iff_getElem.mpr ⟨i, by omega, rfl⟩)
+  -- Width compatibility of the renaming on the o-side reference domain.
+  have hwren : ∀ x ∈ ((m.inputs.map (·.name)).filter (fun x => declWidth m x == declWidth o x) ++ (seqRegs o).map (·.1)), (declWidth o) x = (declWidth m) (renameT (seqSubst m o) x) := by
+    intro x hx
+    rcases List.mem_append.mp hx with hx | hx
+    · obtain ⟨hxin, hwx⟩ := List.mem_filter.mp hx
+      rw [renOff x (hinNotReg x hxin)]
+      have h1 : (declWidth m) x = (declWidth o) x := by simpa using hwx
+      omega
+    · obtain ⟨r, hr, he⟩ := List.mem_map.mp hx
+      obtain ⟨i, hi, hri⟩ := List.mem_iff_getElem.mp hr
+      subst he
+      rw [← hri, renPair i hi]
+      exact ((hpairAt i (by omega)).2.2.2.2.2.1).symm
+  -- Decompose the normal-form half of the check.
+  split at h2
+  case h_2 => cases h2
+  rename_i dm dO hnm hno
+  rw [Bool.and_eq_true] at h2
+  obtain ⟨houts, hnexts⟩ := h2
+  have houtsE := List.all_eq_true.mp houts
+  have hnextsE := List.all_eq_true.mp hnexts
+  -- Run both normalizations from the fitting initial environments.
+  have hd0M : SeqDefsOk (declWidth m) init init [] :=
+    ⟨fun x d hx => by simp [List.lookup] at hx, fun _ _ => rfl⟩
+  have hd0O : SeqDefsOk (declWidth o) (fun x => init (renameT (seqSubst m o) x)) (fun x => init (renameT (seqSubst m o) x)) [] :=
+    ⟨fun x d hx => by simp [List.lookup] at hx, fun _ _ => rfl⟩
+  obtain ⟨envM, hevM, hdM⟩ :=
+    seqNormBody_sound (mems := mems) hinsMfit (seqAssigns m) [] dm init hd0M hnm
+  obtain ⟨envO, hevO, hdO⟩ :=
+    seqNormBody_sound (mems := mems) hinsOfit (seqAssigns o) [] dO (fun x => init (renameT (seqSubst m o) x)) hd0O hno
+  have hevMfull : evalAssigns (declWidth m) mems m.body init = some envM := by
+    rw [evalAssigns_seq_skip hokM]
+    exact hevM
+  have hevOfull : evalAssigns (declWidth o) mems o.body (fun x => init (renameT (seqSubst m o) x)) = some envO := by
+    rw [evalAssigns_seq_skip hokO]
+    exact hevO
+  -- Reset stays low through the assign segments.
+  have hzMfull : m.body.all (fun st => match st with
+      | .assign l _ => l != "rst"
+      | _ => true) = true := by
+    rw [List.all_eq_true]
+    intro st hst
+    cases st with
+    | assign l r => exact List.all_eq_true.mp hzM _ (List.mem_filter.mpr ⟨hst, rfl⟩)
+    | register o c rk i iv => rfl
+    | memory n aw dw md wa wd wen ra rd ep ew rp => rfl
+    | inst n mn conns => rfl
+  have hzOfull : o.body.all (fun st => match st with
+      | .assign l _ => l != "rst"
+      | _ => true) = true := by
+    rw [List.all_eq_true]
+    intro st hst
+    cases st with
+    | assign l r => exact List.all_eq_true.mp hzO _ (List.mem_filter.mpr ⟨hst, rfl⟩)
+    | register o c rk i iv => rfl
+    | memory n aw dw md wa wd wen ra rd ep ew rp => rfl
+    | inst n mn conns => rfl
+  have hrstM : envM "rst" = 0 := by
+    rw [evalAssigns_keeps "rst" hokM hzMfull hevMfull]
+    exact hrst
+  have hrstOF : envO "rst" = 0 := by
+    rw [evalAssigns_keeps "rst" hokO hzOfull hevOfull]
+    exact hrstO
+  have hif : ¬((0 : Nat) ≠ 0) := fun h => h rfl
+  -- Output correspondence.
+  have houtCorr : ∀ p ∈ m.outputs, envO p.name = envM p.name := by
+    intro p hp
+    have h := houtsE p hp
+    have h' : (match dm.lookup p.name, dO.lookup p.name with
+        | some em, some eo =>
+          decide (em = renameRefsT (seqSubst m o) eo) &&
+            (refsOf em).all (fun x => (m.inputs.map (·.name) ++ (seqRegs m).map (·.1)).contains x) &&
+            (refsOf eo).all (fun x => ((m.inputs.map (·.name)).filter (fun x => declWidth m x == declWidth o x) ++ (seqRegs o).map (·.1)).contains x)
+        | _, _ => false) = true := h
+    split at h'
+    case h_2 => cases h'
+    rename_i em eo hem heo
+    rw [Bool.and_eq_true, Bool.and_eq_true, decide_eq_true_eq] at h'
+    obtain ⟨⟨hren, hrefsM⟩, hrefsO⟩ := h'
+    obtain ⟨hsM, hvM⟩ := hdM.1 p.name em hem
+    obtain ⟨hsO, hvO⟩ := hdO.1 p.name eo heo
+    have hcompat : ∀ x ∈ refsOf eo, (declWidth o) x = (declWidth m) (renameT (seqSubst m o) x) := by
+      intro x hx
+      apply hwren
+      have := List.all_eq_true.mp hrefsO x hx
+      simpa [List.contains_eq_mem] using this
+    have hbr := evalExpr_renameT (subst := seqSubst m o) (weM := (declWidth m)) (init := init)
+      hsO hcompat
+    rw [hren, hbr, hvO] at hvM
+    exact Option.some.inj hvM
+  -- Paired register next-values agree.
+  have hregNext : ∀ i (hi : i < (seqRegs m).length),
+      evalExpr (declWidth m) envM (((seqRegs m)[i]'hi).2.2.2.1) =
+        some ((evalExpr (declWidth m) envM (((seqRegs m)[i]'hi).2.2.2.1)).getD 0) ∧
+      evalExpr (declWidth o) envO (((seqRegs o)[i]'(by omega)).2.2.2.1) =
+        some ((evalExpr (declWidth o) envO (((seqRegs o)[i]'(by omega)).2.2.2.1)).getD 0) ∧
+      (evalExpr (declWidth m) envM (((seqRegs m)[i]'hi).2.2.2.1)).getD 0 =
+        (evalExpr (declWidth o) envO (((seqRegs o)[i]'(by omega)).2.2.2.1)).getD 0 := by
+    intro i hi
+    have hn := hnextsE (((seqRegs m)[i]'hi), ((seqRegs o)[i]'(by omega))) (by
+      rw [List.mem_iff_getElem]
+      exact ⟨i, by rw [List.length_zip]; omega, by rw [List.getElem_zip]⟩)
+    have hn' : (match seqNormE (declWidth m) (m.inputs.map (·.name) ++ (seqRegs m).map (·.1)) dm (((seqRegs m)[i]'hi).2.2.2.1),
+        seqNormE (declWidth o) ((m.inputs.map (·.name)).filter (fun x => declWidth m x == declWidth o x) ++ (seqRegs o).map (·.1)) dO (((seqRegs o)[i]'(by omega : i < (seqRegs o).length)).2.2.2.1) with
+        | some fm, some fo =>
+          decide (fm = renameRefsT (seqSubst m o) fo) &&
+            (refsOf fm).all (fun x => (m.inputs.map (·.name) ++ (seqRegs m).map (·.1)).contains x) &&
+            (refsOf fo).all (fun x => ((m.inputs.map (·.name)).filter (fun x => declWidth m x == declWidth o x) ++ (seqRegs o).map (·.1)).contains x)
+        | _, _ => false) = true := hn
+    split at hn'
+    case h_2 => cases hn'
+    rename_i fm fo hfm hfo
+    rw [Bool.and_eq_true, Bool.and_eq_true, decide_eq_true_eq] at hn'
+    obtain ⟨⟨hrenf, hrefsM⟩, hrefsO⟩ := hn'
+    obtain ⟨hsFm, hwFm, vM, hevalMr, hevalMf⟩ :=
+      seqNormE_sound hdM hinsMfit (((seqRegs m)[i]'hi).2.2.2.1) fm hfm
+    obtain ⟨hsFo, hwFo, vO, hevalOr, hevalOf⟩ :=
+      seqNormE_sound hdO hinsOfit (((seqRegs o)[i]'(by omega : i < (seqRegs o).length)).2.2.2.1) fo hfo
+    have hcompat : ∀ x ∈ refsOf fo, (declWidth o) x = (declWidth m) (renameT (seqSubst m o) x) := by
+      intro x hx
+      apply hwren
+      have := List.all_eq_true.mp hrefsO x hx
+      simpa [List.contains_eq_mem] using this
+    have hbr := evalExpr_renameT (subst := seqSubst m o) (weM := (declWidth m)) (init := init)
+      hsFo hcompat
+    rw [hrenf, hbr, hevalOf] at hevalMf
+    have hvals : vM = vO := (Option.some.inj hevalMf).symm
+    refine ⟨?_, ?_, ?_⟩
+    · rw [hevalMr]
+      rfl
+    · rw [hevalOr]
+      rfl
+    · rw [hevalMr, hevalOr]
+      simpa using hvals
+  -- The register nexts, as explicit maps.
+  have hfoldM : seqRegsL m.body = seqRegs m := (seqRegs_eq m).symm
+  have hfoldO : seqRegsL o.body = seqRegs o := (seqRegs_eq o).symm
+  have hvMall : ∀ r ∈ seqRegsL m.body, evalExpr (declWidth m) envM r.2.2.2.1 =
+      some ((evalExpr (declWidth m) envM r.2.2.2.1).getD 0) := by
+    intro r hr
+    have hr' : r ∈ (seqRegs m) := hfoldM ▸ hr
+    obtain ⟨i, hi, hri⟩ := List.mem_iff_getElem.mp hr'
+    rw [← hri]
+    exact (hregNext i hi).1
+  have hvOall : ∀ r ∈ seqRegsL o.body, evalExpr (declWidth o) envO r.2.2.2.1 =
+      some ((evalExpr (declWidth o) envO r.2.2.2.1).getD 0) := by
+    intro r hr
+    have hr' : r ∈ (seqRegs o) := hfoldO ▸ hr
+    obtain ⟨i, hi, hri⟩ := List.mem_iff_getElem.mp hr'
+    rw [← hri]
+    exact (hregNext i (by omega)).2.1
+  have hnM := regNexts_seq_map (we := (declWidth m)) (mems := mems) (envF := envM)
+    (f := fun e => (evalExpr (declWidth m) envM e).getD 0) hokM hvMall
+  have hnO := regNexts_seq_map (we := (declWidth o)) (mems := mems) (envF := envO)
+    (f := fun e => (evalExpr (declWidth o) envO e).getD 0) hokO hvOall
+  rw [hfoldM] at hnM
+  rw [hfoldO] at hnO
+  have hmemM := memNexts_seqStmtOk (we := (declWidth m)) (mems := mems) (envF := envM) hokM
+  have hmemO := memNexts_seqStmtOk (we := (declWidth o)) (mems := mems) (envF := envO) hokO
+  refine ⟨envM, envO,
+    (seqRegs m).map (fun r => (r.1, if envM r.2.2.1.1 ≠ 0 then encodeInit r.2.2.2.2 ((declWidth m) r.1)
+      else mask ((declWidth m) r.1) ((evalExpr (declWidth m) envM r.2.2.2.1).getD 0))),
+    (seqRegs o).map (fun r => (r.1, if envO r.2.2.1.1 ≠ 0 then encodeInit r.2.2.2.2 ((declWidth o) r.1)
+      else mask ((declWidth o) r.1) ((evalExpr (declWidth o) envO r.2.2.2.1).getD 0))),
+    ?_, ?_, houtCorr, ?_, ?_, ?_, ?_⟩
+  · simp only [stepModule, hevMfull, hnM, hmemM, Option.bind_eq_bind, Option.bind_some]
+  · simp only [stepModule, hevOfull, hnO, hmemO, Option.bind_eq_bind, Option.bind_some]
+  · rw [List.map_map]
+    rfl
+  · rw [List.map_map]
+    rfl
+  · apply List.ext_getElem
+    · simp only [List.length_map]
+      omega
+    · intro i h1i h2i
+      have hi : i < (seqRegs m).length := by
+        simp only [List.length_map] at h1i
+        exact h1i
+      simp only [List.getElem_map]
+      obtain ⟨hcEq, hkM1, hkO1, hkind, hinit, hwEq, hwPos⟩ := hpairAt i hi
+      rw [hkM1, hkO1, hrstM, hrstOF, if_neg hif, if_neg hif]
+      rw [← hwEq, (hregNext i hi).2.2]
+  · intro pr hpr
+    obtain ⟨r, hr, he⟩ := List.mem_map.mp hpr
+    obtain ⟨i, hi, hri⟩ := List.mem_iff_getElem.mp hr
+    subst he
+    obtain ⟨hcEq, hkM1, hkO1, hkind, hinit, hwEq, hwPos⟩ := hpairAt i hi
+    show (if envM r.2.2.1.1 ≠ 0 then encodeInit r.2.2.2.2 ((declWidth m) r.1)
+      else mask ((declWidth m) r.1) ((evalExpr (declWidth m) envM r.2.2.2.1).getD 0)) < 2 ^ (declWidth m) r.1
+    rw [← hri, hkM1, hrstM, if_neg hif]
+    exact Nat.mod_lt _ (Nat.two_pow_pos _)
+
 end Tools.ShippingSeqOptSoundness
