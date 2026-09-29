@@ -1,5 +1,6 @@
 import Tools.ShippingRegisterSoundness
 import Tools.ShippingSeqOptSoundness
+import Tools.ShippingSeqSVSoundness
 import Tests.Compiler.ShippingMixedExecutionTest
 import Sparkle.Core.CircuitDo
 
@@ -1182,6 +1183,374 @@ theorem cdo2X_run_optimized {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Me
   rw [h1]
   exact houtE j (by omega)
 
+/-- The plain-register stream carried to the emitted SV semantics of any accepted module. -/
+theorem regAcc_sv_optimized {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+    {wst wst' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore ``regAcc [] false) mctx mref cctx cref wst
+      (m, design) wst')
+    (env : EnvDefines mctx mref cctx cref ``regAcc regAccValue)
+    {o : Sparkle.IR.AST.Module}
+    (hchk : Sparkle.IR.OptCheck.seqOptCheck m o = true)
+    (hrstIn : "rst" ∈ m.inputs.map (·.name))
+    (hpout : ∃ p ∈ m.outputs, p.name = "out")
+    (hsv : Tools.SVParser.EmitSem.seqCheck (Tools.SVParser.RoundtripProof.moduleWof o)
+      (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof o)) o.body = true)
+    (hwag : ((Tools.ShippingSeqSVSoundness.seqNames o.body).all (fun n =>
+      Sparkle.IR.RegDedup.declWidth o n == Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof o) n)) = true) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = regAccBinders.length ∧
+    ∃ (cache : IO.Ref (ExprStructMap String)) (r : String),
+      ∀ {D : DomainConfig} (bools : Nat → Signal D Bool)
+        (bits : (j : Nat) → (n : Nat) → Signal D (BitVec n))
+        (mems : MEnv) (k : Nat) (ins : Nat → String → Nat) (st0 stO : String → Nat),
+      (∀ t stv, SourceInputs ``regAcc regAccBinders ids cache
+          (fun i => (bools i).val (k - 1 - t)) (fun i n => (bits i n).val (k - 1 - t))
+          (Tools.ShippingSeqOptSoundness.seedIn m ins t stv) ∧
+        Tools.ShippingSeqOptSoundness.seedIn m ins t stv r = stv r) →
+      (∀ t x, x ∈ m.inputs.map (·.name) →
+        ins t x < 2 ^ Sparkle.IR.RegDedup.declWidth m x) →
+      (∀ t, ins t "rst" = 0) →
+      st0 r = 3 →
+      (∀ pr ∈ (Sparkle.IR.OptCheck.seqRegs m).zip (Sparkle.IR.OptCheck.seqRegs o),
+        stO pr.2.1 = st0 pr.1.1) →
+      (∀ rr ∈ Sparkle.IR.OptCheck.seqRegs m,
+        st0 rr.1 < 2 ^ Sparkle.IR.RegDedup.declWidth m rr.1) →
+      ∀ (hinsW : ∀ t x, x ∈ m.inputs.map (·.name) →
+        ins t x < 2 ^ Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof o) x)
+        (hstOB : Sparkle.IR.Semantics.Bounded
+          (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof o)) stO),
+      ∃ pairs regs mprog envsO,
+        Tools.SVParser.EmitSem.emitAssigns (Tools.SVParser.RoundtripProof.moduleWof o) o.body = some pairs ∧
+        Tools.SVParser.EmitSem.emitRegs (Tools.SVParser.RoundtripProof.moduleWof o) o.body = some regs ∧
+        Tools.SVParser.EmitSem.emitMemWrites (Tools.SVParser.RoundtripProof.moduleWof o) o.body = some mprog ∧
+        Tools.SVParser.EmitSem.runModuleSV (Tools.SVParser.RoundtripProof.moduleWof o) pairs regs mprog
+          (Tools.ShippingSeqOptSoundness.seedIn m ins) k stO mems = some envsO ∧
+        envsO.length = k ∧
+        ∀ j (hj : j < envsO.length), (envsO[j]'hj) "out" =
+          ((regAcc (bools 1) (bits 2 8) (bits 3 8)).val j).toNat := by
+  obtain ⟨ids, nd, len, cache, r, H⟩ := regAcc_run_optimized hr env hchk hrstIn hpout
+  refine ⟨ids, nd, len, cache, r, ?_⟩
+  intro D bools bits mems k ins st0 stO hseed hinsFit hrstZ hst0 hcpl hfit hinsW hstOB
+  obtain ⟨envsO, hrunO, hlenO, houtO⟩ :=
+    H bools bits mems k ins st0 stO hseed hinsFit hrstZ hst0 hcpl hfit
+  have hok := Tools.ShippingSeqSVSoundness.seqOptCheck_stmtOk_o hchk
+  have hwag' : ∀ n ∈ Tools.ShippingSeqSVSoundness.seqNames o.body,
+      Sparkle.IR.RegDedup.declWidth o n = Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof o) n := by
+    intro n hn
+    have := List.all_eq_true.mp hwag n hn
+    simpa using this
+  obtain ⟨pairs, regs, mprog, hA, hR, hM, hSV⟩ :=
+    Tools.ShippingSeqSVSoundness.seq_run_to_sv hok hsv hwag' (Tools.ShippingSeqOptSoundness.seedIn m ins)
+      (Tools.ShippingSeqSVSoundness.seedIn_bounded hinsW) hstOB hrunO
+  exact ⟨pairs, regs, mprog, envsO, hA, hR, hM, hSV, hlenO, houtO⟩
+
+/-- The enabled-register stream carried to the emitted SV semantics of any accepted module. -/
+theorem regHold_sv_optimized {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+    {wst wst' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore ``regHold [] false) mctx mref cctx cref wst
+      (m, design) wst')
+    (env : EnvDefines mctx mref cctx cref ``regHold regHoldValue)
+    {o : Sparkle.IR.AST.Module}
+    (hchk : Sparkle.IR.OptCheck.seqOptCheck m o = true)
+    (hrstIn : "rst" ∈ m.inputs.map (·.name))
+    (hpout : ∃ p ∈ m.outputs, p.name = "out")
+    (hsv : Tools.SVParser.EmitSem.seqCheck (Tools.SVParser.RoundtripProof.moduleWof o)
+      (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof o)) o.body = true)
+    (hwag : ((Tools.ShippingSeqSVSoundness.seqNames o.body).all (fun n =>
+      Sparkle.IR.RegDedup.declWidth o n == Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof o) n)) = true) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = regHoldBinders.length ∧
+    ∃ (cache : IO.Ref (ExprStructMap String)) (r : String),
+      ∀ {D : DomainConfig} (bools : Nat → Signal D Bool)
+        (bits : (j : Nat) → (n : Nat) → Signal D (BitVec n))
+        (mems : MEnv) (k : Nat) (ins : Nat → String → Nat) (st0 stO : String → Nat),
+      (∀ t stv, SourceInputs ``regHold regHoldBinders ids cache
+          (fun i => (bools i).val (k - 1 - t)) (fun i n => (bits i n).val (k - 1 - t))
+          (Tools.ShippingSeqOptSoundness.seedIn m ins t stv) ∧
+        Tools.ShippingSeqOptSoundness.seedIn m ins t stv r = stv r) →
+      (∀ t x, x ∈ m.inputs.map (·.name) →
+        ins t x < 2 ^ Sparkle.IR.RegDedup.declWidth m x) →
+      (∀ t, ins t "rst" = 0) →
+      st0 r = 5 →
+      (∀ pr ∈ (Sparkle.IR.OptCheck.seqRegs m).zip (Sparkle.IR.OptCheck.seqRegs o),
+        stO pr.2.1 = st0 pr.1.1) →
+      (∀ rr ∈ Sparkle.IR.OptCheck.seqRegs m,
+        st0 rr.1 < 2 ^ Sparkle.IR.RegDedup.declWidth m rr.1) →
+      ∀ (hinsW : ∀ t x, x ∈ m.inputs.map (·.name) →
+        ins t x < 2 ^ Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof o) x)
+        (hstOB : Sparkle.IR.Semantics.Bounded
+          (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof o)) stO),
+      ∃ pairs regs mprog envsO,
+        Tools.SVParser.EmitSem.emitAssigns (Tools.SVParser.RoundtripProof.moduleWof o) o.body = some pairs ∧
+        Tools.SVParser.EmitSem.emitRegs (Tools.SVParser.RoundtripProof.moduleWof o) o.body = some regs ∧
+        Tools.SVParser.EmitSem.emitMemWrites (Tools.SVParser.RoundtripProof.moduleWof o) o.body = some mprog ∧
+        Tools.SVParser.EmitSem.runModuleSV (Tools.SVParser.RoundtripProof.moduleWof o) pairs regs mprog
+          (Tools.ShippingSeqOptSoundness.seedIn m ins) k stO mems = some envsO ∧
+        envsO.length = k ∧
+        ∀ j (hj : j < envsO.length), (envsO[j]'hj) "out" =
+          ((regHold (bools 1) (bools 2) (bits 3 8) (bits 4 8)).val j).toNat := by
+  obtain ⟨ids, nd, len, cache, r, H⟩ := regHold_run_optimized hr env hchk hrstIn hpout
+  refine ⟨ids, nd, len, cache, r, ?_⟩
+  intro D bools bits mems k ins st0 stO hseed hinsFit hrstZ hst0 hcpl hfit hinsW hstOB
+  obtain ⟨envsO, hrunO, hlenO, houtO⟩ :=
+    H bools bits mems k ins st0 stO hseed hinsFit hrstZ hst0 hcpl hfit
+  have hok := Tools.ShippingSeqSVSoundness.seqOptCheck_stmtOk_o hchk
+  have hwag' : ∀ n ∈ Tools.ShippingSeqSVSoundness.seqNames o.body,
+      Sparkle.IR.RegDedup.declWidth o n = Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof o) n := by
+    intro n hn
+    have := List.all_eq_true.mp hwag n hn
+    simpa using this
+  obtain ⟨pairs, regs, mprog, hA, hR, hM, hSV⟩ :=
+    Tools.ShippingSeqSVSoundness.seq_run_to_sv hok hsv hwag' (Tools.ShippingSeqOptSoundness.seedIn m ins)
+      (Tools.ShippingSeqSVSoundness.seedIn_bounded hinsW) hstOB hrunO
+  exact ⟨pairs, regs, mprog, envsO, hA, hR, hM, hSV, hlenO, houtO⟩
+
+/-- The loop-register stream carried to the emitted SV semantics of any accepted module. -/
+theorem accLoop_sv_optimized {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+    {wst wst' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore ``accLoop [] false) mctx mref cctx cref wst
+      (m, design) wst')
+    (env : EnvDefines mctx mref cctx cref ``accLoop accLoopValue)
+    {o : Sparkle.IR.AST.Module}
+    (hchk : Sparkle.IR.OptCheck.seqOptCheck m o = true)
+    (hrstIn : "rst" ∈ m.inputs.map (·.name))
+    (hpout : ∃ p ∈ m.outputs, p.name = "out")
+    (hsv : Tools.SVParser.EmitSem.seqCheck (Tools.SVParser.RoundtripProof.moduleWof o)
+      (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof o)) o.body = true)
+    (hwag : ((Tools.ShippingSeqSVSoundness.seqNames o.body).all (fun n =>
+      Sparkle.IR.RegDedup.declWidth o n == Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof o) n)) = true) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = accLoopBinders.length ∧
+    ∃ (cache : IO.Ref (ExprStructMap String)) (r : String),
+      ∀ {D : DomainConfig} (bools : Nat → Signal D Bool)
+        (bits : (j : Nat) → (n : Nat) → Signal D (BitVec n))
+        (mems : MEnv) (k : Nat) (ins : Nat → String → Nat) (st0 stO : String → Nat),
+      (∀ t stv, SourceInputs ``accLoop accLoopBinders ids cache
+          (fun i => (bools i).val (k - 1 - t)) (fun i n => (bits i n).val (k - 1 - t))
+          (Tools.ShippingSeqOptSoundness.seedIn m ins t stv) ∧
+        Tools.ShippingSeqOptSoundness.seedIn m ins t stv r = stv r) →
+      (∀ t x, x ∈ m.inputs.map (·.name) →
+        ins t x < 2 ^ Sparkle.IR.RegDedup.declWidth m x) →
+      (∀ t, ins t "rst" = 0) →
+      st0 r = 0 →
+      (∀ pr ∈ (Sparkle.IR.OptCheck.seqRegs m).zip (Sparkle.IR.OptCheck.seqRegs o),
+        stO pr.2.1 = st0 pr.1.1) →
+      (∀ rr ∈ Sparkle.IR.OptCheck.seqRegs m,
+        st0 rr.1 < 2 ^ Sparkle.IR.RegDedup.declWidth m rr.1) →
+      ∀ (hinsW : ∀ t x, x ∈ m.inputs.map (·.name) →
+        ins t x < 2 ^ Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof o) x)
+        (hstOB : Sparkle.IR.Semantics.Bounded
+          (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof o)) stO),
+      ∃ pairs regs mprog envsO,
+        Tools.SVParser.EmitSem.emitAssigns (Tools.SVParser.RoundtripProof.moduleWof o) o.body = some pairs ∧
+        Tools.SVParser.EmitSem.emitRegs (Tools.SVParser.RoundtripProof.moduleWof o) o.body = some regs ∧
+        Tools.SVParser.EmitSem.emitMemWrites (Tools.SVParser.RoundtripProof.moduleWof o) o.body = some mprog ∧
+        Tools.SVParser.EmitSem.runModuleSV (Tools.SVParser.RoundtripProof.moduleWof o) pairs regs mprog
+          (Tools.ShippingSeqOptSoundness.seedIn m ins) k stO mems = some envsO ∧
+        envsO.length = k ∧
+        ∀ j (hj : j < envsO.length), (envsO[j]'hj) "out" =
+          ((accLoop (bools 1) (bits 2 8) (bits 3 8)).val j).toNat := by
+  obtain ⟨ids, nd, len, cache, r, H⟩ := accLoop_run_optimized hr env hchk hrstIn hpout
+  refine ⟨ids, nd, len, cache, r, ?_⟩
+  intro D bools bits mems k ins st0 stO hseed hinsFit hrstZ hst0 hcpl hfit hinsW hstOB
+  obtain ⟨envsO, hrunO, hlenO, houtO⟩ :=
+    H bools bits mems k ins st0 stO hseed hinsFit hrstZ hst0 hcpl hfit
+  have hok := Tools.ShippingSeqSVSoundness.seqOptCheck_stmtOk_o hchk
+  have hwag' : ∀ n ∈ Tools.ShippingSeqSVSoundness.seqNames o.body,
+      Sparkle.IR.RegDedup.declWidth o n = Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof o) n := by
+    intro n hn
+    have := List.all_eq_true.mp hwag n hn
+    simpa using this
+  obtain ⟨pairs, regs, mprog, hA, hR, hM, hSV⟩ :=
+    Tools.ShippingSeqSVSoundness.seq_run_to_sv hok hsv hwag' (Tools.ShippingSeqOptSoundness.seedIn m ins)
+      (Tools.ShippingSeqSVSoundness.seedIn_bounded hinsW) hstOB hrunO
+  exact ⟨pairs, regs, mprog, envsO, hA, hR, hM, hSV, hlenO, houtO⟩
+
+/-- The single-slot circuit-do stream carried to the emitted SV semantics of any accepted module. -/
+theorem cdoAcc_sv_optimized {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+    {wst wst' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore ``cdoAcc [] false) mctx mref cctx cref wst
+      (m, design) wst')
+    (env : EnvDefines mctx mref cctx cref ``cdoAcc cdoAccValue)
+    {o : Sparkle.IR.AST.Module}
+    (hchk : Sparkle.IR.OptCheck.seqOptCheck m o = true)
+    (hrstIn : "rst" ∈ m.inputs.map (·.name))
+    (hpout : ∃ p ∈ m.outputs, p.name = "out")
+    (hsv : Tools.SVParser.EmitSem.seqCheck (Tools.SVParser.RoundtripProof.moduleWof o)
+      (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof o)) o.body = true)
+    (hwag : ((Tools.ShippingSeqSVSoundness.seqNames o.body).all (fun n =>
+      Sparkle.IR.RegDedup.declWidth o n == Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof o) n)) = true) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = cdoAccBinders.length ∧
+    ∃ (cache : IO.Ref (ExprStructMap String)) (r : String),
+      ∀ {D : DomainConfig} (bools : Nat → Signal D Bool)
+        (bits : (j : Nat) → (n : Nat) → Signal D (BitVec n))
+        (mems : MEnv) (k : Nat) (ins : Nat → String → Nat) (st0 stO : String → Nat),
+      (∀ t stv, SourceInputs ``cdoAcc cdoAccBinders ids cache
+          (fun i => (bools i).val (k - 1 - t)) (fun i n => (bits i n).val (k - 1 - t))
+          (Tools.ShippingSeqOptSoundness.seedIn m ins t stv) ∧
+        Tools.ShippingSeqOptSoundness.seedIn m ins t stv r = stv r) →
+      (∀ t x, x ∈ m.inputs.map (·.name) →
+        ins t x < 2 ^ Sparkle.IR.RegDedup.declWidth m x) →
+      (∀ t, ins t "rst" = 0) →
+      st0 r = 3 →
+      (∀ pr ∈ (Sparkle.IR.OptCheck.seqRegs m).zip (Sparkle.IR.OptCheck.seqRegs o),
+        stO pr.2.1 = st0 pr.1.1) →
+      (∀ rr ∈ Sparkle.IR.OptCheck.seqRegs m,
+        st0 rr.1 < 2 ^ Sparkle.IR.RegDedup.declWidth m rr.1) →
+      ∀ (hinsW : ∀ t x, x ∈ m.inputs.map (·.name) →
+        ins t x < 2 ^ Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof o) x)
+        (hstOB : Sparkle.IR.Semantics.Bounded
+          (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof o)) stO),
+      ∃ pairs regs mprog envsO,
+        Tools.SVParser.EmitSem.emitAssigns (Tools.SVParser.RoundtripProof.moduleWof o) o.body = some pairs ∧
+        Tools.SVParser.EmitSem.emitRegs (Tools.SVParser.RoundtripProof.moduleWof o) o.body = some regs ∧
+        Tools.SVParser.EmitSem.emitMemWrites (Tools.SVParser.RoundtripProof.moduleWof o) o.body = some mprog ∧
+        Tools.SVParser.EmitSem.runModuleSV (Tools.SVParser.RoundtripProof.moduleWof o) pairs regs mprog
+          (Tools.ShippingSeqOptSoundness.seedIn m ins) k stO mems = some envsO ∧
+        envsO.length = k ∧
+        ∀ j (hj : j < envsO.length), (envsO[j]'hj) "out" =
+          ((cdoAcc (bools 1) (bits 2 8) (bits 3 8)).val j).toNat := by
+  obtain ⟨ids, nd, len, cache, r, H⟩ := cdoAcc_run_optimized hr env hchk hrstIn hpout
+  refine ⟨ids, nd, len, cache, r, ?_⟩
+  intro D bools bits mems k ins st0 stO hseed hinsFit hrstZ hst0 hcpl hfit hinsW hstOB
+  obtain ⟨envsO, hrunO, hlenO, houtO⟩ :=
+    H bools bits mems k ins st0 stO hseed hinsFit hrstZ hst0 hcpl hfit
+  have hok := Tools.ShippingSeqSVSoundness.seqOptCheck_stmtOk_o hchk
+  have hwag' : ∀ n ∈ Tools.ShippingSeqSVSoundness.seqNames o.body,
+      Sparkle.IR.RegDedup.declWidth o n = Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof o) n := by
+    intro n hn
+    have := List.all_eq_true.mp hwag n hn
+    simpa using this
+  obtain ⟨pairs, regs, mprog, hA, hR, hM, hSV⟩ :=
+    Tools.ShippingSeqSVSoundness.seq_run_to_sv hok hsv hwag' (Tools.ShippingSeqOptSoundness.seedIn m ins)
+      (Tools.ShippingSeqSVSoundness.seedIn_bounded hinsW) hstOB hrunO
+  exact ⟨pairs, regs, mprog, envsO, hA, hR, hM, hSV, hlenO, houtO⟩
+
+/-- The two-stage chain stream carried to the emitted SV semantics of any accepted module. -/
+theorem regChain_sv_optimized {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+    {wst wst' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore ``regChain [] false) mctx mref cctx cref wst
+      (m, design) wst')
+    (env : EnvDefines mctx mref cctx cref ``regChain regChainValue)
+    {o : Sparkle.IR.AST.Module}
+    (hchk : Sparkle.IR.OptCheck.seqOptCheck m o = true)
+    (hrstIn : "rst" ∈ m.inputs.map (·.name))
+    (hpout : ∃ p ∈ m.outputs, p.name = "out")
+    (hsv : Tools.SVParser.EmitSem.seqCheck (Tools.SVParser.RoundtripProof.moduleWof o)
+      (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof o)) o.body = true)
+    (hwag : ((Tools.ShippingSeqSVSoundness.seqNames o.body).all (fun n =>
+      Sparkle.IR.RegDedup.declWidth o n == Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof o) n)) = true) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = regChainBinders.length ∧
+    ∃ (cache : IO.Ref (ExprStructMap String)) (r1 r2 : String), r1 ≠ r2 ∧
+      ∀ {D : DomainConfig} (bools : Nat → Signal D Bool)
+        (bits : (j : Nat) → (n : Nat) → Signal D (BitVec n))
+        (mems : MEnv) (k : Nat) (ins : Nat → String → Nat) (st0 stO : String → Nat),
+      (∀ t stv, SourceInputs ``regChain regChainBinders ids cache
+          (fun i => (bools i).val (k - 1 - t)) (fun i n => (bits i n).val (k - 1 - t))
+          (Tools.ShippingSeqOptSoundness.seedIn m ins t stv) ∧
+        Tools.ShippingSeqOptSoundness.seedIn m ins t stv r1 = stv r1 ∧
+        Tools.ShippingSeqOptSoundness.seedIn m ins t stv r2 = stv r2) →
+      (∀ t x, x ∈ m.inputs.map (·.name) →
+        ins t x < 2 ^ Sparkle.IR.RegDedup.declWidth m x) →
+      (∀ t, ins t "rst" = 0) →
+      st0 r1 = 1 → st0 r2 = 2 →
+      (∀ pr ∈ (Sparkle.IR.OptCheck.seqRegs m).zip (Sparkle.IR.OptCheck.seqRegs o),
+        stO pr.2.1 = st0 pr.1.1) →
+      (∀ rr ∈ Sparkle.IR.OptCheck.seqRegs m,
+        st0 rr.1 < 2 ^ Sparkle.IR.RegDedup.declWidth m rr.1) →
+      ∀ (hinsW : ∀ t x, x ∈ m.inputs.map (·.name) →
+        ins t x < 2 ^ Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof o) x)
+        (hstOB : Sparkle.IR.Semantics.Bounded
+          (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof o)) stO),
+      ∃ pairs regs mprog envsO,
+        Tools.SVParser.EmitSem.emitAssigns (Tools.SVParser.RoundtripProof.moduleWof o) o.body = some pairs ∧
+        Tools.SVParser.EmitSem.emitRegs (Tools.SVParser.RoundtripProof.moduleWof o) o.body = some regs ∧
+        Tools.SVParser.EmitSem.emitMemWrites (Tools.SVParser.RoundtripProof.moduleWof o) o.body = some mprog ∧
+        Tools.SVParser.EmitSem.runModuleSV (Tools.SVParser.RoundtripProof.moduleWof o) pairs regs mprog
+          (Tools.ShippingSeqOptSoundness.seedIn m ins) k stO mems = some envsO ∧
+        envsO.length = k ∧
+        ∀ j (hj : j < envsO.length), (envsO[j]'hj) "out" =
+          ((regChain (bools 1) (bits 2 8) (bits 3 8)).val j).toNat := by
+  obtain ⟨ids, nd, len, cache, r1, r2, hne, H⟩ := regChain_run_optimized hr env hchk hrstIn hpout
+  refine ⟨ids, nd, len, cache, r1, r2, hne, ?_⟩
+  intro D bools bits mems k ins st0 stO hseed hinsFit hrstZ hst1 hst2 hcpl hfit hinsW hstOB
+  obtain ⟨envsO, hrunO, hlenO, houtO⟩ :=
+    H bools bits mems k ins st0 stO hseed hinsFit hrstZ hst1 hst2 hcpl hfit
+  have hok := Tools.ShippingSeqSVSoundness.seqOptCheck_stmtOk_o hchk
+  have hwag' : ∀ n ∈ Tools.ShippingSeqSVSoundness.seqNames o.body,
+      Sparkle.IR.RegDedup.declWidth o n = Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof o) n := by
+    intro n hn
+    have := List.all_eq_true.mp hwag n hn
+    simpa using this
+  obtain ⟨pairs, regs, mprog, hA, hR, hM, hSV⟩ :=
+    Tools.ShippingSeqSVSoundness.seq_run_to_sv hok hsv hwag' (Tools.ShippingSeqOptSoundness.seedIn m ins)
+      (Tools.ShippingSeqSVSoundness.seedIn_bounded hinsW) hstOB hrunO
+  exact ⟨pairs, regs, mprog, envsO, hA, hR, hM, hSV, hlenO, houtO⟩
+
+/-- The two-slot circuit-do stream carried to the emitted SV semantics of any accepted module. -/
+theorem cdo2X_sv_optimized {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+    {wst wst' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore ``cdo2X [] false) mctx mref cctx cref wst
+      (m, design) wst')
+    (env : EnvDefines mctx mref cctx cref ``cdo2X cdo2XValue)
+    {o : Sparkle.IR.AST.Module}
+    (hchk : Sparkle.IR.OptCheck.seqOptCheck m o = true)
+    (hrstIn : "rst" ∈ m.inputs.map (·.name))
+    (hpout : ∃ p ∈ m.outputs, p.name = "out")
+    (hsv : Tools.SVParser.EmitSem.seqCheck (Tools.SVParser.RoundtripProof.moduleWof o)
+      (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof o)) o.body = true)
+    (hwag : ((Tools.ShippingSeqSVSoundness.seqNames o.body).all (fun n =>
+      Sparkle.IR.RegDedup.declWidth o n == Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof o) n)) = true) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = cdo2XBinders.length ∧
+    ∃ (cache : IO.Ref (ExprStructMap String)) (r1 r2 : String), r1 ≠ r2 ∧
+      ∀ {D : DomainConfig} (bools : Nat → Signal D Bool)
+        (bits : (j : Nat) → (n : Nat) → Signal D (BitVec n))
+        (mems : MEnv) (k : Nat) (ins : Nat → String → Nat) (st0 stO : String → Nat),
+      (∀ t stv, SourceInputs ``cdo2X cdo2XBinders ids cache
+          (fun i => (bools i).val (k - 1 - t)) (fun i n => (bits i n).val (k - 1 - t))
+          (Tools.ShippingSeqOptSoundness.seedIn m ins t stv) ∧
+        Tools.ShippingSeqOptSoundness.seedIn m ins t stv r1 = stv r1 ∧
+        Tools.ShippingSeqOptSoundness.seedIn m ins t stv r2 = stv r2) →
+      (∀ t x, x ∈ m.inputs.map (·.name) →
+        ins t x < 2 ^ Sparkle.IR.RegDedup.declWidth m x) →
+      (∀ t, ins t "rst" = 0) →
+      st0 r1 = 1 → st0 r2 = 2 →
+      (∀ pr ∈ (Sparkle.IR.OptCheck.seqRegs m).zip (Sparkle.IR.OptCheck.seqRegs o),
+        stO pr.2.1 = st0 pr.1.1) →
+      (∀ rr ∈ Sparkle.IR.OptCheck.seqRegs m,
+        st0 rr.1 < 2 ^ Sparkle.IR.RegDedup.declWidth m rr.1) →
+      ∀ (hinsW : ∀ t x, x ∈ m.inputs.map (·.name) →
+        ins t x < 2 ^ Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof o) x)
+        (hstOB : Sparkle.IR.Semantics.Bounded
+          (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof o)) stO),
+      ∃ pairs regs mprog envsO,
+        Tools.SVParser.EmitSem.emitAssigns (Tools.SVParser.RoundtripProof.moduleWof o) o.body = some pairs ∧
+        Tools.SVParser.EmitSem.emitRegs (Tools.SVParser.RoundtripProof.moduleWof o) o.body = some regs ∧
+        Tools.SVParser.EmitSem.emitMemWrites (Tools.SVParser.RoundtripProof.moduleWof o) o.body = some mprog ∧
+        Tools.SVParser.EmitSem.runModuleSV (Tools.SVParser.RoundtripProof.moduleWof o) pairs regs mprog
+          (Tools.ShippingSeqOptSoundness.seedIn m ins) k stO mems = some envsO ∧
+        envsO.length = k ∧
+        ∀ j (hj : j < envsO.length), (envsO[j]'hj) "out" =
+          ((cdo2X (bools 1) (bits 2 8)).val j).toNat := by
+  obtain ⟨ids, nd, len, cache, r1, r2, hne, H⟩ := cdo2X_run_optimized hr env hchk hrstIn hpout
+  refine ⟨ids, nd, len, cache, r1, r2, hne, ?_⟩
+  intro D bools bits mems k ins st0 stO hseed hinsFit hrstZ hst1 hst2 hcpl hfit hinsW hstOB
+  obtain ⟨envsO, hrunO, hlenO, houtO⟩ :=
+    H bools bits mems k ins st0 stO hseed hinsFit hrstZ hst1 hst2 hcpl hfit
+  have hok := Tools.ShippingSeqSVSoundness.seqOptCheck_stmtOk_o hchk
+  have hwag' : ∀ n ∈ Tools.ShippingSeqSVSoundness.seqNames o.body,
+      Sparkle.IR.RegDedup.declWidth o n = Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof o) n := by
+    intro n hn
+    have := List.all_eq_true.mp hwag n hn
+    simpa using this
+  obtain ⟨pairs, regs, mprog, hA, hR, hM, hSV⟩ :=
+    Tools.ShippingSeqSVSoundness.seq_run_to_sv hok hsv hwag' (Tools.ShippingSeqOptSoundness.seedIn m ins)
+      (Tools.ShippingSeqSVSoundness.seedIn_bounded hinsW) hstOB hrunO
+  exact ⟨pairs, regs, mprog, envsO, hA, hR, hM, hSV, hlenO, houtO⟩
+
 open Sparkle.IR.AST in
 run_cmd liftTermElabM do
   -- Gate acceptance and multi-cycle numeric regression on the raw module.
@@ -1400,6 +1769,12 @@ run_cmd liftTermElabM do
       throwError "seqOptCheck rejected the optimizer's output for {decl}"
     unless Sparkle.IR.OptCheck.seqOptCheck mrz mrm do
       throwError "seqOptCheck rejected the sequential merge for {decl}"
+    let wof := Tools.SVParser.RoundtripProof.moduleWof o
+    unless Tools.SVParser.EmitSem.seqCheck wof (Tools.SVParser.EmitSem.weOf wof) o.body do
+      throwError "seqCheck rejected the optimized module of {decl}"
+    unless (Tools.ShippingSeqSVSoundness.seqNames o.body).all (fun n =>
+        Sparkle.IR.RegDedup.declWidth o n == Tools.SVParser.EmitSem.weOf wof n) do
+      throwError "checker/emitter widths disagree on the reference domain of {decl}"
   -- The raw sequential merge is empirically the IDENTITY on every
   -- certified register shape (the translator's expression cache leaves no
   -- duplicate nodes, so the partition refinement ends discrete). This is
@@ -1496,7 +1871,10 @@ run_cmd do
       ``Tools.ShippingSeqOptSoundness.seqOptCheck_run_sound,
       ``Tools.ShippingSeqOptSoundness.seqOptCheck_transfer,
       ``accLoop_run_optimized, ``regAcc_run_optimized, ``regHold_run_optimized,
-      ``cdoAcc_run_optimized, ``regChain_run_optimized, ``cdo2X_run_optimized] do
+      ``cdoAcc_run_optimized, ``regChain_run_optimized, ``cdo2X_run_optimized,
+      ``Tools.ShippingSeqSVSoundness.seq_run_to_sv,
+      ``accLoop_sv_optimized, ``regAcc_sv_optimized, ``regHold_sv_optimized,
+      ``cdoAcc_sv_optimized, ``regChain_sv_optimized, ``cdo2X_sv_optimized] do
     for ax in (← liftCoreM <| collectAxioms name) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do
         throwError "unexpected register soundness axiom: {name}: {ax}"

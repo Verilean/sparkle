@@ -323,8 +323,20 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   observes the same source stream. The composition is done for ALL SIX
   certified shapes (`regAcc`/`regHold`/`accLoop`/`regChain`/`cdoAcc`/
   `cdo2X` `_run_optimized`, via the packaged `seqOptCheck_transfer`),
-  each audited to standard axioms. Also open in S4: user-level reset
-  muxes and the remaining shape breadth below.
+  each audited to standard axioms. The chain now also reaches the
+  EMITTED SV SEMANTICS: Tools/ShippingSeqSVSoundness.lean proves the
+  checked module's IR trace (at the checker's `declWidth` environment)
+  equals the emitted Verilog's `runModuleSV` trace (M4 `seqCheck`
+  fragment at the emitter's `weOf∘moduleWof` environment) — via a
+  reference-domain width congruence (`runModule_we_congr` over
+  `seqNames`) and the M4 capstone replayed with a boundedness invariant
+  (`forward_trace_inv`), packaged as `seq_run_to_sv`; the register test
+  gates `seqCheck` acceptance and the width agreement on all six
+  optimized modules and instantiates `*_sv_optimized` for every shape
+  (standard axioms). Remaining for sequential text: the AST→rendered-
+  byte correspondence, shared with the combinational print route. Also
+  open in S4: user-level reset muxes and the remaining shape breadth
+  below.
 - [ ] **S5:** Actual memory compilation and trace semantics, including latency,
   masks and supported read/write interactions.
 - [ ] **S6:** Actual hierarchy compilation and compositional instance semantics,
@@ -335,7 +347,7 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
 - [ ] **S7 / trust:** Resolve or explicitly retain `EnvDefines` in the final
   claim; record execution-model/external-tool boundaries without hiding them.
 
-Latest validation: `lake build Tests.AllTests` passed all 642 jobs, with
+Latest validation: `lake build Tests.AllTests` passed all 643 jobs, with
 standard-axiom audits of the general endpoint and real signed/equality/Bool-logic
 source instantiations. Vector mux adds 2,772 source/legacy/SV/delta cases and
 real source theorems for nested and computed-condition muxes (no Bool input
