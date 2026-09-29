@@ -6541,4 +6541,433 @@ theorem synthesizeMixedCertified_cdo2_sound {logProf declName bs body m d}
     exact resR0
 
 
+theorem instantiated_input_shift4 {bs : List (Name × MixedGateBinder)} {ids : List FVarId}
+    (len : ids.length = bs.length) {j : Nat} (hj : j < bs.length) :
+    instFVars (ids.map Lean.Expr.fvar).toArray 4 (inputExpr (bs.length + 4) j) =
+      .fvar ids[j]! := by
+  simp only [Tools.ShippingMixedSourceBridge.inputExpr, instFVars,
+    List.size_toArray, List.length_map]
+  rw [if_neg (by omega), if_pos (by omega)]
+  have eq : ids.length - 1 - (bs.length + 4 - 1 - j - 4) = j := by omega
+  rw [eq]
+  simp [List.getElem!_eq_getElem?_getD, List.getElem?_map,
+    List.getElem?_eq_getElem (by omega : j < ids.length)]
+
+theorem instantiated_input_shift5 {bs : List (Name × MixedGateBinder)} {ids : List FVarId}
+    (len : ids.length = bs.length) {j : Nat} (hj : j < bs.length) :
+    instFVars (ids.map Lean.Expr.fvar).toArray 5 (inputExpr (bs.length + 5) j) =
+      .fvar ids[j]! := by
+  simp only [Tools.ShippingMixedSourceBridge.inputExpr, instFVars,
+    List.size_toArray, List.length_map]
+  rw [if_neg (by omega), if_pos (by omega)]
+  have eq : ids.length - 1 - (bs.length + 5 - 1 - j - 5) = j := by omega
+  rw [eq]
+  simp [List.getElem!_eq_getElem?_getD, List.getElem?_map,
+    List.getElem?_eq_getElem (by omega : j < ids.length)]
+
+theorem instantiated_input_shift6 {bs : List (Name × MixedGateBinder)} {ids : List FVarId}
+    (len : ids.length = bs.length) {j : Nat} (hj : j < bs.length) :
+    instFVars (ids.map Lean.Expr.fvar).toArray 6 (inputExpr (bs.length + 6) j) =
+      .fvar ids[j]! := by
+  simp only [Tools.ShippingMixedSourceBridge.inputExpr, instFVars,
+    List.size_toArray, List.length_map]
+  rw [if_neg (by omega), if_pos (by omega)]
+  have eq : ids.length - 1 - (bs.length + 6 - 1 - j - 6) = j := by omega
+  rw [eq]
+  simp [List.getElem!_eq_getElem?_getD, List.getElem?_map,
+    List.getElem?_eq_getElem (by omega : j < ids.length)]
+
+theorem instFVars_read2E (xs : Array Lean.Expr) (d : Nat) (dom : Lean.Expr) (w : Nat)
+    (x : Lean.Expr) :
+    instFVars xs d (read2E dom w x) =
+      read2E (instFVars xs d dom) w (instFVars xs d x) := rfl
+
+theorem synthesizeFromConst_cdo2_sound {logProf declName ci bs body m d}
+    (old : certifiedShape? false [] ci = none)
+    (shape : mixedCertifiedShape? false [] ci = some (bs, body))
+    (hr : MReturns (synthesizeFromConst
+      (fun e hint top named => translateExprToWire e hint top named) logProf declName
+      [] false true ci) (m, d)) :
+    Cdo2Preserves declName bs body m := by
+  unfold synthesizeFromConst at hr
+  simp only [↓reduceIte, old, shape] at hr
+  peel_bind hr
+  obtain ⟨result, run, hr⟩ := MReturns.bind hr
+  peel_bind hr
+  have eq := MReturns.pure hr
+  subst result
+  exact synthesizeMixedCertified_cdo2_sound run
+
+theorem synthesizeCombinationalCore_cdo2_sound {declName : Name}
+    {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {d : Design}
+    (hr : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (m, d) w') :
+    ∃ (ci : ConstantInfo) (w1 w2 : Void IO.RealWorld),
+      RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧
+      ∀ bs body, certifiedShape? false [] ci = none →
+        mixedCertifiedShape? false [] ci = some (bs, body) →
+        Cdo2Preserves declName bs body m := by
+  obtain ⟨logProf, ci, w1, w2, w3, get, run⟩ := synthesizeCombinationalCore_reads hr
+  exact ⟨ci, w1, w2, get, fun _ _ old shape =>
+    synthesizeFromConst_cdo2_sound old shape run.mreturns⟩
+
+/-- Position plumbing for the two-slot circuit-do root (first slot returned). -/
+theorem cdo2_source {declName : Name} {bs : List (Name × MixedGateBinder)}
+    {body : Lean.Expr} {m : Sparkle.IR.AST.Module} {nmX nmY : Name} {dpos : Nat}
+    {w v0 v1 kb kv : Nat} {vw : Nat → Nat} {bpos vpos : Nat → Nat} {e0 e1 : Term (.bits w)}
+    (source : Cdo2Preserves declName bs body m)
+    (hbody : body = cdo2E nmX nmY
+      (inputExpr bs.length dpos) (inputExpr (bs.length + 1) dpos)
+      (inputExpr (bs.length + 2) dpos) (inputExpr (bs.length + 3) dpos)
+      (inputExpr (bs.length + 4) dpos) (inputExpr (bs.length + 5) dpos)
+      (inputExpr (bs.length + 6) dpos) w v0 v1
+      (read2E (inputExpr (bs.length + 6) dpos) w (.bvar 4))
+      (quote (inputExpr (bs.length + 4) dpos)
+        (fun j => inputExpr (bs.length + 4) (bpos j))
+        (fun j => if j = kv then read2E (inputExpr (bs.length + 4) dpos) w (.bvar 2)
+          else if j = kv + 1 then read2E (inputExpr (bs.length + 4) dpos) w (.bvar 0)
+          else inputExpr (bs.length + 4) (vpos j)) e0)
+      (quote (inputExpr (bs.length + 5) dpos)
+        (fun j => inputExpr (bs.length + 5) (bpos j))
+        (fun j => if j = kv then read2E (inputExpr (bs.length + 5) dpos) w (.bvar 3)
+          else if j = kv + 1 then read2E (inputExpr (bs.length + 5) dpos) w (.bvar 1)
+          else inputExpr (bs.length + 5) (vpos j)) e1))
+    (hdp : dpos < bs.length)
+    (hself0 : vw kv = w) (hself1 : vw (kv + 1) = w)
+    (he0 : e0.WF kb (kv + 2) vw) (he1 : e1.WF kb (kv + 2) vw)
+    (hv0 : v0 < 2 ^ w) (hv1 : v1 < 2 ^ w)
+    (hb : ∀ j, j < kb → ∃ name, bs[bpos j]? = some (name, .bool))
+    (hvp : ∀ j, j < kv → ∃ name, bs[vpos j]? = some (name, .bits (vw j))) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = bs.length ∧
+    ∃ (cache : IO.Ref (ExprStructMap String)) (r0 r1 : String), r0 ≠ r1 ∧
+      ∀ (bools : Nat → Bool) (bits : (j : Nat) → (n : Nat) → BitVec n)
+        (env0 : Env) (mems : MEnv),
+      SourceInputs declName bs ids cache bools bits env0 →
+      env0 "rst" = 0 → env0 r0 < 2 ^ w → env0 r1 < 2 ^ w →
+      weOf m r0 = w ∧ weOf m r1 = w ∧
+      (Sparkle.IR.ZeroWidth.dropZeroWidthModule m).body = m.body ∧
+      weOf (Sparkle.IR.ZeroWidth.dropZeroWidthModule m) = weOf m ∧
+      ∃ envF, stepModule (weOf m) m.body env0 mems =
+          some (envF,
+            [(r0, (eval (fun j => bools (bpos j))
+              (fun j n => if j = kv then BitVec.ofNat n (env0 r0)
+                else if j = kv + 1 then BitVec.ofNat n (env0 r1)
+                else bits (vpos j) n) e0).toNat),
+             (r1, (eval (fun j => bools (bpos j))
+              (fun j n => if j = kv then BitVec.ofNat n (env0 r0)
+                else if j = kv + 1 then BitVec.ofNat n (env0 r1)
+                else bits (vpos j) n) e1).toNat)], mems) ∧
+        envF "out" = env0 r0 := by
+  obtain ⟨ids, nd, len, cache, H⟩ := source
+  have qeq : instFVars (ids.map Lean.Expr.fvar).toArray 0 body =
+      cdo2E nmX nmY (.fvar ids[dpos]!) (.fvar ids[dpos]!) (.fvar ids[dpos]!)
+        (.fvar ids[dpos]!) (.fvar ids[dpos]!) (.fvar ids[dpos]!) (.fvar ids[dpos]!) w v0 v1
+        (read2E (.fvar ids[dpos]!) w (.bvar 4))
+        (quote (.fvar ids[dpos]!) (fun j => .fvar ids[bpos j]!)
+          (fun j => if j = kv then read2E (.fvar ids[dpos]!) w (.bvar 2)
+            else if j = kv + 1 then read2E (.fvar ids[dpos]!) w (.bvar 0)
+            else .fvar ids[vpos j]!) e0)
+        (quote (.fvar ids[dpos]!) (fun j => .fvar ids[bpos j]!)
+          (fun j => if j = kv then read2E (.fvar ids[dpos]!) w (.bvar 3)
+            else if j = kv + 1 then read2E (.fvar ids[dpos]!) w (.bvar 1)
+            else .fvar ids[vpos j]!) e1) := by
+    rw [hbody, instFVars_cdo2E, instantiated_input len hdp, instantiated_input_shift len hdp,
+      instantiated_input_shift2 len hdp, instantiated_input_shift3 len hdp,
+      instantiated_input_shift4 len hdp, instantiated_input_shift5 len hdp,
+      instantiated_input_shift6 len hdp]
+    congr 1
+    · rw [instFVars_read2E, instantiated_input_shift6 len hdp]
+      rfl
+    · rw [show (Lean.Expr.fvar ids[dpos]!) =
+        instFVars (ids.map Lean.Expr.fvar).toArray 4 (inputExpr (bs.length + 4) dpos) from
+        (instantiated_input_shift4 len hdp).symm]
+      rw [instFVars_quote]
+      apply quote_congr _ _ e0 he0
+      · intro j hj
+        exact instantiated_input_shift4 len
+          (List.getElem_of_getElem? (hb j hj).choose_spec).choose
+      · intro j hj
+        by_cases hkv : j = kv
+        · subst hkv
+          simp only [if_pos rfl, if_true, Nat.zero_add]
+          rw [instFVars_read2E, instantiated_input_shift4 len hdp]
+          rfl
+        · by_cases hkv1 : j = kv + 1
+          · subst hkv1
+            simp only [if_neg (by omega : ¬(kv + 1 = kv)), if_pos rfl, if_true]
+            rw [instFVars_read2E, instantiated_input_shift4 len hdp]
+            rfl
+          · have hjlt : j < kv := by omega
+            simp only [if_neg hkv, if_neg hkv1]
+            exact instantiated_input_shift4 len
+              (List.getElem_of_getElem? (hvp j hjlt).choose_spec).choose
+    · rw [show (Lean.Expr.fvar ids[dpos]!) =
+        instFVars (ids.map Lean.Expr.fvar).toArray 5 (inputExpr (bs.length + 5) dpos) from
+        (instantiated_input_shift5 len hdp).symm]
+      rw [instFVars_quote]
+      apply quote_congr _ _ e1 he1
+      · intro j hj
+        exact instantiated_input_shift5 len
+          (List.getElem_of_getElem? (hb j hj).choose_spec).choose
+      · intro j hj
+        by_cases hkv : j = kv
+        · subst hkv
+          simp only [if_pos rfl, if_true]
+          rw [instFVars_read2E, instantiated_input_shift5 len hdp]
+          rfl
+        · by_cases hkv1 : j = kv + 1
+          · subst hkv1
+            simp only [if_neg (by omega : ¬(kv + 1 = kv)), if_pos rfl, if_true]
+            rw [instFVars_read2E, instantiated_input_shift5 len hdp]
+            rfl
+          · have hjlt : j < kv := by omega
+            simp only [if_neg hkv, if_neg hkv1]
+            exact instantiated_input_shift5 len
+              (List.getElem_of_getElem? (hvp j hjlt).choose_spec).choose
+  obtain ⟨r0, r1, hne, H⟩ := H nmX nmY (.fvar ids[dpos]!) (.fvar ids[dpos]!)
+    (.fvar ids[dpos]!) kb kv vw (fun j => ids[bpos j]!) (fun j => ids[vpos j]!) e0 e1
+    (by rfl) (cdo2ConeToLoop_fvar 2 0 4 0 ids[dpos]!) (cdo2ConeToLoop_fvar 3 1 5 0 ids[dpos]!)
+    hself0 hself1 he0 he1 hv0 hv1 qeq
+  refine ⟨ids, nd, len, cache, r0, r1, hne, ?_⟩
+  intro bools bits env0 mems values hrst0 h0b h1b
+  have fresh : ((bs.zip ids).map Prod.snd).Nodup := by rw [zip_ids len]; exact nd
+  apply H (boolValues ids bools) (bitValues ids bits) env0 mems
+    (fun j => bools (bpos j)) (fun j n => bits (vpos j) n) values _ _ hrst0 h0b h1b
+  · intro j hj
+    obtain ⟨name, pos⟩ := hb j hj
+    have bound := (List.getElem_of_getElem? pos).choose
+    have lookup := prepare_bool_lookup (bools := boolValues ids bools)
+      (bits := bitValues ids bits) (bs.zip ids)
+      (start (entryCompilerState false cache) declName.toString) fresh (zip_member len pos)
+    simpa only [boolValues, index_fresh ids nd (bpos j) (by omega)] using lookup
+  · intro j hj
+    obtain ⟨name, pos⟩ := hvp j hj
+    have bound := (List.getElem_of_getElem? pos).choose
+    have lookup := prepare_bits_lookup (bools := boolValues ids bools)
+      (bits := bitValues ids bits) (bs.zip ids)
+      (start (entryCompilerState false cache) declName.toString) fresh (zip_member len pos)
+    simpa only [bitValues, index_fresh ids nd (vpos j) (by omega)] using lookup
+
+/-- General two-slot circuit-do endpoint at the real core entry. -/
+theorem cdo2_step_of_env {declName : Name} {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {wst wst' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {design : Design} {value : Lean.Expr}
+    {bs : List (Name × MixedGateBinder)} {nmX nmY : Name} {dpos : Nat}
+    {w v0 v1 kb kv : Nat} {vw : Nat → Nat} {bpos vpos : Nat → Nat} {e0 e1 : Term (.bits w)}
+    (hr : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref wst
+      (m, design) wst')
+    (env : EnvDefines mctx mref cctx cref declName value)
+    (old : ∀ d : DefinitionVal, d.value = value → certifiedShape? false [] (.defnInfo d) = none)
+    (peel : mixedGatePeel value = some (bs, cdo2E nmX nmY
+      (inputExpr bs.length dpos) (inputExpr (bs.length + 1) dpos)
+      (inputExpr (bs.length + 2) dpos) (inputExpr (bs.length + 3) dpos)
+      (inputExpr (bs.length + 4) dpos) (inputExpr (bs.length + 5) dpos)
+      (inputExpr (bs.length + 6) dpos) w v0 v1
+      (read2E (inputExpr (bs.length + 6) dpos) w (.bvar 4))
+      (quote (inputExpr (bs.length + 4) dpos)
+        (fun j => inputExpr (bs.length + 4) (bpos j))
+        (fun j => if j = kv then read2E (inputExpr (bs.length + 4) dpos) w (.bvar 2)
+          else if j = kv + 1 then read2E (inputExpr (bs.length + 4) dpos) w (.bvar 0)
+          else inputExpr (bs.length + 4) (vpos j)) e0)
+      (quote (inputExpr (bs.length + 5) dpos)
+        (fun j => inputExpr (bs.length + 5) (bpos j))
+        (fun j => if j = kv then read2E (inputExpr (bs.length + 5) dpos) w (.bvar 3)
+          else if j = kv + 1 then read2E (inputExpr (bs.length + 5) dpos) w (.bvar 1)
+          else inputExpr (bs.length + 5) (vpos j)) e1)))
+    (hdp : dpos < bs.length)
+    (hself0 : vw kv = w) (hself1 : vw (kv + 1) = w)
+    (he0 : e0.WF kb (kv + 2) vw) (he1 : e1.WF kb (kv + 2) vw)
+    (hv0 : v0 < 2 ^ w) (hv1 : v1 < 2 ^ w)
+    (hb : ∀ j, j < kb → ∃ name, bs[bpos j]? = some (name, .bool))
+    (hvp : ∀ j, j < kv → ∃ name, bs[vpos j]? = some (name, .bits (vw j))) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = bs.length ∧
+    ∃ (cache : IO.Ref (ExprStructMap String)) (r0 r1 : String), r0 ≠ r1 ∧
+      ∀ (bools : Nat → Bool) (bits : (j : Nat) → (n : Nat) → BitVec n)
+        (env0 : Env) (mems : MEnv),
+      SourceInputs declName bs ids cache bools bits env0 →
+      env0 "rst" = 0 → env0 r0 < 2 ^ w → env0 r1 < 2 ^ w →
+      weOf m r0 = w ∧ weOf m r1 = w ∧
+      (Sparkle.IR.ZeroWidth.dropZeroWidthModule m).body = m.body ∧
+      weOf (Sparkle.IR.ZeroWidth.dropZeroWidthModule m) = weOf m ∧
+      ∃ envF, stepModule (weOf m) m.body env0 mems =
+          some (envF,
+            [(r0, (eval (fun j => bools (bpos j))
+              (fun j n => if j = kv then BitVec.ofNat n (env0 r0)
+                else if j = kv + 1 then BitVec.ofNat n (env0 r1)
+                else bits (vpos j) n) e0).toNat),
+             (r1, (eval (fun j => bools (bpos j))
+              (fun j n => if j = kv then BitVec.ofNat n (env0 r0)
+                else if j = kv + 1 then BitVec.ofNat n (env0 r1)
+                else bits (vpos j) n) e1).toNat)], mems) ∧
+        envF "out" = env0 r0 := by
+  obtain ⟨ci, w1, w2, get, source⟩ := synthesizeCombinationalCore_cdo2_sound hr
+  obtain ⟨d, rfl, definition⟩ := env w1 ci w2 get
+  have oldGate : certifiedShape? false [] (.defnInfo d) = none := old d definition
+  have mixedGate := cdo2_term_gate (d := d)
+    (by rw [definition]; exact peel) hdp rfl hself0 hself1 hv0 hv1 he0 he1 hb hvp
+  exact cdo2_source (source bs _ oldGate mixedGate) rfl hdp hself0 hself1 he0 he1 hv0 hv1
+    hb hvp
+
+/-- Two-register trace iteration with state-reading updates: `out` observes
+register 0, both registers step by functions of the wall-clock cycle and the
+current state pair, and the invariant `P` (the width bound) is carried on
+both states. -/
+theorem trace_of_cycles2_inv {we : WEnv} {body : List Stmt} {r0 r1 : String} {mems : MEnv}
+    {seed : Nat → (String → Nat) → Env} {F0 F1 : Nat → Nat → Nat → Nat} {P : Nat → Prop}
+    (hne : r0 ≠ r1)
+    (step : ∀ t stv, P (stv r0) → P (stv r1) → ∃ envF,
+      stepModule we body (seed t stv) mems =
+        some (envF, [(r0, F0 t (stv r0) (stv r1)), (r1, F1 t (stv r0) (stv r1))], mems) ∧
+      envF "out" = stv r0)
+    (P0step : ∀ t s0 s1, P s0 → P s1 → P (F0 t s0 s1))
+    (P1step : ∀ t s0 s1, P s0 → P s1 → P (F1 t s0 s1)) :
+    ∀ (k : Nat) (st0 : String → Nat) (S0 S1 : Nat → Nat),
+      P (st0 r0) → P (st0 r1) → S0 0 = st0 r0 → S1 0 = st0 r1 →
+      (∀ j, j + 1 ≤ k → S0 (j + 1) = F0 (k - 1 - j) (S0 j) (S1 j)) →
+      (∀ j, j + 1 ≤ k → S1 (j + 1) = F1 (k - 1 - j) (S0 j) (S1 j)) →
+      ∃ envs, runModule we body seed k st0 mems = some envs ∧ envs.length = k ∧
+        ∀ j (hj : j < envs.length), (envs[j]'hj) "out" = S0 j
+  | 0, st0, S0, S1, _, _, hS00, hS10, hS0s, hS1s =>
+    ⟨[], rfl, rfl, fun j hj => absurd hj (Nat.not_lt_zero j)⟩
+  | k + 1, st0, S0, S1, P0, P1, hS00, hS10, hS0s, hS1s => by
+    obtain ⟨envF, hstep, hout⟩ := step k st0 P0 P1
+    have hnext0 : applyNexts st0 [(r0, F0 k (st0 r0) (st0 r1)),
+        (r1, F1 k (st0 r0) (st0 r1))] r0 = F0 k (st0 r0) (st0 r1) := by
+      simp [applyNexts]
+    have hnext1 : applyNexts st0 [(r0, F0 k (st0 r0) (st0 r1)),
+        (r1, F1 k (st0 r0) (st0 r1))] r1 = F1 k (st0 r0) (st0 r1) := by
+      have hne' : (r0 == r1) = false := by
+        cases h : r0 == r1
+        · rfl
+        · exact absurd (eq_of_beq h) hne
+      simp [applyNexts, hne']
+    obtain ⟨rest, hrun, hlen, hobs⟩ := trace_of_cycles2_inv hne step P0step P1step k
+      (applyNexts st0 [(r0, F0 k (st0 r0) (st0 r1)), (r1, F1 k (st0 r0) (st0 r1))])
+      (fun j => S0 (j + 1)) (fun j => S1 (j + 1))
+      (by rw [hnext0]; exact P0step k _ _ P0 P1)
+      (by rw [hnext1]; exact P1step k _ _ P0 P1)
+      (by
+        show S0 (0 + 1) = _
+        rw [hnext0, hS0s 0 (by omega), hS00, hS10]
+        simp)
+      (by
+        show S1 (0 + 1) = _
+        rw [hnext1, hS1s 0 (by omega), hS00, hS10]
+        simp)
+      (by
+        intro j hj
+        show S0 (j + 1 + 1) = _
+        rw [hS0s (j + 1) (by omega)]
+        have hidx : k + 1 - 1 - (j + 1) = k - 1 - j := by omega
+        rw [hidx])
+      (by
+        intro j hj
+        show S1 (j + 1 + 1) = _
+        rw [hS1s (j + 1) (by omega)]
+        have hidx : k + 1 - 1 - (j + 1) = k - 1 - j := by omega
+        rw [hidx])
+    refine ⟨envF :: rest, ?_, by simp [hlen], ?_⟩
+    · unfold runModule
+      simp [hstep, bind, hrun]
+    · intro j hj
+      cases j with
+      | zero => rw [hS00]; simpa using hout
+      | succ i =>
+        have hi : i < rest.length := by simpa using hj
+        have hget : ((envF :: rest)[i + 1]'hj) = rest[i]'hi := by simp
+        rw [hget]
+        exact hobs i hi
+
+/-- Packaged two-slot circuit-do trace at the real core entry: the compiled
+`runModule` trace observes the first register's stream while both registers
+follow their cones at the current state pair. -/
+theorem cdo2_run_of_env {declName : Name} {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {wst wst' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {design : Design} {value : Lean.Expr}
+    {bs : List (Name × MixedGateBinder)} {nmX nmY : Name} {dpos : Nat}
+    {w v0 v1 kb kv : Nat} {vw : Nat → Nat} {bpos vpos : Nat → Nat} {e0 e1 : Term (.bits w)}
+    (hr : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref wst
+      (m, design) wst')
+    (env : EnvDefines mctx mref cctx cref declName value)
+    (old : ∀ d : DefinitionVal, d.value = value → certifiedShape? false [] (.defnInfo d) = none)
+    (peel : mixedGatePeel value = some (bs, cdo2E nmX nmY
+      (inputExpr bs.length dpos) (inputExpr (bs.length + 1) dpos)
+      (inputExpr (bs.length + 2) dpos) (inputExpr (bs.length + 3) dpos)
+      (inputExpr (bs.length + 4) dpos) (inputExpr (bs.length + 5) dpos)
+      (inputExpr (bs.length + 6) dpos) w v0 v1
+      (read2E (inputExpr (bs.length + 6) dpos) w (.bvar 4))
+      (quote (inputExpr (bs.length + 4) dpos)
+        (fun j => inputExpr (bs.length + 4) (bpos j))
+        (fun j => if j = kv then read2E (inputExpr (bs.length + 4) dpos) w (.bvar 2)
+          else if j = kv + 1 then read2E (inputExpr (bs.length + 4) dpos) w (.bvar 0)
+          else inputExpr (bs.length + 4) (vpos j)) e0)
+      (quote (inputExpr (bs.length + 5) dpos)
+        (fun j => inputExpr (bs.length + 5) (bpos j))
+        (fun j => if j = kv then read2E (inputExpr (bs.length + 5) dpos) w (.bvar 3)
+          else if j = kv + 1 then read2E (inputExpr (bs.length + 5) dpos) w (.bvar 1)
+          else inputExpr (bs.length + 5) (vpos j)) e1)))
+    (hdp : dpos < bs.length)
+    (hself0 : vw kv = w) (hself1 : vw (kv + 1) = w)
+    (he0 : e0.WF kb (kv + 2) vw) (he1 : e1.WF kb (kv + 2) vw)
+    (hv0 : v0 < 2 ^ w) (hv1 : v1 < 2 ^ w)
+    (hb : ∀ j, j < kb → ∃ name, bs[bpos j]? = some (name, .bool))
+    (hvp : ∀ j, j < kv → ∃ name, bs[vpos j]? = some (name, .bits (vw j))) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = bs.length ∧
+    ∃ (cache : IO.Ref (ExprStructMap String)) (r0 r1 : String), r0 ≠ r1 ∧
+      ∀ (bools : Nat → Nat → Bool) (bits : Nat → (j : Nat) → (n : Nat) → BitVec n)
+        (mems : MEnv) (k : Nat) (seed : Nat → (String → Nat) → Env)
+        (st0 : String → Nat) (S0 S1 : Nat → Nat),
+      (∀ t stv, SourceInputs declName bs ids cache (bools (k - 1 - t)) (bits (k - 1 - t))
+          (seed t stv) ∧ seed t stv "rst" = 0 ∧
+          seed t stv r0 = stv r0 ∧ seed t stv r1 = stv r1) →
+      st0 r0 < 2 ^ w → st0 r1 < 2 ^ w →
+      S0 0 = st0 r0 → S1 0 = st0 r1 →
+      (∀ j, j + 1 ≤ k → S0 (j + 1) = (eval (fun i => bools j (bpos i))
+        (fun i n => if i = kv then BitVec.ofNat n (S0 j)
+          else if i = kv + 1 then BitVec.ofNat n (S1 j)
+          else bits j (vpos i) n) e0).toNat) →
+      (∀ j, j + 1 ≤ k → S1 (j + 1) = (eval (fun i => bools j (bpos i))
+        (fun i n => if i = kv then BitVec.ofNat n (S0 j)
+          else if i = kv + 1 then BitVec.ofNat n (S1 j)
+          else bits j (vpos i) n) e1).toNat) →
+      ∃ envs, runModule (weOf m) m.body seed k st0 mems = some envs ∧ envs.length = k ∧
+        ∀ j (hj : j < envs.length), (envs[j]'hj) "out" = S0 j := by
+  obtain ⟨ids, nd, len, cache, r0, r1, hne, H⟩ :=
+    cdo2_step_of_env hr env old peel hdp hself0 hself1 he0 he1 hv0 hv1 hb hvp
+  refine ⟨ids, nd, len, cache, r0, r1, hne, ?_⟩
+  intro bools bits mems k seed st0 S0 S1 hseed hst0 hst1 hS00 hS10 hS0s hS1s
+  apply trace_of_cycles2_inv (P := fun s => s < 2 ^ w) hne
+    (F0 := fun t s0 s1 => (eval (fun i => bools (k - 1 - t) (bpos i))
+      (fun i n => if i = kv then BitVec.ofNat n s0
+        else if i = kv + 1 then BitVec.ofNat n s1
+        else bits (k - 1 - t) (vpos i) n) e0).toNat)
+    (F1 := fun t s0 s1 => (eval (fun i => bools (k - 1 - t) (bpos i))
+      (fun i n => if i = kv then BitVec.ofNat n s0
+        else if i = kv + 1 then BitVec.ofNat n s1
+        else bits (k - 1 - t) (vpos i) n) e1).toNat)
+    ?_ ?_ ?_ k st0 S0 S1 hst0 hst1 hS00 hS10 ?_ ?_
+  · intro t stv hP0 hP1
+    obtain ⟨hsrc, hrst, hread0, hread1⟩ := hseed t stv
+    obtain ⟨-, -, -, -, envF, hstep, hout⟩ :=
+      H (bools (k - 1 - t)) (bits (k - 1 - t)) (seed t stv) mems hsrc hrst
+        (by rw [hread0]; exact hP0) (by rw [hread1]; exact hP1)
+    refine ⟨envF, ?_, by rw [hout, hread0]⟩
+    rw [hread0, hread1] at hstep
+    exact hstep
+  · intro t s0 s1 _ _
+    exact BitVec.isLt _
+  · intro t s0 s1 _ _
+    exact BitVec.isLt _
+  · intro j hj
+    rw [hS0s j hj]
+    have hidx : k - 1 - (k - 1 - j) = j := by omega
+    rw [hidx]
+  · intro j hj
+    rw [hS1s j hj]
+    have hidx : k - 1 - (k - 1 - j) = j := by omega
+    rw [hidx]
+
 end Tools.ShippingRegisterSoundness
