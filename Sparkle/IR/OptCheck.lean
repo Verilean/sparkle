@@ -164,6 +164,31 @@ under the register renaming. The checker takes no part in the pipeline; it
 is the decidable premise of the sequential printed-SV soundness theorems
 and a regression gate over the certified register shapes. -/
 
+/-- Total, proof-friendly rename of every reference through one lookup
+(no chain chasing — the sequential checker's substitution is a plain
+register pairing). -/
+def renameT (subst : Std.HashMap String String) (x : String) : String :=
+  match subst.get? x with
+  | some y => y
+  | none => x
+
+mutual
+/-- Structural twin of `Sparkle.IR.Optimize.renameRefs` for the sequential
+checker: total, so the soundness layer can reason about it. -/
+def renameRefsT (subst : Std.HashMap String String) : Expr → Expr
+  | .ref x => .ref (renameT subst x)
+  | .op o args => .op o (renameRefsTList subst args)
+  | .concat args => .concat (renameRefsTList subst args)
+  | .slice e hi lo => .slice (renameRefsT subst e) hi lo
+  | .sliceDim e hi lo => .sliceDim (renameRefsT subst e) hi lo
+  | .index a i => .index (renameRefsT subst a) (renameRefsT subst i)
+  | e => e
+
+def renameRefsTList (subst : Std.HashMap String String) : List Expr → List Expr
+  | [] => []
+  | e :: es => renameRefsT subst e :: renameRefsTList subst es
+end
+
 /-- `normE` extended with the three-argument mux node the register cones
 carry. Only the sequential checker uses it: the combinational checked route
 keeps the original acceptance policy. -/
@@ -177,7 +202,8 @@ def seqNormE (we : WEnv) (ins : List String) (defs : List (String × Expr)) : Ex
     let c' ← seqNormE we ins defs c
     let a' ← seqNormE we ins defs a
     let b' ← seqNormE we ins defs b
-    some (.op .mux [c', a', b'])
+    -- Equal branch widths keep normal-form values width-bounded.
+    if widthOf we a' = widthOf we b' then some (.op .mux [c', a', b']) else none
   | .op o [a, b] =>
     if isBinOp o then do
       let a' ← seqNormE we ins defs a
@@ -229,7 +255,7 @@ def seqOptCheck (m o : Module) : Bool :=
   (let subst : Std.HashMap String String := pairs.foldl
     (fun h pr => match pr with
       | ((nm, _), (no, _)) => h.insert no nm) {}
-   let renO := Sparkle.IR.Optimize.renameRefs subst
+   let renO := renameRefsT subst
    let insBase := m.inputs.map (·.name)
    let insM := insBase ++ rM.map (·.1)
    let insO := insBase.filter (fun x => wm x == wo x) ++ rO.map (·.1)
