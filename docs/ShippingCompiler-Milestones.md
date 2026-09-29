@@ -291,7 +291,11 @@ through `loopPair_val`; open: slot-1 return, differing widths, more
 slots, Reg-operator reads), deeper register
 chains and register networks beyond depth two, user reset muxes, and
 the sequential SV printer step (the `optimizeModule` pass-through is
-now checker-covered). S5–S7 remain unfinished.
+now checker-covered). S5 is STARTED: the canonical sync-read memory's semantics layer is
+proved (`Tools/ShippingMemorySoundness.lean` — the pinned compiled body's
+`runModule` trace is the `Signal.memory` stream, endpoint instantiated
+and audited); its entry-level connection and the wider memory scope
+remain. S6–S7 remain unfinished.
 
 ## Trust, validation and work cadence
 
