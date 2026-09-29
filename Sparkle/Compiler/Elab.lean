@@ -1406,6 +1406,87 @@ def canonicalCircuitDo? : Lean.Expr → Option (Nat × Nat × Lean.Expr)
     else none
   | _ => none
 
+/-- Rewrite a two-slot `circuit do` cone into the two-state form: coerced
+    reads of the first/second register handle become `.bvar 1`/`.bvar 0`,
+    the `K` machinery binders (handle tuple, projected handles, spent
+    continuations) vanish, and outer references shift accordingly. Fails if
+    any machinery binder is used another way. -/
+def cdo2ConeToLoop (dx dy K : Nat) : Nat → Lean.Expr → Option Lean.Expr
+  | d, .app (.app (.app (.const ``Prod.fst us) tyA) tyB) (.bvar i) =>
+    if i == dx + d then some (.bvar (d + 1))
+    else if i == dy + d then some (.bvar d)
+    else if d ≤ i && i < d + K then none
+    else do
+      let tyA' ← cdo2ConeToLoop dx dy K d tyA
+      let tyB' ← cdo2ConeToLoop dx dy K d tyB
+      some (mkApp3 (.const ``Prod.fst us) tyA' tyB'
+        (.bvar (if i ≥ d + K then i - K + 2 else i)))
+  | d, .bvar i =>
+    if d ≤ i && i < d + K then none
+    else some (.bvar (if i ≥ d + K then i - K + 2 else i))
+  | d, .app f a => do some (.app (← cdo2ConeToLoop dx dy K d f) (← cdo2ConeToLoop dx dy K d a))
+  | d, .lam n t b bi => do
+    some (.lam n (← cdo2ConeToLoop dx dy K d t) (← cdo2ConeToLoop dx dy K (d + 1) b) bi)
+  | d, .forallE n t b bi => do
+    some (.forallE n (← cdo2ConeToLoop dx dy K d t) (← cdo2ConeToLoop dx dy K (d + 1) b) bi)
+  | d, .letE n t v b nd => do
+    some (.letE n (← cdo2ConeToLoop dx dy K d t) (← cdo2ConeToLoop dx dy K d v)
+      (← cdo2ConeToLoop dx dy K (d + 1) b) nd)
+  | d, .mdata m b => do some (.mdata m (← cdo2ConeToLoop dx dy K d b))
+  | d, .proj st i b => do some (.proj st i (← cdo2ConeToLoop dx dy K d b))
+  | _, e => some e
+
+/-- Canonical two-slot `circuit do`: `runCircuitH` at two same-width
+    `BitVec w` slots over a polymorphic domain, projection-destructured
+    handles, one write per register, and one of the registers' own reads
+    returned. Yields `(width, init0, init1, returned slot, cone0, cone1)`
+    with both cones in the two-state form (`.bvar 1` = first register's
+    read, `.bvar 0` = the second's). -/
+def canonicalCircuitDo2? (e : Lean.Expr) :
+    Option (Nat × Nat × Nat × Nat × Lean.Expr × Lean.Expr) :=
+  if !e.isAppOfArity ``Sparkle.Core.runCircuitH 8 then none else
+  let args := e.getAppArgs
+  let dom := args[0]!
+  if !(dom.isFVar || dom.isBVar) then none else
+  match args[1]!, args[6]!, args[7]! with
+  | .app (.app (.app (.const ``List.cons _) _) (.app (.const ``BitVec _) wE))
+      (.app (.app (.app (.const ``List.cons _) _) (.app (.const ``BitVec _) wE2))
+        (.app (.const ``List.nil _) _)),
+    .app (.app (.app (.app (.const ``Prod.mk _) _) _) init0E)
+      (.app (.app (.app (.app (.const ``Prod.mk _) _) _) init1E) (.const ``Unit.unit _)),
+    .lam _ _ (.letE _ _
+        (.app (.app (.app (.const ``Prod.fst _) _) _) (.bvar 0))
+        (.letE _ _
+          (.app (.app (.app (.const ``Prod.snd _) _) _) (.bvar 1))
+          (.letE _ _
+            (.app (.app (.app (.const ``Prod.fst _) _) _) (.bvar 0))
+            (.app (.app (.app (.app (.app (.app
+                (.const ``Sparkle.Core.Circuit.bind _) _) _) _) _)
+              (.app (.app (.app (.app (.app (.app
+                (.const ``Sparkle.Core.Circuit.next _) _) _) _) _) (.bvar 2)) rhs0))
+              (.lam _ _
+                (.app (.app (.app (.app (.app (.app
+                    (.const ``Sparkle.Core.Circuit.bind _) _) _) _) _)
+                  (.app (.app (.app (.app (.app (.app
+                    (.const ``Sparkle.Core.Circuit.next _) _) _) _) _) (.bvar 1)) rhs1))
+                  (.lam _ _
+                    (.app (.app (.app (.app (.const ``Sparkle.Core.Circuit.pure' _) _) _) _)
+                      (.app (.app (.app (.const ``Prod.fst _) _) _) (.bvar outIdx))) _)) _)) _)
+          _) _) _ =>
+    let retSlot := if outIdx == 4 then some 0 else if outIdx == 2 then some 1 else none
+    match retSlot with
+    | none => none
+    | some ret =>
+      match canonicalNatLitValue? wE, canonicalNatLitValue? wE2,
+          bitVecLitValue? init0E, bitVecLitValue? init1E with
+      | some w, some w2, some (wi0, v0), some (wi1, v1) =>
+        if !(0 < w && w2 == w && wi0 == w && wi1 == w) then none else
+        match cdo2ConeToLoop 2 0 4 0 rhs0, cdo2ConeToLoop 3 1 5 0 rhs1 with
+        | some cone0, some cone1 => some (w, v0, v1, ret, cone0, cone1)
+        | _, _ => none
+      | _, _, _, _ => none
+  | _, _, _ => none
+
 /-- Canonical enabled register: `Signal.registerWithEnable initLit en input`
     over a polymorphic domain at a literal positive width. Returns
     `(width, init value, enable, input)`. -/
@@ -2184,7 +2265,13 @@ def unifiedRegisterRoot (kinds : Array MixedGateBinder) (e : Lean.Expr) : Bool :
         | some (w, _, cone) =>
           -- The single-slot circuit-do cone, already in loop-binder form.
           0 < w && unifiedGateBitsBody (kinds.push (.bits w)) w cone
-        | none => false
+        | none =>
+          match canonicalCircuitDo2? e with
+          | some (w, _, _, _, cone0, cone1) =>
+            -- Two more width-`w` inputs: slot 0 at `.bvar 1`, slot 1 at `.bvar 0`.
+            0 < w && unifiedGateBitsBody ((kinds.push (.bits w)).push (.bits w)) w cone0 &&
+              unifiedGateBitsBody ((kinds.push (.bits w)).push (.bits w)) w cone1
+          | none => false
 
 def mixedCertifiedShape? (symbolicMode : Bool) (parameters : List (String × Nat)) :
     ConstantInfo → Option (List (Name × MixedGateBinder) × Lean.Expr)
@@ -5087,6 +5174,31 @@ def translateCircuitDoUncachedWith (rec : TranslateFn) (w v : Nat) : TranslateFn
     CompilerM.emitRegisterStmt r "clk" "rst" (.ref cw) v
     return r
 
+/-- Uncached lowering for the canonical two-slot `circuit do`: both register
+    wires are allocated and bound before either cone translates (each cone
+    may read both registers), then each register statement is emitted after
+    its cone; the returned slot's wire is the result. -/
+def translateCircuitDo2UncachedWith (rec : TranslateFn) (w v0 v1 ret : Nat) : TranslateFn :=
+  fun e hint _top named => do
+    let (cone0, cone1) := match canonicalCircuitDo2? e with
+      | some (_, _, _, _, c0, c1) => (c0, c1)
+      | none => (e, e)
+    let self0 ← CompilerM.liftMetaM Lean.mkFreshFVarId
+    let self1 ← CompilerM.liftMetaM Lean.mkFreshFVarId
+    if (← CompilerM.lookupVar self0).isSome then
+      throw (Exception.error .missing "circuit-do slot-0 binder id collision")
+    if (← CompilerM.lookupVar self1).isSome then
+      throw (Exception.error .missing "circuit-do slot-1 binder id collision")
+    let r0 ← CompilerM.makeWire hint (.bitVector w) (named := named && ret == 0)
+    let r1 ← CompilerM.makeWire (hint ++ "_slot1") (.bitVector w) (named := named && ret == 1)
+    CompilerM.bindSourceVariable self0 r0
+    CompilerM.bindSourceVariable self1 r1
+    let cw0 ← rec (instFVars #[.fvar self0, .fvar self1] 0 cone0) "loop_body" false false
+    CompilerM.emitRegisterStmt r0 "clk" "rst" (.ref cw0) v0
+    let cw1 ← rec (instFVars #[.fvar self0, .fvar self1] 0 cone1) "loop_body" false false
+    CompilerM.emitRegisterStmt r1 "clk" "rst" (.ref cw1) v1
+    return (if ret == 0 then r0 else r1)
+
 /-- The existing handler chain (cache wrapper + dispatch) as the fallback. -/
 def translateFallback (rec : TranslateFn) : TranslateFn :=
   fun e hint top named =>
@@ -5129,7 +5241,12 @@ def translateFallback (rec : TranslateFn) : TranslateFn :=
                   translateControlCachedWith (translateCircuitDoUncachedWith rec w v)
                     e hint top named
                 | none =>
-                  Rec.translateExprToWireCached (fun e h t n => rec e h t n) e hint top named
+                  match canonicalCircuitDo2? e with
+                  | some (w, v0, v1, ret, _, _) =>
+                    translateControlCachedWith
+                      (translateCircuitDo2UncachedWith rec w v0 v1 ret) e hint top named
+                  | none =>
+                    Rec.translateExprToWireCached (fun e h t n => rec e h t n) e hint top named
 
 def translateStep : TranslateFn → TranslateFn := translateStepWith translateFallback
 

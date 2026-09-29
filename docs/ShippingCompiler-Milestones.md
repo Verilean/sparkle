@@ -274,8 +274,10 @@ distributes the normalizer over the unified quote, and the
 instantiated on the real declaration with standard axioms only.
 Open in S4: the sequential `mergeDuplicates` (the unvalidated raw merge;
 the test exercises the merged default configuration numerically),
-`circuit do` beyond the single-slot shape (multi-slot, Reg-operator
-reads), deeper register
+`circuit do` beyond the single-slot shape (the two-slot cross-coupled
+form has its compiler phase — recognizer, two-state cone rewrite,
+both-wires-first lowering, gate, 12-cycle regression — with the proof
+chain open; differing widths, more slots, Reg-operator reads), deeper register
 chains and register networks beyond depth two, user reset muxes, and
 sequential emitted-SV text (sequential modules pass through
 `optimizeModule`, unproved). S5–S7 remain unfinished.

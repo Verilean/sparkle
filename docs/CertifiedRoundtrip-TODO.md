@@ -251,9 +251,21 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   monolith across the same fuel decomposition) feeds
   `cdo_step_of_env`/`cdo_run_of_env` — instantiated on the real
   `circuit do` declaration (`cdoAcc_step`/`cdoAcc_run`, standard axioms
-  only). Still open: multiple slots, and cones whose reads go through
-  the Reg-lifting operator instances (`r + x` with `r` as a direct
-  operand) rather than the mux-argument coercion form.
+  only). Multiple slots have their compiler
+  phase: `canonicalCircuitDo2?` purely recognizes the TWO-slot
+  `runCircuitH` (same-width slots, projection-destructured handles, one
+  write per register, one register's read returned), `cdo2ConeToLoop`
+  rewrites both cones into the two-state form (slot 0 at `.bvar 1`,
+  slot 1 at `.bvar 0`; cross-register reads are the explicit
+  `(x : Signal dom (BitVec w))` ascription coercions real designs already
+  use), and the lowering allocates and binds both register wires before
+  either cone translates, so cross-coupled cones work; gate-accepted and
+  pinned by a 12-cycle two-register regression. Still open: the two-slot
+  PROOF chain (quote form, two-state distribution lemma, a monolith with
+  two state-reading cone contracts, a state-reading two-register trace
+  lemma — design recorded in the memory log), slots at differing widths,
+  more than two slots, and cones whose reads go through the Reg-lifting
+  operator instances (`r + x` with `r` as a direct operand).
 - [ ] **S4:** Remaining state/reset scope: the sequential `mergeDuplicates`
   (the UNVALIDATED `mergeDuplicatesRaw`; needs register-bisimulation
   validation or proof — the register test exercises the merged default

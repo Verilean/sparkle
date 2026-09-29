@@ -488,6 +488,17 @@ theorem regChain_run {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.Stat
   · intro j hj
     rfl
 
+/-- Two cross-coupled registers as a two-slot `circuit do`: a swap/accumulate
+pair whose cones each read both registers. -/
+def cdo2X {dom : DomainConfig} (c : Signal dom Bool) (a : Signal dom (BitVec 8)) :
+    Signal dom (BitVec 8) :=
+  circuit do
+    let x ← Signal.reg (1#8)
+    let y ← Signal.reg (2#8)
+    x <~ Signal.mux c (y : Signal dom (BitVec 8)) a
+    y <~ Signal.mux c (x : Signal dom (BitVec 8)) (y : Signal dom (BitVec 8)) + a
+    return x
+
 /-- The feedback accumulator written as a single-slot `circuit do`. -/
 def cdoAcc {dom : DomainConfig} (c : Signal dom Bool) (a b : Signal dom (BitVec 8)) :
     Signal dom (BitVec 8) :=
@@ -859,7 +870,52 @@ run_cmd liftTermElabM do
     unless mrm.body == mrz.body && mrm.wires == mrz.wires &&
         mrm.outputs == mrz.outputs do
       throwError "sequential merge changed the certified module of {decl}"
-  logInfo m!"REGISTER REGRESSION: {count} cycles of the raw synthesized module (and {count2} of the merged default configuration) match the source register recurrence (init 3, reset low); {countH} enabled-register cycles match the capture/hold recurrence (init 5); {countL} feedback cycles match the loop recurrence (init 0); {countC} two-stage chain cycles match the nested register recurrence (inits 1/2); the single-slot circuit-do synthesizes to the identical loop-form module; the raw sequential merge is the identity on all five certified register modules"
+  -- Two-slot circuit do: gate acceptance and a 12-cycle two-register
+  -- regression against the cross-coupled source recurrences (out = x;
+  -- x' = mux c y a; y' = (mux c x y) + a). The proof chain for this shape
+  -- is the next unit; this regression pins the compiled semantics.
+  let ci2 ← getConstInfo ``cdo2X
+  unless (mixedCertifiedShape? false [] ci2).isSome do
+    throwError "two-slot circuit-do missed the gate"
+  let (m2, _) ← synthesizeCombinationalCore ``cdo2X [] false
+  let regs2 := m2.body.filterMap fun st => match st with
+    | .register o _ _ _ init => some (o, init)
+    | _ => none
+  let [(rX, initX), (rY, initY)] := regs2
+    | throwError "expected two circuit-do registers"
+  unless initX == 1 && initY == 2 do throwError "unexpected two-slot inits"
+  let m2' := Sparkle.IR.ZeroWidth.dropZeroWidthModule m2
+  unless m2'.body == m2.body && m2'.wires == m2.wires do
+    throwError "dropZeroWidth changed the two-slot module"
+  let we2 := Tools.ShippingEntrySoundness.weOf m2
+  let mut sx : Nat := 1
+  let mut sy : Nat := 2
+  let mut count2s : Nat := 0
+  for t in List.range 12 do
+    let env0 := fun (n : String) =>
+      if n == "_gen_c" then (if ctrace t then 1 else 0)
+      else if n == "_gen_a" then atrace t
+      else if n == rX then sx
+      else if n == rY then sy
+      else 0
+    let some (envF, nexts, _) := stepModule we2 m2.body env0 |
+      throwError "two-slot stepModule failed at {t}"
+    unless envF "out" == sx do
+      throwError "two-slot cycle {t}: out={envF "out"} expected {sx}"
+    let expX := if ctrace t then sy else atrace t
+    let expY := ((if ctrace t then BitVec.ofNat 8 sx else BitVec.ofNat 8 sy)
+      + BitVec.ofNat 8 (atrace t)).toNat
+    let some (_, nX) := nexts.find? (fun p => p.1 == rX) |
+      throwError "two-slot x next missing"
+    let some (_, nY) := nexts.find? (fun p => p.1 == rY) |
+      throwError "two-slot y next missing"
+    unless nX == expX && nY == expY do
+      throwError "two-slot cycle {t}: nexts=({nX},{nY}) expected ({expX},{expY})"
+    sx := nX
+    sy := nY
+    count2s := count2s + 1
+  unless count2s == 12 do throwError "two-slot cycle count mismatch: {count2s}"
+  logInfo m!"REGISTER REGRESSION: {count} cycles of the raw synthesized module (and {count2} of the merged default configuration) match the source register recurrence (init 3, reset low); {countH} enabled-register cycles match the capture/hold recurrence (init 5); {countL} feedback cycles match the loop recurrence (init 0); {countC} two-stage chain cycles match the nested register recurrence (inits 1/2); the single-slot circuit-do synthesizes to the identical loop-form module; the raw sequential merge is the identity on all five certified register modules; {count2s} two-slot circuit-do cycles match the cross-coupled recurrences (inits 1/2)"
 
 run_cmd do
   if (← get).messages.hasErrors then throwError "register regression failed"
