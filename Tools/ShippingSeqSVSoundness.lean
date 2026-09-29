@@ -322,4 +322,159 @@ theorem seq_run_to_sv {o : Module} {wof : String → Option Nat}
     ← runModule_we_congr o.body hok hwagree seed k st mems]
   exact hrun
 
+/-! ## Reaching the printed bytes through the parser
+
+The emitted SV AST cannot carry the asynchronous reset sensitivity
+(`SVSensitivity` holds one edge), so the byte-level connection runs in
+the PARSE direction: the module the shipping parser reads back from the
+printed Verilog is trace-equal to the checked module, through the
+roundtrip census (`BFrag`), the body image, and the reorder check. The
+seeding obstacle is the same as for the emit direction —
+`body_trace_roundtrip` wants every seeded environment bounded — and is
+solved by a clamped twin of `seedIn` plus a seed congruence on bounded
+states. -/
+
+/-- The canonical seeding with the state read clamped to its width:
+equal to `seedIn` on width-bounded states, and width-bounded from EVERY
+state. -/
+def seedInC (m : Module) (ins : Nat → String → Nat) (we : WEnv) :
+    Nat → (String → Nat) → Env :=
+  fun t st n => if (m.inputs.map (·.name)).contains n then ins t n
+    else st n % 2 ^ we n
+
+theorem seedInC_bounded {m : Module} {ins : Nat → String → Nat} {we : WEnv}
+    (hins : ∀ t x, x ∈ m.inputs.map (·.name) → ins t x < 2 ^ we x) :
+    ∀ t st, Bounded we (seedInC m ins we t st) := by
+  intro t st n
+  simp only [seedInC]
+  by_cases hc : ((m.inputs.map (·.name)).contains n) = true
+  · rw [if_pos hc]
+    exact hins t n (by simpa [List.contains_eq_mem] using hc)
+  · rw [if_neg hc]
+    exact Nat.mod_lt _ (Nat.two_pow_pos _)
+
+theorem seedIn_eq_seedInC {m : Module} {ins : Nat → String → Nat} {we : WEnv}
+    {st : String → Nat} (hst : Bounded we st) (t : Nat) :
+    seedIn m ins t st = seedInC m ins we t st := by
+  funext n
+  simp only [seedIn, seedInC]
+  by_cases hc : ((m.inputs.map (·.name)).contains n) = true
+  · rw [if_pos hc, if_pos hc]
+  · rw [if_neg hc, if_neg hc, Nat.mod_eq_of_lt (hst n)]
+
+/-- Invert a successful step into its three phases. -/
+theorem stepModule_parts {we : WEnv} {body : List Stmt} {env0 : Env}
+    {mems : MEnv} {tr : Env × List (String × Nat) × MEnv}
+    (h : stepModule we body env0 mems = some tr) :
+    evalAssigns we mems body env0 = some tr.1 ∧
+    regNexts we mems body tr.1 = some tr.2.1 ∧
+    memNexts we body mems tr.1 = some tr.2.2 := by
+  have h' : ((evalAssigns we mems body env0).bind fun envF =>
+      (regNexts we mems body envF).bind fun nexts =>
+        (memNexts we body mems envF).bind fun mems' =>
+          some (envF, nexts, mems')) = some tr := h
+  cases hA : evalAssigns we mems body env0 with
+  | none =>
+    rw [hA] at h'
+    have hcon : (none : Option (Env × List (String × Nat) × MEnv)) = some tr := h'
+    cases hcon
+  | some envF =>
+    rw [hA] at h'
+    have h'' : ((regNexts we mems body envF).bind fun nexts =>
+        (memNexts we body mems envF).bind fun mems' =>
+          some (envF, nexts, mems')) = some tr := h'
+    cases hR : regNexts we mems body envF with
+    | none =>
+      rw [hR] at h''
+      have hcon : (none : Option (Env × List (String × Nat) × MEnv)) = some tr := h''
+      cases hcon
+    | some nexts =>
+      rw [hR] at h''
+      have h3 : ((memNexts we body mems envF).bind fun mems' =>
+          some (envF, nexts, mems')) = some tr := h''
+      cases hM : memNexts we body mems envF with
+      | none =>
+        rw [hM] at h3
+        have hcon : (none : Option (Env × List (String × Nat) × MEnv)) = some tr := h3
+        cases hcon
+      | some mems' =>
+        rw [hM] at h3
+        have h4 : some ((envF, nexts, mems') :
+          Env × List (String × Nat) × MEnv) = some tr := h3
+        have h5 := Option.some.inj h4
+        subst h5
+        exact ⟨rfl, hR, hM⟩
+
+/-- Seeding disciplines agreeing on width-bounded states run identically
+from a width-bounded state (accepted bodies keep states bounded). -/
+theorem runModule_seed_congr {we : WEnv} (body : List Stmt)
+    (hok : body.all seqStmtOk = true)
+    (seedA seedB : Nat → (String → Nat) → Env)
+    (hag : ∀ t st, Bounded we st → seedA t st = seedB t st) :
+    ∀ (k : Nat) (st : String → Nat) (mems : MEnv), Bounded we st →
+      runModule we body seedA k st mems = runModule we body seedB k st mems
+  | 0, _, _, _ => rfl
+  | k + 1, st, mems, hst => by
+    show ((stepModule we body (seedA k st) mems).bind fun tr =>
+        (runModule we body seedA k (applyNexts st tr.2.1) tr.2.2).bind fun rest =>
+          some (tr.1 :: rest)) =
+      ((stepModule we body (seedB k st) mems).bind fun tr =>
+        (runModule we body seedB k (applyNexts st tr.2.1) tr.2.2).bind fun rest =>
+          some (tr.1 :: rest))
+    rw [hag k st hst]
+    cases htr : stepModule we body (seedB k st) mems with
+    | none => exact (rfl : (none : Option (List Env)) = none)
+    | some tr =>
+      have hparts := stepModule_parts htr
+      have hst' : Bounded we (applyNexts st tr.2.1) :=
+        applyNexts_bounded hst (regNexts_bounded hok hparts.2.1)
+      show ((runModule we body seedA k (applyNexts st tr.2.1) tr.2.2).bind fun rest =>
+          some (tr.1 :: rest)) =
+        ((runModule we body seedB k (applyNexts st tr.2.1) tr.2.2).bind fun rest =>
+          some (tr.1 :: rest))
+      conv =>
+        lhs
+        rw [runModule_seed_congr body hok seedA seedB hag k
+          (applyNexts st tr.2.1) tr.2.2 hst']
+
+open Sparkle.IR.RegDedup (declWidth) in
+/-- **IR run to the parsed-back printed text.** For an accepted module in
+the roundtrip census fragment, the module body the shipping parser reads
+back from the emitted Verilog runs — under the canonical seeding, from
+any width-bounded state — to the very same trace. -/
+theorem seq_run_to_parsed {m o : Module} {body' bimg : List Stmt}
+    (hok : o.body.all seqStmtOk = true)
+    (hok' : body'.all seqStmtOk = true)
+    (hcert : Tools.SVParser.RoundtripProof.semFragCheck o = true)
+    (hI : Tools.SVParser.RoundtripProof.bodyImage
+      (Tools.SVParser.RoundtripProof.moduleWof o) o.wires o.body = some bimg)
+    (hchk : Tools.SVParser.RoundtripProof.bodyReorderCheck body' bimg = true)
+    (hwagree : ∀ n ∈ seqNames o.body,
+      declWidth o n = ((Tools.SVParser.RoundtripProof.moduleWof o) n).getD 0)
+    {ins : Nat → String → Nat}
+    (hinsW : ∀ t x, x ∈ m.inputs.map (·.name) →
+      ins t x < 2 ^ ((Tools.SVParser.RoundtripProof.moduleWof o) x).getD 0)
+    {k : Nat} {stO : String → Nat} {mems : MEnv} {envs : List Env}
+    (hstB : Bounded (fun x => ((Tools.SVParser.RoundtripProof.moduleWof o) x).getD 0) stO)
+    (hrun : runModule (declWidth o) o.body (seedIn m ins) k stO mems = some envs) :
+    runModule (fun x => ((Tools.SVParser.RoundtripProof.moduleWof o) x).getD 0) body' (seedIn m ins) k stO mems = some envs := by
+  have hcert' : Tools.SVParser.RoundtripProof.bfragCheck
+      (Tools.SVParser.RoundtripProof.moduleWof o) o.wires o.body = true := hcert
+  have hB := Tools.SVParser.RoundtripProof.bfragCheck_sound
+    (Tools.SVParser.RoundtripProof.moduleWof o) o.wires o.body hcert'
+  have hcong := runModule_we_congr (we := declWidth o) (we' := (fun x => ((Tools.SVParser.RoundtripProof.moduleWof o) x).getD 0))
+    o.body hok hwagree (seedIn m ins) k stO mems
+  rw [hcong] at hrun
+  have h3 := Tools.SVParser.RoundtripProof.body_trace_roundtrip hB hI hchk
+    (seedInC m ins (fun x => ((Tools.SVParser.RoundtripProof.moduleWof o) x).getD 0)) (seedInC_bounded hinsW) k stO mems
+  have hag : ∀ t st, Bounded (fun x => ((Tools.SVParser.RoundtripProof.moduleWof o) x).getD 0) st →
+      seedIn m ins t st = seedInC m ins (fun x => ((Tools.SVParser.RoundtripProof.moduleWof o) x).getD 0) t st :=
+    fun t st hb => seedIn_eq_seedInC hb t
+  have h4 := runModule_seed_congr (we := (fun x => ((Tools.SVParser.RoundtripProof.moduleWof o) x).getD 0)) body' hok'
+    (seedIn m ins) (seedInC m ins (fun x => ((Tools.SVParser.RoundtripProof.moduleWof o) x).getD 0)) hag k stO mems hstB
+  have h2 := runModule_seed_congr (we := (fun x => ((Tools.SVParser.RoundtripProof.moduleWof o) x).getD 0)) o.body hok
+    (seedIn m ins) (seedInC m ins (fun x => ((Tools.SVParser.RoundtripProof.moduleWof o) x).getD 0)) hag k stO mems hstB
+  rw [h4, h3, ← h2]
+  exact hrun
+
 end Tools.ShippingSeqSVSoundness
