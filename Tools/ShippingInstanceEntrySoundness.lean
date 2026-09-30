@@ -310,7 +310,7 @@ def HardwareTagged (mn : Name) : Prop :=
 the pinned pair — the hierarchical mirror of `EnvDefines`. -/
 def SubSynthDefines (mn : Name) (mc : Sparkle.IR.AST.Module) (dc : Design) : Prop :=
   ∀ r, MReturns (Rec.synthesizeCombinational
-    (fun e h t n => translateFuelFix translateStep 1048574 e h t n) mn) r →
+    (fun e h t n => translateFuelFix translateStep 1048575 e h t n) mn) r →
     r = (mc, dc)
 
 /-- Every read of the single-out instance dedupe cache in this run comes back
@@ -334,6 +334,51 @@ theorem instClkRst_skip {ps : List Port} {acc : List (String × Sparkle.IR.AST.E
     rw [(hps p (List.mem_cons_self)).1, (hps p (List.mem_cons_self)).2] at h
     simp only [Bool.or_self, Bool.false_eq_true, if_false] at h
     exact ih (fun q hq => hps q (List.mem_cons_of_mem _ hq)) h
+
+theorem instRegisterChild_fresh {existing : List String}
+    {mc : Sparkle.IR.AST.Module} {ctx : CompilerState} {s s' : CircuitState} {u : Unit}
+    (hex : existing.contains mc.name = false)
+    (hmods : s.design.modules = [])
+    (h : Returns (instRegisterChild existing mc) ctx s u s') :
+    s' = { s with design := s.design.addModule mc } := by
+  unfold instRegisterChild at h
+  obtain ⟨cs, s1, hget, k⟩ := Returns.bind h
+  obtain ⟨hcs, hs1⟩ := Returns.get hget
+  subst hcs hs1
+  rw [hex, hmods] at k
+  exact addModuleToDesignC_returns
+    (by exact k : Returns (CompilerM.addModuleToDesign mc) _ _ u s')
+
+/-- The uncached instance lowering, unfolded to its explicit bind chain
+(definitional; the `have`-bound intermediates zeta-reduce away). -/
+theorem instanceUncached_run (rec : TranslateFn) (mn : Name)
+    (mc : Sparkle.IR.AST.Module) (dc : Design) (so : Port) (e : Lean.Expr)
+    (hint : String) (top named : Bool) :
+    translateInstanceUncachedWith rec mn mc dc so e hint top named = (do
+      let cs0 ← get
+      instAddModules (cs0.design.modules.map (fun x => x.name)) dc.modules
+      instRegisterChild (cs0.design.modules.map (fun x => x.name)) mc
+      let connections0 ← instClkRst [] mc.inputs
+      instArityCheck mn
+        (mc.inputs.filter (fun p => p.name != "clk" && p.name != "rst")).length
+        e.getAppArgs.size
+      let connections ← instArgs rec connections0
+        ((mc.inputs.filter (fun p => p.name != "clk" && p.name != "rst")).zip
+          (e.getAppArgs.toList.drop (e.getAppArgs.size -
+            (mc.inputs.filter (fun p => p.name != "clk" && p.name != "rst")).length))) 0
+      let csP ← get
+      let instCache ← CompilerM.liftMetaM instArmCacheGet
+      match instCache.get? s!"{csP.module.name}#{mc.name}#{String.intercalate ";"
+          (connections.reverse.map (fun (p, rhs) => s!"{p}={rhs}"))}" with
+      | some cachedW => pure cachedW
+      | _ => do
+        let w ← CompilerM.makeWire hint so.ty (named := named)
+        CompilerM.liftMetaM (instArmCachePut s!"{csP.module.name}#{mc.name}#{String.intercalate ";"
+          (connections.reverse.map (fun (p, rhs) => s!"{p}={rhs}"))}" w)
+        let instName ← CompilerM.freshName s!"inst_{mc.name}"
+        CompilerM.emitInstance mc.name instName
+          (((so.name, Sparkle.IR.AST.Expr.ref w) :: connections).reverse)
+        pure w) := rfl
 
 /-! ## The monolith -/
 
@@ -384,5 +429,292 @@ def InstancePreserves (declName : Name) (bs : List (Name × MixedGateBinder))
     d.modules = [mc] ∧
     outW ≠ "out" ∧ aW ≠ "out" ∧ bW ≠ "out" ∧
     env0 aW = av.toNat ∧ env0 bW = bv.toNat
+
+set_option maxHeartbeats 2000000 in
+theorem synthesizeMixedCertified_instance_sound {logProf declName bs body m d}
+    (hr : MReturns (synthesizeMixedCertified
+      (fun e hint top named => translateExprToWire e hint top named) logProf declName bs body)
+      (m, d)) :
+    InstancePreserves declName bs body m d := by
+  obtain ⟨ids, cache, returned, st, nd, len, run, hm, hd, -⟩ :=
+    synthesizeMixedCertified_returns hr
+  refine ⟨ids, nd, len, cache, ?_⟩
+  intro mn lvls dId aId bId mc dc wOut wA wB xin yin qeq hpure hbin hctrl hmux hsetw
+    hreg hregEn hloopR hcdo hcdo2 hmem htag hsub hcachemiss hdc hins houts hx1 hx2 hy1 hy2
+  -- Static decomposition at the zero valuation.
+  have leaf := prepare_returns (bs.zip ids)
+    (start (entryCompilerState false cache) declName.toString)
+    (bools := fun _ => false) (bits := fun _ _ => 0) run
+  rw [qeq] at leaf
+  obtain ⟨w, sm0, ty, tr, freshOut, ht, hty⟩ := emitLeaves_single leaf
+  have stepEq : translateExprToWire
+      (instE2 mn lvls (.fvar dId) (.fvar aId) (.fvar bId)) "out" false true =
+      translateInstanceOrFallback (translateFuelFix translateStep 1048575)
+        (instE2 mn lvls (.fvar dId) (.fvar aId) (.fvar bId)) "out" false true := by
+    show translateStepWith translateFallback (translateFuelFix translateStep 1048575)
+      (instE2 mn lvls (.fvar dId) (.fvar aId) (.fvar bId)) "out" false true = _
+    exact instance_step _ mn lvls _ _ _ _ _ _ hpure hbin hctrl hmux hsetw hreg
+      hregEn hloopR hcdo hcdo2 hmem
+  rw [stepEq] at tr
+  unfold translateInstanceOrFallback at tr
+  obtain ⟨env, sE, hEnvRead, tr⟩ := Returns.bind tr
+  obtain ⟨hEnvM, hsE⟩ := Returns.liftMetaM_mreturns hEnvRead
+  subst hsE
+  rw [htag env hEnvM] at tr
+  simp only [if_true] at tr
+  obtain ⟨sub, sS, hSubRead, tr⟩ := Returns.bind tr
+  obtain ⟨hSubM, hsS⟩ := Returns.liftMetaM_mreturns hSubRead
+  subst hsS
+  rw [hsub sub hSubM] at tr
+  rw [show ((mc, dc).1.outputs) = mc.outputs from rfl, houts] at tr
+  simp only [] at tr
+  -- the validated cache wrapper: the record is empty, so it is a miss
+  have empty0 := empty_layout (entryCompilerState false cache) declName.toString (fun _ => 0)
+  have record0 : (prepare (fun _ => false) (fun _ _ => 0) (bs.zip ids)
+      (start (entryCompilerState false cache) declName.toString)).state.translateRecord
+      = {} :=
+    (prepare_layout (bs.zip ids) _ empty0.1 empty0.2 (admissible_zero _ _)).2.2.2
+  rcases translateControlCachedWith_returns tr with hit | ⟨smR, missRun, record⟩
+  · obtain ⟨-, hrec⟩ := cacheLookupValidated_returns hit
+    have dead := hrec w rfl
+    rw [record0] at dead
+    simp at dead
+  -- the uncached lowering, step by step
+  rw [instanceUncached_run] at missRun
+  obtain ⟨cs0, sG, hget0, k1⟩ :=
+    Returns.bind (m := (get : CompilerM CircuitState)) missRun
+  obtain ⟨hcs0, hsG⟩ := Returns.get hget0
+  subst hcs0 hsG
+  have hpdes : (prepare (fun _ => false) (fun _ _ => 0) (bs.zip ids)
+      (start (entryCompilerState false cache) declName.toString)).state.design =
+      Design.empty declName.toString :=
+    prepare_design (bs.zip ids) _
+  rw [hdc] at k1
+  obtain ⟨u0, sA, hAdd0, k2⟩ := Returns.bind (m := instAddModules _ []) k1
+  obtain ⟨-, hsA⟩ := Returns.pure (by exact hAdd0 : Returns (pure ()) _ _ u0 sA)
+  subst hsA
+  -- register the child
+  obtain ⟨uR, sB, hReg, k3⟩ := Returns.bind (m := instRegisterChild _ mc) k2
+  have hsB := instRegisterChild_fresh (by rw [hpdes]; rfl) (by rw [hpdes]; rfl) hReg
+  -- clk/rst plumbing is empty for the combinational child
+  obtain ⟨conns0, sC, hClk, k4⟩ := Returns.bind (m := instClkRst [] mc.inputs) k3
+  rw [hins] at hClk
+  obtain ⟨hconns0, hsC⟩ := instClkRst_skip (fun p hp => by
+    rcases List.mem_cons.mp hp with rfl | hp
+    · exact ⟨hx1, hx2⟩
+    · rcases List.mem_cons.mp hp with rfl | hp
+      · exact ⟨hy1, hy2⟩
+      · cases hp) hClk
+  subst hconns0 hsC
+  -- the port filter and the aligned argument list compute
+  have hfil : mc.inputs.filter (fun p => p.name != "clk" && p.name != "rst") =
+      [⟨xin, .bitVector wA⟩, ⟨yin, .bitVector wB⟩] := by
+    rw [hins]
+    simp [List.filter, bne, hx1, hx2, hy1, hy2]
+  rw [hfil, instE2_getAppArgs] at k4
+  -- the arity guard reduces to its skip arm
+  obtain ⟨uG, sH, hGuard, k5⟩ := Returns.bind (m := instArityCheck mn _ _) k4
+  obtain ⟨-, hsH⟩ := Returns.pure (by exact hGuard : Returns (pure ()) _ _ uG sH)
+  subst hsH
+  -- the argument walk, then its two operand reads (opaque for now)
+  obtain ⟨conns, sF, hArgs, k6⟩ := Returns.bind (m := instArgs _ _ _ 0) k5
+  unfold instArgs at hArgs
+  obtain ⟨aW, sD, rA, hArgs⟩ :=
+    Returns.bind (m := translateFuelFix translateStep 1048575 (Lean.Expr.fvar aId) _ _ _) hArgs
+  unfold instArgs at hArgs
+  obtain ⟨bW, sE2, rB, hArgs⟩ :=
+    Returns.bind (m := translateFuelFix translateStep 1048575 (Lean.Expr.fvar bId) _ _ _) hArgs
+  obtain ⟨hconns, hsF⟩ := Returns.pure hArgs
+  subst hconns hsF
+  -- the parent-name read
+  obtain ⟨csP, sP2, hgetP, k7⟩ :=
+    Returns.bind (m := (get : CompilerM CircuitState)) k6
+  obtain ⟨hcsP, hsP2⟩ := Returns.get hgetP
+  subst hcsP hsP2
+  -- the dedupe cache comes back empty
+  obtain ⟨cVal, sQ, hCacheRead, k8⟩ :=
+    Returns.bind (m := CompilerM.liftMetaM instArmCacheGet) k7
+  obtain ⟨hCacheM, hsQ⟩ := Returns.liftMetaM_mreturns hCacheRead
+  subst hsQ
+  simp only [hcachemiss cVal hCacheM] at k8
+  -- the result wire, the cache insert, the instance name, the statement
+  obtain ⟨outW, sW, hMk, k9⟩ := Returns.bind (m := CompilerM.makeWire "out" _ true) k8
+  obtain ⟨houtW, hsW⟩ := makeWireC_returns hMk
+  obtain ⟨uP, sV, hPut, k10⟩ :=
+    Returns.bind (m := CompilerM.liftMetaM (instArmCachePut _ _)) k9
+  have hsV := Returns.liftMetaM hPut
+  subst hsV
+  obtain ⟨instName, sN, hFresh, k11⟩ := Returns.bind (m := CompilerM.freshName _) k10
+  obtain ⟨hinstName, hsN⟩ := freshNameC_returns hFresh
+  obtain ⟨uE, sI, hEmit, k12⟩ :=
+    Returns.bind (m := CompilerM.emitInstance mc.name _ _) k11
+  have hsI := emitInstanceC_returns hEmit
+  obtain ⟨hwEq, hsmR⟩ := Returns.pure k12
+  subst hwEq
+  have hrec := recordTranslation_returns record
+  refine ⟨instName, w, aW, bW, ?_⟩
+  intro bools bits env0 av bv a p adm ha0 hb0
+  -- transport the zero-valuation spellings to the real valuation
+  have empty := empty_layout (entryCompilerState false cache) declName.toString env0
+  have prepared := prepare_layout (bs.zip ids)
+    (start (entryCompilerState false cache) declName.toString) empty.1 empty.2 adm
+  obtain ⟨pc, ps⟩ := prepare_const (fun _ => false) bools (fun _ _ => 0) bits
+    (bs.zip ids) _ _ rfl rfl
+  rw [ps] at hsB
+  rw [pc] at rA rB
+  have fuelEq : translateFuelFix translateStep 1048575 =
+      translateStepWith translateFallback (translateFuelFix translateStep 1048574) := rfl
+  rw [fuelEq] at rA rB
+  have designSB : ∀ (s : CircuitState) dd,
+      ({ s with design := dd } : CircuitState).sourceBindings = s.sourceBindings :=
+    fun _ _ => rfl
+  have designMod : ∀ (s : CircuitState) dd,
+      ({ s with design := dd } : CircuitState).module = s.module :=
+    fun _ _ => rfl
+  obtain ⟨aW', aBound, aDecl, aVal⟩ := prepared.1.bits aId wA av ha0
+  obtain ⟨bW', bBound, bDecl, bVal⟩ := prepared.1.bits bId wB bv hb0
+  have aBound2 : Tools.ShippingBindingsSoundness.visible
+      (prepare bools bits (bs.zip ids)
+        (start (entryCompilerState false cache) declName.toString)).context
+      sH.sourceBindings aId = some aW' := by
+    rw [hsB, designSB]
+    exact aBound
+  have bBound2 : Tools.ShippingBindingsSoundness.visible
+      (prepare bools bits (bs.zip ids)
+        (start (entryCompilerState false cache) declName.toString)).context
+      sH.sourceBindings bId = some bW' := by
+    rw [hsB, designSB]
+    exact bBound
+  obtain ⟨haW, hsD⟩ := translateStep_fvar_returns aBound2 rA
+  subst hsD
+  obtain ⟨hbW, hsE2⟩ := translateStep_fvar_returns bBound2 rB
+  subst hsE2
+  rw [← haW] at aVal aDecl
+  rw [← hbW] at bVal bDecl
+  -- the real-valuation prepared state: empty body, empty design, only
+  -- allocated wires
+  have hbodyR : (prepare bools bits (bs.zip ids)
+      (start (entryCompilerState false cache) declName.toString)).state.module.body
+      = [] := by
+    rw [prepared.2.2.1]; rfl
+  have hpdesR : (prepare bools bits (bs.zip ids)
+      (start (entryCompilerState false cache) declName.toString)).state.design =
+      Design.empty declName.toString := prepare_design (bs.zip ids) _
+  have inputNotOut : ∀ (q : Sparkle.IR.AST.Port),
+      q ∈ (prepare bools bits (bs.zip ids)
+        (start (entryCompilerState false cache) declName.toString)).state.module.wires →
+      q.name ≠ "out" := by
+    intro q hq eq
+    have alloc := prepare_wires_allocated bools bits (bs.zip ids) _
+      (by rw [show (start (entryCompilerState false cache) declName.toString).state =
+          CircuitM.init declName.toString from rfl, init_wires]
+          intro x hx; cases hx) q hq
+    rw [eq] at alloc
+    exact not_allocated_out alloc
+  -- the module body, assembled from the emitter chain
+  have addOutBody : ∀ (mo : Sparkle.IR.AST.Module) q, (mo.addOutput q).body = mo.body :=
+    fun _ _ => rfl
+  have stBody : st.module.body =
+      .assign "out" (.ref w) ::
+        .inst mc.name instName
+          ((((⟨"out", .bitVector wOut⟩ : Port).name, Sparkle.IR.AST.Expr.ref w) ::
+            ((⟨yin, .bitVector wB⟩ : Port).name, Sparkle.IR.AST.Expr.ref bW) ::
+            ((⟨xin, .bitVector wA⟩ : Port).name, Sparkle.IR.AST.Expr.ref aW) :: []).reverse) :: (prepare bools bits (bs.zip ids)
+              (start (entryCompilerState false cache) declName.toString)).state.module.body := by
+    rw [ht, emitAssign_body_cons, addOutput_state]
+    show _ :: (sm0.module.addOutput _).body = _
+    rw [addOutBody, hrec]
+    show _ :: smR.module.body = _
+    rw [hsmR, hsI]
+    show _ :: (_ :: sN.module.body) = _
+    rw [hsN, (CircuitM.freshName_spec _ _ _).2.2, hsW]
+    rw [(CircuitM.makeWire_spec "out" _ true _).2.2.1]
+    rw [hsB, designMod]
+  have mBody : m.body = (prepare bools bits (bs.zip ids)
+      (start (entryCompilerState false cache) declName.toString)).state.module.body.reverse ++
+      [.inst mc.name instName
+        ((((⟨"out", .bitVector wOut⟩ : Port).name, Sparkle.IR.AST.Expr.ref w) ::
+          ((⟨yin, .bitVector wB⟩ : Port).name, Sparkle.IR.AST.Expr.ref bW) ::
+            ((⟨xin, .bitVector wA⟩ : Port).name, Sparkle.IR.AST.Expr.ref aW) :: []).reverse),
+       .assign "out" (.ref w)] := by
+    rw [hm]
+    show ((addClockResetIfSequential st.module).finalize).body = _
+    simp only [Sparkle.IR.AST.Module.finalize,
+      (addClockReset_facts st.module).1, stBody]
+    simp
+  -- the design: exactly the child
+  have stDesign : st.design = ((prepare bools bits (bs.zip ids)
+      (start (entryCompilerState false cache) declName.toString)).state.design).addModule mc := by
+    rw [ht]
+    show sm0.design = _
+    rw [hrec]
+    show smR.design = _
+    rw [hsmR, hsI]
+    show sN.design = _
+    rw [hsN]
+    rw [show ∀ s, ((CircuitM.freshName (toString "inst_" ++ toString mc.name) false s).2).design
+        = s.design from fun s => freshName_design _ _ s, hsW]
+    rw [makeWire_design]
+    rw [hsB]
+  -- the result-wire freshness
+  have wNotOut : w ≠ "out" := by
+    intro eq
+    have alloc := CircuitM.makeWire_allocated "out"
+      (Sparkle.IR.Type.HWType.bitVector wOut) true sQ
+    rw [← houtW, eq] at alloc
+    exact not_allocated_out alloc
+  refine ⟨?_, ?_, wNotOut, inputNotOut _ aDecl, inputNotOut _ bDecl, aVal, bVal⟩
+  · rw [mBody, hbodyR]
+    rfl
+  · rw [hd, stDesign, hpdesR]
+    rfl
+
+/-- The run's predicate on the quoted call computes to the tag check. -/
+theorem instancePredicate_instE2 (env : Environment) (mn : Name) (lvls : List Level)
+    (dom a b : Lean.Expr) :
+    Sparkle.Compiler.Elab.instancePredicate env (instE2 mn lvls dom a b) =
+      Sparkle.Compiler.isHardwareModule env mn := rfl
+
+/-- The declaration dispatcher selects the proved instance path. Unlike the
+old families, the shape premise lives AT the run's predicate — instance
+acceptance genuinely depends on the environment's tags. -/
+theorem synthesizeFromConst_instance_sound {logProf declName ci bs body m d}
+    {isInst : Lean.Expr → Bool}
+    (old : certifiedShape? false [] ci = none)
+    (shape : mixedCertifiedShape? false [] ci isInst = some (bs, body))
+    (hr : MReturns (synthesizeFromConst
+      (fun e hint top named => translateExprToWire e hint top named) logProf declName
+      [] false true ci isInst) (m, d)) :
+    InstancePreserves declName bs body m d := by
+  unfold synthesizeFromConst at hr
+  simp only [↓reduceIte, old, shape] at hr
+  peel_bind hr
+  obtain ⟨result, run, hr⟩ := MReturns.bind hr
+  peel_bind hr
+  have eq := MReturns.pure hr
+  subst result
+  exact synthesizeMixedCertified_instance_sound run
+
+/-- The instance result is tied to the declaration AND the environment THIS
+run read: the gate holds at `instancePredicate envR` for the run's own
+`getEnv` result, exposed here alongside `getConstInfo`. -/
+theorem synthesizeCombinationalCore_instance_sound {declName : Name}
+    {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+    {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {d : Design}
+    (hr : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w
+      (m, d) w') :
+    ∃ (ci : ConstantInfo) (envR : Environment) (w1 w2 w5 w6 : Void IO.RealWorld),
+      RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧
+      RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w5 envR w6 ∧
+      ∀ bs body, certifiedShape? false [] ci = none →
+        mixedCertifiedShape? false [] ci
+          (Sparkle.Compiler.Elab.instancePredicate envR) = some (bs, body) →
+        InstancePreserves declName bs body m d := by
+  obtain ⟨logProf, envR, ci, w1, w2, w3, w4, w5, w6, get, henv, run⟩ :=
+    Tools.ShippingEntrySoundness.synthesizeCombinationalCore_reads hr
+  exact ⟨ci, envR, w1, w2, w5, w6, get, henv, fun _ _ old shape =>
+    synthesizeFromConst_instance_sound old shape run.mreturns⟩
 
 end Tools.ShippingInstanceEntrySoundness

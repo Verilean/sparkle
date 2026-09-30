@@ -1035,19 +1035,21 @@ theorem synthesizeCombinationalCore_reads {declName : Name} {mctx : Meta.Context
     {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
     {M : Sparkle.IR.AST.Module} {D : Design}
     (h : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (M, D) w') :
-    ∃ (logProf : String → IO Unit) (isInst : Lean.Expr → Bool) (ci : ConstantInfo)
-      (w1 w2 w3 w4 : Void IO.RealWorld),
+    ∃ (logProf : String → IO Unit) (envR : Environment) (ci : ConstantInfo)
+      (w1 w2 w3 w4 w5 w6 : Void IO.RealWorld),
       RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧
+      RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w5 envR w6 ∧
       RunsTo (synthesizeFromConst (fun e h t n => translateExprToWire e h t n) logProf
-        declName [] false true ci isInst) mctx mref cctx cref w3 (M, D) w4 := by
+        declName [] false true ci (Sparkle.Compiler.Elab.instancePredicate envR))
+        mctx mref cctx cref w3 (M, D) w4 := by
   unfold synthesizeCombinationalCore synthesizeCombinationalCoreWith at h
   simp only [Bool.false_eq_true, ↓reduceIte] at h
   iterate 40 (all_goals (first | peel_bind h | peel_ite h | skip))
   all_goals (
     obtain ⟨_, h⟩ := RunsTo.try_finally h
     obtain ⟨ci, w2, hget, h⟩ := RunsTo.bind h
-    obtain ⟨env, w2b, -, h⟩ := RunsTo.bind h
-    exact ⟨_, _, ci, _, w2, _, _, hget, h⟩)
+    obtain ⟨env, w2b, henv, h⟩ := RunsTo.bind h
+    exact ⟨_, env, ci, _, w2, _, _, _, _, hget, henv, h⟩)
 
 /-- **The entry theorem.** A successful run of the real entry read SOME
 constant `ci` with `getConstInfo declName` in the same contexts and state
@@ -1059,7 +1061,7 @@ theorem synthesizeCombinationalCore_sound {declName : Name} {mctx : Meta.Context
     (h : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (M, D) w') :
     ∃ (ci : ConstantInfo) (w1 w2 : Void IO.RealWorld),
       RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧ CertifiedOutcome ci M := by
-  obtain ⟨logProf, isInst, ci, w1, w2, w3, w4, hget, hrest⟩ :=
+  obtain ⟨logProf, envR, ci, w1, w2, w3, w4, w5, w6, hget, henv, hrest⟩ :=
     synthesizeCombinationalCore_reads h
   exact ⟨ci, w1, w2, hget, synthesizeFromConst_sound hrest.mreturns⟩
 

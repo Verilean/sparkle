@@ -684,8 +684,9 @@ theorem synthesizeCombinationalCore_mixed_sound {declName : Name} {mctx : Meta.C
       ∀ bs body, certifiedShape? false [] ci = none →
         (∀ isInst, mixedCertifiedShape? false [] ci isInst = some (bs, body)) →
         MixedPreserves declName bs body m := by
-  obtain ⟨logProf, isInst, ci, w1, w2, w3, w4, get, run⟩ := synthesizeCombinationalCore_reads hr
+  obtain ⟨logProf, envR, ci, w1, w2, w3, w4, w5, w6, get, henv, run⟩ :=
+    synthesizeCombinationalCore_reads hr
   exact ⟨ci, w1, w2, get, fun _ _ old shape =>
-    synthesizeFromConst_mixed_sound old (shape isInst) run.mreturns⟩
+    synthesizeFromConst_mixed_sound old (shape _) run.mreturns⟩
 
 end Tools.ShippingMixedEntrySoundness

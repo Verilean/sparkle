@@ -862,9 +862,10 @@ theorem synthesizeCombinationalCore_memory_sound {declName : Name} {mctx : Meta.
       ∀ bs body, certifiedShape? false [] ci = none →
         (∀ isInst, mixedCertifiedShape? false [] ci isInst = some (bs, body)) →
         MemoryPreserves declName bs body m := by
-  obtain ⟨logProf, isInst, ci, w1, w2, w3, w4, get, run⟩ := synthesizeCombinationalCore_reads hr
+  obtain ⟨logProf, envR, ci, w1, w2, w3, w4, w5, w6, get, henv, run⟩ :=
+    synthesizeCombinationalCore_reads hr
   exact ⟨ci, w1, w2, get, fun _ _ old shape =>
-    synthesizeFromConst_memory_sound old (shape isInst) run.mreturns⟩
+    synthesizeFromConst_memory_sound old (shape _) run.mreturns⟩
 
 /-! ## Source-position plumbing and the entry endpoints -/
 
@@ -1073,9 +1074,10 @@ theorem synthesizeCombinationalCore_memoryCone_sound {declName : Name} {mctx : M
       ∀ bs body, certifiedShape? false [] ci = none →
         (∀ isInst, mixedCertifiedShape? false [] ci isInst = some (bs, body)) →
         MemoryConePreserves declName bs body m := by
-  obtain ⟨logProf, isInst, ci, w1, w2, w3, w4, get, run⟩ := synthesizeCombinationalCore_reads hr
+  obtain ⟨logProf, envR, ci, w1, w2, w3, w4, w5, w6, get, henv, run⟩ :=
+    synthesizeCombinationalCore_reads hr
   exact ⟨ci, w1, w2, get, fun _ _ old shape =>
-    synthesizeFromConst_memoryCone_sound old (shape isInst) run.mreturns⟩
+    synthesizeFromConst_memoryCone_sound old (shape _) run.mreturns⟩
 
 /-- **Per-cycle cone-memory endpoint at the real entry.** Each cycle's
 step latches the pre-write array at the read cone's value and lands an

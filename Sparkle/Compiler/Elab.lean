@@ -5368,6 +5368,25 @@ def instArgs (rec : TranslateFn) (acc : List (String × Sparkle.IR.AST.Expr)) :
     let argWire ← rec a s!"arg{i}" false false
     instArgs rec ((p.name, Sparkle.IR.AST.Expr.ref argWire) :: acc) rest (i + 1)
 
+/-- Register the child itself unless a module of that name is already in the
+    design (`existing` is the pre-walk snapshot, matching the legacy order). -/
+def instRegisterChild (existing : List String)
+    (subModule : Sparkle.IR.AST.Module) : CompilerM Unit := do
+  let csNow ← get
+  if !existing.contains subModule.name &&
+      !(csNow.design.modules.any (·.name == subModule.name)) then
+    CompilerM.addModuleToDesign subModule
+  else
+    pure ()
+
+/-- The legacy arity guard, hoisted so the parent walk stays join-point free. -/
+def instArityCheck (mn : Name) (need got : Nat) : CompilerM Unit :=
+  if got < need then
+    throw (Exception.error .missing
+      s!"Sub-module {mn} requires {need} args, but got {got}")
+  else
+    pure ()
+
 /-- Uncached lowering for a single-output `@[hardware_module]` instance whose
     child compile is already in hand, in the legacy handler's exact order:
     register the child's transitive modules and the child (name-deduped),
@@ -5383,15 +5402,11 @@ def translateInstanceUncachedWith (rec : TranslateFn) (mn : Name)
   fun e hint _top named => do
     let existing := (← get).design.modules.map (·.name)
     instAddModules existing subDesign.modules
-    if !existing.contains subModule.name &&
-       !((← get).design.modules.any (·.name == subModule.name)) then
-      CompilerM.addModuleToDesign subModule
+    instRegisterChild existing subModule
     let connections0 ← instClkRst [] subModule.inputs
     let inputPorts := subModule.inputs.filter (fun p => p.name != "clk" && p.name != "rst")
     let args := e.getAppArgs
-    if args.size < inputPorts.length then
-      throw (Exception.error .missing
-        s!"Sub-module {mn} requires {inputPorts.length} args, but got {args.size}")
+    instArityCheck mn inputPorts.length args.size
     let connections ← instArgs rec connections0
       (inputPorts.zip ((args.toList).drop (args.size - inputPorts.length))) 0
     let parentName := (← get).module.name
