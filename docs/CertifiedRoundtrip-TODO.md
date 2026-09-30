@@ -449,11 +449,32 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   ∀-predicate and their wrappers take the ∀-form shape premise
   (652-job suite green — the accepted set is UNCHANGED because the
   v1 instance root rejects the dom argument's out-of-kinds bvar).
-  Open in S6: the certified instance lowering + monolith for the
-  gate-accepted instance shape (refine the root to admit the dom
-  argument, mirror the legacy sub-module path, `SubSynthDefines`
-  boundary), multi-output/projection handling, sequential children,
-  nested instances, multiple instances, parameters, and the SV/text
+  S6-2 ENTRY CLOSED for the canonical two-input combinational parent:
+  the instance root accepts `@child dom a b` (the dom binder is a
+  `.domain` kind, so the spine check admits it), guarded by
+  `mixedGateResultScalar` (record-returning parents STAY legacy — the
+  certified single-out harness would drop outputs; probe-verified and
+  gated), and the certified dispatch reproduces the legacy lowering
+  byte-for-byte (gated for `parentUse` AND a sequential child incl.
+  clk/rst auto-plumb). The dispatch tail got a PROVABLE arm
+  (`translateInstanceOrFallback` → `translateInstanceUncachedWith`,
+  structural helpers, named env/cache reads), and
+  Tools/ShippingInstanceEntrySoundness.lean proves the full chain:
+  gate (`instance_term_gate`, AT the run's predicate), step, the
+  monolith `synthesizeMixedCertified_instance_sound`
+  (`InstancePreserves`: the compiled parent IS the canonical
+  `instBody` over the pinned child, the design holds exactly that
+  child, argument wires carry the prepared source values; boundaries
+  `HardwareTagged`/`SubSynthDefines`/`InstanceCacheEmpty`), the
+  dispatcher, the core wrapper (the run's `getEnv` is exposed, so the
+  gate holds at `instancePredicate envR`), `instance_entry_of_env`,
+  and the real-parent endpoint `parentUse_instance_entry` with a
+  standard-axioms audit; the instance family also joined the S7
+  bundle theorem as its twelfth component (per-run-predicate clause).
+  Open in S6: tying `InstancePreserves` to the linked semantics
+  (`parentUse_linked`) and the source composition, other arities,
+  multi-output/projection children, sequential children's entry
+  contract, nested/multiple instances, parameters, and the SV/text
   layer for hierarchy (the M-layers' open-module view).
 - [ ] **S7:** Reconcile all successful cases and compose the full shipping
   theorem; instantiate it on real circuits without substituting per-instance

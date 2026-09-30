@@ -1,5 +1,6 @@
 import Tools.ShippingMemoryEntrySoundness
 import Tools.ShippingVectorMuxSoundness
+import Tools.ShippingInstanceEntrySoundness
 
 /-! # S7-1: the single shipping soundness statement at the core entry
 
@@ -21,6 +22,7 @@ open Tools.ShippingUnifiedExecutionSoundness
 open Tools.ShippingVectorMuxSoundness
 open Tools.ShippingRegisterSoundness
 open Tools.ShippingMemoryEntrySoundness
+open Tools.ShippingInstanceEntrySoundness
 open Tools.ShippingEntrySoundness
 
 /-- Everything the shipping core entry guarantees for a gate-accepted
@@ -51,12 +53,20 @@ theorem synthesizeCombinationalCore_shipping_sound {declName : Name}
       (m, d) w') :
     ∃ (ci : ConstantInfo) (w1 w2 : Void IO.RealWorld),
       RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧
-      ∀ bs body, certifiedShape? false [] ci = none →
+      (∀ bs body, certifiedShape? false [] ci = none →
         (∀ isInst, mixedCertifiedShape? false [] ci isInst = some (bs, body)) →
-        ShippingPreserves declName bs body m := by
+        ShippingPreserves declName bs body m) ∧
+      ∃ (envR : Environment) (w5 w6 : Void IO.RealWorld),
+        RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w5 envR w6 ∧
+        ∀ bs body, certifiedShape? false [] ci = none →
+          mixedCertifiedShape? false [] ci
+            (Sparkle.Compiler.Elab.instancePredicate envR) = some (bs, body) →
+          InstancePreserves declName bs body m d := by
   obtain ⟨logProf, envR, ci, w1, w2, w3, w4, w5, w6, get, henv, run⟩ :=
     synthesizeCombinationalCore_reads hr
-  refine ⟨ci, w1, w2, get, fun bs body old shape => ?_⟩
+  refine ⟨ci, w1, w2, get, fun bs body old shape => ?_,
+    envR, w5, w6, henv, fun bs body old shape =>
+      synthesizeFromConst_instance_sound old shape run.mreturns⟩
   exact ⟨synthesizeFromConst_mixed_sound old (shape _) run.mreturns,
     synthesizeFromConst_term_sound old (shape _) run.mreturns,
     synthesizeFromConst_vector_sound old (shape _) run.mreturns,

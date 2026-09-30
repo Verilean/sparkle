@@ -87,11 +87,22 @@ hierarchy-aware.
 Proving the parent's entry theorem for the instance-emitting path will
 need two further boundary predicates, mirroring `EnvDefines`:
 
-- `SubSynthDefines mctx mref cctx cref childName (mc, dc)`: every
-  successful `synthesizeCombinationalCore childName [] false` in this
-  meta context returns exactly `(mc, dc)` — the determinism boundary
-  for the nested child synthesis (the certified lowering would invoke
-  precisely this entry via `liftMetaM`).
+- (LANDED) `SubSynthDefines mn mc dc`
+  (Tools/ShippingInstanceEntrySoundness.lean): every nested child
+  synthesis of `mn` the run performs returns exactly `(mc, dc)` — the
+  hierarchical mirror of `EnvDefines`, stated over `MReturns` of the
+  precise `Rec.synthesizeCombinational` call the arm makes. Two
+  sibling boundaries land with it: `HardwareTagged mn` (every
+  environment the arm reads designates `mn` as `@[hardware_module]`)
+  and `InstanceCacheEmpty` (every read of the single-out dedupe cache
+  comes back empty — morally discharged by the depth-0 reset). The
+  parent-level `getEnv` that picks the run's gate predicate is exposed
+  by `synthesizeCombinationalCore_reads`, so the entry endpoint's tag
+  boundary is an `EnvDefines`-style `RunsTo` fact at the entry's own
+  contexts. One further retained premise: the parent declaration's
+  TYPE is one scalar Signal (`mixedGateResultScalar`; `EnvDefines`
+  pins only the value) — the test suite checks it holds for the real
+  declaration.
 - (RESOLVED) The instance caches (`sparkleSubInstanceOutputs`,
   `sparkleSingleOutInstanceCache`) are `IO.Ref`s but are RESET at
   depth 0 of every top-level synthesis (Issue #67,
