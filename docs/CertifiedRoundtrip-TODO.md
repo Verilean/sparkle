@@ -425,14 +425,21 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   successful run of the real entry satisfies them all simultaneously —
   each family's quoted-shape premise selects the applicable contract,
   so this is the single statement every per-shape endpoint routes
-  through (audited, standard axioms). Open in S7: fold the
-  POST-pipeline layers (seqOptCheck/print/parse chains) into the same
-  statement, the hierarchy entry, and the final instantiated shipping
-  theorem on real circuits.
+  through (audited, standard axioms). The sequential POST-pipeline is
+  also composed (Tools/ShippingPipelineSoundness.lean):
+  `shipping_pipeline_transfer` chains the checker transfer, the
+  emitted-SV semantics and the parsed-bytes transfer into ONE step —
+  from one canonical-seed run of the checked module, the optimized
+  module, its emitted Verilog and the module parsed back from the
+  printed bytes all run to the SAME trace, under the pipeline's
+  decidable premises (audited, standard axioms). Open in S7: the
+  hierarchy entry joining the bundle, and the final instantiated
+  shipping theorem on real circuits (with the `EnvDefines` trust
+  resolution).
 - [ ] **S7 / trust:** Resolve or explicitly retain `EnvDefines` in the final
   claim; record execution-model/external-tool boundaries without hiding them.
 
-Latest validation: `lake build Tests.AllTests` passed all 650 jobs, with
+Latest validation: `lake build Tests.AllTests` passed all 651 jobs, with
 standard-axiom audits of the general endpoint and real signed/equality/Bool-logic
 source instantiations. Vector mux adds 2,772 source/legacy/SV/delta cases and
 real source theorems for nested and computed-condition muxes (no Bool input

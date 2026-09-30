@@ -305,8 +305,9 @@ linked-instance semantics layer is proved and pinned against a real
 the sequential/nested/multi-instance scope remain. S7 is STARTED:
 `ShippingPreserves`/`synthesizeCombinationalCore_shipping_sound`
 reconcile all eleven family contracts into one core-entry statement;
-folding the post-pipeline layers and the final instantiated theorem
-remain.
+`shipping_pipeline_transfer` composes the sequential post-pipeline
+(checker → emitted SV → parsed bytes) into one step; the hierarchy
+entry and the final instantiated theorem remain.
 
 ## Trust, validation and work cadence
 

@@ -1,4 +1,5 @@
 import Tools.ShippingCoreSoundness
+import Tools.ShippingPipelineSoundness
 
 /-! S7-1: the reconciled shipping statement — audit that the one core
 theorem (and therefore every family contract it bundles) carries only
@@ -18,6 +19,7 @@ theorem bundle_projects {declName bs body m}
 
 run_cmd liftTermElabM do
   for name in [``Tools.ShippingCoreSoundness.synthesizeCombinationalCore_shipping_sound,
+      ``Tools.ShippingPipelineSoundness.shipping_pipeline_transfer,
       ``bundle_projects] do
     for ax in (← collectAxioms name) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do
