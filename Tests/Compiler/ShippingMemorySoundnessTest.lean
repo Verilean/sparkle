@@ -253,6 +253,99 @@ theorem memAccC_run {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State
         simp
       · rw [if_neg h, if_neg h]
 
+/-- **The memory endpoint at the emitted-SV trace** (input operands):
+the emitted Verilog objects of the real module run to the same trace,
+observing the source `Signal.memory` stream. -/
+theorem memAcc_svm {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+    {wst wst' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore ``memAcc [] false) mctx mref cctx cref wst
+      (m, design) wst')
+    (env : EnvDefines mctx mref cctx cref ``memAcc memAccValue)
+    (hsv : Tools.ShippingMemSVSoundness.seqCheckM (Tools.SVParser.RoundtripProof.moduleWof m) (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof m)) m.body = true)
+    (hrefs : m.body.all Tools.ShippingMemSVSoundness.memOpsRefs = true) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = memAccBinders.length ∧
+    ∃ (cache : IO.Ref (ExprStructMap String)) (rdW : String),
+      ∀ {D : DomainConfig} (boolsS : Nat → Signal D Bool)
+        (bitsS : (j : Nat) → (n : Nat) → Signal D (BitVec n))
+        (mems0 : MEnv) (k : Nat)
+        (seed : Nat → (String → Nat) → Env) (st0 : String → Nat),
+      (∀ t stv, SourceInputs ``memAcc memAccBinders ids cache
+          (fun i => (boolsS i).val (k - 1 - t)) (fun i n => (bitsS i n).val (k - 1 - t))
+          (seed t stv) ∧ seed t stv rdW = stv rdW) →
+      st0 rdW = 0 →
+      (∀ n i, mems0 n i = 0) →
+      (∀ t st, Sparkle.IR.Semantics.Bounded (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof m)) st →
+        Sparkle.IR.Semantics.Bounded (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof m)) (seed t st)) →
+      Sparkle.IR.Semantics.Bounded (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof m)) st0 →
+      ∃ pairs seqs mprog envs,
+        Tools.SVParser.EmitSem.emitAssigns (Tools.SVParser.RoundtripProof.moduleWof m) m.body = some pairs ∧
+        Tools.ShippingMemSVSoundness.emitSeqNexts (Tools.SVParser.RoundtripProof.moduleWof m) m.body = some seqs ∧
+        Tools.SVParser.EmitSem.emitMemWrites (Tools.SVParser.RoundtripProof.moduleWof m) m.body = some mprog ∧
+        Tools.ShippingMemSVSoundness.runModuleSVM (Tools.SVParser.RoundtripProof.moduleWof m) pairs seqs mprog seed k st0 mems0 = some envs ∧
+        envs.length = k ∧
+        ∀ j (hj : j < envs.length), (envs[j]'hj) "out" =
+          ((Signal.memory (bitsS 1 2) (bitsS 2 8) (boolsS 3) (bitsS 4 2)).val
+            j).toNat := by
+  obtain ⟨ids, nd, len, cache, rdW, H⟩ := memAcc_run hr env
+  refine ⟨ids, nd, len, cache, rdW, ?_⟩
+  intro D boolsS bitsS mems0 k seed st0 hseed hst0 hmems0 hseedB hstB
+  obtain ⟨envs, hrun, hlen, hout⟩ := H boolsS bitsS (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof m))
+    mems0 k seed st0 hseed hst0 hmems0
+  obtain ⟨pairs, seqs, mprog, hA, hR, hM, hSV⟩ :=
+    Tools.ShippingMemSVSoundness.mem_run_to_sv hsv hrefs (fun n _ => rfl) seed hseedB hstB hrun
+  exact ⟨pairs, seqs, mprog, envs, hA, hR, hM, hSV, hlen, hout⟩
+
+/-- **The cone-memory endpoint at the emitted-SV trace**: the write
+data is an arithmetic cone; the run at the entry's width environment
+carries over through the reference-domain width agreement. -/
+theorem memAccC_svm {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+    {wst wst' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore ``memAccC [] false) mctx mref cctx cref wst
+      (m, design) wst')
+    (env : EnvDefines mctx mref cctx cref ``memAccC memAccCValue)
+    (hsv : Tools.ShippingMemSVSoundness.seqCheckM (Tools.SVParser.RoundtripProof.moduleWof m) (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof m)) m.body = true)
+    (hrefs : m.body.all Tools.ShippingMemSVSoundness.memOpsRefs = true)
+    (hwag : ((Tools.ShippingMemSVSoundness.seqNamesM m.body).all (fun n =>
+      Tools.ShippingEntrySoundness.weOf m n == (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof m)) n)) = true) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = memAccCBinders.length ∧
+    ∃ (cache : IO.Ref (ExprStructMap String)) (rdW : String),
+      ∀ {D : DomainConfig} (boolsS : Nat → Signal D Bool)
+        (bitsS : (j : Nat) → (n : Nat) → Signal D (BitVec n))
+        (mems0 : MEnv) (k : Nat)
+        (seed : Nat → (String → Nat) → Env) (st0 : String → Nat),
+      (∀ t stv, SourceInputs ``memAccC memAccCBinders ids cache
+          (fun i => (boolsS i).val (k - 1 - t)) (fun i n => (bitsS i n).val (k - 1 - t))
+          (seed t stv) ∧ seed t stv rdW = stv rdW) →
+      st0 rdW = 0 →
+      (∀ n i, mems0 n i = 0) →
+      (∀ t st, Sparkle.IR.Semantics.Bounded (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof m)) st →
+        Sparkle.IR.Semantics.Bounded (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof m)) (seed t st)) →
+      Sparkle.IR.Semantics.Bounded (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof m)) st0 →
+      ∃ pairs seqs mprog envs,
+        Tools.SVParser.EmitSem.emitAssigns (Tools.SVParser.RoundtripProof.moduleWof m) m.body = some pairs ∧
+        Tools.ShippingMemSVSoundness.emitSeqNexts (Tools.SVParser.RoundtripProof.moduleWof m) m.body = some seqs ∧
+        Tools.SVParser.EmitSem.emitMemWrites (Tools.SVParser.RoundtripProof.moduleWof m) m.body = some mprog ∧
+        Tools.ShippingMemSVSoundness.runModuleSVM (Tools.SVParser.RoundtripProof.moduleWof m) pairs seqs mprog seed k st0 mems0 = some envs ∧
+        envs.length = k ∧
+        ∀ j (hj : j < envs.length), (envs[j]'hj) "out" =
+          ((memAccC (boolsS 1) (bitsS 2 2) (bitsS 3 8) (bitsS 4 8)
+            (bitsS 5 2)).val j).toNat := by
+  obtain ⟨ids, nd, len, cache, rdW, H⟩ := memAccC_run hr env
+  refine ⟨ids, nd, len, cache, rdW, ?_⟩
+  intro D boolsS bitsS mems0 k seed st0 hseed hst0 hmems0 hseedB hstB
+  obtain ⟨envs, hrun, hlen, hout⟩ := H boolsS bitsS mems0 k seed st0
+    hseed hst0 hmems0
+  have hwag' : ∀ n ∈ Tools.ShippingMemSVSoundness.seqNamesM m.body,
+      Tools.ShippingEntrySoundness.weOf m n = (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof m)) n := by
+    intro n hn
+    have := List.all_eq_true.mp hwag n hn
+    simpa using this
+  obtain ⟨pairs, seqs, mprog, hA, hR, hM, hSV⟩ :=
+    Tools.ShippingMemSVSoundness.mem_run_to_sv hsv hrefs hwag' seed hseedB hstB hrun
+  exact ⟨pairs, seqs, mprog, envs, hA, hR, hM, hSV, hlen, hout⟩
+
 -- Deterministic 12-cycle stimulus.
 private def watr (t : Nat) : Nat := t % 4
 private def wdtr (t : Nat) : Nat := (17 * t + 3) % 256
@@ -332,6 +425,12 @@ run_cmd liftTermElabM do
     unless Tools.ShippingMemSVSoundness.seqCheckM wof
         (Tools.SVParser.EmitSem.weOf wof) mr3.body do
       throwError "seqCheckM rejected the certified memory module of {decl}"
+    unless mr3.body.all Tools.ShippingMemSVSoundness.memOpsRefs do
+      throwError "memory operands departed from plain references for {decl}"
+    unless (Tools.ShippingMemSVSoundness.seqNamesM mr3.body).all (fun n =>
+        Tools.ShippingEntrySoundness.weOf mr3 n ==
+          Tools.SVParser.EmitSem.weOf wof n) do
+      throwError "entry/emitter widths disagree on the memory reference domain of {decl}"
   -- Axiom audit: the endpoint and the general layer carry only the
   -- standard axioms.
   for name in [``Tools.ShippingMemorySoundness.memStep,
@@ -352,7 +451,8 @@ run_cmd liftTermElabM do
       ``Tools.ShippingMemSVSoundness.regNextsM_bounded,
       ``Tools.ShippingMemSVSoundness.forward_trace_mem_inv,
       ``Tools.ShippingMemSVSoundness.runModuleM_we_congr,
-      ``Tools.ShippingMemSVSoundness.mem_run_to_sv] do
+      ``Tools.ShippingMemSVSoundness.mem_run_to_sv,
+      ``memAcc_svm, ``memAccC_svm] do
     for ax in (← collectAxioms name) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do
         throwError "unexpected memory soundness axiom: {name}: {ax}"

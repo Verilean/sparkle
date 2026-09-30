@@ -403,11 +403,17 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   also in place (`forward_trace_mem_inv`, with `regNextsM_bounded`
   masking registers AND latches — the checker pins each latch name at
   the data width), so the canonical seeding qualifies directly.
-  Remaining for the memory text route: the endpoint corollaries wiring
-  `memAcc_run`/`memAccC_run` through it (the input-operand endpoint is
-  already width-polymorphic; the cone endpoint needs the
-  `seqNames`-style width bridge from `weOf m` to the emitter's
-  environment).
+  The memory TEXT route is now CLOSED at
+  the emitted-SV level: the reference-domain width congruence for the
+  memory fragment (`seqNamesM`, the `…M_we_congr` chain under
+  `memOpsRefs` — gated operands are plain references, so write-port
+  and latch evaluation is width-free), the `mem_run_to_sv` wrapper,
+  and the per-declaration endpoints `memAcc_svm`/`memAccC_svm`: the
+  real modules' emitted Verilog objects run to the source
+  `Signal.memory` stream (gates pin `seqCheckM`, reference-only
+  operands and the entry/emitter width agreement; standard axioms).
+  Remaining for memory text, as for registers: the byte→AST parse
+  direction (the roundtrip census route for memory bodies).
 - [ ] **S6:** Actual hierarchy compilation and compositional instance semantics,
   port/parameter linkage and contained state/memory. STARTED — the
   combinational linked-semantics layer exists
