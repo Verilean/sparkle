@@ -471,11 +471,23 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   and the real-parent endpoint `parentUse_instance_entry` with a
   standard-axioms audit; the instance family also joined the S7
   bundle theorem as its twelfth component (per-run-predicate clause).
-  Open in S6: tying `InstancePreserves` to the linked semantics
-  (`parentUse_linked`) and the source composition, other arities,
-  multi-output/projection children, sequential children's entry
-  contract, nested/multiple instances, parameters, and the SV/text
-  layer for hierarchy (the M-layers' open-module view).
+  The tie to the linked semantics is ALSO closed for the
+  combinational parent: `parentUse_entry_observes` combines the
+  instance contract of the run with `instBody_linked`, so the
+  compiled parent's linked evaluation drives `out` with the SOURCE
+  value `(parentUse aS bS).val t`. The SEQUENTIAL child's entry
+  contract is closed too: `Instance1Preserves` (one data port plus
+  clk/rst) proves the parent is the canonical instance body with the
+  clk/rst connections AND the freshly added parent clock ports
+  (`instClkRst_seq` walks the real plumbing, the missing-port checks
+  discharged from the prepared inputs' allocated names), with the
+  monolith/dispatcher/of_env/real-parent endpoint
+  (`parentSeq_instance_entry`) and both instance families in the S7
+  bundle. Open in S6: the sequential LINKED-RUN semantics (per-cycle
+  child state; `evalAssignsH` is combinational), other arities,
+  multi-output/projection children, nested/multiple instances,
+  parameters, and the SV/text layer for hierarchy (the M-layers'
+  open-module view).
 - [ ] **S7:** Reconcile all successful cases and compose the full shipping
   theorem; instantiate it on real circuits without substituting per-instance
   replay for coverage. STARTED — the reconciliation-1 statement exists
