@@ -393,14 +393,31 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   latch-aware extension of that layer, and `seqOptCheck` excludes
   memories entirely).
 - [ ] **S6:** Actual hierarchy compilation and compositional instance semantics,
-  port/parameter linkage and contained state/memory.
+  port/parameter linkage and contained state/memory. STARTED — the
+  combinational linked-semantics layer exists
+  (Tools/ShippingHierarchySoundness.lean): `evalAssignsH` gives `.inst`
+  statements their LINKED meaning (the child's outputs are the standard
+  evaluation of its own body on the connection-fed environment; the
+  shipped `runModule` keeps the open-module view), `instBody_linked`
+  computes the canonical single-instance parent (one `@[hardware_module]`
+  child, reference connections, single output), and the test pins the
+  REAL compiled parent/child byte-for-byte (probe: parent =
+  `[.inst child conns, out-alias]`, child = the standard combinational
+  module), runs a 16-case linked regression, and instantiates
+  `parentUse_linked`: the linked elaboration observes the source
+  composition `childAdd a b` (name-generic in the emitter's instance
+  names, standard axioms). Open in S6: the entry-level connection for
+  the instance-emitting translation path (keyed caches,
+  multi-output/projection handling), sequential children, nested
+  instances, multiple instances, parameters, and the SV/text layer for
+  hierarchy (the M-layers' open-module view).
 - [ ] **S7:** Reconcile all successful cases and compose the full shipping
   theorem; instantiate it on real circuits without substituting per-instance
   replay for coverage.
 - [ ] **S7 / trust:** Resolve or explicitly retain `EnvDefines` in the final
   claim; record execution-model/external-tool boundaries without hiding them.
 
-Latest validation: `lake build Tests.AllTests` passed all 646 jobs, with
+Latest validation: `lake build Tests.AllTests` passed all 648 jobs, with
 standard-axiom audits of the general endpoint and real signed/equality/Bool-logic
 source instantiations. Vector mux adds 2,772 source/legacy/SV/delta cases and
 real source theorems for nested and computed-condition muxes (no Bool input

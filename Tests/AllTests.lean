@@ -116,6 +116,7 @@ import Tests.Compiler.ShippingVectorMuxTest
 import Tests.Compiler.ShippingUnifiedSourceTest
 import Tests.Compiler.ShippingRegisterSoundnessTest
 import Tests.Compiler.ShippingMemorySoundnessTest
+import Tests.Compiler.ShippingHierarchySoundnessTest
 import Tests.Compiler.ShippingTypedPostSoundnessTest
 import Tests.Compiler.ShippingControlOptSoundnessTest
 import Tests.Compiler.ShippingModuleNamesTest

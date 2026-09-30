@@ -298,7 +298,11 @@ and audited), and its ENTRY-LEVEL connection is closed
 (`Tools/ShippingMemoryEntrySoundness.lean`: gate + total lowering +
 monolith + `memory_run_of_env`, instantiated as `memAcc_run` on the
 real declaration); cone operands are certified end to end as well (`memoryCone_run_of_env` + `memAccC_run`); the wider memory scope (inits,
-multi-port, postprocessing/checker/SV layers) remains. S6–S7 remain
+multi-port, postprocessing/checker/SV layers) remains. S6 is STARTED: the combinational
+linked-instance semantics layer is proved and pinned against a real
+`@[hardware_module]` parent/child pair (`evalAssignsH`,
+`instBody_linked`, `parentUse_linked`); its entry-level connection and
+the sequential/nested/multi-instance scope remain. S7 remains
 unfinished.
 
 ## Trust, validation and work cadence
