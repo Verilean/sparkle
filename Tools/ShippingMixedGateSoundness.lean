@@ -147,6 +147,7 @@ theorem mixedCertifiedShape_of_quote {d : DefinitionVal} {bs : List (Name × Mix
     (he : e.WF kb kv n) :
     mixedCertifiedShape? false [] (.defnInfo d) = some (bs, quoteB dom n binp vinp e) := by
   simp only [mixedCertifiedShape?, Bool.false_or, List.isEmpty_nil, Bool.not_true,
-    Bool.false_eq_true, if_false, peel, mixedGateBool_quote hn hb hv e he, Bool.true_or, if_true]
+    Bool.false_eq_true, if_false, peel, mixedGateBool_quote hn hb hv e he, Bool.or_true,
+    Bool.true_or, if_true]
 
 end Tools.ShippingMixedGateSoundness

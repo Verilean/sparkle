@@ -2322,13 +2322,32 @@ def unifiedMemoryRoot (kinds : Array MixedGateBinder) (e : Lean.Expr) : Bool :=
      | _, _ => false)
   | _ => false
 
-def mixedCertifiedShape? (symbolicMode : Bool) (parameters : List (String × Nat)) :
-    ConstantInfo → Option (List (Name × MixedGateBinder) × Lean.Expr)
+/-- The canonical sub-module instance root: a call to a designated
+(`@[hardware_module]`) constant whose arguments are all input binders.
+The designation predicate comes from the caller — the attribute lives
+in the environment, which the pure gate cannot read. -/
+def unifiedInstanceRoot (isInst : Lean.Expr → Bool)
+    (kinds : Array MixedGateBinder) (e : Lean.Expr) : Bool :=
+  isInst e &&
+    (match e.getAppFn with
+     | .const _ _ => true
+     | _ => false) &&
+    e.getAppArgs.all fun a =>
+      match a with
+      | .bvar i => (mixedGateBVar? kinds i).isSome
+      | _ => false
+
+def mixedCertifiedShape? (symbolicMode : Bool) (parameters : List (String × Nat))
+    (ci : ConstantInfo)
+    (isInst : Lean.Expr → Bool := fun _ => false) :
+    Option (List (Name × MixedGateBinder) × Lean.Expr) :=
+  match ci with
   | .defnInfo d =>
     if symbolicMode || !parameters.isEmpty then none else
     match mixedGatePeel d.value with
     | some (bs, body) =>
-      if mixedGateBoolBody (bs.map (·.2)).toArray body ||
+      if unifiedInstanceRoot isInst (bs.map (·.2)).toArray body ||
+          mixedGateBoolBody (bs.map (·.2)).toArray body ||
           mixedGateVectorRoot (bs.map (·.2)).toArray body ||
           unifiedGateRoot (bs.map (·.2)).toArray body ||
           unifiedRegisterRoot (bs.map (·.2)).toArray body ||
