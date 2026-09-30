@@ -1,4 +1,5 @@
 import Tools.ShippingHierarchySoundness
+import Tools.ShippingInstanceEntrySoundness
 import Sparkle.Compiler.Elab
 
 /-! S6-1 hierarchy foundation tests: a real `@[hardware_module]` child and
@@ -10,6 +11,9 @@ namespace Sparkle.Tests.Compiler.ShippingHierarchySoundnessTest
 open Lean Elab Command Meta Sparkle.Compiler.Elab Sparkle.IR.Semantics
 open Sparkle.Core.Domain Sparkle.Core.Signal
 open Tools.ShippingHierarchySoundness
+open Tools.ShippingInstanceEntrySoundness
+open Tools.ShippingEntrySoundness (EnvDefines RunsTo)
+open Tools.ShippingMixedSourceBridge (inputExpr)
 
 @[hardware_module] def childAdd {dom : DomainConfig}
     (x y : Signal dom (BitVec 8)) : Signal dom (BitVec 8) := x + y
@@ -95,6 +99,46 @@ theorem parentUse_linked {we : WEnv} {mems : MEnv} {D : DomainConfig}
     ((aS.val t + bS.val t)).toNat
   rw [BitVec.toNat_add]
 
+/-! The S6-2 entry endpoint on the real parent declaration. -/
+
+#def_decl_value parentUseValue of parentUse
+
+def parentUseBinders : List (Name × MixedGateBinder) :=
+  [(`dom, .domain), (`a, .bits 8), (`b, .bits 8)]
+
+/-- The parent's own elaborated value IS the canonical two-input instance
+call on the tagged child, byte for byte. -/
+theorem parentUse_peel : mixedGatePeel parentUseValue = some (parentUseBinders,
+    instE2 ``childAdd []
+      (inputExpr parentUseBinders.length 0) (inputExpr parentUseBinders.length 1)
+      (inputExpr parentUseBinders.length 2)) := rfl
+
+/-- **The instance entry contract on the real parent**: under the run's
+environment boundaries (its declaration table, its `@[hardware_module]`
+tags and the scalar result type), the compiled parent/design pair
+satisfies `InstancePreserves` — the parent module is the canonical
+`instBody` over the pinned child compile and the design holds exactly
+that child. -/
+theorem parentUse_instance_entry {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {d : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore ``parentUse [] false)
+      mctx mref cctx cref w (m, d) w')
+    (env : EnvDefines mctx mref cctx cref ``parentUse parentUseValue)
+    (tag : ∀ wE e wE', RunsTo (Lean.getEnv : MetaM Environment)
+      mctx mref cctx cref wE e wE' →
+      Sparkle.Compiler.isHardwareModule e ``childAdd = true)
+    (hscalar : ∀ dv : Lean.DefinitionVal, dv.value = parentUseValue →
+      mixedGateResultScalar dv.type = true) :
+    InstancePreserves ``parentUse parentUseBinders
+      (instE2 ``childAdd []
+        (inputExpr parentUseBinders.length 0) (inputExpr parentUseBinders.length 1)
+        (inputExpr parentUseBinders.length 2)) m d :=
+  instance_entry_of_env hr env tag
+    (fun dv hv => by simp only [certifiedShape?, hv]; rfl)
+    hscalar parentUse_peel rfl rfl rfl
+
 open Sparkle.IR.AST in
 run_cmd liftTermElabM do
   -- The compiled parent and child are EXACTLY the canonical shapes.
@@ -170,9 +214,20 @@ run_cmd liftTermElabM do
   let (mt, _) ← synthesizeCombinationalCore ``parentTwo [] false
   unless mt.outputs.map (·.name) == ["lo", "hi"] do
     throwError "record-result parent lost an output: {mt.outputs.map (·.name)}"
+  -- The retained scalar-type premise HOLDS for the real declaration.
+  unless mixedGateResultScalar (← getConstInfo ``parentUse).type do
+    throwError "parentUse's result type is not one scalar Signal"
   -- Axiom audit.
   for name in [``Tools.ShippingHierarchySoundness.instBody_linked,
       ``Tools.ShippingHierarchySoundness.connEnv_at,
+      ``Tools.ShippingInstanceEntrySoundness.instance_term_gate,
+      ``Tools.ShippingInstanceEntrySoundness.instance_step,
+      ``Tools.ShippingInstanceEntrySoundness.instanceUncached_run,
+      ``Tools.ShippingInstanceEntrySoundness.synthesizeMixedCertified_instance_sound,
+      ``Tools.ShippingInstanceEntrySoundness.synthesizeFromConst_instance_sound,
+      ``Tools.ShippingInstanceEntrySoundness.synthesizeCombinationalCore_instance_sound,
+      ``Tools.ShippingInstanceEntrySoundness.instance_entry_of_env,
+      ``parentUse_peel, ``parentUse_instance_entry,
       ``parentUse_linked] do
     for ax in (← collectAxioms name) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do

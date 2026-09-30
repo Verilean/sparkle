@@ -717,4 +717,44 @@ theorem synthesizeCombinationalCore_instance_sound {declName : Name}
   exact ⟨ci, envR, w1, w2, w5, w6, get, henv, fun _ _ old shape =>
     synthesizeFromConst_instance_sound old shape run.mreturns⟩
 
+/-- The entry endpoint under the run's environment boundaries: if the run's
+environment defines the declaration as the canonical two-input instance call
+on a `@[hardware_module]`-tagged child (and the declaration's type is one
+scalar Signal), the compiled pair satisfies the instance contract. -/
+theorem instance_entry_of_env {declName : Name} {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {d : Design} {value : Lean.Expr}
+    {mn : Name} {lvls : List Level} {dpos apos bpos : Nat}
+    {bs : List (Name × MixedGateBinder)}
+    {kd ka kb : MixedGateBinder} {nd na nb : Name}
+    (hr : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w
+      (m, d) w')
+    (env : Tools.ShippingEntrySoundness.EnvDefines mctx mref cctx cref declName value)
+    (tag : ∀ wE e wE', RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref wE e wE' →
+      Sparkle.Compiler.isHardwareModule e mn = true)
+    (old : ∀ dv : DefinitionVal, dv.value = value →
+      certifiedShape? false [] (.defnInfo dv) = none)
+    (hscalar : ∀ dv : DefinitionVal, dv.value = value →
+      mixedGateResultScalar dv.type = true)
+    (peel : mixedGatePeel value = some (bs,
+      instE2 mn lvls (inputExpr bs.length dpos) (inputExpr bs.length apos)
+        (inputExpr bs.length bpos)))
+    (hd : bs[dpos]? = some (nd, kd)) (ha : bs[apos]? = some (na, ka))
+    (hb : bs[bpos]? = some (nb, kb)) :
+    InstancePreserves declName bs
+      (instE2 mn lvls (inputExpr bs.length dpos) (inputExpr bs.length apos)
+        (inputExpr bs.length bpos)) m d := by
+  obtain ⟨ci, envR, w1, w2, w5, w6, get, henv, sel⟩ :=
+    synthesizeCombinationalCore_instance_sound hr
+  obtain ⟨dv, rfl, hval⟩ := env w1 ci w2 get
+  have htag : Sparkle.Compiler.Elab.instancePredicate envR
+      (instE2 mn lvls (inputExpr bs.length dpos) (inputExpr bs.length apos)
+        (inputExpr bs.length bpos)) = true := by
+    rw [instancePredicate_instE2]
+    exact tag _ _ _ henv
+  have shape := instance_term_gate (d := dv) (by rw [hval]; exact peel) htag
+    (hscalar dv hval) hd ha hb
+  exact sel bs _ (old dv hval) shape
+
 end Tools.ShippingInstanceEntrySoundness
