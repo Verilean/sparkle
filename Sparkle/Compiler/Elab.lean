@@ -2322,20 +2322,22 @@ def unifiedMemoryRoot (kinds : Array MixedGateBinder) (e : Lean.Expr) : Bool :=
      | _, _ => false)
   | _ => false
 
+/-- The application spine of a canonical instance call: a constant head
+    applied to input binders only (each a `.bvar` of a recognized kind,
+    the domain binder included). Structural recursion keeps shape lemmas
+    definitional. -/
+def unifiedInstanceSpine (kinds : Array MixedGateBinder) : Lean.Expr → Bool
+  | .const _ _ => true
+  | .app f (.bvar i) => (mixedGateBVar? kinds i).isSome && unifiedInstanceSpine kinds f
+  | _ => false
+
 /-- The canonical sub-module instance root: a call to a designated
 (`@[hardware_module]`) constant whose arguments are all input binders.
 The designation predicate comes from the caller — the attribute lives
 in the environment, which the pure gate cannot read. -/
 def unifiedInstanceRoot (isInst : Lean.Expr → Bool)
     (kinds : Array MixedGateBinder) (e : Lean.Expr) : Bool :=
-  isInst e &&
-    (match e.getAppFn with
-     | .const _ _ => true
-     | _ => false) &&
-    e.getAppArgs.all fun a =>
-      match a with
-      | .bvar i => (mixedGateBVar? kinds i).isSome
-      | _ => false
+  isInst e && e.isApp && unifiedInstanceSpine kinds e
 
 /-- The declaration's result is one scalar Signal (Bool or positive-width
     BitVec).  The certified single-output harness only covers these;
@@ -5319,6 +5321,53 @@ def translateCircuitDo2UncachedWith (rec : TranslateFn) (w v0 v1 ret : Nat) : Tr
     CompilerM.emitRegisterStmt r1 "clk" "rst" (.ref cw1) v1
     return (if ret == 0 then r0 else r1)
 
+/-- The environment read the instance arm dispatches on. A named entry so
+    the soundness layer can state its boundary predicate against exactly
+    this action. -/
+def instArmEnv : MetaM Environment := Lean.getEnv
+
+/-- The single-out instance dedupe cache read, as a named MetaM entry for
+    the same reason (the ref itself is private to this module). -/
+def instArmCacheGet : MetaM (Std.HashMap String String) :=
+  sparkleSingleOutInstanceCache.get
+
+/-- The matching insert. -/
+def instArmCachePut (key w : String) : MetaM Unit :=
+  sparkleSingleOutInstanceCache.modify (·.insert key w)
+
+/-- Register the child's transitive modules, skipping names already present
+    (two calls to one sub-module produce ONE definition). Structural
+    recursion, so the certified decomposition unfolds it definitionally. -/
+def instAddModules (existing : List String) : List Sparkle.IR.AST.Module → CompilerM Unit
+  | [] => pure ()
+  | m :: ms => do
+    if !existing.contains m.name then
+      CompilerM.addModuleToDesign m
+    instAddModules existing ms
+
+/-- Wire the child's clk/rst ports to the parent's, adding the parent port
+    when missing, in the legacy handler's order (prepending onto `acc`). -/
+def instClkRst (acc : List (String × Sparkle.IR.AST.Expr)) :
+    List Port → CompilerM (List (String × Sparkle.IR.AST.Expr))
+  | [] => pure acc
+  | p :: ps => do
+    if p.name == "clk" || p.name == "rst" then
+      let parent := (← get).module
+      if !parent.inputs.any (·.name == p.name) then
+        CompilerM.addInput p.name p.ty
+      instClkRst ((p.name, Sparkle.IR.AST.Expr.ref p.name) :: acc) ps
+    else
+      instClkRst acc ps
+
+/-- Translate the argument operands against the child's input ports, in the
+    legacy handler's order and with its `arg{i}` hints. -/
+def instArgs (rec : TranslateFn) (acc : List (String × Sparkle.IR.AST.Expr)) :
+    List (Port × Lean.Expr) → Nat → CompilerM (List (String × Sparkle.IR.AST.Expr))
+  | [], _ => pure acc
+  | (p, a) :: rest, i => do
+    let argWire ← rec a s!"arg{i}" false false
+    instArgs rec ((p.name, Sparkle.IR.AST.Expr.ref argWire) :: acc) rest (i + 1)
+
 /-- Uncached lowering for a single-output `@[hardware_module]` instance whose
     child compile is already in hand, in the legacy handler's exact order:
     register the child's transitive modules and the child (name-deduped),
@@ -5333,37 +5382,27 @@ def translateInstanceUncachedWith (rec : TranslateFn) (mn : Name)
     (singleOut : Port) : TranslateFn :=
   fun e hint _top named => do
     let existing := (← get).design.modules.map (·.name)
-    for m in subDesign.modules do
-      if !existing.contains m.name then
-        CompilerM.addModuleToDesign m
+    instAddModules existing subDesign.modules
     if !existing.contains subModule.name &&
        !((← get).design.modules.any (·.name == subModule.name)) then
       CompilerM.addModuleToDesign subModule
-    let mut connections : List (String × Sparkle.IR.AST.Expr) := []
-    for p in subModule.inputs do
-      if p.name == "clk" || p.name == "rst" then
-        let parent := (← get).module
-        if !parent.inputs.any (·.name == p.name) then
-          CompilerM.addInput p.name p.ty
-        connections := (p.name, Sparkle.IR.AST.Expr.ref p.name) :: connections
+    let connections0 ← instClkRst [] subModule.inputs
     let inputPorts := subModule.inputs.filter (fun p => p.name != "clk" && p.name != "rst")
     let args := e.getAppArgs
     if args.size < inputPorts.length then
-      CompilerM.liftMetaM <| throwError
-        s!"Sub-module {mn} requires {inputPorts.length} args, but got {args.size}"
-    for i in [:inputPorts.length] do
-      let argExpr := args[args.size - inputPorts.length + i]!
-      let argWire ← rec argExpr s!"arg{i}" false false
-      connections := (inputPorts[i]!.name, Sparkle.IR.AST.Expr.ref argWire) :: connections
+      throw (Exception.error .missing
+        s!"Sub-module {mn} requires {inputPorts.length} args, but got {args.size}")
+    let connections ← instArgs rec connections0
+      (inputPorts.zip ((args.toList).drop (args.size - inputPorts.length))) 0
     let parentName := (← get).module.name
     let connKey := String.intercalate ";"
       (connections.reverse.map (fun (p, rhs) => s!"{p}={rhs}"))
     let instKey := s!"{parentName}#{subModule.name}#{connKey}"
-    let instCache ← CompilerM.liftMetaM (sparkleSingleOutInstanceCache.get : IO _)
+    let instCache ← CompilerM.liftMetaM instArmCacheGet
     if let some cachedW := instCache.get? instKey then
       return cachedW
     let w ← CompilerM.makeWire hint singleOut.ty (named := named)
-    CompilerM.liftMetaM (sparkleSingleOutInstanceCache.modify (·.insert instKey w))
+    CompilerM.liftMetaM (instArmCachePut instKey w)
     let connectionsF := (singleOut.name, Sparkle.IR.AST.Expr.ref w) :: connections
     let instName ← CompilerM.freshName s!"inst_{subModule.name}"
     CompilerM.emitInstance subModule.name instName connectionsF.reverse
@@ -5380,13 +5419,10 @@ def translateInstanceOrFallback (rec : TranslateFn) : TranslateFn :=
   fun e hint top named =>
     match e.getAppFn with
     | .const mn _ => do
-      let env ← CompilerM.liftMetaM Lean.getEnv
+      let env ← CompilerM.liftMetaM instArmEnv
       if Sparkle.Compiler.isHardwareModule env mn then
-        let sub ← tryCatch
-          (CompilerM.liftMetaM
-            (Rec.synthesizeCombinational (fun e h t n => rec e h t n) mn))
-          (fun _ => CompilerM.liftMetaM <| throwError
-            s!"Sub-module synthesis failed for {mn} (tagged @[hardware_module])")
+        let sub ← CompilerM.liftMetaM
+          (Rec.synthesizeCombinational (fun e h t n => rec e h t n) mn)
         match sub.1.outputs with
         | [singleOut] =>
           translateControlCachedWith
