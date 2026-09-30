@@ -92,16 +92,22 @@ need two further boundary predicates, mirroring `EnvDefines`:
   meta context returns exactly `(mc, dc)` — the determinism boundary
   for the nested child synthesis (the certified lowering would invoke
   precisely this entry via `liftMetaM`).
-- An instance-cache cleanliness premise: the legacy instance path
-  consults PERSISTENT `IO.Ref` caches
-  (`sparkleSubInstanceOutputs`, `sparkleSingleOutInstanceCache`), so
-  its output wire names depend on session history. A certified route
-  must either reproduce the cache reads (opaque, needing a
-  "cache clean/agrees" premise) or skip them — and skipping changes
-  emitted names whenever a previous synthesis in the same session
-  already instantiated the same child, which the corpus SV deltas
-  would surface. This trade-off is unresolved; it is why S6-2 is
-  staged separately.
+- (RESOLVED) The instance caches (`sparkleSubInstanceOutputs`,
+  `sparkleSingleOutInstanceCache`) are `IO.Ref`s but are RESET at
+  depth 0 of every top-level synthesis (Issue #67,
+  Sparkle/Compiler/Elab.lean:2589) — they are per-synth dedupe, not
+  session history. A certified lowering that skips them is therefore
+  byte-identical for canonical single-call shapes; no cache premise is
+  needed.
+- The remaining S6-2 obstacle is the GATE: `@[hardware_module]` is a
+  tag in the environment, and `mixedCertifiedShape?` is a pure
+  function of the `ConstantInfo` — admitting instance roots means
+  threading an `isInstance` predicate through the gate's signature,
+  which ripples through every family's `shape` premise, gate lemma
+  and `synthesizeFromConst` decomposition (the predicate the real
+  dispatch passes comes from a `getEnv` read, so the `FromConst`
+  proofs must carry it as an opaque parameter). Mechanical but wide;
+  it is why S6-2 is staged as its own unit.
 
 ## 7. What is NOT retained
 
