@@ -1,5 +1,6 @@
 import Tools.SVParser.EmitSem
 import Tools.ShippingSeqSVSoundness
+import Tools.ShippingMemorySoundness
 
 /-! # S5 text layer: sync-read memories in the emitted-SV semantics
 
@@ -466,5 +467,301 @@ theorem forward_trace_mem_inv {wof : String → Option Nat}
     simp only [runModule, stepModule, runModuleSVM, hIRA, hSVA, hIRR,
       hSVR, hIRM, hSVM, Option.bind_eq_bind, Option.bind_some]
     rw [ihk (applyNexts st nexts) mems' hst']
+
+/-! ## Width congruence over the memory fragment, and the run wrapper -/
+
+/-- The names whose widths the IR run of a checked memory body reads:
+assign references, register inputs and outputs, and read addresses.
+Latch values mask at the LITERAL data width, and reference-operand
+write ports evaluate width-free, so nothing else enters. -/
+def seqNamesM : List Stmt → List String
+  | [] => []
+  | .assign _ r :: rest => Sparkle.IR.Reorder.refsOf r ++ seqNamesM rest
+  | .register o _ _ i _ :: rest =>
+    o :: (Sparkle.IR.Reorder.refsOf i ++ seqNamesM rest)
+  | .memory _ _ _ _ _ _ _ ra _ _ _ _ :: rest =>
+    Sparkle.IR.Reorder.refsOf ra ++ seqNamesM rest
+  | _ :: rest => seqNamesM rest
+
+/-- The checker's bodies are inside the statement fragment. -/
+theorem seqCheckM_stmtOk {wof : String → Option Nat} {we : WEnv} :
+    ∀ {body : List Stmt}, seqCheckM wof we body = true →
+      body.all seqStmtOkM = true
+  | [], _ => rfl
+  | .assign l r :: rest, h => by
+    simp only [seqCheckM, Bool.and_eq_true] at h
+    simp only [List.all_cons, Bool.and_eq_true]
+    exact ⟨rfl, seqCheckM_stmtOk h.2⟩
+  | .register .. :: rest, h => by
+    simp only [seqCheckM, Bool.and_eq_true] at h
+    simp only [List.all_cons, Bool.and_eq_true]
+    exact ⟨rfl, seqCheckM_stmtOk h.2⟩
+  | .memory nm aw dw clk wa wd wen ra rd cr ew er :: rest, h => by
+    simp only [seqCheckM, Bool.and_eq_true] at h
+    obtain ⟨⟨⟨⟨⟨⟨hcr, her⟩, -⟩, -⟩, -⟩, -⟩, hrest⟩ := h
+    simp only [List.all_cons, Bool.and_eq_true, seqStmtOkM]
+    exact ⟨by simp [hcr, her], seqCheckM_stmtOk hrest⟩
+  | .inst .. :: rest, h => by simp [seqCheckM] at h
+
+theorem evalAssignsM_we_congr {we we' : WEnv} {mems : MEnv} :
+    ∀ {body : List Stmt}, body.all seqStmtOkM = true →
+      (∀ n ∈ seqNamesM body, we n = we' n) →
+      ∀ env, evalAssigns we mems body env = evalAssigns we' mems body env
+  | [], _, _, _ => rfl
+  | .assign l r :: rest, hok, hw, env => by
+    have hok' : rest.all seqStmtOkM = true := by
+      simp only [List.all_cons, Bool.and_eq_true] at hok; exact hok.2
+    have hr : evalExpr we env r = evalExpr we' env r :=
+      Tools.ConeFold.evalExpr_we_congr we we' env r
+        (fun n hn => hw n (List.mem_append_left _ hn))
+    show (evalExpr we env r).bind _ = (evalExpr we' env r).bind _
+    rw [hr]
+    cases evalExpr we' env r with
+    | none => rfl
+    | some v =>
+      simp only [Option.bind_some]
+      exact evalAssignsM_we_congr hok'
+        (fun n hn => hw n (List.mem_append_right _ hn)) _
+  | .register .. :: rest, hok, hw, env => by
+    have hok' : rest.all seqStmtOkM = true := by
+      simp only [List.all_cons, Bool.and_eq_true] at hok; exact hok.2
+    show evalAssigns we mems rest env = evalAssigns we' mems rest env
+    exact evalAssignsM_we_congr hok'
+      (fun n hn => hw n (List.mem_cons_of_mem _ (List.mem_append_right _ hn))) env
+  | .memory nm aw dw clk wa wd wen ra rd cr ew er :: rest, hok, hw, env => by
+    have hcr : cr = false := by
+      simp only [List.all_cons, Bool.and_eq_true, seqStmtOkM,
+        Bool.not_eq_true'] at hok
+      exact hok.1.1
+    have hok' : rest.all seqStmtOkM = true := by
+      simp only [List.all_cons, Bool.and_eq_true] at hok; exact hok.2
+    subst hcr
+    show evalAssigns we mems rest env = evalAssigns we' mems rest env
+    exact evalAssignsM_we_congr hok'
+      (fun n hn => hw n (List.mem_append_right _ hn)) env
+  | .inst .. :: _, hok, _, _ => by
+    simp only [List.all_cons, Bool.and_eq_true, seqStmtOkM] at hok
+    exact absurd hok.1 (by simp)
+
+theorem regNextsM_we_congr {we we' : WEnv} {mems : MEnv} :
+    ∀ {body : List Stmt}, body.all seqStmtOkM = true →
+      (∀ n ∈ seqNamesM body, we n = we' n) →
+      ∀ env, regNexts we mems body env = regNexts we' mems body env
+  | [], _, _, _ => rfl
+  | .assign l r :: rest, hok, hw, env => by
+    have hok' : rest.all seqStmtOkM = true := by
+      simp only [List.all_cons, Bool.and_eq_true] at hok; exact hok.2
+    show regNexts we mems rest env = regNexts we' mems rest env
+    exact regNextsM_we_congr hok'
+      (fun n hn => hw n (List.mem_append_right _ hn)) env
+  | .register o c (rstName, rk) i iv :: rest, hok, hw, env => by
+    have hok' : rest.all seqStmtOkM = true := by
+      simp only [List.all_cons, Bool.and_eq_true] at hok; exact hok.2
+    have ho : we o = we' o := hw o (List.mem_cons_self)
+    have hi : evalExpr we env i = evalExpr we' env i :=
+      Tools.ConeFold.evalExpr_we_congr we we' env i
+        (fun n hn => hw n (List.mem_cons_of_mem _ (List.mem_append_left _ hn)))
+    have htail := regNextsM_we_congr (mems := mems) hok'
+      (fun n hn => hw n (List.mem_cons_of_mem _ (List.mem_append_right _ hn))) env
+    simp only [regNexts, hi, htail, ho]
+  | .memory nm aw dw clk wa wd wen ra rd cr ew er :: rest, hok, hw, env => by
+    have hcr : cr = false := by
+      simp only [List.all_cons, Bool.and_eq_true, seqStmtOkM,
+        Bool.not_eq_true'] at hok
+      exact hok.1.1
+    have hok' : rest.all seqStmtOkM = true := by
+      simp only [List.all_cons, Bool.and_eq_true] at hok; exact hok.2
+    subst hcr
+    have her : er = [] := by
+      simp only [List.all_cons, Bool.and_eq_true, seqStmtOkM,
+        List.isEmpty_iff] at hok
+      exact hok.1.2
+    subst her
+    have hra : evalExpr we env ra = evalExpr we' env ra :=
+      Tools.ConeFold.evalExpr_we_congr we we' env ra
+        (fun n hn => hw n (List.mem_append_left _ hn))
+    have htail := regNextsM_we_congr (mems := mems) hok'
+      (fun n hn => hw n (List.mem_append_right _ hn)) env
+    simp only [regNexts, Bool.false_eq_true, if_false, syncReadLatches,
+      hra, htail]
+  | .inst .. :: _, hok, _, _ => by
+    simp only [List.all_cons, Bool.and_eq_true, seqStmtOkM] at hok
+    exact absurd hok.1 (by simp)
+
+/-- A plain reference? -/
+def isRefE : Expr → Bool
+  | .ref _ => true
+  | _ => false
+
+theorem isRefE_shape {e : Expr} (h : isRefE e = true) : ∃ w, e = Expr.ref w := by
+  cases e with
+  | ref w => exact ⟨w, rfl⟩
+  | const v w => cases h
+  | op o args => cases h
+  | concat args => cases h
+  | slice x hi lo => cases h
+  | sliceDim x hi lo => cases h
+  | index a i => cases h
+
+/-- Memory operands as plain references with no extra ports (what the
+certified lowerings emit): write-port and latch evaluation is then
+width-environment-free. -/
+def memOpsRefs : Stmt → Bool
+  | .memory _ _ _ _ wa wd wen _ _ _ ew er =>
+    isRefE wa && isRefE wd && isRefE wen && ew.isEmpty && er.isEmpty
+  | _ => true
+
+theorem memOpsRefs_shape {nm : String} {aw dw : Nat} {clk : String}
+    {wa wd wen ra : Expr} {rd : String} {cr : Bool}
+    {ew : List (Expr × Expr × Expr)} {er : List (Expr × String)}
+    (h : memOpsRefs (.memory nm aw dw clk wa wd wen ra rd cr ew er) = true) :
+    (∃ w, wa = Expr.ref w) ∧ (∃ w, wd = Expr.ref w) ∧
+    (∃ w, wen = Expr.ref w) ∧ ew = [] ∧ er = [] := by
+  simp only [memOpsRefs, Bool.and_eq_true, List.isEmpty_iff] at h
+  obtain ⟨⟨⟨⟨hwa, hwd⟩, hwen⟩, hew⟩, her⟩ := h
+  exact ⟨isRefE_shape hwa, isRefE_shape hwd, isRefE_shape hwen, hew, her⟩
+
+theorem memNextsM_we_congr {we we' : WEnv} :
+    ∀ {body : List Stmt}, body.all seqStmtOkM = true →
+      body.all memOpsRefs = true →
+      ∀ mems env, memNexts we body mems env = memNexts we' body mems env
+  | [], _, _, _, _ => rfl
+  | .assign l r :: rest, hok, hrefs, mems, env => by
+    have hok' : rest.all seqStmtOkM = true := by
+      simp only [List.all_cons, Bool.and_eq_true] at hok; exact hok.2
+    have hrefs' : rest.all memOpsRefs = true := by
+      simp only [List.all_cons, Bool.and_eq_true] at hrefs; exact hrefs.2
+    show memNexts we rest mems env = memNexts we' rest mems env
+    exact memNextsM_we_congr hok' hrefs' mems env
+  | .register .. :: rest, hok, hrefs, mems, env => by
+    have hok' : rest.all seqStmtOkM = true := by
+      simp only [List.all_cons, Bool.and_eq_true] at hok; exact hok.2
+    have hrefs' : rest.all memOpsRefs = true := by
+      simp only [List.all_cons, Bool.and_eq_true] at hrefs; exact hrefs.2
+    show memNexts we rest mems env = memNexts we' rest mems env
+    exact memNextsM_we_congr hok' hrefs' mems env
+  | .memory nm aw dw clk wa wd wen ra rd cr ew er :: rest, hok, hrefs, mems, env => by
+    have hok' : rest.all seqStmtOkM = true := by
+      simp only [List.all_cons, Bool.and_eq_true] at hok; exact hok.2
+    have hrefs' : rest.all memOpsRefs = true := by
+      simp only [List.all_cons, Bool.and_eq_true] at hrefs; exact hrefs.2
+    have hshape : memOpsRefs (.memory nm aw dw clk wa wd wen ra rd cr ew er)
+        = true := by
+      simp only [List.all_cons, Bool.and_eq_true] at hrefs
+      exact hrefs.1
+    obtain ⟨⟨waW, rfl⟩, ⟨wdW, rfl⟩, ⟨wenW, rfl⟩, rfl, rfl⟩ :=
+      memOpsRefs_shape hshape
+    have hcr : cr = false := by
+      simp only [List.all_cons, Bool.and_eq_true, seqStmtOkM,
+        Bool.not_eq_true'] at hok
+      exact hok.1.1
+    subst hcr
+    have hports : ∀ (weX : WEnv),
+        memWritePorts weX mems env nm aw dw
+          [(Expr.ref waW, Expr.ref wdW, Expr.ref wenW)] mems =
+        some (if env wenW ≠ 0 then
+          (fun n i => if n = nm ∧ i = mask aw (env waW) then
+            mask dw (env wdW) else mems n i)
+          else mems) := by
+      intro weX
+      simp [memWritePorts, Tools.ShippingMemorySoundness.evalPayload_ref]
+    simp only [memNexts, hports we, hports we', Option.bind_eq_bind,
+      Option.bind_some]
+    exact memNextsM_we_congr hok' hrefs' _ env
+  | .inst .. :: _, hok, _, _, _ => by
+    simp only [List.all_cons, Bool.and_eq_true, seqStmtOkM] at hok
+    exact absurd hok.1 (by simp)
+
+theorem runModuleM_we_congr {we we' : WEnv} (body : List Stmt)
+    (hok : body.all seqStmtOkM = true)
+    (hrefs : body.all memOpsRefs = true)
+    (hw : ∀ n ∈ seqNamesM body, we n = we' n)
+    (seed : Nat → (String → Nat) → Env) :
+    ∀ (k : Nat) (st : String → Nat) (mems : MEnv),
+      runModule we body seed k st mems = runModule we' body seed k st mems
+  | 0, _, _ => rfl
+  | k + 1, st, mems => by
+    have hstep : stepModule we body (seed k st) mems =
+        stepModule we' body (seed k st) mems := by
+      show ((evalAssigns we mems body (seed k st)).bind fun envF =>
+          (regNexts we mems body envF).bind fun nexts =>
+            (memNexts we body mems envF).bind fun mems' =>
+              some (envF, nexts, mems')) =
+        ((evalAssigns we' mems body (seed k st)).bind fun envF =>
+          (regNexts we' mems body envF).bind fun nexts =>
+            (memNexts we' body mems envF).bind fun mems' =>
+              some (envF, nexts, mems'))
+      conv =>
+        lhs
+        rw [evalAssignsM_we_congr (we := we) (we' := we') hok hw (seed k st)]
+      cases hAe : evalAssigns we' mems body (seed k st) with
+      | none => exact (rfl : (none : Option (Env × List (String × Nat) × MEnv)) = none)
+      | some envF =>
+        show ((regNexts we mems body envF).bind fun nexts =>
+            (memNexts we body mems envF).bind fun mems' =>
+              some (envF, nexts, mems')) =
+          ((regNexts we' mems body envF).bind fun nexts =>
+            (memNexts we' body mems envF).bind fun mems' =>
+              some (envF, nexts, mems'))
+        conv =>
+          lhs
+          rw [regNextsM_we_congr (we := we) (we' := we') hok hw envF]
+        cases hRe : regNexts we' mems body envF with
+        | none => exact (rfl : (none : Option (Env × List (String × Nat) × MEnv)) = none)
+        | some nexts =>
+          show ((memNexts we body mems envF).bind fun mems' =>
+              some (envF, nexts, mems')) =
+            ((memNexts we' body mems envF).bind fun mems' =>
+              some (envF, nexts, mems'))
+          conv =>
+            lhs
+            rw [memNextsM_we_congr (we := we) (we' := we') hok hrefs mems envF]
+    show ((stepModule we body (seed k st) mems).bind fun tr =>
+        (runModule we body seed k (applyNexts st tr.2.1) tr.2.2).bind fun rest =>
+          some (tr.1 :: rest)) =
+      ((stepModule we' body (seed k st) mems).bind fun tr =>
+        (runModule we' body seed k (applyNexts st tr.2.1) tr.2.2).bind fun rest =>
+          some (tr.1 :: rest))
+    rw [hstep]
+    cases htr : stepModule we' body (seed k st) mems with
+    | none => exact (rfl : (none : Option (List Env)) = none)
+    | some tr =>
+      show ((runModule we body seed k (applyNexts st tr.2.1) tr.2.2).bind fun rest =>
+          some (tr.1 :: rest)) =
+        ((runModule we' body seed k (applyNexts st tr.2.1) tr.2.2).bind fun rest =>
+          some (tr.1 :: rest))
+      conv =>
+        lhs
+        rw [runModuleM_we_congr body hok hrefs hw seed k
+          (applyNexts st tr.2.1) tr.2.2]
+
+/-- **IR run to emitted-SV run, memory fragment.** A checked module's
+run at ANY width environment agreeing with the emitter's on the
+reference domain IS the emitted Verilog's trace, from a width-bounded
+state under a boundedness-preserving seeding. -/
+theorem mem_run_to_sv {body : List Stmt} {wof : String → Option Nat}
+    {we0 : WEnv}
+    (hchk : seqCheckM wof (Tools.SVParser.EmitSem.weOf wof) body = true)
+    (hrefs : body.all memOpsRefs = true)
+    (hwagree : ∀ n ∈ seqNamesM body,
+      we0 n = Tools.SVParser.EmitSem.weOf wof n)
+    (seed : Nat → (String → Nat) → Env)
+    (hseedB : ∀ t st, Bounded (Tools.SVParser.EmitSem.weOf wof) st →
+      Bounded (Tools.SVParser.EmitSem.weOf wof) (seed t st))
+    {k : Nat} {st : String → Nat} {mems : MEnv} {envs : List Env}
+    (hst : Bounded (Tools.SVParser.EmitSem.weOf wof) st)
+    (hrun : runModule we0 body seed k st mems = some envs) :
+    ∃ pairs seqs mprog,
+      emitAssigns wof body = some pairs ∧
+      emitSeqNexts wof body = some seqs ∧
+      emitMemWrites wof body = some mprog ∧
+      runModuleSVM wof pairs seqs mprog seed k st mems = some envs := by
+  have hok : body.all seqStmtOkM = true := seqCheckM_stmtOk hchk
+  obtain ⟨pairs, seqs, mprog, hA, hR, hM, heq⟩ :=
+    forward_trace_mem_inv hchk seed hseedB
+  refine ⟨pairs, seqs, mprog, hA, hR, hM, ?_⟩
+  rw [← heq k st mems hst,
+    ← runModuleM_we_congr body hok hrefs hwagree seed k st mems]
+  exact hrun
 
 end Tools.ShippingMemSVSoundness
