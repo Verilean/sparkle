@@ -346,6 +346,108 @@ theorem memAccC_svm {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State
     Tools.ShippingMemSVSoundness.mem_run_to_sv hsv hrefs hwag' seed hseedB hstB hrun
   exact ⟨pairs, seqs, mprog, envs, hA, hR, hM, hSV, hlen, hout⟩
 
+/-- **The memAcc endpoint at the parsed-back printed text**: the module the
+shipping parser reads back from the real printed bytes runs to the
+source stream. -/
+theorem memAcc_parsed {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+    {wst wst' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore ``memAcc [] false) mctx mref cctx cref wst
+      (m, design) wst')
+    (env : EnvDefines mctx mref cctx cref ``memAcc memAccValue)
+    {body' bimg : List Sparkle.IR.AST.Stmt}
+    (hchkM : Tools.ShippingMemSVSoundness.seqCheckM (Tools.SVParser.RoundtripProof.moduleWof m) (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof m)) m.body = true)
+    (hchkM' : Tools.ShippingMemSVSoundness.seqCheckM (Tools.SVParser.RoundtripProof.moduleWof m) (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof m)) body' = true)
+    (hrefs : m.body.all Tools.ShippingMemSVSoundness.memOpsRefs = true)
+    (hcert : Tools.SVParser.RoundtripProof.semFragCheck m = true)
+    (hI : Tools.SVParser.RoundtripProof.bodyImage (Tools.SVParser.RoundtripProof.moduleWof m) m.wires m.body = some bimg)
+    (hchkR : Tools.SVParser.RoundtripProof.bodyReorderCheck body' bimg = true)
+    (hwag : ((Tools.ShippingMemSVSoundness.seqNamesM m.body).all (fun n =>
+      Tools.ShippingEntrySoundness.weOf m n == (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof m)) n)) = true) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = memAccBinders.length ∧
+    ∃ (cache : IO.Ref (ExprStructMap String)) (rdW : String),
+      ∀ {D : DomainConfig} (boolsS : Nat → Signal D Bool)
+        (bitsS : (j : Nat) → (n : Nat) → Signal D (BitVec n))
+        (mems0 : MEnv) (k : Nat) (ins : Nat → String → Nat) (st0 : String → Nat),
+      (∀ t stv, SourceInputs ``memAcc memAccBinders ids cache
+          (fun i => (boolsS i).val (k - 1 - t)) (fun i n => (bitsS i n).val (k - 1 - t))
+          (Tools.ShippingSeqOptSoundness.seedIn m ins t stv) ∧
+        Tools.ShippingSeqOptSoundness.seedIn m ins t stv rdW = stv rdW) →
+      st0 rdW = 0 →
+      (∀ n i, mems0 n i = 0) →
+      (∀ t x, x ∈ m.inputs.map (·.name) → ins t x < 2 ^ (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof m)) x) →
+      Sparkle.IR.Semantics.Bounded (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof m)) st0 →
+      ∃ envs, runModule (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof m)) body'
+          (Tools.ShippingSeqOptSoundness.seedIn m ins) k st0 mems0 = some envs ∧
+        envs.length = k ∧
+        ∀ j (hj : j < envs.length), (envs[j]'hj) "out" =
+          ((Signal.memory (bitsS 1 2) (bitsS 2 8) (boolsS 3) (bitsS 4 2)).val j).toNat := by
+  obtain ⟨ids, nd, len, cache, rdW, H⟩ := memAcc_run hr env
+  refine ⟨ids, nd, len, cache, rdW, ?_⟩
+  intro D boolsS bitsS mems0 k ins st0 hseed hst0 hmems0 hinsW hstB
+  obtain ⟨envs, hrun, hlen, hout⟩ := H boolsS bitsS (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof m)) mems0 k
+    (Tools.ShippingSeqOptSoundness.seedIn m ins) st0 hseed hst0 hmems0
+  have hwag' : ∀ n ∈ Tools.ShippingMemSVSoundness.seqNamesM m.body,
+      Tools.ShippingEntrySoundness.weOf m n = (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof m)) n := by
+    intro n hn
+    have := List.all_eq_true.mp hwag n hn
+    simpa using this
+  have hparsed := Tools.ShippingMemSVSoundness.mem_run_to_parsed (m := m) (o := m)
+    hchkM hchkM' hrefs hcert hI hchkR (fun n _ => rfl) (ins := ins) hinsW
+    (stO := st0) (mems := mems0) hstB hrun
+  exact ⟨envs, hparsed, hlen, hout⟩
+
+/-- **The memAccC endpoint at the parsed-back printed text**: the module the
+shipping parser reads back from the real printed bytes runs to the
+source stream. -/
+theorem memAccC_parsed {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+    {wst wst' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore ``memAccC [] false) mctx mref cctx cref wst
+      (m, design) wst')
+    (env : EnvDefines mctx mref cctx cref ``memAccC memAccCValue)
+    {body' bimg : List Sparkle.IR.AST.Stmt}
+    (hchkM : Tools.ShippingMemSVSoundness.seqCheckM (Tools.SVParser.RoundtripProof.moduleWof m) (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof m)) m.body = true)
+    (hchkM' : Tools.ShippingMemSVSoundness.seqCheckM (Tools.SVParser.RoundtripProof.moduleWof m) (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof m)) body' = true)
+    (hrefs : m.body.all Tools.ShippingMemSVSoundness.memOpsRefs = true)
+    (hcert : Tools.SVParser.RoundtripProof.semFragCheck m = true)
+    (hI : Tools.SVParser.RoundtripProof.bodyImage (Tools.SVParser.RoundtripProof.moduleWof m) m.wires m.body = some bimg)
+    (hchkR : Tools.SVParser.RoundtripProof.bodyReorderCheck body' bimg = true)
+    (hwag : ((Tools.ShippingMemSVSoundness.seqNamesM m.body).all (fun n =>
+      Tools.ShippingEntrySoundness.weOf m n == (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof m)) n)) = true) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = memAccCBinders.length ∧
+    ∃ (cache : IO.Ref (ExprStructMap String)) (rdW : String),
+      ∀ {D : DomainConfig} (boolsS : Nat → Signal D Bool)
+        (bitsS : (j : Nat) → (n : Nat) → Signal D (BitVec n))
+        (mems0 : MEnv) (k : Nat) (ins : Nat → String → Nat) (st0 : String → Nat),
+      (∀ t stv, SourceInputs ``memAccC memAccCBinders ids cache
+          (fun i => (boolsS i).val (k - 1 - t)) (fun i n => (bitsS i n).val (k - 1 - t))
+          (Tools.ShippingSeqOptSoundness.seedIn m ins t stv) ∧
+        Tools.ShippingSeqOptSoundness.seedIn m ins t stv rdW = stv rdW) →
+      st0 rdW = 0 →
+      (∀ n i, mems0 n i = 0) →
+      (∀ t x, x ∈ m.inputs.map (·.name) → ins t x < 2 ^ (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof m)) x) →
+      Sparkle.IR.Semantics.Bounded (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof m)) st0 →
+      ∃ envs, runModule (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof m)) body'
+          (Tools.ShippingSeqOptSoundness.seedIn m ins) k st0 mems0 = some envs ∧
+        envs.length = k ∧
+        ∀ j (hj : j < envs.length), (envs[j]'hj) "out" =
+          ((memAccC (boolsS 1) (bitsS 2 2) (bitsS 3 8) (bitsS 4 8) (bitsS 5 2)).val j).toNat := by
+  obtain ⟨ids, nd, len, cache, rdW, H⟩ := memAccC_run hr env
+  refine ⟨ids, nd, len, cache, rdW, ?_⟩
+  intro D boolsS bitsS mems0 k ins st0 hseed hst0 hmems0 hinsW hstB
+  obtain ⟨envs, hrun, hlen, hout⟩ := H boolsS bitsS mems0 k
+    (Tools.ShippingSeqOptSoundness.seedIn m ins) st0 hseed hst0 hmems0
+  have hwag' : ∀ n ∈ Tools.ShippingMemSVSoundness.seqNamesM m.body,
+      Tools.ShippingEntrySoundness.weOf m n = (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof m)) n := by
+    intro n hn
+    have := List.all_eq_true.mp hwag n hn
+    simpa using this
+  have hparsed := Tools.ShippingMemSVSoundness.mem_run_to_parsed (m := m) (o := m)
+    hchkM hchkM' hrefs hcert hI hchkR hwag' (ins := ins) hinsW
+    (stO := st0) (mems := mems0) hstB hrun
+  exact ⟨envs, hparsed, hlen, hout⟩
+
 -- Deterministic 12-cycle stimulus.
 private def watr (t : Nat) : Nat := t % 4
 private def wdtr (t : Nat) : Nat := (17 * t + 3) % 256
@@ -431,6 +533,20 @@ run_cmd liftTermElabM do
         Tools.ShippingEntrySoundness.weOf mr3 n ==
           Tools.SVParser.EmitSem.weOf wof n) do
       throwError "entry/emitter widths disagree on the memory reference domain of {decl}"
+    unless Tools.SVParser.RoundtripProof.semFragCheck mr3 do
+      throwError "semFragCheck rejected the certified memory module of {decl}"
+    let some bimg := Tools.SVParser.RoundtripProof.bodyImage wof mr3.wires mr3.body |
+      throwError "bodyImage failed on the certified memory module of {decl}"
+    let .ok d := Tools.SVParser.Lower.parseAndLowerHierarchical
+        (Sparkle.Backend.Verilog.emitModule mr3) |
+      throwError "the printed memory text of {decl} failed to parse back"
+    let body' := d.modules.foldl
+      (fun acc (lm : Sparkle.IR.AST.Module) => acc ++ lm.body) []
+    unless Tools.SVParser.RoundtripProof.bodyReorderCheck body' bimg do
+      throwError "the parsed-back memory body of {decl} failed the reorder check"
+    unless Tools.ShippingMemSVSoundness.seqCheckM wof
+        (Tools.SVParser.EmitSem.weOf wof) body' do
+      throwError "seqCheckM rejected the parsed-back memory body of {decl}"
   -- Axiom audit: the endpoint and the general layer carry only the
   -- standard axioms.
   for name in [``Tools.ShippingMemorySoundness.memStep,
@@ -452,7 +568,9 @@ run_cmd liftTermElabM do
       ``Tools.ShippingMemSVSoundness.forward_trace_mem_inv,
       ``Tools.ShippingMemSVSoundness.runModuleM_we_congr,
       ``Tools.ShippingMemSVSoundness.mem_run_to_sv,
-      ``memAcc_svm, ``memAccC_svm] do
+      ``memAcc_svm, ``memAccC_svm,
+      ``Tools.ShippingMemSVSoundness.mem_run_to_parsed,
+      ``memAcc_parsed, ``memAccC_parsed] do
     for ax in (← collectAxioms name) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do
         throwError "unexpected memory soundness axiom: {name}: {ax}"

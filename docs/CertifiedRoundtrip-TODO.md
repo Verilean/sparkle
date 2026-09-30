@@ -412,8 +412,16 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   real modules' emitted Verilog objects run to the source
   `Signal.memory` stream (gates pin `seqCheckM`, reference-only
   operands and the entry/emitter width agreement; standard axioms).
-  Remaining for memory text, as for registers: the byte→AST parse
-  direction (the roundtrip census route for memory bodies).
+  The byte→AST parse direction is
+  ALSO closed for memories (`mem_run_to_parsed` + the per-declaration
+  `memAcc_parsed`/`memAccC_parsed`: the module the shipping parser
+  reads back from the REAL printed bytes runs to the source stream;
+  the test gates run the parser on the actual text and pin
+  `semFragCheck`/`bodyImage`/`bodyReorderCheck`/`seqCheckM` of the
+  parsed body). The memory pillar now matches the register pillar end
+  to end: source → entry → pipeline-identity → emitted-SV semantics →
+  parsed-back printed bytes, with the byte→AST parser step as the
+  retained base.
 - [ ] **S6:** Actual hierarchy compilation and compositional instance semantics,
   port/parameter linkage and contained state/memory. STARTED — the
   combinational linked-semantics layer exists

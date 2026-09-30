@@ -764,4 +764,114 @@ theorem mem_run_to_sv {body : List Stmt} {wof : String → Option Nat}
     ← runModuleM_we_congr body hok hrefs hwagree seed k st mems]
   exact hrun
 
+/-! ## Reaching the printed bytes, memory fragment -/
+
+open Tools.ShippingSeqSVSoundness (stepModule_parts seedInC seedInC_bounded
+  seedIn_eq_seedInC)
+open Tools.ShippingSeqOptSoundness (seedIn)
+
+/-- Seeding disciplines agreeing on width-bounded states run identically
+from a width-bounded state (checked memory bodies keep states bounded). -/
+theorem runModuleM_seed_congr {wof : String → Option Nat}
+    {body : List Stmt}
+    (hchk : seqCheckM wof (Tools.SVParser.EmitSem.weOf wof) body = true)
+    (seedA seedB : Nat → (String → Nat) → Env)
+    (hag : ∀ t st, Bounded (Tools.SVParser.EmitSem.weOf wof) st →
+      seedA t st = seedB t st) :
+    ∀ (k : Nat) (st : String → Nat) (mems : MEnv),
+      Bounded (Tools.SVParser.EmitSem.weOf wof) st →
+      runModule (Tools.SVParser.EmitSem.weOf wof) body seedA k st mems =
+        runModule (Tools.SVParser.EmitSem.weOf wof) body seedB k st mems
+  | 0, _, _, _ => rfl
+  | k + 1, st, mems, hst => by
+    show ((stepModule (Tools.SVParser.EmitSem.weOf wof) body (seedA k st) mems).bind
+        fun tr => (runModule (Tools.SVParser.EmitSem.weOf wof) body seedA k
+          (applyNexts st tr.2.1) tr.2.2).bind fun rest => some (tr.1 :: rest)) =
+      ((stepModule (Tools.SVParser.EmitSem.weOf wof) body (seedB k st) mems).bind
+        fun tr => (runModule (Tools.SVParser.EmitSem.weOf wof) body seedB k
+          (applyNexts st tr.2.1) tr.2.2).bind fun rest => some (tr.1 :: rest))
+    rw [hag k st hst]
+    cases htr : stepModule (Tools.SVParser.EmitSem.weOf wof) body (seedB k st) mems with
+    | none => exact (rfl : (none : Option (List Env)) = none)
+    | some tr =>
+      have hparts := stepModule_parts htr
+      have hst' : Bounded (Tools.SVParser.EmitSem.weOf wof)
+          (applyNexts st tr.2.1) :=
+        Tools.ShippingSeqSVSoundness.applyNexts_bounded hst
+          (regNextsM_bounded hchk hparts.2.1)
+      show ((runModule (Tools.SVParser.EmitSem.weOf wof) body seedA k
+          (applyNexts st tr.2.1) tr.2.2).bind fun rest => some (tr.1 :: rest)) =
+        ((runModule (Tools.SVParser.EmitSem.weOf wof) body seedB k
+          (applyNexts st tr.2.1) tr.2.2).bind fun rest => some (tr.1 :: rest))
+      conv =>
+        lhs
+        rw [runModuleM_seed_congr hchk seedA seedB hag k
+          (applyNexts st tr.2.1) tr.2.2 hst']
+
+open Sparkle.IR.RegDedup (declWidth) in
+/-- **IR run to the parsed-back printed text, memory fragment.** The
+module the shipping parser reads back from the emitted Verilog runs —
+under the canonical seeding, from any width-bounded state — to the very
+same trace as the checked memory module. -/
+theorem mem_run_to_parsed {m o : Module} {body' bimg : List Stmt}
+    {we0 : WEnv}
+    (hchkM : seqCheckM (Tools.SVParser.RoundtripProof.moduleWof o)
+      (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof o))
+      o.body = true)
+    (hchkM' : seqCheckM (Tools.SVParser.RoundtripProof.moduleWof o)
+      (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof o))
+      body' = true)
+    (hrefs : o.body.all memOpsRefs = true)
+    (hcert : Tools.SVParser.RoundtripProof.semFragCheck o = true)
+    (hI : Tools.SVParser.RoundtripProof.bodyImage
+      (Tools.SVParser.RoundtripProof.moduleWof o) o.wires o.body = some bimg)
+    (hchkR : Tools.SVParser.RoundtripProof.bodyReorderCheck body' bimg = true)
+    (hwagree : ∀ n ∈ seqNamesM o.body, we0 n =
+      Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof o) n)
+    {ins : Nat → String → Nat}
+    (hinsW : ∀ t x, x ∈ m.inputs.map (·.name) →
+      ins t x < 2 ^ Tools.SVParser.EmitSem.weOf
+        (Tools.SVParser.RoundtripProof.moduleWof o) x)
+    {k : Nat} {stO : String → Nat} {mems : MEnv} {envs : List Env}
+    (hstB : Bounded (Tools.SVParser.EmitSem.weOf
+      (Tools.SVParser.RoundtripProof.moduleWof o)) stO)
+    (hrun : runModule we0 o.body (seedIn m ins) k stO mems = some envs) :
+    runModule (Tools.SVParser.EmitSem.weOf
+        (Tools.SVParser.RoundtripProof.moduleWof o))
+      body' (seedIn m ins) k stO mems = some envs := by
+  have hok : o.body.all seqStmtOkM = true := seqCheckM_stmtOk hchkM
+  have hcert' : Tools.SVParser.RoundtripProof.bfragCheck
+      (Tools.SVParser.RoundtripProof.moduleWof o) o.wires o.body = true := hcert
+  have hB := Tools.SVParser.RoundtripProof.bfragCheck_sound
+    (Tools.SVParser.RoundtripProof.moduleWof o) o.wires o.body hcert'
+  have hcong := runModuleM_we_congr (we := we0)
+    (we' := Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof o))
+    o.body hok hrefs hwagree (seedIn m ins) k stO mems
+  rw [hcong] at hrun
+  have hag : ∀ t st, Bounded (Tools.SVParser.EmitSem.weOf
+      (Tools.SVParser.RoundtripProof.moduleWof o)) st →
+      seedIn m ins t st = seedInC m ins (Tools.SVParser.EmitSem.weOf
+        (Tools.SVParser.RoundtripProof.moduleWof o)) t st :=
+    fun t st hb => seedIn_eq_seedInC hb t
+  have h3pre := Tools.SVParser.RoundtripProof.body_trace_roundtrip hB hI hchkR
+    (seedInC m ins (Tools.SVParser.EmitSem.weOf
+      (Tools.SVParser.RoundtripProof.moduleWof o)))
+    (seedInC_bounded hinsW) k stO mems
+  have h3 : runModule (Tools.SVParser.EmitSem.weOf
+        (Tools.SVParser.RoundtripProof.moduleWof o)) body'
+      (seedInC m ins (Tools.SVParser.EmitSem.weOf
+        (Tools.SVParser.RoundtripProof.moduleWof o))) k stO mems =
+      runModule (Tools.SVParser.EmitSem.weOf
+        (Tools.SVParser.RoundtripProof.moduleWof o)) o.body
+      (seedInC m ins (Tools.SVParser.EmitSem.weOf
+        (Tools.SVParser.RoundtripProof.moduleWof o))) k stO mems := h3pre
+  have h4 := runModuleM_seed_congr (wof := Tools.SVParser.RoundtripProof.moduleWof o)
+    hchkM' (seedIn m ins) (seedInC m ins (Tools.SVParser.EmitSem.weOf
+      (Tools.SVParser.RoundtripProof.moduleWof o))) hag k stO mems hstB
+  have h2 := runModuleM_seed_congr (wof := Tools.SVParser.RoundtripProof.moduleWof o)
+    hchkM (seedIn m ins) (seedInC m ins (Tools.SVParser.EmitSem.weOf
+      (Tools.SVParser.RoundtripProof.moduleWof o))) hag k stO mems hstB
+  rw [h4, h3, ← h2]
+  exact hrun
+
 end Tools.ShippingMemSVSoundness
