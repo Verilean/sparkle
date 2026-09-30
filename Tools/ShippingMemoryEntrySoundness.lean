@@ -387,4 +387,174 @@ theorem synthesizeMixedCertified_memory_sound {logProf declName bs body m d}
   · subst hwenW; exact wenVal
   · subst hraW; exact raVal
 
+/-! ## Dispatch from the real entry -/
+
+theorem synthesizeFromConst_memory_sound {logProf declName ci bs body m d}
+    (old : certifiedShape? false [] ci = none)
+    (shape : mixedCertifiedShape? false [] ci = some (bs, body))
+    (hr : MReturns (synthesizeFromConst
+      (fun e hint top named => translateExprToWire e hint top named) logProf declName
+      [] false true ci) (m, d)) :
+    MemoryPreserves declName bs body m := by
+  unfold synthesizeFromConst at hr
+  simp only [↓reduceIte, old, shape] at hr
+  peel_bind hr
+  obtain ⟨result, run, hr⟩ := MReturns.bind hr
+  peel_bind hr
+  have eq := MReturns.pure hr
+  subst result
+  exact synthesizeMixedCertified_memory_sound run
+
+theorem synthesizeCombinationalCore_memory_sound {declName : Name} {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {d : Design}
+    (hr : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (m, d) w') :
+    ∃ (ci : ConstantInfo) (w1 w2 : Void IO.RealWorld),
+      RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧
+      ∀ bs body, certifiedShape? false [] ci = none →
+        mixedCertifiedShape? false [] ci = some (bs, body) →
+        MemoryPreserves declName bs body m := by
+  obtain ⟨logProf, ci, w1, w2, w3, get, run⟩ := synthesizeCombinationalCore_reads hr
+  exact ⟨ci, w1, w2, get, fun _ _ old shape =>
+    synthesizeFromConst_memory_sound old shape run.mreturns⟩
+
+/-! ## Source-position plumbing and the entry endpoints -/
+
+/-- The compiled module's body and per-cycle input-wire values, from the
+real entry: the module IS the canonical memory body, with the operand
+wires observing the source positions' values. -/
+theorem memory_body_of_env {declName : Name} {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {wst wst' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {design : Design} {value : Lean.Expr}
+    {bs : List (Name × MixedGateBinder)}
+    {dpos wapos wdpos wenpos rapos : Nat} {aw dw : Nat}
+    (hr : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref wst
+      (m, design) wst')
+    (env : EnvDefines mctx mref cctx cref declName value)
+    (old : ∀ d : DefinitionVal, d.value = value → certifiedShape? false [] (.defnInfo d) = none)
+    (peel : mixedGatePeel value = some (bs, memoryE (inputExpr bs.length dpos) aw dw
+      (inputExpr bs.length wapos) (inputExpr bs.length wdpos)
+      (inputExpr bs.length wenpos) (inputExpr bs.length rapos)))
+    (hdp : dpos < bs.length) (haw : 0 < aw) (hdw : 0 < dw)
+    (hwa : ∃ name, bs[wapos]? = some (name, .bits aw))
+    (hwd : ∃ name, bs[wdpos]? = some (name, .bits dw))
+    (hwen : ∃ name, bs[wenpos]? = some (name, .bool))
+    (hra : ∃ name, bs[rapos]? = some (name, .bits aw)) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = bs.length ∧
+    ∃ (cache : IO.Ref (ExprStructMap String)) (nm rdW waW wdW wenW raW : String),
+      ∀ (bools : Nat → Bool) (bits : (j : Nat) → (n : Nat) → BitVec n) (env0 : Env),
+      SourceInputs declName bs ids cache bools bits env0 →
+      m.body = memBody nm "clk" waW wdW wenW raW rdW aw dw ∧
+      rdW ≠ "out" ∧ waW ≠ "out" ∧ wdW ≠ "out" ∧ wenW ≠ "out" ∧ raW ≠ "out" ∧
+      env0 waW = (bits wapos aw).toNat ∧ env0 wdW = (bits wdpos dw).toNat ∧
+      env0 wenW = (if bools wenpos then 1 else 0) ∧
+      env0 raW = (bits rapos aw).toNat := by
+  obtain ⟨ci, w1, w2, get, source⟩ := synthesizeCombinationalCore_memory_sound hr
+  obtain ⟨d, rfl, definition⟩ := env w1 ci w2 get
+  have oldGate : certifiedShape? false [] (.defnInfo d) = none := old d definition
+  have hdom : ((inputExpr bs.length dpos).isFVar ||
+      (inputExpr bs.length dpos).isBVar) = true := by
+    simp only [inputExpr]
+    rfl
+  have mixedGate := memory_term_gate (d := d)
+    (by rw [definition]; exact peel) hdom haw hdw hwa hwd hwen hra
+  obtain ⟨ids, nd, len, cache, H⟩ := source bs _ oldGate mixedGate
+  have hwaP := (List.getElem_of_getElem? hwa.choose_spec).choose
+  have hwdP := (List.getElem_of_getElem? hwd.choose_spec).choose
+  have hwenP := (List.getElem_of_getElem? hwen.choose_spec).choose
+  have hraP := (List.getElem_of_getElem? hra.choose_spec).choose
+  have qeq : instFVars (ids.map Lean.Expr.fvar).toArray 0
+      (memoryE (inputExpr bs.length dpos) aw dw
+        (inputExpr bs.length wapos) (inputExpr bs.length wdpos)
+        (inputExpr bs.length wenpos) (inputExpr bs.length rapos)) =
+      memoryE (.fvar ids[dpos]!) aw dw (.fvar ids[wapos]!) (.fvar ids[wdpos]!)
+        (.fvar ids[wenpos]!) (.fvar ids[rapos]!) := by
+    rw [instFVars_memoryE, instantiated_input len hdp,
+      instantiated_input len hwaP, instantiated_input len hwdP,
+      instantiated_input len hwenP, instantiated_input len hraP]
+  obtain ⟨nm, rdW, waW, wdW, wenW, raW, H⟩ := H (.fvar ids[dpos]!) aw dw
+    ids[wapos]! ids[wdpos]! ids[wenpos]! ids[rapos]! (by rfl) haw hdw qeq
+  refine ⟨ids, nd, len, cache, nm, rdW, waW, wdW, wenW, raW, ?_⟩
+  intro bools bits env0 values
+  have fresh : ((bs.zip ids).map Prod.snd).Nodup := by rw [zip_ids len]; exact nd
+  refine H (boolValues ids bools) (bitValues ids bits) env0
+    (bits wapos aw) (bits rapos aw) (bits wdpos dw) (bools wenpos) values ?_ ?_ ?_ ?_
+  · have lookup := prepare_bits_lookup (bools := boolValues ids bools)
+      (bits := bitValues ids bits) (bs.zip ids)
+      (start (entryCompilerState false cache) declName.toString) fresh
+      (zip_member len hwa.choose_spec)
+    simpa only [bitValues, index_fresh ids nd wapos (by omega)] using lookup
+  · have lookup := prepare_bits_lookup (bools := boolValues ids bools)
+      (bits := bitValues ids bits) (bs.zip ids)
+      (start (entryCompilerState false cache) declName.toString) fresh
+      (zip_member len hwd.choose_spec)
+    simpa only [bitValues, index_fresh ids nd wdpos (by omega)] using lookup
+  · have lookup := prepare_bool_lookup (bools := boolValues ids bools)
+      (bits := bitValues ids bits) (bs.zip ids)
+      (start (entryCompilerState false cache) declName.toString) fresh
+      (zip_member len hwen.choose_spec)
+    simpa only [boolValues, index_fresh ids nd wenpos (by omega)] using lookup
+  · have lookup := prepare_bits_lookup (bools := boolValues ids bools)
+      (bits := bitValues ids bits) (bs.zip ids)
+      (start (entryCompilerState false cache) declName.toString) fresh
+      (zip_member len hra.choose_spec)
+    simpa only [bitValues, index_fresh ids nd rapos (by omega)] using lookup
+
+/-- **The memory endpoint at the real entry.** The compiled module's whole
+`runModule` trace observes the source `Signal.memory` stream, for every
+admissible seeding discipline, from a zeroed latch and array. -/
+theorem memory_run_of_env {declName : Name} {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {wst wst' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {design : Design} {value : Lean.Expr}
+    {bs : List (Name × MixedGateBinder)}
+    {dpos wapos wdpos wenpos rapos : Nat} {aw dw : Nat}
+    (hr : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref wst
+      (m, design) wst')
+    (env : EnvDefines mctx mref cctx cref declName value)
+    (old : ∀ d : DefinitionVal, d.value = value → certifiedShape? false [] (.defnInfo d) = none)
+    (peel : mixedGatePeel value = some (bs, memoryE (inputExpr bs.length dpos) aw dw
+      (inputExpr bs.length wapos) (inputExpr bs.length wdpos)
+      (inputExpr bs.length wenpos) (inputExpr bs.length rapos)))
+    (hdp : dpos < bs.length) (haw : 0 < aw) (hdw : 0 < dw)
+    (hwa : ∃ name, bs[wapos]? = some (name, .bits aw))
+    (hwd : ∃ name, bs[wdpos]? = some (name, .bits dw))
+    (hwen : ∃ name, bs[wenpos]? = some (name, .bool))
+    (hra : ∃ name, bs[rapos]? = some (name, .bits aw)) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = bs.length ∧
+    ∃ (cache : IO.Ref (ExprStructMap String)) (rdW : String),
+      ∀ {D : Sparkle.Core.Domain.DomainConfig}
+        (boolsS : Nat → Sparkle.Core.Signal.Signal D Bool)
+        (bitsS : (j : Nat) → (n : Nat) → Sparkle.Core.Signal.Signal D (BitVec n))
+        (we : WEnv) (mems0 : MEnv) (k : Nat)
+        (seed : Nat → (String → Nat) → Env) (st0 : String → Nat),
+      (∀ t stv, SourceInputs declName bs ids cache
+          (fun i => (boolsS i).val (k - 1 - t)) (fun i n => (bitsS i n).val (k - 1 - t))
+          (seed t stv) ∧ seed t stv rdW = stv rdW) →
+      st0 rdW = 0 →
+      (∀ n i, mems0 n i = 0) →
+      ∃ envs, runModule we m.body seed k st0 mems0 = some envs ∧
+        envs.length = k ∧
+        ∀ j (hj : j < envs.length), (envs[j]'hj) "out" =
+          ((Sparkle.Core.Signal.Signal.memory (bitsS wapos aw) (bitsS wdpos dw)
+            (boolsS wenpos) (bitsS rapos aw)).val j).toNat := by
+  obtain ⟨ids, nd, len, cache, nm, rdW, waW, wdW, wenW, raW, H⟩ :=
+    memory_body_of_env hr env old peel hdp haw hdw hwa hwd hwen hra
+  refine ⟨ids, nd, len, cache, rdW, ?_⟩
+  intro D boolsS bitsS we mems0 k seed st0 hseed hst0 hmems0
+  have h0 := H (fun i => (boolsS i).val (k - 1 - 0))
+    (fun i n => (bitsS i n).val (k - 1 - 0)) (seed 0 st0) (hseed 0 st0).1
+  obtain ⟨hmb, rdNe, waNe, wdNe, wenNe, raNe, -, -, -, -⟩ := h0
+  rw [hmb]
+  refine Tools.ShippingMemorySoundness.memory_run_val rdNe waNe wdNe wenNe raNe
+    (bitsS wapos aw) (bitsS wdpos dw) (boolsS wenpos) (bitsS rapos aw)
+    k seed st0 mems0 ?_ hst0 hmems0
+  intro t stv
+  have ht := H (fun i => (boolsS i).val (k - 1 - t))
+    (fun i n => (bitsS i n).val (k - 1 - t)) (seed t stv) (hseed t stv).1
+  obtain ⟨-, -, -, -, -, -, hwaV, hwdV, hwenV, hraV⟩ := ht
+  exact ⟨(hseed t stv).2, hwaV, hwdV, hwenV, hraV⟩
+
 end Tools.ShippingMemoryEntrySoundness

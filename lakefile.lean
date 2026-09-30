@@ -449,6 +449,9 @@ lean_lib «Tools.ShippingSeqSVSoundness» where
 lean_lib «Tools.ShippingMemorySoundness» where
   roots := #[`Tools.ShippingMemorySoundness]
 
+lean_lib «Tools.ShippingMemoryEntrySoundness» where
+  roots := #[`Tools.ShippingMemoryEntrySoundness]
+
 lean_lib «Tools.ShippingRegisterSoundness» where
   roots := #[`Tools.ShippingRegisterSoundness]
 
