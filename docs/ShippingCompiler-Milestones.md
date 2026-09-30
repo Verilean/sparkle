@@ -294,8 +294,12 @@ the sequential SV printer step (the `optimizeModule` pass-through is
 now checker-covered). S5 is STARTED: the canonical sync-read memory's semantics layer is
 proved (`Tools/ShippingMemorySoundness.lean` — the pinned compiled body's
 `runModule` trace is the `Signal.memory` stream, endpoint instantiated
-and audited); its entry-level connection and the wider memory scope
-remain. S6–S7 remain unfinished.
+and audited), and its ENTRY-LEVEL connection is closed
+(`Tools/ShippingMemoryEntrySoundness.lean`: gate + total lowering +
+monolith + `memory_run_of_env`, instantiated as `memAcc_run` on the
+real declaration); the wider memory scope (cone operands, inits,
+multi-port, postprocessing/checker/SV layers) remains. S6–S7 remain
+unfinished.
 
 ## Trust, validation and work cadence
 

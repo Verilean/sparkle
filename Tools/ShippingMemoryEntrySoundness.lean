@@ -38,7 +38,7 @@ open Tools.ShippingMemorySoundness (memBody)
 /-- `Signal.memory wa wd wen ra`, exactly as the library call elaborates
 over a polymorphic domain at literal widths. -/
 def memoryE (dom : Lean.Expr) (aw dw : Nat) (wa wd wen ra : Lean.Expr) : Lean.Expr :=
-  mkApp7 (.const ``Sparkle.Core.Signal.Signal.memory [.zero]) dom (natE aw) (natE dw)
+  mkApp7 (.const ``Sparkle.Core.Signal.Signal.memory []) dom (natE aw) (natE dw)
     wa wd wen ra
 
 theorem canonicalMemory?_memoryE {dom wa wd wen ra : Lean.Expr} {aw dw : Nat}

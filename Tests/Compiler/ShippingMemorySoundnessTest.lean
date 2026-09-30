@@ -1,5 +1,5 @@
-import Tools.ShippingMemorySoundness
-import Sparkle.Compiler.Elab
+import Tools.ShippingMemoryEntrySoundness
+import Tests.Compiler.ShippingMixedExecutionTest
 
 /-! S5-1 memory foundation tests: a real `Signal.memory` declaration, the
 compiled module pinned byte-for-byte to the canonical body the semantics
@@ -9,7 +9,9 @@ the pinned shape with a standard-axioms audit. -/
 namespace Sparkle.Tests.Compiler.ShippingMemorySoundnessTest
 open Lean Elab Command Meta Sparkle.Compiler.Elab Sparkle.IR.Semantics
 open Sparkle.Core.Domain Sparkle.Core.Signal
-open Tools.ShippingMemorySoundness
+open Tools.ShippingMemorySoundness Tools.ShippingMemoryEntrySoundness
+open Tools.ShippingEntrySoundness Tools.ShippingMixedSourceBridge
+open Tools.ShippingMixedExecutionSoundness
 
 /-- A single-port sync-read memory over direct input operands: the
 canonical S5 shape. -/
@@ -17,6 +19,44 @@ def memAcc {dom : DomainConfig} (wa : Signal dom (BitVec 2))
     (wd : Signal dom (BitVec 8)) (wen : Signal dom Bool)
     (ra : Signal dom (BitVec 2)) : Signal dom (BitVec 8) :=
   Signal.memory wa wd wen ra
+
+#def_decl_value memAccValue of memAcc
+def memAccBinders : List (Name × MixedGateBinder) :=
+  [(`dom, .domain), (`wa, .bits 2), (`wd, .bits 8), (`wen, .bool), (`ra, .bits 2)]
+theorem memAcc_peel : mixedGatePeel memAccValue = some (memAccBinders,
+    memoryE (inputExpr memAccBinders.length 0) 2 8
+      (inputExpr memAccBinders.length 1) (inputExpr memAccBinders.length 2)
+      (inputExpr memAccBinders.length 3) (inputExpr memAccBinders.length 4)) := rfl
+
+/-- **The memory trace endpoint on the real declaration**: the compiled
+module's whole `runModule` trace observes the source `Signal.memory`
+stream — premises are the entry facts alone (no byte-level module gate). -/
+theorem memAcc_run {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+    {wst wst' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore ``memAcc [] false) mctx mref cctx cref wst
+      (m, design) wst')
+    (env : EnvDefines mctx mref cctx cref ``memAcc memAccValue) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = memAccBinders.length ∧
+    ∃ (cache : IO.Ref (ExprStructMap String)) (rdW : String),
+      ∀ {D : DomainConfig} (boolsS : Nat → Signal D Bool)
+        (bitsS : (j : Nat) → (n : Nat) → Signal D (BitVec n))
+        (we : WEnv) (mems0 : MEnv) (k : Nat)
+        (seed : Nat → (String → Nat) → Env) (st0 : String → Nat),
+      (∀ t stv, SourceInputs ``memAcc memAccBinders ids cache
+          (fun i => (boolsS i).val (k - 1 - t)) (fun i n => (bitsS i n).val (k - 1 - t))
+          (seed t stv) ∧ seed t stv rdW = stv rdW) →
+      st0 rdW = 0 →
+      (∀ n i, mems0 n i = 0) →
+      ∃ envs, runModule we m.body seed k st0 mems0 = some envs ∧
+        envs.length = k ∧
+        ∀ j (hj : j < envs.length), (envs[j]'hj) "out" =
+          ((memAcc (bitsS 1 2) (bitsS 2 8) (boolsS 3) (bitsS 4 2)).val j).toNat :=
+  memory_run_of_env (dpos := 0) (wapos := 1) (wdpos := 2) (wenpos := 3) (rapos := 4)
+    hr env
+    (by intro d hd; simp only [certifiedShape?, hd]; rfl)
+    memAcc_peel (by decide) (by decide) (by decide)
+    ⟨`wa, rfl⟩ ⟨`wd, rfl⟩ ⟨`wen, rfl⟩ ⟨`ra, rfl⟩
 
 /-- The compiled module's body IS the canonical body of the semantics
 layer; the trace endpoint below is therefore about the real compiler
@@ -104,7 +144,10 @@ run_cmd liftTermElabM do
       ``Tools.ShippingMemorySoundness.trace_of_cycles_memArr,
       ``Tools.ShippingMemorySoundness.memory_run,
       ``Tools.ShippingMemorySoundness.memory_run_val,
-      ``memAcc_run_val] do
+      ``Tools.ShippingMemoryEntrySoundness.synthesizeMixedCertified_memory_sound,
+      ``Tools.ShippingMemoryEntrySoundness.memory_body_of_env,
+      ``Tools.ShippingMemoryEntrySoundness.memory_run_of_env,
+      ``memAcc_run_val, ``memAcc_peel, ``memAcc_run] do
     for ax in (← collectAxioms name) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do
         throwError "unexpected memory soundness axiom: {name}: {ax}"

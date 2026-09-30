@@ -361,9 +361,19 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   masked address, enabled writes landing masked, `BitVec` bridge via
   `ofNat_toNat`/`setWidth_eq`); the test pins the compiled body
   byte-for-byte, runs a 12-cycle regression, instantiates the endpoint
-  on the pinned shape, and audits standard axioms. Open in S5: the
-  entry-level connection (RunsTo/EnvDefines gate + monolith, as the
-  register units have), cone-shaped operands, `memoryComboRead` (source
+  on the pinned shape, and audits standard axioms. The ENTRY-LEVEL
+  connection is now PROVED (Tools/ShippingMemoryEntrySoundness.lean):
+  the gate disjunct `unifiedMemoryRoot` + total lowering
+  `translateMemoryUncachedWith` route the canonical shape through the
+  certified front end (byte-identical output, corpus regression green),
+  and the monolith `synthesizeMixedCertified_memory_sound` — the four
+  operand translations are pure input reads (state unchanged, pinned by
+  `translateStep_fvar_returns` + `prepare_const` valuation transport),
+  the emitter appends exactly the `.memory` statement and `rdata` wire —
+  yields `memory_body_of_env`/`memory_run_of_env`: the real entry's
+  module IS `memBody` and its whole trace observes the source stream
+  (`memAcc_peel`/`memAcc_run` instantiate on the real declaration,
+  standard axioms). Open in S5: cone-shaped operands, `memoryComboRead` (source
   marks it non-synthesizable), `memoryWithInit`, multi-port shapes, the
   postprocessing passes and the sequential checker/SV layers for memory
   bodies.
@@ -375,7 +385,7 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
 - [ ] **S7 / trust:** Resolve or explicitly retain `EnvDefines` in the final
   claim; record execution-model/external-tool boundaries without hiding them.
 
-Latest validation: `lake build Tests.AllTests` passed all 645 jobs, with
+Latest validation: `lake build Tests.AllTests` passed all 646 jobs, with
 standard-axiom audits of the general endpoint and real signed/equality/Bool-logic
 source instantiations. Vector mux adds 2,772 source/legacy/SV/delta cases and
 real source theorems for nested and computed-condition muxes (no Bool input
