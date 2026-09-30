@@ -139,6 +139,97 @@ theorem parentUse_instance_entry {mctx : Meta.Context}
     (fun dv hv => by simp only [certifiedShape?, hv]; rfl)
     hscalar parentUse_peel rfl rfl rfl
 
+/-- **The entry output observes the source composition.** Combining the
+instance contract of THIS compile with the linked-instance semantics: the
+compiled parent's body, elaborated with the child bound to its pinned
+compile, drives `out` with `(parentUse aS bS).val t` — the source value —
+whenever the prepared argument ports carry `aS.val t` and `bS.val t`. The
+run boundaries (`EnvDefines`, the tag, the child pin, the empty cache and
+the scalar result type) are the retained premises. -/
+theorem parentUse_entry_observes {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {d : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore ``parentUse [] false)
+      mctx mref cctx cref w (m, d) w')
+    (env : EnvDefines mctx mref cctx cref ``parentUse parentUseValue)
+    (tag : ∀ wE e wE', RunsTo (Lean.getEnv : MetaM Environment)
+      mctx mref cctx cref wE e wE' →
+      Sparkle.Compiler.isHardwareModule e ``childAdd = true)
+    (hscalar : ∀ dv : Lean.DefinitionVal, dv.value = parentUseValue →
+      mixedGateResultScalar dv.type = true)
+    {dc : Sparkle.IR.AST.Design}
+    (htagAll : HardwareTagged ``childAdd)
+    (hsub : SubSynthDefines ``childAdd childModule dc)
+    (hcache : InstanceCacheEmpty)
+    (hdc : dc.modules = []) :
+    ∃ (i0 i1 i2 : FVarId) (cache : IO.Ref (Lean.ExprStructMap String))
+      (instName outW aW bW : String),
+    ∀ (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n)
+      (env0 : Env) {D : DomainConfig}
+      (aS bS : Signal D (BitVec 8)) (t : Nat) (mems : MEnv) (we : WEnv),
+    let a := Tools.ShippingMixedEntrySoundness.start
+      (entryCompilerState false cache) (``parentUse).toString
+    let p := Tools.ShippingMixedEntrySoundness.prepare bools bits
+      (parentUseBinders.zip [i0, i1, i2]) a
+    Tools.ShippingMixedEntrySoundness.Admissible bools bits env0
+      (parentUseBinders.zip [i0, i1, i2]) a →
+    p.bits i1 = some ⟨8, aS.val t⟩ → p.bits i2 = some ⟨8, bS.val t⟩ →
+    d.modules = [childModule] ∧
+    ∃ envF, evalAssignsH we (childrenOf "childAdd") mems m.body env0 = some envF ∧
+      envF "out" = ((parentUse aS bS).val t).toNat := by
+  obtain ⟨ids, nd, len, cache, P⟩ := parentUse_instance_entry hr env tag hscalar
+  have len3 : ids.length = 3 := len
+  rcases ids with _ | ⟨i0, ids⟩
+  · cases len3
+  rcases ids with _ | ⟨i1, ids⟩
+  · cases len3
+  rcases ids with _ | ⟨i2, ids⟩
+  · cases len3
+  rcases ids with _ | ⟨i3, ids⟩
+  rotate_left
+  · simp at len3
+  obtain ⟨instName, outW, aW, bW, R⟩ :=
+    P ``childAdd [] i0 i1 i2 childModule dc 8 8 8 "_gen_x" "_gen_y"
+      rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
+      htagAll hsub hcache hdc rfl rfl rfl rfl rfl rfl
+  refine ⟨i0, i1, i2, cache, instName, outW, aW, bW, ?_⟩
+  intro bools bits env0 D aS bS t mems we a p adm ha0 hb0
+  obtain ⟨hbody, hdmods, houtNe, haNe, hbNe, haV, hbV⟩ :=
+    R bools bits env0 (aS.val t) (bS.val t) adm ha0 hb0
+  refine ⟨by rw [hdmods], ?_⟩
+  -- the child's evaluation on the connection-fed environment, computed
+  have hrun : evalAssigns childWe mems childModule.body
+      (connEnv [("_gen_x", Sparkle.IR.AST.Expr.ref aW),
+        ("_gen_y", Sparkle.IR.AST.Expr.ref bW),
+        ("out", Sparkle.IR.AST.Expr.ref outW)] env0) =
+      some (fun n =>
+        if n = "out" then mask 8 (env0 aW + env0 bW)
+        else if n = "_gen_out" then mask 8 (env0 aW + env0 bW)
+        else connEnv [("_gen_x", Sparkle.IR.AST.Expr.ref aW),
+          ("_gen_y", Sparkle.IR.AST.Expr.ref bW),
+          ("out", Sparkle.IR.AST.Expr.ref outW)] env0 n) := rfl
+  obtain ⟨envF, hev, hout, -⟩ := instBody_linked (we := we) (mems := mems)
+    (children := childrenOf "childAdd")
+    (mn := "childAdd") (instName := instName)
+    (inConns := [("_gen_x", .ref aW), ("_gen_y", .ref bW)])
+    (childOut := "out") (outW := outW)
+    rfl rfl (fun p hp => by
+      rcases List.mem_cons.mp hp with rfl | hp
+      · rfl
+      · rcases List.mem_cons.mp hp with rfl | hp
+        · rfl
+        · cases hp) hrun houtNe
+  refine ⟨envF, ?_, ?_⟩
+  · rw [hbody]
+    exact hev
+  · rw [hout]
+    show mask 8 (env0 aW + env0 bW) = _
+    rw [haV, hbV]
+    show (((aS.val t).toNat) + ((bS.val t).toNat)) % 2 ^ 8 =
+      ((aS.val t + bS.val t)).toNat
+    rw [BitVec.toNat_add]
+
 open Sparkle.IR.AST in
 run_cmd liftTermElabM do
   -- The compiled parent and child are EXACTLY the canonical shapes.
@@ -227,7 +318,7 @@ run_cmd liftTermElabM do
       ``Tools.ShippingInstanceEntrySoundness.synthesizeFromConst_instance_sound,
       ``Tools.ShippingInstanceEntrySoundness.synthesizeCombinationalCore_instance_sound,
       ``Tools.ShippingInstanceEntrySoundness.instance_entry_of_env,
-      ``parentUse_peel, ``parentUse_instance_entry,
+      ``parentUse_peel, ``parentUse_instance_entry, ``parentUse_entry_observes,
       ``parentUse_linked] do
     for ax in (← collectAxioms name) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do
