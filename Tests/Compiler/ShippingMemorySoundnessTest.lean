@@ -308,6 +308,19 @@ run_cmd liftTermElabM do
     mems := mems'
     count := count + 1
   unless count == 12 do throwError "memory cycle count mismatch: {count}"
+  -- The sequential post-processing passes are the IDENTITY on both
+  -- certified memory shapes: the raw-module endpoints above therefore
+  -- describe the exact module the shipping pipeline prints. A change
+  -- here means the default configuration departs from the certified
+  -- module (the memory analog of the register merge-identity gate).
+  for decl in [``memAcc, ``memAccC] do
+    let (mr2, _) ← synthesizeCombinationalCore decl [] false
+    let mrz := Sparkle.IR.ZeroWidth.dropZeroWidthModule mr2
+    let mrm := Sparkle.IR.RegDedup.mergeDuplicatesRaw mrz
+    let o := Sparkle.IR.Optimize.optimizeModule mrm
+    unless o.body == mr2.body && o.wires == mr2.wires &&
+        o.inputs == mr2.inputs && o.outputs == mr2.outputs do
+      throwError "postprocessing changed the certified memory module of {decl}"
   -- Axiom audit: the endpoint and the general layer carry only the
   -- standard axioms.
   for name in [``Tools.ShippingMemorySoundness.memStep,

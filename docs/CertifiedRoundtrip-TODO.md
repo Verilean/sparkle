@@ -383,10 +383,15 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   whole-trace endpoints, instantiated on a real declaration whose write
   data is an arithmetic cone (`memAccC` = `Signal.memory wa (a+b) wen
   ra`; `memAccC_peel` by rfl, `memAccC_run` identifies the trace with
-  `Signal.memory` over the cone SIGNALS, standard axioms). Open in S5: `memoryComboRead` (source
-  marks it non-synthesizable), `memoryWithInit`, multi-port shapes, the
-  postprocessing passes and the sequential checker/SV layers for memory
-  bodies.
+  `Signal.memory` over the cone SIGNALS, standard axioms). The sequential post-processing passes
+  (`dropZeroWidthModule`, `mergeDuplicatesRaw`, `optimizeModule`) are
+  gated to be the IDENTITY on both certified memory shapes, so these
+  endpoints describe the exact module the pipeline prints. Open in S5: `memoryComboRead` (source
+  marks it non-synthesizable), `memoryWithInit`, multi-port shapes, and the
+  checker/SV layers for memory bodies (M4's `seqCheck` covers only
+  combinationally-read memories; the certified sync-read shape needs a
+  latch-aware extension of that layer, and `seqOptCheck` excludes
+  memories entirely).
 - [ ] **S6:** Actual hierarchy compilation and compositional instance semantics,
   port/parameter linkage and contained state/memory.
 - [ ] **S7:** Reconcile all successful cases and compose the full shipping
