@@ -5319,6 +5319,84 @@ def translateCircuitDo2UncachedWith (rec : TranslateFn) (w v0 v1 ret : Nat) : Tr
     CompilerM.emitRegisterStmt r1 "clk" "rst" (.ref cw1) v1
     return (if ret == 0 then r0 else r1)
 
+/-- Uncached lowering for a single-output `@[hardware_module]` instance whose
+    child compile is already in hand, in the legacy handler's exact order:
+    register the child's transitive modules and the child (name-deduped),
+    plumb clk/rst (adding parent ports when missing), translate the argument
+    operands, consult the per-synth single-out instance dedupe cache, then
+    allocate the result wire and emit one `.inst` statement. The result-wire
+    type is the child's own single output port type (the legacy handler
+    re-infers it from the call's Signal type; they agree on every scalar
+    child, which the hierarchy test pins byte-for-byte). -/
+def translateInstanceUncachedWith (rec : TranslateFn) (mn : Name)
+    (subModule : Sparkle.IR.AST.Module) (subDesign : Sparkle.IR.AST.Design)
+    (singleOut : Port) : TranslateFn :=
+  fun e hint _top named => do
+    let existing := (← get).design.modules.map (·.name)
+    for m in subDesign.modules do
+      if !existing.contains m.name then
+        CompilerM.addModuleToDesign m
+    if !existing.contains subModule.name &&
+       !((← get).design.modules.any (·.name == subModule.name)) then
+      CompilerM.addModuleToDesign subModule
+    let mut connections : List (String × Sparkle.IR.AST.Expr) := []
+    for p in subModule.inputs do
+      if p.name == "clk" || p.name == "rst" then
+        let parent := (← get).module
+        if !parent.inputs.any (·.name == p.name) then
+          CompilerM.addInput p.name p.ty
+        connections := (p.name, Sparkle.IR.AST.Expr.ref p.name) :: connections
+    let inputPorts := subModule.inputs.filter (fun p => p.name != "clk" && p.name != "rst")
+    let args := e.getAppArgs
+    if args.size < inputPorts.length then
+      CompilerM.liftMetaM <| throwError
+        s!"Sub-module {mn} requires {inputPorts.length} args, but got {args.size}"
+    for i in [:inputPorts.length] do
+      let argExpr := args[args.size - inputPorts.length + i]!
+      let argWire ← rec argExpr s!"arg{i}" false false
+      connections := (inputPorts[i]!.name, Sparkle.IR.AST.Expr.ref argWire) :: connections
+    let parentName := (← get).module.name
+    let connKey := String.intercalate ";"
+      (connections.reverse.map (fun (p, rhs) => s!"{p}={rhs}"))
+    let instKey := s!"{parentName}#{subModule.name}#{connKey}"
+    let instCache ← CompilerM.liftMetaM (sparkleSingleOutInstanceCache.get : IO _)
+    if let some cachedW := instCache.get? instKey then
+      return cachedW
+    let w ← CompilerM.makeWire hint singleOut.ty (named := named)
+    CompilerM.liftMetaM (sparkleSingleOutInstanceCache.modify (·.insert instKey w))
+    let connectionsF := (singleOut.name, Sparkle.IR.AST.Expr.ref w) :: connections
+    let instName ← CompilerM.freshName s!"inst_{subModule.name}"
+    CompilerM.emitInstance subModule.name instName connectionsF.reverse
+    return w
+
+/-- The `@[hardware_module]` single-output instance arm at the end of the
+    certified dispatch: a call whose head constant carries the tag
+    synthesizes the child through the SAME entry the legacy handler uses
+    (memoized per synth, so the probe is byte-invisible), and a
+    single-output child takes the certified straight-line lowering under
+    the shared validated cache wrapper. Untagged heads, non-applications
+    and multi-output children fall through to the legacy chain unchanged. -/
+def translateInstanceOrFallback (rec : TranslateFn) : TranslateFn :=
+  fun e hint top named =>
+    match e.getAppFn with
+    | .const mn _ => do
+      let env ← CompilerM.liftMetaM Lean.getEnv
+      if Sparkle.Compiler.isHardwareModule env mn then
+        let sub ← tryCatch
+          (CompilerM.liftMetaM
+            (Rec.synthesizeCombinational (fun e h t n => rec e h t n) mn))
+          (fun _ => CompilerM.liftMetaM <| throwError
+            s!"Sub-module synthesis failed for {mn} (tagged @[hardware_module])")
+        match sub.1.outputs with
+        | [singleOut] =>
+          translateControlCachedWith
+            (translateInstanceUncachedWith rec mn sub.1 sub.2 singleOut)
+            e hint top named
+        | _ => Rec.translateExprToWireCached (fun e h t n => rec e h t n) e hint top named
+      else
+        Rec.translateExprToWireCached (fun e h t n => rec e h t n) e hint top named
+    | _ => Rec.translateExprToWireCached (fun e h t n => rec e h t n) e hint top named
+
 /-- The existing handler chain (cache wrapper + dispatch) as the fallback. -/
 def translateFallback (rec : TranslateFn) : TranslateFn :=
   fun e hint top named =>
@@ -5371,7 +5449,7 @@ def translateFallback (rec : TranslateFn) : TranslateFn :=
                       translateControlCachedWith (translateMemoryUncachedWith rec aw dw)
                         e hint top named
                     | none =>
-                      Rec.translateExprToWireCached (fun e h t n => rec e h t n) e hint top named
+                      translateInstanceOrFallback rec e hint top named
 
 def translateStep : TranslateFn → TranslateFn := translateStepWith translateFallback
 
