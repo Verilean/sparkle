@@ -219,6 +219,7 @@ def MemoryPreserves (declName : Name) (bs : List (Name × MixedGateBinder))
     (dom.isFVar || dom.isBVar) = true → 0 < aw → 0 < dw →
     instFVars (ids.map Lean.Expr.fvar).toArray 0 body =
       memoryE dom aw dw (.fvar waId) (.fvar wdId) (.fvar wenId) (.fvar raId) →
+    ∃ (nm rdW waW wdW wenW raW : String),
     ∀ (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n)
       (env0 : Env) (wav rav : BitVec aw) (wdv : BitVec dw) (wev : Bool),
     let a := start (entryCompilerState false cache) declName.toString
@@ -226,12 +227,10 @@ def MemoryPreserves (declName : Name) (bs : List (Name × MixedGateBinder))
     Admissible bools bits env0 (bs.zip ids) a →
     p.bits waId = some ⟨aw, wav⟩ → p.bits wdId = some ⟨dw, wdv⟩ →
     p.bools wenId = some wev → p.bits raId = some ⟨aw, rav⟩ →
-    ∃ (nm rdW waW wdW wenW raW : String),
-      m.body = memBody nm "clk" waW wdW wenW raW rdW aw dw ∧
-      rdW ≠ "out" ∧ waW ≠ "out" ∧ wdW ≠ "out" ∧ wenW ≠ "out" ∧ raW ≠ "out" ∧
-      env0 waW = wav.toNat ∧ env0 wdW = wdv.toNat ∧
-      env0 wenW = (if wev then 1 else 0) ∧ env0 raW = rav.toNat ∧
-      env0 rdW = env0 rdW
+    m.body = memBody nm "clk" waW wdW wenW raW rdW aw dw ∧
+    rdW ≠ "out" ∧ waW ≠ "out" ∧ wdW ≠ "out" ∧ wenW ≠ "out" ∧ raW ≠ "out" ∧
+    env0 waW = wav.toNat ∧ env0 wdW = wdv.toNat ∧
+    env0 wenW = (if wev then 1 else 0) ∧ env0 raW = rav.toNat
 
 set_option maxHeartbeats 2000000 in
 theorem synthesizeMixedCertified_memory_sound {logProf declName bs body m d}
@@ -243,13 +242,11 @@ theorem synthesizeMixedCertified_memory_sound {logProf declName bs body m d}
     synthesizeMixedCertified_returns hr
   refine ⟨ids, nd, len, cache, ?_⟩
   intro dom aw dw waId wdId wenId raId hdom haw hdw qeq
-  intro bools bits env0 wav rav wdv wev a p adm hwa0 hwd0 hwen0 hra0
-  -- Decompose the returned translation ONCE, at these valuations (the
-  -- run itself is valuation-independent; the operand reads make that
-  -- manifest below).
+  -- Static decomposition at the zero valuation: the run's context and
+  -- state do not depend on the port values.
   have leaf := prepare_returns (bs.zip ids)
     (start (entryCompilerState false cache) declName.toString)
-    (bools := bools) (bits := bits) run
+    (bools := fun _ => false) (bits := fun _ _ => 0) run
   rw [qeq] at leaf
   obtain ⟨rdW, sm, ty, tr, freshOut, ht, hty⟩ := emitLeaves_single leaf
   have stepEq : translateExprToWire
@@ -264,23 +261,80 @@ theorem synthesizeMixedCertified_memory_sound {logProf declName bs body m d}
       "out" false true = _
     rw [memory_step _ dom _ _ _ _ aw dw hdom haw hdw]
   rw [stepEq] at tr
-  have empty0 := empty_layout (entryCompilerState false cache) declName.toString env0
-  have prepared := prepare_layout (bs.zip ids)
-    (start (entryCompilerState false cache) declName.toString) empty0.1 empty0.2 adm
-  have record0 : (prepare bools bits (bs.zip ids)
+  have empty0 := empty_layout (entryCompilerState false cache) declName.toString (fun _ => 0)
+  have record0 : (prepare (fun _ => false) (fun _ _ => 0) (bs.zip ids)
       (start (entryCompilerState false cache) declName.toString)).state.translateRecord
-      = {} := prepared.2.2.2
+      = {} :=
+    (prepare_layout (bs.zip ids) _ empty0.1 empty0.2 (admissible_zero _ _)).2.2.2
   rcases translateControlCachedWith_returns tr with hit | ⟨smR, missRun, record⟩
   · obtain ⟨-, hrec⟩ := cacheLookupValidated_returns hit
     have dead := hrec rdW rfl
     rw [record0] at dead
     simp at dead
   rw [memoryUncached_memoryE] at missRun
-  -- The four operand reads: pure input lookups, state unchanged.
+  -- The four operand reads, opaque for now.
   obtain ⟨waW, s1, r1, k1⟩ := Returns.bind missRun
   obtain ⟨wdW, s2, r2, k2⟩ := Returns.bind k1
   obtain ⟨wenW, s3, r3, k3⟩ := Returns.bind k2
   obtain ⟨raW, s4, r4, k4⟩ := Returns.bind k3
+  -- The emission, on the (opaque) post-operand state.
+  obtain ⟨hrdW, hsmR⟩ := emitMemory_returns k4
+  have hrec := recordTranslation_returns record
+  obtain ⟨hrE1, hrE2⟩ := emitMemoryC_spec "out" aw dw "clk"
+    (.ref waW) (.ref wdW) (.ref wenW) (.ref raW) true s4
+  have hstr : (toString "out" ++ toString "_rdata" : String) = "out_rdata" := rfl
+  rw [hstr] at hrE1 hrE2
+  have hrdWm : rdW = (CircuitM.freshName (CircuitM.sanitizeName "out_rdata") true
+      ((CircuitM.freshName (CircuitM.sanitizeName "out") true s4).2)).1 := by
+    rw [hrdW, hrE1]
+  have smModule : sm.module =
+      ((CircuitM.freshName (CircuitM.sanitizeName "out_rdata") true
+        ((CircuitM.freshName (CircuitM.sanitizeName "out") true s4).2)).2.module.addWire
+          { name := rdW, ty := .bitVector dw }).addStmt
+        (.memory (CircuitM.freshName (CircuitM.sanitizeName "out") true s4).1
+          aw dw "clk" (.ref waW) (.ref wdW) (.ref wenW) (.ref raW) rdW) := by
+    rw [hrec, hsmR, hrE2, ← hrdWm]
+  have fn1 := CircuitM.freshName_spec (CircuitM.sanitizeName "out") true s4
+  have fn2 := CircuitM.freshName_spec (CircuitM.sanitizeName "out_rdata") true
+    ((CircuitM.freshName (CircuitM.sanitizeName "out") true s4).2)
+  have stBody : st.module.body =
+      .assign "out" (.ref rdW) ::
+        .memory (CircuitM.freshName (CircuitM.sanitizeName "out") true s4).1
+          aw dw "clk" (.ref waW) (.ref wdW) (.ref wenW) (.ref raW) rdW ::
+          s4.module.body := by
+    rw [ht, emitAssign_body_cons, addOutput_state]
+    show _ :: (sm.module.addOutput _).body = _
+    rw [show ∀ (mo : Sparkle.IR.AST.Module) q, (mo.addOutput q).body = mo.body from
+      fun _ _ => rfl, smModule]
+    show _ :: (_ :: (CircuitM.freshName (CircuitM.sanitizeName "out_rdata") true
+      ((CircuitM.freshName (CircuitM.sanitizeName "out") true s4).2)).2.module.body) = _
+    rw [fn2.2.2, fn1.2.2]
+  have mBody : m.body = s4.module.body.reverse ++
+      [.memory (CircuitM.freshName (CircuitM.sanitizeName "out") true s4).1
+        aw dw "clk" (.ref waW) (.ref wdW) (.ref wenW) (.ref raW) rdW,
+       .assign "out" (.ref rdW)] := by
+    rw [hm]
+    show ((addClockResetIfSequential st.module).finalize).body = _
+    simp only [Sparkle.IR.AST.Module.finalize,
+      (Tools.ShippingEntrySoundness.addClockReset_facts st.module).1, stBody]
+    simp
+  have rdNotOut : rdW ≠ "out" := by
+    intro eq
+    have alloc := CircuitM.freshName_allocated (CircuitM.sanitizeName "out_rdata") true
+      ((CircuitM.freshName (CircuitM.sanitizeName "out") true s4).2)
+    rw [← hrdWm, eq] at alloc
+    exact not_allocated_out alloc
+  refine ⟨(CircuitM.freshName (CircuitM.sanitizeName "out") true s4).1,
+    rdW, waW, wdW, wenW, raW, ?_⟩
+  -- The runtime half: pin the operand reads to the input wires.
+  intro bools bits env0 wav rav wdv wev a p adm hwa0 hwd0 hwen0 hra0
+  have empty := empty_layout (entryCompilerState false cache) declName.toString env0
+  have prepared := prepare_layout (bs.zip ids)
+    (start (entryCompilerState false cache) declName.toString) empty.1 empty.2 adm
+  obtain ⟨pc, ps⟩ := prepare_const (fun _ => false) bools (fun _ _ => 0) bits
+    (bs.zip ids) _ _ rfl rfl
+  -- Transport the operand runs to the real valuation's (equal) context/state.
+  rw [pc, ps] at r1
   have hwaB := prepared.1.bits waId aw wav hwa0
   obtain ⟨waW', waBound, waDecl, waVal⟩ := hwaB
   have hwdB := prepared.1.bits wdId dw wdv hwd0
@@ -294,64 +348,24 @@ theorem synthesizeMixedCertified_memory_sound {logProf declName bs body m d}
   rw [fuelEq] at r1 r2 r3 r4
   obtain ⟨hwaW, hs1⟩ := translateStep_fvar_returns waBound r1
   subst hs1
+  rw [pc] at r2
   obtain ⟨hwdW, hs2⟩ := translateStep_fvar_returns wdBound r2
   subst hs2
+  rw [pc] at r3
   obtain ⟨hwenW, hs3⟩ := translateStep_fvar_returns wenBound r3
   subst hs3
+  rw [pc] at r4
   obtain ⟨hraW, hs4⟩ := translateStep_fvar_returns raBound r4
-  subst hs4
-  subst hwaW hwdW hwenW hraW
-  -- The emission, on the prepared state.
-  obtain ⟨hrdW, hsmR⟩ := emitMemory_returns k4
-  have hrec := recordTranslation_returns record
-  obtain ⟨hrE1, hrE2⟩ := emitMemoryC_spec "out" aw dw "clk"
-    (.ref waW) (.ref wdW) (.ref wenW) (.ref raW) true p.state
-  have hstr : (toString "out" ++ toString "_rdata" : String) = "out_rdata" := rfl
-  rw [hstr] at hrE1 hrE2
-  -- Names, from the two fresh allocations.
-  have hrdWm : rdW = (CircuitM.freshName (CircuitM.sanitizeName "out_rdata") true
-      ((CircuitM.freshName (CircuitM.sanitizeName "out") true p.state).2)).1 := by
-    rw [hrdW, hrE1]
-  have smModule : sm.module =
-      ((CircuitM.freshName (CircuitM.sanitizeName "out_rdata") true
-        ((CircuitM.freshName (CircuitM.sanitizeName "out") true p.state).2)).2.module.addWire
-          { name := rdW, ty := .bitVector dw }).addStmt
-        (.memory (CircuitM.freshName (CircuitM.sanitizeName "out") true p.state).1
-          aw dw "clk" (.ref waW) (.ref wdW) (.ref wenW) (.ref raW) rdW) := by
-    rw [hrec, hsmR, hrE2, ← hrdWm]
-  have hbody4 : p.state.module.body = [] := by
+  have hbodyZ : (prepare bools bits (bs.zip ids)
+      (start (entryCompilerState false cache) declName.toString)).state.module.body
+      = [] := by
     rw [prepared.2.2.1]; rfl
-  have fn1 := CircuitM.freshName_spec (CircuitM.sanitizeName "out") true p.state
-  have fn2 := CircuitM.freshName_spec (CircuitM.sanitizeName "out_rdata") true
-    ((CircuitM.freshName (CircuitM.sanitizeName "out") true p.state).2)
-  have stBody : st.module.body =
-      .assign "out" (.ref rdW) ::
-        .memory (CircuitM.freshName (CircuitM.sanitizeName "out") true p.state).1
-          aw dw "clk" (.ref waW) (.ref wdW) (.ref wenW) (.ref raW) rdW :: [] := by
-    rw [ht, emitAssign_body_cons, addOutput_state]
-    show _ :: (sm.module.addOutput _).body = _
-    rw [show ∀ (mo : Sparkle.IR.AST.Module) q, (mo.addOutput q).body = mo.body from
-      fun _ _ => rfl, smModule]
-    show _ :: (_ :: (CircuitM.freshName (CircuitM.sanitizeName "out_rdata") true
-      ((CircuitM.freshName (CircuitM.sanitizeName "out") true p.state).2)).2.module.body) = _
-    rw [fn2.2.2, fn1.2.2, hbody4]
-  have mBody : m.body =
-      [.memory (CircuitM.freshName (CircuitM.sanitizeName "out") true p.state).1
-        aw dw "clk" (.ref waW) (.ref wdW) (.ref wenW) (.ref raW) rdW,
-       .assign "out" (.ref rdW)] := by
-    rw [hm]
-    show ((addClockResetIfSequential st.module).finalize).body = _
-    simp only [Sparkle.IR.AST.Module.finalize,
-      (Tools.ShippingEntrySoundness.addClockReset_facts st.module).1, stBody]
-    rfl
-  -- Distinctness from "out": everything here is an allocated name.
-  have rdNotOut : rdW ≠ "out" := by
-    intro eq
-    have alloc := CircuitM.freshName_allocated (CircuitM.sanitizeName "out_rdata") true
-      ((CircuitM.freshName (CircuitM.sanitizeName "out") true p.state).2)
-    rw [← hrdWm, eq] at alloc
-    exact not_allocated_out alloc
-  have inputNotOut : ∀ (q : Sparkle.IR.AST.Port), q ∈ p.state.module.wires →
+  have hs4body : s4.module.body = [] := by
+    rw [hs4]
+    exact hbodyZ
+  have inputNotOut : ∀ (q : Sparkle.IR.AST.Port),
+      q ∈ (prepare bools bits (bs.zip ids)
+        (start (entryCompilerState false cache) declName.toString)).state.module.wires →
       q.name ≠ "out" := by
     intro q hq eq
     have alloc := prepare_wires_allocated bools bits (bs.zip ids) _
@@ -360,11 +374,17 @@ theorem synthesizeMixedCertified_memory_sound {logProf declName bs body m d}
           intro x hx; cases hx) q hq
     rw [eq] at alloc
     exact not_allocated_out alloc
-  refine ⟨(CircuitM.freshName (CircuitM.sanitizeName "out") true p.state).1,
-    rdW, waW, wdW, wenW, raW, ?_, rdNotOut,
-    inputNotOut _ waDecl, inputNotOut _ wdDecl, inputNotOut _ wenDecl,
-    inputNotOut _ raDecl, waVal, wdVal, wenVal, raVal, rfl⟩
-  rw [mBody]
-  rfl
+  refine ⟨?_, rdNotOut, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  · rw [mBody, hs4body]
+    subst hwaW hwdW hwenW hraW
+    rfl
+  · subst hwaW; exact inputNotOut _ waDecl
+  · subst hwdW; exact inputNotOut _ wdDecl
+  · subst hwenW; exact inputNotOut _ wenDecl
+  · subst hraW; exact inputNotOut _ raDecl
+  · subst hwaW; exact waVal
+  · subst hwdW; exact wdVal
+  · subst hwenW; exact wenVal
+  · subst hraW; exact raVal
 
 end Tools.ShippingMemoryEntrySoundness
