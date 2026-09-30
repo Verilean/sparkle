@@ -5355,6 +5355,8 @@ def instClkRst (acc : List (String × Sparkle.IR.AST.Expr)) :
       let parent := (← get).module
       if !parent.inputs.any (·.name == p.name) then
         CompilerM.addInput p.name p.ty
+      else
+        pure ()
       instClkRst ((p.name, Sparkle.IR.AST.Expr.ref p.name) :: acc) ps
     else
       instClkRst acc ps

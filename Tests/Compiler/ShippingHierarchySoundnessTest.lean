@@ -139,6 +139,42 @@ theorem parentUse_instance_entry {mctx : Meta.Context}
     (fun dv hv => by simp only [certifiedShape?, hv]; rfl)
     hscalar parentUse_peel rfl rfl rfl
 
+/-! The one-input sequential-child entry endpoint on the real parent. -/
+
+#def_decl_value parentSeqValue of parentSeq
+
+def parentSeqBinders : List (Name × MixedGateBinder) :=
+  [(`dom, .domain), (`a, .bits 8)]
+
+/-- The sequential parent's elaborated value IS the canonical one-input
+instance call on the tagged child, byte for byte. -/
+theorem parentSeq_peel : mixedGatePeel parentSeqValue = some (parentSeqBinders,
+    instE1 ``childSeq []
+      (inputExpr parentSeqBinders.length 0) (inputExpr parentSeqBinders.length 1)) := rfl
+
+/-- **The instance entry contract on the real sequential parent**: under the
+run's environment boundaries, the compiled parent/design pair satisfies
+`Instance1Preserves` — the parent is the canonical instance body with the
+clk/rst connections and freshly added clock ports, over the pinned child. -/
+theorem parentSeq_instance_entry {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {d : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore ``parentSeq [] false)
+      mctx mref cctx cref w (m, d) w')
+    (env : EnvDefines mctx mref cctx cref ``parentSeq parentSeqValue)
+    (tag : ∀ wE e wE', RunsTo (Lean.getEnv : MetaM Environment)
+      mctx mref cctx cref wE e wE' →
+      Sparkle.Compiler.isHardwareModule e ``childSeq = true)
+    (hscalar : ∀ dv : Lean.DefinitionVal, dv.value = parentSeqValue →
+      mixedGateResultScalar dv.type = true) :
+    Instance1Preserves ``parentSeq parentSeqBinders
+      (instE1 ``childSeq []
+        (inputExpr parentSeqBinders.length 0) (inputExpr parentSeqBinders.length 1)) m d :=
+  instance1_entry_of_env hr env tag
+    (fun dv hv => by simp only [certifiedShape?, hv]; rfl)
+    hscalar parentSeq_peel rfl rfl
+
 /-- **The entry output observes the source composition.** Combining the
 instance contract of THIS compile with the linked-instance semantics: the
 compiled parent's body, elaborated with the child bound to its pinned
@@ -305,9 +341,11 @@ run_cmd liftTermElabM do
   let (mt, _) ← synthesizeCombinationalCore ``parentTwo [] false
   unless mt.outputs.map (·.name) == ["lo", "hi"] do
     throwError "record-result parent lost an output: {mt.outputs.map (·.name)}"
-  -- The retained scalar-type premise HOLDS for the real declaration.
+  -- The retained scalar-type premises HOLD for the real declarations.
   unless mixedGateResultScalar (← getConstInfo ``parentUse).type do
     throwError "parentUse's result type is not one scalar Signal"
+  unless mixedGateResultScalar (← getConstInfo ``parentSeq).type do
+    throwError "parentSeq's result type is not one scalar Signal"
   -- Axiom audit.
   for name in [``Tools.ShippingHierarchySoundness.instBody_linked,
       ``Tools.ShippingHierarchySoundness.connEnv_at,
@@ -319,6 +357,9 @@ run_cmd liftTermElabM do
       ``Tools.ShippingInstanceEntrySoundness.synthesizeCombinationalCore_instance_sound,
       ``Tools.ShippingInstanceEntrySoundness.instance_entry_of_env,
       ``parentUse_peel, ``parentUse_instance_entry, ``parentUse_entry_observes,
+      ``Tools.ShippingInstanceEntrySoundness.synthesizeMixedCertified_instance1_sound,
+      ``Tools.ShippingInstanceEntrySoundness.instance1_entry_of_env,
+      ``parentSeq_peel, ``parentSeq_instance_entry,
       ``parentUse_linked] do
     for ax in (← collectAxioms name) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do
