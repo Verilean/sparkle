@@ -440,11 +440,21 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   the child declaration's own standalone certified compile, byte for
   byte, and the child passes the certified combinational gate — the
   child-side endpoints therefore apply verbatim to the instantiated
-  module. Open in S6: the entry-level connection for
-  the instance-emitting translation path (keyed caches,
-  multi-output/projection handling), sequential children, nested
-  instances, multiple instances, parameters, and the SV/text layer for
-  hierarchy (the M-layers' open-module view).
+  module. S6-2 gate plumbing DONE: `mixedCertifiedShape?` takes an
+  `isInst` predicate (default-false), `unifiedInstanceRoot` is the
+  (prepended) instance disjunct, the real dispatch passes
+  `instancePredicate env` (`@[hardware_module]` head-constant check
+  from the run's `getEnv`), `synthesizeCombinationalCore_reads`
+  exposes the run's predicate, old families' gate lemmas are
+  ∀-predicate and their wrappers take the ∀-form shape premise
+  (652-job suite green — the accepted set is UNCHANGED because the
+  v1 instance root rejects the dom argument's out-of-kinds bvar).
+  Open in S6: the certified instance lowering + monolith for the
+  gate-accepted instance shape (refine the root to admit the dom
+  argument, mirror the legacy sub-module path, `SubSynthDefines`
+  boundary), multi-output/projection handling, sequential children,
+  nested instances, multiple instances, parameters, and the SV/text
+  layer for hierarchy (the M-layers' open-module view).
 - [ ] **S7:** Reconcile all successful cases and compose the full shipping
   theorem; instantiate it on real circuits without substituting per-instance
   replay for coverage. STARTED — the reconciliation-1 statement exists

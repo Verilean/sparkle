@@ -99,15 +99,19 @@ need two further boundary predicates, mirroring `EnvDefines`:
   session history. A certified lowering that skips them is therefore
   byte-identical for canonical single-call shapes; no cache premise is
   needed.
-- The remaining S6-2 obstacle is the GATE: `@[hardware_module]` is a
-  tag in the environment, and `mixedCertifiedShape?` is a pure
-  function of the `ConstantInfo` — admitting instance roots means
-  threading an `isInstance` predicate through the gate's signature,
-  which ripples through every family's `shape` premise, gate lemma
-  and `synthesizeFromConst` decomposition (the predicate the real
-  dispatch passes comes from a `getEnv` read, so the `FromConst`
-  proofs must carry it as an opaque parameter). Mechanical but wide;
-  it is why S6-2 is staged as its own unit.
+- (RESOLVED) The gate/environment obstacle: `mixedCertifiedShape?` now
+  takes an `isInst : Lean.Expr → Bool` parameter (default
+  `fun _ => false`), the real dispatch passes `instancePredicate env`
+  (a `getEnv` read: head constant tagged `@[hardware_module]`), and
+  `synthesizeCombinationalCore_reads` exposes the run's predicate
+  existentially. Every OLD family's acceptance is
+  predicate-independent, so their gate lemmas are stated
+  `∀ isInst, mixedCertifiedShape? … isInst = some …` and the entry
+  wrappers take that ∀-form premise — structural consumers
+  (`mixedShape_positive` etc.) instantiate it at the default
+  predicate and stay untouched. The instance family's own acceptance
+  WILL depend on the run's predicate; its future wrapper carries the
+  per-run predicate boundary instead of the ∀-form.
 
 ## 7. What is NOT retained
 
