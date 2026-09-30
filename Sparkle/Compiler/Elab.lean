@@ -2337,6 +2337,18 @@ def unifiedInstanceRoot (isInst : Lean.Expr → Bool)
       | .bvar i => (mixedGateBVar? kinds i).isSome
       | _ => false
 
+/-- The declaration's result is one scalar Signal (Bool or positive-width
+    BitVec).  The certified single-output harness only covers these;
+    record/multi-output parents stay on the legacy front end (which splits
+    the return leaves), so the instance disjunct must not capture them. -/
+def mixedGateResultScalar : Lean.Expr → Bool
+  | .forallE _ _ b _ => mixedGateResultScalar b
+  | e =>
+    match mixedGateBinderKind? e with
+    | some .bool => true
+    | some (.bits _) => true
+    | _ => false
+
 def mixedCertifiedShape? (symbolicMode : Bool) (parameters : List (String × Nat))
     (ci : ConstantInfo)
     (isInst : Lean.Expr → Bool := fun _ => false) :
@@ -2346,7 +2358,8 @@ def mixedCertifiedShape? (symbolicMode : Bool) (parameters : List (String × Nat
     if symbolicMode || !parameters.isEmpty then none else
     match mixedGatePeel d.value with
     | some (bs, body) =>
-      if unifiedInstanceRoot isInst (bs.map (·.2)).toArray body ||
+      if (unifiedInstanceRoot isInst (bs.map (·.2)).toArray body &&
+            mixedGateResultScalar d.type) ||
           mixedGateBoolBody (bs.map (·.2)).toArray body ||
           mixedGateVectorRoot (bs.map (·.2)).toArray body ||
           unifiedGateRoot (bs.map (·.2)).toArray body ||

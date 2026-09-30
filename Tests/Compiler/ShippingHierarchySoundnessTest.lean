@@ -17,6 +17,28 @@ open Tools.ShippingHierarchySoundness
 def parentUse {dom : DomainConfig} (a b : Signal dom (BitVec 8)) :
     Signal dom (BitVec 8) := childAdd a b
 
+/-- A multi-output child: its instantiating parent must STAY on the legacy
+front end (the certified single-output harness would drop `hi`). -/
+structure TwoOut (dom : DomainConfig) where
+  lo : Signal dom (BitVec 8)
+  hi : Signal dom (BitVec 8)
+
+@[hardware_module] def childTwo {dom : DomainConfig}
+    (x y : Signal dom (BitVec 8)) : TwoOut dom :=
+  { lo := x + y, hi := x - y }
+
+def parentTwo {dom : DomainConfig} (a b : Signal dom (BitVec 8)) : TwoOut dom :=
+  childTwo a b
+
+/-- A sequential child: the certified instance path must agree with the
+legacy front end byte-for-byte, including the clk/rst auto-plumbing. -/
+@[hardware_module] def childSeq {dom : DomainConfig}
+    (x : Signal dom (BitVec 8)) : Signal dom (BitVec 8) :=
+  Signal.register 0#8 x
+
+def parentSeq {dom : DomainConfig} (a : Signal dom (BitVec 8)) :
+    Signal dom (BitVec 8) := childSeq a
+
 /-- The child module the pipeline emits, pinned literally. -/
 def childModule : Sparkle.IR.AST.Module :=
   { name := "childAdd"
@@ -118,6 +140,36 @@ run_cmd liftTermElabM do
         throwError "linked out mismatch at {a},{b}: {envF "out"}"
       count := count + 1
   unless count == 16 do throwError "hier case count mismatch"
+  -- The instance gate: the canonical parent is ACCEPTED at the run's
+  -- predicate (it now routes through the certified front end), and the
+  -- certified dispatch agrees with the legacy front end byte-for-byte.
+  let pred := instancePredicate (← getEnv)
+  unless (mixedCertifiedShape? false [] (← getConstInfo ``parentUse) pred).isSome do
+    throwError "canonical parent missed the instance gate"
+  let (mpL, dpL) ← synthesizeCombinationalCoreWith
+    (fun e h t n => translateExprToWire e h t n) ``parentUse [] false
+    (certifiedFrontEnd := false)
+  unless mp.body == mpL.body && mp.inputs == mpL.inputs && mp.outputs == mpL.outputs &&
+      mp.wires == mpL.wires && d.modules == dpL.modules do
+    throwError "certified instance lowering departed from the legacy front end"
+  -- Sequential child: gate-accepted, and certified/legacy parity holds
+  -- including clk/rst plumbing.
+  unless (mixedCertifiedShape? false [] (← getConstInfo ``parentSeq) pred).isSome do
+    throwError "sequential-child parent missed the instance gate"
+  let (ms, ds) ← synthesizeCombinationalCore ``parentSeq [] false
+  let (msL, dsL) ← synthesizeCombinationalCoreWith
+    (fun e h t n => translateExprToWire e h t n) ``parentSeq [] false
+    (certifiedFrontEnd := false)
+  unless ms.body == msL.body && ms.inputs == msL.inputs && ms.outputs == msL.outputs &&
+      ms.wires == msL.wires && ds.modules == dsL.modules do
+    throwError "sequential-child certified lowering departed from the legacy front end"
+  -- Record-result parent: the scalar-result guard must keep it on the
+  -- legacy path, which preserves BOTH outputs.
+  unless (mixedCertifiedShape? false [] (← getConstInfo ``parentTwo) pred).isNone do
+    throwError "record-result parent leaked through the instance gate"
+  let (mt, _) ← synthesizeCombinationalCore ``parentTwo [] false
+  unless mt.outputs.map (·.name) == ["lo", "hi"] do
+    throwError "record-result parent lost an output: {mt.outputs.map (·.name)}"
   -- Axiom audit.
   for name in [``Tools.ShippingHierarchySoundness.instBody_linked,
       ``Tools.ShippingHierarchySoundness.connEnv_at,
