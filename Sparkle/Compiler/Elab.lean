@@ -2309,20 +2309,20 @@ def unifiedRegisterRoot (kinds : Array MixedGateBinder) (e : Lean.Expr) : Bool :
 /-- The canonical memory root: `Signal.memory` whose four operands are
     bare input binders of the matching kinds. -/
 def unifiedMemoryRoot (kinds : Array MixedGateBinder) (e : Lean.Expr) : Bool :=
-  match canonicalMemory? e with
-  | some (aw, dw) =>
-    let args := e.getAppArgs
-    let isBits : Lean.Expr → Nat → Bool := fun a w =>
-      match a with
-      | .bvar i => mixedGateBVar? kinds i == some (.bits w)
-      | _ => false
-    let isBool : Lean.Expr → Bool := fun a =>
-      match a with
-      | .bvar i => mixedGateBVar? kinds i == some .bool
-      | _ => false
-    args.size == 7 && isBits args[3]! aw && isBits args[4]! dw &&
-      isBool args[5]! && isBits args[6]! aw
-  | none => false
+  match e with
+  | .app (.app (.app (.app (.app (.app (.app
+      (.const ``Sparkle.Core.Signal.Signal.memory _) dom) awE) dwE)
+      (.bvar wai)) (.bvar wdi)) (.bvar weni)) (.bvar rai) =>
+    (dom.isFVar || dom.isBVar) &&
+    (match canonicalNatLitValue? awE, canonicalNatLitValue? dwE with
+     | some aw, some dw =>
+       0 < aw && 0 < dw &&
+       mixedGateBVar? kinds wai == some (.bits aw) &&
+       mixedGateBVar? kinds wdi == some (.bits dw) &&
+       mixedGateBVar? kinds weni == some .bool &&
+       mixedGateBVar? kinds rai == some (.bits aw)
+     | _, _ => false)
+  | _ => false
 
 def mixedCertifiedShape? (symbolicMode : Bool) (parameters : List (String × Nat)) :
     ConstantInfo → Option (List (Name × MixedGateBinder) × Lean.Expr)
@@ -5214,28 +5214,20 @@ def translateRegisterEnableUncachedWith (rec : TranslateFn) (w v : Nat) : Transl
     scan, then one `.memory` statement whose read latches into the fresh
     `rdata` wire. -/
 def translateMemoryUncachedWith (rec : TranslateFn) (aw dw : Nat) : TranslateFn :=
-  fun e hint _top named => do
-    let args := e.getAppArgs
-    let waW ← rec args[args.size - 4]! "mem_waddr" false false
-    let wdW ← rec args[args.size - 3]! "mem_wdata" false false
-    let weW ← rec args[args.size - 2]! "mem_we" false false
-    let raW ← rec args[args.size - 1]! "mem_raddr" false false
-    let parent := (← get).module
-    let cachedRD : Option String := parent.body.findSome? fun stmt =>
-      match stmt with
-      | .memory _ aw' dw' _clk wa wd we ra rd _cr .. =>
-        if aw' == aw ∧ dw' == dw then
-          match wa, wd, we, ra with
-          | .ref a, .ref d, .ref en, .ref r =>
-            if a == waW ∧ d == wdW ∧ en == weW ∧ r == raW then some rd else none
-          | _, _, _, _ => none
-        else none
-      | _ => none
-    match cachedRD with
-    | some rd => return rd
-    | none =>
+  fun e hint _top named =>
+    match e with
+    | .app (.app (.app (.app (.app (.app (.app _ _) _) _) wa) wd) wen) ra => do
+      let waW ← rec wa "mem_waddr" false false
+      let wdW ← rec wd "mem_wdata" false false
+      let weW ← rec wen "mem_we" false false
+      let raW ← rec ra "mem_raddr" false false
+      -- No module-body dedupe scan here: the certified root is a single
+      -- output leaf, so the same memory is never re-translated within one
+      -- synthesis (the legacy handler's scan exists for multi-leaf splits),
+      -- and the validated cache wrapper already dedupes identical sources.
       CompilerM.emitMemory hint aw dw "clk" (.ref waW) (.ref wdW) (.ref weW)
         (.ref raW) (named := named)
+    | _ => throw (Exception.error .missing "memory shape departed after the gate")
 
 /-- Uncached lowering for the canonical single-slot `circuit do`: identical
     to the feedback-register lowering, with the cone taken from the
