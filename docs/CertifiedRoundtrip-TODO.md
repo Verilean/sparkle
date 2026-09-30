@@ -388,10 +388,20 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   gated to be the IDENTITY on both certified memory shapes, so these
   endpoints describe the exact module the pipeline prints. Open in S5: `memoryComboRead` (source
   marks it non-synthesizable), `memoryWithInit`, multi-port shapes, and the
-  checker/SV layers for memory bodies (M4's `seqCheck` covers only
-  combinationally-read memories; the certified sync-read shape needs a
-  latch-aware extension of that layer, and `seqOptCheck` excludes
-  memories entirely).
+  `seqOptCheck` route for memory bodies (it excludes memories). The
+  emitted-SV layer for SYNC-READ memories is now PROVED
+  (Tools/ShippingMemSVSoundness.lean, additive over the M4 core): the
+  extended checker `seqCheckM` (assigns + registers + single sync-read
+  memories with checked read address and the M4 write-port payload
+  conditions), a mixed sequential-update list carrying register
+  drivers AND read latches (`emitSeqNexts`/`seqNextsSV`), phase lemmas
+  cloning `emit_sem_regs`/`emit_sem_memNexts`, and the capstone
+  `certified_forward_trace_mem`: on checked bodies the emitted
+  Verilog's trace (`runModuleSVM`) is the IR's, every cycle. The test
+  gates `seqCheckM` acceptance on both certified memory modules
+  (standard axioms). Remaining for the memory text route: the
+  seedIn-style invariant wrapper and the width-congruence bridge (the
+  memory analogs of `forward_trace_inv`/`runModule_we_congr`).
 - [ ] **S6:** Actual hierarchy compilation and compositional instance semantics,
   port/parameter linkage and contained state/memory. STARTED — the
   combinational linked-semantics layer exists
@@ -446,7 +456,7 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   work will add (`SubSynthDefines`, instance-cache cleanliness) with the
   unresolved cache-history trade-off that stages S6-2.
 
-Latest validation: `lake build Tests.AllTests` passed all 651 jobs, with
+Latest validation: `lake build Tests.AllTests` passed all 652 jobs, with
 standard-axiom audits of the general endpoint and real signed/equality/Bool-logic
 source instantiations. Vector mux adds 2,772 source/legacy/SV/delta cases and
 real source theorems for nested and computed-condition muxes (no Bool input

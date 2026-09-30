@@ -1,4 +1,5 @@
 import Tools.ShippingMemoryEntrySoundness
+import Tools.ShippingMemSVSoundness
 import Tests.Compiler.ShippingMixedExecutionTest
 
 /-! S5-1 memory foundation tests: a real `Signal.memory` declaration, the
@@ -321,6 +322,16 @@ run_cmd liftTermElabM do
     unless o.body == mr2.body && o.wires == mr2.wires &&
         o.inputs == mr2.inputs && o.outputs == mr2.outputs do
       throwError "postprocessing changed the certified memory module of {decl}"
+  -- The EXTENDED emitted-SV checker accepts both certified memory
+  -- shapes (sync-read latch + write ports), so the forward trace
+  -- theorem with latches applies to the exact modules the pipeline
+  -- prints.
+  for decl in [``memAcc, ``memAccC] do
+    let (mr3, _) ← synthesizeCombinationalCore decl [] false
+    let wof := Tools.SVParser.RoundtripProof.moduleWof mr3
+    unless Tools.ShippingMemSVSoundness.seqCheckM wof
+        (Tools.SVParser.EmitSem.weOf wof) mr3.body do
+      throwError "seqCheckM rejected the certified memory module of {decl}"
   -- Axiom audit: the endpoint and the general layer carry only the
   -- standard axioms.
   for name in [``Tools.ShippingMemorySoundness.memStep,
@@ -334,7 +345,10 @@ run_cmd liftTermElabM do
       ``Tools.ShippingMemoryEntrySoundness.memoryCone_step_of_env,
       ``Tools.ShippingMemoryEntrySoundness.memoryCone_run_of_env,
       ``memAcc_run_val, ``memAcc_peel, ``memAcc_run,
-      ``memAccC_peel, ``memAccC_run] do
+      ``memAccC_peel, ``memAccC_run,
+      ``Tools.ShippingMemSVSoundness.emit_sem_seqNexts,
+      ``Tools.ShippingMemSVSoundness.emit_sem_memNextsM,
+      ``Tools.ShippingMemSVSoundness.certified_forward_trace_mem] do
     for ax in (← collectAxioms name) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do
         throwError "unexpected memory soundness axiom: {name}: {ax}"
