@@ -52,20 +52,21 @@ theorem synthesizeCombinationalCore_shipping_sound {declName : Name}
     ∃ (ci : ConstantInfo) (w1 w2 : Void IO.RealWorld),
       RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧
       ∀ bs body, certifiedShape? false [] ci = none →
-        mixedCertifiedShape? false [] ci = some (bs, body) →
+        (∀ isInst, mixedCertifiedShape? false [] ci isInst = some (bs, body)) →
         ShippingPreserves declName bs body m := by
-  obtain ⟨logProf, ci, w1, w2, w3, get, run⟩ := synthesizeCombinationalCore_reads hr
+  obtain ⟨logProf, isInst, ci, w1, w2, w3, w4, get, run⟩ :=
+    synthesizeCombinationalCore_reads hr
   refine ⟨ci, w1, w2, get, fun bs body old shape => ?_⟩
-  exact ⟨synthesizeFromConst_mixed_sound old shape run.mreturns,
-    synthesizeFromConst_term_sound old shape run.mreturns,
-    synthesizeFromConst_vector_sound old shape run.mreturns,
-    synthesizeFromConst_register_sound old shape run.mreturns,
-    synthesizeFromConst_registerEnable_sound old shape run.mreturns,
-    synthesizeFromConst_loopRegister_sound old shape run.mreturns,
-    synthesizeFromConst_register2_sound old shape run.mreturns,
-    synthesizeFromConst_cdo_sound old shape run.mreturns,
-    synthesizeFromConst_cdo2_sound old shape run.mreturns,
-    synthesizeFromConst_memory_sound old shape run.mreturns,
-    synthesizeFromConst_memoryCone_sound old shape run.mreturns⟩
+  exact ⟨synthesizeFromConst_mixed_sound old (shape isInst) run.mreturns,
+    synthesizeFromConst_term_sound old (shape isInst) run.mreturns,
+    synthesizeFromConst_vector_sound old (shape isInst) run.mreturns,
+    synthesizeFromConst_register_sound old (shape isInst) run.mreturns,
+    synthesizeFromConst_registerEnable_sound old (shape isInst) run.mreturns,
+    synthesizeFromConst_loopRegister_sound old (shape isInst) run.mreturns,
+    synthesizeFromConst_register2_sound old (shape isInst) run.mreturns,
+    synthesizeFromConst_cdo_sound old (shape isInst) run.mreturns,
+    synthesizeFromConst_cdo2_sound old (shape isInst) run.mreturns,
+    synthesizeFromConst_memory_sound old (shape isInst) run.mreturns,
+    synthesizeFromConst_memoryCone_sound old (shape isInst) run.mreturns⟩
 
 end Tools.ShippingCoreSoundness

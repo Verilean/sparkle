@@ -175,12 +175,12 @@ theorem synthesizeCombinational_mixed_execution {declName : Name} {mctx : Meta.C
     ∃ (ci : ConstantInfo) (w1 w2 : Void IO.RealWorld),
       RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧
       ∀ bs body, certifiedShape? false [] ci = none →
-        mixedCertifiedShape? false [] ci = some (bs, body) →
+        (∀ isInst, mixedCertifiedShape? false [] ci isInst = some (bs, body)) →
         MixedSourcePreserves declName bs body (ExecutionValue m) := by
   obtain ⟨raw, design, world, core, post⟩ := synthesizeCombinational_reads hr
   obtain ⟨ci, w1, w2, get, source⟩ := synthesizeCombinationalCore_mixed_sound core
   exact ⟨ci, w1, w2, get, fun bs body old shape =>
-    mixed_execution (source bs body old shape) (mixedShape_positive shape) post⟩
+    mixed_execution (source bs body old shape) (mixedShape_positive (shape (fun _ => false))) post⟩
 /-- Finite RTL settling observes the actual library Signals. `EnvDefines`
 remains the explicit boundary identifying the runtime declaration. -/
 theorem execution_source_of_env {declName : Name} {mctx : Meta.Context}

@@ -145,7 +145,9 @@ theorem mixedCertifiedShape_of_quote {d : DefinitionVal} {bs : List (Name × Mix
     (hb : ∀ j, j < kb → mixedGateBoolBody (bs.map (·.2)).toArray (binp j) = true)
     (hv : ∀ j, j < kv → gateBody (mixedBitKinds (bs.map (·.2)).toArray) n (vinp j) = true)
     (he : e.WF kb kv n) :
-    mixedCertifiedShape? false [] (.defnInfo d) = some (bs, quoteB dom n binp vinp e) := by
+    ∀ isInst, mixedCertifiedShape? false [] (.defnInfo d) isInst =
+      some (bs, quoteB dom n binp vinp e) := by
+  intro isInst
   simp only [mixedCertifiedShape?, Bool.false_or, List.isEmpty_nil, Bool.not_true,
     Bool.false_eq_true, if_false, peel, mixedGateBool_quote hn hb hv e he, Bool.or_true,
     Bool.true_or, if_true]

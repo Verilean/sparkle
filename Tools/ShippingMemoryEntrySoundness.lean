@@ -110,9 +110,10 @@ theorem memory_term_gate {d : DefinitionVal} {bs : List (Name × MixedGateBinder
     (hwd : ∃ name, bs[wdpos]? = some (name, .bits dw))
     (hwen : ∃ name, bs[wenpos]? = some (name, .bool))
     (hra : ∃ name, bs[rapos]? = some (name, .bits aw)) :
-    mixedCertifiedShape? false [] (.defnInfo d) = some (bs, memoryE dom aw dw
+    ∀ isInst, mixedCertifiedShape? false [] (.defnInfo d) isInst = some (bs, memoryE dom aw dw
       (inputExpr bs.length wapos) (inputExpr bs.length wdpos)
       (inputExpr bs.length wenpos) (inputExpr bs.length rapos)) := by
+  intro isInst
   have root := unifiedMemoryRoot_memoryE (kinds := (bs.map Prod.snd).toArray) hdom haw hdw
     (hwa.elim fun name pos => input_bits_accepted pos)
     (hwd.elim fun name pos => input_bits_accepted pos)
@@ -835,12 +836,12 @@ theorem synthesizeMixedCertified_memoryCone_sound {logProf declName bs body m d}
 
 /-! ## Dispatch from the real entry -/
 
-theorem synthesizeFromConst_memory_sound {logProf declName ci bs body m d}
+theorem synthesizeFromConst_memory_sound {logProf declName ci bs body m d} {isInst : Lean.Expr → Bool}
     (old : certifiedShape? false [] ci = none)
-    (shape : mixedCertifiedShape? false [] ci = some (bs, body))
+    (shape : mixedCertifiedShape? false [] ci isInst = some (bs, body))
     (hr : MReturns (synthesizeFromConst
       (fun e hint top named => translateExprToWire e hint top named) logProf declName
-      [] false true ci) (m, d)) :
+      [] false true ci isInst) (m, d)) :
     MemoryPreserves declName bs body m := by
   unfold synthesizeFromConst at hr
   simp only [↓reduceIte, old, shape] at hr
@@ -859,11 +860,11 @@ theorem synthesizeCombinationalCore_memory_sound {declName : Name} {mctx : Meta.
     ∃ (ci : ConstantInfo) (w1 w2 : Void IO.RealWorld),
       RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧
       ∀ bs body, certifiedShape? false [] ci = none →
-        mixedCertifiedShape? false [] ci = some (bs, body) →
+        (∀ isInst, mixedCertifiedShape? false [] ci isInst = some (bs, body)) →
         MemoryPreserves declName bs body m := by
-  obtain ⟨logProf, ci, w1, w2, w3, get, run⟩ := synthesizeCombinationalCore_reads hr
+  obtain ⟨logProf, isInst, ci, w1, w2, w3, w4, get, run⟩ := synthesizeCombinationalCore_reads hr
   exact ⟨ci, w1, w2, get, fun _ _ old shape =>
-    synthesizeFromConst_memory_sound old shape run.mreturns⟩
+    synthesizeFromConst_memory_sound old (shape isInst) run.mreturns⟩
 
 /-! ## Source-position plumbing and the entry endpoints -/
 
@@ -1023,7 +1024,7 @@ theorem memoryCone_term_gate {d : DefinitionVal} {bs : List (Name × MixedGateBi
     (hWEN : eWEN.WF kb kv vw) (hRA : eRA.WF kb kv vw)
     (hb : ∀ j, j < kb → ∃ name, bs[bpos j]? = some (name, .bool))
     (hvp : ∀ j, j < kv → ∃ name, bs[vpos j]? = some (name, .bits (vw j))) :
-    mixedCertifiedShape? false [] (.defnInfo d) = some (bs, memoryE dom aw dw
+    ∀ isInst, mixedCertifiedShape? false [] (.defnInfo d) isInst = some (bs, memoryE dom aw dw
       (quote dom (fun j => inputExpr bs.length (bpos j))
         (fun j => inputExpr bs.length (vpos j)) eWA)
       (quote dom (fun j => inputExpr bs.length (bpos j))
@@ -1032,6 +1033,7 @@ theorem memoryCone_term_gate {d : DefinitionVal} {bs : List (Name × MixedGateBi
         (fun j => inputExpr bs.length (vpos j)) eWEN)
       (quote dom (fun j => inputExpr bs.length (bpos j))
         (fun j => inputExpr bs.length (vpos j)) eRA)) := by
+  intro isInst
   have hbA := fun j hj => (hb j hj).elim fun name pos => input_bool_accepted
     (bs := bs) (j := bpos j) (name := name) pos
   have hvA := fun j hj => (hvp j hj).elim fun name pos => input_bits_accepted
@@ -1045,12 +1047,12 @@ theorem memoryCone_term_gate {d : DefinitionVal} {bs : List (Name × MixedGateBi
     Bool.false_eq_true, if_false, peel, root, Bool.or_true, if_true]
   rfl
 
-theorem synthesizeFromConst_memoryCone_sound {logProf declName ci bs body m d}
+theorem synthesizeFromConst_memoryCone_sound {logProf declName ci bs body m d} {isInst : Lean.Expr → Bool}
     (old : certifiedShape? false [] ci = none)
-    (shape : mixedCertifiedShape? false [] ci = some (bs, body))
+    (shape : mixedCertifiedShape? false [] ci isInst = some (bs, body))
     (hr : MReturns (synthesizeFromConst
       (fun e hint top named => translateExprToWire e hint top named) logProf declName
-      [] false true ci) (m, d)) :
+      [] false true ci isInst) (m, d)) :
     MemoryConePreserves declName bs body m := by
   unfold synthesizeFromConst at hr
   simp only [↓reduceIte, old, shape] at hr
@@ -1069,11 +1071,11 @@ theorem synthesizeCombinationalCore_memoryCone_sound {declName : Name} {mctx : M
     ∃ (ci : ConstantInfo) (w1 w2 : Void IO.RealWorld),
       RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧
       ∀ bs body, certifiedShape? false [] ci = none →
-        mixedCertifiedShape? false [] ci = some (bs, body) →
+        (∀ isInst, mixedCertifiedShape? false [] ci isInst = some (bs, body)) →
         MemoryConePreserves declName bs body m := by
-  obtain ⟨logProf, ci, w1, w2, w3, get, run⟩ := synthesizeCombinationalCore_reads hr
+  obtain ⟨logProf, isInst, ci, w1, w2, w3, w4, get, run⟩ := synthesizeCombinationalCore_reads hr
   exact ⟨ci, w1, w2, get, fun _ _ old shape =>
-    synthesizeFromConst_memoryCone_sound old shape run.mreturns⟩
+    synthesizeFromConst_memoryCone_sound old (shape isInst) run.mreturns⟩
 
 /-- **Per-cycle cone-memory endpoint at the real entry.** Each cycle's
 step latches the pre-write array at the read cone's value and lands an

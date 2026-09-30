@@ -23,7 +23,7 @@ theorem shipping_execution {declName : Name} {mctx : Meta.Context}
     ∃ (ci : ConstantInfo) (w1 w2 : Void IO.RealWorld),
       RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧
       ∀ bs body, certifiedShape? false [] ci = none →
-        mixedCertifiedShape? false [] ci = some (bs, body) →
+        (∀ isInst, mixedCertifiedShape? false [] ci isInst = some (bs, body)) →
         MixedSourcePreserves declName bs body (ExecutionValue m) :=
   synthesizeCombinational_mixed_execution hr
 

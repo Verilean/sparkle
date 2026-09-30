@@ -302,9 +302,10 @@ theorem term_gate {d : DefinitionVal} {bs : List (Name × MixedGateBinder)}
     (he : e.WF kb kv vw)
     (hb : ∀ j, j < kb → ∃ name, bs[bpos j]? = some (name, .bool))
     (hv : ∀ j, j < kv → ∃ name, bs[vpos j]? = some (name, .bits (vw j))) :
-    mixedCertifiedShape? false [] (.defnInfo d) = some (bs,
+    ∀ isInst, mixedCertifiedShape? false [] (.defnInfo d) isInst = some (bs,
       quote dom (fun j => inputExpr bs.length (bpos j))
         (fun j => inputExpr bs.length (vpos j)) e) := by
+  intro isInst
   have root := unified_root_accepted (kinds := (bs.map Prod.snd).toArray) (dom := dom)
     (fun j hj => (hb j hj).elim fun name pos => input_bool_accepted pos)
     (fun j hj => (hv j hj).elim fun name pos => input_bits_accepted pos)
@@ -466,10 +467,11 @@ theorem synthesizeMixedCertified_term_sound {logProf declName bs body m d}
       rw [frame.outputs, shape.2]; rfl
 
 theorem synthesizeFromConst_term_sound {logProf declName ci bs body m d}
+    {isInst : Lean.Expr → Bool}
     (old : certifiedShape? false [] ci = none)
-    (shape : mixedCertifiedShape? false [] ci = some (bs, body))
+    (shape : mixedCertifiedShape? false [] ci isInst = some (bs, body))
     (hr : MReturns (synthesizeFromConst
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName [] false true ci) (m, d)) :
+      (fun e hint top named => translateExprToWire e hint top named) logProf declName [] false true ci isInst) (m, d)) :
     TermPreserves declName bs body m := by
   unfold synthesizeFromConst at hr
   simp only [↓reduceIte, old, shape] at hr
@@ -488,9 +490,11 @@ theorem synthesizeCombinationalCore_term_sound {declName : Name} {mctx : Meta.Co
     ∃ (ci : ConstantInfo) (w1 w2 : Void IO.RealWorld),
       RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧
       ∀ bs body, certifiedShape? false [] ci = none →
-        mixedCertifiedShape? false [] ci = some (bs, body) → TermPreserves declName bs body m := by
-  obtain ⟨logProf, ci, w1, w2, w3, get, run⟩ := synthesizeCombinationalCore_reads hr
-  exact ⟨ci, w1, w2, get, fun _ _ old shape => synthesizeFromConst_term_sound old shape run.mreturns⟩
+        (∀ isInst, mixedCertifiedShape? false [] ci isInst = some (bs, body)) →
+        TermPreserves declName bs body m := by
+  obtain ⟨logProf, isInst, ci, w1, w2, w3, w4, get, run⟩ := synthesizeCombinationalCore_reads hr
+  exact ⟨ci, w1, w2, get, fun _ _ old shape =>
+    synthesizeFromConst_term_sound old (shape isInst) run.mreturns⟩
 
 theorem term_execution {declName bs body m m'} (source : TermPreserves declName bs body m)
     (positive : PositiveBinders bs)
@@ -506,12 +510,12 @@ theorem synthesizeCombinational_term_execution {declName : Name} {mctx : Meta.Co
     ∃ (ci : ConstantInfo) (w1 w2 : Void IO.RealWorld),
       RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧
       ∀ bs body, certifiedShape? false [] ci = none →
-        mixedCertifiedShape? false [] ci = some (bs, body) →
+        (∀ isInst, mixedCertifiedShape? false [] ci isInst = some (bs, body)) →
         TermSourcePreserves declName bs body (fun _ => ExecutionValue m) := by
   obtain ⟨raw, design, world, core, post⟩ := synthesizeCombinational_reads hr
   obtain ⟨ci, w1, w2, get, source⟩ := synthesizeCombinationalCore_term_sound core
   exact ⟨ci, w1, w2, get, fun bs body old shape =>
-    term_execution (source bs body old shape) (mixedShape_positive shape) post⟩
+    term_execution (source bs body old shape) (mixedShape_positive (shape (fun _ => false))) post⟩
 
 theorem instantiated_quote {xs : Array Lean.Expr} {dom : Lean.Expr} {kb kv : Nat} {vw : Nat → Nat}
     {binp vinp : Nat → Lean.Expr} {bids vids : Nat → FVarId}

@@ -83,7 +83,7 @@ theorem synthesizeCombinational_mixed_checked {declName : Name} {mctx : Meta.Con
     ∃ (ci : ConstantInfo) (w1 w2 : Void IO.RealWorld),
       RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧
       ∀ bs body, certifiedShape? false [] ci = none →
-        mixedCertifiedShape? false [] ci = some (bs, body) →
+        (∀ isInst, mixedCertifiedShape? false [] ci isInst = some (bs, body)) →
         MixedSourcePreserves declName bs body fun initial mems expected =>
           ∃ result, evalAssigns (weOf (checkedOptimize m)) mems (checkedOptimize m).body initial = some result ∧
             result "out" = expected ∧ "out" ∈ (checkedOptimize m).outputs.map (·.name) := by

@@ -254,7 +254,7 @@ theorem source_gate {d : DefinitionVal} {bs : List (Name × MixedGateBinder)}
     (hn : 0 < n) (he : e.WF kb kv n)
     (hb : ∀ j, j < kb → ∃ name, bs[bpos j]? = some (name, .bool))
     (hv : ∀ j, j < kv → ∃ name, bs[vpos j]? = some (name, .bits n)) :
-    mixedCertifiedShape? false [] (.defnInfo d) = some (bs,
+    ∀ isInst, mixedCertifiedShape? false [] (.defnInfo d) isInst = some (bs,
       quoteB dom n (fun j => inputExpr bs.length (bpos j))
         (fun j => inputExpr bs.length (vpos j)) e) := by
   apply mixedCertifiedShape_of_quote peel hn ?_ ?_ he
@@ -280,9 +280,9 @@ theorem shipping_source_signals {declName : Name} {mctx : Meta.Context}
       ∀ (bs : List (Name × MixedGateBinder)) (dom : Lean.Expr) (n kb kv : Nat)
         (bpos vpos : Nat → Nat) (e : BExpr),
       certifiedShape? false [] ci = none →
-      mixedCertifiedShape? false [] ci = some (bs,
+      (∀ isInst, mixedCertifiedShape? false [] ci isInst = some (bs,
         quoteB dom n (fun j => inputExpr bs.length (bpos j))
-          (fun j => inputExpr bs.length (vpos j)) e) →
+          (fun j => inputExpr bs.length (vpos j)) e)) →
       0 < n → e.WF kb kv n →
       (∀ j, j < kb → ∃ name, bs[bpos j]? = some (name, .bool)) →
       (∀ j, j < kv → ∃ name, bs[vpos j]? = some (name, .bits n)) →

@@ -77,9 +77,10 @@ theorem register_term_gate {d : DefinitionVal} {bs : List (Name × MixedGateBind
     (he : e.WF kb kv vw)
     (hb : ∀ j, j < kb → ∃ name, bs[bpos j]? = some (name, .bool))
     (hvp : ∀ j, j < kv → ∃ name, bs[vpos j]? = some (name, .bits (vw j))) :
-    mixedCertifiedShape? false [] (.defnInfo d) = some (bs, registerE dom w v
+    ∀ isInst, mixedCertifiedShape? false [] (.defnInfo d) isInst = some (bs, registerE dom w v
       (quote dom (fun j => inputExpr bs.length (bpos j))
         (fun j => inputExpr bs.length (vpos j)) e)) := by
+  intro isInst
   have body : unifiedGateBitsBody (bs.map Prod.snd).toArray w
       (quote dom (fun j => inputExpr bs.length (bpos j))
         (fun j => inputExpr bs.length (vpos j)) e) = true :=
@@ -753,11 +754,12 @@ theorem registerEnable_term_gate {d : DefinitionVal} {bs : List (Name × MixedGa
     (hen : en.WF kb kv vw) (he : e.WF kb kv vw)
     (hb : ∀ j, j < kb → ∃ name, bs[bpos j]? = some (name, .bool))
     (hvp : ∀ j, j < kv → ∃ name, bs[vpos j]? = some (name, .bits (vw j))) :
-    mixedCertifiedShape? false [] (.defnInfo d) = some (bs, registerEnableE dom w v
+    ∀ isInst, mixedCertifiedShape? false [] (.defnInfo d) isInst = some (bs, registerEnableE dom w v
       (quote dom (fun j => inputExpr bs.length (bpos j))
         (fun j => inputExpr bs.length (vpos j)) en)
       (quote dom (fun j => inputExpr bs.length (bpos j))
         (fun j => inputExpr bs.length (vpos j)) e)) := by
+  intro isInst
   have henB : unifiedGateBoolBody (bs.map Prod.snd).toArray
       (quote dom (fun j => inputExpr bs.length (bpos j))
         (fun j => inputExpr bs.length (vpos j)) en) = true :=
@@ -2166,9 +2168,10 @@ theorem loopRegister_term_gate {d : DefinitionVal} {bs : List (Name × MixedGate
     (he : e.WF kb (kv + 1) vw)
     (hb : ∀ j, j < kb → ∃ name, bs[bpos j]? = some (name, .bool))
     (hvp : ∀ j, j < kv → ∃ name, bs[vpos j]? = some (name, .bits (vw j))) :
-    mixedCertifiedShape? false [] (.defnInfo d) = some (bs, loopRegisterE domO domI inst w v
+    ∀ isInst, mixedCertifiedShape? false [] (.defnInfo d) isInst = some (bs, loopRegisterE domO domI inst w v
       (quote domI (fun j => inputExpr (bs.length + 1) (bpos j))
         (fun j => if j = kv then .bvar 0 else inputExpr (bs.length + 1) (vpos j)) e)) := by
+  intro isInst
   have body : unifiedGateBitsBody ((bs.map Prod.snd).toArray.push (.bits w)) w
       (quote domI (fun j => inputExpr (bs.length + 1) (bpos j))
         (fun j => if j = kv then .bvar 0 else inputExpr (bs.length + 1) (vpos j)) e) = true :=
@@ -2191,12 +2194,12 @@ theorem loopRegister_term_gate {d : DefinitionVal} {bs : List (Name × MixedGate
 
 /-! ## Real-entry connection -/
 
-theorem synthesizeFromConst_register_sound {logProf declName ci bs body m d}
+theorem synthesizeFromConst_register_sound {logProf declName ci bs body m d} {isInst : Lean.Expr → Bool}
     (old : certifiedShape? false [] ci = none)
-    (shape : mixedCertifiedShape? false [] ci = some (bs, body))
+    (shape : mixedCertifiedShape? false [] ci isInst = some (bs, body))
     (hr : MReturns (synthesizeFromConst
       (fun e hint top named => translateExprToWire e hint top named) logProf declName
-      [] false true ci) (m, d)) :
+      [] false true ci isInst) (m, d)) :
     RegisterPreserves declName bs body m := by
   unfold synthesizeFromConst at hr
   simp only [↓reduceIte, old, shape] at hr
@@ -2217,11 +2220,11 @@ theorem synthesizeCombinationalCore_register_sound {declName : Name} {mctx : Met
     ∃ (ci : ConstantInfo) (w1 w2 : Void IO.RealWorld),
       RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧
       ∀ bs body, certifiedShape? false [] ci = none →
-        mixedCertifiedShape? false [] ci = some (bs, body) →
+        (∀ isInst, mixedCertifiedShape? false [] ci isInst = some (bs, body)) →
         RegisterPreserves declName bs body m := by
-  obtain ⟨logProf, ci, w1, w2, w3, get, run⟩ := synthesizeCombinationalCore_reads hr
+  obtain ⟨logProf, isInst, ci, w1, w2, w3, w4, get, run⟩ := synthesizeCombinationalCore_reads hr
   exact ⟨ci, w1, w2, get, fun _ _ old shape =>
-    synthesizeFromConst_register_sound old shape run.mreturns⟩
+    synthesizeFromConst_register_sound old (shape isInst) run.mreturns⟩
 
 /-! ## Source-position plumbing -/
 
@@ -2336,12 +2339,12 @@ theorem register_step_of_env {declName : Name} {mctx : Meta.Context}
     (by rw [definition]; exact peel) hdom hvlt he hb hvp
   exact register_source (source bs _ oldGate mixedGate) rfl hdp he hvlt hb hvp
 
-theorem synthesizeFromConst_registerEnable_sound {logProf declName ci bs body m d}
+theorem synthesizeFromConst_registerEnable_sound {logProf declName ci bs body m d} {isInst : Lean.Expr → Bool}
     (old : certifiedShape? false [] ci = none)
-    (shape : mixedCertifiedShape? false [] ci = some (bs, body))
+    (shape : mixedCertifiedShape? false [] ci isInst = some (bs, body))
     (hr : MReturns (synthesizeFromConst
       (fun e hint top named => translateExprToWire e hint top named) logProf declName
-      [] false true ci) (m, d)) :
+      [] false true ci isInst) (m, d)) :
     RegisterEnablePreserves declName bs body m := by
   unfold synthesizeFromConst at hr
   simp only [↓reduceIte, old, shape] at hr
@@ -2360,11 +2363,11 @@ theorem synthesizeCombinationalCore_registerEnable_sound {declName : Name}
     ∃ (ci : ConstantInfo) (w1 w2 : Void IO.RealWorld),
       RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧
       ∀ bs body, certifiedShape? false [] ci = none →
-        mixedCertifiedShape? false [] ci = some (bs, body) →
+        (∀ isInst, mixedCertifiedShape? false [] ci isInst = some (bs, body)) →
         RegisterEnablePreserves declName bs body m := by
-  obtain ⟨logProf, ci, w1, w2, w3, get, run⟩ := synthesizeCombinationalCore_reads hr
+  obtain ⟨logProf, isInst, ci, w1, w2, w3, w4, get, run⟩ := synthesizeCombinationalCore_reads hr
   exact ⟨ci, w1, w2, get, fun _ _ old shape =>
-    synthesizeFromConst_registerEnable_sound old shape run.mreturns⟩
+    synthesizeFromConst_registerEnable_sound old (shape isInst) run.mreturns⟩
 
 /-- Position plumbing for the enabled register root. -/
 theorem registerEnable_source {declName : Name} {bs : List (Name × MixedGateBinder)}
@@ -2488,12 +2491,12 @@ theorem registerEnable_step_of_env {declName : Name} {mctx : Meta.Context}
     (by rw [definition]; exact peel) hdom hvlt hen he hb hvp
   exact registerEnable_source (source bs _ oldGate mixedGate) rfl hdp hen he hvlt hb hvp
 
-theorem synthesizeFromConst_loopRegister_sound {logProf declName ci bs body m d}
+theorem synthesizeFromConst_loopRegister_sound {logProf declName ci bs body m d} {isInst : Lean.Expr → Bool}
     (old : certifiedShape? false [] ci = none)
-    (shape : mixedCertifiedShape? false [] ci = some (bs, body))
+    (shape : mixedCertifiedShape? false [] ci isInst = some (bs, body))
     (hr : MReturns (synthesizeFromConst
       (fun e hint top named => translateExprToWire e hint top named) logProf declName
-      [] false true ci) (m, d)) :
+      [] false true ci isInst) (m, d)) :
     LoopRegisterPreserves declName bs body m := by
   unfold synthesizeFromConst at hr
   simp only [↓reduceIte, old, shape] at hr
@@ -2512,11 +2515,11 @@ theorem synthesizeCombinationalCore_loopRegister_sound {declName : Name}
     ∃ (ci : ConstantInfo) (w1 w2 : Void IO.RealWorld),
       RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧
       ∀ bs body, certifiedShape? false [] ci = none →
-        mixedCertifiedShape? false [] ci = some (bs, body) →
+        (∀ isInst, mixedCertifiedShape? false [] ci isInst = some (bs, body)) →
         LoopRegisterPreserves declName bs body m := by
-  obtain ⟨logProf, ci, w1, w2, w3, get, run⟩ := synthesizeCombinationalCore_reads hr
+  obtain ⟨logProf, isInst, ci, w1, w2, w3, w4, get, run⟩ := synthesizeCombinationalCore_reads hr
   exact ⟨ci, w1, w2, get, fun _ _ old shape =>
-    synthesizeFromConst_loopRegister_sound old shape run.mreturns⟩
+    synthesizeFromConst_loopRegister_sound old (shape isInst) run.mreturns⟩
 
 /-- Instantiation of the shifted telescope under the loop binder. -/
 theorem instantiated_input_shift {bs : List (Name × MixedGateBinder)} {ids : List FVarId}
@@ -2976,9 +2979,10 @@ theorem register2_term_gate {d : DefinitionVal} {bs : List (Name × MixedGateBin
     (he : e.WF kb kv vw)
     (hb : ∀ j, j < kb → ∃ name, bs[bpos j]? = some (name, .bool))
     (hvp : ∀ j, j < kv → ∃ name, bs[vpos j]? = some (name, .bits (vw j))) :
-    mixedCertifiedShape? false [] (.defnInfo d) = some (bs, registerE dom w v1 (registerE dom w v2
+    ∀ isInst, mixedCertifiedShape? false [] (.defnInfo d) isInst = some (bs, registerE dom w v1 (registerE dom w v2
       (quote dom (fun j => inputExpr bs.length (bpos j))
         (fun j => inputExpr bs.length (vpos j)) e))) := by
+  intro isInst
   have body : unifiedGateBitsBody (bs.map Prod.snd).toArray w
       (quote dom (fun j => inputExpr bs.length (bpos j))
         (fun j => inputExpr bs.length (vpos j)) e) = true :=
@@ -3496,12 +3500,12 @@ theorem synthesizeMixedCertified_register2_sound {logProf declName bs body m d}
   unfold stepModule
   simp [evalFull, nexts, mem0, bind]
 
-theorem synthesizeFromConst_register2_sound {logProf declName ci bs body m d}
+theorem synthesizeFromConst_register2_sound {logProf declName ci bs body m d} {isInst : Lean.Expr → Bool}
     (old : certifiedShape? false [] ci = none)
-    (shape : mixedCertifiedShape? false [] ci = some (bs, body))
+    (shape : mixedCertifiedShape? false [] ci isInst = some (bs, body))
     (hr : MReturns (synthesizeFromConst
       (fun e hint top named => translateExprToWire e hint top named) logProf declName
-      [] false true ci) (m, d)) :
+      [] false true ci isInst) (m, d)) :
     Register2Preserves declName bs body m := by
   unfold synthesizeFromConst at hr
   simp only [↓reduceIte, old, shape] at hr
@@ -3520,11 +3524,11 @@ theorem synthesizeCombinationalCore_register2_sound {declName : Name} {mctx : Me
     ∃ (ci : ConstantInfo) (w1 w2 : Void IO.RealWorld),
       RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧
       ∀ bs body, certifiedShape? false [] ci = none →
-        mixedCertifiedShape? false [] ci = some (bs, body) →
+        (∀ isInst, mixedCertifiedShape? false [] ci isInst = some (bs, body)) →
         Register2Preserves declName bs body m := by
-  obtain ⟨logProf, ci, w1, w2, w3, get, run⟩ := synthesizeCombinationalCore_reads hr
+  obtain ⟨logProf, isInst, ci, w1, w2, w3, w4, get, run⟩ := synthesizeCombinationalCore_reads hr
   exact ⟨ci, w1, w2, get, fun _ _ old shape =>
-    synthesizeFromConst_register2_sound old shape run.mreturns⟩
+    synthesizeFromConst_register2_sound old (shape isInst) run.mreturns⟩
 
 /-- Position plumbing for the two-stage chain. -/
 theorem register2_source {declName : Name} {bs : List (Name × MixedGateBinder)}
@@ -4034,13 +4038,14 @@ theorem cdo_term_gate {d : DefinitionVal} {bs : List (Name × MixedGateBinder)}
     (he : e.WF kb (kv + 1) vw)
     (hb : ∀ j, j < kb → ∃ name, bs[bpos j]? = some (name, .bool))
     (hvp : ∀ j, j < kv → ∃ name, bs[vpos j]? = some (name, .bits (vw j))) :
-    mixedCertifiedShape? false [] (.defnInfo d) = some (bs, cdoE nmR (inputExpr bs.length dpos)
+    ∀ isInst, mixedCertifiedShape? false [] (.defnInfo d) isInst = some (bs, cdoE nmR (inputExpr bs.length dpos)
       (inputExpr (bs.length + 1) dpos) (inputExpr (bs.length + 2) dpos)
       (inputExpr (bs.length + 3) dpos) w v
       (quote (inputExpr (bs.length + 2) dpos)
         (fun j => inputExpr (bs.length + 2) (bpos j))
         (fun j => if j = kv then readE (inputExpr (bs.length + 2) dpos) w (.bvar 0)
           else inputExpr (bs.length + 2) (vpos j)) e)) := by
+  intro isInst
   have hcone := cdoConeToLoop_quote_inputs hdp
     (fun j hj => (hb j hj).elim fun name pos =>
       Nat.lt_of_lt_of_le (List.getElem_of_getElem? pos).choose (Nat.le_refl _))
@@ -4754,12 +4759,12 @@ theorem synthesizeMixedCertified_cdo_sound {logProf declName bs body m d}
 
 /-! ### Gate acceptance with the pushed loop binder -/
 
-theorem synthesizeFromConst_cdo_sound {logProf declName ci bs body m d}
+theorem synthesizeFromConst_cdo_sound {logProf declName ci bs body m d} {isInst : Lean.Expr → Bool}
     (old : certifiedShape? false [] ci = none)
-    (shape : mixedCertifiedShape? false [] ci = some (bs, body))
+    (shape : mixedCertifiedShape? false [] ci isInst = some (bs, body))
     (hr : MReturns (synthesizeFromConst
       (fun e hint top named => translateExprToWire e hint top named) logProf declName
-      [] false true ci) (m, d)) :
+      [] false true ci isInst) (m, d)) :
     CdoPreserves declName bs body m := by
   unfold synthesizeFromConst at hr
   simp only [↓reduceIte, old, shape] at hr
@@ -4778,11 +4783,11 @@ theorem synthesizeCombinationalCore_cdo_sound {declName : Name}
     ∃ (ci : ConstantInfo) (w1 w2 : Void IO.RealWorld),
       RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧
       ∀ bs body, certifiedShape? false [] ci = none →
-        mixedCertifiedShape? false [] ci = some (bs, body) →
+        (∀ isInst, mixedCertifiedShape? false [] ci isInst = some (bs, body)) →
         CdoPreserves declName bs body m := by
-  obtain ⟨logProf, ci, w1, w2, w3, get, run⟩ := synthesizeCombinationalCore_reads hr
+  obtain ⟨logProf, isInst, ci, w1, w2, w3, w4, get, run⟩ := synthesizeCombinationalCore_reads hr
   exact ⟨ci, w1, w2, get, fun _ _ old shape =>
-    synthesizeFromConst_cdo_sound old shape run.mreturns⟩
+    synthesizeFromConst_cdo_sound old (shape isInst) run.mreturns⟩
 
 /-- Instantiation of the shifted telescope under the loop binder. -/
 theorem instantiated_input_shift2 {bs : List (Name × MixedGateBinder)} {ids : List FVarId}
@@ -5461,7 +5466,7 @@ theorem cdo2_term_gate {d : DefinitionVal} {bs : List (Name × MixedGateBinder)}
     (he0 : e0.WF kb (kv + 2) vw) (he1 : e1.WF kb (kv + 2) vw)
     (hb : ∀ j, j < kb → ∃ name, bs[bpos j]? = some (name, .bool))
     (hvp : ∀ j, j < kv → ∃ name, bs[vpos j]? = some (name, .bits (vw j))) :
-    mixedCertifiedShape? false [] (.defnInfo d) = some (bs, cdo2E nmX nmY
+    ∀ isInst, mixedCertifiedShape? false [] (.defnInfo d) isInst = some (bs, cdo2E nmX nmY
       (inputExpr bs.length dpos) (inputExpr (bs.length + 1) dpos)
       (inputExpr (bs.length + 2) dpos) (inputExpr (bs.length + 3) dpos)
       (inputExpr (bs.length + 4) dpos) (inputExpr (bs.length + 5) dpos)
@@ -5477,6 +5482,7 @@ theorem cdo2_term_gate {d : DefinitionVal} {bs : List (Name × MixedGateBinder)}
         (fun j => if j = kv then read2E (inputExpr (bs.length + 5) dpos) w (.bvar 3)
           else if j = kv + 1 then read2E (inputExpr (bs.length + 5) dpos) w (.bvar 1)
           else inputExpr (bs.length + 5) (vpos j)) e1)) := by
+  intro isInst
   have hbLt : ∀ j, j < kb → bpos j < bs.length := fun j hj =>
     (hb j hj).elim fun name pos => (List.getElem_of_getElem? pos).choose
   have hvLt : ∀ j, j < kv → vpos j < bs.length := fun j hj =>
@@ -6582,12 +6588,12 @@ theorem instFVars_read2E (xs : Array Lean.Expr) (d : Nat) (dom : Lean.Expr) (w :
     instFVars xs d (read2E dom w x) =
       read2E (instFVars xs d dom) w (instFVars xs d x) := rfl
 
-theorem synthesizeFromConst_cdo2_sound {logProf declName ci bs body m d}
+theorem synthesizeFromConst_cdo2_sound {logProf declName ci bs body m d} {isInst : Lean.Expr → Bool}
     (old : certifiedShape? false [] ci = none)
-    (shape : mixedCertifiedShape? false [] ci = some (bs, body))
+    (shape : mixedCertifiedShape? false [] ci isInst = some (bs, body))
     (hr : MReturns (synthesizeFromConst
       (fun e hint top named => translateExprToWire e hint top named) logProf declName
-      [] false true ci) (m, d)) :
+      [] false true ci isInst) (m, d)) :
     Cdo2Preserves declName bs body m := by
   unfold synthesizeFromConst at hr
   simp only [↓reduceIte, old, shape] at hr
@@ -6606,11 +6612,11 @@ theorem synthesizeCombinationalCore_cdo2_sound {declName : Name}
     ∃ (ci : ConstantInfo) (w1 w2 : Void IO.RealWorld),
       RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧
       ∀ bs body, certifiedShape? false [] ci = none →
-        mixedCertifiedShape? false [] ci = some (bs, body) →
+        (∀ isInst, mixedCertifiedShape? false [] ci isInst = some (bs, body)) →
         Cdo2Preserves declName bs body m := by
-  obtain ⟨logProf, ci, w1, w2, w3, get, run⟩ := synthesizeCombinationalCore_reads hr
+  obtain ⟨logProf, isInst, ci, w1, w2, w3, w4, get, run⟩ := synthesizeCombinationalCore_reads hr
   exact ⟨ci, w1, w2, get, fun _ _ old shape =>
-    synthesizeFromConst_cdo2_sound old shape run.mreturns⟩
+    synthesizeFromConst_cdo2_sound old (shape isInst) run.mreturns⟩
 
 /-- Position plumbing for the two-slot circuit-do root (first slot returned). -/
 theorem cdo2_source {declName : Name} {bs : List (Name × MixedGateBinder)}

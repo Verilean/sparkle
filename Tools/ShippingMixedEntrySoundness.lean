@@ -656,10 +656,11 @@ theorem synthesizeMixedCertified_sound {logProf declName bs body m d}
 /-- The actual declaration dispatcher selects this proved input/translation
 path. Both gate decisions are pure, checkable conditions on that declaration. -/
 theorem synthesizeFromConst_mixed_sound {logProf declName ci bs body m d}
+    {isInst : Lean.Expr → Bool}
     (old : certifiedShape? false [] ci = none)
-    (shape : mixedCertifiedShape? false [] ci = some (bs, body))
+    (shape : mixedCertifiedShape? false [] ci isInst = some (bs, body))
     (hr : MReturns (synthesizeFromConst
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName [] false true ci) (m, d)) :
+      (fun e hint top named => translateExprToWire e hint top named) logProf declName [] false true ci isInst) (m, d)) :
     MixedPreserves declName bs body m := by
   unfold synthesizeFromConst at hr
   simp only [↓reduceIte, old, shape] at hr
@@ -681,8 +682,10 @@ theorem synthesizeCombinationalCore_mixed_sound {declName : Name} {mctx : Meta.C
     ∃ (ci : ConstantInfo) (w1 w2 : Void IO.RealWorld),
       RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧
       ∀ bs body, certifiedShape? false [] ci = none →
-        mixedCertifiedShape? false [] ci = some (bs, body) → MixedPreserves declName bs body m := by
-  obtain ⟨logProf, ci, w1, w2, w3, get, run⟩ := synthesizeCombinationalCore_reads hr
-  exact ⟨ci, w1, w2, get, fun _ _ old shape => synthesizeFromConst_mixed_sound old shape run.mreturns⟩
+        (∀ isInst, mixedCertifiedShape? false [] ci isInst = some (bs, body)) →
+        MixedPreserves declName bs body m := by
+  obtain ⟨logProf, isInst, ci, w1, w2, w3, w4, get, run⟩ := synthesizeCombinationalCore_reads hr
+  exact ⟨ci, w1, w2, get, fun _ _ old shape =>
+    synthesizeFromConst_mixed_sound old (shape isInst) run.mreturns⟩
 
 end Tools.ShippingMixedEntrySoundness

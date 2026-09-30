@@ -81,10 +81,11 @@ theorem synthesizeMixedCertified_vector_sound {logProf declName bs body m d}
   exact step
 
 theorem synthesizeFromConst_vector_sound {logProf declName ci bs body m d}
+    {isInst : Lean.Expr → Bool}
     (old : certifiedShape? false [] ci = none)
-    (shape : mixedCertifiedShape? false [] ci = some (bs, body))
+    (shape : mixedCertifiedShape? false [] ci isInst = some (bs, body))
     (hr : MReturns (synthesizeFromConst
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName [] false true ci) (m, d)) :
+      (fun e hint top named => translateExprToWire e hint top named) logProf declName [] false true ci isInst) (m, d)) :
     VectorPreserves declName bs body m := by
   unfold synthesizeFromConst at hr
   simp only [↓reduceIte, old, shape] at hr
@@ -106,9 +107,11 @@ theorem synthesizeCombinationalCore_vector_sound {declName : Name} {mctx : Meta.
     ∃ (ci : ConstantInfo) (w1 w2 : Void IO.RealWorld),
       RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧
       ∀ bs body, certifiedShape? false [] ci = none →
-        mixedCertifiedShape? false [] ci = some (bs, body) → VectorPreserves declName bs body m := by
-  obtain ⟨logProf, ci, w1, w2, w3, get, run⟩ := synthesizeCombinationalCore_reads hr
-  exact ⟨ci, w1, w2, get, fun _ _ old shape => synthesizeFromConst_vector_sound old shape run.mreturns⟩
+        (∀ isInst, mixedCertifiedShape? false [] ci isInst = some (bs, body)) →
+        VectorPreserves declName bs body m := by
+  obtain ⟨logProf, isInst, ci, w1, w2, w3, w4, get, run⟩ := synthesizeCombinationalCore_reads hr
+  exact ⟨ci, w1, w2, get, fun _ _ old shape =>
+    synthesizeFromConst_vector_sound old (shape isInst) run.mreturns⟩
 
 theorem vector_execution {declName bs body m m'} (source : VectorPreserves declName bs body m)
     (positive : PositiveBinders bs)
@@ -124,12 +127,12 @@ theorem synthesizeCombinational_vector_execution {declName : Name} {mctx : Meta.
     ∃ (ci : ConstantInfo) (w1 w2 : Void IO.RealWorld),
       RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧
       ∀ bs body, certifiedShape? false [] ci = none →
-        mixedCertifiedShape? false [] ci = some (bs, body) →
+        (∀ isInst, mixedCertifiedShape? false [] ci isInst = some (bs, body)) →
         VectorSourcePreserves declName bs body (fun _ => ExecutionValue m) := by
   obtain ⟨raw, design, world, core, post⟩ := synthesizeCombinational_reads hr
   obtain ⟨ci, w1, w2, get, source⟩ := synthesizeCombinationalCore_vector_sound core
   exact ⟨ci, w1, w2, get, fun bs body old shape =>
-    vector_execution (source bs body old shape) (mixedShape_positive shape) post⟩
+    vector_execution (source bs body old shape) (mixedShape_positive (shape (fun _ => false))) post⟩
 
 open Tools.ShippingMixedGateSoundness Tools.ShippingMuxTypeSoundness
 open Sparkle.Core.Domain Sparkle.Core.Signal
@@ -272,9 +275,10 @@ theorem source_gate {d : DefinitionVal} {bs : List (Name × MixedGateBinder)}
     (hn : 0 < n) (he : e.WF kb kv n)
     (hb : ∀ j, j < kb → ∃ name, bs[bpos j]? = some (name, .bool))
     (hv : ∀ j, j < kv → ∃ name, bs[vpos j]? = some (name, .bits n)) :
-    mixedCertifiedShape? false [] (.defnInfo d) = some (bs,
+    ∀ isInst, mixedCertifiedShape? false [] (.defnInfo d) isInst = some (bs,
       quoteV dom n (fun j => inputExpr bs.length (bpos j))
         (fun j => inputExpr bs.length (vpos j)) e) := by
+  intro isInst
   have body := vectorBody_quote (dom := dom) (kinds := (bs.map Prod.snd).toArray)
     (binp := fun j => inputExpr bs.length (bpos j))
     (vinp := fun j => inputExpr bs.length (vpos j)) hn (fun j hj => by

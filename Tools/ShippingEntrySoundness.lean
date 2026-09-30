@@ -1012,9 +1012,10 @@ elab "peel_ite " h:ident : tactic => do
 
 /-- Everything after reading the declaration, as a function of the constant. -/
 theorem synthesizeFromConst_sound {logProf : String → IO Unit} {declName : Name}
-    {ci : ConstantInfo} {M : Sparkle.IR.AST.Module} {D : Design}
+    {ci : ConstantInfo} {isInst : Lean.Expr → Bool}
+    {M : Sparkle.IR.AST.Module} {D : Design}
     (h : MReturns (synthesizeFromConst (fun e h t n => translateExprToWire e h t n) logProf
-      declName [] false true ci) (M, D)) :
+      declName [] false true ci isInst) (M, D)) :
     CertifiedOutcome ci M := by
   intro bs body hshape
   unfold synthesizeFromConst at h
@@ -1026,25 +1027,27 @@ theorem synthesizeFromConst_sound {logProf : String → IO Unit} {declName : Nam
   subst this
   exact synthesizeCertified_sound hres
 
-/-- The real entry reads the declaration with `getConstInfo`, then runs
-`synthesizeFromConst` on THAT constant — in the same contexts and state
-references, from the world `getConstInfo` returned. -/
+/-- The real entry reads the declaration with `getConstInfo`, then computes the
+run's instance predicate from `getEnv`, then runs `synthesizeFromConst` on THAT
+constant with THAT predicate — in the same contexts and state references. -/
 theorem synthesizeCombinationalCore_reads {declName : Name} {mctx : Meta.Context}
     {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
     {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
     {M : Sparkle.IR.AST.Module} {D : Design}
     (h : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (M, D) w') :
-    ∃ (logProf : String → IO Unit) (ci : ConstantInfo) (w1 w2 w3 : Void IO.RealWorld),
+    ∃ (logProf : String → IO Unit) (isInst : Lean.Expr → Bool) (ci : ConstantInfo)
+      (w1 w2 w3 w4 : Void IO.RealWorld),
       RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧
       RunsTo (synthesizeFromConst (fun e h t n => translateExprToWire e h t n) logProf
-        declName [] false true ci) mctx mref cctx cref w2 (M, D) w3 := by
+        declName [] false true ci isInst) mctx mref cctx cref w3 (M, D) w4 := by
   unfold synthesizeCombinationalCore synthesizeCombinationalCoreWith at h
   simp only [Bool.false_eq_true, ↓reduceIte] at h
   iterate 40 (all_goals (first | peel_bind h | peel_ite h | skip))
   all_goals (
     obtain ⟨_, h⟩ := RunsTo.try_finally h
     obtain ⟨ci, w2, hget, h⟩ := RunsTo.bind h
-    exact ⟨_, ci, _, w2, _, hget, h⟩)
+    obtain ⟨env, w2b, -, h⟩ := RunsTo.bind h
+    exact ⟨_, _, ci, _, w2, _, _, hget, h⟩)
 
 /-- **The entry theorem.** A successful run of the real entry read SOME
 constant `ci` with `getConstInfo declName` in the same contexts and state
@@ -1056,7 +1059,8 @@ theorem synthesizeCombinationalCore_sound {declName : Name} {mctx : Meta.Context
     (h : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (M, D) w') :
     ∃ (ci : ConstantInfo) (w1 w2 : Void IO.RealWorld),
       RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧ CertifiedOutcome ci M := by
-  obtain ⟨logProf, ci, w1, w2, w3, hget, hrest⟩ := synthesizeCombinationalCore_reads h
+  obtain ⟨logProf, isInst, ci, w1, w2, w3, w4, hget, hrest⟩ :=
+    synthesizeCombinationalCore_reads h
   exact ⟨ci, w1, w2, hget, synthesizeFromConst_sound hrest.mreturns⟩
 
 /-! ## Item 3: the declaration's Lean meaning

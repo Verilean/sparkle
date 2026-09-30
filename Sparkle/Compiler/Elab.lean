@@ -2438,7 +2438,8 @@ def synthesizeMixedCertified (translate : TranslateFn) (logProf : String → IO 
     the constant that the SAME run read (Tools/ShippingEntrySoundness.lean). -/
 def synthesizeFromConst (translate : TranslateFn) (logProf : String → IO Unit)
     (declName : Name) (parameters : List (String × Nat)) (symbolicMode : Bool)
-    (certifiedFrontEnd : Bool) (constInfo : ConstantInfo) :
+    (certifiedFrontEnd : Bool) (constInfo : ConstantInfo)
+    (isInst : Lean.Expr → Bool := fun _ => false) :
     MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) := do
   match (if certifiedFrontEnd then certifiedShape? symbolicMode parameters constInfo else none) with
   | some (bs, body) =>
@@ -2447,7 +2448,7 @@ def synthesizeFromConst (translate : TranslateFn) (logProf : String → IO Unit)
     sparkleSubModuleCache.modify (·.insert declName result)
     return result
   | none =>
-  match (if certifiedFrontEnd then mixedCertifiedShape? symbolicMode parameters constInfo else none) with
+  match (if certifiedFrontEnd then mixedCertifiedShape? symbolicMode parameters constInfo isInst else none) with
   | some (bs, body) =>
     logProf s!"[profile] synthesizeCombinational {declName} mixed certified front end"
     let result ← synthesizeMixedCertified translate logProf declName bs body
@@ -2520,6 +2521,15 @@ def synthesizeFromConst (translate : TranslateFn) (logProf : String → IO Unit)
       return result
   | _ =>
     throwError s!"Cannot synthesize {declName}: not a definition"
+
+/-- The instance predicate the real dispatch feeds the certified gate: the
+    expression is a call whose head constant is tagged `@[hardware_module]`.
+    Computed from the run's environment — the gate itself stays a pure
+    function of the `ConstantInfo` and this predicate. -/
+def instancePredicate (env : Environment) : Lean.Expr → Bool := fun e =>
+  match e.getAppFn with
+  | .const n _ => Sparkle.Compiler.isHardwareModule env n
+  | _ => false
 
 /-- The synthesis entry, with the translator's recursive entry as a parameter
     (`synthesizeCombinationalCore` after the translator block passes the real
@@ -2629,8 +2639,9 @@ def synthesizeCombinationalCoreWith (translate : TranslateFn) (declName : Name)
   -- of which return path or exception fires.
   let doSynth : MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) := do
     let constInfo ← getConstInfo declName
+    let env ← getEnv
     synthesizeFromConst translate logProf declName parameters symbolicMode
-      certifiedFrontEnd constInfo
+      certifiedFrontEnd constInfo (instancePredicate env)
   try
     doSynth
   finally
