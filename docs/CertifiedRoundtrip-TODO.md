@@ -373,7 +373,17 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   yields `memory_body_of_env`/`memory_run_of_env`: the real entry's
   module IS `memBody` and its whole trace observes the source stream
   (`memAcc_peel`/`memAcc_run` instantiate on the real declaration,
-  standard axioms). Open in S5: cone-shaped operands, `memoryComboRead` (source
+  standard axioms). CONE OPERANDS are also proved: the gate
+  admits all four operands through the unified combinational grammar
+  (`unifiedMemoryRoot` over `unifiedGateBitsBody`/`BoolBody`), the
+  four-child monolith chains the unified contracts (frames, invariants
+  and orders threaded four deep — operand values settle in the
+  elaborated pre-body and feed the latch/write masked), and
+  `memoryCone_step_of_env`/`memoryCone_run_of_env` expose per-cycle and
+  whole-trace endpoints, instantiated on a real declaration whose write
+  data is an arithmetic cone (`memAccC` = `Signal.memory wa (a+b) wen
+  ra`; `memAccC_peel` by rfl, `memAccC_run` identifies the trace with
+  `Signal.memory` over the cone SIGNALS, standard axioms). Open in S5: `memoryComboRead` (source
   marks it non-synthesizable), `memoryWithInit`, multi-port shapes, the
   postprocessing passes and the sequential checker/SV layers for memory
   bodies.

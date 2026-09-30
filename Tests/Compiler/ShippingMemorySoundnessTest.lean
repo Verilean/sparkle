@@ -11,6 +11,7 @@ open Lean Elab Command Meta Sparkle.Compiler.Elab Sparkle.IR.Semantics
 open Sparkle.Core.Domain Sparkle.Core.Signal
 open Tools.ShippingMemorySoundness Tools.ShippingMemoryEntrySoundness
 open Tools.ShippingEntrySoundness Tools.ShippingMixedSourceBridge
+open Tools.ShippingUnifiedSource
 open Tools.ShippingMixedExecutionSoundness
 
 /-- A single-port sync-read memory over direct input operands: the
@@ -82,6 +83,175 @@ theorem memAcc_run_val {we : WEnv} {D : DomainConfig}
   memory_run_val (by decide) (by decide) (by decide) (by decide) (by decide)
     waS wdS weS raS
 
+/-- Cone operands: the write data is an arithmetic cone over two inputs. -/
+def memAccC {dom : DomainConfig} (wen : Signal dom Bool) (wa : Signal dom (BitVec 2))
+    (a b : Signal dom (BitVec 8)) (ra : Signal dom (BitVec 2)) : Signal dom (BitVec 8) :=
+  Signal.memory wa (a + b) wen ra
+
+def memAccCTermWA : Term (.bits 2) := .bitsInput 2 0
+def memAccCTermWD : Term (.bits 8) := .binary .add (.bitsInput 8 1) (.bitsInput 8 2)
+def memAccCTermWEN : Term .bool := .boolInput 0
+def memAccCTermRA : Term (.bits 2) := .bitsInput 2 3
+def memAccCVw : Nat → Nat := fun j => if j = 0 then 2 else if j = 3 then 2 else 8
+theorem memAccCTermWA_wf : memAccCTermWA.WF 1 4 memAccCVw := by
+  simp [memAccCTermWA, Term.WF, memAccCVw]
+theorem memAccCTermWD_wf : memAccCTermWD.WF 1 4 memAccCVw := by
+  simp [memAccCTermWD, Term.WF, memAccCVw]
+theorem memAccCTermWEN_wf : memAccCTermWEN.WF 1 4 memAccCVw := by
+  simp [memAccCTermWEN, Term.WF]
+theorem memAccCTermRA_wf : memAccCTermRA.WF 1 4 memAccCVw := by
+  simp [memAccCTermRA, Term.WF, memAccCVw]
+
+#def_decl_value memAccCValue of memAccC
+def memAccCBinders : List (Name × MixedGateBinder) :=
+  [(`dom, .domain), (`wen, .bool), (`wa, .bits 2), (`a, .bits 8), (`b, .bits 8),
+   (`ra, .bits 2)]
+theorem memAccC_peel : mixedGatePeel memAccCValue = some (memAccCBinders,
+    Tools.ShippingMemoryEntrySoundness.memoryE (inputExpr memAccCBinders.length 0) 2 8
+      (quote (inputExpr memAccCBinders.length 0)
+        (fun _ => inputExpr memAccCBinders.length 1)
+        (fun j => inputExpr memAccCBinders.length (j + 2)) memAccCTermWA)
+      (quote (inputExpr memAccCBinders.length 0)
+        (fun _ => inputExpr memAccCBinders.length 1)
+        (fun j => inputExpr memAccCBinders.length (j + 2)) memAccCTermWD)
+      (quote (inputExpr memAccCBinders.length 0)
+        (fun _ => inputExpr memAccCBinders.length 1)
+        (fun j => inputExpr memAccCBinders.length (j + 2)) memAccCTermWEN)
+      (quote (inputExpr memAccCBinders.length 0)
+        (fun _ => inputExpr memAccCBinders.length 1)
+        (fun j => inputExpr memAccCBinders.length (j + 2)) memAccCTermRA)) := rfl
+
+/-- **The cone-memory trace endpoint on the real declaration**: the whole
+trace observes `Signal.memory` over the cone SIGNALS (the write data is
+`a + b`), from the entry facts alone. -/
+theorem memAccC_run {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+    {wst wst' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore ``memAccC [] false) mctx mref cctx cref wst
+      (m, design) wst')
+    (env : EnvDefines mctx mref cctx cref ``memAccC memAccCValue) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = memAccCBinders.length ∧
+    ∃ (cache : IO.Ref (ExprStructMap String)) (rdW : String),
+      ∀ {D : DomainConfig} (boolsS : Nat → Signal D Bool)
+        (bitsS : (j : Nat) → (n : Nat) → Signal D (BitVec n))
+        (mems0 : MEnv) (k : Nat)
+        (seed : Nat → (String → Nat) → Env) (st0 : String → Nat),
+      (∀ t stv, SourceInputs ``memAccC memAccCBinders ids cache
+          (fun i => (boolsS i).val (k - 1 - t)) (fun i n => (bitsS i n).val (k - 1 - t))
+          (seed t stv) ∧ seed t stv rdW = stv rdW) →
+      st0 rdW = 0 →
+      (∀ n i, mems0 n i = 0) →
+      ∃ envs, runModule (weOf m) m.body seed k st0 mems0 = some envs ∧
+        envs.length = k ∧
+        ∀ j (hj : j < envs.length), (envs[j]'hj) "out" =
+          ((memAccC (boolsS 1) (bitsS 2 2) (bitsS 3 8) (bitsS 4 8) (bitsS 5 2)).val
+            j).toNat := by
+  obtain ⟨ids, nd, len, cache, nm, rdW, rdNe, H⟩ :=
+    Tools.ShippingMemoryEntrySoundness.memoryCone_run_of_env
+      (dpos := 0) (bpos := fun _ => 1) (vpos := fun j => j + 2)
+      hr env
+      (by intro d hd; simp only [certifiedShape?, hd]; rfl)
+      memAccC_peel (by decide) (by decide) (by decide)
+      memAccCTermWA_wf memAccCTermWD_wf memAccCTermWEN_wf memAccCTermRA_wf
+      (by
+        intro j hj
+        have h : j = 0 := by omega
+        subst h
+        exact ⟨`wen, rfl⟩)
+      (by
+        intro j hj
+        have h : j = 0 ∨ j = 1 ∨ j = 2 ∨ j = 3 := by omega
+        rcases h with rfl | rfl | rfl | rfl
+        · exact ⟨`wa, rfl⟩
+        · exact ⟨`a, rfl⟩
+        · exact ⟨`b, rfl⟩
+        · exact ⟨`ra, rfl⟩)
+  refine ⟨ids, nd, len, cache, rdW, ?_⟩
+  intro D boolsS bitsS mems0 k seed st0 hseed hst0 hmems0
+  -- The joint recurrence, instantiated with the source stream.
+  refine H boolsS bitsS mems0 k seed st0
+    (fun j => ((memAccC (boolsS 1) (bitsS 2 2) (bitsS 3 8) (bitsS 4 8)
+      (bitsS 5 2)).val j).toNat)
+    (fun j => fun n i =>
+      if n = nm ∧ i < 2 ^ 2 then
+        (Signal.memState (fun _ => 0#8) (bitsS 2 2) (bitsS 3 8 + bitsS 4 8)
+          (boolsS 1) j (BitVec.ofNat 2 i)).toNat
+      else mems0 n i)
+    hseed ?_ ?_ ?_ ?_
+  · rw [hst0]
+    simp [memAccC, Signal.memory_val_zero]
+  · funext n i
+    by_cases h : n = nm ∧ i < 2 ^ 2
+    · rw [if_pos h, Signal.memState_zero]
+      simp [hmems0]
+    · rw [if_neg h]
+  · intro j hj
+    simp only [memAccCTermRA, eval]
+    have hltA : (((bitsS (3 + 2) 2).val j).toNat) < 2 ^ 2 :=
+      ((bitsS (3 + 2) 2).val j).isLt
+    have hmaskA : mask 2 (((bitsS (3 + 2) 2).val j).toNat) =
+        ((bitsS (3 + 2) 2).val j).toNat := Nat.mod_eq_of_lt hltA
+    rw [hmaskA, if_pos ⟨by trivial, hltA⟩, BitVec.ofNat_toNat, BitVec.setWidth_eq]
+    show ((Signal.memory (bitsS 2 2) (bitsS 3 8 + bitsS 4 8) (boolsS 1)
+      (bitsS 5 2)).val (j + 1)).toNat = _
+    rw [Signal.memory_val_succ]
+    show (Signal.memState (fun _ => 0#8) (bitsS 2 2) (bitsS 3 8 + bitsS 4 8)
+      (boolsS 1) j ((bitsS 5 2).val j)).toNat = _
+    exact (Nat.mod_eq_of_lt (Signal.memState (fun _ => 0#8) (bitsS 2 2)
+      (bitsS 3 8 + bitsS 4 8) (boolsS 1) j ((bitsS 5 2).val j)).isLt).symm
+  · intro j hj
+    simp only [memAccCTermWA, memAccCTermWD, memAccCTermWEN, eval,
+      Tools.ShippingScalarSoundness.Binary.apply]
+    have hltW : (((bitsS (0 + 2) 2).val j).toNat) < 2 ^ 2 :=
+      ((bitsS (0 + 2) 2).val j).isLt
+    have hmaskW : mask 2 (((bitsS (0 + 2) 2).val j).toNat) =
+        ((bitsS (0 + 2) 2).val j).toNat := Nat.mod_eq_of_lt hltW
+    have hadd : ∀ t, (bitsS 3 8 + bitsS 4 8).val t =
+        (bitsS (1 + 2) 8).val t + (bitsS (2 + 2) 8).val t := fun t => rfl
+    by_cases hwe : (boolsS 1).val j
+    · rw [if_pos hwe]
+      funext n i
+      by_cases h : n = nm ∧ i < 2 ^ 2
+      · obtain ⟨hn, hi⟩ := h
+        subst hn
+        rw [if_pos ⟨by trivial, hi⟩, Signal.memState_succ]
+        by_cases haddr : i = ((bitsS (0 + 2) 2).val j).toNat
+        · have hbeq : (BitVec.ofNat 2 i == (bitsS 2 2).val j) = true := by
+            rw [beq_iff_eq]
+            show BitVec.ofNat 2 i = (bitsS (0 + 2) 2).val j
+            rw [haddr, BitVec.ofNat_toNat, BitVec.setWidth_eq]
+          rw [hwe, hbeq]
+          simp only [Bool.and_self, if_true]
+          rw [if_pos ⟨by trivial, by rw [hmaskW]; exact haddr⟩]
+          rw [hadd j]
+          exact (Nat.mod_eq_of_lt ((bitsS (1 + 2) 8).val j +
+            (bitsS (2 + 2) 8).val j).isLt).symm
+        · have hbeq : (BitVec.ofNat 2 i == (bitsS 2 2).val j) = false := by
+            rw [beq_eq_false_iff_ne]
+            intro he
+            apply haddr
+            have := congrArg BitVec.toNat he
+            simpa [Nat.mod_eq_of_lt hi] using this
+          rw [hwe, hbeq]
+          simp only [Bool.and_false, Bool.false_eq_true, if_false]
+          rw [if_neg (by
+            intro hcon
+            exact haddr (by rw [← hmaskW]; exact hcon.2)),
+            if_pos ⟨by trivial, hi⟩]
+      · rw [if_neg h, if_neg (by
+          intro hcon
+          exact h ⟨hcon.1, by rw [hcon.2, hmaskW]; exact hltW⟩), if_neg h]
+    · rw [if_neg hwe]
+      funext n i
+      by_cases h : n = nm ∧ i < 2 ^ 2
+      · obtain ⟨hn, hi⟩ := h
+        subst hn
+        rw [if_pos ⟨by trivial, hi⟩, if_pos ⟨by trivial, hi⟩, Signal.memState_succ]
+        have hwe' : (boolsS 1).val j = false := by simpa using hwe
+        rw [hwe']
+        simp
+      · rw [if_neg h, if_neg h]
+
 -- Deterministic 12-cycle stimulus.
 private def watr (t : Nat) : Nat := t % 4
 private def wdtr (t : Nat) : Nat := (17 * t + 3) % 256
@@ -147,7 +317,11 @@ run_cmd liftTermElabM do
       ``Tools.ShippingMemoryEntrySoundness.synthesizeMixedCertified_memory_sound,
       ``Tools.ShippingMemoryEntrySoundness.memory_body_of_env,
       ``Tools.ShippingMemoryEntrySoundness.memory_run_of_env,
-      ``memAcc_run_val, ``memAcc_peel, ``memAcc_run] do
+      ``Tools.ShippingMemoryEntrySoundness.synthesizeMixedCertified_memoryCone_sound,
+      ``Tools.ShippingMemoryEntrySoundness.memoryCone_step_of_env,
+      ``Tools.ShippingMemoryEntrySoundness.memoryCone_run_of_env,
+      ``memAcc_run_val, ``memAcc_peel, ``memAcc_run,
+      ``memAccC_peel, ``memAccC_run] do
     for ax in (← collectAxioms name) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do
         throwError "unexpected memory soundness axiom: {name}: {ax}"

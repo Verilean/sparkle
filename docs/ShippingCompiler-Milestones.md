@@ -297,7 +297,7 @@ proved (`Tools/ShippingMemorySoundness.lean` — the pinned compiled body's
 and audited), and its ENTRY-LEVEL connection is closed
 (`Tools/ShippingMemoryEntrySoundness.lean`: gate + total lowering +
 monolith + `memory_run_of_env`, instantiated as `memAcc_run` on the
-real declaration); the wider memory scope (cone operands, inits,
+real declaration); cone operands are certified end to end as well (`memoryCone_run_of_env` + `memAccC_run`); the wider memory scope (inits,
 multi-port, postprocessing/checker/SV layers) remains. S6–S7 remain
 unfinished.
 
