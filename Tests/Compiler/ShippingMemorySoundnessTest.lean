@@ -348,7 +348,9 @@ run_cmd liftTermElabM do
       ``memAccC_peel, ``memAccC_run,
       ``Tools.ShippingMemSVSoundness.emit_sem_seqNexts,
       ``Tools.ShippingMemSVSoundness.emit_sem_memNextsM,
-      ``Tools.ShippingMemSVSoundness.certified_forward_trace_mem] do
+      ``Tools.ShippingMemSVSoundness.certified_forward_trace_mem,
+      ``Tools.ShippingMemSVSoundness.regNextsM_bounded,
+      ``Tools.ShippingMemSVSoundness.forward_trace_mem_inv] do
     for ax in (← collectAxioms name) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do
         throwError "unexpected memory soundness axiom: {name}: {ax}"

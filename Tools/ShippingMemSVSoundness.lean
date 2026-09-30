@@ -1,4 +1,5 @@
 import Tools.SVParser.EmitSem
+import Tools.ShippingSeqSVSoundness
 
 /-! # S5 text layer: sync-read memories in the emitted-SV semantics
 
@@ -44,9 +45,10 @@ def seqCheckM (wof : String → Option Nat) (we : WEnv) :
       && (Sparkle.IR.Semantics.widthOf we input == we out)
       && sf4Check wof we input
       && seqCheckM wof we rest
-  | .memory nm aw dw _ wa wd wen ra _ cr ew er :: rest =>
+  | .memory nm aw dw _ wa wd wen ra rd cr ew er :: rest =>
     (!cr && er.isEmpty
-      && (sf4Check wof we ra && (Sparkle.IR.Semantics.widthOf we ra == aw)))
+      && (sf4Check wof we ra && (Sparkle.IR.Semantics.widthOf we ra == aw))
+      && (wof rd == some (we rd)) && (we rd == dw))
       && (((wa, wd, wen) :: ew).all fun p =>
             payloadCheckC wof we nm aw dw aw p.1
               && payloadCheckC wof we nm aw dw dw p.2.1
@@ -73,7 +75,7 @@ theorem seqCheckM_assigns {wof : String → Option Nat} {we : WEnv} :
       simpa [assignsCheck] using ih h.2
     | memory nm aw dw clk wa wd wen ra rd cr ew er =>
       simp only [seqCheckM, Bool.and_eq_true] at h
-      obtain ⟨⟨⟨⟨hcr, -⟩, -⟩, -⟩, hrest⟩ := h
+      obtain ⟨⟨⟨⟨⟨⟨hcr, -⟩, -⟩, -⟩, -⟩, -⟩, hrest⟩ := h
       simp only [assignsCheck, Bool.and_eq_true]
       exact ⟨by simp [hcr], ih hrest⟩
     | inst _ _ _ => simp [seqCheckM] at h
@@ -161,7 +163,7 @@ theorem emit_sem_seqNexts {wof : String → Option Nat} {we : WEnv}
       · simp [seqNextsSV, hwo, hval, hSV]
     | memory nm aw dw clk wa wd wen ra rd cr ew er =>
       simp only [seqCheckM, Bool.and_eq_true, beq_iff_eq] at hchk
-      obtain ⟨⟨⟨⟨hcr, her⟩, hra, hwra⟩, -⟩, hrest⟩ := hchk
+      obtain ⟨⟨⟨⟨⟨⟨hcr, her⟩, hra, hwra⟩, -⟩, -⟩, -⟩, hrest⟩ := hchk
       have hSF := sf4Check_sound hra
       obtain ⟨av, hav⟩ := Option.isSome_iff_exists.mp (sf4_eval_isSome hSF env)
       obtain ⟨sv, hsv⟩ := Option.isSome_iff_exists.mp (sf4_emit_isSome hSF)
@@ -329,5 +331,140 @@ theorem certified_forward_trace_mem {wof : String → Option Nat} {we : WEnv}
     simp only [runModule, stepModule, runModuleSVM, hIRA, hSVA, hIRR,
       hSVR, hIRM, hSVM, Option.bind_eq_bind, Option.bind_some]
     rw [ihk (applyNexts st nexts) mems']
+
+/-! ## The boundedness-invariant capstone -/
+
+open Tools.ShippingSeqSVSoundness (applyNexts_bounded)
+
+/-- Sequential updates of a checked body are width-bounded: registers
+and latches are masked, and the checker pins each latch's name at the
+data width. -/
+theorem regNextsM_bounded {wof : String → Option Nat} {we : WEnv}
+    {mems : MEnv} {envF : Env} :
+    ∀ {body : List Stmt} {nexts : List (String × Nat)},
+      seqCheckM wof we body = true →
+      regNexts we mems body envF = some nexts →
+      ∀ pr ∈ nexts, pr.2 < 2 ^ we pr.1
+  | [], _, _, hn, pr, hpr => by cases hn; cases hpr
+  | .assign l r :: rest, nexts, hchk, hn, pr, hpr => by
+    have h' : seqCheckM wof we rest = true := by
+      simp only [seqCheckM, Bool.and_eq_true] at hchk; exact hchk.2
+    exact regNextsM_bounded h' hn pr hpr
+  | .register o c (rstName, rk) i iv :: rest, nexts, hchk, hn, pr, hpr => by
+    have h' : seqCheckM wof we rest = true := by
+      simp only [seqCheckM, Bool.and_eq_true] at hchk; exact hchk.2
+    simp only [regNexts, Option.bind_eq_bind] at hn
+    cases hv : evalExpr we envF i with
+    | none => rw [hv] at hn; cases hn
+    | some v =>
+      rw [hv] at hn
+      simp only [Option.bind_some] at hn
+      cases hr : regNexts we mems rest envF with
+      | none => rw [hr] at hn; cases hn
+      | some rests =>
+        rw [hr] at hn
+        simp only [Option.bind_some, Option.some.injEq] at hn
+        subst hn
+        rcases List.mem_cons.mp hpr with hpr | hpr
+        · subst hpr
+          by_cases hz : envF rstName ≠ 0
+          · rw [if_pos hz]
+            exact Nat.mod_lt _ (Nat.two_pow_pos _)
+          · rw [if_neg hz]
+            exact Nat.mod_lt _ (Nat.two_pow_pos _)
+        · exact regNextsM_bounded h' hr pr hpr
+  | .memory nm aw dw clk wa wd wen ra rd cr ew er :: rest, nexts, hchk, hn, pr, hpr => by
+    simp only [seqCheckM, Bool.and_eq_true, beq_iff_eq] at hchk
+    obtain ⟨⟨⟨⟨⟨⟨hcr, her⟩, -, -⟩, -⟩, hwrd⟩, -⟩, hrest⟩ := hchk
+    have hcr' : cr = false := by
+      cases cr
+      · rfl
+      · cases hcr
+    have her' : er = [] := by
+      cases er
+      · rfl
+      · cases her
+    subst hcr' her'
+    simp only [regNexts, Bool.false_eq_true, if_false, syncReadLatches,
+      Option.bind_eq_bind] at hn
+    cases hv : evalExpr we envF ra with
+    | none => rw [hv] at hn; simp at hn
+    | some av =>
+      rw [hv] at hn
+      simp only [Option.bind_some] at hn
+      cases hr : regNexts we mems rest envF with
+      | none => rw [hr] at hn; simp at hn
+      | some rests =>
+        rw [hr] at hn
+        simp only [Option.bind_some, Option.some.injEq] at hn
+        subst hn
+        rcases List.mem_cons.mp hpr with hpr | hpr
+        · subst hpr
+          show mask dw (mems nm (mask aw av)) < 2 ^ we rd
+          rw [hwrd]
+          exact Nat.mod_lt _ (Nat.two_pow_pos _)
+        · exact regNextsM_bounded hrest hr pr hpr
+  | .inst .. :: _, _, hchk, _, _, _ => by simp [seqCheckM] at hchk
+
+set_option maxHeartbeats 800000 in
+/-- The capstone with the boundedness invariant: a seeding that maps
+width-bounded states to width-bounded environments keeps the emitted
+trace equal to the IR's from every width-bounded initial state — the
+form the canonical `seedIn` discipline satisfies. -/
+theorem forward_trace_mem_inv {wof : String → Option Nat}
+    {body : List Stmt}
+    (hchk : seqCheckM wof (Tools.SVParser.EmitSem.weOf wof) body = true)
+    (seed : Nat → (String → Nat) → Env)
+    (hseedB : ∀ t st, Bounded (Tools.SVParser.EmitSem.weOf wof) st →
+      Bounded (Tools.SVParser.EmitSem.weOf wof) (seed t st)) :
+    ∃ pairs seqs mprog,
+      emitAssigns wof body = some pairs ∧
+      emitSeqNexts wof body = some seqs ∧
+      emitMemWrites wof body = some mprog ∧
+      ∀ (k : Nat) (st : String → Nat) (mems : MEnv),
+        Bounded (Tools.SVParser.EmitSem.weOf wof) st →
+        runModule (Tools.SVParser.EmitSem.weOf wof) body seed k st mems =
+          runModuleSVM wof pairs seqs mprog seed k st mems := by
+  have hz : Bounded (Tools.SVParser.EmitSem.weOf wof) (fun _ => 0) :=
+    fun n => Nat.two_pow_pos _
+  obtain ⟨pairs0, env0', hemitA, _, _, _, _⟩ :=
+    emit_sem_assigns (fun _ _ => 0) body (seed 0 fun _ => 0)
+      (seqCheckM_assigns hchk) (hseedB 0 _ hz)
+      (Tools.SVParser.EmitSem.bounded_iff_wof (hseedB 0 _ hz))
+  obtain ⟨seqs0, _, hemitR, _, _⟩ :=
+    emit_sem_seqNexts (fun _ _ => 0) body (seed 0 fun _ => 0) hchk
+      (hseedB 0 _ hz) (Tools.SVParser.EmitSem.bounded_iff_wof (hseedB 0 _ hz))
+  obtain ⟨mprog0, _, hemitM, _, _⟩ :=
+    emit_sem_memNextsM body (fun _ _ => 0) (seed 0 fun _ => 0) hchk
+      (hseedB 0 _ hz) (Tools.SVParser.EmitSem.bounded_iff_wof (hseedB 0 _ hz))
+  refine ⟨pairs0, seqs0, mprog0, hemitA, hemitR, hemitM, ?_⟩
+  intro k
+  induction k with
+  | zero => intro st mems _; rfl
+  | succ k ihk =>
+    intro st mems hst
+    have hs := hseedB k st hst
+    obtain ⟨pairs, envF, hemitA', hIRA, hSVA, hbeF, hbwF⟩ :=
+      emit_sem_assigns mems body (seed k st)
+        (seqCheckM_assigns hchk) hs (Tools.SVParser.EmitSem.bounded_iff_wof hs)
+    rw [hemitA] at hemitA'
+    simp only [Option.some_inj] at hemitA'
+    subst hemitA'
+    obtain ⟨seqs, nexts, hemitR', hIRR, hSVR⟩ :=
+      emit_sem_seqNexts mems body envF hchk hbeF hbwF
+    rw [hemitR] at hemitR'
+    simp only [Option.some_inj] at hemitR'
+    subst hemitR'
+    obtain ⟨mprog, mems', hemitM', hIRM, hSVM⟩ :=
+      emit_sem_memNextsM body mems envF hchk hbeF hbwF
+    rw [hemitM] at hemitM'
+    simp only [Option.some_inj] at hemitM'
+    subst hemitM'
+    have hst' : Bounded (Tools.SVParser.EmitSem.weOf wof)
+        (applyNexts st nexts) :=
+      applyNexts_bounded hst (regNextsM_bounded hchk hIRR)
+    simp only [runModule, stepModule, runModuleSVM, hIRA, hSVA, hIRR,
+      hSVR, hIRM, hSVM, Option.bind_eq_bind, Option.bind_some]
+    rw [ihk (applyNexts st nexts) mems' hst']
 
 end Tools.ShippingMemSVSoundness

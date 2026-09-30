@@ -399,9 +399,15 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   `certified_forward_trace_mem`: on checked bodies the emitted
   Verilog's trace (`runModuleSVM`) is the IR's, every cycle. The test
   gates `seqCheckM` acceptance on both certified memory modules
-  (standard axioms). Remaining for the memory text route: the
-  seedIn-style invariant wrapper and the width-congruence bridge (the
-  memory analogs of `forward_trace_inv`/`runModule_we_congr`).
+  (standard axioms). The seedIn-style INVARIANT capstone is
+  also in place (`forward_trace_mem_inv`, with `regNextsM_bounded`
+  masking registers AND latches — the checker pins each latch name at
+  the data width), so the canonical seeding qualifies directly.
+  Remaining for the memory text route: the endpoint corollaries wiring
+  `memAcc_run`/`memAccC_run` through it (the input-operand endpoint is
+  already width-polymorphic; the cone endpoint needs the
+  `seqNames`-style width bridge from `weOf m` to the emitter's
+  environment).
 - [ ] **S6:** Actual hierarchy compilation and compositional instance semantics,
   port/parameter linkage and contained state/memory. STARTED — the
   combinational linked-semantics layer exists
