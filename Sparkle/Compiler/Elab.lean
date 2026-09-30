@@ -2312,15 +2312,13 @@ def unifiedMemoryRoot (kinds : Array MixedGateBinder) (e : Lean.Expr) : Bool :=
   match e with
   | .app (.app (.app (.app (.app (.app (.app
       (.const ``Sparkle.Core.Signal.Signal.memory _) dom) awE) dwE)
-      (.bvar wai)) (.bvar wdi)) (.bvar weni)) (.bvar rai) =>
+      wa) wd) wen) ra =>
     (dom.isFVar || dom.isBVar) &&
     (match canonicalNatLitValue? awE, canonicalNatLitValue? dwE with
      | some aw, some dw =>
        0 < aw && 0 < dw &&
-       mixedGateBVar? kinds wai == some (.bits aw) &&
-       mixedGateBVar? kinds wdi == some (.bits dw) &&
-       mixedGateBVar? kinds weni == some .bool &&
-       mixedGateBVar? kinds rai == some (.bits aw)
+       unifiedGateBitsBody kinds aw wa && unifiedGateBitsBody kinds dw wd &&
+       unifiedGateBoolBody kinds wen && unifiedGateBitsBody kinds aw ra
      | _, _ => false)
   | _ => false
 

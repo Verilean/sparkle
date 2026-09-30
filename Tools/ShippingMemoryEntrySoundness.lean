@@ -75,22 +75,19 @@ theorem mixedGateBVar?_pos {bs : List (Name × MixedGateBinder)} {pos : Nat}
   rfl
 
 theorem unifiedMemoryRoot_memoryE {kinds : Array MixedGateBinder} {dom : Lean.Expr}
-    {aw dw : Nat} {wai wdi weni rai : Nat}
+    {aw dw : Nat} {wa wd wen ra : Lean.Expr}
     (hdom : (dom.isFVar || dom.isBVar) = true) (haw : 0 < aw) (hdw : 0 < dw)
-    (hwa : mixedGateBVar? kinds wai = some (.bits aw))
-    (hwd : mixedGateBVar? kinds wdi = some (.bits dw))
-    (hwen : mixedGateBVar? kinds weni = some .bool)
-    (hra : mixedGateBVar? kinds rai = some (.bits aw)) :
-    unifiedMemoryRoot kinds (memoryE dom aw dw (.bvar wai) (.bvar wdi)
-      (.bvar weni) (.bvar rai)) = true := by
+    (hwa : unifiedGateBitsBody kinds aw wa = true)
+    (hwd : unifiedGateBitsBody kinds dw wd = true)
+    (hwen : unifiedGateBoolBody kinds wen = true)
+    (hra : unifiedGateBitsBody kinds aw ra = true) :
+    unifiedMemoryRoot kinds (memoryE dom aw dw wa wd wen ra) = true := by
   show ((dom.isFVar || dom.isBVar) &&
     (match canonicalNatLitValue? (natE aw), canonicalNatLitValue? (natE dw) with
      | some aw', some dw' =>
        0 < aw' && 0 < dw' &&
-       mixedGateBVar? kinds wai == some (.bits aw') &&
-       mixedGateBVar? kinds wdi == some (.bits dw') &&
-       mixedGateBVar? kinds weni == some .bool &&
-       mixedGateBVar? kinds rai == some (.bits aw')
+       unifiedGateBitsBody kinds aw' wa && unifiedGateBitsBody kinds dw' wd &&
+       unifiedGateBoolBody kinds wen && unifiedGateBitsBody kinds aw' ra
      | _, _ => false)) = true
   rw [hdom, canonicalNatLitValue?_natE, canonicalNatLitValue?_natE]
   simp [haw, hdw, hwa, hwd, hwen, hra]
@@ -111,12 +108,12 @@ theorem memory_term_gate {d : DefinitionVal} {bs : List (Name × MixedGateBinder
       (inputExpr bs.length wapos) (inputExpr bs.length wdpos)
       (inputExpr bs.length wenpos) (inputExpr bs.length rapos)) := by
   have root := unifiedMemoryRoot_memoryE (kinds := (bs.map Prod.snd).toArray) hdom haw hdw
-    (hwa.elim fun name pos => mixedGateBVar?_pos pos)
-    (hwd.elim fun name pos => mixedGateBVar?_pos pos)
-    (hwen.elim fun name pos => mixedGateBVar?_pos pos)
-    (hra.elim fun name pos => mixedGateBVar?_pos pos)
+    (hwa.elim fun name pos => input_bits_accepted pos)
+    (hwd.elim fun name pos => input_bits_accepted pos)
+    (hwen.elim fun name pos => input_bool_accepted pos)
+    (hra.elim fun name pos => input_bits_accepted pos)
   simp only [mixedCertifiedShape?, List.isEmpty_nil, Bool.not_true,
-    Bool.false_eq_true, if_false, peel, inputExpr, root, Bool.or_true, if_true]
+    Bool.false_eq_true, if_false, peel, root, Bool.or_true, if_true]
   rfl
 
 /-! ## The memory emitter, lifted -/
