@@ -1003,4 +1003,174 @@ theorem memory_run_of_env {declName : Name} {mctx : Meta.Context}
   obtain ⟨-, -, -, -, -, -, hwaV, hwdV, hwenV, hraV⟩ := ht
   exact ⟨(hseed t stv).2, hwaV, hwdV, hwenV, hraV⟩
 
+/-! ## Cone dispatch and the per-cycle endpoint -/
+
+theorem memoryCone_term_gate {d : DefinitionVal} {bs : List (Name × MixedGateBinder)}
+    {dom : Lean.Expr} {aw dw : Nat} {kb kv : Nat} {vw : Nat → Nat}
+    {bpos vpos : Nat → Nat} {eWA : Term (.bits aw)} {eWD : Term (.bits dw)}
+    {eWEN : Term .bool} {eRA : Term (.bits aw)}
+    (peel : mixedGatePeel d.value = some (bs, memoryE dom aw dw
+      (quote dom (fun j => inputExpr bs.length (bpos j))
+        (fun j => inputExpr bs.length (vpos j)) eWA)
+      (quote dom (fun j => inputExpr bs.length (bpos j))
+        (fun j => inputExpr bs.length (vpos j)) eWD)
+      (quote dom (fun j => inputExpr bs.length (bpos j))
+        (fun j => inputExpr bs.length (vpos j)) eWEN)
+      (quote dom (fun j => inputExpr bs.length (bpos j))
+        (fun j => inputExpr bs.length (vpos j)) eRA)))
+    (hdom : (dom.isFVar || dom.isBVar) = true) (haw : 0 < aw) (hdw : 0 < dw)
+    (hWA : eWA.WF kb kv vw) (hWD : eWD.WF kb kv vw)
+    (hWEN : eWEN.WF kb kv vw) (hRA : eRA.WF kb kv vw)
+    (hb : ∀ j, j < kb → ∃ name, bs[bpos j]? = some (name, .bool))
+    (hvp : ∀ j, j < kv → ∃ name, bs[vpos j]? = some (name, .bits (vw j))) :
+    mixedCertifiedShape? false [] (.defnInfo d) = some (bs, memoryE dom aw dw
+      (quote dom (fun j => inputExpr bs.length (bpos j))
+        (fun j => inputExpr bs.length (vpos j)) eWA)
+      (quote dom (fun j => inputExpr bs.length (bpos j))
+        (fun j => inputExpr bs.length (vpos j)) eWD)
+      (quote dom (fun j => inputExpr bs.length (bpos j))
+        (fun j => inputExpr bs.length (vpos j)) eWEN)
+      (quote dom (fun j => inputExpr bs.length (bpos j))
+        (fun j => inputExpr bs.length (vpos j)) eRA)) := by
+  have hbA := fun j hj => (hb j hj).elim fun name pos => input_bool_accepted
+    (bs := bs) (j := bpos j) (name := name) pos
+  have hvA := fun j hj => (hvp j hj).elim fun name pos => input_bits_accepted
+    (bs := bs) (j := vpos j) (name := name) pos
+  have root := unifiedMemoryRoot_memoryE (kinds := (bs.map Prod.snd).toArray) hdom haw hdw
+    (unified_quote_accepted (dom := dom) hbA hvA eWA hWA)
+    (unified_quote_accepted (dom := dom) hbA hvA eWD hWD)
+    (unified_quote_accepted (dom := dom) hbA hvA eWEN hWEN)
+    (unified_quote_accepted (dom := dom) hbA hvA eRA hRA)
+  simp only [mixedCertifiedShape?, List.isEmpty_nil, Bool.not_true,
+    Bool.false_eq_true, if_false, peel, root, Bool.or_true, if_true]
+  rfl
+
+theorem synthesizeFromConst_memoryCone_sound {logProf declName ci bs body m d}
+    (old : certifiedShape? false [] ci = none)
+    (shape : mixedCertifiedShape? false [] ci = some (bs, body))
+    (hr : MReturns (synthesizeFromConst
+      (fun e hint top named => translateExprToWire e hint top named) logProf declName
+      [] false true ci) (m, d)) :
+    MemoryConePreserves declName bs body m := by
+  unfold synthesizeFromConst at hr
+  simp only [↓reduceIte, old, shape] at hr
+  peel_bind hr
+  obtain ⟨result, run, hr⟩ := MReturns.bind hr
+  peel_bind hr
+  have eq := MReturns.pure hr
+  subst result
+  exact synthesizeMixedCertified_memoryCone_sound run
+
+theorem synthesizeCombinationalCore_memoryCone_sound {declName : Name} {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {d : Design}
+    (hr : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (m, d) w') :
+    ∃ (ci : ConstantInfo) (w1 w2 : Void IO.RealWorld),
+      RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧
+      ∀ bs body, certifiedShape? false [] ci = none →
+        mixedCertifiedShape? false [] ci = some (bs, body) →
+        MemoryConePreserves declName bs body m := by
+  obtain ⟨logProf, ci, w1, w2, w3, get, run⟩ := synthesizeCombinationalCore_reads hr
+  exact ⟨ci, w1, w2, get, fun _ _ old shape =>
+    synthesizeFromConst_memoryCone_sound old shape run.mreturns⟩
+
+/-- **Per-cycle cone-memory endpoint at the real entry.** Each cycle's
+step latches the pre-write array at the read cone's value and lands an
+enabled write of the data cone's value at the address cone's value. -/
+theorem memoryCone_step_of_env {declName : Name} {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {wst wst' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {design : Design} {value : Lean.Expr}
+    {bs : List (Name × MixedGateBinder)}
+    {dpos : Nat} {aw dw kb kv : Nat} {vw : Nat → Nat} {bpos vpos : Nat → Nat}
+    {eWA : Term (.bits aw)} {eWD : Term (.bits dw)}
+    {eWEN : Term .bool} {eRA : Term (.bits aw)}
+    (hr : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref wst
+      (m, design) wst')
+    (env : EnvDefines mctx mref cctx cref declName value)
+    (old : ∀ d : DefinitionVal, d.value = value → certifiedShape? false [] (.defnInfo d) = none)
+    (peel : mixedGatePeel value = some (bs, memoryE (inputExpr bs.length dpos) aw dw
+      (quote (inputExpr bs.length dpos) (fun j => inputExpr bs.length (bpos j)) (fun j => inputExpr bs.length (vpos j)) eWA) (quote (inputExpr bs.length dpos) (fun j => inputExpr bs.length (bpos j)) (fun j => inputExpr bs.length (vpos j)) eWD) (quote (inputExpr bs.length dpos) (fun j => inputExpr bs.length (bpos j)) (fun j => inputExpr bs.length (vpos j)) eWEN) (quote (inputExpr bs.length dpos) (fun j => inputExpr bs.length (bpos j)) (fun j => inputExpr bs.length (vpos j)) eRA)))
+    (hdp : dpos < bs.length) (haw : 0 < aw) (hdw : 0 < dw)
+    (hWA : eWA.WF kb kv vw) (hWD : eWD.WF kb kv vw)
+    (hWEN : eWEN.WF kb kv vw) (hRA : eRA.WF kb kv vw)
+    (hb : ∀ j, j < kb → ∃ name, bs[bpos j]? = some (name, .bool))
+    (hvp : ∀ j, j < kv → ∃ name, bs[vpos j]? = some (name, .bits (vw j))) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = bs.length ∧
+    ∃ (cache : IO.Ref (ExprStructMap String)) (nm rdW : String), rdW ≠ "out" ∧
+      ∀ (bools : Nat → Bool) (bits : (j : Nat) → (n : Nat) → BitVec n)
+        (env0 : Env) (mems : MEnv),
+      SourceInputs declName bs ids cache bools bits env0 →
+      ∃ envF, stepModule (weOf m) m.body env0 mems =
+          some (envF,
+            [(rdW, mask dw (mems nm (mask aw
+              (eval (fun j => bools (bpos j)) (fun j n => bits (vpos j) n) eRA).toNat)))],
+            if eval (fun j => bools (bpos j)) (fun j n => bits (vpos j) n) eWEN then
+              (fun n i => if n = nm ∧ i = mask aw
+                  (eval (fun j => bools (bpos j)) (fun j n => bits (vpos j) n) eWA).toNat
+                then mask dw
+                  (eval (fun j => bools (bpos j)) (fun j n => bits (vpos j) n) eWD).toNat
+                else mems n i)
+            else mems) ∧
+        envF "out" = env0 rdW := by
+  obtain ⟨ci, w1, w2, get, source⟩ := synthesizeCombinationalCore_memoryCone_sound hr
+  obtain ⟨d, rfl, definition⟩ := env w1 ci w2 get
+  have oldGate : certifiedShape? false [] (.defnInfo d) = none := old d definition
+  have hdom : ((inputExpr bs.length dpos).isFVar ||
+      (inputExpr bs.length dpos).isBVar) = true := by
+    simp only [inputExpr]
+    rfl
+  have mixedGate := memoryCone_term_gate (d := d)
+    (by rw [definition]; exact peel) hdom haw hdw hWA hWD hWEN hRA hb hvp
+  obtain ⟨ids, nd, len, cache, H⟩ := source bs _ oldGate mixedGate
+  have qeq : instFVars (ids.map Lean.Expr.fvar).toArray 0
+      (memoryE (inputExpr bs.length dpos) aw dw
+        (quote (inputExpr bs.length dpos) (fun j => inputExpr bs.length (bpos j)) (fun j => inputExpr bs.length (vpos j)) eWA) (quote (inputExpr bs.length dpos) (fun j => inputExpr bs.length (bpos j)) (fun j => inputExpr bs.length (vpos j)) eWD) (quote (inputExpr bs.length dpos) (fun j => inputExpr bs.length (bpos j)) (fun j => inputExpr bs.length (vpos j)) eWEN) (quote (inputExpr bs.length dpos) (fun j => inputExpr bs.length (bpos j)) (fun j => inputExpr bs.length (vpos j)) eRA)) =
+      memoryE (.fvar ids[dpos]!) aw dw
+        (quote (.fvar ids[dpos]!) (fun j => .fvar ids[bpos j]!)
+          (fun j => .fvar ids[vpos j]!) eWA)
+        (quote (.fvar ids[dpos]!) (fun j => .fvar ids[bpos j]!)
+          (fun j => .fvar ids[vpos j]!) eWD)
+        (quote (.fvar ids[dpos]!) (fun j => .fvar ids[bpos j]!)
+          (fun j => .fvar ids[vpos j]!) eWEN)
+        (quote (.fvar ids[dpos]!) (fun j => .fvar ids[bpos j]!)
+          (fun j => .fvar ids[vpos j]!) eRA) := by
+    rw [instFVars_memoryE, instantiated_input len hdp]
+    have hbi : ∀ j, j < kb → instFVars (ids.map Lean.Expr.fvar).toArray 0
+        (inputExpr bs.length (bpos j)) = .fvar ids[bpos j]! := by
+      intro j hj
+      obtain ⟨name, pos⟩ := hb j hj
+      exact instantiated_input len (List.getElem_of_getElem? pos).choose
+    have hvi : ∀ j, j < kv → instFVars (ids.map Lean.Expr.fvar).toArray 0
+        (inputExpr bs.length (vpos j)) = .fvar ids[vpos j]! := by
+      intro j hj
+      obtain ⟨name, pos⟩ := hvp j hj
+      exact instantiated_input len (List.getElem_of_getElem? pos).choose
+    rw [instantiated_quote hbi hvi eWA hWA, instantiated_quote hbi hvi eWD hWD,
+      instantiated_quote hbi hvi eWEN hWEN, instantiated_quote hbi hvi eRA hRA,
+      instantiated_input len hdp]
+  obtain ⟨nm, rdW, rdNe, H⟩ := H (.fvar ids[dpos]!) kb kv vw
+    (fun j => ids[bpos j]!) (fun j => ids[vpos j]!) eWA eWD eWEN eRA
+    (by rfl) haw hdw hWA hWD hWEN hRA qeq
+  refine ⟨ids, nd, len, cache, nm, rdW, rdNe, ?_⟩
+  intro bools bits env0 mems values
+  have fresh : ((bs.zip ids).map Prod.snd).Nodup := by rw [zip_ids len]; exact nd
+  refine H (boolValues ids bools) (bitValues ids bits) env0 mems
+    (fun j => bools (bpos j)) (fun j n => bits (vpos j) n) values ?_ ?_
+  · intro j hj
+    obtain ⟨name, pos⟩ := hb j hj
+    have lookup := prepare_bool_lookup (bools := boolValues ids bools)
+      (bits := bitValues ids bits) (bs.zip ids)
+      (start (entryCompilerState false cache) declName.toString) fresh (zip_member len pos)
+    simpa only [boolValues, index_fresh ids nd (bpos j)
+      (by have := (List.getElem_of_getElem? pos).choose; omega)] using lookup
+  · intro j hj
+    obtain ⟨name, pos⟩ := hvp j hj
+    have lookup := prepare_bits_lookup (bools := boolValues ids bools)
+      (bits := bitValues ids bits) (bs.zip ids)
+      (start (entryCompilerState false cache) declName.toString) fresh (zip_member len pos)
+    simpa only [bitValues, index_fresh ids nd (vpos j)
+      (by have := (List.getElem_of_getElem? pos).choose; omega)] using lookup
+
 end Tools.ShippingMemoryEntrySoundness
