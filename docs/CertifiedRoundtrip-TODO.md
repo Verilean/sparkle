@@ -417,11 +417,22 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   hierarchy (the M-layers' open-module view).
 - [ ] **S7:** Reconcile all successful cases and compose the full shipping
   theorem; instantiate it on real circuits without substituting per-instance
-  replay for coverage.
+  replay for coverage. STARTED — the reconciliation-1 statement exists
+  (Tools/ShippingCoreSoundness.lean): `ShippingPreserves` bundles all
+  ELEVEN family contracts (mixed sources, unified terms, vector muxes,
+  the five register shapes, the two `circuit do` shapes, the two memory
+  shapes), and `synthesizeCombinationalCore_shipping_sound` proves ONE
+  successful run of the real entry satisfies them all simultaneously —
+  each family's quoted-shape premise selects the applicable contract,
+  so this is the single statement every per-shape endpoint routes
+  through (audited, standard axioms). Open in S7: fold the
+  POST-pipeline layers (seqOptCheck/print/parse chains) into the same
+  statement, the hierarchy entry, and the final instantiated shipping
+  theorem on real circuits.
 - [ ] **S7 / trust:** Resolve or explicitly retain `EnvDefines` in the final
   claim; record execution-model/external-tool boundaries without hiding them.
 
-Latest validation: `lake build Tests.AllTests` passed all 648 jobs, with
+Latest validation: `lake build Tests.AllTests` passed all 650 jobs, with
 standard-axiom audits of the general endpoint and real signed/equality/Bool-logic
 source instantiations. Vector mux adds 2,772 source/legacy/SV/delta cases and
 real source theorems for nested and computed-condition muxes (no Bool input

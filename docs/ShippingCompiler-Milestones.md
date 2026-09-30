@@ -302,8 +302,11 @@ multi-port, postprocessing/checker/SV layers) remains. S6 is STARTED: the combin
 linked-instance semantics layer is proved and pinned against a real
 `@[hardware_module]` parent/child pair (`evalAssignsH`,
 `instBody_linked`, `parentUse_linked`); its entry-level connection and
-the sequential/nested/multi-instance scope remain. S7 remains
-unfinished.
+the sequential/nested/multi-instance scope remain. S7 is STARTED:
+`ShippingPreserves`/`synthesizeCombinationalCore_shipping_sound`
+reconcile all eleven family contracts into one core-entry statement;
+folding the post-pipeline layers and the final instantiated theorem
+remain.
 
 ## Trust, validation and work cadence
 
