@@ -406,7 +406,11 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   module), runs a 16-case linked regression, and instantiates
   `parentUse_linked`: the linked elaboration observes the source
   composition `childAdd a b` (name-generic in the emitter's instance
-  names, standard axioms). Open in S6: the entry-level connection for
+  names, standard axioms). The sub-module is additionally gated to BE
+  the child declaration's own standalone certified compile, byte for
+  byte, and the child passes the certified combinational gate — the
+  child-side endpoints therefore apply verbatim to the instantiated
+  module. Open in S6: the entry-level connection for
   the instance-emitting translation path (keyed caches,
   multi-output/projection handling), sequential children, nested
   instances, multiple instances, parameters, and the SV/text layer for

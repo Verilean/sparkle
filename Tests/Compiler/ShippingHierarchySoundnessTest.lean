@@ -92,6 +92,16 @@ run_cmd liftTermElabM do
   unless mp.body == instBody mn instName
       [("_gen_x", .ref "_gen_a"), ("_gen_y", .ref "_gen_b")] "out" "_gen_out" do
     throwError "parent body is not the canonical instBody"
+  -- The sub-module IS the child declaration's own certified compile,
+  -- byte for byte, and the child passes the certified combinational
+  -- gate — so the child-side combinational endpoints apply verbatim to
+  -- the instantiated module.
+  let (mc, _) ← synthesizeCombinationalCore ``childAdd [] false
+  unless mc.body == cm.body && mc.wires == cm.wires &&
+      mc.inputs == cm.inputs && mc.outputs == cm.outputs do
+    throwError "sub-module departed from the child's standalone compile"
+  unless (mixedCertifiedShape? false [] (← getConstInfo ``childAdd)).isSome do
+    throwError "child declaration missed the certified gate"
   -- 16-case numeric regression of the LINKED semantics against Nat add.
   let weP : WEnv := fun n =>
     if n == "_gen_a" || n == "_gen_b" || n == "_gen_out" || n == "out" then 8 else 0
