@@ -41,7 +41,7 @@ Use declaration names as anchors; source line numbers move during extensions.
 | `handleDefinitionUnfold`, applicative normalization, canonical instance checks | Definition expansion and hardware-module recognition need explicit source correspondence; successful fallback is not ruled out by a gate miss. |
 | `handleRegister`, `handleLoop`, `handleCircuitMonad` | S4: actual state/feedback path, enable/hold, initialization and supported reset behavior, then arbitrary source traces and emitted sequential execution. Circuit-monad handlers also contain structural cases; classify those individually. |
 | `handleMemory` | S5: actual initialization, latency, write masks and read/write interactions, then trace preservation. |
-| Hardware-module instantiation / design cache | S6: submodule correctness, interface/parameter linkage and compositional state/memory execution. |
+| Hardware-module instantiation / design cache | Canonical combinational single-scalar-output instance parents are certified end to end (gate at the run's tag predicate, provable lowering byte-equal to legacy, `InstancePreserves` monolith, real-parent endpoint + linked-semantics observation). Open: sequential children's entry contract, other arities, multi-output/projection children, nested/multiple instances, parameters, SV hierarchy layer. |
 
 ## Signed comparison witnesses
 

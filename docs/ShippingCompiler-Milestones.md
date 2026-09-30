@@ -298,13 +298,29 @@ and audited), and its ENTRY-LEVEL connection is closed
 (`Tools/ShippingMemoryEntrySoundness.lean`: gate + total lowering +
 monolith + `memory_run_of_env`, instantiated as `memAcc_run` on the
 real declaration); cone operands are certified end to end as well (`memoryCone_run_of_env` + `memAccC_run`); the wider memory scope (inits,
-multi-port, postprocessing/checker/SV layers) remains. S6 is STARTED: the combinational
-linked-instance semantics layer is proved and pinned against a real
-`@[hardware_module]` parent/child pair (`evalAssignsH`,
-`instBody_linked`, `parentUse_linked`); its entry-level connection and
-the sequential/nested/multi-instance scope remain. S7 is STARTED:
+multi-port, postprocessing/checker/SV layers) remains. S6 is STARTED and its
+ENTRY-LEVEL connection is closed for the canonical combinational
+parent: the linked-instance semantics layer is proved and pinned
+(`evalAssignsH`, `instBody_linked`, `parentUse_linked`), the certified
+gate admits the tagged single-scalar-output instance call at the run's
+`instancePredicate` (record-returning parents stay legacy, byte-gated),
+the dispatch tail lowers it through a provable arm reproducing the
+legacy bytes (gated, incl. a sequential child's clk/rst plumbing), and
+Tools/ShippingInstanceEntrySoundness.lean carries gate → step →
+monolith (`InstancePreserves`: parent = canonical `instBody` over the
+pinned child, design = exactly that child, argument wires = prepared
+source values; boundaries `HardwareTagged`/`SubSynthDefines`/
+`InstanceCacheEmpty`) → dispatcher → core wrapper →
+`instance_entry_of_env` → the real-parent endpoint
+`parentUse_instance_entry`, and `parentUse_entry_observes` ties the
+compiled parent's linked evaluation to the SOURCE composition
+`parentUse aS bS` (all audited, standard axioms). Sequential children's
+entry contract, other arities, nested/multi-instance and the SV layer
+remain. S7 is STARTED:
 `ShippingPreserves`/`synthesizeCombinationalCore_shipping_sound`
-reconcile all eleven family contracts into one core-entry statement;
+reconcile all eleven ∀-predicate family contracts into one core-entry
+statement, and the instance family joins the same theorem as a
+twelfth, per-run-predicate clause;
 `shipping_pipeline_transfer` composes the sequential post-pipeline
 (checker → emitted SV → parsed bytes) into one step; the hierarchy
 entry and the final instantiated theorem remain.
