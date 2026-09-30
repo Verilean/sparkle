@@ -1173,4 +1173,88 @@ theorem memoryCone_step_of_env {declName : Name} {mctx : Meta.Context}
     simpa only [bitValues, index_fresh ids nd (vpos j)
       (by have := (List.getElem_of_getElem? pos).choose; omega)] using lookup
 
+/-- **Cone-memory trace endpoint at the real entry.** The whole
+`runModule` trace follows the joint latch/array recurrence driven by the
+four cones' per-cycle values. -/
+theorem memoryCone_run_of_env {declName : Name} {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {wst wst' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {design : Design} {value : Lean.Expr}
+    {bs : List (Name × MixedGateBinder)}
+    {dpos : Nat} {aw dw kb kv : Nat} {vw : Nat → Nat} {bpos vpos : Nat → Nat}
+    {eWA : Term (.bits aw)} {eWD : Term (.bits dw)}
+    {eWEN : Term .bool} {eRA : Term (.bits aw)}
+    (hr : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref wst
+      (m, design) wst')
+    (env : EnvDefines mctx mref cctx cref declName value)
+    (old : ∀ d : DefinitionVal, d.value = value → certifiedShape? false [] (.defnInfo d) = none)
+    (peel : mixedGatePeel value = some (bs, memoryE (inputExpr bs.length dpos) aw dw
+      (quote (inputExpr bs.length dpos) (fun j => inputExpr bs.length (bpos j)) (fun j => inputExpr bs.length (vpos j)) eWA)
+      (quote (inputExpr bs.length dpos) (fun j => inputExpr bs.length (bpos j)) (fun j => inputExpr bs.length (vpos j)) eWD)
+      (quote (inputExpr bs.length dpos) (fun j => inputExpr bs.length (bpos j)) (fun j => inputExpr bs.length (vpos j)) eWEN)
+      (quote (inputExpr bs.length dpos) (fun j => inputExpr bs.length (bpos j)) (fun j => inputExpr bs.length (vpos j)) eRA)))
+    (hdp : dpos < bs.length) (haw : 0 < aw) (hdw : 0 < dw)
+    (hWA : eWA.WF kb kv vw) (hWD : eWD.WF kb kv vw)
+    (hWEN : eWEN.WF kb kv vw) (hRA : eRA.WF kb kv vw)
+    (hb : ∀ j, j < kb → ∃ name, bs[bpos j]? = some (name, .bool))
+    (hvp : ∀ j, j < kv → ∃ name, bs[vpos j]? = some (name, .bits (vw j))) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = bs.length ∧
+    ∃ (cache : IO.Ref (ExprStructMap String)) (nm rdW : String), rdW ≠ "out" ∧
+      ∀ {D : Sparkle.Core.Domain.DomainConfig}
+        (boolsS : Nat → Sparkle.Core.Signal.Signal D Bool)
+        (bitsS : (j : Nat) → (n : Nat) → Sparkle.Core.Signal.Signal D (BitVec n))
+        (mems0 : MEnv) (k : Nat)
+        (seed : Nat → (String → Nat) → Env) (st0 : String → Nat)
+        (S : Nat → Nat) (M : Nat → MEnv),
+      (∀ t stv, SourceInputs declName bs ids cache
+          (fun i => (boolsS i).val (k - 1 - t)) (fun i n => (bitsS i n).val (k - 1 - t))
+          (seed t stv) ∧ seed t stv rdW = stv rdW) →
+      S 0 = st0 rdW → M 0 = mems0 →
+      (∀ j, j + 1 ≤ k → S (j + 1) = mask dw (M j nm (mask aw
+        (eval (fun i => (boolsS (bpos i)).val j) (fun i n => (bitsS (vpos i) n).val j)
+          eRA).toNat))) →
+      (∀ j, j + 1 ≤ k → M (j + 1) =
+        if eval (fun i => (boolsS (bpos i)).val j) (fun i n => (bitsS (vpos i) n).val j)
+            eWEN then
+          (fun n i => if n = nm ∧ i = mask aw
+              (eval (fun i => (boolsS (bpos i)).val j)
+                (fun i n => (bitsS (vpos i) n).val j) eWA).toNat
+            then mask dw (eval (fun i => (boolsS (bpos i)).val j)
+              (fun i n => (bitsS (vpos i) n).val j) eWD).toNat
+            else M j n i)
+        else M j) →
+      ∃ envs, runModule (weOf m) m.body seed k st0 mems0 = some envs ∧
+        envs.length = k ∧
+        ∀ j (hj : j < envs.length), (envs[j]'hj) "out" = S j := by
+  obtain ⟨ids, nd, len, cache, nm, rdW, rdNe, H⟩ :=
+    memoryCone_step_of_env hr env old peel hdp haw hdw hWA hWD hWEN hRA hb hvp
+  refine ⟨ids, nd, len, cache, nm, rdW, rdNe, ?_⟩
+  intro D boolsS bitsS mems0 k seed st0 S M hseed hS0 hM0 hSs hMs
+  refine Tools.ShippingMemorySoundness.trace_of_cycles_memArr
+    (L := fun t mems => mask dw (mems nm (mask aw
+      (eval (fun i => (boolsS (bpos i)).val (k - 1 - t))
+        (fun i n => (bitsS (vpos i) n).val (k - 1 - t)) eRA).toNat)))
+    (G := fun t mems =>
+      if eval (fun i => (boolsS (bpos i)).val (k - 1 - t))
+          (fun i n => (bitsS (vpos i) n).val (k - 1 - t)) eWEN then
+        (fun n i => if n = nm ∧ i = mask aw
+            (eval (fun i => (boolsS (bpos i)).val (k - 1 - t))
+              (fun i n => (bitsS (vpos i) n).val (k - 1 - t)) eWA).toNat
+          then mask dw (eval (fun i => (boolsS (bpos i)).val (k - 1 - t))
+            (fun i n => (bitsS (vpos i) n).val (k - 1 - t)) eWD).toNat
+          else mems n i)
+      else mems)
+    (fun t stv mems => ?_) k st0 mems0 S M hS0 hM0 ?_ ?_
+  · obtain ⟨envF, hstep, hout⟩ := H (fun i => (boolsS i).val (k - 1 - t))
+      (fun i n => (bitsS i n).val (k - 1 - t)) (seed t stv) mems (hseed t stv).1
+    exact ⟨envF, hstep, hout.trans (hseed t stv).2⟩
+  · intro j hj
+    have hidx : k - 1 - (k - 1 - j) = j := by omega
+    simp only [hidx]
+    exact hSs j hj
+  · intro j hj
+    have hidx : k - 1 - (k - 1 - j) = j := by omega
+    simp only [hidx]
+    exact hMs j hj
+
 end Tools.ShippingMemoryEntrySoundness
