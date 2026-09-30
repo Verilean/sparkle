@@ -20,6 +20,12 @@ open Lean Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Builder Sparkle.IR.Sem
 open Tools.ShippingUnifiedSource Tools.ShippingUnifiedMeaning
 open Tools.ShippingUnifiedCache Tools.ShippingUnifiedInvariant
 open Tools.ShippingUnifiedEntrySoundness
+open Tools.ShippingUnifiedRecursion Tools.ShippingUnifiedProtection
+open Tools.ShippingCompareLoweringSoundness (ScalarWidthsAgree)
+open Tools.ShippingMixedBinarySoundness (ScalarWires)
+open Tools.ShippingTranslationOrder
+open Tools.ShippingRegisterSoundness (SeqBody)
+open Tools.ShippingMemorySoundness (evalPayload_ref)
 open Tools.ShippingTranslateSoundness hiding Inv Spec
 open Tools.ShippingMixedOutputSoundness (PortInputs declaredWidths declaredWidths_agree)
 open Tools.ShippingMixedEntrySoundness Tools.ShippingMixedSourceBridge
@@ -383,6 +389,449 @@ theorem synthesizeMixedCertified_memory_sound {logProf declName bs body m d}
   · subst hwdW; exact wdVal
   · subst hwenW; exact wenVal
   · subst hraW; exact raVal
+
+/-! ## The cone monolith: all four operands through the unified contract -/
+
+/-- `memNexts` walks past a pure-assign prefix. -/
+theorem memNexts_skip_assigns {we : WEnv} {mems : MEnv} {env : Env} :
+    ∀ {pre rest : List Stmt}, (∀ st ∈ pre, ∃ l r, st = .assign l r) →
+      memNexts we (pre ++ rest) mems env = memNexts we rest mems env
+  | [], rest, _ => rfl
+  | st :: pre, rest, h => by
+    obtain ⟨l, r, rfl⟩ := h st List.mem_cons_self
+    show memNexts we (pre ++ rest) mems env = _
+    exact memNexts_skip_assigns (fun q hq => h q (List.mem_cons_of_mem _ hq))
+
+def MemoryConePreserves (declName : Name) (bs : List (Name × MixedGateBinder))
+    (body : Lean.Expr) (m : Sparkle.IR.AST.Module) : Prop :=
+  ∃ ids : List FVarId, ids.Nodup ∧ ids.length = bs.length ∧
+  ∃ cache : IO.Ref (ExprStructMap String),
+    ∀ (dom : Lean.Expr) (kb kv : Nat) (vw : Nat → Nat) (binp vinp : Nat → FVarId)
+      {aw dw : Nat} (eWA : Term (.bits aw)) (eWD : Term (.bits dw))
+      (eWEN : Term .bool) (eRA : Term (.bits aw)),
+    (dom.isFVar || dom.isBVar) = true → 0 < aw → 0 < dw →
+    eWA.WF kb kv vw → eWD.WF kb kv vw → eWEN.WF kb kv vw → eRA.WF kb kv vw →
+    instFVars (ids.map Lean.Expr.fvar).toArray 0 body =
+      memoryE dom aw dw
+        (quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) eWA)
+        (quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) eWD)
+        (quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) eWEN)
+        (quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) eRA) →
+    ∃ (nm rdW : String), rdW ≠ "out" ∧
+    ∀ (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n)
+      (env0 : Env) (mems : MEnv)
+      (bvals : Nat → Bool) (vvals : (j : Nat) → (n : Nat) → BitVec n),
+    let a := start (entryCompilerState false cache) declName.toString
+    let p := prepare bools bits (bs.zip ids) a
+    Admissible bools bits env0 (bs.zip ids) a →
+    (∀ j, j < kb → p.bools (binp j) = some (bvals j)) →
+    (∀ j, j < kv → p.bits (vinp j) = some ⟨vw j, vvals j (vw j)⟩) →
+    ∃ envF, stepModule (weOf m) m.body env0 mems =
+        some (envF,
+          [(rdW, mask dw (mems nm (mask aw (eval bvals vvals eRA).toNat)))],
+          if eval bvals vvals eWEN then
+            (fun n i => if n = nm ∧ i = mask aw (eval bvals vvals eWA).toNat
+              then mask dw (eval bvals vvals eWD).toNat else mems n i)
+          else mems) ∧
+      envF "out" = env0 rdW
+
+set_option maxHeartbeats 4000000 in
+theorem synthesizeMixedCertified_memoryCone_sound {logProf declName bs body m d}
+    (hr : MReturns (synthesizeMixedCertified
+      (fun e hint top named => translateExprToWire e hint top named) logProf declName bs body)
+      (m, d)) :
+    MemoryConePreserves declName bs body m := by
+  obtain ⟨ids, cache, returned, st, nd, len, run, hm, _, _⟩ :=
+    synthesizeMixedCertified_returns hr
+  refine ⟨ids, nd, len, cache, ?_⟩
+  intro dom kb kv vw binp vinp aw dw eWA eWD eWEN eRA hdom haw hdw hWA hWD hWEN hRA qeq
+  have leaf := prepare_returns (bs.zip ids)
+    (start (entryCompilerState false cache) declName.toString)
+    (bools := fun _ => false) (bits := fun _ _ => 0) run
+  rw [qeq] at leaf
+  obtain ⟨rdW, sm, ty, tr, freshOut, ht, hty⟩ := emitLeaves_single leaf
+  have stepEq : translateExprToWire
+      (memoryE dom aw dw
+        (quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) eWA)
+        (quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) eWD)
+        (quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) eWEN)
+        (quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) eRA))
+        "out" false true =
+      translateControlCachedWith
+        (translateMemoryUncachedWith (translateFuelFix translateStep 1048575) aw dw)
+        (memoryE dom aw dw
+          (quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) eWA)
+          (quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) eWD)
+          (quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) eWEN)
+          (quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) eRA))
+        "out" false true := by
+    show translateStepWith translateFallback (translateFuelFix translateStep 1048575)
+      (memoryE dom aw dw _ _ _ _) "out" false true = _
+    rw [memory_step _ dom _ _ _ _ aw dw hdom haw hdw]
+  rw [stepEq] at tr
+  have empty0 := empty_layout (entryCompilerState false cache) declName.toString (fun _ => 0)
+  have record0 : (prepare (fun _ => false) (fun _ _ => 0) (bs.zip ids)
+      (start (entryCompilerState false cache) declName.toString)).state.translateRecord
+      = {} :=
+    (prepare_layout (bs.zip ids) _ empty0.1 empty0.2 (admissible_zero _ _)).2.2.2
+  rcases translateControlCachedWith_returns tr with hit | ⟨smR, missRun, record⟩
+  · obtain ⟨-, hrec⟩ := cacheLookupValidated_returns hit
+    have dead := hrec rdW rfl
+    rw [record0] at dead
+    simp at dead
+  rw [memoryUncached_memoryE] at missRun
+  obtain ⟨waW, s1, rc1, k1⟩ := Returns.bind missRun
+  obtain ⟨wdW, s2, rc2, k2⟩ := Returns.bind k1
+  obtain ⟨wenW, s3, rc3, k3⟩ := Returns.bind k2
+  obtain ⟨raW, s4, rc4, k4⟩ := Returns.bind k3
+  obtain ⟨hrdW, hsmR⟩ := emitMemory_returns k4
+  have hrec := recordTranslation_returns record
+  obtain ⟨hrE1, hrE2⟩ := emitMemoryC_spec "out" aw dw "clk"
+    (.ref waW) (.ref wdW) (.ref wenW) (.ref raW) true s4
+  have hstr : (toString "out" ++ toString "_rdata" : String) = "out_rdata" := rfl
+  rw [hstr] at hrE1 hrE2
+  have hrdWm : rdW = (CircuitM.freshName (CircuitM.sanitizeName "out_rdata") true
+      ((CircuitM.freshName (CircuitM.sanitizeName "out") true s4).2)).1 := by
+    rw [hrdW, hrE1]
+  have smModule : sm.module =
+      ((CircuitM.freshName (CircuitM.sanitizeName "out_rdata") true
+        ((CircuitM.freshName (CircuitM.sanitizeName "out") true s4).2)).2.module.addWire
+          { name := rdW, ty := .bitVector dw }).addStmt
+        (.memory (CircuitM.freshName (CircuitM.sanitizeName "out") true s4).1
+          aw dw "clk" (.ref waW) (.ref wdW) (.ref wenW) (.ref raW) rdW) := by
+    rw [hrec, hsmR, hrE2, ← hrdWm]
+  have fn1 := CircuitM.freshName_spec (CircuitM.sanitizeName "out") true s4
+  have fn2 := CircuitM.freshName_spec (CircuitM.sanitizeName "out_rdata") true
+    ((CircuitM.freshName (CircuitM.sanitizeName "out") true s4).2)
+  have stBody : st.module.body =
+      .assign "out" (.ref rdW) ::
+        .memory (CircuitM.freshName (CircuitM.sanitizeName "out") true s4).1
+          aw dw "clk" (.ref waW) (.ref wdW) (.ref wenW) (.ref raW) rdW ::
+          s4.module.body := by
+    rw [ht, emitAssign_body_cons, addOutput_state]
+    show _ :: (sm.module.addOutput _).body = _
+    rw [show ∀ (mo : Sparkle.IR.AST.Module) q, (mo.addOutput q).body = mo.body from
+      fun _ _ => rfl, smModule]
+    show _ :: (_ :: (CircuitM.freshName (CircuitM.sanitizeName "out_rdata") true
+      ((CircuitM.freshName (CircuitM.sanitizeName "out") true s4).2)).2.module.body) = _
+    rw [fn2.2.2, fn1.2.2]
+  have stWires : st.module.wires =
+      { name := rdW, ty := .bitVector dw } :: s4.module.wires := by
+    rw [ht, emitAssign_wires, addOutput_state]
+    show (sm.module.addOutput _).wires = _
+    rw [show ∀ (mo : Sparkle.IR.AST.Module) q, (mo.addOutput q).wires = mo.wires from
+      fun _ _ => rfl, smModule]
+    rw [show ∀ (mo : Sparkle.IR.AST.Module) q, (mo.addStmt q).wires = mo.wires from
+      fun _ _ => rfl]
+    show ((CircuitM.freshName (CircuitM.sanitizeName "out_rdata") true
+      ((CircuitM.freshName (CircuitM.sanitizeName "out") true s4).2)).2.module.addWire
+        { name := rdW, ty := .bitVector dw }).wires = _
+    rw [show ∀ (mo : Sparkle.IR.AST.Module) q, (mo.addWire q).wires = q :: mo.wires from
+      fun _ _ => rfl, fn2.2.2, fn1.2.2]
+  have mBody : m.body = s4.module.body.reverse ++
+      [.memory (CircuitM.freshName (CircuitM.sanitizeName "out") true s4).1
+        aw dw "clk" (.ref waW) (.ref wdW) (.ref wenW) (.ref raW) rdW,
+       .assign "out" (.ref rdW)] := by
+    rw [hm]
+    show ((addClockResetIfSequential st.module).finalize).body = _
+    simp only [Sparkle.IR.AST.Module.finalize,
+      (Tools.ShippingEntrySoundness.addClockReset_facts st.module).1, stBody]
+    simp
+  have rdFreshMid : ((CircuitM.freshName (CircuitM.sanitizeName "out") true
+      s4).2).usedNames.contains rdW = false := by
+    rw [hrdWm]; exact fn2.1
+  have rdNotS4 : s4.usedNames.contains rdW = false := by
+    rcases h : s4.usedNames.contains rdW with _ | _
+    · rfl
+    · have : ((CircuitM.freshName (CircuitM.sanitizeName "out") true
+          s4).2).usedNames.contains rdW = true := by
+        rw [fn1.2.1]
+        simp [Std.HashSet.contains_insert, h]
+      rw [rdFreshMid] at this
+      cases this
+  have rdNotOut : rdW ≠ "out" := by
+    intro eq
+    have alloc := CircuitM.freshName_allocated (CircuitM.sanitizeName "out_rdata") true
+      ((CircuitM.freshName (CircuitM.sanitizeName "out") true s4).2)
+    rw [← hrdWm, eq] at alloc
+    exact not_allocated_out alloc
+  refine ⟨(CircuitM.freshName (CircuitM.sanitizeName "out") true s4).1,
+    rdW, rdNotOut, ?_⟩
+  intro bools bits env0 mems bvals vvals a p adm hb0 hv0
+  have empty := empty_layout (entryCompilerState false cache) declName.toString env0
+  have prepared := prepare_layout (bs.zip ids)
+    (start (entryCompilerState false cache) declName.toString) empty.1 empty.2 adm
+  obtain ⟨pc, ps⟩ := prepare_const (fun _ => false) bools (fun _ _ => 0) bits
+    (bs.zip ids) _ _ rfl rfl
+  rw [pc, ps] at rc1
+  rw [pc] at rc2 rc3 rc4
+  have hb' : ∀ j, j < kb →
+      inputValues (prepare bools bits (bs.zip ids)
+        (start (entryCompilerState false cache) declName.toString)).bools
+        (prepare bools bits (bs.zip ids)
+          (start (entryCompilerState false cache) declName.toString)).bits (binp j) =
+        some (.bool (bvals j)) :=
+    fun j hj => inputValues_bool (hb0 j hj)
+  have separate := prepared.1.separate prepared.2.1
+  have hv' : ∀ j, j < kv →
+      inputValues (prepare bools bits (bs.zip ids)
+        (start (entryCompilerState false cache) declName.toString)).bools
+        (prepare bools bits (bs.zip ids)
+          (start (entryCompilerState false cache) declName.toString)).bits (vinp j) =
+        some (.bits (vw j) (vvals j (vw j))) :=
+    fun j hj => inputValues_bits separate (hv0 j hj)
+  have contract1 := fuel_contract 1048575
+    (ctx := (prepare bools bits (bs.zip ids)
+      (start (entryCompilerState false cache) declName.toString)).context)
+    (we := declaredWidths st) (mems := mems) (initial := env0) (dom := dom) hb' hv' eWA hWA
+  have contract2 := fuel_contract 1048575
+    (ctx := (prepare bools bits (bs.zip ids)
+      (start (entryCompilerState false cache) declName.toString)).context)
+    (we := declaredWidths st) (mems := mems) (initial := env0) (dom := dom) hb' hv' eWD hWD
+  have contract3 := fuel_contract 1048575
+    (ctx := (prepare bools bits (bs.zip ids)
+      (start (entryCompilerState false cache) declName.toString)).context)
+    (we := declaredWidths st) (mems := mems) (initial := env0) (dom := dom) hb' hv' eWEN hWEN
+  have contract4 := fuel_contract 1048575
+    (ctx := (prepare bools bits (bs.zip ids)
+      (start (entryCompilerState false cache) declName.toString)).context)
+    (we := declaredWidths st) (mems := mems) (initial := env0) (dom := dom) hb' hv' eRA hRA
+  have lookup := lookup_of_ports prepared.1 prepared.2.1
+  have f1 := contract1.frame "mem_waddr" false false _ s1 waW lookup rc1
+  have f2 := contract2.frame "mem_wdata" false false s1 s2 wdW (lookup.transfer f1) rc2
+  have f3 := contract3.frame "mem_we" false false s2 s3 wenW
+    ((lookup.transfer f1).transfer f2) rc3
+  have f4 := contract4.frame "mem_raddr" false false s3 s4 raW
+    (((lookup.transfer f1).transfer f2).transfer f3) rc4
+  have wiresS4 : WiresOk s4 := f4.wires (f3.wires (f2.wires (f1.wires prepared.2.1)))
+  have rdNotS4W : rdW ∉ s4.module.wires.map (·.name) := by
+    intro hmem
+    obtain ⟨q, hq, eq⟩ := List.mem_map.mp hmem
+    have := wiresS4.2 q hq
+    rw [eq, rdNotS4] at this
+    cases this
+  have stUsed : st.usedNames = ((((CircuitM.freshName (CircuitM.sanitizeName "out") true
+      s4).2).usedNames.insert rdW).insert "out") := by
+    rw [ht, emitAssign_usedNames, addOutput_state]
+    show (sm.usedNames.insert "out") = _
+    rw [hrec, hsmR, hrE2]
+    show (((CircuitM.freshName (CircuitM.sanitizeName "out_rdata") true
+      ((CircuitM.freshName (CircuitM.sanitizeName "out") true s4).2)).2.usedNames).insert
+        "out") = _
+    rw [fn2.2.1, ← hrdWm]
+  have wiresSt : WiresOk st := by
+    constructor
+    · rw [stWires]
+      simp only [List.map_cons, List.nodup_cons]
+      exact ⟨rdNotS4W, wiresS4.1⟩
+    · intro q hq
+      rw [stWires] at hq
+      rw [stUsed]
+      rcases List.mem_cons.mp hq with rfl | hq
+      · simp [Std.HashSet.contains_insert]
+      · have hs4u := wiresS4.2 q hq
+        have : ((CircuitM.freshName (CircuitM.sanitizeName "out") true
+            s4).2).usedNames.contains q.name = true := by
+          rw [fn1.2.1]
+          simp [Std.HashSet.contains_insert, hs4u]
+        simp [Std.HashSet.contains_insert, this]
+  have inv0 : Inv _ (inputValues _ _) (declaredWidths st) mems env0 _ env0 :=
+    initial_unified
+      (by rw [prepared.2.2.1]; rfl)
+      (by rw [prepared.2.2.2]; rfl)
+      separate
+      (prepared.1.inputs prepared.2.1
+        (by intro q hq; rw [stWires]
+            exact List.mem_cons_of_mem _
+              (f4.decls q (f3.decls q (f2.decls q (f1.decls q hq)))))
+        (declaredWidths_agree wiresSt))
+  have widths4 : ScalarWidthsAgree (declaredWidths st) s4 := by
+    intro q hq
+    exact declaredWidths_agree wiresSt q (by
+      rw [stWires]; exact List.mem_cons_of_mem _ hq)
+  have widths1 : ScalarWidthsAgree (declaredWidths st) s1 := fun q hq =>
+    widths4 q (f4.decls q (f3.decls q (f2.decls q hq)))
+  have widths2 : ScalarWidthsAgree (declaredWidths st) s2 := fun q hq =>
+    widths4 q (f4.decls q (f3.decls q hq))
+  have widths3 : ScalarWidthsAgree (declaredWidths st) s3 := fun q hq =>
+    widths4 q (f4.decls q hq)
+  have o1 := contract1.sem "mem_waddr" false false _ s1 waW env0 inv0 widths1 rc1
+  obtain ⟨res1, inv1, val1, fvals1⟩ := o1.execution
+  have o2 := contract2.sem "mem_wdata" false false s1 s2 wdW res1 inv1 widths2 rc2
+  obtain ⟨res2, inv2, val2, fvals2⟩ := o2.execution
+  have o3 := contract3.sem "mem_we" false false s2 s3 wenW res2 inv2 widths3 rc3
+  obtain ⟨res3, inv3, val3, fvals3⟩ := o3.execution
+  have o4 := contract4.sem "mem_raddr" false false s3 s4 raW res3 inv3 widths4 rc4
+  obtain ⟨res4, inv4, val4, fvals4⟩ := o4.execution
+  have ordered1 := fuel_orders 1048575 (we := declaredWidths st) (mems := mems)
+    (initial := env0) (dom := dom) hb' hv' eWA hWA "mem_waddr" false _ s1 waW env0 rc1 inv0
+    widths1 (OrderInv.empty (by rw [prepared.2.2.1]; rfl))
+  have ordered2 := fuel_orders 1048575 (we := declaredWidths st) (mems := mems)
+    (initial := env0) (dom := dom) hb' hv' eWD hWD "mem_wdata" false s1 s2 wdW res1 rc2 inv1
+    widths2 ordered1
+  have ordered3 := fuel_orders 1048575 (we := declaredWidths st) (mems := mems)
+    (initial := env0) (dom := dom) hb' hv' eWEN hWEN "mem_we" false s2 s3 wenW res2 rc3 inv2
+    widths3 ordered2
+  have ordered4 := fuel_orders 1048575 (we := declaredWidths st) (mems := mems)
+    (initial := env0) (dom := dom) hb' hv' eRA hRA "mem_raddr" false s3 s4 raW res3 rc4 inv3
+    widths4 ordered3
+  have seqS4 : SeqBody s4.module.finalize.body := by
+    intro stq hq
+    obtain ⟨l, rhs, eq, _⟩ := inv4.typed stq (by
+      change stq ∈ s4.module.body.reverse at hq
+      exact List.mem_reverse.mp hq)
+    exact Or.inl ⟨l, rhs, eq⟩
+  have preAssigns : ∀ stq ∈ s4.module.finalize.body, ∃ l rhs, stq = .assign l rhs := by
+    intro stq hq
+    obtain ⟨l, rhs, eq, _⟩ := inv4.typed stq (by
+      change stq ∈ s4.module.body.reverse at hq
+      exact List.mem_reverse.mp hq)
+    exact ⟨l, rhs, eq⟩
+  have preEq : s4.module.finalize.body = s4.module.body.reverse := by
+    simp [Sparkle.IR.AST.Module.finalize]
+  have rdNotW : rdW ∉ Sparkle.IR.Reorder.writesOf s4.module.finalize.body := by
+    intro hwr
+    have hf := writes_mem_footprint hwr
+    rw [preEq] at hf
+    have hfp := (footprint_reverse_mem _ _).mp hf
+    have := ordered4.2 rdW hfp
+    rw [rdNotS4] at this
+    cases this
+  have runs4 : evalAssigns (declaredWidths st) mems s4.module.finalize.body env0 =
+      some res4 := inv4.runs
+  have resRd : res4 rdW = env0 rdW :=
+    Tools.ShippingRegisterSoundness.evalAssigns_preserved seqS4 runs4 rdNotW
+  -- Operand values at the settled pre-body environment.
+  have waUsed1 : s1.usedNames.contains waW = true := o1.used
+  have resWA : res4 waW = (eval bvals vvals eWA).toNat := by
+    rw [fvals4 waW (f3.used waW (f2.used waW waUsed1)),
+      fvals3 waW (f2.used waW waUsed1), fvals2 waW waUsed1]
+    exact val1
+  have wdUsed2 : s2.usedNames.contains wdW = true := o2.used
+  have resWD : res4 wdW = (eval bvals vvals eWD).toNat := by
+    rw [fvals4 wdW (f3.used wdW wdUsed2), fvals3 wdW wdUsed2]
+    exact val2
+  have wenUsed3 : s3.usedNames.contains wenW = true := o3.used
+  have resWEN : res4 wenW =
+      Tools.ShippingMuxLoweringSoundness.encodeBool (eval bvals vvals eWEN) := by
+    rw [fvals4 wenW wenUsed3]
+    exact val3
+  have resRA : res4 raW = (eval bvals vvals eRA).toNat := val4
+  -- Assemble the step.
+  let envF : Env := fun n => if n = "out" then res4 rdW else res4 n
+  have evalFull : evalAssigns (declaredWidths st) mems m.body env0 = some envF := by
+    rw [mBody, ← preEq,
+      Tools.ShippingRegisterSoundness.evalAssigns_append seqS4, runs4]
+    show evalAssigns _ mems
+      (.memory _ aw dw "clk" (.ref waW) (.ref wdW) (.ref wenW) (.ref raW) rdW ::
+        .assign "out" (.ref rdW) :: []) res4 = _
+    simp [evalAssigns, evalExpr, envF]
+  have envFwa : envF waW = (eval bvals vvals eWA).toNat := by
+    have hne : waW ≠ "out" := by
+      intro eq
+      have used4 := f4.used waW (f3.used waW (f2.used waW waUsed1))
+      have : sm.usedNames.contains waW = true := by
+        rw [hrec, hsmR, hrE2]
+        show ((CircuitM.freshName (CircuitM.sanitizeName "out_rdata") true
+          ((CircuitM.freshName (CircuitM.sanitizeName "out") true s4).2)).2.usedNames).contains
+            waW = true
+        rw [fn2.2.1, fn1.2.1]
+        simp [Std.HashSet.contains_insert, used4]
+      rw [eq, freshOut] at this
+      cases this
+    simp only [envF, if_neg hne]
+    exact resWA
+  have envFwd : envF wdW = (eval bvals vvals eWD).toNat := by
+    have hne : wdW ≠ "out" := by
+      intro eq
+      have used4 := f4.used wdW (f3.used wdW wdUsed2)
+      have : sm.usedNames.contains wdW = true := by
+        rw [hrec, hsmR, hrE2]
+        show ((CircuitM.freshName (CircuitM.sanitizeName "out_rdata") true
+          ((CircuitM.freshName (CircuitM.sanitizeName "out") true s4).2)).2.usedNames).contains
+            wdW = true
+        rw [fn2.2.1, fn1.2.1]
+        simp [Std.HashSet.contains_insert, used4]
+      rw [eq, freshOut] at this
+      cases this
+    simp only [envF, if_neg hne]
+    exact resWD
+  have envFwen : envF wenW =
+      Tools.ShippingMuxLoweringSoundness.encodeBool (eval bvals vvals eWEN) := by
+    have hne : wenW ≠ "out" := by
+      intro eq
+      have used4 := f4.used wenW wenUsed3
+      have : sm.usedNames.contains wenW = true := by
+        rw [hrec, hsmR, hrE2]
+        show ((CircuitM.freshName (CircuitM.sanitizeName "out_rdata") true
+          ((CircuitM.freshName (CircuitM.sanitizeName "out") true s4).2)).2.usedNames).contains
+            wenW = true
+        rw [fn2.2.1, fn1.2.1]
+        simp [Std.HashSet.contains_insert, used4]
+      rw [eq, freshOut] at this
+      cases this
+    simp only [envF, if_neg hne]
+    exact resWEN
+  have envFra : envF raW = (eval bvals vvals eRA).toNat := by
+    have hne : raW ≠ "out" := by
+      intro eq
+      have used4 := o4.used
+      have : sm.usedNames.contains raW = true := by
+        rw [hrec, hsmR, hrE2]
+        show ((CircuitM.freshName (CircuitM.sanitizeName "out_rdata") true
+          ((CircuitM.freshName (CircuitM.sanitizeName "out") true s4).2)).2.usedNames).contains
+            raW = true
+        rw [fn2.2.1, fn1.2.1]
+        simp [Std.HashSet.contains_insert, used4]
+      rw [eq, freshOut] at this
+      cases this
+    simp only [envF, if_neg hne]
+    exact resRA
+  have nexts : regNexts (declaredWidths st) mems m.body envF =
+      some [(rdW, mask dw (mems
+        (CircuitM.freshName (CircuitM.sanitizeName "out") true s4).1
+        (mask aw (eval bvals vvals eRA).toNat)))] := by
+    rw [mBody, ← preEq,
+      Tools.ShippingRegisterSoundness.regNexts_skip_assigns preAssigns]
+    show regNexts _ mems
+      (.memory _ aw dw "clk" (.ref waW) (.ref wdW) (.ref wenW) (.ref raW) rdW ::
+        .assign "out" (.ref rdW) :: []) envF = _
+    simp [regNexts, syncReadLatches, evalExpr, envFra]
+  have memn : memNexts (declaredWidths st) m.body mems envF =
+      some (if eval bvals vvals eWEN then
+        (fun n i => if n = (CircuitM.freshName (CircuitM.sanitizeName "out") true s4).1
+            ∧ i = mask aw (eval bvals vvals eWA).toNat
+          then mask dw (eval bvals vvals eWD).toNat else mems n i)
+        else mems) := by
+    rw [mBody, ← preEq, memNexts_skip_assigns preAssigns]
+    show memNexts _
+      (.memory _ aw dw "clk" (.ref waW) (.ref wdW) (.ref wenW) (.ref raW) rdW ::
+        .assign "out" (.ref rdW) :: []) mems envF = _
+    cases hEn : eval bvals vvals eWEN <;>
+      simp [memNexts, memWritePorts, evalPayload_ref, envFwa, envFwd, envFwen, hEn,
+        Tools.ShippingMuxLoweringSoundness.encodeBool]
+  have scalarSt : ScalarWires st := by
+    intro q hq
+    rw [stWires] at hq
+    rcases List.mem_cons.mp hq with rfl | hq
+    · exact Or.inr ⟨dw, rfl⟩
+    · exact f4.scalar (f3.scalar (f2.scalar (f1.scalar (prepare_shape (bs.zip ids) _ (by
+        intro q hq'
+        rw [show (start (entryCompilerState false cache) declName.toString).state =
+          CircuitM.init declName.toString from rfl, init_wires] at hq'
+        cases hq')).1))) q hq
+  have mWires : m.wires = st.module.wires.reverse := by
+    rw [hm]
+    simp only [Sparkle.IR.AST.Module.finalize,
+      (Tools.ShippingEntrySoundness.addClockReset_facts st.module).2.1]
+  have wm : weOf m = declaredWidths st := by
+    rw [weOf_eq_moduleWidths (by
+      intro q hq; rw [mWires, List.mem_reverse] at hq; exact scalarSt q hq)]
+    exact moduleWidths_finish mWires wiresSt
+  refine ⟨envF, ?_, by simp [envF, resRd]⟩
+  rw [wm]
+  unfold stepModule
+  simp [evalFull, nexts, memn, bind]
 
 /-! ## Dispatch from the real entry -/
 
