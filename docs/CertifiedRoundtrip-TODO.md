@@ -438,6 +438,13 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   resolution).
 - [ ] **S7 / trust:** Resolve or explicitly retain `EnvDefines` in the final
   claim; record execution-model/external-tool boundaries without hiding them.
+  RECORDED — docs/ShippingCompiler-TrustBase.md states the retained base
+  in one place: the kernel + three standard axioms, `EnvDefines` (retained,
+  with rationale), the runtime-gated decidable premises pattern, the
+  byte→AST parse direction (and the sync-read-memory gap in M4), the
+  linked-instance meaning, and the two boundary predicates the S6 entry
+  work will add (`SubSynthDefines`, instance-cache cleanliness) with the
+  unresolved cache-history trade-off that stages S6-2.
 
 Latest validation: `lake build Tests.AllTests` passed all 651 jobs, with
 standard-axiom audits of the general endpoint and real signed/equality/Bool-logic
