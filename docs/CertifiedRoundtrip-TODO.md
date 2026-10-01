@@ -798,8 +798,17 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   `cSwap_execution` proves a nibble swap (two slices concatenated);
   the suite gates 11 declarations byte-identical to the legacy compile
   of the declaration as written. 63 of 389 real declarations pass a
-  gate. Open next: literal operands (`0#k ++ a`), bare `f <$> a`
-  slices, unary and BitVec-result lifts; then the N-slot `circuit do`.
+  gate. LITERAL OPERANDS followed (`v#k ++ b`, `a ++ v#k`:
+  `Term.concatLitHi`/`concatLitLo`, arm `FallbackKind.concatLit`): the
+  concatenation lemmas were restated over operand actions
+  (`translateConcatActs`, `concat_outcome`/`_protect`/`_order` taking
+  `ActionSpec`/`ActionProtect`/`ActionOrder`), a literal operand being
+  the action that allocates and assigns a `concat_const` wire
+  (`concatConst_spec`/`_protect`/`_order`); `cWide_execution` proves
+  `(0#1 ++ a) + (0#1 ++ b)`, the first step of the LIN checksum; 15
+  declarations gated byte-identical; no corpus output changed. Open
+  next: bare `f <$> a` slices, unary and BitVec-result lifts; then the
+  general `circuit do`, which is where every IP body now stops.
 - [ ] **S7 / trust:** Resolve or explicitly retain `EnvDefines` in the final
   claim; record execution-model/external-tool boundaries without hiding them.
   RECORDED — docs/ShippingCompiler-TrustBase.md states the retained base

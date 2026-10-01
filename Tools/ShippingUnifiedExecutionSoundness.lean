@@ -37,12 +37,30 @@ def acceptedAt (kinds : Array MixedGateBinder) : SType → Lean.Expr → Bool
 
 set_option maxHeartbeats 1000000 in
 /-- The gate reads a concatenation in the fall-through of its operator arm. -/
-theorem unifiedGate_concatE (kinds : Array MixedGateBinder) (w : Nat) (dom a b : Lean.Expr)
-    (m n : Nat) :
+theorem unifiedGate_concatE (kinds : Array MixedGateBinder) (w : Nat)
+    (dom a b : Lean.Expr) (m n : Nat) :
     unifiedGateBitsBody kinds w (concatE dom m n a b) =
-      (match canonicalConcat? (concatE dom m n a b) with
-       | some (m', k, _, _) =>
-         w == m' + k && unifiedGateBitsBody kinds m' a && unifiedGateBitsBody kinds k b
+      (match concatShape? (concatE dom m n a b) with
+       | some (m', k', ga, gb) =>
+         w == m' + k' && (!ga || unifiedGateBitsBody kinds m' a) && (!gb || unifiedGateBitsBody kinds k' b)
+       | none => false) := rfl
+
+set_option maxHeartbeats 1000000 in
+theorem unifiedGate_hiE (kinds : Array MixedGateBinder) (w : Nat)
+    (dom b : Lean.Expr) (k v n : Nat) :
+    unifiedGateBitsBody kinds w (concatLitHiE dom k v n b) =
+      (match concatShape? (concatLitHiE dom k v n b) with
+       | some (m', k', ga, gb) =>
+         w == m' + k' && (!ga || unifiedGateBitsBody kinds m' (litE k v)) && (!gb || unifiedGateBitsBody kinds k' b)
+       | none => false) := rfl
+
+set_option maxHeartbeats 1000000 in
+theorem unifiedGate_loE (kinds : Array MixedGateBinder) (w : Nat)
+    (dom a : Lean.Expr) (m k v : Nat) :
+    unifiedGateBitsBody kinds w (concatLitLoE dom m k v a) =
+      (match concatShape? (concatLitLoE dom m k v a) with
+       | some (m', k', ga, gb) =>
+         w == m' + k' && (!ga || unifiedGateBitsBody kinds m' a) && (!gb || unifiedGateBitsBody kinds k' (litE k v))
        | none => false) := rfl
 
 /-- Quoted unified sources are accepted by the mutually recursive gate; each
@@ -88,11 +106,11 @@ theorem unified_quote_accepted {kinds : Array MixedGateBinder} {dom : Lean.Expr}
             k == w && unifiedGateBitsBody kinds w (quote dom binp vinp a) &&
               unifiedGateBitsBody kinds w (quote dom binp vinp b)
           | _, _, _ =>
-            match canonicalConcat?
+            match concatShape?
                 (binE dom w op (quote dom binp vinp a) (quote dom binp vinp b)) with
-            | some (m, k, _, _) =>
-              w == m + k && unifiedGateBitsBody kinds m (quote dom binp vinp a) &&
-                unifiedGateBitsBody kinds k (quote dom binp vinp b)
+            | some (m, k, ga, gb) =>
+              w == m + k && (!ga || unifiedGateBitsBody kinds m (quote dom binp vinp a)) &&
+                (!gb || unifiedGateBitsBody kinds k (quote dom binp vinp b))
             | none => false) := by
       simp only [binE, mkApp6, mkApp4, mkApp2, mkAppB, mkApp]
       rfl
@@ -248,8 +266,20 @@ theorem unified_quote_accepted {kinds : Array MixedGateBinder} {dom : Lean.Expr}
       unified_quote_accepted hb hv a ha
     have ib : unifiedGateBitsBody kinds n (quote dom binp vinp b) = true :=
       unified_quote_accepted hb hv b hb'
-    rw [unifiedGate_concatE, canonicalConcat?_concatE dom _ _ (a.wf_pos ha) (b.wf_pos hb')]
+    rw [unifiedGate_concatE, concatShape?_concatE dom _ _ (a.wf_pos ha) (b.wf_pos hb')]
     simp [ia, ib]
+  | _, .concatLitHi k v (n := n) b, h => by
+    obtain ⟨hb', hk, hlt⟩ := h
+    show unifiedGateBitsBody kinds (k + n) (concatLitHiE dom k v n (quote dom binp vinp b)) = true
+    have ib : unifiedGateBitsBody kinds n (quote dom binp vinp b) = true := unified_quote_accepted hb hv b hb'
+    rw [unifiedGate_hiE, concatShape?_hiE dom _ hk hlt (b.wf_pos hb')]
+    simp [ib]
+  | _, .concatLitLo (m := m) a k v, h => by
+    obtain ⟨ha, hk, hlt⟩ := h
+    show unifiedGateBitsBody kinds (m + k) (concatLitLoE dom m k v (quote dom binp vinp a)) = true
+    have ia : unifiedGateBitsBody kinds m (quote dom binp vinp a) = true := unified_quote_accepted hb hv a ha
+    rw [unifiedGate_loE, concatShape?_loE dom _ hk hlt (a.wf_pos ha)]
+    simp [ia]
 
 /-- Root acceptance helpers for the unified gate. -/
 theorem root_of_bool {kinds : Array MixedGateBinder} {e : Lean.Expr}
@@ -283,8 +313,8 @@ theorem root_of_setw {kinds : Array MixedGateBinder} {n : Nat} {e : Lean.Expr} (
   simp [body, hn]
 
 /-- A concatenation root: its width is the sum of its operand widths. -/
-theorem root_of_concat {kinds : Array MixedGateBinder} {e a b : Lean.Expr} {m n : Nat}
-    (cc : canonicalConcat? e = some (m, n, a, b))
+theorem root_of_concat {kinds : Array MixedGateBinder} {e : Lean.Expr} {m n : Nat} {ga gb : Bool}
+    (cc : concatShape? e = some (m, n, ga, gb))
     (body : unifiedGateBitsBody kinds (m + n) e = true) : unifiedGateRoot kinds e = true := by
   unfold unifiedGateRoot
   rw [cc]
@@ -395,7 +425,17 @@ theorem unified_root_accepted {kinds : Array MixedGateBinder} {dom : Lean.Expr} 
         (concatE dom m n (quote dom binp vinp a) (quote dom binp vinp b)) = true :=
       unified_quote_accepted (dom := dom) hb hv (.concat a b) he
     obtain ⟨ha, hb'⟩ := he
-    exact root_of_concat (canonicalConcat?_concatE dom _ _ (a.wf_pos ha) (b.wf_pos hb')) body
+    exact root_of_concat (concatShape?_concatE dom _ _ (a.wf_pos ha) (b.wf_pos hb')) body
+  | _, .concatLitHi k v (n := n) b, he => by
+    have body : unifiedGateBitsBody kinds (k + n) (concatLitHiE dom k v n (quote dom binp vinp b)) = true :=
+      unified_quote_accepted (dom := dom) hb hv (.concatLitHi k v b) he
+    obtain ⟨hb', hk, hlt⟩ := he
+    exact root_of_concat (concatShape?_hiE dom _ hk hlt (b.wf_pos hb')) body
+  | _, .concatLitLo (m := m) a k v, he => by
+    have body : unifiedGateBitsBody kinds (m + k) (concatLitLoE dom m k v (quote dom binp vinp a)) = true :=
+      unified_quote_accepted (dom := dom) hb hv (.concatLitLo a k v) he
+    obtain ⟨ha, hk, hlt⟩ := he
+    exact root_of_concat (concatShape?_loE dom _ hk hlt (a.wf_pos ha)) body
 
 theorem input_bool_accepted {bs : List (Name × MixedGateBinder)} {j name}
     (pos : bs[j]? = some (name, .bool)) :

@@ -111,6 +111,22 @@ def appView? (e : Lean.Expr) : Option Node :=
   | some (.bool op, a, b) => some (.binary (.bool op) a b)
   | none => none
 
+/-- A literal operand, as the Signal it is: `Signal.pure v#k`. -/
+def litSigE (dom : Lean.Expr) (k v : Nat) : Lean.Expr :=
+  mkApp3 (.const ``Sparkle.Core.Signal.Signal.pure [.zero]) dom
+    (mkApp (.const ``BitVec []) (natE k)) (mkApp2 (.const ``BitVec.ofNat []) (natE k) (natE v))
+
+/-- A concatenation, read by the shipping recognisers: both operands Signals,
+or one a literal — which views as the constant Signal of that literal. -/
+def concatView? (e a b : Lean.Expr) : Option Node :=
+  match canonicalConcat? e with
+  | some (m, k, _, _) => some (.concat m k a b)
+  | none =>
+    match canonicalConcatLit? e with
+    | some (true, k, v, w, dom, _) => some (.concat k w (litSigE dom k v) b)
+    | some (false, k, v, w, dom, _) => some (.concat w k a (litSigE dom k v))
+    | none => none
+
 /-- The shapes read by the shipping recognisers of later arms: the canonical
 slice map, then the applicative-lifted operators. -/
 def tailView? (e : Lean.Expr) : Option Node :=
@@ -134,10 +150,7 @@ def view : Lean.Expr → Option Node
     | none => match binaryOfName? m, canonicalSignalBinKinds m e.getAppArgs,
         canonicalSignalBitVecWidth e.getAppArgs with
       | some op, some (true, true), some n => some (.binary (.bits op n) a b)
-      | _, _, _ =>
-        match canonicalConcat? e with
-        | some (m, k, _, _) => some (.concat m k a b)
-        | none => none
+      | _, _, _ => concatView? e a b
   | .app (.app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.beq _) ty) _) inst) a) b =>
     if isBoolEquality ty inst then some (.binary .boolEq a b) else
       ((bitVecEqualityWidth? ty inst).bind canonicalNatLitValue?).map fun n => .binary (.compare .eq n) a b
@@ -246,10 +259,7 @@ theorem view_binary (dom a b : Lean.Expr) (n : Nat) (op : Binary) :
       | none => match binaryOfName? (binMethod op), canonicalSignalBinKinds (binMethod op) (binE dom n op a b).getAppArgs,
           canonicalSignalBitVecWidth (binE dom n op a b).getAppArgs with
         | some k, some (true, true), some n => some (.binary (.bits k n) a b)
-        | _, _, _ =>
-          match canonicalConcat? (binE dom n op a b) with
-          | some (m, k, _, _) => some (.concat m k a b)
-          | none => none) := by
+        | _, _, _ => concatView? (binE dom n op a b) a b) := by
     simp only [binE, mkApp6, mkApp4, mkApp2, mkAppB, mkApp, view]
   rw [step, bool, kinds, width]
   cases op <;> rfl
@@ -309,14 +319,70 @@ theorem canonicalConcat?_concatE (dom a b : Lean.Expr) {m n : Nat} (hm : 0 < m) 
 set_option maxHeartbeats 1000000 in
 /-- A concatenation is read by the generic operator arm's fall-through. -/
 theorem view_concatE_fall (dom a b : Lean.Expr) (m n : Nat) :
-    view (concatE dom m n a b) =
-      (match canonicalConcat? (concatE dom m n a b) with
-       | some (m', k, _, _) => some (.concat m' k a b)
-       | none => none) := rfl
+    view (concatE dom m n a b) = concatView? (concatE dom m n a b) a b := rfl
 
 theorem view_concat (dom a b : Lean.Expr) {m n : Nat} (hm : 0 < m) (hn : 0 < n) :
     view (concatE dom m n a b) = some (.concat m n a b) := by
-  rw [view_concatE_fall, canonicalConcat?_concatE dom a b hm hn]
+  rw [view_concatE_fall, concatView?, canonicalConcat?_concatE dom a b hm hn]
+
+set_option maxHeartbeats 1000000 in
+theorem canonicalConcat?_hiE (dom b : Lean.Expr) (k v n : Nat) :
+    canonicalConcat? (concatLitHiE dom k v n b) = none := rfl
+
+set_option maxHeartbeats 1000000 in
+theorem canonicalConcat?_loE (dom a : Lean.Expr) (m k v : Nat) :
+    canonicalConcat? (concatLitLoE dom m k v a) = none := rfl
+
+theorem canonicalConcatLit?_hiE (dom b : Lean.Expr) {k v n : Nat} (hk : 0 < k) (hv : v < 2 ^ k)
+    (hn : 0 < n) :
+    canonicalConcatLit? (concatLitHiE dom k v n b) = some (true, k, v, n, dom, b) := by
+  simp only [concatLitHiE, litE, sigT, bitVecE, mkApp6, mkApp5, mkApp4, mkApp3, mkApp2, mkAppB,
+    mkApp, canonicalConcatLit?, canonicalNatLitValue?_natE]
+  simp [hk, hv, hn]
+
+theorem canonicalConcatLit?_loE (dom a : Lean.Expr) {m k v : Nat} (hk : 0 < k) (hv : v < 2 ^ k)
+    (hm : 0 < m) :
+    canonicalConcatLit? (concatLitLoE dom m k v a) = some (false, k, v, m, dom, a) := by
+  simp only [concatLitLoE, litE, sigT, bitVecE, mkApp6, mkApp5, mkApp4, mkApp3, mkApp2, mkAppB,
+    mkApp, canonicalConcatLit?, canonicalNatLitValue?_natE]
+  simp [hk, hv, hm]
+
+set_option maxHeartbeats 1000000 in
+theorem view_hiE_fall (dom b : Lean.Expr) (k v n : Nat) :
+    view (concatLitHiE dom k v n b) =
+      concatView? (concatLitHiE dom k v n b) (litE k v) b := rfl
+
+set_option maxHeartbeats 1000000 in
+theorem view_loE_fall (dom a : Lean.Expr) (m k v : Nat) :
+    view (concatLitLoE dom m k v a) =
+      concatView? (concatLitLoE dom m k v a) a (litE k v) := rfl
+
+theorem view_concatLitHi (dom b : Lean.Expr) {k v n : Nat} (hk : 0 < k) (hv : v < 2 ^ k)
+    (hn : 0 < n) :
+    view (concatLitHiE dom k v n b) = some (.concat k n (litSigE dom k v) b) := by
+  rw [view_hiE_fall, concatView?, canonicalConcat?_hiE, canonicalConcatLit?_hiE dom b hk hv hn]
+
+theorem view_concatLitLo (dom a : Lean.Expr) {m k v : Nat} (hk : 0 < k) (hv : v < 2 ^ k)
+    (hm : 0 < m) :
+    view (concatLitLoE dom m k v a) = some (.concat m k a (litSigE dom k v)) := by
+  rw [view_loE_fall, concatView?, canonicalConcat?_loE, canonicalConcatLit?_loE dom a hk hv hm]
+
+theorem concatShape?_concatE (dom a b : Lean.Expr) {m n : Nat} (hm : 0 < m) (hn : 0 < n) :
+    concatShape? (concatE dom m n a b) = some (m, n, true, true) := by
+  rw [concatShape?, canonicalConcat?_concatE dom a b hm hn]
+
+theorem concatShape?_hiE (dom b : Lean.Expr) {k v n : Nat} (hk : 0 < k) (hv : v < 2 ^ k)
+    (hn : 0 < n) : concatShape? (concatLitHiE dom k v n b) = some (k, n, false, true) := by
+  rw [concatShape?, canonicalConcat?_hiE, canonicalConcatLit?_hiE dom b hk hv hn]
+
+theorem concatShape?_loE (dom a : Lean.Expr) {m k v : Nat} (hk : 0 < k) (hv : v < 2 ^ k)
+    (hm : 0 < m) : concatShape? (concatLitLoE dom m k v a) = some (m, k, true, false) := by
+  rw [concatShape?, canonicalConcat?_loE, canonicalConcatLit?_loE dom a hk hv hm]
+
+/-- The literal's constant Signal means the literal. -/
+theorem meaning_litSigE {inputs : FVarId → Option Value} (dom : Lean.Expr) {k v : Nat}
+    (hv : v < 2 ^ k) : Meaning inputs (litSigE dom k v) (.bits k (BitVec.ofNat k v)) :=
+  .value (view_bitsLit dom k v hv (fun _ => dom))
 
 theorem view_appCompare (dom a b : Lean.Expr) (n : Nat) (op : SignalCompareKind) :
     view (appCompareE op dom n a b) = some (.binary (.compare op n) a b) := by
@@ -410,6 +476,16 @@ theorem meaning_quote_leaves {inputs : FVarId → Option Value} {dom : Lean.Expr
     obtain ⟨ha, hb'⟩ := h
     apply Meaning.concat (view_concat dom _ _ (a.wf_pos ha) (b.wf_pos hb'))
       (meaning_quote_leaves hb hv a ha) (meaning_quote_leaves hb hv b hb')
+    simp [concatValue, pack, eval]
+  | _, .concatLitHi k v b, h => by
+    obtain ⟨hb', hk, hlt⟩ := h
+    apply Meaning.concat (view_concatLitHi dom _ hk hlt (b.wf_pos hb'))
+      (meaning_litSigE dom hlt) (meaning_quote_leaves hb hv b hb')
+    simp [concatValue, pack, eval]
+  | _, .concatLitLo a k v, h => by
+    obtain ⟨ha, hk, hlt⟩ := h
+    apply Meaning.concat (view_concatLitLo dom _ hk hlt (a.wf_pos ha))
+      (meaning_quote_leaves hb hv a ha) (meaning_litSigE dom hlt)
     simp [concatValue, pack, eval]
 
 /-- The input-binder instance: leaves are prepared free variables. -/

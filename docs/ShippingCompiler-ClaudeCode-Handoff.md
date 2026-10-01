@@ -183,7 +183,7 @@ hardware `let` → applicative/slices → structure results. The list below
 is the older, shape-driven plan and is subordinate to the measurement.
 
 **Adding a `Term` constructor — the sites.** Done five times now
-(`setw`, `appCompare`/`appBool`, `bitsNum`, `slice`, `concat`); the checklist is:
+(`setw`, `appCompare`/`appBool`, `bitsNum`, `slice`, `concat`, `concatLitHi`/`concatLitLo`); the checklist is:
 `Tools/ShippingUnifiedSource.lean` (constructor, `WF`, `wf_pos` for a
 bits result, `eval`, `denote`, `denote_val`, an `…E` builder, `quote`,
 `instFVars_quote`, `quote_congr`); `ShippingUnifiedMeaning.lean` (`view`
@@ -234,7 +234,16 @@ disjunct in front. (3) A `Term` constructor with a non-variable index
 sort, but `⟨ha, hb⟩` against `Term.WF … (.concat a b)` fails ("not an
 inductive type"): bind the hypothesis and `obtain` it. (4) Widths the
 elaborator writes as expressions are a FRONT-END matter: fold them in
-the entry constant, do not teach the gates arithmetic.
+the entry constant, do not teach the gates arithmetic. (5) State the
+lemmas of a multi-operand node over operand ACTIONS, not over `rec e
+hint`: `Child rec … e hint v` is `ActionSpec (rec e hint false false) …
+v` (`Child.action`), and a non-recursive operand — a literal put on its
+own wire — is then just another action with its own spec, protection
+and order lemma. The literal-operand concatenations cost three short
+lemmas this way. (6) Read the ARGUMENT ORDER of a library instance from
+the elaborated term, not from its statement: auto-bound implicits are
+ordered by first occurrence (`instHAppendBitVecSignalHAddNat` takes the
+literal's width, the domain, the Signal's width).
 
 **Front-end rewrites and sharing.** A normalisation is byte-safe only if
 the legacy route keys its cache on the same expression. Canonicalising

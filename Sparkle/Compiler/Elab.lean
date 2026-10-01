@@ -1375,6 +1375,53 @@ def canonicalConcat? : Lean.Expr → Option (Nat × Nat × Lean.Expr × Lean.Exp
     | _, _, _, _, _ => none
   | _ => none
 
+/-- Canonical concatenation with a LITERAL operand: `v#k ++ b` or `a ++ v#k`
+    at the library's mixed instances, the literal written `BitVec.ofNat k v`
+    with `v < 2 ^ k`, literal positive widths, the result width the literal of
+    the sum.  Returns `(literal is the high operand, k, v, the Signal
+    operand's width, domain, Signal operand)`. -/
+def canonicalConcatLit? :
+    Lean.Expr → Option (Bool × Nat × Nat × Nat × Lean.Expr × Lean.Expr)
+  | .app (.app (.app (.app (.app (.app (.const ``HAppend.hAppend _)
+      (.app (.const ``BitVec _) kE))
+      (.app (.app (.const ``Sparkle.Core.Signal.Signal _) _) (.app (.const ``BitVec _) wE)))
+      (.app (.app (.const ``Sparkle.Core.Signal.Signal _) dom) (.app (.const ``BitVec _) rE)))
+      (.app (.app (.app (.const ``Sparkle.Core.Signal.instHAppendBitVecSignalHAddNat _) kE') _)
+        wE')) (.app (.app (.const ``BitVec.ofNat _) kL) vL)) x =>
+    match canonicalNatLitValue? kE, canonicalNatLitValue? wE, canonicalNatLitValue? rE,
+        canonicalNatLitValue? kE', canonicalNatLitValue? wE', canonicalNatLitValue? kL,
+        canonicalNatLitValue? vL with
+    | some k, some w, some r, some k', some w', some kl, some v =>
+      if 0 < k && 0 < w && r == k + w && k' == k && w' == w && kl == k && decide (v < 2 ^ k)
+      then some (true, k, v, w, dom, x) else none
+    | _, _, _, _, _, _, _ => none
+  | .app (.app (.app (.app (.app (.app (.const ``HAppend.hAppend _)
+      (.app (.app (.const ``Sparkle.Core.Signal.Signal _) _) (.app (.const ``BitVec _) wE)))
+      (.app (.const ``BitVec _) kE))
+      (.app (.app (.const ``Sparkle.Core.Signal.Signal _) dom) (.app (.const ``BitVec _) rE)))
+      (.app (.app (.app (.const ``Sparkle.Core.Signal.instHAppendSignalBitVecHAddNat_1 _) _) wE')
+        kE')) x) (.app (.app (.const ``BitVec.ofNat _) kL) vL) =>
+    match canonicalNatLitValue? kE, canonicalNatLitValue? wE, canonicalNatLitValue? rE,
+        canonicalNatLitValue? kE', canonicalNatLitValue? wE', canonicalNatLitValue? kL,
+        canonicalNatLitValue? vL with
+    | some k, some w, some r, some k', some w', some kl, some v =>
+      if 0 < k && 0 < w && r == w + k && k' == k && w' == w && kl == k && decide (v < 2 ^ k)
+      then some (false, k, v, w, dom, x) else none
+    | _, _, _, _, _, _, _ => none
+  | _ => none
+
+/-- The two operand widths of a concatenation node — high, then low — and
+    which of the operands is a Signal the gates recurse into (a literal
+    operand is not). -/
+def concatShape? (e : Lean.Expr) : Option (Nat × Nat × Bool × Bool) :=
+  match canonicalConcat? e with
+  | some (m, n, _, _) => some (m, n, true, true)
+  | none =>
+    match canonicalConcatLit? e with
+    | some (true, k, _, w, _, _) => some (k, w, false, true)
+    | some (false, k, _, w, _, _) => some (w, k, true, false)
+    | none => none
+
 /-- The target width of a canonical width-changing root: a `setWidth` cast or
     a slice. -/
 def canonicalSetWidthTop? (e : Lean.Expr) : Option Nat :=
@@ -2384,10 +2431,11 @@ def unifiedGateBitsBody (kinds : Array MixedGateBinder) (n : Nat) : Lean.Expr �
       | some _, some (true, true), some w =>
         w == n && unifiedGateBitsBody kinds n a && unifiedGateBitsBody kinds n b
       | _, _, _ =>
-        -- A concatenation: the operands at their own widths.
-        match canonicalConcat? e with
-        | some (m, k, _, _) =>
-          n == m + k && unifiedGateBitsBody kinds m a && unifiedGateBitsBody kinds k b
+        -- A concatenation: the Signal operands at their own widths.
+        match concatShape? e with
+        | some (m, k, ga, gb) =>
+          n == m + k && (!ga || unifiedGateBitsBody kinds m a) &&
+            (!gb || unifiedGateBitsBody kinds k b)
         | none => false
   | _ => false
 
@@ -2398,7 +2446,7 @@ end
     root from its two operand widths. -/
 def unifiedGateRoot (kinds : Array MixedGateBinder) (e : Lean.Expr) : Bool :=
   unifiedGateBoolBody kinds e ||
-    (match canonicalConcat? e with
+    (match concatShape? e with
       | some (m, k, _, _) => unifiedGateBitsBody kinds (m + k) e
       | none => false) ||
     (match canonicalMuxType? e with
@@ -2597,9 +2645,10 @@ def hierGateBitsBody (isInst : Lean.Expr → Bool) (kinds : Array MixedGateBinde
       | some _, some (true, true), some w =>
         w == n && hierGateBitsBody isInst kinds n a && hierGateBitsBody isInst kinds n b
       | _, _, _ =>
-        match canonicalConcat? e with
-        | some (m, k, _, _) =>
-          n == m + k && hierGateBitsBody isInst kinds m a && hierGateBitsBody isInst kinds k b
+        match concatShape? e with
+        | some (m, k, ga, gb) =>
+          n == m + k && (!ga || hierGateBitsBody isInst kinds m a) &&
+            (!gb || hierGateBitsBody isInst kinds k b)
         | none => isInst e && hierInstSpine isInst kinds e
   | e => isInst e && e.isApp && hierInstSpine isInst kinds e
 
@@ -2612,7 +2661,7 @@ end
 def hierGateRoot (isInst : Lean.Expr → Bool) (kinds : Array MixedGateBinder)
     (e : Lean.Expr) : Bool :=
   hierGateBoolBody isInst kinds e ||
-    (match canonicalConcat? e with
+    (match concatShape? e with
       | some (m, k, _, _) => hierGateBitsBody isInst kinds (m + k) e
       | none => false) ||
     (match canonicalMuxType? e with
@@ -5983,14 +6032,40 @@ def translateSliceUncachedWith (rec : TranslateFn) (start len : Nat) : Translate
     emitSliceResult (sliceRhs start len sw) len hint named
 
 /-- The concatenation sequence of the legacy handler: the result wire FIRST,
-    then the high and the low operand, then one `{hi, lo}` assignment. -/
-def translateConcatWith (rec : TranslateFn) (m n : Nat) (a b : Lean.Expr) (hint : String)
+    then the high and the low operand, then one `{hi, lo}` assignment.  The
+    operand lowerings are actions: a recursive translation, or the constant
+    wire of a literal operand. -/
+def translateConcatActs (w : Nat) (hiAct loAct : CompilerM String) (hint : String)
     (named : Bool) : CompilerM String := do
-  let r ← CompilerM.makeWire hint (.bitVector (m + n)) (named := named)
-  let hi ← rec a "concat_hi" false false
-  let lo ← rec b "concat_lo" false false
+  let r ← CompilerM.makeWire hint (.bitVector w) (named := named)
+  let hi ← hiAct
+  let lo ← loAct
   CompilerM.emitAssign r (.concat [.ref hi, .ref lo])
   return r
+
+/-- Both operands Signals: each lowered under its legacy hint. -/
+def translateConcatWith (rec : TranslateFn) (m n : Nat) (a b : Lean.Expr) (hint : String)
+    (named : Bool) : CompilerM String :=
+  translateConcatActs (m + n) (rec a "concat_hi" false false) (rec b "concat_lo" false false)
+    hint named
+
+/-- The constant wire of a literal operand, as the legacy mixed handler
+    emits it: a fresh `concat_const` wire assigned the literal. -/
+def emitConcatConst (k v : Nat) : CompilerM String :=
+  emitCastResult (.const (Int.ofNat v) k) k "concat_const" false
+
+/-- Uncached lowering for a concatenation with a literal operand: the
+    result wire first, then the operands in source order — the constant
+    wire in the literal's place. -/
+def translateConcatLitUncachedWith (rec : TranslateFn) (hi : Bool) (k v w : Nat) : TranslateFn :=
+  fun e hint _top named =>
+    if hi then
+      translateConcatActs (k + w) (emitConcatConst k v)
+        (rec e.getAppArgs.back! "concat_lo" false false) hint named
+    else
+      translateConcatActs (w + k)
+        (rec e.getAppArgs[e.getAppArgs.size - 2]! "concat_hi" false false)
+        (emitConcatConst k v) hint named
 
 /-- Uncached lowering for the canonical concatenation. -/
 def translateConcatUncachedWith (rec : TranslateFn) (m n : Nat) : TranslateFn :=
@@ -6397,6 +6472,7 @@ inductive FallbackKind where
   | memory (aw dw : Nat)
   | slice (ws start len : Nat)
   | concat (m n : Nat)
+  | concatLit (hi : Bool) (k v w : Nat)
   | other
   deriving DecidableEq, Repr
 
@@ -6432,7 +6508,10 @@ def fallbackKind (e : Lean.Expr) : FallbackKind :=
                     | none =>
                       match canonicalConcat? e with
                       | some (m, n, _, _) => .concat m n
-                      | none => .other
+                      | none =>
+                        match canonicalConcatLit? e with
+                        | some (hi, k, v, w, _, _) => .concatLit hi k v w
+                        | none => .other
 
 /-- The existing handler chain (cache wrapper + dispatch) as the fallback:
     one lowering per `fallbackKind`. -/
@@ -6470,6 +6549,8 @@ def translateFallback (rec : TranslateFn) : TranslateFn :=
       translateControlCachedWith (translateSliceUncachedWith rec start len) e hint top named
     | .concat m n =>
       translateControlCachedWith (translateConcatUncachedWith rec m n) e hint top named
+    | .concatLit hi k v w =>
+      translateControlCachedWith (translateConcatLitUncachedWith rec hi k v w) e hint top named
     | .other => translateInstanceOrFallback rec e hint top named
 
 def translateStep : TranslateFn → TranslateFn := translateStepWith translateFallback

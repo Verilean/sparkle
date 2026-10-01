@@ -100,11 +100,28 @@ operator arm, before the instance check. -/
 theorem hierGate_concatE (isInst : Lean.Expr → Bool) (kinds : Array MixedGateBinder) (w : Nat)
     (dom a b : Lean.Expr) (m n : Nat) :
     hierGateBitsBody isInst kinds w (concatE dom m n a b) =
-      (match canonicalConcat? (concatE dom m n a b) with
-       | some (m', k, _, _) =>
-         w == m' + k && hierGateBitsBody isInst kinds m' a && hierGateBitsBody isInst kinds k b
-       | none =>
-         isInst (concatE dom m n a b) && hierInstSpine isInst kinds (concatE dom m n a b)) := rfl
+      (match concatShape? (concatE dom m n a b) with
+       | some (m', k', ga, gb) =>
+         w == m' + k' && (!ga || hierGateBitsBody isInst kinds m' a) && (!gb || hierGateBitsBody isInst kinds k' b)
+       | none => isInst (concatE dom m n a b) && hierInstSpine isInst kinds (concatE dom m n a b)) := rfl
+
+set_option maxHeartbeats 1000000 in
+theorem hierGate_hiE (isInst : Lean.Expr → Bool) (kinds : Array MixedGateBinder) (w : Nat)
+    (dom b : Lean.Expr) (k v n : Nat) :
+    hierGateBitsBody isInst kinds w (concatLitHiE dom k v n b) =
+      (match concatShape? (concatLitHiE dom k v n b) with
+       | some (m', k', ga, gb) =>
+         w == m' + k' && (!ga || hierGateBitsBody isInst kinds m' (litE k v)) && (!gb || hierGateBitsBody isInst kinds k' b)
+       | none => isInst (concatLitHiE dom k v n b) && hierInstSpine isInst kinds (concatLitHiE dom k v n b)) := rfl
+
+set_option maxHeartbeats 1000000 in
+theorem hierGate_loE (isInst : Lean.Expr → Bool) (kinds : Array MixedGateBinder) (w : Nat)
+    (dom a : Lean.Expr) (m k v : Nat) :
+    hierGateBitsBody isInst kinds w (concatLitLoE dom m k v a) =
+      (match concatShape? (concatLitLoE dom m k v a) with
+       | some (m', k', ga, gb) =>
+         w == m' + k' && (!ga || hierGateBitsBody isInst kinds m' a) && (!gb || hierGateBitsBody isInst kinds k' (litE k v))
+       | none => isInst (concatLitLoE dom m k v a) && hierInstSpine isInst kinds (concatLitLoE dom m k v a)) := rfl
 
 /-- Quoted cones over accepted leaves are accepted by the instance-aware
 gate; each operation checks its own width. -/
@@ -149,11 +166,11 @@ theorem hier_quote_accepted {isInst : Lean.Expr → Bool} {kinds : Array MixedGa
             k == w && hierGateBitsBody isInst kinds w (quote dom binp vinp a) &&
               hierGateBitsBody isInst kinds w (quote dom binp vinp b)
           | _, _, _ =>
-            match canonicalConcat?
+            match concatShape?
                 (binE dom w op (quote dom binp vinp a) (quote dom binp vinp b)) with
-            | some (m, k, _, _) =>
-              w == m + k && hierGateBitsBody isInst kinds m (quote dom binp vinp a) &&
-                hierGateBitsBody isInst kinds k (quote dom binp vinp b)
+            | some (m, k, ga, gb) =>
+              w == m + k && (!ga || hierGateBitsBody isInst kinds m (quote dom binp vinp a)) &&
+                (!gb || hierGateBitsBody isInst kinds k (quote dom binp vinp b))
             | none =>
               isInst (binE dom w op (quote dom binp vinp a) (quote dom binp vinp b)) &&
                 hierInstSpine isInst kinds
@@ -312,14 +329,25 @@ theorem hier_quote_accepted {isInst : Lean.Expr → Bool} {kinds : Array MixedGa
       hier_quote_accepted hb hv a ha
     have ib : hierGateBitsBody isInst kinds n (quote dom binp vinp b) = true :=
       hier_quote_accepted hb hv b hb'
-    rw [hierGate_concatE, Tools.ShippingUnifiedMeaning.canonicalConcat?_concatE dom _ _
-      (a.wf_pos ha) (b.wf_pos hb')]
+    rw [hierGate_concatE, Tools.ShippingUnifiedMeaning.concatShape?_concatE dom _ _ (a.wf_pos ha) (b.wf_pos hb')]
     simp [ia, ib]
+  | _, .concatLitHi k v (n := n) b, h => by
+    obtain ⟨hb', hk, hlt⟩ := h
+    show hierGateBitsBody isInst kinds (k + n) (concatLitHiE dom k v n (quote dom binp vinp b)) = true
+    have ib : hierGateBitsBody isInst kinds n (quote dom binp vinp b) = true := hier_quote_accepted hb hv b hb'
+    rw [hierGate_hiE, Tools.ShippingUnifiedMeaning.concatShape?_hiE dom _ hk hlt (b.wf_pos hb')]
+    simp [ib]
+  | _, .concatLitLo (m := m) a k v, h => by
+    obtain ⟨ha, hk, hlt⟩ := h
+    show hierGateBitsBody isInst kinds (m + k) (concatLitLoE dom m k v (quote dom binp vinp a)) = true
+    have ia : hierGateBitsBody isInst kinds m (quote dom binp vinp a) = true := hier_quote_accepted hb hv a ha
+    rw [hierGate_loE, Tools.ShippingUnifiedMeaning.concatShape?_loE dom _ hk hlt (a.wf_pos ha)]
+    simp [ia]
 
 /-- A concatenation root: its width is the sum of its operand widths. -/
 theorem hroot_of_concat {isInst : Lean.Expr → Bool} {kinds : Array MixedGateBinder}
-    {e a b : Lean.Expr} {m n : Nat}
-    (cc : canonicalConcat? e = some (m, n, a, b))
+    {e : Lean.Expr} {m n : Nat} {ga gb : Bool}
+    (cc : concatShape? e = some (m, n, ga, gb))
     (body : hierGateBitsBody isInst kinds (m + n) e = true) :
     hierGateRoot isInst kinds e = true := by
   unfold hierGateRoot
@@ -437,8 +465,18 @@ theorem hier_root_accepted {isInst : Lean.Expr → Bool} {kinds : Array MixedGat
         (concatE dom m n (quote dom binp vinp a) (quote dom binp vinp b)) = true :=
       hier_quote_accepted (dom := dom) hb hv (.concat a b) he
     obtain ⟨ha, hb'⟩ := he
-    exact hroot_of_concat (Tools.ShippingUnifiedMeaning.canonicalConcat?_concatE dom _ _
+    exact hroot_of_concat (Tools.ShippingUnifiedMeaning.concatShape?_concatE dom _ _
       (a.wf_pos ha) (b.wf_pos hb')) body
+  | _, .concatLitHi k v (n := n) b, he, _ => by
+    have body : hierGateBitsBody isInst kinds (k + n) (concatLitHiE dom k v n (quote dom binp vinp b)) = true :=
+      hier_quote_accepted (dom := dom) hb hv (.concatLitHi k v b) he
+    obtain ⟨hb', hk, hlt⟩ := he
+    exact hroot_of_concat (Tools.ShippingUnifiedMeaning.concatShape?_hiE dom _ hk hlt (b.wf_pos hb')) body
+  | _, .concatLitLo (m := m) a k v, he, _ => by
+    have body : hierGateBitsBody isInst kinds (m + k) (concatLitLoE dom m k v (quote dom binp vinp a)) = true :=
+      hier_quote_accepted (dom := dom) hb hv (.concatLitLo a k v) he
+    obtain ⟨ha, hk, hlt⟩ := he
+    exact hroot_of_concat (Tools.ShippingUnifiedMeaning.concatShape?_loE dom _ hk hlt (a.wf_pos ha)) body
 
 /-- Once the real declaration has been peeled, recognition of a cone over
 accepted leaves follows — AT the given designation predicate. -/

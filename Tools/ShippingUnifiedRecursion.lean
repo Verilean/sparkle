@@ -1296,15 +1296,20 @@ the operands, which are then lowered under the hints `"concat_hi"` and
 side is the IR concatenation `{hi, lo}`. It takes the shared cache wrapper of
 the fallback arms rather than the core's. -/
 
-theorem concat_returns {ctx s t rec ae be hint named w} {m n : Nat}
-    (hr : Returns (translateConcatWith rec m n ae be hint named) ctx s w t) :
+/-- A recursive child, as the action it is. -/
+theorem Child.action {rec ctx inputs we mems initial e hint v}
+    (c : Child rec ctx inputs we mems initial e hint v) :
+    ActionSpec (rec e hint false false) ctx inputs we mems initial v := ⟨c.frame, c.sem⟩
+
+theorem concatActs_returns {ctx s t hint named w} {wd : Nat} {hiAct loAct : CompilerM String}
+    (hr : Returns (translateConcatActs wd hiAct loAct hint named) ctx s w t) :
     ∃ sa sb sc a b,
-      w = (CircuitM.makeWire hint (.bitVector (m + n)) named s).1 ∧
-      sa = (CircuitM.makeWire hint (.bitVector (m + n)) named s).2 ∧
-      Returns (rec ae "concat_hi" false false) ctx sa a sb ∧
-      Returns (rec be "concat_lo" false false) ctx sb b sc ∧
+      w = (CircuitM.makeWire hint (.bitVector wd) named s).1 ∧
+      sa = (CircuitM.makeWire hint (.bitVector wd) named s).2 ∧
+      Returns hiAct ctx sa a sb ∧
+      Returns loAct ctx sb b sc ∧
       t = (CircuitM.emitAssign w (.concat [.ref a, .ref b]) sc).2 := by
-  unfold translateConcatWith at hr
+  unfold translateConcatActs at hr
   obtain ⟨r, sa, mk, rest⟩ := Returns.bind hr
   obtain ⟨hw, hsa⟩ := makeWire_returns mk
   obtain ⟨a, sb, ra, rest⟩ := Returns.bind rest
@@ -1322,18 +1327,19 @@ theorem concatRhs_eval {we : WEnv} {env : Env} {a b : String} {m n : Nat}
   simp [evalExpr, evalList, evalExpr.go, widthOf, wa, wb, va, vb, mask, BitVec.toNat_append,
     Nat.mod_eq_of_lt x.isLt, Nat.mod_eq_of_lt y.isLt]
 
-/-- The allocator precedes both operands; the reserved result keeps its
-record-free and binding-free status across them. -/
-theorem concat_outcome {ctx inputs we mems initial s t prior rec ae be hint named w} {m n : Nat}
+/-- The allocator precedes both operand actions; the reserved result keeps
+its record-free and binding-free status across them. -/
+theorem concat_outcome {ctx inputs we mems initial s t prior hint named w} {m n : Nat}
+    {hiAct loAct : CompilerM String}
     (x : BitVec m) (y : BitVec n) (hm : 0 < m) (hn : 0 < n)
     (h : Inv ctx inputs we mems initial s prior)
-    (ca : Child rec ctx inputs we mems initial ae "concat_hi" (.bits m x))
-    (cb : Child rec ctx inputs we mems initial be "concat_lo" (.bits n y))
+    (ca : ActionSpec hiAct ctx inputs we mems initial (.bits m x))
+    (cb : ActionSpec loAct ctx inputs we mems initial (.bits n y))
     (widths : ScalarWidthsAgree we t)
-    (hr : Returns (translateConcatWith rec m n ae be hint named) ctx s w t) :
+    (hr : Returns (translateConcatActs (m + n) hiAct loAct hint named) ctx s w t) :
     Outcome ctx inputs we mems initial prior s t w (.bits (m + n) (x ++ y)) := by
   have lookup := Lookup.ofInputs h.inputs
-  obtain ⟨sa, sb, sc, a, b, hw, hsa, ra, rb, ht⟩ := concat_returns hr
+  obtain ⟨sa, sb, sc, a, b, hw, hsa, ra, rb, ht⟩ := concatActs_returns hr
   have alloc := CircuitM.makeWire_spec hint (.bitVector (m + n)) named s
   have fresh : s.usedNames.contains w = false := by rw [hw]; exact alloc.1
   have usedA : sa.usedNames.contains w = true := by rw [hsa, alloc.2.1, hw]; simp
@@ -1389,30 +1395,50 @@ theorem concat_outcome {ctx inputs we mems initial s t prior rec ae be hint name
     exact (bframe z (fb.used z (fa.used z hz))).trans (aframe z (fa.used z hz))
 
 /-- The structural half is independent of semantic invariants and widths. -/
-theorem concat_frame {ctx inputs we mems initial s t rec ae be hint named w va vb} {m n : Nat}
+theorem concat_frame {ctx inputs we mems initial s t hint named w va vb} {wd : Nat}
+    {hiAct loAct : CompilerM String}
     (lookup : Lookup ctx inputs s)
-    (ca : Child rec ctx inputs we mems initial ae "concat_hi" va)
-    (cb : Child rec ctx inputs we mems initial be "concat_lo" vb)
-    (hr : Returns (translateConcatWith rec m n ae be hint named) ctx s w t) :
+    (ca : ActionSpec hiAct ctx inputs we mems initial va)
+    (cb : ActionSpec loAct ctx inputs we mems initial vb)
+    (hr : Returns (translateConcatActs wd hiAct loAct hint named) ctx s w t) :
     Frame s t ∧ s.usedNames.contains w = false := by
-  obtain ⟨sa, sb, sc, a, b, hw, hsa, ra, rb, ht⟩ := concat_returns hr
-  have fa : Frame s sa := by rw [hsa]; exact Frame.makeWire s hint (m + n) named
+  obtain ⟨sa, sb, sc, a, b, hw, hsa, ra, rb, ht⟩ := concatActs_returns hr
+  have fa : Frame s sa := by rw [hsa]; exact Frame.makeWire s hint wd named
   have fb := ca.frame sa sb a (lookup.transfer fa) ra
   have fc := cb.frame sb sc b ((lookup.transfer fa).transfer fb) rb
   have fd : Frame sc t := by rw [ht]; exact Frame.emitAssign sc w _ rfl
   refine ⟨((fa.trans fb).trans fc).trans fd, ?_⟩
-  rw [hw]; exact (CircuitM.makeWire_spec hint (.bitVector (m + n)) named s).1
+  rw [hw]; exact (CircuitM.makeWire_spec hint (.bitVector wd) named s).1
 
-theorem concat_fresh {ctx inputs we mems initial rec ae be hint named} {m n : Nat}
+theorem concat_fresh {ctx inputs we mems initial hint named} {m n : Nat}
+    {hiAct loAct : CompilerM String}
     {x : BitVec m} {y : BitVec n} (hm : 0 < m) (hn : 0 < n)
-    (ca : Child rec ctx inputs we mems initial ae "concat_hi" (.bits m x))
-    (cb : Child rec ctx inputs we mems initial be "concat_lo" (.bits n y)) :
-    FreshAction (translateConcatWith rec m n ae be hint named) ctx inputs we mems initial
+    (ca : ActionSpec hiAct ctx inputs we mems initial (.bits m x))
+    (cb : ActionSpec loAct ctx inputs we mems initial (.bits n y)) :
+    FreshAction (translateConcatActs (m + n) hiAct loAct hint named) ctx inputs we mems initial
       (.bits (m + n) (x ++ y)) := by
   refine ⟨⟨fun s t w lookup hr => (concat_frame lookup ca cb hr).1, ?_⟩,
     fun s t w lookup hr => (concat_frame lookup ca cb hr).2⟩
   intro s t w prior h widths hr
   exact concat_outcome x y hm hn h ca cb widths hr
+
+/-- The constant wire of a literal operand: a fresh wire holding the literal. -/
+theorem concatConst_spec {ctx inputs we mems initial} {k v : Nat} (hk : 0 < k) (hv : v < 2 ^ k) :
+    ActionSpec (emitConcatConst k v) ctx inputs we mems initial
+      (.bits k (BitVec.ofNat k v)) := by
+  constructor
+  · intro s t w lookup hr
+    unfold emitConcatConst at hr
+    exact (emit_cast_frame rfl hr).1
+  · intro s t w prior h widths hr
+    unfold emitConcatConst at hr
+    obtain ⟨hw, ht⟩ := emitCastResult_returns hr
+    refine allocate_assign_outcome (v := .bits k (BitVec.ofNat k v)) h hw ht rfl
+      (.const _ k hk) ?_ widths
+    have val : (Value.bits k (BitVec.ofNat k v)).toNat = v := by
+      simp [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hv]
+    rw [val]
+    exact evalExpr_const_lt we prior v k hv
 
 set_option maxHeartbeats 1000000 in
 theorem concatE_getAppArgs (dom ae be : Lean.Expr) (m n : Nat) :
@@ -1478,7 +1504,136 @@ theorem concat_contract {rec ctx inputs we mems initial dom ae be} {m n : Nat}
     show FreshAction (translateConcatUncachedWith rec m n (concatE dom m n ae be)
       hint top named) ctx inputs we mems initial (.bits (m + n) (x ++ y))
     rw [concatUncached_concatE]
-    exact concat_fresh hm hn ca cb
+    exact concat_fresh hm hn ca.action cb.action
+  exact ⟨fun hint top named => (step hint top named).frame,
+    fun hint top named => (step hint top named).sem⟩
+
+set_option maxHeartbeats 1000000 in
+theorem concatLitHiE_getAppArgs (dom be : Lean.Expr) (k v n : Nat) :
+    (concatLitHiE dom k v n be).getAppArgs = #[bitVecE k, sigT dom n, sigT dom (k + n),
+      mkApp3 (.const ``Sparkle.Core.Signal.instHAppendBitVecSignalHAddNat []) (natE k) dom
+        (natE n), litE k v, be] := rfl
+
+set_option maxHeartbeats 1000000 in
+theorem concatLitLoE_getAppArgs (dom ae : Lean.Expr) (m k v : Nat) :
+    (concatLitLoE dom m k v ae).getAppArgs = #[sigT dom m, bitVecE k, sigT dom (m + k),
+      mkApp3 (.const ``Sparkle.Core.Signal.instHAppendSignalBitVecHAddNat_1 []) dom (natE m)
+        (natE k), ae, litE k v] := rfl
+
+theorem concatLitUncached_hiE (rec : TranslateFn) (dom be : Lean.Expr) (k v n : Nat)
+    (hint : String) (top named : Bool) :
+    translateConcatLitUncachedWith rec true k v n (concatLitHiE dom k v n be) hint top named =
+      translateConcatActs (k + n) (emitConcatConst k v) (rec be "concat_lo" false false)
+        hint named := by
+  show translateConcatActs (k + n) (emitConcatConst k v)
+    (rec (concatLitHiE dom k v n be).getAppArgs.back! "concat_lo" false false) hint named = _
+  rw [concatLitHiE_getAppArgs]
+  rfl
+
+theorem concatLitUncached_loE (rec : TranslateFn) (dom ae : Lean.Expr) (m k v : Nat)
+    (hint : String) (top named : Bool) :
+    translateConcatLitUncachedWith rec false k v m (concatLitLoE dom m k v ae) hint top named =
+      translateConcatActs (m + k) (rec ae "concat_hi" false false) (emitConcatConst k v)
+        hint named := by
+  show translateConcatActs (m + k)
+    (rec (concatLitLoE dom m k v ae).getAppArgs[(concatLitLoE dom m k v ae).getAppArgs.size - 2]!
+      "concat_hi" false false) (emitConcatConst k v) hint named = _
+  rw [concatLitLoE_getAppArgs]
+  rfl
+
+set_option maxHeartbeats 1000000 in
+theorem concatLitHi_step (rec : TranslateFn) (dom be : Lean.Expr) (k v n : Nat)
+    (hint : String) (top named : Bool) (hk : 0 < k) (hv : v < 2 ^ k) (hn : 0 < n) :
+    translateStepWith translateFallback rec (concatLitHiE dom k v n be) hint top named =
+      translateControlCachedWith (translateConcatLitUncachedWith rec true k v n)
+        (concatLitHiE dom k v n be) hint top named := by
+  have shape : translateCoreShape (concatLitHiE dom k v n be) = false := rfl
+  have core : translateCore rec (concatLitHiE dom k v n be) hint top named = pure none := rfl
+  have control : isBoolControl (concatLitHiE dom k v n be) = false := rfl
+  have mux : canonicalMuxType? (concatLitHiE dom k v n be) = none := rfl
+  have setw : canonicalSetWidth? (concatLitHiE dom k v n be) = none := rfl
+  have reg : canonicalRegister? (concatLitHiE dom k v n be) = none := rfl
+  have regEn : canonicalRegisterEnable? (concatLitHiE dom k v n be) = none := rfl
+  have loopR : canonicalLoopRegister? (concatLitHiE dom k v n be) = none := rfl
+  have cdo : canonicalCircuitDo? (concatLitHiE dom k v n be) = none := rfl
+  have cdo2 : canonicalCircuitDo2? (concatLitHiE dom k v n be) = none := rfl
+  have mem : canonicalMemory? (concatLitHiE dom k v n be) = none := rfl
+  have sl : canonicalSlice? (concatLitHiE dom k v n be) = none := rfl
+  have cc := canonicalConcat?_hiE dom be k v n
+  have cl := canonicalConcatLit?_hiE dom be hk hv hn
+  have step : translateStepWith translateFallback rec (concatLitHiE dom k v n be)
+      hint top named = translateFallback rec (concatLitHiE dom k v n be) hint top named := by
+    simp [translateStepWith, shape, core]
+    rfl
+  rw [step]
+  simp only [translateFallback, fallbackKind, control, Bool.false_eq_true, if_false, mux, setw,
+    reg, regEn, loopR, cdo, cdo2, mem, sl, cc, cl]
+
+set_option maxHeartbeats 1000000 in
+theorem concatLitLo_step (rec : TranslateFn) (dom ae : Lean.Expr) (m k v : Nat)
+    (hint : String) (top named : Bool) (hk : 0 < k) (hv : v < 2 ^ k) (hm : 0 < m) :
+    translateStepWith translateFallback rec (concatLitLoE dom m k v ae) hint top named =
+      translateControlCachedWith (translateConcatLitUncachedWith rec false k v m)
+        (concatLitLoE dom m k v ae) hint top named := by
+  have shape : translateCoreShape (concatLitLoE dom m k v ae) = false := rfl
+  have core : translateCore rec (concatLitLoE dom m k v ae) hint top named = pure none := rfl
+  have control : isBoolControl (concatLitLoE dom m k v ae) = false := rfl
+  have mux : canonicalMuxType? (concatLitLoE dom m k v ae) = none := rfl
+  have setw : canonicalSetWidth? (concatLitLoE dom m k v ae) = none := rfl
+  have reg : canonicalRegister? (concatLitLoE dom m k v ae) = none := rfl
+  have regEn : canonicalRegisterEnable? (concatLitLoE dom m k v ae) = none := rfl
+  have loopR : canonicalLoopRegister? (concatLitLoE dom m k v ae) = none := rfl
+  have cdo : canonicalCircuitDo? (concatLitLoE dom m k v ae) = none := rfl
+  have cdo2 : canonicalCircuitDo2? (concatLitLoE dom m k v ae) = none := rfl
+  have mem : canonicalMemory? (concatLitLoE dom m k v ae) = none := rfl
+  have sl : canonicalSlice? (concatLitLoE dom m k v ae) = none := rfl
+  have cc := canonicalConcat?_loE dom ae m k v
+  have cl := canonicalConcatLit?_loE dom ae hk hv hm
+  have step : translateStepWith translateFallback rec (concatLitLoE dom m k v ae)
+      hint top named = translateFallback rec (concatLitLoE dom m k v ae) hint top named := by
+    simp [translateStepWith, shape, core]
+    rfl
+  rw [step]
+  simp only [translateFallback, fallbackKind, control, Bool.false_eq_true, if_false, mux, setw,
+    reg, regEn, loopR, cdo, cdo2, mem, sl, cc, cl]
+
+theorem concatLitHi_contract {rec ctx inputs we mems initial dom be} {k v n : Nat}
+    {y : BitVec n} (hk : 0 < k) (hv : v < 2 ^ k) (hn : 0 < n)
+    (meaning : Meaning inputs (concatLitHiE dom k v n be)
+      (.bits (k + n) (BitVec.ofNat k v ++ y)))
+    (cb : Child rec ctx inputs we mems initial be "concat_lo" (.bits n y)) :
+    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial
+      (concatLitHiE dom k v n be) (.bits (k + n) (BitVec.ofNat k v ++ y)) := by
+  have step : ∀ hint top named, ActionSpec
+      (translateStepWith translateFallback rec (concatLitHiE dom k v n be) hint top named)
+      ctx inputs we mems initial (.bits (k + n) (BitVec.ofNat k v ++ y)) := by
+    intro hint top named
+    rw [concatLitHi_step rec dom be k v n hint top named hk hv hn]
+    apply cached_action meaning
+    show FreshAction (translateConcatLitUncachedWith rec true k v n (concatLitHiE dom k v n be)
+      hint top named) ctx inputs we mems initial (.bits (k + n) (BitVec.ofNat k v ++ y))
+    rw [concatLitUncached_hiE]
+    exact concat_fresh hk hn (concatConst_spec hk hv) cb.action
+  exact ⟨fun hint top named => (step hint top named).frame,
+    fun hint top named => (step hint top named).sem⟩
+
+theorem concatLitLo_contract {rec ctx inputs we mems initial dom ae} {m k v : Nat}
+    {x : BitVec m} (hk : 0 < k) (hv : v < 2 ^ k) (hm : 0 < m)
+    (meaning : Meaning inputs (concatLitLoE dom m k v ae)
+      (.bits (m + k) (x ++ BitVec.ofNat k v)))
+    (ca : Child rec ctx inputs we mems initial ae "concat_hi" (.bits m x)) :
+    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial
+      (concatLitLoE dom m k v ae) (.bits (m + k) (x ++ BitVec.ofNat k v)) := by
+  have step : ∀ hint top named, ActionSpec
+      (translateStepWith translateFallback rec (concatLitLoE dom m k v ae) hint top named)
+      ctx inputs we mems initial (.bits (m + k) (x ++ BitVec.ofNat k v)) := by
+    intro hint top named
+    rw [concatLitLo_step rec dom ae m k v hint top named hk hv hm]
+    apply cached_action meaning
+    show FreshAction (translateConcatLitUncachedWith rec false k v m (concatLitLoE dom m k v ae)
+      hint top named) ctx inputs we mems initial (.bits (m + k) (x ++ BitVec.ofNat k v))
+    rw [concatLitUncached_loE]
+    exact concat_fresh hm hk ca.action (concatConst_spec hk hv)
   exact ⟨fun hint top named => (step hint top named).frame,
     fun hint top named => (step hint top named).sem⟩
 
@@ -1820,6 +1975,16 @@ theorem fuel_contract_leaves (fuel : Nat) {ctx : CompilerState}
       exact concat_contract (a.wf_pos ha) (b.wf_pos hb')
         (meaning_quote_leaves hb hv (.concat a b) hab)
         ((ih a ha).child "concat_hi") ((ih b hb').child "concat_lo")
+    | concatLitHi k v b =>
+      have hall := he
+      obtain ⟨hb', hk, hlt⟩ := he
+      exact concatLitHi_contract hk hlt (b.wf_pos hb')
+        (meaning_quote_leaves hb hv (.concatLitHi k v b) hall) ((ih b hb').child "concat_lo")
+    | concatLitLo a k v =>
+      have hall := he
+      obtain ⟨ha, hk, hlt⟩ := he
+      exact concatLitLo_contract hk hlt (a.wf_pos ha)
+        (meaning_quote_leaves hb hv (.concatLitLo a k v) hall) ((ih a ha).child "concat_hi")
 
 /-- An input binder satisfies its leaf contract at every fuel. -/
 theorem input_contract_fuel {ctx inputs we mems initial id v} (hi : inputs id = some v) :

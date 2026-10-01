@@ -51,6 +51,10 @@ inductive Term : SType → Type where
   | slice (nm : Lean.Name) (start len : Nat) {w : Nat} (a : Term (.bits w)) : Term (.bits len)
   /-- A concatenation `a ++ b` of two Signals: `a` in the high bits. -/
   | concat {m n : Nat} (a : Term (.bits m)) (b : Term (.bits n)) : Term (.bits (m + n))
+  /-- A concatenation with a literal high operand: `v#k ++ b`. -/
+  | concatLitHi (k v : Nat) {n : Nat} (b : Term (.bits n)) : Term (.bits (k + n))
+  /-- A concatenation with a literal low operand: `a ++ v#k`. -/
+  | concatLitLo {m : Nat} (a : Term (.bits m)) (k v : Nat) : Term (.bits (m + k))
   /-- A comparison lifted through the Signal applicative: `(BitVec.ule · ·) <$> a <*> b`. -/
   | appCompare (op : SignalCompareKind) {w : Nat} (a b : Term (.bits w)) : Term .bool
   /-- A Bool operator lifted through the Signal applicative: `(· && ·) <$> a <*> b`. -/
@@ -75,6 +79,8 @@ def Term.WF (kb kv : Nat) (vw : Nat → Nat) : {s : SType} → Term s → Prop
   | _, .appBool _ a b => a.WF kb kv vw ∧ b.WF kb kv vw
   | _, .slice _ start len (w := w) a => a.WF kb kv vw ∧ 0 < len ∧ start + len ≤ w
   | _, .concat a b => a.WF kb kv vw ∧ b.WF kb kv vw
+  | _, .concatLitHi k v b => b.WF kb kv vw ∧ 0 < k ∧ v < 2 ^ k
+  | _, .concatLitLo a k v => a.WF kb kv vw ∧ 0 < k ∧ v < 2 ^ k
 
 /-- Every well-formed BitVec term has a positive width. -/
 theorem Term.wf_pos {kb kv : Nat} {vw : Nat → Nat} :
@@ -87,6 +93,8 @@ theorem Term.wf_pos {kb kv : Nat} {vw : Nat → Nat} :
   | _, .setw _ _, h => h.2
   | _, .slice _ _ _ _, h => h.2.1
   | _, .concat a _, h => Nat.add_pos_left (a.wf_pos h.1) _
+  | _, .concatLitHi _ _ _, h => Nat.add_pos_left h.2.1 _
+  | _, .concatLitLo _ _ _, h => Nat.add_pos_right _ h.2.1
 
 def eval (bools : Nat → Bool) (bits : (j : Nat) → (w : Nat) → BitVec w) :
     {s : SType} → Term s → s.Type
@@ -106,6 +114,8 @@ def eval (bools : Nat → Bool) (bits : (j : Nat) → (w : Nat) → BitVec w) :
   | _, .appBool op a b => boolBinValue op (eval bools bits a) (eval bools bits b)
   | _, .slice _ start len a => BitVec.extractLsb' start len (eval bools bits a)
   | _, .concat a b => eval bools bits a ++ eval bools bits b
+  | _, .concatLitHi k v b => BitVec.ofNat k v ++ eval bools bits b
+  | _, .concatLitLo a k v => eval bools bits a ++ BitVec.ofNat k v
 
 def denote {dom : DomainConfig} (bools : Nat → Signal dom Bool)
     (bits : (j : Nat) → (w : Nat) → Signal dom (BitVec w)) :
@@ -139,6 +149,8 @@ def denote {dom : DomainConfig} (bools : Nat → Signal dom Bool)
   | _, .slice _ start len a =>
       Signal.map (fun x => BitVec.extractLsb' start len x) (denote bools bits a)
   | _, .concat a b => denote bools bits a ++ denote bools bits b
+  | _, .concatLitHi k v b => BitVec.ofNat k v ++ denote bools bits b
+  | _, .concatLitLo a k v => denote bools bits a ++ BitVec.ofNat k v
 
 theorem denote_val {dom : DomainConfig} (bools : Nat → Signal dom Bool)
     (bits : (j : Nat) → (w : Nat) → Signal dom (BitVec w)) (tick : Nat) : ∀ {s} (e : Term s),
@@ -189,6 +201,12 @@ theorem denote_val {dom : DomainConfig} (bools : Nat → Signal dom Bool)
   | _, .concat a b => by
     change (denote bools bits a).val tick ++ (denote bools bits b).val tick = _
     rw [denote_val, denote_val]; rfl
+  | _, .concatLitHi k v b => by
+    change BitVec.ofNat k v ++ (denote bools bits b).val tick = _
+    rw [denote_val]; rfl
+  | _, .concatLitLo a k v => by
+    change (denote bools bits a).val tick ++ BitVec.ofNat k v = _
+    rw [denote_val]; rfl
 
 /-- The canonical width-changing map node: `Signal.map (BitVec.setWidth w') a`
     exactly as dot-notation elaborates it (a partial application, no lambda). -/
@@ -265,6 +283,24 @@ def concatE (dom : Lean.Expr) (m n : Nat) (a b : Lean.Expr) : Lean.Expr :=
     (mkApp3 (.const ``Sparkle.Core.Signal.instHAppendSignalBitVecHAddNat []) dom (natE m)
       (natE n)) a b
 
+/-- The literal `v#k`. -/
+def litE (k v : Nat) : Lean.Expr := mkApp2 (.const ``BitVec.ofNat []) (natE k) (natE v)
+
+/-- `v#k ++ b` at the library's literal-high instance (whose implicit
+    arguments are the literal's width, the domain, the Signal's width). -/
+def concatLitHiE (dom : Lean.Expr) (k v n : Nat) (b : Lean.Expr) : Lean.Expr :=
+  mkApp6 (.const ``HAppend.hAppend [.zero, .zero, .zero]) (bitVecE k) (sigT dom n)
+    (sigT dom (k + n))
+    (mkApp3 (.const ``Sparkle.Core.Signal.instHAppendBitVecSignalHAddNat []) (natE k) dom
+      (natE n)) (litE k v) b
+
+/-- `a ++ v#k` at the library's literal-low instance. -/
+def concatLitLoE (dom : Lean.Expr) (m k v : Nat) (a : Lean.Expr) : Lean.Expr :=
+  mkApp6 (.const ``HAppend.hAppend [.zero, .zero, .zero]) (sigT dom m) (bitVecE k)
+    (sigT dom (m + k))
+    (mkApp3 (.const ``Sparkle.Core.Signal.instHAppendSignalBitVecHAddNat_1 []) dom (natE m)
+      (natE k)) a (litE k v)
+
 def quote (dom : Lean.Expr) (bools bits : Nat → Lean.Expr) : {s : SType} → Term s → Lean.Expr
   | _, .boolInput j => bools j
   | _, .bitsInput _ j => bits j
@@ -285,6 +321,8 @@ def quote (dom : Lean.Expr) (bools bits : Nat → Lean.Expr) : {s : SType} → T
   | _, .slice nm start len (w := w) a => sliceE dom nm w start len (quote dom bools bits a)
   | _, .concat (m := m) (n := n) a b =>
       concatE dom m n (quote dom bools bits a) (quote dom bools bits b)
+  | _, .concatLitHi k v (n := n) b => concatLitHiE dom k v n (quote dom bools bits b)
+  | _, .concatLitLo (m := m) a k v => concatLitLoE dom m k v (quote dom bools bits a)
 
 /-- Uniform-width embeddings of the three previous source languages. -/
 def ofF (n : Nat) : FExpr → Term (.bits n)
@@ -394,6 +432,17 @@ theorem instFVars_quote (xs : Array Lean.Expr) (d : Nat) (dom : Lean.Expr)
     rw [instFVars_quote, instFVars_quote]
     simp [quote, concatE, instFVars, sigT, natE, mkApp6, mkApp5, mkApp4, mkApp3, mkApp2, mkAppB,
       mkApp]
+  | _, .concatLitHi k v b => by
+    show Lean.Expr.app (instFVars xs d _) (instFVars xs d (quote dom bi vi b)) = _
+    rw [instFVars_quote]
+    simp [quote, concatLitHiE, litE, instFVars, sigT, bitVecE, natE, mkApp6, mkApp5, mkApp4,
+      mkApp3, mkApp2, mkAppB, mkApp]
+  | _, .concatLitLo a k v => by
+    show Lean.Expr.app (.app (instFVars xs d _) (instFVars xs d (quote dom bi vi a)))
+      (instFVars xs d _) = _
+    rw [instFVars_quote]
+    simp [quote, concatLitLoE, litE, instFVars, sigT, bitVecE, natE, mkApp6, mkApp5, mkApp4,
+      mkApp3, mkApp2, mkAppB, mkApp]
 
 theorem quote_congr {dom : Lean.Expr} {kb kv : Nat} {vw : Nat → Nat}
     {bi bi' vi vi' : Nat → Lean.Expr}
@@ -431,5 +480,7 @@ theorem quote_congr {dom : Lean.Expr} {kb kv : Nat} {vw : Nat → Nat}
   | _, .concat a b, h => by
     obtain ⟨ha, hb'⟩ := h
     simp only [quote, quote_congr hb hv a ha, quote_congr hb hv b hb']
+  | _, .concatLitHi _ _ b, h => by simp only [quote, quote_congr hb hv b h.1]
+  | _, .concatLitLo a _ _, h => by simp only [quote, quote_congr hb hv a h.1]
 
 end Tools.ShippingUnifiedSource
