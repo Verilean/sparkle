@@ -1,4 +1,5 @@
 import Sparkle.Backend.Smt
+import Sparkle.Verification.Bmc
 import Tests.TestSmt
 
 /-  SMT bridge Layer 2: run the real solver, then close the trust loop.
@@ -156,5 +157,62 @@ def main : IO Unit := do
         else
           IO.eprintln s!"[smt] {name}: counterexample did NOT reproduce on CSim — solver or emitter bug!\n{rr.stdout}"
           IO.Process.exit 1
+
+  -- Layer 2c: k-induction and counterexample traces (Sparkle.Verification.Bmc).
+  let kind (v : Sparkle.Verification.Bmc.Verdict) : String := match v with
+    | .holds _ => "holds" | .proved _ => "proved" | .violated .. => "violated"
+    | .notInductive .. => "notInductive" | .unknown w => s!"unknown: {w}"
+    | .noSolver _ => "noSolver"
+  let inductionCases : List (String × Module × Nat × String) :=
+    [ -- count ≤ 5 on a counter that sticks at 5: 1-inductive
+      ("good-counter-k1", goodCounter, 1, "proved")
+      -- read-back equals the registered input: 1-inductive, with a free array
+    , ("mem-good-k1", memGood, 1, "proved")
+      -- count < 12 on a wrapping counter: nothing within 4 cycles of reset,
+      -- but the step fails from the (reachable, here) state 11
+    , ("buggy-counter-k5", buggyCounter, 5, "notInductive")
+      -- with k past the bug the BASE case finds the real violation
+    , ("buggy-counter-k14", buggyCounter, 14, "violated") ]
+  for (name, m, k, expect) in inductionCases do
+    let v ← Sparkle.Verification.Bmc.checkInduction m k name
+    if kind v != expect then
+      IO.eprintln s!"[smt] k-induction {name}: expected {expect}, got {kind v}"
+      IO.Process.exit 1
+    IO.println s!"[smt] k-induction {name}: {kind v} ✓"
+    match v with
+    | .violated c a tr =>
+      -- the base-case trace starts at reset and ends in the violation
+      if c != 12 || a != "count_lt_12" || tr.size != 13 then
+        IO.eprintln s!"[smt] {name}: wrong violation (cycle {c}, {a}, {tr.size} frames)"
+        IO.Process.exit 1
+      let counts := tr.toList.map fun frame =>
+        (frame.find? (·.1 == "count")).map (·.2) |>.getD 999
+      if counts != List.range 13 then
+        IO.eprintln s!"[smt] {name}: trace does not show count = 0..12: {counts}"
+        IO.Process.exit 1
+      let path ← Sparkle.Verification.Bmc.writeVcd m tr name
+      IO.println s!"[smt] {name}: trace shows count 0..12; waveform {path}\n{Sparkle.Verification.Bmc.renderTrace m tr}"
+    | .notInductive _ _ tr =>
+      -- the step trace must end in a violating state reached from a good one
+      let last := (tr[tr.size - 1]!.find? (·.1 == "count")).map (·.2)
+      if last != some 12 then
+        IO.eprintln s!"[smt] {name}: step trace does not end in count = 12: {last}"
+        IO.Process.exit 1
+    | _ => pure ()
+
+  -- Shortest counterexample: `count < 3` on the enabled counter cannot
+  -- fail before cycle 3, and the returned trace must be exactly that long
+  -- with `en` high in cycles 0..2.
+  match ← Sparkle.Verification.Bmc.checkBmc enCounter 12 "en-counter" with
+  | .violated c _ tr =>
+    let ens := (tr.toList.take 3).map fun frame =>
+      (frame.find? (·.1 == "en")).map (·.2) |>.getD 0
+    if c != 3 || tr.size != 4 || ens != [1, 1, 1] then
+      IO.eprintln s!"[smt] en-counter: not the shortest counterexample (cycle {c}, en = {ens})"
+      IO.Process.exit 1
+    IO.println s!"[smt] en-counter: shortest counterexample at cycle 3 ✓"
+  | v =>
+    IO.eprintln s!"[smt] en-counter: expected a violation, got {kind v}"
+    IO.Process.exit 1
 
   IO.println "\nALL PASS"

@@ -20,6 +20,7 @@
 -/
 import Sparkle.Backend.CSim
 import Sparkle.IR.Specialize
+import Sparkle.IR.Optimize
 
 namespace Sparkle.Backend.Smt
 
@@ -192,7 +193,9 @@ private def checkModule (m : Module) : Except String Unit := do
     match s with
     | .inst _ instName _ =>
       throw s!"instance '{instName}': the SMT backend takes FLAT modules in v1 — flatten the hierarchy first (the elaborator inlines by default)"
-    | .memory name addrWidth dataWidth .. =>
+    | .memory name addrWidth dataWidth _ _ _ _ _ _ _ extraWrites extraReads =>
+      if !extraWrites.isEmpty || !extraReads.isEmpty then
+        throw s!"memory '{name}' has more than one read or write port; the SMT backend models single-port memories only (the extra ports would be ignored)"
       if addrWidth == 0 then
         throw s!"memory '{name}': the SMT backend requires a positive address width"
       if dataWidth == 0 then
@@ -206,6 +209,45 @@ private def checkModule (m : Module) : Except String Unit := do
     if width != 1 then
       throw s!"assertion '{name}' has width {width}; SMT assertions must be exactly 1 bit"
 
+/-- The frame-local (combinational) definitions of a module — assigns and
+    combinational memory reads — in dependency order.  SMT `define-fun`
+    needs definition before use, and the elaborator's body order does not
+    provide it (a `Signal.loop` wire is assigned after its readers). -/
+private def combOrder (m : Module) : Except String (List Stmt) := do
+  let defs : List (String × Stmt × List Expr) := m.body.filterMap fun s => match s with
+    | .assign lhs rhs => some (lhs, s, [rhs])
+    | .memory _ _ _ _ _ _ _ ra rd cr .. => if cr then some (rd, s, [ra]) else none
+    | _ => none
+  let names : Array String := (defs.map (·.1)).toArray
+  let stmts : Array (Option Stmt) := (defs.map fun d => some d.2.1).toArray
+  let n := names.size
+  let index : Std.HashMap String Nat :=
+    (List.range n).foldl (fun acc i => acc.insert names[i]! i) {}
+  let deps : Array (List Nat) := (defs.map fun (_, _, es) =>
+    ((es.flatMap Sparkle.IR.Optimize.collectExprRefs).filterMap (index.get? ·)).eraseDups).toArray
+  let mut users : Array (List Nat) := Array.replicate n []
+  let mut pending : Array Nat := deps.map (·.length)
+  for i in [0:n] do
+    for j in deps[i]! do
+      users := users.modify j (i :: ·)
+  let mut ready : List Nat := (List.range n).filter (pending[·]! == 0)
+  let mut out : List Stmt := []
+  let mut emitted := 0
+  while !ready.isEmpty do
+    match ready with
+    | i :: rest =>
+      ready := rest
+      emitted := emitted + 1
+      if let some st := stmts[i]! then out := st :: out
+      for u in users[i]!.reverse do
+        pending := pending.modify u (· - 1)
+        if pending[u]! == 0 then ready := ready ++ [u]
+    | [] => pure ()
+  if emitted != n then
+    let stuck := (List.range n).find? (pending[·]! != 0)
+    throw s!"combinational cycle through '{(stuck.map (names[·]!)).getD "?"}' — the SMT backend needs acyclic combinational logic"
+  return out.reverse
+
 /-- Emit one frame: wire defines (body order), memory reads, register /
     memory next-state defines (into frame c+1), assertion defines. -/
 private def emitFrame (m : Module) (tm : TypeMap) (mems : List MemInfo)
@@ -215,15 +257,23 @@ private def emitFrame (m : Module) (tm : TypeMap) (mems : List MemInfo)
   -- inputs
   for p in bmcInputs m do
     lines := lines ++ [s!"(declare-const {sym p.name c} {bvSort p.ty.bitWidth})"]
-  -- body in order: assigns, register next-states, and memories each at
-  -- their own position (a later assign may read a memory's rd — SMT
-  -- define-fun requires definition-before-use, so order matters).
-  for s in m.body do
+  -- Frame-local definitions first, in dependency order (define-fun
+  -- requires definition before use); then the next-state definitions,
+  -- which only produce frame c+1 symbols.
+  for s in ← combOrder m do
     match s with
     | .assign lhs rhs =>
       let w := lookupWidth tm lhs
       lines := lines ++
         [s!"(define-fun {sym lhs c} () {bvSort w} {← emitW ctx rhs w})"]
+    | .memory name aw dw _clk _ _ _ ra rd _ .. =>
+      -- comboRead: reads the PRE-write array (CSim eval order)
+      lines := lines ++
+        [s!"(define-fun {sym rd c} () {bvSort dw} (select {sym name c} {← emitW ctx ra aw}))"]
+    | _ => pure ()
+  for s in m.body do
+    match s with
+    | .assign .. => pure ()
     | .register out _ _ input _ =>
       let w := lookupWidth tm out
       lines := lines ++
@@ -235,10 +285,6 @@ private def emitFrame (m : Module) (tm : TypeMap) (mems : List MemInfo)
       let weS ← emitW ctx we weW
       let raS ← emitW ctx ra aw
       let arrSort := s!"(Array {bvSort aw} {bvSort dw})"
-      if cr then
-        -- comboRead: reads the PRE-write array (CSim eval order)
-        lines := lines ++
-          [s!"(define-fun {sym rd c} () {bvSort dw} (select {sym name c} {raS}))"]
       lines := lines ++
         [s!"(define-fun {sym name (c+1)} () {arrSort} (ite (= {weS} {bvConst 0 weW}) {sym name c} (store {sym name c} {waS} {wdS})))"]
       if !cr then
@@ -252,9 +298,34 @@ private def emitFrame (m : Module) (tm : TypeMap) (mems : List MemInfo)
       [s!"(define-fun {sym s!"_assert_{aname}" c} () {bvSort 1} {← emitW ctx aexpr 1})"]
   return lines
 
+/-- Bit-vector signals a trace can show, with widths, in declaration
+    order: the inputs, then everything the body defines per frame (assign
+    targets, register outputs, memory read data).  Memory arrays themselves
+    are not included. -/
+def traceSignals (m : Module) : List (String × Nat) :=
+  let tm := buildSmtTypeMap m
+  let ins := (bmcInputs m).map fun p => (p.name, p.ty.bitWidth)
+  let defs := m.body.filterMap fun s => match s with
+    | .assign lhs _ => some (lhs, lookupWidth tm lhs)
+    | .register out .. => some (out, lookupWidth tm out)
+    | .memory _ _ dw _ _ _ _ _ rd .. => some (rd, dw)
+    | .inst .. => none
+  ins ++ defs
+
+/-- `(get-value …)` over frames 0..k: the inputs, or (`traceAll`) every
+    trace signal and every assertion value. -/
+private def getValueLine (m : Module) (k : Nat) (traceAll : Bool) : String :=
+  let names := if traceAll then
+      (traceSignals m).map (·.1) ++ m.assertions.map (fun (n, _) => s!"_assert_{n}")
+    else (bmcInputs m).map (·.name)
+  let vals := (List.range (k + 1)).flatMap fun c => names.map (sym · c)
+  s!"(get-value ({String.intercalate " " vals}))"
+
 /-- Full BMC query: frames 0..k, property violation disjunction, check-sat,
-    get-value over every input of every frame. -/
-def toSmtBmcQuery (m : Module) (k : Nat) : Except String String := do
+    get-value over every input of every frame (`traceAll`: over every
+    signal, for rendering a counterexample trace). -/
+def toSmtBmcQuery (m : Module) (k : Nat) (traceAll : Bool := false) :
+    Except String String := do
   checkModule m
   let tm := buildSmtTypeMap m
   let mems := memsOf m
@@ -290,12 +361,55 @@ def toSmtBmcQuery (m : Module) (k : Nat) : Except String String := do
     [ "; ── property: some assertion is violated within k cycles ──"
     , s!"(assert (or {String.intercalate " " viols}))"
     , "(check-sat)" ]
-  -- model extraction: all inputs, all frames
-  let mut vals : List String := []
+  -- model extraction: all inputs (or all signals), all frames
+  lines := lines ++ [getValueLine m k traceAll]
+  return String.intercalate "\n" lines ++ "\n"
+
+/-- The INDUCTIVE STEP of k-induction (k ≥ 1): frame 0 is an ARBITRARY
+    state (registers, memories and registered read data are free
+    constants, not their reset values); the assertions are assumed in
+    frames 0..k-1 and checked in frame k.
+
+    `unsat` means "k consecutive good cycles are always followed by a
+    good one".  Together with a BMC `unsat` for frames 0..k-1 from reset
+    (`toSmtBmcQuery m (k-1)`), the assertions hold in every reachable
+    cycle.  `sat` yields a k+1-frame trace from a state that need not be
+    reachable: the property may still hold, but it is not k-inductive. -/
+def toSmtInductionQuery (m : Module) (k : Nat) (traceAll : Bool := true) :
+    Except String String := do
+  checkModule m
+  if k == 0 then
+    throw "k-induction needs k ≥ 1"
+  let tm := buildSmtTypeMap m
+  let mems := memsOf m
+  let regs := regsOf m tm
+  let logic := if mems.isEmpty then "QF_BV" else "ALL"
+  let mut lines : List String :=
+    [ s!"; AUTO-GENERATED by Sparkle HDL — SMT bridge (k-induction step, k={k})"
+    , s!"; module {m.name}"
+    , "(set-option :produce-models true)"
+    , s!"(set-logic {logic})"
+    , "; ── frame 0: arbitrary state ──" ]
+  for r in regs do
+    lines := lines ++ [s!"(declare-const {sym r.name 0} {bvSort r.width})"]
+  for mi in mems do
+    let arrSort := s!"(Array {bvSort mi.addrW} {bvSort mi.dataW})"
+    lines := lines ++ [s!"(declare-const {sym mi.name 0} {arrSort})"]
+    if !mi.comboRead then
+      lines := lines ++ [s!"(declare-const {sym mi.readData 0} {bvSort mi.dataW})"]
   for c in [0:k+1] do
-    for p in bmcInputs m do
-      vals := vals ++ [sym p.name c]
-  lines := lines ++ [s!"(get-value ({String.intercalate " " vals}))"]
+    lines := lines ++ (← emitFrame m tm mems c)
+  lines := lines ++ [s!"; ── hypothesis: the assertions hold in frames 0..{k-1} ──"]
+  for c in [0:k] do
+    for (aname, _) in m.assertions do
+      lines := lines ++ [s!"(assert (= {sym s!"_assert_{aname}" c} #b1))"]
+  let viols := m.assertions.map fun (aname, _) =>
+    s!"(= {sym s!"_assert_{aname}" k} #b0)"
+  lines := lines ++
+    [ s!"; ── goal: some assertion is violated in frame {k} ──"
+    , s!"(assert (or {String.intercalate " " viols}))"
+    , "(check-sat)"
+    , getValueLine m k traceAll ]
   return String.intercalate "\n" lines ++ "\n"
 
 
@@ -393,6 +507,9 @@ partial def parseZ3Output (out : String) (k : Nat) : Except String BmcOutcome :=
       | [] => pure ()
     return .sat cex
   | _ => throw s!"unrecognised solver output: {out.take 200}"
+
+/-- The name under which `name` appears in a parsed model (`BmcOutcome.sat`). -/
+def modelName (name : String) : String := sanitizeName name
 
 /-! ### Replay support — assertions as observable outputs -/
 

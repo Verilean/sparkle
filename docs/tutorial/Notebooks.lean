@@ -6,6 +6,7 @@ import Notebooks.Gen.Ch03_Sequential
 import Notebooks.Gen.Ch04_Modules
 import Notebooks.Gen.Ch05_Verilog
 import Notebooks.Gen.Ch06_LTL
+import Notebooks.Gen.Ch06b_ModelChecking
 import Notebooks.Gen.Ch07_Equivalence
 import Notebooks.Gen.Ch07b_FpQuantEquivalence
 import Notebooks.Gen.Ch08_Yosys

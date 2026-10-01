@@ -36,5 +36,7 @@ import Sparkle.Core.Oracle
 import Sparkle.Core.OracleSpec
 import Sparkle.Core.MulOracle
 import Sparkle.Verification.MulProps
+import Sparkle.Verification.Bmc
+import Sparkle.Verification.BmcCommand
 import Sparkle.Utils.HexLoader
 import Sparkle.Display
