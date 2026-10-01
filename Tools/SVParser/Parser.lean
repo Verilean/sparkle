@@ -66,6 +66,12 @@ def preprocess (input : String) : String := Id.run do
       -- Replace debug macro with empty statement (semicolon)
       result := result.push ";"
     else
+      -- Normalise `@(*)` to `@*` BEFORE stripping `(* … *)` attributes:
+      -- the stripper reads the `(*` of `@(*)` as an attribute opener and
+      -- dropped the rest of the line (`always @(*) begin` → `always @`).
+      let line := if containsSubstrP line "(*)" then
+          (line.replace "@(*)" "@*").replace "@ (*)" "@*"
+        else line
       -- Remove (* ... *) attributes
       let cleaned := removeAttributes line
       result := result.push cleaned
@@ -203,12 +209,16 @@ partial def parseShift : P SVExpr := do
     match ← attempt (op2 ">>>") with
     | some _ => let rhs ← parseAdd; e := SVExpr.binary .asr e rhs
     | none =>
-      match ← attempt (op2 "<<") with
+      -- `<<<` (arithmetic left shift) is the same operation as `<<`.
+      match ← attempt (op2 "<<<") with
       | some _ => let rhs ← parseAdd; e := SVExpr.binary .shl e rhs
       | none =>
-        match ← attempt (op2 ">>") with
-        | some _ => let rhs ← parseAdd; e := SVExpr.binary .shr e rhs
-        | none => cont := false
+        match ← attempt (op2 "<<") with
+        | some _ => let rhs ← parseAdd; e := SVExpr.binary .shl e rhs
+        | none =>
+          match ← attempt (op2 ">>") with
+          | some _ => let rhs ← parseAdd; e := SVExpr.binary .shr e rhs
+          | none => cont := false
   pure e
 
 partial def parseAdd : P SVExpr := do
@@ -634,9 +644,20 @@ partial def parseAlwaysBlock : P SVModuleItem := do
       let body ← parseAlwaysBody
       pure (SVModuleItem.alwaysBlock .star body)
     | none =>
-      lparen; let sens ← parseSensitivity
-      let _ ← many (do keyword "or"; let _ ← parseSensitivity; pure ())
+      lparen; let first ← parseSensitivity
+      -- `or` or `,` separates entries; keep them — an edge on a reset
+      -- signal is what makes that reset asynchronous.
+      let extra ← many (do
+        match ← attempt (keyword "or") with
+        | some _ => pure ()
+        | none => comma
+        parseSensitivity)
       rparen
+      let extraNames := extra.toList.filterMap fun e => match e with
+        | .posedge n | .negedge n => some n | _ => none
+      let sens := match first with
+        | .posedge clk => if extraNames.isEmpty then first else .posedgeAsync clk extraNames
+        | _ => first
       let body ← parseAlwaysBody
       pure (SVModuleItem.alwaysBlock sens body)
   | none =>
@@ -683,6 +704,15 @@ def parseMultiNames (mkItem : String → SVModuleItem) : P (List SVModuleItem) :
     | some _ => let n ← identifier; items := items ++ [mkItem n]
     | none => cont := false
   semi; pure items
+
+/-- Tag the names declared by `items` as signed (`wire signed …`): the
+    lowering needs it to tell `>>>` (arithmetic only on a signed operand)
+    from a logical shift. -/
+def markSigned (isSigned : Bool) (items : List SVModuleItem) : List SVModuleItem :=
+  if !isSigned then items else
+  items ++ items.filterMap fun it => match it with
+    | .wireDecl n _ _ | .regDecl n _ _ | .packedArrayDecl n _ _ => some (.signedDecl n)
+    | _ => none
 
 mutual
 
@@ -745,7 +775,7 @@ partial def parseModuleItems : P (List SVModuleItem) := do
       | none => attempt (keyword "logic")
     match wireKw with
     | some _ =>
-      let _ ← attempt (keyword "signed")
+      let isSigned := (← attempt (keyword "signed")).isSome
       let w ← parseOptWidth
       -- extra packed dimensions: wire [A:B][C:D]… name  (firtool mux tables)
       let mut extraDims : List (Nat × Nat) := []
@@ -761,10 +791,10 @@ partial def parseModuleItems : P (List SVModuleItem) := do
           | some _ => let e ← parseExpr; pure (some e)
           | none => pure none
         semi
-        return [SVModuleItem.packedArrayDecl n dims init]
+        return markSigned isSigned [SVModuleItem.packedArrayDecl n dims init]
       let n ← identifier
       match ← attempt eqSign with
-      | some _ => let e ← parseExpr; semi; pure [SVModuleItem.wireDecl n w (some e)]
+      | some _ => let e ← parseExpr; semi; pure (markSigned isSigned [SVModuleItem.wireDecl n w (some e)])
       | none =>
         -- Check for additional comma-separated names
         let mut items := [SVModuleItem.wireDecl n w none]
@@ -773,10 +803,10 @@ partial def parseModuleItems : P (List SVModuleItem) := do
           match ← attempt comma with
           | some _ => let n2 ← identifier; items := items ++ [SVModuleItem.wireDecl n2 w none]
           | none => cont := false
-        semi; pure items
+        semi; pure (markSigned isSigned items)
     | none => match ← attempt (keyword "reg") with
       | some _ =>
-        let _ ← attempt (keyword "signed")
+        let isSigned := (← attempt (keyword "signed")).isSome
         let w ← parseOptWidth; let n ← identifier
         match ← attempt lbracket with
         | some _ =>
@@ -816,7 +846,7 @@ partial def parseModuleItems : P (List SVModuleItem) := do
               | none => pure ()
               items := items ++ [SVModuleItem.regDecl n2 w none]
             | none => cont := false
-          semi; pure items
+          semi; pure (markSigned isSigned items)
       | none => match ← attempt (keyword "integer") with
         | some _ =>
           let items ← parseMultiNames (SVModuleItem.integerDecl ·)

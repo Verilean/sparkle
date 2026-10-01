@@ -16,10 +16,15 @@
   Reset: `reset` (if present) is held 1 for the first 2 cycles; comparison
   starts at cycle 3 so X-initialised registers in iverilog have flushed.
 
-  v1 scope: LEAF modules (no sub-instances) whose ports are all ≤ 64 bits.
+  Scope: leaf modules, or with `--hier` a module plus its instantiation
+  closure (children resolved by name, `<Module>.sv`); ports up to 4096 bits
+  (wide ports are driven and sampled per 64-bit word).  Golden fields that
+  are X/Z are masked out of the comparison.  `--zero-init` starts both
+  iverilog runs from zeroed registers and memories (for sources that do
+  not initialize their state; see `emitZeroInit`).
 
   Usage:
-    lake exe sv-cosim <orig-dir> <rt-dir> [--jobs N] [--cycles K] [--limit M] [--max-kb S] [--skip K] [--hier [--max-closure F]]
+    lake exe sv-cosim <orig-dir> <rt-dir> [--jobs N] [--cycles K] [--limit M] [--max-kb S] [--skip K] [--hier [--max-closure F]] [--zero-init]
     lake exe sv-cosim <orig-file.sv> <rt-dir>     # single, verbose
 -/
 import Tools.SVParser
@@ -302,9 +307,35 @@ def loadClosure (dir : String) (cache : ChildCache)
       work := work ++ ((instNamesOf d.modules).filter (fun x => !haveNames.contains x))
   return .ok modules
 
+/-- `--zero-init`: a separate top module whose `initial` block zeroes the
+    DUT's registers and memories through hierarchical references, so the
+    iverilog runs start from the all-zero state CSim starts from.  Without
+    it, sources that do not initialize their state (VexRiscv, PicoRV32)
+    start from X, and X conditions diverge between the original's `if` (X
+    takes the else branch) and the re-emitted `?:` (X merges both arms) —
+    a difference 2-state semantics does not have.  `scalars` and `arrays`
+    (name, entries) are the side's own declarations. -/
+def emitZeroInit (scalars : List String) (arrays : List (String × Nat)) : String :=
+  let lines := scalars.map (fun n => s!"    tb.dut.{n} = 0;") ++
+    arrays.map (fun (n, size) =>
+      s!"    for (zi = 0; zi < {size}; zi = zi + 1) tb.dut.{n}[zi] = 0;")
+  "module sparkle_zero_init;\n  integer zi;\n  initial begin\n" ++
+    "\n".intercalate lines ++ "\n  end\nendmodule\n"
+
+/-- Memories in Sparkle's emitted Verilog: `logic [w-1:0] name [0:N-1];`. -/
+def emittedArrays (src : String) : List (String × Nat) :=
+  (src.splitOn "\n").filterMap fun line =>
+    let toks := (line.trim.splitOn " ").filter (· != "")
+    match toks.reverse with
+    | range :: name :: _ =>
+      if toks.head? == some "logic" && range.startsWith "[0:" && range.endsWith "];" then
+        ((range.drop 3).dropRight 2).toString.toNat?.map fun hi => (name, hi + 1)
+      else none
+    | _ => none
+
 def runCosim (dir rtDir workDir name : String) (cycles : Nat)
     (hier : Bool := false) (maxClosure : Nat := 25)
-    (cache : Option ChildCache := none) :
+    (cache : Option ChildCache := none) (zeroInit : Bool := false) :
     IO (String × CosimResult) := do
   let src ← IO.FS.readFile (System.FilePath.mk dir / name)
   let .ok sv := parse src | return (name, .skipped "parse")
@@ -402,6 +433,19 @@ def runCosim (dir rtDir workDir name : String) (cycles : Nat)
   IO.FS.createDirAll wd
   let base := name.dropRight 3
   IO.FS.writeFile (wd / s!"{base}_tb.v") tb
+  -- Per-side zero-init modules (the two sides declare different state:
+  -- the re-emitted Verilog already initializes its registers and drops
+  -- dead ones, so it gets only its memories).
+  let (goldInit, rtInit) ← if zeroInit then do
+      let goldScalars := m.items.filterMap fun it => match it with
+        | .regDecl n _ none => some n | _ => none
+      let goldArrays := m.items.filterMap fun it => match it with
+        | .regDecl n _ (some size) => some (n, size) | _ => none
+      let rtSrc ← IO.FS.readFile (System.FilePath.mk rtDir / name)
+      IO.FS.writeFile (wd / s!"{base}_zinit_gold.v") (emitZeroInit goldScalars goldArrays)
+      IO.FS.writeFile (wd / s!"{base}_zinit_rt.v") (emitZeroInit [] (emittedArrays rtSrc))
+      pure (#[s!"{workDir}/{base}_zinit_gold.v"], #[s!"{workDir}/{base}_zinit_rt.v"])
+    else pure (#[], #[])
   IO.FS.writeFile (wd / s!"{base}_main.c") cmain
   let run (cmd : String) (args : Array String) : IO (Nat × String) := do
     let r ← IO.Process.output { cmd, args }
@@ -419,12 +463,12 @@ def runCosim (dir rtDir workDir name : String) (cycles : Nat)
   -- valid chain) compare deterministically instead of diverging on
   -- unknowable initial state.
   let (e1, _) ← run "iverilog" (#["-g2012", "-DRANDOM=32'h0", "-DRANDOMIZE_REG_INIT", "-o", s!"{workDir}/{base}_gold"]
-    ++ lib dir ++ #[s!"{dir}/{name}", s!"{workDir}/{base}_tb.v"])
+    ++ lib dir ++ #[s!"{dir}/{name}", s!"{workDir}/{base}_tb.v"] ++ goldInit)
   if e1 != 0 then return (name, .toolFail "iverilog(orig) compile")
   let (_, gold) ← run "vvp" #[s!"{workDir}/{base}_gold"]
   -- roundtrip side (children come from the re-emitted corpus)
   let (e2, _) ← run "iverilog" (#["-g2012", "-DRANDOM=32'h0", "-DRANDOMIZE_REG_INIT", "-o", s!"{workDir}/{base}_rt"]
-    ++ lib rtDir ++ #[s!"{rtDir}/{name}", s!"{workDir}/{base}_tb.v"])
+    ++ lib rtDir ++ #[s!"{rtDir}/{name}", s!"{workDir}/{base}_tb.v"] ++ rtInit)
   if e2 != 0 then return (name, .rtMismatch "iverilog(rt) does not compile")
   let (_, rt) ← run "vvp" #[s!"{workDir}/{base}_rt"]
   -- JIT side
@@ -450,12 +494,24 @@ def runCosim (dir rtDir workDir name : String) (cycles : Nat)
   let g0 := keep gold
   let r0 := keep rt
   let j0 := keep jit
-  -- Drop CYCLES where the golden has X/Z (unwritten memory entries read
-  -- back as X in iverilog; CSim memories start at 0) instead of skipping
-  -- the whole module — keep every defined cycle comparable.
-  let defined := (g0.zip (r0.zip j0)).filter (fun (gl, _) => !hasXZ gl)
+  -- Mask the FIELDS (output slots) where the golden has X/Z — unwritten
+  -- memory entries and never-reset registers read back as X in iverilog,
+  -- while CSim starts them at 0 — and compare every other field.  Dropping
+  -- whole cycles instead left CPUs whose debug outputs are X forever
+  -- (VexRiscv, PicoRV32) with nothing compared at all.
+  let fields := fun (l : String) => l.splitOn " "
+  let mask := fun (gl other : String) =>
+    let gf := fields gl
+    let of := fields other
+    if gf.length != of.length then other  -- let the mismatch surface
+    else " ".intercalate ((gf.zip of).filterMap fun (a, b) =>
+      if hasXZ a then none else some b)
+  let masked := (g0.zip (r0.zip j0)).map fun (gl, rl, jl) =>
+    (mask gl gl, mask gl rl, mask gl jl)
+  -- A cycle whose only surviving field is its `C<n>` label compares nothing.
+  let defined := masked.filter fun (gl, _) => (fields gl).length > 1
   if defined.isEmpty && !g0.isEmpty then
-    return (name, .skipped "X/Z in golden (all cycles)")
+    return (name, .skipped "X/Z in golden (every output, all cycles)")
   let g := defined.map (·.1)
   let r := defined.map (·.2.1)
   let j := defined.map (·.2.2)
@@ -486,13 +542,16 @@ def main (args : List String) : IO Unit := do
   -- instantiation closure (iverilog resolves children via `-y`; the CSim
   -- side merges the lowered child designs into one hierarchical Design).
   let hier := args.contains "--hier"
+  -- --zero-init: start both iverilog runs from all-zero registers and
+  -- memories (see `emitZeroInit`); for sources without reset/init state.
+  let zeroInit := args.contains "--zero-init"
   let maxClosure := ((flagVal "--max-closure").bind (·.toNat?)).getD 25
   let workDir := "/tmp/sv-cosim"
   if dir.endsWith ".sv" then
     let p := System.FilePath.mk dir
     let cache : ChildCache ← IO.mkRef {}
     let (n, res) ← runCosim (p.parent.getD "." |>.toString) rtDir workDir
-      (p.fileName.getD dir) cycles hier maxClosure (some cache)
+      (p.fileName.getD dir) cycles hier maxClosure (some cache) zeroInit
     IO.println s!"{n}: {match res with
       | .ok => "OK"
       | .rtMismatch d => s!"RT-MISMATCH {d}"
@@ -526,7 +585,7 @@ def main (args : List String) : IO Unit := do
     let cache : ChildCache ← IO.mkRef {}
     let mut out := #[]
     for n in bucket do
-      out := out.push (← runCosim dir rtDir workDir n cycles hier maxClosure (some cache))
+      out := out.push (← runCosim dir rtDir workDir n cycles hier maxClosure (some cache) zeroInit)
     return out
   let mut tasks := #[]
   for b in chunks do

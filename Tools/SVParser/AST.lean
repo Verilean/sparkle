@@ -77,6 +77,11 @@ inductive SVStmt where
 /-- Sensitivity list for always blocks -/
 inductive SVSensitivity where
   | posedge (signal : String)
+  /-- `@(posedge clk or posedge rst …)`: the clock plus the other edge
+      signals, which make a reset tested in the body ASYNCHRONOUS.  A
+      plain `@(posedge clk)` block is `posedge`, and a reset tested in it
+      is synchronous. -/
+  | posedgeAsync (clock : String) (asyncSignals : List String)
   | negedge (signal : String)
   | star
   deriving Repr, BEq
@@ -137,6 +142,7 @@ inductive SVModuleItem where
                   (paramOverrides : List (String × SVExpr) := [])
   | taskDecl      (name : String) (body : List SVStmt)    -- task ... endtask
   | readmemh      (filename : String) (memName : String)  -- $readmemh("file", mem)
+  | signedDecl    (name : String)                         -- `wire/reg signed … name`
   deriving Repr, BEq
 
 /-- A parsed Verilog module -/
