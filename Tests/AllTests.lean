@@ -80,6 +80,7 @@ import Tests.RunCircuitHTest
 import Tests.TestCppSim
 import Tests.TestCudaSim
 import Tests.TestSmt
+import Tests.DRCTest
 import Tests.CudaTutorialTest
 import Tests.Compiler.MultiInstanceTest
 import Tests.RV32.TestFlow
@@ -792,7 +793,8 @@ def main : IO UInt32 := do
     yolov8ActivationTests ++
     yolov8MaxPoolTests ++
     yolov8Conv2DTests ++
-    yolov8UpsampleTests
+    yolov8UpsampleTests ++
+    Sparkle.Tests.DRCTest.tests
 
   -- Golden value tests (IO-based, run separately)
   IO.println ""
