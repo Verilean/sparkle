@@ -5,6 +5,7 @@ import Tools.ShippingHierSVSoundness
 import Tools.ShippingHierOptSoundness
 import Tools.ShippingRegisterSoundness
 import Sparkle.Compiler.Elab
+import Sparkle
 
 /-! S6-1 hierarchy foundation tests: a real `@[hardware_module]` child and
 its instantiating parent, both compiled modules pinned byte-for-byte to
@@ -98,6 +99,35 @@ def parentW8 {dom : DomainConfig} (a b : Signal dom (BitVec 8)) :
 
 def parentW16 {dom : DomainConfig} (a b : Signal dom (BitVec 16)) :
     Signal dom (BitVec 16) := childW 16 a b
+
+/-- The Issue #107 shape: a stateful child bound with `let` inside a
+`circuit do` body is first lowered by the LEGACY instance handler (reached
+through the let-value resolution) and then again, named, through the
+certified arm. The arm's validated cache hit must still dedupe the two. -/
+@[hardware_module] def toggle107 {dom : DomainConfig} (en : Signal dom Bool) :
+    Signal dom Bool :=
+  Signal.loop fun (s : Signal dom Bool) =>
+    Signal.register false (Signal.mux en (~~~s) s)
+
+@[hardware_module] def letOne107 {dom : DomainConfig} (en : Signal dom Bool) :
+    Signal dom Bool := circuit do
+  let r0 ← Signal.reg false
+  let t := toggle107 en
+  r0 <~ t
+  return (r0 : Signal dom Bool)
+
+@[hardware_module] def letThree107 {dom : DomainConfig} (e0 e1 e2 : Signal dom Bool) :
+    Signal dom Bool := circuit do
+  let r0 ← Signal.reg false
+  let r1 ← Signal.reg false
+  let r2 ← Signal.reg false
+  let a := toggle107 e0
+  let b := toggle107 e1
+  let c := toggle107 e2
+  r0 <~ a
+  r1 <~ b
+  r2 <~ c
+  return ((r0 : Signal dom Bool) &&& (r1 : Signal dom Bool) &&& (r2 : Signal dom Bool))
 
 /-- Every instance statement of a compiled parent is width-linked against
 its child in the emitted design (the executable form of `InstsLinked`). -/
@@ -1743,6 +1773,14 @@ run_cmd liftTermElabM do
       throwError "{nm}: the parsed-back optimized parent failed the reorder check"
     unless bodyO.all seqStmtOkI do
       throwError "{nm}: the parsed-back optimized parent left the fragment"
+  -- Issue #107: let-bound stateful instances dedupe across the legacy handler
+  -- and the certified arm (one instance per let, never fewer).
+  for (nm, expected) in [(``letOne107, 1), (``letThree107, 3)] do
+    let (m107, _) ← synthesizeCombinational nm
+    let n107 := (m107.body.filter
+      (fun st => match st with | .inst .. => true | _ => false)).length
+    unless n107 == expected do
+      throwError "Issue #107 regression: {nm} emits {n107} instances, expected {expected}"
   -- 12-cycle SEQUENTIAL linked regression: the real parentSeq/childSeq
   -- pair, driven through `runH`, shows the register-delay behaviour on
   -- `out` (init 0, out_{j+1} = in_j), with the child's state threaded

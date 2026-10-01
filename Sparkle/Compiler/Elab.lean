@@ -4898,6 +4898,12 @@ mutual
         let w ← CompilerM.makeWire hint hwType (named := isNamed)
         CompilerM.liftMetaM
           (sparkleSingleOutInstanceCache.modify (·.insert instKey w))
+        -- Record the wire for this call expression, exactly as the certified
+        -- instance arm does: the arm honours a later cache hit only when the
+        -- builder's record names this expression (`instHitValid`), so a
+        -- let-bound call first lowered HERE still dedupes when the named
+        -- re-walk reaches the arm (Issue #107).
+        modify fun s => { s with translateRecord := s.translateRecord.insert w e }
         connections := (singleOut.name, Sparkle.IR.AST.Expr.ref w) :: connections
         pure w
       | _multiOut =>
