@@ -80,6 +80,103 @@ theorem shipping_pipeline_transfer {m o : Module}
   · exact seq_run_to_parsed hok hok' hcert hI hchkR hwagP
       (ins := ins) hinsP hstBP hrunO
 
+/-- An accepted pair has the same input ports. -/
+theorem seqOptCheck_inputs {m o : Module} (hchk : seqOptCheck m o = true) :
+    o.inputs = m.inputs := by
+  simp only [seqOptCheck] at hchk
+  rw [Bool.and_eq_true] at hchk
+  obtain ⟨h1, -⟩ := hchk
+  simp only [Bool.and_eq_true, decide_eq_true_eq, beq_iff_eq] at h1
+  exact h1.1.1.1.1.1.1.1.1.1.1.2
+
+/-- An accepted pair has the same output ports. -/
+theorem seqOptCheck_outputs {m o : Module} (hchk : seqOptCheck m o = true) :
+    o.outputs = m.outputs := by
+  simp only [seqOptCheck] at hchk
+  rw [Bool.and_eq_true] at hchk
+  obtain ⟨h1, -⟩ := hchk
+  simp only [Bool.and_eq_true, decide_eq_true_eq, beq_iff_eq] at h1
+  exact h1.1.1.1.1.1.1.1.1.1.2
+
+/-- The canonical seeding only reads the input port names. -/
+theorem seedIn_of_inputs {m o : Module} (h : o.inputs = m.inputs)
+    (ins : Nat → String → Nat) : seedIn o ins = seedIn m ins := by
+  unfold seedIn
+  rw [h]
+
+open Sparkle.IR.RegDedup (declWidth) in
+/-- **The full sequential post-pipeline, composed.** The shipping entry
+runs the sequential duplicate merge before the optimizer; both steps are
+checked by `seqOptCheck`. From one canonical-seed run of the RAW core
+module, the merged module's optimized form, its emitted Verilog and the
+module parsed back from the printed bytes all run to the SAME trace,
+output-matched to the raw run. -/
+theorem shipping_pipeline_transfer_merged {raw b o : Module}
+    {body' bimg : List Stmt} {wof : String → Option Nat}
+    -- the two checker gates: merge, then optimize
+    (hmerge : seqOptCheck raw b = true)
+    (hchk : seqOptCheck b o = true) (ins : Nat → String → Nat)
+    (hinsFitR : ∀ t x, x ∈ raw.inputs.map (·.name) → ins t x < 2 ^ declWidth raw x)
+    (hinsFitB : ∀ t x, x ∈ b.inputs.map (·.name) → ins t x < 2 ^ declWidth b x)
+    (hrstIn : "rst" ∈ raw.inputs.map (·.name))
+    (hrstZ : ∀ t, ins t "rst" = 0)
+    -- emitted-SV premises
+    (hsv : Tools.SVParser.EmitSem.seqCheck wof
+      (Tools.SVParser.EmitSem.weOf wof) o.body = true)
+    (hwagE : ∀ n ∈ seqNames o.body,
+      declWidth o n = Tools.SVParser.EmitSem.weOf wof n)
+    -- parsed-bytes premises
+    (hok' : body'.all seqStmtOk = true)
+    (hcert : Tools.SVParser.RoundtripProof.semFragCheck o = true)
+    (hI : Tools.SVParser.RoundtripProof.bodyImage
+      (Tools.SVParser.RoundtripProof.moduleWof o) o.wires o.body = some bimg)
+    (hchkR : Tools.SVParser.RoundtripProof.bodyReorderCheck body' bimg = true)
+    (hwagP : ∀ n ∈ seqNames o.body,
+      declWidth o n = ((Tools.SVParser.RoundtripProof.moduleWof o) n).getD 0)
+    -- the run and its states across the three modules
+    {k : Nat} {stR stB stO : String → Nat} {mems : MEnv} {envs : List Env}
+    (hcplRB : ∀ pr ∈ (seqRegs raw).zip (seqRegs b), stB pr.2.1 = stR pr.1.1)
+    (hfitR : ∀ r ∈ seqRegs raw, stR r.1 < 2 ^ declWidth raw r.1)
+    (hcplBO : ∀ pr ∈ (seqRegs b).zip (seqRegs o), stO pr.2.1 = stB pr.1.1)
+    (hfitB : ∀ r ∈ seqRegs b, stB r.1 < 2 ^ declWidth b r.1)
+    (hinsW : ∀ t x, x ∈ b.inputs.map (·.name) →
+      ins t x < 2 ^ Tools.SVParser.EmitSem.weOf wof x)
+    (hinsP : ∀ t x, x ∈ b.inputs.map (·.name) →
+      ins t x < 2 ^ ((Tools.SVParser.RoundtripProof.moduleWof o) x).getD 0)
+    (hstBE : Bounded (Tools.SVParser.EmitSem.weOf wof) stO)
+    (hstBP : Bounded
+      (fun x => ((Tools.SVParser.RoundtripProof.moduleWof o) x).getD 0) stO)
+    (hrun : runModule (declWidth raw) raw.body (seedIn raw ins) k stR mems = some envs) :
+    ∃ envsO,
+      runModule (declWidth o) o.body (seedIn raw ins) k stO mems = some envsO ∧
+      envsO.length = envs.length ∧
+      (∀ p ∈ raw.outputs, ∀ j (hj : j < envsO.length) (hj' : j < envs.length),
+        (envsO[j]'hj) p.name = (envs[j]'hj') p.name) ∧
+      (∃ pairs regs mprog,
+        Tools.SVParser.EmitSem.emitAssigns wof o.body = some pairs ∧
+        Tools.SVParser.EmitSem.emitRegs wof o.body = some regs ∧
+        Tools.SVParser.EmitSem.emitMemWrites wof o.body = some mprog ∧
+        Tools.SVParser.EmitSem.runModuleSV wof pairs regs mprog
+          (seedIn raw ins) k stO mems = some envsO) ∧
+      runModule (fun x => ((Tools.SVParser.RoundtripProof.moduleWof o) x).getD 0)
+        body' (seedIn raw ins) k stO mems = some envsO := by
+  have hinB : b.inputs = raw.inputs := seqOptCheck_inputs hmerge
+  have houtB : b.outputs = raw.outputs := seqOptCheck_outputs hmerge
+  have hseed : seedIn b ins = seedIn raw ins := seedIn_of_inputs hinB ins
+  obtain ⟨envsB, hrunB, hlenB, hcorrB⟩ :=
+    seqOptCheck_transfer hmerge ins hinsFitR hrstIn hrstZ hcplRB hfitR hrun
+  rw [← hseed] at hrunB
+  obtain ⟨envsO, hrunO, hlenO, hcorrO, hSV, hP⟩ :=
+    shipping_pipeline_transfer hchk ins hinsFitB (by rw [hinB]; exact hrstIn) hrstZ
+      hsv hwagE hok' hcert hI hchkR hwagP hcplBO hfitB hinsW hinsP hstBE hstBP hrunB
+  rw [hseed] at hrunO hP
+  obtain ⟨pairs, regs, mprog, hA, hRg, hM, hSVrun⟩ := hSV
+  rw [hseed] at hSVrun
+  refine ⟨envsO, hrunO, by omega, ?_, ⟨pairs, regs, mprog, hA, hRg, hM, hSVrun⟩, hP⟩
+  intro p hp j hj hj'
+  rw [hcorrO p (by rw [houtB]; exact hp) j hj (by omega)]
+  exact hcorrB p hp j (by omega) hj'
+
 open Sparkle.IR.RegDedup (declWidth) in
 open Tools.ShippingMemSVSoundness in
 /-- **The composed memory post-pipeline transfer.** Sync-read memory

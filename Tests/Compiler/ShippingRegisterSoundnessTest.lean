@@ -1,6 +1,7 @@
 import Tools.ShippingRegisterSoundness
 import Tools.ShippingSeqOptSoundness
 import Tools.ShippingSeqSVSoundness
+import Tools.ShippingPipelineSoundness
 import Tests.Compiler.ShippingMixedExecutionTest
 import Sparkle.Core.CircuitDo
 
@@ -1689,6 +1690,111 @@ theorem regAcc_shipping {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.S
     (ins := ins) hinsW (stO := stO) (mems := mems) hstOB hrunO
   exact ⟨envsO, hrunO, hSV, hP, hlenO, houtO⟩
 
+/-- **The regAcc capstone at the FULL shipping entry.** The entry users call
+(`synthesizeCombinational`: the core, then zero-width cleanup, then the
+sequential duplicate merge) is decomposed to its core run; the merge and the
+optimizer are both checked steps. From the real full-entry compile, under
+`EnvDefines` and the two checker gates plus the print/parse gates, the source
+register stream is observed by the SAME trace at the optimized module, its
+emitted Verilog and the module parsed back from the printed bytes. -/
+theorem regAcc_shipping_full {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+    {wst wst' : Void IO.RealWorld} {m' : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinational ``regAcc) mctx mref cctx cref wst
+      (m', design) wst')
+    (env : EnvDefines mctx mref cctx cref ``regAcc regAccValue) :
+    ∃ raw : Sparkle.IR.AST.Module,
+      (m' = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨
+        m' = Sparkle.IR.RegDedup.mergeDuplicates
+          (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)) ∧
+      ∀ (o : Sparkle.IR.AST.Module) (body' bimg : List Sparkle.IR.AST.Stmt),
+      Sparkle.IR.OptCheck.seqOptCheck raw m' = true →
+      Sparkle.IR.OptCheck.seqOptCheck m' o = true →
+      "rst" ∈ raw.inputs.map (·.name) →
+      (∃ p ∈ raw.outputs, p.name = "out") →
+      Tools.SVParser.EmitSem.seqCheck (Tools.SVParser.RoundtripProof.moduleWof o)
+        (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof o)) o.body = true →
+      body'.all Sparkle.IR.OptCheck.seqStmtOk = true →
+      Tools.SVParser.RoundtripProof.semFragCheck o = true →
+      Tools.SVParser.RoundtripProof.bodyImage (Tools.SVParser.RoundtripProof.moduleWof o) o.wires o.body = some bimg →
+      Tools.SVParser.RoundtripProof.bodyReorderCheck body' bimg = true →
+      ((Tools.ShippingSeqSVSoundness.seqNames o.body).all (fun n =>
+        Sparkle.IR.RegDedup.declWidth o n == Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof o) n)) = true →
+      ∃ ids : List FVarId, ids.Nodup ∧ ids.length = regAccBinders.length ∧
+      ∃ (cache : IO.Ref (ExprStructMap String)) (r : String),
+        ∀ {D : DomainConfig} (bools : Nat → Signal D Bool)
+          (bits : (j : Nat) → (n : Nat) → Signal D (BitVec n))
+          (mems : MEnv) (k : Nat) (ins : Nat → String → Nat)
+          (st0 stM stO : String → Nat),
+        (∀ t stv, SourceInputs ``regAcc regAccBinders ids cache
+            (fun i => (bools i).val (k - 1 - t)) (fun i n => (bits i n).val (k - 1 - t))
+            (Tools.ShippingSeqOptSoundness.seedIn raw ins t stv) ∧
+          Tools.ShippingSeqOptSoundness.seedIn raw ins t stv r = stv r) →
+        (∀ t x, x ∈ raw.inputs.map (·.name) →
+          ins t x < 2 ^ Sparkle.IR.RegDedup.declWidth raw x) →
+        (∀ t x, x ∈ m'.inputs.map (·.name) →
+          ins t x < 2 ^ Sparkle.IR.RegDedup.declWidth m' x) →
+        (∀ t, ins t "rst" = 0) →
+        st0 r = 3 →
+        (∀ pr ∈ (Sparkle.IR.OptCheck.seqRegs raw).zip (Sparkle.IR.OptCheck.seqRegs m'),
+          stM pr.2.1 = st0 pr.1.1) →
+        (∀ rr ∈ Sparkle.IR.OptCheck.seqRegs raw,
+          st0 rr.1 < 2 ^ Sparkle.IR.RegDedup.declWidth raw rr.1) →
+        (∀ pr ∈ (Sparkle.IR.OptCheck.seqRegs m').zip (Sparkle.IR.OptCheck.seqRegs o),
+          stO pr.2.1 = stM pr.1.1) →
+        (∀ rr ∈ Sparkle.IR.OptCheck.seqRegs m',
+          stM rr.1 < 2 ^ Sparkle.IR.RegDedup.declWidth m' rr.1) →
+        ∀ (hinsW : ∀ t x, x ∈ m'.inputs.map (·.name) →
+          ins t x < 2 ^ Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof o) x)
+          (hstOB : Sparkle.IR.Semantics.Bounded
+            (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof o)) stO),
+        ∃ envsO,
+          runModule (Sparkle.IR.RegDedup.declWidth o) o.body
+            (Tools.ShippingSeqOptSoundness.seedIn raw ins) k stO mems = some envsO ∧
+          (∃ pairs regs mprog,
+            Tools.SVParser.EmitSem.emitAssigns (Tools.SVParser.RoundtripProof.moduleWof o) o.body = some pairs ∧
+            Tools.SVParser.EmitSem.emitRegs (Tools.SVParser.RoundtripProof.moduleWof o) o.body = some regs ∧
+            Tools.SVParser.EmitSem.emitMemWrites (Tools.SVParser.RoundtripProof.moduleWof o) o.body = some mprog ∧
+            Tools.SVParser.EmitSem.runModuleSV (Tools.SVParser.RoundtripProof.moduleWof o) pairs regs mprog
+              (Tools.ShippingSeqOptSoundness.seedIn raw ins) k stO mems = some envsO) ∧
+          runModule (fun x => ((Tools.SVParser.RoundtripProof.moduleWof o) x).getD 0) body'
+            (Tools.ShippingSeqOptSoundness.seedIn raw ins) k stO mems = some envsO ∧
+          envsO.length = k ∧
+          ∀ j (hj : j < envsO.length), (envsO[j]'hj) "out" =
+            ((regAcc (bools 1) (bits 2 8) (bits 3 8)).val j).toNat := by
+  obtain ⟨raw, D0, w1, hcore, post⟩ :=
+    Tools.ShippingPostSoundness.synthesizeCombinational_reads hr
+  refine ⟨raw, post, ?_⟩
+  intro o body' bimg hmerge hchk hrstIn hpout hsv hok' hcert hI hchkR hwag
+  obtain ⟨ids, nd, len, cache, r, H⟩ := regAcc_run hcore env
+  refine ⟨ids, nd, len, cache, r, ?_⟩
+  intro D bools bits mems k ins st0 stM stO hseed hinsFitR hinsFitM hrstZ hst0
+    hcplRM hfitR hcplMO hfitM hinsW hstOB
+  obtain ⟨envs, hrun, hlenE, houtE⟩ := H bools bits mems k
+    (Tools.ShippingSeqOptSoundness.seedIn raw ins) st0
+    (fun t stv => ⟨(hseed t stv).1, by
+      simp only [Tools.ShippingSeqOptSoundness.seedIn]
+      rw [if_pos (by simpa [List.contains_eq_mem] using hrstIn)]
+      exact hrstZ t, (hseed t stv).2⟩) hst0
+  have hrun' : runModule (Sparkle.IR.RegDedup.declWidth raw) raw.body
+      (Tools.ShippingSeqOptSoundness.seedIn raw ins) k st0 mems = some envs := hrun
+  have hwag' : ∀ n ∈ Tools.ShippingSeqSVSoundness.seqNames o.body,
+      Sparkle.IR.RegDedup.declWidth o n = Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof o) n := by
+    intro n hn
+    have := List.all_eq_true.mp hwag n hn
+    simpa using this
+  obtain ⟨envsO, hrunO, hlenO, hcorr, hSV, hP⟩ :=
+    Tools.ShippingPipelineSoundness.shipping_pipeline_transfer_merged hmerge hchk ins
+      hinsFitR hinsFitM hrstIn hrstZ hsv hwag' hok' hcert hI hchkR hwag'
+      hcplRM hfitR hcplMO hfitM hinsW hinsW hstOB hstOB hrun'
+  obtain ⟨p, hp, hpname⟩ := hpout
+  refine ⟨envsO, hrunO, hSV, hP, by omega, ?_⟩
+  intro j hj
+  have h1 := hcorr p hp j hj (by omega)
+  rw [hpname] at h1
+  rw [h1]
+  exact houtE j (by omega)
+
 /-- The enabled-register stream observed by the module parsed back from the printed text. -/
 theorem regHold_parsed_optimized {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
     {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
@@ -2204,6 +2310,15 @@ run_cmd liftTermElabM do
       throwError "seqOptCheck rejected the optimizer's output for {decl}"
     unless Sparkle.IR.OptCheck.seqOptCheck mrz mrm do
       throwError "seqOptCheck rejected the sequential merge for {decl}"
+    -- The FULL shipping entry's real output: accepted against the raw core
+    -- module directly, and component-equal to the merged module the
+    -- remaining gates are stated on (so they cover the real entry output).
+    let (mFull, _) ← synthesizeCombinational decl
+    unless Sparkle.IR.OptCheck.seqOptCheck mr mFull do
+      throwError "seqOptCheck rejected the full entry's output against the raw core module for {decl}"
+    unless mFull.body == mrm.body && mFull.wires == mrm.wires &&
+        mFull.inputs == mrm.inputs && mFull.outputs == mrm.outputs do
+      throwError "the full entry's output departed from the gated merged module for {decl}"
     let wof := Tools.SVParser.RoundtripProof.moduleWof o
     unless Tools.SVParser.EmitSem.seqCheck wof (Tools.SVParser.EmitSem.weOf wof) o.body do
       throwError "seqCheck rejected the optimized module of {decl}"
@@ -2325,7 +2440,8 @@ run_cmd do
       ``accLoop_sv_optimized, ``regAcc_sv_optimized, ``regHold_sv_optimized,
       ``cdoAcc_sv_optimized, ``regChain_sv_optimized, ``cdo2X_sv_optimized,
       ``Tools.ShippingSeqSVSoundness.seq_run_to_parsed,
-      ``accLoop_parsed_optimized, ``regAcc_parsed_optimized, ``regAcc_shipping,
+      ``accLoop_parsed_optimized, ``regAcc_parsed_optimized, ``regAcc_shipping, ``regAcc_shipping_full,
+      ``Tools.ShippingPipelineSoundness.shipping_pipeline_transfer_merged,
       ``regHold_parsed_optimized,
       ``cdoAcc_parsed_optimized, ``regChain_parsed_optimized, ``cdo2X_parsed_optimized] do
     for ax in (← liftCoreM <| collectAxioms name) do
