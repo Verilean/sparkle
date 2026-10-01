@@ -461,6 +461,81 @@ theorem memAcc_shipping {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.S
     (m := m) (o := m) hchkM hrefs hwag' hchkM' hcert hI hchkR (ins := ins) hinsW hstB hrun
   exact ⟨envs, hsv, hparsed, hlen, hout⟩
 
+/-- **The memAcc capstone at the FULL shipping entry.** The entry users call
+(`synthesizeCombinational`) is decomposed to its core run; on the certified
+memory shape the cleanup/merge post-step leaves the body unchanged (the
+identity gate, a premise here and pinned by the suite on the real output).
+From the real full-entry compile the source `Signal.memory` stream is
+observed by the SAME trace at the emitted Verilog and at the module parsed
+back from the printed bytes. -/
+theorem memAcc_shipping_full {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+    {wst wst' : Void IO.RealWorld} {m' : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinational ``memAcc) mctx mref cctx cref wst
+      (m', design) wst')
+    (env : EnvDefines mctx mref cctx cref ``memAcc memAccValue) :
+    ∃ raw : Sparkle.IR.AST.Module,
+      (m' = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨
+        m' = Sparkle.IR.RegDedup.mergeDuplicates
+          (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)) ∧
+      ∀ (body' bimg : List Sparkle.IR.AST.Stmt),
+      m'.body = raw.body →
+      Tools.ShippingMemSVSoundness.seqCheckM (Tools.SVParser.RoundtripProof.moduleWof m') (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof m')) m'.body = true →
+      Tools.ShippingMemSVSoundness.seqCheckM (Tools.SVParser.RoundtripProof.moduleWof m') (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof m')) body' = true →
+      m'.body.all Tools.ShippingMemSVSoundness.memOpsRefs = true →
+      Tools.SVParser.RoundtripProof.semFragCheck m' = true →
+      Tools.SVParser.RoundtripProof.bodyImage (Tools.SVParser.RoundtripProof.moduleWof m') m'.wires m'.body = some bimg →
+      Tools.SVParser.RoundtripProof.bodyReorderCheck body' bimg = true →
+      ((Tools.ShippingMemSVSoundness.seqNamesM m'.body).all (fun n =>
+        Tools.ShippingEntrySoundness.weOf m' n == (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof m')) n)) = true →
+      ∃ ids : List FVarId, ids.Nodup ∧ ids.length = memAccBinders.length ∧
+      ∃ (cache : IO.Ref (ExprStructMap String)) (rdW : String),
+        ∀ {D : DomainConfig} (boolsS : Nat → Signal D Bool)
+          (bitsS : (j : Nat) → (n : Nat) → Signal D (BitVec n))
+          (mems0 : MEnv) (k : Nat) (ins : Nat → String → Nat) (st0 : String → Nat),
+        (∀ t stv, SourceInputs ``memAcc memAccBinders ids cache
+            (fun i => (boolsS i).val (k - 1 - t)) (fun i n => (bitsS i n).val (k - 1 - t))
+            (Tools.ShippingSeqOptSoundness.seedIn raw ins t stv) ∧
+          Tools.ShippingSeqOptSoundness.seedIn raw ins t stv rdW = stv rdW) →
+        st0 rdW = 0 →
+        (∀ n i, mems0 n i = 0) →
+        (∀ t x, x ∈ raw.inputs.map (·.name) → ins t x < 2 ^ (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof m')) x) →
+        Sparkle.IR.Semantics.Bounded (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof m')) st0 →
+        ∃ envs,
+          (∃ pairs seqs mprog,
+            Tools.SVParser.EmitSem.emitAssigns
+              (Tools.SVParser.RoundtripProof.moduleWof m') m'.body = some pairs ∧
+            Tools.ShippingMemSVSoundness.emitSeqNexts
+              (Tools.SVParser.RoundtripProof.moduleWof m') m'.body = some seqs ∧
+            Tools.SVParser.EmitSem.emitMemWrites
+              (Tools.SVParser.RoundtripProof.moduleWof m') m'.body = some mprog ∧
+            Tools.ShippingMemSVSoundness.runModuleSVM
+              (Tools.SVParser.RoundtripProof.moduleWof m') pairs seqs mprog
+              (Tools.ShippingSeqOptSoundness.seedIn raw ins) k st0 mems0 = some envs) ∧
+          runModule (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof m')) body'
+            (Tools.ShippingSeqOptSoundness.seedIn raw ins) k st0 mems0 = some envs ∧
+          envs.length = k ∧
+          ∀ j (hj : j < envs.length), (envs[j]'hj) "out" =
+            ((Signal.memory (bitsS 1 2) (bitsS 2 8) (boolsS 3) (bitsS 4 2)).val j).toNat := by
+  obtain ⟨raw, D0, w1, hcore, post⟩ :=
+    Tools.ShippingPostSoundness.synthesizeCombinational_reads hr
+  refine ⟨raw, post, ?_⟩
+  intro body' bimg hb hchkM hchkM' hrefs hcert hI hchkR hwag
+  obtain ⟨ids, nd, len, cache, rdW, H⟩ := memAcc_run hcore env
+  refine ⟨ids, nd, len, cache, rdW, ?_⟩
+  intro D boolsS bitsS mems0 k ins st0 hseed hst0 hmems0 hinsW hstB
+  obtain ⟨envs, hrun, hlen, hout⟩ := H boolsS bitsS (Tools.ShippingEntrySoundness.weOf m') mems0 k
+    (Tools.ShippingSeqOptSoundness.seedIn raw ins) st0 hseed hst0 hmems0
+  rw [← hb] at hrun
+  have hwag' : ∀ n ∈ Tools.ShippingMemSVSoundness.seqNamesM m'.body,
+      Tools.ShippingEntrySoundness.weOf m' n = (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof m')) n := by
+    intro n hn
+    have := List.all_eq_true.mp hwag n hn
+    simpa using this
+  obtain ⟨hsv, hparsed⟩ := Tools.ShippingPipelineSoundness.shipping_pipeline_transfer_mem
+    (m := raw) (o := m') hchkM hrefs hwag' hchkM' hcert hI hchkR (ins := ins) hinsW hstB hrun
+  exact ⟨envs, hsv, hparsed, hlen, hout⟩
+
 /-- **The memAccC endpoint at the parsed-back printed text**: the module the
 shipping parser reads back from the real printed bytes runs to the
 source stream. -/
@@ -581,6 +656,13 @@ run_cmd liftTermElabM do
     unless o.body == mr2.body && o.wires == mr2.wires &&
         o.inputs == mr2.inputs && o.outputs == mr2.outputs do
       throwError "postprocessing changed the certified memory module of {decl}"
+    -- The FULL shipping entry's real output is the same module, so the
+    -- full-entry capstone's identity premise and the gates stated on the
+    -- core module cover what users actually get.
+    let (mFull, _) ← synthesizeCombinational decl
+    unless mFull.body == mr2.body && mFull.wires == mr2.wires &&
+        mFull.inputs == mr2.inputs && mFull.outputs == mr2.outputs do
+      throwError "the full entry's output departed from the certified memory module of {decl}"
   -- The EXTENDED emitted-SV checker accepts both certified memory
   -- shapes (sync-read latch + write ports), so the forward trace
   -- theorem with latches applies to the exact modules the pipeline
@@ -636,7 +718,7 @@ run_cmd liftTermElabM do
       ``Tools.ShippingMemSVSoundness.mem_run_to_parsed,
       ``memAcc_parsed, ``memAccC_parsed,
       ``Tools.ShippingPipelineSoundness.shipping_pipeline_transfer_mem,
-      ``memAcc_shipping] do
+      ``memAcc_shipping, ``memAcc_shipping_full] do
     for ax in (← collectAxioms name) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do
         throwError "unexpected memory soundness axiom: {name}: {ax}"
