@@ -188,6 +188,61 @@ def systolic2x2 : Module := {
 def systolicDesign : Design :=
   { topModule := "Systolic2x2", modules := [peModule, systolic2x2] }
 
+-- ── C backend: instances connected in a cycle ───────────────────────
+
+/-- Two PEs feeding each other: a dependency cycle through MOORE instances
+    (each reads the other's registered output).  Not a combinational cycle. -/
+def ring2 : Module := {
+  name        := "Ring2"
+  isPrimitive := false
+  inputs      := [⟨"clk", .bit⟩, ⟨"rst", .bit⟩, ⟨"w", .bitVector 32⟩]
+  outputs     := [⟨"res", .bitVector 32⟩]
+  wires       := [⟨"zero32", .bitVector 32⟩,
+                  ⟨"a0", .bitVector 32⟩, ⟨"p0", .bitVector 32⟩,
+                  ⟨"a1", .bitVector 32⟩, ⟨"p1", .bitVector 32⟩]
+  body := [
+    .assign "zero32" (.const 0 32),
+    .inst "PE" "pe0" [("clk", .ref "clk"), ("rst", .ref "rst"),
+      ("a_in", .ref "a1"), ("p_in", .ref "zero32"), ("w", .ref "w"),
+      ("a_out", .ref "a0"), ("p_out", .ref "p0")],
+    .inst "PE" "pe1" [("clk", .ref "clk"), ("rst", .ref "rst"),
+      ("a_in", .ref "a0"), ("p_in", .ref "p0"), ("w", .ref "w"),
+      ("a_out", .ref "a1"), ("p_out", .ref "p1")],
+    .assign "res" (.ref "p1") ]
+}
+
+def ringDesign : Design :=
+  { topModule := "Ring2", modules := [peModule, ring2] }
+
+/-- A combinational module (output = input + 1) … -/
+def incModule : Module := {
+  name        := "Inc"
+  isPrimitive := false
+  inputs      := [⟨"x", .bitVector 32⟩]
+  outputs     := [⟨"y", .bitVector 32⟩]
+  wires       := []
+  body        := [.assign "y" (.op .add [.ref "x", .const 1 32])]
+}
+
+/-- … two of them feeding each other: a genuine combinational cycle. -/
+def combRing : Module := {
+  name        := "CombRing"
+  isPrimitive := false
+  inputs      := [⟨"clk", .bit⟩, ⟨"rst", .bit⟩]
+  outputs     := [⟨"res", .bitVector 32⟩]
+  wires       := [⟨"u", .bitVector 32⟩, ⟨"v", .bitVector 32⟩]
+  body := [
+    .inst "Inc" "i0" [("x", .ref "v"), ("y", .ref "u")],
+    .inst "Inc" "i1" [("x", .ref "u"), ("y", .ref "v")],
+    .assign "res" (.ref "v") ]
+}
+
+def combRingDesign : Design :=
+  { topModule := "CombRing", modules := [incModule, combRing] }
+
+/-- Number of non-overlapping occurrences of `sub` in `s`. -/
+def countSubstr (s sub : String) : Nat := (s.splitOn sub).length - 1
+
 -- ── Intra backend: packed (bus) ports at the top level ──────────────
 
 /-- Two PEs fed from one 96-bit input bus and reporting on one 64-bit
@@ -308,6 +363,9 @@ def cudaSimTests : IO TestSeq := do
   let meshCu    := toCudaSimDesign systolicDesign
   let intraCu   := okOut (toCudaIntraDesign systolicDesign)
   let busCu     := okOut (toCudaIntraDesign busDesign)
+  let ringC     := Sparkle.Backend.CSim.toCDesign ringDesign
+  let combRingC := Sparkle.Backend.CSim.toCDesign combRingDesign
+  let meshC     := Sparkle.Backend.CSim.toCDesign systolicDesign
   let wideSrc   := "f(x, (uint32_t[2]){a, g((uint32_t[3]){b, c, d})}); h(){ k = 1; }"
   let wideCxx   := cxxWideLiterals wideSrc
   let symbolicCu := toCudaSim symbolicModule
@@ -435,16 +493,62 @@ def cudaSimTests : IO TestSeq := do
       test "cooperative-groups barrier"              (hasSubstr intraCu "g.sync()") $
       test "host entry jit_intra_run"                (hasSubstr intraCu "jit_intra_run") $
       -- two-barrier pull schedule: per-instance link tables
-      test "pulls grouped by consumer (4 in a 2×2 mesh)"
-        (hasSubstr intraCu "Systolic2x2_intra_nPulls = 4" && hasSubstr intraCu "Systolic2x2_intra_pullStart[5]") $
+      -- typed pulls through the exchange area: every PE lists both pulled
+      -- ports (a_in, p_in).  Exchange layout: 8 bytes of outputs per PE
+      -- (a_out, p_out), then one slot for each of the 4 ports that a top
+      -- input or a constant feeds.
+      test "pulls: one entry per pulled port per instance (8 in a 2×2 mesh)"
+        (hasSubstr intraCu "Systolic2x2_intra_nPulls = 8" && hasSubstr intraCu "Systolic2x2_intra_pullStart[5]") $
+      test "exchange area: 4 × 8 bytes of outputs + 4 own slots"
+        (hasSubstr intraCu "Systolic2x2_intra_exBytes = 48" &&
+         hasSubstr intraCu "Systolic2x2_intra_exOff[4] = {\n  0, 8, 16, 24\n};") $
+      test "pull from a producer: its slot in the exchange area"
+        (hasSubstr intraCu "{ (unsigned)(offsetof(struct Systolic2x2, pe_0_1) + offsetof(struct PE, a_in)), (unsigned)(offsetof(struct Systolic2x2, pe_0_0) + offsetof(struct PE, a_out)), 4u, 0u },") $
+      test "pull of the second output of the second PE (pe_1_1.p_in ← pe_0_1.p_out)"
+        (hasSubstr intraCu "{ (unsigned)(offsetof(struct Systolic2x2, pe_1_1) + offsetof(struct PE, p_in)), (unsigned)(offsetof(struct Systolic2x2, pe_0_1) + offsetof(struct PE, p_out)), 4u, 12u },") $
+      test "port fed by a top input in this instance: its own slot (src == dst)"
+        (hasSubstr intraCu "{ (unsigned)(offsetof(struct Systolic2x2, pe_0_0) + offsetof(struct PE, a_in)), (unsigned)(offsetof(struct Systolic2x2, pe_0_0) + offsetof(struct PE, a_in)), 4u, 32u },") $
       test "pubs grouped by producer"                (hasSubstr intraCu "Systolic2x2_intra_pubStart[5]") $
       test "phase 2 pulls the instance's own inputs" (hasSubstr intraCu "Phase 2: pull own inputs") $
       test "typed copy helper"                       (hasSubstr intraCu "case 4: *(uint32_t*)d = *(const uint32_t*)s; break;") $
-      test "block kernel stages state in shared memory"
+      test "block kernel: exchange area in shared memory when it fits, else a device buffer"
         (hasSubstr intraCu "extern __shared__ unsigned long long sparkle_sm[];" &&
+         hasSubstr intraCu "(stage & 1) ? (char*)sparkle_sm : gex" &&
          hasSubstr intraCu "cudaFuncAttributeMaxDynamicSharedMemorySize") $
+      test "block kernel is bounded to its thread count (register budget)"
+        (hasSubstr intraCu "__global__ void __launch_bounds__(32) Systolic2x2_intra_block_kernel(") $
       test "per-thread table lookups hoisted out of the cycle loop"
-        (hasSubstr intraCu "pl0 = Systolic2x2_intra_pullStart[t]; pl1 = Systolic2x2_intra_pullStart[t + 1];")
+        (hasSubstr intraCu "const SparkleIntraPull* const pl = Systolic2x2_intra_pulls + Systolic2x2_intra_pullStart[t];" &&
+         hasSubstr intraCu "const char* const x0 = ex + pl[0].xsrc;") $
+      -- the instance lives in a thread-local for the whole launch
+      test "small instance: thread-local copy, chosen by size at compile time"
+        (hasSubstr intraCu "if constexpr (sizeof(struct PE) <= SPARKLE_INTRA_LOCAL_BYTES) {" &&
+         hasSubstr intraCu "struct PE L = *(struct PE*)b;") $
+      test "typed pull into the local"
+        (hasSubstr intraCu "memcpy(&L.a_in, x0, sizeof(L.a_in));" &&
+         hasSubstr intraCu "memcpy(&L.p_in, x1, sizeof(L.p_in));") $
+      test "own slots are filled once, before the cycle loop"
+        (hasSubstr intraCu "if (pl[0].src == pl[0].dst) memcpy(ex + pl[0].xsrc, &L.a_in, sizeof(L.a_in));") $
+      test "outputs of the new state from a scratch copy, stored in the exchange area"
+        (hasSubstr intraCu "{ struct PE T = L; sparkle_PE_eval(&T);" &&
+         hasSubstr intraCu "memcpy(xo + 0, &T.a_out, sizeof(T.a_out));" &&
+         hasSubstr intraCu "memcpy(xo + 4, &T.p_out, sizeof(T.p_out));") $
+      test "top outputs are published in the last cycle only"
+        (hasSubstr intraCu "if (c == cycles - 1) {") $
+      test "local written back at the end of the launch"
+        (hasSubstr intraCu "*(struct PE*)b = L;") $
+      test "large instance: in place, same exchange"
+        (hasSubstr intraCu "struct PE* const P = (struct PE*)b;" &&
+         hasSubstr intraCu "memcpy(xo + 0, &P->a_out, sizeof(P->a_out));" &&
+         hasSubstr intraCu "memcpy(&P->a_in, x0, sizeof(P->a_in));") $
+      test "padding threads keep the barriers in step"
+        (hasSubstr intraCu "for (long c = 0; c < cycles; ++c) { g.sync(); g.sync(); }") $
+      test "refused block launch falls back to the grid kernel"
+        (hasSubstr intraCu "if (launchErr == cudaErrorLaunchOutOfResources) { useBlock = 0; launchErr = cudaSuccess; }") $
+      test "a failed kernel aborts with the CUDA error"
+        (hasSubstr intraCu "jit_intra_run: kernel failed (launch: %s, run: %s)" && hasSubstr intraCu "abort();") $
+      test "the kernel used can be queried"
+        (hasSubstr intraCu "int jit_intra_last_kernel(void)")
     ) ++
     group "toCudaIntraDesign: packed top-level ports" (
       test "slice of a wide top input is applied once per launch"
@@ -456,12 +560,36 @@ def cudaSimTests : IO TestSeq := do
         (hasSubstr busCu "{ (unsigned)(offsetof(struct BusTop, res)), (unsigned)(offsetof(struct BusTop, pe0) + offsetof(struct PE, p_out)), 4u },") $
       test "concatenated output: next element 4 bytes up (through a ref wire)"
         (hasSubstr busCu "{ (unsigned)(offsetof(struct BusTop, res) + 4), (unsigned)(offsetof(struct BusTop, pe1) + offsetof(struct PE, p_out)), 4u },") $
-      test "one pull (pe1.p_in ← pe0.p_out), two pubs"
-        (hasSubstr busCu "BusTop_intra_nPulls = 1, BusTop_intra_nPubs = 2") $
+      test "one pulled port (p_in: pe1 ← pe0.p_out, pe0 ← itself), two pubs"
+        (hasSubstr busCu "BusTop_intra_nPulls = 2, BusTop_intra_nPubs = 2" &&
+         hasSubstr busCu "{ (unsigned)(offsetof(struct BusTop, pe1) + offsetof(struct PE, p_in)), (unsigned)(offsetof(struct BusTop, pe0) + offsetof(struct PE, p_out)), 4u, 4u }," &&
+         hasSubstr busCu "{ (unsigned)(offsetof(struct BusTop, pe0) + offsetof(struct PE, p_in)), (unsigned)(offsetof(struct BusTop, pe0) + offsetof(struct PE, p_in)), 4u, 16u }," &&
+         hasSubstr busCu "BusTop_intra_exBytes = 24") $
       test "combinational top output is rejected, not skipped"
         (hasSubstr (errMsg (toCudaIntraDesign combOutDesign)) "compound expression") $
       test "non-byte-aligned concatenation is rejected"
         (hasSubstr (errMsg (toCudaIntraDesign oddConcatDesign)) "not byte-aligned")
+    ) ++
+    group "CSim: instances connected in a cycle" (
+      test "PE is Moore, Inc is not"
+        (Sparkle.Backend.CSim.moduleIsMoore (some ringDesign) peModule &&
+         !Sparkle.Backend.CSim.moduleIsMoore (some combRingDesign) incModule) $
+      -- Moore ring: each instance evaluated once up front (outputs), once in
+      -- its place (next state); then everything clocked — no relaxation loop
+      test "Moore ring: outputs refreshed first (each PE evaluated twice)"
+        (countSubstr ringC "sparkle_PE_eval(&self->pe0);" == 2 &&
+         countSubstr ringC "sparkle_PE_eval(&self->pe1);" == 2) $
+      test "Moore ring: no fixed-point loop"         (!hasSubstr ringC "__round") $
+      test "Moore ring: eval_tick settles everything, then clocks everything"
+        (hasSubstr ringC "    sparkle_Ring2_eval(self);\n    sparkle_Ring2_tick(self);\n}") $
+      test "Moore ring: no instance is clocked inside the evaluation pass"
+        (!hasSubstr ringC "sparkle_PE_eval_tick(&self->pe0)") $
+      test "combinational ring: still relaxes to a fixed point"
+        (hasSubstr combRingC "__round" &&
+         hasSubstr combRingC "    sparkle_CombRing_eval(self);\n    sparkle_CombRing_tick(self);\n}") $
+      test "acyclic mesh: unchanged — one evaluation, fused eval_tick per instance"
+        (countSubstr meshC "sparkle_PE_eval(&self->pe_0_0);" == 1 &&
+         hasSubstr meshC "sparkle_PE_eval_tick(&self->pe_0_0);" && !hasSubstr meshC "__round")
     ) ++
     group "cxxWideLiterals: CSim wide temporaries as C++" (
       test "nested compound literals are respelled"

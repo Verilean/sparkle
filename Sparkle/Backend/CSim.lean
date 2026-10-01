@@ -1633,6 +1633,48 @@ def collectTickRefWires (body : List Stmt) : List String :=
     | _ => acc
   ) []
 
+/-- Is the module Moore — does NO output depend combinationally on an
+    input?  (Its outputs are then a function of its state alone.)
+    Conservative: an unresolvable sub-instance makes the answer `false`,
+    and a non-Moore sub-instance's outputs are taken to depend on all of
+    its inputs. -/
+partial def moduleIsMoore (design : Option Design) (m : Module) : Bool := Id.run do
+  let mut deps : Std.HashMap String (List String) := {}
+  for s in m.body do
+    match s with
+    | .assign lhs rhs => deps := deps.insert lhs (collectExprRefs rhs)
+    | .memory _ _ _ _ _ _ _ ra rd cr .. =>
+      if cr then deps := deps.insert rd (collectExprRefs ra)
+    | .inst modName _ conns =>
+      match design.bind (·.findModule modName) with
+      | some sm =>
+        let isOut := fun (p : String) => sm.outputs.any (·.name == p)
+        let ins := if moduleIsMoore design sm then [] else
+          conns.foldl (fun acc (p, e) => if isOut p then acc else acc ++ collectExprRefs e) []
+        for (p, e) in conns do
+          if isOut p then
+            match e with
+            | .ref w => deps := deps.insert w ins
+            | _ => pure ()
+      | none => return false
+    | _ => pure ()
+  let inputs : Std.HashSet String := m.inputs.foldl (fun h p => h.insert p.name) {}
+  let mut seen : Std.HashSet String := {}
+  let mut stack := m.outputs.map (·.name)
+  -- every pop is an output or one edge of the dependency graph
+  let mut fuel := deps.fold (fun acc _ v => acc + v.length) (m.outputs.length + 16)
+  while !stack.isEmpty && fuel > 0 do
+    fuel := fuel - 1
+    match stack with
+    | [] => pure ()
+    | n :: rest =>
+      stack := rest
+      if seen.contains n then continue
+      seen := seen.insert n
+      if inputs.contains n then return false
+      stack := (deps.getD n []) ++ stack
+  return stack.isEmpty
+
 /-- Order the eval-relevant statements (assigns, instances, combo-read
     memories) topologically by def-use.  The lowering's `topoSortBody`
     sorts ASSIGNS only and appends instances last, so a parent's
@@ -1643,9 +1685,18 @@ def collectTickRefWires (body : List Stmt) : List String :=
     non-combo memories contribute nothing to eval (they latch in tick),
     so they keep their original relative order at the end; on a
     combinational cycle the remaining statements fall back to source
-    order (single-pass semantics, as before). -/
+    order (single-pass semantics, as before).
+
+    A cycle that runs through MOORE instances is not a combinational
+    cycle: cells of a ring or a lattice read each other's registered
+    outputs.  Those outputs do not depend on the instance's inputs, so
+    they can be refreshed first.  When the ordering stalls, the Moore
+    instances still waiting are released: their outputs count as ready,
+    and the instances are returned as the third component — the caller
+    evaluates them once up front (for their outputs only) and again in
+    their place in the order (for their next state). -/
 def scheduleEvalBody (design : Option Design) (m : Module)
-    (body : List Stmt) : List Stmt × Bool := Id.run do
+    (body : List Stmt) : List Stmt × Bool × List Stmt := Id.run do
   let childOutputs : Stmt → List String := fun s => match s with
     | .inst modName _ conns =>
       match design.bind (·.findModule modName) with
@@ -1692,7 +1743,9 @@ def scheduleEvalBody (design : Option Design) (m : Module)
   let mut done : Std.HashMap String Bool := {}
   let mut result : List Stmt := []
   let mut remaining := sched
-  let mut fuel := sched.length + 1
+  let mut fuel := sched.length + 3
+  let mut refreshFirst : List Stmt := []
+  let mut mooreCache : Std.HashMap String Bool := {}
   while !remaining.isEmpty && fuel > 0 do
     fuel := fuel - 1
     let mut next : List Stmt := []
@@ -1709,7 +1762,26 @@ def scheduleEvalBody (design : Option Design) (m : Module)
         next := next ++ [s]
     remaining := next
     if !progressed then
-      break
+      if !refreshFirst.isEmpty then
+        break
+      for s in remaining do
+        match s with
+        | .inst modName _ _ =>
+          let moore ← match mooreCache[modName]? with
+            | some b => pure b
+            | none =>
+              let b := match design.bind (·.findModule modName) with
+                | some sm => moduleIsMoore design sm
+                | none => false
+              mooreCache := mooreCache.insert modName b
+              pure b
+          if moore then
+            refreshFirst := refreshFirst ++ [s]
+            for d in defsOf s do
+              done := done.insert d true
+        | _ => pure ()
+      if refreshFirst.isEmpty then
+        break
   -- cycle (or fuel-out): keep the rest in original order.  `remaining`
   -- non-empty means a genuine dependency cycle at STATEMENT granularity
   -- — for an `.inst`, the whole child is one node, so a handshake that
@@ -1717,7 +1789,7 @@ def scheduleEvalBody (design : Option Design) (m : Module)
   -- `req` with the `gnt` the child produces) is a cycle here even though
   -- it is acyclic per signal.  A single pass then reads the STALE value.
   -- The caller re-evaluates to a fixed point instead.
-  return (result ++ remaining ++ rest, !remaining.isEmpty)
+  return (result ++ remaining ++ rest, !remaining.isEmpty, refreshFirst)
 
 /-- Runtime helper for a DYNAMIC shift of a >64-bit value consumed in a
     ≤64-bit context (firtool's flattened packed-array dynamic select:
@@ -1782,8 +1854,12 @@ def emitModule (m : Module) (design : Option Design := none)
     let filteredBody := m.body.filter fun s => match s with
       | .assign lhs (.ref name) => lhs != name
       | _ => true
-    let (filteredBody, hasEvalCycle) := scheduleEvalBody design m filteredBody
+    let (filteredBody, hasEvalCycle, refreshFirst) := scheduleEvalBody design m filteredBody
     let allParts := filteredBody.map (emitStmt · typeMap design)
+    -- Moore instances inside an instance cycle: one extra evaluation up
+    -- front, for their outputs (see `scheduleEvalBody`).
+    let refreshLines := refreshFirst.foldl
+      (fun acc s => acc ++ (emitStmt s typeMap design).evalBody) ([] : List String)
 
     let registerNames := m.body.filterMap fun s => match s with
       | .register output .. => some output
@@ -1871,7 +1947,7 @@ def emitModule (m : Module) (design : Option Design := none)
             some s!"        {sanitizeName p.name}[{wordsOf width - 1}] &= {topMask}u;"
           else none
       | _ => none
-    let evalBody := inputMaskBody ++
+    let evalBody := inputMaskBody ++ refreshLines ++
       allParts.foldl (fun acc (p : StmtParts) => acc ++ p.evalBody) []
     let tickBody := allParts.foldl (fun acc (p : StmtParts) => acc ++ p.tickBody) []
     let resetBody := allParts.foldl (fun acc (p : StmtParts) => acc ++ p.resetBody) []
@@ -2094,7 +2170,22 @@ def emitModule (m : Module) (design : Option Design := none)
         (line.splitOn s!"sparkle_evalTick_placeholder_TICK_{inst}").length > 1
         || (line.splitOn s!"_tick(&self->{inst})").length > 1)
 
+    -- The fused form evaluates and clocks each child in ONE call, in
+    -- statement order.  With a dependency cycle through instances (cells
+    -- of a ring or a lattice, each reading its neighbours' registered
+    -- outputs) no order is right: the first child is clocked before the
+    -- children it feeds have read its output, or reads theirs a cycle
+    -- late.  (Before this was handled, a ring of four cells diverged
+    -- from `Signal.val` in the second cycle.)  Use the two-step form —
+    -- settle everything (`eval`: Moore instances refreshed first, or the
+    -- relaxation loop), then clock everything (`tick`).
     let evalTickFn :=
+      if hasEvalCycle || !refreshFirst.isEmpty then
+        s!"{funcQual}static void sparkle_{className}_eval_tick({structName}* self) \{\n" ++
+        s!"    sparkle_{className}_eval(self);\n" ++
+        s!"    sparkle_{className}_tick(self);\n" ++
+        "}\n\n"
+      else
       s!"{funcQual}static void sparkle_{className}_eval_tick({structName}* self) \{\n" ++
       "    (void)self;\n" ++
       (if localWireDecls.isEmpty then "" else

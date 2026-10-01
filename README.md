@@ -101,6 +101,13 @@ budget).  The ℝ⇒Float falsification front-end (`proofs/SparkleProofs/Retype/
 [retype](https://github.com/Verilean/retype)) kills wrong certificate
 candidates in milliseconds before any `nlinarith` time is spent.
 
+### Physics: a fluid and a plasma
+
+| IP | Description | Proofs | Synth | Details |
+|----|-------------|:------:|:-----:|---------|
+| [**Lattice-Boltzmann fluid**](IP/Fluid/LBM.lean) | D2Q9 BGK, one hardware cell per lattice site on a periodic lattice (`torus_grid%`), Q7.24. One time step per clock. Viscosity measured against (1/ω − 1/2)/3; circuit bit-exact against the Lean reference (JIT) and on the GPU, one thread per site | Collision conserves mass and momentum exactly, rounding included (3 theorems) | Full (hierarchical Verilog + CUDA intra kernel) | Tutorial [Ch 15](docs/tutorial/md/Ch15_FluidPlasma.md) |
+| [**Tokamak vertical stabilisation**](IP/Plasma/VerticalStab.lean) | Three-state plant model (position, coil current, saturating supply) + controller on the unstable mode ξ = z + 2I + V. Recovers every displacement the supply physically can | Recoverable region invariant, \|ξ\| decreasing, recovery in finitely many steps, loss beyond the bound for ANY controller — on the integer model with its rounding (`omega`, 5 theorems) | Full | Tutorial [Ch 15](docs/tutorial/md/Ch15_FluidPlasma.md) |
+
 ### Bus & interconnect
 
 | IP | Description | Proofs | Synth | Details |
