@@ -516,10 +516,26 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   from one canonical-seed run of the checked module, the optimized
   module, its emitted Verilog and the module parsed back from the
   printed bytes all run to the SAME trace, under the pipeline's
-  decidable premises (audited, standard axioms). Open in S7: the
-  hierarchy entry joining the bundle, and the final instantiated
-  shipping theorem on real circuits (with the `EnvDefines` trust
-  resolution).
+  decidable premises (audited, standard axioms). The hierarchy
+  entry has JOINED the bundle (clauses 12–13: `InstancePreserves` and
+  `Instance1Preserves`, at the run's own instance predicate). The
+  MEMORY post-pipeline is composed too
+  (`shipping_pipeline_transfer_mem`: from the checked module's own
+  canonical-seed run, the emitted Verilog — read latch and write
+  program included — and the parsed-back module run to the SAME
+  trace), and the composed statements are INSTANTIATED on real
+  circuits as single capstones: `regAcc_shipping` (mux/arithmetic cone
+  + register: source stream observed by the optimized module, its
+  emitted Verilog and the parsed-back text, one trace) and
+  `memAcc_shipping` (sync-read memory: source `Signal.memory` stream
+  at the emitted Verilog and the parsed-back text, one trace) — both
+  from the real `RunsTo` compile under `EnvDefines` and the
+  pipeline's runtime-gated premises, audited. Open in S7: lifting the
+  sequential capstones from the core entry to the full
+  `synthesizeCombinational` entry (cleanup/merge for sequential
+  bodies), a hierarchy post-pipeline (the SV layers are open-module),
+  and the coverage reconciliation of the remaining legacy-success
+  branches listed in ShippingCompiler-Coverage.md.
 - [ ] **S7 / trust:** Resolve or explicitly retain `EnvDefines` in the final
   claim; record execution-model/external-tool boundaries without hiding them.
   RECORDED — docs/ShippingCompiler-TrustBase.md states the retained base
@@ -530,7 +546,7 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   work will add (`SubSynthDefines`, instance-cache cleanliness) with the
   unresolved cache-history trade-off that stages S6-2.
 
-Latest validation: `lake build Tests.AllTests` passed all 652 jobs, with
+Latest validation: `lake build Tests.AllTests` passed all 653 jobs, with
 standard-axiom audits of the general endpoint and real signed/equality/Bool-logic
 source instantiations. Vector mux adds 2,772 source/legacy/SV/delta cases and
 real source theorems for nested and computed-condition muxes (no Bool input
