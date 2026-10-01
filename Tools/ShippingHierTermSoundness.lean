@@ -24,6 +24,10 @@ open Tools.ShippingMixedEntrySoundness
 open Tools.ShippingScalarSoundness Tools.ShippingBuilderSoundness
 open Tools.ShippingHierarchySoundness Tools.ShippingLinkCtx
 open Tools.ShippingUnifiedExecutionSoundness (pack_width)
+open Tools.ShippingBoolSourceSoundness Tools.ShippingMuxLoweringSoundness
+open Tools.ShippingMuxTypeSoundness Tools.ShippingMixedSourceBridge
+open Tools.ShippingBoolMuxSoundness (boolMuxE)
+open Tools.ShippingMixedInvariant (Separate)
 
 section generic
 variable [LinkCtx] [ChildSem]
@@ -77,6 +81,262 @@ theorem emitLeaves_runs_link {ctx inputs we mems initial prior s t e cache logPr
 
 end generic
 
+/-- A BitVec input leaf at the root (the root-instance family covers it). -/
+def isBitsLeaf : {s : SType} → Term s → Bool
+  | _, .bitsInput _ _ => true
+  | _, _ => false
+
+/-- Sort-directed acceptance by the instance-aware recognizers. -/
+def acceptedAtH (isInst : Lean.Expr → Bool) (kinds : Array MixedGateBinder) :
+    SType → Lean.Expr → Bool
+  | .bool => fun e => hierGateBoolBody isInst kinds e
+  | .bits w => fun e => hierGateBitsBody isInst kinds w e
+
+/-- Quoted cones over accepted leaves are accepted by the instance-aware
+gate; each operation checks its own width. -/
+theorem hier_quote_accepted {isInst : Lean.Expr → Bool} {kinds : Array MixedGateBinder} {dom : Lean.Expr} {kb kv : Nat}
+    {vw : Nat → Nat} {binp vinp : Nat → Lean.Expr}
+    (hb : ∀ j, j < kb → hierGateBoolBody isInst kinds (binp j) = true)
+    (hv : ∀ j, j < kv → hierGateBitsBody isInst kinds (vw j) (vinp j) = true) :
+    ∀ {s} (e : Term s), e.WF kb kv vw →
+      acceptedAtH isInst kinds s (quote dom binp vinp e) = true
+  | _, .boolInput j, hj => hb j hj
+  | _, .bitsInput w j, hj => by
+    cases hj.2.1
+    exact hv j hj.1
+  | _, .boolLit b, _ => by cases b <;> rfl
+  | _, .bitsLit w v, hv' => by
+    show hierGateBitsBody isInst kinds w (quoteF dom w vinp (.lit v)) = true
+    change (match bitVecLitValue? (mkApp2 (.const ``BitVec.ofNat []) (natE w) (natE v)) with
+      | some (k, _) => k == w
+      | none => false) = true
+    rw [litValue_natE w v hv'.1]
+    simp
+  | _, .binary op (w := w) a b, h => by
+    obtain ⟨ha, hb'⟩ := h
+    show hierGateBitsBody isInst kinds w (binE dom w op (quote dom binp vinp a)
+      (quote dom binp vinp b)) = true
+    have ck := op_checks op dom (quote dom binp vinp a) (quote dom binp vinp b) w
+    have step : hierGateBitsBody isInst kinds w (binE dom w op (quote dom binp vinp a)
+        (quote dom binp vinp b)) =
+        (match signalBinOpOf (binMethod op),
+            canonicalSignalBinKinds (binMethod op)
+              (binE dom w op (quote dom binp vinp a) (quote dom binp vinp b)).getAppArgs,
+            canonicalSignalBitVecWidth
+              (binE dom w op (quote dom binp vinp a) (quote dom binp vinp b)).getAppArgs with
+          | some _, some (true, true), some k =>
+            k == w && hierGateBitsBody isInst kinds w (quote dom binp vinp a) &&
+              hierGateBitsBody isInst kinds w (quote dom binp vinp b)
+          | _, _, _ =>
+            isInst (binE dom w op (quote dom binp vinp a) (quote dom binp vinp b)) &&
+              unifiedInstanceSpine kinds
+                (binE dom w op (quote dom binp vinp a) (quote dom binp vinp b))) := by
+      simp only [binE, mkApp6, mkApp4, mkApp2, mkAppB, mkApp]
+      rfl
+    have ia : hierGateBitsBody isInst kinds w (quote dom binp vinp a) = true :=
+      hier_quote_accepted hb hv a ha
+    have ib : hierGateBitsBody isInst kinds w (quote dom binp vinp b) = true :=
+      hier_quote_accepted hb hv b hb'
+    rw [step, ck.2.1, ck.2.2.1, ck.2.2.2.1]
+    simp [ia, ib]
+  | _, .compare le (w := w) a b, h => by
+    obtain ⟨ha, hb'⟩ := h
+    show hierGateBoolBody isInst kinds (compareE le dom w (quote dom binp vinp a)
+      (quote dom binp vinp b)) = true
+    have step : hierGateBoolBody isInst kinds (compareE le dom w (quote dom binp vinp a)
+        (quote dom binp vinp b)) =
+        (decide (0 < w) && hierGateBitsBody isInst kinds w (quote dom binp vinp a) &&
+          hierGateBitsBody isInst kinds w (quote dom binp vinp b)) := by
+      cases le <;> simp [compareE, compareName, mkApp2, mkApp3, mkAppB, mkApp,
+        hierGateBoolBody, isBoolEquality, bitVecEqualityWidth?, canonicalNatLitValue?_natE]
+    have ia : hierGateBitsBody isInst kinds w (quote dom binp vinp a) = true :=
+      hier_quote_accepted hb hv a ha
+    have ib : hierGateBitsBody isInst kinds w (quote dom binp vinp b) = true :=
+      hier_quote_accepted hb hv b hb'
+    rw [step, ia, ib]
+    simp [a.wf_pos ha]
+  | _, .boolBinary kind a b, h => by
+    obtain ⟨ha, hb'⟩ := h
+    show hierGateBoolBody isInst kinds (boolBinE kind dom (quote dom binp vinp a)
+      (quote dom binp vinp b)) = true
+    have gate : hierGateBoolBody isInst kinds (boolBinE kind dom (quote dom binp vinp a)
+        (quote dom binp vinp b)) =
+        (hierGateBoolBody isInst kinds (quote dom binp vinp a) &&
+          hierGateBoolBody isInst kinds (quote dom binp vinp b)) := by cases kind <;> rfl
+    have ia : hierGateBoolBody isInst kinds (quote dom binp vinp a) = true :=
+      hier_quote_accepted hb hv a ha
+    have ib : hierGateBoolBody isInst kinds (quote dom binp vinp b) = true :=
+      hier_quote_accepted hb hv b hb'
+    rw [gate, ia, ib]
+    rfl
+  | _, .boolNot a, ha => by
+    show hierGateBoolBody isInst kinds (boolNotE dom (quote dom binp vinp a)) = true
+    exact (hier_quote_accepted hb hv a ha :
+      hierGateBoolBody isInst kinds (quote dom binp vinp a) = true)
+  | _, .boolEq a b, h => by
+    obtain ⟨ha, hb'⟩ := h
+    show hierGateBoolBody isInst kinds (boolEqE dom (quote dom binp vinp a)
+      (quote dom binp vinp b)) = true
+    have ia : hierGateBoolBody isInst kinds (quote dom binp vinp a) = true :=
+      hier_quote_accepted hb hv a ha
+    have ib : hierGateBoolBody isInst kinds (quote dom binp vinp b) = true :=
+      hier_quote_accepted hb hv b hb'
+    change (hierGateBoolBody isInst kinds (quote dom binp vinp a) &&
+      hierGateBoolBody isInst kinds (quote dom binp vinp b)) = true
+    rw [ia, ib]
+    rfl
+  | .bool, .mux c a b, h => by
+    obtain ⟨hc, ha, hb'⟩ := h
+    show hierGateBoolBody isInst kinds (boolMuxE dom (quote dom binp vinp c)
+      (quote dom binp vinp a) (quote dom binp vinp b)) = true
+    have ic : hierGateBoolBody isInst kinds (quote dom binp vinp c) = true :=
+      hier_quote_accepted hb hv c hc
+    have ia : hierGateBoolBody isInst kinds (quote dom binp vinp a) = true :=
+      hier_quote_accepted hb hv a ha
+    have ib : hierGateBoolBody isInst kinds (quote dom binp vinp b) = true :=
+      hier_quote_accepted hb hv b hb'
+    change (hierGateBoolBody isInst kinds (quote dom binp vinp c) &&
+      hierGateBoolBody isInst kinds (quote dom binp vinp a) &&
+      hierGateBoolBody isInst kinds (quote dom binp vinp b)) = true
+    rw [ic, ia, ib]
+    rfl
+  | .bits w, .mux c a b, h => by
+    obtain ⟨hc, ha, hb'⟩ := h
+    show hierGateBitsBody isInst kinds w (muxE dom (bitVecE w) (quote dom binp vinp c)
+      (quote dom binp vinp a) (quote dom binp vinp b)) = true
+    have ic : hierGateBoolBody isInst kinds (quote dom binp vinp c) = true :=
+      hier_quote_accepted hb hv c hc
+    have ia : hierGateBitsBody isInst kinds w (quote dom binp vinp a) = true :=
+      hier_quote_accepted hb hv a ha
+    have ib : hierGateBitsBody isInst kinds w (quote dom binp vinp b) = true :=
+      hier_quote_accepted hb hv b hb'
+    change (canonicalNatLitValue? (natE w) == some w &&
+      hierGateBoolBody isInst kinds (quote dom binp vinp c) &&
+      hierGateBitsBody isInst kinds w (quote dom binp vinp a) &&
+      hierGateBitsBody isInst kinds w (quote dom binp vinp b)) = true
+    rw [canonicalNatLitValue?_natE, ic, ia, ib]
+    simp
+  | _, .setw (w := w) w' a, h => by
+    obtain ⟨ha, hpos⟩ := h
+    show hierGateBitsBody isInst kinds w' (setwE dom w w' (quote dom binp vinp a)) = true
+    have ia : hierGateBitsBody isInst kinds w (quote dom binp vinp a) = true :=
+      hier_quote_accepted hb hv a ha
+    change (canonicalNatLitValue? (natE w') == some w' &&
+      canonicalNatLitValue? (natE w') == some w' &&
+      (match canonicalNatLitValue? (natE w), canonicalNatLitValue? (natE w) with
+       | some ws, some ws' => ws' == ws && 0 < ws &&
+           hierGateBitsBody isInst kinds ws (quote dom binp vinp a)
+       | _, _ => false)) = true
+    rw [canonicalNatLitValue?_natE, canonicalNatLitValue?_natE]
+    simp [ia, a.wf_pos ha]
+
+/-- Root acceptance helpers for the instance-aware gate. -/
+theorem hroot_of_bool {isInst : Lean.Expr → Bool} {kinds : Array MixedGateBinder} {e : Lean.Expr}
+    (body : hierGateBoolBody isInst kinds e = true) : hierGateRoot isInst kinds e = true := by
+  unfold hierGateRoot
+  rw [body]
+  rfl
+
+theorem hroot_of_top {isInst : Lean.Expr → Bool} {kinds : Array MixedGateBinder} {n : Nat} {e : Lean.Expr} (hn : 0 < n)
+    (mux : canonicalMuxType? e = none)
+    (top : gateTopWidth? (mixedBitKinds kinds) e = some n)
+    (body : hierGateBitsBody isInst kinds n e = true) : hierGateRoot isInst kinds e = true := by
+  unfold hierGateRoot
+  rw [mux, top]
+  simp [body, hn]
+
+theorem hroot_of_mux {isInst : Lean.Expr → Bool} {kinds : Array MixedGateBinder} {n : Nat} {e : Lean.Expr} (hn : 0 < n)
+    (mux : canonicalMuxType? e = some (.bitVector n))
+    (body : hierGateBitsBody isInst kinds n e = true) : hierGateRoot isInst kinds e = true := by
+  unfold hierGateRoot
+  rw [mux]
+  simp [body, hn]
+
+theorem hroot_of_setw {isInst : Lean.Expr → Bool} {kinds : Array MixedGateBinder} {n : Nat} {e : Lean.Expr} (hn : 0 < n)
+    (mux : canonicalMuxType? e = none)
+    (top : gateTopWidth? (mixedBitKinds kinds) e = none)
+    (swtop : canonicalSetWidthTop? e = some n)
+    (body : hierGateBitsBody isInst kinds n e = true) : hierGateRoot isInst kinds e = true := by
+  unfold hierGateRoot
+  rw [mux, top, swtop]
+  simp [body, hn]
+
+set_option maxHeartbeats 1000000 in
+/-- Root width for every non-leaf `.bits` constructor, from the same
+syntactic sources as the established vector gate. A bare leaf root is the
+instance-root family's business. -/
+theorem hier_root_accepted {isInst : Lean.Expr → Bool} {kinds : Array MixedGateBinder} {dom : Lean.Expr} {kb kv : Nat}
+    {vw : Nat → Nat} {binp vinp : Nat → Lean.Expr}
+    (hb : ∀ j, j < kb → hierGateBoolBody isInst kinds (binp j) = true)
+    (hv : ∀ j, j < kv → hierGateBitsBody isInst kinds (vw j) (vinp j) = true)
+    :
+    ∀ {s} (e : Term s), e.WF kb kv vw → isBitsLeaf e = false →
+      hierGateRoot isInst kinds (quote dom binp vinp e) = true
+  | .bool, e, he, _ => hroot_of_bool (hier_quote_accepted hb hv e he)
+  | _, .bitsInput w j, he, hl => by cases hl
+  | _, .bitsLit w v, he, _ => by
+    have body : hierGateBitsBody isInst kinds w (quoteF dom w vinp (.lit v)) = true :=
+      hier_quote_accepted (dom := dom) hb hv (.bitsLit w v) he
+    have mux : canonicalMuxType? (quoteF dom w vinp (.lit v)) = none := rfl
+    have top : gateTopWidth? (mixedBitKinds kinds) (quoteF dom w vinp (.lit v)) = some w := by
+      change ((quoteF dom w vinp (.lit v)).getAppArgs.back?.bind bitVecLitValue?).map (·.1) =
+        some w
+      change ((some (mkApp2 (.const ``BitVec.ofNat []) (natE w) (natE v))).bind
+        bitVecLitValue?).map (·.1) = some w
+      rw [Option.bind_some, litValue_natE w v he.1]
+      rfl
+    exact hroot_of_top he.2 mux top body
+  | _, .binary op (w := w) a b, he, _ => by
+    have body : hierGateBitsBody isInst kinds w (binE dom w op (quote dom binp vinp a)
+        (quote dom binp vinp b)) = true :=
+      hier_quote_accepted (dom := dom) hb hv (.binary op a b) he
+    obtain ⟨ha, hb'⟩ := he
+    have hn : 0 < w := a.wf_pos ha
+    have ck := op_checks op dom (quote dom binp vinp a) (quote dom binp vinp b) w
+    have mux : canonicalMuxType? (binE dom w op (quote dom binp vinp a)
+        (quote dom binp vinp b)) = none := by
+      cases op <;> rfl
+    have top : gateTopWidth? (mixedBitKinds kinds) (binE dom w op (quote dom binp vinp a)
+        (quote dom binp vinp b)) = some w := by
+      simp only [gateTopWidth?, ck.1, ck.2.2.2.2.2.2, Bool.false_eq_true, if_false]
+      exact ck.2.2.2.1
+    exact hroot_of_top hn mux top body
+  | .bits w, .mux c a b, he, _ => by
+    have body : hierGateBitsBody isInst kinds w (muxE dom (bitVecE w) (quote dom binp vinp c)
+        (quote dom binp vinp a) (quote dom binp vinp b)) = true :=
+      hier_quote_accepted (dom := dom) hb hv (.mux c a b) he
+    obtain ⟨hc, ha, hb'⟩ := he
+    exact hroot_of_mux (a.wf_pos ha) (canonicalMuxType?_bitVec ..) body
+  | _, .setw (w := w) w' a, he, _ => by
+    have body : hierGateBitsBody isInst kinds w' (setwE dom w w' (quote dom binp vinp a)) = true :=
+      hier_quote_accepted (dom := dom) hb hv (.setw w' a) he
+    obtain ⟨ha, hpos⟩ := he
+    have mux : canonicalMuxType? (setwE dom w w' (quote dom binp vinp a)) = none := rfl
+    have top : gateTopWidth? (mixedBitKinds kinds)
+        (setwE dom w w' (quote dom binp vinp a)) = none := rfl
+    have swtop : canonicalSetWidthTop? (setwE dom w w' (quote dom binp vinp a)) = some w' := by
+      unfold canonicalSetWidthTop?
+      rw [Tools.ShippingUnifiedRecursion.canonicalSetWidth?_setwE dom _ (a.wf_pos ha) hpos]
+    exact hroot_of_setw hpos mux top swtop body
+
+/-- Once the real declaration has been peeled, recognition of a cone over
+accepted leaves follows — AT the given designation predicate. -/
+theorem hier_cone_gate {d : DefinitionVal} {bs : List (Name × MixedGateBinder)}
+    {dom : Lean.Expr} {kb kv : Nat} {vw : Nat → Nat} {bE vE : Nat → Lean.Expr}
+    {srt : SType} {e : Term srt} {isInst : Lean.Expr → Bool}
+    (peel : mixedGatePeel d.value = some (bs, quote dom bE vE e))
+    (he : e.WF kb kv vw) (hroot : isBitsLeaf e = false)
+    (hscalar : mixedGateResultScalar d.type = true)
+    (hb : ∀ j, j < kb → hierGateBoolBody isInst (bs.map Prod.snd).toArray (bE j) = true)
+    (hv : ∀ j, j < kv →
+      hierGateBitsBody isInst (bs.map Prod.snd).toArray (vw j) (vE j) = true) :
+    mixedCertifiedShape? false [] (.defnInfo d) isInst = some (bs, quote dom bE vE e) := by
+  have root := hier_root_accepted (kinds := (bs.map Prod.snd).toArray) (dom := dom)
+    hb hv e he hroot
+  simp only [mixedCertifiedShape?, Bool.false_or, List.isEmpty_nil, Bool.not_true,
+    Bool.false_eq_true, if_false, peel, root, hscalar, Bool.and_self, Bool.or_true,
+    Bool.true_or, if_true]
+
 /-- The linked value observed at `out`. -/
 def HierValue (children : String → Option (Sparkle.IR.AST.Module × WEnv))
     (m : Sparkle.IR.AST.Module) (initial : Env) (mems : MEnv) (expected : Nat) : Prop :=
@@ -110,6 +370,7 @@ def HierConePreserves (declName : Name) (bs : List (Name × MixedGateBinder))
     let a := start (entryCompilerState false cache) declName.toString
     let p := prepare bools bits (bs.zip ids) a
     Admissible bools bits initial (bs.zip ids) a →
+    Separate p.bools p.bits ∧
     ∀ (dom : Lean.Expr) (kb kv : Nat) (vw : Nat → Nat) (bE vE : Nat → Lean.Expr)
       (bvals : Nat → Bool) (vvals : (j : Nat) → (w : Nat) → BitVec w)
       {srt : SType} (e : Term srt),
@@ -132,12 +393,13 @@ theorem synthesizeMixedCertified_hierCone_sound {logProf declName bs body m d}
   obtain ⟨ids, cache, returned, st, nd, len, run, hm, _, nameLegal⟩ :=
     synthesizeMixedCertified_returns hr
   refine ⟨ids, nd, len, cache, ?_⟩
-  intro children C bools bits initial mems a p values dom kb kv vw bE vE bvals vvals srt e he
-    hbM hvM hbC hvC qeq
-  letI : HierCtx := hierLink children
-  letI : ChildSem := C
+  intro children C bools bits initial mems a p values
   have empty := empty_layout (entryCompilerState false cache) declName.toString initial
   have prepared := prepare_layout (bs.zip ids) a empty.1 empty.2 values
+  refine ⟨prepared.1.separate prepared.2.1, ?_⟩
+  intro dom kb kv vw bE vE bvals vvals srt e he hbM hvM hbC hvC qeq
+  letI : HierCtx := hierLink children
+  letI : ChildSem := C
   have leaf := prepare_returns (bs.zip ids) a (bools := bools) (bits := bits) run
   rw [qeq] at leaf
   have contract : Contract (fun e hint top named => translateExprToWire e hint top named)
@@ -160,5 +422,79 @@ theorem synthesizeMixedCertified_hierCone_sound {logProf declName bs body m d}
   refine ⟨result, ?_, value⟩
   rw [moduleWidths_finish wireEq finalWires, bodyEq]
   exact evalr
+
+/-- The declaration dispatcher selects the proved cone path. -/
+theorem synthesizeFromConst_hierCone_sound {logProf declName ci bs body m d}
+    {isInst : Lean.Expr → Bool}
+    (old : certifiedShape? false [] ci = none)
+    (shape : mixedCertifiedShape? false [] ci isInst = some (bs, body))
+    (hr : MReturns (synthesizeFromConst
+      (fun e hint top named => translateExprToWire e hint top named) logProf declName
+      [] false true ci isInst) (m, d)) :
+    HierConePreserves declName bs body m := by
+  unfold synthesizeFromConst at hr
+  simp only [↓reduceIte, old, shape] at hr
+  peel_bind hr
+  obtain ⟨result, run, hr⟩ := MReturns.bind hr
+  peel_bind hr
+  have eq := MReturns.pure hr
+  subst result
+  exact synthesizeMixedCertified_hierCone_sound run
+
+/-- The cone result is tied to the declaration and the environment THIS run
+read: the gate holds at `instancePredicate envR` for the run's own `getEnv`. -/
+theorem synthesizeCombinationalCore_hierCone_sound {declName : Name}
+    {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+    {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {d : Design}
+    (hr : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w
+      (m, d) w') :
+    ∃ (ci : ConstantInfo) (envR : Environment) (w1 w2 w5 w6 : Void IO.RealWorld),
+      RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧
+      RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w5 envR w6 ∧
+      ∀ bs body, certifiedShape? false [] ci = none →
+        mixedCertifiedShape? false [] ci
+          (Sparkle.Compiler.Elab.instancePredicate envR) = some (bs, body) →
+        HierConePreserves declName bs body m := by
+  obtain ⟨logProf, envR, ci, w1, w2, w3, w4, w5, w6, get, henv, run⟩ :=
+    Tools.ShippingEntrySoundness.synthesizeCombinationalCore_reads hr
+  exact ⟨ci, envR, w1, w2, w5, w6, get, henv, fun _ _ old shape =>
+    synthesizeFromConst_hierCone_sound old shape run.mreturns⟩
+
+/-- The cone entry endpoint under the run's environment boundaries: a
+declaration whose value peels to a quoted term over accepted leaves — the
+leaf acceptance holding at the run's own designation predicate — compiles
+to a module with the linked-cone guarantee. -/
+theorem hierCone_entry_of_env {declName : Name} {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {d : Design} {value : Lean.Expr}
+    {bs : List (Name × MixedGateBinder)}
+    {dom : Lean.Expr} {kb kv : Nat} {vw : Nat → Nat} {bE vE : Nat → Lean.Expr}
+    {srt : SType} {e : Term srt}
+    (hr : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w
+      (m, d) w')
+    (env : Tools.ShippingEntrySoundness.EnvDefines mctx mref cctx cref declName value)
+    (old : ∀ dv : DefinitionVal, dv.value = value →
+      certifiedShape? false [] (.defnInfo dv) = none)
+    (hscalar : ∀ dv : DefinitionVal, dv.value = value →
+      mixedGateResultScalar dv.type = true)
+    (peel : mixedGatePeel value = some (bs, quote dom bE vE e))
+    (he : e.WF kb kv vw) (hroot : isBitsLeaf e = false)
+    (leaves : ∀ wE envR wE',
+      RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref wE envR wE' →
+      (∀ j, j < kb → hierGateBoolBody (Sparkle.Compiler.Elab.instancePredicate envR)
+        (bs.map Prod.snd).toArray (bE j) = true) ∧
+      (∀ j, j < kv → hierGateBitsBody (Sparkle.Compiler.Elab.instancePredicate envR)
+        (bs.map Prod.snd).toArray (vw j) (vE j) = true)) :
+    HierConePreserves declName bs (quote dom bE vE e) m := by
+  obtain ⟨ci, envR, w1, w2, w5, w6, get, henv, sel⟩ :=
+    synthesizeCombinationalCore_hierCone_sound hr
+  obtain ⟨dv, rfl, hval⟩ := env w1 ci w2 get
+  obtain ⟨hb, hv⟩ := leaves _ _ _ henv
+  have shape := hier_cone_gate (d := dv) (by rw [hval]; exact peel) he hroot
+    (hscalar dv hval) hb hv
+  exact sel bs _ (old dv hval) shape
 
 end Tools.ShippingHierTermSoundness

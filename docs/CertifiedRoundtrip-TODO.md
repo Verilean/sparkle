@@ -543,8 +543,44 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   `"childAdd"`, which made `parentUse_entry_observes`'s
   `SubSynthDefines` premise unsatisfiable by the real run — fixed).
   Record-RETURNING parents (the whole record as the result) stay on
-  the legacy front end. Open in S6: nested/multiple instances (incl.
-  two projections of one call inside a cone), parameters, and the
+  the legacy front end. INSTANCES INSIDE CONES are certified
+  (S6-3): the unified recursion is generalized over a semantic
+  context class (`LinkCtx`, Tools/ShippingLinkCtx.lean — the body
+  predicates runs/typed/simple with the closure laws the node lemmas
+  use; the flat instance is definitionally the old predicates, so
+  every existing endpoint is unchanged; `HierCtx`/`hierLink` executes
+  instance statements against linked children via `evalAssignsH`),
+  `Meaning` gains the instance case over a `ChildSem` table, and the
+  fuel induction and quoted meaning are generic in their LEAF
+  expressions (`fuel_contract_leaves`, `meaning_quote_leaves`: every
+  leaf brings its own contract). Tools/ShippingInstanceLeaf.lean
+  proves the leaf contract for a canonical call on a single-output
+  combinational child with operands under arbitrary contracts
+  (`inst_leaf_contract` / `inst_leaf_fuel`; boundaries
+  `HardwareTagged`, `SubSynthDefinesAll`, child facts, `ChildCorrect`
+  — the pinned child computes its source function), covering both
+  validated cache paths with NO cache premise (the single-out cache
+  hit is validated against the builder's `translateRecord`, which
+  also removed `InstanceCacheEmpty` from the four root contracts).
+  Tools/ShippingHierTermSoundness.lean lifts it to the entry
+  (`HierConePreserves` / `synthesizeMixedCertified_hierCone_sound`:
+  the compiled module's LINKED evaluation observes the term at
+  `out`), with the instance-aware gate (`hierGateBoolBody` /
+  `hierGateBitsBody` / `hierGateRoot`, acceptance lemmas
+  `hier_quote_accepted` / `hier_root_accepted` / `hier_cone_gate`),
+  dispatcher, `hierCone_entry_of_env`, bundle clause seventeen, and
+  the real endpoint `parentMix_entry_observes` (`childAdd a b + a`,
+  with `childAdd_correct` discharging the child's correctness on the
+  pinned module). Byte parity with the legacy front end is gated for
+  two calls, a repeated call (ONE instance), a Bool root, a
+  sequential child inside a cone, and a nested call (which stays
+  legacy). Open in S6: gate + contract for NESTED calls (the leaf
+  contract already takes operand contracts, the gate spine still
+  requires binder arguments), sequential/Bool-output/multi-output
+  children as cone leaves, registration of the linked children in
+  the emitted design (the `children` table of the contract is a
+  premise; the suite checks `d.modules` concretely), multi-level
+  linking (a child that itself instantiates), parameters, and the
   SV/text layer for hierarchy (the M-layers' open-module view).
 - [ ] **S7:** Reconcile all successful cases and compose the full shipping
   theorem; instantiate it on real circuits without substituting per-instance

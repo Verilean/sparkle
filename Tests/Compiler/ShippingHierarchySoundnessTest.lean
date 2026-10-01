@@ -1,5 +1,6 @@
 import Tools.ShippingHierarchySoundness
 import Tools.ShippingInstanceEntrySoundness
+import Tools.ShippingHierTermSoundness
 import Tools.ShippingRegisterSoundness
 import Sparkle.Compiler.Elab
 
@@ -17,6 +18,8 @@ open Tools.ShippingEntrySoundness (EnvDefines RunsTo)
 open Tools.ShippingMixedSourceBridge (inputExpr SourceInputs)
 open Tools.ShippingUnifiedSource
 open Tools.ShippingRegisterSoundness (registerE)
+open Tools.ShippingUnifiedMeaning Tools.ShippingUnifiedRecursion
+open Tools.ShippingLinkCtx Tools.ShippingInstanceLeaf Tools.ShippingHierTermSoundness
 
 @[hardware_module] def childAdd {dom : DomainConfig}
     (x y : Signal dom (BitVec 8)) : Signal dom (BitVec 8) := x + y
@@ -62,6 +65,24 @@ def parentLo {dom : DomainConfig} (a b : Signal dom (BitVec 8)) :
 def parentHi {dom : DomainConfig} (a b : Signal dom (BitVec 8)) :
     Signal dom (BitVec 8) := (childTwo a b).hi
 
+/-- Cones over instance leaves: the parent computes on child results. -/
+def parentMix {dom : DomainConfig} (a b : Signal dom (BitVec 8)) :
+    Signal dom (BitVec 8) := childAdd a b + a
+
+def parentTwoCalls {dom : DomainConfig} (a b : Signal dom (BitVec 8)) :
+    Signal dom (BitVec 8) := childAdd a b + childAdd b a
+
+def parentRepeat {dom : DomainConfig} (a b : Signal dom (BitVec 8)) :
+    Signal dom (BitVec 8) := childAdd a b + childAdd a b
+
+def parentCmp {dom : DomainConfig} (a b : Signal dom (BitVec 8)) :
+    Signal dom Bool := Signal.ult (childAdd a b) a
+
+/-- A NESTED call is not a cone over binder-argument leaves: it must stay on
+the legacy front end (byte-gated). -/
+def parentNested {dom : DomainConfig} (a b : Signal dom (BitVec 8)) :
+    Signal dom (BitVec 8) := childAdd (childAdd a b) b
+
 /-- A sequential child: the certified instance path must agree with the
 legacy front end byte-for-byte, including the clk/rst auto-plumbing. -/
 @[hardware_module] def childSeq {dom : DomainConfig}
@@ -70,6 +91,11 @@ legacy front end byte-for-byte, including the clk/rst auto-plumbing. -/
 
 def parentSeq {dom : DomainConfig} (a : Signal dom (BitVec 8)) :
     Signal dom (BitVec 8) := childSeq a
+
+/-- A sequential child INSIDE a cone: gate-accepted, byte-gated against the
+legacy front end (the leaf contract itself covers combinational children). -/
+def parentSeqMix {dom : DomainConfig} (a b : Signal dom (BitVec 8)) :
+    Signal dom (BitVec 8) := childSeq a + b
 
 /-- The child module the pipeline emits, pinned literally. -/
 def childModule : Sparkle.IR.AST.Module :=
@@ -683,6 +709,217 @@ theorem parentUse_entry_observes {mctx : Meta.Context}
       ((aS.val t + bS.val t)).toNat
     rw [BitVec.toNat_add]
 
+/-! Cones over instance leaves: the parent computes on the child's result. -/
+
+#def_decl_value parentMixValue of parentMix
+
+def parentMixBinders : List (Name × MixedGateBinder) :=
+  [(`dom, .domain), (`a, .bits 8), (`b, .bits 8)]
+
+/-- The cone's BitVec leaves: leaf 0 is the instance call, leaf 1 the input `a`. -/
+def parentMixLeaf (dom : Lean.Expr) (a b : Lean.Expr) (j : Nat) : Lean.Expr :=
+  if j = 0 then instEN ``childAdd [] dom [a, b] else a
+
+def parentMixTerm : Term (.bits 8) := .binary .add (.bitsInput 8 0) (.bitsInput 8 1)
+
+theorem parentMix_wf : parentMixTerm.WF 0 2 (fun _ => 8) :=
+  ⟨⟨by decide, rfl, by decide⟩, ⟨by decide, rfl, by decide⟩⟩
+
+theorem parentMix_peel : mixedGatePeel parentMixValue = some (parentMixBinders,
+    quote (inputExpr parentMixBinders.length 0)
+      (fun _ => inputExpr parentMixBinders.length 0)
+      (parentMixLeaf (inputExpr parentMixBinders.length 0)
+        (inputExpr parentMixBinders.length 1) (inputExpr parentMixBinders.length 2))
+      parentMixTerm) := rfl
+
+/-- The linked child's source function: `childAdd` on two 8-bit values. -/
+def addSem : ChildSem where
+  childSem mn vs :=
+    if mn = ``childAdd ∧ vs.map Value.kind = [.bits 8, .bits 8] then
+      some (.bits 8 (BitVec.ofNat 8 ((vs.map Value.toNat).sum)))
+    else none
+
+/-- The pinned child module computes its source function. -/
+theorem childAdd_correct :
+    @ChildCorrect addSem ``childAdd childModule childWe "out" := by
+  intro mems envIn vs v hsem hports
+  have hsem' : (if ``childAdd = ``childAdd ∧ vs.map Value.kind = [.bits 8, .bits 8] then
+      some (Value.bits 8 (BitVec.ofNat 8 ((vs.map Value.toNat).sum))) else none) = some v := hsem
+  split at hsem'
+  · rename_i hc
+    cases hsem'
+    have hl : vs.length = 2 := by
+      have := congrArg List.length hc.2
+      simpa using this
+    rcases vs with _ | ⟨v1, vs⟩
+    · cases hl
+    rcases vs with _ | ⟨v2, vs⟩
+    · cases hl
+    rcases vs with _ | ⟨v3, vs⟩
+    rotate_left
+    · simp at hl
+    have h0 : envIn "_gen_x" = v1.toNat := hports 0 (by decide) (Nat.zero_lt_succ _)
+    have h1 : envIn "_gen_y" = v2.toNat := hports 1 (by decide) (Nat.lt_succ_self _)
+    refine ⟨fun n =>
+      if n = "out" then mask 8 (envIn "_gen_x" + envIn "_gen_y")
+      else if n = "_gen_out" then mask 8 (envIn "_gen_x" + envIn "_gen_y")
+      else envIn n, rfl, ?_⟩
+    show mask 8 (envIn "_gen_x" + envIn "_gen_y") =
+      (BitVec.ofNat 8 (v1.toNat + (v2.toNat + 0))).toNat
+    rw [h0, h1]
+    simp [mask, BitVec.toNat_ofNat]
+  · cases hsem'
+
+/-- **A cone over an instance leaf observes its source.** The parent
+`childAdd a b + a` compiles through the certified front end; the compiled
+module's LINKED evaluation — the instance statement executed against the
+pinned child — drives `out` with `(parentMix aS bS).val t`. The child is
+an instance LEAF of the cone, lowered through the leaf contract; the
+retained premises are the run boundaries. -/
+theorem parentMix_entry_observes {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {d : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore ``parentMix [] false)
+      mctx mref cctx cref w (m, d) w')
+    (env : EnvDefines mctx mref cctx cref ``parentMix parentMixValue)
+    (tag : ∀ wE e wE', RunsTo (Lean.getEnv : MetaM Environment)
+      mctx mref cctx cref wE e wE' →
+      Sparkle.Compiler.isHardwareModule e ``childAdd = true)
+    (hscalar : ∀ dv : Lean.DefinitionVal, dv.value = parentMixValue →
+      mixedGateResultScalar dv.type = true)
+    {dc : Sparkle.IR.AST.Design}
+    (htagAll : HardwareTagged ``childAdd)
+    (hsub : SubSynthDefinesAll ``childAdd childModule dc)
+    (hdc : dc.modules = []) :
+    ∃ (i0 i1 i2 : FVarId) (cache : IO.Ref (Lean.ExprStructMap String)),
+    ∀ (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n)
+      (initial : Env) {D : DomainConfig}
+      (aS bS : Signal D (BitVec 8)) (t : Nat) (mems : MEnv),
+    let a := Tools.ShippingMixedEntrySoundness.start
+      (entryCompilerState false cache) (``parentMix).toString
+    let p := Tools.ShippingMixedEntrySoundness.prepare bools bits
+      (parentMixBinders.zip [i0, i1, i2]) a
+    Tools.ShippingMixedEntrySoundness.Admissible bools bits initial
+      (parentMixBinders.zip [i0, i1, i2]) a →
+    p.bits i1 = some ⟨8, aS.val t⟩ → p.bits i2 = some ⟨8, bS.val t⟩ →
+    ∃ result, evalAssignsH (Tools.ShippingMixedEntrySoundness.moduleWidths m)
+        (childrenOf childModule.name) mems m.body initial = some result ∧
+      result "out" = ((parentMix aS bS).val t).toNat := by
+  have H := hierCone_entry_of_env hr env
+    (fun dv hv => by simp only [certifiedShape?, hv]; rfl)
+    hscalar parentMix_peel parentMix_wf rfl
+    (fun wE envR wE' henv => by
+      refine ⟨fun j hj => absurd hj (Nat.not_lt_zero j), ?_⟩
+      intro j hj
+      have ht := instancePredicate_instEN envR ``childAdd []
+        (inputExpr parentMixBinders.length 0)
+        ([1, 2].map (inputExpr parentMixBinders.length)) (tag _ _ _ henv)
+      rcases j with _ | j
+      · show (instancePredicate envR (instEN ``childAdd []
+            (inputExpr parentMixBinders.length 0)
+            ([1, 2].map (inputExpr parentMixBinders.length))) && true && true) = true
+        rw [ht]
+        rfl
+      · rcases j with _ | j
+        · rfl
+        · exact absurd hj (by simp))
+  obtain ⟨ids, nd, len, cache, P⟩ := H
+  have len3 : ids.length = 3 := len
+  rcases ids with _ | ⟨i0, ids⟩
+  · cases len3
+  rcases ids with _ | ⟨i1, ids⟩
+  · cases len3
+  rcases ids with _ | ⟨i2, ids⟩
+  · cases len3
+  rcases ids with _ | ⟨i3, ids⟩
+  rotate_left
+  · simp at len3
+  refine ⟨i0, i1, i2, cache, ?_⟩
+  intro bools bits initial D aS bS t mems a p adm ha0 hb0
+  obtain ⟨separate, Q⟩ := P (childrenOf childModule.name) addSem bools bits initial mems adm
+  have hA : inputValues p.bools p.bits i1 = some (.bits 8 (aS.val t)) :=
+    inputValues_bits separate ha0
+  have hB : inputValues p.bools p.bits i2 = some (.bits 8 (bS.val t)) :=
+    inputValues_bits separate hb0
+  letI : HierCtx := hierLink (childrenOf childModule.name)
+  letI : ChildSem := addSem
+  -- the instance leaf: its meaning and its contract
+  have hargsM : ∀ k (hk : k < [Lean.Expr.fvar i1, Lean.Expr.fvar i2].length)
+      (hk' : k < [Value.bits 8 (aS.val t), Value.bits 8 (bS.val t)].length),
+      Meaning (inputValues p.bools p.bits)
+        ([Lean.Expr.fvar i1, Lean.Expr.fvar i2][k]'hk)
+        ([Value.bits 8 (aS.val t), Value.bits 8 (bS.val t)][k]'hk') := by
+    intro k hk hk'
+    rcases k with _ | k
+    · exact .input rfl hA
+    · rcases k with _ | k
+      · exact .input rfl hB
+      · exact absurd hk (by simp)
+  have hsem : ChildSem.childSem ``childAdd
+      [Value.bits 8 (aS.val t), Value.bits 8 (bS.val t)] =
+      some (.bits 8 (BitVec.ofNat 8 ((aS.val t).toNat + (bS.val t).toNat))) := by
+    show (if ``childAdd = ``childAdd ∧
+        [Value.bits 8 (aS.val t), Value.bits 8 (bS.val t)].map Value.kind =
+          [.bits 8, .bits 8] then _ else none) = _
+    rw [if_pos ⟨rfl, rfl⟩]
+    rfl
+  have leafM : LeafMeaning addSem (inputValues p.bools p.bits)
+      (instEN ``childAdd [] (.fvar i0) [.fvar i1, .fvar i2])
+      (.bits 8 (BitVec.ofNat 8 ((aS.val t).toNat + (bS.val t).toNat))) :=
+    meaning_inst rfl rfl hargsM hsem
+  have leafC : LeafContract (childrenOf childModule.name) addSem p.context
+      (inputValues p.bools p.bits) mems initial
+      (instEN ``childAdd [] (.fvar i0) [.fvar i1, .fvar i2])
+      (.bits 8 (BitVec.ofNat 8 ((aS.val t).toNat + (bS.val t).toNat))) := by
+    intro we fuel
+    exact inst_leaf_fuel (mc := childModule) (dc := dc) (cwe := childWe)
+      (outName := "out") (wOut := 8)
+      rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
+      htagAll hsub hdc (by decide) (by decide) rfl (by decide) rfl rfl hargsM
+      (fun k hk hk' fuel => by
+        rcases k with _ | k
+        · exact input_contract_fuel hA fuel
+        · rcases k with _ | k
+          · exact input_contract_fuel hB fuel
+          · exact absurd hk (by simp))
+      hsem rfl rfl childAdd_correct fuel
+  have value := Q (.fvar i0) 0 2 (fun _ => 8) (fun _ => .fvar i0)
+    (parentMixLeaf (.fvar i0) (.fvar i1) (.fvar i2)) (fun _ => false)
+    (fun j w => if j = 0 then BitVec.ofNat w ((aS.val t).toNat + (bS.val t).toNat)
+      else BitVec.ofNat w (aS.val t).toNat)
+    parentMixTerm parentMix_wf
+    (fun j hj => absurd hj (Nat.not_lt_zero j))
+    (fun j hj => by
+      rcases j with _ | j
+      · exact leafM
+      · rcases j with _ | j
+        · show Meaning (inputValues p.bools p.bits) (.fvar i1)
+            (.bits 8 (BitVec.ofNat 8 (aS.val t).toNat))
+          rw [BitVec.ofNat_toNat, BitVec.setWidth_eq]
+          exact .input rfl hA
+        · exact absurd hj (by simp))
+    (fun j hj => absurd hj (Nat.not_lt_zero j))
+    (fun j hj => by
+      rcases j with _ | j
+      · exact leafC
+      · rcases j with _ | j
+        · intro we fuel
+          show Contract (translateFuelFix translateStep fuel) p.context
+            (inputValues p.bools p.bits) we mems initial (.fvar i1)
+            (.bits 8 (BitVec.ofNat 8 (aS.val t).toNat))
+          rw [BitVec.ofNat_toNat, BitVec.setWidth_eq]
+          exact input_contract_fuel hA fuel
+        · exact absurd hj (by simp))
+    rfl
+  obtain ⟨result, hev, hout⟩ := value
+  refine ⟨result, hev, ?_⟩
+  rw [hout]
+  show (BitVec.ofNat 8 ((aS.val t).toNat + (bS.val t).toNat) +
+    BitVec.ofNat 8 (aS.val t).toNat).toNat = ((aS.val t + bS.val t) + aS.val t).toNat
+  rw [BitVec.ofNat_toNat, BitVec.setWidth_eq]
+  rfl
+
 open Sparkle.IR.AST in
 run_cmd liftTermElabM do
   -- The compiled parent and child are EXACTLY the canonical shapes.
@@ -827,6 +1064,47 @@ run_cmd liftTermElabM do
     throwError "TwoOut.hi does not resolve to field hi"
   unless !Sparkle.Compiler.isHardwareModule (← getEnv) ``TwoOut.hi do
     throwError "projection function is tagged as a hardware module"
+  -- Cones over instance leaves: gate-accepted at the run's predicate, and the
+  -- certified front end agrees with the legacy one byte-for-byte (two calls,
+  -- a repeated call deduped through the validated record, a Bool root, a
+  -- sequential child inside a cone).
+  for nm in [``parentMix, ``parentTwoCalls, ``parentRepeat, ``parentCmp, ``parentSeqMix] do
+    unless (mixedCertifiedShape? false [] (← getConstInfo nm) pred).isSome do
+      throwError "cone parent {nm} missed the instance-leaf gate"
+    unless mixedGateResultScalar (← getConstInfo nm).type do
+      throwError "{nm}'s result type is not one scalar Signal"
+    let (mk, dk) ← synthesizeCombinationalCore nm [] false
+    let (mkL, dkL) ← synthesizeCombinationalCoreWith
+      (fun e h t n => translateExprToWire e h t n) nm [] false
+      (certifiedFrontEnd := false)
+    unless mk.body == mkL.body && mk.inputs == mkL.inputs && mk.outputs == mkL.outputs &&
+        mk.wires == mkL.wires && dk.modules == dkL.modules do
+      throwError "cone parent {nm}: certified lowering departed from the legacy front end"
+  -- A nested call stays on the legacy front end, with identical output.
+  unless (mixedCertifiedShape? false [] (← getConstInfo ``parentNested) pred).isNone do
+    throwError "nested instance call leaked through the cone gate"
+  -- parentMix: the linked evaluation of the real compile, 16 cases, and the
+  -- repeated call emits ONE instance.
+  let (mx, dx) ← synthesizeCombinationalCore ``parentMix [] false
+  unless dx.modules == [childModule] do
+    throwError "parentMix's design is not exactly the pinned child"
+  let (mrp, _) ← synthesizeCombinationalCore ``parentRepeat [] false
+  unless (mrp.body.filter (fun st => match st with | .inst .. => true | _ => false)).length == 1 do
+    throwError "repeated call did not dedupe to one instance"
+  let weX := Tools.ShippingMixedEntrySoundness.moduleWidths mx
+  let mut countX : Nat := 0
+  for av in List.range 4 do
+    for bv in List.range 4 do
+      let a := (63 * av + 11) % 256
+      let b := (97 * bv + 5) % 256
+      let env0 : Env := fun n =>
+        if n == "_gen_a" then a else if n == "_gen_b" then b else 0
+      let some envF := evalAssignsH weX (childrenOf childModule.name) (fun _ _ => 0)
+          mx.body env0 | throwError "parentMix linked elaboration failed at {a},{b}"
+      unless envF "out" == (a + b + a) % 256 do
+        throwError "parentMix linked out mismatch at {a},{b}: {envF "out"}"
+      countX := countX + 1
+  unless countX == 16 do throwError "cone case count mismatch"
   -- 12-cycle SEQUENTIAL linked regression: the real parentSeq/childSeq
   -- pair, driven through `runH`, shows the register-delay behaviour on
   -- `out` (init 0, out_{j+1} = in_j), with the child's state threaded
@@ -895,6 +1173,22 @@ run_cmd liftTermElabM do
       ``Tools.ShippingInstanceEntrySoundness.instanceProj_entry_of_env,
       ``Tools.ShippingHierarchySoundness.instAlias_linked,
       ``parentHi_peel, ``parentHi_instance_entry, ``parentHi_entry_observes,
+      ``Tools.ShippingLinkCtx.evalAssignsH_append,
+      ``Tools.ShippingUnifiedMeaning.Meaning.deterministic,
+      ``Tools.ShippingUnifiedMeaning.meaning_quote_leaves,
+      ``Tools.ShippingUnifiedRecursion.fuel_contract_leaves,
+      ``Tools.ShippingInstanceLeaf.runs_inst,
+      ``Tools.ShippingInstanceLeaf.instArgs_sem,
+      ``Tools.ShippingInstanceLeaf.instUncached_shape,
+      ``Tools.ShippingInstanceLeaf.inst_leaf_contract,
+      ``Tools.ShippingInstanceLeaf.inst_leaf_fuel,
+      ``Tools.ShippingHierTermSoundness.hier_quote_accepted,
+      ``Tools.ShippingHierTermSoundness.hier_root_accepted,
+      ``Tools.ShippingHierTermSoundness.hier_cone_gate,
+      ``Tools.ShippingHierTermSoundness.synthesizeMixedCertified_hierCone_sound,
+      ``Tools.ShippingHierTermSoundness.synthesizeFromConst_hierCone_sound,
+      ``Tools.ShippingHierTermSoundness.hierCone_entry_of_env,
+      ``parentMix_peel, ``childAdd_correct, ``parentMix_entry_observes,
       ``Tools.ShippingHierarchySoundness.instBody_runH, ``childSeq_run,
       ``parentSeq_runH_observes,
       ``parentUse_linked] do

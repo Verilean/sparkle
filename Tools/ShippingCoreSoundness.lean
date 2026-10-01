@@ -1,3 +1,4 @@
+import Tools.ShippingHierTermSoundness
 import Tools.ShippingMemoryEntrySoundness
 import Tools.ShippingVectorMuxSoundness
 import Tools.ShippingInstanceEntrySoundness
@@ -65,7 +66,8 @@ theorem synthesizeCombinationalCore_shipping_sound {declName : Name}
           Instance1Preserves declName bs body m d ∧
           InstanceNPreserves declName bs body m d ∧
           InstanceGPreserves declName bs body m d ∧
-          ProjInstancePreserves declName bs body m d := by
+          ProjInstancePreserves declName bs body m d ∧
+          Tools.ShippingHierTermSoundness.HierConePreserves declName bs body m := by
   obtain ⟨logProf, envR, ci, w1, w2, w3, w4, w5, w6, get, henv, run⟩ :=
     synthesizeCombinationalCore_reads hr
   refine ⟨ci, w1, w2, get, fun bs body old shape => ?_,
@@ -74,7 +76,9 @@ theorem synthesizeCombinationalCore_shipping_sound {declName : Name}
        synthesizeFromConst_instance1_sound old shape run.mreturns,
        synthesizeFromConst_instanceN_sound old shape run.mreturns,
        synthesizeFromConst_instanceG_sound old shape run.mreturns,
-       synthesizeFromConst_instanceProj_sound old shape run.mreturns⟩⟩
+       synthesizeFromConst_instanceProj_sound old shape run.mreturns,
+       Tools.ShippingHierTermSoundness.synthesizeFromConst_hierCone_sound old shape
+         run.mreturns⟩⟩
   exact ⟨synthesizeFromConst_mixed_sound old (shape _) run.mreturns,
     synthesizeFromConst_term_sound old (shape _) run.mreturns,
     synthesizeFromConst_vector_sound old (shape _) run.mreturns,

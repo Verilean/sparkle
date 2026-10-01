@@ -320,8 +320,14 @@ child shape is since covered as a root (`InstanceGPreserves`: any
 arity, with or without clk/rst), and field projections of MULTI-output
 children are certified too (`ProjInstancePreserves`,
 `parentHi_instance_entry`, source field observed by
-`parentHi_entry_observes`). Nested/multiple instances, parameters and
-the SV layer remain. S7 is STARTED:
+`parentHi_entry_observes`). Instances INSIDE cones are certified in the
+linked semantics: the unified recursion is generic over a semantic
+context (`LinkCtx`/`HierCtx`) and over leaf contracts, the instance
+leaf contract is proved (`inst_leaf_contract`), and the entry endpoint
+`HierConePreserves` is instantiated on a real parent
+(`parentMix_entry_observes`). Nested calls, sequential children as cone
+leaves, design registration, parameters and the SV layer remain. S7 is
+STARTED:
 `ShippingPreserves`/`synthesizeCombinationalCore_shipping_sound`
 reconcile all eleven ∀-predicate family contracts into one core-entry
 statement, and the instance family joins the same theorem as a

@@ -111,6 +111,23 @@ need two further boundary predicates, mirroring `EnvDefines`:
   TYPE is one scalar Signal (`mixedGateResultScalar`; `EnvDefines`
   pins only the value) — the test suite checks it holds for the real
   declaration.
+- (LANDED) Cone leaves (Tools/ShippingInstanceLeaf.lean,
+  Tools/ShippingHierTermSoundness.lean). An instance call inside a
+  certified cone is lowered below the entry fuel, so its child pin is
+  `SubSynthDefinesAll mn mc dc` — the `SubSynthDefines` statement at
+  EVERY recursion fuel. The linked semantics needs two further
+  premises, both about the pinned child rather than the run:
+  `HierCtx.children mc.name = some (mc, cwe)` (the child table the
+  contract is stated against contains the pinned module under its
+  name — the suite checks `d.modules` concretely; proving the
+  registration from the run is open) and `ChildCorrect mn mc cwe out`
+  (the pinned child's body computes the `ChildSem` source function on
+  any environment carrying the packed arguments — a statement about
+  one fixed module, proved outright for the test child by
+  `childAdd_correct`; in general it is the child's own certified
+  endpoint). No cache premise is needed on either validated cache
+  path. What the linked statement MEANS is still §5's definition
+  (`evalAssignsH`, one level deep).
 - (LANDED) The projection arm's boundaries
   (Tools/ShippingInstanceEntrySoundness.lean), for a parent
   `field (child args…)` over a multi-output child:

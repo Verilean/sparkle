@@ -2348,6 +2348,87 @@ def unifiedInstanceRoot (isInst : Lean.Expr → Bool)
     (kinds : Array MixedGateBinder) (e : Lean.Expr) : Bool :=
   isInst e && e.isApp && (unifiedInstanceSpine kinds e || unifiedProjSpine kinds e)
 
+mutual
+
+/-- The unified recognizer over cones whose BitVec LEAVES may also be
+    canonical instance calls (a designated constant applied to input
+    binders). Same structure as the unified Bool/BitVec recognizers; the
+    designation predicate comes from the caller. -/
+def hierGateBoolBody (isInst : Lean.Expr → Bool) (kinds : Array MixedGateBinder) :
+    Lean.Expr → Bool
+  | .bvar i => mixedGateBVar? kinds i == some .bool
+  | .app (.app (.app (.const ``Sparkle.Core.Signal.Signal.pure _) _) (.const ``Bool _))
+      (.const ``Bool.true _) => true
+  | .app (.app (.app (.const ``Sparkle.Core.Signal.Signal.pure _) _) (.const ``Bool _))
+      (.const ``Bool.false _) => true
+  | .app (.app (.app (.const ``Complement.complement _) _)
+      (.app (.const ``Sparkle.Core.Signal.instComplementSignalBool _) _)) a =>
+      hierGateBoolBody isInst kinds a
+  | .app (.app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.mux _) _) (.const ``Bool _)) c) a) b =>
+      hierGateBoolBody isInst kinds c && hierGateBoolBody isInst kinds a && hierGateBoolBody isInst kinds b
+  | .app (.app (.app (.app (.app (.app (.const m _) _) _) _) inst) a) b =>
+      (signalBoolBinKind? m inst).isSome && hierGateBoolBody isInst kinds a && hierGateBoolBody isInst kinds b
+  | .app (.app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.beq _) ty) _) inst) a) b =>
+      if isBoolEquality ty inst then hierGateBoolBody isInst kinds a && hierGateBoolBody isInst kinds b else
+      match bitVecEqualityWidth? ty inst with
+      | some wE => match canonicalNatLitValue? wE with
+        | some n => 0 < n && hierGateBitsBody isInst kinds n a && hierGateBitsBody isInst kinds n b
+        | none => false
+      | none => false
+  | .app (.app (.app (.app (.const m _) _) wE) a) b =>
+      if m == ``Sparkle.Core.Signal.Signal.ult || m == ``Sparkle.Core.Signal.Signal.ule ||
+          m == ``Sparkle.Core.Signal.Signal.slt || m == ``Sparkle.Core.Signal.Signal.sle then
+        match canonicalNatLitValue? wE with
+        | some n => 0 < n && hierGateBitsBody isInst kinds n a && hierGateBitsBody isInst kinds n b
+        | none => false
+      else false
+  | _ => false
+
+def hierGateBitsBody (isInst : Lean.Expr → Bool) (kinds : Array MixedGateBinder) (n : Nat) :
+    Lean.Expr → Bool
+  | .bvar i => mixedGateBVar? kinds i == some (.bits n)
+  | .app (.app (.app (.const ``Sparkle.Core.Signal.Signal.pure _) _) _) c =>
+      match bitVecLitValue? c with
+      | some (w, _) => w == n
+      | none => false
+  | .app (.app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.mux _) _)
+      (.app (.const ``BitVec _) w)) c) a) b =>
+      canonicalNatLitValue? w == some n && hierGateBoolBody isInst kinds c &&
+        hierGateBitsBody isInst kinds n a && hierGateBitsBody isInst kinds n b
+  | .app (.app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.map _) _)
+      (.app (.const ``BitVec _) wsE)) (.app (.const ``BitVec _) wtE))
+      (.app (.app (.const ``BitVec.setWidth _) wsE') wtE')) a =>
+      canonicalNatLitValue? wtE == some n && canonicalNatLitValue? wtE' == some n &&
+      (match canonicalNatLitValue? wsE, canonicalNatLitValue? wsE' with
+       | some ws, some ws' => ws' == ws && 0 < ws && hierGateBitsBody isInst kinds ws a
+       | _, _ => false)
+  | e@(.app (.app (.app (.app (.app (.app (.const m _) _) _) _) _) a) b) =>
+      match signalBinOpOf m, canonicalSignalBinKinds m e.getAppArgs,
+          canonicalSignalBitVecWidth e.getAppArgs with
+      | some _, some (true, true), some w =>
+        w == n && hierGateBitsBody isInst kinds n a && hierGateBitsBody isInst kinds n b
+      | _, _, _ => isInst e && unifiedInstanceSpine kinds e
+  | e => isInst e && e.isApp && unifiedInstanceSpine kinds e
+
+end
+
+
+
+/-- Root acceptance for cones over instance leaves: the same width sources
+    as `unifiedGateRoot`. -/
+def hierGateRoot (isInst : Lean.Expr → Bool) (kinds : Array MixedGateBinder)
+    (e : Lean.Expr) : Bool :=
+  hierGateBoolBody isInst kinds e ||
+    (match canonicalMuxType? e with
+      | some (.bitVector n) => 0 < n && hierGateBitsBody isInst kinds n e
+      | _ =>
+        match gateTopWidth? (mixedBitKinds kinds) e with
+        | some n => 0 < n && hierGateBitsBody isInst kinds n e
+        | none =>
+          match canonicalSetWidthTop? e with
+          | some n => 0 < n && hierGateBitsBody isInst kinds n e
+          | none => false)
+
 /-- The declaration's result is one scalar Signal (Bool or positive-width
     BitVec).  The certified single-output harness only covers these;
     record/multi-output parents stay on the legacy front end (which splits
@@ -2375,7 +2456,9 @@ def mixedCertifiedShape? (symbolicMode : Bool) (parameters : List (String × Nat
           mixedGateVectorRoot (bs.map (·.2)).toArray body ||
           unifiedGateRoot (bs.map (·.2)).toArray body ||
           unifiedRegisterRoot (bs.map (·.2)).toArray body ||
-          unifiedMemoryRoot (bs.map (·.2)).toArray body then some (bs, body) else none
+          unifiedMemoryRoot (bs.map (·.2)).toArray body ||
+          (hierGateRoot isInst (bs.map (·.2)).toArray body &&
+            mixedGateResultScalar d.type) then some (bs, body) else none
     | none => none
   | _ => none
 
