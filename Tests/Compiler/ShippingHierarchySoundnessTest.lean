@@ -140,6 +140,12 @@ def designLinked (m : Sparkle.IR.AST.Module) (d : Sparkle.IR.AST.Design) : Bool 
       | none => false
     | _ => true
 
+/-- A wrapper written at a CONCRETE clock domain around a tagged child — the
+shape of the repository's `synth_*` wrappers around IP modules. The domain
+argument of the call is a closed constant, not a binder. -/
+def wrapAdd (a b : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec 8) :=
+  childAdd a b
+
 /-- A sequential child: the certified instance path must agree with the
 legacy front end byte-for-byte, including the clk/rst auto-plumbing. -/
 @[hardware_module] def childSeq {dom : DomainConfig}
@@ -1440,6 +1446,150 @@ theorem parentNested_entry_observes {mctx : Meta.Context}
     (aS.val t + bS.val t + bS.val t).toNat
   rw [BitVec.ofNat_toNat, BitVec.setWidth_eq]
 
+/-! A concrete-domain wrapper around a tagged child. -/
+
+#def_decl_value wrapAddValue of wrapAdd
+
+def wrapAddBinders : List (Name × MixedGateBinder) := [(`a, .bits 8), (`b, .bits 8)]
+
+/-- `childAdd (dom := defaultDomain) a b`, quoted. -/
+def wrapE (a b : Lean.Expr) : Lean.Expr :=
+  instEN ``childAdd [] (.const ``Sparkle.Core.Domain.defaultDomain []) [a, b]
+
+theorem wrapAdd_peel : mixedGatePeel wrapAddValue = some (wrapAddBinders,
+    wrapE (inputExpr wrapAddBinders.length 0) (inputExpr wrapAddBinders.length 1)) := rfl
+
+/-- **A concrete-domain wrapper observes its source.** The declaration
+`wrapAdd a b := childAdd a b` at `defaultDomain` — no domain binder, the
+call's domain argument a closed constant — compiles through the certified
+front end, and the linked evaluation of the compiled module drives `out`
+with `(wrapAdd aS bS).val t`. -/
+theorem wrapAdd_entry_observes {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {d : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore ``wrapAdd [] false)
+      mctx mref cctx cref w (m, d) w')
+    (env : EnvDefines mctx mref cctx cref ``wrapAdd wrapAddValue)
+    (tag : ∀ wE e wE', RunsTo (Lean.getEnv : MetaM Environment)
+      mctx mref cctx cref wE e wE' →
+      Sparkle.Compiler.isHardwareModule e ``childAdd = true)
+    (hscalar : ∀ dv : Lean.DefinitionVal, dv.value = wrapAddValue →
+      mixedGateResultScalar dv.type = true)
+    {dc : Sparkle.IR.AST.Design}
+    (htagAll : HardwareTagged ``childAdd)
+    (hsub : SubSynthDefinesAll ``childAdd childModule dc)
+    (hdc : dc.modules = []) :
+    ∃ (i0 i1 : FVarId) (cache : IO.Ref (Lean.ExprStructMap String)),
+    ∀ (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n)
+      (initial : Env)
+      (aS bS : Signal defaultDomain (BitVec 8)) (t : Nat) (mems : MEnv),
+    let a := Tools.ShippingMixedEntrySoundness.start
+      (entryCompilerState false cache) (``wrapAdd).toString
+    let p := Tools.ShippingMixedEntrySoundness.prepare bools bits
+      (wrapAddBinders.zip [i0, i1]) a
+    Tools.ShippingMixedEntrySoundness.Admissible bools bits initial
+      (wrapAddBinders.zip [i0, i1]) a →
+    p.bits i0 = some ⟨8, aS.val t⟩ → p.bits i1 = some ⟨8, bS.val t⟩ →
+    ∃ result, evalAssignsH (Tools.ShippingMixedEntrySoundness.moduleWidths m)
+        (childrenOf childModule.name) mems m.body initial = some result ∧
+      result "out" = ((wrapAdd aS bS).val t).toNat := by
+  have H := hierRoot_entry_of_env hr env
+    (fun dv hv => by simp only [certifiedShape?, hv]; rfl)
+    hscalar wrapAdd_peel
+    (fun wE envR wE' henv => by
+      have hto := instancePredicate_instEN envR ``childAdd []
+        (.const ``Sparkle.Core.Domain.defaultDomain [])
+        [inputExpr wrapAddBinders.length 0, inputExpr wrapAddBinders.length 1]
+        (tag _ _ _ henv)
+      show (instancePredicate envR (instEN ``childAdd []
+          (.const ``Sparkle.Core.Domain.defaultDomain [])
+          [inputExpr wrapAddBinders.length 0, inputExpr wrapAddBinders.length 1]) &&
+        true && true) = true
+      rw [hto]
+      rfl)
+  obtain ⟨ids, nd, len, cache, P⟩ := H
+  have len2 : ids.length = 2 := len
+  rcases ids with _ | ⟨i0, ids⟩
+  · cases len2
+  rcases ids with _ | ⟨i1, ids⟩
+  · cases len2
+  rcases ids with _ | ⟨i2, ids⟩
+  rotate_left
+  · simp at len2
+  refine ⟨i0, i1, cache, ?_⟩
+  intro bools bits initial aS bS t mems a p adm ha0 hb0
+  obtain ⟨separate, Q⟩ := P (childrenOf childModule.name) addSem bools bits initial mems adm
+  have hA : inputValues p.bools p.bits i0 = some (.bits 8 (aS.val t)) :=
+    inputValues_bits separate ha0
+  have hB : inputValues p.bools p.bits i1 = some (.bits 8 (bS.val t)) :=
+    inputValues_bits separate hb0
+  letI : HierCtx := hierLink (childrenOf childModule.name)
+  letI : ChildSem := addSem
+  have argsM : ∀ k (hk : k < [Lean.Expr.fvar i0, Lean.Expr.fvar i1].length)
+      (hk' : k < [Value.bits 8 (aS.val t), Value.bits 8 (bS.val t)].length),
+      Meaning (inputValues p.bools p.bits)
+        ([Lean.Expr.fvar i0, Lean.Expr.fvar i1][k]'hk)
+        ([Value.bits 8 (aS.val t), Value.bits 8 (bS.val t)][k]'hk') := by
+    intro k hk hk'
+    rcases k with _ | k
+    · exact .input rfl hA
+    · rcases k with _ | k
+      · exact .input rfl hB
+      · exact absurd hk (by simp)
+  have hsem : ChildSem.childSem ``childAdd
+      [Value.bits 8 (aS.val t), Value.bits 8 (bS.val t)] =
+      some (.bits 8 (aS.val t + bS.val t)) := by
+    show (if ``childAdd = ``childAdd ∧
+        [Value.bits 8 (aS.val t), Value.bits 8 (bS.val t)].map Value.kind =
+          [.bits 8, .bits 8] then _ else none) = _
+    rw [if_pos ⟨rfl, rfl⟩]
+    rfl
+  have leafM : LeafMeaning addSem (inputValues p.bools p.bits)
+      (wrapE (.fvar i0) (.fvar i1)) (.bits 8 (aS.val t + bS.val t)) :=
+    meaning_inst rfl rfl argsM hsem
+  have leafC : LeafContract (childrenOf childModule.name) addSem p.context
+      (inputValues p.bools p.bits) mems initial
+      (wrapE (.fvar i0) (.fvar i1)) (.bits 8 (aS.val t + bS.val t)) := by
+    intro we fuel
+    exact inst_leaf_fuel (mc := childModule) (dc := dc) (cwe := childWe)
+      (outName := "out") (wOut := 8)
+      rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
+      htagAll hsub hdc (by decide) (by decide) rfl (by decide) rfl rfl argsM
+      (fun k hk hk' fuel => by
+        rcases k with _ | k
+        · exact input_contract_fuel hA fuel
+        · rcases k with _ | k
+          · exact input_contract_fuel hB fuel
+          · exact absurd hk (by simp))
+      hsem rfl rfl childAdd_correct fuel
+  have value := Q (.const ``Sparkle.Core.Domain.defaultDomain []) 0 1 (fun _ => 8)
+    (fun _ => .const ``Sparkle.Core.Domain.defaultDomain [])
+    (fun _ => wrapE (.fvar i0) (.fvar i1)) (fun _ => false)
+    (fun _ w => BitVec.ofNat w (aS.val t + bS.val t).toNat)
+    (.bitsInput 8 0) ⟨by decide, rfl, by decide⟩
+    (fun j hj => absurd hj (Nat.not_lt_zero j))
+    (fun j hj => by
+      show Meaning (inputValues p.bools p.bits) (wrapE (.fvar i0) (.fvar i1))
+        (.bits 8 (BitVec.ofNat 8 (aS.val t + bS.val t).toNat))
+      rw [BitVec.ofNat_toNat, BitVec.setWidth_eq]
+      exact leafM)
+    (fun j hj => absurd hj (Nat.not_lt_zero j))
+    (fun j hj => by
+      intro we fuel
+      show Contract (translateFuelFix translateStep fuel) p.context
+        (inputValues p.bools p.bits) we mems initial
+        (wrapE (.fvar i0) (.fvar i1))
+        (.bits 8 (BitVec.ofNat 8 (aS.val t + bS.val t).toNat))
+      rw [BitVec.ofNat_toNat, BitVec.setWidth_eq]
+      exact leafC we fuel)
+    rfl
+  obtain ⟨⟨result, hev, hout⟩, -⟩ := value
+  refine ⟨result, hev, ?_⟩
+  rw [hout]
+  show (BitVec.ofNat 8 (aS.val t + bS.val t).toNat).toNat = (aS.val t + bS.val t).toNat
+  rw [BitVec.ofNat_toNat, BitVec.setWidth_eq]
+
 open Sparkle.IR.AST in
 run_cmd liftTermElabM do
   -- The compiled parent and child are EXACTLY the canonical shapes.
@@ -1589,7 +1739,7 @@ run_cmd liftTermElabM do
   -- a repeated call deduped through the validated record, a Bool root, a
   -- sequential child inside a cone).
   for nm in [``parentMix, ``parentTwoCalls, ``parentRepeat, ``parentCmp, ``parentSeqMix,
-      ``parentNested, ``parentPipeSeq, ``parentProjLeaf, ``parentProjArg] do
+      ``parentNested, ``parentPipeSeq, ``parentProjLeaf, ``parentProjArg, ``wrapAdd] do
     unless (mixedCertifiedShape? false [] (← getConstInfo nm) pred).isSome do
       throwError "cone parent {nm} missed the instance-leaf gate"
     unless mixedGateResultScalar (← getConstInfo nm).type do
@@ -1871,6 +2021,7 @@ run_cmd liftTermElabM do
       ``Tools.ShippingHierTermSoundness.hier_instRoot_gate,
       ``Tools.ShippingHierTermSoundness.hierRoot_entry_of_env,
       ``parentNested_peel, ``parentNested_entry_observes,
+      ``wrapAdd_peel, ``wrapAdd_entry_observes,
       ``Tools.ShippingHierOpen.linked_open,
       ``Tools.ShippingHierOpen.linked_consistent,
       ``Tools.ShippingHierOpen.seedOuts_bounded,

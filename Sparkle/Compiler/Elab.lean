@@ -2375,10 +2375,14 @@ def unifiedProjSpine (kinds : Array MixedGateBinder) : Lean.Expr → Bool
 
 /-- The application spine of an instance call whose arguments are input
     binders or, recursively, designated calls themselves (module pipelines:
-    `stage2 (stage1 a) b`). Structural recursion. -/
+    `stage2 (stage1 a) b`), after an optional closed-constant domain
+    argument. Structural recursion. -/
 def hierInstSpine (isInst : Lean.Expr → Bool) (kinds : Array MixedGateBinder) :
     Lean.Expr → Bool
   | .const _ _ => true
+  -- A closed constant as the FIRST argument: the concrete clock domain of a
+  -- wrapper written at a fixed domain (`childHW (dom := defaultDomain) a b`).
+  | .app (.const _ _) (.const _ _) => true
   | .app f (.bvar i) => (mixedGateBVar? kinds i).isSome && hierInstSpine isInst kinds f
   | .app f a =>
     isInst a && a.isApp && hierInstSpine isInst kinds a && hierInstSpine isInst kinds f

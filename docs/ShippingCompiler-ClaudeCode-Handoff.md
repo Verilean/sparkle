@@ -165,6 +165,18 @@ and is derived through the `ofV` embedding.
 
 ## Next work units and completion criteria
 
+**Measured priorities (2026-10-01).** `scripts/shipping-coverage/run.sh`
+measures which front end each declaration of the repository's corpus
+takes and why the rest miss the gate; the result and the ranked reasons
+are in ShippingCompiler-Coverage.md ("Measured corpus coverage"). 47 of
+389 real declarations pass a certified gate. The next unit by that
+ranking is a provable DEFINITION-UNFOLDING arm (the legacy handler
+inlines untagged user definitions with `unfoldDefinition?`); the list
+below is the older, shape-driven plan and is subordinate to the
+measurement. Re-run the measurement after every gate extension, and
+remember that `Tests.AllTests` does not contain every regression file —
+the corpus run is what found the Issue #107 regression.
+
 1. **The rest of S4.** Sequential duplicate merging (the sequential
    `mergeDuplicates` is the unvalidated `mergeDuplicatesRaw`; either validate
    it in the compiler with a register-bisimulation check or prove it),

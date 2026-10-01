@@ -1,202 +1,161 @@
 # Shipping compiler: the retained trust base
 
-The CompCert-style theorems in `Tools/Shipping*` prove the compiled
-artifacts against the source `Signal` semantics. This file states, in
-one place, everything the final claim RETAINS rather than proves —
-each item with its precise formal location, why it is retained, and
-what would discharge it. Nothing here is hidden inside a proof; every
-boundary is either a hypothesis of a theorem or a runtime gate in the
-test suite.
+The CompCert-style theorems in `Tools/Shipping*` prove compiled artifacts
+against the source `Signal` semantics. This file states, in one place,
+everything the claim RETAINS rather than proves: what is assumed, where
+it enters formally, and what would discharge it. Nothing here is hidden
+inside a proof — every item is a hypothesis of a theorem, a gate the test
+suite evaluates, a definition that carries meaning, or an explicit
+statement that something is outside every theorem.
 
-## 1. The Lean kernel and the three standard axioms
+Read it together with
+[ShippingCompiler-Coverage.md](ShippingCompiler-Coverage.md), which says
+WHICH compiles the theorems apply to. The short version: the theorems
+are conditional on a syntactic gate, and on the measured corpus most
+real designs do not pass it (§7).
 
-Every theorem is checked by the Lean 4 kernel and audited (in the test
-suite, via `collectAxioms`) to use only `propext`,
-`Classical.choice` and `Quot.sound`. `sorryAx`, `ofReduceBool` /
-`native_decide` and custom axioms are rejected by the audits.
+## 1. The logical base
 
-## 2. `EnvDefines` — what the run's environment says a name means
+Every theorem is checked by the Lean 4 kernel and audited in the test
+suite (`collectAxioms`) to depend only on `propext`, `Classical.choice`
+and `Quot.sound`. `sorryAx`, `ofReduceBool` / `native_decide` and custom
+axioms are rejected by the audits.
 
-`Tools.ShippingEntrySoundness.EnvDefines mctx mref cctx cref declName v`
-says: every `getConstInfo declName` in THIS meta context returns a
-definition whose value is `v`. Every entry endpoint takes it as a
-hypothesis. It is retained because the theorems live over the actual
-`MetaM` run: the connection between a `Name` and the Lean term the
-elaborator holds for it is a fact about the runtime environment, not
-about any function we can compute on. Discharging it would mean
-reflecting Lean's environment into the logic; retaining it keeps the
-statement honest: *if* the environment defines the declaration as the
-quoted source, the compiled module means that source.
+## 2. Run-environment boundaries
 
-## 3. Runtime-gated decidable premises
+The theorems are stated over the ACTUAL `MetaM` run of the compiler
+(`RunsTo`, `MReturns`). What a run reads from Lean's environment or from
+mutable references cannot be derived inside the logic, so each such read
+that a proof depends on is a named hypothesis. All of them have the same
+form: *every* read of that kind in this run returns the stated value.
 
-Several theorems take decidable premises that the test suite evaluates
-on the real pipeline artifacts and enforces with `throwError` gates:
+| Boundary | Says | Used by |
+| --- | --- | --- |
+| `EnvDefines … declName v` | every `getConstInfo declName` of the run returns a definition whose value is `v` | every entry endpoint |
+| the declaration's type is one scalar Signal (`mixedGateResultScalar`) | `EnvDefines` pins the value, not the type; the suite checks it on the real declaration | instance and cone endpoints |
+| tag fact at the entry (`RunsTo getEnv … → isHardwareModule e mn`) | the environment the gate predicate is built from tags the child | instance, projection and cone endpoints |
+| `HardwareTagged mn` | every environment the instance arm reads tags `mn` | instance contracts |
+| `SubSynthDefines mn mc dc` | the nested child synthesis the arm performs returns `(mc, dc)` | root instance contracts |
+| `SubSynthDefinesAll mn mc dc` | the same at every recursion fuel (inside a cone the arm runs below the entry fuel) | cone-leaf contract |
+| `ProjEnvDefines pn structName cn` | the projection function is not itself tagged, is a projection of `structName`, and the record call's head is tagged | projection contract |
+| `ProjFieldDefines pn structName field` | the arm's field-name resolution returns `field` | projection contract |
+| `OutCacheEmpty` | every read of the multi-output port map comes back empty | projection contract |
 
-- `seqOptCheck m o = true` — the sequential rename-equivalence checker
-  (optimizer output and sequential merge), gated per certified register
-  shape in `Tests/Compiler/ShippingRegisterSoundnessTest.lean`.
-- `seqCheck`, width agreement, `semFragCheck`, `bodyImage`,
-  `bodyReorderCheck`, fragment membership of the parsed-back body —
-  the emitted-SV and parsed-bytes chains, gated in the same file (the
-  parse gates run the REAL parser on the REAL printed bytes).
-- Post-processing identity on the certified memory shapes
-  (`Tests/Compiler/ShippingMemorySoundnessTest.lean`).
-- The byte-level pinning gates for the memory and hierarchy canonical
-  shapes, and the sub-module-equals-standalone-compile gate
-  (`Tests/Compiler/ShippingHierarchySoundnessTest.lean`).
+Not boundaries any more: the single-out instance cache (a hit is honoured
+only when the builder's own `translateRecord` names the same expression,
+so no premise about the mutable cache is needed), and the expression
+cache (validated the same way since S2). `OutCacheEmpty` is stronger
+than what the projection arm needs — it only queries the keys of the
+call at hand — and is false when the child itself instantiates
+multi-output modules; narrowing it to those keys is open.
 
-The division of labour is deliberate: theorems quantify over any
-artifacts satisfying the premise; the gates pin that the premise holds
-for what the pipeline actually produced in this build. A gate failure
-fails `Tests.AllTests`.
+## 3. Premises about a linked child
 
-## 4. The byte → AST direction of the printed text
+The hierarchical statements speak about a parent whose instance
+statements are executed against a table of children. Three premises are
+about that table, not about the run:
 
-For sequential modules the byte-level connection runs in the PARSE
-direction (`Tools/ShippingSeqSVSoundness.lean`,
-`seq_run_to_parsed`): the module the shipping parser reads back from
-the printed Verilog is proved trace-equal to the checked module. The
-parser/lowering step itself (bytes → SV AST → IR) is the retained
-base, exactly as in the corpus roundtrip validation (Test 68). A
-render-direction proof for sequential text is blocked on the SV AST:
-`SVSensitivity` cannot carry the asynchronous reset's compound
-sensitivity list. Combinational modules additionally have the render
-direction (`printedModule_render`).
+- `children mc.name = some (mc, cwe)`: the table holds the pinned child
+  under its module name. The suite checks `d.modules` on the real
+  compiles; deriving the registration from the run is open, and needs a
+  no-collision fact about module names (they come from declaration
+  names).
+- `ChildCorrect mn mc cwe out`: the pinned child's body computes the
+  child's source function. A statement about one fixed module — proved
+  outright for the test child; in general it is the child's own
+  certified endpoint.
+- `ChildOutsBounded children mems`: each child output fits its port
+  width. Likewise a fact about fixed modules.
 
-The M4 emitted-SV semantics layer (`certified_forward_trace`) covers
-assigns, registers and combinationally-read memories; SYNC-read
-memories (the certified `Signal.memory` shape) are outside `seqCheck`
-today — for them the byte-level story currently ends at the
-post-processing identity gates plus the IR endpoints.
+## 4. Decidable gates evaluated by the suite
 
-## 5. The linked meaning of module instances
+Several theorems take decidable premises about the pipeline's artifacts.
+The division of labour is deliberate: a theorem quantifies over any
+artifacts satisfying the premise; a `throwError` gate in the suite
+evaluates the premise on what the pipeline actually produced in this
+build. A gate failure fails `Tests.AllTests`.
 
-`Tools.ShippingHierarchySoundness.evalAssignsH` DEFINES what an
-instance means: the child's outputs are the standard evaluation of its
-own body on the connection-fed environment. The shipped `runModule`
-keeps the open-module view (instance outputs free). The definition is
-exercised against the real compiled parent/child pair and the child is
-gated to be its own certified standalone compile, but the
-correspondence of `evalAssignsH` to Verilog module instantiation is
-part of the retained base until the SV layers become
-hierarchy-aware.
+| Gate | Validates | Evaluated on |
+| --- | --- | --- |
+| `seqOptCheck m o` | the sequential merge and the optimizer on assign/register bodies | every certified register shape |
+| `optCheck (openFlat m …) (openFlat o …)`, `instsKept`, `connAgreeOk` | the optimizer on instance-bearing bodies (interface extraction) | three hierarchical parents |
+| `seqCheck` / `seqCheckM`, width agreement | the emitted-SV semantic layer applies | register, memory and hierarchical capstones |
+| `semFragCheck`, `bodyImage`, `bodyReorderCheck`, fragment membership of the parsed body | the parsed-back text is the checked module up to reordering; the gates run the REAL parser on the REAL printed bytes | the same capstones |
+| `linkedWF`, `instOutWidthsOk` | the linked/open bridge applies; instance outputs sit at their port widths | hierarchical capstones |
+| post-processing identity (`mFull.body = mr.body`) | cleanup and merge leave the certified body unchanged | memory shapes, hierarchical parent |
+| byte parity with the legacy front end | the certified front end emits exactly what the legacy one does | every family, including instances, projections, cones and pipelines |
+| pinned child modules (`cm == childModule`) | the literal module a premise names IS the compiled child, name included | hierarchy tests |
 
-## 6. Boundaries the S6 entry work will add (design note)
+`checkedOptimize` itself only checks assignment-only bodies; on
+registers, memories and instances the shipping pipeline keeps the
+optimizer's output unchecked at run time. For those shapes the
+validation is exactly the gates above: an optimizer change that broke
+one would fail the suite rather than silently ship, but a compile the
+suite never ran is not checked.
 
-Proving the parent's entry theorem for the instance-emitting path will
-need two further boundary predicates, mirroring `EnvDefines`:
+## 5. Definitions that carry the meaning
 
-- (LANDED) `SubSynthDefines mn mc dc`
-  (Tools/ShippingInstanceEntrySoundness.lean): every nested child
-  synthesis of `mn` the run performs returns exactly `(mc, dc)` — the
-  hierarchical mirror of `EnvDefines`, stated over `MReturns` of the
-  precise `Rec.synthesizeCombinational` call the arm makes. One
-  sibling boundary lands with it: `HardwareTagged mn` (every
-  environment the arm reads designates `mn` as `@[hardware_module]`).
-  The former third boundary `InstanceCacheEmpty` is GONE: the arm now
-  honours a single-out cache hit only when the builder's own
-  `translateRecord` says the cached wire was produced for this very
-  expression (`instHitValid`, the same validation
-  `cacheLookupValidated` applies to the expression cache), so at a
-  root call — empty record — no hit is possible whatever the mutable
-  cache holds (`instHit_empty`), and inside cones a hit is sound by
-  the existing `Records` invariant. Every lowering through the arm
-  records its result wire, so a repeat of the same call still dedupes
-  (suite-gated byte parity). The
-  parent-level `getEnv` that picks the run's gate predicate is exposed
-  by `synthesizeCombinationalCore_reads`, so the entry endpoint's tag
-  boundary is an `EnvDefines`-style `RunsTo` fact at the entry's own
-  contexts. One further retained premise: the parent declaration's
-  TYPE is one scalar Signal (`mixedGateResultScalar`; `EnvDefines`
-  pins only the value) — the test suite checks it holds for the real
-  declaration.
-- (LANDED) Cone leaves (Tools/ShippingInstanceLeaf.lean,
-  Tools/ShippingHierTermSoundness.lean). An instance call inside a
-  certified cone is lowered below the entry fuel, so its child pin is
-  `SubSynthDefinesAll mn mc dc` — the `SubSynthDefines` statement at
-  EVERY recursion fuel. The linked semantics needs two further
-  premises, both about the pinned child rather than the run:
-  `HierCtx.children mc.name = some (mc, cwe)` (the child table the
-  contract is stated against contains the pinned module under its
-  name — the suite checks `d.modules` concretely; proving the
-  registration from the run is open) and `ChildCorrect mn mc cwe out`
-  (the pinned child's body computes the `ChildSem` source function on
-  any environment carrying the packed arguments — a statement about
-  one fixed module, proved outright for the test child by
-  `childAdd_correct`; in general it is the child's own certified
-  endpoint). No cache premise is needed on either validated cache
-  path. What the linked statement MEANS is still §5's definition
-  (`evalAssignsH`, one level deep).
-- (RESOLVED, width linkage) `evalAssignsH` passes full values across
-  instance connections, so it is only faithful to module
-  instantiation when every connection joins equal widths. That is no
-  longer a premise: the arms check it before emitting
-  (`instLinkCheck`), and the contracts conclude it (`Linked`,
-  `InstsLinked`). What remains trusted is that the checked widths are
-  the widths the SV printer declares — the declared port/wire types
-  the check reads are the same `Module` fields the printer emits.
-- (LANDED, hierarchy at the SV layer) The printed-text statements for
-  hierarchical parents are stated in the open-module view under the
-  ORACLE SEEDING: instance-output wires carry the values the linked
-  semantics gives them, and `Consistent` says those values are each
-  child's evaluation on what its instance reads. What is trusted is
-  therefore unchanged from the flat layers (the SV semantics of the
-  assign fragment, the parser) plus §5's reading of an instantiation
-  as "outputs equal the child's function of the connected inputs" —
-  now used in its order-free form (`Consistent`), not only as the
-  sequential fold `evalAssignsH`. The optimizer on instance-bearing
-  modules is covered by translation validation, not by
-  `checkedOptimize` itself (which does not check there): the
-  capstone takes the decidable gates `optCheck` on the
-  interface-extracted pair, `instsKept` and `connAgreeOk` as
-  premises, and the suite evaluates them on the real modules. As
-  with the sequential shapes, an optimizer change that broke a gate
-  would fail the suite, not silently ship.
-- (LANDED) The projection arm's boundaries
-  (Tools/ShippingInstanceEntrySoundness.lean), for a parent
-  `field (child args…)` over a multi-output child:
-  `ProjEnvDefines pn structName cn` (every environment the arm reads
-  says: `pn` is not itself tagged, it is a projection of `structName`,
-  and the record call's head `cn` is tagged), `ProjFieldDefines pn
-  structName fieldName` (the arm's field-name resolution
-  `projFieldName?` — projection info, the structure's constructor
-  binders — returns `fieldName`), and `OutCacheEmpty` (every read of
-  the multi-output port map comes back empty; morally the depth-0
-  reset again). `SubSynthDefines` is reused for the child. The suite
-  checks the static facts (`getProjectionStructureName?`,
-  `projFieldName?`, untagged projection) on the real declarations.
-  The arm's call key is computed by `instCallKey`, which restores the
-  saved builder state after canonicalizing, so the canonicalizer is
-  NOT in the trust base of the contract (the key only indexes the
-  port map, which the boundary says is empty).
-- (RESOLVED) The instance caches (`sparkleSubInstanceOutputs`,
-  `sparkleSingleOutInstanceCache`) are `IO.Ref`s but are RESET at
-  depth 0 of every top-level synthesis (Issue #67,
-  Sparkle/Compiler/Elab.lean:2589) — they are per-synth dedupe, not
-  session history. A certified lowering that skips them is therefore
-  byte-identical for canonical single-call shapes; no cache premise is
-  needed.
-- (RESOLVED) The gate/environment obstacle: `mixedCertifiedShape?` now
-  takes an `isInst : Lean.Expr → Bool` parameter (default
-  `fun _ => false`), the real dispatch passes `instancePredicate env`
-  (a `getEnv` read: head constant tagged `@[hardware_module]`), and
-  `synthesizeCombinationalCore_reads` exposes the run's predicate
-  existentially. Every OLD family's acceptance is
-  predicate-independent, so their gate lemmas are stated
-  `∀ isInst, mixedCertifiedShape? … isInst = some …` and the entry
-  wrappers take that ∀-form premise — structural consumers
-  (`mixedShape_positive` etc.) instantiate it at the default
-  predicate and stay untouched. The instance family's own acceptance
-  WILL depend on the run's predicate; its future wrapper carries the
-  per-run predicate boundary instead of the ∀-form.
+The theorems relate these definitions. They are specifications, not
+theorems, and reading them is part of trusting the claim.
 
-## 7. What is NOT retained
+- The source: `Signal`, its operators, and `Signal.val` at a cycle.
+- The IR semantics: `evalExpr`, `evalAssigns`, `stepModule`,
+  `runModule` (`Sparkle/IR/Semantics.lean`). Instance statements are
+  no-ops here: the open-module view.
+- The linked meaning of an instance: `evalAssignsH` — the child's
+  outputs are the standard evaluation of its body on the
+  connection-fed environment, one level deep — and its order-free form
+  `Consistent` (each instance's outputs equal its child's evaluation on
+  what the instance reads). That this is what a SystemVerilog module
+  instantiation means is retained. Its width side condition is no
+  longer retained: every emitted instance is checked, and proved, to
+  join equal widths (`instLinkCheck`, `Linked`, `InstsLinked`).
+- The emitted-SV semantics (`Tools/SVParser/EmitSem.lean`): continuous
+  assignments, the always-block register shape, memories. An
+  independent reading of the SystemVerilog subset the printer emits.
+- The reader: the shipping parser and lowering
+  (`Tools/SVParser/Parser.lean`, `Lower.lean`). The byte-level
+  statements run in the PARSE direction — the module read back from
+  the printed text is proved trace-equal to the checked module — so the
+  parser is trusted as a reader of text. Combinational modules also
+  have the render direction (`printedModule_render`); for sequential
+  text it is blocked on the SV AST, whose sensitivity lists cannot
+  carry an asynchronous reset.
 
-For the certified shapes, the following are proved, not assumed: the
-translation of the quoted source (the family monoliths), the
-elaboration semantics of the emitted module (`stepModule`/`runModule`
-against the source streams), zero-width cleanup and (where gated)
-merge/optimize behaviour, the rename-equivalence of the optimizer's
-sequential output, the emitted SV objects' cycle semantics, and the
-trace of the parsed-back text.
+## 6. What the hierarchical statements do and do not say
+
+For a hierarchical parent the printed-text statements are in the
+open-module view under the ORACLE SEEDING: instance-output wires start
+at the values the linked semantics gives them, and `Consistent` says
+those values are the children's. This is a statement about the PARENT
+module's text. Not yet covered: the design-level text (children printed
+alongside the parent), children that are themselves sequential (the
+bridge is combinational; the per-cycle linked run `runH` is proved only
+at the IR level), and children that themselves instantiate.
+
+## 7. What is outside every theorem
+
+- **Compiles that miss the certified gate.** The theorems apply when
+  `certifiedShape?` or `mixedCertifiedShape?` accepts the declaration.
+  Everything else compiles through the legacy front end and handlers,
+  which have no theorem. On the measured corpus this is most real
+  designs; the numbers and the reasons are in the coverage inventory.
+- **Legacy handlers reached from a certified compile.** A certified
+  family's theorem covers its own quoted shape. A nested child
+  synthesis is covered only through the child-side premises of §3.
+- **Symbolic-width synthesis** (`#synthesizeParameterizedVerilog`) and
+  specialization of parameterized designs.
+- **Other back ends**: the C simulation, JIT and CUDA emitters, and
+  the SystemVerilog import path as a front end.
+- **A width-generic `@[hardware_module]`** is compiled once at a
+  fallback width. Instantiating it at another width is refused by the
+  width-linkage check (it used to miscompile); it is not specialized.
+
+## 8. What is NOT retained
+
+For the certified shapes the following are proved, not assumed: the
+translation of the quoted source, including both validated caches; the
+elaboration semantics of the emitted module against the source streams;
+zero-width cleanup; the width linkage of every emitted instance; and,
+where the gates of §4 hold, the merge and the optimizer, the emitted SV
+objects' cycle semantics, and the trace of the parsed-back text.

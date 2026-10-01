@@ -712,11 +712,20 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   explicit premise (the suite pins the real full-entry output
   component-equal to the certified core module, and decides the
   premise itself with the LAWFUL `DecidableEq` on statements —
-  `decide (mFull.body = raw.body)` — not the derived `BEq`). Open in
-  S7: a hierarchy post-pipeline
-  (the SV layers are open-module), and the coverage reconciliation of
-  the remaining legacy-success branches listed in
-  ShippingCompiler-Coverage.md.
+  `decide (mFull.body = raw.body)` — not the derived `BEq`). The
+  hierarchy post-pipeline exists for combinational parents
+  (`hier_shipping_transfer`, `parentMix_shipping_opt`: optimizer
+  validated by interface extraction, emitted SV and parsed-back text
+  under the oracle seeding). The legacy-success coverage is now
+  MEASURED rather than listed (`scripts/shipping-coverage/run.sh`,
+  results in ShippingCompiler-Coverage.md): of 389 real-corpus
+  declarations 47 pass a certified gate and 342 compile through the
+  legacy front end only; the miss reasons are ranked there. Open in
+  S7: closing that gap family by family in the measured order —
+  definition unfolding (250 declarations contain an inlined user
+  definition, 30 are blocked by nothing else), concrete-domain
+  registers/memories, `let`/`fun`, tuples and non-scalar interfaces,
+  general `Signal.loop`/`circuit do`, slices and concatenation.
 - [ ] **S7 / trust:** Resolve or explicitly retain `EnvDefines` in the final
   claim; record execution-model/external-tool boundaries without hiding them.
   RECORDED — docs/ShippingCompiler-TrustBase.md states the retained base
@@ -725,9 +734,16 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   byte→AST parse direction (and the sync-read-memory gap in M4), the
   linked-instance meaning, and the two boundary predicates the S6 entry
   work will add (`SubSynthDefines`, instance-cache cleanliness) with the
-  unresolved cache-history trade-off that stages S6-2.
+  unresolved cache-history trade-off that stages S6-2. FINAL FORM
+  (2026-10-01): the document is rewritten around what the finished
+  hierarchy work actually retains — the run-environment boundaries as
+  one table (the single-out cache boundary is gone: hits are validated),
+  the premises about a linked child, the decidable gates the suite
+  evaluates, the meaning-carrying definitions, what the hierarchical
+  text statements do and do not say, and what lies outside every
+  theorem (legacy-route compiles first).
 
-Latest validation: `lake build Tests.AllTests` passed all 653 jobs, with
+Latest validation: `lake build Tests.AllTests` passed all 659 jobs, with
 standard-axiom audits of the general endpoint and real signed/equality/Bool-logic
 source instantiations. Vector mux adds 2,772 source/legacy/SV/delta cases and
 real source theorems for nested and computed-condition muxes (no Bool input

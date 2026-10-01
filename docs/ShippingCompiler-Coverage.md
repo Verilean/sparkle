@@ -1,6 +1,6 @@
 # Shipping compiler coverage inventory
 
-Updated 2026-10-01 (dispatch table reconciled through the register, memory and instance arms; the family sections below keep their original dates). This is a structural inventory of the
+Updated 2026-10-01 (dispatch table reconciled through the register, memory and instance arms; the family sections below keep their original dates). The MEASURED coverage of the repository's own synthesis corpus is in the last section. This is a structural inventory of the
 existing compiler, not an exhaustive success-domain theorem or a new acceptance
 policy. A registered operator/handler is a possible route, not evidence that
 every source spelling succeeds. S3 must attach successful source witnesses and
@@ -15,13 +15,13 @@ Use declaration names as anchors; source line numbers move during extensions.
 | --- | --- | --- |
 | `synthesizeFromConst` → `certifiedShape?` → `synthesizeCertified` | S0: quoted positive-width BitVec fragment, `compiledFragment_execution` | Extend source/interface forms outside this gate without treating refusal by this gate as compiler failure. |
 | `synthesizeFromConst` → `mixedCertifiedShape?` → `synthesizeMixedCertified` | S1/S2: Bool inputs/literals, canonical `&&&`/`|||`/`^^^`/`~~~`, `ult`/`ule`/`slt`/`sle`, standard BitVec/Bool `beq`, Bool-result mux over common-width BitVec operands; BitVec mux trees via `ShippingVectorMuxSoundness.execution_source_of_env` | Extend operations/results and recursive width invariants. |
-| Both shape gates miss → existing synthesis/cache path | No general source-to-shipping-RTL theorem | Reconcile source opening, normalization, output leaf splitting, cached submodules and all successful legacy handlers. |
+| Both shape gates miss → existing synthesis/cache path | No general source-to-shipping-RTL theorem. MEASURED: 342 of the 389 real-corpus declarations take this route (see "Measured corpus coverage"). | Reconcile source opening, normalization, output leaf splitting, cached submodules and all successful legacy handlers, in the order the measurement gives. |
 | `translateStepWith` → `translateCore` | Existing fragment's literals, inputs and eight binary operations; mixed order proof reuses protected pending names | Other supported surface forms must be related to the quoted source, not assumed equal. |
 | `translateFallback` → Bool control/cache path | Current quoted Bool domain, including validated cache hit/miss behavior | Other Bool surface forms/custom instances and additional comparison forms. |
 | `translateFallback` → cached literal-width BitVec mux / width-changing map | Unified `Term`: mutual composition of muxes below/above arithmetic and comparison parents at either result sort, via `ShippingUnifiedExecutionSoundness.execution_source_of_env`, including validated cache hit/miss and record preservation; per-operation mixed widths and canonical width-changing maps (`Signal.map (BitVec.setWidth w)`/`zeroExtend` at literal positive widths — zero-extension, truncation and equal-width casts) are covered through the same endpoint. | Sign extension, general slice/concat surface operations and symbolic widths stay on the legacy path without a general theorem. |
 | `translateFallback` → canonical polymorphic-domain register | One `Signal.register initLit` root over the unified combinational domain: cycle observation and register update proved at the raw `synthesizeCombinationalCore` module (`register_step_of_env`, `trace_of_cycles`), reset held low, initialization from the declared value; `dropZeroWidthModule` proved body/width-preserving on this shape (the `SPARKLE_NO_REGDEDUP=1` configuration); the enabled register (`registerWithEnable`, hold mux) proved to the capture/hold cycle recurrence at the raw core module (`registerEnable_step_of_env`). (zero-width cleanup preserved for the plain and enabled shapes); the feedback register `Signal.loop (fun s => Signal.register initLit cone)` proved to the state-reading cycle recurrence at the raw core module (`loopRegister_step_of_env`; zero-width cleanup preserved on all three register shapes; the packaged `register_run_of_env`/`registerEnable_run_of_env`/`loopRegister_run_of_env` give the whole `runModule` trace of each shape as the source register stream, instantiated against the library `.val` streams); the two-stage shift chain `Signal.register i1 (Signal.register i2 cone)` proved likewise (`register2_step_of_env`, two-state `trace_of_cycles2`, packaged `register2_run_of_env`, zero-width cleanup preserved); the single-slot `circuit do` is recognized (`canonicalCircuitDo?`) and lowered to the byte-identical loop-form module, with source streams identified (`cdoAcc_val` via `map_fst_loop_register`) AND the general endpoint chain stated on the cdo quote form itself (`cdo_step_of_env`/`cdo_run_of_env` through the `CdoPreserves` monolith). | Sequential duplicate merge and the sequential `optimizeModule` pass-through are now covered by the PROVED rename-equivalence checker (`seqOptCheck_step_sound`/`seqOptCheck_run_sound`: k-cycle trace equivalence for accepted pairs, acceptance runtime-gated on every certified shape, composed with every certified shape's trace endpoint via `seqOptCheck_transfer` (`regAcc`/`regHold`/`accLoop`/`regChain`/`cdoAcc`/`cdo2X` `_run_optimized`), carried to the emitted-SV semantics (`seq_run_to_sv`, `*_sv_optimized`: M4 `runModuleSV` trace = source stream on every shape's optimized module) and to the parsed-back printed bytes (`seq_run_to_parsed`, `*_parsed_optimized`; the byte→AST parser is the remaining trusted step)); `circuit do` beyond the certified single-slot shape (the two-slot cross-coupled form is PROVED end to end for the returned-slot-0 shape — per-cycle and full-trace endpoints at the real entry over the state-pair recurrence; the trace is identified with the actual `circuit do` output stream via `loopPair_val`; differing widths, more slots, slot-1 return and Reg-operator reads stay open), register chains deeper than two stages and general register networks, reset muxes and the sequential SV printer step stay open; concrete-domain registers keep the legacy handler. |
 | `translateFallback` → canonical sync-read memory (`canonicalMemory?` → `translateMemoryUncachedWith`) | `Signal.memory` with bare-input operands AND with unified-cone operands: gate, total lowering, monoliths (`MemoryPreserves`/`MemoryConePreserves`), whole-trace endpoints at the real entry (`memory_run_of_env`, `memoryCone_run_of_env`), the emitted-SV layer with the read latch and write program (`mem_run_to_sv`), the parsed-back printed bytes (`mem_run_to_parsed`), the composed post-pipeline (`shipping_pipeline_transfer_mem`) and the real-circuit capstones at the core AND the full entry (`memAcc_shipping`, `memAcc_shipping_full`; the cleanup/merge identity is a lawful decidable gate). | Multi-port memories, `memoryWithInit` (an arbitrary Lean function argument), the non-synthesizable combinational-read form, and concrete-domain variants keep the legacy handler. |
-| `translateFallback` → `translateInstanceOrFallback` (tagged head, single-output child → `translateInstanceUncachedWith`) | Every `@[hardware_module]` call with a single-output child takes this provable arm in ANY translation (byte-equal to the legacy handler — suite-gated incl. clk/rst plumbing and repeated-call dedupe). Certified as a ROOT: the canonical combinational parent at EVERY arity (`InstanceNPreserves` over the list-quoted call `instEN`, `parentUse3_instance_entry`; the two-input instance `InstancePreserves`/`parentUse_instance_entry` additionally has its source composition observed through the linked semantics by `parentUse_entry_observes`) and the one-input sequential-child parent (`Instance1Preserves`, `parentSeq_instance_entry`; the linked per-cycle run `runH` observes the source register stream, `parentSeq_runH_observes`). Every instance statement the arm emits is width-linked (checked before emission, concluded as `Linked` in the contract; a width-generic child at a foreign width is refused instead of miscompiled). Run boundaries: `HardwareTagged`, `SubSynthDefines`, plus the parent's scalar result type (single-out cache hits are validated against the builder's own record, so no cache boundary). | Field projections of multi-output children take the sibling provable arm `translateProjInstanceUncachedWith` and are certified as a ROOT by `ProjInstancePreserves` (`parentHi_instance_entry`, source field observed by `parentHi_entry_observes`; boundaries `ProjEnvDefines`/`ProjFieldDefines`/`OutCacheEmpty`); record-RETURNING parents and a second projection of an already-emitted call fall through to the legacy handler; instance calls INSIDE cones with binder arguments on single-output combinational children are certified as cone leaves (`inst_leaf_contract`, `HierConePreserves`, `parentMix_entry_observes`: the linked evaluation observes the source); pipelines (a call whose operands are calls) are certified the same way (`hierInstRoot`, `parentNested_entry_observes`); calls with cone operands and sequential/Bool-output/projection leaves inside cones are gate-accepted and byte-gated but have no entry contract; nested/multiple instances, parameters, and the SV/parse layers for `.inst` statements (open-module view) remain; every single-output child shape (any arity, with or without clk/rst) is covered as a root by `InstanceGPreserves`. |
+| `translateFallback` → `translateInstanceOrFallback` (tagged head, single-output child → `translateInstanceUncachedWith`) | Every `@[hardware_module]` call with a single-output child takes this provable arm in ANY translation (byte-equal to the legacy handler — suite-gated incl. clk/rst plumbing and repeated-call dedupe). Certified as a ROOT: the canonical combinational parent at EVERY arity (`InstanceNPreserves` over the list-quoted call `instEN`, `parentUse3_instance_entry`; the two-input instance `InstancePreserves`/`parentUse_instance_entry` additionally has its source composition observed through the linked semantics by `parentUse_entry_observes`) and the one-input sequential-child parent (`Instance1Preserves`, `parentSeq_instance_entry`; the linked per-cycle run `runH` observes the source register stream, `parentSeq_runH_observes`). Every instance statement the arm emits is width-linked (checked before emission, concluded as `Linked` in the contract; a width-generic child at a foreign width is refused instead of miscompiled). Run boundaries: `HardwareTagged`, `SubSynthDefines`, plus the parent's scalar result type (single-out cache hits are validated against the builder's own record, so no cache boundary). | Field projections of multi-output children take the sibling provable arm `translateProjInstanceUncachedWith` and are certified as a ROOT by `ProjInstancePreserves` (`parentHi_instance_entry`, source field observed by `parentHi_entry_observes`; boundaries `ProjEnvDefines`/`ProjFieldDefines`/`OutCacheEmpty`); record-RETURNING parents and a second projection of an already-emitted call fall through to the legacy handler; instance calls INSIDE cones with binder arguments on single-output combinational children are certified as cone leaves (`inst_leaf_contract`, `HierConePreserves`, `parentMix_entry_observes`: the linked evaluation observes the source); pipelines (a call whose operands are calls) are certified the same way (`hierInstRoot`, `parentNested_entry_observes`); a wrapper written at a CONCRETE clock domain (`childHW (dom := defaultDomain) a b`, the `synth_*` idiom of the IP tests) is admitted by the same spine and certified through the same endpoint (`wrapAdd_entry_observes`); calls with cone operands and sequential/Bool-output/projection leaves inside cones are gate-accepted and byte-gated but have no entry contract; nested/multiple instances, parameters, and the SV/parse layers for `.inst` statements (open-module view) remain; every single-output child shape (any arity, with or without clk/rst) is covered as a root by `InstanceGPreserves`. |
 | `translateFallback` → `Rec.translateExprToWireCached` / `translateExprToWireImpl` | No blanket fallback theorem | Unfolding/type queries, application normalization, primitive and structural routes below. |
 | `synthesizeCombinationalWithParameters`, symbolic dimensions | Not covered by S0–S2 endpoint | Parameter interpretation, width positivity/zero-width behavior, emitted parameter syntax and instantiated execution. |
 | `synthesizeHierarchical*` / `validateDesignNames` | Name validation is implemented; the one-level linked semantics (`evalAssignsH`, per-cycle `stepAssignsH`/`runH`) and the canonical-parent forwarding theorems (`instBody_linked`, `instBody_runH`) give compiled parent/child pairs their composed meaning. | General multi-level designs, port/parameter linkage beyond the canonical shapes, and the hierarchy-aware printed text. |
@@ -182,3 +182,107 @@ the real nested declaration with the typed quotation and library meaning, and
 checks 2,322 source/legacy/SV/delta cases. These are success witnesses and
 regressions, not universal compiler correctness for that larger domain.
 The remaining source-coverage boundary in the tables above is unchanged.
+
+## Measured corpus coverage (2026-10-01)
+
+The tables above say which routes HAVE a theorem. This section says how
+often the repository's own designs take them. It is a measurement, not a
+theorem, and it is reproducible:
+
+```sh
+lake build Tests.AllTests          # the files are run against built oleans
+scripts/shipping-coverage/run.sh   # never next to a running `lake build`
+```
+
+**Method.** The compiler logs the front end of every synthesis when
+`SPARKLE_PROFILE=1` (`certified front end`, `mixed certified front end`,
+or the legacy start line). Pass 1 runs every file under `Tests`, `IP` and
+`Examples` that contains a synthesis command and aggregates the log by
+declaration. Pass 2 appends a classifier to a copy of each file: for a
+declaration that only ever took the legacy route it reports whether the
+gate rejected a binder, and otherwise which head constants of the body
+lie outside the certified vocabulary. Declarations of the certification
+tests themselves (`Tests/Compiler/Shipping*`) are counted separately so
+they do not flatter the result.
+
+**Scope of the run.** 190 files, 167 elaborate, 23 do not: unbuilt
+import trees (RV32, H.264, YOLOv8 and a few others are not part of
+`Tests.AllTests`), intentional error tests, and one stale file. None of
+the failures comes from the compiler changes of this branch; a file that
+did (the Issue #107 regression) was found by this measurement and fixed.
+The designs in the unbuilt trees are the largest in the repository, so
+the real share of certified compiles is, if anything, lower than below.
+
+**Result.**
+
+| Group | Certified front end | Legacy only | Total |
+| --- | --- | --- | --- |
+| Real corpus | 47 (12%) | 342 | 389 |
+| Certification tests | 115 | 21 | 136 |
+
+"Certified front end" means the gate accepted the declaration, i.e. the
+syntactic precondition of the theorems holds. It does not discharge the
+premises of [the trust base](ShippingCompiler-TrustBase.md). Of the 47,
+39 are small operator, mux and register test circuits. The other 8 are
+concrete-domain wrappers around tagged IP modules (`synth_aesSbox`,
+`synth_aesRcon`, `synth_keccakRc`, `synth_sha256KMux`, `synth_sha512KMux`,
+`synth_tlpHeaderByte`, `synth_tcpChecksum`, `synth_tcpHeaderByte`),
+accepted since the instance spine admits a closed clock-domain argument.
+For those the certified statement is about the PARENT: it is a
+width-linked instance of its child. The children themselves are compiled
+by the legacy front end, so their correctness stays a premise
+(`ChildCorrect`). No IP design body is certified end to end today.
+
+**Why declarations miss the gate** (337 of the 342 legacy-only
+declarations classified; a declaration counts once per feature it
+contains):
+
+| Feature outside the certified vocabulary | Declarations | Sole blocker |
+| --- | --- | --- |
+| A user definition or structure the legacy front end inlines | 250 | 30 |
+| Concrete clock domain (`defaultDomain`) | 212 | 3 |
+| `fun` (a lambda in the body) | 82 | – |
+| `let` | 81 | 2 |
+| Tuples (`bundle`, `Prod`, projections) | 62 | 1 |
+| `Signal.loop` beyond the certified register shapes | 31 | – |
+| `circuit do` runtime beyond the two certified shapes (`HList`, `RegList`, `Reg`) | 31 | – |
+| `BitVec.extractLsb'` (slices) | 26 | – |
+| `HAppend` (concatenation) | 21 | 1 |
+| `Signal.fst` / `Signal.snd` | 20 / 18 | – |
+| Applicative lifting (`<$>`, `<*>`, `pure`) | 16 | – |
+| `Signal.memoryComboRead` | 10 | – |
+
+Besides the body: 83 legacy-only declarations return a non-scalar
+(structure or tuple) result, which no certified family produces; 21 are
+rejected at a binder (a structure-typed or tuple-typed input, or a type
+parameter); 9 contain instance calls in positions the instance gates do
+not admit; 2 use only certified vocabulary in a shape no gate admits.
+
+**What the measurement says about the remaining work.** The certified
+families were built bottom-up from operators, and the corpus is written
+top-down from definitions. The order below is by declarations unblocked,
+not by difficulty:
+
+1. **Definition unfolding.** A call to an untagged user definition is
+   inlined by the legacy handler (`unfoldDefinition?`, then translate the
+   result). It appears in 250 declarations and is the only blocker in 30.
+   A provable unfolding arm — delta and beta against the definition's
+   value, validated against what the legacy step returns — would let the
+   existing cone theorems apply to the unfolded body.
+2. **Concrete clock domains.** Combinational cones and instance spines
+   at `defaultDomain` are accepted; registers and memories at a concrete
+   domain keep the legacy handler because the reset kind is read from
+   the domain. This is the second most common feature and rarely the
+   only one.
+3. **`let` and `fun`.** Local bindings and lambdas inside bodies; the
+   legacy translator resolves `let` values through a separate path (the
+   one Issue #107 was about).
+4. **Tuples and non-scalar interfaces.** Structure and tuple results
+   and inputs, `bundle`/projections, `Signal.fst`/`snd`.
+5. **General `Signal.loop` and `circuit do`.** More than two slots,
+   differing widths, `Reg` operators.
+6. **Slices and concatenation.** `extractLsb'` and `++`.
+
+Each item is a family in the sense of this file: a provable arm that is
+byte-identical to the legacy handler, a contract, a gate, and a clause
+of the bundle. None may shrink what the compiler accepts.
