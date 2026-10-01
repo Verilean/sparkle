@@ -129,7 +129,7 @@ theorem hier_quote_accepted {isInst : Lean.Expr → Bool} {kinds : Array MixedGa
               hierGateBitsBody isInst kinds w (quote dom binp vinp b)
           | _, _, _ =>
             isInst (binE dom w op (quote dom binp vinp a) (quote dom binp vinp b)) &&
-              unifiedInstanceSpine kinds
+              hierInstSpine isInst kinds
                 (binE dom w op (quote dom binp vinp a) (quote dom binp vinp b))) := by
       simp only [binE, mkApp6, mkApp4, mkApp2, mkAppB, mkApp]
       rfl
@@ -337,6 +337,18 @@ theorem hier_cone_gate {d : DefinitionVal} {bs : List (Name × MixedGateBinder)}
     Bool.false_eq_true, if_false, peel, root, hscalar, Bool.and_self, Bool.or_true,
     Bool.true_or, if_true]
 
+/-- A pipeline root — a designated call over binders and nested designated
+calls — is recognized AT the given designation predicate. -/
+theorem hier_instRoot_gate {d : DefinitionVal} {bs : List (Name × MixedGateBinder)}
+    {body : Lean.Expr} {isInst : Lean.Expr → Bool}
+    (peel : mixedGatePeel d.value = some (bs, body))
+    (hroot : hierInstRoot isInst (bs.map Prod.snd).toArray body = true)
+    (hscalar : mixedGateResultScalar d.type = true) :
+    mixedCertifiedShape? false [] (.defnInfo d) isInst = some (bs, body) := by
+  simp only [mixedCertifiedShape?, Bool.false_or, List.isEmpty_nil, Bool.not_true,
+    Bool.false_eq_true, if_false, peel, hroot, hscalar, Bool.and_self, Bool.or_true,
+    Bool.true_or, if_true]
+
 /-- The linked value observed at `out`. -/
 def HierValue (children : String → Option (Sparkle.IR.AST.Module × WEnv))
     (m : Sparkle.IR.AST.Module) (initial : Env) (mems : MEnv) (expected : Nat) : Prop :=
@@ -495,6 +507,35 @@ theorem hierCone_entry_of_env {declName : Name} {mctx : Meta.Context}
   obtain ⟨hb, hv⟩ := leaves _ _ _ henv
   have shape := hier_cone_gate (d := dv) (by rw [hval]; exact peel) he hroot
     (hscalar dv hval) hb hv
+  exact sel bs _ (old dv hval) shape
+
+/-- The pipeline-root entry endpoint: a declaration whose whole body is a
+designated call over binders and nested designated calls — recognized at the
+run's own predicate — compiles to a module with the linked-cone guarantee
+(instantiate it at the one-leaf term whose leaf is the call). -/
+theorem hierRoot_entry_of_env {declName : Name} {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {d : Design} {value : Lean.Expr}
+    {bs : List (Name × MixedGateBinder)} {body : Lean.Expr}
+    (hr : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w
+      (m, d) w')
+    (env : Tools.ShippingEntrySoundness.EnvDefines mctx mref cctx cref declName value)
+    (old : ∀ dv : DefinitionVal, dv.value = value →
+      certifiedShape? false [] (.defnInfo dv) = none)
+    (hscalar : ∀ dv : DefinitionVal, dv.value = value →
+      mixedGateResultScalar dv.type = true)
+    (peel : mixedGatePeel value = some (bs, body))
+    (root : ∀ wE envR wE',
+      RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref wE envR wE' →
+      hierInstRoot (Sparkle.Compiler.Elab.instancePredicate envR)
+        (bs.map Prod.snd).toArray body = true) :
+    HierConePreserves declName bs body m := by
+  obtain ⟨ci, envR, w1, w2, w5, w6, get, henv, sel⟩ :=
+    synthesizeCombinationalCore_hierCone_sound hr
+  obtain ⟨dv, rfl, hval⟩ := env w1 ci w2 get
+  have shape := hier_instRoot_gate (d := dv) (by rw [hval]; exact peel)
+    (root _ _ _ henv) (hscalar dv hval)
   exact sel bs _ (old dv hval) shape
 
 end Tools.ShippingHierTermSoundness

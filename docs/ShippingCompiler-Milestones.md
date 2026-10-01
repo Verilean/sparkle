@@ -29,9 +29,9 @@ proved and audited, not when a certain number of lemmas or commits have landed.
 | S2 | Current mixed fragment: RTL semantics and settling | Done | One general shipping-source endpoint combines S1 with AST semantic preservation, unique bounded solution, and existence/convergence of every permitted delta trace to the source output. No caller-supplied expression-check, acyclicity, child-correctness or compiler-replay certificate. |
 | S3 | Remaining successful combinational paths | Active — comparisons, Bool logic, BitVec mux trees, mixed widths and setWidth casts connected | Inventory the existing successful paths, then connect remaining Bool surface forms, BitVec-result mux, other comparisons/shifts, width-changing/mixed-width operations and successful interface forms through syntax and RTL semantics. Completion requires the inventory's combinational entries to be covered, not one more chosen example. |
 | S4 | State and reset | Active — one register over the unified domain connected at the raw core entry | Derive a general state/trace correspondence from the actual stateful compilation path, including initialization, clock/update observation, enable/hold and supported reset behavior; preserve it through actual postprocessing, optimization and emitted RTL. Separate typed single-register results do not close this milestone. |
-| S5 | Memory | Pending | Model and prove the actual successful memory paths: initialization assumptions, read latency, writes/masks, read/write ordering and collisions where applicable. Connect arbitrary admissible traces through actual compilation and emitted RTL. |
-| S6 | Hierarchy | Pending | Give instances compositional execution semantics; prove port/parameter/width linkage and state/memory composition for actual successful hierarchical entry points. Name validation alone does not close this milestone. |
-| S7 | Successful-domain coverage and final composition | Pending | Reconcile all successful dispatcher/entry/pass branches with proved cases, compose the end-to-end theorem, and instantiate that theorem on representative real circuits. No silently omitted success branch or caller-provided replay proof. State the remaining trust assumptions explicitly. |
+| S5 | Memory | Active — single-port `Signal.memory` certified at the core and full entry (binder and cone operands); multi-port, inits and the wider layers open | Model and prove the actual successful memory paths: initialization assumptions, read latency, writes/masks, read/write ordering and collisions where applicable. Connect arbitrary admissible traces through actual compilation and emitted RTL. |
+| S6 | Hierarchy | Active — linked instance semantics; root instances (any single-output child, projections of multi-output children), cones over instance leaves and pipelines of calls certified at the core entry; sequential/multi-output cone leaves, design registration, multi-level linking, parameters and the SV layer open | Give instances compositional execution semantics; prove port/parameter/width linkage and state/memory composition for actual successful hierarchical entry points. Name validation alone does not close this milestone. |
+| S7 | Successful-domain coverage and final composition | Active — seventeen family contracts reconciled in one core-entry statement, register and memory post-pipelines composed, capstones at the core and full entry; hierarchy post-pipeline, legacy-success branch coverage and trust-base finalization open | Reconcile all successful dispatcher/entry/pass branches with proved cases, compose the end-to-end theorem, and instantiate that theorem on representative real circuits. No silently omitted success branch or caller-provided replay proof. State the remaining trust assumptions explicitly. |
 
 S0 covers inputs/constants, six basic arithmetic/bitwise operations and
 same-width logical shifts. The S1/S2 baseline covers the `BExpr` source
@@ -325,9 +325,10 @@ linked semantics: the unified recursion is generic over a semantic
 context (`LinkCtx`/`HierCtx`) and over leaf contracts, the instance
 leaf contract is proved (`inst_leaf_contract`), and the entry endpoint
 `HierConePreserves` is instantiated on a real parent
-(`parentMix_entry_observes`). Nested calls, sequential children as cone
-leaves, design registration, parameters and the SV layer remain. S7 is
-STARTED:
+(`parentMix_entry_observes`), as is a pipeline of calls
+(`parentNested_entry_observes`). Cone operands of calls, sequential
+children as cone leaves, design registration, parameters and the SV
+layer remain. S7 is STARTED:
 `ShippingPreserves`/`synthesizeCombinationalCore_shipping_sound`
 reconcile all eleven ∀-predicate family contracts into one core-entry
 statement, and the instance family joins the same theorem as a

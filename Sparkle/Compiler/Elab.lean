@@ -2339,6 +2339,23 @@ def unifiedProjSpine (kinds : Array MixedGateBinder) : Lean.Expr → Bool
     (mixedGateBVar? kinds i).isSome && call.isApp && unifiedInstanceSpine kinds call
   | _ => false
 
+/-- The application spine of an instance call whose arguments are input
+    binders or, recursively, designated calls themselves (module pipelines:
+    `stage2 (stage1 a) b`). Structural recursion. -/
+def hierInstSpine (isInst : Lean.Expr → Bool) (kinds : Array MixedGateBinder) :
+    Lean.Expr → Bool
+  | .const _ _ => true
+  | .app f (.bvar i) => (mixedGateBVar? kinds i).isSome && hierInstSpine isInst kinds f
+  | .app f a =>
+    isInst a && a.isApp && hierInstSpine isInst kinds a && hierInstSpine isInst kinds f
+  | _ => false
+
+/-- A designated call whose arguments are binders or nested designated
+    calls, as the whole declaration body. -/
+def hierInstRoot (isInst : Lean.Expr → Bool) (kinds : Array MixedGateBinder)
+    (e : Lean.Expr) : Bool :=
+  isInst e && e.isApp && hierInstSpine isInst kinds e
+
 /-- The canonical sub-module instance root: a call to a designated
 (`@[hardware_module]`) constant whose arguments are all input binders, or
 a structure projection of such a call (a multi-output child). The
@@ -2407,8 +2424,8 @@ def hierGateBitsBody (isInst : Lean.Expr → Bool) (kinds : Array MixedGateBinde
           canonicalSignalBitVecWidth e.getAppArgs with
       | some _, some (true, true), some w =>
         w == n && hierGateBitsBody isInst kinds n a && hierGateBitsBody isInst kinds n b
-      | _, _, _ => isInst e && unifiedInstanceSpine kinds e
-  | e => isInst e && e.isApp && unifiedInstanceSpine kinds e
+      | _, _, _ => isInst e && hierInstSpine isInst kinds e
+  | e => isInst e && e.isApp && hierInstSpine isInst kinds e
 
 end
 
@@ -2458,6 +2475,8 @@ def mixedCertifiedShape? (symbolicMode : Bool) (parameters : List (String × Nat
           unifiedRegisterRoot (bs.map (·.2)).toArray body ||
           unifiedMemoryRoot (bs.map (·.2)).toArray body ||
           (hierGateRoot isInst (bs.map (·.2)).toArray body &&
+            mixedGateResultScalar d.type) ||
+          (hierInstRoot isInst (bs.map (·.2)).toArray body &&
             mixedGateResultScalar d.type) then some (bs, body) else none
     | none => none
   | _ => none

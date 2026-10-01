@@ -571,13 +571,22 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   dispatcher, `hierCone_entry_of_env`, bundle clause seventeen, and
   the real endpoint `parentMix_entry_observes` (`childAdd a b + a`,
   with `childAdd_correct` discharging the child's correctness on the
-  pinned module). Byte parity with the legacy front end is gated for
-  two calls, a repeated call (ONE instance), a Bool root, a
-  sequential child inside a cone, and a nested call (which stays
-  legacy). Open in S6: gate + contract for NESTED calls (the leaf
-  contract already takes operand contracts, the gate spine still
-  requires binder arguments), sequential/Bool-output/multi-output
-  children as cone leaves, registration of the linked children in
+  pinned module). MODULE PIPELINES are certified too: the gate spine
+  `hierInstSpine` accepts operands that are binders or, recursively,
+  designated calls (`hierInstRoot` for a pipeline as the whole body,
+  `hier_instRoot_gate`, `hierRoot_entry_of_env`), and
+  `parentNested_entry_observes` proves the linked evaluation of the
+  real `childAdd (childAdd a b) b` observes its source — the outer
+  call's leaf contract consuming the inner call's leaf contract as an
+  operand contract. Byte parity with the legacy front end is gated
+  for two calls, a repeated call (ONE instance), a Bool root, a
+  sequential child inside a cone, a pipeline, a sequential stage fed
+  by a combinational one, and a projection as cone leaf / as call
+  operand. Open in S6: call operands that are general cones
+  (`childAdd (a + b) b` — the leaf contract takes any operand
+  contract, the gate spine does not yet), sequential/Bool-output/
+  multi-output children as cone leaves (gate-accepted and
+  byte-gated, no entry contract), registration of the linked children in
   the emitted design (the `children` table of the contract is a
   premise; the suite checks `d.modules` concretely), multi-level
   linking (a child that itself instantiates), parameters, and the
