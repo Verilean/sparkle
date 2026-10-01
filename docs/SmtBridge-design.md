@@ -1,6 +1,11 @@
 # Design: SMT bridge — untrusted finder, Lean-verified certifier
 
-Status: **M1 in progress** (emitter + BMC + counterexample replay).
+Status: **M1 and M1.5 done; k-induction (the first half of M2) done.**
+Emitter, BMC, counterexample replay on CSim, counterexample rendering
+(table + VCD), k-induction, and a Signal-DSL surface (`#bmc`,
+`#kinduction`, `#writeSvaChecker`) exist; see §6. Not started: the
+incremental solver session, CHC/Spacer (M3), kernel-checked certification
+of invariants (M4).
 Context: NLnet Task 2; discussion history in `docs/CudaIntraSim-design.md`'s
 sibling thread. Related work: IOHK Lean-blaster (no BitVec yet — upstream
 contribution planned; `admit`-based, so its trust model is not ours).
@@ -143,3 +148,32 @@ session + k-induction → M3 CHC/Spacer + invariant import → M4 invariant
 reflection + bv_decide certification (the hard, novel part) → M5
 solver-agnostic + tutorial chapter. Lean-blaster BitVec upstream
 contribution runs parallel to M2/M3.
+
+## 6. What is implemented
+
+| Piece | Where | Checked by |
+|-------|-------|------------|
+| SMT-LIB2 emission, BMC query | `Sparkle/Backend/Smt.lean` (`toSmtBmcQuery`) | `Tests/TestSmt.lean` (shape), `lake exe smt-bmc-test` (z3 + CSim replay) |
+| k-induction step query | `toSmtInductionQuery`: frame 0 is a free state; assertions assumed in frames 0..k-1, checked in frame k | same |
+| Running z3, verdicts, shortest counterexample | `Sparkle/Verification/Bmc.lean` (`checkBmc`, `checkInduction`) | `smt-bmc-test` |
+| Counterexample table and VCD | `renderTrace`, `toVcd` | `Tests/TestSmt.lean` |
+| DSL commands | `Sparkle/Verification/BmcCommand.lean` | `Tests/BmcDslTest.lean` (verdicts are checked at build time when z3 is present) |
+
+A DSL property is a circuit returning `Signal dom Bool` (a monitor); its
+single output becomes the module's assertion. There is no separate
+assertion syntax and no IR change.
+
+Frame-local definitions are emitted in dependency order, not body order:
+the elaborator assigns a `Signal.loop` wire after its readers, and SMT
+`define-fun` needs definition before use. A combinational cycle is an
+emission error.
+
+Trust: a `sat` answer is confirmed independently only by the CSim replay
+in `smt-bmc-test`; the DSL commands print the solver's trace without
+replaying it. An `unsat` answer (BMC "no violation", k-induction "holds")
+rests on z3 and on this emitter — it is not a kernel-checked proof. That
+is M4.
+
+Not covered, and rejected with an error: sub-module instances (flat
+modules only) and multi-port memories. Also not covered: assumptions as a first-class notion (write them into the monitor, as in
+`zeroUntilEnabled`), liveness.

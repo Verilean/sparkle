@@ -39,6 +39,7 @@ automatically.
 | 4 | Modules and Composition | [`md/Ch04_Modules.md`](md/Ch04_Modules.md) |
 | 5 | Verilog Generation | [`md/Ch05_Verilog.md`](md/Ch05_Verilog.md) |
 | 6 | Proofs: LTL Invariants | [`md/Ch06_LTL.md`](md/Ch06_LTL.md) |
+| 6b | Automatic checks with an SMT solver (`#bmc`, `#kinduction`) | [`md/Ch06b_ModelChecking.md`](md/Ch06b_ModelChecking.md) |
 | 7 | Proofs: Equivalence Checking | [`md/Ch07_Equivalence.md`](md/Ch07_Equivalence.md) |
 | 8 | Netlist Generation with Yosys | [`md/Ch08_Yosys.md`](md/Ch08_Yosys.md) |
 | 8b | Three Ways to Simulate, One Interface (pure-Lean / JIT / Verilator) | [`md/Ch08b_Simulation.md`](md/Ch08b_Simulation.md) |

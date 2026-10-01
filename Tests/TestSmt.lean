@@ -5,6 +5,8 @@
 -/
 
 import Sparkle.Backend.Smt
+import Sparkle.Verification.Bmc
+import Sparkle.Verification.BmcCommand
 import Sparkle.IR.AST
 import Sparkle.IR.Type
 import LSpec
@@ -58,6 +60,25 @@ def buggyCounter : Module := {
     .register "count" "clk" ("rst", .synchronous) (.ref "nxt") 0,
     .assign "count_o" (.ref "count") ]
   assertions := [("count_lt_12", .op .lt_u [.ref "count", .const 12 4])]
+}
+
+/-- 4-bit counter that advances only when `en` is high.  Assertion
+    `count < 3` first fails in cycle 3, and only if `en` was high in cycles
+    0..2 — the SHORTEST counterexample, which `checkBmc` must return even
+    when the solver's first model is a longer one. -/
+def enCounter : Module := {
+  name        := "EnCounter"
+  isPrimitive := false
+  inputs      := [⟨"clk", .bit⟩, ⟨"rst", .bit⟩, ⟨"en", .bit⟩]
+  outputs     := [⟨"count_o", .bitVector 4⟩]
+  wires       := [⟨"nxt", .bitVector 4⟩, ⟨"count", .bitVector 4⟩]
+  body := [
+    -- deliberately before its definition order matters: `count_o` reads
+    -- the register, `nxt` is defined after the register that reads it
+    .assign "count_o" (.ref "count"),
+    .register "count" "clk" ("rst", .synchronous) (.ref "nxt") 0,
+    .assign "nxt" (.op .mux [.ref "en", .op .add [.ref "count", .const 1 4], .ref "count"]) ]
+  assertions := [("count_lt_3", .op .lt_u [.ref "count", .const 3 4])]
 }
 
 /-- Memory write-then-readback (QF_ABV — what `bv_decide` cannot express):
@@ -231,7 +252,66 @@ def smtTests : IO TestSeq := do
       cex[0]! == [("x", 3)] && cex[1]! == [("x", 5)] && cex[2]! == [("x", 31)]
     | _ => false
 
+  -- k-induction step and trace read-back
+  let stepQ := okOut (toSmtInductionQuery goodCounter 2)
+  let memStepQ := okOut (toSmtInductionQuery memGood 1)
+  let traceQ := okOut (toSmtBmcQuery goodCounter 1 (traceAll := true))
+  -- counterexample rendering on a hand-written trace of buggyCounter
+  let cexTrace : Sparkle.Verification.Bmc.Trace :=
+    #[ [("rst", 0), ("nxt", 12), ("count", 11), ("count_o", 11), ("_assert_count_lt_12", 1)]
+     , [("rst", 0), ("nxt", 13), ("count", 12), ("count_o", 12), ("_assert_count_lt_12", 0)] ]
+  let table := Sparkle.Verification.Bmc.renderTrace buggyCounter cexTrace
+  let vcd := Sparkle.Verification.Bmc.toVcd buggyCounter cexTrace
+  let firstBad := Sparkle.Verification.Bmc.firstViolation buggyCounter cexTrace
+  -- property module + SVA checker from a monitor-shaped module
+  let monitor : Module := {
+    name := "Mon", isPrimitive := false
+    inputs := [⟨"clk", .bit⟩, ⟨"rst", .bit⟩]
+    outputs := [⟨"out", .bit⟩]
+    wires := [⟨"count", .bitVector 4⟩, ⟨"unit", .bitVector 0⟩]
+    body := [ .register "count" "clk" ("rst", .asynchronous)
+                (.op .add [.ref "count", .const 1 4]) 0
+            , .assign "out" (.op .lt_u [.ref "count", .const 12 4]) ] }
+  let prop := Sparkle.Verification.BmcCommand.propertyModule monitor
+  let propOk : Bool := match prop with
+    | .ok m => m.assertions.length == 1 && !m.wires.any (·.name == "unit")
+    | .error _ => false
+  let wideOut := Sparkle.Verification.BmcCommand.propertyModule
+    { monitor with outputs := [⟨"out", .bitVector 4⟩] }
+  let wideRejected : Bool := match wideOut with | .error _ => true | .ok _ => false
+  let sva := Sparkle.Verification.BmcCommand.svaChecker monitor
+
   return group "SMT Bridge Tests" (
+    group "toSmtInductionQuery: shape" (
+      test "frame-0 registers are free"       (hasSubstr stepQ "(declare-const |count_c0| (_ BitVec 8))") $
+      test "frame-0 registers are not reset"  (!hasSubstr stepQ "(define-fun |count_c0|") $
+      test "hypothesis in frames 0..k-1"
+        (hasSubstr stepQ "(assert (= |_assert_count_le_5_c0| #b1))" &&
+         hasSubstr stepQ "(assert (= |_assert_count_le_5_c1| #b1))" &&
+         !hasSubstr stepQ "(assert (= |_assert_count_le_5_c2| #b1))") $
+      test "goal is a violation in frame k"   (hasSubstr stepQ "(assert (or (= |_assert_count_le_5_c2| #b0)))") $
+      test "free memory array in frame 0"     (hasSubstr memStepQ "(declare-const |m_c0| (Array (_ BitVec 2) (_ BitVec 8)))") $
+      test "k = 0 rejected"                   (hasSubstr (errMsg (toSmtInductionQuery goodCounter 0)) "k ≥ 1")
+    ) ++
+    group "trace read-back and rendering" (
+      test "default get-value lists inputs only" (hasSubstr goodQ "(get-value (|rst_c0| |rst_c1|") $
+      test "traceAll adds registers and assertions"
+        (hasSubstr traceQ "|count_c1|" && hasSubstr traceQ "|_assert_count_le_5_c0| |rst_c1|") $
+      test "first violation found"            (firstBad == some (1, "count_lt_12")) $
+      test "table labels registers and outputs"
+        (hasSubstr table "count (reg)" && hasSubstr table "count_o (out)" && hasSubstr table "rst (in)") $
+      test "table shows hex values per cycle" (hasSubstr table " b c") $
+      test "VCD declares the 4-bit register"  (hasSubstr vcd "$var wire 4" && hasSubstr vcd " count $end") $
+      test "VCD records the value change"     (hasSubstr vcd "b1011 " && hasSubstr vcd "b1100 ") $
+      test "VCD has a clock and two cycles"   (hasSubstr vcd " clk $end" && hasSubstr vcd "#10\n" && hasSubstr vcd "#20")
+    ) ++
+    group "DSL property modules" (
+      test "single Bool output becomes the assertion; 0-width wires dropped" propOk $
+      test "non-Bool output rejected"         wideRejected $
+      test "SVA checker asserts the output on the clock"
+        (hasSubstr sva "assert property (@(posedge clk) disable iff (rst) out)") $
+      test "SVA checker keeps the module"     (hasSubstr sva "module Mon" && hasSubstr sva "endmodule")
+    ) ++
     group "toSmtBmcQuery: shape" (
       test "QF_BV logic without memories"     (hasSubstr goodQ "(set-logic QF_BV)") $
       test "frame-0 register init"            (hasSubstr goodQ "(define-fun |count_c0| () (_ BitVec 8) (_ bv0 8))") $
@@ -293,6 +373,12 @@ def smtTests : IO TestSeq := do
         (errorContainsAll (toSmtBmcQuery zeroWidthPort 0) ["positive", "zero-width"]) $
       test "zero-width memory address rejected"
         (errorContainsAll (toSmtBmcQuery zeroWidthMemory 0) ["memory", "address"]) $
+      test "multi-port memory rejected"
+        (errorContainsAll
+          (toSmtBmcQuery { goodCounter with body := goodCounter.body ++
+            [.memory "mp" 2 8 "clk" (.const 0 2) (.const 0 8) (.const 0 1) (.const 0 2) "mp_rd"
+              (extraWrites := [(.const 1 2, .const 0 8, .const 1 1)])] } 0)
+          ["mp", "single-port"]) $
       test "non-1-bit assertion rejected"
         (errorContainsAll
           (toSmtBmcQuery { goodCounter with assertions := [("wide", .ref "count")] } 0)
