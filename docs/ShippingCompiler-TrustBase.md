@@ -101,13 +101,15 @@ theorems, and reading them is part of trusting the claim.
 
 - The source: `Signal`, its operators, and `Signal.val` at a cycle.
 - The front-end unfolding: `inlineDefs` / `userInliner` (delta-beta of
-  user definitions, projection of a constructor, zeta in front of it)
-  and the choice `entryConst`. The theorems do not reason about the unfolding — they
+  user definitions, projection of a constructor, zeta in front of it,
+  `<$>`/`<*>` at the library's Signal instances as `Signal.map`/
+  `Signal.ap`) and the choice `entryConst`. The theorems do not reason about the unfolding — they
   speak about the value the entry constant HAS. That this value means
   what the declaration means is Lean's own delta/beta, and it is checked
   per declaration by the kernel: the test theorems identify the
   declaration, helpers and all, with the denotation of the quoted
-  unfolded term by `rfl` (`useSel_library`, `oddParity_library`). Which definitions are
+  unfolded term by `rfl` (`useSel_library`, `oddParity_library`,
+  `rcon_library`). Which definitions are
   unfolded (`userDefinition?`) only decides which declarations reach a
   certified front end; a wrong choice there cannot make a theorem false.
 - The IR semantics: `evalExpr`, `evalAssigns`, `stepModule`,
@@ -121,6 +123,12 @@ theorems, and reading them is part of trusting the claim.
   instantiation means is retained. Its width side condition is no
   longer retained: every emitted instance is checked, and proved, to
   join equal widths (`instLinkCheck`, `Linked`, `InstsLinked`).
+- The syntax view `view` (`Tools/ShippingUnifiedMeaning.lean`): which
+  Lean expression counts as which operator node. It maps the
+  applicative form `Signal.ap (Signal.map (fun x y => op x y) a) b` to
+  the node of `op` on `a` and `b` — the pointwise reading of `<$>`/`<*>`
+  on `Signal`; the kernel `rfl` bridge of each declaration checks that
+  reading against the library's definitions.
 - The emitted-SV semantics (`Tools/SVParser/EmitSem.lean`): continuous
   assignments, the always-block register shape, memories. An
   independent reading of the SystemVerilog subset the printer emits.

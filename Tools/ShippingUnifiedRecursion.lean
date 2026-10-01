@@ -389,6 +389,58 @@ theorem bits_literal_contract {rec ctx inputs we mems initial dom n v}
         h hn fn back lit meaning ?_ widths hr
       intro z; simp only [nf, Bool.false_eq_true, if_false]
 
+/-- The same step for a numeric literal (`Signal.pure 5` at the `OfNat` instance). -/
+theorem num_literal_contract {rec ctx inputs we mems initial dom n v}
+    (hn : 0 < n) (hv : v < 2 ^ n) :
+    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial
+      (numSigE dom n v) (.bits n (BitVec.ofNat n v)) := by
+  have fn : (numSigE dom n v).getAppFn =
+      .const ``Sparkle.Core.Signal.Signal.pure [.zero] := rfl
+  have hd : Denotes (fun _ => none) (numSigE dom n v) n (BitVec.ofNat n v) :=
+    .pureLit (us := [.zero]) (c := numLitE n v)
+      rfl rfl (litValue_numLitE n v hv)
+  have meaning : Meaning inputs (numSigE dom n v) (.bits n (BitVec.ofNat n v)) :=
+    .value (view_bitsNum dom n v hv)
+  have back : (numSigE dom n v).getAppArgs.back? =
+      some (numLitE n v) := rfl
+  have lit : bitVecLitValue? (numLitE n v) =
+      some (n, v) := litValue_numLitE n v hv
+  have nf := isFVar_false_of_const fn
+  constructor
+  · intro hint top named s t w lookup hr
+    unfold translateStepWith at hr
+    dsimp only at hr
+    split at hr
+    · obtain ⟨hit, sh, rh, hr⟩ := Returns.bind hr
+      have hs := (cacheLookupValidated_returns rh).1
+      subst sh
+      split at hr
+      · obtain ⟨hw, ht⟩ := Returns.pure hr
+        subst w t; exact Frame.refl s
+      · apply bits_recorded_frame (cacheable := !named && !(numSigE dom n v).isFVar && !top)
+          fn hd ?_ hr
+        intro z; simp only [nf, Bool.false_eq_true, if_false]
+    · apply bits_recorded_frame (cacheable := !named && !(numSigE dom n v).isFVar && !top)
+        fn hd ?_ hr
+      intro z; simp only [nf, Bool.false_eq_true, if_false]
+  · intro hint top named s t w prior h widths hr
+    unfold translateStepWith at hr
+    dsimp only at hr
+    split at hr
+    · obtain ⟨hit, sh, rh, hr⟩ := Returns.bind hr
+      have hs := (cacheLookupValidated_returns rh).1
+      subst sh
+      split at hr
+      · obtain ⟨hw, ht⟩ := Returns.pure hr
+        subst w t
+        exact hit_outcome h meaning rh
+      · apply bits_literal_recorded (cacheable := !named && !(numSigE dom n v).isFVar && !top)
+          h hn fn back lit meaning ?_ widths hr
+        intro z; simp only [nf, Bool.false_eq_true, if_false]
+    · apply bits_literal_recorded (cacheable := !named && !(numSigE dom n v).isFVar && !top)
+        h hn fn back lit meaning ?_ widths hr
+      intro z; simp only [nf, Bool.false_eq_true, if_false]
+
 /-- The allocator precedes both recursive calls; the reserved parent keeps
 its record-free and binding-free status across the children. -/
 theorem binary_outcome {ctx inputs we mems initial s t prior rec e args hint named w n}
@@ -1062,6 +1114,233 @@ theorem setw_contract {rec ctx inputs we mems initial dom ae} {ws wt : Nat} {x :
   exact ⟨fun hint top named => (step hint top named).frame,
     fun hint top named => (step hint top named).sem⟩
 
+/-! ## Applicative-lifted Bool-result operators
+
+`(BitVec.ule · ·) <$> a <*> b` and `(· && ·) <$> a <*> b`, in the form the
+front end normalises them to (`Signal.ap (Signal.map f a) b`), take the Bool
+control arm: both operands under the legacy applicative lowering's hint
+(`"app_arg"`), then the SAME result assignment as the direct comparison /
+Boolean routes. The lemmas below are those routes' lemmas at that hint. -/
+
+theorem translateAppCompare_returns {rec : TranslateFn} {le : SignalCompareKind} {a b : Lean.Expr}
+    {hint w : String} {named : Bool} {ctx : CompilerState} {s s' : CircuitState}
+    (h : Returns (translateAppCompare rec le a b hint named) ctx s w s') :
+    ∃ aw bw sa sb, Returns (rec a "app_arg" false false) ctx s aw sa ∧
+      Returns (rec b "app_arg" false false) ctx sa bw sb ∧
+      Returns (emitCompareResult le aw bw hint named) ctx sb w s' := by
+  unfold translateAppCompare at h
+  obtain ⟨aw, sa, ha, h⟩ := Returns.bind h
+  obtain ⟨bw, sb, hb, he⟩ := Returns.bind h
+  exact ⟨aw, bw, sa, sb, ha, hb, he⟩
+
+theorem translateAppBoolBinary_returns {rec : TranslateFn} {kind : SignalBoolBinKind}
+    {a b : Lean.Expr}
+    {hint w : String} {named : Bool} {ctx : CompilerState} {s t : CircuitState}
+    (h : Returns (translateAppBoolBinary rec kind a b hint named) ctx s w t) :
+    ∃ aw bw sa sb, Returns (rec a "app_arg" false false) ctx s aw sa ∧
+      Returns (rec b "app_arg" false false) ctx sa bw sb ∧
+      Returns (emitBoolResult (.op (signalBoolBinOp kind) [.ref aw, .ref bw]) hint named)
+        ctx sb w t := by
+  unfold translateAppBoolBinary at h
+  obtain ⟨aw, sa, ha, h⟩ := Returns.bind h
+  obtain ⟨bw, sb, hb, he⟩ := Returns.bind h
+  exact ⟨aw, bw, sa, sb, ha, hb, he⟩
+
+theorem appE_step (rec : TranslateFn) (dom ty body ae be : Lean.Expr)
+    (hint : String) (top named : Bool) :
+    translateStepWith translateFallback rec (appE dom ty body ae be) hint top named =
+      translateFallback rec (appE dom ty body ae be) hint top named := by
+  have shape : translateCoreShape (appE dom ty body ae be) = false := rfl
+  have core : translateCore rec (appE dom ty body ae be) hint top named = pure none := rfl
+  simp [translateStepWith, shape, core]
+  rfl
+
+theorem appCompare_step (rec : TranslateFn) (dom ae be : Lean.Expr) (n : Nat)
+    (le : SignalCompareKind) (hint : String) (top named : Bool) :
+    translateStepWith translateFallback rec (appCompareE le dom n ae be) hint top named =
+      translateFallback rec (appCompareE le dom n ae be) hint top named :=
+  appE_step rec dom _ _ ae be hint top named
+
+theorem appBool_step (rec : TranslateFn) (kind : SignalBoolBinKind) (dom ae be : Lean.Expr)
+    (hint : String) (top named : Bool) :
+    translateStepWith translateFallback rec (appBoolE kind dom ae be) hint top named =
+      translateFallback rec (appBoolE kind dom ae be) hint top named :=
+  appE_step rec dom _ _ ae be hint top named
+
+theorem isBoolControl_appE (dom ty body ae be : Lean.Expr) :
+    isBoolControl (appE dom ty body ae be) =
+      ((appBoolOp? (appE dom ty body ae be)).isSome ||
+        (match canonicalMuxType? (appE dom ty body ae be) with
+          | some .bit => true
+          | _ => false)) := rfl
+
+theorem isBoolControl_appCompareE (dom ae be : Lean.Expr) (n : Nat) (le : SignalCompareKind) :
+    isBoolControl (appCompareE le dom n ae be) = true := by
+  rw [appCompareE, isBoolControl_appE]
+  show ((appBoolOp? (appCompareE le dom n ae be)).isSome || _) = true
+  rw [appBoolOp?_appCompareE]
+  rfl
+
+theorem isBoolControl_appBoolE (dom ae be : Lean.Expr) (kind : SignalBoolBinKind) :
+    isBoolControl (appBoolE kind dom ae be) = true := by
+  rw [appBoolE, isBoolControl_appE]
+  show ((appBoolOp? (appBoolE kind dom ae be)).isSome || _) = true
+  rw [appBoolOp?_appBoolE]
+  rfl
+
+theorem translateBoolUncachedWith_appE (rec legacy : TranslateFn) (dom ty body ae be : Lean.Expr)
+    (hint : String) (top named : Bool) :
+    translateBoolUncachedWith rec legacy (appE dom ty body ae be) hint top named =
+      (match appBoolOp? (appE dom ty body ae be) with
+        | some (op, a, b) => translateAppBool rec op a b hint named
+        | none => legacy (appE dom ty body ae be) hint top named) := rfl
+
+theorem translateBoolUncachedWith_appCompare (rec legacy : TranslateFn) (dom ae be : Lean.Expr)
+    (n : Nat) (le : SignalCompareKind) (hint : String) (top named : Bool) :
+    translateBoolUncachedWith rec legacy (appCompareE le dom n ae be) hint top named =
+      translateAppCompare rec le ae be hint named := by
+  rw [appCompareE, translateBoolUncachedWith_appE]
+  show (match appBoolOp? (appCompareE le dom n ae be) with
+    | some (op, a, b) => translateAppBool rec op a b hint named
+    | none => legacy _ hint top named) = _
+  rw [appBoolOp?_appCompareE]
+  rfl
+
+theorem translateBoolUncachedWith_appBool (rec legacy : TranslateFn) (kind : SignalBoolBinKind)
+    (dom ae be : Lean.Expr) (hint : String) (top named : Bool) :
+    translateBoolUncachedWith rec legacy (appBoolE kind dom ae be) hint top named =
+      translateAppBoolBinary rec kind ae be hint named := by
+  rw [appBoolE, translateBoolUncachedWith_appE]
+  show (match appBoolOp? (appBoolE kind dom ae be) with
+    | some (op, a, b) => translateAppBool rec op a b hint named
+    | none => legacy _ hint top named) = _
+  rw [appBoolOp?_appBoolE]
+  rfl
+
+theorem appCompare_shape {ctx inputs we mems initial rec ae be le hint named va vb s t w}
+    (ca : Child rec ctx inputs we mems initial ae "app_arg" va)
+    (cb : Child rec ctx inputs we mems initial be "app_arg" vb)
+    (lookup : Lookup ctx inputs s)
+    (hr : Returns (translateAppCompare rec le ae be hint named) ctx s w t) :
+    Frame s t ∧ s.usedNames.contains w = false := by
+  obtain ⟨a, b, sa, sb, ra, rb, re⟩ := translateAppCompare_returns hr
+  have fa := ca.frame s sa a lookup ra
+  have fb := cb.frame sa sb b (lookup.transfer fa) rb
+  obtain ⟨fe, fresh⟩ := emit_bool_frame (by cases le <;> rfl) re
+  refine ⟨(fa.trans fb).trans fe, ?_⟩
+  cases hu : s.usedNames.contains w
+  · rfl
+  · have := fb.used w (fa.used w hu); simp [fresh] at this
+
+theorem appCompare_fresh {ctx inputs we mems initial rec ae be le hint named n va vb}
+    (x y : BitVec n) (hn : 0 < n)
+    (hva : va.toNat = x.toNat) (hwa : va.kind.width = n)
+    (hvb : vb.toNat = y.toNat) (hwb : vb.kind.width = n)
+    (ca : Child rec ctx inputs we mems initial ae "app_arg" va)
+    (cb : Child rec ctx inputs we mems initial be "app_arg" vb) :
+    FreshAction (translateAppCompare rec le ae be hint named) ctx inputs we mems initial
+      (.bool (compareValue le x y)) := by
+  refine ⟨⟨fun _ _ _ lookup hr => (appCompare_shape ca cb lookup hr).1, ?_⟩,
+    fun _ _ _ lookup hr => (appCompare_shape ca cb lookup hr).2⟩
+  intro s t w prior h widths hr
+  obtain ⟨a, b, sa, sb, ra, rb, re⟩ := translateAppCompare_returns hr
+  have fa := ca.frame s sa a (Lookup.ofInputs h.inputs) ra
+  have fb := cb.frame sa sb b ((Lookup.ofInputs h.inputs).transfer fa) rb
+  have fe := (emit_bool_frame (by cases le <;> rfl) re).1
+  have aout := ca.sem s sa a prior h ((fb.decls.trans fe.decls).widths widths) ra
+  obtain ⟨va', ia, av, af⟩ := aout.execution
+  have bout := cb.sem sa sb b va' ia (fe.decls.widths widths) rb
+  obtain ⟨vb', ib, bv, bf⟩ := bout.execution
+  have wa : we a = n := by rw [aout.width, hwa]
+  have wb : we b = n := by rw [bout.width, hwb]
+  have av2 : vb' a = x.toNat := by rw [(bf a aout.used).trans av, hva]
+  have bv2 : vb' b = y.toNat := by rw [bv, hvb]
+  have step := emit_bool_outcome ib (typed_compare_refs le hn wa wb)
+    (compare_rhs_correct le x y we vb' a b av2 bv2 wa wb) widths re
+  obtain ⟨result, inv, val, frame⟩ := step.execution
+  exact ⟨step.used, step.width, fun z hz => step.grows z (fb.used z (fa.used z hz)),
+    result, inv, val, fun z hz => (frame z (fb.used z (fa.used z hz))).trans
+      ((bf z (fa.used z hz)).trans (af z hz))⟩
+
+theorem appCompare_contract {rec ctx inputs we mems initial dom ae be n le}
+    (x y : BitVec n) (hn : 0 < n)
+    (meaning : Meaning inputs (appCompareE le dom n ae be) (.bool (compareValue le x y)))
+    (ca : Child rec ctx inputs we mems initial ae "app_arg" (.bits n x))
+    (cb : Child rec ctx inputs we mems initial be "app_arg" (.bits n y)) :
+    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial
+      (appCompareE le dom n ae be) (.bool (compareValue le x y)) := by
+  have step : ∀ hint top named, ActionSpec
+      (translateStepWith translateFallback rec (appCompareE le dom n ae be)
+        hint top named) ctx inputs we mems initial (.bool (compareValue le x y)) := by
+    intro hint top named
+    rw [appCompare_step, translateFallback_bool rec _ hint top named
+      (isBoolControl_appCompareE dom ae be n le)]
+    apply cached_action meaning
+    rw [translateBoolUncachedWith_appCompare]
+    exact appCompare_fresh x y hn rfl rfl rfl rfl ca cb
+  exact ⟨fun hint top named => (step hint top named).frame,
+    fun hint top named => (step hint top named).sem⟩
+
+theorem appBool_shape {ctx inputs we mems initial rec ae be kind hint named va vb s t w}
+    (ca : Child rec ctx inputs we mems initial ae "app_arg" va)
+    (cb : Child rec ctx inputs we mems initial be "app_arg" vb)
+    (lookup : Lookup ctx inputs s)
+    (hr : Returns (translateAppBoolBinary rec kind ae be hint named) ctx s w t) :
+    Frame s t ∧ s.usedNames.contains w = false := by
+  obtain ⟨a, b, sa, sb, ra, rb, re⟩ := translateAppBoolBinary_returns hr
+  have fa := ca.frame s sa a lookup ra
+  have fb := cb.frame sa sb b (lookup.transfer fa) rb
+  obtain ⟨fe, fresh⟩ := emit_bool_frame (by cases kind <;> rfl) re
+  refine ⟨(fa.trans fb).trans fe, ?_⟩
+  cases hu : s.usedNames.contains w
+  · rfl
+  · have := fb.used w (fa.used w hu); simp [fresh] at this
+
+theorem appBool_fresh {ctx inputs we mems initial rec ae be kind hint named}
+    (x y : Bool)
+    (ca : Child rec ctx inputs we mems initial ae "app_arg" (.bool x))
+    (cb : Child rec ctx inputs we mems initial be "app_arg" (.bool y)) :
+    FreshAction (translateAppBoolBinary rec kind ae be hint named) ctx inputs we mems initial
+      (.bool (boolBinValue kind x y)) := by
+  refine ⟨⟨fun _ _ _ lookup hr => (appBool_shape ca cb lookup hr).1, ?_⟩,
+    fun _ _ _ lookup hr => (appBool_shape ca cb lookup hr).2⟩
+  intro s t w prior h widths hr
+  obtain ⟨a, b, sa, sb, ra, rb, re⟩ := translateAppBoolBinary_returns hr
+  have fa := ca.frame s sa a (Lookup.ofInputs h.inputs) ra
+  have fb := cb.frame sa sb b ((Lookup.ofInputs h.inputs).transfer fa) rb
+  have fe := (emit_bool_frame (by cases kind <;> rfl) re).1
+  have aout := ca.sem s sa a prior h ((fb.decls.trans fe.decls).widths widths) ra
+  obtain ⟨va', ia, av, af⟩ := aout.execution
+  have bout := cb.sem sa sb b va' ia (fe.decls.widths widths) rb
+  obtain ⟨vb', ib, bv, bf⟩ := bout.execution
+  have step := emit_bool_outcome ib
+    (typed_bool_bin kind a b aout.width bout.width)
+    (bool_bin_rhs kind we vb' a b x y ((bf a aout.used).trans av) bv aout.width bout.width)
+    widths re
+  obtain ⟨result, inv, val, frame⟩ := step.execution
+  exact ⟨step.used, step.width, fun z hz => step.grows z (fb.used z (fa.used z hz)),
+    result, inv, val, fun z hz => (frame z (fb.used z (fa.used z hz))).trans
+      ((bf z (fa.used z hz)).trans (af z hz))⟩
+
+theorem appBool_contract {rec ctx inputs we mems initial dom ae be}
+    (kind : SignalBoolBinKind) (a b : Bool)
+    (meaning : Meaning inputs (appBoolE kind dom ae be) (.bool (boolBinValue kind a b)))
+    (ca : Child rec ctx inputs we mems initial ae "app_arg" (.bool a))
+    (cb : Child rec ctx inputs we mems initial be "app_arg" (.bool b)) :
+    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial
+      (appBoolE kind dom ae be) (.bool (boolBinValue kind a b)) := by
+  have step : ∀ hint top named, ActionSpec
+      (translateStepWith translateFallback rec (appBoolE kind dom ae be) hint top named)
+      ctx inputs we mems initial (.bool (boolBinValue kind a b)) := by
+    intro hint top named
+    rw [appBool_step, translateFallback_bool rec _ hint top named
+      (isBoolControl_appBoolE dom ae be kind)]
+    apply cached_action meaning
+    rw [translateBoolUncachedWith_appBool]
+    exact appBool_fresh a b ca cb
+  exact ⟨fun hint top named => (step hint top named).frame,
+    fun hint top named => (step hint top named).sem⟩
+
 /-- Closed fuel induction for the unified mutually recursive source domain
 with per-operation widths, over ARBITRARY leaf expressions: every leaf comes
 with its own contract at every fuel (an input binder, or an instance call). Mux nodes may sit under arithmetic and comparison
@@ -1099,6 +1378,9 @@ theorem fuel_contract_leaves (fuel : Nat) {ctx : CompilerState}
     | bitsLit w v =>
       obtain ⟨hval, hpos⟩ := he
       exact bits_literal_contract hpos hval
+    | bitsNum w v =>
+      obtain ⟨hval, hpos⟩ := he
+      exact num_literal_contract hpos hval
     | binary op a b =>
       rename_i w
       obtain ⟨ha, hb'⟩ := he
@@ -1150,6 +1432,16 @@ theorem fuel_contract_leaves (fuel : Nat) {ctx : CompilerState}
       obtain ⟨ha, hpos⟩ := he
       exact setw_contract (a.wf_pos ha) hpos
         (meaning_quote_leaves hb hv (.setw w' a) ⟨ha, hpos⟩) ((ih a ha).child "s")
+    | appCompare op a b =>
+      rename_i w
+      obtain ⟨ha, hb'⟩ := he
+      exact appCompare_contract _ _ (a.wf_pos ha)
+        (meaning_quote_leaves hb hv (.appCompare op a b) ⟨ha, hb'⟩)
+        ((ih a ha).child "app_arg") ((ih b hb').child "app_arg")
+    | appBool op a b =>
+      obtain ⟨ha, hb'⟩ := he
+      exact appBool_contract op _ _ (meaning_quote_leaves hb hv (.appBool op a b) ⟨ha, hb'⟩)
+        ((ih a ha).child "app_arg") ((ih b hb').child "app_arg")
 
 /-- An input binder satisfies its leaf contract at every fuel. -/
 theorem input_contract_fuel {ctx inputs we mems initial id v} (hi : inputs id = some v) :

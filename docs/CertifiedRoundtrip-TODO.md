@@ -750,7 +750,22 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   are certified end to end, `nodeFilter_execution` (DroneCAN node
   filter) and `oddParity_execution` (MIL-STD-1553 odd parity, sixteen
   shifted-and-masked bits XOR-reduced and compared), each stating that
-  the compiled module computes the IP definition's own output stream.
+  the compiled module computes the IP definition's own output stream. APPLICATIVE
+  LIFTS have landed next: the Bool-result binary lifts
+  (`(BitVec.ule · ·) <$> a <*> b`, `ult`/`slt`/`sle`, `==`, `&&`, `||`,
+  `^^`) are normalised to `Signal.ap (Signal.map f a) b`, lowered by an
+  arm of the Bool control path at the legacy hints, and are two new
+  constructors of the unified `Term` (`appCompare`, `appBool`; plus
+  `bitsNum` for numeric literals) carried through the whole stack —
+  source, view/meaning, contract, protection, order, both gates, both
+  `circuit do` cone conversions. `inRange_execution` proves a range
+  check written with them and `rcon_execution` the AES round-constant
+  table of the IP library; the suite gates 18 declarations
+  byte-identical to the legacy compile, the 256-entry AES S-box among
+  them. The dispatch chain is now data (`fallbackKind`), so a shape
+  reaching its end is one fact. Cost on the legacy route, measured
+  against the previous compiler: 18 of 191 corpus outputs renumber
+  their fresh wires (more sharing), none differs otherwise.
 - [ ] **S7 / trust:** Resolve or explicitly retain `EnvDefines` in the final
   claim; record execution-model/external-tool boundaries without hiding them.
   RECORDED — docs/ShippingCompiler-TrustBase.md states the retained base
@@ -768,7 +783,7 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   text statements do and do not say, and what lies outside every
   theorem (legacy-route compiles first).
 
-Latest validation: `lake build Tests.AllTests` passed all 661 jobs, with
+Latest validation: `lake build Tests.AllTests` passed all 662 jobs, with
 standard-axiom audits of the general endpoint and real signed/equality/Bool-logic
 source instantiations. Vector mux adds 2,772 source/legacy/SV/delta cases and
 real source theorems for nested and computed-condition muxes (no Bool input

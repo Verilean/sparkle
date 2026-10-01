@@ -2180,6 +2180,52 @@ def signalBoolBinKind? (method : Name) : Lean.Expr → Option SignalBoolBinKind
     else none
   | _ => none
 
+/-- A Bool-result binary operator lifted through the Signal applicative:
+    `(BitVec.ule · ·) <$> a <*> b`, `(· && ·) <$> a <*> b`, …  -/
+inductive AppBoolOp where
+  | compare (k : SignalCompareKind) (n : Nat)
+  | bool (k : SignalBoolBinKind)
+  deriving DecidableEq, Repr
+
+/-- The two-argument lambda body of an applicative-lifted operator, read
+    purely: its operands are exactly the two bound variables, in order.
+    `αE` is the element type of the first operand. -/
+def appBoolBody? : Lean.Expr → Lean.Expr → Option AppBoolOp
+  | .app (.const ``BitVec _) wE, .app (.app (.app (.const m _) wE') (.bvar 1)) (.bvar 0) =>
+    match canonicalNatLitValue? wE, canonicalNatLitValue? wE' with
+    | some n, some n' =>
+      if n' == n then
+        if m == ``BitVec.ult then some (.compare .ult n)
+        else if m == ``BitVec.ule then some (.compare .ule n)
+        else if m == ``BitVec.slt then some (.compare .slt n)
+        else if m == ``BitVec.sle then some (.compare .sle n)
+        else none
+      else none
+    | _, _ => none
+  | .app (.const ``BitVec _) wE,
+      .app (.app (.app (.app (.const ``BEq.beq _) ty) inst) (.bvar 1)) (.bvar 0) =>
+    match canonicalNatLitValue? wE, (bitVecEqualityWidth? ty inst).bind canonicalNatLitValue? with
+    | some n, some n' => if n' == n then some (.compare .eq n) else none
+    | _, _ => none
+  | .const ``Bool _, .app (.app (.const m _) (.bvar 1)) (.bvar 0) =>
+    if m == ``Bool.and then some (.bool .band)
+    else if m == ``Bool.or then some (.bool .bor)
+    else if m == ``Bool.xor then some (.bool .bxor)
+    else none
+  | _, _ => none
+
+/-- An applicative-lifted Bool-result binary operator in the form the front
+    end normalises `f <$> a <*> b` to — `Signal.ap (Signal.map f a) b`, which
+    is also what the legacy translator reduces it to before lowering.
+    Returns the operator and the two Signal operands. -/
+def appBoolOp? : Lean.Expr → Option (AppBoolOp × Lean.Expr × Lean.Expr)
+  | .app (.app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.ap _) _) αE)
+      (.const ``Bool _))
+      (.app (.app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.map _) _) _) _)
+        (.lam _ _ (.lam _ _ body _) _)) a)) b =>
+    (appBoolBody? αE body).map (·, a, b)
+  | _ => none
+
 /-- Total, syntax-only recognition of the mixed Bool-output source fragment.
     Recursion follows actual expression subterms; type inference is not called. -/
 def mixedGateBoolBody (kinds : Array MixedGateBinder) : Lean.Expr → Bool
@@ -2253,6 +2299,15 @@ def unifiedGateBoolBody (kinds : Array MixedGateBinder) : Lean.Expr → Bool
         | some n => 0 < n && unifiedGateBitsBody kinds n a && unifiedGateBitsBody kinds n b
         | none => false
       else false
+  | .app (.app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.ap _) _) αE)
+      (.const ``Bool _))
+      (.app (.app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.map _) _) _) _)
+        (.lam _ _ (.lam _ _ body _) _)) a)) b =>
+      match appBoolBody? αE body with
+      | some (.compare _ n) =>
+        0 < n && unifiedGateBitsBody kinds n a && unifiedGateBitsBody kinds n b
+      | some (.bool _) => unifiedGateBoolBody kinds a && unifiedGateBoolBody kinds b
+      | none => false
   | _ => false
 
 def unifiedGateBitsBody (kinds : Array MixedGateBinder) (n : Nat) : Lean.Expr → Bool
@@ -2437,6 +2492,15 @@ def hierGateBoolBody (isInst : Lean.Expr → Bool) (kinds : Array MixedGateBinde
         | some n => 0 < n && hierGateBitsBody isInst kinds n a && hierGateBitsBody isInst kinds n b
         | none => false
       else false
+  | .app (.app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.ap _) _) αE)
+      (.const ``Bool _))
+      (.app (.app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.map _) _) _) _)
+        (.lam _ _ (.lam _ _ body _) _)) a)) b =>
+      match appBoolBody? αE body with
+      | some (.compare _ n) =>
+        0 < n && hierGateBitsBody isInst kinds n a && hierGateBitsBody isInst kinds n b
+      | some (.bool _) => hierGateBoolBody isInst kinds a && hierGateBoolBody isInst kinds b
+      | none => false
   | _ => false
 
 def hierGateBitsBody (isInst : Lean.Expr → Bool) (kinds : Array MixedGateBinder) (n : Nat) :
@@ -2636,14 +2700,20 @@ def inlLift (k : Nat) : Nat → Lean.Expr → Nat → Option (Lean.Expr × Nat)
         | none => none
       | none => none
     | none => none
-  | _, .forallE .., _ + 1 => none
+  | c, .forallE n t body bi, b + 1 =>
+    match inlLift k c t b with
+    | some (t', b) =>
+      match inlLift k (c + 1) body b with
+      | some (body', b) => some (.forallE n t' body' bi, b)
+      | none => none
+    | none => none
   | _, .mdata .., _ + 1 => none
   | _, .proj .., _ + 1 => none
   | _, e, b + 1 => some (e, b)
 
 /-- Replace the loose bound variables `≥ d` by `xs` (`instantiateRev` order:
     `.bvar d` is the LAST element), lifting an argument placed under `d`
-    binders.  Budgeted; `∀`, metadata and primitive projections are refused. -/
+    binders.  Budgeted; metadata and primitive projections are refused. -/
 def inlSubst (xs : Array Lean.Expr) : Nat → Lean.Expr → Nat → Option (Lean.Expr × Nat)
   | _, _, 0 => none
   | d, .bvar i, b + 1 =>
@@ -2676,7 +2746,13 @@ def inlSubst (xs : Array Lean.Expr) : Nat → Lean.Expr → Nat → Option (Lean
         | none => none
       | none => none
     | none => none
-  | _, .forallE .., _ + 1 => none
+  | d, .forallE n t body bi, b + 1 =>
+    match inlSubst xs d t b with
+    | some (t', b) =>
+      match inlSubst xs (d + 1) body b with
+      | some (body', b) => some (.forallE n t' body' bi, b)
+      | none => none
+    | none => none
   | _, .mdata .., _ + 1 => none
   | _, .proj .., _ + 1 => none
   | _, e, b + 1 => some (e, b)
@@ -2706,6 +2782,63 @@ def inlMap (f : Lean.Expr → Nat → Option (Lean.Expr × Nat)) :
       | some (rest', b) => some (a' :: rest', b)
       | none => none
     | none => none
+
+/-- Remove one binder from around an expression that does not use it: the
+    loose bound variables above `c` drop by one; `none` when variable `c`
+    itself occurs. -/
+def inlDropBinder : Nat → Lean.Expr → Option Lean.Expr
+  | c, .bvar i => if i < c then some (.bvar i) else if i = c then none else some (.bvar (i - 1))
+  | c, .app f a =>
+    match inlDropBinder c f, inlDropBinder c a with
+    | some f', some a' => some (.app f' a')
+    | _, _ => none
+  | c, .lam n t body bi =>
+    match inlDropBinder c t, inlDropBinder (c + 1) body with
+    | some t', some body' => some (.lam n t' body' bi)
+    | _, _ => none
+  | c, .forallE n t body bi =>
+    match inlDropBinder c t, inlDropBinder (c + 1) body with
+    | some t', some body' => some (.forallE n t' body' bi)
+    | _, _ => none
+  | _, .letE .. => none
+  | _, .mdata .. => none
+  | _, .proj .. => none
+  | _, e => some e
+
+/-- Canonical binder names for the function of an applicative lift: its
+    leading `fun` binders become `x1`, `x2`, …  (They are hygienic macro names
+    in the elaborated term, different in every declaration.) -/
+def inlCanonLam : Nat → Lean.Expr → Lean.Expr
+  | k, .lam _ t body bi => .lam (Name.mkSimple ("x" ++ toString (k + 1))) t (inlCanonLam (k + 1) body) bi
+  | _, e => e
+
+/-- Canonical binder name `a` for every arrow of a function type. -/
+def inlCanonPi : Lean.Expr → Lean.Expr
+  | .forallE _ t body bi => .forallE `a t (inlCanonPi body) bi
+  | e => e
+
+/-- `f <$> a` and `mf <*> mx` at the library's own `Signal` instances, as
+    the `Signal.map` / `Signal.ap` applications they are by definition — the
+    form the legacy translator reduces them to (`whnfUntil`) before lowering.
+    The `Unit` thunk around the second operand of `<*>` is removed. -/
+def inlSignalApplicative (n : Name) (ls : List Level) (args : List Lean.Expr) :
+    Option Lean.Expr :=
+  match ls, args with
+  | u :: _, [.app (.const ``Sparkle.Core.Signal.Signal _) dom,
+      .app (.const ``Sparkle.Core.Signal.instFunctorSignal _) dom', α, β, f, a] =>
+    if n == ``Functor.map && dom' == dom then
+      some (mkApp5 (.const ``Sparkle.Core.Signal.Signal.map [u]) dom α (inlCanonPi β)
+        (inlCanonLam 0 f) a)
+    else none
+  | u :: _, [.app (.const ``Sparkle.Core.Signal.Signal _) dom,
+      .app (.app (.const ``Applicative.toSeq _) (.app (.const ``Sparkle.Core.Signal.Signal _) dom''))
+        (.app (.const ``Sparkle.Core.Signal.instApplicativeSignal _) dom'),
+      α, β, mf, .lam _ _ mx _] =>
+    if n == ``Seq.seq && dom' == dom && dom'' == dom then
+      (inlDropBinder 0 mx).map fun mx' =>
+        mkApp5 (.const ``Sparkle.Core.Signal.Signal.ap [u]) dom α β mf mx'
+    else none
+  | _, _ => none
 
 /-- Head-normalise a record expression until an application of the
     constructor `ctor` appears, and return its arguments: zeta of the lets in
@@ -2742,7 +2875,9 @@ def inlHeadCtor (defs : Name → Option Lean.Expr) (ctor : Name) :
     A projection `projs` names, applied to exactly its record, is replaced by
     the field of the constructor its record head-normalises to
     (`inlHeadCtor`); when the record does not reach a constructor the
-    projection is kept.  Descends through applications and `fun` bodies. -/
+    projection is kept.  `<$>` / `<*>` at the library's Signal instances
+    become `Signal.map` / `Signal.ap` (`inlSignalApplicative`).  Descends
+    through applications and `fun` bodies. -/
 def inlineDefs (defs : Name → Option Lean.Expr) (projs : Name → Option (Name × Nat × Nat)) :
     Nat → Lean.Expr → Nat → Option (Lean.Expr × Nat)
   | 0, _, _ => none
@@ -2778,6 +2913,13 @@ def inlineDefs (defs : Name → Option Lean.Expr) (projs : Name → Option (Name
           match inlMap (inlineDefs defs projs fuel) args b with
           | some (args', b) => some (args'.foldl Lean.Expr.app (.const n []), b)
           | none => none
+    | (.const n ls, args) =>
+      match inlMap (inlineDefs defs projs fuel) args b with
+      | some (args', b) =>
+        match inlSignalApplicative n ls args' with
+        | some e' => some (e', b)
+        | none => some (args'.foldl Lean.Expr.app (.const n ls), b)
+      | none => none
     | (.lam n t body bi, args) =>
       match inlineDefs defs projs fuel body b with
       | some (body', b) =>
@@ -5357,13 +5499,29 @@ mutual
               else if h.isConstOf ``Functor.map then
                 match ← withTransparency TransparencyMode.all
                     (Lean.Meta.whnfUntil x ``Sparkle.Core.Signal.Signal.map) with
-                | some x' => normSpine x' fuel
+                | some x' =>
+                  -- The lifted function's binders are hygienic macro names,
+                  -- different at every occurrence of the same `(· op ·)`;
+                  -- give them the canonical names the front end uses, so two
+                  -- occurrences of one lifted expression are one cache key.
+                  let xa := x'.getAppArgs
+                  if x'.isAppOf ``Sparkle.Core.Signal.Signal.map && xa.size ≥ 3 then
+                    normSpine (Lean.mkAppN x'.getAppFn
+                      ((xa.set! (xa.size - 2) (inlCanonLam 0 xa[xa.size - 2]!)).set!
+                        (xa.size - 3) (inlCanonPi xa[xa.size - 3]!))) fuel
+                  else normSpine x' fuel
                 | none => return x
               else if h.isConstOf ``Sparkle.Core.Signal.Signal.ap then
                 let xargs := x.getAppArgs
                 if xargs.size ≥ 2 then
                   let fpos ← normSpine xargs[xargs.size - 2]! fuel
-                  return Lean.mkAppN h (xargs.set! (xargs.size - 2) fpos)
+                  -- `Seq.seq` supplies its operand through a `Unit` thunk;
+                  -- expose it here (`handleApplicative` used to `headBeta`
+                  -- it at the use site), so the operand a later arm receives
+                  -- is the operand itself and not a beta-redex.
+                  return Lean.mkAppN h
+                    ((xargs.set! (xargs.size - 2) fpos).set! (xargs.size - 1)
+                      xargs.back!.headBeta)
                 else return x
               else return x
           let e' ← CompilerM.liftMetaM (normSpine e 32)
@@ -5491,7 +5649,8 @@ def isBoolControl : Lean.Expr → Bool
       isBoolEquality ty inst || (bitVecEqualityWidth? ty inst).isSome
   | .app (.app (.app (.const ``Complement.complement _) _)
       (.app (.const ``Sparkle.Core.Signal.instComplementSignalBool _) _)) _ => true
-  | e => match canonicalMuxType? e with | some .bit => true | _ => false
+  | e => (appBoolOp? e).isSome ||
+      (match canonicalMuxType? e with | some .bit => true | _ => false)
 
 /-- The cache wrapper for Bool controls, exposed for simulation proofs. A miss
     calls the uncached handler and records its result before returning it. -/
@@ -5537,6 +5696,27 @@ def translateSignalCompare (rec : TranslateFn) (le : SignalCompareKind) (a b : L
   let bw ← rec b "b" false false
   emitCompareResult le aw bw hint named
 
+/-- Applicative-lifted comparison: both operands under the legacy applicative
+    lowering's hint, then the comparison assignment of the direct route. -/
+def translateAppCompare (rec : TranslateFn) (le : SignalCompareKind) (a b : Lean.Expr)
+    (hint : String) (named : Bool) : CompilerM String := do
+  let aw ← rec a "app_arg" false false
+  let bw ← rec b "app_arg" false false
+  emitCompareResult le aw bw hint named
+
+/-- Applicative-lifted Bool operator, likewise. -/
+def translateAppBoolBinary (rec : TranslateFn) (kind : SignalBoolBinKind) (a b : Lean.Expr)
+    (hint : String) (named : Bool) : CompilerM String := do
+  let aw ← rec a "app_arg" false false
+  let bw ← rec b "app_arg" false false
+  emitBoolResult (.op (signalBoolBinOp kind) [.ref aw, .ref bw]) hint named
+
+def translateAppBool (rec : TranslateFn) (op : AppBoolOp) (a b : Lean.Expr)
+    (hint : String) (named : Bool) : CompilerM String :=
+  match op with
+  | .compare k _ => translateAppCompare rec k a b hint named
+  | .bool k => translateAppBoolBinary rec k a b hint named
+
 /-- Canonical literals, comparisons and Bool muxes use total lowering. Other Bool forms
     still use their existing handlers on a validated-cache miss. -/
 def translateBoolUncachedWith (rec legacy : TranslateFn) : TranslateFn :=
@@ -5573,7 +5753,10 @@ def translateBoolUncachedWith (rec legacy : TranslateFn) : TranslateFn :=
       translateSignalCompare rec .eq a
         (mkApp3 (.const ``Sparkle.Core.Signal.Signal.pure [.zero]) dom
           (.const ``Bool []) (.const ``Bool.false [])) hint named
-    | _ => legacy e hint top named
+    | e =>
+      match appBoolOp? e with
+      | some (op, a, b) => translateAppBool rec op a b hint named
+      | none => legacy e hint top named
 
 /-- The shapes `translateCore` handles (decides whether the validated lookup is
     tried before the core). -/

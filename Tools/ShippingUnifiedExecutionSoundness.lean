@@ -55,6 +55,13 @@ theorem unified_quote_accepted {kinds : Array MixedGateBinder} {dom : Lean.Expr}
       | none => false) = true
     rw [litValue_natE w v hv'.1]
     simp
+  | _, .bitsNum w v, hv' => by
+    show unifiedGateBitsBody kinds w (numSigE dom w v) = true
+    change (match bitVecLitValue? (numLitE w v) with
+      | some (k, _) => k == w
+      | none => false) = true
+    rw [litValue_numLitE w v hv'.1]
+    simp
   | _, .binary op (w := w) a b, h => by
     obtain ⟨ha, hb'⟩ := h
     show unifiedGateBitsBody kinds w (binE dom w op (quote dom binp vinp a)
@@ -100,6 +107,39 @@ theorem unified_quote_accepted {kinds : Array MixedGateBinder} {dom : Lean.Expr}
     show unifiedGateBoolBody kinds (boolBinE kind dom (quote dom binp vinp a)
       (quote dom binp vinp b)) = true
     have gate : unifiedGateBoolBody kinds (boolBinE kind dom (quote dom binp vinp a)
+        (quote dom binp vinp b)) =
+        (unifiedGateBoolBody kinds (quote dom binp vinp a) &&
+          unifiedGateBoolBody kinds (quote dom binp vinp b)) := by cases kind <;> rfl
+    have ia : unifiedGateBoolBody kinds (quote dom binp vinp a) = true :=
+      unified_quote_accepted hb hv a ha
+    have ib : unifiedGateBoolBody kinds (quote dom binp vinp b) = true :=
+      unified_quote_accepted hb hv b hb'
+    rw [gate, ia, ib]
+    rfl
+  | _, .appCompare le (w := w) a b, h => by
+    obtain ⟨ha, hb'⟩ := h
+    show unifiedGateBoolBody kinds (appCompareE le dom w (quote dom binp vinp a)
+      (quote dom binp vinp b)) = true
+    have step : unifiedGateBoolBody kinds (appE dom (bitVecE w) (appCompareBodyE le w)
+        (quote dom binp vinp a) (quote dom binp vinp b)) =
+        (match appBoolBody? (bitVecE w) (appCompareBodyE le w) with
+          | some (.compare _ n) =>
+            decide (0 < n) && unifiedGateBitsBody kinds n (quote dom binp vinp a) &&
+              unifiedGateBitsBody kinds n (quote dom binp vinp b)
+          | some (.bool _) =>
+            unifiedGateBoolBody kinds (quote dom binp vinp a) && unifiedGateBoolBody kinds (quote dom binp vinp b)
+          | none => false) := rfl
+    have ia : unifiedGateBitsBody kinds w (quote dom binp vinp a) = true :=
+      unified_quote_accepted hb hv a ha
+    have ib : unifiedGateBitsBody kinds w (quote dom binp vinp b) = true :=
+      unified_quote_accepted hb hv b hb'
+    rw [appCompareE, step, appBoolBody?_compare]
+    simp [ia, ib, a.wf_pos ha]
+  | _, .appBool kind a b, h => by
+    obtain ⟨ha, hb'⟩ := h
+    show unifiedGateBoolBody kinds (appBoolE kind dom (quote dom binp vinp a)
+      (quote dom binp vinp b)) = true
+    have gate : unifiedGateBoolBody kinds (appBoolE kind dom (quote dom binp vinp a)
         (quote dom binp vinp b)) =
         (unifiedGateBoolBody kinds (quote dom binp vinp a) &&
           unifiedGateBoolBody kinds (quote dom binp vinp b)) := by cases kind <;> rfl
@@ -229,6 +269,18 @@ theorem unified_root_accepted {kinds : Array MixedGateBinder} {dom : Lean.Expr} 
       change ((some (mkApp2 (.const ``BitVec.ofNat []) (natE w) (natE v))).bind
         bitVecLitValue?).map (·.1) = some w
       rw [Option.bind_some, litValue_natE w v he.1]
+      rfl
+    exact root_of_top he.2 mux top body
+  | _, .bitsNum w v, he => by
+    have body : unifiedGateBitsBody kinds w (numSigE dom w v) = true :=
+      unified_quote_accepted (dom := dom) hb hv (.bitsNum w v) he
+    have mux : canonicalMuxType? (numSigE dom w v) = none := rfl
+    have top : gateTopWidth? (mixedBitKinds kinds) (numSigE dom w v) = some w := by
+      change ((numSigE dom w v).getAppArgs.back?.bind bitVecLitValue?).map (·.1) =
+        some w
+      change ((some (numLitE w v)).bind
+        bitVecLitValue?).map (·.1) = some w
+      rw [Option.bind_some, litValue_numLitE w v he.1]
       rfl
     exact root_of_top he.2 mux top body
   | _, .binary op (w := w) a b, he => by

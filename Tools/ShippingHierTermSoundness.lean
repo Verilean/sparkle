@@ -114,6 +114,13 @@ theorem hier_quote_accepted {isInst : Lean.Expr → Bool} {kinds : Array MixedGa
       | none => false) = true
     rw [litValue_natE w v hv'.1]
     simp
+  | _, .bitsNum w v, hv' => by
+    show hierGateBitsBody isInst kinds w (numSigE dom w v) = true
+    change (match bitVecLitValue? (numLitE w v) with
+      | some (k, _) => k == w
+      | none => false) = true
+    rw [litValue_numLitE w v hv'.1]
+    simp
   | _, .binary op (w := w) a b, h => by
     obtain ⟨ha, hb'⟩ := h
     show hierGateBitsBody isInst kinds w (binE dom w op (quote dom binp vinp a)
@@ -162,6 +169,39 @@ theorem hier_quote_accepted {isInst : Lean.Expr → Bool} {kinds : Array MixedGa
     show hierGateBoolBody isInst kinds (boolBinE kind dom (quote dom binp vinp a)
       (quote dom binp vinp b)) = true
     have gate : hierGateBoolBody isInst kinds (boolBinE kind dom (quote dom binp vinp a)
+        (quote dom binp vinp b)) =
+        (hierGateBoolBody isInst kinds (quote dom binp vinp a) &&
+          hierGateBoolBody isInst kinds (quote dom binp vinp b)) := by cases kind <;> rfl
+    have ia : hierGateBoolBody isInst kinds (quote dom binp vinp a) = true :=
+      hier_quote_accepted hb hv a ha
+    have ib : hierGateBoolBody isInst kinds (quote dom binp vinp b) = true :=
+      hier_quote_accepted hb hv b hb'
+    rw [gate, ia, ib]
+    rfl
+  | _, .appCompare le (w := w) a b, h => by
+    obtain ⟨ha, hb'⟩ := h
+    show hierGateBoolBody isInst kinds (appCompareE le dom w (quote dom binp vinp a)
+      (quote dom binp vinp b)) = true
+    have step : hierGateBoolBody isInst kinds (appE dom (bitVecE w) (appCompareBodyE le w)
+        (quote dom binp vinp a) (quote dom binp vinp b)) =
+        (match appBoolBody? (bitVecE w) (appCompareBodyE le w) with
+          | some (.compare _ n) =>
+            decide (0 < n) && hierGateBitsBody isInst kinds n (quote dom binp vinp a) &&
+              hierGateBitsBody isInst kinds n (quote dom binp vinp b)
+          | some (.bool _) =>
+            hierGateBoolBody isInst kinds (quote dom binp vinp a) && hierGateBoolBody isInst kinds (quote dom binp vinp b)
+          | none => false) := rfl
+    have ia : hierGateBitsBody isInst kinds w (quote dom binp vinp a) = true :=
+      hier_quote_accepted hb hv a ha
+    have ib : hierGateBitsBody isInst kinds w (quote dom binp vinp b) = true :=
+      hier_quote_accepted hb hv b hb'
+    rw [appCompareE, step, appBoolBody?_compare]
+    simp [ia, ib, a.wf_pos ha]
+  | _, .appBool kind a b, h => by
+    obtain ⟨ha, hb'⟩ := h
+    show hierGateBoolBody isInst kinds (appBoolE kind dom (quote dom binp vinp a)
+      (quote dom binp vinp b)) = true
+    have gate : hierGateBoolBody isInst kinds (appBoolE kind dom (quote dom binp vinp a)
         (quote dom binp vinp b)) =
         (hierGateBoolBody isInst kinds (quote dom binp vinp a) &&
           hierGateBoolBody isInst kinds (quote dom binp vinp b)) := by cases kind <;> rfl
@@ -286,6 +326,18 @@ theorem hier_root_accepted {isInst : Lean.Expr → Bool} {kinds : Array MixedGat
       change ((some (mkApp2 (.const ``BitVec.ofNat []) (natE w) (natE v))).bind
         bitVecLitValue?).map (·.1) = some w
       rw [Option.bind_some, litValue_natE w v he.1]
+      rfl
+    exact hroot_of_top he.2 mux top body
+  | _, .bitsNum w v, he, _ => by
+    have body : hierGateBitsBody isInst kinds w (numSigE dom w v) = true :=
+      hier_quote_accepted (dom := dom) hb hv (.bitsNum w v) he
+    have mux : canonicalMuxType? (numSigE dom w v) = none := rfl
+    have top : gateTopWidth? (mixedBitKinds kinds) (numSigE dom w v) = some w := by
+      change ((numSigE dom w v).getAppArgs.back?.bind bitVecLitValue?).map (·.1) =
+        some w
+      change ((some (numLitE w v)).bind
+        bitVecLitValue?).map (·.1) = some w
+      rw [Option.bind_some, litValue_numLitE w v he.1]
       rfl
     exact hroot_of_top he.2 mux top body
   | _, .binary op (w := w) a b, he, _ => by

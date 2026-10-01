@@ -181,6 +181,34 @@ call-site unfolding on 17 tested shapes) → general N-slot `circuit do` →
 hardware `let` → applicative/slices → structure results. The list below
 is the older, shape-driven plan and is subordinate to the measurement.
 
+**Adding a `Term` constructor — the sites.** Done three times now
+(`setw`, `appCompare`/`appBool`, `bitsNum`); the checklist is:
+`Tools/ShippingUnifiedSource.lean` (constructor, `WF`, `wf_pos` for a
+bits result, `eval`, `denote`, `denote_val`, an `…E` builder, `quote`,
+`instFVars_quote`, `quote_congr`); `ShippingUnifiedMeaning.lean` (`view`
+case or a fall-through helper like `appView?`, a `view_…` lemma,
+`meaning_quote_leaves`); `ShippingUnifiedRecursion.lean` (step lemma,
+`…_returns`/`_shape`/`_fresh`/`_contract`, the case of
+`fuel_contract_leaves`); `ShippingUnifiedProtection.lean` (`…_protect`,
+`…_order`, the cases of `fuel_protects` and `fuel_orders`);
+`ShippingUnifiedExecutionSoundness.lean` and
+`ShippingHierTermSoundness.lean` (the case of `…_quote_accepted`, and of
+`…_root_accepted` for a bits result) with the matching arm in
+`unifiedGate…`/`hierGate…` of Elab; `ShippingRegisterSoundness.lean`
+(`cdoConeToLoop_quote`, `cdo2ConeToLoop_quote`). When the new node lowers
+exactly like an existing one, CLONE that node's lemmas by text
+substitution (the applicative lemmas are the comparison lemmas at hint
+`"app_arg"`). A node that needs a new IR right-hand-side shape is a
+different, vertical job (see slices in the coverage document).
+
+**Front-end rewrites and sharing.** A normalisation is byte-safe only if
+the legacy route keys its cache on the same expression. Canonicalising
+numeric literals at the front end made the certified route share index
+and value constants of the AES S-box that the legacy route keeps apart
+(767 vs 1022 statements) — it was removed, and the literal form became a
+`Term` constructor instead. Run `compare_outputs.py` against the previous
+compiler after every Elab change.
+
 **Dispatch as data.** `translateFallback` is `match fallbackKind e with …`;
 `fallbackKind` is the recogniser chain as a function to `FallbackKind`.
 A shape that reaches the end of the chain is characterised by ONE fact,

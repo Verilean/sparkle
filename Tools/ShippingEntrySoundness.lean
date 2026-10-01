@@ -1733,6 +1733,10 @@ partial def reflExpr : Lean.Expr → Except String Lean.Expr
     let rt ← reflExpr t
     let rb ← reflExpr b
     return mkApp4 (mkConst ``Lean.Expr.lam) (toExpr n) rt rb (reflBinderInfo bi)
+  | .forallE n t b bi => do
+    let rt ← reflExpr t
+    let rb ← reflExpr b
+    return mkApp4 (mkConst ``Lean.Expr.forallE) (toExpr n) rt rb (reflBinderInfo bi)
   | .lit (.natVal k) =>
     pure (mkApp (mkConst ``Lean.Expr.lit) (mkApp (mkConst ``Literal.natVal) (toExpr k)))
   | .sort l => do

@@ -35,6 +35,9 @@ inductive Term : SType → Type where
   | bitsInput (w j : Nat) : Term (.bits w)
   | boolLit (b : Bool) : Term .bool
   | bitsLit (w v : Nat) : Term (.bits w)
+  /-- A numeric literal `(v : BitVec w)` — `Signal.pure 5` at the library's
+  `OfNat` instance, as opposed to `bitsLit`'s `Signal.pure 5#w`. -/
+  | bitsNum (w v : Nat) : Term (.bits w)
   | binary (op : Binary) {w : Nat} (a b : Term (.bits w)) : Term (.bits w)
   | compare (op : SignalCompareKind) {w : Nat} (a b : Term (.bits w)) : Term .bool
   | boolBinary (op : SignalBoolBinKind) (a b : Term .bool) : Term .bool
@@ -42,6 +45,10 @@ inductive Term : SType → Type where
   | boolEq (a b : Term .bool) : Term .bool
   | mux {s : SType} (c : Term .bool) (a b : Term s) : Term s
   | setw {w : Nat} (w' : Nat) (a : Term (.bits w)) : Term (.bits w')
+  /-- A comparison lifted through the Signal applicative: `(BitVec.ule · ·) <$> a <*> b`. -/
+  | appCompare (op : SignalCompareKind) {w : Nat} (a b : Term (.bits w)) : Term .bool
+  /-- A Bool operator lifted through the Signal applicative: `(· && ·) <$> a <*> b`. -/
+  | appBool (op : SignalBoolBinKind) (a b : Term .bool) : Term .bool
 
 /-- Inputs are positions into the prepared binder lists; `vw` assigns each
 BitVec input its declared width. Positivity is carried at BitVec leaves. -/
@@ -50,6 +57,7 @@ def Term.WF (kb kv : Nat) (vw : Nat → Nat) : {s : SType} → Term s → Prop
   | _, .bitsInput w j => j < kv ∧ vw j = w ∧ 0 < w
   | _, .boolLit _ => True
   | _, .bitsLit w v => v < 2 ^ w ∧ 0 < w
+  | _, .bitsNum w v => v < 2 ^ w ∧ 0 < w
   | _, .binary _ a b => a.WF kb kv vw ∧ b.WF kb kv vw
   | _, .compare _ a b => a.WF kb kv vw ∧ b.WF kb kv vw
   | _, .boolBinary _ a b => a.WF kb kv vw ∧ b.WF kb kv vw
@@ -57,12 +65,15 @@ def Term.WF (kb kv : Nat) (vw : Nat → Nat) : {s : SType} → Term s → Prop
   | _, .boolEq a b => a.WF kb kv vw ∧ b.WF kb kv vw
   | _, .mux c a b => c.WF kb kv vw ∧ a.WF kb kv vw ∧ b.WF kb kv vw
   | _, .setw w' a => a.WF kb kv vw ∧ 0 < w'
+  | _, .appCompare _ a b => a.WF kb kv vw ∧ b.WF kb kv vw
+  | _, .appBool _ a b => a.WF kb kv vw ∧ b.WF kb kv vw
 
 /-- Every well-formed BitVec term has a positive width. -/
 theorem Term.wf_pos {kb kv : Nat} {vw : Nat → Nat} :
     ∀ {w : Nat} (e : Term (.bits w)), e.WF kb kv vw → 0 < w
   | _, .bitsInput _ _, h => h.2.2
   | _, .bitsLit _ _, h => h.2
+  | _, .bitsNum _ _, h => h.2
   | _, .binary _ a _, h => a.wf_pos h.1
   | _, .mux _ a _, h => a.wf_pos h.2.1
   | _, .setw _ _, h => h.2
@@ -73,6 +84,7 @@ def eval (bools : Nat → Bool) (bits : (j : Nat) → (w : Nat) → BitVec w) :
   | _, .bitsInput w j => bits j w
   | _, .boolLit b => b
   | _, .bitsLit w v => BitVec.ofNat w v
+  | _, .bitsNum w v => BitVec.ofNat w v
   | _, .binary op a b => op.apply (eval bools bits a) (eval bools bits b)
   | _, .compare op a b => compareValue op (eval bools bits a) (eval bools bits b)
   | _, .boolBinary op a b => boolBinValue op (eval bools bits a) (eval bools bits b)
@@ -80,6 +92,8 @@ def eval (bools : Nat → Bool) (bits : (j : Nat) → (w : Nat) → BitVec w) :
   | _, .boolEq a b => eval bools bits a == eval bools bits b
   | _, .mux c a b => if eval bools bits c then eval bools bits a else eval bools bits b
   | _, .setw w' a => BitVec.setWidth w' (eval bools bits a)
+  | _, .appCompare op a b => compareValue op (eval bools bits a) (eval bools bits b)
+  | _, .appBool op a b => boolBinValue op (eval bools bits a) (eval bools bits b)
 
 def denote {dom : DomainConfig} (bools : Nat → Signal dom Bool)
     (bits : (j : Nat) → (w : Nat) → Signal dom (BitVec w)) :
@@ -88,6 +102,7 @@ def denote {dom : DomainConfig} (bools : Nat → Signal dom Bool)
   | _, .bitsInput w j => bits j w
   | _, .boolLit b => Signal.pure b
   | _, .bitsLit w v => Signal.pure (BitVec.ofNat w v)
+  | _, .bitsNum w v => Signal.pure (BitVec.ofNat w v)
   | _, .binary op a b => binSig op (denote bools bits a) (denote bools bits b)
   | _, .compare op a b => match op with
       | .ult => Signal.ult (denote bools bits a) (denote bools bits b)
@@ -103,6 +118,12 @@ def denote {dom : DomainConfig} (bools : Nat → Signal dom Bool)
   | _, .boolEq a b => Signal.beq (denote bools bits a) (denote bools bits b)
   | _, .mux c a b => Signal.mux (denote bools bits c) (denote bools bits a) (denote bools bits b)
   | _, .setw w' a => Signal.map (BitVec.setWidth w') (denote bools bits a)
+  | _, .appCompare op a b =>
+      Signal.ap (Signal.map (fun x y => compareValue op x y) (denote bools bits a))
+        (denote bools bits b)
+  | _, .appBool op a b =>
+      Signal.ap (Signal.map (fun x y => boolBinValue op x y) (denote bools bits a))
+        (denote bools bits b)
 
 theorem denote_val {dom : DomainConfig} (bools : Nat → Signal dom Bool)
     (bits : (j : Nat) → (w : Nat) → Signal dom (BitVec w)) (tick : Nat) : ∀ {s} (e : Term s),
@@ -112,6 +133,7 @@ theorem denote_val {dom : DomainConfig} (bools : Nat → Signal dom Bool)
   | _, .bitsInput _ _ => rfl
   | _, .boolLit _ => rfl
   | _, .bitsLit _ _ => rfl
+  | _, .bitsNum _ _ => rfl
   | _, .binary op a b => by
     have step : (denote bools bits (.binary op a b)).val tick =
         op.apply ((denote bools bits a).val tick) ((denote bools bits b).val tick) := by
@@ -140,6 +162,12 @@ theorem denote_val {dom : DomainConfig} (bools : Nat → Signal dom Bool)
   | _, .setw w' a => by
     change BitVec.setWidth w' ((denote bools bits a).val tick) = _
     rw [denote_val]; rfl
+  | _, .appCompare op a b => by
+    change compareValue op ((denote bools bits a).val tick) ((denote bools bits b).val tick) = _
+    rw [denote_val, denote_val]; rfl
+  | _, .appBool op a b => by
+    change boolBinValue op ((denote bools bits a).val tick) ((denote bools bits b).val tick) = _
+    rw [denote_val, denote_val]; rfl
 
 /-- The canonical width-changing map node: `Signal.map (BitVec.setWidth w') a`
     exactly as dot-notation elaborates it (a partial application, no lambda). -/
@@ -147,11 +175,64 @@ def setwE (dom : Lean.Expr) (w w' : Nat) (a : Lean.Expr) : Lean.Expr :=
   mkApp5 (.const ``Sparkle.Core.Signal.Signal.map [.zero]) dom (bitVecE w) (bitVecE w')
     (mkApp2 (.const ``BitVec.setWidth []) (natE w) (natE w')) a
 
+/-- A numeric `BitVec` literal as it elaborates: `@OfNat.ofNat (BitVec w) v
+    (BitVec.instOfNat)`. -/
+def numLitE (w v : Nat) : Lean.Expr :=
+  mkApp3 (.const ``OfNat.ofNat [.zero]) (bitVecE w) (.lit (.natVal v))
+    (mkApp2 (.const ``BitVec.instOfNat []) (natE w) (.lit (.natVal v)))
+
+/-- `Signal.pure` of a numeric literal. -/
+def numSigE (dom : Lean.Expr) (w v : Nat) : Lean.Expr :=
+  mkApp3 (.const ``Sparkle.Core.Signal.Signal.pure [.zero]) dom (bitVecE w) (numLitE w v)
+
+theorem litValue_numLitE (n v : Nat) (h : v < 2 ^ n) :
+    bitVecLitValue? (numLitE n v) = some (n, v) := by
+  have e : bitVecLitValue? (numLitE n v) = (if v < 2 ^ n then some (n, v) else none) := rfl
+  rw [e, if_pos h]
+
+/-- The function of an applicative lift, with the canonical binder names the
+    front end gives it: `fun x1 x2 => body` over element type `ty`. -/
+def appLamE (ty body : Lean.Expr) : Lean.Expr :=
+  .lam `x1 ty (.lam `x2 ty body .default) .default
+
+/-- `Signal.ap (Signal.map (fun x1 x2 => body) a) b` at element type `ty` and
+    result `Bool`: the form the front end normalises `f <$> a <*> b` to. -/
+def appE (dom ty body a b : Lean.Expr) : Lean.Expr :=
+  mkApp5 (.const ``Sparkle.Core.Signal.Signal.ap [.zero]) dom ty (.const ``Bool [])
+    (mkApp5 (.const ``Sparkle.Core.Signal.Signal.map [.zero]) dom ty
+      (.forallE `a ty (.const ``Bool []) .default) (appLamE ty body) a) b
+
+/-- The value-level comparison applied to the two bound variables. -/
+def appCompareBodyE (op : SignalCompareKind) (w : Nat) : Lean.Expr :=
+  match op with
+  | .ult => mkApp3 (.const ``BitVec.ult []) (natE w) (.bvar 1) (.bvar 0)
+  | .ule => mkApp3 (.const ``BitVec.ule []) (natE w) (.bvar 1) (.bvar 0)
+  | .slt => mkApp3 (.const ``BitVec.slt []) (natE w) (.bvar 1) (.bvar 0)
+  | .sle => mkApp3 (.const ``BitVec.sle []) (natE w) (.bvar 1) (.bvar 0)
+  | .eq => mkApp4 (.const ``BEq.beq [.zero]) (bitVecE w)
+      (mkApp2 (.const ``instBEqOfDecidableEq [.zero]) (bitVecE w)
+        (mkApp (.const ``instDecidableEqBitVec []) (natE w))) (.bvar 1) (.bvar 0)
+
+/-- The value-level Bool operator applied to the two bound variables. -/
+def appBoolBodyE (op : SignalBoolBinKind) : Lean.Expr :=
+  match op with
+  | .band => mkApp2 (.const ``Bool.and []) (.bvar 1) (.bvar 0)
+  | .bor => mkApp2 (.const ``Bool.or []) (.bvar 1) (.bvar 0)
+  | .bxor => mkApp2 (.const ``Bool.xor []) (.bvar 1) (.bvar 0)
+
+def appCompareE (op : SignalCompareKind) (dom : Lean.Expr) (w : Nat) (a b : Lean.Expr) :
+    Lean.Expr :=
+  appE dom (bitVecE w) (appCompareBodyE op w) a b
+
+def appBoolE (op : SignalBoolBinKind) (dom a b : Lean.Expr) : Lean.Expr :=
+  appE dom (.const ``Bool []) (appBoolBodyE op) a b
+
 def quote (dom : Lean.Expr) (bools bits : Nat → Lean.Expr) : {s : SType} → Term s → Lean.Expr
   | _, .boolInput j => bools j
   | _, .bitsInput _ j => bits j
   | _, .boolLit b => literalE dom b
   | _, .bitsLit w v => quoteF dom w bits (.lit v)
+  | _, .bitsNum w v => numSigE dom w v
   | _, .binary op (w := w) a b => binE dom w op (quote dom bools bits a) (quote dom bools bits b)
   | _, .compare op (w := w) a b => compareE op dom w (quote dom bools bits a) (quote dom bools bits b)
   | _, .boolBinary op a b => boolBinE op dom (quote dom bools bits a) (quote dom bools bits b)
@@ -160,6 +241,9 @@ def quote (dom : Lean.Expr) (bools bits : Nat → Lean.Expr) : {s : SType} → T
   | s, .mux c a b => muxE dom s.quoteType (quote dom bools bits c)
       (quote dom bools bits a) (quote dom bools bits b)
   | _, .setw (w := w) w' a => setwE dom w w' (quote dom bools bits a)
+  | _, .appCompare op (w := w) a b =>
+      appCompareE op dom w (quote dom bools bits a) (quote dom bools bits b)
+  | _, .appBool op a b => appBoolE op dom (quote dom bools bits a) (quote dom bools bits b)
 
 /-- Uniform-width embeddings of the three previous source languages. -/
 def ofF (n : Nat) : FExpr → Term (.bits n)
@@ -218,6 +302,7 @@ theorem instFVars_quote (xs : Array Lean.Expr) (d : Nat) (dom : Lean.Expr)
   | _, .bitsInput _ _ => rfl
   | _, .boolLit b => by cases b <;> rfl
   | _, .bitsLit _ _ => rfl
+  | _, .bitsNum _ _ => rfl
   | _, .binary op a b => by
     show Lean.Expr.app (.app (instFVars xs d _) (instFVars xs d (quote dom bi vi a)))
       (instFVars xs d (quote dom bi vi b)) = _
@@ -244,6 +329,20 @@ theorem instFVars_quote (xs : Array Lean.Expr) (d : Nat) (dom : Lean.Expr)
   | _, .setw _ a => by
     show Lean.Expr.app (instFVars xs d _) (instFVars xs d (quote dom bi vi a)) = _
     rw [instFVars_quote]; rfl
+  | _, .appCompare op a b => by
+    show Lean.Expr.app (.app (instFVars xs d _)
+        (.app (instFVars xs d _) (instFVars xs d (quote dom bi vi a))))
+      (instFVars xs d (quote dom bi vi b)) = _
+    rw [instFVars_quote, instFVars_quote]
+    cases op <;> simp [quote, appCompareE, appE, appLamE, appCompareBodyE, instFVars,
+      bitVecE, natE, mkApp5, mkApp4, mkApp3, mkApp2, mkAppB, mkApp]
+  | _, .appBool op a b => by
+    show Lean.Expr.app (.app (instFVars xs d _)
+        (.app (instFVars xs d _) (instFVars xs d (quote dom bi vi a))))
+      (instFVars xs d (quote dom bi vi b)) = _
+    rw [instFVars_quote, instFVars_quote]
+    cases op <;> simp [quote, appBoolE, appE, appLamE, appBoolBodyE, instFVars,
+      mkApp5, mkApp4, mkApp3, mkApp2, mkAppB, mkApp]
 
 theorem quote_congr {dom : Lean.Expr} {kb kv : Nat} {vw : Nat → Nat}
     {bi bi' vi vi' : Nat → Lean.Expr}
@@ -253,6 +352,7 @@ theorem quote_congr {dom : Lean.Expr} {kb kv : Nat} {vw : Nat → Nat}
   | _, .bitsInput _ j, hj => hv j hj.1
   | _, .boolLit _, _ => rfl
   | _, .bitsLit _ _, _ => rfl
+  | _, .bitsNum _ _, _ => rfl
   | _, .binary op a b, h => by
     obtain ⟨ha, hb'⟩ := h
     simp only [quote, quote_congr hb hv a ha, quote_congr hb hv b hb']
@@ -270,5 +370,11 @@ theorem quote_congr {dom : Lean.Expr} {kb kv : Nat} {vw : Nat → Nat}
     obtain ⟨hc, ha, hb'⟩ := h
     simp only [quote, quote_congr hb hv c hc, quote_congr hb hv a ha, quote_congr hb hv b hb']
   | _, .setw _ a, h => by simp only [quote, quote_congr hb hv a h.1]
+  | _, .appCompare op a b, h => by
+    obtain ⟨ha, hb'⟩ := h
+    simp only [quote, quote_congr hb hv a ha, quote_congr hb hv b hb']
+  | _, .appBool op a b, h => by
+    obtain ⟨ha, hb'⟩ := h
+    simp only [quote, quote_congr hb hv a ha, quote_congr hb hv b hb']
 
 end Tools.ShippingUnifiedSource

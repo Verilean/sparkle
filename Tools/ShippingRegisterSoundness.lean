@@ -3893,6 +3893,8 @@ theorem cdoConeToLoop_quote {domS domL : Lean.Expr} {bi vi biL viL : Nat → Lea
     cases b <;> simp [Tools.ShippingUnifiedSource.quote, literalE, boolName, cdoConeToLoop, cdoConeToLoop_natE, cdoConeToLoop_bitVecE, cdoConeToLoop_sigT hdom, hdom, sigT, binMethod, binInst, compareName, signalBoolBinName, signalBoolBinInst, mkApp8, mkApp6, mkApp5, mkApp4, mkApp3, mkApp2, mkAppB, mkApp]
   | _, .bitsLit w v, _ => by
     simp [Tools.ShippingUnifiedSource.quote, quoteF, cdoConeToLoop, cdoConeToLoop_natE, cdoConeToLoop_bitVecE, cdoConeToLoop_sigT hdom, hdom, sigT, binMethod, binInst, compareName, signalBoolBinName, signalBoolBinInst, mkApp8, mkApp6, mkApp5, mkApp4, mkApp3, mkApp2, mkAppB, mkApp]
+  | _, .bitsNum w v, _ => by
+    simp [Tools.ShippingUnifiedSource.quote, numSigE, numLitE, cdoConeToLoop, cdoConeToLoop_natE, cdoConeToLoop_bitVecE, cdoConeToLoop_sigT hdom, hdom, sigT, binMethod, binInst, compareName, signalBoolBinName, signalBoolBinInst, mkApp8, mkApp6, mkApp5, mkApp4, mkApp3, mkApp2, mkAppB, mkApp]
   | _, .binary op a b, he => by
     have ia := cdoConeToLoop_quote hdom hb hv a he.1
     have ib := cdoConeToLoop_quote hdom hb hv b he.2
@@ -3905,6 +3907,14 @@ theorem cdoConeToLoop_quote {domS domL : Lean.Expr} {bi vi biL viL : Nat → Lea
     have ia := cdoConeToLoop_quote hdom hb hv a he.1
     have ib := cdoConeToLoop_quote hdom hb hv b he.2
     cases op <;> simp [Tools.ShippingUnifiedSource.quote, boolBinE, cdoConeToLoop, cdoConeToLoop_natE, cdoConeToLoop_bitVecE, cdoConeToLoop_sigT hdom, hdom, sigT, binMethod, binInst, compareName, signalBoolBinName, signalBoolBinInst, mkApp8, mkApp6, mkApp5, mkApp4, mkApp3, mkApp2, mkAppB, mkApp, ia, ib]
+  | _, .appCompare op a b, he => by
+    have ia := cdoConeToLoop_quote hdom hb hv a he.1
+    have ib := cdoConeToLoop_quote hdom hb hv b he.2
+    cases op <;> simp [Tools.ShippingUnifiedSource.quote, appCompareE, appE, appLamE, appCompareBodyE, cdoConeToLoop, cdoConeToLoop_natE, cdoConeToLoop_bitVecE, cdoConeToLoop_sigT hdom, hdom, sigT, binMethod, binInst, compareName, signalBoolBinName, signalBoolBinInst, mkApp8, mkApp6, mkApp5, mkApp4, mkApp3, mkApp2, mkAppB, mkApp, ia, ib]
+  | _, .appBool op a b, he => by
+    have ia := cdoConeToLoop_quote hdom hb hv a he.1
+    have ib := cdoConeToLoop_quote hdom hb hv b he.2
+    cases op <;> simp [Tools.ShippingUnifiedSource.quote, appBoolE, appE, appLamE, appBoolBodyE, cdoConeToLoop, cdoConeToLoop_natE, cdoConeToLoop_bitVecE, cdoConeToLoop_sigT hdom, hdom, sigT, binMethod, binInst, compareName, signalBoolBinName, signalBoolBinInst, mkApp8, mkApp6, mkApp5, mkApp4, mkApp3, mkApp2, mkAppB, mkApp, ia, ib]
   | _, .boolNot a, he => by
     have ia := cdoConeToLoop_quote hdom hb hv a he
     simp [Tools.ShippingUnifiedSource.quote, boolNotE, cdoConeToLoop, cdoConeToLoop_natE, cdoConeToLoop_bitVecE, cdoConeToLoop_sigT hdom, hdom, sigT, binMethod, binInst, compareName, signalBoolBinName, signalBoolBinInst, mkApp8, mkApp6, mkApp5, mkApp4, mkApp3, mkApp2, mkAppB, mkApp, ia]
@@ -5137,6 +5147,10 @@ theorem cdo2ConeToLoop_quote {dx dy K : Nat} {domS domL : Lean.Expr}
     simp [Tools.ShippingUnifiedSource.quote, quoteF, cdo2ConeToLoop, cdo2ConeToLoop_natE,
       cdo2ConeToLoop_bitVecE, hdom, mkApp8, mkApp6, mkApp5, mkApp4, mkApp3, mkApp2,
       mkAppB, mkApp]
+  | _, .bitsNum w v, _ => by
+    simp [Tools.ShippingUnifiedSource.quote, numSigE, numLitE, cdo2ConeToLoop, cdo2ConeToLoop_natE,
+      cdo2ConeToLoop_bitVecE, hdom, mkApp8, mkApp6, mkApp5, mkApp4, mkApp3, mkApp2,
+      mkAppB, mkApp]
   | _, .binary op a b, he => by
     have ia := cdo2ConeToLoop_quote hdom hb hv a he.1
     have ib := cdo2ConeToLoop_quote hdom hb hv b he.2
@@ -5157,6 +5171,21 @@ theorem cdo2ConeToLoop_quote {dx dy K : Nat} {domS domL : Lean.Expr}
       cdo2ConeToLoop_natE, cdo2ConeToLoop_bitVecE, cdo2ConeToLoop_sigT hdom, hdom, sigT,
       signalBoolBinName, signalBoolBinInst, mkApp8, mkApp6, mkApp5, mkApp4, mkApp3,
       mkApp2, mkAppB, mkApp, ia, ib]
+  | _, .appCompare op a b, he => by
+    have ia := cdo2ConeToLoop_quote hdom hb hv a he.1
+    have ib := cdo2ConeToLoop_quote hdom hb hv b he.2
+    cases op <;> simp [Tools.ShippingUnifiedSource.quote, appCompareE, appE, appLamE, appCompareBodyE, cdo2ConeToLoop,
+      cdo2ConeToLoop_natE, cdo2ConeToLoop_bitVecE, cdo2ConeToLoop_sigT hdom, hdom, sigT,
+      compareName, mkApp8, mkApp6, mkApp5, mkApp4, mkApp3, mkApp2, mkAppB, mkApp, ia, ib]
+      <;> omega
+  | _, .appBool op a b, he => by
+    have ia := cdo2ConeToLoop_quote hdom hb hv a he.1
+    have ib := cdo2ConeToLoop_quote hdom hb hv b he.2
+    cases op <;> simp [Tools.ShippingUnifiedSource.quote, appBoolE, appE, appLamE, appBoolBodyE, cdo2ConeToLoop,
+      cdo2ConeToLoop_natE, cdo2ConeToLoop_bitVecE, cdo2ConeToLoop_sigT hdom, hdom, sigT,
+      signalBoolBinName, signalBoolBinInst, mkApp8, mkApp6, mkApp5, mkApp4, mkApp3,
+      mkApp2, mkAppB, mkApp, ia, ib]
+      <;> omega
   | _, .boolNot a, he => by
     have ia := cdo2ConeToLoop_quote hdom hb hv a he
     simp [Tools.ShippingUnifiedSource.quote, boolNotE, cdo2ConeToLoop, cdo2ConeToLoop_natE,

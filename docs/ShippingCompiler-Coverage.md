@@ -13,12 +13,12 @@ Use declaration names as anchors; source line numbers move during extensions.
 
 | Actual route | Current shipping theorem coverage | Remaining obligation |
 | --- | --- | --- |
-| `synthesizeCombinationalCoreWith` → `entryConst` (front-end normalisation) | The entry hands `synthesizeFromConst` the declaration as read when a gate accepts it, and the declaration with its untagged user definitions unfolded (`userInliner`: pure delta-beta of untagged user definitions, and projection of a user structure's field out of the constructor its record head-normalises to — zeta of the lets in front, which is what the legacy projection handler's `unfoldDefinition?`/`whnf` loop does to `(ipHW a b).field` — against the run's environment, total, node-budgeted) when the original misses both gates and the unfolding passes one. Every family theorem then applies to that entry constant verbatim (`synthesizeCombinationalCore_entry_sound`, the whole bundle); real helper-structured declarations are certified end to end (`useSel_execution`, `accH_run`) under the boundary `EntryDefines`, and so are the FIRST TWO REAL IP MODULES: the DroneCAN node filter and the MIL-STD-1553 odd-parity generator, compiled through the field-projecting wrapper their test benches use (`nodeFilter_execution`, `oddParity_execution`: the module computes the IP definition's own output stream; `*_library` identify the IP definition with the quoted term by `rfl`). Byte-identical to the legacy route on 21 declarations (suite-gated). | Reducible definitions, universe-polymorphic helpers and library projections (`Prod.fst`) are not unfolded; one refused node (`∀`, metadata, a primitive projection) abandons the whole normalisation; only the unified combinational and the feedback-register endpoints have `_of_entry` twins so far (the other families are reached through the bundle). |
+| `synthesizeCombinationalCoreWith` → `entryConst` (front-end normalisation) | The entry hands `synthesizeFromConst` the declaration as read when a gate accepts it, and the declaration with its untagged user definitions unfolded (`userInliner`: pure delta-beta of untagged user definitions, `<$>`/`<*>` at the library's Signal instances as `Signal.map`/`Signal.ap` with canonical binder names, and projection of a user structure's field out of the constructor its record head-normalises to — zeta of the lets in front, which is what the legacy projection handler's `unfoldDefinition?`/`whnf` loop does to `(ipHW a b).field` — against the run's environment, total, node-budgeted) when the original misses both gates and the unfolding passes one. Every family theorem then applies to that entry constant verbatim (`synthesizeCombinationalCore_entry_sound`, the whole bundle); real helper-structured declarations are certified end to end (`useSel_execution`, `accH_run`) under the boundary `EntryDefines`, and so are the FIRST TWO REAL IP MODULES: the DroneCAN node filter and the MIL-STD-1553 odd-parity generator, compiled through the field-projecting wrapper their test benches use (`nodeFilter_execution`, `oddParity_execution`: the module computes the IP definition's own output stream; `*_library` identify the IP definition with the quoted term by `rfl`). Byte-identical to the legacy route on 21 + 18 declarations (suite-gated), the latter including the AES S-box and round-constant tables of the IP library; `rcon_execution` proves the round-constant table end to end. | Reducible definitions, universe-polymorphic helpers and library projections (`Prod.fst`) are not unfolded; one refused node (`∀`, metadata, a primitive projection) abandons the whole normalisation; only the unified combinational and the feedback-register endpoints have `_of_entry` twins so far (the other families are reached through the bundle). |
 | `synthesizeFromConst` → `certifiedShape?` → `synthesizeCertified` | S0: quoted positive-width BitVec fragment, `compiledFragment_execution` | Extend source/interface forms outside this gate without treating refusal by this gate as compiler failure. |
 | `synthesizeFromConst` → `mixedCertifiedShape?` → `synthesizeMixedCertified` | S1/S2: Bool inputs/literals, canonical `&&&`/`|||`/`^^^`/`~~~`, `ult`/`ule`/`slt`/`sle`, standard BitVec/Bool `beq`, Bool-result mux over common-width BitVec operands; BitVec mux trees via `ShippingVectorMuxSoundness.execution_source_of_env` | Extend operations/results and recursive width invariants. |
 | Both shape gates miss → existing synthesis/cache path | No general source-to-shipping-RTL theorem. MEASURED: 342 of the 389 real-corpus declarations take this route (see "Measured corpus coverage"). | Reconcile source opening, normalization, output leaf splitting, cached submodules and all successful legacy handlers, in the order the measurement gives. |
 | `translateStepWith` → `translateCore` | Existing fragment's literals, inputs and eight binary operations; mixed order proof reuses protected pending names | Other supported surface forms must be related to the quoted source, not assumed equal. |
-| `translateFallback` → Bool control/cache path | Current quoted Bool domain, including validated cache hit/miss behavior | Other Bool surface forms/custom instances and additional comparison forms. |
+| `translateFallback` → Bool control/cache path | Current quoted Bool domain, including validated cache hit/miss behavior. APPLICATIVE-LIFTED Bool-result operators — `(BitVec.ule · ·) <$> a <*> b`, `ult`/`slt`/`sle`, `(· == ·)`, `(· && ·)`, `(· || ·)`, `(· ^^ ·)`, in the form the front end normalises them to, `Signal.ap (Signal.map f a) b` — take this arm (`appBoolOp?`, `translateAppCompare`/`translateAppBoolBinary`: operands under the legacy applicative hint `app_arg`, then the direct route's result assignment); they are `Term.appCompare`/`Term.appBool` of the unified domain, with the full contract, protection and order inductions, both gates, and both `circuit do` cone conversions; `kLut!` table muxes are certified through them. Numeric literals (`Signal.pure 5` at `BitVec.instOfNat`) are `Term.bitsNum`. | Lifted functions whose body is not one operator on the two variables (`fun s l => s && !l`, `x.toInt > y.toInt`), unary lifts, BitVec-result lifts (`(· &&& ·) <$>`), and Bool surface forms/custom instances keep the legacy handlers. |
 | `translateFallback` → cached literal-width BitVec mux / width-changing map | Unified `Term`: mutual composition of muxes below/above arithmetic and comparison parents at either result sort, via `ShippingUnifiedExecutionSoundness.execution_source_of_env`, including validated cache hit/miss and record preservation; per-operation mixed widths and canonical width-changing maps (`Signal.map (BitVec.setWidth w)`/`zeroExtend` at literal positive widths — zero-extension, truncation and equal-width casts) are covered through the same endpoint. | Sign extension, general slice/concat surface operations and symbolic widths stay on the legacy path without a general theorem. |
 | `translateFallback` → canonical polymorphic-domain register | One `Signal.register initLit` root over the unified combinational domain: cycle observation and register update proved at the raw `synthesizeCombinationalCore` module (`register_step_of_env`, `trace_of_cycles`), reset held low, initialization from the declared value; `dropZeroWidthModule` proved body/width-preserving on this shape (the `SPARKLE_NO_REGDEDUP=1` configuration); the enabled register (`registerWithEnable`, hold mux) proved to the capture/hold cycle recurrence at the raw core module (`registerEnable_step_of_env`). (zero-width cleanup preserved for the plain and enabled shapes); the feedback register `Signal.loop (fun s => Signal.register initLit cone)` proved to the state-reading cycle recurrence at the raw core module (`loopRegister_step_of_env`; zero-width cleanup preserved on all three register shapes; the packaged `register_run_of_env`/`registerEnable_run_of_env`/`loopRegister_run_of_env` give the whole `runModule` trace of each shape as the source register stream, instantiated against the library `.val` streams); the two-stage shift chain `Signal.register i1 (Signal.register i2 cone)` proved likewise (`register2_step_of_env`, two-state `trace_of_cycles2`, packaged `register2_run_of_env`, zero-width cleanup preserved); the single-slot `circuit do` is recognized (`canonicalCircuitDo?`) and lowered to the byte-identical loop-form module, with source streams identified (`cdoAcc_val` via `map_fst_loop_register`) AND the general endpoint chain stated on the cdo quote form itself (`cdo_step_of_env`/`cdo_run_of_env` through the `CdoPreserves` monolith). | Sequential duplicate merge and the sequential `optimizeModule` pass-through are now covered by the PROVED rename-equivalence checker (`seqOptCheck_step_sound`/`seqOptCheck_run_sound`: k-cycle trace equivalence for accepted pairs, acceptance runtime-gated on every certified shape, composed with every certified shape's trace endpoint via `seqOptCheck_transfer` (`regAcc`/`regHold`/`accLoop`/`regChain`/`cdoAcc`/`cdo2X` `_run_optimized`), carried to the emitted-SV semantics (`seq_run_to_sv`, `*_sv_optimized`: M4 `runModuleSV` trace = source stream on every shape's optimized module) and to the parsed-back printed bytes (`seq_run_to_parsed`, `*_parsed_optimized`; the byte→AST parser is the remaining trusted step)); `circuit do` beyond the certified single-slot shape (the two-slot cross-coupled form is PROVED end to end for the returned-slot-0 shape — per-cycle and full-trace endpoints at the real entry over the state-pair recurrence; the trace is identified with the actual `circuit do` output stream via `loopPair_val`; differing widths, more slots, slot-1 return and Reg-operator reads stay open), register chains deeper than two stages and general register networks, reset muxes and the sequential SV printer step stay open; concrete-domain registers keep the legacy handler. |
 | `translateFallback` → canonical sync-read memory (`canonicalMemory?` → `translateMemoryUncachedWith`) | `Signal.memory` with bare-input operands AND with unified-cone operands: gate, total lowering, monoliths (`MemoryPreserves`/`MemoryConePreserves`), whole-trace endpoints at the real entry (`memory_run_of_env`, `memoryCone_run_of_env`), the emitted-SV layer with the read latch and write program (`mem_run_to_sv`), the parsed-back printed bytes (`mem_run_to_parsed`), the composed post-pipeline (`shipping_pipeline_transfer_mem`) and the real-circuit capstones at the core AND the full entry (`memAcc_shipping`, `memAcc_shipping_full`; the cleanup/merge identity is a lawful decidable gate). | Multi-port memories, `memoryWithInit` (an arbitrary Lean function argument), the non-synthesizable combinational-read form, and concrete-domain variants keep the legacy handler. |
@@ -221,6 +221,12 @@ the real share of certified compiles is, if anything, lower than below.
 | Real corpus | 47 (12%) | 342 | 389 |
 | Certification tests | 115 | 21 | 136 |
 
+After the applicative arm (same day): real corpus **54** certified, 335
+legacy only. The five additions are the tagged table modules of the IP
+library — `SHA256.kMux`, `SHA512HW.kMux`, `keccakRcHW`, `rconHW`, `sboxHW`
+— i.e. the CHILDREN of the eight `synth_*` wrappers above, so for those
+wrappers both the parent and the child now pass a certified gate.
+
 After the front-end normalisation landed (re-measured 2026-10-02, pass 1;
 the reason tables below are from the run before it): real corpus **49**
 certified, 340 legacy only — the two additions are the IP wrappers
@@ -336,7 +342,14 @@ of at most 6 declarations. Coverage of real designs needs these TOGETHER:
    and shares it through a separate cache; a certified arm has to
    reproduce both.
 4. **Applicative lifting and Bool/BitVec value operators** inside
-   `<$>`/`<*>` lambdas, **slices and concatenation**.
+   `<$>`/`<*>` lambdas, **slices and concatenation**. DONE for the
+   Bool-result binary lifts (comparisons, `&&`, `||`, `^^`) that make up
+   most of the IP library's applicative uses and all of `kLut!`. Open:
+   two-level bodies such as `a && !b`, unary and BitVec-result lifts.
+   Slices and concatenation are NOT front-half work: `x[hi:lo]` on a
+   plain reference and `{a, b}` of two references are IR right-hand sides
+   the optimizer check (`simpleRhs`), the typed-expression layer, the
+   printer theorems and the parse-back theorems do not cover yet.
 5. **Structure and tuple results**, i.e. multi-output modules.
 6. **Concrete-domain registers and memories** (the reset kind is read
    from the domain), then general `Signal.loop`, instance calls with cone
@@ -347,3 +360,28 @@ byte-identical to the legacy handler, a contract, a gate, and a clause
 of the bundle. None may shrink what the compiler accepts. Progress on
 this list should be read from the blocker sets, not from the count of
 passing declarations, which will stay near zero until item 2 lands.
+
+### What the certified work changed on the legacy route
+
+The dispatch arms and the legacy normalisation of `<$>`/`<*>` are shared
+by both front ends, so a change there shows on legacy-route designs too.
+Every generated output of the corpus is compared against the previous
+compiler (`scripts/shipping-coverage/compare_outputs.py OLD/out NEW/out`
+on two pass-1 runs). The applicative arm needed two changes to the legacy
+`normSpine`, both pure rewritings of the expression the legacy lowering
+then receives:
+
+- the operand `Seq.seq` passes through a `Unit` thunk is beta-reduced
+  where the spine is normalised (it used to be reduced at the use site);
+  without this the new arm received a beta-redex and 18 IP test benches
+  stopped compiling — found by the suite, never committed;
+- the lifted function's binders get canonical names (they are hygienic
+  macro names, different at every occurrence of the same `(· op ·)`).
+
+Both make two occurrences of one lifted expression the same cache key, so
+the legacy route now SHARES hardware it used to emit twice. Measured
+against the previous compiler on 191 outputs: 173 byte-identical, 18
+identical up to the numbering of fresh `_tmp_N` wires (fewer raw
+statements, the same optimised text), 0 different. No design stopped
+compiling and none changed its hardware; 18 changed their internal wire
+numbers.

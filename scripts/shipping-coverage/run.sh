@@ -3,6 +3,14 @@
 # synthesis corpus, and why declarations miss the certified gate.
 #
 #   scripts/shipping-coverage/run.sh [WORKDIR]
+#   PASSES=1 scripts/shipping-coverage/run.sh [WORKDIR]   # routes + outputs only
+#
+# Pass 1 also keeps every file's output under WORKDIR/out/ (the generated
+# Verilog of each `#synthesizeVerilog` is in it).  Two runs of pass 1 on two
+# compiler versions can be compared with `diff -r A/out B/out`: the dispatch
+# arms are shared by the certified and the legacy front end, so this is the
+# regression check that a new arm did not change what legacy-route designs
+# compile to.
 #
 # Requires a completed `lake build Tests.AllTests` (the files are run with
 # `lake env lean`, which only reads built oleans) and must NOT run next to a
@@ -20,12 +28,19 @@ grep -rlE "^#synthesizeVerilog|^#writeDesign|^#writeVerilogDesign|^#synthesizeVe
 # Pass 1: every synthesis, with the front end it took.
 rm -f /tmp/sparkle-profile.log
 : > "$WORK/status.txt"
+mkdir -p "$WORK/out"
 while read -r f; do
-  SPARKLE_PROFILE=1 timeout 300 lake env lean "$f" > /dev/null 2>&1
+  # stdout only: stderr carries the profile lines, whose timings vary.
+  SPARKLE_PROFILE=1 timeout 300 lake env lean "$f" \
+    > "$WORK/out/$(echo "$f" | tr '/' '_').txt" 2> /dev/null
   echo "$f $?" >> "$WORK/status.txt"
 done < "$WORK/files.txt"
 cp /tmp/sparkle-profile.log "$WORK/profile.log"
 python3 "$HERE/report.py" routes "$WORK"
+if [ "${PASSES:-3}" = "1" ]; then
+  echo "work directory: $WORK"
+  exit 0
+fi
 
 # Pass 2: why each legacy-only declaration misses the gate.
 sed "s#@WORK@#$WORK#g" "$HERE/probe_tail.lean.in" > "$WORK/probe_tail.lean"

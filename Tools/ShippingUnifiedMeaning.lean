@@ -89,6 +89,15 @@ def orderedOfName? : Name → Option SignalCompareKind
   | ``Sparkle.Core.Signal.Signal.sle => some .sle
   | _ => none
 
+/-- An applicative-lifted Bool-result operator views as the node of the
+operator it lifts: `(BitVec.ule · ·) <$> a <*> b` IS the comparison of `a`
+and `b`, pointwise. The shape is read by the shipping recogniser. -/
+def appView? (e : Lean.Expr) : Option Node :=
+  match appBoolOp? e with
+  | some (.compare op n, a, b) => some (.binary (.compare op n) a b)
+  | some (.bool op, a, b) => some (.binary (.bool op) a b)
+  | none => none
+
 /-- Pure syntax view. Operator instances and literal widths are checked using
 shipping recognizers; no MetaM type query or runtime environment oracle. -/
 def view : Lean.Expr → Option Node
@@ -128,7 +137,7 @@ def view : Lean.Expr → Option Node
     pure (.binary (.compare op n) a b)
   | .app (.app (.app (.const ``Complement.complement _) _)
       (.app (.const ``Sparkle.Core.Signal.instComplementSignalBool _) _)) a => some (.boolNot a)
-  | _ => none
+  | e => appView? e
 
 /-- The source function of each linked child declaration, on packed values.
 `none` outside the child's typed domain. -/
@@ -192,6 +201,11 @@ theorem view_bitsLit (dom : Lean.Expr) (n v : Nat) (hv : v < 2 ^ n) (vi : Nat �
   change (bitVecLitValue? (mkApp2 (.const ``BitVec.ofNat []) (natE n) (natE v))).map _ = _
   rw [litValue_natE n v hv]; rfl
 
+theorem view_bitsNum (dom : Lean.Expr) (n v : Nat) (hv : v < 2 ^ n) :
+    view (numSigE dom n v) = some (.value (.bits n (BitVec.ofNat n v))) := by
+  change (bitVecLitValue? (numLitE n v)).map _ = _
+  rw [litValue_numLitE n v hv]; rfl
+
 theorem view_binary (dom a b : Lean.Expr) (n : Nat) (op : Binary) :
     view (binE dom n op a b) = some (.binary (.bits op n) a b) := by
   have kinds := (op_checks op dom a b n).2.2.1
@@ -218,6 +232,41 @@ theorem view_boolBinary (dom a b : Lean.Expr) (op : SignalBoolBinKind) :
     view (boolBinE op dom a b) = some (.binary (.bool op) a b) := by cases op <;> rfl
 
 theorem view_boolNot (dom a : Lean.Expr) : view (boolNotE dom a) = some (.boolNot a) := rfl
+
+theorem appBoolBody?_compare (op : SignalCompareKind) (n : Nat) :
+    appBoolBody? (bitVecE n) (appCompareBodyE op n) = some (.compare op n) := by
+  cases op <;> simp [appBoolBody?, appCompareBodyE, bitVecE, mkApp4, mkApp3, mkApp2, mkAppB,
+    mkApp, bitVecEqualityWidth?, canonicalNatLitValue?_natE]
+
+theorem appBoolBody?_bool (op : SignalBoolBinKind) :
+    appBoolBody? (.const ``Bool []) (appBoolBodyE op) = some (.bool op) := by
+  cases op <;> rfl
+
+theorem appBoolOp?_appE (dom ty body a b : Lean.Expr) :
+    appBoolOp? (appE dom ty body a b) = (appBoolBody? ty body).map (·, a, b) := rfl
+
+theorem appBoolOp?_appCompareE (dom a b : Lean.Expr) (n : Nat) (op : SignalCompareKind) :
+    appBoolOp? (appCompareE op dom n a b) = some (.compare op n, a, b) := by
+  rw [appCompareE, appBoolOp?_appE, appBoolBody?_compare]; rfl
+
+theorem appBoolOp?_appBoolE (dom a b : Lean.Expr) (op : SignalBoolBinKind) :
+    appBoolOp? (appBoolE op dom a b) = some (.bool op, a, b) := by
+  rw [appBoolE, appBoolOp?_appE, appBoolBody?_bool]; rfl
+
+theorem view_appE (dom ty body a b : Lean.Expr) :
+    view (appE dom ty body a b) = appView? (appE dom ty body a b) := rfl
+
+theorem view_appCompare (dom a b : Lean.Expr) (n : Nat) (op : SignalCompareKind) :
+    view (appCompareE op dom n a b) = some (.binary (.compare op n) a b) := by
+  rw [appCompareE, view_appE]
+  show appView? (appCompareE op dom n a b) = _
+  simp [appView?, appBoolOp?_appCompareE]
+
+theorem view_appBool (dom a b : Lean.Expr) (op : SignalBoolBinKind) :
+    view (appBoolE op dom a b) = some (.binary (.bool op) a b) := by
+  rw [appBoolE, view_appE]
+  show appView? (appBoolE op dom a b) = _
+  simp [appView?, appBoolOp?_appBoolE]
 
 theorem view_setw (dom a : Lean.Expr) (w w' : Nat) :
     view (setwE dom w w' a) = some (.setw w w' a) := by
@@ -266,6 +315,7 @@ theorem meaning_quote_leaves {inputs : FVarId → Option Value} {dom : Lean.Expr
     exact hv j hj.1
   | _, .boolLit b, _ => .value (view_boolLit dom b)
   | _, .bitsLit w v, hv => .value (view_bitsLit dom w v hv.1 _)
+  | _, .bitsNum w v, hv => .value (view_bitsNum dom w v hv.1)
   | _, .binary op (w := w) a b, ⟨ha, hb'⟩ => by
     apply Meaning.binary (view_binary dom _ _ w op) (meaning_quote_leaves hb hv a ha) (meaning_quote_leaves hb hv b hb')
     simp [BinOp.run, pack, eval]
@@ -284,6 +334,13 @@ theorem meaning_quote_leaves {inputs : FVarId → Option Value} {dom : Lean.Expr
   | _, .setw (w := w) w' a, h => by
     apply Meaning.setw (view_setw dom _ w w') (meaning_quote_leaves hb hv a h.1)
     simp [setwValue, pack, eval]
+  | _, .appCompare op (w := w) a b, ⟨ha, hb'⟩ => by
+    apply Meaning.binary (view_appCompare dom _ _ w op) (meaning_quote_leaves hb hv a ha)
+      (meaning_quote_leaves hb hv b hb')
+    simp [BinOp.run, pack, eval]
+  | _, .appBool op a b, ⟨ha, hb'⟩ =>
+    .binary (view_appBool dom _ _ op) (meaning_quote_leaves hb hv a ha)
+      (meaning_quote_leaves hb hv b hb') rfl
 
 /-- The input-binder instance: leaves are prepared free variables. -/
 theorem meaning_quote {inputs : FVarId → Option Value} {dom : Lean.Expr} {kb kv : Nat}
