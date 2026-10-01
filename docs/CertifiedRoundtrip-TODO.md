@@ -495,10 +495,21 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   `parentSeq_runH_observes`: the compiled sequential parent's linked
   run drives `out` with the SOURCE register stream
   `(parentSeq aS).val j` at every cycle (12-cycle numeric regression
-  of the linked run included; audited, standard axioms). Open in S6:
-  other arities, multi-output/projection children, nested/multiple
-  instances, parameters, and the SV/text layer for hierarchy (the
-  M-layers' open-module view).
+  of the linked run included; audited, standard axioms). The
+  combinational entry contract is GENERALIZED to every arity:
+  `instEN` quotes the call over an argument LIST, the arm reads the
+  spine structurally (`instSpineArgs`), `instArgs_resolve` proves the
+  whole argument walk a chain of pure input reads by list induction,
+  and `InstanceNPreserves`/`synthesizeMixedCertified_instanceN_sound`
+  give the parent as one instance statement over the port-ordered
+  connection list (each connection reading the prepared wire of its
+  argument) — with the gate, step, dispatcher, `instanceN_entry_of_env`
+  and the real three-input endpoint `parentUse3_instance_entry`
+  (byte-parity with the legacy front end gated); the S7 bundle carries
+  it as its fourteenth clause. Open in S6: multi-output/projection
+  children, sequential children beyond one data port,
+  nested/multiple instances, parameters, and the SV/text layer for
+  hierarchy (the M-layers' open-module view).
 - [ ] **S7:** Reconcile all successful cases and compose the full shipping
   theorem; instantiate it on real circuits without substituting per-instance
   replay for coverage. STARTED — the reconciliation-1 statement exists
