@@ -629,17 +629,33 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   Verilog's semantics and by the module parsed back from the printed
   bytes, with `Consistent`. `parentMix_shipping` is the capstone on
   the real compile (gates suite-checked on the real module; the full
-  entry is the identity on it). HONEST LIMIT (S6-6, open): the
-  capstone's text is the CORE module's own print read back by the
-  parser and lowering without the reader-side optimizer. The
-  shipping text is the print of `checkedOptimize m`, and on
-  instance-bearing modules `checkedOptimize` returns the UNCHECKED
-  optimizer output (it inlines `_gen_out` in `parentMix`); the
-  optimizer's validation on instance-bearing modules — e.g. by
-  extracting each instance's interface into pseudo ports and reusing
-  `optCheck` — is the remaining step of the hierarchy post-pipeline,
-  together with sequential children in the bridge (`runH`) and the
-  design-level text (children printed alongside the parent). Open in
+  entry is the identity on it); its text is the core module's own
+  print. THE OPTIMIZER (S6-6): the shipping text is the print of
+  `checkedOptimize m`, and on instance-bearing modules
+  `checkedOptimize` returns the UNCHECKED optimizer output (it
+  inlines `_gen_out` in `parentMix`). That pass is now covered by
+  translation validation with the EXISTING checker
+  (Tools/ShippingHierOptSoundness.lean): `openFlat` drops the
+  instance statements and declares the instance-output wires as
+  input ports — a no-op in the open-module view
+  (`evalAssigns_openBody`) — so `optCheck` on the extracted pair
+  validates the optimizer (`hier_opt_open`), and the linked meaning
+  crosses it (`hier_opt_transfer`: the same oracle seeding is
+  consistent for the optimized module when its instance statements
+  are kept, `instsKept`, and every wire they connect is validated or
+  untouched, `connAgreeOk`). `hier_shipping_transfer` composes it
+  with the SV and parsed-text layers, and `parentMix_shipping_opt`
+  is the capstone on the SHIPPING text: real compile → optimized
+  module → emitted Verilog semantics and the module the shipping
+  parser (reader-side optimizer included) reads back, with the
+  linked source value at `out` and `Consistent`. The gates are
+  suite-checked on three real parents (`parentMix`,
+  `parentTwoCalls`, `parentNested`), including
+  `checkedOptimize m == optimizeModule m`. Still open in the
+  hierarchy post-pipeline: sequential children in the bridge
+  (`runH`), the design-level text (children printed alongside the
+  parent, `toVerilogDesign`), and the full-entry statement
+  (`synthesizeCombinational` instead of the core entry). Open in
   S6: call operands that are general cones
   (`childAdd (a + b) b` — the leaf contract takes any operand
   contract, the gate spine does not yet), sequential/Bool-output/

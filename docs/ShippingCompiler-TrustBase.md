@@ -146,7 +146,13 @@ need two further boundary predicates, mirroring `EnvDefines`:
   as "outputs equal the child's function of the connected inputs" —
   now used in its order-free form (`Consistent`), not only as the
   sequential fold `evalAssignsH`. The optimizer on instance-bearing
-  modules is NOT covered: `checkedOptimize` does not check there.
+  modules is covered by translation validation, not by
+  `checkedOptimize` itself (which does not check there): the
+  capstone takes the decidable gates `optCheck` on the
+  interface-extracted pair, `instsKept` and `connAgreeOk` as
+  premises, and the suite evaluates them on the real modules. As
+  with the sequential shapes, an optimizer change that broke a gate
+  would fail the suite, not silently ship.
 - (LANDED) The projection arm's boundaries
   (Tools/ShippingInstanceEntrySoundness.lean), for a parent
   `field (child args…)` over a multi-output child:
