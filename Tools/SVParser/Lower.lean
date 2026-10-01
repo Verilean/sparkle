@@ -1050,13 +1050,38 @@ partial def collectArrayWrites (arrName : String) (stmts : List SVStmt)
       armWrites ++ defWrites
     | _ => []
 
-/-- Literal-only constant evaluator (for part-select bases/widths in
-    memory-write patterns; full `evalConstExpr` is defined later). -/
-private def evalConstExprSimple : SVExpr → Option Nat
+/-- Constant evaluator for part-select bases/widths in memory-write
+    patterns: literals and arithmetic on them (full `evalConstExpr` is
+    defined later).  An unrolled loop leaves `0*8`, `1*8`, … as the base of
+    `arr[addr][i*8 +: 8]`; literal-only evaluation did not recognise those
+    and the byte-enable writes of LiteX's memories were dropped. -/
+private partial def evalConstExprSimple : SVExpr → Option Nat
   | .lit (.decimal _ v) => some v
   | .lit (.hex _ v) => some v
   | .lit (.binary _ v) => some v
+  | .binary .add a b => do return (← evalConstExprSimple a) + (← evalConstExprSimple b)
+  | .binary .sub a b => do return (← evalConstExprSimple a) - (← evalConstExprSimple b)
+  | .binary .mul a b => do return (← evalConstExprSimple a) * (← evalConstExprSimple b)
+  | .binary .shl a b => do return (← evalConstExprSimple a) <<< (← evalConstExprSimple b)
   | _ => none
+
+/-- Does any statement assign array `arrName` — a whole element, a slice of
+    one, or an indexed part-select of one? -/
+partial def writesArray (arrName : String) (stmts : List SVStmt) : Bool :=
+  let rec root : SVExpr → Option String
+    | .index (.ident n) _ => some n
+    | .index e _ => root e
+    | .slice e _ _ => root e
+    | .partSelectPlus e _ _ => root e
+    | _ => none
+  stmts.any fun s => match s with
+    | .nonblockAssign lhs _ | .blockAssign lhs _ => root lhs == some arrName
+    | .ifElse _ t e => writesArray arrName t || writesArray arrName e
+    | .caseStmt _ arms dflt =>
+      arms.any (fun (_, body) => writesArray arrName body) ||
+        (dflt.map (writesArray arrName)).getD false
+    | .forLoop _ _ _ body => writesArray arrName body
+    | _ => false
 
 /-- Collect byte-lane writes: if (cond) arr[addr][hi:lo] <= data[hi:lo] -/
 partial def collectByteLaneWrites (arrName : String) (stmts : List SVStmt)
@@ -2379,7 +2404,13 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
                 if acc == Expr.const 0 1 then c else Expr.op .or [acc, c]
               ) (Expr.const 0 1)
               writeEnable := enableExpr
-            | [] => pure ()
+            | [] =>
+              -- Neither form matched.  If the block does write the array,
+              -- saying nothing would leave a memory that is never
+              -- written (write enable 0) — LiteX's RAMs were lowered that
+              -- way.
+              if writesArray name stmts then
+                throw s!"memory `{name}` is written in a form the lowering does not support (supported: `{name}[a] <= d`, `{name}[a][hi:lo] <= d`, `{name}[a][base +: w] <= d` with constant bounds, under `if`/`case`, in an unrollable `for`)"
         | _ => pure ()
       -- Extract read ports.  The first read claims `Stmt.memory`'s
       -- dedicated read fields; the rest become genuine EXTRA read ports

@@ -2832,5 +2832,33 @@ endmodule
     else IO.println s!"FAIL: {r} (want [711573677477])"; failed := failed + 1
   catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
 
+  -- Test 77 (LiteX): a byte-enable memory written in a named block that
+  -- declares its loop variable locally.  Making unparsable statements an
+  -- error (Test 75) rejected this whole block — `integer we_index;` was
+  -- not a statement the parser knew — and with it every LiteX SoC.
+  IO.print "  Test 77: block-local `integer` in a byte-enable memory write (LiteX)... "
+  try
+    let v := "
+module bemem (input clk, input [3:0] adr, input [3:0] we, input [31:0] dat_w, output [31:0] dat_r);
+  reg [31:0] sram[0:15];
+  reg [3:0] sram_adr0;
+  always @(posedge clk) begin : mem_write_block
+    integer we_index;
+    for (we_index = 0; we_index < 4; we_index = we_index + 1)
+      if (we[we_index])
+        sram[adr][we_index*8 +: 8] <= dat_w[we_index*8 +: 8];
+    sram_adr0 <= adr;
+  end
+  assign dat_r = sram[sram_adr0];
+endmodule
+"
+    -- write byte lanes 0 and 2 of word 5; the other two lanes keep 0
+    let r ← jitRun v (fun h => do
+        JIT.setInput h 0 5; JIT.setInput h 1 0b0101; JIT.setInput h 2 0xAABBCCDD) 3
+      (fun h => do return [← JIT.getOutput h 0])
+    if r == [0x00BB00DD] then IO.println "PASS"; passed := passed + 1
+    else IO.println s!"FAIL: {r} (want [12255453] = 0x00BB00DD)"; failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
   IO.println s!"\n=== Results: {passed} passed, {failed} failed ==="
   return if failed == 0 then 0 else 1

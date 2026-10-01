@@ -225,7 +225,10 @@ partial def parseAdd : P SVExpr := do
   let mut e ← parseMul
   let mut cont := true
   while cont do
-    match ← attempt (token (matchStr "+")) with
+    -- `+:` is the indexed part-select, not an addition: `x[i*8 +: 8]`
+    match ← attempt (do
+        let _ ← token (matchStr "+")
+        if (← peekChar) == some ':' then fail "+:") with
     | some _ => let rhs ← parseMul; e := SVExpr.binary .add e rhs
     | none =>
       match ← attempt (do let _ ← token (matchStr "-"); parseMul) with
@@ -285,12 +288,16 @@ partial def parsePrimaryPost : P SVExpr := do
 partial def parsePostfix (e : SVExpr) : P SVExpr := do
   match ← attempt lbracket with
   | some _ =>
-    -- Try [base +: width] part-select first
-    -- Use parsePrimary (not parseExpr) for base to avoid consuming + as addition
+    -- Try [base +: width] part-select first.  The base is an arithmetic
+    -- expression (`we_index*8 +: 8` in LiteX's byte-enable memories);
+    -- `parseAdd` stops before `+:`.  It used to be a primary only, so a
+    -- product as the base made the whole statement unparsable — and the
+    -- always-block recovery dropped it without a word: LiteX's RAMs lowered
+    -- to memories with write enable 0.
     match ← attempt (do
-      let base ← parsePrimary
+      let base ← parseAdd
       let _ ← token (matchStr "+:")
-      let widthExpr ← parsePrimary
+      let widthExpr ← parseAdd
       rbracket
       pure (base, widthExpr)
     ) with
@@ -455,6 +462,18 @@ partial def parseStmt : P SVStmt := do
     | none => pure ()
     semi
     return SVStmt.blockAssign (.lit (.decimal none 0)) (.lit (.decimal none 0))
+  | none => pure ()
+  -- Block-local variable declaration (`integer i;` at the top of a named
+  -- block): it declares a loop variable and does nothing.  LiteX writes its
+  -- byte-enable memories this way.  When the recovery below still skipped
+  -- characters this parsed by accident; once an unparsable statement became
+  -- an error, the whole memory block was rejected.
+  match ← attempt (do
+      keyword "integer"
+      let _ ← identifier
+      let _ ← many (do comma; identifier)
+      semi) with
+  | some _ => return SVStmt.blockAssign (.lit (.decimal none 0)) (.lit (.decimal none 0))
   | none => pure ()
   match ← attempt (keyword "if") with
   | some _ =>
