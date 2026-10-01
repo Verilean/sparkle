@@ -43,6 +43,8 @@ automatically.
 | 8 | Netlist Generation with Yosys | [`md/Ch08_Yosys.md`](md/Ch08_Yosys.md) |
 | 8b | Three Ways to Simulate, One Interface (pure-Lean / JIT / Verilator) | [`md/Ch08b_Simulation.md`](md/Ch08b_Simulation.md) |
 | 8c | From Signal to Silicon — DFF, clocks, STA, gate count, ASIC vs FPGA mapping | [`md/Ch08c_Silicon.md`](md/Ch08c_Silicon.md) |
+| 8d | Transaction-level testbenches (drivers, monitors, scoreboard), and UVM from the same test | [`md/Ch08d_TransactionTestbench.md`](md/Ch08d_TransactionTestbench.md) |
+| 8e | Working with SystemVerilog: existing designs, AXI transactions (agents, monitors, scoreboards), UVM from the same definitions | [`md/Ch08e_SvInterop.md`](md/Ch08e_SvInterop.md) |
 | 9 | FPGA Bring-Up | [`md/Ch09_FPGA.md`](md/Ch09_FPGA.md) |
 | 10 | Sparkle Architecture | [`md/Ch10_Architecture.md`](md/Ch10_Architecture.md) |
 | 11 | Running the web3 Signing Device on Real Hardware | [`md/Ch11_Web3Signer.md`](md/Ch11_Web3Signer.md) |

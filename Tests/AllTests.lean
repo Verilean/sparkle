@@ -76,6 +76,8 @@ import Tests.IP.Control.PrecisionSweepTest
 import Tests.IP.Control.ObserverTest
 import Tests.Compiler.RtlStructureTest
 import Tests.CircuitDoTest
+import Tests.TlmTest
+import Tests.SvInteropTest
 import Tests.RunCircuitHTest
 import Tests.TestCppSim
 import Tests.TestCudaSim
@@ -529,6 +531,10 @@ def main : IO UInt32 := do
   Sparkle.Tests.CircuitDoTest.main
   IO.println ""
   Sparkle.Tests.RunCircuitHTest.main
+  IO.println ""
+  Sparkle.Tests.TlmTest.main
+  IO.println ""
+  Sparkle.Tests.SvInteropTest.main
   IO.println ""
 
   -- Fixed-point control datapaths (IIR biquad / PID / LQR).  These use

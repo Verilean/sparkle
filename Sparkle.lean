@@ -36,5 +36,11 @@ import Sparkle.Core.Oracle
 import Sparkle.Core.OracleSpec
 import Sparkle.Core.MulOracle
 import Sparkle.Verification.MulProps
+import Sparkle.Verification.Tlm
+import Sparkle.Verification.TlmUvm
+import Sparkle.Verification.TlmAxi
+import Sparkle.Verification.TlmAxiUvm
+import Sparkle.Backend.SvWrapper
+import Sparkle.Core.SimSv
 import Sparkle.Utils.HexLoader
 import Sparkle.Display

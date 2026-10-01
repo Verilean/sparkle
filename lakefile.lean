@@ -314,6 +314,27 @@ lean_exe «circuit-do-test» where
   root := `Tests.Drivers.CircuitDoTestMain
   supportInterpreter := true
 
+-- Transaction-level testbench layer (driver / monitor / scoreboard /
+-- blocking endpoints) on JIT-simulated ready/valid designs.
+lean_exe «tlm-test» where
+  root := `Tests.Drivers.TlmTestMain
+  supportInterpreter := true
+
+-- SystemVerilog interoperability: designs not written in Sparkle (an
+-- in-repo AXI4-Lite register block; with Examples/SvInterop/fetch.sh also
+-- verilog-axi, verilog-axis and PicoRV32), loaded with Verilator and tested
+-- with AXI4-Lite / AXI4-Stream transactions.  Skips without verilator.
+lean_exe «sv-interop-test» where
+  root := `Tests.Drivers.SvInteropTestMain
+  supportInterpreter := true
+
+-- UVM testbenches generated from the same transaction-level tests; with
+-- SPARKLE_UVM_HOME (a UVM source tree) and verilator they are compiled and
+-- run, otherwise only emitted.
+lean_exe «tlm-uvm-test» where
+  root := `Tests.Drivers.TlmUvmTestMain
+  supportInterpreter := true
+
 -- Sim + synth check for the HList-based generic `runCircuitH`
 -- — the sole register-DSL helper after the per-arity
 -- `runCircuit{1..4}` were removed.  Covers N=1..4 plus
