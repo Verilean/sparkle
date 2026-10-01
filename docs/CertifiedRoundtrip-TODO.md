@@ -742,7 +742,15 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   (`useSel_execution`: nested helpers of both sorts; `accH_run`: a
   helper inside a feedback loop) — the suite gates 19 unfolded
   declarations byte-identical to the legacy compile and the
-  reserved/tagged/library/over-budget cases left alone.
+  reserved/tagged/library/over-budget cases left alone. The normaliser
+  also resolves a user structure's field projection against the
+  constructor its record head-normalises to (zeta of the lets in
+  front — the legacy projection handler's own reduction), which is the
+  wrapper idiom of the IP test benches: the FIRST TWO REAL IP MODULES
+  are certified end to end, `nodeFilter_execution` (DroneCAN node
+  filter) and `oddParity_execution` (MIL-STD-1553 odd parity, sixteen
+  shifted-and-masked bits XOR-reduced and compared), each stating that
+  the compiled module computes the IP definition's own output stream.
 - [ ] **S7 / trust:** Resolve or explicitly retain `EnvDefines` in the final
   claim; record execution-model/external-tool boundaries without hiding them.
   RECORDED — docs/ShippingCompiler-TrustBase.md states the retained base

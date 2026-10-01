@@ -13,7 +13,7 @@ Use declaration names as anchors; source line numbers move during extensions.
 
 | Actual route | Current shipping theorem coverage | Remaining obligation |
 | --- | --- | --- |
-| `synthesizeCombinationalCoreWith` → `entryConst` (front-end normalisation) | The entry hands `synthesizeFromConst` the declaration as read when a gate accepts it, and the declaration with its untagged user definitions unfolded (`userInliner`: pure delta-beta against the run's environment, total, node-budgeted) when the original misses both gates and the unfolding passes one. Every family theorem then applies to that entry constant verbatim (`synthesizeCombinationalCore_entry_sound`, the whole bundle); real helper-structured declarations are certified end to end (`useSel_execution`, `accH_run`) under the boundary `EntryDefines`. Byte-identical to the legacy call-site unfolding on 19 declarations (suite-gated). | Projection of a constructor and the lets in front of it (the wrapper idiom `(ipHW a b).field`), reducible definitions and universe-polymorphic helpers are not unfolded; only the unified combinational and the feedback-register endpoints have `_of_entry` twins so far (the other families are reached through the bundle). |
+| `synthesizeCombinationalCoreWith` → `entryConst` (front-end normalisation) | The entry hands `synthesizeFromConst` the declaration as read when a gate accepts it, and the declaration with its untagged user definitions unfolded (`userInliner`: pure delta-beta of untagged user definitions, and projection of a user structure's field out of the constructor its record head-normalises to — zeta of the lets in front, which is what the legacy projection handler's `unfoldDefinition?`/`whnf` loop does to `(ipHW a b).field` — against the run's environment, total, node-budgeted) when the original misses both gates and the unfolding passes one. Every family theorem then applies to that entry constant verbatim (`synthesizeCombinationalCore_entry_sound`, the whole bundle); real helper-structured declarations are certified end to end (`useSel_execution`, `accH_run`) under the boundary `EntryDefines`, and so are the FIRST TWO REAL IP MODULES: the DroneCAN node filter and the MIL-STD-1553 odd-parity generator, compiled through the field-projecting wrapper their test benches use (`nodeFilter_execution`, `oddParity_execution`: the module computes the IP definition's own output stream; `*_library` identify the IP definition with the quoted term by `rfl`). Byte-identical to the legacy route on 21 declarations (suite-gated). | Reducible definitions, universe-polymorphic helpers and library projections (`Prod.fst`) are not unfolded; one refused node (`∀`, metadata, a primitive projection) abandons the whole normalisation; only the unified combinational and the feedback-register endpoints have `_of_entry` twins so far (the other families are reached through the bundle). |
 | `synthesizeFromConst` → `certifiedShape?` → `synthesizeCertified` | S0: quoted positive-width BitVec fragment, `compiledFragment_execution` | Extend source/interface forms outside this gate without treating refusal by this gate as compiler failure. |
 | `synthesizeFromConst` → `mixedCertifiedShape?` → `synthesizeMixedCertified` | S1/S2: Bool inputs/literals, canonical `&&&`/`|||`/`^^^`/`~~~`, `ult`/`ule`/`slt`/`sle`, standard BitVec/Bool `beq`, Bool-result mux over common-width BitVec operands; BitVec mux trees via `ShippingVectorMuxSoundness.execution_source_of_env` | Extend operations/results and recursive width invariants. |
 | Both shape gates miss → existing synthesis/cache path | No general source-to-shipping-RTL theorem. MEASURED: 342 of the 389 real-corpus declarations take this route (see "Measured corpus coverage"). | Reconcile source opening, normalization, output leaf splitting, cached submodules and all successful legacy handlers, in the order the measurement gives. |
@@ -221,6 +221,12 @@ the real share of certified compiles is, if anything, lower than below.
 | Real corpus | 47 (12%) | 342 | 389 |
 | Certification tests | 115 | 21 | 136 |
 
+After the front-end normalisation landed (re-measured 2026-10-02, pass 1;
+the reason tables below are from the run before it): real corpus **49**
+certified, 340 legacy only — the two additions are the IP wrappers
+`synth_droneCanNodeFilter` and `synth_mil1553Parity`; the same 23 files
+fail to elaborate as before.
+
 "Certified front end" means the gate accepted the declaration, i.e. the
 syntactic precondition of the theorems holds. It does not discharge the
 premises of [the trust base](ShippingCompiler-TrustBase.md). Of the 47,
@@ -232,7 +238,8 @@ accepted since the instance spine admits a closed clock-domain argument.
 For those the certified statement is about the PARENT: it is a
 width-linked instance of its child. The children themselves are compiled
 by the legacy front end, so their correctness stays a premise
-(`ChildCorrect`). No IP design body is certified end to end today.
+(`ChildCorrect`). At the time of this table no IP design body was
+certified end to end; the two added by the normalisation are.
 
 **Why declarations miss the gate, as written** (337 of the 342
 legacy-only declarations classified; a declaration counts once per
@@ -315,9 +322,12 @@ of at most 6 declarations. Coverage of real designs needs these TOGETHER:
 
 1. **Front-end normalisation** (definition unfolding, projection of a
    constructor). Cheap, exact on the tested shapes, and a prerequisite of
-   everything below; it certifies nothing real by itself. Definition
-   unfolding is DONE (`entryConst`, `Tools/ShippingInlineSoundness.lean`);
-   projection of a constructor is open.
+   everything below. DONE (`entryConst`,
+   `Tools/ShippingInlineSoundness.lean`): definition unfolding and
+   projection of a constructor. By itself it brings the first two real IP
+   modules through a certified front end — the two combinational modules
+   whose bodies are plain cones under `let` (DroneCAN node filter,
+   MIL-STD-1553 parity) — and nothing else, as the blocker sets predict.
 2. **The general `circuit do`**: N register slots with cross-coupled
    next-state cones, the body evaluated once for the next state and once
    for the outputs. The certified one- and two-slot shapes are special

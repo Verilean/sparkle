@@ -1,5 +1,7 @@
 import Tools.ShippingInlineSoundness
 import Tests.Compiler.ShippingMixedExecutionTest
+import IP.Bus.DroneCANHW
+import IP.Bus.MIL1553HW
 
 /-! Front-end normalisation (unfolding of user definitions) at the real entry.
 
@@ -16,6 +18,7 @@ open Sparkle.Core.Domain Sparkle.Core.Signal
 open Tools.ShippingEntrySoundness Tools.ShippingUnifiedSource
 open Tools.ShippingMixedSourceBridge Tools.ShippingMixedExecutionSoundness
 open Tools.ShippingInlineSoundness
+open Tools.ShippingMuxLoweringSoundness (encodeBool)
 
 /-! ## Helpers and the declarations that use them -/
 
@@ -250,6 +253,127 @@ theorem accH_run {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
       simp [eval, accHTerm, Tools.ShippingScalarSoundness.Binary.apply, hc,
         BitVec.ofNat_toNat]
 
+/-! ## Real IP modules
+
+Two modules of the IP library, as their test benches synthesise them: a
+wrapper projecting one output field of the module's result structure.  The
+modules are written with `let`-bound intermediate signals and a structure
+instance; the entry constant is the projected field with the lets
+substituted — what the legacy projection handler reduces the call to. -/
+
+/-- DroneCAN node filter (`IP/Bus/DroneCANHW.lean`): accept a frame iff its
+source node differs from ours. -/
+def nodeFilterTop (srcNode selfNode : Signal defaultDomain (BitVec 7)) :
+    Signal defaultDomain Bool :=
+  (Sparkle.IP.Bus.DroneCANHW.nodeFilterHW srcNode selfNode).accept
+
+def nodeFilterTerm : Term .bool :=
+  .boolNot (.compare .eq (.bitsInput 7 0) (.bitsInput 7 1))
+
+theorem nodeFilterTerm_wf : nodeFilterTerm.WF 0 2 (fun _ => 7) := by
+  simp [nodeFilterTerm, Term.WF]
+
+/-- The kernel's delta/zeta/projection: the IP module's field IS the
+denotation of the term. -/
+theorem nodeFilter_library (bi : Nat → Signal defaultDomain Bool)
+    (vi : (j : Nat) → (w : Nat) → Signal defaultDomain (BitVec w)) :
+    denote bi vi nodeFilterTerm = nodeFilterTop (vi 0 7) (vi 1 7) := rfl
+
+#def_entry_value nodeFilterEntry of nodeFilterTop
+def nodeFilterBinders : List (Name × MixedGateBinder) :=
+  [(`srcNode, .bits 7), (`selfNode, .bits 7)]
+theorem nodeFilter_peel : mixedGatePeel nodeFilterEntry = some (nodeFilterBinders,
+    quote (.const ``Sparkle.Core.Domain.defaultDomain [])
+      (fun _ => inputExpr nodeFilterBinders.length 0)
+      (fun j => inputExpr nodeFilterBinders.length j) nodeFilterTerm) := rfl
+
+/-- **The DroneCAN node filter, source to RTL.** The module compiled from the
+real IP definition computes that definition's output stream. -/
+theorem nodeFilter_execution {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinational ``nodeFilterTop) mctx mref cctx cref w (m, design) w')
+    (entry : EntryDefines mctx mref cctx cref ``nodeFilterTop nodeFilterEntry) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = nodeFilterBinders.length ∧
+    ∃ cache : IO.Ref (ExprStructMap String),
+      ∀ (bools : Nat → Signal defaultDomain Bool)
+        (bits : (j : Nat) → (n : Nat) → Signal defaultDomain (BitVec n))
+        (tick : Nat) (initial : Env) (mems : MEnv),
+      SourceInputs ``nodeFilterTop nodeFilterBinders ids cache
+        (fun j => (bools j).val tick) (fun j n => (bits j n).val tick) initial →
+      ExecutionValue m initial mems
+        (encodeBool ((nodeFilterTop (bits 0 7) (bits 1 7)).val tick)) := by
+  obtain ⟨ids, nd, len, cache, H⟩ := execution_source_of_entry (kb := 0) (kv := 2)
+    (vw := fun _ => 7) (bpos := fun _ => 0) (vpos := fun j => j) hr entry
+    (by intro d hd; simp only [certifiedShape?, hd]; rfl) nodeFilter_peel nodeFilterTerm_wf
+    (by intro j hj; omega)
+    (by
+      intro j hj
+      have h : j = 0 ∨ j = 1 := by omega
+      rcases h with rfl | rfl
+      · exact ⟨`srcNode, rfl⟩
+      · exact ⟨`selfNode, rfl⟩)
+  exact ⟨ids, nd, len, cache, fun bools bits tick initial mems h =>
+    H (D := defaultDomain) bools bits tick initial mems h⟩
+
+/-- MIL-STD-1553 odd parity over a 16-bit word (`IP/Bus/MIL1553HW.lean`):
+sixteen shifted-and-masked bits, XOR-reduced, compared with zero. -/
+def oddParityTop (content : Signal defaultDomain (BitVec 16)) : Signal defaultDomain Bool :=
+  (Sparkle.IP.Bus.MIL1553HW.oddParityHW content).parity
+
+/-- Bit `i` of the word, as the module extracts it. -/
+def parityBit : Nat → Term (.bits 16)
+  | 0 => .binary .and (.bitsInput 16 0) (.bitsLit 16 1)
+  | i + 1 => .binary .and (.binary .shr (.bitsInput 16 0) (.bitsLit 16 (i + 1))) (.bitsLit 16 1)
+
+/-- The left-nested XOR of bits `0 … n`. -/
+def parityXor : Nat → Term (.bits 16)
+  | 0 => parityBit 0
+  | n + 1 => .binary .xor (parityXor n) (parityBit (n + 1))
+
+def oddParityTerm : Term .bool := .compare .eq (parityXor 15) (.bitsLit 16 0)
+
+theorem oddParityTerm_wf : oddParityTerm.WF 0 1 (fun _ => 16) := by
+  simp [oddParityTerm, parityXor, parityBit, Term.WF]
+
+theorem oddParity_library (bi : Nat → Signal defaultDomain Bool)
+    (vi : (j : Nat) → (w : Nat) → Signal defaultDomain (BitVec w)) :
+    denote bi vi oddParityTerm = oddParityTop (vi 0 16) := rfl
+
+#def_entry_value oddParityEntry of oddParityTop
+def oddParityBinders : List (Name × MixedGateBinder) := [(`content, .bits 16)]
+theorem oddParity_peel : mixedGatePeel oddParityEntry = some (oddParityBinders,
+    quote (.const ``Sparkle.Core.Domain.defaultDomain [])
+      (fun _ => inputExpr oddParityBinders.length 0)
+      (fun j => inputExpr oddParityBinders.length j) oddParityTerm) := rfl
+
+/-- **The MIL-STD-1553 parity generator, source to RTL.** -/
+theorem oddParity_execution {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinational ``oddParityTop) mctx mref cctx cref w (m, design) w')
+    (entry : EntryDefines mctx mref cctx cref ``oddParityTop oddParityEntry) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = oddParityBinders.length ∧
+    ∃ cache : IO.Ref (ExprStructMap String),
+      ∀ (bools : Nat → Signal defaultDomain Bool)
+        (bits : (j : Nat) → (n : Nat) → Signal defaultDomain (BitVec n))
+        (tick : Nat) (initial : Env) (mems : MEnv),
+      SourceInputs ``oddParityTop oddParityBinders ids cache
+        (fun j => (bools j).val tick) (fun j n => (bits j n).val tick) initial →
+      ExecutionValue m initial mems
+        (encodeBool ((oddParityTop (bits 0 16)).val tick)) := by
+  obtain ⟨ids, nd, len, cache, H⟩ := execution_source_of_entry (kb := 0) (kv := 1)
+    (vw := fun _ => 16) (bpos := fun _ => 0) (vpos := fun j => j) hr entry
+    (by intro d hd; simp only [certifiedShape?, hd]; rfl) oddParity_peel oddParityTerm_wf
+    (by intro j hj; omega)
+    (by
+      intro j hj
+      have h : j = 0 := by omega
+      subst h
+      exact ⟨`content, rfl⟩)
+  exact ⟨ids, nd, len, cache, fun bools bits tick initial mems h =>
+    H (D := defaultDomain) bools bits tick initial mems h⟩
+
 /-! ## Runtime gates on the real compiler -/
 
 run_cmd liftTermElabM do
@@ -260,7 +384,7 @@ run_cmd liftTermElabM do
   let mut unfolded := 0
   for name in [``uRoot, ``uCone, ``uTwice, ``uLit, ``uId, ``uNest, ``uMux, ``uReg, ``uCmp,
       ``uIdRoot, ``uLitRoot, ``uShare, ``uLoop, ``uBool, ``uConcrete, ``uGeneric, ``uArgs,
-      ``useSel, ``accH] do
+      ``useSel, ``accH, ``nodeFilterTop, ``oddParityTop] do
     let ci ← getConstInfo name
     -- As written, the declaration misses both gates …
     unless (certifiedShape? false [] ci).isNone && (mixedCertifiedShape? false [] ci pred).isNone do
@@ -280,7 +404,7 @@ run_cmd liftTermElabM do
         mc.wires == ml.wires && mc.name == ml.name && dc.modules == dl.modules do
       throwError "{name}: the unfolded certified compile departed from the legacy compile"
     unfolded := unfolded + 1
-  unless unfolded == 19 do throwError "unfolding case count mismatch: {unfolded}"
+  unless unfolded == 21 do throwError "unfolding case count mismatch: {unfolded}"
   logInfo m!"INLINE FRONT END: {unfolded} helper-structured declarations unfolded, certified == legacy bytes"
 
 run_cmd liftTermElabM do
@@ -290,7 +414,8 @@ run_cmd liftTermElabM do
   -- The values the theorems name ARE the entry constants of this environment.
   -- (Compared as reflected terms: the named definitions are the reflection
   -- of the entry constant's value.)
-  for (name, valueName) in [(``useSel, ``useSelEntry), (``accH, ``accHEntry)] do
+  for (name, valueName) in [(``useSel, ``useSelEntry), (``accH, ``accHEntry),
+      (``nodeFilterTop, ``nodeFilterEntry), (``oddParityTop, ``oddParityEntry)] do
     let some v := (entryConst true false [] (← getConstInfo name) pred inl).value?
       | throwError "{name} has no entry value"
     let .ok r := Tools.ShippingEntrySoundness.reflExpr v
@@ -308,6 +433,12 @@ run_cmd liftTermElabM do
       (userDefinition? env ``HAdd.hAdd).isNone do
     throwError "a library definition is unfolded"
   unless (userDefinition? env ``add2).isSome do throwError "a plain helper is not unfolded"
+  -- Projections: a user structure's field accessor is resolved, a class
+  -- method and a library projection are not.
+  unless (userProjection? env ``Sparkle.IP.Bus.MIL1553HW.ParityOut.parity).isSome do
+    throwError "a user structure projection is not resolved"
+  unless (userProjection? env ``HAdd.hAdd).isNone && (userProjection? env ``Prod.fst).isNone do
+    throwError "a class method or library projection is resolved"
 
 /-- Default-entry and legacy-front-end compiles agree, and the entry constant
 is the declaration as read. -/
@@ -348,10 +479,12 @@ run_cmd do
       ``Tools.ShippingInlineSoundness.loopRegister_run_of_entry,
       ``Tools.ShippingEntrySoundness.entryConst_inlined,
       ``Tools.ShippingEntrySoundness.synthesizeCombinationalCore_reads,
-      ``useSel_library, ``useSel_execution, ``accH_run] do
+      ``useSel_library, ``useSel_execution, ``accH_run,
+      ``nodeFilter_library, ``nodeFilter_execution,
+      ``oddParity_library, ``oddParity_execution] do
     for ax in (← liftCoreM <| collectAxioms name) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do
         throwError "unexpected inline front-end axiom: {name}: {ax}"
-  logInfo "INLINE FRONT END ENDPOINTS: entry-constant bundle, combinational and feedback-register endpoints on helper-structured declarations; standard axioms only"
+  logInfo "INLINE FRONT END ENDPOINTS: entry-constant bundle, endpoints on helper-structured declarations and on two real IP modules (DroneCAN node filter, MIL-STD-1553 parity); standard axioms only"
 
 end Sparkle.Tests.Compiler.ShippingInlineSoundnessTest

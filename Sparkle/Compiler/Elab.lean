@@ -2626,15 +2626,24 @@ def inlLift (k : Nat) : Nat → Lean.Expr → Nat → Option (Lean.Expr × Nat)
       | some (body', b) => some (.lam n t' body' bi, b)
       | none => none
     | none => none
+  | c, .letE n t v body nd, b + 1 =>
+    match inlLift k c t b with
+    | some (t', b) =>
+      match inlLift k c v b with
+      | some (v', b) =>
+        match inlLift k (c + 1) body b with
+        | some (body', b) => some (.letE n t' v' body' nd, b)
+        | none => none
+      | none => none
+    | none => none
   | _, .forallE .., _ + 1 => none
-  | _, .letE .., _ + 1 => none
   | _, .mdata .., _ + 1 => none
   | _, .proj .., _ + 1 => none
   | _, e, b + 1 => some (e, b)
 
 /-- Replace the loose bound variables `≥ d` by `xs` (`instantiateRev` order:
     `.bvar d` is the LAST element), lifting an argument placed under `d`
-    binders.  Budgeted; binder forms other than `fun` are refused. -/
+    binders.  Budgeted; `∀`, metadata and primitive projections are refused. -/
 def inlSubst (xs : Array Lean.Expr) : Nat → Lean.Expr → Nat → Option (Lean.Expr × Nat)
   | _, _, 0 => none
   | d, .bvar i, b + 1 =>
@@ -2657,8 +2666,17 @@ def inlSubst (xs : Array Lean.Expr) : Nat → Lean.Expr → Nat → Option (Lean
       | some (body', b) => some (.lam n t' body' bi, b)
       | none => none
     | none => none
+  | d, .letE n t v body nd, b + 1 =>
+    match inlSubst xs d t b with
+    | some (t', b) =>
+      match inlSubst xs d v b with
+      | some (v', b) =>
+        match inlSubst xs (d + 1) body b with
+        | some (body', b) => some (.letE n t' v' body' nd, b)
+        | none => none
+      | none => none
+    | none => none
   | _, .forallE .., _ + 1 => none
-  | _, .letE .., _ + 1 => none
   | _, .mdata .., _ + 1 => none
   | _, .proj .., _ + 1 => none
   | _, e, b + 1 => some (e, b)
@@ -2689,15 +2707,48 @@ def inlMap (f : Lean.Expr → Nat → Option (Lean.Expr × Nat)) :
       | none => none
     | none => none
 
+/-- Head-normalise a record expression until an application of the
+    constructor `ctor` appears, and return its arguments: zeta of the lets in
+    front, delta-beta of the definitions `defs` names, beta of a `fun` head.
+    This is what the legacy projection handler's `unfoldDefinition?` / `whnf`
+    loop does to `(f a b).field` when `f` is a user definition ending in a
+    structure instance. -/
+def inlHeadCtor (defs : Name → Option Lean.Expr) (ctor : Name) :
+    Nat → Lean.Expr → Nat → Option (List Lean.Expr × Nat)
+  | 0, _, _ => none
+  | _, _, 0 => none
+  | fuel + 1, .letE _ _ v body _, b + 1 =>
+    match inlSubst #[v] 0 body b with
+    | some (e', b) => inlHeadCtor defs ctor fuel e' b
+    | none => none
+  | fuel + 1, e, b + 1 =>
+    match inlSpine e [] with
+    | (.const n ls, args) =>
+      if n == ctor then some (args, b)
+      else match (if ls.isEmpty then defs n else none) with
+        | some v =>
+          match inlBeta #[] v args b with
+          | some (e', b) => inlHeadCtor defs ctor fuel e' b
+          | none => none
+        | none => none
+    | (.lam n t body bi, a :: rest) =>
+      match inlBeta #[] (.lam n t body bi) (a :: rest) b with
+      | some (e', b) => inlHeadCtor defs ctor fuel e' b
+      | none => none
+    | _ => none
+
 /-- Unfold every call whose head `defs` names: delta against the definition's
     value, beta against the call's arguments, then continue in the result.
-    Descends through applications and `fun` bodies only. -/
-def inlineDefs (defs : Name → Option Lean.Expr) : Nat → Lean.Expr → Nat →
-    Option (Lean.Expr × Nat)
+    A projection `projs` names, applied to exactly its record, is replaced by
+    the field of the constructor its record head-normalises to
+    (`inlHeadCtor`); when the record does not reach a constructor the
+    projection is kept.  Descends through applications and `fun` bodies. -/
+def inlineDefs (defs : Name → Option Lean.Expr) (projs : Name → Option (Name × Nat × Nat)) :
+    Nat → Lean.Expr → Nat → Option (Lean.Expr × Nat)
   | 0, _, _ => none
   | _, _, 0 => none
   | fuel + 1, .lam n t body bi, b + 1 =>
-    match inlineDefs defs fuel body b with
+    match inlineDefs defs projs fuel body b with
     | some (body', b) => some (.lam n t body' bi, b)
     | none => none
   | fuel + 1, e, b + 1 =>
@@ -2706,21 +2757,36 @@ def inlineDefs (defs : Name → Option Lean.Expr) : Nat → Lean.Expr → Nat �
       match defs n with
       | some v =>
         match inlBeta #[] v args b with
-        | some (e', b) => inlineDefs defs fuel e' b
+        | some (e', b) => inlineDefs defs projs fuel e' b
         | none => none
       | none =>
-        match inlMap (inlineDefs defs fuel) args b with
-        | some (args', b) => some (args'.foldl Lean.Expr.app (.const n []), b)
-        | none => none
+        let field? : Option (Lean.Expr × Nat) :=
+          match projs n with
+          | some (ctor, numParams, idx) =>
+            if args.length = numParams + 1 then
+              match args.getLast? with
+              | some record =>
+                match inlHeadCtor defs ctor fuel record b with
+                | some (ctorArgs, b) => (ctorArgs[numParams + idx]?).map (·, b)
+                | none => none
+              | none => none
+            else none
+          | none => none
+        match field? with
+        | some (field, b) => inlineDefs defs projs fuel field b
+        | none =>
+          match inlMap (inlineDefs defs projs fuel) args b with
+          | some (args', b) => some (args'.foldl Lean.Expr.app (.const n []), b)
+          | none => none
     | (.lam n t body bi, args) =>
-      match inlineDefs defs fuel body b with
+      match inlineDefs defs projs fuel body b with
       | some (body', b) =>
-        match inlMap (inlineDefs defs fuel) args b with
+        match inlMap (inlineDefs defs projs fuel) args b with
         | some (args', b) => some (args'.foldl Lean.Expr.app (.lam n t body' bi), b)
         | none => none
       | none => none
     | (h, args) =>
-      match inlMap (inlineDefs defs fuel) args b with
+      match inlMap (inlineDefs defs projs fuel) args b with
       | some (args', b) => some (args'.foldl Lean.Expr.app h, b)
       | none => none
 
@@ -2729,6 +2795,22 @@ def inlineDefs (defs : Name → Option Lean.Expr) : Nat → Lean.Expr → Nat �
 def inlReservedSuffixes : List String :=
   ["register", "registerWithEnable", "mux", "memory", "memoryComboRead", "memoize",
    "lutMuxTree", "loop", "ofNat", "toNat", "ofFin"]
+
+/-- A declaration from outside the Lean and Sparkle libraries. -/
+def inlUserModule (env : Environment) (n : Name) : Bool :=
+  match env.getModuleIdxFor? n with
+  | none => true
+  | some idx =>
+    match env.header.moduleNames[idx.toNat]? with
+    | some m =>
+      let r := m.getRoot
+      !(r == `Init || r == `Lean || r == `Std || r == `Sparkle)
+    | none => false
+
+/-- The last component of a name, when it is a string. -/
+def inlLastComponent : Name → String
+  | .str _ s => s
+  | _ => ""
 
 /-- The definitions the front end may unfold: an ordinary, universe-monomorphic
     user definition from outside the Lean and Sparkle libraries that the legacy
@@ -2739,19 +2821,8 @@ def inlReservedSuffixes : List String :=
 def userDefinition? (env : Environment) (n : Name) : Option Lean.Expr :=
   match env.find? n with
   | some (.defnInfo d) =>
-    let userModule :=
-      match env.getModuleIdxFor? n with
-      | none => true
-      | some idx =>
-        match env.header.moduleNames[idx.toNat]? with
-        | some m =>
-          let r := m.getRoot
-          !(r == `Init || r == `Lean || r == `Std || r == `Sparkle)
-        | none => false
-    let last := match n with
-      | .str _ s => s
-      | _ => ""
-    if userModule && d.levelParams.isEmpty && !inlReservedSuffixes.contains last &&
+    if inlUserModule env n && d.levelParams.isEmpty &&
+        !inlReservedSuffixes.contains (inlLastComponent n) &&
         !Sparkle.Compiler.isHardwareModule env n &&
         (env.getProjectionFnInfo? n).isNone &&
         !Lean.Meta.isMatcherCore env n &&
@@ -2762,15 +2833,27 @@ def userDefinition? (env : Environment) (n : Name) : Option Lean.Expr :=
     then some d.value else none
   | _ => none
 
+/-- The projections the front end may resolve: a field accessor of a user
+    structure (not a class), from outside the Lean and Sparkle libraries, whose
+    name the legacy dispatcher does not intercept.  Returns the constructor,
+    the number of structure parameters and the field index. -/
+def userProjection? (env : Environment) (n : Name) : Option (Name × Nat × Nat) :=
+  match env.getProjectionFnInfo? n with
+  | some info =>
+    if !info.fromClass && inlUserModule env n &&
+        !inlReservedSuffixes.contains (inlLastComponent n) && !isPrimitive n
+    then some (info.ctorName, info.numParams, info.i) else none
+  | none => none
+
 /-- Recursion depth and node budget of the front-end unfolding. -/
 def inlineDepth : Nat := 4096
 def inlineBudget : Nat := 200000
 
-/-- The run's unfolding: user definitions of `env`, within the budget;
-    the expression itself when the budget is exhausted or a refused binder
-    form is met. -/
+/-- The run's unfolding: user definitions and structure projections of
+    `env`, within the budget; the expression itself when the budget is
+    exhausted or a refused form is met. -/
 def userInliner (env : Environment) : Lean.Expr → Lean.Expr := fun e =>
-  match inlineDefs (userDefinition? env) inlineDepth e inlineBudget with
+  match inlineDefs (userDefinition? env) (userProjection? env) inlineDepth e inlineBudget with
   | some (e', _) => e'
   | none => e
 

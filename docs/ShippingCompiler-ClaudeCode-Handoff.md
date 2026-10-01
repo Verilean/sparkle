@@ -181,6 +181,14 @@ call-site unfolding on 17 tested shapes) → general N-slot `circuit do` →
 hardware `let` → applicative/slices → structure results. The list below
 is the older, shape-driven plan and is subordinate to the measurement.
 
+**Real IP reached.** `nodeFilter_execution` and `oddParity_execution`
+(Tests/Compiler/ShippingInlineSoundnessTest.lean) are the first theorems
+about modules of the IP library. The recipe for the next combinational
+IP module: a public wrapper `(ipHW …).field`, `#def_entry_value`, a
+`Term`, `*_library … := rfl`, `*_peel … := rfl`,
+`execution_source_of_entry`. What stops the rest is in the blocker sets,
+not in the recipe.
+
 **Entry constant (landed).** `synthesizeCombinationalCoreWith` now calls
 `synthesizeFromConst` on `entryConst … ci (instancePredicate env)
 (userInliner env)`. Consequences for proofs: (1)

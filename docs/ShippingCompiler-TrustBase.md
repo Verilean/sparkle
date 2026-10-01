@@ -100,13 +100,14 @@ The theorems relate these definitions. They are specifications, not
 theorems, and reading them is part of trusting the claim.
 
 - The source: `Signal`, its operators, and `Signal.val` at a cycle.
-- The front-end unfolding: `inlineDefs` / `userInliner` and the choice
-  `entryConst`. The theorems do not reason about the unfolding — they
+- The front-end unfolding: `inlineDefs` / `userInliner` (delta-beta of
+  user definitions, projection of a constructor, zeta in front of it)
+  and the choice `entryConst`. The theorems do not reason about the unfolding — they
   speak about the value the entry constant HAS. That this value means
   what the declaration means is Lean's own delta/beta, and it is checked
   per declaration by the kernel: the test theorems identify the
   declaration, helpers and all, with the denotation of the quoted
-  unfolded term by `rfl` (`useSel_library`). Which definitions are
+  unfolded term by `rfl` (`useSel_library`, `oddParity_library`). Which definitions are
   unfolded (`userDefinition?`) only decides which declarations reach a
   certified front end; a wrong choice there cannot make a theorem false.
 - The IR semantics: `evalExpr`, `evalAssigns`, `stepModule`,
