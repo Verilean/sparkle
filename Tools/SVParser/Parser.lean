@@ -429,6 +429,33 @@ partial def parseStmt : P SVStmt := do
   match ← attempt semi with
   | some _ => return SVStmt.blockAssign (.lit (.decimal none 0)) (.lit (.decimal none 0))
   | none => pure ()
+  -- Simulation-only system task (`$display("…", x);`, `$finish;`): consumed
+  -- and ignored, like the empty statement.  Left unparsed, it made the
+  -- ENCLOSING statement fail, and the always-block recovery then re-parsed
+  -- the inner statements flat — VexRiscv DataCache's `if (reset) … else …`
+  -- lost its structure (no reset, holds replaced by the reset constants).
+  match ← attempt (matchStr "$") with
+  | some _ =>
+    let _ ← identifier
+    match ← attempt lparen with
+    | some _ =>
+      let mut depth : Nat := 1
+      let mut inStr := false
+      while depth > 0 do
+        let c ← nextChar
+        if inStr then
+          if c == '\\' then
+            let _ ← nextChar
+            pure ()
+          else if c == '"' then inStr := false
+        else if c == '"' then inStr := true
+        else if c == '(' then depth := depth + 1
+        else if c == ')' then depth := depth - 1
+      ws
+    | none => pure ()
+    semi
+    return SVStmt.blockAssign (.lit (.decimal none 0)) (.lit (.decimal none 0))
+  | none => pure ()
   match ← attempt (keyword "if") with
   | some _ =>
     lparen; let cond ← parseExpr; rparen
@@ -688,8 +715,12 @@ where
             match ← attempt (keyword "begin") with
             | some _ => depth := depth + 1
             | none =>
-              -- Skip one token (error recovery)
-              let _ ← nextChar
+              -- An unparsable statement is a parse ERROR.  This used to
+              -- skip one character and retry, which re-parsed the inner
+              -- statements of a failed `if`/`case` as a flat sequence — a
+              -- silently different circuit (see the system-task note in
+              -- `parseStmt`).
+              fail "unsupported statement in always block"
       pure stmts
     | none =>
       let s ← parseStmt; pure [s]
