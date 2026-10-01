@@ -103,6 +103,23 @@ need two further boundary predicates, mirroring `EnvDefines`:
   TYPE is one scalar Signal (`mixedGateResultScalar`; `EnvDefines`
   pins only the value) — the test suite checks it holds for the real
   declaration.
+- (LANDED) The projection arm's boundaries
+  (Tools/ShippingInstanceEntrySoundness.lean), for a parent
+  `field (child args…)` over a multi-output child:
+  `ProjEnvDefines pn structName cn` (every environment the arm reads
+  says: `pn` is not itself tagged, it is a projection of `structName`,
+  and the record call's head `cn` is tagged), `ProjFieldDefines pn
+  structName fieldName` (the arm's field-name resolution
+  `projFieldName?` — projection info, the structure's constructor
+  binders — returns `fieldName`), and `OutCacheEmpty` (every read of
+  the multi-output port map comes back empty; morally the depth-0
+  reset again). `SubSynthDefines` is reused for the child. The suite
+  checks the static facts (`getProjectionStructureName?`,
+  `projFieldName?`, untagged projection) on the real declarations.
+  The arm's call key is computed by `instCallKey`, which restores the
+  saved builder state after canonicalizing, so the canonicalizer is
+  NOT in the trust base of the contract (the key only indexes the
+  port map, which the boundary says is empty).
 - (RESOLVED) The instance caches (`sparkleSubInstanceOutputs`,
   `sparkleSingleOutInstanceCache`) are `IO.Ref`s but are RESET at
   depth 0 of every top-level synthesis (Issue #67,

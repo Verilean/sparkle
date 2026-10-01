@@ -53,6 +53,15 @@ structure TwoOut (dom : DomainConfig) where
 def parentTwo {dom : DomainConfig} (a b : Signal dom (BitVec 8)) : TwoOut dom :=
   childTwo a b
 
+/-- Projection parents of the multi-output child: each selects ONE field of
+the record-returning call, so the result is one scalar Signal and the parent
+takes the certified projection arm. -/
+def parentLo {dom : DomainConfig} (a b : Signal dom (BitVec 8)) :
+    Signal dom (BitVec 8) := (childTwo a b).lo
+
+def parentHi {dom : DomainConfig} (a b : Signal dom (BitVec 8)) :
+    Signal dom (BitVec 8) := (childTwo a b).hi
+
 /-- A sequential child: the certified instance path must agree with the
 legacy front end byte-for-byte, including the clk/rst auto-plumbing. -/
 @[hardware_module] def childSeq {dom : DomainConfig}
@@ -64,7 +73,7 @@ def parentSeq {dom : DomainConfig} (a : Signal dom (BitVec 8)) :
 
 /-- The child module the pipeline emits, pinned literally. -/
 def childModule : Sparkle.IR.AST.Module :=
-  { name := "childAdd"
+  { name := "Sparkle.Tests.Compiler.ShippingHierarchySoundnessTest.childAdd"
     inputs := [⟨"_gen_x", .bitVector 8⟩, ⟨"_gen_y", .bitVector 8⟩]
     outputs := [⟨"out", .bitVector 8⟩]
     wires := [⟨"_gen_x", .bitVector 8⟩, ⟨"_gen_y", .bitVector 8⟩,
@@ -400,6 +409,190 @@ theorem parentSeq2_instance_entry {mctx : Meta.Context}
       simp at hq
       rcases hq with rfl | rfl <;> exact ⟨_, _, rfl⟩)
 
+/-! The projection entry endpoint, on a real parent selecting the SECOND
+field of a two-output child. -/
+
+/-- The multi-output child module the pipeline emits, pinned literally. -/
+def childTwoModule : Sparkle.IR.AST.Module :=
+  { name := "Sparkle.Tests.Compiler.ShippingHierarchySoundnessTest.childTwo"
+    inputs := [⟨"_gen_x", .bitVector 8⟩, ⟨"_gen_y", .bitVector 8⟩]
+    outputs := [⟨"lo", .bitVector 8⟩, ⟨"hi", .bitVector 8⟩]
+    wires := [⟨"_gen_x", .bitVector 8⟩, ⟨"_gen_y", .bitVector 8⟩,
+      ⟨"_gen_lo", .bitVector 8⟩, ⟨"_gen_hi", .bitVector 8⟩]
+    body := [.assign "_gen_lo" (.op .add [.ref "_gen_x", .ref "_gen_y"]),
+      .assign "lo" (.ref "_gen_lo"),
+      .assign "_gen_hi" (.op .sub [.ref "_gen_x", .ref "_gen_y"]),
+      .assign "hi" (.ref "_gen_hi")]
+    parameters := [] }
+
+def childTwoWe : WEnv := fun n =>
+  if n == "_gen_x" || n == "_gen_y" || n == "_gen_lo" || n == "_gen_hi" ||
+    n == "lo" || n == "hi" then 8 else 0
+
+def childrenTwo : String → Option (Sparkle.IR.AST.Module × WEnv) :=
+  fun n => if n = childTwoModule.name then some (childTwoModule, childTwoWe) else none
+
+#def_decl_value parentHiValue of parentHi
+
+def parentHiBinders : List (Name × MixedGateBinder) :=
+  [(`dom, .domain), (`a, .bits 8), (`b, .bits 8)]
+
+theorem parentHi_peel : mixedGatePeel parentHiValue = some (parentHiBinders,
+    projE ``TwoOut.hi [] (inputExpr parentHiBinders.length 0)
+      (instEN ``childTwo [] (inputExpr parentHiBinders.length 0)
+        ([1, 2].map (inputExpr parentHiBinders.length)))) := rfl
+
+/-- **The projection instance entry contract on a real parent**: one instance
+statement connecting EVERY output port of the two-output child to its own
+fresh wire, plus the alias reading the projected field's wire — from the
+real compile under the run boundaries. -/
+theorem parentHi_instance_entry {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {d : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore ``parentHi [] false)
+      mctx mref cctx cref w (m, d) w')
+    (env : EnvDefines mctx mref cctx cref ``parentHi parentHiValue)
+    (tag : ∀ wE e wE', RunsTo (Lean.getEnv : MetaM Environment)
+      mctx mref cctx cref wE e wE' →
+      (∃ sn, e.getProjectionStructureName? ``TwoOut.hi = some sn) ∧
+      Sparkle.Compiler.isHardwareModule e ``childTwo = true)
+    (hscalar : ∀ dv : Lean.DefinitionVal, dv.value = parentHiValue →
+      mixedGateResultScalar dv.type = true) :
+    ProjInstancePreserves ``parentHi parentHiBinders
+      (projE ``TwoOut.hi [] (inputExpr parentHiBinders.length 0)
+        (instEN ``childTwo [] (inputExpr parentHiBinders.length 0)
+          ([1, 2].map (inputExpr parentHiBinders.length)))) m d :=
+  instanceProj_entry_of_env hr env tag
+    (fun dv hv => by simp only [certifiedShape?, hv]; rfl)
+    hscalar parentHi_peel ⟨_, _, rfl⟩ ⟨_, _, rfl⟩
+    (fun q hq => by
+      simp at hq
+      rcases hq with rfl | rfl <;> exact ⟨_, _, rfl⟩)
+
+/-- **The projected entry output observes the source field.** The compiled
+parent's body, elaborated with the two-output child bound to its pinned
+compile, drives `out` with `(parentHi aS bS).val t` — the SECOND field of
+the source record — whenever the prepared argument ports carry `aS.val t`
+and `bS.val t`. -/
+theorem parentHi_entry_observes {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {d : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore ``parentHi [] false)
+      mctx mref cctx cref w (m, d) w')
+    (env : EnvDefines mctx mref cctx cref ``parentHi parentHiValue)
+    (tag : ∀ wE e wE', RunsTo (Lean.getEnv : MetaM Environment)
+      mctx mref cctx cref wE e wE' →
+      (∃ sn, e.getProjectionStructureName? ``TwoOut.hi = some sn) ∧
+      Sparkle.Compiler.isHardwareModule e ``childTwo = true)
+    (hscalar : ∀ dv : Lean.DefinitionVal, dv.value = parentHiValue →
+      mixedGateResultScalar dv.type = true)
+    {dc : Sparkle.IR.AST.Design}
+    (hpenv : ProjEnvDefines ``TwoOut.hi ``TwoOut ``childTwo)
+    (hfield : ProjFieldDefines ``TwoOut.hi ``TwoOut "hi")
+    (hsub : SubSynthDefines ``childTwo childTwoModule dc)
+    (hcache : OutCacheEmpty)
+    (hdc : dc.modules = []) :
+    ∃ (i0 i1 i2 : FVarId) (cache : IO.Ref (Lean.ExprStructMap String)),
+    ∀ (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n)
+      (env0 : Env) {D : DomainConfig}
+      (aS bS : Signal D (BitVec 8)) (t : Nat) (mems : MEnv) (we : WEnv),
+    let a := Tools.ShippingMixedEntrySoundness.start
+      (entryCompilerState false cache) (``parentHi).toString
+    let p := Tools.ShippingMixedEntrySoundness.prepare bools bits
+      (parentHiBinders.zip [i0, i1, i2]) a
+    Tools.ShippingMixedEntrySoundness.Admissible bools bits env0
+      (parentHiBinders.zip [i0, i1, i2]) a →
+    p.bits i1 = some ⟨8, aS.val t⟩ → p.bits i2 = some ⟨8, bS.val t⟩ →
+    d.modules = [childTwoModule] ∧
+    ∃ envF, evalAssignsH we childrenTwo mems m.body env0 = some envF ∧
+      envF "out" = ((parentHi aS bS).val t).toNat := by
+  obtain ⟨ids, nd, len, cache, P⟩ := parentHi_instance_entry hr env tag hscalar
+  have len3 : ids.length = 3 := len
+  rcases ids with _ | ⟨i0, ids⟩
+  · cases len3
+  rcases ids with _ | ⟨i1, ids⟩
+  · cases len3
+  rcases ids with _ | ⟨i2, ids⟩
+  · cases len3
+  rcases ids with _ | ⟨i3, ids⟩
+  rotate_left
+  · simp at len3
+  obtain ⟨instName, outW, oWs, conns, hlenO, hndO, hlook, R⟩ :=
+    P ``TwoOut.hi ``TwoOut [] i0 "hi" ``childTwo [] i0 [i1, i2] childTwoModule dc
+      childTwoModule.inputs childTwoModule.outputs
+      rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
+      hpenv hfield hsub hcache hdc rfl rfl (by decide) rfl rfl
+  have lenO2 : oWs.length = 2 := hlenO
+  rcases oWs with _ | ⟨o0, oWs⟩
+  · cases lenO2
+  rcases oWs with _ | ⟨o1, oWs⟩
+  · cases lenO2
+  rcases oWs with _ | ⟨o2, oWs⟩
+  rotate_left
+  · simp at lenO2
+  have hoW : outW = o1 := by
+    have : (some o1 : Option String) = some outW := hlook
+    exact (Option.some.inj this).symm
+  have hne : o0 ≠ o1 := by
+    intro eq
+    rw [eq] at hndO
+    simp at hndO
+  refine ⟨i0, i1, i2, cache, ?_⟩
+  intro bools bits env0 D aS bS t mems we a p adm ha0 hb0
+  obtain ⟨hbody, hdmods, houtNe, -, aWs, hlenW, hconns, hvals⟩ :=
+    R bools bits env0 (fun _ => 8)
+      (fun i => if i = 0 then aS.val t else bS.val t) adm
+      (fun i hi => by
+        rcases i with _ | i
+        · exact ha0
+        · rcases i with _ | i
+          · exact hb0
+          · exact absurd hi (by simp))
+  have lenW2 : aWs.length = 2 := hlenW
+  rcases aWs with _ | ⟨aW, aWs⟩
+  · cases lenW2
+  rcases aWs with _ | ⟨bW, aWs⟩
+  · cases lenW2
+  rcases aWs with _ | ⟨cW, aWs⟩
+  rotate_left
+  · simp at lenW2
+  have hconns' : conns.reverse =
+      [("_gen_x", Sparkle.IR.AST.Expr.ref aW), ("_gen_y", Sparkle.IR.AST.Expr.ref bW)] :=
+    hconns
+  have haV : env0 aW = (aS.val t).toNat := (hvals 0 (Nat.zero_lt_succ _)).1
+  have hbV : env0 bW = (bS.val t).toNat := (hvals 1 (Nat.lt_succ_self _)).1
+  refine ⟨by rw [hdmods], ?_⟩
+  have hrun : evalAssigns childTwoWe mems childTwoModule.body
+      (connEnv [("_gen_x", Sparkle.IR.AST.Expr.ref aW),
+        ("_gen_y", Sparkle.IR.AST.Expr.ref bW),
+        ("lo", Sparkle.IR.AST.Expr.ref o0),
+        ("hi", Sparkle.IR.AST.Expr.ref o1)] env0) =
+      some (fun n =>
+        if n = "hi" then mask 8 (env0 aW + (2 ^ 8 - mask 8 (env0 bW)))
+        else if n = "_gen_hi" then mask 8 (env0 aW + (2 ^ 8 - mask 8 (env0 bW)))
+        else if n = "lo" then mask 8 (env0 aW + env0 bW)
+        else if n = "_gen_lo" then mask 8 (env0 aW + env0 bW)
+        else connEnv [("_gen_x", Sparkle.IR.AST.Expr.ref aW),
+          ("_gen_y", Sparkle.IR.AST.Expr.ref bW),
+          ("lo", Sparkle.IR.AST.Expr.ref o0),
+          ("hi", Sparkle.IR.AST.Expr.ref o1)] env0 n) := rfl
+  obtain ⟨envF, hev, hout⟩ := instAlias_linked (we := we) (mems := mems)
+    (children := childrenTwo) (mn := childTwoModule.name) (instName := instName)
+    (outW := o1) rfl hrun
+  refine ⟨envF, ?_, ?_⟩
+  · rw [hbody, hconns', hoW]
+    exact hev
+  · rw [hout]
+    show (if o1 = o1 then mask 8 (env0 aW + (2 ^ 8 - mask 8 (env0 bW)))
+      else if o1 = o0 then mask 8 (env0 aW + env0 bW) else env0 o1) = _
+    rw [if_pos rfl, haV, hbV]
+    show ((aS.val t).toNat + (2 ^ 8 - (bS.val t).toNat % 2 ^ 8)) % 2 ^ 8 =
+      ((aS.val t - bS.val t)).toNat
+    rw [BitVec.toNat_sub, Nat.mod_eq_of_lt (bS.val t).isLt]
+    omega
+
 /-- **The entry output observes the source composition.** Combining the
 instance contract of THIS compile with the linked-instance semantics: the
 compiled parent's body, elaborated with the child bound to its pinned
@@ -437,7 +630,7 @@ theorem parentUse_entry_observes {mctx : Meta.Context}
       (parentUseBinders.zip [i0, i1, i2]) a →
     p.bits i1 = some ⟨8, aS.val t⟩ → p.bits i2 = some ⟨8, bS.val t⟩ →
     d.modules = [childModule] ∧
-    ∃ envF, evalAssignsH we (childrenOf "childAdd") mems m.body env0 = some envF ∧
+    ∃ envF, evalAssignsH we (childrenOf childModule.name) mems m.body env0 = some envF ∧
       envF "out" = ((parentUse aS bS).val t).toNat := by
   obtain ⟨ids, nd, len, cache, P⟩ := parentUse_instance_entry hr env tag hscalar
   have len3 : ids.length = 3 := len
@@ -471,8 +664,8 @@ theorem parentUse_entry_observes {mctx : Meta.Context}
           ("_gen_y", Sparkle.IR.AST.Expr.ref bW),
           ("out", Sparkle.IR.AST.Expr.ref outW)] env0 n) := rfl
   obtain ⟨envF, hev, hout, -⟩ := instBody_linked (we := we) (mems := mems)
-    (children := childrenOf "childAdd")
-    (mn := "childAdd") (instName := instName)
+    (children := childrenOf childModule.name)
+    (mn := childModule.name) (instName := instName)
     (inConns := [("_gen_x", .ref aW), ("_gen_y", .ref bW)])
     (childOut := "out") (outW := outW)
     rfl rfl (fun p hp => by
@@ -498,9 +691,8 @@ run_cmd liftTermElabM do
   unless d.modules.length == 1 do
     throwError "hierarchical design departed from one child: {d.modules.map (·.name)}"
   let some cm := d.modules.head? | throwError "no child module"
-  unless cm.body == childModule.body && cm.inputs == childModule.inputs &&
-      cm.outputs == childModule.outputs && cm.wires == childModule.wires do
-    throwError "child module departed from the pinned shape"
+  unless cm == childModule do
+    throwError "child module departed from the pinned module (name included)"
   let [Stmt.inst mn instName conns, Stmt.assign outL (.ref outR)] := mp.body |
     throwError "parent body departed from the two-statement instance shape"
   unless mn == cm.name && outL == "out" && outR == "_gen_out" &&
@@ -592,6 +784,50 @@ run_cmd liftTermElabM do
   let (mt, _) ← synthesizeCombinationalCore ``parentTwo [] false
   unless mt.outputs.map (·.name) == ["lo", "hi"] do
     throwError "record-result parent lost an output: {mt.outputs.map (·.name)}"
+  -- Projection parents of the two-output child: gate-accepted, certified
+  -- == legacy byte-for-byte, ONE instance with both outputs wired, and a
+  -- 16-case numeric regression of the linked semantics per field.
+  for (nm, isHi) in [(``parentLo, false), (``parentHi, true)] do
+    unless (mixedCertifiedShape? false [] (← getConstInfo nm) pred).isSome do
+      throwError "projection parent {nm} missed the instance gate"
+    unless mixedGateResultScalar (← getConstInfo nm).type do
+      throwError "{nm}'s result type is not one scalar Signal"
+    let (mj, dj) ← synthesizeCombinationalCore nm [] false
+    let (mjL, djL) ← synthesizeCombinationalCoreWith
+      (fun e h t n => translateExprToWire e h t n) nm [] false
+      (certifiedFrontEnd := false)
+    unless mj.body == mjL.body && mj.inputs == mjL.inputs && mj.outputs == mjL.outputs &&
+        mj.wires == mjL.wires && dj.modules == djL.modules do
+      throwError "projection parent {nm}: certified lowering departed from the legacy front end"
+    let some cj := dj.modules.head? | throwError "no multi-output child module"
+    unless dj.modules.length == 1 && cj == childTwoModule do
+      throwError "multi-output child departed from the pinned module (name included)"
+    let [Stmt.inst _ _ connsJ, Stmt.assign "out" (.ref _)] := mj.body |
+      throwError "projection parent body departed from the instance-plus-alias shape"
+    unless connsJ.map (·.1) == ["_gen_x", "_gen_y", "lo", "hi"] do
+      throwError "projection parent does not wire every child port: {connsJ.map (·.1)}"
+    let weJ : WEnv := fun n => if n == "out" || (mj.wires.any (·.name == n)) then 8 else 0
+    let mut countJ : Nat := 0
+    for av in List.range 4 do
+      for bv in List.range 4 do
+        let a := (63 * av + 11) % 256
+        let b := (97 * bv + 5) % 256
+        let env0 : Env := fun n =>
+          if n == "_gen_a" then a else if n == "_gen_b" then b else 0
+        let some envF := evalAssignsH weJ childrenTwo (fun _ _ => 0) mj.body env0 |
+          throwError "projection linked elaboration failed at {a},{b}"
+        let expect := if isHi then (a + 256 - b) % 256 else (a + b) % 256
+        unless envF "out" == expect do
+          throwError "projection linked out mismatch for {nm} at {a},{b}: {envF "out"}"
+        countJ := countJ + 1
+    unless countJ == 16 do throwError "projection case count mismatch"
+  -- The projection boundaries' static facts HOLD in this environment.
+  unless (← getEnv).getProjectionStructureName? ``TwoOut.hi == some ``TwoOut do
+    throwError "TwoOut.hi is not a projection of TwoOut"
+  unless (← projFieldName? ``TwoOut.hi ``TwoOut) == some "hi" do
+    throwError "TwoOut.hi does not resolve to field hi"
+  unless !Sparkle.Compiler.isHardwareModule (← getEnv) ``TwoOut.hi do
+    throwError "projection function is tagged as a hardware module"
   -- 12-cycle SEQUENTIAL linked regression: the real parentSeq/childSeq
   -- pair, driven through `runH`, shows the register-delay behaviour on
   -- `out` (init 0, out_{j+1} = in_j), with the child's state threaded
@@ -649,6 +885,17 @@ run_cmd liftTermElabM do
       ``Tools.ShippingInstanceEntrySoundness.synthesizeMixedCertified_instanceG_sound,
       ``Tools.ShippingInstanceEntrySoundness.instanceG_entry_of_env,
       ``parentSeq2_peel, ``parentSeq2_instance_entry,
+      ``Tools.ShippingInstanceEntrySoundness.instanceProj_term_gate,
+      ``Tools.ShippingInstanceEntrySoundness.instanceProj_step,
+      ``Tools.ShippingInstanceEntrySoundness.instCallKey_returns,
+      ``Tools.ShippingInstanceEntrySoundness.instOutWires_pure,
+      ``Tools.ShippingInstanceEntrySoundness.outWireNames_nodup,
+      ``Tools.ShippingInstanceEntrySoundness.projUncached_run,
+      ``Tools.ShippingInstanceEntrySoundness.synthesizeMixedCertified_instanceProj_sound,
+      ``Tools.ShippingInstanceEntrySoundness.synthesizeFromConst_instanceProj_sound,
+      ``Tools.ShippingInstanceEntrySoundness.instanceProj_entry_of_env,
+      ``Tools.ShippingHierarchySoundness.instAlias_linked,
+      ``parentHi_peel, ``parentHi_instance_entry, ``parentHi_entry_observes,
       ``Tools.ShippingHierarchySoundness.instBody_runH, ``childSeq_run,
       ``parentSeq_runH_observes,
       ``parentUse_linked] do

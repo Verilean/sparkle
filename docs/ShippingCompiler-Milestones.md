@@ -314,9 +314,13 @@ source values; boundaries `HardwareTagged`/`SubSynthDefines`/
 `instance_entry_of_env` → the real-parent endpoint
 `parentUse_instance_entry`, and `parentUse_entry_observes` ties the
 compiled parent's linked evaluation to the SOURCE composition
-`parentUse aS bS` (all audited, standard axioms). Sequential children's
-entry contract, other arities, nested/multi-instance and the SV layer
-remain. S7 is STARTED:
+`parentUse aS bS` (all audited, standard axioms). Every single-output
+child shape is since covered as a root (`InstanceGPreserves`: any
+arity, with or without clk/rst), and field projections of MULTI-output
+children are certified too (`ProjInstancePreserves`,
+`parentHi_instance_entry`, source field observed by
+`parentHi_entry_observes`). Nested/multiple instances, parameters and
+the SV layer remain. S7 is STARTED:
 `ShippingPreserves`/`synthesizeCombinationalCore_shipping_sound`
 reconcile all eleven ∀-predicate family contracts into one core-entry
 statement, and the instance family joins the same theorem as a

@@ -128,6 +128,34 @@ theorem instBody_linked {we : WEnv} {mems : MEnv}
     else (fun n => if n = outW then cres childOut else env0 n) n)) = _
   simp
 
+/-- The linked evaluation of a one-instance parent with ANY connection list
+(multi-output children included): the child runs once on the connection-fed
+environment, its outputs are written back through the connections, and `out`
+observes whatever the aliased wire holds afterwards. -/
+theorem instAlias_linked {we : WEnv} {mems : MEnv}
+    {children : String → Option (Module × WEnv)}
+    {mn instName : String} {conns : List (String × Expr)}
+    {outW : String} {child : Module} {cwe : WEnv} {cres : Env} {env0 : Env}
+    (hchild : children mn = some (child, cwe))
+    (hrun : evalAssigns cwe mems child.body (connEnv conns env0) = some cres) :
+    ∃ envF, evalAssignsH we children mems
+      [.inst mn instName conns, .assign "out" (.ref outW)] env0 = some envF ∧
+      envF "out" = bindOuts child.outputs conns cres env0 outW := by
+  refine ⟨fun n => if n = "out" then bindOuts child.outputs conns cres env0 outW
+    else bindOuts child.outputs conns cres env0 n, ?_, by simp⟩
+  show (do
+    let cp ← children mn
+    let cr ← evalAssigns cp.2 mems cp.1.body (connEnv conns env0)
+    evalAssignsH we children mems [.assign "out" (.ref outW)]
+      (bindOuts cp.1.outputs conns cr env0)) = _
+  rw [hchild]
+  show (do
+    let cr ← evalAssigns cwe mems child.body (connEnv conns env0)
+    evalAssignsH we children mems [.assign "out" (.ref outW)]
+      (bindOuts child.outputs conns cr env0)) = _
+  rw [hrun]
+  rfl
+
 /-- Connection-fed inputs read exactly the connected parent wires. -/
 theorem connEnv_at {conns : List (String × Expr)} {env : Env}
     {k : String} {w : String}

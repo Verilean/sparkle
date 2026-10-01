@@ -517,9 +517,34 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   the prepared argument wires — with `instanceG_entry_of_env` and
   the real two-data-port sequential endpoint
   `parentSeq2_instance_entry` (legacy byte-parity gated); bundle
-  clause fifteen. Open in S6: multi-output/projection children,
-  nested/multiple instances, parameters, and the SV/text layer for
-  hierarchy (the M-layers' open-module view).
+  clause fifteen. MULTI-OUTPUT children are certified through field
+  PROJECTIONS: the gate admits `field (child args…)` when the record
+  argument's head is tagged and the projection is a structure
+  projection (`unifiedProjSpine`, `instancePredicate`), the dispatch
+  tail lowers it through the provable arm
+  `translateProjInstanceUncachedWith` (byte-equal to the legacy
+  handlers — gated for both fields of a real two-output child), and
+  `ProjInstancePreserves` /
+  `synthesizeMixedCertified_instanceProj_sound` give the parent as
+  ONE instance statement wiring every child output port to its own
+  pairwise-distinct fresh wire plus the alias reading the projected
+  field's wire (`instCallKey_returns`, `outWiresPure` /
+  `instOutWires_pure`, `outWireNames_nodup`), with
+  `instanceProj_entry_of_env`, the real endpoint
+  `parentHi_instance_entry` (second field of a two-output child) and
+  `parentHi_entry_observes`, which ties the compiled parent's linked
+  evaluation to the SOURCE field `(childTwo a b).hi` through the
+  any-connection linked lemma `instAlias_linked`; bundle clause
+  sixteen. New run boundaries: `ProjEnvDefines`, `ProjFieldDefines`,
+  `OutCacheEmpty`. The pinned child modules now carry their REAL
+  fully-qualified names and the suite compares them to the compiled
+  child wholesale (the earlier `childModule` pin had the short name
+  `"childAdd"`, which made `parentUse_entry_observes`'s
+  `SubSynthDefines` premise unsatisfiable by the real run — fixed).
+  Record-RETURNING parents (the whole record as the result) stay on
+  the legacy front end. Open in S6: nested/multiple instances (incl.
+  two projections of one call inside a cone), parameters, and the
+  SV/text layer for hierarchy (the M-layers' open-module view).
 - [ ] **S7:** Reconcile all successful cases and compose the full shipping
   theorem; instantiate it on real circuits without substituting per-instance
   replay for coverage. STARTED — the reconciliation-1 statement exists
