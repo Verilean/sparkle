@@ -465,7 +465,8 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   (`InstancePreserves`: the compiled parent IS the canonical
   `instBody` over the pinned child, the design holds exactly that
   child, argument wires carry the prepared source values; boundaries
-  `HardwareTagged`/`SubSynthDefines`/`InstanceCacheEmpty`), the
+  `HardwareTagged`/`SubSynthDefines`; the single-out cache needs no
+  premise since hits are validated against the builder's record), the
   dispatcher, the core wrapper (the run's `getEnv` is exposed, so the
   gate holds at `instancePredicate envR`), `instance_entry_of_env`,
   and the real-parent endpoint `parentUse_instance_entry` with a

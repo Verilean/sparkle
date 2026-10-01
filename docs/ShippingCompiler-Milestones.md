@@ -309,8 +309,9 @@ legacy bytes (gated, incl. a sequential child's clk/rst plumbing), and
 Tools/ShippingInstanceEntrySoundness.lean carries gate → step →
 monolith (`InstancePreserves`: parent = canonical `instBody` over the
 pinned child, design = exactly that child, argument wires = prepared
-source values; boundaries `HardwareTagged`/`SubSynthDefines`/
-`InstanceCacheEmpty`) → dispatcher → core wrapper →
+source values; boundaries `HardwareTagged`/`SubSynthDefines` — the
+single-out cache hit is validated against the builder's record, so no
+cache premise) → dispatcher → core wrapper →
 `instance_entry_of_env` → the real-parent endpoint
 `parentUse_instance_entry`, and `parentUse_entry_observes` ties the
 compiled parent's linked evaluation to the SOURCE composition

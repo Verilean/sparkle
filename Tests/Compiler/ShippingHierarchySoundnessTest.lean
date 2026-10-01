@@ -615,7 +615,6 @@ theorem parentUse_entry_observes {mctx : Meta.Context}
     {dc : Sparkle.IR.AST.Design}
     (htagAll : HardwareTagged ``childAdd)
     (hsub : SubSynthDefines ``childAdd childModule dc)
-    (hcache : InstanceCacheEmpty)
     (hdc : dc.modules = []) :
     ∃ (i0 i1 i2 : FVarId) (cache : IO.Ref (Lean.ExprStructMap String))
       (instName outW aW bW : String),
@@ -646,7 +645,7 @@ theorem parentUse_entry_observes {mctx : Meta.Context}
   obtain ⟨instName, outW, aW, bW, R⟩ :=
     P ``childAdd [] i0 i1 i2 childModule dc 8 8 8 "_gen_x" "_gen_y"
       rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
-      htagAll hsub hcache hdc rfl rfl rfl rfl rfl rfl
+      htagAll hsub hdc rfl rfl rfl rfl rfl rfl
   refine ⟨i0, i1, i2, cache, instName, outW, aW, bW, ?_⟩
   intro bools bits env0 D aS bS t mems we a p adm ha0 hb0
   obtain ⟨hbody, hdmods, houtNe, haNe, hbNe, haV, hbV⟩ :=

@@ -5439,6 +5439,18 @@ def instArityCheck (mn : Name) (need got : Nat) : CompilerM Unit :=
   else
     pure ()
 
+/-- A single-out cache hit is honoured only when the builder's own record
+    says the cached wire was produced for THIS expression (the same check
+    `cacheLookupValidated` applies to the expression cache). Every lowering
+    through the arm records its result wire, so a repeat of the same call
+    always validates; the check turns the reuse into a fact about the
+    builder state instead of a fact about the mutable cache. -/
+def instHitValid (record : Std.HashMap String Lean.Expr) (e : Lean.Expr)
+    (cw : String) : Bool :=
+  match record.get? cw with
+  | some e' => @decide (e' = e) (Sparkle.Compiler.ExprDecEq.exprDecEq e' e)
+  | none => false
+
 /-- Uncached lowering for a single-output `@[hardware_module]` instance whose
     child compile is already in hand, in the legacy handler's exact order:
     register the child's transitive modules and the child (name-deduped),
@@ -5452,7 +5464,8 @@ def translateInstanceUncachedWith (rec : TranslateFn) (mn : Name)
     (subModule : Sparkle.IR.AST.Module) (subDesign : Sparkle.IR.AST.Design)
     (singleOut : Port) : TranslateFn :=
   fun e hint _top named => do
-    let existing := (← get).design.modules.map (·.name)
+    let cs0 ← get
+    let existing := cs0.design.modules.map (·.name)
     instAddModules existing subDesign.modules
     instRegisterChild existing subModule
     let connections0 ← instClkRst [] subModule.inputs
@@ -5466,7 +5479,10 @@ def translateInstanceUncachedWith (rec : TranslateFn) (mn : Name)
       (connections.reverse.map (fun (p, rhs) => s!"{p}={rhs}"))
     let instKey := s!"{parentName}#{subModule.name}#{connKey}"
     let instCache ← CompilerM.liftMetaM instArmCacheGet
-    if let some cachedW := instCache.get? instKey then
+    -- Validated against the record as it stood when this call started: a
+    -- wire recorded for this very call cannot be produced by its operands.
+    if let some cachedW := (instCache.get? instKey).filter
+        (instHitValid cs0.translateRecord e) then
       return cachedW
     let w ← CompilerM.makeWire hint singleOut.ty (named := named)
     CompilerM.liftMetaM (instArmCachePut instKey w)

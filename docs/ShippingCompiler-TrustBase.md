@@ -91,11 +91,19 @@ need two further boundary predicates, mirroring `EnvDefines`:
   (Tools/ShippingInstanceEntrySoundness.lean): every nested child
   synthesis of `mn` the run performs returns exactly `(mc, dc)` — the
   hierarchical mirror of `EnvDefines`, stated over `MReturns` of the
-  precise `Rec.synthesizeCombinational` call the arm makes. Two
-  sibling boundaries land with it: `HardwareTagged mn` (every
-  environment the arm reads designates `mn` as `@[hardware_module]`)
-  and `InstanceCacheEmpty` (every read of the single-out dedupe cache
-  comes back empty — morally discharged by the depth-0 reset). The
+  precise `Rec.synthesizeCombinational` call the arm makes. One
+  sibling boundary lands with it: `HardwareTagged mn` (every
+  environment the arm reads designates `mn` as `@[hardware_module]`).
+  The former third boundary `InstanceCacheEmpty` is GONE: the arm now
+  honours a single-out cache hit only when the builder's own
+  `translateRecord` says the cached wire was produced for this very
+  expression (`instHitValid`, the same validation
+  `cacheLookupValidated` applies to the expression cache), so at a
+  root call — empty record — no hit is possible whatever the mutable
+  cache holds (`instHit_empty`), and inside cones a hit is sound by
+  the existing `Records` invariant. Every lowering through the arm
+  records its result wire, so a repeat of the same call still dedupes
+  (suite-gated byte parity). The
   parent-level `getEnv` that picks the run's gate predicate is exposed
   by `synthesizeCombinationalCore_reads`, so the entry endpoint's tag
   boundary is an `EnvDefines`-style `RunsTo` fact at the entry's own

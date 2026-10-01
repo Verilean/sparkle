@@ -316,10 +316,17 @@ def SubSynthDefines (mn : Name) (mc : Sparkle.IR.AST.Module) (dc : Design) : Pro
     (fun e h t n => translateFuelFix translateStep 1048575 e h t n) mn) r →
     r = (mc, dc)
 
-/-- Every read of the single-out instance dedupe cache in this run comes back
-empty (the caches are reset at depth 0 of every top-level synthesis). -/
-def InstanceCacheEmpty : Prop :=
-  ∀ c, MReturns instArmCacheGet c → ∀ k, c.get? k = none
+/-- No cache entry validates against an empty record: at a root call the
+single-out dedupe cache cannot hit, whatever it holds. -/
+theorem instHit_empty (o : Option String) (e : Lean.Expr) :
+    o.filter (instHitValid {} e) = none := by
+  cases o with
+  | none => rfl
+  | some cw =>
+    have : instHitValid {} e cw = false := by
+      unfold instHitValid
+      simp
+    simp [Option.filter, this]
 
 /-! ## Loop helpers, unfolded -/
 
@@ -371,8 +378,9 @@ theorem instanceUncached_run (rec : TranslateFn) (mn : Name)
             (mc.inputs.filter (fun p => p.name != "clk" && p.name != "rst")).length))) 0
       let csP ← get
       let instCache ← CompilerM.liftMetaM instArmCacheGet
-      match instCache.get? s!"{csP.module.name}#{mc.name}#{String.intercalate ";"
-          (connections.reverse.map (fun (p, rhs) => s!"{p}={rhs}"))}" with
+      match (instCache.get? s!"{csP.module.name}#{mc.name}#{String.intercalate ";"
+          (connections.reverse.map (fun (p, rhs) => s!"{p}={rhs}"))}").filter
+          (instHitValid cs0.translateRecord e) with
       | some cachedW => pure cachedW
       | _ => do
         let w ← CompilerM.makeWire hint so.ty (named := named)
@@ -412,7 +420,7 @@ def InstancePreserves (declName : Name) (bs : List (Name × MixedGateBinder))
     canonicalCircuitDo2? (instE2 mn lvls (.fvar dId) (.fvar aId) (.fvar bId)) = none →
     canonicalMemory? (instE2 mn lvls (.fvar dId) (.fvar aId) (.fvar bId)) = none →
     -- the run boundaries
-    HardwareTagged mn → SubSynthDefines mn mc dc → InstanceCacheEmpty →
+    HardwareTagged mn → SubSynthDefines mn mc dc →
     -- the child's canonical combinational single-output shape
     dc.modules = [] →
     mc.inputs = [⟨xin, .bitVector wA⟩, ⟨yin, .bitVector wB⟩] →
@@ -443,7 +451,7 @@ theorem synthesizeMixedCertified_instance_sound {logProf declName bs body m d}
     synthesizeMixedCertified_returns hr
   refine ⟨ids, nd, len, cache, ?_⟩
   intro mn lvls dId aId bId mc dc wOut wA wB xin yin qeq hpure hbin hctrl hmux hsetw
-    hreg hregEn hloopR hcdo hcdo2 hmem htag hsub hcachemiss hdc hins houts hx1 hx2 hy1 hy2
+    hreg hregEn hloopR hcdo hcdo2 hmem htag hsub hdc hins houts hx1 hx2 hy1 hy2
   -- Static decomposition at the zero valuation.
   have leaf := prepare_returns (bs.zip ids)
     (start (entryCompilerState false cache) declName.toString)
@@ -539,7 +547,8 @@ theorem synthesizeMixedCertified_instance_sound {logProf declName bs body m d}
     Returns.bind (m := CompilerM.liftMetaM instArmCacheGet) k7
   obtain ⟨hCacheM, hsQ⟩ := Returns.liftMetaM_mreturns hCacheRead
   subst hsQ
-  simp only [hcachemiss cVal hCacheM] at k8
+  rw [record0, instHit_empty] at k8
+  simp only [] at k8
   -- the result wire, the cache insert, the instance name, the statement
   obtain ⟨outW, sW, hMk, k9⟩ := Returns.bind (m := CompilerM.makeWire "out" _ true) k8
   obtain ⟨houtW, hsW⟩ := makeWireC_returns hMk
@@ -890,7 +899,7 @@ def Instance1Preserves (declName : Name) (bs : List (Name × MixedGateBinder))
     canonicalCircuitDo? (instE1 mn lvls (.fvar dId) (.fvar aId)) = none →
     canonicalCircuitDo2? (instE1 mn lvls (.fvar dId) (.fvar aId)) = none →
     canonicalMemory? (instE1 mn lvls (.fvar dId) (.fvar aId)) = none →
-    HardwareTagged mn → SubSynthDefines mn mc dc → InstanceCacheEmpty →
+    HardwareTagged mn → SubSynthDefines mn mc dc →
     dc.modules = [] →
     mc.inputs = [⟨xin, .bitVector wA⟩, ⟨"clk", .bit⟩, ⟨"rst", .bit⟩] →
     mc.outputs = [⟨"out", .bitVector wOut⟩] →
@@ -920,7 +929,7 @@ theorem synthesizeMixedCertified_instance1_sound {logProf declName bs body m d}
     synthesizeMixedCertified_returns hr
   refine ⟨ids, nd, len, cache, ?_⟩
   intro mn lvls dId aId mc dc wOut wA xin qeq hpure hbin hctrl hmux hsetw
-    hreg hregEn hloopR hcdo hcdo2 hmem htag hsub hcachemiss hdc hins houts hx1 hx2
+    hreg hregEn hloopR hcdo hcdo2 hmem htag hsub hdc hins houts hx1 hx2
   have leaf := prepare_returns (bs.zip ids)
     (start (entryCompilerState false cache) declName.toString)
     (bools := fun _ => false) (bits := fun _ _ => 0) run
@@ -1024,7 +1033,8 @@ theorem synthesizeMixedCertified_instance1_sound {logProf declName bs body m d}
     Returns.bind (m := CompilerM.liftMetaM instArmCacheGet) k7
   obtain ⟨hCacheM, hsQ⟩ := Returns.liftMetaM_mreturns hCacheRead
   subst hsQ
-  simp only [hcachemiss cVal hCacheM] at k8
+  rw [record0, instHit_empty] at k8
+  simp only [] at k8
   obtain ⟨outW, sW, hMk, k9⟩ := Returns.bind (m := CompilerM.makeWire "out" _ true) k8
   obtain ⟨houtW, hsW⟩ := makeWireC_returns hMk
   obtain ⟨uP, sV, hPut, k10⟩ :=
@@ -1453,7 +1463,7 @@ def InstanceNPreserves (declName : Name) (bs : List (Name × MixedGateBinder))
     canonicalCircuitDo? (instEN mn lvls (.fvar dId) (argIds.map Lean.Expr.fvar)) = none →
     canonicalCircuitDo2? (instEN mn lvls (.fvar dId) (argIds.map Lean.Expr.fvar)) = none →
     canonicalMemory? (instEN mn lvls (.fvar dId) (argIds.map Lean.Expr.fvar)) = none →
-    HardwareTagged mn → SubSynthDefines mn mc dc → InstanceCacheEmpty →
+    HardwareTagged mn → SubSynthDefines mn mc dc →
     dc.modules = [] →
     mc.inputs = ports →
     mc.outputs = [⟨"out", .bitVector wOut⟩] →
@@ -1486,7 +1496,7 @@ theorem synthesizeMixedCertified_instanceN_sound {logProf declName bs body m d}
     synthesizeMixedCertified_returns hr
   refine ⟨ids, nd, len, cache, ?_⟩
   intro mn lvls dId argIds mc dc wOut ports qeq hpure hbin hctrl hmux hsetw
-    hreg hregEn hloopR hcdo hcdo2 hmem htag hsub hcachemiss hdc hins houts hnoclk hlenP
+    hreg hregEn hloopR hcdo hcdo2 hmem htag hsub hdc hins houts hnoclk hlenP
   have leaf := prepare_returns (bs.zip ids)
     (start (entryCompilerState false cache) declName.toString)
     (bools := fun _ => false) (bits := fun _ _ => 0) run
@@ -1571,7 +1581,8 @@ theorem synthesizeMixedCertified_instanceN_sound {logProf declName bs body m d}
     Returns.bind (m := CompilerM.liftMetaM instArmCacheGet) k7
   obtain ⟨hCacheM, hsQ⟩ := Returns.liftMetaM_mreturns hCacheRead
   subst hsQ
-  simp only [hcachemiss cVal hCacheM] at k8
+  rw [record0, instHit_empty] at k8
+  simp only [] at k8
   obtain ⟨outW, sW, hMk, k9⟩ := Returns.bind (m := CompilerM.makeWire "out" _ true) k8
   obtain ⟨houtW, hsW⟩ := makeWireC_returns hMk
   obtain ⟨uP, sV, hPut, k10⟩ :=
@@ -1878,7 +1889,7 @@ def InstanceGPreserves (declName : Name) (bs : List (Name × MixedGateBinder))
     canonicalCircuitDo? (instEN mn lvls (.fvar dId) (argIds.map Lean.Expr.fvar)) = none →
     canonicalCircuitDo2? (instEN mn lvls (.fvar dId) (argIds.map Lean.Expr.fvar)) = none →
     canonicalMemory? (instEN mn lvls (.fvar dId) (argIds.map Lean.Expr.fvar)) = none →
-    HardwareTagged mn → SubSynthDefines mn mc dc → InstanceCacheEmpty →
+    HardwareTagged mn → SubSynthDefines mn mc dc →
     dc.modules = [] →
     mc.inputs = ports →
     mc.outputs = [⟨"out", .bitVector wOut⟩] →
@@ -1914,7 +1925,7 @@ theorem synthesizeMixedCertified_instanceG_sound {logProf declName bs body m d}
     synthesizeMixedCertified_returns hr
   refine ⟨ids, nd, len, cache, ?_⟩
   intro mn lvls dId argIds mc dc wOut ports qeq hpure hbin hctrl hmux hsetw
-    hreg hregEn hloopR hcdo hcdo2 hmem htag hsub hcachemiss hdc hins houts hlenP
+    hreg hregEn hloopR hcdo hcdo2 hmem htag hsub hdc hins houts hlenP
   have leaf := prepare_returns (bs.zip ids)
     (start (entryCompilerState false cache) declName.toString)
     (bools := fun _ => false) (bits := fun _ _ => 0) run
@@ -1991,7 +2002,8 @@ theorem synthesizeMixedCertified_instanceG_sound {logProf declName bs body m d}
   obtain ⟨cVal, sQ, hCacheRead, k8⟩ :=
     Returns.bind (m := CompilerM.liftMetaM instArmCacheGet) k7
   obtain ⟨hCacheM, hsQ⟩ := Returns.liftMetaM_mreturns hCacheRead
-  simp only [hcachemiss cVal hCacheM] at k8
+  rw [record0, instHit_empty] at k8
+  simp only [] at k8
   obtain ⟨outW, sW, hMk, k9⟩ := Returns.bind (m := CompilerM.makeWire "out" _ true) k8
   obtain ⟨houtW, hsW⟩ := makeWireC_returns hMk
   obtain ⟨uP, sV, hPut, k10⟩ :=
