@@ -1708,6 +1708,109 @@ theorem synthesizeMixedCertified_instanceN_sound {logProf declName bs body m d}
     exact ⟨hval, inputNotOut _ hdecl⟩
 
 
+/-! ## The clk/rst walk as a pure function (any port list) -/
+
+/-- The clk/rst plumbing, as a pure state transformer: each clk/rst port
+connects to the parent port of the same name, adding it when missing. -/
+def instClkRstPure (acc : List (String × Sparkle.IR.AST.Expr)) :
+    List Port → CircuitState → List (String × Sparkle.IR.AST.Expr) × CircuitState
+  | [], s => (acc, s)
+  | p :: ps, s =>
+    if p.name == "clk" || p.name == "rst" then
+      instClkRstPure ((p.name, Sparkle.IR.AST.Expr.ref p.name) :: acc) ps
+        (if !s.module.inputs.any (fun q => q.name == p.name) then
+          (CircuitM.addInput p.name p.ty s).2 else s)
+    else instClkRstPure acc ps s
+
+/-- The monadic walk IS the pure one. -/
+theorem instClkRst_pure {ctx : CompilerState} :
+    ∀ (ps : List Port) (acc : List (String × Sparkle.IR.AST.Expr))
+      (s s' : CircuitState) (r : List (String × Sparkle.IR.AST.Expr)),
+    Returns (instClkRst acc ps) ctx s r s' → (r, s') = instClkRstPure acc ps s
+  | [], acc, s, s', r, h => by
+    unfold instClkRst at h
+    obtain ⟨hr, hs⟩ := Returns.pure h
+    rw [hr, hs]
+    rfl
+  | p :: ps, acc, s, s', r, h => by
+    unfold instClkRst at h
+    by_cases hc : (p.name == "clk" || p.name == "rst") = true
+    · rw [if_pos hc] at h
+      replace h := Returns.get_bind h
+      try dsimp only at h
+      by_cases hany : (!s.module.inputs.any (fun q => q.name == p.name)) = true
+      · rw [if_pos hany] at h
+        obtain ⟨u1, s1, hAdd, h⟩ := Returns.bind (m := CompilerM.addInput p.name p.ty) h
+        have hs1 : s1 = (CircuitM.addInput p.name p.ty s).2 :=
+          Tools.ShippingEntrySoundness.addInput_returns hAdd
+        subst hs1
+        have := instClkRst_pure ps _ _ _ _ h
+        rw [this]
+        show _ = (if (p.name == "clk" || p.name == "rst") = true then _ else _)
+        rw [if_pos hc, if_pos hany]
+      · rw [if_neg hany] at h
+        have := instClkRst_pure ps _ _ _ _ h
+        rw [this]
+        show _ = (if (p.name == "clk" || p.name == "rst") = true then _ else _)
+        rw [if_pos hc, if_neg hany]
+    · rw [if_neg hc] at h
+      have := instClkRst_pure ps _ _ _ _ h
+      rw [this]
+      show _ = (if (p.name == "clk" || p.name == "rst") = true then _ else _)
+      rw [if_neg hc]
+
+/-- The connection list the walk produces, independent of the state. -/
+def clkRstConns (ps : List Port) : List (String × Sparkle.IR.AST.Expr) :=
+  ((ps.filter (fun p => p.name == "clk" || p.name == "rst")).map
+    (fun p => (p.name, Sparkle.IR.AST.Expr.ref p.name))).reverse
+
+theorem instClkRstPure_fst : ∀ (ps : List Port)
+    (acc : List (String × Sparkle.IR.AST.Expr)) (s : CircuitState),
+    (instClkRstPure acc ps s).1 = clkRstConns ps ++ acc
+  | [], acc, s => rfl
+  | p :: ps, acc, s => by
+    unfold instClkRstPure
+    by_cases hc : (p.name == "clk" || p.name == "rst") = true
+    · rw [if_pos hc, instClkRstPure_fst]
+      unfold clkRstConns
+      simp [List.filter_cons, hc]
+    · rw [if_neg hc, instClkRstPure_fst]
+      unfold clkRstConns
+      simp [List.filter_cons, hc]
+
+theorem instClkRstPure_sourceBindings : ∀ (ps : List Port)
+    (acc : List (String × Sparkle.IR.AST.Expr)) (s : CircuitState),
+    (instClkRstPure acc ps s).2.sourceBindings = s.sourceBindings
+  | [], _, _ => rfl
+  | p :: ps, acc, s => by
+    unfold instClkRstPure
+    split
+    · rw [instClkRstPure_sourceBindings]
+      split <;> rfl
+    · exact instClkRstPure_sourceBindings ps acc s
+
+theorem instClkRstPure_body : ∀ (ps : List Port)
+    (acc : List (String × Sparkle.IR.AST.Expr)) (s : CircuitState),
+    (instClkRstPure acc ps s).2.module.body = s.module.body
+  | [], _, _ => rfl
+  | p :: ps, acc, s => by
+    unfold instClkRstPure
+    split
+    · rw [instClkRstPure_body]
+      split <;> rfl
+    · exact instClkRstPure_body ps acc s
+
+theorem instClkRstPure_design : ∀ (ps : List Port)
+    (acc : List (String × Sparkle.IR.AST.Expr)) (s : CircuitState),
+    (instClkRstPure acc ps s).2.design = s.design
+  | [], _, _ => rfl
+  | p :: ps, acc, s => by
+    unfold instClkRstPure
+    split
+    · rw [instClkRstPure_design]
+      split <;> rfl
+    · exact instClkRstPure_design ps acc s
+
 /-- The run's predicate on the quoted n-ary call computes to the tag check. -/
 theorem instancePredicate_instEN (env : Environment) (mn : Name) (lvls : List Level)
     (dom : Lean.Expr) (args : List Lean.Expr) :
