@@ -97,8 +97,8 @@ theorem shiftOperand?_some {a : SVExpr} {n : String} {lo : Nat}
   · cases h
 
 /-- A deliberately small, total AST renderer. Unsupported forms fail.
-Concatenation is restricted to the emitted zero-extension shape, a literal
-prefix over an identifier. -/
+Concatenation is restricted to the two emitted shapes: the zero-extension,
+a literal prefix over an identifier, and two identifiers. -/
 def renderExpr : SVExpr → Option String
   | .lit l => renderLit l
   | .unary .signed a => do
@@ -118,6 +118,7 @@ def renderExpr : SVExpr → Option String
   | .concat [.lit l, .ident n] => do
     let sa ← renderLit l
     some s!"\{{String.intercalate ", " [sa, n]}}"
+  | .concat [.ident a, .ident b] => some s!"\{{String.intercalate ", " [a, b]}}"
   | .sizeCast w a =>
     if w = 0 then none else
       match shiftOperand? a with
@@ -150,6 +151,8 @@ inductive PrintShape : Expr → Prop
       PrintShape (.slice (.concat [.const 0 w, .ref x]) (w - 1) 0)
   /-- A part-select of a wire, `x[hi:lo]`. -/
   | sliceRef (x : String) (hi lo : Nat) : lo ≤ hi → PrintShape (.slice (.ref x) hi lo)
+  /-- A concatenation of two wires, `{a, b}`. -/
+  | catRef (a b : String) : PrintShape (.concat [.ref a, .ref b])
 
 theorem PrintShape.ofShape {e : Expr} (h : Shape e) : PrintShape e := by
   induction h with
@@ -167,6 +170,7 @@ theorem printShape_simple {e : Expr} (h : simpleRhs e = true) : PrintShape e := 
     · exact .compare h (.ref a) (.ref b)
   | .op .mux [.ref c, .ref t, .ref f], _ => exact .mux (.ref c) (.ref t) (.ref f)
   | .concat [.const v k, .ref x], _ => exact .zext v k x
+  | .concat [.ref a, .ref b], _ => exact .catRef a b
   | .slice (.concat [.const 0 w, .ref x]) hi lo, h =>
     simp only [simpleRhs, Bool.and_eq_true, beq_iff_eq] at h
     obtain ⟨hlo, hhi⟩ := h
@@ -201,6 +205,10 @@ theorem PrintShape.width_lookup {e : Expr} (h : PrintShape e) (wof : String → 
     simp [exprWidthT, Sparkle.Backend.Verilog.exprWidthV]
   | sliceRef x hi lo hle =>
     simp [exprWidthT, Sparkle.Backend.Verilog.exprWidthV]
+  | catRef a b =>
+    simp only [exprWidthT, exprWidthT.goSum, Sparkle.Backend.Verilog.exprWidthV,
+      List.foldl_cons, List.foldl_nil]
+    cases wof a <;> cases wof b <;> simp
 
 theorem render_const (wof : String → Option Nat) (v : Int) (w : Nat) :
     ∃ l, emitAstExpr wof (.const v w) = some (.lit l) ∧
@@ -317,6 +325,17 @@ theorem emitExpr_render_all {e : Expr} (h : PrintShape e) (wof : String → Opti
               by simp [emitAstExpr, hw, hfull, hin, hlo],
               by simp [renderExpr, shiftOperand?, Sparkle.Backend.Verilog.emitExpr, hw,
                 hfull, hin, hlo, hpos]⟩
+  | catRef a b =>
+    have hstr : Sparkle.Backend.Verilog.emitExpr wof (.concat [.ref a, .ref b]) =
+        s!"\{{String.intercalate ", " [Sparkle.Backend.Verilog.sanitizeName a,
+          Sparkle.Backend.Verilog.sanitizeName b]}}" := by
+      simp only [Sparkle.Backend.Verilog.emitExpr, List.attach, List.attachWith,
+        List.map_cons, List.map_nil, List.pmap]
+    refine ⟨.concat [.ident (Sparkle.Backend.Verilog.sanitizeName a),
+      .ident (Sparkle.Backend.Verilog.sanitizeName b)], ?_, ?_⟩
+    · simp only [emitAstExpr, Tools.SVParser.EmitAst.emitConcatElems, bind, Option.bind_some]
+    · rw [hstr]
+      simp only [renderExpr]
 
 /-- Arbitrarily nested expressions, including optimizer-inserted masks. -/
 theorem emitExpr_render {e : Expr} (h : Shape e) (wof : String → Option Nat) :

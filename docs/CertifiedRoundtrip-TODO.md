@@ -783,8 +783,23 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   of 192 corpus outputs change text — purely combinational modules with
   a slice now ship the unoptimised module (the optimizer checker does
   not normalise slices), a policy the user chose; none changes hardware.
-  Open next: concatenation (the same vertical job), bare `f <$> a`
-  slices, unary and BitVec-result lifts.
+  CONCATENATION landed the same way: `{a, b}` on two references through
+  the back half (`simpleRhs`, `TypedExpr.cat` at width `we a + we b`,
+  `PrintShape.catRef`, renderer, name binding) and `Term.concat` in
+  front, indexed by the sum of its operand widths. Its lowering
+  allocates the result wire before the operands, so the contract,
+  protection and order lemmas are the binary operator's (pending
+  parent) at the hints `concat_hi`/`concat_lo`, under the fallback
+  arms' cache wrapper. The one new front-end fact: the elaborator
+  writes the result width as `m + n` and parents carry that sum in
+  their type arguments, so the front end now folds literal `Nat` sums
+  (`inlFoldNat`) and the arm fires only on the folded form — the legacy
+  route, which sees the declaration as written, is untouched.
+  `cSwap_execution` proves a nibble swap (two slices concatenated);
+  the suite gates 11 declarations byte-identical to the legacy compile
+  of the declaration as written. 63 of 389 real declarations pass a
+  gate. Open next: literal operands (`0#k ++ a`), bare `f <$> a`
+  slices, unary and BitVec-result lifts; then the N-slot `circuit do`.
 - [ ] **S7 / trust:** Resolve or explicitly retain `EnvDefines` in the final
   claim; record execution-model/external-tool boundaries without hiding them.
   RECORDED — docs/ShippingCompiler-TrustBase.md states the retained base

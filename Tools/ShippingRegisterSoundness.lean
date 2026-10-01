@@ -3933,6 +3933,10 @@ theorem cdoConeToLoop_quote {domS domL : Lean.Expr} {bi vi biL viL : Nat → Lea
   | _, .slice nm start len a, he => by
     have ia := cdoConeToLoop_quote hdom hb hv a he.1
     simp [Tools.ShippingUnifiedSource.quote, sliceE, cdoConeToLoop, cdoConeToLoop_natE, cdoConeToLoop_bitVecE, cdoConeToLoop_sigT hdom, hdom, sigT, binMethod, binInst, compareName, signalBoolBinName, signalBoolBinInst, mkApp8, mkApp6, mkApp5, mkApp4, mkApp3, mkApp2, mkAppB, mkApp, ia]
+  | _, .concat a b, he => by
+    have ia := cdoConeToLoop_quote hdom hb hv a he.1
+    have ib := cdoConeToLoop_quote hdom hb hv b he.2
+    simp [Tools.ShippingUnifiedSource.quote, concatE, cdoConeToLoop, cdoConeToLoop_natE, cdoConeToLoop_bitVecE, cdoConeToLoop_sigT hdom, hdom, sigT, mkApp8, mkApp6, mkApp5, mkApp4, mkApp3, mkApp2, mkAppB, mkApp, ia, ib]
 
 theorem canonicalCircuitDo?_cdoE {nmR : Name} {dom0 dom1 dom2 dom3 rhs cone : Lean.Expr} {w v : Nat}
     (hdom : (dom0.isFVar || dom0.isBVar) = true) (hw : 0 < w) (hv : v < 2 ^ w)
@@ -5218,6 +5222,12 @@ theorem cdo2ConeToLoop_quote {dx dy K : Nat} {domS domL : Lean.Expr}
       cdo2ConeToLoop_bitVecE, cdo2ConeToLoop_sigT hdom, hdom, sigT, mkApp8, mkApp6, mkApp5,
       mkApp4, mkApp3, mkApp2, mkAppB, mkApp, ia]
       <;> omega
+  | _, .concat a b, he => by
+    have ia := cdo2ConeToLoop_quote hdom hb hv a he.1
+    have ib := cdo2ConeToLoop_quote hdom hb hv b he.2
+    simp [Tools.ShippingUnifiedSource.quote, concatE, cdo2ConeToLoop, cdo2ConeToLoop_natE,
+      cdo2ConeToLoop_bitVecE, cdo2ConeToLoop_sigT hdom, hdom, sigT, mkApp8, mkApp6, mkApp5,
+      mkApp4, mkApp3, mkApp2, mkAppB, mkApp, ia, ib]
 
 theorem mixed_kind_at_push2 {bs : List (Name × MixedGateBinder)} {j : Nat} {name kind}
     {k1 k2 : MixedGateBinder} (pos : bs[j]? = some (name, kind)) :

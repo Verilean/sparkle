@@ -68,6 +68,12 @@ def sliceValue (w start len : Nat) : Value → Option Value
   | .bits k v => if h : k = w then some (.bits len (BitVec.extractLsb' start len (h ▸ v))) else none
   | _ => none
 
+/-- Concatenation of two BitVec values: the first in the high bits. -/
+def concatValue (m n : Nat) : Value → Value → Option Value
+  | .bits k a, .bits l b =>
+    if h : k = m ∧ l = n then some (.bits (m + n) ((h.1 ▸ a) ++ (h.2 ▸ b))) else none
+  | _, _ => none
+
 inductive Node where
   | input (id : FVarId)
   | value (v : Value)
@@ -76,6 +82,7 @@ inductive Node where
   | mux (kind : Kind) (c a b : Lean.Expr)
   | setw (w w' : Nat) (a : Lean.Expr)
   | slice (w start len : Nat) (a : Lean.Expr)
+  | concat (m n : Nat) (a b : Lean.Expr)
 
 def binaryOfName? : Name → Option Binary
   | ``HAdd.hAdd => some .add
@@ -127,7 +134,10 @@ def view : Lean.Expr → Option Node
     | none => match binaryOfName? m, canonicalSignalBinKinds m e.getAppArgs,
         canonicalSignalBitVecWidth e.getAppArgs with
       | some op, some (true, true), some n => some (.binary (.bits op n) a b)
-      | _, _, _ => none
+      | _, _, _ =>
+        match canonicalConcat? e with
+        | some (m, k, _, _) => some (.concat m k a b)
+        | none => none
   | .app (.app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.beq _) ty) _) inst) a) b =>
     if isBoolEquality ty inst then some (.binary .boolEq a b) else
       ((bitVecEqualityWidth? ty inst).bind canonicalNatLitValue?).map fun n => .binary (.compare .eq n) a b
@@ -181,6 +191,9 @@ inductive Meaning (inputs : FVarId → Option Value) : Lean.Expr → Value → P
       Meaning inputs a va → setwValue w w' va = some v → Meaning inputs e v
   | slice {e w start len a va v} : view e = some (.slice w start len a) →
       Meaning inputs a va → sliceValue w start len va = some v → Meaning inputs e v
+  | concat {e m n a b va vb v} : view e = some (.concat m n a b) →
+      Meaning inputs a va → Meaning inputs b vb → concatValue m n va vb = some v →
+      Meaning inputs e v
   | inst {e mn lvls dom args vs v} : view e = none → e.getAppFn = .const mn lvls →
       instSpineArgs e = dom :: args → vs.length = args.length →
       (∀ i (ha : i < args.length) (hv : i < vs.length),
@@ -233,7 +246,10 @@ theorem view_binary (dom a b : Lean.Expr) (n : Nat) (op : Binary) :
       | none => match binaryOfName? (binMethod op), canonicalSignalBinKinds (binMethod op) (binE dom n op a b).getAppArgs,
           canonicalSignalBitVecWidth (binE dom n op a b).getAppArgs with
         | some k, some (true, true), some n => some (.binary (.bits k n) a b)
-        | _, _, _ => none) := by
+        | _, _, _ =>
+          match canonicalConcat? (binE dom n op a b) with
+          | some (m, k, _, _) => some (.concat m k a b)
+          | none => none) := by
     simp only [binE, mkApp6, mkApp4, mkApp2, mkAppB, mkApp, view]
   rw [step, bool, kinds, width]
   cases op <;> rfl
@@ -283,6 +299,24 @@ theorem view_slice (dom : Lean.Expr) (nm : Lean.Name) (a : Lean.Expr)
     view (sliceE dom nm w start len a) = some (.slice w start len a) := by
   have fall : view (sliceE dom nm w start len a) = tailView? (sliceE dom nm w start len a) := rfl
   rw [fall, tailView?, canonicalSlice?_sliceE dom nm a hlen hr]
+
+theorem canonicalConcat?_concatE (dom a b : Lean.Expr) {m n : Nat} (hm : 0 < m) (hn : 0 < n) :
+    canonicalConcat? (concatE dom m n a b) = some (m, n, a, b) := by
+  simp only [concatE, sigT, mkApp6, mkApp5, mkApp4, mkApp3, mkApp2, mkAppB, mkApp,
+    canonicalConcat?, canonicalNatLitValue?_natE]
+  simp [hm, hn]
+
+set_option maxHeartbeats 1000000 in
+/-- A concatenation is read by the generic operator arm's fall-through. -/
+theorem view_concatE_fall (dom a b : Lean.Expr) (m n : Nat) :
+    view (concatE dom m n a b) =
+      (match canonicalConcat? (concatE dom m n a b) with
+       | some (m', k, _, _) => some (.concat m' k a b)
+       | none => none) := rfl
+
+theorem view_concat (dom a b : Lean.Expr) {m n : Nat} (hm : 0 < m) (hn : 0 < n) :
+    view (concatE dom m n a b) = some (.concat m n a b) := by
+  rw [view_concatE_fall, canonicalConcat?_concatE dom a b hm hn]
 
 theorem view_appCompare (dom a b : Lean.Expr) (n : Nat) (op : SignalCompareKind) :
     view (appCompareE op dom n a b) = some (.binary (.compare op n) a b) := by
@@ -372,6 +406,11 @@ theorem meaning_quote_leaves {inputs : FVarId → Option Value} {dom : Lean.Expr
   | _, .slice nm start len (w := w) a, ⟨ha, hlen, hr⟩ => by
     apply Meaning.slice (view_slice dom nm _ hlen hr) (meaning_quote_leaves hb hv a ha)
     simp [sliceValue, pack, eval]
+  | _, .concat a b, h => by
+    obtain ⟨ha, hb'⟩ := h
+    apply Meaning.concat (view_concat dom _ _ (a.wf_pos ha) (b.wf_pos hb'))
+      (meaning_quote_leaves hb hv a ha) (meaning_quote_leaves hb hv b hb')
+    simp [concatValue, pack, eval]
 
 /-- The input-binder instance: leaves are prepared free variables. -/
 theorem meaning_quote {inputs : FVarId → Option Value} {dom : Lean.Expr} {kb kv : Nat}

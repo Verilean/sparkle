@@ -114,6 +114,7 @@ theorem sized_of_flat {we e n} (h : TypedExpr we e n)
   | zext => simp [isCastExpr] at cast
   | trunc => simp [isCastExpr] at cast
   | slice => simp [isCastExpr] at cast
+  | cat => simp [isCastExpr] at cast
 
 theorem printWidths_decl {m : Sparkle.IR.AST.Module} {p : Port}
     (hp : p ∈ m.wires ++ m.inputs ++ m.outputs)

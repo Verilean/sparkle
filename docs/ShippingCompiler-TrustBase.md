@@ -91,9 +91,10 @@ build. A gate failure fails `Tests.AllTests`.
 right-hand sides are all of a known shape (`simpleBody`): there the
 optimised module ships only if the proved checker accepts it, and the
 unoptimised input ships otherwise — which is always the case for a body
-containing a part-select, since the checker's normal form does not
-cover slices. On an assignment-only body with an unknown right-hand
-side (a concatenation, a general slice operand), and on
+containing a part-select or a concatenation of two wires, since the
+checker's normal form covers neither. On an assignment-only body with
+an unknown right-hand side (a wider concatenation, a general slice
+operand), and on
 registers, memories and instances the shipping pipeline keeps the
 optimizer's output unchecked at run time. For those shapes the
 validation is exactly the gates above: an optimizer change that broke
@@ -109,7 +110,8 @@ theorems, and reading them is part of trusting the claim.
 - The front-end unfolding: `inlineDefs` / `userInliner` (delta-beta of
   user definitions, projection of a constructor, zeta in front of it,
   `<$>`/`<*>` at the library's Signal instances as `Signal.map`/
-  `Signal.ap`) and the choice `entryConst`. The theorems do not reason about the unfolding — they
+  `Signal.ap`, literal `Nat` sums folded — `8 + 4` in a type argument
+  becomes `12`) and the choice `entryConst`. The theorems do not reason about the unfolding — they
   speak about the value the entry constant HAS. That this value means
   what the declaration means is Lean's own delta/beta, and it is checked
   per declaration by the kernel: the test theorems identify the
@@ -136,7 +138,9 @@ theorems, and reading them is part of trusting the claim.
   on `Signal`; the kernel `rfl` bridge of each declaration checks that
   reading against the library's definitions. Likewise a `Signal.map`
   whose function is `BitVec.extractLsb' start len` is the slice node,
-  with `BitVec.extractLsb'` itself as its meaning (`fc_library`).
+  with `BitVec.extractLsb'` itself as its meaning (`fc_library`), and
+  `a ++ b` at the library's Signal instance is the concatenation node,
+  with `BitVec` append as its meaning (`cSwap_library`).
 - The emitted-SV semantics (`Tools/SVParser/EmitSem.lean`): continuous
   assignments, the always-block register shape, memories. An
   independent reading of the SystemVerilog subset the printer emits.

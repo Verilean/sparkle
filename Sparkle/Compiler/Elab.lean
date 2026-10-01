@@ -1356,6 +1356,25 @@ def canonicalSlice? : Lean.Expr → Option (Nat × Nat × Nat × Lean.Expr)
     | _, _, _, _, _ => none
   | _ => none
 
+/-- Canonical concatenation: `a ++ b` of two Signals at the library instance,
+    with literal positive operand widths and the result width written as the
+    literal of their sum — the form the front end folds `m + n` to
+    (`inlFoldNat`).  Returns `(high width, low width, high operand, low
+    operand)`. -/
+def canonicalConcat? : Lean.Expr → Option (Nat × Nat × Lean.Expr × Lean.Expr)
+  | .app (.app (.app (.app (.app (.app (.const ``HAppend.hAppend _)
+      (.app (.app (.const ``Sparkle.Core.Signal.Signal _) _) (.app (.const ``BitVec _) mE)))
+      (.app (.app (.const ``Sparkle.Core.Signal.Signal _) _) (.app (.const ``BitVec _) nE)))
+      (.app (.app (.const ``Sparkle.Core.Signal.Signal _) _) (.app (.const ``BitVec _) rE)))
+      (.app (.app (.app (.const ``Sparkle.Core.Signal.instHAppendSignalBitVecHAddNat _) _) mE')
+        nE')) a) b =>
+    match canonicalNatLitValue? mE, canonicalNatLitValue? nE, canonicalNatLitValue? rE,
+        canonicalNatLitValue? mE', canonicalNatLitValue? nE' with
+    | some m, some n, some r, some m', some n' =>
+      if 0 < m && 0 < n && r == m + n && m' == m && n' == n then some (m, n, a, b) else none
+    | _, _, _, _, _ => none
+  | _ => none
+
 /-- The target width of a canonical width-changing root: a `setWidth` cast or
     a slice. -/
 def canonicalSetWidthTop? (e : Lean.Expr) : Option Nat :=
@@ -2364,15 +2383,24 @@ def unifiedGateBitsBody (kinds : Array MixedGateBinder) (n : Nat) : Lean.Expr �
           canonicalSignalBitVecWidth e.getAppArgs with
       | some _, some (true, true), some w =>
         w == n && unifiedGateBitsBody kinds n a && unifiedGateBitsBody kinds n b
-      | _, _, _ => false
+      | _, _, _ =>
+        -- A concatenation: the operands at their own widths.
+        match canonicalConcat? e with
+        | some (m, k, _, _) =>
+          n == m + k && unifiedGateBitsBody kinds m a && unifiedGateBitsBody kinds k b
+        | none => false
   | _ => false
 
 end
 
 /-- Root acceptance for the unified fragment; the width comes from the same
-    syntactic sources as the established vector gate. -/
+    syntactic sources as the established vector gate, and for a concatenation
+    root from its two operand widths. -/
 def unifiedGateRoot (kinds : Array MixedGateBinder) (e : Lean.Expr) : Bool :=
   unifiedGateBoolBody kinds e ||
+    (match canonicalConcat? e with
+      | some (m, k, _, _) => unifiedGateBitsBody kinds (m + k) e
+      | none => false) ||
     (match canonicalMuxType? e with
       | some (.bitVector n) => 0 < n && unifiedGateBitsBody kinds n e
       | _ =>
@@ -2568,7 +2596,11 @@ def hierGateBitsBody (isInst : Lean.Expr → Bool) (kinds : Array MixedGateBinde
           canonicalSignalBitVecWidth e.getAppArgs with
       | some _, some (true, true), some w =>
         w == n && hierGateBitsBody isInst kinds n a && hierGateBitsBody isInst kinds n b
-      | _, _, _ => isInst e && hierInstSpine isInst kinds e
+      | _, _, _ =>
+        match canonicalConcat? e with
+        | some (m, k, _, _) =>
+          n == m + k && hierGateBitsBody isInst kinds m a && hierGateBitsBody isInst kinds k b
+        | none => isInst e && hierInstSpine isInst kinds e
   | e => isInst e && e.isApp && hierInstSpine isInst kinds e
 
 end
@@ -2580,6 +2612,9 @@ end
 def hierGateRoot (isInst : Lean.Expr → Bool) (kinds : Array MixedGateBinder)
     (e : Lean.Expr) : Bool :=
   hierGateBoolBody isInst kinds e ||
+    (match canonicalConcat? e with
+      | some (m, k, _, _) => hierGateBitsBody isInst kinds (m + k) e
+      | none => false) ||
     (match canonicalMuxType? e with
       | some (.bitVector n) => 0 < n && hierGateBitsBody isInst kinds n e
       | _ =>
@@ -2984,6 +3019,38 @@ def inlineDefs (defs : Name → Option Lean.Expr) (projs : Name → Option (Name
       | some (args', b) => some (args'.foldl Lean.Expr.app h, b)
       | none => none
 
+/-- The literal `n : Nat` as the elaborator writes it. -/
+def inlNatLit (n : Nat) : Lean.Expr :=
+  mkApp3 (.const ``OfNat.ofNat [.zero]) (.const ``Nat []) (.lit (.natVal n))
+    (mkApp (.const ``instOfNatNat []) (.lit (.natVal n)))
+
+/-- `a + b` of two literals at the core `Nat` addition, as the literal of the
+    sum. -/
+def inlNatSum? : Lean.Expr → Option Lean.Expr
+  | .app (.app (.app (.app (.app (.app (.const ``HAdd.hAdd _) (.const ``Nat _))
+      (.const ``Nat _)) (.const ``Nat _))
+      (.app (.app (.const ``instHAdd _) (.const ``Nat _)) (.const ``instAddNat _))) a) b =>
+    match canonicalNatLitValue? a, canonicalNatLitValue? b with
+    | some m, some n => some (inlNatLit (m + n))
+    | _, _ => none
+  | _ => none
+
+/-- Fold every sum of `Nat` literals, bottom-up, everywhere in the expression
+    (type arguments and binder types included).  The result type of `a ++ b`
+    is `BitVec (m + n)`, and that sum is what every parent's type arguments
+    then carry; folded, the width is a literal like every other width the
+    gates read. -/
+def inlFoldNat : Lean.Expr → Lean.Expr
+  | .app f a =>
+    let e := Lean.Expr.app (inlFoldNat f) (inlFoldNat a)
+    (inlNatSum? e).getD e
+  | .lam n t b bi => .lam n (inlFoldNat t) (inlFoldNat b) bi
+  | .forallE n t b bi => .forallE n (inlFoldNat t) (inlFoldNat b) bi
+  | .letE n t v b nd => .letE n (inlFoldNat t) (inlFoldNat v) (inlFoldNat b) nd
+  | .mdata d e => .mdata d (inlFoldNat e)
+  | .proj s i e => .proj s i (inlFoldNat e)
+  | e => e
+
 /-- Names the legacy dispatcher intercepts by their LAST component before it
     would unfold the definition (`handleRegister`, `handleMux`, …). -/
 def inlReservedSuffixes : List String :=
@@ -3044,12 +3111,13 @@ def inlineDepth : Nat := 4096
 def inlineBudget : Nat := 200000
 
 /-- The run's unfolding: user definitions and structure projections of
-    `env`, within the budget; the expression itself when the budget is
-    exhausted or a refused form is met. -/
+    `env`, within the budget (the expression itself when the budget is
+    exhausted or a refused form is met), then literal `Nat` sums folded. -/
 def userInliner (env : Environment) : Lean.Expr → Lean.Expr := fun e =>
-  match inlineDefs (userDefinition? env) (userProjection? env) inlineDepth e inlineBudget with
-  | some (e', _) => e'
-  | none => e
+  inlFoldNat
+    (match inlineDefs (userDefinition? env) (userProjection? env) inlineDepth e inlineBudget with
+     | some (e', _) => e'
+     | none => e)
 
 /-- A definition with its value rewritten. -/
 def inlinedConst (inl : Lean.Expr → Lean.Expr) : ConstantInfo → ConstantInfo
@@ -5914,6 +5982,22 @@ def translateSliceUncachedWith (rec : TranslateFn) (start len : Nat) : Translate
     let sw ← rec e.getAppArgs.back! "s" false false
     emitSliceResult (sliceRhs start len sw) len hint named
 
+/-- The concatenation sequence of the legacy handler: the result wire FIRST,
+    then the high and the low operand, then one `{hi, lo}` assignment. -/
+def translateConcatWith (rec : TranslateFn) (m n : Nat) (a b : Lean.Expr) (hint : String)
+    (named : Bool) : CompilerM String := do
+  let r ← CompilerM.makeWire hint (.bitVector (m + n)) (named := named)
+  let hi ← rec a "concat_hi" false false
+  let lo ← rec b "concat_lo" false false
+  CompilerM.emitAssign r (.concat [.ref hi, .ref lo])
+  return r
+
+/-- Uncached lowering for the canonical concatenation. -/
+def translateConcatUncachedWith (rec : TranslateFn) (m n : Nat) : TranslateFn :=
+  fun e hint _top named =>
+    translateConcatWith rec m n e.getAppArgs[e.getAppArgs.size - 2]! e.getAppArgs.back!
+      hint named
+
 /-- Uncached lowering for the canonical polymorphic-domain register: the
     input first, then one register statement on the shared clock/reset
     names. The asynchronous kind matches the legacy handler's fallback for
@@ -6312,6 +6396,7 @@ inductive FallbackKind where
   | circuitDo2 (w v0 v1 ret : Nat)
   | memory (aw dw : Nat)
   | slice (ws start len : Nat)
+  | concat (m n : Nat)
   | other
   deriving DecidableEq, Repr
 
@@ -6344,7 +6429,10 @@ def fallbackKind (e : Lean.Expr) : FallbackKind :=
                   | none =>
                     match canonicalSlice? e with
                     | some (ws, start, len, _) => .slice ws start len
-                    | none => .other
+                    | none =>
+                      match canonicalConcat? e with
+                      | some (m, n, _, _) => .concat m n
+                      | none => .other
 
 /-- The existing handler chain (cache wrapper + dispatch) as the fallback:
     one lowering per `fallbackKind`. -/
@@ -6380,6 +6468,8 @@ def translateFallback (rec : TranslateFn) : TranslateFn :=
       translateControlCachedWith (translateMemoryUncachedWith rec aw dw) e hint top named
     | .slice _ start len =>
       translateControlCachedWith (translateSliceUncachedWith rec start len) e hint top named
+    | .concat m n =>
+      translateControlCachedWith (translateConcatUncachedWith rec m n) e hint top named
     | .other => translateInstanceOrFallback rec e hint top named
 
 def translateStep : TranslateFn → TranslateFn := translateStepWith translateFallback

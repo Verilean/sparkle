@@ -308,6 +308,41 @@ theorem slice_protect {ctx inputs we mems initial rec ae hint named va} {start l
   intro hmem
   exact hwa (sliceRhs_refs hmem).symm
 
+/-- Concatenation: the result name is reserved before both operands; each
+operand preserves a pending parent, and the final `{hi, lo}` reads only the
+operand wires. -/
+theorem concat_protect {ctx inputs we mems initial rec ae be hint named va vb} {m n : Nat}
+    (ca : Child rec ctx inputs we mems initial ae "concat_hi" va)
+    (cb : Child rec ctx inputs we mems initial be "concat_lo" vb)
+    (pa : ActionProtect (rec ae "concat_hi" false false) ctx inputs)
+    (pb : ActionProtect (rec be "concat_lo" false false) ctx inputs) :
+    ActionProtect (translateConcatWith rec m n ae be hint named) ctx inputs := by
+  intro s w t p hr lookup hp
+  obtain ⟨sa, sb, sc, a, b, hw, hsa, ra, rb, ht⟩ := concat_returns hr
+  have fa : Frame s sa := by rw [hsa]; exact Frame.makeWire s hint (m + n) named
+  obtain ⟨hpA', hne⟩ :=
+    makeWire_protect (hint := hint) (ty := .bitVector (m + n)) (named := named) hp
+  have hpA : Protected ctx inputs sa p := by rw [hsa]; exact hpA'
+  have hne' : w ≠ p := by rw [hw]; exact hne
+  have lookupA := lookup.transfer fa
+  have fb := ca.frame sa sb a lookupA ra
+  obtain ⟨hpa, hwa⟩ := pa sa a sb p ra lookupA hpA
+  have hpB := hpA.frame fb hpa
+  have lookupB := lookupA.transfer fb
+  have fc := cb.frame sb sc b lookupB rb
+  obtain ⟨hpb, hwb⟩ := pb sb b sc p rb lookupB hpB
+  have hpC := hpB.frame fc hpb
+  refine ⟨?_, hne'⟩
+  show p ∉ footprint t.module.body
+  rw [ht, emitAssign_body_cons, footprint_cons]
+  intro hmem
+  rcases List.mem_cons.mp hmem with heq | hmem
+  · exact hne' heq.symm
+  · rcases List.mem_append.mp hmem with hmem | hmem
+    · revert hmem
+      simp [refsOf, refsOf.refsList, Ne.symm hwa, Ne.symm hwb]
+    · exact hpC.pending hmem
+
 /-- Input leaves return an existing binding: no state change, and the bound
 wire cannot be the pending name. -/
 theorem input_protect {ctx inputs id v rec hint named} (hi : inputs id = some v) :
@@ -764,6 +799,24 @@ theorem fuel_protects (fuel : Nat) {ctx : CompilerState} {inputs : FVarId → Op
         hint false named) ctx inputs
       rw [sliceUncached_sliceE]
       exact slice_protect ((fc a ha).child "s") (ih a ha "s" false)
+    | concat a b =>
+      rename_i m n
+      have hab := he
+      obtain ⟨ha, hb'⟩ := he
+      show ActionProtect (translateStepWith translateFallback
+        (translateFuelFix translateStep fuel)
+        (concatE dom m n (quote dom (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) a)
+          (quote dom (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) b))
+        hint false named) ctx inputs
+      rw [concat_step _ _ _ _ _ _ _ _ _ (a.wf_pos ha) (b.wf_pos hb')]
+      apply cached_protect (meaning_quote hb hv (.concat a b) hab)
+      show ActionProtect (translateConcatUncachedWith (translateFuelFix translateStep fuel) m n
+        (concatE dom m n (quote dom (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) a)
+          (quote dom (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) b))
+        hint false named) ctx inputs
+      rw [concatUncached_concatE]
+      exact concat_protect ((fc a ha).child "concat_hi") ((fc b hb').child "concat_lo")
+        (ih a ha "concat_hi" false) (ih b hb' "concat_lo" false)
 
 /-- Order obligation for one recursive/action call. -/
 def ActionOrder (action : CompilerM String) (ctx : CompilerState)
@@ -1198,6 +1251,73 @@ theorem binary_order {ctx inputs we mems initial rec e args hint named n} {x y :
     · exact gb.used _ va.used
     · exact vb.used
 
+/-- Order for the allocator-before-operands concatenation: protection carries
+the reserved result through both operands. -/
+theorem concat_order {ctx inputs we mems initial rec ae be hint named} {m n : Nat}
+    {x : BitVec m} {y : BitVec n}
+    (ca : Child rec ctx inputs we mems initial ae "concat_hi" (.bits m x))
+    (cb : Child rec ctx inputs we mems initial be "concat_lo" (.bits n y))
+    (pa : ActionProtect (rec ae "concat_hi" false false) ctx inputs)
+    (pb : ActionProtect (rec be "concat_lo" false false) ctx inputs)
+    (oa : ActionOrder (rec ae "concat_hi" false false) ctx inputs we mems initial)
+    (ob : ActionOrder (rec be "concat_lo" false false) ctx inputs we mems initial) :
+    ActionOrder (translateConcatWith rec m n ae be hint named) ctx inputs we mems initial := by
+  intro s t w prior h hi hw ho
+  unfold translateConcatWith at h
+  obtain ⟨res, sA, hmk, rest⟩ := Returns.bind h
+  obtain ⟨wa, sB, ha, rest⟩ := Returns.bind rest
+  obtain ⟨wb, sC, hb', rest⟩ := Returns.bind rest
+  obtain ⟨u, sD, hem, ret⟩ := Returns.bind rest
+  obtain ⟨hwv, ht⟩ := Returns.pure ret
+  rw [ht] at hw ⊢
+  obtain ⟨hres, hsA⟩ := makeWire_returns hmk
+  obtain ⟨hf, hu, hbody, _⟩ := CircuitM.makeWire_spec hint (.bitVector (m + n)) named s
+  rw [← hres] at hf hu
+  rw [← hsA] at hu
+  have hsb : sA.sourceBindings = s.sourceBindings := by
+    rw [hsA]; exact CircuitM.makeWire_sourceBindings _ _ _ _
+  have hrec : sA.translateRecord = s.translateRecord := by
+    rw [hsA]; exact CircuitM.makeWire_translateRecord _ _ _ _
+  have hiA : Inv ctx inputs we mems initial sA prior := by
+    rw [hsA]; exact hi.allocate hint (.bitVector (m + n)) named
+  obtain ⟨hoA, hpend, hused⟩ := makeWire_order hmk ho
+  have hpA : Protected ctx inputs sA res := by
+    refine ⟨hused, hpend, ?_, ?_⟩
+    · intro id v hiv bound
+      rw [hsb] at bound
+      obtain ⟨z, hz, huz, _, _⟩ := hi.inputs.lookup id v hiv
+      have eq : z = res := Option.some.inj (hz.symm.trans bound)
+      subst z
+      rw [hf] at huz
+      cases huz
+    · intro e' v record meaning
+      rw [hrec] at record
+      exact fresh_not_recorded hi.records hf meaning record
+  have lookupA := Lookup.ofInputs hiA.inputs
+  have ga := ca.frame sA sB wa lookupA ha
+  have gb := cb.frame sB sC wb (lookupA.transfer ga) hb'
+  have hwC : ScalarWidthsAgree we sC := by
+    intro p hp
+    apply hw p
+    rw [emitAssign_returns hem, emitAssign_wires]
+    exact hp
+  have hwB := gb.decls.widths hwC
+  have va := ca.sem sA sB wa prior hiA hwB ha
+  obtain ⟨envB, hiB, _, _⟩ := va.execution
+  have vb := cb.sem sB sC wb envB hiB hwC hb'
+  have hoB := oa sA sB wa prior ha hiA hwB hoA
+  have hoC := ob sB sC wb envB hb' hiB hwC hoB
+  obtain ⟨hpa, hwa⟩ := pa sA wa sB res ha lookupA hpA
+  have hpB := hpA.frame ga hpa
+  obtain ⟨hpc, hwb⟩ := pb sB wb sC res hb' (lookupA.transfer ga) hpB
+  apply emitAssign_order hem hoC hpc (gb.used res (ga.used res hused))
+  · simp [refsOf, refsOf.refsList, Ne.symm hwa, Ne.symm hwb]
+  · intro z hz
+    have hz' : z = wa ∨ z = wb := by simpa [refsOf, refsOf.refsList] using hz
+    rcases hz' with rfl | rfl
+    · exact gb.used _ va.used
+    · exact vb.used
+
 theorem binary_step_order {ctx inputs we mems initial rec e m us hint named n} {x y : BitVec n}
     (op : Binary)
     (fn : e.getAppFn = .const m us) (hop : signalBinOpOf m = some op.operator)
@@ -1476,6 +1596,26 @@ theorem fuel_orders (fuel : Nat) {ctx : CompilerState} {inputs : FVarId → Opti
         hint false named) ctx inputs we mems initial
       rw [sliceUncached_sliceE]
       exact slice_order hlen ((fuel_contract fuel hb hv a ha).child "s") (ih a ha "s" false)
+    | concat a b =>
+      rename_i m n
+      obtain ⟨ha, hb'⟩ := he
+      show ActionOrder (translateStepWith translateFallback
+        (translateFuelFix translateStep fuel)
+        (concatE dom m n (quote dom (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) a)
+          (quote dom (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) b))
+        hint false named) ctx inputs we mems initial
+      rw [concat_step _ _ _ _ _ _ _ _ _ (a.wf_pos ha) (b.wf_pos hb')]
+      apply cached_order
+      show ActionOrder (translateConcatUncachedWith (translateFuelFix translateStep fuel) m n
+        (concatE dom m n (quote dom (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) a)
+          (quote dom (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) b))
+        hint false named) ctx inputs we mems initial
+      rw [concatUncached_concatE]
+      exact concat_order ((fuel_contract fuel hb hv a ha).child "concat_hi")
+        ((fuel_contract fuel hb hv b hb').child "concat_lo")
+        (fuel_protects fuel hb hv a ha "concat_hi" false)
+        (fuel_protects fuel hb hv b hb' "concat_lo" false)
+        (ih a ha "concat_hi" false) (ih b hb' "concat_lo" false)
 
 /-- Real-entry order for any unified quoted source. -/
 theorem translateExprToWire_orders {ctx : CompilerState} {inputs : FVarId → Option Value}

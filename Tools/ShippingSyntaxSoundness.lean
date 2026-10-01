@@ -90,12 +90,21 @@ theorem renderExpr_syntax {e text} (hr : renderExpr e = some text)
     obtain _ | ⟨a, _ | ⟨b, _ | ⟨c, rest⟩⟩⟩ := args
     · simp [renderExpr] at hr
     · simp [renderExpr] at hr
-    · cases a <;> try simp [renderExpr] at hr
-      cases b <;> try simp [renderExpr] at hr
-      simp only [renderExpr, bind, Option.bind_eq_some_iff] at hr
-      obtain ⟨sa, ha, he⟩ := hr
-      cases he
-      exact .concat2 (renderLit_syntax ha) (.ident hn)
+    · cases a with
+      | lit l =>
+        cases b <;> try simp [renderExpr] at hr
+        simp only [renderExpr, bind, Option.bind_eq_some_iff] at hr
+        obtain ⟨sa, ha, he⟩ := hr
+        cases he
+        exact .concat2 (renderLit_syntax ha) (.ident hn)
+      | ident x =>
+        cases b with
+        | ident y =>
+          simp only [renderExpr, Option.some.injEq] at hr
+          subst hr
+          exact .concat2 (.ident hn.1) (.ident hn.2)
+        | _ => simp [renderExpr] at hr
+      | _ => simp [renderExpr] at hr
     · simp [renderExpr] at hr
   | sizeCast w a =>
     by_cases hw : w = 0
@@ -223,11 +232,16 @@ private theorem exprBound_mono {P Q : String → Prop} {e : SVExpr}
     obtain _ | ⟨a, _ | ⟨b, _ | ⟨c, rest⟩⟩⟩ := args
     · exact False.elim h
     · cases a <;> exact False.elim h
+    · cases a with
+      | lit l =>
+        cases b <;> try exact False.elim h
+        exact hi _ h
+      | ident x =>
+        cases b <;> try exact False.elim h
+        exact ⟨hi _ h.1, hi _ h.2⟩
+      | _ => exact False.elim h
     · cases a <;> try exact False.elim h
-      cases b <;> try exact False.elim h
-      exact hi _ h
-    · cases a <;> try exact False.elim h
-      cases b <;> exact False.elim h
+      all_goals cases b <;> exact False.elim h
   | sizeCast w a => exact exprBound_mono (e := a) h hi
   | slice b _ _ =>
     cases b <;> try exact False.elim h

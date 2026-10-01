@@ -182,8 +182,8 @@ call-site unfolding on 17 tested shapes) → general N-slot `circuit do` →
 hardware `let` → applicative/slices → structure results. The list below
 is the older, shape-driven plan and is subordinate to the measurement.
 
-**Adding a `Term` constructor — the sites.** Done four times now
-(`setw`, `appCompare`/`appBool`, `bitsNum`, `slice`); the checklist is:
+**Adding a `Term` constructor — the sites.** Done five times now
+(`setw`, `appCompare`/`appBool`, `bitsNum`, `slice`, `concat`); the checklist is:
 `Tools/ShippingUnifiedSource.lean` (constructor, `WF`, `wf_pos` for a
 bits result, `eval`, `denote`, `denote_val`, an `…E` builder, `quote`,
 `instFVars_quote`, `quote_congr`); `ShippingUnifiedMeaning.lean` (`view`
@@ -200,8 +200,8 @@ case or a fall-through helper like `appView?`, a `view_…` lemma,
 exactly like an existing one, CLONE that node's lemmas by text
 substitution (the applicative lemmas are the comparison lemmas at hint
 `"app_arg"`). A node that needs a new IR right-hand-side shape is a
-different, vertical job. Slices were the first one; concatenation is
-next. The back-half sites, in build order: `Sparkle/IR/OptCheck.lean`
+different, vertical job. Slices were the first one, concatenation the
+second. The back-half sites, in build order: `Sparkle/IR/OptCheck.lean`
 (`simpleRhs` clause — this alone changes which modules `checkedOptimize`
 retains unoptimised, so run the golden comparison);
 `Tools/SVParser/ConcreteSyntax.lean` (a grammar production per printed
@@ -217,6 +217,24 @@ existing node: the result wire has its own type (`hwTypeFromWidth len`,
 `.bit` at length 1) and `rfl` through `getAppArgs.back!` of the builder
 times out — keep `sliceE_back`, `sliceE_noMux`/`_noTop`/`_noSetWidth`,
 `sliceE_top` as separate lemmas under a raised heartbeat limit.
+
+**Lessons of the concatenation arm.** (1) A six-argument application is
+ALREADY matched by the generic operator arm of the gates and of `view`
+(`.const m _` applied to three types, an instance and two operands), and
+the proofs of the binary case state that arm's match by `rfl` with a
+VARIABLE head (`binMethod op`). A new arm with a literal head in front
+of it would make those `rfl`s stuck; the concatenation therefore sits in
+the FALL-THROUGH of the generic arm (`| _, _, _ => match canonicalConcat?
+e with …`), and the two binary `step` statements restate that
+fall-through. (2) `canonicalSignalBitVecWidth` reads the last argument of
+ANY listed instance, so `gateTopWidth?` of a concatenation is its LOW
+operand's width; the root gates therefore have their own concatenation
+disjunct in front. (3) A `Term` constructor with a non-variable index
+(`.bits (m + n)`) works with `cases`/pattern matching over a variable
+sort, but `⟨ha, hb⟩` against `Term.WF … (.concat a b)` fails ("not an
+inductive type"): bind the hypothesis and `obtain` it. (4) Widths the
+elaborator writes as expressions are a FRONT-END matter: fold them in
+the entry constant, do not teach the gates arithmetic.
 
 **Front-end rewrites and sharing.** A normalisation is byte-safe only if
 the legacy route keys its cache on the same expression. Canonicalising

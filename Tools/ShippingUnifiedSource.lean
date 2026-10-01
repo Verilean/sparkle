@@ -49,6 +49,8 @@ inductive Term : SType → Type where
   lambda's binder name as it stands in the declaration (a hygienic macro name
   for `(BitVec.extractLsb' start len ·)`); it carries no meaning. -/
   | slice (nm : Lean.Name) (start len : Nat) {w : Nat} (a : Term (.bits w)) : Term (.bits len)
+  /-- A concatenation `a ++ b` of two Signals: `a` in the high bits. -/
+  | concat {m n : Nat} (a : Term (.bits m)) (b : Term (.bits n)) : Term (.bits (m + n))
   /-- A comparison lifted through the Signal applicative: `(BitVec.ule · ·) <$> a <*> b`. -/
   | appCompare (op : SignalCompareKind) {w : Nat} (a b : Term (.bits w)) : Term .bool
   /-- A Bool operator lifted through the Signal applicative: `(· && ·) <$> a <*> b`. -/
@@ -72,6 +74,7 @@ def Term.WF (kb kv : Nat) (vw : Nat → Nat) : {s : SType} → Term s → Prop
   | _, .appCompare _ a b => a.WF kb kv vw ∧ b.WF kb kv vw
   | _, .appBool _ a b => a.WF kb kv vw ∧ b.WF kb kv vw
   | _, .slice _ start len (w := w) a => a.WF kb kv vw ∧ 0 < len ∧ start + len ≤ w
+  | _, .concat a b => a.WF kb kv vw ∧ b.WF kb kv vw
 
 /-- Every well-formed BitVec term has a positive width. -/
 theorem Term.wf_pos {kb kv : Nat} {vw : Nat → Nat} :
@@ -83,6 +86,7 @@ theorem Term.wf_pos {kb kv : Nat} {vw : Nat → Nat} :
   | _, .mux _ a _, h => a.wf_pos h.2.1
   | _, .setw _ _, h => h.2
   | _, .slice _ _ _ _, h => h.2.1
+  | _, .concat a _, h => Nat.add_pos_left (a.wf_pos h.1) _
 
 def eval (bools : Nat → Bool) (bits : (j : Nat) → (w : Nat) → BitVec w) :
     {s : SType} → Term s → s.Type
@@ -101,6 +105,7 @@ def eval (bools : Nat → Bool) (bits : (j : Nat) → (w : Nat) → BitVec w) :
   | _, .appCompare op a b => compareValue op (eval bools bits a) (eval bools bits b)
   | _, .appBool op a b => boolBinValue op (eval bools bits a) (eval bools bits b)
   | _, .slice _ start len a => BitVec.extractLsb' start len (eval bools bits a)
+  | _, .concat a b => eval bools bits a ++ eval bools bits b
 
 def denote {dom : DomainConfig} (bools : Nat → Signal dom Bool)
     (bits : (j : Nat) → (w : Nat) → Signal dom (BitVec w)) :
@@ -133,6 +138,7 @@ def denote {dom : DomainConfig} (bools : Nat → Signal dom Bool)
         (denote bools bits b)
   | _, .slice _ start len a =>
       Signal.map (fun x => BitVec.extractLsb' start len x) (denote bools bits a)
+  | _, .concat a b => denote bools bits a ++ denote bools bits b
 
 theorem denote_val {dom : DomainConfig} (bools : Nat → Signal dom Bool)
     (bits : (j : Nat) → (w : Nat) → Signal dom (BitVec w)) (tick : Nat) : ∀ {s} (e : Term s),
@@ -180,6 +186,9 @@ theorem denote_val {dom : DomainConfig} (bools : Nat → Signal dom Bool)
   | _, .slice _ start len a => by
     change BitVec.extractLsb' start len ((denote bools bits a).val tick) = _
     rw [denote_val]; rfl
+  | _, .concat a b => by
+    change (denote bools bits a).val tick ++ (denote bools bits b).val tick = _
+    rw [denote_val, denote_val]; rfl
 
 /-- The canonical width-changing map node: `Signal.map (BitVec.setWidth w') a`
     exactly as dot-notation elaborates it (a partial application, no lambda). -/
@@ -247,6 +256,15 @@ def sliceE (dom : Lean.Expr) (nm : Lean.Name) (w start len : Nat) (a : Lean.Expr
       (mkApp4 (.const ``BitVec.extractLsb' []) (natE w) (natE start) (natE len) (.bvar 0))
       .default) a
 
+/-- The canonical concatenation: `a ++ b` at the library's Signal instance,
+    with the result width as the literal of `m + n` (the front end folds the
+    sum the elaborator writes). -/
+def concatE (dom : Lean.Expr) (m n : Nat) (a b : Lean.Expr) : Lean.Expr :=
+  mkApp6 (.const ``HAppend.hAppend [.zero, .zero, .zero]) (sigT dom m) (sigT dom n)
+    (sigT dom (m + n))
+    (mkApp3 (.const ``Sparkle.Core.Signal.instHAppendSignalBitVecHAddNat []) dom (natE m)
+      (natE n)) a b
+
 def quote (dom : Lean.Expr) (bools bits : Nat → Lean.Expr) : {s : SType} → Term s → Lean.Expr
   | _, .boolInput j => bools j
   | _, .bitsInput _ j => bits j
@@ -265,6 +283,8 @@ def quote (dom : Lean.Expr) (bools bits : Nat → Lean.Expr) : {s : SType} → T
       appCompareE op dom w (quote dom bools bits a) (quote dom bools bits b)
   | _, .appBool op a b => appBoolE op dom (quote dom bools bits a) (quote dom bools bits b)
   | _, .slice nm start len (w := w) a => sliceE dom nm w start len (quote dom bools bits a)
+  | _, .concat (m := m) (n := n) a b =>
+      concatE dom m n (quote dom bools bits a) (quote dom bools bits b)
 
 /-- Uniform-width embeddings of the three previous source languages. -/
 def ofF (n : Nat) : FExpr → Term (.bits n)
@@ -368,6 +388,12 @@ theorem instFVars_quote (xs : Array Lean.Expr) (d : Nat) (dom : Lean.Expr)
     show Lean.Expr.app (instFVars xs d _) (instFVars xs d (quote dom bi vi a)) = _
     rw [instFVars_quote]
     simp [quote, sliceE, instFVars, bitVecE, natE, mkApp5, mkApp4, mkApp3, mkApp2, mkAppB, mkApp]
+  | _, .concat a b => by
+    show Lean.Expr.app (.app (instFVars xs d _) (instFVars xs d (quote dom bi vi a)))
+      (instFVars xs d (quote dom bi vi b)) = _
+    rw [instFVars_quote, instFVars_quote]
+    simp [quote, concatE, instFVars, sigT, natE, mkApp6, mkApp5, mkApp4, mkApp3, mkApp2, mkAppB,
+      mkApp]
 
 theorem quote_congr {dom : Lean.Expr} {kb kv : Nat} {vw : Nat → Nat}
     {bi bi' vi vi' : Nat → Lean.Expr}
@@ -402,5 +428,8 @@ theorem quote_congr {dom : Lean.Expr} {kb kv : Nat} {vw : Nat → Nat}
     obtain ⟨ha, hb'⟩ := h
     simp only [quote, quote_congr hb hv a ha, quote_congr hb hv b hb']
   | _, .slice _ _ _ a, h => by simp only [quote, quote_congr hb hv a h.1]
+  | _, .concat a b, h => by
+    obtain ⟨ha, hb'⟩ := h
+    simp only [quote, quote_congr hb hv a ha, quote_congr hb hv b hb']
 
 end Tools.ShippingUnifiedSource

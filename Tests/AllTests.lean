@@ -121,6 +121,7 @@ import Tests.Compiler.ShippingCoreSoundnessTest
 import Tests.Compiler.ShippingInlineSoundnessTest
 import Tests.Compiler.ShippingApplicativeSoundnessTest
 import Tests.Compiler.ShippingSliceSoundnessTest
+import Tests.Compiler.ShippingConcatSoundnessTest
 import Tests.Compiler.ShippingTypedPostSoundnessTest
 import Tests.Compiler.ShippingControlOptSoundnessTest
 import Tests.Compiler.ShippingModuleNamesTest
