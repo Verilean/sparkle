@@ -506,8 +506,18 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   argument) — with the gate, step, dispatcher, `instanceN_entry_of_env`
   and the real three-input endpoint `parentUse3_instance_entry`
   (byte-parity with the legacy front end gated); the S7 bundle carries
-  it as its fourteenth clause. Open in S6: multi-output/projection
-  children, sequential children beyond one data port,
+  it as its fourteenth clause. The root-instance family is now
+  CLOSED for every single-output child in ONE contract:
+  `instClkRstPure` models the clk/rst walk as a pure state
+  transformer (`instClkRst_pure`: the monadic walk IS it, for any
+  port list), and `InstanceGPreserves` /
+  `synthesizeMixedCertified_instanceG_sound` cover any arity, with or
+  without clk/rst — clk/rst ports connected to same-named parent
+  ports (present after the walk), data ports connected in order to
+  the prepared argument wires — with `instanceG_entry_of_env` and
+  the real two-data-port sequential endpoint
+  `parentSeq2_instance_entry` (legacy byte-parity gated); bundle
+  clause fifteen. Open in S6: multi-output/projection children,
   nested/multiple instances, parameters, and the SV/text layer for
   hierarchy (the M-layers' open-module view).
 - [ ] **S7:** Reconcile all successful cases and compose the full shipping
