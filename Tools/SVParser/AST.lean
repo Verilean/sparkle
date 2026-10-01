@@ -143,6 +143,11 @@ inductive SVModuleItem where
   | taskDecl      (name : String) (body : List SVStmt)    -- task ... endtask
   | readmemh      (filename : String) (memName : String)  -- $readmemh("file", mem)
   | signedDecl    (name : String)                         -- `wire/reg signed … name`
+  /-- An `always` block the parser could not read and skipped, with the
+      names it assigns.  Lowering rejects the module if any of them is
+      used; a block that only drives unread names (simulation-only debug
+      strings) is dropped. -/
+  | skippedAlways (targets : List String)
   deriving Repr, BEq
 
 /-- A parsed Verilog module -/

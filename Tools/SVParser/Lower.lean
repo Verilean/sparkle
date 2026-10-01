@@ -404,15 +404,17 @@ partial def lowerExpr (e : SVExpr) : Expr :=
     let lowered := lowerExpr arg
     if innerWidth >= 32 || innerWidth == 0 then lowered
     else
-      -- Sign extend: shift left then arithmetic shift right, in an
-      -- EXPLICIT 32-bit container.  The shift's width is its left
-      -- operand's (IR `inferWidth`, and Verilog inside `$signed(…)`), so
-      -- shifting the bare `innerWidth`-bit value pushed its upper bits
-      -- out: PicoRV32's `$signed({mem_rdata[31:12], 1'b0})` JAL offset
-      -- kept only bits [9:0] in the re-emitted Verilog.
-      let shiftAmt := 32 - innerWidth
-      let widened := Expr.concat [.const 0 shiftAmt, lowered]
-      .op .asr [.op .shl [widened, .const (Int.ofNat shiftAmt) 32], .const (Int.ofNat shiftAmt) 32]
+      -- Sign extend to 32 bits as `(zext(x) ^ m) - m`, m = the sign bit.
+      -- The former shift-left / arithmetic-shift-right pair depended on
+      -- where the left shift truncates, and the backends disagree on
+      -- that (Verilog: the operand's own width inside `$signed(…)`; CSim:
+      -- it grows by the shift amount), so one of them always lost the
+      -- sign: PicoRV32's `$signed({mem_rdata[31:12], 1'b0})` JAL offset
+      -- kept only bits [9:0] in the re-emitted Verilog.  XOR and SUB at
+      -- an explicit 32-bit width mean the same thing everywhere.
+      let widened := Expr.concat [.const 0 (32 - innerWidth), lowered]
+      let signBit : Int := Int.ofNat (2 ^ (innerWidth - 1))
+      .op .sub [.op .xor [widened, .const signBit 32], .const signBit 32]
   | .unary .reductXor arg =>
     -- Parity: expanded to an explicit XOR fold when the width is static;
     -- otherwise fail LOUDLY downstream via an undeclared wire rather than
@@ -2536,6 +2538,24 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
       mergedBody := mergedBody ++ [.assign tgt merged]
   let narrowedBody := mergedBody.map (narrowMaskStmt env)
   let promotedBody := narrowedBody.map (promoteSignedStmt env)
+  -- An `always` block the parser skipped may only drive names nothing
+  -- uses (simulation-only debug strings).  If it drives a signal that is
+  -- read or is an output, the lowered module would silently miss logic.
+  let skippedTargets := svMod.items.flatMap fun it => match it with
+    | .skippedAlways ts => ts | _ => []
+  if !skippedTargets.isEmpty then
+    let used : Std.HashSet String := promotedBody.foldl (fun acc st =>
+      let es : List Expr := match st with
+        | .assign _ rhs => [rhs]
+        | .register _ _ _ input _ => [input]
+        | .memory _ _ _ _ wa wd we ra _ _ ew er =>
+          [wa, wd, we, ra] ++ ew.flatMap (fun (a, d, e) => [a, d, e]) ++ er.map (·.1)
+        | .inst _ _ conns => conns.map (·.2)
+      es.foldl (fun acc e =>
+        (Sparkle.IR.Optimize.collectExprRefs e).foldl (·.insert ·) acc) acc)
+      (outputs.foldl (fun acc p => acc.insert p.name) {})
+    if let some n := skippedTargets.find? (used.contains ·) then
+      throw s!"an always block that drives `{n}` uses an unsupported statement and could not be parsed"
   pure {
     name := svMod.name
     inputs := inputs

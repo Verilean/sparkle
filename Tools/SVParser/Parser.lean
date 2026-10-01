@@ -736,6 +736,63 @@ def parseMultiNames (mkItem : String → SVModuleItem) : P (List SVModuleItem) :
     | none => cont := false
   semi; pure items
 
+/-- Names assigned in the source text `cs[lo:hi]` of a skipped `always`
+    block: the identifier (or the identifiers of a `{…}` concatenation)
+    left of each `=` / `<=`.  Over-approximates (a `<=` comparison counts),
+    which only makes the "skipped block drives a used signal" check
+    stricter. -/
+def assignTargets (cs : Array Char) (lo hi : Nat) : List String := Id.run do
+  let isId := fun (c : Char) => c.isAlphanum || c == '_' || c == '$'
+  let isSp := fun (c : Char) => c == ' ' || c == '\n' || c == '\t' || c == '\r'
+  let isName := fun (n : String) => match n.toList with
+    | c :: _ => !c.isDigit
+    | [] => false
+  let mut out : List String := []
+  for i in [lo:hi] do
+    if cs[i]! != '=' then continue
+    let prev := if i > lo then cs[i-1]! else ' '
+    let next := if i + 1 < hi then cs[i+1]! else ' '
+    if next == '=' || prev == '=' || prev == '!' || prev == '>' then continue
+    -- position just left of the operator (`=` or `<=`)
+    let mut j := if prev == '<' then i - 1 else i
+    -- skip spaces, then any trailing `[…]` selects
+    let mut go := true
+    while go do
+      while j > lo && isSp cs[j-1]! do j := j - 1
+      if j > lo && cs[j-1]! == ']' then
+        let mut depth := 0
+        let mut k := j
+        while k > lo do
+          k := k - 1
+          if cs[k]! == ']' then depth := depth + 1
+          else if cs[k]! == '[' then
+            depth := depth - 1
+            if depth == 0 then break
+        j := k
+      else go := false
+    if j > lo && cs[j-1]! == '}' then
+      -- concatenation target: every identifier back to the matching `{`
+      let mut depth := 0
+      let mut k := j
+      while k > lo do
+        k := k - 1
+        if cs[k]! == '}' then depth := depth + 1
+        else if cs[k]! == '{' then
+          depth := depth - 1
+          if depth == 0 then break
+      let mut cur := ""
+      for m in [k:j] do
+        if isId cs[m]! then cur := cur.push cs[m]!
+        else
+          if isName cur then out := cur :: out
+          cur := ""
+    else
+      let mut k := j
+      while k > lo && isId cs[k-1]! do k := k - 1
+      let name := String.ofList (cs.extract k j).toList
+      if isName name then out := name :: out
+  return out.eraseDups
+
 /-- Tag the names declared by `items` as signed (`wire signed …`): the
     lowering needs it to tell `>>>` (arithmetic only on a signed operand)
     from a logical shift. -/
@@ -975,7 +1032,10 @@ partial def parseModuleItems : P (List SVModuleItem) := do
                   match ← attempt parseAlwaysBlock with
                   | some item => pure [item]
                   | none =>
-                    -- Skip past the always block by matching begin/end balance
+                    -- Skip past the always block by matching begin/end
+                    -- balance, recording what it assigns: lowering fails if
+                    -- a skipped block drives a signal that is used.
+                    let startPos ← getPos
                     keyword "always"
                     let _ ← attempt (matchStr "_ff")
                     let _ ← attempt (matchStr "_comb")
@@ -1001,7 +1061,8 @@ partial def parseModuleItems : P (List SVModuleItem) := do
                         match ← attempt (keyword "end") with
                         | some _ => depth := depth - 1
                         | none => let _ ← nextChar; pure ()
-                    pure []
+                    let st ← get
+                    pure [SVModuleItem.skippedAlways (assignTargets st.chars startPos st.pos)]
 
 end  -- mutual
 

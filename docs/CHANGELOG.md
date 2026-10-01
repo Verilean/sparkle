@@ -71,10 +71,14 @@ campaign — from here on they are measured, not assumed.
 
 ### Known remaining work (tracked in `bench/xiangshan/README.md`)
 
-Instance-granularity combinational cycles (TwoLevelRRArbiter class —
-needs K-round relaxation), one CSA-tree value divergence in Mul/FMA
-(needs >64-bit-port co-sim), emitter subexpression sharing (RenameTable
-emits 306 MB of text today), simultaneous multi-write-port memories.
+Emitter subexpression sharing (RenameTable emits 306 MB of text today)
+and one 1-LSB divergence in the C simulation of VectorFloatFMA.
+
+Resolved since this entry was written (details in
+`bench/xiangshan/README.md`): instance-granularity combinational cycles
+(fixed-point relaxation in CSim), co-simulation of ports wider than 64
+bits, and simultaneous multi-write-port memories.  Other CPUs (PicoRV32,
+VexRiscv) are covered by `bench/cpus/`.
 
 ## Phase 73: Tutorial — Markdown source via xeus-lean's `xlean-convert`
 
