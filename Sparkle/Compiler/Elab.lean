@@ -1093,6 +1093,40 @@ private def profHandler {α} (_idx : Nat) (k : CompilerM α) : CompilerM α := d
     arr.setIfInBounds _idx ((arr.getD _idx 0) + (t1 - t0))))
   return r
 
+/-- The declared width of a parent name: a wire, else an input port. -/
+def instNameWidth? (m : Sparkle.IR.AST.Module) (w : String) : Option Nat :=
+  match m.wires.find? (fun p => p.name == w) with
+  | some p => some p.ty.bitWidth
+  | none => (m.inputs.find? (fun p => p.name == w)).map (fun p => p.ty.bitWidth)
+
+/-- WIDTH LINKAGE of one instance statement: every connection reads or
+    drives a parent name declared with exactly the child port's width.
+    A hardware module is compiled once, not per call site, so a
+    width-generic child instantiated at another width would otherwise be
+    connected across mismatching widths — silently truncating. -/
+def instLinked (m : Sparkle.IR.AST.Module) (child : Sparkle.IR.AST.Module)
+    (conns : List (String × Sparkle.IR.AST.Expr)) : Bool :=
+  conns.all fun c =>
+    match c.2 with
+    | .ref w =>
+      match (child.inputs ++ child.outputs).find? (fun p => p.name == c.1),
+          instNameWidth? m w with
+      | some p, some width => width == p.ty.bitWidth
+      | _, _ => false
+    | _ => false
+
+/-- The linkage guard, hoisted so its callers stay join-point free. -/
+def instLinkGuard (recName : Name) (ok : Bool) : CompilerM Unit :=
+  if ok then pure ()
+  else throw (Exception.error .missing
+    m!"Instance of {recName}: a connected wire's width differs from the port's width. A hardware module is compiled once, not per call site; a width-generic module cannot be instantiated at a width other than the one it was compiled at.")
+
+/-- Refuse to emit an instance statement that is not width-linked. -/
+def instLinkCheck (recName : Name) (child : Sparkle.IR.AST.Module)
+    (conns : List (String × Sparkle.IR.AST.Expr)) : CompilerM Unit := do
+  let cs ← get
+  instLinkGuard recName (instLinked cs.module child conns)
+
 /-- Canonical, pass-stable key for a hardware-denoting expression: abstract
     every free variable to a constant named after the WIRE it denotes (wire
     names are stable within a module synth — they are what the emitted
@@ -4945,6 +4979,7 @@ mutual
                       | .bitVector w => w | .bit => 1 | _ => 8)))
               connections := (outP.name, Sparkle.IR.AST.Expr.ref cachedName) :: connections
           let instName ← CompilerM.freshName s!"inst_{subModule.name}"
+          instLinkCheck name subModule connections.reverse
           CompilerM.emitInstance subModule.name instName connections.reverse
           return some cachedW
         let mut firstW : Option String := none
@@ -4960,6 +4995,7 @@ mutual
     -- `inst_*` names — otherwise the emitted Verilog has a duplicate
     -- identifier.
     let instName ← CompilerM.freshName s!"inst_{subModule.name}"
+    instLinkCheck name subModule connections.reverse
     CompilerM.emitInstance subModule.name instName connections.reverse
     return some resWire
 
@@ -5590,6 +5626,7 @@ def translateInstanceUncachedWith (rec : TranslateFn) (mn : Name)
     CompilerM.liftMetaM (instArmCachePut instKey w)
     let connectionsF := (singleOut.name, Sparkle.IR.AST.Expr.ref w) :: connections
     let instName ← CompilerM.freshName s!"inst_{subModule.name}"
+    instLinkCheck mn subModule connectionsF.reverse
     CompilerM.emitInstance subModule.name instName connectionsF.reverse
     return w
 
@@ -5651,6 +5688,7 @@ def translateProjInstanceUncachedWith (rec : TranslateFn) (recName : Name)
     let (connectionsF, outWires) ←
       instOutWires callKey "sub_call" subModule.outputs connections []
     let instName ← CompilerM.freshName s!"inst_{subModule.name}"
+    instLinkCheck recName subModule connectionsF.reverse
     CompilerM.emitInstance subModule.name instName connectionsF.reverse
     match outWires.lookup fieldName with
     | some w => return w

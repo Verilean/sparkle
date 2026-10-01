@@ -582,7 +582,34 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   for two calls, a repeated call (ONE instance), a Bool root, a
   sequential child inside a cone, a pipeline, a sequential stage fed
   by a combinational one, and a projection as cone leaf / as call
-  operand. Open in S6: call operands that are general cones
+  operand. WIDTH LINKAGE (S6-4, the "parameters" item) is closed for
+  every instance statement the provable arms emit: investigating
+  parameters found a MISCOMPILE in the success domain — a
+  `@[hardware_module]` with a free `Nat` width is compiled ONCE, at
+  the fallback width 8 (`extractWidth`'s `return 8`), and an
+  instantiation at another width (`childW 16 a b`) connected 16-bit
+  parent wires to 8-bit child ports and typed the result wire 8 bits
+  wide. The arms now run `instLinkCheck` before `emitInstance`
+  (`instLinked`: every connected parent name is declared at exactly
+  the child port's width; also on the two legacy multi-output emit
+  sites) and REFUSE such a compile with a diagnostic; a width-generic
+  module instantiated at its compiled width still compiles. No design
+  in the suite trips the check. The check is a THEOREM in the
+  contracts: `instLinked_sound` turns it into the proposition
+  `Linked`, `InstanceGPreserves` and `ProjInstancePreserves` conclude
+  `Linked m mc conns` for their statement, and the hierarchical
+  context's typing predicate carries it through the recursion so
+  `HierConePreserves` concludes `InstsLinked children m` — every
+  instance statement of the compiled module is an instance of a
+  linked child, width-linked against the module's declarations. The
+  suite checks the executable form (`designLinked`) on seventeen
+  compiled parents and that the 16-bit instantiation is refused.
+  Native parameter synthesis (`#synthesizeParameterizedVerilog`,
+  symbolic widths) refuses instances altogether, so no instance ever
+  carries a parameter binding; per-call-site SPECIALIZATION of
+  width-generic children (which would turn the refusal into a
+  correct compile) is not implemented. Open in S6: call operands
+  that are general cones
   (`childAdd (a + b) b` — the leaf contract takes any operand
   contract, the gate spine does not yet), sequential/Bool-output/
   multi-output children as cone leaves (gate-accepted and

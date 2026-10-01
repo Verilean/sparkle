@@ -53,7 +53,7 @@ theorem Inv.record {ctx inputs we mems initial s t env e w v cacheable u}
   have record := record_preserves h.records meaning used value width hr
   rw [recordTranslation_returns hr] at record ⊢
   exact ⟨LinkCtx.runs_body (s := s) rfl h.runs, ⟨h.inputs.lookup⟩, record,
-    LinkCtx.typed_body (s := s) rfl h.typed⟩
+    LinkCtx.typed_body (s := s) rfl (fun _ hq => hq) (fun _ hq => hq) h.typed⟩
 
 /-- Includes the live-wire frame needed when a later child refers to an earlier
 child's result, and when arithmetic reserves its parent name before children. -/
@@ -120,7 +120,9 @@ theorem Inv.allocate {ctx inputs we mems initial s env}
     Inv ctx inputs we mems initial (CircuitM.makeWire hint ty named s).2 env := by
   have hm := CircuitM.makeWire_spec hint ty named s
   apply h.transfer (LinkCtx.runs_body hm.2.2.1 h.runs)
-    (LinkCtx.typed_body hm.2.2.1 h.typed)
+    (LinkCtx.typed_body hm.2.2.1
+      (fun q hq => by rw [hm.2.2.2]; exact List.mem_cons_of_mem _ hq)
+      (fun q hq => by rw [makeWire_inputs]; exact hq) h.typed)
     (CircuitM.makeWire_sourceBindings _ _ _ _) (CircuitM.makeWire_translateRecord _ _ _ _)
   · intro w used
     rw [hm.2.1]

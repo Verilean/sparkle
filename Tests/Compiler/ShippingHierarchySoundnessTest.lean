@@ -82,6 +82,30 @@ def parentCmp {dom : DomainConfig} (a b : Signal dom (BitVec 8)) :
 def parentNested {dom : DomainConfig} (a b : Signal dom (BitVec 8)) :
     Signal dom (BitVec 8) := childAdd (childAdd a b) b
 
+/-- A WIDTH-GENERIC child. A hardware module is compiled once, at the
+width its standalone compile infers (8 for a free width), not per call
+site: instantiating it at any other width is refused by the width-linkage
+check instead of being connected across mismatching widths. -/
+@[hardware_module] def childW {dom : DomainConfig} (w : Nat)
+    (x y : Signal dom (BitVec w)) : Signal dom (BitVec w) := x + y
+
+def parentW8 {dom : DomainConfig} (a b : Signal dom (BitVec 8)) :
+    Signal dom (BitVec 8) := childW 8 a b
+
+def parentW16 {dom : DomainConfig} (a b : Signal dom (BitVec 16)) :
+    Signal dom (BitVec 16) := childW 16 a b
+
+/-- Every instance statement of a compiled parent is width-linked against
+its child in the emitted design (the executable form of `InstsLinked`). -/
+def designLinked (m : Sparkle.IR.AST.Module) (d : Sparkle.IR.AST.Design) : Bool :=
+  m.body.all fun st =>
+    match st with
+    | .inst mn _ conns =>
+      match d.modules.find? (fun c => c.name == mn) with
+      | some c => instLinked m c conns
+      | none => false
+    | _ => true
+
 /-- A sequential child: the certified instance path must agree with the
 legacy front end byte-for-byte, including the clk/rst auto-plumbing. -/
 @[hardware_module] def childSeq {dom : DomainConfig}
@@ -578,7 +602,7 @@ theorem parentHi_entry_observes {mctx : Meta.Context}
     simp at hndO
   refine ⟨i0, i1, i2, cache, ?_⟩
   intro bools bits env0 D aS bS t mems we a p adm ha0 hb0
-  obtain ⟨hbody, hdmods, houtNe, -, aWs, hlenW, hconns, hvals⟩ :=
+  obtain ⟨hbody, hdmods, houtNe, -, -, aWs, hlenW, hconns, hvals⟩ :=
     R bools bits env0 (fun _ => 8)
       (fun i => if i = 0 then aS.val t else bS.val t) adm
       (fun i hi => by
@@ -814,9 +838,10 @@ theorem parentMix_entry_observes {mctx : Meta.Context}
     Tools.ShippingMixedEntrySoundness.Admissible bools bits initial
       (parentMixBinders.zip [i0, i1, i2]) a →
     p.bits i1 = some ⟨8, aS.val t⟩ → p.bits i2 = some ⟨8, bS.val t⟩ →
-    ∃ result, evalAssignsH (Tools.ShippingMixedEntrySoundness.moduleWidths m)
+    (∃ result, evalAssignsH (Tools.ShippingMixedEntrySoundness.moduleWidths m)
         (childrenOf childModule.name) mems m.body initial = some result ∧
-      result "out" = ((parentMix aS bS).val t).toNat := by
+      result "out" = ((parentMix aS bS).val t).toNat) ∧
+    InstsLinked (childrenOf childModule.name) m := by
   have H := hierCone_entry_of_env hr env
     (fun dv hv => by simp only [certifiedShape?, hv]; rfl)
     hscalar parentMix_peel parentMix_wf rfl
@@ -923,8 +948,8 @@ theorem parentMix_entry_observes {mctx : Meta.Context}
           exact input_contract_fuel hA fuel
         · exact absurd hj (by simp))
     rfl
-  obtain ⟨result, hev, hout⟩ := value
-  refine ⟨result, hev, ?_⟩
+  obtain ⟨⟨result, hev, hout⟩, linked⟩ := value
+  refine ⟨⟨result, hev, ?_⟩, linked⟩
   rw [hout]
   show (BitVec.ofNat 8 ((aS.val t).toNat + (bS.val t).toNat) +
     BitVec.ofNat 8 (aS.val t).toNat).toNat = ((aS.val t + bS.val t) + aS.val t).toNat
@@ -1130,7 +1155,7 @@ theorem parentNested_entry_observes {mctx : Meta.Context}
       rw [BitVec.ofNat_toNat, BitVec.setWidth_eq]
       exact leafC we fuel)
     rfl
-  obtain ⟨result, hev, hout⟩ := value
+  obtain ⟨⟨result, hev, hout⟩, -⟩ := value
   refine ⟨result, hev, ?_⟩
   rw [hout]
   show (BitVec.ofNat 8 (aS.val t + bS.val t + bS.val t).toNat).toNat =
@@ -1341,6 +1366,22 @@ run_cmd liftTermElabM do
         throwError "parentMix linked out mismatch at {a},{b}: {envF "out"}"
       countX := countX + 1
   unless countX == 16 do throwError "cone case count mismatch"
+  -- WIDTH LINKAGE. Every instance statement of every compiled parent of this
+  -- file is linked against its child in the emitted design; a width-generic
+  -- child instantiated at its compiled width passes, and at any other width
+  -- the compile is REFUSED (it used to connect 16-bit wires to 8-bit ports).
+  for nm in [``parentUse, ``parentUse3, ``parentSeq, ``parentSeq2, ``parentTwo, ``parentLo,
+      ``parentHi, ``parentMix, ``parentTwoCalls, ``parentRepeat, ``parentCmp, ``parentSeqMix,
+      ``parentNested, ``parentPipeSeq, ``parentProjLeaf, ``parentProjArg, ``parentW8] do
+    let (ml, dl) ← synthesizeCombinationalCore nm [] false
+    unless designLinked ml dl do
+      throwError "{nm}: an instance statement is not width-linked"
+  let refused ← try
+      let _ ← synthesizeCombinationalCore ``parentW16 [] false
+      pure false
+    catch _ => pure true
+  unless refused do
+    throwError "a width-generic child instantiated at another width was not refused"
   -- 12-cycle SEQUENTIAL linked regression: the real parentSeq/childSeq
   -- pair, driven through `runH`, shows the register-delay behaviour on
   -- `out` (init 0, out_{j+1} = in_j), with the child's state threaded
@@ -1425,6 +1466,9 @@ run_cmd liftTermElabM do
       ``Tools.ShippingHierTermSoundness.synthesizeFromConst_hierCone_sound,
       ``Tools.ShippingHierTermSoundness.hierCone_entry_of_env,
       ``parentMix_peel, ``childAdd_correct, ``parentMix_entry_observes,
+      ``Tools.ShippingLinkCtx.instLinked_sound,
+      ``Tools.ShippingLinkCtx.Linked.mono,
+      ``Tools.ShippingInstanceEntrySoundness.instLinkCheck_returns,
       ``Tools.ShippingHierTermSoundness.hier_instRoot_gate,
       ``Tools.ShippingHierTermSoundness.hierRoot_entry_of_env,
       ``parentNested_peel, ``parentNested_entry_observes,

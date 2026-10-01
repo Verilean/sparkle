@@ -241,7 +241,10 @@ theorem instUncached_shape {rec : TranslateFn} {ctx : CompilerState} {mn : Name}
                 (CircuitM.makeWire hint so.ty named sA).2).2 with
            module := (CircuitM.freshName s!"inst_{mc.name}" false
                 (CircuitM.makeWire hint so.ty named sA).2).2.module.addStmt
-             (.inst mc.name iname (conns.reverse ++ [(so.name, .ref w)])) })) := by
+             (.inst mc.name iname (conns.reverse ++ [(so.name, .ref w)])) } ∧
+         instLinked (CircuitM.freshName s!"inst_{mc.name}" false
+                (CircuitM.makeWire hint so.ty named sA).2).2.module mc
+           (conns.reverse ++ [(so.name, .ref w)]) = true)) := by
   rw [instanceUncached_run] at run
   obtain ⟨cs0, sG, hget0, k1⟩ :=
     Returns.bind (m := (get : CompilerM CircuitState)) run
@@ -311,15 +314,21 @@ theorem instUncached_shape {rec : TranslateFn} {ctx : CompilerState} {mn : Name}
     have hsV := Returns.liftMetaM hPut
     obtain ⟨instName, sN, hFresh, k11⟩ := Returns.bind (m := CompilerM.freshName _) k10
     obtain ⟨hinstName, hsN⟩ := freshNameC_returns hFresh
+    obtain ⟨uL, sL, hLink, k11⟩ := Returns.bind (m := instLinkCheck _ _ _) k11
+    obtain ⟨hsL, hlinked⟩ := instLinkCheck_returns hLink
+    rw [hsL] at k11
     obtain ⟨uE, sI, hEmit, k12⟩ :=
       Returns.bind (m := CompilerM.emitInstance mc.name _ _) k11
     have hsI := emitInstanceC_returns hEmit
     obtain ⟨hwEq, ht⟩ := Returns.pure k12
     right
-    refine ⟨instName, ?_, ?_⟩
+    refine ⟨instName, ?_, ?_, ?_⟩
     · rw [hwEq, houtW, hsQ, hsP2]
     · rw [ht, hsI, hsN, hsV, hsW, hsQ, hsP2, hwEq]
       simp
+    · rw [hsN, hsV, hsW, hsQ, hsP2, List.reverse_cons] at hlinked
+      rw [hwEq]
+      exact hlinked
 
 /-! ## The leaf contract -/
 
@@ -496,7 +505,7 @@ theorem inst_leaf_contract {rec : TranslateFn} {ctx : CompilerState}
     have fD : Frame s { s with design := d' } := frame_design s d'
     have fA := instArgs_frame _ vs _ 0 conns _ sA pairsLen pairContracts
       (lookup.transfer fD) hArgs
-    rcases hcase with ⟨hvalid, ht⟩ | ⟨iname, hw, ht⟩
+    rcases hcase with ⟨hvalid, ht⟩ | ⟨iname, hw, ht, -⟩
     · rw [ht]
       exact ⟨fD.trans fA, Or.inr (instHitValid_record hvalid)⟩
     · have fW := Tools.ShippingMixedBinarySoundness.Frame.makeWire sA hint wOut named
@@ -532,11 +541,11 @@ theorem inst_leaf_contract {rec : TranslateFn} {ctx : CompilerState}
     -- only the design changed before the operand walk
     have invD : Inv ctx inputs we mems initial { s with design := d' } prior :=
       h.transfer (LinkCtx.runs_body (s := s) rfl h.runs)
-        (LinkCtx.typed_body (s := s) rfl h.typed) rfl rfl
+        (LinkCtx.typed_body (s := s) rfl (fun _ hq => hq) (fun _ hq => hq) h.typed) rfl rfl
         (fun _ hu => hu) (fun _ _ => rfl)
     have lookupD : Lookup ctx inputs { s with design := d' } := Lookup.ofInputs invD.inputs
     have fA := instArgs_frame _ vs _ 0 conns _ sA pairsLen pairContracts lookupD hArgs
-    rcases hcase with ⟨hvalid, ht⟩ | ⟨iname, hw, ht⟩
+    rcases hcase with ⟨hvalid, ht⟩ | ⟨iname, hw, ht, hlk⟩
     · -- a validated single-out cache hit: the wire is recorded for this expression
       have wA : ScalarWidthsAgree we sA := by rw [← ht]; exact wm
       obtain ⟨ws, resA, hlenW, hconns, invA, frA, grA, vals⟩ :=
@@ -576,7 +585,9 @@ theorem inst_leaf_contract {rec : TranslateFn} {ctx : CompilerState}
           (CircuitM.freshName s!"inst_{mc.name}" false
             (CircuitM.makeWire hint (.bitVector wOut) named sA).2).2 resA :=
         invW.transfer (LinkCtx.runs_body (by rw [specN.2.2]) invW.runs)
-          (LinkCtx.typed_body (by rw [specN.2.2]) invW.typed)
+          (LinkCtx.typed_body (by rw [specN.2.2])
+            (fun q hq => by rw [specN.2.2]; exact hq)
+            (fun q hq => by rw [specN.2.2]; exact hq) invW.typed)
           (CircuitM.freshName_sourceBindings _ _ _) (CircuitM.freshName_translateRecord _ _ _)
           (fun z hz => by rw [specN.2.1]; simp [Std.HashSet.contains_insert, hz])
           (fun _ _ => rfl)
@@ -644,7 +655,7 @@ theorem inst_leaf_contract {rec : TranslateFn} {ctx : CompilerState}
       have invT : Inv ctx inputs we mems initial sm (write resA r v.toNat) := by
         rw [ht]
         exact inv_write_reserved invN inputSafe recordSafe rfl rfl (fun _ hz => hz) runsI
-          (HierCtx.typed_inst invN.typed)
+          (HierCtx.typed_inst hchild (instLinked_sound hlk) invN.typed)
       have usedN : ∀ z, sA.usedNames.contains z = true → sm.usedNames.contains z = true := by
         intro z hz
         rw [ht]

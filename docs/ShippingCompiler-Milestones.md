@@ -326,7 +326,9 @@ context (`LinkCtx`/`HierCtx`) and over leaf contracts, the instance
 leaf contract is proved (`inst_leaf_contract`), and the entry endpoint
 `HierConePreserves` is instantiated on a real parent
 (`parentMix_entry_observes`), as is a pipeline of calls
-(`parentNested_entry_observes`). Cone operands of calls, sequential
+(`parentNested_entry_observes`). Port/width linkage is checked at
+emission and concluded in the contracts (`Linked`, `InstsLinked`); the
+check closed a miscompile of width-generic children. Cone operands of calls, sequential
 children as cone leaves, design registration, parameters and the SV
 layer remain. S7 is STARTED:
 `ShippingPreserves`/`synthesizeCombinationalCore_shipping_sound`

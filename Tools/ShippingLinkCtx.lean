@@ -18,6 +18,80 @@ open Tools.ShippingTypedExprSoundness Tools.ShippingScalarSoundness
 open Tools.ShippingBuilderSoundness Tools.ShippingPostSoundness Sparkle.IR.OptCheck
 open Tools.ShippingHierarchySoundness
 
+/-- `w` is declared in the module — as a wire or an input port — at the
+given width. -/
+def Declared (m : Sparkle.IR.AST.Module) (w : String) (width : Nat) : Prop :=
+  ∃ q : Port, (q ∈ m.wires ∨ q ∈ m.inputs) ∧ q.name = w ∧ q.ty.bitWidth = width
+
+/-- WIDTH LINKAGE of one instance statement, as a proposition: every
+connection is a parent name declared at exactly the child port's width. -/
+def Linked (m child : Sparkle.IR.AST.Module)
+    (conns : List (String × Sparkle.IR.AST.Expr)) : Prop :=
+  ∀ c ∈ conns, ∃ (w : String) (p : Port), c.2 = .ref w ∧
+    p ∈ child.inputs ++ child.outputs ∧ p.name = c.1 ∧ Declared m w p.ty.bitWidth
+
+theorem instNameWidth?_declared {m : Sparkle.IR.AST.Module} {w : String} {width : Nat}
+    (h : instNameWidth? m w = some width) : Declared m w width := by
+  unfold instNameWidth? at h
+  cases hw : m.wires.find? (fun p => p.name == w) with
+  | some q =>
+    rw [hw] at h
+    refine ⟨q, Or.inl (List.mem_of_find?_eq_some hw), ?_, ?_⟩
+    · have := List.find?_some hw
+      exact eq_of_beq this
+    · exact Option.some.inj h
+  | none =>
+    rw [hw] at h
+    cases hi : m.inputs.find? (fun p => p.name == w) with
+    | none => rw [hi] at h; cases h
+    | some q =>
+      rw [hi] at h
+      refine ⟨q, Or.inr (List.mem_of_find?_eq_some hi), ?_, ?_⟩
+      · have := List.find?_some hi
+        exact eq_of_beq this
+      · exact Option.some.inj h
+
+/-- The compiler's linkage check is sound for the linkage proposition. -/
+theorem instLinked_sound {m child : Sparkle.IR.AST.Module}
+    {conns : List (String × Sparkle.IR.AST.Expr)}
+    (h : instLinked m child conns = true) : Linked m child conns := by
+  intro c hc
+  have hall := List.all_eq_true.mp h c hc
+  obtain ⟨pn, rhs⟩ := c
+  cases rhs with
+  | ref w =>
+    have hall' : (match (child.inputs ++ child.outputs).find? (fun p => p.name == pn),
+        instNameWidth? m w with
+      | some p, some width => width == p.ty.bitWidth
+      | _, _ => false) = true := hall
+    cases hp : (child.inputs ++ child.outputs).find? (fun p => p.name == pn) with
+    | none => rw [hp] at hall'; cases hall'
+    | some p =>
+      cases hwd : instNameWidth? m w with
+      | none => rw [hp, hwd] at hall'; cases hall'
+      | some width =>
+        rw [hp, hwd] at hall'
+        have hEq : width = p.ty.bitWidth := eq_of_beq hall'
+        have hname : (p.name == pn) = true :=
+          List.find?_some (p := fun q : Port => q.name == pn) hp
+        refine ⟨w, p, rfl, List.mem_of_find?_eq_some hp, eq_of_beq hname, ?_⟩
+        rw [← hEq]
+        exact instNameWidth?_declared hwd
+  | _ => cases hall
+
+/-- Linkage survives any growth of the declarations. -/
+theorem Linked.mono {m m' child : Sparkle.IR.AST.Module}
+    {conns : List (String × Sparkle.IR.AST.Expr)}
+    (h : Linked m child conns)
+    (hw : ∀ q ∈ m.wires, q ∈ m'.wires) (hi : ∀ q ∈ m.inputs, q ∈ m'.inputs) :
+    Linked m' child conns := by
+  intro c hc
+  obtain ⟨w, p, hr, hp, hn, q, hq, hqn, hqw⟩ := h c hc
+  refine ⟨w, p, hr, hp, hn, q, ?_, hqn, hqw⟩
+  rcases hq with hq | hq
+  · exact Or.inl (hw q hq)
+  · exact Or.inr (hi q hq)
+
 /-- The body predicates of the recursion, with exactly the closure laws the
 generic node lemmas use. -/
 class LinkCtx where
@@ -31,7 +105,9 @@ class LinkCtx where
     Runs we mems initial s prior → evalExpr we prior rhs = some value →
     Runs we mems initial (CircuitM.emitAssign lhs rhs s).2 (write prior lhs value)
   typed_body : ∀ {we : WEnv} {s t : CircuitState},
-    t.module.body = s.module.body → Typed we s → Typed we t
+    t.module.body = s.module.body →
+    (∀ q ∈ s.module.wires, q ∈ t.module.wires) →
+    (∀ q ∈ s.module.inputs, q ∈ t.module.inputs) → Typed we s → Typed we t
   typed_emit : ∀ {we : WEnv} {s : CircuitState} {w : String} {rhs : Sparkle.IR.AST.Expr},
     Typed we s → TypedExpr we rhs (we w) → Typed we (CircuitM.emitAssign w rhs s).2
   simple_emit : ∀ {body : List Stmt} {l : String} {r : Sparkle.IR.AST.Expr},
@@ -59,7 +135,7 @@ instance (priority := low) flatLink : LinkCtx where
   runs_body := fun hb h => runs_of_body_eq hb h
   runs_emit := fun {we mems initial s prior lhs rhs value} h hrhs =>
     emitAssign_sound s we mems initial prior lhs rhs value h hrhs
-  typed_body := fun {we s t} hb h => by
+  typed_body := fun {we s t} hb _ _ h => by
     unfold TypedBody at *
     rw [hb]
     exact h
@@ -89,8 +165,14 @@ class HierCtx extends LinkCtx where
     Runs we mems initial s env ↔
       evalAssignsH we children mems s.module.finalize.body initial = some env
   typed_inst : ∀ {we : WEnv} {s : CircuitState} {mn iname : String}
-    {conns : List (String × Sparkle.IR.AST.Expr)},
+    {conns : List (String × Sparkle.IR.AST.Expr)} {child : Sparkle.IR.AST.Module}
+    {cwe : WEnv},
+    children mn = some (child, cwe) → Linked s.module child conns →
     Typed we s → Typed we { s with module := s.module.addStmt (.inst mn iname conns) }
+  typed_linked : ∀ {we : WEnv} {s : CircuitState} {mn iname : String}
+    {conns : List (String × Sparkle.IR.AST.Expr)},
+    Typed we s → Stmt.inst mn iname conns ∈ s.module.body →
+    ∃ child cwe, children mn = some (child, cwe) ∧ Linked s.module child conns
   simple_all : ∀ body, Simple body
 
 theorem evalAssignsH_append (we : WEnv) (children : String → Option (Sparkle.IR.AST.Module × WEnv))
@@ -125,16 +207,20 @@ theorem evalAssignsH_append (we : WEnv) (children : String → Option (Sparkle.I
     simp only [List.cons_append, evalAssignsH]
     exact evalAssignsH_append we children mems rest b env
 
-/-- Typed bodies of the hierarchical world: typed assignments and instances. -/
-def TypedBodyH (we : WEnv) (s : CircuitState) : Prop :=
+/-- Typed bodies of the hierarchical world: typed assignments, and instance
+statements of linked children that are WIDTH-LINKED against the module's
+declarations. -/
+def TypedBodyH (children : String → Option (Sparkle.IR.AST.Module × WEnv))
+    (we : WEnv) (s : CircuitState) : Prop :=
   ∀ st ∈ s.module.body, (∃ l r, st = .assign l r ∧ TypedExpr we r (we l)) ∨
-    (∃ mn iname conns, st = .inst mn iname conns)
+    (∃ mn iname conns child cwe, st = .inst mn iname conns ∧
+      children mn = some (child, cwe) ∧ Linked s.module child conns)
 
 /-- The hierarchical context over a table of linked children. -/
 @[reducible] def hierLink (children : String → Option (Sparkle.IR.AST.Module × WEnv)) : HierCtx where
   Runs := fun we mems initial s env =>
     evalAssignsH we children mems s.module.finalize.body initial = some env
-  Typed := TypedBodyH
+  Typed := TypedBodyH children
   Simple := fun _ => True
   runs_body := fun {we mems initial s t env} hb h => by
     show evalAssignsH we children mems t.module.finalize.body initial = some env
@@ -150,17 +236,21 @@ def TypedBodyH (we : WEnv) (s : CircuitState) : Prop :=
     rw [h']
     simp [evalAssignsH, hrhs]
     rfl
-  typed_body := fun {we s t} hb h => by
-    unfold TypedBodyH at *
-    rw [hb]
-    exact h
-  typed_emit := fun {we s w rhs} h typed => by
-    unfold TypedBodyH
-    rw [emitAssign_body_cons]
+  typed_body := fun {we s t} hb hw hi h => by
     intro st member
+    rw [hb] at member
+    rcases h st member with ha | ⟨mn, iname, conns, child, cwe, he, hc, hl⟩
+    · exact Or.inl ha
+    · exact Or.inr ⟨mn, iname, conns, child, cwe, he, hc, hl.mono hw hi⟩
+  typed_emit := fun {we s w rhs} h typed => by
+    intro st member
+    rw [emitAssign_body_cons] at member
     rcases List.mem_cons.mp member with rfl | member
     · exact Or.inl ⟨w, rhs, rfl, typed⟩
-    · exact h st member
+    · rcases h st member with ha | ⟨mn, iname, conns, child, cwe, he, hc, hl⟩
+      · exact Or.inl ha
+      · exact Or.inr ⟨mn, iname, conns, child, cwe, he, hc,
+          hl.mono (fun q hq => by rw [emitAssign_wires]; exact hq) (fun q hq => hq)⟩
   simple_emit := fun _ _ => trivial
   runs_nil := fun {we mems initial s} hb => by
     simp [Module.finalize, hb, evalAssignsH]
@@ -169,12 +259,17 @@ def TypedBodyH (we : WEnv) (s : CircuitState) : Prop :=
     cases hs
   children := children
   runs_def := Iff.rfl
-  typed_inst := fun {we s mn iname conns} h => by
+  typed_inst := fun {we s mn iname conns child cwe} hc hl h => by
     intro st member
     have member' : st ∈ Stmt.inst mn iname conns :: s.module.body := member
     rcases List.mem_cons.mp member' with rfl | member'
-    · exact Or.inr ⟨mn, iname, conns, rfl⟩
+    · exact Or.inr ⟨mn, iname, conns, child, cwe, rfl, hc, hl⟩
     · exact h st member'
+  typed_linked := fun {we s mn iname conns} h member => by
+    rcases h _ member with ⟨l, r, he, _⟩ | ⟨mn', iname', conns', child, cwe, he, hc, hl⟩
+    · cases he
+    · cases he
+      exact ⟨child, cwe, hc, hl⟩
   simple_all := fun _ => trivial
 
 end Tools.ShippingLinkCtx

@@ -39,6 +39,7 @@ open Tools.ShippingRegisterSoundness (not_allocated_out prepare_const
   admissible_zero prepare_wires_allocated init_wires)
 open Tools.ShippingBoolSourceSoundness (translateControlCachedWith_returns)
 open Tools.ShippingTranslateSoundness (cacheLookupValidated_returns)
+open Tools.ShippingLinkCtx (Linked instLinked_sound)
 
 /-! ## The quoted canonical call -/
 
@@ -237,6 +238,27 @@ theorem emitInstanceC_returns {mnS instName : String}
   cases hmk
   exact hs'
 
+/-- A passed linkage check leaves the state untouched and certifies the
+linkage of the statement about to be emitted. -/
+theorem instLinkCheck_returns {recName : Name} {child : Sparkle.IR.AST.Module}
+    {conns : List (String × Sparkle.IR.AST.Expr)}
+    {ctx : CompilerState} {s s' : CircuitState} {u : Unit}
+    (h : Returns (instLinkCheck recName child conns) ctx s u s') :
+    s' = s ∧ instLinked s.module child conns = true := by
+  unfold instLinkCheck at h
+  obtain ⟨cs, s1, hget, k⟩ := Returns.bind (m := (get : CompilerM CircuitState)) h
+  obtain ⟨hcs, hs1⟩ := Returns.get hget
+  rw [hcs, hs1] at k
+  unfold instLinkGuard at k
+  cases hl : instLinked s.module child conns with
+  | true =>
+    rw [hl] at k
+    obtain ⟨-, hs⟩ := Returns.pure (by exact k : Returns (pure ()) _ _ u s')
+    exact ⟨hs, rfl⟩
+  | false =>
+    rw [hl] at k
+    exact (Returns.throw (by exact k)).elim
+
 theorem addModuleToDesignC_returns {m : Sparkle.IR.AST.Module}
     {ctx : CompilerState} {s s' : CircuitState} {u : Unit}
     (h : Returns (CompilerM.addModuleToDesign m) ctx s u s') :
@@ -387,6 +409,7 @@ theorem instanceUncached_run (rec : TranslateFn) (mn : Name)
         CompilerM.liftMetaM (instArmCachePut s!"{csP.module.name}#{mc.name}#{String.intercalate ";"
           (connections.reverse.map (fun (p, rhs) => s!"{p}={rhs}"))}" w)
         let instName ← CompilerM.freshName s!"inst_{mc.name}"
+        instLinkCheck mn mc (((so.name, Sparkle.IR.AST.Expr.ref w) :: connections).reverse)
         CompilerM.emitInstance mc.name instName
           (((so.name, Sparkle.IR.AST.Expr.ref w) :: connections).reverse)
         pure w) := rfl
@@ -558,6 +581,9 @@ theorem synthesizeMixedCertified_instance_sound {logProf declName bs body m d}
   subst hsV
   obtain ⟨instName, sN, hFresh, k11⟩ := Returns.bind (m := CompilerM.freshName _) k10
   obtain ⟨hinstName, hsN⟩ := freshNameC_returns hFresh
+  obtain ⟨uL, sL, hLink, k11⟩ := Returns.bind (m := instLinkCheck _ _ _) k11
+  obtain ⟨hsL, hlinked⟩ := instLinkCheck_returns hLink
+  rw [hsL] at k11
   obtain ⟨uE, sI, hEmit, k12⟩ :=
     Returns.bind (m := CompilerM.emitInstance mc.name _ _) k11
   have hsI := emitInstanceC_returns hEmit
@@ -1043,6 +1069,9 @@ theorem synthesizeMixedCertified_instance1_sound {logProf declName bs body m d}
   subst hsV
   obtain ⟨instName, sN, hFresh, k11⟩ := Returns.bind (m := CompilerM.freshName _) k10
   obtain ⟨hinstName, hsN⟩ := freshNameC_returns hFresh
+  obtain ⟨uL, sL, hLink, k11⟩ := Returns.bind (m := instLinkCheck _ _ _) k11
+  obtain ⟨hsL, hlinked⟩ := instLinkCheck_returns hLink
+  rw [hsL] at k11
   obtain ⟨uE, sI, hEmit, k12⟩ :=
     Returns.bind (m := CompilerM.emitInstance mc.name _ _) k11
   have hsI := emitInstanceC_returns hEmit
@@ -1591,6 +1620,9 @@ theorem synthesizeMixedCertified_instanceN_sound {logProf declName bs body m d}
   subst hsV
   obtain ⟨instName, sN, hFresh, k11⟩ := Returns.bind (m := CompilerM.freshName _) k10
   obtain ⟨hinstName, hsN⟩ := freshNameC_returns hFresh
+  obtain ⟨uL, sL, hLink, k11⟩ := Returns.bind (m := instLinkCheck _ _ _) k11
+  obtain ⟨hsL, hlinked⟩ := instLinkCheck_returns hLink
+  rw [hsL] at k11
   obtain ⟨uE, sI, hEmit, k12⟩ :=
     Returns.bind (m := CompilerM.emitInstance mc.name _ _) k11
   have hsI := emitInstanceC_returns hEmit
@@ -1905,6 +1937,7 @@ def InstanceGPreserves (declName : Name) (bs : List (Name × MixedGateBinder))
       .assign "out" (.ref outW)] ∧
     d.modules = [mc] ∧
     outW ≠ "out" ∧
+    Linked m mc (conns.reverse ++ [("out", .ref outW)]) ∧
     (∀ pt ∈ ports, (pt.name == "clk" || pt.name == "rst") = true →
       ∃ q ∈ m.inputs, q.name = pt.name) ∧
     ∃ aWs : List String, aWs.length = argIds.length ∧
@@ -2011,6 +2044,9 @@ theorem synthesizeMixedCertified_instanceG_sound {logProf declName bs body m d}
   have hsV := Returns.liftMetaM hPut
   obtain ⟨instName, sN, hFresh, k11⟩ := Returns.bind (m := CompilerM.freshName _) k10
   obtain ⟨hinstName, hsN⟩ := freshNameC_returns hFresh
+  obtain ⟨uL, sL, hLink, k11⟩ := Returns.bind (m := instLinkCheck _ _ _) k11
+  obtain ⟨hsL, hlinked⟩ := instLinkCheck_returns hLink
+  rw [hsL] at k11
   obtain ⟨uE, sI, hEmit, k12⟩ :=
     Returns.bind (m := CompilerM.emitInstance mc.name _ _) k11
   have hsI := emitInstanceC_returns hEmit
@@ -2159,7 +2195,40 @@ theorem synthesizeMixedCertified_instanceG_sound {logProf declName bs body m d}
       (Sparkle.IR.Type.HWType.bitVector wOut) true sQ
     rw [← houtW, eq] at alloc
     exact not_allocated_out alloc
-  refine ⟨?_, ?_, wNotOut, hinNames, aWs, hlenW, ?_, ?_⟩
+  have stWires : st.module.wires = sN.module.wires := by
+    rw [ht, Tools.ShippingTranslateSoundness.emitAssign_wires]
+    show sm0.module.wires = _
+    rw [hrec]
+    show smR.module.wires = _
+    rw [hsmR, hsI]
+    rfl
+  have stInputsN : st.module.inputs = sN.module.inputs := by
+    rw [ht]
+    show (CircuitM.emitAssign "out" _ (CircuitM.addOutput "out" ty sm0).2).2.module.inputs = _
+    rw [emitAssignInputs, addOutputInputs, hrec]
+    show smR.module.inputs = _
+    rw [hsmR, hsI]
+    rfl
+  have linkedFinish : ∀ {cs : List (String × Sparkle.IR.AST.Expr)},
+      Linked sN.module mc cs → Linked m mc cs := by
+    intro cs h0
+    refine h0.mono ?_ ?_
+    · intro q hq
+      rw [hm]
+      show q ∈ ((addClockResetIfSequential st.module).finalize).wires
+      simp only [Sparkle.IR.AST.Module.finalize, (addClockReset_facts st.module).2.1]
+      rw [List.mem_reverse, stWires]
+      exact hq
+    · intro q hq
+      rw [hm]
+      show q ∈ (addClockResetIfSequential st.module).inputs.reverse
+      rw [List.mem_reverse]
+      exact (addClockReset_facts st.module).2.2.2 q (by rw [stInputsN]; exact hq)
+  have hLinkedM : Linked m mc (conns.reverse ++ [("out", .ref outW)]) := by
+    have h0 := instLinked_sound hlinked
+    rw [List.reverse_cons] at h0
+    exact linkedFinish h0
+  refine ⟨?_, ?_, wNotOut, hLinkedM, hinNames, aWs, hlenW, ?_, ?_⟩
   · rw [mBody, hbodyR]
     simp
   · rw [hd, stDesign, hpdesR]
@@ -2510,6 +2579,7 @@ theorem projUncached_run (rec legacy : TranslateFn) (cn : Name)
           let (connectionsF, outWires) ←
             instOutWires callKey "sub_call" mc.outputs connections []
           let instName ← CompilerM.freshName s!"inst_{mc.name}"
+          instLinkCheck cn mc connectionsF.reverse
           CompilerM.emitInstance mc.name instName connectionsF.reverse
           match outWires.lookup fieldName with
           | some w => pure w
@@ -2596,6 +2666,8 @@ def ProjInstancePreserves (declName : Name) (bs : List (Name × MixedGateBinder)
       .assign "out" (.ref outW)] ∧
     d.modules = [mc] ∧
     outW ≠ "out" ∧
+    Linked m mc (conns.reverse ++
+      (outs.zip oWs).map (fun ow => (ow.1.name, Sparkle.IR.AST.Expr.ref ow.2))) ∧
     (∀ pt ∈ ports, (pt.name == "clk" || pt.name == "rst") = true →
       ∃ q ∈ m.inputs, q.name = pt.name) ∧
     ∃ aWs : List String, aWs.length = argIds.length ∧
@@ -2734,6 +2806,9 @@ theorem synthesizeMixedCertified_instanceProj_sound {logProf declName bs body m 
   try dsimp only at k7
   obtain ⟨instName, sN, hFresh, k8⟩ := Returns.bind (m := CompilerM.freshName _) k7
   obtain ⟨hinstName, hsN⟩ := freshNameC_returns hFresh
+  obtain ⟨uL, sL, hLink, k8⟩ := Returns.bind (m := instLinkCheck _ _ _) k8
+  obtain ⟨hsL, hlinked⟩ := instLinkCheck_returns hLink
+  rw [hsL] at k8
   obtain ⟨uE, sI, hEmit, k9⟩ :=
     Returns.bind (m := CompilerM.emitInstance _ _ _) k8
   have hsI := emitInstanceC_returns hEmit
@@ -2899,7 +2974,42 @@ theorem synthesizeMixedCertified_instanceProj_sound {logProf declName bs body m 
     show _ ∈ (addClockResetIfSequential st.module).inputs.reverse
     rw [List.mem_reverse]
     exact (addClockReset_facts st.module).2.2.2 _ (by rw [stInputs]; exact hq)
-  refine ⟨?_, ?_, wNotOut, hinNames, aWs, hlenW, ?_, ?_⟩
+  have stWires : st.module.wires = sN.module.wires := by
+    rw [ht, Tools.ShippingTranslateSoundness.emitAssign_wires]
+    show sm0.module.wires = _
+    rw [hrec]
+    show smR.module.wires = _
+    rw [hsmR, hsI]
+    rfl
+  have stInputsN : st.module.inputs = sN.module.inputs := by
+    rw [ht]
+    show (CircuitM.emitAssign "out" _ (CircuitM.addOutput "out" ty sm0).2).2.module.inputs = _
+    rw [emitAssignInputs, addOutputInputs, hrec]
+    show smR.module.inputs = _
+    rw [hsmR, hsI]
+    rfl
+  have linkedFinish : ∀ {cs : List (String × Sparkle.IR.AST.Expr)},
+      Linked sN.module mc cs → Linked m mc cs := by
+    intro cs h0
+    refine h0.mono ?_ ?_
+    · intro q hq
+      rw [hm]
+      show q ∈ ((addClockResetIfSequential st.module).finalize).wires
+      simp only [Sparkle.IR.AST.Module.finalize, (addClockReset_facts st.module).2.1]
+      rw [List.mem_reverse, stWires]
+      exact hq
+    · intro q hq
+      rw [hm]
+      show q ∈ (addClockResetIfSequential st.module).inputs.reverse
+      rw [List.mem_reverse]
+      exact (addClockReset_facts st.module).2.2.2 q (by rw [stInputsN]; exact hq)
+  have hLinkedM : Linked m mc (conns.reverse ++
+      (outs.zip (outWireNames "sub_call" outs sF)).map
+        (fun ow => (ow.1.name, Sparkle.IR.AST.Expr.ref ow.2))) := by
+    have h0 := instLinked_sound hlinked
+    rw [hconnsF, List.reverse_append, List.reverse_reverse] at h0
+    exact linkedFinish h0
+  refine ⟨?_, ?_, wNotOut, hLinkedM, hinNames, aWs, hlenW, ?_, ?_⟩
   · rw [mBody, hbodyR, hconnsF, hsF']
     simp
   · rw [hd, stDesign, hpdesR]

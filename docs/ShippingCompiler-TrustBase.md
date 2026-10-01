@@ -128,6 +128,14 @@ need two further boundary predicates, mirroring `EnvDefines`:
   endpoint). No cache premise is needed on either validated cache
   path. What the linked statement MEANS is still §5's definition
   (`evalAssignsH`, one level deep).
+- (RESOLVED, width linkage) `evalAssignsH` passes full values across
+  instance connections, so it is only faithful to module
+  instantiation when every connection joins equal widths. That is no
+  longer a premise: the arms check it before emitting
+  (`instLinkCheck`), and the contracts conclude it (`Linked`,
+  `InstsLinked`). What remains trusted is that the checked widths are
+  the widths the SV printer declares — the declared port/wire types
+  the check reads are the same `Module` fields the printer emits.
 - (LANDED) The projection arm's boundaries
   (Tools/ShippingInstanceEntrySoundness.lean), for a parent
   `field (child args…)` over a multi-output child:

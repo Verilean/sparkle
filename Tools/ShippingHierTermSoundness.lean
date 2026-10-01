@@ -68,13 +68,15 @@ theorem emitLeaves_runs_link {ctx inputs we mems initial prior s t e cache logPr
     (hr : Returns (emitLeaves (fun e hint top named => translateExprToWire e hint top named)
       cache logProf [("out", e)] none 0)
       ctx s returned t) :
-    ∃ result, LinkCtx.Runs we mems initial t result ∧ result "out" = v.toNat := by
+    ∃ result sm w ty, LinkCtx.Runs we mems initial t result ∧ result "out" = v.toNat ∧
+      LinkCtx.Typed we sm ∧
+      t = (CircuitM.emitAssign "out" (.ref w) (CircuitM.addOutput "out" ty sm).2).2 := by
   obtain ⟨w, sm, ty, translate, fresh, ht, _⟩ := emitLeaves_single hr
   have wm : ScalarWidthsAgree we sm := by
     intro p hp; apply widths p; rw [ht, emitAssign_wires]; exact hp
   have step := contract.sem "out" false true s sm w prior h wm translate
   obtain ⟨middle, inv, val, frame⟩ := step.execution
-  refine ⟨write middle "out" v.toNat, ?_, by simp [write]⟩
+  refine ⟨write middle "out" v.toNat, sm, w, ty, ?_, by simp [write], inv.typed, ht⟩
   rw [ht]
   exact LinkCtx.runs_emit (LinkCtx.runs_body (s := sm) rfl inv.runs)
     (by simpa [evalExpr] using congrArg some val)
@@ -355,6 +357,13 @@ def HierValue (children : String → Option (Sparkle.IR.AST.Module × WEnv))
   ∃ result, evalAssignsH (moduleWidths m) children mems m.body initial = some result ∧
     result "out" = expected
 
+/-- Every instance statement of the module is an instance of a linked child,
+WIDTH-LINKED against the module's own declarations. -/
+def InstsLinked (children : String → Option (Sparkle.IR.AST.Module × WEnv))
+    (m : Sparkle.IR.AST.Module) : Prop :=
+  ∀ mn iname conns, Stmt.inst mn iname conns ∈ m.body →
+    ∃ child cwe, children mn = some (child, cwe) ∧ Linked m child conns
+
 /-- A leaf's meaning, with the child semantics explicit. -/
 def LeafMeaning (C : ChildSem) (inputs : FVarId → Option Value) (e : Lean.Expr)
     (v : Value) : Prop :=
@@ -395,7 +404,8 @@ def HierConePreserves (declName : Name) (bs : List (Name × MixedGateBinder))
     (∀ j, j < kv → LeafContract children C p.context (inputValues p.bools p.bits)
       mems initial (vE j) (.bits (vw j) (vvals j (vw j)))) →
     instFVars (ids.map Lean.Expr.fvar).toArray 0 body = quote dom bE vE e →
-    HierValue children m initial mems (pack srt (eval bvals vvals e)).toNat
+    HierValue children m initial mems (pack srt (eval bvals vvals e)).toNat ∧
+      InstsLinked children m
 
 theorem synthesizeMixedCertified_hierCone_sound {logProf declName bs body m d}
     (hr : MReturns (synthesizeMixedCertified
@@ -426,14 +436,32 @@ theorem synthesizeMixedCertified_hierCone_sound {logProf declName bs body m d}
   have inv0 : Inv p.context (inputValues p.bools p.bits) (declaredWidths st) mems initial
       p.state initial :=
     initial_link prepared.2.2.1 prepared.2.2.2 (prepared.1.inputs prepared.2.1 growth widths)
-  obtain ⟨result, evalr, value⟩ := emitLeaves_runs_link contract inv0 widths leaf
+  obtain ⟨result, sm, wOut, ty, evalr, value, typedSm, ht⟩ :=
+    emitLeaves_runs_link contract inv0 widths leaf
   have wireEq : m.wires = st.module.wires.reverse := by
     rw [hm]; simp only [Module.finalize, (addClockReset_facts st.module).2.1]
   have bodyEq : m.body = st.module.finalize.body := by
     rw [hm]; simp only [Module.finalize, (addClockReset_facts st.module).1]
-  refine ⟨result, ?_, value⟩
-  rw [moduleWidths_finish wireEq finalWires, bodyEq]
-  exact evalr
+  refine ⟨⟨result, ?_, value⟩, ?_⟩
+  · rw [moduleWidths_finish wireEq finalWires, bodyEq]
+    exact evalr
+  · intro mn iname conns hmem
+    have hmem' : Stmt.inst mn iname conns ∈ st.module.body := by
+      rw [bodyEq] at hmem
+      exact List.mem_reverse.mp hmem
+    rw [ht, emitAssign_body_cons] at hmem'
+    rcases List.mem_cons.mp hmem' with hbad | hmem'
+    · cases hbad
+    · obtain ⟨child, cwe, hc, hl⟩ := HierCtx.typed_linked typedSm hmem'
+      refine ⟨child, cwe, hc, hl.mono ?_ ?_⟩
+      · intro q hq
+        rw [wireEq, List.mem_reverse, ht, emitAssign_wires]
+        exact hq
+      · intro q hq
+        rw [hm]
+        show q ∈ (addClockResetIfSequential st.module).inputs.reverse
+        rw [List.mem_reverse]
+        exact (addClockReset_facts st.module).2.2.2 q (by rw [ht]; exact hq)
 
 /-- The declaration dispatcher selects the proved cone path. -/
 theorem synthesizeFromConst_hierCone_sound {logProf declName ci bs body m d}
