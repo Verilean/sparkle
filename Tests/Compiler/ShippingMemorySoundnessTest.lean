@@ -663,6 +663,10 @@ run_cmd liftTermElabM do
     unless mFull.body == mr2.body && mFull.wires == mr2.wires &&
         mFull.inputs == mr2.inputs && mFull.outputs == mr2.outputs do
       throwError "the full entry's output departed from the certified memory module of {decl}"
+    -- The capstone's identity premise `m'.body = raw.body`, decided by the
+    -- LAWFUL decidable equality on statements (not the derived `BEq`).
+    unless decide (mFull.body = mr2.body) do
+      throwError "the full entry's body is not propositionally the core body for {decl}"
   -- The EXTENDED emitted-SV checker accepts both certified memory
   -- shapes (sync-read latch + write ports), so the forward trace
   -- theorem with latches applies to the exact modules the pipeline

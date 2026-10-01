@@ -544,9 +544,10 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   (`memAcc_shipping_full`): from the real `synthesizeCombinational`
   run, with the body-identity of the cleanup/merge post-step as an
   explicit premise (the suite pins the real full-entry output
-  component-equal to the certified core module). Open in S7: making
-  that memory identity a theorem or a checked gate with a soundness
-  proof (it is a BEq comparison today), a hierarchy post-pipeline
+  component-equal to the certified core module, and decides the
+  premise itself with the LAWFUL `DecidableEq` on statements —
+  `decide (mFull.body = raw.body)` — not the derived `BEq`). Open in
+  S7: a hierarchy post-pipeline
   (the SV layers are open-module), and the coverage reconciliation of
   the remaining legacy-success branches listed in
   ShippingCompiler-Coverage.md.
