@@ -320,6 +320,13 @@ lean_exe «tlm-test» where
   root := `Tests.Drivers.TlmTestMain
   supportInterpreter := true
 
+-- UVM testbenches generated from the same transaction-level tests; with
+-- SPARKLE_UVM_HOME (a UVM source tree) and verilator they are compiled and
+-- run, otherwise only emitted.
+lean_exe «tlm-uvm-test» where
+  root := `Tests.Drivers.TlmUvmTestMain
+  supportInterpreter := true
+
 -- Sim + synth check for the HList-based generic `runCircuitH`
 -- — the sole register-DSL helper after the per-arity
 -- `runCircuit{1..4}` were removed.  Covers N=1..4 plus
