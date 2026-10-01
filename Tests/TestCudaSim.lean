@@ -188,6 +188,54 @@ def systolic2x2 : Module := {
 def systolicDesign : Design :=
   { topModule := "Systolic2x2", modules := [peModule, systolic2x2] }
 
+-- ── Intra backend: packed (bus) ports at the top level ──────────────
+
+/-- Two PEs fed from one 96-bit input bus and reporting on one 64-bit
+    output bus: instance inputs are SLICES of the top input (one of them in
+    the elaborator's masked form), the top output is a CONCATENATION of
+    instance outputs.  A 96-bit source is an array of 32-bit words in C. -/
+def busTop : Module := {
+  name        := "BusTop"
+  isPrimitive := false
+  inputs      := [⟨"clk", .bit⟩, ⟨"rst", .bit⟩, ⟨"bus", .bitVector 96⟩]
+  outputs     := [⟨"res", .bitVector 64⟩]
+  wires       := [⟨"a0", .bitVector 32⟩, ⟨"p0", .bitVector 32⟩,
+                  ⟨"a1", .bitVector 32⟩, ⟨"p1", .bitVector 32⟩,
+                  ⟨"hi", .bitVector 32⟩]
+  body := [
+    .inst "PE" "pe0" [("clk", .ref "clk"), ("rst", .ref "rst"),
+      ("a_in", .slice (.ref "bus") 31 0), ("p_in", .const 0 32), ("w", .const 3 32),
+      ("a_out", .ref "a0"), ("p_out", .ref "p0")],
+    .inst "PE" "pe1" [("clk", .ref "clk"), ("rst", .ref "rst"),
+      ("a_in", .op .and [.slice (.ref "bus") 87 56, .const 0xffffffff 32]),
+      ("p_in", .ref "p0"), ("w", .const 5 32),
+      ("a_out", .ref "a1"), ("p_out", .ref "p1")],
+    .assign "hi" (.ref "p1"),
+    .assign "res" (.concat [.ref "hi", .ref "p0"]) ]
+}
+
+def busDesign : Design := { topModule := "BusTop", modules := [peModule, busTop] }
+
+/-- A top output that is real combinational logic: must be rejected (it used
+    to be skipped silently, leaving the output stale on the GPU). -/
+def combOutDesign : Design :=
+  { topModule := "CombOutTop"
+    modules := [peModule,
+      { busTop with
+        name := "CombOutTop"
+        body := busTop.body.dropLast ++
+          [.assign "res" (.op .add [.concat [.const 0 32, .ref "p0"], .const 1 64])] }] }
+
+/-- A concatenation element that does not sit on a byte boundary. -/
+def oddConcatDesign : Design :=
+  { topModule := "OddConcatTop"
+    modules := [peModule,
+      { busTop with
+        name := "OddConcatTop"
+        outputs := [⟨"res", .bitVector 35⟩]
+        body := busTop.body.dropLast ++
+          [.assign "res" (.concat [.ref "p1", .const 5 3])] }] }
+
 -- ── Intra-backend rejection fixtures (v1 restrictions) ──────────────
 
 /-- Purely combinational pass-through: `y = x + 1`.  Its output is a Mealy
@@ -259,6 +307,9 @@ def cudaSimTests : IO TestSeq := do
   let aluCu     := toCudaSim aluModule
   let meshCu    := toCudaSimDesign systolicDesign
   let intraCu   := okOut (toCudaIntraDesign systolicDesign)
+  let busCu     := okOut (toCudaIntraDesign busDesign)
+  let wideSrc   := "f(x, (uint32_t[2]){a, g((uint32_t[3]){b, c, d})}); h(){ k = 1; }"
+  let wideCxx   := cxxWideLiterals wideSrc
   let symbolicCu := toCudaSim symbolicModule
   let symbolicDesignCu := toCudaSimDesign symbolicDesign
   let parameterized3Cu :=
@@ -382,7 +433,42 @@ def cudaSimTests : IO TestSeq := do
       test "block-barrier kernel emitted"            (hasSubstr intraCu "Systolic2x2_intra_block_kernel") $
       test "grid-barrier kernel emitted"             (hasSubstr intraCu "Systolic2x2_intra_grid_kernel") $
       test "cooperative-groups barrier"              (hasSubstr intraCu "g.sync()") $
-      test "host entry jit_intra_run"                (hasSubstr intraCu "jit_intra_run")
+      test "host entry jit_intra_run"                (hasSubstr intraCu "jit_intra_run") $
+      -- two-barrier pull schedule: per-instance link tables
+      test "pulls grouped by consumer (4 in a 2×2 mesh)"
+        (hasSubstr intraCu "Systolic2x2_intra_nPulls = 4" && hasSubstr intraCu "Systolic2x2_intra_pullStart[5]") $
+      test "pubs grouped by producer"                (hasSubstr intraCu "Systolic2x2_intra_pubStart[5]") $
+      test "phase 2 pulls the instance's own inputs" (hasSubstr intraCu "Phase 2: pull own inputs") $
+      test "typed copy helper"                       (hasSubstr intraCu "case 4: *(uint32_t*)d = *(const uint32_t*)s; break;") $
+      test "block kernel stages state in shared memory"
+        (hasSubstr intraCu "extern __shared__ unsigned long long sparkle_sm[];" &&
+         hasSubstr intraCu "cudaFuncAttributeMaxDynamicSharedMemorySize") $
+      test "per-thread table lookups hoisted out of the cycle loop"
+        (hasSubstr intraCu "pl0 = Systolic2x2_intra_pullStart[t]; pl1 = Systolic2x2_intra_pullStart[t + 1];")
+    ) ++
+    group "toCudaIntraDesign: packed top-level ports" (
+      test "slice of a wide top input is applied once per launch"
+        (hasSubstr busCu "self->pe0.a_in = ((((uint64_t)self->bus[0] >> 0)) & 4294967295ULL);") $
+      test "slice straddling two words combines them"
+        (hasSubstr busCu "self->pe1.a_in = ((((uint64_t)self->bus[1] >> 24) | ((uint64_t)self->bus[2] << 8)) & 4294967295ULL);") $
+      test "static slices run in the prologue"       (hasSubstr busCu "if (t == 0) BusTop_intra_static(self);") $
+      test "concatenated output: low element at offset 0"
+        (hasSubstr busCu "{ (unsigned)(offsetof(struct BusTop, res)), (unsigned)(offsetof(struct BusTop, pe0) + offsetof(struct PE, p_out)), 4u },") $
+      test "concatenated output: next element 4 bytes up (through a ref wire)"
+        (hasSubstr busCu "{ (unsigned)(offsetof(struct BusTop, res) + 4), (unsigned)(offsetof(struct BusTop, pe1) + offsetof(struct PE, p_out)), 4u },") $
+      test "one pull (pe1.p_in ← pe0.p_out), two pubs"
+        (hasSubstr busCu "BusTop_intra_nPulls = 1, BusTop_intra_nPubs = 2") $
+      test "combinational top output is rejected, not skipped"
+        (hasSubstr (errMsg (toCudaIntraDesign combOutDesign)) "compound expression") $
+      test "non-byte-aligned concatenation is rejected"
+        (hasSubstr (errMsg (toCudaIntraDesign oddConcatDesign)) "not byte-aligned")
+    ) ++
+    group "cxxWideLiterals: CSim wide temporaries as C++" (
+      test "nested compound literals are respelled"
+        (hasSubstr wideCxx "f(x, (sparkle_w<2>{{a, g((sparkle_w<3>{{b, c, d}}).v)}}).v);") $
+      test "ordinary braces are untouched"           (hasSubstr wideCxx "h(){ k = 1; }") $
+      test "helper type is prepended"                (hasSubstr wideCxx "template <int N> struct sparkle_w { uint32_t v[N]; };") $
+      test "no literal: text unchanged"              (cxxWideLiterals "a = b; { c; }" == "a = b; { c; }")
     ) ++
     group "retained-width CUDA intra specialization" (
       test "specializes every module in the hierarchy"

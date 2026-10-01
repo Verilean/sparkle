@@ -4,24 +4,38 @@
 
   `toCudaSimDesign` (batch) runs N independent copies of a design, one thread
   each.  This backend makes ONE instance faster: each top-level `.inst` (a PE,
-  a core) becomes a thread, and each simulated clock cycle runs as three
+  a core) becomes a thread, and each simulated clock cycle runs as two
   barrier-separated phases:
 
-    Phase A  eval every instance        — freshens Moore output fields from
-                                          current register state;
-    Phase B  connection-table copies    — consumer.input ← producer.output,
-                                          top inputs, constants; top output
-                                          ports refreshed for observation;
-    Phase C  eval_tick every instance   — re-evals with FRESH inputs
-                                          (correct next-state), latches.
+    Phase 1  per instance, on its own struct only:
+               eval_tick  — clock edge, using the inputs pulled in the
+                            previous phase 2;
+               publish    — top outputs this instance drives (the pre-edge
+                            values, as CSim's eval_tick leaves them);
+               eval       — output fields of the NEW state.
+    Phase 2  per instance: pull its inputs from the producers' output fields.
+
+  A launch starts with a prologue — eval, then every connection and constant
+  once — so the first phase 1 sees correct inputs; top inputs cannot change
+  during a launch.
+
+  No data race: in phase 1 a thread touches only its own instance struct and
+  the top outputs it owns; in phase 2 nobody writes an output field, and each
+  input field has exactly one writer.
 
   Soundness rests on CSim's eval being register-pure (registers latch in tick
   only; memory writes live in tickBody; sync-read address latches are
-  last-write-wins), so Phase A's stale-input next-state results are dead
-  values overwritten by Phase C.  For Moore-bounded designs — every
-  cross-instance connection taps an output with no combinational input
-  dependence — the schedule is cycle-exact against CSim's sequential
-  reference; the argument is in the design memo §3.
+  last-write-wins), so the stale-input results of phase 1's second eval are
+  dead values, recomputed by the next eval_tick before anything latches.  For
+  Moore-bounded designs — every cross-instance connection taps an output with
+  no combinational input dependence, so it is a function of the state alone —
+  the schedule is cycle-exact against CSim's sequential reference; the
+  argument is in the design memo §3.
+
+  In the block kernel the state (and the per-instance link tables) are staged
+  in shared memory when they fit, and per-thread table lookups are hoisted
+  out of the cycle loop: on the 16×16 MAC mesh that is 7.7× the first
+  version (three barriers, global memory, per-cycle table reads).
 
   Scaling is table-driven, not switch-driven: instance offsets, module-kind
   dispatch, and `offsetof`-pair copy descriptors, so a 16K-instance top emits
@@ -30,10 +44,12 @@
   v1 restrictions (all detected; each error names the offender):
     - Moore-bounded cross-instance connections only (v2: K-round relaxation,
       memo §7);
-    - connections are `.ref` (chased through const/ref top assigns) or
-      `.const`;
+    - an instance input is a `.ref` (chased through const/ref top assigns),
+      a `.const`, or a slice of a TOP INPUT (a bus split across instances);
+    - a top output is one of those, or a concatenation of byte-aligned
+      ones (a result bus assembled from several instances);
     - the top module contains only `.assign` + `.inst` (no registers,
-      memories, or combinational logic at top);
+      memories, or other combinational logic at top);
     - no combinational loops.
 -/
 import Sparkle.Backend.CudaSim
@@ -153,7 +169,18 @@ private def outputDrivers (insts : List InstInfo) : List (String × InstInfo × 
 inductive ConnSource where
   | instOutput (producer : InstInfo) (port : String)
   | topInput (port : String)
+  /-- Bits `[hi:lo]` of a top input (a bus split across instances). -/
+  | topSlice (port : String) (hi lo : Nat)
   | imm (value : Int) (width : Nat)
+
+/-- `x[hi:lo]`, also in the elaborator's masked form `x[hi:lo] & ones`
+    (what `extractLsb'` with a non-zero start lowers to). -/
+private def sliceOfRef? : Expr → Option (String × Nat × Nat)
+  | .slice (.ref n) hi lo => some (n, hi, lo)
+  | .op .and [.slice (.ref n) hi lo, .const m _] =>
+    let full : Int := Int.ofNat (2 ^ (hi - lo + 1) - 1)
+    if hi ≥ lo && (m % (full + 1) == full) then some (n, hi, lo) else none
+  | _ => none
 
 private def resolveRef (top : Module) (drivers : List (String × InstInfo × String)) :
     Nat → String → Except String ConnSource
@@ -171,8 +198,13 @@ private def resolveRef (top : Module) (drivers : List (String × InstInfo × Str
         match drv with
         | some (.ref n') => resolveRef top drivers fuel n'
         | some (.const v w) => pure (.imm v w)
-        | some _ =>
-          throw s!"top-level combinational logic drives '{n}' — v1 supports only const/ref assigns at top; move the logic into a submodule"
+        | some e =>
+          match sliceOfRef? e with
+          | some (n', hi, lo) =>
+            if top.inputs.any (·.name == n') then pure (.topSlice n' hi lo)
+            else throw s!"top-level slice of '{n'}' drives '{n}' — only slices of TOP INPUTS are supported at top; move other logic into a submodule"
+          | none =>
+            throw s!"top-level combinational logic drives '{n}' — v1 supports only const/ref assigns at top; move the logic into a submodule"
         | none => throw s!"'{n}' is undriven at the top level"
 
 private def resolveConn (top : Module) (drivers : List (String × InstInfo × String))
@@ -180,14 +212,31 @@ private def resolveConn (top : Module) (drivers : List (String × InstInfo × St
   match e with
   | .const v w => pure (.imm v w)
   | .ref n => resolveRef top drivers fuel n
-  | _ => throw "instance connection must be a wire/port reference or a constant — got a compound expression (materialise it in a submodule)"
+  | e =>
+    match sliceOfRef? e with
+    | some (n, hi, lo) =>
+      if top.inputs.any (·.name == n) then pure (.topSlice n hi lo)
+      else throw s!"instance connection slices '{n}', which is not a top input — only slices of top inputs are supported (materialise it in a submodule)"
+    | none => throw "instance connection must be a wire/port reference, a slice of a top input, or a constant — got a compound expression (materialise it in a submodule)"
 
 /-! ### Copy / immediate tables -/
+
+/-- Who performs a copy inside the cycle loop.  `static` entries (source is
+    a top input) cannot change during a launch and are applied once. -/
+inductive CopyRole where
+  | static
+  /-- An instance input fed by another instance's output: PULLED by the
+      consuming instance (index into `insts`) after every clock edge. -/
+  | pull (consumer : Nat)
+  /-- A top output fed by an instance output: PUBLISHED by the producing
+      instance. -/
+  | pub (producer : Nat)
 
 structure CopyEnt where
   dstC  : String
   srcC  : String
   bytes : Nat
+  role  : CopyRole := .static
 
 structure ImmEnt where
   dstC  : String
@@ -214,17 +263,20 @@ private def maskedULL (v : Int) (width : Nat) : String :=
   let x := ((v % m) + m) % m
   s!"{x.toNat}ULL"
 
-/-- Build the Phase-B copy and immediate tables: instance input connections
+/-- Build the copy and immediate tables: instance input connections
     (clk/rst copied uniformly, exactly like CSim's `.inst` lowering) plus the
     top output ports for host observation.  Applies the Moore check to every
     cross-instance source. -/
 private def buildTables (top : Module) (insts : List InstInfo) :
-    Except String (List CopyEnt × List ImmEnt) := do
+    Except String (List CopyEnt × List ImmEnt × List String) := do
   let topC := sanitizeName top.name
   let drivers := outputDrivers insts
   let fuel := 2 * top.body.length + 8
   let mut copies : List CopyEnt := []
   let mut imms : List ImmEnt := []
+  -- C statements run once per launch: instance inputs fed by a SLICE of a
+  -- top input (not a whole-field copy, so not a table entry).
+  let mut statics : List String := []
 
   let mooreCheck (consumerDesc : String) (prod : InstInfo) (pport : String) :
       Except String Unit := do
@@ -252,14 +304,37 @@ private def buildTables (top : Module) (insts : List InstInfo) :
           throw s!"width mismatch: '{ii.instName}.{port}' ({nbytes} bytes) ← '{prod.instName}.{pport}' ({pbytes} bytes)"
         copies := copies ++ [⟨dstC,
           s!"offsetof(struct {topC}, {prod.field}) + offsetof(struct {sanitizeName prod.modName}, {sanitizeName pport})",
-          nbytes⟩]
+          nbytes, .pull ((insts.findIdx? (·.instName == ii.instName)).getD 0)⟩]
       | .topInput tport =>
         let some tty := portTy top.inputs tport
           | throw s!"internal: top input '{tport}' not found"
         let tbytes ← byteSize tty
         if tbytes != nbytes then
           throw s!"width mismatch: '{ii.instName}.{port}' ({nbytes} bytes) ← top input '{tport}' ({tbytes} bytes)"
-        copies := copies ++ [⟨dstC, s!"offsetof(struct {topC}, {sanitizeName tport})", nbytes⟩]
+        copies := copies ++ [⟨dstC, s!"offsetof(struct {topC}, {sanitizeName tport})", nbytes, .static⟩]
+      | .topSlice tport hi lo =>
+        let some tty := portTy top.inputs tport
+          | throw s!"internal: top input '{tport}' not found"
+        let some srcW := tty.bitWidth?
+          | throw s!"CudaIntra requires a concrete bit width for top input '{tport}'"
+        let w := hi - lo + 1
+        if hi < lo || hi ≥ srcW then
+          throw s!"slice [{hi}:{lo}] of top input '{tport}' ({srcW} bits) is out of range"
+        if nbytes > 8 || w > 64 then
+          throw s!"'{ii.instName}.{port}' ← {tport}[{hi}:{lo}]: slices wider than 64 bits are unsupported"
+        let src := sanitizeName tport
+        -- the source is a scalar (≤ 64 bits) or an array of 32-bit words
+        let value :=
+          if srcW ≤ 64 then s!"((uint64_t)self->{src} >> {lo})"
+          else
+            let k0 := lo / 32
+            let off := lo % 32
+            let parts := (List.range (hi / 32 - k0 + 1)).map fun d =>
+              if d == 0 then s!"((uint64_t)self->{src}[{k0}] >> {off})"
+              else s!"((uint64_t)self->{src}[{k0 + d}] << {32 * d - off})"
+            "(" ++ String.intercalate " | " parts ++ ")"
+        let masked := if w ≥ 64 then value else s!"({value} & {2 ^ w - 1}ULL)"
+        statics := statics ++ [s!"  self->{ii.field}.{sanitizeName port} = {masked};"]
       | .imm v w =>
         if nbytes > 8 then
           throw s!"constant into wide (> 64-bit) input '{ii.instName}.{port}' is unsupported in v1"
@@ -267,31 +342,111 @@ private def buildTables (top : Module) (insts : List InstInfo) :
 
   -- Top output ports: refresh for host observation.  An undriven output is
   -- skipped (it stays at its reset value), but resolvable sources get the
-  -- same Moore check — observing a Mealy output would read Phase-A garbage.
-  for p in top.outputs do
-    let nbytes ← byteSize p.ty
-    let dstC := s!"offsetof(struct {topC}, {sanitizeName p.name})"
-    match resolveRef top drivers fuel p.name with
-    | .error _ => pure ()
-    | .ok (.instOutput prod pport) =>
+  -- same Moore check — a Mealy output is not a function of the state alone,
+  -- so the value published after the clock edge would be stale.
+  -- Width of a resolved source, for placing it inside a concatenation.
+  let sourceWidth (src : ConnSource) : Except String Nat := match src with
+    | .instOutput prod pport =>
+      match (portTy prod.mod.outputs pport).bind (·.bitWidth?) with
+      | some w => pure w
+      | none => throw s!"internal: width of '{prod.instName}.{pport}' unknown"
+    | .topInput tport =>
+      match (portTy top.inputs tport).bind (·.bitWidth?) with
+      | some w => pure w
+      | none => throw s!"internal: width of top input '{tport}' unknown"
+    | .topSlice _ hi lo => pure (hi - lo + 1)
+    | .imm _ w => pure w
+  -- One source placed at byte offset `byteOff` of top output `p`.
+  let place (p : Port) (byteOff nbytes : Nat) (src : ConnSource) :
+      Except String (List CopyEnt × List ImmEnt) := do
+    let dstC := s!"offsetof(struct {topC}, {sanitizeName p.name})" ++
+      (if byteOff == 0 then "" else s!" + {byteOff}")
+    match src with
+    | .instOutput prod pport =>
       mooreCheck s!"top output '{p.name}'" prod pport
-      copies := copies ++ [⟨dstC,
+      pure ([⟨dstC,
         s!"offsetof(struct {topC}, {prod.field}) + offsetof(struct {sanitizeName prod.modName}, {sanitizeName pport})",
-        nbytes⟩]
-    | .ok (.topInput tport) =>
-      copies := copies ++ [⟨dstC, s!"offsetof(struct {topC}, {sanitizeName tport})", nbytes⟩]
-    | .ok (.imm v w) =>
-      if nbytes ≤ 8 then
-        imms := imms ++ [⟨dstC, nbytes, maskedULL v w⟩]
+        nbytes, .pub ((insts.findIdx? (·.instName == prod.instName)).getD 0)⟩], [])
+    | .topInput tport =>
+      pure ([⟨dstC, s!"offsetof(struct {topC}, {sanitizeName tport})", nbytes, .static⟩], [])
+    | .topSlice tport _ _ =>
+      throw s!"top output '{p.name}' is a slice of top input '{tport}' — unsupported; pass it through a submodule"
+    | .imm v w =>
+      if nbytes ≤ 8 then pure ([], [⟨dstC, nbytes, maskedULL v w⟩])
+      else throw s!"constant wider than 64 bits in top output '{p.name}' is unsupported"
+  -- Driver of a top-level name after chasing ref-only assigns.
+  let rec driverOf (fuel : Nat) (n : String) : Option Expr :=
+    match fuel with
+    | 0 => none
+    | fuel + 1 =>
+      let drv : Option Expr := top.body.findSome? (fun st => match st with
+          | .assign lhs rhs => if lhs == n then some rhs else none
+          | _ => none)
+      match drv with
+      | some (Expr.ref n') =>
+        if top.inputs.any (·.name == n') || drivers.any (·.1 == n') then some (Expr.ref n')
+        else driverOf fuel n'
+      | other => other
 
-  return (copies, imms)
+  -- Leaves of a (possibly nested) concatenation, MSB first: `a ++ b ++ c`
+  -- elaborates to concat wires feeding concat wires.
+  let rec leaves (fuel : Nat) (e : Expr) : List Expr :=
+    match fuel with
+    | 0 => [e]
+    | fuel + 1 =>
+      match e with
+      | .concat es => es.flatMap (leaves fuel)
+      | .ref n =>
+        match driverOf fuel n with
+        | some (.concat es) => es.flatMap (leaves fuel)
+        | _ => [e]
+      | _ => [e]
+
+  -- Top output ports, for host observation.  A whole-port source is one
+  -- copy; a concatenation of byte-aligned sources is one copy per element
+  -- (a result bus assembled from many instances).  An undriven output is
+  -- skipped (it keeps its reset value).  Every instance source gets the
+  -- Moore check — a Mealy output is not a function of the state alone, so
+  -- the value published after the clock edge would be stale.
+  for p in top.outputs do
+    match driverOf fuel p.name with
+    | none =>
+      -- the output IS an instance's output wire (or is undriven)
+      match resolveRef top drivers fuel p.name with
+      | .ok src =>
+        let (cs, is) ← place p 0 (← byteSize p.ty) src
+        copies := copies ++ cs
+        imms := imms ++ is
+      | .error _ => pure ()
+    | some (.concat elems) =>
+      -- elements are MSB-first; walk from the LSB end
+      let mut bit := 0
+      for e in (elems.flatMap (leaves fuel)).reverse do
+        let src ← resolveConn top drivers fuel e
+        let w ← sourceWidth src
+        if bit % 8 != 0 || w % 8 != 0 then
+          throw s!"top output '{p.name}': concatenation element at bit {bit} (width {w}) is not byte-aligned — unsupported at top; pack it in a submodule"
+        let (cs, is) ← place p (bit / 8) (w / 8) src
+        copies := copies ++ cs
+        imms := imms ++ is
+        bit := bit + w
+    | some e =>
+      let nbytes ← byteSize p.ty
+      let (cs, is) ← place p 0 nbytes (← resolveConn top drivers fuel e)
+      copies := copies ++ cs
+      imms := imms ++ is
+
+  return (copies, imms, statics)
 
 /-! ### Emission -/
 
-/-- Tables, kind dispatch, the templated three-phase cycle body, and the two
-    kernels (block barrier / cooperative grid barrier). -/
+/-- Tables, kind dispatch, the templated two-barrier cycle body, and the two
+    kernels (block barrier with shared-memory staging / cooperative grid
+    barrier).  Schedule and its correctness argument:
+    docs/CudaIntraSim-design.md §3. -/
 private def emitIntraSection (top : Module) (insts : List InstInfo)
-    (copies : List CopyEnt) (imms : List ImmEnt) : Except String String := do
+    (copies : List CopyEnt) (imms : List ImmEnt) (statics : List String) :
+    Except String String := do
   let topC := sanitizeName top.name
   let m := insts.length
   let kinds : List String := insts.foldl (fun acc ii =>
@@ -303,23 +458,40 @@ private def emitIntraSection (top : Module) (insts : List InstInfo)
   let offEntries := insts.map fun ii =>
     s!"  offsetof(struct {topC}, {ii.field}),"
   let kindEntries := insts.map fun ii => s!"  {kindOf ii},"
-  let dispatchCases (fn : String) : List String :=
+  let dispatchCases (fn : String) (indent : String := "  ") : List String :=
     (List.range kinds.length).map fun k =>
       let mc := sanitizeName kinds[k]!
-      s!"  case {k}: sparkle_{mc}_{fn}((struct {mc}*)b); break;"
+      s!"{indent}case {k}: sparkle_{mc}_{fn}((struct {mc}*)b); break;"
   let copyEntries :=
     if copies.isEmpty then ["  { 0, 0, 0u },"]
     else copies.map fun c => s!"  \{ {c.dstC}, {c.srcC}, {c.bytes}u },"
   let immEntries :=
     if imms.isEmpty then ["  { 0, 0u, 0ULL },"]
     else imms.map fun i => s!"  \{ {i.dstC}, {i.bytes}u, {i.value} },"
+  -- Per-instance link lists: entries grouped by the instance that performs
+  -- them, with a start table of M+1 offsets.
+  let linkEntry (c : CopyEnt) : String :=
+    s!"  \{ (unsigned)({c.dstC}), (unsigned)({c.srcC}), {c.bytes}u },"
+  let grouped (owner : CopyEnt → Option Nat) : List String × List Nat :=
+    (List.range m).foldl (fun (ents, starts) i =>
+      let mine := copies.filter fun c => owner c == some i
+      (ents ++ mine.map linkEntry, starts ++ [ents.length + mine.length])) ([], [0])
+  let (pullEnts, pullStarts) := grouped fun c => match c.role with
+    | .pull i => some i | _ => none
+  let (pubEnts, pubStarts) := grouped fun c => match c.role with
+    | .pub i => some i | _ => none
+  let orDummy (xs : List String) : List String :=
+    if xs.isEmpty then ["  { 0u, 0u, 0u },"] else xs
+  let startRow (xs : List Nat) : String :=
+    "  " ++ String.intercalate ", " (xs.map toString)
 
   return String.intercalate "\n" <|
     [ "// ── Intra-instance scheduling: one thread per top-level instance ──"
-    , "// Three-phase eval-twice schedule (docs/CudaIntraSim-design.md §3)."
+    , "// Two-barrier pull schedule (docs/CudaIntraSim-design.md §3)."
     , "namespace cg = cooperative_groups;"
     , ""
-    , s!"enum \{ {topC}_intra_M = {m}, {topC}_intra_nCopies = {copies.length}, {topC}_intra_nImms = {imms.length} };"
+    , s!"enum \{ {topC}_intra_M = {m}, {topC}_intra_nCopies = {copies.length}, {topC}_intra_nImms = {imms.length},"
+    , s!"       {topC}_intra_nPulls = {pullEnts.length}, {topC}_intra_nPubs = {pubEnts.length} };"
     , ""
     , s!"static __device__ const size_t {topC}_intra_off[{m}] = \{" ]
     ++ offEntries ++
@@ -330,12 +502,45 @@ private def emitIntraSection (top : Module) (insts : List InstInfo)
     , ""
     , "typedef struct { size_t dst; size_t src; unsigned bytes; } SparkleIntraCopy;"
     , "typedef struct { size_t dst; unsigned bytes; unsigned long long v; } SparkleIntraImm;"
+    , "typedef struct { unsigned dst; unsigned src; unsigned bytes; } SparkleIntraLink;"
+    , "// every connection (applied once per launch) and every constant input"
     , s!"static __device__ const SparkleIntraCopy {topC}_intra_copies[{max copies.length 1}] = \{" ]
     ++ copyEntries ++
     [ "};"
     , s!"static __device__ const SparkleIntraImm {topC}_intra_imms[{max imms.length 1}] = \{" ]
     ++ immEntries ++
     [ "};"
+    , "// instance inputs fed by instance outputs, grouped by CONSUMER"
+    , s!"static __device__ const SparkleIntraLink {topC}_intra_pulls[{max pullEnts.length 1}] = \{" ]
+    ++ orDummy pullEnts ++
+    [ "};"
+    , s!"static __device__ const unsigned {topC}_intra_pullStart[{m + 1}] = \{"
+    , startRow pullStarts
+    , "};"
+    , "// top outputs fed by instance outputs, grouped by PRODUCER"
+    , s!"static __device__ const SparkleIntraLink {topC}_intra_pubs[{max pubEnts.length 1}] = \{" ]
+    ++ orDummy pubEnts ++
+    [ "};"
+    , s!"static __device__ const unsigned {topC}_intra_pubStart[{m + 1}] = \{"
+    , startRow pubStarts
+    , "};"
+    , ""
+    , "// Typed copy: a variable-length memcpy is a byte loop on the GPU."
+    , s!"static __device__ inline void {topC}_intra_copy(char* d, const char* s, unsigned n) \{"
+    , "  switch (n) {"
+    , "  case 1: *(uint8_t*)d = *(const uint8_t*)s; break;"
+    , "  case 2: *(uint16_t*)d = *(const uint16_t*)s; break;"
+    , "  case 4: *(uint32_t*)d = *(const uint32_t*)s; break;"
+    , "  case 8: *(uint64_t*)d = *(const uint64_t*)s; break;"
+    , "  default: memcpy(d, s, n);"
+    , "  }"
+    , "}"
+    , ""
+    , "// instance inputs fed by a slice of a top input (once per launch)"
+    , s!"static __device__ void {topC}_intra_static(struct {topC}* self) \{"
+    , "  (void)self;" ]
+    ++ statics ++
+    [ "}"
     , ""
     , s!"static __device__ void {topC}_intra_eval(struct {topC}* self, unsigned t) \{"
     , s!"  char* b = (char*)self + {topC}_intra_off[t];"
@@ -343,51 +548,103 @@ private def emitIntraSection (top : Module) (insts : List InstInfo)
     ++ dispatchCases "eval" ++
     [ "  }"
     , "}"
-    , s!"static __device__ void {topC}_intra_eval_tick(struct {topC}* self, unsigned t) \{"
-    , s!"  char* b = (char*)self + {topC}_intra_off[t];"
-    , s!"  switch ({topC}_intra_kind[t]) \{" ]
-    ++ dispatchCases "eval_tick" ++
-    [ "  }"
-    , "}"
     , ""
     , "template <typename Group>"
-    , s!"static __device__ void {topC}_intra_cycles(Group g, struct {topC}* self, long cycles) \{"
+    , s!"static __device__ void {topC}_intra_cycles(Group g, struct {topC}* self,"
+    , "    const SparkleIntraLink* pulls, const SparkleIntraLink* pubs, long cycles) {"
     , "  const unsigned t  = g.thread_rank();"
     , "  const unsigned sz = g.num_threads();"
+    , s!"  const bool live = t < (unsigned){topC}_intra_M;"
+    , "  char* const base = (char*)self;"
+    , "  // Prologue (once per launch): outputs of the current state, then every"
+    , "  // connection and constant — top inputs cannot change during a launch."
+    , s!"  if (live) {topC}_intra_eval(self, t);"
+    , "  g.sync();"
+    , s!"  for (unsigned i = t; i < (unsigned){topC}_intra_nCopies; i += sz) \{"
+    , s!"    const SparkleIntraCopy* e = &{topC}_intra_copies[i];"
+    , "    memcpy(base + e->dst, base + e->src, e->bytes);"
+    , "  }"
+    , s!"  for (unsigned i = t; i < (unsigned){topC}_intra_nImms; i += sz) \{"
+    , s!"    const SparkleIntraImm* e = &{topC}_intra_imms[i];"
+    , "    unsigned long long v = e->v;"
+    , "    memcpy(base + e->dst, &v, e->bytes);"
+    , "  }"
+    , s!"  if (t == 0) {topC}_intra_static(self);"
+    , "  g.sync();"
+    , "  // Per-thread constants, read from the tables once."
+    , "  char* b = base; unsigned kind = 0, pl0 = 0, pl1 = 0, pb0 = 0, pb1 = 0;"
+    , "  if (live) {"
+    , s!"    b = base + {topC}_intra_off[t]; kind = {topC}_intra_kind[t];"
+    , s!"    pl0 = {topC}_intra_pullStart[t]; pl1 = {topC}_intra_pullStart[t + 1];"
+    , s!"    pb0 = {topC}_intra_pubStart[t];  pb1 = {topC}_intra_pubStart[t + 1];"
+    , "  }"
     , "  for (long c = 0; c < cycles; ++c) {"
-    , "    // Phase A: freshen Moore outputs from current register state"
-    , s!"    if (t < (unsigned){topC}_intra_M) {topC}_intra_eval(self, t);"
-    , "    g.sync();"
-    , "    // Phase B: connection copies + constant inputs (+ top outputs)"
-    , s!"    for (unsigned i = t; i < (unsigned){topC}_intra_nCopies; i += sz) \{"
-    , s!"      const SparkleIntraCopy* e = &{topC}_intra_copies[i];"
-    , "      memcpy((char*)self + e->dst, (const char*)self + e->src, e->bytes);"
+    , "    if (live) {"
+    , "      // Phase 1 (own struct only): clock edge with the inputs pulled in the"
+    , "      // previous phase 2; publish top outputs (the pre-edge values, as the"
+    , "      // CPU reference leaves them); then the outputs of the NEW state."
+    , "      switch (kind) {" ]
+    ++ dispatchCases "eval_tick" "      " ++
+    [ "      }"
+    , "      for (unsigned i = pb0; i < pb1; ++i)"
+    , s!"        {topC}_intra_copy(base + pubs[i].dst, base + pubs[i].src, pubs[i].bytes);"
+    , "      switch (kind) {" ]
+    ++ dispatchCases "eval" "      " ++
+    [ "      }"
     , "    }"
-    , s!"    for (unsigned i = t; i < (unsigned){topC}_intra_nImms; i += sz) \{"
-    , s!"      const SparkleIntraImm* e = &{topC}_intra_imms[i];"
-    , "      unsigned long long v = e->v;"
-    , "      memcpy((char*)self + e->dst, &v, e->bytes);"
-    , "    }"
     , "    g.sync();"
-    , "    // Phase C: re-eval with fresh inputs, latch registers"
-    , s!"    if (t < (unsigned){topC}_intra_M) {topC}_intra_eval_tick(self, t);"
+    , "    // Phase 2: pull own inputs from the producers' outputs.  Nobody writes"
+    , "    // an output field in this phase, and an input field has one writer."
+    , "    for (unsigned i = pl0; i < pl1; ++i)"
+    , s!"      {topC}_intra_copy(base + pulls[i].dst, base + pulls[i].src, pulls[i].bytes);"
     , "    g.sync();"
     , "  }"
     , "}"
     , ""
-    , s!"__global__ void {topC}_intra_block_kernel(struct {topC}* self, long cycles) \{"
-    , s!"  {topC}_intra_cycles(cg::this_thread_block(), self, cycles);"
+    , "// Block kernel.  `stage` bit 0: run on a copy of the state in shared"
+    , "// memory; bit 1: also keep the link tables there.  The host sets the bits"
+    , "// when they fit; global memory in the cycle loop costs ~4x."
+    , s!"__global__ void {topC}_intra_block_kernel(struct {topC}* self, long cycles, int stage) \{"
+    , "  extern __shared__ unsigned long long sparkle_sm[];"
+    , "  const unsigned t = threadIdx.x, sz = blockDim.x;"
+    , s!"  const unsigned nw = (unsigned)(sizeof(struct {topC}) / 8);"
+    , s!"  const unsigned tail = (unsigned)(sizeof(struct {topC}) % 8);"
+    , s!"  struct {topC}* S = self;"
+    , s!"  const SparkleIntraLink* pulls = {topC}_intra_pulls;"
+    , s!"  const SparkleIntraLink* pubs = {topC}_intra_pubs;"
+    , "  if (stage & 1) {"
+    , "    const unsigned long long* gs = (const unsigned long long*)self;"
+    , "    for (unsigned i = t; i < nw; i += sz) sparkle_sm[i] = gs[i];"
+    , "    if (t == 0) for (unsigned i = 0; i < tail; ++i)"
+    , "      ((char*)sparkle_sm)[nw * 8 + i] = ((const char*)self)[nw * 8 + i];"
+    , s!"    S = (struct {topC}*)sparkle_sm;"
+    , "  }"
+    , "  if (stage & 2) {"
+    , "    SparkleIntraLink* d = (SparkleIntraLink*)(sparkle_sm + nw + 1);"
+    , s!"    for (unsigned i = t; i < (unsigned){topC}_intra_nPulls; i += sz) d[i] = {topC}_intra_pulls[i];"
+    , s!"    for (unsigned i = t; i < (unsigned){topC}_intra_nPubs; i += sz)"
+    , s!"      d[{topC}_intra_nPulls + i] = {topC}_intra_pubs[i];"
+    , s!"    pulls = d; pubs = d + {topC}_intra_nPulls;"
+    , "  }"
+    , "  __syncthreads();"
+    , s!"  {topC}_intra_cycles(cg::this_thread_block(), S, pulls, pubs, cycles);"
+    , "  if (stage & 1) {"
+    , "    unsigned long long* gd = (unsigned long long*)self;"
+    , "    for (unsigned i = t; i < nw; i += sz) gd[i] = sparkle_sm[i];"
+    , "    if (t == 0) for (unsigned i = 0; i < tail; ++i)"
+    , "      ((char*)self)[nw * 8 + i] = ((const char*)sparkle_sm)[nw * 8 + i];"
+    , "  }"
     , "}"
     , s!"__global__ void {topC}_intra_grid_kernel(struct {topC}* self, long cycles) \{"
-    , s!"  {topC}_intra_cycles(cg::this_grid(), self, cycles);"
+    , s!"  {topC}_intra_cycles(cg::this_grid(), self, {topC}_intra_pulls, {topC}_intra_pubs, cycles);"
     , "}"
     , "" ]
 
 /-- `jit_intra_run(handle, cycles)`: run instance 0 of a `jit_cuda_alloc`
     handle for `cycles` clock cycles with the intra schedule.  Picks the
-    block kernel when the instance count fits one block (cheap barrier;
-    ~5×10⁶ cyc/s in the PoC), else a cooperative grid launch (any size;
-    barrier-bound ~9×10⁵ cyc/s, PE-throughput linear). -/
+    block kernel when the instance count fits one block (cheap barrier,
+    state staged in shared memory when it fits), else a cooperative grid
+    launch (any size; state in global memory, grid-wide barrier). -/
 private def emitIntraHostRun (top : Module) : String :=
   let topC := sanitizeName top.name
   let st := s!"struct {topC}"
@@ -403,7 +660,23 @@ private def emitIntraHostRun (top : Module) : String :=
     , s!"  cudaMemcpy(d_top, h->h_staging, sizeof({st}), cudaMemcpyHostToDevice);"
     , s!"  if ({topC}_intra_M <= 1024) \{"
     , s!"    unsigned threads = (((unsigned){topC}_intra_M + 31u) / 32u) * 32u;"
-    , s!"    {topC}_intra_block_kernel<<<1, threads>>>(d_top, numCycles);"
+    , "    // Shared-memory staging: the state, then the link tables, when they fit."
+    , "    static size_t shLimit = 0;"
+    , "    if (shLimit == 0) {"
+    , "      int dev = 0; cudaGetDevice(&dev);"
+    , "      cudaDeviceProp prop; cudaGetDeviceProperties(&prop, dev);"
+    , "      shLimit = prop.sharedMemPerBlockOptin ? prop.sharedMemPerBlockOptin : prop.sharedMemPerBlock;"
+    , "    }"
+    , s!"    size_t stBytes = (sizeof({st}) / 8 + 1) * 8;"
+    , s!"    size_t tabBytes = ((size_t){topC}_intra_nPulls + {topC}_intra_nPubs) * sizeof(SparkleIntraLink);"
+    , "    int stage = 0; size_t shBytes = 0;"
+    , "    if (stBytes <= shLimit) {"
+    , "      stage |= 1; shBytes = stBytes;"
+    , "      if (stBytes + tabBytes <= shLimit) { stage |= 2; shBytes += tabBytes; }"
+    , "    }"
+    , "    if (shBytes > 48 * 1024)"
+    , s!"      cudaFuncSetAttribute({topC}_intra_block_kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)shBytes);"
+    , s!"    {topC}_intra_block_kernel<<<1, threads, shBytes>>>(d_top, numCycles, stage);"
     , "  } else {"
     , "    int dev = 0; cudaGetDevice(&dev);"
     , "    int coop = 0; cudaDeviceGetAttribute(&coop, cudaDevAttrCooperativeLaunch, dev);"
@@ -441,8 +714,8 @@ def toCudaIntraDesign (d : Design) : Except String String := do
   let insts ← topInsts d top
   if insts.isEmpty then
     throw s!"top module '{top.name}' has no instances — the intra backend parallelises over top-level .inst; use toCudaSim for a flat module"
-  let (copies, imms) ← buildTables top insts
-  let intra ← emitIntraSection top insts copies imms
+  let (copies, imms, statics) ← buildTables top insts
+  let intra ← emitIntraSection top insts copies imms statics
   let topC := sanitizeName top.name
   let preamble := String.intercalate "\n"
     [ "// AUTO-GENERATED by Sparkle HDL — CUDA Intra (within-instance) Backend"
