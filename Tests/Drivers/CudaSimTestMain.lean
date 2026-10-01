@@ -26,7 +26,11 @@ def cudaStub : String := "\
 #define __global__\n\
 #define __shared__\n\
 #define __forceinline__\n\
+#define __launch_bounds__(n)\n\
 typedef unsigned int cudaError_t;\n\
+enum { cudaSuccess = 0, cudaErrorLaunchOutOfResources = 701 };\n\
+static inline cudaError_t cudaGetLastError(){ return 0; }\n\
+static inline const char* cudaGetErrorString(cudaError_t){ return \"\"; }\n\
 static inline void __syncthreads() {}\n\
 struct uint3 { unsigned x,y,z; };\n\
 struct dim3 { unsigned x,y,z; dim3(unsigned a=1,unsigned b=1,unsigned c=1):x(a),y(b),z(c){} };\n\

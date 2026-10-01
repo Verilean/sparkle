@@ -4412,23 +4412,19 @@ elab "#sim" id:ident : command => do
           s!"  let {nameId} := BitVec.ofNat {w} v_{nameId}.toNat"
         (acc.1 ++ [line], acc.2 + 1)
       else
-        -- Wide port: read ⌈w/32⌉ 32-bit slots and OR-shift.
+        -- Wide port: read ⌈w/32⌉ 32-bit slots and OR-shift them into
+        -- a Nat, in a loop.  (One `let` per slot plus one `|||` chain
+        -- over all of them is a term whose size grows with the port: a
+        -- 73 728-bit lattice state — 2304 slots — timed out in the
+        -- elaborator.)
         let nWords := (w + 31) / 32
-        let slotIdxs := List.range nWords
-        let reads := slotIdxs.map fun j =>
-          s!"  let v_{nameId}_{j} ← JIT.getOutput sim.handle {acc.2 + j}"
-        -- Assemble: each slot j contributes
-        --   (BitVec.ofNat w v_<nameId>_j.toNat) <<< (32 * j)
-        -- and we fold them with `|||`.
-        let combineTerm (j : Nat) : String :=
-          s!"(BitVec.ofNat {w} (v_{nameId}_{j}.toNat &&& 0xFFFFFFFF) <<< {32 * j})"
-        let combined :=
-          match slotIdxs with
-          | [] => s!"(BitVec.ofNat {w} 0)"
-          | j :: rest =>
-            rest.foldl (fun s k => s ++ " ||| " ++ combineTerm k) (combineTerm j)
+        let reads := [
+          s!"  let mut acc_{nameId} : Nat := 0",
+          s!"  for j in [0:{nWords}] do",
+          s!"    let v ← JIT.getOutput sim.handle ({acc.2} + j).toUInt32",
+          s!"    acc_{nameId} := acc_{nameId} ||| ((v.toNat &&& 0xFFFFFFFF) <<< (32 * j))" ]
         let assemble :=
-          s!"  let {nameId} : BitVec {w} := {combined}"
+          s!"  let {nameId} : BitVec {w} := BitVec.ofNat {w} acc_{nameId}"
         (acc.1 ++ reads ++ [assemble], acc.2 + nWords))
     ([], 0)
   let readBody := String.intercalate "\n" readLines

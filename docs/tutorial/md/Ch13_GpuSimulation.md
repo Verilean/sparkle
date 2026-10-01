@@ -9,7 +9,7 @@ picking the right one matters more than any flag:
 | unit of parallelism | one **design instance** per GPU thread | one **sub-module instance** (PE, core) per thread |
 | makes faster | N independent runs: Monte-Carlo, fuzzing, test-vector sweeps | ONE big design: a systolic array, a core bank |
 | could you buy it with more machines? | yes — this is throughput | **no** — this is single-run latency/scale |
-| measured (RTX 4070 Ti) | 10–11× vs single-thread CPU JIT | grows with the design: 0.5× the CPU at 256 PEs, 1.3× at 1024, 1.9× at 4096 (generated kernel, small MAC cell) |
+| measured (RTX 4070 Ti) | 10–11× vs single-thread CPU JIT | grows with the design and with the work per cell: 1.3× the CPU at 256 small MAC cells, 2.5× at 1024, 4.8× at 4096; 16–18× for a lattice-Boltzmann cell (Ch 15) |
 | requirements | `nvcc` | `nvcc -rdc=true`, Moore-bounded module boundaries |
 
 Everything here is opt-in: no GPU or `nvcc` is needed to *emit* the `.cu`
@@ -145,6 +145,9 @@ unsigned r0 = jit_cuda_get_output(h, 0, 0);  // bottom-row results
 (`__syncthreads`, fastest cycle rate) when the instance count fits 1024,
 else a cooperative grid launch (any size — this is what scales to
 1000+-PE accelerators; needs a cooperative-launch-capable GPU).
+`jit_intra_last_kernel()` says which one ran (1 = block, 2 = grid), and a
+kernel that fails aborts with the CUDA error instead of returning the
+state unchanged.
 
 ## 13.3 Verifying what you got
 
@@ -174,9 +177,10 @@ Three habits, all cheap:
 - *"I want a million runs with different inputs"* → batch. Cheap, scales
   with money.
 - *"My one design has a thousand PEs and simulation is the bottleneck"* →
-  intra. This is the axis money can't buy. Expect a win from roughly a
-  thousand instances up (1.3× at 1024, 1.9× at 4096 for a small MAC cell;
-  more as the cell gets heavier); below a few hundred small instances the
-  CPU is faster.
+  intra. This is the axis money can't buy. Expect a win from a few hundred
+  instances up (measured: 1.3× at 256, 2.5× at 1024, 4.8× at 4096 for a
+  small MAC cell; 6–7× for the systolic array of §13.2; 16–18× for the
+  lattice-Boltzmann cell of Chapter 15); below a hundred small instances
+  the CPU is faster.
 - *"Both"* → they share one `.so`; batch across instances of a design whose
   single-instance rate the intra scheduler sets is a v2 combination.

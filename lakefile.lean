@@ -211,6 +211,16 @@ lean_lib «IP.Arbiter» where
 lean_lib «IP.Systolic» where
   roots := #[`IP.Systolic]
 
+-- D2Q9 lattice-Boltzmann fluid: one hardware cell per lattice site on a
+-- periodic lattice (`torus_grid%`); the GPU intra backend's stencil workload.
+lean_lib «IP.Fluid» where
+  roots := #[`IP.Fluid]
+
+-- Tokamak vertical stabilisation: three-state plant model, saturating
+-- controller, and bv_decide proofs of the recoverable region.
+lean_lib «IP.Plasma» where
+  roots := #[`IP.Plasma]
+
 lean_lib «Examples.CDC» where
   roots := #[`Examples.CDC]
 
@@ -324,6 +334,32 @@ lean_exe «circuit-do-test» where
 -- emission.
 lean_exe «systolic-test» where
   root := `Tests.Drivers.SystolicTestMain
+  supportInterpreter := true
+
+-- Tokamak vertical stabilisation: closed-loop circuit == model (Signal.val
+-- and JIT), growth and contraction rates, recovery inside / loss outside
+-- the recoverable region.
+lean_exe «plasma-test» where
+  root := `Tests.Drivers.PlasmaTestMain
+  supportInterpreter := true
+
+-- `torus_grid%` (periodic stencil lattice): macro vs hand-written wiring,
+-- JIT vs Signal.val on instances connected in a cycle, Verilog + GPU kernel.
+lean_exe «torus-grid-test» where
+  root := `Tests.Drivers.TorusGridTestMain
+  supportInterpreter := true
+
+-- D2Q9 lattice-Boltzmann fluid on a `torus_grid%` lattice: conservation,
+-- measured viscosity against theory, circuit == reference model (Signal.val
+-- and JIT), Verilog + GPU kernel emission.
+lean_exe «fluid-lbm-test» where
+  root := `Tests.Drivers.FluidLbmTestMain
+  supportInterpreter := true
+
+-- GPU co-simulation of the lattice-Boltzmann lattices against the CSim CPU
+-- reference, one GPU thread per site (needs nvcc + a GPU; SPARKLE_CUDA=1).
+lean_exe «fluid-cosim» where
+  root := `Tests.Drivers.FluidCosimMain
   supportInterpreter := true
 
 -- GPU co-simulation of the DSL-generated systolic arrays against the CSim

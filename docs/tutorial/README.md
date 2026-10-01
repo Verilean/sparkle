@@ -47,6 +47,7 @@ automatically.
 | 10 | Sparkle Architecture | [`md/Ch10_Architecture.md`](md/Ch10_Architecture.md) |
 | 11 | Running the web3 Signing Device on Real Hardware | [`md/Ch11_Web3Signer.md`](md/Ch11_Web3Signer.md) |
 | 12 | Control, Estimation, and the Engineering of Precision | [`md/Ch12_ControlPrecision.md`](md/Ch12_ControlPrecision.md) |
+| 15 | A fluid and a plasma: stencil circuits (`torus_grid%`), exact conservation, a controller's proven limits | [`md/Ch15_FluidPlasma.md`](md/Ch15_FluidPlasma.md) |
 
 ## How to run
 
