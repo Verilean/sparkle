@@ -314,6 +314,13 @@ lean_exe «circuit-do-test» where
   root := `Tests.Drivers.CircuitDoTestMain
   supportInterpreter := true
 
+-- Width-parameterized sequential circuits: `#sim f [W := n]` JIT
+-- simulators at W = 3 / 17 / 65 checked cycle by cycle against
+-- `Signal.val`, plus `#synthesizeParameterizedVerilog` with registers.
+lean_exe «param-sim-test» where
+  root := `Tests.Drivers.ParamSimTestMain
+  supportInterpreter := true
+
 -- Sim + synth check for the HList-based generic `runCircuitH`
 -- — the sole register-DSL helper after the per-arity
 -- `runCircuit{1..4}` were removed.  Covers N=1..4 plus

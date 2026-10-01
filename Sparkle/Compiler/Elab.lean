@@ -742,6 +742,42 @@ def extractBitVecLiteral (expr : Lean.Expr) : CompilerM (Nat × Nat) := do
   | _ =>
     CompilerM.liftMetaM $ throwError s!"Expected BitVec literal, got: {expr}"
 
+/-- Register reset value.  In symbolic-width synthesis the literal's width is
+    a retained parameter (`0#W`), so only its value is read — structurally,
+    before `whnf` would bury it under `% 2^W`.  The concrete path is the
+    established `extractBitVecLiteral`. -/
+def extractRegisterInit (init : Lean.Expr) : CompilerM Nat := do
+  let state ← CompilerM.getCompilerState
+  if !state.symbolicMode then
+    return (← extractBitVecLiteral init).1
+  -- Reduce one step at a time (β/ι/projections, then one delta) and stop at
+  -- the literal constructor: `circuit do` passes the reset as a projection
+  -- of its init list, which a full `whnf` would reduce past `BitVec.ofNat`.
+  let isLiteralHead (e : Lean.Expr) : Bool :=
+    e.isAppOf ``BitVec.ofNat || e.isAppOf ``OfNat.ofNat
+  let init ← CompilerM.liftMetaM do
+    let mut e ← whnfCore (← instantiateMVars init)
+    for _ in [0:64] do
+      if isLiteralHead e then break
+      match ← unfoldDefinition? e with
+      | some e' => e ← whnfCore e'
+      | none => break
+    pure e
+  let fn := init.getAppFn
+  let args := init.getAppArgs
+  let value? : Option Lean.Expr := match fn with
+    | .const ``BitVec.ofNat _ => if args.size ≥ 2 then some args[1]! else none
+    | .const ``OfNat.ofNat _ => if args.size ≥ 2 then some args[1]! else none
+    | _ => none
+  match value? with
+  | some v =>
+    let n ← extractNat v
+    if n ≥ 2 ^ 31 then
+      CompilerM.liftMetaM $ throwError
+        s!"Parameterized register reset value {n} is too large (symbolic-width registers take reset values below 2^31)"
+    return n
+  | none => return (← extractBitVecLiteral init).1
+
 /-- Extract a Nat literal from an expression -/
 def extractNatLiteral (expr : Lean.Expr) : CompilerM (Nat × Unit) := do
   let n ← extractNat expr
@@ -2130,6 +2166,27 @@ mutual
         ✓ Signal.mux (cond : Signal d Bool) (ifTrue ifFalse : Signal d α) : Signal d α\n\n\
         See Tests/TestConditionals.lean for examples."
 
+  /-- Symbolic-width tuple projection: when the payload or the projected
+      component has a retained-parameter width, slice with `DimExpr` bounds
+      (`fst` = high bits, `snd` = low bits).  `none` on concrete widths,
+      which keep the established clamped-`Nat` lowering below. -/
+  partial def symbolicProjection? (isFst : Bool) (e s : Lean.Expr) (hint : String)
+      (isNamed : Bool) : CompilerM (Option String) := do
+    unless (← CompilerM.getCompilerState).symbolicMode do return none
+    let hwType ← inferHWTypeFromSignal (← cachedInferType e)
+    let sHWType ← inferHWTypeFromSignal (← cachedInferType s)
+    let width := hwType.bitWidthDim
+    let total := sHWType.bitWidthDim
+    if width.isConcrete && total.isConcrete then return none
+    let wireS ← translateExprToWire s "s" (isTopLevel := false)
+    let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
+    let one : DimExpr := .literal 1
+    let (hi, lo) :=
+      if isFst then (DimExpr.mkSub total one, DimExpr.mkSub total width)
+      else (DimExpr.mkSub width one, DimExpr.literal 0)
+    CompilerM.emitAssign resWire (makeSliceExpr (.ref wireS) hi lo)
+    return some resWire
+
   /-- Handle Signal.fst, Signal.snd, Signal.map Prod.fst/Prod.snd -/
   partial def handleTupleProjections (e : Lean.Expr) (name : Name) (args : Array Lean.Expr) (hint : String) (isNamed : Bool) : CompilerM (Option String) := do
     -- Fast-path: most callers of handleTupleProjections hit a
@@ -2149,6 +2206,7 @@ mutual
     if name == ``Sparkle.Core.Signal.Signal.fst && args.size >= 1 then
       trace[sparkle.compiler] "→ tuple projection (fst)"
       let s := args[args.size-1]!
+      if let some w ← symbolicProjection? true e s hint isNamed then return some w
       let wireS ← translateExprToWire s "s" (isTopLevel := false)
       -- Slice index calc: prefer the WIRE'S declared width.
       -- The expression-type-derived total can drift from the
@@ -2174,6 +2232,7 @@ mutual
     if name == ``Sparkle.Core.Signal.Signal.snd && args.size >= 1 then
       trace[sparkle.compiler] "→ tuple projection (snd)"
       let s := args[args.size-1]!
+      if let some w ← symbolicProjection? false e s hint isNamed then return some w
       let wireS ← translateExprToWire s "s" (isTopLevel := false)
       let wireWidth ← CompilerM.getWireWidth wireS
       let exprType ← cachedInferType e
@@ -2208,6 +2267,7 @@ mutual
       let fHead := f.getAppFn
       if fHead.isConstOf ``Prod.fst then
         trace[sparkle.compiler] "→ tuple projection (map fst)"
+        if let some w ← symbolicProjection? true e s hint isNamed then return some w
         let wireS ← translateExprToWire s "s" (isTopLevel := false)
         let wireWidth ← CompilerM.getWireWidth wireS
         let exprType ← cachedInferType e
@@ -2230,6 +2290,7 @@ mutual
         return some resWire
       if fHead.isConstOf ``Prod.snd then
         trace[sparkle.compiler] "→ tuple projection (map snd)"
+        if let some w ← symbolicProjection? false e s hint isNamed then return some w
         let wireS ← translateExprToWire s "s" (isTopLevel := false)
         let wireWidth ← CompilerM.getWireWidth wireS
         let exprType ← cachedInferType e
@@ -2470,7 +2531,7 @@ mutual
       trace[sparkle.compiler] "→ register"
       let init := args[args.size-2]!
       let input := args[args.size-1]!
-      let (initVal, _) ← extractBitVecLiteral init
+      let initVal ← extractRegisterInit init
       let inputWire ← translateExprToWire input "reg_input"
       let exprType ← CompilerM.liftMetaM (inferType e)
       let hwType ← inferHWTypeFromSignal exprType
@@ -2485,7 +2546,7 @@ mutual
       let init := args[args.size-3]!
       let en := args[args.size-2]!
       let input := args[args.size-1]!
-      let (initVal, _) ← extractBitVecLiteral init
+      let initVal ← extractRegisterInit init
       let enWire ← translateExprToWire en "reg_en"
       let inputWire ← translateExprToWire input "reg_input"
       let exprType ← CompilerM.liftMetaM (inferType e)
@@ -3891,10 +3952,10 @@ mutual
           )
           if symbolicMode then
             if module.body.any fun stmt => match stmt with
-                | .register .. | .memory .. | .inst .. => true
+                | .memory .. | .inst .. => true
                 | _ => false then
               throwError
-                "Native symbolic-width synthesis currently supports combinational modules only"
+                "Native symbolic-width synthesis supports registers but not memories or sub-module instances"
             for (parameterName, _) in parameters do
               if !module.parameters.any (fun parameter => parameter.name == parameterName) then
                 throwError
@@ -4038,6 +4099,7 @@ elab_rules : command
       Lean.resolveGlobalConstNoOverload id
     Lean.Elab.Command.liftTermElabM do
       let (module, _) ← synthesizeCombinationalWithParameters declName parameters
+      let module := Sparkle.IR.Optimize.eliminateZeroBitsSymbolic module
       let warnings := Sparkle.Compiler.DRC.checkRegisteredOutputs module
       for warning in warnings do
         Lean.logWarning m!"{warning}"
@@ -4336,16 +4398,27 @@ private def simLeanIdent (s : String) : String :=
     Generates:
       counter.Sim.SimInput, SimOutput, Simulator, load, jitCppPath
 -/
-elab "#sim" id:ident : command => do
+def simCommandCore (id : Ident) (parameters : Option (List (String × Nat))) :
+    CommandElabM Unit := do
   let declName ← Lean.Elab.Command.liftCoreM do
     Lean.resolveGlobalConstNoOverload id
   -- Phase 1: Synthesize + generate JIT C++ AND Verilog .sv (in TermElabM)
   let (ns, jitPath, svPath, topName, userInputs, outputs) ← Lean.Elab.Command.liftTermElabM do
-    let design ← synthesizeHierarchical declName
+    let design ← match parameters with
+      | none => synthesizeHierarchical declName
+      | some bindings => do
+        -- Retain the parameters during synthesis, then specialize the whole
+        -- design before the optimizer (which queries concrete bit widths).
+        let retained ← synthesizeHierarchicalWithParameters declName bindings
+        match Sparkle.IR.Specialize.specializeDesign retained bindings with
+        | .ok concrete => pure concrete
+        | .error message => throwError message
     let optimized := Sparkle.IR.Optimize.optimizeDesign design
     let jitC := Sparkle.Backend.CSim.toCJIT optimized
     let verilog := Sparkle.Backend.Verilog.toVerilogDesign optimized
-    let ns := simLeanIdent (toString declName.components.getLast!)
+    -- One namespace per configuration: `f [W := 17]` → `f_W17.Sim`.
+    let suffix := String.join ((parameters.getD []).map fun (k, v) => s!"_{k}{v}")
+    let ns := simLeanIdent (toString declName.components.getLast! ++ suffix)
     let jitPath := s!".lake/build/gen/sim/{ns}_jit.c"
     let svPath  := s!".lake/build/gen/sim/{ns}.sv"
     try
@@ -4390,9 +4463,20 @@ elab "#sim" id:ident : command => do
       outputs.map fun p => s!"  {simLeanIdent p.name} : BitVec {p.ty.bitWidth}"
     elabSimStr s!"structure SimOutput where\n{fields}\n  deriving Repr, BEq, Inhabited"
   elabSimStr "structure Simulator where\n  handle : JITHandle"
-  let inputsIdx := (List.range userInputs.length).zip userInputs
-  let setCalls := inputsIdx.map fun (idx, p) =>
-    s!"  JIT.setInput sim.handle {idx} i.{simLeanIdent p.name}.toNat.toUInt64"
+  -- Input slots mirror the C side's `emitSetInputSwitch`: a port wider than
+  -- 64 bits takes ⌈w/32⌉ consecutive 32-bit slots (low word first).
+  let (setCalls, _) := userInputs.foldl
+    (fun (acc : List String × Nat) (p : Port) =>
+      let w := p.ty.bitWidth
+      let nameId := simLeanIdent p.name
+      if w ≤ 64 then
+        (acc.1 ++ [s!"  JIT.setInput sim.handle {acc.2} i.{nameId}.toNat.toUInt64"], acc.2 + 1)
+      else
+        let nWords := (w + 31) / 32
+        let calls := (List.range nWords).map fun j =>
+          s!"  JIT.setInput sim.handle {acc.2 + j} ((i.{nameId}.toNat >>> {32 * j}) % 4294967296).toUInt64"
+        (acc.1 ++ calls, acc.2 + nWords))
+    ([], 0)
   let stepBody := String.intercalate "\n" setCalls
   elabSimStr s!"def Simulator.step (sim : Simulator) (i : SimInput) : IO Unit := do\n{stepBody}\n  JIT.evalTick sim.handle"
   -- For each output port: when the port width is > 64 bits,
@@ -4463,5 +4547,19 @@ elab "#sim" id:ident : command => do
     "    [" ++ inputPortSpecs ++ "]\n" ++
     "    [" ++ outputPortSpecs ++ "]"
   elabSimStr s!"end {ns}.Sim"
+
+elab "#sim" id:ident : command => simCommandCore id none
+
+/-- `#sim f [W := 17, …]` — the JIT simulator of one configuration of a
+    width-parameterized definition.  Generates `f_W17.Sim` (same API as
+    `#sim`), so several configurations can coexist. -/
+elab "#sim " id:ident " [" bindings:sparkleParameterBinding,* "]" : command => do
+  let mut parameters : List (String × Nat) := []
+  for binding in bindings.getElems do
+    match binding with
+    | `(sparkleParameterBinding| $name:ident := $value:num) =>
+      parameters := parameters ++ [(name.getId.toString, value.getNat)]
+    | _ => throwUnsupportedSyntax
+  simCommandCore id (some parameters)
 
 end Sparkle.Compiler.Elab

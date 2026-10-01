@@ -444,4 +444,45 @@ Three consequences worth internalising:
   covers every trace (Ch 6/7). `#sim` is for when you want to *watch*
   numbers go by, not to establish correctness.
 
+## 8b.11 Width-parameterized designs
+
+A definition that is generic in a width, `{W : Nat}`, is one circuit
+family. Synthesis can keep `W` as a Verilog parameter, and the JIT can
+simulate any concrete member of the family:
+
+```lean
+def accW {dom : DomainConfig} {W : Nat}
+    (x : Signal dom (BitVec W)) : Signal dom (BitVec W) :=
+  circuit do
+    let acc ← Signal.reg 0#W
+    acc <~ acc + x
+    return acc
+
+#synthesizeParameterizedVerilog accW [W := 8]
+```
+
+The Verilog module is `module … #(parameter integer W = 8)` with
+`logic [W-1:0]` ports and registers (the reset value is size-cast to
+`W`); `8` is only the default, so one module serves every instance width.
+
+For simulation, name the configuration:
+
+```text
+#sim accW [W := 17]    -- generates accW_W17.Sim
+#sim accW [W := 65]    -- generates accW_W65.Sim (ports wider than 64 bits work)
+
+#eval do
+  let sim ← accW_W17.Sim.load
+  sim.reset
+  sim.step { _gen_x := 5#17 }
+  IO.println (← sim.read).out    -- 0: `read` after `step` shows cycle 0
+```
+
+Each `#sim … [W := n]` specializes the retained design to `W = n` before
+optimizing and emitting C, so the JIT runs fixed-width code. The same
+flow backs `#writeParameterizedCppSimDesign` and
+`#writeParameterizedCudaDesign`. Memories and sub-module instances are not
+yet supported with a retained parameter; specialize those designs by
+writing a concrete wrapper (`def acc17 := accW (W := 17)`).
+
 end Notebooks.Ch08b

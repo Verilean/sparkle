@@ -299,9 +299,18 @@ def emitStmt (stmt : Stmt) (indent : String := "    ")
         s!"@(posedge {sanitizeName clock} or posedge {sanitizeName rstName})"
       | .synchronous =>
         s!"@(posedge {sanitizeName clock})"
+    -- A retained-parameter register (`logic [W-1:0]`) gets a size cast, so
+    -- the reset value is reduced modulo 2^W like `BitVec.ofNat W v`.
+    let resetLit := match wires.find? (fun p => p.name == output) with
+      | some p => match p.ty with
+        | .bitVectorDim d =>
+          if d.toNat?.isNone then s!"({emitDimExpr d})'({initValue})"
+          else emitExpr widthOf (.const initValue resetWidth)
+        | _ => emitExpr widthOf (.const initValue resetWidth)
+      | none => emitExpr widthOf (.const initValue resetWidth)
     s!"{indent}always_ff {sensitivity} begin\n" ++
     s!"{indent}    if ({sanitizeName rstName})\n" ++
-    s!"{indent}        {sanitizeName output} <= {emitExpr widthOf (.const initValue resetWidth)};\n" ++
+    s!"{indent}        {sanitizeName output} <= {resetLit};\n" ++
     s!"{indent}    else\n" ++
     s!"{indent}        {sanitizeName output} <= {emitExpr widthOf input};\n" ++
     s!"{indent}end"
@@ -378,12 +387,20 @@ def emitWireDecls (wires : List Port) (indent : String := "    ")
     let wireDecls := wires.map fun p =>
       match regInits.find? (·.1 == p.name) with
       | some (_, init) =>
-        let w := p.ty.bitWidth
-        let modulus : Int := (2 : Int) ^ w
-        let v := ((init % modulus) + modulus) % modulus
-        s!"{indent}{emitType p.ty} {sanitizeName p.name} = {w}'h{String.ofList (Nat.toDigits 16 v.toNat)};"
+        match p.ty with
+        | .bitVectorDim d =>
+          if d.toNat?.isNone then
+            s!"{indent}{emitType p.ty} {sanitizeName p.name} = ({emitDimExpr d})'({init});"
+          else emitConcreteInit indent p init
+        | _ => emitConcreteInit indent p init
       | none => s!"{indent}{emitType p.ty} {sanitizeName p.name};"
     String.intercalate "\n" wireDecls ++ "\n"
+where
+  emitConcreteInit (indent : String) (p : Port) (init : Int) : String :=
+    let w := p.ty.bitWidth
+    let modulus : Int := (2 : Int) ^ w
+    let v := ((init % modulus) + modulus) % modulus
+    s!"{indent}{emitType p.ty} {sanitizeName p.name} = {w}'h{String.ofList (Nat.toDigits 16 v.toNat)};"
 
 /-- Emit a SystemVerilog module parameter list. -/
 def emitParameterList (parameters : List Parameter) : String :=
