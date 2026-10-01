@@ -72,12 +72,11 @@ section SynthesisChecks
 -- Batch (Monte-Carlo) path: flat module → one .cu, N instances at run time.
 #writeCudaDesign lcg ".lake/build/gen/cuda/tutorial_lcg.cu"
 
--- Intra (systolic) path, DSL surface — BLOCKED by issue #120: the four
--- distinct-argument `pe` calls above silently collapse into ONE instance
--- (elaborator-level; Verilog path identical), so the directive would emit a
--- wrong single-PE design.  `mesh2x2` stays as the live repro; uncomment once
--- #120 is fixed:
--- #writeCudaIntraDesign mesh2x2 ".lake/build/gen/cuda/tutorial_mesh.cu"
+-- Intra (systolic) path, DSL surface: four distinct-argument `pe` calls are
+-- four instances (issue #120, fixed; `Tests/Compiler/MultiInstanceTest.lean`
+-- asserts the count).  Larger arrays: `systolic_grid%`, see
+-- `IP/Systolic/MatVec.lean`.
+#writeCudaIntraDesign mesh2x2 ".lake/build/gen/cuda/tutorial_mesh.cu"
 
 -- Intra path, IR surface (the tutorial's current recommendation): build the
 -- mesh as IR `.inst` statements — `Tests.TestCudaSim.systolicDesign` is the

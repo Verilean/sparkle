@@ -74,7 +74,8 @@ def main : IO Unit := do
   -- (emitted file, top struct, input words, output words)
   let designs : List (String × String × Nat × Nat) :=
     [ ("systolic_matvec4", "Sparkle_IP_Systolic_matVec4", 1, 4)
-    , ("systolic_matvec16", "Sparkle_IP_Systolic_matVec16", 4, 16) ]
+    , ("systolic_matvec16", "Sparkle_IP_Systolic_matVec16", 4, 16)
+    , ("systolic_matvec32", "Sparkle_IP_Systolic_matVec32", 8, 32) ]
   let mut sources : List (String × String) := []
   for (file, topC, inW, outW) in designs do
     let path := s!"{dir}/{file}.cu"

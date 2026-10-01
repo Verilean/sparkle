@@ -68,15 +68,19 @@ time. The `.cu` also passes a host `g++ -fsyntax-only` (nvcc-free).
   it stays flat or falls (barrier/occupancy dominates), Strategy 4 is not worth
   building and the batch backend is the right stopping point.
 
-## Results (fill in on a GPU box)
+## Results
 
-RTX/A100/… , `nvcc -O3`:
+RTX 4070 Ti, `nvcc -O3` (12.6), 3×10⁶ cycles, checksums equal:
 
 | N | PEs | CPU PE-upd/s | GPU PE-upd/s | GPU/CPU |
 |---|----:|---:|---:|---:|
-| 16 | 256 | 1.8e9 | _tbd_ | _tbd_ |
-| 32 | 1024 | 1.9e9 | _tbd_ | _tbd_ |
-| 64 | 4096 | 1.8e9 | (needs grid-sync) | — |
+| 16 | 256 | 2.1e9 | 2.9e9 | 1.3 |
+| 32 | 1024 | 2.3e9 | 5.4e9 | 2.4 |
+| 64 | 4096 | 1.9e9 | (needs grid-sync) | — |
+
+GPU throughput rises 1.9× from N=16 to N=32 while the CPU stays flat: the
+decision rule below is met. The kernel Sparkle now EMITS for the same kind
+of array is measured in `docs/CudaIntraSim-design.md` §10.
 
 **Decision rule**: if GPU PE-upd/s rises 16→32 and clears the CPU by a healthy
 margin at N=32, proceed to (1) grid-sync for N≥64, then (2) emit this kernel

@@ -18,9 +18,12 @@ machines cannot do.
 
 `bench/systolic/` measured the ceiling with hand-written kernels:
 
-- single block (`__syncthreads`, M ≤ 1024 PEs): ~5×10⁶ cyc/s, 2.6× CPU;
-- grid-sync (cooperative groups, any M): cyc/s pinned ~9×10⁵ by the barrier,
-  PE-throughput linear in M — 49× CPU at 65536 PEs.
+- single block (`__syncthreads`, M ≤ 1024 PEs): 5.3×10⁶ cyc/s at 1024 PEs,
+  2.4× CPU (re-measured, see `bench/systolic/README.md`);
+- grid-sync (cooperative groups, any M): reported as cyc/s pinned ~9×10⁵ by
+  the barrier and PE-throughput linear in M (49× CPU at 65536 PEs). That
+  variant is not in `bench/systolic/` and was not re-measured; §10 has the
+  grid numbers of the generated kernel.
 
 ## 2. The core problem: cross-instance timing
 
@@ -52,62 +55,76 @@ so are typical core banks (registered interconnect). Mealy boundaries
 (combinational paths *through* a module, e.g. a combinational ALU instance)
 need level-ordered evaluation — deferred to v2, see §7.
 
-## 3. The schedule: three phases, eval twice
+## 3. The schedule: two phases, eval twice
 
-The rework's key move. Instead of resolving each Moore output back to the
-register expression it aliases (which needs alias-chasing analysis and
-restricts outputs to plain `.ref reg` forms), **run eval twice** and let
-CSim's own output computation do the work:
+Each instance's outputs are Moore — a function of its registers alone — so
+they can be recomputed right after the clock edge, and consumers can fetch
+them in a separate phase:
 
 ```
+once per launch (prologue):
+  [one thread per instance]  eval            — outputs of the current state
+  barrier
+  [spread over threads]      every connection, constant and top-input slice
+  barrier
+
 per simulated cycle:
-  Phase A [one thread per instance]:  sparkle_<Mod>_eval(&inst)
-      — freshens every Moore output field from current register state.
+  Phase 1 [one thread per instance, own struct only]:
+      sparkle_<Mod>_eval_tick(&inst)   — clock edge, using the inputs pulled
+                                         in the previous phase 2
+      publish                          — the top outputs this instance drives
+      sparkle_<Mod>_eval(&inst)        — output fields of the NEW state
   barrier
-  Phase B [copies partitioned over threads]:  connection table
-      — consumer.input_field ← producer.output_field  (plain field copy)
-      — consumer.input_field ← top input field / constant
-      — thread 0: top output-port fields ← producer output fields
-  barrier
-  Phase C [one thread per instance]:  sparkle_<Mod>_eval_tick(&inst)
-      — re-evals with FRESH inputs (correct next-state), then latches.
+  Phase 2 [one thread per instance]:
+      pull                             — own input fields ← producers' output
+                                         fields
   barrier   (loop)
 ```
 
 **Why eval twice is sound.** CSim's `eval` is idempotent and register-pure:
 registers latch only in `tick` (`_next → current`), memory writes happen only
 in `tickBody`, and sync-read address latches are last-write-wins (verified
-against `CSim.lean`'s `.register`/`.memory` emission). Phase A's eval runs
-with stale inputs — its next-state results are garbage, but they live in
-`_next`/locals and are **overwritten** by Phase C's eval before any latch.
-Only its Moore-output fields are consumed (Phase B), and those depend only on
-registers, which Phase A cannot change.
+against `CSim.lean`'s `.register`/`.memory` emission). Phase 1's second eval
+runs with inputs that are one phase stale — its next-state results are
+garbage, but they live in `_next`/locals and are **recomputed** by the next
+cycle's `eval_tick` before anything latches. Only its Moore-output fields are
+consumed (phase 2), and those depend only on the registers just latched.
 
 **Cycle-exactness vs CSim (Moore-bounded case).** When instance B evals in
 CSim at cycle *c*, its input holds the producer's output computed at cycle *c*
-from registers latched at end of *c−1*. In this schedule, Phase B copies the
-producer's output field written by Phase A's eval — computed from the same
-registers (nothing latches between A and B). Phase C's eval then sees the
-identical input value. Top output ports are copied in Phase B from the same
-fresh output fields, matching CSim's post-eval observation timing.
+from registers latched at the end of *c−1*. Here, B's `eval_tick` at cycle *c*
+reads the input it pulled in phase 2 of cycle *c−1*, which is the producer's
+output field written by the producer's second eval of cycle *c−1* — computed
+from the registers latched at the end of *c−1*. The prologue establishes the
+same invariant for the first cycle of a launch. Top outputs are published
+between `eval_tick` and the second eval, i.e. they hold the values CSim's
+`eval_tick` leaves in the struct (the pre-edge evaluation).
 
-**Race-freedom.** Phase A: each thread writes only its own instance's fields.
-Phase B: every copy writes a distinct destination field (one connection per
-input port); reads touch output fields, which nothing writes in Phase B.
-Phase C: per-instance state only. Barriers separate the phases.
+**Race-freedom.** Phase 1: a thread writes only its own instance struct and
+the top-output bytes it owns (each top output byte has one producer); it reads
+nothing else. Phase 2: a thread writes only its own input fields (each has one
+writer) and reads other instances' output fields, which nobody writes in
+phase 2. Top inputs are read-only for the whole launch.
 
-**Cost.** One extra eval per cycle. In the barrier-dominated regime this is
-noise: the PoC's grid barrier costs ~1.1 µs/cycle while a PE eval is tens of
-ns. If a design ever becomes eval-dominated, the v2 fix is to split CSim's
-emission into `eval_outputs` / `eval_state` (another `funcQual`-style
-parameter), not to change this schedule.
+**What it costs, and what it saved.** Two barriers per cycle instead of the
+first version's three (eval / copy / eval_tick), and the copies moved from one
+table spread over all threads to per-instance lists. The second eval is ~12 %
+of the cycle on the MAC mesh; splitting CSim's emission into `eval_outputs` /
+`eval_state` would remove it (another `funcQual`-style parameter).
 
-**Rejected alternative** (for the record): 2-phase with Moore-alias
-resolution — Phase 1 copies `consumer.a_in = producer.a_reg` directly by
-chasing `a_out := a_reg` chains in the producer. One eval per cycle, one
-fewer barrier, but needs expression-inlining machinery and restricts
-cross-boundary outputs to register *aliases* (a computed Moore output like
-`a_reg + 1` fails). The eval-twice schedule lifts both at negligible cost.
+**Where the state lives.** The block kernel copies the whole top struct, and
+the pull/publish tables, into shared memory when they fit (the device's
+opt-in shared-memory limit), runs every cycle there, and copies the struct
+back. Per-thread constants (instance offset, kind, list ranges) are read from
+the tables once, before the cycle loop, and field copies are typed — a
+variable-length `memcpy` is a byte loop on the GPU. The grid kernel (more than
+1024 instances) runs on global memory.
+
+**Rejected alternative** (for the record): Moore-alias resolution — copy
+`consumer.a_in = producer.a_reg` directly by chasing `a_out := a_reg` chains
+in the producer. One eval per cycle, but needs expression-inlining machinery
+and restricts cross-boundary outputs to register *aliases* (a computed Moore
+output like `a_reg + 1` fails).
 
 ## 4. Scaling: data-driven tables, not giant switches
 
@@ -187,8 +204,9 @@ so a build-time generation failure is loud. Lives in a new
 | restriction | error names | workaround / v2 |
 |---|---|---|
 | Moore-bounded boundaries only | the connection + the comb path (output ← inputs) | register the output; v2 = levelization (§7) |
-| instance connections are `.ref` (top wire/port, chased transitively) or `.const` | the connection expr | materialize the expr in a top wire driven by a submodule; v2 = inline eval |
-| top module body: `.assign` (const/ref chains) + `.inst` only — no `.register`/`.memory`/comb logic at top | the offending Stmt | push it into a submodule |
+| an instance input is a `.ref` (top wire/port, chased transitively), a `.const`, or a slice of a TOP INPUT (≤ 64 bits; applied once per launch) | the connection expr | materialize the expr in a top wire driven by a submodule; v2 = inline eval |
+| a top output is one of those, or a (nested) concatenation of byte-aligned ones | the output and the element | pack it in a submodule |
+| top module body: `.assign` (const/ref chains, the slices and concatenations above) + `.inst` only — no `.register`/`.memory`/other comb logic at top | the offending Stmt | push it into a submodule |
 | combinational loop through connection chains | the cycle | — (always an error) |
 
 Notes:
@@ -241,27 +259,42 @@ All string-level; no new IR.
   `bench/systolic/`'s hand-written ceiling. Not in CI (needs nvcc + GPU);
   runs on the RTX 4070 Ti dev box, results recorded in the PR.
 
-## 10. v1 measured results (RTX 4070 Ti, sm_89, nvcc 12.6 `-O2 -rdc=true`)
+## 10. Measured results (RTX 4070 Ti, sm_89, nvcc 12.6 `-O2 -rdc=true`)
 
-Correctness: **cycle-exact vs the CSim CPU reference** on 2×2 and 16×16
-meshes — per-cycle comparison over 64 cycles AND a 64-cycle single launch,
-all outputs equal (`cuda-intra-cosim`, COSIM PASS).
+Correctness: **cycle-exact vs the CSim CPU reference** (`cuda-intra-cosim`,
+`systolic-cosim`; COSIM PASS) — per-cycle comparison over 64 single-cycle
+launches, then one 10⁶-cycle launch whose final outputs must match 10⁶
+reference cycles.
 
-Throughput (one launch, 100 000 cycles):
+Throughput, one launch of 10⁶ cycles; "CPU" is the serial CSim reference in
+the same file (one core):
 
-| design | PEs | emitted intra kernel | hand-written PoC (block) |
-|---|---:|---:|---:|
-| Mesh2x2 | 4 | 1.97e6 cyc/s | — |
-| Mesh16x16 | 256 | 3.66e5 cyc/s | ~1.1e7 cyc/s |
+| design | instances | kernel | CPU cyc/s | GPU cyc/s | GPU/CPU |
+|---|---:|---|---:|---:|---:|
+| IR mesh 16×16 (32-bit MAC) | 256 | block | 4.8e6 | 2.3e6 | 0.48 |
+| IR mesh 32×32 | 1024 | block | 8.3e5 | 1.08e6 | 1.30 |
+| IR mesh 64×64 | 4096 | grid | 1.8e5 | 3.4e5 | 1.90 |
+| `IP/Systolic` matVec16 (int8 MAC, DSL) | 256 | block | 9.5e5 | 1.12e6 | 1.18 |
+| `IP/Systolic` matVec32 | 1024 | block | 2.4e5 | 3.6e5 | 1.48 |
 
-The emitted v1 is well below the hand-written ceiling, for known reasons:
-state lives in **global** memory (the PoC staged it in shared), eval runs
-twice per cycle, and the generated eval functions do full struct-field
-traffic. These are optimizations on an unchanged schedule — shared-memory
-staging for blocks that fit, an `eval_outputs`/`eval_state` split in CSim's
-emission (another `funcQual`-style parameter), and copy-table coalescing —
-and none of them affect the correctness argument. v1's job was to prove the
-*generated* kernel semantics; the ceiling is known from `bench/systolic/`.
+The first version of the kernel (three barriers, state in global memory,
+table reads inside the cycle loop) ran the 16×16 IR mesh at 2.9e5 cyc/s; the
+current one is 7.7× that. The hand-written PoC (`bench/systolic/`, a PE
+reduced to two loads, a multiply-add and two stores) does 1.1e7 cyc/s at
+16×16 and 5.3e6 at 32×32: the generated code is ~5× below it because a CSim
+PE reads and writes every field of its struct (clk/rst masks, wire fields,
+`_next` copies) twice per cycle.
+
+Reading the table: the GPU pays a fixed per-cycle cost (two barriers) and
+wins by running instances concurrently, so the ratio grows with the instance
+count and with the work per instance. Below a few hundred small instances
+the serial CPU is faster.
+
+Not done: `eval_outputs`/`eval_state` split, Mealy boundaries (§7), slices of
+instance outputs and non-byte-aligned output concatenations at the top level,
+wide (> 64-bit) arithmetic in device code (CSim's statement-expression
+temporaries are not valid C++; wide concatenations and constants are
+respelled, see `CudaSim.cxxWideLiterals`).
 
 ## 11. Implementation order
 

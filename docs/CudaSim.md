@@ -220,7 +220,7 @@ systolic array whose top instantiates an N×N mesh of `PE` sub-modules:
 
 So poking the top's input ports and stepping the batch kernel drives the whole
 hierarchy. This is the emitter form of the hand-written kernels in
-`bench/systolic/` (which measured up to 49× vs CPU for a large array); it
+`bench/systolic/` (2.4× the CPU at 1024 PEs on an RTX 4070 Ti); it
 replaces #33's CppSim-class-model `CudaDesignStateStruct` path.
 
 ## Scope and follow-ups

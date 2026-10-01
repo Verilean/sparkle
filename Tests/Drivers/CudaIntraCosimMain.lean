@@ -169,7 +169,14 @@ def main : IO Unit := do
   let ldExtra := "/run/opengl-driver/lib"
   let ldPath := (← IO.getEnv "LD_LIBRARY_PATH").getD "" |> fun cur =>
     if cur.isEmpty then ldExtra else s!"{ldExtra}:{cur}"
-  for (path, n) in [(p2, 2), (p16, 16), (p32, 32)] do
+  -- SPARKLE_CUDA_BIG=1 adds 64×64 = 4096 instances: more than one block
+  -- holds, so it runs the cooperative GRID kernel (state in global memory,
+  -- grid-wide barrier).  Off by default: nvcc needs minutes for the 8 MB
+  -- hierarchical CPU reference in the same file.
+  let big ← if (← IO.getEnv "SPARKLE_CUDA_BIG") == some "1" then do
+      pure [((← emitOne 64 64 dir), 64)]
+    else pure []
+  for (path, n) in [(p2, 2), (p16, 16), (p32, 32)] ++ big do
     let bin := s!"{dir}/intra_cosim_{n}"
     let r ← IO.Process.output {
       cmd := "nvcc",

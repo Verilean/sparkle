@@ -46,6 +46,8 @@ section SynthesisChecks
 #synthesizeVerilogDesign matVec4
 #writeCudaIntraDesign matVec4 ".lake/build/gen/cuda/systolic_matvec4.cu"
 #writeCudaIntraDesign matVec16 ".lake/build/gen/cuda/systolic_matvec16.cu"
+set_option maxRecDepth 100000 in
+#writeCudaIntraDesign matVec32 ".lake/build/gen/cuda/systolic_matvec32.cu"
 end SynthesisChecks
 
 def check (label : String) (ok : Bool) (detail : String := "") : IO Bool := do

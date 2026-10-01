@@ -30,7 +30,10 @@
     C-1 in the most significant position.
 
   The substitution is textual (on the syntax tree), so the binder names
-  must not be shadowed inside the templates.
+  must not be shadowed inside the templates.  The expansion nests R·C
+  `let`s: beyond a few hundred cells, raise the elaborator's limit with
+  `set_option maxRecDepth 100000 in` on the definition (and on the
+  synthesis command that unfolds it).
 -/
 import Lean
 

@@ -78,6 +78,16 @@ def matVec16 {dom : DomainConfig} (a : Signal dom (BitVec 128)) : Signal dom (Bi
     (leftEdge i => activation a i)
     (topEdge j => Signal.pure 0#32)
 
+set_option maxRecDepth 100000 in
+/-- 32 × 32: 1024 PEs — the largest array one GPU thread block holds.
+    (1024 nested `let`s need a deeper elaborator recursion limit.) -/
+def matVec32 {dom : DomainConfig} (a : Signal dom (BitVec 256)) : Signal dom (BitVec 1024) :=
+  systolic_grid% 32 32
+    (cell i j left up => pe left up (Signal.pure (weight i j)))
+    (right := aOut) (down := pOut)
+    (leftEdge i => activation a i)
+    (topEdge j => Signal.pure 0#32)
+
 /-! ### Reference -/
 
 /-- Activation `i` of a packed vector, as a signed integer. -/

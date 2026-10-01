@@ -9,7 +9,7 @@ picking the right one matters more than any flag:
 | unit of parallelism | one **design instance** per GPU thread | one **sub-module instance** (PE, core) per thread |
 | makes faster | N independent runs: Monte-Carlo, fuzzing, test-vector sweeps | ONE big design: a systolic array, a core bank |
 | could you buy it with more machines? | yes — this is throughput | **no** — this is single-run latency/scale |
-| measured (RTX 4070 Ti) | 10–11× vs single-thread CPU JIT | PE-throughput linear in PE count; 49× CPU at 65k PEs |
+| measured (RTX 4070 Ti) | 10–11× vs single-thread CPU JIT | grows with the design: 0.5× the CPU at 256 PEs, 1.3× at 1024, 1.9× at 4096 (generated kernel, small MAC cell) |
 | requirements | `nvcc` | `nvcc -rdc=true`, Moore-bounded module boundaries |
 
 Everything here is opt-in: no GPU or `nvcc` is needed to *emit* the `.cu`
@@ -78,9 +78,41 @@ connection must tap a register-backed output, never a combinational path
 through a PE. Systolic arrays satisfy this by construction, and a violation
 is rejected *at build time* with the offending connection named.
 
-### The mesh, today: IR surface
+### The mesh in the DSL: `systolic_grid%`
 
-Build the top as explicit IR instances. This is ~20 lines for an N×N
+A PE is a `@[hardware_module]` returning a record of its outputs; the array
+is one call per PE. `systolic_grid%` writes those calls for an R × C array —
+each cell wired to its left and upper neighbour — and returns the bottom
+row concatenated (`IP/Systolic/MatVec.lean` is this example in full):
+
+```lean
+@[hardware_module] def pe {dom} (aIn : Signal dom (BitVec 8))
+    (pIn : Signal dom (BitVec 32)) (w : Signal dom (BitVec 8)) : PeOut dom := …
+
+def matVec16 {dom} (a : Signal dom (BitVec 128)) : Signal dom (BitVec 512) :=
+  systolic_grid% 16 16
+    (cell i j left up => pe left up (Signal.pure (weight i j)))
+    (right := aOut) (down := pOut)
+    (leftEdge i => activation a i)      -- bits [8i+7 : 8i] of the input
+    (topEdge j => Signal.pure 0#32)
+
+#writeCudaIntraDesign matVec16 "gen/matvec16.cu"
+```
+
+`i` and `j` become numerals, so `weight i j` is a constant per PE. The
+packed input is sliced per row and the results are concatenated at the top
+level; the intra backend accepts exactly those two forms of top-level logic
+(slices of top inputs, byte-aligned concatenations of instance outputs).
+Calls with identical arguments are one instance, so every PE needs
+something that distinguishes it — here its neighbours and its weight.
+
+`lake exe systolic-test` checks that the array settles to y = Wᵀ·a;
+`SPARKLE_CUDA=1 lake exe systolic-cosim` runs the emitted kernels against
+the CPU reference on a GPU.
+
+### The mesh as IR
+
+The top can also be built as explicit IR instances — ~20 lines for an N×N
 generator (see `Tests/Drivers/CudaIntraCosimMain.lean` for the parametric
 version; `Tests/TestCudaSim.lean` has the literal 2×2):
 
@@ -114,34 +146,15 @@ unsigned r0 = jit_cuda_get_output(h, 0, 0);  // bottom-row results
 else a cooperative grid launch (any size — this is what scales to
 1000+-PE accelerators; needs a cooperative-launch-capable GPU).
 
-### The mesh, intended: DSL surface (blocked by #120)
-
-The DSL form — a small `@[hardware_module]` PE returning a named-output
-record, `let`-wired into a mesh — is how this chapter *wants* to read:
-
-```lean
-@[hardware_module] def pe {dom} (aIn pIn w : Signal dom (BitVec 32)) : PeOut dom := …
-def mesh2x2 … :=
-  let pe00 := pe a0        zero      w00
-  let pe01 := pe pe00.aOut zero      w01
-  …
-#writeCudaIntraDesign mesh2x2 "gen/mesh.cu"
-```
-
-**Do not use this yet**: issue #120 — distinct-argument calls of the same
-`@[hardware_module]` currently collapse into one instance, silently, in
-every backend (the intra backend's `intra_M` count is how it was caught).
-The code lives in `Tests/CudaTutorialTest.lean` as the tracked repro; this
-section flips to the DSL form when #120 is fixed.
-
 ## 13.3 Verifying what you got
 
 Three habits, all cheap:
 
 1. **Count instances**: `grep intra_M gen/mesh.cu` must equal your PE count.
-2. **Co-simulate**: `SPARKLE_CUDA=1 lake exe cuda-intra-cosim` runs the
-   emitted kernel cycle-by-cycle against the CPU reference (the
-   `__host__ __device__` functions *are* CSim) and fails on any divergence.
+2. **Co-simulate**: `SPARKLE_CUDA=1 lake exe cuda-intra-cosim` (IR meshes)
+   and `lake exe systolic-cosim` (the DSL array) run the emitted kernel
+   cycle-by-cycle against the CPU reference (the `__host__ __device__`
+   functions *are* CSim), fail on any divergence, and print both rates.
 3. **No GPU?** `lake exe cuda-sim-test` host-syntax-checks the emitted CUDA
    with stubs — catches emitter regressions in ordinary CI.
 
@@ -161,7 +174,9 @@ Three habits, all cheap:
 - *"I want a million runs with different inputs"* → batch. Cheap, scales
   with money.
 - *"My one design has a thousand PEs and simulation is the bottleneck"* →
-  intra. This is the axis money can't buy — measured linear PE-throughput
-  scaling, 49× a CPU core at 65k PEs.
+  intra. This is the axis money can't buy. Expect a win from roughly a
+  thousand instances up (1.3× at 1024, 1.9× at 4096 for a small MAC cell;
+  more as the cell gets heavier); below a few hundred small instances the
+  CPU is faster.
 - *"Both"* → they share one `.so`; batch across instances of a design whose
   single-instance rate the intra scheduler sets is a v2 combination.
