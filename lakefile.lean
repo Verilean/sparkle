@@ -455,6 +455,12 @@ lean_lib «Tools.ShippingMemoryEntrySoundness» where
 lean_lib «Tools.ShippingHierarchySoundness» where
   roots := #[`Tools.ShippingHierarchySoundness]
 
+lean_lib «Tools.ShippingHierOpen» where
+  roots := #[`Tools.ShippingHierOpen]
+
+lean_lib «Tools.ShippingHierSVSoundness» where
+  roots := #[`Tools.ShippingHierSVSoundness]
+
 lean_lib «Tools.ShippingLinkCtx» where
   roots := #[`Tools.ShippingLinkCtx]
 

@@ -136,6 +136,17 @@ need two further boundary predicates, mirroring `EnvDefines`:
   `InstsLinked`). What remains trusted is that the checked widths are
   the widths the SV printer declares — the declared port/wire types
   the check reads are the same `Module` fields the printer emits.
+- (LANDED, hierarchy at the SV layer) The printed-text statements for
+  hierarchical parents are stated in the open-module view under the
+  ORACLE SEEDING: instance-output wires carry the values the linked
+  semantics gives them, and `Consistent` says those values are each
+  child's evaluation on what its instance reads. What is trusted is
+  therefore unchanged from the flat layers (the SV semantics of the
+  assign fragment, the parser) plus §5's reading of an instantiation
+  as "outputs equal the child's function of the connected inputs" —
+  now used in its order-free form (`Consistent`), not only as the
+  sequential fold `evalAssignsH`. The optimizer on instance-bearing
+  modules is NOT covered: `checkedOptimize` does not check there.
 - (LANDED) The projection arm's boundaries
   (Tools/ShippingInstanceEntrySoundness.lean), for a parent
   `field (child args…)` over a multi-output child:

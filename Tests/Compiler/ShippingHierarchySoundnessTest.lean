@@ -1,6 +1,7 @@
 import Tools.ShippingHierarchySoundness
 import Tools.ShippingInstanceEntrySoundness
 import Tools.ShippingHierTermSoundness
+import Tools.ShippingHierSVSoundness
 import Tools.ShippingRegisterSoundness
 import Sparkle.Compiler.Elab
 
@@ -20,6 +21,7 @@ open Tools.ShippingUnifiedSource
 open Tools.ShippingRegisterSoundness (registerE)
 open Tools.ShippingUnifiedMeaning Tools.ShippingUnifiedRecursion
 open Tools.ShippingLinkCtx Tools.ShippingInstanceLeaf Tools.ShippingHierTermSoundness
+open Tools.ShippingHierOpen Tools.ShippingHierSVSoundness
 
 @[hardware_module] def childAdd {dom : DomainConfig}
     (x y : Signal dom (BitVec 8)) : Signal dom (BitVec 8) := x + y
@@ -956,6 +958,124 @@ theorem parentMix_entry_observes {mctx : Meta.Context}
   rw [BitVec.ofNat_toNat, BitVec.setWidth_eq]
   rfl
 
+
+/-- The pinned child's output fits its port, on any environment. -/
+theorem childAdd_outsBounded (mems : MEnv) :
+    ChildOutsBounded (childrenOf childModule.name) mems := by
+  intro mn child cwe hc envIn cres hrun p hp
+  have hc' : (if mn = childModule.name then some (childModule, childWe) else none) =
+      some (child, cwe) := hc
+  split at hc'
+  · cases hc'
+    have hfull : evalAssigns childWe mems childModule.body envIn = some (fun n =>
+        if n = "out" then mask 8 (envIn "_gen_x" + envIn "_gen_y")
+        else if n = "_gen_out" then mask 8 (envIn "_gen_x" + envIn "_gen_y")
+        else envIn n) := rfl
+    rw [hfull] at hrun
+    cases hrun
+    have hp' : p ∈ [({ name := "out", ty := .bitVector 8 } : Sparkle.IR.AST.Port)] := hp
+    rcases List.mem_cons.mp hp' with rfl | hp'
+    · show mask 8 (envIn "_gen_x" + envIn "_gen_y") < 2 ^ 8
+      exact Nat.mod_lt _ (by decide)
+    · cases hp'
+  · cases hc'
+
+open Sparkle.IR.RegDedup (declWidth) in
+/-- **The hierarchical shipping capstone**: ONE statement from the real
+compile of `childAdd a b + a` to the printed text. Under the entry
+boundaries and the pipeline's decidable gates, the LINKED source value is
+observed at `out` by the emitted Verilog's semantics AND by the module
+parsed back from the printed bytes — both run from the oracle seeding in
+which the instance-output wire carries the child's value, and that value is
+the pinned child's evaluation on what the instance reads (`Consistent`). -/
+theorem parentMix_shipping {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {d : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore ``parentMix [] false)
+      mctx mref cctx cref w (m, d) w')
+    (env : EnvDefines mctx mref cctx cref ``parentMix parentMixValue)
+    (tag : ∀ wE e wE', RunsTo (Lean.getEnv : MetaM Environment)
+      mctx mref cctx cref wE e wE' →
+      Sparkle.Compiler.isHardwareModule e ``childAdd = true)
+    (hscalar : ∀ dv : Lean.DefinitionVal, dv.value = parentMixValue →
+      mixedGateResultScalar dv.type = true)
+    {dc : Sparkle.IR.AST.Design}
+    (htagAll : HardwareTagged ``childAdd)
+    (hsub : SubSynthDefinesAll ``childAdd childModule dc)
+    (hdc : dc.modules = [])
+    {body' bimg : List Sparkle.IR.AST.Stmt}
+    (hcomb : m.body.all combStmtI = true)
+    (hwf : linkedWF (childrenOf childModule.name) m.body = true)
+    (hsv : Tools.SVParser.EmitSem.seqCheck (Tools.SVParser.RoundtripProof.moduleWof m)
+      (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof m)) m.body = true)
+    (hwag : ((Tools.ShippingSeqSVSoundness.seqNames m.body).all (fun n =>
+      declWidth m n == Tools.SVParser.EmitSem.weOf
+        (Tools.SVParser.RoundtripProof.moduleWof m) n)) = true)
+    (hwag0 : ((Tools.ShippingSeqSVSoundness.seqNames m.body).all (fun n =>
+      Tools.ShippingMixedEntrySoundness.moduleWidths m n == declWidth m n)) = true)
+    (hok' : body'.all seqStmtOkI = true)
+    (hcert : Tools.SVParser.RoundtripProof.semFragCheck m = true)
+    (hI : Tools.SVParser.RoundtripProof.bodyImage
+      (Tools.SVParser.RoundtripProof.moduleWof m) m.wires m.body = some bimg)
+    (hchkR : Tools.SVParser.RoundtripProof.bodyReorderCheck body' bimg = true)
+    (houtW : instOutWidthsOk (childrenOf childModule.name)
+      (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof m)) m.body = true) :
+    ∃ (i0 i1 i2 : FVarId) (cache : IO.Ref (Lean.ExprStructMap String)),
+    ∀ (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n)
+      (initial : Env) {D : DomainConfig}
+      (aS bS : Signal D (BitVec 8)) (t : Nat) (mems : MEnv),
+    let a := Tools.ShippingMixedEntrySoundness.start
+      (entryCompilerState false cache) (``parentMix).toString
+    let p := Tools.ShippingMixedEntrySoundness.prepare bools bits
+      (parentMixBinders.zip [i0, i1, i2]) a
+    Tools.ShippingMixedEntrySoundness.Admissible bools bits initial
+      (parentMixBinders.zip [i0, i1, i2]) a →
+    p.bits i1 = some ⟨8, aS.val t⟩ → p.bits i2 = some ⟨8, bS.val t⟩ →
+    Bounded (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof m))
+      initial →
+    ∃ result,
+      (∃ pairs regs mprog,
+        Tools.SVParser.EmitSem.emitAssigns
+          (Tools.SVParser.RoundtripProof.moduleWof m) m.body = some pairs ∧
+        Tools.SVParser.EmitSem.emitRegs
+          (Tools.SVParser.RoundtripProof.moduleWof m) m.body = some regs ∧
+        Tools.SVParser.EmitSem.emitMemWrites
+          (Tools.SVParser.RoundtripProof.moduleWof m) m.body = some mprog ∧
+        Tools.SVParser.EmitSem.runModuleSV
+          (Tools.SVParser.RoundtripProof.moduleWof m) pairs regs mprog
+          (Tools.ShippingSeqOptSoundness.seedIn m (fun _ =>
+            seedOuts (childrenOf childModule.name) m.body result initial)) 1
+          (seedOuts (childrenOf childModule.name) m.body result initial) mems =
+            some [result]) ∧
+      runModule (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof m))
+        body' (Tools.ShippingSeqOptSoundness.seedIn m (fun _ =>
+          seedOuts (childrenOf childModule.name) m.body result initial)) 1
+        (seedOuts (childrenOf childModule.name) m.body result initial) mems =
+          some [result] ∧
+      Consistent (childrenOf childModule.name) mems m.body result ∧
+      result "out" = ((parentMix aS bS).val t).toNat := by
+  obtain ⟨i0, i1, i2, cache, H⟩ :=
+    parentMix_entry_observes hr env tag hscalar htagAll hsub hdc
+  refine ⟨i0, i1, i2, cache, ?_⟩
+  intro bools bits initial D aS bS t mems a p adm ha0 hb0 hinit
+  obtain ⟨⟨result, hev, hout⟩, -⟩ := H bools bits initial aS bS t mems adm ha0 hb0
+  have hwag' : ∀ n ∈ Tools.ShippingSeqSVSoundness.seqNames m.body,
+      declWidth m n = Tools.SVParser.EmitSem.weOf
+        (Tools.SVParser.RoundtripProof.moduleWof m) n := by
+    intro n hn
+    have := List.all_eq_true.mp hwag n hn
+    simpa using this
+  have hwag0' : ∀ n ∈ Tools.ShippingSeqSVSoundness.seqNames m.body,
+      Tools.ShippingMixedEntrySoundness.moduleWidths m n = declWidth m n := by
+    intro n hn
+    have := List.all_eq_true.mp hwag0 n hn
+    simpa using this
+  obtain ⟨hsvRun, hparsed, hcons⟩ := hier_pipeline_transfer_bounded (m := m) (o := m)
+    hcomb hwf hsv hwag' hok' hcert hI hchkR houtW hwag0' (childAdd_outsBounded mems)
+    hev hinit
+  exact ⟨result, hsvRun, hparsed, hcons, hout⟩
+
 /-! A module PIPELINE: an instance call whose operand is an instance call. -/
 
 #def_decl_value parentNestedValue of parentNested
@@ -1382,6 +1502,56 @@ run_cmd liftTermElabM do
     catch _ => pure true
   unless refused do
     throwError "a width-generic child instantiated at another width was not refused"
+  -- THE HIERARCHICAL CAPSTONE GATES hold on the real compile of parentMix:
+  -- the body is combinational instance-bearing and linked-well-formed, the
+  -- emitted-SV check accepts it, the width environments agree, and the text
+  -- the shipping printer emits parses back to a body passing the reorder
+  -- check against the statement image.
+  let (mcap, _) ← synthesizeCombinationalCore ``parentMix [] false
+  let wofC := Tools.SVParser.RoundtripProof.moduleWof mcap
+  unless mcap.body.all combStmtI do
+    throwError "parentMix body left the combinational instance-bearing fragment"
+  unless linkedWF (childrenOf childModule.name) mcap.body do
+    throwError "parentMix body is not linked-well-formed"
+  unless Tools.SVParser.EmitSem.seqCheck wofC (Tools.SVParser.EmitSem.weOf wofC) mcap.body do
+    throwError "seqCheck rejected the hierarchical parent"
+  unless (Tools.ShippingSeqSVSoundness.seqNames mcap.body).all (fun n =>
+      Sparkle.IR.RegDedup.declWidth mcap n == Tools.SVParser.EmitSem.weOf wofC n) do
+    throwError "checker/emitter widths disagree on the hierarchical parent"
+  unless (Tools.ShippingSeqSVSoundness.seqNames mcap.body).all (fun n =>
+      Tools.ShippingMixedEntrySoundness.moduleWidths mcap n ==
+        Sparkle.IR.RegDedup.declWidth mcap n) do
+    throwError "entry/checker widths disagree on the hierarchical parent"
+  unless instOutWidthsOk (childrenOf childModule.name)
+      (Tools.SVParser.EmitSem.weOf wofC) mcap.body do
+    throwError "an instance-output wire is not declared at its port's width"
+  unless Tools.SVParser.RoundtripProof.semFragCheck mcap do
+    throwError "semFragCheck rejected the hierarchical parent"
+  let some bimgC := Tools.SVParser.RoundtripProof.bodyImage wofC mcap.wires mcap.body |
+    throwError "bodyImage failed on the hierarchical parent"
+  -- The reader is the shipping parser and lowering WITHOUT the reader-side
+  -- optimizer: the text checked here is the core module's own print. (The
+  -- `#synthesizeVerilog` text is the print of `checkedOptimize m`, which on
+  -- instance-bearing modules is the UNCHECKED optimizer output; validating
+  -- the optimizer on such modules is the open step of the hierarchy
+  -- post-pipeline.)
+  let .ok dC := Tools.SVParser.Lower.parseAndLower
+      (Sparkle.Backend.Verilog.emitModule mcap) |
+    throwError "the printed hierarchical parent failed to parse back"
+  let bodyC := dC.modules.foldl
+    (fun acc (lm : Sparkle.IR.AST.Module) => acc ++ lm.body) []
+  unless Tools.SVParser.RoundtripProof.bodyReorderCheck bodyC bimgC do
+    throwError "the parsed-back hierarchical parent failed the reorder check"
+  unless bodyC.all seqStmtOkI do
+    throwError "the parsed-back hierarchical parent left the instance-bearing fragment"
+  unless (bodyC.filter (fun st => match st with | .inst .. => true | _ => false)).length == 1 do
+    throwError "the parsed-back parent does not hold exactly one instance statement"
+  -- The full shipping entry (cleanup + merge) leaves the hierarchical parent
+  -- unchanged: the capstone's module IS the full entry's output.
+  let (mcapFull, _) ← synthesizeCombinational ``parentMix
+  unless decide (mcapFull.body = mcap.body) && mcapFull.wires == mcap.wires &&
+      mcapFull.inputs == mcap.inputs && mcapFull.outputs == mcap.outputs do
+    throwError "the full entry's output departed from the core module for parentMix"
   -- 12-cycle SEQUENTIAL linked regression: the real parentSeq/childSeq
   -- pair, driven through `runH`, shows the register-delay behaviour on
   -- `out` (init 0, out_{j+1} = in_j), with the child's state threaded
@@ -1472,6 +1642,14 @@ run_cmd liftTermElabM do
       ``Tools.ShippingHierTermSoundness.hier_instRoot_gate,
       ``Tools.ShippingHierTermSoundness.hierRoot_entry_of_env,
       ``parentNested_peel, ``parentNested_entry_observes,
+      ``Tools.ShippingHierOpen.linked_open,
+      ``Tools.ShippingHierOpen.linked_consistent,
+      ``Tools.ShippingHierOpen.seedOuts_bounded,
+      ``Tools.ShippingHierSVSoundness.seq_run_to_svI,
+      ``Tools.ShippingHierSVSoundness.seq_run_to_parsedI,
+      ``Tools.ShippingHierSVSoundness.hier_pipeline_transfer,
+      ``Tools.ShippingHierSVSoundness.hier_pipeline_transfer_bounded,
+      ``childAdd_outsBounded, ``parentMix_shipping,
       ``Tools.ShippingHierarchySoundness.instBody_runH, ``childSeq_run,
       ``parentSeq_runH_observes,
       ``parentUse_linked] do

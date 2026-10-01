@@ -608,8 +608,39 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   symbolic widths) refuses instances altogether, so no instance ever
   carries a parameter binding; per-call-site SPECIALIZATION of
   width-generic children (which would turn the refusal into a
-  correct compile) is not implemented. Open in S6: call operands
-  that are general cones
+  correct compile) is not implemented. THE SV/TEXT LAYER FOR
+  HIERARCHY (S6-5) is connected through a bridge instead of a new SV
+  semantics: the open-module layers already accept instance
+  statements (an instance is a no-op, its outputs free inputs), so
+  Tools/ShippingHierOpen.lean proves that a LINKED run is the open
+  run from the oracle seeding — instance-output wires pre-seeded with
+  their final values (`linked_open`) — and that the seeded values are
+  the children's evaluations on what each instance reads
+  (`linked_consistent`, `Consistent`), under the decidable body
+  check `linkedWF`; `seedOuts_bounded` derives the seeding's width
+  bound from the children's output bounds (`ChildOutsBounded`) and
+  the gate `instOutWidthsOk`. Tools/ShippingHierSVSoundness.lean
+  restates the emitted-SV and parsed-text transfers over the
+  instance-bearing fragment `seqStmtOkI` (`seq_run_to_svI`,
+  `seq_run_to_parsedI`, generated from the assign/register versions
+  with the instance cases filled in) and composes them:
+  `hier_pipeline_transfer(_bounded)` — the linked evaluation of a
+  combinational instance-bearing module is observed by the emitted
+  Verilog's semantics and by the module parsed back from the printed
+  bytes, with `Consistent`. `parentMix_shipping` is the capstone on
+  the real compile (gates suite-checked on the real module; the full
+  entry is the identity on it). HONEST LIMIT (S6-6, open): the
+  capstone's text is the CORE module's own print read back by the
+  parser and lowering without the reader-side optimizer. The
+  shipping text is the print of `checkedOptimize m`, and on
+  instance-bearing modules `checkedOptimize` returns the UNCHECKED
+  optimizer output (it inlines `_gen_out` in `parentMix`); the
+  optimizer's validation on instance-bearing modules — e.g. by
+  extracting each instance's interface into pseudo ports and reusing
+  `optCheck` — is the remaining step of the hierarchy post-pipeline,
+  together with sequential children in the bridge (`runH`) and the
+  design-level text (children printed alongside the parent). Open in
+  S6: call operands that are general cones
   (`childAdd (a + b) b` — the leaf contract takes any operand
   contract, the gate spine does not yet), sequential/Bool-output/
   multi-output children as cone leaves (gate-accepted and

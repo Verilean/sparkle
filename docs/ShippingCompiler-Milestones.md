@@ -328,7 +328,11 @@ leaf contract is proved (`inst_leaf_contract`), and the entry endpoint
 (`parentMix_entry_observes`), as is a pipeline of calls
 (`parentNested_entry_observes`). Port/width linkage is checked at
 emission and concluded in the contracts (`Linked`, `InstsLinked`); the
-check closed a miscompile of width-generic children. Cone operands of calls, sequential
+check closed a miscompile of width-generic children. The SV and
+parsed-text layers reach hierarchical parents through the linked/open
+bridge (`linked_open`, `linked_consistent`, `hier_pipeline_transfer`,
+capstone `parentMix_shipping`); the optimizer on instance-bearing
+modules is not yet validated. Cone operands of calls, sequential
 children as cone leaves, design registration, parameters and the SV
 layer remain. S7 is STARTED:
 `ShippingPreserves`/`synthesizeCombinationalCore_shipping_sound`
