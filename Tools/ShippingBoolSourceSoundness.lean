@@ -285,7 +285,7 @@ theorem translateFallback_bool (rec : TranslateFn) (e : Lean.Expr) (hint : Strin
     translateFallback rec e hint top named = translateControlCachedWith
       (translateBoolUncachedWith rec
         (fun e h t n => Rec.translateExprToWireImpl (fun e h t n => rec e h t n) e h t n))
-      e hint top named := by simp [translateFallback, he]
+      e hint top named := by simp [translateFallback, fallbackKind, he]
 
 /-- The old arithmetic quotation theorem without its uniform entry telescope,
 so it can be used under mixed Bool/BitVec input binders. -/

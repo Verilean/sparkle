@@ -703,15 +703,7 @@ theorem inst_leaf_fuel {ctx : CompilerState}
     {outName : String} {wOut : Nat}
     (hpure : (mn == ``Sparkle.Core.Signal.Signal.pure) = false)
     (hbin : signalBinOpOf mn = none)
-    (hctrl : isBoolControl (instEN mn lvls dom argsE) = false)
-    (hmux : canonicalMuxType? (instEN mn lvls dom argsE) = none)
-    (hsetw : canonicalSetWidth? (instEN mn lvls dom argsE) = none)
-    (hreg : canonicalRegister? (instEN mn lvls dom argsE) = none)
-    (hregEn : canonicalRegisterEnable? (instEN mn lvls dom argsE) = none)
-    (hloopR : canonicalLoopRegister? (instEN mn lvls dom argsE) = none)
-    (hcdo : canonicalCircuitDo? (instEN mn lvls dom argsE) = none)
-    (hcdo2 : canonicalCircuitDo2? (instEN mn lvls dom argsE) = none)
-    (hmem : canonicalMemory? (instEN mn lvls dom argsE) = none)
+    (hkind : fallbackKind (instEN mn lvls dom argsE) = .other)
     (hview : view (instEN mn lvls dom argsE) = none)
     (htag : HardwareTagged mn) (hsub : SubSynthDefinesAll mn mc dc)
     (hdc : dc.modules = [])
@@ -740,7 +732,7 @@ theorem inst_leaf_fuel {ctx : CompilerState}
       _ _ _ _ _ _ _
     exact inst_leaf_contract
       (fun hint top named => instanceN_step _ mn lvls dom argsE hint top named hpure hbin
-        hctrl hmux hsetw hreg hregEn hloopR hcdo hcdo2 hmem)
+        hkind)
       htag (fun r hr => hsub fuel r hr) hdc hnoclk hnodup houts houtFresh hlen hlenV
       (fun k hk hk' => hargs k hk hk' fuel)
       (meaning_inst hview hlenV hargsM hsem) hsem hwidth hchild hcorrect

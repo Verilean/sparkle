@@ -158,7 +158,7 @@ theorem register_step (rec : TranslateFn) (dom ae : Lean.Expr) (w v : Nat)
     simp [translateStepWith, shape, core]
     rfl
   rw [step]
-  simp only [translateFallback, control, Bool.false_eq_true, if_false, mux, setw, reg]
+  simp only [translateFallback, fallbackKind, control, Bool.false_eq_true, if_false, mux, setw, reg]
 
 /-! ## Non-interference helpers -/
 
@@ -811,7 +811,7 @@ theorem registerEnable_step (rec : TranslateFn) (dom en ae : Lean.Expr) (w v : N
     simp [translateStepWith, shape, core]
     rfl
   rw [step]
-  simp only [translateFallback, control, Bool.false_eq_true, if_false, mux, setw, reg, regEn]
+  simp only [translateFallback, fallbackKind, control, Bool.false_eq_true, if_false, mux, setw, reg, regEn]
 
 /-- One `stepModule` cycle of the compiled enabled-register module: `out`
 observes the current register value, and the register updates to the input
@@ -1424,7 +1424,7 @@ theorem loopRegister_step (rec : TranslateFn) (domO domI inst cone : Lean.Expr) 
     simp [translateStepWith, shape, core]
     rfl
   rw [step]
-  simp only [translateFallback, control, Bool.false_eq_true, if_false, mux, setw, reg,
+  simp only [translateFallback, fallbackKind, control, Bool.false_eq_true, if_false, mux, setw, reg,
     regEn, loopReg]
 
 theorem fvarId_name_inj {a b : FVarId} (h : a.name = b.name) : a = b := by
@@ -3982,7 +3982,7 @@ theorem cdo_step (rec : TranslateFn) {nmR : Name} {dom0 dom1 dom2 dom3 rhs cone 
     simp [translateStepWith, shape, core]
     rfl
   rw [step]
-  simp only [translateFallback, control, Bool.false_eq_true, if_false, mux, setw, reg,
+  simp only [translateFallback, fallbackKind, control, Bool.false_eq_true, if_false, mux, setw, reg,
     regEn, loopReg, cdo]
 
 theorem unifiedRegisterRoot_cdoE {kinds : Array MixedGateBinder}
@@ -5378,7 +5378,7 @@ theorem cdo2_step (rec : TranslateFn) {nmX nmY : Name}
     simp [translateStepWith, shape, core]
     rfl
   rw [step]
-  simp only [translateFallback, control, Bool.false_eq_true, if_false, mux, setw, reg,
+  simp only [translateFallback, fallbackKind, control, Bool.false_eq_true, if_false, mux, setw, reg,
     regEn, loopReg, cdo1, cdo2]
 
 set_option maxHeartbeats 4000000 in

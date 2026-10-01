@@ -216,6 +216,6 @@ theorem vector_step (rec : TranslateFn) (dom ce ae be : Lean.Expr) (n : Nat)
     simp [translateStepWith, shape, core]
     rfl
   rw [step]
-  simp only [translateFallback, control, Bool.false_eq_true, if_false, canonicalMuxType?_bitVec]
+  simp only [translateFallback, fallbackKind, control, Bool.false_eq_true, if_false, canonicalMuxType?_bitVec]
 
 end Tools.ShippingVectorMuxRecursion

@@ -135,15 +135,7 @@ theorem instance_step (rec : TranslateFn) (mn : Name) (lvls : List Level)
     (dF aF bF : Lean.Expr) (hint : String) (top named : Bool)
     (hpure : (mn == ``Sparkle.Core.Signal.Signal.pure) = false)
     (hbin : signalBinOpOf mn = none)
-    (hctrl : isBoolControl (instE2 mn lvls dF aF bF) = false)
-    (hmux : canonicalMuxType? (instE2 mn lvls dF aF bF) = none)
-    (hsetw : canonicalSetWidth? (instE2 mn lvls dF aF bF) = none)
-    (hreg : canonicalRegister? (instE2 mn lvls dF aF bF) = none)
-    (hregEn : canonicalRegisterEnable? (instE2 mn lvls dF aF bF) = none)
-    (hloopR : canonicalLoopRegister? (instE2 mn lvls dF aF bF) = none)
-    (hcdo : canonicalCircuitDo? (instE2 mn lvls dF aF bF) = none)
-    (hcdo2 : canonicalCircuitDo2? (instE2 mn lvls dF aF bF) = none)
-    (hmem : canonicalMemory? (instE2 mn lvls dF aF bF) = none) :
+    (hkind : fallbackKind (instE2 mn lvls dF aF bF) = .other) :
     translateStepWith translateFallback rec (instE2 mn lvls dF aF bF) hint top named =
       translateInstanceOrFallback rec (instE2 mn lvls dF aF bF) hint top named := by
   have shape : translateCoreShape (instE2 mn lvls dF aF bF) = false := by
@@ -175,8 +167,7 @@ theorem instance_step (rec : TranslateFn) (mn : Name) (lvls : List Level)
     simp [translateStepWith, shape, core]
     rfl
   rw [step]
-  simp only [translateFallback, hctrl, Bool.false_eq_true, if_false, hmux, hsetw,
-    hreg, hregEn, hloopR, hcdo, hcdo2, hmem]
+  simp only [translateFallback, hkind]
 
 /-! ## Compiler-level emitter specs for the instance lowering -/
 
@@ -433,15 +424,7 @@ def InstancePreserves (declName : Name) (bs : List (Name × MixedGateBinder))
     -- the head constant is none of the core/fallback shapes
     (mn == ``Sparkle.Core.Signal.Signal.pure) = false →
     signalBinOpOf mn = none →
-    isBoolControl (instE2 mn lvls (.fvar dId) (.fvar aId) (.fvar bId)) = false →
-    canonicalMuxType? (instE2 mn lvls (.fvar dId) (.fvar aId) (.fvar bId)) = none →
-    canonicalSetWidth? (instE2 mn lvls (.fvar dId) (.fvar aId) (.fvar bId)) = none →
-    canonicalRegister? (instE2 mn lvls (.fvar dId) (.fvar aId) (.fvar bId)) = none →
-    canonicalRegisterEnable? (instE2 mn lvls (.fvar dId) (.fvar aId) (.fvar bId)) = none →
-    canonicalLoopRegister? (instE2 mn lvls (.fvar dId) (.fvar aId) (.fvar bId)) = none →
-    canonicalCircuitDo? (instE2 mn lvls (.fvar dId) (.fvar aId) (.fvar bId)) = none →
-    canonicalCircuitDo2? (instE2 mn lvls (.fvar dId) (.fvar aId) (.fvar bId)) = none →
-    canonicalMemory? (instE2 mn lvls (.fvar dId) (.fvar aId) (.fvar bId)) = none →
+    fallbackKind (instE2 mn lvls (.fvar dId) (.fvar aId) (.fvar bId)) = .other →
     -- the run boundaries
     HardwareTagged mn → SubSynthDefines mn mc dc →
     -- the child's canonical combinational single-output shape
@@ -473,8 +456,7 @@ theorem synthesizeMixedCertified_instance_sound {logProf declName bs body m d}
   obtain ⟨ids, cache, returned, st, nd, len, run, hm, hd, -⟩ :=
     synthesizeMixedCertified_returns hr
   refine ⟨ids, nd, len, cache, ?_⟩
-  intro mn lvls dId aId bId mc dc wOut wA wB xin yin qeq hpure hbin hctrl hmux hsetw
-    hreg hregEn hloopR hcdo hcdo2 hmem htag hsub hdc hins houts hx1 hx2 hy1 hy2
+  intro mn lvls dId aId bId mc dc wOut wA wB xin yin qeq hpure hbin hkind htag hsub hdc hins houts hx1 hx2 hy1 hy2
   -- Static decomposition at the zero valuation.
   have leaf := prepare_returns (bs.zip ids)
     (start (entryCompilerState false cache) declName.toString)
@@ -487,8 +469,7 @@ theorem synthesizeMixedCertified_instance_sound {logProf declName bs body m d}
         (instE2 mn lvls (.fvar dId) (.fvar aId) (.fvar bId)) "out" false true := by
     show translateStepWith translateFallback (translateFuelFix translateStep 1048575)
       (instE2 mn lvls (.fvar dId) (.fvar aId) (.fvar bId)) "out" false true = _
-    exact instance_step _ mn lvls _ _ _ _ _ _ hpure hbin hctrl hmux hsetw hreg
-      hregEn hloopR hcdo hcdo2 hmem
+    exact instance_step _ mn lvls _ _ _ _ _ _ hpure hbin hkind
   rw [stepEq] at tr
   unfold translateInstanceOrFallback at tr
   obtain ⟨env, sE, hEnvRead, tr⟩ := Returns.bind tr
@@ -769,15 +750,7 @@ theorem instance1_step (rec : TranslateFn) (mn : Name) (lvls : List Level)
     (dF aF : Lean.Expr) (hint : String) (top named : Bool)
     (hpure : (mn == ``Sparkle.Core.Signal.Signal.pure) = false)
     (hbin : signalBinOpOf mn = none)
-    (hctrl : isBoolControl (instE1 mn lvls dF aF) = false)
-    (hmux : canonicalMuxType? (instE1 mn lvls dF aF) = none)
-    (hsetw : canonicalSetWidth? (instE1 mn lvls dF aF) = none)
-    (hreg : canonicalRegister? (instE1 mn lvls dF aF) = none)
-    (hregEn : canonicalRegisterEnable? (instE1 mn lvls dF aF) = none)
-    (hloopR : canonicalLoopRegister? (instE1 mn lvls dF aF) = none)
-    (hcdo : canonicalCircuitDo? (instE1 mn lvls dF aF) = none)
-    (hcdo2 : canonicalCircuitDo2? (instE1 mn lvls dF aF) = none)
-    (hmem : canonicalMemory? (instE1 mn lvls dF aF) = none) :
+    (hkind : fallbackKind (instE1 mn lvls dF aF) = .other) :
     translateStepWith translateFallback rec (instE1 mn lvls dF aF) hint top named =
       translateInstanceOrFallback rec (instE1 mn lvls dF aF) hint top named := by
   have shape : translateCoreShape (instE1 mn lvls dF aF) = false := by
@@ -809,8 +782,7 @@ theorem instance1_step (rec : TranslateFn) (mn : Name) (lvls : List Level)
     simp [translateStepWith, shape, core]
     rfl
   rw [step]
-  simp only [translateFallback, hctrl, Bool.false_eq_true, if_false, hmux, hsetw,
-    hreg, hregEn, hloopR, hcdo, hcdo2, hmem]
+  simp only [translateFallback, hkind]
 
 /-! ## clk/rst plumbing for a sequential child -/
 
@@ -916,15 +888,7 @@ def Instance1Preserves (declName : Name) (bs : List (Name × MixedGateBinder))
       instE1 mn lvls (.fvar dId) (.fvar aId) →
     (mn == ``Sparkle.Core.Signal.Signal.pure) = false →
     signalBinOpOf mn = none →
-    isBoolControl (instE1 mn lvls (.fvar dId) (.fvar aId)) = false →
-    canonicalMuxType? (instE1 mn lvls (.fvar dId) (.fvar aId)) = none →
-    canonicalSetWidth? (instE1 mn lvls (.fvar dId) (.fvar aId)) = none →
-    canonicalRegister? (instE1 mn lvls (.fvar dId) (.fvar aId)) = none →
-    canonicalRegisterEnable? (instE1 mn lvls (.fvar dId) (.fvar aId)) = none →
-    canonicalLoopRegister? (instE1 mn lvls (.fvar dId) (.fvar aId)) = none →
-    canonicalCircuitDo? (instE1 mn lvls (.fvar dId) (.fvar aId)) = none →
-    canonicalCircuitDo2? (instE1 mn lvls (.fvar dId) (.fvar aId)) = none →
-    canonicalMemory? (instE1 mn lvls (.fvar dId) (.fvar aId)) = none →
+    fallbackKind (instE1 mn lvls (.fvar dId) (.fvar aId)) = .other →
     HardwareTagged mn → SubSynthDefines mn mc dc →
     dc.modules = [] →
     mc.inputs = [⟨xin, .bitVector wA⟩, ⟨"clk", .bit⟩, ⟨"rst", .bit⟩] →
@@ -954,8 +918,7 @@ theorem synthesizeMixedCertified_instance1_sound {logProf declName bs body m d}
   obtain ⟨ids, cache, returned, st, nd, len, run, hm, hd, -⟩ :=
     synthesizeMixedCertified_returns hr
   refine ⟨ids, nd, len, cache, ?_⟩
-  intro mn lvls dId aId mc dc wOut wA xin qeq hpure hbin hctrl hmux hsetw
-    hreg hregEn hloopR hcdo hcdo2 hmem htag hsub hdc hins houts hx1 hx2
+  intro mn lvls dId aId mc dc wOut wA xin qeq hpure hbin hkind htag hsub hdc hins houts hx1 hx2
   have leaf := prepare_returns (bs.zip ids)
     (start (entryCompilerState false cache) declName.toString)
     (bools := fun _ => false) (bits := fun _ _ => 0) run
@@ -967,8 +930,7 @@ theorem synthesizeMixedCertified_instance1_sound {logProf declName bs body m d}
         (instE1 mn lvls (.fvar dId) (.fvar aId)) "out" false true := by
     show translateStepWith translateFallback (translateFuelFix translateStep 1048575)
       (instE1 mn lvls (.fvar dId) (.fvar aId)) "out" false true = _
-    exact instance1_step _ mn lvls _ _ _ _ _ hpure hbin hctrl hmux hsetw hreg
-      hregEn hloopR hcdo hcdo2 hmem
+    exact instance1_step _ mn lvls _ _ _ _ _ hpure hbin hkind
   rw [stepEq] at tr
   unfold translateInstanceOrFallback at tr
   obtain ⟨env, sE, hEnvRead, tr⟩ := Returns.bind tr
@@ -1360,15 +1322,7 @@ theorem instanceN_step (rec : TranslateFn) (mn : Name) (lvls : List Level)
     (dF : Lean.Expr) (argsF : List Lean.Expr) (hint : String) (top named : Bool)
     (hpure : (mn == ``Sparkle.Core.Signal.Signal.pure) = false)
     (hbin : signalBinOpOf mn = none)
-    (hctrl : isBoolControl (instEN mn lvls dF argsF) = false)
-    (hmux : canonicalMuxType? (instEN mn lvls dF argsF) = none)
-    (hsetw : canonicalSetWidth? (instEN mn lvls dF argsF) = none)
-    (hreg : canonicalRegister? (instEN mn lvls dF argsF) = none)
-    (hregEn : canonicalRegisterEnable? (instEN mn lvls dF argsF) = none)
-    (hloopR : canonicalLoopRegister? (instEN mn lvls dF argsF) = none)
-    (hcdo : canonicalCircuitDo? (instEN mn lvls dF argsF) = none)
-    (hcdo2 : canonicalCircuitDo2? (instEN mn lvls dF argsF) = none)
-    (hmem : canonicalMemory? (instEN mn lvls dF argsF) = none) :
+    (hkind : fallbackKind (instEN mn lvls dF argsF) = .other) :
     translateStepWith translateFallback rec (instEN mn lvls dF argsF) hint top named =
       translateInstanceOrFallback rec (instEN mn lvls dF argsF) hint top named := by
   have hfn := instEN_getAppFn mn lvls dF argsF
@@ -1407,8 +1361,7 @@ theorem instanceN_step (rec : TranslateFn) (mn : Name) (lvls : List Level)
     simp [translateStepWith, shape, core]
     rfl
   rw [step]
-  simp only [translateFallback, hctrl, Bool.false_eq_true, if_false, hmux, hsetw,
-    hreg, hregEn, hloopR, hcdo, hcdo2, hmem]
+  simp only [translateFallback, hkind]
 
 /-- Choose one witness per index, as a list. -/
 theorem list_choice : ∀ (n : Nat) (Q : (i : Nat) → i < n → String → Prop),
@@ -1483,15 +1436,7 @@ def InstanceNPreserves (declName : Name) (bs : List (Name × MixedGateBinder))
       instEN mn lvls (.fvar dId) (argIds.map Lean.Expr.fvar) →
     (mn == ``Sparkle.Core.Signal.Signal.pure) = false →
     signalBinOpOf mn = none →
-    isBoolControl (instEN mn lvls (.fvar dId) (argIds.map Lean.Expr.fvar)) = false →
-    canonicalMuxType? (instEN mn lvls (.fvar dId) (argIds.map Lean.Expr.fvar)) = none →
-    canonicalSetWidth? (instEN mn lvls (.fvar dId) (argIds.map Lean.Expr.fvar)) = none →
-    canonicalRegister? (instEN mn lvls (.fvar dId) (argIds.map Lean.Expr.fvar)) = none →
-    canonicalRegisterEnable? (instEN mn lvls (.fvar dId) (argIds.map Lean.Expr.fvar)) = none →
-    canonicalLoopRegister? (instEN mn lvls (.fvar dId) (argIds.map Lean.Expr.fvar)) = none →
-    canonicalCircuitDo? (instEN mn lvls (.fvar dId) (argIds.map Lean.Expr.fvar)) = none →
-    canonicalCircuitDo2? (instEN mn lvls (.fvar dId) (argIds.map Lean.Expr.fvar)) = none →
-    canonicalMemory? (instEN mn lvls (.fvar dId) (argIds.map Lean.Expr.fvar)) = none →
+    fallbackKind (instEN mn lvls (.fvar dId) (argIds.map Lean.Expr.fvar)) = .other →
     HardwareTagged mn → SubSynthDefines mn mc dc →
     dc.modules = [] →
     mc.inputs = ports →
@@ -1524,8 +1469,7 @@ theorem synthesizeMixedCertified_instanceN_sound {logProf declName bs body m d}
   obtain ⟨ids, cache, returned, st, nd, len, run, hm, hd, -⟩ :=
     synthesizeMixedCertified_returns hr
   refine ⟨ids, nd, len, cache, ?_⟩
-  intro mn lvls dId argIds mc dc wOut ports qeq hpure hbin hctrl hmux hsetw
-    hreg hregEn hloopR hcdo hcdo2 hmem htag hsub hdc hins houts hnoclk hlenP
+  intro mn lvls dId argIds mc dc wOut ports qeq hpure hbin hkind htag hsub hdc hins houts hnoclk hlenP
   have leaf := prepare_returns (bs.zip ids)
     (start (entryCompilerState false cache) declName.toString)
     (bools := fun _ => false) (bits := fun _ _ => 0) run
@@ -1537,8 +1481,7 @@ theorem synthesizeMixedCertified_instanceN_sound {logProf declName bs body m d}
         (instEN mn lvls (.fvar dId) (argIds.map Lean.Expr.fvar)) "out" false true := by
     show translateStepWith translateFallback (translateFuelFix translateStep 1048575)
       (instEN mn lvls (.fvar dId) (argIds.map Lean.Expr.fvar)) "out" false true = _
-    exact instanceN_step _ mn lvls _ _ _ _ _ hpure hbin hctrl hmux hsetw hreg
-      hregEn hloopR hcdo hcdo2 hmem
+    exact instanceN_step _ mn lvls _ _ _ _ _ hpure hbin hkind
   rw [stepEq] at tr
   unfold translateInstanceOrFallback at tr
   rw [instEN_getAppFn] at tr
@@ -1912,15 +1855,7 @@ def InstanceGPreserves (declName : Name) (bs : List (Name × MixedGateBinder))
       instEN mn lvls (.fvar dId) (argIds.map Lean.Expr.fvar) →
     (mn == ``Sparkle.Core.Signal.Signal.pure) = false →
     signalBinOpOf mn = none →
-    isBoolControl (instEN mn lvls (.fvar dId) (argIds.map Lean.Expr.fvar)) = false →
-    canonicalMuxType? (instEN mn lvls (.fvar dId) (argIds.map Lean.Expr.fvar)) = none →
-    canonicalSetWidth? (instEN mn lvls (.fvar dId) (argIds.map Lean.Expr.fvar)) = none →
-    canonicalRegister? (instEN mn lvls (.fvar dId) (argIds.map Lean.Expr.fvar)) = none →
-    canonicalRegisterEnable? (instEN mn lvls (.fvar dId) (argIds.map Lean.Expr.fvar)) = none →
-    canonicalLoopRegister? (instEN mn lvls (.fvar dId) (argIds.map Lean.Expr.fvar)) = none →
-    canonicalCircuitDo? (instEN mn lvls (.fvar dId) (argIds.map Lean.Expr.fvar)) = none →
-    canonicalCircuitDo2? (instEN mn lvls (.fvar dId) (argIds.map Lean.Expr.fvar)) = none →
-    canonicalMemory? (instEN mn lvls (.fvar dId) (argIds.map Lean.Expr.fvar)) = none →
+    fallbackKind (instEN mn lvls (.fvar dId) (argIds.map Lean.Expr.fvar)) = .other →
     HardwareTagged mn → SubSynthDefines mn mc dc →
     dc.modules = [] →
     mc.inputs = ports →
@@ -1957,8 +1892,7 @@ theorem synthesizeMixedCertified_instanceG_sound {logProf declName bs body m d}
   obtain ⟨ids, cache, returned, st, nd, len, run, hm, hd, -⟩ :=
     synthesizeMixedCertified_returns hr
   refine ⟨ids, nd, len, cache, ?_⟩
-  intro mn lvls dId argIds mc dc wOut ports qeq hpure hbin hctrl hmux hsetw
-    hreg hregEn hloopR hcdo hcdo2 hmem htag hsub hdc hins houts hlenP
+  intro mn lvls dId argIds mc dc wOut ports qeq hpure hbin hkind htag hsub hdc hins houts hlenP
   have leaf := prepare_returns (bs.zip ids)
     (start (entryCompilerState false cache) declName.toString)
     (bools := fun _ => false) (bits := fun _ _ => 0) run
@@ -1970,8 +1904,7 @@ theorem synthesizeMixedCertified_instanceG_sound {logProf declName bs body m d}
         (instEN mn lvls (.fvar dId) (argIds.map Lean.Expr.fvar)) "out" false true := by
     show translateStepWith translateFallback (translateFuelFix translateStep 1048575)
       (instEN mn lvls (.fvar dId) (argIds.map Lean.Expr.fvar)) "out" false true = _
-    exact instanceN_step _ mn lvls _ _ _ _ _ hpure hbin hctrl hmux hsetw hreg
-      hregEn hloopR hcdo hcdo2 hmem
+    exact instanceN_step _ mn lvls _ _ _ _ _ hpure hbin hkind
   rw [stepEq] at tr
   unfold translateInstanceOrFallback at tr
   rw [instEN_getAppFn] at tr
@@ -2319,15 +2252,7 @@ theorem instanceProj_step (rec : TranslateFn) (pn : Name) (lvlsP : List Level)
     (dF callF : Lean.Expr) (hint : String) (top named : Bool)
     (hpure : (pn == ``Sparkle.Core.Signal.Signal.pure) = false)
     (hbin : signalBinOpOf pn = none)
-    (hctrl : isBoolControl (projE pn lvlsP dF callF) = false)
-    (hmux : canonicalMuxType? (projE pn lvlsP dF callF) = none)
-    (hsetw : canonicalSetWidth? (projE pn lvlsP dF callF) = none)
-    (hreg : canonicalRegister? (projE pn lvlsP dF callF) = none)
-    (hregEn : canonicalRegisterEnable? (projE pn lvlsP dF callF) = none)
-    (hloopR : canonicalLoopRegister? (projE pn lvlsP dF callF) = none)
-    (hcdo : canonicalCircuitDo? (projE pn lvlsP dF callF) = none)
-    (hcdo2 : canonicalCircuitDo2? (projE pn lvlsP dF callF) = none)
-    (hmem : canonicalMemory? (projE pn lvlsP dF callF) = none) :
+    (hkind : fallbackKind (projE pn lvlsP dF callF) = .other) :
     translateStepWith translateFallback rec (projE pn lvlsP dF callF) hint top named =
       translateInstanceOrFallback rec (projE pn lvlsP dF callF) hint top named := by
   have shape : translateCoreShape (projE pn lvlsP dF callF) = false := by
@@ -2359,8 +2284,7 @@ theorem instanceProj_step (rec : TranslateFn) (pn : Name) (lvlsP : List Level)
     simp [translateStepWith, shape, core]
     rfl
   rw [step]
-  simp only [translateFallback, hctrl, Bool.false_eq_true, if_false, hmux, hsetw,
-    hreg, hregEn, hloopR, hcdo, hcdo2, hmem]
+  simp only [translateFallback, hkind]
 
 /-! ## Emitter specs for the multi-output lowering -/
 
@@ -2623,24 +2547,8 @@ def ProjInstancePreserves (declName : Name) (bs : List (Name × MixedGateBinder)
         (instEN cn lvlsC (.fvar dIdC) (argIds.map Lean.Expr.fvar)) →
     (pn == ``Sparkle.Core.Signal.Signal.pure) = false →
     signalBinOpOf pn = none →
-    isBoolControl (projE pn lvlsP (.fvar dIdP)
-      (instEN cn lvlsC (.fvar dIdC) (argIds.map Lean.Expr.fvar))) = false →
-    canonicalMuxType? (projE pn lvlsP (.fvar dIdP)
-      (instEN cn lvlsC (.fvar dIdC) (argIds.map Lean.Expr.fvar))) = none →
-    canonicalSetWidth? (projE pn lvlsP (.fvar dIdP)
-      (instEN cn lvlsC (.fvar dIdC) (argIds.map Lean.Expr.fvar))) = none →
-    canonicalRegister? (projE pn lvlsP (.fvar dIdP)
-      (instEN cn lvlsC (.fvar dIdC) (argIds.map Lean.Expr.fvar))) = none →
-    canonicalRegisterEnable? (projE pn lvlsP (.fvar dIdP)
-      (instEN cn lvlsC (.fvar dIdC) (argIds.map Lean.Expr.fvar))) = none →
-    canonicalLoopRegister? (projE pn lvlsP (.fvar dIdP)
-      (instEN cn lvlsC (.fvar dIdC) (argIds.map Lean.Expr.fvar))) = none →
-    canonicalCircuitDo? (projE pn lvlsP (.fvar dIdP)
-      (instEN cn lvlsC (.fvar dIdC) (argIds.map Lean.Expr.fvar))) = none →
-    canonicalCircuitDo2? (projE pn lvlsP (.fvar dIdP)
-      (instEN cn lvlsC (.fvar dIdC) (argIds.map Lean.Expr.fvar))) = none →
-    canonicalMemory? (projE pn lvlsP (.fvar dIdP)
-      (instEN cn lvlsC (.fvar dIdC) (argIds.map Lean.Expr.fvar))) = none →
+    fallbackKind (projE pn lvlsP (.fvar dIdP)
+      (instEN cn lvlsC (.fvar dIdC) (argIds.map Lean.Expr.fvar))) = .other →
     ProjEnvDefines pn structName cn → ProjFieldDefines pn structName fieldName →
     SubSynthDefines cn mc dc → OutCacheEmpty →
     dc.modules = [] →
@@ -2688,7 +2596,7 @@ theorem synthesizeMixedCertified_instanceProj_sound {logProf declName bs body m 
     synthesizeMixedCertified_returns hr
   refine ⟨ids, nd, len, cache, ?_⟩
   intro pn structName lvlsP dIdP fieldName cn lvlsC dIdC argIds mc dc ports outs
-    qeq hpure hbin hctrl hmux hsetw hreg hregEn hloopR hcdo hcdo2 hmem
+    qeq hpure hbin hkind
     hpenv hfield hsub houtcache hdc hins houts h2 hany hlenP
   have leaf := prepare_returns (bs.zip ids)
     (start (entryCompilerState false cache) declName.toString)
@@ -2704,8 +2612,7 @@ theorem synthesizeMixedCertified_instanceProj_sound {logProf declName bs body m 
     show translateStepWith translateFallback (translateFuelFix translateStep 1048575)
       (projE pn lvlsP (.fvar dIdP)
         (instEN cn lvlsC (.fvar dIdC) (argIds.map Lean.Expr.fvar))) "out" false true = _
-    exact instanceProj_step _ pn lvlsP _ _ _ _ _ hpure hbin hctrl hmux hsetw hreg
-      hregEn hloopR hcdo hcdo2 hmem
+    exact instanceProj_step _ pn lvlsP _ _ _ _ _ hpure hbin hkind
   rw [stepEq] at tr
   unfold translateInstanceOrFallback at tr
   rw [projE_getAppFn] at tr

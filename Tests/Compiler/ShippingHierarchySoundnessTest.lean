@@ -623,7 +623,7 @@ theorem parentHi_entry_observes {mctx : Meta.Context}
   obtain ⟨instName, outW, oWs, conns, hlenO, hndO, hlook, R⟩ :=
     P ``TwoOut.hi ``TwoOut [] i0 "hi" ``childTwo [] i0 [i1, i2] childTwoModule dc
       childTwoModule.inputs childTwoModule.outputs
-      rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
+      rfl rfl rfl rfl
       hpenv hfield hsub hcache hdc rfl rfl (by decide) rfl rfl
   have lenO2 : oWs.length = 2 := hlenO
   rcases oWs with _ | ⟨o0, oWs⟩
@@ -745,7 +745,7 @@ theorem parentUse_entry_observes {mctx : Meta.Context}
   · simp at len3
   obtain ⟨instName, outW, aW, bW, R⟩ :=
     P ``childAdd [] i0 i1 i2 childModule dc 8 8 8 "_gen_x" "_gen_y"
-      rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
+      rfl rfl rfl rfl
       htagAll hsub hdc rfl rfl rfl rfl rfl rfl
   refine ⟨i0, i1, i2, cache, instName, outW, aW, bW, ?_⟩
   intro bools bits env0 D aS bS t mems we a p adm ha0 hb0
@@ -951,7 +951,7 @@ theorem parentMix_entry_observes {mctx : Meta.Context}
     intro we fuel
     exact inst_leaf_fuel (mc := childModule) (dc := dc) (cwe := childWe)
       (outName := "out") (wOut := 8)
-      rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
+      rfl rfl rfl rfl
       htagAll hsub hdc (by decide) (by decide) rfl (by decide) rfl rfl hargsM
       (fun k hk hk' fuel => by
         rcases k with _ | k
@@ -1367,7 +1367,7 @@ theorem parentNested_entry_observes {mctx : Meta.Context}
     intro we fuel
     exact inst_leaf_fuel (mc := childModule) (dc := dc) (cwe := childWe)
       (outName := "out") (wOut := 8)
-      rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
+      rfl rfl rfl rfl
       htagAll hsub hdc (by decide) (by decide) rfl (by decide) rfl rfl innerArgsM
       (fun k hk hk' fuel => by
         rcases k with _ | k
@@ -1410,7 +1410,7 @@ theorem parentNested_entry_observes {mctx : Meta.Context}
     intro we fuel
     exact inst_leaf_fuel (mc := childModule) (dc := dc) (cwe := childWe)
       (outName := "out") (wOut := 8)
-      rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
+      rfl rfl rfl rfl
       htagAll hsub hdc (by decide) (by decide) rfl (by decide) rfl rfl outerArgsM
       (fun k hk hk' fuel => by
         rcases k with _ | k
@@ -1554,7 +1554,7 @@ theorem wrapAdd_entry_observes {mctx : Meta.Context}
     intro we fuel
     exact inst_leaf_fuel (mc := childModule) (dc := dc) (cwe := childWe)
       (outName := "out") (wOut := 8)
-      rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
+      rfl rfl rfl rfl
       htagAll hsub hdc (by decide) (by decide) rfl (by decide) rfl rfl argsM
       (fun k hk hk' fuel => by
         rcases k with _ | k

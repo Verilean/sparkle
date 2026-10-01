@@ -210,7 +210,7 @@ theorem memory_step (rec : TranslateFn) (dom wa wd wen ra : Lean.Expr) (aw dw : 
     simp [translateStepWith, shape, core]
     rfl
   rw [step]
-  simp only [translateFallback, control, Bool.false_eq_true, if_false, mux, setw,
+  simp only [translateFallback, fallbackKind, control, Bool.false_eq_true, if_false, mux, setw,
     reg, regEn, loopR, cdo1, cdo2, mem]
 
 /-! ## The monolith -/

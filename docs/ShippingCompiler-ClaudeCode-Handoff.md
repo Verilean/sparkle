@@ -181,6 +181,15 @@ call-site unfolding on 17 tested shapes) → general N-slot `circuit do` →
 hardware `let` → applicative/slices → structure results. The list below
 is the older, shape-driven plan and is subordinate to the measurement.
 
+**Dispatch as data.** `translateFallback` is `match fallbackKind e with …`;
+`fallbackKind` is the recogniser chain as a function to `FallbackKind`.
+A shape that reaches the end of the chain is characterised by ONE fact,
+`fallbackKind e = .other` (the instance step lemmas and the instance
+`…Preserves` predicates take it as `hkind`, discharged by `rfl` per
+declaration) instead of one `= none` fact per recogniser. Append new arms
+JUST BEFORE `.other`: shapes that leave the chain earlier are untouched
+and `hkind` re-checks by `rfl`.
+
 **Real IP reached.** `nodeFilter_execution` and `oddParity_execution`
 (Tests/Compiler/ShippingInlineSoundnessTest.lean) are the first theorems
 about modules of the IP library. The recipe for the next combinational

@@ -6041,59 +6041,85 @@ def translateInstanceOrFallback (rec : TranslateFn) : TranslateFn :=
         | _, _ => Rec.translateExprToWireCached (fun e h t n => rec e h t n) e hint top named
     | _ => Rec.translateExprToWireCached (fun e h t n => rec e h t n) e hint top named
 
-/-- The existing handler chain (cache wrapper + dispatch) as the fallback. -/
+/-- The arm of the fallback chain an expression takes, as data.  The chain is
+    ordered: a recogniser is consulted only when every earlier one declined.
+    New arms are appended just before `other`, so a shape that leaves the
+    chain at an existing arm is unaffected by them, and a shape that reaches
+    the end is characterised by ONE fact, `fallbackKind e = .other`. -/
+inductive FallbackKind where
+  | boolControl
+  | vectorMux (n : Nat)
+  | setWidth (ws wt : Nat)
+  | register (w v : Nat)
+  | registerEnable (w v : Nat)
+  | loopRegister (w v : Nat)
+  | circuitDo (w v : Nat)
+  | circuitDo2 (w v0 v1 ret : Nat)
+  | memory (aw dw : Nat)
+  | other
+  deriving DecidableEq, Repr
+
+def fallbackKind (e : Lean.Expr) : FallbackKind :=
+  if isBoolControl e then .boolControl
+  else
+    match canonicalMuxType? e with
+    | some (.bitVector n) => .vectorMux n
+    | _ =>
+      match canonicalSetWidth? e with
+      | some (ws, wt, _) => .setWidth ws wt
+      | none =>
+        match canonicalRegister? e with
+        | some (w, v, _) => .register w v
+        | none =>
+          match canonicalRegisterEnable? e with
+          | some (w, v, _, _) => .registerEnable w v
+          | none =>
+            match canonicalLoopRegister? e with
+            | some (w, v, _) => .loopRegister w v
+            | none =>
+              match canonicalCircuitDo? e with
+              | some (w, v, _) => .circuitDo w v
+              | none =>
+                match canonicalCircuitDo2? e with
+                | some (w, v0, v1, ret, _, _) => .circuitDo2 w v0 v1 ret
+                | none =>
+                  match canonicalMemory? e with
+                  | some (aw, dw) => .memory aw dw
+                  | none => .other
+
+/-- The existing handler chain (cache wrapper + dispatch) as the fallback:
+    one lowering per `fallbackKind`. -/
 def translateFallback (rec : TranslateFn) : TranslateFn :=
   fun e hint top named =>
-    if isBoolControl e then
+    match fallbackKind e with
+    | .boolControl =>
       translateControlCachedWith
         (translateBoolUncachedWith rec
           (fun e h t n => Rec.translateExprToWireImpl (fun e h t n => rec e h t n) e h t n))
         e hint top named
-    else
-      match canonicalMuxType? e with
-      | some (.bitVector n) =>
-        -- Vector mux nodes now share the validated cache wrapper: a hit is
-        -- checked against the recorded expression, a miss lowers and records.
-        translateControlCachedWith (translateVectorMuxUncachedWith rec n) e hint top named
-      | _ =>
-        match canonicalSetWidth? e with
-        | some (ws, wt, _) =>
-          -- Canonical width-changing maps take the total certified lowering,
-          -- sharing the same validated cache wrapper.
-          translateControlCachedWith (translateSetWidthUncachedWith rec ws wt) e hint top named
-        | none =>
-          match canonicalRegister? e with
-          | some (w, v, _) =>
-            -- Canonical polymorphic-domain registers take the total lowering;
-            -- concrete domains keep the legacy handler and its inferred kind.
-            translateControlCachedWith (translateRegisterUncachedWith rec w v) e hint top named
-          | none =>
-            match canonicalRegisterEnable? e with
-            | some (w, v, _, _) =>
-              translateControlCachedWith (translateRegisterEnableUncachedWith rec w v)
-                e hint top named
-            | none =>
-              match canonicalLoopRegister? e with
-              | some (w, v, _) =>
-                translateControlCachedWith (translateLoopRegisterUncachedWith rec w v)
-                  e hint top named
-              | none =>
-                match canonicalCircuitDo? e with
-                | some (w, v, _) =>
-                  translateControlCachedWith (translateCircuitDoUncachedWith rec w v)
-                    e hint top named
-                | none =>
-                  match canonicalCircuitDo2? e with
-                  | some (w, v0, v1, ret, _, _) =>
-                    translateControlCachedWith
-                      (translateCircuitDo2UncachedWith rec w v0 v1 ret) e hint top named
-                  | none =>
-                    match canonicalMemory? e with
-                    | some (aw, dw) =>
-                      translateControlCachedWith (translateMemoryUncachedWith rec aw dw)
-                        e hint top named
-                    | none =>
-                      translateInstanceOrFallback rec e hint top named
+    | .vectorMux n =>
+      -- Vector mux nodes share the validated cache wrapper: a hit is checked
+      -- against the recorded expression, a miss lowers and records.
+      translateControlCachedWith (translateVectorMuxUncachedWith rec n) e hint top named
+    | .setWidth ws wt =>
+      -- Canonical width-changing maps take the total certified lowering.
+      translateControlCachedWith (translateSetWidthUncachedWith rec ws wt) e hint top named
+    | .register w v =>
+      -- Canonical polymorphic-domain registers take the total lowering;
+      -- concrete domains keep the legacy handler and its inferred kind.
+      translateControlCachedWith (translateRegisterUncachedWith rec w v) e hint top named
+    | .registerEnable w v =>
+      translateControlCachedWith (translateRegisterEnableUncachedWith rec w v) e hint top named
+    | .loopRegister w v =>
+      translateControlCachedWith (translateLoopRegisterUncachedWith rec w v) e hint top named
+    | .circuitDo w v =>
+      translateControlCachedWith (translateCircuitDoUncachedWith rec w v) e hint top named
+    | .circuitDo2 w v0 v1 ret =>
+      translateControlCachedWith (translateCircuitDo2UncachedWith rec w v0 v1 ret)
+        e hint top named
+    | .memory aw dw =>
+      translateControlCachedWith (translateMemoryUncachedWith rec aw dw) e hint top named
+    | .other => translateInstanceOrFallback rec e hint top named
 
 def translateStep : TranslateFn → TranslateFn := translateStepWith translateFallback
 

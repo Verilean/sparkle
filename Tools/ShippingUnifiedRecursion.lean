@@ -1041,7 +1041,7 @@ theorem setw_step (rec : TranslateFn) (dom ae : Lean.Expr) (ws wt : Nat)
     simp [translateStepWith, shape, core]
     rfl
   rw [step]
-  simp only [translateFallback, control, Bool.false_eq_true, if_false, mux, setw]
+  simp only [translateFallback, fallbackKind, control, Bool.false_eq_true, if_false, mux, setw]
 
 theorem setw_contract {rec ctx inputs we mems initial dom ae} {ws wt : Nat} {x : BitVec ws}
     (hws : 0 < ws) (hwt : 0 < wt)
