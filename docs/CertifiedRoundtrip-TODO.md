@@ -530,12 +530,22 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   `memAcc_shipping` (sync-read memory: source `Signal.memory` stream
   at the emitted Verilog and the parsed-back text, one trace) — both
   from the real `RunsTo` compile under `EnvDefines` and the
-  pipeline's runtime-gated premises, audited. Open in S7: lifting the
-  sequential capstones from the core entry to the full
-  `synthesizeCombinational` entry (cleanup/merge for sequential
-  bodies), a hierarchy post-pipeline (the SV layers are open-module),
-  and the coverage reconciliation of the remaining legacy-success
-  branches listed in ShippingCompiler-Coverage.md.
+  pipeline's runtime-gated premises, audited. The register
+  capstone is LIFTED to the full shipping entry:
+  `shipping_pipeline_transfer_merged` composes the sequential merge
+  step (a second `seqOptCheck` gate, raw → merged) in front of the
+  optimizer/SV/parse chain, and `regAcc_shipping_full` states the
+  capstone from the real `synthesizeCombinational` run (decomposed by
+  `synthesizeCombinational_reads` to its core run and the
+  cleanup/merge post-step) — the suite gates `seqOptCheck raw mFull`
+  on the REAL full-entry output of all six register shapes and pins
+  it component-equal to the merged module the print/parse gates are
+  stated on. Open in S7: the same lift for memory bodies (their
+  post-processing identity is a BEq gate today; a Prop-level identity
+  or a memory-aware checker is needed), a hierarchy post-pipeline
+  (the SV layers are open-module), and the coverage reconciliation of
+  the remaining legacy-success branches listed in
+  ShippingCompiler-Coverage.md.
 - [ ] **S7 / trust:** Resolve or explicitly retain `EnvDefines` in the final
   claim; record execution-model/external-tool boundaries without hiding them.
   RECORDED — docs/ShippingCompiler-TrustBase.md states the retained base
