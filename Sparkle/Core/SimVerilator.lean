@@ -5,8 +5,10 @@
   obj_dir/V<top>` followed by hand-written C++.  To plug into the
   same `Sim` interface as the JIT backend we wrap that pipeline so
   the resulting shared library exports the **same C ABI** the JIT
-  uses (`jit_create / jit_eval_tick / jit_set_input / jit_get_output
-  / jit_reset / jit_destroy`).  Because the ABI matches, the
+  uses: one symbol, `jit_vtable()`, returning the table of
+  `create / eval_tick / set_input / get_output / reset / destroy / …`
+  (the entries with no Verilator counterpart — named wires, memories,
+  register access, snapshots — are inert).  Because the ABI matches, the
   existing `Sparkle.Core.JIT.JITHandle` opaque + FFI works
   unchanged — we just hand it a Verilator-backed `.so` instead of a
   CppSim-backed one.
@@ -17,9 +19,16 @@
       *before* calling `load`, e.g. via
       `Sparkle.Backend.Verilog.writeVerilogFile`.
   2.  `verilator --cc --build --top-module <top> -CFLAGS '-O2 -fPIC'
-       -LDFLAGS '-shared' --Mdir <objDir> -o <so> <svPath> <tbCpp>`
-      where `tbCpp` is the small wrapper this module emits.
-  3.  `JIT.load <so>` — the same dlopen path the CppSim backend uses.
+       --Mdir <objDir>/<top> <svPath> <tbCpp>`
+      where `tbCpp` is the small wrapper this module emits.  This stops
+      at static libraries (`libV<top>.a`, `libverilated.a`).
+  3.  `c++ -shared -o V<top>.so --whole-archive libV<top>.a
+       --no-whole-archive libverilated.a` — the shared object.
+  4.  `JIT.load <so>` — the same dlopen path the CppSim backend uses.
+
+  Outputs are sampled the way the JIT samples them: `read` after `step`
+  returns the values the design showed BEFORE that clock edge, so a test
+  sees every signal in the same cycle on both backends.
 
   The user-visible interface is one function:
 
@@ -216,6 +225,10 @@ def of (svPath top : String) (inputs outputs : List PortSpec)
   -- first one's generated sources
   let objDir := s!"{objDir}/{top}"
   IO.FS.createDirAll objDir
+  -- Absolute: Verilator records the source path in the makefile it then
+  -- runs with `make -C <objDir>`; a relative path is not found from there
+  -- when the directory is reused, and the second build fails.
+  let svPath := (← IO.FS.realPath svPath).toString
   let tbPath := s!"{objDir}/sparkle_verilator_tb.cpp"
   IO.FS.writeFile tbPath (emitTb top inputs outputs)
   let soPath := s!"{objDir}/V{top}.so"
@@ -225,7 +238,6 @@ def of (svPath top : String) (inputs outputs : List PortSpec)
       "--cc", "--build", "-j", "0",
       "--top-module", top,
       "-CFLAGS", "-O2 -fPIC",
-      "-LDFLAGS", s!"-shared -o {soPath}",
       "--Mdir", objDir,
       "-Wno-WIDTHEXPAND", "-Wno-WIDTHTRUNC",
       "-Wno-UNUSEDSIGNAL", "-Wno-CASEINCOMPLETE",
@@ -235,20 +247,18 @@ def of (svPath top : String) (inputs outputs : List PortSpec)
   if r.exitCode != 0 then
     throw (IO.userError s!"verilator build failed (exit {r.exitCode}):\n{r.stderr}")
   -- `verilator --cc --build` (no `--exe`) stops at static libraries — the
-  -- model `libV<top>.a`, the runtime `libverilated.a` and the wrapper's
-  -- object — and never links, so the `-LDFLAGS` above are not used.  Link
-  -- the shared object here.
-  if !(← System.FilePath.pathExists soPath) then
-    let cxx := (← IO.getEnv "CXX").getD "c++"
-    let l ← IO.Process.output {
-      cmd := cxx
-      -- the wrapper's object is already a member of `libV<top>.a`
-      args := #["-shared", "-o", soPath,
-                "-Wl,--whole-archive", s!"{objDir}/libV{top}.a", "-Wl,--no-whole-archive",
-                s!"{objDir}/libverilated.a", "-pthread"]
-      stdin := .null }
-    if l.exitCode != 0 then
-      throw (IO.userError s!"linking {soPath} failed (exit {l.exitCode}):\n{l.stderr}")
+  -- model plus the wrapper in `libV<top>.a`, the runtime in
+  -- `libverilated.a` — and never links.  Link the shared object here,
+  -- every time: the libraries may just have been rebuilt.
+  let cxx := (← IO.getEnv "CXX").getD "c++"
+  let l ← IO.Process.output {
+    cmd := cxx
+    args := #["-shared", "-o", soPath,
+              "-Wl,--whole-archive", s!"{objDir}/libV{top}.a", "-Wl,--no-whole-archive",
+              s!"{objDir}/libverilated.a", "-pthread"]
+    stdin := .null }
+  if l.exitCode != 0 then
+    throw (IO.userError s!"linking {soPath} failed (exit {l.exitCode}):\n{l.stderr}")
   let handle ← JIT.load soPath
   pure { handle := handle }
 

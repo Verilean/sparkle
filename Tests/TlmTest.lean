@@ -14,6 +14,8 @@
     7. `Pace` is deterministic.
     8. With Verilator installed: the same bench on the Verilator backend
        sees every handshake in the same cycle as on the JIT.
+    9. The UVM testbench generated from the same test carries the same
+       streams, stimulus and expected results (run: `lake exe tlm-uvm-test`).
   The designs synthesize (`#synthesizeVerilog`).
 -/
 
@@ -22,6 +24,7 @@ import Sparkle.Compiler.Elab
 import Sparkle.Core.CircuitDo
 import Sparkle.Library.Queue.SyncFIFO
 import Sparkle.Verification.Tlm
+import Sparkle.Verification.TlmUvm
 
 open Sparkle.Core.Domain
 open Sparkle.Core.Signal
@@ -151,6 +154,33 @@ def sequence (ep : Endpoint (BitVec 32) (BitVec 32)) : IO (List (Option (BitVec 
   let c ← ep.get
   return [a, b, c]
 
+/-! ### The same tests as UVM testbenches (`lake exe tlm-uvm-test` runs them) -/
+
+def itemsNat : List Nat := items.map (·.toNat)
+def stageNat : List Nat := (stageModel items).map (·.toNat)
+
+def fifoBench : Sparkle.Verification.Tlm.Uvm.Bench :=
+  { name := "fifo_tb", dutModule := "Sparkle_Tests_TlmTest_fifoTop"
+    dutOutputs := [("out", 96)]
+    streams :=
+      [ { name := "enq", width := 32, toDut := true
+          valid := "_gen_enqValid", data := "_gen_enqData", ready := "(out[95:64] != 0)" }
+      , { name := "deq", width := 32, toDut := false
+          valid := "(out[63:32] != 0)", data := "out[31:0]", ready := "_gen_deqReady" } ]
+    stimulus := [("enq", itemsNat)], expected := [("deq", itemsNat)]
+    readyPercent := 60 }
+
+def stageBench (name dut : String) (readyPercent : Nat) : Sparkle.Verification.Tlm.Uvm.Bench :=
+  { name, dutModule := dut
+    dutOutputs := [("out", 34)]
+    streams :=
+      [ { name := "in", width := 32, toDut := true
+          valid := "_gen_inValid", data := "_gen_inData", ready := "out[33]" }
+      , { name := "res", width := 32, toDut := false
+          valid := "out[32]", data := "out[31:0]", ready := "_gen_outReady" } ]
+    stimulus := [("in", itemsNat)], expected := [("res", stageNat)]
+    readyPercent, maxCycles := 2000 }
+
 /-! ### Driver -/
 
 def check (label : String) (ok : Bool) (detail : String := "") : IO Bool := do
@@ -272,6 +302,25 @@ def main : IO Unit := do
       s!"jit {sj.2.1.take 4} verilator {sv.2.1.take 4} {sv.2.2.take 2}") && ok
   else
     IO.println "  SKIP Verilator comparison (verilator not found)"
+
+  -- 9. the generated UVM testbench carries the same streams and data
+  do
+    let tb := Sparkle.Verification.Tlm.Uvm.emit fifoBench
+    let has := fun (sub : String) => (tb.splitOn sub).length > 1
+    ok := (← check "UVM: one interface per stream"
+      (has "interface enq_if (input logic clk);" && has "interface deq_if (input logic clk);")) && ok
+    ok := (← check "UVM: DUT instantiated on the interfaces"
+      (has "Sparkle_Tests_TlmTest_fifoTop dut (.clk(clk), .rst(rst), ._gen_enqValid(enq_bus.valid), ._gen_enqData(enq_bus.data), ._gen_deqReady(deq_bus.ready), .out(out));" &&
+       has "assign enq_bus.ready = (out[95:64] != 0);" && has "assign deq_bus.data = out[31:0];")) && ok
+    ok := (← check "UVM: stimulus and expected results are the Lean test's"
+      (has "enq_s.items.push_back(32'h7);" && has "env.deq_sb.expected.push_back(32'h7);" &&
+       ((tb.splitOn "expected.push_back(").length - 1 == items.length))) && ok
+    ok := (← check "UVM: driver, monitor, responder, scoreboard, test"
+      (has "class enq_driver extends uvm_driver #(enq_item);" &&
+       has "class deq_monitor extends uvm_monitor;" &&
+       has "int unsigned ready_percent = 60;" &&
+       has "class deq_scoreboard extends uvm_scoreboard;" &&
+       has "class fifo_tb_test extends uvm_test;" && has "run_test(\"fifo_tb_test\");")) && ok
 
   -- 7. pacing is deterministic
   let every3 := (List.range 9).map (Pace.every 3).active

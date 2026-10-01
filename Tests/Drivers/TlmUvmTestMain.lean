@@ -22,31 +22,6 @@ import Tests.TlmTest
 open Sparkle.Verification.Tlm.Uvm
 open Sparkle.Tests.TlmTest
 
-def itemsNat : List Nat := items.map (·.toNat)
-def stageNat : List Nat := (stageModel items).map (·.toNat)
-
-def fifoBench : Bench :=
-  { name := "fifo_tb", dutModule := "Sparkle_Tests_TlmTest_fifoTop"
-    dutOutputs := [("out", 96)]
-    streams :=
-      [ { name := "enq", width := 32, toDut := true
-          valid := "_gen_enqValid", data := "_gen_enqData", ready := "(out[95:64] != 0)" }
-      , { name := "deq", width := 32, toDut := false
-          valid := "(out[63:32] != 0)", data := "out[31:0]", ready := "_gen_deqReady" } ]
-    stimulus := [("enq", itemsNat)], expected := [("deq", itemsNat)]
-    readyPercent := 60 }
-
-def stageBench (name dut : String) (readyPercent : Nat) : Bench :=
-  { name, dutModule := dut
-    dutOutputs := [("out", 34)]
-    streams :=
-      [ { name := "in", width := 32, toDut := true
-          valid := "_gen_inValid", data := "_gen_inData", ready := "out[33]" }
-      , { name := "res", width := 32, toDut := false
-          valid := "out[32]", data := "out[31:0]", ready := "_gen_outReady" } ]
-    stimulus := [("in", itemsNat)], expected := [("res", stageNat)]
-    readyPercent, maxCycles := 2000 }
-
 /-- The count on a `UVM_ERROR :    N` summary line. -/
 def uvmCount (log severity : String) : Option Nat :=
   (log.splitOn "\n").findSome? fun line =>
