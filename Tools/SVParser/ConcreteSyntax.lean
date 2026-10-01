@@ -55,6 +55,15 @@ inductive Expression : SVExpr → String → Prop
       Expression (.concat [a, b]) ("{" ++ sa ++ ", " ++ sb ++ "}")
   | sizeCast {w a sw sa} : 0 < w → Numeral 10 w sw → Expression a sa →
       Expression (.sizeCast w a) (sw ++ "'(" ++ sa ++ ")")
+  /-- A part-select of a name, `x[hi:lo]`. -/
+  | partSelect {name hi lo sh sl} : Identifier name → Numeral 10 hi sh → Numeral 10 lo sl →
+      Expression (.slice (.ident name) hi lo) (name ++ "[" ++ sh ++ ":" ++ sl ++ "]")
+  /-- The emitter's form of a part-select that reaches past the declared
+  width of the name: a size cast of the shifted name, `w'((x) >> lo)`. -/
+  | castShift {w name lo sw sl} : 0 < w → Numeral 10 w sw → Identifier name →
+      Numeral 10 lo sl →
+      Expression (.sizeCast w (.binary .shr (.ident name) (.lit (.decimal none lo))))
+        (sw ++ "'((" ++ name ++ ") >> " ++ sl ++ ")")
 
 inductive LogicType : Option (Nat × Nat) → String → Prop
   | scalar : LogicType none "logic"

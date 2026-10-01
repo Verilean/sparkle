@@ -271,6 +271,21 @@ theorem hier_quote_accepted {isInst : Lean.Expr → Bool} {kinds : Array MixedGa
        | _, _ => false)) = true
     rw [canonicalNatLitValue?_natE, canonicalNatLitValue?_natE]
     simp [ia, a.wf_pos ha]
+  | _, .slice nm start len (w := w) a, h => by
+    obtain ⟨ha, hlen, hr⟩ := h
+    show hierGateBitsBody isInst kinds len (sliceE dom nm w start len (quote dom binp vinp a)) = true
+    have ia : hierGateBitsBody isInst kinds w (quote dom binp vinp a) = true :=
+      hier_quote_accepted hb hv a ha
+    change (canonicalNatLitValue? (natE len) == some len &&
+      canonicalNatLitValue? (natE len) == some len &&
+      (match canonicalNatLitValue? (natE w), canonicalNatLitValue? (natE w),
+          canonicalNatLitValue? (natE start) with
+       | some ws, some ws', some st =>
+         ws' == ws && 0 < len && decide (st + len ≤ ws) &&
+           hierGateBitsBody isInst kinds ws (quote dom binp vinp a)
+       | _, _, _ => false)) = true
+    rw [canonicalNatLitValue?_natE, canonicalNatLitValue?_natE, canonicalNatLitValue?_natE]
+    simp [ia, hlen, hr]
 
 /-- Root acceptance helpers for the instance-aware gate. -/
 theorem hroot_of_bool {isInst : Lean.Expr → Bool} {kinds : Array MixedGateBinder} {e : Lean.Expr}
@@ -372,6 +387,12 @@ theorem hier_root_accepted {isInst : Lean.Expr → Bool} {kinds : Array MixedGat
       unfold canonicalSetWidthTop?
       rw [Tools.ShippingUnifiedRecursion.canonicalSetWidth?_setwE dom _ (a.wf_pos ha) hpos]
     exact hroot_of_setw hpos mux top swtop body
+  | _, .slice nm start len (w := w) a, he, _ => by
+    have body : hierGateBitsBody isInst kinds len (sliceE dom nm w start len (quote dom binp vinp a)) = true :=
+      hier_quote_accepted (dom := dom) hb hv (.slice nm start len a) he
+    obtain ⟨ha, hlen, hr⟩ := he
+    exact hroot_of_setw hlen (Tools.ShippingUnifiedExecutionSoundness.sliceE_noMux ..) (Tools.ShippingUnifiedExecutionSoundness.sliceE_noTop ..)
+      (Tools.ShippingUnifiedExecutionSoundness.sliceE_top dom nm _ hlen hr) body
 
 /-- Once the real declaration has been peeled, recognition of a cone over
 accepted leaves follows — AT the given designation predicate. -/

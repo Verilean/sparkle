@@ -286,6 +286,28 @@ theorem setw_protect {ctx inputs we mems initial rec ae hint named va} {ws wt : 
   intro hmem
   exact hwa (setwRhs_refs hmem).symm
 
+theorem sliceRhs_refs {start len : Nat} {sw x : String}
+    (hx : x ∈ refsOf (sliceRhs start len sw)) : x = sw := by
+  simpa [sliceRhs, refsOf] using hx
+
+/-- One-child slice: the child protects, then the fresh result reads only
+the child wire. -/
+theorem slice_protect {ctx inputs we mems initial rec ae hint named va} {start len : Nat}
+    (ca : Child rec ctx inputs we mems initial ae "s" va)
+    (pa : ActionProtect (rec ae "s" false false) ctx inputs) :
+    ActionProtect (do
+        let sw ← rec ae "s" false false
+        emitSliceResult (sliceRhs start len sw) len hint named) ctx inputs := by
+  intro s w t p hr lookup hp
+  obtain ⟨sw, sm, ra, re⟩ := Returns.bind hr
+  have fa := ca.frame s sm sw lookup ra
+  obtain ⟨hpa, hwa⟩ := pa s sw sm p ra lookup hp
+  have hpA := hp.frame fa hpa
+  obtain ⟨hw, ht⟩ := emitSliceResult_returns re
+  apply allocate_assign_protect hw ht hpA
+  intro hmem
+  exact hwa (sliceRhs_refs hmem).symm
+
 /-- Input leaves return an existing binding: no state change, and the bound
 wire cannot be the pending name. -/
 theorem input_protect {ctx inputs id v rec hint named} (hi : inputs id = some v) :
@@ -727,6 +749,21 @@ theorem fuel_protects (fuel : Nat) {ctx : CompilerState} {inputs : FVarId → Op
         hint false named) ctx inputs
       rw [setwUncached_setwE]
       exact setw_protect ((fc a ha).child "s") (ih a ha "s" false)
+    | slice nm start len a =>
+      rename_i w
+      obtain ⟨ha, hlen, hr⟩ := he
+      show ActionProtect (translateStepWith translateFallback
+        (translateFuelFix translateStep fuel)
+        (sliceE dom nm w start len (quote dom (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) a))
+        hint false named) ctx inputs
+      rw [slice_step _ _ _ _ _ _ _ _ _ _ hlen hr]
+      apply cached_protect (meaning_quote hb hv (.slice nm start len a) ⟨ha, hlen, hr⟩)
+      show ActionProtect (translateSliceUncachedWith (translateFuelFix translateStep fuel)
+        start len
+        (sliceE dom nm w start len (quote dom (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) a))
+        hint false named) ctx inputs
+      rw [sliceUncached_sliceE]
+      exact slice_protect ((fc a ha).child "s") (ih a ha "s" false)
 
 /-- Order obligation for one recursive/action call. -/
 def ActionOrder (action : CompilerM String) (ctx : CompilerState)
@@ -1044,6 +1081,32 @@ theorem emit_cast_order {ctx s t w rhs wt hint named}
     · rcases List.mem_append.mp hx with hx | hx
       · simp [Std.HashSet.contains_insert, refs x hx]
       · simp [Std.HashSet.contains_insert, order.2 x hx]
+
+theorem emit_slice_order {ctx s t w rhs len hint named}
+    (hr : Returns (emitSliceResult rhs len hint named) ctx s w t) (order : OrderInv s)
+    (refs : ∀ x ∈ refsOf rhs, s.usedNames.contains x = true) : OrderInv t := by
+  by_cases h1 : len = 1
+  · subst h1
+    rw [emitSliceResult_one] at hr
+    exact emit_bool_order hr order refs
+  · rw [emitSliceResult_wide h1] at hr
+    exact emit_cast_order hr order refs
+
+theorem slice_order {ctx inputs we mems initial rec ae hint named va} {start len : Nat}
+    (hlen : 0 < len)
+    (ca : Child rec ctx inputs we mems initial ae "s" va)
+    (oa : ActionOrder (rec ae "s" false false) ctx inputs we mems initial) :
+    ActionOrder (do
+        let sw ← rec ae "s" false false
+        emitSliceResult (sliceRhs start len sw) len hint named) ctx inputs we mems initial := by
+  intro s t w prior hr h widths order
+  obtain ⟨sw, sm, ra, re⟩ := Returns.bind hr
+  have wa := (emit_slice_frame (sliceRhs_simple start len hlen sw) re).1.decls.widths widths
+  have aout := ca.sem s sm sw prior h wa ra
+  apply emit_slice_order re (oa _ _ _ _ ra h wa order)
+  intro x hx
+  cases sliceRhs_refs hx
+  exact aout.used
 
 theorem setw_order {ctx inputs we mems initial rec ae hint named va} {ws wt : Nat}
     (hwt : 0 < wt)
@@ -1398,6 +1461,21 @@ theorem fuel_orders (fuel : Nat) {ctx : CompilerState} {inputs : FVarId → Opti
         hint false named) ctx inputs we mems initial
       rw [setwUncached_setwE]
       exact setw_order hpos ((fuel_contract fuel hb hv a ha).child "s") (ih a ha "s" false)
+    | slice nm start len a =>
+      rename_i w
+      obtain ⟨ha, hlen, hr⟩ := he
+      show ActionOrder (translateStepWith translateFallback
+        (translateFuelFix translateStep fuel)
+        (sliceE dom nm w start len (quote dom (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) a))
+        hint false named) ctx inputs we mems initial
+      rw [slice_step _ _ _ _ _ _ _ _ _ _ hlen hr]
+      apply cached_order
+      show ActionOrder (translateSliceUncachedWith (translateFuelFix translateStep fuel)
+        start len
+        (sliceE dom nm w start len (quote dom (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) a))
+        hint false named) ctx inputs we mems initial
+      rw [sliceUncached_sliceE]
+      exact slice_order hlen ((fuel_contract fuel hb hv a ha).child "s") (ih a ha "s" false)
 
 /-- Real-entry order for any unified quoted source. -/
 theorem translateExprToWire_orders {ctx : CompilerState} {inputs : FVarId → Option Value}

@@ -1338,11 +1338,33 @@ def canonicalSetWidth? : Lean.Expr → Option (Nat × Nat × Lean.Expr)
     else none
   | _ => none
 
-/-- The target width of a canonical width-changing root. -/
+/-- Canonical slice map: `Signal.map (fun x => BitVec.extractLsb' start len x) s`
+    with literal widths, a positive length and the whole range inside the
+    source (`start + len ≤ ws`).  Returns `(source width, start, length,
+    child)`.  The binder name is not read. -/
+def canonicalSlice? : Lean.Expr → Option (Nat × Nat × Nat × Lean.Expr)
+  | .app (.app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.map _) _)
+      (.app (.const ``BitVec _) wsE)) (.app (.const ``BitVec _) lenE))
+      (.lam _ _ (.app (.app (.app (.app (.const ``BitVec.extractLsb' _) wsE') startE) lenE')
+        (.bvar 0)) _)) a =>
+    match canonicalNatLitValue? wsE, canonicalNatLitValue? lenE, canonicalNatLitValue? wsE',
+        canonicalNatLitValue? startE, canonicalNatLitValue? lenE' with
+    | some ws, some len, some ws', some start, some len' =>
+      if 0 < len && ws' == ws && len' == len && decide (start + len ≤ ws) then
+        some (ws, start, len, a)
+      else none
+    | _, _, _, _, _ => none
+  | _ => none
+
+/-- The target width of a canonical width-changing root: a `setWidth` cast or
+    a slice. -/
 def canonicalSetWidthTop? (e : Lean.Expr) : Option Nat :=
   match canonicalSetWidth? e with
   | some (_, wt, _) => some wt
-  | none => none
+  | none =>
+    match canonicalSlice? e with
+    | some (_, _, len, _) => some len
+    | none => none
 
 /-- Canonical register: `Signal.register initLit s` at a literal positive
     width, restricted to a POLYMORPHIC domain binder (`.fvar`/`.bvar`). A
@@ -2327,6 +2349,16 @@ def unifiedGateBitsBody (kinds : Array MixedGateBinder) (n : Nat) : Lean.Expr �
       (match canonicalNatLitValue? wsE, canonicalNatLitValue? wsE' with
        | some ws, some ws' => ws' == ws && 0 < ws && unifiedGateBitsBody kinds ws a
        | _, _ => false)
+  | .app (.app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.map _) _)
+      (.app (.const ``BitVec _) wsE)) (.app (.const ``BitVec _) lenE))
+      (.lam _ _ (.app (.app (.app (.app (.const ``BitVec.extractLsb' _) wsE') startE) lenE')
+        (.bvar 0)) _)) a =>
+      canonicalNatLitValue? lenE == some n && canonicalNatLitValue? lenE' == some n &&
+      (match canonicalNatLitValue? wsE, canonicalNatLitValue? wsE',
+          canonicalNatLitValue? startE with
+       | some ws, some ws', some start =>
+         ws' == ws && 0 < n && decide (start + n ≤ ws) && unifiedGateBitsBody kinds ws a
+       | _, _, _ => false)
   | e@(.app (.app (.app (.app (.app (.app (.const m _) _) _) _) _) a) b) =>
       match signalBinOpOf m, canonicalSignalBinKinds m e.getAppArgs,
           canonicalSignalBitVecWidth e.getAppArgs with
@@ -2521,6 +2553,16 @@ def hierGateBitsBody (isInst : Lean.Expr → Bool) (kinds : Array MixedGateBinde
       (match canonicalNatLitValue? wsE, canonicalNatLitValue? wsE' with
        | some ws, some ws' => ws' == ws && 0 < ws && hierGateBitsBody isInst kinds ws a
        | _, _ => false)
+  | .app (.app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.map _) _)
+      (.app (.const ``BitVec _) wsE)) (.app (.const ``BitVec _) lenE))
+      (.lam _ _ (.app (.app (.app (.app (.const ``BitVec.extractLsb' _) wsE') startE) lenE')
+        (.bvar 0)) _)) a =>
+      canonicalNatLitValue? lenE == some n && canonicalNatLitValue? lenE' == some n &&
+      (match canonicalNatLitValue? wsE, canonicalNatLitValue? wsE',
+          canonicalNatLitValue? startE with
+       | some ws, some ws', some start =>
+         ws' == ws && 0 < n && decide (start + n ≤ ws) && hierGateBitsBody isInst kinds ws a
+       | _, _, _ => false)
   | e@(.app (.app (.app (.app (.app (.app (.const m _) _) _) _) _) a) b) =>
       match signalBinOpOf m, canonicalSignalBinKinds m e.getAppArgs,
           canonicalSignalBitVecWidth e.getAppArgs with
@@ -2817,26 +2859,36 @@ def inlCanonPi : Lean.Expr → Lean.Expr
   | .forallE _ t body bi => .forallE `a t (inlCanonPi body) bi
   | e => e
 
-/-- `f <$> a` and `mf <*> mx` at the library's own `Signal` instances, as
-    the `Signal.map` / `Signal.ap` applications they are by definition — the
-    form the legacy translator reduces them to (`whnfUntil`) before lowering.
-    The `Unit` thunk around the second operand of `<*>` is removed. -/
-def inlSignalApplicative (n : Name) (ls : List Level) (args : List Lean.Expr) :
-    Option Lean.Expr :=
-  match ls, args with
-  | u :: _, [.app (.const ``Sparkle.Core.Signal.Signal _) dom,
-      .app (.const ``Sparkle.Core.Signal.instFunctorSignal _) dom', α, β, f, a] =>
-    if n == ``Functor.map && dom' == dom then
+/-- `f <$> a` at the library's `Functor (Signal dom)` instance, as the
+    `Signal.map` application it is by definition, with canonical binder names.
+    Used only for the function position of `<*>`: a bare `f <$> a` has its own
+    legacy handler (other child hints) and is left as written. -/
+def inlSignalMapOfFunctor : Lean.Expr → Option Lean.Expr
+  | .app (.app (.app (.app (.app (.app (.const ``Functor.map (u :: _))
+      (.app (.const ``Sparkle.Core.Signal.Signal _) dom))
+      (.app (.const ``Sparkle.Core.Signal.instFunctorSignal _) dom')) α) β) f) a =>
+    if dom' == dom then
       some (mkApp5 (.const ``Sparkle.Core.Signal.Signal.map [u]) dom α (inlCanonPi β)
         (inlCanonLam 0 f) a)
     else none
+  | _ => none
+
+/-- `mf <*> mx` at the library's own `Signal` instances, as the `Signal.ap`
+    application it is by definition — the form the legacy translator reduces
+    it to (`whnfUntil`) before lowering.  The `Unit` thunk around the second
+    operand is removed, and an `f <$> a` in function position becomes
+    `Signal.map f a`. -/
+def inlSignalApplicative (n : Name) (ls : List Level) (args : List Lean.Expr) :
+    Option Lean.Expr :=
+  match ls, args with
   | u :: _, [.app (.const ``Sparkle.Core.Signal.Signal _) dom,
       .app (.app (.const ``Applicative.toSeq _) (.app (.const ``Sparkle.Core.Signal.Signal _) dom''))
         (.app (.const ``Sparkle.Core.Signal.instApplicativeSignal _) dom'),
       α, β, mf, .lam _ _ mx _] =>
     if n == ``Seq.seq && dom' == dom && dom'' == dom then
       (inlDropBinder 0 mx).map fun mx' =>
-        mkApp5 (.const ``Sparkle.Core.Signal.Signal.ap [u]) dom α β mf mx'
+        mkApp5 (.const ``Sparkle.Core.Signal.Signal.ap [u]) dom α β
+          ((inlSignalMapOfFunctor mf).getD mf) mx'
     else none
   | _, _ => none
 
@@ -2875,8 +2927,8 @@ def inlHeadCtor (defs : Name → Option Lean.Expr) (ctor : Name) :
     A projection `projs` names, applied to exactly its record, is replaced by
     the field of the constructor its record head-normalises to
     (`inlHeadCtor`); when the record does not reach a constructor the
-    projection is kept.  `<$>` / `<*>` at the library's Signal instances
-    become `Signal.map` / `Signal.ap` (`inlSignalApplicative`).  Descends
+    projection is kept.  `f <$> a <*> b` at the library's Signal instances
+    becomes `Signal.ap (Signal.map f a) b` (`inlSignalApplicative`).  Descends
     through applications and `fun` bodies. -/
 def inlineDefs (defs : Name → Option Lean.Expr) (projs : Name → Option (Name × Nat × Nat)) :
     Nat → Lean.Expr → Nat → Option (Lean.Expr × Nat)
@@ -5842,6 +5894,26 @@ def translateSetWidthUncachedWith (rec : TranslateFn) (ws wt : Nat) : TranslateF
     let sw ← rec e.getAppArgs.back! "s" false false
     emitCastResult (setwRhs ws wt sw) wt hint named
 
+/-- The part-select right-hand side of a slice: bits `start + len - 1 … start`
+    of the child wire. -/
+def sliceRhs (start len : Nat) (sw : String) : Sparkle.IR.AST.Expr :=
+  .slice (.ref sw) (start + len - 1) start
+
+/-- Allocate the slice's result wire — a scalar `logic` for one bit, as the
+    legacy lowering declares it — and assign the part-select. -/
+def emitSliceResult (rhs : Sparkle.IR.AST.Expr) (len : Nat) (hint : String)
+    (named : Bool) : CompilerM String := do
+  let r ← CompilerM.makeWire hint (hwTypeFromWidth len) (named := named)
+  CompilerM.emitAssign r rhs
+  return r
+
+/-- Uncached lowering for the canonical slice map: the child first, then one
+    part-select assignment. -/
+def translateSliceUncachedWith (rec : TranslateFn) (start len : Nat) : TranslateFn :=
+  fun e hint _top named => do
+    let sw ← rec e.getAppArgs.back! "s" false false
+    emitSliceResult (sliceRhs start len sw) len hint named
+
 /-- Uncached lowering for the canonical polymorphic-domain register: the
     input first, then one register statement on the shared clock/reset
     names. The asynchronous kind matches the legacy handler's fallback for
@@ -6239,6 +6311,7 @@ inductive FallbackKind where
   | circuitDo (w v : Nat)
   | circuitDo2 (w v0 v1 ret : Nat)
   | memory (aw dw : Nat)
+  | slice (ws start len : Nat)
   | other
   deriving DecidableEq, Repr
 
@@ -6268,7 +6341,10 @@ def fallbackKind (e : Lean.Expr) : FallbackKind :=
                 | none =>
                   match canonicalMemory? e with
                   | some (aw, dw) => .memory aw dw
-                  | none => .other
+                  | none =>
+                    match canonicalSlice? e with
+                    | some (ws, start, len, _) => .slice ws start len
+                    | none => .other
 
 /-- The existing handler chain (cache wrapper + dispatch) as the fallback:
     one lowering per `fallbackKind`. -/
@@ -6302,6 +6378,8 @@ def translateFallback (rec : TranslateFn) : TranslateFn :=
         e hint top named
     | .memory aw dw =>
       translateControlCachedWith (translateMemoryUncachedWith rec aw dw) e hint top named
+    | .slice _ start len =>
+      translateControlCachedWith (translateSliceUncachedWith rec start len) e hint top named
     | .other => translateInstanceOrFallback rec e hint top named
 
 def translateStep : TranslateFn → TranslateFn := translateStepWith translateFallback

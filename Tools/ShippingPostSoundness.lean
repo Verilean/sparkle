@@ -647,6 +647,8 @@ theorem simpleRhs_renameE (σ : String → String) :
   | .concat [.const _ _, .ref _], _ => rfl
   | .slice (.concat [.const 0 w, .ref _]) hi lo, h => by
     simpa [renameE, renameE.renameL, simpleRhs] using h
+  | .slice (.ref _) hi lo, h => by
+    simpa [renameE, simpleRhs] using h
 
 theorem validateStep_shape {wOf : String → Nat} {allLhs : List String} {st st' : MergeCheck}
     {l : String} {e : Sparkle.IR.AST.Expr} {new : Stmt}

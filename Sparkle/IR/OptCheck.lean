@@ -114,8 +114,9 @@ def optCheck (m o : Module) : Bool :=
 
 /-- The statement shapes the synthesis entry produces: an `assign` of a
 constant, a reference, or one of the six normalizer operators or logical
-left/right shift or unsigned comparison on two references, or a mux on
-three references. -/
+left/right shift or unsigned comparison on two references, a mux on
+three references, a width cast of a reference, or a part-select
+`x[hi:lo]` of a reference. -/
 def simpleRhs : Expr → Bool
   | .const _ _ => true
   | .ref _ => true
@@ -123,6 +124,7 @@ def simpleRhs : Expr → Bool
   | .op .mux [.ref _, .ref _, .ref _] => true
   | .concat [.const _ _, .ref _] => true
   | .slice (.concat [.const 0 w, .ref _]) hi lo => lo == 0 && hi + 1 == w
+  | .slice (.ref _) hi lo => decide (lo ≤ hi)
   | _ => false
 
 def simpleBody (m : Module) : Bool :=

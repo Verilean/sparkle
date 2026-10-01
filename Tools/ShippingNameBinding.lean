@@ -21,6 +21,7 @@ def ExprBound (declared : String → Prop) : SVExpr → Prop
   | .ternary c t f => ExprBound declared c ∧ ExprBound declared t ∧ ExprBound declared f
   | .concat [.lit _, .ident x] => declared x
   | .sizeCast _ a => ExprBound declared a
+  | .slice (.ident x) _ _ => declared x
   | _ => False
 
 def Declared (sv : SVModule) (x : String) : Prop :=
@@ -128,6 +129,16 @@ theorem emitExpr_bound {e : Sparkle.IR.AST.Expr} {sv : SVExpr}
     cases he
     exact hr x (by
       simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList])
+  | sliceRef x hi lo hle =>
+    have hx := hr x (by simp [Sparkle.IR.Reorder.refsOf])
+    simp only [emitAstExpr] at he
+    split at he
+    · split at he
+      · cases he; exact hx
+      · split at he
+        · cases he; exact hx
+        · split at he <;> cases he <;> first | exact hx | exact ⟨hx, trivial⟩
+    · cases he; exact hx
 
 /-- The checked expression facts supply widths for every read, not merely
 for wires that contribute to the final output. -/

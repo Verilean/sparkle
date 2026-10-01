@@ -1114,6 +1114,180 @@ theorem setw_contract {rec ctx inputs we mems initial dom ae} {ws wt : Nat} {x :
   exact ⟨fun hint top named => (step hint top named).frame,
     fun hint top named => (step hint top named).sem⟩
 
+/-! ## Slices
+
+`a.map (BitVec.extractLsb' start len ·)` lowers like the width cast: the
+child under hint `"s"`, then ONE part-select assignment `x[hi:lo]` to a fresh
+result wire — declared as a scalar `logic` when one bit wide, as the legacy
+lowering declares it. -/
+
+theorem hwTypeFromWidth_bitWidth (n : Nat) :
+    (Sparkle.IR.Type.hwTypeFromWidth n).bitWidth = n := by
+  unfold Sparkle.IR.Type.hwTypeFromWidth
+  split
+  · rename_i h
+    have : n = 1 := by simpa using h
+    subst this
+    rfl
+  · rfl
+
+theorem emitSliceResult_returns {rhs : Sparkle.IR.AST.Expr} {len : Nat} {hint w : String}
+    {named : Bool} {ctx : CompilerState} {s s' : CircuitState}
+    (h : Returns (emitSliceResult rhs len hint named) ctx s w s') :
+    w = (CircuitM.makeWire hint (Sparkle.IR.Type.hwTypeFromWidth len) named s).1 ∧
+    s' = (CircuitM.emitAssign w rhs
+      (CircuitM.makeWire hint (Sparkle.IR.Type.hwTypeFromWidth len) named s).2).2 := by
+  unfold emitSliceResult at h
+  obtain ⟨r, sm, hm, h⟩ := Returns.bind h
+  obtain ⟨hr, hs⟩ := makeWire_returns hm
+  obtain ⟨u, se, he, h⟩ := Returns.bind h
+  obtain ⟨hw, hs'⟩ := Returns.pure h
+  have hem := emitAssign_returns he
+  subst w s'
+  exact ⟨hr, by rw [hem, hs]⟩
+
+theorem emitSliceResult_one (rhs : Sparkle.IR.AST.Expr) (hint : String) (named : Bool) :
+    emitSliceResult rhs 1 hint named = emitBoolResult rhs hint named := rfl
+
+theorem emitSliceResult_wide {len : Nat} (h : len ≠ 1) (rhs : Sparkle.IR.AST.Expr)
+    (hint : String) (named : Bool) :
+    emitSliceResult rhs len hint named = emitCastResult rhs len hint named := by
+  have hty : Sparkle.IR.Type.hwTypeFromWidth len = .bitVector len := by
+    unfold Sparkle.IR.Type.hwTypeFromWidth
+    simp [h]
+  unfold emitSliceResult emitCastResult
+  rw [hty]
+
+theorem emit_slice_frame {ctx s t w rhs len hint named}
+    (hs : Sparkle.IR.OptCheck.simpleRhs rhs = true)
+    (h : Returns (emitSliceResult rhs len hint named) ctx s w t) :
+    Frame s t ∧ s.usedNames.contains w = false := by
+  by_cases h1 : len = 1
+  · subst h1
+    rw [emitSliceResult_one] at h
+    exact emit_bool_frame hs h
+  · rw [emitSliceResult_wide h1] at h
+    exact emit_cast_frame hs h
+
+theorem sliceRhs_simple (start len : Nat) (hlen : 0 < len) (sw : String) :
+    Sparkle.IR.OptCheck.simpleRhs (sliceRhs start len sw) = true := by
+  show decide (start ≤ start + len - 1) = true
+  simp only [decide_eq_true_eq]
+  omega
+
+theorem sliceRhs_typed {we : WEnv} {sw : String} {ws start len : Nat}
+    (hlen : 0 < len) (hr : start + len ≤ ws) (hsw : we sw = ws) :
+    TypedExpr we (sliceRhs start len sw) len := by
+  have step := TypedExpr.slice (we := we) sw (start + len - 1) start (by omega)
+    (by rw [hsw]; omega)
+  rwa [show start + len - 1 - start + 1 = len from by omega] at step
+
+theorem sliceRhs_eval {we : WEnv} {env : Env} {sw : String} {ws start len : Nat}
+    {x : BitVec ws} (hlen : 0 < len) (hv : env sw = x.toNat) :
+    evalExpr we env (sliceRhs start len sw) =
+      some (BitVec.extractLsb' start len x).toNat := by
+  have hw : start + len - 1 - start + 1 = len := by omega
+  simp [sliceRhs, evalExpr, hv, hw, mask, BitVec.extractLsb'_toNat]
+
+theorem slice_fresh {ctx inputs we mems initial rec ae hint named} {ws start len : Nat}
+    {x : BitVec ws} (hlen : 0 < len) (hr : start + len ≤ ws)
+    (ca : Child rec ctx inputs we mems initial ae "s" (.bits ws x)) :
+    FreshAction (do
+        let sw ← rec ae "s" false false
+        emitSliceResult (sliceRhs start len sw) len hint named)
+      ctx inputs we mems initial (.bits len (BitVec.extractLsb' start len x)) := by
+  have shape : ∀ s t w, Lookup ctx inputs s →
+      Returns (do
+        let sw ← rec ae "s" false false
+        emitSliceResult (sliceRhs start len sw) len hint named) ctx s w t →
+      Frame s t ∧ s.usedNames.contains w = false := by
+    intro s t w lookup hr'
+    obtain ⟨sw, sm, ra, re⟩ := Returns.bind hr'
+    have fa := ca.frame s sm sw lookup ra
+    obtain ⟨fe, fresh⟩ := emit_slice_frame (sliceRhs_simple start len hlen sw) re
+    refine ⟨fa.trans fe, ?_⟩
+    cases hu : s.usedNames.contains w
+    · rfl
+    · have := fa.used w hu; simp [fresh] at this
+  refine ⟨⟨fun s t w lookup hr' => (shape s t w lookup hr').1, ?_⟩,
+    fun s t w lookup hr' => (shape s t w lookup hr').2⟩
+  intro s t w prior h widths hr'
+  obtain ⟨sw, sm, ra, re⟩ := Returns.bind hr'
+  obtain ⟨hw, ht⟩ := emitSliceResult_returns re
+  have lookup := Lookup.ofInputs h.inputs
+  have fa := ca.frame s sm sw lookup ra
+  have fcast := (emit_slice_frame (sliceRhs_simple start len hlen sw) re).1
+  have aout := ca.sem s sm sw prior h (fcast.decls.widths widths) ra
+  obtain ⟨va, ia, av, af⟩ := aout.execution
+  have step := allocate_assign_outcome (v := .bits len (BitVec.extractLsb' start len x)) ia hw ht
+    (hwTypeFromWidth_bitWidth len)
+    (sliceRhs_typed hlen hr aout.width) (sliceRhs_eval hlen av) widths
+  obtain ⟨result, inv, val, frame⟩ := step.execution
+  exact ⟨step.used, step.width, fun z hz => step.grows z (fa.used z hz), result, inv, val,
+    fun z hz => (frame z (fa.used z hz)).trans (af z hz)⟩
+
+set_option maxHeartbeats 1000000 in
+theorem sliceE_back (dom ae : Lean.Expr) (nm : Lean.Name) (ws start len : Nat) :
+    (sliceE dom nm ws start len ae).getAppArgs.back! = ae := rfl
+
+theorem sliceUncached_sliceE (rec : TranslateFn) (dom ae : Lean.Expr) (nm : Lean.Name)
+    (ws start len : Nat) (hint : String) (top named : Bool) :
+    translateSliceUncachedWith rec start len (sliceE dom nm ws start len ae) hint top named =
+      (do
+        let sw ← rec ae "s" false false
+        emitSliceResult (sliceRhs start len sw) len hint named) := by
+  show (do
+      let sw ← rec (sliceE dom nm ws start len ae).getAppArgs.back! "s" false false
+      emitSliceResult (sliceRhs start len sw) len hint named) = _
+  rw [sliceE_back]
+
+set_option maxHeartbeats 1000000 in
+theorem slice_step (rec : TranslateFn) (dom ae : Lean.Expr) (nm : Lean.Name)
+    (ws start len : Nat) (hint : String) (top named : Bool)
+    (hlen : 0 < len) (hr : start + len ≤ ws) :
+    translateStepWith translateFallback rec (sliceE dom nm ws start len ae) hint top named =
+      translateControlCachedWith (translateSliceUncachedWith rec start len)
+        (sliceE dom nm ws start len ae) hint top named := by
+  have shape : translateCoreShape (sliceE dom nm ws start len ae) = false := rfl
+  have core : translateCore rec (sliceE dom nm ws start len ae) hint top named = pure none := rfl
+  have control : isBoolControl (sliceE dom nm ws start len ae) = false := rfl
+  have mux : canonicalMuxType? (sliceE dom nm ws start len ae) = none := rfl
+  have setw : canonicalSetWidth? (sliceE dom nm ws start len ae) = none := rfl
+  have reg : canonicalRegister? (sliceE dom nm ws start len ae) = none := rfl
+  have regEn : canonicalRegisterEnable? (sliceE dom nm ws start len ae) = none := rfl
+  have loopR : canonicalLoopRegister? (sliceE dom nm ws start len ae) = none := rfl
+  have cdo : canonicalCircuitDo? (sliceE dom nm ws start len ae) = none := rfl
+  have cdo2 : canonicalCircuitDo2? (sliceE dom nm ws start len ae) = none := rfl
+  have mem : canonicalMemory? (sliceE dom nm ws start len ae) = none := rfl
+  have sl := canonicalSlice?_sliceE dom nm ae hlen hr
+  have step : translateStepWith translateFallback rec (sliceE dom nm ws start len ae)
+      hint top named = translateFallback rec (sliceE dom nm ws start len ae) hint top named := by
+    simp [translateStepWith, shape, core]
+    rfl
+  rw [step]
+  simp only [translateFallback, fallbackKind, control, Bool.false_eq_true, if_false, mux, setw,
+    reg, regEn, loopR, cdo, cdo2, mem, sl]
+
+theorem slice_contract {rec ctx inputs we mems initial dom ae nm} {ws start len : Nat}
+    {x : BitVec ws} (hlen : 0 < len) (hr : start + len ≤ ws)
+    (meaning : Meaning inputs (sliceE dom nm ws start len ae)
+      (.bits len (BitVec.extractLsb' start len x)))
+    (ca : Child rec ctx inputs we mems initial ae "s" (.bits ws x)) :
+    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial
+      (sliceE dom nm ws start len ae) (.bits len (BitVec.extractLsb' start len x)) := by
+  have step : ∀ hint top named, ActionSpec
+      (translateStepWith translateFallback rec (sliceE dom nm ws start len ae) hint top named)
+      ctx inputs we mems initial (.bits len (BitVec.extractLsb' start len x)) := by
+    intro hint top named
+    rw [slice_step rec dom ae nm ws start len hint top named hlen hr]
+    apply cached_action meaning
+    show FreshAction (translateSliceUncachedWith rec start len (sliceE dom nm ws start len ae)
+      hint top named) ctx inputs we mems initial (.bits len (BitVec.extractLsb' start len x))
+    rw [sliceUncached_sliceE]
+    exact slice_fresh hlen hr ca
+  exact ⟨fun hint top named => (step hint top named).frame,
+    fun hint top named => (step hint top named).sem⟩
+
 /-! ## Applicative-lifted Bool-result operators
 
 `(BitVec.ule · ·) <$> a <*> b` and `(· && ·) <$> a <*> b`, in the form the
@@ -1442,6 +1616,10 @@ theorem fuel_contract_leaves (fuel : Nat) {ctx : CompilerState}
       obtain ⟨ha, hb'⟩ := he
       exact appBool_contract op _ _ (meaning_quote_leaves hb hv (.appBool op a b) ⟨ha, hb'⟩)
         ((ih a ha).child "app_arg") ((ih b hb').child "app_arg")
+    | slice nm start len a =>
+      obtain ⟨ha, hlen, hr⟩ := he
+      exact slice_contract hlen hr
+        (meaning_quote_leaves hb hv (.slice nm start len a) ⟨ha, hlen, hr⟩) ((ih a ha).child "s")
 
 /-- An input binder satisfies its leaf contract at every fuel. -/
 theorem input_contract_fuel {ctx inputs we mems initial id v} (hi : inputs id = some v) :

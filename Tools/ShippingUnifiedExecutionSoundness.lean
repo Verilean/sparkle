@@ -209,6 +209,21 @@ theorem unified_quote_accepted {kinds : Array MixedGateBinder} {dom : Lean.Expr}
        | _, _ => false)) = true
     rw [canonicalNatLitValue?_natE, canonicalNatLitValue?_natE]
     simp [ia, a.wf_pos ha]
+  | _, .slice nm start len (w := w) a, h => by
+    obtain ⟨ha, hlen, hr⟩ := h
+    show unifiedGateBitsBody kinds len (sliceE dom nm w start len (quote dom binp vinp a)) = true
+    have ia : unifiedGateBitsBody kinds w (quote dom binp vinp a) = true :=
+      unified_quote_accepted hb hv a ha
+    change (canonicalNatLitValue? (natE len) == some len &&
+      canonicalNatLitValue? (natE len) == some len &&
+      (match canonicalNatLitValue? (natE w), canonicalNatLitValue? (natE w),
+          canonicalNatLitValue? (natE start) with
+       | some ws, some ws', some st =>
+         ws' == ws && 0 < len && decide (st + len ≤ ws) &&
+           unifiedGateBitsBody kinds ws (quote dom binp vinp a)
+       | _, _, _ => false)) = true
+    rw [canonicalNatLitValue?_natE, canonicalNatLitValue?_natE, canonicalNatLitValue?_natE]
+    simp [ia, hlen, hr]
 
 /-- Root acceptance helpers for the unified gate. -/
 theorem root_of_bool {kinds : Array MixedGateBinder} {e : Lean.Expr}
@@ -240,6 +255,26 @@ theorem root_of_setw {kinds : Array MixedGateBinder} {n : Nat} {e : Lean.Expr} (
   unfold unifiedGateRoot
   rw [mux, top, swtop]
   simp [body, hn]
+
+set_option maxHeartbeats 1000000 in
+theorem sliceE_noMux (dom : Lean.Expr) (nm : Lean.Name) (w start len : Nat) (a : Lean.Expr) :
+    canonicalMuxType? (sliceE dom nm w start len a) = none := rfl
+
+set_option maxHeartbeats 1000000 in
+theorem sliceE_noTop (kinds : Array GateBinder) (dom : Lean.Expr) (nm : Lean.Name)
+    (w start len : Nat) (a : Lean.Expr) :
+    gateTopWidth? kinds (sliceE dom nm w start len a) = none := rfl
+
+set_option maxHeartbeats 1000000 in
+theorem sliceE_noSetWidth (dom : Lean.Expr) (nm : Lean.Name) (w start len : Nat)
+    (a : Lean.Expr) : canonicalSetWidth? (sliceE dom nm w start len a) = none := rfl
+
+/-- The slice's length is its top width. -/
+theorem sliceE_top (dom : Lean.Expr) (nm : Lean.Name) (a : Lean.Expr) {w start len : Nat}
+    (hlen : 0 < len) (hr : start + len ≤ w) :
+    canonicalSetWidthTop? (sliceE dom nm w start len a) = some len := by
+  unfold canonicalSetWidthTop?
+  rw [sliceE_noSetWidth, canonicalSlice?_sliceE dom nm a hlen hr]
 
 set_option maxHeartbeats 1000000 in
 /-- Root width for every `.bits` constructor, from the same syntactic sources
@@ -315,6 +350,12 @@ theorem unified_root_accepted {kinds : Array MixedGateBinder} {dom : Lean.Expr} 
       unfold canonicalSetWidthTop?
       rw [Tools.ShippingUnifiedRecursion.canonicalSetWidth?_setwE dom _ (a.wf_pos ha) hpos]
     exact root_of_setw hpos mux top swtop body
+  | _, .slice nm start len (w := w) a, he => by
+    have body : unifiedGateBitsBody kinds len (sliceE dom nm w start len (quote dom binp vinp a)) = true :=
+      unified_quote_accepted (dom := dom) hb hv (.slice nm start len a) he
+    obtain ⟨ha, hlen, hr⟩ := he
+    exact root_of_setw hlen (sliceE_noMux ..) (sliceE_noTop ..)
+      (sliceE_top dom nm _ hlen hr) body
 
 theorem input_bool_accepted {bs : List (Name × MixedGateBinder)} {j name}
     (pos : bs[j]? = some (name, .bool)) :

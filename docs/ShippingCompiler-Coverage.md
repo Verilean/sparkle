@@ -19,7 +19,7 @@ Use declaration names as anchors; source line numbers move during extensions.
 | Both shape gates miss → existing synthesis/cache path | No general source-to-shipping-RTL theorem. MEASURED: 342 of the 389 real-corpus declarations take this route (see "Measured corpus coverage"). | Reconcile source opening, normalization, output leaf splitting, cached submodules and all successful legacy handlers, in the order the measurement gives. |
 | `translateStepWith` → `translateCore` | Existing fragment's literals, inputs and eight binary operations; mixed order proof reuses protected pending names | Other supported surface forms must be related to the quoted source, not assumed equal. |
 | `translateFallback` → Bool control/cache path | Current quoted Bool domain, including validated cache hit/miss behavior. APPLICATIVE-LIFTED Bool-result operators — `(BitVec.ule · ·) <$> a <*> b`, `ult`/`slt`/`sle`, `(· == ·)`, `(· && ·)`, `(· || ·)`, `(· ^^ ·)`, in the form the front end normalises them to, `Signal.ap (Signal.map f a) b` — take this arm (`appBoolOp?`, `translateAppCompare`/`translateAppBoolBinary`: operands under the legacy applicative hint `app_arg`, then the direct route's result assignment); they are `Term.appCompare`/`Term.appBool` of the unified domain, with the full contract, protection and order inductions, both gates, and both `circuit do` cone conversions; `kLut!` table muxes are certified through them. Numeric literals (`Signal.pure 5` at `BitVec.instOfNat`) are `Term.bitsNum`. | Lifted functions whose body is not one operator on the two variables (`fun s l => s && !l`, `x.toInt > y.toInt`), unary lifts, BitVec-result lifts (`(· &&& ·) <$>`), and Bool surface forms/custom instances keep the legacy handlers. |
-| `translateFallback` → cached literal-width BitVec mux / width-changing map | Unified `Term`: mutual composition of muxes below/above arithmetic and comparison parents at either result sort, via `ShippingUnifiedExecutionSoundness.execution_source_of_env`, including validated cache hit/miss and record preservation; per-operation mixed widths and canonical width-changing maps (`Signal.map (BitVec.setWidth w)`/`zeroExtend` at literal positive widths — zero-extension, truncation and equal-width casts) are covered through the same endpoint. | Sign extension, general slice/concat surface operations and symbolic widths stay on the legacy path without a general theorem. |
+| `translateFallback` → cached literal-width BitVec mux / width-changing map | Unified `Term`: mutual composition of muxes below/above arithmetic and comparison parents at either result sort, via `ShippingUnifiedExecutionSoundness.execution_source_of_env`, including validated cache hit/miss and record preservation; per-operation mixed widths and canonical width-changing maps (`Signal.map (BitVec.setWidth w)`/`zeroExtend` at literal positive widths — zero-extension, truncation and equal-width casts) are covered through the same endpoint. SLICES — `Signal.map (fun x => BitVec.extractLsb' start len x) s` at literal widths with `0 < len` and `start + len ≤ ws`, the form `s.map (BitVec.extractLsb' start len ·)` elaborates to — are the arm `FallbackKind.slice` (`canonicalSlice?`, `translateSliceUncachedWith`: operand under the legacy hint `s`, result wire at `hwTypeFromWidth len`, right-hand side the part-select `s[start+len-1:start]`) and the constructor `Term.slice` of the unified domain, with contract, protection and order inductions, both gates and both `circuit do` cone conversions; the part-select is a right-hand side of the whole back half (`simpleRhs`, `TypedExpr.slice`, `PrintShape.sliceRef`, the renderer and both grammar productions, name binding). | Sign extension, concatenation, a slice written as a bare `f <$> a`, an out-of-range or zero-length slice, and symbolic widths stay on the legacy path without a general theorem. |
 | `translateFallback` → canonical polymorphic-domain register | One `Signal.register initLit` root over the unified combinational domain: cycle observation and register update proved at the raw `synthesizeCombinationalCore` module (`register_step_of_env`, `trace_of_cycles`), reset held low, initialization from the declared value; `dropZeroWidthModule` proved body/width-preserving on this shape (the `SPARKLE_NO_REGDEDUP=1` configuration); the enabled register (`registerWithEnable`, hold mux) proved to the capture/hold cycle recurrence at the raw core module (`registerEnable_step_of_env`). (zero-width cleanup preserved for the plain and enabled shapes); the feedback register `Signal.loop (fun s => Signal.register initLit cone)` proved to the state-reading cycle recurrence at the raw core module (`loopRegister_step_of_env`; zero-width cleanup preserved on all three register shapes; the packaged `register_run_of_env`/`registerEnable_run_of_env`/`loopRegister_run_of_env` give the whole `runModule` trace of each shape as the source register stream, instantiated against the library `.val` streams); the two-stage shift chain `Signal.register i1 (Signal.register i2 cone)` proved likewise (`register2_step_of_env`, two-state `trace_of_cycles2`, packaged `register2_run_of_env`, zero-width cleanup preserved); the single-slot `circuit do` is recognized (`canonicalCircuitDo?`) and lowered to the byte-identical loop-form module, with source streams identified (`cdoAcc_val` via `map_fst_loop_register`) AND the general endpoint chain stated on the cdo quote form itself (`cdo_step_of_env`/`cdo_run_of_env` through the `CdoPreserves` monolith). | Sequential duplicate merge and the sequential `optimizeModule` pass-through are now covered by the PROVED rename-equivalence checker (`seqOptCheck_step_sound`/`seqOptCheck_run_sound`: k-cycle trace equivalence for accepted pairs, acceptance runtime-gated on every certified shape, composed with every certified shape's trace endpoint via `seqOptCheck_transfer` (`regAcc`/`regHold`/`accLoop`/`regChain`/`cdoAcc`/`cdo2X` `_run_optimized`), carried to the emitted-SV semantics (`seq_run_to_sv`, `*_sv_optimized`: M4 `runModuleSV` trace = source stream on every shape's optimized module) and to the parsed-back printed bytes (`seq_run_to_parsed`, `*_parsed_optimized`; the byte→AST parser is the remaining trusted step)); `circuit do` beyond the certified single-slot shape (the two-slot cross-coupled form is PROVED end to end for the returned-slot-0 shape — per-cycle and full-trace endpoints at the real entry over the state-pair recurrence; the trace is identified with the actual `circuit do` output stream via `loopPair_val`; differing widths, more slots, slot-1 return and Reg-operator reads stay open), register chains deeper than two stages and general register networks, reset muxes and the sequential SV printer step stay open; concrete-domain registers keep the legacy handler. |
 | `translateFallback` → canonical sync-read memory (`canonicalMemory?` → `translateMemoryUncachedWith`) | `Signal.memory` with bare-input operands AND with unified-cone operands: gate, total lowering, monoliths (`MemoryPreserves`/`MemoryConePreserves`), whole-trace endpoints at the real entry (`memory_run_of_env`, `memoryCone_run_of_env`), the emitted-SV layer with the read latch and write program (`mem_run_to_sv`), the parsed-back printed bytes (`mem_run_to_parsed`), the composed post-pipeline (`shipping_pipeline_transfer_mem`) and the real-circuit capstones at the core AND the full entry (`memAcc_shipping`, `memAcc_shipping_full`; the cleanup/merge identity is a lawful decidable gate). | Multi-port memories, `memoryWithInit` (an arbitrary Lean function argument), the non-synthesizable combinational-read form, and concrete-domain variants keep the legacy handler. |
 | `translateFallback` → `translateInstanceOrFallback` (tagged head, single-output child → `translateInstanceUncachedWith`) | Every `@[hardware_module]` call with a single-output child takes this provable arm in ANY translation (byte-equal to the legacy handler — suite-gated incl. clk/rst plumbing and repeated-call dedupe). Certified as a ROOT: the canonical combinational parent at EVERY arity (`InstanceNPreserves` over the list-quoted call `instEN`, `parentUse3_instance_entry`; the two-input instance `InstancePreserves`/`parentUse_instance_entry` additionally has its source composition observed through the linked semantics by `parentUse_entry_observes`) and the one-input sequential-child parent (`Instance1Preserves`, `parentSeq_instance_entry`; the linked per-cycle run `runH` observes the source register stream, `parentSeq_runH_observes`). Every instance statement the arm emits is width-linked (checked before emission, concluded as `Linked` in the contract; a width-generic child at a foreign width is refused instead of miscompiled). Run boundaries: `HardwareTagged`, `SubSynthDefines`, plus the parent's scalar result type (single-out cache hits are validated against the builder's own record, so no cache boundary). | Field projections of multi-output children take the sibling provable arm `translateProjInstanceUncachedWith` and are certified as a ROOT by `ProjInstancePreserves` (`parentHi_instance_entry`, source field observed by `parentHi_entry_observes`; boundaries `ProjEnvDefines`/`ProjFieldDefines`/`OutCacheEmpty`); record-RETURNING parents and a second projection of an already-emitted call fall through to the legacy handler; instance calls INSIDE cones with binder arguments on single-output combinational children are certified as cone leaves (`inst_leaf_contract`, `HierConePreserves`, `parentMix_entry_observes`: the linked evaluation observes the source); pipelines (a call whose operands are calls) are certified the same way (`hierInstRoot`, `parentNested_entry_observes`); a wrapper written at a CONCRETE clock domain (`childHW (dom := defaultDomain) a b`, the `synth_*` idiom of the IP tests) is admitted by the same spine and certified through the same endpoint (`wrapAdd_entry_observes`); calls with cone operands and sequential/Bool-output/projection leaves inside cones are gate-accepted and byte-gated but have no entry contract; nested/multiple instances, parameters, and the SV/parse layers for `.inst` statements (open-module view) remain; every single-output child shape (any arity, with or without clk/rst) is covered as a root by `InstanceGPreserves`. |
@@ -38,7 +38,7 @@ Use declaration names as anchors; source line numbers move during extensions.
 | BitVec unary negation/complement | Outside the current shipping source endpoint; require their own source/recursive/backend connection. |
 | `handleMux` | Bool-result and positive common-width BitVec muxes are connected through the unified mutual endpoint, including muxes under arithmetic/comparison parents and computed conditions containing muxes. Other successful mux forms (non-canonical types, varying widths) remain unproved. |
 | `handleBitVecOps`, `translateShiftAmount` | Same-width logical shifts covered in the quoted domain. Nat amounts, other amount widths, arithmetic right shifts and extraction/unwrapping paths require their own connection. |
-| `handleBitVecOps`, primitive application handling inside `translateExprToWireImpl` | Slices, concatenation, zero extension/truncation and sign-extension handling require varying-width source semantics and matching AST/RTL rules. The application handler has additional paths; enumerating only `handleBitVecOps` is insufficient. |
+| `handleBitVecOps`, primitive application handling inside `translateExprToWireImpl` | Concatenation and sign-extension handling require varying-width source semantics and matching AST/RTL rules (zero extension, truncation and in-range slices of the canonical map form are certified arms now — see the mux / width-changing row). The application handler has additional paths; enumerating only `handleBitVecOps` is insufficient. |
 | `handleApplicative`, `handleTupleProjections`, `splitReturnLeaves`, `openRecordInputs` | General map/ap/tuple/record interfaces, flattened outputs and inputs are outside the scalar quoted endpoint. Track source-to-port mapping and multiple output observations. |
 | Unit/PUnit application branches and zero-width cleanup | Successful terminator/zero-width paths are outside the positive-width theorem. Prove erasure semantics and interface behavior. |
 | `handleDefinitionUnfold`, applicative normalization, canonical instance checks | Definition expansion and hardware-module recognition need explicit source correspondence; successful fallback is not ruled out by a gate miss. |
@@ -227,6 +227,14 @@ library — `SHA256.kMux`, `SHA512HW.kMux`, `keccakRcHW`, `rconHW`, `sboxHW`
 — i.e. the CHILDREN of the eight `synth_*` wrappers above, so for those
 wrappers both the parent and the child now pass a certified gate.
 
+After the slice arm (same day): real corpus **60** certified, 329 legacy
+only. The six additions are `synth_canopenFc` and `synth_canopenIsNmt`
+(the CANopen COB-ID demultiplexer's function code and NMT decode — real
+IP bodies reached through the projection wrapper), and four test
+circuits (`synth_slice`, `test_extract_opcode`, `test_slice_map`,
+`test_slice_upper`). Nothing left the certified set; the same 23 files
+fail to elaborate.
+
 After the front-end normalisation landed (re-measured 2026-10-02, pass 1;
 the reason tables below are from the run before it): real corpus **49**
 certified, 340 legacy only — the two additions are the IP wrappers
@@ -346,10 +354,12 @@ of at most 6 declarations. Coverage of real designs needs these TOGETHER:
    Bool-result binary lifts (comparisons, `&&`, `||`, `^^`) that make up
    most of the IP library's applicative uses and all of `kLut!`. Open:
    two-level bodies such as `a && !b`, unary and BitVec-result lifts.
-   Slices and concatenation are NOT front-half work: `x[hi:lo]` on a
-   plain reference and `{a, b}` of two references are IR right-hand sides
-   the optimizer check (`simpleRhs`), the typed-expression layer, the
-   printer theorems and the parse-back theorems do not cover yet.
+   SLICES are DONE as a vertical unit: `x[hi:lo]` on a plain reference
+   is now an IR right-hand side of the optimizer check (`simpleRhs`),
+   the typed-expression layer, the printer theorems and the parse-back
+   theorems, and `Term.slice` in the front half. Concatenation (`{a, b}`
+   of two references) is the same kind of vertical job and is open; it
+   is also what the packed state of the N-slot `circuit do` needs.
 5. **Structure and tuple results**, i.e. multi-output modules.
 6. **Concrete-domain registers and memories** (the reset kind is read
    from the domain), then general `Signal.loop`, instance calls with cone
@@ -385,3 +395,38 @@ identical up to the numbering of fresh `_tmp_N` wires (fewer raw
 statements, the same optimised text), 0 different. No design stopped
 compiling and none changed its hardware; 18 changed their internal wire
 numbers.
+
+The slice arm changed no lowering — the arm emits exactly what the
+legacy `Signal.map` handler emitted for the same expression — but it
+changed which modules the optimizer result is KEPT for. `checkedOptimize`
+keeps the optimised module of a simple (assignment-only, every
+right-hand side a known shape) body only when the proved checker
+accepts the pair, and otherwise ships the input module; a body that is
+not simple gets the optimizer's output unchecked. With the part-select a
+known shape, purely combinational modules that contain a slice became
+simple, and the checker's normal form does not cover slices (it knows
+constants, references and the six binary operators), so those modules
+now ship UNOPTIMISED: one assignment per source operator, with the
+intermediate wires declared, instead of one folded expression. Measured
+against the previous compiler on 192 outputs: 182 byte-identical, 0
+renumbered, 10 different, and every difference is a purely combinational
+module containing a slice, e.g.
+
+```
+- assign out = (_gen_cobId[10:7] & 4'd15);
++ logic [3:0] _gen_out;
++ assign _gen_out = _gen_cobId[10:7];
++ assign out = _gen_out;
+```
+
+The files: `IP/YOLOv8/Primitives/Activation`, `Tests/CompilerTests`,
+`Tests/IP/Bus/CANopenHWTest`, `Tests/IP/Bus/LINHWTest`,
+`Tests/SynthesisTests`, `Tests/Synthesis/SynthCatalog`,
+`Tests/TestCompilerExtensions`, `Tests/TestErrorDetection`,
+`Tests/TestUnbundle2`, `Tests/TupleProjectionTest`. The hardware is the
+same; the text is longer and, for these modules, it is now the text the
+theorems speak about rather than an unchecked rewriting of it. This was
+a policy choice put to the user (retain, as for muxes, comparisons and
+casts before; the alternative is to teach the checker's normal form
+slices so the folded text is kept and proved). Modules with a register,
+a memory or an instance are unaffected: they were never simple.

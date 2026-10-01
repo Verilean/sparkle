@@ -63,6 +63,11 @@ def setwValue (w w' : Nat) : Value → Option Value
   | .bits k v => if h : k = w then some (.bits w' (BitVec.setWidth w' (h ▸ v))) else none
   | _ => none
 
+/-- A slice of a BitVec value: bits `start + len - 1 … start`. -/
+def sliceValue (w start len : Nat) : Value → Option Value
+  | .bits k v => if h : k = w then some (.bits len (BitVec.extractLsb' start len (h ▸ v))) else none
+  | _ => none
+
 inductive Node where
   | input (id : FVarId)
   | value (v : Value)
@@ -70,6 +75,7 @@ inductive Node where
   | boolNot (a : Lean.Expr)
   | mux (kind : Kind) (c a b : Lean.Expr)
   | setw (w w' : Nat) (a : Lean.Expr)
+  | slice (w start len : Nat) (a : Lean.Expr)
 
 def binaryOfName? : Name → Option Binary
   | ``HAdd.hAdd => some .add
@@ -97,6 +103,13 @@ def appView? (e : Lean.Expr) : Option Node :=
   | some (.compare op n, a, b) => some (.binary (.compare op n) a b)
   | some (.bool op, a, b) => some (.binary (.bool op) a b)
   | none => none
+
+/-- The shapes read by the shipping recognisers of later arms: the canonical
+slice map, then the applicative-lifted operators. -/
+def tailView? (e : Lean.Expr) : Option Node :=
+  match canonicalSlice? e with
+  | some (ws, start, len, a) => some (.slice ws start len a)
+  | none => appView? e
 
 /-- Pure syntax view. Operator instances and literal widths are checked using
 shipping recognizers; no MetaM type query or runtime environment oracle. -/
@@ -137,7 +150,7 @@ def view : Lean.Expr → Option Node
     pure (.binary (.compare op n) a b)
   | .app (.app (.app (.const ``Complement.complement _) _)
       (.app (.const ``Sparkle.Core.Signal.instComplementSignalBool _) _)) a => some (.boolNot a)
-  | e => appView? e
+  | e => tailView? e
 
 /-- The source function of each linked child declaration, on packed values.
 `none` outside the child's typed domain. -/
@@ -166,6 +179,8 @@ inductive Meaning (inputs : FVarId → Option Value) : Lean.Expr → Value → P
       muxValue kind vc va vb = some v → Meaning inputs e v
   | setw {e w w' a va v} : view e = some (.setw w w' a) →
       Meaning inputs a va → setwValue w w' va = some v → Meaning inputs e v
+  | slice {e w start len a va v} : view e = some (.slice w start len a) →
+      Meaning inputs a va → sliceValue w start len va = some v → Meaning inputs e v
   | inst {e mn lvls dom args vs v} : view e = none → e.getAppFn = .const mn lvls →
       instSpineArgs e = dom :: args → vs.length = args.length →
       (∀ i (ha : i < args.length) (hv : i < vs.length),
@@ -256,6 +271,19 @@ theorem appBoolOp?_appBoolE (dom a b : Lean.Expr) (op : SignalBoolBinKind) :
 theorem view_appE (dom ty body a b : Lean.Expr) :
     view (appE dom ty body a b) = appView? (appE dom ty body a b) := rfl
 
+theorem canonicalSlice?_sliceE (dom : Lean.Expr) (nm : Lean.Name) (a : Lean.Expr)
+    {w start len : Nat} (hlen : 0 < len) (hr : start + len ≤ w) :
+    canonicalSlice? (sliceE dom nm w start len a) = some (w, start, len, a) := by
+  simp only [sliceE, mkApp5, mkApp4, mkApp3, mkApp2, mkAppB, mkApp, bitVecE,
+    canonicalSlice?, canonicalNatLitValue?_natE]
+  simp [hlen, hr]
+
+theorem view_slice (dom : Lean.Expr) (nm : Lean.Name) (a : Lean.Expr)
+    {w start len : Nat} (hlen : 0 < len) (hr : start + len ≤ w) :
+    view (sliceE dom nm w start len a) = some (.slice w start len a) := by
+  have fall : view (sliceE dom nm w start len a) = tailView? (sliceE dom nm w start len a) := rfl
+  rw [fall, tailView?, canonicalSlice?_sliceE dom nm a hlen hr]
+
 theorem view_appCompare (dom a b : Lean.Expr) (n : Nat) (op : SignalCompareKind) :
     view (appCompareE op dom n a b) = some (.binary (.compare op n) a b) := by
   rw [appCompareE, view_appE]
@@ -341,6 +369,9 @@ theorem meaning_quote_leaves {inputs : FVarId → Option Value} {dom : Lean.Expr
   | _, .appBool op a b, ⟨ha, hb'⟩ =>
     .binary (view_appBool dom _ _ op) (meaning_quote_leaves hb hv a ha)
       (meaning_quote_leaves hb hv b hb') rfl
+  | _, .slice nm start len (w := w) a, ⟨ha, hlen, hr⟩ => by
+    apply Meaning.slice (view_slice dom nm _ hlen hr) (meaning_quote_leaves hb hv a ha)
+    simp [sliceValue, pack, eval]
 
 /-- The input-binder instance: leaves are prepared free variables. -/
 theorem meaning_quote {inputs : FVarId → Option Value} {dom : Lean.Expr} {kb kv : Nat}

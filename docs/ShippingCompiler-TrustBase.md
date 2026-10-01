@@ -87,7 +87,13 @@ build. A gate failure fails `Tests.AllTests`.
 | byte parity with the legacy front end | the certified front end emits exactly what the legacy one does | every family, including instances, projections, cones and pipelines |
 | pinned child modules (`cm == childModule`) | the literal module a premise names IS the compiled child, name included | hierarchy tests |
 
-`checkedOptimize` itself only checks assignment-only bodies; on
+`checkedOptimize` itself only checks assignment-only bodies whose
+right-hand sides are all of a known shape (`simpleBody`): there the
+optimised module ships only if the proved checker accepts it, and the
+unoptimised input ships otherwise — which is always the case for a body
+containing a part-select, since the checker's normal form does not
+cover slices. On an assignment-only body with an unknown right-hand
+side (a concatenation, a general slice operand), and on
 registers, memories and instances the shipping pipeline keeps the
 optimizer's output unchecked at run time. For those shapes the
 validation is exactly the gates above: an optimizer change that broke
@@ -128,7 +134,9 @@ theorems, and reading them is part of trusting the claim.
   applicative form `Signal.ap (Signal.map (fun x y => op x y) a) b` to
   the node of `op` on `a` and `b` — the pointwise reading of `<$>`/`<*>`
   on `Signal`; the kernel `rfl` bridge of each declaration checks that
-  reading against the library's definitions.
+  reading against the library's definitions. Likewise a `Signal.map`
+  whose function is `BitVec.extractLsb' start len` is the slice node,
+  with `BitVec.extractLsb'` itself as its meaning (`fc_library`).
 - The emitted-SV semantics (`Tools/SVParser/EmitSem.lean`): continuous
   assignments, the always-block register shape, memories. An
   independent reading of the SystemVerilog subset the printer emits.

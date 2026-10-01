@@ -765,7 +765,26 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   them. The dispatch chain is now data (`fallbackKind`), so a shape
   reaching its end is one fact. Cost on the legacy route, measured
   against the previous compiler: 18 of 191 corpus outputs renumber
-  their fresh wires (more sharing), none differs otherwise.
+  their fresh wires (more sharing), none differs otherwise. SLICES
+  have landed as the first VERTICAL unit of the breadth phase: the
+  part-select `x[hi:lo]` on a reference is a right-hand side of every
+  layer — `simpleRhs`, `TypedExpr.slice` (width `hi - lo + 1`, needs
+  `hi < we x`), `PrintShape.sliceRef`, the renderer and the grammar
+  productions `partSelect`/`castShift`, name binding, rename and
+  post-processing lemmas — and `Term.slice` in the front half
+  (`Signal.map (fun x => BitVec.extractLsb' start len x) s` at literal
+  widths, `0 < len`, `start + len ≤ ws`; arm `FallbackKind.slice`,
+  byte-identical to the legacy map handler; contract, protection, order,
+  both gates, both cone conversions). `fc_execution` and
+  `isNmt_execution` prove the CANopen COB-ID function code (a 4-bit
+  field) and NMT decode (that field compared with zero) of the IP
+  library; the suite gates 11 declarations byte-identical to the legacy
+  compile. 60 of 389 real declarations pass a gate. Cost, measured: 10
+  of 192 corpus outputs change text — purely combinational modules with
+  a slice now ship the unoptimised module (the optimizer checker does
+  not normalise slices), a policy the user chose; none changes hardware.
+  Open next: concatenation (the same vertical job), bare `f <$> a`
+  slices, unary and BitVec-result lifts.
 - [ ] **S7 / trust:** Resolve or explicitly retain `EnvDefines` in the final
   claim; record execution-model/external-tool boundaries without hiding them.
   RECORDED — docs/ShippingCompiler-TrustBase.md states the retained base

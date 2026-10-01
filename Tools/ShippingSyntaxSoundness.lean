@@ -100,10 +100,31 @@ theorem renderExpr_syntax {e text} (hr : renderExpr e = some text)
   | sizeCast w a =>
     by_cases hw : w = 0
     · simp [renderExpr, hw] at hr
-    · simp only [renderExpr, hw, if_false, bind, Option.bind_eq_some_iff] at hr
-      obtain ⟨sa, ha, he⟩ := hr
-      cases he
-      exact .sizeCast (by omega) (numeral_decimal _) (renderExpr_syntax ha hn)
+    · cases hs : shiftOperand? a with
+      | some p =>
+        obtain ⟨n, lo⟩ := p
+        have ha := shiftOperand?_some hs
+        subst ha
+        simp only [renderExpr, shiftOperand?, hw, if_false] at hr
+        cases hr
+        have hid : Identifier n := hn.1
+        simpa [String.append_assoc, ToString.toString] using
+          Expression.castShift (w := w) (name := n) (lo := lo) (by omega)
+            (numeral_decimal _) hid (numeral_decimal _)
+      | none =>
+        simp only [renderExpr, hs, hw, if_false, bind, Option.bind_eq_some_iff] at hr
+        obtain ⟨sa, ha, he⟩ := hr
+        cases he
+        exact .sizeCast (by omega) (numeral_decimal _) (renderExpr_syntax ha hn)
+  | slice b hi lo =>
+    cases b with
+    | ident n =>
+      simp only [renderExpr, Option.some.injEq] at hr
+      subst hr
+      simpa [String.append_assoc, ToString.toString] using
+        Expression.partSelect (name := n) (hi := hi) (lo := lo) hn
+          (numeral_decimal _) (numeral_decimal _)
+    | _ => simp [renderExpr] at hr
   | _ => simp [renderExpr] at hr
 
 theorem renderType_syntax (w) : LogicType w (renderType w) := by
@@ -208,6 +229,9 @@ private theorem exprBound_mono {P Q : String → Prop} {e : SVExpr}
     · cases a <;> try exact False.elim h
       cases b <;> exact False.elim h
   | sizeCast w a => exact exprBound_mono (e := a) h hi
+  | slice b _ _ =>
+    cases b <;> try exact False.elim h
+    exact hi _ h
   | _ => exact False.elim h
 
 private theorem combItems_assignment {items pairs l rhs}

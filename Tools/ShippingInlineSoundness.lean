@@ -301,4 +301,46 @@ theorem loopRegister_run_of_entry {declName : Name} {mctx : Meta.Context}
     rw [hidx]
 
 
+/-! ## Naming the binders of an entry constant
+
+A slice written `a.map (BitVec.extractLsb' 7 4 ·)` binds its lambda with a
+hygienic macro name that cannot be typed. The quoted `Term` carries that name
+(it has no meaning, but the quoted expression must BE the entry constant's
+body), so it is read off the entry constant. -/
+
+section
+open Lean Elab Command
+
+/-- The `fun` binder names of an expression, in pre-order (a binder before
+its type and body, the function of an application before its argument). -/
+partial def lamNames : Lean.Expr → List Name
+  | .lam n t b _ => n :: (lamNames t ++ lamNames b)
+  | .app f a => lamNames f ++ lamNames a
+  | .forallE _ t b _ => lamNames t ++ lamNames b
+  | .letE _ t v b _ => lamNames t ++ lamNames v ++ lamNames b
+  | .mdata _ e => lamNames e
+  | .proj _ _ e => lamNames e
+  | _ => []
+
+/-- `#def_entry_lam_names ns of f` adds `def ns : List Lean.Name := <the fun
+binder names of the entry constant of f, in pre-order>`. -/
+elab "#def_entry_lam_names " n:ident " of " d:ident : command => do
+  let declName ← liftCoreM <| realizeGlobalConstNoOverloadWithInfo d
+  let ci ← getConstInfo declName
+  let env ← getEnv
+  let ec := Sparkle.Compiler.Elab.entryConst true false [] ci
+    (Sparkle.Compiler.Elab.instancePredicate env) (Sparkle.Compiler.Elab.userInliner env)
+  let some v := ec.value? | throwError "{declName} has no value"
+  let nm := (← getCurrNamespace) ++ n.getId
+  let dv : DefinitionVal :=
+    { name := nm
+      levelParams := []
+      type := mkApp (mkConst ``List [.zero]) (mkConst ``Lean.Name)
+      value := toExpr (lamNames v)
+      hints := ReducibilityHints.abbrev
+      safety := DefinitionSafety.safe }
+  liftCoreM <| addDecl (Declaration.defnDecl dv)
+
+end
+
 end Tools.ShippingInlineSoundness

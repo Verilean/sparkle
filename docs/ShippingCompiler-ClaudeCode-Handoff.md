@@ -169,7 +169,8 @@ and is derived through the `ofV` embedding.
 measures which front end each declaration of the repository's corpus
 takes and why the rest miss the gate; the result and the ranked reasons
 are in ShippingCompiler-Coverage.md ("Measured corpus coverage"). 47 of
-389 real declarations pass a certified gate. Do NOT read the surface
+389 real declarations passed a certified gate then; 60 after the
+normaliser, the applicative arm and the slice arm (2026-10-02). Do NOT read the surface
 table as "unfold definitions and 165 declarations pass": a prototype
 normaliser was run and none passes (pass 3 of the script). Real IP is
 `circuit do` + `let` + applicative lifting + slices + structure results
@@ -181,8 +182,8 @@ call-site unfolding on 17 tested shapes) → general N-slot `circuit do` →
 hardware `let` → applicative/slices → structure results. The list below
 is the older, shape-driven plan and is subordinate to the measurement.
 
-**Adding a `Term` constructor — the sites.** Done three times now
-(`setw`, `appCompare`/`appBool`, `bitsNum`); the checklist is:
+**Adding a `Term` constructor — the sites.** Done four times now
+(`setw`, `appCompare`/`appBool`, `bitsNum`, `slice`); the checklist is:
 `Tools/ShippingUnifiedSource.lean` (constructor, `WF`, `wf_pos` for a
 bits result, `eval`, `denote`, `denote_val`, an `…E` builder, `quote`,
 `instFVars_quote`, `quote_congr`); `ShippingUnifiedMeaning.lean` (`view`
@@ -199,7 +200,23 @@ case or a fall-through helper like `appView?`, a `view_…` lemma,
 exactly like an existing one, CLONE that node's lemmas by text
 substitution (the applicative lemmas are the comparison lemmas at hint
 `"app_arg"`). A node that needs a new IR right-hand-side shape is a
-different, vertical job (see slices in the coverage document).
+different, vertical job. Slices were the first one; concatenation is
+next. The back-half sites, in build order: `Sparkle/IR/OptCheck.lean`
+(`simpleRhs` clause — this alone changes which modules `checkedOptimize`
+retains unoptimised, so run the golden comparison);
+`Tools/SVParser/ConcreteSyntax.lean` (a grammar production per printed
+form); `Tools/ShippingPrintSoundness.lean` (`renderExpr` arm,
+`PrintShape` constructor, `printShape_simple`, `width_lookup`,
+`emitExpr_render_all`); `ShippingSyntaxSoundness`, `ShippingNameBinding`
+(`ExprBound`), `ShippingTypedExprSoundness` (`TypedExpr` constructor and
+its ~10 inductions), `ShippingTypedPostSoundness`, `ShippingPostSoundness`,
+`ShippingMixedBindingSoundness`. The emitted-SV semantic layer
+(`EmitSem`: `SF4`, `sf4Check`) already covers slices and general
+concatenation. In the front half the slice lemmas are NOT clones of an
+existing node: the result wire has its own type (`hwTypeFromWidth len`,
+`.bit` at length 1) and `rfl` through `getAppArgs.back!` of the builder
+times out — keep `sliceE_back`, `sliceE_noMux`/`_noTop`/`_noSetWidth`,
+`sliceE_top` as separate lemmas under a raised heartbeat limit.
 
 **Front-end rewrites and sharing.** A normalisation is byte-safe only if
 the legacy route keys its cache on the same expression. Canonicalising

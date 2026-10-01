@@ -82,6 +82,20 @@ def renderLit : SVLiteral → Option String
   | .binary (some 1) 0 => some "1'b0"
   | _ => none
 
+/-- The operand of the emitter's over-wide part-select cast: a name shifted
+right by an unsized decimal amount, `(x) >> lo`. -/
+def shiftOperand? : SVExpr → Option (String × Nat)
+  | .binary .shr (.ident n) (.lit (.decimal none lo)) => some (n, lo)
+  | _ => none
+
+theorem shiftOperand?_some {a : SVExpr} {n : String} {lo : Nat}
+    (h : shiftOperand? a = some (n, lo)) :
+    a = .binary .shr (.ident n) (.lit (.decimal none lo)) := by
+  unfold shiftOperand? at h
+  split at h
+  · cases h; rfl
+  · cases h
+
 /-- A deliberately small, total AST renderer. Unsupported forms fail.
 Concatenation is restricted to the emitted zero-extension shape, a literal
 prefix over an identifier. -/
@@ -105,9 +119,13 @@ def renderExpr : SVExpr → Option String
     let sa ← renderLit l
     some s!"\{{String.intercalate ", " [sa, n]}}"
   | .sizeCast w a =>
-    if w = 0 then none else do
-      let sa ← renderExpr a
-      some s!"{w}'({sa})"
+    if w = 0 then none else
+      match shiftOperand? a with
+      | some (n, lo) => some s!"{w}'(({n}) >> {lo})"
+      | none => do
+        let sa ← renderExpr a
+        some s!"{w}'({sa})"
+  | .slice (.ident n) hi lo => some s!"{n}[{hi}:{lo}]"
   | _ => none
 
 /-- Comparison operators, independent of optimizer acceptance. -/
@@ -130,6 +148,8 @@ inductive PrintShape : Expr → Prop
   /-- The canonical size-cast encode, printed as `w'(x)`. -/
   | castRef (x : String) (w : Nat) : 0 < w →
       PrintShape (.slice (.concat [.const 0 w, .ref x]) (w - 1) 0)
+  /-- A part-select of a wire, `x[hi:lo]`. -/
+  | sliceRef (x : String) (hi lo : Nat) : lo ≤ hi → PrintShape (.slice (.ref x) hi lo)
 
 theorem PrintShape.ofShape {e : Expr} (h : Shape e) : PrintShape e := by
   induction h with
@@ -153,6 +173,8 @@ theorem printShape_simple {e : Expr} (h : simpleRhs e = true) : PrintShape e := 
     subst hlo
     have shape := PrintShape.castRef x w (by omega)
     rwa [show w - 1 = hi from by omega] at shape
+  | .slice (.ref x) hi lo, h =>
+    exact .sliceRef x hi lo (by simpa [simpleRhs] using h)
 
 /-- Width inference agrees for the whole printable expression fragment. -/
 theorem PrintShape.width_lookup {e : Expr} (h : PrintShape e) (wof : String → Option Nat) :
@@ -176,6 +198,8 @@ theorem PrintShape.width_lookup {e : Expr} (h : PrintShape e) (wof : String → 
       List.foldl_cons, List.foldl_nil]
     cases wof x <;> simp
   | castRef x w hw =>
+    simp [exprWidthT, Sparkle.Backend.Verilog.exprWidthV]
+  | sliceRef x hi lo hle =>
     simp [exprWidthT, Sparkle.Backend.Verilog.exprWidthV]
 
 theorem render_const (wof : String → Option Nat) (v : Int) (w : Nat) :
@@ -263,7 +287,36 @@ theorem emitExpr_render_all {e : Expr} (h : PrintShape e) (wof : String → Opti
     · simp only [emitAstExpr, harm, if_true, bind, Option.bind_some]
     · have hw' : ¬ w = 0 := by omega
       rw [hstr]
-      simp only [renderExpr, hw', if_false, bind, Option.bind_some]
+      simp only [renderExpr, shiftOperand?, hw', if_false, bind, Option.bind_some]
+  | sliceRef x hi lo hle =>
+    cases hw : wof (Sparkle.Backend.Verilog.sanitizeName x) with
+    | none =>
+      exact ⟨.slice (.ident (Sparkle.Backend.Verilog.sanitizeName x)) hi lo,
+        by simp [emitAstExpr, hw], by simp [renderExpr, Sparkle.Backend.Verilog.emitExpr, hw]⟩
+    | some w =>
+      by_cases hfull : (lo == 0 && hi + 1 == w) = true
+      · exact ⟨.ident (Sparkle.Backend.Verilog.sanitizeName x),
+          by simp [emitAstExpr, hw, hfull],
+          by simp [renderExpr, Sparkle.Backend.Verilog.emitExpr, hw, hfull]⟩
+      · by_cases hin : hi < w
+        · exact ⟨.slice (.ident (Sparkle.Backend.Verilog.sanitizeName x)) hi lo,
+            by simp [emitAstExpr, hw, hfull, hin],
+            by simp [renderExpr, Sparkle.Backend.Verilog.emitExpr, hw, hfull, hin]⟩
+        · by_cases hlo : (lo == 0) = true
+          · have hlo0 : lo = 0 := by simpa using hlo
+            have hne : ¬ hi + 1 = w := by omega
+            subst hlo0
+            exact ⟨.sizeCast (hi + 1) (.ident (Sparkle.Backend.Verilog.sanitizeName x)),
+              by simp [emitAstExpr, hw, hne, hin],
+              by simp [renderExpr, shiftOperand?, Sparkle.Backend.Verilog.emitExpr, hw,
+                hne, hin]⟩
+          · have hpos : ¬ hi + 1 - lo = 0 := by omega
+            exact ⟨.sizeCast (hi + 1 - lo)
+                (.binary .shr (.ident (Sparkle.Backend.Verilog.sanitizeName x))
+                  (.lit (.decimal none lo))),
+              by simp [emitAstExpr, hw, hfull, hin, hlo],
+              by simp [renderExpr, shiftOperand?, Sparkle.Backend.Verilog.emitExpr, hw,
+                hfull, hin, hlo, hpos]⟩
 
 /-- Arbitrarily nested expressions, including optimizer-inserted masks. -/
 theorem emitExpr_render {e : Expr} (h : Shape e) (wof : String → Option Nat) :
