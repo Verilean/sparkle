@@ -69,6 +69,28 @@ def containsSubstr (s sub : String) : Bool :=
 /-- Number of 64-bit words needed for a port. -/
 def wordsOf64 (w : Nat) : Nat := (w + 63) / 64
 
+/-- Clock inputs: `clock`/`clk`, any name ENDING in clk/clock (firtool's
+    `RW0_clk`, `io_mbistCgCtl_rclk`), and the `_i`-suffixed bus style
+    (`wb_clk_i`).  A clock driven as random data changes in the same time
+    step as the data it samples — a testbench race, not a design
+    difference (picorv32_wb). -/
+def isClockName (n : String) : Bool :=
+  let base := if n.endsWith "_i" then n.dropRight 2 else n
+  n == "clock" || n == "clk" || base.endsWith "clk" || base.endsWith "clock"
+
+/-- Scripted resets and their active level: `some true` = active-high
+    (`reset`, `rst`, `wb_rst_i`), `some false` = active-low (`resetn`,
+    `rst_n`).  Held active for the first 2 cycles, then released, so a
+    CPU is not re-reset on half of all cycles by random data.  Other
+    reset-like names (`io_reset`, `debugReset`) stay random data. -/
+def resetLevel? (n : String) : Option Bool :=
+  let base := if n.endsWith "_i" then n.dropRight 2 else n
+  if base == "reset" || base == "rst" || base.endsWith "_rst" && n.endsWith "_i"
+      || base.endsWith "_reset" && n.endsWith "_i" then some true
+  else if base == "resetn" || base == "rstn" || base == "rst_n" || base == "reset_n"
+      || base.endsWith "_rst_n" || base.endsWith "_resetn" then some false
+  else none
+
 /-- Baked stimulus: per cycle, per data-input, a masked random value.
     Wide (>64-bit) ports contribute one entry PER 64-bit word, named
     `port#k`; both emitters expand those back into a single value.
@@ -80,10 +102,10 @@ def bake (ins : List PortInfo) (cycles : Nat) (seed : UInt64) :
   for c in [0:cycles] do
     let mut row := []
     for p in ins do
-      if p.name == "clock" || p.name == "clk" || p.name.endsWith "clk" || p.name.endsWith "clock" then
+      if isClockName p.name then
         pure ()
-      else if p.name == "reset" || p.name == "rst" then
-        row := row ++ [(p.name, if c < 2 then (1 : UInt64) else 0)]
+      else if let some activeHigh := resetLevel? p.name then
+        row := row ++ [(p.name, if (c < 2) == activeHigh then (1 : UInt64) else 0)]
       else
         s := lcgNext s
         let m := mix64 s
@@ -313,14 +335,19 @@ def loadClosure (dir : String) (cache : ChildCache)
     it, sources that do not initialize their state (VexRiscv, PicoRV32)
     start from X, and X conditions diverge between the original's `if` (X
     takes the else branch) and the re-emitted `?:` (X merges both arms) —
-    a difference 2-state semantics does not have.  `scalars` and `arrays`
-    (name, entries) are the side's own declarations. -/
-def emitZeroInit (scalars : List String) (arrays : List (String × Nat)) : String :=
-  let lines := scalars.map (fun n => s!"    tb.dut.{n} = 0;") ++
-    arrays.map (fun (n, size) =>
-      s!"    for (zi = 0; zi < {size}; zi = zi + 1) tb.dut.{n}[zi] = 0;")
+    a difference 2-state semantics does not have.  `lines` are the
+    zeroing statements of one side (`goldZeroInit` / `rtZeroInit`). -/
+def emitZeroInit (lines : List String) : String :=
   "module sparkle_zero_init;\n  integer zi;\n  initial begin\n" ++
     "\n".intercalate lines ++ "\n  end\nendmodule\n"
+
+/-- Zeroing statements for one instance path: scalars and (name, entries)
+    arrays. -/
+def zeroInitLines (path : String) (scalars : List String)
+    (arrays : List (String × Nat)) : List String :=
+  scalars.map (fun n => s!"    {path}.{n} = 0;") ++
+    arrays.map (fun (n, size) =>
+      s!"    for (zi = 0; zi < {size}; zi = zi + 1) {path}.{n}[zi] = 0;")
 
 /-- Memories in Sparkle's emitted Verilog: `logic [w-1:0] name [0:N-1];`. -/
 def emittedArrays (src : String) : List (String × Nat) :=
@@ -332,6 +359,45 @@ def emittedArrays (src : String) : List (String × Nat) :=
         ((range.drop 3).dropRight 2).toString.toNat?.map fun hi => (name, hi + 1)
       else none
     | _ => none
+
+/-- Zero-init lines for the ORIGINAL design: the module in `file` at
+    instance `path`, then (in `--hier` mode) every sub-instance whose
+    module file exists in `dir`.  Instances inside `generate` blocks are
+    not followed. -/
+partial def goldZeroInit (dir file path : String) (recurse : Bool) (depth : Nat := 0) :
+    IO (List String) := do
+  let fp := System.FilePath.mk dir / file
+  if depth > 8 || !(← fp.pathExists) then return []
+  let .ok sv := parse (← IO.FS.readFile fp) | return []
+  let some m := sv.modules.head? | return []
+  let scalars := m.items.filterMap fun it => match it with
+    | .regDecl n _ none => some n | _ => none
+  let arrays := m.items.filterMap fun it => match it with
+    | .regDecl n _ (some size) => some (n, size) | _ => none
+  let mut out := zeroInitLines path scalars arrays
+  if recurse then
+    for it in m.items do
+      if let .instantiation modName instName _ _ := it then
+        out := out ++ (← goldZeroInit dir s!"{modName}.sv" s!"{path}.{instName}" true (depth + 1))
+  return out
+
+/-- Zero-init lines for the RE-EMITTED design.  Its registers carry
+    declaration initializers, so only memories need zeroing; instances
+    are the emitter's `Mod inst (.port(…), …);` lines. -/
+partial def rtZeroInit (rtDir file path : String) (recurse : Bool) (depth : Nat := 0) :
+    IO (List String) := do
+  let fp := System.FilePath.mk rtDir / file
+  if depth > 8 || !(← fp.pathExists) then return []
+  let src ← IO.FS.readFile fp
+  let mut out := zeroInitLines path [] (emittedArrays src)
+  if recurse then
+    for line in src.splitOn "\n" do
+      match (line.trim.splitOn " ").filter (· != "") with
+      | modName :: instName :: conn :: _ =>
+        if conn.startsWith "(." then
+          out := out ++ (← rtZeroInit rtDir s!"{modName}.sv" s!"{path}.{instName}" true (depth + 1))
+      | _ => pure ()
+  return out
 
 def runCosim (dir rtDir workDir name : String) (cycles : Nat)
     (hier : Bool := false) (maxClosure : Nat := 25)
@@ -368,7 +434,7 @@ def runCosim (dir rtDir workDir name : String) (cycles : Nat)
     -- clk/clock is a clock.  All detected clocks are driven together
     -- (same phase), the one multi-clock shape CSim's single-domain tick
     -- represents faithfully.
-    p.isIn && (p.name == "clock" || p.name == "clk" || p.name.endsWith "clk" || p.name.endsWith "clock")
+    p.isIn && isClockName p.name
   let hasClock := !clockPorts.isEmpty
   -- Multiple clock PORTS (firtool SRAM macros: R0_clk + W0_clk) are
   -- driven with the SAME waveform — in XiangShan they are one clock
@@ -437,13 +503,10 @@ def runCosim (dir rtDir workDir name : String) (cycles : Nat)
   -- the re-emitted Verilog already initializes its registers and drops
   -- dead ones, so it gets only its memories).
   let (goldInit, rtInit) ← if zeroInit then do
-      let goldScalars := m.items.filterMap fun it => match it with
-        | .regDecl n _ none => some n | _ => none
-      let goldArrays := m.items.filterMap fun it => match it with
-        | .regDecl n _ (some size) => some (n, size) | _ => none
-      let rtSrc ← IO.FS.readFile (System.FilePath.mk rtDir / name)
-      IO.FS.writeFile (wd / s!"{base}_zinit_gold.v") (emitZeroInit goldScalars goldArrays)
-      IO.FS.writeFile (wd / s!"{base}_zinit_rt.v") (emitZeroInit [] (emittedArrays rtSrc))
+      IO.FS.writeFile (wd / s!"{base}_zinit_gold.v")
+        (emitZeroInit (← goldZeroInit dir name "tb.dut" hier))
+      IO.FS.writeFile (wd / s!"{base}_zinit_rt.v")
+        (emitZeroInit (← rtZeroInit rtDir name "tb.dut" hier))
       pure (#[s!"{workDir}/{base}_zinit_gold.v"], #[s!"{workDir}/{base}_zinit_rt.v"])
     else pure (#[], #[])
   IO.FS.writeFile (wd / s!"{base}_main.c") cmain

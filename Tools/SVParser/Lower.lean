@@ -404,9 +404,15 @@ partial def lowerExpr (e : SVExpr) : Expr :=
     let lowered := lowerExpr arg
     if innerWidth >= 32 || innerWidth == 0 then lowered
     else
-      -- Sign extend: shift left then arithmetic shift right
+      -- Sign extend: shift left then arithmetic shift right, in an
+      -- EXPLICIT 32-bit container.  The shift's width is its left
+      -- operand's (IR `inferWidth`, and Verilog inside `$signed(…)`), so
+      -- shifting the bare `innerWidth`-bit value pushed its upper bits
+      -- out: PicoRV32's `$signed({mem_rdata[31:12], 1'b0})` JAL offset
+      -- kept only bits [9:0] in the re-emitted Verilog.
       let shiftAmt := 32 - innerWidth
-      .op .asr [.op .shl [lowered, .const (Int.ofNat shiftAmt) 32], .const (Int.ofNat shiftAmt) 32]
+      let widened := Expr.concat [.const 0 shiftAmt, lowered]
+      .op .asr [.op .shl [widened, .const (Int.ofNat shiftAmt) 32], .const (Int.ofNat shiftAmt) 32]
   | .unary .reductXor arg =>
     -- Parity: expanded to an explicit XOR fold when the width is static;
     -- otherwise fail LOUDLY downstream via an undeclared wire rather than
@@ -608,6 +614,20 @@ def rmwField (cur rhs off : Expr) (w fieldW : Nat) : Expr :=
   let cleared := Expr.op .and [cur, .op .xor [fieldMask, .const allOnes w]]
   let inserted := Expr.op .shl [.op .and [rhs, .const ones w], off]
   .op .or [cleared, inserted]
+
+/-- Guarded field write with `cur` used ONCE:
+    `(cur & (g ? ~fieldMask : ones)) | (g ? (rhs << off) : 0)`.
+    The obvious `g ? rmwField cur … : cur` mentions `cur` twice, and `cur`
+    is the running next-value expression of a register — a chain of n
+    part-select writes (PicoRV32 has dozens per register) then built an
+    expression of size 2^n and exhausted memory. -/
+def rmwFieldGuarded (guard cur rhs off : Expr) (w fieldW : Nat) : Expr :=
+  let ones : Int := Int.ofNat (2 ^ fieldW - 1)
+  let allOnes : Int := Int.ofNat (2 ^ w - 1)
+  let fieldMask := Expr.op .shl [.const ones w, off]
+  let keep := Expr.op .mux [guard, .op .xor [fieldMask, .const allOnes w], .const allOnes w]
+  let inserted := Expr.op .shl [.op .and [rhs, .const ones w], off]
+  .op .or [.op .and [cur, keep], .op .mux [guard, inserted, .const 0 w]]
 
 /-- A write to part of a declared vector — `x[hi:lo] = v` or `x[i] = v`
     (constant or dynamic `i`) — as `(name, fieldWidth, offsetExpr, width)`.
@@ -924,7 +944,7 @@ def collectRefs (e : Expr) : List String := collectRefsAux [] e
 def guardedToMux (assigns : List GuardedAssign) (base : Expr) : Expr :=
   assigns.foldl (fun acc ga => match ga.field with
     | none => .op .mux [ga.guard, ga.value, acc]
-    | some (off, fieldW, w) => .op .mux [ga.guard, rmwField acc ga.value off w fieldW, acc]) base
+    | some (off, fieldW, w) => rmwFieldGuarded ga.guard acc ga.value off w fieldW) base
 
 /-- Build mux expression for a non-blocking register from full always body. -/
 def stmtsToMuxExpr (regName : String) (stmts : List SVStmt) : Expr :=
