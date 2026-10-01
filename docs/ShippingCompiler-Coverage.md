@@ -13,6 +13,7 @@ Use declaration names as anchors; source line numbers move during extensions.
 
 | Actual route | Current shipping theorem coverage | Remaining obligation |
 | --- | --- | --- |
+| `synthesizeCombinationalCoreWith` → `entryConst` (front-end normalisation) | The entry hands `synthesizeFromConst` the declaration as read when a gate accepts it, and the declaration with its untagged user definitions unfolded (`userInliner`: pure delta-beta against the run's environment, total, node-budgeted) when the original misses both gates and the unfolding passes one. Every family theorem then applies to that entry constant verbatim (`synthesizeCombinationalCore_entry_sound`, the whole bundle); real helper-structured declarations are certified end to end (`useSel_execution`, `accH_run`) under the boundary `EntryDefines`. Byte-identical to the legacy call-site unfolding on 19 declarations (suite-gated). | Projection of a constructor and the lets in front of it (the wrapper idiom `(ipHW a b).field`), reducible definitions and universe-polymorphic helpers are not unfolded; only the unified combinational and the feedback-register endpoints have `_of_entry` twins so far (the other families are reached through the bundle). |
 | `synthesizeFromConst` → `certifiedShape?` → `synthesizeCertified` | S0: quoted positive-width BitVec fragment, `compiledFragment_execution` | Extend source/interface forms outside this gate without treating refusal by this gate as compiler failure. |
 | `synthesizeFromConst` → `mixedCertifiedShape?` → `synthesizeMixedCertified` | S1/S2: Bool inputs/literals, canonical `&&&`/`|||`/`^^^`/`~~~`, `ult`/`ule`/`slt`/`sle`, standard BitVec/Bool `beq`, Bool-result mux over common-width BitVec operands; BitVec mux trees via `ShippingVectorMuxSoundness.execution_source_of_env` | Extend operations/results and recursive width invariants. |
 | Both shape gates miss → existing synthesis/cache path | No general source-to-shipping-RTL theorem. MEASURED: 342 of the 389 real-corpus declarations take this route (see "Measured corpus coverage"). | Reconcile source opening, normalization, output leaf splitting, cached submodules and all successful legacy handlers, in the order the measurement gives. |
@@ -314,7 +315,9 @@ of at most 6 declarations. Coverage of real designs needs these TOGETHER:
 
 1. **Front-end normalisation** (definition unfolding, projection of a
    constructor). Cheap, exact on the tested shapes, and a prerequisite of
-   everything below; it certifies nothing real by itself.
+   everything below; it certifies nothing real by itself. Definition
+   unfolding is DONE (`entryConst`, `Tools/ShippingInlineSoundness.lean`);
+   projection of a constructor is open.
 2. **The general `circuit do`**: N register slots with cross-coupled
    next-state cones, the body evaluated once for the next state and once
    for the outputs. The certified one- and two-slot shapes are special

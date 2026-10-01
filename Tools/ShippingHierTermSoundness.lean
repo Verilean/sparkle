@@ -500,7 +500,7 @@ theorem synthesizeCombinationalCore_hierCone_sound {declName : Name}
   obtain ⟨logProf, envR, ci, w1, w2, w3, w4, w5, w6, get, henv, run⟩ :=
     Tools.ShippingEntrySoundness.synthesizeCombinationalCore_reads hr
   exact ⟨ci, envR, w1, w2, w5, w6, get, henv, fun _ _ old shape =>
-    synthesizeFromConst_hierCone_sound old shape run.mreturns⟩
+    synthesizeFromConst_hierCone_sound old shape (Tools.ShippingEntrySoundness.entry_kept shape run).mreturns⟩
 
 /-- The cone entry endpoint under the run's environment boundaries: a
 declaration whose value peels to a quoted term over accepted leaves — the

@@ -112,7 +112,7 @@ theorem synthesizeCombinationalCore_vector_sound {declName : Name} {mctx : Meta.
   obtain ⟨logProf, envR, ci, w1, w2, w3, w4, w5, w6, get, henv, run⟩ :=
     synthesizeCombinationalCore_reads hr
   exact ⟨ci, w1, w2, get, fun _ _ old shape =>
-    synthesizeFromConst_vector_sound old (shape _) run.mreturns⟩
+    synthesizeFromConst_vector_sound old (shape _) (Tools.ShippingEntrySoundness.entry_kept (shape _) run).mreturns⟩
 
 theorem vector_execution {declName bs body m m'} (source : VectorPreserves declName bs body m)
     (positive : PositiveBinders bs)

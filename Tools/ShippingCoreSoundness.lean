@@ -72,23 +72,23 @@ theorem synthesizeCombinationalCore_shipping_sound {declName : Name}
     synthesizeCombinationalCore_reads hr
   refine ⟨ci, w1, w2, get, fun bs body old shape => ?_,
     envR, w5, w6, henv, fun bs body old shape =>
-      ⟨synthesizeFromConst_instance_sound old shape run.mreturns,
-       synthesizeFromConst_instance1_sound old shape run.mreturns,
-       synthesizeFromConst_instanceN_sound old shape run.mreturns,
-       synthesizeFromConst_instanceG_sound old shape run.mreturns,
-       synthesizeFromConst_instanceProj_sound old shape run.mreturns,
+      ⟨synthesizeFromConst_instance_sound old shape (Tools.ShippingEntrySoundness.entry_kept shape run).mreturns,
+       synthesizeFromConst_instance1_sound old shape (Tools.ShippingEntrySoundness.entry_kept shape run).mreturns,
+       synthesizeFromConst_instanceN_sound old shape (Tools.ShippingEntrySoundness.entry_kept shape run).mreturns,
+       synthesizeFromConst_instanceG_sound old shape (Tools.ShippingEntrySoundness.entry_kept shape run).mreturns,
+       synthesizeFromConst_instanceProj_sound old shape (Tools.ShippingEntrySoundness.entry_kept shape run).mreturns,
        Tools.ShippingHierTermSoundness.synthesizeFromConst_hierCone_sound old shape
-         run.mreturns⟩⟩
-  exact ⟨synthesizeFromConst_mixed_sound old (shape _) run.mreturns,
-    synthesizeFromConst_term_sound old (shape _) run.mreturns,
-    synthesizeFromConst_vector_sound old (shape _) run.mreturns,
-    synthesizeFromConst_register_sound old (shape _) run.mreturns,
-    synthesizeFromConst_registerEnable_sound old (shape _) run.mreturns,
-    synthesizeFromConst_loopRegister_sound old (shape _) run.mreturns,
-    synthesizeFromConst_register2_sound old (shape _) run.mreturns,
-    synthesizeFromConst_cdo_sound old (shape _) run.mreturns,
-    synthesizeFromConst_cdo2_sound old (shape _) run.mreturns,
-    synthesizeFromConst_memory_sound old (shape _) run.mreturns,
-    synthesizeFromConst_memoryCone_sound old (shape _) run.mreturns⟩
+         (Tools.ShippingEntrySoundness.entry_kept shape run).mreturns⟩⟩
+  exact ⟨synthesizeFromConst_mixed_sound old (shape _) (Tools.ShippingEntrySoundness.entry_kept (shape _) run).mreturns,
+    synthesizeFromConst_term_sound old (shape _) (Tools.ShippingEntrySoundness.entry_kept (shape _) run).mreturns,
+    synthesizeFromConst_vector_sound old (shape _) (Tools.ShippingEntrySoundness.entry_kept (shape _) run).mreturns,
+    synthesizeFromConst_register_sound old (shape _) (Tools.ShippingEntrySoundness.entry_kept (shape _) run).mreturns,
+    synthesizeFromConst_registerEnable_sound old (shape _) (Tools.ShippingEntrySoundness.entry_kept (shape _) run).mreturns,
+    synthesizeFromConst_loopRegister_sound old (shape _) (Tools.ShippingEntrySoundness.entry_kept (shape _) run).mreturns,
+    synthesizeFromConst_register2_sound old (shape _) (Tools.ShippingEntrySoundness.entry_kept (shape _) run).mreturns,
+    synthesizeFromConst_cdo_sound old (shape _) (Tools.ShippingEntrySoundness.entry_kept (shape _) run).mreturns,
+    synthesizeFromConst_cdo2_sound old (shape _) (Tools.ShippingEntrySoundness.entry_kept (shape _) run).mreturns,
+    synthesizeFromConst_memory_sound old (shape _) (Tools.ShippingEntrySoundness.entry_kept (shape _) run).mreturns,
+    synthesizeFromConst_memoryCone_sound old (shape _) (Tools.ShippingEntrySoundness.entry_kept (shape _) run).mreturns⟩
 
 end Tools.ShippingCoreSoundness

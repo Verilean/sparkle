@@ -179,7 +179,22 @@ a constructor in `synthesizeCombinationalCoreWith`, between the read of
 the constant and `synthesizeFromConst`; byte-identical to the legacy
 call-site unfolding on 17 tested shapes) → general N-slot `circuit do` →
 hardware `let` → applicative/slices → structure results. The list below
-is the older, shape-driven plan and is subordinate to the measurement. Re-run the measurement after every gate extension, and
+is the older, shape-driven plan and is subordinate to the measurement.
+
+**Entry constant (landed).** `synthesizeCombinationalCoreWith` now calls
+`synthesizeFromConst` on `entryConst … ci (instancePredicate env)
+(userInliner env)`. Consequences for proofs: (1)
+`synthesizeCombinationalCore_reads` gives the run on the ENTRY constant;
+a family lemma for a gate-accepted declaration needs
+`entry_kept shape run` to get back the run on `ci`; (2) new endpoints
+should take `EntryDefines` (Tools/ShippingInlineSoundness.lean), which
+covers both as-read and unfolded declarations — write them once over
+`synthesizeCombinationalCore_reads` + `entry … get henv` + `rw [hd] at
+run`, as `execution_source_of_entry` does; (3) `#def_entry_value v of f`
+names the entry constant's value for a `rfl` peel. Do not compare such a
+value literal with `==` inside a `run_cmd` (it trips a code-generator
+bug, "unknown join point"); compare the reflection instead
+(`reflExpr`), as the inline test does. Re-run the measurement after every gate extension, and
 remember that `Tests.AllTests` does not contain every regression file —
 the corpus run is what found the Issue #107 regression.
 

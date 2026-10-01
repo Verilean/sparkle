@@ -865,7 +865,7 @@ theorem synthesizeCombinationalCore_memory_sound {declName : Name} {mctx : Meta.
   obtain ⟨logProf, envR, ci, w1, w2, w3, w4, w5, w6, get, henv, run⟩ :=
     synthesizeCombinationalCore_reads hr
   exact ⟨ci, w1, w2, get, fun _ _ old shape =>
-    synthesizeFromConst_memory_sound old (shape _) run.mreturns⟩
+    synthesizeFromConst_memory_sound old (shape _) (Tools.ShippingEntrySoundness.entry_kept (shape _) run).mreturns⟩
 
 /-! ## Source-position plumbing and the entry endpoints -/
 
@@ -1077,7 +1077,7 @@ theorem synthesizeCombinationalCore_memoryCone_sound {declName : Name} {mctx : M
   obtain ⟨logProf, envR, ci, w1, w2, w3, w4, w5, w6, get, henv, run⟩ :=
     synthesizeCombinationalCore_reads hr
   exact ⟨ci, w1, w2, get, fun _ _ old shape =>
-    synthesizeFromConst_memoryCone_sound old (shape _) run.mreturns⟩
+    synthesizeFromConst_memoryCone_sound old (shape _) (Tools.ShippingEntrySoundness.entry_kept (shape _) run).mreturns⟩
 
 /-- **Per-cycle cone-memory endpoint at the real entry.** Each cycle's
 step latches the pre-write array at the read cone's value and lands an

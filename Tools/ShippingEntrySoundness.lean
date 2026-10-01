@@ -1027,9 +1027,54 @@ theorem synthesizeFromConst_sound {logProf : String → IO Unit} {declName : Nam
   subst this
   exact synthesizeCertified_sound hres
 
+/-! ## The entry constant
+
+The entry hands `synthesizeFromConst` the constant `entryConst` computes from
+the declaration it read and the environment it read: the declaration itself
+whenever a certified gate accepts it, the declaration with its user
+definitions unfolded when only the unfolding passes a gate. -/
+
+/-- A declaration the mixed gate accepts is handed on as read. -/
+theorem entryConst_mixed {ci : ConstantInfo} {isInst : Lean.Expr → Bool}
+    {inl : Lean.Expr → Lean.Expr} {r}
+    (h : mixedCertifiedShape? false [] ci isInst = some r) :
+    entryConst true false [] ci isInst inl = ci := by
+  simp [entryConst, h]
+
+/-- A declaration the fragment gate accepts is handed on as read. -/
+theorem entryConst_certified {ci : ConstantInfo} {isInst : Lean.Expr → Bool}
+    {inl : Lean.Expr → Lean.Expr} {r}
+    (h : certifiedShape? false [] ci = some r) :
+    entryConst true false [] ci isInst inl = ci := by
+  simp [entryConst, h]
+
+/-- The unfolded declaration is handed on exactly when the original misses
+both gates and the unfolding passes one. -/
+theorem entryConst_inlined {ci : ConstantInfo} {isInst : Lean.Expr → Bool}
+    {inl : Lean.Expr → Lean.Expr}
+    (old : certifiedShape? false [] ci = none)
+    (miss : mixedCertifiedShape? false [] ci isInst = none)
+    (hit : (certifiedShape? false [] (inlinedConst inl ci)).isSome = true ∨
+      (mixedCertifiedShape? false [] (inlinedConst inl ci) isInst).isSome = true) :
+    entryConst true false [] ci isInst inl = inlinedConst inl ci := by
+  rcases hit with hit | hit <;> simp [entryConst, old, miss, hit]
+
+/-- The entry constant is the declaration as read, or its unfolding. -/
+theorem entryConst_cases (ci : ConstantInfo) (isInst : Lean.Expr → Bool)
+    (inl : Lean.Expr → Lean.Expr) :
+    entryConst true false [] ci isInst inl = ci ∨
+      entryConst true false [] ci isInst inl = inlinedConst inl ci := by
+  unfold entryConst
+  split
+  · split
+    · exact Or.inr rfl
+    · exact Or.inl rfl
+  · exact Or.inl rfl
+
 /-- The real entry reads the declaration with `getConstInfo`, then computes the
-run's instance predicate from `getEnv`, then runs `synthesizeFromConst` on THAT
-constant with THAT predicate — in the same contexts and state references. -/
+run's instance predicate and unfolding from `getEnv`, then runs
+`synthesizeFromConst` on the ENTRY CONSTANT of that declaration and that
+environment, with THAT predicate — in the same contexts and state references. -/
 theorem synthesizeCombinationalCore_reads {declName : Name} {mctx : Meta.Context}
     {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
     {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
@@ -1040,7 +1085,10 @@ theorem synthesizeCombinationalCore_reads {declName : Name} {mctx : Meta.Context
       RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧
       RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w5 envR w6 ∧
       RunsTo (synthesizeFromConst (fun e h t n => translateExprToWire e h t n) logProf
-        declName [] false true ci (Sparkle.Compiler.Elab.instancePredicate envR))
+        declName [] false true
+        (entryConst true false [] ci (Sparkle.Compiler.Elab.instancePredicate envR)
+          (userInliner envR))
+        (Sparkle.Compiler.Elab.instancePredicate envR))
         mctx mref cctx cref w3 (M, D) w4 := by
   unfold synthesizeCombinationalCore synthesizeCombinationalCoreWith at h
   simp only [Bool.false_eq_true, ↓reduceIte] at h
@@ -1063,7 +1111,25 @@ theorem synthesizeCombinationalCore_sound {declName : Name} {mctx : Meta.Context
       RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧ CertifiedOutcome ci M := by
   obtain ⟨logProf, envR, ci, w1, w2, w3, w4, w5, w6, hget, henv, hrest⟩ :=
     synthesizeCombinationalCore_reads h
-  exact ⟨ci, w1, w2, hget, synthesizeFromConst_sound hrest.mreturns⟩
+  refine ⟨ci, w1, w2, hget, fun bs body hshape => ?_⟩
+  rw [entryConst_certified hshape] at hrest
+  exact synthesizeFromConst_sound hrest.mreturns bs body hshape
+
+/-- For a declaration the mixed gate accepts, the run of the entry constant is
+the run of the declaration as read. -/
+theorem entry_kept {logProf : String → IO Unit} {declName : Name} {ci : ConstantInfo}
+    {isInst : Lean.Expr → Bool} {inl : Lean.Expr → Lean.Expr} {bs body}
+    {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {r : Sparkle.IR.AST.Module × Design}
+    (shape : mixedCertifiedShape? false [] ci isInst = some (bs, body))
+    (run : RunsTo (synthesizeFromConst (fun e h t n => translateExprToWire e h t n) logProf
+      declName [] false true (entryConst true false [] ci isInst inl) isInst)
+      mctx mref cctx cref w r w') :
+    RunsTo (synthesizeFromConst (fun e h t n => translateExprToWire e h t n) logProf
+      declName [] false true ci isInst) mctx mref cctx cref w r w' := by
+  rw [entryConst_mixed shape] at run
+  exact run
 
 /-! ## Item 3: the declaration's Lean meaning
 
@@ -1686,6 +1752,31 @@ elab "#def_decl_value " n:ident " of " d:ident : command => do
   let declName ← liftCoreM <| realizeGlobalConstNoOverloadWithInfo d
   let ci ← getConstInfo declName
   let some v := ci.value? | throwError "{declName} has no value"
+  let r ← match reflExpr v with
+    | .ok r => pure r
+    | .error msg => throwError msg
+  let nm := (← getCurrNamespace) ++ n.getId
+  let ty := mkConst ``Lean.Expr
+  let dv : DefinitionVal :=
+    { name := nm
+      levelParams := []
+      type := ty
+      value := r
+      hints := ReducibilityHints.abbrev
+      safety := DefinitionSafety.safe }
+  liftCoreM <| addDecl (Declaration.defnDecl dv)
+
+/-- `#def_entry_value v of f` adds `def v : Lean.Expr := <the value of the
+ENTRY CONSTANT of f>`: the value the synthesis entry hands on, computed by the
+same `entryConst` from the same `getConstInfo` and environment — `f`'s own
+value when a gate accepts it, its unfolding otherwise. -/
+elab "#def_entry_value " n:ident " of " d:ident : command => do
+  let declName ← liftCoreM <| realizeGlobalConstNoOverloadWithInfo d
+  let ci ← getConstInfo declName
+  let env ← getEnv
+  let ec := Sparkle.Compiler.Elab.entryConst true false [] ci
+    (Sparkle.Compiler.Elab.instancePredicate env) (Sparkle.Compiler.Elab.userInliner env)
+  let some v := ec.value? | throwError "{declName} has no value"
   let r ← match reflExpr v with
     | .ok r => pure r
     | .error msg => throwError msg

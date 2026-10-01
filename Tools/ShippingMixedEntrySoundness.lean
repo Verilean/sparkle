@@ -687,6 +687,6 @@ theorem synthesizeCombinationalCore_mixed_sound {declName : Name} {mctx : Meta.C
   obtain ⟨logProf, envR, ci, w1, w2, w3, w4, w5, w6, get, henv, run⟩ :=
     synthesizeCombinationalCore_reads hr
   exact ⟨ci, w1, w2, get, fun _ _ old shape =>
-    synthesizeFromConst_mixed_sound old (shape _) run.mreturns⟩
+    synthesizeFromConst_mixed_sound old (shape _) (Tools.ShippingEntrySoundness.entry_kept (shape _) run).mreturns⟩
 
 end Tools.ShippingMixedEntrySoundness

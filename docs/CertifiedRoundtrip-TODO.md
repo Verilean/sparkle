@@ -730,7 +730,19 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   front-end normalisation (definition unfolding, projection of a
   constructor) → general N-slot `circuit do` → hardware `let` →
   applicative lifting, slices/concatenation → structure/tuple results
-  → concrete-domain registers and memories.
+  → concrete-domain registers and memories. The first step has
+  LANDED for definition unfolding: the entry computes an entry constant
+  (`entryConst`: the declaration as read when a gate accepts it, its
+  pure delta-beta unfolding `userInliner` when only that passes a
+  gate), `synthesizeCombinationalCore_reads` is restated over it (the
+  existing endpoints are unchanged — `entry_kept`), the whole bundle
+  holds at the entry constant (`synthesizeCombinationalCore_entry_sound`),
+  the boundary is `EntryDefines` (with `of_env` / `of_inline`), and two
+  real helper-structured declarations are certified end to end
+  (`useSel_execution`: nested helpers of both sorts; `accH_run`: a
+  helper inside a feedback loop) — the suite gates 19 unfolded
+  declarations byte-identical to the legacy compile and the
+  reserved/tagged/library/over-budget cases left alone.
 - [ ] **S7 / trust:** Resolve or explicitly retain `EnvDefines` in the final
   claim; record execution-model/external-tool boundaries without hiding them.
   RECORDED — docs/ShippingCompiler-TrustBase.md states the retained base
@@ -748,7 +760,7 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   text statements do and do not say, and what lies outside every
   theorem (legacy-route compiles first).
 
-Latest validation: `lake build Tests.AllTests` passed all 659 jobs, with
+Latest validation: `lake build Tests.AllTests` passed all 661 jobs, with
 standard-axiom audits of the general endpoint and real signed/equality/Bool-logic
 source instantiations. Vector mux adds 2,772 source/legacy/SV/delta cases and
 real source theorems for nested and computed-condition muxes (no Bool input

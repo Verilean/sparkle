@@ -32,6 +32,7 @@ form: *every* read of that kind in this run returns the stated value.
 | Boundary | Says | Used by |
 | --- | --- | --- |
 | `EnvDefines … declName v` | every `getConstInfo declName` of the run returns a definition whose value is `v` | every entry endpoint |
+| `EntryDefines … declName v` | the constant the entry hands on — `entryConst` of the declaration and the environment the run reads — is a definition with value `v`. For a gate-accepted declaration this IS `EnvDefines` (`EntryDefines.of_env`); for an unfolded one it is `EnvDefines` plus what the run's environment unfolds the value to (`EntryDefines.of_inline`) | `_of_entry` endpoints (helper-structured declarations) |
 | the declaration's type is one scalar Signal (`mixedGateResultScalar`) | `EnvDefines` pins the value, not the type; the suite checks it on the real declaration | instance and cone endpoints |
 | tag fact at the entry (`RunsTo getEnv … → isHardwareModule e mn`) | the environment the gate predicate is built from tags the child | instance, projection and cone endpoints |
 | `HardwareTagged mn` | every environment the instance arm reads tags `mn` | instance contracts |
@@ -99,6 +100,15 @@ The theorems relate these definitions. They are specifications, not
 theorems, and reading them is part of trusting the claim.
 
 - The source: `Signal`, its operators, and `Signal.val` at a cycle.
+- The front-end unfolding: `inlineDefs` / `userInliner` and the choice
+  `entryConst`. The theorems do not reason about the unfolding — they
+  speak about the value the entry constant HAS. That this value means
+  what the declaration means is Lean's own delta/beta, and it is checked
+  per declaration by the kernel: the test theorems identify the
+  declaration, helpers and all, with the denotation of the quoted
+  unfolded term by `rfl` (`useSel_library`). Which definitions are
+  unfolded (`userDefinition?`) only decides which declarations reach a
+  certified front end; a wrong choice there cannot make a theorem false.
 - The IR semantics: `evalExpr`, `evalAssigns`, `stepModule`,
   `runModule` (`Sparkle/IR/Semantics.lean`). Instance statements are
   no-ops here: the open-module view.

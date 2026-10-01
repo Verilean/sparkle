@@ -2225,7 +2225,7 @@ theorem synthesizeCombinationalCore_register_sound {declName : Name} {mctx : Met
   obtain ⟨logProf, envR, ci, w1, w2, w3, w4, w5, w6, get, henv, run⟩ :=
     synthesizeCombinationalCore_reads hr
   exact ⟨ci, w1, w2, get, fun _ _ old shape =>
-    synthesizeFromConst_register_sound old (shape _) run.mreturns⟩
+    synthesizeFromConst_register_sound old (shape _) (Tools.ShippingEntrySoundness.entry_kept (shape _) run).mreturns⟩
 
 /-! ## Source-position plumbing -/
 
@@ -2369,7 +2369,7 @@ theorem synthesizeCombinationalCore_registerEnable_sound {declName : Name}
   obtain ⟨logProf, envR, ci, w1, w2, w3, w4, w5, w6, get, henv, run⟩ :=
     synthesizeCombinationalCore_reads hr
   exact ⟨ci, w1, w2, get, fun _ _ old shape =>
-    synthesizeFromConst_registerEnable_sound old (shape _) run.mreturns⟩
+    synthesizeFromConst_registerEnable_sound old (shape _) (Tools.ShippingEntrySoundness.entry_kept (shape _) run).mreturns⟩
 
 /-- Position plumbing for the enabled register root. -/
 theorem registerEnable_source {declName : Name} {bs : List (Name × MixedGateBinder)}
@@ -2522,7 +2522,7 @@ theorem synthesizeCombinationalCore_loopRegister_sound {declName : Name}
   obtain ⟨logProf, envR, ci, w1, w2, w3, w4, w5, w6, get, henv, run⟩ :=
     synthesizeCombinationalCore_reads hr
   exact ⟨ci, w1, w2, get, fun _ _ old shape =>
-    synthesizeFromConst_loopRegister_sound old (shape _) run.mreturns⟩
+    synthesizeFromConst_loopRegister_sound old (shape _) (Tools.ShippingEntrySoundness.entry_kept (shape _) run).mreturns⟩
 
 /-- Instantiation of the shifted telescope under the loop binder. -/
 theorem instantiated_input_shift {bs : List (Name × MixedGateBinder)} {ids : List FVarId}
@@ -3532,7 +3532,7 @@ theorem synthesizeCombinationalCore_register2_sound {declName : Name} {mctx : Me
   obtain ⟨logProf, envR, ci, w1, w2, w3, w4, w5, w6, get, henv, run⟩ :=
     synthesizeCombinationalCore_reads hr
   exact ⟨ci, w1, w2, get, fun _ _ old shape =>
-    synthesizeFromConst_register2_sound old (shape _) run.mreturns⟩
+    synthesizeFromConst_register2_sound old (shape _) (Tools.ShippingEntrySoundness.entry_kept (shape _) run).mreturns⟩
 
 /-- Position plumbing for the two-stage chain. -/
 theorem register2_source {declName : Name} {bs : List (Name × MixedGateBinder)}
@@ -4792,7 +4792,7 @@ theorem synthesizeCombinationalCore_cdo_sound {declName : Name}
   obtain ⟨logProf, envR, ci, w1, w2, w3, w4, w5, w6, get, henv, run⟩ :=
     synthesizeCombinationalCore_reads hr
   exact ⟨ci, w1, w2, get, fun _ _ old shape =>
-    synthesizeFromConst_cdo_sound old (shape _) run.mreturns⟩
+    synthesizeFromConst_cdo_sound old (shape _) (Tools.ShippingEntrySoundness.entry_kept (shape _) run).mreturns⟩
 
 /-- Instantiation of the shifted telescope under the loop binder. -/
 theorem instantiated_input_shift2 {bs : List (Name × MixedGateBinder)} {ids : List FVarId}
@@ -6622,7 +6622,7 @@ theorem synthesizeCombinationalCore_cdo2_sound {declName : Name}
   obtain ⟨logProf, envR, ci, w1, w2, w3, w4, w5, w6, get, henv, run⟩ :=
     synthesizeCombinationalCore_reads hr
   exact ⟨ci, w1, w2, get, fun _ _ old shape =>
-    synthesizeFromConst_cdo2_sound old (shape _) run.mreturns⟩
+    synthesizeFromConst_cdo2_sound old (shape _) (Tools.ShippingEntrySoundness.entry_kept (shape _) run).mreturns⟩
 
 /-- Position plumbing for the two-slot circuit-do root (first slot returned). -/
 theorem cdo2_source {declName : Name} {bs : List (Name × MixedGateBinder)}

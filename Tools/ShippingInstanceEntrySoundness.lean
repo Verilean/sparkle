@@ -3190,11 +3190,11 @@ theorem synthesizeCombinationalCore_instance_sound {declName : Name}
   obtain ⟨logProf, envR, ci, w1, w2, w3, w4, w5, w6, get, henv, run⟩ :=
     Tools.ShippingEntrySoundness.synthesizeCombinationalCore_reads hr
   exact ⟨ci, envR, w1, w2, w5, w6, get, henv, fun _ _ old shape =>
-    ⟨synthesizeFromConst_instance_sound old shape run.mreturns,
-     synthesizeFromConst_instance1_sound old shape run.mreturns,
-     synthesizeFromConst_instanceN_sound old shape run.mreturns,
-     synthesizeFromConst_instanceG_sound old shape run.mreturns,
-     synthesizeFromConst_instanceProj_sound old shape run.mreturns⟩⟩
+    ⟨synthesizeFromConst_instance_sound old shape (Tools.ShippingEntrySoundness.entry_kept shape run).mreturns,
+     synthesizeFromConst_instance1_sound old shape (Tools.ShippingEntrySoundness.entry_kept shape run).mreturns,
+     synthesizeFromConst_instanceN_sound old shape (Tools.ShippingEntrySoundness.entry_kept shape run).mreturns,
+     synthesizeFromConst_instanceG_sound old shape (Tools.ShippingEntrySoundness.entry_kept shape run).mreturns,
+     synthesizeFromConst_instanceProj_sound old shape (Tools.ShippingEntrySoundness.entry_kept shape run).mreturns⟩⟩
 
 /-- The entry endpoint under the run's environment boundaries: if the run's
 environment defines the declaration as the canonical two-input instance call

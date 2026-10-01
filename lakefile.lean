@@ -479,6 +479,9 @@ lean_lib «Tools.ShippingHierTermSoundness» where
 lean_lib «Tools.ShippingCoreSoundness» where
   roots := #[`Tools.ShippingCoreSoundness]
 
+lean_lib «Tools.ShippingInlineSoundness» where
+  roots := #[`Tools.ShippingInlineSoundness]
+
 lean_lib «Tools.ShippingPipelineSoundness» where
   roots := #[`Tools.ShippingPipelineSoundness]
 

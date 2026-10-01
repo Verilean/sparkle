@@ -2596,6 +2596,205 @@ def synthesizeMixedCertified (translate : TranslateFn) (logProf : String → IO 
   else
     throw (Exception.error .missing "fresh free variables are not distinct")
 
+/-! ## Front-end normalisation: unfolding user definitions
+
+The legacy translator inlines a call to an untagged user definition at the
+call site (`handleDefinitionUnfold`: `unfoldDefinition?`, then translate the
+result).  The certified gates only read the declaration's own value, so a
+declaration written with helpers misses them even when the unfolded body is a
+certified shape.  The functions below unfold such calls PURELY — delta and
+beta against the definitions of the run's environment — so the entry can
+offer the unfolded value to the same gates.  They are total (fuel) and
+budgeted (a node budget; exhaustion keeps the declaration on the legacy
+route), and nothing here is used unless a gate accepts the result. -/
+
+/-- Lift the loose bound variables `≥ c` by `k` (budgeted). -/
+def inlLift (k : Nat) : Nat → Lean.Expr → Nat → Option (Lean.Expr × Nat)
+  | _, _, 0 => none
+  | c, .bvar i, b + 1 => some (if i < c then .bvar i else .bvar (i + k), b)
+  | c, .app f a, b + 1 =>
+    match inlLift k c f b with
+    | some (f', b) =>
+      match inlLift k c a b with
+      | some (a', b) => some (.app f' a', b)
+      | none => none
+    | none => none
+  | c, .lam n t body bi, b + 1 =>
+    match inlLift k c t b with
+    | some (t', b) =>
+      match inlLift k (c + 1) body b with
+      | some (body', b) => some (.lam n t' body' bi, b)
+      | none => none
+    | none => none
+  | _, .forallE .., _ + 1 => none
+  | _, .letE .., _ + 1 => none
+  | _, .mdata .., _ + 1 => none
+  | _, .proj .., _ + 1 => none
+  | _, e, b + 1 => some (e, b)
+
+/-- Replace the loose bound variables `≥ d` by `xs` (`instantiateRev` order:
+    `.bvar d` is the LAST element), lifting an argument placed under `d`
+    binders.  Budgeted; binder forms other than `fun` are refused. -/
+def inlSubst (xs : Array Lean.Expr) : Nat → Lean.Expr → Nat → Option (Lean.Expr × Nat)
+  | _, _, 0 => none
+  | d, .bvar i, b + 1 =>
+    if i < d then some (.bvar i, b)
+    else if i - d < xs.size then
+      (if d = 0 then some (xs[xs.size - 1 - (i - d)]!, b)
+       else inlLift d 0 xs[xs.size - 1 - (i - d)]! b)
+    else some (.bvar (i - xs.size), b)
+  | d, .app f a, b + 1 =>
+    match inlSubst xs d f b with
+    | some (f', b) =>
+      match inlSubst xs d a b with
+      | some (a', b) => some (.app f' a', b)
+      | none => none
+    | none => none
+  | d, .lam n t body bi, b + 1 =>
+    match inlSubst xs d t b with
+    | some (t', b) =>
+      match inlSubst xs (d + 1) body b with
+      | some (body', b) => some (.lam n t' body' bi, b)
+      | none => none
+    | none => none
+  | _, .forallE .., _ + 1 => none
+  | _, .letE .., _ + 1 => none
+  | _, .mdata .., _ + 1 => none
+  | _, .proj .., _ + 1 => none
+  | _, e, b + 1 => some (e, b)
+
+/-- Beta: peel one `fun` per argument, substitute, apply what is left over. -/
+def inlBeta (acc : Array Lean.Expr) : Lean.Expr → List Lean.Expr → Nat →
+    Option (Lean.Expr × Nat)
+  | .lam _ _ body _, a :: rest, b => inlBeta (acc.push a) body rest b
+  | f, rest, b =>
+    match inlSubst acc 0 f b with
+    | some (f', b) => some (rest.foldl Lean.Expr.app f', b)
+    | none => none
+
+/-- Head and arguments of an application spine. -/
+def inlSpine : Lean.Expr → List Lean.Expr → Lean.Expr × List Lean.Expr
+  | .app f a, acc => inlSpine f (a :: acc)
+  | h, acc => (h, acc)
+
+/-- Map a budgeted rewrite over a list, threading the budget. -/
+def inlMap (f : Lean.Expr → Nat → Option (Lean.Expr × Nat)) :
+    List Lean.Expr → Nat → Option (List Lean.Expr × Nat)
+  | [], b => some ([], b)
+  | a :: rest, b =>
+    match f a b with
+    | some (a', b) =>
+      match inlMap f rest b with
+      | some (rest', b) => some (a' :: rest', b)
+      | none => none
+    | none => none
+
+/-- Unfold every call whose head `defs` names: delta against the definition's
+    value, beta against the call's arguments, then continue in the result.
+    Descends through applications and `fun` bodies only. -/
+def inlineDefs (defs : Name → Option Lean.Expr) : Nat → Lean.Expr → Nat →
+    Option (Lean.Expr × Nat)
+  | 0, _, _ => none
+  | _, _, 0 => none
+  | fuel + 1, .lam n t body bi, b + 1 =>
+    match inlineDefs defs fuel body b with
+    | some (body', b) => some (.lam n t body' bi, b)
+    | none => none
+  | fuel + 1, e, b + 1 =>
+    match inlSpine e [] with
+    | (.const n [], args) =>
+      match defs n with
+      | some v =>
+        match inlBeta #[] v args b with
+        | some (e', b) => inlineDefs defs fuel e' b
+        | none => none
+      | none =>
+        match inlMap (inlineDefs defs fuel) args b with
+        | some (args', b) => some (args'.foldl Lean.Expr.app (.const n []), b)
+        | none => none
+    | (.lam n t body bi, args) =>
+      match inlineDefs defs fuel body b with
+      | some (body', b) =>
+        match inlMap (inlineDefs defs fuel) args b with
+        | some (args', b) => some (args'.foldl Lean.Expr.app (.lam n t body' bi), b)
+        | none => none
+      | none => none
+    | (h, args) =>
+      match inlMap (inlineDefs defs fuel) args b with
+      | some (args', b) => some (args'.foldl Lean.Expr.app h, b)
+      | none => none
+
+/-- Names the legacy dispatcher intercepts by their LAST component before it
+    would unfold the definition (`handleRegister`, `handleMux`, …). -/
+def inlReservedSuffixes : List String :=
+  ["register", "registerWithEnable", "mux", "memory", "memoryComboRead", "memoize",
+   "lutMuxTree", "loop", "ofNat", "toNat", "ofFin"]
+
+/-- The definitions the front end may unfold: an ordinary, universe-monomorphic
+    user definition from outside the Lean and Sparkle libraries that the legacy
+    translator would inline at the call site — not tagged `@[hardware_module]`,
+    not a projection, matcher or instance, default reducibility, no smart
+    unfolding, and no name the legacy dispatcher intercepts.  A pure function
+    of the run's environment. -/
+def userDefinition? (env : Environment) (n : Name) : Option Lean.Expr :=
+  match env.find? n with
+  | some (.defnInfo d) =>
+    let userModule :=
+      match env.getModuleIdxFor? n with
+      | none => true
+      | some idx =>
+        match env.header.moduleNames[idx.toNat]? with
+        | some m =>
+          let r := m.getRoot
+          !(r == `Init || r == `Lean || r == `Std || r == `Sparkle)
+        | none => false
+    let last := match n with
+      | .str _ s => s
+      | _ => ""
+    if userModule && d.levelParams.isEmpty && !inlReservedSuffixes.contains last &&
+        !Sparkle.Compiler.isHardwareModule env n &&
+        (env.getProjectionFnInfo? n).isNone &&
+        !Lean.Meta.isMatcherCore env n &&
+        !Lean.Meta.isInstanceCore env n &&
+        Lean.getReducibilityStatusCore env n == .semireducible &&
+        !env.contains (Lean.Meta.mkSmartUnfoldingNameFor n) &&
+        d.safety == .safe && !isPrimitive n
+    then some d.value else none
+  | _ => none
+
+/-- Recursion depth and node budget of the front-end unfolding. -/
+def inlineDepth : Nat := 4096
+def inlineBudget : Nat := 200000
+
+/-- The run's unfolding: user definitions of `env`, within the budget;
+    the expression itself when the budget is exhausted or a refused binder
+    form is met. -/
+def userInliner (env : Environment) : Lean.Expr → Lean.Expr := fun e =>
+  match inlineDefs (userDefinition? env) inlineDepth e inlineBudget with
+  | some (e', _) => e'
+  | none => e
+
+/-- A definition with its value rewritten. -/
+def inlinedConst (inl : Lean.Expr → Lean.Expr) : ConstantInfo → ConstantInfo
+  | .defnInfo d => .defnInfo { d with value := inl d.value }
+  | ci => ci
+
+/-- The constant the entry hands to `synthesizeFromConst`: the declaration as
+    read when a certified gate accepts it (nothing changes for those), or when
+    no gate accepts its unfolding either (the legacy route sees the original);
+    the UNFOLDED declaration exactly when the original misses both gates and
+    the unfolding passes one. -/
+def entryConst (certifiedFrontEnd symbolicMode : Bool) (parameters : List (String × Nat))
+    (ci : ConstantInfo) (isInst : Lean.Expr → Bool) (inl : Lean.Expr → Lean.Expr) :
+    ConstantInfo :=
+  if certifiedFrontEnd && !symbolicMode && parameters.isEmpty &&
+      (certifiedShape? symbolicMode parameters ci).isNone &&
+      (mixedCertifiedShape? symbolicMode parameters ci isInst).isNone then
+    if (certifiedShape? symbolicMode parameters (inlinedConst inl ci)).isSome ||
+        (mixedCertifiedShape? symbolicMode parameters (inlinedConst inl ci) isInst).isSome
+    then inlinedConst inl ci else ci
+  else ci
+
 /-- Everything the entry does AFTER reading the declaration, as a function of the
     `ConstantInfo` it read.  `synthesizeCombinationalCoreWith` calls it with the
     result of `getConstInfo declName`, so a theorem about this function applies to
@@ -2812,7 +3011,10 @@ def synthesizeCombinationalCoreWith (translate : TranslateFn) (declName : Name)
     let constInfo ← getConstInfo declName
     let env ← getEnv
     synthesizeFromConst translate logProf declName parameters symbolicMode
-      certifiedFrontEnd constInfo (instancePredicate env)
+      certifiedFrontEnd
+      (entryConst certifiedFrontEnd symbolicMode parameters constInfo
+        (instancePredicate env) (userInliner env))
+      (instancePredicate env)
   try
     doSynth
   finally
