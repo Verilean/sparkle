@@ -80,6 +80,65 @@ def deviceEvalTick (m : Module) : String := s!"sparkle_{sanitizeName m.name}_eva
 -- Section 3: Device code — reuse CSim's struct + eval_tick via funcQual
 -- ─────────────────────────────────────────────────────────────────
 
+/-- Respell CSim's wide (> 64-bit) temporaries for C++.
+
+    CSim writes a wide rvalue as a C99 compound literal,
+    `(uint32_t[3]){w0, w1, w2}`, and passes it where a `uint32_t*` is
+    expected.  nvcc compiles the file as C++, where that is an error
+    ("taking address of temporary array").  The same value as a C++
+    temporary is `(sparkle_w<3>{{w0, w1, w2}}).v` — an array member of a
+    temporary aggregate, alive until the end of the full expression, which
+    is all the `memcpy`/call that consumes it needs.
+
+    Purely textual and brace-matched; CSim itself is untouched, so the CPU
+    path stays byte-identical.  The helper type is prepended only when a
+    literal was rewritten. -/
+def cxxWideLiterals (src : String) : String := Id.run do
+  let cs := src.toList.toArray
+  let pat := "(uint32_t[".toList.toArray
+  let mut out : Array Char := Array.mkEmpty (cs.size + 64)
+  -- one entry per open `{`: true = it opened a rewritten literal
+  let mut stack : Array Bool := #[]
+  let mut rewrote := false
+  let mut i := 0
+  while i < cs.size do
+    -- `(uint32_t[` digits `]){`
+    let mut isPat := decide (i + pat.size < cs.size)
+    if isPat then
+      for k in [0:pat.size] do
+        if cs[i + k]! != pat[k]! then isPat := false
+    let mut j := i + pat.size
+    let mut digits : Array Char := #[]
+    if isPat then
+      while j < cs.size && cs[j]!.isDigit do
+        digits := digits.push cs[j]!
+        j := j + 1
+      if digits.isEmpty || j + 2 ≥ cs.size || cs[j]! != ']' || cs[j+1]! != ')' || cs[j+2]! != '{' then
+        isPat := false
+    if isPat then
+      out := out ++ "(sparkle_w<".toList.toArray ++ digits ++ ">{{".toList.toArray
+      stack := stack.push true
+      rewrote := true
+      i := j + 3
+    else
+      let c := cs[i]!
+      if c == '{' then
+        stack := stack.push false
+        out := out.push c
+      else if c == '}' then
+        match stack.back? with
+        | some true => out := out ++ "}}).v".toList.toArray
+        | _ => out := out.push c
+        stack := stack.pop
+      else
+        out := out.push c
+      i := i + 1
+  let body := String.ofList out.toList
+  if rewrote then
+    "// C++ spelling of CSim's wide temporaries (see `cxxWideLiterals`)\n" ++
+    "template <int N> struct sparkle_w { uint32_t v[N]; };\n\n" ++ body
+  else body
+
 /-- Emit the device-side design code: exactly CSim's `toCDesign`, but with
     every module function qualified `__host__ __device__`.  With CSim's
     default `funcQual = ""` this would be the CPU backend byte-for-byte, so
@@ -91,7 +150,7 @@ def deviceEvalTick (m : Module) : String := s!"sparkle_{sanitizeName m.name}_eva
     also handles wide (> 64-bit) state, which the old `uint3`/`uint4` mapping
     could not (the RV32 578-bit bundle). -/
 def emitCudaDeviceCode (m : Module) : String :=
-  toCDesign { topModule := m.name, modules := [m] } none hostDev
+  cxxWideLiterals (toCDesign { topModule := m.name, modules := [m] } none hostDev)
 
 /-- Emit the device code for a whole `Design` — every module, in dependency
     order, host+device qualified.  This is what a *hierarchical* design needs
@@ -102,7 +161,7 @@ def emitCudaDeviceCode (m : Module) : String :=
     <wire> = inst.a_out;`).  `emitCudaDeviceCode m` is the single-module case
     of this. -/
 def emitCudaDeviceCodeD (d : Design) : String :=
-  toCDesign d none hostDev
+  cxxWideLiterals (toCDesign d none hostDev)
 
 -- ─────────────────────────────────────────────────────────────────
 -- Section 4: __global__ kernel (batch simulation)

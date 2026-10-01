@@ -44,10 +44,12 @@
   v1 restrictions (all detected; each error names the offender):
     - Moore-bounded cross-instance connections only (v2: K-round relaxation,
       memo §7);
-    - connections are `.ref` (chased through const/ref top assigns) or
-      `.const`;
+    - an instance input is a `.ref` (chased through const/ref top assigns),
+      a `.const`, or a slice of a TOP INPUT (a bus split across instances);
+    - a top output is one of those, or a concatenation of byte-aligned
+      ones (a result bus assembled from several instances);
     - the top module contains only `.assign` + `.inst` (no registers,
-      memories, or combinational logic at top);
+      memories, or other combinational logic at top);
     - no combinational loops.
 -/
 import Sparkle.Backend.CudaSim
@@ -167,7 +169,18 @@ private def outputDrivers (insts : List InstInfo) : List (String × InstInfo × 
 inductive ConnSource where
   | instOutput (producer : InstInfo) (port : String)
   | topInput (port : String)
+  /-- Bits `[hi:lo]` of a top input (a bus split across instances). -/
+  | topSlice (port : String) (hi lo : Nat)
   | imm (value : Int) (width : Nat)
+
+/-- `x[hi:lo]`, also in the elaborator's masked form `x[hi:lo] & ones`
+    (what `extractLsb'` with a non-zero start lowers to). -/
+private def sliceOfRef? : Expr → Option (String × Nat × Nat)
+  | .slice (.ref n) hi lo => some (n, hi, lo)
+  | .op .and [.slice (.ref n) hi lo, .const m _] =>
+    let full : Int := Int.ofNat (2 ^ (hi - lo + 1) - 1)
+    if hi ≥ lo && (m % (full + 1) == full) then some (n, hi, lo) else none
+  | _ => none
 
 private def resolveRef (top : Module) (drivers : List (String × InstInfo × String)) :
     Nat → String → Except String ConnSource
@@ -185,8 +198,13 @@ private def resolveRef (top : Module) (drivers : List (String × InstInfo × Str
         match drv with
         | some (.ref n') => resolveRef top drivers fuel n'
         | some (.const v w) => pure (.imm v w)
-        | some _ =>
-          throw s!"top-level combinational logic drives '{n}' — v1 supports only const/ref assigns at top; move the logic into a submodule"
+        | some e =>
+          match sliceOfRef? e with
+          | some (n', hi, lo) =>
+            if top.inputs.any (·.name == n') then pure (.topSlice n' hi lo)
+            else throw s!"top-level slice of '{n'}' drives '{n}' — only slices of TOP INPUTS are supported at top; move other logic into a submodule"
+          | none =>
+            throw s!"top-level combinational logic drives '{n}' — v1 supports only const/ref assigns at top; move the logic into a submodule"
         | none => throw s!"'{n}' is undriven at the top level"
 
 private def resolveConn (top : Module) (drivers : List (String × InstInfo × String))
@@ -194,7 +212,12 @@ private def resolveConn (top : Module) (drivers : List (String × InstInfo × St
   match e with
   | .const v w => pure (.imm v w)
   | .ref n => resolveRef top drivers fuel n
-  | _ => throw "instance connection must be a wire/port reference or a constant — got a compound expression (materialise it in a submodule)"
+  | e =>
+    match sliceOfRef? e with
+    | some (n, hi, lo) =>
+      if top.inputs.any (·.name == n) then pure (.topSlice n hi lo)
+      else throw s!"instance connection slices '{n}', which is not a top input — only slices of top inputs are supported (materialise it in a submodule)"
+    | none => throw "instance connection must be a wire/port reference, a slice of a top input, or a constant — got a compound expression (materialise it in a submodule)"
 
 /-! ### Copy / immediate tables -/
 
@@ -245,12 +268,15 @@ private def maskedULL (v : Int) (width : Nat) : String :=
     top output ports for host observation.  Applies the Moore check to every
     cross-instance source. -/
 private def buildTables (top : Module) (insts : List InstInfo) :
-    Except String (List CopyEnt × List ImmEnt) := do
+    Except String (List CopyEnt × List ImmEnt × List String) := do
   let topC := sanitizeName top.name
   let drivers := outputDrivers insts
   let fuel := 2 * top.body.length + 8
   let mut copies : List CopyEnt := []
   let mut imms : List ImmEnt := []
+  -- C statements run once per launch: instance inputs fed by a SLICE of a
+  -- top input (not a whole-field copy, so not a table entry).
+  let mut statics : List String := []
 
   let mooreCheck (consumerDesc : String) (prod : InstInfo) (pport : String) :
       Except String Unit := do
@@ -286,6 +312,29 @@ private def buildTables (top : Module) (insts : List InstInfo) :
         if tbytes != nbytes then
           throw s!"width mismatch: '{ii.instName}.{port}' ({nbytes} bytes) ← top input '{tport}' ({tbytes} bytes)"
         copies := copies ++ [⟨dstC, s!"offsetof(struct {topC}, {sanitizeName tport})", nbytes, .static⟩]
+      | .topSlice tport hi lo =>
+        let some tty := portTy top.inputs tport
+          | throw s!"internal: top input '{tport}' not found"
+        let some srcW := tty.bitWidth?
+          | throw s!"CudaIntra requires a concrete bit width for top input '{tport}'"
+        let w := hi - lo + 1
+        if hi < lo || hi ≥ srcW then
+          throw s!"slice [{hi}:{lo}] of top input '{tport}' ({srcW} bits) is out of range"
+        if nbytes > 8 || w > 64 then
+          throw s!"'{ii.instName}.{port}' ← {tport}[{hi}:{lo}]: slices wider than 64 bits are unsupported"
+        let src := sanitizeName tport
+        -- the source is a scalar (≤ 64 bits) or an array of 32-bit words
+        let value :=
+          if srcW ≤ 64 then s!"((uint64_t)self->{src} >> {lo})"
+          else
+            let k0 := lo / 32
+            let off := lo % 32
+            let parts := (List.range (hi / 32 - k0 + 1)).map fun d =>
+              if d == 0 then s!"((uint64_t)self->{src}[{k0}] >> {off})"
+              else s!"((uint64_t)self->{src}[{k0 + d}] << {32 * d - off})"
+            "(" ++ String.intercalate " | " parts ++ ")"
+        let masked := if w ≥ 64 then value else s!"({value} & {2 ^ w - 1}ULL)"
+        statics := statics ++ [s!"  self->{ii.field}.{sanitizeName port} = {masked};"]
       | .imm v w =>
         if nbytes > 8 then
           throw s!"constant into wide (> 64-bit) input '{ii.instName}.{port}' is unsupported in v1"
@@ -295,23 +344,99 @@ private def buildTables (top : Module) (insts : List InstInfo) :
   -- skipped (it stays at its reset value), but resolvable sources get the
   -- same Moore check — a Mealy output is not a function of the state alone,
   -- so the value published after the clock edge would be stale.
-  for p in top.outputs do
-    let nbytes ← byteSize p.ty
-    let dstC := s!"offsetof(struct {topC}, {sanitizeName p.name})"
-    match resolveRef top drivers fuel p.name with
-    | .error _ => pure ()
-    | .ok (.instOutput prod pport) =>
+  -- Width of a resolved source, for placing it inside a concatenation.
+  let sourceWidth (src : ConnSource) : Except String Nat := match src with
+    | .instOutput prod pport =>
+      match (portTy prod.mod.outputs pport).bind (·.bitWidth?) with
+      | some w => pure w
+      | none => throw s!"internal: width of '{prod.instName}.{pport}' unknown"
+    | .topInput tport =>
+      match (portTy top.inputs tport).bind (·.bitWidth?) with
+      | some w => pure w
+      | none => throw s!"internal: width of top input '{tport}' unknown"
+    | .topSlice _ hi lo => pure (hi - lo + 1)
+    | .imm _ w => pure w
+  -- One source placed at byte offset `byteOff` of top output `p`.
+  let place (p : Port) (byteOff nbytes : Nat) (src : ConnSource) :
+      Except String (List CopyEnt × List ImmEnt) := do
+    let dstC := s!"offsetof(struct {topC}, {sanitizeName p.name})" ++
+      (if byteOff == 0 then "" else s!" + {byteOff}")
+    match src with
+    | .instOutput prod pport =>
       mooreCheck s!"top output '{p.name}'" prod pport
-      copies := copies ++ [⟨dstC,
+      pure ([⟨dstC,
         s!"offsetof(struct {topC}, {prod.field}) + offsetof(struct {sanitizeName prod.modName}, {sanitizeName pport})",
-        nbytes, .pub ((insts.findIdx? (·.instName == prod.instName)).getD 0)⟩]
-    | .ok (.topInput tport) =>
-      copies := copies ++ [⟨dstC, s!"offsetof(struct {topC}, {sanitizeName tport})", nbytes, .static⟩]
-    | .ok (.imm v w) =>
-      if nbytes ≤ 8 then
-        imms := imms ++ [⟨dstC, nbytes, maskedULL v w⟩]
+        nbytes, .pub ((insts.findIdx? (·.instName == prod.instName)).getD 0)⟩], [])
+    | .topInput tport =>
+      pure ([⟨dstC, s!"offsetof(struct {topC}, {sanitizeName tport})", nbytes, .static⟩], [])
+    | .topSlice tport _ _ =>
+      throw s!"top output '{p.name}' is a slice of top input '{tport}' — unsupported; pass it through a submodule"
+    | .imm v w =>
+      if nbytes ≤ 8 then pure ([], [⟨dstC, nbytes, maskedULL v w⟩])
+      else throw s!"constant wider than 64 bits in top output '{p.name}' is unsupported"
+  -- Driver of a top-level name after chasing ref-only assigns.
+  let rec driverOf (fuel : Nat) (n : String) : Option Expr :=
+    match fuel with
+    | 0 => none
+    | fuel + 1 =>
+      let drv : Option Expr := top.body.findSome? (fun st => match st with
+          | .assign lhs rhs => if lhs == n then some rhs else none
+          | _ => none)
+      match drv with
+      | some (Expr.ref n') =>
+        if top.inputs.any (·.name == n') || drivers.any (·.1 == n') then some (Expr.ref n')
+        else driverOf fuel n'
+      | other => other
 
-  return (copies, imms)
+  -- Leaves of a (possibly nested) concatenation, MSB first: `a ++ b ++ c`
+  -- elaborates to concat wires feeding concat wires.
+  let rec leaves (fuel : Nat) (e : Expr) : List Expr :=
+    match fuel with
+    | 0 => [e]
+    | fuel + 1 =>
+      match e with
+      | .concat es => es.flatMap (leaves fuel)
+      | .ref n =>
+        match driverOf fuel n with
+        | some (.concat es) => es.flatMap (leaves fuel)
+        | _ => [e]
+      | _ => [e]
+
+  -- Top output ports, for host observation.  A whole-port source is one
+  -- copy; a concatenation of byte-aligned sources is one copy per element
+  -- (a result bus assembled from many instances).  An undriven output is
+  -- skipped (it keeps its reset value).  Every instance source gets the
+  -- Moore check — a Mealy output is not a function of the state alone, so
+  -- the value published after the clock edge would be stale.
+  for p in top.outputs do
+    match driverOf fuel p.name with
+    | none =>
+      -- the output IS an instance's output wire (or is undriven)
+      match resolveRef top drivers fuel p.name with
+      | .ok src =>
+        let (cs, is) ← place p 0 (← byteSize p.ty) src
+        copies := copies ++ cs
+        imms := imms ++ is
+      | .error _ => pure ()
+    | some (.concat elems) =>
+      -- elements are MSB-first; walk from the LSB end
+      let mut bit := 0
+      for e in (elems.flatMap (leaves fuel)).reverse do
+        let src ← resolveConn top drivers fuel e
+        let w ← sourceWidth src
+        if bit % 8 != 0 || w % 8 != 0 then
+          throw s!"top output '{p.name}': concatenation element at bit {bit} (width {w}) is not byte-aligned — unsupported at top; pack it in a submodule"
+        let (cs, is) ← place p (bit / 8) (w / 8) src
+        copies := copies ++ cs
+        imms := imms ++ is
+        bit := bit + w
+    | some e =>
+      let nbytes ← byteSize p.ty
+      let (cs, is) ← place p 0 nbytes (← resolveConn top drivers fuel e)
+      copies := copies ++ cs
+      imms := imms ++ is
+
+  return (copies, imms, statics)
 
 /-! ### Emission -/
 
@@ -320,7 +445,8 @@ private def buildTables (top : Module) (insts : List InstInfo) :
     barrier).  Schedule and its correctness argument:
     docs/CudaIntraSim-design.md §3. -/
 private def emitIntraSection (top : Module) (insts : List InstInfo)
-    (copies : List CopyEnt) (imms : List ImmEnt) : Except String String := do
+    (copies : List CopyEnt) (imms : List ImmEnt) (statics : List String) :
+    Except String String := do
   let topC := sanitizeName top.name
   let m := insts.length
   let kinds : List String := insts.foldl (fun acc ii =>
@@ -410,6 +536,12 @@ private def emitIntraSection (top : Module) (insts : List InstInfo)
     , "  }"
     , "}"
     , ""
+    , "// instance inputs fed by a slice of a top input (once per launch)"
+    , s!"static __device__ void {topC}_intra_static(struct {topC}* self) \{"
+    , "  (void)self;" ]
+    ++ statics ++
+    [ "}"
+    , ""
     , s!"static __device__ void {topC}_intra_eval(struct {topC}* self, unsigned t) \{"
     , s!"  char* b = (char*)self + {topC}_intra_off[t];"
     , s!"  switch ({topC}_intra_kind[t]) \{" ]
@@ -437,6 +569,7 @@ private def emitIntraSection (top : Module) (insts : List InstInfo)
     , "    unsigned long long v = e->v;"
     , "    memcpy(base + e->dst, &v, e->bytes);"
     , "  }"
+    , s!"  if (t == 0) {topC}_intra_static(self);"
     , "  g.sync();"
     , "  // Per-thread constants, read from the tables once."
     , "  char* b = base; unsigned kind = 0, pl0 = 0, pl1 = 0, pb0 = 0, pb1 = 0;"
@@ -581,8 +714,8 @@ def toCudaIntraDesign (d : Design) : Except String String := do
   let insts ← topInsts d top
   if insts.isEmpty then
     throw s!"top module '{top.name}' has no instances — the intra backend parallelises over top-level .inst; use toCudaSim for a flat module"
-  let (copies, imms) ← buildTables top insts
-  let intra ← emitIntraSection top insts copies imms
+  let (copies, imms, statics) ← buildTables top insts
+  let intra ← emitIntraSection top insts copies imms statics
   let topC := sanitizeName top.name
   let preamble := String.intercalate "\n"
     [ "// AUTO-GENERATED by Sparkle HDL — CUDA Intra (within-instance) Backend"
