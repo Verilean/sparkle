@@ -1,4 +1,4 @@
-import Tools.ShippingMixedLiteralSoundness
+import Tools.ShippingLinkCtx
 
 /-! Mixed-state composition for the shipping allocator-before-children binary
 lowering. Child contracts expose structural facts before semantic simulation. -/
@@ -10,6 +10,11 @@ open Tools.ShippingMuxRecursionSoundness Tools.ShippingTypedExprSoundness
 open Tools.ShippingScalarSoundness Tools.ShippingBindingsSoundness Tools.ShippingBuilderSoundness
 open Tools.ShippingPostSoundness Sparkle.IR.OptCheck
 open Tools.ShippingBoolSourceSoundness Tools.ShippingMuxLoweringSoundness
+open Tools.ShippingLinkCtx
+
+set_option linter.unusedSectionVars false
+
+variable [LinkCtx]
 
 /-- Only concrete scalar types are introduced by the closed mixed translator. -/
 def ScalarWires (s : CircuitState) : Prop :=
@@ -24,7 +29,7 @@ structure Frame (s t : CircuitState) : Prop where
   scalar : ScalarWires s → ScalarWires t
   outputs : t.module.outputs = s.module.outputs
   inputs : t.module.inputs = s.module.inputs
-  simple : SimpleStmts s.module.body → SimpleStmts t.module.body
+  simple : LinkCtx.Simple s.module.body → LinkCtx.Simple t.module.body
   parameters : t.module.parameters = s.module.parameters
   primitive : t.module.isPrimitive = s.module.isPrimitive
   wireNames : ∀ p ∈ t.module.wires, p ∈ s.module.wires ∨ Sparkle.IR.NameHints.Allocated p.name
@@ -63,11 +68,9 @@ theorem Frame.emitAssign (s : CircuitState) (w : String) (rhs : Sparkle.IR.AST.E
     (hr : simpleRhs rhs = true) : Frame s (CircuitM.emitAssign w rhs s).2 := by
   refine ⟨fun _ hp => hp, fun _ hp => hp, rfl, fun _ _ he => Or.inl he,
     fun h => h, fun h => h, rfl, rfl, ?_, rfl, rfl, fun _ hp => Or.inl hp⟩
-  intro hs stmt hmem
-  rw [emitAssign_body_cons] at hmem
-  rcases List.mem_cons.mp hmem with rfl | hmem
-  · exact ⟨w, rhs, rfl, hr⟩
-  · exact hs stmt hmem
+  intro hs
+  rw [emitAssign_body_cons]
+  exact LinkCtx.simple_emit hr hs
 
 /-- Environment-free binding facts prevent an input fvar from taking the
 legacy inlining route while structural child properties are established. -/

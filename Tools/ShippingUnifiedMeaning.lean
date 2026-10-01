@@ -130,8 +130,22 @@ def view : Lean.Expr → Option Node
       (.app (.const ``Sparkle.Core.Signal.instComplementSignalBool _) _)) a => some (.boolNot a)
   | _ => none
 
+/-- The source function of each linked child declaration, on packed values.
+`none` outside the child's typed domain. -/
+class ChildSem where
+  childSem : Name → List Value → Option Value
+
+/-- By default no declaration has a linked meaning: the flat source domain. -/
+instance (priority := low) noChildSem : ChildSem := ⟨fun _ _ => none⟩
+
+set_option linter.unusedSectionVars false
+
+variable [ChildSem]
+
 /-- A single recursive relation allows comparison operands to contain vector
-muxes whose conditions in turn contain comparisons and arbitrary Bool logic. -/
+muxes whose conditions in turn contain comparisons and arbitrary Bool logic.
+An instance call (an application the pure view does not recognize) means
+the linked child's source function of its arguments' meanings. -/
 inductive Meaning (inputs : FVarId → Option Value) : Lean.Expr → Value → Prop where
   | input {e id v} : view e = some (.input id) → inputs id = some v → Meaning inputs e v
   | value {e v} : view e = some (.value v) → Meaning inputs e v
@@ -143,11 +157,30 @@ inductive Meaning (inputs : FVarId → Option Value) : Lean.Expr → Value → P
       muxValue kind vc va vb = some v → Meaning inputs e v
   | setw {e w w' a va v} : view e = some (.setw w w' a) →
       Meaning inputs a va → setwValue w w' va = some v → Meaning inputs e v
+  | inst {e mn lvls dom args vs v} : view e = none → e.getAppFn = .const mn lvls →
+      instSpineArgs e = dom :: args → vs.length = args.length →
+      (∀ i (ha : i < args.length) (hv : i < vs.length),
+        Meaning inputs (args[i]'ha) (vs[i]'hv)) →
+      ChildSem.childSem mn vs = some v → Meaning inputs e v
 
 /-- Even across the two sorts and different widths, a recorded expression has
 one source value. This is the key cache-insertion obligation. -/
 theorem Meaning.deterministic {inputs e a b} (ha : Meaning inputs e a) (hb : Meaning inputs e b) : a = b := by
-  induction ha generalizing b <;> cases hb <;> grind
+  induction ha generalizing b with
+  | inst hview hfn hsp hlen hargs hsem ih =>
+    cases hb with
+    | inst hview' hfn' hsp' hlen' hargs' hsem' =>
+      have hc := Lean.Expr.const.inj (hfn.symm.trans hfn')
+      have hs := List.cons.inj (hsp.symm.trans hsp')
+      obtain ⟨hmn, -⟩ := hc
+      obtain ⟨-, hargsEq⟩ := hs
+      subst hmn hargsEq
+      have hvs := List.ext_getElem (hlen.trans hlen'.symm) (fun i h1 h2 =>
+        ih i (by rw [← hlen]; exact h1) h1 (hargs' i (by rw [← hlen]; exact h1) h2))
+      subst hvs
+      exact Option.some.inj (hsem.symm.trans hsem')
+    | _ => simp_all
+  | _ => cases hb <;> grind
 
 open Tools.ShippingBoolLiteralSoundness
 
@@ -216,40 +249,53 @@ theorem view_mux (dom c a b : Lean.Expr) (s : SType) :
       | _ => none) = _
     rw [canonicalMuxType?_bitVec]; rfl
 
-/-- Full source/library connection for the new recursive domain. This says
-what quoted sources mean, not that the compiler already preserves them. -/
+/-- Full source/library connection for the recursive domain over ARBITRARY
+leaf expressions: whatever the leaves mean, the quoted cone means its
+evaluation at those meanings. This says what quoted sources mean, not that
+the compiler already preserves them. -/
+theorem meaning_quote_leaves {inputs : FVarId → Option Value} {dom : Lean.Expr} {kb kv : Nat}
+    {vw : Nat → Nat} {bE vE : Nat → Lean.Expr} {bools : Nat → Bool}
+    {bits : (j : Nat) → (w : Nat) → BitVec w}
+    (hb : ∀ j, j < kb → Meaning inputs (bE j) (.bool (bools j)))
+    (hv : ∀ j, j < kv → Meaning inputs (vE j) (.bits (vw j) (bits j (vw j)))) :
+    ∀ {s} (e : Term s), e.WF kb kv vw →
+      Meaning inputs (quote dom bE vE e) (pack s (eval bools bits e))
+  | _, .boolInput j, hj => hb j hj
+  | _, .bitsInput w j, hj => by
+    cases hj.2.1
+    exact hv j hj.1
+  | _, .boolLit b, _ => .value (view_boolLit dom b)
+  | _, .bitsLit w v, hv => .value (view_bitsLit dom w v hv.1 _)
+  | _, .binary op (w := w) a b, ⟨ha, hb'⟩ => by
+    apply Meaning.binary (view_binary dom _ _ w op) (meaning_quote_leaves hb hv a ha) (meaning_quote_leaves hb hv b hb')
+    simp [BinOp.run, pack, eval]
+  | _, .compare op (w := w) a b, ⟨ha, hb'⟩ => by
+    apply Meaning.binary (view_compare dom _ _ w op) (meaning_quote_leaves hb hv a ha) (meaning_quote_leaves hb hv b hb')
+    simp [BinOp.run, pack, eval]
+  | _, .boolBinary op a b, ⟨ha, hb'⟩ =>
+    .binary (view_boolBinary dom _ _ op) (meaning_quote_leaves hb hv a ha) (meaning_quote_leaves hb hv b hb') rfl
+  | _, .boolNot a, ha => .boolNot (view_boolNot dom _) (meaning_quote_leaves hb hv a ha)
+  | _, .boolEq a b, ⟨ha, hb'⟩ =>
+    .binary (view_boolEq dom _ _) (meaning_quote_leaves hb hv a ha) (meaning_quote_leaves hb hv b hb') rfl
+  | s, .mux c a b, ⟨hc, ha, hb'⟩ => by
+    apply Meaning.mux (view_mux dom _ _ _ s) (meaning_quote_leaves hb hv c hc)
+      (meaning_quote_leaves hb hv a ha) (meaning_quote_leaves hb hv b hb')
+    cases s <;> cases h : eval bools bits c <;> simp [muxValue, pack, Value.kind, kindOf, eval, h]
+  | _, .setw (w := w) w' a, h => by
+    apply Meaning.setw (view_setw dom _ w w') (meaning_quote_leaves hb hv a h.1)
+    simp [setwValue, pack, eval]
+
+/-- The input-binder instance: leaves are prepared free variables. -/
 theorem meaning_quote {inputs : FVarId → Option Value} {dom : Lean.Expr} {kb kv : Nat}
     {vw : Nat → Nat} {bi vi : Nat → FVarId} {bools : Nat → Bool}
     {bits : (j : Nat) → (w : Nat) → BitVec w}
     (hb : ∀ j, j < kb → inputs (bi j) = some (.bool (bools j)))
-    (hv : ∀ j, j < kv → inputs (vi j) = some (.bits (vw j) (bits j (vw j)))) :
-    ∀ {s} (e : Term s), e.WF kb kv vw →
-      Meaning inputs (quote dom (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) e)
-        (pack s (eval bools bits e))
-  | _, .boolInput j, hj => .input rfl (hb j hj)
-  | _, .bitsInput w j, hj => by
-    cases hj.2.1
-    exact .input rfl (hv j hj.1)
-  | _, .boolLit b, _ => .value (view_boolLit dom b)
-  | _, .bitsLit w v, hv => .value (view_bitsLit dom w v hv.1 _)
-  | _, .binary op (w := w) a b, ⟨ha, hb'⟩ => by
-    apply Meaning.binary (view_binary dom _ _ w op) (meaning_quote hb hv a ha) (meaning_quote hb hv b hb')
-    simp [BinOp.run, pack, eval]
-  | _, .compare op (w := w) a b, ⟨ha, hb'⟩ => by
-    apply Meaning.binary (view_compare dom _ _ w op) (meaning_quote hb hv a ha) (meaning_quote hb hv b hb')
-    simp [BinOp.run, pack, eval]
-  | _, .boolBinary op a b, ⟨ha, hb'⟩ =>
-    .binary (view_boolBinary dom _ _ op) (meaning_quote hb hv a ha) (meaning_quote hb hv b hb') rfl
-  | _, .boolNot a, ha => .boolNot (view_boolNot dom _) (meaning_quote hb hv a ha)
-  | _, .boolEq a b, ⟨ha, hb'⟩ =>
-    .binary (view_boolEq dom _ _) (meaning_quote hb hv a ha) (meaning_quote hb hv b hb') rfl
-  | s, .mux c a b, ⟨hc, ha, hb'⟩ => by
-    apply Meaning.mux (view_mux dom _ _ _ s) (meaning_quote hb hv c hc)
-      (meaning_quote hb hv a ha) (meaning_quote hb hv b hb')
-    cases s <;> cases h : eval bools bits c <;> simp [muxValue, pack, Value.kind, kindOf, eval, h]
-  | _, .setw (w := w) w' a, h => by
-    apply Meaning.setw (view_setw dom _ w w') (meaning_quote hb hv a h.1)
-    simp [setwValue, pack, eval]
+    (hv : ∀ j, j < kv → inputs (vi j) = some (.bits (vw j) (bits j (vw j))))
+    {s} (e : Term s) (wf : e.WF kb kv vw) :
+    Meaning inputs (quote dom (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) e)
+      (pack s (eval bools bits e)) :=
+  meaning_quote_leaves (fun j hj => .input rfl (hb j hj))
+    (fun j hj => .input rfl (hv j hj)) e wf
 
 theorem bool_bits_disjoint {inputs e b n v}
     (hb : Meaning inputs e (.bool b)) (hv : Meaning inputs e (.bits n v)) : False := by

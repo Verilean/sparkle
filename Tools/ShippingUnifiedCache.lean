@@ -9,6 +9,10 @@ open Lean Sparkle.Compiler.Elab Sparkle.IR.Builder Sparkle.IR.Semantics
 open Tools.ShippingUnifiedMeaning Tools.ShippingTranslateSoundness
 open Tools.ShippingScalarSoundness
 
+set_option linter.unusedSectionVars false
+
+variable [ChildSem]
+
 /-- One record invariant for both source sorts, including recursive mux values. -/
 def Records (inputs : FVarId → Option Value) (we : WEnv) (s : CircuitState) (env : Env) : Prop :=
   ∀ w e, s.translateRecord.get? w = some e → ∀ v, Meaning inputs e v →

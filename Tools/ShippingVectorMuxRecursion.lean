@@ -14,6 +14,11 @@ open Tools.ShippingPostSoundness Sparkle.IR.OptCheck
 open Tools.ShippingTypedExprSoundness Tools.ShippingScalarSoundness
 open Tools.ShippingEntrySoundness Tools.ShippingMuxTypeSoundness
 open Tools.ShippingMixedRecursion Tools.ShippingMixedOrderSoundness
+open Tools.ShippingLinkCtx
+
+set_option linter.unusedSectionVars false
+
+variable [LinkCtx]
 open Tools.ShippingBuilderSoundness Tools.ShippingTranslationOrder Sparkle.IR.Reorder
 
 inductive VExpr where

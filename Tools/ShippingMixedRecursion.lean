@@ -12,6 +12,11 @@ open Tools.ShippingMuxLoweringSoundness Tools.ShippingMuxRecursionSoundness
 open Tools.ShippingPostSoundness Sparkle.IR.OptCheck
 open Tools.ShippingTypedExprSoundness Tools.ShippingScalarSoundness
 open Tools.ShippingEntrySoundness Tools.ShippingMuxTypeSoundness
+open Tools.ShippingLinkCtx
+
+set_option linter.unusedSectionVars false
+
+variable [LinkCtx]
 
 /-- Unlike a child contract, this covers every top/named flag and hint. -/
 structure Contract (rec : TranslateFn) (ctx : CompilerState) (ρ : BoolValuation) (β : Valuation)
@@ -67,13 +72,12 @@ theorem bits_core_frame {rec ctx β s t e us hint top named r n} {x : BitVec n}
         rcases growth.2.2.2.2.wireTypes p hp with old | new
         · exact hs p old
         · exact Or.inr new, emits.1, emits.2.1, ?_, growth.2.2.2.2.parameters, growth.2.2.2.2.primitive, growth.2.2.2.2.wireNames⟩, fresh⟩
-    intro hs stmt hmem
+    intro hs
     obtain ⟨pre, eq, simple⟩ := emits.2.2
-    rw [eq] at hmem
-    rcases List.mem_append.mp hmem with hp | hp
-    · obtain ⟨l, rhs, eq, shape, _⟩ := simple stmt hp
-      exact ⟨l, rhs, eq, shape.simple⟩
-    · exact hs stmt hp
+    rw [eq]
+    exact simple_prepend pre _ (fun stmt hp => by
+      obtain ⟨l, rhs, eq, shape, _⟩ := simple stmt hp
+      exact ⟨l, rhs, eq, shape.simple⟩) hs
 
 theorem bits_recorded_frame {rec ctx β s t e us hint top named w n cacheable}
     {x : BitVec n} {K : Option String → CompilerM String}
@@ -171,11 +175,9 @@ theorem emit_bool_frame {ctx s t w rhs hint named}
     · exact hs p hp
   · rw [ht, emitAssign_outputs, makeWire_outputs]
   · rw [ht, emitAssign_inputs, makeWire_inputs]
-  · intro hs stmt hmem
-    rw [ht, emitAssign_body_cons, hm.2.2.1] at hmem
-    rcases List.mem_cons.mp hmem with rfl | hp
-    · exact ⟨_, _, rfl, shape⟩
-    · exact hs stmt hp
+  · intro hs
+    rw [ht, emitAssign_body_cons, hm.2.2.1]
+    exact LinkCtx.simple_emit shape hs
   · rw [ht]; change (CircuitM.makeWire hint .bit named s).2.module.parameters = _
     rw [makeWire_module]; rfl
   · rw [ht]; change (CircuitM.makeWire hint .bit named s).2.module.isPrimitive = _

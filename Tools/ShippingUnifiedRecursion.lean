@@ -25,6 +25,12 @@ open Tools.ShippingMixedRecursion (emit_bool_frame compare_step boolBin_step boo
 open Tools.ShippingMixedInvariant (translateStep_fvar_returns)
 open Tools.ShippingVectorMuxRecursion (emit_vector_frame vector_step vectorMuxUncached_muxE)
 
+open Tools.ShippingLinkCtx
+
+set_option linter.unusedSectionVars false
+
+variable [LinkCtx] [ChildSem]
+
 @[simp] theorem toNat_bool (b : Bool) : (Value.bool b).toNat = encodeBool b := rfl
 @[simp] theorem toNat_bits (n : Nat) (v : BitVec n) : (Value.bits n v).toNat = v.toNat := rfl
 @[simp] theorem kindWidth_bool (b : Bool) : (Value.bool b).kind.width = 1 := rfl
@@ -1057,16 +1063,22 @@ theorem setw_contract {rec ctx inputs we mems initial dom ae} {ws wt : Nat} {x :
     fun hint top named => (step hint top named).sem⟩
 
 /-- Closed fuel induction for the unified mutually recursive source domain
-with per-operation widths. Mux nodes may sit under arithmetic and comparison
+with per-operation widths, over ARBITRARY leaf expressions: every leaf comes
+with its own contract at every fuel (an input binder, or an instance call). Mux nodes may sit under arithmetic and comparison
 parents and vice versa; widths vary across subtrees. -/
-theorem fuel_contract (fuel : Nat) {ctx : CompilerState} {inputs : FVarId → Option Value}
+theorem fuel_contract_leaves (fuel : Nat) {ctx : CompilerState}
+    {inputs : FVarId → Option Value}
     {we : WEnv} {mems : MEnv} {initial : Env} {dom : Lean.Expr} {kb kv : Nat} {vw : Nat → Nat}
-    {bi vi : Nat → FVarId} {bools : Nat → Bool} {bits : (j : Nat) → (w : Nat) → BitVec w}
-    (hb : ∀ j, j < kb → inputs (bi j) = some (.bool (bools j)))
-    (hv : ∀ j, j < kv → inputs (vi j) = some (.bits (vw j) (bits j (vw j)))) :
+    {bE vE : Nat → Lean.Expr} {bools : Nat → Bool} {bits : (j : Nat) → (w : Nat) → BitVec w}
+    (hb : ∀ j, j < kb → Meaning inputs (bE j) (.bool (bools j)))
+    (hv : ∀ j, j < kv → Meaning inputs (vE j) (.bits (vw j) (bits j (vw j))))
+    (hbC : ∀ j, j < kb → ∀ fuel, Contract (translateFuelFix translateStep fuel) ctx inputs
+      we mems initial (bE j) (.bool (bools j)))
+    (hvC : ∀ j, j < kv → ∀ fuel, Contract (translateFuelFix translateStep fuel) ctx inputs
+      we mems initial (vE j) (.bits (vw j) (bits j (vw j)))) :
     ∀ {s : SType} (e : Term s), e.WF kb kv vw →
       Contract (translateFuelFix translateStep fuel) ctx inputs we mems initial
-        (quote dom (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) e)
+        (quote dom bE vE e)
         (pack s (eval bools bits e)) := by
   induction fuel with
   | zero =>
@@ -1078,11 +1090,11 @@ theorem fuel_contract (fuel : Nat) {ctx : CompilerState} {inputs : FVarId → Op
     intro s e he
     change Contract (translateStepWith translateFallback (translateFuelFix translateStep fuel)) _ _ _ _ _ _ _
     cases e with
-    | boolInput j => exact input_contract (hb j he)
+    | boolInput j => exact hbC j he (fuel + 1)
     | bitsInput w j =>
       obtain ⟨hj, hw, hpos⟩ := he
       cases hw
-      exact input_contract (hv j hj)
+      exact hvC j hj (fuel + 1)
     | boolLit b => exact bool_literal_contract b
     | bitsLit w v =>
       obtain ⟨hval, hpos⟩ := he
@@ -1091,53 +1103,81 @@ theorem fuel_contract (fuel : Nat) {ctx : CompilerState} {inputs : FVarId → Op
       rename_i w
       obtain ⟨ha, hb'⟩ := he
       have hn : 0 < w := a.wf_pos ha
-      have ck := op_checks op dom (quote dom (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) a)
-        (quote dom (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) b) w
+      have ck := op_checks op dom (quote dom bE vE a)
+        (quote dom bE vE b) w
       have ca : Child (translateFuelFix translateStep fuel) ctx inputs we mems initial
-          ((binE dom w op (quote dom (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) a)
-            (quote dom (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) b)).getAppArgs[(binE dom w op (quote dom (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) a)
-            (quote dom (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) b)).getAppArgs.size - 2]!)
+          ((binE dom w op (quote dom bE vE a)
+            (quote dom bE vE b)).getAppArgs[(binE dom w op (quote dom bE vE a)
+            (quote dom bE vE b)).getAppArgs.size - 2]!)
           "op_a" (.bits w (eval bools bits a)) := by
         rw [ck.2.2.2.2.1]; exact (ih a ha).child "op_a"
       have cb : Child (translateFuelFix translateStep fuel) ctx inputs we mems initial
-          ((binE dom w op (quote dom (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) a)
-            (quote dom (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) b)).getAppArgs[(binE dom w op (quote dom (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) a)
-            (quote dom (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) b)).getAppArgs.size - 1]!)
+          ((binE dom w op (quote dom bE vE a)
+            (quote dom bE vE b)).getAppArgs[(binE dom w op (quote dom bE vE a)
+            (quote dom bE vE b)).getAppArgs.size - 1]!)
           "op_b" (.bits w (eval bools bits b)) := by
         rw [ck.2.2.2.2.2.1]; exact (ih b hb').child "op_b"
       exact binary_contract op _ _ hn ck.1 ck.2.1 ck.2.2.1 ck.2.2.2.1
-        (meaning_quote hb hv (.binary op a b) ⟨ha, hb'⟩) ca cb
+        (meaning_quote_leaves hb hv (.binary op a b) ⟨ha, hb'⟩) ca cb
     | compare op a b =>
       rename_i w
       obtain ⟨ha, hb'⟩ := he
       exact compare_contract _ _ (a.wf_pos ha)
-        (meaning_quote hb hv (.compare op a b) ⟨ha, hb'⟩)
+        (meaning_quote_leaves hb hv (.compare op a b) ⟨ha, hb'⟩)
         ((ih a ha).child "a") ((ih b hb').child "b")
     | boolBinary op a b =>
       obtain ⟨ha, hb'⟩ := he
-      exact boolBin_contract op _ _ (meaning_quote hb hv (.boolBinary op a b) ⟨ha, hb'⟩)
+      exact boolBin_contract op _ _ (meaning_quote_leaves hb hv (.boolBinary op a b) ⟨ha, hb'⟩)
         ((ih a ha).child "a") ((ih b hb').child "b")
     | boolNot a =>
-      exact boolNot_contract _ (meaning_quote hb hv (.boolNot a) he)
+      exact boolNot_contract _ (meaning_quote_leaves hb hv (.boolNot a) he)
         ((ih a he).child "a") ((ih (.boolLit false) trivial).child "b")
     | boolEq a b =>
       obtain ⟨ha, hb'⟩ := he
-      exact boolEq_contract _ _ (meaning_quote hb hv (.boolEq a b) ⟨ha, hb'⟩)
+      exact boolEq_contract _ _ (meaning_quote_leaves hb hv (.boolEq a b) ⟨ha, hb'⟩)
         ((ih a ha).child "a") ((ih b hb').child "b")
     | mux c a b =>
       obtain ⟨hc, ha, hb'⟩ := he
       cases s with
       | bool =>
-        exact mux_contract _ _ _ (meaning_quote hb hv (.mux c a b) ⟨hc, ha, hb'⟩)
+        exact mux_contract _ _ _ (meaning_quote_leaves hb hv (.mux c a b) ⟨hc, ha, hb'⟩)
           ((ih c hc).child "mux_cond") ((ih a ha).child "mux_then") ((ih b hb').child "mux_else")
       | bits w =>
         exact vector_contract _ _ _ (a.wf_pos ha)
-          (meaning_quote hb hv (.mux c a b) ⟨hc, ha, hb'⟩)
+          (meaning_quote_leaves hb hv (.mux c a b) ⟨hc, ha, hb'⟩)
           ((ih c hc).child "mux_cond") ((ih a ha).child "mux_then") ((ih b hb').child "mux_else")
     | setw w' a =>
       obtain ⟨ha, hpos⟩ := he
       exact setw_contract (a.wf_pos ha) hpos
-        (meaning_quote hb hv (.setw w' a) ⟨ha, hpos⟩) ((ih a ha).child "s")
+        (meaning_quote_leaves hb hv (.setw w' a) ⟨ha, hpos⟩) ((ih a ha).child "s")
+
+/-- An input binder satisfies its leaf contract at every fuel. -/
+theorem input_contract_fuel {ctx inputs we mems initial id v} (hi : inputs id = some v) :
+    ∀ fuel, Contract (translateFuelFix translateStep fuel) ctx inputs we mems initial
+      (.fvar id) v
+  | 0 => by
+    constructor
+    · intro hint top named s' t w lookup hr; exact (Returns.throw hr).elim
+    · intro hint top named s' t w prior h widths hr; exact (Returns.throw hr).elim
+  | fuel + 1 => by
+    change Contract (translateStepWith translateFallback (translateFuelFix translateStep fuel))
+      _ _ _ _ _ _ _
+    exact input_contract hi
+
+/-- The input-binder instance of the fuel induction. -/
+theorem fuel_contract (fuel : Nat) {ctx : CompilerState} {inputs : FVarId → Option Value}
+    {we : WEnv} {mems : MEnv} {initial : Env} {dom : Lean.Expr} {kb kv : Nat} {vw : Nat → Nat}
+    {bi vi : Nat → FVarId} {bools : Nat → Bool} {bits : (j : Nat) → (w : Nat) → BitVec w}
+    (hb : ∀ j, j < kb → inputs (bi j) = some (.bool (bools j)))
+    (hv : ∀ j, j < kv → inputs (vi j) = some (.bits (vw j) (bits j (vw j)))) :
+    ∀ {s : SType} (e : Term s), e.WF kb kv vw →
+      Contract (translateFuelFix translateStep fuel) ctx inputs we mems initial
+        (quote dom (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) e)
+        (pack s (eval bools bits e)) :=
+  fuel_contract_leaves fuel
+    (fun j hj => .input rfl (hb j hj)) (fun j hj => .input rfl (hv j hj))
+    (fun j hj => input_contract_fuel (hb j hj))
+    (fun j hj => input_contract_fuel (hv j hj))
 
 /-- Shipping translation needs no recursive-child premise for the unified
 quoted fragment. Entry invariants and final widths remain explicit. -/

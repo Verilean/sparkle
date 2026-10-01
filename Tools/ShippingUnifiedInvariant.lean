@@ -10,6 +10,11 @@ open Tools.ShippingUnifiedMeaning Tools.ShippingUnifiedCache
 open Tools.ShippingTranslateSoundness Tools.ShippingTypedExprSoundness
 open Tools.ShippingBindingsSoundness Tools.ShippingScalarSoundness
 open Tools.ShippingMuxRecursionSoundness
+open Tools.ShippingLinkCtx
+
+set_option linter.unusedSectionVars false
+
+variable [LinkCtx] [ChildSem]
 
 structure Inputs (ctx : CompilerState) (inputs : FVarId → Option Value)
     (we : WEnv) (s : CircuitState) (env : Env) : Prop where
@@ -27,14 +32,14 @@ theorem Inputs.transfer {ctx inputs we s t env env'} (h : Inputs ctx inputs we s
 
 structure Inv (ctx : CompilerState) (valuation : FVarId → Option Value)
     (we : WEnv) (mems : MEnv) (initial : Env) (s : CircuitState) (env : Env) : Prop where
-  runs : Runs we mems initial s env
+  runs : LinkCtx.Runs we mems initial s env
   inputs : Inputs ctx valuation we s env
   records : Records valuation we s env
-  typed : TypedBody we s
+  typed : LinkCtx.Typed we s
 
 theorem Inv.transfer {ctx inputs we mems initial s t env env'}
     (h : Inv ctx inputs we mems initial s env)
-    (run : Runs we mems initial t env') (typed : TypedBody we t)
+    (run : LinkCtx.Runs we mems initial t env') (typed : LinkCtx.Typed we t)
     (hb : t.sourceBindings = s.sourceBindings) (hr : t.translateRecord = s.translateRecord)
     (hu : ∀ w, s.usedNames.contains w = true → t.usedNames.contains w = true)
     (hv : ∀ w, s.usedNames.contains w = true → env' w = env w) :
@@ -47,7 +52,8 @@ theorem Inv.record {ctx inputs we mems initial s t env e w v cacheable u}
     (hr : Returns (recordTranslation e w cacheable) ctx s u t) : Inv ctx inputs we mems initial t env := by
   have record := record_preserves h.records meaning used value width hr
   rw [recordTranslation_returns hr] at record ⊢
-  exact ⟨h.runs, ⟨h.inputs.lookup⟩, record, h.typed⟩
+  exact ⟨LinkCtx.runs_body (s := s) rfl h.runs, ⟨h.inputs.lookup⟩, record,
+    LinkCtx.typed_body (s := s) rfl h.typed⟩
 
 /-- Includes the live-wire frame needed when a later child refers to an earlier
 child's result, and when arithmetic reserves its parent name before children. -/
@@ -113,8 +119,8 @@ theorem Inv.allocate {ctx inputs we mems initial s env}
     (h : Inv ctx inputs we mems initial s env) (hint : String) (ty : Sparkle.IR.Type.HWType) (named : Bool) :
     Inv ctx inputs we mems initial (CircuitM.makeWire hint ty named s).2 env := by
   have hm := CircuitM.makeWire_spec hint ty named s
-  apply h.transfer (runs_of_body_eq hm.2.2.1 h.runs)
-    (by unfold TypedBody; rw [hm.2.2.1]; exact h.typed)
+  apply h.transfer (LinkCtx.runs_body hm.2.2.1 h.runs)
+    (LinkCtx.typed_body hm.2.2.1 h.typed)
     (CircuitM.makeWire_sourceBindings _ _ _ _) (CircuitM.makeWire_translateRecord _ _ _ _)
   · intro w used
     rw [hm.2.1]
@@ -130,7 +136,7 @@ theorem Inv.emit_reserved {ctx inputs we mems initial s prior w rhs value}
     (recordSafe : ∀ e v, s.translateRecord.get? w = some e → ¬ Meaning inputs e v)
     (typed : TypedExpr we rhs (we w)) (ev : evalExpr we prior rhs = some value) :
     Inv ctx inputs we mems initial (CircuitM.emitAssign w rhs s).2 (write prior w value) := by
-  refine ⟨emitAssign_sound _ we mems initial prior w rhs value h.runs ev, ⟨?_⟩, ?_, ?_⟩
+  refine ⟨LinkCtx.runs_emit h.runs ev, ⟨?_⟩, ?_, LinkCtx.typed_emit h.typed typed⟩
   · intro id v hi
     obtain ⟨z, bound, used, val, width⟩ := h.inputs.lookup id v hi
     have ne : z ≠ w := by intro eq; subst z; exact inputSafe id v hi bound
@@ -139,11 +145,5 @@ theorem Inv.emit_reserved {ctx inputs we mems initial s prior w rhs value}
     have ne : z ≠ w := by intro eq; subst z; exact recordSafe e v record meaning
     obtain ⟨used, val, width⟩ := h.records z e record v meaning
     exact ⟨used, by simpa [write, ne] using val, width⟩
-  · unfold TypedBody
-    rw [emitAssign_body_cons]
-    intro st member
-    rcases List.mem_cons.mp member with rfl | member
-    · exact ⟨w, rhs, rfl, typed⟩
-    · exact h.typed st member
 
 end Tools.ShippingUnifiedInvariant
