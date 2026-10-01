@@ -721,11 +721,16 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   results in ShippingCompiler-Coverage.md): of 389 real-corpus
   declarations 47 pass a certified gate and 342 compile through the
   legacy front end only; the miss reasons are ranked there. Open in
-  S7: closing that gap family by family in the measured order —
-  definition unfolding (250 declarations contain an inlined user
-  definition, 30 are blocked by nothing else), concrete-domain
-  registers/memories, `let`/`fun`, tuples and non-scalar interfaces,
-  general `Signal.loop`/`circuit do`, slices and concatenation.
+  S7: closing that gap. A prototype normaliser showed that unfolding
+  definitions alone certifies NO real declaration (197 change, 0 pass):
+  the corpus is `circuit do` state machines with `let`, applicative
+  lifting, slices and structure results, projected by thin wrappers,
+  and every feature is the sole blocker of at most 6 declarations.
+  The measured order is therefore by dependency, not by count:
+  front-end normalisation (definition unfolding, projection of a
+  constructor) → general N-slot `circuit do` → hardware `let` →
+  applicative lifting, slices/concatenation → structure/tuple results
+  → concrete-domain registers and memories.
 - [ ] **S7 / trust:** Resolve or explicitly retain `EnvDefines` in the final
   claim; record execution-model/external-tool boundaries without hiding them.
   RECORDED — docs/ShippingCompiler-TrustBase.md states the retained base

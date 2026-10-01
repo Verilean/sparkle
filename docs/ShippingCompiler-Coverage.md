@@ -233,9 +233,9 @@ width-linked instance of its child. The children themselves are compiled
 by the legacy front end, so their correctness stays a premise
 (`ChildCorrect`). No IP design body is certified end to end today.
 
-**Why declarations miss the gate** (337 of the 342 legacy-only
-declarations classified; a declaration counts once per feature it
-contains):
+**Why declarations miss the gate, as written** (337 of the 342
+legacy-only declarations classified; a declaration counts once per
+feature it contains):
 
 | Feature outside the certified vocabulary | Declarations | Sole blocker |
 | --- | --- | --- |
@@ -258,31 +258,79 @@ rejected at a binder (a structure-typed or tuple-typed input, or a type
 parameter); 9 contain instance calls in positions the instance gates do
 not admit; 2 use only certified vocabulary in a shape no gate admits.
 
-**What the measurement says about the remaining work.** The certified
-families were built bottom-up from operators, and the corpus is written
-top-down from definitions. The order below is by declarations unblocked,
-not by difficulty:
+**The surface view is misleading.** The table above classifies the
+declaration as written. Most real declarations are thin wrappers —
+`synth_x := (someIpHW a b).field` — so on the surface 165 of them are
+blocked by "a user definition" alone. That does not mean unfolding
+definitions would certify them. It was tried: a prototype front-end
+normaliser (delta-beta of untagged user definitions, projection of a
+constructor, zeta of the lets in front of that constructor — the
+reductions the legacy translator performs on the fly) was run over the
+same corpus (pass 3 of the script, `normalize_tail.lean.in`).
 
-1. **Definition unfolding.** A call to an untagged user definition is
-   inlined by the legacy handler (`unfoldDefinition?`, then translate the
-   result). It appears in 250 declarations and is the only blocker in 30.
-   A provable unfolding arm — delta and beta against the definition's
-   value, validated against what the legacy step returns — would let the
-   existing cone theorems apply to the unfolded body.
-2. **Concrete clock domains.** Combinational cones and instance spines
-   at `defaultDomain` are accepted; registers and memories at a concrete
-   domain keep the legacy handler because the reset kind is read from
-   the domain. This is the second most common feature and rarely the
-   only one.
-3. **`let` and `fun`.** Local bindings and lambdas inside bodies; the
-   legacy translator resolves `let` values through a separate path (the
-   one Issue #107 was about).
-4. **Tuples and non-scalar interfaces.** Structure and tuple results
-   and inputs, `bundle`/projections, `Signal.fst`/`snd`.
-5. **General `Signal.loop` and `circuit do`.** More than two slots,
-   differing widths, `Reg` operators.
-6. **Slices and concatenation.** `extractLsb'` and `++`.
+- With delta-beta alone, 197 of the 337 declarations change and NOT ONE
+  then passes a gate.
+- On hand-written test shapes the same normalisation is exact: for 17
+  shapes (helpers at the root, inside cones, repeated, nested, around
+  registers, muxes, comparisons, loops, at a concrete domain, width-generic)
+  the certified compile of the unfolded body is byte-identical to the
+  legacy compile of the original.
+
+What remains after normalisation, as blocker SETS (a declaration is
+unlocked only when everything in its set is certified):
+
+| Declarations | Blocker set after normalisation |
+| --- | --- |
+| 42 | `circuit do` runtime, `let`, `fun`, tuples, structures, applicative lifting |
+| 30 | the same plus slices/concatenation |
+| 19 | `circuit do`, `let`, `fun`, tuples, structures, slices/concatenation |
+| 16 | `circuit do`, `let`, `fun`, tuples, structures |
+| 15 | the 30-row set plus instance calls |
+| 14 | non-scalar result and a rejected binder |
+| 11 | `circuit do`, `let`, `fun`, tuples |
+| … | 65 distinct sets in total |
+
+| Feature (after normalisation) | Declarations containing it | Blocked by it alone |
+| --- | --- | --- |
+| `fun` | 288 | 0 |
+| `let` | 273 | 6 |
+| Tuples | 256 | 0 |
+| Structures / remaining user definitions | 233 | 0 |
+| `circuit do` runtime | 221 | 0 |
+| Applicative lifting | 155 | 1 |
+| Slices / concatenation | 144 | 3 |
+| Non-scalar result | 83 | 0 |
+| Instance calls outside the instance gates | 51 | 0 |
+| `Signal.loop` beyond the certified shapes | 32 | 0 |
+
+**What the measurement says about the remaining work.** The certified
+families were built bottom-up from operators; the corpus is written
+top-down: an IP module is a `circuit do` state machine over several
+registers, with `let`-bound intermediate signals, applicative-lifted
+operators, slices, and a structure of outputs, and the synthesised
+declaration projects one field of it. No single family unlocks a
+meaningful part of the corpus — every feature above is the sole blocker
+of at most 6 declarations. Coverage of real designs needs these TOGETHER:
+
+1. **Front-end normalisation** (definition unfolding, projection of a
+   constructor). Cheap, exact on the tested shapes, and a prerequisite of
+   everything below; it certifies nothing real by itself.
+2. **The general `circuit do`**: N register slots with cross-coupled
+   next-state cones, the body evaluated once for the next state and once
+   for the outputs. The certified one- and two-slot shapes are special
+   cases. This is the centre of the corpus (221 declarations).
+3. **Hardware `let`**: the legacy handler names the wire after the binder
+   and shares it through a separate cache; a certified arm has to
+   reproduce both.
+4. **Applicative lifting and Bool/BitVec value operators** inside
+   `<$>`/`<*>` lambdas, **slices and concatenation**.
+5. **Structure and tuple results**, i.e. multi-output modules.
+6. **Concrete-domain registers and memories** (the reset kind is read
+   from the domain), then general `Signal.loop`, instance calls with cone
+   operands, combinational-read memories.
 
 Each item is a family in the sense of this file: a provable arm that is
 byte-identical to the legacy handler, a contract, a gate, and a clause
-of the bundle. None may shrink what the compiler accepts.
+of the bundle. None may shrink what the compiler accepts. Progress on
+this list should be read from the blocker sets, not from the count of
+passing declarations, which will stay near zero until item 2 lands.

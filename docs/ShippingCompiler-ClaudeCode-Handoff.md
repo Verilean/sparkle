@@ -169,11 +169,17 @@ and is derived through the `ofV` embedding.
 measures which front end each declaration of the repository's corpus
 takes and why the rest miss the gate; the result and the ranked reasons
 are in ShippingCompiler-Coverage.md ("Measured corpus coverage"). 47 of
-389 real declarations pass a certified gate. The next unit by that
-ranking is a provable DEFINITION-UNFOLDING arm (the legacy handler
-inlines untagged user definitions with `unfoldDefinition?`); the list
-below is the older, shape-driven plan and is subordinate to the
-measurement. Re-run the measurement after every gate extension, and
+389 real declarations pass a certified gate. Do NOT read the surface
+table as "unfold definitions and 165 declarations pass": a prototype
+normaliser was run and none passes (pass 3 of the script). Real IP is
+`circuit do` + `let` + applicative lifting + slices + structure results
+behind a field-projecting wrapper, and all of these are needed together.
+The order is: front-end normalisation (pure delta-beta and projection of
+a constructor in `synthesizeCombinationalCoreWith`, between the read of
+the constant and `synthesizeFromConst`; byte-identical to the legacy
+call-site unfolding on 17 tested shapes) → general N-slot `circuit do` →
+hardware `let` → applicative/slices → structure results. The list below
+is the older, shape-driven plan and is subordinate to the measurement. Re-run the measurement after every gate extension, and
 remember that `Tests.AllTests` does not contain every regression file —
 the corpus run is what found the Issue #107 regression.
 

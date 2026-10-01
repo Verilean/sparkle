@@ -117,4 +117,93 @@ def reasons():
         print(f'  {n:4d}  {c}')
 
 
-{'routes': routes, 'reasons': reasons}[mode]()
+def feature(head):
+    """Coarse feature of one residual head constant, for the blocker sets."""
+    if head in ('let', 'fun'):
+        return head
+    if head.endswith('.proj'):
+        return 'struct'
+    if 'Signal.loop' in head or head.endswith('.loop'):
+        return 'loop'
+    if re.search(r'bundle|Prod\.|proj\d|unbundle|Signal\.fst|Signal\.snd', head):
+        return 'tuple'
+    if head in ('Functor.map', 'Seq.seq', 'Applicative.toSeq', 'Pure.pure', 'Bind.bind',
+                'Monad.toApplicative', 'Monad.toBind', 'Applicative.toPure',
+                'Applicative.toFunctor', 'Sparkle.Core.Signal.Signal.ap', 'bne', 'not',
+                'and', 'or', 'Neg.neg') or re.match(
+                    r'(Bool|BitVec)\.(not|and|or|xor|ule|ult|slt|sle|zero|add|sub|mul|neg|'
+                    r'shiftLeft|ushiftRight|signExtend|zeroExtend|ofBool)$', head):
+        return 'applicative'
+    if 'Circuit' in head or head.startswith(
+            ('Sparkle.Core.HList', 'Sparkle.Core.Reg', 'Sparkle.Core.RegList')) or head in (
+            'List.cons', 'List.nil', 'Unit.unit', 'PUnit.unit'):
+        return 'circuit-do'
+    if head in ("BitVec.extractLsb'", 'HAppend.hAppend', 'BitVec.append'):
+        return 'slice/concat'
+    if 'memoryComboRead' in head:
+        return 'comboRead'
+    if head.startswith(('Sparkle.Core.', 'BitVec.')) or head.split('.')[0] in (
+            'Nat', 'Bool', 'Fin', 'ite', 'dite', 'List', 'Array', 'id', 'cond', 'Decidable',
+            'Eq', 'HEq'):
+        return 'other:' + head
+    return 'userdef/struct'
+
+
+def sets():
+    """Blocker SETS per declaration: a declaration is unlocked only when every
+    feature in its set is certified.  argv[3] names the reasons file."""
+    name = sys.argv[3] if len(sys.argv) > 3 else 'cov_reasons.txt'
+    seen = {}
+    for line in open(f'{work}/{name}'):
+        p = line.rstrip('\n').split('\t')
+        if len(p) == 3:
+            seen.setdefault(p[0], (p[1], p[2]))
+    blockers = {}
+    for decl, (sc, r) in seen.items():
+        s = set()
+        if sc == 'nonscalar':
+            s.add('nonscalar-result')
+        if r.startswith('BINDER:'):
+            s.add('binder')
+        else:
+            body = r[5:]
+            if body.endswith(' +instances'):
+                body = body[:-len(' +instances')]
+                s.add('instances')
+            if body == '(vocabulary only)':
+                s.add('shape')
+            else:
+                # A concrete clock domain is not a blocker by itself (cones and
+                # instance spines at `defaultDomain` are accepted).
+                s.update(feature(h) for h in body.split(',')
+                         if h != 'Sparkle.Core.Domain.defaultDomain')
+        blockers[decl] = frozenset(s)
+    count = collections.Counter(blockers.values())
+    print('declarations:', len(blockers), 'distinct blocker sets:', len(count))
+    for k, v in count.most_common(15):
+        print(f'  {v:4d}  {sorted(k)}')
+    feats = sorted({f for s in blockers.values() for f in s})
+    print('declarations containing each feature / blocked by it alone:')
+    for f in sorted(feats, key=lambda f: -sum(1 for s in blockers.values() if f in s)):
+        if f.startswith('other:'):
+            continue
+        print(f'  {sum(1 for s in blockers.values() if f in s):4d} / '
+              f'{sum(1 for s in blockers.values() if s == frozenset([f])):3d}  {f}')
+    chosen = set()
+    print('greedy unlock order (cumulative declarations unlocked):')
+    for _ in range(len(feats)):
+        best = None
+        for f in feats:
+            if f in chosen:
+                continue
+            key = (sum(1 for s in blockers.values() if s <= chosen | {f}),
+                   sum(1 for s in blockers.values() if f in s))
+            if best is None or key > best[0]:
+                best = (key, f)
+        chosen.add(best[1])
+        print(f'  + {best[1]:18s} -> {best[0][0]}')
+        if best[0][0] == len(blockers):
+            break
+
+
+{'routes': routes, 'reasons': reasons, 'sets': sets}[mode]()

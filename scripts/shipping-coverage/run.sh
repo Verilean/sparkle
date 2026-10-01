@@ -35,4 +35,18 @@ grep " 0$" "$WORK/status.txt" | awk '{print $1}' | while read -r f; do
   timeout 300 lake env lean "$WORK/tmp_cov.lean" > /dev/null 2>&1
 done
 python3 "$HERE/report.py" reasons "$WORK"
+
+# Pass 3: the same question AFTER the reductions the legacy translator performs
+# on the fly (delta-beta of user definitions, projection of a constructor),
+# and as blocker SETS: what must be certified together to unlock a declaration.
+sed "s#@WORK@#$WORK#g" "$HERE/normalize_tail.lean.in" > "$WORK/normalize_tail.lean"
+: > "$WORK/norm_reasons.txt"
+grep " 0$" "$WORK/status.txt" | awk '{print $1}' | while read -r f; do
+  cat "$f" "$WORK/normalize_tail.lean" > "$WORK/tmp_cov.lean"
+  timeout 300 lake env lean "$WORK/tmp_cov.lean" > /dev/null 2>&1
+done
+echo "--- before normalisation ---"
+python3 "$HERE/report.py" sets "$WORK" cov_reasons.txt
+echo "--- after normalisation ---"
+python3 "$HERE/report.py" sets "$WORK" norm_reasons.txt
 echo "work directory: $WORK"
