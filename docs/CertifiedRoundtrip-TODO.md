@@ -540,9 +540,13 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   cleanup/merge post-step) — the suite gates `seqOptCheck raw mFull`
   on the REAL full-entry output of all six register shapes and pins
   it component-equal to the merged module the print/parse gates are
-  stated on. Open in S7: the same lift for memory bodies (their
-  post-processing identity is a BEq gate today; a Prop-level identity
-  or a memory-aware checker is needed), a hierarchy post-pipeline
+  stated on. The memory capstone is lifted the same way
+  (`memAcc_shipping_full`): from the real `synthesizeCombinational`
+  run, with the body-identity of the cleanup/merge post-step as an
+  explicit premise (the suite pins the real full-entry output
+  component-equal to the certified core module). Open in S7: making
+  that memory identity a theorem or a checked gate with a soundness
+  proof (it is a BEq comparison today), a hierarchy post-pipeline
   (the SV layers are open-module), and the coverage reconciliation of
   the remaining legacy-success branches listed in
   ShippingCompiler-Coverage.md.
