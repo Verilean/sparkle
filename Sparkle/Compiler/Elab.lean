@@ -5335,6 +5335,33 @@ def instArmCacheGet : MetaM (Std.HashMap String String) :=
 def instArmCachePut (key w : String) : MetaM Unit :=
   sparkleSingleOutInstanceCache.modify (·.insert key w)
 
+/-- The multi-output instance port map read, as a named MetaM entry. -/
+def instArmOutGet : MetaM (Std.HashMap (UInt64 × String) String) :=
+  sparkleSubInstanceOutputs.get
+
+/-- The matching insert: output port `out` of the call keyed `key` is wire `w`. -/
+def instArmOutPut (key : UInt64) (out w : String) : MetaM Unit :=
+  sparkleSubInstanceOutputs.modify (·.insert (key, out) w)
+
+/-- The field name a structure projection selects, exactly as the legacy
+    projection handler resolves it (projection info, the structure's
+    constructor, the constructor's field binders). `none` when the name is
+    not a resolvable projection of `structName`. -/
+def projFieldName? (name structName : Name) : MetaM (Option String) := do
+  let env ← getEnv
+  let some projInfo := env.getProjectionFnInfo? name | return none
+  let some indVal ← (try some <$> getConstInfoInduct structName catch _ => pure none)
+    | return none
+  let ctorName := indVal.ctors.head!
+  let ctorInfo ← getConstInfoCtor ctorName
+  let fieldName ← Lean.Meta.forallTelescopeReducing ctorInfo.type fun fargs _ => do
+    let allFields := fargs.toList.drop indVal.numParams
+    if h : projInfo.i < allFields.length then
+      return (← allFields[projInfo.i].fvarId!.getUserName).toString
+    else
+      return s!"field{projInfo.i}"
+  return some fieldName
+
 /-- Register the child's transitive modules, skipping names already present
     (two calls to one sub-module produce ONE definition). Structural
     recursion, so the certified decomposition unfolds it definitionally. -/
@@ -5432,6 +5459,60 @@ def translateInstanceUncachedWith (rec : TranslateFn) (mn : Name)
     CompilerM.emitInstance subModule.name instName connectionsF.reverse
     return w
 
+/-- Allocate one result wire per child output port, in port order, recording
+    each in the multi-output port map (the legacy handler's exact order:
+    wire, connection, map entry). Returns the extended connection list and
+    the output-name ↦ wire association. -/
+def instOutWires (callKey : UInt64) (hint : String) :
+    List Port → List (String × Sparkle.IR.AST.Expr) → List (String × String) →
+    CompilerM (List (String × Sparkle.IR.AST.Expr) × List (String × String))
+  | [], conns, ws => pure (conns, ws)
+  | outP :: rest, conns, ws => do
+    let w ← CompilerM.makeWire s!"{hint}_{outP.name}" outP.ty (named := false)
+    CompilerM.liftMetaM (instArmOutPut callKey outP.name w)
+    instOutWires callKey hint rest
+      ((outP.name, Sparkle.IR.AST.Expr.ref w) :: conns) ((outP.name, w) :: ws)
+
+/-- Uncached lowering for a projection `field (child args…)` of a
+    MULTI-output `@[hardware_module]` call whose child compile is in hand,
+    in the legacy handlers' exact order: consult the per-synth port map
+    (a hit returns the recorded wire), otherwise register the child, plumb
+    clk/rst, translate the argument operands, allocate one wire per output
+    port, emit ONE `.inst` statement, and return the projected field's wire. -/
+def translateProjInstanceUncachedWith (rec : TranslateFn) (recName : Name)
+    (subModule : Sparkle.IR.AST.Module) (subDesign : Sparkle.IR.AST.Design)
+    (fieldName : String) (recordArg : Lean.Expr)
+    (legacy : TranslateFn) : TranslateFn :=
+  fun e hint top named => do
+    let callKey : UInt64 := hash (← canonHardwareKey recordArg)
+    let portMap ← CompilerM.liftMetaM instArmOutGet
+    match portMap.get? (callKey, fieldName) with
+    | some w => return w
+    | none =>
+    let alreadyEmitted := match subModule.outputs.head? with
+      | some firstOutP => portMap.contains (callKey, firstOutP.name)
+      | none => false
+    if alreadyEmitted then
+      legacy e hint top named
+    else
+    let existing := (← get).design.modules.map (·.name)
+    instAddModules existing subDesign.modules
+    instRegisterChild existing subModule
+    let connections0 ← instClkRst [] subModule.inputs
+    let inputPorts := subModule.inputs.filter (fun p => p.name != "clk" && p.name != "rst")
+    let args := instSpineArgs recordArg
+    instArityCheck recName inputPorts.length args.length
+    let connections ← instArgs rec connections0
+      (inputPorts.zip (args.drop (args.length - inputPorts.length))) 0
+    let (connectionsF, outWires) ←
+      instOutWires callKey "sub_call" subModule.outputs connections []
+    let instName ← CompilerM.freshName s!"inst_{subModule.name}"
+    CompilerM.emitInstance subModule.name instName connectionsF.reverse
+    match outWires.lookup fieldName with
+    | some w => return w
+    | none => throw (Exception.error .missing
+        s!"Sub-module {recName} has no output port '{fieldName}'")
+
 /-- The `@[hardware_module]` single-output instance arm at the end of the
     certified dispatch: a call whose head constant carries the tag
     synthesizes the child through the SAME entry the legacy handler uses
@@ -5454,7 +5535,33 @@ def translateInstanceOrFallback (rec : TranslateFn) : TranslateFn :=
             e hint top named
         | _ => Rec.translateExprToWireCached (fun e h t n => rec e h t n) e hint top named
       else
-        Rec.translateExprToWireCached (fun e h t n => rec e h t n) e hint top named
+        -- A structure projection of a direct call to a tagged MULTI-output
+        -- child: the provable projection arm (anything else stays legacy).
+        match env.getProjectionStructureName? mn, (instSpineArgs e).getLast? with
+        | some structName, some recordArg =>
+          match recordArg.getAppFn with
+          | .const recName _ =>
+            if Sparkle.Compiler.isHardwareModule env recName then do
+              match ← CompilerM.liftMetaM (projFieldName? mn structName) with
+              | some fieldName =>
+                let sub ← CompilerM.liftMetaM
+                  (Rec.synthesizeCombinational (fun e h t n => rec e h t n) recName)
+                if decide (2 ≤ sub.1.outputs.length) &&
+                    sub.1.outputs.any (fun p => p.name == fieldName) then
+                  translateControlCachedWith
+                    (translateProjInstanceUncachedWith rec recName sub.1 sub.2 fieldName
+                      recordArg
+                      (fun e h t n =>
+                        Rec.translateExprToWireCached (fun e h t n => rec e h t n) e h t n))
+                    e hint top named
+                else
+                  Rec.translateExprToWireCached (fun e h t n => rec e h t n) e hint top named
+              | none =>
+                Rec.translateExprToWireCached (fun e h t n => rec e h t n) e hint top named
+            else
+              Rec.translateExprToWireCached (fun e h t n => rec e h t n) e hint top named
+          | _ => Rec.translateExprToWireCached (fun e h t n => rec e h t n) e hint top named
+        | _, _ => Rec.translateExprToWireCached (fun e h t n => rec e h t n) e hint top named
     | _ => Rec.translateExprToWireCached (fun e h t n => rec e h t n) e hint top named
 
 /-- The existing handler chain (cache wrapper + dispatch) as the fallback. -/
