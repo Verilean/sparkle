@@ -483,11 +483,22 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   discharged from the prepared inputs' allocated names), with the
   monolith/dispatcher/of_env/real-parent endpoint
   (`parentSeq_instance_entry`) and both instance families in the S7
-  bundle. Open in S6: the sequential LINKED-RUN semantics (per-cycle
-  child state; `evalAssignsH` is combinational), other arities,
-  multi-output/projection children, nested/multiple instances,
-  parameters, and the SV/text layer for hierarchy (the M-layers'
-  open-module view).
+  bundle. The sequential LINKED-RUN semantics is now closed for the
+  canonical parent: `stepAssignsH`/`runH`
+  (Tools/ShippingHierarchySoundness.lean) give instances a per-cycle
+  stateful meaning (the child advances by its own `stepModule` on the
+  connection-fed, state-backed environment `connEnvS`, threading its
+  register state and memories), `instBody_stepH`/`instBody_runH`
+  prove the canonical parent forwards the child's whole `runModule`
+  trace, and on the real pair `childSeq_run` (the register family's
+  packaged trace endpoint instantiated on the child) composes into
+  `parentSeq_runH_observes`: the compiled sequential parent's linked
+  run drives `out` with the SOURCE register stream
+  `(parentSeq aS).val j` at every cycle (12-cycle numeric regression
+  of the linked run included; audited, standard axioms). Open in S6:
+  other arities, multi-output/projection children, nested/multiple
+  instances, parameters, and the SV/text layer for hierarchy (the
+  M-layers' open-module view).
 - [ ] **S7:** Reconcile all successful cases and compose the full shipping
   theorem; instantiate it on real circuits without substituting per-instance
   replay for coverage. STARTED — the reconciliation-1 statement exists
