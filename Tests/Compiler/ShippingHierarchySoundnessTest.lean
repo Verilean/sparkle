@@ -31,6 +31,15 @@ def parentUse {dom : DomainConfig} (a b : Signal dom (BitVec 8)) :
 def parentUse3 {dom : DomainConfig} (a b c : Signal dom (BitVec 8)) :
     Signal dom (BitVec 8) := childAdd3 a b c
 
+/-- A two-data-port SEQUENTIAL child and its parent: the general
+single-output contract (any arity, with clk/rst). -/
+@[hardware_module] def childSeq2 {dom : DomainConfig}
+    (x y : Signal dom (BitVec 8)) : Signal dom (BitVec 8) :=
+  Signal.register 0#8 (x + y)
+
+def parentSeq2 {dom : DomainConfig} (a b : Signal dom (BitVec 8)) :
+    Signal dom (BitVec 8) := childSeq2 a b
+
 /-- A multi-output child: its instantiating parent must STAY on the legacy
 front end (the certified single-output harness would drop `hi`). -/
 structure TwoOut (dom : DomainConfig) where
@@ -353,6 +362,44 @@ theorem parentUse3_instance_entry {mctx : Meta.Context}
       simp at hq
       rcases hq with rfl | rfl | rfl <;> exact ⟨_, _, rfl⟩)
 
+/-! The GENERAL single-output entry endpoint, on a real two-data-port
+sequential parent. -/
+
+#def_decl_value parentSeq2Value of parentSeq2
+
+def parentSeq2Binders : List (Name × MixedGateBinder) :=
+  [(`dom, .domain), (`a, .bits 8), (`b, .bits 8)]
+
+theorem parentSeq2_peel : mixedGatePeel parentSeq2Value = some (parentSeq2Binders,
+    instEN ``childSeq2 [] (inputExpr parentSeq2Binders.length 0)
+      ([1, 2].map (inputExpr parentSeq2Binders.length))) := rfl
+
+/-- **The general instance entry contract on a real sequential parent with
+two data ports**: one instance statement — clk/rst connected to same-named
+parent ports, the data ports to the prepared argument wires in order — over
+the pinned child, from the real compile under the run boundaries. -/
+theorem parentSeq2_instance_entry {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {d : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore ``parentSeq2 [] false)
+      mctx mref cctx cref w (m, d) w')
+    (env : EnvDefines mctx mref cctx cref ``parentSeq2 parentSeq2Value)
+    (tag : ∀ wE e wE', RunsTo (Lean.getEnv : MetaM Environment)
+      mctx mref cctx cref wE e wE' →
+      Sparkle.Compiler.isHardwareModule e ``childSeq2 = true)
+    (hscalar : ∀ dv : Lean.DefinitionVal, dv.value = parentSeq2Value →
+      mixedGateResultScalar dv.type = true) :
+    InstanceGPreserves ``parentSeq2 parentSeq2Binders
+      (instEN ``childSeq2 [] (inputExpr parentSeq2Binders.length 0)
+        ([1, 2].map (inputExpr parentSeq2Binders.length))) m d :=
+  instanceG_entry_of_env hr env tag
+    (fun dv hv => by simp only [certifiedShape?, hv]; rfl)
+    hscalar parentSeq2_peel ⟨_, _, rfl⟩
+    (fun q hq => by
+      simp at hq
+      rcases hq with rfl | rfl <;> exact ⟨_, _, rfl⟩)
+
 /-- **The entry output observes the source composition.** Combining the
 instance contract of THIS compile with the linked-instance semantics: the
 compiled parent's body, elaborated with the child bound to its pinned
@@ -525,6 +572,19 @@ run_cmd liftTermElabM do
     throwError "three-input certified lowering departed from the legacy front end"
   unless mixedGateResultScalar (← getConstInfo ``parentUse3).type do
     throwError "parentUse3's result type is not one scalar Signal"
+  -- Two-data-port sequential parent (the general contract's witness):
+  -- gate-accepted, certified == legacy byte-for-byte incl. clk/rst.
+  unless (mixedCertifiedShape? false [] (← getConstInfo ``parentSeq2) pred).isSome do
+    throwError "two-port sequential parent missed the instance gate"
+  let (mq, dq) ← synthesizeCombinationalCore ``parentSeq2 [] false
+  let (mqL, dqL) ← synthesizeCombinationalCoreWith
+    (fun e h t n => translateExprToWire e h t n) ``parentSeq2 [] false
+    (certifiedFrontEnd := false)
+  unless mq.body == mqL.body && mq.inputs == mqL.inputs && mq.outputs == mqL.outputs &&
+      mq.wires == mqL.wires && dq.modules == dqL.modules do
+    throwError "two-port sequential certified lowering departed from the legacy front end"
+  unless mixedGateResultScalar (← getConstInfo ``parentSeq2).type do
+    throwError "parentSeq2's result type is not one scalar Signal"
   -- Record-result parent: the scalar-result guard must keep it on the
   -- legacy path, which preserves BOTH outputs.
   unless (mixedCertifiedShape? false [] (← getConstInfo ``parentTwo) pred).isNone do
@@ -585,6 +645,10 @@ run_cmd liftTermElabM do
       ``Tools.ShippingInstanceEntrySoundness.synthesizeMixedCertified_instanceN_sound,
       ``Tools.ShippingInstanceEntrySoundness.instanceN_entry_of_env,
       ``parentUse3_peel, ``parentUse3_instance_entry,
+      ``Tools.ShippingInstanceEntrySoundness.instClkRst_pure,
+      ``Tools.ShippingInstanceEntrySoundness.synthesizeMixedCertified_instanceG_sound,
+      ``Tools.ShippingInstanceEntrySoundness.instanceG_entry_of_env,
+      ``parentSeq2_peel, ``parentSeq2_instance_entry,
       ``Tools.ShippingHierarchySoundness.instBody_runH, ``childSeq_run,
       ``parentSeq_runH_observes,
       ``parentUse_linked] do

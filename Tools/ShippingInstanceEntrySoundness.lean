@@ -1811,6 +1811,355 @@ theorem instClkRstPure_design : ∀ (ps : List Port)
       split <;> rfl
     · exact instClkRstPure_design ps acc s
 
+theorem instClkRstPure_inputs_mono : ∀ (ps : List Port)
+    (acc : List (String × Sparkle.IR.AST.Expr)) (s : CircuitState) (q : Port),
+    q ∈ s.module.inputs → q ∈ (instClkRstPure acc ps s).2.module.inputs
+  | [], _, _, _, h => h
+  | p :: ps, acc, s, q, h => by
+    unfold instClkRstPure
+    split
+    · apply instClkRstPure_inputs_mono
+      split
+      · rw [addInput_inputs]
+        exact List.mem_cons_of_mem _ h
+      · exact h
+    · exact instClkRstPure_inputs_mono ps acc s q h
+
+/-- Every clk/rst port of the child has a same-named parent input after the
+walk. -/
+theorem instClkRstPure_inputs_names : ∀ (ps : List Port)
+    (acc : List (String × Sparkle.IR.AST.Expr)) (s : CircuitState) (p : Port),
+    p ∈ ps → (p.name == "clk" || p.name == "rst") = true →
+    ∃ q ∈ (instClkRstPure acc ps s).2.module.inputs, q.name = p.name
+  | [], _, _, _, h, _ => by cases h
+  | p0 :: ps, acc, s, p, h, hcr => by
+    unfold instClkRstPure
+    rcases List.mem_cons.mp h with rfl | hin
+    · rw [if_pos hcr]
+      by_cases hany : (!s.module.inputs.any (fun q => q.name == p.name)) = true
+      · rw [if_pos hany]
+        exact ⟨⟨p.name, p.ty⟩, instClkRstPure_inputs_mono ps _ _ _
+          (by rw [addInput_inputs]; exact List.mem_cons_self), rfl⟩
+      · rw [if_neg hany]
+        have hex : s.module.inputs.any (fun q => q.name == p.name) = true := by
+          cases hb : s.module.inputs.any (fun q => q.name == p.name) with
+          | true => rfl
+          | false => rw [hb] at hany; exact absurd rfl hany
+        obtain ⟨q, hq, hqn⟩ := List.any_eq_true.mp hex
+        exact ⟨q, instClkRstPure_inputs_mono ps _ _ _ hq, eq_of_beq hqn⟩
+    · split
+      · exact instClkRstPure_inputs_names ps _ _ p hin hcr
+      · exact instClkRstPure_inputs_names ps _ _ p hin hcr
+
+/-! ## The general single-output contract: any arity, with or without clk/rst -/
+
+/-- The mixed certified entry's guarantee when the quoted body is a
+canonical instance call on ANY single-output child: the compiled parent is
+one instance statement — the child's clk/rst ports connected to same-named
+parent ports (present after the walk), its data ports connected in order to
+the prepared wires of the arguments — plus the output alias; the design
+holds exactly the pinned child. -/
+def InstanceGPreserves (declName : Name) (bs : List (Name × MixedGateBinder))
+    (body : Lean.Expr) (m : Sparkle.IR.AST.Module) (d : Design) : Prop :=
+  ∃ ids : List FVarId, ids.Nodup ∧ ids.length = bs.length ∧
+  ∃ cache : IO.Ref (ExprStructMap String),
+    ∀ (mn : Name) (lvls : List Level) (dId : FVarId) (argIds : List FVarId)
+      (mc : Sparkle.IR.AST.Module) (dc : Design) (wOut : Nat) (ports : List Port),
+    instFVars (ids.map Lean.Expr.fvar).toArray 0 body =
+      instEN mn lvls (.fvar dId) (argIds.map Lean.Expr.fvar) →
+    (mn == ``Sparkle.Core.Signal.Signal.pure) = false →
+    signalBinOpOf mn = none →
+    isBoolControl (instEN mn lvls (.fvar dId) (argIds.map Lean.Expr.fvar)) = false →
+    canonicalMuxType? (instEN mn lvls (.fvar dId) (argIds.map Lean.Expr.fvar)) = none →
+    canonicalSetWidth? (instEN mn lvls (.fvar dId) (argIds.map Lean.Expr.fvar)) = none →
+    canonicalRegister? (instEN mn lvls (.fvar dId) (argIds.map Lean.Expr.fvar)) = none →
+    canonicalRegisterEnable? (instEN mn lvls (.fvar dId) (argIds.map Lean.Expr.fvar)) = none →
+    canonicalLoopRegister? (instEN mn lvls (.fvar dId) (argIds.map Lean.Expr.fvar)) = none →
+    canonicalCircuitDo? (instEN mn lvls (.fvar dId) (argIds.map Lean.Expr.fvar)) = none →
+    canonicalCircuitDo2? (instEN mn lvls (.fvar dId) (argIds.map Lean.Expr.fvar)) = none →
+    canonicalMemory? (instEN mn lvls (.fvar dId) (argIds.map Lean.Expr.fvar)) = none →
+    HardwareTagged mn → SubSynthDefines mn mc dc → InstanceCacheEmpty →
+    dc.modules = [] →
+    mc.inputs = ports →
+    mc.outputs = [⟨"out", .bitVector wOut⟩] →
+    (ports.filter (fun p => p.name != "clk" && p.name != "rst")).length = argIds.length →
+    ∃ (instName outW : String) (conns : List (String × Sparkle.IR.AST.Expr)),
+    ∀ (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n)
+      (env0 : Env) (ws : Nat → Nat) (vals : (i : Nat) → BitVec (ws i)),
+    let a := start (entryCompilerState false cache) declName.toString
+    let p := prepare bools bits (bs.zip ids) a
+    Admissible bools bits env0 (bs.zip ids) a →
+    (∀ i (h : i < argIds.length), p.bits (argIds[i]'h) = some ⟨ws i, vals i⟩) →
+    m.body = [.inst mc.name instName (conns.reverse ++ [("out", .ref outW)]),
+      .assign "out" (.ref outW)] ∧
+    d.modules = [mc] ∧
+    outW ≠ "out" ∧
+    (∀ pt ∈ ports, (pt.name == "clk" || pt.name == "rst") = true →
+      ∃ q ∈ m.inputs, q.name = pt.name) ∧
+    ∃ aWs : List String, aWs.length = argIds.length ∧
+      conns.reverse = (clkRstConns ports).reverse ++
+        (((ports.filter (fun p => p.name != "clk" && p.name != "rst")).zip
+          (argIds.map Lean.Expr.fvar)).zip aWs).map
+          (fun pw => (pw.1.1.name, Sparkle.IR.AST.Expr.ref pw.2)) ∧
+      ∀ i (h : i < aWs.length),
+        env0 (aWs[i]'h) = (vals i).toNat ∧ aWs[i]'h ≠ "out"
+
+set_option maxHeartbeats 2000000 in
+theorem synthesizeMixedCertified_instanceG_sound {logProf declName bs body m d}
+    (hr : MReturns (synthesizeMixedCertified
+      (fun e hint top named => translateExprToWire e hint top named) logProf declName bs body)
+      (m, d)) :
+    InstanceGPreserves declName bs body m d := by
+  obtain ⟨ids, cache, returned, st, nd, len, run, hm, hd, -⟩ :=
+    synthesizeMixedCertified_returns hr
+  refine ⟨ids, nd, len, cache, ?_⟩
+  intro mn lvls dId argIds mc dc wOut ports qeq hpure hbin hctrl hmux hsetw
+    hreg hregEn hloopR hcdo hcdo2 hmem htag hsub hcachemiss hdc hins houts hlenP
+  have leaf := prepare_returns (bs.zip ids)
+    (start (entryCompilerState false cache) declName.toString)
+    (bools := fun _ => false) (bits := fun _ _ => 0) run
+  rw [qeq] at leaf
+  obtain ⟨w, sm0, ty, tr, freshOut, ht, hty⟩ := emitLeaves_single leaf
+  have stepEq : translateExprToWire
+      (instEN mn lvls (.fvar dId) (argIds.map Lean.Expr.fvar)) "out" false true =
+      translateInstanceOrFallback (translateFuelFix translateStep 1048575)
+        (instEN mn lvls (.fvar dId) (argIds.map Lean.Expr.fvar)) "out" false true := by
+    show translateStepWith translateFallback (translateFuelFix translateStep 1048575)
+      (instEN mn lvls (.fvar dId) (argIds.map Lean.Expr.fvar)) "out" false true = _
+    exact instanceN_step _ mn lvls _ _ _ _ _ hpure hbin hctrl hmux hsetw hreg
+      hregEn hloopR hcdo hcdo2 hmem
+  rw [stepEq] at tr
+  unfold translateInstanceOrFallback at tr
+  rw [instEN_getAppFn] at tr
+  obtain ⟨env, sE, hEnvRead, tr⟩ := Returns.bind tr
+  obtain ⟨hEnvM, hsE⟩ := Returns.liftMetaM_mreturns hEnvRead
+  subst hsE
+  rw [htag env hEnvM] at tr
+  simp only [if_true] at tr
+  obtain ⟨sub, sS, hSubRead, tr⟩ := Returns.bind tr
+  obtain ⟨hSubM, hsS⟩ := Returns.liftMetaM_mreturns hSubRead
+  subst hsS
+  rw [hsub sub hSubM] at tr
+  rw [show ((mc, dc).1.outputs) = mc.outputs from rfl, houts] at tr
+  simp only [] at tr
+  have empty0 := empty_layout (entryCompilerState false cache) declName.toString (fun _ => 0)
+  have record0 : (prepare (fun _ => false) (fun _ _ => 0) (bs.zip ids)
+      (start (entryCompilerState false cache) declName.toString)).state.translateRecord
+      = {} :=
+    (prepare_layout (bs.zip ids) _ empty0.1 empty0.2 (admissible_zero _ _)).2.2.2
+  rcases translateControlCachedWith_returns tr with hit | ⟨smR, missRun, record⟩
+  · obtain ⟨-, hrec⟩ := cacheLookupValidated_returns hit
+    have dead := hrec w rfl
+    rw [record0] at dead
+    simp at dead
+  rw [instanceUncached_run] at missRun
+  obtain ⟨cs0, sG, hget0, k1⟩ :=
+    Returns.bind (m := (get : CompilerM CircuitState)) missRun
+  obtain ⟨hcs0, hsG⟩ := Returns.get hget0
+  subst hcs0 hsG
+  have hpdes : (prepare (fun _ => false) (fun _ _ => 0) (bs.zip ids)
+      (start (entryCompilerState false cache) declName.toString)).state.design =
+      Design.empty declName.toString :=
+    prepare_design (bs.zip ids) _
+  rw [hdc] at k1
+  obtain ⟨u0, sA, hAdd0, k2⟩ := Returns.bind (m := instAddModules _ []) k1
+  obtain ⟨-, hsA⟩ := Returns.pure (by exact hAdd0 : Returns (pure ()) _ _ u0 sA)
+  subst hsA
+  obtain ⟨uR, sB, hReg, k3⟩ := Returns.bind (m := instRegisterChild _ mc) k2
+  have hsB := instRegisterChild_fresh (by rw [hpdes]; rfl) (by rw [hpdes]; rfl) hReg
+  -- the clk/rst walk, as the pure transformer
+  obtain ⟨conns0, sC, hClk, k4⟩ := Returns.bind (m := instClkRst [] mc.inputs) k3
+  rw [hins] at hClk
+  have hwalk := instClkRst_pure ports [] sB sC conns0 hClk
+  have hconns0 : conns0 = (instClkRstPure [] ports sB).1 := congrArg Prod.fst hwalk
+  have hsC : sC = (instClkRstPure [] ports sB).2 := congrArg Prod.snd hwalk
+  rw [hins, instEN_spineArgs] at k4
+  obtain ⟨uG, sH, hGuard, k5⟩ := Returns.bind (m := instArityCheck mn _ _) k4
+  unfold instArityCheck at hGuard
+  rw [if_neg (by simp [hlenP])] at hGuard
+  obtain ⟨-, hsH⟩ := Returns.pure hGuard
+  have hdrop : (Lean.Expr.fvar dId :: argIds.map Lean.Expr.fvar).drop
+      ((Lean.Expr.fvar dId :: argIds.map Lean.Expr.fvar).length -
+        (ports.filter (fun p => p.name != "clk" && p.name != "rst")).length) =
+      argIds.map Lean.Expr.fvar := by
+    simp [hlenP]
+  rw [hdrop] at k5
+  obtain ⟨conns, sF, hArgs, k6⟩ := Returns.bind (m := instArgs _ _ _ 0) k5
+  obtain ⟨csP, sP2, hgetP, k7⟩ :=
+    Returns.bind (m := (get : CompilerM CircuitState)) k6
+  obtain ⟨hcsP, hsP2⟩ := Returns.get hgetP
+  obtain ⟨cVal, sQ, hCacheRead, k8⟩ :=
+    Returns.bind (m := CompilerM.liftMetaM instArmCacheGet) k7
+  obtain ⟨hCacheM, hsQ⟩ := Returns.liftMetaM_mreturns hCacheRead
+  simp only [hcachemiss cVal hCacheM] at k8
+  obtain ⟨outW, sW, hMk, k9⟩ := Returns.bind (m := CompilerM.makeWire "out" _ true) k8
+  obtain ⟨houtW, hsW⟩ := makeWireC_returns hMk
+  obtain ⟨uP, sV, hPut, k10⟩ :=
+    Returns.bind (m := CompilerM.liftMetaM (instArmCachePut _ _)) k9
+  have hsV := Returns.liftMetaM hPut
+  obtain ⟨instName, sN, hFresh, k11⟩ := Returns.bind (m := CompilerM.freshName _) k10
+  obtain ⟨hinstName, hsN⟩ := freshNameC_returns hFresh
+  obtain ⟨uE, sI, hEmit, k12⟩ :=
+    Returns.bind (m := CompilerM.emitInstance mc.name _ _) k11
+  have hsI := emitInstanceC_returns hEmit
+  obtain ⟨hwEq, hsmR⟩ := Returns.pure k12
+  have hrec := recordTranslation_returns record
+  refine ⟨instName, outW, conns, ?_⟩
+  intro bools bits env0 ws vals a p adm hb
+  have empty := empty_layout (entryCompilerState false cache) declName.toString env0
+  have prepared := prepare_layout (bs.zip ids)
+    (start (entryCompilerState false cache) declName.toString) empty.1 empty.2 adm
+  obtain ⟨pc, ps⟩ := prepare_const (fun _ => false) bools (fun _ _ => 0) bits
+    (bs.zip ids) _ _ rfl rfl
+  rw [ps] at hsB
+  rw [pc] at hArgs
+  have fuelEq : translateFuelFix translateStep 1048575 =
+      translateStepWith translateFallback (translateFuelFix translateStep 1048574) := rfl
+  rw [fuelEq, hsH, hsC, hconns0] at hArgs
+  have designSB : ∀ (s : CircuitState) dd,
+      ({ s with design := dd } : CircuitState).sourceBindings = s.sourceBindings :=
+    fun _ _ => rfl
+  have designMod : ∀ (s : CircuitState) dd,
+      ({ s with design := dd } : CircuitState).module = s.module :=
+    fun _ _ => rfl
+  obtain ⟨aWs, hlenW, hQ⟩ := list_choice argIds.length
+    (fun i hi wv =>
+      Tools.ShippingBindingsSoundness.visible
+        (prepare bools bits (bs.zip ids)
+          (start (entryCompilerState false cache) declName.toString)).context
+        (prepare bools bits (bs.zip ids)
+          (start (entryCompilerState false cache) declName.toString)).state.sourceBindings
+        (argIds[i]'hi) = some wv ∧
+      ({ name := wv, ty := .bitVector (ws i) } : Port) ∈
+        (prepare bools bits (bs.zip ids)
+          (start (entryCompilerState false cache) declName.toString)).state.module.wires ∧
+      env0 wv = (vals i).toNat)
+    (fun i hi => prepared.1.bits (argIds[i]'hi) (ws i) (vals i) (hb i hi))
+  have hpairsLen : ((ports.filter (fun p => p.name != "clk" && p.name != "rst")).zip
+      (argIds.map Lean.Expr.fvar)).length = aWs.length := by
+    simp [hlenP, hlenW]
+  obtain ⟨hsF', hconnsEq⟩ := instArgs_resolve
+    ((ports.filter (fun p => p.name != "clk" && p.name != "rst")).zip
+      (argIds.map Lean.Expr.fvar)) aWs _ 0 conns sF hpairsLen
+    (fun k hk hk' => by
+      have hkA : k < argIds.length := by rw [← hlenW]; exact hk'
+      refine ⟨argIds[k]'hkA, ?_, ?_⟩
+      · simp
+      · rw [instClkRstPure_sourceBindings, hsB, designSB]
+        exact (hQ k hkA hk').1)
+    hArgs
+  -- every later state, back to the walk's exit state
+  have hsQ' : sQ = (instClkRstPure [] ports sB).2 := by
+    rw [hsQ, hsP2, hsF']
+  have hbodyR : (prepare bools bits (bs.zip ids)
+      (start (entryCompilerState false cache) declName.toString)).state.module.body
+      = [] := by
+    rw [prepared.2.2.1]; rfl
+  have hpdesR : (prepare bools bits (bs.zip ids)
+      (start (entryCompilerState false cache) declName.toString)).state.design =
+      Design.empty declName.toString := prepare_design (bs.zip ids) _
+  have inputNotOut : ∀ (q : Sparkle.IR.AST.Port),
+      q ∈ (prepare bools bits (bs.zip ids)
+        (start (entryCompilerState false cache) declName.toString)).state.module.wires →
+      q.name ≠ "out" := by
+    intro q hq eq
+    have alloc := prepare_wires_allocated bools bits (bs.zip ids) _
+      (by rw [show (start (entryCompilerState false cache) declName.toString).state =
+          CircuitM.init declName.toString from rfl, init_wires]
+          intro x hx; cases hx) q hq
+    rw [eq] at alloc
+    exact not_allocated_out alloc
+  have addOutBody : ∀ (mo : Sparkle.IR.AST.Module) q, (mo.addOutput q).body = mo.body :=
+    fun _ _ => rfl
+  have stBody : st.module.body =
+      .assign "out" (.ref outW) ::
+        .inst mc.name instName
+          ((((⟨"out", .bitVector wOut⟩ : Port).name, Sparkle.IR.AST.Expr.ref outW) ::
+            conns).reverse) ::
+          (prepare bools bits (bs.zip ids)
+            (start (entryCompilerState false cache) declName.toString)).state.module.body := by
+    rw [ht, emitAssign_body_cons, addOutput_state, hwEq]
+    show _ :: (sm0.module.addOutput _).body = _
+    rw [addOutBody, hrec]
+    show _ :: smR.module.body = _
+    rw [hsmR, hsI]
+    show _ :: (_ :: sN.module.body) = _
+    rw [hsN, (CircuitM.freshName_spec _ _ _).2.2, hsV, hsW]
+    rw [(CircuitM.makeWire_spec "out" _ true _).2.2.1]
+    rw [hsQ', instClkRstPure_body, hsB, designMod]
+  have mBody : m.body = (prepare bools bits (bs.zip ids)
+      (start (entryCompilerState false cache) declName.toString)).state.module.body.reverse ++
+      [.inst mc.name instName
+        ((((⟨"out", .bitVector wOut⟩ : Port).name, Sparkle.IR.AST.Expr.ref outW) ::
+          conns).reverse),
+       .assign "out" (.ref outW)] := by
+    rw [hm]
+    show ((addClockResetIfSequential st.module).finalize).body = _
+    simp only [Sparkle.IR.AST.Module.finalize,
+      (addClockReset_facts st.module).1, stBody]
+    simp
+  have stDesign : st.design = ((prepare bools bits (bs.zip ids)
+      (start (entryCompilerState false cache) declName.toString)).state.design).addModule mc := by
+    rw [ht]
+    show sm0.design = _
+    rw [hrec]
+    show smR.design = _
+    rw [hsmR, hsI]
+    show sN.design = _
+    rw [hsN]
+    rw [show ∀ s, ((CircuitM.freshName (toString "inst_" ++ toString mc.name) false s).2).design
+        = s.design from fun s => freshName_design _ _ s, hsV, hsW]
+    rw [makeWire_design]
+    rw [hsQ', instClkRstPure_design, hsB]
+  have emitAssignInputs : ∀ (l : String) (r : Sparkle.IR.AST.Expr) (s : CircuitState),
+      (CircuitM.emitAssign l r s).2.module.inputs = s.module.inputs :=
+    fun _ _ _ => rfl
+  have addOutputInputs : ∀ (n : String) (ty : Sparkle.IR.Type.HWType) (s : CircuitState),
+      (CircuitM.addOutput n ty s).2.module.inputs = s.module.inputs :=
+    fun _ _ _ => rfl
+  have makeWireInputs : ∀ (h : String) (ty : Sparkle.IR.Type.HWType) (n : Bool)
+      (s : CircuitState),
+      (CircuitM.makeWire h ty n s).2.module.inputs = s.module.inputs := by
+    intro h ty n s
+    show ((CircuitM.freshName (CircuitM.sanitizeName h) n s).2.module.addWire _).inputs = _
+    rw [(CircuitM.freshName_spec _ _ _).2.2]
+    rfl
+  have stInputs : st.module.inputs = (instClkRstPure [] ports sB).2.module.inputs := by
+    rw [ht]
+    show (CircuitM.emitAssign "out" _ (CircuitM.addOutput "out" ty sm0).2).2.module.inputs = _
+    rw [emitAssignInputs, addOutputInputs, hrec]
+    show smR.module.inputs = _
+    rw [hsmR, hsI]
+    show sN.module.inputs = _
+    rw [hsN, (CircuitM.freshName_spec _ _ _).2.2, hsV, hsW, makeWireInputs, hsQ']
+  have hinNames : ∀ pt ∈ ports, (pt.name == "clk" || pt.name == "rst") = true →
+      ∃ q ∈ m.inputs, q.name = pt.name := by
+    intro pt hpt hcr
+    obtain ⟨q, hq, hqn⟩ := instClkRstPure_inputs_names ports [] sB pt hpt hcr
+    refine ⟨q, ?_, hqn⟩
+    rw [hm]
+    show _ ∈ (addClockResetIfSequential st.module).inputs.reverse
+    rw [List.mem_reverse]
+    exact (addClockReset_facts st.module).2.2.2 _ (by rw [stInputs]; exact hq)
+  have wNotOut : outW ≠ "out" := by
+    intro eq
+    have alloc := CircuitM.makeWire_allocated "out"
+      (Sparkle.IR.Type.HWType.bitVector wOut) true sQ
+    rw [← houtW, eq] at alloc
+    exact not_allocated_out alloc
+  refine ⟨?_, ?_, wNotOut, hinNames, aWs, hlenW, ?_, ?_⟩
+  · rw [mBody, hbodyR]
+    simp
+  · rw [hd, stDesign, hpdesR]
+    rfl
+  · rw [hconnsEq, instClkRstPure_fst]
+    simp
+  · intro i hi
+    have hiA : i < argIds.length := by rw [← hlenW]; exact hi
+    obtain ⟨-, hdecl, hval⟩ := hQ i hiA hi
+    exact ⟨hval, inputNotOut _ hdecl⟩
+
+
 /-- The run's predicate on the quoted n-ary call computes to the tag check. -/
 theorem instancePredicate_instEN (env : Environment) (mn : Name) (lvls : List Level)
     (dom : Lean.Expr) (args : List Lean.Expr) :
@@ -1887,6 +2236,24 @@ theorem synthesizeFromConst_instanceN_sound {logProf declName ci bs body m d}
   subst result
   exact synthesizeMixedCertified_instanceN_sound run
 
+/-- The general single-output dispatcher. -/
+theorem synthesizeFromConst_instanceG_sound {logProf declName ci bs body m d}
+    {isInst : Lean.Expr → Bool}
+    (old : certifiedShape? false [] ci = none)
+    (shape : mixedCertifiedShape? false [] ci isInst = some (bs, body))
+    (hr : MReturns (synthesizeFromConst
+      (fun e hint top named => translateExprToWire e hint top named) logProf declName
+      [] false true ci isInst) (m, d)) :
+    InstanceGPreserves declName bs body m d := by
+  unfold synthesizeFromConst at hr
+  simp only [↓reduceIte, old, shape] at hr
+  peel_bind hr
+  obtain ⟨result, run, hr⟩ := MReturns.bind hr
+  peel_bind hr
+  have eq := MReturns.pure hr
+  subst result
+  exact synthesizeMixedCertified_instanceG_sound run
+
 /-- The instance result is tied to the declaration AND the environment THIS
 run read: the gate holds at `instancePredicate envR` for the run's own
 `getEnv` result, exposed here alongside `getConstInfo`. -/
@@ -1905,13 +2272,15 @@ theorem synthesizeCombinationalCore_instance_sound {declName : Name}
           (Sparkle.Compiler.Elab.instancePredicate envR) = some (bs, body) →
         InstancePreserves declName bs body m d ∧
         Instance1Preserves declName bs body m d ∧
-        InstanceNPreserves declName bs body m d := by
+        InstanceNPreserves declName bs body m d ∧
+        InstanceGPreserves declName bs body m d := by
   obtain ⟨logProf, envR, ci, w1, w2, w3, w4, w5, w6, get, henv, run⟩ :=
     Tools.ShippingEntrySoundness.synthesizeCombinationalCore_reads hr
   exact ⟨ci, envR, w1, w2, w5, w6, get, henv, fun _ _ old shape =>
     ⟨synthesizeFromConst_instance_sound old shape run.mreturns,
      synthesizeFromConst_instance1_sound old shape run.mreturns,
-     synthesizeFromConst_instanceN_sound old shape run.mreturns⟩⟩
+     synthesizeFromConst_instanceN_sound old shape run.mreturns,
+     synthesizeFromConst_instanceG_sound old shape run.mreturns⟩⟩
 
 /-- The entry endpoint under the run's environment boundaries: if the run's
 environment defines the declaration as the canonical two-input instance call
@@ -2017,6 +2386,40 @@ theorem instanceN_entry_of_env {declName : Name} {mctx : Meta.Context}
     exact tag _ _ _ henv
   have shape := instanceN_term_gate (d := dv) (by rw [hval]; exact peel) htag
     (hscalar dv hval) hd hpos
-  exact (sel bs _ (old dv hval) shape).2.2
+  exact (sel bs _ (old dv hval) shape).2.2.1
+
+/-- The general single-output entry endpoint under the run's environment
+boundaries: any arity, combinational or sequential child. -/
+theorem instanceG_entry_of_env {declName : Name} {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {d : Design} {value : Lean.Expr}
+    {mn : Name} {lvls : List Level} {dpos : Nat} {poss : List Nat}
+    {bs : List (Name × MixedGateBinder)}
+    (hr : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w
+      (m, d) w')
+    (env : Tools.ShippingEntrySoundness.EnvDefines mctx mref cctx cref declName value)
+    (tag : ∀ wE e wE', RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref wE e wE' →
+      Sparkle.Compiler.isHardwareModule e mn = true)
+    (old : ∀ dv : DefinitionVal, dv.value = value →
+      certifiedShape? false [] (.defnInfo dv) = none)
+    (hscalar : ∀ dv : DefinitionVal, dv.value = value →
+      mixedGateResultScalar dv.type = true)
+    (peel : mixedGatePeel value = some (bs,
+      instEN mn lvls (inputExpr bs.length dpos) (poss.map (inputExpr bs.length))))
+    (hd : ∃ nd kd, bs[dpos]? = some (nd, kd))
+    (hpos : ∀ q ∈ poss, ∃ nq kq, bs[q]? = some (nq, kq)) :
+    InstanceGPreserves declName bs
+      (instEN mn lvls (inputExpr bs.length dpos) (poss.map (inputExpr bs.length))) m d := by
+  obtain ⟨ci, envR, w1, w2, w5, w6, get, henv, sel⟩ :=
+    synthesizeCombinationalCore_instance_sound hr
+  obtain ⟨dv, rfl, hval⟩ := env w1 ci w2 get
+  have htag : Sparkle.Compiler.Elab.instancePredicate envR
+      (instEN mn lvls (inputExpr bs.length dpos) (poss.map (inputExpr bs.length))) = true := by
+    rw [instancePredicate_instEN]
+    exact tag _ _ _ henv
+  have shape := instanceN_term_gate (d := dv) (by rw [hval]; exact peel) htag
+    (hscalar dv hval) hd hpos
+  exact (sel bs _ (old dv hval) shape).2.2.2
 
 end Tools.ShippingInstanceEntrySoundness
