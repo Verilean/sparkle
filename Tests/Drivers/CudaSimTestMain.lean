@@ -24,8 +24,10 @@ def cudaStub : String := "\
 #define __host__\n\
 #define __device__\n\
 #define __global__\n\
+#define __shared__\n\
 #define __forceinline__\n\
 typedef unsigned int cudaError_t;\n\
+static inline void __syncthreads() {}\n\
 struct uint3 { unsigned x,y,z; };\n\
 struct dim3 { unsigned x,y,z; dim3(unsigned a=1,unsigned b=1,unsigned c=1):x(a),y(b),z(c){} };\n\
 static uint3 blockIdx = {0,0,0};\n\
@@ -41,8 +43,11 @@ static inline cudaError_t cudaDeviceSynchronize(){ return 0; }\n\
 enum { cudaDevAttrCooperativeLaunch = 95 };\n\
 static inline cudaError_t cudaGetDevice(int* d){ *d=0; return 0; }\n\
 static inline cudaError_t cudaDeviceGetAttribute(int* v,int,int){ *v=0; return 0; }\n\
-struct cudaDeviceProp { int multiProcessorCount; };\n\
-static inline cudaError_t cudaGetDeviceProperties(cudaDeviceProp* p,int){ p->multiProcessorCount=1; return 0; }\n\
+struct cudaDeviceProp { int multiProcessorCount; size_t sharedMemPerBlock; size_t sharedMemPerBlockOptin; };\n\
+static inline cudaError_t cudaGetDeviceProperties(cudaDeviceProp* p,int){ p->multiProcessorCount=1; p->sharedMemPerBlock=49152; p->sharedMemPerBlockOptin=0; return 0; }\n\
+enum { cudaFuncAttributeMaxDynamicSharedMemorySize = 8 };\n\
+template <typename T>\n\
+static inline cudaError_t cudaFuncSetAttribute(T,int,int){ return 0; }\n\
 template <class T>\n\
 static inline cudaError_t cudaOccupancyMaxActiveBlocksPerMultiprocessor(int* n,T,int,size_t){ *n=1; return 0; }\n\
 static inline cudaError_t cudaLaunchCooperativeKernel(const void*,dim3,dim3,void**,size_t,void*){ return 0; }\n"

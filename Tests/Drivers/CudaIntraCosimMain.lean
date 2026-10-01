@@ -67,7 +67,7 @@ def aVal (i : Nat) : Nat :=
     `jit_cuda_set_input` follow CSim's convention: all inputs except `clk`,
     in declaration order — rst=0, ain_i=1+i, w_i_j=1+N+i*N+j.  Outputs are
     32-bit, one slot each: result_j = slot j. -/
-def cosimMain (n cycles : Nat) : String := Id.run do
+def cosimMain (n cycles : Nat) (perfCycles : Nat := 1000000) : String := Id.run do
   let topC := s!"Mesh{n}x{n}"
   let mut pokeRef : List String := []
   let mut pokeGpu : List String := []
@@ -118,13 +118,23 @@ def cosimMain (n cycles : Nat) : String := Id.run do
     , s!"  jit_intra_run(h2, {cycles});"
     , "  { void* h = h2; struct " ++ topC ++ "* r = &ref2; int c = -1;"
     , "    fail |= cmp_outputs(h, r, c); }"
-    , "  // informational timing (one launch)"
+    , "  // informational timing: the serial CPU reference (the host side of the"
+    , "  // same functions) and one GPU launch, same cycle count"
     , "  struct timespec t0, t1;"
+    , s!"  const long perfCycles = {perfCycles};"
     , "  clock_gettime(CLOCK_MONOTONIC, &t0);"
-    , "  jit_intra_run(h2, 100000);"
+    , s!"  for (long c = 0; c < perfCycles; ++c) sparkle_{topC}_eval_tick(&ref2);"
+    , "  clock_gettime(CLOCK_MONOTONIC, &t1);"
+    , "  double cpuSecs = (t1.tv_sec - t0.tv_sec) + (t1.tv_nsec - t0.tv_nsec) / 1e9;"
+    , "  clock_gettime(CLOCK_MONOTONIC, &t0);"
+    , "  jit_intra_run(h2, perfCycles);"
     , "  clock_gettime(CLOCK_MONOTONIC, &t1);"
     , "  double secs = (t1.tv_sec - t0.tv_sec) + (t1.tv_nsec - t0.tv_nsec) / 1e9;"
-    , s!"  printf(\"[perf] {topC}: 100000 cycles in %.3f s = %.3e cyc/s\\n\", secs, 100000.0 / secs);"
+    , "  // the timed launch continued from the same state: results must still agree"
+    , "  { void* h = h2; struct " ++ topC ++ "* r = &ref2; int c = -2;"
+    , "    fail |= cmp_outputs(h, r, c); }"
+    , s!"  printf(\"[perf] {topC} ({n*n} instances): CPU %.3e cyc/s, GPU %.3e cyc/s, GPU/CPU %.2f\\n\","
+    , "         perfCycles / cpuSecs, perfCycles / secs, cpuSecs / secs);"
     , "  jit_cuda_free(h); jit_cuda_free(h2);"
     , s!"  printf(fail ? \"COSIM FAIL\\n\" : \"COSIM PASS ({topC}, \{0} + one-launch cycles)\\n\");".replace "{0}" (toString cycles)
     , "  return fail;"
@@ -148,6 +158,8 @@ def main : IO Unit := do
   -- Emission always runs (a generation regression fails without a GPU).
   let p2 ← emitOne 2 64 dir
   let p16 ← emitOne 16 64 dir
+  -- 1024 instances: the largest single-block mesh
+  let p32 ← emitOne 32 64 dir
   if (← IO.getEnv "SPARKLE_CUDA") != some "1" then
     IO.println "[cosim] SPARKLE_CUDA != 1 — emit-only (compile+run needs nvcc + GPU)"
     IO.println "\nALL PASS (emit-only)"
@@ -157,7 +169,7 @@ def main : IO Unit := do
   let ldExtra := "/run/opengl-driver/lib"
   let ldPath := (← IO.getEnv "LD_LIBRARY_PATH").getD "" |> fun cur =>
     if cur.isEmpty then ldExtra else s!"{ldExtra}:{cur}"
-  for (path, n) in [(p2, 2), (p16, 16)] do
+  for (path, n) in [(p2, 2), (p16, 16), (p32, 32)] do
     let bin := s!"{dir}/intra_cosim_{n}"
     let r ← IO.Process.output {
       cmd := "nvcc",
