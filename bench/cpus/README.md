@@ -51,6 +51,20 @@ closure, including every complete core. The PicoRV32 program test passes:
 Before this work none of the 19 VexRiscv files parsed, and the
 round-tripped PicoRV32 mis-computed JAL and branch offsets.
 
+## Regression checks for these changes
+
+Run on the commit that added this directory:
+
+- `lake build` and `lake test`: exit 0; `svparser-test`: 74 passed, 0 failed.
+- XiangShan CI gate (`bench/xiangshan/ci_check.sh`): OK — 52/52 round-trip,
+  co-simulation 35 leaf + 17 hierarchical agree, yosys equivalence 38
+  proven / 12 unproven (induction limit, as in the baseline) / 0 errored,
+  12 modules proven in the lean₄ round trip.
+- Sparkle's own Verilog corpus (163 synthesis files): 6 files change, all
+  by the `$unsigned($signed(a) >>> n)` emission. Under iverilog, the RV32
+  ALU that main emits (`Sparkle.IP.RV32.aluSignal`) computes SRA of
+  `0x80000000` by 4 as `0x08000000`; with this change it is `0xf8000000`.
+
 ## What it found
 
 Parser
