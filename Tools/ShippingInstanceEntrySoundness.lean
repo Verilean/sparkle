@@ -2162,23 +2162,30 @@ theorem synthesizeMixedCertified_instanceG_sound {logProf declName bs body m d}
 
 /-- The run's predicate on the quoted n-ary call computes to the tag check. -/
 theorem instancePredicate_instEN (env : Environment) (mn : Name) (lvls : List Level)
-    (dom : Lean.Expr) (args : List Lean.Expr) :
-    Sparkle.Compiler.Elab.instancePredicate env (instEN mn lvls dom args) =
-      Sparkle.Compiler.isHardwareModule env mn := by
+    (dom : Lean.Expr) (args : List Lean.Expr)
+    (h : Sparkle.Compiler.isHardwareModule env mn = true) :
+    Sparkle.Compiler.Elab.instancePredicate env (instEN mn lvls dom args) = true := by
   unfold Sparkle.Compiler.Elab.instancePredicate
   rw [instEN_getAppFn]
+  show (Sparkle.Compiler.isHardwareModule env mn || _) = true
+  rw [h]
+  rfl
 
 /-- The run's predicate on the quoted one-input call computes to the tag check. -/
 theorem instancePredicate_instE1 (env : Environment) (mn : Name) (lvls : List Level)
-    (dom a : Lean.Expr) :
-    Sparkle.Compiler.Elab.instancePredicate env (instE1 mn lvls dom a) =
-      Sparkle.Compiler.isHardwareModule env mn := rfl
+    (dom a : Lean.Expr) (h : Sparkle.Compiler.isHardwareModule env mn = true) :
+    Sparkle.Compiler.Elab.instancePredicate env (instE1 mn lvls dom a) = true := by
+  show (Sparkle.Compiler.isHardwareModule env mn || _) = true
+  rw [h]
+  rfl
 
 /-- The run's predicate on the quoted call computes to the tag check. -/
 theorem instancePredicate_instE2 (env : Environment) (mn : Name) (lvls : List Level)
-    (dom a b : Lean.Expr) :
-    Sparkle.Compiler.Elab.instancePredicate env (instE2 mn lvls dom a b) =
-      Sparkle.Compiler.isHardwareModule env mn := rfl
+    (dom a b : Lean.Expr) (h : Sparkle.Compiler.isHardwareModule env mn = true) :
+    Sparkle.Compiler.Elab.instancePredicate env (instE2 mn lvls dom a b) = true := by
+  show (Sparkle.Compiler.isHardwareModule env mn || _) = true
+  rw [h]
+  rfl
 
 /-- The declaration dispatcher selects the proved instance path. Unlike the
 old families, the shape premise lives AT the run's predicate — instance
@@ -2316,8 +2323,7 @@ theorem instance_entry_of_env {declName : Name} {mctx : Meta.Context}
   have htag : Sparkle.Compiler.Elab.instancePredicate envR
       (instE2 mn lvls (inputExpr bs.length dpos) (inputExpr bs.length apos)
         (inputExpr bs.length bpos)) = true := by
-    rw [instancePredicate_instE2]
-    exact tag _ _ _ henv
+    exact instancePredicate_instE2 _ _ _ _ _ _ (tag _ _ _ henv)
   have shape := instance_term_gate (d := dv) (by rw [hval]; exact peel) htag
     (hscalar dv hval) hd ha hb
   exact (sel bs _ (old dv hval) shape).1
@@ -2349,8 +2355,7 @@ theorem instance1_entry_of_env {declName : Name} {mctx : Meta.Context}
   obtain ⟨dv, rfl, hval⟩ := env w1 ci w2 get
   have htag : Sparkle.Compiler.Elab.instancePredicate envR
       (instE1 mn lvls (inputExpr bs.length dpos) (inputExpr bs.length apos)) = true := by
-    rw [instancePredicate_instE1]
-    exact tag _ _ _ henv
+    exact instancePredicate_instE1 _ _ _ _ _ (tag _ _ _ henv)
   have shape := instance1_term_gate (d := dv) (by rw [hval]; exact peel) htag
     (hscalar dv hval) hd ha
   exact (sel bs _ (old dv hval) shape).2.1
@@ -2382,8 +2387,7 @@ theorem instanceN_entry_of_env {declName : Name} {mctx : Meta.Context}
   obtain ⟨dv, rfl, hval⟩ := env w1 ci w2 get
   have htag : Sparkle.Compiler.Elab.instancePredicate envR
       (instEN mn lvls (inputExpr bs.length dpos) (poss.map (inputExpr bs.length))) = true := by
-    rw [instancePredicate_instEN]
-    exact tag _ _ _ henv
+    exact instancePredicate_instEN _ _ _ _ _ (tag _ _ _ henv)
   have shape := instanceN_term_gate (d := dv) (by rw [hval]; exact peel) htag
     (hscalar dv hval) hd hpos
   exact (sel bs _ (old dv hval) shape).2.2.1
@@ -2416,8 +2420,7 @@ theorem instanceG_entry_of_env {declName : Name} {mctx : Meta.Context}
   obtain ⟨dv, rfl, hval⟩ := env w1 ci w2 get
   have htag : Sparkle.Compiler.Elab.instancePredicate envR
       (instEN mn lvls (inputExpr bs.length dpos) (poss.map (inputExpr bs.length))) = true := by
-    rw [instancePredicate_instEN]
-    exact tag _ _ _ henv
+    exact instancePredicate_instEN _ _ _ _ _ (tag _ _ _ henv)
   have shape := instanceN_term_gate (d := dv) (by rw [hval]; exact peel) htag
     (hscalar dv hval) hd hpos
   exact (sel bs _ (old dv hval) shape).2.2.2

@@ -2331,13 +2331,22 @@ def unifiedInstanceSpine (kinds : Array MixedGateBinder) : Lean.Expr → Bool
   | .app f (.bvar i) => (mixedGateBVar? kinds i).isSome && unifiedInstanceSpine kinds f
   | _ => false
 
+/-- The projection form of the instance root: a structure projection
+    (constant head, the domain binder, then the record) applied to a
+    canonical instance call. -/
+def unifiedProjSpine (kinds : Array MixedGateBinder) : Lean.Expr → Bool
+  | .app (.app (.const _ _) (.bvar i)) call =>
+    (mixedGateBVar? kinds i).isSome && call.isApp && unifiedInstanceSpine kinds call
+  | _ => false
+
 /-- The canonical sub-module instance root: a call to a designated
-(`@[hardware_module]`) constant whose arguments are all input binders.
-The designation predicate comes from the caller — the attribute lives
-in the environment, which the pure gate cannot read. -/
+(`@[hardware_module]`) constant whose arguments are all input binders, or
+a structure projection of such a call (a multi-output child). The
+designation predicate comes from the caller — the attribute and the
+projection table live in the environment, which the pure gate cannot read. -/
 def unifiedInstanceRoot (isInst : Lean.Expr → Bool)
     (kinds : Array MixedGateBinder) (e : Lean.Expr) : Bool :=
-  isInst e && e.isApp && unifiedInstanceSpine kinds e
+  isInst e && e.isApp && (unifiedInstanceSpine kinds e || unifiedProjSpine kinds e)
 
 /-- The declaration's result is one scalar Signal (Bool or positive-width
     BitVec).  The certified single-output harness only covers these;
@@ -2543,7 +2552,14 @@ def synthesizeFromConst (translate : TranslateFn) (logProf : String → IO Unit)
     function of the `ConstantInfo` and this predicate. -/
 def instancePredicate (env : Environment) : Lean.Expr → Bool := fun e =>
   match e.getAppFn with
-  | .const n _ => Sparkle.Compiler.isHardwareModule env n
+  | .const n _ =>
+    Sparkle.Compiler.isHardwareModule env n ||
+      (match env.getProjectionStructureName? n, e with
+       | some _, .app _ record =>
+         (match record.getAppFn with
+          | .const rn _ => Sparkle.Compiler.isHardwareModule env rn
+          | _ => false)
+       | _, _ => false)
   | _ => false
 
 /-- The synthesis entry, with the translator's recursive entry as a parameter
@@ -5473,6 +5489,16 @@ def instOutWires (callKey : UInt64) (hint : String) :
     instOutWires callKey hint rest
       ((outP.name, Sparkle.IR.AST.Expr.ref w) :: conns) ((outP.name, w) :: ws)
 
+/-- The canonical call key of a record-returning instance call. The
+    canonicalizer only READS the builder state (variable bindings and the
+    wire caches); restoring the saved state makes that a fact the certified
+    decomposition can use without looking inside it. -/
+def instCallKey (recordArg : Lean.Expr) : CompilerM UInt64 := do
+  let s0 ← get
+  let key ← canonHardwareKey recordArg
+  set s0
+  return hash key
+
 /-- Uncached lowering for a projection `field (child args…)` of a
     MULTI-output `@[hardware_module]` call whose child compile is in hand,
     in the legacy handlers' exact order: consult the per-synth port map
@@ -5484,7 +5510,7 @@ def translateProjInstanceUncachedWith (rec : TranslateFn) (recName : Name)
     (fieldName : String) (recordArg : Lean.Expr)
     (legacy : TranslateFn) : TranslateFn :=
   fun e hint top named => do
-    let callKey : UInt64 := hash (← canonHardwareKey recordArg)
+    let callKey ← instCallKey recordArg
     let portMap ← CompilerM.liftMetaM instArmOutGet
     match portMap.get? (callKey, fieldName) with
     | some w => return w
