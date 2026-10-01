@@ -5370,6 +5370,13 @@ def instArgs (rec : TranslateFn) (acc : List (String × Sparkle.IR.AST.Expr)) :
     let argWire ← rec a s!"arg{i}" false false
     instArgs rec ((p.name, Sparkle.IR.AST.Expr.ref argWire) :: acc) rest (i + 1)
 
+/-- The argument list of an application spine, left to right — the same
+    list as `Expr.getAppArgs`, by structural recursion so the certified
+    decomposition can induct over arbitrary arities. -/
+def instSpineArgs : Lean.Expr → List Lean.Expr
+  | .app f a => instSpineArgs f ++ [a]
+  | _ => []
+
 /-- Register the child itself unless a module of that name is already in the
     design (`existing` is the pre-walk snapshot, matching the legacy order). -/
 def instRegisterChild (existing : List String)
@@ -5407,10 +5414,10 @@ def translateInstanceUncachedWith (rec : TranslateFn) (mn : Name)
     instRegisterChild existing subModule
     let connections0 ← instClkRst [] subModule.inputs
     let inputPorts := subModule.inputs.filter (fun p => p.name != "clk" && p.name != "rst")
-    let args := e.getAppArgs
-    instArityCheck mn inputPorts.length args.size
+    let args := instSpineArgs e
+    instArityCheck mn inputPorts.length args.length
     let connections ← instArgs rec connections0
-      (inputPorts.zip ((args.toList).drop (args.size - inputPorts.length))) 0
+      (inputPorts.zip (args.drop (args.length - inputPorts.length))) 0
     let parentName := (← get).module.name
     let connKey := String.intercalate ";"
       (connections.reverse.map (fun (p, rhs) => s!"{p}={rhs}"))

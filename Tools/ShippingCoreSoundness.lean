@@ -62,13 +62,15 @@ theorem synthesizeCombinationalCore_shipping_sound {declName : Name}
           mixedCertifiedShape? false [] ci
             (Sparkle.Compiler.Elab.instancePredicate envR) = some (bs, body) →
           InstancePreserves declName bs body m d ∧
-          Instance1Preserves declName bs body m d := by
+          Instance1Preserves declName bs body m d ∧
+          InstanceNPreserves declName bs body m d := by
   obtain ⟨logProf, envR, ci, w1, w2, w3, w4, w5, w6, get, henv, run⟩ :=
     synthesizeCombinationalCore_reads hr
   refine ⟨ci, w1, w2, get, fun bs body old shape => ?_,
     envR, w5, w6, henv, fun bs body old shape =>
       ⟨synthesizeFromConst_instance_sound old shape run.mreturns,
-       synthesizeFromConst_instance1_sound old shape run.mreturns⟩⟩
+       synthesizeFromConst_instance1_sound old shape run.mreturns,
+       synthesizeFromConst_instanceN_sound old shape run.mreturns⟩⟩
   exact ⟨synthesizeFromConst_mixed_sound old (shape _) run.mreturns,
     synthesizeFromConst_term_sound old (shape _) run.mreturns,
     synthesizeFromConst_vector_sound old (shape _) run.mreturns,

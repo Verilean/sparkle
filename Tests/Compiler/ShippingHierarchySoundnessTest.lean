@@ -24,6 +24,13 @@ open Tools.ShippingRegisterSoundness (registerE)
 def parentUse {dom : DomainConfig} (a b : Signal dom (BitVec 8)) :
     Signal dom (BitVec 8) := childAdd a b
 
+/-- A three-input child and its parent: the n-ary instance contract. -/
+@[hardware_module] def childAdd3 {dom : DomainConfig}
+    (x y z : Signal dom (BitVec 8)) : Signal dom (BitVec 8) := x + y + z
+
+def parentUse3 {dom : DomainConfig} (a b c : Signal dom (BitVec 8)) :
+    Signal dom (BitVec 8) := childAdd3 a b c
+
 /-- A multi-output child: its instantiating parent must STAY on the legacy
 front end (the certified single-output harness would drop `hi`). -/
 structure TwoOut (dom : DomainConfig) where
@@ -309,6 +316,43 @@ theorem parentSeq_runH_observes {mctxC : Meta.Context}
   rw [hfwd j hj (by rw [← hlenP]; exact hj)]
   exact hobsC j (by rw [← hlenP]; exact hj)
 
+/-! The n-ary instance entry endpoint, on a real three-input parent. -/
+
+#def_decl_value parentUse3Value of parentUse3
+
+def parentUse3Binders : List (Name × MixedGateBinder) :=
+  [(`dom, .domain), (`a, .bits 8), (`b, .bits 8), (`c, .bits 8)]
+
+theorem parentUse3_peel : mixedGatePeel parentUse3Value = some (parentUse3Binders,
+    instEN ``childAdd3 [] (inputExpr parentUse3Binders.length 0)
+      ([1, 2, 3].map (inputExpr parentUse3Binders.length))) := rfl
+
+/-- **The n-ary instance entry contract on a real three-input parent**:
+the general-arity monolith, instantiated — the compiled parent is one
+instance statement over the port-ordered connection list plus the output
+alias, over the pinned child. -/
+theorem parentUse3_instance_entry {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {d : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore ``parentUse3 [] false)
+      mctx mref cctx cref w (m, d) w')
+    (env : EnvDefines mctx mref cctx cref ``parentUse3 parentUse3Value)
+    (tag : ∀ wE e wE', RunsTo (Lean.getEnv : MetaM Environment)
+      mctx mref cctx cref wE e wE' →
+      Sparkle.Compiler.isHardwareModule e ``childAdd3 = true)
+    (hscalar : ∀ dv : Lean.DefinitionVal, dv.value = parentUse3Value →
+      mixedGateResultScalar dv.type = true) :
+    InstanceNPreserves ``parentUse3 parentUse3Binders
+      (instEN ``childAdd3 [] (inputExpr parentUse3Binders.length 0)
+        ([1, 2, 3].map (inputExpr parentUse3Binders.length))) m d :=
+  instanceN_entry_of_env hr env tag
+    (fun dv hv => by simp only [certifiedShape?, hv]; rfl)
+    hscalar parentUse3_peel ⟨_, _, rfl⟩
+    (fun q hq => by
+      simp at hq
+      rcases hq with rfl | rfl | rfl <;> exact ⟨_, _, rfl⟩)
+
 /-- **The entry output observes the source composition.** Combining the
 instance contract of THIS compile with the linked-instance semantics: the
 compiled parent's body, elaborated with the child bound to its pinned
@@ -468,6 +512,19 @@ run_cmd liftTermElabM do
   unless ms.body == msL.body && ms.inputs == msL.inputs && ms.outputs == msL.outputs &&
       ms.wires == msL.wires && ds.modules == dsL.modules do
     throwError "sequential-child certified lowering departed from the legacy front end"
+  -- Three-input parent (the n-ary contract's witness): gate-accepted, and
+  -- the certified dispatch agrees with the legacy front end byte-for-byte.
+  unless (mixedCertifiedShape? false [] (← getConstInfo ``parentUse3) pred).isSome do
+    throwError "three-input parent missed the instance gate"
+  let (m3, d3) ← synthesizeCombinationalCore ``parentUse3 [] false
+  let (m3L, d3L) ← synthesizeCombinationalCoreWith
+    (fun e h t n => translateExprToWire e h t n) ``parentUse3 [] false
+    (certifiedFrontEnd := false)
+  unless m3.body == m3L.body && m3.inputs == m3L.inputs && m3.outputs == m3L.outputs &&
+      m3.wires == m3L.wires && d3.modules == d3L.modules do
+    throwError "three-input certified lowering departed from the legacy front end"
+  unless mixedGateResultScalar (← getConstInfo ``parentUse3).type do
+    throwError "parentUse3's result type is not one scalar Signal"
   -- Record-result parent: the scalar-result guard must keep it on the
   -- legacy path, which preserves BOTH outputs.
   unless (mixedCertifiedShape? false [] (← getConstInfo ``parentTwo) pred).isNone do
@@ -524,6 +581,10 @@ run_cmd liftTermElabM do
       ``Tools.ShippingInstanceEntrySoundness.synthesizeMixedCertified_instance1_sound,
       ``Tools.ShippingInstanceEntrySoundness.instance1_entry_of_env,
       ``parentSeq_peel, ``parentSeq_instance_entry,
+      ``Tools.ShippingInstanceEntrySoundness.instArgs_resolve,
+      ``Tools.ShippingInstanceEntrySoundness.synthesizeMixedCertified_instanceN_sound,
+      ``Tools.ShippingInstanceEntrySoundness.instanceN_entry_of_env,
+      ``parentUse3_peel, ``parentUse3_instance_entry,
       ``Tools.ShippingHierarchySoundness.instBody_runH, ``childSeq_run,
       ``parentSeq_runH_observes,
       ``parentUse_linked] do
