@@ -1,5 +1,6 @@
 import Tools.ShippingHierarchySoundness
 import Tools.ShippingInstanceEntrySoundness
+import Tools.ShippingRegisterSoundness
 import Sparkle.Compiler.Elab
 
 /-! S6-1 hierarchy foundation tests: a real `@[hardware_module]` child and
@@ -13,7 +14,9 @@ open Sparkle.Core.Domain Sparkle.Core.Signal
 open Tools.ShippingHierarchySoundness
 open Tools.ShippingInstanceEntrySoundness
 open Tools.ShippingEntrySoundness (EnvDefines RunsTo)
-open Tools.ShippingMixedSourceBridge (inputExpr)
+open Tools.ShippingMixedSourceBridge (inputExpr SourceInputs)
+open Tools.ShippingUnifiedSource
+open Tools.ShippingRegisterSoundness (registerE)
 
 @[hardware_module] def childAdd {dom : DomainConfig}
     (x y : Signal dom (BitVec 8)) : Signal dom (BitVec 8) := x + y
@@ -174,6 +177,137 @@ theorem parentSeq_instance_entry {mctx : Meta.Context}
   instance1_entry_of_env hr env tag
     (fun dv hv => by simp only [certifiedShape?, hv]; rfl)
     hscalar parentSeq_peel rfl rfl
+
+/-! The sequential child's own register-trace endpoint, instantiated. -/
+
+def childSeqTerm : Term (.bits 8) := .bitsInput 8 0
+
+theorem childSeq_wf : childSeqTerm.WF 0 1 (fun _ => 8) := by
+  simp [childSeqTerm, Term.WF]
+
+theorem childSeq_library {D : DomainConfig}
+    (bi : Nat → Signal D Bool)
+    (vi : (j : Nat) → (w : Nat) → Signal D (BitVec w)) :
+    Signal.register 0#8 (denote bi vi childSeqTerm) = childSeq (vi 0 8) := rfl
+
+#def_decl_value childSeqValue of childSeq
+
+def childSeqBinders : List (Name × MixedGateBinder) :=
+  [(`dom, .domain), (`x, .bits 8)]
+
+theorem childSeq_peel : mixedGatePeel childSeqValue = some (childSeqBinders,
+    registerE (inputExpr childSeqBinders.length 0) 8 0
+      (quote (inputExpr childSeqBinders.length 0)
+        (fun _ => inputExpr childSeqBinders.length 0)
+        (fun j => inputExpr childSeqBinders.length (j + 1)) childSeqTerm)) := rfl
+
+/-- The register endpoint on the real sequential child: the compiled
+child's whole `runModule` trace observes the source register stream. -/
+theorem childSeq_run {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+    {wst wst' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module}
+    {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore ``childSeq [] false) mctx mref cctx cref wst
+      (m, design) wst')
+    (env : EnvDefines mctx mref cctx cref ``childSeq childSeqValue) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = childSeqBinders.length ∧
+    ∃ (cache : IO.Ref (Lean.ExprStructMap String)) (r : String),
+      ∀ {D : DomainConfig} (bits : (j : Nat) → (n : Nat) → Signal D (BitVec n))
+        (mems : MEnv) (k : Nat) (seed : Nat → (String → Nat) → Env)
+        (st0 : String → Nat),
+      (∀ t stv, SourceInputs ``childSeq childSeqBinders ids cache
+          (fun _ => false) (fun i n => (bits i n).val (k - 1 - t))
+          (seed t stv) ∧ seed t stv "rst" = 0 ∧ seed t stv r = stv r) →
+      st0 r = 0 →
+      ∃ envs, runModule (Tools.ShippingEntrySoundness.weOf m) m.body seed k st0 mems =
+          some envs ∧ envs.length = k ∧
+        ∀ j (hj : j < envs.length), (envs[j]'hj) "out" =
+          ((childSeq (bits 1 8)).val j).toNat := by
+  have packaged := Tools.ShippingRegisterSoundness.register_run_of_env (kb := 0) (kv := 1)
+    (vw := fun _ => 8) (bpos := fun _ => 0) (vpos := fun j => j + 1) hr env
+    (by intro d hd; simp only [certifiedShape?, hd]; rfl) childSeq_peel
+    (by simp [childSeqBinders]) childSeq_wf (by decide)
+    (by intro j hj; omega)
+    (by
+      intro j hj
+      have h : j = 0 := by omega
+      subst h
+      exact ⟨`x, rfl⟩)
+  obtain ⟨ids, nd, len, cache, r, H⟩ := packaged
+  refine ⟨ids, nd, len, cache, r, ?_⟩
+  intro D bits mems k seed st0 hseed hst0
+  apply H (fun _ _ => false) (fun wall i n => (bits i n).val wall)
+    mems k seed st0
+    (fun j => ((childSeq (bits 1 8)).val j).toNat)
+    hseed
+  · rw [hst0]
+    rfl
+  · intro j hj
+    rfl
+
+/-- **The sequential parent's linked run observes the source register
+stream.** The canonical parent body (as `parentSeq_instance_entry`
+derives it and the suite pins it) forwards, cycle by cycle, the pinned
+child's certified register trace: the linked `runH` elaboration drives
+`out` with `(parentSeq aS).val j` for the whole run. -/
+theorem parentSeq_runH_observes {mctxC : Meta.Context}
+    {mrefC : ST.Ref IO.RealWorld Meta.State} {cctxC : Core.Context}
+    {crefC : ST.Ref IO.RealWorld Core.State} {wC wC' : Void IO.RealWorld}
+    {mc m : Sparkle.IR.AST.Module} {designC : Sparkle.IR.AST.Design}
+    (hrC : RunsTo (synthesizeCombinationalCore ``childSeq [] false)
+      mctxC mrefC cctxC crefC wC (mc, designC) wC')
+    (envC : EnvDefines mctxC mrefC cctxC crefC ``childSeq childSeqValue)
+    {instName outW aW : String} {we : WEnv}
+    (hbody : m.body = instBody mc.name instName
+      [("clk", .ref "clk"), ("rst", .ref "rst"), ("_gen_x", .ref aW)] "out" outW)
+    (houts : mc.outputs = [⟨"out", .bitVector 8⟩])
+    (houtNe : outW ≠ "out") :
+    ∃ (ids : List FVarId) (cache : IO.Ref (Lean.ExprStructMap String)) (r : String),
+      ids.Nodup ∧ ids.length = childSeqBinders.length ∧
+      ∀ {D : DomainConfig} (bits : (j : Nat) → (n : Nat) → Signal D (BitVec n))
+        (mems : MEnv) (k : Nat) (seedP : Nat → Env) (st0 : String → Nat),
+      (∀ t stv, SourceInputs ``childSeq childSeqBinders ids cache
+          (fun _ => false) (fun i n => (bits i n).val (k - 1 - t))
+          (connEnvS ([("clk", .ref "clk"), ("rst", .ref "rst"),
+            ("_gen_x", .ref aW)] ++ [("out", .ref outW)]) (seedP t) stv) ∧
+        connEnvS ([("clk", .ref "clk"), ("rst", .ref "rst"),
+            ("_gen_x", .ref aW)] ++ [("out", .ref outW)]) (seedP t) stv "rst" = 0 ∧
+        connEnvS ([("clk", .ref "clk"), ("rst", .ref "rst"),
+            ("_gen_x", .ref aW)] ++ [("out", .ref outW)]) (seedP t) stv r = stv r) →
+      st0 r = 0 →
+      ∃ envsP, runH we
+          (fun n => if n = mc.name then
+            some (mc, Tools.ShippingEntrySoundness.weOf mc) else none)
+          m.body seedP k st0 mems = some envsP ∧
+        envsP.length = k ∧
+        ∀ j (hj : j < envsP.length),
+          (envsP[j]'hj) "out" = ((parentSeq (bits 1 8)).val j).toNat := by
+  obtain ⟨ids, nd, len, cache, r, HC⟩ := childSeq_run hrC envC
+  refine ⟨ids, cache, r, nd, len, ?_⟩
+  intro D bits mems k seedP st0 hseed hst0
+  obtain ⟨envsC, hrunC, hlenC, hobsC⟩ := HC bits mems k
+    (fun t stv => connEnvS ([("clk", .ref "clk"), ("rst", .ref "rst"),
+      ("_gen_x", .ref aW)] ++ [("out", .ref outW)]) (seedP t) stv) st0 hseed hst0
+  obtain ⟨envsP, hrunP, hlenP, hfwd⟩ := instBody_runH (we := we)
+    (children := fun n => if n = mc.name then
+      some (mc, Tools.ShippingEntrySoundness.weOf mc) else none)
+    (mn := mc.name) (instName := instName)
+    (inConns := [("clk", .ref "clk"), ("rst", .ref "rst"), ("_gen_x", .ref aW)])
+    (childOut := "out") (outW := outW)
+    (by simp) houts
+    (fun p hp => by
+      rcases List.mem_cons.mp hp with rfl | hp
+      · rfl
+      · rcases List.mem_cons.mp hp with rfl | hp
+        · rfl
+        · rcases List.mem_cons.mp hp with rfl | hp
+          · rfl
+          · cases hp) houtNe
+    k st0 mems envsC hrunC
+  refine ⟨envsP, by rw [hbody]; exact hrunP, by rw [hlenP, hlenC], ?_⟩
+  intro j hj
+  rw [hfwd j hj (by rw [← hlenP]; exact hj)]
+  exact hobsC j (by rw [← hlenP]; exact hj)
 
 /-- **The entry output observes the source composition.** Combining the
 instance contract of THIS compile with the linked-instance semantics: the
@@ -341,6 +475,36 @@ run_cmd liftTermElabM do
   let (mt, _) ← synthesizeCombinationalCore ``parentTwo [] false
   unless mt.outputs.map (·.name) == ["lo", "hi"] do
     throwError "record-result parent lost an output: {mt.outputs.map (·.name)}"
+  -- 12-cycle SEQUENTIAL linked regression: the real parentSeq/childSeq
+  -- pair, driven through `runH`, shows the register-delay behaviour on
+  -- `out` (init 0, out_{j+1} = in_j), with the child's state threaded
+  -- by the linked semantics itself.
+  let (msq, dsq) ← synthesizeCombinationalCore ``parentSeq [] false
+  let some mcSeq := dsq.modules.head? | throwError "no sequential child module"
+  unless msq.body == instBody mcSeq.name
+      "_tmp_inst_Sparkle_Tests_Compiler_ShippingHierarchySoundnessTest_childSeq_0"
+      [("clk", .ref "clk"), ("rst", .ref "rst"), ("_gen_x", .ref "_gen_a")]
+      "out" "_gen_out" do
+    throwError "sequential parent body departed from the canonical instBody"
+  let childrenSeq : String → Option (Sparkle.IR.AST.Module × WEnv) := fun n =>
+    if n = mcSeq.name then some (mcSeq, Tools.ShippingEntrySoundness.weOf mcSeq) else none
+  let kk := 12
+  let inVal : Nat → Nat := fun wall => (37 * wall + 9) % 256
+  let seedP : Nat → Env := fun t => fun n =>
+    if n == "_gen_a" then inVal (kk - 1 - t) else 0
+  let weP : WEnv := fun n =>
+    if n == "_gen_a" || n == "_gen_out" || n == "out" then 8 else
+    if n == "clk" || n == "rst" then 1 else 0
+  let some trace := runH weP childrenSeq msq.body seedP kk (fun _ => 0) (fun _ _ => 0)
+    | throwError "sequential linked run failed"
+  unless trace.length == kk do throwError "linked trace length mismatch"
+  let mut expected : Nat := 0
+  let mut wall := 0
+  for env in trace do
+    unless env "out" == expected do
+      throwError "linked seq out mismatch at {wall}: {env "out"} ≠ {expected}"
+    expected := inVal wall
+    wall := wall + 1
   -- The retained scalar-type premises HOLD for the real declarations.
   unless mixedGateResultScalar (← getConstInfo ``parentUse).type do
     throwError "parentUse's result type is not one scalar Signal"
@@ -360,6 +524,8 @@ run_cmd liftTermElabM do
       ``Tools.ShippingInstanceEntrySoundness.synthesizeMixedCertified_instance1_sound,
       ``Tools.ShippingInstanceEntrySoundness.instance1_entry_of_env,
       ``parentSeq_peel, ``parentSeq_instance_entry,
+      ``Tools.ShippingHierarchySoundness.instBody_runH, ``childSeq_run,
+      ``parentSeq_runH_observes,
       ``parentUse_linked] do
     for ax in (← collectAxioms name) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do

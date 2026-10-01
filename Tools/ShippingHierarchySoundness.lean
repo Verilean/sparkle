@@ -134,4 +134,162 @@ theorem connEnv_at {conns : List (String × Expr)} {env : Env}
     (h : conns.lookup k = some (.ref w)) : connEnv conns env k = env w := by
   simp [connEnv, h]
 
+/-! ## The stateful linked layer: sequential children advance per cycle -/
+
+/-- Connection-fed child environment with the child's own register state
+underneath: connected ports read the parent, everything else (the child's
+registers and internal wires) reads the child's state. -/
+def connEnvS (conns : List (String × Expr)) (env : Env)
+    (cst : String → Nat) : Env := fun n =>
+  match conns.lookup n with
+  | some (.ref w) => env w
+  | _ => cst n
+
+/-- One linked CYCLE: like `evalAssignsH`, but an instance advances the
+child by one `stepModule` cycle on the connection-fed, state-backed
+environment, threading the child's register state and memories. -/
+def stepAssignsH (we : WEnv) (children : String → Option (Module × WEnv)) :
+    List Stmt → Env → (String → Nat) → MEnv →
+    Option (Env × (String → Nat) × MEnv)
+  | [], env, cst, mems => some (env, cst, mems)
+  | .assign l r :: rest, env, cst, mems => do
+    let v ← evalExpr we env r
+    stepAssignsH we children rest (fun n => if n = l then v else env n) cst mems
+  | .inst mn _ conns :: rest, env, cst, mems => do
+    let (child, cwe) ← children mn
+    let (cres, nexts, mems') ← stepModule cwe child.body (connEnvS conns env cst) mems
+    stepAssignsH we children rest (bindOuts child.outputs conns cres env)
+      (applyNexts cst nexts) mems'
+  | .register .. :: rest, env, cst, mems => stepAssignsH we children rest env cst mems
+  | .memory .. :: rest, env, cst, mems => stepAssignsH we children rest env cst mems
+
+/-- The linked k-cycle run of a parent body: per cycle, the parent inputs
+come from `seedP`, the child's registers persist in `cst`. The per-cycle
+post-elaboration parent environments are the observable trace (oldest
+first, with `seedP`'s index counting down like `runModule`'s). -/
+def runH (we : WEnv) (children : String → Option (Module × WEnv))
+    (body : List Stmt) (seedP : Nat → Env) :
+    Nat → (String → Nat) → MEnv → Option (List Env)
+  | 0, _, _ => some []
+  | k + 1, cst, mems => do
+    let (envF, cst', mems') ← stepAssignsH we children body (seedP k) cst mems
+    let rest ← runH we children body seedP k cst' mems'
+    some (envF :: rest)
+
+/-- One linked cycle of the canonical parent, computed from one child
+step: `out` and the output wire both observe the child's output, and the
+child's state advances by its own register updates. -/
+theorem instBody_stepH {we : WEnv} {mems mems' : MEnv}
+    {children : String → Option (Module × WEnv)}
+    {mn instName : String} {inConns : List (String × Expr)}
+    {childOut outW : String} {child : Module} {cwe : WEnv}
+    {cres : Env} {nexts : List (String × Nat)}
+    {env0 : Env} {cst : String → Nat} {ty : Sparkle.IR.Type.HWType}
+    (hchild : children mn = some (child, cwe))
+    (houts : child.outputs = [{ name := childOut, ty := ty }])
+    (hfresh : ∀ p ∈ inConns, (childOut == p.1) = false)
+    (hstep : stepModule cwe child.body
+      (connEnvS (inConns ++ [(childOut, .ref outW)]) env0 cst) mems =
+      some (cres, nexts, mems'))
+    (hout_ne : outW ≠ "out") :
+    ∃ envF, stepAssignsH we children
+      (instBody mn instName inConns childOut outW) env0 cst mems =
+      some (envF, applyNexts cst nexts, mems') ∧
+      envF "out" = cres childOut ∧ envF outW = cres childOut := by
+  have hlook : (inConns ++ [(childOut, Expr.ref outW)]).lookup childOut =
+      some (.ref outW) := by
+    rw [lookup_append_right hfresh]
+    simp [List.lookup]
+  have hbind : bindOuts child.outputs (inConns ++ [(childOut, .ref outW)]) cres env0 =
+      fun n => if n = outW then cres childOut else env0 n := by
+    rw [houts]
+    show (match (inConns ++ [(childOut, Expr.ref outW)]).lookup childOut with
+      | some (.ref w) => fun n => if n = w then cres childOut else env0 n
+      | _ => env0) = _
+    rw [hlook]
+  refine ⟨fun n => if n = "out" then cres childOut
+    else if n = outW then cres childOut else env0 n, ?_, by simp, by simp [hout_ne]⟩
+  show (do
+    let cp ← children mn
+    let (cres', nexts', mems'') ← stepModule cp.2 cp.1.body
+      (connEnvS (inConns ++ [(childOut, Expr.ref outW)]) env0 cst) mems
+    stepAssignsH we children [.assign "out" (.ref outW)]
+      (bindOuts cp.1.outputs (inConns ++ [(childOut, Expr.ref outW)]) cres' env0)
+      (applyNexts cst nexts') mems'') = _
+  rw [hchild]
+  show (do
+    let (cres', nexts', mems'') ← stepModule cwe child.body
+      (connEnvS (inConns ++ [(childOut, Expr.ref outW)]) env0 cst) mems
+    stepAssignsH we children [.assign "out" (.ref outW)]
+      (bindOuts child.outputs (inConns ++ [(childOut, Expr.ref outW)]) cres' env0)
+      (applyNexts cst nexts') mems'') = _
+  rw [hstep]
+  show stepAssignsH we children [.assign "out" (.ref outW)]
+    (bindOuts child.outputs (inConns ++ [(childOut, Expr.ref outW)]) cres env0)
+    (applyNexts cst nexts) mems' = _
+  rw [hbind]
+  show (do
+    let v ← evalExpr we (fun n => if n = outW then cres childOut else env0 n)
+      (.ref outW)
+    stepAssignsH we children []
+      ((fun n => if n = "out" then v
+        else (fun n => if n = outW then cres childOut else env0 n) n))
+      (applyNexts cst nexts) mems') = _
+  show some ((fun n => if n = "out" then
+      (if outW = outW then cres childOut else env0 outW)
+    else (fun n => if n = outW then cres childOut else env0 n) n),
+    applyNexts cst nexts, mems') = _
+  simp
+
+/-- The linked k-cycle run of the canonical parent forwards the child's
+`runModule` trace: whenever the child runs for `k` cycles on the
+connection-fed, state-backed seeds, the parent's linked run exists and
+its `out` observes the child's output at every cycle. -/
+theorem instBody_runH {we : WEnv}
+    {children : String → Option (Module × WEnv)}
+    {mn instName : String} {inConns : List (String × Expr)}
+    {childOut outW : String} {child : Module} {cwe : WEnv}
+    {seedP : Nat → Env} {ty : Sparkle.IR.Type.HWType}
+    (hchild : children mn = some (child, cwe))
+    (houts : child.outputs = [{ name := childOut, ty := ty }])
+    (hfresh : ∀ p ∈ inConns, (childOut == p.1) = false)
+    (hout_ne : outW ≠ "out") :
+    ∀ (k : Nat) (cst : String → Nat) (mems : MEnv) (envsC : List Env),
+    runModule cwe child.body
+      (fun t cst' => connEnvS (inConns ++ [(childOut, .ref outW)]) (seedP t) cst')
+      k cst mems = some envsC →
+    ∃ envsP, runH we children (instBody mn instName inConns childOut outW)
+        seedP k cst mems = some envsP ∧
+      envsP.length = envsC.length ∧
+      ∀ j (hj : j < envsP.length) (hj' : j < envsC.length),
+        (envsP[j]'hj) "out" = (envsC[j]'hj') childOut := by
+  intro k
+  induction k with
+  | zero =>
+    intro cst mems envsC hrun
+    cases hrun
+    exact ⟨[], rfl, rfl, fun j hj _ => absurd hj (by simp)⟩
+  | succ k ih =>
+    intro cst mems envsC hrun
+    unfold runModule at hrun
+    obtain ⟨⟨cres, nexts, mems'⟩, hstep, hrest⟩ := Option.bind_eq_some_iff.mp hrun
+    obtain ⟨rest, hrestRun, hcons⟩ := Option.bind_eq_some_iff.mp hrest
+    cases hcons
+    obtain ⟨envF, hstepH, hout, -⟩ := instBody_stepH (we := we)
+      (instName := instName) hchild houts hfresh hstep hout_ne
+    obtain ⟨envsP, hrunP, hlen, hobs⟩ := ih (applyNexts cst nexts) mems' rest hrestRun
+    refine ⟨envF :: envsP, ?_, by simpa using hlen, ?_⟩
+    · unfold runH
+      rw [hstepH]
+      show (do
+        let restP ← runH we children (instBody mn instName inConns childOut outW)
+          seedP k (applyNexts cst nexts) mems'
+        some (envF :: restP)) = _
+      rw [hrunP]
+      rfl
+    · intro j hj hj'
+      cases j with
+      | zero => exact hout
+      | succ j => exact hobs j (by simpa using hj) (by simpa using hj')
+
 end Tools.ShippingHierarchySoundness
