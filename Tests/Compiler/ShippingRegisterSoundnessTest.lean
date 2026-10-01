@@ -1610,6 +1610,85 @@ theorem regAcc_parsed_optimized {mctx : Meta.Context} {mref : ST.Ref IO.RealWorl
     (ins := ins) hinsW (stO := stO) (mems := mems) hstOB hrunO
   exact ⟨envsO, hSV, hlenO, houtO⟩
 
+/-- **The regAcc shipping capstone**: ONE statement from the real compile to
+the printed text. Under the entry boundary and the pipeline's decidable
+gates, the source register stream is observed by the SAME trace at the
+optimized module, at its emitted-Verilog semantics AND at the module parsed
+back from the real printed bytes. -/
+theorem regAcc_shipping {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+    {wst wst' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore ``regAcc [] false) mctx mref cctx cref wst
+      (m, design) wst')
+    (env : EnvDefines mctx mref cctx cref ``regAcc regAccValue)
+    {o : Sparkle.IR.AST.Module}
+    (hchk : Sparkle.IR.OptCheck.seqOptCheck m o = true)
+    (hrstIn : "rst" ∈ m.inputs.map (·.name))
+    (hpout : ∃ p ∈ m.outputs, p.name = "out")
+    (hsv : Tools.SVParser.EmitSem.seqCheck (Tools.SVParser.RoundtripProof.moduleWof o)
+      (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof o)) o.body = true)
+    {body' bimg : List Sparkle.IR.AST.Stmt}
+    (hok' : body'.all Sparkle.IR.OptCheck.seqStmtOk = true)
+    (hcert : Tools.SVParser.RoundtripProof.semFragCheck o = true)
+    (hI : Tools.SVParser.RoundtripProof.bodyImage (Tools.SVParser.RoundtripProof.moduleWof o) o.wires o.body = some bimg)
+    (hchkR : Tools.SVParser.RoundtripProof.bodyReorderCheck body' bimg = true)
+    (hwag : ((Tools.ShippingSeqSVSoundness.seqNames o.body).all (fun n =>
+      Sparkle.IR.RegDedup.declWidth o n == Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof o) n)) = true) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = regAccBinders.length ∧
+    ∃ (cache : IO.Ref (ExprStructMap String)) (r : String),
+      ∀ {D : DomainConfig} (bools : Nat → Signal D Bool)
+        (bits : (j : Nat) → (n : Nat) → Signal D (BitVec n))
+        (mems : MEnv) (k : Nat) (ins : Nat → String → Nat) (st0 stO : String → Nat),
+      (∀ t stv, SourceInputs ``regAcc regAccBinders ids cache
+          (fun i => (bools i).val (k - 1 - t)) (fun i n => (bits i n).val (k - 1 - t))
+          (Tools.ShippingSeqOptSoundness.seedIn m ins t stv) ∧
+        Tools.ShippingSeqOptSoundness.seedIn m ins t stv r = stv r) →
+      (∀ t x, x ∈ m.inputs.map (·.name) →
+        ins t x < 2 ^ Sparkle.IR.RegDedup.declWidth m x) →
+      (∀ t, ins t "rst" = 0) →
+      st0 r = 3 →
+      (∀ pr ∈ (Sparkle.IR.OptCheck.seqRegs m).zip (Sparkle.IR.OptCheck.seqRegs o),
+        stO pr.2.1 = st0 pr.1.1) →
+      (∀ rr ∈ Sparkle.IR.OptCheck.seqRegs m,
+        st0 rr.1 < 2 ^ Sparkle.IR.RegDedup.declWidth m rr.1) →
+      ∀ (hinsW : ∀ t x, x ∈ m.inputs.map (·.name) →
+        ins t x < 2 ^ Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof o) x)
+        (hstOB : Sparkle.IR.Semantics.Bounded
+          (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof o)) stO),
+      ∃ envsO,
+        -- the optimized module
+        runModule (Sparkle.IR.RegDedup.declWidth o) o.body
+          (Tools.ShippingSeqOptSoundness.seedIn m ins) k stO mems = some envsO ∧
+        -- its emitted Verilog
+        (∃ pairs regs mprog,
+          Tools.SVParser.EmitSem.emitAssigns (Tools.SVParser.RoundtripProof.moduleWof o) o.body = some pairs ∧
+          Tools.SVParser.EmitSem.emitRegs (Tools.SVParser.RoundtripProof.moduleWof o) o.body = some regs ∧
+          Tools.SVParser.EmitSem.emitMemWrites (Tools.SVParser.RoundtripProof.moduleWof o) o.body = some mprog ∧
+          Tools.SVParser.EmitSem.runModuleSV (Tools.SVParser.RoundtripProof.moduleWof o) pairs regs mprog
+            (Tools.ShippingSeqOptSoundness.seedIn m ins) k stO mems = some envsO) ∧
+        -- the module parsed back from the printed bytes
+        runModule (fun x => ((Tools.SVParser.RoundtripProof.moduleWof o) x).getD 0) body'
+          (Tools.ShippingSeqOptSoundness.seedIn m ins) k stO mems = some envsO ∧
+        envsO.length = k ∧
+        ∀ j (hj : j < envsO.length), (envsO[j]'hj) "out" =
+          ((regAcc (bools 1) (bits 2 8) (bits 3 8)).val j).toNat := by
+  obtain ⟨ids, nd, len, cache, r, H⟩ := regAcc_run_optimized hr env hchk hrstIn hpout
+  refine ⟨ids, nd, len, cache, r, ?_⟩
+  intro D bools bits mems k ins st0 stO hseed hinsFit hrstZ hst0 hcpl hfit hinsW hstOB
+  obtain ⟨envsO, hrunO, hlenO, houtO⟩ :=
+    H bools bits mems k ins st0 stO hseed hinsFit hrstZ hst0 hcpl hfit
+  have hok := Tools.ShippingSeqSVSoundness.seqOptCheck_stmtOk_o hchk
+  have hwag' : ∀ n ∈ Tools.ShippingSeqSVSoundness.seqNames o.body,
+      Sparkle.IR.RegDedup.declWidth o n = Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof o) n := by
+    intro n hn
+    have := List.all_eq_true.mp hwag n hn
+    simpa using this
+  have hSV := Tools.ShippingSeqSVSoundness.seq_run_to_sv hok hsv hwag' (Tools.ShippingSeqOptSoundness.seedIn m ins)
+      (Tools.ShippingSeqSVSoundness.seedIn_bounded hinsW) hstOB hrunO
+  have hP := Tools.ShippingSeqSVSoundness.seq_run_to_parsed hok hok' hcert hI hchkR hwag'
+    (ins := ins) hinsW (stO := stO) (mems := mems) hstOB hrunO
+  exact ⟨envsO, hrunO, hSV, hP, hlenO, houtO⟩
+
 /-- The enabled-register stream observed by the module parsed back from the printed text. -/
 theorem regHold_parsed_optimized {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
     {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
@@ -2246,7 +2325,8 @@ run_cmd do
       ``accLoop_sv_optimized, ``regAcc_sv_optimized, ``regHold_sv_optimized,
       ``cdoAcc_sv_optimized, ``regChain_sv_optimized, ``cdo2X_sv_optimized,
       ``Tools.ShippingSeqSVSoundness.seq_run_to_parsed,
-      ``accLoop_parsed_optimized, ``regAcc_parsed_optimized, ``regHold_parsed_optimized,
+      ``accLoop_parsed_optimized, ``regAcc_parsed_optimized, ``regAcc_shipping,
+      ``regHold_parsed_optimized,
       ``cdoAcc_parsed_optimized, ``regChain_parsed_optimized, ``cdo2X_parsed_optimized] do
     for ax in (← liftCoreM <| collectAxioms name) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do
