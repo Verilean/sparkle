@@ -30,6 +30,10 @@
     (`Endpoint.ofModel`), which is what makes a model a drop-in reference.
   * `Bench.check` — in-order scoreboard.
 
+  Protocol agents on top of this — AXI4-Lite and AXI4-Stream, bound to a
+  design by signal name, with the structure and vocabulary of UVM — are in
+  `TlmAxi.lean`.
+
   Timing (the `Sim` contract, as the JIT implements it): in cycle t the
   bench sets the inputs, the simulator evaluates and clocks, and `read`
   returns the outputs of that evaluation.  A handshake happens in cycle t
@@ -93,8 +97,9 @@ structure Agent (I O : Type) where
   name : String
   /-- contribute to this cycle's inputs -/
   drive : Nat → I → IO I
-  /-- see this cycle's outputs; returns protocol errors -/
-  observe : Nat → O → IO (List String)
+  /-- see this cycle's inputs (as driven by all agents) and outputs;
+      returns protocol errors -/
+  observe : Nat → I → O → IO (List String)
   /-- still has work queued (keeps `drain` running) -/
   busy : IO Bool
 
@@ -135,7 +140,7 @@ def tick (b : Bench S I O) : IO Unit := do
   Sim.step b.sim i
   let o ← Sim.read b.sim
   for a in agents do
-    for e in ← a.observe c o do
+    for e in ← a.observe c i o do
       b.error s!"cycle {c}: {a.name}: {e}"
   b.cycleRef.set (c + 1)
 
@@ -197,7 +202,8 @@ end Driver
     transaction is queued, and — as the protocol requires of a source —
     keeps offering the same transaction until `ready`. -/
 def Bench.addDriver {S I O α : Type} (b : Bench S I O) (port : SourcePort I O α)
-    (pace : Pace := .always) : IO (Driver α) := do
+    (pace : Pace := .always) (onSent : Nat → α → IO Unit := fun _ _ => pure ()) :
+    IO (Driver α) := do
   let d : Driver α := { queue := ← IO.mkRef #[], next := ← IO.mkRef 0, sent := ← IO.mkRef #[] }
   -- the transaction on the wires in the current cycle, if any
   let offered : IO.Ref (Option α) ← IO.mkRef none
@@ -212,9 +218,10 @@ def Bench.addDriver {S I O α : Type} (b : Bench S I O) (port : SourcePort I O �
       offered.set x?
       if x?.isSome then committed.set true
       return port.drive i x?
-    observe := fun c o => do
+    observe := fun c _ o => do
       if let some x := ← offered.get then
         if port.ready o then
+          onSent c x
           d.sent.modify (·.push (c, x))
           d.next.modify (· + 1)
           committed.set false
@@ -247,7 +254,8 @@ end Monitor
     monitor reports a protocol error when the DUT, having raised `valid`
     without a handshake, drops `valid` or changes the payload. -/
 def Bench.addMonitor {S I O β : Type} [BEq β] (b : Bench S I O) (port : SinkPort I O β)
-    (pace : Pace := .always) : IO (Monitor β) := do
+    (pace : Pace := .always) (onItem : Nat → β → IO Unit := fun _ _ => pure ()) :
+    IO (Monitor β) := do
   let m : Monitor β := { received := ← IO.mkRef #[], taken := ← IO.mkRef 0 }
   let readyNow : IO.Ref Bool ← IO.mkRef false
   -- a transaction that was valid last cycle and not accepted
@@ -258,7 +266,7 @@ def Bench.addMonitor {S I O β : Type} [BEq β] (b : Bench S I O) (port : SinkPo
       let r := pace.active c
       readyNow.set r
       return port.setReady i r
-    observe := fun c o => do
+    observe := fun c _ o => do
       let before ← pending.get
       match port.valid o with
       | some y =>
@@ -266,6 +274,7 @@ def Bench.addMonitor {S I O β : Type} [BEq β] (b : Bench S I O) (port : SinkPo
           | some y' => y' != y
           | none => false
         if ← readyNow.get then
+          onItem c y
           m.received.modify (·.push (c, y))
           pending.set none
         else pending.set (some y)

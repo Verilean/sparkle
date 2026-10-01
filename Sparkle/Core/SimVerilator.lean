@@ -69,9 +69,18 @@ private def cTypeFor (width : Nat) : String :=
     `V<top>` model behind the JIT C ABI.  The resulting `.cpp`
     is compiled together with the Verilator-generated sources by
     `verilator --build`. -/
-private def emitTb (top : String) (inputs outputs : List PortSpec)
-    : String :=
+def emitTb (top : String) (inputs outputs : List PortSpec)
+    (clock : String := "clk") (reset : Option (String × Bool) := some ("rst", true))
+    (resetCycles : Nat := 1) : String :=
   let cls := s!"V{top}"
+  -- `reset`: the reset port and whether it is active high.  A design
+  -- written elsewhere may call it `aresetn` and want it low; a design
+  -- without a reset port is created and left alone.
+  let rstSet (active : Bool) : String := match reset with
+    | some (r, activeHigh) => s!"m->{r} = {if active == activeHigh then 1 else 0}; "
+    | none => ""
+  let resetPulses := String.join <| (List.range (max resetCycles 1)).map fun _ =>
+    s!"    m->{clock} = 1; m->eval();\n    m->{clock} = 0; m->eval();\n"
   -- Slot layout = the JIT C ABI's (`CSim.emitSetInputSwitch` /
   -- `emitGetOutputSwitch`): a port of up to 64 bits is one slot; a wider
   -- port is ⌈w/32⌉ consecutive 32-bit slots, low word first (Verilator
@@ -111,17 +120,17 @@ private def emitTb (top : String) (inputs outputs : List PortSpec)
   "    (void)c;\n" ++ snapLines ++ "\n}\n\n" ++
   "extern \"C\" {\n\n" ++
   "void* jit_create() {\n" ++
-  "    auto* c = new SparkleVCtx(); c->m = new " ++ cls ++ "();\n" ++
-  "    c->m->clk = 0; c->m->rst = 0; c->m->eval(); sparkle_snap(c);\n" ++
+  "    auto* c = new SparkleVCtx(); c->m = new " ++ cls ++ "(); auto* m = c->m;\n" ++
+  "    m->" ++ clock ++ " = 0; " ++ rstSet false ++ "m->eval(); sparkle_snap(c);\n" ++
   "    return (void*)c;\n}\n" ++
   "void  jit_destroy(void* ctx) { auto* c = static_cast<SparkleVCtx*>(ctx); delete c->m; delete c; }\n\n" ++
   -- Reset: pulse rst high for one cycle, then low.  Matches the
   -- behaviour of the CppSim `reset()` member.
   "void  jit_reset(void* ctx) {\n" ++
   "    auto* c = static_cast<SparkleVCtx*>(ctx); auto* m = c->m;\n" ++
-  "    m->rst = 1; m->clk = 0; m->eval();\n" ++
-  "    m->clk = 1; m->eval();\n" ++
-  "    m->rst = 0; m->clk = 0; m->eval();\n" ++
+  "    " ++ rstSet true ++ "m->" ++ clock ++ " = 0; m->eval();\n" ++
+  resetPulses ++
+  "    " ++ rstSet false ++ "m->eval();\n" ++
   "    sparkle_snap(c);\n" ++
   "}\n\n" ++
   -- eval / tick / fused.
@@ -130,14 +139,14 @@ private def emitTb (top : String) (inputs outputs : List PortSpec)
   "}\n" ++
   "void jit_tick(void* ctx) {\n" ++
   "    auto* m = static_cast<SparkleVCtx*>(ctx)->m;\n" ++
-  "    m->clk = 1; m->eval();\n" ++
-  "    m->clk = 0; m->eval();\n" ++
+  "    m->" ++ clock ++ " = 1; m->eval();\n" ++
+  "    m->" ++ clock ++ " = 0; m->eval();\n" ++
   "}\n\n" ++
   "void jit_eval_tick(void* ctx) {\n" ++
   "    auto* c = static_cast<SparkleVCtx*>(ctx); auto* m = c->m;\n" ++
   "    m->eval(); sparkle_snap(c);      // this cycle's outputs, inputs applied\n" ++
-  "    m->clk = 1; m->eval();           // clock edge\n" ++
-  "    m->clk = 0; m->eval();\n" ++
+  "    m->" ++ clock ++ " = 1; m->eval();           // clock edge\n" ++
+  "    m->" ++ clock ++ " = 0; m->eval();\n" ++
   "}\n\n" ++
   "void jit_set_input(void* ctx, uint32_t idx, uint64_t val) {\n" ++
   "    auto* m = static_cast<SparkleVCtx*>(ctx)->m;\n" ++
@@ -196,6 +205,40 @@ private def emitTb (top : String) (inputs outputs : List PortSpec)
   "const JitVTable* jit_vtable(void) { return &g_sparkle_verilator_vtable; }\n\n" ++
   "} // extern \"C\"\n"
 
+/-- Run Verilator on `sources` together with the wrapper `tb`, link the
+    result into a shared object in `objDir`, and load it.  `sources` should
+    be absolute paths: Verilator records them in the makefile it then runs
+    with `make -C <objDir>`. -/
+def buildAndLoad (top : String) (sources : List String) (tb : String) (objDir : String)
+    (verilatorArgs : List String := []) : IO JITHandle := do
+  IO.FS.createDirAll objDir
+  let tbPath := s!"{objDir}/sparkle_verilator_tb.cpp"
+  IO.FS.writeFile tbPath tb
+  let soPath := s!"{objDir}/V{top}.so"
+  let r ← IO.Process.output {
+    cmd := "verilator"
+    args := #["--cc", "--build", "-j", "0", "--top-module", top,
+              "-CFLAGS", "-O2 -fPIC", "--Mdir", objDir]
+            ++ verilatorArgs.toArray ++ sources.toArray ++ #[tbPath]
+    stdin := .null
+  }
+  if r.exitCode != 0 then
+    throw (IO.userError s!"verilator build failed (exit {r.exitCode}):\n{r.stderr}")
+  -- `verilator --cc --build` (no `--exe`) stops at static libraries — the
+  -- model plus the wrapper in `libV<top>.a`, the runtime in
+  -- `libverilated.a` — and never links.  Link the shared object here,
+  -- every time: the libraries may just have been rebuilt.
+  let cxx := (← IO.getEnv "CXX").getD "c++"
+  let l ← IO.Process.output {
+    cmd := cxx
+    args := #["-shared", "-o", soPath,
+              "-Wl,--whole-archive", s!"{objDir}/libV{top}.a", "-Wl,--no-whole-archive",
+              s!"{objDir}/libverilated.a", "-pthread"]
+    stdin := .null }
+  if l.exitCode != 0 then
+    throw (IO.userError s!"linking {soPath} failed (exit {l.exitCode}):\n{l.stderr}")
+  JIT.load soPath
+
 /-- Build a Verilator-backed `.so` from a Sparkle-generated `.sv`,
     then load it via the existing JIT FFI.
 
@@ -229,37 +272,8 @@ def of (svPath top : String) (inputs outputs : List PortSpec)
   -- runs with `make -C <objDir>`; a relative path is not found from there
   -- when the directory is reused, and the second build fails.
   let svPath := (← IO.FS.realPath svPath).toString
-  let tbPath := s!"{objDir}/sparkle_verilator_tb.cpp"
-  IO.FS.writeFile tbPath (emitTb top inputs outputs)
-  let soPath := s!"{objDir}/V{top}.so"
-  let r ← IO.Process.output {
-    cmd := "verilator"
-    args := #[
-      "--cc", "--build", "-j", "0",
-      "--top-module", top,
-      "-CFLAGS", "-O2 -fPIC",
-      "--Mdir", objDir,
-      "-Wno-WIDTHEXPAND", "-Wno-WIDTHTRUNC",
-      "-Wno-UNUSEDSIGNAL", "-Wno-CASEINCOMPLETE",
-      svPath, tbPath ]
-    stdin := .null
-  }
-  if r.exitCode != 0 then
-    throw (IO.userError s!"verilator build failed (exit {r.exitCode}):\n{r.stderr}")
-  -- `verilator --cc --build` (no `--exe`) stops at static libraries — the
-  -- model plus the wrapper in `libV<top>.a`, the runtime in
-  -- `libverilated.a` — and never links.  Link the shared object here,
-  -- every time: the libraries may just have been rebuilt.
-  let cxx := (← IO.getEnv "CXX").getD "c++"
-  let l ← IO.Process.output {
-    cmd := cxx
-    args := #["-shared", "-o", soPath,
-              "-Wl,--whole-archive", s!"{objDir}/libV{top}.a", "-Wl,--no-whole-archive",
-              s!"{objDir}/libverilated.a", "-pthread"]
-    stdin := .null }
-  if l.exitCode != 0 then
-    throw (IO.userError s!"linking {soPath} failed (exit {l.exitCode}):\n{l.stderr}")
-  let handle ← JIT.load soPath
+  let handle ← buildAndLoad top [svPath] (emitTb top inputs outputs) objDir
+    ["-Wno-WIDTHEXPAND", "-Wno-WIDTHTRUNC", "-Wno-UNUSEDSIGNAL", "-Wno-CASEINCOMPLETE"]
   pure { handle := handle }
 
 instance : Sparkle.Core.Sim.Sim Simulator

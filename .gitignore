@@ -124,3 +124,4 @@ bench/xiangshan/corpus/
 bench/systolic/systolic_cpu
 bench/systolic/systolic_gpu
 bench/systolic/systolic_gpu_grid
+Examples/SvInterop/third_party/

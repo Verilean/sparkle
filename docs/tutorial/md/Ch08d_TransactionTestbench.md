@@ -314,9 +314,11 @@ model = [(some 16), (some 19), (some 22)]
 equal = true
 ```
 
-This is the useful half of what SystemC TLM is used for: write the
-test (or the software that talks to the block) against the model
-first, then run it unchanged on the RTL when the RTL exists.
+This is one of the things a transaction-level model is used for: write
+the test (or the software that talks to the block) against the model
+first, then run it unchanged on the RTL when the RTL exists.  It is not
+transaction-level *modelling* in the SystemC sense — there is one untimed
+function, no connected models and no timing annotation.
 
 ## 8d.8 The same bench on Verilator
 
@@ -438,9 +440,10 @@ this is a separate executable and not part of `lake test`; without
 
 ## 8d.10 Limits — read before relying on it
 
-* **Protocol.**  One protocol: ready/valid, one payload per stream.
-  AXI, with its five channels and bursts, is five streams plus rules
-  between them; those rules are not written.
+* **Protocol.**  This chapter's layer knows one protocol: ready/valid,
+  one payload per stream.  The AXI4-Lite and AXI4-Stream agents built on
+  it — transactions as SystemVerilog users mean them, and designs that
+  were not written in Sparkle — are Chapter 8e.
 * **UVM export.**  The generated testbench is *directed*: the stimulus
   is the list from Lean, in order.  There is no constrained-random
   generation, no functional coverage, no register model.  Payloads are
