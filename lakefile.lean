@@ -314,6 +314,12 @@ lean_exe «circuit-do-test» where
   root := `Tests.Drivers.CircuitDoTestMain
   supportInterpreter := true
 
+-- Transaction-level testbench layer (driver / monitor / scoreboard /
+-- blocking endpoints) on JIT-simulated ready/valid designs.
+lean_exe «tlm-test» where
+  root := `Tests.Drivers.TlmTestMain
+  supportInterpreter := true
+
 -- Sim + synth check for the HList-based generic `runCircuitH`
 -- — the sole register-DSL helper after the per-arity
 -- `runCircuit{1..4}` were removed.  Covers N=1..4 plus
