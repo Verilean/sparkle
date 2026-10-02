@@ -61,6 +61,18 @@ instruction, and three lowering bugs (multi-bit `if` conditions,
 `reg x = v;` initializers, memory reads into internal wires) meant the
 JIT model was not even trapping the way Verilator did.
 
+## What is generated
+
+`gen.lean` asks for the fast configuration, `toCJIT design
+(fusedLocalWires := true)`: inside `eval_tick` internal wires are stack
+locals, so the C compiler drops what nothing reads and computes a wire
+only on the branch that uses it.  After `eval_tick` such a wire's
+`get_wire` value is stale until `eval` is called; registers, memories and
+outputs are unaffected.  This is the like-for-like comparison with
+Verilator, whose default also exposes no internal signals.  The default
+configuration (every named wire current after `eval_tick`) costs about
+15 % more instructions on this design.
+
 ## Running it
 
     bench/gate/run.sh              # needs lake, cc, verilator, and valgrind or perf

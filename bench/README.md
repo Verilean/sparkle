@@ -30,21 +30,29 @@ anything is timed; the comparison that CI enforces is executed
 instructions per cycle (see [gate/README.md](gate/README.md)).
 
 ```
-| model          | instructions / cycle |
-| JIT            | 3733.8               |
-| Verilator      | 2542.5               |
-wall clock, 10000000 cycles: JIT 6.2 M cyc/s, Verilator 9.2 M cyc/s
+| model                              | instructions / cycle | cycles / s |
+| JIT, fast configuration            | 2170.0               | 10.7 M     |
+| JIT, default (all wires readable)  | 2492.3               |  9.4 M     |
+| Verilator                          | 2542.5               |  9.2 M     |
 ```
 
-(2026-10-02, gcc 15.3, Verilator 5.052, one workstation.)
+(2026-10-02, gcc 15.3, Verilator 5.052, one workstation, 10M cycles.)
+
+The fast configuration is `toCJIT design (fusedLocalWires := true)`:
+`eval_tick` keeps internal wires on the stack, so after it `get_wire` is
+current only for wires listed in `observableWires` (call `eval` to read
+the others).  Verilator's default is the same — no `--public` signals.
+Registers, memories and outputs are readable either way.
 
 > **The figure that used to stand here — "Sparkle JIT 11.65 M cyc/s,
 > 1.13x faster" — was not a measurement of a correct model.**  The ROM
 > was empty, so PicoRV32 trapped on its first instruction and an idle SoC
-> was timed; the generator of that day updated registers in place, which
-> breaks non-blocking semantics; and the JIT model never took its reset
-> and read 0 from both RAMs.  With those fixed the JIT is at about 0.68x
-> of Verilator on this design.
+> was timed; the generator of that day updated registers in place without
+> checking who still read them, which breaks non-blocking semantics; and
+> the JIT model never took its reset and read 0 from both RAMs.  With
+> those fixed the JIT stood at 0.68x of Verilator (3733.8 instructions
+> per cycle); the numbers above are after the emission work that the
+> gate now protects.
 
 ### 2. Multi-Core Parallel (`./bench.sh multicore`)
 
@@ -70,7 +78,7 @@ Sparkle-native RV32I SoC (smaller, simpler design).
 
 | Config | Sparkle JIT | Verilator | Ratio |
 |--------|------------|-----------|-------|
-| LiteX 1-core (firmware running, co-simulated) | 6.2M | 9.2M | 0.68x |
+| LiteX 1-core (firmware running, co-simulated) | **10.7M** | 9.2M | **1.16x** |
 | LiteX 8-core sequential ¹ | 1.46M | 1.06M | 1.38x |
 | LiteX 8-core parallel ¹ | 5.07M | 1.06M | 4.78x |
 | RV32I SoC ¹ | 14.2M | 8.7M | 1.63x |

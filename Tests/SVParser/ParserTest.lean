@@ -2951,5 +2951,76 @@ endmodule
     else IO.println s!"FAIL: {r} (want [4661] = 0x1235)"; failed := failed + 1
   catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
 
+  -- Test 81 (PicoRV32 reg_sh): a narrow register loaded from a wider
+  -- wire is truncated to ITS width.  CSim took every `.ref` as already
+  -- masked, so a chain made only of references got no mask at all and
+  -- the 5-bit register kept bits 5-7 of its uint8 container.
+  IO.print "  Test 81: narrow register loaded from a wider wire is truncated (PicoRV32 reg_sh)... "
+  try
+    let v := "
+module trunc (input clk, input en, input [31:0] v, output [7:0] q);
+  reg [4:0] sh;
+  always @(posedge clk) begin
+    if (en)
+      sh <= v;
+  end
+  assign q = {3'b000, sh} + 8'd0;
+endmodule
+"
+    let r ← jitRun v (fun h => do JIT.setInput h 0 1; JIT.setInput h 1 0xFF) 3
+      (fun h => do return [← JIT.getOutput h 0])
+    if r == [31] then IO.println "PASS"; passed := passed + 1
+    else IO.println s!"FAIL: {r} (want [31])"; failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 82 (CSim decision trees + in-place registers).  The JIT emits a
+  -- priority chain as nested `if`s and writes a register in place when
+  -- nothing later needs its old value.  Three things that go wrong if
+  -- that is done carelessly:
+  --   * a guard group whose inner arms all miss must FALL THROUGH to the
+  --     lower-priority arms (`r` gets 55 from the first statement even
+  --     though `if (s[0])` is entered and assigns nothing);
+  --   * registers that read each other (`a <= b; b <= a`) cannot both be
+  --     written in place;
+  --   * a shift chain must be written from the far end backwards.
+  IO.print "  Test 82: decision-tree fall-through, swap and shift chain keep non-blocking semantics... "
+  try
+    let v := "
+module pri (input clk, input [3:0] s, output [7:0] q, output [7:0] ab, output [7:0] d1, output [7:0] d2);
+  reg [7:0] r;
+  reg [7:0] a = 8'd1, b = 8'd2;
+  reg [7:0] s0 = 8'd5, s1, s2;
+  always @(posedge clk) begin
+    if (s[2] | s[3])
+      r <= 8'd55;
+    if (s[0]) begin
+      if (s[1])
+        r <= 8'd11;
+      else if (s[2])
+        r <= 8'd22;
+    end else if (s[3])
+      r <= 8'd33;
+    a <= b;
+    b <= a;
+    s0 <= s0 + 8'd1;
+    s1 <= s0;
+    s2 <= s1;
+  end
+  assign q = r;
+  assign ab = a + b + (a == b ? 8'd100 : 8'd0);
+  assign d1 = s0 - s1;
+  assign d2 = s1 - s2;
+endmodule
+"
+    -- s = 4'b1001: only the first statement assigns r.  a + b stays 3
+    -- (103 would mean both took the same value); the chain keeps a
+    -- distance of one between its stages.
+    let r ← jitRun v (fun h => JIT.setInput h 0 0b1001) 6
+      (fun h => do return [← JIT.getOutput h 0, ← JIT.getOutput h 1,
+                           ← JIT.getOutput h 2, ← JIT.getOutput h 3])
+    if r == [55, 3, 1, 1] then IO.println "PASS"; passed := passed + 1
+    else IO.println s!"FAIL: {r} (want [55, 3, 1, 1])"; failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
   IO.println s!"\n=== Results: {passed} passed, {failed} failed ==="
   return if failed == 0 then 0 else 1

@@ -166,6 +166,24 @@ partial def exprIsMasked (w : Nat) : Expr → Bool
   | .op .asr _ => true
   | _ => !needsMask w
 
+/-- Does every value of `e` fit in `w` bits?  `exprIsMasked` takes a `.ref`
+    (and a right shift) as already masked, which is true of the
+    reference's OWN width only.  IR lowered from Verilog truncates
+    implicitly: PicoRV32's 5-bit `reg_sh <= cpuregs_rs2` stores a 32-bit
+    wire, and with every arm of the chain a `.ref` no mask was emitted at
+    all, leaving bits 5-7 of the uint8 container set. -/
+partial def exprFits (typeMap : TypeMap) (w : Nat) : Expr → Bool
+  | .ref n => lookupWidth typeMap n ≤ w
+  | .op .mux [_, t, e] => exprFits typeMap w t && exprFits typeMap w e
+  | .op .and [a, b] => exprFits typeMap w a || exprFits typeMap w b
+  | .op .or [a, b] | .op .xor [a, b] => exprFits typeMap w a && exprFits typeMap w b
+  | .op .shr [a, _] | .op .asr [a, _] => exprFits typeMap w a
+  | _ => true
+
+/-- May `e` be stored into a `w`-bit scalar without a mask? -/
+def storeIsMasked (typeMap : TypeMap) (w : Nat) (e : Expr) : Bool :=
+  exprIsMasked w e && exprFits typeMap w e
+
 /-- Convert Operator to C operator symbol -/
 def emitCOperator (op : Operator) : String :=
   match op with
@@ -667,9 +685,35 @@ partial def emitExpr (typeMap : TypeMap) (e : Expr) : String :=
           | .const 0 _, _ => s!"(({mkTerms arg2 arg1}) ? 1 : 0)"
           | _, _          => s!"(({mkTerms arg1 arg2}) ? 1 : 0)"
         else
+        -- `{a, b, c, …} == 0` is `(a | b | c | …) == 0`: no need to shift
+        -- every part into its position first.  PicoRV32's `instr_trap`
+        -- (`!{instr_lui, instr_auipc, …}`, 48 one-bit parts) was 10 % of
+        -- the instructions LiteX executes per cycle.
+        let zeroTest (x : Expr) : String :=
+          match x with
+          | .concat parts =>
+            let terms := parts.filterMap fun part =>
+              let pw := inferExprWidth typeMap part
+              if pw == 0 then none
+              else
+                let ps := emitExpr typeMap part
+                -- Only a value that is canonical AS AN EXPRESSION may go
+                -- unmasked (there is no store to truncate it here).
+                let canonical := match part with
+                  | .ref n => lookupWidth typeMap n ≤ pw
+                  | .const _ _ | .slice _ _ _ => true
+                  | .op .eq _ | .op .lt_u _ | .op .lt_s _ | .op .le_u _
+                  | .op .le_s _ | .op .gt_u _ | .op .gt_s _ | .op .ge_u _
+                  | .op .ge_s _ => true
+                  | _ => false
+                some (if canonical || pw ≥ 64 then ps
+                  else s!"((uint64_t)({ps}) & 0x{String.ofList (Nat.toDigits 16 (2 ^ pw - 1))}ULL)")
+            if terms.length < 2 then s!"(!({emitExpr typeMap x}) ? 1 : 0)"
+            else s!"(!({String.intercalate " | " terms}) ? 1 : 0)"
+          | _ => s!"(!({emitExpr typeMap x}) ? 1 : 0)"
         match arg1, arg2 with
-        | _, .const 0 _ => s!"(!({emitExpr typeMap arg1}) ? 1 : 0)"
-        | .const 0 _, _ => s!"(!({emitExpr typeMap arg2}) ? 1 : 0)"
+        | _, .const 0 _ => zeroTest arg1
+        | .const 0 _, _ => zeroTest arg2
         | _, _ => s!"({emitExpr typeMap arg1} == {emitExpr typeMap arg2} ? 1 : 0)"
       | .lt_u | .le_u | .gt_u | .ge_u =>
         let w := max (inferExprWidth typeMap arg1) (inferExprWidth typeMap arg2)
@@ -764,6 +808,10 @@ structure StmtParts where
   tickBody        : List String
   resetBody       : List String
   evalTickLocals  : List String
+  /-- A scalar register only: the lines that update it IN PLACE
+      (`reg = …`, nothing when it holds), for the fused eval_tick when no
+      later statement still needs its old value. -/
+  inPlace         : Option (Unit → List String) := none
   deriving Inhabited
 
 instance : Append StmtParts where
@@ -813,28 +861,120 @@ private partial def flattenMuxChain (e : Expr) : List (Expr × Expr) × Expr :=
     ((cond, thenVal) :: rest, default_)
   | _ => ([], e)
 
-/-- Count the depth of a MUX chain (number of nested ternary operators) -/
-private partial def muxChainDepth : Expr → Nat
-  | .op .mux [_, _, elseVal] => 1 + muxChainDepth elseVal
-  | _ => 0
+/-- Is `e` rendered as a C value that is exactly 0 or 1?  Only then may a
+    bitwise `a & b` used as a condition be evaluated as `a && b`. -/
+private partial def isCBool (typeMap : TypeMap) : Expr → Bool
+  | .const v 1 => v == 0 || v == 1
+  | .ref n => lookupWidth typeMap n == 1
+  | .slice e hi lo => hi == lo && inferExprWidth typeMap e ≤ 64
+  | .op .eq _ | .op .lt_u _ | .op .lt_s _ | .op .le_u _
+  | .op .le_s _ | .op .gt_u _ | .op .gt_s _ | .op .ge_u _
+  | .op .ge_s _ => true
+  | .op .not [a] => inferExprWidth typeMap a ≤ 1
+  | .op .and [a, b] | .op .or [a, b] => isCBool typeMap a && isCBool typeMap b
+  | _ => false
 
-/-- Emit a MUX chain as if-else block for better branch prediction. -/
-def emitMuxAsIfElse (typeMap : TypeMap)
-    (lhsName : String) (width : Nat) (rhs : Expr)
-    (minArms : Nat := 4) : List String :=
-  let (arms, default_) := flattenMuxChain rhs
-  if arms.length < minArms then []
+/-- The conjuncts of a condition, outermost guard first.  `a & b` is split
+    only when both sides are C booleans. -/
+private partial def condConjuncts (typeMap : TypeMap) : Expr → List Expr
+  | .op .and [a, b] =>
+    if isCBool typeMap a && isCBool typeMap b then
+      condConjuncts typeMap a ++ condConjuncts typeMap b
+    else [.op .and [a, b]]
+  | e => [e]
+
+/- Lines of a priority chain as a short-circuit decision tree.
+
+    A chain `c1 ? v1 : c2 ? v2 : … : d` whose conditions are path guards
+    (`resetn & state == S & …`, one conjunction per source branch) costs,
+    as one C expression, every guard and every value on every cycle.
+    Here consecutive arms that share their leading conjunct are grouped
+    under one `if`, the remaining conjuncts are tested with `&&`, and a
+    value is computed only in the arm that is taken:
+
+        do {
+          if (g) {
+            if (a && b) { x = v1; break; }
+            if (c)      { x = v2; break; }
+          }
+          if (h) { x = v3; break; }
+          x = d;
+        } while (0);
+
+    The arms are tried in the chain's own order and a group whose inner
+    arms all miss falls through to the arms after it, so the first arm
+    whose full condition holds is the one taken — exactly the chain. -/
+mutual
+/-- `lhs = e;` — as a nested decision tree when `e` is itself a chain. -/
+private partial def muxAssignLines (typeMap : TypeMap) (lhsName : String)
+    (maskFn : Expr → String) (hold : Option String) (indent : String) (e : Expr) : List String :=
+  let (arms, default_) := flattenMuxChain e
+  if arms.isEmpty then
+    -- `hold`: the target already has this value (an in-place register
+    -- keeping its state), so there is nothing to store.
+    if hold.isSome && e == .ref (hold.getD "") then []
+    else [s!"{indent}{lhsName} = {maskFn e};"]
+  else
+    [s!"{indent}do \{"] ++
+      muxTreeLines typeMap lhsName maskFn hold (indent ++ "  ")
+        (arms.map fun (c, v) => (condConjuncts typeMap c, v)) ++
+      muxAssignLines typeMap lhsName maskFn hold (indent ++ "  ") default_ ++
+      [s!"{indent}} while (0);"]
+
+private partial def muxTreeLines (typeMap : TypeMap) (lhsName : String)
+    (maskFn : Expr → String) (hold : Option String) (indent : String)
+    (arms : List (List Expr × Expr)) : List String :=
+  -- the taken arm: assign (its value may be a chain of its own), then leave
+  let take (ind : String) (v : Expr) : Sum String (List String) :=
+    if (flattenMuxChain v).1.isEmpty then
+      if hold.isSome && v == .ref (hold.getD "") then .inl "break;"
+      else .inl s!"{lhsName} = {maskFn v}; break;"
+    else
+      .inr (muxAssignLines typeMap lhsName maskFn hold (ind ++ "  ") v ++ [s!"{ind}  break;"])
+  match arms with
+  | [] => []
+  | ([], v) :: _ =>
+    match take indent v with
+    | .inl one => [s!"{indent}{one}"]
+    | .inr ls => [s!"{indent}\{"] ++ ls ++ [s!"{indent}}"]
+  | (p :: ps, v) :: rest =>
+    let run := (arms.takeWhile fun (c, _) => c.head? == some p)
+    let others := arms.drop run.length
+    if run.length ≤ 1 then
+      let cond := String.intercalate " && " ((p :: ps).map (emitExpr typeMap))
+      (match take indent v with
+        | .inl one => [s!"{indent}if ({cond}) \{ {one} }"]
+        | .inr ls => [s!"{indent}if ({cond}) \{"] ++ ls ++ [s!"{indent}}"]) ++
+        muxTreeLines typeMap lhsName maskFn hold indent rest
+    else
+      [s!"{indent}if ({emitExpr typeMap p}) \{"] ++
+        muxTreeLines typeMap lhsName maskFn hold (indent ++ "  ") (run.map fun (c, v) => (c.drop 1, v)) ++
+        [s!"{indent}}"] ++
+        muxTreeLines typeMap lhsName maskFn hold indent others
+end
+
+/-- Emit `lhs = <mux chain>` as a decision tree; `[]` when `rhs` is not a
+    mux.  Every chain goes this way, down to a single arm: on LiteX each
+    step of the threshold from 16 arms to 1 lowered both the instructions
+    executed and the run time (3364 / 3134 / 2936 / 2787 per cycle at
+    8 / 4 / 2 / 1). -/
+def emitMuxAsTree (typeMap : TypeMap)
+    (lhsName : String) (width : Nat) (rhs : Expr) : List String :=
+  if (flattenMuxChain rhs).1.isEmpty then []
   else
     let maskFn := fun (e : Expr) =>
       let s := emitExpr typeMap e
-      if exprIsMasked width e then s else applyMask s width
-    let defaultLine := s!"        {lhsName} = {maskFn default_};"
-    let ifLines := (arms.zip (List.range arms.length)).map fun ((cond, val), idx) =>
-      let condStr := emitExpr typeMap cond
-      let valStr := maskFn val
-      if idx == 0 then s!"        if ({condStr}) {lhsName} = {valStr};"
-      else s!"        else if ({condStr}) {lhsName} = {valStr};"
-    [defaultLine] ++ ifLines
+      if storeIsMasked typeMap width e then s else applyMask s width
+    muxAssignLines typeMap lhsName maskFn none "        " rhs
+
+/-- `reg = input` updating the register in place: a decision tree when the
+    input is a chain, no store at all on the paths where it holds. -/
+def emitRegInPlace (typeMap : TypeMap)
+    (regName : String) (cName : String) (width : Nat) (input : Expr) : List String :=
+  let maskFn := fun (e : Expr) =>
+    let s := emitExpr typeMap e
+    if storeIsMasked typeMap width e then s else applyMask s width
+  muxAssignLines typeMap cName maskFn (some regName) "        " input
 
 /-- Split a statement into declaration/eval/tick/reset parts -/
 partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
@@ -1381,9 +1521,7 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
             [s!"        {sn}[{nWords - 1}] &= {topMask}u;"] }
     else
       let sn := sanitizeName lhs
-      let ifElseLines := if muxChainDepth rhs >= 16 then
-          emitMuxAsIfElse typeMap sn width rhs 16
-        else []
+      let ifElseLines := emitMuxAsTree typeMap sn width rhs
       if !ifElseLines.isEmpty then
         { declarations := []
         , evalBody := ifElseLines
@@ -1392,7 +1530,7 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
         , evalTickLocals := [] }
       else
         let expr := emitExpr typeMap rhs
-        let masked := if exprIsMasked width rhs then expr else applyMask expr width
+        let masked := if storeIsMasked typeMap width rhs then expr else applyMask expr width
         { declarations := []
         , evalBody := [s!"        {sanitizeName lhs} = {masked};"]
         , tickBody := []
@@ -1438,11 +1576,9 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
     else
       let cType := emitScalarBase (.bitVector width)
       let rawExpr := emitExpr typeMap input
-      let inputExpr := if exprIsMasked width input then rawExpr else applyMask rawExpr width
+      let inputExpr := if storeIsMasked typeMap width input then rawExpr else applyMask rawExpr width
       let initExpr := emitInitScalar initValue width
-      let ifElseLines := if muxChainDepth input >= 16 then
-          emitMuxAsIfElse typeMap nextName width input 16
-        else []
+      let ifElseLines := emitMuxAsTree typeMap nextName width input
       let nextLocalDecl := s!"        {cType} {nextName} = {outName};"
       let body : List String :=
         if ifElseLines.isEmpty then [s!"        {nextName} = {inputExpr};"]
@@ -1451,7 +1587,8 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
       , evalBody := body
       , tickBody := [s!"        {outName} = {nextName};"]
       , resetBody := [s!"        {outName} = {initExpr};"]
-      , evalTickLocals := [nextLocalDecl] }
+      , evalTickLocals := [nextLocalDecl]
+      , inPlace := some fun _ => emitRegInPlace typeMap output outName width input }
 
   | .memory name addrWidth dataWidth _clock writeAddr writeData writeEnable
       readAddr readData comboRead extraWrites extraReads =>
@@ -1719,6 +1856,47 @@ def scheduleEvalBody (design : Option Design) (m : Module)
   -- The caller re-evaluates to a fixed point instead.
   return (result ++ remaining ++ rest, !remaining.isEmpty)
 
+/-- Wires that some eval statement reads BEFORE the statement that drives
+    them, in the emitted order: a combinational cycle at statement
+    granularity, or a wire that refers to itself (`x = (x & ~m) | f`, the
+    lowering of a part-wise assignment).  Such a read sees the value the
+    previous call left behind, so the wire must keep its struct field. -/
+def evalStaleReads (design : Option Design) (body : List Stmt) : List String := Id.run do
+  let childOutputs : Stmt → List String := fun s => match s with
+    | .inst modName _ conns =>
+      match design.bind (·.findModule modName) with
+      | some sm => conns.filterMap (fun (p, e) =>
+          if sm.outputs.any (·.name == p) then
+            match e with | .ref w => some w | _ => none
+          else none)
+      | none => conns.filterMap fun (_, e) => match e with | .ref w => some w | _ => none
+    | _ => []
+  let defsOf : Stmt → List String := fun s => match s with
+    | .assign lhs _ => [lhs]
+    | .memory _ _ _ _ _ _ _ _ rd _ _ er => rd :: er.map (·.2)
+    | .inst .. => childOutputs s
+    | _ => []
+  let usesOf : Stmt → List String := fun s => match s with
+    | .assign _ rhs => collectExprRefs rhs
+    | .memory _ _ _ _ _ _ _ ra _ cr _ er =>
+      if cr then er.foldl (fun acc (a, _) => collectExprRefsAux acc a) (collectExprRefs ra) else []
+    | .inst _ _ conns => conns.foldl (fun acc (_, e) => collectExprRefsAux acc e) []
+    | _ => []
+  let produced : Std.HashSet String :=
+    body.foldl (fun h s => (defsOf s).foldl (fun h n => h.insert n) h) {}
+  let mut defined : Std.HashSet String := {}
+  let mut stale : List String := []
+  for s in body do
+    let outs := defsOf s
+    for r in usesOf s do
+      -- an instance's own output connection is not a read
+      let own := match s with | .inst .. => outs.contains r | _ => false
+      if !own && produced.contains r && !defined.contains r then
+        stale := r :: stale
+    for d in outs do
+      defined := defined.insert d
+  return stale
+
 /-- Runtime helper for a DYNAMIC shift of a >64-bit value consumed in a
     ≤64-bit context (firtool's flattened packed-array dynamic select:
     `(_GEN >> (addr * 8)) & 0xff` with a multi-word `_GEN`): returns the
@@ -1770,7 +1948,8 @@ def unsupportedSymbolicWidthError : String :=
     add those at design level). -/
 def emitModule (m : Module) (design : Option Design := none)
     (observableWires : Option (List String) := none)
-    (funcQual : String := "") : String :=
+    (funcQual : String := "")
+    (fusedLocalWires : Option (List String) := none) : String :=
   if moduleHasSymbolicWidth m then
     unsupportedSymbolicWidthError
   else if m.isPrimitive then
@@ -1808,22 +1987,33 @@ def emitModule (m : Module) (design : Option Design := none)
       result
 
     let tickRefs := collectTickRefWires m.body
+    -- A wire that is read before the statement that drives it (a cyclic
+    -- eval order) must be a struct member.  As an eval-local it was read
+    -- UNINITIALISED on the first relaxation round, and the fixed-point
+    -- test (`memcmp` of the struct) could not see it change, so the loop
+    -- stopped while values were still propagating: VexRiscv's top level
+    -- agreed with the reference at -O1 and at no other optimisation
+    -- level.
+    let staleReads : Std.HashSet String :=
+      (evalStaleReads design filteredBody).foldl (fun h n => h.insert (sanitizeName n)) {}
     let memberWires := match observableWires with
       | some ws => internalWires.filter fun (w : Port) =>
           let sn := sanitizeName w.name
-          ws.contains sn || tickRefs.contains sn
+          ws.contains sn || tickRefs.contains sn || staleReads.contains sn
       | none => internalWires.filter fun (w : Port) =>
           let sn := sanitizeName w.name
-          sn.startsWith "_gen_" || tickRefs.contains sn
+          sn.startsWith "_gen_" || tickRefs.contains sn || staleReads.contains sn
     let memoryNames := m.body.filterMap fun s => match s with
       | .memory name _ _ _ _ _ _ _ _ _ .. => some (sanitizeName name) | _ => none
     let localWires := match observableWires with
       | some ws => internalWires.filter fun (w : Port) =>
           let sn := sanitizeName w.name
-          !ws.contains sn && !tickRefs.contains sn && !memoryNames.contains sn
+          !ws.contains sn && !tickRefs.contains sn && !memoryNames.contains sn &&
+            !staleReads.contains sn
       | none => internalWires.filter fun (w : Port) =>
           let sn := sanitizeName w.name
-          !sn.startsWith "_gen_" && !tickRefs.contains sn && !memoryNames.contains sn
+          !sn.startsWith "_gen_" && !tickRefs.contains sn && !memoryNames.contains sn &&
+            !staleReads.contains sn
 
     let wireDecls := memberWires.map fun (p : Port) =>
       s!"    {emitFieldDecl p.ty (sanitizeName p.name)};"
@@ -1876,6 +2066,74 @@ def emitModule (m : Module) (design : Option Design := none)
     let tickBody := allParts.foldl (fun acc (p : StmtParts) => acc ++ p.tickBody) []
     let resetBody := allParts.foldl (fun acc (p : StmtParts) => acc ++ p.resetBody) []
     let evalTickLocals := allParts.foldl (fun acc (p : StmtParts) => acc ++ p.evalTickLocals) []
+
+    -- ----------------------------------------------------------------
+    -- Registers updated IN PLACE by the fused eval_tick.
+    --
+    -- The general form computes every register's next value into a
+    -- `_next` local and copies all of them back at the end: a load and
+    -- a store per register per cycle, taken or not.  A register may
+    -- instead be written directly, and not at all when it holds, as
+    -- long as nothing emitted afterwards still needs its old value.
+    -- Everything combinational is emitted before the registers, so the
+    -- only later readers are (a) other registers' next-state logic and
+    -- (b) the memory statements, which run in the tick part.  (b)
+    -- excludes a register outright; (a) is an ordering constraint —
+    -- a register is written after every register that reads it — and
+    -- the registers on a cycle of such reads (a swap, a ring) keep the
+    -- `_next` form.
+    -- ----------------------------------------------------------------
+    let stmtParts := filteredBody.zip allParts
+    let inPlaceOrder : Array String := Id.run do
+      let memRefs : Std.HashSet String := filteredBody.foldl (fun h s => match s with
+        | .memory _ _ _ _ wa wd we ra _ _ ew er =>
+          let refs := collectExprRefsAux (collectExprRefsAux (collectExprRefsAux (collectExprRefs wa) wd) we) ra
+          let refs := ew.foldl (fun acc (a, d, e) =>
+            collectExprRefsAux (collectExprRefsAux (collectExprRefsAux acc a) d) e) refs
+          let refs := er.foldl (fun acc (a, _) => collectExprRefsAux acc a) refs
+          refs.foldl (fun h n => h.insert n) h
+        | _ => h) {}
+      let cands : List (String × Expr) := stmtParts.filterMap fun (s, p) => match s, p.inPlace with
+        | .register out _ _ input _, some _ => if memRefs.contains out then none else some (out, input)
+        | _, _ => none
+      let candSet : Std.HashSet String := cands.foldl (fun h (o, _) => h.insert o) {}
+      -- reads o = the candidate registers, other than o, that o's input reads
+      let mut reads : Std.HashMap String (List String) := {}
+      let mut readers : Std.HashMap String Nat := {}
+      for (o, input) in cands do
+        let rs := ((collectExprRefs input).foldl (fun (h : Std.HashSet String) r =>
+          if r != o && candSet.contains r then h.insert r else h) {}).toList
+        reads := reads.insert o rs
+        for r in rs do
+          readers := readers.insert r (readers.getD r 0 + 1)
+      let mut queue : Array String := #[]
+      for (o, _) in cands do
+        if readers.getD o 0 == 0 then queue := queue.push o
+      let mut i := 0
+      while i < queue.size do
+        let o := queue[i]!
+        i := i + 1
+        for r in reads.getD o [] do
+          let c := readers.getD r 0 - 1
+          readers := readers.insert r c
+          if c == 0 then queue := queue.push r
+      return queue
+    let inPlaceSet : Std.HashSet String := inPlaceOrder.foldl (fun h o => h.insert o) {}
+    let inPlaceOf : Std.HashMap String (Unit → List String) := stmtParts.foldl (fun h (s, p) =>
+      match s, p.inPlace with
+      | .register out .., some f => h.insert out f
+      | _, _ => h) {}
+    let fusedParts : List StmtParts := stmtParts.map fun (s, p) => match s with
+      | .register out .. =>
+        if inPlaceSet.contains out then
+          { p with evalBody := [], tickBody := [], evalTickLocals := [] }
+        else p
+      | _ => p
+    let fusedEvalBody := inputMaskBody ++
+      fusedParts.foldl (fun acc (p : StmtParts) => acc ++ p.evalBody) [] ++
+      inPlaceOrder.foldl (fun acc o => acc ++ (inPlaceOf.getD o (fun _ => [])) ()) []
+    let fusedTickBody := fusedParts.foldl (fun acc (p : StmtParts) => acc ++ p.tickBody) []
+    let fusedLocals := fusedParts.foldl (fun acc (p : StmtParts) => acc ++ p.evalTickLocals) []
 
     let structName := s!"struct {className}"
     let helperPrefix := wideShrHelper funcQual
@@ -2001,6 +2259,26 @@ def emitModule (m : Module) (design : Option Design := none)
     let memberSetET : Std.HashSet String :=
       memberSet.fold (fun s n => if regNextSet.contains n then s else s.insert n)
         ({} : Std.HashSet String)
+    -- `fusedLocalWires := some keep`: inside eval_tick the internal wires
+    -- live on the stack as well.  A wire stored into the struct has to be computed on
+    -- every cycle; as a local the C compiler drops what is unused and
+    -- sinks what only one branch reads.  The price is observability:
+    -- after eval_tick() such a wire's struct field (what `get_wire`
+    -- reads) is stale until the next eval().  The wires in `keep` stay
+    -- members; so do wide (array) wires and any wire that is read before
+    -- it is driven (`evalStaleReads`).
+    let fusedWireLocals : List Port :=
+      match fusedLocalWires with
+      | none => []
+      | some keep => memberWires.filter fun (w : Port) =>
+        !keep.contains (sanitizeName w.name) && !staleReads.contains (sanitizeName w.name) && (match w.ty with
+          | .bit => true
+          | .bitVector n => n ≤ 64
+          | _ => false)
+    let memberSetET : Std.HashSet String :=
+      fusedWireLocals.foldl (fun s w => s.erase (sanitizeName w.name)) memberSetET
+    let fusedWireDecls := fusedWireLocals.map fun (p : Port) =>
+      s!"    {emitFieldDecl p.ty (sanitizeName p.name)} = 0;"
     let qualifyET := qualifyWith memberSetET
 
     let resetFn :=
@@ -2078,7 +2356,7 @@ def emitModule (m : Module) (design : Option Design := none)
 
     -- eval_tick uses the reduced member set so register `_next`
     -- temporaries emit as bare locals (declared via evalTickLocals).
-    let evalTickEvalBody := (evalBody.map qualifyET).map fun line =>
+    let evalTickEvalBody := (fusedEvalBody.map qualifyET).map fun line =>
       instNames.foldl (fun l inst =>
         -- We emit `sparkle_<modName>_eval(&self->iName)` — find
         -- the inst name and switch `_eval` → `_eval_tick`.  This
@@ -2089,7 +2367,7 @@ def emitModule (m : Module) (design : Option Design := none)
         else l) line
     -- Also strip tick calls that match instance names from the
     -- tick body when present.
-    let evalTickTickBody := (tickBody.map qualifyET).filter fun line =>
+    let evalTickTickBody := (fusedTickBody.map qualifyET).filter fun line =>
       !instNames.any (fun inst =>
         (line.splitOn s!"sparkle_evalTick_placeholder_TICK_{inst}").length > 1
         || (line.splitOn s!"_tick(&self->{inst})").length > 1)
@@ -2099,12 +2377,14 @@ def emitModule (m : Module) (design : Option Design := none)
       "    (void)self;\n" ++
       (if localWireDecls.isEmpty then "" else
         String.intercalate "\n" localWireDecls ++ "\n") ++
+      (if fusedWireDecls.isEmpty then "" else
+        String.intercalate "\n" fusedWireDecls ++ "\n") ++
       -- Stack-local register `_next` temporaries (pre-init from the
       -- current register value to preserve non-blocking semantics).
       -- Qualified so the `_next` LHS stays bare (local) while the
       -- initialising register read becomes `self->reg`.
-      (if evalTickLocals.isEmpty then "" else
-        String.intercalate "\n" (evalTickLocals.map qualifyET) ++ "\n") ++
+      (if fusedLocals.isEmpty then "" else
+        String.intercalate "\n" (fusedLocals.map qualifyET) ++ "\n") ++
       (if evalTickEvalBody.isEmpty then "" else
         String.intercalate "\n" evalTickEvalBody ++ "\n") ++
       (if evalTickTickBody.isEmpty then "" else
@@ -2298,7 +2578,8 @@ def hoistWideForC (m : Module) : Module := Id.run do
 /-- Convert a full design to C simulation code (no JIT wrapper) -/
 def toCDesign (d : Design)
     (observableWires : Option (List String) := none)
-    (funcQual : String := "") : String :=
+    (funcQual : String := "")
+    (fusedLocalWires : Option (List String) := none) : String :=
   let header :=
     "/* Generated by Sparkle HDL — C Simulation Model */\n" ++
     "#include <stdint.h>\n" ++
@@ -2327,8 +2608,8 @@ def toCDesign (d : Design)
     result ++ remaining
   let code := sorted.map fun m0 =>
     let m := hoistWideForC m0
-    if m.name == topName then emitModule m (some d) observableWires funcQual
-    else emitModule m (some d) none funcQual
+    if m.name == topName then emitModule m (some d) observableWires funcQual fusedLocalWires
+    else emitModule m (some d) none funcQual fusedLocalWires
   header ++ String.intercalate "\n" code
 
 /-- Specialize retained dimensions for one explicit configuration, then emit
@@ -2528,7 +2809,8 @@ private def emitMemsetWordSwitch (body : List Stmt) : String :=
     nothing else (other than the unavoidable glibc init/fini
     stubs). -/
 private def toCJITUnchecked (d : Design)
-    (observableWires0 : Option (List String) := none) : String :=
+    (observableWires0 : Option (List String) := none)
+    (fusedLocalWires : Bool := false) : String :=
   -- Determine which internal wires must be struct MEMBERS (persist
   -- across ticks): those feeding a register/memory input.  All other
   -- combinational wires can be eval-local stack values (register-
@@ -2554,7 +2836,10 @@ private def toCJITUnchecked (d : Design)
         let sn := sanitizeName w.name
         if sn.startsWith "_gen_" then some sn else none
       some (tickRefs ++ genWires ++ extra)
-  let classCode := toCDesign d observableWires
+  -- With `fusedLocalWires` only the wires the caller named are refreshed
+  -- by eval_tick(); the others are refreshed by eval() alone.
+  let classCode := toCDesign d observableWires ""
+    (if fusedLocalWires then some (observableWires0.getD []) else none)
   let topModule := d.modules.find? fun (m : Module) => m.name == d.topModule
   match topModule with
   | none => classCode ++ "\n/* ERROR: top module not found */\n"
@@ -2729,12 +3014,20 @@ private def toCJITUnchecked (d : Design)
     classCode ++ "\n" ++ vtableType ++ trampolines ++ vtableInst
 
 
+/-- The JIT wrapper `.c` for a design.
+
+    `fusedLocalWires := true` is the fast configuration: `eval_tick` keeps
+    internal wires on the stack, so after it `get_wire` is current only
+    for the wires listed in `observableWires` — call `eval` first to read
+    the others.  Registers, memories and outputs are unaffected.  The
+    default keeps every named wire current after `eval_tick`. -/
 def toCJIT (d : Design)
-    (observableWires : Option (List String) := none) : String :=
+    (observableWires : Option (List String) := none)
+    (fusedLocalWires : Bool := false) : String :=
   if d.modules.any moduleHasSymbolicWidth then
     unsupportedSymbolicWidthError
   else
-    toCJITUnchecked d observableWires
+    toCJITUnchecked d observableWires fusedLocalWires
 
 /-- Specialize retained dimensions for one explicit configuration, then emit
     the fixed-ABI C JIT wrapper. -/
