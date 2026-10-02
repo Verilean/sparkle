@@ -260,6 +260,19 @@ same AST differs in parentheses, so the renderer has a dedicated
 operand recogniser (`xorMask?`, like `shiftOperand?`) and the grammar a
 dedicated production.
 
+**The general `circuit do`: what exists and what is decided.** Source side:
+`Tools/ShippingMachineSource.lean` (`circuit_state`, generic in the slot
+list; `runCircuitH_eq` is `rfl`). IR side: `Tools/ShippingMachineTrace.lean`
+(`trace_of_cyclesN`, `applyNexts_map_mem`/`_not_mem`). Neither mentions the
+compiler. What connects them — a recogniser for the `runCircuitH` shape,
+a per-slot lowering, the translation contract for N cones, `let`, and the
+structure-result projection — changes the emitted text of `circuit do`
+designs on the certified route and WAITS FOR THE USER'S DECISION (asked
+2026-10-02; byte identity is not attainable: the legacy packs the state with
+a zero-width `Unit` wire and shares `let`s through a MetaM heuristic). Keep
+`_gen_<name>` wires for `let` binders if it goes ahead: downstream JIT code
+resolves wires by name.
+
 **Measuring before building.** `inlineDefs` did not descend into `let`
 until the map-idiom unit, so every "residual head" statistic taken before
 it over-counted user definitions and applicative forms inside

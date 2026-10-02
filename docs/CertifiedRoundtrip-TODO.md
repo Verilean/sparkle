@@ -832,7 +832,16 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   structure-result projection — none of which can be byte-identical to
   the legacy lowering (the packed state has a zero-width `Unit` wire;
   the `let` cache is a MetaM heuristic), so they need the user's
-  decision on emitted-text changes on the certified route.
+  decision on emitted-text changes on the certified route. The two
+  halves that do NOT depend on that decision are in place:
+  `ShippingMachineSource.circuit_state` — for ANY slot list, the state
+  of `runCircuitH inits body` is the initial tuple at cycle 0 and the
+  pending writes' values afterwards, given that the writes are pointwise
+  in the state (one `rfl` per declaration, `pointwise_of_const`) — and
+  `ShippingMachineTrace.trace_of_cyclesN` — the k-cycle `runModule`
+  trace of a module with any number of registers, from its per-cycle
+  step. `machine3_state` instantiates the first on three slots of
+  different types, one of them never written.
 - [ ] **S7 / trust:** Resolve or explicitly retain `EnvDefines` in the final
   claim; record execution-model/external-tool boundaries without hiding them.
   RECORDED — docs/ShippingCompiler-TrustBase.md states the retained base
