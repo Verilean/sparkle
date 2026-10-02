@@ -71,7 +71,7 @@ only on the branch that uses it.  After `eval_tick` such a wire's
 outputs are unaffected.  This is the like-for-like comparison with
 Verilator, whose default also exposes no internal signals.  The default
 configuration (every named wire current after `eval_tick`) costs about
-a third more instructions on this design.
+45 % more instructions on this design.
 
 ## Running it
 

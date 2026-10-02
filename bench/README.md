@@ -31,8 +31,8 @@ instructions per cycle (see [gate/README.md](gate/README.md)).
 
 ```
 | model                              | instructions / cycle | cycles / s |
-| JIT, fast configuration            | 1742.5               | 13.3 M     |
-| JIT, default (all wires readable)  | 2337.8               | 10.1 M     |
+| JIT, fast configuration            | 1459.1               | 16.2 M     |
+| JIT, default (all wires readable)  | 2100.5               | 11.4 M     |
 | Verilator                          | 2542.5               |  9.2 M     |
 ```
 
@@ -85,7 +85,7 @@ Sparkle-native RV32I SoC (smaller, simpler design).
 
 | Config | Sparkle JIT | Verilator | Ratio |
 |--------|------------|-----------|-------|
-| LiteX 1-core (firmware running, co-simulated) | 13.3M | 9.2M | 1.45x (workstation toolchain; see above) |
+| LiteX 1-core (firmware running, co-simulated) | 16.2M | 9.2M | 1.76x (workstation toolchain; see above) |
 | LiteX 8-core sequential ¹ | 1.46M | 1.06M | 1.38x |
 | LiteX 8-core parallel ¹ | 5.07M | 1.06M | 4.78x |
 | RV32I SoC ¹ | 14.2M | 8.7M | 1.63x |

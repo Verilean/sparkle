@@ -776,7 +776,7 @@ static void sparkle_sim_eval(struct sim* self) {
     uint32_t _wide_hoist_0[3];
     uint32_t _wide_hoist_2[3];
     { struct sim __prev; unsigned __round = 0;
-      for (; __round < 1605u; __round++) {
+      for (; __round < 1636u; __round++) {
         __prev = *self;
         self->serial_sink_valid &= 1u;
         self->serial_source_ready &= 1u;
@@ -1714,8 +1714,29 @@ static void sparkle_sim_eval(struct sim* self) {
           if ((!(self->_gen_picorv32_resetn) ? 1 : 0)) { self->picorv32_latched_store_next = (((uint32_t)0x0U) & 1); break; }
           self->picorv32_latched_store_next = self->picorv32_latched_store;
         } while (0);
-        self->picorv32_reg_next_pc_next = (((((((((!(!(self->_gen_picorv32_resetn) ? 1 : 0)) & ((!(self->picorv32_cpu_state == (uint32_t)0x80U ? 1 : 0)) & (self->picorv32_cpu_state == (uint32_t)0x40U ? 1 : 0))) & (!((uint8_t)0x1U & (!(!(((!(!(((!(!(((!(!(((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) & (!(!((!(self->picorv32_irq_active) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(self->picorv32_irq_delay) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(!((self->picorv32_irq_pending & (self->picorv32_irq_mask ^ (uint32_t)0xffffffffU))) ? 1 : 0))) ? 1 : 0)))) ? 1 : 0)) | (!(!(self->picorv32_irq_state) ? 1 : 0)))) ? 1 : 0))))) & (!((!(!(((uint8_t)0x1U & (!(!(((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) | (!(!(self->picorv32_do_waitirq) ? 1 : 0)))) ? 1 : 0)))) ? 1 : 0)) & (!(!(self->picorv32_instr_waitirq) ? 1 : 0))))) & self->picorv32_decoder_trigger) & self->picorv32_instr_jal) ? (self->_gen_picorv32_current_pc + self->picorv32_decoded_imm_j) : ((((((!(!(self->_gen_picorv32_resetn) ? 1 : 0)) & ((!(self->picorv32_cpu_state == (uint32_t)0x80U ? 1 : 0)) & (self->picorv32_cpu_state == (uint32_t)0x40U ? 1 : 0))) & (!((uint8_t)0x1U & (!(!(((!(!(((!(!(((!(!(((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) & (!(!((!(self->picorv32_irq_active) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(self->picorv32_irq_delay) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(!((self->picorv32_irq_pending & (self->picorv32_irq_mask ^ (uint32_t)0xffffffffU))) ? 1 : 0))) ? 1 : 0)))) ? 1 : 0)) | (!(!(self->picorv32_irq_state) ? 1 : 0)))) ? 1 : 0))))) & (!((!(!(((uint8_t)0x1U & (!(!(((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) | (!(!(self->picorv32_do_waitirq) ? 1 : 0)))) ? 1 : 0)))) ? 1 : 0)) & (!(!(self->picorv32_instr_waitirq) ? 1 : 0))))) & self->picorv32_decoder_trigger) ? (self->_gen_picorv32_current_pc + (self->picorv32_compressed_instr ? (uint32_t)0x2U : (uint32_t)0x4U)) : ((((((!(!(self->_gen_picorv32_resetn) ? 1 : 0)) & ((!(self->picorv32_cpu_state == (uint32_t)0x80U ? 1 : 0)) & (self->picorv32_cpu_state == (uint32_t)0x40U ? 1 : 0))) & (!((uint8_t)0x1U & (!(!(((!(!(((!(!(((!(!(((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) & (!(!((!(self->picorv32_irq_active) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(self->picorv32_irq_delay) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(!((self->picorv32_irq_pending & (self->picorv32_irq_mask ^ (uint32_t)0xffffffffU))) ? 1 : 0))) ? 1 : 0)))) ? 1 : 0)) | (!(!(self->picorv32_irq_state) ? 1 : 0)))) ? 1 : 0))))) & ((!(!(((uint8_t)0x1U & (!(!(((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) | (!(!(self->picorv32_do_waitirq) ? 1 : 0)))) ? 1 : 0)))) ? 1 : 0)) & (!(!(self->picorv32_instr_waitirq) ? 1 : 0)))) & (!(!(self->picorv32_irq_pending) ? 1 : 0))) ? (self->_gen_picorv32_current_pc + (self->picorv32_compressed_instr ? (uint32_t)0x2U : (uint32_t)0x4U)) : (((!(!(self->_gen_picorv32_resetn) ? 1 : 0)) & ((!(self->picorv32_cpu_state == (uint32_t)0x80U ? 1 : 0)) & (self->picorv32_cpu_state == (uint32_t)0x40U ? 1 : 0))) ? self->_gen_picorv32_current_pc : ((!(self->_gen_picorv32_resetn) ? 1 : 0) ? (uint32_t)0x0U : self->picorv32_reg_next_pc))))) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU);
-        self->picorv32_reg_pc_next = (((((!(!(self->_gen_picorv32_resetn) ? 1 : 0)) & ((!(self->picorv32_cpu_state == (uint32_t)0x80U ? 1 : 0)) & (self->picorv32_cpu_state == (uint32_t)0x40U ? 1 : 0))) ? self->_gen_picorv32_current_pc : ((!(self->_gen_picorv32_resetn) ? 1 : 0) ? (uint32_t)0x0U : self->picorv32_reg_pc)) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU);
+        do {
+          if ((!(!(self->_gen_picorv32_resetn) ? 1 : 0))) {
+            if ((self->picorv32_cpu_state == (uint32_t)0x40U ? 1 : 0)) {
+              if ((!((uint8_t)0x1U & (!(!(((!(!(((!(!(((!(!(((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) & (!(!((!(self->picorv32_irq_active) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(self->picorv32_irq_delay) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(!((self->picorv32_irq_pending & (self->picorv32_irq_mask ^ (uint32_t)0xffffffffU))) ? 1 : 0))) ? 1 : 0)))) ? 1 : 0)) | (!(!(self->picorv32_irq_state) ? 1 : 0)))) ? 1 : 0))))) {
+                if ((!((!(!(((uint8_t)0x1U & (!(!(((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) | (!(!(self->picorv32_do_waitirq) ? 1 : 0)))) ? 1 : 0)))) ? 1 : 0)) & (!(!(self->picorv32_instr_waitirq) ? 1 : 0))))) {
+                  if (self->picorv32_decoder_trigger) {
+                    if (self->picorv32_instr_jal) { self->picorv32_reg_next_pc_next = (self->_gen_picorv32_current_pc + self->picorv32_decoded_imm_j); break; }
+                    self->picorv32_reg_next_pc_next = (self->_gen_picorv32_current_pc + (self->picorv32_compressed_instr ? (uint32_t)0x2U : (uint32_t)0x4U)); break;
+                  }
+                }
+                if ((!(!(((uint8_t)0x1U & (!(!(((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) | (!(!(self->picorv32_do_waitirq) ? 1 : 0)))) ? 1 : 0)))) ? 1 : 0)) && (!(!(self->picorv32_instr_waitirq) ? 1 : 0)) && (!(!(self->picorv32_irq_pending) ? 1 : 0))) { self->picorv32_reg_next_pc_next = (self->_gen_picorv32_current_pc + (self->picorv32_compressed_instr ? (uint32_t)0x2U : (uint32_t)0x4U)); break; }
+              }
+              self->picorv32_reg_next_pc_next = self->_gen_picorv32_current_pc; break;
+            }
+          }
+          if ((!(self->_gen_picorv32_resetn) ? 1 : 0)) { self->picorv32_reg_next_pc_next = (uint32_t)0x0U; break; }
+          self->picorv32_reg_next_pc_next = self->picorv32_reg_next_pc;
+        } while (0);
+        do {
+          if ((!(!(self->_gen_picorv32_resetn) ? 1 : 0)) && (self->picorv32_cpu_state == (uint32_t)0x40U ? 1 : 0)) { self->picorv32_reg_pc_next = self->_gen_picorv32_current_pc; break; }
+          if ((!(self->_gen_picorv32_resetn) ? 1 : 0)) { self->picorv32_reg_pc_next = (uint32_t)0x0U; break; }
+          self->picorv32_reg_pc_next = self->picorv32_reg_pc;
+        } while (0);
         do {
           if ((!(!(self->_gen_picorv32_resetn) ? 1 : 0)) && (self->picorv32_cpu_state == (uint32_t)0x40U ? 1 : 0) && (!((uint8_t)0x1U & (!(!(((!(!(((!(!(((!(!(((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) & (!(!((!(self->picorv32_irq_active) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(self->picorv32_irq_delay) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(!((self->picorv32_irq_pending & (self->picorv32_irq_mask ^ (uint32_t)0xffffffffU))) ? 1 : 0))) ? 1 : 0)))) ? 1 : 0)) | (!(!(self->picorv32_irq_state) ? 1 : 0)))) ? 1 : 0)))) && (!(!(((uint8_t)0x1U & (!(!(((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) | (!(!(self->picorv32_do_waitirq) ? 1 : 0)))) ? 1 : 0)))) ? 1 : 0)) && (!(!(self->picorv32_instr_waitirq) ? 1 : 0)) && (!(self->picorv32_irq_pending) ? 1 : 0)) { self->picorv32_do_waitirq_next = (((uint32_t)0x1U) & 1); break; }
           self->picorv32_do_waitirq_next = (((uint32_t)0x0U) & 1);
@@ -1741,8 +1762,15 @@ static void sparkle_sim_eval(struct sim* self) {
           if ((uint8_t)0x1U && (!(!(self->picorv32_timer) ? 1 : 0))) { self->picorv32_timer_next = (self->picorv32_timer - (uint32_t)0x1U); break; }
           self->picorv32_timer_next = self->picorv32_timer;
         } while (0);
-        self->picorv32_count_instr_next = ((((((((!(!(self->_gen_picorv32_resetn) ? 1 : 0)) & ((!(self->picorv32_cpu_state == (uint32_t)0x80U ? 1 : 0)) & (self->picorv32_cpu_state == (uint32_t)0x40U ? 1 : 0))) & (!((uint8_t)0x1U & (!(!(((!(!(((!(!(((!(!(((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) & (!(!((!(self->picorv32_irq_active) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(self->picorv32_irq_delay) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(!((self->picorv32_irq_pending & (self->picorv32_irq_mask ^ (uint32_t)0xffffffffU))) ? 1 : 0))) ? 1 : 0)))) ? 1 : 0)) | (!(!(self->picorv32_irq_state) ? 1 : 0)))) ? 1 : 0))))) & (!((!(!(((uint8_t)0x1U & (!(!(((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) | (!(!(self->picorv32_do_waitirq) ? 1 : 0)))) ? 1 : 0)))) ? 1 : 0)) & (!(!(self->picorv32_instr_waitirq) ? 1 : 0))))) & self->picorv32_decoder_trigger) & (uint8_t)0x1U) ? (self->picorv32_count_instr + (uint32_t)0x1U) : (((!(self->_gen_picorv32_resetn) ? 1 : 0) & (uint8_t)0x1U) ? (uint32_t)0x0U : self->picorv32_count_instr)) & (uint64_t)0xffffffffffffffffULL);
-        self->picorv32_count_cycle_next = ((self->_gen_picorv32_resetn ? (self->picorv32_count_cycle + (uint32_t)0x1U) : (uint32_t)0x0U) & (uint64_t)0xffffffffffffffffULL);
+        do {
+          if ((!(!(self->_gen_picorv32_resetn) ? 1 : 0)) && (self->picorv32_cpu_state == (uint32_t)0x40U ? 1 : 0) && (!((uint8_t)0x1U & (!(!(((!(!(((!(!(((!(!(((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) & (!(!((!(self->picorv32_irq_active) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(self->picorv32_irq_delay) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(!((self->picorv32_irq_pending & (self->picorv32_irq_mask ^ (uint32_t)0xffffffffU))) ? 1 : 0))) ? 1 : 0)))) ? 1 : 0)) | (!(!(self->picorv32_irq_state) ? 1 : 0)))) ? 1 : 0)))) && (!((!(!(((uint8_t)0x1U & (!(!(((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) | (!(!(self->picorv32_do_waitirq) ? 1 : 0)))) ? 1 : 0)))) ? 1 : 0)) & (!(!(self->picorv32_instr_waitirq) ? 1 : 0)))) && self->picorv32_decoder_trigger && (uint8_t)0x1U) { self->picorv32_count_instr_next = (self->picorv32_count_instr + (uint32_t)0x1U); break; }
+          if ((!(self->_gen_picorv32_resetn) ? 1 : 0) && (uint8_t)0x1U) { self->picorv32_count_instr_next = (uint32_t)0x0U; break; }
+          self->picorv32_count_instr_next = self->picorv32_count_instr;
+        } while (0);
+        do {
+          if (self->_gen_picorv32_resetn) { self->picorv32_count_cycle_next = (self->picorv32_count_cycle + (uint32_t)0x1U); break; }
+          self->picorv32_count_cycle_next = (uint32_t)0x0U;
+        } while (0);
         do {
           if ((!(self->_gen_picorv32_resetn) ? 1 : 0)) { self->picorv32_pcpi_timeout_next = (((uint32_t)0x0U) & 1); break; }
           if ((!(!(self->_gen_picorv32_WITH_PCPI) ? 1 : 0)) && (uint8_t)0x1U) { self->picorv32_pcpi_timeout_next = (!(self->picorv32_pcpi_timeout_counter) ? 1 : 0); break; }
@@ -2204,7 +2232,10 @@ static void sparkle_sim_eval(struct sim* self) {
           if (((!(!((!(self->_gen_picorv32_resetn) ? 1 : 0)) ? 1 : 0)) | (!(!(self->picorv32__reg_trap) ? 1 : 0))) && (!(self->_gen_picorv32_resetn) ? 1 : 0)) { self->picorv32_mem_state_next = (((uint32_t)0x0U) & 0x3ULL); break; }
           self->picorv32_mem_state_next = self->picorv32_mem_state;
         } while (0);
-        self->picorv32_mem_rdata_q_next = (((((((((((((((((((((((((((((((((((((((self->_gen_picorv32_mem_xfer ? self->_gen_shared_dat_r_seq3 : self->picorv32_mem_rdata_q) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU);
+        do {
+          if (self->_gen_picorv32_mem_xfer) { self->picorv32_mem_rdata_q_next = self->_gen_shared_dat_r_seq3; break; }
+          self->picorv32_mem_rdata_q_next = self->picorv32_mem_rdata_q;
+        } while (0);
         do {
           if ((!(!(self->_gen_picorv32_resetn) ? 1 : 0))) {
             if ((!self->_gen_picorv32_pcpi_div_start) && (!((!(!((!(self->picorv32_pcpi_div_quotient_msk) ? 1 : 0)) ? 1 : 0)) & (!(!(self->picorv32_pcpi_div_running) ? 1 : 0))))) { self->picorv32_pcpi_div_quotient_msk_next = ((uint64_t)self->picorv32_pcpi_div_quotient_msk >> 1); break; }
@@ -2739,72 +2770,20 @@ static void sparkle_sim_eval_tick(struct sim* self) {
         uint8_t mem_adr0_next = self->mem_adr0;
         uint16_t main_ram_adr0_next = self->main_ram_adr0;
         uint16_t sram_adr0_next = self->sram_adr0;
-        uint32_t picorv32_irq_pending_next = self->picorv32_irq_pending;
-        uint8_t picorv32_mem_do_wdata_next = self->picorv32_mem_do_wdata;
-        uint8_t picorv32_mem_do_rdata_next = self->picorv32_mem_do_rdata;
-        uint32_t picorv32_reg_op1_next = self->picorv32_reg_op1;
         uint8_t picorv32_mem_do_prefetch_next = self->picorv32_mem_do_prefetch;
-        uint8_t picorv32_mem_wordsize_next = self->picorv32_mem_wordsize;
         uint8_t picorv32_mem_do_rinst_next = self->picorv32_mem_do_rinst;
         uint8_t picorv32_cpu_state_next = self->picorv32_cpu_state;
         uint32_t picorv32_latched_rd_next = self->picorv32_latched_rd;
-        uint8_t picorv32_irq_state_next = self->picorv32_irq_state;
         uint32_t picorv32_irq_mask_next = self->picorv32_irq_mask;
         uint8_t picorv32_irq_delay_next = self->picorv32_irq_delay;
         uint8_t picorv32_irq_active_next = self->picorv32_irq_active;
         uint8_t picorv32__reg_pcpi_valid_next = self->picorv32__reg_pcpi_valid;
         uint8_t picorv32_latched_branch_next = self->picorv32_latched_branch;
         uint8_t picorv32_latched_store_next = self->picorv32_latched_store;
-        uint32_t picorv32_reg_pc_next = self->picorv32_reg_pc;
-        uint8_t picorv32_do_waitirq_next = self->picorv32_do_waitirq;
-        uint8_t picorv32_decoder_pseudo_trigger_next = self->picorv32_decoder_pseudo_trigger;
-        uint8_t picorv32_decoder_trigger_next = self->picorv32_decoder_trigger;
-        uint8_t picorv32_pcpi_timeout_next = self->picorv32_pcpi_timeout;
-        uint8_t picorv32_pcpi_timeout_counter_next = self->picorv32_pcpi_timeout_counter;
-        uint8_t picorv32_reg_sh_next = self->picorv32_reg_sh;
-        uint32_t picorv32_decoded_imm_next = self->picorv32_decoded_imm;
-        uint8_t picorv32_is_sll_srl_sra_next = self->picorv32_is_sll_srl_sra;
-        uint8_t picorv32_is_jalr_addi_slti_sltiu_xori_ori_andi_next = self->picorv32_is_jalr_addi_slti_sltiu_xori_ori_andi;
-        uint8_t picorv32_is_slli_srli_srai_next = self->picorv32_is_slli_srli_srai;
-        uint8_t picorv32_instr_timer_next = self->picorv32_instr_timer;
-        uint8_t picorv32_instr_maskirq_next = self->picorv32_instr_maskirq;
-        uint8_t picorv32_instr_setq_next = self->picorv32_instr_setq;
-        uint8_t picorv32_instr_getq_next = self->picorv32_instr_getq;
         uint8_t picorv32_instr_ecall_ebreak_next = self->picorv32_instr_ecall_ebreak;
-        uint8_t picorv32_instr_sra_next = self->picorv32_instr_sra;
-        uint8_t picorv32_instr_srl_next = self->picorv32_instr_srl;
-        uint8_t picorv32_instr_sll_next = self->picorv32_instr_sll;
-        uint8_t picorv32_instr_srai_next = self->picorv32_instr_srai;
-        uint8_t picorv32_instr_srli_next = self->picorv32_instr_srli;
-        uint8_t picorv32_instr_slli_next = self->picorv32_instr_slli;
-        uint8_t picorv32_instr_sw_next = self->picorv32_instr_sw;
-        uint8_t picorv32_instr_sh_next = self->picorv32_instr_sh;
-        uint8_t picorv32_instr_sb_next = self->picorv32_instr_sb;
-        uint8_t picorv32_instr_lhu_next = self->picorv32_instr_lhu;
-        uint8_t picorv32_instr_lbu_next = self->picorv32_instr_lbu;
-        uint8_t picorv32_instr_lw_next = self->picorv32_instr_lw;
-        uint8_t picorv32_instr_lh_next = self->picorv32_instr_lh;
-        uint8_t picorv32_instr_lb_next = self->picorv32_instr_lb;
-        uint8_t picorv32_decoded_rs2_next = self->picorv32_decoded_rs2;
-        uint32_t picorv32_decoded_imm_j_next = self->picorv32_decoded_imm_j;
-        uint8_t picorv32_is_alu_reg_reg_next = self->picorv32_is_alu_reg_reg;
-        uint8_t picorv32_is_alu_reg_imm_next = self->picorv32_is_alu_reg_imm;
-        uint8_t picorv32_is_sb_sh_sw_next = self->picorv32_is_sb_sh_sw;
-        uint8_t picorv32_is_lb_lh_lw_lbu_lhu_next = self->picorv32_is_lb_lh_lw_lbu_lhu;
-        uint8_t picorv32_is_beq_bne_blt_bge_bltu_bgeu_next = self->picorv32_is_beq_bne_blt_bge_bltu_bgeu;
-        uint8_t picorv32_instr_waitirq_next = self->picorv32_instr_waitirq;
-        uint8_t picorv32_instr_retirq_next = self->picorv32_instr_retirq;
-        uint8_t picorv32_instr_jalr_next = self->picorv32_instr_jalr;
-        uint8_t picorv32_instr_jal_next = self->picorv32_instr_jal;
-        uint8_t picorv32_instr_auipc_next = self->picorv32_instr_auipc;
-        uint8_t picorv32_instr_lui_next = self->picorv32_instr_lui;
-        uint8_t picorv32_is_lui_auipc_jal_next = self->picorv32_is_lui_auipc_jal;
         uint32_t picorv32__reg_mem_wdata_next = self->picorv32__reg_mem_wdata;
-        uint32_t picorv32_mem_rdata_q_next = self->picorv32_mem_rdata_q;
         uint32_t picorv32_pcpi_div_quotient_msk_next = self->picorv32_pcpi_div_quotient_msk;
-        uint8_t picorv32_pcpi_div_running_next = self->picorv32_pcpi_div_running;
         uint8_t picorv32_pcpi_mul_mul_counter_next = self->picorv32_pcpi_mul_mul_counter;
-        uint8_t picorv32_pcpi_mul_mul_waiting_next = self->picorv32_pcpi_mul_mul_waiting;
         self->serial_sink_valid &= 1u;
         self->serial_source_ready &= 1u;
         self->sys_clk &= 1u;
@@ -2878,6 +2857,7 @@ static void sparkle_sim_eval_tick(struct sim* self) {
         } while (0);
         _gen_picorv32_is_rdcycle_rdcycleh_rdinstr_rdinstrh = (((!(!(self->picorv32_instr_rdcycle | self->picorv32_instr_rdcycleh | self->picorv32_instr_rdinstr | self->picorv32_instr_rdinstrh) ? 1 : 0))) & 1);
         _gen_picorv32_mem_la_write = ((((!(!(((!(!(_gen_picorv32_resetn) ? 1 : 0)) & (!(!((!(self->picorv32_mem_state) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!(self->picorv32_mem_do_wdata) ? 1 : 0)))) & 1);
+        if ((!(!(_gen_picorv32_resetn) ? 1 : 0)) && (self->picorv32_cpu_state == (uint32_t)0x40U ? 1 : 0)) {
         do {
           if ((!(!(_gen_picorv32_resetn) ? 1 : 0))) {
             if ((self->picorv32_cpu_state == (uint32_t)0x40U ? 1 : 0)) {
@@ -2894,6 +2874,7 @@ static void sparkle_sim_eval_tick(struct sim* self) {
           }
           _gen_picorv32_current_pc = (uint32_t)0x0U;
         } while (0);
+        }
         do {
           if (self->picorv32_latched_branch) { _gen_picorv32_cpuregs_wrdata_seq10 = _gen_picorv32_cpuregs_wrdata_seq1; break; }
           if ((!(!(self->picorv32_latched_store) ? 1 : 0)) && (!(!((!(self->picorv32_latched_branch) ? 1 : 0)) ? 1 : 0))) { _gen_picorv32_cpuregs_wrdata_seq10 = _gen_picorv32_cpuregs_wrdata_seq3; break; }
@@ -3185,82 +3166,9 @@ static void sparkle_sim_eval_tick(struct sim* self) {
         mem_adr0_next = _gen_csr_bankarray_adr;
         main_ram_adr0_next = _gen_sram1_adr;
         sram_adr0_next = _gen_sram0_adr;
-        picorv32_irq_pending_next = (self->_gen_picorv32_next_irq_pending & (uint32_t)0xffffffffU);
-        do {
-          if (_gen_picorv32_set_mem_do_wdata) { picorv32_mem_do_wdata_next = (((uint32_t)0x1U) & 1); break; }
-          if (((!(!((!(_gen_picorv32_resetn) ? 1 : 0)) ? 1 : 0)) | (!(!(_gen_picorv32_mem_done) ? 1 : 0)))) { picorv32_mem_do_wdata_next = (((uint32_t)0x0U) & 1); break; }
-          picorv32_mem_do_wdata_next = self->picorv32_mem_do_wdata;
-        } while (0);
-        do {
-          if (_gen_picorv32_set_mem_do_rdata) { picorv32_mem_do_rdata_next = (((uint32_t)0x1U) & 1); break; }
-          if (((!(!((!(_gen_picorv32_resetn) ? 1 : 0)) ? 1 : 0)) | (!(!(_gen_picorv32_mem_done) ? 1 : 0)))) { picorv32_mem_do_rdata_next = (((uint32_t)0x0U) & 1); break; }
-          picorv32_mem_do_rdata_next = self->picorv32_mem_do_rdata;
-        } while (0);
-        do {
-          if ((!(!(_gen_picorv32_resetn) ? 1 : 0))) {
-            if ((self->picorv32_cpu_state == (uint32_t)0x1U ? 1 : 0) && ((!(!((!(self->picorv32_mem_do_prefetch) ? 1 : 0)) ? 1 : 0)) | (!(!(_gen_picorv32_mem_done) ? 1 : 0))) && (!(self->picorv32_mem_do_rdata) ? 1 : 0)) { picorv32_reg_op1_next = (self->picorv32_reg_op1 + self->picorv32_decoded_imm); break; }
-            if ((self->picorv32_cpu_state == (uint32_t)0x2U ? 1 : 0) && ((!(!((!(self->picorv32_mem_do_prefetch) ? 1 : 0)) ? 1 : 0)) | (!(!(_gen_picorv32_mem_done) ? 1 : 0))) && (!(self->picorv32_mem_do_wdata) ? 1 : 0)) { picorv32_reg_op1_next = (self->picorv32_reg_op1 + self->picorv32_decoded_imm); break; }
-            if ((self->picorv32_cpu_state == (uint32_t)0x4U ? 1 : 0)) {
-              if ((!(!(self->picorv32_reg_sh) ? 1 : 0))) {
-                if ((!((uint8_t)0x1U & (!(!((self->picorv32_reg_sh >= (uint32_t)0x4U ? 1 : 0)) ? 1 : 0))))) {
-                  if ((!(((!(!(self->picorv32_instr_slli) ? 1 : 0)) | (!(!(self->picorv32_instr_sll) ? 1 : 0))) | ((!(!(self->picorv32_instr_srli) ? 1 : 0)) | (!(!(self->picorv32_instr_srl) ? 1 : 0))))) && ((!(!(self->picorv32_instr_srai) ? 1 : 0)) | (!(!(self->picorv32_instr_sra) ? 1 : 0)))) { picorv32_reg_op1_next = ((uint32_t)((int32_t)self->picorv32_reg_op1 >> (uint32_t)0x1U)); break; }
-                  if ((!((!(!(self->picorv32_instr_slli) ? 1 : 0)) | (!(!(self->picorv32_instr_sll) ? 1 : 0)))) && ((!(!(self->picorv32_instr_srli) ? 1 : 0)) | (!(!(self->picorv32_instr_srl) ? 1 : 0)))) { picorv32_reg_op1_next = ((uint64_t)self->picorv32_reg_op1 >> 1); break; }
-                  if (((!(!(self->picorv32_instr_slli) ? 1 : 0)) | (!(!(self->picorv32_instr_sll) ? 1 : 0)))) { picorv32_reg_op1_next = ((uint64_t)self->picorv32_reg_op1 << 1); break; }
-                }
-                if ((uint8_t)0x1U) {
-                  if ((!(!((self->picorv32_reg_sh >= (uint32_t)0x4U ? 1 : 0)) ? 1 : 0))) {
-                    if ((!(((!(!(self->picorv32_instr_slli) ? 1 : 0)) | (!(!(self->picorv32_instr_sll) ? 1 : 0))) | ((!(!(self->picorv32_instr_srli) ? 1 : 0)) | (!(!(self->picorv32_instr_srl) ? 1 : 0))))) && ((!(!(self->picorv32_instr_srai) ? 1 : 0)) | (!(!(self->picorv32_instr_sra) ? 1 : 0)))) { picorv32_reg_op1_next = ((uint32_t)((int32_t)self->picorv32_reg_op1 >> (uint32_t)0x4U)); break; }
-                    if ((!((!(!(self->picorv32_instr_slli) ? 1 : 0)) | (!(!(self->picorv32_instr_sll) ? 1 : 0)))) && ((!(!(self->picorv32_instr_srli) ? 1 : 0)) | (!(!(self->picorv32_instr_srl) ? 1 : 0)))) { picorv32_reg_op1_next = ((uint64_t)self->picorv32_reg_op1 >> 4); break; }
-                    if (((!(!(self->picorv32_instr_slli) ? 1 : 0)) | (!(!(self->picorv32_instr_sll) ? 1 : 0)))) { picorv32_reg_op1_next = ((uint64_t)self->picorv32_reg_op1 << 4); break; }
-                  }
-                }
-              }
-            }
-            if ((self->picorv32_cpu_state == (uint32_t)0x20U ? 1 : 0)) {
-              if ((!((((((((((((!(!(((uint8_t)0x1U | (!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0)))) ? 1 : 0)) & (!(!(_gen_picorv32_instr_trap) ? 1 : 0))) | ((uint8_t)0x1U & (!(!(_gen_picorv32_is_rdcycle_rdcycleh_rdinstr_rdinstrh) ? 1 : 0)))) | self->picorv32_is_lui_auipc_jal) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_getq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_setq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_retirq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_maskirq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_timer) ? 1 : 0)))) | ((!(!(self->picorv32_is_lb_lh_lw_lbu_lhu) ? 1 : 0)) & (!(!((!(_gen_picorv32_instr_trap) ? 1 : 0)) ? 1 : 0)))) | ((!(!(self->picorv32_is_slli_srli_srai) ? 1 : 0)) & (uint8_t)0x1U)) | self->picorv32_is_jalr_addi_slti_sltiu_xori_ori_andi))) { picorv32_reg_op1_next = _gen_picorv32_cpuregs_rs1_seq5; break; }
-              if ((!(((((((((((!(!(((uint8_t)0x1U | (!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0)))) ? 1 : 0)) & (!(!(_gen_picorv32_instr_trap) ? 1 : 0))) | ((uint8_t)0x1U & (!(!(_gen_picorv32_is_rdcycle_rdcycleh_rdinstr_rdinstrh) ? 1 : 0)))) | self->picorv32_is_lui_auipc_jal) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_getq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_setq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_retirq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_maskirq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_timer) ? 1 : 0)))) | ((!(!(self->picorv32_is_lb_lh_lw_lbu_lhu) ? 1 : 0)) & (!(!((!(_gen_picorv32_instr_trap) ? 1 : 0)) ? 1 : 0)))) | ((!(!(self->picorv32_is_slli_srli_srai) ? 1 : 0)) & (uint8_t)0x1U))) && self->picorv32_is_jalr_addi_slti_sltiu_xori_ori_andi) { picorv32_reg_op1_next = _gen_picorv32_cpuregs_rs1_seq5; break; }
-              if ((!((((((((((!(!(((uint8_t)0x1U | (!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0)))) ? 1 : 0)) & (!(!(_gen_picorv32_instr_trap) ? 1 : 0))) | ((uint8_t)0x1U & (!(!(_gen_picorv32_is_rdcycle_rdcycleh_rdinstr_rdinstrh) ? 1 : 0)))) | self->picorv32_is_lui_auipc_jal) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_getq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_setq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_retirq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_maskirq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_timer) ? 1 : 0)))) | ((!(!(self->picorv32_is_lb_lh_lw_lbu_lhu) ? 1 : 0)) & (!(!((!(_gen_picorv32_instr_trap) ? 1 : 0)) ? 1 : 0))))) && (!(!(self->picorv32_is_slli_srli_srai) ? 1 : 0)) && (uint8_t)0x1U) { picorv32_reg_op1_next = _gen_picorv32_cpuregs_rs1_seq5; break; }
-              if ((!(((((((((!(!(((uint8_t)0x1U | (!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0)))) ? 1 : 0)) & (!(!(_gen_picorv32_instr_trap) ? 1 : 0))) | ((uint8_t)0x1U & (!(!(_gen_picorv32_is_rdcycle_rdcycleh_rdinstr_rdinstrh) ? 1 : 0)))) | self->picorv32_is_lui_auipc_jal) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_getq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_setq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_retirq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_maskirq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_timer) ? 1 : 0))))) && (!(!(self->picorv32_is_lb_lh_lw_lbu_lhu) ? 1 : 0)) && (!(!((!(_gen_picorv32_instr_trap) ? 1 : 0)) ? 1 : 0))) { picorv32_reg_op1_next = _gen_picorv32_cpuregs_rs1_seq5; break; }
-              if ((!(((!(!(((uint8_t)0x1U | (!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0)))) ? 1 : 0)) & (!(!(_gen_picorv32_instr_trap) ? 1 : 0))) | ((uint8_t)0x1U & (!(!(_gen_picorv32_is_rdcycle_rdcycleh_rdinstr_rdinstrh) ? 1 : 0))))) && self->picorv32_is_lui_auipc_jal) {
-                do {
-                  if (self->picorv32_instr_lui) { picorv32_reg_op1_next = (uint32_t)0x0U; break; }
-                  picorv32_reg_op1_next = self->picorv32_reg_pc;
-                } while (0);
-                break;
-              }
-              if ((!(!(((uint8_t)0x1U | (!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0)))) ? 1 : 0)) && (!(!(_gen_picorv32_instr_trap) ? 1 : 0)) && (!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0))) { picorv32_reg_op1_next = _gen_picorv32_cpuregs_rs1_seq5; break; }
-            }
-          }
-          picorv32_reg_op1_next = self->picorv32_reg_op1;
-        } while (0);
         do {
           if (((!(!((!(_gen_picorv32_resetn) ? 1 : 0)) ? 1 : 0)) | (!(!(_gen_picorv32_mem_done) ? 1 : 0)))) { picorv32_mem_do_prefetch_next = (((uint32_t)0x0U) & 1); break; }
           if ((!(!(_gen_picorv32_resetn) ? 1 : 0)) && (self->picorv32_cpu_state == (uint32_t)0x40U ? 1 : 0) && (!((uint8_t)0x1U & (!(!(((!(!(((!(!(((!(!(((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) & (!(!((!(self->picorv32_irq_active) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(self->picorv32_irq_delay) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(!((self->picorv32_irq_pending & (self->picorv32_irq_mask ^ (uint32_t)0xffffffffU))) ? 1 : 0))) ? 1 : 0)))) ? 1 : 0)) | (!(!(self->picorv32_irq_state) ? 1 : 0)))) ? 1 : 0)))) && (!((!(!(((uint8_t)0x1U & (!(!(((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) | (!(!(self->picorv32_do_waitirq) ? 1 : 0)))) ? 1 : 0)))) ? 1 : 0)) & (!(!(self->picorv32_instr_waitirq) ? 1 : 0)))) && self->picorv32_decoder_trigger && (!self->picorv32_instr_jal)) { picorv32_mem_do_prefetch_next = ((((!(!((!(self->picorv32_instr_jalr) ? 1 : 0)) ? 1 : 0)) & (!(!((!(self->picorv32_instr_retirq) ? 1 : 0)) ? 1 : 0)))) & 1); break; }
-          picorv32_mem_do_prefetch_next = self->picorv32_mem_do_prefetch;
-        } while (0);
-        do {
-          if ((!(!(_gen_picorv32_resetn) ? 1 : 0))) {
-            if ((self->picorv32_cpu_state == (uint32_t)0x1U ? 1 : 0)) {
-              if (((!(!((!(self->picorv32_mem_do_prefetch) ? 1 : 0)) ? 1 : 0)) | (!(!(_gen_picorv32_mem_done) ? 1 : 0)))) {
-                if ((!(self->picorv32_mem_do_rdata) ? 1 : 0)) {
-                  if ((!(((!(!(self->picorv32_instr_lb) ? 1 : 0)) | (!(!(self->picorv32_instr_lbu) ? 1 : 0))) | ((!(!(self->picorv32_instr_lh) ? 1 : 0)) | (!(!(self->picorv32_instr_lhu) ? 1 : 0))))) && self->picorv32_instr_lw) { picorv32_mem_wordsize_next = (((uint32_t)0x0U) & 0x3ULL); break; }
-                  if ((!((!(!(self->picorv32_instr_lb) ? 1 : 0)) | (!(!(self->picorv32_instr_lbu) ? 1 : 0)))) && ((!(!(self->picorv32_instr_lh) ? 1 : 0)) | (!(!(self->picorv32_instr_lhu) ? 1 : 0)))) { picorv32_mem_wordsize_next = (((uint32_t)0x1U) & 0x3ULL); break; }
-                  if (((!(!(self->picorv32_instr_lb) ? 1 : 0)) | (!(!(self->picorv32_instr_lbu) ? 1 : 0)))) { picorv32_mem_wordsize_next = (((uint32_t)0x2U) & 0x3ULL); break; }
-                }
-              }
-            }
-            if ((self->picorv32_cpu_state == (uint32_t)0x2U ? 1 : 0)) {
-              if (((!(!((!(self->picorv32_mem_do_prefetch) ? 1 : 0)) ? 1 : 0)) | (!(!(_gen_picorv32_mem_done) ? 1 : 0)))) {
-                if ((!(self->picorv32_mem_do_wdata) ? 1 : 0)) {
-                  if ((!(self->picorv32_instr_sb | self->picorv32_instr_sh)) && self->picorv32_instr_sw) { picorv32_mem_wordsize_next = (((uint32_t)0x0U) & 0x3ULL); break; }
-                  if ((!self->picorv32_instr_sb) && self->picorv32_instr_sh) { picorv32_mem_wordsize_next = (((uint32_t)0x1U) & 0x3ULL); break; }
-                  if (self->picorv32_instr_sb) { picorv32_mem_wordsize_next = (((uint32_t)0x2U) & 0x3ULL); break; }
-                }
-              }
-            }
-            if ((self->picorv32_cpu_state == (uint32_t)0x40U ? 1 : 0)) { picorv32_mem_wordsize_next = (((uint32_t)0x0U) & 0x3ULL); break; }
-          }
-          picorv32_mem_wordsize_next = self->picorv32_mem_wordsize;
         } while (0);
         do {
           if (_gen_picorv32_set_mem_do_rinst) { picorv32_mem_do_rinst_next = (((uint32_t)0x1U) & 1); break; }
@@ -3298,7 +3206,6 @@ static void sparkle_sim_eval_tick(struct sim* self) {
               picorv32_mem_do_rinst_next = ((((!(!((!(self->picorv32_decoder_trigger) ? 1 : 0)) ? 1 : 0)) & (!(!((!(self->picorv32_do_waitirq) ? 1 : 0)) ? 1 : 0)))) & 1); break;
             }
           }
-          picorv32_mem_do_rinst_next = self->picorv32_mem_do_rinst;
         } while (0);
         do {
           if ((!(!(((!(!(((uint8_t)0x1U & (!(!(_gen_picorv32_resetn) ? 1 : 0)))) ? 1 : 0)) & (!(!(self->picorv32_mem_do_rinst) ? 1 : 0)))) ? 1 : 0)) && (!(!((!(!((self->picorv32_reg_pc & 0x3ULL)) ? 1 : 0))) ? 1 : 0)) && (!((!(!(((uint8_t)0x1U & (!(!((!(((self->picorv32_irq_mask >> 2) & 0x1ULL)) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(self->picorv32_irq_active) ? 1 : 0)) ? 1 : 0))))) { picorv32_cpu_state_next = (uint32_t)0x80U; break; }
@@ -3379,7 +3286,6 @@ static void sparkle_sim_eval_tick(struct sim* self) {
             if ((self->picorv32_cpu_state == (uint32_t)0x40U ? 1 : 0) && (!((uint8_t)0x1U & (!(!(((!(!(((!(!(((!(!(((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) & (!(!((!(self->picorv32_irq_active) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(self->picorv32_irq_delay) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(!((self->picorv32_irq_pending & (self->picorv32_irq_mask ^ (uint32_t)0xffffffffU))) ? 1 : 0))) ? 1 : 0)))) ? 1 : 0)) | (!(!(self->picorv32_irq_state) ? 1 : 0)))) ? 1 : 0)))) && (!((!(!(((uint8_t)0x1U & (!(!(((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) | (!(!(self->picorv32_do_waitirq) ? 1 : 0)))) ? 1 : 0)))) ? 1 : 0)) & (!(!(self->picorv32_instr_waitirq) ? 1 : 0)))) && self->picorv32_decoder_trigger && (!self->picorv32_instr_jal)) { picorv32_cpu_state_next = (uint32_t)0x20U; break; }
           }
           if ((!(_gen_picorv32_resetn) ? 1 : 0)) { picorv32_cpu_state_next = (uint32_t)0x40U; break; }
-          picorv32_cpu_state_next = self->picorv32_cpu_state;
         } while (0);
         do {
           if ((!(!(_gen_picorv32_resetn) ? 1 : 0))) {
@@ -3390,29 +3296,14 @@ static void sparkle_sim_eval_tick(struct sim* self) {
               picorv32_latched_rd_next = self->picorv32_decoded_rd; break;
             }
           }
-          picorv32_latched_rd_next = self->picorv32_latched_rd;
-        } while (0);
-        do {
-          if ((!(!(_gen_picorv32_resetn) ? 1 : 0)) && (self->picorv32_cpu_state == (uint32_t)0x40U ? 1 : 0) && (uint8_t)0x1U && (!(!(((!(!(((!(!(((!(!(((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) & (!(!((!(self->picorv32_irq_active) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(self->picorv32_irq_delay) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(!((self->picorv32_irq_pending & (self->picorv32_irq_mask ^ (uint32_t)0xffffffffU))) ? 1 : 0))) ? 1 : 0)))) ? 1 : 0)) | (!(!(self->picorv32_irq_state) ? 1 : 0)))) ? 1 : 0))) {
-            do {
-              if ((!(self->picorv32_irq_state) ? 1 : 0)) { picorv32_irq_state_next = (uint8_t)0x1U; break; }
-              if ((self->picorv32_irq_state == (uint8_t)0x1U ? 1 : 0)) { picorv32_irq_state_next = (uint8_t)0x2U; break; }
-              picorv32_irq_state_next = (uint8_t)0x0U;
-            } while (0);
-            break;
-          }
-          if ((!(_gen_picorv32_resetn) ? 1 : 0)) { picorv32_irq_state_next = (((uint32_t)0x0U) & 0x3ULL); break; }
-          picorv32_irq_state_next = self->picorv32_irq_state;
         } while (0);
         do {
           if ((!(!(_gen_picorv32_resetn) ? 1 : 0)) && (self->picorv32_cpu_state == (uint32_t)0x20U ? 1 : 0) && (!(((((((!(!(((uint8_t)0x1U | (!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0)))) ? 1 : 0)) & (!(!(_gen_picorv32_instr_trap) ? 1 : 0))) | ((uint8_t)0x1U & (!(!(_gen_picorv32_is_rdcycle_rdcycleh_rdinstr_rdinstrh) ? 1 : 0)))) | self->picorv32_is_lui_auipc_jal) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_getq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_setq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_retirq) ? 1 : 0))))) && (uint8_t)0x1U && (!(!(self->picorv32_instr_maskirq) ? 1 : 0))) { picorv32_irq_mask_next = _gen_picorv32_cpuregs_rs1_seq5; break; }
           if ((!(_gen_picorv32_resetn) ? 1 : 0)) { picorv32_irq_mask_next = (uint32_t)0xffffffffU; break; }
-          picorv32_irq_mask_next = self->picorv32_irq_mask;
         } while (0);
         do {
           if ((!(!(_gen_picorv32_resetn) ? 1 : 0)) && (self->picorv32_cpu_state == (uint32_t)0x40U ? 1 : 0) && (!((uint8_t)0x1U & (!(!(((!(!(((!(!(((!(!(((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) & (!(!((!(self->picorv32_irq_active) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(self->picorv32_irq_delay) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(!((self->picorv32_irq_pending & (self->picorv32_irq_mask ^ (uint32_t)0xffffffffU))) ? 1 : 0))) ? 1 : 0)))) ? 1 : 0)) | (!(!(self->picorv32_irq_state) ? 1 : 0)))) ? 1 : 0)))) && (!((!(!(((uint8_t)0x1U & (!(!(((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) | (!(!(self->picorv32_do_waitirq) ? 1 : 0)))) ? 1 : 0)))) ? 1 : 0)) & (!(!(self->picorv32_instr_waitirq) ? 1 : 0)))) && self->picorv32_decoder_trigger) { picorv32_irq_delay_next = self->picorv32_irq_active; break; }
           if ((!(_gen_picorv32_resetn) ? 1 : 0)) { picorv32_irq_delay_next = (((uint32_t)0x0U) & 1); break; }
-          picorv32_irq_delay_next = self->picorv32_irq_delay;
         } while (0);
         do {
           if ((!(!(_gen_picorv32_resetn) ? 1 : 0))) {
@@ -3420,7 +3311,6 @@ static void sparkle_sim_eval_tick(struct sim* self) {
             if ((self->picorv32_cpu_state == (uint32_t)0x40U ? 1 : 0) && (!(self->picorv32_latched_branch | ((!(!(self->picorv32_latched_store) ? 1 : 0)) & (!(!((!(self->picorv32_latched_branch) ? 1 : 0)) ? 1 : 0))))) && (uint8_t)0x1U && (!(!((self->picorv32_irq_state & 0x1ULL)) ? 1 : 0))) { picorv32_irq_active_next = (((uint32_t)0x1U) & 1); break; }
           }
           if ((!(_gen_picorv32_resetn) ? 1 : 0)) { picorv32_irq_active_next = (((uint32_t)0x0U) & 1); break; }
-          picorv32_irq_active_next = self->picorv32_irq_active;
         } while (0);
         do {
           if ((!(!(_gen_picorv32_resetn) ? 1 : 0))) {
@@ -3448,7 +3338,6 @@ static void sparkle_sim_eval_tick(struct sim* self) {
             }
           }
           if ((!(_gen_picorv32_resetn) ? 1 : 0)) { picorv32__reg_pcpi_valid_next = (((uint32_t)0x0U) & 1); break; }
-          picorv32__reg_pcpi_valid_next = self->picorv32__reg_pcpi_valid;
         } while (0);
         do {
           if ((!(!(_gen_picorv32_resetn) ? 1 : 0))) {
@@ -3465,7 +3354,6 @@ static void sparkle_sim_eval_tick(struct sim* self) {
             }
           }
           if ((!(_gen_picorv32_resetn) ? 1 : 0)) { picorv32_latched_branch_next = (((uint32_t)0x0U) & 1); break; }
-          picorv32_latched_branch_next = self->picorv32_latched_branch;
         } while (0);
         do {
           if ((!(!(_gen_picorv32_resetn) ? 1 : 0))) {
@@ -3493,217 +3381,10 @@ static void sparkle_sim_eval_tick(struct sim* self) {
             }
           }
           if ((!(_gen_picorv32_resetn) ? 1 : 0)) { picorv32_latched_store_next = (((uint32_t)0x0U) & 1); break; }
-          picorv32_latched_store_next = self->picorv32_latched_store;
-        } while (0);
-        picorv32_reg_pc_next = (((((!(!(_gen_picorv32_resetn) ? 1 : 0)) & ((!(self->picorv32_cpu_state == (uint32_t)0x80U ? 1 : 0)) & (self->picorv32_cpu_state == (uint32_t)0x40U ? 1 : 0))) ? _gen_picorv32_current_pc : ((!(_gen_picorv32_resetn) ? 1 : 0) ? (uint32_t)0x0U : self->picorv32_reg_pc)) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU);
-        do {
-          if ((!(!(_gen_picorv32_resetn) ? 1 : 0)) && (self->picorv32_cpu_state == (uint32_t)0x40U ? 1 : 0) && (!((uint8_t)0x1U & (!(!(((!(!(((!(!(((!(!(((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) & (!(!((!(self->picorv32_irq_active) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(self->picorv32_irq_delay) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(!((self->picorv32_irq_pending & (self->picorv32_irq_mask ^ (uint32_t)0xffffffffU))) ? 1 : 0))) ? 1 : 0)))) ? 1 : 0)) | (!(!(self->picorv32_irq_state) ? 1 : 0)))) ? 1 : 0)))) && (!(!(((uint8_t)0x1U & (!(!(((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) | (!(!(self->picorv32_do_waitirq) ? 1 : 0)))) ? 1 : 0)))) ? 1 : 0)) && (!(!(self->picorv32_instr_waitirq) ? 1 : 0)) && (!(self->picorv32_irq_pending) ? 1 : 0)) { picorv32_do_waitirq_next = (((uint32_t)0x1U) & 1); break; }
-          picorv32_do_waitirq_next = (((uint32_t)0x0U) & 1);
-        } while (0);
-        do {
-          if ((!(!(_gen_picorv32_resetn) ? 1 : 0))) {
-            if ((self->picorv32_cpu_state == (uint32_t)0x1U ? 1 : 0) && ((!(!((!(self->picorv32_mem_do_prefetch) ? 1 : 0)) ? 1 : 0)) | (!(!(_gen_picorv32_mem_done) ? 1 : 0))) && (!(!((!(self->picorv32_mem_do_prefetch) ? 1 : 0)) ? 1 : 0)) && (!(!(_gen_picorv32_mem_done) ? 1 : 0))) { picorv32_decoder_pseudo_trigger_next = (((uint32_t)0x1U) & 1); break; }
-            if ((self->picorv32_cpu_state == (uint32_t)0x2U ? 1 : 0) && ((!(!((!(self->picorv32_mem_do_prefetch) ? 1 : 0)) ? 1 : 0)) | (!(!(_gen_picorv32_mem_done) ? 1 : 0))) && (!(!((!(self->picorv32_mem_do_prefetch) ? 1 : 0)) ? 1 : 0)) && (!(!(_gen_picorv32_mem_done) ? 1 : 0))) { picorv32_decoder_pseudo_trigger_next = (((uint32_t)0x1U) & 1); break; }
-          }
-          picorv32_decoder_pseudo_trigger_next = (((uint32_t)0x0U) & 1);
-        } while (0);
-        do {
-          if ((!(!(_gen_picorv32_resetn) ? 1 : 0))) {
-            if ((self->picorv32_cpu_state == (uint32_t)0x1U ? 1 : 0) && ((!(!((!(self->picorv32_mem_do_prefetch) ? 1 : 0)) ? 1 : 0)) | (!(!(_gen_picorv32_mem_done) ? 1 : 0))) && (!(!((!(self->picorv32_mem_do_prefetch) ? 1 : 0)) ? 1 : 0)) && (!(!(_gen_picorv32_mem_done) ? 1 : 0))) { picorv32_decoder_trigger_next = (((uint32_t)0x1U) & 1); break; }
-            if ((self->picorv32_cpu_state == (uint32_t)0x2U ? 1 : 0) && ((!(!((!(self->picorv32_mem_do_prefetch) ? 1 : 0)) ? 1 : 0)) | (!(!(_gen_picorv32_mem_done) ? 1 : 0))) && (!(!((!(self->picorv32_mem_do_prefetch) ? 1 : 0)) ? 1 : 0)) && (!(!(_gen_picorv32_mem_done) ? 1 : 0))) { picorv32_decoder_trigger_next = (((uint32_t)0x1U) & 1); break; }
-            if ((self->picorv32_cpu_state == (uint32_t)0x8U ? 1 : 0) && (uint8_t)0x1U && self->picorv32_is_beq_bne_blt_bge_bltu_bgeu && _gen_picorv32_alu_out_0_seq6) { picorv32_decoder_trigger_next = (((uint32_t)0x0U) & 1); break; }
-          }
-          picorv32_decoder_trigger_next = ((((!(!(self->picorv32_mem_do_rinst) ? 1 : 0)) & (!(!(_gen_picorv32_mem_done) ? 1 : 0)))) & 1);
-        } while (0);
-        do {
-          if ((!(_gen_picorv32_resetn) ? 1 : 0)) { picorv32_pcpi_timeout_next = (((uint32_t)0x0U) & 1); break; }
-          if ((!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0)) && (uint8_t)0x1U) { picorv32_pcpi_timeout_next = (!(self->picorv32_pcpi_timeout_counter) ? 1 : 0); break; }
-          picorv32_pcpi_timeout_next = self->picorv32_pcpi_timeout;
-        } while (0);
-        do {
-          if ((!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0))) {
-            if ((uint8_t)0x1U) {
-              if ((!((!(!(((!(!(_gen_picorv32_resetn) ? 1 : 0)) & (!(!(self->picorv32__reg_pcpi_valid) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(_gen_picorv32_pcpi_int_wait_seq2) ? 1 : 0)) ? 1 : 0))))) { picorv32_pcpi_timeout_counter_next = (((uint32_t)0xffffffffU) & 0xfULL); break; }
-              if ((!(!(((!(!(_gen_picorv32_resetn) ? 1 : 0)) & (!(!(self->picorv32__reg_pcpi_valid) ? 1 : 0)))) ? 1 : 0)) && (!(!((!(_gen_picorv32_pcpi_int_wait_seq2) ? 1 : 0)) ? 1 : 0)) && (!(!(self->picorv32_pcpi_timeout_counter) ? 1 : 0))) { picorv32_pcpi_timeout_counter_next = (((self->picorv32_pcpi_timeout_counter - (uint32_t)0x1U)) & 0xfULL); break; }
-            }
-          }
-          picorv32_pcpi_timeout_counter_next = self->picorv32_pcpi_timeout_counter;
-        } while (0);
-        do {
-          if ((!(!(_gen_picorv32_resetn) ? 1 : 0))) {
-            if ((self->picorv32_cpu_state == (uint32_t)0x4U ? 1 : 0)) {
-              if ((!(!(self->picorv32_reg_sh) ? 1 : 0))) {
-                if ((!((uint8_t)0x1U & (!(!((self->picorv32_reg_sh >= (uint32_t)0x4U ? 1 : 0)) ? 1 : 0))))) { picorv32_reg_sh_next = (((self->picorv32_reg_sh - (uint32_t)0x1U)) & 0x1fULL); break; }
-                if ((uint8_t)0x1U && (!(!((self->picorv32_reg_sh >= (uint32_t)0x4U ? 1 : 0)) ? 1 : 0))) { picorv32_reg_sh_next = (((self->picorv32_reg_sh - (uint32_t)0x4U)) & 0x1fULL); break; }
-              }
-            }
-            if ((self->picorv32_cpu_state == (uint32_t)0x10U ? 1 : 0)) { picorv32_reg_sh_next = ((_gen_picorv32_cpuregs_rs2_seq6) & 0x1fULL); break; }
-            if ((self->picorv32_cpu_state == (uint32_t)0x20U ? 1 : 0)) {
-              if ((!((((((((((((!(!(((uint8_t)0x1U | (!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0)))) ? 1 : 0)) & (!(!(_gen_picorv32_instr_trap) ? 1 : 0))) | ((uint8_t)0x1U & (!(!(_gen_picorv32_is_rdcycle_rdcycleh_rdinstr_rdinstrh) ? 1 : 0)))) | self->picorv32_is_lui_auipc_jal) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_getq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_setq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_retirq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_maskirq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_timer) ? 1 : 0)))) | ((!(!(self->picorv32_is_lb_lh_lw_lbu_lhu) ? 1 : 0)) & (!(!((!(_gen_picorv32_instr_trap) ? 1 : 0)) ? 1 : 0)))) | ((!(!(self->picorv32_is_slli_srli_srai) ? 1 : 0)) & (uint8_t)0x1U)) | self->picorv32_is_jalr_addi_slti_sltiu_xori_ori_andi)) && (uint8_t)0x1U) { picorv32_reg_sh_next = ((_gen_picorv32_cpuregs_rs2_seq6) & 0x1fULL); break; }
-              if ((!((((((((((!(!(((uint8_t)0x1U | (!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0)))) ? 1 : 0)) & (!(!(_gen_picorv32_instr_trap) ? 1 : 0))) | ((uint8_t)0x1U & (!(!(_gen_picorv32_is_rdcycle_rdcycleh_rdinstr_rdinstrh) ? 1 : 0)))) | self->picorv32_is_lui_auipc_jal) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_getq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_setq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_retirq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_maskirq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_timer) ? 1 : 0)))) | ((!(!(self->picorv32_is_lb_lh_lw_lbu_lhu) ? 1 : 0)) & (!(!((!(_gen_picorv32_instr_trap) ? 1 : 0)) ? 1 : 0))))) && (!(!(self->picorv32_is_slli_srli_srai) ? 1 : 0)) && (uint8_t)0x1U) { picorv32_reg_sh_next = self->picorv32_decoded_rs2; break; }
-              if ((!(!(((uint8_t)0x1U | (!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0)))) ? 1 : 0)) && (!(!(_gen_picorv32_instr_trap) ? 1 : 0)) && (!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0)) && (uint8_t)0x1U) { picorv32_reg_sh_next = ((_gen_picorv32_cpuregs_rs2_seq6) & 0x1fULL); break; }
-            }
-          }
-          picorv32_reg_sh_next = self->picorv32_reg_sh;
-        } while (0);
-        do {
-          if ((!(!(self->picorv32_decoder_trigger) ? 1 : 0))) {
-            if ((!(!((!(self->picorv32_decoder_pseudo_trigger) ? 1 : 0)) ? 1 : 0))) {
-              if ((!((((self->picorv32_instr_jal | (!(!(self->picorv32_instr_lui | self->picorv32_instr_auipc) ? 1 : 0))) | (!(!(self->picorv32_instr_jalr | self->picorv32_is_lb_lh_lw_lbu_lhu | self->picorv32_is_alu_reg_imm) ? 1 : 0))) | self->picorv32_is_beq_bne_blt_bge_bltu_bgeu) | self->picorv32_is_sb_sh_sw))) { picorv32_decoded_imm_next = (uint8_t)0x0U; break; }
-              if ((!(((self->picorv32_instr_jal | (!(!(self->picorv32_instr_lui | self->picorv32_instr_auipc) ? 1 : 0))) | (!(!(self->picorv32_instr_jalr | self->picorv32_is_lb_lh_lw_lbu_lhu | self->picorv32_is_alu_reg_imm) ? 1 : 0))) | self->picorv32_is_beq_bne_blt_bge_bltu_bgeu)) && self->picorv32_is_sb_sh_sw) { picorv32_decoded_imm_next = (((((uint32_t)(uint32_t)0x0U << 12) | (uint32_t)(((uint16_t)((self->picorv32_mem_rdata_q >> 25) & 0x7fULL) << 5) | (uint16_t)((self->picorv32_mem_rdata_q >> 7) & 0x1fULL))) ^ (uint32_t)0x800U) - (uint32_t)0x800U); break; }
-              if ((!((self->picorv32_instr_jal | (!(!(self->picorv32_instr_lui | self->picorv32_instr_auipc) ? 1 : 0))) | (!(!(self->picorv32_instr_jalr | self->picorv32_is_lb_lh_lw_lbu_lhu | self->picorv32_is_alu_reg_imm) ? 1 : 0)))) && self->picorv32_is_beq_bne_blt_bge_bltu_bgeu) { picorv32_decoded_imm_next = (((((uint32_t)(uint32_t)0x0U << 13) | (uint32_t)(((uint16_t)((self->picorv32_mem_rdata_q >> 31) & 0x1ULL) << 12) | ((uint16_t)((self->picorv32_mem_rdata_q >> 7) & 0x1ULL) << 11) | ((uint16_t)((self->picorv32_mem_rdata_q >> 25) & 0x3fULL) << 5) | ((uint16_t)((self->picorv32_mem_rdata_q >> 8) & 0xfULL) << 1) | (uint16_t)(uint8_t)0x0U)) ^ (uint32_t)0x1000U) - (uint32_t)0x1000U); break; }
-              if ((!(self->picorv32_instr_jal | (!(!(self->picorv32_instr_lui | self->picorv32_instr_auipc) ? 1 : 0)))) && (!(!(self->picorv32_instr_jalr | self->picorv32_is_lb_lh_lw_lbu_lhu | self->picorv32_is_alu_reg_imm) ? 1 : 0))) { picorv32_decoded_imm_next = (((((uint32_t)(uint32_t)0x0U << 12) | (uint32_t)((self->picorv32_mem_rdata_q >> 20) & 0xfffULL)) ^ (uint32_t)0x800U) - (uint32_t)0x800U); break; }
-              if ((!self->picorv32_instr_jal) && (!(!(self->picorv32_instr_lui | self->picorv32_instr_auipc) ? 1 : 0))) { picorv32_decoded_imm_next = ((uint64_t)((self->picorv32_mem_rdata_q >> 12) & 0xfffffULL) << 12); break; }
-              if (self->picorv32_instr_jal) { picorv32_decoded_imm_next = self->picorv32_decoded_imm_j; break; }
-            }
-          }
-          picorv32_decoded_imm_next = self->picorv32_decoded_imm;
-        } while (0);
-        do {
-          if ((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) && (!(!((!(self->picorv32_decoder_pseudo_trigger) ? 1 : 0)) ? 1 : 0))) { picorv32_is_sll_srl_sra_next = ((((!(!(self->picorv32_is_alu_reg_reg) ? 1 : 0)) & (!(!((!(!(((uint64_t)(((!(!((((self->picorv32_mem_rdata_q >> 12) & 0x7ULL) == (uint8_t)0x1U ? 1 : 0)) ? 1 : 0)) & (!(!((!(((self->picorv32_mem_rdata_q >> 25) & 0x7fULL)) ? 1 : 0)) ? 1 : 0)))) & 0x1ULL) | ((uint64_t)(((!(!((((self->picorv32_mem_rdata_q >> 12) & 0x7ULL) == (uint8_t)0x5U ? 1 : 0)) ? 1 : 0)) & (!(!((!(((self->picorv32_mem_rdata_q >> 25) & 0x7fULL)) ? 1 : 0)) ? 1 : 0)))) & 0x1ULL) | ((uint64_t)(((!(!((((self->picorv32_mem_rdata_q >> 12) & 0x7ULL) == (uint8_t)0x5U ? 1 : 0)) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 25) & 0x7fULL) == (uint8_t)0x20U ? 1 : 0)) ? 1 : 0)))) & 0x1ULL)) ? 1 : 0))) ? 1 : 0)))) & 1); break; }
-          picorv32_is_sll_srl_sra_next = self->picorv32_is_sll_srl_sra;
-        } while (0);
-        do {
-          if ((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) && (!(!((!(self->picorv32_decoder_pseudo_trigger) ? 1 : 0)) ? 1 : 0))) { picorv32_is_jalr_addi_slti_sltiu_xori_ori_andi_next = ((((!(!(self->picorv32_instr_jalr) ? 1 : 0)) | (!(!(((!(!(self->picorv32_is_alu_reg_imm) ? 1 : 0)) & (!(!((!(!((!(((self->picorv32_mem_rdata_q >> 12) & 0x7ULL)) ? 1 : 0) | (((self->picorv32_mem_rdata_q >> 12) & 0x7ULL) == (uint8_t)0x2U ? 1 : 0) | (((self->picorv32_mem_rdata_q >> 12) & 0x7ULL) == (uint8_t)0x3U ? 1 : 0) | (((self->picorv32_mem_rdata_q >> 12) & 0x7ULL) == (uint8_t)0x4U ? 1 : 0) | (((self->picorv32_mem_rdata_q >> 12) & 0x7ULL) == (uint8_t)0x6U ? 1 : 0) | (((self->picorv32_mem_rdata_q >> 12) & 0x7ULL) == (uint8_t)0x7U ? 1 : 0)) ? 1 : 0))) ? 1 : 0)))) ? 1 : 0)))) & 1); break; }
-          picorv32_is_jalr_addi_slti_sltiu_xori_ori_andi_next = self->picorv32_is_jalr_addi_slti_sltiu_xori_ori_andi;
-        } while (0);
-        do {
-          if ((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) && (!(!((!(self->picorv32_decoder_pseudo_trigger) ? 1 : 0)) ? 1 : 0))) { picorv32_is_slli_srli_srai_next = ((((!(!(self->picorv32_is_alu_reg_imm) ? 1 : 0)) & (!(!((!(!(((uint64_t)(((!(!((((self->picorv32_mem_rdata_q >> 12) & 0x7ULL) == (uint8_t)0x1U ? 1 : 0)) ? 1 : 0)) & (!(!((!(((self->picorv32_mem_rdata_q >> 25) & 0x7fULL)) ? 1 : 0)) ? 1 : 0)))) & 0x1ULL) | ((uint64_t)(((!(!((((self->picorv32_mem_rdata_q >> 12) & 0x7ULL) == (uint8_t)0x5U ? 1 : 0)) ? 1 : 0)) & (!(!((!(((self->picorv32_mem_rdata_q >> 25) & 0x7fULL)) ? 1 : 0)) ? 1 : 0)))) & 0x1ULL) | ((uint64_t)(((!(!((((self->picorv32_mem_rdata_q >> 12) & 0x7ULL) == (uint8_t)0x5U ? 1 : 0)) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 25) & 0x7fULL) == (uint8_t)0x20U ? 1 : 0)) ? 1 : 0)))) & 0x1ULL)) ? 1 : 0))) ? 1 : 0)))) & 1); break; }
-          picorv32_is_slli_srli_srai_next = self->picorv32_is_slli_srli_srai;
-        } while (0);
-        do {
-          if ((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) && (!(!((!(self->picorv32_decoder_pseudo_trigger) ? 1 : 0)) ? 1 : 0))) { picorv32_instr_timer_next = ((!(!(((!(!(((!(!(((self->picorv32_mem_rdata_q & 0x7fULL) == (uint8_t)0xbU ? 1 : 0)) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 25) & 0x7fULL) == (uint8_t)0x5U ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (uint8_t)0x1U)) ? 1 : 0)) & (uint8_t)0x1U); break; }
-          picorv32_instr_timer_next = self->picorv32_instr_timer;
-        } while (0);
-        do {
-          if ((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) && (!(!((!(self->picorv32_decoder_pseudo_trigger) ? 1 : 0)) ? 1 : 0))) { picorv32_instr_maskirq_next = ((!(!(((!(!(((self->picorv32_mem_rdata_q & 0x7fULL) == (uint8_t)0xbU ? 1 : 0)) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 25) & 0x7fULL) == (uint8_t)0x3U ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (uint8_t)0x1U); break; }
-          picorv32_instr_maskirq_next = self->picorv32_instr_maskirq;
-        } while (0);
-        do {
-          if ((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) && (!(!((!(self->picorv32_decoder_pseudo_trigger) ? 1 : 0)) ? 1 : 0))) { picorv32_instr_setq_next = ((!(!(((!(!(((!(!(((self->picorv32_mem_rdata_q & 0x7fULL) == (uint8_t)0xbU ? 1 : 0)) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 25) & 0x7fULL) == (uint8_t)0x1U ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (uint8_t)0x1U)) ? 1 : 0)) & (uint8_t)0x1U); break; }
-          picorv32_instr_setq_next = self->picorv32_instr_setq;
-        } while (0);
-        do {
-          if ((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) && (!(!((!(self->picorv32_decoder_pseudo_trigger) ? 1 : 0)) ? 1 : 0))) { picorv32_instr_getq_next = ((!(!(((!(!(((!(!(((self->picorv32_mem_rdata_q & 0x7fULL) == (uint8_t)0xbU ? 1 : 0)) ? 1 : 0)) & (!(!((!(((self->picorv32_mem_rdata_q >> 25) & 0x7fULL)) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (uint8_t)0x1U)) ? 1 : 0)) & (uint8_t)0x1U); break; }
-          picorv32_instr_getq_next = self->picorv32_instr_getq;
         } while (0);
         do {
           if ((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) && (!(!((!(self->picorv32_decoder_pseudo_trigger) ? 1 : 0)) ? 1 : 0))) { picorv32_instr_ecall_ebreak_next = (((!(!(((!(!(((!(!(((self->picorv32_mem_rdata_q & 0x7fULL) == (uint8_t)0x73U ? 1 : 0)) ? 1 : 0)) & (!(!((!(((self->picorv32_mem_rdata_q >> 21) & 0x7ffULL)) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(((self->picorv32_mem_rdata_q >> 7) & 0x1fffULL)) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0))) & 1); break; }
-          picorv32_instr_ecall_ebreak_next = self->picorv32_instr_ecall_ebreak;
         } while (0);
-        do {
-          if ((!(_gen_picorv32_resetn) ? 1 : 0)) { picorv32_instr_sra_next = (((uint32_t)0x0U) & 1); break; }
-          if ((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) && (!(!((!(self->picorv32_decoder_pseudo_trigger) ? 1 : 0)) ? 1 : 0))) { picorv32_instr_sra_next = ((((!(!(((!(!(self->picorv32_is_alu_reg_reg) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 12) & 0x7ULL) == (uint8_t)0x5U ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 25) & 0x7fULL) == (uint8_t)0x20U ? 1 : 0)) ? 1 : 0)))) & 1); break; }
-          picorv32_instr_sra_next = self->picorv32_instr_sra;
-        } while (0);
-        do {
-          if ((!(_gen_picorv32_resetn) ? 1 : 0)) { picorv32_instr_srl_next = (((uint32_t)0x0U) & 1); break; }
-          if ((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) && (!(!((!(self->picorv32_decoder_pseudo_trigger) ? 1 : 0)) ? 1 : 0))) { picorv32_instr_srl_next = ((((!(!(((!(!(self->picorv32_is_alu_reg_reg) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 12) & 0x7ULL) == (uint8_t)0x5U ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(((self->picorv32_mem_rdata_q >> 25) & 0x7fULL)) ? 1 : 0)) ? 1 : 0)))) & 1); break; }
-          picorv32_instr_srl_next = self->picorv32_instr_srl;
-        } while (0);
-        do {
-          if ((!(_gen_picorv32_resetn) ? 1 : 0)) { picorv32_instr_sll_next = (((uint32_t)0x0U) & 1); break; }
-          if ((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) && (!(!((!(self->picorv32_decoder_pseudo_trigger) ? 1 : 0)) ? 1 : 0))) { picorv32_instr_sll_next = ((((!(!(((!(!(self->picorv32_is_alu_reg_reg) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 12) & 0x7ULL) == (uint8_t)0x1U ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(((self->picorv32_mem_rdata_q >> 25) & 0x7fULL)) ? 1 : 0)) ? 1 : 0)))) & 1); break; }
-          picorv32_instr_sll_next = self->picorv32_instr_sll;
-        } while (0);
-        do {
-          if ((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) && (!(!((!(self->picorv32_decoder_pseudo_trigger) ? 1 : 0)) ? 1 : 0))) { picorv32_instr_srai_next = ((((!(!(((!(!(self->picorv32_is_alu_reg_imm) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 12) & 0x7ULL) == (uint8_t)0x5U ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 25) & 0x7fULL) == (uint8_t)0x20U ? 1 : 0)) ? 1 : 0)))) & 1); break; }
-          picorv32_instr_srai_next = self->picorv32_instr_srai;
-        } while (0);
-        do {
-          if ((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) && (!(!((!(self->picorv32_decoder_pseudo_trigger) ? 1 : 0)) ? 1 : 0))) { picorv32_instr_srli_next = ((((!(!(((!(!(self->picorv32_is_alu_reg_imm) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 12) & 0x7ULL) == (uint8_t)0x5U ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(((self->picorv32_mem_rdata_q >> 25) & 0x7fULL)) ? 1 : 0)) ? 1 : 0)))) & 1); break; }
-          picorv32_instr_srli_next = self->picorv32_instr_srli;
-        } while (0);
-        do {
-          if ((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) && (!(!((!(self->picorv32_decoder_pseudo_trigger) ? 1 : 0)) ? 1 : 0))) { picorv32_instr_slli_next = ((((!(!(((!(!(self->picorv32_is_alu_reg_imm) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 12) & 0x7ULL) == (uint8_t)0x1U ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(((self->picorv32_mem_rdata_q >> 25) & 0x7fULL)) ? 1 : 0)) ? 1 : 0)))) & 1); break; }
-          picorv32_instr_slli_next = self->picorv32_instr_slli;
-        } while (0);
-        do {
-          if ((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) && (!(!((!(self->picorv32_decoder_pseudo_trigger) ? 1 : 0)) ? 1 : 0))) { picorv32_instr_sw_next = ((((!(!(self->picorv32_is_sb_sh_sw) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 12) & 0x7ULL) == (uint8_t)0x2U ? 1 : 0)) ? 1 : 0)))) & 1); break; }
-          picorv32_instr_sw_next = self->picorv32_instr_sw;
-        } while (0);
-        do {
-          if ((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) && (!(!((!(self->picorv32_decoder_pseudo_trigger) ? 1 : 0)) ? 1 : 0))) { picorv32_instr_sh_next = ((((!(!(self->picorv32_is_sb_sh_sw) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 12) & 0x7ULL) == (uint8_t)0x1U ? 1 : 0)) ? 1 : 0)))) & 1); break; }
-          picorv32_instr_sh_next = self->picorv32_instr_sh;
-        } while (0);
-        do {
-          if ((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) && (!(!((!(self->picorv32_decoder_pseudo_trigger) ? 1 : 0)) ? 1 : 0))) { picorv32_instr_sb_next = ((((!(!(self->picorv32_is_sb_sh_sw) ? 1 : 0)) & (!(!((!(((self->picorv32_mem_rdata_q >> 12) & 0x7ULL)) ? 1 : 0)) ? 1 : 0)))) & 1); break; }
-          picorv32_instr_sb_next = self->picorv32_instr_sb;
-        } while (0);
-        do {
-          if ((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) && (!(!((!(self->picorv32_decoder_pseudo_trigger) ? 1 : 0)) ? 1 : 0))) { picorv32_instr_lhu_next = ((((!(!(self->picorv32_is_lb_lh_lw_lbu_lhu) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 12) & 0x7ULL) == (uint8_t)0x5U ? 1 : 0)) ? 1 : 0)))) & 1); break; }
-          picorv32_instr_lhu_next = self->picorv32_instr_lhu;
-        } while (0);
-        do {
-          if ((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) && (!(!((!(self->picorv32_decoder_pseudo_trigger) ? 1 : 0)) ? 1 : 0))) { picorv32_instr_lbu_next = ((((!(!(self->picorv32_is_lb_lh_lw_lbu_lhu) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 12) & 0x7ULL) == (uint8_t)0x4U ? 1 : 0)) ? 1 : 0)))) & 1); break; }
-          picorv32_instr_lbu_next = self->picorv32_instr_lbu;
-        } while (0);
-        do {
-          if ((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) && (!(!((!(self->picorv32_decoder_pseudo_trigger) ? 1 : 0)) ? 1 : 0))) { picorv32_instr_lw_next = ((((!(!(self->picorv32_is_lb_lh_lw_lbu_lhu) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 12) & 0x7ULL) == (uint8_t)0x2U ? 1 : 0)) ? 1 : 0)))) & 1); break; }
-          picorv32_instr_lw_next = self->picorv32_instr_lw;
-        } while (0);
-        do {
-          if ((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) && (!(!((!(self->picorv32_decoder_pseudo_trigger) ? 1 : 0)) ? 1 : 0))) { picorv32_instr_lh_next = ((((!(!(self->picorv32_is_lb_lh_lw_lbu_lhu) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 12) & 0x7ULL) == (uint8_t)0x1U ? 1 : 0)) ? 1 : 0)))) & 1); break; }
-          picorv32_instr_lh_next = self->picorv32_instr_lh;
-        } while (0);
-        do {
-          if ((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) && (!(!((!(self->picorv32_decoder_pseudo_trigger) ? 1 : 0)) ? 1 : 0))) { picorv32_instr_lb_next = ((((!(!(self->picorv32_is_lb_lh_lw_lbu_lhu) ? 1 : 0)) & (!(!((!(((self->picorv32_mem_rdata_q >> 12) & 0x7ULL)) ? 1 : 0)) ? 1 : 0)))) & 1); break; }
-          picorv32_instr_lb_next = self->picorv32_instr_lb;
-        } while (0);
-        do {
-          if ((!(!(self->picorv32_mem_do_rinst) ? 1 : 0)) && (!(!(_gen_picorv32_mem_done) ? 1 : 0))) { picorv32_decoded_rs2_next = ((_gen_picorv32_mem_rdata_latched >> 20) & 0x1fULL); break; }
-          picorv32_decoded_rs2_next = self->picorv32_decoded_rs2;
-        } while (0);
-        do {
-          if ((!(!(self->picorv32_mem_do_rinst) ? 1 : 0)) && (!(!(_gen_picorv32_mem_done) ? 1 : 0))) { picorv32_decoded_imm_j_next = ((((((uint64_t)(((((((uint32_t)(uint16_t)0x0U << 21) | (uint32_t)(((uint32_t)((_gen_picorv32_mem_rdata_latched >> 12) & 0xfffffULL) << 1) | (uint32_t)(uint8_t)0x0U)) ^ (uint32_t)0x100000U) - (uint32_t)0x100000U) >> 20) & 0xfffULL) << 20) | ((uint64_t)(((((((uint32_t)(uint16_t)0x0U << 21) | (uint32_t)(((uint32_t)((_gen_picorv32_mem_rdata_latched >> 12) & 0xfffffULL) << 1) | (uint32_t)(uint8_t)0x0U)) ^ (uint32_t)0x100000U) - (uint32_t)0x100000U) >> 10) & 0x3ffULL) << 1)) | ((uint64_t)(((((((uint32_t)(uint16_t)0x0U << 21) | (uint32_t)(((uint32_t)((_gen_picorv32_mem_rdata_latched >> 12) & 0xfffffULL) << 1) | (uint32_t)(uint8_t)0x0U)) ^ (uint32_t)0x100000U) - (uint32_t)0x100000U) >> 9) & 0x1ULL) << 11)) | ((uint64_t)(((((((uint32_t)(uint16_t)0x0U << 21) | (uint32_t)(((uint32_t)((_gen_picorv32_mem_rdata_latched >> 12) & 0xfffffULL) << 1) | (uint32_t)(uint8_t)0x0U)) ^ (uint32_t)0x100000U) - (uint32_t)0x100000U) >> 1) & 0xffULL) << 12)) | ((((((uint32_t)(uint16_t)0x0U << 21) | (uint32_t)(((uint32_t)((_gen_picorv32_mem_rdata_latched >> 12) & 0xfffffULL) << 1) | (uint32_t)(uint8_t)0x0U)) ^ (uint32_t)0x100000U) - (uint32_t)0x100000U) & 0x1ULL)); break; }
-          picorv32_decoded_imm_j_next = self->picorv32_decoded_imm_j;
-        } while (0);
-        do {
-          if ((!(!(self->picorv32_mem_do_rinst) ? 1 : 0)) && (!(!(_gen_picorv32_mem_done) ? 1 : 0))) { picorv32_is_alu_reg_reg_next = ((_gen_picorv32_mem_rdata_latched & 0x7fULL) == (uint8_t)0x33U ? 1 : 0); break; }
-          picorv32_is_alu_reg_reg_next = self->picorv32_is_alu_reg_reg;
-        } while (0);
-        do {
-          if ((!(!(self->picorv32_mem_do_rinst) ? 1 : 0)) && (!(!(_gen_picorv32_mem_done) ? 1 : 0))) { picorv32_is_alu_reg_imm_next = ((_gen_picorv32_mem_rdata_latched & 0x7fULL) == (uint8_t)0x13U ? 1 : 0); break; }
-          picorv32_is_alu_reg_imm_next = self->picorv32_is_alu_reg_imm;
-        } while (0);
-        do {
-          if ((!(!(self->picorv32_mem_do_rinst) ? 1 : 0)) && (!(!(_gen_picorv32_mem_done) ? 1 : 0))) { picorv32_is_sb_sh_sw_next = ((_gen_picorv32_mem_rdata_latched & 0x7fULL) == (uint8_t)0x23U ? 1 : 0); break; }
-          picorv32_is_sb_sh_sw_next = self->picorv32_is_sb_sh_sw;
-        } while (0);
-        do {
-          if ((!(!(self->picorv32_mem_do_rinst) ? 1 : 0)) && (!(!(_gen_picorv32_mem_done) ? 1 : 0))) { picorv32_is_lb_lh_lw_lbu_lhu_next = ((_gen_picorv32_mem_rdata_latched & 0x7fULL) == (uint8_t)0x3U ? 1 : 0); break; }
-          picorv32_is_lb_lh_lw_lbu_lhu_next = self->picorv32_is_lb_lh_lw_lbu_lhu;
-        } while (0);
-        do {
-          if ((!(_gen_picorv32_resetn) ? 1 : 0)) { picorv32_is_beq_bne_blt_bge_bltu_bgeu_next = (((uint32_t)0x0U) & 1); break; }
-          if ((!(!(self->picorv32_mem_do_rinst) ? 1 : 0)) && (!(!(_gen_picorv32_mem_done) ? 1 : 0))) { picorv32_is_beq_bne_blt_bge_bltu_bgeu_next = ((_gen_picorv32_mem_rdata_latched & 0x7fULL) == (uint8_t)0x63U ? 1 : 0); break; }
-          picorv32_is_beq_bne_blt_bge_bltu_bgeu_next = self->picorv32_is_beq_bne_blt_bge_bltu_bgeu;
-        } while (0);
-        do {
-          if ((!(!(self->picorv32_mem_do_rinst) ? 1 : 0)) && (!(!(_gen_picorv32_mem_done) ? 1 : 0))) { picorv32_instr_waitirq_next = ((!(!(((!(!(((_gen_picorv32_mem_rdata_latched & 0x7fULL) == (uint8_t)0xbU ? 1 : 0)) ? 1 : 0)) & (!(!((((_gen_picorv32_mem_rdata_latched >> 25) & 0x7fULL) == (uint8_t)0x4U ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (uint8_t)0x1U); break; }
-          picorv32_instr_waitirq_next = self->picorv32_instr_waitirq;
-        } while (0);
-        do {
-          if ((!(!(self->picorv32_mem_do_rinst) ? 1 : 0)) && (!(!(_gen_picorv32_mem_done) ? 1 : 0))) { picorv32_instr_retirq_next = ((!(!(((!(!(((_gen_picorv32_mem_rdata_latched & 0x7fULL) == (uint8_t)0xbU ? 1 : 0)) ? 1 : 0)) & (!(!((((_gen_picorv32_mem_rdata_latched >> 25) & 0x7fULL) == (uint8_t)0x2U ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (uint8_t)0x1U); break; }
-          picorv32_instr_retirq_next = self->picorv32_instr_retirq;
-        } while (0);
-        do {
-          if ((!(!(self->picorv32_mem_do_rinst) ? 1 : 0)) && (!(!(_gen_picorv32_mem_done) ? 1 : 0))) { picorv32_instr_jalr_next = ((((!(!(((_gen_picorv32_mem_rdata_latched & 0x7fULL) == (uint8_t)0x67U ? 1 : 0)) ? 1 : 0)) & (!(!((!(((_gen_picorv32_mem_rdata_latched >> 12) & 0x7ULL)) ? 1 : 0)) ? 1 : 0)))) & 1); break; }
-          picorv32_instr_jalr_next = self->picorv32_instr_jalr;
-        } while (0);
-        do {
-          if ((!(!(self->picorv32_mem_do_rinst) ? 1 : 0)) && (!(!(_gen_picorv32_mem_done) ? 1 : 0))) { picorv32_instr_jal_next = ((_gen_picorv32_mem_rdata_latched & 0x7fULL) == (uint8_t)0x6fU ? 1 : 0); break; }
-          picorv32_instr_jal_next = self->picorv32_instr_jal;
-        } while (0);
-        do {
-          if ((!(!(self->picorv32_mem_do_rinst) ? 1 : 0)) && (!(!(_gen_picorv32_mem_done) ? 1 : 0))) { picorv32_instr_auipc_next = ((_gen_picorv32_mem_rdata_latched & 0x7fULL) == (uint8_t)0x17U ? 1 : 0); break; }
-          picorv32_instr_auipc_next = self->picorv32_instr_auipc;
-        } while (0);
-        do {
-          if ((!(!(self->picorv32_mem_do_rinst) ? 1 : 0)) && (!(!(_gen_picorv32_mem_done) ? 1 : 0))) { picorv32_instr_lui_next = ((_gen_picorv32_mem_rdata_latched & 0x7fULL) == (uint8_t)0x37U ? 1 : 0); break; }
-          picorv32_instr_lui_next = self->picorv32_instr_lui;
-        } while (0);
-        picorv32_is_lui_auipc_jal_next = (((!(!(self->picorv32_instr_lui | self->picorv32_instr_auipc | self->picorv32_instr_jal) ? 1 : 0))) & 1);
         do {
           if ((!((!(!((!(_gen_picorv32_resetn) ? 1 : 0)) ? 1 : 0)) | (!(!(self->picorv32__reg_trap) ? 1 : 0)))) && _gen_picorv32_mem_la_write) {
             do {
@@ -3714,23 +3395,12 @@ static void sparkle_sim_eval_tick(struct sim* self) {
             } while (0);
             break;
           }
-          picorv32__reg_mem_wdata_next = self->picorv32__reg_mem_wdata;
         } while (0);
-        picorv32_mem_rdata_q_next = (((((((((((((((((((((((((((((((((((((((_gen_picorv32_mem_xfer ? _gen_shared_dat_r_seq3 : self->picorv32_mem_rdata_q) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU);
         do {
           if ((!(!(_gen_picorv32_resetn) ? 1 : 0))) {
             if ((!_gen_picorv32_pcpi_div_start) && (!((!(!((!(self->picorv32_pcpi_div_quotient_msk) ? 1 : 0)) ? 1 : 0)) & (!(!(self->picorv32_pcpi_div_running) ? 1 : 0))))) { picorv32_pcpi_div_quotient_msk_next = ((uint64_t)self->picorv32_pcpi_div_quotient_msk >> 1); break; }
             if (_gen_picorv32_pcpi_div_start) { picorv32_pcpi_div_quotient_msk_next = (uint32_t)0x80000000U; break; }
           }
-          picorv32_pcpi_div_quotient_msk_next = self->picorv32_pcpi_div_quotient_msk;
-        } while (0);
-        do {
-          if ((!(!(_gen_picorv32_resetn) ? 1 : 0))) {
-            if ((!_gen_picorv32_pcpi_div_start) && (!(!((!(self->picorv32_pcpi_div_quotient_msk) ? 1 : 0)) ? 1 : 0)) && (!(!(self->picorv32_pcpi_div_running) ? 1 : 0))) { picorv32_pcpi_div_running_next = (((uint32_t)0x0U) & 1); break; }
-            if (_gen_picorv32_pcpi_div_start) { picorv32_pcpi_div_running_next = (((uint32_t)0x1U) & 1); break; }
-          }
-          if ((!(_gen_picorv32_resetn) ? 1 : 0)) { picorv32_pcpi_div_running_next = (((uint32_t)0x0U) & 1); break; }
-          picorv32_pcpi_div_running_next = self->picorv32_pcpi_div_running;
         } while (0);
         do {
           if ((!(!(_gen_picorv32_resetn) ? 1 : 0))) {
@@ -3743,22 +3413,347 @@ static void sparkle_sim_eval_tick(struct sim* self) {
               break;
             }
           }
-          picorv32_pcpi_mul_mul_counter_next = self->picorv32_pcpi_mul_mul_counter;
         } while (0);
-        do {
-          if ((!(!(_gen_picorv32_resetn) ? 1 : 0))) {
-            if ((!self->picorv32_pcpi_mul_mul_waiting) && ((self->picorv32_pcpi_mul_mul_counter >> 6) & 0x1ULL)) { picorv32_pcpi_mul_mul_waiting_next = (((uint32_t)0x1U) & 1); break; }
-            if (self->picorv32_pcpi_mul_mul_waiting) { picorv32_pcpi_mul_mul_waiting_next = (!(_gen_picorv32_pcpi_mul_mul_start) ? 1 : 0); break; }
+        if ((!(!(_gen_picorv32_resetn) ? 1 : 0))) {
+          if ((self->picorv32_cpu_state == (uint32_t)0x40U ? 1 : 0)) {
+            if ((!((uint8_t)0x1U & (!(!(((!(!(((!(!(((!(!(((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) & (!(!((!(self->picorv32_irq_active) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(self->picorv32_irq_delay) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(!((self->picorv32_irq_pending & (self->picorv32_irq_mask ^ (uint32_t)0xffffffffU))) ? 1 : 0))) ? 1 : 0)))) ? 1 : 0)) | (!(!(self->picorv32_irq_state) ? 1 : 0)))) ? 1 : 0))))) {
+              if ((!(!(((uint8_t)0x1U & (!(!(((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) | (!(!(self->picorv32_do_waitirq) ? 1 : 0)))) ? 1 : 0)))) ? 1 : 0))) {
+                if ((!(!(self->picorv32_instr_waitirq) ? 1 : 0))) {
+                  if ((!(!(self->picorv32_irq_pending) ? 1 : 0))) {
+                    do {
+                      self->picorv32_reg_out = self->picorv32_irq_pending; break;
+                    } while (0);
+                  }
+                }
+              }
+              if ((!((!(!(((uint8_t)0x1U & (!(!(((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) | (!(!(self->picorv32_do_waitirq) ? 1 : 0)))) ? 1 : 0)))) ? 1 : 0)) & (!(!(self->picorv32_instr_waitirq) ? 1 : 0))))) {
+                if (self->picorv32_decoder_trigger) {
+                  if ((uint8_t)0x1U) {
+                    do {
+                      self->picorv32_count_instr = (self->picorv32_count_instr + (uint32_t)0x1U); break;
+                    } while (0);
+                  }
+                }
+              }
+            }
+            do {
+              if ((uint8_t)0x1U && (!(!(((!(!(((!(!(((!(!(((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) & (!(!((!(self->picorv32_irq_active) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(self->picorv32_irq_delay) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(!((self->picorv32_irq_pending & (self->picorv32_irq_mask ^ (uint32_t)0xffffffffU))) ? 1 : 0))) ? 1 : 0)))) ? 1 : 0)) | (!(!(self->picorv32_irq_state) ? 1 : 0)))) ? 1 : 0))) { break; }
+              self->picorv32_latched_compr = self->picorv32_compressed_instr; break;
+            } while (0);
+            do {
+              self->picorv32_latched_stalu = (((uint32_t)0x0U) & 1); break;
+            } while (0);
+            do {
+              if ((!((uint8_t)0x1U & (!(!(((!(!(((!(!(((!(!(((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) & (!(!((!(self->picorv32_irq_active) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(self->picorv32_irq_delay) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(!((self->picorv32_irq_pending & (self->picorv32_irq_mask ^ (uint32_t)0xffffffffU))) ? 1 : 0))) ? 1 : 0)))) ? 1 : 0)) | (!(!(self->picorv32_irq_state) ? 1 : 0)))) ? 1 : 0))))) {
+                if ((!((!(!(((uint8_t)0x1U & (!(!(((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) | (!(!(self->picorv32_do_waitirq) ? 1 : 0)))) ? 1 : 0)))) ? 1 : 0)) & (!(!(self->picorv32_instr_waitirq) ? 1 : 0))))) {
+                  if (self->picorv32_decoder_trigger) {
+                    if (self->picorv32_instr_jal) { self->picorv32_reg_next_pc = (_gen_picorv32_current_pc + self->picorv32_decoded_imm_j); break; }
+                    self->picorv32_reg_next_pc = (_gen_picorv32_current_pc + (self->picorv32_compressed_instr ? (uint32_t)0x2U : (uint32_t)0x4U)); break;
+                  }
+                }
+                if ((!(!(((uint8_t)0x1U & (!(!(((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) | (!(!(self->picorv32_do_waitirq) ? 1 : 0)))) ? 1 : 0)))) ? 1 : 0)) && (!(!(self->picorv32_instr_waitirq) ? 1 : 0)) && (!(!(self->picorv32_irq_pending) ? 1 : 0))) { self->picorv32_reg_next_pc = (_gen_picorv32_current_pc + (self->picorv32_compressed_instr ? (uint32_t)0x2U : (uint32_t)0x4U)); break; }
+              }
+              self->picorv32_reg_next_pc = _gen_picorv32_current_pc; break;
+            } while (0);
+            do {
+              self->picorv32_latched_is_lb = (((uint32_t)0x0U) & 1); break;
+            } while (0);
+            do {
+              self->picorv32_latched_is_lh = (((uint32_t)0x0U) & 1); break;
+            } while (0);
+            do {
+              self->picorv32_latched_is_lu = (((uint32_t)0x0U) & 1); break;
+            } while (0);
+          } else if ((self->picorv32_cpu_state == (uint32_t)0x8U ? 1 : 0)) {
+            if ((uint8_t)0x1U) {
+              if ((!self->picorv32_is_beq_bne_blt_bge_bltu_bgeu)) {
+                do {
+                  self->picorv32_latched_stalu = (((uint32_t)0x1U) & 1); break;
+                } while (0);
+              }
+            }
+            do {
+              self->picorv32_reg_out = (self->picorv32_reg_pc + self->picorv32_decoded_imm); break;
+            } while (0);
+          } else if ((self->picorv32_cpu_state == (uint32_t)0x1U ? 1 : 0)) {
+            if (((!(!((!(self->picorv32_mem_do_prefetch) ? 1 : 0)) ? 1 : 0)) | (!(!(_gen_picorv32_mem_done) ? 1 : 0)))) {
+              if ((!(!((!(self->picorv32_mem_do_prefetch) ? 1 : 0)) ? 1 : 0))) {
+                if ((!(!(_gen_picorv32_mem_done) ? 1 : 0))) {
+                  do {
+                    if ((!(self->picorv32_latched_is_lu | self->picorv32_latched_is_lh)) && self->picorv32_latched_is_lb) { self->picorv32_reg_out = (((((uint32_t)(uint32_t)0x0U << 8) | (uint32_t)(_gen_picorv32_mem_rdata_word_seq17 & 0xffULL)) ^ (uint32_t)0x80U) - (uint32_t)0x80U); break; }
+                    if ((!self->picorv32_latched_is_lu) && self->picorv32_latched_is_lh) { self->picorv32_reg_out = (((((uint32_t)(uint16_t)0x0U << 16) | (uint32_t)(_gen_picorv32_mem_rdata_word_seq17 & 0xffffULL)) ^ (uint32_t)0x8000U) - (uint32_t)0x8000U); break; }
+                    if (self->picorv32_latched_is_lu) { self->picorv32_reg_out = _gen_picorv32_mem_rdata_word_seq17; break; }
+                  } while (0);
+                }
+              }
+              if ((!(self->picorv32_mem_do_rdata) ? 1 : 0)) {
+                do {
+                  self->picorv32_latched_is_lb = self->picorv32_instr_lb; break;
+                } while (0);
+                do {
+                  self->picorv32_latched_is_lh = self->picorv32_instr_lh; break;
+                } while (0);
+                do {
+                  self->picorv32_latched_is_lu = self->picorv32_is_lbu_lhu_lw; break;
+                } while (0);
+              }
+            }
+          } else if ((self->picorv32_cpu_state == (uint32_t)0x4U ? 1 : 0)) {
+            if ((!(self->picorv32_reg_sh) ? 1 : 0)) {
+              do {
+                self->picorv32_reg_out = self->picorv32_reg_op1; break;
+              } while (0);
+            }
+          } else if ((self->picorv32_cpu_state == (uint32_t)0x10U ? 1 : 0)) {
+            if ((!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0))) {
+              if ((!(!(_gen_picorv32_instr_trap) ? 1 : 0))) {
+                if (_gen_picorv32_pcpi_int_ready_seq3) {
+                  do {
+                    self->picorv32_reg_out = _gen_picorv32_pcpi_int_rd_seq11; break;
+                  } while (0);
+                }
+              }
+            }
+          } else if ((self->picorv32_cpu_state == (uint32_t)0x20U ? 1 : 0)) {
+            do {
+              if ((!((((((((!(!(((uint8_t)0x1U | (!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0)))) ? 1 : 0)) & (!(!(_gen_picorv32_instr_trap) ? 1 : 0))) | ((uint8_t)0x1U & (!(!(_gen_picorv32_is_rdcycle_rdcycleh_rdinstr_rdinstrh) ? 1 : 0)))) | self->picorv32_is_lui_auipc_jal) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_getq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_setq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_retirq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_maskirq) ? 1 : 0))))) && (uint8_t)0x1U && (!(!(self->picorv32_instr_timer) ? 1 : 0))) { self->picorv32_reg_out = self->picorv32_timer; break; }
+              if ((!(((((((!(!(((uint8_t)0x1U | (!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0)))) ? 1 : 0)) & (!(!(_gen_picorv32_instr_trap) ? 1 : 0))) | ((uint8_t)0x1U & (!(!(_gen_picorv32_is_rdcycle_rdcycleh_rdinstr_rdinstrh) ? 1 : 0)))) | self->picorv32_is_lui_auipc_jal) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_getq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_setq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_retirq) ? 1 : 0))))) && (uint8_t)0x1U && (!(!(self->picorv32_instr_maskirq) ? 1 : 0))) { self->picorv32_reg_out = self->picorv32_irq_mask; break; }
+              if ((!((((((!(!(((uint8_t)0x1U | (!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0)))) ? 1 : 0)) & (!(!(_gen_picorv32_instr_trap) ? 1 : 0))) | ((uint8_t)0x1U & (!(!(_gen_picorv32_is_rdcycle_rdcycleh_rdinstr_rdinstrh) ? 1 : 0)))) | self->picorv32_is_lui_auipc_jal) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_getq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_setq) ? 1 : 0))))) && (uint8_t)0x1U && (!(!(self->picorv32_instr_retirq) ? 1 : 0))) {
+                do {
+                  if ((uint32_t)0x1U) { self->picorv32_reg_out = (_gen_picorv32_cpuregs_rs1_seq5 & (uint32_t)0xfffffffeU); break; }
+                  self->picorv32_reg_out = _gen_picorv32_cpuregs_rs1_seq5;
+                } while (0);
+                break;
+              }
+              if ((!(((((!(!(((uint8_t)0x1U | (!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0)))) ? 1 : 0)) & (!(!(_gen_picorv32_instr_trap) ? 1 : 0))) | ((uint8_t)0x1U & (!(!(_gen_picorv32_is_rdcycle_rdcycleh_rdinstr_rdinstrh) ? 1 : 0)))) | self->picorv32_is_lui_auipc_jal) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_getq) ? 1 : 0))))) && (uint8_t)0x1U && (!(!(self->picorv32_instr_setq) ? 1 : 0))) { self->picorv32_reg_out = _gen_picorv32_cpuregs_rs1_seq5; break; }
+              if ((!((((!(!(((uint8_t)0x1U | (!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0)))) ? 1 : 0)) & (!(!(_gen_picorv32_instr_trap) ? 1 : 0))) | ((uint8_t)0x1U & (!(!(_gen_picorv32_is_rdcycle_rdcycleh_rdinstr_rdinstrh) ? 1 : 0)))) | self->picorv32_is_lui_auipc_jal)) && (uint8_t)0x1U && (!(!(self->picorv32_instr_getq) ? 1 : 0))) { self->picorv32_reg_out = _gen_picorv32_cpuregs_rs1_seq5; break; }
+              if ((!((!(!(((uint8_t)0x1U | (!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0)))) ? 1 : 0)) & (!(!(_gen_picorv32_instr_trap) ? 1 : 0))))) {
+                if ((uint8_t)0x1U) {
+                  if ((!(!(_gen_picorv32_is_rdcycle_rdcycleh_rdinstr_rdinstrh) ? 1 : 0))) {
+                    if ((!((self->picorv32_instr_rdcycle | ((!(!(self->picorv32_instr_rdcycleh) ? 1 : 0)) & (uint8_t)0x1U)) | self->picorv32_instr_rdinstr)) && (!(!(self->picorv32_instr_rdinstrh) ? 1 : 0)) && (uint8_t)0x1U) { self->picorv32_reg_out = ((self->picorv32_count_instr >> 32) & 0xffffffffULL); break; }
+                    if ((!(self->picorv32_instr_rdcycle | ((!(!(self->picorv32_instr_rdcycleh) ? 1 : 0)) & (uint8_t)0x1U))) && self->picorv32_instr_rdinstr) { self->picorv32_reg_out = (self->picorv32_count_instr & 0xffffffffULL); break; }
+                    if ((!self->picorv32_instr_rdcycle) && (!(!(self->picorv32_instr_rdcycleh) ? 1 : 0)) && (uint8_t)0x1U) { self->picorv32_reg_out = ((self->picorv32_count_cycle >> 32) & 0xffffffffULL); break; }
+                    if (self->picorv32_instr_rdcycle) { self->picorv32_reg_out = (self->picorv32_count_cycle & 0xffffffffULL); break; }
+                  }
+                }
+              }
+              if ((!(!(((uint8_t)0x1U | (!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0)))) ? 1 : 0)) && (!(!(_gen_picorv32_instr_trap) ? 1 : 0)) && (!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0)) && (uint8_t)0x1U && _gen_picorv32_pcpi_int_ready_seq3) { self->picorv32_reg_out = _gen_picorv32_pcpi_int_rd_seq11; break; }
+            } while (0);
           }
-          if ((!(_gen_picorv32_resetn) ? 1 : 0)) { picorv32_pcpi_mul_mul_waiting_next = (((uint32_t)0x1U) & 1); break; }
-          picorv32_pcpi_mul_mul_waiting_next = self->picorv32_pcpi_mul_mul_waiting;
-        } while (0);
-        do {
-          if (_gen_uart_rx_fifo_do_read) { self->storage_1_dat1 = ((self->storage_1[self->uart_rx_fifo_consume]) & 0x3ffULL); break; }
-        } while (0);
-        do {
-          if (_gen_uart_tx_fifo_do_read) { self->storage_dat1 = ((self->storage[self->uart_tx_fifo_consume]) & 0x3ffULL); break; }
-        } while (0);
+          if ((!_gen_picorv32_pcpi_div_start)) {
+            if ((!(!((!(self->picorv32_pcpi_div_quotient_msk) ? 1 : 0)) ? 1 : 0))) {
+              if ((!(!(self->picorv32_pcpi_div_running) ? 1 : 0))) {
+                if ((!((!(!(self->picorv32_pcpi_div_instr_div) ? 1 : 0)) | (!(!(self->picorv32_pcpi_div_instr_divu) ? 1 : 0))))) {
+                  do {
+                    {
+                      do {
+                        if (self->picorv32_pcpi_div_outsign) { self->picorv32_pcpi_div__reg_pcpi_rd = (-self->picorv32_pcpi_div_dividend); break; }
+                        self->picorv32_pcpi_div__reg_pcpi_rd = self->picorv32_pcpi_div_dividend;
+                      } while (0);
+                      break;
+                    }
+                  } while (0);
+                } else {
+                  do {
+                    {
+                      do {
+                        if (self->picorv32_pcpi_div_outsign) { self->picorv32_pcpi_div__reg_pcpi_rd = (-self->picorv32_pcpi_div_quotient); break; }
+                        self->picorv32_pcpi_div__reg_pcpi_rd = self->picorv32_pcpi_div_quotient;
+                      } while (0);
+                      break;
+                    }
+                  } while (0);
+                }
+              }
+            }
+            if ((!((!(!((!(self->picorv32_pcpi_div_quotient_msk) ? 1 : 0)) ? 1 : 0)) & (!(!(self->picorv32_pcpi_div_running) ? 1 : 0))))) {
+              if ((self->picorv32_pcpi_div_divisor <= self->picorv32_pcpi_div_dividend ? 1 : 0)) {
+                do {
+                  self->picorv32_pcpi_div_quotient = (self->picorv32_pcpi_div_quotient | self->picorv32_pcpi_div_quotient_msk); break;
+                } while (0);
+                do {
+                  self->picorv32_pcpi_div_dividend = (self->picorv32_pcpi_div_dividend - self->picorv32_pcpi_div_divisor); break;
+                } while (0);
+              }
+              do {
+                self->picorv32_pcpi_div_divisor = ((uint64_t)self->picorv32_pcpi_div_divisor >> 1); break;
+              } while (0);
+            }
+          } else {
+            do {
+              self->picorv32_pcpi_div_outsign = ((((!(!(((!(!(((!(!(self->picorv32_pcpi_div_instr_div) ? 1 : 0)) & (!(!((!(((self->picorv32_reg_op1 >> 31) & 0x1ULL) == ((self->picorv32_reg_op2 >> 31) & 0x1ULL) ? 1 : 0))) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(!(self->picorv32_reg_op2) ? 1 : 0))) ? 1 : 0)))) ? 1 : 0)) | (!(!(((!(!(self->picorv32_pcpi_div_instr_rem) ? 1 : 0)) & (!(!(((self->picorv32_reg_op1 >> 31) & 0x1ULL)) ? 1 : 0)))) ? 1 : 0)))) & 1); break;
+            } while (0);
+            do {
+              self->picorv32_pcpi_div_quotient = (uint32_t)0x0U; break;
+            } while (0);
+            do {
+              {
+                do {
+                  if ((!(!(((!(!(self->picorv32_pcpi_div_instr_div) ? 1 : 0)) | (!(!(self->picorv32_pcpi_div_instr_rem) ? 1 : 0)))) ? 1 : 0)) && (!(!(((self->picorv32_reg_op1 >> 31) & 0x1ULL)) ? 1 : 0))) { self->picorv32_pcpi_div_dividend = (-self->picorv32_reg_op1); break; }
+                  self->picorv32_pcpi_div_dividend = self->picorv32_reg_op1;
+                } while (0);
+                break;
+              }
+            } while (0);
+            do {
+              self->picorv32_pcpi_div_divisor = ((((uint64_t)(((!(!(((!(!(self->picorv32_pcpi_div_instr_div) ? 1 : 0)) | (!(!(self->picorv32_pcpi_div_instr_rem) ? 1 : 0)))) ? 1 : 0)) & (!(!(((self->picorv32_reg_op2 >> 31) & 0x1ULL)) ? 1 : 0))) ? (-self->picorv32_reg_op2) : self->picorv32_reg_op2) << 31)) & 0x7fffffffffffffffULL); break;
+            } while (0);
+          }
+          if ((!self->picorv32_pcpi_mul_mul_waiting)) {
+            do {
+              self->picorv32_pcpi_mul_rs1 = ((uint64_t)self->picorv32_pcpi_mul_rs1 >> 1); break;
+            } while (0);
+          } else {
+            if ((!_gen_picorv32_pcpi_mul_instr_rs1_signed)) {
+              do {
+                self->picorv32_pcpi_mul_rs1 = self->picorv32_reg_op1; break;
+              } while (0);
+            } else {
+              do {
+                self->picorv32_pcpi_mul_rs1 = self->picorv32_reg_op1; break;
+              } while (0);
+            }
+          }
+        } else {
+          if ((uint8_t)0x1U) {
+            do {
+              self->picorv32_count_instr = (uint32_t)0x0U; break;
+            } while (0);
+          }
+          do {
+            self->picorv32_latched_stalu = (((uint32_t)0x0U) & 1); break;
+          } while (0);
+          do {
+            self->picorv32_reg_next_pc = (uint32_t)0x0U; break;
+          } while (0);
+          do {
+            self->picorv32_latched_is_lb = (((uint32_t)0x0U) & 1); break;
+          } while (0);
+          do {
+            self->picorv32_latched_is_lh = (((uint32_t)0x0U) & 1); break;
+          } while (0);
+          do {
+            self->picorv32_latched_is_lu = (((uint32_t)0x0U) & 1); break;
+          } while (0);
+        }
+        if ((!(!(self->picorv32_decoder_trigger) ? 1 : 0))) {
+          if ((!(!((!(self->picorv32_decoder_pseudo_trigger) ? 1 : 0)) ? 1 : 0))) {
+            do {
+              self->picorv32_instr_rdcycleh = ((!(!(((!(!(((!(!(((!(!(((self->picorv32_mem_rdata_q & 0x7fULL) == (uint8_t)0x73U ? 1 : 0)) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 12) & 0xfffffULL) == (uint32_t)0xc8002U ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) | (!(!(((!(!(((self->picorv32_mem_rdata_q & 0x7fULL) == (uint8_t)0x73U ? 1 : 0)) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 12) & 0xfffffULL) == (uint32_t)0xc8102U ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)))) ? 1 : 0)) & (uint8_t)0x1U)) ? 1 : 0)) & (uint8_t)0x1U); break;
+            } while (0);
+            do {
+              self->picorv32_instr_rdinstr = ((!(!(((!(!(((self->picorv32_mem_rdata_q & 0x7fULL) == (uint8_t)0x73U ? 1 : 0)) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 12) & 0xfffffULL) == (uint32_t)0xc0202U ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (uint8_t)0x1U); break;
+            } while (0);
+            do {
+              self->picorv32_instr_rdcycle = ((!(!(((!(!(((!(!(((self->picorv32_mem_rdata_q & 0x7fULL) == (uint8_t)0x73U ? 1 : 0)) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 12) & 0xfffffULL) == (uint32_t)0xc0002U ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) | (!(!(((!(!(((self->picorv32_mem_rdata_q & 0x7fULL) == (uint8_t)0x73U ? 1 : 0)) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 12) & 0xfffffULL) == (uint32_t)0xc0102U ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)))) ? 1 : 0)) & (uint8_t)0x1U); break;
+            } while (0);
+            do {
+              self->picorv32_instr_rdinstrh = ((!(!(((!(!(((!(!(((self->picorv32_mem_rdata_q & 0x7fULL) == (uint8_t)0x73U ? 1 : 0)) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 12) & 0xfffffULL) == (uint32_t)0xc8202U ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (uint8_t)0x1U)) ? 1 : 0)) & (uint8_t)0x1U); break;
+            } while (0);
+            do {
+              self->picorv32_is_sll_srl_sra = ((((!(!(self->picorv32_is_alu_reg_reg) ? 1 : 0)) & (!(!((!(!(((uint64_t)(((!(!((((self->picorv32_mem_rdata_q >> 12) & 0x7ULL) == (uint8_t)0x1U ? 1 : 0)) ? 1 : 0)) & (!(!((!(((self->picorv32_mem_rdata_q >> 25) & 0x7fULL)) ? 1 : 0)) ? 1 : 0)))) & 0x1ULL) | ((uint64_t)(((!(!((((self->picorv32_mem_rdata_q >> 12) & 0x7ULL) == (uint8_t)0x5U ? 1 : 0)) ? 1 : 0)) & (!(!((!(((self->picorv32_mem_rdata_q >> 25) & 0x7fULL)) ? 1 : 0)) ? 1 : 0)))) & 0x1ULL) | ((uint64_t)(((!(!((((self->picorv32_mem_rdata_q >> 12) & 0x7ULL) == (uint8_t)0x5U ? 1 : 0)) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 25) & 0x7fULL) == (uint8_t)0x20U ? 1 : 0)) ? 1 : 0)))) & 0x1ULL)) ? 1 : 0))) ? 1 : 0)))) & 1); break;
+            } while (0);
+          }
+        }
+        if ((!(!(self->picorv32_mem_do_rinst) ? 1 : 0))) {
+          if ((!(!(_gen_picorv32_mem_done) ? 1 : 0))) {
+            do {
+              self->picorv32_decoded_rd = ((_gen_picorv32_mem_rdata_latched >> 7) & 0x1fULL); break;
+            } while (0);
+            do {
+              self->picorv32_compressed_instr = (((uint32_t)0x0U) & 1); break;
+            } while (0);
+          }
+        }
+        if ((!((!(!((!(_gen_picorv32_resetn) ? 1 : 0)) ? 1 : 0)) | (!(!(self->picorv32__reg_trap) ? 1 : 0))))) {
+          if (((!(!(_gen_picorv32_mem_la_read) ? 1 : 0)) | (!(!(_gen_picorv32_mem_la_write) ? 1 : 0)))) {
+            do {
+              self->picorv32__reg_mem_addr = _gen_picorv32_mem_la_addr; break;
+            } while (0);
+          }
+          do {
+            if ((!(self->picorv32_mem_state) ? 1 : 0) && ((!(!(((!(!(self->picorv32_mem_do_prefetch) ? 1 : 0)) | (!(!(self->picorv32_mem_do_rinst) ? 1 : 0)))) ? 1 : 0)) | (!(!(self->picorv32_mem_do_rdata) ? 1 : 0)))) { self->picorv32__reg_mem_wstrb = (((uint32_t)0x0U) & 0xfULL); break; }
+            if (((!(!(_gen_picorv32_mem_la_read) ? 1 : 0)) | (!(!(_gen_picorv32_mem_la_write) ? 1 : 0)))) { self->picorv32__reg_mem_wstrb = ((((!(self->picorv32_mem_wordsize) ? 1 : 0) ? (uint8_t)0xfU : ((self->picorv32_mem_wordsize == (uint32_t)0x1U ? 1 : 0) ? ((((self->picorv32_reg_op1 >> 1) & 0x1ULL) ? (uint8_t)0xcU : (uint8_t)0x3U) & (uint8_t)0xfU) : ((self->picorv32_mem_wordsize == (uint32_t)0x2U ? 1 : 0) ? (((uint64_t)((self->picorv32_reg_op1 & 0x3ULL)) >= 64 ? 0ULL : ((uint64_t)(uint8_t)0x1U << ((self->picorv32_reg_op1 & 0x3ULL)))) & (uint8_t)0xfU) : (uint64_t)0x0ULL))) & (uint8_t)0xfU) & (((uint8_t)_gen_picorv32_mem_la_write << 3) | ((uint8_t)_gen_picorv32_mem_la_write << 2) | ((uint8_t)_gen_picorv32_mem_la_write << 1) | (uint8_t)_gen_picorv32_mem_la_write)); break; }
+          } while (0);
+        }
+        if (_gen_uart_rx_fifo_do_read) {
+          do {
+            self->storage_1_dat1 = ((self->storage_1[self->uart_rx_fifo_consume]) & 0x3ffULL); break;
+          } while (0);
+        }
+        if (_gen_uart_tx_fifo_do_read) {
+          do {
+            self->storage_dat1 = ((self->storage[self->uart_tx_fifo_consume]) & 0x3ffULL); break;
+          } while (0);
+        }
+        if ((!(!(self->picorv32_pcpi_mul_mul_finish) ? 1 : 0))) {
+          if ((!(!(_gen_picorv32_resetn) ? 1 : 0))) {
+            do {
+              {
+                do {
+                  if (_gen_picorv32_pcpi_mul_instr_any_mulh) { self->picorv32_pcpi_mul__reg_pcpi_rd = ((uint64_t)self->picorv32_pcpi_mul_rd >> 32); break; }
+                  self->picorv32_pcpi_mul__reg_pcpi_rd = self->picorv32_pcpi_mul_rd;
+                } while (0);
+                break;
+              }
+            } while (0);
+          }
+        }
+        if ((!(!(_gen_picorv32_resetn) ? 1 : 0))) {
+          if ((!self->picorv32_pcpi_mul_mul_waiting)) {
+            do {
+              self->picorv32_pcpi_mul_rd = ((_gen_picorv32_pcpi_mul_next_rd_seq38 & (uint64_t)0xfffffffffffffffULL) | (((uint64_t)((((((uint64_t)_gen_picorv32_pcpi_mul_next_rd_seq38 >> 60) & (uint8_t)0xfU) & 0xfULL) + ((((uint64_t)self->picorv32_pcpi_mul_rdx >> 60) & (uint8_t)0xfU) & 0xfULL)) + ((((uint64_t)_gen_picorv32_pcpi_mul_this_rs2_seq4 >> 60) & (uint8_t)0xfU) & 0xfULL)) << 60) & (uint64_t)0xf000000000000000ULL)); break;
+            } while (0);
+          } else {
+            do {
+              self->picorv32_pcpi_mul_rd = (uint32_t)0x0U; break;
+            } while (0);
+          }
+          if ((self->picorv32_cpu_state == (uint32_t)0x1U ? 1 : 0)) {
+            if (((!(!((!(self->picorv32_mem_do_prefetch) ? 1 : 0)) ? 1 : 0)) | (!(!(_gen_picorv32_mem_done) ? 1 : 0)))) {
+              if ((!(self->picorv32_mem_do_rdata) ? 1 : 0)) {
+                do {
+                  if ((!(((!(!(self->picorv32_instr_lb) ? 1 : 0)) | (!(!(self->picorv32_instr_lbu) ? 1 : 0))) | ((!(!(self->picorv32_instr_lh) ? 1 : 0)) | (!(!(self->picorv32_instr_lhu) ? 1 : 0))))) && self->picorv32_instr_lw) { self->picorv32_mem_wordsize = (((uint32_t)0x0U) & 0x3ULL); break; }
+                  if ((!((!(!(self->picorv32_instr_lb) ? 1 : 0)) | (!(!(self->picorv32_instr_lbu) ? 1 : 0)))) && ((!(!(self->picorv32_instr_lh) ? 1 : 0)) | (!(!(self->picorv32_instr_lhu) ? 1 : 0)))) { self->picorv32_mem_wordsize = (((uint32_t)0x1U) & 0x3ULL); break; }
+                  if (((!(!(self->picorv32_instr_lb) ? 1 : 0)) | (!(!(self->picorv32_instr_lbu) ? 1 : 0)))) { self->picorv32_mem_wordsize = (((uint32_t)0x2U) & 0x3ULL); break; }
+                } while (0);
+              }
+            }
+          } else if ((self->picorv32_cpu_state == (uint32_t)0x2U ? 1 : 0)) {
+            if (((!(!((!(self->picorv32_mem_do_prefetch) ? 1 : 0)) ? 1 : 0)) | (!(!(_gen_picorv32_mem_done) ? 1 : 0)))) {
+              if ((!(self->picorv32_mem_do_wdata) ? 1 : 0)) {
+                do {
+                  if ((!(self->picorv32_instr_sb | self->picorv32_instr_sh)) && self->picorv32_instr_sw) { self->picorv32_mem_wordsize = (((uint32_t)0x0U) & 0x3ULL); break; }
+                  if ((!self->picorv32_instr_sb) && self->picorv32_instr_sh) { self->picorv32_mem_wordsize = (((uint32_t)0x1U) & 0x3ULL); break; }
+                  if (self->picorv32_instr_sb) { self->picorv32_mem_wordsize = (((uint32_t)0x2U) & 0x3ULL); break; }
+                } while (0);
+              }
+            }
+          } else if ((self->picorv32_cpu_state == (uint32_t)0x40U ? 1 : 0)) {
+            do {
+              self->picorv32_mem_wordsize = (((uint32_t)0x0U) & 0x3ULL); break;
+            } while (0);
+          }
+        }
+        if ((!(!(self->picorv32_decoder_trigger) ? 1 : 0))) {
+          if ((!(!((!(self->picorv32_decoder_pseudo_trigger) ? 1 : 0)) ? 1 : 0))) {
+            do {
+              self->picorv32_instr_lb = ((((!(!(self->picorv32_is_lb_lh_lw_lbu_lhu) ? 1 : 0)) & (!(!((!(((self->picorv32_mem_rdata_q >> 12) & 0x7ULL)) ? 1 : 0)) ? 1 : 0)))) & 1); break;
+            } while (0);
+            do {
+              self->picorv32_instr_lh = ((((!(!(self->picorv32_is_lb_lh_lw_lbu_lhu) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 12) & 0x7ULL) == (uint8_t)0x1U ? 1 : 0)) ? 1 : 0)))) & 1); break;
+            } while (0);
+            do {
+              self->picorv32_instr_sw = ((((!(!(self->picorv32_is_sb_sh_sw) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 12) & 0x7ULL) == (uint8_t)0x2U ? 1 : 0)) ? 1 : 0)))) & 1); break;
+            } while (0);
+            do {
+              self->picorv32_instr_sb = ((((!(!(self->picorv32_is_sb_sh_sw) ? 1 : 0)) & (!(!((!(((self->picorv32_mem_rdata_q >> 12) & 0x7ULL)) ? 1 : 0)) ? 1 : 0)))) & 1); break;
+            } while (0);
+            do {
+              self->picorv32_instr_sh = ((((!(!(self->picorv32_is_sb_sh_sw) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 12) & 0x7ULL) == (uint8_t)0x1U ? 1 : 0)) ? 1 : 0)))) & 1); break;
+            } while (0);
+          }
+        }
         self->rom_dat0 = self->rom[_gen_adr];
         do {
           if (self->crg_int_rst) { self->uart_txempty_pending_re = (uint8_t)0x0U; break; }
@@ -3844,6 +3839,61 @@ static void sparkle_sim_eval_tick(struct sim* self) {
           if (self->crg_int_rst) { self->ram_bus_ack = (uint8_t)0x0U; break; }
           self->ram_bus_ack = ((_gen_ram_bus_cyc & self->picorv32__reg_mem_valid) & ((self->ram_bus_ack ^ (uint8_t)0x1U) | _gen_adr_burst));
         } while (0);
+        if ((!((!(!((!(_gen_picorv32_resetn) ? 1 : 0)) ? 1 : 0)) | (!(!(self->picorv32__reg_trap) ? 1 : 0))))) {
+          if ((self->picorv32_mem_state == (uint32_t)0x2U ? 1 : 0)) {
+            if (_gen_picorv32_mem_xfer) {
+              do {
+                self->picorv32__reg_mem_valid = (((uint32_t)0x0U) & 1); break;
+              } while (0);
+              do {
+                self->picorv32_mem_state = (((uint32_t)0x0U) & 0x3ULL); break;
+              } while (0);
+            }
+          } else if ((self->picorv32_mem_state == (uint32_t)0x1U ? 1 : 0)) {
+            if (_gen_picorv32_mem_xfer) {
+              if ((uint8_t)0x1U) {
+                do {
+                  self->picorv32__reg_mem_valid = (((uint32_t)0x0U) & 1); break;
+                } while (0);
+                do {
+                  {
+                    do {
+                      if (((!(!(self->picorv32_mem_do_rinst) ? 1 : 0)) | (!(!(self->picorv32_mem_do_rdata) ? 1 : 0)))) { self->picorv32_mem_state = (((uint32_t)0x0U) & 0x3ULL); break; }
+                      self->picorv32_mem_state = (((uint32_t)0x3U) & 0x3ULL);
+                    } while (0);
+                    break;
+                  }
+                } while (0);
+              }
+            }
+          } else if ((!(self->picorv32_mem_state) ? 1 : 0)) {
+            do {
+              if (self->picorv32_mem_do_wdata) { self->picorv32__reg_mem_valid = (((uint32_t)0x1U) & 1); break; }
+              if (((!(!(((!(!(self->picorv32_mem_do_prefetch) ? 1 : 0)) | (!(!(self->picorv32_mem_do_rinst) ? 1 : 0)))) ? 1 : 0)) | (!(!(self->picorv32_mem_do_rdata) ? 1 : 0)))) { self->picorv32__reg_mem_valid = (!(_gen_picorv32_mem_la_use_prefetched_high_word) ? 1 : 0); break; }
+            } while (0);
+            do {
+              if (self->picorv32_mem_do_wdata) { self->picorv32_mem_state = (((uint32_t)0x2U) & 0x3ULL); break; }
+              if (((!(!(((!(!(self->picorv32_mem_do_prefetch) ? 1 : 0)) | (!(!(self->picorv32_mem_do_rinst) ? 1 : 0)))) ? 1 : 0)) | (!(!(self->picorv32_mem_do_rdata) ? 1 : 0)))) { self->picorv32_mem_state = (((uint32_t)0x1U) & 0x3ULL); break; }
+            } while (0);
+          } else if ((self->picorv32_mem_state == (uint32_t)0x3U ? 1 : 0)) {
+            if (self->picorv32_mem_do_rinst) {
+              do {
+                self->picorv32_mem_state = (((uint32_t)0x0U) & 0x3ULL); break;
+              } while (0);
+            }
+          }
+        } else {
+          if (((!(!((!(_gen_picorv32_resetn) ? 1 : 0)) ? 1 : 0)) | (!(!(_gen_adapted_interface_ack) ? 1 : 0)))) {
+            do {
+              self->picorv32__reg_mem_valid = (((uint32_t)0x0U) & 1); break;
+            } while (0);
+          }
+          if ((!(_gen_picorv32_resetn) ? 1 : 0)) {
+            do {
+              self->picorv32_mem_state = (((uint32_t)0x0U) & 0x3ULL); break;
+            } while (0);
+          }
+        }
         do {
           if (self->crg_int_rst) { self->count = (uint32_t)0xf4240U; break; }
           if ((!_gen_wait_1)) { self->count = (uint32_t)0xf4240U; break; }
@@ -3853,22 +3903,6 @@ static void sparkle_sim_eval_tick(struct sim* self) {
           if (self->crg_int_rst) { self->slave_sel_r = (uint8_t)0x0U; break; }
           self->slave_sel_r = _gen_slave_sel_seq4;
         } while (0);
-        do {
-          if ((!(!(_gen_picorv32_resetn) ? 1 : 0))) {
-            if ((self->picorv32_cpu_state == (uint32_t)0x40U ? 1 : 0)) {
-              if ((uint8_t)0x1U && (!(!(((!(!(((!(!(((!(!(((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) & (!(!((!(self->picorv32_irq_active) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(self->picorv32_irq_delay) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(!((self->picorv32_irq_pending & (self->picorv32_irq_mask ^ (uint32_t)0xffffffffU))) ? 1 : 0))) ? 1 : 0)))) ? 1 : 0)) | (!(!(self->picorv32_irq_state) ? 1 : 0)))) ? 1 : 0))) { break; }
-              self->picorv32_latched_compr = self->picorv32_compressed_instr; break;
-            }
-          }
-        } while (0);
-        do {
-          if ((!(!(_gen_picorv32_resetn) ? 1 : 0))) {
-            if ((self->picorv32_cpu_state == (uint32_t)0x8U ? 1 : 0) && (uint8_t)0x1U && (!self->picorv32_is_beq_bne_blt_bge_bltu_bgeu)) { self->picorv32_latched_stalu = (((uint32_t)0x1U) & 1); break; }
-            if ((self->picorv32_cpu_state == (uint32_t)0x40U ? 1 : 0)) { self->picorv32_latched_stalu = (((uint32_t)0x0U) & 1); break; }
-          }
-          if ((!(_gen_picorv32_resetn) ? 1 : 0)) { self->picorv32_latched_stalu = (((uint32_t)0x0U) & 1); break; }
-        } while (0);
-        self->picorv32_reg_next_pc = (((((((((!(!(_gen_picorv32_resetn) ? 1 : 0)) & ((!(self->picorv32_cpu_state == (uint32_t)0x80U ? 1 : 0)) & (self->picorv32_cpu_state == (uint32_t)0x40U ? 1 : 0))) & (!((uint8_t)0x1U & (!(!(((!(!(((!(!(((!(!(((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) & (!(!((!(self->picorv32_irq_active) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(self->picorv32_irq_delay) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(!((self->picorv32_irq_pending & (self->picorv32_irq_mask ^ (uint32_t)0xffffffffU))) ? 1 : 0))) ? 1 : 0)))) ? 1 : 0)) | (!(!(self->picorv32_irq_state) ? 1 : 0)))) ? 1 : 0))))) & (!((!(!(((uint8_t)0x1U & (!(!(((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) | (!(!(self->picorv32_do_waitirq) ? 1 : 0)))) ? 1 : 0)))) ? 1 : 0)) & (!(!(self->picorv32_instr_waitirq) ? 1 : 0))))) & self->picorv32_decoder_trigger) & self->picorv32_instr_jal) ? (_gen_picorv32_current_pc + self->picorv32_decoded_imm_j) : ((((((!(!(_gen_picorv32_resetn) ? 1 : 0)) & ((!(self->picorv32_cpu_state == (uint32_t)0x80U ? 1 : 0)) & (self->picorv32_cpu_state == (uint32_t)0x40U ? 1 : 0))) & (!((uint8_t)0x1U & (!(!(((!(!(((!(!(((!(!(((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) & (!(!((!(self->picorv32_irq_active) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(self->picorv32_irq_delay) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(!((self->picorv32_irq_pending & (self->picorv32_irq_mask ^ (uint32_t)0xffffffffU))) ? 1 : 0))) ? 1 : 0)))) ? 1 : 0)) | (!(!(self->picorv32_irq_state) ? 1 : 0)))) ? 1 : 0))))) & (!((!(!(((uint8_t)0x1U & (!(!(((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) | (!(!(self->picorv32_do_waitirq) ? 1 : 0)))) ? 1 : 0)))) ? 1 : 0)) & (!(!(self->picorv32_instr_waitirq) ? 1 : 0))))) & self->picorv32_decoder_trigger) ? (_gen_picorv32_current_pc + (self->picorv32_compressed_instr ? (uint32_t)0x2U : (uint32_t)0x4U)) : ((((((!(!(_gen_picorv32_resetn) ? 1 : 0)) & ((!(self->picorv32_cpu_state == (uint32_t)0x80U ? 1 : 0)) & (self->picorv32_cpu_state == (uint32_t)0x40U ? 1 : 0))) & (!((uint8_t)0x1U & (!(!(((!(!(((!(!(((!(!(((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) & (!(!((!(self->picorv32_irq_active) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(self->picorv32_irq_delay) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(!((self->picorv32_irq_pending & (self->picorv32_irq_mask ^ (uint32_t)0xffffffffU))) ? 1 : 0))) ? 1 : 0)))) ? 1 : 0)) | (!(!(self->picorv32_irq_state) ? 1 : 0)))) ? 1 : 0))))) & ((!(!(((uint8_t)0x1U & (!(!(((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) | (!(!(self->picorv32_do_waitirq) ? 1 : 0)))) ? 1 : 0)))) ? 1 : 0)) & (!(!(self->picorv32_instr_waitirq) ? 1 : 0)))) & (!(!(self->picorv32_irq_pending) ? 1 : 0))) ? (_gen_picorv32_current_pc + (self->picorv32_compressed_instr ? (uint32_t)0x2U : (uint32_t)0x4U)) : (((!(!(_gen_picorv32_resetn) ? 1 : 0)) & ((!(self->picorv32_cpu_state == (uint32_t)0x80U ? 1 : 0)) & (self->picorv32_cpu_state == (uint32_t)0x40U ? 1 : 0))) ? _gen_picorv32_current_pc : ((!(_gen_picorv32_resetn) ? 1 : 0) ? (uint32_t)0x0U : self->picorv32_reg_next_pc))))) & (uint32_t)0xffffffffU) & (uint32_t)0xffffffffU);
         do {
           if (self->picorv32_is_lui_auipc_jal_jalr_addi_add_sub) {
             do {
@@ -3883,49 +3917,127 @@ static void sparkle_sim_eval_tick(struct sim* self) {
           if (((!(!(self->picorv32_instr_andi) ? 1 : 0)) | (!(!(self->picorv32_instr_and) ? 1 : 0)))) { self->picorv32_alu_out_q = (self->picorv32_reg_op1 & self->picorv32_reg_op2); break; }
           self->picorv32_alu_out_q = (uint64_t)0x0ULL;
         } while (0);
-        do {
-          if ((!(!(_gen_picorv32_resetn) ? 1 : 0))) {
-            if ((self->picorv32_cpu_state == (uint32_t)0x1U ? 1 : 0)) {
-              if (((!(!((!(self->picorv32_mem_do_prefetch) ? 1 : 0)) ? 1 : 0)) | (!(!(_gen_picorv32_mem_done) ? 1 : 0)))) {
-                if ((!(!((!(self->picorv32_mem_do_prefetch) ? 1 : 0)) ? 1 : 0))) {
-                  if ((!(!(_gen_picorv32_mem_done) ? 1 : 0))) {
-                    if ((!(self->picorv32_latched_is_lu | self->picorv32_latched_is_lh)) && self->picorv32_latched_is_lb) { self->picorv32_reg_out = (((((uint32_t)(uint32_t)0x0U << 8) | (uint32_t)(_gen_picorv32_mem_rdata_word_seq17 & 0xffULL)) ^ (uint32_t)0x80U) - (uint32_t)0x80U); break; }
-                    if ((!self->picorv32_latched_is_lu) && self->picorv32_latched_is_lh) { self->picorv32_reg_out = (((((uint32_t)(uint16_t)0x0U << 16) | (uint32_t)(_gen_picorv32_mem_rdata_word_seq17 & 0xffffULL)) ^ (uint32_t)0x8000U) - (uint32_t)0x8000U); break; }
-                    if (self->picorv32_latched_is_lu) { self->picorv32_reg_out = _gen_picorv32_mem_rdata_word_seq17; break; }
-                  }
-                }
-              }
-            }
-            if ((self->picorv32_cpu_state == (uint32_t)0x4U ? 1 : 0) && (!(self->picorv32_reg_sh) ? 1 : 0)) { self->picorv32_reg_out = self->picorv32_reg_op1; break; }
-            if ((self->picorv32_cpu_state == (uint32_t)0x8U ? 1 : 0)) { self->picorv32_reg_out = (self->picorv32_reg_pc + self->picorv32_decoded_imm); break; }
-            if ((self->picorv32_cpu_state == (uint32_t)0x10U ? 1 : 0) && (!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0)) && (!(!(_gen_picorv32_instr_trap) ? 1 : 0)) && _gen_picorv32_pcpi_int_ready_seq3) { self->picorv32_reg_out = _gen_picorv32_pcpi_int_rd_seq11; break; }
-            if ((self->picorv32_cpu_state == (uint32_t)0x20U ? 1 : 0)) {
-              if ((!((((((((!(!(((uint8_t)0x1U | (!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0)))) ? 1 : 0)) & (!(!(_gen_picorv32_instr_trap) ? 1 : 0))) | ((uint8_t)0x1U & (!(!(_gen_picorv32_is_rdcycle_rdcycleh_rdinstr_rdinstrh) ? 1 : 0)))) | self->picorv32_is_lui_auipc_jal) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_getq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_setq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_retirq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_maskirq) ? 1 : 0))))) && (uint8_t)0x1U && (!(!(self->picorv32_instr_timer) ? 1 : 0))) { self->picorv32_reg_out = self->picorv32_timer; break; }
-              if ((!(((((((!(!(((uint8_t)0x1U | (!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0)))) ? 1 : 0)) & (!(!(_gen_picorv32_instr_trap) ? 1 : 0))) | ((uint8_t)0x1U & (!(!(_gen_picorv32_is_rdcycle_rdcycleh_rdinstr_rdinstrh) ? 1 : 0)))) | self->picorv32_is_lui_auipc_jal) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_getq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_setq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_retirq) ? 1 : 0))))) && (uint8_t)0x1U && (!(!(self->picorv32_instr_maskirq) ? 1 : 0))) { self->picorv32_reg_out = self->picorv32_irq_mask; break; }
-              if ((!((((((!(!(((uint8_t)0x1U | (!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0)))) ? 1 : 0)) & (!(!(_gen_picorv32_instr_trap) ? 1 : 0))) | ((uint8_t)0x1U & (!(!(_gen_picorv32_is_rdcycle_rdcycleh_rdinstr_rdinstrh) ? 1 : 0)))) | self->picorv32_is_lui_auipc_jal) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_getq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_setq) ? 1 : 0))))) && (uint8_t)0x1U && (!(!(self->picorv32_instr_retirq) ? 1 : 0))) {
+        if ((!(!(_gen_picorv32_resetn) ? 1 : 0))) {
+          if ((self->picorv32_cpu_state == (uint32_t)0x10U ? 1 : 0)) {
+            do {
+              self->picorv32_reg_op2 = _gen_picorv32_cpuregs_rs2_seq6; break;
+            } while (0);
+            do {
+              self->picorv32_reg_sh = ((_gen_picorv32_cpuregs_rs2_seq6) & 0x1fULL); break;
+            } while (0);
+          } else if ((self->picorv32_cpu_state == (uint32_t)0x20U ? 1 : 0)) {
+            do {
+              if ((!((((((((((((!(!(((uint8_t)0x1U | (!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0)))) ? 1 : 0)) & (!(!(_gen_picorv32_instr_trap) ? 1 : 0))) | ((uint8_t)0x1U & (!(!(_gen_picorv32_is_rdcycle_rdcycleh_rdinstr_rdinstrh) ? 1 : 0)))) | self->picorv32_is_lui_auipc_jal) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_getq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_setq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_retirq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_maskirq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_timer) ? 1 : 0)))) | ((!(!(self->picorv32_is_lb_lh_lw_lbu_lhu) ? 1 : 0)) & (!(!((!(_gen_picorv32_instr_trap) ? 1 : 0)) ? 1 : 0)))) | ((!(!(self->picorv32_is_slli_srli_srai) ? 1 : 0)) & (uint8_t)0x1U)) | self->picorv32_is_jalr_addi_slti_sltiu_xori_ori_andi)) && (uint8_t)0x1U) { self->picorv32_reg_op2 = _gen_picorv32_cpuregs_rs2_seq6; break; }
+              if ((!(((((((((((!(!(((uint8_t)0x1U | (!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0)))) ? 1 : 0)) & (!(!(_gen_picorv32_instr_trap) ? 1 : 0))) | ((uint8_t)0x1U & (!(!(_gen_picorv32_is_rdcycle_rdcycleh_rdinstr_rdinstrh) ? 1 : 0)))) | self->picorv32_is_lui_auipc_jal) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_getq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_setq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_retirq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_maskirq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_timer) ? 1 : 0)))) | ((!(!(self->picorv32_is_lb_lh_lw_lbu_lhu) ? 1 : 0)) & (!(!((!(_gen_picorv32_instr_trap) ? 1 : 0)) ? 1 : 0)))) | ((!(!(self->picorv32_is_slli_srli_srai) ? 1 : 0)) & (uint8_t)0x1U))) && self->picorv32_is_jalr_addi_slti_sltiu_xori_ori_andi) { self->picorv32_reg_op2 = self->picorv32_decoded_imm; break; }
+              if ((!(((!(!(((uint8_t)0x1U | (!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0)))) ? 1 : 0)) & (!(!(_gen_picorv32_instr_trap) ? 1 : 0))) | ((uint8_t)0x1U & (!(!(_gen_picorv32_is_rdcycle_rdcycleh_rdinstr_rdinstrh) ? 1 : 0))))) && self->picorv32_is_lui_auipc_jal) { self->picorv32_reg_op2 = self->picorv32_decoded_imm; break; }
+              if ((!(!(((uint8_t)0x1U | (!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0)))) ? 1 : 0)) && (!(!(_gen_picorv32_instr_trap) ? 1 : 0)) && (!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0)) && (uint8_t)0x1U) { self->picorv32_reg_op2 = _gen_picorv32_cpuregs_rs2_seq6; break; }
+            } while (0);
+            do {
+              if ((!((((((((((((!(!(((uint8_t)0x1U | (!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0)))) ? 1 : 0)) & (!(!(_gen_picorv32_instr_trap) ? 1 : 0))) | ((uint8_t)0x1U & (!(!(_gen_picorv32_is_rdcycle_rdcycleh_rdinstr_rdinstrh) ? 1 : 0)))) | self->picorv32_is_lui_auipc_jal) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_getq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_setq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_retirq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_maskirq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_timer) ? 1 : 0)))) | ((!(!(self->picorv32_is_lb_lh_lw_lbu_lhu) ? 1 : 0)) & (!(!((!(_gen_picorv32_instr_trap) ? 1 : 0)) ? 1 : 0)))) | ((!(!(self->picorv32_is_slli_srli_srai) ? 1 : 0)) & (uint8_t)0x1U)) | self->picorv32_is_jalr_addi_slti_sltiu_xori_ori_andi))) { self->picorv32_reg_op1 = _gen_picorv32_cpuregs_rs1_seq5; break; }
+              if ((!(((((((((((!(!(((uint8_t)0x1U | (!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0)))) ? 1 : 0)) & (!(!(_gen_picorv32_instr_trap) ? 1 : 0))) | ((uint8_t)0x1U & (!(!(_gen_picorv32_is_rdcycle_rdcycleh_rdinstr_rdinstrh) ? 1 : 0)))) | self->picorv32_is_lui_auipc_jal) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_getq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_setq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_retirq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_maskirq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_timer) ? 1 : 0)))) | ((!(!(self->picorv32_is_lb_lh_lw_lbu_lhu) ? 1 : 0)) & (!(!((!(_gen_picorv32_instr_trap) ? 1 : 0)) ? 1 : 0)))) | ((!(!(self->picorv32_is_slli_srli_srai) ? 1 : 0)) & (uint8_t)0x1U))) && self->picorv32_is_jalr_addi_slti_sltiu_xori_ori_andi) { self->picorv32_reg_op1 = _gen_picorv32_cpuregs_rs1_seq5; break; }
+              if ((!((((((((((!(!(((uint8_t)0x1U | (!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0)))) ? 1 : 0)) & (!(!(_gen_picorv32_instr_trap) ? 1 : 0))) | ((uint8_t)0x1U & (!(!(_gen_picorv32_is_rdcycle_rdcycleh_rdinstr_rdinstrh) ? 1 : 0)))) | self->picorv32_is_lui_auipc_jal) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_getq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_setq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_retirq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_maskirq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_timer) ? 1 : 0)))) | ((!(!(self->picorv32_is_lb_lh_lw_lbu_lhu) ? 1 : 0)) & (!(!((!(_gen_picorv32_instr_trap) ? 1 : 0)) ? 1 : 0))))) && (!(!(self->picorv32_is_slli_srli_srai) ? 1 : 0)) && (uint8_t)0x1U) { self->picorv32_reg_op1 = _gen_picorv32_cpuregs_rs1_seq5; break; }
+              if ((!(((((((((!(!(((uint8_t)0x1U | (!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0)))) ? 1 : 0)) & (!(!(_gen_picorv32_instr_trap) ? 1 : 0))) | ((uint8_t)0x1U & (!(!(_gen_picorv32_is_rdcycle_rdcycleh_rdinstr_rdinstrh) ? 1 : 0)))) | self->picorv32_is_lui_auipc_jal) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_getq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_setq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_retirq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_maskirq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_timer) ? 1 : 0))))) && (!(!(self->picorv32_is_lb_lh_lw_lbu_lhu) ? 1 : 0)) && (!(!((!(_gen_picorv32_instr_trap) ? 1 : 0)) ? 1 : 0))) { self->picorv32_reg_op1 = _gen_picorv32_cpuregs_rs1_seq5; break; }
+              if ((!(((!(!(((uint8_t)0x1U | (!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0)))) ? 1 : 0)) & (!(!(_gen_picorv32_instr_trap) ? 1 : 0))) | ((uint8_t)0x1U & (!(!(_gen_picorv32_is_rdcycle_rdcycleh_rdinstr_rdinstrh) ? 1 : 0))))) && self->picorv32_is_lui_auipc_jal) {
                 do {
-                  if ((uint32_t)0x1U) { self->picorv32_reg_out = (_gen_picorv32_cpuregs_rs1_seq5 & (uint32_t)0xfffffffeU); break; }
-                  self->picorv32_reg_out = _gen_picorv32_cpuregs_rs1_seq5;
+                  if (self->picorv32_instr_lui) { self->picorv32_reg_op1 = (uint32_t)0x0U; break; }
+                  self->picorv32_reg_op1 = self->picorv32_reg_pc;
                 } while (0);
                 break;
               }
-              if ((!(((((!(!(((uint8_t)0x1U | (!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0)))) ? 1 : 0)) & (!(!(_gen_picorv32_instr_trap) ? 1 : 0))) | ((uint8_t)0x1U & (!(!(_gen_picorv32_is_rdcycle_rdcycleh_rdinstr_rdinstrh) ? 1 : 0)))) | self->picorv32_is_lui_auipc_jal) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_getq) ? 1 : 0))))) && (uint8_t)0x1U && (!(!(self->picorv32_instr_setq) ? 1 : 0))) { self->picorv32_reg_out = _gen_picorv32_cpuregs_rs1_seq5; break; }
-              if ((!((((!(!(((uint8_t)0x1U | (!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0)))) ? 1 : 0)) & (!(!(_gen_picorv32_instr_trap) ? 1 : 0))) | ((uint8_t)0x1U & (!(!(_gen_picorv32_is_rdcycle_rdcycleh_rdinstr_rdinstrh) ? 1 : 0)))) | self->picorv32_is_lui_auipc_jal)) && (uint8_t)0x1U && (!(!(self->picorv32_instr_getq) ? 1 : 0))) { self->picorv32_reg_out = _gen_picorv32_cpuregs_rs1_seq5; break; }
-              if ((!((!(!(((uint8_t)0x1U | (!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0)))) ? 1 : 0)) & (!(!(_gen_picorv32_instr_trap) ? 1 : 0))))) {
+              if ((!(!(((uint8_t)0x1U | (!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0)))) ? 1 : 0)) && (!(!(_gen_picorv32_instr_trap) ? 1 : 0)) && (!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0))) { self->picorv32_reg_op1 = _gen_picorv32_cpuregs_rs1_seq5; break; }
+            } while (0);
+            do {
+              if ((!((((((((((((!(!(((uint8_t)0x1U | (!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0)))) ? 1 : 0)) & (!(!(_gen_picorv32_instr_trap) ? 1 : 0))) | ((uint8_t)0x1U & (!(!(_gen_picorv32_is_rdcycle_rdcycleh_rdinstr_rdinstrh) ? 1 : 0)))) | self->picorv32_is_lui_auipc_jal) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_getq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_setq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_retirq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_maskirq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_timer) ? 1 : 0)))) | ((!(!(self->picorv32_is_lb_lh_lw_lbu_lhu) ? 1 : 0)) & (!(!((!(_gen_picorv32_instr_trap) ? 1 : 0)) ? 1 : 0)))) | ((!(!(self->picorv32_is_slli_srli_srai) ? 1 : 0)) & (uint8_t)0x1U)) | self->picorv32_is_jalr_addi_slti_sltiu_xori_ori_andi)) && (uint8_t)0x1U) { self->picorv32_reg_sh = ((_gen_picorv32_cpuregs_rs2_seq6) & 0x1fULL); break; }
+              if ((!((((((((((!(!(((uint8_t)0x1U | (!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0)))) ? 1 : 0)) & (!(!(_gen_picorv32_instr_trap) ? 1 : 0))) | ((uint8_t)0x1U & (!(!(_gen_picorv32_is_rdcycle_rdcycleh_rdinstr_rdinstrh) ? 1 : 0)))) | self->picorv32_is_lui_auipc_jal) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_getq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_setq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_retirq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_maskirq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_timer) ? 1 : 0)))) | ((!(!(self->picorv32_is_lb_lh_lw_lbu_lhu) ? 1 : 0)) & (!(!((!(_gen_picorv32_instr_trap) ? 1 : 0)) ? 1 : 0))))) && (!(!(self->picorv32_is_slli_srli_srai) ? 1 : 0)) && (uint8_t)0x1U) { self->picorv32_reg_sh = self->picorv32_decoded_rs2; break; }
+              if ((!(!(((uint8_t)0x1U | (!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0)))) ? 1 : 0)) && (!(!(_gen_picorv32_instr_trap) ? 1 : 0)) && (!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0)) && (uint8_t)0x1U) { self->picorv32_reg_sh = ((_gen_picorv32_cpuregs_rs2_seq6) & 0x1fULL); break; }
+            } while (0);
+          } else if ((self->picorv32_cpu_state == (uint32_t)0x1U ? 1 : 0)) {
+            if (((!(!((!(self->picorv32_mem_do_prefetch) ? 1 : 0)) ? 1 : 0)) | (!(!(_gen_picorv32_mem_done) ? 1 : 0)))) {
+              if ((!(self->picorv32_mem_do_rdata) ? 1 : 0)) {
+                do {
+                  self->picorv32_reg_op1 = (self->picorv32_reg_op1 + self->picorv32_decoded_imm); break;
+                } while (0);
+              }
+            }
+          } else if ((self->picorv32_cpu_state == (uint32_t)0x2U ? 1 : 0)) {
+            if (((!(!((!(self->picorv32_mem_do_prefetch) ? 1 : 0)) ? 1 : 0)) | (!(!(_gen_picorv32_mem_done) ? 1 : 0)))) {
+              if ((!(self->picorv32_mem_do_wdata) ? 1 : 0)) {
+                do {
+                  self->picorv32_reg_op1 = (self->picorv32_reg_op1 + self->picorv32_decoded_imm); break;
+                } while (0);
+              }
+            }
+          } else if ((self->picorv32_cpu_state == (uint32_t)0x4U ? 1 : 0)) {
+            if ((!(!(self->picorv32_reg_sh) ? 1 : 0))) {
+              do {
+                if ((!((uint8_t)0x1U & (!(!((self->picorv32_reg_sh >= (uint32_t)0x4U ? 1 : 0)) ? 1 : 0))))) {
+                  if ((!(((!(!(self->picorv32_instr_slli) ? 1 : 0)) | (!(!(self->picorv32_instr_sll) ? 1 : 0))) | ((!(!(self->picorv32_instr_srli) ? 1 : 0)) | (!(!(self->picorv32_instr_srl) ? 1 : 0))))) && ((!(!(self->picorv32_instr_srai) ? 1 : 0)) | (!(!(self->picorv32_instr_sra) ? 1 : 0)))) { self->picorv32_reg_op1 = ((uint32_t)((int32_t)self->picorv32_reg_op1 >> (uint32_t)0x1U)); break; }
+                  if ((!((!(!(self->picorv32_instr_slli) ? 1 : 0)) | (!(!(self->picorv32_instr_sll) ? 1 : 0)))) && ((!(!(self->picorv32_instr_srli) ? 1 : 0)) | (!(!(self->picorv32_instr_srl) ? 1 : 0)))) { self->picorv32_reg_op1 = ((uint64_t)self->picorv32_reg_op1 >> 1); break; }
+                  if (((!(!(self->picorv32_instr_slli) ? 1 : 0)) | (!(!(self->picorv32_instr_sll) ? 1 : 0)))) { self->picorv32_reg_op1 = ((uint64_t)self->picorv32_reg_op1 << 1); break; }
+                }
                 if ((uint8_t)0x1U) {
-                  if ((!(!(_gen_picorv32_is_rdcycle_rdcycleh_rdinstr_rdinstrh) ? 1 : 0))) {
-                    if ((!((self->picorv32_instr_rdcycle | ((!(!(self->picorv32_instr_rdcycleh) ? 1 : 0)) & (uint8_t)0x1U)) | self->picorv32_instr_rdinstr)) && (!(!(self->picorv32_instr_rdinstrh) ? 1 : 0)) && (uint8_t)0x1U) { self->picorv32_reg_out = ((self->picorv32_count_instr >> 32) & 0xffffffffULL); break; }
-                    if ((!(self->picorv32_instr_rdcycle | ((!(!(self->picorv32_instr_rdcycleh) ? 1 : 0)) & (uint8_t)0x1U))) && self->picorv32_instr_rdinstr) { self->picorv32_reg_out = (self->picorv32_count_instr & 0xffffffffULL); break; }
-                    if ((!self->picorv32_instr_rdcycle) && (!(!(self->picorv32_instr_rdcycleh) ? 1 : 0)) && (uint8_t)0x1U) { self->picorv32_reg_out = ((self->picorv32_count_cycle >> 32) & 0xffffffffULL); break; }
-                    if (self->picorv32_instr_rdcycle) { self->picorv32_reg_out = (self->picorv32_count_cycle & 0xffffffffULL); break; }
+                  if ((!(!((self->picorv32_reg_sh >= (uint32_t)0x4U ? 1 : 0)) ? 1 : 0))) {
+                    if ((!(((!(!(self->picorv32_instr_slli) ? 1 : 0)) | (!(!(self->picorv32_instr_sll) ? 1 : 0))) | ((!(!(self->picorv32_instr_srli) ? 1 : 0)) | (!(!(self->picorv32_instr_srl) ? 1 : 0))))) && ((!(!(self->picorv32_instr_srai) ? 1 : 0)) | (!(!(self->picorv32_instr_sra) ? 1 : 0)))) { self->picorv32_reg_op1 = ((uint32_t)((int32_t)self->picorv32_reg_op1 >> (uint32_t)0x4U)); break; }
+                    if ((!((!(!(self->picorv32_instr_slli) ? 1 : 0)) | (!(!(self->picorv32_instr_sll) ? 1 : 0)))) && ((!(!(self->picorv32_instr_srli) ? 1 : 0)) | (!(!(self->picorv32_instr_srl) ? 1 : 0)))) { self->picorv32_reg_op1 = ((uint64_t)self->picorv32_reg_op1 >> 4); break; }
+                    if (((!(!(self->picorv32_instr_slli) ? 1 : 0)) | (!(!(self->picorv32_instr_sll) ? 1 : 0)))) { self->picorv32_reg_op1 = ((uint64_t)self->picorv32_reg_op1 << 4); break; }
                   }
                 }
-              }
-              if ((!(!(((uint8_t)0x1U | (!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0)))) ? 1 : 0)) && (!(!(_gen_picorv32_instr_trap) ? 1 : 0)) && (!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0)) && (uint8_t)0x1U && _gen_picorv32_pcpi_int_ready_seq3) { self->picorv32_reg_out = _gen_picorv32_pcpi_int_rd_seq11; break; }
+              } while (0);
+              do {
+                if ((!((uint8_t)0x1U & (!(!((self->picorv32_reg_sh >= (uint32_t)0x4U ? 1 : 0)) ? 1 : 0))))) { self->picorv32_reg_sh = (((self->picorv32_reg_sh - (uint32_t)0x1U)) & 0x1fULL); break; }
+                if ((uint8_t)0x1U && (!(!((self->picorv32_reg_sh >= (uint32_t)0x4U ? 1 : 0)) ? 1 : 0))) { self->picorv32_reg_sh = (((self->picorv32_reg_sh - (uint32_t)0x4U)) & 0x1fULL); break; }
+              } while (0);
             }
-            if ((self->picorv32_cpu_state == (uint32_t)0x40U ? 1 : 0) && (!((uint8_t)0x1U & (!(!(((!(!(((!(!(((!(!(((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) & (!(!((!(self->picorv32_irq_active) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(self->picorv32_irq_delay) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(!((self->picorv32_irq_pending & (self->picorv32_irq_mask ^ (uint32_t)0xffffffffU))) ? 1 : 0))) ? 1 : 0)))) ? 1 : 0)) | (!(!(self->picorv32_irq_state) ? 1 : 0)))) ? 1 : 0)))) && (!(!(((uint8_t)0x1U & (!(!(((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) | (!(!(self->picorv32_do_waitirq) ? 1 : 0)))) ? 1 : 0)))) ? 1 : 0)) && (!(!(self->picorv32_instr_waitirq) ? 1 : 0)) && (!(!(self->picorv32_irq_pending) ? 1 : 0))) { self->picorv32_reg_out = self->picorv32_irq_pending; break; }
+          } else if ((self->picorv32_cpu_state == (uint32_t)0x40U ? 1 : 0)) {
+            do {
+              self->picorv32_reg_pc = _gen_picorv32_current_pc; break;
+            } while (0);
           }
-        } while (0);
+        } else {
+          do {
+            self->picorv32_reg_pc = (uint32_t)0x0U; break;
+          } while (0);
+        }
+        if ((!(!(self->picorv32_decoder_trigger) ? 1 : 0))) {
+          if ((!(!((!(self->picorv32_decoder_pseudo_trigger) ? 1 : 0)) ? 1 : 0))) {
+            do {
+              self->picorv32_instr_slli = ((((!(!(((!(!(self->picorv32_is_alu_reg_imm) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 12) & 0x7ULL) == (uint8_t)0x1U ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(((self->picorv32_mem_rdata_q >> 25) & 0x7fULL)) ? 1 : 0)) ? 1 : 0)))) & 1); break;
+            } while (0);
+            do {
+              self->picorv32_instr_srai = ((((!(!(((!(!(self->picorv32_is_alu_reg_imm) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 12) & 0x7ULL) == (uint8_t)0x5U ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 25) & 0x7fULL) == (uint8_t)0x20U ? 1 : 0)) ? 1 : 0)))) & 1); break;
+            } while (0);
+            do {
+              self->picorv32_instr_srli = ((((!(!(((!(!(self->picorv32_is_alu_reg_imm) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 12) & 0x7ULL) == (uint8_t)0x5U ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(((self->picorv32_mem_rdata_q >> 25) & 0x7fULL)) ? 1 : 0)) ? 1 : 0)))) & 1); break;
+            } while (0);
+            do {
+              if ((!((((self->picorv32_instr_jal | (!(!(self->picorv32_instr_lui | self->picorv32_instr_auipc) ? 1 : 0))) | (!(!(self->picorv32_instr_jalr | self->picorv32_is_lb_lh_lw_lbu_lhu | self->picorv32_is_alu_reg_imm) ? 1 : 0))) | self->picorv32_is_beq_bne_blt_bge_bltu_bgeu) | self->picorv32_is_sb_sh_sw))) { self->picorv32_decoded_imm = (uint8_t)0x0U; break; }
+              if ((!(((self->picorv32_instr_jal | (!(!(self->picorv32_instr_lui | self->picorv32_instr_auipc) ? 1 : 0))) | (!(!(self->picorv32_instr_jalr | self->picorv32_is_lb_lh_lw_lbu_lhu | self->picorv32_is_alu_reg_imm) ? 1 : 0))) | self->picorv32_is_beq_bne_blt_bge_bltu_bgeu)) && self->picorv32_is_sb_sh_sw) { self->picorv32_decoded_imm = (((((uint32_t)(uint32_t)0x0U << 12) | (uint32_t)(((uint16_t)((self->picorv32_mem_rdata_q >> 25) & 0x7fULL) << 5) | (uint16_t)((self->picorv32_mem_rdata_q >> 7) & 0x1fULL))) ^ (uint32_t)0x800U) - (uint32_t)0x800U); break; }
+              if ((!((self->picorv32_instr_jal | (!(!(self->picorv32_instr_lui | self->picorv32_instr_auipc) ? 1 : 0))) | (!(!(self->picorv32_instr_jalr | self->picorv32_is_lb_lh_lw_lbu_lhu | self->picorv32_is_alu_reg_imm) ? 1 : 0)))) && self->picorv32_is_beq_bne_blt_bge_bltu_bgeu) { self->picorv32_decoded_imm = (((((uint32_t)(uint32_t)0x0U << 13) | (uint32_t)(((uint16_t)((self->picorv32_mem_rdata_q >> 31) & 0x1ULL) << 12) | ((uint16_t)((self->picorv32_mem_rdata_q >> 7) & 0x1ULL) << 11) | ((uint16_t)((self->picorv32_mem_rdata_q >> 25) & 0x3fULL) << 5) | ((uint16_t)((self->picorv32_mem_rdata_q >> 8) & 0xfULL) << 1) | (uint16_t)(uint8_t)0x0U)) ^ (uint32_t)0x1000U) - (uint32_t)0x1000U); break; }
+              if ((!(self->picorv32_instr_jal | (!(!(self->picorv32_instr_lui | self->picorv32_instr_auipc) ? 1 : 0)))) && (!(!(self->picorv32_instr_jalr | self->picorv32_is_lb_lh_lw_lbu_lhu | self->picorv32_is_alu_reg_imm) ? 1 : 0))) { self->picorv32_decoded_imm = (((((uint32_t)(uint32_t)0x0U << 12) | (uint32_t)((self->picorv32_mem_rdata_q >> 20) & 0xfffULL)) ^ (uint32_t)0x800U) - (uint32_t)0x800U); break; }
+              if ((!self->picorv32_instr_jal) && (!(!(self->picorv32_instr_lui | self->picorv32_instr_auipc) ? 1 : 0))) { self->picorv32_decoded_imm = ((uint64_t)((self->picorv32_mem_rdata_q >> 12) & 0xfffffULL) << 12); break; }
+              if (self->picorv32_instr_jal) { self->picorv32_decoded_imm = self->picorv32_decoded_imm_j; break; }
+            } while (0);
+            do {
+              self->picorv32_is_slli_srli_srai = ((((!(!(self->picorv32_is_alu_reg_imm) ? 1 : 0)) & (!(!((!(!(((uint64_t)(((!(!((((self->picorv32_mem_rdata_q >> 12) & 0x7ULL) == (uint8_t)0x1U ? 1 : 0)) ? 1 : 0)) & (!(!((!(((self->picorv32_mem_rdata_q >> 25) & 0x7fULL)) ? 1 : 0)) ? 1 : 0)))) & 0x1ULL) | ((uint64_t)(((!(!((((self->picorv32_mem_rdata_q >> 12) & 0x7ULL) == (uint8_t)0x5U ? 1 : 0)) ? 1 : 0)) & (!(!((!(((self->picorv32_mem_rdata_q >> 25) & 0x7fULL)) ? 1 : 0)) ? 1 : 0)))) & 0x1ULL) | ((uint64_t)(((!(!((((self->picorv32_mem_rdata_q >> 12) & 0x7ULL) == (uint8_t)0x5U ? 1 : 0)) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 25) & 0x7fULL) == (uint8_t)0x20U ? 1 : 0)) ? 1 : 0)))) & 0x1ULL)) ? 1 : 0))) ? 1 : 0)))) & 1); break;
+            } while (0);
+            do {
+              self->picorv32_is_jalr_addi_slti_sltiu_xori_ori_andi = ((((!(!(self->picorv32_instr_jalr) ? 1 : 0)) | (!(!(((!(!(self->picorv32_is_alu_reg_imm) ? 1 : 0)) & (!(!((!(!((!(((self->picorv32_mem_rdata_q >> 12) & 0x7ULL)) ? 1 : 0) | (((self->picorv32_mem_rdata_q >> 12) & 0x7ULL) == (uint8_t)0x2U ? 1 : 0) | (((self->picorv32_mem_rdata_q >> 12) & 0x7ULL) == (uint8_t)0x3U ? 1 : 0) | (((self->picorv32_mem_rdata_q >> 12) & 0x7ULL) == (uint8_t)0x4U ? 1 : 0) | (((self->picorv32_mem_rdata_q >> 12) & 0x7ULL) == (uint8_t)0x6U ? 1 : 0) | (((self->picorv32_mem_rdata_q >> 12) & 0x7ULL) == (uint8_t)0x7U ? 1 : 0)) ? 1 : 0))) ? 1 : 0)))) ? 1 : 0)))) & 1); break;
+            } while (0);
+          }
+        }
+        if ((!(!(self->picorv32_mem_do_rinst) ? 1 : 0))) {
+          if ((!(!(_gen_picorv32_mem_done) ? 1 : 0))) {
+            do {
+              self->picorv32_decoded_imm_j = ((((((uint64_t)(((((((uint32_t)(uint16_t)0x0U << 21) | (uint32_t)(((uint32_t)((_gen_picorv32_mem_rdata_latched >> 12) & 0xfffffULL) << 1) | (uint32_t)(uint8_t)0x0U)) ^ (uint32_t)0x100000U) - (uint32_t)0x100000U) >> 20) & 0xfffULL) << 20) | ((uint64_t)(((((((uint32_t)(uint16_t)0x0U << 21) | (uint32_t)(((uint32_t)((_gen_picorv32_mem_rdata_latched >> 12) & 0xfffffULL) << 1) | (uint32_t)(uint8_t)0x0U)) ^ (uint32_t)0x100000U) - (uint32_t)0x100000U) >> 10) & 0x3ffULL) << 1)) | ((uint64_t)(((((((uint32_t)(uint16_t)0x0U << 21) | (uint32_t)(((uint32_t)((_gen_picorv32_mem_rdata_latched >> 12) & 0xfffffULL) << 1) | (uint32_t)(uint8_t)0x0U)) ^ (uint32_t)0x100000U) - (uint32_t)0x100000U) >> 9) & 0x1ULL) << 11)) | ((uint64_t)(((((((uint32_t)(uint16_t)0x0U << 21) | (uint32_t)(((uint32_t)((_gen_picorv32_mem_rdata_latched >> 12) & 0xfffffULL) << 1) | (uint32_t)(uint8_t)0x0U)) ^ (uint32_t)0x100000U) - (uint32_t)0x100000U) >> 1) & 0xffULL) << 12)) | ((((((uint32_t)(uint16_t)0x0U << 21) | (uint32_t)(((uint32_t)((_gen_picorv32_mem_rdata_latched >> 12) & 0xfffffULL) << 1) | (uint32_t)(uint8_t)0x0U)) ^ (uint32_t)0x100000U) - (uint32_t)0x100000U) & 0x1ULL)); break;
+            } while (0);
+            do {
+              self->picorv32_is_sb_sh_sw = ((_gen_picorv32_mem_rdata_latched & 0x7fULL) == (uint8_t)0x23U ? 1 : 0); break;
+            } while (0);
+            do {
+              self->picorv32_decoded_rs2 = ((_gen_picorv32_mem_rdata_latched >> 20) & 0x1fULL); break;
+            } while (0);
+          }
+        }
         do {
           if ((!(_gen_picorv32_resetn) ? 1 : 0)) { self->picorv32_instr_fence = (((uint32_t)0x0U) & 1); break; }
           if ((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) && (!(!((!(self->picorv32_decoder_pseudo_trigger) ? 1 : 0)) ? 1 : 0))) { self->picorv32_instr_fence = ((((!(!(((self->picorv32_mem_rdata_q & 0x7fULL) == (uint8_t)0xfU ? 1 : 0)) ? 1 : 0)) & (!(!((!(((self->picorv32_mem_rdata_q >> 12) & 0x7ULL)) ? 1 : 0)) ? 1 : 0)))) & 1); break; }
@@ -3956,44 +4068,8 @@ static void sparkle_sim_eval_tick(struct sim* self) {
           }
           self->picorv32_decoded_rs1 = (((((!(!(self->picorv32_mem_do_rinst) ? 1 : 0)) & (!(!(_gen_picorv32_mem_done) ? 1 : 0))) ? ((_gen_picorv32_mem_rdata_latched >> 15) & 0x1fULL) : self->picorv32_decoded_rs1) & ((((!(!(self->picorv32_mem_do_rinst) ? 1 : 0)) & (!(!(_gen_picorv32_mem_done) ? 1 : 0))) & ((!(!(((!(!(((!(!(((_gen_picorv32_mem_rdata_latched & 0x7fULL) == (uint8_t)0xbU ? 1 : 0)) ? 1 : 0)) & (!(!((!(((_gen_picorv32_mem_rdata_latched >> 25) & 0x7fULL)) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (uint8_t)0x1U)) ? 1 : 0)) & (uint8_t)0x1U)) ? (((uint64_t)((_gen_picorv32_regindex_bits - (uint32_t)0x1U)) >= 64 ? 0ULL : ((uint64_t)(uint32_t)0x1U << ((_gen_picorv32_regindex_bits - (uint32_t)0x1U)))) ^ (uint32_t)0xffffffffU) : (uint32_t)0xffffffffU)) | ((((!(!(self->picorv32_mem_do_rinst) ? 1 : 0)) & (!(!(_gen_picorv32_mem_done) ? 1 : 0))) & ((!(!(((!(!(((!(!(((_gen_picorv32_mem_rdata_latched & 0x7fULL) == (uint8_t)0xbU ? 1 : 0)) ? 1 : 0)) & (!(!((!(((_gen_picorv32_mem_rdata_latched >> 25) & 0x7fULL)) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (uint8_t)0x1U)) ? 1 : 0)) & (uint8_t)0x1U)) ? ((uint64_t)((_gen_picorv32_regindex_bits - (uint32_t)0x1U)) >= 64 ? 0ULL : ((uint64_t)(uint32_t)0x1U << ((_gen_picorv32_regindex_bits - (uint32_t)0x1U)))) : (uint32_t)0x0U));
         } while (0);
-        do {
-          if ((!(!(self->picorv32_mem_do_rinst) ? 1 : 0)) && (!(!(_gen_picorv32_mem_done) ? 1 : 0))) { self->picorv32_decoded_rd = ((_gen_picorv32_mem_rdata_latched >> 7) & 0x1fULL); break; }
-        } while (0);
         self->picorv32_is_sltiu_bltu_sltu = (((!(!(self->picorv32_instr_sltiu | self->picorv32_instr_bltu | self->picorv32_instr_sltu) ? 1 : 0))) & 1);
         self->picorv32_is_slti_blt_slt = (((!(!(self->picorv32_instr_slti | self->picorv32_instr_blt | self->picorv32_instr_slt) ? 1 : 0))) & 1);
-        do {
-          if ((!((!(!((!(_gen_picorv32_resetn) ? 1 : 0)) ? 1 : 0)) | (!(!(self->picorv32__reg_trap) ? 1 : 0))))) {
-            if ((!(self->picorv32_mem_state) ? 1 : 0) && ((!(!(((!(!(self->picorv32_mem_do_prefetch) ? 1 : 0)) | (!(!(self->picorv32_mem_do_rinst) ? 1 : 0)))) ? 1 : 0)) | (!(!(self->picorv32_mem_do_rdata) ? 1 : 0)))) { self->picorv32__reg_mem_wstrb = (((uint32_t)0x0U) & 0xfULL); break; }
-            if (((!(!(_gen_picorv32_mem_la_read) ? 1 : 0)) | (!(!(_gen_picorv32_mem_la_write) ? 1 : 0)))) { self->picorv32__reg_mem_wstrb = ((((!(self->picorv32_mem_wordsize) ? 1 : 0) ? (uint8_t)0xfU : ((self->picorv32_mem_wordsize == (uint32_t)0x1U ? 1 : 0) ? ((((self->picorv32_reg_op1 >> 1) & 0x1ULL) ? (uint8_t)0xcU : (uint8_t)0x3U) & (uint8_t)0xfU) : ((self->picorv32_mem_wordsize == (uint32_t)0x2U ? 1 : 0) ? (((uint64_t)((self->picorv32_reg_op1 & 0x3ULL)) >= 64 ? 0ULL : ((uint64_t)(uint8_t)0x1U << ((self->picorv32_reg_op1 & 0x3ULL)))) & (uint8_t)0xfU) : (uint64_t)0x0ULL))) & (uint8_t)0xfU) & (((uint8_t)_gen_picorv32_mem_la_write << 3) | ((uint8_t)_gen_picorv32_mem_la_write << 2) | ((uint8_t)_gen_picorv32_mem_la_write << 1) | (uint8_t)_gen_picorv32_mem_la_write)); break; }
-          }
-        } while (0);
-        do {
-          if ((!((!(!((!(_gen_picorv32_resetn) ? 1 : 0)) ? 1 : 0)) | (!(!(self->picorv32__reg_trap) ? 1 : 0)))) && ((!(!(_gen_picorv32_mem_la_read) ? 1 : 0)) | (!(!(_gen_picorv32_mem_la_write) ? 1 : 0)))) { self->picorv32__reg_mem_addr = _gen_picorv32_mem_la_addr; break; }
-        } while (0);
-        do {
-          if ((!(!(_gen_picorv32_resetn) ? 1 : 0))) {
-            if ((!_gen_picorv32_pcpi_div_start)) {
-              if ((!(!((!(self->picorv32_pcpi_div_quotient_msk) ? 1 : 0)) ? 1 : 0))) {
-                if ((!(!(self->picorv32_pcpi_div_running) ? 1 : 0))) {
-                  if ((!((!(!(self->picorv32_pcpi_div_instr_div) ? 1 : 0)) | (!(!(self->picorv32_pcpi_div_instr_divu) ? 1 : 0))))) {
-                    do {
-                      if (self->picorv32_pcpi_div_outsign) { self->picorv32_pcpi_div__reg_pcpi_rd = (-self->picorv32_pcpi_div_dividend); break; }
-                      self->picorv32_pcpi_div__reg_pcpi_rd = self->picorv32_pcpi_div_dividend;
-                    } while (0);
-                    break;
-                  }
-                  if (((!(!(self->picorv32_pcpi_div_instr_div) ? 1 : 0)) | (!(!(self->picorv32_pcpi_div_instr_divu) ? 1 : 0)))) {
-                    do {
-                      if (self->picorv32_pcpi_div_outsign) { self->picorv32_pcpi_div__reg_pcpi_rd = (-self->picorv32_pcpi_div_quotient); break; }
-                      self->picorv32_pcpi_div__reg_pcpi_rd = self->picorv32_pcpi_div_quotient;
-                    } while (0);
-                    break;
-                  }
-                }
-              }
-            }
-          }
-        } while (0);
         do {
           if ((!(!(_gen_picorv32_resetn) ? 1 : 0)) && (!_gen_picorv32_pcpi_div_start) && (!(!((!(self->picorv32_pcpi_div_quotient_msk) ? 1 : 0)) ? 1 : 0)) && (!(!(self->picorv32_pcpi_div_running) ? 1 : 0))) { self->picorv32_pcpi_div__reg_pcpi_wr = (((uint32_t)0x1U) & 1); break; }
           self->picorv32_pcpi_div__reg_pcpi_wr = (((uint32_t)0x0U) & 1);
@@ -4004,15 +4080,6 @@ static void sparkle_sim_eval_tick(struct sim* self) {
           self->picorv32_pcpi_div_instr_remu = (((uint32_t)0x0U) & 1);
         } while (0);
         do {
-          if ((!(!(self->picorv32_pcpi_mul_mul_finish) ? 1 : 0)) && (!(!(_gen_picorv32_resetn) ? 1 : 0))) {
-            do {
-              if (_gen_picorv32_pcpi_mul_instr_any_mulh) { self->picorv32_pcpi_mul__reg_pcpi_rd = ((uint64_t)self->picorv32_pcpi_mul_rd >> 32); break; }
-              self->picorv32_pcpi_mul__reg_pcpi_rd = self->picorv32_pcpi_mul_rd;
-            } while (0);
-            break;
-          }
-        } while (0);
-        do {
           if ((!(!(self->picorv32_pcpi_mul_mul_finish) ? 1 : 0)) && (!(!(_gen_picorv32_resetn) ? 1 : 0))) { self->picorv32_pcpi_mul__reg_pcpi_ready = (((uint32_t)0x1U) & 1); break; }
           self->picorv32_pcpi_mul__reg_pcpi_ready = (((uint32_t)0x0U) & 1);
         } while (0);
@@ -4021,15 +4088,6 @@ static void sparkle_sim_eval_tick(struct sim* self) {
           self->picorv32_pcpi_mul__reg_pcpi_wr = (((uint32_t)0x0U) & 1);
         } while (0);
         self->picorv32_pcpi_mul_rs2 = ((((uint64_t)self->_wide_hoist_3[0] | ((uint64_t)self->_wide_hoist_3[1] << 32))) & 0xffffffffffffffffULL);
-        do {
-          if ((!(!(_gen_picorv32_resetn) ? 1 : 0))) {
-            if ((!self->picorv32_pcpi_mul_mul_waiting)) { self->picorv32_pcpi_mul_rs1 = ((uint64_t)self->picorv32_pcpi_mul_rs1 >> 1); break; }
-            if (self->picorv32_pcpi_mul_mul_waiting) {
-              if ((!_gen_picorv32_pcpi_mul_instr_rs1_signed)) { self->picorv32_pcpi_mul_rs1 = self->picorv32_reg_op1; break; }
-              if (_gen_picorv32_pcpi_mul_instr_rs1_signed) { self->picorv32_pcpi_mul_rs1 = self->picorv32_reg_op1; break; }
-            }
-          }
-        } while (0);
         self->picorv32_pcpi_mul_pcpi_wait_q = self->picorv32_pcpi_mul__reg_pcpi_wait;
         do {
           if ((!(!(((!(!(((!(!(_gen_picorv32_resetn) ? 1 : 0)) & (!(!(self->picorv32__reg_pcpi_valid) ? 1 : 0)))) ? 1 : 0)) & (!(!(((self->picorv32__reg_pcpi_insn & 0x7fULL) == (uint8_t)0x33U ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) && (!(!((((self->picorv32__reg_pcpi_insn >> 25) & 0x7fULL) == (uint8_t)0x1U ? 1 : 0)) ? 1 : 0)) && (((self->picorv32__reg_pcpi_insn >> 12) & 0x7ULL) == (uint8_t)0x3U ? 1 : 0)) { self->picorv32_pcpi_mul_instr_mulhu = (((uint32_t)0x1U) & 1); break; }
@@ -4099,20 +4157,6 @@ static void sparkle_sim_eval_tick(struct sim* self) {
           if (_gen_csr_bankarray_csrbank0_sel_reset0_re_seq2) { self->reset_storage = _gen_csr_bankarray_csrbank2_sel_ev_enable0_r; break; }
         } while (0);
         do {
-          if ((!((!(!((!(_gen_picorv32_resetn) ? 1 : 0)) ? 1 : 0)) | (!(!(self->picorv32__reg_trap) ? 1 : 0))))) {
-            if ((self->picorv32_mem_state == (uint32_t)0x2U ? 1 : 0) && _gen_picorv32_mem_xfer) { self->picorv32__reg_mem_valid = (((uint32_t)0x0U) & 1); break; }
-            if ((self->picorv32_mem_state == (uint32_t)0x1U ? 1 : 0) && _gen_picorv32_mem_xfer && (uint8_t)0x1U) { self->picorv32__reg_mem_valid = (((uint32_t)0x0U) & 1); break; }
-            if ((!(self->picorv32_mem_state) ? 1 : 0)) {
-              if (self->picorv32_mem_do_wdata) { self->picorv32__reg_mem_valid = (((uint32_t)0x1U) & 1); break; }
-              if (((!(!(((!(!(self->picorv32_mem_do_prefetch) ? 1 : 0)) | (!(!(self->picorv32_mem_do_rinst) ? 1 : 0)))) ? 1 : 0)) | (!(!(self->picorv32_mem_do_rdata) ? 1 : 0)))) { self->picorv32__reg_mem_valid = (!(_gen_picorv32_mem_la_use_prefetched_high_word) ? 1 : 0); break; }
-            }
-          }
-          if (((!(!((!(_gen_picorv32_resetn) ? 1 : 0)) ? 1 : 0)) | (!(!(self->picorv32__reg_trap) ? 1 : 0))) && ((!(!((!(_gen_picorv32_resetn) ? 1 : 0)) ? 1 : 0)) | (!(!(_gen_adapted_interface_ack) ? 1 : 0)))) { self->picorv32__reg_mem_valid = (((uint32_t)0x0U) & 1); break; }
-        } while (0);
-        do {
-          if ((!(!(self->picorv32_mem_do_rinst) ? 1 : 0)) && (!(!(_gen_picorv32_mem_done) ? 1 : 0))) { self->picorv32_compressed_instr = (((uint32_t)0x0U) & 1); break; }
-        } while (0);
-        do {
           if ((!(_gen_picorv32_resetn) ? 1 : 0)) { self->picorv32_instr_andi = (((uint32_t)0x0U) & 1); break; }
           if ((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) && (!(!((!(self->picorv32_decoder_pseudo_trigger) ? 1 : 0)) ? 1 : 0))) { self->picorv32_instr_andi = ((((!(!(self->picorv32_is_alu_reg_imm) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 12) & 0x7ULL) == (uint8_t)0x7U ? 1 : 0)) ? 1 : 0)))) & 1); break; }
         } while (0);
@@ -4128,6 +4172,13 @@ static void sparkle_sim_eval_tick(struct sim* self) {
           if ((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) && (!(!((!(self->picorv32_decoder_pseudo_trigger) ? 1 : 0)) ? 1 : 0))) { self->picorv32_is_lui_auipc_jal_jalr_addi_add_sub = (((uint32_t)0x0U) & 1); break; }
           self->picorv32_is_lui_auipc_jal_jalr_addi_add_sub = (((!(!(self->picorv32_instr_lui | self->picorv32_instr_auipc | self->picorv32_instr_jal | self->picorv32_instr_jalr | self->picorv32_instr_addi | self->picorv32_instr_add | self->picorv32_instr_sub) ? 1 : 0))) & 1);
         } while (0);
+        if ((!(!(self->picorv32_mem_do_rinst) ? 1 : 0))) {
+          if ((!(!(_gen_picorv32_mem_done) ? 1 : 0))) {
+            do {
+              self->picorv32_instr_jalr = ((((!(!(((_gen_picorv32_mem_rdata_latched & 0x7fULL) == (uint8_t)0x67U ? 1 : 0)) ? 1 : 0)) & (!(!((!(((_gen_picorv32_mem_rdata_latched >> 12) & 0x7ULL)) ? 1 : 0)) ? 1 : 0)))) & 1); break;
+            } while (0);
+          }
+        }
         do {
           if ((!(_gen_picorv32_resetn) ? 1 : 0)) { self->picorv32_is_compare = (((uint32_t)0x0U) & 1); break; }
           if ((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) && (!(!((!(self->picorv32_decoder_pseudo_trigger) ? 1 : 0)) ? 1 : 0))) { self->picorv32_is_compare = (((uint32_t)0x0U) & 1); break; }
@@ -4145,46 +4196,38 @@ static void sparkle_sim_eval_tick(struct sim* self) {
           if ((!(_gen_picorv32_resetn) ? 1 : 0)) { self->picorv32_instr_ori = (((uint32_t)0x0U) & 1); break; }
           if ((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) && (!(!((!(self->picorv32_decoder_pseudo_trigger) ? 1 : 0)) ? 1 : 0))) { self->picorv32_instr_ori = ((((!(!(self->picorv32_is_alu_reg_imm) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 12) & 0x7ULL) == (uint8_t)0x6U ? 1 : 0)) ? 1 : 0)))) & 1); break; }
         } while (0);
-        self->picorv32_count_instr = ((((((((!(!(_gen_picorv32_resetn) ? 1 : 0)) & ((!(self->picorv32_cpu_state == (uint32_t)0x80U ? 1 : 0)) & (self->picorv32_cpu_state == (uint32_t)0x40U ? 1 : 0))) & (!((uint8_t)0x1U & (!(!(((!(!(((!(!(((!(!(((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) & (!(!((!(self->picorv32_irq_active) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(self->picorv32_irq_delay) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(!((self->picorv32_irq_pending & (self->picorv32_irq_mask ^ (uint32_t)0xffffffffU))) ? 1 : 0))) ? 1 : 0)))) ? 1 : 0)) | (!(!(self->picorv32_irq_state) ? 1 : 0)))) ? 1 : 0))))) & (!((!(!(((uint8_t)0x1U & (!(!(((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) | (!(!(self->picorv32_do_waitirq) ? 1 : 0)))) ? 1 : 0)))) ? 1 : 0)) & (!(!(self->picorv32_instr_waitirq) ? 1 : 0))))) & self->picorv32_decoder_trigger) & (uint8_t)0x1U) ? (self->picorv32_count_instr + (uint32_t)0x1U) : (((!(_gen_picorv32_resetn) ? 1 : 0) & (uint8_t)0x1U) ? (uint32_t)0x0U : self->picorv32_count_instr)) & (uint64_t)0xffffffffffffffffULL);
         do {
-          if ((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) && (!(!((!(self->picorv32_decoder_pseudo_trigger) ? 1 : 0)) ? 1 : 0))) { self->picorv32_instr_rdcycleh = ((!(!(((!(!(((!(!(((!(!(((self->picorv32_mem_rdata_q & 0x7fULL) == (uint8_t)0x73U ? 1 : 0)) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 12) & 0xfffffULL) == (uint32_t)0xc8002U ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) | (!(!(((!(!(((self->picorv32_mem_rdata_q & 0x7fULL) == (uint8_t)0x73U ? 1 : 0)) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 12) & 0xfffffULL) == (uint32_t)0xc8102U ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)))) ? 1 : 0)) & (uint8_t)0x1U)) ? 1 : 0)) & (uint8_t)0x1U); break; }
-        } while (0);
-        do {
-          if ((!(!(_gen_picorv32_resetn) ? 1 : 0))) {
-            if ((self->picorv32_cpu_state == (uint32_t)0x1U ? 1 : 0) && ((!(!((!(self->picorv32_mem_do_prefetch) ? 1 : 0)) ? 1 : 0)) | (!(!(_gen_picorv32_mem_done) ? 1 : 0))) && (!(self->picorv32_mem_do_rdata) ? 1 : 0)) { self->picorv32_latched_is_lb = self->picorv32_instr_lb; break; }
-            if ((self->picorv32_cpu_state == (uint32_t)0x40U ? 1 : 0)) { self->picorv32_latched_is_lb = (((uint32_t)0x0U) & 1); break; }
-          }
-          if ((!(_gen_picorv32_resetn) ? 1 : 0)) { self->picorv32_latched_is_lb = (((uint32_t)0x0U) & 1); break; }
-        } while (0);
-        self->picorv32_count_cycle = ((_gen_picorv32_resetn ? (self->picorv32_count_cycle + (uint32_t)0x1U) : (uint32_t)0x0U) & (uint64_t)0xffffffffffffffffULL);
-        do {
-          if ((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) && (!(!((!(self->picorv32_decoder_pseudo_trigger) ? 1 : 0)) ? 1 : 0))) { self->picorv32_instr_rdinstr = ((!(!(((!(!(((self->picorv32_mem_rdata_q & 0x7fULL) == (uint8_t)0x73U ? 1 : 0)) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 12) & 0xfffffULL) == (uint32_t)0xc0202U ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (uint8_t)0x1U); break; }
-        } while (0);
-        do {
-          if ((!(!(_gen_picorv32_resetn) ? 1 : 0))) {
-            if ((self->picorv32_cpu_state == (uint32_t)0x1U ? 1 : 0) && ((!(!((!(self->picorv32_mem_do_prefetch) ? 1 : 0)) ? 1 : 0)) | (!(!(_gen_picorv32_mem_done) ? 1 : 0))) && (!(self->picorv32_mem_do_rdata) ? 1 : 0)) { self->picorv32_latched_is_lh = self->picorv32_instr_lh; break; }
-            if ((self->picorv32_cpu_state == (uint32_t)0x40U ? 1 : 0)) { self->picorv32_latched_is_lh = (((uint32_t)0x0U) & 1); break; }
-          }
-          if ((!(_gen_picorv32_resetn) ? 1 : 0)) { self->picorv32_latched_is_lh = (((uint32_t)0x0U) & 1); break; }
-        } while (0);
-        do {
-          if ((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) && (!(!((!(self->picorv32_decoder_pseudo_trigger) ? 1 : 0)) ? 1 : 0))) { self->picorv32_instr_rdcycle = ((!(!(((!(!(((!(!(((self->picorv32_mem_rdata_q & 0x7fULL) == (uint8_t)0x73U ? 1 : 0)) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 12) & 0xfffffULL) == (uint32_t)0xc0002U ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) | (!(!(((!(!(((self->picorv32_mem_rdata_q & 0x7fULL) == (uint8_t)0x73U ? 1 : 0)) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 12) & 0xfffffULL) == (uint32_t)0xc0102U ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)))) ? 1 : 0)) & (uint8_t)0x1U); break; }
-        } while (0);
-        do {
-          if ((!(!(_gen_picorv32_resetn) ? 1 : 0))) {
-            if ((self->picorv32_cpu_state == (uint32_t)0x1U ? 1 : 0) && ((!(!((!(self->picorv32_mem_do_prefetch) ? 1 : 0)) ? 1 : 0)) | (!(!(_gen_picorv32_mem_done) ? 1 : 0))) && (!(self->picorv32_mem_do_rdata) ? 1 : 0)) { self->picorv32_latched_is_lu = self->picorv32_is_lbu_lhu_lw; break; }
-            if ((self->picorv32_cpu_state == (uint32_t)0x40U ? 1 : 0)) { self->picorv32_latched_is_lu = (((uint32_t)0x0U) & 1); break; }
-          }
-          if ((!(_gen_picorv32_resetn) ? 1 : 0)) { self->picorv32_latched_is_lu = (((uint32_t)0x0U) & 1); break; }
+          if (_gen_picorv32_resetn) { self->picorv32_count_cycle = (self->picorv32_count_cycle + (uint32_t)0x1U); break; }
+          self->picorv32_count_cycle = (uint32_t)0x0U;
         } while (0);
         do {
           if ((!(!(_gen_picorv32_resetn) ? 1 : 0)) && (self->picorv32_cpu_state == (uint32_t)0x20U ? 1 : 0) && (!((((((((!(!(((uint8_t)0x1U | (!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0)))) ? 1 : 0)) & (!(!(_gen_picorv32_instr_trap) ? 1 : 0))) | ((uint8_t)0x1U & (!(!(_gen_picorv32_is_rdcycle_rdcycleh_rdinstr_rdinstrh) ? 1 : 0)))) | self->picorv32_is_lui_auipc_jal) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_getq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_setq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_retirq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_maskirq) ? 1 : 0))))) && (uint8_t)0x1U && (!(!(self->picorv32_instr_timer) ? 1 : 0))) { self->picorv32_timer = _gen_picorv32_cpuregs_rs1_seq5; break; }
           if ((!(_gen_picorv32_resetn) ? 1 : 0)) { self->picorv32_timer = (uint32_t)0x0U; break; }
           if ((uint8_t)0x1U && (!(!(self->picorv32_timer) ? 1 : 0))) { self->picorv32_timer = (self->picorv32_timer - (uint32_t)0x1U); break; }
         } while (0);
-        do {
-          if ((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) && (!(!((!(self->picorv32_decoder_pseudo_trigger) ? 1 : 0)) ? 1 : 0))) { self->picorv32_instr_rdinstrh = ((!(!(((!(!(((!(!(((self->picorv32_mem_rdata_q & 0x7fULL) == (uint8_t)0x73U ? 1 : 0)) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 12) & 0xfffffULL) == (uint32_t)0xc8202U ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (uint8_t)0x1U)) ? 1 : 0)) & (uint8_t)0x1U); break; }
-        } while (0);
+        if ((!(!(self->picorv32_decoder_trigger) ? 1 : 0))) {
+          if ((!(!((!(self->picorv32_decoder_pseudo_trigger) ? 1 : 0)) ? 1 : 0))) {
+            do {
+              self->picorv32_instr_timer = ((!(!(((!(!(((!(!(((self->picorv32_mem_rdata_q & 0x7fULL) == (uint8_t)0xbU ? 1 : 0)) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 25) & 0x7fULL) == (uint8_t)0x5U ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (uint8_t)0x1U)) ? 1 : 0)) & (uint8_t)0x1U); break;
+            } while (0);
+            do {
+              self->picorv32_instr_maskirq = ((!(!(((!(!(((self->picorv32_mem_rdata_q & 0x7fULL) == (uint8_t)0xbU ? 1 : 0)) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 25) & 0x7fULL) == (uint8_t)0x3U ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (uint8_t)0x1U); break;
+            } while (0);
+            do {
+              self->picorv32_instr_setq = ((!(!(((!(!(((!(!(((self->picorv32_mem_rdata_q & 0x7fULL) == (uint8_t)0xbU ? 1 : 0)) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 25) & 0x7fULL) == (uint8_t)0x1U ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (uint8_t)0x1U)) ? 1 : 0)) & (uint8_t)0x1U); break;
+            } while (0);
+            do {
+              self->picorv32_instr_getq = ((!(!(((!(!(((!(!(((self->picorv32_mem_rdata_q & 0x7fULL) == (uint8_t)0xbU ? 1 : 0)) ? 1 : 0)) & (!(!((!(((self->picorv32_mem_rdata_q >> 25) & 0x7fULL)) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (uint8_t)0x1U)) ? 1 : 0)) & (uint8_t)0x1U); break;
+            } while (0);
+          }
+        }
+        if ((!(!(self->picorv32_mem_do_rinst) ? 1 : 0))) {
+          if ((!(!(_gen_picorv32_mem_done) ? 1 : 0))) {
+            do {
+              self->picorv32_instr_retirq = ((!(!(((!(!(((_gen_picorv32_mem_rdata_latched & 0x7fULL) == (uint8_t)0xbU ? 1 : 0)) ? 1 : 0)) & (!(!((((_gen_picorv32_mem_rdata_latched >> 25) & 0x7fULL) == (uint8_t)0x2U ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (uint8_t)0x1U); break;
+            } while (0);
+          }
+        }
         do {
           if ((!(_gen_picorv32_resetn) ? 1 : 0)) { self->picorv32_instr_bltu = (((uint32_t)0x0U) & 1); break; }
           if ((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) && (!(!((!(self->picorv32_decoder_pseudo_trigger) ? 1 : 0)) ? 1 : 0))) { self->picorv32_instr_bltu = ((((!(!(self->picorv32_is_beq_bne_blt_bge_bltu_bgeu) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 12) & 0x7ULL) == (uint8_t)0x6U ? 1 : 0)) ? 1 : 0)))) & 1); break; }
@@ -4194,29 +4237,31 @@ static void sparkle_sim_eval_tick(struct sim* self) {
           if ((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) && (!(!((!(self->picorv32_decoder_pseudo_trigger) ? 1 : 0)) ? 1 : 0))) { self->picorv32_instr_blt = ((((!(!(self->picorv32_is_beq_bne_blt_bge_bltu_bgeu) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 12) & 0x7ULL) == (uint8_t)0x4U ? 1 : 0)) ? 1 : 0)))) & 1); break; }
         } while (0);
         do {
-          if ((!(!(_gen_picorv32_resetn) ? 1 : 0)) && _gen_picorv32_pcpi_div_start) { self->picorv32_pcpi_div_outsign = ((((!(!(((!(!(((!(!(self->picorv32_pcpi_div_instr_div) ? 1 : 0)) & (!(!((!(((self->picorv32_reg_op1 >> 31) & 0x1ULL) == ((self->picorv32_reg_op2 >> 31) & 0x1ULL) ? 1 : 0))) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(!(self->picorv32_reg_op2) ? 1 : 0))) ? 1 : 0)))) ? 1 : 0)) | (!(!(((!(!(self->picorv32_pcpi_div_instr_rem) ? 1 : 0)) & (!(!(((self->picorv32_reg_op1 >> 31) & 0x1ULL)) ? 1 : 0)))) ? 1 : 0)))) & 1); break; }
-        } while (0);
-        do {
           if ((!(!(((!(!(((!(!(((!(!(_gen_picorv32_resetn) ? 1 : 0)) & (!(!(self->picorv32__reg_pcpi_valid) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(self->picorv32_pcpi_div__reg_pcpi_ready) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!(((self->picorv32__reg_pcpi_insn & 0x7fULL) == (uint8_t)0x33U ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) && (!(!((((self->picorv32__reg_pcpi_insn >> 25) & 0x7fULL) == (uint8_t)0x1U ? 1 : 0)) ? 1 : 0)) && (((self->picorv32__reg_pcpi_insn >> 12) & 0x7ULL) == (uint8_t)0x5U ? 1 : 0)) { self->picorv32_pcpi_div_instr_divu = (((uint32_t)0x1U) & 1); break; }
           self->picorv32_pcpi_div_instr_divu = (((uint32_t)0x0U) & 1);
         } while (0);
-        do {
-          if ((!(!(_gen_picorv32_resetn) ? 1 : 0))) {
-            if ((!_gen_picorv32_pcpi_div_start) && (!((!(!((!(self->picorv32_pcpi_div_quotient_msk) ? 1 : 0)) ? 1 : 0)) & (!(!(self->picorv32_pcpi_div_running) ? 1 : 0)))) && (self->picorv32_pcpi_div_divisor <= self->picorv32_pcpi_div_dividend ? 1 : 0)) { self->picorv32_pcpi_div_quotient = (self->picorv32_pcpi_div_quotient | self->picorv32_pcpi_div_quotient_msk); break; }
-            if (_gen_picorv32_pcpi_div_start) { self->picorv32_pcpi_div_quotient = (uint32_t)0x0U; break; }
-          }
-        } while (0);
         self->picorv32_pcpi_div__reg_pcpi_wait = ((((!(!(_gen_picorv32_pcpi_div_instr_any_div_rem) ? 1 : 0)) & (!(!(_gen_picorv32_resetn) ? 1 : 0)))) & 1);
-        do {
-          if ((!(!(_gen_picorv32_resetn) ? 1 : 0))) {
-            if ((!self->picorv32_pcpi_mul_mul_waiting)) { self->picorv32_pcpi_mul_rd = ((_gen_picorv32_pcpi_mul_next_rd_seq38 & (uint64_t)0xfffffffffffffffULL) | (((uint64_t)((((((uint64_t)_gen_picorv32_pcpi_mul_next_rd_seq38 >> 60) & (uint8_t)0xfU) & 0xfULL) + ((((uint64_t)self->picorv32_pcpi_mul_rdx >> 60) & (uint8_t)0xfU) & 0xfULL)) + ((((uint64_t)_gen_picorv32_pcpi_mul_this_rs2_seq4 >> 60) & (uint8_t)0xfU) & 0xfULL)) << 60) & (uint64_t)0xf000000000000000ULL)); break; }
-            if (self->picorv32_pcpi_mul_mul_waiting) { self->picorv32_pcpi_mul_rd = (uint32_t)0x0U; break; }
-          }
-        } while (0);
         do {
           if ((!(!(_gen_picorv32_resetn) ? 1 : 0)) && (!self->picorv32_pcpi_mul_mul_waiting) && ((self->picorv32_pcpi_mul_mul_counter >> 6) & 0x1ULL)) { self->picorv32_pcpi_mul_mul_finish = (((uint32_t)0x1U) & 1); break; }
           self->picorv32_pcpi_mul_mul_finish = (((uint32_t)0x0U) & 1);
         } while (0);
+        if ((!(!(_gen_picorv32_resetn) ? 1 : 0))) {
+          if ((!self->picorv32_pcpi_mul_mul_waiting)) {
+            if (((self->picorv32_pcpi_mul_mul_counter >> 6) & 0x1ULL)) {
+              do {
+                self->picorv32_pcpi_mul_mul_waiting = (((uint32_t)0x1U) & 1); break;
+              } while (0);
+            }
+          } else {
+            do {
+              self->picorv32_pcpi_mul_mul_waiting = (!(_gen_picorv32_pcpi_mul_mul_start) ? 1 : 0); break;
+            } while (0);
+          }
+        } else {
+          do {
+            self->picorv32_pcpi_mul_mul_waiting = (((uint32_t)0x1U) & 1); break;
+          } while (0);
+        }
         self->picorv32_pcpi_mul__reg_pcpi_wait = _gen_picorv32_pcpi_mul_instr_any_mul;
         do {
           if (self->crg_int_rst) { self->timer_zero_trigger_d = (uint8_t)0x0U; break; }
@@ -4241,24 +4286,6 @@ static void sparkle_sim_eval_tick(struct sim* self) {
         do {
           if (self->crg_int_rst) { self->timer_update_value_re = (uint8_t)0x0U; break; }
           self->timer_update_value_re = _gen_csr_bankarray_csrbank1_sel_update_value0_re_seq2;
-        } while (0);
-        do {
-          if ((!((!(!((!(_gen_picorv32_resetn) ? 1 : 0)) ? 1 : 0)) | (!(!(self->picorv32__reg_trap) ? 1 : 0))))) {
-            if ((self->picorv32_mem_state == (uint32_t)0x3U ? 1 : 0) && self->picorv32_mem_do_rinst) { self->picorv32_mem_state = (((uint32_t)0x0U) & 0x3ULL); break; }
-            if ((self->picorv32_mem_state == (uint32_t)0x2U ? 1 : 0) && _gen_picorv32_mem_xfer) { self->picorv32_mem_state = (((uint32_t)0x0U) & 0x3ULL); break; }
-            if ((self->picorv32_mem_state == (uint32_t)0x1U ? 1 : 0) && _gen_picorv32_mem_xfer && (uint8_t)0x1U) {
-              do {
-                if (((!(!(self->picorv32_mem_do_rinst) ? 1 : 0)) | (!(!(self->picorv32_mem_do_rdata) ? 1 : 0)))) { self->picorv32_mem_state = (((uint32_t)0x0U) & 0x3ULL); break; }
-                self->picorv32_mem_state = (((uint32_t)0x3U) & 0x3ULL);
-              } while (0);
-              break;
-            }
-            if ((!(self->picorv32_mem_state) ? 1 : 0)) {
-              if (self->picorv32_mem_do_wdata) { self->picorv32_mem_state = (((uint32_t)0x2U) & 0x3ULL); break; }
-              if (((!(!(((!(!(self->picorv32_mem_do_prefetch) ? 1 : 0)) | (!(!(self->picorv32_mem_do_rinst) ? 1 : 0)))) ? 1 : 0)) | (!(!(self->picorv32_mem_do_rdata) ? 1 : 0)))) { self->picorv32_mem_state = (((uint32_t)0x1U) & 0x3ULL); break; }
-            }
-          }
-          if (((!(!((!(_gen_picorv32_resetn) ? 1 : 0)) ? 1 : 0)) | (!(!(self->picorv32__reg_trap) ? 1 : 0))) && (!(_gen_picorv32_resetn) ? 1 : 0)) { self->picorv32_mem_state = (((uint32_t)0x0U) & 0x3ULL); break; }
         } while (0);
         do {
           if ((!(_gen_picorv32_resetn) ? 1 : 0)) { self->picorv32_instr_addi = (((uint32_t)0x0U) & 1); break; }
@@ -4288,19 +4315,34 @@ static void sparkle_sim_eval_tick(struct sim* self) {
           if ((!(_gen_picorv32_resetn) ? 1 : 0)) { self->picorv32_instr_sltiu = (((uint32_t)0x0U) & 1); break; }
           if ((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) && (!(!((!(self->picorv32_decoder_pseudo_trigger) ? 1 : 0)) ? 1 : 0))) { self->picorv32_instr_sltiu = ((((!(!(self->picorv32_is_alu_reg_imm) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 12) & 0x7ULL) == (uint8_t)0x3U ? 1 : 0)) ? 1 : 0)))) & 1); break; }
         } while (0);
-        self->picorv32_is_lbu_lhu_lw = (((!(!(self->picorv32_instr_lbu | self->picorv32_instr_lhu | self->picorv32_instr_lw) ? 1 : 0))) & 1);
-        do {
-          if ((!(!(_gen_picorv32_resetn) ? 1 : 0))) {
-            if ((!_gen_picorv32_pcpi_div_start) && (!((!(!((!(self->picorv32_pcpi_div_quotient_msk) ? 1 : 0)) ? 1 : 0)) & (!(!(self->picorv32_pcpi_div_running) ? 1 : 0)))) && (self->picorv32_pcpi_div_divisor <= self->picorv32_pcpi_div_dividend ? 1 : 0)) { self->picorv32_pcpi_div_dividend = (self->picorv32_pcpi_div_dividend - self->picorv32_pcpi_div_divisor); break; }
-            if (_gen_picorv32_pcpi_div_start) {
-              do {
-                if ((!(!(((!(!(self->picorv32_pcpi_div_instr_div) ? 1 : 0)) | (!(!(self->picorv32_pcpi_div_instr_rem) ? 1 : 0)))) ? 1 : 0)) && (!(!(((self->picorv32_reg_op1 >> 31) & 0x1ULL)) ? 1 : 0))) { self->picorv32_pcpi_div_dividend = (-self->picorv32_reg_op1); break; }
-                self->picorv32_pcpi_div_dividend = self->picorv32_reg_op1;
-              } while (0);
-              break;
-            }
+        if ((!(!(self->picorv32_mem_do_rinst) ? 1 : 0))) {
+          if ((!(!(_gen_picorv32_mem_done) ? 1 : 0))) {
+            do {
+              self->picorv32_is_alu_reg_imm = ((_gen_picorv32_mem_rdata_latched & 0x7fULL) == (uint8_t)0x13U ? 1 : 0); break;
+            } while (0);
           }
-        } while (0);
+        }
+        self->picorv32_is_lbu_lhu_lw = (((!(!(self->picorv32_instr_lbu | self->picorv32_instr_lhu | self->picorv32_instr_lw) ? 1 : 0))) & 1);
+        if ((!(!(self->picorv32_decoder_trigger) ? 1 : 0))) {
+          if ((!(!((!(self->picorv32_decoder_pseudo_trigger) ? 1 : 0)) ? 1 : 0))) {
+            do {
+              self->picorv32_instr_lbu = ((((!(!(self->picorv32_is_lb_lh_lw_lbu_lhu) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 12) & 0x7ULL) == (uint8_t)0x4U ? 1 : 0)) ? 1 : 0)))) & 1); break;
+            } while (0);
+            do {
+              self->picorv32_instr_lw = ((((!(!(self->picorv32_is_lb_lh_lw_lbu_lhu) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 12) & 0x7ULL) == (uint8_t)0x2U ? 1 : 0)) ? 1 : 0)))) & 1); break;
+            } while (0);
+            do {
+              self->picorv32_instr_lhu = ((((!(!(self->picorv32_is_lb_lh_lw_lbu_lhu) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 12) & 0x7ULL) == (uint8_t)0x5U ? 1 : 0)) ? 1 : 0)))) & 1); break;
+            } while (0);
+          }
+        }
+        if ((!(!(self->picorv32_mem_do_rinst) ? 1 : 0))) {
+          if ((!(!(_gen_picorv32_mem_done) ? 1 : 0))) {
+            do {
+              self->picorv32_is_lb_lh_lw_lbu_lhu = ((_gen_picorv32_mem_rdata_latched & 0x7fULL) == (uint8_t)0x3U ? 1 : 0); break;
+            } while (0);
+          }
+        }
         self->picorv32_pcpi_mul_rdx = ((((uint64_t)self->_wide_hoist_1[0] | ((uint64_t)self->_wide_hoist_1[1] << 32))) & 0xffffffffffffffffULL);
         do {
           if (self->crg_int_rst) { self->timer_reload_storage = (uint32_t)0x0U; break; }
@@ -4318,12 +4360,6 @@ static void sparkle_sim_eval_tick(struct sim* self) {
           if ((!(!(_gen_picorv32_resetn) ? 1 : 0)) && (self->picorv32_cpu_state == (uint32_t)0x80U ? 1 : 0)) { self->picorv32__reg_trap = (((uint32_t)0x1U) & 1); break; }
           self->picorv32__reg_trap = (((uint32_t)0x0U) & 1);
         } while (0);
-        do {
-          if ((!(!(_gen_picorv32_resetn) ? 1 : 0))) {
-            if ((!_gen_picorv32_pcpi_div_start) && (!((!(!((!(self->picorv32_pcpi_div_quotient_msk) ? 1 : 0)) ? 1 : 0)) & (!(!(self->picorv32_pcpi_div_running) ? 1 : 0))))) { self->picorv32_pcpi_div_divisor = ((uint64_t)self->picorv32_pcpi_div_divisor >> 1); break; }
-            if (_gen_picorv32_pcpi_div_start) { self->picorv32_pcpi_div_divisor = ((((uint64_t)(((!(!(((!(!(self->picorv32_pcpi_div_instr_div) ? 1 : 0)) | (!(!(self->picorv32_pcpi_div_instr_rem) ? 1 : 0)))) ? 1 : 0)) & (!(!(((self->picorv32_reg_op2 >> 31) & 0x1ULL)) ? 1 : 0))) ? (-self->picorv32_reg_op2) : self->picorv32_reg_op2) << 31)) & 0x7fffffffffffffffULL); break; }
-          }
-        } while (0);
         self->crg_int_rst = (uint8_t)0x0U;
         do {
           if ((!(!(((!(!(((!(!(((!(!(_gen_picorv32_resetn) ? 1 : 0)) & (!(!(self->picorv32__reg_pcpi_valid) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(self->picorv32_pcpi_div__reg_pcpi_ready) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!(((self->picorv32__reg_pcpi_insn & 0x7fULL) == (uint8_t)0x33U ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) && (!(!((((self->picorv32__reg_pcpi_insn >> 25) & 0x7fULL) == (uint8_t)0x1U ? 1 : 0)) ? 1 : 0)) && (((self->picorv32__reg_pcpi_insn >> 12) & 0x7ULL) == (uint8_t)0x6U ? 1 : 0)) { self->picorv32_pcpi_div_instr_rem = (((uint32_t)0x1U) & 1); break; }
@@ -4333,30 +4369,153 @@ static void sparkle_sim_eval_tick(struct sim* self) {
           if ((!(!(((!(!(((!(!(((!(!(_gen_picorv32_resetn) ? 1 : 0)) & (!(!(self->picorv32__reg_pcpi_valid) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(self->picorv32_pcpi_div__reg_pcpi_ready) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!(((self->picorv32__reg_pcpi_insn & 0x7fULL) == (uint8_t)0x33U ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) && (!(!((((self->picorv32__reg_pcpi_insn >> 25) & 0x7fULL) == (uint8_t)0x1U ? 1 : 0)) ? 1 : 0)) && (((self->picorv32__reg_pcpi_insn >> 12) & 0x7ULL) == (uint8_t)0x4U ? 1 : 0)) { self->picorv32_pcpi_div_instr_div = (((uint32_t)0x1U) & 1); break; }
           self->picorv32_pcpi_div_instr_div = (((uint32_t)0x0U) & 1);
         } while (0);
-        do {
-          if ((!(!(_gen_picorv32_resetn) ? 1 : 0))) {
-            if ((self->picorv32_cpu_state == (uint32_t)0x10U ? 1 : 0)) { self->picorv32_reg_op2 = _gen_picorv32_cpuregs_rs2_seq6; break; }
-            if ((self->picorv32_cpu_state == (uint32_t)0x20U ? 1 : 0)) {
-              if ((!((((((((((((!(!(((uint8_t)0x1U | (!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0)))) ? 1 : 0)) & (!(!(_gen_picorv32_instr_trap) ? 1 : 0))) | ((uint8_t)0x1U & (!(!(_gen_picorv32_is_rdcycle_rdcycleh_rdinstr_rdinstrh) ? 1 : 0)))) | self->picorv32_is_lui_auipc_jal) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_getq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_setq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_retirq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_maskirq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_timer) ? 1 : 0)))) | ((!(!(self->picorv32_is_lb_lh_lw_lbu_lhu) ? 1 : 0)) & (!(!((!(_gen_picorv32_instr_trap) ? 1 : 0)) ? 1 : 0)))) | ((!(!(self->picorv32_is_slli_srli_srai) ? 1 : 0)) & (uint8_t)0x1U)) | self->picorv32_is_jalr_addi_slti_sltiu_xori_ori_andi)) && (uint8_t)0x1U) { self->picorv32_reg_op2 = _gen_picorv32_cpuregs_rs2_seq6; break; }
-              if ((!(((((((((((!(!(((uint8_t)0x1U | (!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0)))) ? 1 : 0)) & (!(!(_gen_picorv32_instr_trap) ? 1 : 0))) | ((uint8_t)0x1U & (!(!(_gen_picorv32_is_rdcycle_rdcycleh_rdinstr_rdinstrh) ? 1 : 0)))) | self->picorv32_is_lui_auipc_jal) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_getq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_setq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_retirq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_maskirq) ? 1 : 0)))) | ((uint8_t)0x1U & (!(!(self->picorv32_instr_timer) ? 1 : 0)))) | ((!(!(self->picorv32_is_lb_lh_lw_lbu_lhu) ? 1 : 0)) & (!(!((!(_gen_picorv32_instr_trap) ? 1 : 0)) ? 1 : 0)))) | ((!(!(self->picorv32_is_slli_srli_srai) ? 1 : 0)) & (uint8_t)0x1U))) && self->picorv32_is_jalr_addi_slti_sltiu_xori_ori_andi) { self->picorv32_reg_op2 = self->picorv32_decoded_imm; break; }
-              if ((!(((!(!(((uint8_t)0x1U | (!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0)))) ? 1 : 0)) & (!(!(_gen_picorv32_instr_trap) ? 1 : 0))) | ((uint8_t)0x1U & (!(!(_gen_picorv32_is_rdcycle_rdcycleh_rdinstr_rdinstrh) ? 1 : 0))))) && self->picorv32_is_lui_auipc_jal) { self->picorv32_reg_op2 = self->picorv32_decoded_imm; break; }
-              if ((!(!(((uint8_t)0x1U | (!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0)))) ? 1 : 0)) && (!(!(_gen_picorv32_instr_trap) ? 1 : 0)) && (!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0)) && (uint8_t)0x1U) { self->picorv32_reg_op2 = _gen_picorv32_cpuregs_rs2_seq6; break; }
-            }
-          }
-        } while (0);
-        do {
-          if ((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) && (!(!((!(self->picorv32_decoder_pseudo_trigger) ? 1 : 0)) ? 1 : 0))) {
+        if ((!(!(self->picorv32_decoder_trigger) ? 1 : 0))) {
+          if ((!(!((!(self->picorv32_decoder_pseudo_trigger) ? 1 : 0)) ? 1 : 0))) {
             do {
-              if (_gen_picorv32_WITH_PCPI) { self->picorv32__reg_pcpi_insn = self->picorv32_mem_rdata_q; break; }
-              self->picorv32__reg_pcpi_insn = (uint32_t)0x0U;
+              {
+                do {
+                  if (_gen_picorv32_WITH_PCPI) { self->picorv32__reg_pcpi_insn = self->picorv32_mem_rdata_q; break; }
+                  self->picorv32__reg_pcpi_insn = (uint32_t)0x0U;
+                } while (0);
+                break;
+              }
             } while (0);
-            break;
           }
-        } while (0);
+        }
         do {
           if ((!(!(_gen_picorv32_resetn) ? 1 : 0)) && (!_gen_picorv32_pcpi_div_start) && (!(!((!(self->picorv32_pcpi_div_quotient_msk) ? 1 : 0)) ? 1 : 0)) && (!(!(self->picorv32_pcpi_div_running) ? 1 : 0))) { self->picorv32_pcpi_div__reg_pcpi_ready = (((uint32_t)0x1U) & 1); break; }
           self->picorv32_pcpi_div__reg_pcpi_ready = (((uint32_t)0x0U) & 1);
         } while (0);
+        if ((!(!(_gen_picorv32_resetn) ? 1 : 0))) {
+          if ((!_gen_picorv32_pcpi_div_start)) {
+            if ((!(!((!(self->picorv32_pcpi_div_quotient_msk) ? 1 : 0)) ? 1 : 0))) {
+              if ((!(!(self->picorv32_pcpi_div_running) ? 1 : 0))) {
+                do {
+                  self->picorv32_pcpi_div_running = (((uint32_t)0x0U) & 1); break;
+                } while (0);
+              }
+            }
+          } else {
+            do {
+              self->picorv32_pcpi_div_running = (((uint32_t)0x1U) & 1); break;
+            } while (0);
+          }
+        } else {
+          do {
+            self->picorv32_pcpi_div_running = (((uint32_t)0x0U) & 1); break;
+          } while (0);
+        }
+        do {
+          if ((!(_gen_picorv32_resetn) ? 1 : 0)) { self->picorv32_instr_sll = (((uint32_t)0x0U) & 1); break; }
+          if ((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) && (!(!((!(self->picorv32_decoder_pseudo_trigger) ? 1 : 0)) ? 1 : 0))) { self->picorv32_instr_sll = ((((!(!(((!(!(self->picorv32_is_alu_reg_reg) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 12) & 0x7ULL) == (uint8_t)0x1U ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(((self->picorv32_mem_rdata_q >> 25) & 0x7fULL)) ? 1 : 0)) ? 1 : 0)))) & 1); break; }
+        } while (0);
+        do {
+          if ((!(_gen_picorv32_resetn) ? 1 : 0)) { self->picorv32_instr_sra = (((uint32_t)0x0U) & 1); break; }
+          if ((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) && (!(!((!(self->picorv32_decoder_pseudo_trigger) ? 1 : 0)) ? 1 : 0))) { self->picorv32_instr_sra = ((((!(!(((!(!(self->picorv32_is_alu_reg_reg) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 12) & 0x7ULL) == (uint8_t)0x5U ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 25) & 0x7fULL) == (uint8_t)0x20U ? 1 : 0)) ? 1 : 0)))) & 1); break; }
+        } while (0);
+        do {
+          if (_gen_picorv32_set_mem_do_wdata) { self->picorv32_mem_do_wdata = (((uint32_t)0x1U) & 1); break; }
+          if (((!(!((!(_gen_picorv32_resetn) ? 1 : 0)) ? 1 : 0)) | (!(!(_gen_picorv32_mem_done) ? 1 : 0)))) { self->picorv32_mem_do_wdata = (((uint32_t)0x0U) & 1); break; }
+        } while (0);
+        do {
+          if ((!(_gen_picorv32_resetn) ? 1 : 0)) { self->picorv32_instr_srl = (((uint32_t)0x0U) & 1); break; }
+          if ((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) && (!(!((!(self->picorv32_decoder_pseudo_trigger) ? 1 : 0)) ? 1 : 0))) { self->picorv32_instr_srl = ((((!(!(((!(!(self->picorv32_is_alu_reg_reg) ? 1 : 0)) & (!(!((((self->picorv32_mem_rdata_q >> 12) & 0x7ULL) == (uint8_t)0x5U ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(((self->picorv32_mem_rdata_q >> 25) & 0x7fULL)) ? 1 : 0)) ? 1 : 0)))) & 1); break; }
+        } while (0);
+        if ((!(!(self->picorv32_mem_do_rinst) ? 1 : 0))) {
+          if ((!(!(_gen_picorv32_mem_done) ? 1 : 0))) {
+            do {
+              self->picorv32_is_alu_reg_reg = ((_gen_picorv32_mem_rdata_latched & 0x7fULL) == (uint8_t)0x33U ? 1 : 0); break;
+            } while (0);
+          }
+        }
+        if (_gen_picorv32_mem_xfer) {
+          do {
+            self->picorv32_mem_rdata_q = _gen_shared_dat_r_seq3; break;
+          } while (0);
+        }
+        do {
+          if (_gen_picorv32_set_mem_do_rdata) { self->picorv32_mem_do_rdata = (((uint32_t)0x1U) & 1); break; }
+          if (((!(!((!(_gen_picorv32_resetn) ? 1 : 0)) ? 1 : 0)) | (!(!(_gen_picorv32_mem_done) ? 1 : 0)))) { self->picorv32_mem_do_rdata = (((uint32_t)0x0U) & 1); break; }
+        } while (0);
+        do {
+          if ((!(!(_gen_picorv32_resetn) ? 1 : 0)) && (self->picorv32_cpu_state == (uint32_t)0x40U ? 1 : 0) && (!((uint8_t)0x1U & (!(!(((!(!(((!(!(((!(!(((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) & (!(!((!(self->picorv32_irq_active) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(self->picorv32_irq_delay) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(!((self->picorv32_irq_pending & (self->picorv32_irq_mask ^ (uint32_t)0xffffffffU))) ? 1 : 0))) ? 1 : 0)))) ? 1 : 0)) | (!(!(self->picorv32_irq_state) ? 1 : 0)))) ? 1 : 0)))) && (!(!(((uint8_t)0x1U & (!(!(((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) | (!(!(self->picorv32_do_waitirq) ? 1 : 0)))) ? 1 : 0)))) ? 1 : 0)) && (!(!(self->picorv32_instr_waitirq) ? 1 : 0)) && (!(self->picorv32_irq_pending) ? 1 : 0)) { self->picorv32_do_waitirq = (((uint32_t)0x1U) & 1); break; }
+          self->picorv32_do_waitirq = (((uint32_t)0x0U) & 1);
+        } while (0);
+        if ((!(!(self->picorv32_mem_do_rinst) ? 1 : 0))) {
+          if ((!(!(_gen_picorv32_mem_done) ? 1 : 0))) {
+            do {
+              self->picorv32_instr_waitirq = ((!(!(((!(!(((_gen_picorv32_mem_rdata_latched & 0x7fULL) == (uint8_t)0xbU ? 1 : 0)) ? 1 : 0)) & (!(!((((_gen_picorv32_mem_rdata_latched >> 25) & 0x7fULL) == (uint8_t)0x4U ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (uint8_t)0x1U); break;
+            } while (0);
+          }
+        }
+        if ((!(!(_gen_picorv32_resetn) ? 1 : 0))) {
+          if ((self->picorv32_cpu_state == (uint32_t)0x40U ? 1 : 0)) {
+            if ((uint8_t)0x1U) {
+              if ((!(!(((!(!(((!(!(((!(!(((!(!(self->picorv32_decoder_trigger) ? 1 : 0)) & (!(!((!(self->picorv32_irq_active) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(self->picorv32_irq_delay) ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(!((self->picorv32_irq_pending & (self->picorv32_irq_mask ^ (uint32_t)0xffffffffU))) ? 1 : 0))) ? 1 : 0)))) ? 1 : 0)) | (!(!(self->picorv32_irq_state) ? 1 : 0)))) ? 1 : 0))) {
+                do {
+                  {
+                    do {
+                      if ((!(self->picorv32_irq_state) ? 1 : 0)) { self->picorv32_irq_state = (uint8_t)0x1U; break; }
+                      if ((self->picorv32_irq_state == (uint8_t)0x1U ? 1 : 0)) { self->picorv32_irq_state = (uint8_t)0x2U; break; }
+                      self->picorv32_irq_state = (uint8_t)0x0U;
+                    } while (0);
+                    break;
+                  }
+                } while (0);
+              }
+            }
+          }
+        } else {
+          do {
+            self->picorv32_irq_state = (((uint32_t)0x0U) & 0x3ULL); break;
+          } while (0);
+        }
+        self->picorv32_is_lui_auipc_jal = (((!(!(self->picorv32_instr_lui | self->picorv32_instr_auipc | self->picorv32_instr_jal) ? 1 : 0))) & 1);
+        if ((!(!(self->picorv32_mem_do_rinst) ? 1 : 0))) {
+          if ((!(!(_gen_picorv32_mem_done) ? 1 : 0))) {
+            do {
+              self->picorv32_instr_jal = ((_gen_picorv32_mem_rdata_latched & 0x7fULL) == (uint8_t)0x6fU ? 1 : 0); break;
+            } while (0);
+            do {
+              self->picorv32_instr_lui = ((_gen_picorv32_mem_rdata_latched & 0x7fULL) == (uint8_t)0x37U ? 1 : 0); break;
+            } while (0);
+            do {
+              self->picorv32_instr_auipc = ((_gen_picorv32_mem_rdata_latched & 0x7fULL) == (uint8_t)0x17U ? 1 : 0); break;
+            } while (0);
+          }
+        }
+        self->picorv32_irq_pending = self->_gen_picorv32_next_irq_pending;
+        do {
+          if ((!(!(_gen_picorv32_resetn) ? 1 : 0))) {
+            if ((self->picorv32_cpu_state == (uint32_t)0x1U ? 1 : 0) && ((!(!((!(self->picorv32_mem_do_prefetch) ? 1 : 0)) ? 1 : 0)) | (!(!(_gen_picorv32_mem_done) ? 1 : 0))) && (!(!((!(self->picorv32_mem_do_prefetch) ? 1 : 0)) ? 1 : 0)) && (!(!(_gen_picorv32_mem_done) ? 1 : 0))) { self->picorv32_decoder_trigger = (((uint32_t)0x1U) & 1); break; }
+            if ((self->picorv32_cpu_state == (uint32_t)0x2U ? 1 : 0) && ((!(!((!(self->picorv32_mem_do_prefetch) ? 1 : 0)) ? 1 : 0)) | (!(!(_gen_picorv32_mem_done) ? 1 : 0))) && (!(!((!(self->picorv32_mem_do_prefetch) ? 1 : 0)) ? 1 : 0)) && (!(!(_gen_picorv32_mem_done) ? 1 : 0))) { self->picorv32_decoder_trigger = (((uint32_t)0x1U) & 1); break; }
+            if ((self->picorv32_cpu_state == (uint32_t)0x8U ? 1 : 0) && (uint8_t)0x1U && self->picorv32_is_beq_bne_blt_bge_bltu_bgeu && _gen_picorv32_alu_out_0_seq6) { self->picorv32_decoder_trigger = (((uint32_t)0x0U) & 1); break; }
+          }
+          self->picorv32_decoder_trigger = ((((!(!(self->picorv32_mem_do_rinst) ? 1 : 0)) & (!(!(_gen_picorv32_mem_done) ? 1 : 0)))) & 1);
+        } while (0);
+        do {
+          if ((!(!(_gen_picorv32_resetn) ? 1 : 0))) {
+            if ((self->picorv32_cpu_state == (uint32_t)0x1U ? 1 : 0) && ((!(!((!(self->picorv32_mem_do_prefetch) ? 1 : 0)) ? 1 : 0)) | (!(!(_gen_picorv32_mem_done) ? 1 : 0))) && (!(!((!(self->picorv32_mem_do_prefetch) ? 1 : 0)) ? 1 : 0)) && (!(!(_gen_picorv32_mem_done) ? 1 : 0))) { self->picorv32_decoder_pseudo_trigger = (((uint32_t)0x1U) & 1); break; }
+            if ((self->picorv32_cpu_state == (uint32_t)0x2U ? 1 : 0) && ((!(!((!(self->picorv32_mem_do_prefetch) ? 1 : 0)) ? 1 : 0)) | (!(!(_gen_picorv32_mem_done) ? 1 : 0))) && (!(!((!(self->picorv32_mem_do_prefetch) ? 1 : 0)) ? 1 : 0)) && (!(!(_gen_picorv32_mem_done) ? 1 : 0))) { self->picorv32_decoder_pseudo_trigger = (((uint32_t)0x1U) & 1); break; }
+          }
+          self->picorv32_decoder_pseudo_trigger = (((uint32_t)0x0U) & 1);
+        } while (0);
+        do {
+          if ((!(_gen_picorv32_resetn) ? 1 : 0)) { self->picorv32_is_beq_bne_blt_bge_bltu_bgeu = (((uint32_t)0x0U) & 1); break; }
+          if ((!(!(self->picorv32_mem_do_rinst) ? 1 : 0)) && (!(!(_gen_picorv32_mem_done) ? 1 : 0))) { self->picorv32_is_beq_bne_blt_bge_bltu_bgeu = ((_gen_picorv32_mem_rdata_latched & 0x7fULL) == (uint8_t)0x63U ? 1 : 0); break; }
+        } while (0);
+        do {
+          if ((!(_gen_picorv32_resetn) ? 1 : 0)) { self->picorv32_pcpi_timeout = (((uint32_t)0x0U) & 1); break; }
+          if ((!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0)) && (uint8_t)0x1U) { self->picorv32_pcpi_timeout = (!(self->picorv32_pcpi_timeout_counter) ? 1 : 0); break; }
+        } while (0);
+        if ((!(!(_gen_picorv32_WITH_PCPI) ? 1 : 0))) {
+          if ((uint8_t)0x1U) {
+            do {
+              if ((!((!(!(((!(!(_gen_picorv32_resetn) ? 1 : 0)) & (!(!(self->picorv32__reg_pcpi_valid) ? 1 : 0)))) ? 1 : 0)) & (!(!((!(_gen_picorv32_pcpi_int_wait_seq2) ? 1 : 0)) ? 1 : 0))))) { self->picorv32_pcpi_timeout_counter = (((uint32_t)0xffffffffU) & 0xfULL); break; }
+              if ((!(!(((!(!(_gen_picorv32_resetn) ? 1 : 0)) & (!(!(self->picorv32__reg_pcpi_valid) ? 1 : 0)))) ? 1 : 0)) && (!(!((!(_gen_picorv32_pcpi_int_wait_seq2) ? 1 : 0)) ? 1 : 0)) && (!(!(self->picorv32_pcpi_timeout_counter) ? 1 : 0))) { self->picorv32_pcpi_timeout_counter = (((self->picorv32_pcpi_timeout_counter - (uint32_t)0x1U)) & 0xfULL); break; }
+            } while (0);
+          }
+        }
         if (((((_gen_sram1_we_seq4 & 0x1ULL) | ((_gen_sram1_we_seq4 >> 1) & 0x1ULL)) | ((_gen_sram1_we_seq4 >> 2) & 0x1ULL)) | ((_gen_sram1_we_seq4 >> 3) & 0x1ULL))) self->main_ram[_gen_sram1_adr] = ((((((((self->main_ram[_gen_sram1_adr] & ((_gen_sram1_we_seq4 & 0x1ULL) ? (uint32_t)0xffffff00U : (uint32_t)0xffffffffU)) | (((((uint64_t)(((uint32_t)0x0U * (uint32_t)0x8U)) >= 64 ? 0ULL : ((uint64_t)self->picorv32__reg_mem_wdata >> (((uint32_t)0x0U * (uint32_t)0x8U)))) & (uint8_t)0xffU) & 0xffULL) & ((_gen_sram1_we_seq4 & 0x1ULL) ? (uint32_t)0xffU : (uint32_t)0x0U))) & (((_gen_sram1_we_seq4 >> 1) & 0x1ULL) ? (uint32_t)0xffff00ffU : (uint32_t)0xffffffffU)) | (((uint64_t)((((uint64_t)(((uint32_t)0x1U * (uint32_t)0x8U)) >= 64 ? 0ULL : ((uint64_t)self->picorv32__reg_mem_wdata >> (((uint32_t)0x1U * (uint32_t)0x8U)))) & (uint8_t)0xffU) & 0xffULL) << 8) & (((_gen_sram1_we_seq4 >> 1) & 0x1ULL) ? (uint32_t)0xff00U : (uint32_t)0x0U))) & (((_gen_sram1_we_seq4 >> 2) & 0x1ULL) ? (uint32_t)0xff00ffffU : (uint32_t)0xffffffffU)) | (((uint64_t)((((uint64_t)(((uint32_t)0x2U * (uint32_t)0x8U)) >= 64 ? 0ULL : ((uint64_t)self->picorv32__reg_mem_wdata >> (((uint32_t)0x2U * (uint32_t)0x8U)))) & (uint8_t)0xffU) & 0xffULL) << 16) & (((_gen_sram1_we_seq4 >> 2) & 0x1ULL) ? (uint32_t)0xff0000U : (uint32_t)0x0U))) & (((_gen_sram1_we_seq4 >> 3) & 0x1ULL) ? (uint32_t)0xffffffU : (uint32_t)0xffffffffU)) | (((uint64_t)((((uint64_t)(((uint32_t)0x3U * (uint32_t)0x8U)) >= 64 ? 0ULL : ((uint64_t)self->picorv32__reg_mem_wdata >> (((uint32_t)0x3U * (uint32_t)0x8U)))) & (uint8_t)0xffU) & 0xffULL) << 24) & (((_gen_sram1_we_seq4 >> 3) & 0x1ULL) ? (uint32_t)0xff000000U : (uint32_t)0x0U)));
         if (((((_gen_sram0_we_seq4 & 0x1ULL) | ((_gen_sram0_we_seq4 >> 1) & 0x1ULL)) | ((_gen_sram0_we_seq4 >> 2) & 0x1ULL)) | ((_gen_sram0_we_seq4 >> 3) & 0x1ULL))) self->sram[_gen_sram0_adr] = ((((((((self->sram[_gen_sram0_adr] & ((_gen_sram0_we_seq4 & 0x1ULL) ? (uint32_t)0xffffff00U : (uint32_t)0xffffffffU)) | (((((uint64_t)(((uint32_t)0x0U * (uint32_t)0x8U)) >= 64 ? 0ULL : ((uint64_t)self->picorv32__reg_mem_wdata >> (((uint32_t)0x0U * (uint32_t)0x8U)))) & (uint8_t)0xffU) & 0xffULL) & ((_gen_sram0_we_seq4 & 0x1ULL) ? (uint32_t)0xffU : (uint32_t)0x0U))) & (((_gen_sram0_we_seq4 >> 1) & 0x1ULL) ? (uint32_t)0xffff00ffU : (uint32_t)0xffffffffU)) | (((uint64_t)((((uint64_t)(((uint32_t)0x1U * (uint32_t)0x8U)) >= 64 ? 0ULL : ((uint64_t)self->picorv32__reg_mem_wdata >> (((uint32_t)0x1U * (uint32_t)0x8U)))) & (uint8_t)0xffU) & 0xffULL) << 8) & (((_gen_sram0_we_seq4 >> 1) & 0x1ULL) ? (uint32_t)0xff00U : (uint32_t)0x0U))) & (((_gen_sram0_we_seq4 >> 2) & 0x1ULL) ? (uint32_t)0xff00ffffU : (uint32_t)0xffffffffU)) | (((uint64_t)((((uint64_t)(((uint32_t)0x2U * (uint32_t)0x8U)) >= 64 ? 0ULL : ((uint64_t)self->picorv32__reg_mem_wdata >> (((uint32_t)0x2U * (uint32_t)0x8U)))) & (uint8_t)0xffU) & 0xffULL) << 16) & (((_gen_sram0_we_seq4 >> 2) & 0x1ULL) ? (uint32_t)0xff0000U : (uint32_t)0x0U))) & (((_gen_sram0_we_seq4 >> 3) & 0x1ULL) ? (uint32_t)0xffffffU : (uint32_t)0xffffffffU)) | (((uint64_t)((((uint64_t)(((uint32_t)0x3U * (uint32_t)0x8U)) >= 64 ? 0ULL : ((uint64_t)self->picorv32__reg_mem_wdata >> (((uint32_t)0x3U * (uint32_t)0x8U)))) & (uint8_t)0xffU) & 0xffULL) << 24) & (((_gen_sram0_we_seq4 >> 3) & 0x1ULL) ? (uint32_t)0xff000000U : (uint32_t)0x0U)));
         if (((!(!(((!(!(_gen_picorv32_resetn) ? 1 : 0)) & (!(!(_gen_picorv32_cpuregs_write_seq11) ? 1 : 0)))) ? 1 : 0)) & (!(!(self->picorv32_latched_rd) ? 1 : 0)))) self->picorv32_cpuregs[self->picorv32_latched_rd] = _gen_picorv32_cpuregs_wrdata_seq10;
@@ -4368,72 +4527,20 @@ static void sparkle_sim_eval_tick(struct sim* self) {
         self->mem_adr0 = mem_adr0_next;
         self->main_ram_adr0 = main_ram_adr0_next;
         self->sram_adr0 = sram_adr0_next;
-        self->picorv32_irq_pending = picorv32_irq_pending_next;
-        self->picorv32_mem_do_wdata = picorv32_mem_do_wdata_next;
-        self->picorv32_mem_do_rdata = picorv32_mem_do_rdata_next;
-        self->picorv32_reg_op1 = picorv32_reg_op1_next;
         self->picorv32_mem_do_prefetch = picorv32_mem_do_prefetch_next;
-        self->picorv32_mem_wordsize = picorv32_mem_wordsize_next;
         self->picorv32_mem_do_rinst = picorv32_mem_do_rinst_next;
         self->picorv32_cpu_state = picorv32_cpu_state_next;
         self->picorv32_latched_rd = picorv32_latched_rd_next;
-        self->picorv32_irq_state = picorv32_irq_state_next;
         self->picorv32_irq_mask = picorv32_irq_mask_next;
         self->picorv32_irq_delay = picorv32_irq_delay_next;
         self->picorv32_irq_active = picorv32_irq_active_next;
         self->picorv32__reg_pcpi_valid = picorv32__reg_pcpi_valid_next;
         self->picorv32_latched_branch = picorv32_latched_branch_next;
         self->picorv32_latched_store = picorv32_latched_store_next;
-        self->picorv32_reg_pc = picorv32_reg_pc_next;
-        self->picorv32_do_waitirq = picorv32_do_waitirq_next;
-        self->picorv32_decoder_pseudo_trigger = picorv32_decoder_pseudo_trigger_next;
-        self->picorv32_decoder_trigger = picorv32_decoder_trigger_next;
-        self->picorv32_pcpi_timeout = picorv32_pcpi_timeout_next;
-        self->picorv32_pcpi_timeout_counter = picorv32_pcpi_timeout_counter_next;
-        self->picorv32_reg_sh = picorv32_reg_sh_next;
-        self->picorv32_decoded_imm = picorv32_decoded_imm_next;
-        self->picorv32_is_sll_srl_sra = picorv32_is_sll_srl_sra_next;
-        self->picorv32_is_jalr_addi_slti_sltiu_xori_ori_andi = picorv32_is_jalr_addi_slti_sltiu_xori_ori_andi_next;
-        self->picorv32_is_slli_srli_srai = picorv32_is_slli_srli_srai_next;
-        self->picorv32_instr_timer = picorv32_instr_timer_next;
-        self->picorv32_instr_maskirq = picorv32_instr_maskirq_next;
-        self->picorv32_instr_setq = picorv32_instr_setq_next;
-        self->picorv32_instr_getq = picorv32_instr_getq_next;
         self->picorv32_instr_ecall_ebreak = picorv32_instr_ecall_ebreak_next;
-        self->picorv32_instr_sra = picorv32_instr_sra_next;
-        self->picorv32_instr_srl = picorv32_instr_srl_next;
-        self->picorv32_instr_sll = picorv32_instr_sll_next;
-        self->picorv32_instr_srai = picorv32_instr_srai_next;
-        self->picorv32_instr_srli = picorv32_instr_srli_next;
-        self->picorv32_instr_slli = picorv32_instr_slli_next;
-        self->picorv32_instr_sw = picorv32_instr_sw_next;
-        self->picorv32_instr_sh = picorv32_instr_sh_next;
-        self->picorv32_instr_sb = picorv32_instr_sb_next;
-        self->picorv32_instr_lhu = picorv32_instr_lhu_next;
-        self->picorv32_instr_lbu = picorv32_instr_lbu_next;
-        self->picorv32_instr_lw = picorv32_instr_lw_next;
-        self->picorv32_instr_lh = picorv32_instr_lh_next;
-        self->picorv32_instr_lb = picorv32_instr_lb_next;
-        self->picorv32_decoded_rs2 = picorv32_decoded_rs2_next;
-        self->picorv32_decoded_imm_j = picorv32_decoded_imm_j_next;
-        self->picorv32_is_alu_reg_reg = picorv32_is_alu_reg_reg_next;
-        self->picorv32_is_alu_reg_imm = picorv32_is_alu_reg_imm_next;
-        self->picorv32_is_sb_sh_sw = picorv32_is_sb_sh_sw_next;
-        self->picorv32_is_lb_lh_lw_lbu_lhu = picorv32_is_lb_lh_lw_lbu_lhu_next;
-        self->picorv32_is_beq_bne_blt_bge_bltu_bgeu = picorv32_is_beq_bne_blt_bge_bltu_bgeu_next;
-        self->picorv32_instr_waitirq = picorv32_instr_waitirq_next;
-        self->picorv32_instr_retirq = picorv32_instr_retirq_next;
-        self->picorv32_instr_jalr = picorv32_instr_jalr_next;
-        self->picorv32_instr_jal = picorv32_instr_jal_next;
-        self->picorv32_instr_auipc = picorv32_instr_auipc_next;
-        self->picorv32_instr_lui = picorv32_instr_lui_next;
-        self->picorv32_is_lui_auipc_jal = picorv32_is_lui_auipc_jal_next;
         self->picorv32__reg_mem_wdata = picorv32__reg_mem_wdata_next;
-        self->picorv32_mem_rdata_q = picorv32_mem_rdata_q_next;
         self->picorv32_pcpi_div_quotient_msk = picorv32_pcpi_div_quotient_msk_next;
-        self->picorv32_pcpi_div_running = picorv32_pcpi_div_running_next;
         self->picorv32_pcpi_mul_mul_counter = picorv32_pcpi_mul_mul_counter_next;
-        self->picorv32_pcpi_mul_mul_waiting = picorv32_pcpi_mul_mul_waiting_next;
 }
 
 

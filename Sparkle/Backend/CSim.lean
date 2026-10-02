@@ -801,6 +801,25 @@ partial def emitExpr (typeMap : TypeMap) (e : Expr) : String :=
         s!"({emitExpr typeMap arg1} {emitCOperator operator} {emitExpr typeMap arg2})"
     | _ => s!"/* ERROR: operator with wrong arity */"
 
+/-- A scalar register's update for the fused eval_tick.  A register whose
+    next value is a chain that ends in "keep the current value" is given
+    as its arms, so that several registers can share the tests they have
+    in common (`clusterLines`); any other register as finished lines. -/
+structure FusedReg where
+  /-- (conjuncts, value) in priority order; `[]` if not a hold chain -/
+  arms  : List (List Expr × Expr) := []
+  /-- the lines that try some of the arms, in order, at an indent; a
+      store is followed by `break` -/
+  emit  : String → List (List Expr × Expr) → List String := fun _ _ => []
+  /-- the complete statement when `arms` is empty -/
+  plain : List String := []
+  deriving Inhabited
+
+/-- The register as a statement of its own. -/
+def FusedReg.lines (f : FusedReg) : List String :=
+  if f.arms.isEmpty then f.plain
+  else ["        do {"] ++ f.emit "          " f.arms ++ ["        } while (0);"]
+
 /-- Parts of a C struct + helper-set generated from a single statement -/
 structure StmtParts where
   declarations    : List String
@@ -808,10 +827,12 @@ structure StmtParts where
   tickBody        : List String
   resetBody       : List String
   evalTickLocals  : List String
-  /-- A scalar register only: the lines that update it IN PLACE
-      (`reg = …`, nothing when it holds), for the fused eval_tick when no
-      later statement still needs its old value. -/
-  inPlace         : Option (Unit → List String) := none
+  /-- A scalar register only, for the fused eval_tick: the lines that
+      update it with nothing emitted on the paths where it holds —
+      `true`: IN PLACE (`reg = …`), when no later statement still needs
+      its old value; `false`: into its `_next` local, which starts out as
+      the current value. -/
+  inPlace         : Option (Bool → FusedReg) := none
   deriving Inhabited
 
 instance : Append StmtParts where
@@ -860,6 +881,21 @@ private partial def flattenMuxChain (e : Expr) : List (Expr × Expr) × Expr :=
     let (rest, default_) := flattenMuxChain elseVal
     ((cond, thenVal) :: rest, default_)
   | _ => ([], e)
+
+/-- Remove an `& mask` around a value stored into `w` bits when the mask
+    keeps all `w` of them (the store truncates anyway).  The lowering of a
+    full-width part-select write leaves such masks around the whole next-
+    state expression, which hid the chain underneath: PicoRV32's
+    `reg_next_pc`, `reg_pc` and `mem_rdata_q` were recomputed in full on
+    every cycle. -/
+partial def stripStoreMask (w : Nat) : Expr → Expr
+  | .op .and [e, .const k kw] =>
+    if k ≥ 0 && w > 0 && w ≤ 64 && k.toNat % (2 ^ w) == 2 ^ w - 1 then stripStoreMask w e
+    else .op .and [e, .const k kw]
+  | .op .and [.const k kw, e] =>
+    if k ≥ 0 && w > 0 && w ≤ 64 && k.toNat % (2 ^ w) == 2 ^ w - 1 then stripStoreMask w e
+    else .op .and [.const k kw, e]
+  | e => e
 
 /-- Is `e` rendered as a C value that is exactly 0 or 1?  Only then may a
     bitwise `a & b` used as a condition be evaluated as `a && b`. -/
@@ -910,6 +946,14 @@ private def dropImpliedConjuncts (cs : List Expr) : List Expr :=
       | none => true
     | _ => true
 
+/-- The conjuncts of an arm's condition as the emitters use them.
+
+    (Splitting `!(a1 | a2) && a3` into `!a1 && !a2 && a3`, so that an
+    `if … else if …` cascade regroups, was tried: 3 % fewer instructions
+    on LiteX and 3.5 % MORE time — more taken branches.  Not done.) -/
+private def armConjuncts (typeMap : TypeMap) (c : Expr) : List Expr :=
+  dropImpliedConjuncts (condConjuncts typeMap c)
+
 /- Lines of a priority chain as a short-circuit decision tree.
 
     A chain `c1 ? v1 : c2 ? v2 : … : d` whose conditions are path guards
@@ -944,7 +988,7 @@ private partial def muxAssignLines (typeMap : TypeMap) (lhsName : String)
   else
     [s!"{indent}do \{"] ++
       muxTreeLines typeMap lhsName maskFn hold (indent ++ "  ")
-        (arms.map fun (c, v) => (dropImpliedConjuncts (condConjuncts typeMap c), v)) ++
+        (arms.map fun (c, v) => (armConjuncts typeMap c, v)) ++
       muxAssignLines typeMap lhsName maskFn hold (indent ++ "  ") default_ ++
       [s!"{indent}} while (0);"]
 
@@ -987,6 +1031,7 @@ end
     8 / 4 / 2 / 1). -/
 def emitMuxAsTree (typeMap : TypeMap)
     (lhsName : String) (width : Nat) (rhs : Expr) : List String :=
+  let rhs := stripStoreMask width rhs
   if (flattenMuxChain rhs).1.isEmpty then []
   else
     let maskFn := fun (e : Expr) =>
@@ -994,14 +1039,162 @@ def emitMuxAsTree (typeMap : TypeMap)
       if storeIsMasked typeMap width e then s else applyMask s width
     muxAssignLines typeMap lhsName maskFn none "        " rhs
 
-/-- `reg = input` updating the register in place: a decision tree when the
-    input is a chain, no store at all on the paths where it holds. -/
-def emitRegInPlace (typeMap : TypeMap)
-    (regName : String) (cName : String) (width : Nat) (input : Expr) : List String :=
+/-- `reg = input` for the fused eval_tick, written to `cName` (the register
+    itself, or its `_next` local): a decision tree when the input is a
+    chain, and no store at all on the paths where the register holds. -/
+def fusedReg (typeMap : TypeMap)
+    (regName : String) (cName : String) (width : Nat) (input : Expr) : FusedReg :=
   let maskFn := fun (e : Expr) =>
     let s := emitExpr typeMap e
     if storeIsMasked typeMap width e then s else applyMask s width
-  muxAssignLines typeMap cName maskFn (some regName) "        " input
+  let input := stripStoreMask width input
+  let (arms, default_) := flattenMuxChain input
+  if !arms.isEmpty && default_ == .ref regName then
+    { arms := arms.map fun (c, v) => (armConjuncts typeMap c, v)
+      emit := fun ind as => muxTreeLines typeMap cName maskFn (some regName) ind as }
+  else
+    { plain := muxAssignLines typeMap cName maskFn (some regName) "        " input }
+
+/-- A set of mutually exclusive leading tests: a condition and its
+    negation, or one selector compared with different constants. -/
+private inductive GuardFamily where
+  | bool (b : Expr)
+  | sel (x : Expr)
+
+private def GuardFamily.has (fam : GuardFamily) (lead : Expr) : Bool :=
+  match fam with
+  | .bool b => lead == b || lead == .op .not [b]
+  | .sel x => match lead with
+    | .op .eq [y, .const c _] => y == x && c ≥ 0
+    | _ => false
+
+/-- The family the leading tests of one register's arms belong to. -/
+private def guardFamilyOf (leads : List Expr) : Option GuardFamily :=
+  match leads with
+  | [] => none
+  | l :: _ =>
+    let sel : Option GuardFamily := match l with
+      | .op .eq [x, .const c _] =>
+        if c ≥ 0 && leads.all ((GuardFamily.sel x).has ·) &&
+           leads.any (· != l) then some (.sel x) else none
+      | _ => none
+    match sel with
+    | some f => some f
+    | none =>
+      let b := match l with | .op .not [q] => q | q => q
+      if leads.all ((GuardFamily.bool b).has ·) then some (.bool b) else none
+
+private structure ClusterItem where
+  name  : String
+  /-- the other in-place registers this one's next-state logic reads:
+      each of them may only be written after this one is evaluated -/
+  reads : List String
+  arms  : List (List Expr × Expr)
+  emit  : String → List (List Expr × Expr) → List String
+  plain : List String
+  deriving Inhabited
+
+private def ClusterItem.leads (it : ClusterItem) : Option (List Expr) :=
+  if it.arms.isEmpty then none
+  else it.arms.foldr (fun (c, _) acc => match c.head?, acc with
+    | some l, some ls => some (l :: ls)
+    | _, _ => none) (some [])
+
+private def ClusterItem.family (it : ClusterItem) : Option GuardFamily :=
+  it.leads.bind guardFamilyOf
+
+private def ClusterItem.inFamily (it : ClusterItem) (fam : GuardFamily) : Bool :=
+  match it.leads with
+  | some ls => !ls.isEmpty && ls.all (fam.has ·)
+  | none => false
+
+/-- Registers that hold by default, emitted so that neighbours share the
+    tests they have in common.
+
+    Each register alone is a tree of its own: 41 of LiteX's registers
+    begin with `if (resetn)`, 26 with `if (decoder_trigger)`, and each
+    asked again.  Here consecutive registers whose leading tests come from
+    one exclusive family (`b` / `!b`, or `s == c` for different `c`) are
+    put under that family's `if … else if …` once, and the same is done
+    again inside each branch with what is left of their arms.
+
+    Why this is the same computation: per register, arms under different
+    members of the family can never both hold, so trying them branch by
+    branch instead of in chain order selects the same arm, and inside a
+    branch the order is kept.  A test is now evaluated once, before the
+    registers under it, instead of before each of them — the same value,
+    because a register is only written after everything that reads it. -/
+private partial def clusterLines (typeMap : TypeMap) (indent : String)
+    (items : List ClusterItem) : List String := Id.run do
+  let alone (it : ClusterItem) : List String :=
+    if it.arms.isEmpty then it.plain
+    else [s!"{indent}do \{"] ++ it.emit (indent ++ "  ") it.arms ++ [s!"{indent}} while (0);"]
+  -- Too many for the quadratic grouping below: one after the other.
+  if items.length > 600 then
+    return items.foldl (fun acc it => acc ++ alone it) []
+  let names : Std.HashSet String := items.foldl (fun h it => h.insert it.name) {}
+  -- waiting[r] = how many of the remaining items (other than r) read r
+  let mut waiting : Std.HashMap String Nat := {}
+  for it in items do
+    for r in it.reads do
+      if r != it.name && names.contains r then waiting := waiting.insert r (waiting.getD r 0 + 1)
+  let mut remaining : List ClusterItem := items
+  let mut out : Array String := #[]
+  let mut fuel := items.length + 1
+  while !remaining.isEmpty && fuel > 0 do
+    fuel := fuel - 1
+    let ready := remaining.filter fun it => waiting.getD it.name 0 == 0
+    -- a cycle would have been broken upstream; never drop anything
+    let first := (ready.head?).getD remaining.head!
+    -- the family that the most ready registers belong to
+    let best : Option (GuardFamily × Nat) := ready.foldl (fun best it =>
+      match it.family with
+      | none => best
+      | some fam =>
+        let n := (ready.filter (·.inFamily fam)).length
+        match best with
+        | some (_, m) => if n > m then some (fam, n) else best
+        | none => some (fam, n)) none
+    match best with
+    | none =>
+      out := out ++ (alone first).toArray
+      remaining := remaining.filter (·.name != first.name)
+      for r in first.reads do
+        if r != first.name && names.contains r then waiting := waiting.insert r (waiting.getD r 0 - 1)
+    | some (fam, _) =>
+      -- everything of this family that is, or becomes, ready
+      let mut grp : Array ClusterItem := #[]
+      let mut more := true
+      while more do
+        match remaining.find? fun it => waiting.getD it.name 0 == 0 && it.inFamily fam with
+        | some it =>
+          grp := grp.push it
+          remaining := remaining.filter (·.name != it.name)
+          for r in it.reads do
+            if r != it.name && names.contains r then waiting := waiting.insert r (waiting.getD r 0 - 1)
+        | none => more := false
+      let members : List Expr := grp.foldl (fun ms it =>
+        it.arms.foldl (fun ms (c, _) => match c.head? with
+          | some l => if ms.contains l then ms else ms ++ [l]
+          | none => ms) ms) []
+      let blocks : List (Expr × List String) := members.map fun m =>
+        (m, clusterLines typeMap (indent ++ "  ") (grp.toList.filterMap fun it =>
+          let mine := it.arms.filterMap fun (c, v) =>
+            if c.head? == some m then some (c.drop 1, v) else none
+          if mine.isEmpty then none
+          -- an arm with nothing left to test is the register's value here
+          else some { it with arms := mine }))
+      let complement (a b : Expr) : Bool := a == .op .not [b] || b == .op .not [a]
+      for ((m, body), i) in blocks.zip (List.range blocks.length) do
+        let head :=
+          if i == 0 then s!"{indent}if ({emitExpr typeMap m}) \{"
+          else if blocks.length == 2 && complement m (blocks.head!.1) then s!"{indent}} else \{"
+          else s!"{indent}} else if ({emitExpr typeMap m}) \{"
+        out := (out.push head) ++ body.toArray
+      out := out.push s!"{indent}}"
+  -- (fuel exhausted cannot happen; emit what is left rather than lose it)
+  for it in remaining do out := out ++ (alone it).toArray
+  return out.toList
 
 /-- Split a statement into declaration/eval/tick/reset parts -/
 partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
@@ -1615,7 +1808,8 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
       , tickBody := [s!"        {outName} = {nextName};"]
       , resetBody := [s!"        {outName} = {initExpr};"]
       , evalTickLocals := [nextLocalDecl]
-      , inPlace := some fun _ => emitRegInPlace typeMap output outName width input }
+      , inPlace := some fun direct =>
+          fusedReg typeMap output (if direct then outName else nextName) width input }
 
   | .memory name addrWidth dataWidth _clock writeAddr writeData writeEnable
       readAddr readData comboRead extraWrites extraReads =>
@@ -1841,7 +2035,7 @@ private partial def useContexts (typeMap : TypeMap) (ctx : List Expr) (e : Expr)
   if arms.isEmpty then recordUses acc ctx e
   else
     let acc := arms.foldl (fun acc (c, v) =>
-      let cs := dropImpliedConjuncts (condConjuncts typeMap c)
+      let cs := armConjuncts typeMap c
       let (acc, _) := cs.foldl (fun (acc, pre) ck =>
         (recordUses acc (ctx ++ pre) ck, pre ++ [ck])) (acc, ([] : List Expr))
       useContexts typeMap (ctx ++ cs) v acc) acc
@@ -2218,19 +2412,47 @@ def emitModule (m : Module) (design : Option Design := none)
         for r in rs do
           readers := readers.insert r (readers.getD r 0 + 1)
       let mut queue : Array String := #[]
+      let mut queued : Std.HashSet String := {}
       for (o, _) in cands do
-        if readers.getD o 0 == 0 then queue := queue.push o
+        if readers.getD o 0 == 0 then
+          queue := queue.push o
+          queued := queued.insert o
+      let mut buffered : Std.HashSet String := {}
       let mut i := 0
-      while i < queue.size do
-        let o := queue[i]!
-        i := i + 1
-        for r in reads.getD o [] do
+      let mut fuel := cands.length + 1
+      while fuel > 0 do
+        fuel := fuel - 1
+        while i < queue.size do
+          let o := queue[i]!
+          i := i + 1
+          for r in reads.getD o [] do
+            let c := readers.getD r 0 - 1
+            readers := readers.insert r c
+            if c == 0 && !queued.contains r && !buffered.contains r then
+              queue := queue.push r
+              queued := queued.insert r
+        -- What is left sits on (or behind) a cycle of reads.  Keep ONE of
+        -- them in its `_next` local — it is then evaluated before the
+        -- in-place block and no longer holds anything back — and go on;
+        -- the one that reads the most of the others frees the most.
+        let left := cands.filter fun (o, _) => !queued.contains o && !buffered.contains o
+        if left.isEmpty then break
+        if left.length > 2000 then break   -- quadratic below; keep them all buffered
+        let score (o : String) : Nat :=
+          ((reads.getD o []).filter fun r => !queued.contains r && !buffered.contains r).length
+        let pick := left.foldl (fun (best : String × Nat) (o, _) =>
+          let sc := score o
+          if sc > best.2 then (o, sc) else best) (left.head!.1, score left.head!.1)
+        buffered := buffered.insert pick.1
+        for r in reads.getD pick.1 [] do
           let c := readers.getD r 0 - 1
           readers := readers.insert r c
-          if c == 0 then queue := queue.push r
+          if c == 0 && !queued.contains r && !buffered.contains r then
+            queue := queue.push r
+            queued := queued.insert r
       return queue
     let inPlaceSet : Std.HashSet String := inPlaceOrder.foldl (fun h o => h.insert o) {}
-    let inPlaceOf : Std.HashMap String (Unit → List String) := stmtParts.foldl (fun h (s, p) =>
+    let inPlaceOf : Std.HashMap String (Bool → FusedReg) := stmtParts.foldl (fun h (s, p) =>
       match s, p.inPlace with
       | .register out .., some f => h.insert out f
       | _, _ => h) {}
@@ -2282,7 +2504,8 @@ def emitModule (m : Module) (design : Option Design := none)
       for s in filteredBody do
         match s with
         | .register out _ _ input _ =>
-          acc := if lookupWidth typeMap out ≤ 64 then useContexts typeMap [] input acc
+          let w := lookupWidth typeMap out
+          acc := if w ≤ 64 then useContexts typeMap [] (stripStoreMask w input) acc
                  else recordUses acc [] input
         | .memory _ _ _ _ wa wd we ra _ _ ew er =>
           for e in [wa, wd, we, ra] do acc := recordUses acc [] e
@@ -2317,7 +2540,7 @@ def emitModule (m : Module) (design : Option Design := none)
               acc := acc'
           for t in terms do
             if scalar then
-              acc := useContexts typeMap t rhs acc
+              acc := useContexts typeMap t (stripStoreMask (lookupWidth typeMap x) rhs) acc
             else
               -- A wide mux is emitted word by word as `c ? T[j] : E[j]`.
               -- A compound arm is materialised first, on every pass; an
@@ -2325,7 +2548,7 @@ def emitModule (m : Module) (design : Option Design := none)
               match rhs with
               | .op .mux [c, .ref r, e] =>
                 acc := recordUses acc t c
-                acc := recordUse acc r (t ++ dropImpliedConjuncts (condConjuncts typeMap c))
+                acc := recordUse acc r (t ++ armConjuncts typeMap c)
                 acc := recordUses acc t e
               | _ => acc := recordUses acc t rhs
         | _ => pure ()
@@ -2347,7 +2570,11 @@ def emitModule (m : Module) (design : Option Design := none)
       | .register out .. =>
         if inPlaceSet.contains out then
           { p with evalBody := [], tickBody := [], evalTickLocals := [] }
-        else p
+        else match p.inPlace with
+          -- kept in `_next`: no store where it holds (the local starts
+          -- out as the current value)
+          | some f => { p with evalBody := (f false).lines }
+          | none => p
       | _ => p
     -- The guard line of each statement (lazy wires only).  Neighbours with
     -- the same guard share one block.
@@ -2368,8 +2595,18 @@ def emitModule (m : Module) (design : Option Design := none)
         out := out ++ p.evalBody.toArray
       if openGuard.isSome then out := out.push "        }"
       return out.toList
-    let fusedEvalBody := inputMaskBody ++ fusedStmtLines ++
-      inPlaceOrder.foldl (fun acc o => acc ++ (inPlaceOf.getD o (fun _ => [])) ()) []
+    -- The in-place registers.  `clusterLines` regroups them under the
+    -- tests they share, keeping every register after its readers.
+    let inPlaceLines : List String :=
+      let regInput : Std.HashMap String Expr := filteredBody.foldl (fun h s => match s with
+        | .register out _ _ input _ => h.insert out input
+        | _ => h) {}
+      clusterLines typeMap "        " (inPlaceOrder.toList.map fun o =>
+        let f := (inPlaceOf.getD o (fun _ => {})) true
+        let reads := ((collectExprRefs (regInput.getD o (.const 0 1))).foldl
+          (fun (h : Std.HashSet String) r => if inPlaceSet.contains r then h.insert r else h) {}).toList
+        { name := o, reads, arms := f.arms, emit := f.emit, plain := f.plain })
+    let fusedEvalBody := inputMaskBody ++ fusedStmtLines ++ inPlaceLines
     let fusedTickBody := fusedParts.foldl (fun acc (p : StmtParts) => acc ++ p.tickBody) []
     let fusedLocals := fusedParts.foldl (fun acc (p : StmtParts) => acc ++ p.evalTickLocals) []
 
