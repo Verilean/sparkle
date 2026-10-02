@@ -2860,5 +2860,96 @@ endmodule
     else IO.println s!"FAIL: {r} (want [12255453] = 0x00BB00DD)"; failed := failed + 1
   catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
 
+  -- Test 78 (PicoRV32 PCPI timeout): `if (x)` with a multi-bit `x` means
+  -- `x != 0`.  The path guard was ANDed with `x` bitwise, so only bit 0
+  -- decided: the 4-bit down-counter went 15 → 14 and stopped, and the
+  -- else branch (bitwise NOT) fired on every even value.
+  IO.print "  Test 78: multi-bit `if` condition is `!= 0` (PicoRV32 pcpi_timeout_counter)... "
+  try
+    let v := "
+module cntdn (input clk, output [3:0] q, output [3:0] z);
+  reg started;
+  reg [3:0] c;
+  reg [3:0] zc;
+  always @(posedge clk) begin
+    started <= 1;
+    if (!started)
+      c <= 4'hF;
+    else begin
+      if (c)
+        c <= c - 1;
+    end
+    if (started) begin
+      if (c)
+        zc <= zc;
+      else
+        zc <= zc + 1;
+    end
+  end
+  assign q = c;
+  assign z = zc;
+endmodule
+"
+    -- tick 1 loads 15; the outputs after 10 ticks show the state before
+    -- the 10th edge: 8 decrements → 7, and `zc` never counted.
+    let r ← jitRun v (fun _ => pure ()) 10
+      (fun h => do return [← JIT.getOutput h 0, ← JIT.getOutput h 1])
+    if r == [7, 0] then IO.println "PASS"; passed := passed + 1
+    else IO.println s!"FAIL: {r} (want [7, 0])"; failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 79 (LiteX power-on reset): `reg x = v;` is the power-on value.
+  -- The initializer was parsed and discarded, so `crg_int_rst = 1'd1`
+  -- started at 0 and the SoC never saw its reset.
+  IO.print "  Test 79: `reg x = v;` declaration initializer is the power-on value (LiteX crg_int_rst)... "
+  try
+    let v := "
+module por (input clk, output [7:0] q, output r);
+  reg int_rst = 1'd1;
+  reg [7:0] count = 8'd200, seen = 8'd0;
+  always @(posedge clk) begin
+    int_rst <= 1'd0;
+    if (int_rst)
+      seen <= count;
+    count <= count + 1;
+  end
+  assign q = seen;
+  assign r = int_rst;
+endmodule
+"
+    -- the one reset cycle captures the initial count; the reset is gone after it
+    let r ← jitRun v (fun _ => pure ()) 4
+      (fun h => do return [← JIT.getOutput h 0, ← JIT.getOutput h 1])
+    if r == [200, 0] then IO.println "PASS"; passed := passed + 1
+    else IO.println s!"FAIL: {r} (want [200, 0])"; failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 80 (LiteX RAMs): a memory read into an INTERNAL wire.  Flat
+  -- lowering renames internal wires to `_gen_<name>` but left the
+  -- memory's read-data name alone, so the readers saw an undriven wire
+  -- and every such RAM read back 0.
+  IO.print "  Test 80: memory read into an internal wire survives flat lowering (LiteX sram/main_ram)... "
+  try
+    let v := "
+module ramq (input clk, input [3:0] adr, input we, input [31:0] dat_w, output [31:0] dat_r);
+  reg [31:0] ram[0:15];
+  reg [3:0] adr_q;
+  wire [31:0] q;
+  always @(posedge clk) begin
+    if (we)
+      ram[adr] <= dat_w;
+    adr_q <= adr;
+  end
+  assign q = ram[adr_q];
+  assign dat_r = q + 32'd1;
+endmodule
+"
+    let r ← jitRun v (fun h => do
+        JIT.setInput h 0 9; JIT.setInput h 1 1; JIT.setInput h 2 0x1234) 3
+      (fun h => do return [← JIT.getOutput h 0])
+    if r == [0x1235] then IO.println "PASS"; passed := passed + 1
+    else IO.println s!"FAIL: {r} (want [4661] = 0x1235)"; failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
   IO.println s!"\n=== Results: {passed} passed, {failed} failed ==="
   return if failed == 0 then 0 else 1
