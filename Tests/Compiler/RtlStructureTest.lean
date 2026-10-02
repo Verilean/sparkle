@@ -102,19 +102,28 @@ def splitModules (verilog : String) : List (String × String) :=
         | none => go rest none acc
   go lines none []
 
-/-- All `_tmp_*` / `_gen_*` identifiers occurring in a body. -/
+/-- A wire name of an emitted module: `_tmp_*`, `_gen_*`, and the register
+    inputs `next_gen_*` / `next_tmp_*` of a state-machine module
+    (`Sparkle.IR.Machine.nextName`).  Without the last, the reachability walk
+    below stops at every machine register and reports the registers behind
+    it as dead. -/
+def isWireName (w : String) : Bool :=
+  w.startsWith "_tmp_" || w.startsWith "_gen_" || w.startsWith "next_gen_" ||
+    w.startsWith "next_tmp_"
+
+/-- All wire identifiers (`isWireName`) occurring in a body. -/
 def identsIn (body : String) : List String :=
   let cs := body.toList
   let rec go (cs : List Char) (cur : List Char) (acc : List String) : List String :=
     match cs with
     | [] =>
       let w := String.mk cur.reverse
-      if w.startsWith "_tmp_" || w.startsWith "_gen_" then w :: acc else acc
+      if isWireName w then w :: acc else acc
     | c :: rest =>
       if isIdentChar c then go rest (c :: cur) acc
       else
         let w := String.mk cur.reverse
-        let acc' := if w.startsWith "_tmp_" || w.startsWith "_gen_" then w :: acc else acc
+        let acc' := if isWireName w then w :: acc else acc
         go rest [] acc'
   (go cs [] []).eraseDups
 

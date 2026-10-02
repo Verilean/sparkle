@@ -1,0 +1,95 @@
+
+namespace SimulateProbeZZ
+open Lean Elab Command Meta Sparkle.Compiler.Elab
+open Sparkle.Core Sparkle.Core.Domain Sparkle.Core.Signal
+open Sparkle.IR.AST Sparkle.IR.Semantics
+
+def bStreamZ {dom : DomainConfig} (seed : Nat) : Signal dom Bool :=
+  ⟨fun t => (t * 7 + seed * 3 + t / 3) % 3 != 0⟩
+def vStreamZ {dom : DomainConfig} (w seed : Nat) : Signal dom (BitVec w) :=
+  ⟨fun t => BitVec.ofNat w (t * 37 + seed * 11 + t * t)⟩
+def bvalZ (seed t : Nat) : Nat := if (t * 7 + seed * 3 + t / 3) % 3 != 0 then 1 else 0
+def vvalZ (w seed t : Nat) : Nat := (t * 37 + seed * 11 + t * t) % 2 ^ w
+def boolSigNat {dom : DomainConfig} (s : Signal dom Bool) (t : Nat) : Nat := if s.val t then 1 else 0
+def bitsSigNat {dom : DomainConfig} {w : Nat} (s : Signal dom (BitVec w)) (t : Nat) : Nat := (s.val t).toNat
+
+def weAllZ (M : Sparkle.IR.AST.Module) : WEnv := fun name =>
+  match (M.wires ++ M.inputs ++ M.outputs).find? (·.name == name) with
+  | some p => p.ty.bitWidth
+  | none => 0
+
+def simOutZ (m : Sparkle.IR.AST.Module) (k : Nat) (ins : Nat → String → Option Nat)
+    (port : String) : Option (List Nat) :=
+  let init : String → Nat := fun n =>
+    (m.body.findSome? fun st => match st with
+      | .register o _ _ _ i => if o == n then some i.toNat else none
+      | _ => none).getD 0
+  (runModule (weAllZ m) m.body
+    (fun j st => fun n => match ins (k - 1 - j) n with
+      | some v => v
+      | none => if n == "rst" then 0 else st n) k init (fun _ _ => 0)).map (·.map (· port))
+
+unsafe def evalNatFn (e : Lean.Expr) : MetaM (Nat → Nat) := do
+  let ty ← mkArrow (mkConst ``Nat) (mkConst ``Nat)
+  Lean.Meta.evalExpr (Nat → Nat) ty e
+
+run_cmd liftTermElabM do
+  let names ← IO.FS.lines "@WORK@/machine_decls.txt"
+  let env ← getEnv
+  let K := 60
+  let mut out := ""
+  for s in names do
+    let n0 := s.toName
+    let n : Lean.Name :=
+      if (env.find? n0).isSome then n0
+      else if s.startsWith "_private." then
+        let user := (s.splitOn ".0.").getLast!
+        env.constants.map₂.foldl (fun acc c _ =>
+          if (Lean.privateToUserName? c).map toString == some user then c else acc) n0
+      else n0
+    let some ci := env.find? n | continue
+    let ec := entryConst true false [] ci (instancePredicate env) (userInliner env) (structEnv env)
+    let some shape := machineShape? false [] ec (structEnv env) | continue
+    let nslots := shape.layout.slots.length
+    let inBinders := shape.binders.take (shape.binders.length - nslots - shape.layout.lets)
+    let (m, _) ← synthesizeCombinational n
+    -- the source, applied to the test streams
+    let dom := mkConst ``Sparkle.Core.Domain.defaultDomain
+    let mut args : Array Lean.Expr := #[]
+    let mut idx := 0
+    let mut hasDomBinder := false
+    for (_, k) in inBinders do
+      match k with
+      | .domain => args := args.push dom; hasDomBinder := true
+      | .bool => args := args.push (mkApp2 (mkConst ``bStreamZ) dom (toExpr idx)); idx := idx + 1
+      | .bits w =>
+        args := args.push (mkApp3 (mkConst ``vStreamZ) dom (toExpr w) (toExpr idx)); idx := idx + 1
+    let app := mkAppN (mkConst n (ci.levelParams.map fun _ => Level.zero)) args
+    -- the emitted module, on the same streams
+    let ports := m.inputs.filter (fun p => p.name != "clk" && p.name != "rst")
+    let hw := inBinders.filter (fun b => b.2 != .domain)
+    let table := (ports.zip hw).zipIdx
+    let ins : Nat → String → Option Nat := fun t nm =>
+      table.findSome? fun ((p, (_, k)), i) =>
+        if p.name == nm then
+          some (match k with
+            | .bool => bvalZ i t
+            | .bits w => vvalZ w i t
+            | .domain => 0)
+        else none
+    let scalar := shape.layout.outs.map (·.name) == ["out"]
+    let mut ok := true
+    let mut sample : List Nat := []
+    for o in shape.layout.outs do
+      let field ← if scalar then pure app else Lean.Meta.mkProjection app (Name.mkSimple o.name)
+      let fn := if o.ty == .bit then mkApp2 (mkConst ``boolSigNat) dom field
+        else mkApp3 (mkConst ``bitsSigNat) dom (toExpr o.width) field
+      let f ← unsafe evalNatFn fn
+      let want := (List.range K).map f
+      let got := simOutZ m K ins o.name
+      if got != some want then ok := false
+      sample := want.take 8
+    out := out ++ s!"{s}|{if ok then "OK" else "MISMATCH"}|slots={nslots}|lets={shape.layout.lets}|outs={shape.layout.outs.length}|{if hasDomBinder then "poly" else "concrete"}|{sample}\n"
+  let h ← IO.FS.Handle.mk "@WORK@/simulate_reasons.txt" .append
+  h.putStr out
+end SimulateProbeZZ

@@ -1005,6 +1005,36 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   and nothing else in the corpus changes). What `f.machine_sound` still
   assumes is its boundary: `MachineDefines` (the run read this shape) and
   `MachineCloses` (the run tied the `let`s; proved when there are none).
+- [x] **Normal forms on the machine route** (`machNorm`, `kernelNat` in
+  `Sparkle/Compiler/Elab.lean`). The measured reasons the remaining
+  `circuit do` declarations missed the route were mostly OTHER WAYS OF
+  WRITING what the gates already accept. They are rewritten to the
+  accepted form before the transition is read, on this route only:
+  a constant computed in Lean (`BitVec.ofInt 32 (64 * 2 ^ 16)`,
+  `2 ^ 256 - 2 ^ 32 - 977`, a user constant such as a state encoding) —
+  also as a reset value, a slice start or a concatenation operand — as
+  its literal, the value read by the KERNEL's own reduction
+  (`Lean.Kernel.whnf`, a pure function of the environment: no second
+  evaluator to trust, and `machineShape?` stays pure); `Signal.lit`; an
+  operator with one operand a plain `BitVec` (`sig + c`); a `BitVec`
+  operator lifted through `<$>`/`<*>` or a `map` with a constant; `~~~`
+  on a `BitVec` Signal (`allOnes ^^^ a`, which is `BitVec.not` by
+  definition). No new `Term` constructor and no new proof: the endpoints
+  speak about the normalised transition, and that it means what the
+  declaration AS WRITTEN means is the kernel check of the generated
+  endpoint. MEASURED: **175 of 389 real declarations pass a certified
+  gate (118 before), 112 on the machine route (55), and all 112 have the
+  generated, kernel-checked theorem `f.machine_sound`.** Against the
+  previous compiler: 177 output files identical, 21 different — 47
+  modules, every one newly on the machine route, none that was on it
+  before; run statuses unchanged; all 112 modules agree with their
+  sources, every port, in the 60-cycle simulation. The suite's RTL
+  structure check found one thing: its reachability walk did not know the
+  machine route's register-input wires (`next_gen_*`) and called a live
+  register dead; the check now reads them (`isWireName`), nothing else
+  about it changed. Still refused, by the classifier: a sub-module call
+  or a second `runCircuitH` inside the body (about 35), hand-written
+  `runCircuitH` chains (6), a tuple result (1).
 - [ ] **S7 / trust:** Resolve or explicitly retain `EnvDefines` in the final
   claim; record execution-model/external-tool boundaries without hiding them.
   RECORDED — docs/ShippingCompiler-TrustBase.md states the retained base

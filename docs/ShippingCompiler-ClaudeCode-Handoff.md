@@ -397,7 +397,30 @@ How it is built, and what to keep in mind when extending it:
   evaluation with the unfolding of `Signal.loop`.
 * `machCanonAp` (in `machineShape?`): canonical binder names for a lift
   written directly as `Signal.ap (Signal.map f a) b`.
-Next on this route: (a) DONE — see above. (b) Normalise in
+**Normal forms (landed).** `machNorm senv` rewrites the body of the
+`circuit do` before `machChain` reads it; `StructEnv.natOf` (`kernelNat
+env`: `Lean.Kernel.whnf` on a closed `Nat` term) gives the value of
+computed constants, reset values (`machInit?`), slice starts. Rules, each
+one node (`machNormNode`): `Signal.lit` → `Signal.pure`; `Signal.pure c`
+with `c` not a literal → the literal; `m α β γ inst a b` at a mixed
+Signal/`BitVec` instance (`canonicalSignalBinKinds`) → the Signal×Signal
+instance with `Signal.pure` of the literal; `Signal.ap (Signal.map (fun x
+y => x op y) a) b` → `a op b`; `Signal.map`/`<$>` with `fun x => x op c` →
+`a op pure c`; `~~~a` → `pure allOnes ^^^ a`. To add a form: one more case
+there (and nothing else, if its target is an existing `Term` form); the
+generated endpoint of a declaration using it is the proof. 175 of 389 real
+declarations now pass a gate, 112 on the machine route, all 112 with
+`f.machine_sound`.
+THE MEASUREMENT CYCLE after any change to `Elab.lean` (about 50 minutes,
+never next to a `lake build`): `PASSES=1 scripts/shipping-coverage/run.sh
+NEW`; `compare_outputs.py OLD/out NEW/out` (every `DIFFERENT` file must be
+explained module by module — so far always "newly on the machine route");
+`diff <(sort OLD/status.txt) <(sort NEW/status.txt)`;
+`scripts/shipping-coverage/endpoints.sh NEW` (the generated theorems);
+`scripts/shipping-coverage/simulate.sh NEW` (every machine module against
+its source, 60 cycles, every port).
+Next on this route: (a) DONE — see above. (b) DONE for constants, lifts,
+mixed operands, `~~~` — see "Normal forms". Formerly: Normalise in
 `machConv`, on this route only: constants computed in Lean
 (`BitVec.ofInt`, `2 ^ k`, …) to literals, BitVec operators lifted through
 `<$>`/`<*>` or `map` with a literal to the Signal operators, reducible
@@ -479,7 +502,7 @@ audits; do not present a smaller step as a finished unit.
 
 - `lean-toolchain`: `leanprover/lean4:v4.32.1`. Use the existing project
   environment.
-- Latest full verification: `lake build Tests.AllTests`, **680 jobs green** (2026-10-02, generated machine endpoints).
+- Latest full verification: `lake build Tests.AllTests`, **681 jobs green** (2026-10-03, normal forms on the machine route).
 - Typical iterative targets:
 
   ```sh

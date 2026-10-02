@@ -122,6 +122,19 @@ theorems, and reading them is part of trusting the claim.
   `rcon_library`). Which definitions are
   unfolded (`userDefinition?`) only decides which declarations reach a
   certified front end; a wrong choice there cannot make a theorem false.
+- The normal forms of the machine route: `machNorm` (other spellings of
+  accepted hardware rewritten to the accepted one) and `kernelNat`, which
+  reads the value of a constant computed in Lean with the kernel's own
+  reduction (`Lean.Kernel.whnf` on a closed `Nat` term). Like the
+  unfolding, they are not reasoned about: the theorems speak about the
+  transition the run computed. That the normalised transition means what
+  the declaration AS WRITTEN means is checked per declaration by the
+  kernel — the generated endpoint compares the written body with the
+  terms read off the normalised one (`f.machine_writes`,
+  `f.machine_result`), and a constant with its literal by evaluating
+  both. A wrong rewrite or a wrong value therefore cannot make a theorem
+  false; without the endpoint of a declaration, its module rests on the
+  rewrite rules being right, as with every dispatch arm.
 - The IR semantics: `evalExpr`, `evalAssigns`, `stepModule`,
   `runModule` (`Sparkle/IR/Semantics.lean`). Instance statements are
   no-ops here: the open-module view.
