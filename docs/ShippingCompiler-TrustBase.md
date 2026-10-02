@@ -212,10 +212,20 @@ failed check cannot leave a constant behind. The command also runs the
 machine synthesis once and requires that it ties the `let`s — evidence
 for the boundary `MachineCloses` in the environment of the check, not a
 proof of it for another run. The
-optimizer and the printer after the core entry are NOT yet composed for
-machine modules; the family-agnostic sequential pipeline theorem
-(`shipping_pipeline_transfer`) applies under its decidable premises but
-that composition is not stated.
+optimizer and the printer after the core entry ARE composed for machine
+modules, up to the emitted-Verilog semantics: `f.machine_ships`
+(`machine_ships_full`) states the same conclusion for the module the full
+entry returns after `optimizeModule` and for its emitted Verilog
+(`EmitSem.runModuleSV`), under gates that are decidable facts about the
+modules of the run — `refineCheck raw b` (cleanup and duplicate merge),
+`refineCheck b o` (optimizer), the reset port, the output ports,
+`EmitSem.seqCheck` and its width agreement. `refineCheck` is proved sound
+(`refineCheck_transfer`); the gates are evaluated by the suite on thirteen
+declarations and by `scripts/shipping-coverage/pipeline.sh` on the corpus
+(104 of 112 hold). They are premises, not compile-time checks: for a
+compile nobody evaluated them on, the optimizer's output is not validated.
+The module parsed back from the printed bytes is not covered for machine
+modules.
 
 ## 7. What is outside every theorem
 

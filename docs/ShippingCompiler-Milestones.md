@@ -288,8 +288,12 @@ declarations of the corpus have the kernel-checked theorem. Normal forms
 mixed Signal/`BitVec` operands, lifted `BitVec` operators, `~~~`) then
 brought the count to **175 of 389 real declarations on a certified
 route, 112 on the machine route, all 112 with the generated theorem**.
+The post-pipeline is composed for them up to the emitted Verilog:
+`refineCheck` (a new, proved result check for the merge and the
+optimizer on assign + register modules) and the emitted-Verilog
+semantics give `f.machine_ships`; its gates hold for 104 of the 112.
 Open: sub-module calls and nested `circuit do` in the body, the
-post-pipeline for machine modules, other
+parsed-back text for machine modules, other
 concrete domains, computed constants and sub-module calls inside a
 `circuit do`.
 

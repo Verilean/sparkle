@@ -1,4 +1,5 @@
 import Tools.ShippingMachineAuto
+import Tools.ShippingMachineShipping
 
 /-! # The machine endpoint of a declaration, generated
 
@@ -17,7 +18,11 @@ and adds
   declaration is the result of its body on the state loop);
 * `f.machine_sound`: a run of the real synthesis entry on `f` at the machine
   boundary returns a module that shows, on every output port and at every
-  cycle, the SOURCE declaration `f`.
+  cycle, the SOURCE declaration `f`;
+* `f.machine_ships`: the same at the FULL entry, for the optimized module
+  and its emitted Verilog, under the gates of
+  `Tools.ShippingMachineShipping.machine_ships_full` (the merge and the
+  optimizer accepted by `refineCheck`, the emitted-Verilog check).
 
 Nothing here is trusted: a wrong reading of the body makes a kernel check
 fail, and the command then adds no theorem. -/
@@ -586,9 +591,16 @@ def generateCore (declName : Name) (checkCloses : Bool) : MetaM Name := do
     let soundName := declName ++ `machine_sound
     addDecl (.thmDecl
       { name := soundName, levelParams := [], type := ← inferType p, value := p })
-    for ax in ← Lean.collectAxioms soundName do
-      unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do
-        throwError "{soundName} uses a non-standard axiom: {ax}"
+    -- to the emitted Verilog, at the full entry (gates as premises)
+    let shipsName := declName ++ `machine_ships
+    let ships := mkAppN (mkConst ``Tools.ShippingMachineShipping.machine_ships_full)
+      #[toExpr declName, data, ι, ← mkLambdaFVars #[i] D, mkConst srcName, mkConst soundName]
+    addDecl (.thmDecl
+      { name := shipsName, levelParams := [], type := ← inferType ships, value := ships })
+    for name in [soundName, shipsName] do
+      for ax in ← Lean.collectAxioms name do
+        unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do
+          throwError "{name} uses a non-standard axiom: {ax}"
     progress s!"{declName}: done"
     return soundName
 

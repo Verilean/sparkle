@@ -20,7 +20,10 @@ cycle, the SOURCE declaration `f` (`Tools.ShippingMachineAuto.MachineTrace`).
   slots, two dozen hardware `let`s).
 * `checksumHW_ports` unfolds `MachineTrace` for the LIN checksum module into
   the statement `linHW_execution` makes, port by port.
-* A declaration that is not a machine is refused, and nothing is added. -/
+* A declaration that is not a machine is refused, and nothing is added.
+* `f.machine_ships` (the optimized module and its emitted Verilog show the
+  source) is generated too, and its gates are evaluated on the real modules
+  of every declaration here. -/
 namespace Sparkle.Tests.Compiler.ShippingMachineCommandTest
 open Lean Elab Command Meta
 open Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Semantics Sparkle.IR.Machine
@@ -130,12 +133,62 @@ theorem checksumHW_ports {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.
       exact ia)
   exact ⟨envs, hrun, hlen, fun j hj => ⟨hobs j hj 0 _ _ rfl rfl, hobs j hj 1 _ _ rfl rfl⟩⟩
 
+/-! ## To the emitted Verilog
+
+`f.machine_ships` carries the endpoint across the merge, the optimizer and
+the printer, under gates that are decidable facts about the modules of the
+run. The gates are evaluated here on the real modules of every declaration
+above: the core module, the module the full entry returns, and the module
+the printer is given (`checkedOptimize`). -/
+
+run_cmd liftTermElabM do
+  let env ← getEnv
+  let senv := structEnv env
+  for n in [``mThree, ``twoHW, ``twoFlag, ``twoCnt, ``linChk, ``linChkDefault, ``toggle,
+      ``Sparkle.IP.Bus.LINHW.checksumHW, ``Sparkle.IP.Crypto.EcdsaSignDemo.wMulN,
+      ``Sparkle.IP.Crypto.EcdsaSignDemo.wTx, ``Sparkle.IP.Crypto.P256SignDemo.wMul,
+      ``Sparkle.IP.Crypto.P256SignDemo.wMulN, ``Sparkle.IP.USB.Fido2Demo.wTx] do
+    unless (← getEnv).contains (n ++ `machine_ships) do
+      throwError "{n}: no machine_ships"
+    let ci ← getConstInfo n
+    let entry := entryConst true false [] ci (instancePredicate env) (userInliner env) senv
+    let some shape := machineShape? false [] entry senv | throwError "{n}: not a machine"
+    let (raw, _) ← synthesizeCombinationalCore n [] false
+    let (b, _) ← synthesizeCombinational n
+    let o := Sparkle.IR.OptCheck.checkedOptimize b
+    let wof := Tools.SVParser.RoundtripProof.moduleWof o
+    let oo := Sparkle.IR.Optimize.optimizeModule b
+    unless o.body == oo.body && o.wires == oo.wires && o.inputs == oo.inputs &&
+        o.outputs == oo.outputs do
+      throwError "{n}: the printer is not given the optimizer's output"
+    unless Sparkle.IR.RefineCheck.refineCheck raw b do
+      throwError "{n}: refineCheck rejects the cleanup/merge step"
+    unless Sparkle.IR.RefineCheck.refineCheck b o do
+      throwError "{n}: refineCheck rejects the optimizer's output"
+    unless (raw.inputs.map (·.name)).contains "rst" do throwError "{n}: no reset port"
+    unless shape.layout.outs.all (fun q => raw.outputs.any (·.name == q.name)) do
+      throwError "{n}: an output port is missing"
+    unless Tools.SVParser.EmitSem.seqCheck wof (Tools.SVParser.EmitSem.weOf wof) o.body do
+      throwError "{n}: the emitted-Verilog check rejects the optimized module"
+    unless (Tools.ShippingSeqSVSoundness.seqNames o.body).all (fun x =>
+        Sparkle.IR.RegDedup.declWidth o x == Tools.SVParser.EmitSem.weOf wof x) do
+      throwError "{n}: checker and emitter widths disagree"
+  logInfo m!"MACHINE SHIPPING GATES: the merge and the optimizer are accepted by refineCheck, and the emitted-Verilog check passes, on all thirteen declarations"
+
 /-! ## Axioms -/
 
 run_cmd do
   if (← get).messages.hasErrors then throwError "machine command regression failed"
   for name in [``checksumHW_ports, ``Tools.ShippingMachineAuto.machine_trace_of_data,
       ``Tools.ShippingMachineDenote.machine_endpoint,
+      ``Tools.ShippingRefineSoundness.refineCheck_transfer,
+      ``Tools.ShippingRefineSoundness.rNormE_sound,
+      ``Tools.ShippingRefineSoundness.rSlice_sound,
+      ``Tools.ShippingMachineShipping.machine_ships,
+      ``Tools.ShippingMachineShipping.machine_ships_full,
+      ``Sparkle.IP.Bus.LINHW.checksumHW.machine_ships,
+      ``Sparkle.IP.Crypto.EcdsaSignDemo.wMulN.machine_ships,
+      ``mThree.machine_ships, ``toggle.machine_ships,
       ``Sparkle.IP.Bus.LINHW.checksumHW.machine_sound,
       ``Sparkle.IP.Crypto.EcdsaSignDemo.wMulN.machine_sound,
       ``Sparkle.IP.Crypto.EcdsaSignDemo.wTx.machine_sound,

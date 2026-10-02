@@ -240,4 +240,31 @@ def endpoints():
     open(f'{work}/endpoint_decls.txt', 'w').write('\n'.join(ok) + '\n')
 
 
-{'routes': routes, 'reasons': reasons, 'sets': sets, 'endpoints': endpoints}[mode]()
+def pipeline():
+    """Which machine-route declarations satisfy the gates of the shipping theorem."""
+    wanted = [l.strip() for l in open(f'{work}/machine_decls.txt') if l.strip()]
+    result = {}
+    for line in open(f'{work}/pipeline_reasons.txt', errors='replace'):
+        parts = line.rstrip('\n').split('|', 2)
+        if len(parts) < 2:
+            continue
+        decl, res = parts[0], parts[1]
+        why = parts[2] if len(parts) > 2 else ''
+        if result.get(decl, ('', ''))[0] != 'OK':
+            result[decl] = (res, why)
+    ok = [d for d in wanted if result.get(d, ('',))[0] == 'OK']
+    real = [d for d in wanted if not is_certification_test(d)]
+    print('machine route:', len(wanted), 'of which real corpus:', len(real))
+    print('all shipping gates hold (f.machine_ships applies):', len(ok),
+          'of which real corpus:', sum(1 for d in ok if not is_certification_test(d)))
+    why = collections.Counter(result[d][1] for d in wanted if d in result and result[d][0] != 'OK')
+    for k, v in why.most_common():
+        print(f'  {v:4d}  {k}')
+    for d in wanted:
+        if d not in result:
+            print('  no result:', d)
+    open(f'{work}/pipeline_decls.txt', 'w').write('\n'.join(ok) + '\n')
+
+
+{'routes': routes, 'reasons': reasons, 'sets': sets, 'endpoints': endpoints,
+ 'pipeline': pipeline}[mode]()

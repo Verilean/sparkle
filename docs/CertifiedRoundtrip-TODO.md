@@ -1035,6 +1035,38 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   about it changed. Still refused, by the classifier: a sub-module call
   or a second `runCircuitH` inside the body (about 35), hand-written
   `runCircuitH` chains (6), a tuple result (1).
+- [x] **Machine modules to the emitted Verilog** (`Sparkle/IR/RefineCheck.lean`,
+  `Tools/ShippingRefineSoundness.lean`, `Tools/ShippingMachineShipping.lean`).
+  The machine theorems ended at the module the CORE entry returns; what
+  ships is that module after the duplicate merge and the optimizer, printed.
+  The existing sequential checker (`seqOptCheck`) accepts NO machine module:
+  its normal forms have no part-select and no concatenation, and it pairs
+  registers by position. `refineCheck m o` is a new result check for every
+  assign + register module: normal forms over the inputs and the register
+  outputs with the two-operand operators, shifts, comparisons, NOT /
+  negation, mux, two-part concatenation and part-select, and with what the
+  optimizer does to them (a wire replaced by its definition; `e & mask` and
+  `e & 0`; `c ? 1 : 0` on one bit; a part-select through a concatenation,
+  of a constant, of the whole expression); registers paired by NAME, and a
+  register of `m` that `o` lacks is allowed (dead-register removal). Proved
+  sound: `rSlice_sound`, `rNormE_sound`, `refineCheck_step_sound` (one
+  cycle), `refineCheck_transfer` (any number of cycles: the outputs agree).
+  `machine_ships`: `MachineTrace` of the core module + `refineCheck` on
+  the merge + `refineCheck` on the optimizer + the emitted-Verilog check
+  (`EmitSem.seqCheck`, `seq_run_to_sv`) ⇒ the optimized module AND its
+  emitted Verilog show the source declaration on every output port at
+  every cycle. `machine_ships_full` states it from a run of the FULL entry
+  `synthesizeCombinational`; `#machine_endpoint f` adds it as
+  `f.machine_ships`. The gates are decidable facts about the modules of the
+  run (premises, as for the register capstones); the suite evaluates them
+  on thirteen declarations and `scripts/shipping-coverage/pipeline.sh` on
+  the corpus: **all gates hold for 104 of the 112 machine-route
+  declarations**. The others: 6 are outside the emitted-Verilog
+  fragment (`seqCheck`; the PCIe / TCP / Ethernet header parsers), 2
+  have normal forms too large to compare (bit-serial CRCs: the normal forms
+  are trees). Not covered: the module parsed back from the printed bytes
+  (the reader's own optimizer goes further than the writer's on
+  multi-register modules), and reset.
 - [ ] **S7 / trust:** Resolve or explicitly retain `EnvDefines` in the final
   claim; record execution-model/external-tool boundaries without hiding them.
   RECORDED — docs/ShippingCompiler-TrustBase.md states the retained base

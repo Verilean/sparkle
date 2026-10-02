@@ -411,6 +411,25 @@ there (and nothing else, if its target is an existing `Term` form); the
 generated endpoint of a declaration using it is the proof. 175 of 389 real
 declarations now pass a gate, 112 on the machine route, all 112 with
 `f.machine_sound`.
+**To the emitted Verilog (landed).** `refineCheck` (`Sparkle/IR/RefineCheck.lean`,
+pure, NOT called by the compiler) + `Tools/ShippingRefineSoundness.lean`
+(`refineCheck_transfer`) + `Tools/ShippingMachineShipping.lean`
+(`machine_ships`, `machine_ships_full`, `MachineShips`). `generate` adds
+`f.machine_ships` (no kernel work: an application of `machine_ships_full`
+to `f.machine_sound`). `scripts/shipping-coverage/pipeline.sh WORK`
+evaluates the gates on the corpus: 104 of 112. To extend the check:
+a new normal-form node needs a constructor of `RShape` and a case in
+`rShape_eval`, `rShape_bound`, `rShape_congr`, `rSlice_sound`,
+`rNormE_sound`; a new optimizer simplification needs a smart constructor
+like `rBin`/`rMux`/`rSlice` with its soundness lemma. The prototype-first
+method paid off: an unverified normaliser was run over the corpus as a
+probe until it accepted the optimizer's output everywhere, and only then
+was that rule set proved. Open here: the six modules `EmitSem.seqCheck`
+rejects, a normal form that is a DAG (cut points at the wires `o` keeps)
+for the two CRC modules, the parsed-back text for multi-register modules,
+and making the gate a compile-time check with a fallback to the
+unoptimised module (a policy decision: it changes shipped text where the
+check fails).
 THE MEASUREMENT CYCLE after any change to `Elab.lean` (about 50 minutes,
 never next to a `lake build`): `PASSES=1 scripts/shipping-coverage/run.sh
 NEW`; `compare_outputs.py OLD/out NEW/out` (every `DIFFERENT` file must be
@@ -502,7 +521,7 @@ audits; do not present a smaller step as a finished unit.
 
 - `lean-toolchain`: `leanprover/lean4:v4.32.1`. Use the existing project
   environment.
-- Latest full verification: `lake build Tests.AllTests`, **681 jobs green** (2026-10-03, normal forms on the machine route).
+- Latest full verification: `lake build Tests.AllTests`, **684 jobs green** (2026-10-03, machine modules to the emitted Verilog).
 - Typical iterative targets:
 
   ```sh
