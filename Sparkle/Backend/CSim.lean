@@ -2168,7 +2168,14 @@ def evalStaleReads (design : Option Design) (body : List Stmt) : List String × 
     | .assign _ rhs => collectExprRefs rhs
     | .memory _ _ _ _ _ _ _ ra _ cr _ er =>
       if cr then er.foldl (fun acc (a, _) => collectExprRefsAux acc a) (collectExprRefs ra) else []
-    | .inst _ _ conns => conns.foldl (fun acc (_, e) => collectExprRefsAux acc e) []
+    | .inst modName _ conns =>
+      -- Only the INPUT connections are reads.  (An instance that feeds
+      -- its own output back into one of its inputs — an arbiter's `gnt`
+      -- gating its `req` — reads that output before driving it.)
+      match design.bind (·.findModule modName) with
+      | some sm => conns.foldl (fun acc (p, e) =>
+          if sm.outputs.any (·.name == p) then acc else collectExprRefsAux acc e) []
+      | none => conns.foldl (fun acc (_, e) => collectExprRefsAux acc e) []
     | _ => []
   let produced : Std.HashSet String :=
     body.foldl (fun h s => (defsOf s).foldl (fun h n => h.insert n) h) {}
@@ -2184,11 +2191,12 @@ def evalStaleReads (design : Option Design) (body : List Stmt) : List String × 
   for s in body do
     let outs := defsOf s
     for r in usesOf s do
-      -- an instance's own output connection is not a read
-      let own := match s with | .inst .. => outs.contains r | _ => false
-      if !own && produced.contains r && !defined.contains r then
+      if produced.contains r && !defined.contains r then
         stale := r :: stale
-        if !outs.contains r && !latched.contains r then cross := true
+        -- an assign that refers to itself settles in one pass; an
+        -- instance fed by its own output does not
+        let selfRef := match s with | .assign .. => outs.contains r | _ => false
+        if !selfRef && !latched.contains r then cross := true
     for d in outs do
       defined := defined.insert d
   return (stale, cross)
@@ -2765,18 +2773,36 @@ def emitModule (m : Module) (design : Option Design := none)
     -- a settling combinational network converges in at most as many
     -- rounds as it has statements.
     let relaxRounds := evalBodyQ.length + 1
+    -- The pass has settled when the wires that were read before they
+    -- were driven come out as they went in: every statement then read
+    -- the values this pass produced.  (The test used to be a memcmp of
+    -- the whole struct against a copy made before each pass — for a
+    -- module that holds an SoC's memories that is hundreds of kilobytes
+    -- copied and compared per round.)
+    let staleWires : List (String × HWType) := staleNames.eraseDups.filterMap fun n =>
+      (typeMap.get? n).map fun ty => (sanitizeName n, ty)
+    let staleScalar (ty : HWType) : Bool := match ty with
+      | .bit => true
+      | .bitVector n => n ≤ 64
+      | _ => false
+    let staleSave := staleWires.map fun (sn, ty) =>
+      if staleScalar ty then s!"        {emitFieldDecl ty s!"__p_{sn}"} = self->{sn};"
+      else s!"        {emitFieldDecl ty s!"__p_{sn}"}; __builtin_memcpy(__p_{sn}, self->{sn}, sizeof(__p_{sn}));"
+    let staleSame := String.intercalate " && " (staleWires.map fun (sn, ty) =>
+      if staleScalar ty then s!"__p_{sn} == self->{sn}"
+      else s!"__builtin_memcmp(__p_{sn}, self->{sn}, sizeof(__p_{sn})) == 0")
     let evalFn :=
       s!"{funcQual}static void sparkle_{className}_eval({structName}* self) \{\n" ++
       "    (void)self;\n" ++
       (if localWireDecls.isEmpty then "" else
         String.intercalate "\n" localWireDecls ++ "\n") ++
       (if evalBodyQ.isEmpty then "" else
-        (if hasEvalCycle then
-          s!"    \{ {structName} __prev; unsigned __round = 0;\n" ++
+        (if hasEvalCycle && !staleWires.isEmpty then
+          s!"    \{ unsigned __round = 0;\n" ++
           s!"      for (; __round < {relaxRounds}u; __round++) \{\n" ++
-          "        __prev = *self;\n" ++
+          String.intercalate "\n" staleSave ++ "\n" ++
           String.intercalate "\n" evalBodyQ ++ "\n" ++
-          "        if (__builtin_memcmp(&__prev, self, sizeof(__prev)) == 0) break;\n" ++
+          s!"        if ({staleSame}) break;\n" ++
           "      } }\n"
         else String.intercalate "\n" evalBodyQ ++ "\n")) ++
       "}\n\n"

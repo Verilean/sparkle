@@ -775,9 +775,12 @@ static void sparkle_sim_eval(struct sim* self) {
     (void)self;
     uint32_t _wide_hoist_0[3];
     uint32_t _wide_hoist_2[3];
-    { struct sim __prev; unsigned __round = 0;
+    { unsigned __round = 0;
       for (; __round < 1636u; __round++) {
-        __prev = *self;
+        uint32_t __p__gen_picorv32_next_irq_pending = self->_gen_picorv32_next_irq_pending;
+        uint8_t __p__gen_uart_tx_fifo_fifo_out_payload_data = self->_gen_uart_tx_fifo_fifo_out_payload_data;
+        uint8_t __p__gen_uart_rx_fifo_fifo_out_payload_data = self->_gen_uart_rx_fifo_fifo_out_payload_data;
+        uint32_t __p_rom_dat0 = self->rom_dat0;
         self->serial_sink_valid &= 1u;
         self->serial_source_ready &= 1u;
         self->sys_clk &= 1u;
@@ -2413,7 +2416,7 @@ static void sparkle_sim_eval(struct sim* self) {
           if ((!(!(((!(!(((!(!(self->_gen_picorv32_resetn) ? 1 : 0)) & (!(!(self->picorv32__reg_pcpi_valid) ? 1 : 0)))) ? 1 : 0)) & (!(!(((self->picorv32__reg_pcpi_insn & 0x7fULL) == (uint8_t)0x33U ? 1 : 0)) ? 1 : 0)))) ? 1 : 0)) && (!(!((((self->picorv32__reg_pcpi_insn >> 25) & 0x7fULL) == (uint8_t)0x1U ? 1 : 0)) ? 1 : 0)) && (!(((self->picorv32__reg_pcpi_insn >> 12) & 0x7ULL)) ? 1 : 0)) { self->picorv32_pcpi_mul_instr_mul_next = (((uint32_t)0x1U) & 1); break; }
           self->picorv32_pcpi_mul_instr_mul_next = (((uint32_t)0x0U) & 1);
         } while (0);
-        if (__builtin_memcmp(&__prev, self, sizeof(__prev)) == 0) break;
+        if (__p__gen_picorv32_next_irq_pending == self->_gen_picorv32_next_irq_pending && __p__gen_uart_tx_fifo_fifo_out_payload_data == self->_gen_uart_tx_fifo_fifo_out_payload_data && __p__gen_uart_rx_fifo_fifo_out_payload_data == self->_gen_uart_rx_fifo_fifo_out_payload_data && __p_rom_dat0 == self->rom_dat0) break;
       } }
 }
 
