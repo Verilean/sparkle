@@ -807,8 +807,19 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   (`concatConst_spec`/`_protect`/`_order`); `cWide_execution` proves
   `(0#1 ++ a) + (0#1 ++ b)`, the first step of the LIN checksum; 15
   declarations gated byte-identical; no corpus output changed. Open
-  next: bare `f <$> a` slices, unary and BitVec-result lifts; then the
-  general `circuit do`, which is where every IP body now stops.
+  next: the general `circuit do`, which is where every IP body now
+  stops. TWO MAP IDIOMS followed: `a.map (fun v => BitVec.append (0#k)
+  v)` (`Term.zextMap`; its lowering is the zero-extending cast's, so the
+  cast's lemmas apply through `setWidth_eq_zero_append`) and the slice
+  written `f <$> a` (`Term.sliceF`; the slice lemmas, now stated for any
+  child hint, at the `Functor.map` handler's hint `a`). The front end
+  folds literal `Nat` differences and descends into `let`s.
+  `zNarrow_execution` proves widen-add-narrow; 9 declarations gated
+  byte-identical. 63 of 389 real declarations pass a gate. The corpus
+  classifier (entry-normalised values) now says what a real `circuit do`
+  body needs beyond the general arm: a structure result behind a
+  projection, `let`, and the two-level Bool lifts (`x && !y`,
+  `!(x || y)`), which need unary `not` as a back-half shape.
 - [ ] **S7 / trust:** Resolve or explicitly retain `EnvDefines` in the final
   claim; record execution-model/external-tool boundaries without hiding them.
   RECORDED — docs/ShippingCompiler-TrustBase.md states the retained base

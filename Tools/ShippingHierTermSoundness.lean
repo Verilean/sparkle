@@ -100,28 +100,47 @@ operator arm, before the instance check. -/
 theorem hierGate_concatE (isInst : Lean.Expr → Bool) (kinds : Array MixedGateBinder) (w : Nat)
     (dom a b : Lean.Expr) (m n : Nat) :
     hierGateBitsBody isInst kinds w (concatE dom m n a b) =
-      (match concatShape? (concatE dom m n a b) with
-       | some (m', k', ga, gb) =>
-         w == m' + k' && (!ga || hierGateBitsBody isInst kinds m' a) && (!gb || hierGateBitsBody isInst kinds k' b)
+      (match sixArgShape? (concatE dom m n a b) with
+       | some (r, ga, gb) =>
+         w == r &&
+           (match ga with | some m' => hierGateBitsBody isInst kinds m' a | none => true) &&
+           (match gb with | some k' => hierGateBitsBody isInst kinds k' b | none => true)
        | none => isInst (concatE dom m n a b) && hierInstSpine isInst kinds (concatE dom m n a b)) := rfl
 
 set_option maxHeartbeats 1000000 in
 theorem hierGate_hiE (isInst : Lean.Expr → Bool) (kinds : Array MixedGateBinder) (w : Nat)
     (dom b : Lean.Expr) (k v n : Nat) :
     hierGateBitsBody isInst kinds w (concatLitHiE dom k v n b) =
-      (match concatShape? (concatLitHiE dom k v n b) with
-       | some (m', k', ga, gb) =>
-         w == m' + k' && (!ga || hierGateBitsBody isInst kinds m' (litE k v)) && (!gb || hierGateBitsBody isInst kinds k' b)
+      (match sixArgShape? (concatLitHiE dom k v n b) with
+       | some (r, ga, gb) =>
+         w == r &&
+           (match ga with | some m' => hierGateBitsBody isInst kinds m' (litE k v) | none => true) &&
+           (match gb with | some k' => hierGateBitsBody isInst kinds k' b | none => true)
        | none => isInst (concatLitHiE dom k v n b) && hierInstSpine isInst kinds (concatLitHiE dom k v n b)) := rfl
 
 set_option maxHeartbeats 1000000 in
 theorem hierGate_loE (isInst : Lean.Expr → Bool) (kinds : Array MixedGateBinder) (w : Nat)
     (dom a : Lean.Expr) (m k v : Nat) :
     hierGateBitsBody isInst kinds w (concatLitLoE dom m k v a) =
-      (match concatShape? (concatLitLoE dom m k v a) with
-       | some (m', k', ga, gb) =>
-         w == m' + k' && (!ga || hierGateBitsBody isInst kinds m' a) && (!gb || hierGateBitsBody isInst kinds k' (litE k v))
+      (match sixArgShape? (concatLitLoE dom m k v a) with
+       | some (r, ga, gb) =>
+         w == r &&
+           (match ga with | some m' => hierGateBitsBody isInst kinds m' a | none => true) &&
+           (match gb with | some k' => hierGateBitsBody isInst kinds k' (litE k v) | none => true)
        | none => isInst (concatLitLoE dom m k v a) && hierInstSpine isInst kinds (concatLitLoE dom m k v a)) := rfl
+
+set_option maxHeartbeats 1000000 in
+theorem hierGate_sliceFE (isInst : Lean.Expr → Bool) (kinds : Array MixedGateBinder) (w : Nat)
+    (dom : Lean.Expr) (nm : Lean.Name) (a : Lean.Expr) (ws start len : Nat) :
+    hierGateBitsBody isInst kinds w (sliceFE dom nm ws start len a) =
+      (match sixArgShape? (sliceFE dom nm ws start len a) with
+       | some (r, ga, gb) =>
+         w == r &&
+           (match ga with
+            | some m' => hierGateBitsBody isInst kinds m' (Tools.ShippingUnifiedMeaning.sliceLamE nm ws start len)
+            | none => true) &&
+           (match gb with | some k' => hierGateBitsBody isInst kinds k' a | none => true)
+       | none => isInst (sliceFE dom nm ws start len a) && hierInstSpine isInst kinds (sliceFE dom nm ws start len a)) := rfl
 
 /-- Quoted cones over accepted leaves are accepted by the instance-aware
 gate; each operation checks its own width. -/
@@ -166,11 +185,12 @@ theorem hier_quote_accepted {isInst : Lean.Expr → Bool} {kinds : Array MixedGa
             k == w && hierGateBitsBody isInst kinds w (quote dom binp vinp a) &&
               hierGateBitsBody isInst kinds w (quote dom binp vinp b)
           | _, _, _ =>
-            match concatShape?
+            match sixArgShape?
                 (binE dom w op (quote dom binp vinp a) (quote dom binp vinp b)) with
-            | some (m, k, ga, gb) =>
-              w == m + k && (!ga || hierGateBitsBody isInst kinds m (quote dom binp vinp a)) &&
-                (!gb || hierGateBitsBody isInst kinds k (quote dom binp vinp b))
+            | some (r, ga, gb) =>
+              w == r &&
+                (match ga with | some m => hierGateBitsBody isInst kinds m (quote dom binp vinp a) | none => true) &&
+                (match gb with | some k => hierGateBitsBody isInst kinds k (quote dom binp vinp b) | none => true)
             | none =>
               isInst (binE dom w op (quote dom binp vinp a) (quote dom binp vinp b)) &&
                 hierInstSpine isInst kinds
@@ -329,26 +349,47 @@ theorem hier_quote_accepted {isInst : Lean.Expr → Bool} {kinds : Array MixedGa
       hier_quote_accepted hb hv a ha
     have ib : hierGateBitsBody isInst kinds n (quote dom binp vinp b) = true :=
       hier_quote_accepted hb hv b hb'
-    rw [hierGate_concatE, Tools.ShippingUnifiedMeaning.concatShape?_concatE dom _ _ (a.wf_pos ha) (b.wf_pos hb')]
+    rw [hierGate_concatE, Tools.ShippingUnifiedMeaning.sixArgShape?_concatE dom _ _ (a.wf_pos ha) (b.wf_pos hb')]
     simp [ia, ib]
   | _, .concatLitHi k v (n := n) b, h => by
     obtain ⟨hb', hk, hlt⟩ := h
     show hierGateBitsBody isInst kinds (k + n) (concatLitHiE dom k v n (quote dom binp vinp b)) = true
     have ib : hierGateBitsBody isInst kinds n (quote dom binp vinp b) = true := hier_quote_accepted hb hv b hb'
-    rw [hierGate_hiE, Tools.ShippingUnifiedMeaning.concatShape?_hiE dom _ hk hlt (b.wf_pos hb')]
+    rw [hierGate_hiE, Tools.ShippingUnifiedMeaning.sixArgShape?_hiE dom _ hk hlt (b.wf_pos hb')]
     simp [ib]
   | _, .concatLitLo (m := m) a k v, h => by
     obtain ⟨ha, hk, hlt⟩ := h
     show hierGateBitsBody isInst kinds (m + k) (concatLitLoE dom m k v (quote dom binp vinp a)) = true
     have ia : hierGateBitsBody isInst kinds m (quote dom binp vinp a) = true := hier_quote_accepted hb hv a ha
-    rw [hierGate_loE, Tools.ShippingUnifiedMeaning.concatShape?_loE dom _ hk hlt (a.wf_pos ha)]
+    rw [hierGate_loE, Tools.ShippingUnifiedMeaning.sixArgShape?_loE dom _ hk hlt (a.wf_pos ha)]
+    simp [ia]
+  | _, .zextMap nm k (n := n) a, h => by
+    obtain ⟨ha, hk⟩ := h
+    show hierGateBitsBody isInst kinds (k + n) (zextMapE dom nm k n (quote dom binp vinp a)) = true
+    have ia : hierGateBitsBody isInst kinds n (quote dom binp vinp a) = true := hier_quote_accepted hb hv a ha
+    change (canonicalNatLitValue? (natE (k + n)) == some (k + n) &&
+      (match canonicalNatLitValue? (natE n), canonicalNatLitValue? (natE k),
+          canonicalNatLitValue? (natE n), canonicalNatLitValue? (natE k),
+          canonicalNatLitValue? (natE 0) with
+       | some ws, some k', some ws', some kl, some z =>
+         0 < ws && 0 < k' && k + n == k' + ws && ws' == ws && kl == k' && z == 0 &&
+           hierGateBitsBody isInst kinds ws (quote dom binp vinp a)
+       | _, _, _, _, _ => false)) = true
+    simp only [canonicalNatLitValue?_natE]
+    simp [ia, hk, a.wf_pos ha]
+  | _, .sliceF nm start len (w := w) a, h => by
+    obtain ⟨ha, hlen, hr⟩ := h
+    show hierGateBitsBody isInst kinds len (sliceFE dom nm w start len (quote dom binp vinp a)) = true
+    have ia : hierGateBitsBody isInst kinds w (quote dom binp vinp a) = true := hier_quote_accepted hb hv a ha
+    rw [hierGate_sliceFE, Tools.ShippingUnifiedMeaning.sixArgShape?_sliceFE dom nm _ hlen hr]
     simp [ia]
 
-/-- A concatenation root: its width is the sum of its operand widths. -/
+/-- A six-argument root (a concatenation, a `<$>` slice): its width is read
+from the shape. -/
 theorem hroot_of_concat {isInst : Lean.Expr → Bool} {kinds : Array MixedGateBinder}
-    {e : Lean.Expr} {m n : Nat} {ga gb : Bool}
-    (cc : concatShape? e = some (m, n, ga, gb))
-    (body : hierGateBitsBody isInst kinds (m + n) e = true) :
+    {e : Lean.Expr} {r : Nat} {ga gb : Option Nat}
+    (cc : sixArgShape? e = some (r, ga, gb))
+    (body : hierGateBitsBody isInst kinds r e = true) :
     hierGateRoot isInst kinds e = true := by
   unfold hierGateRoot
   rw [cc]
@@ -465,18 +506,29 @@ theorem hier_root_accepted {isInst : Lean.Expr → Bool} {kinds : Array MixedGat
         (concatE dom m n (quote dom binp vinp a) (quote dom binp vinp b)) = true :=
       hier_quote_accepted (dom := dom) hb hv (.concat a b) he
     obtain ⟨ha, hb'⟩ := he
-    exact hroot_of_concat (Tools.ShippingUnifiedMeaning.concatShape?_concatE dom _ _
+    exact hroot_of_concat (Tools.ShippingUnifiedMeaning.sixArgShape?_concatE dom _ _
       (a.wf_pos ha) (b.wf_pos hb')) body
   | _, .concatLitHi k v (n := n) b, he, _ => by
     have body : hierGateBitsBody isInst kinds (k + n) (concatLitHiE dom k v n (quote dom binp vinp b)) = true :=
       hier_quote_accepted (dom := dom) hb hv (.concatLitHi k v b) he
     obtain ⟨hb', hk, hlt⟩ := he
-    exact hroot_of_concat (Tools.ShippingUnifiedMeaning.concatShape?_hiE dom _ hk hlt (b.wf_pos hb')) body
+    exact hroot_of_concat (Tools.ShippingUnifiedMeaning.sixArgShape?_hiE dom _ hk hlt (b.wf_pos hb')) body
   | _, .concatLitLo (m := m) a k v, he, _ => by
     have body : hierGateBitsBody isInst kinds (m + k) (concatLitLoE dom m k v (quote dom binp vinp a)) = true :=
       hier_quote_accepted (dom := dom) hb hv (.concatLitLo a k v) he
     obtain ⟨ha, hk, hlt⟩ := he
-    exact hroot_of_concat (Tools.ShippingUnifiedMeaning.concatShape?_loE dom _ hk hlt (a.wf_pos ha)) body
+    exact hroot_of_concat (Tools.ShippingUnifiedMeaning.sixArgShape?_loE dom _ hk hlt (a.wf_pos ha)) body
+  | _, .zextMap nm k (n := n) a, he, _ => by
+    have body : hierGateBitsBody isInst kinds (k + n) (zextMapE dom nm k n (quote dom binp vinp a)) = true :=
+      hier_quote_accepted (dom := dom) hb hv (.zextMap nm k a) he
+    obtain ⟨ha, hk⟩ := he
+    exact hroot_of_setw (Nat.add_pos_left hk n) (Tools.ShippingUnifiedExecutionSoundness.zextMapE_noMux ..) (Tools.ShippingUnifiedExecutionSoundness.zextMapE_noTop ..)
+      (Tools.ShippingUnifiedExecutionSoundness.zextMapE_top dom nm _ hk (a.wf_pos ha)) body
+  | _, .sliceF nm start len (w := w) a, he, _ => by
+    have body : hierGateBitsBody isInst kinds len (sliceFE dom nm w start len (quote dom binp vinp a)) = true :=
+      hier_quote_accepted (dom := dom) hb hv (.sliceF nm start len a) he
+    obtain ⟨ha, hlen, hr⟩ := he
+    exact hroot_of_concat (Tools.ShippingUnifiedMeaning.sixArgShape?_sliceFE dom nm _ hlen hr) body
 
 /-- Once the real declaration has been peeled, recognition of a cone over
 accepted leaves follows — AT the given designation predicate. -/

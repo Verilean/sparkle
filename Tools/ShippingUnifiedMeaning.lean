@@ -116,8 +116,10 @@ def litSigE (dom : Lean.Expr) (k v : Nat) : Lean.Expr :=
   mkApp3 (.const ``Sparkle.Core.Signal.Signal.pure [.zero]) dom
     (mkApp (.const ``BitVec []) (natE k)) (mkApp2 (.const ``BitVec.ofNat []) (natE k) (natE v))
 
-/-- A concatenation, read by the shipping recognisers: both operands Signals,
-or one a literal — which views as the constant Signal of that literal. -/
+/-- The six-argument shapes beside the canonical operators, read by the
+shipping recognisers: a concatenation — both operands Signals, or one a
+literal, which views as the constant Signal of that literal — and the `<$>`
+slice. -/
 def concatView? (e a b : Lean.Expr) : Option Node :=
   match canonicalConcat? e with
   | some (m, k, _, _) => some (.concat m k a b)
@@ -125,14 +127,20 @@ def concatView? (e a b : Lean.Expr) : Option Node :=
     match canonicalConcatLit? e with
     | some (true, k, v, w, dom, _) => some (.concat k w (litSigE dom k v) b)
     | some (false, k, v, w, dom, _) => some (.concat w k a (litSigE dom k v))
-    | none => none
+    | none =>
+      match canonicalSliceF? e with
+      | some (ws, start, len, _) => some (.slice ws start len b)
+      | none => none
 
 /-- The shapes read by the shipping recognisers of later arms: the canonical
 slice map, then the applicative-lifted operators. -/
 def tailView? (e : Lean.Expr) : Option Node :=
   match canonicalSlice? e with
   | some (ws, start, len, a) => some (.slice ws start len a)
-  | none => appView? e
+  | none =>
+    match canonicalZextMap? e with
+    | some (ws, k, a) => some (.setw ws (k + ws) a)
+    | none => appView? e
 
 /-- Pure syntax view. Operator instances and literal widths are checked using
 shipping recognizers; no MetaM type query or runtime environment oracle. -/
@@ -367,17 +375,87 @@ theorem view_concatLitLo (dom a : Lean.Expr) {m k v : Nat} (hk : 0 < k) (hv : v 
     view (concatLitLoE dom m k v a) = some (.concat m k a (litSigE dom k v)) := by
   rw [view_loE_fall, concatView?, canonicalConcat?_loE, canonicalConcatLit?_loE dom a hk hv hm]
 
-theorem concatShape?_concatE (dom a b : Lean.Expr) {m n : Nat} (hm : 0 < m) (hn : 0 < n) :
-    concatShape? (concatE dom m n a b) = some (m, n, true, true) := by
-  rw [concatShape?, canonicalConcat?_concatE dom a b hm hn]
+theorem sixArgShape?_concatE (dom a b : Lean.Expr) {m n : Nat} (hm : 0 < m) (hn : 0 < n) :
+    sixArgShape? (concatE dom m n a b) = some (m + n, some m, some n) := by
+  rw [sixArgShape?, canonicalConcat?_concatE dom a b hm hn]
 
-theorem concatShape?_hiE (dom b : Lean.Expr) {k v n : Nat} (hk : 0 < k) (hv : v < 2 ^ k)
-    (hn : 0 < n) : concatShape? (concatLitHiE dom k v n b) = some (k, n, false, true) := by
-  rw [concatShape?, canonicalConcat?_hiE, canonicalConcatLit?_hiE dom b hk hv hn]
+theorem sixArgShape?_hiE (dom b : Lean.Expr) {k v n : Nat} (hk : 0 < k) (hv : v < 2 ^ k)
+    (hn : 0 < n) : sixArgShape? (concatLitHiE dom k v n b) = some (k + n, none, some n) := by
+  rw [sixArgShape?, canonicalConcat?_hiE, canonicalConcatLit?_hiE dom b hk hv hn]
 
-theorem concatShape?_loE (dom a : Lean.Expr) {m k v : Nat} (hk : 0 < k) (hv : v < 2 ^ k)
-    (hm : 0 < m) : concatShape? (concatLitLoE dom m k v a) = some (m, k, true, false) := by
-  rw [concatShape?, canonicalConcat?_loE, canonicalConcatLit?_loE dom a hk hv hm]
+theorem sixArgShape?_loE (dom a : Lean.Expr) {m k v : Nat} (hk : 0 < k) (hv : v < 2 ^ k)
+    (hm : 0 < m) : sixArgShape? (concatLitLoE dom m k v a) = some (m + k, some m, none) := by
+  rw [sixArgShape?, canonicalConcat?_loE, canonicalConcatLit?_loE dom a hk hv hm]
+
+/-! ### The zero-extending map and the `<$>` slice -/
+
+theorem canonicalZextMap?_zextMapE (dom : Lean.Expr) (nm : Lean.Name) (a : Lean.Expr)
+    {k n : Nat} (hk : 0 < k) (hn : 0 < n) :
+    canonicalZextMap? (zextMapE dom nm k n a) = some (n, k, a) := by
+  simp only [zextMapE, litE, bitVecE, mkApp5, mkApp4, mkApp3, mkApp2, mkAppB, mkApp,
+    canonicalZextMap?, canonicalNatLitValue?_natE]
+  simp [hk, hn]
+
+set_option maxHeartbeats 1000000 in
+theorem view_zextMapE_fall (dom : Lean.Expr) (nm : Lean.Name) (a : Lean.Expr) (k n : Nat) :
+    view (zextMapE dom nm k n a) = tailView? (zextMapE dom nm k n a) := rfl
+
+set_option maxHeartbeats 1000000 in
+theorem canonicalSlice?_zextMapE (dom : Lean.Expr) (nm : Lean.Name) (a : Lean.Expr) (k n : Nat) :
+    canonicalSlice? (zextMapE dom nm k n a) = none := rfl
+
+theorem view_zextMap (dom : Lean.Expr) (nm : Lean.Name) (a : Lean.Expr) {k n : Nat}
+    (hk : 0 < k) (hn : 0 < n) :
+    view (zextMapE dom nm k n a) = some (.setw n (k + n) a) := by
+  rw [view_zextMapE_fall, tailView?, canonicalSlice?_zextMapE,
+    canonicalZextMap?_zextMapE dom nm a hk hn]
+
+/-- A literal zero prefix is the zero-extension. -/
+theorem setWidth_eq_zero_append (k : Nat) {n : Nat} (x : BitVec n) :
+    BitVec.setWidth (k + n) x = BitVec.append (BitVec.ofNat k 0) x := by
+  apply BitVec.eq_of_toNat_eq
+  have hx : x.toNat < 2 ^ (k + n) :=
+    Nat.lt_of_lt_of_le x.isLt (Nat.pow_le_pow_right (by omega) (by omega))
+  simp [BitVec.toNat_setWidth, BitVec.toNat_append, Nat.mod_eq_of_lt hx]
+
+theorem canonicalSliceF?_sliceFE (dom : Lean.Expr) (nm : Lean.Name) (a : Lean.Expr)
+    {w start len : Nat} (hlen : 0 < len) (hr : start + len ≤ w) :
+    canonicalSliceF? (sliceFE dom nm w start len a) = some (w, start, len, a) := by
+  simp only [sliceFE, mkApp6, mkApp5, mkApp4, mkApp3, mkApp2, mkAppB, mkApp, bitVecE,
+    canonicalSliceF?, canonicalNatLitValue?_natE]
+  simp [hlen, hr]
+
+set_option maxHeartbeats 1000000 in
+theorem canonicalConcat?_sliceFE (dom : Lean.Expr) (nm : Lean.Name) (a : Lean.Expr)
+    (w start len : Nat) : canonicalConcat? (sliceFE dom nm w start len a) = none := rfl
+
+set_option maxHeartbeats 1000000 in
+theorem canonicalConcatLit?_sliceFE (dom : Lean.Expr) (nm : Lean.Name) (a : Lean.Expr)
+    (w start len : Nat) : canonicalConcatLit? (sliceFE dom nm w start len a) = none := rfl
+
+theorem sixArgShape?_sliceFE (dom : Lean.Expr) (nm : Lean.Name) (a : Lean.Expr)
+    {w start len : Nat} (hlen : 0 < len) (hr : start + len ≤ w) :
+    sixArgShape? (sliceFE dom nm w start len a) = some (len, none, some w) := by
+  rw [sixArgShape?, canonicalConcat?_sliceFE, canonicalConcatLit?_sliceFE,
+    canonicalSliceF?_sliceFE dom nm a hlen hr]
+
+/-- The lambda of the `<$>` slice, the fifth argument of the application. -/
+def sliceLamE (nm : Lean.Name) (w start len : Nat) : Lean.Expr :=
+  .lam nm (bitVecE w)
+    (mkApp4 (.const ``BitVec.extractLsb' []) (natE w) (natE start) (natE len) (.bvar 0))
+    .default
+
+set_option maxHeartbeats 1000000 in
+theorem view_sliceFE_fall (dom : Lean.Expr) (nm : Lean.Name) (a : Lean.Expr)
+    (w start len : Nat) :
+    view (sliceFE dom nm w start len a) =
+      concatView? (sliceFE dom nm w start len a) (sliceLamE nm w start len) a := rfl
+
+theorem view_sliceF (dom : Lean.Expr) (nm : Lean.Name) (a : Lean.Expr)
+    {w start len : Nat} (hlen : 0 < len) (hr : start + len ≤ w) :
+    view (sliceFE dom nm w start len a) = some (.slice w start len a) := by
+  rw [view_sliceFE_fall, concatView?, canonicalConcat?_sliceFE, canonicalConcatLit?_sliceFE,
+    canonicalSliceF?_sliceFE dom nm a hlen hr]
 
 /-- The literal's constant Signal means the literal. -/
 theorem meaning_litSigE {inputs : FVarId → Option Value} (dom : Lean.Expr) {k v : Nat}
@@ -487,6 +565,13 @@ theorem meaning_quote_leaves {inputs : FVarId → Option Value} {dom : Lean.Expr
     apply Meaning.concat (view_concatLitLo dom _ hk hlt (a.wf_pos ha))
       (meaning_quote_leaves hb hv a ha) (meaning_litSigE dom hlt)
     simp [concatValue, pack, eval]
+  | _, .zextMap nm k a, h => by
+    obtain ⟨ha, hk⟩ := h
+    apply Meaning.setw (view_zextMap dom nm _ hk (a.wf_pos ha)) (meaning_quote_leaves hb hv a ha)
+    simp [setwValue, pack, eval, setWidth_eq_zero_append]
+  | _, .sliceF nm start len (w := w) a, ⟨ha, hlen, hr⟩ => by
+    apply Meaning.slice (view_sliceF dom nm _ hlen hr) (meaning_quote_leaves hb hv a ha)
+    simp [sliceValue, pack, eval]
 
 /-- The input-binder instance: leaves are prepared free variables. -/
 theorem meaning_quote {inputs : FVarId → Option Value} {dom : Lean.Expr} {kb kv : Nat}

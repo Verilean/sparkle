@@ -1410,27 +1410,72 @@ def canonicalConcatLit? :
     | _, _, _, _, _, _, _ => none
   | _ => none
 
-/-- The two operand widths of a concatenation node — high, then low — and
-    which of the operands is a Signal the gates recurse into (a literal
-    operand is not). -/
-def concatShape? (e : Lean.Expr) : Option (Nat × Nat × Bool × Bool) :=
+/-- Canonical zero-extension by a literal prefix inside a map:
+    `Signal.map (fun v => BitVec.append (0#k) v) s` at literal positive
+    widths, the result width the literal of `k + ws`.  Returns `(source
+    width, prefix width, child)`.  Its lowering is the width cast's. -/
+def canonicalZextMap? : Lean.Expr → Option (Nat × Nat × Lean.Expr)
+  | .app (.app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.map _) _)
+      (.app (.const ``BitVec _) wsE)) (.app (.const ``BitVec _) wtE))
+      (.lam _ _ (.app (.app (.app (.app (.const ``BitVec.append _) kE) wsE')
+        (.app (.app (.const ``BitVec.ofNat _) kL) zL)) (.bvar 0)) _)) a =>
+    match canonicalNatLitValue? wsE, canonicalNatLitValue? wtE, canonicalNatLitValue? kE,
+        canonicalNatLitValue? wsE', canonicalNatLitValue? kL, canonicalNatLitValue? zL with
+    | some ws, some wt, some k, some ws', some kl, some z =>
+      if 0 < ws && 0 < k && wt == k + ws && ws' == ws && kl == k && z == 0 then
+        some (ws, k, a) else none
+    | _, _, _, _, _, _ => none
+  | _ => none
+
+/-- Canonical slice written with `<$>`: `(fun x => BitVec.extractLsb' start
+    len x) <$> s` at the library's `Functor` instance — the form the front
+    end leaves a bare `f <$> a` in, because the legacy lowers it under its
+    own child hint (`a`).  Same conditions and result as `canonicalSlice?`. -/
+def canonicalSliceF? : Lean.Expr → Option (Nat × Nat × Nat × Lean.Expr)
+  | .app (.app (.app (.app (.app (.app (.const ``Functor.map _)
+      (.app (.const ``Sparkle.Core.Signal.Signal _) _))
+      (.app (.const ``Sparkle.Core.Signal.instFunctorSignal _) _))
+      (.app (.const ``BitVec _) wsE)) (.app (.const ``BitVec _) lenE))
+      (.lam _ _ (.app (.app (.app (.app (.const ``BitVec.extractLsb' _) wsE') startE) lenE')
+        (.bvar 0)) _)) a =>
+    match canonicalNatLitValue? wsE, canonicalNatLitValue? lenE, canonicalNatLitValue? wsE',
+        canonicalNatLitValue? startE, canonicalNatLitValue? lenE' with
+    | some ws, some len, some ws', some start, some len' =>
+      if 0 < len && ws' == ws && len' == len && decide (start + len ≤ ws) then
+        some (ws, start, len, a)
+      else none
+    | _, _, _, _, _ => none
+  | _ => none
+
+/-- The six-argument shapes beside the canonical operators — a constant
+    applied to three types, an instance and two operands: the result width,
+    and for each of the two operands the width the gates require of it when
+    it is a Signal they recurse into (a literal operand, and the function of
+    a `<$>`, are not).  Concatenations, and the `<$>` slice. -/
+def sixArgShape? (e : Lean.Expr) : Option (Nat × Option Nat × Option Nat) :=
   match canonicalConcat? e with
-  | some (m, n, _, _) => some (m, n, true, true)
+  | some (m, n, _, _) => some (m + n, some m, some n)
   | none =>
     match canonicalConcatLit? e with
-    | some (true, k, _, w, _, _) => some (k, w, false, true)
-    | some (false, k, _, w, _, _) => some (w, k, true, false)
-    | none => none
+    | some (true, k, _, w, _, _) => some (k + w, none, some w)
+    | some (false, k, _, w, _, _) => some (w + k, some w, none)
+    | none =>
+      match canonicalSliceF? e with
+      | some (ws, _, len, _) => some (len, none, some ws)
+      | none => none
 
-/-- The target width of a canonical width-changing root: a `setWidth` cast or
-    a slice. -/
+/-- The target width of a canonical width-changing root: a `setWidth` cast,
+    a slice, or a literal-prefix zero-extension. -/
 def canonicalSetWidthTop? (e : Lean.Expr) : Option Nat :=
   match canonicalSetWidth? e with
   | some (_, wt, _) => some wt
   | none =>
     match canonicalSlice? e with
     | some (_, _, len, _) => some len
-    | none => none
+    | none =>
+      match canonicalZextMap? e with
+      | some (ws, k, _) => some (k + ws)
+      | none => none
 
 /-- Canonical register: `Signal.register initLit s` at a literal positive
     width, restricted to a POLYMORPHIC domain binder (`.fvar`/`.bvar`). A
@@ -2425,17 +2470,30 @@ def unifiedGateBitsBody (kinds : Array MixedGateBinder) (n : Nat) : Lean.Expr �
        | some ws, some ws', some start =>
          ws' == ws && 0 < n && decide (start + n ≤ ws) && unifiedGateBitsBody kinds ws a
        | _, _, _ => false)
+  | .app (.app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.map _) _)
+      (.app (.const ``BitVec _) wsE)) (.app (.const ``BitVec _) wtE))
+      (.lam _ _ (.app (.app (.app (.app (.const ``BitVec.append _) kE) wsE')
+        (.app (.app (.const ``BitVec.ofNat _) kL) zL)) (.bvar 0)) _)) a =>
+      canonicalNatLitValue? wtE == some n &&
+      (match canonicalNatLitValue? wsE, canonicalNatLitValue? kE, canonicalNatLitValue? wsE',
+          canonicalNatLitValue? kL, canonicalNatLitValue? zL with
+       | some ws, some k, some ws', some kl, some z =>
+         0 < ws && 0 < k && n == k + ws && ws' == ws && kl == k && z == 0 &&
+           unifiedGateBitsBody kinds ws a
+       | _, _, _, _, _ => false)
   | e@(.app (.app (.app (.app (.app (.app (.const m _) _) _) _) _) a) b) =>
       match signalBinOpOf m, canonicalSignalBinKinds m e.getAppArgs,
           canonicalSignalBitVecWidth e.getAppArgs with
       | some _, some (true, true), some w =>
         w == n && unifiedGateBitsBody kinds n a && unifiedGateBitsBody kinds n b
       | _, _, _ =>
-        -- A concatenation: the Signal operands at their own widths.
-        match concatShape? e with
-        | some (m, k, ga, gb) =>
-          n == m + k && (!ga || unifiedGateBitsBody kinds m a) &&
-            (!gb || unifiedGateBitsBody kinds k b)
+        -- The other six-argument shapes: the Signal operands at their own
+        -- widths.
+        match sixArgShape? e with
+        | some (r, ga, gb) =>
+          n == r &&
+            (match ga with | some m => unifiedGateBitsBody kinds m a | none => true) &&
+            (match gb with | some k => unifiedGateBitsBody kinds k b | none => true)
         | none => false
   | _ => false
 
@@ -2446,8 +2504,8 @@ end
     root from its two operand widths. -/
 def unifiedGateRoot (kinds : Array MixedGateBinder) (e : Lean.Expr) : Bool :=
   unifiedGateBoolBody kinds e ||
-    (match concatShape? e with
-      | some (m, k, _, _) => unifiedGateBitsBody kinds (m + k) e
+    (match sixArgShape? e with
+      | some (r, _, _) => unifiedGateBitsBody kinds r e
       | none => false) ||
     (match canonicalMuxType? e with
       | some (.bitVector n) => 0 < n && unifiedGateBitsBody kinds n e
@@ -2639,16 +2697,28 @@ def hierGateBitsBody (isInst : Lean.Expr → Bool) (kinds : Array MixedGateBinde
        | some ws, some ws', some start =>
          ws' == ws && 0 < n && decide (start + n ≤ ws) && hierGateBitsBody isInst kinds ws a
        | _, _, _ => false)
+  | .app (.app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.map _) _)
+      (.app (.const ``BitVec _) wsE)) (.app (.const ``BitVec _) wtE))
+      (.lam _ _ (.app (.app (.app (.app (.const ``BitVec.append _) kE) wsE')
+        (.app (.app (.const ``BitVec.ofNat _) kL) zL)) (.bvar 0)) _)) a =>
+      canonicalNatLitValue? wtE == some n &&
+      (match canonicalNatLitValue? wsE, canonicalNatLitValue? kE, canonicalNatLitValue? wsE',
+          canonicalNatLitValue? kL, canonicalNatLitValue? zL with
+       | some ws, some k, some ws', some kl, some z =>
+         0 < ws && 0 < k && n == k + ws && ws' == ws && kl == k && z == 0 &&
+           hierGateBitsBody isInst kinds ws a
+       | _, _, _, _, _ => false)
   | e@(.app (.app (.app (.app (.app (.app (.const m _) _) _) _) _) a) b) =>
       match signalBinOpOf m, canonicalSignalBinKinds m e.getAppArgs,
           canonicalSignalBitVecWidth e.getAppArgs with
       | some _, some (true, true), some w =>
         w == n && hierGateBitsBody isInst kinds n a && hierGateBitsBody isInst kinds n b
       | _, _, _ =>
-        match concatShape? e with
-        | some (m, k, ga, gb) =>
-          n == m + k && (!ga || hierGateBitsBody isInst kinds m a) &&
-            (!gb || hierGateBitsBody isInst kinds k b)
+        match sixArgShape? e with
+        | some (r, ga, gb) =>
+          n == r &&
+            (match ga with | some m => hierGateBitsBody isInst kinds m a | none => true) &&
+            (match gb with | some k => hierGateBitsBody isInst kinds k b | none => true)
         | none => isInst e && hierInstSpine isInst kinds e
   | e => isInst e && e.isApp && hierInstSpine isInst kinds e
 
@@ -2661,8 +2731,8 @@ end
 def hierGateRoot (isInst : Lean.Expr → Bool) (kinds : Array MixedGateBinder)
     (e : Lean.Expr) : Bool :=
   hierGateBoolBody isInst kinds e ||
-    (match concatShape? e with
-      | some (m, k, _, _) => hierGateBitsBody isInst kinds (m + k) e
+    (match sixArgShape? e with
+      | some (r, _, _) => hierGateBitsBody isInst kinds r e
       | none => false) ||
     (match canonicalMuxType? e with
       | some (.bitVector n) => 0 < n && hierGateBitsBody isInst kinds n e
@@ -3013,7 +3083,7 @@ def inlHeadCtor (defs : Name → Option Lean.Expr) (ctor : Name) :
     (`inlHeadCtor`); when the record does not reach a constructor the
     projection is kept.  `f <$> a <*> b` at the library's Signal instances
     becomes `Signal.ap (Signal.map f a) b` (`inlSignalApplicative`).  Descends
-    through applications and `fun` bodies. -/
+    through applications, `fun` bodies, and the value and body of a `let`. -/
 def inlineDefs (defs : Name → Option Lean.Expr) (projs : Name → Option (Name × Nat × Nat)) :
     Nat → Lean.Expr → Nat → Option (Lean.Expr × Nat)
   | 0, _, _ => none
@@ -3021,6 +3091,13 @@ def inlineDefs (defs : Name → Option Lean.Expr) (projs : Name → Option (Name
   | fuel + 1, .lam n t body bi, b + 1 =>
     match inlineDefs defs projs fuel body b with
     | some (body', b) => some (.lam n t body' bi, b)
+    | none => none
+  | fuel + 1, .letE n t v body nd, b + 1 =>
+    match inlineDefs defs projs fuel v b with
+    | some (v', b) =>
+      match inlineDefs defs projs fuel body b with
+      | some (body', b) => some (.letE n t v' body' nd, b)
+      | none => none
     | none => none
   | fuel + 1, e, b + 1 =>
     match inlSpine e [] with
@@ -3073,8 +3150,8 @@ def inlNatLit (n : Nat) : Lean.Expr :=
   mkApp3 (.const ``OfNat.ofNat [.zero]) (.const ``Nat []) (.lit (.natVal n))
     (mkApp (.const ``instOfNatNat []) (.lit (.natVal n)))
 
-/-- `a + b` of two literals at the core `Nat` addition, as the literal of the
-    sum. -/
+/-- `a + b` / `a - b` of two literals at the core `Nat` operations, as the
+    literal of the result. -/
 def inlNatSum? : Lean.Expr → Option Lean.Expr
   | .app (.app (.app (.app (.app (.app (.const ``HAdd.hAdd _) (.const ``Nat _))
       (.const ``Nat _)) (.const ``Nat _))
@@ -3082,9 +3159,15 @@ def inlNatSum? : Lean.Expr → Option Lean.Expr
     match canonicalNatLitValue? a, canonicalNatLitValue? b with
     | some m, some n => some (inlNatLit (m + n))
     | _, _ => none
+  | .app (.app (.app (.app (.app (.app (.const ``HSub.hSub _) (.const ``Nat _))
+      (.const ``Nat _)) (.const ``Nat _))
+      (.app (.app (.const ``instHSub _) (.const ``Nat _)) (.const ``instSubNat _))) a) b =>
+    match canonicalNatLitValue? a, canonicalNatLitValue? b with
+    | some m, some n => some (inlNatLit (m - n))
+    | _, _ => none
   | _ => none
 
-/-- Fold every sum of `Nat` literals, bottom-up, everywhere in the expression
+/-- Fold every sum and difference of `Nat` literals, bottom-up, everywhere in the expression
     (type arguments and binder types included).  The result type of `a ++ b`
     is `BitVec (m + n)`, and that sum is what every parent's type arguments
     then carry; folded, the width is a literal like every other width the
@@ -6073,6 +6156,13 @@ def translateConcatUncachedWith (rec : TranslateFn) (m n : Nat) : TranslateFn :=
     translateConcatWith rec m n e.getAppArgs[e.getAppArgs.size - 2]! e.getAppArgs.back!
       hint named
 
+/-- Uncached lowering for the `<$>` slice: as the slice map, under the
+    legacy `Functor.map` handler's child hint. -/
+def translateSliceFUncachedWith (rec : TranslateFn) (start len : Nat) : TranslateFn :=
+  fun e hint _top named => do
+    let sw ← rec e.getAppArgs.back! "a" false false
+    emitSliceResult (sliceRhs start len sw) len hint named
+
 /-- Uncached lowering for the canonical polymorphic-domain register: the
     input first, then one register statement on the shared clock/reset
     names. The asynchronous kind matches the legacy handler's fallback for
@@ -6473,6 +6563,8 @@ inductive FallbackKind where
   | slice (ws start len : Nat)
   | concat (m n : Nat)
   | concatLit (hi : Bool) (k v w : Nat)
+  | zextMap (ws k : Nat)
+  | sliceF (ws start len : Nat)
   | other
   deriving DecidableEq, Repr
 
@@ -6511,7 +6603,13 @@ def fallbackKind (e : Lean.Expr) : FallbackKind :=
                       | none =>
                         match canonicalConcatLit? e with
                         | some (hi, k, v, w, _, _) => .concatLit hi k v w
-                        | none => .other
+                        | none =>
+                          match canonicalZextMap? e with
+                          | some (ws, k, _) => .zextMap ws k
+                          | none =>
+                            match canonicalSliceF? e with
+                            | some (ws, start, len, _) => .sliceF ws start len
+                            | none => .other
 
 /-- The existing handler chain (cache wrapper + dispatch) as the fallback:
     one lowering per `fallbackKind`. -/
@@ -6551,6 +6649,11 @@ def translateFallback (rec : TranslateFn) : TranslateFn :=
       translateControlCachedWith (translateConcatUncachedWith rec m n) e hint top named
     | .concatLit hi k v w =>
       translateControlCachedWith (translateConcatLitUncachedWith rec hi k v w) e hint top named
+    | .zextMap ws k =>
+      -- A literal zero prefix inside a map is the zero-extending width cast.
+      translateControlCachedWith (translateSetWidthUncachedWith rec ws (k + ws)) e hint top named
+    | .sliceF _ start len =>
+      translateControlCachedWith (translateSliceFUncachedWith rec start len) e hint top named
     | .other => translateInstanceOrFallback rec e hint top named
 
 def translateStep : TranslateFn → TranslateFn := translateStepWith translateFallback

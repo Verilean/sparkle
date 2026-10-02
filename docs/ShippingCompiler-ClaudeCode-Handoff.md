@@ -183,7 +183,7 @@ hardware `let` → applicative/slices → structure results. The list below
 is the older, shape-driven plan and is subordinate to the measurement.
 
 **Adding a `Term` constructor — the sites.** Done five times now
-(`setw`, `appCompare`/`appBool`, `bitsNum`, `slice`, `concat`, `concatLitHi`/`concatLitLo`); the checklist is:
+(`setw`, `appCompare`/`appBool`, `bitsNum`, `slice`, `concat`, `concatLitHi`/`concatLitLo`, `zextMap`, `sliceF`); the checklist is:
 `Tools/ShippingUnifiedSource.lean` (constructor, `WF`, `wf_pos` for a
 bits result, `eval`, `denote`, `denote_val`, an `…E` builder, `quote`,
 `instFVars_quote`, `quote_congr`); `ShippingUnifiedMeaning.lean` (`view`
@@ -243,7 +243,22 @@ and order lemma. The literal-operand concatenations cost three short
 lemmas this way. (6) Read the ARGUMENT ORDER of a library instance from
 the elaborated term, not from its statement: auto-bound implicits are
 ordered by first occurrence (`instHAppendBitVecSignalHAddNat` takes the
-literal's width, the domain, the Signal's width).
+literal's width, the domain, the Signal's width). (7) Before adding a constructor, check whether the
+node LOWERS like an existing one: the literal-prefix map lowers exactly
+like the zero-extending `setWidth`, so its arm calls the cast's lowering
+and its proofs are the cast's, with one `BitVec` identity in between.
+(8) Six-argument shapes go through `sixArgShape?` (gates, roots) and
+`concatView?` (view): extend those two functions, do not touch the
+generic arm or its restatements again.
+
+**Measuring before building.** `inlineDefs` did not descend into `let`
+until the map-idiom unit, so every "residual head" statistic taken before
+it over-counted user definitions and applicative forms inside
+`circuit do` bodies. The classifiers (`cdo_tail`, `lift_tail` in the
+session scratchpad; the committed `probe_tail`/`normalize_tail` predate
+the real normaliser) must run on `userInliner env value`. Run several
+probes in ONE elaboration per file and in parallel — each file is
+re-elaborated with all its syntheses, which is the whole cost.
 
 **Front-end rewrites and sharing.** A normalisation is byte-safe only if
 the legacy route keys its cache on the same expression. Canonicalising

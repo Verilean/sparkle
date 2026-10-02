@@ -1189,16 +1189,17 @@ theorem sliceRhs_eval {we : WEnv} {env : Env} {sw : String} {ws start len : Nat}
   have hw : start + len - 1 - start + 1 = len := by omega
   simp [sliceRhs, evalExpr, hv, hw, mask, BitVec.extractLsb'_toNat]
 
-theorem slice_fresh {ctx inputs we mems initial rec ae hint named} {ws start len : Nat}
+theorem slice_fresh {ctx inputs we mems initial rec ae hint named} {h : String}
+    {ws start len : Nat}
     {x : BitVec ws} (hlen : 0 < len) (hr : start + len ≤ ws)
-    (ca : Child rec ctx inputs we mems initial ae "s" (.bits ws x)) :
+    (ca : Child rec ctx inputs we mems initial ae h (.bits ws x)) :
     FreshAction (do
-        let sw ← rec ae "s" false false
+        let sw ← rec ae h false false
         emitSliceResult (sliceRhs start len sw) len hint named)
       ctx inputs we mems initial (.bits len (BitVec.extractLsb' start len x)) := by
   have shape : ∀ s t w, Lookup ctx inputs s →
       Returns (do
-        let sw ← rec ae "s" false false
+        let sw ← rec ae h false false
         emitSliceResult (sliceRhs start len sw) len hint named) ctx s w t →
       Frame s t ∧ s.usedNames.contains w = false := by
     intro s t w lookup hr'
@@ -1211,13 +1212,13 @@ theorem slice_fresh {ctx inputs we mems initial rec ae hint named} {ws start len
     · have := fa.used w hu; simp [fresh] at this
   refine ⟨⟨fun s t w lookup hr' => (shape s t w lookup hr').1, ?_⟩,
     fun s t w lookup hr' => (shape s t w lookup hr').2⟩
-  intro s t w prior h widths hr'
+  intro s t w prior hinv widths hr'
   obtain ⟨sw, sm, ra, re⟩ := Returns.bind hr'
   obtain ⟨hw, ht⟩ := emitSliceResult_returns re
-  have lookup := Lookup.ofInputs h.inputs
+  have lookup := Lookup.ofInputs hinv.inputs
   have fa := ca.frame s sm sw lookup ra
   have fcast := (emit_slice_frame (sliceRhs_simple start len hlen sw) re).1
-  have aout := ca.sem s sm sw prior h (fcast.decls.widths widths) ra
+  have aout := ca.sem s sm sw prior hinv (fcast.decls.widths widths) ra
   obtain ⟨va, ia, av, af⟩ := aout.execution
   have step := allocate_assign_outcome (v := .bits len (BitVec.extractLsb' start len x)) ia hw ht
     (hwTypeFromWidth_bitWidth len)
@@ -1284,6 +1285,153 @@ theorem slice_contract {rec ctx inputs we mems initial dom ae nm} {ws start len 
     show FreshAction (translateSliceUncachedWith rec start len (sliceE dom nm ws start len ae)
       hint top named) ctx inputs we mems initial (.bits len (BitVec.extractLsb' start len x))
     rw [sliceUncached_sliceE]
+    exact slice_fresh hlen hr ca
+  exact ⟨fun hint top named => (step hint top named).frame,
+    fun hint top named => (step hint top named).sem⟩
+
+/-! ## The zero-extending map and the `<$>` slice
+
+`a.map (fun v => BitVec.append (0#k) v)` lowers exactly like the
+zero-extending width cast: the child under hint `"s"`, then `{k'd0, s}`.
+`f <$> a` for a slice function lowers like the slice map, under the legacy
+`Functor.map` handler's child hint `"a"`. -/
+
+set_option maxHeartbeats 1000000 in
+theorem zextMapE_getAppArgs (dom : Lean.Expr) (nm : Lean.Name) (ae : Lean.Expr) (k n : Nat) :
+    (zextMapE dom nm k n ae).getAppArgs = #[dom, bitVecE n, bitVecE (k + n),
+      .lam nm (bitVecE n)
+        (mkApp4 (.const ``BitVec.append []) (natE k) (natE n) (litE k 0) (.bvar 0)) .default,
+      ae] := rfl
+
+theorem setwUncached_zextMapE (rec : TranslateFn) (dom : Lean.Expr) (nm : Lean.Name)
+    (ae : Lean.Expr) (k n : Nat) (hint : String) (top named : Bool) :
+    translateSetWidthUncachedWith rec n (k + n) (zextMapE dom nm k n ae) hint top named =
+      (do
+        let sw ← rec ae "s" false false
+        emitCastResult (setwRhs n (k + n) sw) (k + n) hint named) := by
+  show (do
+      let sw ← rec (zextMapE dom nm k n ae).getAppArgs.back! "s" false false
+      emitCastResult (setwRhs n (k + n) sw) (k + n) hint named) = _
+  rw [zextMapE_getAppArgs]
+  rfl
+
+set_option maxHeartbeats 1000000 in
+theorem zextMap_step (rec : TranslateFn) (dom : Lean.Expr) (nm : Lean.Name) (ae : Lean.Expr)
+    (k n : Nat) (hint : String) (top named : Bool) (hk : 0 < k) (hn : 0 < n) :
+    translateStepWith translateFallback rec (zextMapE dom nm k n ae) hint top named =
+      translateControlCachedWith (translateSetWidthUncachedWith rec n (k + n))
+        (zextMapE dom nm k n ae) hint top named := by
+  have shape : translateCoreShape (zextMapE dom nm k n ae) = false := rfl
+  have core : translateCore rec (zextMapE dom nm k n ae) hint top named = pure none := rfl
+  have control : isBoolControl (zextMapE dom nm k n ae) = false := rfl
+  have mux : canonicalMuxType? (zextMapE dom nm k n ae) = none := rfl
+  have setw : canonicalSetWidth? (zextMapE dom nm k n ae) = none := rfl
+  have reg : canonicalRegister? (zextMapE dom nm k n ae) = none := rfl
+  have regEn : canonicalRegisterEnable? (zextMapE dom nm k n ae) = none := rfl
+  have loopR : canonicalLoopRegister? (zextMapE dom nm k n ae) = none := rfl
+  have cdo : canonicalCircuitDo? (zextMapE dom nm k n ae) = none := rfl
+  have cdo2 : canonicalCircuitDo2? (zextMapE dom nm k n ae) = none := rfl
+  have mem : canonicalMemory? (zextMapE dom nm k n ae) = none := rfl
+  have sl := canonicalSlice?_zextMapE dom nm ae k n
+  have cc : canonicalConcat? (zextMapE dom nm k n ae) = none := rfl
+  have cl : canonicalConcatLit? (zextMapE dom nm k n ae) = none := rfl
+  have zx := canonicalZextMap?_zextMapE dom nm ae hk hn
+  have step : translateStepWith translateFallback rec (zextMapE dom nm k n ae)
+      hint top named = translateFallback rec (zextMapE dom nm k n ae) hint top named := by
+    simp [translateStepWith, shape, core]
+    rfl
+  rw [step]
+  simp only [translateFallback, fallbackKind, control, Bool.false_eq_true, if_false, mux, setw,
+    reg, regEn, loopR, cdo, cdo2, mem, sl, cc, cl, zx]
+
+theorem zextMap_contract {rec ctx inputs we mems initial dom ae nm} {k n : Nat}
+    {x : BitVec n} (hk : 0 < k) (hn : 0 < n)
+    (meaning : Meaning inputs (zextMapE dom nm k n ae)
+      (.bits (k + n) (BitVec.append (BitVec.ofNat k 0) x)))
+    (ca : Child rec ctx inputs we mems initial ae "s" (.bits n x)) :
+    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial
+      (zextMapE dom nm k n ae) (.bits (k + n) (BitVec.append (BitVec.ofNat k 0) x)) := by
+  have step : ∀ hint top named, ActionSpec
+      (translateStepWith translateFallback rec (zextMapE dom nm k n ae) hint top named)
+      ctx inputs we mems initial (.bits (k + n) (BitVec.append (BitVec.ofNat k 0) x)) := by
+    intro hint top named
+    rw [zextMap_step rec dom nm ae k n hint top named hk hn]
+    apply cached_action meaning
+    show FreshAction (translateSetWidthUncachedWith rec n (k + n) (zextMapE dom nm k n ae)
+      hint top named) ctx inputs we mems initial
+      (.bits (k + n) (BitVec.append (BitVec.ofNat k 0) x))
+    rw [setwUncached_zextMapE, ← setWidth_eq_zero_append]
+    exact setw_fresh hn (by omega) ca
+  exact ⟨fun hint top named => (step hint top named).frame,
+    fun hint top named => (step hint top named).sem⟩
+
+set_option maxHeartbeats 1000000 in
+theorem sliceFE_getAppArgs (dom : Lean.Expr) (nm : Lean.Name) (ae : Lean.Expr)
+    (w start len : Nat) :
+    (sliceFE dom nm w start len ae).getAppArgs =
+      #[.app (.const ``Sparkle.Core.Signal.Signal [.zero]) dom,
+        .app (.const ``Sparkle.Core.Signal.instFunctorSignal [.zero]) dom,
+        bitVecE w, bitVecE len, sliceLamE nm w start len, ae] := rfl
+
+theorem sliceFUncached_sliceFE (rec : TranslateFn) (dom : Lean.Expr) (nm : Lean.Name)
+    (ae : Lean.Expr) (w start len : Nat) (hint : String) (top named : Bool) :
+    translateSliceFUncachedWith rec start len (sliceFE dom nm w start len ae) hint top named =
+      (do
+        let sw ← rec ae "a" false false
+        emitSliceResult (sliceRhs start len sw) len hint named) := by
+  show (do
+      let sw ← rec (sliceFE dom nm w start len ae).getAppArgs.back! "a" false false
+      emitSliceResult (sliceRhs start len sw) len hint named) = _
+  rw [sliceFE_getAppArgs]
+  rfl
+
+set_option maxHeartbeats 1000000 in
+theorem sliceF_step (rec : TranslateFn) (dom : Lean.Expr) (nm : Lean.Name) (ae : Lean.Expr)
+    (w start len : Nat) (hint : String) (top named : Bool)
+    (hlen : 0 < len) (hr : start + len ≤ w) :
+    translateStepWith translateFallback rec (sliceFE dom nm w start len ae) hint top named =
+      translateControlCachedWith (translateSliceFUncachedWith rec start len)
+        (sliceFE dom nm w start len ae) hint top named := by
+  have shape : translateCoreShape (sliceFE dom nm w start len ae) = false := rfl
+  have core : translateCore rec (sliceFE dom nm w start len ae) hint top named = pure none := rfl
+  have control : isBoolControl (sliceFE dom nm w start len ae) = false := rfl
+  have mux : canonicalMuxType? (sliceFE dom nm w start len ae) = none := rfl
+  have setw : canonicalSetWidth? (sliceFE dom nm w start len ae) = none := rfl
+  have reg : canonicalRegister? (sliceFE dom nm w start len ae) = none := rfl
+  have regEn : canonicalRegisterEnable? (sliceFE dom nm w start len ae) = none := rfl
+  have loopR : canonicalLoopRegister? (sliceFE dom nm w start len ae) = none := rfl
+  have cdo : canonicalCircuitDo? (sliceFE dom nm w start len ae) = none := rfl
+  have cdo2 : canonicalCircuitDo2? (sliceFE dom nm w start len ae) = none := rfl
+  have mem : canonicalMemory? (sliceFE dom nm w start len ae) = none := rfl
+  have sl : canonicalSlice? (sliceFE dom nm w start len ae) = none := rfl
+  have cc := canonicalConcat?_sliceFE dom nm ae w start len
+  have cl := canonicalConcatLit?_sliceFE dom nm ae w start len
+  have zx : canonicalZextMap? (sliceFE dom nm w start len ae) = none := rfl
+  have sf := canonicalSliceF?_sliceFE dom nm ae hlen hr
+  have step : translateStepWith translateFallback rec (sliceFE dom nm w start len ae)
+      hint top named = translateFallback rec (sliceFE dom nm w start len ae) hint top named := by
+    simp [translateStepWith, shape, core]
+    rfl
+  rw [step]
+  simp only [translateFallback, fallbackKind, control, Bool.false_eq_true, if_false, mux, setw,
+    reg, regEn, loopR, cdo, cdo2, mem, sl, cc, cl, zx, sf]
+
+theorem sliceF_contract {rec ctx inputs we mems initial dom ae nm} {ws start len : Nat}
+    {x : BitVec ws} (hlen : 0 < len) (hr : start + len ≤ ws)
+    (meaning : Meaning inputs (sliceFE dom nm ws start len ae)
+      (.bits len (BitVec.extractLsb' start len x)))
+    (ca : Child rec ctx inputs we mems initial ae "a" (.bits ws x)) :
+    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial
+      (sliceFE dom nm ws start len ae) (.bits len (BitVec.extractLsb' start len x)) := by
+  have step : ∀ hint top named, ActionSpec
+      (translateStepWith translateFallback rec (sliceFE dom nm ws start len ae) hint top named)
+      ctx inputs we mems initial (.bits len (BitVec.extractLsb' start len x)) := by
+    intro hint top named
+    rw [sliceF_step rec dom nm ae ws start len hint top named hlen hr]
+    apply cached_action meaning
+    show FreshAction (translateSliceFUncachedWith rec start len (sliceFE dom nm ws start len ae)
+      hint top named) ctx inputs we mems initial (.bits len (BitVec.extractLsb' start len x))
+    rw [sliceFUncached_sliceFE]
     exact slice_fresh hlen hr ca
   exact ⟨fun hint top named => (step hint top named).frame,
     fun hint top named => (step hint top named).sem⟩
@@ -1985,6 +2133,16 @@ theorem fuel_contract_leaves (fuel : Nat) {ctx : CompilerState}
       obtain ⟨ha, hk, hlt⟩ := he
       exact concatLitLo_contract hk hlt (a.wf_pos ha)
         (meaning_quote_leaves hb hv (.concatLitLo a k v) hall) ((ih a ha).child "concat_hi")
+    | zextMap nm k a =>
+      have hall := he
+      obtain ⟨ha, hk⟩ := he
+      exact zextMap_contract hk (a.wf_pos ha)
+        (meaning_quote_leaves hb hv (.zextMap nm k a) hall) ((ih a ha).child "s")
+    | sliceF nm start len a =>
+      obtain ⟨ha, hlen, hr⟩ := he
+      exact sliceF_contract hlen hr
+        (meaning_quote_leaves hb hv (.sliceF nm start len a) ⟨ha, hlen, hr⟩)
+        ((ih a ha).child "a")
 
 /-- An input binder satisfies its leaf contract at every fuel. -/
 theorem input_contract_fuel {ctx inputs we mems initial id v} (hi : inputs id = some v) :
