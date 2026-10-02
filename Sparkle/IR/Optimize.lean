@@ -653,6 +653,16 @@ def eliminateZeroBitStmt (wm : WidthMap) : Stmt → Option Stmt
     some (.inst modName instName
       (conns.map fun (p, e) => (p, eliminateZeroBitInExpr wm e)))
 
+/-- Names defined by statements other than `assign` (register outputs and
+    memory read-data wires) — the statements dead-code elimination keeps
+    unconditionally, whose wires it must therefore keep too. -/
+def statementDefinedNames (body : List Stmt) : HashMap String Bool :=
+  body.foldl (fun s stmt => match stmt with
+    | .register out .. => s.insert out true
+    | .memory _ _ _ _ _ _ _ _ rd _ _ extraReads =>
+      extraReads.foldl (fun acc (_, r) => acc.insert r true) (s.insert rd true)
+    | _ => s) {}
+
 /-- Run the 0-bit elimination pass over a module's body and wire list. -/
 def eliminateZeroBits (m : Module) : Module :=
   let wm := buildWidthMap m
@@ -932,8 +942,15 @@ def optimizeModule (m : Module)
         outputSet.contains lhs || (useCounts.getD lhs 0) > 0
       | _ => true
 
+    -- Registers and memories survive this phase (`| _ => true` above), so
+    -- their output wires must too, even when nothing reads them: an unread
+    -- register kept its `always_ff` but lost its declaration (VexRiscv's
+    -- DataCache `tagsWriteLastCmd_*`), and iverilog rejected the result.
+    -- Phase 4.5 drops dead registers together with their wires.
+    let stmtDefined := statementDefinedNames optimizedBody
     let prunedWires := m.wires.filter fun w =>
-      (useCounts.getD w.name 0) > 0 || outputSet.contains w.name
+      (useCounts.getD w.name 0) > 0 || outputSet.contains w.name ||
+        stmtDefined.contains w.name
 
     let m2 := { m with body := prunedBody, wires := prunedWires }
 
@@ -950,8 +967,10 @@ def optimizeModule (m : Module)
         outputSet.contains lhs || (useCounts2.getD lhs 0) > 0
       | _ => true
 
+    let stmtDefined2 := statementDefinedNames finalBody
     let finalWires := inlinedWires.filter fun w =>
-      (useCounts2.getD w.name 0) > 0 || outputSet.contains w.name
+      (useCounts2.getD w.name 0) > 0 || outputSet.contains w.name ||
+        stmtDefined2.contains w.name
 
     -- Phase 4.5: prune registers (and instances) unreachable from the
     -- module's outputs.

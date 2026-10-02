@@ -2494,5 +2494,371 @@ endmodule
       failed := failed + 1
   catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
 
+  -- Tests 64–76: found by round-tripping PicoRV32 and VexRiscv
+  -- (bench/cpus).  Each is the minimal form of one miscompile or parse
+  -- failure those cores exposed.
+
+  -- Test 64 (VexRiscv, every file): `always @(*) begin` on one line.  The
+  -- `(* … *)` attribute stripper read the `(*` of `@(*)` as an attribute
+  -- opener and deleted the rest of the line.
+  IO.print "  Test 64: always @(*) survives attribute stripping... "
+  try
+    let v := "
+module ac (input [7:0] a, input s, output reg [7:0] y);
+  always @(*) begin
+    y = a;
+    if (s) begin
+      y = 8'h55;
+    end
+  end
+endmodule
+"
+    let r ← jitRun v (fun h => do JIT.setInput h 0 3; JIT.setInput h 1 1) 1
+      (fun h => do return [← JIT.getOutput h 0])
+    if r == [0x55] then IO.println "PASS"; passed := passed + 1
+    else IO.println s!"FAIL: {r} (want [85])"; failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 65 (VexRiscv MulPlugin): `<<<` is a left shift.
+  IO.print "  Test 65: <<< parses as a left shift... "
+  try
+    let v := "
+module asl (input [7:0] a, output [15:0] y);
+  assign y = ({8'd0, a} <<< 4'd4);
+endmodule
+"
+    let r ← jitRun v (fun h => do JIT.setInput h 0 0x12) 1
+      (fun h => do return [← JIT.getOutput h 0])
+    if r == [0x120] then IO.println "PASS"; passed := passed + 1
+    else IO.println s!"FAIL: {r} (want [288])"; failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 66 (VexRiscv InstructionCache `banks_0`): `x[i]` is a memory
+  -- read when the module DECLARES `x` as an unpacked array, whatever its
+  -- name.  The name heuristic alone lowered it as a bit-select.
+  IO.print "  Test 66: declared arrays are memories regardless of name... "
+  try
+    let v := "
+module mrd (input clk, input we, input [3:0] wa, input [7:0] wd, input [3:0] ra, output [7:0] q);
+  reg [7:0] banks_0 [0:15];
+  reg [7:0] r;
+  always @(posedge clk) begin
+    if (we) begin
+      banks_0[wa] <= wd;
+    end
+  end
+  always @(posedge clk) begin
+    r <= banks_0[ra];
+  end
+  assign q = r;
+endmodule
+"
+    let r ← jitRun v
+      (fun h => do JIT.setInput h 0 1; JIT.setInput h 1 5; JIT.setInput h 2 0xab; JIT.setInput h 3 5) 4
+      (fun h => do return [← JIT.getOutput h 0])
+    if r == [0xab] then IO.println "PASS"; passed := passed + 1
+    else IO.println s!"FAIL: {r} (want [171])"; failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 67 (VexRiscv DataCache `tagsWriteLastCmd_*`): a register nothing
+  -- reads kept its `always_ff` but lost its declaration, so the emitted
+  -- Verilog did not compile.  (The undriven output keeps dead registers
+  -- alive: the optimizer's reachability pruning is fail-safe there.)
+  IO.print "  Test 67: a kept register keeps its declaration... "
+  try
+    let v := "
+module ur (input clk, input [7:0] d, output [7:0] q, output nc);
+  reg [7:0] seen;
+  reg [7:0] r;
+  always @(posedge clk) begin
+    seen <= d;
+    r <= d;
+  end
+  assign q = r;
+endmodule
+"
+    match parseAndLowerHierarchical v with
+    | .error e => IO.println s!"FAIL: lower error {e}"; failed := failed + 1
+    | .ok design =>
+      let sv := toVerilogDesign design
+      if containsSubstr sv "seen <=" && !containsSubstr sv "logic [7:0] seen" then
+        IO.println "FAIL: `seen` is assigned but not declared"; failed := failed + 1
+      else IO.println "PASS"; passed := passed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 68 (VexRiscv DataCache `io_mem_cmd_payload_address[4:0] = 0`): a
+  -- part-select write in `always @*` replaces only its field.
+  IO.print "  Test 68: blocking part-select write keeps the other bits... "
+  try
+    let v := "
+module pb (input [31:0] a, input c, output reg [31:0] y);
+  always @(*) begin
+    y = a;
+    if (c) begin
+      y[4:0] = 5'h00;
+    end
+  end
+endmodule
+"
+    let r ← jitRun v (fun h => do JIT.setInput h 0 0xdeadbeef; JIT.setInput h 1 1) 1
+      (fun h => do return [← JIT.getOutput h 0])
+    if r == [0xdeadbee0] then IO.println "PASS"; passed := passed + 1
+    else IO.println s!"FAIL: {r} (want [3735928544]; 0 = the whole vector was replaced)"; failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 69 (VexRiscv DataCache flusher): `c <= c + 1; c[7] <= 1'b1` in a
+  -- clocked block sets one bit on top of the earlier write.
+  IO.print "  Test 69: non-blocking part-select write layers on earlier writes... "
+  try
+    let v := "
+module pn (input clk, input reset, input a, input b, output [7:0] q);
+  reg [7:0] c;
+  always @(posedge clk) begin
+    if (reset) begin
+      c <= 8'h00;
+    end else begin
+      if (a) begin
+        c <= (c + 8'h01);
+        if (b) begin
+          c[7] <= 1'b1;
+        end
+      end
+    end
+  end
+  assign q = c;
+endmodule
+"
+    let r ← jitRun v
+      (fun h => do
+        JIT.setInput h 0 1; JIT.evalTick h
+        JIT.setInput h 0 0; JIT.setInput h 1 1; JIT.setInput h 2 1) 3
+      (fun h => do return [← JIT.getOutput h 0])
+    -- outputs are those of the last evaluation: the state after 2 ticks
+    if r == [0x82] then IO.println "PASS"; passed := passed + 1
+    else IO.println s!"FAIL: {r} (want [130]; 1 = the bit write replaced the register)"; failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 70 (PicoRV32): a reset tested in a plain `@(posedge clk)` block is
+  -- synchronous; it is asynchronous only when the sensitivity list names it.
+  IO.print "  Test 70: reset kind follows the sensitivity list... "
+  try
+    let v := "
+module rs (input clk, input resetn, input rst_n, input d, output q1, output q2);
+  reg a;
+  reg b;
+  always @(posedge clk) begin
+    if (!resetn) a <= 1'b0;
+    else a <= d;
+  end
+  always @(posedge clk or negedge rst_n) begin
+    if (!rst_n) b <= 1'b0;
+    else b <= d;
+  end
+  assign q1 = a;
+  assign q2 = b;
+endmodule
+"
+    match parseAndLowerHierarchical v with
+    | .error e => IO.println s!"FAIL: lower error {e}"; failed := failed + 1
+    | .ok design =>
+      let sv := toVerilogDesign design
+      if containsSubstr sv "or posedge _rst_resetn_inv" then
+        IO.println "FAIL: the synchronous reset became asynchronous"; failed := failed + 1
+      else if !containsSubstr sv "or posedge _rst_rst_n_inv" then
+        IO.println "FAIL: the asynchronous reset lost its edge"; failed := failed + 1
+      else IO.println "PASS"; passed := passed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 71 (VexRiscv `pc >>> 2'd2`): `>>>` is arithmetic only on a signed
+  -- left operand.
+  IO.print "  Test 71: >>> is logical on unsigned, arithmetic on signed... "
+  try
+    let v := "
+module sh (input [31:0] a, input signed [31:0] b, output [31:0] y1, output [31:0] y2);
+  assign y1 = (a >>> 2'd2);
+  assign y2 = (b >>> 2'd2);
+endmodule
+"
+    let r ← jitRun v (fun h => do JIT.setInput h 0 0x80000000; JIT.setInput h 1 0x80000000) 1
+      (fun h => do return [← JIT.getOutput h 0, ← JIT.getOutput h 1])
+    -- The emitted arithmetic shift must be self-determined: inside a mux
+    -- with an unsigned arm, Verilog would otherwise make it logical.
+    let sv := match parseAndLowerHierarchical v with
+      | .ok design => toVerilogDesign design
+      | .error _ => ""
+    if r != [0x20000000, 0xe0000000] then
+      IO.println s!"FAIL: {r} (want [536870912, 3758096384])"; failed := failed + 1
+    else if !containsSubstr sv "$unsigned($signed(b) >>>" then
+      IO.println "FAIL: emitted >>> is not wrapped in $unsigned(...)"; failed := failed + 1
+    else IO.println "PASS"; passed := passed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 72 (VexRiscv StreamFifoLowLatency): `.q(w[7:0])` selecting the
+  -- whole of `w` is a plain connection to `w`.  As a slice, the child's
+  -- output was never copied back in the C simulation.
+  IO.print "  Test 72: whole-range instance connection is a plain reference... "
+  try
+    let v := "
+module wc_child (input [7:0] d, output [7:0] q);
+  assign q = d + 8'd1;
+endmodule
+module wc (input [7:0] x, output [7:0] y);
+  wire [7:0] w;
+  wc_child c (.d(x[7:0]), .q(w[7:0]));
+  assign y = w;
+endmodule
+"
+    match parseAndLowerHierarchical v with
+    | .error e => IO.println s!"FAIL: lower error {e}"; failed := failed + 1
+    | .ok design =>
+      let plain := design.modules.any fun m => m.body.any fun st => match st with
+        | .inst _ _ conns => conns.any fun c => match c with
+          | ("q", .ref "w") => true
+          | _ => false
+        | _ => false
+      if plain then IO.println "PASS"; passed := passed + 1
+      else IO.println "FAIL: the output connection is not `.ref w`"; failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 73 (PicoRV32 branch/JAL offsets): `r <= $signed({…})` in one
+  -- branch of an `if`.  The lowering turns the `if` into a mux; the sign
+  -- extension must not depend on where a shift truncates or on the
+  -- signedness of the mux's other arm, so it is `(zext ^ m) - m` at an
+  -- explicit 32-bit width.
+  IO.print "  Test 73: $signed concat sign-extends inside a lowered mux... "
+  try
+    let v := "
+module se (input clk, input [3:0] a, input s, output [31:0] y);
+  reg [31:0] r;
+  always @(posedge clk) begin
+    if (s) r <= $signed({a[3:0], 1'b0});
+    else r <= 32'd7;
+  end
+  assign y = r;
+endmodule
+"
+    let r ← jitRun v (fun h => do JIT.setInput h 0 8; JIT.setInput h 1 1) 2
+      (fun h => do return [← JIT.getOutput h 0])
+    let sv := match parseAndLowerHierarchical v with
+      | .ok design => toVerilogDesign design
+      | .error _ => ""
+    if r != [0xfffffff0] then
+      IO.println s!"FAIL: {r} (want [4294967280])"; failed := failed + 1
+    else if !containsSubstr sv "{27'd0, " || containsSubstr sv ">>>" then
+      IO.println "FAIL: sign extension is not the 32-bit xor/sub form"; failed := failed + 1
+    else IO.println "PASS"; passed := passed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 74 (VexRiscv DataCache): `$display` inside an `if` made the
+  -- enclosing statement unparsable; the recovery then flattened the
+  -- `if (reset) … else …`, and the data write overrode the reset.
+  IO.print "  Test 74: a system task does not flatten the enclosing if... "
+  try
+    let v := "
+module dsp (input clk, input reset, input d, output q);
+  reg r;
+  always @(posedge clk) begin
+    if (reset) begin
+      r <= 1'b1;
+    end else begin
+      r <= d;
+      if (!d) begin
+        $display(\"d is low (%d)\", d);
+      end
+    end
+  end
+  assign q = r;
+endmodule
+"
+    let r ← jitRun v (fun h => do JIT.setInput h 0 1; JIT.setInput h 1 0) 1
+      (fun h => do return [← JIT.getOutput h 0])
+    if r == [1] then IO.println "PASS"; passed := passed + 1
+    else IO.println s!"FAIL: {r} (want [1]; 0 = the data write escaped its else branch)"; failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 75: an always block the parser cannot read is rejected when it
+  -- drives a signal that is used; it is dropped only when it drives
+  -- nothing that is read (simulation-only debug registers).
+  IO.print "  Test 75: unparsable always block driving a used signal is an error... "
+  try
+    let bad := "
+module bad (input clk, input a, output reg q);
+  always @(posedge clk) begin
+    if (a) begin
+      q <= 1'b1;
+      foo bar baz;
+    end
+  end
+endmodule
+"
+    let harmless := "
+module dbg (input clk, input a, output q);
+  reg [7:0] note;
+  always @(posedge clk) begin
+    if (a) begin
+      note <= 8'd1;
+      foo bar baz;
+    end
+  end
+  assign q = a;
+endmodule
+"
+    match parseAndLowerHierarchical bad, parseAndLowerHierarchical harmless with
+    | .ok _, _ =>
+      IO.println "FAIL: lowered (the block driving `q` was dropped silently)"; failed := failed + 1
+    | .error _, .error e =>
+      IO.println s!"FAIL: the debug-only block was rejected: {e}"; failed := failed + 1
+    | .error _, .ok _ => IO.println "PASS"; passed := passed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 76 (PicoRV32): many part-select writes to one register stay
+  -- linear.  The guarded read-modify-write used to mention the running
+  -- value twice — 40 writes meant a 2^40-node expression (out of memory).
+  IO.print "  Test 76: 40 part-select writes to one register stay linear... "
+  try
+    let writes := String.join ((List.range 40).map fun i =>
+      s!"    if (en[{i}]) r[{i}] <= d[{i}];\n")
+    let v := "
+module many (input clk, input [39:0] en, input [39:0] d, output [39:0] q);
+  reg [39:0] r;
+  always @(posedge clk) begin
+" ++ writes ++ "  end
+  assign q = r;
+endmodule
+"
+    let r ← jitRun v (fun h => do JIT.setInput h 0 0xffffffffff; JIT.setInput h 1 0xa5a5a5a5a5) 2
+      (fun h => do return [← JIT.getOutput h 0])
+    if r == [0xa5a5a5a5a5] then IO.println "PASS"; passed := passed + 1
+    else IO.println s!"FAIL: {r} (want [711573677477])"; failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 77 (LiteX): a byte-enable memory written in a named block that
+  -- declares its loop variable locally.  Making unparsable statements an
+  -- error (Test 75) rejected this whole block — `integer we_index;` was
+  -- not a statement the parser knew — and with it every LiteX SoC.
+  IO.print "  Test 77: block-local `integer` in a byte-enable memory write (LiteX)... "
+  try
+    let v := "
+module bemem (input clk, input [3:0] adr, input [3:0] we, input [31:0] dat_w, output [31:0] dat_r);
+  reg [31:0] sram[0:15];
+  reg [3:0] sram_adr0;
+  always @(posedge clk) begin : mem_write_block
+    integer we_index;
+    for (we_index = 0; we_index < 4; we_index = we_index + 1)
+      if (we[we_index])
+        sram[adr][we_index*8 +: 8] <= dat_w[we_index*8 +: 8];
+    sram_adr0 <= adr;
+  end
+  assign dat_r = sram[sram_adr0];
+endmodule
+"
+    -- write byte lanes 0 and 2 of word 5; the other two lanes keep 0
+    let r ← jitRun v (fun h => do
+        JIT.setInput h 0 5; JIT.setInput h 1 0b0101; JIT.setInput h 2 0xAABBCCDD) 3
+      (fun h => do return [← JIT.getOutput h 0])
+    if r == [0x00BB00DD] then IO.println "PASS"; passed := passed + 1
+    else IO.println s!"FAIL: {r} (want [12255453] = 0x00BB00DD)"; failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
   IO.println s!"\n=== Results: {passed} passed, {failed} failed ==="
   return if failed == 0 then 0 else 1

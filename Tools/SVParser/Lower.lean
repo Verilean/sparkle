@@ -161,8 +161,24 @@ def literalToConst : SVLiteral → Expr
   -- for `?`/`x`/`z` in plain expressions are undefined; treat as 0).
   | .binaryWild w v _   => .const (Int.ofNat v) w
 
-/-- Set of array-typed register names for distinguishing bit-select vs array access -/
-private def arrayNames : List String := []  -- populated per-module during lowering
+/-- What the module declares, for deciding whether `x[i]` is a memory read
+    or a bit-select: its unpacked arrays (`reg [w] x [0:N]`) and its
+    scalar `reg`/`wire` names.  `lowerModule` installs a local instance;
+    the low-priority default (nothing declared) keeps the name heuristic
+    for callers that lower expressions without a module. -/
+class ArrayCtx where
+  arrays : Std.HashSet String := {}
+  scalars : Std.HashSet String := {}
+  /-- Declared `[hi:lo]` of a vector (`some (0, 0)` for a scalar), used to
+      lower part-select writes as read-modify-write at the full width. -/
+  rangeOf : String → Option (Nat × Nat) := fun _ => none
+  /-- Names declared `signed` (ports and `wire/reg signed`). -/
+  signedNames : Std.HashSet String := {}
+
+instance (priority := low) : ArrayCtx := {}
+
+section WithArrayCtx
+variable [ctx : ArrayCtx]
 
 private def indexToConst : SVExpr → Option Nat
   | .lit (.decimal _ n) => some n
@@ -171,16 +187,20 @@ private def indexToConst : SVExpr → Option Nat
   | _ => none
 
 private def isArrayName (name : String) : Bool :=
-  -- Heuristic: names matching common array patterns
-  -- Extended for LiteX (regs, sram, rom, storage) + PicoRV32 (cpuregs, memory)
-  name == "cpuregs" || name == "memory" || name == "mem" ||
-  name == "regs" || name == "sram" || name == "rom" ||
-  name.endsWith "_mem" || name.endsWith "_ram" ||
-  -- Note: _storage suffix (timer_en_storage) are scalar registers, not arrays.
-  -- LiteX preprocessing renames these to _stor to avoid this heuristic.
-  name.endsWith "_storage" || name == "storage" ||
-  -- LiteX FIFO storage: storage, storage_1, storage_2, ...
-  (name.startsWith "storage" && name.length <= 12)
+  ctx.arrays.contains name || (!ctx.scalars.contains name && arrayNameHeuristic name)
+where
+  -- Names the module does not declare (e.g. lowered without a module):
+  -- common array names.
+  arrayNameHeuristic (name : String) : Bool :=
+    -- Extended for LiteX (regs, sram, rom, storage) + PicoRV32 (cpuregs, memory)
+    name == "cpuregs" || name == "memory" || name == "mem" ||
+    name == "regs" || name == "sram" || name == "rom" ||
+    name.endsWith "_mem" || name.endsWith "_ram" ||
+    -- Note: _storage suffix (timer_en_storage) are scalar registers, not arrays.
+    -- LiteX preprocessing renames these to _stor to avoid this heuristic.
+    name.endsWith "_storage" || name == "storage" ||
+    -- LiteX FIFO storage: storage, storage_1, storage_2, ...
+    (name.startsWith "storage" && name.length <= 12)
 
 /-- Evaluate a simple SVExpr to a Nat constant (handles literals, add, sub). -/
 private partial def svExprToNat : SVExpr → Option Nat
@@ -333,8 +353,29 @@ private def stripSignedMark : SVExpr → SVExpr
   | .unary .neg a => .unary .neg (stripSignedMark a)
   | e => e
 
+/-- Is `e` a signed operand by Verilog's rules?  Only as far as `>>>`
+    needs it: `$signed(…)` and declared-signed names are signed;
+    part-selects, concatenations and literals are unsigned; arithmetic is
+    signed only when both operands are.  Names the module does not declare
+    stay signed, which keeps the previous `>>>` = arithmetic lowering for
+    code lowered without a module. -/
+partial def svExprSigned : SVExpr → Bool
+  | .unary .signed _ => true
+  | .ident n =>
+    ctx.signedNames.contains n || !(ctx.scalars.contains n || ctx.arrays.contains n)
+  | .lit _ | .slice .. | .index .. | .partSelectPlus .. | .concat _ => false
+  | .unary .neg a | .unary .bitNot a => svExprSigned a
+  | .binary _ a b => svExprSigned a && svExprSigned b
+  | .ternary _ t f => svExprSigned t && svExprSigned f
+  | _ => true
+
 partial def lowerExpr (e : SVExpr) : Expr :=
   match e with
+  -- `>>>` is an arithmetic shift only on a signed left operand; on an
+  -- unsigned one it is `>>` (VexRiscv: `iBus_cmd_payload_pc >>> 2'd2`).
+  | .binary .asr lhs rhs =>
+    if svExprSigned lhs then .op .asr [lowerExpr lhs, lowerExpr rhs]
+    else .op .shr [lowerExpr lhs, lowerExpr rhs]
   | .lit l => literalToConst l
   | .ident name => .ref name
   | .sizeCast w arg =>
@@ -363,9 +404,17 @@ partial def lowerExpr (e : SVExpr) : Expr :=
     let lowered := lowerExpr arg
     if innerWidth >= 32 || innerWidth == 0 then lowered
     else
-      -- Sign extend: shift left then arithmetic shift right
-      let shiftAmt := 32 - innerWidth
-      .op .asr [.op .shl [lowered, .const (Int.ofNat shiftAmt) 32], .const (Int.ofNat shiftAmt) 32]
+      -- Sign extend to 32 bits as `(zext(x) ^ m) - m`, m = the sign bit.
+      -- The former shift-left / arithmetic-shift-right pair depended on
+      -- where the left shift truncates, and the backends disagree on
+      -- that (Verilog: the operand's own width inside `$signed(…)`; CSim:
+      -- it grows by the shift amount), so one of them always lost the
+      -- sign: PicoRV32's `$signed({mem_rdata[31:12], 1'b0})` JAL offset
+      -- kept only bits [9:0] in the re-emitted Verilog.  XOR and SUB at
+      -- an explicit 32-bit width mean the same thing everywhere.
+      let widened := Expr.concat [.const 0 (32 - innerWidth), lowered]
+      let signBit : Int := Int.ofNat (2 ^ (innerWidth - 1))
+      .op .sub [.op .xor [widened, .const signBit 32], .const signBit 32]
   | .unary .reductXor arg =>
     -- Parity: expanded to an explicit XOR fold when the width is static;
     -- otherwise fail LOUDLY downstream via an undeclared wire rather than
@@ -558,11 +607,63 @@ def detectReset (cond : SVExpr) (thenBranch elseBranch : List SVStmt)
 -- priority mux: last-write-wins, matching Verilog semantics.
 -- ============================================================================
 
+/-- `cur` with bits `[off +: fieldW]` replaced by `rhs`, all at width `w`:
+    `(cur & ~(ones << off)) | ((rhs & ones) << off)`. -/
+def rmwField (cur rhs off : Expr) (w fieldW : Nat) : Expr :=
+  let ones : Int := Int.ofNat (2 ^ fieldW - 1)
+  let allOnes : Int := Int.ofNat (2 ^ w - 1)
+  let fieldMask := Expr.op .shl [.const ones w, off]
+  let cleared := Expr.op .and [cur, .op .xor [fieldMask, .const allOnes w]]
+  let inserted := Expr.op .shl [.op .and [rhs, .const ones w], off]
+  .op .or [cleared, inserted]
+
+/-- Guarded field write with `cur` used ONCE:
+    `(cur & (g ? ~fieldMask : ones)) | (g ? (rhs << off) : 0)`.
+    The obvious `g ? rmwField cur … : cur` mentions `cur` twice, and `cur`
+    is the running next-value expression of a register — a chain of n
+    part-select writes (PicoRV32 has dozens per register) then built an
+    expression of size 2^n and exhausted memory. -/
+def rmwFieldGuarded (guard cur rhs off : Expr) (w fieldW : Nat) : Expr :=
+  let ones : Int := Int.ofNat (2 ^ fieldW - 1)
+  let allOnes : Int := Int.ofNat (2 ^ w - 1)
+  let fieldMask := Expr.op .shl [.const ones w, off]
+  let keep := Expr.op .mux [guard, .op .xor [fieldMask, .const allOnes w], .const allOnes w]
+  let inserted := Expr.op .shl [.op .and [rhs, .const ones w], off]
+  .op .or [.op .and [cur, keep], .op .mux [guard, inserted, .const 0 w]]
+
+/-- A write to part of a declared vector — `x[hi:lo] = v` or `x[i] = v`
+    (constant or dynamic `i`) — as `(name, fieldWidth, offsetExpr, width)`.
+    `none` when the target is an array or its declared range is unknown or
+    ascending; the caller then keeps its previous lowering. -/
+def partialWriteTarget : SVExpr → Option (String × Nat × Expr × Nat)
+  | .slice (.ident n) hi lo =>
+    if isArrayName n || hi < lo then none else
+    match ctx.rangeOf n with
+    | some (dhi, dlo) =>
+      if dhi < dlo || lo < dlo || hi > dhi then none
+      else some (n, hi - lo + 1, .const (Int.ofNat (lo - dlo)) (dhi - dlo + 1), dhi - dlo + 1)
+    | none => none
+  | .index (.ident n) idx =>
+    if isArrayName n then none else
+    match ctx.rangeOf n with
+    | some (dhi, dlo) =>
+      if dhi < dlo then none else
+      let w := dhi - dlo + 1
+      let off := match indexToConst idx with
+        | some k => if k < dlo then none else some (Expr.const (Int.ofNat (k - dlo)) w)
+        | none => if dlo == 0 then some (lowerExpr idx) else none
+      off.map fun o => (n, 1, o, w)
+    | none => none
+  | _ => none
+
 /-- A guarded assignment: under `guard`, signal `target` gets `value`. -/
 structure GuardedAssign where
   guard  : Expr
   target : String
   value  : Expr
+  /-- A part-select write (`r[7] <= 1`): `(offset, fieldWidth, width)`;
+      `value` replaces only that field of the running next value. -/
+  field  : Option (Expr × Nat × Nat) := none
 
 /-- Conjunction helper: true & x = x, else AND -/
 private def mkAnd (a b : Expr) : Expr :=
@@ -731,7 +832,14 @@ partial def collectGuardedNB (stmts : List SVStmt) (guard : Expr := .const 1 1)
   stmts.flatMap fun s => match s with
     | .nonblockAssign lhs rhs =>
       if isDontCare rhs then []
-      else match exprToName lhs with
+      -- `r[7] <= 1` writes one field on top of the block's earlier writes
+      -- (VexRiscv DataCache: `counter <= counter + 1; counter[7] <= 1'b1`);
+      -- it used to replace the whole register.
+      else match partialWriteTarget lhs with
+      | some (name, fieldW, off, w) =>
+        [{ guard, target := name, value := lowerExpr rhs, field := some (off, fieldW, w) }]
+      | none =>
+      match exprToName lhs with
         | some name => [{ guard, target := name, value := lowerExpr rhs }]
         | none =>
           -- Try concat-LHS (bit-scatter) assignment
@@ -836,7 +944,9 @@ def collectRefs (e : Expr) : List String := collectRefsAux [] e
     `base` is the default when no guard is active (hold value for registers,
     first flat assign for blocking signals). -/
 def guardedToMux (assigns : List GuardedAssign) (base : Expr) : Expr :=
-  assigns.foldl (fun acc ga => .op .mux [ga.guard, ga.value, acc]) base
+  assigns.foldl (fun acc ga => match ga.field with
+    | none => .op .mux [ga.guard, ga.value, acc]
+    | some (off, fieldW, w) => rmwFieldGuarded ga.guard acc ga.value off w fieldW) base
 
 /-- Build mux expression for a non-blocking register from full always body. -/
 def stmtsToMuxExpr (regName : String) (stmts : List SVStmt) : Expr :=
@@ -940,13 +1050,38 @@ partial def collectArrayWrites (arrName : String) (stmts : List SVStmt)
       armWrites ++ defWrites
     | _ => []
 
-/-- Literal-only constant evaluator (for part-select bases/widths in
-    memory-write patterns; full `evalConstExpr` is defined later). -/
-private def evalConstExprSimple : SVExpr → Option Nat
+/-- Constant evaluator for part-select bases/widths in memory-write
+    patterns: literals and arithmetic on them (full `evalConstExpr` is
+    defined later).  An unrolled loop leaves `0*8`, `1*8`, … as the base of
+    `arr[addr][i*8 +: 8]`; literal-only evaluation did not recognise those
+    and the byte-enable writes of LiteX's memories were dropped. -/
+private partial def evalConstExprSimple : SVExpr → Option Nat
   | .lit (.decimal _ v) => some v
   | .lit (.hex _ v) => some v
   | .lit (.binary _ v) => some v
+  | .binary .add a b => do return (← evalConstExprSimple a) + (← evalConstExprSimple b)
+  | .binary .sub a b => do return (← evalConstExprSimple a) - (← evalConstExprSimple b)
+  | .binary .mul a b => do return (← evalConstExprSimple a) * (← evalConstExprSimple b)
+  | .binary .shl a b => do return (← evalConstExprSimple a) <<< (← evalConstExprSimple b)
   | _ => none
+
+/-- Does any statement assign array `arrName` — a whole element, a slice of
+    one, or an indexed part-select of one? -/
+partial def writesArray (arrName : String) (stmts : List SVStmt) : Bool :=
+  let rec root : SVExpr → Option String
+    | .index (.ident n) _ => some n
+    | .index e _ => root e
+    | .slice e _ _ => root e
+    | .partSelectPlus e _ _ => root e
+    | _ => none
+  stmts.any fun s => match s with
+    | .nonblockAssign lhs _ | .blockAssign lhs _ => root lhs == some arrName
+    | .ifElse _ t e => writesArray arrName t || writesArray arrName e
+    | .caseStmt _ arms dflt =>
+      arms.any (fun (_, body) => writesArray arrName body) ||
+        (dflt.map (writesArray arrName)).getD false
+    | .forLoop _ _ _ body => writesArray arrName body
+    | _ => false
 
 /-- Collect byte-lane writes: if (cond) arr[addr][hi:lo] <= data[hi:lo] -/
 partial def collectByteLaneWrites (arrName : String) (stmts : List SVStmt)
@@ -1084,6 +1219,21 @@ partial def emitSequentialSSA (stmts : List SVStmt)
       -- (LiteX/Migen generates this pattern for bus muxes)
       if isDontCare rhs then (result, wires, curEnv, step)
       else
+        -- Part-select / bit writes to a declared vector: read-modify-write
+        -- at the vector's full width.  (`x[4:0] = 0` used to reach
+        -- `exprToName` and overwrite the WHOLE of `x` — VexRiscv DataCache's
+        -- `io_mem_cmd_payload_address[4:0] = 5'h00`.)
+        match partialWriteTarget lhs with
+        | some (name, fieldW, off, w) =>
+          let curRef := Expr.ref (seqEnvLookup curEnv name)
+          let rhsExpr := substExprEnv curEnv (lowerExpr rhs)
+          let offExpr := substExprEnv curEnv off
+          let wireName := s!"{name}_seq{step}"
+          ( result ++ [.assign wireName (rmwField curRef rhsExpr offExpr w fieldW)]
+          , wires ++ [{ name := wireName, ty := .bitVector w }]
+          , seqEnvUpdate curEnv name wireName
+          , step + 1 )
+        | none =>
         -- Check for bit-index assign first: x[idx] = expr → read-modify-write
         -- (must be before exprToName which would treat index as simple name)
         match lhs with
@@ -1856,10 +2006,33 @@ private def preprocessPackedItems (items : List SVModuleItem) : List SVModuleIte
     | _ => none
   if tbl.isEmpty then items else items.map (expandPackedItem tbl)
 
+end WithArrayCtx
+
+/-- Declared unpacked arrays and scalar regs/wires of a module (generate
+    bodies included), for `ArrayCtx`. -/
+partial def collectDeclaredNames (items : List SVModuleItem) :
+    Std.HashSet String × Std.HashSet String :=
+  items.foldl (fun (arrs, scal) it => match it with
+    | .regDecl n _ (some _) => (arrs.insert n, scal)
+    | .regDecl n _ none | .wireDecl n _ _ | .integerDecl n
+    | .packedArrayDecl n _ _ => (arrs, scal.insert n)
+    | .generateBlock _ body elseBody =>
+      let (a1, s1) := collectDeclaredNames body
+      let (a2, s2) := collectDeclaredNames elseBody
+      (a1.fold (·.insert ·) (a2.fold (·.insert ·) arrs),
+       s1.fold (·.insert ·) (s2.fold (·.insert ·) scal))
+    | _ => (arrs, scal)) ({}, {})
+
 /-- Lower a single SVModule to Sparkle IR Module, optionally overriding parameters. -/
 
 
 def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := []) : Except String Module := do
+  -- `x[i]` is a memory read exactly when the module declares `x` as an
+  -- unpacked array (VexRiscv's `banks_0`, `ways_0_tags` were lowered as
+  -- bit-selects by the name heuristic alone).
+  let (declArrays, declScalars) := collectDeclaredNames svMod.items
+  let portNames := svMod.ports.foldl (fun acc p => acc.insert p.name) declScalars
+  let _ : ArrayCtx := { arrays := declArrays, scalars := portNames }
   -- Expand generate blocks using parameter defaults + overrides
   let paramDefaults := extractParamDefaults svMod
   -- Overrides take priority: replace defaults with overridden values
@@ -1910,8 +2083,19 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
           if env.wireWidths.contains name then env.wireWidths
           else env.wireWidths.insert name width,
         regNames := env.regNames.insert name true }
+    | .signedDecl name =>
+      env := { env with signedNames := env.signedNames.insert name true }
     | _ => pure ()
 
+  -- Declared ranges for part-select writes (scalars are `[0:0]`).
+  let _ : ArrayCtx :=
+    { arrays := declArrays, scalars := portNames
+      signedNames := env.signedNames.fold (fun acc n _ => acc.insert n) {}
+      rangeOf := fun n =>
+        match env.portWidths.get? n <|> env.wireWidths.get? n with
+        | some (some r) => some r
+        | some none => some (0, 0)
+        | none => none }
   -- With the environment complete, resolve reduction-XOR widths that are
   -- invisible statically (bare idents inside the parity concat).
   let svMod := { svMod with items := svMod.items.map (annotateRXItem env) }
@@ -2024,7 +2208,11 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
             body := body.push (.assign name value)
             if !((wireSet.contains name || portNameSet.contains name)) then
               wires := wires.push { name, ty := env.getHWType name }; wireSet := wireSet.insert name true
-    | .alwaysBlock (.posedge clock) stmts =>
+    | .alwaysBlock (.posedge clock) stmts
+    | .alwaysBlock (.posedgeAsync clock _) stmts =>
+      let asyncSignals := match item with
+        | .alwaysBlock (.posedgeAsync _ sigs) _ => sigs
+        | _ => []
       -- Sequential: extract all register names, then build mux expression per register
       -- Detect reset pattern: find first if/else that looks like a reset check
       -- PicoRV32 has flat assigns before the reset check, so we scan for it
@@ -2036,6 +2224,10 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
         | _ => none
       match resetCheck with
       | some (resetSig, isActiveHigh, initBranch, _dataBranch) =>
+        -- Asynchronous only when the reset is in the sensitivity list.
+        -- (`always @(posedge clk) if (!resetn)` — PicoRV32 — is a
+        -- synchronous reset; it used to become `posedge _rst_resetn_inv`.)
+        if !asyncSignals.contains resetSig then resetKind := .synchronous
         resetName := if isActiveHigh then resetSig else s!"_rst_{resetSig}_inv"
         if !isActiveHigh then
           wires := wires.push { name := resetName, ty := .bit }; wireSet := wireSet.insert resetName true
@@ -2087,11 +2279,22 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
       let allGuarded := collectGuardedNB stmts
       for regName in regNames do
         let hwTy := env.getHWType regName
-        let initVal := match initMap.find? (·.1 == regName) with
-          | some (_, v) => v
-          | none => 0
         let dataExpr := guardedToMux (allGuarded.filter (·.target == regName)) (.ref regName)
-        body := body.push (.register regName clock (resetName, resetKind) dataExpr initVal)
+        -- Only registers the reset branch sets to a constant are reset
+        -- registers.  The others (PicoRV32's `ack_arvalid`, written only
+        -- in the `else` branch) HOLD during reset — their data mux already
+        -- carries the reset guard — so they get no reset of their own.
+        match initMap.find? (·.1 == regName) with
+        | some (_, initVal) =>
+          body := body.push (.register regName clock (resetName, resetKind) dataExpr initVal)
+        | none =>
+          if resetCheck.isSome then
+            if !((wireSet.contains "_no_rst" || portNameSet.contains "_no_rst")) then
+              wires := wires.push { name := "_no_rst", ty := .bit }; wireSet := wireSet.insert "_no_rst" true
+              body := body.push (.assign "_no_rst" (.const 0 1))
+            body := body.push (.register regName clock ("_no_rst", .synchronous) dataExpr 0)
+          else
+            body := body.push (.register regName clock (resetName, resetKind) dataExpr 0)
         if !((wireSet.contains regName || portNameSet.contains regName)) then
           wires := wires.push { name := regName, ty := hwTy }; wireSet := wireSet.insert regName true
 
@@ -2139,7 +2342,8 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
       let mut memClock : String := "clk"
       for prevItem in svMod.items do
         match prevItem with
-        | .alwaysBlock (.posedge blkClk) stmts =>
+        | .alwaysBlock (.posedge blkClk) stmts
+        | .alwaysBlock (.posedgeAsync blkClk _) stmts =>
           -- Try full-word writes first: arr[idx] <= data
           let arrayWrites := collectArrayWrites name stmts
           if !arrayWrites.isEmpty then
@@ -2200,7 +2404,13 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
                 if acc == Expr.const 0 1 then c else Expr.op .or [acc, c]
               ) (Expr.const 0 1)
               writeEnable := enableExpr
-            | [] => pure ()
+            | [] =>
+              -- Neither form matched.  If the block does write the array,
+              -- saying nothing would leave a memory that is never
+              -- written (write enable 0) — LiteX's RAMs were lowered that
+              -- way.
+              if writesArray name stmts then
+                throw s!"memory `{name}` is written in a form the lowering does not support (supported: `{name}[a] <= d`, `{name}[a][hi:lo] <= d`, `{name}[a][base +: w] <= d` with constant bounds, under `if`/`case`, in an unrollable `for`)"
         | _ => pure ()
       -- Extract read ports.  The first read claims `Stmt.memory`'s
       -- dedicated read fields; the rest become genuine EXTRA read ports
@@ -2222,7 +2432,8 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
               else
                 extraReads := extraReads ++ [(lowerExpr idx, rdName)]
             | none => pure ()
-        | .alwaysBlock (.posedge _) innerStmts =>
+        | .alwaysBlock (.posedge _) innerStmts
+        | .alwaysBlock (.posedgeAsync _ _) innerStmts =>
           for s in innerStmts do
             match s with
             | .nonblockAssign (.ident rdName) (.index (.ident arrN) idx) =>
@@ -2240,7 +2451,17 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
           wireSet := wireSet.insert rd true
     | .instantiation modName instName conns _paramOvr =>
       -- Module instantiation → Stmt.inst (parameter overrides resolved at flatten time)
-      let irConns := conns.map fun (portName, expr) => (portName, lowerExpr expr)
+      -- A connection selecting a signal's WHOLE declared range
+      -- (SpinalHDL writes `.io_pop_payload_inst(fifo_io_pop_payload_inst[31:0])`)
+      -- is the signal itself.  Kept as a slice, an OUTPUT connection was
+      -- not a plain ref, so CSim never copied the child's output back and
+      -- scheduled the parent's reads before the child ran (VexRiscv's
+      -- StreamFifoLowLatency read 0).
+      let wholeSignal : SVExpr → SVExpr := fun e => match e with
+        | .slice (.ident n) hi lo =>
+          if ArrayCtx.rangeOf n == some (hi, lo) then .ident n else e
+        | _ => e
+      let irConns := conns.map fun (portName, expr) => (portName, lowerExpr (wholeSignal expr))
       body := body.push (.inst modName instName irConns)
     | _ => pure ()
 
@@ -2348,6 +2569,24 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
       mergedBody := mergedBody ++ [.assign tgt merged]
   let narrowedBody := mergedBody.map (narrowMaskStmt env)
   let promotedBody := narrowedBody.map (promoteSignedStmt env)
+  -- An `always` block the parser skipped may only drive names nothing
+  -- uses (simulation-only debug strings).  If it drives a signal that is
+  -- read or is an output, the lowered module would silently miss logic.
+  let skippedTargets := svMod.items.flatMap fun it => match it with
+    | .skippedAlways ts => ts | _ => []
+  if !skippedTargets.isEmpty then
+    let used : Std.HashSet String := promotedBody.foldl (fun acc st =>
+      let es : List Expr := match st with
+        | .assign _ rhs => [rhs]
+        | .register _ _ _ input _ => [input]
+        | .memory _ _ _ _ wa wd we ra _ _ ew er =>
+          [wa, wd, we, ra] ++ ew.flatMap (fun (a, d, e) => [a, d, e]) ++ er.map (·.1)
+        | .inst _ _ conns => conns.map (·.2)
+      es.foldl (fun acc e =>
+        (Sparkle.IR.Optimize.collectExprRefs e).foldl (·.insert ·) acc) acc)
+      (outputs.foldl (fun acc p => acc.insert p.name) {})
+    if let some n := skippedTargets.find? (used.contains ·) then
+      throw s!"an always block that drives `{n}` uses an unsupported statement and could not be parsed"
   pure {
     name := svMod.name
     inputs := inputs

@@ -259,7 +259,14 @@ partial def emitExpr (widthOf : String → Option Nat := fun _ => none)
         | none =>
           s!"($signed({emitExpr widthOf arg1}) {emitOperator operator} $signed({emitExpr widthOf arg2}))"
       | .asr =>
-        s!"($signed({emitExpr widthOf arg1}) {emitOperator operator} $signed({emitExpr widthOf arg2}))"
+        -- `$unsigned(…)` makes the shift SELF-determined.  Verilog decides
+        -- an expression's signedness from all its operands and pushes it
+        -- down: in `c ? ($signed(a) >>> n) : u` with unsigned `u`, the
+        -- shift became unsigned, i.e. LOGICAL (PicoRV32's branch offset
+        -- `$signed({…})` lost its sign extension inside the decoder's mux
+        -- chain).  Self-determined, it is arithmetic at `a`'s own width —
+        -- the IR's `asr` (width of the left operand).
+        s!"$unsigned($signed({emitExpr widthOf arg1}) {emitOperator operator} $signed({emitExpr widthOf arg2}))"
       | _ =>
         s!"({emitExpr widthOf arg1} {emitOperator operator} {emitExpr widthOf arg2})"
     | _ => s!"/* ERROR: operator {operator} with wrong arity */"

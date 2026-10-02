@@ -66,6 +66,12 @@ def preprocess (input : String) : String := Id.run do
       -- Replace debug macro with empty statement (semicolon)
       result := result.push ";"
     else
+      -- Normalise `@(*)` to `@*` BEFORE stripping `(* … *)` attributes:
+      -- the stripper reads the `(*` of `@(*)` as an attribute opener and
+      -- dropped the rest of the line (`always @(*) begin` → `always @`).
+      let line := if containsSubstrP line "(*)" then
+          (line.replace "@(*)" "@*").replace "@ (*)" "@*"
+        else line
       -- Remove (* ... *) attributes
       let cleaned := removeAttributes line
       result := result.push cleaned
@@ -203,19 +209,26 @@ partial def parseShift : P SVExpr := do
     match ← attempt (op2 ">>>") with
     | some _ => let rhs ← parseAdd; e := SVExpr.binary .asr e rhs
     | none =>
-      match ← attempt (op2 "<<") with
+      -- `<<<` (arithmetic left shift) is the same operation as `<<`.
+      match ← attempt (op2 "<<<") with
       | some _ => let rhs ← parseAdd; e := SVExpr.binary .shl e rhs
       | none =>
-        match ← attempt (op2 ">>") with
-        | some _ => let rhs ← parseAdd; e := SVExpr.binary .shr e rhs
-        | none => cont := false
+        match ← attempt (op2 "<<") with
+        | some _ => let rhs ← parseAdd; e := SVExpr.binary .shl e rhs
+        | none =>
+          match ← attempt (op2 ">>") with
+          | some _ => let rhs ← parseAdd; e := SVExpr.binary .shr e rhs
+          | none => cont := false
   pure e
 
 partial def parseAdd : P SVExpr := do
   let mut e ← parseMul
   let mut cont := true
   while cont do
-    match ← attempt (token (matchStr "+")) with
+    -- `+:` is the indexed part-select, not an addition: `x[i*8 +: 8]`
+    match ← attempt (do
+        let _ ← token (matchStr "+")
+        if (← peekChar) == some ':' then fail "+:") with
     | some _ => let rhs ← parseMul; e := SVExpr.binary .add e rhs
     | none =>
       match ← attempt (do let _ ← token (matchStr "-"); parseMul) with
@@ -275,12 +288,16 @@ partial def parsePrimaryPost : P SVExpr := do
 partial def parsePostfix (e : SVExpr) : P SVExpr := do
   match ← attempt lbracket with
   | some _ =>
-    -- Try [base +: width] part-select first
-    -- Use parsePrimary (not parseExpr) for base to avoid consuming + as addition
+    -- Try [base +: width] part-select first.  The base is an arithmetic
+    -- expression (`we_index*8 +: 8` in LiteX's byte-enable memories);
+    -- `parseAdd` stops before `+:`.  It used to be a primary only, so a
+    -- product as the base made the whole statement unparsable — and the
+    -- always-block recovery dropped it without a word: LiteX's RAMs lowered
+    -- to memories with write enable 0.
     match ← attempt (do
-      let base ← parsePrimary
+      let base ← parseAdd
       let _ ← token (matchStr "+:")
-      let widthExpr ← parsePrimary
+      let widthExpr ← parseAdd
       rbracket
       pure (base, widthExpr)
     ) with
@@ -417,6 +434,45 @@ partial def parseStmtList : P (List SVStmt) := do
 partial def parseStmt : P SVStmt := do
   -- Empty statement (standalone ;)
   match ← attempt semi with
+  | some _ => return SVStmt.blockAssign (.lit (.decimal none 0)) (.lit (.decimal none 0))
+  | none => pure ()
+  -- Simulation-only system task (`$display("…", x);`, `$finish;`): consumed
+  -- and ignored, like the empty statement.  Left unparsed, it made the
+  -- ENCLOSING statement fail, and the always-block recovery then re-parsed
+  -- the inner statements flat — VexRiscv DataCache's `if (reset) … else …`
+  -- lost its structure (no reset, holds replaced by the reset constants).
+  match ← attempt (matchStr "$") with
+  | some _ =>
+    let _ ← identifier
+    match ← attempt lparen with
+    | some _ =>
+      let mut depth : Nat := 1
+      let mut inStr := false
+      while depth > 0 do
+        let c ← nextChar
+        if inStr then
+          if c == '\\' then
+            let _ ← nextChar
+            pure ()
+          else if c == '"' then inStr := false
+        else if c == '"' then inStr := true
+        else if c == '(' then depth := depth + 1
+        else if c == ')' then depth := depth - 1
+      ws
+    | none => pure ()
+    semi
+    return SVStmt.blockAssign (.lit (.decimal none 0)) (.lit (.decimal none 0))
+  | none => pure ()
+  -- Block-local variable declaration (`integer i;` at the top of a named
+  -- block): it declares a loop variable and does nothing.  LiteX writes its
+  -- byte-enable memories this way.  When the recovery below still skipped
+  -- characters this parsed by accident; once an unparsable statement became
+  -- an error, the whole memory block was rejected.
+  match ← attempt (do
+      keyword "integer"
+      let _ ← identifier
+      let _ ← many (do comma; identifier)
+      semi) with
   | some _ => return SVStmt.blockAssign (.lit (.decimal none 0)) (.lit (.decimal none 0))
   | none => pure ()
   match ← attempt (keyword "if") with
@@ -634,9 +690,20 @@ partial def parseAlwaysBlock : P SVModuleItem := do
       let body ← parseAlwaysBody
       pure (SVModuleItem.alwaysBlock .star body)
     | none =>
-      lparen; let sens ← parseSensitivity
-      let _ ← many (do keyword "or"; let _ ← parseSensitivity; pure ())
+      lparen; let first ← parseSensitivity
+      -- `or` or `,` separates entries; keep them — an edge on a reset
+      -- signal is what makes that reset asynchronous.
+      let extra ← many (do
+        match ← attempt (keyword "or") with
+        | some _ => pure ()
+        | none => comma
+        parseSensitivity)
       rparen
+      let extraNames := extra.toList.filterMap fun e => match e with
+        | .posedge n | .negedge n => some n | _ => none
+      let sens := match first with
+        | .posedge clk => if extraNames.isEmpty then first else .posedgeAsync clk extraNames
+        | _ => first
       let body ← parseAlwaysBody
       pure (SVModuleItem.alwaysBlock sens body)
   | none =>
@@ -667,8 +734,12 @@ where
             match ← attempt (keyword "begin") with
             | some _ => depth := depth + 1
             | none =>
-              -- Skip one token (error recovery)
-              let _ ← nextChar
+              -- An unparsable statement is a parse ERROR.  This used to
+              -- skip one character and retry, which re-parsed the inner
+              -- statements of a failed `if`/`case` as a flat sequence — a
+              -- silently different circuit (see the system-task note in
+              -- `parseStmt`).
+              fail "unsupported statement in always block"
       pure stmts
     | none =>
       let s ← parseStmt; pure [s]
@@ -683,6 +754,72 @@ def parseMultiNames (mkItem : String → SVModuleItem) : P (List SVModuleItem) :
     | some _ => let n ← identifier; items := items ++ [mkItem n]
     | none => cont := false
   semi; pure items
+
+/-- Names assigned in the source text `cs[lo:hi]` of a skipped `always`
+    block: the identifier (or the identifiers of a `{…}` concatenation)
+    left of each `=` / `<=`.  Over-approximates (a `<=` comparison counts),
+    which only makes the "skipped block drives a used signal" check
+    stricter. -/
+def assignTargets (cs : Array Char) (lo hi : Nat) : List String := Id.run do
+  let isId := fun (c : Char) => c.isAlphanum || c == '_' || c == '$'
+  let isSp := fun (c : Char) => c == ' ' || c == '\n' || c == '\t' || c == '\r'
+  let isName := fun (n : String) => match n.toList with
+    | c :: _ => !c.isDigit
+    | [] => false
+  let mut out : List String := []
+  for i in [lo:hi] do
+    if cs[i]! != '=' then continue
+    let prev := if i > lo then cs[i-1]! else ' '
+    let next := if i + 1 < hi then cs[i+1]! else ' '
+    if next == '=' || prev == '=' || prev == '!' || prev == '>' then continue
+    -- position just left of the operator (`=` or `<=`)
+    let mut j := if prev == '<' then i - 1 else i
+    -- skip spaces, then any trailing `[…]` selects
+    let mut go := true
+    while go do
+      while j > lo && isSp cs[j-1]! do j := j - 1
+      if j > lo && cs[j-1]! == ']' then
+        let mut depth := 0
+        let mut k := j
+        while k > lo do
+          k := k - 1
+          if cs[k]! == ']' then depth := depth + 1
+          else if cs[k]! == '[' then
+            depth := depth - 1
+            if depth == 0 then break
+        j := k
+      else go := false
+    if j > lo && cs[j-1]! == '}' then
+      -- concatenation target: every identifier back to the matching `{`
+      let mut depth := 0
+      let mut k := j
+      while k > lo do
+        k := k - 1
+        if cs[k]! == '}' then depth := depth + 1
+        else if cs[k]! == '{' then
+          depth := depth - 1
+          if depth == 0 then break
+      let mut cur := ""
+      for m in [k:j] do
+        if isId cs[m]! then cur := cur.push cs[m]!
+        else
+          if isName cur then out := cur :: out
+          cur := ""
+    else
+      let mut k := j
+      while k > lo && isId cs[k-1]! do k := k - 1
+      let name := String.ofList (cs.extract k j).toList
+      if isName name then out := name :: out
+  return out.eraseDups
+
+/-- Tag the names declared by `items` as signed (`wire signed …`): the
+    lowering needs it to tell `>>>` (arithmetic only on a signed operand)
+    from a logical shift. -/
+def markSigned (isSigned : Bool) (items : List SVModuleItem) : List SVModuleItem :=
+  if !isSigned then items else
+  items ++ items.filterMap fun it => match it with
+    | .wireDecl n _ _ | .regDecl n _ _ | .packedArrayDecl n _ _ => some (.signedDecl n)
+    | _ => none
 
 mutual
 
@@ -745,7 +882,7 @@ partial def parseModuleItems : P (List SVModuleItem) := do
       | none => attempt (keyword "logic")
     match wireKw with
     | some _ =>
-      let _ ← attempt (keyword "signed")
+      let isSigned := (← attempt (keyword "signed")).isSome
       let w ← parseOptWidth
       -- extra packed dimensions: wire [A:B][C:D]… name  (firtool mux tables)
       let mut extraDims : List (Nat × Nat) := []
@@ -761,10 +898,10 @@ partial def parseModuleItems : P (List SVModuleItem) := do
           | some _ => let e ← parseExpr; pure (some e)
           | none => pure none
         semi
-        return [SVModuleItem.packedArrayDecl n dims init]
+        return markSigned isSigned [SVModuleItem.packedArrayDecl n dims init]
       let n ← identifier
       match ← attempt eqSign with
-      | some _ => let e ← parseExpr; semi; pure [SVModuleItem.wireDecl n w (some e)]
+      | some _ => let e ← parseExpr; semi; pure (markSigned isSigned [SVModuleItem.wireDecl n w (some e)])
       | none =>
         -- Check for additional comma-separated names
         let mut items := [SVModuleItem.wireDecl n w none]
@@ -773,10 +910,10 @@ partial def parseModuleItems : P (List SVModuleItem) := do
           match ← attempt comma with
           | some _ => let n2 ← identifier; items := items ++ [SVModuleItem.wireDecl n2 w none]
           | none => cont := false
-        semi; pure items
+        semi; pure (markSigned isSigned items)
     | none => match ← attempt (keyword "reg") with
       | some _ =>
-        let _ ← attempt (keyword "signed")
+        let isSigned := (← attempt (keyword "signed")).isSome
         let w ← parseOptWidth; let n ← identifier
         match ← attempt lbracket with
         | some _ =>
@@ -816,7 +953,7 @@ partial def parseModuleItems : P (List SVModuleItem) := do
               | none => pure ()
               items := items ++ [SVModuleItem.regDecl n2 w none]
             | none => cont := false
-          semi; pure items
+          semi; pure (markSigned isSigned items)
       | none => match ← attempt (keyword "integer") with
         | some _ =>
           let items ← parseMultiNames (SVModuleItem.integerDecl ·)
@@ -914,7 +1051,10 @@ partial def parseModuleItems : P (List SVModuleItem) := do
                   match ← attempt parseAlwaysBlock with
                   | some item => pure [item]
                   | none =>
-                    -- Skip past the always block by matching begin/end balance
+                    -- Skip past the always block by matching begin/end
+                    -- balance, recording what it assigns: lowering fails if
+                    -- a skipped block drives a signal that is used.
+                    let startPos ← getPos
                     keyword "always"
                     let _ ← attempt (matchStr "_ff")
                     let _ ← attempt (matchStr "_comb")
@@ -940,7 +1080,8 @@ partial def parseModuleItems : P (List SVModuleItem) := do
                         match ← attempt (keyword "end") with
                         | some _ => depth := depth - 1
                         | none => let _ ← nextChar; pure ()
-                    pure []
+                    let st ← get
+                    pure [SVModuleItem.skippedAlways (assignTargets st.chars startPos st.pos)]
 
 end  -- mutual
 
