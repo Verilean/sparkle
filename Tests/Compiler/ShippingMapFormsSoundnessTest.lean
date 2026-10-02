@@ -102,7 +102,7 @@ run_cmd liftTermElabM do
   for name in [``zPad, ``zCone, ``zSum, ``fLow, ``fDot, ``fCone, ``sSub, ``zNarrow,
       ``zConcrete] do
     let ci ← getConstInfo name
-    let ec := entryConst true false [] ci pred inl
+    let ec := entryConst true false [] ci pred inl (userProjection? env)
     unless (mixedCertifiedShape? false [] ec pred).isSome do
       throwError "{name}: no gate accepts the declaration"
     let (mc, dc) ← synthesizeCombinationalCore name [] false
@@ -120,7 +120,7 @@ run_cmd liftTermElabM do
   let pred := instancePredicate env
   let inl := userInliner env
   for (name, valueName) in [(``zNarrow, ``zNarrowEntry)] do
-    let some v := (entryConst true false [] (← getConstInfo name) pred inl).value?
+    let some v := (entryConst true false [] (← getConstInfo name) pred inl (userProjection? env)).value?
       | throwError "{name} has no entry value"
     let .ok r := Tools.ShippingEntrySoundness.reflExpr v
       | throwError "{name}: entry value is not reflectable"
@@ -128,7 +128,7 @@ run_cmd liftTermElabM do
       throwError "{valueName} is not the entry constant of {name}"
   -- A non-zero prefix is not the zero-extension; it keeps the legacy route.
   let ci ← getConstInfo ``zOnes
-  unless (mixedCertifiedShape? false [] (entryConst true false [] ci pred inl) pred).isNone do
+  unless (mixedCertifiedShape? false [] (entryConst true false [] ci pred inl (userProjection? env)) pred).isNone do
     throwError "a non-zero literal prefix passed the gate"
 
 run_cmd do

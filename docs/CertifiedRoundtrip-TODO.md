@@ -842,6 +842,44 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   trace of a module with any number of registers, from its per-cycle
   step. `machine3_state` instantiates the first on three slots of
   different types, one of them never written.
+- [x] **The general `circuit do` on the certified route (the machine
+  route).** Decision of the user (2026-10-02): the certified route may
+  emit text that differs from the legacy compile when the function is
+  the same. A `circuit do` with any number of Bool/BitVec slots and one
+  Signal result — directly, or one field of a structure result — is
+  compiled as its TRANSITION: the result and every next value packed
+  into one bit vector (`result ++ next₀ ++ … ++ nextₙ₋₁`), a
+  combinational body over the declaration's binders plus one binder per
+  slot. `machineShape?` reads it off the unfolded declaration PURELY
+  (zeta of the hardware `let`s; the `Circuit.next` writes in order — the
+  last write of a slot wins, an unwritten slot holds; the result, with a
+  structure-field projection resolved) and offers it to the unified gate;
+  `synthesizeMachineCertified` compiles it with the SAME certified
+  combinational harness and closes the slot ports into registers with
+  the pure IR function `Sparkle.IR.Machine.closeMachine`. No new
+  monadic compiler proof: `closeMachine_step` (IR), then
+  `synthesizeMachineCertified_sound` (`MachinePreserves`: one cycle of
+  the emitted module, from a run of the real harness),
+  `machine_trace` (any number of cycles, for any valuation of the slots
+  over time that starts in the registers and follows the transition),
+  `synthesizeCombinationalCore_machine_sound` (the real entry; boundary
+  `MachineDefines`). END TO END, emitted-module trace = SOURCE
+  declaration at every cycle, standard axioms only: `mThree_execution`
+  (three slots of two kinds, one never written) and `lin_execution` —
+  the LIN checksum of the IP library (`IP/Bus/LINHW.checksumHW`, some
+  twenty `let`s, a structure result). Measured: 82 of 389 real
+  declarations pass a gate (was 63), 19 of them on the machine
+  route; 16 modules changed their text, every one a machine-route
+  module (8 of 196 output files differ), and every one of the
+  19 emitted modules agrees with its source in a 60-cycle IR
+  simulation. OPEN on this route: structure (multi-output)
+  results as such; the optimizer/print pipeline for machine modules
+  (the family-agnostic `shipping_pipeline_transfer` is not yet composed
+  with `machine_trace`); domains other than a binder or
+  `defaultDomain`; `let` as a term binder (zeta is budgeted — over
+  budget the declaration stays on the legacy route); a generic source
+  bridge (the two endpoints prove the source recurrence per
+  declaration, from `circuit_state` and one `rfl`).
 - [ ] **S7 / trust:** Resolve or explicitly retain `EnvDefines` in the final
   claim; record execution-model/external-tool boundaries without hiding them.
   RECORDED — docs/ShippingCompiler-TrustBase.md states the retained base
@@ -859,7 +897,7 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   text statements do and do not say, and what lies outside every
   theorem (legacy-route compiles first).
 
-Latest validation: `lake build Tests.AllTests` passed all 662 jobs, with
+Latest validation: `lake build Tests.AllTests` passed all 675 jobs (2026-10-02, machine route), with
 standard-axiom audits of the general endpoint and real signed/equality/Bool-logic
 source instantiations. Vector mux adds 2,772 source/legacy/SV/delta cases and
 real source theorems for nested and computed-condition muxes (no Bool input

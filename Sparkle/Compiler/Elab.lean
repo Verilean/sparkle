@@ -20,6 +20,7 @@ import Sparkle.IR.Optimize
 import Sparkle.IR.ZeroWidth
 import Sparkle.IR.RegDedup
 import Sparkle.IR.OptCheck
+import Sparkle.IR.Machine
 import Sparkle.IR.ModuleNameCheck
 import Sparkle.Compiler.DRC
 import Sparkle.Compiler.InlineAttr
@@ -3277,19 +3278,356 @@ def inlinedConst (inl : Lean.Expr → Lean.Expr) : ConstantInfo → ConstantInfo
   | .defnInfo d => .defnInfo { d with value := inl d.value }
   | ci => ci
 
+/-! ### State machines: a general `circuit do` on the certified route
+
+`runCircuitH inits (fun regs => …)` with any number of register slots is, by
+its definition, a TRANSITION function closed by registers: each slot's next
+value and the result are combinational functions of the inputs and of the
+slots' current values.  `machineShape?` reads that transition off the
+declaration's value PURELY — the handles of the slots, the `Circuit.next`
+writes in order, the result of the final `pure` — and writes it as one
+ordinary combinational body over the declaration's binders plus one binder
+per slot, whose value is the result and every next value PACKED into one bit
+vector (`result ++ next₀ ++ … ++ nextₙ₋₁`, a Bool as one bit).
+
+That body is offered to the unified gate like any other declaration; when
+the gate accepts it the transition is compiled by the SAME certified
+combinational harness (`synthesizeMixedCertified`), and
+`Sparkle.IR.Machine.closeMachine` — a pure function on the IR — turns the
+slot ports into registers.  The emitted text differs from the legacy
+lowering of `circuit do` (one register per slot there too, but other wire
+names and no packed wire); the function is the same, and that is what
+`Tools/ShippingMachine*.lean` prove. -/
+
+/-- Zeta: every `let` replaced by its value, everywhere outside binder types
+    (budgeted; metadata and primitive projections are refused). -/
+def inlZeta : Nat → Lean.Expr → Nat → Option (Lean.Expr × Nat)
+  | 0, _, _ => none
+  | _, _, 0 => none
+  | fuel + 1, .letE _ _ v body _, b + 1 =>
+    match inlZeta fuel v b with
+    | some (v', b) =>
+      match inlSubst #[v'] 0 body b with
+      | some (e', b) => inlZeta fuel e' b
+      | none => none
+    | none => none
+  | fuel + 1, .app f a, b + 1 =>
+    match inlZeta fuel f b with
+    | some (f', b) =>
+      match inlZeta fuel a b with
+      | some (a', b) => some (.app f' a', b)
+      | none => none
+    | none => none
+  | fuel + 1, .lam n t body bi, b + 1 =>
+    match inlZeta fuel body b with
+    | some (body', b) => some (.lam n t body' bi, b)
+    | none => none
+  | _, .mdata .., _ + 1 => none
+  | _, .proj .., _ + 1 => none
+  | _, e, b + 1 => some (e, b)
+
+/-- The kind of a register slot's type: `Bool`, or `BitVec n` with a literal
+    positive `n`. -/
+def machSlotKind? : Lean.Expr → Option MixedGateBinder
+  | .const ``Bool _ => some .bool
+  | .app (.const ``BitVec _) wE =>
+    (canonicalNatLitValue? wE).bind fun n => if 0 < n then some (.bits n) else none
+  | _ => none
+
+/-- The slot types of a `runCircuitH`: a literal list of slot types. -/
+def machSlotKinds : Lean.Expr → Option (List MixedGateBinder)
+  | .app (.const ``List.nil _) _ => some []
+  | .app (.app (.app (.const ``List.cons _) _) ty) rest =>
+    match machSlotKind? ty, machSlotKinds rest with
+    | some k, some ks => some (k :: ks)
+    | _, _ => none
+  | _ => none
+
+/-- A slot's reset value: a Bool constructor, or a BitVec literal of the
+    slot's width. -/
+def machInit? : MixedGateBinder → Lean.Expr → Option Nat
+  | .bool, .const ``Bool.true _ => some 1
+  | .bool, .const ``Bool.false _ => some 0
+  | .bits n, e =>
+    match bitVecLitValue? e with
+    | some (w, v) => if w == n then some v else none
+    | none => none
+  | _, _ => none
+
+/-- The reset values: the nested pair `(init₀, (init₁, … ()))`. -/
+def machInits : List MixedGateBinder → Lean.Expr → Option (List Nat)
+  | [], .const ``Unit.unit _ => some []
+  | k :: ks, .app (.app (.app (.app (.const ``Prod.mk _) _) _) v) rest =>
+    match machInit? k v, machInits ks rest with
+    | some i, some is => some (i :: is)
+    | _, _ => none
+  | _, _ => none
+
+/-- `regs.2.2…` (`p` times) where `regs` is the bound variable `r`: the
+    handles from slot `p` on. -/
+def machTail? (r : Nat) : Lean.Expr → Option Nat
+  | .bvar i => if i == r then some 0 else none
+  | .app (.app (.app (.const ``Prod.snd _) _) _) t => (machTail? r t).map (· + 1)
+  | _ => none
+
+/-- The handle of slot `p`: `(regs.2.2…).1`. -/
+def machHandle? (r : Nat) : Lean.Expr → Option Nat
+  | .app (.app (.app (.const ``Prod.fst _) _) _) t => machTail? r t
+  | _ => none
+
+/-- The live read of slot `p`: `handle.1`. -/
+def machRead? (r : Nat) : Lean.Expr → Option Nat
+  | .app (.app (.app (.const ``Prod.fst _) _) _) h => machHandle? r h
+  | _ => none
+
+/-- Rewrite a Signal expression of the `circuit do` body into the transition's
+    context.  There: `c` continuation binders (never used), the `regs` binder,
+    then the declaration's binders.  Here: `n` slot binders, then the
+    declaration's binders.  A live read of slot `i` becomes that slot's
+    binder; any other use of `regs` or of a continuation binder is refused. -/
+def machConv (n c : Nat) : Nat → Lean.Expr → Option Lean.Expr
+  | d, .bvar j =>
+    if j < d then some (.bvar j)
+    else if j ≤ d + c then none
+    else some (.bvar (j - (c + 1) + n))
+  | d, .app f a =>
+    match machRead? (d + c) (.app f a) with
+    | some i => if i < n then some (.bvar (n - 1 - i + d)) else none
+    | none =>
+      match machConv n c d f, machConv n c d a with
+      | some f', some a' => some (.app f' a')
+      | _, _ => none
+  | d, .lam nm t b bi =>
+    match machConv n c d t, machConv n c (d + 1) b with
+    | some t', some b' => some (.lam nm t' b' bi)
+    | _, _ => none
+  | d, .forallE nm t b bi =>
+    match machConv n c d t, machConv n c (d + 1) b with
+    | some t', some b' => some (.forallE nm t' b' bi)
+    | _, _ => none
+  | _, .letE .. => none
+  | _, .mdata .. => none
+  | _, .proj .. => none
+  | _, e => some e
+
+/-- The statements of a let-free `circuit do` body under `c` continuation
+    binders: the writes `handle <~ rhs` in order, each with the number of
+    continuation binders around it, and the final `pure` value with its. -/
+def machChain (c : Nat) : Lean.Expr →
+    Option (List (Nat × Lean.Expr × Lean.Expr) × Nat × Lean.Expr)
+  | .app (.app (.app (.app (.const ``Sparkle.Core.Circuit.pure' _) _) _) _) v => some ([], c, v)
+  | .app (.app (.app (.app (.app (.app (.const ``Sparkle.Core.Circuit.bind _) _) _) _) _)
+      (.app (.app (.app (.app (.app (.app (.const ``Sparkle.Core.Circuit.next _) _) _) _) _)
+        h) rhs)) (.lam _ _ rest _) =>
+    match machChain (c + 1) rest with
+    | some (ws, v) => some ((c, h, rhs) :: ws, v)
+    | none => none
+  | _ => none
+
+/-- The writes rewritten into the transition's context: `(slot, next value)`. -/
+def machWrites (n : Nat) : List (Nat × Lean.Expr × Lean.Expr) → Option (List (Nat × Lean.Expr))
+  | [] => some []
+  | (c, h, rhs) :: rest =>
+    match machHandle? c h, machConv n c 0 rhs, machWrites n rest with
+    | some i, some e, some ws => if i < n then some ((i, e) :: ws) else none
+    | _, _, _ => none
+
+/-- The next value of slot `i`: its LAST write (`Circuit.next` replaces the
+    pending value), or the slot itself when the body never writes it. -/
+def machNext (n i : Nat) (ws : List (Nat × Lean.Expr)) : Lean.Expr :=
+  match ws.reverse.find? (·.1 == i) with
+  | some (_, e) => e
+  | none => .bvar (n - 1 - i)
+
+/-- The domain in the transition's context, with the reset kind the registers
+    take: synchronous in `defaultDomain`, asynchronous (the legacy fallback
+    for a domain that is not a literal) for a domain binder. -/
+def machDom? (n : Nat) : Lean.Expr → Option (Lean.Expr × Sparkle.IR.Type.ResetKind)
+  | .bvar i => some (.bvar (i + n), .asynchronous)
+  | .const ``Sparkle.Core.Domain.defaultDomain ls =>
+    some (.const ``Sparkle.Core.Domain.defaultDomain ls, .synchronous)
+  | _ => none
+
+/-- `Signal dom (BitVec n)`. -/
+def machSigT (dom : Lean.Expr) (n : Nat) : Lean.Expr :=
+  mkApp2 (.const ``Sparkle.Core.Signal.Signal [.zero]) dom (mkApp (.const ``BitVec []) (inlNatLit n))
+
+/-- `a ++ b` at the library's Signal instance, widths `m` and `n`. -/
+def machConcatE (dom : Lean.Expr) (m n : Nat) (a b : Lean.Expr) : Lean.Expr :=
+  mkApp6 (.const ``HAppend.hAppend [.zero, .zero, .zero]) (machSigT dom m) (machSigT dom n)
+    (machSigT dom (m + n))
+    (mkApp3 (.const ``Sparkle.Core.Signal.instHAppendSignalBitVecHAddNat []) dom (inlNatLit m)
+      (inlNatLit n)) a b
+
+/-- `Signal.pure v#k`. -/
+def machLitE (dom : Lean.Expr) (k v : Nat) : Lean.Expr :=
+  mkApp3 (.const ``Sparkle.Core.Signal.Signal.pure [.zero]) dom
+    (mkApp (.const ``BitVec []) (inlNatLit k))
+    (mkApp2 (.const ``BitVec.ofNat []) (inlNatLit k) (inlNatLit v))
+
+/-- A Bool Signal as one bit: `Signal.mux b 1#1 0#1`. -/
+def machBoolBits (dom b : Lean.Expr) : Lean.Expr :=
+  mkApp5 (.const ``Sparkle.Core.Signal.Signal.mux [.zero]) dom
+    (mkApp (.const ``BitVec []) (inlNatLit 1)) b (machLitE dom 1 1) (machLitE dom 1 0)
+
+/-- A field of the packed value: its width and its bits. -/
+def machField (dom : Lean.Expr) : MixedGateBinder → Lean.Expr → Option (Nat × Lean.Expr)
+  | .bool, e => some (1, machBoolBits dom e)
+  | .bits n, e => some (n, e)
+  | .domain, _ => none
+
+/-- The fields concatenated, the first in the high bits. -/
+def machPack (dom : Lean.Expr) : List (Nat × Lean.Expr) → Option (Nat × Lean.Expr)
+  | [] => none
+  | [f] => some f
+  | (m, a) :: rest =>
+    match machPack dom rest with
+    | some (n, b) => some (m + n, machConcatE dom m n a b)
+    | none => none
+
+/-- The width of a slot or result kind. -/
+def machWidth : MixedGateBinder → Nat
+  | .bool => 1
+  | .bits n => n
+  | .domain => 0
+
+/-- The slot fields of the packed value: slot `i` sits above the later slots. -/
+def machSlotFields : List (Nat × Nat) → List Sparkle.IR.Machine.SlotField
+  | [] => []
+  | (w, init) :: rest =>
+    { lo := (rest.map (·.1)).sum, width := w, init := init } :: machSlotFields rest
+
+/-- The names the body gives its register handles: the leading
+    `let h := (…).1` bindings, in order. -/
+def machLetNames : Lean.Expr → List Name
+  | .letE nm _ (.app (.app (.app (.const ``Prod.fst _) _) _) _) body _ =>
+    nm.eraseMacroScopes :: machLetNames body
+  | .letE _ _ _ body _ => machLetNames body
+  | _ => []
+
+/-- The slot binders: named after the handles when the body names all of
+    them, `reg<i>` otherwise. -/
+def machSlotBinders (names : List Name) (kinds : List MixedGateBinder) :
+    List (Name × MixedGateBinder) :=
+  if kinds.length ≤ names.length then (names.take kinds.length).zip kinds
+  else (List.range kinds.length).zipWith (fun i k => (Name.mkSimple s!"reg{i}", k)) kinds
+
+/-- The declaration's result kind: one Bool or positive-width BitVec Signal. -/
+def machResultKind? : Lean.Expr → Option MixedGateBinder
+  | .forallE _ _ b _ => machResultKind? b
+  | e =>
+    match mixedGateBinderKind? e with
+    | some .bool => some .bool
+    | some (.bits n) => some (.bits n)
+    | _ => none
+
+/-- The `runCircuitH` application a body is, directly or under ONE field
+    projection of a user structure: `(field selector, domain, slot types,
+    reset values, body under the regs binder)`. -/
+def machRun? (projs : Name → Option (Name × Nat × Nat)) (e : Lean.Expr) :
+    Option (Option (Name × Nat × Nat) × Lean.Expr × Lean.Expr × Lean.Expr × Lean.Expr) :=
+  let run? : Lean.Expr → Option (Lean.Expr × Lean.Expr × Lean.Expr × Lean.Expr) := fun r =>
+    match inlSpine r [] with
+    | (.const ``Sparkle.Core.runCircuitH _, [dom, αs, _, _, _, _, inits, .lam _ _ body _]) =>
+      some (dom, αs, inits, body)
+    | _ => none
+  match run? e with
+  | some (dom, αs, inits, body) => some (none, dom, αs, inits, body)
+  | none =>
+    match inlSpine e [] with
+    | (.const p _, args) =>
+      match projs p, args.getLast? with
+      | some (ctor, numParams, idx), some r =>
+        if args.length = numParams + 1 then
+          (run? r).map fun (dom, αs, inits, body) => (some (ctor, numParams, idx), dom, αs, inits, body)
+        else none
+      | _, _ => none
+    | _ => none
+
+/-- The result the body returns: the final `pure` value, or its selected
+    field when the declaration projects a structure result. -/
+def machResult? (sel : Option (Name × Nat × Nat)) (v : Lean.Expr) : Option Lean.Expr :=
+  match sel with
+  | none => some v
+  | some (ctor, numParams, idx) =>
+    match inlSpine v [] with
+    | (.const c _, args) => if c == ctor then args[numParams + idx]? else none
+    | _ => none
+
+/-- A state machine on the certified route: the transition's binders (the
+    declaration's, then one per slot), its packed body under them, and where
+    the pieces of the packed value sit. -/
+structure MachineShape where
+  binders : List (Name × MixedGateBinder)
+  body : Lean.Expr
+  layout : Sparkle.IR.Machine.Layout
+
+/-- The acceptance test of the state-machine route: the declaration's value
+    is a lambda telescope of hardware binders over a `runCircuitH` (possibly
+    under one structure-field projection) whose body is a chain of
+    `Circuit.next` writes ending in `pure`, every slot a Bool or a
+    positive-width BitVec with a literal reset value, and the packed
+    transition a body the unified gate accepts. -/
+def machineShape? (symbolicMode : Bool) (parameters : List (String × Nat)) (ci : ConstantInfo)
+    (projs : Name → Option (Name × Nat × Nat)) : Option MachineShape :=
+  match ci with
+  | .defnInfo d =>
+    if symbolicMode || !parameters.isEmpty then none else do
+    let (bs, e) ← mixedGatePeel d.value
+    let outKind ← machResultKind? d.type
+    let (sel, dom, αs, initsE, regsBody) ← machRun? projs e
+    let kinds ← machSlotKinds αs
+    let n := kinds.length
+    if n = 0 then none else
+    let inits ← machInits kinds initsE
+    let (dom', resetKind) ← machDom? n dom
+    let (chain, _) ← inlZeta inlineDepth regsBody inlineBudget
+    let (writes, c, v) ← machChain 0 chain
+    let ws ← machWrites n writes
+    let outE ← (machResult? sel v).bind (machConv n c 0)
+    let outField ← machField dom' outKind outE
+    let slotFields ← ((List.range n).zip kinds).mapM fun (i, k) =>
+      machField dom' k (machNext n i ws)
+    let (_, body) ← machPack dom' (outField :: slotFields)
+    let binders := bs ++ machSlotBinders (machLetNames regsBody) kinds
+    if unifiedGateRoot (binders.map (·.2)).toArray body then
+      some
+        { binders := binders
+          body := body
+          layout :=
+            { slots := machSlotFields ((kinds.map machWidth).zip inits)
+              outLo := (kinds.map machWidth).sum
+              outWidth := machWidth outKind
+              outTy := match outKind with
+                | .bool => .bit
+                | k => .bitVector (machWidth k)
+              resetKind := resetKind } }
+    else none
+  | _ => none
+
+/-- The synthesis of a state machine: the transition through the certified
+    combinational harness, then the slot ports closed into registers. -/
+def synthesizeMachineCertified (translate : TranslateFn) (logProf : String → IO Unit)
+    (declName : Name) (shape : MachineShape) :
+    MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) := do
+  let (t, design) ← synthesizeMixedCertified translate logProf declName shape.binders shape.body
+  return (Sparkle.IR.Machine.closeMachine shape.layout t, design)
+
 /-- The constant the entry hands to `synthesizeFromConst`: the declaration as
     read when a certified gate accepts it (nothing changes for those), or when
     no gate accepts its unfolding either (the legacy route sees the original);
     the UNFOLDED declaration exactly when the original misses both gates and
-    the unfolding passes one. -/
+    the unfolding passes one, or is a state machine (`machineShape?`, with
+    the structure projections `projs` of the run's environment). -/
 def entryConst (certifiedFrontEnd symbolicMode : Bool) (parameters : List (String × Nat))
-    (ci : ConstantInfo) (isInst : Lean.Expr → Bool) (inl : Lean.Expr → Lean.Expr) :
-    ConstantInfo :=
+    (ci : ConstantInfo) (isInst : Lean.Expr → Bool) (inl : Lean.Expr → Lean.Expr)
+    (projs : Name → Option (Name × Nat × Nat)) : ConstantInfo :=
   if certifiedFrontEnd && !symbolicMode && parameters.isEmpty &&
       (certifiedShape? symbolicMode parameters ci).isNone &&
       (mixedCertifiedShape? symbolicMode parameters ci isInst).isNone then
     if (certifiedShape? symbolicMode parameters (inlinedConst inl ci)).isSome ||
-        (mixedCertifiedShape? symbolicMode parameters (inlinedConst inl ci) isInst).isSome
+        (mixedCertifiedShape? symbolicMode parameters (inlinedConst inl ci) isInst).isSome ||
+        (machineShape? symbolicMode parameters (inlinedConst inl ci) projs).isSome
     then inlinedConst inl ci else ci
   else ci
 
@@ -3313,6 +3651,22 @@ def synthesizeFromConst (translate : TranslateFn) (logProf : String → IO Unit)
   | some (bs, body) =>
     logProf s!"[profile] synthesizeCombinational {declName} mixed certified front end"
     let result ← synthesizeMixedCertified translate logProf declName bs body
+    sparkleSubModuleCache.modify (·.insert declName result)
+    return result
+  | none =>
+  -- A general `circuit do`: its transition through the certified
+  -- combinational harness, then closed into registers.  The entry constant
+  -- is the unfolded declaration when that is a machine shape (`entryConst`),
+  -- so the shape is read off the constant as handed over.
+  let machine? ←
+    if certifiedFrontEnd && !symbolicMode && parameters.isEmpty then do
+      let env ← getEnv
+      pure (machineShape? symbolicMode parameters constInfo (userProjection? env))
+    else pure none
+  match machine? with
+  | some shape =>
+    logProf s!"[profile] synthesizeCombinational {declName} machine certified front end"
+    let result ← synthesizeMachineCertified translate logProf declName shape
     sparkleSubModuleCache.modify (·.insert declName result)
     return result
   | none =>
@@ -3511,7 +3865,7 @@ def synthesizeCombinationalCoreWith (translate : TranslateFn) (declName : Name)
     synthesizeFromConst translate logProf declName parameters symbolicMode
       certifiedFrontEnd
       (entryConst certifiedFrontEnd symbolicMode parameters constInfo
-        (instancePredicate env) (userInliner env))
+        (instancePredicate env) (userInliner env) (userProjection? env))
       (instancePredicate env)
   try
     doSynth

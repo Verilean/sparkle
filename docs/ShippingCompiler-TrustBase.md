@@ -33,6 +33,7 @@ form: *every* read of that kind in this run returns the stated value.
 | --- | --- | --- |
 | `EnvDefines … declName v` | every `getConstInfo declName` of the run returns a definition whose value is `v` | every entry endpoint |
 | `EntryDefines … declName v` | the constant the entry hands on — `entryConst` of the declaration and the environment the run reads — is a definition with value `v`. For a gate-accepted declaration this IS `EnvDefines` (`EntryDefines.of_env`); for an unfolded one it is `EnvDefines` plus what the run's environment unfolds the value to (`EntryDefines.of_inline`) | `_of_entry` endpoints (helper-structured declarations) |
+| `MachineDefines … declName shape` | the entry constant of the declaration — `entryConst` of the declaration and the environment the run reads — is refused by both shape gates and IS the machine `shape` (`machineShape?`, with the structure projections of the environment the run reads). The suite computes the same `machineShape?` on the real declaration and compares binders, layout and (reflected) body | machine endpoints (`synthesizeCombinationalCore_machine_sound`, `mThree_execution`, `lin_execution`) |
 | the declaration's type is one scalar Signal (`mixedGateResultScalar`) | `EnvDefines` pins the value, not the type; the suite checks it on the real declaration | instance and cone endpoints |
 | tag fact at the entry (`RunsTo getEnv … → isHardwareModule e mn`) | the environment the gate predicate is built from tags the child | instance, projection and cone endpoints |
 | `HardwareTagged mn` | every environment the instance arm reads tags `mn` | instance contracts |
@@ -163,6 +164,27 @@ module's text. Not yet covered: the design-level text (children printed
 alongside the parent), children that are themselves sequential (the
 bridge is combinational; the per-cycle linked run `runH` is proved only
 at the IR level), and children that themselves instantiate.
+
+## 6b. What the machine statements do and do not say
+
+A machine endpoint is about the module `synthesizeCombinationalCore`
+returns (the raw module), run by the IR semantics with RESET LOW from a
+state in which the registers hold the slots' values: every cycle's `out`
+is the source declaration's value at that time. Reset behaviour itself
+is not modelled (as for the single-register family): the registers'
+reset VALUES and reset KIND (synchronous in `defaultDomain`,
+asynchronous for a domain binder) are emitted by `closeMachine` and
+checked on the emitted module by the suite, not proved against a source
+semantics of reset. The unfolding and the reading of the transition
+(`userInliner`, `machineShape?`) are not reasoned about either: the
+theorems speak about the shape the run computed (`MachineDefines`), and
+that this transition means what the SOURCE means is proved per
+declaration by the kernel — the source's state recurrence
+(`circuit_state`) against the evaluation of the quoted term. The
+optimizer and the printer after the core entry are NOT yet composed for
+machine modules; the family-agnostic sequential pipeline theorem
+(`shipping_pipeline_transfer`) applies under its decidable premises but
+that composition is not stated.
 
 ## 7. What is outside every theorem
 

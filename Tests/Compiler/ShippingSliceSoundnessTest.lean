@@ -194,7 +194,7 @@ run_cmd liftTermElabM do
   for name in [``sField, ``sBit, ``sFull, ``sCone, ``sTwice, ``sCmp, ``sNested, ``sNamed,
       ``sConcrete, ``fcTop, ``isNmtTop] do
     let ci ← getConstInfo name
-    let ec := entryConst true false [] ci pred inl
+    let ec := entryConst true false [] ci pred inl (userProjection? env)
     unless (mixedCertifiedShape? false [] ec pred).isSome do
       throwError "{name}: no gate accepts the slice declaration"
     let (mc, dc) ← synthesizeCombinationalCore name [] false
@@ -218,7 +218,7 @@ run_cmd liftTermElabM do
   let inl := userInliner env
   for (name, valueName) in [(``sNamed, ``sNamedEntry), (``fcTop, ``fcEntry),
       (``isNmtTop, ``isNmtEntry)] do
-    let some v := (entryConst true false [] (← getConstInfo name) pred inl).value?
+    let some v := (entryConst true false [] (← getConstInfo name) pred inl (userProjection? env)).value?
       | throwError "{name} has no entry value"
     let .ok r := Tools.ShippingEntrySoundness.reflExpr v
       | throwError "{name}: entry value is not reflectable"

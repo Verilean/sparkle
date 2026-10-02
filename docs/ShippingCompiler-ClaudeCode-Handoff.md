@@ -170,7 +170,8 @@ measures which front end each declaration of the repository's corpus
 takes and why the rest miss the gate; the result and the ranked reasons
 are in ShippingCompiler-Coverage.md ("Measured corpus coverage"). 47 of
 389 real declarations passed a certified gate then; 60 after the
-normaliser, the applicative arm and the slice arm (2026-10-02). Do NOT read the surface
+normaliser, the applicative arm and the slice arm, 82 with the machine
+route (2026-10-02). Do NOT read the surface
 table as "unfold definitions and 165 declarations pass": a prototype
 normaliser was run and none passes (pass 3 of the script). Real IP is
 `circuit do` + `let` + applicative lifting + slices + structure results
@@ -264,14 +265,52 @@ dedicated production.
 `Tools/ShippingMachineSource.lean` (`circuit_state`, generic in the slot
 list; `runCircuitH_eq` is `rfl`). IR side: `Tools/ShippingMachineTrace.lean`
 (`trace_of_cyclesN`, `applyNexts_map_mem`/`_not_mem`). Neither mentions the
-compiler. What connects them — a recogniser for the `runCircuitH` shape,
-a per-slot lowering, the translation contract for N cones, `let`, and the
-structure-result projection — changes the emitted text of `circuit do`
-designs on the certified route and WAITS FOR THE USER'S DECISION (asked
-2026-10-02; byte identity is not attainable: the legacy packs the state with
-a zero-width `Unit` wire and shares `let`s through a MetaM heuristic). Keep
-`_gen_<name>` wires for `let` binders if it goes ahead: downstream JIT code
-resolves wires by name.
+compiler. The user decided on 2026-10-02 that the certified route may emit
+text that differs from the legacy compile when the function is the same
+(byte identity is not attainable: the legacy packs the state with a
+zero-width `Unit` wire and shares `let`s through a MetaM heuristic).
+
+**The machine route (landed).** The connection needs NO new monadic
+compiler proof: the TRANSITION of the machine — result and next values
+packed into one bit vector, over the binders plus one binder per slot —
+is an ordinary declaration of the unified combinational fragment, so the
+existing harness and its theorem are used as a black box, and a pure IR
+function turns the slot ports into registers.
+* `Sparkle/Compiler/Elab.lean`: `machineShape?` (pure; `machRun?`,
+  `machSlotKinds`, `machInits`, `inlZeta`, `machChain`, `machWrites`,
+  `machConv`, `machPack`), `synthesizeMachineCertified`, the third branch
+  of `synthesizeFromConst`, the third disjunct of `entryConst` (which now
+  takes the structure projections of the environment).
+* `Sparkle/IR/Machine.lean`: `Layout`, `closeMachine`.
+* `Tools/ShippingMachineClose.lean` (`closeMachine_step`),
+  `Tools/ShippingMachineEntry.lean` (`transition_facts`,
+  `MachinePreserves`, `synthesizeMachineCertified_sound`, `machine_trace`,
+  `MachineDefines`, `synthesizeCombinationalCore_machine_sound`,
+  `field_lo`/`field_hi`/`field_all`, `#def_machine_body`).
+* `Tests/Compiler/ShippingMachineEntryTest.lean`: five declarations
+  simulated against the source; `mThree_execution`, `lin_execution`.
+Lessons. (1) `synthesizeMixedCertified_term_sound` hid its binder ids
+behind an existential; composing with facts of the SAME run (the body
+ends in `assign out = w`, the input ports are the binder walk's) needed
+the statement AT the ids of a run (`…_term_sound_at`). When a theorem's
+existential witnesses will be needed again, state the "at" form first.
+(2) The harness theorem needs an admissible environment before it says
+anything; facts that do not depend on values (the ports) are obtained at
+the all-zero environment (`admissible_zero`) and transported
+(`inputPorts_congr`). (3) Put a new dispatch test where the entry
+constant is computed, not before the memo lookup: the first version
+re-ran the unfolding on every sub-module reference and broke a
+heartbeat-tight design that the SUITE does not contain — only the corpus
+measurement found it. (4) A reflected `Lean.Expr` constant inside a
+structure literal crashes the code generator: mark such definitions
+`noncomputable`. (5) The per-declaration source bridge is short once the
+packed value is stated by `rfl` (`mThree_packed`, `lin_packed`) and the
+fields are read with `field_lo`/`field_hi`/`field_all`; slot values enter
+the valuation as `BitVec.ofNat n x.toNat`, which avoids casts.
+Next on this route, by the classifier (`scratchpad/mach_tail.lean.in`):
+multi-output (structure) results — `closeMachine` with one part-select
+per field, port names as the legacy front end's — then the post-pipeline
+composition, then the remaining body idioms.
 
 **Measuring before building.** `inlineDefs` did not descend into `let`
 until the map-idiom unit, so every "residual head" statistic taken before
@@ -346,7 +385,7 @@ audits; do not present a smaller step as a finished unit.
 
 - `lean-toolchain`: `leanprover/lean4:v4.32.1`. Use the existing project
   environment.
-- Latest full verification: `lake build Tests.AllTests`, **641 jobs green**.
+- Latest full verification: `lake build Tests.AllTests`, **675 jobs green** (2026-10-02, machine route).
 - Typical iterative targets:
 
   ```sh

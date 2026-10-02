@@ -611,13 +611,40 @@ theorem TermSourcePreserves.map {declName bs body P Q}
   intro bools bits initial mems a p values dom kb kv vw binp vinp bvals vvals srt e he hbv hvv qeq
   exact f _ initial mems _ (h bools bits initial mems values dom kb kv vw binp vinp bvals vvals e he hbv hvv qeq)
 
-theorem synthesizeMixedCertified_term_sound {logProf declName bs body m d}
-    (hr : MReturns (synthesizeMixedCertified
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName bs body) (m, d)) :
-    TermPreserves declName bs body m := by
-  obtain ⟨ids, cache, returned, st, nd, len, run, hm, _, nameLegal⟩ := synthesizeMixedCertified_returns hr
-  refine ⟨ids, nd, len, cache, ?_⟩
-  intro bools bits initial mems a p values dom kb kv vw binp vinp bvals vvals srt e he hbv hvv qeq
+/-- The preservation statement at the binder ids and cache of a given run of
+the harness, with what that run fixes about the returned module beside the
+value: its final statement is `assign out = w`, and the translator declared
+no input port. -/
+theorem synthesizeMixedCertified_term_sound_at {logProf : String → IO Unit} {declName : Name}
+    {bs : List (Name × MixedGateBinder)} {body : Lean.Expr} {m : Sparkle.IR.AST.Module}
+    {ids : List FVarId} {cache : IO.Ref (ExprStructMap String)} {returned : String}
+    {st : CircuitState}
+    (run : Returns (bindMixedCertifiedInputs
+        (emitLeaves (fun e hint top named => translateExprToWire e hint top named) cache logProf
+          [("out", instFVars (ids.map Lean.Expr.fvar).toArray 0 body)] none 0) (bs.zip ids))
+        (entryCompilerState false cache) (CircuitM.init declName.toString) returned st)
+    (hm : m = (addClockResetIfSequential st.module).finalize)
+    (nameLegal : Sparkle.IR.ModuleNames.legal (Sparkle.Backend.Verilog.sanitizeName m.name) = true)
+    (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n)
+    (initial : Env) (mems : MEnv)
+    (values : Admissible bools bits initial (bs.zip ids)
+      (start (entryCompilerState false cache) declName.toString))
+    (dom : Lean.Expr) (kb kv : Nat) (vw : Nat → Nat) (binp vinp : Nat → FVarId)
+    (bvals : Nat → Bool) (vvals : (j : Nat) → (w : Nat) → BitVec w)
+    {srt : SType} (e : Term srt) (he : e.WF kb kv vw)
+    (hbv : ∀ j, j < kb → (prepare bools bits (bs.zip ids)
+      (start (entryCompilerState false cache) declName.toString)).bools (binp j) = some (bvals j))
+    (hvv : ∀ j, j < kv → (prepare bools bits (bs.zip ids)
+      (start (entryCompilerState false cache) declName.toString)).bits (vinp j) =
+        some ⟨vw j, vvals j (vw j)⟩)
+    (qeq : instFVars (ids.map Lean.Expr.fvar).toArray 0 body =
+      quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) e) :
+    RawValueAt srt.width bs m initial mems (pack srt (eval bvals vvals e)).toNat ∧
+      ∃ w sm ty, st = (CircuitM.emitAssign "out" (.ref w) (CircuitM.addOutput "out" ty sm).2).2 ∧
+        sm.module.inputs = (prepare bools bits (bs.zip ids)
+          (start (entryCompilerState false cache) declName.toString)).state.module.inputs := by
+  let a := start (entryCompilerState false cache) declName.toString
+  let p := prepare bools bits (bs.zip ids) a
   have empty := empty_layout (entryCompilerState false cache) declName.toString initial
   have prepared := prepare_layout (bs.zip ids) a empty.1 empty.2 values
   have leaf := prepare_returns (bs.zip ids) a (bools := bools) (bits := bits) run
@@ -657,7 +684,7 @@ theorem synthesizeMixedCertified_term_sound {logProf declName bs body m d}
     (lookup_of_ports prepared.1 prepared.2.1) tr
   rw [show (pack srt (eval bvals vvals e)).kind.width = srt.width from pack_width ..]
     at outputTyped outputWidth
-  refine ⟨result, ?_, value, ready, ?_, ?_, ?_, ?_, ?_⟩
+  refine ⟨⟨result, ?_, value, ready, ?_, ?_, ?_, ?_, ?_⟩, w, sm, ty, ht, frame.inputs⟩
   · rw [moduleWidths_finish wireEq unique, bodyEq]; exact evalr
   · have simple := frame.simple (by rw [prepared.2.2.1]; intro stmt hs; cases hs)
     intro stmt hs
@@ -726,6 +753,16 @@ theorem synthesizeMixedCertified_term_sound {logProf declName bs body m d}
       rw [outputEq, ht, emitAssign_outputs]
       change ({name := "out", ty := ty} :: sm.module.outputs).reverse = _
       rw [frame.outputs, shape.2]; rfl
+
+theorem synthesizeMixedCertified_term_sound {logProf declName bs body m d}
+    (hr : MReturns (synthesizeMixedCertified
+      (fun e hint top named => translateExprToWire e hint top named) logProf declName bs body) (m, d)) :
+    TermPreserves declName bs body m := by
+  obtain ⟨ids, cache, returned, st, nd, len, run, hm, _, nameLegal⟩ := synthesizeMixedCertified_returns hr
+  refine ⟨ids, nd, len, cache, ?_⟩
+  intro bools bits initial mems a p values dom kb kv vw binp vinp bvals vvals srt e he hbv hvv qeq
+  exact (synthesizeMixedCertified_term_sound_at run hm nameLegal bools bits initial mems values
+    dom kb kv vw binp vinp bvals vvals e he hbv hvv qeq).1
 
 theorem synthesizeFromConst_term_sound {logProf declName ci bs body m d}
     {isInst : Lean.Expr → Bool}

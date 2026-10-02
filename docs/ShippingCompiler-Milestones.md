@@ -31,7 +31,7 @@ proved and audited, not when a certain number of lemmas or commits have landed.
 | S4 | State and reset | Active — one register over the unified domain connected at the raw core entry | Derive a general state/trace correspondence from the actual stateful compilation path, including initialization, clock/update observation, enable/hold and supported reset behavior; preserve it through actual postprocessing, optimization and emitted RTL. Separate typed single-register results do not close this milestone. |
 | S5 | Memory | Active — single-port `Signal.memory` certified at the core and full entry (binder and cone operands); multi-port, inits and the wider layers open | Model and prove the actual successful memory paths: initialization assumptions, read latency, writes/masks, read/write ordering and collisions where applicable. Connect arbitrary admissible traces through actual compilation and emitted RTL. |
 | S6 | Hierarchy | Active — linked instance semantics; root instances (any single-output child, projections of multi-output children), cones over instance leaves and pipelines of calls certified at the core entry; the parent's printed text and the optimizer validated for combinational parents (interface extraction), every emitted instance width-linked; sequential/multi-output cone leaves, cone operands of calls, design registration, multi-level linking, the design-level text and specialization of width-generic children open | Give instances compositional execution semantics; prove port/parameter/width linkage and state/memory composition for actual successful hierarchical entry points. Name validation alone does not close this milestone. |
-| S7 | Successful-domain coverage and final composition | Active — seventeen family contracts reconciled in one core-entry statement, register and memory post-pipelines composed, capstones at the core and full entry, hierarchy post-pipeline for combinational parents, trust base stated in final form, corpus coverage MEASURED (47 of 389 real declarations pass a certified gate; the miss reasons are ranked in ShippingCompiler-Coverage.md); closing the measured gap is the open work, and it is a multi-family program: a prototype showed definition unfolding alone certifies no real declaration; the corpus needs front-end normalisation (DONE: `entryConst` with definition unfolding and projection of a constructor, bundle at the entry constant, `EntryDefines`; first two real IP modules certified end to end; applicative-lifted comparisons and Bool operators DONE as `Term.appCompare`/`appBool`, `kLut!` tables with them; slices DONE as a vertical unit — the part-select right-hand side through the optimizer check, typed expressions, printer and parse-back, and `Term.slice` in front, with the CANopen COB-ID decode certified; concatenation DONE the same way (also with a literal operand), with literal `Nat` width sums folded by the front end; the literal-prefix zero-extension map and the `<$>` slice DONE; unary NOT as a back-half shape and the two-level Bool lifts DONE — 63 of 389 real declarations now pass a gate), the general N-slot `circuit do`, hardware `let`, applicative lifting, slices and structure results together | Reconcile all successful dispatcher/entry/pass branches with proved cases, compose the end-to-end theorem, and instantiate that theorem on representative real circuits. No silently omitted success branch or caller-provided replay proof. State the remaining trust assumptions explicitly. |
+| S7 | Successful-domain coverage and final composition | Active — seventeen family contracts reconciled in one core-entry statement, register and memory post-pipelines composed, capstones at the core and full entry, hierarchy post-pipeline for combinational parents, trust base stated in final form, corpus coverage MEASURED (82 of 389 real declarations pass a certified gate — 47 at the first measurement, 19 of the 82 on the machine route for general `circuit do`; the miss reasons are ranked in ShippingCompiler-Coverage.md); closing the measured gap is the open work, and it is a multi-family program: a prototype showed definition unfolding alone certifies no real declaration; the corpus needs front-end normalisation (DONE: `entryConst` with definition unfolding and projection of a constructor, bundle at the entry constant, `EntryDefines`; first two real IP modules certified end to end; applicative-lifted comparisons and Bool operators DONE as `Term.appCompare`/`appBool`, `kLut!` tables with them; slices DONE as a vertical unit — the part-select right-hand side through the optimizer check, typed expressions, printer and parse-back, and `Term.slice` in front, with the CANopen COB-ID decode certified; concatenation DONE the same way (also with a literal operand), with literal `Nat` width sums folded by the front end; the literal-prefix zero-extension map and the `<$>` slice DONE; unary NOT as a back-half shape and the two-level Bool lifts DONE — 63 of 389 real declarations now pass a gate), the general N-slot `circuit do`, hardware `let`, applicative lifting, slices and structure results together | Reconcile all successful dispatcher/entry/pass branches with proved cases, compose the end-to-end theorem, and instantiate that theorem on representative real circuits. No silently omitted success branch or caller-provided replay proof. State the remaining trust assumptions explicitly. |
 
 S0 covers inputs/constants, six basic arithmetic/bitwise operations and
 same-width logical shifts. The S1/S2 baseline covers the `BExpr` source
@@ -261,6 +261,23 @@ the per-cycle theorem shifts the inner register's value into the outer one
 while the inner steps by the cone, and
 `trace_of_cycles2`/`register2_run_of_env` package the full two-state
 `runModule` trace against the nested source register streams.
+**The general `circuit do` (2026-10-02): the machine route.** Any number
+of Bool/BitVec slots, any widths, a result that is one Signal (directly
+or as one field of a structure result), hardware `let`s. The transition
+— result and next values packed into one bit vector over the binders
+plus one binder per slot — is read off the unfolded declaration by the
+pure `machineShape?`, compiled by the certified combinational harness,
+and closed into registers by `Sparkle.IR.Machine.closeMachine`. The
+emitted text differs from the legacy lowering (the user accepted that:
+"the same function" is the bar, and it is proved):
+`closeMachine_step` → `synthesizeMachineCertified_sound` →
+`machine_trace` → `synthesizeCombinationalCore_machine_sound`, with the
+source side from `ShippingMachineSource.circuit_state`. End-to-end
+instances: `mThree_execution` and `lin_execution` (the LIN checksum of
+the IP library). 82 of 389 real declarations now pass a gate, 19
+on this route. Open: multi-output results, the post-pipeline for
+machine modules, other concrete domains, `let` as a term binder.
+
 The single-slot `circuit do` is reified onto the loop form: the macro
 destructures its handle tuple with `Prod` projections (matcher-free),
 `canonicalCircuitDo?` recognizes the shape purely and `cdoConeToLoop`
@@ -288,7 +305,8 @@ contracts, the state-reading two-register trace lemma, and real-entry
 per-cycle/full-trace endpoints instantiated on the real declaration;
 with the trace identified against the actual circuit-do output stream
 through `loopPair_val`; open: slot-1 return, differing widths, more
-slots, Reg-operator reads), deeper register
+slots, Reg-operator reads — all of these are now covered by the MACHINE
+ROUTE below, on text that differs from the legacy lowering), deeper register
 chains and register networks beyond depth two, user reset muxes, and
 the sequential SV printer step (the `optimizeModule` pass-through is
 now checker-covered). S5 is STARTED: the canonical sync-read memory's semantics layer is

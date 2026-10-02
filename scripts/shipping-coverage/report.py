@@ -20,6 +20,8 @@ def read_routes():
             r = 'S0'
         elif what == 'mixed certified front end':
             r = 'mixed'
+        elif what == 'machine certified front end':
+            r = 'machine'
         elif what == 'MEMO HIT':
             r = 'memo'
         elif what.startswith('starting'):
@@ -36,7 +38,7 @@ def routes():
     legacy = []
     for decl, c in sorted(route.items()):
         rs = set(c) - {'memo'}
-        if rs & {'S0', 'mixed'}:
+        if rs & {'S0', 'mixed', 'machine'}:
             kind = 'certified front end'
         elif 'legacy' in rs:
             kind = 'legacy only'
@@ -51,6 +53,10 @@ def routes():
           'failed:', sum(v for k, v in status.items() if k != '0'))
     for group, c in tab.items():
         print(f'{group}: {dict(c)} (total {sum(c.values())})')
+    machines = sorted(d for d, c in route.items() if 'machine' in c)
+    print('machine route:', len(machines),
+          'of which real corpus:', sum(1 for d in machines if not is_certification_test(d)))
+    open(f'{work}/machine_decls.txt', 'w').write('\n'.join(machines) + '\n')
     open(f'{work}/legacy_decls.txt', 'w').write('\n'.join(legacy) + '\n')
 
 

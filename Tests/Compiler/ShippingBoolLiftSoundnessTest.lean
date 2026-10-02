@@ -102,7 +102,7 @@ run_cmd liftTermElabM do
   for name in [``bAndNot, ``bNotAnd, ``bNor, ``bCone, ``bMux, ``bShare, ``bBusy,
       ``bConcrete] do
     let ci ← getConstInfo name
-    let ec := entryConst true false [] ci pred inl
+    let ec := entryConst true false [] ci pred inl (userProjection? env)
     unless (mixedCertifiedShape? false [] ec pred).isSome do
       throwError "{name}: no gate accepts the lift"
     let (mc, dc) ← synthesizeCombinationalCore name [] false
@@ -125,14 +125,14 @@ run_cmd liftTermElabM do
   let pred := instancePredicate env
   let inl := userInliner env
   for (name, valueName) in [(``bBusy, ``bBusyEntry)] do
-    let some v := (entryConst true false [] (← getConstInfo name) pred inl).value?
+    let some v := (entryConst true false [] (← getConstInfo name) pred inl (userProjection? env)).value?
       | throwError "{name} has no entry value"
     let .ok r := Tools.ShippingEntrySoundness.reflExpr v
       | throwError "{name}: entry value is not reflectable"
     unless (← getConstInfo valueName).value? == some r do
       throwError "{valueName} is not the entry constant of {name}"
   let ci ← getConstInfo ``bDeep
-  unless (mixedCertifiedShape? false [] (entryConst true false [] ci pred inl) pred).isNone do
+  unless (mixedCertifiedShape? false [] (entryConst true false [] ci pred inl (userProjection? env)) pred).isNone do
     throwError "a three-level body passed the gate"
 
 run_cmd do

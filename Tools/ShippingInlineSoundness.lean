@@ -50,7 +50,8 @@ def EntryDefines (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State)
     RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 →
     RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w5 envR w6 →
     ∃ d : DefinitionVal,
-      entryConst true false [] ci (instancePredicate envR) (userInliner envR) = .defnInfo d ∧
+      entryConst true false [] ci (instancePredicate envR) (userInliner envR)
+        (userProjection? envR) = .defnInfo d ∧
         d.value = v
 
 /-- A declaration the mixed gate accepts as read: the entry-constant boundary
@@ -109,16 +110,21 @@ theorem synthesizeCombinationalCore_entry_sound {declName : Name}
     ∃ (ci : ConstantInfo) (envR : Environment) (w1 w2 w5 w6 : Void IO.RealWorld),
       RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧
       RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w5 envR w6 ∧
-      (entryConst true false [] ci (instancePredicate envR) (userInliner envR) = ci ∨
-        entryConst true false [] ci (instancePredicate envR) (userInliner envR) =
+      (entryConst true false [] ci (instancePredicate envR) (userInliner envR)
+        (userProjection? envR) = ci ∨
+        entryConst true false [] ci (instancePredicate envR) (userInliner envR)
+        (userProjection? envR) =
           inlinedConst (userInliner envR) ci) ∧
       CertifiedOutcome
-        (entryConst true false [] ci (instancePredicate envR) (userInliner envR)) m ∧
+        (entryConst true false [] ci (instancePredicate envR) (userInliner envR)
+        (userProjection? envR)) m ∧
       ∀ bs body,
         certifiedShape? false []
-          (entryConst true false [] ci (instancePredicate envR) (userInliner envR)) = none →
+          (entryConst true false [] ci (instancePredicate envR) (userInliner envR)
+        (userProjection? envR)) = none →
         mixedCertifiedShape? false []
-          (entryConst true false [] ci (instancePredicate envR) (userInliner envR))
+          (entryConst true false [] ci (instancePredicate envR) (userInliner envR)
+        (userProjection? envR))
           (instancePredicate envR) = some (bs, body) →
         ShippingPreserves declName bs body m ∧
         InstancePreserves declName bs body m d ∧
@@ -129,7 +135,7 @@ theorem synthesizeCombinationalCore_entry_sound {declName : Name}
         Tools.ShippingHierTermSoundness.HierConePreserves declName bs body m := by
   obtain ⟨logProf, envR, ci, w1, w2, w3, w4, w5, w6, get, henv, run⟩ :=
     synthesizeCombinationalCore_reads hr
-  refine ⟨ci, envR, w1, w2, w5, w6, get, henv, entryConst_cases _ _ _,
+  refine ⟨ci, envR, w1, w2, w5, w6, get, henv, entryConst_cases _ _ _ _,
     synthesizeFromConst_sound run.mreturns, fun bs body old shape => ?_⟩
   exact ⟨⟨synthesizeFromConst_mixed_sound old shape run.mreturns,
       synthesizeFromConst_term_sound old shape run.mreturns,
@@ -330,6 +336,7 @@ elab "#def_entry_lam_names " n:ident " of " d:ident : command => do
   let env ← getEnv
   let ec := Sparkle.Compiler.Elab.entryConst true false [] ci
     (Sparkle.Compiler.Elab.instancePredicate env) (Sparkle.Compiler.Elab.userInliner env)
+    (Sparkle.Compiler.Elab.userProjection? env)
   let some v := ec.value? | throwError "{declName} has no value"
   let nm := (← getCurrNamespace) ++ n.getId
   let dv : DefinitionVal :=
