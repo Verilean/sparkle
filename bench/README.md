@@ -38,6 +38,12 @@ instructions per cycle (see [gate/README.md](gate/README.md)).
 
 (2026-10-02, gcc 15.3, Verilator 5.052, one workstation, 10M cycles.)
 
+On a GitHub runner (Ubuntu 24.04's gcc, Verilator 5.020) the same
+comparison comes out at parity rather than ahead: JIT 2320.1 instructions
+per cycle against Verilator's 2252.0, 6.5 M against 6.9 M cycles/s.  The
+ratio to Verilator depends on both toolchains; the gate does not — it
+compares the tree with its own golden.
+
 The fast configuration is `toCJIT design (fusedLocalWires := true)`:
 `eval_tick` keeps internal wires on the stack, so after it `get_wire` is
 current only for wires listed in `observableWires` (call `eval` to read
@@ -78,7 +84,7 @@ Sparkle-native RV32I SoC (smaller, simpler design).
 
 | Config | Sparkle JIT | Verilator | Ratio |
 |--------|------------|-----------|-------|
-| LiteX 1-core (firmware running, co-simulated) | **10.7M** | 9.2M | **1.16x** |
+| LiteX 1-core (firmware running, co-simulated) | 10.7M | 9.2M | 1.16x (0.94x on a GitHub runner) |
 | LiteX 8-core sequential ¹ | 1.46M | 1.06M | 1.38x |
 | LiteX 8-core parallel ¹ | 5.07M | 1.06M | 4.78x |
 | RV32I SoC ¹ | 14.2M | 8.7M | 1.63x |
