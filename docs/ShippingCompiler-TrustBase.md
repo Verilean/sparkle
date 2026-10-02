@@ -34,6 +34,7 @@ form: *every* read of that kind in this run returns the stated value.
 | `EnvDefines … declName v` | every `getConstInfo declName` of the run returns a definition whose value is `v` | every entry endpoint |
 | `EntryDefines … declName v` | the constant the entry hands on — `entryConst` of the declaration and the environment the run reads — is a definition with value `v`. For a gate-accepted declaration this IS `EnvDefines` (`EntryDefines.of_env`); for an unfolded one it is `EnvDefines` plus what the run's environment unfolds the value to (`EntryDefines.of_inline`) | `_of_entry` endpoints (helper-structured declarations) |
 | `MachineDefines … declName shape` | the entry constant of the declaration — `entryConst` of the declaration and the environment the run reads — is refused by both shape gates and IS the machine `shape` (`machineShape?`, with the structure projections of the environment the run reads). The suite computes the same `machineShape?` on the real declaration and compares binders, layout and (reflected) body | machine endpoints (`synthesizeCombinationalCore_machine_sound`, `mThree_execution`, `lin_execution`) |
+| `MachineCloses … declName shape` | every machine synthesis of `shape` in this run ties the `let` ports to their fields (`closeLets` accepts the transition module the run compiled: the operand wires are found, declared at the ports' widths, and the statements are in dependency order), so the run does not fall back to the legacy route. PROVED for a shape without `let`s (`machineCloses_of_noLets`); for a shape with `let`s the suite runs the real `synthesizeMachineCertified` and checks it returns a module | machine endpoints of shapes with `let`s (`lin_execution`) |
 | the declaration's type is one scalar Signal (`mixedGateResultScalar`) | `EnvDefines` pins the value, not the type; the suite checks it on the real declaration | instance and cone endpoints |
 | tag fact at the entry (`RunsTo getEnv … → isHardwareModule e mn`) | the environment the gate predicate is built from tags the child | instance, projection and cone endpoints |
 | `HardwareTagged mn` | every environment the instance arm reads tags `mn` | instance contracts |
@@ -180,7 +181,9 @@ semantics of reset. The unfolding and the reading of the transition
 theorems speak about the shape the run computed (`MachineDefines`), and
 that this transition means what the SOURCE means is proved per
 declaration by the kernel — the source's state recurrence
-(`circuit_state`) against the evaluation of the quoted term. The
+(`circuit_state`) against the evaluation of the quoted term; for a shape
+with hardware `let`s the declaration also proves that the source's own
+`let` values satisfy the transition's `let` equations (`LetsHold`). The
 optimizer and the printer after the core entry are NOT yet composed for
 machine modules; the family-agnostic sequential pipeline theorem
 (`shipping_pipeline_transfer`) applies under its decidable premises but

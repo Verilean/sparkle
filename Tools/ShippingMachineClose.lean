@@ -374,4 +374,355 @@ theorem closeMachine_step {t : Module} {lay : Layout} {B : List Stmt} {w : Strin
     unfold stepModule
     simp [evalM, regsM, memNexts_seq seqM, bind]
 
+/-! ## Hardware `let`s -/
+
+open Tools.ShippingSettledSoundness in
+theorem acyclic_last_fresh {l : String} {e : Expr} :
+    ∀ {B : List Stmt}, Acyclic (B ++ [.assign l e]) → l ∉ Sparkle.IR.Reorder.writesOf B
+  | [], _ => by simp [Sparkle.IR.Reorder.writesOf]
+  | _ :: rest, h => by
+    cases h with
+    | cons target reads tail =>
+      have ih := acyclic_last_fresh tail
+      intro hm
+      simp only [Sparkle.IR.Reorder.writesOf, List.flatMap_cons,
+        Sparkle.IR.Reorder.stmtWrites, List.cons_append, List.nil_append, List.mem_cons] at hm
+      rcases hm with rfl | hm
+      · exact target (by simp [Sparkle.IR.Reorder.writesOf, Sparkle.IR.Reorder.stmtWrites])
+      · exact ih (by simpa [Sparkle.IR.Reorder.writesOf] using hm)
+
+theorem mem_aliasesOf {aliases : List (Port × String)} {st s : Stmt}
+    (h : s ∈ aliasesOf aliases st) : ∃ pa ∈ aliases, s = aliasStmt pa.1 pa.2 := by
+  cases st with
+  | assign l r =>
+    simp only [aliasesOf, List.mem_map, List.mem_filter] at h
+    obtain ⟨pa, ⟨hpa, _⟩, rfl⟩ := h
+    exact ⟨pa, hpa, rfl⟩
+  | _ => simp [aliasesOf] at h
+
+theorem mem_insertAliases {aliases : List (Port × String)} {s : Stmt} :
+    ∀ {B : List Stmt}, s ∈ insertAliases aliases B →
+      s ∈ B ∨ ∃ pa ∈ aliases, s = aliasStmt pa.1 pa.2
+  | [], h => by simp [insertAliases] at h
+  | st :: rest, h => by
+    simp only [insertAliases, List.mem_cons, List.mem_append] at h
+    rcases h with rfl | h | h
+    · exact Or.inl List.mem_cons_self
+    · exact Or.inr (mem_aliasesOf h)
+    · rcases mem_insertAliases h with h | h
+      · exact Or.inl (List.mem_cons_of_mem _ h)
+      · exact Or.inr h
+
+theorem insertAliases_keeps {aliases : List (Port × String)} {s : Stmt} :
+    ∀ {B : List Stmt}, s ∈ B → s ∈ insertAliases aliases B
+  | st :: rest, h => by
+    simp only [insertAliases, List.mem_cons, List.mem_append]
+    rcases List.mem_cons.mp h with rfl | h
+    · exact Or.inl rfl
+    · exact Or.inr (Or.inr (insertAliases_keeps h))
+
+/-- Every alias is placed: in front when no statement drives its operand
+wire, after the driving statement otherwise. -/
+theorem alias_placed {aliases : List (Port × String)} {pa : Port × String}
+    (hpa : pa ∈ aliases) {B : List Stmt} (hB : ∀ st ∈ B, ∃ l r, st = .assign l r) :
+    aliasStmt pa.1 pa.2 ∈ frontAliases aliases B ++ insertAliases aliases B := by
+  by_cases hw : pa.2 ∈ Sparkle.IR.Reorder.writesOf B
+  · refine List.mem_append_right _ ?_
+    obtain ⟨r, hr⟩ := assign_of_writes hB hw
+    clear hw hB
+    induction B with
+    | nil => cases hr
+    | cons st rest ih =>
+      simp only [insertAliases, List.mem_cons, List.mem_append]
+      rcases List.mem_cons.mp hr with rfl | hr
+      · refine Or.inr (Or.inl ?_)
+        simp only [aliasesOf, List.mem_map, List.mem_filter]
+        exact ⟨pa, ⟨hpa, by simp⟩, rfl⟩
+      · exact Or.inr (Or.inr (ih hr))
+  · refine List.mem_append_left _ ?_
+    simp only [frontAliases, List.mem_map, List.mem_filter]
+    exact ⟨pa, ⟨hpa, by simpa using hw⟩, rfl⟩
+
+theorem mem_frontAliases {aliases : List (Port × String)} {B : List Stmt} {s : Stmt}
+    (h : s ∈ frontAliases aliases B) : ∃ pa ∈ aliases, s = aliasStmt pa.1 pa.2 := by
+  simp only [frontAliases, List.mem_map, List.mem_filter] at h
+  obtain ⟨pa, ⟨hpa, _⟩, rfl⟩ := h
+  exact ⟨pa, hpa, rfl⟩
+
+theorem weOf_eq_wireWidth (t : Module) : weOf t = wireWidth t.wires := rfl
+
+theorem eq_dropLast_append {α : Type} : ∀ (l : List α) (a : α), l.getLast? = some a →
+    l = l.dropLast ++ [a]
+  | [], _, h => by simp at h
+  | [x], a, h => by
+    simp only [List.getLast?_singleton, Option.some.injEq] at h
+    simp [h]
+  | x :: y :: rest, a, h => by
+    have ih := eq_dropLast_append (y :: rest) a (by simpa [List.getLast?_cons_cons] using h)
+    simp only [List.dropLast_cons₂, List.cons_append]
+    rw [← ih]
+
+theorem mem_writesOf_of_assign {l : String} {r : Expr} :
+    ∀ {body : List Stmt}, Stmt.assign l r ∈ body → l ∈ Sparkle.IR.Reorder.writesOf body
+  | st :: rest, h => by
+    simp only [Sparkle.IR.Reorder.writesOf, List.flatMap_cons, List.mem_append]
+    rcases List.mem_cons.mp h with rfl | h
+    · exact Or.inl (by simp [Sparkle.IR.Reorder.stmtWrites])
+    · exact Or.inr (by simpa [Sparkle.IR.Reorder.writesOf] using mem_writesOf_of_assign h)
+
+set_option maxHeartbeats 1000000 in
+open Tools.ShippingSettledSoundness in
+/-- **Closing the `let`s.** The transition module `t`, evaluated on an
+environment `envS` whose `let` ports already hold the values of their
+fields' operand wires, gives `R`. Then the module with the `let` ports
+driven by those wires, evaluated on ANY environment that agrees with `envS`
+off the `let` ports, gives the same values, with `out` carrying the wire of
+what remains after the `let` fields. -/
+theorem closeLets_eval {t t' : Module} {K : Nat} {env0 envS R : Env} {mems : MEnv}
+    {w : String} {aliases : List (Port × String)} {core : String}
+    (hK : K ≠ 0)
+    (hclose : closeLets K t = some t')
+    (hpw : packedWire? t.body = some w)
+    (hops : letOperands t.body (t.inputs.drop (t.inputs.length - K)) w = some (aliases, core))
+    (acyclic : Acyclic t.body)
+    (typed : TypedStmts (weOf t) t.body)
+    (outZero : weOf t "out" = 0)
+    (hrun : evalAssigns (weOf t) mems t.body envS = some R)
+    (hpre : ∀ z, (∀ pa ∈ aliases, z ≠ pa.1.name) → envS z = env0 z)
+    (hfix : ∀ pa ∈ aliases, envS pa.1.name = mask pa.1.ty.bitWidth (R pa.2)) :
+    t'.inputs = t.inputs.take (t.inputs.length - K) ∧ t'.wires = t.wires ∧
+    (∃ B', t'.body = B' ++ [.assign "out" (.ref core)]) ∧
+    Acyclic t'.body ∧
+    ∃ R', evalAssigns (weOf t') mems t'.body env0 = some R' ∧ R' "out" = R core ∧
+      ∀ z, z ≠ "out" → R' z = R z := by
+  -- The shape of the result.
+  unfold closeLets at hclose
+  simp only [hK, if_false, hpw, hops] at hclose
+  split at hclose
+  rotate_left
+  · cases hclose
+  rename_i hchk
+  cases hclose
+  simp only [Bool.and_eq_true, List.all_eq_true, bne_iff_ne, ne_eq, beq_iff_eq,
+    decide_eq_true_eq, Bool.not_eq_true'] at hchk
+  obtain ⟨⟨hal, hcore⟩, hord⟩ := hchk
+  obtain ⟨w', hlast⟩ : ∃ w', t.body = t.body.dropLast ++ [.assign "out" (.ref w')] := by
+    refine ⟨w, ?_⟩
+    unfold packedWire? at hpw
+    split at hpw
+    · rename_i w0 hl
+      cases hpw
+      exact eq_dropLast_append _ _ hl
+    · cases hpw
+  generalize hB : t.body.dropLast = B at hlast hord ⊢
+  have hBsub : ∀ st ∈ B, st ∈ t.body := fun st hs => by
+    rw [hlast]; exact List.mem_append_left _ hs
+  have hBassign : ∀ st ∈ B, ∃ l r, st = .assign l r := by
+    intro st hs
+    obtain ⟨l, e, n, rfl, _⟩ := typed st (hBsub st hs)
+    exact ⟨l, e, rfl⟩
+  have acyclic' := (assignmentOrderCheck_iff _).mp hord
+  have eqR := assign_equations acyclic hrun
+  have frameR := assign_frame acyclic hrun
+  have outFresh : "out" ∉ Sparkle.IR.Reorder.writesOf B := by
+    rw [hlast] at acyclic
+    exact acyclic_last_fresh acyclic
+  refine ⟨rfl, rfl, ⟨_, by rw [List.append_assoc]⟩, by rw [List.append_assoc] at acyclic'; simpa using acyclic', ?_⟩
+  -- The solution: `R`, with `out` moved to the remaining wire.
+  refine ⟨fun z => if z = "out" then R core else R z, ?_, by simp, fun z hz => by simp [hz]⟩
+  show evalAssigns (weOf t) mems _ env0 = _
+  apply equations_eval acyclic'
+  · -- every equation holds
+    intro l r hm
+    have aliasEq : ∀ pa ∈ aliases, l = pa.1.name → r = .slice (.ref pa.2) (pa.1.ty.bitWidth - 1) 0 →
+        evalExpr (weOf t) (fun z => if z = "out" then R core else R z) r =
+          some ((fun z => if z = "out" then R core else R z) l) := by
+      intro pa hpa hl hr
+      obtain ⟨⟨⟨⟨hwid, hpos⟩, hnameOut⟩, hsrcOut⟩, hfresh⟩ := hal pa hpa
+      subst hl; subst hr
+      have h1 : pa.1.ty.bitWidth - 1 - 0 + 1 = pa.1.ty.bitWidth := by omega
+      have hRname : R pa.1.name = envS pa.1.name := frameR _ (by
+        intro hmem
+        have : (Sparkle.IR.Reorder.writesOf t.body).contains pa.1.name = true := by
+          simpa using hmem
+        rw [hfresh] at this
+        cases this)
+      simp only [evalExpr, hsrcOut, if_false, bind, Option.bind, h1, Nat.shiftRight_zero,
+        hnameOut, hRname, hfix pa hpa]
+    simp only [List.mem_append, List.mem_singleton] at hm
+    rcases hm with (hm | hm) | hm
+    · obtain ⟨pa, hpa, heq⟩ := mem_frontAliases hm
+      cases heq
+      exact aliasEq pa hpa rfl rfl
+    · rcases mem_insertAliases hm with hm | ⟨pa, hpa, heq⟩
+      · -- a statement of the transition
+        have hlne : l ≠ "out" := fun h => outFresh (h ▸ mem_writesOf_of_assign hm)
+        have hrefs : ∀ x ∈ Sparkle.IR.Reorder.refsOf r, x ≠ "out" := by
+          intro x hx hxo
+          obtain ⟨l', e, n, heq, ht, _⟩ := typed _ (hBsub _ hm)
+          cases heq
+          have := ht.refs_positive x hx
+          rw [hxo, outZero] at this
+          exact Nat.lt_irrefl _ this
+        rw [Sparkle.IR.Reorder.evalExpr_congr (weOf t) _ R r (fun x hx => by
+          simp [hrefs x hx])]
+        simp only [hlne, if_false]
+        exact eqR l r (hBsub _ hm)
+      · cases heq
+        exact aliasEq pa hpa rfl rfl
+    · cases hm
+      simp [evalExpr, hcore]
+  · -- names nothing drives keep their value
+    intro z hz
+    have hzout : z ≠ "out" := by
+      intro h
+      apply hz
+      rw [h]
+      apply mem_writesOf_of_assign (r := .ref core)
+      simp
+    have hzB : z ∉ Sparkle.IR.Reorder.writesOf B := by
+      intro hmem
+      obtain ⟨r, hr⟩ := assign_of_writes hBassign hmem
+      apply hz
+      apply mem_writesOf_of_assign (r := r)
+      exact List.mem_append_left _ (List.mem_append_right _ (insertAliases_keeps hr))
+    have hzal : ∀ pa ∈ aliases, z ≠ pa.1.name := by
+      intro pa hpa heq
+      apply hz
+      rw [heq]
+      apply mem_writesOf_of_assign (r := .slice (.ref pa.2) (pa.1.ty.bitWidth - 1) 0)
+      exact List.mem_append_left _ (alias_placed hpa hBassign)
+    simp only [hzout, if_false]
+    rw [frameR z (by
+      rw [hlast]
+      intro hmem
+      simp only [Sparkle.IR.Reorder.writesOf, List.flatMap_append, List.mem_append,
+        List.flatMap_cons, List.flatMap_nil, List.append_nil,
+        Sparkle.IR.Reorder.stmtWrites, List.mem_singleton] at hmem
+      rcases hmem with hmem | hmem
+      · exact hzB (by simpa [Sparkle.IR.Reorder.writesOf] using hmem)
+      · exact hzout hmem)]
+    exact hpre z hzal
+
+/-- The chain of concatenations `letOperands` walks: `w = {a₁, w₁}`,
+`w₁ = {a₂, w₂}`, …, ending in the wire of what remains. -/
+inductive LetChain (body : List Stmt) : List (Port × String) → String → String → Prop
+  | nil {w : String} : LetChain body [] w w
+  | cons {p : Port} {a b w : String} {rest : List (Port × String)} {core : String} :
+      Stmt.assign w (.concat [.ref a, .ref b]) ∈ body → LetChain body rest b core →
+      LetChain body ((p, a) :: rest) w core
+
+theorem concatParts?_mem {body : List Stmt} {w a b : String}
+    (h : concatParts? body w = some (a, b)) :
+    Stmt.assign w (.concat [.ref a, .ref b]) ∈ body := by
+  obtain ⟨st, hst, hf⟩ := List.exists_of_findSome?_eq_some h
+  split at hf
+  · rename_i l a' b'
+    split at hf
+    · rename_i hl
+      cases hf
+      have : l = w := by simpa using hl
+      subst this
+      exact hst
+    · cases hf
+  · cases hf
+
+theorem letOperands_chain {body : List Stmt} :
+    ∀ (ps : List Port) (w : String) {al : List (Port × String)} {core : String},
+      letOperands body ps w = some (al, core) →
+      LetChain body al w core ∧ al.map (·.1) = ps
+  | [], w, al, core, h => by
+    simp only [letOperands, Option.some.injEq, Prod.mk.injEq] at h
+    obtain ⟨rfl, rfl⟩ := h
+    exact ⟨.nil, rfl⟩
+  | p :: ps, w, al, core, h => by
+    unfold letOperands at h
+    split at h
+    · rename_i a b hc
+      split at h
+      · rename_i rest core' hr
+        cases h
+        obtain ⟨hchain, hmap⟩ := letOperands_chain ps b hr
+        exact ⟨.cons (concatParts?_mem hc) hchain, by simp [hmap]⟩
+      · cases h
+    · cases h
+
+/-- What a successful `closeLets` checked. -/
+theorem closeLets_some {K : Nat} {t t' : Module} (hK : K ≠ 0) (h : closeLets K t = some t') :
+    ∃ w aliases core, packedWire? t.body = some w ∧
+      letOperands t.body (t.inputs.drop (t.inputs.length - K)) w = some (aliases, core) ∧
+      (∀ pa ∈ aliases, wireWidth t.wires pa.2 = pa.1.ty.bitWidth ∧ 0 < pa.1.ty.bitWidth) ∧
+      core ≠ "out" := by
+  unfold closeLets at h
+  simp only [hK, if_false] at h
+  split at h
+  · cases h
+  · rename_i w hpw
+    split at h
+    · cases h
+    · rename_i aliases core hops
+      split at h
+      · rename_i hchk
+        simp only [Bool.and_eq_true, List.all_eq_true, bne_iff_ne, ne_eq, beq_iff_eq,
+          decide_eq_true_eq, Bool.not_eq_true'] at hchk
+        exact ⟨w, aliases, core, hpw, hops, fun pa hpa => ⟨(hchk.1.1 pa hpa).1.1.1.1,
+          (hchk.1.1 pa hpa).1.1.1.2⟩, hchk.1.2⟩
+      · cases h
+
+/-- The statements of the closed module are typed: the transition's, the
+aliases (part-selects of declared operand wires), the final `out`. -/
+theorem closeLets_typed {t t' : Module} {K : Nat} {w : String}
+    {aliases : List (Port × String)} {core : String}
+    (hK : K ≠ 0) (hclose : closeLets K t = some t')
+    (hpw : packedWire? t.body = some w)
+    (hops : letOperands t.body (t.inputs.drop (t.inputs.length - K)) w = some (aliases, core))
+    (typed : TypedStmts (weOf t) t.body)
+    (hport : ∀ pa ∈ aliases, weOf t pa.1.name = pa.1.ty.bitWidth)
+    (hcore : 0 < weOf t core) :
+    TypedStmts (weOf t') t'.body := by
+  obtain ⟨w0, al0, core0, hpw0, hops0, hwid, _⟩ := closeLets_some hK hclose
+  rw [hpw] at hpw0; cases hpw0
+  rw [hops] at hops0; cases hops0
+  unfold closeLets at hclose
+  simp only [hK, if_false, hpw, hops] at hclose
+  split at hclose
+  rotate_left
+  · cases hclose
+  cases hclose
+  have aliasTyped : ∀ pa ∈ aliases, ∃ l e n, aliasStmt pa.1 pa.2 = .assign l e ∧
+      TypedExpr (weOf t) e n ∧ (weOf t l = n ∨ l = "out") := by
+    intro pa hpa
+    obtain ⟨hw, hpos⟩ := hwid pa hpa
+    have hwa : weOf t pa.2 = pa.1.ty.bitWidth := hw
+    refine ⟨pa.1.name, _, pa.1.ty.bitWidth - 1 - 0 + 1, rfl,
+      TypedExpr.slice pa.2 (pa.1.ty.bitWidth - 1) 0 (Nat.zero_le _) (by rw [hwa]; omega),
+      Or.inl (by rw [hport pa hpa]; omega)⟩
+  intro st hs
+  show ∃ l e n, st = .assign l e ∧ TypedExpr (weOf t) e n ∧ (weOf t l = n ∨ l = "out")
+  simp only [List.mem_append, List.mem_singleton] at hs
+  rcases hs with (hs | hs) | hs
+  · obtain ⟨pa, hpa, rfl⟩ := mem_frontAliases hs
+    exact aliasTyped pa hpa
+  · rcases mem_insertAliases hs with hs | ⟨pa, hpa, rfl⟩
+    · exact typed st ((List.dropLast_sublist _).subset hs)
+    · exact aliasTyped pa hpa
+  · subst hs
+    exact ⟨"out", .ref core, weOf t core, rfl, TypedExpr.ref core hcore, Or.inr rfl⟩
+
+/-- The wire that remains after at least one `let` field is an operand of a
+typed concatenation: it has a positive width. -/
+theorem chain_core_pos {we : WEnv} {body : List Stmt} (typed : TypedStmts we body)
+    {al : List (Port × String)} {w core : String} (chain : LetChain body al w core)
+    (hne : al ≠ []) : 0 < we core := by
+  induction chain with
+  | nil => exact absurd rfl hne
+  | @cons p a b w rest core hmem hrest ih =>
+    cases hrest with
+    | nil =>
+      obtain ⟨l, e, n, heq, ht, _⟩ := typed _ hmem
+      cases heq
+      cases ht with
+      | cat _ _ _ hb => exact hb
+    | cons h2 r2 => exact ih (by simp)
+
 end Tools.ShippingMachineClose

@@ -1,5 +1,6 @@
 import Sparkle.IR.AST
 import Sparkle.IR.Type
+import Sparkle.IR.OptCheck
 
 /-! # Closing a transition module into a state machine
 
@@ -33,13 +34,17 @@ structure SlotField where
   init : Nat
   deriving Repr, DecidableEq, Inhabited
 
-/-- Where the pieces of the packed transition value sit. -/
+/-- Where the pieces of the packed transition value sit. `lets` is the
+number of hardware `let`s: the transition's last `lets` input ports are their
+values, and its packed value carries them in front of the rest
+(`let₀ ++ … ++ letₖ₋₁ ++ result ++ next₀ ++ …`). -/
 structure Layout where
   slots : List SlotField
   outLo : Nat
   outWidth : Nat
   outTy : HWType
   resetKind : ResetKind
+  lets : Nat := 0
   deriving Repr
 
 /-- The wire holding a slot's next value. The prefix is not one the wire
@@ -84,5 +89,87 @@ def closeMachine (lay : Layout) (t : Module) : Module :=
       body := t.body.dropLast ++ nextAssigns w slotPorts lay.slots ++
         registers lay.resetKind slotPorts lay.slots ++
         [.assign "out" (fieldRhs w lay.outLo lay.outWidth)] }
+
+/-! ## Hardware `let`s
+
+A hardware `let` of the source is, in the transition module, an INPUT port
+(its uses read the port) and a FIELD of the packed value (its definition).
+`closeLets` ties the two: each `let` port is driven by the operand wire of
+its field, right after that wire is driven, and the ports stop being
+inputs. The result is again a transition module — without `let` ports,
+with the remaining packed wire on `out` — which `closeMachine` closes.
+
+The transition is compiled ONCE, with every `let` a port, so a `let` used
+many times is one wire, whatever the size of the expression tree the source
+unfolds to. -/
+
+/-- The declared width of a wire (0 for an undeclared name). -/
+def wireWidth (wires : List Port) (name : String) : Nat :=
+  match wires.find? (fun p => p.name == name) with
+  | some { ty := .bitVector k, .. } => k
+  | some { ty := .bit, .. } => 1
+  | _ => 0
+
+/-- The two operands of the concatenation `{a, b}` that drives `w`. -/
+def concatParts? (body : List Stmt) (w : String) : Option (String × String) :=
+  body.findSome? fun st => match st with
+    | .assign l (.concat [.ref a, .ref b]) => if l == w then some (a, b) else none
+    | _ => none
+
+/-- Walk the `let` fields off the packed wire `w`: for each `let` port the
+operand wire of its field, and the wire of what remains after the last. -/
+def letOperands (body : List Stmt) : List Port → String → Option (List (Port × String) × String)
+  | [], w => some ([], w)
+  | p :: ps, w =>
+    match concatParts? body w with
+    | some (a, b) =>
+      match letOperands body ps b with
+      | some (rest, core) => some ((p, a) :: rest, core)
+      | none => none
+    | none => none
+
+/-- Drive a `let` port with its operand wire (all of it, as a part-select). -/
+def aliasStmt (p : Port) (a : String) : Stmt :=
+  .assign p.name (.slice (.ref a) (p.ty.bitWidth - 1) 0)
+
+/-- The aliases whose operand wire the statement drives. -/
+def aliasesOf (aliases : List (Port × String)) : Stmt → List Stmt
+  | .assign l _ => (aliases.filter fun pa => pa.2 == l).map fun pa => aliasStmt pa.1 pa.2
+  | _ => []
+
+/-- Each alias right after the statement that drives its operand wire. -/
+def insertAliases (aliases : List (Port × String)) : List Stmt → List Stmt
+  | [] => []
+  | st :: rest => st :: (aliasesOf aliases st ++ insertAliases aliases rest)
+
+/-- The aliases whose operand wire no statement drives (an input port): they
+go first. -/
+def frontAliases (aliases : List (Port × String)) (body : List Stmt) : List Stmt :=
+  (aliases.filter fun pa => !(Sparkle.IR.Reorder.writesOf body).contains pa.2).map
+    fun pa => aliasStmt pa.1 pa.2
+
+/-- Tie the last `nLets` input ports to the operand wires of their fields.
+`none` when the module does not have the expected shape, a field's operand
+wire is not declared at the port's width, or the resulting statements are not
+in dependency order (the caller then does not take this route). With no
+`let` the module is returned as it is. -/
+def closeLets (nLets : Nat) (t : Module) : Option Module :=
+  if nLets = 0 then some t else
+  match packedWire? t.body with
+  | none => none
+  | some w =>
+    let k := t.inputs.length - nLets
+    match letOperands t.body (t.inputs.drop k) w with
+    | none => none
+    | some (aliases, core) =>
+      let body' := frontAliases aliases t.body.dropLast ++
+        insertAliases aliases t.body.dropLast ++ [.assign "out" (.ref core)]
+      if aliases.all (fun pa => wireWidth t.wires pa.2 == pa.1.ty.bitWidth &&
+            decide (0 < pa.1.ty.bitWidth) && pa.1.name != "out" && pa.2 != "out" &&
+            !(Sparkle.IR.Reorder.writesOf t.body).contains pa.1.name) &&
+          core != "out" &&
+          Sparkle.IR.OptCheck.assignmentOrderCheck body' then
+        some { t with inputs := t.inputs.take k, body := body' }
+      else none
 
 end Sparkle.IR.Machine

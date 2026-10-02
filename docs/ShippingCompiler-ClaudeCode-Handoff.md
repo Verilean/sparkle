@@ -171,7 +171,7 @@ takes and why the rest miss the gate; the result and the ranked reasons
 are in ShippingCompiler-Coverage.md ("Measured corpus coverage"). 47 of
 389 real declarations passed a certified gate then; 60 after the
 normaliser, the applicative arm and the slice arm, 82 with the machine
-route (2026-10-02). Do NOT read the surface
+route and 111 with its hardware `let`s (2026-10-02). Do NOT read the surface
 table as "unfold definitions and 165 declarations pass": a prototype
 normaliser was run and none passes (pass 3 of the script). Real IP is
 `circuit do` + `let` + applicative lifting + slices + structure results
@@ -307,10 +307,43 @@ structure literal crashes the code generator: mark such definitions
 packed value is stated by `rfl` (`mThree_packed`, `lin_packed`) and the
 fields are read with `field_lo`/`field_hi`/`field_all`; slot values enter
 the valuation as `BitVec.ofNat n x.toNat`, which avoids casts.
-Next on this route, by the classifier (`scratchpad/mach_tail.lean.in`):
-multi-output (structure) results — `closeMachine` with one part-select
-per field, port names as the legacy front end's — then the post-pipeline
-composition, then the remaining body idioms.
+**Hardware `let`s (landed).** Do NOT unfold `let`s: `circuit do` copies
+its `let` chain into every write and into the result and `let`s mention
+`let`s, so the tree is exponential (86 declarations ran out of budget).
+`machConv`/`machChain` read the body with an environment of what each
+bound variable stands for (`MachVal`) and write the transition over
+closed PLACEHOLDERS (`machIn`/`machSlot`/`machLet`, free variables with
+reserved names), which `machClose` turns into bound variables once the
+number of `let`s is known; a hardware `let` whose value was already met
+is the same `let` (`machBindLet`). The `let` is a binder AND a field of
+the packed value, so ONE run of the unchanged harness compiles
+everything with sharing; `closeLets` (pure IR) then drives each `let`
+port from the operand wire of its field. Its proof uses no ordering
+argument: the closed body is acyclic by a runtime check
+(`assignmentOrderCheck`), the transition's result — evaluated with the
+`let` ports PRESET to the right values — satisfies the closed body's
+equations, and an acyclic body has one solution
+(`ShippingSettledSoundness.equations_eval`). The presets are right
+because the caller supplies a valuation with `LetsHold` — per
+declaration, the source's own `let` values (`lin_lets`, one `simp`).
+Everything the IR pass cannot derive is a runtime check inside
+`closeLets` (operand widths, names, order); when a check fails the run
+falls back to the legacy route, and the endpoint carries the boundary
+`MachineCloses`. Lessons: (6) a "let as extra input + field" encoding
+turns a sharing problem into IR plumbing and reuses the harness theorem
+unchanged; routing the value back through the packed wire would be a
+combinational loop at wire granularity, the operand wire is not. (7)
+State a per-cycle fact that needs a fixpoint as a hypothesis about a
+valuation the CALLER supplies (`LetsHold`) rather than constructing the
+fixpoint generically: the source already has the values. (8) Binder
+types in `∀ i pa f, …` statements over `Σ`-lists must be annotated, and
+`(eval … f.2 : BitVec f.1).toNat` needs the ascription.
+Next on this route, by the classifier (`scratchpad/mach2_tail.lean.in`,
+which reads `let`s as the compiler does and reports what the gate
+refuses): multi-output (structure) results — `closeMachine` with one
+part-select per field, port names as the legacy front end's; constant
+folding of computed literals at the front end; sub-module calls inside
+the body; then the post-pipeline composition.
 
 **Measuring before building.** `inlineDefs` did not descend into `let`
 until the map-idiom unit, so every "residual head" statistic taken before

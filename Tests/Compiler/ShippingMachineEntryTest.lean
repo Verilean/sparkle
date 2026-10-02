@@ -194,7 +194,8 @@ def mThreeVpos : Nat → Nat := fun j => j + 2
 
 theorem mThree_body : mThreeShape.body =
     quote (.bvar 5) (fun j => inputExpr mThreeShape.binders.length (mThreeBpos j))
-      (fun j => inputExpr mThreeShape.binders.length (mThreeVpos j)) mThreeTerm := rfl
+      (fun j => inputExpr mThreeShape.binders.length (mThreeVpos j))
+      (packLets [] mThreeTerm).2 := rfl
 
 theorem mThreeTerm_wf : mThreeTerm.WF 2 3 (fun _ => 4) := by
   simp [mThreeTerm, Term.WF]
@@ -225,8 +226,8 @@ theorem mThree_machine {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.St
     (hr : RunsTo (synthesizeCombinationalCore ``mThree [] false) mctx mref cctx cref w
       (m, design) w')
     (entry : MachineDefines mctx mref cctx cref ``mThree mThreeShape) :
-    MachinePreserves ``mThree mThreeShape mThreeIn mThreeSlots m := by
-  apply synthesizeCombinationalCore_machine_sound hr entry rfl
+    MachinePreserves ``mThree mThreeShape mThreeIn mThreeSlots [] m := by
+  apply synthesizeCombinationalCore_machine_sound hr entry (machineCloses_of_noLets rfl) rfl rfl
   · intro name n hmem
     simp only [mThreeShape, mThreeIn, mThreeSlots, List.cons_append, List.nil_append,
       List.mem_cons, Prod.mk.injEq, List.not_mem_nil, or_false, reduceCtorEq, and_false,
@@ -235,6 +236,7 @@ theorem mThree_machine {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.St
   · intro b hb
     simp only [mThreeSlots, List.mem_cons, List.not_mem_nil, or_false] at hb
     rcases hb with rfl | rfl | rfl <;> simp
+  · intro b hb; cases hb
   · exact .cons rfl (.cons rfl (.cons rfl .nil))
   · decide
 
@@ -315,7 +317,7 @@ theorem mThree_execution {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.
             (envs[j]'hj) "out" = ((mThree (bools 1) (bits 2 4)).val j).toNat := by
   obtain ⟨ids, nd, len, cache, h⟩ := machine_trace (mThree_machine hr entry) rfl
   obtain ⟨regs, rnd, rlen, trace⟩ := h (.bvar 5) 2 3 (fun _ => 4) mThreeBpos mThreeVpos
-    mThreeTerm mThreeTerm_wf
+    [] mThreeTerm mThreeTerm_wf
     (by
       intro j hj
       have : j = 0 ∨ j = 1 := by omega
@@ -330,6 +332,11 @@ theorem mThree_execution {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.
       · exact ⟨`a, rfl⟩
       · exact ⟨`b, rfl⟩)
     mThree_body
+    (by
+      intro f hf
+      simp only [mThreeShape, mThreeLayout, List.mem_cons, List.not_mem_nil, or_false] at hf
+      rcases hf with rfl | rfl | rfl <;> decide)
+    (by decide)
   match regs, rlen, rnd, trace with
   | [ra, rb, rg], _, rnd, trace =>
   refine ⟨ids, nd, len, cache, ra, rb, rg, rnd, ?_⟩
@@ -393,6 +400,7 @@ theorem mThree_execution {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.
         rw [hB5, step τ, field_lo _ _ (by decide), field_lo _ _ (by decide),
           field_lo _ _ (by decide), field_all]
         cases ((S.val τ).1 == (bits 2 4).val τ) <;> rfl)
+    (fun _ => trivial)
   refine ⟨envs, hrun, hlen, fun j hj => ?_⟩
   rw [hobs j hj, mThree_packed, hB5, hB1, hV2, hV3, hV4, out j]
   show mask 4 (_ >>> 9) = _
@@ -402,19 +410,26 @@ theorem mThree_execution {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.
 /-! ## The LIN checksum of the IP library, end to end
 
 `IP/Bus/LINHW.checksumHW`: one accumulator register, the carry folded back
-in, some twenty hardware `let`s, a structure result. `linChk` is its `chk`
-field. -/
+in, eighteen hardware `let`s, a structure result. `linChk` is its `chk`
+field. The `let`s stay `let`s: each is one wire of the emitted module, named
+after the source binder. -/
 
 #def_machine_body linBody of linChk
 
 def linIn : List (Name × MixedGateBinder) :=
   [(`dom, .domain), (`start, .bool), (`byteIn, .bits 8), (`valid, .bool)]
 def linSlots : List (Name × MixedGateBinder) := [(`accR, .bits 8)]
+def linLets : List (Name × MixedGateBinder) :=
+  [(`p0, .bits 8), (`pFF, .bits 8), (`p1, .bits 8), (`zeroBit, .bits 1), (`accW, .bits 9),
+   (`byteW, .bits 9), (`sumW, .bits 9), (`p1_9, .bits 9), (`p8_9, .bits 9),
+   (`carryShift, .bits 9), (`carryMasked, .bits 9), (`p0_9, .bits 9), (`isCarryZero, .bool),
+   (`carry, .bool), (`sumLo, .bits 8), (`sumLoP1, .bits 8), (`folded, .bits 8),
+   (`chkSig, .bits 8)]
 def linLayout : Layout :=
   { slots := [{ lo := 0, width := 8, init := 0 }]
-    outLo := 8, outWidth := 8, outTy := .bitVector 8, resetKind := .asynchronous }
+    outLo := 8, outWidth := 8, outTy := .bitVector 8, resetKind := .asynchronous, lets := 18 }
 noncomputable def linShape : MachineShape :=
-  { binders := linIn ++ linSlots, body := linBody, layout := linLayout }
+  { binders := linIn ++ linSlots ++ linLets, body := linBody, layout := linLayout }
 
 /-- The first `fun` binder name of an expression (the slice's binder is a
 hygienic macro name of the IP source file). -/
@@ -425,33 +440,45 @@ def firstLamName : Lean.Expr → Option Name
 
 noncomputable def linSliceName : Name := (firstLamName linBody).getD .anonymous
 
-/-- The nine-bit sum of the accumulator and the byte. -/
-def linSum : Term (.bits (1 + 8)) :=
-  .binary .add (.concat (.bitsLit 1 0) (.bitsInput 8 1)) (.concat (.bitsLit 1 0) (.bitsInput 8 0))
+/-- Bool inputs of the term: `start`, `valid`, `isCarryZero`, `carry`. -/
+def linBpos : Nat → Nat := fun j => [1, 3, 17, 18].getD j 0
+/-- BitVec inputs of the term: `byteIn`, `accR`, then the BitVec `let`s. -/
+def linVpos : Nat → Nat := fun j =>
+  [2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 19, 20, 21, 22].getD j 0
+def linVw : Nat → Nat := fun j =>
+  [8, 8, 8, 8, 8, 1, 9, 9, 9, 9, 9, 9, 9, 9, 8, 8, 8, 8].getD j 0
 
-/-- The packed transition: `chk ++ nextAcc`. Bool inputs: `start`, `valid`;
-BitVec inputs: `byteIn`, `accR`. -/
-noncomputable def linTerm : Term (.bits (8 + 8)) :=
-  .concat (.binary .xor (.bitsInput 8 1) (.bitsLit 8 255))
-    (.mux (.boolInput 0) (.bitsLit 8 0)
-      (.mux (.boolInput 1)
-        (.mux (.boolNot (.compare .eq
-            (.binary .and (.binary .shr linSum (.bitsLit 9 8)) (.bitsLit 9 1)) (.bitsLit 9 0)))
-          (.binary .add (.slice linSliceName 0 8 linSum) (.bitsLit 8 1))
-          (.slice linSliceName 0 8 linSum))
-        (.bitsInput 8 1)))
+/-- The eighteen `let` fields, in source order. -/
+noncomputable def linFields : List (Σ w : Nat, Term (.bits w)) :=
+  [⟨8, .bitsLit 8 0⟩, ⟨8, .bitsLit 8 255⟩, ⟨8, .bitsLit 8 1⟩, ⟨1, .bitsLit 1 0⟩,
+   ⟨1 + 8, .concat (.bitsInput 1 5) (.bitsInput 8 1)⟩,
+   ⟨1 + 8, .concat (.bitsInput 1 5) (.bitsInput 8 0)⟩,
+   ⟨9, .binary .add (.bitsInput 9 6) (.bitsInput 9 7)⟩,
+   ⟨9, .bitsLit 9 1⟩, ⟨9, .bitsLit 9 8⟩,
+   ⟨9, .binary .shr (.bitsInput 9 8) (.bitsInput 9 10)⟩,
+   ⟨9, .binary .and (.bitsInput 9 11) (.bitsInput 9 9)⟩,
+   ⟨9, .bitsLit 9 0⟩,
+   ⟨1, .mux (.compare .eq (.bitsInput 9 12) (.bitsInput 9 13)) (.bitsLit 1 1) (.bitsLit 1 0)⟩,
+   ⟨1, .mux (.boolNot (.boolInput 2)) (.bitsLit 1 1) (.bitsLit 1 0)⟩,
+   ⟨8, .slice linSliceName 0 8 (.bitsInput 9 8)⟩,
+   ⟨8, .binary .add (.bitsInput 8 14) (.bitsInput 8 4)⟩,
+   ⟨8, .mux (.boolInput 3) (.bitsInput 8 15) (.bitsInput 8 14)⟩,
+   ⟨8, .binary .xor (.bitsInput 8 1) (.bitsInput 8 3)⟩]
 
-def linBpos : Nat → Nat := fun j => if j = 0 then 1 else 3
-def linVpos : Nat → Nat := fun j => if j = 0 then 2 else 4
+/-- What remains after the `let`s: `chk ++ nextAcc`. -/
+def linCore : Term (.bits (8 + 8)) :=
+  .concat (.bitsInput 8 17)
+    (.mux (.boolInput 0) (.bitsInput 8 2) (.mux (.boolInput 1) (.bitsInput 8 16) (.bitsInput 8 1)))
 
 set_option maxRecDepth 100000 in
 set_option maxHeartbeats 2000000 in
 theorem lin_body : linShape.body =
-    quote (.bvar 4) (fun j => inputExpr linShape.binders.length (linBpos j))
-      (fun j => inputExpr linShape.binders.length (linVpos j)) linTerm := rfl
+    quote (.bvar 22) (fun j => inputExpr linShape.binders.length (linBpos j))
+      (fun j => inputExpr linShape.binders.length (linVpos j))
+      (packLets linFields linCore).2 := rfl
 
-theorem linTerm_wf : linTerm.WF 2 2 (fun _ => 8) := by
-  simp [linTerm, linSum, Term.WF]
+theorem lin_wf : (packLets linFields linCore).2.WF 4 18 linVw := by
+  simp [packLets, linFields, linCore, Term.WF, linVw]
 
 
 run_cmd liftTermElabM do
@@ -464,37 +491,51 @@ run_cmd liftTermElabM do
   let .ok r := reflExpr shape.body | throwError "linChk: body not reflectable"
   unless (← getConstInfo ``linBody).value? == some r do
     throwError "linBody is not the machine body of linChk"
-  unless shape.binders == linIn ++ linSlots && shape.layout.slots == linLayout.slots &&
+  unless shape.binders == linIn ++ linSlots ++ linLets && shape.layout.slots == linLayout.slots &&
       shape.layout.outLo == linLayout.outLo && shape.layout.outWidth == linLayout.outWidth &&
-      shape.layout.outTy == linLayout.outTy &&
+      shape.layout.outTy == linLayout.outTy && shape.layout.lets == linLayout.lets &&
       shape.layout.resetKind == linLayout.resetKind do
     throwError "linShape is not the machine shape of linChk"
+  -- the `let` boundary: the real machine synthesis ties every `let`
+  let translate : TranslateFn := fun e h t n => translateExprToWire e h t n
+  unless (← synthesizeMachineCertified translate (fun _ => pure ()) ``linChk shape).isSome do
+    throwError "linChk: the machine synthesis did not tie the lets"
 
 theorem lin_machine {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
     {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
     {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
     (hr : RunsTo (synthesizeCombinationalCore ``linChk [] false) mctx mref cctx cref w
       (m, design) w')
-    (entry : MachineDefines mctx mref cctx cref ``linChk linShape) :
-    MachinePreserves ``linChk linShape linIn linSlots m := by
-  apply synthesizeCombinationalCore_machine_sound hr entry rfl
+    (entry : MachineDefines mctx mref cctx cref ``linChk linShape)
+    (closes : MachineCloses mctx mref cctx cref ``linChk linShape) :
+    MachinePreserves ``linChk linShape linIn linSlots linLets m := by
+  apply synthesizeCombinationalCore_machine_sound hr entry closes rfl rfl
   · intro name n hmem
-    simp only [linShape, linIn, linSlots, List.cons_append, List.nil_append,
+    simp only [linShape, linIn, linSlots, linLets, List.cons_append, List.nil_append,
       List.mem_cons, Prod.mk.injEq, List.not_mem_nil, or_false, reduceCtorEq, and_false,
       false_or, MixedGateBinder.bits.injEq] at hmem
     omega
   · intro b hb
     simp only [linSlots, List.mem_cons, List.not_mem_nil, or_false] at hb
     subst hb; simp
+  · intro b hb
+    simp only [linLets, List.mem_cons, List.not_mem_nil, or_false] at hb
+    rcases hb with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+      rfl | rfl | rfl | rfl | rfl <;> simp
   · exact .cons rfl .nil
   · decide
 
+/-! ### The source machine -/
+
+/-- The nine-bit sum of the accumulator and the byte. -/
+def linSumW (acc byte : BitVec 8) : BitVec 9 := (0#1 ++ acc : BitVec 9) + (0#1 ++ byte : BitVec 9)
+/-- No carry out of the eight-bit sum. -/
+def linCarryZero (acc byte : BitVec 8) : Bool := (linSumW acc byte >>> 8#9 &&& 1#9) == 0#9
+def linSumLo (acc byte : BitVec 8) : BitVec 8 := BitVec.extractLsb' 0 8 (linSumW acc byte)
 /-- The accumulator's next value when a byte is taken: the eight-bit sum
 with the carry folded back in. -/
 def linFold (acc byte : BitVec 8) : BitVec 8 :=
-  if !(((0#1 ++ acc : BitVec 9) + (0#1 ++ byte : BitVec 9)) >>> 8#9 &&& 1#9 == 0#9) then
-    BitVec.extractLsb' 0 8 ((0#1 ++ acc : BitVec 9) + (0#1 ++ byte : BitVec 9)) + 1#8
-  else BitVec.extractLsb' 0 8 ((0#1 ++ acc : BitVec 9) + (0#1 ++ byte : BitVec 9))
+  if !linCarryZero acc byte then linSumLo acc byte + 1#8 else linSumLo acc byte
 
 abbrev Slots1 : List Type := [BitVec 8]
 
@@ -551,12 +592,53 @@ theorem lin_state {dom : DomainConfig} (start : Signal dom Bool) (byteIn : Signa
   rw [hs t]
   rfl
 
-/-- The packed transition value of the LIN checksum on an accumulator and
-inputs. -/
-theorem lin_packed (B : Nat → Bool) (V : (j : Nat) → (n : Nat) → BitVec n) :
-    packedAt linTerm linBpos linVpos B V =
-      ((V 4 8 ^^^ 255#8) ++
-        (if B 1 then 0#8 else if B 3 then linFold (V 4 8) (V 2 8) else V 4 8)).toNat := rfl
+/-! ### The `let`s of the source are the `let`s of the transition -/
+
+/-- The value of every BitVec binder from the accumulator on, as a function
+of the accumulator and the byte: the slot, then the `let`s. -/
+def linV (acc byte : BitVec 8) (pos w : Nat) : BitVec w :=
+  match pos with
+  | 4 => acc.setWidth w
+  | 5 => BitVec.ofNat w 0
+  | 6 => BitVec.ofNat w 255
+  | 7 => BitVec.ofNat w 1
+  | 8 => BitVec.ofNat w 0
+  | 9 => (0#1 ++ acc : BitVec 9).setWidth w
+  | 10 => (0#1 ++ byte : BitVec 9).setWidth w
+  | 11 => (linSumW acc byte).setWidth w
+  | 12 => BitVec.ofNat w 1
+  | 13 => BitVec.ofNat w 8
+  | 14 => (linSumW acc byte >>> 8#9).setWidth w
+  | 15 => (linSumW acc byte >>> 8#9 &&& 1#9).setWidth w
+  | 16 => BitVec.ofNat w 0
+  | 19 => (linSumLo acc byte).setWidth w
+  | 20 => (linSumLo acc byte + 1#8).setWidth w
+  | 21 => (linFold acc byte).setWidth w
+  | 22 => (acc ^^^ 255#8).setWidth w
+  | _ => 0#w
+
+theorem bit_of_bool (c : Bool) : (if c then 1#1 else 0#1).toNat = encodeBool c := by
+  cases c <;> rfl
+
+/-- The valuation built from the source's own `let` values satisfies the
+`let` equations of the transition. -/
+theorem lin_lets (bools : Nat → Bool) (acc : BitVec 8)
+    (bits : (j : Nat) → (n : Nat) → BitVec n) :
+    LetsHold linBpos linVpos
+      (fun j => if j = 17 then linCarryZero acc (bits 2 8)
+        else if j = 18 then !linCarryZero acc (bits 2 8) else bools j)
+      (fun j n => if 4 ≤ j then linV acc (bits 2 8) j n else bits j n)
+      5 linLets linFields := by
+  simp [LetsHold, linLets, linFields, posEnc, eval, linBpos, linVpos, linV, machWidth,
+    Tools.ShippingScalarSoundness.Binary.apply, Tools.ShippingBoolSourceSoundness.compareValue,
+    linCarryZero, linSumW, linSumLo, linFold]
+  generalize ((0#1 ++ acc + (0#1 ++ bits 2 8)) >>> 8 &&& 1#9) = x
+  by_cases h : x = 0#9 <;> simp [h, encodeBool]
+
+/-- What remains after the `let`s, on the source's values. -/
+theorem lin_core (B : Nat → Bool) (V : (j : Nat) → (n : Nat) → BitVec n) :
+    packedAt linCore linBpos linVpos B V =
+      (V 22 8 ++ (if B 1 then V 5 8 else if B 3 then V 21 8 else V 4 8)).toNat := rfl
 
 set_option maxHeartbeats 1000000 in
 /-- **Source-to-RTL execution of the LIN checksum.** One successful run of
@@ -570,8 +652,9 @@ theorem lin_execution {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.Sta
     {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
     (hr : RunsTo (synthesizeCombinationalCore ``linChk [] false) mctx mref cctx cref w
       (m, design) w')
-    (entry : MachineDefines mctx mref cctx cref ``linChk linShape) :
-    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = 5 ∧
+    (entry : MachineDefines mctx mref cctx cref ``linChk linShape)
+    (closes : MachineCloses mctx mref cctx cref ``linChk linShape) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = 23 ∧
     ∃ (cache : IO.Ref (ExprStructMap String)) (racc : String),
       ∀ {D : DomainConfig} (bools : Nat → Signal D Bool)
         (bits : (j : Nat) → (n : Nat) → Signal D (BitVec n))
@@ -585,40 +668,59 @@ theorem lin_execution {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.Sta
         ∃ envs, runModule (weOf m) m.body seed T st0 mems = some envs ∧ envs.length = T ∧
           ∀ j (hj : j < envs.length),
             (envs[j]'hj) "out" = ((linChk (bools 1) (bits 2 8) (bools 3)).val j).toNat := by
-  obtain ⟨ids, nd, len, cache, h⟩ := machine_trace (lin_machine hr entry) rfl
-  obtain ⟨regs, rnd, rlen, trace⟩ := h (.bvar 4) 2 2 (fun _ => 8) linBpos linVpos
-    linTerm linTerm_wf
+  obtain ⟨ids, nd, len, cache, h⟩ := machine_trace (lin_machine hr entry closes) rfl
+  obtain ⟨regs, rnd, rlen, trace⟩ := h (.bvar 22) 4 18 linVw linBpos linVpos
+    linFields linCore lin_wf
     (by
       intro j hj
-      have : j = 0 ∨ j = 1 := by omega
-      rcases this with rfl | rfl
+      have : j = 0 ∨ j = 1 ∨ j = 2 ∨ j = 3 := by omega
+      rcases this with rfl | rfl | rfl | rfl
       · exact ⟨`start, rfl⟩
-      · exact ⟨`valid, rfl⟩)
+      · exact ⟨`valid, rfl⟩
+      · exact ⟨`isCarryZero, rfl⟩
+      · exact ⟨`carry, rfl⟩)
     (by
       intro j hj
-      have : j = 0 ∨ j = 1 := by omega
-      rcases this with rfl | rfl
-      · exact ⟨`byteIn, rfl⟩
-      · exact ⟨`accR, rfl⟩)
+      have : j = 0 ∨ j = 1 ∨ j = 2 ∨ j = 3 ∨ j = 4 ∨ j = 5 ∨ j = 6 ∨ j = 7 ∨ j = 8 ∨ j = 9 ∨
+          j = 10 ∨ j = 11 ∨ j = 12 ∨ j = 13 ∨ j = 14 ∨ j = 15 ∨ j = 16 ∨ j = 17 := by omega
+      rcases this with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+        rfl | rfl | rfl | rfl | rfl | rfl <;> exact ⟨_, rfl⟩)
     lin_body
+    (by
+      intro f hf
+      simp only [linShape, linLayout, List.mem_cons, List.not_mem_nil, or_false] at hf
+      subst hf; decide)
+    (by decide)
   match regs, rlen, rnd, trace with
   | [racc], _, _, trace =>
   refine ⟨ids, nd, len, cache, racc, ?_⟩
   intro D bools bits T seed st0 mems inputs pass rst ia
   obtain ⟨s0, step, out⟩ := lin_state (bools 1) (bits 2 8) (bools 3)
   generalize stateLoop linInits (linCircuit (bools 1) (bits 2 8) (bools 3)) = S at s0 step out
-  let B : Nat → Nat → Bool := fun τ j => (bools j).val τ
+  -- The binders' values over time: the inputs' Signals, the state, the source's lets.
+  let B : Nat → Nat → Bool := fun τ j =>
+    if j = 17 then linCarryZero (S.val τ).1 ((bits 2 8).val τ)
+    else if j = 18 then !linCarryZero (S.val τ).1 ((bits 2 8).val τ)
+    else (bools j).val τ
   let V : Nat → (j : Nat) → (n : Nat) → BitVec n := fun τ j n =>
-    if j = 4 then BitVec.ofNat n (S.val τ).1.toNat else (bits j n).val τ
-  have hV2 : ∀ τ, V τ 2 8 = (bits 2 8).val τ := fun τ => rfl
-  have hV4 : ∀ τ, V τ 4 8 = (S.val τ).1 := fun τ => by simp [V]
+    if 4 ≤ j then linV (S.val τ).1 ((bits 2 8).val τ) j n else (bits j n).val τ
+  have hB1 : ∀ τ, B τ 1 = (bools 1).val τ := fun τ => rfl
+  have hB3 : ∀ τ, B τ 3 = (bools 3).val τ := fun τ => rfl
+  have hV4 : ∀ τ, V τ 4 8 = (S.val τ).1 := fun τ => by simp [V, linV]
+  have hV5 : ∀ τ, V τ 5 8 = 0#8 := fun τ => rfl
+  have hV21 : ∀ τ, V τ 21 8 = linFold (S.val τ).1 ((bits 2 8).val τ) := fun τ => by
+    simp [V, linV]
+  have hV22 : ∀ τ, V τ 22 8 = (S.val τ).1 ^^^ 255#8 := fun τ => by simp [V, linV]
   obtain ⟨envs, hrun, hlen, hobs⟩ := trace T B V seed st0 mems
     (by
       intro t st ht
-      refine sourceInputs_congr nd (fun _ _ => rfl) ?_ (inputs t st ht)
-      intro j hj n
-      have h4 : j ≠ 4 := by simp [linIn] at hj; omega
-      simp [V, h4])
+      refine sourceInputs_congr nd ?_ ?_ (inputs t st ht)
+      · intro j hj
+        have : j = 0 ∨ j = 1 ∨ j = 2 ∨ j = 3 := by simp [linIn] at hj; omega
+        rcases this with rfl | rfl | rfl | rfl <;> simp [B]
+      · intro j hj n
+        have : j = 0 ∨ j = 1 ∨ j = 2 ∨ j = 3 := by simp [linIn] at hj; omega
+        rcases this with rfl | rfl | rfl | rfl <;> simp [V])
     (by
       intro t st r hr
       simp only [List.mem_cons, List.not_mem_nil, or_false] at hr
@@ -640,15 +742,16 @@ theorem lin_execution {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.Sta
         have := (List.getElem?_eq_some_iff.mp hb).1
         simp [linSlots] at this; omega
       subst hi
-      rw [lin_packed, hV2, hV4]
+      rw [lin_core, hB1, hB3, hV4, hV5, hV21, hV22]
       simp only [List.getElem?_cons_zero, Option.some.injEq, linSlots, linShape, linLayout]
         at hf hb
       subst hf; subst hb
       show (V (τ + 1) 4 8).toNat = _
       rw [hV4, step τ, field_lo _ _ (by decide)]
       exact (field_all _).symm)
+    (fun τ => lin_lets (fun j => (bools j).val τ) (S.val τ).1 (fun j n => (bits j n).val τ))
   refine ⟨envs, hrun, hlen, fun j hj => ?_⟩
-  rw [hobs j hj, lin_packed, hV2, hV4, out j]
+  rw [hobs j hj, lin_core, hV22, out j]
   show mask 8 (_ >>> 8) = _
   rw [field_hi _ _ (by decide)]
   exact field_all _
@@ -657,7 +760,10 @@ theorem lin_execution {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.Sta
 run_cmd do
   if (← get).messages.hasErrors then throwError "machine entry regression failed"
   for name in [``mThree_execution, ``mThree_machine, ``mThree_state,
-      ``lin_execution, ``lin_machine, ``lin_state,
+      ``lin_execution, ``lin_machine, ``lin_state, ``lin_lets,
+      ``Tools.ShippingMachineClose.closeLets_eval,
+      ``Tools.ShippingMachineEntry.chain_values,
+
       ``Tools.ShippingMachineEntry.synthesizeCombinationalCore_machine_sound,
       ``Tools.ShippingMachineEntry.synthesizeMachineCertified_sound,
       ``Tools.ShippingMachineEntry.machine_trace,

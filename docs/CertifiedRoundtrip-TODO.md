@@ -880,6 +880,38 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   budget the declaration stays on the legacy route); a generic source
   bridge (the two endpoints prove the source recurrence per
   declaration, from `circuit_state` and one `rfl`).
+- [x] **Hardware `let` on the machine route.** The first version unfolded
+  every `let`, and a classifier showed 86 of the remaining declarations
+  running out of the unfolding budget: `circuit do` copies its `let`s
+  into every write and into the result, and `let`s mention `let`s, so the
+  unfolded tree is exponential. Now a hardware `let` (its type a Bool or
+  positive-width BitVec Signal) is a BINDER of the transition and a
+  FIELD of its packed value
+  (`let₀ ++ … ++ letₖ₋₁ ++ result ++ next₀ ++ …`, a `let` value
+  mentioning earlier `let`s only); copies of one value are one `let`.
+  The transition is compiled ONCE; `Sparkle.IR.Machine.closeLets` then
+  drives each `let` port from the operand wire of its field, right
+  after the statement that drives that wire, checks the result is in
+  dependency order, and removes the ports. Proved:
+  `closeLets_eval` — by the uniqueness of the solution of an acyclic
+  assignment body (`equations_eval`), no reasoning about statement
+  order — `chain_values` (the operand wires hold their fields),
+  `synthesizeMachineCertified_sound` under `LetsHold` (the valuation
+  gives every `let` binder the value of its field), `machine_trace`.
+  `lin_execution` is re-proved on the eighteen-`let` form: `lin_lets`
+  says the source's own `let` values satisfy the transition's `let`
+  equations. New boundary `MachineCloses` (this run tied the `let`s;
+  proved outright for a shape without `let`s). Measured: **111 of 389**
+  real declarations pass a gate (82 before), 48 on the machine route —
+  among them the I²C, SPI, SBUS, CRSF, DroneCAN and UART engines, the
+  HKDF and RLP state machines, and the P-256, secp256k1, BLS12-381
+  field and Miller-loop controllers behind their wrappers. 36 modules
+  changed text against the previous commit, all machine-route; every
+  one of the 48 emitted modules agrees with its source in a 60-cycle IR
+  simulation. OPEN, by a classifier on the 278 that remain: 8 would pass
+  with structure results; then computed constants (`2 ^ k`,
+  `BitVec.ofInt`, negation: about 25), sub-module calls inside a
+  `circuit do` (16), and a tail of unsupported shapes.
 - [ ] **S7 / trust:** Resolve or explicitly retain `EnvDefines` in the final
   claim; record execution-model/external-tool boundaries without hiding them.
   RECORDED — docs/ShippingCompiler-TrustBase.md states the retained base

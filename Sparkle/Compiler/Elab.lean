@@ -3299,33 +3299,6 @@ lowering of `circuit do` (one register per slot there too, but other wire
 names and no packed wire); the function is the same, and that is what
 `Tools/ShippingMachine*.lean` prove. -/
 
-/-- Zeta: every `let` replaced by its value, everywhere outside binder types
-    (budgeted; metadata and primitive projections are refused). -/
-def inlZeta : Nat → Lean.Expr → Nat → Option (Lean.Expr × Nat)
-  | 0, _, _ => none
-  | _, _, 0 => none
-  | fuel + 1, .letE _ _ v body _, b + 1 =>
-    match inlZeta fuel v b with
-    | some (v', b) =>
-      match inlSubst #[v'] 0 body b with
-      | some (e', b) => inlZeta fuel e' b
-      | none => none
-    | none => none
-  | fuel + 1, .app f a, b + 1 =>
-    match inlZeta fuel f b with
-    | some (f', b) =>
-      match inlZeta fuel a b with
-      | some (a', b) => some (.app f' a', b)
-      | none => none
-    | none => none
-  | fuel + 1, .lam n t body bi, b + 1 =>
-    match inlZeta fuel body b with
-    | some (body', b) => some (.lam n t body' bi, b)
-    | none => none
-  | _, .mdata .., _ + 1 => none
-  | _, .proj .., _ + 1 => none
-  | _, e, b + 1 => some (e, b)
-
 /-- The kind of a register slot's type: `Bool`, or `BitVec n` with a literal
     positive `n`. -/
 def machSlotKind? : Lean.Expr → Option MixedGateBinder
@@ -3363,81 +3336,180 @@ def machInits : List MixedGateBinder → Lean.Expr → Option (List Nat)
     | _, _ => none
   | _, _ => none
 
-/-- `regs.2.2…` (`p` times) where `regs` is the bound variable `r`: the
-    handles from slot `p` on. -/
-def machTail? (r : Nat) : Lean.Expr → Option Nat
-  | .bvar i => if i == r then some 0 else none
-  | .app (.app (.app (.const ``Prod.snd _) _) _) t => (machTail? r t).map (· + 1)
+/-- What a bound variable of the `circuit do` body stands for while the body
+    is read. -/
+inductive MachVal where
+  /-- `regs.2.2…` (`p` times): the handles from slot `p` on. -/
+  | regs (p : Nat)
+  /-- The handle of slot `i`. -/
+  | handle (i : Nat)
+  /-- The `Unit` a `Circuit.bind` continuation receives. -/
+  | unit
+  /-- A Signal expression of the transition (in placeholder form). -/
+  | val (e : Lean.Expr)
+
+/-- Placeholders for the transition's variables while its size is not known:
+    the declaration's binder `i` (from the end), slot `i`, hardware `let` `j`.
+    They are closed terms, so they move under binders unchanged; `machClose`
+    turns them into the bound variables of the final telescope. -/
+def machIn (i : Nat) : Lean.Expr := .fvar ⟨.num (.str .anonymous "_machIn") i⟩
+def machSlot (i : Nat) : Lean.Expr := .fvar ⟨.num (.str .anonymous "_machSlot") i⟩
+def machLet (j : Nat) : Lean.Expr := .fvar ⟨.num (.str .anonymous "_machLet") j⟩
+
+/-- `regs.2.2…`: a bound variable standing for a tail, or `Prod.snd` of one. -/
+def machTailV (env : List MachVal) (d : Nat) : Lean.Expr → Option Nat
+  | .bvar j =>
+    if j < d then none else
+    match env[j - d]? with
+    | some (.regs p) => some p
+    | _ => none
+  | .app (.app (.app (.const ``Prod.snd _) _) _) t => (machTailV env d t).map (· + 1)
   | _ => none
 
-/-- The handle of slot `p`: `(regs.2.2…).1`. -/
-def machHandle? (r : Nat) : Lean.Expr → Option Nat
-  | .app (.app (.app (.const ``Prod.fst _) _) _) t => machTail? r t
+/-- The handle of a slot: a bound variable standing for one, or `(tail).1`. -/
+def machHandleV (env : List MachVal) (d : Nat) : Lean.Expr → Option Nat
+  | .bvar j =>
+    if j < d then none else
+    match env[j - d]? with
+    | some (.handle i) => some i
+    | _ => none
+  | .app (.app (.app (.const ``Prod.fst _) _) _) t => machTailV env d t
   | _ => none
 
-/-- The live read of slot `p`: `handle.1`. -/
-def machRead? (r : Nat) : Lean.Expr → Option Nat
-  | .app (.app (.app (.const ``Prod.fst _) _) _) h => machHandle? r h
+/-- The live read of a slot: `handle.1`. -/
+def machReadV (env : List MachVal) (d : Nat) : Lean.Expr → Option Nat
+  | .app (.app (.app (.const ``Prod.fst _) _) _) h => machHandleV env d h
   | _ => none
 
-/-- Rewrite a Signal expression of the `circuit do` body into the transition's
-    context.  There: `c` continuation binders (never used), the `regs` binder,
-    then the declaration's binders.  Here: `n` slot binders, then the
-    declaration's binders.  A live read of slot `i` becomes that slot's
-    binder; any other use of `regs` or of a continuation binder is refused. -/
-def machConv (n c : Nat) : Nat → Lean.Expr → Option Lean.Expr
-  | d, .bvar j =>
-    if j < d then some (.bvar j)
-    else if j ≤ d + c then none
-    else some (.bvar (j - (c + 1) + n))
-  | d, .app f a =>
-    match machRead? (d + c) (.app f a) with
-    | some i => if i < n then some (.bvar (n - 1 - i + d)) else none
+/-- The hardware `let`s met so far: binder name, kind, value (placeholder
+    form; it mentions earlier `let`s only). -/
+abbrev MachLets := Array (Name × MixedGateBinder × Lean.Expr)
+
+/-- A placeholder (a variable of the transition), as opposed to a compound
+    expression. -/
+def machIsVar : Lean.Expr → Bool
+  | .fvar _ => true
+  | _ => false
+
+/-- Bind a `let` value that is not a handle: a hardware value (its type a
+    Bool or positive-width BitVec Signal) becomes a `let` of the transition —
+    the one already met with the SAME value, if any: `circuit do` copies its
+    `let`s into every write and into the result — unless it is a bare
+    variable; any other value is substituted. -/
+def machBindLet (nm : Name) (ty v' : Lean.Expr) (lets : MachLets) : Lean.Expr × MachLets :=
+  match mixedGateBinderKind? ty with
+  | some .domain => (v', lets)
+  | none => (v', lets)
+  | some k =>
+    if machIsVar v' then (v', lets) else
+    match lets.findIdx? (fun l => l.2.2 == v') with
+    | some j => (machLet j, lets)
+    | none => (machLet lets.size, lets.push (nm.eraseMacroScopes, k, v'))
+
+/-- Rewrite a Signal expression of the `circuit do` body into the transition
+    (placeholder form).  A bound variable of the body is replaced by what it
+    stands for; a live read of slot `i` becomes that slot; a hardware `let`
+    becomes a `let` of the transition (`machBindLet`).  Any other use of a
+    handle, and a `let` under a `fun`, is refused. -/
+def machConv (n : Nat) : List MachVal → Nat → Lean.Expr → MachLets → Option (Lean.Expr × MachLets)
+  | env, d, .bvar j, lets =>
+    if j < d then some (.bvar j, lets) else
+    match env[j - d]? with
+    | some (.val v) => some (v, lets)
+    | some _ => none
+    | none => some (machIn (j - d - env.length), lets)
+  | env, d, .app f a, lets =>
+    match machReadV env d (.app f a) with
+    | some i => if i < n then some (machSlot i, lets) else none
     | none =>
-      match machConv n c d f, machConv n c d a with
-      | some f', some a' => some (.app f' a')
-      | _, _ => none
-  | d, .lam nm t b bi =>
-    match machConv n c d t, machConv n c (d + 1) b with
-    | some t', some b' => some (.lam nm t' b' bi)
-    | _, _ => none
-  | d, .forallE nm t b bi =>
-    match machConv n c d t, machConv n c (d + 1) b with
-    | some t', some b' => some (.forallE nm t' b' bi)
-    | _, _ => none
-  | _, .letE .. => none
-  | _, .mdata .. => none
-  | _, .proj .. => none
-  | _, e => some e
-
-/-- The statements of a let-free `circuit do` body under `c` continuation
-    binders: the writes `handle <~ rhs` in order, each with the number of
-    continuation binders around it, and the final `pure` value with its. -/
-def machChain (c : Nat) : Lean.Expr →
-    Option (List (Nat × Lean.Expr × Lean.Expr) × Nat × Lean.Expr)
-  | .app (.app (.app (.app (.const ``Sparkle.Core.Circuit.pure' _) _) _) _) v => some ([], c, v)
-  | .app (.app (.app (.app (.app (.app (.const ``Sparkle.Core.Circuit.bind _) _) _) _) _)
-      (.app (.app (.app (.app (.app (.app (.const ``Sparkle.Core.Circuit.next _) _) _) _) _)
-        h) rhs)) (.lam _ _ rest _) =>
-    match machChain (c + 1) rest with
-    | some (ws, v) => some ((c, h, rhs) :: ws, v)
+      match machConv n env d f lets with
+      | some (f', lets) =>
+        match machConv n env d a lets with
+        | some (a', lets) => some (.app f' a', lets)
+        | none => none
+      | none => none
+  | env, d, .lam nm t b bi, lets =>
+    match machConv n env d t lets with
+    | some (t', lets) =>
+      match machConv n env (d + 1) b lets with
+      | some (b', lets) => some (.lam nm t' b' bi, lets)
+      | none => none
     | none => none
-  | _ => none
+  | env, d, .forallE nm t b bi, lets =>
+    match machConv n env d t lets with
+    | some (t', lets) =>
+      match machConv n env (d + 1) b lets with
+      | some (b', lets) => some (.forallE nm t' b' bi, lets)
+      | none => none
+    | none => none
+  | env, d, .letE nm ty v b _, lets =>
+    if d != 0 then none else
+    match machTailV env 0 v with
+    | some p => machConv n (.regs p :: env) 0 b lets
+    | none =>
+      match machHandleV env 0 v with
+      | some i => machConv n (.handle i :: env) 0 b lets
+      | none =>
+        match machConv n env 0 v lets with
+        | some (v', lets) =>
+          let (x, lets) := machBindLet nm ty v' lets
+          machConv n (.val x :: env) 0 b lets
+        | none => none
+  | _, _, .mdata .., _ => none
+  | _, _, .proj .., _ => none
+  | _, _, e, lets => some (e, lets)
 
-/-- The writes rewritten into the transition's context: `(slot, next value)`. -/
-def machWrites (n : Nat) : List (Nat × Lean.Expr × Lean.Expr) → Option (List (Nat × Lean.Expr))
-  | [] => some []
-  | (c, h, rhs) :: rest =>
-    match machHandle? c h, machConv n c 0 rhs, machWrites n rest with
-    | some i, some e, some ws => if i < n then some ((i, e) :: ws) else none
-    | _, _, _ => none
+/-- The statements of a `circuit do` body: the writes `handle <~ rhs` in
+    order as `(slot, next value)`, and the final `pure` value, both in
+    placeholder form, with the hardware `let`s they use. -/
+def machChain (n : Nat) : List MachVal → Lean.Expr → MachLets →
+    Option (List (Nat × Lean.Expr) × Lean.Expr × MachLets)
+  | env, .app (.app (.app (.app (.const ``Sparkle.Core.Circuit.pure' _) _) _) _) v, lets =>
+    match machConv n env 0 v lets with
+    | some (v', lets) => some ([], v', lets)
+    | none => none
+  | env, .app (.app (.app (.app (.app (.app (.const ``Sparkle.Core.Circuit.bind _) _) _) _) _)
+      (.app (.app (.app (.app (.app (.app (.const ``Sparkle.Core.Circuit.next _) _) _) _) _)
+        h) rhs)) (.lam _ _ rest _), lets =>
+    match machHandleV env 0 h, machConv n env 0 rhs lets with
+    | some i, some (rhs', lets) =>
+      if i < n then
+        match machChain n (.unit :: env) rest lets with
+        | some (ws, v, lets) => some ((i, rhs') :: ws, v, lets)
+        | none => none
+      else none
+    | _, _ => none
+  | env, .letE nm ty v b _, lets =>
+    match machTailV env 0 v with
+    | some p => machChain n (.regs p :: env) b lets
+    | none =>
+      match machHandleV env 0 v with
+      | some i => machChain n (.handle i :: env) b lets
+      | none =>
+        match machConv n env 0 v lets with
+        | some (v', lets) =>
+          let (x, lets) := machBindLet nm ty v' lets
+          machChain n (.val x :: env) b lets
+        | none => none
+  | _, _, _ => none
 
 /-- The next value of slot `i`: its LAST write (`Circuit.next` replaces the
     pending value), or the slot itself when the body never writes it. -/
-def machNext (n i : Nat) (ws : List (Nat × Lean.Expr)) : Lean.Expr :=
+def machNext (i : Nat) (ws : List (Nat × Lean.Expr)) : Lean.Expr :=
   match ws.reverse.find? (·.1 == i) with
   | some (_, e) => e
-  | none => .bvar (n - 1 - i)
+  | none => machSlot i
+
+/-- Close the placeholders: the transition's telescope is the declaration's
+    binders, then `n` slots, then `k` hardware `let`s. -/
+def machClose (n k : Nat) : Nat → Lean.Expr → Lean.Expr
+  | d, .fvar ⟨.num (.str .anonymous "_machIn") i⟩ => .bvar (n + k + i + d)
+  | d, .fvar ⟨.num (.str .anonymous "_machSlot") i⟩ => .bvar (n - 1 - i + k + d)
+  | d, .fvar ⟨.num (.str .anonymous "_machLet") j⟩ => .bvar (k - 1 - j + d)
+  | d, .app f a => .app (machClose n k d f) (machClose n k d a)
+  | d, .lam nm t b bi => .lam nm (machClose n k d t) (machClose n k (d + 1) b) bi
+  | d, .forallE nm t b bi => .forallE nm (machClose n k d t) (machClose n k (d + 1) b) bi
+  | _, e => e
 
 /-- The domain in the transition's context, with the reset kind the registers
     take: synchronous in `defaultDomain`, asynchronous (the legacy fallback
@@ -3567,7 +3639,14 @@ structure MachineShape where
     under one structure-field projection) whose body is a chain of
     `Circuit.next` writes ending in `pure`, every slot a Bool or a
     positive-width BitVec with a literal reset value, and the packed
-    transition a body the unified gate accepts. -/
+    transition a body the unified gate accepts.
+
+    The transition's telescope is the declaration's binders, one binder per
+    slot, and one binder per hardware `let` of the body; its packed value is
+    `let₀ ++ … ++ letₖ₋₁ ++ result ++ next₀ ++ … ++ nextₙ₋₁`, where a `let`
+    value mentions earlier `let`s only.  `Sparkle.IR.Machine.closeLets` ties
+    each `let` binder to its field, so a `let` used many times is compiled
+    once. -/
 def machineShape? (symbolicMode : Bool) (parameters : List (String × Nat)) (ci : ConstantInfo)
     (projs : Name → Option (Name × Nat × Nat)) : Option MachineShape :=
   match ci with
@@ -3580,16 +3659,18 @@ def machineShape? (symbolicMode : Bool) (parameters : List (String × Nat)) (ci 
     let n := kinds.length
     if n = 0 then none else
     let inits ← machInits kinds initsE
-    let (dom', resetKind) ← machDom? n dom
-    let (chain, _) ← inlZeta inlineDepth regsBody inlineBudget
-    let (writes, c, v) ← machChain 0 chain
-    let ws ← machWrites n writes
-    let outE ← (machResult? sel v).bind (machConv n c 0)
-    let outField ← machField dom' outKind outE
-    let slotFields ← ((List.range n).zip kinds).mapM fun (i, k) =>
-      machField dom' k (machNext n i ws)
-    let (_, body) ← machPack dom' (outField :: slotFields)
-    let binders := bs ++ machSlotBinders (machLetNames regsBody) kinds
+    let (ws, v, lets) ← machChain n [.regs 0] regsBody #[]
+    let k := lets.size
+    let (dom', resetKind) ← machDom? (n + k) dom
+    let outE ← machResult? sel v
+    let letFields ← lets.toList.mapM fun (_, kind, value) =>
+      machField dom' kind (machClose n k 0 value)
+    let outField ← machField dom' outKind (machClose n k 0 outE)
+    let slotFields ← ((List.range n).zip kinds).mapM fun (i, kind) =>
+      machField dom' kind (machClose n k 0 (machNext i ws))
+    let (_, body) ← machPack dom' (letFields ++ outField :: slotFields)
+    let binders := bs ++ machSlotBinders (machLetNames regsBody) kinds ++
+      lets.toList.map fun (nm, kind, _) => (nm, kind)
     if unifiedGateRoot (binders.map (·.2)).toArray body then
       some
         { binders := binders
@@ -3600,18 +3681,23 @@ def machineShape? (symbolicMode : Bool) (parameters : List (String × Nat)) (ci 
               outWidth := machWidth outKind
               outTy := match outKind with
                 | .bool => .bit
-                | k => .bitVector (machWidth k)
-              resetKind := resetKind } }
+                | kind => .bitVector (machWidth kind)
+              resetKind := resetKind
+              lets := k } }
     else none
   | _ => none
 
 /-- The synthesis of a state machine: the transition through the certified
-    combinational harness, then the slot ports closed into registers. -/
+    combinational harness, the `let` ports tied to their fields, then the
+    slot ports closed into registers.  `none` when the `let`s cannot be tied
+    (`closeLets`); the caller then takes the legacy route. -/
 def synthesizeMachineCertified (translate : TranslateFn) (logProf : String → IO Unit)
     (declName : Name) (shape : MachineShape) :
-    MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) := do
+    MetaM (Option (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design)) := do
   let (t, design) ← synthesizeMixedCertified translate logProf declName shape.binders shape.body
-  return (Sparkle.IR.Machine.closeMachine shape.layout t, design)
+  match Sparkle.IR.Machine.closeLets shape.layout.lets t with
+  | some t' => return some (Sparkle.IR.Machine.closeMachine shape.layout t', design)
+  | none => return none
 
 /-- The constant the entry hands to `synthesizeFromConst`: the declaration as
     read when a certified gate accepts it (nothing changes for those), or when
@@ -3663,10 +3749,13 @@ def synthesizeFromConst (translate : TranslateFn) (logProf : String → IO Unit)
       let env ← getEnv
       pure (machineShape? symbolicMode parameters constInfo (userProjection? env))
     else pure none
-  match machine? with
-  | some shape =>
+  let machineResult? ←
+    match machine? with
+    | some shape => synthesizeMachineCertified translate logProf declName shape
+    | none => pure none
+  match machineResult? with
+  | some result =>
     logProf s!"[profile] synthesizeCombinational {declName} machine certified front end"
-    let result ← synthesizeMachineCertified translate logProf declName shape
     sparkleSubModuleCache.modify (·.insert declName result)
     return result
   | none =>
