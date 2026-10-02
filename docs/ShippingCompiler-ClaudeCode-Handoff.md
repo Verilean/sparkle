@@ -338,12 +338,23 @@ valuation the CALLER supplies (`LetsHold`) rather than constructing the
 fixpoint generically: the source already has the values. (8) Binder
 types in `∀ i pa f, …` statements over `Σ`-lists must be annotated, and
 `(eval … f.2 : BitVec f.1).toNat` needs the ascription.
-Next on this route, by the classifier (`scratchpad/mach2_tail.lean.in`,
-which reads `let`s as the compiler does and reports what the gate
-refuses): multi-output (structure) results — `closeMachine` with one
-part-select per field, port names as the legacy front end's; constant
-folding of computed literals at the front end; sub-module calls inside
-the body; then the post-pipeline composition.
+**Structure results (landed).** `Layout.outs`, `closeMachine` with one
+part-select per port, `machOuts?`/`machResults?`, `StructEnv` (the
+environment's structure facts, threaded where the projections were),
+`outNameOk`. The endpoints quantify over `o ∈ shape.layout.outs`; a test
+picks a port by giving the `OutField` literally.
+Next on this route: (a) GENERATE the per-declaration endpoint — the
+quoted term (an "unquote" of `shape.body`), `WF`, the positions, the
+source circuit and its `circuit_state` recurrence, `LetsHold`, the field
+lemmas are all mechanical; today three declarations have it and the
+others have only the route and the simulation. (b) Normalise in
+`machConv`, on this route only: constants computed in Lean
+(`BitVec.ofInt`, `2 ^ k`, …) to literals, BitVec operators lifted through
+`<$>`/`<*>` or `map` with a literal to the Signal operators, reducible
+user constants unfolded. (c) Sub-module calls inside the body. (d) The
+post-pipeline composition. The classifier that ranks these is
+`scratchpad/mach3_tail.lean.in` (its `minimalBad` reports instance
+arguments as the refused node for binary operators — read the parent).
 
 **Measuring before building.** `inlineDefs` did not descend into `let`
 until the map-idiom unit, so every "residual head" statistic taken before

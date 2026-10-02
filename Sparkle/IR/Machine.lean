@@ -18,7 +18,7 @@ next values PACKED into one bit vector, each at a known field. Closing it
 * keeps the transition's assignments, except the final `assign out = w`;
 * reads each slot's next value off the packed wire `w` into a wire of its
   own (`next<slot>`), and registers it into the slot's wire;
-* drives `out` with the output field of `w`;
+* drives every output port with its field of `w`;
 * turns the slot ports into plain wires and adds `clk` / `rst`.
 
 Nothing here knows about the compiler; `Tools/ShippingMachineClose.lean`
@@ -34,18 +34,33 @@ structure SlotField where
   init : Nat
   deriving Repr, DecidableEq, Inhabited
 
-/-- Where the pieces of the packed transition value sit. `lets` is the
-number of hardware `let`s: the transition's last `lets` input ports are their
-values, and its packed value carries them in front of the rest
-(`let₀ ++ … ++ letₖ₋₁ ++ result ++ next₀ ++ …`). -/
+/-- One output port: its name and type, and the field of its value in the
+packed transition value. -/
+structure OutField where
+  name : String
+  lo : Nat
+  width : Nat
+  ty : HWType
+  deriving Repr, DecidableEq, Inhabited
+
+/-- Where the pieces of the packed transition value sit. `outs` are the
+output ports — one, named `out`, for a Signal result; one per field for a
+structure result. `lets` is the number of hardware `let`s: the transition's
+last `lets` input ports are their values, and its packed value carries them
+in front of the rest (`let₀ ++ … ++ letₖ₋₁ ++ result₀ ++ … ++ next₀ ++ …`). -/
 structure Layout where
   slots : List SlotField
-  outLo : Nat
-  outWidth : Nat
-  outTy : HWType
+  outs : List OutField
   resetKind : ResetKind
   lets : Nat := 0
   deriving Repr
+
+/-- An output port name the closed module can carry beside its own names:
+not one the wire allocator produces (those start with `_`), not a `next…`
+wire, not the clock or the reset. -/
+def outNameOk (s : String) : Bool :=
+  s.toList.head? != some '_' && !("next".toList).isPrefixOf s.toList &&
+    s != "rst" && s != "clk"
 
 /-- The wire holding a slot's next value. The prefix is not one the wire
 allocator produces (allocated names start with `_`), so the name is fresh. -/
@@ -54,6 +69,10 @@ def nextName (slot : String) : String := "next" ++ slot
 /-- The field `[lo + width - 1 : lo]` of the packed wire. -/
 def fieldRhs (w : String) (lo width : Nat) : Expr :=
   .slice (.ref w) (lo + width - 1) lo
+
+/-- Drive every output port with its field of the packed wire. -/
+def outAssigns (w : String) (outs : List OutField) : List Stmt :=
+  outs.map fun o => .assign o.name (fieldRhs w o.lo o.width)
 
 def nextAssigns (w : String) : List Port → List SlotField → List Stmt
   | p :: ps, f :: fs => .assign (nextName p.name) (fieldRhs w f.lo f.width) :: nextAssigns w ps fs
@@ -84,11 +103,11 @@ def closeMachine (lay : Layout) (t : Module) : Module :=
     { t with
       inputs := t.inputs.take k ++
         [{ name := "clk", ty := .bit }, { name := "rst", ty := .bit }]
-      outputs := [{ name := "out", ty := lay.outTy }]
+      outputs := lay.outs.map fun o => { name := o.name, ty := o.ty }
       wires := t.wires ++ slotPorts.map fun p => { name := nextName p.name, ty := p.ty }
       body := t.body.dropLast ++ nextAssigns w slotPorts lay.slots ++
         registers lay.resetKind slotPorts lay.slots ++
-        [.assign "out" (fieldRhs w lay.outLo lay.outWidth)] }
+        outAssigns w lay.outs }
 
 /-! ## Hardware `let`s
 

@@ -33,7 +33,7 @@ form: *every* read of that kind in this run returns the stated value.
 | --- | --- | --- |
 | `EnvDefines … declName v` | every `getConstInfo declName` of the run returns a definition whose value is `v` | every entry endpoint |
 | `EntryDefines … declName v` | the constant the entry hands on — `entryConst` of the declaration and the environment the run reads — is a definition with value `v`. For a gate-accepted declaration this IS `EnvDefines` (`EntryDefines.of_env`); for an unfolded one it is `EnvDefines` plus what the run's environment unfolds the value to (`EntryDefines.of_inline`) | `_of_entry` endpoints (helper-structured declarations) |
-| `MachineDefines … declName shape` | the entry constant of the declaration — `entryConst` of the declaration and the environment the run reads — is refused by both shape gates and IS the machine `shape` (`machineShape?`, with the structure projections of the environment the run reads). The suite computes the same `machineShape?` on the real declaration and compares binders, layout and (reflected) body | machine endpoints (`synthesizeCombinationalCore_machine_sound`, `mThree_execution`, `lin_execution`) |
+| `MachineDefines … declName shape` | the entry constant of the declaration — `entryConst` of the declaration and the environment the run reads — is refused by both shape gates and IS the machine `shape` (`machineShape?`, with the structure facts — field accessors, constructors and field kinds: `structEnv` — of the environment the run reads). The suite computes the same `machineShape?` on the real declaration and compares binders, layout and (reflected) body | machine endpoints (`synthesizeCombinationalCore_machine_sound`, `mThree_execution`, `lin_execution`) |
 | `MachineCloses … declName shape` | every machine synthesis of `shape` in this run ties the `let` ports to their fields (`closeLets` accepts the transition module the run compiled: the operand wires are found, declared at the ports' widths, and the statements are in dependency order), so the run does not fall back to the legacy route. PROVED for a shape without `let`s (`machineCloses_of_noLets`); for a shape with `let`s the suite runs the real `synthesizeMachineCertified` and checks it returns a module | machine endpoints of shapes with `let`s (`lin_execution`) |
 | the declaration's type is one scalar Signal (`mixedGateResultScalar`) | `EnvDefines` pins the value, not the type; the suite checks it on the real declaration | instance and cone endpoints |
 | tag fact at the entry (`RunsTo getEnv … → isHardwareModule e mn`) | the environment the gate predicate is built from tags the child | instance, projection and cone endpoints |
@@ -170,8 +170,9 @@ at the IR level), and children that themselves instantiate.
 
 A machine endpoint is about the module `synthesizeCombinationalCore`
 returns (the raw module), run by the IR semantics with RESET LOW from a
-state in which the registers hold the slots' values: every cycle's `out`
-is the source declaration's value at that time. Reset behaviour itself
+state in which the registers hold the slots' values: every cycle's output
+port (`out`, or one port per field of a structure result) is the source
+declaration's value at that time. Reset behaviour itself
 is not modelled (as for the single-register family): the registers'
 reset VALUES and reset KIND (synchronous in `defaultDomain`,
 asynchronous for a domain binder) are emitted by `closeMachine` and

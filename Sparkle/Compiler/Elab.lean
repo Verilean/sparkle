@@ -3584,7 +3584,8 @@ def machSlotBinders (names : List Name) (kinds : List MixedGateBinder) :
   if kinds.length ≤ names.length then (names.take kinds.length).zip kinds
   else (List.range kinds.length).zipWith (fun i k => (Name.mkSimple s!"reg{i}", k)) kinds
 
-/-- The declaration's result kind: one Bool or positive-width BitVec Signal. -/
+/-- The kind of a Signal type under any telescope: one Bool or
+    positive-width BitVec Signal. -/
 def machResultKind? : Lean.Expr → Option MixedGateBinder
   | .forallE _ _ b _ => machResultKind? b
   | e =>
@@ -3592,6 +3593,52 @@ def machResultKind? : Lean.Expr → Option MixedGateBinder
     | some .bool => some .bool
     | some (.bits n) => some (.bits n)
     | _ => none
+
+/-- What the state-machine front end reads of the run's environment about
+    user structures: the field accessors (`userProjection?`), and for a
+    structure whose fields are all Bool or positive-width BitVec Signals its
+    constructor and the fields' names and kinds (`userStructure?`). -/
+structure StructEnv where
+  proj : Name → Option (Name × Nat × Nat)
+  fields : Name → Option (Name × List (String × MixedGateBinder))
+
+/-- A user structure (not a class) all of whose fields are hardware Signals:
+    its constructor, and the fields in order. -/
+def userStructure? (env : Environment) (s : Name) :
+    Option (Name × List (String × MixedGateBinder)) :=
+  match Lean.getStructureInfo? env s with
+  | some info =>
+    if Lean.isClass env s || !inlUserModule env s then none else
+    match env.find? s with
+    | some (.inductInfo ind) =>
+      match ind.ctors with
+      | [ctor] =>
+        (info.fieldNames.toList.mapM fun f =>
+          match env.find? (s ++ f) with
+          | some ci => (machResultKind? ci.type).map fun k => (f.toString, k)
+          | none => none).map fun fs => (ctor, fs)
+      | _ => none
+    | _ => none
+  | none => none
+
+/-- The structure facts of an environment. -/
+def structEnv (env : Environment) : StructEnv :=
+  { proj := userProjection? env, fields := userStructure? env }
+
+/-- The output ports of a result type: one, `out`, for a Signal; one per
+    field, named after it, for a structure of Signals.  With the structure's
+    constructor in the second case. -/
+def machOuts? (senv : StructEnv) :
+    Lean.Expr → Option (Option Name × List (String × MixedGateBinder))
+  | .forallE _ _ b _ => machOuts? senv b
+  | e =>
+    match mixedGateBinderKind? e with
+    | some .bool => some (none, [("out", .bool)])
+    | some (.bits n) => some (none, [("out", .bits n)])
+    | _ =>
+      match e.getAppFn with
+      | .const s _ => (senv.fields s).map fun (ctor, fs) => (some ctor, fs)
+      | _ => none
 
 /-- The `runCircuitH` application a body is, directly or under ONE field
     projection of a user structure: `(field selector, domain, slot types,
@@ -3626,6 +3673,34 @@ def machResult? (sel : Option (Name × Nat × Nat)) (v : Lean.Expr) : Option Lea
     | (.const c _, args) => if c == ctor then args[numParams + idx]? else none
     | _ => none
 
+/-- The results the body returns, one per output port: the final `pure`
+    value (or its selected field) for a Signal result, the constructor's
+    field arguments for a structure result. -/
+def machResults? (sel : Option (Name × Nat × Nat)) (ctor? : Option Name) (m : Nat)
+    (v : Lean.Expr) : Option (List Lean.Expr) :=
+  match ctor? with
+  | none => (machResult? sel v).map fun e => [e]
+  | some ctor =>
+    if sel.isSome then none else
+    match inlSpine v [] with
+    | (.const c _, args) =>
+      if c == ctor && m ≤ args.length then some (args.drop (args.length - m)) else none
+    | _ => none
+
+/-- The hardware type of a kind. -/
+def machHWType : MixedGateBinder → Sparkle.IR.Type.HWType
+  | .bool => .bit
+  | k => .bitVector (machWidth k)
+
+/-- The output fields of the packed value: output `i` sits above the later
+    outputs, and all of them above the slots (`slotsW` bits). -/
+def machOutFields (slotsW : Nat) :
+    List (String × MixedGateBinder) → List Sparkle.IR.Machine.OutField
+  | [] => []
+  | (nm, k) :: rest =>
+    { name := nm, lo := slotsW + (rest.map fun o => machWidth o.2).sum, width := machWidth k,
+      ty := machHWType k } :: machOutFields slotsW rest
+
 /-- A state machine on the certified route: the transition's binders (the
     declaration's, then one per slot), its packed body under them, and where
     the pieces of the packed value sit. -/
@@ -3638,23 +3713,26 @@ structure MachineShape where
     is a lambda telescope of hardware binders over a `runCircuitH` (possibly
     under one structure-field projection) whose body is a chain of
     `Circuit.next` writes ending in `pure`, every slot a Bool or a
-    positive-width BitVec with a literal reset value, and the packed
-    transition a body the unified gate accepts.
+    positive-width BitVec with a literal reset value, the result one Signal
+    or a structure of Signals (one output port per field, named after it),
+    and the packed transition a body the unified gate accepts.
 
     The transition's telescope is the declaration's binders, one binder per
     slot, and one binder per hardware `let` of the body; its packed value is
-    `let₀ ++ … ++ letₖ₋₁ ++ result ++ next₀ ++ … ++ nextₙ₋₁`, where a `let`
+    `let₀ ++ … ++ letₖ₋₁ ++ result₀ ++ … ++ next₀ ++ … ++ nextₙ₋₁`, where a `let`
     value mentions earlier `let`s only.  `Sparkle.IR.Machine.closeLets` ties
     each `let` binder to its field, so a `let` used many times is compiled
     once. -/
 def machineShape? (symbolicMode : Bool) (parameters : List (String × Nat)) (ci : ConstantInfo)
-    (projs : Name → Option (Name × Nat × Nat)) : Option MachineShape :=
+    (senv : StructEnv) : Option MachineShape :=
   match ci with
   | .defnInfo d =>
     if symbolicMode || !parameters.isEmpty then none else do
     let (bs, e) ← mixedGatePeel d.value
-    let outKind ← machResultKind? d.type
-    let (sel, dom, αs, initsE, regsBody) ← machRun? projs e
+    let (ctor?, outs) ← machOuts? senv d.type
+    if outs.isEmpty || !outs.all (fun o => Sparkle.IR.Machine.outNameOk o.1) ||
+        !decide (outs.map (·.1)).Nodup then none else
+    let (sel, dom, αs, initsE, regsBody) ← machRun? senv.proj e
     let kinds ← machSlotKinds αs
     let n := kinds.length
     if n = 0 then none else
@@ -3662,13 +3740,15 @@ def machineShape? (symbolicMode : Bool) (parameters : List (String × Nat)) (ci 
     let (ws, v, lets) ← machChain n [.regs 0] regsBody #[]
     let k := lets.size
     let (dom', resetKind) ← machDom? (n + k) dom
-    let outE ← machResult? sel v
+    let outEs ← machResults? sel ctor? outs.length v
+    if outEs.length != outs.length then none else
     let letFields ← lets.toList.mapM fun (_, kind, value) =>
       machField dom' kind (machClose n k 0 value)
-    let outField ← machField dom' outKind (machClose n k 0 outE)
+    let outFields ← (outs.zip outEs).mapM fun ((_, kind), outE) =>
+      machField dom' kind (machClose n k 0 outE)
     let slotFields ← ((List.range n).zip kinds).mapM fun (i, kind) =>
       machField dom' kind (machClose n k 0 (machNext i ws))
-    let (_, body) ← machPack dom' (letFields ++ outField :: slotFields)
+    let (_, body) ← machPack dom' (letFields ++ outFields ++ slotFields)
     let binders := bs ++ machSlotBinders (machLetNames regsBody) kinds ++
       lets.toList.map fun (nm, kind, _) => (nm, kind)
     if unifiedGateRoot (binders.map (·.2)).toArray body then
@@ -3677,11 +3757,7 @@ def machineShape? (symbolicMode : Bool) (parameters : List (String × Nat)) (ci 
           body := body
           layout :=
             { slots := machSlotFields ((kinds.map machWidth).zip inits)
-              outLo := (kinds.map machWidth).sum
-              outWidth := machWidth outKind
-              outTy := match outKind with
-                | .bool => .bit
-                | kind => .bitVector (machWidth kind)
+              outs := machOutFields (kinds.map machWidth).sum outs
               resetKind := resetKind
               lets := k } }
     else none
@@ -3704,10 +3780,10 @@ def synthesizeMachineCertified (translate : TranslateFn) (logProf : String → I
     no gate accepts its unfolding either (the legacy route sees the original);
     the UNFOLDED declaration exactly when the original misses both gates and
     the unfolding passes one, or is a state machine (`machineShape?`, with
-    the structure projections `projs` of the run's environment). -/
+    the structure facts `projs` of the run's environment). -/
 def entryConst (certifiedFrontEnd symbolicMode : Bool) (parameters : List (String × Nat))
     (ci : ConstantInfo) (isInst : Lean.Expr → Bool) (inl : Lean.Expr → Lean.Expr)
-    (projs : Name → Option (Name × Nat × Nat)) : ConstantInfo :=
+    (projs : StructEnv) : ConstantInfo :=
   if certifiedFrontEnd && !symbolicMode && parameters.isEmpty &&
       (certifiedShape? symbolicMode parameters ci).isNone &&
       (mixedCertifiedShape? symbolicMode parameters ci isInst).isNone then
@@ -3747,7 +3823,7 @@ def synthesizeFromConst (translate : TranslateFn) (logProf : String → IO Unit)
   let machine? ←
     if certifiedFrontEnd && !symbolicMode && parameters.isEmpty then do
       let env ← getEnv
-      pure (machineShape? symbolicMode parameters constInfo (userProjection? env))
+      pure (machineShape? symbolicMode parameters constInfo (structEnv env))
     else pure none
   let machineResult? ←
     match machine? with
@@ -3954,7 +4030,7 @@ def synthesizeCombinationalCoreWith (translate : TranslateFn) (declName : Name)
     synthesizeFromConst translate logProf declName parameters symbolicMode
       certifiedFrontEnd
       (entryConst certifiedFrontEnd symbolicMode parameters constInfo
-        (instancePredicate env) (userInliner env) (userProjection? env))
+        (instancePredicate env) (userInliner env) (structEnv env))
       (instancePredicate env)
   try
     doSynth

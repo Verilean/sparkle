@@ -181,7 +181,7 @@ run_cmd liftTermElabM do
     let ci ← getConstInfo name
     unless (certifiedShape? false [] ci).isNone && (mixedCertifiedShape? false [] ci pred).isNone do
       throwError "{name}: an applicative declaration passed a gate as written"
-    let ec := entryConst true false [] ci pred inl (userProjection? env)
+    let ec := entryConst true false [] ci pred inl (structEnv env)
     unless ec.value? != ci.value? do throwError "{name}: the entry constant is the original"
     unless (mixedCertifiedShape? false [] ec pred).isSome do
       throwError "{name}: no gate accepts the normalised declaration"
@@ -201,7 +201,7 @@ run_cmd liftTermElabM do
   let inl := userInliner env
   for (name, valueName) in [(``inRange, ``inRangeEntry),
       (``Sparkle.IP.Crypto.AESHW.rconHW, ``rconEntry)] do
-    let some v := (entryConst true false [] (← getConstInfo name) pred inl (userProjection? env)).value?
+    let some v := (entryConst true false [] (← getConstInfo name) pred inl (structEnv env)).value?
       | throwError "{name} has no entry value"
     let .ok r := Tools.ShippingEntrySoundness.reflExpr v
       | throwError "{name}: entry value is not reflectable"
@@ -209,7 +209,7 @@ run_cmd liftTermElabM do
       throwError "{valueName} is not the entry constant of {name}"
   -- A lambda body outside the certified vocabulary keeps the legacy route.
   let ci ← getConstInfo ``aAndNot
-  unless (entryConst true false [] ci pred inl (userProjection? env)).value? == ci.value? do
+  unless (entryConst true false [] ci pred inl (structEnv env)).value? == ci.value? do
     throwError "aAndNot was rewritten"
   let (m, _) ← synthesizeCombinationalCore ``aAndNot [] false
   let (ml, _) ← synthesizeCombinationalCoreWith

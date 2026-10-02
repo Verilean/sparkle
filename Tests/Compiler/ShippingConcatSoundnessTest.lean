@@ -175,7 +175,7 @@ run_cmd liftTermElabM do
     -- As written the result width is the sum `m + n`: no gate reads it.
     unless (mixedCertifiedShape? false [] ci pred).isNone do
       throwError "{name}: the declaration as written already passes a gate"
-    let ec := entryConst true false [] ci pred inl (userProjection? env)
+    let ec := entryConst true false [] ci pred inl (structEnv env)
     unless (mixedCertifiedShape? false [] ec pred).isSome do
       throwError "{name}: no gate accepts the concatenation after folding"
     let (mc, dc) ← synthesizeCombinationalCore name [] false
@@ -196,7 +196,7 @@ run_cmd liftTermElabM do
   let pred := instancePredicate env
   let inl := userInliner env
   for (name, valueName) in [(``cSwap, ``cSwapEntry), (``cWide, ``cWideEntry)] do
-    let some v := (entryConst true false [] (← getConstInfo name) pred inl (userProjection? env)).value?
+    let some v := (entryConst true false [] (← getConstInfo name) pred inl (structEnv env)).value?
       | throwError "{name} has no entry value"
     let .ok r := Tools.ShippingEntrySoundness.reflExpr v
       | throwError "{name}: entry value is not reflectable"
@@ -204,7 +204,7 @@ run_cmd liftTermElabM do
       throwError "{valueName} is not the entry constant of {name}"
   -- A numeral literal operand keeps the legacy mixed handler.
   let ci ← getConstInfo ``cNumeral
-  unless (mixedCertifiedShape? false [] (entryConst true false [] ci pred inl (userProjection? env)) pred).isNone do
+  unless (mixedCertifiedShape? false [] (entryConst true false [] ci pred inl (structEnv env)) pred).isNone do
     throwError "a numeral-operand concatenation passed the gate"
 
 run_cmd do

@@ -216,6 +216,58 @@ theorem registers_seq (rk : ResetKind) :
     · exact Or.inr ⟨_, _, _, _, _, rfl⟩
     · exact registers_seq rk ps fs st h
 
+/-! ## The output ports -/
+
+/-- An accepted output name is none of the closed module's own names. -/
+theorem outNameOk_facts {s : String} (h : outNameOk s = true) :
+    ¬ Allocated s ∧ s ≠ "rst" ∧ ∀ x, s ≠ nextName x := by
+  simp only [outNameOk, Bool.and_eq_true, bne_iff_ne, ne_eq, Bool.not_eq_true'] at h
+  obtain ⟨⟨⟨hhead, hnext⟩, hrst⟩, _⟩ := h
+  refine ⟨fun ha => hhead ha.2, hrst, ?_⟩
+  intro x heq
+  have : ("next".toList).isPrefixOf s.toList = true := by
+    rw [heq, nextName, String.toList_append]
+    exact List.isPrefixOf_iff_prefix.mpr (List.prefix_append _ _)
+  rw [this] at hnext
+  cases hnext
+
+/-- Driving the output ports: every port holds its field, and nothing else
+changes. -/
+theorem outAssigns_eval {we : WEnv} {mems : MEnv} {w : String} :
+    ∀ (outs : List OutField) (env : Env),
+      (∀ o ∈ outs, 0 < o.width ∧ o.name ≠ w) → (outs.map (·.name)).Nodup →
+      ∃ env', evalAssigns we mems (outAssigns w outs) env = some env' ∧
+        (∀ z, z ∉ outs.map (·.name) → env' z = env z) ∧
+        ∀ o ∈ outs, env' o.name = mask o.width (env w >>> o.lo)
+  | [], env, _, _ => ⟨env, rfl, fun _ _ => rfl, fun o ho => by cases ho⟩
+  | o :: outs, env, hok, hnd => by
+    have hnd' : (outs.map (·.name)).Nodup := (List.nodup_cons.mp hnd).2
+    have hnotin : o.name ∉ outs.map (·.name) := (List.nodup_cons.mp hnd).1
+    obtain ⟨hpos, hne⟩ := hok o List.mem_cons_self
+    obtain ⟨env', hev, hframe, hvals⟩ := outAssigns_eval (we := we) (mems := mems) (w := w) outs
+      (fun n => if n = o.name then mask o.width (env w >>> o.lo) else env n)
+      (fun q hq => hok q (List.mem_cons_of_mem _ hq)) hnd'
+    refine ⟨env', ?_, ?_, ?_⟩
+    · simp only [outAssigns, List.map_cons, evalAssigns, fieldRhs_eval we env w o.lo o.width hpos,
+        bind, Option.bind]
+      exact hev
+    · intro z hz
+      simp only [List.map_cons, List.mem_cons, not_or] at hz
+      rw [hframe z hz.2]
+      simp [hz.1]
+    · intro q hq
+      rcases List.mem_cons.mp hq with rfl | hq
+      · rw [hframe _ hnotin]; simp
+      · rw [hvals q hq]
+        simp [Ne.symm hne]
+
+theorem outAssigns_assigns (w : String) (outs : List OutField) :
+    ∀ st ∈ outAssigns w outs, ∃ l r, st = .assign l r := by
+  intro st hs
+  simp only [outAssigns, List.mem_map] at hs
+  obtain ⟨o, _, rfl⟩ := hs
+  exact ⟨_, _, rfl⟩
+
 /-! ## The closed module -/
 
 /-- **One cycle of the closed machine.** The transition module `t` ends in
@@ -233,21 +285,22 @@ theorem closeMachine_step {t : Module} {lay : Layout} {B : List Stmt} {w : Strin
     (inNodup : (t.inputs.map Port.name).Nodup)
     (slots : Zip₂ (SlotOk (weOf t))
       (t.inputs.drop (t.inputs.length - lay.slots.length)) lay.slots)
-    (hout : 0 < lay.outWidth)
+    (outsOk : ∀ o ∈ lay.outs, 0 < o.width ∧ outNameOk o.name = true)
+    (outsNodup : (lay.outs.map (·.name)).Nodup)
     (hres : evalAssigns (weOf t) mems t.body env0 = some result)
     (hrst : env0 "rst" = 0) :
     ∃ envF, stepModule (weOf (closeMachine lay t)) (closeMachine lay t).body env0 mems =
         some (envF,
           slotNexts (result "out") (t.inputs.drop (t.inputs.length - lay.slots.length)) lay.slots,
           mems) ∧
-      envF "out" = mask lay.outWidth (result "out" >>> lay.outLo) := by
+      ∀ o ∈ lay.outs, envF o.name = mask o.width (result "out" >>> o.lo) := by
   -- Shape of the closed module.
   have hpw : packedWire? t.body = some w := by
     simp [packedWire?, hbody]
   have hdrop : t.body.dropLast = B := by simp [hbody]
   generalize hps : t.inputs.drop (t.inputs.length - lay.slots.length) = ps at slots ⊢
   have hbodyM : (closeMachine lay t).body = B ++ nextAssigns w ps lay.slots ++
-      registers lay.resetKind ps lay.slots ++ [.assign "out" (fieldRhs w lay.outLo lay.outWidth)] := by
+      registers lay.resetKind ps lay.slots ++ outAssigns w lay.outs := by
     simp [closeMachine, hpw, hdrop, hps]
   have hwiresM : (closeMachine lay t).wires =
       t.wires ++ ps.map fun p => { name := nextName p.name, ty := p.ty } := by
@@ -335,42 +388,54 @@ theorem closeMachine_step {t : Module} {lay : Layout} {B : List Stmt} {w : Strin
         rw [← heq] at this
         revert this
         decide), hBrst, hrst]
-    -- The final environment.
-    refine ⟨fun n => if n = "out" then mask lay.outWidth (envN w >>> lay.outLo) else envN n,
-      ?_, by simp [hP, hNw]⟩
+    -- The output ports.
+    have outsW : ∀ o ∈ lay.outs, 0 < o.width ∧ o.name ≠ w := fun o ho =>
+      ⟨(outsOk o ho).1, fun heq =>
+        (outNameOk_facts (outsOk o ho).2).1 (heq ▸ allocOf w hwpos)⟩
+    obtain ⟨envF, hF, frameF, valsO⟩ := outAssigns_eval (we := weOf (closeMachine lay t))
+      (mems := mems) (w := w) lay.outs envN outsW outsNodup
+    refine ⟨envF, ?_, fun o ho => by rw [valsO o ho, hNw, hP]⟩
     have nextSeq : SeqBody (nextAssigns w ps lay.slots) :=
       fun st hs => Or.inl (nextAssigns_assigns w ps lay.slots st hs)
     have evalM : evalAssigns (weOf (closeMachine lay t)) mems (closeMachine lay t).body env0 =
-        some (fun n => if n = "out" then mask lay.outWidth (envN w >>> lay.outLo) else envN n) := by
+        some envF := by
       rw [hbodyM, List.append_assoc, List.append_assoc, evalAssigns_append hBseq, hBM]
       simp only [Option.bind_some]
       rw [evalAssigns_append nextSeq, hN]
       simp only [Option.bind_some]
       rw [registers_evalAssigns]
-      simp only [evalAssigns, fieldRhs_eval _ envN w lay.outLo lay.outWidth hout, bind,
-        Option.bind]
+      exact hF
+    have notNext : ∀ x, nextName x ∉ lay.outs.map (·.name) := by
+      intro x hmem
+      obtain ⟨o, ho, heq⟩ := List.mem_map.mp hmem
+      exact (outNameOk_facts (outsOk o ho).2).2.2 x heq
     have valsF : Zip₂ (fun p f =>
-        (fun n => if n = "out" then mask lay.outWidth (envN w >>> lay.outLo) else envN n)
-          (nextName p.name) = mask f.width (result "out" >>> f.lo)) ps lay.slots := by
+        envF (nextName p.name) = mask f.width (result "out" >>> f.lo)) ps lay.slots := by
       refine valsN.imp (fun p f h => ?_)
-      simp only [nextName_ne_out, if_false]
-      rw [h, hP]
-    have regsM : regNexts (weOf (closeMachine lay t)) mems (closeMachine lay t).body
-        (fun n => if n = "out" then mask lay.outWidth (envN w >>> lay.outLo) else envN n) =
+      rw [frameF _ (notNext p.name), h, hP]
+    have hFrst : envF "rst" = 0 := by
+      rw [frameF "rst" (fun hmem => by
+        obtain ⟨o, ho, heq⟩ := List.mem_map.mp hmem
+        exact (outNameOk_facts (outsOk o ho).2).2.1 heq), hNrst]
+    have regsM : regNexts (weOf (closeMachine lay t)) mems (closeMachine lay t).body envF =
         some (slotNexts (result "out") ps lay.slots) := by
       rw [hbodyM, List.append_assoc, List.append_assoc,
         regNexts_skip_assigns hBassign,
         regNexts_skip_assigns (nextAssigns_assigns w ps lay.slots)]
-      exact registers_nexts (by simpa using hNrst) rfl slotsM valsF
+      refine registers_nexts hFrst ?_ slotsM valsF
+      have := regNexts_skip_assigns (we := weOf (closeMachine lay t)) (mems := mems) (env := envF)
+        (b2 := []) (outAssigns_assigns w lay.outs)
+      rw [List.append_nil] at this
+      rw [this]; rfl
     have seqM : SeqBody (closeMachine lay t).body := by
       rw [hbodyM]
       intro st hs
-      simp only [List.mem_append, List.mem_singleton] at hs
+      simp only [List.mem_append] at hs
       rcases hs with ((hs | hs) | hs) | hs
       · exact hBseq st hs
       · exact nextSeq st hs
       · exact registers_seq _ _ _ st hs
-      · exact Or.inl ⟨_, _, hs⟩
+      · exact Or.inl (outAssigns_assigns w lay.outs st hs)
     unfold stepModule
     simp [evalM, regsM, memNexts_seq seqM, bind]
 

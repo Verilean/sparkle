@@ -390,7 +390,7 @@ run_cmd liftTermElabM do
     unless (certifiedShape? false [] ci).isNone && (mixedCertifiedShape? false [] ci pred).isNone do
       throwError "{name}: a helper-structured declaration passed a gate as written"
     -- … the entry constant is its unfolding, and a gate accepts it.
-    let ec := entryConst true false [] ci pred inl (userProjection? env)
+    let ec := entryConst true false [] ci pred inl (structEnv env)
     unless ec.value? == (inlinedConst inl ci).value? && ec.value? != ci.value? do
       throwError "{name}: the entry constant is not the unfolding"
     unless (certifiedShape? false [] ec).isSome || (mixedCertifiedShape? false [] ec pred).isSome do
@@ -416,7 +416,7 @@ run_cmd liftTermElabM do
   -- of the entry constant's value.)
   for (name, valueName) in [(``useSel, ``useSelEntry), (``accH, ``accHEntry),
       (``nodeFilterTop, ``nodeFilterEntry), (``oddParityTop, ``oddParityEntry)] do
-    let some v := (entryConst true false [] (← getConstInfo name) pred inl (userProjection? env)).value?
+    let some v := (entryConst true false [] (← getConstInfo name) pred inl (structEnv env)).value?
       | throwError "{name} has no entry value"
     let .ok r := Tools.ShippingEntrySoundness.reflExpr v
       | throwError "{name}: entry value is not reflectable"
@@ -445,7 +445,7 @@ is the declaration as read. -/
 def checkLeftAlone (name : Name) : MetaM Sparkle.IR.AST.Design := do
   let env ← getEnv
   let ci ← getConstInfo name
-  unless (entryConst true false [] ci (instancePredicate env) (userInliner env) (userProjection? env)).value? ==
+  unless (entryConst true false [] ci (instancePredicate env) (userInliner env) (structEnv env)).value? ==
       ci.value? do
     throwError "{name} was rewritten"
   let (m, d) ← synthesizeCombinationalCore name [] false

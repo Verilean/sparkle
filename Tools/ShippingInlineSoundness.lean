@@ -51,7 +51,7 @@ def EntryDefines (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State)
     RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w5 envR w6 →
     ∃ d : DefinitionVal,
       entryConst true false [] ci (instancePredicate envR) (userInliner envR)
-        (userProjection? envR) = .defnInfo d ∧
+        (structEnv envR) = .defnInfo d ∧
         d.value = v
 
 /-- A declaration the mixed gate accepts as read: the entry-constant boundary
@@ -111,20 +111,20 @@ theorem synthesizeCombinationalCore_entry_sound {declName : Name}
       RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧
       RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w5 envR w6 ∧
       (entryConst true false [] ci (instancePredicate envR) (userInliner envR)
-        (userProjection? envR) = ci ∨
+        (structEnv envR) = ci ∨
         entryConst true false [] ci (instancePredicate envR) (userInliner envR)
-        (userProjection? envR) =
+        (structEnv envR) =
           inlinedConst (userInliner envR) ci) ∧
       CertifiedOutcome
         (entryConst true false [] ci (instancePredicate envR) (userInliner envR)
-        (userProjection? envR)) m ∧
+        (structEnv envR)) m ∧
       ∀ bs body,
         certifiedShape? false []
           (entryConst true false [] ci (instancePredicate envR) (userInliner envR)
-        (userProjection? envR)) = none →
+        (structEnv envR)) = none →
         mixedCertifiedShape? false []
           (entryConst true false [] ci (instancePredicate envR) (userInliner envR)
-        (userProjection? envR))
+        (structEnv envR))
           (instancePredicate envR) = some (bs, body) →
         ShippingPreserves declName bs body m ∧
         InstancePreserves declName bs body m d ∧
@@ -336,7 +336,7 @@ elab "#def_entry_lam_names " n:ident " of " d:ident : command => do
   let env ← getEnv
   let ec := Sparkle.Compiler.Elab.entryConst true false [] ci
     (Sparkle.Compiler.Elab.instancePredicate env) (Sparkle.Compiler.Elab.userInliner env)
-    (Sparkle.Compiler.Elab.userProjection? env)
+    (Sparkle.Compiler.Elab.structEnv env)
   let some v := ec.value? | throwError "{declName} has no value"
   let nm := (← getCurrNamespace) ++ n.getId
   let dv : DefinitionVal :=

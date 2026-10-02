@@ -16,6 +16,8 @@ combinational harness and closed into registers
   only by those; the emitted module has one register per slot.
 * For every declaration here the emitted module is simulated with the IR
   semantics against the source Signal (the library's own `Signal.loop`).
+* `linHW_execution` certifies an IP declaration ITSELF, with its structure
+  result (two output ports); `lin_execution` its field-projecting wrapper.
 * `mThree_execution` is the end-to-end theorem for a three-slot machine with
   heterogeneous slots: a run of the real synthesis entry, the emitted module
   run for any number of cycles, and the value of the SOURCE declaration at
@@ -89,8 +91,8 @@ def weAll (M : Sparkle.IR.AST.Module) : WEnv := fun name =>
 
 /-- Run `m` for `k` cycles from its registers' reset values with reset low:
 `ins t` are the input values at cycle `t`. Returns `out` per cycle. -/
-def simOut (m : Sparkle.IR.AST.Module) (k : Nat) (ins : Nat → String → Option Nat) :
-    Option (List Nat) :=
+def simOut (m : Sparkle.IR.AST.Module) (k : Nat) (ins : Nat → String → Option Nat)
+    (port : String := "out") : Option (List Nat) :=
   let init : String → Nat := fun n =>
     (m.body.findSome? fun st => match st with
       | .register o _ _ _ i => if o == n then some i.toNat else none
@@ -98,7 +100,7 @@ def simOut (m : Sparkle.IR.AST.Module) (k : Nat) (ins : Nat → String → Optio
   (runModule (weAll m) m.body
     (fun j st => fun n => match ins (k - 1 - j) n with
       | some v => v
-      | none => if n == "rst" then 0 else st n) k init (fun _ _ => 0)).map (·.map (· "out"))
+      | none => if n == "rst" then 0 else st n) k init (fun _ _ => 0)).map (·.map (· port))
 
 def bStream {dom : DomainConfig} (seed : Nat) : Signal dom Bool :=
   ⟨fun t => (t * 7 + seed * 3 + t / 3) % 3 != 0⟩
@@ -106,16 +108,16 @@ def vStream {dom : DomainConfig} (w seed : Nat) : Signal dom (BitVec w) :=
   ⟨fun t => BitVec.ofNat w (t * 37 + seed * 11 + t * t)⟩
 
 /-- The declaration takes the machine route; returns the shipped module. -/
-def machineModule (name : Name) (slots : Nat) (rk : Sparkle.IR.Type.ResetKind) :
-    TermElabM Sparkle.IR.AST.Module := do
+def machineModule (name : Name) (slots : Nat) (rk : Sparkle.IR.Type.ResetKind)
+    (outs : List String := ["out"]) : TermElabM Sparkle.IR.AST.Module := do
   let env ← getEnv
   let pred := instancePredicate env
   let inl := userInliner env
   let ci ← getConstInfo name
-  let ec := entryConst true false [] ci pred inl (userProjection? env)
+  let ec := entryConst true false [] ci pred inl (structEnv env)
   unless (certifiedShape? false [] ec).isNone && (mixedCertifiedShape? false [] ec pred).isNone do
     throwError "{name}: a combinational or register gate accepts the declaration"
-  let some shape := machineShape? false [] ec (userProjection? env)
+  let some shape := machineShape? false [] ec (structEnv env)
     | throwError "{name}: not a machine shape"
   unless shape.layout.slots.length == slots && shape.layout.resetKind == rk do
     throwError "{name}: unexpected layout {repr shape.layout}"
@@ -130,7 +132,7 @@ def machineModule (name : Name) (slots : Nat) (rk : Sparkle.IR.Type.ResetKind) :
       | _ => false) do
     throwError "{name}: a register with the wrong reset kind"
   unless m.inputs.any (·.name == "clk") && m.inputs.any (·.name == "rst") &&
-      m.outputs.map (·.name) == ["out"] do
+      m.outputs.map (·.name) == outs do
     throwError "{name}: unexpected ports"
   return m
 
@@ -166,7 +168,21 @@ run_cmd liftTermElabM do
   let m ← machineModule ``linChkDefault 1 .synchronous
   check ``linChkDefault (simOut m K lin)
     ((List.range K).map fun t => ((linChkDefault start byte valid).val t).toNat)
-  logInfo m!"MACHINE ROUTE: 5 declarations (3, 2, 2, 1, 1 slots), {K} cycles each, emitted module == source"
+  -- structure results: one module, one output port per field
+  let m ← machineModule ``twoHW 2 .asynchronous ["cnt", "flag"]
+  let enIn (t : Nat) (n : String) : Option Nat :=
+    if n == "_gen_en" then some (en.val t).toNat else none
+  check ``twoHW (simOut m K enIn "cnt") ((List.range K).map fun t => ((twoHW en).cnt.val t).toNat)
+  check ``twoHW (simOut m K enIn "flag")
+    ((List.range K).map fun t => ((twoHW en).flag.val t).toNat)
+  let m ← machineModule ``Sparkle.IP.Bus.LINHW.checksumHW 1 .asynchronous ["acc", "chk"]
+  check ``Sparkle.IP.Bus.LINHW.checksumHW (simOut m K lin "acc")
+    ((List.range K).map fun t =>
+      ((Sparkle.IP.Bus.LINHW.checksumHW start byte valid).acc.val t).toNat)
+  check ``Sparkle.IP.Bus.LINHW.checksumHW (simOut m K lin "chk")
+    ((List.range K).map fun t =>
+      ((Sparkle.IP.Bus.LINHW.checksumHW start byte valid).chk.val t).toNat)
+  logInfo m!"MACHINE ROUTE: 7 declarations (Signal and structure results), {K} cycles each, emitted module == source"
 
 /-! ## The three-slot machine, end to end -/
 
@@ -177,7 +193,8 @@ def mThreeSlots : List (Name × MixedGateBinder) := [(`a, .bits 4), (`b, .bits 4
 def mThreeLayout : Layout :=
   { slots := [{ lo := 5, width := 4, init := 0 }, { lo := 1, width := 4, init := 3 },
       { lo := 0, width := 1, init := 1 }]
-    outLo := 9, outWidth := 4, outTy := .bitVector 4, resetKind := .asynchronous }
+    outs := [{ name := "out", lo := 9, width := 4, ty := .bitVector 4 }]
+    resetKind := .asynchronous }
 noncomputable def mThreeShape : MachineShape :=
   { binders := mThreeIn ++ mThreeSlots, body := mThreeBody, layout := mThreeLayout }
 
@@ -204,15 +221,14 @@ run_cmd liftTermElabM do
   let env ← getEnv
   let ci ← getConstInfo ``mThree
   let some shape := machineShape? false []
-      (entryConst true false [] ci (instancePredicate env) (userInliner env) (userProjection? env))
-      (userProjection? env)
+      (entryConst true false [] ci (instancePredicate env) (userInliner env) (structEnv env))
+      (structEnv env)
     | throwError "mThree: not a machine shape"
   let .ok r := reflExpr shape.body | throwError "mThree: body not reflectable"
   unless (← getConstInfo ``mThreeBody).value? == some r do
     throwError "mThreeBody is not the machine body of mThree"
   unless shape.binders == mThreeIn ++ mThreeSlots && shape.layout.slots == mThreeLayout.slots &&
-      shape.layout.outLo == mThreeLayout.outLo && shape.layout.outWidth == mThreeLayout.outWidth &&
-      shape.layout.outTy == mThreeLayout.outTy &&
+      shape.layout.outs == mThreeLayout.outs &&
       shape.layout.resetKind == mThreeLayout.resetKind do
     throwError "mThreeShape is not the machine shape of mThree"
 
@@ -238,6 +254,10 @@ theorem mThree_machine {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.St
     rcases hb with rfl | rfl | rfl <;> simp
   · intro b hb; cases hb
   · exact .cons rfl (.cons rfl (.cons rfl .nil))
+  · intro o ho
+    simp only [mThreeShape, mThreeLayout, List.mem_cons, List.not_mem_nil, or_false] at ho
+    subst ho
+    exact ⟨by decide, by decide⟩
   · decide
 
 /-! ### The source machine -/
@@ -336,7 +356,10 @@ theorem mThree_execution {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.
       intro f hf
       simp only [mThreeShape, mThreeLayout, List.mem_cons, List.not_mem_nil, or_false] at hf
       rcases hf with rfl | rfl | rfl <;> decide)
-    (by decide)
+    (by
+      intro o ho
+      simp only [mThreeShape, mThreeLayout, List.mem_cons, List.not_mem_nil, or_false] at ho
+      subst ho; decide)
   match regs, rlen, rnd, trace with
   | [ra, rb, rg], _, rnd, trace =>
   refine ⟨ids, nd, len, cache, ra, rb, rg, rnd, ?_⟩
@@ -402,7 +425,8 @@ theorem mThree_execution {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.
         cases ((S.val τ).1 == (bits 2 4).val τ) <;> rfl)
     (fun _ => trivial)
   refine ⟨envs, hrun, hlen, fun j hj => ?_⟩
-  rw [hobs j hj, mThree_packed, hB5, hB1, hV2, hV3, hV4, out j]
+  rw [hobs j hj { name := "out", lo := 9, width := 4, ty := .bitVector 4 }
+    (by simp [mThreeShape, mThreeLayout]), mThree_packed, hB5, hB1, hV2, hV3, hV4, out j]
   show mask 4 (_ >>> 9) = _
   rw [field_hi _ _ (by decide)]
   exact field_all _
@@ -427,7 +451,8 @@ def linLets : List (Name × MixedGateBinder) :=
    (`chkSig, .bits 8)]
 def linLayout : Layout :=
   { slots := [{ lo := 0, width := 8, init := 0 }]
-    outLo := 8, outWidth := 8, outTy := .bitVector 8, resetKind := .asynchronous, lets := 18 }
+    outs := [{ name := "out", lo := 8, width := 8, ty := .bitVector 8 }]
+    resetKind := .asynchronous, lets := 18 }
 noncomputable def linShape : MachineShape :=
   { binders := linIn ++ linSlots ++ linLets, body := linBody, layout := linLayout }
 
@@ -485,15 +510,14 @@ run_cmd liftTermElabM do
   let env ← getEnv
   let ci ← getConstInfo ``linChk
   let some shape := machineShape? false []
-      (entryConst true false [] ci (instancePredicate env) (userInliner env) (userProjection? env))
-      (userProjection? env)
+      (entryConst true false [] ci (instancePredicate env) (userInliner env) (structEnv env))
+      (structEnv env)
     | throwError "linChk: not a machine shape"
   let .ok r := reflExpr shape.body | throwError "linChk: body not reflectable"
   unless (← getConstInfo ``linBody).value? == some r do
     throwError "linBody is not the machine body of linChk"
   unless shape.binders == linIn ++ linSlots ++ linLets && shape.layout.slots == linLayout.slots &&
-      shape.layout.outLo == linLayout.outLo && shape.layout.outWidth == linLayout.outWidth &&
-      shape.layout.outTy == linLayout.outTy && shape.layout.lets == linLayout.lets &&
+      shape.layout.outs == linLayout.outs && shape.layout.lets == linLayout.lets &&
       shape.layout.resetKind == linLayout.resetKind do
     throwError "linShape is not the machine shape of linChk"
   -- the `let` boundary: the real machine synthesis ties every `let`
@@ -523,6 +547,10 @@ theorem lin_machine {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State
     rcases hb with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
       rfl | rfl | rfl | rfl | rfl <;> simp
   · exact .cons rfl .nil
+  · intro o ho
+    simp only [linShape, linLayout, List.mem_cons, List.not_mem_nil, or_false] at ho
+    subst ho
+    exact ⟨by decide, by decide⟩
   · decide
 
 /-! ### The source machine -/
@@ -690,7 +718,10 @@ theorem lin_execution {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.Sta
       intro f hf
       simp only [linShape, linLayout, List.mem_cons, List.not_mem_nil, or_false] at hf
       subst hf; decide)
-    (by decide)
+    (by
+      intro o ho
+      simp only [linShape, linLayout, List.mem_cons, List.not_mem_nil, or_false] at ho
+      subst ho; decide)
   match regs, rlen, rnd, trace with
   | [racc], _, _, trace =>
   refine ⟨ids, nd, len, cache, racc, ?_⟩
@@ -751,16 +782,239 @@ theorem lin_execution {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.Sta
       exact (field_all _).symm)
     (fun τ => lin_lets (fun j => (bools j).val τ) (S.val τ).1 (fun j n => (bits j n).val τ))
   refine ⟨envs, hrun, hlen, fun j hj => ?_⟩
-  rw [hobs j hj, lin_core, hV22, out j]
+  rw [hobs j hj { name := "out", lo := 8, width := 8, ty := .bitVector 8 }
+    (by simp [linShape, linLayout]), lin_core, hV22, out j]
   show mask 8 (_ >>> 8) = _
   rw [field_hi _ _ (by decide)]
   exact field_all _
 
 
+/-! ## A structure result: the IP declaration itself
+
+`Sparkle.IP.Bus.LINHW.checksumHW` returns a structure of two Signals. On the
+machine route it is one module with one output port per field, named after
+the field — no wrapper. The transition's `let`s and binders are those of
+`linChk`; what remains after the `let`s is `acc ++ chk ++ nextAcc`. -/
+
+#def_machine_body linHWBody of Sparkle.IP.Bus.LINHW.checksumHW
+
+def linHWLayout : Layout :=
+  { slots := [{ lo := 0, width := 8, init := 0 }]
+    outs := [{ name := "acc", lo := 16, width := 8, ty := .bitVector 8 },
+      { name := "chk", lo := 8, width := 8, ty := .bitVector 8 }]
+    resetKind := .asynchronous, lets := 18 }
+noncomputable def linHWShape : MachineShape :=
+  { binders := linIn ++ linSlots ++ linLets, body := linHWBody, layout := linHWLayout }
+
+def linHWCore : Term (.bits (8 + (8 + 8))) :=
+  .concat (.bitsInput 8 1) (.concat (.bitsInput 8 17)
+    (.mux (.boolInput 0) (.bitsInput 8 2) (.mux (.boolInput 1) (.bitsInput 8 16) (.bitsInput 8 1))))
+
+set_option maxRecDepth 100000 in
+set_option maxHeartbeats 2000000 in
+theorem linHW_body : linHWShape.body =
+    quote (.bvar 22) (fun j => inputExpr linHWShape.binders.length (linBpos j))
+      (fun j => inputExpr linHWShape.binders.length (linVpos j))
+      (packLets linFields linHWCore).2 := rfl
+
+theorem linHW_wf : (packLets linFields linHWCore).2.WF 4 18 linVw := by
+  simp [packLets, linFields, linHWCore, Term.WF, linVw]
+
+run_cmd liftTermElabM do
+  let env ← getEnv
+  let ci ← getConstInfo ``Sparkle.IP.Bus.LINHW.checksumHW
+  let some shape := machineShape? false []
+      (entryConst true false [] ci (instancePredicate env) (userInliner env) (structEnv env))
+      (structEnv env)
+    | throwError "checksumHW: not a machine shape"
+  let .ok r := reflExpr shape.body | throwError "checksumHW: body not reflectable"
+  unless (← getConstInfo ``linHWBody).value? == some r do
+    throwError "linHWBody is not the machine body of checksumHW"
+  unless shape.binders == linIn ++ linSlots ++ linLets &&
+      shape.layout.slots == linHWLayout.slots && shape.layout.outs == linHWLayout.outs &&
+      shape.layout.lets == linHWLayout.lets &&
+      shape.layout.resetKind == linHWLayout.resetKind do
+    throwError "linHWShape is not the machine shape of checksumHW"
+  let translate : TranslateFn := fun e h t n => translateExprToWire e h t n
+  unless (← synthesizeMachineCertified translate (fun _ => pure ())
+      ``Sparkle.IP.Bus.LINHW.checksumHW shape).isSome do
+    throwError "checksumHW: the machine synthesis did not tie the lets"
+
+theorem linHW_machine {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore ``Sparkle.IP.Bus.LINHW.checksumHW [] false)
+      mctx mref cctx cref w (m, design) w')
+    (entry : MachineDefines mctx mref cctx cref ``Sparkle.IP.Bus.LINHW.checksumHW linHWShape)
+    (closes : MachineCloses mctx mref cctx cref ``Sparkle.IP.Bus.LINHW.checksumHW linHWShape) :
+    MachinePreserves ``Sparkle.IP.Bus.LINHW.checksumHW linHWShape linIn linSlots linLets m := by
+  apply synthesizeCombinationalCore_machine_sound hr entry closes rfl rfl
+  · intro name n hmem
+    simp only [linHWShape, linIn, linSlots, linLets, List.cons_append, List.nil_append,
+      List.mem_cons, Prod.mk.injEq, List.not_mem_nil, or_false, reduceCtorEq, and_false,
+      false_or, MixedGateBinder.bits.injEq] at hmem
+    omega
+  · intro b hb
+    simp only [linSlots, List.mem_cons, List.not_mem_nil, or_false] at hb
+    subst hb; simp
+  · intro b hb
+    simp only [linLets, List.mem_cons, List.not_mem_nil, or_false] at hb
+    rcases hb with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+      rfl | rfl | rfl | rfl | rfl <;> simp
+  · exact .cons rfl .nil
+  · intro o ho
+    simp only [linHWShape, linHWLayout, List.mem_cons, List.not_mem_nil, or_false] at ho
+    rcases ho with rfl | rfl <;> exact ⟨by decide, by decide⟩
+  · decide
+
+theorem linHW_core (B : Nat → Bool) (V : (j : Nat) → (n : Nat) → BitVec n) :
+    packedAt linHWCore linBpos linVpos B V =
+      (V 4 8 ++ (V 22 8 ++ (if B 1 then V 5 8 else if B 3 then V 21 8 else V 4 8))).toNat := rfl
+
+/-- The accumulator field of the source is the state. -/
+theorem linHW_acc {dom : DomainConfig} (start : Signal dom Bool) (byteIn : Signal dom (BitVec 8))
+    (valid : Signal dom Bool) (t : Nat) :
+    (Sparkle.IP.Bus.LINHW.checksumHW start byteIn valid).acc.val t =
+      ((stateLoop linInits (linCircuit start byteIn valid)).val t).1 := rfl
+
+set_option maxHeartbeats 1000000 in
+/-- **Source-to-RTL execution of the LIN checksum module of the IP library,
+both outputs.** One successful run of the real synthesis entry on
+`IP.Bus.LINHW.checksumHW` — the IP declaration, not a wrapper — returns a
+module with one register and two output ports such that, run for any number
+of cycles from reset values with reset low, cycle `j` drives `acc` and `chk`
+with the two fields the SOURCE declaration has at time `j`. -/
+theorem linHW_execution {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore ``Sparkle.IP.Bus.LINHW.checksumHW [] false)
+      mctx mref cctx cref w (m, design) w')
+    (entry : MachineDefines mctx mref cctx cref ``Sparkle.IP.Bus.LINHW.checksumHW linHWShape)
+    (closes : MachineCloses mctx mref cctx cref ``Sparkle.IP.Bus.LINHW.checksumHW linHWShape) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = 23 ∧
+    ∃ (cache : IO.Ref (ExprStructMap String)) (racc : String),
+      ∀ {D : DomainConfig} (bools : Nat → Signal D Bool)
+        (bits : (j : Nat) → (n : Nat) → Signal D (BitVec n))
+        (T : Nat) (seed : Nat → (String → Nat) → Env) (st0 : String → Nat) (mems : MEnv),
+        (∀ t st, t < T → SourceInputs ``Sparkle.IP.Bus.LINHW.checksumHW linIn ids cache
+          (fun j => (bools j).val (T - 1 - t)) (fun j n => (bits j n).val (T - 1 - t))
+          (seed t st)) →
+        (∀ t st, seed t st racc = st racc) →
+        (∀ t st, seed t st "rst" = 0) →
+        st0 racc = 0 →
+        ∃ envs, runModule (weOf m) m.body seed T st0 mems = some envs ∧ envs.length = T ∧
+          ∀ j (hj : j < envs.length),
+            (envs[j]'hj) "acc" = ((Sparkle.IP.Bus.LINHW.checksumHW (bools 1) (bits 2 8)
+              (bools 3)).acc.val j).toNat ∧
+            (envs[j]'hj) "chk" = ((Sparkle.IP.Bus.LINHW.checksumHW (bools 1) (bits 2 8)
+              (bools 3)).chk.val j).toNat := by
+  obtain ⟨ids, nd, len, cache, h⟩ := machine_trace (linHW_machine hr entry closes) rfl
+  obtain ⟨regs, rnd, rlen, trace⟩ := h (.bvar 22) 4 18 linVw linBpos linVpos
+    linFields linHWCore linHW_wf
+    (by
+      intro j hj
+      have : j = 0 ∨ j = 1 ∨ j = 2 ∨ j = 3 := by omega
+      rcases this with rfl | rfl | rfl | rfl
+      · exact ⟨`start, rfl⟩
+      · exact ⟨`valid, rfl⟩
+      · exact ⟨`isCarryZero, rfl⟩
+      · exact ⟨`carry, rfl⟩)
+    (by
+      intro j hj
+      have : j = 0 ∨ j = 1 ∨ j = 2 ∨ j = 3 ∨ j = 4 ∨ j = 5 ∨ j = 6 ∨ j = 7 ∨ j = 8 ∨ j = 9 ∨
+          j = 10 ∨ j = 11 ∨ j = 12 ∨ j = 13 ∨ j = 14 ∨ j = 15 ∨ j = 16 ∨ j = 17 := by omega
+      rcases this with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+        rfl | rfl | rfl | rfl | rfl | rfl <;> exact ⟨_, rfl⟩)
+    linHW_body
+    (by
+      intro f hf
+      simp only [linHWShape, linHWLayout, List.mem_cons, List.not_mem_nil, or_false] at hf
+      subst hf; decide)
+    (by
+      intro o ho
+      simp only [linHWShape, linHWLayout, List.mem_cons, List.not_mem_nil, or_false] at ho
+      rcases ho with rfl | rfl <;> decide)
+  match regs, rlen, rnd, trace with
+  | [racc], _, _, trace =>
+  refine ⟨ids, nd, len, cache, racc, ?_⟩
+  intro D bools bits T seed st0 mems inputs pass rst ia
+  obtain ⟨s0, step, out⟩ := lin_state (bools 1) (bits 2 8) (bools 3)
+  have acc := linHW_acc (bools 1) (bits 2 8) (bools 3)
+  generalize stateLoop linInits (linCircuit (bools 1) (bits 2 8) (bools 3)) = S
+    at s0 step out acc
+  let B : Nat → Nat → Bool := fun τ j =>
+    if j = 17 then linCarryZero (S.val τ).1 ((bits 2 8).val τ)
+    else if j = 18 then !linCarryZero (S.val τ).1 ((bits 2 8).val τ)
+    else (bools j).val τ
+  let V : Nat → (j : Nat) → (n : Nat) → BitVec n := fun τ j n =>
+    if 4 ≤ j then linV (S.val τ).1 ((bits 2 8).val τ) j n else (bits j n).val τ
+  have hB1 : ∀ τ, B τ 1 = (bools 1).val τ := fun τ => rfl
+  have hB3 : ∀ τ, B τ 3 = (bools 3).val τ := fun τ => rfl
+  have hV4 : ∀ τ, V τ 4 8 = (S.val τ).1 := fun τ => by simp [V, linV]
+  have hV5 : ∀ τ, V τ 5 8 = 0#8 := fun τ => rfl
+  have hV21 : ∀ τ, V τ 21 8 = linFold (S.val τ).1 ((bits 2 8).val τ) := fun τ => by
+    simp [V, linV]
+  have hV22 : ∀ τ, V τ 22 8 = (S.val τ).1 ^^^ 255#8 := fun τ => by simp [V, linV]
+  obtain ⟨envs, hrun, hlen, hobs⟩ := trace T B V seed st0 mems
+    (by
+      intro t st ht
+      refine sourceInputs_congr nd ?_ ?_ (inputs t st ht)
+      · intro j hj
+        have : j = 0 ∨ j = 1 ∨ j = 2 ∨ j = 3 := by simp [linIn] at hj; omega
+        rcases this with rfl | rfl | rfl | rfl <;> simp [B]
+      · intro j hj n
+        have : j = 0 ∨ j = 1 ∨ j = 2 ∨ j = 3 := by simp [linIn] at hj; omega
+        rcases this with rfl | rfl | rfl | rfl <;> simp [V])
+    (by
+      intro t st r hr
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at hr
+      subst hr; exact pass t st)
+    rst
+    (by
+      intro i r b hr hb
+      have hi : i = 0 := by
+        have := (List.getElem?_eq_some_iff.mp hb).1
+        simp [linSlots] at this; omega
+      subst hi
+      simp only [List.getElem?_cons_zero, Option.some.injEq, linSlots] at hr hb
+      subst hr; subst hb
+      show st0 _ = (V 0 4 8).toNat
+      rw [hV4, s0, ia]; rfl)
+    (by
+      intro τ i f b hf hb
+      have hi : i = 0 := by
+        have := (List.getElem?_eq_some_iff.mp hb).1
+        simp [linSlots] at this; omega
+      subst hi
+      rw [linHW_core, hB1, hB3, hV4, hV5, hV21, hV22]
+      simp only [List.getElem?_cons_zero, Option.some.injEq, linSlots, linHWShape, linHWLayout]
+        at hf hb
+      subst hf; subst hb
+      show (V (τ + 1) 4 8).toNat = _
+      rw [hV4, step τ, field_lo _ _ (by decide), field_lo _ _ (by decide)]
+      exact (field_all _).symm)
+    (fun τ => lin_lets (fun j => (bools j).val τ) (S.val τ).1 (fun j n => (bits j n).val τ))
+  refine ⟨envs, hrun, hlen, fun j hj => ⟨?_, ?_⟩⟩
+  · rw [hobs j hj { name := "acc", lo := 16, width := 8, ty := .bitVector 8 }
+      (by simp [linHWShape, linHWLayout]), linHW_core, hV4, hV22, acc j]
+    show mask 8 (_ >>> 16) = _
+    rw [field_hi _ _ (by decide)]
+    exact field_all _
+  · rw [hobs j hj { name := "chk", lo := 8, width := 8, ty := .bitVector 8 }
+      (by simp [linHWShape, linHWLayout]), linHW_core, hV4, hV22]
+    have hchk : (Sparkle.IP.Bus.LINHW.checksumHW (bools 1) (bits 2 8) (bools 3)).chk.val j =
+        (S.val j).1 ^^^ 255#8 := out j
+    rw [hchk]
+    show mask 8 (_ >>> 8) = _
+    rw [field_lo _ _ (by decide), field_hi _ _ (by decide)]
+    exact field_all _
+
+
 run_cmd do
   if (← get).messages.hasErrors then throwError "machine entry regression failed"
   for name in [``mThree_execution, ``mThree_machine, ``mThree_state,
-      ``lin_execution, ``lin_machine, ``lin_state, ``lin_lets,
+      ``lin_execution, ``lin_machine, ``lin_state, ``lin_lets, ``linHW_execution,
+      ``linHW_machine,
       ``Tools.ShippingMachineClose.closeLets_eval,
       ``Tools.ShippingMachineEntry.chain_values,
 

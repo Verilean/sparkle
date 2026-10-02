@@ -631,7 +631,8 @@ def packedAt {srt : SType} (e : Term srt) (bpos vpos : Nat → Nat) (bools : Nat
 returns has one register per slot (`regs`, in slot order) and, on every
 environment that carries the inputs' values, holds the slots' values in the
 registers and has reset low, one cycle steps each register to its field of
-the packed transition value `core` and drives `out` with the result field —
+the packed transition value `core` and drives every output port with its
+field —
 at any valuation of the binders that gives the `let` binders the values of
 their fields (`LetsHold`). The transition's packed term is
 `let₀ ++ … ++ letₖ₋₁ ++ core`. -/
@@ -647,7 +648,7 @@ def MachinePreserves (declName : Name) (shape : MachineShape)
     shape.body = quote dom (fun j => inputExpr shape.binders.length (bpos j))
       (fun j => inputExpr shape.binders.length (vpos j)) (packLets fs core).2 →
     (∀ f ∈ shape.layout.slots, f.lo + f.width ≤ c) →
-    shape.layout.outLo + shape.layout.outWidth ≤ c →
+    (∀ o ∈ shape.layout.outs, o.lo + o.width ≤ c) →
     ∃ regs : List String, regs.Nodup ∧ regs.length = slotBs.length ∧
     ∀ (bools : Nat → Bool) (bits : (j : Nat) → (n : Nat) → BitVec n) (env0 : Env) (mems : MEnv),
       SourceInputs declName bsIn ids cache bools bits env0 →
@@ -658,8 +659,8 @@ def MachinePreserves (declName : Name) (shape : MachineShape)
       ∃ envF, stepModule (weOf m) m.body env0 mems =
           some (envF, fieldNexts (packedAt core bpos vpos bools bits) regs shape.layout.slots,
             mems) ∧
-        envF "out" = mask shape.layout.outWidth
-          (packedAt core bpos vpos bools bits >>> shape.layout.outLo)
+        ∀ o ∈ shape.layout.outs, envF o.name =
+          mask o.width (packedAt core bpos vpos bools bits >>> o.lo)
 
 theorem synthesizeMachineCertified_returns {logProf declName shape m d}
     (hr : MReturns (synthesizeMachineCertified
@@ -719,7 +720,8 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
     (letKinds : ∀ b ∈ letBs, b.2 ≠ .domain)
     (layW : Zip₂ (fun (f : SlotField) (b : Name × MixedGateBinder) => f.width = machWidth b.2)
       shape.layout.slots slotBs)
-    (outPos : 0 < shape.layout.outWidth) :
+    (outsOk : ∀ o ∈ shape.layout.outs, 0 < o.width ∧ outNameOk o.name = true)
+    (outsNodup : (shape.layout.outs.map (·.name)).Nodup) :
     MachinePreserves declName shape bsIn slotBs letBs m := by
   obtain ⟨t, t', hrun, hcl, hmt⟩ := synthesizeMachineCertified_returns hr
   obtain ⟨ids, cache, returned, st, nd, len, run, hm, _, nameLegal⟩ :=
@@ -1083,13 +1085,13 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
     (by
       rw [hin', List.map_append]
       exact (List.nodup_append.mp inNodup).1)
-    (by rw [hdrop]; exact slotsOk) outPos hev hrst
+    (by rw [hdrop]; exact slotsOk) outsOk outsNodup hev hrst
   rw [hdrop, slotNexts_congr ps shape.layout.slots (Q := packedAt core bpos vpos bools bits)
     (fun f hf => by
       rw [field_mask (R' "out") (hfit f hf), hcore]), slotNexts_eq] at hstep
-  rw [field_mask (R' "out") houtfit, hcore] at hout
   subst hmt
-  exact ⟨envF, hstep, hout⟩
+  refine ⟨envF, hstep, fun o ho => ?_⟩
+  rw [hout o ho, field_mask (R' "out") (houtfit o ho), hcore]
 
 /-! ## The trace -/
 
@@ -1113,7 +1115,7 @@ theorem machine_trace {declName shape m} {bsIn slotBs letBs : List (Name × Mixe
       shape.body = quote dom (fun j => inputExpr shape.binders.length (bpos j))
         (fun j => inputExpr shape.binders.length (vpos j)) (packLets fs core).2 →
       (∀ f ∈ shape.layout.slots, f.lo + f.width ≤ c) →
-      shape.layout.outLo + shape.layout.outWidth ≤ c →
+      (∀ o ∈ shape.layout.outs, o.lo + o.width ≤ c) →
       ∃ regs : List String, regs.Nodup ∧ regs.length = slotBs.length ∧
       ∀ (T : Nat) (bools : Nat → Nat → Bool) (bits : Nat → (j : Nat) → (n : Nat) → BitVec n)
         (seed : Nat → (String → Nat) → Env) (st0 : String → Nat) (mems : MEnv),
@@ -1128,9 +1130,8 @@ theorem machine_trace {declName shape m} {bsIn slotBs letBs : List (Name × Mixe
             mask f.width (packedAt core bpos vpos (bools τ) (bits τ) >>> f.lo)) →
         (∀ τ, LetsHold bpos vpos (bools τ) (bits τ) (bsIn.length + slotBs.length) letBs fs) →
         ∃ envs, runModule (weOf m) m.body seed T st0 mems = some envs ∧ envs.length = T ∧
-          ∀ j (hj : j < envs.length), (envs[j]'hj) "out" =
-            mask shape.layout.outWidth
-              (packedAt core bpos vpos (bools j) (bits j) >>> shape.layout.outLo) := by
+          ∀ j (hj : j < envs.length), ∀ o ∈ shape.layout.outs, (envs[j]'hj) o.name =
+            mask o.width (packedAt core bpos vpos (bools j) (bits j) >>> o.lo) := by
   obtain ⟨ids, nd, len, cache, h⟩ := h
   refine ⟨ids, nd, len, cache, ?_⟩
   intro dom kb kv vw bpos vpos fs c core he hb hv hbody hfit houtfit
@@ -1143,13 +1144,12 @@ theorem machine_trace {declName shape m} {bsIn slotBs letBs : List (Name × Mixe
       (∀ i r b, regs[i]? = some r → slotBs[i]? = some b →
         st r = posEnc (bools (T - k)) (bits (T - k)) (bsIn.length + i) b.2) →
       ∃ envs, runModule (weOf m) m.body seed k st mems = some envs ∧ envs.length = k ∧
-        ∀ j (hj : j < envs.length), (envs[j]'hj) "out" =
-          mask shape.layout.outWidth
-            (packedAt core bpos vpos (bools (T - k + j)) (bits (T - k + j)) >>>
-              shape.layout.outLo) by
+        ∀ j (hj : j < envs.length), ∀ o ∈ shape.layout.outs, (envs[j]'hj) o.name =
+          mask o.width
+            (packedAt core bpos vpos (bools (T - k + j)) (bits (T - k + j)) >>> o.lo) by
     obtain ⟨envs, hrun, hlen, hobs⟩ := main T (Nat.le_refl T) st0 (by simpa using init)
-    refine ⟨envs, hrun, hlen, fun j hj => ?_⟩
-    simpa using hobs j hj
+    refine ⟨envs, hrun, hlen, fun j hj o ho => ?_⟩
+    simpa using hobs j hj o ho
   intro k
   induction k with
   | zero => intro _ st _; exact ⟨[], rfl, rfl, fun j hj => absurd hj (Nat.not_lt_zero j)⟩
@@ -1176,13 +1176,13 @@ theorem machine_trace {declName shape m} {bsIn slotBs letBs : List (Name × Mixe
     refine ⟨envF :: rest, ?_, by simp [hlen], ?_⟩
     · unfold runModule
       simp [hstep, bind, hrun]
-    · intro j hj
+    · intro j hj o ho
       cases j with
-      | zero => simpa using hout
+      | zero => simpa using hout o ho
       | succ i =>
         have hi : i < rest.length := by simpa using hj
         have hget : ((envF :: rest)[i + 1]'hj) = rest[i]'hi := by simp
-        rw [hget, hobs i hi]
+        rw [hget, hobs i hi o ho]
         have hidx : T - k + i = T - (k + 1) + (i + 1) := by
           have : i < k := by omega
           omega
@@ -1207,7 +1207,7 @@ theorem synthesizeFromConst_machine {logProf : String → IO Unit} {declName : N
       declName [] false true ci isInst) mctx mref cctx cref w (m, d) w') :
     ∃ (envR : Environment) (w5 w6 : Void IO.RealWorld),
       RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w5 envR w6 ∧
-      ∀ shape, machineShape? false [] ci (userProjection? envR) = some shape →
+      ∀ shape, machineShape? false [] ci (structEnv envR) = some shape →
         ∃ r w7 w8, RunsTo (synthesizeMachineCertified
             (fun e hint top named => translateExprToWire e hint top named) logProf declName
             shape) mctx mref cctx cref w7 r w8 ∧
@@ -1245,11 +1245,11 @@ def MachineDefines (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State)
     RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w5 envR w6 →
     RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w7 envR' w8 →
     certifiedShape? false [] (entryConst true false [] ci (instancePredicate envR)
-      (userInliner envR) (userProjection? envR)) = none ∧
+      (userInliner envR) (structEnv envR)) = none ∧
     mixedCertifiedShape? false [] (entryConst true false [] ci (instancePredicate envR)
-      (userInliner envR) (userProjection? envR)) (instancePredicate envR) = none ∧
+      (userInliner envR) (structEnv envR)) (instancePredicate envR) = none ∧
     machineShape? false [] (entryConst true false [] ci (instancePredicate envR)
-      (userInliner envR) (userProjection? envR)) (userProjection? envR') = some shape
+      (userInliner envR) (structEnv envR)) (structEnv envR') = some shape
 
 /-- **The `let` boundary.** In this run the machine synthesis of `shape`
 ties every `let` port to its field (`closeLets` accepts the transition
@@ -1296,7 +1296,8 @@ theorem synthesizeCombinationalCore_machine_sound {declName : Name}
     (letKinds : ∀ b ∈ letBs, b.2 ≠ .domain)
     (layW : Zip₂ (fun (f : SlotField) (b : Name × MixedGateBinder) => f.width = machWidth b.2)
       shape.layout.slots slotBs)
-    (outPos : 0 < shape.layout.outWidth) :
+    (outsOk : ∀ o ∈ shape.layout.outs, 0 < o.width ∧ outNameOk o.name = true)
+    (outsNodup : (shape.layout.outs.map (·.name)).Nodup) :
     MachinePreserves declName shape bsIn slotBs letBs m := by
   obtain ⟨logProf, envR, ci, w1, w2, w3, w4, w5, w6, get, henv, run⟩ :=
     synthesizeCombinationalCore_reads hr
@@ -1311,7 +1312,7 @@ theorem synthesizeCombinationalCore_machine_sound {declName : Name}
     have := hres res rfl
     subst this
     exact synthesizeMachineCertified_sound hrun.mreturns hbs hlets positive slotKinds letKinds
-      layW outPos
+      layW outsOk outsNodup
 
 section
 open Lean Elab Command
@@ -1327,8 +1328,8 @@ elab "#def_machine_body " n:ident " of " d:ident : command => do
   let some shape := Sparkle.Compiler.Elab.machineShape? false []
       (Sparkle.Compiler.Elab.entryConst true false [] ci
         (Sparkle.Compiler.Elab.instancePredicate env) (Sparkle.Compiler.Elab.userInliner env)
-        (Sparkle.Compiler.Elab.userProjection? env))
-      (Sparkle.Compiler.Elab.userProjection? env)
+        (Sparkle.Compiler.Elab.structEnv env))
+      (Sparkle.Compiler.Elab.structEnv env)
     | throwError "{declName} is not a machine shape"
   let r ← match reflExpr shape.body with
     | .ok r => pure r

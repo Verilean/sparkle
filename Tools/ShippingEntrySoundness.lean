@@ -1036,14 +1036,14 @@ definitions unfolded when only the unfolding passes a gate. -/
 
 /-- A declaration the mixed gate accepts is handed on as read. -/
 theorem entryConst_mixed {ci : ConstantInfo} {isInst : Lean.Expr → Bool}
-    {inl : Lean.Expr → Lean.Expr} {projs : Name → Option (Name × Nat × Nat)} {r}
+    {inl : Lean.Expr → Lean.Expr} {projs : StructEnv} {r}
     (h : mixedCertifiedShape? false [] ci isInst = some r) :
     entryConst true false [] ci isInst inl projs = ci := by
   simp [entryConst, h]
 
 /-- A declaration the fragment gate accepts is handed on as read. -/
 theorem entryConst_certified {ci : ConstantInfo} {isInst : Lean.Expr → Bool}
-    {inl : Lean.Expr → Lean.Expr} {projs : Name → Option (Name × Nat × Nat)} {r}
+    {inl : Lean.Expr → Lean.Expr} {projs : StructEnv} {r}
     (h : certifiedShape? false [] ci = some r) :
     entryConst true false [] ci isInst inl projs = ci := by
   simp [entryConst, h]
@@ -1051,7 +1051,7 @@ theorem entryConst_certified {ci : ConstantInfo} {isInst : Lean.Expr → Bool}
 /-- The unfolded declaration is handed on exactly when the original misses
 both gates and the unfolding passes one. -/
 theorem entryConst_inlined {ci : ConstantInfo} {isInst : Lean.Expr → Bool}
-    {inl : Lean.Expr → Lean.Expr} {projs : Name → Option (Name × Nat × Nat)}
+    {inl : Lean.Expr → Lean.Expr} {projs : StructEnv}
     (old : certifiedShape? false [] ci = none)
     (miss : mixedCertifiedShape? false [] ci isInst = none)
     (hit : (certifiedShape? false [] (inlinedConst inl ci)).isSome = true ∨
@@ -1061,7 +1061,7 @@ theorem entryConst_inlined {ci : ConstantInfo} {isInst : Lean.Expr → Bool}
 
 /-- … or when the unfolding is a state machine. -/
 theorem entryConst_machine {ci : ConstantInfo} {isInst : Lean.Expr → Bool}
-    {inl : Lean.Expr → Lean.Expr} {projs : Name → Option (Name × Nat × Nat)} {shape}
+    {inl : Lean.Expr → Lean.Expr} {projs : StructEnv} {shape}
     (old : certifiedShape? false [] ci = none)
     (miss : mixedCertifiedShape? false [] ci isInst = none)
     (hit : machineShape? false [] (inlinedConst inl ci) projs = some shape) :
@@ -1070,7 +1070,7 @@ theorem entryConst_machine {ci : ConstantInfo} {isInst : Lean.Expr → Bool}
 
 /-- The entry constant is the declaration as read, or its unfolding. -/
 theorem entryConst_cases (ci : ConstantInfo) (isInst : Lean.Expr → Bool)
-    (inl : Lean.Expr → Lean.Expr) (projs : Name → Option (Name × Nat × Nat)) :
+    (inl : Lean.Expr → Lean.Expr) (projs : StructEnv) :
     entryConst true false [] ci isInst inl projs = ci ∨
       entryConst true false [] ci isInst inl projs = inlinedConst inl ci := by
   unfold entryConst
@@ -1096,7 +1096,7 @@ theorem synthesizeCombinationalCore_reads {declName : Name} {mctx : Meta.Context
       RunsTo (synthesizeFromConst (fun e h t n => translateExprToWire e h t n) logProf
         declName [] false true
         (entryConst true false [] ci (Sparkle.Compiler.Elab.instancePredicate envR)
-          (userInliner envR) (userProjection? envR))
+          (userInliner envR) (structEnv envR))
         (Sparkle.Compiler.Elab.instancePredicate envR))
         mctx mref cctx cref w3 (M, D) w4 := by
   unfold synthesizeCombinationalCore synthesizeCombinationalCoreWith at h
@@ -1128,7 +1128,7 @@ theorem synthesizeCombinationalCore_sound {declName : Name} {mctx : Meta.Context
 the run of the declaration as read. -/
 theorem entry_kept {logProf : String → IO Unit} {declName : Name} {ci : ConstantInfo}
     {isInst : Lean.Expr → Bool} {inl : Lean.Expr → Lean.Expr}
-    {projs : Name → Option (Name × Nat × Nat)} {bs body}
+    {projs : StructEnv} {bs body}
     {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
     {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
     {r : Sparkle.IR.AST.Module × Design}
@@ -1790,7 +1790,7 @@ elab "#def_entry_value " n:ident " of " d:ident : command => do
   let env ← getEnv
   let ec := Sparkle.Compiler.Elab.entryConst true false [] ci
     (Sparkle.Compiler.Elab.instancePredicate env) (Sparkle.Compiler.Elab.userInliner env)
-    (Sparkle.Compiler.Elab.userProjection? env)
+    (Sparkle.Compiler.Elab.structEnv env)
   let some v := ec.value? | throwError "{declName} has no value"
   let r ← match reflExpr v with
     | .ok r => pure r

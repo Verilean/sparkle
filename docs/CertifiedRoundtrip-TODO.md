@@ -912,6 +912,32 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   with structure results; then computed constants (`2 ^ k`,
   `BitVec.ofInt`, negation: about 25), sub-module calls inside a
   `circuit do` (16), and a tail of unsupported shapes.
+- [x] **Structure results on the machine route.** A `circuit do` whose
+  result is a user structure of Bool/BitVec Signals is ONE module with
+  one output port per field, named after the field (the names the legacy
+  front end gives them) — the IP declaration itself, no wrapper.
+  `Layout.outs` lists the ports and their fields of the packed value;
+  `closeMachine` drives each with a part-select; `machOuts?` reads the
+  ports off the result type and the structure facts of the environment
+  (`StructEnv`: field accessors and, per structure, constructor and
+  field kinds), which `entryConst`/`machineShape?` now take. A port name
+  must not be one of the module's own (`outNameOk`: not `_…`, `next…`,
+  `clk`, `rst`). `closeMachine_step`, `MachinePreserves` and
+  `machine_trace` speak about every output port. `linHW_execution`:
+  the LIN checksum module of the IP library, `IP.Bus.LINHW.checksumHW`
+  itself, both ports `acc` and `chk`, emitted-module trace = source at
+  every cycle. Measured: 118 of 389 real declarations pass a gate, 55
+  on the machine route (7 with a structure result: the Montgomery
+  multiplier and UART-transmit sub-modules of the ECDSA, P-256 and FIDO2
+  demos among them). Only those 7 modules change text; the run status
+  of every corpus file is unchanged.
+  WHAT THE COUNT MEANS: a declaration "on the machine route" is compiled
+  by the proved harness and the proved IR passes, and its emitted module
+  agrees with its source in the 60-cycle simulation; the end-to-end
+  THEOREM is instantiated for three of them (`mThree`, `linChk`,
+  `checksumHW`). For the others the generic theorems apply once the
+  quoted term and the source recurrence are supplied — per declaration,
+  by `rfl` and one `simp` — and generating those automatically is open.
 - [ ] **S7 / trust:** Resolve or explicitly retain `EnvDefines` in the final
   claim; record execution-model/external-tool boundaries without hiding them.
   RECORDED — docs/ShippingCompiler-TrustBase.md states the retained base
