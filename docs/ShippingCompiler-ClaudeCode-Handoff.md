@@ -343,6 +343,18 @@ part-select per port, `machOuts?`/`machResults?`, `StructEnv` (the
 environment's structure facts, threaded where the projections were),
 `outNameOk`. The endpoints quantify over `o ∈ shape.layout.outs`; a test
 picks a port by giving the `OutField` literally.
+**The reference machine (landed).** `Tools/ShippingMachineRef.lean`:
+`machine_ref_trace` removes every valuation hypothesis from
+`machine_trace` — the emitted module implements `RefMachine`, a machine
+defined by `eval` on the terms (decidable side conditions only). The
+remaining per-declaration obligation is "source = reference machine".
+Plan for doing it once: typed valuations (`dite` casts that reduce by K)
+built from the `circuit do` state tuple, typed `let` terms, a hypothesis
+`H2 : ∀ S t, valsAt … (body (mkRegList S …) (mkHolds … S)).snd t =
+evalTerms nexts (typedVal … (S.val t))` that a declaration proves by
+`rfl`, an agreement lemma typed-valuation ↔ store valuation
+(`eval_congr` on read positions at declared widths), and the generic
+field lemma for the packed core. `scoped` is a keyword — not a name.
 Next on this route: (a) GENERATE the per-declaration endpoint — the
 quoted term (an "unquote" of `shape.body`), `WF`, the positions, the
 source circuit and its `circuit_state` recurrence, `LetsHold`, the field

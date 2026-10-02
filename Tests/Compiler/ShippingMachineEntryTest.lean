@@ -1,6 +1,6 @@
 import Lean
 import Sparkle.Core.CircuitDo
-import Tools.ShippingMachineEntry
+import Tools.ShippingMachineRef
 import Tools.ShippingMachineSource
 import IP.Bus.LINHW
 
@@ -1010,11 +1010,104 @@ theorem linHW_execution {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.S
     exact field_all _
 
 
+/-! ## The reference machine
+
+`machine_ref_trace` needs no valuation: the emitted module of the IP
+declaration shows, on both ports and at every cycle, the reference machine
+computed from the terms. The side conditions are decided. -/
+
+open Tools.ShippingMachineRef in
+/-- The reference machine of the LIN checksum module. -/
+noncomputable def linRef : RefMachine :=
+  RefMachine.mk 4 1 linBpos linVpos linFields (8 + (8 + 8)) linHWCore linHWLayout.slots
+
+open Tools.ShippingMachineRef in
+theorem linHW_scoped : LetsScoped linBpos linVpos (linIn.length + linSlots.length) linLets
+    linFields := by
+  simp [LetsScoped, reads, linLets, linFields, linBpos, linVpos, machWidth, linIn, linSlots]
+
+open Tools.ShippingMachineRef in
+/-- **The emitted LIN checksum module implements its reference machine.** -/
+theorem linHW_reference {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore ``Sparkle.IP.Bus.LINHW.checksumHW [] false)
+      mctx mref cctx cref w (m, design) w')
+    (entry : MachineDefines mctx mref cctx cref ``Sparkle.IP.Bus.LINHW.checksumHW linHWShape)
+    (closes : MachineCloses mctx mref cctx cref ``Sparkle.IP.Bus.LINHW.checksumHW linHWShape) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = 23 ∧
+    ∃ (cache : IO.Ref (ExprStructMap String)) (racc : String),
+      ∀ (T : Nat) (inB : Nat → Nat → Bool) (inV : Nat → (j : Nat) → (n : Nat) → BitVec n)
+        (seed : Nat → (String → Nat) → Env) (st0 : String → Nat) (mems : MEnv),
+        (∀ t st, t < T → SourceInputs ``Sparkle.IP.Bus.LINHW.checksumHW linIn ids cache
+          (inB (T - 1 - t)) (inV (T - 1 - t)) (seed t st)) →
+        (∀ t st, seed t st racc = st racc) →
+        (∀ t st, seed t st "rst" = 0) →
+        st0 racc = 0 →
+        ∃ envs, runModule (weOf m) m.body seed T st0 mems = some envs ∧ envs.length = T ∧
+          ∀ j (hj : j < envs.length),
+            (envs[j]'hj) "acc" = linRef.out inB inV j 16 8 ∧
+            (envs[j]'hj) "chk" = linRef.out inB inV j 8 8 := by
+  obtain ⟨ids, nd, len, cache, h⟩ := machine_ref_trace (linHW_machine hr entry closes)
+    (.cons ⟨rfl, by simp, by decide⟩ .nil)
+  obtain ⟨regs, rnd, rlen, trace⟩ := h (.bvar 22) 4 18 linVw linBpos linVpos
+    linFields linHWCore linHW_wf
+    (by
+      intro j hj
+      have : j = 0 ∨ j = 1 ∨ j = 2 ∨ j = 3 := by omega
+      rcases this with rfl | rfl | rfl | rfl
+      · exact ⟨`start, rfl⟩
+      · exact ⟨`valid, rfl⟩
+      · exact ⟨`isCarryZero, rfl⟩
+      · exact ⟨`carry, rfl⟩)
+    (by
+      intro j hj
+      have : j = 0 ∨ j = 1 ∨ j = 2 ∨ j = 3 ∨ j = 4 ∨ j = 5 ∨ j = 6 ∨ j = 7 ∨ j = 8 ∨ j = 9 ∨
+          j = 10 ∨ j = 11 ∨ j = 12 ∨ j = 13 ∨ j = 14 ∨ j = 15 ∨ j = 16 ∨ j = 17 := by omega
+      rcases this with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+        rfl | rfl | rfl | rfl | rfl | rfl <;> exact ⟨_, rfl⟩)
+    linHW_body
+    (by
+      intro f hf
+      simp only [linHWShape, linHWLayout, List.mem_cons, List.not_mem_nil, or_false] at hf
+      subst hf; decide)
+    (by
+      intro o ho
+      simp only [linHWShape, linHWLayout, List.mem_cons, List.not_mem_nil, or_false] at ho
+      rcases ho with rfl | rfl <;> decide)
+    linHW_scoped
+  match regs, rlen, rnd, trace with
+  | [racc], _, _, trace =>
+  refine ⟨ids, nd, len, cache, racc, ?_⟩
+  intro T inB inV seed st0 mems inputs pass rst ia
+  obtain ⟨envs, hrun, hlen, hobs⟩ := trace T inB inV seed st0 mems inputs
+    (by
+      intro t st r hr
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at hr
+      subst hr; exact pass t st)
+    rst
+    (by
+      intro i r f hr hf
+      have hi : i = 0 := by
+        have := (List.getElem?_eq_some_iff.mp hf).1
+        simp [linHWShape, linHWLayout] at this; omega
+      subst hi
+      simp only [List.getElem?_cons_zero, Option.some.injEq, linHWShape, linHWLayout] at hr hf
+      subst hr; subst hf
+      exact ia)
+  refine ⟨envs, hrun, hlen, fun j hj => ⟨?_, ?_⟩⟩
+  · exact hobs j hj { name := "acc", lo := 16, width := 8, ty := .bitVector 8 }
+      (by simp [linHWShape, linHWLayout])
+  · exact hobs j hj { name := "chk", lo := 8, width := 8, ty := .bitVector 8 }
+      (by simp [linHWShape, linHWLayout])
+
+
 run_cmd do
   if (← get).messages.hasErrors then throwError "machine entry regression failed"
   for name in [``mThree_execution, ``mThree_machine, ``mThree_state,
       ``lin_execution, ``lin_machine, ``lin_state, ``lin_lets, ``linHW_execution,
-      ``linHW_machine,
+      ``linHW_machine, ``linHW_reference,
+      ``Tools.ShippingMachineRef.machine_ref_trace,
       ``Tools.ShippingMachineClose.closeLets_eval,
       ``Tools.ShippingMachineEntry.chain_values,
 

@@ -938,6 +938,18 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   `checksumHW`). For the others the generic theorems apply once the
   quoted term and the source recurrence are supplied — per declaration,
   by `rfl` and one `simp` — and generating those automatically is open.
+- [x] **The reference machine** (`Tools/ShippingMachineRef.lean`). The
+  valuation `machine_trace` asks for is constructed from the terms alone:
+  `RefMachine` (state: reset values, then the slot fields of the packed
+  transition value; `let` binders computed in order by `letStore`), and
+  `machine_ref_trace`: the emitted module shows, at every cycle and on
+  every output port, the field of the reference machine. Its side
+  conditions are decidable — each `let` field reads earlier positions
+  only (`LetsScoped`, through `reads` and `eval_congr_reads`), reset
+  values inside their widths. Instantiated as `linHW_reference`. What a
+  declaration still owes is that its Lean meaning IS the reference
+  machine; proving that once, generically (typed valuations of the
+  `circuit do` state against the store), is the next step.
 - [ ] **S7 / trust:** Resolve or explicitly retain `EnvDefines` in the final
   claim; record execution-model/external-tool boundaries without hiding them.
   RECORDED — docs/ShippingCompiler-TrustBase.md states the retained base
