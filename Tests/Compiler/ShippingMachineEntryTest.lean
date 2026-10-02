@@ -1,6 +1,6 @@
 import Lean
 import Sparkle.Core.CircuitDo
-import Tools.ShippingMachineRef
+import Tools.ShippingMachineDenote
 import Tools.ShippingMachineSource
 import IP.Bus.LINHW
 
@@ -1102,11 +1102,176 @@ theorem linHW_reference {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.S
       (by simp [linHWShape, linHWLayout])
 
 
+/-! ## Source = reference machine, by the generic theorem
+
+`denote_state` / `denote_out` prove once that a `circuit do` whose writes
+and result are the typed values of the terms is its reference machine. For
+the LIN checksum module the declaration-specific facts are DATA and `rfl`:
+the typed `let`s, the next-value terms, that the body's writes are their
+typed values (`linHW_writes`, `rfl`), and decidable facts about positions. -/
+
+section Denote
+open Tools.ShippingMachineRef Tools.ShippingMachineDenote
+
+/-- The state tuple's `Inhabited` instance, at the sorts' types. -/
+local instance : Inhabited (HList (tys [.bits 8])) := inferInstanceAs (Inhabited (HList Slots1))
+
+/-- The `let`s as typed terms (the Bool `let`s as Bool terms). -/
+noncomputable def linTyped : List (Σ s : SType, Term s) :=
+  [⟨.bits 8, .bitsLit 8 0⟩, ⟨.bits 8, .bitsLit 8 255⟩, ⟨.bits 8, .bitsLit 8 1⟩,
+   ⟨.bits 1, .bitsLit 1 0⟩,
+   ⟨.bits (1 + 8), .concat (.bitsInput 1 5) (.bitsInput 8 1)⟩,
+   ⟨.bits (1 + 8), .concat (.bitsInput 1 5) (.bitsInput 8 0)⟩,
+   ⟨.bits 9, .binary .add (.bitsInput 9 6) (.bitsInput 9 7)⟩,
+   ⟨.bits 9, .bitsLit 9 1⟩, ⟨.bits 9, .bitsLit 9 8⟩,
+   ⟨.bits 9, .binary .shr (.bitsInput 9 8) (.bitsInput 9 10)⟩,
+   ⟨.bits 9, .binary .and (.bitsInput 9 11) (.bitsInput 9 9)⟩,
+   ⟨.bits 9, .bitsLit 9 0⟩,
+   ⟨.bool, .compare .eq (.bitsInput 9 12) (.bitsInput 9 13)⟩,
+   ⟨.bool, .boolNot (.boolInput 2)⟩,
+   ⟨.bits 8, .slice linSliceName 0 8 (.bitsInput 9 8)⟩,
+   ⟨.bits 8, .binary .add (.bitsInput 8 14) (.bitsInput 8 4)⟩,
+   ⟨.bits 8, .mux (.boolInput 3) (.bitsInput 8 15) (.bitsInput 8 14)⟩,
+   ⟨.bits 8, .binary .xor (.bitsInput 8 1) (.bitsInput 8 3)⟩]
+
+theorem linTyped_fields : (linTyped.map fun l => toField l.1 l.2) = linFields := rfl
+
+/-- The accumulator's next value. -/
+def linNextT : Term (.bits 8) :=
+  .mux (.boolInput 0) (.bitsInput 8 2) (.mux (.boolInput 1) (.bitsInput 8 16) (.bitsInput 8 1))
+
+def linNexts : Terms [.bits 8] := .cons linNextT .nil
+
+/-- The sort of every binder position. -/
+def linK : Nat → Option SType := fun p =>
+  [none, some .bool, some (.bits 8), some .bool, some (.bits 8),
+   some (.bits 8), some (.bits 8), some (.bits 8), some (.bits 1), some (.bits 9),
+   some (.bits 9), some (.bits 9), some (.bits 9), some (.bits 9), some (.bits 9),
+   some (.bits 9), some (.bits 9), some .bool, some .bool, some (.bits 8), some (.bits 8),
+   some (.bits 8), some (.bits 8)].getD p none
+
+theorem lin_facts : TermFacts 4 4 18 linVw linBpos linVpos linK [.bits 8] linTyped where
+  bools := by
+    intro j hj
+    have : j = 0 ∨ j = 1 ∨ j = 2 ∨ j = 3 := by omega
+    rcases this with rfl | rfl | rfl | rfl <;> exact ⟨rfl, by decide⟩
+  bits := by
+    intro j hj
+    have : j = 0 ∨ j = 1 ∨ j = 2 ∨ j = 3 ∨ j = 4 ∨ j = 5 ∨ j = 6 ∨ j = 7 ∨ j = 8 ∨ j = 9 ∨
+        j = 10 ∨ j = 11 ∨ j = 12 ∨ j = 13 ∨ j = 14 ∨ j = 15 ∨ j = 16 ∨ j = 17 := by omega
+    rcases this with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+      rfl | rfl | rfl | rfl | rfl | rfl <;> exact ⟨rfl, by decide⟩
+  slots := by
+    intro i s h
+    have hi : i = 0 := by
+      have := (List.getElem?_eq_some_iff.mp h).1
+      simp at this; omega
+    subst hi
+    simp only [List.getElem?_cons_zero, Option.some.injEq] at h
+    subst h; rfl
+  lets := by
+    simp [LetsTyped, linTyped, reads, Term.WF, linBpos, linVpos, linVw, linK]
+
+/-- The body's pending write is the typed value of the next-value term —
+for every state signal, at every cycle. -/
+theorem linHW_writes {D : DomainConfig} (bools : Nat → Signal D Bool)
+    (bits : (j : Nat) → (n : Nat) → Signal D (BitVec n))
+    (S : Signal D (HList (tys [.bits 8]))) (t : Nat) :
+    valsAt (tys [.bits 8]) (linCircuit (bools 1) (bits 2 8) (bools 3)
+      (mkRegList S (tys [.bits 8]) (fun s => s) (fun f => f)) (mkHolds (tys [.bits 8]) S)).snd t =
+    evalTerms
+      (fun j => (typedVal 4 linBpos linVpos [.bits 8] linTyped bools bits t (S.val t)).b
+        (linBpos j))
+      (fun j w => (typedVal 4 linBpos linVpos [.bits 8] linTyped bools bits t (S.val t)).v
+        (linVpos j) w) linNexts := rfl
+
+/-- **The state of the LIN checksum is its reference machine's.** -/
+theorem linHW_state {D : DomainConfig} (bools : Nat → Signal D Bool)
+    (bits : (j : Nat) → (n : Nat) → Signal D (BitVec n)) (τ : Nat) :
+    encState [.bits 8] ((stateLoop linInits (linCircuit (bools 1) (bits 2 8) (bools 3))).val τ) =
+      linRef.state (fun τ p => (bools p).val τ) (fun τ p w => (bits p w).val τ) τ :=
+  denote_state (ss := [.bits 8]) linInits (linCircuit (bools 1) (bits 2 8) (bools 3)) bools bits
+    linTyped linNexts ⟨8, .bitsInput 8 1⟩ [⟨8, .bitsInput 8 17⟩, ⟨8, linNextT⟩] linHWCore
+    linHWLayout.slots 2 rfl rfl
+    (by
+      intro i f hf
+      have hi : i = 0 := by
+        have := (List.getElem?_eq_some_iff.mp hf).1
+        simp [linHWLayout] at this; omega
+      subst hi
+      simp only [linHWLayout, List.getElem?_cons_zero, Option.some.injEq] at hf
+      subst hf
+      exact ⟨⟨8, linNextT⟩, rfl, rfl, rfl⟩)
+    rfl
+    (by
+      intro i
+      rcases i with _ | i
+      · rfl
+      · rfl)
+    lin_facts
+    (by
+      intro g hg
+      simp only [linNexts, Terms.fields, toField, List.mem_cons, List.not_mem_nil, or_false] at hg
+      subst hg
+      simp [linNextT, Term.WF, linVw])
+    (linHW_writes bools bits) τ
+
+set_option maxHeartbeats 1000000 in
+/-- **Source-to-RTL execution of the LIN checksum module, by the generic
+theorems.** The same statement as `linHW_execution`; the proof is the
+reference-machine theorem of the emitted module (`linHW_reference`), the
+generic identification of the `circuit do` with its reference machine
+(`denote_state`, `denote_out`), and `rfl`. -/
+theorem linHW_execution_generic {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore ``Sparkle.IP.Bus.LINHW.checksumHW [] false)
+      mctx mref cctx cref w (m, design) w')
+    (entry : MachineDefines mctx mref cctx cref ``Sparkle.IP.Bus.LINHW.checksumHW linHWShape)
+    (closes : MachineCloses mctx mref cctx cref ``Sparkle.IP.Bus.LINHW.checksumHW linHWShape) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = 23 ∧
+    ∃ (cache : IO.Ref (ExprStructMap String)) (racc : String),
+      ∀ {D : DomainConfig} (bools : Nat → Signal D Bool)
+        (bits : (j : Nat) → (n : Nat) → Signal D (BitVec n))
+        (T : Nat) (seed : Nat → (String → Nat) → Env) (st0 : String → Nat) (mems : MEnv),
+        (∀ t st, t < T → SourceInputs ``Sparkle.IP.Bus.LINHW.checksumHW linIn ids cache
+          (fun j => (bools j).val (T - 1 - t)) (fun j n => (bits j n).val (T - 1 - t))
+          (seed t st)) →
+        (∀ t st, seed t st racc = st racc) →
+        (∀ t st, seed t st "rst" = 0) →
+        st0 racc = 0 →
+        ∃ envs, runModule (weOf m) m.body seed T st0 mems = some envs ∧ envs.length = T ∧
+          ∀ j (hj : j < envs.length),
+            (envs[j]'hj) "acc" = ((Sparkle.IP.Bus.LINHW.checksumHW (bools 1) (bits 2 8)
+              (bools 3)).acc.val j).toNat ∧
+            (envs[j]'hj) "chk" = ((Sparkle.IP.Bus.LINHW.checksumHW (bools 1) (bits 2 8)
+              (bools 3)).chk.val j).toNat := by
+  obtain ⟨ids, nd, len, cache, racc, h⟩ := linHW_reference hr entry closes
+  refine ⟨ids, nd, len, cache, racc, ?_⟩
+  intro D bools bits T seed st0 mems inputs pass rst ia
+  obtain ⟨envs, hrun, hlen, hobs⟩ := h T (fun τ p => (bools p).val τ)
+    (fun τ p w => (bits p w).val τ) seed st0 mems inputs pass rst ia
+  refine ⟨envs, hrun, hlen, fun j hj => ?_⟩
+  obtain ⟨hacc, hchk⟩ := hobs j hj
+  have out := fun {s : SType} (ot : Term s) (hwf : ot.WF 4 18 linVw) (k : Nat) hk =>
+    denote_out (ss := [.bits 8]) linInits (linCircuit (bools 1) (bits 2 8) (bools 3)) bools bits
+      linTyped ⟨8, .bitsInput 8 1⟩ [⟨8, .bitsInput 8 17⟩, ⟨8, linNextT⟩] linHWCore
+      linHWLayout.slots rfl lin_facts (linHW_state bools bits) ot hwf k hk j
+  refine ⟨?_, ?_⟩
+  · rw [hacc]
+    exact (out (.bitsInput 8 1) (by simp [Term.WF, linVw]) 0 rfl).symm
+  · rw [hchk]
+    exact (out (.bitsInput 8 17) (by simp [Term.WF, linVw]) 1 rfl).symm
+
+end Denote
+
+
 run_cmd do
   if (← get).messages.hasErrors then throwError "machine entry regression failed"
   for name in [``mThree_execution, ``mThree_machine, ``mThree_state,
       ``lin_execution, ``lin_machine, ``lin_state, ``lin_lets, ``linHW_execution,
-      ``linHW_machine, ``linHW_reference,
+      ``linHW_machine, ``linHW_reference, ``linHW_state, ``linHW_execution_generic,
+      ``Tools.ShippingMachineDenote.denote_state, ``Tools.ShippingMachineDenote.denote_out,
       ``Tools.ShippingMachineRef.machine_ref_trace,
       ``Tools.ShippingMachineClose.closeLets_eval,
       ``Tools.ShippingMachineEntry.chain_values,

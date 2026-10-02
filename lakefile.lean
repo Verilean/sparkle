@@ -497,6 +497,9 @@ lean_lib «Tools.ShippingMachineEntry» where
 lean_lib «Tools.ShippingMachineRef» where
   roots := #[`Tools.ShippingMachineRef]
 
+lean_lib «Tools.ShippingMachineDenote» where
+  roots := #[`Tools.ShippingMachineDenote]
+
 lean_lib «Tools.ShippingPipelineSoundness» where
   roots := #[`Tools.ShippingPipelineSoundness]
 

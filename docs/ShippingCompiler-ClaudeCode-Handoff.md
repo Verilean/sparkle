@@ -355,6 +355,15 @@ evalTerms nexts (typedVal … (S.val t))` that a declaration proves by
 `rfl`, an agreement lemma typed-valuation ↔ store valuation
 (`eval_congr` on read positions at declared widths), and the generic
 field lemma for the packed core. `scoped` is a keyword — not a name.
+DONE the same day: `Tools/ShippingMachineDenote.lean` (`denote_state`,
+`denote_out`, `TermFacts`, `SlotsFit`, `typedVal`), instantiated as
+`linHW_execution_generic`: per declaration only data, `rfl` and decided
+facts remain (the state tuple's `Inhabited` instance at `tys ss` must be
+supplied — instance search does not see through `List.map`). The next
+step is a COMMAND that generates these per declaration: unquote
+`shape.body` into typed terms (the inverse of `quote`, constructor by
+constructor), emit the definitions and the theorem, and run it over the
+machine-route declarations.
 Next on this route: (a) GENERATE the per-declaration endpoint — the
 quoted term (an "unquote" of `shape.body`), `WF`, the positions, the
 source circuit and its `circuit_state` recurrence, `LetsHold`, the field

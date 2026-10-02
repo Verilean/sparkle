@@ -950,6 +950,23 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   declaration still owes is that its Lean meaning IS the reference
   machine; proving that once, generically (typed valuations of the
   `circuit do` state against the store), is the next step.
+- [x] **A `circuit do` is its reference machine, proved once**
+  (`Tools/ShippingMachineDenote.lean`). `denote_state`: if the body's
+  pending writes are, for every state signal and cycle, the typed values
+  of the next-value terms (`H2` — `rfl` for a declaration), the state
+  tuple of `runCircuitH inits body`, encoded, is the reference machine's
+  state at every time; `denote_out`: a typed term that is a field of the
+  packed core has the reference machine's output. Behind them: typed
+  valuations with `dite` casts that reduce on concrete widths (`TVal`,
+  `slotVal`, `letVal`), the agreement of typed and store valuations
+  (`agree_slots`, `agree_lets`, by `eval_congr_wf`), the fields of a
+  packed value (`packList_field`). `linHW_execution_generic` re-proves the
+  LIN module's two-port end-to-end theorem with NO declaration-specific
+  reasoning: data (typed `let`s, next-value terms, binder sorts), `rfl`
+  (`linHW_writes`, the outputs), and decided side conditions. So the
+  per-declaration endpoint is now mechanical; generating it (an unquote
+  of the machine shape into terms, and the facts) for every machine-route
+  declaration is the next step.
 - [ ] **S7 / trust:** Resolve or explicitly retain `EnvDefines` in the final
   claim; record execution-model/external-tool boundaries without hiding them.
   RECORDED — docs/ShippingCompiler-TrustBase.md states the retained base
