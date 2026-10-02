@@ -3701,6 +3701,27 @@ def machOutFields (slotsW : Nat) :
     { name := nm, lo := slotsW + (rest.map fun o => machWidth o.2).sum, width := machWidth k,
       ty := machHWType k } :: machOutFields slotsW rest
 
+/-- One node of `machCanonAp`: `Signal.ap (Signal.map f a) b` with the
+    canonical binder names of the `<$>`/`<*>` normaliser (`inlCanonLam`,
+    `inlCanonPi`). -/
+def machCanonApNode : Lean.Expr → Lean.Expr
+  | .app (.app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.ap ls) dom) α) β)
+      (.app (.app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.map ls') dom') α') γ)
+        fn) x)) b =>
+    mkApp5 (.const ``Sparkle.Core.Signal.Signal.ap ls) dom α β
+      (mkApp5 (.const ``Sparkle.Core.Signal.Signal.map ls') dom' α' (inlCanonPi γ)
+        (inlCanonLam 0 fn) x) b
+  | e => e
+
+/-- Canonical binder names in every `Signal.ap (Signal.map f a) b` of a
+    transition body.  A lift written directly in this form — as `circuit do`
+    writes the tests of its `match` — carries hygienic macro names, different
+    in every declaration; binder names have no meaning, and with the canonical
+    ones the body is the quotation of a source term. -/
+def machCanonAp : Lean.Expr → Lean.Expr
+  | .app f a => machCanonApNode (.app (machCanonAp f) (machCanonAp a))
+  | e => e
+
 /-- A state machine on the certified route: the transition's binders (the
     declaration's, then one per slot), its packed body under them, and where
     the pieces of the packed value sit. -/
@@ -3748,7 +3769,8 @@ def machineShape? (symbolicMode : Bool) (parameters : List (String × Nat)) (ci 
       machField dom' kind (machClose n k 0 outE)
     let slotFields ← ((List.range n).zip kinds).mapM fun (i, kind) =>
       machField dom' kind (machClose n k 0 (machNext i ws))
-    let (_, body) ← machPack dom' (letFields ++ outFields ++ slotFields)
+    let (_, packed) ← machPack dom' (letFields ++ outFields ++ slotFields)
+    let body := machCanonAp packed
     let binders := bs ++ machSlotBinders (machLetNames regsBody) kinds ++
       lets.toList.map fun (nm, kind, _) => (nm, kind)
     if unifiedGateRoot (binders.map (·.2)).toArray body then

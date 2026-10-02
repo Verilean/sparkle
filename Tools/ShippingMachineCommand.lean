@@ -1,0 +1,614 @@
+import Tools.ShippingMachineAuto
+
+/-! # The machine endpoint of a declaration, generated
+
+`#machine_endpoint f` computes, for a `circuit do` declaration `f` on the
+machine route, the data of `Tools.ShippingMachineAuto.MachineData` — it reads
+the typed terms off the transition's body (`unq`, the inverse of `quote`) —
+and adds
+
+* `f.machineData`, `f.machineInits`, `f.machineBody`, `f.machineResult`,
+  `f.machineSource`;
+* six facts, each an `Eq.refl` the KERNEL checks: `f.machine_ok` (all the
+  side conditions), `f.machine_body` (the body is the quotation of the
+  terms), `f.machine_inits`, `f.machine_writes` and `f.machine_result` (on
+  any state signal, the body's pending writes and its result are the typed
+  values of the next-value and result terms), `f.machine_source` (the
+  declaration is the result of its body on the state loop);
+* `f.machine_sound`: a run of the real synthesis entry on `f` at the machine
+  boundary returns a module that shows, on every output port and at every
+  cycle, the SOURCE declaration `f`.
+
+Nothing here is trusted: a wrong reading of the body makes a kernel check
+fail, and the command then adds no theorem. -/
+namespace Tools.ShippingMachineCommand
+open Lean Meta Sparkle.Compiler.Elab Sparkle.IR.Machine
+open Sparkle.Core Sparkle.Core.Domain Sparkle.Core.Signal
+open Tools.ShippingUnifiedSource Tools.ShippingScalarSoundness
+open Tools.ShippingMachineEntry Tools.ShippingMachineDenote Tools.ShippingMachineAuto
+open Tools.ShippingMixedSourceBridge Tools.ShippingEntrySoundness
+
+initialize registerTraceClass `Sparkle.machine
+
+/-! ## Reading terms off an expression -/
+
+abbrev AnyTerm := Σ s : SType, Term s
+abbrev BitsTerm := Σ w : Nat, Term (.bits w)
+
+def asBool : AnyTerm → Option (Term .bool)
+  | ⟨.bool, t⟩ => some t
+  | _ => none
+
+def asBits (w : Nat) : AnyTerm → Option (Term (.bits w))
+  | ⟨.bits w', t⟩ => if h : w' = w then some (h ▸ t) else none
+  | _ => none
+
+/-- The binders of a transition, as the reader needs them: the kind of every
+position, and the rank of a position among the Bool / BitVec binders. -/
+structure Binders where
+  kinds : Array MixedGateBinder
+  rankB : Array Nat
+  rankV : Array Nat
+
+def Binders.ofKinds (kinds : List MixedGateBinder) : Binders := Id.run do
+  let mut rb : Array Nat := #[]
+  let mut rv : Array Nat := #[]
+  let mut nb := 0
+  let mut nv := 0
+  for k in kinds do
+    rb := rb.push nb
+    rv := rv.push nv
+    match k with
+    | .bool => nb := nb + 1
+    | .bits _ => nv := nv + 1
+    | .domain => pure ()
+  return { kinds := kinds.toArray, rankB := rb, rankV := rv }
+
+def binaryOfInst (n : Name) : Option Binary :=
+  [Binary.add, .sub, .mul, .and, .or, .xor, .shr, .shl].find? fun op => binInst op == n
+
+/-- The typed term an expression is the quotation of (the inverse of
+`quote`, by the head of each node). The result is CHECKED afterwards, so
+this function carries no obligation. -/
+partial def unq (c : Binders) (e : Lean.Expr) : Option AnyTerm :=
+  match e with
+  | .bvar i =>
+    let n := c.kinds.size
+    if i < n then
+      let p := n - 1 - i
+      match c.kinds[p]? with
+      | some .bool => some ⟨.bool, .boolInput c.rankB[p]!⟩
+      | some (.bits w) => some ⟨.bits w, .bitsInput w c.rankV[p]!⟩
+      | _ => none
+    else none
+  | _ =>
+  let args := e.getAppArgs
+  match e.getAppFn with
+  | .const f _ =>
+    if f == ``Sparkle.Core.Signal.Signal.pure && args.size == 3 then
+      match args[2]! with
+      | .const ``Bool.true _ => some ⟨.bool, .boolLit true⟩
+      | .const ``Bool.false _ => some ⟨.bool, .boolLit false⟩
+      | .app (.app (.const ``BitVec.ofNat _) wE) vE => do
+        let w ← canonicalNatLitValue? wE
+        let v ← canonicalNatLitValue? vE
+        some ⟨.bits w, .bitsLit w v⟩
+      | .app (.app (.app (.const ``OfNat.ofNat _) (.app (.const ``BitVec _) wE))
+          (.lit (.natVal v))) _ => do
+        let w ← canonicalNatLitValue? wE
+        some ⟨.bits w, .bitsNum w v⟩
+      | _ => none
+    else if f == ``Complement.complement && args.size == 3 then do
+      let a ← asBool (← unq c args[2]!)
+      some ⟨.bool, .boolNot a⟩
+    else if f == ``Sparkle.Core.Signal.Signal.mux && args.size == 5 then do
+      let cnd ← asBool (← unq c args[2]!)
+      let a ← unq c args[3]!
+      let b ← unq c args[4]!
+      match a with
+      | ⟨.bool, a⟩ => do
+        let b ← asBool b
+        some ⟨.bool, .mux cnd a b⟩
+      | ⟨.bits w, a⟩ => do
+        let b ← asBits w b
+        some ⟨.bits w, .mux cnd a b⟩
+    else if f == ``Sparkle.Core.Signal.Signal.beq && args.size == 5 then do
+      let a ← unq c args[3]!
+      let b ← unq c args[4]!
+      match a with
+      | ⟨.bool, a⟩ => do
+        let b ← asBool b
+        some ⟨.bool, .boolEq a b⟩
+      | ⟨.bits w, a⟩ => do
+        let b ← asBits w b
+        some ⟨.bool, .compare .eq a b⟩
+    else if (f == ``Sparkle.Core.Signal.Signal.ult || f == ``Sparkle.Core.Signal.Signal.ule ||
+        f == ``Sparkle.Core.Signal.Signal.slt || f == ``Sparkle.Core.Signal.Signal.sle) &&
+        args.size == 4 then do
+      let op : SignalCompareKind :=
+        if f == ``Sparkle.Core.Signal.Signal.ult then .ult
+        else if f == ``Sparkle.Core.Signal.Signal.ule then .ule
+        else if f == ``Sparkle.Core.Signal.Signal.slt then .slt else .sle
+      let a ← unq c args[2]!
+      match a with
+      | ⟨.bits w, a⟩ => do
+        let b ← asBits w (← unq c args[3]!)
+        some ⟨.bool, .compare op a b⟩
+      | _ => none
+    else if f == ``Sparkle.Core.Signal.Signal.ap && args.size == 5 then
+      match args[3]! with
+      | .app (.app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.map _) _) _) _)
+          (.lam _ _ (.lam _ _ body _) _)) a =>
+        match appBoolBody? args[1]! body with
+        | some (.compare op n) => do
+          let a ← asBits n (← unq c a)
+          let b ← asBits n (← unq c args[4]!)
+          some ⟨.bool, .appCompare op a b⟩
+        | some (.bool op) => do
+          let a ← asBool (← unq c a)
+          let b ← asBool (← unq c args[4]!)
+          some ⟨.bool, .appBool op a b⟩
+        | some (.two g) => do
+          let a ← asBool (← unq c a)
+          let b ← asBool (← unq c args[4]!)
+          some ⟨.bool, .appBool2 g a b⟩
+        | none => none
+      | _ => none
+    else if f == ``Sparkle.Core.Signal.Signal.map && args.size == 5 then do
+      let a ← unq c args[4]!
+      match a with
+      | ⟨.bits w, a⟩ =>
+        match args[3]! with
+        | .app (.app (.const ``BitVec.setWidth _) _) wtE => do
+          let w' ← canonicalNatLitValue? wtE
+          some ⟨.bits w', .setw w' a⟩
+        | .lam nm _ (.app (.app (.app (.app (.const ``BitVec.extractLsb' _) _) startE) lenE)
+            (.bvar 0)) _ => do
+          let start ← canonicalNatLitValue? startE
+          let len ← canonicalNatLitValue? lenE
+          some ⟨.bits len, .slice nm start len a⟩
+        | .lam nm _ (.app (.app (.app (.app (.const ``BitVec.append _) kE) _) _) (.bvar 0)) _ => do
+          let k ← canonicalNatLitValue? kE
+          some ⟨.bits (k + w), .zextMap nm k a⟩
+        | _ => none
+      | _ => none
+    else if f == ``Functor.map && args.size == 6 then do
+      let a ← unq c args[5]!
+      match a, args[4]! with
+      | ⟨.bits _, a⟩, .lam nm _ (.app (.app (.app (.app (.const ``BitVec.extractLsb' _) _) startE)
+          lenE) (.bvar 0)) _ => do
+        let start ← canonicalNatLitValue? startE
+        let len ← canonicalNatLitValue? lenE
+        some ⟨.bits len, .sliceF nm start len a⟩
+      | _, _ => none
+    else if args.size == 6 then
+      let inst := args[3]!.getAppFn.constName?.getD .anonymous
+      if f == ``HAppend.hAppend then
+        if inst == ``Sparkle.Core.Signal.instHAppendSignalBitVecHAddNat then do
+          let a ← unq c args[4]!
+          let b ← unq c args[5]!
+          match a, b with
+          | ⟨.bits _, a⟩, ⟨.bits _, b⟩ => some ⟨.bits _, .concat a b⟩
+          | _, _ => none
+        else if inst == ``Sparkle.Core.Signal.instHAppendBitVecSignalHAddNat then do
+          let b ← unq c args[5]!
+          match args[4]!, b with
+          | .app (.app (.const ``BitVec.ofNat _) kE) vE, ⟨.bits _, b⟩ => do
+            let k ← canonicalNatLitValue? kE
+            let v ← canonicalNatLitValue? vE
+            some ⟨.bits _, .concatLitHi k v b⟩
+          | _, _ => none
+        else if inst == ``Sparkle.Core.Signal.instHAppendSignalBitVecHAddNat_1 then do
+          let a ← unq c args[4]!
+          match a, args[5]! with
+          | ⟨.bits _, a⟩, .app (.app (.const ``BitVec.ofNat _) kE) vE => do
+            let k ← canonicalNatLitValue? kE
+            let v ← canonicalNatLitValue? vE
+            some ⟨.bits _, .concatLitLo a k v⟩
+          | _, _ => none
+        else none
+      else
+        match signalBoolBinKind? f args[3]! with
+        | some op => do
+          let a ← asBool (← unq c args[4]!)
+          let b ← asBool (← unq c args[5]!)
+          some ⟨.bool, .boolBinary op a b⟩
+        | none =>
+          match binaryOfInst inst with
+          | some op => do
+            let a ← unq c args[4]!
+            match a with
+            | ⟨.bits w, a⟩ => do
+              let b ← asBits w (← unq c args[5]!)
+              some ⟨.bits w, .binary op a b⟩
+            | _ => none
+          | none => none
+    else none
+  | _ => none
+
+/-- The first `n` operands of a right-nested concatenation, and the rest. -/
+def splitLets : Nat → BitsTerm → Option (List BitsTerm × BitsTerm)
+  | 0, t => some ([], t)
+  | n + 1, ⟨_, .concat a rest⟩ =>
+    (splitLets n ⟨_, rest⟩).map fun (fs, core) => (⟨_, a⟩ :: fs, core)
+  | _, _ => none
+
+/-- The `n` operands of a right-nested concatenation. -/
+def splitFields : Nat → BitsTerm → Option (List BitsTerm)
+  | 0, _ => none
+  | 1, t => some [t]
+  | n + 2, ⟨_, .concat a rest⟩ => (splitFields (n + 1) ⟨_, rest⟩).map fun fs => ⟨_, a⟩ :: fs
+  | _, _ => none
+
+/-- The typed term a packed field is the field of: a Bool is packed as
+`mux b 1#1 0#1`. -/
+def unField : MixedGateBinder → BitsTerm → Option AnyTerm
+  | .bool, ⟨_, .mux c _ _⟩ => some ⟨.bool, c⟩
+  | .bits _, ⟨w, t⟩ => some ⟨.bits w, t⟩
+  | _, _ => none
+
+/-! ## Data as expressions -/
+
+def natL (n : Nat) : Lean.Expr := mkRawNatLit n
+
+def listE (ty : Lean.Expr) (xs : List Lean.Expr) : Lean.Expr :=
+  xs.foldr (fun x acc => mkApp3 (mkConst ``List.cons [.zero]) ty x acc)
+    (mkApp (mkConst ``List.nil [.zero]) ty)
+
+def stypeE : SType → Lean.Expr
+  | .bool => mkConst ``SType.bool
+  | .bits w => mkApp (mkConst ``SType.bits) (natL w)
+
+def binaryE : Binary → Lean.Expr
+  | .add => mkConst ``Binary.add | .sub => mkConst ``Binary.sub | .mul => mkConst ``Binary.mul
+  | .and => mkConst ``Binary.and | .or => mkConst ``Binary.or | .xor => mkConst ``Binary.xor
+  | .shr => mkConst ``Binary.shr | .shl => mkConst ``Binary.shl
+
+def compareKindE : SignalCompareKind → Lean.Expr
+  | .ult => mkConst ``SignalCompareKind.ult | .ule => mkConst ``SignalCompareKind.ule
+  | .slt => mkConst ``SignalCompareKind.slt | .sle => mkConst ``SignalCompareKind.sle
+  | .eq => mkConst ``SignalCompareKind.eq
+
+def boolBinKindE : SignalBoolBinKind → Lean.Expr
+  | .band => mkConst ``SignalBoolBinKind.band | .bor => mkConst ``SignalBoolBinKind.bor
+  | .bxor => mkConst ``SignalBoolBinKind.bxor
+
+def appBool2E' : AppBool2 → Lean.Expr
+  | .andNot => mkConst ``AppBool2.andNot | .notAnd => mkConst ``AppBool2.notAnd
+  | .nor => mkConst ``AppBool2.nor
+
+def termE : {s : SType} → Term s → Lean.Expr
+  | _, .boolInput j => mkApp (mkConst ``Term.boolInput) (natL j)
+  | _, .bitsInput w j => mkApp2 (mkConst ``Term.bitsInput) (natL w) (natL j)
+  | _, .boolLit b => mkApp (mkConst ``Term.boolLit) (toExpr b)
+  | _, .bitsLit w v => mkApp2 (mkConst ``Term.bitsLit) (natL w) (natL v)
+  | _, .bitsNum w v => mkApp2 (mkConst ``Term.bitsNum) (natL w) (natL v)
+  | _, .binary op (w := w) a b =>
+    mkApp4 (mkConst ``Term.binary) (binaryE op) (natL w) (termE a) (termE b)
+  | _, .compare op (w := w) a b =>
+    mkApp4 (mkConst ``Term.compare) (compareKindE op) (natL w) (termE a) (termE b)
+  | _, .boolBinary op a b =>
+    mkApp3 (mkConst ``Term.boolBinary) (boolBinKindE op) (termE a) (termE b)
+  | _, .boolNot a => mkApp (mkConst ``Term.boolNot) (termE a)
+  | _, .boolEq a b => mkApp2 (mkConst ``Term.boolEq) (termE a) (termE b)
+  | s, .mux c a b => mkApp4 (mkConst ``Term.mux) (stypeE s) (termE c) (termE a) (termE b)
+  | _, .setw (w := w) w' a => mkApp3 (mkConst ``Term.setw) (natL w) (natL w') (termE a)
+  | _, .slice nm start len (w := w) a =>
+    mkApp5 (mkConst ``Term.slice) (toExpr nm) (natL start) (natL len) (natL w) (termE a)
+  | _, .concat (m := m) (n := n) a b =>
+    mkApp4 (mkConst ``Term.concat) (natL m) (natL n) (termE a) (termE b)
+  | _, .concatLitHi k v (n := n) b =>
+    mkApp4 (mkConst ``Term.concatLitHi) (natL k) (natL v) (natL n) (termE b)
+  | _, .concatLitLo (m := m) a k v =>
+    mkApp4 (mkConst ``Term.concatLitLo) (natL m) (termE a) (natL k) (natL v)
+  | _, .zextMap nm k (n := n) a =>
+    mkApp4 (mkConst ``Term.zextMap) (toExpr nm) (natL k) (natL n) (termE a)
+  | _, .sliceF nm start len (w := w) a =>
+    mkApp5 (mkConst ``Term.sliceF) (toExpr nm) (natL start) (natL len) (natL w) (termE a)
+  | _, .appCompare op (w := w) a b =>
+    mkApp4 (mkConst ``Term.appCompare) (compareKindE op) (natL w) (termE a) (termE b)
+  | _, .appBool op a b => mkApp3 (mkConst ``Term.appBool) (boolBinKindE op) (termE a) (termE b)
+  | _, .appBool2 f a b => mkApp3 (mkConst ``Term.appBool2) (appBool2E' f) (termE a) (termE b)
+
+def stypeT : Lean.Expr := mkConst ``SType
+/-- `fun s => Term s`. -/
+def termFam : Lean.Expr :=
+  .lam `s stypeT (mkApp (mkConst ``Tools.ShippingUnifiedSource.Term) (.bvar 0)) .default
+/-- `Σ s : SType, Term s`. -/
+def anyTermT : Lean.Expr := mkApp2 (mkConst ``Sigma [.zero, .zero]) stypeT termFam
+
+def anyTermE (t : AnyTerm) : Lean.Expr :=
+  mkApp4 (mkConst ``Sigma.mk [.zero, .zero]) stypeT termFam (stypeE t.1) (termE t.2)
+
+def termsE : List AnyTerm → Lean.Expr
+  | [] => mkConst ``Terms.nil
+  | t :: rest =>
+    mkApp4 (mkConst ``Terms.cons) (stypeE t.1) (listE stypeT (rest.map fun r => stypeE r.1))
+      (termE t.2) (termsE rest)
+
+def binderKindE : MixedGateBinder → Lean.Expr
+  | .domain => mkConst ``MixedGateBinder.domain
+  | .bool => mkConst ``MixedGateBinder.bool
+  | .bits w => mkApp (mkConst ``MixedGateBinder.bits) (natL w)
+
+def binderE (b : Name × MixedGateBinder) : Lean.Expr :=
+  mkApp4 (mkConst ``Prod.mk [.zero, .zero]) (mkConst ``Lean.Name) (mkConst ``MixedGateBinder)
+    (toExpr b.1) (binderKindE b.2)
+
+def binderT : Lean.Expr :=
+  mkApp2 (mkConst ``Prod [.zero, .zero]) (mkConst ``Lean.Name) (mkConst ``MixedGateBinder)
+
+def hwTypeE : Sparkle.IR.Type.HWType → Option Lean.Expr
+  | .bit => some (mkConst ``Sparkle.IR.Type.HWType.bit)
+  | .bitVector w => some (mkApp (mkConst ``Sparkle.IR.Type.HWType.bitVector) (natL w))
+  | _ => none
+
+def resetKindE : Sparkle.IR.Type.ResetKind → Lean.Expr
+  | .synchronous => mkConst ``Sparkle.IR.Type.ResetKind.synchronous
+  | .asynchronous => mkConst ``Sparkle.IR.Type.ResetKind.asynchronous
+
+def layoutE (l : Layout) : Option Lean.Expr := do
+  let outs ← l.outs.mapM fun o => do
+    let ty ← hwTypeE o.ty
+    some (mkApp4 (mkConst ``OutField.mk) (toExpr o.name) (natL o.lo) (natL o.width) ty)
+  let slots := l.slots.map fun f =>
+    mkApp3 (mkConst ``SlotField.mk) (natL f.lo) (natL f.width) (natL f.init)
+  some (mkApp4 (mkConst ``Layout.mk) (listE (mkConst ``SlotField) slots)
+    (listE (mkConst ``OutField) outs) (resetKindE l.resetKind) (natL l.lets))
+
+def natListE (xs : List Nat) : Lean.Expr := listE (mkConst ``Nat) (xs.map natL)
+
+/-- The kind of an output port. -/
+def outKind (o : OutField) : MixedGateBinder :=
+  match o.ty with
+  | .bit => .bool
+  | _ => .bits o.width
+
+/-! ## The command -/
+
+/-- The data read off a declaration. -/
+structure Read where
+  shape : MachineShape
+  entry : ConstantInfo
+  nIn : Nat
+  dom : Lean.Expr
+  srcDom : Lean.Expr
+  bposL : List Nat
+  vposL : List Nat
+  vwL : List Nat
+  ls : List AnyTerm
+  outs : List AnyTerm
+  nexts : List AnyTerm
+  ctor? : Option Name
+  sel? : Option (Name × Nat × Nat)
+  outNames : List String
+
+def readMachine (declName : Name) : MetaM Read := do
+  let env ← getEnv
+  let ci ← getConstInfo declName
+  unless ci.levelParams.isEmpty do throwError "{declName}: universe parameters"
+  let senv := structEnv env
+  let entry := entryConst true false [] ci (instancePredicate env) (userInliner env) senv
+  let some shape := machineShape? false [] entry senv
+    | throwError "{declName}: not a machine shape"
+  let some entryV := entry.value? | throwError "{declName}: no value"
+  let some (bsIn, entryBody) := mixedGatePeel entryV | throwError "{declName}: binders"
+  let nIn := bsIn.length
+  let nSlots := shape.layout.slots.length
+  let nLets := shape.layout.lets
+  let binders := shape.binders
+  unless binders.length == nIn + nSlots + nLets do throwError "{declName}: binder count"
+  let some (sel?, srcDom, _, _, _) := machRun? senv.proj entryBody
+    | throwError "{declName}: no runCircuitH"
+  let some (dom, _) := machDom? (nSlots + nLets) srcDom | throwError "{declName}: domain"
+  let some (ctor?, outKinds) := machOuts? senv entry.type | throwError "{declName}: outputs"
+  let kinds := binders.map (·.2)
+  let c := Binders.ofKinds kinds
+  let idx := (List.range kinds.length).zip kinds
+  let bposL := idx.filterMap fun (p, k) => if k == .bool then some p else none
+  let vposL := idx.filterMap fun (p, k) => match k with | .bits _ => some p | _ => none
+  let vwL := idx.filterMap fun (_, k) => match k with | .bits w => some w | _ => none
+  let some whole := unq c shape.body | throwError "{declName}: the body is not read as a term"
+  let ⟨.bits W, whole⟩ := whole | throwError "{declName}: the body is a Bool"
+  let some (letFs, core) := splitLets nLets ⟨W, whole⟩ | throwError "{declName}: let fields"
+  let nOuts := shape.layout.outs.length
+  let some fs := splitFields (nOuts + nSlots) core | throwError "{declName}: core fields"
+  let typed (ks : List MixedGateBinder) (fs : List BitsTerm) : MetaM (List AnyTerm) :=
+    (ks.zip fs).mapM fun (k, f) =>
+      match unField k f with
+      | some t => pure t
+      | none => throwError "{declName}: a field does not have its binder's kind"
+  let ls ← typed (kinds.drop (nIn + nSlots)) letFs
+  let outs ← typed (shape.layout.outs.map outKind) (fs.take nOuts)
+  let nexts ← typed ((kinds.drop nIn).take nSlots) (fs.drop nOuts)
+  -- the reading, checked here already (the kernel checks it again)
+  let packed := (packLets (ls.map fun l => toField l.1 l.2)
+    (packAll ((outs.map fun t => toField t.1 t.2) ++ nexts.map fun t => toField t.1 t.2)).2).2
+  let q := quote dom (fun j => inputExpr binders.length (bposL.getD j 0))
+    (fun j => inputExpr binders.length (vposL.getD j 0)) packed
+  unless q.equal shape.body do
+    throwError "{declName}: the terms read off the body do not quote back to it"
+  return { shape, entry, nIn, dom, srcDom, bposL, vposL, vwL, ls, outs, nexts, ctor?, sel?,
+           outNames := outKinds.map (·.1) }
+
+def dataE (r : Read) : MetaM Lean.Expr := do
+  let body ← match reflExpr r.shape.body with
+    | .ok b => pure b
+    | .error msg => throwError msg
+  let dom ← match reflExpr r.dom with
+    | .ok b => pure b
+    | .error msg => throwError msg
+  let some layout := layoutE r.shape.layout | throwError "an output type is not a bit vector"
+  let shape := mkApp3 (mkConst ``MachineShape.mk) (listE binderT (r.shape.binders.map binderE))
+    body layout
+  return mkAppN (mkConst ``MachineData.mk)
+    #[shape, natL r.nIn, dom, natListE r.bposL, natListE r.vposL, natListE r.vwL,
+      listE stypeT (r.nexts.map fun t => stypeE t.1), listE anyTermT (r.ls.map anyTermE),
+      listE anyTermT (r.outs.map anyTermE), termsE r.nexts]
+
+/-- Progress lines, to the file `SPARKLE_MACHINE_PROGRESS` names (a command's
+own output is shown only when it ends). -/
+def progress (msg : String) : MetaM Unit := do
+  if let some path ← IO.getEnv "SPARKLE_MACHINE_PROGRESS" then
+    let h ← IO.FS.Handle.mk path .append
+    h.putStrLn s!"{← IO.monoMsNow} {msg}"
+    h.flush
+
+def addDef (name : Name) (type value : Lean.Expr) : MetaM Unit :=
+  addDecl (.defnDecl
+    { name, levelParams := [], type, value, hints := .abbrev, safety := .safe })
+
+/-- A proof of an equation (under binders) by `Eq.refl`, on the side `side`
+selects. -/
+def reflProof (stmt : Lean.Expr) (left : Bool) : MetaM Lean.Expr :=
+  forallTelescope stmt fun xs eq => do
+    let some (α, lhs, rhs) := eq.eq? | throwError "not an equation: {eq}"
+    let u ← getLevel α
+    mkLambdaFVars xs (mkApp2 (mkConst ``Eq.refl [u]) α (if left then lhs else rhs))
+
+/-- The machine endpoint of `declName`: the definitions, the six kernel
+checks, the theorem (whose name is returned). `checkCloses` also runs the
+machine synthesis and checks that it ties the `let`s (the `MachineCloses`
+boundary, in this environment). -/
+def generateCore (declName : Name) (checkCloses : Bool) : MetaM Name := do
+  progress s!"{declName}: reading"
+  let r ← readMachine declName
+  let dataName := declName ++ `machineData
+  progress s!"{declName}: data"
+  addDef dataName (mkConst ``MachineData) (← dataE r)
+  progress s!"{declName}: data added"
+  let data := mkConst dataName
+  if checkCloses then
+    let translate : TranslateFn := fun e h t n => translateExprToWire e h t n
+    unless (← synthesizeMachineCertified translate (fun _ => pure ()) declName r.shape).isSome do
+      throwError "{declName}: the machine synthesis does not tie the lets"
+  let some entryV := r.entry.value? | throwError "{declName}: no value"
+  let bsIn := r.shape.binders.take r.nIn
+  -- the family of domains: every domain for a domain binder, one otherwise
+  let poly := bsIn.any fun b => b.2 == .domain
+  let domT := mkConst ``Sparkle.Core.Domain.DomainConfig
+  let ι := if poly then domT else mkConst ``Unit
+  withLocalDeclD `i ι fun i => do
+    let D := if poly then i else r.srcDom
+    let nat := mkConst ``Nat
+    let sig (α : Lean.Expr) := mkApp2 (mkConst ``Sparkle.Core.Signal.Signal [.zero]) D α
+    let boolsT ← mkArrow nat (sig (mkConst ``Bool))
+    let bitsT := Lean.Expr.forallE `j nat
+      (.forallE `n nat (sig (mkApp (mkConst ``BitVec) (.bvar 0))) .default) .default
+    withLocalDeclD `bools boolsT fun bools => withLocalDeclD `bits bitsT fun bits => do
+    let args := ((List.range bsIn.length).zip bsIn).map fun (p, b) =>
+      match b.2 with
+      | .domain => D
+      | .bool => mkApp bools (mkNatLit p)
+      | .bits w => mkApp2 bits (mkNatLit p) (mkNatLit w)
+    let src := mkAppN (mkConst declName) args.toArray
+    let inst := entryV.beta args.toArray
+    let some run := inst.find? fun t => t.isAppOfArity ``Sparkle.Core.runCircuitH 8
+      | throwError "{declName}: no runCircuitH in the unfolded value"
+    let a := run.getAppArgs
+    let (rho, inhab, inits, body) := (a[2]!, a[5]!, a[6]!, a[7]!)
+    if inits.hasFVar || inhab.hasFVar then
+      throwError "{declName}: the reset values depend on a binder"
+    -- the generic theorem, applied step by step; the binder types name the facts
+    let mut p := mkAppN (mkConst ``machine_trace_of_data)
+      #[toExpr declName, data, ι, ← mkLambdaFVars #[i] D, inhab, ← mkLambdaFVars #[i] rho]
+    let initsName := declName ++ `machineInits
+    addDef initsName (← inferType p).bindingDomain! inits
+    p := mkApp p (mkConst initsName)
+    let bodyName := declName ++ `machineBody
+    addDef bodyName (← inferType p).bindingDomain! (← mkLambdaFVars #[i, bools, bits] body)
+    p := mkApp p (mkConst bodyName)
+    -- the source observations, one per output port
+    let scalar := r.ctor?.isNone
+    let obs ← (r.outNames.zip (r.shape.layout.outs.map outKind)).mapM fun (nm, k) => do
+      let field ← if scalar then pure src else mkProjection src (Name.mkSimple nm)
+      withLocalDeclD `t nat fun t => do
+        let v (α : Lean.Expr) :=
+          mkApp (mkApp3 (mkConst ``Sparkle.Core.Signal.Signal.val [.zero]) D α field) t
+        let e ← match k with
+          | .bool => pure (mkApp (mkConst ``Tools.ShippingMuxLoweringSoundness.encodeBool)
+              (v (mkConst ``Bool)))
+          | .bits w =>
+            let wE := mkNatLit w
+            pure (mkApp2 (mkConst ``BitVec.toNat) wE (v (mkApp (mkConst ``BitVec) wE)))
+          | .domain => throwError "{declName}: an output is a domain"
+        mkLambdaFVars #[t] e
+    -- the observations of a result, by field
+    let env ← getEnv
+    let rhoHead := rho.getAppFn.constName?.getD .anonymous
+    let fieldNames : List (Option Name) ←
+      if rhoHead == ``Sparkle.Core.Signal.Signal then pure [none]
+      else if r.ctor?.isSome then pure (r.outNames.map fun nm => some (Name.mkSimple nm))
+      else match r.sel? with
+        | some (_, _, idx) =>
+          match (getStructureFields env rhoHead)[idx]? with
+          | some f => pure [some f]
+          | none => throwError "{declName}: the selected field of {rhoHead}"
+        | none => throwError "{declName}: the result type {rhoHead}"
+    let resName := declName ++ `machineResult
+    let resV ← withLocalDeclD `r rho fun res => do
+      let fs ← (fieldNames.zip (r.shape.layout.outs.map outKind)).mapM fun (fn, k) => do
+        let field ← match fn with
+          | none => pure res
+          | some f => mkProjection res f
+        withLocalDeclD `t nat fun t => do
+          let v (α : Lean.Expr) :=
+            mkApp (mkApp3 (mkConst ``Sparkle.Core.Signal.Signal.val [.zero]) D α field) t
+          let e ← match k with
+            | .bool => pure (mkApp (mkConst ``Tools.ShippingMuxLoweringSoundness.encodeBool)
+                (v (mkConst ``Bool)))
+            | .bits w =>
+              let wE := mkNatLit w
+              pure (mkApp2 (mkConst ``BitVec.toNat) wE (v (mkApp (mkConst ``BitVec) wE)))
+            | .domain => throwError "{declName}: an output is a domain"
+          mkLambdaFVars #[t] e
+      mkLambdaFVars #[i, res] (listE (← mkArrow nat nat) fs)
+    addDef resName (← inferType p).bindingDomain! resV
+    p := mkApp p (mkConst resName)
+    let srcName := declName ++ `machineSource
+    addDef srcName (← inferType p).bindingDomain!
+      (← mkLambdaFVars #[i, bools, bits] (listE (← mkArrow nat nat) obs))
+    p := mkApp p (mkConst srcName)
+    for (suffix, left) in [(`machine_ok, false), (`machine_body, true), (`machine_inits, false),
+        (`machine_writes, true), (`machine_result, true), (`machine_source, true)] do
+      let stmt := (← inferType p).bindingDomain!
+      let name := declName ++ suffix
+      let proof ← reflProof stmt left
+      let t0 ← IO.monoMsNow
+      progress s!"{name}: checking"
+      try
+        addDecl (.thmDecl { name, levelParams := [], type := stmt, value := proof })
+      catch ex =>
+        throwError "{declName}: {suffix} is not checked by the kernel: {ex.toMessageData}"
+      trace[Sparkle.machine] "{name}: {(← IO.monoMsNow) - t0} ms"
+      p := mkApp p (mkConst name)
+    progress s!"{declName}: theorem"
+    let soundName := declName ++ `machine_sound
+    addDecl (.thmDecl
+      { name := soundName, levelParams := [], type := ← inferType p, value := p })
+    for ax in ← Lean.collectAxioms soundName do
+      unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do
+        throwError "{soundName} uses a non-standard axiom: {ax}"
+    progress s!"{declName}: done"
+    return soundName
+
+/-- Generate the machine endpoint of `declName`; on failure nothing is
+added. Every declaration is checked by the kernel before the next one is
+built (no asynchronous checking), so a failed check is an exception here. -/
+def generate (declName : Name) (checkCloses : Bool := true) : MetaM Name := do
+  let saved ← getEnv
+  try
+    withOptions (fun o => Lean.Elab.async.set o false) (generateCore declName checkCloses)
+  catch ex =>
+    setEnv saved
+    throw ex
+
+open Lean.Elab Lean.Elab.Command in
+/-- `#machine_endpoint f` adds the machine data of `f` and the theorem
+`f.machine_sound`. -/
+elab "#machine_endpoint " d:ident : command => do
+  let declName ← liftCoreM <| realizeGlobalConstNoOverloadWithInfo d
+  let name ← liftTermElabM (generate declName)
+  logInfo m!"{name}: source circuit do → real entry → registers → trace, checked by the kernel"
+
+end Tools.ShippingMachineCommand

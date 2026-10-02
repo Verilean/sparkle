@@ -934,10 +934,9 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   WHAT THE COUNT MEANS: a declaration "on the machine route" is compiled
   by the proved harness and the proved IR passes, and its emitted module
   agrees with its source in the 60-cycle simulation; the end-to-end
-  THEOREM is instantiated for three of them (`mThree`, `linChk`,
-  `checksumHW`). For the others the generic theorems apply once the
-  quoted term and the source recurrence are supplied — per declaration,
-  by `rfl` and one `simp` — and generating those automatically is open.
+  THEOREM was instantiated for three of them (`mThree`, `linChk`,
+  `checksumHW`) when this was written. It is now generated for every one
+  of them (below: "The machine endpoint, generated").
 - [x] **The reference machine** (`Tools/ShippingMachineRef.lean`). The
   valuation `machine_trace` asks for is constructed from the terms alone:
   `RefMachine` (state: reset values, then the slot fields of the packed
@@ -967,6 +966,45 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   per-declaration endpoint is now mechanical; generating it (an unquote
   of the machine shape into terms, and the facts) for every machine-route
   declaration is the next step.
+- [x] **The machine endpoint, generated** (`Tools/ShippingMachineAuto.lean`,
+  `Tools/ShippingMachineCommand.lean`). `#machine_endpoint f` reads the
+  typed terms off the transition of `f` (`unq`, the inverse of `quote`,
+  constructor by constructor; it is NOT verified — the kernel checks what
+  it returns), adds `f.machineData`, and the kernel checks six
+  `Eq.refl`s: `f.machine_ok` (ONE Boolean, `MachineData.ok`, deciding
+  every side condition of the endpoint: the binder split, widths and
+  positions, well-formedness of the packed term, `LetsScoped`,
+  `TermFacts`, the fit of the slots and the ports with the packed core),
+  `f.machine_body` (the transition body IS the quotation of the terms),
+  `f.machine_inits`, `f.machine_writes` and `f.machine_result` (on ANY
+  state signal the body's pending writes and its result are the typed
+  values of the next-value and result terms), `f.machine_source` (the
+  declaration is the result of its body on the state loop). From these
+  `machine_trace_of_data` concludes `f.machine_sound`: a run of the real
+  synthesis entry on `f` returns a module whose every output port shows,
+  at every cycle, the SOURCE declaration `f` — for every domain of a
+  domain binder, the ids and registers chosen before the domain
+  (`MachineTrace`). No proof script per declaration; 0.1 to 1.5 seconds
+  each. MEASURED (`scripts/shipping-coverage/endpoints.sh`): **55 of
+  the 55 machine-route declarations have the theorem** (3 before,
+  written by hand). `checksumHW_ports` unfolds the generated statement
+  into the one `linHW_execution` makes. Three things had to change for
+  it: (a) the typed valuation reads a position by a `match` on
+  `Nat.decEq`, not an `if` — with `if`, the kernel meets a read while the
+  other side is the `ite` of a mux, fails on the arguments and unfolds
+  BOTH, which evaluates the mux's condition; for a comparison against
+  `x + p` with the 381-bit modulus that is unary in `p` and never ends
+  (the Fp2 multiplier); (b) the source check is split in two so that
+  values are compared on an abstract state signal only; (c) a lift
+  written directly as `Signal.ap (Signal.map f a) b` — the tests of
+  `circuit do`'s `match` — carried hygienic binder names, so its body was
+  the quotation of NO term: `machCanonAp` gives them the names of the
+  `<$>`/`<*>` normaliser (machine route only; two modules; against the
+  previous compiler one wire of `fsmHoldCdo` has another number
+  (`_tmp_concat_lo_13` → `_11`; the module is otherwise the same text)
+  and nothing else in the corpus changes). What `f.machine_sound` still
+  assumes is its boundary: `MachineDefines` (the run read this shape) and
+  `MachineCloses` (the run tied the `let`s; proved when there are none).
 - [ ] **S7 / trust:** Resolve or explicitly retain `EnvDefines` in the final
   claim; record execution-model/external-tool boundaries without hiding them.
   RECORDED — docs/ShippingCompiler-TrustBase.md states the retained base

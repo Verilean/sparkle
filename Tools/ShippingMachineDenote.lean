@@ -10,9 +10,9 @@ evaluation of those terms, has the reference machine's state and outputs:
 
 * `TVal`: a typed valuation of the binders, built from the state tuple of
   the `circuit do` (`slotVal`) and its hardware `let`s in order (`letVal`).
-  The casts in it are `dite`s on width equalities, which reduce on concrete
-  widths, so a declaration identifies its own writes with
-  `evalTerms nexts (typed valuation)` by `rfl`.
+  The casts in it are matches on the decision of a width equality, which
+  reduce on concrete widths, so a declaration identifies its own writes
+  with `evalTerms nexts (typed valuation)` by `rfl`.
 * `agree`: the typed valuation and the reference machine's store valuation
   give every term the same value.
 * `packList_field`: the fields of the packed core.
@@ -58,11 +58,28 @@ structure TVal where
   b : Nat → Bool
   v : (p : Nat) → (w : Nat) → BitVec w
 
-/-- Give position `p` a typed value. (The cast is a `dite` on the width.) -/
+/-- Give position `p` a typed value. (The cast is a match on the decision of
+the width equality.)
+
+The position test and the cast are `match`es on `Nat.decEq`, NOT `if`s: a
+read of a closed position then reduces through matcher applications, which
+the kernel unfolds before any regular definition. With `if` the kernel can
+meet a read (`ite (q = p) …`) while the other side is the `ite` of a mux,
+fail to match their arguments, and unfold BOTH — which evaluates the mux's
+condition, and for a comparison against `x + c` with a wide constant `c`
+that is a unary computation in `c`. -/
 def TVal.set (V : TVal) (p : Nat) : (s : SType) → s.Type → TVal
-  | .bool, x => ⟨fun q => if q = p then x else V.b q, V.v⟩
+  | .bool, x =>
+    ⟨fun q => match Nat.decEq q p with
+      | isTrue _ => x
+      | isFalse _ => V.b q, V.v⟩
   | .bits w, x =>
-    ⟨V.b, fun q n => if q = p then (if h : w = n then h ▸ x else 0#n) else V.v q n⟩
+    ⟨V.b, fun q n => match Nat.decEq q p with
+      | isTrue _ =>
+        (match Nat.decEq w n with
+         | isTrue h => h ▸ x
+         | isFalse _ => 0#n)
+      | isFalse _ => V.v q n⟩
 
 /-- The slots: position `kIn + i` holds component `i` of the state tuple. -/
 def slotVal (kIn : Nat) : (ss : List SType) → HList (tys ss) → Nat → TVal → TVal
@@ -243,17 +260,37 @@ theorem eval_congr_wf {kb kv : Nat} {vw : Nat → Nat} {okB okV : Nat → Bool}
 
 theorem set_b_ne {V : TVal} {p q : Nat} {s : SType} {x : s.Type} (h : q ≠ p) :
     (V.set p s x).b q = V.b q := by
-  cases s <;> simp [TVal.set, h]
+  cases s with
+  | bool =>
+    simp only [TVal.set]
+    split
+    · next h' _ => exact absurd h' h
+    · rfl
+  | bits w => rfl
 
 theorem set_v_ne {V : TVal} {p q : Nat} {s : SType} {x : s.Type} (h : q ≠ p) (n : Nat) :
     (V.set p s x).v q n = V.v q n := by
-  cases s <;> simp [TVal.set, h]
+  cases s with
+  | bool => rfl
+  | bits w =>
+    simp only [TVal.set]
+    split
+    · next h' _ => exact absurd h' h
+    · rfl
 
 theorem set_b_eq (V : TVal) (p : Nat) (x : Bool) : (V.set p .bool x).b p = x := by
-  simp [TVal.set]
+  simp only [TVal.set]
+  split
+  · rfl
+  · next h' _ => exact absurd rfl h'
 
 theorem set_v_eq (V : TVal) (p w : Nat) (x : BitVec w) : (V.set p (.bits w) x).v p w = x := by
-  simp [TVal.set]
+  simp only [TVal.set]
+  split
+  · split
+    · rfl
+    · next h' _ => exact absurd rfl h'
+  · next h' _ => exact absurd rfl h'
 
 theorem slotVal_lt (kIn : Nat) : ∀ (ss : List SType) (x : HList (tys ss)) (i0 : Nat) (V : TVal)
     (q : Nat), q < kIn + i0 →
@@ -609,5 +646,94 @@ theorem denote_out {D : DomainConfig} {ss : List SType} [Inhabited (HList (tys s
   simp only at hc
   rw [← hc, hstate τ]
   rfl
+
+/-! ## The endpoint, packaged -/
+
+open Tools.ShippingMachineClose (Zip₂) in
+open Tools.ShippingMixedEntrySoundness Tools.ShippingMixedSourceBridge
+  Tools.ShippingEntrySoundness Sparkle.IR.AST in
+set_option maxHeartbeats 2000000 in
+/-- **Source to RTL for a state machine, with the declaration's part reduced
+to data.** From the one-cycle theorem of the emitted module and decidable
+facts about the terms: for every `circuit do` (`inits`, `body`) whose pending
+writes are the typed values of the next-value terms, a run of the emitted
+module from the reset values shows on every output port the typed value of
+that port's term on the `circuit do`'s own state — at every cycle. -/
+theorem machine_endpoint {declName : Name} {shape : MachineShape} {m : Sparkle.IR.AST.Module}
+    {bsIn slotBs letBs : List (Name × MixedGateBinder)}
+    (h : MachinePreserves declName shape bsIn slotBs letBs m)
+    {ss : List SType} {ls : List (Σ s : SType, Term s)} {nexts : Terms ss}
+    {f0 : Σ w : Nat, Term (.bits w)} {rest : List (Σ w : Nat, Term (.bits w))}
+    {K : Nat → Option SType} {kb kv : Nat} {vw bpos vpos : Nat → Nat} {dom : Lean.Expr}
+    {nOuts : Nat}
+    (layW : Zip₂ (fun (f : SlotField) (b : Name × MixedGateBinder) =>
+      f.width = machWidth b.2 ∧ b.2 ≠ .domain ∧ f.init < 2 ^ f.width)
+      shape.layout.slots slotBs)
+    (hwf : (packLets (ls.map fun l => toField l.1 l.2) (packList f0 rest).2).2.WF kb kv vw)
+    (hb : ∀ j, j < kb → ∃ name, shape.binders[bpos j]? = some (name, .bool))
+    (hv : ∀ j, j < kv → ∃ name, shape.binders[vpos j]? = some (name, .bits (vw j)))
+    (hbody : shape.body = quote dom (fun j => inputExpr shape.binders.length (bpos j))
+      (fun j => inputExpr shape.binders.length (vpos j))
+      (packLets (ls.map fun l => toField l.1 l.2) (packList f0 rest).2).2)
+    (hfit : ∀ f ∈ shape.layout.slots, f.lo + f.width ≤ (packList f0 rest).1)
+    (houtfit : ∀ o ∈ shape.layout.outs, o.lo + o.width ≤ (packList f0 rest).1)
+    (hscoped : LetsScoped bpos vpos (bsIn.length + slotBs.length) letBs
+      (ls.map fun l => toField l.1 l.2))
+    (hn : slotBs.length = ss.length)
+    (hnexts : (f0 :: rest).drop nOuts = nexts.fields)
+    (hslots : SlotsFit (f0 :: rest) nOuts shape.layout.slots)
+    (facts : TermFacts bsIn.length kb kv vw bpos vpos K ss ls)
+    (nextsWF : ∀ g ∈ nexts.fields, g.2.WF kb kv vw) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = shape.binders.length ∧
+    ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
+      regs.Nodup ∧ regs.length = slotBs.length ∧
+      ∀ {D : DomainConfig} [Inhabited (HList (tys ss))] {ρ : Type} (inits : HList (tys ss))
+        (body : RegList D (HList (tys ss)) (Circuit.SigList D (tys ss)) (tys ss) →
+          Circuit D (Circuit.SigList D (tys ss)) ρ)
+        (bools : Nat → Signal D Bool) (bits : (j : Nat) → (n : Nat) → Signal D (BitVec n)),
+        (∀ i, encState ss inits i = (shape.layout.slots[i]?.map (·.init)).getD 0) →
+        (∀ (S : Signal D (HList (tys ss))) (t : Nat),
+          valsAt (tys ss) (body (mkRegList S (tys ss) (fun s => s) (fun f => f))
+              (mkHolds (tys ss) S)).snd t =
+            evalTerms
+              (fun j => (typedVal bsIn.length bpos vpos ss ls bools bits t (S.val t)).b (bpos j))
+              (fun j w => (typedVal bsIn.length bpos vpos ss ls bools bits t (S.val t)).v
+                (vpos j) w) nexts) →
+        ∀ (T : Nat) (seed : Nat → (String → Nat) → Env) (st0 : String → Nat) (mems : MEnv),
+        (∀ t st, t < T → SourceInputs declName bsIn ids cache
+          (fun j => (bools j).val (T - 1 - t)) (fun j n => (bits j n).val (T - 1 - t))
+          (seed t st)) →
+        (∀ t st r, r ∈ regs → seed t st r = st r) →
+        (∀ t st, seed t st "rst" = 0) →
+        (∀ (i : Nat) (r : String) (f : SlotField), regs[i]? = some r →
+          shape.layout.slots[i]? = some f → st0 r = f.init) →
+        ∃ envs, runModule (weOf m) m.body seed T st0 mems = some envs ∧ envs.length = T ∧
+          ∀ j (hj : j < envs.length), ∀ o ∈ shape.layout.outs,
+            ∀ {s : SType} (ot : Term s), ot.WF kb kv vw → ∀ (k : Nat),
+              (f0 :: rest)[k]? = some (toField s ot) →
+              o.lo = (((f0 :: rest).drop (k + 1)).map (·.1)).sum →
+              o.width = (toField s ot).1 →
+              (envs[j]'hj) o.name = enc s (eval
+                (fun i => (typedVal bsIn.length bpos vpos ss ls bools bits j
+                  ((stateLoop inits body).val j)).b (bpos i))
+                (fun i w => (typedVal bsIn.length bpos vpos ss ls bools bits j
+                  ((stateLoop inits body).val j)).v (vpos i) w) ot) := by
+  obtain ⟨ids, nd, len, cache, href⟩ := machine_ref_trace h layW
+  have href' := href dom kb kv vw bpos vpos (ls.map fun l => toField l.1 l.2)
+    (packList f0 rest).2 hwf hb hv hbody hfit houtfit hscoped
+  obtain ⟨regs, rnd, rlen, trace⟩ := href'
+  refine ⟨ids, nd, len, cache, regs, rnd, rlen, ?_⟩
+  intro D _ ρ inits body bools bits hinit H2 T seed st0 mems inputs pass rst init
+  obtain ⟨envs, hrun, hlen, hobs⟩ := trace T (fun τ p => (bools p).val τ)
+    (fun τ p w => (bits p w).val τ) seed st0 mems inputs pass rst init
+  refine ⟨envs, hrun, hlen, ?_⟩
+  intro j hj o ho s ot hot k hk hlo hw
+  have hslotsLen : shape.layout.slots.length = ss.length := by
+    rw [← hn]; exact layW.length_eq
+  have hstate := denote_state inits body bools bits ls nexts f0 rest (packList f0 rest).2
+    shape.layout.slots nOuts rfl hnexts hslots hslotsLen hinit facts nextsWF H2
+  have hout := denote_out inits body bools bits ls f0 rest (packList f0 rest).2
+    shape.layout.slots rfl facts hstate ot hot k hk j
+  rw [hobs j hj o ho, hout, hlo, hw, hn]
 
 end Tools.ShippingMachineDenote

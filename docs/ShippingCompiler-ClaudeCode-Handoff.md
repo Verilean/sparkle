@@ -364,11 +364,40 @@ step is a COMMAND that generates these per declaration: unquote
 `shape.body` into typed terms (the inverse of `quote`, constructor by
 constructor), emit the definitions and the theorem, and run it over the
 machine-route declarations.
-Next on this route: (a) GENERATE the per-declaration endpoint — the
-quoted term (an "unquote" of `shape.body`), `WF`, the positions, the
-source circuit and its `circuit_state` recurrence, `LetsHold`, the field
-lemmas are all mechanical; today three declarations have it and the
-others have only the route and the simulation. (b) Normalise in
+**The generated endpoint (landed).** `#machine_endpoint f`
+(`Tools/ShippingMachineCommand.lean`) over `machine_trace_of_data`
+(`Tools/ShippingMachineAuto.lean`): `MachineData` + `MachineData.ok`
+(one Bool for every side condition) + five equations, each `Eq.refl`
+checked by the kernel, give `f.machine_sound : MachineTrace …`. 55 of
+the 55 machine-route declarations of the corpus have it
+(`scripts/shipping-coverage/endpoints.sh WORK`, after a `PASSES=1` run).
+How it is built, and what to keep in mind when extending it:
+* The reader `unq` is unverified on purpose: add a constructor to `Term`
+  (+ `quote`, `eval`, `WF`, `reads`), a case to `unq`, `termE` and
+  `wfDec`, and nothing per declaration.
+* Declarations are added with `addDecl` under `Elab.async := false`: the
+  default checks asynchronously, so a FAILING `Eq.refl` would not throw
+  and would stay in the environment as an axiom-like constant. The
+  environment is restored on failure, and `collectAxioms` is audited.
+* `Expr ==` is alpha-equivalence; a reflected `Lean.Expr` in a theorem
+  is compared with its binder names. Use `Expr.equal` for a pre-check.
+* KERNEL REDUCTION ORDER. Never leave an `ite`/`dite` on the reduction
+  path of a definition that the kernel must compare with user terms:
+  `TVal.set` read positions with `if q = p`, a mux is also an `ite`, the
+  kernel tried the arguments, failed, and unfolded both — evaluating the
+  mux condition `ule p (x + p)` in unary for a 381-bit `p`. The reads are
+  `match Nat.decEq q p with` now (matchers are abbreviations: unfolded
+  first, so a read resolves before anything else is touched). A check
+  that does not end shows nothing (`run_cmd` output appears when the
+  command ends): `SPARKLE_MACHINE_PROGRESS=<file>` makes `generate` log
+  each check; bisect with a small `circuit do` at the REAL widths.
+* The source check is two facts: `machine_result` (result vs terms on an
+  arbitrary state signal) and `machine_source` (declaration = result of
+  the body on the state loop). One `rfl` for both mixed value-level
+  evaluation with the unfolding of `Signal.loop`.
+* `machCanonAp` (in `machineShape?`): canonical binder names for a lift
+  written directly as `Signal.ap (Signal.map f a) b`.
+Next on this route: (a) DONE — see above. (b) Normalise in
 `machConv`, on this route only: constants computed in Lean
 (`BitVec.ofInt`, `2 ^ k`, …) to literals, BitVec operators lifted through
 `<$>`/`<*>` or `map` with a literal to the Signal operators, reducible
@@ -450,7 +479,7 @@ audits; do not present a smaller step as a finished unit.
 
 - `lean-toolchain`: `leanprover/lean4:v4.32.1`. Use the existing project
   environment.
-- Latest full verification: `lake build Tests.AllTests`, **675 jobs green** (2026-10-02, machine route).
+- Latest full verification: `lake build Tests.AllTests`, **680 jobs green** (2026-10-02, generated machine endpoints).
 - Typical iterative targets:
 
   ```sh

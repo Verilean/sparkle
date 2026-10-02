@@ -212,4 +212,32 @@ def sets():
             break
 
 
-{'routes': routes, 'reasons': reasons, 'sets': sets}[mode]()
+def endpoints():
+    """Which machine-route declarations have a kernel-checked endpoint."""
+    wanted = [l.strip() for l in open(f'{work}/machine_decls.txt') if l.strip()]
+    result = {}
+    for line in open(f'{work}/endpoint_reasons.txt', errors='replace'):
+        parts = line.rstrip('\n').split('|', 3)
+        if len(parts) < 3:
+            continue
+        decl, ms, res = parts[0], parts[1], parts[2]
+        why = parts[3] if len(parts) > 3 else ''
+        if result.get(decl, ('', '', ''))[0] != 'OK':
+            result[decl] = (res, ms, why)
+    ok = [d for d in wanted if result.get(d, ('',))[0] == 'OK']
+    real = [d for d in wanted if not is_certification_test(d)]
+    print('machine route:', len(wanted), 'of which real corpus:', len(real))
+    print('kernel-checked endpoint (f.machine_sound):', len(ok),
+          'of which real corpus:', sum(1 for d in ok if not is_certification_test(d)))
+    for d in wanted:
+        if d in result and result[d][0] != 'OK':
+            print('  refused:', d, '--', result[d][2][:200])
+        elif d not in result:
+            print('  no result (the file did not finish):', d)
+    slow = [l.split()[0] for l in open(f'{work}/endpoint_status.txt') if l.split()[-1] != '0']
+    for f in slow:
+        print('  file not finished:', f)
+    open(f'{work}/endpoint_decls.txt', 'w').write('\n'.join(ok) + '\n')
+
+
+{'routes': routes, 'reasons': reasons, 'sets': sets, 'endpoints': endpoints}[mode]()

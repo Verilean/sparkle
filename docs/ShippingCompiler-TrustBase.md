@@ -184,7 +184,21 @@ that this transition means what the SOURCE means is proved per
 declaration by the kernel — the source's state recurrence
 (`circuit_state`) against the evaluation of the quoted term; for a shape
 with hardware `let`s the declaration also proves that the source's own
-`let` values satisfy the transition's `let` equations (`LetsHold`). The
+`let` values satisfy the transition's `let` equations (`LetsHold`).
+For a GENERATED endpoint (`#machine_endpoint f`, `f.machine_sound`) the
+same holds with nothing written by hand, and nothing added to the base:
+the command's reader of the body (`unq`) and its construction of the
+data are not trusted — the kernel checks that the body is the quotation
+of the terms (`f.machine_body`), evaluates the one Boolean that decides
+every side condition (`f.machine_ok`; by reduction, not `native_decide`),
+and checks by `Eq.refl` that the declaration's own reset values, pending
+writes and result are the terms' (`f.machine_inits`, `f.machine_writes`,
+`f.machine_result`, `f.machine_source`). Declarations are added with
+synchronous kernel checking and the theorem's axioms are audited, so a
+failed check cannot leave a constant behind. The command also runs the
+machine synthesis once and requires that it ties the `let`s — evidence
+for the boundary `MachineCloses` in the environment of the check, not a
+proof of it for another run. The
 optimizer and the printer after the core entry are NOT yet composed for
 machine modules; the family-agnostic sequential pipeline theorem
 (`shipping_pipeline_transfer`) applies under its decidable premises but
