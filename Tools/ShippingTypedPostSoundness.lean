@@ -52,6 +52,10 @@ theorem typed_rename {we e n} (h : TypedExpr we e n) (σ : String → String)
     have step := TypedExpr.cat (we := we) (σ a) (σ b) (by rw [hw]; exact ha) (by rw [hw]; exact hb)
     simp only [hw] at step
     simpa only [renameE, renameE.renameL] using step
+  | not1 x hx =>
+    have step := TypedExpr.not1 (we := we) (σ x) (by rw [hw]; exact hx)
+    rw [hw] at step
+    simpa only [renameE, renameE.renameL] using step
 
 theorem validateStep_typed {we : WEnv} {n : Nat} {allLhs : List String}
     {st st' : MergeCheck} {l : String} {e : Expr} {new : Stmt}
@@ -236,6 +240,7 @@ theorem dzExpr_typed {we e n} (h : TypedExpr we e n) (wm : Sparkle.IR.Optimize.W
     have hbb : (Std.HashMap.getD wm b 0 != 0) = true := by
       simpa [Sparkle.IR.ZeroWidth.exprWidth, bne_iff_ne] using hwb
     simp [dzExpr, dzList, Sparkle.IR.ZeroWidth.exprWidth, hab, hbb]
+  | not1 y hy => simp [dzExpr, dzList]
 
 /-- Internal scalar declarations also occur in the cleanup width map.
 In particular `bit` must be read as width one by both maps. -/

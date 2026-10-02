@@ -2313,11 +2313,24 @@ def signalBoolBinKind? (method : Name) : Lean.Expr → Option SignalBoolBinKind
     else none
   | _ => none
 
+/-- The two-level Bool bodies of a lifted function the IP library writes:
+    one operator applied to the two variables with one negation. -/
+inductive AppBool2 where
+  /-- `fun x y => x && !y` -/
+  | andNot
+  /-- `fun x y => !x && y` -/
+  | notAnd
+  /-- `fun x y => !(x || y)` -/
+  | nor
+  deriving DecidableEq, Repr
+
 /-- A Bool-result binary operator lifted through the Signal applicative:
-    `(BitVec.ule · ·) <$> a <*> b`, `(· && ·) <$> a <*> b`, …  -/
+    `(BitVec.ule · ·) <$> a <*> b`, `(· && ·) <$> a <*> b`, …, or one of the
+    two-level Bool bodies. -/
 inductive AppBoolOp where
   | compare (k : SignalCompareKind) (n : Nat)
   | bool (k : SignalBoolBinKind)
+  | two (f : AppBool2)
   deriving DecidableEq, Repr
 
 /-- The two-argument lambda body of an applicative-lifted operator, read
@@ -2345,6 +2358,12 @@ def appBoolBody? : Lean.Expr → Lean.Expr → Option AppBoolOp
     else if m == ``Bool.or then some (.bool .bor)
     else if m == ``Bool.xor then some (.bool .bxor)
     else none
+  | .const ``Bool _, .app (.app (.const ``Bool.and _) (.bvar 1))
+      (.app (.const ``Bool.not _) (.bvar 0)) => some (.two .andNot)
+  | .const ``Bool _, .app (.app (.const ``Bool.and _) (.app (.const ``Bool.not _) (.bvar 1)))
+      (.bvar 0) => some (.two .notAnd)
+  | .const ``Bool _, .app (.const ``Bool.not _)
+      (.app (.app (.const ``Bool.or _) (.bvar 1)) (.bvar 0)) => some (.two .nor)
   | _, _ => none
 
 /-- An applicative-lifted Bool-result binary operator in the form the front
@@ -2440,6 +2459,7 @@ def unifiedGateBoolBody (kinds : Array MixedGateBinder) : Lean.Expr → Bool
       | some (.compare _ n) =>
         0 < n && unifiedGateBitsBody kinds n a && unifiedGateBitsBody kinds n b
       | some (.bool _) => unifiedGateBoolBody kinds a && unifiedGateBoolBody kinds b
+      | some (.two _) => unifiedGateBoolBody kinds a && unifiedGateBoolBody kinds b
       | none => false
   | _ => false
 
@@ -2666,6 +2686,7 @@ def hierGateBoolBody (isInst : Lean.Expr → Bool) (kinds : Array MixedGateBinde
       | some (.compare _ n) =>
         0 < n && hierGateBitsBody isInst kinds n a && hierGateBitsBody isInst kinds n b
       | some (.bool _) => hierGateBoolBody isInst kinds a && hierGateBoolBody isInst kinds b
+      | some (.two _) => hierGateBoolBody isInst kinds a && hierGateBoolBody isInst kinds b
       | none => false
   | _ => false
 
@@ -5963,11 +5984,41 @@ def translateAppBoolBinary (rec : TranslateFn) (kind : SignalBoolBinKind) (a b :
   let bw ← rec b "app_arg" false false
   emitBoolResult (.op (signalBoolBinOp kind) [.ref aw, .ref bw]) hint named
 
+/-- The inner assignment of a two-level Bool body, on the operand wires. -/
+def appBool2Inner : AppBool2 → String → String → Sparkle.IR.AST.Expr
+  | .andNot, _, b => .op .not [.ref b]
+  | .notAnd, a, _ => .op .not [.ref a]
+  | .nor, a, b => .op .or [.ref a, .ref b]
+
+/-- The hint the legacy lowering gives the inner wire: the position of the
+    inner application among the outer operator's arguments. -/
+def appBool2Hint : AppBool2 → String
+  | .andNot => "arg2"
+  | .notAnd => "arg1"
+  | .nor => "arg1"
+
+/-- The result assignment, on the operand wires and the inner wire. -/
+def appBool2Outer : AppBool2 → String → String → String → Sparkle.IR.AST.Expr
+  | .andNot, a, _, n => .op .and [.ref a, .ref n]
+  | .notAnd, _, b, n => .op .and [.ref n, .ref b]
+  | .nor, _, _, n => .op .not [.ref n]
+
+/-- Applicative-lifted two-level Bool body: the operands under the legacy
+    applicative hint, the inner application on a wire of its own, then the
+    result. -/
+def translateAppBool2 (rec : TranslateFn) (f : AppBool2) (a b : Lean.Expr)
+    (hint : String) (named : Bool) : CompilerM String := do
+  let aw ← rec a "app_arg" false false
+  let bw ← rec b "app_arg" false false
+  let n ← emitBoolResult (appBool2Inner f aw bw) (appBool2Hint f) false
+  emitBoolResult (appBool2Outer f aw bw n) hint named
+
 def translateAppBool (rec : TranslateFn) (op : AppBoolOp) (a b : Lean.Expr)
     (hint : String) (named : Bool) : CompilerM String :=
   match op with
   | .compare k _ => translateAppCompare rec k a b hint named
   | .bool k => translateAppBoolBinary rec k a b hint named
+  | .two f => translateAppBool2 rec f a b hint named
 
 /-- Canonical literals, comparisons and Bool muxes use total lowering. Other Bool forms
     still use their existing handlers on a validated-cache miss. -/

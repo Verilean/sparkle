@@ -51,6 +51,8 @@ inductive TypedExpr (we : WEnv) : Expr → Nat → Prop
   /-- A concatenation of two wires, `{a, b}`: `a` in the high bits. -/
   | cat (a b : String) : 0 < we a → 0 < we b →
       TypedExpr we (.concat [.ref a, .ref b]) (we a + we b)
+  /-- The bitwise NOT of a wire, at the wire's width. -/
+  | not1 (x : String) : 0 < we x → TypedExpr we (.op .not [.ref x]) (we x)
 
 /-- Flat same-width comparisons cover both unsigned and signed operators. -/
 theorem TypedExpr.compareRefs {we : WEnv} {op : Operator} {a b : String} {n : Nat}
@@ -75,6 +77,7 @@ theorem TypedExpr.width {we e n} (h : TypedExpr we e n) : widthOf we e = n := by
   | trunc x w hw hwx => simp [widthOf]; omega
   | slice x hi lo hle hhi => simp [widthOf]
   | cat a b ha hb => simp [widthOf, widthOf.go]
+  | not1 x hx => simp [widthOf]
 
 theorem TypedExpr.positive {we e n} (h : TypedExpr we e n) : 0 < n := by
   induction h with
@@ -86,6 +89,7 @@ theorem TypedExpr.positive {we e n} (h : TypedExpr we e n) : 0 < n := by
   | trunc _ _ hw _ => exact hw
   | slice => omega
   | cat _ _ ha _ => omega
+  | not1 _ hx => exact hx
 
 /-- Every typed reference has a positive internal declaration width. -/
 theorem TypedExpr.refs_positive {we e n} (h : TypedExpr we e n) :
@@ -136,6 +140,11 @@ theorem TypedExpr.refs_positive {we e n} (h : TypedExpr we e n) :
     rcases hx with rfl | rfl
     · exact ha
     · exact hb
+  | not1 y hy =>
+    intro x hx
+    simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList] at hx
+    subst hx
+    exact hy
 
 /-- Typing only depends on widths at the expression's actual references. -/
 theorem TypedExpr.we_congr {we we' e n} (h : TypedExpr we e n)
@@ -179,6 +188,10 @@ theorem TypedExpr.we_congr {we we' e n} (h : TypedExpr we e n)
     have eb := hw b (by simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList])
     have step := TypedExpr.cat (we := we') a b (by rw [ea]; exact ha) (by rw [eb]; exact hb)
     rwa [ea, eb] at step
+  | not1 y hy =>
+    have ey := hw y (by simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList])
+    have step := TypedExpr.not1 (we := we') y (by rw [ey]; exact hy)
+    rwa [ey] at step
 
 theorem TypedExpr.ofSized {we e n} (h : SizedExpr we e n) (hn : 0 < n) :
     TypedExpr we e n := by
@@ -202,12 +215,13 @@ theorem TypedExpr.printShape {we e n} (h : TypedExpr we e n) : PrintShape e := b
   | trunc y w hwid hwy => exact .castRef y w hwid
   | slice y hi lo hle hhi => exact .sliceRef y hi lo hle
   | cat a b _ _ => exact .catRef a b
+  | not1 y _ => exact .notRef y
 
 theorem TypedExpr.notShl {we e n} (h : TypedExpr we e n) :
     isShlLit e = false ∧ shlOperand e = e := by
   have hn : isShlLit e = false := by
     cases h with
-    | ref | const | mux | zext | trunc | slice | cat => rfl
+    | ref | const | mux | zext | trunc | slice | cat | not1 => rfl
     | @bin op a b n ha hb hs =>
       cases op <;> cases b <;>
         simp_all [Binary.operator, Sparkle.IR.PrintCheck.shiftShape, isShlLit]
@@ -278,6 +292,10 @@ theorem TypedExpr.forward {we e n} (h : TypedExpr we e n)
     obtain ⟨sb, wb⟩ := hname b (by
       simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList])
     simp [sf4Check, List.attach_cons, sa, wa, sb, wb]
+  | not1 y hy =>
+    obtain ⟨hs, hwof⟩ := hname y (by
+      simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList])
+    simp [sf4Check, exprWidthT, widthOf, hs, hwof, hy]
 
 /-- The actual shipping expression text represents an identifier-safe AST
 with the same value as the IR. The forward-check premise is derived from

@@ -116,12 +116,14 @@ def optCheck (m o : Module) : Bool :=
 constant, a reference, or one of the six normalizer operators or logical
 left/right shift or unsigned comparison on two references, a mux on
 three references, a width cast of a reference, a part-select
-`x[hi:lo]` of a reference, or a concatenation `{a, b}` of two references. -/
+`x[hi:lo]` of a reference, a concatenation `{a, b}` of two references, or
+the bitwise NOT of a reference. -/
 def simpleRhs : Expr → Bool
   | .const _ _ => true
   | .ref _ => true
   | .op o [.ref _, .ref _] => isPrintBinOp o || isControlBinOp o
   | .op .mux [.ref _, .ref _, .ref _] => true
+  | .op .not [.ref _] => true
   | .concat [.const _ _, .ref _] => true
   | .concat [.ref _, .ref _] => true
   | .slice (.concat [.const 0 w, .ref _]) hi lo => lo == 0 && hi + 1 == w

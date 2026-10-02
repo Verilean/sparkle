@@ -646,6 +646,7 @@ theorem simpleRhs_renameE (σ : String → String) :
   | .op .mux [.ref _, .ref _, .ref _], _ => rfl
   | .concat [.const _ _, .ref _], _ => rfl
   | .concat [.ref _, .ref _], _ => rfl
+  | .op .not [.ref _], _ => rfl
   | .slice (.concat [.const 0 w, .ref _]) hi lo, h => by
     simpa [renameE, renameE.renameL, simpleRhs] using h
   | .slice (.ref _) hi lo, h => by

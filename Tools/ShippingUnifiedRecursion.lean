@@ -2012,6 +2012,174 @@ theorem appBool_contract {rec ctx inputs we mems initial dom ae be}
   exact ⟨fun hint top named => (step hint top named).frame,
     fun hint top named => (step hint top named).sem⟩
 
+/-! ## Two-level Bool bodies of an applicative lift
+
+`(fun x y => x && !y) <$> a <*> b`, `!x && y` and `!(x || y)`: the operands
+under the applicative hint, the inner application on a wire of its own (hint
+`arg1`/`arg2`, its position in the outer operator), then the result. -/
+
+/-- The value on the inner wire. -/
+def appBool2InnerValue : AppBool2 → Bool → Bool → Bool
+  | .andNot, _, y => !y
+  | .notAnd, x, _ => !x
+  | .nor, x, y => x || y
+
+theorem typed_not1 {we : WEnv} (x : String) (wx : we x = 1) :
+    TypedExpr we (.op .not [.ref x]) 1 := by
+  have step := TypedExpr.not1 (we := we) x (by omega)
+  rwa [wx] at step
+
+theorem not1_rhs (we : WEnv) (env : Env) (x : String) (b : Bool)
+    (hx : env x = encodeBool b) (wx : we x = 1) :
+    evalExpr we env (.op .not [.ref x]) = some (encodeBool (!b)) := by
+  cases b <;> simp [evalExpr, evalList, evalOp, widthOf, hx, wx, encodeBool, mask]
+
+theorem appBool2Inner_simple (f : AppBool2) (a b : String) :
+    Sparkle.IR.OptCheck.simpleRhs (appBool2Inner f a b) = true := by cases f <;> rfl
+
+theorem appBool2Outer_simple (f : AppBool2) (a b n : String) :
+    Sparkle.IR.OptCheck.simpleRhs (appBool2Outer f a b n) = true := by cases f <;> rfl
+
+theorem appBool2Inner_typed {we : WEnv} (f : AppBool2) (a b : String)
+    (wa : we a = 1) (wb : we b = 1) : TypedExpr we (appBool2Inner f a b) 1 := by
+  cases f
+  · exact typed_not1 b wb
+  · exact typed_not1 a wa
+  · exact typed_bool_bin .bor a b wa wb
+
+theorem appBool2Inner_eval (f : AppBool2) (we : WEnv) (env : Env) (a b : String) (x y : Bool)
+    (ha : env a = encodeBool x) (hb : env b = encodeBool y) (wa : we a = 1) (wb : we b = 1) :
+    evalExpr we env (appBool2Inner f a b) = some (encodeBool (appBool2InnerValue f x y)) := by
+  cases f
+  · exact not1_rhs we env b y hb wb
+  · exact not1_rhs we env a x ha wa
+  · exact bool_bin_rhs .bor we env a b x y ha hb wa wb
+
+theorem appBool2Outer_typed {we : WEnv} (f : AppBool2) (a b n : String)
+    (wa : we a = 1) (wb : we b = 1) (wn : we n = 1) :
+    TypedExpr we (appBool2Outer f a b n) 1 := by
+  cases f
+  · exact typed_bool_bin .band a n wa wn
+  · exact typed_bool_bin .band n b wn wb
+  · exact typed_not1 n wn
+
+theorem appBool2Outer_eval (f : AppBool2) (we : WEnv) (env : Env) (a b n : String) (x y : Bool)
+    (ha : env a = encodeBool x) (hb : env b = encodeBool y)
+    (hn : env n = encodeBool (appBool2InnerValue f x y))
+    (wa : we a = 1) (wb : we b = 1) (wn : we n = 1) :
+    evalExpr we env (appBool2Outer f a b n) = some (encodeBool (appBool2Value f x y)) := by
+  cases f
+  · exact bool_bin_rhs .band we env a n x (!y) ha hn wa wn
+  · exact bool_bin_rhs .band we env n b (!x) y hn hb wn wb
+  · exact not1_rhs we env n (x || y) hn wn
+
+theorem translateAppBool2_returns {rec : TranslateFn} {f : AppBool2} {a b : Lean.Expr}
+    {hint w : String} {named : Bool} {ctx : CompilerState} {s t : CircuitState}
+    (h : Returns (translateAppBool2 rec f a b hint named) ctx s w t) :
+    ∃ aw bw n sa sb sn, Returns (rec a "app_arg" false false) ctx s aw sa ∧
+      Returns (rec b "app_arg" false false) ctx sa bw sb ∧
+      Returns (emitBoolResult (appBool2Inner f aw bw) (appBool2Hint f) false) ctx sb n sn ∧
+      Returns (emitBoolResult (appBool2Outer f aw bw n) hint named) ctx sn w t := by
+  unfold translateAppBool2 at h
+  obtain ⟨aw, sa, ha, h⟩ := Returns.bind h
+  obtain ⟨bw, sb, hb, h⟩ := Returns.bind h
+  obtain ⟨n, sn, hn, he⟩ := Returns.bind h
+  exact ⟨aw, bw, n, sa, sb, sn, ha, hb, hn, he⟩
+
+theorem translateBoolUncachedWith_appBool2 (rec legacy : TranslateFn) (f : AppBool2)
+    (dom ae be : Lean.Expr) (hint : String) (top named : Bool) :
+    translateBoolUncachedWith rec legacy (appBool2E f dom ae be) hint top named =
+      translateAppBool2 rec f ae be hint named := by
+  rw [appBool2E, translateBoolUncachedWith_appE]
+  show (match appBoolOp? (appBool2E f dom ae be) with
+    | some (op, a, b) => translateAppBool rec op a b hint named
+    | none => legacy _ hint top named) = _
+  rw [appBoolOp?_appBool2E]
+  rfl
+
+theorem appBool2_step (rec : TranslateFn) (f : AppBool2) (dom ae be : Lean.Expr)
+    (hint : String) (top named : Bool) :
+    translateStepWith translateFallback rec (appBool2E f dom ae be) hint top named =
+      translateFallback rec (appBool2E f dom ae be) hint top named :=
+  appE_step rec dom _ _ ae be hint top named
+
+theorem isBoolControl_appBool2E (dom ae be : Lean.Expr) (f : AppBool2) :
+    isBoolControl (appBool2E f dom ae be) = true := by
+  rw [appBool2E, isBoolControl_appE]
+  show ((appBoolOp? (appBool2E f dom ae be)).isSome || _) = true
+  rw [appBoolOp?_appBool2E]
+  rfl
+
+theorem appBool2_shape {ctx inputs we mems initial rec ae be f hint named va vb s t w}
+    (ca : Child rec ctx inputs we mems initial ae "app_arg" va)
+    (cb : Child rec ctx inputs we mems initial be "app_arg" vb)
+    (lookup : Lookup ctx inputs s)
+    (hr : Returns (translateAppBool2 rec f ae be hint named) ctx s w t) :
+    Frame s t ∧ s.usedNames.contains w = false := by
+  obtain ⟨a, b, n, sa, sb, sn, ra, rb, rn, re⟩ := translateAppBool2_returns hr
+  have fa := ca.frame s sa a lookup ra
+  have fb := cb.frame sa sb b (lookup.transfer fa) rb
+  have fn := (emit_bool_frame (appBool2Inner_simple f a b) rn).1
+  obtain ⟨fe, fresh⟩ := emit_bool_frame (appBool2Outer_simple f a b n) re
+  refine ⟨((fa.trans fb).trans fn).trans fe, ?_⟩
+  cases hu : s.usedNames.contains w
+  · rfl
+  · have := fn.used w (fb.used w (fa.used w hu)); simp [fresh] at this
+
+theorem appBool2_fresh {ctx inputs we mems initial rec ae be f hint named}
+    (x y : Bool)
+    (ca : Child rec ctx inputs we mems initial ae "app_arg" (.bool x))
+    (cb : Child rec ctx inputs we mems initial be "app_arg" (.bool y)) :
+    FreshAction (translateAppBool2 rec f ae be hint named) ctx inputs we mems initial
+      (.bool (appBool2Value f x y)) := by
+  refine ⟨⟨fun _ _ _ lookup hr => (appBool2_shape ca cb lookup hr).1, ?_⟩,
+    fun _ _ _ lookup hr => (appBool2_shape ca cb lookup hr).2⟩
+  intro s t w prior h widths hr
+  obtain ⟨a, b, n, sa, sb, sn, ra, rb, rn, re⟩ := translateAppBool2_returns hr
+  have fa := ca.frame s sa a (Lookup.ofInputs h.inputs) ra
+  have fb := cb.frame sa sb b ((Lookup.ofInputs h.inputs).transfer fa) rb
+  have fn := (emit_bool_frame (appBool2Inner_simple f a b) rn).1
+  have fe := (emit_bool_frame (appBool2Outer_simple f a b n) re).1
+  have aout := ca.sem s sa a prior h ((fb.decls.trans (fn.decls.trans fe.decls)).widths widths) ra
+  obtain ⟨va', ia, av, af⟩ := aout.execution
+  have bout := cb.sem sa sb b va' ia ((fn.decls.trans fe.decls).widths widths) rb
+  obtain ⟨vb', ib, bv, bf⟩ := bout.execution
+  have av' : vb' a = encodeBool x := (bf a aout.used).trans av
+  have nout := emit_bool_outcome ib
+    (appBool2Inner_typed f a b aout.width bout.width)
+    (appBool2Inner_eval f we vb' a b x y av' bv aout.width bout.width)
+    (fe.decls.widths widths) rn
+  obtain ⟨vn, inn, nv, nf⟩ := nout.execution
+  have step := emit_bool_outcome inn
+    (appBool2Outer_typed f a b n aout.width bout.width nout.width)
+    (appBool2Outer_eval f we vn a b n x y ((nf a (fb.used a aout.used)).trans av')
+      ((nf b bout.used).trans bv) nv aout.width bout.width nout.width)
+    widths re
+  obtain ⟨result, inv, val, frame⟩ := step.execution
+  exact ⟨step.used, step.width,
+    fun z hz => step.grows z (fn.used z (fb.used z (fa.used z hz))),
+    result, inv, val, fun z hz => (frame z (fn.used z (fb.used z (fa.used z hz)))).trans
+      ((nf z (fb.used z (fa.used z hz))).trans ((bf z (fa.used z hz)).trans (af z hz)))⟩
+
+theorem appBool2_contract {rec ctx inputs we mems initial dom ae be}
+    (f : AppBool2) (a b : Bool)
+    (meaning : Meaning inputs (appBool2E f dom ae be) (.bool (appBool2Value f a b)))
+    (ca : Child rec ctx inputs we mems initial ae "app_arg" (.bool a))
+    (cb : Child rec ctx inputs we mems initial be "app_arg" (.bool b)) :
+    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial
+      (appBool2E f dom ae be) (.bool (appBool2Value f a b)) := by
+  have step : ∀ hint top named, ActionSpec
+      (translateStepWith translateFallback rec (appBool2E f dom ae be) hint top named)
+      ctx inputs we mems initial (.bool (appBool2Value f a b)) := by
+    intro hint top named
+    rw [appBool2_step, translateFallback_bool rec _ hint top named
+      (isBoolControl_appBool2E dom ae be f)]
+    apply cached_action meaning
+    rw [translateBoolUncachedWith_appBool2]
+    exact appBool2_fresh a b ca cb
+  exact ⟨fun hint top named => (step hint top named).frame,
+    fun hint top named => (step hint top named).sem⟩
+
 /-- Closed fuel induction for the unified mutually recursive source domain
 with per-operation widths, over ARBITRARY leaf expressions: every leaf comes
 with its own contract at every fuel (an input binder, or an instance call). Mux nodes may sit under arithmetic and comparison
@@ -2112,6 +2280,10 @@ theorem fuel_contract_leaves (fuel : Nat) {ctx : CompilerState}
     | appBool op a b =>
       obtain ⟨ha, hb'⟩ := he
       exact appBool_contract op _ _ (meaning_quote_leaves hb hv (.appBool op a b) ⟨ha, hb'⟩)
+        ((ih a ha).child "app_arg") ((ih b hb').child "app_arg")
+    | appBool2 f a b =>
+      obtain ⟨ha, hb'⟩ := he
+      exact appBool2_contract f _ _ (meaning_quote_leaves hb hv (.appBool2 f a b) ⟨ha, hb'⟩)
         ((ih a ha).child "app_arg") ((ih b hb').child "app_arg")
     | slice nm start len a =>
       obtain ⟨ha, hlen, hr⟩ := he

@@ -55,6 +55,13 @@ inductive Expression : SVExpr → String → Prop
       Expression (.concat [a, b]) ("{" ++ sa ++ ", " ++ sb ++ "}")
   | sizeCast {w a sw sa} : 0 < w → Numeral 10 w sw → Expression a sa →
       Expression (.sizeCast w a) (sw ++ "'(" ++ sa ++ ")")
+  /-- The emitter's width-pinned bitwise NOT of a name, `(w'(x ^ w'dM))`: the
+  XOR with the all-ones mask of the operand's width, under a size cast. -/
+  | maskNot {w name m sw sm} : 0 < w → Numeral 10 w sw → Identifier name → Numeral 10 m sm →
+      Expression (.sizeCast w (.binary .bitXor (.ident name) (.lit (.decimal (some w) m))))
+        ("(" ++ sw ++ "'(" ++ name ++ " ^ " ++ sw ++ "'d" ++ sm ++ "))")
+  /-- A bitwise NOT whose operand width is not known, `~(x)`. -/
+  | bitNot {a sa} : Expression a sa → Expression (.unary .bitNot a) ("~(" ++ sa ++ ")")
   /-- A part-select of a name, `x[hi:lo]`. -/
   | partSelect {name hi lo sh sl} : Identifier name → Numeral 10 hi sh → Numeral 10 lo sl →
       Expression (.slice (.ident name) hi lo) (name ++ "[" ++ sh ++ ":" ++ sl ++ "]")

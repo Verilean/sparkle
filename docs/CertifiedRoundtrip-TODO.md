@@ -819,7 +819,20 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   classifier (entry-normalised values) now says what a real `circuit do`
   body needs beyond the general arm: a structure result behind a
   projection, `let`, and the two-level Bool lifts (`x && !y`,
-  `!(x || y)`), which need unary `not` as a back-half shape.
+  `!(x || y)`), which need unary `not` as a back-half shape. Both
+  LANDED next: the bitwise NOT of a reference is a right-hand side of
+  the back half (`simpleRhs`, `TypedExpr.not1`, `PrintShape.notRef`,
+  the renderer's width-pinned form and the grammar productions
+  `maskNot`/`bitNot`, name binding), and the three two-level bodies are
+  `Term.appBool2` in the applicative Bool arm, the inner application
+  on its own wire as the legacy emits it. `bBusy_execution` proves the
+  busy flag of a bit-serial engine; 8 declarations gated byte-identical.
+  63 of 389 real declarations pass a gate. What remains for a real
+  sequential IP module is the general `circuit do`, `let` and the
+  structure-result projection — none of which can be byte-identical to
+  the legacy lowering (the packed state has a zero-width `Unit` wire;
+  the `let` cache is a MetaM heuristic), so they need the user's
+  decision on emitted-text changes on the certified route.
 - [ ] **S7 / trust:** Resolve or explicitly retain `EnvDefines` in the final
   claim; record execution-model/external-tool boundaries without hiding them.
   RECORDED — docs/ShippingCompiler-TrustBase.md states the retained base

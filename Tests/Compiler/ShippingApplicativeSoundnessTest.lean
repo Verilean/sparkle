@@ -50,8 +50,11 @@ def aShare (a b c : Signal dom (BitVec 8)) : Signal dom (BitVec 8) :=
     (Signal.mux ((BitVec.ule · ·) <$> a <*> b) c b)
 def aShareBool (a b : Signal dom Bool) : Signal dom Bool :=
   (· || ·) <$> ((· && ·) <$> a <*> b) <*> ((· && ·) <$> a <*> b)
-/-- NOT in the certified vocabulary (a two-level lambda body): stays legacy. -/
-def aAndNot (a b : Signal dom Bool) : Signal dom Bool := (fun s l => s && !l) <$> a <*> b
+/-- NOT in the certified vocabulary (a three-level lambda body): stays legacy.
+(The two-level bodies `s && !l`, `!s && l`, `!(s || l)` are certified — see
+`ShippingBoolLiftSoundnessTest`.) -/
+def aAndNot (a b : Signal dom Bool) : Signal dom Bool :=
+  (fun s l => !(s && !l)) <$> a <*> b
 end
 def aConcrete (a b : Signal defaultDomain (BitVec 8)) : Signal defaultDomain Bool :=
   (BitVec.ule · ·) <$> a <*> b

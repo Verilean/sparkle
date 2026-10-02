@@ -29,6 +29,12 @@ def SType.quoteType : SType → Lean.Expr
   | .bool => .const ``Bool []
   | .bits w => bitVecE w
 
+/-- The value of a two-level Bool body. -/
+def appBool2Value : AppBool2 → Bool → Bool → Bool
+  | .andNot, x, y => x && !y
+  | .notAnd, x, y => !x && y
+  | .nor, x, y => !(x || y)
+
 /-- Both sorts recurse into each other; every BitVec node carries its width. -/
 inductive Term : SType → Type where
   | boolInput (j : Nat) : Term .bool
@@ -64,6 +70,9 @@ inductive Term : SType → Type where
   | appCompare (op : SignalCompareKind) {w : Nat} (a b : Term (.bits w)) : Term .bool
   /-- A Bool operator lifted through the Signal applicative: `(· && ·) <$> a <*> b`. -/
   | appBool (op : SignalBoolBinKind) (a b : Term .bool) : Term .bool
+  /-- A two-level Bool body lifted through the Signal applicative:
+  `(fun x y => x && !y) <$> a <*> b`, `!x && y`, `!(x || y)`. -/
+  | appBool2 (f : AppBool2) (a b : Term .bool) : Term .bool
 
 /-- Inputs are positions into the prepared binder lists; `vw` assigns each
 BitVec input its declared width. Positivity is carried at BitVec leaves. -/
@@ -82,6 +91,7 @@ def Term.WF (kb kv : Nat) (vw : Nat → Nat) : {s : SType} → Term s → Prop
   | _, .setw w' a => a.WF kb kv vw ∧ 0 < w'
   | _, .appCompare _ a b => a.WF kb kv vw ∧ b.WF kb kv vw
   | _, .appBool _ a b => a.WF kb kv vw ∧ b.WF kb kv vw
+  | _, .appBool2 _ a b => a.WF kb kv vw ∧ b.WF kb kv vw
   | _, .slice _ start len (w := w) a => a.WF kb kv vw ∧ 0 < len ∧ start + len ≤ w
   | _, .concat a b => a.WF kb kv vw ∧ b.WF kb kv vw
   | _, .concatLitHi k v b => b.WF kb kv vw ∧ 0 < k ∧ v < 2 ^ k
@@ -121,6 +131,7 @@ def eval (bools : Nat → Bool) (bits : (j : Nat) → (w : Nat) → BitVec w) :
   | _, .setw w' a => BitVec.setWidth w' (eval bools bits a)
   | _, .appCompare op a b => compareValue op (eval bools bits a) (eval bools bits b)
   | _, .appBool op a b => boolBinValue op (eval bools bits a) (eval bools bits b)
+  | _, .appBool2 f a b => appBool2Value f (eval bools bits a) (eval bools bits b)
   | _, .slice _ start len a => BitVec.extractLsb' start len (eval bools bits a)
   | _, .concat a b => eval bools bits a ++ eval bools bits b
   | _, .concatLitHi k v b => BitVec.ofNat k v ++ eval bools bits b
@@ -156,6 +167,9 @@ def denote {dom : DomainConfig} (bools : Nat → Signal dom Bool)
         (denote bools bits b)
   | _, .appBool op a b =>
       Signal.ap (Signal.map (fun x y => boolBinValue op x y) (denote bools bits a))
+        (denote bools bits b)
+  | _, .appBool2 f a b =>
+      Signal.ap (Signal.map (fun x y => appBool2Value f x y) (denote bools bits a))
         (denote bools bits b)
   | _, .slice _ start len a =>
       Signal.map (fun x => BitVec.extractLsb' start len x) (denote bools bits a)
@@ -209,6 +223,9 @@ theorem denote_val {dom : DomainConfig} (bools : Nat → Signal dom Bool)
     rw [denote_val, denote_val]; rfl
   | _, .appBool op a b => by
     change boolBinValue op ((denote bools bits a).val tick) ((denote bools bits b).val tick) = _
+    rw [denote_val, denote_val]; rfl
+  | _, .appBool2 f a b => by
+    change appBool2Value f ((denote bools bits a).val tick) ((denote bools bits b).val tick) = _
     rw [denote_val, denote_val]; rfl
   | _, .slice _ start len a => by
     change BitVec.extractLsb' start len ((denote bools bits a).val tick) = _
@@ -287,6 +304,16 @@ def appCompareE (op : SignalCompareKind) (dom : Lean.Expr) (w : Nat) (a b : Lean
 def appBoolE (op : SignalBoolBinKind) (dom a b : Lean.Expr) : Lean.Expr :=
   appE dom (.const ``Bool []) (appBoolBodyE op) a b
 
+/-- The two-level Bool body applied to the two bound variables. -/
+def appBool2BodyE (f : AppBool2) : Lean.Expr :=
+  match f with
+  | .andNot => mkApp2 (.const ``Bool.and []) (.bvar 1) (.app (.const ``Bool.not []) (.bvar 0))
+  | .notAnd => mkApp2 (.const ``Bool.and []) (.app (.const ``Bool.not []) (.bvar 1)) (.bvar 0)
+  | .nor => .app (.const ``Bool.not []) (mkApp2 (.const ``Bool.or []) (.bvar 1) (.bvar 0))
+
+def appBool2E (f : AppBool2) (dom a b : Lean.Expr) : Lean.Expr :=
+  appE dom (.const ``Bool []) (appBool2BodyE f) a b
+
 /-- The canonical slice map: `Signal.map (fun nm => BitVec.extractLsb' start
     len nm) a` over a `w`-bit source, exactly as dot-notation elaborates it. -/
 def sliceE (dom : Lean.Expr) (nm : Lean.Name) (w start len : Nat) (a : Lean.Expr) : Lean.Expr :=
@@ -357,6 +384,7 @@ def quote (dom : Lean.Expr) (bools bits : Nat → Lean.Expr) : {s : SType} → T
   | _, .appCompare op (w := w) a b =>
       appCompareE op dom w (quote dom bools bits a) (quote dom bools bits b)
   | _, .appBool op a b => appBoolE op dom (quote dom bools bits a) (quote dom bools bits b)
+  | _, .appBool2 f a b => appBool2E f dom (quote dom bools bits a) (quote dom bools bits b)
   | _, .slice nm start len (w := w) a => sliceE dom nm w start len (quote dom bools bits a)
   | _, .concat (m := m) (n := n) a b =>
       concatE dom m n (quote dom bools bits a) (quote dom bools bits b)
@@ -463,6 +491,13 @@ theorem instFVars_quote (xs : Array Lean.Expr) (d : Nat) (dom : Lean.Expr)
     rw [instFVars_quote, instFVars_quote]
     cases op <;> simp [quote, appBoolE, appE, appLamE, appBoolBodyE, instFVars,
       mkApp5, mkApp4, mkApp3, mkApp2, mkAppB, mkApp]
+  | _, .appBool2 f a b => by
+    show Lean.Expr.app (.app (instFVars xs d _)
+        (.app (instFVars xs d _) (instFVars xs d (quote dom bi vi a))))
+      (instFVars xs d (quote dom bi vi b)) = _
+    rw [instFVars_quote, instFVars_quote]
+    cases f <;> simp [quote, appBool2E, appE, appLamE, appBool2BodyE, instFVars,
+      mkApp5, mkApp4, mkApp3, mkApp2, mkAppB, mkApp]
   | _, .slice nm start len a => by
     show Lean.Expr.app (instFVars xs d _) (instFVars xs d (quote dom bi vi a)) = _
     rw [instFVars_quote]
@@ -525,6 +560,9 @@ theorem quote_congr {dom : Lean.Expr} {kb kv : Nat} {vw : Nat → Nat}
     obtain ⟨ha, hb'⟩ := h
     simp only [quote, quote_congr hb hv a ha, quote_congr hb hv b hb']
   | _, .appBool op a b, h => by
+    obtain ⟨ha, hb'⟩ := h
+    simp only [quote, quote_congr hb hv a ha, quote_congr hb hv b hb']
+  | _, .appBool2 f a b, h => by
     obtain ⟨ha, hb'⟩ := h
     simp only [quote, quote_congr hb hv a ha, quote_congr hb hv b hb']
   | _, .slice _ _ _ a, h => by simp only [quote, quote_congr hb hv a h.1]

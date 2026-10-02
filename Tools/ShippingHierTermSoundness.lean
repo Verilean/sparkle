@@ -245,6 +245,8 @@ theorem hier_quote_accepted {isInst : Lean.Expr → Bool} {kinds : Array MixedGa
               hierGateBitsBody isInst kinds n (quote dom binp vinp b)
           | some (.bool _) =>
             hierGateBoolBody isInst kinds (quote dom binp vinp a) && hierGateBoolBody isInst kinds (quote dom binp vinp b)
+          | some (.two _) =>
+            hierGateBoolBody isInst kinds (quote dom binp vinp a) && hierGateBoolBody isInst kinds (quote dom binp vinp b)
           | none => false) := rfl
     have ia : hierGateBitsBody isInst kinds w (quote dom binp vinp a) = true :=
       hier_quote_accepted hb hv a ha
@@ -260,6 +262,20 @@ theorem hier_quote_accepted {isInst : Lean.Expr → Bool} {kinds : Array MixedGa
         (quote dom binp vinp b)) =
         (hierGateBoolBody isInst kinds (quote dom binp vinp a) &&
           hierGateBoolBody isInst kinds (quote dom binp vinp b)) := by cases kind <;> rfl
+    have ia : hierGateBoolBody isInst kinds (quote dom binp vinp a) = true :=
+      hier_quote_accepted hb hv a ha
+    have ib : hierGateBoolBody isInst kinds (quote dom binp vinp b) = true :=
+      hier_quote_accepted hb hv b hb'
+    rw [gate, ia, ib]
+    rfl
+  | _, .appBool2 f a b, h => by
+    obtain ⟨ha, hb'⟩ := h
+    show hierGateBoolBody isInst kinds (appBool2E f dom (quote dom binp vinp a)
+      (quote dom binp vinp b)) = true
+    have gate : hierGateBoolBody isInst kinds (appBool2E f dom (quote dom binp vinp a)
+        (quote dom binp vinp b)) =
+        (hierGateBoolBody isInst kinds (quote dom binp vinp a) &&
+          hierGateBoolBody isInst kinds (quote dom binp vinp b)) := by cases f <;> rfl
     have ia : hierGateBoolBody isInst kinds (quote dom binp vinp a) = true :=
       hier_quote_accepted hb hv a ha
     have ib : hierGateBoolBody isInst kinds (quote dom binp vinp b) = true :=

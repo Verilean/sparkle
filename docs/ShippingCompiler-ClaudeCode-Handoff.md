@@ -183,7 +183,7 @@ hardware `let` → applicative/slices → structure results. The list below
 is the older, shape-driven plan and is subordinate to the measurement.
 
 **Adding a `Term` constructor — the sites.** Done five times now
-(`setw`, `appCompare`/`appBool`, `bitsNum`, `slice`, `concat`, `concatLitHi`/`concatLitLo`, `zextMap`, `sliceF`); the checklist is:
+(`setw`, `appCompare`/`appBool`, `bitsNum`, `slice`, `concat`, `concatLitHi`/`concatLitLo`, `zextMap`, `sliceF`, `appBool2`); the checklist is:
 `Tools/ShippingUnifiedSource.lean` (constructor, `WF`, `wf_pos` for a
 bits result, `eval`, `denote`, `denote_val`, an `…E` builder, `quote`,
 `instFVars_quote`, `quote_congr`); `ShippingUnifiedMeaning.lean` (`view`
@@ -249,7 +249,16 @@ like the zero-extending `setWidth`, so its arm calls the cast's lowering
 and its proofs are the cast's, with one `BitVec` identity in between.
 (8) Six-argument shapes go through `sixArgShape?` (gates, roots) and
 `concatView?` (view): extend those two functions, do not touch the
-generic arm or its restatements again.
+generic arm or its restatements again. (9) A new right-hand-side shape
+the optimizer's normal form rejects must be in `isCastExpr`
+(`ShippingControlOptSoundness`), or `sized_of_flat` has no case for it;
+the unary NOT is there for that reason, not because it is a cast.
+(10) `renderExpr` must print EXACTLY what `emitExpr` prints for every
+`wof`: the NOT has three texts (`(w'(x ^ w'dM))`, `~(x)` at width 0 and
+at unknown width) and the generic `sizeCast`/`binary` rendering of the
+same AST differs in parentheses, so the renderer has a dedicated
+operand recogniser (`xorMask?`, like `shiftOperand?`) and the grammar a
+dedicated production.
 
 **Measuring before building.** `inlineDefs` did not descend into `let`
 until the map-idiom unit, so every "residual head" statistic taken before

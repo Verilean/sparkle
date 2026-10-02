@@ -182,6 +182,8 @@ theorem unified_quote_accepted {kinds : Array MixedGateBinder} {dom : Lean.Expr}
               unifiedGateBitsBody kinds n (quote dom binp vinp b)
           | some (.bool _) =>
             unifiedGateBoolBody kinds (quote dom binp vinp a) && unifiedGateBoolBody kinds (quote dom binp vinp b)
+          | some (.two _) =>
+            unifiedGateBoolBody kinds (quote dom binp vinp a) && unifiedGateBoolBody kinds (quote dom binp vinp b)
           | none => false) := rfl
     have ia : unifiedGateBitsBody kinds w (quote dom binp vinp a) = true :=
       unified_quote_accepted hb hv a ha
@@ -197,6 +199,20 @@ theorem unified_quote_accepted {kinds : Array MixedGateBinder} {dom : Lean.Expr}
         (quote dom binp vinp b)) =
         (unifiedGateBoolBody kinds (quote dom binp vinp a) &&
           unifiedGateBoolBody kinds (quote dom binp vinp b)) := by cases kind <;> rfl
+    have ia : unifiedGateBoolBody kinds (quote dom binp vinp a) = true :=
+      unified_quote_accepted hb hv a ha
+    have ib : unifiedGateBoolBody kinds (quote dom binp vinp b) = true :=
+      unified_quote_accepted hb hv b hb'
+    rw [gate, ia, ib]
+    rfl
+  | _, .appBool2 f a b, h => by
+    obtain ⟨ha, hb'⟩ := h
+    show unifiedGateBoolBody kinds (appBool2E f dom (quote dom binp vinp a)
+      (quote dom binp vinp b)) = true
+    have gate : unifiedGateBoolBody kinds (appBool2E f dom (quote dom binp vinp a)
+        (quote dom binp vinp b)) =
+        (unifiedGateBoolBody kinds (quote dom binp vinp a) &&
+          unifiedGateBoolBody kinds (quote dom binp vinp b)) := by cases f <;> rfl
     have ia : unifiedGateBoolBody kinds (quote dom binp vinp a) = true :=
       unified_quote_accepted hb hv a ha
     have ib : unifiedGateBoolBody kinds (quote dom binp vinp b) = true :=

@@ -70,10 +70,13 @@ theorem renderExpr_syntax {e text} (hr : renderExpr e = some text)
   | unary op a =>
     cases op <;> simp only [renderExpr] at hr
     all_goals try { cases hr }
-    simp only [bind, Option.bind_eq_some_iff] at hr
-    obtain ⟨sa, ha, he⟩ := hr
-    cases he
-    exact .signed (renderExpr_syntax ha hn)
+    all_goals
+      simp only [bind, Option.bind_eq_some_iff] at hr
+      obtain ⟨sa, ha, he⟩ := hr
+      cases he
+      first
+      | exact .signed (renderExpr_syntax ha hn)
+      | exact .bitNot (renderExpr_syntax ha hn)
   | ident name => cases hr; exact .ident hn
   | binary op a b =>
     simp only [renderExpr, bind, Option.bind_eq_some_iff] at hr
@@ -121,10 +124,29 @@ theorem renderExpr_syntax {e text} (hr : renderExpr e = some text)
           Expression.castShift (w := w) (name := n) (lo := lo) (by omega)
             (numeral_decimal _) hid (numeral_decimal _)
       | none =>
-        simp only [renderExpr, hs, hw, if_false, bind, Option.bind_eq_some_iff] at hr
-        obtain ⟨sa, ha, he⟩ := hr
-        cases he
-        exact .sizeCast (by omega) (numeral_decimal _) (renderExpr_syntax ha hn)
+        cases hx : xorMask? a with
+        | some p =>
+          obtain ⟨n, w', m⟩ := p
+          by_cases hww : w' = w
+          · have ha := xorMask?_some hx
+            subst ha
+            subst hww
+            simp only [renderExpr, shiftOperand?, xorMask?, hw, if_false, if_true] at hr
+            cases hr
+            have hid : Identifier n := hn.1
+            simpa [String.append_assoc, ToString.toString] using
+              Expression.maskNot (w := w') (name := n) (m := m) (by omega)
+                (numeral_decimal _) hid (numeral_decimal _)
+          · simp only [renderExpr, hs, hx, hw, hww, if_false, bind,
+              Option.bind_eq_some_iff] at hr
+            obtain ⟨sa, ha, he⟩ := hr
+            cases he
+            exact .sizeCast (by omega) (numeral_decimal _) (renderExpr_syntax ha hn)
+        | none =>
+          simp only [renderExpr, hs, hx, hw, if_false, bind, Option.bind_eq_some_iff] at hr
+          obtain ⟨sa, ha, he⟩ := hr
+          cases he
+          exact .sizeCast (by omega) (numeral_decimal _) (renderExpr_syntax ha hn)
   | slice b hi lo =>
     cases b with
     | ident n =>
@@ -224,7 +246,7 @@ private theorem exprBound_mono {P Q : String → Prop} {e : SVExpr}
   | ident x => exact hi x h
   | unary op a =>
     cases op <;> try exact False.elim h
-    exact exprBound_mono (e := a) h hi
+    all_goals exact exprBound_mono (e := a) h hi
   | binary op a b => exact ⟨exprBound_mono h.1 hi, exprBound_mono h.2 hi⟩
   | ternary c t f => exact ⟨exprBound_mono h.1 hi, exprBound_mono h.2.1 hi,
       exprBound_mono h.2.2 hi⟩

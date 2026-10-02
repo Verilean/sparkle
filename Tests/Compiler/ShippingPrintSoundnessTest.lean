@@ -22,7 +22,14 @@ example (wof : String → Option Nat) :
 
 #guard ((emitAstExpr (fun _ => some 8) sample).bind renderExpr) ==
   some "(((a + b) ^ 8'd3) & 8'd255)"
-#guard renderExpr (.unary .bitNot (.ident "a")) == none
+-- The bitwise NOT has two printed forms: the width-pinned XOR with the
+-- all-ones mask, and `~(x)` when the operand width is unknown.
+#guard renderExpr (.unary .bitNot (.ident "a")) == some "~(a)"
+#guard ((emitAstExpr (fun _ => some 8) (.op .not [.ref "a"])).bind renderExpr) ==
+  some "(8'(a ^ 8'd255))"
+#guard ((emitAstExpr (fun _ => none) (.op .not [.ref "a"])).bind renderExpr) ==
+  some (Sparkle.Backend.Verilog.emitExpr (fun _ => none) (.op .not [.ref "a"]))
+#guard renderExpr (.unary .neg (.ident "a")) == none
 #guard renderItem "    " (.contAssign (.ident "out") (.ident "a")) ==
   some "    assign out = a;"
 

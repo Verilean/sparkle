@@ -61,11 +61,12 @@ theorem checkedOptimize_control {m : Sparkle.IR.AST.Module}
   have hn := normBody_control_none hc (declWidth m) (m.inputs.map (·.name)) []
   simp [checkedOptimize, hg, optCheck, optCheckCore, hn]
 
-/-- Width-cast roots (the zero-extension concat and the size-cast slice):
-shapes the normalizing optimizer rejects outright. -/
+/-- Width-cast roots (the zero-extension concat and the size-cast slice) and
+the unary NOT: shapes the normalizing optimizer rejects outright. -/
 def isCastExpr : Expr → Bool
   | .concat _ => true
   | .slice .. => true
+  | .op .not [_] => true
   | _ => false
 
 def HasCast (body : List Stmt) : Prop :=
@@ -74,7 +75,10 @@ def HasCast (body : List Stmt) : Prop :=
 theorem normE_cast_none {e : Expr} (hc : isCastExpr e = true)
     (we : WEnv) (ins : List String) (defs : List (String × Expr)) :
     normE we ins defs e = none := by
-  cases e <;> simp_all [isCastExpr, normE]
+  match e, hc with
+  | .concat _, _ => simp [normE]
+  | .slice .., _ => simp [normE]
+  | .op .not [_], _ => simp [normE]
 
 theorem normBody_cast_none {body : List Stmt} (hc : HasCast body)
     (we : WEnv) (ins : List String) (defs : List (String × Expr)) :

@@ -96,6 +96,20 @@ theorem shiftOperand?_some {a : SVExpr} {n : String} {lo : Nat}
   · cases h; rfl
   · cases h
 
+/-- The operand of the emitter's width-pinned NOT: a name XORed with a sized
+decimal mask, `x ^ w'dM`. -/
+def xorMask? : SVExpr → Option (String × Nat × Nat)
+  | .binary .bitXor (.ident n) (.lit (.decimal (some w) m)) => some (n, w, m)
+  | _ => none
+
+theorem xorMask?_some {a : SVExpr} {n : String} {w m : Nat}
+    (h : xorMask? a = some (n, w, m)) :
+    a = .binary .bitXor (.ident n) (.lit (.decimal (some w) m)) := by
+  unfold xorMask? at h
+  split at h
+  · cases h; rfl
+  · cases h
+
 /-- A deliberately small, total AST renderer. Unsupported forms fail.
 Concatenation is restricted to the two emitted shapes: the zero-extension,
 a literal prefix over an identifier, and two identifiers. -/
@@ -123,9 +137,18 @@ def renderExpr : SVExpr → Option String
     if w = 0 then none else
       match shiftOperand? a with
       | some (n, lo) => some s!"{w}'(({n}) >> {lo})"
-      | none => do
-        let sa ← renderExpr a
-        some s!"{w}'({sa})"
+      | none =>
+        match xorMask? a with
+        | some (n, w', m) =>
+          if w' = w then some s!"({w}'({n} ^ {w}'d{m}))" else do
+            let sa ← renderExpr a
+            some s!"{w}'({sa})"
+        | none => do
+          let sa ← renderExpr a
+          some s!"{w}'({sa})"
+  | .unary .bitNot a => do
+    let sa ← renderExpr a
+    some s!"~({sa})"
   | .slice (.ident n) hi lo => some s!"{n}[{hi}:{lo}]"
   | _ => none
 
@@ -153,6 +176,8 @@ inductive PrintShape : Expr → Prop
   | sliceRef (x : String) (hi lo : Nat) : lo ≤ hi → PrintShape (.slice (.ref x) hi lo)
   /-- A concatenation of two wires, `{a, b}`. -/
   | catRef (a b : String) : PrintShape (.concat [.ref a, .ref b])
+  /-- The bitwise NOT of a wire. -/
+  | notRef (x : String) : PrintShape (.op .not [.ref x])
 
 theorem PrintShape.ofShape {e : Expr} (h : Shape e) : PrintShape e := by
   induction h with
@@ -171,6 +196,7 @@ theorem printShape_simple {e : Expr} (h : simpleRhs e = true) : PrintShape e := 
   | .op .mux [.ref c, .ref t, .ref f], _ => exact .mux (.ref c) (.ref t) (.ref f)
   | .concat [.const v k, .ref x], _ => exact .zext v k x
   | .concat [.ref a, .ref b], _ => exact .catRef a b
+  | .op .not [.ref x], _ => exact .notRef x
   | .slice (.concat [.const 0 w, .ref x]) hi lo, h =>
     simp only [simpleRhs, Bool.and_eq_true, beq_iff_eq] at h
     obtain ⟨hlo, hhi⟩ := h
@@ -209,6 +235,10 @@ theorem PrintShape.width_lookup {e : Expr} (h : PrintShape e) (wof : String → 
     simp only [exprWidthT, exprWidthT.goSum, Sparkle.Backend.Verilog.exprWidthV,
       List.foldl_cons, List.foldl_nil]
     cases wof a <;> cases wof b <;> simp
+  | notRef x =>
+    simp only [exprWidthT, exprWidthT.goMax, Sparkle.Backend.Verilog.exprWidthV,
+      List.foldl_cons, List.foldl_nil]
+    cases wof x <;> simp [Nat.max_comm]
 
 theorem render_const (wof : String → Option Nat) (v : Int) (w : Nat) :
     ∃ l, emitAstExpr wof (.const v w) = some (.lit l) ∧
@@ -295,7 +325,7 @@ theorem emitExpr_render_all {e : Expr} (h : PrintShape e) (wof : String → Opti
     · simp only [emitAstExpr, harm, if_true, bind, Option.bind_some]
     · have hw' : ¬ w = 0 := by omega
       rw [hstr]
-      simp only [renderExpr, shiftOperand?, hw', if_false, bind, Option.bind_some]
+      simp only [renderExpr, shiftOperand?, xorMask?, hw', if_false, bind, Option.bind_some]
   | sliceRef x hi lo hle =>
     cases hw : wof (Sparkle.Backend.Verilog.sanitizeName x) with
     | none =>
@@ -316,7 +346,7 @@ theorem emitExpr_render_all {e : Expr} (h : PrintShape e) (wof : String → Opti
             subst hlo0
             exact ⟨.sizeCast (hi + 1) (.ident (Sparkle.Backend.Verilog.sanitizeName x)),
               by simp [emitAstExpr, hw, hne, hin],
-              by simp [renderExpr, shiftOperand?, Sparkle.Backend.Verilog.emitExpr, hw,
+              by simp [renderExpr, shiftOperand?, xorMask?, Sparkle.Backend.Verilog.emitExpr, hw,
                 hne, hin]⟩
           · have hpos : ¬ hi + 1 - lo = 0 := by omega
             exact ⟨.sizeCast (hi + 1 - lo)
@@ -336,6 +366,26 @@ theorem emitExpr_render_all {e : Expr} (h : PrintShape e) (wof : String → Opti
     · simp only [emitAstExpr, Tools.SVParser.EmitAst.emitConcatElems, bind, Option.bind_some]
     · rw [hstr]
       simp only [renderExpr]
+  | notRef x =>
+    cases hw : Sparkle.Backend.Verilog.exprWidthV wof (.ref x) with
+    | none =>
+      have hwT : exprWidthT wof (.ref x) = none := by
+        rw [(PrintShape.ref x).width_lookup wof]; exact hw
+      exact ⟨.unary .bitNot (.ident (Sparkle.Backend.Verilog.sanitizeName x)),
+        by simp [emitAstExpr, hwT],
+        by simp [renderExpr, Sparkle.Backend.Verilog.emitExpr, hw]⟩
+    | some w =>
+      have hwT : exprWidthT wof (.ref x) = some w := by
+        rw [(PrintShape.ref x).width_lookup wof]; exact hw
+      by_cases h0 : w = 0
+      · subst h0
+        exact ⟨.unary .bitNot (.ident (Sparkle.Backend.Verilog.sanitizeName x)),
+          by simp [emitAstExpr, hwT],
+          by simp [renderExpr, Sparkle.Backend.Verilog.emitExpr, hw]⟩
+      · exact ⟨.sizeCast w (.binary .bitXor (.ident (Sparkle.Backend.Verilog.sanitizeName x))
+            (.lit (.decimal (some w) (2 ^ w - 1)))),
+          by simp [emitAstExpr, hwT, h0],
+          by simp [renderExpr, shiftOperand?, xorMask?, Sparkle.Backend.Verilog.emitExpr, hw, h0]⟩
 
 /-- Arbitrarily nested expressions, including optimizer-inserted masks. -/
 theorem emitExpr_render {e : Expr} (h : Shape e) (wof : String → Option Nat) :

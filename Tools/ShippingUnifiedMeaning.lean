@@ -102,6 +102,19 @@ def orderedOfName? : Name → Option SignalCompareKind
   | ``Sparkle.Core.Signal.Signal.sle => some .sle
   | _ => none
 
+/-- The domain argument of a `Signal.ap` application. -/
+def appDomE : Lean.Expr → Lean.Expr
+  | .app (.app (.app (.app (.app _ dom) _) _) _) _ => dom
+  | e => e
+
+/-- A two-level Bool body views as its two operators, the inner one on an
+operand that is the canonical Signal-level form of the inner application. -/
+def appBool2Node (f : AppBool2) (dom a b : Lean.Expr) : Node :=
+  match f with
+  | .andNot => .binary (.bool .band) a (boolNotE dom b)
+  | .notAnd => .binary (.bool .band) (boolNotE dom a) b
+  | .nor => .boolNot (boolBinE .bor dom a b)
+
 /-- An applicative-lifted Bool-result operator views as the node of the
 operator it lifts: `(BitVec.ule · ·) <$> a <*> b` IS the comparison of `a`
 and `b`, pointwise. The shape is read by the shipping recogniser. -/
@@ -109,6 +122,7 @@ def appView? (e : Lean.Expr) : Option Node :=
   match appBoolOp? e with
   | some (.compare op n, a, b) => some (.binary (.compare op n) a b)
   | some (.bool op, a, b) => some (.binary (.bool op) a b)
+  | some (.two f, a, b) => some (appBool2Node f (appDomE e) a b)
   | none => none
 
 /-- A literal operand, as the Signal it is: `Signal.pure v#k`. -/
@@ -305,6 +319,16 @@ theorem appBoolOp?_appBoolE (dom a b : Lean.Expr) (op : SignalBoolBinKind) :
 theorem view_appE (dom ty body a b : Lean.Expr) :
     view (appE dom ty body a b) = appView? (appE dom ty body a b) := rfl
 
+theorem appBoolBody?_two (f : AppBool2) :
+    appBoolBody? (.const ``Bool []) (appBool2BodyE f) = some (.two f) := by
+  cases f <;> rfl
+
+theorem appBoolOp?_appBool2E (dom a b : Lean.Expr) (f : AppBool2) :
+    appBoolOp? (appBool2E f dom a b) = some (.two f, a, b) := by
+  rw [appBool2E, appBoolOp?_appE, appBoolBody?_two]; rfl
+
+theorem appDomE_appE (dom ty body a b : Lean.Expr) : appDomE (appE dom ty body a b) = dom := rfl
+
 theorem canonicalSlice?_sliceE (dom : Lean.Expr) (nm : Lean.Name) (a : Lean.Expr)
     {w start len : Nat} (hlen : 0 < len) (hr : start + len ≤ w) :
     canonicalSlice? (sliceE dom nm w start len a) = some (w, start, len, a) := by
@@ -474,6 +498,13 @@ theorem view_appBool (dom a b : Lean.Expr) (op : SignalBoolBinKind) :
   show appView? (appBoolE op dom a b) = _
   simp [appView?, appBoolOp?_appBoolE]
 
+theorem view_appBool2 (dom a b : Lean.Expr) (f : AppBool2) :
+    view (appBool2E f dom a b) = some (appBool2Node f dom a b) := by
+  rw [appBool2E, view_appE]
+  show appView? (appBool2E f dom a b) = _
+  have hd : appDomE (appBool2E f dom a b) = dom := appDomE_appE ..
+  simp [appView?, appBoolOp?_appBool2E, hd]
+
 theorem view_setw (dom a : Lean.Expr) (w w' : Nat) :
     view (setwE dom w w' a) = some (.setw w w' a) := by
   change (do
@@ -547,6 +578,14 @@ theorem meaning_quote_leaves {inputs : FVarId → Option Value} {dom : Lean.Expr
   | _, .appBool op a b, ⟨ha, hb'⟩ =>
     .binary (view_appBool dom _ _ op) (meaning_quote_leaves hb hv a ha)
       (meaning_quote_leaves hb hv b hb') rfl
+  | _, .appBool2 f a b, ⟨ha, hb'⟩ => by
+    have ma := meaning_quote_leaves (dom := dom) hb hv a ha
+    have mb := meaning_quote_leaves (dom := dom) hb hv b hb'
+    cases f
+    · exact .binary (view_appBool2 dom _ _ .andNot) ma (.boolNot (view_boolNot dom _) mb) rfl
+    · exact .binary (view_appBool2 dom _ _ .notAnd) (.boolNot (view_boolNot dom _) ma) mb rfl
+    · exact .boolNot (view_appBool2 dom _ _ .nor)
+        (.binary (view_boolBinary dom _ _ .bor) ma mb rfl)
   | _, .slice nm start len (w := w) a, ⟨ha, hlen, hr⟩ => by
     apply Meaning.slice (view_slice dom nm _ hlen hr) (meaning_quote_leaves hb hv a ha)
     simp [sliceValue, pack, eval]

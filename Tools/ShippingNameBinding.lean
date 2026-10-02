@@ -17,6 +17,7 @@ def ExprBound (declared : String → Prop) : SVExpr → Prop
   | .lit _ => True
   | .ident x => declared x
   | .unary .signed a => ExprBound declared a
+  | .unary .bitNot a => ExprBound declared a
   | .binary _ a b => ExprBound declared a ∧ ExprBound declared b
   | .ternary c t f => ExprBound declared c ∧ ExprBound declared t ∧ ExprBound declared f
   | .concat [.lit _, .ident x] => declared x
@@ -130,6 +131,12 @@ theorem emitExpr_bound {e : Sparkle.IR.AST.Expr} {sv : SVExpr}
     cases he
     exact hr x (by
       simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList])
+  | notRef x =>
+    have hx := hr x (by simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList])
+    simp only [emitAstExpr, bind, Option.bind_some] at he
+    split at he
+    · split at he <;> cases he <;> first | exact hx | exact ⟨hx, trivial⟩
+    · cases he; exact hx
   | catRef a b =>
     simp only [emitAstExpr, Tools.SVParser.EmitAst.emitConcatElems, bind, Option.bind_some,
       Option.some.injEq] at he

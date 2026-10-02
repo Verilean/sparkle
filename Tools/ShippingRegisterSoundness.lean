@@ -3915,6 +3915,10 @@ theorem cdoConeToLoop_quote {domS domL : Lean.Expr} {bi vi biL viL : Nat → Lea
     have ia := cdoConeToLoop_quote hdom hb hv a he.1
     have ib := cdoConeToLoop_quote hdom hb hv b he.2
     cases op <;> simp [Tools.ShippingUnifiedSource.quote, appBoolE, appE, appLamE, appBoolBodyE, cdoConeToLoop, cdoConeToLoop_natE, cdoConeToLoop_bitVecE, cdoConeToLoop_sigT hdom, hdom, sigT, binMethod, binInst, compareName, signalBoolBinName, signalBoolBinInst, mkApp8, mkApp6, mkApp5, mkApp4, mkApp3, mkApp2, mkAppB, mkApp, ia, ib]
+  | _, .appBool2 f a b, he => by
+    have ia := cdoConeToLoop_quote hdom hb hv a he.1
+    have ib := cdoConeToLoop_quote hdom hb hv b he.2
+    cases f <;> simp [Tools.ShippingUnifiedSource.quote, appBool2E, appE, appLamE, appBool2BodyE, cdoConeToLoop, cdoConeToLoop_natE, cdoConeToLoop_bitVecE, cdoConeToLoop_sigT hdom, hdom, sigT, mkApp8, mkApp6, mkApp5, mkApp4, mkApp3, mkApp2, mkAppB, mkApp, ia, ib]
   | _, .boolNot a, he => by
     have ia := cdoConeToLoop_quote hdom hb hv a he
     simp [Tools.ShippingUnifiedSource.quote, boolNotE, cdoConeToLoop, cdoConeToLoop_natE, cdoConeToLoop_bitVecE, cdoConeToLoop_sigT hdom, hdom, sigT, binMethod, binInst, compareName, signalBoolBinName, signalBoolBinInst, mkApp8, mkApp6, mkApp5, mkApp4, mkApp3, mkApp2, mkAppB, mkApp, ia]
@@ -5204,6 +5208,13 @@ theorem cdo2ConeToLoop_quote {dx dy K : Nat} {domS domL : Lean.Expr}
       cdo2ConeToLoop_natE, cdo2ConeToLoop_bitVecE, cdo2ConeToLoop_sigT hdom, hdom, sigT,
       signalBoolBinName, signalBoolBinInst, mkApp8, mkApp6, mkApp5, mkApp4, mkApp3,
       mkApp2, mkAppB, mkApp, ia, ib]
+      <;> omega
+  | _, .appBool2 f a b, he => by
+    have ia := cdo2ConeToLoop_quote hdom hb hv a he.1
+    have ib := cdo2ConeToLoop_quote hdom hb hv b he.2
+    cases f <;> simp [Tools.ShippingUnifiedSource.quote, appBool2E, appE, appLamE, appBool2BodyE, cdo2ConeToLoop,
+      cdo2ConeToLoop_natE, cdo2ConeToLoop_bitVecE, cdo2ConeToLoop_sigT hdom, hdom, sigT,
+      mkApp8, mkApp6, mkApp5, mkApp4, mkApp3, mkApp2, mkAppB, mkApp, ia, ib]
       <;> omega
   | _, .boolNot a, he => by
     have ia := cdo2ConeToLoop_quote hdom hb hv a he
