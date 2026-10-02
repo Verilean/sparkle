@@ -883,6 +883,33 @@ private partial def condConjuncts (typeMap : TypeMap) : Expr → List Expr
     else [.op .and [a, b]]
   | e => [e]
 
+/-- The constants of an OR of `x == c` tests on one `x`, if `e` is one. -/
+private partial def eqConstLeaves : Expr → Option (Expr × List Int)
+  | .op .eq [x, .const c _] => if c ≥ 0 then some (x, [c]) else none
+  | .op .or [a, b] =>
+    match eqConstLeaves a, eqConstLeaves b with
+    | some (x, cs), some (y, ds) => if x == y then some (x, cs ++ ds) else none
+    | _, _ => none
+  | _ => none
+
+/-- Drop the conjuncts another conjunct already implies.  A `case` arm is
+    lowered as "none of the earlier labels, and this label":
+    `!(s == A | s == B | …) && s == C`.  With `s == C` in the same
+    conjunction and `C` different from every earlier label the negation
+    is always true; on a one-hot state register it was the larger half
+    of every arm's test. -/
+private def dropImpliedConjuncts (cs : List Expr) : List Expr :=
+  let eqs : List (Expr × Int) := cs.filterMap fun c => match c with
+    | .op .eq [x, .const k _] => if k ≥ 0 then some (x, k) else none
+    | _ => none
+  if eqs.isEmpty then cs
+  else cs.filter fun c => match c with
+    | .op .not [d] =>
+      match eqConstLeaves d with
+      | some (x, ks) => !(eqs.any fun (y, k) => y == x && !ks.contains k)
+      | none => true
+    | _ => true
+
 /- Lines of a priority chain as a short-circuit decision tree.
 
     A chain `c1 ? v1 : c2 ? v2 : … : d` whose conditions are path guards
@@ -917,7 +944,7 @@ private partial def muxAssignLines (typeMap : TypeMap) (lhsName : String)
   else
     [s!"{indent}do \{"] ++
       muxTreeLines typeMap lhsName maskFn hold (indent ++ "  ")
-        (arms.map fun (c, v) => (condConjuncts typeMap c, v)) ++
+        (arms.map fun (c, v) => (dropImpliedConjuncts (condConjuncts typeMap c), v)) ++
       muxAssignLines typeMap lhsName maskFn hold (indent ++ "  ") default_ ++
       [s!"{indent}} while (0);"]
 
@@ -1757,6 +1784,69 @@ partial def collectExprRefsAux (acc : List String) : Expr → List String
 
 def collectExprRefs (e : Expr) : List String := collectExprRefsAux [] e
 
+/-- A wire is guarded by its readers' conditions only if its expression has
+    at least this many nodes, and at least twice as many as the guard. -/
+def lazyWireMinSize : Nat := 8
+
+/-- Number of nodes of an expression. -/
+partial def exprSize : Expr → Nat
+  | .op _ args => args.foldl (fun n a => n + exprSize a) 1
+  | .concat args => args.foldl (fun n a => n + exprSize a) 1
+  | .slice e _ _ | .sliceDim e _ _ => 1 + exprSize e
+  | .index a i => 1 + exprSize a + exprSize i
+  | _ => 1
+
+/-- Where a name is read, as a disjunction of conjunctions: each term is a
+    list of conjuncts known true at one read.  `[[]]` is "read
+    unconditionally".  Terms are cut to `lazyTermDepth` conjuncts and the
+    list to `lazyMaxTerms` terms; beyond that it collapses to what all
+    terms have in common.  Cutting only weakens the condition. -/
+abbrev UseTerms := List (List Expr)
+
+def lazyTermDepth : Nat := 3
+def lazyMaxTerms : Nat := 4
+
+/-- Record that `name` is read where the conjuncts `ctx` are known true. -/
+private def recordUse (acc : Std.HashMap String UseTerms) (name : String)
+    (ctx : List Expr) : Std.HashMap String UseTerms :=
+  let ctx := ctx.take lazyTermDepth
+  match acc.get? name with
+  | none => acc.insert name [ctx]
+  | some ts =>
+    if ts == [[]] then acc
+    else if ctx.isEmpty then acc.insert name [[]]
+    -- a recorded term that is weaker than `ctx` already covers it
+    else if ts.any (fun t => t.all (ctx.contains ·)) then acc
+    else
+      -- `ctx` covers the recorded terms that are stronger than it
+      let ts := ctx :: ts.filter fun t => !(ctx.all (t.contains ·))
+      if ts.length ≤ lazyMaxTerms then acc.insert name ts
+      else
+        let common := ts.foldl (fun c t => c.filter (t.contains ·)) ctx
+        acc.insert name [common]
+
+private def recordUses (acc : Std.HashMap String UseTerms) (ctx : List Expr)
+    (e : Expr) : Std.HashMap String UseTerms :=
+  let refs := (collectExprRefs e).foldl (fun (h : Std.HashSet String) r => h.insert r) {}
+  refs.fold (fun acc r => recordUse acc r ctx) acc
+
+/-- For every name `e` reads, the conjuncts that are known true at the
+    read, following the decision tree `muxAssignLines` emits for
+    `lhs = e`: conjunct `k` of an arm is evaluated only after conjuncts
+    `0..k-1` held, and an arm's value only after all of them did.
+    `ctx` is what already holds on entry. -/
+private partial def useContexts (typeMap : TypeMap) (ctx : List Expr) (e : Expr)
+    (acc : Std.HashMap String UseTerms) : Std.HashMap String UseTerms :=
+  let (arms, default_) := flattenMuxChain e
+  if arms.isEmpty then recordUses acc ctx e
+  else
+    let acc := arms.foldl (fun acc (c, v) =>
+      let cs := dropImpliedConjuncts (condConjuncts typeMap c)
+      let (acc, _) := cs.foldl (fun (acc, pre) ck =>
+        (recordUses acc (ctx ++ pre) ck, pre ++ [ck])) (acc, ([] : List Expr))
+      useContexts typeMap (ctx ++ cs) v acc) acc
+    useContexts typeMap ctx default_ acc
+
 /-- Collect all wire names referenced in tick() bodies. -/
 def collectTickRefWires (body : List Stmt) : List String :=
   body.foldl (fun acc stmt =>
@@ -1860,8 +1950,12 @@ def scheduleEvalBody (design : Option Design) (m : Module)
     them, in the emitted order: a combinational cycle at statement
     granularity, or a wire that refers to itself (`x = (x & ~m) | f`, the
     lowering of a part-wise assignment).  Such a read sees the value the
-    previous call left behind, so the wire must keep its struct field. -/
-def evalStaleReads (design : Option Design) (body : List Stmt) : List String := Id.run do
+    previous call left behind, so the wire must keep its struct field.
+
+    The flag is true when some statement reads ANOTHER statement's wire
+    too early — a real cycle, which one pass does not settle.  A wire that
+    only refers to itself does not need a second pass. -/
+def evalStaleReads (design : Option Design) (body : List Stmt) : List String × Bool := Id.run do
   let childOutputs : Stmt → List String := fun s => match s with
     | .inst modName _ conns =>
       match design.bind (·.findModule modName) with
@@ -1884,8 +1978,15 @@ def evalStaleReads (design : Option Design) (body : List Stmt) : List String := 
     | _ => []
   let produced : Std.HashSet String :=
     body.foldl (fun h s => (defsOf s).foldl (fun h n => h.insert n) h) {}
+  -- A latched memory read is state: reading its previous value is the
+  -- design's meaning, not an ordering accident.
+  let latched : Std.HashSet String := body.foldl (fun h s => match s with
+    | .memory _ _ _ _ _ _ _ _ rd cr _ er =>
+      if cr then h else er.foldl (fun h (_, r) => h.insert r) (h.insert rd)
+    | _ => h) {}
   let mut defined : Std.HashSet String := {}
   let mut stale : List String := []
+  let mut cross := false
   for s in body do
     let outs := defsOf s
     for r in usesOf s do
@@ -1893,9 +1994,10 @@ def evalStaleReads (design : Option Design) (body : List Stmt) : List String := 
       let own := match s with | .inst .. => outs.contains r | _ => false
       if !own && produced.contains r && !defined.contains r then
         stale := r :: stale
+        if !outs.contains r && !latched.contains r then cross := true
     for d in outs do
       defined := defined.insert d
-  return stale
+  return (stale, cross)
 
 /-- Runtime helper for a DYNAMIC shift of a >64-bit value consumed in a
     ≤64-bit context (firtool's flattened packed-array dynamic select:
@@ -1994,8 +2096,9 @@ def emitModule (m : Module) (design : Option Design := none)
     -- stopped while values were still propagating: VexRiscv's top level
     -- agreed with the reference at -O1 and at no other optimisation
     -- level.
+    let (staleNames, crossStale) := evalStaleReads design filteredBody
     let staleReads : Std.HashSet String :=
-      (evalStaleReads design filteredBody).foldl (fun h n => h.insert (sanitizeName n)) {}
+      staleNames.foldl (fun h n => h.insert (sanitizeName n)) {}
     let memberWires := match observableWires with
       | some ws => internalWires.filter fun (w : Port) =>
           let sn := sanitizeName w.name
@@ -2083,6 +2186,14 @@ def emitModule (m : Module) (design : Option Design := none)
     -- the registers on a cycle of such reads (a swap, a ring) keep the
     -- `_next` form.
     -- ----------------------------------------------------------------
+    let fusedWireLocals : List Port :=
+      match fusedLocalWires with
+      | none => []
+      | some keep => memberWires.filter fun (w : Port) =>
+        !keep.contains (sanitizeName w.name) && !staleReads.contains (sanitizeName w.name) && (match w.ty with
+          | .bit => true
+          | .bitVector n => n ≤ 64
+          | _ => false)
     let stmtParts := filteredBody.zip allParts
     let inPlaceOrder : Array String := Id.run do
       let memRefs : Std.HashSet String := filteredBody.foldl (fun h s => match s with
@@ -2123,14 +2234,141 @@ def emitModule (m : Module) (design : Option Design := none)
       match s, p.inPlace with
       | .register out .., some f => h.insert out f
       | _, _ => h) {}
+    -- ----------------------------------------------------------------
+    -- Wires computed only when needed (fused eval_tick, stack-local
+    -- wires only).
+    --
+    -- A wire is computed on every cycle although most cycles never look
+    -- at it: PicoRV32's multiplier carry chain while nothing multiplies,
+    -- `instr_trap` outside the one state that tests it.  For each local
+    -- wire take the conjuncts that are known true at EVERY place that
+    -- reads it — what the decision trees have already tested by then —
+    -- and compute the wire under those: `if (g1 && g2) w = …;`.  If some
+    -- read is unconditional the set is empty and the wire stays as it
+    -- is.  A conjunct is kept only if everything it reads is available
+    -- where the wire is computed (state, or a wire driven earlier);
+    -- dropping one only makes the guard weaker, which is safe.  Readers
+    -- are visited before the wires they read, so a wire that feeds only
+    -- guarded wires inherits their guards.
+    -- ----------------------------------------------------------------
+    let lazyGuards : Std.HashMap String UseTerms := Id.run do
+      if fusedLocalWires.isNone then return {}
+      -- Candidates: the stack-local wires, and the wide (array) wires,
+      -- which no one can observe either (`get_wire` is scalar-only).
+      -- A skipped wide wire just keeps its previous contents.
+      let keep := fusedLocalWires.getD []
+      let cand : Std.HashSet String := fusedWireLocals.foldl (fun h w => h.insert w.name) {}
+      let cand := internalWires.foldl (fun h (w : Port) =>
+        if w.ty.bitWidth > 64 && !keep.contains (sanitizeName w.name) &&
+           !staleReads.contains (sanitizeName w.name) then h.insert w.name else h) cand
+      if cand.isEmpty then return {}
+      let indexed := filteredBody.zip (List.range filteredBody.length)
+      -- where each combinationally driven name is driven
+      let mut pos : Std.HashMap String Nat := {}
+      for (s, i) in indexed do
+        match s with
+        | .assign lhs _ => pos := pos.insert lhs i
+        | .memory _ _ _ _ _ _ _ _ rd _ _ er =>
+          pos := pos.insert rd i
+          for (_, r) in er do pos := pos.insert r i
+        | .inst _ _ conns =>
+          for (_, e) in conns do
+            match e with
+            | .ref w => if !pos.contains w then pos := pos.insert w i
+            | _ => pure ()
+        | _ => pure ()
+      let mut acc : Std.HashMap String UseTerms := {}
+      -- the unconditional readers and the registers first …
+      for s in filteredBody do
+        match s with
+        | .register out _ _ input _ =>
+          acc := if lookupWidth typeMap out ≤ 64 then useContexts typeMap [] input acc
+                 else recordUses acc [] input
+        | .memory _ _ _ _ wa wd we ra _ _ ew er =>
+          for e in [wa, wd, we, ra] do acc := recordUses acc [] e
+          for (a, d, e) in ew do
+            for x in [a, d, e] do acc := recordUses acc [] x
+          for (a, _) in er do acc := recordUses acc [] a
+        | .inst _ _ conns =>
+          for (_, e) in conns do acc := recordUses acc [] e
+        | _ => pure ()
+      -- … then the assigns, last one first
+      let mut guards : Std.HashMap String UseTerms := {}
+      for (s, i) in indexed.reverse do
+        match s with
+        | .assign x rhs =>
+          let size := exprSize rhs
+          let terms : UseTerms :=
+            if !cand.contains x || size < lazyWireMinSize then [[]]
+            else
+              -- keep the conjuncts whose inputs exist where `x` is computed
+              let ts := (acc.getD x [[]]).map fun t => t.filter fun c =>
+                (collectExprRefs c).all fun r => r != x && (pos.get? r).all (· < i)
+              -- … and only if the test is clearly cheaper than the wire
+              let cost := ts.foldl (fun n t => t.foldl (fun n c => n + exprSize c) n) 0
+              if ts.any (·.isEmpty) || size < 2 * cost then [[]] else ts
+          let scalar := lookupWidth typeMap x ≤ 64
+          if terms != [[]] then
+            guards := guards.insert x terms
+            -- the guard itself reads its conjuncts, each after the ones before it
+            for t in terms do
+              let (acc', _) := t.foldl (fun (acc, pre) ck =>
+                (recordUses acc pre ck, pre ++ [ck])) (acc, ([] : List Expr))
+              acc := acc'
+          for t in terms do
+            if scalar then
+              acc := useContexts typeMap t rhs acc
+            else
+              -- A wide mux is emitted word by word as `c ? T[j] : E[j]`.
+              -- A compound arm is materialised first, on every pass; an
+              -- arm that is a plain wire is only read when selected.
+              match rhs with
+              | .op .mux [c, .ref r, e] =>
+                acc := recordUses acc t c
+                acc := recordUse acc r (t ++ dropImpliedConjuncts (condConjuncts typeMap c))
+                acc := recordUses acc t e
+              | _ => acc := recordUses acc t rhs
+        | _ => pure ()
+      return guards
+    -- `common && (rest1 || rest2 || …)`
+    let lazyCond (terms : UseTerms) : String :=
+      let conj (cs : List Expr) : String := String.intercalate " && " (cs.map (emitExpr typeMap))
+      match terms with
+      | [t] => conj t
+      | t0 :: _ =>
+        let common := terms.foldl (fun c t => c.filter (t.contains ·)) t0
+        let rests := terms.map fun t => t.filter (!common.contains ·)
+        let alts := String.intercalate " || " (rests.map fun r => s!"({conj r})")
+        if rests.any (·.isEmpty) then conj common
+        else if common.isEmpty then alts
+        else s!"{conj common} && ({alts})"
+      | [] => "1"
     let fusedParts : List StmtParts := stmtParts.map fun (s, p) => match s with
       | .register out .. =>
         if inPlaceSet.contains out then
           { p with evalBody := [], tickBody := [], evalTickLocals := [] }
         else p
       | _ => p
-    let fusedEvalBody := inputMaskBody ++
-      fusedParts.foldl (fun acc (p : StmtParts) => acc ++ p.evalBody) [] ++
+    -- The guard line of each statement (lazy wires only).  Neighbours with
+    -- the same guard share one block.
+    let fusedGuardOf : List (Option String) := stmtParts.map fun (s, _) => match s with
+      | .assign x _ => (lazyGuards.get? x).map lazyCond
+      | _ => none
+    let fusedStmtLines : List String := Id.run do
+      let mut out : Array String := #[]
+      let mut openGuard : Option String := none
+      for (p, g) in fusedParts.zip fusedGuardOf do
+        if p.evalBody.isEmpty then continue
+        if g != openGuard then
+          if openGuard.isSome then out := out.push "        }"
+          match g with
+          | some c => out := out.push s!"        if ({c}) \{"
+          | none => pure ()
+          openGuard := g
+        out := out ++ p.evalBody.toArray
+      if openGuard.isSome then out := out.push "        }"
+      return out.toList
+    let fusedEvalBody := inputMaskBody ++ fusedStmtLines ++
       inPlaceOrder.foldl (fun acc o => acc ++ (inPlaceOf.getD o (fun _ => [])) ()) []
     let fusedTickBody := fusedParts.foldl (fun acc (p : StmtParts) => acc ++ p.tickBody) []
     let fusedLocals := fusedParts.foldl (fun acc (p : StmtParts) => acc ++ p.evalTickLocals) []
@@ -2267,14 +2505,6 @@ def emitModule (m : Module) (design : Option Design := none)
     -- reads) is stale until the next eval().  The wires in `keep` stay
     -- members; so do wide (array) wires and any wire that is read before
     -- it is driven (`evalStaleReads`).
-    let fusedWireLocals : List Port :=
-      match fusedLocalWires with
-      | none => []
-      | some keep => memberWires.filter fun (w : Port) =>
-        !keep.contains (sanitizeName w.name) && !staleReads.contains (sanitizeName w.name) && (match w.ty with
-          | .bit => true
-          | .bitVector n => n ≤ 64
-          | _ => false)
     let memberSetET : Std.HashSet String :=
       fusedWireLocals.foldl (fun s w => s.erase (sanitizeName w.name)) memberSetET
     let fusedWireDecls := fusedWireLocals.map fun (p : Port) =>
@@ -2372,7 +2602,7 @@ def emitModule (m : Module) (design : Option Design := none)
         (line.splitOn s!"sparkle_evalTick_placeholder_TICK_{inst}").length > 1
         || (line.splitOn s!"_tick(&self->{inst})").length > 1)
 
-    let evalTickFn :=
+    let fusedTickFn :=
       s!"{funcQual}static void sparkle_{className}_eval_tick({structName}* self) \{\n" ++
       "    (void)self;\n" ++
       (if localWireDecls.isEmpty then "" else
@@ -2390,6 +2620,17 @@ def emitModule (m : Module) (design : Option Design := none)
       (if evalTickTickBody.isEmpty then "" else
         String.intercalate "\n" evalTickTickBody ++ "\n") ++
       "}\n\n"
+
+    -- A real combinational cycle needs eval()'s fixed-point loop; the
+    -- single fused pass read stale values (VexRiscv's top level, whose
+    -- handshake runs through a child instance and back, disagreed with
+    -- the reference through eval_tick).  Such a module steps as eval +
+    -- tick.
+    let evalTickFn :=
+      if crossStale then
+        s!"{funcQual}static void sparkle_{className}_eval_tick({structName}* self) \{\n" ++
+        s!"    sparkle_{className}_eval(self);\n    sparkle_{className}_tick(self);\n}\n\n"
+      else fusedTickFn
 
     structDecl ++ resetFn ++ evalFn ++ tickFn ++ evalTickFn
 

@@ -24,7 +24,7 @@
   not initialize their state; see `emitZeroInit`).
 
   Usage:
-    lake exe sv-cosim <orig-dir> <rt-dir> [--jobs N] [--cycles K] [--limit M] [--max-kb S] [--skip K] [--hier [--max-closure F]] [--zero-init]
+    lake exe sv-cosim <orig-dir> <rt-dir> [--jobs N] [--cycles K] [--limit M] [--max-kb S] [--skip K] [--hier [--max-closure F]] [--zero-init] [--fused | --fused-local]
     lake exe sv-cosim <orig-file.sv> <rt-dir>     # single, verbose
 -/
 import Tools.SVParser
@@ -207,11 +207,11 @@ def emitTb (modName : String) (ports : List PortInfo)
 
 def emitCMain (design : Sparkle.IR.AST.Design) (modName : String)
     (ports : List PortInfo) (stim : List (List (String × UInt64)))
-    (cycles : Nat) (hasClock : Bool := true) : String := Id.run do
+    (cycles : Nat) (hasClock : Bool := true) (fused : Nat := 0) : String := Id.run do
   let cls := Sparkle.Backend.CSim.sanitizeName modName
   let outs := ports.filter (!·.isIn)
   let mut l : List String :=
-    [ Sparkle.Backend.CSim.toCDesign design
+    [ Sparkle.Backend.CSim.toCDesign design none "" (if fused == 2 then some [] else none)
     , "#include <stdio.h>"
     , "int main(void) {"
     , s!"  struct {cls} s;"
@@ -235,7 +235,11 @@ def emitCMain (design : Sparkle.IR.AST.Design) (modName : String)
     -- clocked: sample f(I_k, R_{k+1}) to match negedge sampling
     -- (eval, tick, eval); combinational: a single eval settles it
     l := l ++
-      (if hasClock then
+      (if hasClock && fused != 0 then
+        -- the fused step (eval + tick in one function, the JIT's fast
+        -- path), then eval to bring the outputs up to the new state
+        [s!"  sparkle_{cls}_eval_tick(&s);", s!"  sparkle_{cls}_eval(&s);"]
+      else if hasClock then
         [s!"  sparkle_{cls}_eval(&s);", s!"  sparkle_{cls}_tick(&s);", s!"  sparkle_{cls}_eval(&s);"]
       else
         [s!"  sparkle_{cls}_eval(&s);"])
@@ -401,7 +405,8 @@ partial def rtZeroInit (rtDir file path : String) (recurse : Bool) (depth : Nat 
 
 def runCosim (dir rtDir workDir name : String) (cycles : Nat)
     (hier : Bool := false) (maxClosure : Nat := 25)
-    (cache : Option ChildCache := none) (zeroInit : Bool := false) :
+    (cache : Option ChildCache := none) (zeroInit : Bool := false)
+    (fused : Nat := 0) :
     IO (String × CosimResult) := do
   let src ← IO.FS.readFile (System.FilePath.mk dir / name)
   let .ok sv := parse src | return (name, .skipped "parse")
@@ -494,7 +499,7 @@ def runCosim (dir rtDir workDir name : String) (cycles : Nat)
   let ins := ports.filter (·.isIn)
   let stim := bake ins cycles (0xC0FFEE + name.hash)
   let tb := emitTb m.name ports stim cycles hasClock clockNames
-  let cmain := emitCMain design m.name ports stim cycles hasClock
+  let cmain := emitCMain design m.name ports stim cycles hasClock fused
   let wd := System.FilePath.mk workDir
   IO.FS.createDirAll wd
   let base := name.dropRight 3
@@ -608,13 +613,17 @@ def main (args : List String) : IO Unit := do
   -- --zero-init: start both iverilog runs from all-zero registers and
   -- memories (see `emitZeroInit`); for sources without reset/init state.
   let zeroInit := args.contains "--zero-init"
+  -- --fused: drive the JIT side through eval_tick (the fused fast path)
+  -- instead of eval + tick; --fused-local additionally generates it with
+  -- `fusedLocalWires` (stack-local and lazily computed wires).
+  let fused := if args.contains "--fused-local" then 2 else if args.contains "--fused" then 1 else 0
   let maxClosure := ((flagVal "--max-closure").bind (·.toNat?)).getD 25
   let workDir := "/tmp/sv-cosim"
   if dir.endsWith ".sv" then
     let p := System.FilePath.mk dir
     let cache : ChildCache ← IO.mkRef {}
     let (n, res) ← runCosim (p.parent.getD "." |>.toString) rtDir workDir
-      (p.fileName.getD dir) cycles hier maxClosure (some cache) zeroInit
+      (p.fileName.getD dir) cycles hier maxClosure (some cache) zeroInit fused
     IO.println s!"{n}: {match res with
       | .ok => "OK"
       | .rtMismatch d => s!"RT-MISMATCH {d}"
@@ -648,7 +657,7 @@ def main (args : List String) : IO Unit := do
     let cache : ChildCache ← IO.mkRef {}
     let mut out := #[]
     for n in bucket do
-      out := out.push (← runCosim dir rtDir workDir n cycles hier maxClosure (some cache) zeroInit)
+      out := out.push (← runCosim dir rtDir workDir n cycles hier maxClosure (some cache) zeroInit fused)
     return out
   let mut tasks := #[]
   for b in chunks do

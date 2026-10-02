@@ -3022,5 +3022,59 @@ endmodule
     else IO.println s!"FAIL: {r} (want [55, 3, 1, 1])"; failed := failed + 1
   catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
 
+  -- Test 83 (CSim fast configuration): `toCJIT (fusedLocalWires := true)`
+  -- keeps wires on the stack inside eval_tick and computes a wire only
+  -- under the conditions all its readers share.  `big` is read in two
+  -- states by two registers (a disjunctive guard), `chain2` only through
+  -- `chain3`; the registers must end up exactly as in the default
+  -- configuration.
+  IO.print "  Test 83: fused-local eval_tick (lazy wires, in-place registers) matches the default configuration... "
+  try
+    let v := "
+module lazyw (input clk, input [7:0] a, input [7:0] b, output [15:0] o1, output [15:0] o2, output [15:0] o3);
+  reg [1:0] st;
+  reg [15:0] r1, r2, r3;
+  wire [15:0] big = ((a * 8'd3) + (b ^ 8'h5a) + {8'd0, a} + {b, 8'd0}) ^ {r1[7:0], r2[7:0]};
+  wire [15:0] chain1 = r3 + {8'd0, a} + 16'd7;
+  wire [15:0] chain2 = (chain1 << 1) ^ {8'd0, b} ^ 16'h1234;
+  wire [15:0] chain3 = chain2 + (chain2 >> 3) + r1;
+  always @(posedge clk) begin
+    st <= st + 2'd1;
+    case (st)
+      2'd0: r1 <= r1 + 16'd1;
+      2'd1: r1 <= big;
+      2'd2: r2 <= big + r1;
+      default: begin
+        if (a[0])
+          r3 <= chain3;
+      end
+    endcase
+  end
+  assign o1 = r1;
+  assign o2 = r2;
+  assign o3 = r3;
+endmodule
+"
+    let run := fun (fast : Bool) => do
+      let design ← IO.ofExcept (parseAndLowerFlat v)
+      IO.FS.writeFile "/tmp/sparkle_pair_test.c" (toCJIT design (fusedLocalWires := fast))
+      let h ← JIT.compileAndLoad "/tmp/sparkle_pair_test.c"
+      JIT.reset h
+      let mut trace : List UInt64 := []
+      for c in [:40] do
+        JIT.setInput h 0 (UInt64.ofNat ((c * 37 + 11) % 256))
+        JIT.setInput h 1 (UInt64.ofNat ((c * 101 + 3) % 256))
+        JIT.evalTick h
+        JIT.eval h
+        trace := trace ++ [← JIT.getOutput h 0, ← JIT.getOutput h 1, ← JIT.getOutput h 2]
+      JIT.destroy h
+      return trace
+    let slow ← run false
+    let fast ← run true
+    let nonTrivial := slow.any (· > 255)
+    if slow == fast && nonTrivial then IO.println "PASS"; passed := passed + 1
+    else IO.println s!"FAIL: default {slow.drop 100} vs fast {fast.drop 100}"; failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
   IO.println s!"\n=== Results: {passed} passed, {failed} failed ==="
   return if failed == 0 then 0 else 1
