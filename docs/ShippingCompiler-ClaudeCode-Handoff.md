@@ -467,6 +467,13 @@ jobs green. Left of the ~35: HFT-style chains (a sub-machine reading
 another's result: needs a telescoped `Inner`), runs under `fun`,
 `@[hardware_module]` instances inside the transition.
 
+**Next (planned, see the TODO's NEXT entry):** instances inside a
+`circuit do`, by the open view — instance outputs as oracle leaves of the
+machine, `linked_open` to tie the real module, the child's endpoint for the
+oracle. Combinational children first (14 declarations: ARP/ICMP/HTTP/IPv4
+byte generators, `tlpCplByte`), sequential children (≈15) through the same
+composition with the child's `MachineTrace`.
+
 THE MEASUREMENT CYCLE after any change to `Elab.lean` (about 50 minutes,
 never next to a `lake build`): `PASSES=1 scripts/shipping-coverage/run.sh
 NEW`; `compare_outputs.py OLD/out NEW/out` (every `DIFFERENT` file must be
