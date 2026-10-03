@@ -1,5 +1,6 @@
 import Tools.ShippingMachineAuto
 import Tools.ShippingMachineNest
+import Tools.ShippingMachineLoop
 import Tools.ShippingMachineShipping
 
 /-! # The machine endpoint of a declaration, generated
@@ -397,6 +398,8 @@ structure Read where
   rootLets : Nat
   /-- The root is a `runCircuitH` (possibly under one projection): the enclosing machine. -/
   hasOuter : Bool
+  /-- The result is a tuple: its components' kinds (one port `out`, packed). -/
+  tuple : Option (List MixedGateBinder) := none
 
 /-- A declaration with sub-machines, or whose root is not one `runCircuitH`:
 the endpoint goes through `machine_trace_of_nested`. -/
@@ -421,21 +424,35 @@ def readMachine (declName : Name) : MetaM Read := do
   unless binders.length == nIn + nSlots + nLets do throwError "{declName}: binder count"
   let (rootLets, sel?, run?, _) := machRoot senv.proj entryBody []
   -- the domain: the enclosing machine's, else the first sub-machine's
-  let srcDom ← match run? with
-    | some run => pure run.getAppArgs[0]!
+  -- the domain, and how many root `let`s enclose the expression it is read from
+  let (srcDom, depth) ← match run? with
+    | some run => pure (run.getAppArgs[0]!, rootLets.length)
     | none =>
       match entryBody.find? fun t => t.isAppOfArity ``Sparkle.Core.runCircuitH 8 with
-      | some run => pure run.getAppArgs[0]!
-      | none => throwError "{declName}: no runCircuitH"
+      | some run => pure (run.getAppArgs[0]!, rootLets.length)
+      | none =>
+        -- a hand-written `Signal.loop`, bound by the `k`-th root `let`
+        let rec loopLet (k : Nat) : Lean.Expr → Option (Lean.Expr × Nat)
+          | .letE _ _ v b _ =>
+            if v.isAppOfArity ``Sparkle.Core.Signal.Signal.loop 4 then some (v.getAppArgs[0]!, k)
+            else loopLet (k + 1) b
+          | _ => none
+        match loopLet 0 entryBody with
+        | some r => pure r
+        | none => throwError "{declName}: no runCircuitH and no Signal.loop"
   -- a domain binder is a bound variable at the root; the placeholder the
   -- reader gives it is the binder's position from the end
   let srcDom' ← match srcDom with
     | .bvar j =>
-      if j < rootLets.length then throwError "{declName}: the domain is a root let"
-      else pure (machIn (j - rootLets.length))
+      if j < depth then throwError "{declName}: the domain is a root let"
+      else pure (machIn (j - depth))
     | e => pure e
-  let some (dom, _) := machDom? (nSlots + nLets) srcDom' | throwError "{declName}: domain"
-  let some (ctor?, outKinds) := machOuts? senv entry.type | throwError "{declName}: outputs"
+  let some (dom, _) := machDom? (shape.insts.length + nSlots + nLets) srcDom'
+    | throwError "{declName}: domain"
+  let tup? := machTupleKinds? entry.type
+  let some (ctor?, outKinds) := (match tup? with
+      | some ks => some (none, [("out", MixedGateBinder.bits (ks.map machWidth).sum)])
+      | none => machOuts? senv entry.type) | throwError "{declName}: outputs"
   let kinds := binders.map (·.2)
   let c := Binders.ofKinds kinds
   let idx := (List.range kinds.length).zip kinds
@@ -464,7 +481,7 @@ def readMachine (declName : Name) : MetaM Read := do
     throwError "{declName}: the terms read off the body do not quote back to it"
   return { shape, entry, nIn, dom, srcDom, bposL, vposL, vwL, ls, outs, nexts, ctor?, sel?,
            outNames := outKinds.map (·.1), nDecl, rootLets := rootLets.length,
-           hasOuter := run?.isSome }
+           hasOuter := run?.isSome, tuple := tup? }
 
 def dataE (r : Read) : MetaM Lean.Expr := do
   let body ← match reflExpr r.shape.body with
@@ -487,8 +504,10 @@ def dataE (r : Read) : MetaM Lean.Expr := do
       (toExpr c)
       (mkApp4 (mkConst ``Prod.mk [.zero, .zero]) (mkApp (mkConst ``List [.zero]) (mkConst ``Nat))
         (mkConst ``MixedGateBinder) (natListE js) (binderKindE k)))
-  let shape := mkApp5 (mkConst ``MachineShape.mk) (listE binderT (r.shape.binders.map binderE))
-    body layout runs insts
+  let loops := listE natPairT (r.shape.loops.map fun (a, b) =>
+    mkApp4 (mkConst ``Prod.mk [.zero, .zero]) (mkConst ``Nat) (mkConst ``Nat) (natL a) (natL b))
+  let shape := mkApp6 (mkConst ``MachineShape.mk) (listE binderT (r.shape.binders.map binderE))
+    body layout runs insts loops
   return mkAppN (mkConst ``MachineData.mk)
     #[shape, natL r.nIn, dom, natListE r.bposL, natListE r.vposL, natListE r.vwL,
       listE stypeT (r.nexts.map fun t => stypeE t.1), listE anyTermT (r.ls.map anyTermE),
@@ -952,6 +971,118 @@ def singleProof (declName : Name) (r : Read) (data ι i D bools bits src inst : 
     (`machine_writes, true), (`machine_result, true), (`machine_source, true)],
     if hasInsts then some hextE else none)
 
+/-! ### A hand-written `Signal.loop`
+
+`let s := Signal.loop f; result s` (after the root `let`s before it): the
+endpoint goes through `machine_trace_of_loop` with `res := fun L => result L`,
+`σ` the reading of the state tuple as the machine's typed tuple, and the
+reset tuple from the registers' initial values. -/
+
+/-- The packed bits of a tuple value `x` whose components have kinds `ks`
+(first component high, a Bool as one bit): the observation of a tuple
+result, the legacy lowering's single `out` port. -/
+partial def packTuple (x : Lean.Expr) : List MixedGateBinder → MetaM Lean.Expr
+  | [] => throwError "packTuple: no component"
+  | [k] => comp x k
+  | k :: ks => do
+    let a ← comp (← mkAppM ``Prod.fst #[x]) k
+    let b ← packTuple (← mkAppM ``Prod.snd #[x]) ks
+    mkAppM ``HAppend.hAppend #[a, b]
+where
+  comp (c : Lean.Expr) : MixedGateBinder → MetaM Lean.Expr
+    | .bool => pure (mkApp (mkConst ``Tools.ShippingMachineLoop.boolBits) c)
+    | _ => pure c
+
+/-- The observations of a value `v` of the declaration's result type. -/
+def resultObsOf (declName : Name) (r : Read) (D v rho : Lean.Expr) : MetaM (List Lean.Expr) := do
+  match r.tuple with
+  | some ks =>
+    let nat := mkConst ``Nat
+    let o ← withLocalDeclD `t nat fun t => do
+      let x ← mkAppM ``Sparkle.Core.Signal.Signal.val #[v, t]
+      mkLambdaFVars #[t] (← mkAppM ``BitVec.toNat #[← packTuple x ks])
+    pure [o]
+  | none =>
+    observations declName D v (← resultFields declName r rho) (r.shape.layout.outs.map outKind)
+
+/-- The machine's typed tuple from a loop state tuple `x` of `n` components. -/
+def loopSigma (x : Lean.Expr) (n : Nat) : MetaM Lean.Expr := do
+  let mut comps : Array Lean.Expr := #[]
+  let mut cur := x
+  for k in [0:n] do
+    if k + 1 == n then comps := comps.push cur
+    else
+      comps := comps.push (← mkAppM ``Prod.fst #[cur])
+      cur ← mkAppM ``Prod.snd #[cur]
+  let mut hl := mkConst ``Unit.unit
+  for c in comps.reverse do
+    hl ← mkAppM ``Prod.mk #[c, hl]
+  return hl
+
+def loopProof (declName : Name) (r : Read) (data ι i D bools bits src inst : Lean.Expr) :
+    MetaM (Lean.Expr × Name × List (Name × Bool) × Option Lean.Expr) := do
+  let nat := mkConst ``Nat
+  -- the root `let`s before the loop substituted; the loop and the rest
+  let mut cur := inst
+  let mut found : Option (Lean.Expr × Lean.Expr) := none
+  for _ in [0:100000] do
+    match cur with
+    | .letE _ _ v b _ =>
+      if v.isAppOfArity ``Sparkle.Core.Signal.Signal.loop 4 then
+        found := some (v, b)
+        break
+      else cur := b.instantiate1 v
+    | _ => break
+  let some (loopApp, rest) := found | throwError "{declName}: no root Signal.loop"
+  let la := loopApp.getAppArgs
+  let (α, inh, f) := (la[1]!, la[2]!, la[3]!)
+  let .lam _ _ fBody _ := f | throwError "{declName}: the loop body is not a function"
+  let some regs := machLoopRegs (machLetTail fBody) | throwError "{declName}: the loop's registers"
+  let n := regs.length
+  unless n == r.shape.layout.slots.length do throwError "{declName}: slot count"
+  if inh.hasFVar then throwError "{declName}: the state's Inhabited instance depends on a binder"
+  -- the result over a state signal
+  let sigα := mkApp2 (mkConst ``Sparkle.Core.Signal.Signal [.zero]) D α
+  let rho ← inferType (rest.instantiate1 loopApp)
+  let resV ← withLocalDeclD `L sigα fun L => mkLambdaFVars #[i, bools, bits, L] (rest.instantiate1 L)
+  -- the generic theorem, applied step by step; the binder types name the facts
+  let mut p := mkAppN (mkConst ``Tools.ShippingMachineLoop.machine_trace_of_loop)
+    #[toExpr declName, data, ι, ← mkLambdaFVars #[i] D, ← mkLambdaFVars #[i] α,
+      ← mkLambdaFVars #[i] inh, ← mkLambdaFVars #[i] rho]
+  let sigmaName := declName ++ `machineSigma
+  let sigmaV ← withLocalDeclD `x α fun x => do mkLambdaFVars #[i, x] (← loopSigma x n)
+  addDef sigmaName (← inferType p).bindingDomain! sigmaV
+  p := mkApp p (mkConst sigmaName)
+  let initsName := declName ++ `machineInits
+  let initsV ← loopSigmaInits regs
+  addDef initsName (← inferType p).bindingDomain! initsV
+  p := mkApp p (mkConst initsName)
+  let bodyName := declName ++ `machineBody
+  addDef bodyName (← inferType p).bindingDomain! (← mkLambdaFVars #[i, bools, bits] f)
+  p := mkApp p (mkConst bodyName)
+  let resName := declName ++ `machineRes
+  addDef resName (← inferType p).bindingDomain! resV
+  p := mkApp p (mkConst resName)
+  let obsName := declName ++ `machineResult
+  let obsV ← withLocalDeclD `r rho fun res => do
+    mkLambdaFVars #[i, res] (listE (← mkArrow nat nat) (← resultObsOf declName r D res rho))
+  addDef obsName (← inferType p).bindingDomain! obsV
+  p := mkApp p (mkConst obsName)
+  let srcName := declName ++ `machineSource
+  addDef srcName (← inferType p).bindingDomain!
+    (← mkLambdaFVars #[i, bools, bits] (listE (← mkArrow nat nat) (← resultObsOf declName r D src rho)))
+  p := mkApp p (mkConst srcName)
+  return (p, srcName, [(`machine_ok, false), (`machine_body, true), (`machine_inits, false),
+    (`machine_reset, true), (`machine_writes, true), (`machine_result, true),
+    (`machine_source, true)], none)
+where
+  /-- The reset tuple, from the registers' initial values. -/
+  loopSigmaInits (regs : List (Lean.Expr × Lean.Expr × Lean.Expr)) : MetaM Lean.Expr := do
+    let mut hl := mkConst ``Unit.unit
+    for (_, init, _) in regs.reverse do
+      hl ← mkAppM ``Prod.mk #[init, hl]
+    return hl
+
 /-- The machine endpoint of `declName`: the definitions, the six kernel
 checks, the theorem (whose name is returned). `checkCloses` also runs the
 machine synthesis and checks that it ties the `let`s (the `MachineCloses`
@@ -990,7 +1121,8 @@ def generateCore (declName : Name) (checkCloses : Bool) : MetaM Name := do
     let src := mkAppN (mkConst declName) args.toArray
     let inst := entryV.beta args.toArray
     let (p, srcName, checks, extra) ←
-      if r.nested then nestedProof declName r data ι i D bools bits src inst
+      if !r.shape.loops.isEmpty then loopProof declName r data ι i D bools bits src inst
+      else if r.nested then nestedProof declName r data ι i D bools bits src inst
       else singleProof declName r data ι i D bools bits src inst
     let mut p := p
     for (suffix, left) in checks do

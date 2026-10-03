@@ -3366,6 +3366,9 @@ inductive MachVal where
   | unit
   /-- A Signal expression of the transition (in placeholder form). -/
   | val (e : Lean.Expr)
+  /-- The state of a hand-written `Signal.loop` over the slots
+      `base … base+n-1`: a right-nested tuple read by `Signal.fst`/`Signal.snd`. -/
+  | state (base n : Nat)
 
 /-- Placeholders for the transition's variables while its size is not known:
     the declaration's binder `i` (from the end), slot `i`, hardware `let` `j`.
@@ -3448,6 +3451,8 @@ structure MachRead where
   /-- Reading a nested machine's chain (a call there is not accepted yet:
       the endpoint reads calls of the enclosing body only). -/
   inInner : Bool := false
+  /-- `(first slot, slot count)` of every hand-written `Signal.loop`. -/
+  loops : Array (Nat × Nat) := #[]
 
 /-- A placeholder (a variable of the transition), as opposed to a compound
     expression. -/
@@ -3538,6 +3543,82 @@ def machLetIndex (nm : Name) (k : MixedGateBinder) (v' : Lean.Expr) (lets : Mach
     | some j => (j, lets)
     | none => (lets.size, lets.push (nm, k, v'))
 
+/-- `Signal.snd` applied `k` times: `(k, the innermost expression)`. -/
+def machSndChain : Lean.Expr → Nat × Lean.Expr
+  | .app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.snd _) _) _) _) s =>
+    let (k, x) := machSndChain s
+    (k + 1, x)
+  | e => (0, e)
+
+/-- A read of a `Signal.loop` state: `Signal.fst (Signal.snd^k s)` is slot
+    `base + k`, `Signal.snd^(n-1) s` the last slot. -/
+def machLoopRead? (env : List MachVal) (d : Nat) (e : Lean.Expr) : Option Nat :=
+  let state? (x : Lean.Expr) : Option (Nat × Nat) := match x with
+    | .bvar j =>
+      if j < d then none else
+      match env[j - d]? with
+      | some (.state b n) => some (b, n)
+      | _ => none
+    | _ => none
+  match e with
+  | .app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.fst _) _) _) _) s =>
+    let (k, x) := machSndChain s
+    match state? x with
+    | some (b, n) => if k + 1 < n then some (b + k) else none
+    | none => none
+  | _ =>
+    let (k, x) := machSndChain e
+    if k = 0 then none else
+    match state? x with
+    | some (b, n) => if k + 1 = n then some (b + k) else none
+    | none => none
+
+/-- `Signal.register init next`: `(type, init, next)`. -/
+def machLoopReg? : Lean.Expr → Option (Lean.Expr × Lean.Expr × Lean.Expr)
+  | .app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.register _) _) ty) init) next =>
+    some (ty, init, next)
+  | _ => none
+
+/-- The registers a loop body returns, `bundle2 r₀ (bundle2 r₁ … rₙ₋₁)`, in
+    order. -/
+def machLoopRegs : Lean.Expr → Option (List (Lean.Expr × Lean.Expr × Lean.Expr))
+  | .app (.app (.app (.app (.app (.const ``Sparkle.Core.Signal.bundle2 _) _) _) _) a) b => do
+    let r ← machLoopReg? a
+    let rs ← machLoopRegs b
+    some (r :: rs)
+  | e => (machLoopReg? e).map fun r => [r]
+
+/-- An expression under its `let`s. -/
+def machLetTail : Lean.Expr → Lean.Expr
+  | .letE _ _ _ b _ => machLetTail b
+  | e => e
+
+/-- The components of `bundle2 a₀ (bundle2 a₁ … aₙ₋₁)` (`n` of them). -/
+def machBundleParts? : Nat → Lean.Expr → Option (List Lean.Expr)
+  | 0, _ => none
+  | 1, e => some [e]
+  | n + 1, .app (.app (.app (.app (.app (.const ``Sparkle.Core.Signal.bundle2 _) _) _) _) a) b =>
+    (machBundleParts? n b).map (a :: ·)
+  | _, _ => none
+
+/-- The component kinds of a right-nested tuple of Bool / positive-width
+    BitVec types. -/
+def machProdKinds : Lean.Expr → Option (List MixedGateBinder)
+  | .app (.app (.const ``Prod _) a) b => do
+    let k ← machSlotKind? a
+    let ks ← machProdKinds b
+    some (k :: ks)
+  | e => (machSlotKind? e).map ([·])
+
+/-- A result of type `Signal dom (A × B × …)`: the components' kinds. The
+    module has ONE output port `out` holding them packed, the first in the
+    high bits, a Bool as one bit (the legacy lowering's interface). -/
+def machTupleKinds? : Lean.Expr → Option (List MixedGateBinder)
+  | .forallE _ _ b _ => machTupleKinds? b
+  | .app (.app (.const ``Sparkle.Core.Signal.Signal _) _) ty@(.app (.app (.const ``Prod _) _) _) =>
+    machProdKinds ty
+  | _ => none
+
 /-- A projection of a user structure applied to its constructor: the field. -/
 def machProjIota (projs : Name → Option (Name × Nat × Nat)) (e : Lean.Expr) : Lean.Expr :=
   match inlSpine e [] with
@@ -3569,9 +3650,13 @@ partial def machConv (senv : StructEnv) : List MachVal → Nat → Lean.Expr →
     if j < d then some (.bvar j, st) else
     match env[j - d]? with
     | some (.val v) => some (v, st)
+    | some (.state b 1) => some (machSlot b, st)
     | some _ => none
     | none => some (machIn (j - d - env.length), st)
   | env, d, .app f a, st =>
+    match machLoopRead? env d (.app f a) with
+    | some i => if i < st.kinds.size then some (machSlot i, st) else none
+    | none =>
     match machRunApp? (.app f a) with
     | some (dom, αs, initsE, body) =>
       if d != 0 then none else machNested senv env dom αs initsE body st
@@ -3708,6 +3793,52 @@ partial def machChain (senv : StructEnv) : List MachVal → Lean.Expr → MachRe
         | none => none
   | _, _, _ => none
 end
+
+/-- The body of a hand-written `Signal.loop`: its `let`s (the state bound to
+    `.state base n`), then the registers it returns; their next values are
+    the writes of slots `base, base+1, …`. -/
+partial def machLoopBody (senv : StructEnv) (base : Nat) :
+    List MachVal → Lean.Expr → MachRead → Option MachRead
+  | env, .letE nm ty v b _, st => do
+    let (v', st) ← machConv senv env 0 v st
+    let (x, lets) := machBindLet nm ty v' st.lets
+    machLoopBody senv base (.val x :: env) b { st with lets := lets }
+  | env, tail, st => do
+    let regs ← machLoopRegs tail
+    let (ws, st) ← regs.foldlM (init := (([] : List (Nat × Lean.Expr)), st))
+      fun (ws, st) (_, _, nx) => do
+        let (nx', st) ← machConv senv env 0 nx st
+        pure (ws ++ [(base + ws.length, nx')], st)
+    some { st with ws := st.ws ++ ws.toArray }
+
+/-- A hand-written state machine `Signal.loop (fun s => lets; bundle2
+    (Signal.register init₀ next₀) …)`: its slots reserved after the ones met
+    so far (kinds from the registers' types, reset values from their initial
+    values), its body read with `s` standing for the state. Returns what the
+    variable bound to the loop stands for. -/
+def machLoopRoot (senv : StructEnv) (env : List MachVal) (e : Lean.Expr) (st : MachRead) :
+    Option (MachVal × MachRead) := do
+  let (.const ``Sparkle.Core.Signal.Signal.loop _, [dom, _, _, .lam _ _ body _]) := inlSpine e []
+    | none
+  let regs ← machLoopRegs (machLetTail body)
+  if regs.any (fun (ty, init, _) => ty.hasLooseBVars || init.hasLooseBVars) then none else
+  let kinds ← regs.mapM fun (ty, _, _) => machSlotKind? ty
+  let inits ← (kinds.zip regs).mapM fun (k, (_, init, _)) => machInit? senv.natOf k init
+  let (dom', st) ← machConv senv env 0 dom st
+  match st.dom with
+  | some d0 => if d0 != dom' then none else pure ()
+  | none => pure ()
+  let base := st.kinds.size
+  let n := kinds.length
+  let st := { st with
+    kinds := st.kinds ++ kinds.toArray
+    inits := st.inits ++ inits.toArray
+    names := st.names ++ ((List.range n).map fun i =>
+      Name.mkSimple s!"loop{st.loops.size}_r{i}").toArray
+    dom := some dom'
+    loops := st.loops.push (base, n) }
+  let st ← machLoopBody senv base (.state base n :: env) body st
+  some (.state base n, st)
 
 /-- The next value of slot `i`: its LAST write (`Circuit.next` replaces the
     pending value), or the slot itself when the body never writes it. -/
@@ -4242,6 +4373,8 @@ structure MachineShape where
       module, the `let`s holding its arguments, the kind of its result. Their
       outputs are the binders right after the declaration's. -/
   insts : List (Name × List Nat × MixedGateBinder) := []
+  /-- `(first slot, slot count)` of every hand-written `Signal.loop`. -/
+  loops : List (Nat × Nat) := []
 
 /-- The acceptance test of the state-machine route: the declaration's value
     is a lambda telescope of hardware binders over `let`s and a
@@ -4271,7 +4404,11 @@ def machineShape? (symbolicMode : Bool) (parameters : List (String × Nat)) (ci 
   | .defnInfo d =>
     if symbolicMode || !parameters.isEmpty then none else do
     let (bs, e) ← mixedGatePeel d.value
-    let (ctor?, outs) ← machOuts? senv d.type
+    -- a tuple result is ONE port `out`, the components packed
+    let tup? := machTupleKinds? d.type
+    let (ctor?, outs) ← match tup? with
+      | some ks => some (none, [("out", MixedGateBinder.bits (ks.map machWidth).sum)])
+      | none => machOuts? senv d.type
     if outs.isEmpty || !outs.all (fun o => Sparkle.IR.Machine.outNameOk o.1) ||
         !decide (outs.map (·.1)).Nodup then none else
     let e := machNorm senv e
@@ -4289,6 +4426,11 @@ def machineShape? (symbolicMode : Bool) (parameters : List (String × Nat)) (ci 
       | none => pure st
     -- the root lets, in order
     let (env, st) ← rootLets.foldlM (init := (([] : List MachVal), st)) fun (env, st) (nm, ty, v) => do
+      if v.isAppOfArity ``Sparkle.Core.Signal.Signal.loop 4 then
+        -- a hand-written state machine
+        let (mv, st) ← machLoopRoot senv env v st
+        pure (mv :: env, st)
+      else
       match machTailV env 0 v, machHandleV env 0 v with
       | none, none =>
         let (v', st) ← machConv senv env 0 v st
@@ -4306,17 +4448,27 @@ def machineShape? (symbolicMode : Bool) (parameters : List (String × Nat)) (ci 
     let n := st.kinds.size
     if n = 0 then none else
     if !allowInsts && !st.insts.isEmpty then none else
+    -- a hand-written loop alone (what the endpoint covers)
+    if !st.loops.isEmpty && (!st.runs.isEmpty || !st.insts.isEmpty || st.loops.size != 1) then
+      none else
     let kinds := st.kinds.toList
     let k := st.lets.size
     let kI := st.insts.size
     let domE ← st.dom
     let (dom', resetKind) ← machDom? (kI + n + k) domE
-    let outEs ← machResults? sel ctor? outs.length v
-    if outEs.length != outs.length then none else
     let letFields ← st.lets.toList.mapM fun (_, kind, value) =>
       machField dom' kind (machClose kI n k 0 value)
-    let outFields ← (outs.zip outEs).mapM fun ((_, kind), outE) =>
-      machField dom' kind (machClose kI n k 0 outE)
+    let outFields ← match tup? with
+      | some ks => do
+        let parts ← machBundleParts? ks.length v
+        let fs ← (ks.zip parts).mapM fun (kind, p) => machField dom' kind (machClose kI n k 0 p)
+        let packed ← machPack dom' fs
+        pure [packed]
+      | none => do
+        let outEs ← machResults? sel ctor? outs.length v
+        if outEs.length != outs.length then none else
+        (outs.zip outEs).mapM fun ((_, kind), outE) =>
+          machField dom' kind (machClose kI n k 0 outE)
     let slotFields ← ((List.range n).zip kinds).mapM fun (i, kind) =>
       machField dom' kind (machClose kI n k 0 (machNext i st.ws.toList))
     let (_, packed) ← machPack dom' (letFields ++ outFields ++ slotFields)
@@ -4335,7 +4487,8 @@ def machineShape? (symbolicMode : Bool) (parameters : List (String × Nat)) (ci 
               resetKind := resetKind
               lets := k }
           runs := st.runs.toList
-          insts := st.insts.toList }
+          insts := st.insts.toList
+          loops := st.loops.toList }
     else none
   | _ => none
 

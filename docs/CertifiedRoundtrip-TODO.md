@@ -1168,6 +1168,33 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   checksum used it. The three ICMP byte generators and the ICMP IVerilog top
   join the machine route: 197 of 389 real declarations certified, 134 on the
   machine route (all with the endpoint), 114 shipping. Test `nMapNot`.
+- [x] **Hand-written `Signal.loop` state machines (2026-10-03).** The
+  largest remaining group of IP modules is written without `circuit do`:
+  `let s := Signal.loop fun state => lets; bundleAll! [Signal.register
+  init₀ next₀, …]; result s`, the state a right-nested tuple read through
+  `Signal.fst`/`Signal.snd` (`projN!`, `declare_signal_state` accessors), the
+  result often a TUPLE (`bundle2 …`). The machine reader takes it as the same
+  machine (`MachVal.state`, `machLoopRead?`, `machLoopRoot`, `machLoopBody`,
+  `MachineShape.loops`); a tuple result is ONE port `out`, components packed
+  first-high, a Bool as one bit — exactly the legacy interface (ports checked
+  identical on the changed modules). Proof: `Tools/ShippingMachineLoop.lean` —
+  `loop_stream` (the loop's state under any encoding `σ` starts at the reset
+  value and advances by the next values, from two per-declaration facts) and
+  `machine_trace_of_loop` (through `machine_trace_of_stream`); generator
+  `loopProof` (`σ` = the tuple read as the machine's typed tuple, `res` = the
+  declaration's result over a state signal, tuple observations via
+  `packTuple`/`boolBits`; seven kernel `rfl`s incl. `f.machine_reset`). Test:
+  `Tests/Compiler/ShippingMachineLoopTest.lean` (two small loops and two IP
+  modules: YOLOv8 bottleneck controller, RV32 divider). MEASURED: 13 real IP
+  declarations newly certified — RV32 divider and UART, AXI4-Lite master and
+  slave, H264 NAL stream, YOLOv8 backbone/bottleneck/C2f/SPPF/head/neck
+  controllers, upsample, text-embedding dot product: 210 of 389 certified,
+  147 on the machine route, all with the kernel-checked endpoint. Against
+  the previous compiler 188 of 201 output files byte-identical, the 13 that
+  differ hold only these newly certified modules (interfaces identical);
+  status identical. Still outside: loops with a `Signal.memory` in the body
+  (10: H264 pipeline modules, YOLOv8 buffers), the YOLOv8 conv engine and
+  conv-BN-SiLU, non-default clock domains (CDC examples).
 - [ ] **NEXT: the remaining calls.** Sequential children (`toggle`,
   `wKeccakF`, `wBlock`, `wRx`, `wSha256`: ≈15 declarations) need clk/rst
   plumbing in `closeInsts` and the child's `MachineTrace` as the oracle

@@ -491,6 +491,14 @@ recurrence a function of the state's value. Corpus: 193 of 389 certified,
 TODO's NEXT entry (sequential children, calls inside sub-machines, Bool
 results, ICMP normal forms, the HFT telescope, the linked composition).
 
+**Hand-written `Signal.loop` FSMs (landed 2026-10-03).** Reader:
+`machLoopRoot`/`machLoopBody` (root `let` bound to `Signal.loop`, the state
+var is `MachVal.state base n`, reads `Signal.fst (Signal.snd^k s)`), tuple
+results via `machTupleKinds?`/`machBundleParts?` (one `out`, packed). Proof:
+`Tools/ShippingMachineLoop.lean` (`loop_stream`, `machine_trace_of_loop`);
+generator `loopProof`. 210/389 certified, 147 machine route. Next targets
+by measurement: loops with `Signal.memory` (10), sequential children (≈15).
+
 THE MEASUREMENT CYCLE after any change to `Elab.lean` (about 50 minutes,
 never next to a `lake build`): `PASSES=1 scripts/shipping-coverage/run.sh
 NEW`; `compare_outputs.py OLD/out NEW/out` (every `DIFFERENT` file must be
