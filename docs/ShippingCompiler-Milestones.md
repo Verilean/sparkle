@@ -292,10 +292,16 @@ The post-pipeline is composed for them up to the emitted Verilog:
 `refineCheck` (a new, proved result check for the merge and the
 optimizer on assign + register modules) and the emitted-Verilog
 semantics give `f.machine_ships`; its gates hold for 104 of the 112.
-Open: sub-module calls and nested `circuit do` in the body, the
-parsed-back text for machine modules, other
-concrete domains, computed constants and sub-module calls inside a
-`circuit do`.
+Nested `circuit do`s (a sub-machine let-bound in front, in a `let` of the
+body with feedback, applied inside an argument, side by side in a
+structure) are read as one flattened machine and proved once
+(`fused_state`, `machine_trace_of_nested`): 183 of 389 real declarations
+certified, 120 on the machine route, 120 with the generated theorem,
+114 (the 6 `EmitSem.seqCheck` rejections remain) to the emitted Verilog. Open: `@[hardware_module]` calls inside a
+`circuit do` (combinational instances in the transition; sequential
+children — hierarchy), a sub-machine reading another sub-machine's
+result, the parsed-back text for machine modules, other concrete
+domains.
 
 The single-slot `circuit do` is reified onto the loop form: the macro
 destructures its handle tuple with `Prod` projections (matcher-free),

@@ -502,15 +502,15 @@ def SlotsFit (fields : List (Σ w : Nat, Term (.bits w))) (nOuts : Nat)
     f.lo = ((fields.drop (nOuts + i + 1)).map (·.1)).sum
 
 set_option maxHeartbeats 1000000 in
-/-- **The state of a `circuit do` is the state of its reference machine.**
-Let the body's pending writes be, at every cycle and for every state
-signal, the typed values of the terms `nexts` (`H2` — `rfl` for a
-declaration). Then the state tuple of `runCircuitH inits body`, encoded, is
-the reference machine's state at every time. -/
-theorem denote_state {D : DomainConfig} {ss : List SType} [Inhabited (HList (tys ss))]
-    {ρ : Type} (inits : HList (tys ss))
-    (body : RegList D (HList (tys ss)) (Circuit.SigList D (tys ss)) (tys ss) →
-      Circuit D (Circuit.SigList D (tys ss)) ρ)
+/-- **A state stream with the recurrence of the terms is the state of the
+reference machine.** Let `σ` start at the reset values and advance, at
+every cycle, by the typed values of the terms `nexts` (`hstep`). Then `σ`,
+encoded, is the reference machine's state at every time. For a `circuit do`
+the stream is its state loop (`stateLoop_stream`: the recurrence from the
+pending writes being the terms' values, a `rfl` per declaration); for a
+machine with sub-machines it is the tuple of all the loops
+(ShippingMachineFuse). -/
+theorem denote_state {D : DomainConfig} {ss : List SType} (σ : Nat → HList (tys ss))
     (bools : Nat → Signal D Bool) (bits : (j : Nat) → (n : Nat) → Signal D (BitVec n))
     {kIn kb kv : Nat} {vw bpos vpos : Nat → Nat} {K : Nat → Option SType}
     (ls : List (Σ s : SType, Term s)) (nexts : Terms ss)
@@ -520,35 +520,25 @@ theorem denote_state {D : DomainConfig} {ss : List SType} [Inhabited (HList (tys
     (hnexts : (f0 :: rest).drop nOuts = nexts.fields)
     (hslots : SlotsFit (f0 :: rest) nOuts slots)
     (hslotsLen : slots.length = ss.length)
-    (hinit : ∀ i, encState ss inits i = (slots[i]?.map (·.init)).getD 0)
+    (hinit : ∀ i, encState ss (σ 0) i = (slots[i]?.map (·.init)).getD 0)
     (facts : TermFacts kIn kb kv vw bpos vpos K ss ls)
     (nextsWF : ∀ g ∈ nexts.fields, g.2.WF kb kv vw)
-    (H2 : ∀ (S : Signal D (HList (tys ss))) (t : Nat),
-      valsAt (tys ss) (body (mkRegList S (tys ss) (fun s => s) (fun f => f))
-          (mkHolds (tys ss) S)).snd t =
-        evalTerms (fun j => (typedVal kIn bpos vpos ss ls bools bits t (S.val t)).b (bpos j))
-          (fun j w => (typedVal kIn bpos vpos ss ls bools bits t (S.val t)).v (vpos j) w)
+    (hstep : ∀ t, σ (t + 1) =
+        evalTerms (fun j => (typedVal kIn bpos vpos ss ls bools bits t (σ t)).b (bpos j))
+          (fun j w => (typedVal kIn bpos vpos ss ls bools bits t (σ t)).v (vpos j) w)
           nexts) :
-    ∀ τ, encState ss ((stateLoop inits body).val τ) =
+    ∀ τ, encState ss (σ τ) =
       RefMachine.state (RefMachine.mk kIn ss.length bpos vpos (ls.map fun l => toField l.1 l.2)
         c core slots) (fun τ p => (bools p).val τ) (fun τ p w => (bits p w).val τ) τ := by
-  have hW : ∀ (l l' : Signal D (HList (tys ss))) (t : Nat), l.val t = l'.val t →
-      valsAt (tys ss) (body (mkRegList l (tys ss) (fun s => s) (fun f => f))
-          (mkHolds (tys ss) l)).snd t =
-        valsAt (tys ss) (body (mkRegList l' (tys ss) (fun s => s) (fun f => f))
-          (mkHolds (tys ss) l')).snd t := by
-    intro l l' t h
-    rw [H2 l t, H2 l' t, h]
-  obtain ⟨h0, hs⟩ := circuit_state inits body hW
   intro τ
   induction τ with
   | zero =>
     funext i
-    rw [h0, hinit i]
+    rw [hinit i]
     rfl
   | succ τ ih =>
     funext i
-    rw [hs τ, H2 _ τ]
+    rw [hstep τ]
     show _ = RefMachine.next _ _ _ _ i
     simp only [RefMachine.next]
     cases hf : slots[i]? with
@@ -569,11 +559,11 @@ theorem denote_state {D : DomainConfig} {ss : List SType} [Inhabited (HList (tys
         (fun j => valB kIn (fun p => (bools p).val τ)
           (letStore bpos vpos kIn (fun p => (bools p).val τ) (fun p w => (bits p w).val τ)
             (ls.map fun l => toField l.1 l.2) (kIn + ss.length)
-            (fun p => encState ss ((stateLoop inits body).val τ) (p - kIn))) (bpos j))
+            (fun p => encState ss (σ τ) (p - kIn))) (bpos j))
         (fun j w => valV kIn (fun p w => (bits p w).val τ)
           (letStore bpos vpos kIn (fun p => (bools p).val τ) (fun p w => (bits p w).val τ)
             (ls.map fun l => toField l.1 l.2) (kIn + ss.length)
-            (fun p => encState ss ((stateLoop inits body).val τ) (p - kIn))) (vpos j) w)
+            (fun p => encState ss (σ τ) (p - kIn))) (vpos j) w)
         rest f0 (nOuts + i) g hg
       rw [← hpack, hwid, hlo]
       have hc := congrArg (fun q : Σ W : Nat, Term (.bits W) =>
@@ -581,25 +571,22 @@ theorem denote_state {D : DomainConfig} {ss : List SType} [Inhabited (HList (tys
           (fun j => valB kIn (fun p => (bools p).val τ)
             (letStore bpos vpos kIn (fun p => (bools p).val τ) (fun p w => (bits p w).val τ)
               (ls.map fun l => toField l.1 l.2) (kIn + ss.length)
-              (fun p => encState ss ((stateLoop inits body).val τ) (p - kIn))) (bpos j))
+              (fun p => encState ss (σ τ) (p - kIn))) (bpos j))
           (fun j w => valV kIn (fun p w => (bits p w).val τ)
             (letStore bpos vpos kIn (fun p => (bools p).val τ) (fun p w => (bits p w).val τ)
               (ls.map fun l => toField l.1 l.2) (kIn + ss.length)
-              (fun p => encState ss ((stateLoop inits body).val τ) (p - kIn))) (vpos j) w)
+              (fun p => encState ss (σ τ) (p - kIn))) (vpos j) w)
           q.2 : BitVec q.1).toNat) hcore
       simp only at hc
       rw [← hc, ih]
       rfl
 
 set_option maxHeartbeats 1000000 in
-/-- **An output of a `circuit do` is an output of its reference machine.**
-A typed term that is field `k` of the packed core has, under the typed
-valuation of the `circuit do` state at time `τ`, the reference machine's
-output on that field. -/
-theorem denote_out {D : DomainConfig} {ss : List SType} [Inhabited (HList (tys ss))]
-    {ρ : Type} (inits : HList (tys ss))
-    (body : RegList D (HList (tys ss)) (Circuit.SigList D (tys ss)) (tys ss) →
-      Circuit D (Circuit.SigList D (tys ss)) ρ)
+/-- **An output over the state stream is an output of the reference
+machine.** A typed term that is field `k` of the packed core has, under the
+typed valuation of the state at time `τ`, the reference machine's output on
+that field. -/
+theorem denote_out {D : DomainConfig} {ss : List SType} (σ : Nat → HList (tys ss))
     (bools : Nat → Signal D Bool) (bits : (j : Nat) → (n : Nat) → Signal D (BitVec n))
     {kIn kb kv : Nat} {vw bpos vpos : Nat → Nat} {K : Nat → Option SType}
     (ls : List (Σ s : SType, Term s))
@@ -607,16 +594,16 @@ theorem denote_out {D : DomainConfig} {ss : List SType} [Inhabited (HList (tys s
     {c : Nat} (core : Term (.bits c)) (slots : List SlotField)
     (hcore : (⟨c, core⟩ : Σ W : Nat, Term (.bits W)) = packList f0 rest)
     (facts : TermFacts kIn kb kv vw bpos vpos K ss ls)
-    (hstate : ∀ τ, encState ss ((stateLoop inits body).val τ) =
+    (hstate : ∀ τ, encState ss (σ τ) =
       RefMachine.state (RefMachine.mk kIn ss.length bpos vpos (ls.map fun l => toField l.1 l.2)
         c core slots) (fun τ p => (bools p).val τ) (fun τ p w => (bits p w).val τ) τ)
     {s : SType} (ot : Term s) (hwf : ot.WF kb kv vw) (k : Nat)
     (hk : (f0 :: rest)[k]? = some (toField s ot)) (τ : Nat) :
     enc s (eval
         (fun j => (typedVal kIn bpos vpos ss ls bools bits τ
-          ((stateLoop inits body).val τ)).b (bpos j))
+          (σ τ)).b (bpos j))
         (fun j w => (typedVal kIn bpos vpos ss ls bools bits τ
-          ((stateLoop inits body).val τ)).v (vpos j) w) ot) =
+          (σ τ)).v (vpos j) w) ot) =
       RefMachine.out (RefMachine.mk kIn ss.length bpos vpos (ls.map fun l => toField l.1 l.2)
         c core slots) (fun τ p => (bools p).val τ) (fun τ p w => (bits p w).val τ) τ
         ((((f0 :: rest).drop (k + 1)).map (·.1)).sum) (toField s ot).1 := by
@@ -625,11 +612,11 @@ theorem denote_out {D : DomainConfig} {ss : List SType} [Inhabited (HList (tys s
     (fun j => valB kIn (fun p => (bools p).val τ)
       (letStore bpos vpos kIn (fun p => (bools p).val τ) (fun p w => (bits p w).val τ)
         (ls.map fun l => toField l.1 l.2) (kIn + ss.length)
-        (fun p => encState ss ((stateLoop inits body).val τ) (p - kIn))) (bpos j))
+        (fun p => encState ss (σ τ) (p - kIn))) (bpos j))
     (fun j w => valV kIn (fun p w => (bits p w).val τ)
       (letStore bpos vpos kIn (fun p => (bools p).val τ) (fun p w => (bits p w).val τ)
         (ls.map fun l => toField l.1 l.2) (kIn + ss.length)
-        (fun p => encState ss ((stateLoop inits body).val τ) (p - kIn))) (vpos j) w)
+        (fun p => encState ss (σ τ) (p - kIn))) (vpos j) w)
     rest f0 k (toField s ot) hk
   rw [← hpack]
   have hc := congrArg (fun q : Σ W : Nat, Term (.bits W) =>
@@ -637,11 +624,11 @@ theorem denote_out {D : DomainConfig} {ss : List SType} [Inhabited (HList (tys s
       (fun j => valB kIn (fun p => (bools p).val τ)
         (letStore bpos vpos kIn (fun p => (bools p).val τ) (fun p w => (bits p w).val τ)
           (ls.map fun l => toField l.1 l.2) (kIn + ss.length)
-          (fun p => encState ss ((stateLoop inits body).val τ) (p - kIn))) (bpos j))
+          (fun p => encState ss (σ τ) (p - kIn))) (bpos j))
       (fun j w => valV kIn (fun p w => (bits p w).val τ)
         (letStore bpos vpos kIn (fun p => (bools p).val τ) (fun p w => (bits p w).val τ)
           (ls.map fun l => toField l.1 l.2) (kIn + ss.length)
-          (fun p => encState ss ((stateLoop inits body).val τ) (p - kIn))) (vpos j) w)
+          (fun p => encState ss (σ τ) (p - kIn))) (vpos j) w)
       q.2 : BitVec q.1).toNat) hcore
   simp only at hc
   rw [← hc, hstate τ]
@@ -687,17 +674,13 @@ theorem machine_endpoint {declName : Name} {shape : MachineShape} {m : Sparkle.I
     ∃ ids : List FVarId, ids.Nodup ∧ ids.length = shape.binders.length ∧
     ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
       regs.Nodup ∧ regs.length = slotBs.length ∧
-      ∀ {D : DomainConfig} [Inhabited (HList (tys ss))] {ρ : Type} (inits : HList (tys ss))
-        (body : RegList D (HList (tys ss)) (Circuit.SigList D (tys ss)) (tys ss) →
-          Circuit D (Circuit.SigList D (tys ss)) ρ)
+      ∀ {D : DomainConfig} (σ : Nat → HList (tys ss))
         (bools : Nat → Signal D Bool) (bits : (j : Nat) → (n : Nat) → Signal D (BitVec n)),
-        (∀ i, encState ss inits i = (shape.layout.slots[i]?.map (·.init)).getD 0) →
-        (∀ (S : Signal D (HList (tys ss))) (t : Nat),
-          valsAt (tys ss) (body (mkRegList S (tys ss) (fun s => s) (fun f => f))
-              (mkHolds (tys ss) S)).snd t =
+        (∀ i, encState ss (σ 0) i = (shape.layout.slots[i]?.map (·.init)).getD 0) →
+        (∀ t, σ (t + 1) =
             evalTerms
-              (fun j => (typedVal bsIn.length bpos vpos ss ls bools bits t (S.val t)).b (bpos j))
-              (fun j w => (typedVal bsIn.length bpos vpos ss ls bools bits t (S.val t)).v
+              (fun j => (typedVal bsIn.length bpos vpos ss ls bools bits t (σ t)).b (bpos j))
+              (fun j w => (typedVal bsIn.length bpos vpos ss ls bools bits t (σ t)).v
                 (vpos j) w) nexts) →
         ∀ (T : Nat) (seed : Nat → (String → Nat) → Env) (st0 : String → Nat) (mems : MEnv),
         (∀ t st, t < T → SourceInputs declName bsIn ids cache
@@ -714,25 +697,24 @@ theorem machine_endpoint {declName : Name} {shape : MachineShape} {m : Sparkle.I
               o.lo = (((f0 :: rest).drop (k + 1)).map (·.1)).sum →
               o.width = (toField s ot).1 →
               (envs[j]'hj) o.name = enc s (eval
-                (fun i => (typedVal bsIn.length bpos vpos ss ls bools bits j
-                  ((stateLoop inits body).val j)).b (bpos i))
-                (fun i w => (typedVal bsIn.length bpos vpos ss ls bools bits j
-                  ((stateLoop inits body).val j)).v (vpos i) w) ot) := by
+                (fun i => (typedVal bsIn.length bpos vpos ss ls bools bits j (σ j)).b (bpos i))
+                (fun i w => (typedVal bsIn.length bpos vpos ss ls bools bits j (σ j)).v
+                  (vpos i) w) ot) := by
   obtain ⟨ids, nd, len, cache, href⟩ := machine_ref_trace h layW
   have href' := href dom kb kv vw bpos vpos (ls.map fun l => toField l.1 l.2)
     (packList f0 rest).2 hwf hb hv hbody hfit houtfit hscoped
   obtain ⟨regs, rnd, rlen, trace⟩ := href'
   refine ⟨ids, nd, len, cache, regs, rnd, rlen, ?_⟩
-  intro D _ ρ inits body bools bits hinit H2 T seed st0 mems inputs pass rst init
+  intro D σ bools bits hinit hstep T seed st0 mems inputs pass rst init
   obtain ⟨envs, hrun, hlen, hobs⟩ := trace T (fun τ p => (bools p).val τ)
     (fun τ p w => (bits p w).val τ) seed st0 mems inputs pass rst init
   refine ⟨envs, hrun, hlen, ?_⟩
   intro j hj o ho s ot hot k hk hlo hw
   have hslotsLen : shape.layout.slots.length = ss.length := by
     rw [← hn]; exact layW.length_eq
-  have hstate := denote_state inits body bools bits ls nexts f0 rest (packList f0 rest).2
-    shape.layout.slots nOuts rfl hnexts hslots hslotsLen hinit facts nextsWF H2
-  have hout := denote_out inits body bools bits ls f0 rest (packList f0 rest).2
+  have hstate := denote_state σ bools bits ls nexts f0 rest (packList f0 rest).2
+    shape.layout.slots nOuts rfl hnexts hslots hslotsLen hinit facts nextsWF hstep
+  have hout := denote_out σ bools bits ls f0 rest (packList f0 rest).2
     shape.layout.slots rfl facts hstate ot hot k hk j
   rw [hobs j hj o ho, hout, hlo, hw, hn]
 

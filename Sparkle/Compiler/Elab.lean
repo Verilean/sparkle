@@ -3392,9 +3392,40 @@ def machReadV (env : List MachVal) (d : Nat) : Lean.Expr → Option Nat
   | .app (.app (.app (.const ``Prod.fst _) _) _) h => machHandleV env d h
   | _ => none
 
+/-- What the state-machine front end reads of the run's environment about
+    user structures: the field accessors (`userProjection?`), and for a
+    structure whose fields are all Bool or positive-width BitVec Signals its
+    constructor and the fields' names and kinds (`userStructure?`). -/
+structure StructEnv where
+  proj : Name → Option (Name × Nat × Nat)
+  fields : Name → Option (Name × List (String × MixedGateBinder))
+  /-- The value of a closed `Nat` term (`kernelNat`). -/
+  natOf : Lean.Expr → Option Nat := fun _ => none
+
 /-- The hardware `let`s met so far: binder name, kind, value (placeholder
     form; it mentions earlier `let`s only). -/
 abbrev MachLets := Array (Name × MixedGateBinder × Lean.Expr)
+
+/-- What the reader of a `circuit do` accumulates: the slots of every
+    machine met so far (the enclosing machine's first, then each nested
+    `runCircuitH` in reading order), their reset values and handle names,
+    the writes in order, the hardware `let`s, the domain (every machine
+    must be in the same one), and where each nested machine's slots start. -/
+structure MachRead where
+  kinds : Array MixedGateBinder := #[]
+  inits : Array Nat := #[]
+  names : Array Name := #[]
+  ws : Array (Nat × Lean.Expr) := #[]
+  lets : MachLets := #[]
+  dom : Option Lean.Expr := none
+  /-- `(first slot, slot count)` of every machine, the enclosing one first. -/
+  runs : Array (Nat × Nat) := #[]
+  /-- Every nested machine read so far — its first slot, domain, slot types,
+      reset values, writes and result in placeholder form — so a second
+      occurrence of the SAME machine (`circuit do` copies its `let`s into
+      every write and into the result) is read as that machine. -/
+  nested : Array (Nat × Lean.Expr × Lean.Expr × Lean.Expr × List (Nat × Lean.Expr) × Lean.Expr) :=
+    #[]
 
 /-- A placeholder (a variable of the transition), as opposed to a compound
     expression. -/
@@ -3417,92 +3448,189 @@ def machBindLet (nm : Name) (ty v' : Lean.Expr) (lets : MachLets) : Lean.Expr ×
     | some j => (machLet j, lets)
     | none => (machLet lets.size, lets.push (nm.eraseMacroScopes, k, v'))
 
+/-- A `runCircuitH` application: `(domain, slot types, reset values, body
+    under the regs binder)`. -/
+def machRunApp? (e : Lean.Expr) : Option (Lean.Expr × Lean.Expr × Lean.Expr × Lean.Expr) :=
+  match inlSpine e [] with
+  | (.const ``Sparkle.Core.runCircuitH _, [dom, αs, _, _, _, _, inits, .lam _ _ body _]) =>
+    some (dom, αs, inits, body)
+  | _ => none
+
+/-- The names the body gives its register handles: the leading
+    `let h := (…).1` bindings, in order. -/
+def machLetNames : Lean.Expr → List Name
+  | .letE nm _ (.app (.app (.app (.const ``Prod.fst _) _) _) _) body _ =>
+    nm.eraseMacroScopes :: machLetNames body
+  | .letE _ _ _ body _ => machLetNames body
+  | _ => []
+
+/-- The handle names of a machine's slots: the body's names when it names
+    all of them, `reg<i>` otherwise; a nested machine's names carry its
+    ordinal so the slots of two machines never share a name. -/
+def machSlotNames (ordinal : Nat) (body : Lean.Expr) (kinds : List MixedGateBinder)
+    (base : Nat) : List Name :=
+  let names := machLetNames body
+  let raw := if kinds.length ≤ names.length then names.take kinds.length
+    else (List.range kinds.length).map fun i => Name.mkSimple s!"reg{base + i}"
+  if ordinal = 0 then raw else raw.map fun nm => nm.appendAfter s!"_{ordinal}"
+
+/-- Reserve the slots of a machine: its slot kinds, reset values and handle
+    names are appended; `none` when a slot type or a reset value is not
+    accepted, or the machine is in another domain than the ones before (the
+    domain in placeholder form, `dom'`). -/
+def machReserve (natOf : Lean.Expr → Option Nat) (dom' αs initsE body : Lean.Expr)
+    (st : MachRead) : Option (Nat × MachRead) := do
+  let kinds ← machSlotKinds αs
+  if kinds.isEmpty then none else
+  let inits ← machInits natOf kinds initsE
+  match st.dom with
+  | some d => if d != dom' then none else pure ()
+  | none => pure ()
+  let base := st.kinds.size
+  some (base, { st with
+    kinds := st.kinds ++ kinds.toArray
+    inits := st.inits ++ inits.toArray
+    names := st.names ++ (machSlotNames st.runs.size body kinds base).toArray
+    dom := some dom'
+    runs := st.runs.push (base, kinds.length) })
+
+/-- A projection of a user structure applied to its constructor: the field. -/
+def machProjIota (projs : Name → Option (Name × Nat × Nat)) (e : Lean.Expr) : Lean.Expr :=
+  match inlSpine e [] with
+  | (.const p _, args) =>
+    match projs p, args.getLast? with
+    | some (ctor, numParams, idx), some r =>
+      if args.length = numParams + 1 then
+        match inlSpine r [] with
+        | (.const c _, cargs) =>
+          if c == ctor then (cargs[numParams + idx]?).getD e else e
+        | _ => e
+      else e
+    | _, _ => e
+  | _ => e
+
+mutual
 /-- Rewrite a Signal expression of the `circuit do` body into the transition
     (placeholder form).  A bound variable of the body is replaced by what it
     stands for; a live read of slot `i` becomes that slot; a hardware `let`
-    becomes a `let` of the transition (`machBindLet`).  Any other use of a
-    handle, and a `let` under a `fun`, is refused. -/
-def machConv (n : Nat) : List MachVal → Nat → Lean.Expr → MachLets → Option (Lean.Expr × MachLets)
-  | env, d, .bvar j, lets =>
-    if j < d then some (.bvar j, lets) else
+    becomes a `let` of the transition (`machBindLet`); a nested
+    `runCircuitH` becomes a machine of its own — its slots reserved after the
+    ones met so far, its writes added, its result the value — or the machine
+    already met that it repeats (`machNested`).
+    Any other use of a handle, and a `let` or a nested machine under a
+    `fun`, is refused. -/
+partial def machConv (senv : StructEnv) : List MachVal → Nat → Lean.Expr → MachRead →
+    Option (Lean.Expr × MachRead)
+  | env, d, .bvar j, st =>
+    if j < d then some (.bvar j, st) else
     match env[j - d]? with
-    | some (.val v) => some (v, lets)
+    | some (.val v) => some (v, st)
     | some _ => none
-    | none => some (machIn (j - d - env.length), lets)
-  | env, d, .app f a, lets =>
-    match machReadV env d (.app f a) with
-    | some i => if i < n then some (machSlot i, lets) else none
+    | none => some (machIn (j - d - env.length), st)
+  | env, d, .app f a, st =>
+    match machRunApp? (.app f a) with
+    | some (dom, αs, initsE, body) =>
+      if d != 0 then none else machNested senv env dom αs initsE body st
     | none =>
-      match machConv n env d f lets with
-      | some (f', lets) =>
-        match machConv n env d a lets with
-        | some (a', lets) => some (.app f' a', lets)
+    match machReadV env d (.app f a) with
+    | some i => if i < st.kinds.size then some (machSlot i, st) else none
+    | none =>
+      match machConv senv env d f st with
+      | some (f', st) =>
+        match machConv senv env d a st with
+        | some (a', st) => some (machProjIota senv.proj (.app f' a'), st)
         | none => none
       | none => none
-  | env, d, .lam nm t b bi, lets =>
-    match machConv n env d t lets with
-    | some (t', lets) =>
-      match machConv n env (d + 1) b lets with
-      | some (b', lets) => some (.lam nm t' b' bi, lets)
+  | env, d, .lam nm t b bi, st =>
+    match machConv senv env d t st with
+    | some (t', st) =>
+      match machConv senv env (d + 1) b st with
+      | some (b', st) => some (.lam nm t' b' bi, st)
       | none => none
     | none => none
-  | env, d, .forallE nm t b bi, lets =>
-    match machConv n env d t lets with
-    | some (t', lets) =>
-      match machConv n env (d + 1) b lets with
-      | some (b', lets) => some (.forallE nm t' b' bi, lets)
+  | env, d, .forallE nm t b bi, st =>
+    match machConv senv env d t st with
+    | some (t', st) =>
+      match machConv senv env (d + 1) b st with
+      | some (b', st) => some (.forallE nm t' b' bi, st)
       | none => none
     | none => none
-  | env, d, .letE nm ty v b _, lets =>
+  | env, d, .letE nm ty v b _, st =>
     if d != 0 then none else
     match machTailV env 0 v with
-    | some p => machConv n (.regs p :: env) 0 b lets
+    | some p => machConv senv (.regs p :: env) 0 b st
     | none =>
       match machHandleV env 0 v with
-      | some i => machConv n (.handle i :: env) 0 b lets
+      | some i => machConv senv (.handle i :: env) 0 b st
       | none =>
-        match machConv n env 0 v lets with
-        | some (v', lets) =>
-          let (x, lets) := machBindLet nm ty v' lets
-          machConv n (.val x :: env) 0 b lets
+        match machConv senv env 0 v st with
+        | some (v', st) =>
+          let (x, lets) := machBindLet nm ty v' st.lets
+          machConv senv (.val x :: env) 0 b { st with lets := lets }
         | none => none
   | _, _, .mdata .., _ => none
   | _, _, .proj .., _ => none
-  | _, _, e, lets => some (e, lets)
+  | _, _, e, st => some (e, st)
+
+/-- A nested `runCircuitH`: a machine of its own.  Its slots are reserved
+    after the ones met so far, its chain is read with its regs binder
+    standing for them, its writes are added to the transition, and the
+    value is its result. -/
+partial def machNested (senv : StructEnv) (env : List MachVal) (dom αs initsE body : Lean.Expr)
+    (st : MachRead) : Option (Lean.Expr × MachRead) := do
+  let (dom', st) ← machConv senv env 0 dom st
+  -- the same machine met before: the same domain, slots and reset values,
+  -- and the same writes and result when its chain is read with that
+  -- machine's slots
+  let shared := st.nested.findSome? fun (base, d, a, ini, ws, v) =>
+    if d == dom' && a == αs && ini == initsE then
+      match machChain senv (.regs base :: env) body st with
+      | some (ws', v', st') => if ws' == ws && v' == v then some (v, st') else none
+      | none => none
+    else none
+  match shared with
+  | some r => some r
+  | none =>
+    let (base, st) ← machReserve senv.natOf dom' αs initsE body st
+    let (ws, v, st) ← machChain senv (.regs base :: env) body st
+    some (v, { st with ws := st.ws ++ ws.toArray,
+                       nested := st.nested.push (base, dom', αs, initsE, ws, v) })
 
 /-- The statements of a `circuit do` body: the writes `handle <~ rhs` in
     order as `(slot, next value)`, and the final `pure` value, both in
-    placeholder form, with the hardware `let`s they use. -/
-def machChain (n : Nat) : List MachVal → Lean.Expr → MachLets →
-    Option (List (Nat × Lean.Expr) × Lean.Expr × MachLets)
-  | env, .app (.app (.app (.app (.const ``Sparkle.Core.Circuit.pure' _) _) _) _) v, lets =>
-    match machConv n env 0 v lets with
-    | some (v', lets) => some ([], v', lets)
+    placeholder form, with everything they use added to the reader's
+    state. -/
+partial def machChain (senv : StructEnv) : List MachVal → Lean.Expr → MachRead →
+    Option (List (Nat × Lean.Expr) × Lean.Expr × MachRead)
+  | env, .app (.app (.app (.app (.const ``Sparkle.Core.Circuit.pure' _) _) _) _) v, st =>
+    match machConv senv env 0 v st with
+    | some (v', st) => some ([], v', st)
     | none => none
   | env, .app (.app (.app (.app (.app (.app (.const ``Sparkle.Core.Circuit.bind _) _) _) _) _)
       (.app (.app (.app (.app (.app (.app (.const ``Sparkle.Core.Circuit.next _) _) _) _) _)
-        h) rhs)) (.lam _ _ rest _), lets =>
-    match machHandleV env 0 h, machConv n env 0 rhs lets with
-    | some i, some (rhs', lets) =>
-      if i < n then
-        match machChain n (.unit :: env) rest lets with
-        | some (ws, v, lets) => some ((i, rhs') :: ws, v, lets)
+        h) rhs)) (.lam _ _ rest _), st =>
+    match machHandleV env 0 h, machConv senv env 0 rhs st with
+    | some i, some (rhs', st) =>
+      if i < st.kinds.size then
+        match machChain senv (.unit :: env) rest st with
+        | some (ws, v, st) => some ((i, rhs') :: ws, v, st)
         | none => none
       else none
     | _, _ => none
-  | env, .letE nm ty v b _, lets =>
+  | env, .letE nm ty v b _, st =>
     match machTailV env 0 v with
-    | some p => machChain n (.regs p :: env) b lets
+    | some p => machChain senv (.regs p :: env) b st
     | none =>
       match machHandleV env 0 v with
-      | some i => machChain n (.handle i :: env) b lets
+      | some i => machChain senv (.handle i :: env) b st
       | none =>
-        match machConv n env 0 v lets with
-        | some (v', lets) =>
-          let (x, lets) := machBindLet nm ty v' lets
-          machChain n (.val x :: env) b lets
+        match machConv senv env 0 v st with
+        | some (v', st) =>
+          let (x, lets) := machBindLet nm ty v' st.lets
+          machChain senv (.val x :: env) b { st with lets := lets }
         | none => none
   | _, _, _ => none
+end
 
 /-- The next value of slot `i`: its LAST write (`Circuit.next` replaces the
     pending value), or the slot itself when the body never writes it. -/
@@ -3522,11 +3650,12 @@ def machClose (n k : Nat) : Nat → Lean.Expr → Lean.Expr
   | d, .forallE nm t b bi => .forallE nm (machClose n k d t) (machClose n k (d + 1) b) bi
   | _, e => e
 
-/-- The domain in the transition's context, with the reset kind the registers
-    take: synchronous in `defaultDomain`, asynchronous (the legacy fallback
-    for a domain that is not a literal) for a domain binder. -/
+/-- The domain (in placeholder form) in the transition's context, with the
+    reset kind the registers take: synchronous in `defaultDomain`,
+    asynchronous (the legacy fallback for a domain that is not a literal)
+    for a domain binder. -/
 def machDom? (n : Nat) : Lean.Expr → Option (Lean.Expr × Sparkle.IR.Type.ResetKind)
-  | .bvar i => some (.bvar (i + n), .asynchronous)
+  | .fvar ⟨.num (.str .anonymous "_machIn") i⟩ => some (.bvar (i + n), .asynchronous)
   | .const ``Sparkle.Core.Domain.defaultDomain ls =>
     some (.const ``Sparkle.Core.Domain.defaultDomain ls, .synchronous)
   | _ => none
@@ -3580,21 +3709,6 @@ def machSlotFields : List (Nat × Nat) → List Sparkle.IR.Machine.SlotField
   | (w, init) :: rest =>
     { lo := (rest.map (·.1)).sum, width := w, init := init } :: machSlotFields rest
 
-/-- The names the body gives its register handles: the leading
-    `let h := (…).1` bindings, in order. -/
-def machLetNames : Lean.Expr → List Name
-  | .letE nm _ (.app (.app (.app (.const ``Prod.fst _) _) _) _) body _ =>
-    nm.eraseMacroScopes :: machLetNames body
-  | .letE _ _ _ body _ => machLetNames body
-  | _ => []
-
-/-- The slot binders: named after the handles when the body names all of
-    them, `reg<i>` otherwise. -/
-def machSlotBinders (names : List Name) (kinds : List MixedGateBinder) :
-    List (Name × MixedGateBinder) :=
-  if kinds.length ≤ names.length then (names.take kinds.length).zip kinds
-  else (List.range kinds.length).zipWith (fun i k => (Name.mkSimple s!"reg{i}", k)) kinds
-
 /-- The kind of a Signal type under any telescope: one Bool or
     positive-width BitVec Signal. -/
 def machResultKind? : Lean.Expr → Option MixedGateBinder
@@ -3604,16 +3718,6 @@ def machResultKind? : Lean.Expr → Option MixedGateBinder
     | some .bool => some .bool
     | some (.bits n) => some (.bits n)
     | _ => none
-
-/-- What the state-machine front end reads of the run's environment about
-    user structures: the field accessors (`userProjection?`), and for a
-    structure whose fields are all Bool or positive-width BitVec Signals its
-    constructor and the fields' names and kinds (`userStructure?`). -/
-structure StructEnv where
-  proj : Name → Option (Name × Nat × Nat)
-  fields : Name → Option (Name × List (String × MixedGateBinder))
-  /-- The value of a closed `Nat` term (`kernelNat`). -/
-  natOf : Lean.Expr → Option Nat := fun _ => none
 
 /-- The value of a closed `Nat` term, by the KERNEL's own reduction (a pure
     function of the environment; no `MetaM`): `none` when the term has
@@ -3665,28 +3769,28 @@ def machOuts? (senv : StructEnv) :
       | .const s _ => (senv.fields s).map fun (ctor, fs) => (some ctor, fs)
       | _ => none
 
-/-- The `runCircuitH` application a body is, directly or under ONE field
-    projection of a user structure: `(field selector, domain, slot types,
-    reset values, body under the regs binder)`. -/
-def machRun? (projs : Name → Option (Name × Nat × Nat)) (e : Lean.Expr) :
-    Option (Option (Name × Nat × Nat) × Lean.Expr × Lean.Expr × Lean.Expr × Lean.Expr) :=
-  let run? : Lean.Expr → Option (Lean.Expr × Lean.Expr × Lean.Expr × Lean.Expr) := fun r =>
-    match inlSpine r [] with
-    | (.const ``Sparkle.Core.runCircuitH _, [dom, αs, _, _, _, _, inits, .lam _ _ body _]) =>
-      some (dom, αs, inits, body)
-    | _ => none
-  match run? e with
-  | some (dom, αs, inits, body) => some (none, dom, αs, inits, body)
-  | none =>
+/-- The root of a declaration's value, after its binders: `let`s in front
+    (sub-machines bound before the `circuit do`, constants), then either a
+    `runCircuitH` — directly or under ONE field projection of a user
+    structure — which is the ENCLOSING machine, or any other expression
+    (a structure of sub-machines' results, a projection of one): `(the root
+    lets, field selector, the enclosing run, the root expression)`. -/
+def machRoot (projs : Name → Option (Name × Nat × Nat)) :
+    Lean.Expr → List (Name × Lean.Expr × Lean.Expr) →
+      List (Name × Lean.Expr × Lean.Expr) × Option (Name × Nat × Nat) × Option Lean.Expr ×
+        Lean.Expr
+  | .letE nm ty v b _, acc => machRoot projs b ((nm, ty, v) :: acc)
+  | e, acc =>
+    if (machRunApp? e).isSome then (acc.reverse, none, some e, e) else
     match inlSpine e [] with
     | (.const p _, args) =>
       match projs p, args.getLast? with
       | some (ctor, numParams, idx), some r =>
-        if args.length = numParams + 1 then
-          (run? r).map fun (dom, αs, inits, body) => (some (ctor, numParams, idx), dom, αs, inits, body)
-        else none
-      | _, _ => none
-    | _ => none
+        if args.length = numParams + 1 && (machRunApp? r).isSome then
+          (acc.reverse, some (ctor, numParams, idx), some r, e)
+        else (acc.reverse, none, none, e)
+      | _, _ => (acc.reverse, none, none, e)
+    | _ => (acc.reverse, none, none, e)
 
 /-- The result the body returns: the final `pure` value, or its selected
     field when the declaration projects a structure result. -/
@@ -4007,17 +4111,29 @@ structure MachineShape where
   binders : List (Name × MixedGateBinder)
   body : Lean.Expr
   layout : Sparkle.IR.Machine.Layout
+  /-- `(first slot, slot count)` of every machine read: the enclosing
+      machine first (none when the root is an expression of sub-machines),
+      then each nested `runCircuitH` in reading order. -/
+  runs : List (Nat × Nat) := []
 
 /-- The acceptance test of the state-machine route: the declaration's value
-    is a lambda telescope of hardware binders over a `runCircuitH` (possibly
-    under one structure-field projection) whose body is a chain of
-    `Circuit.next` writes ending in `pure`, every slot a Bool or a
-    positive-width BitVec with a literal reset value, the result one Signal
-    or a structure of Signals (one output port per field, named after it),
-    and the packed transition a body the unified gate accepts.
+    is a lambda telescope of hardware binders over `let`s and a
+    `runCircuitH` (possibly under one structure-field projection), or over an
+    expression of `runCircuitH`s; every body is a chain of `Circuit.next`
+    writes ending in `pure`, every slot a Bool or a positive-width BitVec
+    with a literal reset value, the result one Signal or a structure of
+    Signals (one output port per field, named after it), and the packed
+    transition a body the unified gate accepts.
+
+    A `runCircuitH` inside a body or a root `let` — a sub-machine whose
+    result the body uses — is read as part of ONE machine: its slots follow
+    the enclosing machine's (`MachRead.runs` says where each starts), its
+    writes join the transition, and the uses of its result see the result
+    terms.  `Tools/ShippingMachineNest.lean` proves that this machine is the
+    declaration.
 
     The transition's telescope is the declaration's binders, one binder per
-    slot, and one binder per hardware `let` of the body; its packed value is
+    slot, and one binder per hardware `let` of the bodies; its packed value is
     `let₀ ++ … ++ letₖ₋₁ ++ result₀ ++ … ++ next₀ ++ … ++ nextₙ₋₁`, where a `let`
     value mentions earlier `let`s only.  `Sparkle.IR.Machine.closeLets` ties
     each `let` binder to its field, so a `let` used many times is compiled
@@ -4031,35 +4147,63 @@ def machineShape? (symbolicMode : Bool) (parameters : List (String × Nat)) (ci 
     let (ctor?, outs) ← machOuts? senv d.type
     if outs.isEmpty || !outs.all (fun o => Sparkle.IR.Machine.outNameOk o.1) ||
         !decide (outs.map (·.1)).Nodup then none else
-    let (sel, dom, αs, initsE, regsBody) ← machRun? senv.proj e
-    let kinds ← machSlotKinds αs
-    let n := kinds.length
+    let e := machNorm senv e
+    let (rootLets, sel, run?, root) := machRoot senv.proj e []
+    -- the enclosing machine's slots come first
+    let st : MachRead := {}
+    let run? := run?.bind machRunApp?
+    let st ← match run? with
+      | some (dom, αs, initsE, body) => do
+        -- the domain in the root context: binders then root lets, so its
+        -- placeholder is read with the root lets as (unused) context
+        let (dom', _) ← machConv senv (rootLets.map fun _ => .unit) 0 dom st
+        let (_, st) ← machReserve senv.natOf dom' αs initsE body st
+        pure st
+      | none => pure st
+    -- the root lets, in order
+    let (env, st) ← rootLets.foldlM (init := (([] : List MachVal), st)) fun (env, st) (nm, ty, v) => do
+      match machTailV env 0 v, machHandleV env 0 v with
+      | none, none =>
+        let (v', st) ← machConv senv env 0 v st
+        let (x, lets) := machBindLet nm ty v' st.lets
+        pure (.val x :: env, { st with lets := lets })
+      | _, _ => none
+    -- the enclosing machine's chain, or the root expression
+    let (st, v) ← match run? with
+      | some (_, _, _, body) => do
+        let (ws, v, st) ← machChain senv (.regs 0 :: env) body st
+        pure ({ st with ws := st.ws ++ ws.toArray }, v)
+      | none => do
+        let (v, st) ← machConv senv env 0 root st
+        pure (st, v)
+    let n := st.kinds.size
     if n = 0 then none else
-    let inits ← machInits senv.natOf kinds initsE
-    let (ws, v, lets) ← machChain n [.regs 0] (machNorm senv regsBody) #[]
-    let k := lets.size
-    let (dom', resetKind) ← machDom? (n + k) dom
+    let kinds := st.kinds.toList
+    let k := st.lets.size
+    let domE ← st.dom
+    let (dom', resetKind) ← machDom? (n + k) domE
     let outEs ← machResults? sel ctor? outs.length v
     if outEs.length != outs.length then none else
-    let letFields ← lets.toList.mapM fun (_, kind, value) =>
+    let letFields ← st.lets.toList.mapM fun (_, kind, value) =>
       machField dom' kind (machClose n k 0 value)
     let outFields ← (outs.zip outEs).mapM fun ((_, kind), outE) =>
       machField dom' kind (machClose n k 0 outE)
     let slotFields ← ((List.range n).zip kinds).mapM fun (i, kind) =>
-      machField dom' kind (machClose n k 0 (machNext i ws))
+      machField dom' kind (machClose n k 0 (machNext i st.ws.toList))
     let (_, packed) ← machPack dom' (letFields ++ outFields ++ slotFields)
     let body := machCanonAp packed
-    let binders := bs ++ machSlotBinders (machLetNames regsBody) kinds ++
-      lets.toList.map fun (nm, kind, _) => (nm, kind)
+    let binders : List (Name × MixedGateBinder) := bs ++ (st.names.toList.zip kinds) ++
+      st.lets.toList.map fun (nm, kind, _) => (nm, kind)
     if unifiedGateRoot (binders.map (·.2)).toArray body then
       some
         { binders := binders
           body := body
           layout :=
-            { slots := machSlotFields ((kinds.map machWidth).zip inits)
+            { slots := machSlotFields ((kinds.map machWidth).zip st.inits.toList)
               outs := machOutFields (kinds.map machWidth).sum outs
               resetKind := resetKind
-              lets := k } }
+              lets := k }
+          runs := st.runs.toList }
     else none
   | _ => none
 

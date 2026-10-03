@@ -1176,52 +1176,65 @@ theorem lin_facts : TermFacts 4 4 18 linVw linBpos linVpos linK [.bits 8] linTyp
 for every state signal, at every cycle. -/
 theorem linHW_writes {D : DomainConfig} (bools : Nat → Signal D Bool)
     (bits : (j : Nat) → (n : Nat) → Signal D (BitVec n))
-    (S : Signal D (HList (tys [.bits 8]))) (t : Nat) :
-    valsAt (tys [.bits 8]) (linCircuit (bools 1) (bits 2 8) (bools 3)
-      (mkRegList S (tys [.bits 8]) (fun s => s) (fun f => f)) (mkHolds (tys [.bits 8]) S)).snd t =
+    (S : Signal D (HList Slots1)) (t : Nat) :
+    valsAt Slots1 (linCircuit (bools 1) (bits 2 8) (bools 3)
+      (mkRegList S Slots1 (fun s => s) (fun f => f)) (mkHolds Slots1 S)).snd t =
     evalTerms
       (fun j => (typedVal 4 linBpos linVpos [.bits 8] linTyped bools bits t (S.val t)).b
         (linBpos j))
       (fun j w => (typedVal 4 linBpos linVpos [.bits 8] linTyped bools bits t (S.val t)).v
         (linVpos j) w) linNexts := rfl
 
-/-- **The state of the LIN checksum is its reference machine's.** -/
+set_option maxHeartbeats 1000000 in
+/-- **The state of the LIN checksum is its reference machine's.** The
+stream is the `circuit do`'s state loop (`circuit_state`, from the writes
+being the terms' values). -/
 theorem linHW_state {D : DomainConfig} (bools : Nat → Signal D Bool)
     (bits : (j : Nat) → (n : Nat) → Signal D (BitVec n)) (τ : Nat) :
     encState [.bits 8] ((stateLoop linInits (linCircuit (bools 1) (bits 2 8) (bools 3))).val τ) =
-      linRef.state (fun τ p => (bools p).val τ) (fun τ p w => (bits p w).val τ) τ :=
-  denote_state (ss := [.bits 8]) linInits (linCircuit (bools 1) (bits 2 8) (bools 3)) bools bits
-    linTyped linNexts ⟨8, .bitsInput 8 1⟩ [⟨8, .bitsInput 8 17⟩, ⟨8, linNextT⟩] linHWCore
-    linHWLayout.slots 2 rfl rfl
-    (by
-      intro i f hf
-      have hi : i = 0 := by
-        have := (List.getElem?_eq_some_iff.mp hf).1
-        simp [linHWLayout] at this; omega
-      subst hi
-      simp only [linHWLayout, List.getElem?_cons_zero, Option.some.injEq] at hf
-      subst hf
-      exact ⟨⟨8, linNextT⟩, rfl, rfl, rfl⟩)
-    rfl
-    (by
-      intro i
-      rcases i with _ | i
-      · rfl
-      · rfl)
-    lin_facts
-    (by
-      intro g hg
-      simp only [linNexts, Terms.fields, toField, List.mem_cons, List.not_mem_nil, or_false] at hg
-      subst hg
-      simp [linNextT, Term.WF, linVw])
-    (linHW_writes bools bits) τ
+      linRef.state (fun τ p => (bools p).val τ) (fun τ p w => (bits p w).val τ) τ := by
+  have hW : ∀ (l l' : Signal D (HList Slots1)) (t : Nat), l.val t = l'.val t →
+      valsAt Slots1 (linCircuit (bools 1) (bits 2 8) (bools 3)
+          (mkRegList l Slots1 (fun s => s) (fun f => f)) (mkHolds Slots1 l)).snd t =
+        valsAt Slots1 (linCircuit (bools 1) (bits 2 8) (bools 3)
+          (mkRegList l' Slots1 (fun s => s) (fun f => f)) (mkHolds Slots1 l')).snd t := by
+    intro l l' t h
+    rw [linHW_writes bools bits l t, linHW_writes bools bits l' t, h]
+  obtain ⟨h0, hs⟩ := circuit_state linInits (linCircuit (bools 1) (bits 2 8) (bools 3)) hW
+  refine denote_state (ss := [.bits 8])
+    (fun t => (stateLoop linInits (linCircuit (bools 1) (bits 2 8) (bools 3))).val t)
+    bools bits linTyped linNexts ⟨8, .bitsInput 8 1⟩ [⟨8, .bitsInput 8 17⟩, ⟨8, linNextT⟩] linHWCore
+    linHWLayout.slots 2 rfl rfl ?_ ?_ ?_ lin_facts ?_ ?_ τ
+  · intro i f hf
+    have hi : i = 0 := by
+      have := (List.getElem?_eq_some_iff.mp hf).1
+      simp [linHWLayout] at this; omega
+    subst hi
+    simp only [linHWLayout, List.getElem?_cons_zero, Option.some.injEq] at hf
+    subst hf
+    exact ⟨⟨8, linNextT⟩, rfl, rfl, rfl⟩
+  · rfl
+  · intro i
+    show encState [.bits 8] ((stateLoop linInits (linCircuit (bools 1) (bits 2 8) (bools 3))).val 0) i = _
+    rw [h0]
+    rcases i with _ | i
+    · rfl
+    · rfl
+  · intro g hg
+    simp only [linNexts, Terms.fields, toField, List.mem_cons, List.not_mem_nil, or_false] at hg
+    subst hg
+    simp [linNextT, Term.WF, linVw]
+  · intro t
+    show (stateLoop linInits (linCircuit (bools 1) (bits 2 8) (bools 3))).val (t + 1) = _
+    rw [hs t, linHW_writes bools bits]
 
 set_option maxHeartbeats 1000000 in
 /-- **Source-to-RTL execution of the LIN checksum module, by the generic
 theorems.** The same statement as `linHW_execution`; the proof is the
 reference-machine theorem of the emitted module (`linHW_reference`), the
-generic identification of the `circuit do` with its reference machine
-(`denote_state`, `denote_out`), and `rfl`. -/
+generic identification of the state stream with its reference machine
+(`denote_state`, `denote_out`; the stream is the `circuit do`'s state loop,
+`stateLoop_stream`), and `rfl`. -/
 theorem linHW_execution_generic {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
     {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
     {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
@@ -1254,8 +1267,8 @@ theorem linHW_execution_generic {mctx : Meta.Context} {mref : ST.Ref IO.RealWorl
   refine ⟨envs, hrun, hlen, fun j hj => ?_⟩
   obtain ⟨hacc, hchk⟩ := hobs j hj
   have out := fun {s : SType} (ot : Term s) (hwf : ot.WF 4 18 linVw) (k : Nat) hk =>
-    denote_out (ss := [.bits 8]) linInits (linCircuit (bools 1) (bits 2 8) (bools 3)) bools bits
-      linTyped ⟨8, .bitsInput 8 1⟩ [⟨8, .bitsInput 8 17⟩, ⟨8, linNextT⟩] linHWCore
+    denote_out (ss := [.bits 8]) (fun t => (stateLoop linInits (linCircuit (bools 1) (bits 2 8) (bools 3))).val t)
+      bools bits linTyped ⟨8, .bitsInput 8 1⟩ [⟨8, .bitsInput 8 17⟩, ⟨8, linNextT⟩] linHWCore
       linHWLayout.slots rfl lin_facts (linHW_state bools bits) ot hwf k hk j
   refine ⟨?_, ?_⟩
   · rw [hacc]

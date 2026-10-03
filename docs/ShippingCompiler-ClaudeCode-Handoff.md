@@ -443,6 +443,30 @@ byte-identical; the one difference is the new `run_cmd` log of
 endpoint; the two CRC modules (0.5–0.75M-node normal forms) pass the gates
 too now that the probe runs the check (it shares the DAG), 6 remain on
 `EmitSem.seqCheck`.
+**Sub-machines (landed 2026-10-03).** The reader of `machineShape?` is
+state-threaded (`MachRead`): a `runCircuitH` met in a root `let`, in a
+body `let` or in an argument is a machine of its own, its slots after the
+ones met so far (`machNested`; repeats shared — `circuit do` copies its
+`let`s into every write and the result); `machRoot` finds the root `let`s,
+one projection and the enclosing run (reserved first) or an expression of
+sub-machines (slotless wrapper); `machProjIota` reduces a projection of a
+sub-machine's structure result. Proof: `Tools/ShippingMachineFuse.lean`
+(`loop_state_causal`, `fused_state`), `Tools/ShippingMachineNest.lean`
+(`InnerT`, `happendT`, `machine_trace_of_nested`); `machine_endpoint` and
+`denote_state`/`denote_out` are now over an abstract state stream and
+`machine_trace_of_stream` (Auto) is the shared core. Generator:
+`nestedProof` (pass A collects `InnerT.mk`s with `walkRuns` in the
+reader's order, `zetaReduce`d; pass B replaces each run by `tupleProj rs k`)
+vs `singleProof`. GOTCHAS: a nondep `let` (`have`) fvar is generalised to a
+LAMBDA by `mkLetFVars` — always introduce dep lets; after an `Elab.lean`
+change relink `libsparkle_Sparkle.so` (`lake build Sparkle:shared`) or every
+`--load-dynlib` run segfaults (exit 139); never wait with `pgrep -f "lake
+build"` inside a background command (it matches itself). Corpus: 183 of 389
+certified, 120/120/114 (the 6 `EmitSem.seqCheck` rejections remain); new on the route: `pidLoopTop` (PID loop with two sub-controllers reading the plant register), `biqSim` and `kalmanSim` (structures of sub-machines), the three Eip1559 envelope declarations (a field of the RLP header sub-machine), `latch8x2`. Against the previous compiler 196 of 199 output files are byte-identical; the 3 that differ hold only modules newly on the machine route (`pidLoopTop`, the three Eip1559 envelope declarations) and a reworded DRC warning for `latch8x2` (its module text is identical); status identical; 60-cycle simulation 131/131 OK. Suite: 689
+jobs green. Left of the ~35: HFT-style chains (a sub-machine reading
+another's result: needs a telescoped `Inner`), runs under `fun`,
+`@[hardware_module]` instances inside the transition.
+
 THE MEASUREMENT CYCLE after any change to `Elab.lean` (about 50 minutes,
 never next to a `lake build`): `PASSES=1 scripts/shipping-coverage/run.sh
 NEW`; `compare_outputs.py OLD/out NEW/out` (every `DIFFERENT` file must be
@@ -534,7 +558,7 @@ audits; do not present a smaller step as a finished unit.
 
 - `lean-toolchain`: `leanprover/lean4:v4.32.1`. Use the existing project
   environment.
-- Latest full verification: `lake build Tests.AllTests`, **686 jobs green** (2026-10-03, merge and optimizer checked at compile time).
+- Latest full verification: `lake build Tests.AllTests`, **689 jobs green** (2026-10-03, sub-machines flattened on the machine route).
 - Typical iterative targets:
 
   ```sh

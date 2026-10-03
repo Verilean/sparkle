@@ -128,6 +128,7 @@ import Tests.Compiler.ShippingMachineSourceTest
 import Tests.Compiler.ShippingMachineEntryTest
 import Tests.Compiler.ShippingMachineCommandTest
 import Tests.Compiler.ShippingMachineNormTest
+import Tests.Compiler.ShippingMachineNestTest
 import Tests.Compiler.ShippingTypedPostSoundnessTest
 import Tests.Compiler.ShippingControlOptSoundnessTest
 import Tests.Compiler.ShippingModuleNamesTest

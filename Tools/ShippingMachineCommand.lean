@@ -1,4 +1,5 @@
 import Tools.ShippingMachineAuto
+import Tools.ShippingMachineNest
 import Tools.ShippingMachineShipping
 
 /-! # The machine endpoint of a declaration, generated
@@ -32,6 +33,7 @@ open Lean Meta Sparkle.Compiler.Elab Sparkle.IR.Machine
 open Sparkle.Core Sparkle.Core.Domain Sparkle.Core.Signal
 open Tools.ShippingUnifiedSource Tools.ShippingScalarSoundness
 open Tools.ShippingMachineEntry Tools.ShippingMachineDenote Tools.ShippingMachineAuto
+open Tools.ShippingMachineFuse Tools.ShippingMachineNest
 open Tools.ShippingMixedSourceBridge Tools.ShippingEntrySoundness
 
 initialize registerTraceClass `Sparkle.machine
@@ -257,9 +259,9 @@ def unField : MixedGateBinder → BitsTerm → Option AnyTerm
 
 def natL (n : Nat) : Lean.Expr := mkRawNatLit n
 
-def listE (ty : Lean.Expr) (xs : List Lean.Expr) : Lean.Expr :=
-  xs.foldr (fun x acc => mkApp3 (mkConst ``List.cons [.zero]) ty x acc)
-    (mkApp (mkConst ``List.nil [.zero]) ty)
+def listE (ty : Lean.Expr) (xs : List Lean.Expr) (u : Level := .zero) : Lean.Expr :=
+  xs.foldr (fun x acc => mkApp3 (mkConst ``List.cons [u]) ty x acc)
+    (mkApp (mkConst ``List.nil [u]) ty)
 
 def stypeE : SType → Lean.Expr
   | .bool => mkConst ``SType.bool
@@ -388,6 +390,15 @@ structure Read where
   ctor? : Option Name
   sel? : Option (Name × Nat × Nat)
   outNames : List String
+  /-- `let`s in front of the root (sub-machines bound before the `circuit do`). -/
+  rootLets : Nat
+  /-- The root is a `runCircuitH` (possibly under one projection): the enclosing machine. -/
+  hasOuter : Bool
+
+/-- A declaration with sub-machines, or whose root is not one `runCircuitH`:
+the endpoint goes through `machine_trace_of_nested`. -/
+def Read.nested (r : Read) : Bool :=
+  r.shape.runs.length != 1 || r.rootLets != 0 || !r.hasOuter
 
 def readMachine (declName : Name) : MetaM Read := do
   let env ← getEnv
@@ -404,9 +415,22 @@ def readMachine (declName : Name) : MetaM Read := do
   let nLets := shape.layout.lets
   let binders := shape.binders
   unless binders.length == nIn + nSlots + nLets do throwError "{declName}: binder count"
-  let some (sel?, srcDom, _, _, _) := machRun? senv.proj entryBody
-    | throwError "{declName}: no runCircuitH"
-  let some (dom, _) := machDom? (nSlots + nLets) srcDom | throwError "{declName}: domain"
+  let (rootLets, sel?, run?, _) := machRoot senv.proj entryBody []
+  -- the domain: the enclosing machine's, else the first sub-machine's
+  let srcDom ← match run? with
+    | some run => pure run.getAppArgs[0]!
+    | none =>
+      match entryBody.find? fun t => t.isAppOfArity ``Sparkle.Core.runCircuitH 8 with
+      | some run => pure run.getAppArgs[0]!
+      | none => throwError "{declName}: no runCircuitH"
+  -- a domain binder is a bound variable at the root; the placeholder the
+  -- reader gives it is the binder's position from the end
+  let srcDom' ← match srcDom with
+    | .bvar j =>
+      if j < rootLets.length then throwError "{declName}: the domain is a root let"
+      else pure (machIn (j - rootLets.length))
+    | e => pure e
+  let some (dom, _) := machDom? (nSlots + nLets) srcDom' | throwError "{declName}: domain"
   let some (ctor?, outKinds) := machOuts? senv entry.type | throwError "{declName}: outputs"
   let kinds := binders.map (·.2)
   let c := Binders.ofKinds kinds
@@ -435,7 +459,7 @@ def readMachine (declName : Name) : MetaM Read := do
   unless q.equal shape.body do
     throwError "{declName}: the terms read off the body do not quote back to it"
   return { shape, entry, nIn, dom, srcDom, bposL, vposL, vwL, ls, outs, nexts, ctor?, sel?,
-           outNames := outKinds.map (·.1) }
+           outNames := outKinds.map (·.1), rootLets := rootLets.length, hasOuter := run?.isSome }
 
 def dataE (r : Read) : MetaM Lean.Expr := do
   let body ← match reflExpr r.shape.body with
@@ -445,8 +469,11 @@ def dataE (r : Read) : MetaM Lean.Expr := do
     | .ok b => pure b
     | .error msg => throwError msg
   let some layout := layoutE r.shape.layout | throwError "an output type is not a bit vector"
-  let shape := mkApp3 (mkConst ``MachineShape.mk) (listE binderT (r.shape.binders.map binderE))
-    body layout
+  let natPairT := mkApp2 (mkConst ``Prod [.zero, .zero]) (mkConst ``Nat) (mkConst ``Nat)
+  let runs := listE natPairT (r.shape.runs.map fun (a, b) =>
+    mkApp4 (mkConst ``Prod.mk [.zero, .zero]) (mkConst ``Nat) (mkConst ``Nat) (natL a) (natL b))
+  let shape := mkApp4 (mkConst ``MachineShape.mk) (listE binderT (r.shape.binders.map binderE))
+    body layout runs
   return mkAppN (mkConst ``MachineData.mk)
     #[shape, natL r.nIn, dom, natListE r.bposL, natListE r.vposL, natListE r.vwL,
       listE stypeT (r.nexts.map fun t => stypeE t.1), listE anyTermT (r.ls.map anyTermE),
@@ -471,6 +498,285 @@ def reflProof (stmt : Lean.Expr) (left : Bool) : MetaM Lean.Expr :=
     let some (α, lhs, rhs) := eq.eq? | throwError "not an equation: {eq}"
     let u ← getLevel α
     mkLambdaFVars xs (mkApp2 (mkConst ``Eq.refl [u]) α (if left then lhs else rhs))
+
+/-- One observation per output port of a Signal / structure value `v` of
+kinds `ks`: `fun t => encodeBool (field.val t)` or `BitVec.toNat (field.val t)`. -/
+def observations (declName : Name) (D v : Lean.Expr) (fields : List (Option Name))
+    (ks : List MixedGateBinder) : MetaM (List Lean.Expr) := do
+  let nat := mkConst ``Nat
+  (fields.zip ks).mapM fun (fn, k) => do
+    let field ← match fn with
+      | none => pure v
+      | some f => mkProjection v f
+    withLocalDeclD `t nat fun t => do
+      let val (α : Lean.Expr) :=
+        mkApp (mkApp3 (mkConst ``Sparkle.Core.Signal.Signal.val [.zero]) D α field) t
+      let e ← match k with
+        | .bool => pure (mkApp (mkConst ``Tools.ShippingMuxLoweringSoundness.encodeBool)
+            (val (mkConst ``Bool)))
+        | .bits w =>
+          let wE := mkNatLit w
+          pure (mkApp2 (mkConst ``BitVec.toNat) wE (val (mkApp (mkConst ``BitVec) wE)))
+        | .domain => throwError "{declName}: an output is a domain"
+      mkLambdaFVars #[t] e
+
+/-- The fields of the result type `rho` the output ports read: none for a
+Signal, every field for a structure result, the selected field under a
+projection. -/
+def resultFields (declName : Name) (r : Read) (rho : Lean.Expr) : MetaM (List (Option Name)) := do
+  let env ← getEnv
+  let rhoHead := rho.getAppFn.constName?.getD .anonymous
+  if rhoHead == ``Sparkle.Core.Signal.Signal then pure [none]
+  else if r.ctor?.isSome then pure (r.outNames.map fun nm => some (Name.mkSimple nm))
+  else match r.sel? with
+    | some (_, _, idx) =>
+      match (getStructureFields env rhoHead)[idx]? with
+      | some f => pure [some f]
+      | none => throwError "{declName}: the selected field of {rhoHead}"
+    | none => throwError "{declName}: the result type {rhoHead}"
+
+/-- `fun i r => [observations of r]`: what `src` observes of a result. -/
+def resultObs (declName : Name) (r : Read) (i D rho : Lean.Expr) : MetaM Lean.Expr := do
+  let nat := mkConst ``Nat
+  let fieldNames ← resultFields declName r rho
+  withLocalDeclD `r rho fun res => do
+    let fs ← observations declName D res fieldNames (r.shape.layout.outs.map outKind)
+    mkLambdaFVars #[i, res] (listE (← mkArrow nat nat) fs)
+
+/-! ### Sub-machines
+
+A `runCircuitH` inside the root — in a `let` in front of the `circuit do`,
+in a `let` of its body, in an argument — is a sub-machine. The enclosing
+body is written as a function of the tuple of their results (`body₂ regs
+rs`, each sub-machine replaced by its component of `rs`), each sub-machine
+as a function of the enclosing handles (`InnerT`), in the order the compiler
+reads them: the root `let`s' values in order, then the body, left to right. -/
+
+/-- Walk an expression in the compiler's reading order (a `let`'s value
+before its body, a function before its argument), with the local context
+extended at every binder, applying `onRun` to every `runCircuitH`
+application (which is not entered). -/
+partial def walkRuns (onRun : Lean.Expr → MetaM Lean.Expr) : Lean.Expr → MetaM Lean.Expr
+  | e@(.app ..) => do
+    if e.isAppOfArity ``Sparkle.Core.runCircuitH 8 then onRun e else
+    let f ← walkRuns onRun e.appFn!
+    let a ← walkRuns onRun e.appArg!
+    return .app f a
+  | .letE nm ty v b nd => do
+    let ty' ← walkRuns onRun ty
+    let v' ← walkRuns onRun v
+    -- the value is kept visible (`zetaReduce` substitutes it in a sub-machine)
+    let _ := nd
+    withLetDecl nm ty' v' fun x => do
+      let b' ← walkRuns onRun (b.instantiate1 x)
+      mkLetFVars #[x] b' (usedLetOnly := false)
+  | .lam nm ty b bi => do
+    let ty' ← walkRuns onRun ty
+    withLocalDecl nm bi ty' fun x => do
+      let b' ← walkRuns onRun (b.instantiate1 x)
+      mkLambdaFVars #[x] b'
+  | .forallE nm ty b bi => do
+    let ty' ← walkRuns onRun ty
+    withLocalDecl nm bi ty' fun x => do
+      let b' ← walkRuns onRun (b.instantiate1 x)
+      mkForallFVars #[x] b'
+  | .mdata m b => do return .mdata m (← walkRuns onRun b)
+  | .proj n k b => do return .proj n k (← walkRuns onRun b)
+  | e => pure e
+
+/-- The slot sorts of a `runCircuitH`'s slot types, as an expression. -/
+def slotSortsE (declName : Name) (αs : Lean.Expr) : MetaM (List SType × Lean.Expr) := do
+  let some kinds := machSlotKinds αs | throwError "{declName}: a sub-machine's slot types"
+  let ss ← kinds.mapM fun k => match sortOf k with
+    | some s => pure s
+    | none => throwError "{declName}: a sub-machine's slot kind"
+  return (ss, listE stypeT (ss.map stypeE))
+
+/-- Component `j` of a right-nested tuple. -/
+def tupleProj (rs : Lean.Expr) (j : Nat) : Lean.Expr :=
+  .proj ``Prod 0 ((List.range j).foldl (fun acc _ => .proj ``Prod 1 acc) rs)
+
+/-- The endpoint of a declaration with sub-machines, through
+`machine_trace_of_nested`: the theorem applied to the data, the enclosing
+machine, the sub-machines, the body with the sub-machines abstracted, the
+observations — the hypotheses left are the kernel checks. Returns the
+partial application and the checks (name suffix, side of the `rfl`). -/
+def nestedProof (declName : Name) (r : Read) (data ι i D bools bits src inst : Lean.Expr) :
+    MetaM (Lean.Expr × Name × List (Name × Bool)) := do
+  let env ← getEnv
+  let senv := structEnv env
+  let (rootLets, _, run?, root) := machRoot senv.proj inst []
+  let nat := mkConst ``Nat
+  let domF ← mkLambdaFVars #[i] D
+  let tysE (ss : Lean.Expr) := mkApp (mkConst ``Tools.ShippingMachineDenote.tys) ss
+  let hlistE (ts : Lean.Expr) := mkApp (mkConst ``HList) ts
+  let sigListE (ts : Lean.Expr) := mkApp2 (mkConst ``Sparkle.Core.Circuit.SigList) D ts
+  let regListE (ts : Lean.Expr) :=
+    mkApp4 (mkConst ``Sparkle.Core.RegList) D (hlistE ts) (sigListE ts) ts
+  -- the enclosing machine
+  let (ss₂E, inhab₂, inits₂, regsTy, rho, chain?) ← match run? with
+    | some run =>
+      let a := run.getAppArgs
+      let (_, ss₂E) ← slotSortsE declName a[1]!
+      if a[6]!.hasFVar || a[5]!.hasFVar then
+        throwError "{declName}: the reset values depend on a binder"
+      pure (ss₂E, a[5]!, a[6]!, a[7]!.bindingDomain!, a[2]!, some a[7]!.bindingBody!)
+    | none =>
+      let ss₂E := listE stypeT []
+      pure (ss₂E, mkConst ``instInhabitedPUnit [.one], mkConst ``Unit.unit,
+        regListE (tysE ss₂E), ← inferType inst, none)
+  -- the root lets and the body, as one expression under the regs binder
+  -- (the body's `regs` variable becomes the binder, the root lets move
+  -- inside it)
+  withLocalDeclD `regs regsTy fun regsF => do
+  let core : Lean.Expr := match chain? with
+    | some chain => chain.instantiate1 regsF
+    | none => root
+  let e0 := rootLets.foldr (fun (nm, ty, v) acc => Lean.Expr.letE nm ty v acc false) core
+  -- pass A: the sub-machines, in reading order; a `runCircuitH` that repeats
+  -- an earlier one (the same term once the `let`s are substituted — `circuit
+  -- do` copies its `let`s into every write and into the result) is that
+  -- machine, as the compiler reads it
+  let runsRef ← IO.mkRef (#[] : Array (Lean.Expr × Lean.Expr))
+  let occRef ← IO.mkRef (#[] : Array Nat)
+  let _ ← walkRuns (fun run => do
+    let runZ ← zetaReduce run
+    let known ← runsRef.get
+    match known.findIdx? (fun (z, _) => z == runZ) with
+    | some j => occRef.modify (·.push j)
+    | none =>
+      let a := runZ.getAppArgs
+      let (_, ssE) := (← slotSortsE declName a[1]!)
+      if a[6]!.hasFVar || a[5]!.hasFVar then
+        throwError "{declName}: a sub-machine's reset values depend on a binder"
+      let ρE ← mkLambdaFVars #[i] a[2]!
+      let bodyE ← mkLambdaFVars #[i, bools, bits, regsF] a[7]!
+      let inner := mkAppN (mkConst ``InnerT.mk) #[ι, domF, ss₂E, ssE, ρE, a[5]!, a[6]!, bodyE]
+      occRef.modify (·.push known.size)
+      runsRef.modify (·.push (runZ, inner))
+    pure run) e0
+  let inners := (← runsRef.get).map (·.2)
+  let occ ← occRef.get
+  let innerT := mkApp3 (mkConst ``InnerT) ι domF ss₂E
+  let lE := listE innerT inners.toList .one
+  unless inners.size == r.shape.runs.length - (if run?.isSome then 1 else 0) do
+    throwError "{declName}: {inners.size} sub-machines found, the compiler read {r.shape.runs.length - (if run?.isSome then 1 else 0)}"
+  -- pass B: the enclosing body, each sub-machine its component of `rs`
+  let atsE := mkAppN (mkConst ``ats) #[ι, domF, ss₂E, lE, i, bools, bits]
+  let rsTy := hlistE (mkApp3 (mkConst ``ρs) D (tysE ss₂E) atsE)
+  withLocalDeclD `rs rsTy fun rsF => do
+  let counter ← IO.mkRef 0
+  let eB ← walkRuns (fun _ => do
+    let k ← counter.get
+    counter.set (k + 1)
+    pure (tupleProj rsF occ[k]!)) e0
+  let eB ← match chain? with
+    | some _ => pure eB
+    | none => pure (mkApp4 (mkConst ``Sparkle.Core.Circuit.pure') D (sigListE (tysE ss₂E)) rho eB)
+  let body₂ ← mkLambdaFVars #[i, bools, bits, regsF, rsF] eB
+  -- the generic theorem, applied step by step; the binder types name the facts
+  let mut p := mkAppN (mkConst ``machine_trace_of_nested)
+    #[ι, toExpr declName, data, domF, ss₂E, inhab₂, lE]
+  -- the slots are the enclosing machine's then the sub-machines'
+  let slotsStmt := (← inferType p).bindingDomain!
+  let some (α, lhs, _) := slotsStmt.eq? | throwError "{declName}: the slot equation"
+  p := mkApp p (mkApp2 (mkConst ``Eq.refl [.one]) α lhs)
+  p := mkApp p (← mkLambdaFVars #[i] rho)
+  let initsName := declName ++ `machineInits
+  addDef initsName (← inferType p).bindingDomain! inits₂
+  p := mkApp p (mkConst initsName)
+  let innersName := declName ++ `machineInners
+  addDef innersName (mkApp (mkConst ``List [.one]) innerT) lE
+  let bodyName := declName ++ `machineBody
+  addDef bodyName (← inferType p).bindingDomain! body₂
+  p := mkApp p (mkConst bodyName)
+  let resName := declName ++ `machineResult
+  addDef resName (← inferType p).bindingDomain! (← resultObs declName r i D rho)
+  p := mkApp p (mkConst resName)
+  let srcName := declName ++ `machineSource
+  let fieldNames : List (Option Name) :=
+    if r.ctor?.isNone then [none] else r.outNames.map fun nm => some (Name.mkSimple nm)
+  let obs ← observations declName D src fieldNames (r.shape.layout.outs.map outKind)
+  addDef srcName (← inferType p).bindingDomain!
+    (← mkLambdaFVars #[i, bools, bits] (listE (← mkArrow nat nat) obs))
+  p := mkApp p (mkConst srcName)
+  return (p, srcName, [(`machine_ok, false), (`machine_body, true), (`machine_inits, false),
+    (`machine_writes, true), (`machine_result, true), (`machine_source, true)])
+
+/-- The endpoint of a declaration that is one `circuit do`, through
+`machine_trace_of_data`. Returns the partial application, the name of the
+source observations and the checks (name suffix, side of the `rfl`). -/
+def singleProof (declName : Name) (r : Read) (data ι i D bools bits src inst : Lean.Expr) :
+    MetaM (Lean.Expr × Name × List (Name × Bool)) := do
+  let nat := mkConst ``Nat
+  let some run := inst.find? fun t => t.isAppOfArity ``Sparkle.Core.runCircuitH 8
+    | throwError "{declName}: no runCircuitH in the unfolded value"
+  let a := run.getAppArgs
+  let (rho, inhab, inits, body) := (a[2]!, a[5]!, a[6]!, a[7]!)
+  if inits.hasFVar || inhab.hasFVar then
+    throwError "{declName}: the reset values depend on a binder"
+  -- the generic theorem, applied step by step; the binder types name the facts
+  let mut p := mkAppN (mkConst ``machine_trace_of_data)
+    #[toExpr declName, data, ι, ← mkLambdaFVars #[i] D, inhab, ← mkLambdaFVars #[i] rho]
+  let initsName := declName ++ `machineInits
+  addDef initsName (← inferType p).bindingDomain! inits
+  p := mkApp p (mkConst initsName)
+  let bodyName := declName ++ `machineBody
+  addDef bodyName (← inferType p).bindingDomain! (← mkLambdaFVars #[i, bools, bits] body)
+  p := mkApp p (mkConst bodyName)
+  -- the source observations, one per output port
+  let scalar := r.ctor?.isNone
+  let obs ← (r.outNames.zip (r.shape.layout.outs.map outKind)).mapM fun (nm, k) => do
+    let field ← if scalar then pure src else mkProjection src (Name.mkSimple nm)
+    withLocalDeclD `t nat fun t => do
+      let v (α : Lean.Expr) :=
+        mkApp (mkApp3 (mkConst ``Sparkle.Core.Signal.Signal.val [.zero]) D α field) t
+      let e ← match k with
+        | .bool => pure (mkApp (mkConst ``Tools.ShippingMuxLoweringSoundness.encodeBool)
+            (v (mkConst ``Bool)))
+        | .bits w =>
+          let wE := mkNatLit w
+          pure (mkApp2 (mkConst ``BitVec.toNat) wE (v (mkApp (mkConst ``BitVec) wE)))
+        | .domain => throwError "{declName}: an output is a domain"
+      mkLambdaFVars #[t] e
+  -- the observations of a result, by field
+  let env ← getEnv
+  let rhoHead := rho.getAppFn.constName?.getD .anonymous
+  let fieldNames : List (Option Name) ←
+    if rhoHead == ``Sparkle.Core.Signal.Signal then pure [none]
+    else if r.ctor?.isSome then pure (r.outNames.map fun nm => some (Name.mkSimple nm))
+    else match r.sel? with
+      | some (_, _, idx) =>
+        match (getStructureFields env rhoHead)[idx]? with
+        | some f => pure [some f]
+        | none => throwError "{declName}: the selected field of {rhoHead}"
+      | none => throwError "{declName}: the result type {rhoHead}"
+  let resName := declName ++ `machineResult
+  let resV ← withLocalDeclD `r rho fun res => do
+    let fs ← (fieldNames.zip (r.shape.layout.outs.map outKind)).mapM fun (fn, k) => do
+      let field ← match fn with
+        | none => pure res
+        | some f => mkProjection res f
+      withLocalDeclD `t nat fun t => do
+        let v (α : Lean.Expr) :=
+          mkApp (mkApp3 (mkConst ``Sparkle.Core.Signal.Signal.val [.zero]) D α field) t
+        let e ← match k with
+          | .bool => pure (mkApp (mkConst ``Tools.ShippingMuxLoweringSoundness.encodeBool)
+              (v (mkConst ``Bool)))
+          | .bits w =>
+            let wE := mkNatLit w
+            pure (mkApp2 (mkConst ``BitVec.toNat) wE (v (mkApp (mkConst ``BitVec) wE)))
+          | .domain => throwError "{declName}: an output is a domain"
+        mkLambdaFVars #[t] e
+    mkLambdaFVars #[i, res] (listE (← mkArrow nat nat) fs)
+  addDef resName (← inferType p).bindingDomain! resV
+  p := mkApp p (mkConst resName)
+  let srcName := declName ++ `machineSource
+  addDef srcName (← inferType p).bindingDomain!
+    (← mkLambdaFVars #[i, bools, bits] (listE (← mkArrow nat nat) obs))
+  p := mkApp p (mkConst srcName)
+  return (p, srcName, [(`machine_ok, false), (`machine_body, true), (`machine_inits, false),
+    (`machine_writes, true), (`machine_result, true), (`machine_source, true)])
 
 /-- The machine endpoint of `declName`: the definitions, the six kernel
 checks, the theorem (whose name is returned). `checkCloses` also runs the
@@ -509,74 +815,10 @@ def generateCore (declName : Name) (checkCloses : Bool) : MetaM Name := do
       | .bits w => mkApp2 bits (mkNatLit p) (mkNatLit w)
     let src := mkAppN (mkConst declName) args.toArray
     let inst := entryV.beta args.toArray
-    let some run := inst.find? fun t => t.isAppOfArity ``Sparkle.Core.runCircuitH 8
-      | throwError "{declName}: no runCircuitH in the unfolded value"
-    let a := run.getAppArgs
-    let (rho, inhab, inits, body) := (a[2]!, a[5]!, a[6]!, a[7]!)
-    if inits.hasFVar || inhab.hasFVar then
-      throwError "{declName}: the reset values depend on a binder"
-    -- the generic theorem, applied step by step; the binder types name the facts
-    let mut p := mkAppN (mkConst ``machine_trace_of_data)
-      #[toExpr declName, data, ι, ← mkLambdaFVars #[i] D, inhab, ← mkLambdaFVars #[i] rho]
-    let initsName := declName ++ `machineInits
-    addDef initsName (← inferType p).bindingDomain! inits
-    p := mkApp p (mkConst initsName)
-    let bodyName := declName ++ `machineBody
-    addDef bodyName (← inferType p).bindingDomain! (← mkLambdaFVars #[i, bools, bits] body)
-    p := mkApp p (mkConst bodyName)
-    -- the source observations, one per output port
-    let scalar := r.ctor?.isNone
-    let obs ← (r.outNames.zip (r.shape.layout.outs.map outKind)).mapM fun (nm, k) => do
-      let field ← if scalar then pure src else mkProjection src (Name.mkSimple nm)
-      withLocalDeclD `t nat fun t => do
-        let v (α : Lean.Expr) :=
-          mkApp (mkApp3 (mkConst ``Sparkle.Core.Signal.Signal.val [.zero]) D α field) t
-        let e ← match k with
-          | .bool => pure (mkApp (mkConst ``Tools.ShippingMuxLoweringSoundness.encodeBool)
-              (v (mkConst ``Bool)))
-          | .bits w =>
-            let wE := mkNatLit w
-            pure (mkApp2 (mkConst ``BitVec.toNat) wE (v (mkApp (mkConst ``BitVec) wE)))
-          | .domain => throwError "{declName}: an output is a domain"
-        mkLambdaFVars #[t] e
-    -- the observations of a result, by field
-    let env ← getEnv
-    let rhoHead := rho.getAppFn.constName?.getD .anonymous
-    let fieldNames : List (Option Name) ←
-      if rhoHead == ``Sparkle.Core.Signal.Signal then pure [none]
-      else if r.ctor?.isSome then pure (r.outNames.map fun nm => some (Name.mkSimple nm))
-      else match r.sel? with
-        | some (_, _, idx) =>
-          match (getStructureFields env rhoHead)[idx]? with
-          | some f => pure [some f]
-          | none => throwError "{declName}: the selected field of {rhoHead}"
-        | none => throwError "{declName}: the result type {rhoHead}"
-    let resName := declName ++ `machineResult
-    let resV ← withLocalDeclD `r rho fun res => do
-      let fs ← (fieldNames.zip (r.shape.layout.outs.map outKind)).mapM fun (fn, k) => do
-        let field ← match fn with
-          | none => pure res
-          | some f => mkProjection res f
-        withLocalDeclD `t nat fun t => do
-          let v (α : Lean.Expr) :=
-            mkApp (mkApp3 (mkConst ``Sparkle.Core.Signal.Signal.val [.zero]) D α field) t
-          let e ← match k with
-            | .bool => pure (mkApp (mkConst ``Tools.ShippingMuxLoweringSoundness.encodeBool)
-                (v (mkConst ``Bool)))
-            | .bits w =>
-              let wE := mkNatLit w
-              pure (mkApp2 (mkConst ``BitVec.toNat) wE (v (mkApp (mkConst ``BitVec) wE)))
-            | .domain => throwError "{declName}: an output is a domain"
-          mkLambdaFVars #[t] e
-      mkLambdaFVars #[i, res] (listE (← mkArrow nat nat) fs)
-    addDef resName (← inferType p).bindingDomain! resV
-    p := mkApp p (mkConst resName)
-    let srcName := declName ++ `machineSource
-    addDef srcName (← inferType p).bindingDomain!
-      (← mkLambdaFVars #[i, bools, bits] (listE (← mkArrow nat nat) obs))
-    p := mkApp p (mkConst srcName)
-    for (suffix, left) in [(`machine_ok, false), (`machine_body, true), (`machine_inits, false),
-        (`machine_writes, true), (`machine_result, true), (`machine_source, true)] do
+    let (p, srcName, checks) ← if r.nested then nestedProof declName r data ι i D bools bits src inst
+      else singleProof declName r data ι i D bools bits src inst
+    let mut p := p
+    for (suffix, left) in checks do
       let stmt := (← inferType p).bindingDomain!
       let name := declName ++ suffix
       let proof ← reflProof stmt left

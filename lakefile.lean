@@ -503,6 +503,12 @@ lean_lib «Tools.ShippingMachineDenote» where
 lean_lib «Tools.ShippingMachineAuto» where
   roots := #[`Tools.ShippingMachineAuto]
 
+lean_lib «Tools.ShippingMachineFuse» where
+  roots := #[`Tools.ShippingMachineFuse]
+
+lean_lib «Tools.ShippingMachineNest» where
+  roots := #[`Tools.ShippingMachineNest]
+
 lean_lib «Tools.ShippingMachineCommand» where
   roots := #[`Tools.ShippingMachineCommand]
 

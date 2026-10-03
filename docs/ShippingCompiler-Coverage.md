@@ -617,6 +617,16 @@ files byte-identical; the one difference is the new `run_cmd` log of
 119/119 OK; 113/113 machine-route declarations have the kernel-checked
 endpoint. The shipping premises hold for 107 of 113.
 
+**Sub-machines (2026-10-03).** Nested `circuit do`s are one flattened
+machine (see the TODO entry); of the 41 declarations the nesting probe
+(`scratchpad/nest_tail.lean.in`) classified, those with no
+`@[hardware_module]` call and no sub-machine reading another sub-machine's
+result take the route now: `pidLoopTop` (PID loop with two sub-controllers reading the plant register), `biqSim` and `kalmanSim` (structures of sub-machines), the three Eip1559 envelope declarations (a field of the RLP header sub-machine), `latch8x2`. Corpus: 183 of 389 certified, 120 on the
+machine route, 120 with the endpoint, 114 (the 6 `EmitSem.seqCheck` rejections remain) shipping. Against the previous compiler 196 of 199 output files are byte-identical; the 3 that differ hold only modules newly on the machine route (`pidLoopTop`, the three Eip1559 envelope declarations) and a reworded DRC warning for `latch8x2` (its module text is identical); status identical; 60-cycle simulation 131/131 OK. The rest
+of the 41 need instances inside a transition (≈11, combinational
+`@[hardware_module]` calls), sequential children (≈15, hierarchy), or a
+telescoped sub-machine list (the HFT chain, 4).
+
 What blocked the rest BEFORE the normal forms, by the refused expression (classifier
 `mach3_tail`): constants computed in Lean (`BitVec.ofInt` of an `Int`
 expression, `2 ^ k`, sums and differences: about 25 declarations), a

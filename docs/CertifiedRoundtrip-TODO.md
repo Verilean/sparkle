@@ -1095,6 +1095,37 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   119/119 OK; 113/113 machine-route declarations have the kernel-checked
   endpoint. `synthesizeCombinational_reads` keeps its statement (the
   refused merge is its first disjunct).
+- [x] **Sub-machines on the machine route (2026-10-03).** A `circuit do`
+  whose body uses another `circuit do` — a parser bound by `let` in front
+  of it, a controller in a `let` of the body whose input is the body's own
+  register (feedback), `latch (latch x)`, two machines side by side in a
+  structure with no enclosing machine, a field of a sub-machine's
+  structure result — is read as ONE machine: the enclosing machine's slots
+  first, then each nested `runCircuitH`'s in reading order (`MachRead`,
+  `machNested`, `machRoot` in Elab.lean; `MachineShape.runs`). `circuit
+  do` copies its `let`s into every write and into the result, so the same
+  sub-machine appears several times: the reader shares a repeat (same
+  domain, slots, reset values, writes and result when read with the earlier
+  machine's slots). PROVED once, for any number of sub-machines:
+  `Tools/ShippingMachineFuse.lean` (`loop_state_causal` — a body with a
+  nested loop is not pointwise in the live state, only causal;
+  `fused_state`: the enclosing loop and the sub-machines' loops, driven by
+  it, are the tuple stream with the writes' recurrence) and
+  `Tools/ShippingMachineNest.lean` (`machine_trace_of_nested`, through the
+  new stream-level core `machine_trace_of_stream`; `machine_endpoint` /
+  `denote_state` / `denote_out` now take an abstract state stream, and
+  `machine_trace_of_data` is the single-`circuit do` corollary via
+  `stateLoop_stream`). The generator (`nestedProof`) abstracts every
+  sub-machine of the declaration into a component of a results tuple
+  (`walkRuns`, in the reader's order; `zetaReduce` substitutes the outer
+  `let`s) and the kernel checks four `rfl`s as before. Test:
+  `Tests/Compiler/ShippingMachineNestTest.lean`. MEASURED: 183 of 389 real
+  declarations certified (120 on the machine route, 120 with the
+  kernel-checked endpoint, 114 (the 6 `EmitSem.seqCheck` rejections remain) shipping); newly on the route: `pidLoopTop` (PID loop with two sub-controllers reading the plant register), `biqSim` and `kalmanSim` (structures of sub-machines), the three Eip1559 envelope declarations (a field of the RLP header sub-machine), `latch8x2`.
+  Against the previous compiler 196 of 199 output files are byte-identical; the 3 that differ hold only modules newly on the machine route (`pidLoopTop`, the three Eip1559 envelope declarations) and a reworded DRC warning for `latch8x2` (its module text is identical); status identical; 60-cycle simulation 131/131 OK. Still outside: a sub-machine reading ANOTHER sub-machine's result
+  (the HFT chain), a `runCircuitH` under a `fun`, and `@[hardware_module]`
+  calls inside a transition (≈11 combinational, ≈15 sequential children —
+  hierarchy).
 - [ ] **S7 / trust:** Resolve or explicitly retain `EnvDefines` in the final
   claim; record execution-model/external-tool boundaries without hiding them.
   RECORDED — docs/ShippingCompiler-TrustBase.md states the retained base

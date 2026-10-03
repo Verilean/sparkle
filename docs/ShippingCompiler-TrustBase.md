@@ -217,7 +217,14 @@ of the terms (`f.machine_body`), evaluates the one Boolean that decides
 every side condition (`f.machine_ok`; by reduction, not `native_decide`),
 and checks by `Eq.refl` that the declaration's own reset values, pending
 writes and result are the terms' (`f.machine_inits`, `f.machine_writes`,
-`f.machine_result`, `f.machine_source`). Declarations are added with
+`f.machine_result`, `f.machine_source`). A declaration with sub-machines
+goes through `machine_trace_of_nested` instead: the same checks, with the
+enclosing body written over the tuple of the sub-machines' results and
+each sub-machine's body over the enclosing handles (both read off the
+declaration and checked by the kernel: the declaration IS that body on
+the loops, `f.machine_source`); the generic fact that the loops together
+are the flattened machine's state stream is proved (`fused_state`,
+ShippingMachineFuse), not assumed. Declarations are added with
 synchronous kernel checking and the theorem's axioms are audited, so a
 failed check cannot leave a constant behind. The command also runs the
 machine synthesis once and requires that it ties the `let`s — evidence

@@ -105,4 +105,25 @@ theorem circuit_state {dom : DomainConfig} {αs : List Type} {ρ : Type}
   loop_state αs inits
     (fun live => (body (mkRegList live αs (fun s => s) (fun f => f)) (mkHolds αs live)).snd) hW
 
+/-- **The state loop as a stream.** When the pending writes at a cycle are a
+function `F` of the live values at that cycle (a `rfl` per declaration),
+the state loop starts at the reset values and advances by `F`. -/
+theorem stateLoop_stream {dom : DomainConfig} {αs : List Type} {ρ : Type}
+    [Inhabited (HList αs)] (inits : HList αs)
+    (body : RegList dom (HList αs) (Circuit.SigList dom αs) αs →
+      Circuit dom (Circuit.SigList dom αs) ρ)
+    (F : Nat → HList αs → HList αs)
+    (H : ∀ (S : Signal dom (HList αs)) (t : Nat),
+      valsAt αs (body (mkRegList S αs (fun s => s) (fun f => f)) (mkHolds αs S)).snd t =
+        F t (S.val t)) :
+    (stateLoop inits body).val 0 = inits ∧
+    ∀ t, (stateLoop inits body).val (t + 1) = F t ((stateLoop inits body).val t) := by
+  have hW : ∀ (l l' : Signal dom (HList αs)) (t : Nat), l.val t = l'.val t →
+      valsAt αs (body (mkRegList l αs (fun s => s) (fun f => f)) (mkHolds αs l)).snd t =
+        valsAt αs (body (mkRegList l' αs (fun s => s) (fun f => f)) (mkHolds αs l')).snd t := by
+    intro l l' t h
+    rw [H l t, H l' t, h]
+  obtain ⟨h0, hs⟩ := circuit_state inits body hW
+  exact ⟨h0, fun t => by rw [hs t, H]⟩
+
 end Tools.ShippingMachineSource
