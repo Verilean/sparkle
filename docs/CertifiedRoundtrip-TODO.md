@@ -1163,6 +1163,11 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   inputs); that the real instance does so is the child's own theorem plus
   the linked semantics (S6 `linked_open`, `evalAssignsH`) — not yet
   composed for machine modules.
+- [x] **`BitVec.not` through `map` (2026-10-03).** `machNormMap` rewrites
+  `s.map (BitVec.not ·)` / `s.map (~~~·)` to `allOnes ^^^ s`; the ICMP
+  checksum used it. The three ICMP byte generators and the ICMP IVerilog top
+  join the machine route: 197 of 389 real declarations certified, 134 on the
+  machine route (all with the endpoint), 114 shipping. Test `nMapNot`.
 - [ ] **NEXT: the remaining calls.** Sequential children (`toggle`,
   `wKeccakF`, `wBlock`, `wRx`, `wSha256`: ≈15 declarations) need clk/rst
   plumbing in `closeInsts` and the child's `MachineTrace` as the oracle

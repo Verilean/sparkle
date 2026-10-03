@@ -13,7 +13,7 @@ to it (machine route only):
 * `Signal.lit`;
 * an operator with one operand a plain `BitVec` (`sig + c`, `c ^^^ sig`);
 * a `BitVec` operator lifted through `<$>`/`<*>` or a `map` with a constant;
-* `~~~` on a `BitVec` Signal;
+* `~~~` on a `BitVec` Signal, and `BitVec.not` through `map`;
 * a slice whose start is computed in Lean; a concatenation with a computed
   constant operand.
 
@@ -90,6 +90,14 @@ def nNot (d : Signal dom (BitVec 4)) : Signal dom (BitVec 4) :=
     c <~ (~~~(cS ^^^ d) : Signal dom (BitVec 4))
     return cS
 
+/-- `BitVec.not` through `map` (the ICMP checksum). -/
+def nMapNot (d : Signal dom (BitVec 16)) : Signal dom (BitVec 16) :=
+  circuit do
+    let c ← Signal.reg (0#16)
+    let cS := (c : Signal dom (BitVec 16))
+    c <~ (cS + d).map (BitVec.not ·)
+    return cS
+
 /-- A slice whose start is computed, a concatenation with a computed
 constant. -/
 def nSlice (d : Signal dom (BitVec 24)) : Signal dom (BitVec 16) :=
@@ -108,7 +116,7 @@ end
 run_cmd liftTermElabM do
   let env ← getEnv
   let senv := structEnv env
-  for n in [``nConst, ``nLit, ``nMixed, ``nLift, ``nNot, ``nSlice] do
+  for n in [``nConst, ``nLit, ``nMixed, ``nLift, ``nNot, ``nMapNot, ``nSlice] do
     let ci ← getConstInfo n
     let entry := entryConst true false [] ci (instancePredicate env) (userInliner env) senv
     unless (machineShape? false [] entry senv).isSome do
@@ -124,16 +132,18 @@ run_cmd liftTermElabM do
 #machine_endpoint nMixed
 #machine_endpoint nLift
 #machine_endpoint nNot
+#machine_endpoint nMapNot
 #machine_endpoint nSlice
 
 run_cmd do
   if (← get).messages.hasErrors then throwError "machine normal-form regression failed"
   for name in [``nConst.machine_sound, ``nLit.machine_sound, ``nMixed.machine_sound,
-      ``nLift.machine_sound, ``nNot.machine_sound, ``nSlice.machine_sound] do
+      ``nLift.machine_sound, ``nNot.machine_sound, ``nMapNot.machine_sound,
+      ``nSlice.machine_sound] do
     let axioms ← Lean.collectAxioms name
     for ax in axioms do
       unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do
         throwError "{name} uses a non-standard axiom: {ax}"
-  logInfo m!"MACHINE NORMAL FORMS: six declarations the gates refuse as written, each with its kernel-checked endpoint"
+  logInfo m!"MACHINE NORMAL FORMS: seven declarations the gates refuse as written, each with its kernel-checked endpoint"
 
 end Sparkle.Tests.Compiler.ShippingMachineNormTest

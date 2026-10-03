@@ -4132,6 +4132,22 @@ def machNormMap (senv : StructEnv) (dom tyA tyB f a : Lean.Expr) (mk : Lean.Expr
          mk (.lam nm t (mkApp4 (.const ``BitVec.extractLsb' ls) wsE (inlNatLit start) lenE
            (.bvar 0)) bi)
        | none => e)
+  -- `map (fun x => ~~~x)` / `map BitVec.not` is `allOnes ^^^ a`
+  | .lam _ _ (.app (.app (.const ``BitVec.not _) _) (.bvar 0)) _ =>
+    (match machBits? tyA, machBits? tyB with
+     | some w, some w' =>
+       if w != w' then e else
+       machSigBin ``HXor.hXor ``Sparkle.Core.Signal.instHXorSignalBitVec dom w
+         (machPureE dom w (machBVLit w (2 ^ w - 1))) a
+     | _, _ => e)
+  | .lam _ _ (.app (.app (.app (.const ``Complement.complement _) _)
+      (.app (.const ``BitVec.instComplement _) _)) (.bvar 0)) _ =>
+    (match machBits? tyA, machBits? tyB with
+     | some w, some w' =>
+       if w != w' then e else
+       machSigBin ``HXor.hXor ``Sparkle.Core.Signal.instHXorSignalBitVec dom w
+         (machPureE dom w (machBVLit w (2 ^ w - 1))) a
+     | _, _ => e)
   | .lam _ _ body _ =>
     (match machBits? tyA, machBits? tyB with
      | some w, some w' =>
