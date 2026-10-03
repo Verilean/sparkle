@@ -499,6 +499,14 @@ results via `machTupleKinds?`/`machBundleParts?` (one `out`, packed). Proof:
 generator `loopProof`. 210/389 certified, 147 machine route. Next targets
 by measurement: loops with `Signal.memory` (10), sequential children (≈15).
 
+**Slotless machines (landed 2026-10-04).** Combinational bodies with `let`s
+take the machine route (no slot ⇒ no `clk`/`rst`); `machLiftScalar` (any
+BitVec map lambda → Signal ops), `Nat`-let substitution in `machNorm`;
+`machine_trace_of_comb`, `combProof`. 244/389 certified, 181 machine route.
+The children of the instance unit now have their own theorems: the linked
+composition (child theorem + `linked_open`) is the next proof to close the
+instance trust gap.
+
 THE MEASUREMENT CYCLE after any change to `Elab.lean` (about 50 minutes,
 never next to a `lake build`): `PASSES=1 scripts/shipping-coverage/run.sh
 NEW`; `compare_outputs.py OLD/out NEW/out` (every `DIFFERENT` file must be

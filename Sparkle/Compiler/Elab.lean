@@ -3610,6 +3610,19 @@ def machProdKinds : Lean.Expr → Option (List MixedGateBinder)
     some (k :: ks)
   | e => (machSlotKind? e).map ([·])
 
+/-- The domain of a declaration's result type `∀ binders, Signal dom τ` (or a
+    structure of Signals in `dom`), in placeholder form: a domain binder is
+    `machIn` of its position from the end. -/
+def machTypeDom? : Lean.Expr → Option Lean.Expr
+  | .forallE _ _ b _ => machTypeDom? b
+  | e =>
+    match e.getAppFn, e.getAppArgs.toList with
+    | .const ``Sparkle.Core.Signal.Signal _, [dom, _] =>
+      match dom with
+      | .bvar j => some (machIn j)
+      | d => if d.hasLooseBVars then none else some d
+    | _, _ => none
+
 /-- A result of type `Signal dom (A × B × …)`: the components' kinds. The
     module has ONE output port `out` holding them packed, the first in the
     high bits, a Bool as one bit (the legacy lowering's interface). -/
@@ -4244,11 +4257,72 @@ def machNormAp (e : Lean.Expr) : Lean.Expr :=
     | _, _ => e
   | _ => e
 
+/-- A `BitVec` expression over the bound variable of a `map` lambda
+    (`.bvar 0`, standing for the Signal `a` of width `wa`), with literal or
+    computed constants: the same expression on Signals — the Signal
+    operators, a concatenation, a slice as a `map` of `extractLsb'`, `not` as
+    `allOnes ^^^ ·`, constants as `Signal.pure` of their literal. Returns the
+    width and the Signal expression. -/
+partial def machLiftScalar (senv : StructEnv) (dom a : Lean.Expr) (wa : Nat) :
+    Lean.Expr → Option (Nat × Lean.Expr)
+  | .bvar 0 => some (wa, a)
+  | e@(.app (.app (.app (.app (.app (.app (.const m _) t1) t2) t3) inst) x) y) =>
+    -- a width written as a computation (`8 + 8`) is read by the kernel
+    let bitsW (t : Lean.Expr) : Option Nat := machBits? t <|> (match t with
+      | .app (.const ``BitVec _) wE => senv.natOf wE
+      | _ => none)
+    if m == ``HAppend.hAppend then do
+      let mw ← bitsW t1
+      let nw ← bitsW t2
+      unless inst.getAppFn.isConstOf ``BitVec.instHAppendHAddNat do none
+      let (mx, x') ← machLiftScalar senv dom a wa x
+      let (ny, y') ← machLiftScalar senv dom a wa y
+      if mx != mw || ny != nw then none else
+      some (mw + nw, machConcatE dom mw nw x' y')
+    else
+    match machSigInst m, bitsW t1 with
+    | some si, some w =>
+      if bitsW t2 == some w && bitsW t3 == some w && machScalarInst m w inst then do
+        let (wx, x') ← machLiftScalar senv dom a wa x
+        let (wy, y') ← machLiftScalar senv dom a wa y
+        if wx != w || wy != w then none else
+        some (w, machSigBin m si dom w x' y')
+      else machLiftConst senv dom e
+    | _, _ => machLiftConst senv dom e
+  | e@(.app (.app (.app (.app (.const ``BitVec.extractLsb' ls) nE) sE) lE) x) => do
+    let n ← canonicalNatLitValue? nE <|> senv.natOf nE
+    let st ← canonicalNatLitValue? sE <|> senv.natOf sE
+    let l ← canonicalNatLitValue? lE <|> senv.natOf lE
+    if !x.hasLooseBVars then machLiftConst senv dom e else
+    let (wx, x') ← machLiftScalar senv dom a wa x
+    if wx != n then none else
+    let f := Lean.Expr.lam `x (mkApp (.const ``BitVec []) (inlNatLit n))
+      (mkApp4 (.const ``BitVec.extractLsb' ls) (inlNatLit n) (inlNatLit st) (inlNatLit l) (.bvar 0))
+      .default
+    some (l, mkApp5 (.const ``Sparkle.Core.Signal.Signal.map [.zero, .zero]) dom
+      (mkApp (.const ``BitVec []) (inlNatLit n)) (mkApp (.const ``BitVec []) (inlNatLit l)) f x')
+  | e@(.app (.app (.const ``BitVec.not _) nE) x) => do
+    if !x.hasLooseBVars then machLiftConst senv dom e else
+    let n ← canonicalNatLitValue? nE
+    let (wx, x') ← machLiftScalar senv dom a wa x
+    if wx != n then none else
+    some (n, machSigBin ``HXor.hXor ``Sparkle.Core.Signal.instHXorSignalBitVec dom n
+      (machPureE dom n (machBVLit n (2 ^ n - 1))) x')
+  | e => machLiftConst senv dom e
+where
+  /-- A closed constant: its literal, as `Signal.pure`. -/
+  machLiftConst (senv : StructEnv) (dom e : Lean.Expr) : Option (Nat × Lean.Expr) :=
+    if e.hasLooseBVars then none else
+    match bitVecLitValue? e with
+    | some (w, _) => some (w, machPureE dom w e)
+    | none => none
+
 /-- A map over a `BitVec` Signal, `Signal.map f a` or `f <$> a`:
     * `fun x => x op c` / `fun x => c op x` with a constant `c`: the operator
       on `a` and `Signal.pure` of the literal;
     * a slice whose start is computed in Lean (`5 * 8`): the start as a
       literal.
+    * any other `BitVec` lambda: lifted to Signals (`machLiftScalar`).
     `mk` rebuilds the node around another function. -/
 def machNormMap (senv : StructEnv) (dom tyA tyB f a : Lean.Expr) (mk : Lean.Expr → Lean.Expr)
     (e : Lean.Expr) : Lean.Expr :=
@@ -4282,7 +4356,7 @@ def machNormMap (senv : StructEnv) (dom tyA tyB f a : Lean.Expr) (mk : Lean.Expr
   | .lam _ _ body _ =>
     (match machBits? tyA, machBits? tyB with
      | some w, some w' =>
-       if w != w' then e else
+       if w != w' then machNormLift senv dom tyA tyB a body e else
        (match machScalarBin? w body with
         | some (m, .bvar 0, c) =>
           if c.hasLooseBVars then e else
@@ -4294,9 +4368,20 @@ def machNormMap (senv : StructEnv) (dom tyA tyB f a : Lean.Expr) (mk : Lean.Expr
           (match machSigInst m, machLitOf senv w c with
            | some si, some l => machSigBin m si dom w (machPureE dom w l) a
            | _, _ => e)
-        | _ => e)
+        | _ => machNormLift senv dom tyA tyB a body e)
      | _, _ => e)
   | _ => e
+where
+  /-- Any other `BitVec` lambda: lifted to Signals (`machLiftScalar`). -/
+  machNormLift (senv : StructEnv) (dom tyA tyB a body e : Lean.Expr) : Lean.Expr :=
+    match machBits? tyA, machBits? tyB with
+    | some wa, some wb =>
+      match machLiftScalar senv dom a wa body with
+      -- the lambda's variable became `a`; every other leaf is a closed
+      -- constant (`machLiftConst`), so `r` lives in the node's context
+      | some (w, r) => if w == wb then r else e
+      | none => e
+    | _, _ => e
 
 /-- One node of `machNorm`. -/
 def machNormNode (senv : StructEnv) (e : Lean.Expr) : Lean.Expr :=
@@ -4331,10 +4416,14 @@ def machNormNode (senv : StructEnv) (e : Lean.Expr) : Lean.Expr :=
 
 /-- The body of a `circuit do` with every node in the form the gates accept
     (see the section comment).  Types of binders are left as written. -/
-def machNorm (senv : StructEnv) : Lean.Expr → Lean.Expr
+partial def machNorm (senv : StructEnv) : Lean.Expr → Lean.Expr
   | .app f a => machNormNode senv (.app (machNorm senv f) (machNorm senv a))
   | .lam n t b bi => .lam n t (machNorm senv b) bi
-  | .letE n t v b nd => .letE n t (machNorm senv v) (machNorm senv b) nd
+  -- a `Nat` `let` (a slice position computed in Lean): substituted, so the
+  -- position is a closed term the kernel reduces
+  | .letE n t v b nd =>
+    if t.isConstOf ``Nat then machNorm senv (b.instantiate1 v)
+    else .letE n t (machNorm senv v) (machNorm senv b) nd
   | e => e
 
 /-- One node of `machCanonAp`: `Signal.ap (Signal.map f a) b` with the
@@ -4446,7 +4535,9 @@ def machineShape? (symbolicMode : Bool) (parameters : List (String × Nat)) (ci 
         let (v, st) ← machConv senv env 0 root st
         pure (st, v)
     let n := st.kinds.size
-    if n = 0 then none else
+    -- no slot: a combinational body with `let`s (no clock); only through the
+    -- unfolded entry constant, never instead of a combinational gate
+    if n = 0 && (!st.insts.isEmpty || !st.loops.isEmpty || !st.runs.isEmpty) then none else
     if !allowInsts && !st.insts.isEmpty then none else
     -- a hand-written loop alone (what the endpoint covers)
     if !st.loops.isEmpty && (!st.runs.isEmpty || !st.insts.isEmpty || st.loops.size != 1) then
@@ -4454,7 +4545,7 @@ def machineShape? (symbolicMode : Bool) (parameters : List (String × Nat)) (ci 
     let kinds := st.kinds.toList
     let k := st.lets.size
     let kI := st.insts.size
-    let domE ← st.dom
+    let domE ← st.dom <|> machTypeDom? d.type
     let (dom', resetKind) ← machDom? (kI + n + k) domE
     let letFields ← st.lets.toList.mapM fun (_, kind, value) =>
       machField dom' kind (machClose kI n k 0 value)

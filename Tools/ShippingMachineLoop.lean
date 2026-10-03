@@ -115,4 +115,44 @@ theorem machine_trace_of_loop {declName : Name} (d : MachineData) {ι : Type}
   rw [hsrc i bools bits]
   exact hres i bools bits _ j
 
+set_option maxHeartbeats 2000000 in
+/-- **Source to RTL for a combinational declaration with `let`s, from data.**
+A machine without slots: the state is a constant tuple `inits` (the empty
+one), the next values leave it unchanged (`hnext`, a `rfl`), and the outputs
+are the output terms on the inputs of the cycle (`hres`, a `rfl` against the
+declaration itself). -/
+theorem machine_trace_of_comb {declName : Name} (d : MachineData) {ι : Type}
+    (dom : ι → DomainConfig) (inits : HList (tys d.ss))
+    (src : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat))
+    (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    (hinit : d.initOk inits = true)
+    (hnext : ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+      (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) (t : Nat),
+      inits = evalTerms
+        (fun j => (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools bits t inits).b (d.bpos j))
+        (fun j w => (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools bits t inits).v (d.vpos j) w)
+        d.nexts)
+    (hres : ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+      (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) (t : Nat),
+      (src i bools bits).map (fun g => g t) =
+        d.outs.map fun o => enc o.1 (eval
+          (fun k => (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools bits t inits).b (d.bpos k))
+          (fun k w => (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools bits t inits).v (d.vpos k) w)
+          o.2))
+    {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w
+      (m, design) w')
+    (entry : MachineDefines mctx mref cctx cref declName d.shape)
+    (closes : MachineCloses mctx mref cctx cref declName d.shape) :
+    MachineTrace declName d m dom src :=
+  machine_trace_of_stream d dom inits src ok hbody hinit (fun _ _ bits => bits)
+    (fun i bools bits => ⟨fun _ => inits, rfl, fun t => hnext i bools bits t, hres i bools bits⟩)
+    hr entry closes
+
 end Tools.ShippingMachineLoop

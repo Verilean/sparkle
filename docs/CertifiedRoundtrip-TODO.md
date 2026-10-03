@@ -1195,6 +1195,30 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   status identical. Still outside: loops with a `Signal.memory` in the body
   (10: H264 pipeline modules, YOLOv8 buffers), the YOLOv8 conv engine and
   conv-BN-SiLU, non-default clock domains (CDC examples).
+- [x] **Combinational declarations with `let`s: machines without slots
+  (2026-10-04).** The network IP's byte generators and checksums (the
+  children the instance unit's theorems take as hypotheses), the YOLOv8
+  primitives and the RV32 bus decoder are combinational, written with shared
+  `let`s, and passed no gate. The machine route now takes a body with no
+  slot (`machineShape?` no longer requires one; the domain then comes from
+  the result type, `machTypeDom?`), and `closeMachine` adds no `clk`/`rst`
+  for it — the interface of the combinational module. Two normal forms:
+  `machLiftScalar` lifts any `BitVec` lambda of a `map` (operators,
+  concatenation, slices, `not`, literal/computed constants; widths written
+  as `8 + 8` read by the kernel) to Signal operators, and `machNorm`
+  substitutes `Nat` `let`s (slice positions computed in Lean). Proof:
+  `machine_trace_of_comb` (Tools/ShippingMachineLoop.lean; the state is the
+  empty tuple, three `rfl`s per declaration); generator `combProof`. The
+  generator now refuses a declaration a combinational gate takes (the real
+  entry would not reach the machine route — `MachineDefines` would be
+  vacuous). Test `Tests/Compiler/ShippingMachineCombTest.lean`. MEASURED:
+  244 of 389 real declarations certified (210 before), 181 on the machine
+  route, all with the kernel-checked endpoint; newly: the PCIe/ARP/HTTP/
+  ICMP/IPv4/TCP header byte generators and checksums, RV32 bus decoder,
+  YOLOv8 ReLU/dequant/max-pool, and 20 test declarations. All 22 changed
+  modules (15 output files) are newly on the machine route and keep their
+  ports; one more file differs only in a DRC warning's wording; status
+  identical; 60-cycle simulation 153/153 OK.
 - [ ] **NEXT: the remaining calls.** Sequential children (`toggle`,
   `wKeccakF`, `wBlock`, `wRx`, `wSha256`: ≈15 declarations) need clk/rst
   plumbing in `closeInsts` and the child's `MachineTrace` as the oracle

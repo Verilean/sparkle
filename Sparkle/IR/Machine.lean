@@ -102,8 +102,11 @@ def closeMachine (lay : Layout) (t : Module) : Module :=
     let k := t.inputs.length - lay.slots.length
     let slotPorts := t.inputs.drop k
     { t with
+      -- a machine without slots (a combinational body with `let`s) has no
+      -- clock: its interface is the combinational module's
       inputs := t.inputs.take k ++
-        [{ name := "clk", ty := .bit }, { name := "rst", ty := .bit }]
+        (if lay.slots.isEmpty then []
+         else [{ name := "clk", ty := .bit }, { name := "rst", ty := .bit }])
       outputs := lay.outs.map fun o => { name := o.name, ty := o.ty }
       wires := t.wires ++ slotPorts.map fun p => { name := nextName p.name, ty := p.ty }
       body := t.body.dropLast ++ nextAssigns w slotPorts lay.slots ++

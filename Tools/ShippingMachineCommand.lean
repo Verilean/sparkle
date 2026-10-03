@@ -412,6 +412,11 @@ def readMachine (declName : Name) : MetaM Read := do
   unless ci.levelParams.isEmpty do throwError "{declName}: universe parameters"
   let senv := structEnv env
   let entry := entryConst true false [] ci (instancePredicate env) (userInliner env) senv
+  -- the real entry takes the machine route only when both combinational
+  -- gates miss (`synthesizeFromConst`; the `MachineDefines` boundary)
+  if (certifiedShape? false [] entry).isSome ||
+      (mixedCertifiedShape? false [] entry (instancePredicate env)).isSome then
+    throwError "{declName}: a combinational gate takes it, not the machine route"
   let some shape := machineShape? false [] entry senv
     | throwError "{declName}: not a machine shape"
   let some entryV := entry.value? | throwError "{declName}: no value"
@@ -439,7 +444,16 @@ def readMachine (declName : Name) : MetaM Read := do
           | _ => none
         match loopLet 0 entryBody with
         | some r => pure r
-        | none => throwError "{declName}: no runCircuitH and no Signal.loop"
+        | none =>
+          -- no state at all: the domain of the result type
+          let rec resDom : Lean.Expr → Nat → Option (Lean.Expr × Nat)
+            | .forallE _ _ b _, k => resDom b (k + 1)
+            | e, _ => match e.getAppFn, e.getAppArgs.toList with
+              | .const ``Sparkle.Core.Signal.Signal _, [d, _] => some (d, 0)
+              | _, _ => none
+          match resDom entry.type 0 with
+          | some r => pure r
+          | none => throwError "{declName}: no state and no Signal result type"
   -- a domain binder is a bound variable at the root; the placeholder the
   -- reader gives it is the binder's position from the end
   let srcDom' ← match srcDom with
@@ -1019,6 +1033,24 @@ def loopSigma (x : Lean.Expr) (n : Nat) : MetaM Lean.Expr := do
     hl ← mkAppM ``Prod.mk #[c, hl]
   return hl
 
+/-- The endpoint of a machine without slots (a combinational body with
+`let`s), through `machine_trace_of_comb`. -/
+def combProof (declName : Name) (r : Read) (data ι i D bools bits src inst : Lean.Expr) :
+    MetaM (Lean.Expr × Name × List (Name × Bool) × Option Lean.Expr) := do
+  let nat := mkConst ``Nat
+  let rho ← inferType inst
+  let mut p := mkAppN (mkConst ``Tools.ShippingMachineLoop.machine_trace_of_comb)
+    #[toExpr declName, data, ι, ← mkLambdaFVars #[i] D]
+  let initsName := declName ++ `machineInits
+  addDef initsName (← inferType p).bindingDomain! (mkConst ``Unit.unit)
+  p := mkApp p (mkConst initsName)
+  let srcName := declName ++ `machineSource
+  addDef srcName (← inferType p).bindingDomain!
+    (← mkLambdaFVars #[i, bools, bits] (listE (← mkArrow nat nat) (← resultObsOf declName r D src rho)))
+  p := mkApp p (mkConst srcName)
+  return (p, srcName, [(`machine_ok, false), (`machine_body, true), (`machine_inits, false),
+    (`machine_next, true), (`machine_result, true)], none)
+
 def loopProof (declName : Name) (r : Read) (data ι i D bools bits src inst : Lean.Expr) :
     MetaM (Lean.Expr × Name × List (Name × Bool) × Option Lean.Expr) := do
   let nat := mkConst ``Nat
@@ -1121,7 +1153,8 @@ def generateCore (declName : Name) (checkCloses : Bool) : MetaM Name := do
     let src := mkAppN (mkConst declName) args.toArray
     let inst := entryV.beta args.toArray
     let (p, srcName, checks, extra) ←
-      if !r.shape.loops.isEmpty then loopProof declName r data ι i D bools bits src inst
+      if r.shape.layout.slots.isEmpty then combProof declName r data ι i D bools bits src inst
+      else if !r.shape.loops.isEmpty then loopProof declName r data ι i D bools bits src inst
       else if r.nested then nestedProof declName r data ι i D bools bits src inst
       else singleProof declName r data ι i D bools bits src inst
     let mut p := p
