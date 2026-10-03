@@ -243,7 +243,7 @@ theorem mThree_machine {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.St
       (m, design) w')
     (entry : MachineDefines mctx mref cctx cref ``mThree mThreeShape) :
     MachinePreserves ``mThree mThreeShape mThreeIn mThreeSlots [] m := by
-  apply synthesizeCombinationalCore_machine_sound hr entry (machineCloses_of_noLets rfl) rfl rfl
+  apply synthesizeCombinationalCore_machine_sound hr entry (machineCloses_of_noLets rfl rfl) rfl rfl
   · intro name n hmem
     simp only [mThreeShape, mThreeIn, mThreeSlots, List.cons_append, List.nil_append,
       List.mem_cons, Prod.mk.injEq, List.not_mem_nil, or_false, reduceCtorEq, and_false,

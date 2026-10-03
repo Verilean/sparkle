@@ -491,6 +491,9 @@ lean_lib «Tools.ShippingMachineTrace» where
 lean_lib «Tools.ShippingMachineClose» where
   roots := #[`Tools.ShippingMachineClose]
 
+lean_lib «Tools.ShippingMachineInst» where
+  roots := #[`Tools.ShippingMachineInst]
+
 lean_lib «Tools.ShippingMachineEntry» where
   roots := #[`Tools.ShippingMachineEntry]
 

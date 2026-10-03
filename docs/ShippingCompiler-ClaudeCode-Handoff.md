@@ -467,12 +467,29 @@ jobs green. Left of the ~35: HFT-style chains (a sub-machine reading
 another's result: needs a telescoped `Inner`), runs under `fun`,
 `@[hardware_module]` instances inside the transition.
 
-**Next (planned, see the TODO's NEXT entry):** instances inside a
-`circuit do`, by the open view — instance outputs as oracle leaves of the
-machine, `linked_open` to tie the real module, the child's endpoint for the
-oracle. Combinational children first (14 declarations: ARP/ICMP/HTTP/IPv4
-byte generators, `tlpCplByte`), sequential children (≈15) through the same
-composition with the child's `MachineTrace`.
+**Calls inside a `circuit do` (landed 2026-10-03, combinational
+children).** Reader: `machInstance` binds the arguments as `let`s and
+returns the placeholder `machInstOut k` (an input of the transition, the
+binder group right after the declaration's); `MachRead.insts`,
+`MachineShape.insts`, `instSignature?` in `StructEnv`. Closing:
+`closeInstsM` (child compiled through `sparkleChildSynth`, the real entry
+set by an `initialize` after it is defined — the knot cannot be tied
+earlier in Elab.lean) and the pure `Sparkle.IR.Machine.closeInsts`
+(`instStmt`, `topoBody`, the reorder-invariance checks). Proofs:
+`Tools/ShippingMachineInst.lean`; Entry's `_returns` is a disjunction now.
+Endpoint: `MachineTraceWith`/`extendBits`/`extendBits_val` (Auto),
+`machine_trace_of_data_ext`, `machine_trace_of_nested_ext` (the old
+statements are the identity-extension corollaries); generator:
+`collectInsts`/`walkInsts`/`instExtension` (facts `f.machine_inst_k`), `nDecl`
+vs `nIn`, `machineExt`, the `hext` term built from `extendBits_val`.
+GOTCHAS: the `cast` in `extendBits` reduces by K-like `Eq.rec` reduction
+when the width is a literal; `hext` cannot be a `rfl` with a variable
+position — it is a generic lemma applied to per-call `rfl`s; the writes
+`rfl` with the extension at the CONSTANT state signal is what makes the
+recurrence a function of the state's value. Corpus: 193 of 389 certified,
+130/130/114 (unchanged: a module with instances has no shipping theorem yet); new: the ARP requester and responder byte generators (a parser sub-machine, a byte-mux child), the HTTP request/response byte generators, the IPv4 receive header check / source IP / transmit byte (checksum and header-byte children), the PCIe HFT pulse, and the ARP/HTTP IVerilog tops — 10 real declarations. Against the compiler before this unit 196 of 200 output files are byte-identical; the 4 that differ hold only modules newly on the machine route (ARP, HTTP, IPv4, PCIe-HFT tests); status identical; 60-cycle simulation 125/125 OK. Suite: 691 jobs green. Next: the
+TODO's NEXT entry (sequential children, calls inside sub-machines, Bool
+results, ICMP normal forms, the HFT telescope, the linked composition).
 
 THE MEASUREMENT CYCLE after any change to `Elab.lean` (about 50 minutes,
 never next to a `lake build`): `PASSES=1 scripts/shipping-coverage/run.sh
@@ -565,7 +582,7 @@ audits; do not present a smaller step as a finished unit.
 
 - `lean-toolchain`: `leanprover/lean4:v4.32.1`. Use the existing project
   environment.
-- Latest full verification: `lake build Tests.AllTests`, **689 jobs green** (2026-10-03, sub-machines flattened on the machine route).
+- Latest full verification: `lake build Tests.AllTests`, **691 jobs green** (2026-10-03, hardware-module calls inside a circuit do).
 - Typical iterative targets:
 
   ```sh

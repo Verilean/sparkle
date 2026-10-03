@@ -1126,29 +1126,52 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   (the HFT chain), a `runCircuitH` under a `fun`, and `@[hardware_module]`
   calls inside a transition (≈11 combinational, ≈15 sequential children —
   hierarchy).
-- [ ] **NEXT — `@[hardware_module]` calls inside a `circuit do` (the open
-  view).** Of the 41 declarations the nesting probe classified, 14 call a
-  COMBINATIONAL module inside the transition (`arpPacketByte`,
-  `icmpHeaderByte`, `httpGetByte`/`httpRespByte`, `ipv4HeaderByte`,
-  `ipv4HeaderChecksumSig`, `tlpCplByte`) and ≈15 a SEQUENTIAL one
-  (`toggle`, `wKeccakF`, `wBlock`, `wRx`, `wSha256`). Plan, one design for
-  both: the transition reads an instance's output as an extra LEAF of the
-  machine — `machineShape?` takes `isInst` and the hierarchy gate
-  (`hierGateRoot`, S6-3) accepts `child dom a b` with the arguments bound as
-  hardware `let`s; the certified harness already emits the `.inst` (S6-3).
-  Semantics by the OPEN view (S6-5 `linked_open`): the module minus its
-  `.inst`s is a plain machine whose instance-output wires are seeded like
-  inputs; the linked run equals the open run when the seed is the child's
-  output at every cycle; the child's own endpoint (combinational: the
-  mixed-route theorem; sequential: its `MachineTrace`) gives that output as
-  the SOURCE call `child args` — so `f.machine_sound` composes with the
-  children's theorems and `MachineTrace` keeps its shape. Pieces: a fourth
-  binder group (instance outputs, after the slots) in `typedVal`/`TVal`
-  and the data; `HierConePreserves` → the machine's one-cycle statement via
-  `evalAssigns_openBody`; the generated `machine_source` with the leaf
-  expressions `child …` in place of input binders. Sequential children then
-  need the child's trace at the parent's cycles (S6 `runH`) — the same
-  composition, one more layer.
+- [x] **`@[hardware_module]` calls inside a `circuit do` — combinational
+  children (2026-10-03).** The transition reads a call's output as an
+  INPUT of the machine (the open-module view: `Sparkle.IR.Semantics` treats
+  an instance as a no-op and its outputs as free inputs) and its arguments
+  as hardware `let`s (`machInstance`, `MachRead.insts`, `MachineShape.insts`;
+  `instSignature?` reads the child's binder kinds); after `closeMachine`,
+  `Sparkle.IR.Machine.closeInsts` ties each such input port to an instance
+  of the child — compiled by the real entry (`sparkleChildSynth`,
+  `closeInstsM`) — connected to the `let` wires, and puts the body in
+  dependency order (`topoBody`); it CHECKS what the reorder-invariance
+  theorem needs (`woCheck` on both bodies, `isPermOf`, the register and
+  memory statements in the same order and distinct) so that
+  `Tools/ShippingMachineInst.lean` (`stepModule_of_closeInsts`,
+  `runModule_of_closeInsts`) gives the flat semantics unchanged;
+  `synthesizeMachineCertified_returns` / `_sound` carry the extra case
+  (`closeInstsM_returns`, `MachinePreserves` transported). Endpoint: the
+  inputs at the calls' positions are the CALLS over the state loop
+  (`MachineTraceWith`, `extendBits`, `machine_trace_of_data_ext`,
+  `machine_trace_of_nested_ext`; `MachineTrace` is the identity extension);
+  per call the kernel checks that it is pointwise in the state
+  (`f.machine_inst_k`, the constant-signal `rfl`), from which `extendBits_val`
+  gives the theorems' `hext`. A repeated call is one instance. Restrictions
+  (the reader refuses, so the compiler and the endpoint agree): BitVec
+  results only, calls in the enclosing body (not inside a sub-machine's
+  body), combinational children (a child with `clk`/`rst` ports makes
+  `closeInsts` return `none` → legacy route). `f.machine_ships` is not
+  generated for these modules (the shipping gates are for assign + register
+  modules). Test: `Tests/Compiler/ShippingMachineInstTest.lean`.
+  MEASURED: 193 of 389 certified (130 machine route, 130 with the endpoint,
+  114 (unchanged: a module with instances has no shipping theorem yet) shipping); newly on the route: the ARP requester and responder byte generators (a parser sub-machine, a byte-mux child), the HTTP request/response byte generators, the IPv4 receive header check / source IP / transmit byte (checksum and header-byte children), the PCIe HFT pulse, and the ARP/HTTP IVerilog tops — 10 real declarations. Against the compiler before this unit 196 of 200 output files are byte-identical; the 4 that differ hold only modules newly on the machine route (ARP, HTTP, IPv4, PCIe-HFT tests); status identical; 60-cycle simulation 125/125 OK.
+  TRUST (see TrustBase §6): `f.machine_sound` for such a module says the
+  module shows the declaration WHEN the instance's output wire carries the
+  call's value at every cycle (the hypothesis is the seed constraint on
+  that wire: `SourceInputs` at the call's position with the extended
+  inputs); that the real instance does so is the child's own theorem plus
+  the linked semantics (S6 `linked_open`, `evalAssignsH`) — not yet
+  composed for machine modules.
+- [ ] **NEXT: the remaining calls.** Sequential children (`toggle`,
+  `wKeccakF`, `wBlock`, `wRx`, `wSha256`: ≈15 declarations) need clk/rst
+  plumbing in `closeInsts` and the child's `MachineTrace` as the oracle
+  (the parent's cycles are the child's); calls inside a sub-machine's body
+  (the extension then reads `Ss`); Bool-result children (a `bools`
+  extension); the ICMP byte generators (`BitVec.not` through `map`, a
+  constant-left concat: normal forms); the HFT chain (a sub-machine reading
+  another sub-machine's result: a telescoped `Inner`); the linked
+  composition above.
 - [ ] **S7 / trust:** Resolve or explicitly retain `EnvDefines` in the final
   claim; record execution-model/external-tool boundaries without hiding them.
   RECORDED — docs/ShippingCompiler-TrustBase.md states the retained base

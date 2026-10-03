@@ -462,6 +462,17 @@ def typedVal {D : DomainConfig} (kIn : Nat) (bpos vpos : Nat → Nat) (ss : List
   letVal bpos vpos ls (kIn + ss.length)
     (slotVal kIn ss x 0 ⟨fun p => (bools p).val t, fun p w => (bits p w).val t⟩)
 
+/-- The typed valuation reads the inputs' Signals at `t` only. -/
+theorem typedVal_congr {D : DomainConfig} (kIn : Nat) (bpos vpos : Nat → Nat) (ss : List SType)
+    (ls : List (Σ s : SType, Term s)) (bools : Nat → Signal D Bool)
+    (bits bits' : (j : Nat) → (n : Nat) → Signal D (BitVec n)) (t : Nat) (x : HList (tys ss))
+    (h : ∀ p w, (bits p w).val t = (bits' p w).val t) :
+    typedVal kIn bpos vpos ss ls bools bits t x = typedVal kIn bpos vpos ss ls bools bits' t x := by
+  unfold typedVal
+  have : (fun p w => (bits p w).val t) = fun p w => (bits' p w).val t := by
+    funext p w; exact h p w
+  rw [this]
+
 /-- What the terms of a machine must satisfy, as facts about data. -/
 structure TermFacts (kIn kb kv : Nat) (vw bpos vpos : Nat → Nat) (K : Nat → Option SType)
     (ss : List SType) (ls : List (Σ s : SType, Term s)) : Prop where

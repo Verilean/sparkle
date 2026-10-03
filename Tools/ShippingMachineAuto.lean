@@ -257,10 +257,13 @@ binder; one, for a declaration in a concrete domain). For input Signals
 `bools`/`bits` (by binder position) in any of them, a run of `m` for any
 number of cycles from the reset values with reset low drives output port
 `k`, at every cycle `j`, with the `k`-th source observation at time `j`. -/
-def MachineTrace (declName : Name) (d : MachineData) (m : Sparkle.IR.AST.Module)
+def MachineTraceWith (declName : Name) (d : MachineData) (m : Sparkle.IR.AST.Module)
     {ι : Type} (dom : ι → DomainConfig)
     (src : (i : ι) → (Nat → Signal (dom i) Bool) →
-      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat)) : Prop :=
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat))
+    (ext : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) →
+      (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) : Prop :=
   ∃ ids : List FVarId, ids.Nodup ∧ ids.length = d.shape.binders.length ∧
   ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
     regs.Nodup ∧ regs.length = d.ss.length ∧
@@ -268,7 +271,7 @@ def MachineTrace (declName : Name) (d : MachineData) (m : Sparkle.IR.AST.Module)
       (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
       (T : Nat) (seed : Nat → (String → Nat) → Env) (st0 : String → Nat) (mems : MEnv),
       (∀ t st, t < T → SourceInputs declName d.bsIn ids cache
-        (fun j => (bools j).val (T - 1 - t)) (fun j n => (bits j n).val (T - 1 - t))
+        (fun j => (bools j).val (T - 1 - t)) (fun j n => (ext i bools bits j n).val (T - 1 - t))
         (seed t st)) →
       (∀ t st r, r ∈ regs → seed t st r = st r) →
       (∀ t st, seed t st "rst" = 0) →
@@ -278,6 +281,42 @@ def MachineTrace (declName : Name) (d : MachineData) (m : Sparkle.IR.AST.Module)
         ∀ j (hj : j < envs.length) (k : Nat) (o : OutField) (f : Nat → Nat),
           d.shape.layout.outs[k]? = some o → (src i bools bits)[k]? = some f →
           (envs[j]'hj) o.name = f j
+
+/-! ### Extending the inputs at a `@[hardware_module]` call's output
+
+The transition of a `circuit do` that calls a hardware module reads the
+call's output as an INPUT (the open-module view); in the source the
+position carries the call itself. `extendBits` puts a Signal at one
+position; the generated endpoint nests one per call. -/
+
+/-- The inputs with `sig` at position `pos` (width `w`). -/
+def extendBits {D : DomainConfig} (bits : (j : Nat) → (n : Nat) → Signal D (BitVec n))
+    (pos w : Nat) (sig : Signal D (BitVec w)) : (j : Nat) → (n : Nat) → Signal D (BitVec n) :=
+  fun j n => if h : j = pos ∧ n = w then cast (by rw [h.2]) sig else bits j n
+
+/-- Extensions that agree at a cycle agree at every position. -/
+theorem extendBits_val {D : DomainConfig} {bits bits' : (j : Nat) → (n : Nat) → Signal D (BitVec n)}
+    {pos w : Nat} {sig sig' : Signal D (BitVec w)} {t : Nat}
+    (hb : ∀ j n, (bits j n).val t = (bits' j n).val t) (hsig : sig.val t = sig'.val t) :
+    ∀ j n, (extendBits bits pos w sig j n).val t = (extendBits bits' pos w sig' j n).val t := by
+  intro j n
+  unfold extendBits
+  by_cases h : j = pos ∧ n = w
+  · rw [dif_pos h, dif_pos h]
+    obtain ⟨_, hn⟩ := h
+    subst hn
+    exact hsig
+  · rw [dif_neg h, dif_neg h]
+    exact hb j n
+
+/-- `MachineTraceWith` with the inputs as they are. A declaration with
+`@[hardware_module]` calls uses an extension: the inputs at the calls'
+output positions are the calls' own Signals (`machine_trace_of_data_ext`). -/
+def MachineTrace (declName : Name) (d : MachineData) (m : Sparkle.IR.AST.Module)
+    {ι : Type} (dom : ι → DomainConfig)
+    (src : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat)) : Prop :=
+  MachineTraceWith declName d m dom src (fun _ _ bits => bits)
 
 set_option maxHeartbeats 2000000 in
 /-- **Source to RTL for a state machine, from data and a state stream.** The
@@ -298,18 +337,23 @@ theorem machine_trace_of_stream {declName : Name} (d : MachineData) {ι : Type}
       (fun j => inputExpr d.shape.binders.length (d.bpos j))
       (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
     (hinit : d.initOk inits = true)
+    (ext : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) →
+      (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
     (stream : ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
       (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)),
       ∃ σ : Nat → HList (tys d.ss), σ 0 = inits ∧
         (∀ t, σ (t + 1) = evalTerms
-          (fun j => (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools bits t (σ t)).b (d.bpos j))
-          (fun j w => (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools bits t (σ t)).v (d.vpos j) w)
-          d.nexts) ∧
+          (fun j => (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools (ext i bools bits) t (σ t)).b
+            (d.bpos j))
+          (fun j w => (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools (ext i bools bits) t (σ t)).v
+            (d.vpos j) w) d.nexts) ∧
         ∀ j, (src i bools bits).map (fun f => f j) =
           d.outs.map fun o => enc o.1 (eval
-            (fun k => (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools bits j (σ j)).b (d.bpos k))
-            (fun k w => (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools bits j (σ j)).v (d.vpos k) w)
-            o.2))
+            (fun k => (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools (ext i bools bits) j (σ j)).b
+              (d.bpos k))
+            (fun k w => (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools (ext i bools bits) j (σ j)).v
+              (d.vpos k) w) o.2))
     {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
     {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
     {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
@@ -317,7 +361,7 @@ theorem machine_trace_of_stream {declName : Name} (d : MachineData) {ι : Type}
       (m, design) w')
     (entry : MachineDefines mctx mref cctx cref declName d.shape)
     (closes : MachineCloses mctx mref cctx cref declName d.shape) :
-    MachineTrace declName d m dom src := by
+    MachineTraceWith declName d m dom src ext := by
   simp only [MachineData.ok, Bool.and_eq_true, decide_eq_true_eq, Bool.not_eq_true'] at ok
   obtain ⟨hlen, hlets, positive, slotKinds, letKinds, layB, outsOk, outsNodup, hwf, hb, hv,
     hfit, houtfit, hscoped, hslots, fb, fv, fslots, flets, nextsWF, houts, hne⟩ := ok
@@ -395,7 +439,8 @@ theorem machine_trace_of_stream {declName : Name} (d : MachineData) {ι : Type}
         rw [layW.length_eq, hn]; omega
       rw [hnone]; rfl
   obtain ⟨σ, hσ0, hσs, hobsσ⟩ := stream ix bools bits
-  obtain ⟨envs, hrun, hlen', hobs⟩ := h σ bools bits (by intro i; rw [hσ0]; exact hinit' i)
+  obtain ⟨envs, hrun, hlen', hobs⟩ := h σ bools (ext ix bools bits)
+    (by intro i; rw [hσ0]; exact hinit' i)
     (by rw [hkIn]; exact hσs) T seed st0 mems inputs pass rst init
   refine ⟨envs, hrun, hlen', ?_⟩
   intro j hj k o f ho hfk
@@ -419,6 +464,100 @@ theorem machine_trace_of_stream {declName : Name} (d : MachineData) {ι : Type}
 
 
 set_option maxHeartbeats 2000000 in
+/-- **Source to RTL for a `circuit do`, from data, with the inputs at the
+`@[hardware_module]` calls' output positions given by the calls.** `ext`
+replaces, at those positions, the input Signals by the calls' Signals over
+the state signal `S` (the open-module view: the module reads the
+instance's output as an input; the source reads the call). The check `ok`
+and five equations — each `rfl` for a declaration — give the trace theorem
+of every module a run of the real synthesis entry returns at the machine
+boundary: the stream is the state loop of the `circuit do`, and the inputs
+at the calls' positions are the calls on that loop. -/
+theorem machine_trace_of_data_ext {declName : Name} (d : MachineData) {ι : Type}
+    (dom : ι → DomainConfig) [Inhabited (HList (tys d.ss))] {ρ : ι → Type}
+    (inits : HList (tys d.ss))
+    (body : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) →
+      RegList (dom i) (HList (tys d.ss)) (Circuit.SigList (dom i) (tys d.ss)) (tys d.ss) →
+      Circuit (dom i) (Circuit.SigList (dom i) (tys d.ss)) (ρ i))
+    (obsR : (i : ι) → ρ i → List (Nat → Nat))
+    (ext : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) →
+      Signal (dom i) (HList (tys d.ss)) → (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
+    (src : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat))
+    (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    (hinit : d.initOk inits = true)
+    (writes : ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+      (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
+      (S : Signal (dom i) (HList (tys d.ss))) (t : Nat),
+      valsAt (tys d.ss) (body i bools bits
+          (mkRegList S (tys d.ss) (fun s => s) (fun f => f)) (mkHolds (tys d.ss) S)).snd t =
+        evalTerms
+          (fun j => (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools (ext i bools bits S) t
+            (S.val t)).b (d.bpos j))
+          (fun j w => (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools (ext i bools bits S) t
+            (S.val t)).v (d.vpos j) w) d.nexts)
+    (hres : ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+      (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
+      (S : Signal (dom i) (HList (tys d.ss))) (t : Nat),
+      (obsR i (body i bools bits (mkRegList S (tys d.ss) (fun s => s) (fun f => f))
+          (mkHolds (tys d.ss) S)).fst).map (fun f => f t) =
+        d.outs.map fun o => enc o.1 (eval
+          (fun j => (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools (ext i bools bits S) t
+            (S.val t)).b (d.bpos j))
+          (fun j w => (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools (ext i bools bits S) t
+            (S.val t)).v (d.vpos j) w) o.2))
+    (hsrc : ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+      (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)),
+      src i bools bits = obsR i
+        (body i bools bits
+          (mkRegList (stateLoop inits (body i bools bits)) (tys d.ss) (fun s => s) (fun f => f))
+          (mkHolds (tys d.ss) (stateLoop inits (body i bools bits)))).fst)
+    (hext : ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+      (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
+      (S : Signal (dom i) (HList (tys d.ss))) (t p w : Nat),
+      (ext i bools bits S p w).val t = (ext i bools bits ⟨fun _ => S.val t⟩ p w).val t)
+    {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w
+      (m, design) w')
+    (entry : MachineDefines mctx mref cctx cref declName d.shape)
+    (closes : MachineCloses mctx mref cctx cref declName d.shape) :
+    MachineTraceWith declName d m dom src
+      (fun i bools bits => ext i bools bits (stateLoop inits (body i bools bits))) := by
+  refine machine_trace_of_stream d dom inits src ok hbody hinit _ ?_ hr entry closes
+  intro i bools bits
+  -- the recurrence, with the extension at the constant state signal: a
+  -- function of the state's value
+  have hloop := stateLoop_stream inits (body i bools bits)
+    (fun t x => evalTerms
+      (fun j => (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools
+        (ext i bools bits ⟨fun _ => x⟩) t x).b (d.bpos j))
+      (fun j w => (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools
+        (ext i bools bits ⟨fun _ => x⟩) t x).v (d.vpos j) w)
+      d.nexts) (by
+      intro S t
+      rw [writes i bools bits S t,
+        typedVal_congr d.nIn d.bpos d.vpos d.ss d.ls bools (ext i bools bits S)
+          (ext i bools bits ⟨fun _ => S.val t⟩) t (S.val t) (fun p w => hext i bools bits S t p w)])
+  refine ⟨fun t => (stateLoop inits (body i bools bits)).val t, hloop.1, ?_, ?_⟩
+  · intro t
+    show (stateLoop inits (body i bools bits)).val (t + 1) = _
+    rw [hloop.2 t]
+    rw [typedVal_congr d.nIn d.bpos d.vpos d.ss d.ls bools
+      (ext i bools bits (stateLoop inits (body i bools bits)))
+      (ext i bools bits ⟨fun _ => (stateLoop inits (body i bools bits)).val t⟩) t _
+      (fun p w => hext i bools bits (stateLoop inits (body i bools bits)) t p w)]
+  · intro j
+    rw [hsrc i bools bits]
+    exact hres i bools bits (stateLoop inits (body i bools bits)) j
+
+
 /-- **Source to RTL for a `circuit do`, from data.** The check `ok` and
 five equations — each `rfl` for a declaration — give the trace theorem of
 every module a run of the real synthesis entry returns at the machine
@@ -472,16 +611,7 @@ theorem machine_trace_of_data {declName : Name} (d : MachineData) {ι : Type}
     (entry : MachineDefines mctx mref cctx cref declName d.shape)
     (closes : MachineCloses mctx mref cctx cref declName d.shape) :
     MachineTrace declName d m dom src := by
-  refine machine_trace_of_stream d dom inits src ok hbody hinit ?_ hr entry closes
-  intro i bools bits
-  have hloop := stateLoop_stream inits (body i bools bits)
-    (fun t x => evalTerms
-      (fun j => (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools bits t x).b (d.bpos j))
-      (fun j w => (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools bits t x).v (d.vpos j) w)
-      d.nexts) (writes i bools bits)
-  refine ⟨fun t => (stateLoop inits (body i bools bits)).val t, hloop.1, hloop.2, ?_⟩
-  intro j
-  rw [hsrc i bools bits]
-  exact hres i bools bits (stateLoop inits (body i bools bits)) j
+  exact machine_trace_of_data_ext d dom inits body obsR (fun _ _ bits _ => bits) src ok hbody
+    hinit writes hres hsrc (fun _ _ _ _ _ _ _ => rfl) hr entry closes
 
 end Tools.ShippingMachineAuto

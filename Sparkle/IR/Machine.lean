@@ -1,6 +1,7 @@
 import Sparkle.IR.AST
 import Sparkle.IR.Type
 import Sparkle.IR.OptCheck
+import Sparkle.IR.ReorderInvariance
 
 /-! # Closing a transition module into a state machine
 
@@ -190,5 +191,138 @@ def closeLets (nLets : Nat) (t : Module) : Option Module :=
           Sparkle.IR.OptCheck.assignmentOrderCheck body' then
         some { t with inputs := t.inputs.take k, body := body' }
       else none
+
+/-! ## `@[hardware_module]` calls
+
+A call of a hardware module inside the body is, in the transition module,
+an INPUT port (its uses read the port: the open-module view, in which an
+instance's outputs are free inputs) whose arguments are hardware `let`s.
+`closeInsts` ties the port to an instance of the child: the port (declared
+as a wire already, like every port) stops being an input and is driven by
+the child's output, the child's input ports are connected to the `let`
+wires, and the child's modules join the design. The flat semantics
+(`evalAssigns`, `runModule`) of the module is unchanged: an instance is a
+no-op there, the wire keeps the value it is seeded with, and the body is
+re-ordered only as the reorder-invariance theorem allows (checked:
+`woCheck`, `isPermOf`). -/
+
+/-- The names a combinational statement reads: for an instance, its
+connected wires that an assign drives (its arguments are `let` wires); the
+others are its outputs. -/
+def combReads (assigned : List String) : Stmt → List String
+  | .inst _ _ conns => conns.flatMap fun (_, e) =>
+      (Sparkle.IR.Reorder.refsOf e).filter fun w => assigned.contains w
+  | st => Sparkle.IR.Reorder.stmtReads st
+
+/-- The names a combinational statement writes: for an instance, every
+connected wire that no assign drives is one of its outputs; `combWrites`
+takes the module's assigned names to tell them apart. -/
+def combWrites (assigned : List String) : Stmt → List String
+  | .inst _ _ conns => conns.filterMap fun (_, e) => match e with
+      | .ref w => if assigned.contains w then none else some w
+      | _ => none
+  | st => Sparkle.IR.Reorder.stmtWrites st
+
+/-- One round of Kahn's algorithm: the first statement (in order) whose reads
+are all settled. -/
+def pickReady (byAssign driven : List String) (settled : List String) :
+    List Stmt → Option (Stmt × List Stmt)
+  | [] => none
+  | st :: rest =>
+    if (combReads byAssign st).all (fun n => settled.contains n || !driven.contains n) then
+      some (st, rest)
+    else
+      match pickReady byAssign driven settled rest with
+      | some (st', rest') => some (st', st :: rest')
+      | none => none
+
+/-- A topological order of the combinational statements (assigns and
+instances), stable for independent statements; `none` on a cycle. The
+other statements keep their place after them. -/
+def topoBody (body : List Stmt) : Option (List Stmt) :=
+  let comb := body.filter fun st => match st with
+    | .assign .. | .inst .. => true
+    | _ => false
+  let others := body.filter fun st => match st with
+    | .assign .. | .inst .. => false
+    | _ => true
+  let byAssign := comb.flatMap Sparkle.IR.Reorder.stmtWrites
+  let driven := byAssign ++ comb.flatMap (combWrites byAssign)
+  let rec go (fuel : Nat) (settled : List String) (pending acc : List Stmt) : Option (List Stmt) :=
+    match fuel with
+    | 0 => none
+    | fuel + 1 =>
+      match pending with
+      | [] => some acc.reverse
+      | _ =>
+        match pickReady byAssign driven settled pending with
+        | some (st, rest) => go fuel (combWrites byAssign st ++ settled) rest (st :: acc)
+        | none => none
+  (go (comb.length + 1) [] comb []).map (· ++ others)
+
+/-- One call: the instance statement of the child's module, the port names
+of the transition module (before the `let`s and slots were closed), the
+positions of the output port (`nIn + k`) and of the argument `let`s
+(`nIn + kI + n + j`). `none` when the child is not a combinational module
+with one output and as many inputs as arguments, the output port is not a
+declared wire of `m`, or the instance name is taken. -/
+def instStmt (nIn kI n : Nat) (portNames : List String) (k : Nat) (args : List Nat)
+    (mc : Module) (m : Module) : Option Stmt := do
+  let outW ← portNames[nIn + k]?
+  let argWs ← args.mapM fun j => portNames[nIn + kI + n + j]?
+  let inPorts := mc.inputs.filter fun p => p.name != "clk" && p.name != "rst"
+  if inPorts.length != argWs.length then none else
+  if mc.inputs.any (fun p => p.name == "clk" || p.name == "rst") then none else
+  let [outP] := mc.outputs | none
+  if !m.wires.any (·.name == outW) then none else
+  let instName := s!"inst{k}_{mc.name}"
+  let names := m.inputs.map (·.name) ++ m.outputs.map (·.name) ++ m.wires.map (·.name)
+  if names.contains instName then none else
+  some (.inst mc.name instName
+    ((inPorts.zip argWs).map (fun (p, w) => (p.name, Expr.ref w)) ++ [(outP.name, Expr.ref outW)]))
+
+/-- An instance statement. -/
+def isInst : Stmt → Bool
+  | .inst .. => true
+  | _ => false
+
+/-- The register and memory statements, in order (what the register phase
+reads). -/
+def seqOf (body : List Stmt) : List Stmt :=
+  body.filter fun st => match st with
+    | .register .. | .memory .. => true
+    | _ => false
+
+/-- The children's modules joined to the design, by name. -/
+def designWith (children : List (Module × Design)) (d : Design) : Design :=
+  { d with modules := children.foldl (fun acc (mc, dc) =>
+      (dc.modules ++ [mc]).foldl (fun acc c =>
+        if acc.any (·.name == c.name) then acc else acc ++ [c]) acc) d.modules }
+
+/-- Tie every call to an instance: the output ports stop being inputs, the
+instance statements are appended, and the combinational statements are put
+in dependency order. The result is kept only if the checks the
+reorder-invariance theorem needs hold: both bodies well-ordered, the new one
+a permutation of the old, the register and memory statements in the same
+order, the register and memory names distinct. -/
+def closeInsts (nIn kI n : Nat) (portNames : List String) (insts : List (List Nat))
+    (children : List (Module × Design)) (md : Module × Design) : Option (Module × Design) := do
+  let (m, d) := md
+  let stmts ← (List.range insts.length).mapM fun k => do
+    let args ← insts[k]?
+    let child ← children[k]?
+    instStmt nIn kI n portNames k args child.1 m
+  let outWs ← (List.range insts.length).mapM fun k => portNames[nIn + k]?
+  let m' : Module := { m with
+    inputs := m.inputs.filter fun p => !outWs.contains p.name
+    body := m.body ++ stmts }
+  let body ← topoBody m'.body
+  if stmts.all isInst && Sparkle.IR.Reorder.woCheck [] m'.body &&
+      Sparkle.IR.Reorder.woCheck [] body && Sparkle.IR.Reorder.isPermOf m'.body body &&
+      decide (seqOf m'.body = seqOf body) &&
+      decide (Sparkle.IR.Reorder.nextKeys m'.body).Nodup &&
+      decide (m'.body.filterMap Sparkle.IR.Reorder.stmtMemName).Nodup then
+    some ({ m' with body := body }, designWith children d)
+  else none
 
 end Sparkle.IR.Machine

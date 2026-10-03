@@ -122,6 +122,19 @@ def innerValsAt {αs : List Type} : (l : List (Inner dom αs)) →
   | [], _, _ => ()
   | i :: l, ws, t => (valsAt i.βs ws.1 t, innerValsAt l ws.2 t)
 
+/-- The constant state signals holding one cycle's values. -/
+def constOf {αs : List Type} : (l : List (Inner dom αs)) → HList (σs l) → Sigs l
+  | [], _ => ()
+  | _ :: l, xs => (⟨fun _ => xs.1⟩, constOf l xs.2)
+
+theorem valsOf_constOf {αs : List Type} : ∀ (l : List (Inner dom αs)) (xs : HList (σs l)) (t : Nat),
+    valsOf l (constOf l xs) t = xs
+  | [], _, _ => rfl
+  | _ :: l, xs, t => by
+    show (xs.1, valsOf l (constOf l xs.2) t) = xs
+    rw [valsOf_constOf l xs.2 t]
+    rfl
+
 /-- The reset values of the sub-machines. -/
 def initsOf {αs : List Type} : (l : List (Inner dom αs)) → HList (σs l)
   | [] => ()

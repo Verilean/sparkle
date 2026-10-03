@@ -224,7 +224,23 @@ each sub-machine's body over the enclosing handles (both read off the
 declaration and checked by the kernel: the declaration IS that body on
 the loops, `f.machine_source`); the generic fact that the loops together
 are the flattened machine's state stream is proved (`fused_state`,
-ShippingMachineFuse), not assumed. Declarations are added with
+ShippingMachineFuse), not assumed. A declaration whose body CALLS a
+combinational `@[hardware_module]` is a machine whose transition reads the
+call's output as an input and whose emitted module ties that input to an
+INSTANCE of the child (`closeInsts`); its `f.machine_sound` is stated with
+the inputs at the calls' positions being the calls themselves over the
+state loop (`MachineTraceWith`), and the kernel checks per call that the
+call is pointwise in the state (`f.machine_inst_k`). What this theorem
+takes as a hypothesis — the seed constraint at the call's position — is
+that the instance's output wire carries the call's value at every cycle;
+the flat semantics the theorem is stated in treats an instance as a no-op
+(the open-module view of `Sparkle.IR.Semantics`). Discharging that
+hypothesis for the real module is the child's own theorem (its module
+computes its source function) composed through the linked semantics
+(`evalAssignsH`, S6 `linked_open`); that composition exists for the
+mixed route's instances and is NOT yet done for machine modules — until
+it is, a machine with instances is certified relative to its children.
+Declarations are added with
 synchronous kernel checking and the theorem's axioms are audited, so a
 failed check cannot leave a constant behind. The command also runs the
 machine synthesis once and requires that it ties the `let`s — evidence

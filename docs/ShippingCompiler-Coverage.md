@@ -627,6 +627,14 @@ of the 41 need instances inside a transition (≈11, combinational
 `@[hardware_module]` calls), sequential children (≈15, hierarchy), or a
 telescoped sub-machine list (the HFT chain, 4).
 
+**Calls inside a `circuit do` (2026-10-03).** A combinational
+`@[hardware_module]` called in the body is an instance of the emitted
+module and an input of the proved machine (open-module view; see the TODO
+entry); newly on the route: the ARP requester and responder byte generators (a parser sub-machine, a byte-mux child), the HTTP request/response byte generators, the IPv4 receive header check / source IP / transmit byte (checksum and header-byte children), the PCIe HFT pulse, and the ARP/HTTP IVerilog tops — 10 real declarations. Corpus: 193 of 389 certified, 130 on the
+machine route, 130 with the endpoint, 114 (unchanged: a module with instances has no shipping theorem yet) shipping (a module with
+instances has no `f.machine_ships`: the shipping gates are for assign +
+register modules). Against the compiler before this unit 196 of 200 output files are byte-identical; the 4 that differ hold only modules newly on the machine route (ARP, HTTP, IPv4, PCIe-HFT tests); status identical; 60-cycle simulation 125/125 OK.
+
 What blocked the rest BEFORE the normal forms, by the refused expression (classifier
 `mach3_tail`): constants computed in Lean (`BitVec.ofInt` of an `Int`
 expression, `2 ^ k`, sums and differences: about 25 declarations), a

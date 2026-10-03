@@ -1,5 +1,6 @@
 import Tools.ShippingMachineClose
 import Tools.ShippingMachineTrace
+import Tools.ShippingMachineInst
 import Tools.ShippingUnifiedExecutionSoundness
 
 /-! # A state machine through the real synthesis
@@ -662,23 +663,56 @@ def MachinePreserves (declName : Name) (shape : MachineShape)
         ∀ o ∈ shape.layout.outs, envF o.name =
           mask o.width (packedAt core bpos vpos bools bits >>> o.lo)
 
+/-- The run of `closeInstsM` is a `closeInsts` of the closed module, for SOME
+children (whatever the child entry returned). -/
+theorem closeInstsM_returns {shape t m₀ d₀ m d}
+    (hr : MReturns (closeInstsM shape t m₀ d₀) (some (m, d))) :
+    ∃ children, closeInsts (shape.binders.length - shape.insts.length -
+        shape.layout.slots.length - shape.layout.lets) shape.insts.length
+        shape.layout.slots.length (t.inputs.map (·.name)) (shape.insts.map (·.2.1)) children
+        (m₀, d₀) = some (m, d) := by
+  unfold closeInstsM at hr
+  obtain ⟨synth?, _, hr⟩ := MReturns.bind hr
+  cases synth? with
+  | none =>
+    have := MReturns.pure hr
+    cases this
+  | some synth =>
+    dsimp only at hr
+    obtain ⟨children, _, hr⟩ := MReturns.bind hr
+    have := MReturns.pure hr
+    exact ⟨children, this.symm⟩
+
+/-- A run of the machine synthesis: the harness, `closeLets`, `closeMachine`,
+and — for a shape with `@[hardware_module]` calls — `closeInsts` with some
+children. -/
 theorem synthesizeMachineCertified_returns {logProf declName shape m d}
     (hr : MReturns (synthesizeMachineCertified
       (fun e hint top named => translateExprToWire e hint top named) logProf declName shape)
       (some (m, d))) :
-    ∃ t t', MReturns (synthesizeMixedCertified
+    ∃ t t' d₀, MReturns (synthesizeMixedCertified
         (fun e hint top named => translateExprToWire e hint top named) logProf declName
-        shape.binders shape.body) (t, d) ∧
+        shape.binders shape.body) (t, d₀) ∧
       closeLets shape.layout.lets t = some t' ∧
-      m = closeMachine shape.layout t' := by
+      ((shape.insts = [] ∧ m = closeMachine shape.layout t' ∧ d = d₀) ∨
+       (shape.insts ≠ [] ∧ ∃ children, closeInsts (shape.binders.length - shape.insts.length -
+          shape.layout.slots.length - shape.layout.lets) shape.insts.length
+          shape.layout.slots.length (t.inputs.map (·.name)) (shape.insts.map (·.2.1)) children
+          (closeMachine shape.layout t', d₀) = some (m, d))) := by
   unfold synthesizeMachineCertified at hr
   obtain ⟨⟨t, d'⟩, run, hr⟩ := MReturns.bind hr
   dsimp only at hr
   split at hr
   · rename_i t' hcl
-    have eq := MReturns.pure hr
-    cases eq
-    exact ⟨t, t', run, hcl, rfl⟩
+    split at hr
+    · rename_i hi
+      have eq := MReturns.pure hr
+      simp only [Option.some.injEq, Prod.mk.injEq] at eq
+      obtain ⟨hm, hd⟩ := eq
+      exact ⟨t, t', d', run, hcl, Or.inl ⟨hi, hm, hd⟩⟩
+    · rename_i hi
+      obtain ⟨children, hc⟩ := closeInstsM_returns hr
+      exact ⟨t, t', d', run, hcl, Or.inr ⟨by rw [hi]; exact List.cons_ne_nil _ _, children, hc⟩⟩
   · have eq := MReturns.pure hr
     cases eq
 
@@ -723,7 +757,16 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
     (outsOk : ∀ o ∈ shape.layout.outs, 0 < o.width ∧ outNameOk o.name = true)
     (outsNodup : (shape.layout.outs.map (·.name)).Nodup) :
     MachinePreserves declName shape bsIn slotBs letBs m := by
-  obtain ⟨t, t', hrun, hcl, hmt⟩ := synthesizeMachineCertified_returns hr
+  obtain ⟨t, t', d₀, hrun, hcl, hmt⟩ := synthesizeMachineCertified_returns hr
+  -- the module is the closed transition, or `closeInsts` of it
+  have hmt : m = closeMachine shape.layout t' ∨
+      ∃ (nIn kI n : Nat) (portNames : List String) (insts : List (List Nat))
+        (children : List (Sparkle.IR.AST.Module × Design)),
+        closeInsts nIn kI n portNames insts children (closeMachine shape.layout t', d₀) =
+          some (m, d) := by
+    rcases hmt with ⟨_, h, _⟩ | ⟨_, children, h⟩
+    · exact Or.inl h
+    · exact Or.inr ⟨_, _, _, _, _, children, h⟩
   obtain ⟨ids, cache, returned, st, nd, len, run, hm, _, nameLegal⟩ :=
     synthesizeMixedCertified_returns hrun
   refine ⟨ids, nd, len, cache, ?_⟩
@@ -1089,9 +1132,18 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
   rw [hdrop, slotNexts_congr ps shape.layout.slots (Q := packedAt core bpos vpos bools bits)
     (fun f hf => by
       rw [field_mask (R' "out") (hfit f hf), hcore]), slotNexts_eq] at hstep
-  subst hmt
-  refine ⟨envF, hstep, fun o ho => ?_⟩
-  rw [hout o ho, field_mask (R' "out") (houtfit o ho), hcore]
+  rcases hmt with hmt | ⟨nIn, kI, n', portNames, insts, children, hci⟩
+  · subst hmt
+    refine ⟨envF, hstep, fun o ho => ?_⟩
+    rw [hout o ho, field_mask (R' "out") (houtfit o ho), hcore]
+  · have hw : weOf m = weOf (closeMachine shape.layout t') := by
+      obtain ⟨hwires, _⟩ := Tools.ShippingMachineInst.closeInsts_some hci
+      funext x
+      unfold weOf
+      rw [hwires]
+    rw [hw, Tools.ShippingMachineInst.stepModule_of_closeInsts hci]
+    refine ⟨envF, hstep, fun o ho => ?_⟩
+    rw [hout o ho, field_mask (R' "out") (houtfit o ho), hcore]
 
 /-! ## The trace -/
 
@@ -1265,13 +1317,13 @@ def MachineCloses (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State)
 
 theorem machineCloses_of_noLets {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
     {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {declName : Name}
-    {shape : MachineShape} (h : shape.layout.lets = 0) :
+    {shape : MachineShape} (h : shape.layout.lets = 0) (hi : shape.insts = []) :
     MachineCloses mctx mref cctx cref declName shape := by
   intro logProf w r w' hr
   unfold synthesizeMachineCertified at hr
   obtain ⟨⟨t, d⟩, w1, _, hr⟩ := RunsTo.bind hr
   dsimp only at hr
-  rw [h] at hr
+  rw [h, hi] at hr
   simp only [closeLets, ↓reduceIte] at hr
   have := RunsTo.pure_eq hr
   rw [this]

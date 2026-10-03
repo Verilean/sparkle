@@ -390,6 +390,9 @@ structure Read where
   ctor? : Option Name
   sel? : Option (Name × Nat × Nat)
   outNames : List String
+  /-- The declaration's own binders (the data's inputs are these plus one
+  per `@[hardware_module]` call). -/
+  nDecl : Nat
   /-- `let`s in front of the root (sub-machines bound before the `circuit do`). -/
   rootLets : Nat
   /-- The root is a `runCircuitH` (possibly under one projection): the enclosing machine. -/
@@ -410,7 +413,8 @@ def readMachine (declName : Name) : MetaM Read := do
     | throwError "{declName}: not a machine shape"
   let some entryV := entry.value? | throwError "{declName}: no value"
   let some (bsIn, entryBody) := mixedGatePeel entryV | throwError "{declName}: binders"
-  let nIn := bsIn.length
+  let nDecl := bsIn.length
+  let nIn := nDecl + shape.insts.length
   let nSlots := shape.layout.slots.length
   let nLets := shape.layout.lets
   let binders := shape.binders
@@ -459,7 +463,8 @@ def readMachine (declName : Name) : MetaM Read := do
   unless q.equal shape.body do
     throwError "{declName}: the terms read off the body do not quote back to it"
   return { shape, entry, nIn, dom, srcDom, bposL, vposL, vwL, ls, outs, nexts, ctor?, sel?,
-           outNames := outKinds.map (·.1), rootLets := rootLets.length, hasOuter := run?.isSome }
+           outNames := outKinds.map (·.1), nDecl, rootLets := rootLets.length,
+           hasOuter := run?.isSome }
 
 def dataE (r : Read) : MetaM Lean.Expr := do
   let body ← match reflExpr r.shape.body with
@@ -472,8 +477,18 @@ def dataE (r : Read) : MetaM Lean.Expr := do
   let natPairT := mkApp2 (mkConst ``Prod [.zero, .zero]) (mkConst ``Nat) (mkConst ``Nat)
   let runs := listE natPairT (r.shape.runs.map fun (a, b) =>
     mkApp4 (mkConst ``Prod.mk [.zero, .zero]) (mkConst ``Nat) (mkConst ``Nat) (natL a) (natL b))
-  let shape := mkApp4 (mkConst ``MachineShape.mk) (listE binderT (r.shape.binders.map binderE))
-    body layout runs
+  let instT := mkApp2 (mkConst ``Prod [.zero, .zero]) (mkConst ``Lean.Name)
+    (mkApp2 (mkConst ``Prod [.zero, .zero]) (mkApp (mkConst ``List [.zero]) (mkConst ``Nat))
+      (mkConst ``MixedGateBinder))
+  let insts := listE instT (r.shape.insts.map fun (c, js, k) =>
+    mkApp4 (mkConst ``Prod.mk [.zero, .zero]) (mkConst ``Lean.Name)
+      (mkApp2 (mkConst ``Prod [.zero, .zero]) (mkApp (mkConst ``List [.zero]) (mkConst ``Nat))
+        (mkConst ``MixedGateBinder))
+      (toExpr c)
+      (mkApp4 (mkConst ``Prod.mk [.zero, .zero]) (mkApp (mkConst ``List [.zero]) (mkConst ``Nat))
+        (mkConst ``MixedGateBinder) (natListE js) (binderKindE k)))
+  let shape := mkApp5 (mkConst ``MachineShape.mk) (listE binderT (r.shape.binders.map binderE))
+    body layout runs insts
   return mkAppN (mkConst ``MachineData.mk)
     #[shape, natL r.nIn, dom, natListE r.bposL, natListE r.vposL, natListE r.vwL,
       listE stypeT (r.nexts.map fun t => stypeE t.1), listE anyTermT (r.ls.map anyTermE),
@@ -543,6 +558,105 @@ def resultObs (declName : Name) (r : Read) (i D rho : Lean.Expr) : MetaM Lean.Ex
     let fs ← observations declName D res fieldNames (r.shape.layout.outs.map outKind)
     mkLambdaFVars #[i, res] (listE (← mkArrow nat nat) fs)
 
+/-! ### `@[hardware_module]` calls
+
+The transition reads a call's output as an input (position `nDecl + k`);
+the source reads the call. The endpoint's extension (`extendBits`, one per
+call) puts the call — over the state signal `S`, and the sub-machines'
+results over their state signals `Ss` — at that position; `machine_inst_k`
+checks (by `rfl`) that the call is pointwise in the states, which gives the
+theorems' `hext`. -/
+
+/-- Walk `e` in the reader's order, applying `onCall` to every full
+application of a `@[hardware_module]` with one Signal result. -/
+partial def walkInsts (senv : StructEnv) (onCall : Lean.Expr → MetaM Lean.Expr) :
+    Lean.Expr → MetaM Lean.Expr
+  | e@(.app ..) => do
+    if (machInstCall? senv e).isSome then onCall e else
+    let f ← walkInsts senv onCall e.appFn!
+    let a ← walkInsts senv onCall e.appArg!
+    return .app f a
+  | .letE nm ty v b _ => do
+    let ty' ← walkInsts senv onCall ty
+    let v' ← walkInsts senv onCall v
+    withLetDecl nm ty' v' fun x => do
+      let b' ← walkInsts senv onCall (b.instantiate1 x)
+      mkLetFVars #[x] b' (usedLetOnly := false)
+  | .lam nm ty b bi => do
+    let ty' ← walkInsts senv onCall ty
+    withLocalDecl nm bi ty' fun x => do
+      let b' ← walkInsts senv onCall (b.instantiate1 x)
+      mkLambdaFVars #[x] b'
+  | .forallE nm ty b bi => do
+    let ty' ← walkInsts senv onCall ty
+    withLocalDecl nm bi ty' fun x => do
+      let b' ← walkInsts senv onCall (b.instantiate1 x)
+      mkForallFVars #[x] b'
+  | .mdata m b => do return .mdata m (← walkInsts senv onCall b)
+  | .proj n k b => do return .proj n k (← walkInsts senv onCall b)
+  | e => pure e
+
+/-- The calls of `e` in reading order, each once (a repeat — `circuit do`
+copies its `let`s — is the same call), with the outer `let`s substituted. -/
+def collectInsts (senv : StructEnv) (e : Lean.Expr) : MetaM (Array Lean.Expr) := do
+  let acc ← IO.mkRef (#[] : Array Lean.Expr)
+  let _ ← walkInsts senv (fun c => do
+    let cZ ← zetaReduce c
+    unless (← acc.get).contains cZ do acc.modify (·.push cZ)
+    pure c) e
+  acc.get
+
+/-- The extension and its pointwiseness proof for the calls `calls` (over the
+free variables `frees`, which `subst` maps to their value over the state
+signals and `substC` to their value over the constant state signals):
+`ext := fun i bools bits S [Ss] => extendBits (… bits …) (nDecl + k) w_k (call_k)`,
+`machine_inst_k : ∀ i bools bits S [Ss] t, (call_k over S).val t = (call_k over
+the constants).val t` by `rfl`, and `hext` from `extendBits_val`. Returns the
+extension (closed over the given binders) and the `hext` proof. -/
+def instExtension (declName : Name) (r : Read) (D : Lean.Expr) (binders : Array Lean.Expr)
+    (t : Lean.Expr) (bits : Lean.Expr) (calls : Array Lean.Expr)
+    (subst substC : Lean.Expr → Lean.Expr) : MetaM (Lean.Expr × Lean.Expr) := do
+  unless calls.size == r.shape.insts.length do
+    throwError "{declName}: {calls.size} hardware-module calls found, the compiler read {r.shape.insts.length}"
+  let sigBV (w : Nat) := mkApp2 (mkConst ``Sparkle.Core.Signal.Signal [.zero]) D
+    (mkApp (mkConst ``BitVec) (mkNatLit w))
+  let valAt (w : Nat) (c tt : Lean.Expr) :=
+    mkApp (mkApp3 (mkConst ``Sparkle.Core.Signal.Signal.val [.zero]) D
+      (mkApp (mkConst ``BitVec) (mkNatLit w)) c) tt
+  -- binders without `t` (the extension) and with `t` (the facts)
+  let bindersT := binders.push t
+  let mut extS := bits
+  let mut extC := bits
+  let mut hext : Lean.Expr := ← withLocalDeclD `j (mkConst ``Nat) fun j =>
+    withLocalDeclD `n (mkConst ``Nat) fun n => do
+      let v := mkApp (mkApp3 (mkConst ``Sparkle.Core.Signal.Signal.val [.zero]) D
+        (mkApp (mkConst ``BitVec) n) (mkApp2 bits j n)) t
+      mkLambdaFVars #[j, n] (mkApp2 (mkConst ``Eq.refl [.one]) (mkApp (mkConst ``BitVec) n) v)
+  for k in [0:calls.size] do
+    let some (_, _, kind) := r.shape.insts[k]? | throwError "{declName}: call {k}"
+    let .bits w := kind | throwError "{declName}: call {k} is not a BitVec"
+    let c := calls[k]!
+    let cS := subst c
+    let cC := substC c
+    let pos := r.nDecl + k
+    -- the pointwiseness fact, checked by the kernel
+    let stmt ← mkForallFVars bindersT
+      (mkApp3 (mkConst ``Eq [.one]) (mkApp (mkConst ``BitVec) (mkNatLit w)) (valAt w cS t)
+        (valAt w cC t))
+    let name := declName ++ (Name.mkSimple s!"machine_inst_{k}")
+    let proof ← reflProof stmt true
+    try
+      addDecl (.thmDecl { name, levelParams := [], type := stmt, value := proof })
+    catch ex =>
+      throwError "{declName}: the call {k} is not pointwise in the state (kernel): {ex.toMessageData}"
+    let fact := mkAppN (mkConst name) bindersT
+    hext := mkAppN (mkConst ``Tools.ShippingMachineAuto.extendBits_val)
+      #[D, extS, extC, mkNatLit pos, mkNatLit w, cS, cC, t, hext, fact]
+    extS := mkAppN (mkConst ``Tools.ShippingMachineAuto.extendBits) #[D, extS, mkNatLit pos, mkNatLit w, cS]
+    extC := mkAppN (mkConst ``Tools.ShippingMachineAuto.extendBits) #[D, extC, mkNatLit pos, mkNatLit w, cC]
+    let _ := sigBV
+  return (extS, hext)
+
 /-! ### Sub-machines
 
 A `runCircuitH` inside the root — in a `let` in front of the `circuit do`,
@@ -602,7 +716,7 @@ machine, the sub-machines, the body with the sub-machines abstracted, the
 observations — the hypotheses left are the kernel checks. Returns the
 partial application and the checks (name suffix, side of the `rfl`). -/
 def nestedProof (declName : Name) (r : Read) (data ι i D bools bits src inst : Lean.Expr) :
-    MetaM (Lean.Expr × Name × List (Name × Bool)) := do
+    MetaM (Lean.Expr × Name × List (Name × Bool) × Option Lean.Expr) := do
   let env ← getEnv
   let senv := structEnv env
   let (rootLets, _, run?, root) := machRoot senv.proj inst []
@@ -674,8 +788,34 @@ def nestedProof (declName : Name) (r : Read) (data ι i D bools bits src inst : 
     | some _ => pure eB
     | none => pure (mkApp4 (mkConst ``Sparkle.Core.Circuit.pure') D (sigListE (tysE ss₂E)) rho eB)
   let body₂ ← mkLambdaFVars #[i, bools, bits, regsF, rsF] eB
+  -- the `@[hardware_module]` calls (over the handles and the results), their
+  -- extension of the inputs and its pointwiseness
+  let hasInsts := !r.shape.insts.isEmpty
+  let calls ← if hasInsts then collectInsts senv eB else pure #[]
+  let nat := mkConst ``Nat
+  let sigsT := mkApp3 (mkConst ``Tools.ShippingMachineFuse.Sigs) D (tysE ss₂E) atsE
+  let (extE, hextE) ← withLocalDeclD `S (mkApp2 (mkConst ``Sparkle.Core.Signal.Signal [.zero]) D
+      (hlistE (tysE ss₂E))) fun S =>
+    withLocalDeclD `Ss sigsT fun Ss => withLocalDeclD `t nat fun t => do
+      let regsS := mkApp3 (mkConst ``Tools.ShippingMachineFuse.regsOf) D (tysE ss₂E) S
+      let constS := mkApp3 (mkConst ``Sparkle.Core.Signal.Signal.mk [.zero]) D (hlistE (tysE ss₂E))
+        (.lam `u nat (mkApp (mkApp3 (mkConst ``Sparkle.Core.Signal.Signal.val [.zero]) D
+          (hlistE (tysE ss₂E)) S) t) .default)
+      let regsC := mkApp3 (mkConst ``Tools.ShippingMachineFuse.regsOf) D (tysE ss₂E) constS
+      let SsC := mkApp4 (mkConst ``Tools.ShippingMachineFuse.constOf) D (tysE ss₂E) atsE
+        (mkApp5 (mkConst ``Tools.ShippingMachineFuse.valsOf) D (tysE ss₂E) atsE Ss t)
+      let subst (c : Lean.Expr) := (c.replaceFVar regsF regsS).replaceFVar rsF
+        (mkApp5 (mkConst ``Tools.ShippingMachineFuse.resultsOn) D (tysE ss₂E) regsS atsE Ss)
+      let substC (c : Lean.Expr) := (c.replaceFVar regsF regsC).replaceFVar rsF
+        (mkApp5 (mkConst ``Tools.ShippingMachineFuse.resultsOn) D (tysE ss₂E) regsC atsE SsC)
+      for c in calls do
+        if c.hasAnyFVar (fun id => id != regsF.fvarId! && id != rsF.fvarId! && id != i.fvarId! &&
+            id != bools.fvarId! && id != bits.fvarId!) then
+          throwError "{declName}: a hardware-module call reads a variable the endpoint does not cover"
+      let (extS, hext) ← instExtension declName r D #[i, bools, bits, S, Ss] t bits calls subst substC
+      pure (← mkLambdaFVars #[i, bools, bits, S, Ss] extS, ← mkLambdaFVars #[i, bools, bits, S, Ss, t] hext)
   -- the generic theorem, applied step by step; the binder types name the facts
-  let mut p := mkAppN (mkConst ``machine_trace_of_nested)
+  let mut p := mkAppN (mkConst (if hasInsts then ``machine_trace_of_nested_ext else ``machine_trace_of_nested))
     #[ι, toExpr declName, data, domF, ss₂E, inhab₂, lE]
   -- the slots are the enclosing machine's then the sub-machines'
   let slotsStmt := (← inferType p).bindingDomain!
@@ -693,6 +833,10 @@ def nestedProof (declName : Name) (r : Read) (data ι i D bools bits src inst : 
   let resName := declName ++ `machineResult
   addDef resName (← inferType p).bindingDomain! (← resultObs declName r i D rho)
   p := mkApp p (mkConst resName)
+  if hasInsts then
+    let extName := declName ++ `machineExt
+    addDef extName (← inferType p).bindingDomain! extE
+    p := mkApp p (mkConst extName)
   let srcName := declName ++ `machineSource
   let fieldNames : List (Option Name) :=
     if r.ctor?.isNone then [none] else r.outNames.map fun nm => some (Name.mkSimple nm)
@@ -701,13 +845,14 @@ def nestedProof (declName : Name) (r : Read) (data ι i D bools bits src inst : 
     (← mkLambdaFVars #[i, bools, bits] (listE (← mkArrow nat nat) obs))
   p := mkApp p (mkConst srcName)
   return (p, srcName, [(`machine_ok, false), (`machine_body, true), (`machine_inits, false),
-    (`machine_writes, true), (`machine_result, true), (`machine_source, true)])
+    (`machine_writes, true), (`machine_result, true), (`machine_source, true)],
+    if hasInsts then some hextE else none)
 
 /-- The endpoint of a declaration that is one `circuit do`, through
 `machine_trace_of_data`. Returns the partial application, the name of the
 source observations and the checks (name suffix, side of the `rfl`). -/
 def singleProof (declName : Name) (r : Read) (data ι i D bools bits src inst : Lean.Expr) :
-    MetaM (Lean.Expr × Name × List (Name × Bool)) := do
+    MetaM (Lean.Expr × Name × List (Name × Bool) × Option Lean.Expr) := do
   let nat := mkConst ``Nat
   let some run := inst.find? fun t => t.isAppOfArity ``Sparkle.Core.runCircuitH 8
     | throwError "{declName}: no runCircuitH in the unfolded value"
@@ -715,8 +860,32 @@ def singleProof (declName : Name) (r : Read) (data ι i D bools bits src inst : 
   let (rho, inhab, inits, body) := (a[2]!, a[5]!, a[6]!, a[7]!)
   if inits.hasFVar || inhab.hasFVar then
     throwError "{declName}: the reset values depend on a binder"
+  -- the `@[hardware_module]` calls of the body, their extension of the inputs
+  -- and its pointwiseness
+  let hasInsts := !r.shape.insts.isEmpty
+  let αs := a[1]!
+  let hlistT := mkApp (mkConst ``HList) αs
+  let (extE, hextE) ← if !hasInsts then pure (mkConst ``Unit.unit, mkConst ``Unit.unit) else
+    withLocalDeclD `regs body.bindingDomain! fun regsF => do
+    let env ← getEnv
+    let senv := structEnv env
+    let calls ← collectInsts senv (body.bindingBody!.instantiate1 regsF)
+    withLocalDeclD `S (mkApp2 (mkConst ``Sparkle.Core.Signal.Signal [.zero]) D hlistT) fun S =>
+    withLocalDeclD `t nat fun t => do
+      let regsS := mkApp3 (mkConst ``Tools.ShippingMachineFuse.regsOf) D αs S
+      let constS := mkApp3 (mkConst ``Sparkle.Core.Signal.Signal.mk [.zero]) D hlistT
+        (.lam `u nat (mkApp (mkApp3 (mkConst ``Sparkle.Core.Signal.Signal.val [.zero]) D hlistT S) t)
+          .default)
+      let regsC := mkApp3 (mkConst ``Tools.ShippingMachineFuse.regsOf) D αs constS
+      for c in calls do
+        if c.hasAnyFVar (fun id => id != regsF.fvarId! && id != i.fvarId! &&
+            id != bools.fvarId! && id != bits.fvarId!) then
+          throwError "{declName}: a hardware-module call reads a variable the endpoint does not cover"
+      let (extS, hext) ← instExtension declName r D #[i, bools, bits, S] t bits calls
+        (fun c => c.replaceFVar regsF regsS) (fun c => c.replaceFVar regsF regsC)
+      pure (← mkLambdaFVars #[i, bools, bits, S] extS, ← mkLambdaFVars #[i, bools, bits, S, t] hext)
   -- the generic theorem, applied step by step; the binder types name the facts
-  let mut p := mkAppN (mkConst ``machine_trace_of_data)
+  let mut p := mkAppN (mkConst (if hasInsts then ``machine_trace_of_data_ext else ``machine_trace_of_data))
     #[toExpr declName, data, ι, ← mkLambdaFVars #[i] D, inhab, ← mkLambdaFVars #[i] rho]
   let initsName := declName ++ `machineInits
   addDef initsName (← inferType p).bindingDomain! inits
@@ -771,12 +940,17 @@ def singleProof (declName : Name) (r : Read) (data ι i D bools bits src inst : 
     mkLambdaFVars #[i, res] (listE (← mkArrow nat nat) fs)
   addDef resName (← inferType p).bindingDomain! resV
   p := mkApp p (mkConst resName)
+  if hasInsts then
+    let extName := declName ++ `machineExt
+    addDef extName (← inferType p).bindingDomain! extE
+    p := mkApp p (mkConst extName)
   let srcName := declName ++ `machineSource
   addDef srcName (← inferType p).bindingDomain!
     (← mkLambdaFVars #[i, bools, bits] (listE (← mkArrow nat nat) obs))
   p := mkApp p (mkConst srcName)
   return (p, srcName, [(`machine_ok, false), (`machine_body, true), (`machine_inits, false),
-    (`machine_writes, true), (`machine_result, true), (`machine_source, true)])
+    (`machine_writes, true), (`machine_result, true), (`machine_source, true)],
+    if hasInsts then some hextE else none)
 
 /-- The machine endpoint of `declName`: the definitions, the six kernel
 checks, the theorem (whose name is returned). `checkCloses` also runs the
@@ -795,7 +969,7 @@ def generateCore (declName : Name) (checkCloses : Bool) : MetaM Name := do
     unless (← synthesizeMachineCertified translate (fun _ => pure ()) declName r.shape).isSome do
       throwError "{declName}: the machine synthesis does not tie the lets"
   let some entryV := r.entry.value? | throwError "{declName}: no value"
-  let bsIn := r.shape.binders.take r.nIn
+  let bsIn := r.shape.binders.take r.nDecl
   -- the family of domains: every domain for a domain binder, one otherwise
   let poly := bsIn.any fun b => b.2 == .domain
   let domT := mkConst ``Sparkle.Core.Domain.DomainConfig
@@ -815,7 +989,8 @@ def generateCore (declName : Name) (checkCloses : Bool) : MetaM Name := do
       | .bits w => mkApp2 bits (mkNatLit p) (mkNatLit w)
     let src := mkAppN (mkConst declName) args.toArray
     let inst := entryV.beta args.toArray
-    let (p, srcName, checks) ← if r.nested then nestedProof declName r data ι i D bools bits src inst
+    let (p, srcName, checks, extra) ←
+      if r.nested then nestedProof declName r data ι i D bools bits src inst
       else singleProof declName r data ι i D bools bits src inst
     let mut p := p
     for (suffix, left) in checks do
@@ -830,17 +1005,24 @@ def generateCore (declName : Name) (checkCloses : Bool) : MetaM Name := do
         throwError "{declName}: {suffix} is not checked by the kernel: {ex.toMessageData}"
       trace[Sparkle.machine] "{name}: {(← IO.monoMsNow) - t0} ms"
       p := mkApp p (mkConst name)
+    -- the pointwiseness of the hardware-module calls' extension
+    if let some hext := extra then
+      p := mkApp p hext
     progress s!"{declName}: theorem"
     let soundName := declName ++ `machine_sound
     addDecl (.thmDecl
       { name := soundName, levelParams := [], type := ← inferType p, value := p })
-    -- to the emitted Verilog, at the full entry (gates as premises)
-    let shipsName := declName ++ `machine_ships
-    let ships := mkAppN (mkConst ``Tools.ShippingMachineShipping.machine_ships_checked)
-      #[toExpr declName, data, ι, ← mkLambdaFVars #[i] D, mkConst srcName, mkConst soundName]
-    addDecl (.thmDecl
-      { name := shipsName, levelParams := [], type := ← inferType ships, value := ships })
-    for name in [soundName, shipsName] do
+    let mut names := [soundName]
+    -- to the emitted Verilog, at the full entry (gates as premises); not for
+    -- a module with instances (the gates are for assign + register modules)
+    if r.shape.insts.isEmpty then
+      let shipsName := declName ++ `machine_ships
+      let ships := mkAppN (mkConst ``Tools.ShippingMachineShipping.machine_ships_checked)
+        #[toExpr declName, data, ι, ← mkLambdaFVars #[i] D, mkConst srcName, mkConst soundName]
+      addDecl (.thmDecl
+        { name := shipsName, levelParams := [], type := ← inferType ships, value := ships })
+      names := names ++ [shipsName]
+    for name in names do
       for ax in ← Lean.collectAxioms name do
         unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do
           throwError "{name} uses a non-standard axiom: {ax}"

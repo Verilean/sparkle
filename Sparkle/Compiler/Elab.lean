@@ -965,6 +965,14 @@ private initialize sparkleSubModuleCache :
     IO.Ref (Std.HashMap Lean.Name (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design)) ←
     IO.mkRef {}
 
+/-- The synthesis entry a state machine uses for the `@[hardware_module]`
+    children its body calls (`closeInsts`): the real entry
+    `synthesizeCombinational`, set once it is defined (the machine synthesis
+    is defined before the translator block that closes the knot). -/
+initialize sparkleChildSynth :
+    IO.Ref (Option (Name → MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design))) ←
+    IO.mkRef none
+
 /-- Per-call output port wire mapping.  Keyed by
     `(call-expression hash, field name)`, returns the wire bound
     to that field of the sub-module instance.  Populated by the
@@ -3366,6 +3374,10 @@ inductive MachVal where
 def machIn (i : Nat) : Lean.Expr := .fvar ⟨.num (.str .anonymous "_machIn") i⟩
 def machSlot (i : Nat) : Lean.Expr := .fvar ⟨.num (.str .anonymous "_machSlot") i⟩
 def machLet (j : Nat) : Lean.Expr := .fvar ⟨.num (.str .anonymous "_machLet") j⟩
+/-- The output of the `k`-th `@[hardware_module]` call of the body: an input
+    of the transition (the open-module view), tied to the instance by
+    `closeInsts`. -/
+def machInstOut (k : Nat) : Lean.Expr := .fvar ⟨.num (.str .anonymous "_machInst") k⟩
 
 /-- `regs.2.2…`: a bound variable standing for a tail, or `Prod.snd` of one. -/
 def machTailV (env : List MachVal) (d : Nat) : Lean.Expr → Option Nat
@@ -3401,6 +3413,10 @@ structure StructEnv where
   fields : Name → Option (Name × List (String × MixedGateBinder))
   /-- The value of a closed `Nat` term (`kernelNat`). -/
   natOf : Lean.Expr → Option Nat := fun _ => none
+  /-- A `@[hardware_module]` declaration with one Signal result: the kinds
+      of its binders (the domain included) and of its result
+      (`instSignature?`). -/
+  inst : Name → Option (List MixedGateBinder × MixedGateBinder) := fun _ => none
 
 /-- The hardware `let`s met so far: binder name, kind, value (placeholder
     form; it mentions earlier `let`s only). -/
@@ -3426,6 +3442,12 @@ structure MachRead where
       every write and into the result) is read as that machine. -/
   nested : Array (Nat × Lean.Expr × Lean.Expr × Lean.Expr × List (Nat × Lean.Expr) × Lean.Expr) :=
     #[]
+  /-- Every `@[hardware_module]` call read: the module, the `let`s holding
+      its arguments (in port order), the kind of its result. -/
+  insts : Array (Name × List Nat × MixedGateBinder) := #[]
+  /-- Reading a nested machine's chain (a call there is not accepted yet:
+      the endpoint reads calls of the enclosing body only). -/
+  inInner : Bool := false
 
 /-- A placeholder (a variable of the transition), as opposed to a compound
     expression. -/
@@ -3494,6 +3516,28 @@ def machReserve (natOf : Lean.Expr → Option Nat) (dom' αs initsE body : Lean.
     dom := some dom'
     runs := st.runs.push (base, kinds.length) })
 
+/-- A full application of a `@[hardware_module]` with one Signal result:
+    the module, the kinds of its binders and result, the arguments. -/
+def machInstCall? (senv : StructEnv) (e : Lean.Expr) :
+    Option (Name × List MixedGateBinder × MixedGateBinder × List Lean.Expr) :=
+  match inlSpine e [] with
+  | (.const c _, args) =>
+    match senv.inst c with
+    | some (kinds, res) => if args.length == kinds.length then some (c, kinds, res, args) else none
+    | none => none
+  | _ => none
+
+/-- Bind a converted value as a hardware `let` of the given kind (the one
+    already met with the same value, if any) and return its index. -/
+def machLetIndex (nm : Name) (k : MixedGateBinder) (v' : Lean.Expr) (lets : MachLets) :
+    Nat × MachLets :=
+  match v' with
+  | .fvar ⟨.num (.str .anonymous "_machLet") j⟩ => (j, lets)
+  | _ =>
+    match lets.findIdx? (fun l => l.2.2 == v') with
+    | some j => (j, lets)
+    | none => (lets.size, lets.push (nm, k, v'))
+
 /-- A projection of a user structure applied to its constructor: the field. -/
 def machProjIota (projs : Name → Option (Name × Nat × Nat)) (e : Lean.Expr) : Lean.Expr :=
   match inlSpine e [] with
@@ -3531,6 +3575,10 @@ partial def machConv (senv : StructEnv) : List MachVal → Nat → Lean.Expr →
     match machRunApp? (.app f a) with
     | some (dom, αs, initsE, body) =>
       if d != 0 then none else machNested senv env dom αs initsE body st
+    | none =>
+    match machInstCall? senv (.app f a) with
+    | some (c, kinds, res, args) =>
+      if d != 0 then none else machInstance senv env c kinds res args st
     | none =>
     match machReadV env d (.app f a) with
     | some i => if i < st.kinds.size then some (machSlot i, st) else none
@@ -3592,9 +3640,38 @@ partial def machNested (senv : StructEnv) (env : List MachVal) (dom αs initsE b
   | some r => some r
   | none =>
     let (base, st) ← machReserve senv.natOf dom' αs initsE body st
-    let (ws, v, st) ← machChain senv (.regs base :: env) body st
-    some (v, { st with ws := st.ws ++ ws.toArray,
+    let outer := st.inInner
+    let (ws, v, st) ← machChain senv (.regs base :: env) body { st with inInner := true }
+    some (v, { st with ws := st.ws ++ ws.toArray, inInner := outer,
                        nested := st.nested.push (base, dom', αs, initsE, ws, v) })
+
+/-- A `@[hardware_module]` call: its result is an input of the transition
+    (`machInstOut`), its arguments hardware `let`s (so each has a wire), its
+    domain the machine's; `closeInsts` ties the input to the instance. -/
+partial def machInstance (senv : StructEnv) (env : List MachVal) (c : Name)
+    (kinds : List MixedGateBinder) (res : MixedGateBinder) (args : List Lean.Expr)
+    (st : MachRead) : Option (Lean.Expr × MachRead) := do
+  -- a BitVec result, in the enclosing body (what the endpoint covers)
+  if st.inInner then none else
+  match res with
+  | .bits _ => pure ()
+  | _ => none
+  let k := st.insts.size
+  let (js, st) ← (kinds.zip args).foldlM (init := (([] : List Nat), st))
+    fun (js, st) (kind, arg) => do
+      let (v', st) ← machConv senv env 0 arg st
+      match kind with
+      | .domain =>
+        match st.dom with
+        | some d => if d != v' then none else some (js, st)
+        | none => some (js, { st with dom := some v' })
+      | _ =>
+        let (j, lets) := machLetIndex (Name.mkSimple s!"inst{k}_arg{js.length}") kind v' st.lets
+        some (js ++ [j], { st with lets := lets })
+  -- the same call met before (`circuit do` copies its `let`s): its output
+  match st.insts.findIdx? (fun i => i.1 == c && i.2.1 == js) with
+  | some k' => some (machInstOut k', st)
+  | none => some (machInstOut k, { st with insts := st.insts.push (c, js, res) })
 
 /-- The statements of a `circuit do` body: the writes `handle <~ rhs` in
     order as `(slot, next value)`, and the final `pure` value, both in
@@ -3640,14 +3717,15 @@ def machNext (i : Nat) (ws : List (Nat × Lean.Expr)) : Lean.Expr :=
   | none => machSlot i
 
 /-- Close the placeholders: the transition's telescope is the declaration's
-    binders, then `n` slots, then `k` hardware `let`s. -/
-def machClose (n k : Nat) : Nat → Lean.Expr → Lean.Expr
-  | d, .fvar ⟨.num (.str .anonymous "_machIn") i⟩ => .bvar (n + k + i + d)
+    binders, then `kI` instance outputs, `n` slots and `k` hardware `let`s. -/
+def machClose (kI n k : Nat) : Nat → Lean.Expr → Lean.Expr
+  | d, .fvar ⟨.num (.str .anonymous "_machIn") i⟩ => .bvar (kI + n + k + i + d)
+  | d, .fvar ⟨.num (.str .anonymous "_machInst") j⟩ => .bvar (kI - 1 - j + n + k + d)
   | d, .fvar ⟨.num (.str .anonymous "_machSlot") i⟩ => .bvar (n - 1 - i + k + d)
   | d, .fvar ⟨.num (.str .anonymous "_machLet") j⟩ => .bvar (k - 1 - j + d)
-  | d, .app f a => .app (machClose n k d f) (machClose n k d a)
-  | d, .lam nm t b bi => .lam nm (machClose n k d t) (machClose n k (d + 1) b) bi
-  | d, .forallE nm t b bi => .forallE nm (machClose n k d t) (machClose n k (d + 1) b) bi
+  | d, .app f a => .app (machClose kI n k d f) (machClose kI n k d a)
+  | d, .lam nm t b bi => .lam nm (machClose kI n k d t) (machClose kI n k (d + 1) b) bi
+  | d, .forallE nm t b bi => .forallE nm (machClose kI n k d t) (machClose kI n k (d + 1) b) bi
   | _, e => e
 
 /-- The domain (in placeholder form) in the transition's context, with the
@@ -3750,9 +3828,28 @@ def userStructure? (env : Environment) (s : Name) :
     | _ => none
   | none => none
 
+/-- The kinds of the binders of a type (`none` when one is not a hardware
+    binder). -/
+def telescopeKinds : Lean.Expr → Option (List MixedGateBinder)
+  | .forallE _ ty b _ => (mixedGateBinderKind? ty).bind fun k => (telescopeKinds b).map (k :: ·)
+  | _ => some []
+
+/-- A `@[hardware_module]` declaration whose binders are hardware binders
+    and whose result is one Signal: their kinds. -/
+def instSignature? (env : Environment) (n : Name) :
+    Option (List MixedGateBinder × MixedGateBinder) :=
+  if !Sparkle.Compiler.isHardwareModule env n then none else
+  match env.find? n with
+  | some ci => do
+    let kinds ← telescopeKinds ci.type
+    let res ← machResultKind? ci.type
+    some (kinds, res)
+  | none => none
+
 /-- The structure facts of an environment. -/
 def structEnv (env : Environment) : StructEnv :=
-  { proj := userProjection? env, fields := userStructure? env, natOf := kernelNat env }
+  { proj := userProjection? env, fields := userStructure? env, natOf := kernelNat env,
+    inst := instSignature? env }
 
 /-- The output ports of a result type: one, `out`, for a Signal; one per
     field, named after it, for a structure of Signals.  With the structure's
@@ -3769,12 +3866,19 @@ def machOuts? (senv : StructEnv) :
       | .const s _ => (senv.fields s).map fun (ctor, fs) => (some ctor, fs)
       | _ => none
 
+/-- The `let`s in front of an expression, prepended (innermost first) to `acc`. -/
+def machRootLets : Lean.Expr → List (Name × Lean.Expr × Lean.Expr) →
+    List (Name × Lean.Expr × Lean.Expr) × Lean.Expr
+  | .letE nm ty v b _, acc => machRootLets b ((nm, ty, v) :: acc)
+  | e, acc => (acc, e)
+
 /-- The root of a declaration's value, after its binders: `let`s in front
     (sub-machines bound before the `circuit do`, constants), then either a
     `runCircuitH` — directly or under ONE field projection of a user
-    structure — which is the ENCLOSING machine, or any other expression
-    (a structure of sub-machines' results, a projection of one): `(the root
-    lets, field selector, the enclosing run, the root expression)`. -/
+    structure (with `let`s under the projection counted as root `let`s) —
+    which is the ENCLOSING machine, or any other expression (a structure of
+    sub-machines' results, a projection of one): `(the root lets, field
+    selector, the enclosing run, the root expression)`. -/
 def machRoot (projs : Name → Option (Name × Nat × Nat)) :
     Lean.Expr → List (Name × Lean.Expr × Lean.Expr) →
       List (Name × Lean.Expr × Lean.Expr) × Option (Name × Nat × Nat) × Option Lean.Expr ×
@@ -3786,8 +3890,11 @@ def machRoot (projs : Name → Option (Name × Nat × Nat)) :
     | (.const p _, args) =>
       match projs p, args.getLast? with
       | some (ctor, numParams, idx), some r =>
-        if args.length = numParams + 1 && (machRunApp? r).isSome then
-          (acc.reverse, some (ctor, numParams, idx), some r, e)
+        -- `let`s under the projection are root `let`s too (a projection
+        -- binds nothing: `proj (let x := v; r)` is `let x := v; proj r`)
+        let (acc', r') := machRootLets r acc
+        if args.length = numParams + 1 && (machRunApp? r').isSome then
+          (acc'.reverse, some (ctor, numParams, idx), some r', e)
         else (acc.reverse, none, none, e)
       | _, _ => (acc.reverse, none, none, e)
     | _ => (acc.reverse, none, none, e)
@@ -4115,6 +4222,10 @@ structure MachineShape where
       machine first (none when the root is an expression of sub-machines),
       then each nested `runCircuitH` in reading order. -/
   runs : List (Nat × Nat) := []
+  /-- The `@[hardware_module]` calls of the body, in reading order: the
+      module, the `let`s holding its arguments, the kind of its result. Their
+      outputs are the binders right after the declaration's. -/
+  insts : List (Name × List Nat × MixedGateBinder) := []
 
 /-- The acceptance test of the state-machine route: the declaration's value
     is a lambda telescope of hardware binders over `let`s and a
@@ -4139,7 +4250,7 @@ structure MachineShape where
     each `let` binder to its field, so a `let` used many times is compiled
     once. -/
 def machineShape? (symbolicMode : Bool) (parameters : List (String × Nat)) (ci : ConstantInfo)
-    (senv : StructEnv) : Option MachineShape :=
+    (senv : StructEnv) (allowInsts : Bool := true) : Option MachineShape :=
   match ci with
   | .defnInfo d =>
     if symbolicMode || !parameters.isEmpty then none else do
@@ -4178,22 +4289,26 @@ def machineShape? (symbolicMode : Bool) (parameters : List (String × Nat)) (ci 
         pure (st, v)
     let n := st.kinds.size
     if n = 0 then none else
+    if !allowInsts && !st.insts.isEmpty then none else
     let kinds := st.kinds.toList
     let k := st.lets.size
+    let kI := st.insts.size
     let domE ← st.dom
-    let (dom', resetKind) ← machDom? (n + k) domE
+    let (dom', resetKind) ← machDom? (kI + n + k) domE
     let outEs ← machResults? sel ctor? outs.length v
     if outEs.length != outs.length then none else
     let letFields ← st.lets.toList.mapM fun (_, kind, value) =>
-      machField dom' kind (machClose n k 0 value)
+      machField dom' kind (machClose kI n k 0 value)
     let outFields ← (outs.zip outEs).mapM fun ((_, kind), outE) =>
-      machField dom' kind (machClose n k 0 outE)
+      machField dom' kind (machClose kI n k 0 outE)
     let slotFields ← ((List.range n).zip kinds).mapM fun (i, kind) =>
-      machField dom' kind (machClose n k 0 (machNext i st.ws.toList))
+      machField dom' kind (machClose kI n k 0 (machNext i st.ws.toList))
     let (_, packed) ← machPack dom' (letFields ++ outFields ++ slotFields)
     let body := machCanonAp packed
-    let binders : List (Name × MixedGateBinder) := bs ++ (st.names.toList.zip kinds) ++
-      st.lets.toList.map fun (nm, kind, _) => (nm, kind)
+    let instBinders := (List.range kI).zip (st.insts.toList.map (·.2.2)) |>.map
+      fun (j, kind) => (Name.mkSimple s!"inst{j}", kind)
+    let binders : List (Name × MixedGateBinder) := bs ++ instBinders ++
+      (st.names.toList.zip kinds) ++ st.lets.toList.map fun (nm, kind, _) => (nm, kind)
     if unifiedGateRoot (binders.map (·.2)).toArray body then
       some
         { binders := binders
@@ -4203,20 +4318,41 @@ def machineShape? (symbolicMode : Bool) (parameters : List (String × Nat)) (ci 
               outs := machOutFields (kinds.map machWidth).sum outs
               resetKind := resetKind
               lets := k }
-          runs := st.runs.toList }
+          runs := st.runs.toList
+          insts := st.insts.toList }
     else none
   | _ => none
 
+/-- The `@[hardware_module]` calls of a closed machine module: each child
+    compiled by the real entry (`sparkleChildSynth`), its output port of the
+    transition tied to an instance (`Sparkle.IR.Machine.closeInsts`). `t` is
+    the transition module as the harness returned it (its port names). -/
+def closeInstsM (shape : MachineShape) (t m : Sparkle.IR.AST.Module)
+    (design : Sparkle.IR.AST.Design) :
+    MetaM (Option (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design)) := do
+  let some synth ← sparkleChildSynth.get | return none
+  let children ← shape.insts.mapM fun (c, _, _) => synth c
+  let kI := shape.insts.length
+  let n := shape.layout.slots.length
+  let nIn := shape.binders.length - kI - n - shape.layout.lets
+  return Sparkle.IR.Machine.closeInsts nIn kI n (t.inputs.map (·.name))
+    (shape.insts.map (·.2.1)) children (m, design)
+
 /-- The synthesis of a state machine: the transition through the certified
     combinational harness, the `let` ports tied to their fields, then the
-    slot ports closed into registers.  `none` when the `let`s cannot be tied
-    (`closeLets`); the caller then takes the legacy route. -/
+    slot ports closed into registers, and the `@[hardware_module]` calls
+    tied to instances. `none` when the `let`s cannot be tied (`closeLets`)
+    or a call cannot (`closeInsts`); the caller then takes the legacy
+    route. -/
 def synthesizeMachineCertified (translate : TranslateFn) (logProf : String → IO Unit)
     (declName : Name) (shape : MachineShape) :
     MetaM (Option (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design)) := do
   let (t, design) ← synthesizeMixedCertified translate logProf declName shape.binders shape.body
   match Sparkle.IR.Machine.closeLets shape.layout.lets t with
-  | some t' => return some (Sparkle.IR.Machine.closeMachine shape.layout t', design)
+  | some t' =>
+    match shape.insts with
+    | [] => return some (Sparkle.IR.Machine.closeMachine shape.layout t', design)
+    | _ :: _ => closeInstsM shape t (Sparkle.IR.Machine.closeMachine shape.layout t') design
   | none => return none
 
 /-- The constant the entry hands to `synthesizeFromConst`: the declaration as
@@ -7717,6 +7853,7 @@ def synthesizeCombinationalCore := synthesizeCombinationalCoreWith (fun e h t n 
 /-- `#synthesizeVerilog`'s synthesis with the real translator (a plain
     definition, so the post-processing theorems apply to it directly). -/
 def synthesizeCombinational := synthesizeCombinationalWith (fun e h t n => translateExprToWire e h t n)
+initialize sparkleChildSynth.set (some fun n => synthesizeCombinational n)
 /-- `Rec.synthesizeCombinationalWithParameters` with the real translator as its recursive entry. -/
 def synthesizeCombinationalWithParameters := Rec.synthesizeCombinationalWithParameters (fun e h t n => translateExprToWire e h t n)
 
