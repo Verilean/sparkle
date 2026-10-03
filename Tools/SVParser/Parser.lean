@@ -938,20 +938,20 @@ partial def parseModuleItems : P (List SVModuleItem) := do
           semi
           pure [SVModuleItem.regDecl n w (some arrSize)]
         | none =>
-          -- Skip optional initializer: reg foo = expr;
-          match ← attempt (token (matchStr "=")) with
-          | some _ => let _ ← parseExpr; pure ()  -- consume init value
-          | none => pure ()
+          -- Optional initializer `reg foo = expr;`: the power-on value.
           let mut items := [SVModuleItem.regDecl n w none]
+          match ← attempt (token (matchStr "=")) with
+          | some _ => items := items ++ [SVModuleItem.regInit n (← parseExpr)]
+          | none => pure ()
           let mut cont := true
           while cont do
             match ← attempt comma with
             | some _ =>
               let n2 ← identifier
-              match ← attempt (token (matchStr "=")) with
-              | some _ => let _ ← parseExpr; pure ()
-              | none => pure ()
               items := items ++ [SVModuleItem.regDecl n2 w none]
+              match ← attempt (token (matchStr "=")) with
+              | some _ => items := items ++ [SVModuleItem.regInit n2 (← parseExpr)]
+              | none => pure ()
             | none => cont := false
           semi; pure (markSigned isSigned items)
       | none => match ← attempt (keyword "integer") with

@@ -324,6 +324,36 @@ partial def annotateRXItem (env : LowerEnv) : SVModuleItem → SVModuleItem
       (b.map (annotateRXItem env)) (eb.map (annotateRXItem env))
   | it => it
 
+/-- `if (x)` on a multi-bit `x` means `x != 0`.  The guard collectors AND
+    the condition into the path guard bitwise and negate it bitwise for
+    the else branch, which is right only for a one-bit condition:
+    PicoRV32's `if (pcpi_timeout_counter) pcpi_timeout_counter <=
+    pcpi_timeout_counter - 1` (4 bits) counted 15 → 14 and stopped,
+    because `guard & 4'hE` is 0, so the illegal-instruction trap never
+    fired.  Every condition not known to be one bit is reduced first. -/
+def boolCond (env : LowerEnv) (isArray : String → Bool) (c : SVExpr) : SVExpr :=
+  let oneBit := match c with
+    | .index (.ident n) _ =>
+      !isArray n && (env.portWidths.contains n || env.wireWidths.contains n)
+    | _ => envExprWidth env c == some 1
+  if oneBit then c else .unary .reductOr c
+
+partial def boolCondStmt (env : LowerEnv) (isArray : String → Bool) : SVStmt → SVStmt
+  | .ifElse c t e =>
+    .ifElse (boolCond env isArray c)
+      (t.map (boolCondStmt env isArray)) (e.map (boolCondStmt env isArray))
+  | .caseStmt e arms dflt =>
+    .caseStmt e (arms.map fun (gs, ss) => (gs, ss.map (boolCondStmt env isArray)))
+      (dflt.map (·.map (boolCondStmt env isArray)))
+  | .forLoop i c st body => .forLoop i c st (body.map (boolCondStmt env isArray))
+  | s => s
+
+partial def boolCondItem (env : LowerEnv) (isArray : String → Bool) : SVModuleItem → SVModuleItem
+  | .alwaysBlock trig stmts => .alwaysBlock trig (stmts.map (boolCondStmt env isArray))
+  | .generateBlock c b eb =>
+    .generateBlock c (b.map (boolCondItem env isArray)) (eb.map (boolCondItem env isArray))
+  | it => it
+
 
 /-- Expand `^expr` (reduction XOR / parity) into an explicit bit fold when
     the operand width is statically known — firtool's uses are all slices
@@ -2045,6 +2075,10 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
   let paramLits : List (String × SVExpr) := paramVals.map fun (n, v) =>
     (n, .lit (.decimal (some 32) v))
   let expandedItems := expandedItems.map (substituteParamsInItem paramLits paramVals)
+  -- `reg x = v;` power-on values, by register name.
+  let declInitExprs : List (String × SVExpr) := expandedItems.filterMap fun
+    | .regInit n e => some (n, e)
+    | _ => none
   -- Also substitute in module-level params
   let svParams := svMod.params.map fun p =>
     match paramVals.find? fun (n, _) => n == p.name with
@@ -2099,6 +2133,8 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
   -- With the environment complete, resolve reduction-XOR widths that are
   -- invisible statically (bare idents inside the parity concat).
   let svMod := { svMod with items := svMod.items.map (annotateRXItem env) }
+  -- Multi-bit `if` conditions become `!= 0` before the guards are built.
+  let svMod := { svMod with items := svMod.items.map (boolCondItem env (declArrays.contains ·)) }
 
   -- Build ports
   let inputs := svMod.ports.filter (·.dir == .input) |>.map fun p =>
@@ -2284,17 +2320,33 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
         -- registers.  The others (PicoRV32's `ack_arvalid`, written only
         -- in the `else` branch) HOLD during reset — their data mux already
         -- carries the reset guard — so they get no reset of their own.
+        -- A declaration initializer (`reg x = v;`) is the power-on value.
+        -- The IR register has ONE init value, used both at power-on and
+        -- by its reset; when the reset branch sets a different constant
+        -- the register keeps the declared value and loses its own reset
+        -- (the data mux already carries the reset arm, so nothing is lost).
+        let declInit ← match declInitExprs.find? (·.1 == regName) with
+          | none => pure none
+          | some (_, e) => match evalConstExpr paramVals e with
+            | some v => pure (some v)
+            | none => throw s!"register `{regName}` has a non-constant declaration initializer; its power-on value would be lost"
         match initMap.find? (·.1 == regName) with
         | some (_, initVal) =>
-          body := body.push (.register regName clock (resetName, resetKind) dataExpr initVal)
+          if declInit.isNone || declInit == some initVal then
+            body := body.push (.register regName clock (resetName, resetKind) dataExpr initVal)
+          else
+            if !((wireSet.contains "_no_rst" || portNameSet.contains "_no_rst")) then
+              wires := wires.push { name := "_no_rst", ty := .bit }; wireSet := wireSet.insert "_no_rst" true
+              body := body.push (.assign "_no_rst" (.const 0 1))
+            body := body.push (.register regName clock ("_no_rst", .synchronous) dataExpr (declInit.getD 0))
         | none =>
           if resetCheck.isSome then
             if !((wireSet.contains "_no_rst" || portNameSet.contains "_no_rst")) then
               wires := wires.push { name := "_no_rst", ty := .bit }; wireSet := wireSet.insert "_no_rst" true
               body := body.push (.assign "_no_rst" (.const 0 1))
-            body := body.push (.register regName clock ("_no_rst", .synchronous) dataExpr 0)
+            body := body.push (.register regName clock ("_no_rst", .synchronous) dataExpr (declInit.getD 0))
           else
-            body := body.push (.register regName clock (resetName, resetKind) dataExpr 0)
+            body := body.push (.register regName clock (resetName, resetKind) dataExpr (declInit.getD 0))
         if !((wireSet.contains regName || portNameSet.contains regName)) then
           wires := wires.push { name := regName, ty := hwTy }; wireSet := wireSet.insert regName true
 
@@ -2748,9 +2800,14 @@ def flattenDesign (design : Design) (svDesign : SVDesign := { modules := [] }) :
       | .register n clk rst input init => .register n clk rst (genExpr input) init
       | .inst mn in_ conns => .inst mn in_ (conns.map fun (p, e) => (p, genExpr e))
       | .memory n aw dw clk wa wd we ra rd combo ew er =>
-        .memory n aw dw clk (genExpr wa) (genExpr wd) (genExpr we) (genExpr ra) rd combo
+        -- The read-data wires are renamed with every other internal
+        -- wire.  They were left alone, so a memory read into a plain
+        -- wire (`assign dat_r = ram[adr_q]`, LiteX's SRAM and main RAM)
+        -- drove `dat_r` while every reader looked at `_gen_dat_r`, which
+        -- nothing drives: the RAMs read back 0.
+        .memory n aw dw clk (genExpr wa) (genExpr wd) (genExpr we) (genExpr ra) (addGen rd) combo
           (ew.map fun (a, d, e) => (genExpr a, genExpr d, genExpr e))
-          (er.map fun (a, r) => (genExpr a, r))
+          (er.map fun (a, r) => (genExpr a, addGen r))
 
     let flatModule : Module := {
       name := top.name

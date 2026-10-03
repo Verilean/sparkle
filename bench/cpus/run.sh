@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Round-trip and 3-way co-simulate every corpus under <dest>/split.
 # usage: run.sh <dest> [jobs=4]
+# SV_COSIM_FLAGS=--fused-local (or --fused) drives the JIT side through
+# eval_tick, the fused fast path, instead of eval + tick.
 # Run it under a memory limit, e.g.
 #   systemd-run --user --scope -p MemoryMax=60G -p MemorySwapMax=0 bench/cpus/run.sh <dest>
 set -uo pipefail
@@ -14,8 +16,8 @@ fail=0
 printf '%-24s %-10s %-22s %-22s\n' corpus roundtrip "leaf ok/rt/jit/skip" "hier ok/rt/jit/skip"
 for d in "$dest"/split/*; do n=$(basename "$d")
   (cd "$dest/logs" && "$bin/sv-roundtrip" "$d" --jobs "$jobs" --emit "$dest/rt/$n" > "$n.rt" 2>&1)
-  "$bin/sv-cosim" "$d" "$dest/rt/$n" --jobs "$jobs" --cycles 300 --max-kb 4096 --zero-init > "$dest/logs/$n.leaf" 2>&1
-  "$bin/sv-cosim" "$d" "$dest/rt/$n" --jobs "$jobs" --cycles 300 --max-kb 4096 --hier --zero-init > "$dest/logs/$n.hier" 2>&1
+  "$bin/sv-cosim" "$d" "$dest/rt/$n" --jobs "$jobs" --cycles 300 --max-kb 4096 --zero-init ${SV_COSIM_FLAGS:-} > "$dest/logs/$n.leaf" 2>&1
+  "$bin/sv-cosim" "$d" "$dest/rt/$n" --jobs "$jobs" --cycles 300 --max-kb 4096 --hier --zero-init ${SV_COSIM_FLAGS:-} > "$dest/logs/$n.hier" 2>&1
   row() { echo "$(count "$1" OK)/$(count "$1" 'RT mismatch')/$(count "$1" 'JIT mismatch')/$(count "$1" skipped)"; }
   nfiles=$(ls "$d" | wc -l)
   printf '%-24s %-10s %-22s %-22s\n' "$n" "$(count "$dest/logs/$n.rt" OK)/$nfiles" "$(row "$dest/logs/$n.leaf")" "$(row "$dest/logs/$n.hier")"

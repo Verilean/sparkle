@@ -131,6 +131,11 @@ inductive SVModuleItem where
                     (initExpr : Option SVExpr)            -- wire [A:B][C:D] x (= e)?;
   | regDecl       (name : String) (width : Option (Nat × Nat))
                   (arraySize : Option Nat)                -- reg [w] x [0:N];
+  /-- `reg x = value;` — the power-on value of `x`, kept next to its
+      `regDecl`.  It used to be parsed and thrown away, so every such
+      register started at 0: LiteX's `reg crg_int_rst = 1'd1` never
+      asserted and the SoC ran without ever being reset. -/
+  | regInit       (name : String) (value : SVExpr)
   | integerDecl   (name : String)                         -- integer i;
   | paramDecl     (param : SVParam)                       -- parameter/localparam
   | contAssign    (lhs rhs : SVExpr)                      -- assign lhs = rhs;

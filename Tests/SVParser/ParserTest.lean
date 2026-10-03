@@ -2860,5 +2860,221 @@ endmodule
     else IO.println s!"FAIL: {r} (want [12255453] = 0x00BB00DD)"; failed := failed + 1
   catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
 
+  -- Test 78 (PicoRV32 PCPI timeout): `if (x)` with a multi-bit `x` means
+  -- `x != 0`.  The path guard was ANDed with `x` bitwise, so only bit 0
+  -- decided: the 4-bit down-counter went 15 → 14 and stopped, and the
+  -- else branch (bitwise NOT) fired on every even value.
+  IO.print "  Test 78: multi-bit `if` condition is `!= 0` (PicoRV32 pcpi_timeout_counter)... "
+  try
+    let v := "
+module cntdn (input clk, output [3:0] q, output [3:0] z);
+  reg started;
+  reg [3:0] c;
+  reg [3:0] zc;
+  always @(posedge clk) begin
+    started <= 1;
+    if (!started)
+      c <= 4'hF;
+    else begin
+      if (c)
+        c <= c - 1;
+    end
+    if (started) begin
+      if (c)
+        zc <= zc;
+      else
+        zc <= zc + 1;
+    end
+  end
+  assign q = c;
+  assign z = zc;
+endmodule
+"
+    -- tick 1 loads 15; the outputs after 10 ticks show the state before
+    -- the 10th edge: 8 decrements → 7, and `zc` never counted.
+    let r ← jitRun v (fun _ => pure ()) 10
+      (fun h => do return [← JIT.getOutput h 0, ← JIT.getOutput h 1])
+    if r == [7, 0] then IO.println "PASS"; passed := passed + 1
+    else IO.println s!"FAIL: {r} (want [7, 0])"; failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 79 (LiteX power-on reset): `reg x = v;` is the power-on value.
+  -- The initializer was parsed and discarded, so `crg_int_rst = 1'd1`
+  -- started at 0 and the SoC never saw its reset.
+  IO.print "  Test 79: `reg x = v;` declaration initializer is the power-on value (LiteX crg_int_rst)... "
+  try
+    let v := "
+module por (input clk, output [7:0] q, output r);
+  reg int_rst = 1'd1;
+  reg [7:0] count = 8'd200, seen = 8'd0;
+  always @(posedge clk) begin
+    int_rst <= 1'd0;
+    if (int_rst)
+      seen <= count;
+    count <= count + 1;
+  end
+  assign q = seen;
+  assign r = int_rst;
+endmodule
+"
+    -- the one reset cycle captures the initial count; the reset is gone after it
+    let r ← jitRun v (fun _ => pure ()) 4
+      (fun h => do return [← JIT.getOutput h 0, ← JIT.getOutput h 1])
+    if r == [200, 0] then IO.println "PASS"; passed := passed + 1
+    else IO.println s!"FAIL: {r} (want [200, 0])"; failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 80 (LiteX RAMs): a memory read into an INTERNAL wire.  Flat
+  -- lowering renames internal wires to `_gen_<name>` but left the
+  -- memory's read-data name alone, so the readers saw an undriven wire
+  -- and every such RAM read back 0.
+  IO.print "  Test 80: memory read into an internal wire survives flat lowering (LiteX sram/main_ram)... "
+  try
+    let v := "
+module ramq (input clk, input [3:0] adr, input we, input [31:0] dat_w, output [31:0] dat_r);
+  reg [31:0] ram[0:15];
+  reg [3:0] adr_q;
+  wire [31:0] q;
+  always @(posedge clk) begin
+    if (we)
+      ram[adr] <= dat_w;
+    adr_q <= adr;
+  end
+  assign q = ram[adr_q];
+  assign dat_r = q + 32'd1;
+endmodule
+"
+    let r ← jitRun v (fun h => do
+        JIT.setInput h 0 9; JIT.setInput h 1 1; JIT.setInput h 2 0x1234) 3
+      (fun h => do return [← JIT.getOutput h 0])
+    if r == [0x1235] then IO.println "PASS"; passed := passed + 1
+    else IO.println s!"FAIL: {r} (want [4661] = 0x1235)"; failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 81 (PicoRV32 reg_sh): a narrow register loaded from a wider
+  -- wire is truncated to ITS width.  CSim took every `.ref` as already
+  -- masked, so a chain made only of references got no mask at all and
+  -- the 5-bit register kept bits 5-7 of its uint8 container.
+  IO.print "  Test 81: narrow register loaded from a wider wire is truncated (PicoRV32 reg_sh)... "
+  try
+    let v := "
+module trunc (input clk, input en, input [31:0] v, output [7:0] q);
+  reg [4:0] sh;
+  always @(posedge clk) begin
+    if (en)
+      sh <= v;
+  end
+  assign q = {3'b000, sh} + 8'd0;
+endmodule
+"
+    let r ← jitRun v (fun h => do JIT.setInput h 0 1; JIT.setInput h 1 0xFF) 3
+      (fun h => do return [← JIT.getOutput h 0])
+    if r == [31] then IO.println "PASS"; passed := passed + 1
+    else IO.println s!"FAIL: {r} (want [31])"; failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 82 (CSim decision trees + in-place registers).  The JIT emits a
+  -- priority chain as nested `if`s and writes a register in place when
+  -- nothing later needs its old value.  Three things that go wrong if
+  -- that is done carelessly:
+  --   * a guard group whose inner arms all miss must FALL THROUGH to the
+  --     lower-priority arms (`r` gets 55 from the first statement even
+  --     though `if (s[0])` is entered and assigns nothing);
+  --   * registers that read each other (`a <= b; b <= a`) cannot both be
+  --     written in place;
+  --   * a shift chain must be written from the far end backwards.
+  IO.print "  Test 82: decision-tree fall-through, swap and shift chain keep non-blocking semantics... "
+  try
+    let v := "
+module pri (input clk, input [3:0] s, output [7:0] q, output [7:0] ab, output [7:0] d1, output [7:0] d2);
+  reg [7:0] r;
+  reg [7:0] a = 8'd1, b = 8'd2;
+  reg [7:0] s0 = 8'd5, s1, s2;
+  always @(posedge clk) begin
+    if (s[2] | s[3])
+      r <= 8'd55;
+    if (s[0]) begin
+      if (s[1])
+        r <= 8'd11;
+      else if (s[2])
+        r <= 8'd22;
+    end else if (s[3])
+      r <= 8'd33;
+    a <= b;
+    b <= a;
+    s0 <= s0 + 8'd1;
+    s1 <= s0;
+    s2 <= s1;
+  end
+  assign q = r;
+  assign ab = a + b + (a == b ? 8'd100 : 8'd0);
+  assign d1 = s0 - s1;
+  assign d2 = s1 - s2;
+endmodule
+"
+    -- s = 4'b1001: only the first statement assigns r.  a + b stays 3
+    -- (103 would mean both took the same value); the chain keeps a
+    -- distance of one between its stages.
+    let r ← jitRun v (fun h => JIT.setInput h 0 0b1001) 6
+      (fun h => do return [← JIT.getOutput h 0, ← JIT.getOutput h 1,
+                           ← JIT.getOutput h 2, ← JIT.getOutput h 3])
+    if r == [55, 3, 1, 1] then IO.println "PASS"; passed := passed + 1
+    else IO.println s!"FAIL: {r} (want [55, 3, 1, 1])"; failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 83 (CSim fast configuration): `toCJIT (fusedLocalWires := true)`
+  -- keeps wires on the stack inside eval_tick and computes a wire only
+  -- under the conditions all its readers share.  `big` is read in two
+  -- states by two registers (a disjunctive guard), `chain2` only through
+  -- `chain3`; the registers must end up exactly as in the default
+  -- configuration.
+  IO.print "  Test 83: fused-local eval_tick (lazy wires, in-place registers) matches the default configuration... "
+  try
+    let v := "
+module lazyw (input clk, input [7:0] a, input [7:0] b, output [15:0] o1, output [15:0] o2, output [15:0] o3);
+  reg [1:0] st;
+  reg [15:0] r1, r2, r3;
+  wire [15:0] big = ((a * 8'd3) + (b ^ 8'h5a) + {8'd0, a} + {b, 8'd0}) ^ {r1[7:0], r2[7:0]};
+  wire [15:0] chain1 = r3 + {8'd0, a} + 16'd7;
+  wire [15:0] chain2 = (chain1 << 1) ^ {8'd0, b} ^ 16'h1234;
+  wire [15:0] chain3 = chain2 + (chain2 >> 3) + r1;
+  always @(posedge clk) begin
+    st <= st + 2'd1;
+    case (st)
+      2'd0: r1 <= r1 + 16'd1;
+      2'd1: r1 <= big;
+      2'd2: r2 <= big + r1;
+      default: begin
+        if (a[0])
+          r3 <= chain3;
+      end
+    endcase
+  end
+  assign o1 = r1;
+  assign o2 = r2;
+  assign o3 = r3;
+endmodule
+"
+    let run := fun (fast : Bool) => do
+      let design ← IO.ofExcept (parseAndLowerFlat v)
+      IO.FS.writeFile "/tmp/sparkle_pair_test.c" (toCJIT design (fusedLocalWires := fast))
+      let h ← JIT.compileAndLoad "/tmp/sparkle_pair_test.c"
+      JIT.reset h
+      let mut trace : List UInt64 := []
+      for c in [:40] do
+        JIT.setInput h 0 (UInt64.ofNat ((c * 37 + 11) % 256))
+        JIT.setInput h 1 (UInt64.ofNat ((c * 101 + 3) % 256))
+        JIT.evalTick h
+        JIT.eval h
+        trace := trace ++ [← JIT.getOutput h 0, ← JIT.getOutput h 1, ← JIT.getOutput h 2]
+      JIT.destroy h
+      return trace
+    let slow ← run false
+    let fast ← run true
+    let nonTrivial := slow.any (· > 255)
+    if slow == fast && nonTrivial then IO.println "PASS"; passed := passed + 1
+    else IO.println s!"FAIL: default {slow.drop 100} vs fast {fast.drop 100}"; failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
   IO.println s!"\n=== Results: {passed} passed, {failed} failed ==="
   return if failed == 0 then 0 else 1

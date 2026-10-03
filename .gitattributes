@@ -1,0 +1,3 @@
+# Generated C kept as the baseline of bench/gate/run.sh; reviewed through
+# the numbers the gate prints, not line by line.
+bench/gate/golden/*.c linguist-generated=true -diff

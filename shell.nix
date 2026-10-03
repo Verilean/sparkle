@@ -31,6 +31,7 @@ pkgs.mkShell {
     gh
     cudaPackages_12_6.cudatoolkit
     z3
+    valgrind      # exact instruction counts for bench/gate/run.sh
   ];
 
   # Environment variables
