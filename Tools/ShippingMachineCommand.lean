@@ -19,10 +19,11 @@ and adds
 * `f.machine_sound`: a run of the real synthesis entry on `f` at the machine
   boundary returns a module that shows, on every output port and at every
   cycle, the SOURCE declaration `f`;
-* `f.machine_ships`: the same at the FULL entry, for the optimized module
-  and its emitted Verilog, under the gates of
-  `Tools.ShippingMachineShipping.machine_ships_full` (the merge and the
-  optimizer accepted by `refineCheck`, the emitted-Verilog check).
+* `f.machine_ships`: the same at the FULL entry, for the module the printer
+  is given (`checkedOptimize`) and its emitted Verilog
+  (`Tools.ShippingMachineShipping.machine_ships_checked`): the merge and
+  the optimizer are checked by the compiler itself, so what remains are
+  structural facts about the run's modules and the emitted-Verilog check.
 
 Nothing here is trusted: a wrong reading of the body makes a kernel check
 fail, and the command then adds no theorem. -/
@@ -593,7 +594,7 @@ def generateCore (declName : Name) (checkCloses : Bool) : MetaM Name := do
       { name := soundName, levelParams := [], type := ← inferType p, value := p })
     -- to the emitted Verilog, at the full entry (gates as premises)
     let shipsName := declName ++ `machine_ships
-    let ships := mkAppN (mkConst ``Tools.ShippingMachineShipping.machine_ships_full)
+    let ships := mkAppN (mkConst ``Tools.ShippingMachineShipping.machine_ships_checked)
       #[toExpr declName, data, ι, ← mkLambdaFVars #[i] D, mkConst srcName, mkConst soundName]
     addDecl (.thmDecl
       { name := shipsName, levelParams := [], type := ← inferType ships, value := ships })

@@ -1067,6 +1067,34 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   are trees). Not covered: the module parsed back from the printed bytes
   (the reader's own optimizer goes further than the writer's on
   multi-register modules), and reset.
+- [x] **The merge and the optimizer checked at compile time** (user
+  decision 2026-10-03: a compile-time gate is fine as long as compiles do
+  not fail). `Sparkle.IR.RefineCheck.mergeChecked` (in the full entry) and
+  `checkedOptimize` (before the printer) keep the merged / optimised module
+  of an assign + register module only if `refineCheck` accepts it, else the
+  module before the step ships; compiles never fail on it. The gate binds
+  only on modules in the normal forms (`refineCheck m m`) — a first version
+  gating every `seqGate` module changed 70 legacy sequential modules in 38
+  output files (assigns referencing wires defined later, `asr`, forms the
+  normaliser does not know; `rNormBody` reads the assigns in order), so a
+  module outside the normal forms keeps the unchecked passes and its text.
+  `machine_ships_checked`
+  therefore drops both `refineCheck` premises: `f.machine_ships` now needs
+  only structural facts about the run's modules (no zero-width wire, the
+  assign + register shape, the normal forms of the core and merged module,
+  reset and output ports) and the emitted-Verilog
+  check; `scripts/shipping-coverage/pipeline.sh` also reports where the
+  compiler's gate REFUSED a step (the module then ships unmerged /
+  unoptimised). MEASURED: the premises hold for 107 of 113
+  machine-route declarations (the 6 `EmitSem.seqCheck` rejections remain;
+  the two CRC modules, 0.5–0.75M-node normal forms, pass now that the probe
+  runs the check — it shares the DAG); against the previous compiler every
+  emitted RTL text is identical (198 of 199 output files byte-identical;
+  the one difference is the new `run_cmd` log of
+  `ShippingMachineCommandTest`), status identical; 60-cycle simulation
+  119/119 OK; 113/113 machine-route declarations have the kernel-checked
+  endpoint. `synthesizeCombinational_reads` keeps its statement (the
+  refused merge is its first disjunct).
 - [ ] **S7 / trust:** Resolve or explicitly retain `EnvDefines` in the final
   claim; record execution-model/external-tool boundaries without hiding them.
   RECORDED — docs/ShippingCompiler-TrustBase.md states the retained base

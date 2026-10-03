@@ -157,14 +157,29 @@ run_cmd liftTermElabM do
     let (b, _) ← synthesizeCombinational n
     let o := Sparkle.IR.OptCheck.checkedOptimize b
     let wof := Tools.SVParser.RoundtripProof.moduleWof o
+    -- the compiler's own gates accepted both steps: the merge happened and
+    -- the printer is given the optimizer's output
     let oo := Sparkle.IR.Optimize.optimizeModule b
     unless o.body == oo.body && o.wires == oo.wires && o.inputs == oo.inputs &&
         o.outputs == oo.outputs do
       throwError "{n}: the printer is not given the optimizer's output"
+    let mm := Sparkle.IR.RegDedup.mergeDuplicates (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)
+    unless b.body == mm.body && b.wires == mm.wires do
+      throwError "{n}: the full entry did not keep the merge"
     unless Sparkle.IR.RefineCheck.refineCheck raw b do
       throwError "{n}: refineCheck rejects the cleanup/merge step"
     unless Sparkle.IR.RefineCheck.refineCheck b o do
       throwError "{n}: refineCheck rejects the optimizer's output"
+    -- the structural premises of `f.machine_ships`
+    let z := Sparkle.IR.ZeroWidth.dropZeroWidthModule raw
+    unless z.body == raw.body && z.wires == raw.wires && z.inputs == raw.inputs &&
+        z.outputs == raw.outputs do
+      throwError "{n}: the zero-width cleanup changed the core module"
+    unless Sparkle.IR.RefineCheck.seqGate raw && Sparkle.IR.RefineCheck.seqGate b &&
+        !Sparkle.IR.OptCheck.simpleBody b do
+      throwError "{n}: not an assign + register module"
+    unless Sparkle.IR.RefineCheck.refineCheck raw raw && Sparkle.IR.RefineCheck.refineCheck b b do
+      throwError "{n}: a module outside the normal forms (the gates would not bind)"
     unless (raw.inputs.map (·.name)).contains "rst" do throwError "{n}: no reset port"
     unless shape.layout.outs.all (fun q => raw.outputs.any (·.name == q.name)) do
       throwError "{n}: an output port is missing"
@@ -173,7 +188,7 @@ run_cmd liftTermElabM do
     unless (Tools.ShippingSeqSVSoundness.seqNames o.body).all (fun x =>
         Sparkle.IR.RegDedup.declWidth o x == Tools.SVParser.EmitSem.weOf wof x) do
       throwError "{n}: checker and emitter widths disagree"
-  logInfo m!"MACHINE SHIPPING GATES: the merge and the optimizer are accepted by refineCheck, and the emitted-Verilog check passes, on all thirteen declarations"
+  logInfo m!"MACHINE SHIPPING GATES: the compiler's refineCheck gates kept the merge and the optimizer, and the emitted-Verilog check passes, on all thirteen declarations"
 
 /-! ## Axioms -/
 
@@ -186,6 +201,7 @@ run_cmd do
       ``Tools.ShippingRefineSoundness.rSlice_sound,
       ``Tools.ShippingMachineShipping.machine_ships,
       ``Tools.ShippingMachineShipping.machine_ships_full,
+      ``Tools.ShippingMachineShipping.machine_ships_checked,
       ``Sparkle.IP.Bus.LINHW.checksumHW.machine_ships,
       ``Sparkle.IP.Crypto.EcdsaSignDemo.wMulN.machine_ships,
       ``mThree.machine_ships, ``toggle.machine_ships,

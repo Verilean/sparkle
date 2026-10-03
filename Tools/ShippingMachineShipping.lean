@@ -32,6 +32,16 @@ open Tools.ShippingSeqOptSoundness Tools.ShippingRefineSoundness
 open Tools.ShippingSeqSVSoundness Tools.ShippingPipelineSoundness
 open Sparkle.IR.RegDedup (declWidth)
 
+/-- `refineCheck` puts the module it compares in the assign + register
+fragment. -/
+theorem refineCheck_stmtOk_m {m o : Sparkle.IR.AST.Module} (h : refineCheck m o = true) :
+    m.body.all seqStmtOk = true := by
+  simp only [refineCheck] at h
+  rw [Bool.and_eq_true] at h
+  obtain ⟨h1, -⟩ := h
+  simp only [Bool.and_eq_true, decide_eq_true_eq] at h1
+  exact h1.1.1.1.1.1.1.1.1.1.2
+
 /-- `refineCheck` puts the accepted module in the assign + register
 fragment. -/
 theorem refineCheck_stmtOk_o {m o : Sparkle.IR.AST.Module} (h : refineCheck m o = true) :
@@ -98,9 +108,10 @@ theorem machine_ships {declName : Name} {d : MachineData}
     {src : (i : ι) → (Nat → Signal (dom i) Bool) →
       ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat)}
     (htrace : MachineTrace declName d raw dom src)
-    (hmerge : refineCheck raw b = true) (hopt : refineCheck b o = true)
+    (hmerge : refineCheck raw b = true ∨ b = raw) (hopt : refineCheck b o = true ∨ o = b)
     (hrstIn : "rst" ∈ raw.inputs.map (·.name))
     (houtP : ∀ q ∈ d.shape.layout.outs, ∃ p ∈ raw.outputs, p.name = q.name)
+    (hrawOk : raw.body.all seqStmtOk = true)
     (hsv : Tools.SVParser.EmitSem.seqCheck wof (Tools.SVParser.EmitSem.weOf wof) o.body = true)
     (hwag : ((seqNames o.body).all fun n =>
       declWidth o n == Tools.SVParser.EmitSem.weOf wof n) = true) :
@@ -117,21 +128,42 @@ theorem machine_ships {declName : Name} {d : MachineData}
     init
   have hrun' : runModule (declWidth raw) raw.body (seedIn raw ins) T st0 mems = some envs :=
     hrun
-  -- the merge
-  obtain ⟨hinB, houtB⟩ := refineCheck_ports hmerge
-  obtain ⟨envsB, hrunB, hlenB, hcorrB⟩ :=
-    refineCheck_transfer hmerge ins hinsRaw hrstIn hrstZ (stO := st0) (fun _ _ => rfl)
-      hfitRaw hrun'
-  -- the optimizer
+  -- the merge (a checked refinement, or no merge)
+  have stepB : b.inputs = raw.inputs ∧ b.outputs = raw.outputs ∧ ∃ envsB,
+      runModule (declWidth b) b.body (seedIn raw ins) T st0 mems = some envsB ∧
+      envsB.length = envs.length ∧
+      ∀ p ∈ raw.outputs, ∀ j (hj : j < envsB.length) (hj' : j < envs.length),
+        (envsB[j]'hj) p.name = (envs[j]'hj') p.name := by
+    rcases hmerge with hmerge | rfl
+    · obtain ⟨hinB, houtB⟩ := refineCheck_ports hmerge
+      exact ⟨hinB, houtB, refineCheck_transfer hmerge ins hinsRaw hrstIn hrstZ (stO := st0)
+        (fun _ _ => rfl) hfitRaw hrun'⟩
+    · exact ⟨rfl, rfl, envs, hrun', rfl, fun _ _ _ _ _ => rfl⟩
+  obtain ⟨hinB, houtB, envsB, hrunB, hlenB, hcorrB⟩ := stepB
+  -- the optimizer (a checked refinement, or no optimisation)
   have hseed : seedIn b ins = seedIn raw ins := seedIn_of_inputs hinB ins
   have hrstInB : "rst" ∈ b.inputs.map (·.name) := by rw [hinB]; exact hrstIn
-  rw [← hseed] at hrunB
-  obtain ⟨envsO, hrunO, hlenO, hcorrO⟩ :=
-    refineCheck_transfer hopt ins hinsB hrstInB hrstZ (stO := st0) (fun _ _ => rfl)
-      hfitB hrunB
-  rw [hseed] at hrunO
+  have stepO : ∃ envsO,
+      runModule (declWidth o) o.body (seedIn raw ins) T st0 mems = some envsO ∧
+      envsO.length = envsB.length ∧
+      ∀ p ∈ b.outputs, ∀ j (hj : j < envsO.length) (hj' : j < envsB.length),
+        (envsO[j]'hj) p.name = (envsB[j]'hj') p.name := by
+    rcases hopt with hopt | rfl
+    · rw [← hseed] at hrunB
+      obtain ⟨envsO, hrunO, hlenO, hcorrO⟩ :=
+        refineCheck_transfer hopt ins hinsB hrstInB hrstZ (stO := st0) (fun _ _ => rfl)
+          hfitB hrunB
+      rw [hseed] at hrunO
+      exact ⟨envsO, hrunO, hlenO, hcorrO⟩
+    · exact ⟨envsB, hrunB, rfl, fun _ _ _ _ _ => rfl⟩
+  obtain ⟨envsO, hrunO, hlenO, hcorrO⟩ := stepO
   -- the emitted Verilog
-  have hok := refineCheck_stmtOk_o hopt
+  have hok : o.body.all seqStmtOk = true := by
+    rcases hopt with hopt | rfl
+    · exact refineCheck_stmtOk_o hopt
+    · rcases hmerge with hmerge | rfl
+      · exact refineCheck_stmtOk_o hmerge
+      · exact hrawOk
   have hwag' : ∀ n ∈ seqNames o.body,
       declWidth o n = Tools.SVParser.EmitSem.weOf wof n := by
     intro n hn
@@ -187,6 +219,89 @@ theorem machine_ships_full {declName : Name} (d : MachineData)
     Tools.ShippingPostSoundness.synthesizeCombinational_reads hr
   refine ⟨raw, hpost, ?_⟩
   intro o wof hmerge hopt hrstIn houtP hsv hwag
-  exact machine_ships (sound hcore entry closes) hmerge hopt hrstIn houtP hsv hwag
+  exact machine_ships (sound hcore entry closes) (Or.inl hmerge) (Or.inl hopt) hrstIn houtP
+    (refineCheck_stmtOk_m hmerge) hsv hwag
+
+/-- `synthesizeCombinational`, keeping the CHECKED merge: the module it
+returns is the cleanup's, or `mergeChecked` of it. -/
+theorem synthesizeCombinational_checked {declName : Name} {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {M' : Sparkle.IR.AST.Module} {D' : Design}
+    (h : RunsTo (synthesizeCombinational declName) mctx mref cctx cref w (M', D') w') :
+    ∃ (M : Sparkle.IR.AST.Module) (D : Design) (w1 : Void IO.RealWorld),
+      RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (M, D) w1 ∧
+      (M' = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨
+        M' = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M)) := by
+  unfold synthesizeCombinational synthesizeCombinationalWith at h
+  obtain ⟨⟨M, D⟩, w1, hcore, h⟩ := RunsTo.bind h
+  refine ⟨M, D, w1, hcore, ?_⟩
+  dsimp only at h
+  obtain ⟨_, _, -, h⟩ := RunsTo.bind h
+  rcases RunsTo.ite h with h | h
+  · have := Tools.ShippingPostSoundness.RunsTo.pure h
+    simp only [Prod.mk.injEq] at this
+    exact Or.inl this.1
+  · have := Tools.ShippingPostSoundness.RunsTo.pure h
+    simp only [Prod.mk.injEq] at this
+    exact Or.inr this.1
+
+/-- **A state machine at the full entry, to the printed module's emitted
+Verilog — the merge and the optimizer CHECKED by the compiler.** The full
+entry keeps the merge only when `refineCheck` accepts it (`mergeChecked`),
+and the printer keeps the optimizer's output only when `refineCheck` accepts
+it (`checkedOptimize`); so no gate on them remains. What remains are
+structural facts about the run's modules — no zero-width wire in the core
+module, the assign + register shape, the modules' own normal forms
+(`refineCheck m m`, which is what makes the compiler's gates bind), the
+reset and output ports — and the emitted-Verilog check of the printed
+module. -/
+theorem machine_ships_checked {declName : Name} (d : MachineData)
+    {ι : Type} {dom : ι → DomainConfig}
+    {src : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat)}
+    (sound : ∀ {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+      {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+      {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design},
+      RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w
+        (m, design) w' →
+      MachineDefines mctx mref cctx cref declName d.shape →
+      MachineCloses mctx mref cctx cref declName d.shape →
+      MachineTrace declName d m dom src)
+    {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {b : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinational declName) mctx mref cctx cref w (b, design) w')
+    (entry : MachineDefines mctx mref cctx cref declName d.shape)
+    (closes : MachineCloses mctx mref cctx cref declName d.shape) :
+    ∃ raw : Sparkle.IR.AST.Module,
+      (b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨
+        b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)) ∧
+      ∀ (wof : String → Option Nat),
+        Sparkle.IR.ZeroWidth.dropZeroWidthModule raw = raw →
+        seqGate raw = true → seqGate b = true → simpleBody b = false →
+        refineCheck raw raw = true → refineCheck b b = true →
+        "rst" ∈ raw.inputs.map (·.name) →
+        (∀ q ∈ d.shape.layout.outs, ∃ p ∈ raw.outputs, p.name = q.name) →
+        Tools.SVParser.EmitSem.seqCheck wof (Tools.SVParser.EmitSem.weOf wof)
+          (checkedOptimize b).body = true →
+        ((seqNames (checkedOptimize b).body).all fun n =>
+          declWidth (checkedOptimize b) n == Tools.SVParser.EmitSem.weOf wof n) = true →
+        MachineShips declName d raw b (checkedOptimize b) wof dom src := by
+  obtain ⟨raw, design', w1, hcore, hpost⟩ := synthesizeCombinational_checked hr
+  refine ⟨raw, hpost, ?_⟩
+  intro wof hz hgRaw hgB hsB hmRaw hmB hrstIn houtP hsv hwag
+  rw [hz] at hpost
+  have hmerge : refineCheck raw b = true ∨ b = raw := by
+    rcases hpost with rfl | rfl
+    · exact Or.inr rfl
+    · rcases mergeChecked_seq hgRaw hmRaw with h | h
+      · exact Or.inl h
+      · exact Or.inr h
+  have hrawOk : raw.body.all seqStmtOk = true := by
+    simp only [seqGate, Bool.and_eq_true] at hgRaw
+    exact hgRaw.1
+  exact machine_ships (sound hcore entry closes) hmerge (checkedOptimize_seq hsB hgB hmB) hrstIn
+    houtP hrawOk hsv hwag
 
 end Tools.ShippingMachineShipping

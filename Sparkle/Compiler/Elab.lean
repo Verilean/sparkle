@@ -20,6 +20,7 @@ import Sparkle.IR.Optimize
 import Sparkle.IR.ZeroWidth
 import Sparkle.IR.RegDedup
 import Sparkle.IR.OptCheck
+import Sparkle.IR.RefineCheck
 import Sparkle.IR.Machine
 import Sparkle.IR.ModuleNameCheck
 import Sparkle.Compiler.DRC
@@ -4350,8 +4351,11 @@ def synthesizeCombinationalWith (translate : TranslateFn) (declName : Name) :
   let m := Sparkle.IR.ZeroWidth.dropZeroWidthModule m
   let d := Sparkle.IR.ZeroWidth.dropZeroWidthDesign d
   if (← IO.getEnv "SPARKLE_NO_REGDEDUP").isSome then return (m, d)
-  return (Sparkle.IR.RegDedup.mergeDuplicates m,
-    Sparkle.IR.RegDedup.mergeDuplicatesDesign d)
+  -- the merge is result-checked on assign + register modules
+  -- (`Sparkle.IR.RefineCheck.mergeChecked`): kept only if `refineCheck`
+  -- accepts it
+  return (Sparkle.IR.RefineCheck.mergeChecked m,
+    Sparkle.IR.RefineCheck.mergeCheckedDesign d)
 
 /-! The translator block below takes its recursive entry as a PARAMETER
 (`translateExprToWire`, a section variable), so it no longer ties its own knot.
@@ -6693,8 +6697,8 @@ mutual
     let m := Sparkle.IR.ZeroWidth.dropZeroWidthModule m
     let d := Sparkle.IR.ZeroWidth.dropZeroWidthDesign d
     if (← IO.getEnv "SPARKLE_NO_REGDEDUP").isSome then return (m, d)
-    return (Sparkle.IR.RegDedup.mergeDuplicates m,
-      Sparkle.IR.RegDedup.mergeDuplicatesDesign d)
+    return (Sparkle.IR.RefineCheck.mergeChecked m,
+      Sparkle.IR.RefineCheck.mergeCheckedDesign d)
 end
 end Rec
 end TranslatorBlock
@@ -7603,8 +7607,9 @@ def runDesignDRC (design : Sparkle.IR.AST.Design) : MetaM Unit := do
       Lean.logWarning m!"{w}"
 
 /-- The text `#synthesizeVerilog` / `#showVerilog` print for a synthesized
-    module: the IR optimizer (result-checked on small combinational modules,
-    `Sparkle.IR.OptCheck.checkedOptimize`), then the Verilog printer. -/
+    module: the IR optimizer (result-checked on small combinational modules
+    and on assign + register modules, `Sparkle.IR.OptCheck.checkedOptimize`),
+    then the Verilog printer. -/
 def verilogOf (module : Sparkle.IR.AST.Module) : String :=
   toVerilog (Sparkle.IR.OptCheck.checkedOptimize module)
 

@@ -578,7 +578,8 @@ theorem RunsTo.pure {α : Type} {a b : α} {mctx : Meta.Context}
 
 /-- `synthesizeCombinational` runs the entry in the SAME contexts and state
 references, then the two passes (the second only when the environment variable
-is unset). -/
+is unset, and — on assign + register modules — only when `refineCheck` accepts
+the merge: `mergeChecked`; else the module is the cleanup's). -/
 theorem synthesizeCombinational_reads {declName : Name} {mctx : Meta.Context}
     {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
     {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
@@ -598,7 +599,9 @@ theorem synthesizeCombinational_reads {declName : Name} {mctx : Meta.Context}
     exact Or.inl this.1
   · have := RunsTo.pure h
     simp only [Prod.mk.injEq] at this
-    exact Or.inr this.1
+    rcases Sparkle.IR.RefineCheck.mergeChecked_cases (dropZeroWidthModule M) with hc | hc
+    · exact Or.inr (this.1.trans hc)
+    · exact Or.inl (this.1.trans hc)
 
 /-- **`#synthesizeVerilog`'s IR, for the fragment.** A successful run of
 `synthesizeCombinational` (entry, zero-width cleanup, merge) for a declaration

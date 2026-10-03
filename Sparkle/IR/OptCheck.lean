@@ -147,15 +147,8 @@ def assignmentOrderCheck : List Stmt → Bool
       assignmentOrderCheck rest
   | _ => false
 
-/-- `optimizeModule`, result-checked on modules of simple shape: there the
-optimised module is kept only if `optCheck` and the assignment-order check
-accept it, else the input module
-is returned unoptimised. Other modules get `optimizeModule` unchanged. -/
-def checkedOptimize (m : Module) : Module :=
-  let o := Sparkle.IR.Optimize.optimizeModule m
-  if simpleBody m then
-    if optCheck m o && assignmentOrderCheck o.body then o else m
-  else o
+-- `checkedOptimize` (the optimizer, result-checked) lives in
+-- `Sparkle/IR/RefineCheck.lean`, next to the sequential result check it uses.
 
 /-! ## Sequential rename-equivalence check
 

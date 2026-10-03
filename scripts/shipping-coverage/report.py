@@ -255,7 +255,7 @@ def pipeline():
     ok = [d for d in wanted if result.get(d, ('',))[0] == 'OK']
     real = [d for d in wanted if not is_certification_test(d)]
     print('machine route:', len(wanted), 'of which real corpus:', len(real))
-    print('all shipping gates hold (f.machine_ships applies):', len(ok),
+    print('all shipping premises hold (f.machine_ships applies), merge and optimisation kept:', len(ok),
           'of which real corpus:', sum(1 for d in ok if not is_certification_test(d)))
     why = collections.Counter(result[d][1] for d in wanted if d in result and result[d][0] != 'OK')
     for k, v in why.most_common():

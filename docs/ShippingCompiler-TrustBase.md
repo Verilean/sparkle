@@ -97,11 +97,22 @@ containing a part-select or a concatenation of two wires, since the
 checker's normal form covers neither. On an assignment-only body with
 an unknown right-hand side (a wider concatenation, a general slice
 operand), and on
-registers, memories and instances the shipping pipeline keeps the
-optimizer's output unchecked at run time. For those shapes the
-validation is exactly the gates above: an optimizer change that broke
-one would fail the suite rather than silently ship, but a compile the
-suite never ran is not checked.
+memories and instances the shipping pipeline keeps the optimizer's
+output unchecked at run time. For those shapes the validation is exactly
+the gates above: an optimizer change that broke one would fail the suite
+rather than silently ship, but a compile the suite never ran is not
+checked. On ASSIGN + REGISTER modules IN THE NORMAL FORMS
+(`RefineCheck.seqGate` and `refineCheck m m`: every output and next
+value normalises over the inputs and registers) both the duplicate merge
+of the full entry (`mergeChecked`) and the optimizer (`checkedOptimize`)
+are checked at run time by `refineCheck`, proved sound
+(`refineCheck_transfer`): the merged / optimised module ships only if
+accepted, the unmerged / unoptimised one otherwise. For these modules the
+printed text is therefore a proved refinement of the core module in EVERY
+compile, not only the suite's. A sequential module outside the normal
+forms (legacy modules whose assigns reference wires defined later, forms
+the normaliser does not know) keeps the unchecked passes, so the gate
+changes no emitted text there.
 
 ## 5. Definitions that carry the meaning
 
@@ -222,10 +233,16 @@ modules of the run — `refineCheck raw b` (cleanup and duplicate merge),
 `EmitSem.seqCheck` and its width agreement. `refineCheck` is proved sound
 (`refineCheck_transfer`); the gates are evaluated by the suite on thirteen
 declarations and by `scripts/shipping-coverage/pipeline.sh` on the corpus
-(104 of 112 hold). They are premises, not compile-time checks: for a
-compile nobody evaluated them on, the optimizer's output is not validated.
-The module parsed back from the printed bytes is not covered for machine
-modules.
+(107 of 113 hold). Since the compiler checks the merge and the
+optimizer itself (`mergeChecked`, `checkedOptimize`; `machine_ships_checked`),
+`f.machine_ships` no longer needs `refineCheck` as a premise: what remains
+are structural facts about the run's modules (no zero-width wire, the
+assign + register shape, the normal forms of the core and merged modules
+— `refineCheck m m`, the condition under which the compiler's gate binds
+— the reset and output ports) and the emitted-Verilog check of the printed
+module; they hold for 107 of 113
+machine-route declarations. The module parsed back from the printed bytes
+is not covered for machine modules.
 
 ## 7. What is outside every theorem
 

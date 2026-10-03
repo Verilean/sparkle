@@ -30,8 +30,12 @@
     part-select of a constant is a constant.
 
   Normal forms are TREES over the inputs and registers: a module whose
-  wires form a deep, wide DAG has large ones.  The check is a decidable
-  premise (and a regression gate over the corpus), not a compile-time pass.
+  wires form a deep, wide DAG has large ones (the wires share them, so the
+  check itself is cheap).  The compiler runs the check as a gate on the
+  merge and the optimizer (`mergeChecked`, `checkedOptimize`) for the
+  modules whose own normal forms exist — `refineCheck m m`; a module outside
+  the normal forms keeps the unchecked passes, so the gate changes nothing
+  for the designs the normaliser does not cover.
 
   `refineCheck` is proved sound in `Tools/ShippingRefineSoundness.lean`.
 -/
@@ -180,4 +184,82 @@ def refineCheck (m o : Module) : Bool :=
      rM.all (fun rm => (rNormE wm insM dm rm.2.2.2.1).isSome)
    | _, _ => false)
 
+/-- An assign + register module with at least one register: the modules the
+sequential result check is for. -/
+def seqGate (m : Module) : Bool :=
+  m.body.all seqStmtOk && m.body.any (fun st => match st with
+    | .register .. => true
+    | _ => false)
+
+/-- `mergeDuplicates`, result-checked on assign + register modules whose own
+normal forms exist (`refineCheck m m`): the merged module is kept only if
+`refineCheck` accepts it, else the module is returned unmerged. A module
+outside the normal forms (a legacy module whose assigns reference wires
+defined later, a form the normaliser does not know) keeps `mergeDuplicates`
+unchecked, as before: the checked path never changes what the compiler emits
+for it. -/
+def mergeChecked (m : Module) : Module :=
+  let r := Sparkle.IR.RegDedup.mergeDuplicates m
+  if seqGate m then
+    if refineCheck m r then r else if refineCheck m m then m else r
+  else r
+
+def mergeCheckedDesign (d : Design) : Design :=
+  { d with modules := d.modules.map mergeChecked }
+
+theorem mergeChecked_cases (m : Module) :
+    mergeChecked m = Sparkle.IR.RegDedup.mergeDuplicates m ∨ mergeChecked m = m := by
+  unfold mergeChecked
+  dsimp only
+  split
+  · split
+    · exact Or.inl rfl
+    · split
+      · exact Or.inr rfl
+      · exact Or.inl rfl
+  · exact Or.inl rfl
+
+/-- On a gated module in the normal forms the kept module is a checked
+refinement or the module itself. -/
+theorem mergeChecked_seq {m : Module} (h : seqGate m = true) (hm : refineCheck m m = true) :
+    refineCheck m (mergeChecked m) = true ∨ mergeChecked m = m := by
+  unfold mergeChecked
+  dsimp only
+  rw [if_pos h]
+  split
+  · rename_i hc; exact Or.inl hc
+  · exact Or.inr rfl
+
 end Sparkle.IR.RefineCheck
+
+namespace Sparkle.IR.OptCheck
+open Sparkle.IR.AST
+
+/-- `optimizeModule`, result-checked: on modules of simple shape the optimised
+module is kept only if `optCheck` and the assignment-order check accept it;
+on assign + register modules in the normal forms (`RefineCheck.seqGate` and
+`refineCheck m m`) only if `refineCheck` accepts it; else the input module is
+returned unoptimised. Other modules get `optimizeModule` unchanged. -/
+def checkedOptimize (m : Module) : Module :=
+  let o := Sparkle.IR.Optimize.optimizeModule m
+  if simpleBody m then
+    if optCheck m o && assignmentOrderCheck o.body then o else m
+  else if RefineCheck.seqGate m then
+    if RefineCheck.refineCheck m o then o
+    else if RefineCheck.refineCheck m m then m
+    else o
+  else o
+
+/-- On a gated module in the normal forms that is not of simple shape, the
+optimizer's output is kept only as a checked refinement. -/
+theorem checkedOptimize_seq {m : Module} (hs : simpleBody m = false)
+    (hg : RefineCheck.seqGate m = true) (hm : RefineCheck.refineCheck m m = true) :
+    RefineCheck.refineCheck m (checkedOptimize m) = true ∨ checkedOptimize m = m := by
+  unfold checkedOptimize
+  dsimp only
+  simp only [hs, Bool.false_eq_true, if_false, hg, if_true]
+  split
+  · rename_i hc; exact Or.inl hc
+  · exact Or.inr rfl
+
+end Sparkle.IR.OptCheck

@@ -604,10 +604,18 @@ ports, the emitted-Verilog check. `scripts/shipping-coverage/pipeline.sh`
 evaluates the gates on the real modules: **they all hold for 104 of the
 112 machine-route declarations.** 6 are rejected by the
 emitted-Verilog check (`EmitSem.seqCheck`: the PCIe TLP, TCP header and
-Ethernet receive parsers), 2 have normal forms too large to compare
-(the bit-serial CRC-8 and CRC-16 engines). `refineCheck` itself accepts
-the merge and the optimizer on every module it was run on; the compiler
-does not call it, so no emitted text changed.
+Ethernet receive parsers); the bit-serial CRC-8 and CRC-16 engines,
+whose normal forms have 0.5–0.75M nodes, pass since the probe runs the
+check (it shares the DAG). The compiler now calls
+`refineCheck` itself (`mergeChecked`, `checkedOptimize`) on every assign
++ register module in the normal forms (`refineCheck m m`) and ships the
+unmerged / unoptimised module where it refuses; `f.machine_ships` needs
+no `refineCheck` premise any more (`machine_ships_checked`). Against the
+previous compiler every emitted RTL text is identical (198 of 199 output
+files byte-identical; the one difference is the new `run_cmd` log of
+`ShippingMachineCommandTest`), status identical; 60-cycle simulation
+119/119 OK; 113/113 machine-route declarations have the kernel-checked
+endpoint. The shipping premises hold for 107 of 113.
 
 What blocked the rest BEFORE the normal forms, by the refused expression (classifier
 `mach3_tail`): constants computed in Lean (`BitVec.ofInt` of an `Int`

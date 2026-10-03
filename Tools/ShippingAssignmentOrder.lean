@@ -1,5 +1,6 @@
 import Sparkle.IR.ReorderInvariance
 import Sparkle.IR.OptCheck
+import Sparkle.IR.RefineCheck
 
 /-! # Ordered IR assignments and simultaneous equations
 

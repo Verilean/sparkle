@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# For every machine-route declaration of a measurement, evaluate the gates of
-# the shipping theorem (`Tools.ShippingMachineShipping.machine_ships_full`)
-# on the modules of a real run: the duplicate merge and the optimizer accepted
-# by `refineCheck`, the reset port and the output ports present, the
-# emitted-Verilog check and its width agreement.  Where they hold, the
-# generated `f.machine_ships` says the optimized module and its emitted
-# Verilog show the source declaration.
+# For every machine-route declaration of a measurement, evaluate the premises
+# of the shipping theorem (`Tools.ShippingMachineShipping.machine_ships_checked`)
+# on the modules of a real run — the assign + register shape, no zero-width
+# wire, the reset and output ports, the emitted-Verilog check and its width
+# agreement — and whether the compiler's own `refineCheck` gates kept the
+# duplicate merge and the optimisation.  Where the premises hold, the
+# generated `f.machine_ships` says the printed module and its emitted Verilog
+# show the source declaration.
 #
 #   scripts/shipping-coverage/pipeline.sh WORKDIR [FILES.txt]
 #

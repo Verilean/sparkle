@@ -29,12 +29,10 @@ run_cmd liftTermElabM do
       let o := Sparkle.IR.OptCheck.checkedOptimize b
       let wof := Tools.SVParser.RoundtripProof.moduleWof o
       let mut fails : List String := []
-      -- a module this large has normal forms too large to compare in a probe
-      let sizeOk := raw.body.length ≤ 150 || !(s.endsWith "Crc16" || s.endsWith "Crc8")
-      if !sizeOk then fails := fails ++ ["normal-forms-too-large"]
-      else
-        unless Sparkle.IR.RefineCheck.refineCheck raw b do fails := fails ++ ["merge"]
-        unless Sparkle.IR.RefineCheck.refineCheck b o do fails := fails ++ ["optimizer"]
+      unless Sparkle.IR.RefineCheck.refineCheck raw raw && Sparkle.IR.RefineCheck.refineCheck b b do
+        fails := fails ++ ["normal-forms"]
+      unless Sparkle.IR.RefineCheck.refineCheck raw b do fails := fails ++ ["merge"]
+      unless Sparkle.IR.RefineCheck.refineCheck b o do fails := fails ++ ["optimizer"]
       unless (raw.inputs.map (·.name)).contains "rst" do fails := fails ++ ["rst"]
       unless shape.layout.outs.all (fun q => raw.outputs.any (·.name == q.name)) do
         fails := fails ++ ["outputs"]

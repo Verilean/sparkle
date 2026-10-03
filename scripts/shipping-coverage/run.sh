@@ -25,16 +25,21 @@ HERE="scripts/shipping-coverage"
 grep -rlE "^#synthesizeVerilog|^#writeDesign|^#writeVerilogDesign|^#synthesizeVerilogDesign|^#synthesize |synthesizeCombinational|synthesizeHierarchical" \
   --include=*.lean Tests IP Examples | sort > "$WORK/files.txt"
 
-# Pass 1: every synthesis, with the front end it took.
+# Pass 1: every synthesis, with the front end it took.  Three files in
+# parallel: the profile log is appended one self-contained line at a time,
+# and the report reads it line by line, so interleaving does not matter.
 rm -f /tmp/sparkle-profile.log
 : > "$WORK/status.txt"
 mkdir -p "$WORK/out"
-while read -r f; do
+pass1_one() {
+  f="$1"
   # stdout only: stderr carries the profile lines, whose timings vary.
   SPARKLE_PROFILE=1 timeout 300 lake env lean "$f" \
     > "$WORK/out/$(echo "$f" | tr '/' '_').txt" 2> /dev/null
   echo "$f $?" >> "$WORK/status.txt"
-done < "$WORK/files.txt"
+}
+export -f pass1_one; export WORK
+xargs -P 3 -L 1 bash -c 'pass1_one "$0"' < "$WORK/files.txt"
 cp /tmp/sparkle-profile.log "$WORK/profile.log"
 python3 "$HERE/report.py" routes "$WORK"
 if [ "${PASSES:-3}" = "1" ]; then

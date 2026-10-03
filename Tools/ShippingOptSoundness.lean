@@ -1,4 +1,5 @@
 import Sparkle.IR.OptCheck
+import Sparkle.IR.RefineCheck
 import Tools.ConeFoldSlices
 
 /-! # The optimizer result check is sound
@@ -369,7 +370,14 @@ theorem checkedOptimize_wires_sublist (m : Sparkle.IR.AST.Module) :
     split
     · exact optimizeModule_wires_sublist m
     · exact List.Sublist.refl _
-  · exact optimizeModule_wires_sublist m
+  · dsimp only
+    split
+    · split
+      · exact optimizeModule_wires_sublist m
+      · split
+        · exact List.Sublist.refl _
+        · exact optimizeModule_wires_sublist m
+    · exact optimizeModule_wires_sublist m
 
 theorem checkedOptimize_wires_subset (m : Sparkle.IR.AST.Module) :
     ∀ p ∈ (checkedOptimize m).wires, p ∈ m.wires := by
@@ -380,6 +388,13 @@ theorem checkedOptimize_wires_subset (m : Sparkle.IR.AST.Module) :
     split at hp
     · exact optimizeModule_wires_subset m p hp
     · exact hp
-  · exact optimizeModule_wires_subset m p hp
+  · dsimp only at hp
+    split at hp
+    · split at hp
+      · exact optimizeModule_wires_subset m p hp
+      · split at hp
+        · exact hp
+        · exact optimizeModule_wires_subset m p hp
+    · exact optimizeModule_wires_subset m p hp
 
 end Tools.ShippingOptSoundness
