@@ -1,0 +1,68 @@
+
+namespace CovProbeZZ
+open Lean Elab Command Meta Sparkle.Compiler.Elab in
+partial def headsOf (e : Lean.Expr) (acc : Array Lean.Name) : Array Lean.Name :=
+  match e with
+  | .app .. =>
+    let f := e.getAppFn
+    let acc := match f with
+      | .const n _ => acc.push n
+      | _ => headsOf f acc
+    e.getAppArgs.foldl (fun a x => headsOf x a) acc
+  | .lam _ _ b _ => headsOf b (acc.push `«fun»)
+  | .letE _ _ v b _ => headsOf b (headsOf v (acc.push `«let»))
+  | .mdata _ e => headsOf e acc
+  | .proj s _ e => headsOf e (acc.push (s ++ `«proj»))
+  | .const n _ => acc.push n
+  | _ => acc
+
+open Lean Elab Command Meta Sparkle.Compiler.Elab in
+def tyHead (ty : Lean.Expr) : String :=
+  match ty with
+  | .app (.app (.const ``Sparkle.Core.Signal.Signal _) _) inner =>
+    match inner with
+    | .app (.const ``BitVec _) w =>
+      if (canonicalNatLitValue? w).isSome then "Signal(BitVec lit)" else "Signal(BitVec non-literal width)"
+    | _ => "Signal(" ++ toString inner.getAppFn ++ ")"
+  | _ => toString ty.getAppFn
+
+open Lean Elab Command Meta Sparkle.Compiler.Elab in
+run_cmd liftTermElabM do
+  let names ← IO.FS.lines "@WORK@/legacy_decls.txt"
+  let env ← getEnv
+  let pred := instancePredicate env
+  let skip : Lean.NameSet := ([``Sparkle.Core.Signal.Signal, ``BitVec, ``Bool, ``Nat, ``OfNat.ofNat,
+    ``Sparkle.Core.Domain.DomainConfig, ``BitVec.ofNat, ``Bool.true, ``Bool.false, ``Unit, ``Prod,
+    ``instOfNatNat, ``instHAdd, ``instHSub, ``instHMul, ``BEq.beq, ``instBEqOfDecidableEq] : List Lean.Name).foldl (fun s n => s.insert n) {}
+  let vocab : Lean.NameSet := ([``Sparkle.Core.Signal.Signal.pure, ``HAdd.hAdd, ``HSub.hSub, ``HMul.hMul, ``HAnd.hAnd,
+    ``HOr.hOr, ``HXor.hXor, ``HShiftLeft.hShiftLeft, ``HShiftRight.hShiftRight,
+    ``Sparkle.Core.Signal.Signal.ult, ``Sparkle.Core.Signal.Signal.ule, ``Sparkle.Core.Signal.Signal.slt,
+    ``Sparkle.Core.Signal.Signal.sle, ``Sparkle.Core.Signal.Signal.beq, ``Sparkle.Core.Signal.Signal.mux,
+    ``Complement.complement, ``Sparkle.Core.Signal.Signal.map, ``BitVec.setWidth,
+    ``Sparkle.Core.Signal.Signal.register, ``Sparkle.Core.Signal.Signal.memory] : List Lean.Name).foldl (fun s n => s.insert n) {}
+  for s in names do
+    let n := s.toName
+    match env.find? n with
+    | some (.defnInfo d) =>
+      let scalar := mixedGateResultScalar d.type
+      let reason : String :=
+        match mixedGatePeel d.value with
+        | none =>
+          -- first rejected binder
+          let rec go (e : Lean.Expr) : String :=
+            match e with
+            | .lam _ ty b _ => if (mixedGateBinderKind? ty).isSome then go b else "BINDER:" ++ tyHead ty
+            | _ => "BINDER:?"
+          go d.value
+        | some (bs, body) =>
+          let hs := (headsOf body #[]).toList.eraseDups
+          let res := hs.filter (fun h => !skip.contains h && !vocab.contains h &&
+            !((h.components.getLast?.map toString).getD "").startsWith "inst" &&
+            !Sparkle.Compiler.isHardwareModule env h)
+          let inst := hs.any (fun h => Sparkle.Compiler.isHardwareModule env h)
+          "BODY:" ++ (if res.isEmpty then "(vocabulary only)" else ",".intercalate (res.map toString)) ++
+            (if inst then " +instances" else "")
+      IO.FS.withFile "@WORK@/cov_reasons.txt" .append fun h =>
+        h.putStrLn (s ++ "\t" ++ (if scalar then "scalar" else "nonscalar") ++ "\t" ++ reason)
+    | _ => pure ()
+end CovProbeZZ

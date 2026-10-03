@@ -306,7 +306,11 @@ macro_rules
     let mut body : Lean.TSyntax `term ← `(Sparkle.Core.Circuit.pure' $retExpr)
     for i in [:steps.size] do
       let (action, _) := steps[steps.size - 1 - i]!
-      body ← `(Sparkle.Core.Circuit.bind $action (fun _ => $body))
+      -- A stable, hygiene-free continuation binder: the certified shape
+      -- recognizer compares the elaborated value against a quoted form,
+      -- and a quotation-hygienic `_` binder name varies per module.
+      let kIdent := Lean.mkIdent (Lean.Name.mkSimple "_cdoK")
+      body ← `(Sparkle.Core.Circuit.bind $action (fun $kIdent => $body))
     let doBody := body
     if regs.size == 0 then
       Lean.Macro.throwError
@@ -339,11 +343,16 @@ macro_rules
       let idx := regs.size - 1 - i
       let (rIdent, _) := regs[idx]!
       let src := prevRest idx
+      -- Destructure via Prod projections instead of a pattern `let`:
+      -- a pattern `let` compiles to a per-declaration auxiliary matcher
+      -- constant, which the certified shape recognizers cannot see
+      -- through, while `.1`/`.2` stay plain `Prod.fst`/`Prod.snd`
+      -- applications (definitionally the same term).
       if idx == regs.size - 1 then
-        term ← `(let ($rIdent, _) := $src; $term)
+        term ← `(let $rIdent := ($src).1; $term)
       else
         let restIdent := Lean.mkIdent (Lean.Name.mkSimple s!"_cdoRest_{idx+1}")
-        term ← `(let ($rIdent, $restIdent) := $src; $term)
+        term ← `(let $rIdent := ($src).1; let $restIdent := ($src).2; $term)
     return ← `(Sparkle.Core.runCircuitH (αs := $αsListExpr) $initsExpr
                   (fun $regsIdent => $term))
 

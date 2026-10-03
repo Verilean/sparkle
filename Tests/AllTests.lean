@@ -69,12 +69,70 @@ import Tests.YOLOv8.TestNeck
 -- Tests.X` (and hence `lake test`) directly — no separate exe
 -- run is needed for the synth side.
 import Tests.SignalLoopTest
+import Tests.MemorySpecTest
 import Tests.IP.Control.IIRBiquadTest
 import Tests.IP.Control.PIDTest
 import Tests.IP.Control.LQRTest
 import Tests.IP.Control.PrecisionSweepTest
 import Tests.IP.Control.ObserverTest
 import Tests.Compiler.RtlStructureTest
+import Tests.Compiler.ApplicativeSemanticsTest
+import Tests.Compiler.ShippingScalarSoundnessTest
+import Tests.Compiler.FreshNameSoundnessTest
+import Tests.Compiler.ShippingBindingsSoundnessTest
+import Tests.Compiler.ShippingCacheSoundnessTest
+import Tests.Compiler.ShippingTranslateSoundnessTest
+import Tests.Compiler.ShippingEntrySoundnessTest
+import Tests.Compiler.ShippingPrintSoundnessTest
+import Tests.Compiler.ShippingSVBridgeTest
+import Tests.Compiler.ShippingSettledSoundnessTest
+import Tests.Compiler.ShippingSyntaxSoundnessTest
+import Tests.Compiler.ShippingExecutionSoundnessTest
+import Tests.Compiler.ShippingRightShiftSoundnessTest
+import Tests.Compiler.ShippingLeftShiftSoundnessTest
+import Tests.Compiler.ShippingTypedExprSoundnessTest
+import Tests.Compiler.ShippingMuxLoweringSoundnessTest
+import Tests.Compiler.ShippingMuxRecursionSoundnessTest
+import Tests.Compiler.ShippingMuxTypeSoundnessTest
+import Tests.Compiler.ShippingBoolSourceSoundnessTest
+import Tests.Compiler.ShippingCompareLoweringSoundnessTest
+import Tests.Compiler.ShippingBoolLiteralSoundnessTest
+import Tests.Compiler.ShippingBoolMuxSoundnessTest
+import Tests.Compiler.ShippingMixedInvariantTest
+import Tests.Compiler.ShippingMixedLiteralSoundnessTest
+import Tests.Compiler.ShippingMixedBinarySoundnessTest
+import Tests.Compiler.ShippingMixedRecursionTest
+import Tests.Compiler.ShippingMixedEntryTest
+import Tests.Compiler.ShippingMixedPostTest
+import Tests.Compiler.ShippingMixedSourceBridgeTest
+import Tests.Compiler.ShippingMixedPrintTest
+import Tests.Compiler.ShippingMixedBindingTest
+import Tests.Compiler.ShippingMixedExecutionTest
+import Tests.Compiler.ShippingSignedComparisonTest
+import Tests.Compiler.ShippingEqualityTest
+import Tests.Compiler.ShippingBoolEqualityTest
+import Tests.Compiler.ShippingBoolLogicTest
+import Tests.Compiler.ShippingVectorMuxTest
+import Tests.Compiler.ShippingUnifiedSourceTest
+import Tests.Compiler.ShippingRegisterSoundnessTest
+import Tests.Compiler.ShippingMemorySoundnessTest
+import Tests.Compiler.ShippingHierarchySoundnessTest
+import Tests.Compiler.ShippingCoreSoundnessTest
+import Tests.Compiler.ShippingInlineSoundnessTest
+import Tests.Compiler.ShippingApplicativeSoundnessTest
+import Tests.Compiler.ShippingSliceSoundnessTest
+import Tests.Compiler.ShippingConcatSoundnessTest
+import Tests.Compiler.ShippingMapFormsSoundnessTest
+import Tests.Compiler.ShippingBoolLiftSoundnessTest
+import Tests.Compiler.ShippingMachineSourceTest
+import Tests.Compiler.ShippingMachineEntryTest
+import Tests.Compiler.ShippingMachineCommandTest
+import Tests.Compiler.ShippingMachineNormTest
+import Tests.Compiler.ShippingMachineNestTest
+import Tests.Compiler.ShippingMachineInstTest
+import Tests.Compiler.ShippingTypedPostSoundnessTest
+import Tests.Compiler.ShippingControlOptSoundnessTest
+import Tests.Compiler.ShippingModuleNamesTest
 import Tests.CircuitDoTest
 import Tests.RunCircuitHTest
 import Tests.TestCppSim
@@ -529,6 +587,9 @@ def main : IO UInt32 := do
   Sparkle.Tests.CircuitDoTest.main
   IO.println ""
   Sparkle.Tests.RunCircuitHTest.main
+  IO.println ""
+  -- memory primitives: implementation vs the pure `memState` spec
+  Sparkle.Tests.MemorySpecTest.main
   IO.println ""
 
   -- Fixed-point control datapaths (IIR biquad / PID / LQR).  These use
