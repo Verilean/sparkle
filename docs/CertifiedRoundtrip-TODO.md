@@ -1279,6 +1279,19 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   `dropZeroWidthModule raw = raw`, parents through sub-machines / loops
   (the generator takes single `circuit do`s with slots), and the shipped
   (optimized/printed) form of a module with instances.
+- [ ] **WRAPPERS (found 2026-10-04, not landed):** the `@[hardware_module]`
+  crypto wrappers (`wBlock`, `wSha256`, `wKeccakF`, …) are legacy-only
+  because the front-end unfolding gives up on the core's size
+  (`inlineDefs` budget) — the core itself IS on the machine route
+  (`sha256Block`). A head-only unfolding fallback in `userInliner` puts
+  `wBlock` on the machine route with its kernel-checked endpoint, but it
+  also changes two PINNED expectations: the Keccak sponge's structure
+  (RtlStructureTest: 2 round-constant ROM instances become 1 — the machine
+  route shares identical calls) and the over-budget declaration `uDeep`
+  (ShippingInlineSoundnessTest: "left alone past the budget"). Reverted;
+  landing it needs (1) a look at why the two ROM calls are identical (if they
+  are, sharing is correct and the pin is a structure choice, not a bug) and
+  (2) a decision whether the certified route may change a pinned hierarchy.
 - [ ] **NEXT: the remaining calls.** Sequential children (`toggle`,
   `wKeccakF`, `wBlock`, `wRx`, `wSha256`: ≈15 declarations) need clk/rst
   plumbing in `closeInsts` and the child's `MachineTrace` as the oracle
