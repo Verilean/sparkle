@@ -1,0 +1,35 @@
+name = "sparkle-proofs"
+reservoir = false
+version = "0.1.0"
+packagesDir = "../.lake/packages"
+
+# Sidecar package, deliberately OUTSIDE the main `sparkle` build graph.
+#
+# Sparkle itself has nothing to do with real analysis or control theory: it is an
+# HDL.  This package is the *bridge* — it takes a controller designed and proven
+# stable over ℝ (which needs Mathlib: `Real`, `nlinarith`, `Matrix`) and connects
+# that proof to the fixed-point integer circuit that Sparkle actually synthesises.
+#
+# Keeping Mathlib here means `lake build` at the repo root (the RTL path) never
+# pays for it.  Same trick as `docbuild/`.
+[[require]]
+name = "mathlib"
+scope = "leanprover-community"
+rev = "v4.32.1"
+
+[[require]]
+name = "sparkle"
+path = "../"
+
+# retype — the ℝ ⇒ Float / ℝ ⇒ FixQ transport used by SparkleProofs.Retype.*.
+# This used to live in a second sidecar (`retypelab/`) because retype targeted
+# Lean v4.32 while Sparkle was on v4.28 and one Lake graph has one toolchain.
+# Everything is on v4.32.1 now, so it folds in here and the ℝ models are
+# imported from their proof modules instead of being duplicated.
+[[require]]
+name = "retype"
+git = "https://github.com/Verilean/retype"
+rev = "main"
+
+[[lean_lib]]
+name = "SparkleProofs"

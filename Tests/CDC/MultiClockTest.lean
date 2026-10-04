@@ -59,11 +59,11 @@ def main : IO UInt32 := do
 
   -- Step 1: JIT-compile both domains
   IO.println "JIT: Compiling DomainA (counter)..."
-  let handleA ← JIT.compileAndLoad ".lake/build/gen/cdc/domain_a_jit.cpp"
+  let handleA ← JIT.compileAndLoad ".lake/build/gen/cdc/domain_a_jit.c"
   IO.println "  DomainA loaded."
 
   IO.println "JIT: Compiling DomainB (accumulator)..."
-  let handleB ← JIT.compileAndLoad ".lake/build/gen/cdc/domain_b_jit.cpp"
+  let handleB ← JIT.compileAndLoad ".lake/build/gen/cdc/domain_b_jit.c"
   IO.println "  DomainB loaded."
 
   -- Step 2: Type-safe single-step verification

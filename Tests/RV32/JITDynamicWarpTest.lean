@@ -53,7 +53,7 @@ private def bssClearFirmware : Array UInt32 :=
 private def dmemBankIndices : Array UInt32 := #[1, 2, 3, 4]
 
 def main (args : List String) : IO UInt32 := do
-  let cppPath := args[0]? |>.getD "verilator/generated_soc_jit.cpp"
+  let cppPath := args[0]? |>.getD "verilator/generated_soc_jit.c"
   let maxCycles := (args[1]? >>= String.toNat?).getD 100_000
 
   IO.println s!"DynamicWarpTest: Compiling {cppPath}..."

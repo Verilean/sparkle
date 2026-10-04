@@ -1,5 +1,9 @@
 # Sparkle Tutorial — Extended (module structure & named record I/O)
 
+> **⚠ Deprecated.**  Replaced by Chapter 4 of the new beginner
+> course: [`docs/tutorial/md/Ch04_Modules.md`](tutorial/md/Ch04_Modules.md).
+> Kept here for one CHANGELOG cycle.
+
 A follow-up to `docs/Tutorial.md` that fills the gap between
 "single counter" and "verify a SoC".
 
@@ -289,7 +293,7 @@ is one `let` line; the benefit is name-based access throughout
 the verification stack.
 
 For a worked debugging example, see
-[`docs/BitNet_LTL_Investigation.md`](BitNet_LTL_Investigation.md).
+[`docs/ip-catalog/BitNet_LTL_Investigation.md`](BitNet_LTL_Investigation.md).
 The investigation took the wrong path for one round because
 `_gen_next` was inlined; once we exposed it via
 `SoCOutput.wireNames`, the LTL premises were directly observable
@@ -365,7 +369,7 @@ internally by `IP/RV32/SoC.lean`'s `declare_signal_state SoCState`.
     K-cycle preservation by induction, multi-premise bug-localization
     framework with the contrapositive pattern, and pointers to the
     production RV32 LTL catalog.
-  - `docs/Verification_Framework.md` — broader proof-engineering
+  - `docs/reference/Verification_Framework.md` — broader proof-engineering
     techniques (oracle reduction, simp normalization, bv_decide).
 
 ## Cross-references
@@ -383,6 +387,6 @@ internally by `IP/RV32/SoC.lean`'s `declare_signal_state SoCState`.
     `wireNames`, and `fromWires` helpers.
   - `IP/RV32/SoC.lean::SoCState` — production-scale example with
     122 fields.
-  - `docs/BitNet_LTL_Investigation.md` — debugging story where
+  - `docs/ip-catalog/BitNet_LTL_Investigation.md` — debugging story where
     the let-bind / record observability pattern was the actual
     fix.

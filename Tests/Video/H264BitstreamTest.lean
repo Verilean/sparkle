@@ -89,7 +89,7 @@ def testBitstreamGeneration : IO Bool := do
 
   -- Step 1: Encode each 4×4 block using encoder pipeline JIT
   IO.println "  Compiling encoder pipeline..."
-  let encHandle ← JIT.compileAndLoad ".lake/build/gen/h264/encoder_pipeline_jit.cpp"
+  let encHandle ← JIT.compileAndLoad ".lake/build/gen/h264/encoder_pipeline_jit.c"
   let encDoneIdx ← resolveWire encHandle "_gen_done"
 
   -- Set QP=20
@@ -155,7 +155,7 @@ def testBitstreamGeneration : IO Bool := do
 
   -- Step 2: CAVLC encode each block
   IO.println "  Compiling CAVLC synth..."
-  let cavlcHandle ← JIT.compileAndLoad ".lake/build/gen/h264/cavlc_synth_jit.cpp"
+  let cavlcHandle ← JIT.compileAndLoad ".lake/build/gen/h264/cavlc_synth_jit.c"
   let cavlcDoneIdx ← resolveWire cavlcHandle "_gen_done"
 
   -- Load VLC tables into correct JIT memory indices:
@@ -180,7 +180,7 @@ def testBitstreamGeneration : IO Bool := do
     if h : i < rbTable.size then
       JIT.setMem cavlcHandle 4 i.toUInt32 rbTable[i]
 
-  let mut allBitstreams : Array (BitVec 32 × Nat) := #[]
+  let mut allBitstreams : Array (BitVec 64 × Nat) := #[]
 
   for blockIdx in [:4] do
     if h : blockIdx < allQuantLevels.size then
@@ -233,7 +233,7 @@ def testBitstreamGeneration : IO Bool := do
       IO.println s!"  Block {blockIdx} CAVLC: 0x{String.ofList (Nat.toDigits 16 bsData.toNat)} ({bpData} bits)"
       IO.println s!"    Reference:    0x{String.ofList (Nat.toDigits 16 refBits.toNat)} ({refLen} bits)"
 
-      allBitstreams := allBitstreams.push (BitVec.ofNat 32 bsData.toNat, bpData.toNat)
+      allBitstreams := allBitstreams.push (BitVec.ofNat 64 bsData.toNat, bpData.toNat)
 
   JIT.destroy cavlcHandle
 
@@ -279,8 +279,11 @@ def testBitstreamGeneration : IO Bool := do
   for entry in allBitstreams do
     let (bs, blen) := entry
     cavlcTotalBits := cavlcTotalBits + blen
-    -- Shift bitstream MSB-aligned into accumulator
-    bitAccum := (bitAccum <<< blen) ||| (bs.toNat >>> (32 - blen))
+    -- Shift bitstream MSB-aligned into accumulator.  `bs` is the
+    -- JIT FSM's 64-bit `_gen_bitBuffer` register, MSB-packed by
+    -- the encoder, so we right-shift by `64 - blen` to drop the
+    -- trailing zero padding.
+    bitAccum := (bitAccum <<< blen) ||| (bs.toNat >>> (64 - blen))
     bitCount := bitCount + blen
 
   -- Byte-align with rbsp_stop_one_bit + trailing zeros

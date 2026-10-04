@@ -53,18 +53,61 @@ MulticoreResult multicore_run(
 ) {
     MulticoreResult result = {};
 
-    // Resolve JIT functions
-    auto jit_create = (void*(*)())dlsym(jit_lib, "jit_create");
-    auto jit_destroy = (void(*)(void*))dlsym(jit_lib, "jit_destroy");
-    auto jit_reset = (void(*)(void*))dlsym(jit_lib, "jit_reset");
-    auto jit_eval_tick = (void(*)(void*))dlsym(jit_lib, "jit_eval_tick");
-    auto jit_eval = (void(*)(void*))dlsym(jit_lib, "jit_eval");
-    auto jit_tick = (void(*)(void*))dlsym(jit_lib, "jit_tick");
-    auto jit_set_input = (void(*)(void*, uint32_t, uint64_t))dlsym(jit_lib, "jit_set_input");
-    auto jit_get_output = (uint64_t(*)(void*, uint32_t))dlsym(jit_lib, "jit_get_output");
+    // C-only CSim backend (Issue #70 fix) exports exactly ONE symbol
+    // per .so — `jit_vtable` — that returns a struct of function
+    // pointers private to that .so.  Look that one up; per-handle
+    // dispatch then goes through table entries instead of the previous
+    // per-function `dlsym` calls (which now fail because those symbols
+    // don't exist as external symbols any more).
+    struct JitVTable {
+        void* (*create)();
+        void  (*destroy)(void*);
+        void  (*reset)(void*);
+        void  (*eval)(void*);
+        void  (*tick)(void*);
+        void  (*eval_tick)(void*);
+        void  (*set_input)(void*, uint32_t, uint64_t);
+        uint64_t (*get_output)(void*, uint32_t);
+        uint64_t (*get_wire)(void*, uint32_t);
+        void  (*set_mem)(void*, uint32_t, uint32_t, uint32_t);
+        uint32_t (*get_mem)(void*, uint32_t, uint32_t);
+        void  (*memset_word)(void*, uint32_t, uint32_t, uint32_t, uint32_t);
+        const char* (*wire_name)(uint32_t);
+        uint32_t (*num_wires)();
+        void  (*set_reg)(void*, uint32_t, uint64_t);
+        uint64_t (*get_reg)(void*, uint32_t);
+        const char* (*reg_name)(uint32_t);
+        uint32_t (*num_regs)();
+        void* (*snapshot)(void*);
+        void  (*restore)(void*, void*);
+        void  (*free_snapshot)(void*);
+    };
+    typedef const JitVTable* (*vtable_getter)();
+    auto get_vt = (vtable_getter)dlsym(jit_lib, "jit_vtable");
+    if (!get_vt) {
+        fprintf(stderr,
+            "multicore_run: jit_vtable symbol not found "
+            "(stale .so from pre-CSim Sparkle?)\n");
+        result.success = 0;
+        return result;
+    }
+    const JitVTable* vt = get_vt();
+    if (!vt) {
+        fprintf(stderr, "multicore_run: jit_vtable returned NULL\n");
+        result.success = 0;
+        return result;
+    }
+    auto jit_create     = vt->create;
+    auto jit_destroy    = vt->destroy;
+    auto jit_reset      = vt->reset;
+    auto jit_eval_tick  = vt->eval_tick;
+    auto jit_eval       = vt->eval;
+    auto jit_tick       = vt->tick;
+    auto jit_set_input  = vt->set_input;
+    auto jit_get_output = vt->get_output;
 
     if (!jit_create || !jit_eval_tick || !jit_set_input || !jit_get_output) {
-        fprintf(stderr, "multicore_run: missing JIT symbols\n");
+        fprintf(stderr, "multicore_run: vtable missing required functions\n");
         result.success = 0;
         return result;
     }

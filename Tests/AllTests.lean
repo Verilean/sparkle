@@ -15,6 +15,17 @@ import Tests.BitNet.TestAttention
 import Tests.BitNet.TestComparison
 import Tests.BitNet.TestSoC
 import Tests.BitNet.RTLGoldenValidation
+import Tests.Hesper.MatmulSpec
+import Tests.Hesper.BitLinearEquivalence
+import Tests.Hesper.Layer2GoldenVectors
+import Tests.Hesper.AttentionEquivalence
+import Tests.Hesper.SoftmaxWeightedV
+import Tests.Hesper.EndToEndAttention
+import Tests.Hesper.Vendored.CircuitInterp
+import Tests.Hesper.Vendored.WGSLInterp
+import Tests.Hesper.HesperDSLEquivalence
+import Tests.Hesper.HesperSoftmaxWeightedV
+import Tests.Hesper.HesperEndToEnd
 import Tests.YOLOv8.TestDequant
 import Tests.YOLOv8.TestRequantize
 import Tests.YOLOv8.TestActivation
@@ -29,7 +40,48 @@ import Tests.YOLOv8.TestBottleneck
 import Tests.YOLOv8.TestC2f
 import Tests.YOLOv8.TestBackbone
 import Tests.YOLOv8.TestNeck
+-- v2 `circuit do` and raw `Signal.loop` sim tests.
+--
+-- Each file ALSO ships as a standalone `lean_exe` (`lake exe
+-- signal-loop-test`, `lake exe run-circuit-h-test`, `lake exe
+-- circuit-do-test`) for ad-hoc debugging.  Their per-file
+-- top-level `def main` would collide if imported into one
+-- module, so we import only their *namespaced* entry points
+-- via `import` of the module — the namespaced
+-- `Sparkle.Tests.X.main` is what lives inside.  Each is called
+-- explicitly from this file's `main` below so `lake test`
+-- actually exercises the cycle-by-cycle sim path, not just
+-- type-checks the module.
+--
+-- A failing `Sparkle.Tests.X.main` calls `IO.Process.exit 1`,
+-- so `lake test` will exit non-zero if any of them regress.
+--
+-- The `lean_exe` targets are pointed at thin wrapper modules
+-- (`Tests/Drivers/*`) — see `lakefile.lean`.  The actual
+-- test logic lives inside the namespaced
+-- `Sparkle.Tests.X.main` here, which we call directly from
+-- `main` below.
+--
+-- Synthesis coverage: each of these test files contains one or
+-- more `#synthesizeVerilog` invocations.  Those run at `lake
+-- build` time inside the file's own module, so a regression on
+-- the elaborator's wire translation breaks `lake build
+-- Tests.X` (and hence `lake test`) directly — no separate exe
+-- run is needed for the synth side.
+import Tests.SignalLoopTest
+import Tests.IP.Control.IIRBiquadTest
+import Tests.IP.Control.PIDTest
+import Tests.IP.Control.LQRTest
+import Tests.IP.Control.PrecisionSweepTest
+import Tests.IP.Control.ObserverTest
+import Tests.Compiler.RtlStructureTest
+import Tests.CircuitDoTest
+import Tests.RunCircuitHTest
 import Tests.TestCppSim
+import Tests.TestCudaSim
+import Tests.TestSmt
+import Tests.CudaTutorialTest
+import Tests.Compiler.MultiInstanceTest
 import Tests.RV32.TestFlow
 import Tests.Library.TestSyncFIFO
 import Tests.Video.CAVLCTest
@@ -46,6 +98,104 @@ import Tests.Video.H264EncoderSynthTest
 import Tests.SVParser.TestVerilogCoSim
 import Tests.SVParser.TestVerify
 import Tests.Bus.TestAXI4Lite
+import Tests.RoundTrip.IRVerilogIR
+import Tests.RoundTrip.IVerilogSim
+import Tests.IP.Net.CRC32Test
+import Tests.IP.Net.EthernetTest
+import Tests.IP.Net.EthernetTxTest
+import Tests.IP.Net.ARPTest
+import Tests.IP.Net.IPv4Test
+import Tests.IP.Net.ICMPTest
+import Tests.IP.Net.TCPHeaderTest
+import Tests.IP.Net.TCPStateTest
+import Tests.IP.Net.TCPLoopbackTest
+import Tests.IP.Net.HTTPTest
+import Tests.IP.Net.HFTStrategyTest
+import Tests.IP.Net.HFTQuoteTest
+import Tests.IP.Crypto.SHA256Test
+import Tests.IP.Crypto.Ed25519FieldTest
+import Tests.IP.Crypto.Ed25519PointTest
+import Tests.IP.Crypto.Ed25519SignTest
+import Tests.IP.Crypto.X25519Test
+import Tests.IP.Crypto.AESTest
+import Tests.IP.Crypto.GHASHTest
+import Tests.IP.Crypto.AESGCMTest
+import Tests.IP.Crypto.HKDFTest
+import Tests.IP.Crypto.Secp256k1Test
+import Tests.IP.Crypto.GoldilocksTest
+import Tests.IP.Crypto.MerkleTest
+import Tests.IP.Crypto.PolynomialTest
+import Tests.IP.Crypto.MiniSTARKTest
+import Tests.IP.Bus.PCIeTest
+import Tests.IP.Bus.PCIeHFTTest
+-- Bus HW modules (synth checks run at `lake build` time, since
+-- each of these files carries a `#synthesizeVerilog` under a
+-- `section SynthesisChecks`).  Their behavioural `main` fns are
+-- also invoked below so a runtime regression aborts `lake test`.
+import Tests.IP.Bus.LINHWTest
+import Tests.IP.Bus.I2CHWTest
+import Tests.IP.Bus.SPIHWTest
+import Tests.IP.Bus.SBUSHWTest
+import Tests.IP.Bus.CRSFHWTest
+import Tests.IP.Bus.MIL1553HWTest
+import Tests.IP.Bus.CANopenHWTest
+import Tests.IP.Bus.DroneCANHWTest
+-- Crypto HW modules (Wave 1: byte/word FSM tier).
+import Tests.IP.Crypto.RLPHWTest
+import Tests.IP.Crypto.MerkleHWTest
+import Tests.IP.Crypto.HKDFHWTest
+import Tests.IP.Crypto.SHA512HWTest
+import Tests.IP.Crypto.AESHWTest
+import Tests.IP.Crypto.AESGCMHWTest
+import Tests.IP.Crypto.Keccak256HWTest
+-- Crypto Wave 2: BLS12-381 pure-data reference + field-multiply
+-- HW modules (Goldilocks / secp256k1 / P-256 / Ed25519).  The
+-- field-mul HW tests each carry `#synthesizeVerilog` under a
+-- `section SynthesisChecks`, so `lake build` covers synth.
+import Tests.IP.Crypto.BLS12381Test
+import Tests.IP.Crypto.GoldilocksHWTest
+import Tests.IP.Crypto.Secp256k1FieldHWTest
+import Tests.IP.Crypto.Secp256k1PointOpHWTest
+import Tests.IP.Crypto.Secp256k1ScalarMulHWTest
+import Tests.IP.Crypto.ModInvHWTest
+import Tests.IP.Crypto.Secp256k1OrderHWTest
+import Tests.IP.Crypto.Secp256k1ECDSAHWTest
+import Tests.IP.Crypto.EcdsaSignDemoTest
+import Tests.IP.Crypto.TxPolicyTest
+import Tests.IP.Crypto.Keccak256SpongeTest
+import Tests.IP.Crypto.PolicySignDemoTest
+import Tests.IP.Crypto.PolicySignDemoM2Test
+import Tests.IP.Crypto.CTAP2DataTest
+import Tests.IP.USB.Fido2DemoTest
+-- P-256 math-property proofs (field axioms + EC group laws).  These are
+-- `∀`-quantified theorems checked at `lake build` time (no `.main`); a
+-- regression is a proof failure, not a value-vector mismatch.
+import IP.Crypto.Proof.P256FieldTheorems
+import IP.Crypto.Proof.P256PointTheorems
+import Tests.IP.Crypto.P256PointJacTest
+import Tests.IP.Crypto.P256PointOpHWTest
+import Tests.IP.Crypto.P256ScalarMulHWTest
+import Tests.IP.Crypto.P256OrderHWTest
+import Tests.IP.Crypto.P256ECDSAHWTest
+import Tests.IP.Crypto.P256SignDemoTest
+import Tests.IP.Crypto.SHA256StreamTest
+import Tests.IP.Crypto.SHA512BlockHWTest
+import Tests.IP.Crypto.HMACSHA512HWTest
+import Tests.IP.Crypto.BIP32CKDHWTest
+import Tests.IP.Crypto.Eip1559EnvelopeHWTest
+import Tests.IP.Crypto.P256FieldHWTest
+import Tests.IP.Crypto.Ed25519FieldHWTest
+import Tests.IP.Crypto.Ed25519PointOpHWTest
+import Tests.IP.Crypto.Ed25519ScalarMulHWTest
+import Tests.IP.Crypto.Ed25519SignHWTest
+import Tests.IP.Crypto.Fp381MontMulHWTest
+import Tests.IP.Crypto.Fp2MulHWTest
+import Tests.IP.Crypto.Fp6MulHWTest
+import Tests.IP.Crypto.Fp12MulHWTest
+import Tests.IP.Crypto.BLS12MillerProjTest
+import Tests.IP.Crypto.BLS12MillerHWTest
+import Tests.IP.Crypto.G2PointOpHWTest
+import Tests.IP.Crypto.G2ScalarMulHWTest
 import LSpec
 
 open Sparkle.Core.Domain
@@ -274,10 +424,16 @@ def makeVerilogTests (outputs : VerilogOutputs) : TestSeq :=
       group "test_hierarchical_alu" (
         test "top module declared"
           (outputs.hierarchicalVerilog.containsSubstr "module test_hierarchical_alu") $
+        -- These used to assert the NAMES `_gen_addResult` / `_gen_subResult`
+        -- survive into the netlist.  That was the old blanket contract
+        -- ("every `_gen_*` wire is JIT-observable"), which is now opt-in:
+        -- unobserved internal wires are the optimiser's to inline, and these
+        -- two are.  What the test actually cares about is that the inlined
+        -- ALU still computes — so assert the operators, not the names.
         test "has addition (inlined test_add)"
-          (hierTopModule.containsSubstr "_gen_addResult") $
+          (hierTopModule.containsSubstr " + ") $
         test "has subtraction (inlined test_sub)"
-          (hierTopModule.containsSubstr "_gen_subResult") $
+          (hierTopModule.containsSubstr " - ") $
         test "has mux for op select"
           (hierTopModule.containsSubstr "_gen_op ? ")
       )
@@ -302,6 +458,12 @@ def makeVerilogTests (outputs : VerilogOutputs) : TestSeq :=
 -- Main Entry Point
 -- ============================================================================
 
+-- The main function below sequences ~150 test groups via a
+-- long chain of `let allTests := allTests ++ moreTests`
+-- bindings.  Lean's elaborator hits its default 512
+-- recursion-depth limit while expanding the do-notation, so
+-- bump the cap before elaborating.
+set_option maxRecDepth 2048 in
 def main : IO UInt32 := do
   IO.println "╔════════════════════════════════════════╗"
   IO.println "║  Sparkle Comprehensive Test Suite     ║"
@@ -313,7 +475,9 @@ def main : IO UInt32 := do
 
   -- Import required modules
   let env ← Lean.importModules
-    #[{module := `Sparkle.Compiler.Elab}, {module := `Sparkle.Backend.Verilog}, {module := `Tests.TestCircuits}]
+    #[{module := `Sparkle.Compiler.Elab}, {module := `Sparkle.Backend.Verilog},
+      {module := `Tests.TestCircuits},
+      {module := `Tests.SymbolicParameterCircuits}]
     {}
     (trustLevel := 1024)
 
@@ -325,6 +489,10 @@ def main : IO UInt32 := do
 
   let (outputs, _) ← Lean.Meta.MetaM.toIO
     synthesizeAll
+    coreCtx
+    coreState
+  let (leanParameterizedCSim, _) ← Lean.Meta.MetaM.toIO
+    Sparkle.Test.CppSim.synthesizeLeanParameterizedXorCSim
     coreCtx
     coreState
 
@@ -341,6 +509,244 @@ def main : IO UInt32 := do
   Sparkle.IP.BitNet.Tests.SoC.runAll
   IO.println ""
   Sparkle.IP.BitNet.Tests.RTLGoldenValidation.runAll
+  IO.println ""
+
+  -- Run per-feature DSL sim mains (SignalLoopTest /
+  -- CircuitDoTest / RunCircuitHTest).  These exercise the raw
+  -- `Signal.loop`/`Signal.register` form, the `circuit do`
+  -- macro's if/else + match/case + branch-let + hold + dup-
+  -- detection, and the generic `runCircuitH` (with `forM`
+  -- coverage included).  Each `main` exits with
+  -- IO.Process.exit 1 on divergence, so a regression aborts
+  -- `lake test` here (well before lspecIO's report).
+  IO.println ""
+  IO.println "╔════════════════════════════════════════╗"
+  IO.println "║  Signal DSL Sim Tests                  ║"
+  IO.println "╚════════════════════════════════════════╝"
+  IO.println ""
+  Sparkle.Tests.SignalLoopTest.main
+  IO.println ""
+  Sparkle.Tests.CircuitDoTest.main
+  IO.println ""
+  Sparkle.Tests.RunCircuitHTest.main
+  IO.println ""
+
+  -- Fixed-point control datapaths (IIR biquad / PID / LQR).  These use
+  -- `lspecIO`, so they return a UInt32 exit code rather than aborting;
+  -- propagate a non-zero code so `lake test` fails on divergence.  The
+  -- IIR suite pins the naively-quantized biquad's period-6 limit cycle,
+  -- and the LQR suite checks the Lyapunov V from proofs/ decreases on the
+  -- actual fixed-point trajectory.
+  IO.println ""
+  IO.println "╔════════════════════════════════════════╗"
+  IO.println "║  IP.Control Sim Tests                  ║"
+  IO.println "╚════════════════════════════════════════╝"
+  IO.println ""
+  Sparkle.Tests.IP.Control.IIRBiquadTest.mainUnit
+  IO.println ""
+  Sparkle.Tests.IP.Control.PIDTest.mainUnit
+  IO.println ""
+  Sparkle.Tests.IP.Control.LQRTest.mainUnit
+  IO.println ""
+  Sparkle.Tests.IP.Control.PrecisionSweepTest.mainUnit
+  IO.println ""
+  Sparkle.Tests.IP.Control.ObserverTest.mainUnit
+  IO.println ""
+  Sparkle.Tests.Compiler.RtlStructureTest.mainUnit
+  IO.println ""
+
+  -- IP.Net layer sim tests (CRC32 reference + Ethernet RX framer
+  -- cycle-by-cycle).  Each aborts via IO.Process.exit 1 on
+  -- divergence, same convention as the Signal-DSL sim tests
+  -- above.
+  IO.println ""
+  IO.println "╔════════════════════════════════════════╗"
+  IO.println "║  IP.Net Sim Tests                      ║"
+  IO.println "╚════════════════════════════════════════╝"
+  IO.println ""
+  Sparkle.Tests.IP.Net.CRC32Test.main
+  IO.println ""
+  Sparkle.Tests.IP.Net.EthernetTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Net.EthernetTxTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Net.ARPTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Net.IPv4Test.main
+  IO.println ""
+  Sparkle.Tests.IP.Net.ICMPTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Net.TCPHeaderTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Net.TCPStateTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Net.TCPLoopbackTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Net.HTTPTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Net.HFTStrategyTest.main
+  Sparkle.Tests.IP.Net.HFTQuoteTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.SHA256Test.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.Ed25519FieldTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.Ed25519PointTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.Ed25519SignTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.X25519Test.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.AESTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.GHASHTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.AESGCMTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.HKDFTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.Secp256k1Test.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.GoldilocksTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.MerkleTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.PolynomialTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.MiniSTARKTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Bus.PCIeTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Bus.PCIeHFTTest.main
+  IO.println ""
+  -- Bus HW module behavioural mains.  Each aborts via
+  -- IO.Process.exit 1 on divergence from the corresponding
+  -- pure-data reference.
+  Sparkle.Tests.IP.Bus.LINHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Bus.I2CHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Bus.SPIHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Bus.SBUSHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Bus.CRSFHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Bus.MIL1553HWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Bus.CANopenHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Bus.DroneCANHWTest.main
+  IO.println ""
+  -- Crypto HW module behavioural mains (Wave 1: byte/word FSM tier).
+  Sparkle.Tests.IP.Crypto.RLPHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.MerkleHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.HKDFHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.SHA512HWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.AESHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.AESGCMHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.Keccak256HWTest.main
+  IO.println ""
+  -- Crypto Wave 2 behavioural mains: BLS12-381 signature-scheme
+  -- reference + the four bit-serial field-multiply HW engines.
+  Sparkle.Tests.IP.Crypto.BLS12381Test.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.GoldilocksHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.Secp256k1FieldHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.Secp256k1PointOpHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.Secp256k1ScalarMulHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.ModInvHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.Secp256k1OrderHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.Secp256k1ECDSAHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.EcdsaSignDemoTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.TxPolicyTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.Keccak256SpongeTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.PolicySignDemoTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.PolicySignDemoM2Test.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.CTAP2DataTest.main
+  IO.println ""
+  Sparkle.Tests.IP.USB.Fido2DemoTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.P256PointJacTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.P256PointOpHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.P256ScalarMulHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.P256OrderHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.P256ECDSAHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.P256SignDemoTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.SHA256StreamTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.SHA512BlockHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.HMACSHA512HWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.BIP32CKDHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.Eip1559EnvelopeHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.P256FieldHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.Ed25519FieldHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.Ed25519PointOpHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.Ed25519ScalarMulHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.Ed25519SignHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.Fp381MontMulHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.Fp2MulHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.Fp6MulHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.Fp12MulHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.BLS12MillerProjTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.BLS12MillerHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.G2PointOpHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.G2ScalarMulHWTest.main
+  IO.println ""
+
+  -- iverilog round-trip: drive each fixture through
+  -- Sparkle → SystemVerilog → iverilog → vvp.  Skipped at run
+  -- time if iverilog/vvp aren't on PATH; returns non-zero only
+  -- when a fixture's output diverges from the Lean reference.
+  IO.println ""
+  IO.println "╔════════════════════════════════════════╗"
+  IO.println "║  iverilog round-trip                   ║"
+  IO.println "╚════════════════════════════════════════╝"
+  IO.println ""
+  let rc ← Sparkle.Tests.RoundTrip.IVerilogSim.main
+  if rc != 0 then
+    IO.eprintln s!"iverilog round-trip exited {rc}; aborting release gate."
+    IO.Process.exit 1
   IO.println ""
 
   -- Run Sparkle16 tests
@@ -412,8 +818,16 @@ def main : IO UInt32 := do
   let allTests := allTests ++ yolov8HeadTests ++ yolov8BottleneckTests ++ yolov8C2fTests ++ yolov8BackboneTests ++ yolov8NeckTests
 
   -- C++ Simulation Backend tests
-  let cppSimTests ← Sparkle.Test.CppSim.cppSimTests
+  let cppSimTests ← Sparkle.Test.CppSim.cppSimTests leanParameterizedCSim
   let allTests := allTests ++ cppSimTests
+
+  -- CUDA Simulation Backend tests (emitter shape; build-only, no nvcc/GPU)
+  let cudaSimTests ← Sparkle.Test.CudaSim.cudaSimTests
+  let allTests := allTests ++ cudaSimTests
+
+  -- SMT bridge tests (query shape + solver-output parser; no z3 needed)
+  let smtTests ← Sparkle.Test.Smt.smtTests
+  let allTests := allTests ++ smtTests
 
   -- RV32 SoC Flow tests
   let rv32FlowTests ← Sparkle.Tests.RV32.TestFlow.flowTests

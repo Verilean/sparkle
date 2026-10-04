@@ -73,8 +73,8 @@ def testFrameEncoder : IO Bool := do
   IO.println s!"  Image: 16×16, QP={qp}"
 
   -- Compile JIT
-  IO.println "  Compiling frame_encoder_jit.cpp..."
-  let handle ← JIT.compileAndLoad ".lake/build/gen/h264/frame_encoder_jit.cpp"
+  IO.println "  Compiling frame_encoder_jit.c..."
+  let handle ← JIT.compileAndLoad ".lake/build/gen/h264/frame_encoder_jit.c"
   IO.println "  Loaded frame encoder JIT module"
 
   -- Load VLC tables

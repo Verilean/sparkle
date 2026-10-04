@@ -50,7 +50,7 @@ private def mtimecmpLoIdx : UInt32 := 56
 private def mtimecmpHiIdx : UInt32 := 57
 
 def main (args : List String) : IO UInt32 := do
-  let cppPath := args[0]? |>.getD "verilator/generated_soc_jit.cpp"
+  let cppPath := args[0]? |>.getD "verilator/generated_soc_jit.c"
   let maxCycles := (args[1]? >>= String.toNat?).getD 100_000
 
   IO.println s!"SpeculativeWarpTest: Compiling {cppPath}..."

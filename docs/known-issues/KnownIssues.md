@@ -1,0 +1,755 @@
+# Known Issues
+
+## Issue 1: pcpi_mul Standalone JIT Tests (Test 21-21e) FAIL — **RESOLVED (2026-04-08)**
+
+**Status**: Resolved. Tests 21, 21b, 21c, 21d now PASS. Test 21e (wrapper) tracked as Issue 7.
+
+### Root cause
+
+Two independent bugs in `Sparkle/Backend/CppSim.lean` were both corrupting Verilog
+non-blocking (`<=`) semantics in the generated C++ `evalTick()`:
+
+- **Bug A — `_waiting` false-positive in generic conditional-guard detection.**
+  `wrapConditionalGuards` treated `_waiting` like enable signals (`_valid`/`_trigger`/
+  `_enable`) and wrapped every line containing the prefix `mul_` in `if (mul_waiting) {...}`.
+  That incorrectly gated the combinational wire `mul_start = pcpi_wait && !pcpi_wait_q;`,
+  freezing the FSM once `mul_waiting` went to 0. Fixed by removing `_waiting` from
+  `enablePatterns`: it is FSM state, not an enable gate.
+
+- **Bug B — Self-ref register in-place optimization violated `<=` semantics.**
+  The "self-ref register" optimization rewrote `reg_next` → `reg` via string replacement,
+  turning non-blocking into blocking assignment. When one register's condition read a
+  second self-ref register that had already been in-place written earlier in the same
+  `evalTick()`, the condition saw the NEW value (e.g. `mul_waiting` blocking-assigned
+  before `mul_finish`'s condition read it), so `mul_finish` never pulsed.
+
+### Fix
+
+1. Drop `_waiting` from `enablePatterns` in `wrapConditionalGuards`.
+2. Remove the self-ref `_next` → `reg` string-replacement optimization entirely.
+3. Initialize every evalTick-local `_next` to the current register value:
+   `{cppType} reg_next = reg;`. This preserves `<=` semantics and lets Clang -O2
+   elide redundant default stores, recovering the performance.
+
+### Verification
+
+Before: 28 passed / 6 failed (Tests 21, 21b, 21c, 21d, 21e, plus Test 11 stuck at
+0 UART words because the CPU itself was frozen). After: 32 passed / 2 failed.
+Test 11 now runs the C firmware for the full 200000 cycles (up from 0 words),
+exposing a separate pre-existing UART bug tracked as Issue 6. Test 21e's first
+multiply now succeeds (42 ✓); the wrapper-level 2nd-multiply failure is tracked
+as Issue 7.
+
+---
+
+## Issue 1 (historical): pcpi_mul Standalone JIT Tests (Test 21-21e) FAIL
+
+**Status**: Pre-existing bug, unrelated to recent reachabilityDCE / reverse synthesis changes.
+
+**Affected tests** (`Tests/SVParser/ParserTest.lean`):
+- Test 21: pcpi_mul JIT (7*6=42)
+- Test 21b: pcpi_mul JIT (100*100=10000)
+- Test 21c: pcpi_mul JIT (12345*6789)
+- Test 21d: pcpi_mul consecutive MUL
+- Test 21e: pcpi_mul SoC-like wrapper
+
+All 28 other SVParser tests pass (Tests 1-20, 22-29). Test 11 (C firmware) SKIPs because hex files aren't present.
+
+### Symptom
+
+Direct JIT of PicoRV32 `picorv32_pcpi_mul` standalone module (without flattening):
+
+```
+Test 21: pcpi_mul JIT (7*6=42)... FAIL: ready=false result=0x0 expected=42 cycles=100
+  cyc 0: wr=0 rd=0x0 wait=0 ready=0
+  cyc 1: wr=0 rd=0x0 wait=0 ready=0
+  cyc 2: wr=0 rd=0x0 wait=1 ready=0
+  cyc 3: wr=0 rd=0x0 wait=1 ready=0
+  ...
+  cyc 99: wr=0 rd=0x0 wait=1 ready=0
+```
+
+The FSM enters `wait` state but never transitions to computing:
+- `mul_waiting` stays 1 forever
+- `mul_counter` doesn't decrement
+- `rd` stays 0
+
+### Why LiteX PicoRV32 works but standalone fails
+
+- **LiteX SoC** (Test 10, LiteXTest): pcpi_mul is flattened into `picorv32` top module. Works correctly. Full LiteX firmware executes.
+- **Standalone pcpi_mul** (Test 21): pcpi_mul is the top module itself, no flattening. FAILS.
+
+This suggests the bug is in how SVParser lowers **unflattened** modules with complex always-block / for-loop structure.
+
+### Suspicious code paths
+
+1. **`Tools/SVParser/Lower.lean`** — `parseAndLower` (no flatten, no optimize)
+   - Used directly by Test 21 via `let pcpiMulIR := parseAndLower pcpiMulVerilog`
+   - `parseAndLowerFlat` (flatten + DCE + optimize) works correctly for LiteX
+
+2. **`Tools/SVParser/Lower.lean:820-1200`** — `emitSequentialSSA` for `always @*` blocks
+   - Handles nested for-loops (CARRY_CHAIN=4, 16 unrolled iterations)
+   - Handles concat-LHS part-select writes (`{next_rdt[j+3], next_rd[j+:4]} = ...`)
+   - Uses `__RMW_BASE__` placeholder for read-modify-write resolution
+
+3. **`Sparkle/Backend/CppSim.lean:460-469`** — `collectTickRefWires`
+   - Now includes register input refs (fixed today)
+   - Previously only included memory refs → wires wrongly localized as 0-init locals
+
+4. **`Sparkle/Backend/CppSim.lean:753-790`** — evalTick wire localization + self-ref optimization
+   - Self-ref registers get `reg_next` replaced with `reg` directly
+   - Default case generates `reg = reg;` (identity)
+
+### Today's partial fixes (all merged)
+
+1. **`inlineAssigns` infinite loop** (`Tools/SVParser/Verify.lean`): Register output names appeared as both registers AND assigns, causing infinite self-referencing expansion in `verilog!` macro. Fixed by filtering register assigns before inlining.
+2. **reachabilityDCE register roots** (`Tools/SVParser/Lower.lean`): Registers are now unconditional roots in reachability DCE, preventing wire elimination when they feed FSM state.
+3. **tickRefs from register inputs** (`Sparkle/Backend/CppSim.lean`): `collectTickRefWires` now includes wires referenced by register input expressions, preventing them from being localized as 0-init local variables in evalTick.
+4. **Identity assign removal** (`Sparkle/IR/Optimize.lean` + `Sparkle/Backend/CppSim.lean`): Assigns of the form `x = ref x` (generated by SSA lowering of `output reg`) are now filtered before code emission.
+5. **protectedWires** (`Sparkle/IR/Optimize.lean`): Wires directly referenced by register inputs are excluded from single-use inlining.
+
+After all fixes: symptom changed from "garbage values (ready=127, wr=127)" to "FSM frozen (ready=0, never advances)". The last step (FSM frozen) is the remaining bug.
+
+### Next steps for investigation
+
+1. **Compare IR between standalone and LiteX flattened**
+   - Does standalone pcpi_mul have all the same statements?
+   - Is `mul_start` computed correctly? (`mul_start = pcpi_valid & instr_any_mul & ...`)
+   - Are the wire ordering dependencies correct in the flat vs hierarchical lowering?
+
+2. **Diff generated C++** between a working minimal counter and pcpi_mul
+   - Look for wire localization that shouldn't happen
+   - Check evalTick ordering (assigns before register updates?)
+
+3. **Check `emitSequentialSSA` for edge cases**
+   - Does it handle `mul_start = ...` at the top level correctly?
+   - Are the SSA wire deps propagated through `always @*` properly?
+
+---
+
+## Issue 2: `verilog!` macro auto-assert proofs use `sorry`
+
+**Status**: Intentional workaround for `bv_decide` compilation-mode hang.
+
+**Location**: `Tools/SVParser/Macro.lean:92`
+
+```lean
+elabStr s!"theorem {assertName} ... := by sorry"
+```
+
+**Why**: `bv_decide` and `native_decide` work in interpreter mode (`lake env lean`) but hang indefinitely in compilation mode (`lake build`). This was observed with Lean 4.28.0-rc1.
+
+**Impact**: Users must manually prove assertions in separate theorem files. The `verilog!` macro still provides the State/Input/nextState definitions for manual proofs.
+
+**Workaround**: Use `lake env lean` for rapid iteration with auto-proved assertions, or write manual proofs.
+
+### Cross-reference: `#verify_eq`, `#verify_eq_at`, and `#verify_eq_git`
+
+`Sparkle/Verification/Equivalence.lean` provides three equivalence-check
+commands:
+
+- `#verify_eq f g` — pure `BitVec` function equivalence. Generates
+  `theorem {f}_eq_{g} : f = g := by funext ...; unfold f g; bv_decide`.
+- `#verify_eq_at (cycles := N) (latency := L) impl spec` — Signal DSL
+  cycle-accurate equivalence. Generates a conjunction of `(impl
+  inputs).val (t + L) = (spec inputs).val t` for `t ∈ [0, N)` and
+  discharges each conjunct with `simp only [Signal.val_*]; bv_decide`.
+  On failure, silently probes neighboring latencies and prints a 💡
+  hint if one works.
+- `#verify_eq_git <commit-ref> <ident>` — time-travel equivalence.
+  Runs `git show <commit-ref>:<file-of-ident>`, wraps the old source
+  in an isolated namespace, elaborates it, and runs `#verify_eq`
+  between the current and old definitions. Intended for PR regression
+  checks and bisecting "when did this break?" investigations.
+
+All three command modules are pure elaborators (no `bv_decide` call at
+build time) and are always safe to `lake build`. However, any file
+that **invokes** any of them hits the compilation-mode hang. The
+demo file `Tests/Verification/EquivDemo.lean` is therefore deliberately
+excluded from every `lean_exe` root and from `Sparkle.lean` /
+`Tests/AllTests.lean`. Run it interactively:
+
+```bash
+lake env lean Tests/Verification/EquivDemo.lean
+```
+
+Expected output: thirteen lines of `✅ verified: …` (eight pure-BitVec
+demos, four Signal DSL demos including the 2-cycle-latency MAC
+pipeline headline case, and one `#verify_eq_git` smoke comparing
+`reluInt8` against `HEAD`). Uncomment the commented-out `macPipeBuggy`
+variant in §11 or the `distrib_rhs_buggy` variant in §1 to see
+`bv_decide` emit a concrete counterexample.
+
+---
+
+## Issue 2.5: BitNet `boot.S` self-test reports "out = input" — **RESOLVED (2026-05-05)**
+
+**Status**: Resolved. The SoC was always correct — the symptom in
+commit `9d0704e` was a probe / firmware-side observation artifact.
+
+### Root cause
+
+`Sparkle.Backend.CppSim` aggressively inlines wires whose only consumer
+is downstream logic. The wire `_gen_next` (BitNet's saturating-add
+output) was inlined into `_gen_busRdataRaw`'s assignment expression
+and never emitted as a struct field in the JIT C++. The probe
+(`bitnet-mmio-probe`) was looking for `_gen_next` via `JIT.findWire`,
+which returned a sentinel; `JIT.getWire` then returned 0 by default.
+
+This made it look like the FFN computation was producing 0, while in
+reality the FFN was computing correctly and the lw was observing the
+right value at offset `0x40000008`.
+
+### Investigation
+
+A 4-premise LTL framework (in `IP/RV32/Verification/BitNetTimingLTL.lean`)
+decomposed the sw→lw temporal contract into:
+
+  - **P1**: aiInputReg cycle-N+1 update from MMIO write event.
+  - **P2**: aiInputReg K-cycle preservation.
+  - **P3**: bitnetOut = ffn(aiInputReg) (combinational).
+  - **P4**: lw at offset 0x40000008 routes through MMIO mux to bitnetOut.
+
+The contrapositive theorem `bug_localization_via_LTL` says: if observed
+Y ≠ ffn(X), then at least one Pi is FALSE. The investigation followed
+this framework: initially diagnosed P3 violation (probe artifact),
+then re-instrumented and confirmed all 4 premises actually hold.
+
+### Fix
+
+Added `_gen_sum`, `_gen_busRdataRaw`, `_gen_mmioRdata` to
+`SoCOutput.wireNames` (in `IP/RV32/SoC.lean`). Re-running
+`lake build IP.RV32.SoCVerilog` regenerates a JIT C++ that exposes
+those fields. The probe now reads the actual values and confirms:
+
+```
+cycle 80   aiInputReg = 0x00010000   bitnetOut = 0x00410000
+cycle 86   busRdataRaw = 0x00410000  mmioRdata = 0x00410000   ← lw observes!
+```
+
+For all 8 boot.S test vectors, the SoC produces the correct
+`ffn(input)` value at the lw cycle. Full postmortem with the proof
+catalog and lessons learned is in
+[`docs/ip-catalog/BitNet_LTL_Investigation.md`](BitNet_LTL_Investigation.md).
+
+### Acceptance test
+
+```bash
+lake build IP.RV32.SoCVerilog
+lake exe bitnet-mmio-probe
+# Expect: busRdataRaw = ffn(input) at the lw cycle for all 8 vectors.
+```
+
+### Open downstream issues (separate)
+
+  - The original 9d0704e symptom must have come from boot.S's
+    `puthex32` corrupting `s4` between the lw and the print loop, or
+    UART byte framing dropping/duplicating bytes. Not pursued — the
+    SoC layer is provably correct, and the firmware-side observation
+    path is out of scope for the formal verification framework.
+  - Linux end-to-end driver verification (`bitnet-linux-test`) remains
+    blocked by the separate Linux early-init crash, tracked as part
+    of `5a3fdfb`'s setup_vm interaction follow-up.
+
+---
+
+## Issue 3: High-level multi-domain simulation — **RESOLVED (2026-04-08)**
+
+**Status**: Resolved. A typed, auto-dispatching `runSim` function now lives
+in `Sparkle/Core/SimParallel.lean` and wraps both the single-threaded
+`evalTick` loop and `JIT.runCDC`. The `sim!` macro and `generateSimWrappers`
+emit `outputPortIndexByName` / `inputPortIndexByName` / `toEndpoint` so that
+`runSim` can resolve connections by string name.
+
+**Usage**:
+```lean
+sim! "module producer (...) ..."
+sim! "module consumer (...) ..."
+
+let p ← producer.Sim.load; p.reset
+let c ← consumer.Sim.load; c.reset
+let stats ← runSim
+  [p.toEndpoint, c.toEndpoint]
+  (connections := [("data_out", "data_in")])
+  (cycles := 1000000)
+```
+
+See `docs/Tutorial.md` Step 6 for full walkthrough and
+`Tests/Sim/SimRunnerTest.lean` for the 27-test regression suite.
+
+### Residual limitations (separately tracked)
+
+**Issue 3.1 — Multi-connection between the same pair of endpoints.**
+`JIT.runCDC` currently transfers one output→input pair at a time. Passing
+`connections := [("a", "b"), ("c", "d")]` to `runSim` is rejected at the
+Lean layer. Resolving this requires extending the C++ runtime's CDC runner
+to accept arrays of `(outPort, inPort)` pairs and N SPSC queues.
+
+**Issue 3.2 — 3+ endpoints / arbitrary topologies.** Passing more than two
+endpoints to `runSim` is rejected. The current runner assumes exactly two
+domains (one producer, one consumer). A topology-aware scheduler is future
+work.
+
+---
+
+## Issue 4: `CounterProps.lean` has `sorry` in auto-generated assert theorems
+
+**Status**: Direct consequence of Issue 2.
+
+**Location**: `Sparkle/Verification/CounterProps.lean`
+
+The `verilog!` macro generates:
+```lean
+theorem auto_assert_0 (s : State) (i : Input) : ... := by sorry
+```
+
+Users should replace these with manual proofs using `simp [nextState]` + `decide` / `bv_decide` in a separate file (via `lake env lean`).
+
+---
+
+## Issue 5: M-ext SoC standalone test (`MExtRv32iTest.lean`) broken
+
+**Status**: Pre-existing bug (confirmed via `git stash` test before recent changes).
+
+**Affected**: `Tests/SVParser/MExtRv32iTest.lean` — runs M-extension firmware on standalone PicoRV32 SoC.
+
+**Symptom**: Firmware runs 200000 cycles with 0 UART output.
+
+**Likely related to**: Issue 1 (standalone pcpi_mul FSM frozen). MExtRv32iTest uses a standalone SoC wrapper that instantiates pcpi_mul, which is affected by the same FSM lowering bug.
+
+**LiteX M-extension**: Works correctly via LiteX SoC wrapper (LiteXTest).
+
+---
+
+## Issue 6: UART output stuck / garbage — **RESOLVED (2026-04-08)**
+
+**Status**: Resolved. Tests 10 and 11 now PASS (Test 10 prints "Hello", Test 11
+runs the full C firmware test suite — fib, sum, sort, gcd — all OK).
+
+### Root cause
+
+`wrapConditionalGuards` in `Sparkle/Backend/CppSim.lean` was applying an unsound
+"subsystem gating" heuristic to eval body lines:
+
+1. Detect enable-like signals (`_valid`, `_trigger`, `_enable`).
+2. Find the longest shared prefix of that enable signal that appears in ≥20 lines.
+3. Wrap those lines in `if (enable) { ... }` to skip computation when the
+   subsystem is idle.
+4. A "lookahead" kept the block open across non-matching gap lines.
+
+The heuristic was wrong on two axes:
+
+- **Overbroad prefix match**: For picorv32, the detected enable was
+  `cpu_decoder_trigger` with prefix `cpu_`. That matched not just the decoder
+  body but also the memory interface state machine
+  (`cpu__reg_mem_valid_next`, `cpu__reg_mem_wstrb_next`, etc.). Those lines
+  MUST run every cycle or the memory interface freezes whenever the decoder is
+  between instructions. Result: the CPU never completed memory transactions,
+  so the UART handler never saw `mem_valid & !mem_ready`.
+- **Lookahead traps unrelated lines**: The gap-filling kept the block open
+  across lines like `uart_valid = uart_valid_reg;` and
+  `uart_data = uart_data_reg;`, which have nothing to do with the decoder.
+  Those output-wire assignments got gated by `cpu_decoder_trigger`, so the
+  UART output wire stopped reflecting the register's value.
+
+When combined, the firmware could neither execute instructions nor observe
+UART output, and the test read stale/garbage values (`0x3A3A3A3A`, `0x20202020`)
+from the output port every cycle.
+
+### Fix
+
+Disabled `wrapConditionalGuards` entirely in `emitModule`. The eval body is
+now emitted without any gating. Performance is recovered by Clang -O2's
+dead-store elimination: assignments whose results are not read before the next
+overwrite are removed automatically.
+
+### Verification
+
+- Test 10: 0 UART events → **5 UART bytes: "Hello"** (firmware is the hex-encoded
+  `sb` loop that writes H, e, l, l, o to 0x10000000).
+- Test 11: 0 words → **26 words, ALL C TESTS OK** (Fibonacci + sum + sort + GCD).
+
+Total: 33 passed / 1 failed (only Test 21e — wrapper consecutive MUL — remains,
+tracked as Issue 7).
+
+### Historical observation
+
+This optimization was originally added for I-cache locality. The intent was
+reasonable but the heuristic was never correctness-safe: any line that sits
+near "enable-like" code got gated by an unrelated signal. If this optimization
+is ever revived, it must work from the IR (analyzing which wires genuinely
+feed an enable-gated cone of logic) rather than by string pattern matching on
+generated C++.
+
+---
+
+## Issue 6 (historical): UART output is a 4-byte replication of a single ASCII byte
+
+**Status**: Investigating. Pre-existing bug, newly exposed after Issue 1 fix.
+
+**Affected tests**:
+- Test 10 (PicoRV32 SoC with Verilog firmware): 2000 UART bytes, all `0x20` (space)
+- Test 11 (C firmware RV32I): 200000 UART words, all `0x20202020`
+
+**Symptom**: Every UART word read via `JIT.getOutput handle 0` is the same value — a
+single ASCII byte replicated across all 4 bytes of the 32-bit word
+(`0x20202020` after fix, `0x3A3A3A3A` before). The firmware completes its full run
+(cycle count reaches the loop limit) and `uart_valid` does pulse, but every sample
+is the same.
+
+**Diagnosis**: The byte value looks like the first byte of the firmware's `.rodata`
+initialization string. Combined with the 4-way byte-replication, this smells like
+the same family of bug as the historical `{4{mem_la_write}}` → 1-bit lowering bug
+documented in Test 27: byte-enable (`wstrb`) not being honored, so 32-bit word
+writes clobber adjacent bytes. The UART memory-mapped write path is the likely
+location.
+
+**Why newly visible**: Before the Issue 1 fix, Test 11 produced 0 UART words because
+the entire CPU was frozen by the `mul_waiting` guard (even without multiplies, the
+false-positive `_waiting` guard poisoned evalTick's wire computation). Now the CPU
+runs the full firmware, exposing this underlying UART bug.
+
+**Next steps**: Inspect SoC Verilog UART mmio write and compare generated C++
+`wstrb` handling against Test 27's known-good fix.
+
+---
+
+## Issue 7: pcpi_mul SoC-like wrapper consecutive MUL (Test 21e) — **RESOLVED (2026-04-08)**
+
+**Status**: Resolved. Test 21e now PASSes; total ParserTest score is 34/34.
+
+### Root cause
+
+NOT a wrapper bug. The bug was in `Sparkle/IR/Optimize.lean`'s constant-folding
+rule for AND with all-ones:
+
+```lean
+| .op .and [x, .const v w] =>
+  if v != 0 && v == (2 ^ w - 1 : Int) then x
+```
+
+This rule rewrites `x & all-ones-of-width-w → x`. The rewrite is sound only when
+`x` itself has width `w`, but the IR Expr type does not carry per-node widths,
+so the optimizer fired the rule whenever the constant happened to look like
+an all-ones mask of *its own* width — regardless of `x`'s width.
+
+In the carry-save adder of `picorv32_pcpi_mul`, the SSA lowering produces
+nibble-wise masks like `(slice(rd) >> 40) & 0xF` where the slice is 64-bit
+and the mask `0xF` is encoded as a 4-bit constant. Because `0xF == 2^4 - 1`,
+the rewrite kicked in and dropped the mask, leaving `slice(rd) >> 40` — a
+full 64-bit value — as one operand of the carry-save 4-bit add. The add then
+included high bits that should have been masked off, corrupting the carry
+chain and producing wrong multiplication results for any non-trivial operand.
+
+### Why standalone (Test 21d) passed but flat-wrapped (Test 21e) failed
+
+`Test 21d` uses `parseAndLower pcpiMulVerilog` (no optimize), so the masks
+were preserved in the generated C++ (visible as `& (uint8_t)15U`).
+
+`Test 21e` uses `parseAndLowerFlat mulWrapperVerilog`, which runs the full
+optimize pipeline including `foldConstants`. Inspecting the generated C++:
+
+- Standalone: `((next_rd_seq28 >> 40) & 0xF) + ((next_rdx_seq1 >> 40) & 0xF) + ...`
+- Flat-wrapped: `(next_rd_seq28 >> 40) + (mul0_rdx >> 40) + ...`  ← masks dropped
+
+The standalone test only happened to pass because the optimizer wasn't run,
+not because pcpi_mul was correct. Test 21e exposed the latent bug because the
+wrapper module forces flat optimization. The "first 7*6 PASS, second 12345*6789
+FAIL" pattern was a red herring: small operands (7, 6, 100) happen to be
+correct anyway because their high bits are zero, so the missing mask doesn't
+matter. Larger operands like 12345 (15 bits set) overflow the unmasked nibble
+add and propagate spurious carries.
+
+### Fix
+
+Tightened the AND-identity rule in `Sparkle/IR/Optimize.lean` to only fire
+when both operands are constants (where the rewrite is unconditionally sound
+because we collapse to a single constant). For the `and(non-const, all-ones)`
+case, we conservatively leave the AND in place rather than risk dropping a
+necessary truncation. The cost is a few extra `& 0xF...F` ops in generated
+C++ that Clang -O2 would constant-fold anyway.
+
+Note: this also explains why Test 21e was misclassified as a "wrapper FSM"
+bug at first — the `0x82008ad` value looked like consecutive-state corruption
+but it was actually the deterministic miscalculation of `12345 * 6789` whenever
+optimization was enabled. The fix is in `Optimize.lean`, not the wrapper.
+
+---
+
+## Issue 7 (historical): pcpi_mul SoC-like wrapper consecutive MUL (Test 21e) 2nd result wrong
+
+**Status**: Investigating.
+
+Initial (incorrect) hypothesis: wrapper FSM hazard. Actual root cause is the
+`Optimize.lean` mask-removal bug above.
+
+---
+
+## Test Status Summary (2026-04-08, post Issue 1 fix)
+
+| Test Suite | Pass | Fail | Notes |
+|-----------|------|------|-------|
+| OptimizeTest | 10/10 | 0 | All IR optimizer tests |
+| ParserTest | **34/34** | **0** | All tests passing |
+| LiteXTest (Phase 1-3) | 3/3 | 0 | Phase 4 requires JIT FFI |
+| BitNet tests | ✓ build | - | `#eval`-based, verified at build time |
+| AXI4-Lite tests | ✓ build | - | `#eval`-based |
+| IP builds (RV32/BitNet/YOLOv8/Arbiter/Video/Bus) | ✓ | - | All build clean |
+| Proofs (MulProps/MulOracleProof/ArbiterProps/Basic) | ✓ | - | Zero sorry, zero axiom |
+| CounterProps | ✓ | - | 1.4s build (was 10+min) |
+| MExtRv32iTest | 0/3 | 3 | Pre-existing, related to Issue 1 |
+
+## Non-synthesizable Signal DSL patterns
+
+Catalog of patterns that elaborate in Lean and simulate fine, but crash
+`#writeDesign` / `#synthesizeVerilog` / `#sim`. Indexed by the error message
+the user actually sees. See `docs/Tutorial.md` § "Reference: Writing
+Synthesizable Signal DSL" for the rules, and `#check_synthesizable <name>`
+for an early-warning linter.
+
+### N1. `unknown free variable '_fvar.N'` from `Id.run do` / `let mut`
+
+**Symptom**: `#writeDesign myIP` fails with `unknown free variable` pointing
+at a `let mut` / `for` loop inside the body.
+
+**Cause**: `Id.run do { let mut acc := ...; for w in weights do ...; acc }`
+is meta-level mutation. It reduces during elaboration but leaves dangling
+free variables that the Verilog backend cannot see through.
+
+**Fix**: hoist the loop into a pure-Lean helper that runs *before* the
+Signal expression, and fold the result into a single `Signal` combinator:
+
+```lean
+-- BAD
+def body (xs : Array (Signal dom (BitVec 8))) : Signal dom (BitVec 8) :=
+  Id.run do
+    let mut acc : Signal dom (BitVec 8) := Signal.pure 0
+    for x in xs do acc := acc + x
+    return acc
+
+-- GOOD
+def body (xs : Array (Signal dom (BitVec 8))) : Signal dom (BitVec 8) :=
+  xs.foldl (· + ·) (Signal.pure 0)
+```
+
+### N2. `ArchMode.rec is not supported` / `match on non-BitVec inductive`
+
+**Symptom**: `match cfg.archMode with | .HardwiredUnrolled => ... | .Sequential => ...`
+surfaces `ArchMode.rec` in the Verilog backend trace.
+
+**Cause**: the backend can see through `match` on `BitVec`, `Bool`, and
+`Signal`-level constructors, but not arbitrary enums unless the scrutinee
+is a *literal* that reduces at elab time.
+
+**Fix**: if the enum is known at the call site, inline the branch; if it
+is truly runtime, encode it as a `BitVec` and use `Signal.mux`:
+
+```lean
+-- OK — cfg.archMode is a literal at the instantiation site
+def myIP (cfg : Config) : Signal dom _ :=
+  match cfg.archMode with
+  | .Hardwired => hardwiredBody
+  | .Sequential => sequentialBody
+
+def top : Signal dom _ := myIP { archMode := .Hardwired, .. }  -- reduces
+```
+
+### N3. `if-then-else cannot be synthesized`
+
+**Symptom**: `bitLinearSignal` or similar pure Lean helper has
+`if macs.size == 0 then ... else ...` and the backend rejects it.
+
+**Cause**: `if` on a runtime `Prop` / `Bool` that is not a `BitVec` guard
+cannot lower to a Verilog mux. `Signal.mux` is the only runtime choice
+operator.
+
+**Fix**: either (a) make the condition a compile-time literal so it
+reduces away, or (b) replace with `Signal.mux cond t f` where `cond : Signal dom (BitVec 1)`.
+
+### N4. `Signal.val unsupported application`
+
+**Symptom**: backend trace shows `Signal.val sig t` appearing in the
+expression tree.
+
+**Cause**: `Signal.val` is a meta-level observer that extracts a specific
+tick's value. It only makes sense in simulation / proofs, never in
+synthesis. Usually leaks in via a helper that was intended for proof use.
+
+**Fix**: refactor the helper to return a `Signal dom _` instead of a
+`BitVec _`, and compose with `Signal.map` / `Signal.ap` / arithmetic.
+
+### N5. `Signal.loop` in a path fed to `#verify_eq_at`
+
+**Symptom**: `#verify_eq_at` reports that `bv_decide` cannot unfold
+`Signal.loop`.
+
+**Cause**: `Signal.loop` is `@[implemented_by]` opaque; the equivalence
+tactic cannot symbolically execute it. Synthesis works fine — this is a
+*proof* limitation, not a synthesis one.
+
+**Fix**: prove equivalence on the loop-free core first; use
+`#verify_eq_at` only on components that don't feed back. See TODO V2 for
+a planned `unfold_loop n` tactic.
+
+### N6. Arrays of heterogeneous `Signal`s via `Array.map` returning `Signal`
+
+**Symptom**: `Array.map (fun w => Signal.pure w * input) weights` fails
+elaboration with a universe or reduction error.
+
+**Cause**: meta-level `Array.map` is fine *as long as* the result array
+is consumed by a pure-Lean fold before returning. Leaving an `Array (Signal ..)`
+as the final return value sometimes confuses the backend because the array
+becomes part of the expression tree.
+
+**Fix**: always collapse the array with `foldl` or an explicit tree
+reduction before returning:
+
+```lean
+let taps := weights.map (fun w => Signal.pure w * input)
+taps.foldl (· + ·) (Signal.pure 0)  -- collapse to single Signal
+```
+
+### N7. Pure Lean recursion in the Signal body
+
+**Symptom**: `def body : Signal dom _ := if n == 0 then Signal.pure 0 else body (n-1) + input`
+either fails to elaborate (non-terminating) or produces an `unknown free variable`.
+
+**Cause**: recursion on Lean-level naturals must fully unfold at elab
+time. If the recursion depth is a `Nat` parameter not known literally,
+the backend sees a stuck recursor.
+
+**Fix**: parameterize by a concrete literal `(n : Nat := 8)` at the call
+site, or replace recursion with `List.range n |>.foldl`.
+
+### Quick triage
+
+| Error fragment | Pattern | Rule violated |
+|---|---|---|
+| `unknown free variable` inside body | N1 | Rule 1 (no meta-mutation) |
+| `X.rec is not supported` | N2 | Rule 3 (match on enum) |
+| `if-then-else cannot be synthesized` | N3 | Rule 2 (use Signal.mux) |
+| `Signal.val unsupported application` | N4 | Rule 4 (proof helper leak) |
+| `bv_decide ... Signal.loop` | N5 | not synthesis, proof limit |
+| universe / reduction on Array | N6 | Rule 1 |
+| stuck recursor `Nat.rec` | N7 | Rule 3 |
+
+Run `#check_synthesizable myIP` before `#writeDesign` to catch N1/N2/N3
+proactively.
+
+---
+
+## Verified Benchmark Results (unchanged)
+
+| Benchmark | Sparkle JIT | Verilator | Ratio |
+|-----------|------------|-----------|-------|
+| LiteX 1-core | **18.1M cyc/s** | 10.5M | **1.72x** |
+| LiteX + reverse synthesis | **18.1M cyc/s** | 8.4M baseline | **2.14x** |
+| 8-core parallel | **12.7M per-core** | 1.1M | **11.9x** |
+| Timer oracle (proof skip) | **49 GHz effective** | — | **9,900x** |
+
+## Issue X: Multi-handle `JIT.compileAndLoad` silently collapsed onto one handle — **RESOLVED (2026-06-30, Issue #70)**
+
+**Status**: Resolved in `JIT.compile` (commit `62573af`).
+
+### Symptom
+
+A driver loading multiple JIT modules in the same process —
+typically the h264 test drivers, which dlopen separate
+`encoder_pipeline_jit.cpp`, `decoder_pipeline_jit.cpp`, and
+`cavlc_synth_jit.cpp` — would SIGSEGV the first time it
+called `JIT.tick` (or `eval`) on the third handle.  The
+first and second handles worked.  A hand-written C++
+driver performing the IDENTICAL dlopen + tick sequence
+ran cleanly.
+
+### Diagnosis
+
+Tracing the C-side `sparkle_jit_load` revealed:
+
+```
+[jit_load] path=...enc.so lib=0x55e93f087b60 err=(none)
+[jit_load] path=...dec.so lib=0x55e93f087b60 err=(none)
+[jit_load] path=...cav.so lib=0x55e93f087b60 err=(none)
+```
+
+Three distinct `.so` paths, but `dlopen` returns the same
+library handle every time — and `/proc/self/maps`
+confirms only ONE mapping was actually added.  No error
+from `dlerror`.
+
+Underlying cause: **glibc ABI version mismatch** between
+the host Lean binary and the JIT-compiled `.so` files.
+
+- The Lean test binary is dynamically linked against the
+  glibc that was available when the Sparkle library was
+  built (often an older Nix store glibc, e.g. 2.40).
+- `JIT.compile` invokes `c++` from the user's `$PATH`.
+  That toolchain typically links the generated `.so`
+  against a newer glibc + libstdc++ (e.g. 2.42).
+- A 2.42-linked `.so` requires `GLIBC_ABI_*` symbol
+  versions absent in 2.40 — but `dlopen()` doesn't
+  surface this as an error.  Instead the dynamic linker
+  collapses subsequent calls onto the first handle and
+  silently keeps going.
+
+### Fix
+
+`Sparkle/Core/JIT.lean`'s `JIT.compile` now:
+
+1. Reads `/proc/self/maps` to discover the host's libc
+   directory (`JIT.hostLibcDir`).
+2. Passes `-Wl,-rpath,<dir>` to the JIT `c++` invocation
+   so the `.so`'s runtime linker prefers the host's
+   libc over the build environment's.
+3. Passes `-static-libstdc++ -static-libgcc` so the
+   `.so` doesn't depend on libstdc++/libgcc being
+   pre-loaded in the host process.
+4. Folds the chosen rpath into the hash cache key so
+   a Nix environment swap forces a fresh recompile.
+
+### Detection hint
+
+If you see multi-handle JIT tests SIGSEGV in `tick` or
+`eval` while single-handle tests pass, instrument
+`sparkle_jit_load` (in `c_src/sparkle_jit.c`) with:
+
+```c
+const char* err = dlerror();
+fprintf(stderr, "[jit_load] path=%s lib=%p err=%s\n",
+        cpath, lib, err ? err : "(none)");
+```
+
+If you observe distinct paths returning the same `lib`
+pointer, the host-vs-build glibc mismatch is the cause.
+
+### Cross-checking the build env
+
+To confirm the mismatch without running tests:
+
+```bash
+$ ldd .lake/build/bin/<any-jit-driver> | grep -E 'libc|ld-linux'
+libc.so.6  => /nix/store/.../glibc-2.40-66/lib/libc.so.6
+ld-linux   => /nix/store/.../glibc-2.42-61/lib64/ld-linux-x86-64.so.2
+
+$ readelf -d .lake/build/jit_cache/<any.so> | grep -E 'NEEDED|RUNPATH'
+NEEDED   libstdc++.so.6        # host doesn't pre-load this
+NEEDED   libm.so.6
+RUNPATH  .../glibc-2.42-61/lib  # newer than host's 2.40
+```
+
+When the host's libc and the .so's RUNPATH disagree on
+major versions, multi-handle dlopen will silently fail
+in the way described above.
+
+### Future automation
+
+A startup-time check in `JIT.compileAndLoad` could
+detect the mismatch by:
+1. Reading `/proc/self/maps` for the host's libc path
+   and comparing its major version against the `.so`'s
+   `readelf -d` NEEDED libc version.
+2. Emitting a one-time warning if they differ.
+
+Not yet implemented; the rpath fix prevents the
+mismatch from arising in the first place by pinning
+the `.so` to the host's libc.

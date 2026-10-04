@@ -6,6 +6,8 @@
 -/
 
 import Sparkle.IR.AST
+import Std.Data.HashSet
+import Std.Data.HashMap
 
 namespace Sparkle.IR.Builder
 
@@ -17,8 +19,17 @@ structure CircuitState where
   counter : Nat                -- Counter for generating unique names
   module  : Module             -- The module being constructed
   design  : Design             -- The design being constructed (multi-module)
-  usedNames : List String      -- Track used names to prevent collisions
-  deriving Repr
+  -- Track used names to prevent collisions.  O(1) membership via a
+  -- HashSet — the previous `List String` made `freshName`'s
+  -- collision check O(n) per wire, hence O(n²) over a synth pass and
+  -- the dominant cost on wide FSMs (perf showed ~46% of synth time in
+  -- `List.elem` here; the BLS G2 wall).
+  usedNames : Std.HashSet String
+  -- Next disambiguation suffix to try for a given `_gen_{base}` name.
+  -- Without this, allocating the k-th wire that shares a base probes
+  -- `_gen_b_1 … _gen_b_{k-1}` linearly → O(k²) for a hot base.  Start
+  -- probing where we left off so each named allocation is O(1).
+  nextSuffix : Std.HashMap String Nat := {}
 
 /-- Circuit builder monad -/
 abbrev CircuitM := StateM CircuitState
@@ -30,7 +41,7 @@ def init (topModuleName : String) : CircuitState :=
   { counter := 0
   , module := Module.empty topModuleName
   , design := Design.empty topModuleName
-  , usedNames := []
+  , usedNames := {}
   }
 
 /-- Get the current module -/
@@ -51,29 +62,70 @@ def getDesign : CircuitM Design := do
 def addModuleToDesign (m : Module) : CircuitM Unit := do
   modify fun s => { s with design := s.design.addModule m }
 
+/-- Add a retained parameter to the module being built. -/
+def addParameter (name : String) (defaultValue : Nat) : CircuitM Unit := do
+  let m ← getModule
+  setModule (m.addParameter { name, defaultValue })
+
+/-- Strip Lean's macro-hygiene suffix from an identifier name.
+
+    Lean macros introduce identifiers like
+    `x__@_Sparkle_Core_Signal_2408276647__hygCtx__hyg_45`
+    (the `@...hygCtx__hyg_N` portion encodes the macro scope so
+    accidental name capture is impossible).  These suffixes are
+    fine inside Lean but turn into syntax errors in
+    Verilog/SystemVerilog because `@` isn't a valid identifier
+    character.
+
+    Only act when an `@` is present — otherwise return the
+    input unchanged.  When stripping, drop *all* trailing
+    underscores left over from the macro's `_@`/`__@` joiner
+    so we don't leave `x_` or `x__` as the visible identifier
+    (and don't risk colliding with a legitimate name that ends
+    in `_`). -/
+private def stripHygiene (s : String) : String :=
+  match s.splitOn "@" with
+  | [_]    => s  -- no `@` → not a hygiene name, leave alone
+  | h :: _ =>
+    -- Drop every trailing `_` from `h`.  Iterate over the
+    -- characters from the right; the bound is `h.length`.
+    let chars := h.toList
+    let trimmed := chars.reverse.dropWhile (· == '_') |>.reverse
+    String.mk trimmed
+  | []     => s
+
 /-- Generate a fresh wire name.
     When `named=true` (user let-bindings), produces `_gen_{hint}` — stable across recompilations.
-    When `named=false` (compiler intermediates), produces `_tmp_{hint}_{counter}` — numbered. -/
+    When `named=false` (compiler intermediates), produces `_tmp_{hint}_{counter}` — numbered.
+
+    The hint is stripped of any Lean macro-hygiene suffix
+    (`...__@_...__hygCtx__hyg_N`) so the resulting wire name is
+    a valid Verilog identifier. -/
 def freshName (hint : String) (named : Bool := false) : CircuitM String := do
   let s ← get
+  let hint := stripHygiene hint
   let baseName := if hint.isEmpty then "wire" else hint
   if named then
     -- Stable name: try `_gen_{hint}`, then `_gen_{hint}_1`, `_gen_{hint}_2`, ...
     let base := s!"_gen_{baseName}"
     if !s.usedNames.contains base then
-      set { s with usedNames := base :: s.usedNames }
+      set { s with usedNames := s.usedNames.insert base }
       return base
     else
-      let mut n := 1
+      -- Resume probing at the last suffix we reached for this base
+      -- (persisted in `nextSuffix`) so k collisions on one base cost
+      -- O(k) total, not O(k²).
+      let mut n := s.nextSuffix.getD base 1
       let mut candidate := s!"{base}_{n}"
       while s.usedNames.contains candidate do
         n := n + 1
         candidate := s!"{base}_{n}"
-      set { s with usedNames := candidate :: s.usedNames }
+      set { s with usedNames := s.usedNames.insert candidate
+                 , nextSuffix := s.nextSuffix.insert base (n + 1) }
       return candidate
   else
     let name := s!"_tmp_{baseName}_{s.counter}"
-    set { s with counter := s.counter + 1, usedNames := name :: s.usedNames }
+    set { s with counter := s.counter + 1, usedNames := s.usedNames.insert name }
     return name
 
 /-- Sanitize a name to be a valid Verilog identifier -/
@@ -87,7 +139,7 @@ def isNameUsed (name : String) : CircuitM Bool := do
 
 /-- Reserve a specific name (for input/output ports) -/
 def reserveName (name : String) : CircuitM Unit := do
-  modify fun s => { s with usedNames := name :: s.usedNames }
+  modify fun s => { s with usedNames := s.usedNames.insert name }
 
 /--
   Create a new wire with the given type.
@@ -115,13 +167,16 @@ def emitAssign (lhs : String) (rhs : Expr) : CircuitM Unit := do
   Returns the name of the output wire.
 -/
 def emitRegister (hint : String) (clock : String) (reset : String)
-    (input : Expr) (initValue : Int) (ty : HWType) (named : Bool := false) : CircuitM String := do
+    (input : Expr) (initValue : Int) (ty : HWType)
+    (named : Bool := false)
+    (resetKind : Sparkle.IR.Type.ResetKind := .asynchronous)
+    : CircuitM String := do
   let outputName ← freshName (sanitizeName hint) named
   let m ← getModule
   -- Add the output wire
   let m := m.addWire { name := outputName, ty := ty }
   -- Add the register statement
-  let m := m.addStmt (.register outputName clock reset input initValue)
+  let m := m.addStmt (.register outputName clock (reset, resetKind) input initValue)
   setModule m
   return outputName
 

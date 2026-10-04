@@ -46,6 +46,7 @@ partial def inferWidth (wm : WidthMap) : Expr → Nat
   | .const _ w => w
   | .ref name => wm.getD name 0
   | .slice _ hi lo => hi - lo + 1
+  | .sliceDim _ _ _ => 0
   | .concat args => args.foldl (fun acc a => acc + inferWidth wm a) 0
   | .op .eq _ | .op .lt_u _ | .op .lt_s _ | .op .le_u _
   | .op .le_s _ | .op .gt_u _ | .op .gt_s _ | .op .ge_u _
@@ -158,6 +159,26 @@ def foldConstants : Expr → Expr
   -- This is handled in emitExpr instead since foldConstants lacks width context
   -- not(not(x)) = x
   | .op .not [.op .not [x]] => x
+  -- Complementary nested conditions: an inner mux on the SAME predicate
+  -- as the enclosing one can only take the branch the outer choice
+  -- already implies, so the other arm is dead.
+  --   mux(not c, t, mux(c, u, _)) = mux(not c, t, u)
+  --   mux(not c, t, mux(not c, _, v)) = mux(not c, t, v)
+  --   mux(c, mux(c, u, _), e)     = mux(c, u, e)
+  --   mux(c, t, mux(c, _, v))     = mux(c, t, v)
+  -- Every register lowered from `if (reset) … else …` carried a dead
+  -- `reset ? init : old` arm inside the else branch — emitted as
+  -- `(~reset ? d : (reset ? 0 : q))` — which yosys counts as real cells.
+  | .op .mux [.op .not [c], t, .op .mux [c', u, v]] =>
+    if c == c' then .op .mux [.op .not [c], t, u]
+    else if c' == .op .not [c] then .op .mux [.op .not [c], t, v]
+    else .op .mux [.op .not [c], t, .op .mux [c', u, v]]
+  | .op .mux [c, .op .mux [c', u, v], e] =>
+    if c == c' then .op .mux [c, u, e]
+    else .op .mux [c, .op .mux [c', u, v], e]
+  | .op .mux [c, t, .op .mux [c', u, v]] =>
+    if c == c' then .op .mux [c, t, v]
+    else .op .mux [c, t, .op .mux [c', u, v]]
   -- and(x, all-ones) = x (identity mask removal)
   -- IMPORTANT: This rewrite is only sound when x's width equals w. The Expr IR
   -- does not carry per-node widths, so we cannot verify that in general. We
@@ -211,19 +232,28 @@ partial def optimizeExpr (dm : DefMap) (wm : WidthMap) : Expr → Expr
   | .ref name => .ref name  -- Note: constant propagation deferred (needs use-count guard)
   | .slice (.ref name) hi lo => foldConstants (resolveSlice dm wm name hi lo 500)
   | .slice e hi lo => foldConstants (.slice (optimizeExpr dm wm e) hi lo)
+  | .sliceDim e hi lo => .sliceDim (optimizeExpr dm wm e) hi lo
   | .op op args => foldConstants (.op op (args.map (optimizeExpr dm wm ·)))
   | .concat args => .concat (args.map (optimizeExpr dm wm ·))
   | .index arr idx => .index (optimizeExpr dm wm arr) (optimizeExpr dm wm idx)
   | e => e
 
-/-- Collect all reference names from an expression. -/
-partial def collectExprRefs : Expr → List String
-  | .ref name => [name]
-  | .op _ args => args.flatMap collectExprRefs
-  | .concat args => args.flatMap collectExprRefs
-  | .slice e _ _ => collectExprRefs e
-  | .index a i => collectExprRefs a ++ collectExprRefs i
-  | .const _ _ => []
+/-- Collect all reference names from an expression.
+
+    Accumulator form: the old `flatMap`/`++` version re-copied every
+    child's result list at each ancestor, i.e. O(nodes × depth) — on
+    XiangShan's RenameTable/Rob (mux chains tens of thousands of nodes
+    deep) this alone made lowering minutes-long.  One pass, O(nodes). -/
+partial def collectExprRefsAux (acc : List String) : Expr → List String
+  | .ref name => name :: acc
+  | .op _ args => args.foldl collectExprRefsAux acc
+  | .concat args => args.foldl collectExprRefsAux acc
+  | .slice e _ _ => collectExprRefsAux acc e
+  | .sliceDim e _ _ => collectExprRefsAux acc e
+  | .index a i => collectExprRefsAux (collectExprRefsAux acc a) i
+  | .const _ _ => acc
+
+def collectExprRefs (e : Expr) : List String := collectExprRefsAux [] e
 
 partial def countExprUses (e : Expr) (counts : HashMap String Nat)
     : HashMap String Nat :=
@@ -231,6 +261,7 @@ partial def countExprUses (e : Expr) (counts : HashMap String Nat)
   | .ref name => counts.insert name ((counts.getD name 0) + 1)
   | .const _ _ => counts
   | .slice inner _ _ => countExprUses inner counts
+  | .sliceDim inner _ _ => countExprUses inner counts
   | .concat args => args.foldl (fun acc a => countExprUses a acc) counts
   | .op _ args => args.foldl (fun acc a => countExprUses a acc) counts
   | .index arr idx => countExprUses idx (countExprUses arr counts)
@@ -240,9 +271,23 @@ def countAllUses (stmts : List Stmt) : HashMap String Nat :=
   stmts.foldl (fun counts stmt =>
     match stmt with
     | .assign _ rhs => countExprUses rhs counts
-    | .register _ _ _ input _ => countExprUses input counts
-    | .memory _ _ _ _ wa wd we ra _ _ =>
-      [wa, wd, we, ra].foldl (fun acc e => countExprUses e acc) counts
+    | .register _ clkName (rstName, _) input _ =>
+      -- The reset AND the clock live in String fields, not Exprs — count
+      -- both as uses.  A synthesized reset wire (`_no_rst = 0`) was
+      -- already guarded; a DERIVED clock (`clock_falling = ~clock`,
+      -- JtagTapController's negedge domain) was still dropped as dead,
+      -- leaving `always_ff @(posedge clock_falling)` with no driver.
+      let counts := counts.insert rstName ((counts.getD rstName 0) + 1)
+      let counts := counts.insert clkName ((counts.getD clkName 0) + 1)
+      countExprUses input counts
+    | .memory _ _ _ clkName wa wd we ra _ _ ew er =>
+      -- The memory's clock is a String field too, and the EXTRA
+      -- read/write ports' expressions were not counted at all — a wire
+      -- feeding only a second port looked dead.
+      let counts := counts.insert clkName ((counts.getD clkName 0) + 1)
+      let base := [wa, wd, we, ra]
+        ++ ew.flatMap (fun (a, d, e) => [a, d, e]) ++ er.map (·.1)
+      base.foldl (fun acc e => countExprUses e acc) counts
     | .inst _ _ conns =>
       conns.foldl (fun acc (_, e) => countExprUses e acc) counts
   ) {}
@@ -252,29 +297,62 @@ def optimizeStmt (dm : DefMap) (wm : WidthMap) : Stmt → Stmt
   | .assign lhs rhs => .assign lhs (optimizeExpr dm wm rhs)
   | .register output clock reset input initValue =>
     .register output clock reset (optimizeExpr dm wm input) initValue
-  | .memory name aw dw clk wa wd we ra rd cr =>
+  | .memory name aw dw clk wa wd we ra rd cr ew er =>
+    -- extra ports must be rewritten too, or a multi-port memory silently
+    -- degrades to port 0 as it passes through the optimizer
     .memory name aw dw clk
       (optimizeExpr dm wm wa) (optimizeExpr dm wm wd)
       (optimizeExpr dm wm we) (optimizeExpr dm wm ra) rd cr
+      (ew.map fun (a, d, e) =>
+        (optimizeExpr dm wm a, optimizeExpr dm wm d, optimizeExpr dm wm e))
+      (er.map fun (a, r) => (optimizeExpr dm wm a, r))
   | .inst modName instName conns =>
     .inst modName instName (conns.map fun (p, e) => (p, optimizeExpr dm wm e))
 
-/-- Recursively substitute inlinable references with their defining expressions -/
+/-- Recursively substitute inlinable references with their defining expressions.
+
+    `widthOfWire` is the substituted wire's DECLARED width, and it is load-
+    bearing: CSim emits expressions unmasked and re-masks only at named-wire
+    assignment boundaries (`self->w = (expr) & 0x7ULL`).  A wire is therefore
+    a masking point, and inlining one deletes its mask.  When the declared
+    width differs from the width C arithmetic naturally wraps at (32 for
+    promoted narrow operands, 64 for wide storage), the value changes:
+    CAVLC's 3-bit `slDec = suffixLen - 1` reads 7 as a wire but −1 → 2³²−1
+    inlined, and `3 << slDec` went from 384 to garbage — every emitted
+    bitstream block was wrong.  So any inlined definition whose declared
+    width is not exactly 32 or 64 is re-wrapped in an explicit
+    `& (2^w − 1)`, which every backend renders inline and constant-folds. -/
 partial def substituteExpr (dm : DefMap) (inlinable : HashMap String Bool)
+    (widthOfWire : String → Nat)
     (fuel : Nat) : Expr → Expr
   | .ref name =>
     if fuel == 0 then .ref name
     else if inlinable.getD name false then
       match dm.get? name with
-      | some defExpr => substituteExpr dm inlinable (fuel - 1) defExpr
+      | some defExpr =>
+        let e' := substituteExpr dm inlinable widthOfWire (fuel - 1) defExpr
+        let w := widthOfWire name
+        let needsMask :=
+          w != 32 && w != 64 && w != 0 &&
+          (match e' with
+           -- already-in-range shapes: a stored wire, a constant, or a
+           -- low slice that is itself the mask
+           | .ref _ => false
+           | .const _ _ => false
+           | .slice _ hi 0 => hi + 1 != w
+           | _ => true)
+        if needsMask && w ≤ 64 then
+          .op .and [e', .const ((1 <<< w) - 1 : Int) w]
+        else e'
       | none => .ref name
     else .ref name
   | .const v w => .const v w
-  | .slice e hi lo => .slice (substituteExpr dm inlinable fuel e) hi lo
-  | .concat args => .concat (args.map (substituteExpr dm inlinable fuel ·))
-  | .op op args => .op op (args.map (substituteExpr dm inlinable fuel ·))
+  | .slice e hi lo => .slice (substituteExpr dm inlinable widthOfWire fuel e) hi lo
+  | .sliceDim e hi lo => .sliceDim (substituteExpr dm inlinable widthOfWire fuel e) hi lo
+  | .concat args => .concat (args.map (substituteExpr dm inlinable widthOfWire fuel ·))
+  | .op op args => .op op (args.map (substituteExpr dm inlinable widthOfWire fuel ·))
   | .index arr idx =>
-    .index (substituteExpr dm inlinable fuel arr) (substituteExpr dm inlinable fuel idx)
+    .index (substituteExpr dm inlinable widthOfWire fuel arr) (substituteExpr dm inlinable widthOfWire fuel idx)
 
 /-- Inline single-use wires: replace references with their defining expressions
     and remove the now-dead assign statements. -/
@@ -283,6 +361,11 @@ def inlineSingleUseWires (m : Module) (body : List Stmt)
     (protectedWires : HashMap String Bool := {}) : List Stmt × List Port :=
   let dm := buildDefMap body
   let useCounts := countAllUses body
+  -- Declared widths, for the masking rule in `substituteExpr`.
+  let wireWidths : HashMap String Nat :=
+    (m.inputs ++ m.outputs ++ m.wires).foldl
+      (fun acc p => acc.insert p.name p.ty.bitWidth) {}
+  let widthOfWire := fun (n : String) => wireWidths.getD n 0
 
   -- Build sets of names that must NOT be inlined
   let outputSet := m.outputs.foldl (fun s p => s.insert p.name true) ({} : HashMap String Bool)
@@ -291,24 +374,121 @@ def inlineSingleUseWires (m : Module) (body : List Stmt)
     | .register output .. => s.insert output true
     | _ => s
   ) ({} : HashMap String Bool)
-  let memoryReadData := body.foldl (fun s stmt =>
+  -- A register's reset is referenced BY NAME (a String field, not an
+  -- Expr), so `substituteExpr` can never reach it — inlining a reset
+  -- wire's assign deletes its only driver (`_no_rst = 0`,
+  -- `_rst_<sig>_inv = ~sig`) and the emitted Verilog fails elaboration.
+  let resetNames := body.foldl (fun s stmt =>
     match stmt with
-    | .memory _ _ _ _ _ _ _ _ rd _ => s.insert rd true
+    | .register _ clkName (rstName, _) _ _ =>
+      -- Clocks are String-typed like resets: a derived clock's driving
+      -- assign must survive inlining too (see countAllUses).
+      (s.insert rstName true).insert clkName true
+    | .memory _ _ _ clkName _ _ _ _ _ _ _ _ => s.insert clkName true
     | _ => s
   ) ({} : HashMap String Bool)
+  let memoryReadData := body.foldl (fun s stmt =>
+    match stmt with
+    | .memory _ _ _ _ _ _ _ _ rd _ .. => s.insert rd true
+    | _ => s
+  ) ({} : HashMap String Bool)
+  -- Wires feeding a memory PORT must survive too, not just the read-data
+  -- wire.  Inlining the write-data wire away deletes the write statement's
+  -- operand and the backend then drops the write entirely: the H.264
+  -- quant-roundtrip lost `if (isProcess) outMem[addr] = result`, so every
+  -- negative coefficient came back unsigned (−50 read as 32717).
+  --
+  -- This was masked while `_gen_*` wires were unconditionally treated as
+  -- observable; making observability opt-in exposed it.
+  -- Transitive: `wd` is usually a wire whose own definition names further
+  -- wires, and inlining ANY of them collapses the write's data cone.  Walk
+  -- the assign graph to a fixed point from the port operands.
+  let memoryPortRefs :=
+    let assignDefs := body.foldl (fun (m : HashMap String Expr) stmt =>
+      match stmt with
+      | .assign lhs rhs => m.insert lhs rhs
+      | _ => m) {}
+    let seeds := body.foldl (fun acc stmt =>
+      match stmt with
+      | .memory _ _ _ _ wa wd we ra _ _ .. =>
+        acc ++ [wa, wd, we, ra].flatMap collectExprRefs
+      | _ => acc) []
+    let rec grow (work : List String) (seen : HashMap String Bool) (fuel : Nat)
+        : HashMap String Bool :=
+      match fuel, work with
+      | 0, _ => seen
+      | _, [] => seen
+      | fuel + 1, w :: rest =>
+        if seen.contains w then grow rest seen fuel
+        else
+          let seen := seen.insert w true
+          let next := (assignDefs.get? w |>.map collectExprRefs).getD []
+          grow (next ++ rest) seen fuel
+    -- Fuel must cover every possible worklist POP.  A wire is pushed at
+    -- most once per REFERENCE to it (revisits pop without pushing), so
+    -- the exact bound is seeds + the total ref count across all assign
+    -- rhss.  The old `body.length * 8` heuristic underestimates modules
+    -- whose expressions are much wider than they are numerous (XiangShan
+    -- RenameTable: deep per-register mux chains) — the walk then stopped
+    -- early and silently under-protected the memory cone.
+    let totalRefs := body.foldl (fun acc stmt =>
+      match stmt with
+      | .assign _ rhs => acc + (collectExprRefs rhs).length
+      | _ => acc) 0
+    grow seeds {} (seeds.length + totalRefs + 64)
+
+  -- Width map (name → bit width) from the module's ports and wires.
+  let widthOf := (m.inputs ++ m.outputs ++ m.wires).foldl
+    (fun s (p : Port) => s.insert p.name p.ty.bitWidth) ({} : HashMap String Nat)
 
   -- Build inlinable set: used exactly once, not output/register/memory-read/named
   let inlinable := body.foldl (fun s stmt =>
     match stmt with
-    | .assign lhs _ =>
+    | .assign lhs rhs =>
+      -- Never inline a WIDE (>64-bit) `concat` wire.  The CSim/Verilog
+      -- wide-concat emitters re-emit each argument once per 32-bit output
+      -- word, so inlining a chain of single-use wide concats into one
+      -- deeply-nested concat explodes emit to O(nWords^depth) (megabytes
+      -- from a handful of nodes — e.g. Keccak's 1600-bit state assembly).
+      -- Keeping wide concats as named wires emits each exactly once.
+      -- Never inline a WIDE (>64-bit) wire whose RHS is anything but a
+      -- plain ref/const.  This used to be a per-shape blacklist (wide
+      -- `concat`: O(nWords^depth) emit explosion; wide `slice` with a
+      -- non-zero offset: silently drops the offset), and the blacklist was
+      -- incomplete: CAVLC's 160-bit tuple-output cone contains wide shapes
+      -- that also mis-render when nested inside `emitExpr` (a wide value is
+      -- a uint32_t ARRAY in CSim — most expression contexts cannot take one
+      -- inline), and folding them corrupted the emitted bitstream on every
+      -- block.  As named wires, all of these emit through the
+      -- assignment-shape handlers, which are word-serial and correct.  The
+      -- masking was accidental: `_gen_*` wires were unconditionally treated
+      -- as JIT-observable, which pinned most wide cones by luck.
+      let isWideConcat := match rhs with
+        | .ref _ => false
+        | .const _ _ => false
+        | _ => (widthOf.getD lhs 0) > 64
       if (useCounts.getD lhs 0) == 1
+        && !isWideConcat
         && !outputSet.contains lhs
         && !registerOutputs.contains lhs
+        && !resetNames.contains lhs
         && !memoryReadData.contains lhs
+        && !memoryPortRefs.contains lhs
         && !protectedWires.contains lhs
         && (match observableWires with
             | some ws => !ws.contains lhs
-            | none => !lhs.startsWith "_gen_")  -- _gen_ wires are JIT-observable
+            -- No explicit list ⇒ nothing is pinned, so the optimiser is
+            -- free.  This used to default to "every `_gen_*` wire is
+            -- JIT-observable", which protected hundreds of wires in order to
+            -- preserve the handful a driver actually samples, and blocked
+            -- sub-module CSE outright (issue #107's `stateArg` shape).
+            --
+            -- Observability is now opt-in, via the 4-argument `#writeDesign`
+            -- (`#writeDesign mod "x.sv" "x.h" observableWires`) — the form the
+            -- RV32 SoC always used.  A design whose drivers read internal
+            -- wires by name must declare them; see
+            -- `IP/Video/H264/CAVLCSynth.lean : cavlcObservableWires`.
+            | none => true)
       then s.insert lhs true
       else s
     | _ => s
@@ -318,15 +498,20 @@ def inlineSingleUseWires (m : Module) (body : List Stmt)
   let inlinedBody := body.map fun stmt =>
     match stmt with
     | .assign lhs rhs =>
-      .assign lhs (substituteExpr dm inlinable 100 rhs)
+      .assign lhs (substituteExpr dm inlinable widthOfWire 100 rhs)
     | .register output clock reset input initValue =>
-      .register output clock reset (substituteExpr dm inlinable 100 input) initValue
-    | .memory name aw dw clk wa wd we ra rd cr =>
+      .register output clock reset (substituteExpr dm inlinable widthOfWire 100 input) initValue
+    | .memory name aw dw clk wa wd we ra rd cr ew er =>
       .memory name aw dw clk
-        (substituteExpr dm inlinable 100 wa) (substituteExpr dm inlinable 100 wd)
-        (substituteExpr dm inlinable 100 we) (substituteExpr dm inlinable 100 ra) rd cr
+        (substituteExpr dm inlinable widthOfWire 100 wa) (substituteExpr dm inlinable widthOfWire 100 wd)
+        (substituteExpr dm inlinable widthOfWire 100 we) (substituteExpr dm inlinable widthOfWire 100 ra) rd cr
+        (ew.map fun (a, d, e) =>
+          (substituteExpr dm inlinable widthOfWire 100 a,
+           substituteExpr dm inlinable widthOfWire 100 d,
+           substituteExpr dm inlinable widthOfWire 100 e))
+        (er.map fun (a, r) => (substituteExpr dm inlinable widthOfWire 100 a, r))
     | .inst modName instName conns =>
-      .inst modName instName (conns.map fun (p, e) => (p, substituteExpr dm inlinable 100 e))
+      .inst modName instName (conns.map fun (p, e) => (p, substituteExpr dm inlinable widthOfWire 100 e))
 
   -- Remove inlined assignments
   let filteredBody := inlinedBody.filter fun stmt =>
@@ -371,24 +556,291 @@ def propagateConstants (body : List Stmt) (dm : DefMap) : List Stmt × DefMap :=
       | none => .ref name
     | .const v w => .const v w
     | .slice e hi lo => .slice (substExpr e) hi lo
+    | .sliceDim e hi lo => .sliceDim (substExpr e) hi lo
     | .concat args => .concat (args.map substExpr)
     | .op op args => .op op (args.map substExpr)
     | .index arr idx => .index (substExpr arr) (substExpr idx)
   let substStmt : Stmt → Stmt
     | .assign lhs rhs => .assign lhs (substExpr rhs)
     | .register o c r input iv => .register o c r (substExpr input) iv
-    | .memory n aw dw clk wa wd we ra rd cr =>
+    | .memory n aw dw clk wa wd we ra rd cr ew er =>
       .memory n aw dw clk (substExpr wa) (substExpr wd) (substExpr we) (substExpr ra) rd cr
+        (ew.map fun (a, d, e) => (substExpr a, substExpr d, substExpr e))
+        (er.map fun (a, r) => (substExpr a, r))
     | .inst mn ins conns => .inst mn ins (conns.map fun (p, e) => (p, substExpr e))
   let newBody := body.map substStmt
   let newDm := buildDefMap newBody
   (newBody, newDm)
 
-/-- Optimize a module: eliminate concat/slice chains, then remove dead code -/
+/-- Filter zero-bit elements out of an Expr tree.
+
+    `lowerExpr` / `runCircuitH`-style elaborators can produce IR
+    nodes that thread a `bitVector 0` "empty payload" through
+    `.concat` and `.slice` chains — for instance `bundle2 X
+    (Signal.pure ())` lowers to `.concat [X, <0-bit ref>]`, and
+    the matching `Signal.map Prod.fst` lowers to a slice that
+    discards the 0-bit tail.
+
+    Emitting these into SystemVerilog produces invalid constructs
+    like `assign x = 0'd0;` (a zero-width literal is not legal SV).
+    This pass rewrites the IR so that:
+      - `.const v 0` is dropped from `.concat` arg lists;
+      - `.concat [x]` (after dropping zero-bit args) collapses to
+        the single remaining arg;
+      - `.concat []` collapses to a 1-bit zero placeholder (should
+        be unreachable in practice — pruned later by DCE);
+      - `.slice e hi lo` where `hi - lo + 1 == 0` is rewritten to
+        a 0-bit constant (later dropped at the use site).
+
+    Sub-expressions are rewritten recursively. -/
+partial def eliminateZeroBitInExpr (wm : WidthMap) : Expr → Expr
+  | .const v w => .const v w
+  | .ref name => .ref name
+  | .op o args => .op o (args.map (eliminateZeroBitInExpr wm))
+  | .concat args =>
+    let cleaned := (args.map (eliminateZeroBitInExpr wm)).filter fun a =>
+      inferWidth wm a > 0
+    match cleaned with
+    | []  => .const 0 0       -- whole concat collapsed away
+    | [x] => x
+    | xs  => .concat xs
+  | .slice e hi lo =>
+    let e' := eliminateZeroBitInExpr wm e
+    -- Two safe slice peepholes:
+    --   (a) `slice X 0 0` where X is 1-bit → X
+    --       (the runCircuitH `Signal.map Prod.fst` shape)
+    --   (b) `slice (.op …) hi 0` where the op's inferred width
+    --       matches `hi+1` → drop the slice.  This avoids
+    --       emitting `(a + 1)[7:0]` to Verilog, which is a
+    --       syntax error (slices may only follow identifiers,
+    --       not parenthesised expressions).
+    -- Wider slices over `.ref` / `.slice` are left alone — they
+    -- still map to legal Verilog `name[hi:lo]` and the
+    -- SoC-Verilog field indexer relies on them.
+    let w := inferWidth wm e'
+    if hi == 0 && lo == 0 && w == 1 then e'
+    else
+      match e' with
+      | .op _ _ =>
+        if lo == 0 && w == hi + 1 then e'
+        else .slice e' hi lo
+      | _ => .slice e' hi lo
+  | .index a i => .index (eliminateZeroBitInExpr wm a) (eliminateZeroBitInExpr wm i)
+  | .sliceDim e hi lo =>
+    .sliceDim (eliminateZeroBitInExpr wm e) hi lo
+
+/-- Drop `Stmt.assign` whose LHS has zero width — these only exist as
+    leftover bookkeeping from 0-bit IR construction (see
+    `eliminateZeroBitInExpr`).  Other Stmt kinds are kept as is. -/
+def eliminateZeroBitStmt (wm : WidthMap) : Stmt → Option Stmt
+  | .assign lhs rhs =>
+    if wm.getD lhs 0 == 0 then none
+    else some (.assign lhs (eliminateZeroBitInExpr wm rhs))
+  | .register output clk rst input init =>
+    some (.register output clk rst (eliminateZeroBitInExpr wm input) init)
+  | .memory name aw dw clk wa wd we ra rd cr ew er =>
+    some (.memory name aw dw clk
+      (eliminateZeroBitInExpr wm wa)
+      (eliminateZeroBitInExpr wm wd)
+      (eliminateZeroBitInExpr wm we)
+      (eliminateZeroBitInExpr wm ra)
+      rd cr
+      (ew.map fun (a, d, e) =>
+        (eliminateZeroBitInExpr wm a, eliminateZeroBitInExpr wm d,
+         eliminateZeroBitInExpr wm e))
+      (er.map fun (a, r) => (eliminateZeroBitInExpr wm a, r)))
+  | .inst modName instName conns =>
+    some (.inst modName instName
+      (conns.map fun (p, e) => (p, eliminateZeroBitInExpr wm e)))
+
+/-- Run the 0-bit elimination pass over a module's body and wire list. -/
+def eliminateZeroBits (m : Module) : Module :=
+  let wm := buildWidthMap m
+  let body' := m.body.filterMap (eliminateZeroBitStmt wm)
+  let wires' := m.wires.filter (·.ty.bitWidth > 0)
+  { m with body := body', wires := wires' }
+
+/-- Resolve a wire name through the CSE substitution map, following
+    chains (`w2 → w1 → w0`).  Chains are acyclic by construction —
+    a wire only enters the map when its defining statement is
+    dropped, and the representative's statement is always kept —
+    so plain recursion terminates. -/
+partial def resolveSubst (subst : HashMap String String) (w : String) : String :=
+  match subst.get? w with
+  | some w' => if w' == w then w else resolveSubst subst w'
+  | none => w
+
+/-- Rewrite every wire reference through the CSE substitution map. -/
+partial def renameRefs (subst : HashMap String String) : Expr → Expr
+  | .ref name => .ref (resolveSubst subst name)
+  | .op o args => .op o (args.map (renameRefs subst))
+  | .concat args => .concat (args.map (renameRefs subst))
+  | .slice e hi lo => .slice (renameRefs subst e) hi lo
+  | .sliceDim e hi lo => .sliceDim (renameRefs subst e) hi lo
+  | .index a i => .index (renameRefs subst a) (renameRefs subst i)
+  | e => e
+
+/-- Apply `f` to every expression embedded in a statement. -/
+def mapStmtExprs (f : Expr → Expr) : Stmt → Stmt
+  | .assign lhs rhs => .assign lhs (f rhs)
+  | .register out clk rst input init => .register out clk rst (f input) init
+  | .memory name aw dw clk wa wd we ra rd cr ew er =>
+      .memory name aw dw clk (f wa) (f wd) (f we) (f ra) rd cr
+        (ew.map fun (a, d, e) => (f a, f d, f e))
+        (er.map fun (a, r) => (f a, r))
+  | .inst mn inm conns => .inst mn inm (conns.map fun (p, e) => (p, f e))
+
+/-- Phase 0.6: cross-wire common-subexpression elimination +
+    duplicate sub-module instance merging (Issue #107).
+
+    The synth elaborator re-walks the circuit body once per register
+    next-state leaf; wires derived from `let`/loop-bound state come
+    out under fresh names per walk (`_gen_x`, `_gen_x_1`, …) even
+    though they compute identical expressions over identical base
+    wires, and each walk re-emits the sub-module instances fed by
+    those wires — E = I·(D+1) instances instead of I.  The Lean-side
+    caches can't see through the fresh fvars, but at the IR level
+    everything is canonical: the clones are literally `assign x_1 =
+    <same rhs>` and `inst … (<same input connections>)`.
+
+    Value-number assigns by their (substitution-rewritten) rhs; when
+    a later assign duplicates an earlier one, drop it and alias its
+    lhs to the representative.  Merge instances of the same module
+    whose *input* connections are identical, aliasing their output
+    wires.  A connection `.ref w` where `w` is not driven by any
+    non-instance statement (and is not a module input) is an output
+    of that instance — no cross-module port-direction table needed.
+
+    Merging stateful instances is sound: same module + same inputs +
+    same clock/reset ⇒ same state trajectory ⇒ same outputs, which
+    is exactly the denotation Sparkle's pure semantics assigns to
+    structurally identical calls.  (This is the fold yosys's
+    `opt_merge` refuses to do because it would need sequential
+    equivalence checking; here it is correct by construction.)
+
+    `protectedWire` (module outputs + observable waveform taps)
+    never gets aliased away.  Iterates to a fixpoint because folding
+    one layer of duplicates makes the next layer's keys equal. -/
+def cseAndMergeInstances (m : Module) (body0 : List Stmt)
+    (protectedWire : String → Bool) : List Stmt :=
+  Id.run do
+    -- Widths, for the value-numbering key below.
+    let wireW : Std.HashMap String Nat :=
+      (m.inputs ++ m.outputs ++ m.wires).foldl
+        (fun acc p => acc.insert p.name p.ty.bitWidth) {}
+    let mut body := body0
+    for _ in [:16] do
+      -- Wires driven by a non-instance statement or module input.
+      -- Instance connections referencing anything else are that
+      -- instance's outputs.
+      let mut drivenElsewhere : HashMap String Bool := {}
+      for p in m.inputs do
+        drivenElsewhere := drivenElsewhere.insert p.name true
+      for s in body do
+        match s with
+        | .assign lhs _ => drivenElsewhere := drivenElsewhere.insert lhs true
+        | .register out _ _ _ _ => drivenElsewhere := drivenElsewhere.insert out true
+        | .memory _ _ _ _ _ _ _ _ rd _ .. => drivenElsewhere := drivenElsewhere.insert rd true
+        | .inst _ _ _ => pure ()
+      -- A wire connected to MORE THAN ONE instance cannot be treated as
+      -- "this instance's output": it may be another instance's output
+      -- feeding this one's INPUT (XiangShan MulModuleS0: PPGen's
+      -- `io_in_code(_booth4_N_io_out)` comes from a Booth4 — the old
+      -- rule dropped it from the merge key, all 16 PPGens looked
+      -- identical, and their Booth4 codes were aliased to one).
+      let mut instConnCount : HashMap String Nat := {}
+      for s in body do
+        match s with
+        | .inst _ _ conns =>
+          for (_, e) in conns do
+            match e with
+            | .ref w => instConnCount := instConnCount.insert w ((instConnCount.getD w 0) + 1)
+            | _ => pure ()
+        | _ => pure ()
+      let isInstOutput : HashMap String String → (String × Expr) → Bool :=
+        fun subst (_, e) =>
+          match e with
+          | .ref w =>
+            let w' := resolveSubst subst w
+            !drivenElsewhere.contains w' && instConnCount.getD w 0 ≤ 1
+          | _ => false
+      let mut subst : HashMap String String := {}
+      let mut assignVN : HashMap String String := {}
+      let mut instVN : HashMap String (List (String × Expr)) := {}
+      let mut kept : List Stmt := []
+      let mut dropped := 0
+      for s0 in body do
+        let s := mapStmtExprs (renameRefs subst) s0
+        match s with
+        | .assign lhs rhs =>
+          -- The value-numbering key MUST include the destination width.  An
+          -- `assign` truncates its RHS to the wire's declared width, so two
+          -- assigns with the same RHS text but different widths compute
+          -- different values — `a16 = x + y` masks to 16 bits where
+          -- `a32 = x + y` does not.  Keying on the RHS alone folded exactly
+          -- such pairs in the H.264 CAVLC encoder (narrow counters share
+          -- their RHS shape with wider datapath adds), and every reader of
+          -- the narrow wire then saw the unmasked value: the emitted
+          -- bitstream had bitPos 73 where the reference said 32.
+          let vnKey := s!"{wireW.getD lhs 0}|{toString rhs}"
+          match assignVN.get? vnKey with
+          | some rep =>
+            if rep != lhs && !protectedWire lhs then
+              subst := subst.insert lhs rep
+              dropped := dropped + 1
+            else
+              kept := s :: kept
+          | none =>
+            assignVN := assignVN.insert vnKey lhs
+            kept := s :: kept
+        | .inst modName _ conns =>
+          let inputConns := conns.filter (fun c => !isInstOutput subst c)
+          let inKey := String.intercalate ";"
+            (inputConns.map (fun (p, e) => s!"{p}={e}"))
+          let key := s!"{modName}|{inKey}"
+          match instVN.get? key with
+          | some repConns =>
+            -- Alias every output wire to the representative's; bail
+            -- out (keep the duplicate) if any output is protected or
+            -- shaped unexpectedly.
+            let mut mergeable := true
+            let mut aliases : List (String × String) := []
+            for (p, e) in conns do
+              if isInstOutput subst (p, e) then
+                match e, repConns.find? (fun pc => pc.1 == p) with
+                | .ref w, some (_, .ref repW) =>
+                  if protectedWire w then mergeable := false
+                  else aliases := (w, repW) :: aliases
+                | _, _ => mergeable := false
+            if mergeable then
+              for (w, repW) in aliases do
+                subst := subst.insert w repW
+              dropped := dropped + 1
+            else
+              kept := s :: kept
+          | none =>
+            instVN := instVN.insert key conns
+            kept := s :: kept
+        | _ => kept := s :: kept
+      -- Final rewrite with the complete substitution: statements kept
+      -- early in the pass may reference wires whose duplicate-drop
+      -- happened later (backward references through loop wires).
+      body := kept.reverse.map (mapStmtExprs (renameRefs subst))
+      if dropped == 0 then
+        break
+    return body
+
+
+/-- Optimize a module: strip zero-bit shapes, eliminate concat/slice
+    chains, then remove dead code. -/
 def optimizeModule (m : Module)
     (observableWires : Option (List String) := none) : Module :=
   if m.isPrimitive then m
   else
+    -- Phase -1: strip 0-bit wires and the constants/slices/concats that
+    -- only existed to carry them.  Must run before the other passes so
+    -- they don't get a chance to canonicalise the broken shapes.
+    let m := eliminateZeroBits m
     let wm := buildWidthMap m
     let dm := buildDefMap m.body
 
@@ -450,8 +902,25 @@ def optimizeModule (m : Module)
         | _ => result := result ++ [s]
       result
 
+    -- Phase 0.6: cross-wire CSE + duplicate instance merge (Issue
+    -- #107 — the elaborator's per-register-leaf re-walks duplicate
+    -- whole logic cones and the sub-module instances they feed).
+    let outputSet0 := m.outputs.foldl (fun s p => s.insert p.name true)
+      ({} : HashMap String Bool)
+    let protectedWire := fun (w : String) =>
+      outputSet0.contains w ||
+      (match observableWires with
+       | some ws => ws.contains w
+       -- Match Phase 3 (see the note there): observability is opt-in.
+       | none => false)
+    let cseBody := cseAndMergeInstances m dedupBody protectedWire
+    -- Rebuild the def-map: CSE renamed references, and Phase 1's
+    -- slice-of-concat resolution must not chase stale entries that
+    -- mention dropped wires.
+    let dm := buildDefMap cseBody
+
     -- Phase 1: Replace slice-of-concat with direct references
-    let optimizedBody := dedupBody.map (optimizeStmt dm wm)
+    let optimizedBody := cseBody.map (optimizeStmt dm wm)
 
     -- Phase 2: Dead code elimination
     let useCounts := countAllUses optimizedBody
@@ -484,7 +953,130 @@ def optimizeModule (m : Module)
     let finalWires := inlinedWires.filter fun w =>
       (useCounts2.getD w.name 0) > 0 || outputSet.contains w.name
 
-    { m with body := finalBody, wires := finalWires }
+    -- Phase 4.5: prune registers (and instances) unreachable from the
+    -- module's outputs.
+    --
+    -- Phases 2 and 4 only filter `.assign`; `| _ => true` keeps every
+    -- `.register` unconditionally.  A plain use-count cannot do better,
+    -- because a dead register *bank* is self-referential: each register's
+    -- input mentions its siblings, so all of them show a nonzero count
+    -- while the bank as a whole feeds nothing observable.
+    --
+    -- This is exactly how a duplicated sub-engine survived: the second copy
+    -- of `dividerQ`'s 5 registers fed only a `packRegister` concat chain
+    -- that nothing read.  Reachability from the outputs is the only
+    -- analysis that removes it, and it is what takes `regDependentEngine`
+    -- from 15 registers to 9 and `tvkTop` from 22 to 16.
+    --
+    -- Fixed point from the output set, following refs through assigns,
+    -- register inputs, memory ports and instance connections.  Instances
+    -- are kept when ANY of their connected wires is live: a connection can
+    -- be an input being driven, so an instance is only dead when it is
+    -- wholly disconnected from the live set.
+    let assignDefs : HashMap String Expr := finalBody.foldl (fun s stmt =>
+      match stmt with
+      | .assign lhs rhs => s.insert lhs rhs
+      | _ => s) {}
+    let regInputs : HashMap String Expr := finalBody.foldl (fun s stmt =>
+      match stmt with
+      | .register out _ _ input _ => s.insert out input
+      | _ => s) {}
+    -- The reset is a String field, invisible to `collectExprRefs`; a live
+    -- register must keep its reset wire (and that wire's driving assign)
+    -- live, or Phase 5's width-map rebuild drops the assign and the
+    -- emitted Verilog references an undeclared wire.
+    let regResets : HashMap String String := finalBody.foldl (fun s stmt =>
+      match stmt with
+      | .register out _ (rstName, _) _ _ => s.insert out rstName
+      | _ => s) {}
+    -- Clocks are String-typed exactly like resets, so a DERIVED clock
+    -- (`clock_falling = ~clock`, JtagTapController's negedge domain) was
+    -- invisible to this walk and its driving assign was pruned — the
+    -- emitted `always_ff @(posedge clock_falling)` referenced an
+    -- undeclared wire.
+    let regClocks : HashMap String String := finalBody.foldl (fun s stmt =>
+      match stmt with
+      | .register out clkName _ _ _ => s.insert out clkName
+      | _ => s) {}
+    let seeds : List String :=
+      m.outputs.map (·.name) ++
+      -- Wires the caller has declared observable are roots too.  `#sim`
+      -- passes the JIT's probe list here, and those wires are read BY NAME
+      -- at runtime (`JIT.resolveWires`) rather than through a port — so
+      -- reachability cannot see the use and would prune them.  The RV32 SoC
+      -- oracle test reads `_gen_trap_taken` exactly this way.
+      (observableWires.getD []) ++
+      finalBody.foldl (fun acc stmt =>
+        match stmt with
+        -- memory writes and instance ports are observable side effects
+        | .memory _ _ _ _ wa wd we ra _ _ .. =>
+          acc ++ [wa, wd, we, ra].flatMap collectExprRefs
+        | .inst _ _ conns => acc ++ conns.flatMap (fun (_, e) => collectExprRefs e)
+        | _ => acc) []
+    let rec grow (worklist : List String) (live : HashMap String Bool)
+        (fuel : Nat) : HashMap String Bool :=
+      match fuel, worklist with
+      | 0, _ => live
+      | _, [] => live
+      | fuel + 1, w :: rest =>
+        if live.contains w then grow rest live fuel
+        else
+          let live := live.insert w true
+          let next :=
+            (assignDefs.get? w |>.map collectExprRefs |>.getD []) ++
+            (regInputs.get? w |>.map collectExprRefs |>.getD []) ++
+            (regResets.get? w |>.map ([·]) |>.getD []) ++
+            (regClocks.get? w |>.map ([·]) |>.getD [])
+          grow (next ++ rest) live fuel
+    -- Fuel: every pop is either a revisit (pushed once per reference) or
+    -- a fresh wire (pushes its def's refs).  Bound fuel by seeds + the
+    -- TOTAL ref count across assign rhss, register inputs and register
+    -- resets — the old `finalBody.length * 8` heuristic ran out on
+    -- XiangShan's RenameTable (few statements, enormous mux expressions)
+    -- and the truncated liveSet silently pruned LIVE registers
+    -- (spec_table_0..2), which Phase 5 then cascaded into dropped concat
+    -- operands.  The `allOutputsDriven` fail-safe cannot catch this:
+    -- outputs stay driven by the surviving assigns.
+    let totalRefs := finalBody.foldl (fun acc stmt =>
+      match stmt with
+      | .assign _ rhs => acc + (collectExprRefs rhs).length
+      -- +2: each register can push its reset AND its clock name.
+      -- Adding regClocks without raising this exhausted the fuel and the
+      -- truncated liveSet pruned LIVE registers again (DelayReg's whole
+      -- r_3_* pipeline stage) — the exact failure mode this comment
+      -- already warns about.
+      | .register _ _ _ input _ => acc + (collectExprRefs input).length + 2
+      | _ => acc) 0
+    let liveSet := grow seeds {} (seeds.length + totalRefs + 64)
+    let reachableBody := finalBody.filter fun stmt =>
+      match stmt with
+      | .register out .. => liveSet.contains out
+      | _ => true
+    let reachableWires := finalWires.filter fun w =>
+      liveSet.contains w.name || outputSet.contains w.name
+    -- Only adopt the pruned body if it still drives every output.  A
+    -- reachability bug that drops a live register would otherwise silently
+    -- produce a module with undriven outputs; keeping the unpruned body in
+    -- that case makes this pass fail safe (bigger, never wrong).
+    let drivenAfter : HashMap String Bool := reachableBody.foldl (fun s stmt =>
+      match stmt with
+      | .assign lhs _ => s.insert lhs true
+      | .register out .. => s.insert out true
+      | .memory _ _ _ _ _ _ _ _ rd _ .. => s.insert rd true
+      | .inst _ _ conns => conns.foldl (fun acc (_, e) =>
+          match e with | .ref r => acc.insert r true | _ => acc) s) {}
+    let allOutputsDriven := m.outputs.all fun p => drivenAfter.contains p.name
+    let (finalBody, finalWires) :=
+      if allOutputsDriven then (reachableBody, reachableWires)
+      else (finalBody, finalWires)
+
+    -- Phase 5: re-run the 0-bit / slice-of-op peephole.  Phase 3's
+    -- single-use inlining can turn a `slice (.ref X) hi lo` into a
+    -- `slice (.op …) hi lo` if X was an op-defining assign.  Emitting
+    -- that to Verilog produces `(a + 1)[7:0]`, which is a syntax
+    -- error.  Run the peephole again on the post-inline body.
+    let finalM := { m with body := finalBody, wires := finalWires }
+    eliminateZeroBits finalM
 
 /-- Optimize all modules in a design -/
 def optimizeDesign (d : Design)

@@ -107,8 +107,8 @@ def testMP4Encoder : IO Bool := do
   IO.println s!"  Image: 16×16, QP={qp}"
 
   -- Compile JIT
-  IO.println "  Compiling mp4_encoder_jit.cpp..."
-  let handle ← JIT.compileAndLoad ".lake/build/gen/h264/mp4_encoder_jit.cpp"
+  IO.println "  Compiling mp4_encoder_jit.c..."
+  let handle ← JIT.compileAndLoad ".lake/build/gen/h264/mp4_encoder_jit.c"
   IO.println "  Loaded MP4 encoder JIT module"
 
   -- Set width/height

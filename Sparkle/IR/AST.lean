@@ -11,6 +11,12 @@ namespace Sparkle.IR.AST
 
 open Sparkle.IR.Type
 
+/-- A retained top-level Lean `Nat` binder exposed as a module parameter. -/
+structure Parameter where
+  name : String
+  defaultValue : Nat
+  deriving Repr, BEq, Inhabited
+
 /-- Port declaration (input/output of a module) -/
 structure Port where
   name : String
@@ -91,6 +97,7 @@ inductive Expr where
   | op (operator : Operator) (args : List Expr) : Expr
   | concat (args : List Expr) : Expr
   | slice (expr : Expr) (hi lo : Nat) : Expr
+  | sliceDim (expr : Expr) (hi lo : DimExpr) : Expr
   | index (array : Expr) (idx : Expr) : Expr
   deriving Repr, BEq, Inhabited
 
@@ -125,6 +132,7 @@ partial def toString : Expr → String
       s!"{operator}({argStr})"
   | concat args => s!"\{{String.intercalate ", " (args.map toString)}}"
   | slice e hi lo => s!"{toString e}[{hi}:{lo}]"
+  | sliceDim e hi lo => s!"{toString e}[{hi}:{lo}]"
   | index arr idx => s!"{toString arr}[{toString idx}]"
 
 instance : ToString Expr where
@@ -143,23 +151,43 @@ end Expr
 inductive Stmt where
   | assign (lhs : String) (rhs : Expr) : Stmt
   | register
-      (output : String)      -- Output wire name
-      (clock : String)       -- Clock signal name
-      (reset : String)       -- Reset signal name
-      (input : Expr)         -- Input expression
-      (initValue : Int)      -- Reset/initial value
+      (output : String)                  -- Output wire name
+      (clock : String)                   -- Clock signal name
+      (reset : String × Sparkle.IR.Type.ResetKind)
+                                         -- (reset wire name, sync/async)
+      (input : Expr)                     -- Input expression
+      (initValue : Int)                  -- Reset/initial value
       : Stmt
   | memory
       (name : String)         -- Memory instance name
       (addrWidth : Nat)       -- Address width (size = 2^addrWidth)
       (dataWidth : Nat)       -- Data width
       (clock : String)        -- Clock signal
-      (writeAddr : Expr)      -- Write address port
-      (writeData : Expr)      -- Write data port
-      (writeEnable : Expr)    -- Write enable port
-      (readAddr : Expr)       -- Read address port
-      (readData : String)     -- Read data output wire
+      (writeAddr : Expr)      -- Write address port (port 0)
+      (writeData : Expr)      -- Write data port (port 0)
+      (writeEnable : Expr)    -- Write enable port (port 0)
+      (readAddr : Expr)       -- Read address port (port 0)
+      (readData : String)     -- Read data output wire (port 0)
       (comboRead : Bool := false) -- Combinational (same-cycle) read
+      -- EXTRA ports beyond port 0, for true multi-port memories.
+      --
+      -- Real SRAM macros are not all 1R1W: XiangShan's generated memories
+      -- are 61× 1R1W, 31× single read-write (RW), and one 8R8W
+      -- (`dt_352x1`, the Difftest debug array).  Port 0 keeps its own
+      -- fields so every existing `.memory` pattern match — 72 sites
+      -- across the backends — stays valid; additional ports live here and
+      -- are honoured by the backends that support them.
+      --
+      -- Semantics: all ports share `clock`.  Reads see the state BEFORE
+      -- this cycle's writes (read-old / write-after-read), matching the
+      -- single-port behaviour the CSim/Verilog backends already
+      -- implement.  Simultaneous writes to the SAME address are resolved
+      -- by port order: the LAST enabled port in the list wins, which is
+      -- what a Verilog `always_ff` with sequential `if` statements does.
+      (extraWrites : List (Expr × Expr × Expr) := [])
+                              -- (addr, data, enable) per additional port
+      (extraReads : List (Expr × String) := [])
+                              -- (addr, readData wire) per additional port
       : Stmt
   | inst
       (moduleName : String)   -- Name of module to instantiate
@@ -174,8 +202,12 @@ namespace Stmt
 def toString : Stmt → String
   | assign lhs rhs => s!"{lhs} := {rhs}"
   | register output clock reset input initValue =>
-      s!"reg {output} @(posedge {clock}, {reset}) <= {input} (init: {initValue})"
-  | memory name addrWidth dataWidth clock writeAddr writeData writeEnable readAddr readData comboRead =>
+      let (rstName, rstKind) := reset
+      let edge := match rstKind with
+        | .synchronous => "sync"
+        | .asynchronous => "async"
+      s!"reg {output} @(posedge {clock}, {edge} {rstName}) <= {input} (init: {initValue})"
+  | memory name addrWidth dataWidth clock writeAddr writeData writeEnable readAddr readData comboRead .. =>
       let readKind := if comboRead then "combo_read" else "read"
       s!"memory {name}[2^{addrWidth}][{dataWidth}] @(posedge {clock}) " ++
       s!"write({writeAddr}, {writeData}, {writeEnable}) {readKind}({readAddr}) => {readData}"
@@ -198,6 +230,7 @@ end Stmt
 -/
 structure Module where
   name        : String
+  parameters  : List Parameter := []
   inputs      : List Port
   outputs     : List Port
   wires       : List Port    -- Internal wires (ignored for primitives)
@@ -211,6 +244,7 @@ namespace Module
 /-- Create an empty module -/
 def empty (name : String) : Module :=
   { name := name
+  , parameters := []
   , inputs := []
   , outputs := []
   , wires := []
@@ -221,6 +255,7 @@ def empty (name : String) : Module :=
 /-- Create a primitive (blackbox) module with specified interface -/
 def primitive (name : String) (inputs : List Port) (outputs : List Port) : Module :=
   { name := name
+  , parameters := []
   , inputs := inputs
   , outputs := outputs
   , wires := []
@@ -228,29 +263,67 @@ def primitive (name : String) (inputs : List Port) (outputs : List Port) : Modul
   , isPrimitive := true
   }
 
-/-- Add an input port -/
+/-! ### Append-vs-prepend perf note
+
+    `addParameter` / `addInput` / `addOutput` / `addWire` / `addStmt`
+    are called in the inner loop of synthesis. The natural definition
+    (`m.body ++ [s]`)
+    is O(n) per call, which makes the whole module-building
+    loop O(n²) and dominated runtime for FSM-shape circuits
+    (memcached server top-level synth went from ~0.5 s for the
+    first multi-output leaf to 32+ s for the sixth — same Δcalls,
+    but `module.body` had grown 6× and every `++ [s]` paid
+    for that).
+
+    Fix: build the lists in REVERSE order via head-prepend
+    (O(1)), then reverse them once at the end of synthesis
+    in `Module.finalize`.  External callers that read
+    module lists after `finalize` see the same forward
+    order they always did. -/
+
+/-- Add a retained module parameter (O(1); reversed by `finalize`). -/
+def addParameter (m : Module) (parameter : Parameter) : Module :=
+  { m with parameters := parameter :: m.parameters }
+
+/-- Add an input port (O(1); reversed by `finalize`). -/
 def addInput (m : Module) (p : Port) : Module :=
-  { m with inputs := m.inputs ++ [p] }
+  { m with inputs := p :: m.inputs }
 
-/-- Add an output port -/
+/-- Add an output port (O(1); reversed by `finalize`). -/
 def addOutput (m : Module) (p : Port) : Module :=
-  { m with outputs := m.outputs ++ [p] }
+  { m with outputs := p :: m.outputs }
 
-/-- Add an internal wire -/
+/-- Add an internal wire (O(1); reversed by `finalize`). -/
 def addWire (m : Module) (p : Port) : Module :=
-  { m with wires := m.wires ++ [p] }
+  { m with wires := p :: m.wires }
 
-/-- Add a statement to the body -/
+/-- Add a statement to the body (O(1); reversed by `finalize`). -/
 def addStmt (m : Module) (s : Stmt) : Module :=
-  { m with body := m.body ++ [s] }
+  { m with body := s :: m.body }
+
+/-- Reverse the append-in-reverse lists to forward order.
+    Must be called exactly once after all incremental
+    additions are done and before any consumer reads
+    `m.parameters / inputs / outputs / wires / body`. -/
+def finalize (m : Module) : Module :=
+  { m with
+    parameters := m.parameters.reverse
+    inputs     := m.inputs.reverse
+    outputs    := m.outputs.reverse
+    wires      := m.wires.reverse
+    body       := m.body.reverse
+  }
 
 /-- Convert module to string (for debugging) -/
 def toString (m : Module) : String :=
+  let parameterStr := String.intercalate ", "
+    (m.parameters.map fun p => s!"{p.name}={p.defaultValue}")
   let inputStr := String.intercalate ", " (m.inputs.map fun p => s!"{p.name}: {p.ty}")
   let outputStr := String.intercalate ", " (m.outputs.map fun p => s!"{p.name}: {p.ty}")
   let wireStr := String.intercalate ", " (m.wires.map fun p => s!"{p.name}: {p.ty}")
   let bodyStr := String.intercalate "\n  " (m.body.map Stmt.toString)
   s!"module {m.name}\n" ++
+  s!"  parameters: {parameterStr}\n" ++
   s!"  inputs:  {inputStr}\n" ++
   s!"  outputs: {outputStr}\n" ++
   s!"  wires:   {wireStr}\n" ++

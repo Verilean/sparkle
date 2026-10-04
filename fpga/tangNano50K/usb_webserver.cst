@@ -1,0 +1,74 @@
+// Tang Nano 50K (Sipeed) — pin constraints for the USB→Web
+// server demo generated from IP.Net.UsbWebServer.
+//
+// Board:    Tang Nano 50K (GW5AT-LV60PG484C)
+// FPGA pkg: PG484
+// Toolflow: Gowin EDA → import the synthesized Verilog and this
+//           file; choose "Synthesize → Place & Route → Program
+//           SRAM" to load over USB-C.
+//
+// USB-C path:
+//   PC ─USB-C─ BL616 (onboard CDC-ACM bridge) ─UART─ FPGA
+//
+// The BL616's UART pins are wired to the FPGA on these board
+// pins (per Sipeed's Tang Nano 50K schematic rev v1.2):
+//
+//   FPGA UART_RX ← BL616 UART_TX = pin 69
+//   FPGA UART_TX → BL616 UART_RX = pin 70
+//
+// (If your top-level wrapper uses different port names, edit
+// the LHS to match the names emitted by
+// `#synthesizeVerilog synth_usbWebServer`.)
+
+// 27 MHz on-board crystal (the only fixed clock source).
+IO_LOC "clk" E2;
+IO_PORT "clk" PULL_MODE=NONE BANK_VCCIO=3.3;
+
+// Reset button (S2) — active low.
+IO_LOC "rst" E1;
+IO_PORT "rst" PULL_MODE=UP IO_TYPE=LVCMOS33;
+
+// UART RX from PC (= BL616 TX).  Internal pull-up keeps the
+// idle-high invariant if the USB host disconnects.
+IO_LOC "uart_rx_line" J17;
+IO_PORT "uart_rx_line" PULL_MODE=UP IO_TYPE=LVCMOS33;
+
+// UART TX to PC (= BL616 RX).  Drive at LVCMOS33 fast slew.
+IO_LOC "uart_tx" H17;
+IO_PORT "uart_tx" PULL_MODE=NONE IO_TYPE=LVCMOS33 DRIVE=8 SLEW_RATE=FAST;
+
+// bit_div is a 16-bit constant; tie it off at synthesis time
+// via `#synthesizeVerilog`'s top-level wrapper or wrap the
+// module in a tiny Verilog shim that hardcodes
+//   `wire [15:0] bit_div = 16'd99;`   // 1 Mbps at 100 MHz
+//
+// If you keep `bit_div` as a top-level port for tunability,
+// either wire it to constant pads (not all 16 pins are
+// available on Tang Nano 50K) or expose a register over the
+// BL616 UART command channel.  For the demo, hardcoding 99
+// in a wrapper module is by far the easiest.
+
+// ── Optional: PLL output for 100 MHz design clock ──────────
+//
+// The on-board crystal is 27 MHz.  To run UART at 1 Mbps with
+// a clean bit divider (= 99 cycles per bit), we want a 100 MHz
+// design clock.  Add a Gowin PLL macro (rPLL primitive) in a
+// wrapper Verilog file:
+//
+//     rPLL #(.FCLKIN("27"),
+//            .DEVICE("GW5AT-LV60PG484C"),
+//            .FBDIV_SEL(99),
+//            .IDIV_SEL(26),
+//            .ODIV_SEL(4))
+//       u_pll(.CLKIN(clk_27),
+//             .CLKOUT(clk_100),
+//             .LOCK(pll_locked),
+//             .CLKFB(1'b0),
+//             .RESET(~rst),
+//             .RESET_P(1'b0));
+//
+// Then feed `clk_100` into the Sparkle-generated module's
+// clock input.  Without the PLL the design runs at 27 MHz and
+// the UART runs at 27e6 / 100 = 270 kBaud (well within
+// CDC-ACM tolerances; the host-side pppd just needs to be told
+// the same).

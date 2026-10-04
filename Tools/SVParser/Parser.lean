@@ -24,7 +24,9 @@ namespace Tools.SVParser.Parser
     strip `timescale/`define/`default_nettype directives and (* ... *) attributes -/
 def preprocess (input : String) : String := Id.run do
   let lines := input.splitOn "\n"
-  let mut result : List String := []
+  -- Array + push: the previous `List ++ [line]` per line is O(lines²) —
+  -- Rob.sv (15 MB, ~330k lines) spent minutes here before ever parsing.
+  let mut result : Array String := #[]
   let mut ifdefDepth : Nat := 0
   let mut skipDepth : Nat := 0  -- depth at which we started skipping (0 = not skipping)
   for line in lines do
@@ -62,16 +64,20 @@ def preprocess (input : String) : String := Id.run do
       pure ()  -- skip directive / macro invocation
     else if trimmed.startsWith "`debug" then
       -- Replace debug macro with empty statement (semicolon)
-      result := result ++ [";"]
+      result := result.push ";"
     else
       -- Remove (* ... *) attributes
       let cleaned := removeAttributes line
-      result := result ++ [cleaned]
+      result := result.push cleaned
   -- Replace @(*) with @* (LiteX/Migen outputs @(*) which is equivalent)
-  let joined := "\n".intercalate result
+  let joined := "\n".intercalate result.toList
   "@*".intercalate (joined.splitOn "@(*)")
 where
   removeAttributes (s : String) : String := Id.run do
+    -- Fast path: the overwhelming majority of lines have neither an
+    -- attribute nor a backtick macro — don't pay for splitOn/replace.
+    if !(containsSubstrP s "(*") && !(containsSubstrP s "`FORMAL_KEEP") then
+      return s
     let mut result := s
     -- Remove (* ... *) attributes
     let mut cont := true
@@ -88,6 +94,8 @@ where
     result := result.replace "`FORMAL_KEEP " ""
     result := result.replace "`FORMAL_KEEP" ""
     result
+  containsSubstrP (s sub : String) : Bool :=
+    (s.splitOn sub).length > 1
 
 -- ============================================================================
 -- Expression parsing (all mutually recursive)
@@ -251,6 +259,13 @@ partial def parseUnary : P SVExpr := do
       let e ← parseUnary; pure e) with
     | some e => pure (SVExpr.unary .reductOr e)
     | none => parsePrimaryPost
+  | some '^' =>
+    -- Prefix ^ is reduction XOR (parity); infix ^ never reaches here.
+    match ← attempt (do
+      let _ ← token (matchStr "^")
+      let e ← parseUnary; pure e) with
+    | some e => pure (SVExpr.unary .reductXor e)
+    | none => parsePrimaryPost
   | _ => parsePrimaryPost
 
 partial def parsePrimaryPost : P SVExpr := do
@@ -321,18 +336,31 @@ partial def parsePrimary : P SVExpr := do
     let name ← identifier
     lparen; let arg ← parseExpr; rparen
     if name == "signed" then
-      -- Apply $signed to concat and slice expressions (known sub-32-bit width)
-      -- Identity for full-width wire references (already 32-bit)
-      match arg with
-      | .concat _ => pure (SVExpr.unary .signed arg)
-      | .slice _ _ _ => pure (SVExpr.unary .signed arg)
-      | .index _ _ => pure (SVExpr.unary .signed arg)
-      | _ => pure arg
+      -- Keep the signedness marker for EVERY argument shape.  Dropping it
+      -- for plain wire refs (the old behaviour) silently turned
+      -- `$signed(x) > -7'sh1` into an UNSIGNED compare — a miscompile.
+      -- Comparison lowering strips the marker and picks the signed IR op;
+      -- in other positions the lowering arm is identity for refs.
+      pure (SVExpr.unary .signed arg)
     else
       pure arg
   | some '\'' =>
-    -- Unsized literal: 'b0, 'bx, 'h0, etc.
+    -- Unsized literal ('b0, 'h0, …) or SV assignment pattern '{a, b, …}.
     let _ ← token (matchStr "'")
+    match ← peekChar with
+    | some '{' =>
+      -- '{…}: for packed arrays this is element-MSB-first, same as concat.
+      lbrace
+      let first ← parseExpr
+      let mut args := [first]
+      let mut cont := true
+      while cont do
+        match ← attempt comma with
+        | some _ => let e ← parseExpr; args := args ++ [e]
+        | none => cont := false
+      rbrace
+      return SVExpr.concat args
+    | _ => pure ()
     let base ← nextChar
     match base with
     | 'b' | 'B' =>
@@ -349,7 +377,26 @@ partial def parsePrimary : P SVExpr := do
       pure (SVExpr.lit (.decimal none dd.toNat!))
     | _ => fail s!"unexpected base '{base}' in unsized literal"
   | some c' =>
-    if isDigit c' then let lit ← numericLiteral; pure (SVExpr.lit lit)
+    if isDigit c' then
+      -- Disambiguate `N'(expr)` (SV size cast — firtool emits these
+      -- everywhere) from `N'h…` sized literals: try the cast form first,
+      -- backtracking to the literal on anything else after the tick.
+      match ← attempt (do
+          let d ← digits
+          let t ← nextChar
+          if t != '\'' then fail "not a size cast"
+          match ← peekChar with
+          | some '(' => let _ ← nextChar; ws; pure d.toNat!
+          | _ => fail "not a size cast") with
+      | some w =>
+        let e ← parseExpr
+        rparen
+        pure (SVExpr.sizeCast w e)
+      | none =>
+        let (lit, sgn) ← numericLiteral
+        -- `'s` literals carry a signedness MARKER (`.unary .signed`) so a
+        -- comparison against them lowers to the signed IR operator.
+        pure (if sgn then SVExpr.unary .signed (SVExpr.lit lit) else SVExpr.lit lit)
     else if isAlpha c' then let name ← identifier; pure (SVExpr.ident name)
     else fail s!"unexpected char in expression: '{c'}'"
   | none => fail "unexpected end of input in expression"
@@ -464,7 +511,17 @@ def parsePortDir : P SVPortDir := do
 
 def parseOptWidth : P (Option (Nat × Nat)) := do
   match ← attempt bitRange with
-  | some r => pure (some r) | none => pure none
+  | some (r, _) => pure (some r) | none => pure none
+
+/-- Same as `parseOptWidth` but also returns the symbolic
+    `(hiExpr, loExpr)` form when either bound of the range mentioned
+    an identifier (parameter reference).  Used by the port / param /
+    wire / reg declaration parsers so the lowering pass can resolve
+    `[W-1:0]` against the parameter value map. -/
+def parseOptWidthSym : P (Option (Nat × Nat) × Option (SVExpr × SVExpr)) := do
+  match ← attempt bitRange with
+  | some (r, sym) => pure (some r, sym)
+  | none => pure (none, none)
 
 /-- Parse a port: direction [reg] [width] name -/
 def parsePortInList : P SVPort := do
@@ -472,10 +529,10 @@ def parsePortInList : P SVPort := do
   let isReg ← match ← attempt (keyword "reg") with | some _ => pure true | none => pure false
   let _ ← attempt (keyword "logic")
   let _ ← attempt (keyword "wire")
-  let _ ← attempt (keyword "signed")
-  let width ← parseOptWidth
+  let isSigned := match ← attempt (keyword "signed") with | some _ => true | none => false
+  let (width, widthExpr) ← parseOptWidthSym
   let name ← identifier
-  pure { dir, isReg, width, name }
+  pure { dir, isReg, width, name, widthExpr, isSigned }
 
 /-- Parse port list with direction carry-over.
     In Verilog, `input clk, resetn` means both are inputs.
@@ -487,6 +544,8 @@ def parsePortList : P (List SVPort) := do
   let mut lastDir := first.dir
   let mut lastIsReg := first.isReg
   let mut lastWidth := first.width
+  let mut lastWidthExpr := first.widthExpr
+  let mut lastIsSigned := first.isSigned
   let mut cont := true
   while cont do
     match ← attempt comma with
@@ -498,19 +557,26 @@ def parsePortList : P (List SVPort) := do
         lastIsReg := match ← attempt (keyword "reg") with | some _ => true | none => false
         let _ ← attempt (keyword "logic")
         let _ ← attempt (keyword "wire")
-        let _ ← attempt (keyword "signed")
-        lastWidth ← parseOptWidth
+        lastIsSigned := match ← attempt (keyword "signed") with | some _ => true | none => false
+        let (w, we) ← parseOptWidthSym
+        lastWidth := w
+        lastWidthExpr := we
         let name ← identifier
-        let port := { dir := lastDir, isReg := lastIsReg, width := lastWidth, name : SVPort }
+        let port := { dir := lastDir, isReg := lastIsReg, width := lastWidth,
+                      widthExpr := lastWidthExpr, isSigned := lastIsSigned,
+                      name : SVPort }
         ports := ports ++ [port]
       | none =>
         -- No direction keyword — carry over from previous
-        let _ ← attempt (keyword "signed")
+        let newSigned := match ← attempt (keyword "signed") with | some _ => true | none => lastIsSigned
         -- Check for new width override
-        let width ← parseOptWidth
+        let (width, widthExpr) ← parseOptWidthSym
         let w := if width.isSome then width else lastWidth
+        let we := if width.isSome then widthExpr else lastWidthExpr
         let name ← identifier
-        let port := { dir := lastDir, isReg := lastIsReg, width := w, name : SVPort }
+        let port := { dir := lastDir, isReg := lastIsReg, width := w,
+                      widthExpr := we, isSigned := newSigned,
+                      name : SVPort }
         ports := ports ++ [port]
     | none => cont := false
   rparen; pure ports
@@ -547,9 +613,16 @@ def parseSensitivity : P SVSensitivity := do
     | none => let _ ← token (matchStr "*"); pure SVSensitivity.star
 
 partial def parseAlwaysBlock : P SVModuleItem := do
-  keyword "always"
-  let _ ← attempt (matchStr "_ff")
-  let _ ← attempt (matchStr "_comb")
+  -- Accept `always`, `always_ff`, or `always_comb`.  We try the
+  -- variants longest-first because `keyword` enforces a word
+  -- boundary — a bare `keyword "always"` would reject `always_ff`
+  -- before we got a chance to look at the suffix.
+  match ← attempt (keyword "always_ff") with
+  | some _ => pure ()
+  | none =>
+    match ← attempt (keyword "always_comb") with
+    | some _ => pure ()
+    | none => keyword "always"
   ws
   match ← attempt at_ with
   | some _ =>
@@ -663,10 +736,32 @@ partial def parseModuleItems : P (List SVModuleItem) := do
   | some _ =>
     let lhs ← parseExpr; eqSign; let rhs ← parseExpr; semi
     pure [SVModuleItem.contAssign lhs rhs]
-  | none => match ← attempt (keyword "wire") with
+  | none =>
+    -- Accept both `wire …;` (Verilog-95 style) and `logic …;`
+    -- (SystemVerilog style, used by Sparkle's own emitter).
+    let wireKw ← do
+      match ← attempt (keyword "wire") with
+      | some _ => pure (some ())
+      | none => attempt (keyword "logic")
+    match wireKw with
     | some _ =>
       let _ ← attempt (keyword "signed")
       let w ← parseOptWidth
+      -- extra packed dimensions: wire [A:B][C:D]… name  (firtool mux tables)
+      let mut extraDims : List (Nat × Nat) := []
+      let mut moreDims := true
+      while moreDims do
+        match ← parseOptWidth with
+        | some d => extraDims := extraDims ++ [d]
+        | none => moreDims := false
+      if !extraDims.isEmpty then
+        let dims := (w.map (· :: extraDims)).getD extraDims
+        let n ← identifier
+        let init ← match ← attempt eqSign with
+          | some _ => let e ← parseExpr; pure (some e)
+          | none => pure none
+        semi
+        return [SVModuleItem.packedArrayDecl n dims init]
       let n ← identifier
       match ← attempt eqSign with
       | some _ => let e ← parseExpr; semi; pure [SVModuleItem.wireDecl n w (some e)]
@@ -800,8 +895,14 @@ partial def parseModuleItems : P (List SVModuleItem) := do
                     let mut conns : List (String × SVExpr) := []
                     let mut cont := true
                     while cont do
-                      dot; let pName ← identifier; lparen; let pExpr ← parseExpr; rparen
-                      conns := conns ++ [(pName, pExpr)]
+                      dot; let pName ← identifier; lparen
+                      -- `.port ()` — unconnected output (firtool: `(/* unused */)`
+                      -- once comments are skipped); omit the connection.
+                      match ← attempt rparen with
+                      | some _ => pure ()
+                      | none =>
+                        let pExpr ← parseExpr; rparen
+                        conns := conns ++ [(pName, pExpr)]
                       match ← attempt comma with | some _ => pure () | none => cont := false
                     rparen; semi
                     pure (modName, instName, conns, paramOvr)

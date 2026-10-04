@@ -1,0 +1,152 @@
+/-
+  JIT co-sim test for IP.Crypto.Keccak256Sponge — REAL-CYCLE validation.
+
+  The pure-Lean `Signal.val` interpreter cannot co-sim the 25-lane
+  Keccak state (it times out — see issue #95 and Keccak256HWTest).
+  This test instead lowers the sponge through the `#sim` elaborator
+  (`synthesizeHierarchical` → `CSim.toCJIT` → native C → `.so`) and
+  runs it as compiled machine code, so we can drive the actual FSM
+  cycle-by-cycle and read the digest OUT OF THE HARDWARE.
+
+  This is the only path that exercises the sponge's real handshake
+  timing — the block-loop "+1 cycle after keccak-f done" latch that
+  the pure-data reconstruction (Keccak256SpongeTest) cannot check.
+
+  Drive protocol (matches `keccak256SpongeHW`):
+    * pack the padded message into 34 LE lanes (block-major),
+    * cycle 0: start=1 with the lanes + nBlocks,
+    * cycle 1..: start=0, tick until `done`=1,
+    * read d0..d3, assemble the 32-byte digest, compare to
+      `keccak256OfBytes input`.
+-/
+import IP.Crypto.Proof.Keccak256
+import IP.Crypto.Keccak256Sponge
+import Sparkle.Compiler.Elab
+
+open Sparkle.Core.Domain
+open Sparkle.Core.Signal
+open Sparkle.IP.Crypto.Keccak256
+open Sparkle.IP.Crypto.Keccak256Sponge
+
+namespace Sparkle.Tests.IP.Crypto.Keccak256SpongeJITTest
+
+set_option maxRecDepth 100000
+set_option maxHeartbeats 40000000
+
+/-- The `#sim`-able top: returns the full `SpongeOut` record so the
+    generated `SimOutput` exposes d0..d3 + done. -/
+def spongeSimTop
+    (start : Signal defaultDomain Bool) (nBlocks : Signal defaultDomain (BitVec 2))
+    (m0 m1 m2 m3 m4 m5 m6 m7 m8 m9 m10 m11 m12 m13 m14 m15 m16
+     m17 m18 m19 m20 m21 m22 m23 m24 m25 m26 m27 m28 m29 m30 m31 m32 m33
+     : Signal defaultDomain (BitVec 64)) : SpongeOut defaultDomain :=
+  keccak256SpongeHW start nBlocks
+    m0 m1 m2 m3 m4 m5 m6 m7 m8 m9 m10 m11 m12 m13 m14 m15 m16
+    m17 m18 m19 m20 m21 m22 m23 m24 m25 m26 m27 m28 m29 m30 m31 m32 m33
+
+#sim spongeSimTop
+
+open spongeSimTop.Sim
+
+/-- Pack a padded byte array into 34 LE lanes (block-major), zero-
+    filling unused lanes.  Mirrors `Keccak256SpongeTest.packLanes`. -/
+private def packLanes34 (padded : Array UInt8) : Array (BitVec 64) × Nat := Id.run do
+  let nBlocks := padded.size / rateBytes
+  let mut lanes : Array (BitVec 64) := Array.replicate (rateLanes * maxBlocks) 0#64
+  for blk in [:nBlocks] do
+    for i in [:rateLanes] do
+      lanes := lanes.set! (blk * rateLanes + i)
+        (bytesToLane padded (blk * rateBytes + i * 8))
+  return (lanes, nBlocks)
+
+/-- Build a `SimInput` for a given start bit + packed lanes + nBlocks. -/
+private def mkInput (start : Bool) (nBlocks : Nat) (L : Array (BitVec 64)) : SimInput :=
+  let g := fun i => L.getD i 0#64
+  { _gen_start := if start then 1#1 else 0#1
+  , _gen_nBlocks := BitVec.ofNat 2 nBlocks
+  , _gen_m0 := g 0, _gen_m1 := g 1, _gen_m2 := g 2, _gen_m3 := g 3
+  , _gen_m4 := g 4, _gen_m5 := g 5, _gen_m6 := g 6, _gen_m7 := g 7
+  , _gen_m8 := g 8, _gen_m9 := g 9, _gen_m10 := g 10, _gen_m11 := g 11
+  , _gen_m12 := g 12, _gen_m13 := g 13, _gen_m14 := g 14, _gen_m15 := g 15
+  , _gen_m16 := g 16, _gen_m17 := g 17, _gen_m18 := g 18, _gen_m19 := g 19
+  , _gen_m20 := g 20, _gen_m21 := g 21, _gen_m22 := g 22, _gen_m23 := g 23
+  , _gen_m24 := g 24, _gen_m25 := g 25, _gen_m26 := g 26, _gen_m27 := g 27
+  , _gen_m28 := g 28, _gen_m29 := g 29, _gen_m30 := g 30, _gen_m31 := g 31
+  , _gen_m32 := g 32, _gen_m33 := g 33 }
+
+/-- 4 LE lanes → 32-byte digest. -/
+private def lanesToDigest (o : SimOutput) : Array UInt8 :=
+  laneToBytes o.d0 ++ laneToBytes o.d1 ++ laneToBytes o.d2 ++ laneToBytes o.d3
+
+private def hexOfBytes (bs : Array UInt8) : String := Id.run do
+  let digit := fun (n : Nat) => "0123456789abcdef".toList.getD n '?'
+  let mut s := ""
+  for b in bs do
+    s := s.push (digit (b.toNat / 16)) |>.push (digit (b.toNat % 16))
+  return s
+
+/-- Run one message through the JIT sponge and return the digest. -/
+private def runSponge (sim : Simulator) (input : Array UInt8) : IO (Array UInt8) := do
+  let padded := padEthereum input
+  let (lanes, nBlocks) := packLanes34 padded
+  sim.reset
+  -- Cycle 0: start pulse with lanes + nBlocks.
+  sim.step (mkInput true nBlocks lanes)
+  -- Hold start low; tick until done.  keccak-f is a SEQUENTIAL engine —
+  -- one round per cycle, 24 rounds, plus the capture/launch handshake —
+  -- so a block costs ~28 cycles and the cap must clear
+  -- maxBlocks × 28 with room to spare.  (An earlier 200-cycle cap was
+  -- sized for a redundantly-unrolled permutation; when the elaborator
+  -- stopped duplicating it, the loop hit the cap and silently returned
+  -- the UNPERMUTED state — which reads as a wrong digest, not a
+  -- timeout.  Hence the explicit failure below.)
+  --
+  -- The message lanes MUST be held for the whole run, not zeroed after the
+  -- start pulse: the block-loop XORs block 1's lanes (`m17..m33`) into the
+  -- permuted state on the CONTINUE cycle, which is ~28 cycles in.  Feeding
+  -- zeros there absorbs an all-zero second block — a wrong digest for every
+  -- multi-block input, which was tracked as issue #112.  The circuit was
+  -- always correct (a `Signal.val` co-sim holding the lanes matches
+  -- `keccak256OfBytes` for 136B/200B); the bug was here, in the driver.
+  let cap := 200 + maxBlocks * 64
+  let mut out ← sim.read
+  let mut cyc := 0
+  while out.done == 0#1 && cyc < cap do
+    sim.step (mkInput false nBlocks lanes)
+    out ← sim.read
+    cyc := cyc + 1
+  if out.done == 0#1 then
+    throw <| IO.userError
+      s!"sponge did not assert done within {cap} cycles — the digest below \
+         would be the unpermuted state, not a hash"
+  return lanesToDigest out
+
+def main : IO Unit := do
+  IO.println "=== Keccak-256 sponge — JIT real-cycle co-sim vs keccak256OfBytes ==="
+  (← IO.getStdout).flush
+  let sim ← load
+  let mut ok := true
+
+  let mk := fun (n : Nat) => Array.replicate n (0x61 : UInt8)
+  let fixtures : List (String × Array UInt8) :=
+    [ ("empty", #[])
+    , ("abc",   #[0x61, 0x62, 0x63])
+    , ("136B",  mk 136)   -- 2-block: exercises the block-loop continuation
+    , ("200B",  mk 200) ]
+
+  for (label, input) in fixtures do
+    let got ← runSponge sim input
+    let ref := keccak256OfBytes input
+    if got == ref then
+      IO.println s!"  ✓ {label}: HW digest {hexOfBytes got}"
+    else
+      IO.println s!"  ✗ {label}: HW {hexOfBytes got} ≠ ref {hexOfBytes ref}"
+      ok := false
+
+  sim.destroy
+  if !ok then
+    IO.println "\nFAIL"
+    IO.Process.exit 1
+  IO.println "\nALL PASS"
+
+end Sparkle.Tests.IP.Crypto.Keccak256SpongeJITTest
