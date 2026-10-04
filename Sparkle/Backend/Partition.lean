@@ -38,6 +38,7 @@ partial def collectRefs : Expr → List String
   | .op _ args => args.flatMap collectRefs
   | .concat args => args.flatMap collectRefs
   | .slice e _ _ => collectRefs e
+  | .sliceDim e _ _ => collectRefs e
   | .index arr idx => collectRefs arr ++ collectRefs idx
   | _ => []
 
@@ -83,7 +84,7 @@ def partitionModule (m : Module) : PartitionResult := Id.run do
     | .register name _ _ _ _ =>
       if classifyWire name == .cpu then cpuBody := cpuBody ++ [s]
       else periBody := periBody ++ [s]
-    | .memory name _ _ _ _ _ _ _ _ _ =>
+    | .memory name _ _ _ _ _ _ _ _ _ .. =>
       if classifyWire name == .cpu then cpuBody := cpuBody ++ [s]
       else periBody := periBody ++ [s]
     | _ => cpuBody := cpuBody ++ [s]  -- default to CPU
@@ -97,7 +98,7 @@ def partitionModule (m : Module) : PartitionResult := Id.run do
     let (name, refs) := match s with
       | .assign n rhs => (n, collectRefs rhs)
       | .register n _ _ input _ => (n, collectRefs input)
-      | .memory _ _ _ _ wa wd we _ _ _ =>
+      | .memory _ _ _ _ wa wd we _ _ _ .. =>
         ("", collectRefs wa ++ collectRefs wd ++ collectRefs we)
       | _ => ("", [])
     let stmtPart := classifyWire name
@@ -124,6 +125,7 @@ def partitionModule (m : Module) : PartitionResult := Id.run do
 
   let cpuMod : Module := {
     name := s!"{m.name}_cpu"
+    parameters := m.parameters
     inputs := m.inputs ++ periToCpu  -- CPU reads boundary from peripheral
     outputs := cpuOutputs ++ cpuToPeri  -- CPU sends boundary to peripheral
     wires := cpuWires
@@ -132,6 +134,7 @@ def partitionModule (m : Module) : PartitionResult := Id.run do
 
   let periMod : Module := {
     name := s!"{m.name}_peri"
+    parameters := m.parameters
     inputs := m.inputs ++ cpuToPeri  -- Peripheral reads boundary from CPU
     outputs := periOutputs ++ periToCpu  -- Peripheral sends boundary to CPU
     wires := periWires

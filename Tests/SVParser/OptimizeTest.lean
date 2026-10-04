@@ -16,7 +16,7 @@
 
 import Tools.SVParser
 import Sparkle.IR.PatternDetect
-import Sparkle.Backend.CppSim
+import Sparkle.Backend.CSim
 
 open Tools.SVParser.Parser
 open Tools.SVParser.Lower

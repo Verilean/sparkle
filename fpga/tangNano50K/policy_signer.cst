@@ -1,0 +1,31 @@
+// Sparkle policy-enforcing Ethereum signer — Tang Nano 50K pin constraints.
+// See tutorial Ch11 and docs/ip-catalog/PolicySignDemo.md.
+//
+// USB path:  PC ─USB-C─ BL616 (onboard CDC-ACM bridge) ─UART─ FPGA
+//   FPGA uart_rx_line ← BL616 UART_TX = pin 69 (J17)
+//   FPGA uart_tx      → BL616 UART_RX = pin 70 (H17)
+// The host driver (host/policy_signer/sign_tx.py) sends a fixed 128-byte
+// frame  d‖k‖to‖value  over this CDC-ACM serial and reads back r‖s
+// (or a single 0xEE reject byte).
+//
+// 27 MHz system clock; bit_div = 233 for 115200 baud (bitDiv27M115200).
+
+IO_LOC "clk" E2;
+IO_PORT "clk" PULL_MODE=NONE BANK_VCCIO=3.3;
+IO_LOC "rst" E1;
+IO_PORT "rst" PULL_MODE=UP IO_TYPE=LVCMOS33;
+
+IO_LOC "uart_rx_line" J17;
+IO_PORT "uart_rx_line" PULL_MODE=UP IO_TYPE=LVCMOS33;
+IO_LOC "uart_tx" H17;
+IO_PORT "uart_tx" PULL_MODE=NONE IO_TYPE=LVCMOS33 DRIVE=8 SLEW_RATE=FAST;
+
+// Status LEDs — pulse when a signature completes / a tx is rejected.
+// NOTE: LED pin numbers are board-revision-dependent; fill in your board's
+// user-LED pins from the Sipeed Tang Nano 50K schematic (the two lines below
+// use common placeholders — adjust before flashing, or drop these ports and
+// the corresponding wires in policy_signer_top.v if you don't need the LEDs).
+IO_LOC "led_sign"   L16;
+IO_PORT "led_sign"   PULL_MODE=NONE IO_TYPE=LVCMOS33 DRIVE=8;
+IO_LOC "led_reject" L14;
+IO_PORT "led_reject" PULL_MODE=NONE IO_TYPE=LVCMOS33 DRIVE=8;

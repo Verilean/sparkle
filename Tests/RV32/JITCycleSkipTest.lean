@@ -29,7 +29,7 @@ def resolveWire (handle : JITHandle) (name : String) : IO UInt32 := do
   | none => throw (IO.userError s!"JIT: wire '{name}' not found")
 
 def main (args : List String) : IO UInt32 := do
-  let cppPath := args[0]? |>.getD "verilator/generated_soc_jit.cpp"
+  let cppPath := args[0]? |>.getD "verilator/generated_soc_jit.c"
   let hexPath := args[1]? |>.getD "firmware/firmware.hex"
 
   -- Compile and load JIT module

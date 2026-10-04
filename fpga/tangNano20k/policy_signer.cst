@@ -1,0 +1,41 @@
+// Sparkle policy-enforcing Ethereum signer — Tang Nano 20k pin constraints.
+// See tutorial Ch11 and docs/ip-catalog/PolicySignDemo.md.
+//
+// Board:    Sipeed Tang Nano 20k
+// Part:     GW2AR-LV18QN88C8/I7   (Device: GW2AR-18, package QN88)
+//
+// USB path:  PC ─USB-C─ FT2232 "SIPEED USB Debugger" ─UART─ FPGA
+//   Channel A = JTAG (flash), Channel B = UART (host driver, /dev/ttyUSB1).
+//   FPGA uart_rx_line ← debugger UART_TX = pin 70
+//   FPGA uart_tx      → debugger UART_RX = pin 69
+// The host driver (host/policy_signer/sign_tx.py) sends a fixed 128-byte
+// frame  d‖k‖to‖value  over this serial and reads back r‖s
+// (or a single 0xEE reject byte).
+//
+// 27 MHz system clock (defaultDomain runs at 27 MHz);
+// bit_div = 233 for 115200 baud (bitDiv27M115200 = 27e6/115200 - 1).
+
+// 27 MHz on-board crystal.
+IO_LOC "clk" 4;
+IO_PORT "clk" IO_TYPE=LVCMOS33 PULL_MODE=UP BANK_VCCIO=3.3;
+
+// Reset button S1 (active-low; wrapper inverts to active-high rst).
+IO_LOC "rst" 88;
+IO_PORT "rst" IO_TYPE=LVCMOS33 PULL_MODE=UP BANK_VCCIO=3.3;
+
+// UART RX from PC (= debugger TX). Pull-up keeps idle-high on disconnect.
+IO_LOC "uart_rx_line" 70;
+IO_PORT "uart_rx_line" IO_TYPE=LVCMOS33 PULL_MODE=UP;
+
+// UART TX to PC (= debugger RX). LVCMOS33, fast slew.
+IO_LOC "uart_tx" 69;
+IO_PORT "uart_tx" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 SLEW_RATE=FAST;
+
+// Status LEDs — on-board user LEDs are ACTIVE-LOW (pin low = lit).
+// The wrapper inverts the active-high strobes to match.
+//   led_sign   = leds[0] = pin 15  (lit while a signature completes)
+//   led_reject = leds[1] = pin 16  (lit while a tx is rejected by policy)
+IO_LOC "led_sign" 15;
+IO_PORT "led_sign" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+IO_LOC "led_reject" 16;
+IO_PORT "led_reject" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;

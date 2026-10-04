@@ -343,7 +343,16 @@ def encoderPipeline {dom : DomainConfig}
 -- Generate SystemVerilog + CppSim + JIT
 -- ============================================================================
 
-#writeDesign encoderPipeline ".lake/build/gen/h264/encoder_pipeline.sv" ".lake/build/gen/h264/encoder_pipeline_cppsim.h"
+/-- Internal wires the JIT drivers sample by name (`JIT.resolveWire`).
+    Declaring them is what protects them; observability is opt-in
+    (see `Optimize.inlineSingleUseWires`). -/
+def encoderObservableWires : Array String :=
+  #[ "_gen_done"
+   , "_gen_bitPos"
+   , "_gen_bitBuffer"
+   ]
+
+#writeDesign encoderPipeline ".lake/build/gen/h264/encoder_pipeline.sv" ".lake/build/gen/h264/encoder_pipeline_cppsim.h" encoderObservableWires
 
 -- ============================================================================
 -- V2: Encoder pipeline with external read port for quantized levels

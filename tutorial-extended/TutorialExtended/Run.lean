@@ -8,7 +8,7 @@
     Step 5: LTL basics — invariants, K-cycle preservation, induction.
     Step 6: bug-localization framework (multi-premise + contrapositive).
     Step 7: pointer to the production RV32 LTL proof catalog.
-  Step 8: imperative-style hardware via `Signal.circuit do`.
+  Step 8: imperative-style hardware via `circuit do`.
 -/
 
 import TutorialExtended.Step1_SimpleCounter
@@ -46,7 +46,7 @@ def main : IO UInt32 := do
   IO.println "\n── Step 7: RV32 LTL theorem catalog (pointers) ──"
   TutorialExtended.Step7.runDemo
 
-  IO.println "\n── Step 8: Signal.circuit do — imperative HW DSL ──"
+  IO.println "\n── Step 8: circuit do — imperative HW DSL ──"
   TutorialExtended.Step8.runDemo
 
   IO.println "\n═══════════════════════════════════════════════════════"

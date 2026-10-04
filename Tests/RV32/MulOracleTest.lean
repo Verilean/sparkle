@@ -14,7 +14,7 @@ import Sparkle.Core.JIT
 import Sparkle.Core.OracleSpec
 import Sparkle.Core.MulOracle  -- provides instance : OracleReduction "pcpi_mul"
 import Tools.SVParser.Lower
-import Sparkle.Backend.CppSim
+import Sparkle.Backend.CSim
 
 open Sparkle.Core.JIT
 open Sparkle.Core.OracleSpec
@@ -53,25 +53,40 @@ def main : IO Unit := do
 
   -- Phase 2: IR reduction via OracleReduction "pcpi_mul"
   IO.print "  Phase 2: IR reduction... "
-  let reducedBody := reduceIR "pcpi_mul" m.body
+  let reducedBody :=
+    reduceIR (tag := "pcpi_mul")
+      (State := MulOracle.S)
+      (Input := BitVec 64 × BitVec 64)
+      (Output := BitVec 64) m.body
   let removed := m.body.length - reducedBody.length
   IO.println s!"OK (removed {removed} stmts, {m.body.length} → {reducedBody.length})"
 
   -- Phase 3: Compile JIT (original, for oracle resolution test)
   IO.print "  Phase 3: JIT compile (original)... "
-  let cppCode := Sparkle.Backend.CppSim.toCppSimJIT design
-  IO.FS.writeFile "/tmp/picorv32_oraclespec_jit.cpp" cppCode
-  let h ← JIT.compileAndLoad "/tmp/picorv32_oraclespec_jit.cpp"
+  let cppCode := Sparkle.Backend.CSim.toCJIT design
+  IO.FS.writeFile "/tmp/picorv32_oraclespec_jit.c" cppCode
+  let h ← JIT.compileAndLoad "/tmp/picorv32_oraclespec_jit.c"
   IO.println "OK"
 
   -- Phase 4: Resolve OracleReduction "pcpi_mul" against JIT
   IO.print "  Phase 4: Resolve oracle... "
-  match ← resolve "pcpi_mul" h with
+  match ← resolve (tag := "pcpi_mul")
+      (State := MulOracle.S)
+      (Input := BitVec 64 × BitVec 64)
+      (Output := BitVec 64) h with
   | none => IO.println "FAIL (register resolution failed)"
   | some resolved =>
     IO.println s!"OK ({resolved.regIndices.size} registers resolved)"
     let mut idx : Nat := 0
-    let regs := (OracleReduction.registers (tag := "pcpi_mul"))
+    -- Specify the type parameters so Lean can synthesize the
+    -- `OracleReduction "pcpi_mul"` instance and pull out the
+    -- concrete `List RegRole` (otherwise `registers` is a
+    -- typeclass-parametric function and `for` can't iterate it).
+    let regs : List RegRole :=
+      OracleReduction.registers (tag := "pcpi_mul")
+        (State := MulOracle.S)
+        (Input := BitVec 64 × BitVec 64)
+        (Output := BitVec 64)
     for role in regs do
       if h2 : idx < resolved.regIndices.size then
         IO.println s!"    {role.role} → idx {resolved.regIndices[idx]}"
@@ -79,7 +94,10 @@ def main : IO Unit := do
 
     -- Phase 5: Create oracle from type class
     IO.print "  Phase 5: Create oracle... "
-    let (_, stateRef) ← mkOracle "pcpi_mul" resolved
+    let (_, stateRef) ← mkOracle (tag := "pcpi_mul")
+      (State := MulOracle.S)
+      (Input := BitVec 64 × BitVec 64)
+      (Output := BitVec 64) resolved
     let st ← stateRef.get
     IO.println s!"OK (triggers={st.triggerCount}, skipped={st.totalSkipped})"
 

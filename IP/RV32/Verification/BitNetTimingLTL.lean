@@ -367,7 +367,7 @@ theorem bug_9d0704e_localization {dom : DomainConfig}
 /-! ## Empirical observation (2026-05-05) — bug NOT in Sparkle
 
   After exposing `_gen_sum`, `_gen_busRdataRaw`, `_gen_mmioRdata`
-  as wire outputs (previously inlined by Sparkle.Backend.CppSim,
+  as wire outputs (previously inlined by Sparkle.Backend.CSim,
   hence not probable from the JIT), `lake exe bitnet-mmio-probe`
   produces:
 

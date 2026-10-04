@@ -1,0 +1,93 @@
+#include <stdint.h>
+#include <stdio.h>
+
+#ifndef TEST_WIDTH
+#error "TEST_WIDTH must be defined"
+#endif
+
+#if TEST_WIDTH == 3
+
+_Static_assert(sizeof(((struct symbolicXor *)0)->_gen_lhs) == sizeof(uint8_t),
+               "W=3 input must use the one-byte CSim ABI");
+
+static void load_inputs(struct symbolicXor *model) {
+    /* High input bits exercise the generated three-bit output mask. */
+    model->_gen_lhs = UINT8_C(0xad);
+    model->_gen_rhs = UINT8_C(0x02);
+}
+
+static int output_matches(const struct symbolicXor *model) {
+    return model->out == UINT8_C(0x07);
+}
+
+#elif TEST_WIDTH == 17
+
+_Static_assert(sizeof(((struct symbolicXor *)0)->_gen_lhs) == sizeof(uint32_t),
+               "W=17 input must use the four-byte CSim ABI");
+
+static void load_inputs(struct symbolicXor *model) {
+    model->_gen_lhs = UINT32_C(0x1aaaa);
+    model->_gen_rhs = UINT32_C(0x05555);
+}
+
+static int output_matches(const struct symbolicXor *model) {
+    return model->out == UINT32_C(0x1ffff);
+}
+
+#elif TEST_WIDTH == 65
+
+_Static_assert(sizeof(((struct symbolicXor *)0)->_gen_lhs) ==
+                   3 * sizeof(uint32_t),
+               "W=65 input must occupy three CSim words");
+_Static_assert(sizeof(((struct symbolicXor *)0)->out) == 3 * sizeof(uint32_t),
+               "W=65 output must occupy three CSim words");
+
+static void load_inputs(struct symbolicXor *model) {
+    model->_gen_lhs[0] = UINT32_C(0x01234567);
+    model->_gen_lhs[1] = UINT32_C(0x89abcdef);
+    /* Only bit 0 of the top word belongs to a 65-bit value. */
+    model->_gen_lhs[2] = UINT32_C(0xffffffff);
+    model->_gen_rhs[0] = UINT32_C(0x11111111);
+    model->_gen_rhs[1] = UINT32_C(0x22222222);
+    model->_gen_rhs[2] = UINT32_C(0xfffffffe);
+}
+
+static int output_matches(const struct symbolicXor *model) {
+    return model->_gen_lhs[2] == UINT32_C(0x00000001) &&
+           model->_gen_rhs[2] == UINT32_C(0x00000000) &&
+           model->out[0] == UINT32_C(0x10325476) &&
+           model->out[1] == UINT32_C(0xab89efcd) &&
+           model->out[2] == UINT32_C(0x00000001);
+}
+
+#else
+#error "unsupported TEST_WIDTH"
+#endif
+
+static int check_output(const char *phase, const struct symbolicXor *model) {
+    if (output_matches(model)) {
+        return 0;
+    }
+    fprintf(stderr, "W=%d: wrong XOR output after %s\n", TEST_WIDTH, phase);
+    return 1;
+}
+
+int main(void) {
+    struct symbolicXor model = {0};
+
+    sparkle_symbolicXor_reset(&model);
+    load_inputs(&model);
+    sparkle_symbolicXor_eval(&model);
+    if (check_output("eval", &model) != 0) {
+        return 1;
+    }
+
+    sparkle_symbolicXor_tick(&model);
+    sparkle_symbolicXor_eval_tick(&model);
+    if (check_output("eval_tick", &model) != 0) {
+        return 1;
+    }
+
+    printf("parameterized CSim XOR W=%d: PASS\n", TEST_WIDTH);
+    return 0;
+}

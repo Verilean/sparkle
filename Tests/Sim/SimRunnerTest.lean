@@ -43,11 +43,11 @@ run_cmd generateSimWrappers bSpec
 
 /-- Load DomainA from the generated JIT C++ and return a Simulator. -/
 def loadA : IO DomainA.Sim.Simulator := do
-  let h ← JIT.compileAndLoad ".lake/build/gen/cdc/domain_a_jit.cpp"
+  let h ← JIT.compileAndLoad ".lake/build/gen/cdc/domain_a_jit.c"
   pure { handle := h }
 
 def loadB : IO DomainB.Sim.Simulator := do
-  let h ← JIT.compileAndLoad ".lake/build/gen/cdc/domain_b_jit.cpp"
+  let h ← JIT.compileAndLoad ".lake/build/gen/cdc/domain_b_jit.c"
   pure { handle := h }
 
 /-- Dump every register of a JIT handle as a List (ordered by index). -/

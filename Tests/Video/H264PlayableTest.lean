@@ -113,15 +113,15 @@ def testPlayableStream : IO Bool := do
 
   -- Compile JIT modules
   IO.println "  Compiling encoder pipeline..."
-  let encHandle ← JIT.compileAndLoad ".lake/build/gen/h264/encoder_pipeline_jit.cpp"
+  let encHandle ← JIT.compileAndLoad ".lake/build/gen/h264/encoder_pipeline_jit.c"
   let encDoneIdx ← resolveWire encHandle "_gen_done"
 
   IO.println "  Compiling decoder pipeline..."
-  let decHandle ← JIT.compileAndLoad ".lake/build/gen/h264/decoder_pipeline_jit.cpp"
+  let decHandle ← JIT.compileAndLoad ".lake/build/gen/h264/decoder_pipeline_jit.c"
   let decDoneIdx ← resolveWire decHandle "_gen_done"
 
   IO.println "  Compiling CAVLC synth..."
-  let cavlcHandle ← JIT.compileAndLoad ".lake/build/gen/h264/cavlc_synth_jit.cpp"
+  let cavlcHandle ← JIT.compileAndLoad ".lake/build/gen/h264/cavlc_synth_jit.c"
   let cavlcDoneIdx ← resolveWire cavlcHandle "_gen_done"
 
   -- Set QP parameters

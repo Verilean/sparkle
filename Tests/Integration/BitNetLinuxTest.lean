@@ -18,7 +18,7 @@
          a kernel image with CONFIG_SPARKLE_BITNET=y +
          CONFIG_INITRAMFS_SOURCE=usr/initramfs.cpio.gz)
     lake build IP.RV32.SoCVerilog
-        (regenerates verilator/generated_soc_jit.cpp)
+        (regenerates verilator/generated_soc_jit.c)
 
   Run:
     lake exe bitnet-linux-test [jit.cpp] [max_cycles]
@@ -44,7 +44,7 @@ private def hex32 (v : Nat) : String :=
   String.ofList (List.replicate (8 - s.length) '0') ++ s
 
 def main (args : List String) : IO UInt32 := do
-  let cppPath    := args[0]? |>.getD "verilator/generated_soc_jit.cpp"
+  let cppPath    := args[0]? |>.getD "verilator/generated_soc_jit.c"
   let maxCycles  := (args[1]? >>= String.toNat?).getD 60_000_000
 
   let bootHex     ← (·.getD "firmware/opensbi/boot.hex") <$>

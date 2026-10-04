@@ -12,7 +12,7 @@
 
   Usage:
     let soc ← Signal.loopMemoJIT
-      (jitCppPath := "verilator/generated_soc_jit.cpp")
+      (jitCppPath := "verilator/generated_soc_jit.c")
       (wireNames := #["_gen_pcReg", "_gen_uartValidBV", ...])
       (loadMem := fun h => ...)
       (reconstruct := fun _h vals => pure (mkMyResult vals))
@@ -31,7 +31,7 @@ open Sparkle.Core.JIT
     Returns IO (Signal dom α) that reads from JIT simulation.
 
     Parameters:
-    - `jitCppPath`: Path to the pre-generated `*_jit.cpp` file
+    - `jitCppPath`: Path to the pre-generated `*_jit.c` file
     - `wireNames`: Array of `_gen_*` wire names to read each cycle.
       Use wires that feed the top-level output — they are stable
       (not affected by DCE or name collisions on internal state).

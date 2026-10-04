@@ -31,13 +31,21 @@ jobs:
       run: |
         elan default $(cat lean-toolchain)
 
-    - name: Lake update
-      run: lake update
+    # NB: no `lake update` here.  The committed
+    # `lake-manifest.json` pins LSpec / doc-gen4 / etc. to
+    # commits that are compatible with the toolchain in
+    # `lean-toolchain`.  Re-running `lake update` would pull
+    # the latest upstream LSpec, which may have moved to a
+    # newer Lean version (e.g. 4.29+) and would force a
+    # toolchain upgrade on us, breaking the build.
 
     # ---- Core Build ----
 
     - name: Build project
       run: lake build
+
+    - name: Check register-with-enable semantics and synthesis
+      run: lake build Tests.RegisterWithEnableTest Tests.TestCompilerExtensions
 
     # ---- Examples ----
 
@@ -58,6 +66,21 @@ jobs:
 
     - name: Build CDC Multi-Clock example
       run: lake build Examples.CDC
+
+    # ---- CUDA batch-simulation backend ----
+    # Build-only: type-checks the emitter and the Layer-1 shape test.
+    # Compiling the emitted `.cu` needs `nvcc` + a GPU, so it stays opt-in
+    # and off CI (see docs/CudaSim.md).  The nvcc-free host syntax check
+    # (`lake exe cuda-sim-test`) runs in ip-tests.yml where a C++ compiler
+    # is available.
+    - name: Build CUDA simulation backend
+      run: lake build Sparkle.Backend.CudaSim Sparkle.Backend.CudaIntra Tests.TestCudaSim
+
+    # ---- SMT bridge (BMC via z3) ----
+    # Build-only here; `smt-bmc-test` (ip-tests core-dsl) emits queries
+    # unconditionally and runs z3 + counterexample replay when present.
+    - name: Build SMT bridge
+      run: lake build Sparkle.Backend.Smt Tests.TestSmt
 
     # ---- H.264 Video Codec — Verilog Generation ----
 
@@ -118,6 +141,25 @@ jobs:
     - name: "Run SVParser tests (34 tests: parse, lower, JIT, pcpi_mul, byte-lane, replication)"
       run: lake exe svparser-test
 
+    # ---- iverilog round-trip ----
+    # End-to-end: Sparkle → SystemVerilog → iverilog → vvp → value
+    # check.  Catches emitter defects (e.g. `0'd0`, `(a+1)[7:0]`) that
+    # the internal IR→Verilog→IR test in Tests/RoundTrip/IRVerilogIR
+    # can't see because Sparkle's own SVParser may share the same
+    # blind spot as its emitter.
+
+    - name: "Install iverilog"
+      run: sudo apt-get install -y iverilog
+
+    - name: "Verify native symbolic parameters"
+      run: scripts/verify_symbolic_parameters.sh
+
+    - name: "Verify parameterized CSim widths"
+      run: scripts/verify_parameterized_csim.sh
+
+    - name: "Run iverilog round-trip tests"
+      run: lake exe iverilog-roundtrip-test
+
     # ---- RV32 JIT vs Verilator Benchmark ----
     # Signal DSL RV32 SoC (122 registers, 4-stage pipeline)
     # Runs 10M cycles with both backends, compares cyc/s
@@ -131,7 +173,10 @@ jobs:
     - name: "Build JIT shared library (.so)"
       run: |
         cd verilator
-        g++ -O2 -std=c++17 -shared -fPIC -o generated_soc_jit.so generated_soc_jit.cpp
+        # CSim backend (Issue #70) emits a pure C source — file is
+        # `generated_soc_jit.c`, compiled with `cc`.  No libstdc++.
+        cc -O2 -std=gnu11 -shared -fPIC -fvisibility=hidden \
+           -o generated_soc_jit.so generated_soc_jit.c
 
     - name: "Build benchmark binaries"
       run: |
@@ -204,26 +249,19 @@ jobs:
         print('rv32-bench-results.json validated ok:', len(data), 'entries')
         "
 
-    - name: Stash local changes before benchmark push
-      if: github.event_name == 'push'
-      run: |
-        # Save benchmark JSON outside the repo before stashing
-        cp rv32-bench-results.json /tmp/rv32-bench-results.json
-        git stash || true
-        cp /tmp/rv32-bench-results.json rv32-bench-results.json
-
-    - name: Store RV32 benchmark result
+    - name: Store RV32 benchmark result (local JSON, no gh-pages push)
       uses: benchmark-action/github-action-benchmark@v1
       if: github.event_name == 'push'
       with:
         name: RV32 SoC Simulation Benchmark (Verilator vs JIT)
         tool: customBiggerIsBetter
         output-file-path: rv32-bench-results.json
-        benchmark-data-dir-path: dev/rv32-bench
-        github-token: ${{ secrets.GITHUB_TOKEN }}
-        auto-push: true
+        # external-data-json-path = "use a local file, NOT a git
+        # branch" — the action appends one entry per run to this
+        # JSON.  History persistence is no longer the action's job;
+        # we hand the file off to tutorial-notebooks via artifact.
+        external-data-json-path: bench-data/rv32-bench.json
         alert-threshold: "80%"
-        comment-on-alert: true
         fail-on-alert: false
 
     # ---- LiteX SoC Benchmark ----
@@ -291,21 +329,24 @@ jobs:
         "
         cat > /tmp/gen_litex_jit.lean << 'GENEOF'
         import Tools.SVParser
-        import Sparkle.Backend.CppSim
+        import Sparkle.Backend.CSim
         open Tools.SVParser.Lower
         def main : IO Unit := do
           let src ← IO.FS.readFile "/tmp/litex_pp.v"
           let design ← IO.ofExcept (parseAndLowerFlat src)
-          let jitCpp := Sparkle.Backend.CppSim.toCppSimJIT design
-          IO.FS.writeFile "/tmp/litex_jit.cpp" jitCpp
+          let jitC := Sparkle.Backend.CSim.toCJIT design
+          IO.FS.writeFile "/tmp/litex_jit.c" jitC
         GENEOF
-        # Ensure Tools.SVParser / Sparkle.Backend.CppSim oleans match the current
+        # Ensure Tools.SVParser / Sparkle.Backend.CSim oleans match the current
         # toolchain before `lake env lean --run`, which does NOT rebuild but
         # reads existing oleans and would otherwise fail with "incompatible
         # header" if the cache was produced by an older Lean version.
-        lake build Tools.SVParser Sparkle.Backend.CppSim
+        lake build Tools.SVParser Sparkle.Backend.CSim
         lake env lean --run /tmp/gen_litex_jit.lean
-        g++ -O2 -std=c++17 -shared -fPIC -o /tmp/litex_jit.so /tmp/litex_jit.cpp
+        # CSim emits pure C — use `cc`, not `g++` (which would mangle
+        # `jit_vtable` to `_Z10jit_vtablev` and break dlsym).
+        cc -O2 -std=gnu11 -shared -fPIC -fvisibility=hidden \
+           -o /tmp/litex_jit.so /tmp/litex_jit.c
 
     - name: "Run LiteX benchmark (10M cycles)"
       run: |
@@ -327,24 +368,39 @@ jobs:
         #include <cstdint>
         #include <chrono>
         #include <dlfcn.h>
-        typedef void* (*fn0)(); typedef void (*fn1)(void*);
+        // After Issue #70 fix each JIT .so exports only `jit_vtable`.
+        struct VT {
+            void* (*create)(); void (*destroy)(void*);
+            void (*reset)(void*); void (*eval)(void*);
+            void (*tick)(void*); void (*eval_tick)(void*);
+            void (*set_input)(void*, uint32_t, uint64_t);
+            uint64_t (*get_output)(void*, uint32_t);
+            uint64_t (*get_wire)(void*, uint32_t);
+            void (*set_mem)(void*, uint32_t, uint32_t, uint32_t);
+            uint32_t (*get_mem)(void*, uint32_t, uint32_t);
+            void (*memset_word)(void*, uint32_t, uint32_t, uint32_t, uint32_t);
+            const char* (*wire_name)(uint32_t); uint32_t (*num_wires)();
+            void (*set_reg)(void*, uint32_t, uint64_t);
+            uint64_t (*get_reg)(void*, uint32_t);
+            const char* (*reg_name)(uint32_t); uint32_t (*num_regs)();
+            void* (*snapshot)(void*); void (*restore)(void*, void*);
+            void (*free_snapshot)(void*);
+        };
         int main() {
             void* lib = dlopen("/tmp/litex_jit.so", RTLD_LAZY);
             if (!lib) { fprintf(stderr, "dlopen failed: %s\n", dlerror()); return 1; }
-            auto create = (fn0)dlsym(lib,"jit_create");
-            auto destroy = (fn1)dlsym(lib,"jit_destroy");
-            auto reset = (fn1)dlsym(lib,"jit_reset");
-            auto et = (fn1)dlsym(lib,"jit_eval_tick");
-            if (!create || !destroy || !reset || !et) {
-                fprintf(stderr, "dlsym failed\n"); return 1;
-            }
-            void* ctx = create(); reset(ctx);
+            typedef const VT* (*get_vt_fn)();
+            auto get_vt = (get_vt_fn)dlsym(lib, "jit_vtable");
+            if (!get_vt) { fprintf(stderr, "jit_vtable not found\n"); return 1; }
+            const VT* vt = get_vt();
+            if (!vt) { fprintf(stderr, "vt is NULL\n"); return 1; }
+            void* ctx = vt->create(); vt->reset(ctx);
             auto t0 = std::chrono::high_resolution_clock::now();
-            for (uint64_t c = 0; c < 10000000; c++) et(ctx);
+            for (uint64_t c = 0; c < 10000000; c++) vt->eval_tick(ctx);
             auto t1 = std::chrono::high_resolution_clock::now();
             double ms = std::chrono::duration<double,std::milli>(t1-t0).count();
             printf("%d\n", (int)(10000000.0/ms*1000.0));
-            destroy(ctx); dlclose(lib); return 0;
+            vt->destroy(ctx); dlclose(lib); return 0;
         }
         BEOF
         g++ -O2 -std=c++17 -o /tmp/bench_litex /tmp/bench_litex.cpp -ldl
@@ -380,18 +436,15 @@ jobs:
         print('litex-bench-results.json validated ok:', len(data), 'entries')
         "
 
-    - name: Store LiteX benchmark result
+    - name: Store LiteX benchmark result (local JSON, no gh-pages push)
       uses: benchmark-action/github-action-benchmark@v1
       if: github.event_name == 'push'
       with:
         name: LiteX PicoRV32 SoC Benchmark (Verilator vs JIT)
         tool: customBiggerIsBetter
         output-file-path: litex-bench-results.json
-        benchmark-data-dir-path: dev/litex-bench
-        github-token: ${{ secrets.GITHUB_TOKEN }}
-        auto-push: true
+        external-data-json-path: bench-data/litex-bench.json
         alert-threshold: "80%"
-        comment-on-alert: true
         fail-on-alert: false
 
     # ---- Multi-Core Parallel Benchmark ----
@@ -405,18 +458,19 @@ jobs:
         # Generate hierarchical JIT
         cat > /tmp/gen_hier_jit.lean << 'GENEOF'
         import Tools.SVParser
-        import Sparkle.Backend.CppSim
+        import Sparkle.Backend.CSim
         open Tools.SVParser.Lower
         def main : IO Unit := do
           let src ← IO.FS.readFile "Tests/SVParser/fixtures/litex_1core.v"
           let pico ← IO.FS.readFile "/tmp/picorv32.v"
           let design ← IO.ofExcept (parseAndLowerHierarchical (src ++ "\n" ++ pico))
-          let jitCpp := Sparkle.Backend.CppSim.toCppSimJIT design
-          IO.FS.writeFile "/tmp/sparkle_hier.cpp" jitCpp
-          IO.println s!"JIT: {jitCpp.length} chars, {design.modules.length} modules"
+          let jitC := Sparkle.Backend.CSim.toCJIT design
+          IO.FS.writeFile "/tmp/sparkle_hier.c" jitC
+          IO.println s!"JIT: {jitC.length} chars, {design.modules.length} modules"
         GENEOF
         lake env lean --run /tmp/gen_hier_jit.lean
-        g++ -O2 -std=c++17 -shared -fPIC -o /tmp/sparkle_hier.so /tmp/sparkle_hier.cpp
+        cc -O2 -std=gnu11 -shared -fPIC -fvisibility=hidden \
+           -o /tmp/sparkle_hier.so /tmp/sparkle_hier.c
 
     - name: "Build multi-core runner"
       run: g++ -O2 -std=c++20 -shared -fPIC -o /tmp/multicore_runner.so c_src/cdc/multicore_runner.cpp -lpthread
@@ -478,22 +532,38 @@ jobs:
         #include <cstdint>
         #include <chrono>
         #include <dlfcn.h>
-        typedef void* (*fn0)(); typedef void (*fn1)(void*);
+        struct VT {
+            void* (*create)(); void (*destroy)(void*);
+            void (*reset)(void*); void (*eval)(void*);
+            void (*tick)(void*); void (*eval_tick)(void*);
+            void (*set_input)(void*, uint32_t, uint64_t);
+            uint64_t (*get_output)(void*, uint32_t);
+            uint64_t (*get_wire)(void*, uint32_t);
+            void (*set_mem)(void*, uint32_t, uint32_t, uint32_t);
+            uint32_t (*get_mem)(void*, uint32_t, uint32_t);
+            void (*memset_word)(void*, uint32_t, uint32_t, uint32_t, uint32_t);
+            const char* (*wire_name)(uint32_t); uint32_t (*num_wires)();
+            void (*set_reg)(void*, uint32_t, uint64_t);
+            uint64_t (*get_reg)(void*, uint32_t);
+            const char* (*reg_name)(uint32_t); uint32_t (*num_regs)();
+            void* (*snapshot)(void*); void (*restore)(void*, void*);
+            void (*free_snapshot)(void*);
+        };
         int main() {
             void* lib = dlopen("/tmp/sparkle_hier.so", RTLD_LAZY);
             if (!lib) { fprintf(stderr, "dlopen failed: %s\n", dlerror()); return 1; }
-            auto create = (fn0)dlsym(lib,"jit_create");
-            auto destroy = (fn1)dlsym(lib,"jit_destroy");
-            auto reset = (fn1)dlsym(lib,"jit_reset");
-            auto et = (fn1)dlsym(lib,"jit_eval_tick");
-            if (!create || !destroy || !reset || !et) { fprintf(stderr, "dlsym failed\n"); return 1; }
-            void* ctx = create(); reset(ctx);
+            typedef const VT* (*get_vt_fn)();
+            auto get_vt = (get_vt_fn)dlsym(lib, "jit_vtable");
+            if (!get_vt) { fprintf(stderr, "jit_vtable not found\n"); return 1; }
+            const VT* vt = get_vt();
+            if (!vt) { fprintf(stderr, "vt is NULL\n"); return 1; }
+            void* ctx = vt->create(); vt->reset(ctx);
             auto t0 = std::chrono::high_resolution_clock::now();
-            for (uint64_t c = 0; c < 10000000; c++) et(ctx);
+            for (uint64_t c = 0; c < 10000000; c++) vt->eval_tick(ctx);
             auto t1 = std::chrono::high_resolution_clock::now();
             double ms = std::chrono::duration<double,std::milli>(t1-t0).count();
             printf("%d\n", (int)(10000000.0/ms*1000.0));
-            destroy(ctx); dlclose(lib); return 0;
+            vt->destroy(ctx); dlclose(lib); return 0;
         }
         BEOF
         g++ -O2 -std=c++17 -o /tmp/bench_1core /tmp/bench_1core.cpp -ldl
@@ -508,24 +578,40 @@ jobs:
         #include <cstdint>
         #include <chrono>
         #include <dlfcn.h>
-        typedef void* (*fn0)(); typedef void (*fn1)(void*);
+        struct VT {
+            void* (*create)(); void (*destroy)(void*);
+            void (*reset)(void*); void (*eval)(void*);
+            void (*tick)(void*); void (*eval_tick)(void*);
+            void (*set_input)(void*, uint32_t, uint64_t);
+            uint64_t (*get_output)(void*, uint32_t);
+            uint64_t (*get_wire)(void*, uint32_t);
+            void (*set_mem)(void*, uint32_t, uint32_t, uint32_t);
+            uint32_t (*get_mem)(void*, uint32_t, uint32_t);
+            void (*memset_word)(void*, uint32_t, uint32_t, uint32_t, uint32_t);
+            const char* (*wire_name)(uint32_t); uint32_t (*num_wires)();
+            void (*set_reg)(void*, uint32_t, uint64_t);
+            uint64_t (*get_reg)(void*, uint32_t);
+            const char* (*reg_name)(uint32_t); uint32_t (*num_regs)();
+            void* (*snapshot)(void*); void (*restore)(void*, void*);
+            void (*free_snapshot)(void*);
+        };
         int main() {
             void* lib = dlopen("/tmp/sparkle_hier.so", RTLD_LAZY);
             if (!lib) { fprintf(stderr, "dlopen failed: %s\n", dlerror()); return 1; }
-            auto create = (fn0)dlsym(lib,"jit_create");
-            auto destroy = (fn1)dlsym(lib,"jit_destroy");
-            auto reset = (fn1)dlsym(lib,"jit_reset");
-            auto et = (fn1)dlsym(lib,"jit_eval_tick");
-            if (!create || !destroy || !reset || !et) { fprintf(stderr, "dlsym failed\n"); return 1; }
+            typedef const VT* (*get_vt_fn)();
+            auto get_vt = (get_vt_fn)dlsym(lib, "jit_vtable");
+            if (!get_vt) { fprintf(stderr, "jit_vtable not found\n"); return 1; }
+            const VT* vt = get_vt();
+            if (!vt) { fprintf(stderr, "vt is NULL\n"); return 1; }
             void* cores[8];
-            for (int i = 0; i < 8; i++) { cores[i] = create(); reset(cores[i]); }
+            for (int i = 0; i < 8; i++) { cores[i] = vt->create(); vt->reset(cores[i]); }
             auto t0 = std::chrono::high_resolution_clock::now();
             for (uint64_t c = 0; c < 10000000; c++)
-                for (int i = 0; i < 8; i++) et(cores[i]);
+                for (int i = 0; i < 8; i++) vt->eval_tick(cores[i]);
             auto t1 = std::chrono::high_resolution_clock::now();
             double ms = std::chrono::duration<double,std::milli>(t1-t0).count();
             printf("%d\n", (int)(10000000.0/ms*1000.0));
-            for (int i = 0; i < 8; i++) destroy(cores[i]);
+            for (int i = 0; i < 8; i++) vt->destroy(cores[i]);
             dlclose(lib); return 0;
         }
         BEOF
@@ -593,19 +679,28 @@ jobs:
         print('multicore-bench-results.json validated ok:', len(data), 'entries')
         "
 
-    - name: Store multi-core benchmark result
+    - name: Store multi-core benchmark result (local JSON, no gh-pages push)
       uses: benchmark-action/github-action-benchmark@v1
       if: github.event_name == 'push'
       with:
         name: Multi-Core Benchmark (8-core LiteX PicoRV32)
         tool: customBiggerIsBetter
         output-file-path: multicore-bench-results.json
-        benchmark-data-dir-path: dev/multicore-bench
-        github-token: ${{ secrets.GITHUB_TOKEN }}
-        auto-push: true
+        external-data-json-path: bench-data/multicore-bench.json
         alert-threshold: "80%"
-        comment-on-alert: true
         fail-on-alert: false
+
+    # Upload all three bench JSONs so the doc-deploy job in the
+    # `tutorial-notebooks` workflow can fold them into the Pages
+    # artifact under `site/dev/`.  No git branch is touched.
+    - name: "Upload bench data as artifact (for Pages deploy)"
+      if: github.event_name == 'push'
+      uses: actions/upload-artifact@v4
+      with:
+        name: bench-data
+        path: bench-data/
+        retention-days: 7
+        if-no-files-found: warn
 
     # ---- Unit Tests ----
 
@@ -638,3 +733,541 @@ jobs:
         else
           echo "iverilog not installed, skipping"
         fi
+
+  # ---- Tutorial chapters (Markdown master + xlean-convert) ----
+  #
+  # Builds the chapter `.lean` / `.ipynb` outputs, renders them to
+  # HTML, assembles the full site tree (tutorial + doc-gen4 API +
+  # bench dashboards), and *uploads* it as an artifact.  The actual
+  # Pages deploy is split into a separate `pages-deploy` job below
+  # so the `github-pages` environment (which restricts to main) is
+  # only evaluated on push-to-main, not on every PR.
+  tutorial-notebooks:
+    runs-on: ubuntu-latest
+    needs: build  # reuses Lake's package cache via the previous job's setup
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Elan
+      run: |
+        curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf | sh -s -- -y
+        echo "$HOME/.elan/bin" >> $GITHUB_PATH
+
+    - name: Install Lean toolchain
+      run: elan default $(cat lean-toolchain)
+
+    # ----------------------------------------------------------------
+    # Pull the xeus-lean docs-builder image.  It ships:
+    #   - xlean-convert (md → ipynb / md → site)
+    #   - the WASM xlean kernel + olean tarballs
+    #   - a `jupyter lite build` toolchain (pixi env wasm-build)
+    #   - a vendored Sparkle olean snapshot embedded into the WASM VFS
+    # so the browser kernel can `import Sparkle` without a network.
+    #
+    # NOTE: the embedded Sparkle is xeus-lean's vendored snapshot, not
+    # Sparkle main HEAD.  Tutorial chapters must stay within the
+    # subset that snapshot supports.  Mode 1 (`lake build
+    # TutorialNotebooks`) below catches the case where the tutorial
+    # *.lean* files no longer compile against Sparkle main, which is
+    # a separate concern from "do they execute in the browser kernel".
+    # ----------------------------------------------------------------
+    # The xeus-lean docs-builder image is large (it bundles Mathlib
+    # oleans, the WASM xlean kernel, and a pixi/emscripten toolchain),
+    # so a fresh `docker pull` exhausts the GitHub-hosted runner's
+    # default ~14 GB of free space.  Drop the .NET / Android / GHC
+    # toolchains we never use to recover ~30 GB before the pull.
+    # (Same idiom xeus-lean's own docs CI uses.)
+    - name: "Free disk space for docker pull"
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android \
+          /opt/ghc /opt/hostedtoolcache/CodeQL || true
+        df -h
+
+    - name: "Pull xeus-lean docs-builder image"
+      run: |
+        echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io \
+          -u "${{ github.actor }}" --password-stdin
+        docker pull ghcr.io/verilean/xeus-lean-docs-builder:latest
+        docker image ls ghcr.io/verilean/xeus-lean-docs-builder:latest
+
+    - name: "Generate .lean from Markdown (host xlean-convert via container)"
+      run: |
+        # We still want .lean checked into the build for Mode 1
+        # (`lake build TutorialNotebooks` later in this job) — that
+        # step happens on the host runner, not inside the image, so
+        # the .lean files need to exist on disk first.  Run
+        # xlean-convert from the image, mounting the checkout.
+        #
+        # `--user "$(id -u):$(id -g)"` is critical: without it the
+        # container runs as root and any files it creates under
+        # /work (the mount) end up root-owned, which breaks every
+        # subsequent host-side step that tries to write into the
+        # workspace (e.g. `cp -r .lake/build/doc/. site/api/`).
+        docker run --rm \
+          --user "$(id -u):$(id -g)" \
+          -v "${{ github.workspace }}:/work" \
+          -w /work \
+          ghcr.io/verilean/xeus-lean-docs-builder:latest \
+          bash docs/tutorial/build-from-md.sh
+
+    # NB: no `lake update` — same reasoning as the main build
+    # job above.  We rely on the committed `lake-manifest.json`.
+
+    # Mode 1 — headless `lake build` (Display *shim* path).
+    # No xeus-lean kernel: chapter cells use the in-repo
+    # `docs/tutorial/Display.lean` shim that emits MIME markers.
+    # Catches drift in the offline build path.
+    - name: "Mode 1 — Build tutorial chapters with Display shim"
+      run: lake build TutorialNotebooks
+
+    # Mode 2 (executing generated .ipynb under the real xeus-lean
+    # kernel) is disabled: upstream xeus-lean no longer ships a
+    # `build.sh`, and the kernel build moved to a CMake / Makefile
+    # pipeline that has its own non-trivial native-deps story
+    # (emscripten, xtl, xwidgets, …).  Mode 1 above — `lake build
+    # TutorialNotebooks` against the Display shim — is the
+    # bedrock chapter check; bringing the real kernel into CI is
+    # a separate effort and shouldn't gate every PR.
+
+    # ---- Documentation site (api / tutorial / index) ----
+    #
+    # Build the full doc-gen4 API reference, convert every
+    # generated tutorial notebook to standalone HTML, and
+    # publish everything to gh-pages along with a top-level
+    # landing page.  Only runs on pushes to the default branch
+    # so PRs don't churn the site.
+
+    - name: "Doc: build doc-gen4 API reference"
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      run: |
+        # `Sparkle:docs` (target provided by doc-gen4, now required
+        # from the `docbuild/` sub-project) walks every module
+        # reachable from `Sparkle.lean` and renders Markdown + HTML
+        # reference pages into `docbuild/.lake/build/doc/`.  Sticking
+        # to the `Sparkle` root keeps the IP libraries (which import
+        # `Sparkle`) in scope without us having to enumerate every
+        # lean_lib.  Building from `docbuild/` keeps doc-gen4 and its
+        # deps out of the main package's build graph.
+        (cd docbuild && lake build Sparkle:docs)
+
+    - name: "Doc: build tutorial site + JupyterLite (xeus-lean image)"
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      run: |
+        # Re-use the same image: it has xlean-convert --site (which
+        # emits the sidebar + jlite-bar HTML xeus-lean uses) AND
+        # `jupyter lite build` (which packages the WASM kernel + the
+        # ipynb tree into a self-contained JupyterLite SPA).
+        #
+        # Inputs:
+        #   docs/tutorial/md/*.md          ← tutorial source
+        # Outputs (under ./site):
+        #   site/tutorial/*.html           ← sidebar-bound chapter pages
+        #   site/lab/                      ← JupyterLite SPA
+        #   site/xeus/wasm-host/olean/     ← prepacked Sparkle + Std oleans
+        mkdir -p site notebooks/tutorial
+        # NOTE on the user-mapping:
+        # This step runs as root inside the container because
+        # `jupyter lite build` (via jupyterlite_xeus) reads
+        # `${PREFIX}/conda-meta/*.json`, and those files were
+        # written root-only when the image was baked.  A non-root
+        # uid can't read them → PermissionError.
+        #
+        # As a side effect, anything the container writes under
+        # /work ends up root-owned, so the final command inside
+        # the container `chown`s site/ + notebooks/ + .jlite-build
+        # back to the runner uid that the host-side steps use.
+        host_uid=$(id -u)
+        host_gid=$(id -g)
+        docker run --rm \
+          -v "${{ github.workspace }}:/work" \
+          -w /work \
+          -e HOST_UID=$host_uid \
+          -e HOST_GID=$host_gid \
+          ghcr.io/verilean/xeus-lean-docs-builder:latest \
+          bash -eu -c '
+            # 1. md → ipynb under notebooks/tutorial/ (matches the
+            #    `--jupyterlite-base "../lab/index.html?path=tutorial/"`
+            #    we pass to xlean-convert --site below).
+            for f in docs/tutorial/md/Ch*.md; do
+              [ -e "$f" ] || continue
+              out="notebooks/tutorial/$(basename "$f" .md).ipynb"
+              echo "  $f → $out"
+              xlean-convert --to ipynb "$f" -o "$out"
+            done
+
+            # 1b. Sparkle WASM staging + xlean kernel rebuild.
+            #
+            # Since xeus-lean PR #13 unbundled Sparkle from the
+            # kernel image, /opt/xeus-lean/.pixi/envs/wasm-host
+            # only knows the Lean stdlib.  To make the deployed
+            # lab answer `import Sparkle.Core.Domain` instead of
+            # "unknown namespace", we have to
+            # (a) build a Sparkle staging dir via
+            #     tools/wasm/build-wasm.sh, then
+            # (b) re-configure xlean with
+            #     `-DEXTRA_WASM_DIRS=<staging>` and re-install it
+            #     into a fresh prefix.
+            #
+            # jupyterlite-xeus reads `<prefix>/conda-meta/history`
+            # to enumerate installed kernels.  A pure
+            # `cmake --install` only writes the xlean binary + the
+            # staged oleans; the conda metadata that XeusAddon
+            # expects is absent and `jupyter lite build` then dies
+            # with `FileNotFoundError: ".../conda-meta/history"`.
+            # Seed the install prefix as a copy of the image-baked
+            # wasm-host env (which already has conda-meta) so the
+            # overlay install lands on top of valid metadata.
+            #
+            # Wrap the whole rebuild in a guard: on any failure we
+            # fall back to the stock kernel — the lab still loads,
+            # just without `import Sparkle` (same as the
+            # pre-PR-#13 behaviour).  This was validated end-to-end
+            # by the lab-wasm-staging-probe workflow on this
+            # branch (run 27527531979).
+            SPARKLE_PREFIX=""
+            STOCK_PREFIX=/opt/xeus-lean/.pixi/envs/wasm-host
+            if [ -f /work/tools/wasm/build-wasm.sh ] \
+               && [ -f /opt/xeus-lean/CMakeLists.txt ] \
+               && [ -d "$STOCK_PREFIX/conda-meta" ]; then
+              echo "::group::Sparkle WASM staging + xlean rebuild"
+              # NOTE: NO leading dot.  jupyterlite-xeus uses the basename of
+              # `--XeusAddon.prefix` as the env_name inside the deployed site
+              # (`site/xeus/<env_name>/<kernel>/kernel.json`).  When that
+              # basename starts with `.`, the directory is hidden and the
+              # actions/deploy-pages upload (Jekyll-style filtering of dotfiles)
+              # drops the entire `site/xeus/.sparkle-kernel-prefix/` tree —
+              # leaving `xeus/kernels.json` listing an env whose kernel.json
+              # 404s in the browser.  See run 27898159343 logs:
+              #   jupyterlite-xeus:xeus:.sparkle-kernel-prefix:update_env_file:...
+              # then `https://verilean.github.io/sparkle/xeus/kernels.json` → `[]`.
+              CAND=/work/sparkle-kernel-prefix
+              if pixi run --manifest-path /opt/xeus-lean/pixi.toml -e wasm-build \
+                   bash /work/tools/wasm/build-wasm.sh /work/.sparkle-staging \
+                 && cp -a "$STOCK_PREFIX" "$CAND" \
+                 && pixi run --manifest-path /opt/xeus-lean/pixi.toml -e wasm-build \
+                      emcmake cmake -S /opt/xeus-lean -B /work/.wasm-rebuild \
+                        -DCMAKE_BUILD_TYPE=Release \
+                        -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=ON \
+                        -DCMAKE_INSTALL_PREFIX="$CAND" \
+                        -DEXTRA_WASM_DIRS=/work/.sparkle-staging \
+                 && pixi run --manifest-path /opt/xeus-lean/pixi.toml -e wasm-build \
+                      emmake make -C /work/.wasm-rebuild -j"$(nproc)" xlean \
+                 && pixi run --manifest-path /opt/xeus-lean/pixi.toml -e wasm-build \
+                      cmake --install /work/.wasm-rebuild \
+                 && [ -f "$CAND/conda-meta/history" ]
+              then
+                # FIX (issue #85): the rebuild installs xeus-lean'\''s
+                # SOURCE kernel.json, whose `argv[0]` is the bare
+                # relative string "xlean".  jupyterlite-xeus'\''s
+                # `get_kernel_binaries` (add_on.py) then looks for
+                # "xlean.js" / "xlean.wasm" relative to `jupyter lite
+                # build`'\''s cwd (/work) — which don'\''t exist there —
+                # warns "kernel binaries not found for xlean", drops
+                # the kernel from the manifest, and the deployed
+                # `xeus/kernels.json` comes out `[]` → the lab shows
+                # "No Kernel".  The actual binaries are at
+                # `$CAND/bin/xlean.{js,wasm}`, so rewrite argv[0] to
+                # that absolute path.  (The stock image env'\''s
+                # kernel.json already uses an absolute
+                # `/opt/.../bin/xlean`; `cmake --install` clobbered it
+                # with the relative source template.)
+                KJSON="$CAND/share/jupyter/kernels/xlean/kernel.json"
+                if [ -f "$KJSON" ] && [ -f "$CAND/bin/xlean.js" ]; then
+                  # The rebuild installs xeus-lean'\''s SOURCE
+                  # kernel.json, whose argv is the bare relative
+                  # string "xlean" on its own line.  Rewrite that one
+                  # line to the absolute install path so
+                  # jupyterlite-xeus'\''s get_kernel_binaries resolves
+                  # xlean.js / xlean.wasm (no jq in the image; sed on
+                  # the standalone "xlean" argv line is quote-safe).
+                  sed -i "s|^\( *\)\"xlean\"\( *\)$|\1\"$CAND/bin/xlean\"\2|" "$KJSON"
+                  echo "  rewrote $KJSON argv[0] -> $CAND/bin/xlean"
+                  grep -A1 '"argv"' "$KJSON" || true
+                fi
+                SPARKLE_PREFIX="$CAND"
+                echo "Sparkle-enabled kernel installed at $SPARKLE_PREFIX"
+              else
+                echo "::warning::Sparkle WASM kernel rebuild failed; falling back to stock kernel (lab will not have import Sparkle)"
+              fi
+              echo "::endgroup::"
+            else
+              echo "::warning::Sparkle WASM staging prereqs missing; falling back to stock kernel"
+            fi
+
+            # 2. JupyterLite SPA FIRST — `jupyter lite build --force`
+            #    wipes its output dir, so anything we drop into
+            #    site/ before this point is lost.  PREFIX = either
+            #    the freshly-built Sparkle-enabled kernel (step 1b)
+            #    or the image-baked stock kernel as fallback.  The
+            #    stock prefix is baked at a fixed path because the
+            #    image-bundled pixi version chokes on
+            #    `pixi info -e wasm-host` (the Dockerfile itself
+            #    falls back to this same path).
+            if [ -n "$SPARKLE_PREFIX" ] && [ -d "$SPARKLE_PREFIX/bin" ]; then
+              PREFIX="$SPARKLE_PREFIX"
+            else
+              PREFIX="$STOCK_PREFIX"
+            fi
+            ls -d "$PREFIX/bin" >/dev/null || {
+              echo "ERROR: xlean kernel prefix not found at $PREFIX"
+              find /opt/xeus-lean/.pixi/envs -maxdepth 2 -type d 2>/dev/null | head -10
+              exit 1
+            }
+            echo "Using kernel PREFIX=$PREFIX"
+            # `jupyter lite build` uses doit, which writes a sqlite
+            # deps DB into cwd.  /opt/xeus-lean is image-root-owned
+            # in some configs, and even when writable as root it is
+            # rude to scribble on, so we run from a workspace scratch
+            # dir, passing the pixi manifest explicitly.
+            mkdir -p /work/.jlite-build
+            cd /work/.jlite-build
+            pixi run --manifest-path /opt/xeus-lean/pixi.toml -e wasm-build \
+              jupyter lite build \
+                --XeusAddon.prefix="$PREFIX" \
+                "--XeusAddon.default_channels=[]" \
+                --contents /work/notebooks \
+                --output-dir /work/site \
+                --force
+            cd /work
+
+            # 3. xlean-convert --site: sidebar HTML pages, one per
+            #    chapter, with a "▶ Open in JupyterLite" button.
+            #    Runs *after* `jupyter lite build` because that
+            #    command --force-wipes its output dir.
+            xlean-convert --site docs/tutorial/md \
+              -o site/tutorial \
+              --title "Sparkle Tutorial" \
+              --jupyterlite-base "../lab/index.html?path=tutorial/"
+
+            # 4. Drop prepacked olean tarballs (Init/Std/Lean/…) so the
+            #    first browser boot doesnt have to compile them.  These
+            #    ship in the image and carry the stdlib manifest-v2.json.
+            if [ -d /opt/xeus-lean/_olean ]; then
+              mkdir -p site/xeus/wasm-host/olean
+              cp /opt/xeus-lean/_olean/* site/xeus/wasm-host/olean/
+            fi
+
+            # 4b. Pack the SPARKLE oleans into their own tarball and
+            #     MERGE a Sparkle entry into the deployed manifest-v2.json.
+            #
+            #     The lab loads oleans dynamically from
+            #     site/xeus/wasm-host/olean/ via manifest-v2.json.  The
+            #     image-prepacked _olean/ is stdlib-only, so without this
+            #     step the manifest has no Sparkle entry and the lab
+            #     answers `import Sparkle.Core.Domain` with "unknown
+            #     namespace" — even though the kernel links the Sparkle
+            #     symbols.  (build-wasm.sh already staged the oleans at
+            #     /work/.sparkle-staging with Sparkle.olean + Sparkle/ at
+            #     its root; that is a valid pack SRC.)
+            OLEAN_OUT=site/xeus/wasm-host/olean
+            if [ -n "${SPARKLE_PREFIX:-}" ] \
+               && [ -f /work/.sparkle-staging/Sparkle.olean ] \
+               && [ -f /opt/xeus-lean/scripts/pack-olean-modules.sh ]; then
+              echo "::group::Pack Sparkle oleans for the lab"
+              mkdir -p "$OLEAN_OUT" /tmp/sparkle-pack
+              # Pack ONLY the Sparkle module (writes its own manifest we
+              # then merge, plus Sparkle-olean.tar.zst).
+              MODULES=Sparkle ZSTD_LEVEL=-15 \
+                bash /opt/xeus-lean/scripts/pack-olean-modules.sh \
+                     /work/.sparkle-staging /tmp/sparkle-pack || true
+              if [ -f /tmp/sparkle-pack/Sparkle-olean.tar.zst ]; then
+                cp /tmp/sparkle-pack/Sparkle-olean.tar.zst "$OLEAN_OUT/"
+                # Merge the Sparkle module entry into the existing
+                # (stdlib) manifest-v2.json.  This step runs inside a
+                # `bash -eu -c '\''...'\''` single-quoted docker command, and
+                # a YAML `run: |` block scalar strips the block indent —
+                # which makes an inline heredoc either break YAML (0-indent
+                # body) or break Python (dedented-but-still-indented body).
+                # So write the merge script to a file with printf (no
+                # single quotes, no heredoc) and run it.
+                printf "%s\n" \
+                  "import json, os, sys" \
+                  "b_path, s_path = sys.argv[1], sys.argv[2]" \
+                  "sp = json.load(open(s_path))" \
+                  "base = json.load(open(b_path)) if os.path.exists(b_path) else {\"version\": \"v2\", \"baseUrl\": \"\", \"modules\": {}}" \
+                  "base.setdefault(\"modules\", {}).update(sp.get(\"modules\", {}))" \
+                  "json.dump(base, open(b_path, \"w\"))" \
+                  "print(\"[pack] merged Sparkle; manifest modules: \" + \", \".join(sorted(base[\"modules\"])))" \
+                  > /tmp/merge_manifest.py
+                python3 /tmp/merge_manifest.py "$OLEAN_OUT/manifest-v2.json" /tmp/sparkle-pack/manifest-v2.json
+              else
+                echo "::warning::Sparkle olean pack produced no tarball; lab will lack import Sparkle"
+              fi
+              echo "::endgroup::"
+            fi
+
+            # 5. Hand ownership of everything we wrote under /work
+            #    back to the host runner uid so subsequent host-side
+            #    steps (e.g. `cp -r .lake/build/doc/. site/api/`) can
+            #    write into them.  Root inside the container created
+            #    these as root.
+            chown -R "${HOST_UID}:${HOST_GID}" \
+              /work/site /work/notebooks /work/.jlite-build \
+              /work/.sparkle-staging /work/.wasm-rebuild \
+              /work/.sparkle-kernel-prefix 2>/dev/null || true
+          '
+        echo "=== site tree (depth 2) ==="
+        find site -maxdepth 2 -type d
+
+    - name: "Doc: download bench data artifact (from build job)"
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      uses: actions/download-artifact@v4
+      with:
+        name: bench-data
+        path: bench-data
+      continue-on-error: true  # first run on a fresh repo may have no artifact yet
+
+    - name: "Doc: assemble site (api + tutorial + bench + landing page)"
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      run: |
+        mkdir -p site/api
+        # Copy the doc-gen4 output into site/api/.
+        if [ -d docbuild/.lake/build/doc ]; then
+          cp -r docbuild/.lake/build/doc/. site/api/
+        fi
+        # Generate per-benchmark dashboard pages from the JSONs the
+        # `build` job uploaded.  benchmark-action's
+        # `external-data-json-path` produces a JS file whose body is
+        # `window.BENCHMARK_DATA = {...};` — we render the *latest*
+        # entry per suite as a simple table (no history charting:
+        # users opted in to "latest-only" instead of branch-stored
+        # history).
+        for bench in rv32-bench litex-bench multicore-bench; do
+          jsfile="bench-data/${bench}.json"
+          outdir="site/dev/${bench}"
+          mkdir -p "${outdir}"
+          if [ -f "${jsfile}" ]; then
+            cp "${jsfile}" "${outdir}/data.js"
+            python3 - "${jsfile}" "${outdir}/index.html" "${bench}" <<'PYEOF'
+        import json, re, sys, html
+        path, out, name = sys.argv[1], sys.argv[2], sys.argv[3]
+        with open(path) as f:
+            src = f.read()
+        # benchmark-action writes either a bare JSON document or a JS
+        # assignment (`window.BENCHMARK_DATA = {...};`).  Try JSON first
+        # and only fall back to stripping an assignment prefix — the old
+        # regex-first order matched a `{...}` that appeared inside a
+        # COMMIT MESSAGE stored in the data (a changelog line mentioning
+        # SystemVerilog `'{…}` patterns), capturing prose instead of the
+        # document and failing with "Expecting property name".
+        try:
+            data = json.loads(src)
+        except json.JSONDecodeError:
+            head = re.match(r'\s*[\w.$\[\]\'"]+\s*=\s*', src)
+            body = src[head.end():] if head else src
+            body = re.sub(r';\s*$', '', body.strip())
+            data = json.loads(body)
+        # Pull the most recent commit's entries across every suite.
+        entries = data.get('entries', {})
+        rows = []
+        for suite, runs in entries.items():
+            if not runs:
+                continue
+            latest = runs[-1]  # benchmark-action appends in order
+            commit_sha = (latest.get('commit') or {}).get('id', '')[:7]
+            for bm in latest.get('benches', []):
+                rows.append((suite, bm.get('name','?'), bm.get('value','?'), bm.get('unit',''), commit_sha))
+        body = ['<!DOCTYPE html><html><head><meta charset="utf-8">',
+                f'<title>{html.escape(name)}</title>',
+                '<style>body{font-family:system-ui,sans-serif;max-width:880px;margin:40px auto;padding:0 16px;line-height:1.5}',
+                'table{border-collapse:collapse;width:100%}th,td{border:1px solid #ddd;padding:.4em .6em;text-align:left}',
+                'th{background:#f6f8fa}a{color:#0366d6;text-decoration:none}a:hover{text-decoration:underline}',
+                '.muted{color:#666;font-size:.9em}</style></head><body>',
+                f'<h1>{html.escape(name)}</h1>',
+                '<p class="muted">Latest-run snapshot.  Raw history JSON: <a href="data.js">data.js</a>.</p>',
+                '<table><thead><tr><th>Suite</th><th>Benchmark</th><th>Value</th><th>Unit</th><th>Commit</th></tr></thead><tbody>']
+        for s, n, v, u, c in rows:
+            body.append(f'<tr><td>{html.escape(s)}</td><td>{html.escape(n)}</td><td>{v}</td><td>{html.escape(u)}</td><td><code>{html.escape(c)}</code></td></tr>')
+        body += ['</tbody></table>',
+                 '<p><a href="../../">← back to top</a></p></body></html>']
+        with open(out, 'w') as f:
+            f.write('\n'.join(body))
+        PYEOF
+          else
+            # First run, or bench job didn't produce this JSON: emit a placeholder.
+            cat > "${outdir}/index.html" <<EOF
+        <!DOCTYPE html><html><head><meta charset="utf-8"><title>${bench}</title></head>
+        <body><h1>${bench}</h1><p>No benchmark data uploaded yet on this run.</p>
+        <p><a href="../../">← back to top</a></p></body></html>
+        EOF
+          fi
+        done
+        # Tutorial index.html is produced by `xlean-convert --site`
+        # in the previous step (with sidebar + chapter TOC), so we
+        # don't generate one here.
+        # Top-level landing page.
+        #
+        # IMPORTANT: must include `<script id="jupyter-config-data"
+        # type="application/json">{}</script>` somewhere in the
+        # document, otherwise JupyterLite (under /lab/) crashes
+        # with `Cannot read properties of null (reading 'textContent')`.
+        # JupyterLite walks the URL parent chain fetching each
+        # ancestor's index.html and parsing it for that script
+        # element to build a merged config.  An ancestor that is a
+        # plain landing page without the script makes the walk
+        # throw on null.textContent.  Empty `{}` is fine — the
+        # /lab/ folder's own jupyter-lite.json carries the real config.
+        {
+          echo '<!DOCTYPE html>'
+          echo '<html><head><meta charset="utf-8">'
+          echo '<title>Sparkle HDL</title>'
+          echo '<script id="jupyter-config-data" type="application/json">{}</script>'
+          echo '<style>body{font-family:system-ui,sans-serif;max-width:760px;margin:40px auto;padding:0 16px;line-height:1.55}h1{margin-bottom:.2em}h2{margin-top:1.5em}.lead{color:#555;font-size:1.1em;margin-top:0}a{color:#0366d6;text-decoration:none}a:hover{text-decoration:underline}ul{padding-left:1.2em}li{margin:.3em 0}code{background:#f4f4f4;padding:.1em .3em;border-radius:3px}</style>'
+          echo '</head><body>'
+          echo '<h1>Sparkle HDL</h1>'
+          echo '<p class="lead">A type-safe, formally verifiable HDL compiler in Lean 4. Inspired by Clash, built for high-assurance hardware synthesis.</p>'
+          echo '<h2>Documentation</h2>'
+          echo '<ul>'
+          echo '  <li><a href="tutorial/">Tutorial</a> — chapter-by-chapter walk-through of the Signal DSL, register patterns, Verilog synthesis, formal proofs, and FPGA bring-up.</li>'
+          echo '  <li><a href="lab/">JupyterLite</a> — run the tutorial chapters in your browser (xlean WASM kernel, no install required).</li>'
+          echo '  <li><a href="api/">API reference</a> — generated from source by <code>doc-gen4</code>. Covers <code>Sparkle.Core</code>, every <code>IP.*</code> library, the SVParser toolchain, and the Display helpers.</li>'
+          echo '  <li><a href="https://verilean.github.io/xeus-lean/tutorial/">Lean 4 syntax tutorial</a> — the xeus-lean tutorial: a quick reference for the Lean 4 language itself (syntax, tactics, notation) that Sparkle is written in.</li>'
+          echo '</ul>'
+          echo '<h2>Benchmarks</h2>'
+          echo '<ul>'
+          echo '  <li><a href="dev/rv32-bench/">RV32 SoC — Verilator vs JIT</a></li>'
+          echo '  <li><a href="dev/litex-bench/">LiteX + PicoRV32 — Verilator vs JIT</a></li>'
+          echo '  <li><a href="dev/multicore-bench/">Multi-core (8-core LiteX PicoRV32)</a></li>'
+          echo '</ul>'
+          echo '<h2>Source</h2>'
+          echo '<p><a href="https://github.com/Verilean/sparkle">github.com/Verilean/sparkle</a></p>'
+          echo '</body></html>'
+        } > site/index.html
+
+    # Hand the assembled site to `pages-deploy` below (push-to-main
+    # only).  `upload-pages-artifact@v3` produces the exact format
+    # `deploy-pages@v4` expects (a single `artifact.tar` with the
+    # name `github-pages`), so the deploy job can consume it
+    # without re-packaging.
+    - name: "Doc: upload Pages artifact"
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      uses: actions/upload-pages-artifact@v3
+      with:
+        path: ./site
+
+  # ---- Pages deploy (workflow mode, no gh-pages branch) ----
+  #
+  # Separate job so the `github-pages` environment (which has
+  # branch-protection restricting it to main) is only evaluated
+  # when we actually intend to deploy.  PRs skip the whole job
+  # via the `if:` guard below, so environment-rule rejection
+  # never happens on PR runs.
+  pages-deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    needs: tutorial-notebooks
+
+    permissions:
+      pages: write
+      id-token: write
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+    - name: "Deploy to GitHub Pages"
+      id: deployment
+      uses: actions/deploy-pages@v4

@@ -1,5 +1,9 @@
 # Sparkle Tutorial — LTL (Temporal Logic)
 
+> **⚠ Deprecated.**  Replaced by Chapter 6 of the new beginner
+> course: [`docs/tutorial/md/Ch06_LTL.md`](tutorial/md/Ch06_LTL.md).
+> Kept here for one CHANGELOG cycle.
+
 A walkthrough of **temporal-logic verification** in Sparkle:
 how to state ∀N-quantified properties as Lean theorems, prove them
 from per-cycle recurrences, and use them to localize runtime bugs
@@ -36,7 +40,7 @@ predicate, so:
 applied to the cycle-index argument of `.val`.
 
 This is what made the BitNet bug-localization investigation
-possible — see `docs/BitNet_LTL_Investigation.md` for a worked
+possible — see `docs/ip-catalog/BitNet_LTL_Investigation.md` for a worked
 case study.
 
 ---
@@ -296,7 +300,7 @@ flowchart LR
 
 This was used to localize the BitNet "out = input" symptom from
 commit `9d0704e`. The full investigation (and the lessons learned)
-are in `docs/BitNet_LTL_Investigation.md`. **Outcome**: all 4
+are in `docs/ip-catalog/BitNet_LTL_Investigation.md`. **Outcome**: all 4
 premises HOLD in the runtime once the relevant wires are
 exposed via `SoCOutput.wireNames`. The original symptom was a
 probe-side observation artifact, not a Sparkle bug.
@@ -362,10 +366,10 @@ below is reusable infrastructure.
     sw→lw framework (production analog of Step 6).
   - `IP/RV32/Verification/LinuxBootRegression.lean` — 28
     concrete-vector regression-pinning theorems for Linux boot.
-  - `docs/BitNet_LTL_Investigation.md` — full debugging postmortem
+  - `docs/ip-catalog/BitNet_LTL_Investigation.md` — full debugging postmortem
     where the LTL framework was applied to a real symptom.
-  - `docs/RV32_Architecture_Status.md` §2.2 — broader catalog of
+  - `docs/architecture/RV32_Architecture_Status.md` §2.2 — broader catalog of
     sequential invariants A-E and the multi-cycle composites.
-  - `docs/Verification_Framework.md` — the layer above this
+  - `docs/reference/Verification_Framework.md` — the layer above this
     tutorial: how Sparkle composes formal verification primitives
     (oracle reduction, bv_decide, simp normalization).

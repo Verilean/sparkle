@@ -1,8 +1,32 @@
 # Sparkle Tutorial
 
+> **⚠ Deprecated.**  This single-file tutorial has been replaced by
+> the multi-chapter beginner course in
+> [`docs/tutorial/md/`](tutorial/md/).  Each chapter is plain
+> Markdown that renders directly on GitHub; running
+> `bash docs/tutorial/build-from-md.sh` regenerates Jupyter
+> notebooks and Lake-build-checked `.lean` source.
+>
+> - Setup: [`Ch00_Setup.md`](tutorial/md/Ch00_Setup.md)
+> - Combinational circuits: [`Ch02_Combinational.md`](tutorial/md/Ch02_Combinational.md)
+> - Sequential circuits: [`Ch03_Sequential.md`](tutorial/md/Ch03_Sequential.md)
+> - Modules: [`Ch04_Modules.md`](tutorial/md/Ch04_Modules.md)
+> - Verilog generation: [`Ch05_Verilog.md`](tutorial/md/Ch05_Verilog.md)
+>
+> This file is kept for one CHANGELOG cycle so existing links
+> don't 404.  Please update any references to point to the new
+> chapters.
+
 A step-by-step guide from "Hello World" to formal verification.
 
 ## Prerequisites
+
+A **glibc ≥ 2.34** Linux (Ubuntu 22.04+, Debian 12+, Fedora 35+),
+macOS, or WSL2.  On older systems (Ubuntu 20.04 / glibc 2.31)
+`lake build` aborts with `cadical: … version 'GLIBC_2.34' not
+found` — `cadical` (the SAT solver in the Lean 4.28 toolchain,
+used by `bv_decide` / `omega`) needs glibc 2.34.  It's a
+Lean-toolchain requirement; upgrade the OS or use Docker.
 
 ```bash
 git clone https://github.com/Verilean/sparkle
@@ -86,12 +110,12 @@ For the full walkthrough (anonymous tuple → let-named tuple →
 record + bundleAll! → record + `Name.mk`, with the trade-offs
 of each pattern), see [`docs/Tutorial_Extended.md`](Tutorial_Extended.md).
 
-### Imperative-style hardware: `Signal.circuit do`
+### Imperative-style hardware: `circuit do`
 
 The `Signal.loop` + `Signal.register` + `bundleAll!` pattern works
 for any module, but for a multi-register pipeline it's verbose.
-Sparkle ships a `Signal.circuit do` macro that lets you write the
-same hardware imperatively:
+Sparkle ships a `circuit do` macro that lets you write the same
+hardware imperatively:
 
   - `let x ← Signal.reg init` — declare a registered signal
   - `x <~ rhs` — set `x`'s next-state value
@@ -102,7 +126,7 @@ The simple counter from Step 1 written this way:
 
 ```lean
 def counter8' {dom : DomainConfig} : Signal dom (BitVec 8) :=
-  Signal.circuit do
+  circuit do
     let count ← Signal.reg 0#8;
     count <~ count + 1#8;
     return count
@@ -115,7 +139,7 @@ assignments:
 ```lean
 def shiftPipeline {dom : DomainConfig}
     (input : Signal dom (BitVec 8)) : Signal dom (BitVec 8) :=
-  Signal.circuit do
+  circuit do
     let s0 ← Signal.reg 0#8;
     let s1 ← Signal.reg 0#8;
     let s2 ← Signal.reg 0#8;
@@ -125,14 +149,15 @@ def shiftPipeline {dom : DomainConfig}
     return s2
 ```
 
-The macro desugars to `Signal.loop` + `Signal.register` + a
-`bundleAll!` over the next-state expressions. Synthesis output,
-JIT codegen, and `Signal.atTime` evaluation are identical to the
+The macro lowers to `Sparkle.Core.runCircuitH` over an HList of
+initial values and a `Signal.loop`/`Signal.register` body, all
+through the v2 `Circuit` monad.  Synthesis output, JIT codegen,
+and `Signal.atTime` evaluation are identical to the
 hand-written version.
 
 When **NOT** to use it: when you also need to return multiple
 named outputs, `Name.mk` (above) plus `Signal.loop` is more
-flexible. `Signal.circuit do` returns a single Signal.
+flexible. `circuit do` returns a single Signal.
 
 Runnable examples (counter / up-down / shift / enabled): see
 [`tutorial-extended/TutorialExtended/Step8_CircuitDoNotation.lean`](../tutorial-extended/TutorialExtended/Step8_CircuitDoNotation.lean).
@@ -404,7 +429,7 @@ For pure `BitVec` functions — the kind you'd write for an ALU slice, a
 carry-save adder, a bit-permutation network — Sparkle ships a single
 command that auto-generates a `funext + unfold + bv_decide` proof:
 
-<!-- no-compile: `#verify_eq` invokes `bv_decide`, which hangs inside `lake build` on Lean 4.28 (see docs/KnownIssues.md Issue 2). Run interactively. -->
+<!-- no-compile: `#verify_eq` invokes `bv_decide`, which hangs inside `lake build` on Lean 4.28 (see docs/known-issues/KnownIssues.md Issue 2). Run interactively. -->
 ```lean
 import Sparkle.Verification.Equivalence
 
@@ -434,7 +459,7 @@ lake env lean Tests/Verification/EquivDemo.lean
 ```
 
 **⚠  Interactive-only in v1.** `bv_decide` currently hangs inside
-`lake build` on Lean 4.28.0-rc1 (see `docs/KnownIssues.md` Issue 2).
+`lake build` on Lean 4.28.0-rc1 (see `docs/known-issues/KnownIssues.md` Issue 2).
 The `#verify_eq` / `#verify_eq_at` commands themselves are pure
 elaborators and are always safe to `import` / `lake build`; only files
 that *call* those commands should stay out of the default build target.
@@ -723,7 +748,7 @@ and can be improved.
 
 - **Single connection per pair**: the underlying `JIT.runCDC` transfers
   one output→input pair. Multi-connection support is tracked in
-  `docs/KnownIssues.md` Issue 3.1.
+  `docs/known-issues/KnownIssues.md` Issue 3.1.
 - **Two endpoints max**: three or more domains is not yet supported
   (Issue 3.2).
 
@@ -881,7 +906,7 @@ run at setup time, and look at what remains. If the residual body is
 `Signal.mux`, `Signal.loop`, and arithmetic / bitwise operators on
 `Signal`, you're fine. If you see `Id.run`, `let mut`, `for`, `match
 on non-Signal enum`, or pure-Lean `if` inspecting signal values,
-consult `docs/KnownIssues.md` "Non-synthesizable Signal DSL patterns"
+consult `docs/known-issues/KnownIssues.md` "Non-synthesizable Signal DSL patterns"
 for the exact symptom and workaround.
 
 ### Confirmed synthesizable constructs
@@ -952,10 +977,10 @@ definition transitively called from one of those.
 |-------|-------|
 | **Module composition + named record I/O** | `docs/Tutorial_Extended.md` |
 | **LTL temporal-logic verification** | `docs/Tutorial_LTL.md` |
-| **Signal DSL syntax** | `docs/SignalDSL_Syntax.md` |
-| **Verification patterns** | `docs/Verification_Framework.md` |
+| **Signal DSL syntax** | `docs/reference/SignalDSL_Syntax.md` |
+| **Verification patterns** | `docs/reference/Verification_Framework.md` |
 | **IP catalog** (RV32I CPU, AXI4-Lite, H.264, BitNet) | `README.md` |
-| **Benchmark** (Sparkle JIT vs Verilator) | `docs/BENCHMARK.md` |
+| **Benchmark** (Sparkle JIT vs Verilator) | `docs/known-issues/BENCHMARK.md` |
 | **Reverse synthesis** (proof-driven FSM optimization) | `Sparkle/Core/OracleSpec.lean` |
 
 The Extended Tutorial is the recommended next read. It picks up

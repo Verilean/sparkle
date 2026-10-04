@@ -33,13 +33,13 @@ private def hex8 (v : Nat) : String :=
   String.ofList (List.replicate (2 - s.length) '0') ++ s
 
 def main (args : List String) : IO UInt32 := do
-  let cppPath := args[0]? |>.getD "verilator/generated_soc_jit.cpp"
+  let cppPath := args[0]? |>.getD "verilator/generated_soc_jit.c"
   let maxCycles := (args[1]? >>= String.toNat?).getD 10000
   IO.println s!"Loading {cppPath}..."
   let h ← JIT.compileAndLoad cppPath
 
   -- Probe wires for FFN datapath internals.
-  -- NOTE: `_gen_next` (residual sum) is INLINED by Sparkle.Backend.CppSim
+  -- NOTE: `_gen_next` (residual sum) is INLINED by Sparkle.Backend.CSim
   -- in the JIT C++ output, so it cannot be probed directly.
   -- Instead we probe `_gen_sum` (the 33-bit pre-saturate addition)
   -- and reconstruct the saturating result here.

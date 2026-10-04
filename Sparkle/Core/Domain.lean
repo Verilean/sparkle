@@ -1,3 +1,5 @@
+import Sparkle.IR.Type
+
 /-!
 # Domain Module
 
@@ -59,7 +61,18 @@ def slow : Signal Domain50MHz (BitVec 8) := ...
 See also: `Sparkle.Core.Signal` for signal operations.
 -/
 
+/-- `ResetKind` is defined in `Sparkle.IR.Type` so the IR layer
+    can reference it without importing `Core/Domain.lean`.  We
+    alias it as `Sparkle.Core.Domain.ResetKind` for back-compat
+    with user code that already qualifies it that way. -/
+abbrev Sparkle.Core.Domain.ResetKind : Type := Sparkle.IR.Type.ResetKind
+
 namespace Sparkle.Core.Domain
+
+@[inherit_doc Sparkle.IR.Type.ResetKind.synchronous]
+abbrev ResetKind.synchronous  : ResetKind := Sparkle.IR.Type.ResetKind.synchronous
+@[inherit_doc Sparkle.IR.Type.ResetKind.asynchronous]
+abbrev ResetKind.asynchronous : ResetKind := Sparkle.IR.Type.ResetKind.asynchronous
 
 /-- Active edge of a clock signal -/
 inductive ActiveEdge where
@@ -67,11 +80,8 @@ inductive ActiveEdge where
   | falling : ActiveEdge  -- Trigger on falling edge (1 -> 0)
   deriving Repr, BEq, DecidableEq
 
-/-- Reset kind: synchronous or asynchronous -/
-inductive ResetKind where
-  | synchronous  : ResetKind  -- Reset is synchronized with clock
-  | asynchronous : ResetKind  -- Reset is asynchronous (immediate)
-  deriving Repr, BEq, DecidableEq
+-- (`ResetKind` is now defined in `Sparkle.IR.Type` and re-exported
+-- above so the IR layer doesn't need to depend on `Core/Domain`.)
 
 /--
   Domain configuration specifying timing and reset behavior.

@@ -64,8 +64,10 @@ namespace Sparkle.Core.Signal
 open Sparkle.Core.Domain
 
 -- Cache reader: reads arr[t] from an IORef, with the entire read in C.
--- Prevents Lean 4.28's LICM from hoisting `unsafeIO cacheRef.get` out of
--- lambdas by making the read genuinely depend on `t` (opaque + @[extern]).
+-- Prevents LICM from hoisting `unsafeIO cacheRef.get` out of lambdas by
+-- making the read genuinely depend on `t` (opaque + @[extern]).
+-- First observed on Lean 4.28.  The barrier is retained across the v4.32.1
+-- bump; whether the compiler still needs it has not been re-tested.
 @[extern "sparkle_cache_get"]
 private opaque cacheGet {α : Type} [Nonempty α] (ref : @& IO.Ref (Array α)) (t : @& Nat) (fallback : α) : α
 
@@ -141,16 +143,16 @@ def register (init : α) (input : Signal dom α) : Signal dom α :=
 
   When enable is true: register updates normally
   When enable is false: register holds its current value
+
+  At time 0: outputs the initial value.
+  At time n + 1: captures input[n] if enabled, otherwise retains output[n].
 -/
 def registerWithEnable (init : α) (en : Signal dom Bool) (input : Signal dom α) : Signal dom α :=
-  let rec go (t : Nat) (prev : α) : α :=
-    match t with
+  let rec go : Nat → α
     | 0 => init
     | n + 1 =>
-      if en.val n then input.val n else prev
-  ⟨fun t => match t with
-    | 0 => init
-    | n + 1 => if en.val n then input.val n else go n init⟩
+      if en.val n then input.val n else go n
+  ⟨go⟩
 
 /-- Helper to create a signal from a stream -/
 def fromStream (s : Stream α) : Signal dom α := ⟨s⟩
@@ -693,6 +695,47 @@ opaque memoryWithInit {addrWidth dataWidth : Nat}
 -- Uses memoized evaluation via C FFI barriers (cacheGet/evalSignalAt)
 -- to prevent stack overflow during simulation. The pure `Signal dom α`
 -- signature is preserved via `unsafeIO` in the returned signal.
+--
+-- ─── Sim-speed caveat (`BitVec n` for n > 64) ─────────────────────
+-- Lean 4.28 stored `BitVec n` as a Nat under the hood, so every
+-- `>>>`, `<<<`, `&&&`, `^^^`, `==` allocates a fresh Nat object
+-- and goes through GMP-style multi-precision arithmetic.  For
+-- `BitVec 128` this costs ~1ms per primitive op, and a typical
+-- HW engine cycle invokes ~20 ops, giving ~20ms per cycle for
+-- 128-bit-wide designs.  Concretely:
+--
+--   * 32-bit-wide SHA-256 HW engine (19 reg + 64-way kMux + 512-bit
+--     wBuf, run for 70 cycles) — 3.8 s total.  Fast.
+--   * 128-bit GHASH gmulHW (single Signal.loop, 5 regs) —
+--     ~0ms/cycle up to t≈500 (cache pre-warmed), then ~360ms/cycle
+--     for fresh fills.
+--   * 128-bit ghashFullHW (nested gmulHW inside an outer FSM) —
+--     ~60 s for a single `result.val 131` sample (one block × 130
+--     inner cycles).
+--
+-- This is a Lean Nat representation cost, not a Sparkle DSL bug,
+-- and does NOT affect production paths:
+--   * `#synthesizeVerilog` (the synth elaborator) does NOT execute
+--     any of this code at all — it walks IR types.
+--   * `#verify_fpga` / `#verify_cost` likewise stay in IR-space.
+--   * Pure-data crypto references (e.g. SHA256, AES, GHASH.gmul)
+--     loop over BitVec at the data level, not the Signal level —
+--     they're fine because they use plain Nat ops without the
+--     extra Signal-Layer overhead.
+--
+-- If sim speed for wide-BitVec HW becomes a problem in practice,
+-- options (none yet attempted):
+--   (a) Add `@[extern]` C primitives for BitVec128 shift/xor/eq
+--       and let `Signal.map (· ^^^ ·)` inline through them.
+--   (b) Represent `Signal dom (BitVec n)` for n ≤ 128 internally
+--       as `Signal dom (UInt64 × UInt64)` with explicit conversion
+--       at observe time.
+--   (c) Use Verilog/iverilog through `#writeVerilogDesign` for
+--       cycle-accurate sim of large designs (already supported).
+-- Sticking with (c) by default — Sparkle's HW DSL value is in
+-- synthesis + formal verify, not native-Lean cycle-by-cycle sim
+-- for huge designs.
+-- ──────────────────────────────────────────────────────────────────
 private unsafe def loopImpl {dom : DomainConfig} {α : Type} [Inhabited α]
     (f : Signal dom α → Signal dom α) : Signal dom α :=
   match unsafeIO (loopMemoCore f) with
@@ -707,9 +750,43 @@ where
     -- genuinely depends on t. Without this, LICM hoists unsafeIO cacheRef.get
     -- out of the lambda, caching a stale empty array forever.
     let result : Signal dom α := ⟨fun t => cacheGet cacheRef t default⟩
+    -- Memoize the body output (`f result`) internally so that any
+    -- duplicated subtrees in the body (typically the `bundle2 /
+    -- Signal.map Prod.fst / Signal.map Prod.snd` chain produced by
+    -- runCircuitH for N register slots) evaluate each underlying
+    -- signal at most once per cycle, instead of O(2^N) times.
+    --
+    -- Previously this O(2^N) blow-up was patched in CircuitMonad
+    -- via explicit `Signal.memoize live` / `Signal.memoize (b' liveCached)`
+    -- wraps (Compiler C2 fix).  Folding that wrap into `loop`'s
+    -- own implementation keeps the runtime benefit while removing
+    -- the `Signal.memoize` term from the user-visible expression
+    -- tree — the synth elaborator no longer has to special-case
+    -- memoize wrappers, and FSM-shaped circuits that nest Signal.loop
+    -- (memcachedServer + kvHw) no longer trigger the inline-and-
+    -- translate cycle that the explicit memoize chain caused.
+    let innerCacheRef ← IO.mkRef (#[] : Array α)
+    let innerSizeRef ← IO.mkRef (0 : Nat)
     let inner := f result
+    let innerMemo : Signal dom α := ⟨fun t =>
+      match unsafeIO (do
+        let sz ← innerSizeRef.get
+        if t < sz then
+          let arr ← innerCacheRef.get
+          return if h : t < arr.size then arr[t] else default
+        else
+          for i in [sz:t + 1] do
+            let v ← evalSignalAt inner.val i
+            let arr ← innerCacheRef.swap #[]
+            innerCacheRef.set (arr.push v)
+          innerSizeRef.set (t + 1)
+          let arr ← innerCacheRef.get
+          return if h : t < arr.size then arr[t] else default) with
+      | .ok v => v
+      | .error _ => default⟩
     -- evalAt: populate cache sequentially up to t, return value at t.
-    -- Each inner.val i reads result.val (i-1) which is a cache hit (already pushed).
+    -- Each innerMemo.val i reads result.val (i-1) which is a cache hit
+    -- (already pushed).
     let evalAt (t : Nat) : IO α := do
       let sz ← cacheSizeRef.get
       if t < sz then
@@ -718,9 +795,9 @@ where
       else
         for i in [sz:t + 1] do
           -- evalSignalAt forces evaluation BEFORE the swap.
-          -- Without it, the compiler reorders `inner.val i` (pure) after
+          -- Without it, the compiler reorders `innerMemo.val i` (pure) after
           -- `cacheRef.swap #[]` (IO), emptying the cache during evaluation.
-          let v ← evalSignalAt inner.val i
+          let v ← evalSignalAt innerMemo.val i
           -- swap out (rc=1), push in-place, set back
           let arr ← cacheRef.swap #[]
           cacheRef.set (arr.push v)
@@ -732,15 +809,97 @@ where
       | .ok v => v
       | .error _ => default⟩
 
+/-- The pure fixpoint value of a feedback loop, computed by strong
+    recursion on the time index.
+
+    To compute the value at time `t`, we apply the loop body `f` to a
+    signal that recursively supplies the already-computed values for
+    every earlier cycle `i < t` and `default` at `t` and beyond.  For a
+    *strictly causal* `f` (every feedback path runs through a
+    `Signal.register`, so the output at `t` reads only inputs strictly
+    before `t`), the `default` placeholder at `≥ t` is never observed,
+    so this is exactly the loop's fixpoint — see `loop_unfold` in
+    `Sparkle/Verification/LoopProps.lean`, now a *theorem* rather than
+    an axiom.
+
+    The `if i < t` guard makes the recursion well-founded (`t`
+    strictly decreases), so this is a total, axiom-free definition.
+
+    Runtime note: this naive form recomputes the `< t` prefix on every
+    cycle (O(t) work per cycle → O(n²) for an n-cycle sim).  The
+    `@[implemented_by loopImpl]` on `loop` below swaps in the
+    memoizing `loopImpl` for *execution*, keeping O(n); the pure
+    `loopGo`/`loop` definitions are what the kernel and the proofs
+    see. -/
+def loopGo {dom : DomainConfig} {α : Type} [Inhabited α]
+    (f : Signal dom α → Signal dom α) (t : Nat) : α :=
+  (f ⟨fun i => if i < t then loopGo f i else default⟩).val t
+termination_by t
+
+/-- Fixed-point combinator for feedback loops.
+
+    Logically this is the pure `loopGo` fixpoint (no axiom, no
+    `opaque`, no `unsafe`).  For *execution* it is compiled to the
+    memoizing `loopImpl` via `@[implemented_by]`, which keeps
+    cycle-by-cycle simulation at O(n) instead of the O(n²) the naive
+    `loopGo` would cost. -/
 @[implemented_by loopImpl]
-opaque loop {dom : DomainConfig} {α : Type} [Inhabited α] (f : Signal dom α → Signal dom α) : Signal dom α
+def loop {dom : DomainConfig} {α : Type} [Inhabited α]
+    (f : Signal dom α → Signal dom α) : Signal dom α :=
+  ⟨loopGo f⟩
+
+/-- `loopGo`'s defining equation, exposed for proofs. -/
+theorem loopGo_eq {dom : DomainConfig} {α : Type} [Inhabited α]
+    (f : Signal dom α → Signal dom α) (t : Nat) :
+    loopGo f t = (f ⟨fun i => if i < t then loopGo f i else default⟩).val t := by
+  rw [loopGo]
+
+/-- Memoize an existing Signal so each `.val t` is computed
+    at most once.  Same C-FFI cache trick as `loop`, but for
+    a plain (non-fixpoint) Signal.  Used by `runCircuitH` to
+    break the O(2^N) blow-up that happens when the per-cycle
+    next-state Signal references `live` N times via deeply
+    nested `bundle2` / `Signal.map` chains.
+
+    Functionally identical to its argument; only the
+    evaluation cost differs (cached after first hit per `t`). -/
+private unsafe def memoizeImpl {dom : DomainConfig} {α : Type} [Inhabited α]
+    (s : Signal dom α) : Signal dom α :=
+  match unsafeIO (memoizeCore s) with
+  | .ok sig => sig
+  | .error _ => default
+where
+  memoizeCore (s : Signal dom α) : IO (Signal dom α) := do
+    let cacheRef ← IO.mkRef (#[] : Array α)
+    let cacheSizeRef ← IO.mkRef (0 : Nat)
+    let evalAt (t : Nat) : IO α := do
+      let sz ← cacheSizeRef.get
+      if t < sz then
+        let arr ← cacheRef.get
+        return if h : t < arr.size then arr[t] else default
+      else
+        for i in [sz:t + 1] do
+          let v ← evalSignalAt s.val i
+          let arr ← cacheRef.swap #[]
+          cacheRef.set (arr.push v)
+        cacheSizeRef.set (t + 1)
+        let arr ← cacheRef.get
+        return if h : t < arr.size then arr[t] else default
+    return ⟨fun t =>
+      match unsafeIO (evalAt t) with
+      | .ok v => v
+      | .error _ => default⟩
+
+@[implemented_by memoizeImpl]
+opaque memoize {dom : DomainConfig} {α : Type} [Inhabited α]
+    (s : Signal dom α) : Signal dom α
 
 /--
   Memoized fixed-point combinator for feedback loops (IO variant).
 
   Identical semantics to `loop`, but returns `IO` explicitly.
   Kept for backward compatibility with existing simulation code.
-  New code should prefer `Signal.loop` directly (or `Signal.circuit`).
+  New code should prefer `Signal.loop` directly (or `circuit do`).
 -/
 private unsafe def loopMemoImpl {dom : DomainConfig} {α : Type} [Inhabited α]
     (f : Signal dom α → Signal dom α) : IO (Signal dom α) :=
@@ -987,148 +1146,6 @@ macro "hw_let" "(" a:ident "," b:ident "," c:ident "," d:ident ")" " := " e:term
     let $c := Signal.fst (Signal.snd (Signal.snd _hw_tmp));
     let $d := Signal.snd (Signal.snd (Signal.snd _hw_tmp));
     $body)
-
--- ============================================================================
--- Signal.circuit: Imperative Register Assignment DSL
--- ============================================================================
-
-/--
-  Imperative-style hardware description with `<~` register assignment.
-
-  `Signal.circuit` desugars to `Signal.loop` + `Signal.register` + `bundleAll!`.
-  Registers are declared with `Signal.reg`, assigned with `<~`, and the
-  block returns a Signal expression.
-
-  **Simple counter:**
-  ```lean
-  def counter {dom : DomainConfig} : Signal dom (BitVec 8) :=
-    Signal.circuit (dom := dom) do
-      let count ← Signal.reg 0#8
-      count <~ count + 1#8
-      return count
-  ```
-
-  **State machine with multiple registers:**
-  ```lean
-  def upDown {dom : DomainConfig} (up : Signal dom Bool) : Signal dom (BitVec 8) :=
-    Signal.circuit (dom := dom) do
-      let count ← Signal.reg 0#8
-      count <~ Signal.mux up (count + 1#8) (count - 1#8)
-      return count
-  ```
-
-  **Desugaring:** The macro collects all `let x ← Signal.reg init` declarations
-  and `x <~ expr` assignments, then rewrites into:
-  ```lean
-  Signal.loop fun _state =>
-    let x := projN! _state N 0    -- unpack register outputs
-    let y := projN! _state N 1
-    ...
-    let xNext := <rhs of x <~>   -- compute next values
-    let yNext := <rhs of y <~>
-    ...
-    -- remaining let bindings and body
-    let _ := <return expr>        -- body is for type, output taken from loop
-    bundleAll! [Signal.register init0 xNext, Signal.register init1 yNext, ...]
-  ```
--/
-
--- Syntax for the circuit block
-declare_syntax_cat circuitStmt
-syntax "let " ident " ← " "Signal.reg " term ";" : circuitStmt    -- register declaration
-syntax ident " <~ " term ";" : circuitStmt                          -- register assignment
-syntax "let " ident " := " term ";" : circuitStmt                   -- local let binding
-syntax "return " term : circuitStmt                                  -- return expression (last, no semicolon)
-
-syntax "Signal.circuit" "do" ppLine circuitStmt* : term
-
-open Lean in
-open Lean.Macro in
-macro_rules
-  | `(Signal.circuit do $stmts*) => do
-    -- Phase 1: Collect register declarations (name, init)
-    let mut regs : Array (TSyntax `ident × TSyntax `term) := #[]
-    -- Phase 2: Collect assignments (name, rhs)
-    let mut assigns : Array (TSyntax `ident × TSyntax `term) := #[]
-    -- Phase 3: Collect let bindings (name, rhs)
-    let mut lets : Array (TSyntax `ident × TSyntax `term) := #[]
-    -- Phase 4: Return expression
-    let mut retExpr : Option (TSyntax `term) := none
-
-    for stmt in stmts do
-      match stmt with
-      | `(circuitStmt| let $name ← Signal.reg $init ;) =>
-        regs := regs.push (name, init)
-      | `(circuitStmt| $name:ident <~ $rhs ;) =>
-        assigns := assigns.push (name, rhs)
-      | `(circuitStmt| let $name := $rhs ;) =>
-        lets := lets.push (name, rhs)
-      | `(circuitStmt| return $e) =>
-        retExpr := some e
-      | _ => Macro.throwUnsupported
-
-    if regs.isEmpty then
-      Macro.throwError "Signal.circuit: no registers declared (use `let x ← Signal.reg init`)"
-
-    let ret ← match retExpr with
-      | some e => pure e
-      | none => Macro.throwError "Signal.circuit: missing `return` expression"
-
-    let n := regs.size
-
-    -- Build the loop body tail: bundleAll! [Signal.register init0 next0, ...]
-    let mut regTerms : Array (TSyntax `term) := #[]
-    for (regName, init) in regs do
-      let mut found := false
-      for (aName, aRhs) in assigns do
-        if aName.getId == regName.getId then
-          regTerms := regTerms.push (← `(Signal.register $init $aRhs))
-          found := true
-          break
-      if !found then
-        -- No assignment: register holds its value (feedback to self)
-        regTerms := regTerms.push (← `(Signal.register $init $regName))
-    let bundled ←
-      if regTerms.size == 1 then
-        pure regTerms[0]!
-      else if regTerms.size == 2 then
-        `(bundle2 $(regTerms[0]!) $(regTerms[1]!))
-      else
-        `(bundleAll! [$regTerms,*])
-    let mut body := bundled
-
-    -- Prepend let bindings (in reverse order to nest)
-    for i in [:lets.size] do
-      let (name, rhs) := lets[lets.size - 1 - i]!
-      body ← `(let $name := $rhs; $body)
-
-    -- Prepend register projections from state tuple
-    for i in [:n] do
-      let (regName, _) := regs[n - 1 - i]!
-      let idx := Syntax.mkNumLit (toString (n - 1 - i))
-      let total := Syntax.mkNumLit (toString n)
-      body ← `(let $regName := projN! _circuit_state $total $idx; $body)
-
-    -- Wrap in Signal.loop
-    let loopExpr ← `(Signal.loop fun _circuit_state => $body)
-
-    -- After the loop, project registers and evaluate the return expression
-    let mut result ← pure ret
-
-    -- Prepend let bindings for the return context
-    for i in [:lets.size] do
-      let (name, rhs) := lets[lets.size - 1 - i]!
-      result ← `(let $name := $rhs; $result)
-
-    -- Project registers from loop output
-    for i in [:n] do
-      let (regName, _) := regs[n - 1 - i]!
-      let idx := Syntax.mkNumLit (toString (n - 1 - i))
-      let total := Syntax.mkNumLit (toString n)
-      result ← `(let $regName := projN! _circuit_result $total $idx; $result)
-
-    `(let _circuit_result := $loopExpr; $result)
-
 
 -- namespace BitVec
 

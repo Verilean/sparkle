@@ -6,13 +6,13 @@
 -/
 
 import Tools.SVParser
-import Sparkle.Backend.CppSim
+import Sparkle.Backend.CSim
 import Sparkle.Core.JIT
 import LSpec
 
 open Tools.SVParser.Parser
 open Tools.SVParser.Lower
-open Sparkle.Backend.CppSim
+open Sparkle.Backend.CSim
 open Sparkle.Core.JIT
 open LSpec
 
@@ -67,9 +67,9 @@ endmodule
 def test_counter_jit : IO TestSeq := do
   try
     let design ← IO.ofExcept (parseAndLower counterVerilog)
-    let jitCpp := toCppSimJIT design
-    IO.FS.writeFile "/tmp/sparkle_test_counter_jit.cpp" jitCpp
-    let handle ← JIT.compileAndLoad "/tmp/sparkle_test_counter_jit.cpp"
+    let jitCpp := toCJIT design
+    IO.FS.writeFile "/tmp/sparkle_test_counter_jit.c" jitCpp
+    let handle ← JIT.compileAndLoad "/tmp/sparkle_test_counter_jit.c"
     JIT.reset handle
     -- rst is input port 0 (clk is filtered); deassert reset
     JIT.setInput handle 0 0
@@ -84,9 +84,9 @@ def test_counter_jit : IO TestSeq := do
 def test_memory_roundtrip : IO TestSeq := do
   try
     let design ← IO.ofExcept (parseAndLower memoryVerilog)
-    let jitCpp := toCppSimJIT design
-    IO.FS.writeFile "/tmp/sparkle_test_memory_jit.cpp" jitCpp
-    let handle ← JIT.compileAndLoad "/tmp/sparkle_test_memory_jit.cpp"
+    let jitCpp := toCJIT design
+    IO.FS.writeFile "/tmp/sparkle_test_memory_jit.c" jitCpp
+    let handle ← JIT.compileAndLoad "/tmp/sparkle_test_memory_jit.c"
     JIT.reset handle
 
     -- Write 0xDEADBEEF to address 5
@@ -114,9 +114,9 @@ def test_memory_roundtrip : IO TestSeq := do
 def test_memory_multi_addr : IO TestSeq := do
   try
     let design ← IO.ofExcept (parseAndLower memoryVerilog)
-    let jitCpp := toCppSimJIT design
-    IO.FS.writeFile "/tmp/sparkle_test_memory2_jit.cpp" jitCpp
-    let handle ← JIT.compileAndLoad "/tmp/sparkle_test_memory2_jit.cpp"
+    let jitCpp := toCJIT design
+    IO.FS.writeFile "/tmp/sparkle_test_memory2_jit.c" jitCpp
+    let handle ← JIT.compileAndLoad "/tmp/sparkle_test_memory2_jit.c"
     JIT.reset handle
 
     -- Write to 3 addresses
