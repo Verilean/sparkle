@@ -3273,18 +3273,41 @@ def userProjection? (env : Environment) (n : Name) : Option (Name × Nat × Nat)
 def inlineDepth : Nat := 4096
 def inlineBudget : Nat := 200000
 
+/-- A user type alias (`abbrev S : Type := …`, no universe parameters): its value. Type aliases
+    such as `abbrev S := Signal defaultDomain (BitVec 4)` in binder types are
+    what the gates' binder reading needs unfolded. -/
+def userAbbrev? (env : Environment) (n : Name) : Option Lean.Expr :=
+  match env.find? n with
+  | some (.defnInfo d) =>
+    -- type aliases only: a reducible constant whose type is a sort (not an
+    -- instance, not a function)
+    if inlUserModule env n && d.levelParams.isEmpty && d.type.isSort &&
+        Lean.getReducibilityStatusCore env n == .reducible &&
+        !Lean.Meta.isInstanceCore env n && !d.value.hasLooseBVars
+    then some d.value else none
+  | _ => none
+
+/-- Every user `abbrev` replaced by its value (delta-beta), `n` rounds. -/
+def inlAbbrevs (env : Environment) : Nat → Lean.Expr → Lean.Expr
+  | 0, e => e
+  | n + 1, e =>
+    let e' := e.replace fun x => match x with
+      | .const c [] => userAbbrev? env c
+      | _ => none
+    if e' == e then e else inlAbbrevs env n e'.headBeta
+
 /-- The run's unfolding: user definitions and structure projections of
     `env`, within the budget (the expression itself when the budget is
     exhausted or a refused form is met), then literal `Nat` sums folded. -/
 def userInliner (env : Environment) : Lean.Expr → Lean.Expr := fun e =>
   inlFoldNat
     (match inlineDefs (userDefinition? env) (userProjection? env) inlineDepth e inlineBudget with
-     | some (e', _) => e'
-     | none => e)
+     | some (e', _) => inlAbbrevs env 4 e'
+     | none => inlAbbrevs env 4 e)
 
 /-- A definition with its value rewritten. -/
 def inlinedConst (inl : Lean.Expr → Lean.Expr) : ConstantInfo → ConstantInfo
-  | .defnInfo d => .defnInfo { d with value := inl d.value }
+  | .defnInfo d => .defnInfo { d with value := inl d.value, type := inl d.type }
   | ci => ci
 
 /-! ### State machines: a general `circuit do` on the certified route
@@ -4263,9 +4286,9 @@ def machNormAp (e : Lean.Expr) : Lean.Expr :=
     operators, a concatenation, a slice as a `map` of `extractLsb'`, `not` as
     `allOnes ^^^ ·`, constants as `Signal.pure` of their literal. Returns the
     width and the Signal expression. -/
-partial def machLiftScalar (senv : StructEnv) (dom a : Lean.Expr) (wa : Nat) :
+partial def machLiftScalarN (senv : StructEnv) (dom : Lean.Expr) (vars : List (Nat × Lean.Expr)) :
     Lean.Expr → Option (Nat × Lean.Expr)
-  | .bvar 0 => some (wa, a)
+  | .bvar i => vars[i]?
   | e@(.app (.app (.app (.app (.app (.app (.const m _) t1) t2) t3) inst) x) y) =>
     -- a width written as a computation (`8 + 8`) is read by the kernel
     let bitsW (t : Lean.Expr) : Option Nat := machBits? t <|> (match t with
@@ -4275,16 +4298,16 @@ partial def machLiftScalar (senv : StructEnv) (dom a : Lean.Expr) (wa : Nat) :
       let mw ← bitsW t1
       let nw ← bitsW t2
       unless inst.getAppFn.isConstOf ``BitVec.instHAppendHAddNat do none
-      let (mx, x') ← machLiftScalar senv dom a wa x
-      let (ny, y') ← machLiftScalar senv dom a wa y
+      let (mx, x') ← machLiftScalarN senv dom vars x
+      let (ny, y') ← machLiftScalarN senv dom vars y
       if mx != mw || ny != nw then none else
       some (mw + nw, machConcatE dom mw nw x' y')
     else
     match machSigInst m, bitsW t1 with
     | some si, some w =>
       if bitsW t2 == some w && bitsW t3 == some w && machScalarInst m w inst then do
-        let (wx, x') ← machLiftScalar senv dom a wa x
-        let (wy, y') ← machLiftScalar senv dom a wa y
+        let (wx, x') ← machLiftScalarN senv dom vars x
+        let (wy, y') ← machLiftScalarN senv dom vars y
         if wx != w || wy != w then none else
         some (w, machSigBin m si dom w x' y')
       else machLiftConst senv dom e
@@ -4294,7 +4317,7 @@ partial def machLiftScalar (senv : StructEnv) (dom a : Lean.Expr) (wa : Nat) :
     let st ← canonicalNatLitValue? sE <|> senv.natOf sE
     let l ← canonicalNatLitValue? lE <|> senv.natOf lE
     if !x.hasLooseBVars then machLiftConst senv dom e else
-    let (wx, x') ← machLiftScalar senv dom a wa x
+    let (wx, x') ← machLiftScalarN senv dom vars x
     if wx != n then none else
     let f := Lean.Expr.lam `x (mkApp (.const ``BitVec []) (inlNatLit n))
       (mkApp4 (.const ``BitVec.extractLsb' ls) (inlNatLit n) (inlNatLit st) (inlNatLit l) (.bvar 0))
@@ -4304,7 +4327,14 @@ partial def machLiftScalar (senv : StructEnv) (dom a : Lean.Expr) (wa : Nat) :
   | e@(.app (.app (.const ``BitVec.not _) nE) x) => do
     if !x.hasLooseBVars then machLiftConst senv dom e else
     let n ← canonicalNatLitValue? nE
-    let (wx, x') ← machLiftScalar senv dom a wa x
+    let (wx, x') ← machLiftScalarN senv dom vars x
+    if wx != n then none else
+    some (n, machSigBin ``HXor.hXor ``Sparkle.Core.Signal.instHXorSignalBitVec dom n
+      (machPureE dom n (machBVLit n (2 ^ n - 1))) x')
+  | e@(.app (.app (.app (.const ``Complement.complement _) (.app (.const ``BitVec _) nE)) _) x) => do
+    if !x.hasLooseBVars then machLiftConst senv dom e else
+    let n ← canonicalNatLitValue? nE
+    let (wx, x') ← machLiftScalarN senv dom vars x
     if wx != n then none else
     some (n, machSigBin ``HXor.hXor ``Sparkle.Core.Signal.instHXorSignalBitVec dom n
       (machPureE dom n (machBVLit n (2 ^ n - 1))) x')
@@ -4316,6 +4346,66 @@ where
     match bitVecLitValue? e with
     | some (w, _) => some (w, machPureE dom w e)
     | none => none
+
+/-- `machLiftScalarN` over the one variable of a `map` lambda. -/
+def machLiftScalar (senv : StructEnv) (dom a : Lean.Expr) (wa : Nat) (e : Lean.Expr) :
+    Option (Nat × Lean.Expr) :=
+  machLiftScalarN senv dom [(wa, a)] e
+
+/-- The spine of a lifted application `Signal.ap (… (Signal.ap (Signal.map f
+    a₁) a₂) …) aₙ`: the domain, `f`, and the arguments with their element
+    types, first to last. -/
+def machApSpine : Lean.Expr → List (Lean.Expr × Lean.Expr) →
+    Option (Lean.Expr × Lean.Expr × List (Lean.Expr × Lean.Expr))
+  | .app (.app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.ap _) _) α) _) f) x, acc =>
+    machApSpine f ((α, x) :: acc)
+  | .app (.app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.map _) dom) α) _) f) a, acc =>
+    some (dom, f, (α, a) :: acc)
+  | _, _ => none
+
+/-- The body under `n` lambdas. -/
+def machLamBody : Nat → Lean.Expr → Option Lean.Expr
+  | 0, e => some e
+  | n + 1, .lam _ _ b _ => machLamBody n b
+  | _, _ => none
+
+/-- A lifted function of any arity over `BitVec` Signals,
+    `f <$> a₁ <*> … <*> aₙ`: its body on Signals (`machLiftScalarN`, the
+    variables standing for the arguments). A comparison body becomes the
+    canonical lifted comparison of the two lifted operands. -/
+def machNormApLift (senv : StructEnv) (e : Lean.Expr) : Lean.Expr :=
+  match e with
+  | .app (.app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.ap _) _) _) β) _) _ =>
+    ((do
+      let (dom, f, args) ← machApSpine e []
+      let n := args.length
+      if n < 2 then none else
+      let body ← machLamBody n f
+      let vars ← args.reverse.mapM fun (p : Lean.Expr × Lean.Expr) =>
+        (machBits? p.1).map fun w => (w, p.2)
+      match machBits? β with
+      | some wb =>
+        let (w, r) ← machLiftScalarN senv dom vars body
+        if w == wb then some r else none
+      | none =>
+        if !β.isConstOf ``Bool then none else
+        match body with
+        | .app (.app (.app (.const c lsC) wE) x) y =>
+          if !(c == ``BitVec.ult || c == ``BitVec.ule || c == ``BitVec.slt ||
+              c == ``BitVec.sle) then none else do
+          let w ← canonicalNatLitValue? wE
+          let (wx, x') ← machLiftScalarN senv dom vars x
+          let (wy, y') ← machLiftScalarN senv dom vars y
+          if wx != w || wy != w then none else
+          let bv := mkApp (.const ``BitVec []) (inlNatLit w)
+          -- the canonical binder names of the `<$>`/`<*>` normaliser
+          let fn := Lean.Expr.lam `x1 bv (.lam `x2 bv
+            (mkApp3 (.const c lsC) (inlNatLit w) (.bvar 1) (.bvar 0)) .default) .default
+          let fnT := Lean.Expr.forallE `a bv (.const ``Bool []) .default
+          some (mkApp5 (.const ``Sparkle.Core.Signal.Signal.ap [.zero]) dom bv (.const ``Bool [])
+            (mkApp5 (.const ``Sparkle.Core.Signal.Signal.map [.zero]) dom bv fnT fn x') y')
+        | _ => none) : Option Lean.Expr).getD e
+  | _ => e
 
 /-- A map over a `BitVec` Signal, `Signal.map f a` or `f <$> a`:
     * `fun x => x op c` / `fun x => c op x` with a constant `c`: the operator
@@ -4399,7 +4489,8 @@ def machNormNode (senv : StructEnv) (e : Lean.Expr) : Lean.Expr :=
          (machPureE dom w (machBVLit w (2 ^ w - 1))) a
      | none => e)
   | .app (.app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.ap _) _) _) _) _) _ =>
-    machNormAp e
+    let e' := machNormAp e
+    if e' == e then machNormApLift senv e else e'
   | .app (.app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.map ls) dom) tyA) tyB) f)
       a =>
     machNormMap senv dom tyA tyB f a

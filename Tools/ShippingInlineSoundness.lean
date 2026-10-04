@@ -84,17 +84,19 @@ theorem EntryDefines.of_inline {mctx : Meta.Context}
         userInliner envR v = v' ∧
         certifiedShape? false [] (.defnInfo d) = none ∧
         mixedCertifiedShape? false [] (.defnInfo d) (instancePredicate envR) = none ∧
-        ((certifiedShape? false [] (.defnInfo { d with value := v' })).isSome = true ∨
-          (mixedCertifiedShape? false [] (.defnInfo { d with value := v' })
+        ((certifiedShape? false []
+            (.defnInfo { d with value := v', type := userInliner envR d.type })).isSome = true ∨
+          (mixedCertifiedShape? false []
+            (.defnInfo { d with value := v', type := userInliner envR d.type })
             (instancePredicate envR)).isSome = true)) :
     EntryDefines mctx mref cctx cref declName v' := by
   intro w1 ci w2 w5 envR w6 get henv
   obtain ⟨d, rfl, hv⟩ := env w1 ci w2 get
   obtain ⟨hinl, old, miss, hit⟩ := inline w5 envR w6 henv d hv
   have hc : inlinedConst (userInliner envR) (.defnInfo d) =
-      .defnInfo { d with value := v' } := by
+      .defnInfo { d with value := v', type := userInliner envR d.type } := by
     simp only [inlinedConst, hv, hinl]
-  refine ⟨{ d with value := v' }, ?_, rfl⟩
+  refine ⟨{ d with value := v', type := userInliner envR d.type }, ?_, rfl⟩
   rw [entryConst_inlined old miss (by rw [hc]; exact hit), hc]
 
 /-- **The bundle at the entry constant.** One successful run of the real

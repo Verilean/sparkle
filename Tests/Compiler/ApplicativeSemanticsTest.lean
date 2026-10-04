@@ -2,6 +2,7 @@ import Sparkle.Compiler.Elab
 import Sparkle.IR.Semantics
 import Tools.ApplicativeLowering
 import Tools.ShippingBuilderSoundness
+import Tools.ShippingMachineCommand
 
 /-! Run the SHIPPING compiler, including zero-width cleanup and register
 deduplication. Exhaustive small-width tests exercise source/IR values rather
@@ -70,6 +71,25 @@ run_cmd liftTermElabM do
   check ``permutedFour 4 fun xs => ((permutedFour
     (Signal.pure (BitVec.ofNat 4 xs[0]!)) (Signal.pure (BitVec.ofNat 4 xs[1]!))
     (Signal.pure (BitVec.ofNat 4 xs[2]!)) (Signal.pure (BitVec.ofNat 4 xs[3]!))).val 0).toNat
+
+/-! The lifted functions on the certified route: the front end reads a lifted
+function of any arity as its body on Signals (`machNormApLift`; the type
+alias `S` is unfolded at the entry), so each declaration gets the generated
+source-to-RTL theorem. (`shiftSurface`'s arithmetic shift is not a certified
+operator yet.) -/
+#machine_endpoint reversed
+#machine_endpoint reversedSurface
+#machine_endpoint nestedSurface
+#machine_endpoint constantRight
+#machine_endpoint constantLeft
+#machine_endpoint duplicate
+#machine_endpoint withConstant
+#machine_endpoint nested
+#machine_endpoint complement
+#machine_endpoint concatReverse
+#machine_endpoint orderedLess
+#machine_endpoint rightAssociated
+#machine_endpoint permutedFour
 
 run_cmd do
   if (← get).messages.hasErrors then throwError "applicative regression failed before axiom audit"

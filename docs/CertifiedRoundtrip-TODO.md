@@ -1294,7 +1294,7 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   Phase A — small units, mostly tests (≈43):
   | blocker | # | work |
   |---|---|---|
-  | general lambda under `Signal.map`/`ap` | 14 | wire the proved `ApplicativeLowering.Arguments.correct` into the gate (S–M) |
+  | general lambda under `Signal.map`/`ap` | 14 | DONE 13 (2026-10-04): type aliases unfolded at the entry (`inlAbbrevs`, types too), lifted functions of any arity read as their body on Signals (`machNormApLift`, `machLiftScalarN`, comparisons to the canonical lifted compare); `shiftSurface` waits for ashr. Bonus: the two CDC example counters. Measured 147 → 132, outputs identical but CDC (machine route, checked), 166/166 simulation |
   | register-other (concrete domain, Bool loop register, chain) | 7 | canonical recognisers at `defaultDomain` (reset kind from the domain), Bool loop register, chains (S) |
   | named-constant register inits (`sClosed`) | 6 | fold constant defs to literals before `machInit?` (S) |
   | raw `runCircuitH` surface | 6 | match-destructured handles, `Circuit.read` in the reader (S) |
