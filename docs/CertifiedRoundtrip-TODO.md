@@ -1295,7 +1295,7 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   | blocker | # | work |
   |---|---|---|
   | general lambda under `Signal.map`/`ap` | 14 | DONE 13 (2026-10-04): type aliases unfolded at the entry (`inlAbbrevs`, types too), lifted functions of any arity read as their body on Signals (`machNormApLift`, `machLiftScalarN`, comparisons to the canonical lifted compare); `shiftSurface` waits for ashr. Bonus: the two CDC example counters. Measured 147 → 132, outputs identical but CDC (machine route, checked), 166/166 simulation |
-  | register-other (concrete domain, Bool loop register, chain) | 7 | canonical recognisers at `defaultDomain` (reset kind from the domain), Bool loop register, chains (S) |
+  | register-other (concrete domain, Bool loop register, chain) | 7 | DONE 4 (2026-10-05): a `Signal.loop` as the WHOLE value is read as `let s := loop; s` (`machLoopAsLet`, generator too) — the loop counters and the Bool toggle loop; 126 → 122, interfaces identical, 176/176 simulation. Left: a bare `Signal.register` (`synth_reg`), the 4-stage chain (`shift4Loop`), `memCirc` |
   | named-constant register inits (`sClosed`) | 6 | DONE 5 (2026-10-05): the real blocker was a closed `BitVec` VALUE `let` in the body (`let f := (packDataOffFlags … : BitVec 16)`), now substituted by `machNorm` like a `Nat` let. TCP server/client FSMs certified; 132 → 126 |
   | raw `runCircuitH` surface | 6 | match-destructured handles, `Circuit.read` in the reader (S) |
   | `ashr` / sign extension / negation | 8 | IR op + `Term` constructor + lemmas each, the slice/concat pattern (S each); also needed by `requantize` |

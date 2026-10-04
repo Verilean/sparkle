@@ -64,6 +64,18 @@ run_cmd liftTermElabM do
 
 /-! ## The endpoints -/
 
+/-- A loop as the WHOLE value (no `let`): read as `let s := loop; s`. -/
+def wholeLoop : Signal defaultDomain (BitVec 8) :=
+  Signal.loop fun (self : Signal defaultDomain (BitVec 8)) =>
+    Signal.register 0#8 (self + (Signal.pure 1#8 : Signal defaultDomain (BitVec 8)))
+
+/-- A Bool loop register as the whole value, in any domain. -/
+def wholeToggle {dom : DomainConfig} (en : Signal dom Bool) : Signal dom Bool :=
+  Signal.loop fun (s : Signal dom Bool) =>
+    Signal.register false (Signal.mux en (~~~s) s)
+
+#machine_endpoint wholeLoop
+#machine_endpoint wholeToggle
 #machine_endpoint counterLoop
 #machine_endpoint accLoop
 #machine_endpoint Sparkle.IP.YOLOv8.Blocks.Bottleneck.bottleneckController

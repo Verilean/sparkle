@@ -4541,6 +4541,14 @@ def machCanonAp : Lean.Expr → Lean.Expr
   | .app f a => machCanonApNode (.app (machCanonAp f) (machCanonAp a))
   | e => e
 
+/-- A hand-written `Signal.loop f` as the WHOLE value (after its `let`s): read
+    as `let s := Signal.loop f; s`, the form the loop reader takes. -/
+def machLoopAsLet : Lean.Expr → Lean.Expr
+  | .letE n t v b nd => .letE n t v (machLoopAsLet b) nd
+  | e@(.app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.loop ls) dom) α) _) _) =>
+    .letE `loop (mkApp2 (.const ``Sparkle.Core.Signal.Signal ls) dom α) e (.bvar 0) false
+  | e => e
+
 /-- A state machine on the certified route: the transition's binders (the
     declaration's, then one per slot), its packed body under them, and where
     the pieces of the packed value sit. -/
@@ -4594,7 +4602,7 @@ def machineShape? (symbolicMode : Bool) (parameters : List (String × Nat)) (ci 
       | none => machOuts? senv d.type
     if outs.isEmpty || !outs.all (fun o => Sparkle.IR.Machine.outNameOk o.1) ||
         !decide (outs.map (·.1)).Nodup then none else
-    let e := machNorm senv e
+    let e := machLoopAsLet (machNorm senv e)
     let (rootLets, sel, run?, root) := machRoot senv.proj e []
     -- the enclosing machine's slots come first
     let st : MachRead := {}

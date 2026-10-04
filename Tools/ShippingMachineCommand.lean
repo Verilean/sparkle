@@ -1068,6 +1068,9 @@ def loopProof (declName : Name) (r : Read) (data ι i D bools bits src inst : Le
         break
       else cur := b.instantiate1 v
     | _ => break
+  -- the loop as the whole value: `let s := loop; s`
+  if found.isNone && cur.isAppOfArity ``Sparkle.Core.Signal.Signal.loop 4 then
+    found := some (cur, .bvar 0)
   let some (loopApp, rest) := found | throwError "{declName}: no root Signal.loop"
   let la := loopApp.getAppArgs
   let (α, inh, f) := (la[1]!, la[2]!, la[3]!)
