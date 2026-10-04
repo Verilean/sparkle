@@ -1219,6 +1219,27 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   modules (15 output files) are newly on the machine route and keep their
   ports; one more file differs only in a DRC warning's wording; status
   identical; 60-cycle simulation 153/153 OK.
+- [ ] **IN PROGRESS: composing a machine with its children (closing the
+  instance trust gap).** Done (2026-10-04): the machine chain states the
+  let wires (863dd02: `MachinePreserves`/`machine_trace`/`machine_ref_trace`/
+  `machine_endpoint`/`MachineTraceL` with let observations `lsrc`); the
+  linked semantics and its correspondence (8dde484: `open_linked`,
+  `stepModuleH`, `runModuleH`, `runModuleH_of_open` — the open run from
+  seeds the children compute IS the linked run); the compiler checks the
+  linked order (713a6e1: `linkedOk` in `closeInsts`, `linkedOk_eq` = the
+  correspondence's `linkedWF`). Remaining: (1) expose, through the same
+  chain, the names of the instance-output input ports (`ins`, the
+  transition's `inputPorts` at positions `nDecl + k`) and the shape of each
+  instance statement (`closeInsts`: output conn → `ins[nDecl+k]`, input
+  conns → the let wires of the call's arguments); (2) the child side: a
+  child's own theorem in the form `ChildComputes` needs (its module, fed
+  with argument values, outputs the call's value) — the child module is
+  what `sparkleChildSynth` returned, a boundary predicate like S6's
+  `SubSynthDefines`; slotless children through `machine_trace_of_comb`;
+  (3) the composed endpoint: seeds' := the user's seeds plus the calls'
+  values on `ins`, `MachineTraceL` with `lsrc` = the arguments' observations
+  (kernel `rfl`s against the let terms), `runModuleH_of_open` ⇒ the LINKED
+  run shows the declaration; generator support (`f.machine_linked`).
 - [ ] **NEXT: the remaining calls.** Sequential children (`toggle`,
   `wKeccakF`, `wBlock`, `wRx`, `wSha256`: ≈15 declarations) need clk/rst
   plumbing in `closeInsts` and the child's `MachineTrace` as the oracle
