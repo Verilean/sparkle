@@ -138,13 +138,16 @@ def generateLinkedCore (declName : Name) : MetaM Name := do
   progress s!"{declName}: linked"
   let r ← readMachine declName
   if r.shape.insts.isEmpty then throwError "{declName}: no hardware-module call"
-  if r.shape.layout.slots.isEmpty || !r.shape.loops.isEmpty || r.nested then
-    throwError "{declName}: only a single circuit do with slots is supported"
-  let args ← soundArgs declName ``Tools.ShippingMachineAuto.machine_trace_of_data_ext
-  let pL := mkAppN (mkConst ``Tools.ShippingMachineAuto.machine_traceL_of_data_ext) args
+  if r.shape.layout.slots.isEmpty || !r.shape.loops.isEmpty then
+    throwError "{declName}: only a circuit do with slots (and sub-machines) is supported"
+  let (head, headL) := if r.nested then
+      (``Tools.ShippingMachineNest.machine_trace_of_nested_ext,
+        ``Tools.ShippingMachineNest.machine_traceL_of_nested_ext)
+    else (``Tools.ShippingMachineAuto.machine_trace_of_data_ext,
+      ``Tools.ShippingMachineAuto.machine_traceL_of_data_ext)
+  let args ← soundArgs declName head
+  let pL := mkAppN (mkConst headL) args
   let data := args[1]!
-  let inits := args[6]!
-  let body := args[7]!
   let pLT ← inferType pL
   forallTelescope pLT fun xs traceT => do
   let h := mkAppN pL xs
@@ -204,10 +207,10 @@ def generateLinkedCore (declName : Name) : MetaM Name := do
         -- the call over the source's state loop
         let some callV := (← getConstInfo (declName ++ Name.mkSimple s!"machineCall_{k}")).value?
           | throwError "{declName}: machineCall_{k}"
-        -- the state loop, as the trace's extension applies it
+        -- the state loop(s), as the trace's extension applies them
         let extApp := (tyArgs[7]!).beta ibb
-        let σ := extApp.appArg!
-        let call := callV.beta (ibb.push σ)
+        let states := extApp.getAppArgs.extract 3 extApp.getAppNumArgs
+        let call := callV.beta (ibb ++ states)
         let callArgs := call.getAppArgs
         let (cSrc, cData, kinds) := childInfo[k]!
         unless callArgs.size == kinds.length do

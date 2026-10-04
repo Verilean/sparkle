@@ -35,14 +35,34 @@ def callerL (w : Signal defaultDomain (BitVec 16)) : Signal defaultDomain (BitVe
     sel <~ selS + (Signal.pure 1#2 : Signal defaultDomain (BitVec 2))
     return y
 
+/-- A sub-machine counting enabled cycles. -/
+def counterB (en : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 2) :=
+  circuit do
+    let c ← Signal.reg 0#2
+    let cS := (c : Signal defaultDomain (BitVec 2))
+    c <~ Signal.mux en (cS + (Signal.pure 1#2 : Signal defaultDomain (BitVec 2))) cS
+    return cS
+
+/-- A sub-machine's result and a register as the child's arguments. -/
+def callerLN (w : Signal defaultDomain (BitVec 16)) (en : Signal defaultDomain Bool) :
+    Signal defaultDomain (BitVec 8) :=
+  circuit do
+    let s := counterB en
+    let acc ← Signal.reg 0#16
+    let accS := (acc : Signal defaultDomain (BitVec 16))
+    acc <~ accS ^^^ w
+    return pickByteH accS s
+
 #machine_endpoint pickByteH
 #machine_child pickByteH
 #machine_endpoint callerL
 #machine_linked callerL
+#machine_endpoint callerLN
+#machine_linked callerLN
 
 run_cmd do
   if (← get).messages.hasErrors then throwError "machine linked regression failed"
-  for name in [``pickByteH.machine_child, ``callerL.machine_linked,
+  for name in [``pickByteH.machine_child, ``callerL.machine_linked, ``callerLN.machine_linked,
       ``Tools.ShippingMachineCompose.machine_linked_calls,
       ``Tools.ShippingMachineAuto.machine_traceL_of_data_ext,
       ``Tools.ShippingMachineChild.child_full] do

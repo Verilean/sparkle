@@ -303,121 +303,19 @@ certified, 120 on the machine route, 120 with the generated theorem,
 machine (the open-module view; `closeInsts`, `MachineTraceWith`,
 `extendBits`): 193 of 389 real declarations certified, 130 on the machine
 route, 130 with the generated theorem, 114 (unchanged: a module with instances has no shipping theorem yet) to the emitted Verilog.
-Open: sequential children (hierarchy), calls inside a sub-machine, a
-sub-machine reading another sub-machine's result, the linked composition of
-a machine's instances with the children's theorems, the parsed-back text for
-machine modules, other concrete domains.
 
-The single-slot `circuit do` is reified onto the loop form: the macro
-destructures its handle tuple with `Prod` projections (matcher-free),
-`canonicalCircuitDo?` recognizes the shape purely and `cdoConeToLoop`
-rewrites coerced register reads into the loop binder, so the certified
-feedback lowering emits the byte-identical module, and
-`map_fst_loop_register`/`cdoAcc_val` identify the source streams. The
-endpoint chain is stated on the circuit-do quote form itself: `cdoE`
-transcribes the elaborated call exactly, `cdoConeToLoop_quote`
-distributes the normalizer over the unified quote, and the
-`CdoPreserves` monolith feeds `cdo_step_of_env`/`cdo_run_of_env`,
-instantiated on the real declaration with standard axioms only.
-Open in S4: the sequential trust gaps are CLOSED by the proved
-rename-equivalence checker: `seqOptCheck_step_sound` and
-`seqOptCheck_run_sound` (Tools/ShippingSeqOptSoundness.lean) give
-one-cycle and k-cycle trace equivalence for any accepted module pair,
-the runtime gates pin acceptance of both the sequential merge and
-`optimizeModule`'s output on every certified shape, and
-the packaged `seqOptCheck_transfer` composes checker and trace
-endpoints so the accepted optimized module observes the source stream
-on all six certified shapes (`*_run_optimized`), onward to the emitted-SV semantics (`seq_run_to_sv` + `*_sv_optimized`: the accepted optimized module's M4 `runModuleSV` trace observes the source stream, `seqCheck`/width-agreement gated), and to the PRINTED BYTES in the parse direction (`seq_run_to_parsed` + `*_parsed_optimized`: the module the shipping parser reads back from the real printed text observes the source stream; the byte→AST parser step is the remaining trusted base). Still open:
-`circuit do` beyond the proved shapes (the two-slot cross-coupled form
-now carries its full proof chain for the returned-slot-0 shape — the
-Cdo2Preserves monolith with doubled self machinery and chained cone
-contracts, the state-reading two-register trace lemma, and real-entry
-per-cycle/full-trace endpoints instantiated on the real declaration;
-with the trace identified against the actual circuit-do output stream
-through `loopPair_val`; open: slot-1 return, differing widths, more
-slots, Reg-operator reads — all of these are now covered by the MACHINE
-ROUTE below, on text that differs from the legacy lowering), deeper register
-chains and register networks beyond depth two, user reset muxes, and
-the sequential SV printer step (the `optimizeModule` pass-through is
-now checker-covered). S5 is STARTED: the canonical sync-read memory's semantics layer is
-proved (`Tools/ShippingMemorySoundness.lean` — the pinned compiled body's
-`runModule` trace is the `Signal.memory` stream, endpoint instantiated
-and audited), and its ENTRY-LEVEL connection is closed
-(`Tools/ShippingMemoryEntrySoundness.lean`: gate + total lowering +
-monolith + `memory_run_of_env`, instantiated as `memAcc_run` on the
-real declaration); cone operands are certified end to end as well (`memoryCone_run_of_env` + `memAccC_run`); the wider memory scope (inits,
-multi-port, postprocessing/checker/SV layers) remains. S6 is STARTED and its
-ENTRY-LEVEL connection is closed for the canonical combinational
-parent: the linked-instance semantics layer is proved and pinned
-(`evalAssignsH`, `instBody_linked`, `parentUse_linked`), the certified
-gate admits the tagged single-scalar-output instance call at the run's
-`instancePredicate` (record-returning parents stay legacy, byte-gated),
-the dispatch tail lowers it through a provable arm reproducing the
-legacy bytes (gated, incl. a sequential child's clk/rst plumbing), and
-Tools/ShippingInstanceEntrySoundness.lean carries gate → step →
-monolith (`InstancePreserves`: parent = canonical `instBody` over the
-pinned child, design = exactly that child, argument wires = prepared
-source values; boundaries `HardwareTagged`/`SubSynthDefines` — the
-single-out cache hit is validated against the builder's record, so no
-cache premise) → dispatcher → core wrapper →
-`instance_entry_of_env` → the real-parent endpoint
-`parentUse_instance_entry`, and `parentUse_entry_observes` ties the
-compiled parent's linked evaluation to the SOURCE composition
-`parentUse aS bS` (all audited, standard axioms). Every single-output
-child shape is since covered as a root (`InstanceGPreserves`: any
-arity, with or without clk/rst), and field projections of MULTI-output
-children are certified too (`ProjInstancePreserves`,
-`parentHi_instance_entry`, source field observed by
-`parentHi_entry_observes`). Instances INSIDE cones are certified in the
-linked semantics: the unified recursion is generic over a semantic
-context (`LinkCtx`/`HierCtx`) and over leaf contracts, the instance
-leaf contract is proved (`inst_leaf_contract`), and the entry endpoint
-`HierConePreserves` is instantiated on a real parent
-(`parentMix_entry_observes`), as is a pipeline of calls
-(`parentNested_entry_observes`). Port/width linkage is checked at
-emission and concluded in the contracts (`Linked`, `InstsLinked`); the
-check closed a miscompile of width-generic children. The SV and
-parsed-text layers reach hierarchical parents through the linked/open
-bridge (`linked_open`, `linked_consistent`, `hier_pipeline_transfer`,
-capstone `parentMix_shipping`), and the optimizer on instance-bearing
-modules is validated by the existing checker on the interface-extracted
-pair (`hier_shipping_transfer`, capstone `parentMix_shipping_opt` on
-the shipping text). Cone operands of calls, sequential
-children as cone leaves, design registration, parameters and the SV
-layer remain. S7 is STARTED:
-`ShippingPreserves`/`synthesizeCombinationalCore_shipping_sound`
-reconcile all eleven ∀-predicate family contracts into one core-entry
-statement, and the instance family joins the same theorem as a
-twelfth, per-run-predicate clause;
-`shipping_pipeline_transfer` composes the sequential post-pipeline
-(checker → emitted SV → parsed bytes) into one step; the hierarchy
-entry and the final instantiated theorem remain.
-
-## Trust, validation and work cadence
-
-- `EnvDefines` remains the explicit link between the runtime Lean environment
-  and the intended source declaration. Investigate how to discharge or account
-  for it at S7; do not report an unconditional theorem if it is still a premise.
-- The present RTL execution model is two-state, zero-delay parallel delta
-  rounds with fixed inputs; delta rounds are not source clock cycles. External
-  simulator equivalence, arbitrary event scheduling, X/Z and physical delays
-  are not proved. Stateful extensions must state their clock/trace models.
-- The S0–S2 endpoints and S3 comparison/Bool-logic/vector-mux-tree extensions have no `sorry` dependency.
-  Other files in the repository can contain placeholders or executable-oracle
-  proofs; do not use a repository-wide placeholder count as the endpoint audit.
-- Latest validation: `lake build Tests.AllTests`, 626 jobs. New Bool equality
-  and logic tests check 1,890 and 1,962 source/legacy/SV/delta cases, respectively,
-  with standard-axiom audits of the general and real-source endpoints. Existing
-  coverage includes 2,250 signed and 2,250 BitVec equality cases, 32 custom-BEq cases,
-  14 exhaustive applicative compilations and standard-axiom audits. Mixed execution
-  regression checks 2,700 source/SV/parallel-delta cases on 18 paths, with
-  6 optimizer acceptances and 12 retentions, including shared expressions.
-  This is a test-module build, not a claim that the `lake test` binary ran.
-- Make coherent, tested commits as recovery/review checkpoints. A commit or a
-  new lemma is not a reason to stop work and ask the user to say “continue”.
-  Work toward the active milestone until it is complete, the user redirects,
-  or a concrete blocker needs a decision. Report blockers with the exact open
-  connection and continue independent work where possible.
-- Bundle bookkeeping-only edits with the next relevant work checkpoint unless
-  a standalone documentation change is requested. Update checkboxes, proof
-  references, validation and remaining assumptions when a milestone changes.
+**The linked composition (2026-10-04).** A machine with
+`@[hardware_module]` calls was certified relative to its children (the
+open-module view). It is now composed with them: `machine_linked`
+(Tools/ShippingMachineCompose.lean) proves the LINKED run — each instance
+evaluated by the module its name resolves to in the shipped design —
+shows the source, seeded with the declaration's own inputs; the child side
+is `childFn_of_trace`/`child_full` (Tools/ShippingMachineChild.lean); the
+generators `#machine_child` and `#machine_linked`
+(Tools/ShippingMachineLinkedCommand.lean) discharge every call's equation
+by kernel checks. All 14 corpus declarations with calls have
+`f.machine_linked`. On the way a real miscompile was found and fixed: a
+domain-polymorphic caller's instance was wired one port off. Premises
+left: the design's child module is the child's own full-entry run (the
+child synthesizer is an opaque `IO.Ref`) and the child's run gate
+`dropZeroWidthModule raw = raw`.

@@ -1254,14 +1254,31 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   function on decoded port values, `childValue`) and `childFn_full` (the
   full entry's module — zero-width cleanup and the checked merge — computes
   the same, under the run-module gate `dropZeroWidthModule raw = raw`).
-  All with the standard axioms. Remaining: the generator (`f.machine_linked`
-  per declaration): the let observations `lsrc` (kernel facts against the
-  let terms), the per-call equation `childValue … (argument values) = call
-  value` (decode∘encode lemma + a pointwise kernel `rfl` like
-  `machine_inst_k`), a `MachineTraceL` form of the child endpoints, and the
-  boundary that the design's child module is the child's own full-entry run
-  (`sparkleChildSynth` is an opaque `IO.Ref`: like S6's `SubSynthDefines`,
-  this stays a stated premise).
+  All with the standard axioms. GENERATED (5b78ecf): `#machine_child c`
+  (`c.machine_child`, from `child_full` over `machine_traceL_of_comb`) and
+  `#machine_linked f` (`f.machine_linked`, from `machine_linked_calls` over
+  `machine_traceL_of_data_ext`, whose `let` observations are `letObs`); the
+  calls' equations are discharged per call — the argument values by a
+  kernel `rfl` against the `let` terms, their range by `BitVec.isLt`, the
+  child's function on them by decoding (`BitVec.ofNat_toNat`) and a
+  pointwise kernel `rfl` — so the only premise left about the children is
+  that each call's module (resolved by name in the design) computes its
+  child's function, which `c.machine_child` gives for the child's own
+  full-entry run. MEASURED (2026-10-04): every corpus declaration with
+  calls has its `machine_linked` — 14 (the IPv4 transmitter and both
+  receiver outputs, the ARP requester/responder, the ICMP requester (two
+  outputs) and responder, the HTTP GET/response byte generators, the PCIe
+  HFT pulse, and the three round-trip tops), parents with sub-machines
+  included (`machine_traceL_of_nested_ext`, `letObsN`); 32 combinational
+  children have their `machine_child`. Not covered: callers whose child is
+  on a combinational GATE route rather than the machine route (the four
+  test callers of `pick`/`pickD`: the gate route's theorem does not yet
+  expose its module's ports). Remaining: the boundary that the design's child module IS
+  the child's full-entry run (`sparkleChildSynth` is an opaque `IO.Ref`;
+  stated, like S6's `SubSynthDefines`), the child's run gate
+  `dropZeroWidthModule raw = raw`, parents through sub-machines / loops
+  (the generator takes single `circuit do`s with slots), and the shipped
+  (optimized/printed) form of a module with instances.
 - [ ] **NEXT: the remaining calls.** Sequential children (`toggle`,
   `wKeccakF`, `wBlock`, `wRx`, `wSha256`: ≈15 declarations) need clk/rst
   plumbing in `closeInsts` and the child's `MachineTrace` as the oracle

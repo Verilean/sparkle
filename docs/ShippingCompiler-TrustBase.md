@@ -244,10 +244,10 @@ the shipped design, seeded with the declaration's own inputs, shows the
 source — given that each call's module computes a function `F k` of its
 argument ports and the source's call is `F k` of its arguments), and the
 child side is proved for combinational machine-route children
-(`Tools.ShippingMachineChild.childFn_of_trace`, `childFn_full`). Not yet
-generated per declaration, so the shipped `f.machine_sound` of a machine
-with instances is still relative to its children. When it is, two
-premises remain stated rather than proved: the design's child module is
+(`Tools.ShippingMachineChild.childFn_of_trace`, `childFn_full`). It is
+generated per declaration (`#machine_linked f` → `f.machine_linked`,
+`#machine_child c` → `c.machine_child`); two premises remain stated rather
+than proved: the design's child module is
 the child's own full-entry run (the child synthesizer is an opaque
 `IO.Ref`, as S6's `SubSynthDefines`), and the run-module gate
 `dropZeroWidthModule raw = raw` of the child.
