@@ -28,6 +28,7 @@ import Sparkle.Compiler.InlineAttr
 import Sparkle.Core.Signal
 import Sparkle.Core.Vector
 import Sparkle.Core.CircuitMonad
+import Sparkle.Compiler.MachRawSurface
 import Sparkle.Display.Mime
 
 namespace Sparkle.Compiler.Elab
@@ -3443,6 +3444,9 @@ structure StructEnv where
       of its binders (the domain included) and of its result
       (`instSignature?`). -/
   inst : Name → Option (List MixedGateBinder × MixedGateBinder) := fun _ => none
+  /-- A matcher destructuring one right-nested pair: its arity
+      (`MachRawSurface.prodMatcherArity?`). -/
+  prodMatch : Name → Option Nat := fun _ => none
 
 /-- The hardware `let`s met so far: binder name, kind, value (placeholder
     form; it mentions earlier `let`s only). -/
@@ -4016,7 +4020,8 @@ def instSignature? (env : Environment) (n : Name) :
 /-- The structure facts of an environment. -/
 def structEnv (env : Environment) : StructEnv :=
   { proj := userProjection? env, fields := userStructure? env, natOf := kernelNat env,
-    inst := instSignature? env }
+    inst := instSignature? env,
+    prodMatch := Sparkle.Compiler.MachRawSurface.prodMatcherArity? env }
 
 /-- The output ports of a result type: one, `out`, for a Signal; one per
     field, named after it, for a structure of Signals.  With the structure's
@@ -4508,7 +4513,11 @@ def machNormNode (senv : StructEnv) (e : Lean.Expr) : Lean.Expr :=
 /-- The body of a `circuit do` with every node in the form the gates accept
     (see the section comment).  Types of binders are left as written. -/
 partial def machNorm (senv : StructEnv) : Lean.Expr → Lean.Expr
-  | .app f a => machNormNode senv (.app (machNorm senv f) (machNorm senv a))
+  | e@(.app f a) =>
+    -- the raw `runCircuitH` surface first (`MachRawSurface`)
+    match Sparkle.Compiler.MachRawSurface.rawNode senv.prodMatch e with
+    | some e' => machNorm senv e'
+    | none => machNormNode senv (.app (machNorm senv f) (machNorm senv a))
   | .lam n t b bi => .lam n t (machNorm senv b) bi
   -- a `Nat` `let` (a slice position computed in Lean): substituted, so the
   -- position is a closed term the kernel reduces
