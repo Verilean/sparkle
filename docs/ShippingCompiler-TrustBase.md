@@ -237,9 +237,20 @@ the flat semantics the theorem is stated in treats an instance as a no-op
 (the open-module view of `Sparkle.IR.Semantics`). Discharging that
 hypothesis for the real module is the child's own theorem (its module
 computes its source function) composed through the linked semantics
-(`evalAssignsH`, S6 `linked_open`); that composition exists for the
-mixed route's instances and is NOT yet done for machine modules — until
-it is, a machine with instances is certified relative to its children.
+(`evalAssignsH`, S6 `linked_open`). For machine modules the composition is
+now PROVED generically (`Tools.ShippingMachineCompose.machine_linked`: the
+linked run, each instance evaluated by the module its name resolves to in
+the shipped design, seeded with the declaration's own inputs, shows the
+source — given that each call's module computes a function `F k` of its
+argument ports and the source's call is `F k` of its arguments), and the
+child side is proved for combinational machine-route children
+(`Tools.ShippingMachineChild.childFn_of_trace`, `childFn_full`). Not yet
+generated per declaration, so the shipped `f.machine_sound` of a machine
+with instances is still relative to its children. When it is, two
+premises remain stated rather than proved: the design's child module is
+the child's own full-entry run (the child synthesizer is an opaque
+`IO.Ref`, as S6's `SubSynthDefines`), and the run-module gate
+`dropZeroWidthModule raw = raw` of the child.
 This gap is not cosmetic: the open-module theorems cannot see WHICH wires an
 instance connects, and a real miscompile lived there — `closeInstsM` found
 the call's output and argument wires by BINDER position, so in a

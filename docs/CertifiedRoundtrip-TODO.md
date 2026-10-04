@@ -1232,19 +1232,36 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   caller wired its instance one port off (invisible to the open-module
   theorems); it now counts ports, `closeInstsM_returns` quantifies over the
   offset, `closeInsts_calls` (ShippingMachineInst) gives each instance
-  statement's shape, regression `callerD`. Remaining: (1) expose, through the same
-  chain, the names of the instance-output input ports (`ins`, the
-  transition's `inputPorts` at positions `nDecl + k`) and the shape of each
-  instance statement (`closeInsts`: output conn → `ins[nDecl+k]`, input
-  conns → the let wires of the call's arguments); (2) the child side: a
-  child's own theorem in the form `ChildComputes` needs (its module, fed
-  with argument values, outputs the call's value) — the child module is
-  what `sparkleChildSynth` returned, a boundary predicate like S6's
-  `SubSynthDefines`; slotless children through `machine_trace_of_comb`;
-  (3) the composed endpoint: seeds' := the user's seeds plus the calls'
-  values on `ins`, `MachineTraceL` with `lsrc` = the arguments' observations
-  (kernel `rfl`s against the let terms), `runModuleH_of_open` ⇒ the LINKED
-  run shows the declaration; generator support (`f.machine_linked`).
+  statement's shape, regression `callerD`.
+  Done since (2026-10-04, 6cb27be, 79c5b88, and the child step): the
+  compiler resolves each call's child BY NAME IN THE SHIPPED DESIGN
+  (`moduleByName`, what the linked semantics reads) and checks the port
+  names distinct, the instance's ports distinct and its output not `rst`
+  (always true; corpus output identical); `MachineWired` — every call an
+  instance statement (`CallStmt`), every instance a call, the linked order,
+  the registers among the slot/`let` ports, all port names allocated, the
+  output ports, and (without calls) the input ports and the assignment
+  body — is part of `MachinePreserves` and reaches `MachineTraceL`.
+  ShippingMachineCompose: `runModuleH_of_run` (the linked run along the
+  open run), `childComputes_of_call`, `sourceInputs_extend` (the calls'
+  ports carry the calls' values), and the composed theorem
+  **`machine_linked`**: the LINKED run of the emitted module, seeded with
+  the declaration's own inputs only, shows the source, provided every
+  call's module computes some `F k` of its argument ports (`ChildFn`) and
+  the source's call is `F k` of its argument values at every cycle.
+  ShippingMachineChild: **`childFn_of_trace`** (a combinational child's
+  own machine theorem gives `ChildFn` of its core module, `F` = its source
+  function on decoded port values, `childValue`) and `childFn_full` (the
+  full entry's module — zero-width cleanup and the checked merge — computes
+  the same, under the run-module gate `dropZeroWidthModule raw = raw`).
+  All with the standard axioms. Remaining: the generator (`f.machine_linked`
+  per declaration): the let observations `lsrc` (kernel facts against the
+  let terms), the per-call equation `childValue … (argument values) = call
+  value` (decode∘encode lemma + a pointwise kernel `rfl` like
+  `machine_inst_k`), a `MachineTraceL` form of the child endpoints, and the
+  boundary that the design's child module is the child's own full-entry run
+  (`sparkleChildSynth` is an opaque `IO.Ref`: like S6's `SubSynthDefines`,
+  this stays a stated premise).
 - [ ] **NEXT: the remaining calls.** Sequential children (`toggle`,
   `wKeccakF`, `wBlock`, `wRx`, `wSha256`: ≈15 declarations) need clk/rst
   plumbing in `closeInsts` and the child's `MachineTrace` as the oracle

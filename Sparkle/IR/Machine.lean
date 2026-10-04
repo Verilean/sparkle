@@ -278,7 +278,7 @@ def instStmt (nIn kI n : Nat) (portNames : List String) (k : Nat) (args : List N
   if mc.inputs.any (fun p => p.name == "clk" || p.name == "rst") then none else
   if !decide (inPorts.map (·.name)).Nodup || argWs.contains outW then none else
   let [outP] := mc.outputs | none
-  if inPorts.any (·.name == outP.name) then none else
+  if inPorts.any (·.name == outP.name) || outP.name == "rst" then none else
   if !m.wires.any (·.name == outW) then none else
   let instName := s!"inst{k}_{mc.name}"
   let names := m.inputs.map (·.name) ++ m.outputs.map (·.name) ++ m.wires.map (·.name)

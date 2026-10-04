@@ -239,7 +239,7 @@ its argument ports' values, for every environment whose argument values
 satisfy `P` (the child's admissible inputs). This is the form a child's own
 theorem gives at one cycle. -/
 def ChildFn (mc : Module) (P : List Nat → Prop) (f : List Nat → Nat) : Prop :=
-  ∃ outP, mc.outputs = [outP] ∧ ∀ (mems : MEnv) (env : Env),
+  ∃ outP, mc.outputs = [outP] ∧ ∀ (mems : MEnv) (env : Env), env "rst" = 0 →
     P ((argPorts mc).map fun p => env p.name) →
     ∃ cres, evalAssigns (Sparkle.IR.RegDedup.declWidth mc) mems mc.body env = some cres ∧
       cres outP.name = f ((argPorts mc).map fun p => env p.name)
@@ -293,7 +293,8 @@ theorem childComputes_of_call {we : WEnv} {ms : List Module} {mems : MEnv}
       args.mapM (fun j => portNames[nIn + kI + n + j]?) = some argWs →
       P (argWs.map envF) ∧ envF outW = f (argWs.map envF)) :
     ChildComputes we (childMap ms) mems envF mn conns := by
-  obtain ⟨outW, argWs, outP, iname', hout, hargs, houts, _, hlen, hnd, hoa, hon, hst⟩ := hcall
+  obtain ⟨outW, argWs, outP, iname', hout, hargs, houts, _, hlen, hnd, hoa, hon, hrst, hst⟩ :=
+    hcall
   obtain ⟨outP', houts', hf⟩ := hfn
   rw [houts] at houts'
   cases houts'
@@ -335,7 +336,19 @@ theorem childComputes_of_call {we : WEnv} {ms : List Module} {mems : MEnv}
       (((argPorts mc).zip argWs).map (fun (p, w) => ((p : Port).name, Expr.ref w)) ++
         [(outP.name, Expr.ref outW)]) env1 p.name) = argWs.map envF := by
     rw [connEnv_zip env1 _ _ _ hnd hlen, hargsEq]
-  obtain ⟨cres, hev, hcres⟩ := hf mems _ (by rw [hvals]; exact hP)
+  have hrst0 : connEnv
+      (((argPorts mc).zip argWs).map (fun (p, w) => ((p : Port).name, Expr.ref w)) ++
+        [(outP.name, Expr.ref outW)]) env1 "rst" = 0 := by
+    have hnr : "rst" ∉ (argPorts mc).map (·.name) := by
+      intro h
+      obtain ⟨p, hp, he⟩ := List.mem_map.mp h
+      have := (List.mem_filter.mp hp).2
+      simp [he] at this
+    unfold connEnv
+    rw [lookup_zip_rest _ _ _ _ hnr]
+    have hne : ("rst" == outP.name) = false := beq_eq_false_iff_ne.mpr (Ne.symm hrst)
+    simp [List.lookup, hne]
+  obtain ⟨cres, hev, hcres⟩ := hf mems _ hrst0 (by rw [hvals]; exact hP)
   refine ⟨cres, hev, ?_⟩
   intro p hp w hw
   rw [houts] at hp
@@ -476,7 +489,7 @@ theorem callStmt_out {ms : List Module} {body : List Stmt} {nIn kI n : Nat}
     (hmc : Sparkle.IR.Machine.moduleByName ms mc.name = some mc)
     (hout : portNames[nIn + k]? = some outW) :
     outW ∈ bodyInstOuts (childMap ms) body := by
-  obtain ⟨outW', argWs, outP, iname, hout', _, houts, _, _, _, _, hon, rfl⟩ := hcall
+  obtain ⟨outW', argWs, outP, iname, hout', _, houts, _, _, _, _, hon, _, rfl⟩ := hcall
   rw [hout] at hout'
   cases hout'
   apply bodyInstOuts_of_mem hst
@@ -575,7 +588,7 @@ theorem machine_linked {declName : Name} {d : MachineData} {m : Sparkle.IR.AST.M
   obtain ⟨ids, nd, len, cache, regs, rnd, rlen, lets, llen, wired, trace⟩ := h
   refine ⟨ids, nd, len, cache, regs, rnd, rlen, ?_⟩
   intro i bools bits T seed st0 mems hin hpass hrst hinit hchild hval
-  obtain ⟨nnd, alloc, regsIn, hlets, calls, insts, link⟩ := wired
+  obtain ⟨nnd, alloc, regsIn, hlets, calls, insts, link, _, _, _⟩ := wired
   -- the ports: the declaration's, the calls', then the slots' and `let`s'
   let bsD := d.bsIn.take kD
   let bsI := d.bsIn.drop kD

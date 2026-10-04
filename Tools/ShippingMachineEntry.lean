@@ -662,7 +662,15 @@ def MachineWired (declName : Name) (shape : MachineShape) (ids : List FVarId)
   (∀ mn iname conns, Stmt.inst mn iname conns ∈ m.body → ∃ k args mc,
     (shape.insts.map (·.2.1))[k]? = some args ∧ moduleByName dsn.modules mn = some mc ∧
     Tools.ShippingMachineInst.CallStmt nIn kI n names k args mc (.inst mn iname conns)) ∧
-  linkedOk (moduleByName dsn.modules) m.body = true
+  linkedOk (moduleByName dsn.modules) m.body = true ∧
+  -- the output ports are the layout's
+  m.outputs = shape.layout.outs.map (fun o => ({ name := o.name, ty := o.ty } : Port)) ∧
+  -- without calls, the module's ports are the declaration's
+  (shape.insts = [] → m.inputs.filter (fun p => p.name != "clk" && p.name != "rst") =
+    machPorts declName ids cache
+      (shape.binders.take (shape.binders.length - n - shape.layout.lets))) ∧
+  -- without calls and slots, the body is assignments
+  (shape.insts = [] → shape.layout.slots = [] → m.body.all Sparkle.IR.RegDedup.isAssign = true)
 
 /-- **One cycle of a compiled state machine.** The module the machine route
 returns has one register per slot (`regs`, in slot order) and, on every
@@ -800,13 +808,13 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
   obtain ⟨t, t', d₀, hrun, hcl, hmt⟩ := synthesizeMachineCertified_returns hr
   -- the module is the closed transition, or `closeInsts` of it
   have hmt : (shape.insts = [] ∧ m = closeMachine shape.layout t') ∨
-      ∃ children : List (Sparkle.IR.AST.Module × Design),
+      (shape.insts ≠ [] ∧ ∃ children : List (Sparkle.IR.AST.Module × Design),
         closeInsts (machNIn shape) shape.insts.length shape.layout.slots.length
           (t.inputs.map (·.name)) (shape.insts.map (·.2.1)) children
-          (closeMachine shape.layout t', d₀) = some (m, d) := by
-    rcases hmt with ⟨hi, h, _⟩ | ⟨_, children, h⟩
+          (closeMachine shape.layout t', d₀) = some (m, d)) := by
+    rcases hmt with ⟨hi, h, _⟩ | ⟨hne, children, h⟩
     · exact Or.inl ⟨hi, h⟩
-    · exact Or.inr ⟨children, h⟩
+    · exact Or.inr ⟨hne, children, h⟩
   obtain ⟨ids, cache, returned, st, nd, len, run, hm, _, nameLegal⟩ :=
     synthesizeMixedCertified_returns hrun
   refine ⟨ids, nd, len, cache, ?_⟩
@@ -1190,7 +1198,11 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
   have wired : MachineWired declName shape ids cache m d (ps.map Port.name) (ls.map Port.name) := by
     dsimp only [MachineWired]
     rw [hmp]
-    refine ⟨namesNodup, ?_, ?_, ?_, ?_, ?_, ?_⟩
+    have hpwC : packedWire? t'.body = some coreW := by simp [packedWire?, hB']
+    have outs0 : (closeMachine shape.layout t').outputs =
+        shape.layout.outs.map (fun o => ({ name := o.name, ty := o.ty } : Port)) := by
+      unfold closeMachine; rw [hpwC]
+    refine ⟨namesNodup, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
     · intro x hx
       obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hx
       exact pb.wireNames p (pb.inputWires p hp)
@@ -1203,27 +1215,80 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
       exact List.mem_append_left _ hr
     · rw [← List.map_drop, List.length_map, hdropL]
     · intro k hk
-      rcases hmt with ⟨hi, _⟩ | ⟨children, hci⟩
+      rcases hmt with ⟨hi, _⟩ | ⟨_, children, hci⟩
       · rw [hi] at hk; exact absurd hk (Nat.not_lt_zero k)
       · obtain ⟨args, child, mc, hargs, _, hmc, st, hst, hcall⟩ :=
           Tools.ShippingMachineInst.closeInsts_calls hci k (by simpa using hk)
         refine ⟨args, mc, st, hargs, hst, ?_, hcall⟩
         rw [Tools.ShippingMachineInst.moduleByName_name hmc]; exact hmc
     · intro mn iname conns hst
-      rcases hmt with ⟨_, hm'⟩ | ⟨children, hci⟩
+      rcases hmt with ⟨_, hm'⟩ | ⟨_, children, hci⟩
       · subst hm'; exact absurd rfl (notInst0 _ hst)
       · rcases Tools.ShippingMachineInst.closeInsts_insts hci _ hst rfl with h0 |
           ⟨k, args, child, mc, hargs, _, hmc, hcall⟩
         · exact absurd rfl (notInst0 _ h0)
         · refine ⟨k, args, mc, hargs, ?_, hcall⟩
-          obtain ⟨_, _, _, _, _, _, _, _, _, _, _, _, hst'⟩ := hcall
+          obtain ⟨_, _, _, _, _, _, _, _, _, _, _, _, _, hst'⟩ := hcall
           cases hst'
           rw [Tools.ShippingMachineInst.moduleByName_name hmc]; exact hmc
-    · rcases hmt with ⟨_, hm'⟩ | ⟨children, hci⟩
+    · rcases hmt with ⟨_, hm'⟩ | ⟨_, children, hci⟩
       · subst hm'; exact Tools.ShippingMachineInst.linkedOk_plain _ _ plain0
       · obtain ⟨_, _, _, _, _, _, _, _, _, _, _, _, hlink⟩ :=
           Tools.ShippingMachineInst.closeInsts_some hci
         exact hlink
+    · rcases hmt with ⟨_, hm'⟩ | ⟨_, children, hci⟩
+      · subst hm'; exact outs0
+      · obtain ⟨_, houts, _⟩ := Tools.ShippingMachineInst.closeInsts_some hci
+        rw [houts]; exact outs0
+    · intro hnil
+      rcases hmt with ⟨_, hm'⟩ | ⟨hne, _⟩
+      · subst hm'
+        have hpw' : packedWire? t'.body = some coreW := by simp [packedWire?, hB']
+        have hk : t'.inputs.length - shape.layout.slots.length = P1.length := by
+          rw [hin', List.length_append, slotsLen, psLen]; omega
+        have hP1 : P1 = machPorts declName ids cache
+            (shape.binders.take (shape.binders.length - shape.layout.slots.length -
+              shape.layout.lets)) := by
+          have hb : shape.binders.take (shape.binders.length - shape.layout.slots.length -
+              shape.layout.lets) = bsIn := by
+            rw [hbs, hlets, slotsLen]
+            simp only [List.length_append, List.append_assoc]
+            rw [show bsIn.length + (slotBs.length + letBs.length) - slotBs.length -
+              letBs.length = bsIn.length by omega, List.take_left]
+          rw [hb]
+          unfold machPorts
+          rw [zip_take_length bsIn ids]
+        unfold closeMachine
+        rw [hpw']
+        simp only
+        rw [hk, hin', List.take_left, List.filter_append, ← hP1]
+        have hkeep : P1.filter (fun p => p.name != "clk" && p.name != "rst") = P1 := by
+          apply List.filter_eq_self.mpr
+          intro p hp
+          have hpt : p ∈ t.inputs := by
+            rw [tInputs]; exact List.mem_append_left _ (List.mem_append_left _ hp)
+          have alloc : Sparkle.IR.NameHints.Allocated p.name := pb.wireNames p (pb.inputWires p hpt)
+          have hc : p.name ≠ "clk" := fun h => by
+            have := (h ▸ alloc : Sparkle.IR.NameHints.Allocated "clk").2
+            revert this; decide
+          have hr : p.name ≠ "rst" := fun h =>
+            Tools.ShippingRegisterSoundness.not_allocated_rst (h ▸ alloc)
+          simp [hc, hr]
+        rw [hkeep]
+        split <;> simp
+      · exact absurd hnil hne
+    · intro hnil hsl
+      rcases hmt with ⟨_, hm'⟩ | ⟨hne, _⟩
+      · subst hm'
+        unfold closeMachine
+        rw [hpwC]
+        simp only [hsl, List.length_nil, Nat.sub_zero, List.drop_length]
+        simp only [List.all_append, Bool.and_eq_true]
+        refine ⟨⟨⟨?_, by simp [nextAssigns]⟩, by simp [registers]⟩, ?_⟩
+        · exact List.all_eq_true.mpr fun st hs =>
+            List.all_eq_true.mp typed'.isAssign st (List.dropLast_subset _ hs)
+        · simp [outAssigns, Sparkle.IR.RegDedup.isAssign]
+      · exact absurd hnil hne
   refine ⟨ps.map Port.name, psNodup, by rw [List.length_map, psLen], ls.map Port.name,
     by rw [List.length_map, lsLen], wired, ?_⟩
   intro bools bits env0 mems inputs slotVals hrst hold
@@ -1262,7 +1327,7 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
           obtain ⟨o, ho, heq⟩ := List.mem_map.mp hmem
           exact (outNameOk_facts (outsOk o ho).2).1 (heq ▸ alloc)),
         hletv j p b hp hb]
-  rcases hmt with ⟨_, hmt⟩ | ⟨children, hci⟩
+  rcases hmt with ⟨_, hmt⟩ | ⟨_, children, hci⟩
   · subst hmt
     refine ⟨envF, hstep, fun o ho => ?_, hlets⟩
     rw [hout o ho, field_mask (R' "out") (houtfit o ho), hcore]

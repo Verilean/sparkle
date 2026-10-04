@@ -196,6 +196,7 @@ def CallStmt (nIn kI n : Nat) (portNames : List String) (k : Nat) (args : List N
     ((mc.inputs.filter fun p => p.name != "clk" && p.name != "rst").map (·.name)).Nodup ∧
     outW ∉ argWs ∧
     outP.name ∉ (mc.inputs.filter fun p => p.name != "clk" && p.name != "rst").map (·.name) ∧
+    outP.name ≠ "rst" ∧
     st = .inst mc.name iname
       (((mc.inputs.filter fun p => p.name != "clk" && p.name != "rst").zip argWs).map
         (fun (p, w) => (p.name, Expr.ref w)) ++ [(outP.name, Expr.ref outW)])
@@ -227,12 +228,18 @@ theorem instStmt_some {nIn kI n : Nat} {portNames : List String} {k : Nat} {args
     · cases h
     cases h
     simp only [Bool.or_eq_true, Bool.not_eq_true', decide_eq_false_iff_not, not_or,
-      Bool.not_eq_true, List.contains_iff_mem] at hnd
-    refine ⟨outW, argWs, outP, _, hout, hargs, houts, by simpa using hclk, ?_, ?_, ?_, ?_, rfl⟩
+      List.contains_iff_mem] at hnd
+    have hon' : ((mc.inputs.filter fun p => p.name != "clk" && p.name != "rst").any
+        (·.name == outP.name)) = false ∧ outP.name ≠ "rst" := by
+      have h2 := hon
+      simp only [Bool.or_eq_true, not_or] at h2
+      exact ⟨by simpa using h2.1, by simpa using h2.2⟩
+    refine ⟨outW, argWs, outP, _, hout, hargs, houts, by simpa using hclk, ?_, ?_, ?_, ?_, ?_, rfl⟩
     · simpa using hlen
     · simpa using hnd.1
     · simpa using hnd.2
-    · simpa using hon
+    · simpa using hon'.1
+    · exact hon'.2
   · cases h
 
 /-- **Every call is an instance statement of the closed module.** -/
@@ -264,6 +271,22 @@ theorem closeInsts_calls {nIn kI n : Nat} {portNames : List String} {insts : Lis
     -- `st` is in the appended statements, hence in the permuted body
     have hmem : st ∈ m₀.body ++ stmts := List.mem_append_right _ (List.mem_of_getElem? hstk)
     exact (isPermOf_sound hperm).mem_iff.mp hmem
+  · cases h
+
+/-- The closed module's inputs: the calls' ports stop being inputs. -/
+theorem closeInsts_inputs {nIn kI n : Nat} {portNames : List String} {insts : List (List Nat)}
+    {children : List (Module × Design)} {m₀ : Module} {d₀ : Design} {m : Module} {d : Design}
+    (h : closeInsts nIn kI n portNames insts children (m₀, d₀) = some (m, d)) :
+    ∃ outWs, (List.range insts.length).mapM (fun k => portNames[nIn + k]?) = some outWs ∧
+      m.inputs = m₀.inputs.filter (fun p => !outWs.contains p.name) := by
+  unfold closeInsts at h
+  simp only [Option.bind_eq_bind] at h
+  obtain ⟨stmts, _, h⟩ := Option.bind_eq_some_iff.mp h
+  obtain ⟨outWs, houtWs, h⟩ := Option.bind_eq_some_iff.mp h
+  obtain ⟨body, _, h⟩ := Option.bind_eq_some_iff.mp h
+  split at h
+  · cases h
+    exact ⟨outWs, houtWs, rfl⟩
   · cases h
 
 /-- **Every instance statement of the closed module is a call** (or was in

@@ -1,7 +1,7 @@
 import Sparkle.Core.CircuitDo
 import Sparkle.Compiler.InlineAttr
 import Tools.ShippingMachineCommand
-import Tools.ShippingMachineCompose
+import Tools.ShippingMachineChild
 
 /-! `@[hardware_module]` calls inside a `circuit do`, on the machine route.
 
@@ -146,6 +146,9 @@ run_cmd do
       ``Tools.ShippingMachineCompose.runModuleH_of_run,
       ``Tools.ShippingMachineCompose.sourceInputs_extend,
       ``Tools.ShippingMachineCompose.machine_linked,
+      ``Tools.ShippingMachineChild.childFn_of_trace,
+      ``Tools.ShippingMachineChild.child_full,
+      ``Tools.ShippingMachineChild.machine_traceL_of_comb,
       ``Tools.ShippingMachineInst.closeInsts_insts,
       ``Tools.ShippingMachineEntry.synthesizeMachineCertified_sound] do
     let axioms ← Lean.collectAxioms name
