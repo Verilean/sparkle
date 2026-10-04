@@ -1296,7 +1296,7 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   |---|---|---|
   | general lambda under `Signal.map`/`ap` | 14 | DONE 13 (2026-10-04): type aliases unfolded at the entry (`inlAbbrevs`, types too), lifted functions of any arity read as their body on Signals (`machNormApLift`, `machLiftScalarN`, comparisons to the canonical lifted compare); `shiftSurface` waits for ashr. Bonus: the two CDC example counters. Measured 147 → 132, outputs identical but CDC (machine route, checked), 166/166 simulation |
   | register-other (concrete domain, Bool loop register, chain) | 7 | canonical recognisers at `defaultDomain` (reset kind from the domain), Bool loop register, chains (S) |
-  | named-constant register inits (`sClosed`) | 6 | fold constant defs to literals before `machInit?` (S) |
+  | named-constant register inits (`sClosed`) | 6 | DONE 5 (2026-10-05): the real blocker was a closed `BitVec` VALUE `let` in the body (`let f := (packDataOffFlags … : BitVec 16)`), now substituted by `machNorm` like a `Nat` let. TCP server/client FSMs certified; 132 → 126 |
   | raw `runCircuitH` surface | 6 | match-destructured handles, `Circuit.read` in the reader (S) |
   | `ashr` / sign extension / negation | 8 | IR op + `Term` constructor + lemmas each, the slice/concat pattern (S each); also needed by `requantize` |
   | Prod-of-Signals result, List recursion | 2 | (S) |

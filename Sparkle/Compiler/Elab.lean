@@ -4514,6 +4514,9 @@ partial def machNorm (senv : StructEnv) : Lean.Expr → Lean.Expr
   -- position is a closed term the kernel reduces
   | .letE n t v b nd =>
     if t.isConstOf ``Nat then machNorm senv (b.instantiate1 v)
+    -- a closed `BitVec` value `let` (a constant computed in Lean): substituted,
+    -- so its uses are closed terms the kernel reduces to literals
+    else if (machBits? t).isSome && !v.hasLooseBVars then machNorm senv (b.instantiate1 v)
     else .letE n t (machNorm senv v) (machNorm senv b) nd
   | e => e
 
