@@ -298,7 +298,7 @@ theorem machine_ref_trace {declName shape m dsn}
       LetsScoped bpos vpos (bsIn.length + slotBs.length) letBs fs →
       ∃ regs : List String, regs.Nodup ∧ regs.length = slotBs.length ∧
       ∃ lets : List String, lets.length = letBs.length ∧
-      MachineWired declName shape ids cache m dsn lets ∧
+      MachineWired declName shape ids cache m dsn regs lets ∧
       ∀ (T : Nat) (inB : Nat → Nat → Bool) (inV : Nat → (j : Nat) → (n : Nat) → BitVec n)
         (seed : Nat → (String → Nat) → Env) (st0 : String → Nat) (mems : MEnv),
         (∀ t st, t < T →

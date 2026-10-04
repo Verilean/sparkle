@@ -696,7 +696,7 @@ theorem machine_endpoint {declName : Name} {shape : MachineShape} {m : Sparkle.I
     ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
       regs.Nodup ∧ regs.length = slotBs.length ∧
       ∃ lets : List String, lets.length = letBs.length ∧
-      MachineWired declName shape ids cache m dsn lets ∧
+      MachineWired declName shape ids cache m dsn regs lets ∧
       ∀ {D : DomainConfig} (σ : Nat → HList (tys ss))
         (bools : Nat → Signal D Bool) (bits : (j : Nat) → (n : Nat) → Signal D (BitVec n)),
         (∀ i, encState ss (σ 0) i = (shape.layout.slots[i]?.map (·.init)).getD 0) →

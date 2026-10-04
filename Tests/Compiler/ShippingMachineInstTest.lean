@@ -145,6 +145,7 @@ run_cmd do
       ``Tools.ShippingMachineCompose.childComputes_of_call,
       ``Tools.ShippingMachineCompose.runModuleH_of_run,
       ``Tools.ShippingMachineCompose.sourceInputs_extend,
+      ``Tools.ShippingMachineCompose.machine_linked,
       ``Tools.ShippingMachineInst.closeInsts_insts,
       ``Tools.ShippingMachineEntry.synthesizeMachineCertified_sound] do
     let axioms ← Lean.collectAxioms name

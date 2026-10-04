@@ -644,17 +644,19 @@ def machPorts (declName : Name) (ids : List FVarId) (cache : IO.Ref (ExprStructM
 
 /-- How a machine module is wired to its children in its design: the
 transition's port names are distinct, the `let` wires are the last of them,
-every call `k` is an instance statement of the module (`CallStmt`) whose
+the registers are among the slot and `let` ports, every call `k` is an instance statement of the module (`CallStmt`) whose
 module is what its name resolves to in the design, every instance statement
 is such a call, and the body is in the linked order. -/
 def MachineWired (declName : Name) (shape : MachineShape) (ids : List FVarId)
     (cache : IO.Ref (ExprStructMap String)) (m : Sparkle.IR.AST.Module) (dsn : Design)
-    (lets : List String) : Prop :=
+    (regs lets : List String) : Prop :=
   let names := (machPorts declName ids cache shape.binders).map (·.name)
   let kI := shape.insts.length
   let n := shape.layout.slots.length
   let nIn := machNIn shape
-  names.Nodup ∧ lets = names.drop (names.length - shape.layout.lets) ∧
+  names.Nodup ∧ (∀ x ∈ names, Sparkle.IR.NameHints.Allocated x) ∧
+  (∀ r ∈ regs, r ∈ names.drop (names.length - shape.layout.lets - n)) ∧
+  lets = names.drop (names.length - shape.layout.lets) ∧
   (∀ k, k < kI → ∃ args mc st, (shape.insts.map (·.2.1))[k]? = some args ∧ st ∈ m.body ∧
     moduleByName dsn.modules mc.name = some mc ∧ Tools.ShippingMachineInst.CallStmt nIn kI n names k args mc st) ∧
   (∀ mn iname conns, Stmt.inst mn iname conns ∈ m.body → ∃ k args mc,
@@ -687,7 +689,7 @@ def MachinePreserves (declName : Name) (shape : MachineShape)
     (∀ o ∈ shape.layout.outs, o.lo + o.width ≤ c) →
     ∃ regs : List String, regs.Nodup ∧ regs.length = slotBs.length ∧
     ∃ lets : List String, lets.length = letBs.length ∧
-    MachineWired declName shape ids cache m dsn lets ∧
+    MachineWired declName shape ids cache m dsn regs lets ∧
     ∀ (bools : Nat → Bool) (bits : (j : Nat) → (n : Nat) → BitVec n) (env0 : Env) (mems : MEnv),
       SourceInputs declName bsIn ids cache bools bits env0 →
       (∀ i r b, regs[i]? = some r → slotBs[i]? = some b →
@@ -1185,10 +1187,20 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
     intro st hs hi
     have := List.all_eq_true.mp plain0 st hs
     cases st <;> simp_all [Tools.ShippingMachineInst.plainStmt, Sparkle.IR.Machine.isInst]
-  have wired : MachineWired declName shape ids cache m d (ls.map Port.name) := by
+  have wired : MachineWired declName shape ids cache m d (ps.map Port.name) (ls.map Port.name) := by
     dsimp only [MachineWired]
     rw [hmp]
-    refine ⟨namesNodup, ?_, ?_, ?_, ?_⟩
+    refine ⟨namesNodup, ?_, ?_, ?_, ?_, ?_, ?_⟩
+    · intro x hx
+      obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hx
+      exact pb.wireNames p (pb.inputWires p hp)
+    · intro r hr
+      have e : (t.inputs.map Port.name).length - shape.layout.lets - shape.layout.slots.length =
+          (P1.map Port.name).length := by
+        rw [tInputs]; simp only [List.length_map, List.length_append]
+        rw [hlets, slotsLen, ← lsLen, ← psLen]; omega
+      rw [e, tInputs, List.map_append, List.map_append, List.append_assoc, List.drop_left]
+      exact List.mem_append_left _ hr
     · rw [← List.map_drop, List.length_map, hdropL]
     · intro k hk
       rcases hmt with ⟨hi, _⟩ | ⟨children, hci⟩
@@ -1288,7 +1300,7 @@ theorem machine_trace {declName shape m dsn} {bsIn slotBs letBs : List (Name × 
       (∀ o ∈ shape.layout.outs, o.lo + o.width ≤ c) →
       ∃ regs : List String, regs.Nodup ∧ regs.length = slotBs.length ∧
       ∃ lets : List String, lets.length = letBs.length ∧
-      MachineWired declName shape ids cache m dsn lets ∧
+      MachineWired declName shape ids cache m dsn regs lets ∧
       ∀ (T : Nat) (bools : Nat → Nat → Bool) (bits : Nat → (j : Nat) → (n : Nat) → BitVec n)
         (seed : Nat → (String → Nat) → Env) (st0 : String → Nat) (mems : MEnv),
         (∀ t st, t < T →

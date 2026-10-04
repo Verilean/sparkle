@@ -300,7 +300,7 @@ def MachineTraceL (declName : Name) (d : MachineData) (m : Sparkle.IR.AST.Module
   ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
     regs.Nodup ∧ regs.length = d.ss.length ∧
     ∃ lets : List String, lets.length = d.letBs.length ∧
-    MachineWired declName d.shape ids cache m dsn lets ∧
+    MachineWired declName d.shape ids cache m dsn regs lets ∧
     ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
       (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
       (T : Nat) (seed : Nat → (String → Nat) → Env) (st0 : String → Nat) (mems : MEnv),

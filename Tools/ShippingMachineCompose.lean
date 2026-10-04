@@ -1,6 +1,6 @@
 import Tools.ShippingMachineLinked
 import Tools.ShippingMachineInst
-import Tools.ShippingMachineEntry
+import Tools.ShippingMachineAuto
 
 /-! # Composing a machine with its children
 
@@ -164,6 +164,69 @@ theorem runModuleH_of_run (we : WEnv) (children : String → Option (Module × W
         simp only [Option.bind_some]
         rw [hrest]
         rfl
+
+/-- The environments of an open run are elaborations of the cycles' seeds. -/
+theorem runModule_envs (we : WEnv) (body : List Stmt) (seed : Nat → (String → Nat) → Env) :
+    ∀ (k : Nat) (st : String → Nat) (mems : MEnv) (envs : List Env),
+      runModule we body seed k st mems = some envs →
+      envs.length = k ∧ ∀ j (hj : j < envs.length), ∃ st' mems',
+        evalAssigns we mems' body (seed (k - 1 - j) st') = some (envs[j]'hj)
+  | 0, _, _, envs, h => by
+    simp only [runModule, Option.some.injEq] at h
+    subst h; exact ⟨rfl, fun j hj => absurd hj (by simp)⟩
+  | k + 1, st, mems, envs, h => by
+    have h' : (stepModule we body (seed k st) mems).bind (fun r =>
+        (runModule we body seed k (applyNexts st r.2.1) r.2.2).bind
+          (fun rest => some (r.1 :: rest))) = some envs := h
+    cases hS : stepModule we body (seed k st) mems with
+    | none => rw [hS] at h'; cases h'
+    | some r =>
+      obtain ⟨envF, nexts, mems'⟩ := r
+      rw [hS] at h'
+      simp only [Option.bind_some] at h'
+      cases hR : runModule we body seed k (applyNexts st nexts) mems' with
+      | none => rw [hR] at h'; cases h'
+      | some rest =>
+        rw [hR] at h'
+        simp only [Option.bind_some, Option.some.injEq] at h'
+        subst h'
+        obtain ⟨hlen, hrest⟩ := runModule_envs we body seed k _ _ rest hR
+        refine ⟨by simp [hlen], fun j hj => ?_⟩
+        cases j with
+        | zero =>
+          refine ⟨st, mems, ?_⟩
+          unfold stepModule at hS
+          cases hE : evalAssigns we mems body (seed k st) with
+          | none => rw [hE] at hS; cases hS
+          | some e =>
+            rw [hE] at hS
+            simp only [Option.bind_some, bind, Option.bind_eq_bind] at hS
+            cases hN : regNexts we mems body e with
+            | none => rw [hN] at hS; cases hS
+            | some ns =>
+              rw [hN] at hS
+              cases hM : memNexts we body mems e with
+              | none => rw [hM] at hS; simp at hS
+              | some ms =>
+                rw [hM] at hS
+                simp only [Option.bind_some, Option.some.injEq, Prod.mk.injEq] at hS
+                show evalAssigns we mems body (seed (k + 1 - 1 - 0) st) = some envF
+                rw [show k + 1 - 1 - 0 = k by omega, hE, hS.1]
+        | succ j =>
+          obtain ⟨st', mems'', h⟩ := hrest j (by simp at hj; omega)
+          refine ⟨st', mems'', ?_⟩
+          have : k + 1 - 1 - (j + 1) = k - 1 - j := by omega
+          rw [this]; exact h
+
+theorem bodyInstOuts_of_mem {children : String → Option (Module × WEnv)} :
+    ∀ {body : List Stmt} {st : Stmt} {w : String}, st ∈ body → w ∈ stmtInstOuts children st →
+      w ∈ bodyInstOuts children body
+  | [], _, _, h, _ => by cases h
+  | st' :: rest, st, w, h, hw => by
+    simp only [bodyInstOuts, List.mem_append]
+    rcases List.mem_cons.mp h with rfl | h
+    · exact Or.inl hw
+    · exact Or.inr (bodyInstOuts_of_mem h hw)
 
 /-! ## A call's child computes its value -/
 
@@ -355,6 +418,353 @@ theorem sourceInputs_extend {declName : Name} {bsD bsI : List (Name × MixedGate
     obtain ⟨⟨name, kind⟩, id⟩ := b
     cases kind <;> simp [binderEnc, posEnc, boolValues, bitValues, hidx, n] at hidx ⊢
 
+/-- One port per hardware binder. -/
+theorem inputPorts_length {bools bits} :
+    ∀ (L : List ((Name × MixedGateBinder) × FVarId)) (a : Setup),
+      (inputPorts bools bits L a).length = (L.filter (fun b => b.1.2 != .domain)).length
+  | [], _ => rfl
+  | ((name, .domain), id) :: rest, a => by
+    simp only [inputPorts, List.filter_cons]
+    exact inputPorts_length rest _
+  | ((name, .bool), id) :: rest, a => by
+    simp only [inputPorts, List.filter_cons, List.length_cons]
+    simp [inputPorts_length rest]
+  | ((name, .bits n), id) :: rest, a => by
+    simp only [inputPorts, List.filter_cons, List.length_cons]
+    simp [inputPorts_length rest]
+
+theorem filter_zip_length (L : List (Name × MixedGateBinder)) (ids : List FVarId)
+    (h : L.length ≤ ids.length) :
+    ((L.zip ids).filter (fun b => b.1.2 != .domain)).length =
+      (L.filter (fun b => b.2 != .domain)).length := by
+  induction L generalizing ids with
+  | nil => rfl
+  | cons b rest ih =>
+    cases ids with
+    | nil => simp at h
+    | cons id ids =>
+      simp only [List.zip_cons_cons, List.filter_cons]
+      have := ih ids (by simp at h; omega)
+      split <;> simp_all
+
+theorem machPorts_length {declName : Name} {ids : List FVarId}
+    {cache : IO.Ref (ExprStructMap String)} (L : List (Name × MixedGateBinder))
+    (h : L.length ≤ ids.length) :
+    (machPorts declName ids cache L).length = (L.filter (fun b => b.2 != .domain)).length := by
+  unfold machPorts
+  rw [inputPorts_length, filter_zip_length L ids h]
+
+/-- The ports of a binder list with more binders after it. -/
+theorem machPorts_append {declName : Name} {ids : List FVarId}
+    {cache : IO.Ref (ExprStructMap String)} (L1 L2 : List (Name × MixedGateBinder))
+    (h : L1.length + L2.length ≤ ids.length) :
+    ∃ rest, machPorts declName ids cache (L1 ++ L2) = machPorts declName ids cache L1 ++ rest := by
+  have hz : (L1 ++ L2).zip ids = L1.zip (ids.take L1.length) ++ L2.zip (ids.drop L1.length) := by
+    conv => lhs; rw [← List.take_append_drop L1.length ids]
+    exact List.zip_append (by simp; omega)
+  unfold machPorts
+  rw [hz, inputPorts_append, ← zip_take_length]
+  exact ⟨_, rfl⟩
+
 end Ports
+
+/-- The output wire of a call's instance is an instance output of the body. -/
+theorem callStmt_out {ms : List Module} {body : List Stmt} {nIn kI n : Nat}
+    {portNames : List String} {k : Nat} {args : List Nat} {mc : Module} {st : Stmt}
+    {outW : String} (hst : st ∈ body)
+    (hcall : Tools.ShippingMachineInst.CallStmt nIn kI n portNames k args mc st)
+    (hmc : Sparkle.IR.Machine.moduleByName ms mc.name = some mc)
+    (hout : portNames[nIn + k]? = some outW) :
+    outW ∈ bodyInstOuts (childMap ms) body := by
+  obtain ⟨outW', argWs, outP, iname, hout', _, houts, _, _, _, _, hon, rfl⟩ := hcall
+  rw [hout] at hout'
+  cases hout'
+  apply bodyInstOuts_of_mem hst
+  have hA : (mc.inputs.filter fun p => p.name != "clk" && p.name != "rst") = argPorts mc := rfl
+  rw [hA] at hon ⊢
+  have hlo : (((argPorts mc).zip argWs).map (fun (p, w) => ((p : Port).name, Expr.ref w)) ++
+      [(outP.name, Expr.ref outW)]).lookup outP.name = some (.ref outW) := by
+    rw [lookup_zip_rest _ _ _ _ hon]; simp [List.lookup]
+  simp only [stmtInstOuts, childMap, hmc, Option.map_some, houts, instOutWires,
+    List.filterMap_cons, List.filterMap_nil, hlo]
+  simp
+
+theorem idxOf_nodup {l : List String} (nd : l.Nodup) :
+    ∀ i (h : i < l.length), l.idxOf (l[i]'h) = i := by
+  induction l with
+  | nil => intro i h; simp at h
+  | cons a rest ih =>
+    intro i h
+    obtain ⟨ha, nd'⟩ := List.nodup_cons.mp nd
+    cases i with
+    | zero => simp
+    | succ i =>
+      have hne : (a == rest[i]'(by simp at h; omega)) = false := by
+        rw [beq_eq_false_iff_ne]
+        exact fun he => ha (he ▸ List.getElem_mem _)
+      simp only [List.getElem_cons_succ, List.idxOf_cons, hne, cond_false]
+      rw [ih nd' i]
+
+/-! ## The composed theorem -/
+
+section Linked
+open Lean Sparkle.Compiler.Elab Tools.ShippingMachineEntry Tools.ShippingMixedEntrySoundness
+open Tools.ShippingMixedSourceBridge Tools.ShippingMachineAuto
+open Sparkle.Core.Domain Sparkle.Core.Signal
+open Sparkle.IR.Machine (SlotField OutField)
+open Tools.ShippingEntrySoundness (weOf)
+
+/-- **A state machine composed with its children.** From the machine
+theorem of a declaration with `@[hardware_module]` calls (`MachineTraceL`,
+the open-module view in which a call's output is an input), the LINKED run
+of the emitted module — every instance evaluated by the module its name
+resolves to in the shipped design — shows the source, seeded with the
+declaration's own inputs only, provided every call's module computes some
+`F k` of its arguments (`ChildFn`) and the source's call is `F k` of the
+source's argument values at every cycle. -/
+theorem machine_linked {declName : Name} {d : MachineData} {m : Sparkle.IR.AST.Module} {dsn : Design}
+    {ι : Type} {dom : ι → DomainConfig}
+    {src : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat)}
+    {ext : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) →
+      (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)}
+    {lsrc : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat)}
+    (h : MachineTraceL declName d m dsn dom src ext lsrc)
+    (kD : Nat) (hkD : kD ≤ d.bsIn.length)
+    (hI : ∀ b ∈ d.bsIn.drop kD, b.2 ≠ .domain)
+    (hIlen : (d.bsIn.drop kD).length = d.shape.insts.length)
+    (hSL : ∀ b ∈ d.slotBs ++ d.letBs, b.2 ≠ .domain)
+    (hSlen : d.slotBs.length = d.shape.layout.slots.length)
+    (hLlen : d.letBs.length = d.shape.layout.lets)
+    (hNIn : machNIn d.shape = ((d.bsIn.take kD).filter (fun b => b.2 != .domain)).length)
+    (P : Nat → List Nat → Prop) (F : Nat → List Nat → Nat) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = d.shape.binders.length ∧
+    ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
+      regs.Nodup ∧ regs.length = d.ss.length ∧
+      ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+        (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
+        (T : Nat) (seed : Nat → (String → Nat) → Env) (st0 : String → Nat) (mems : MEnv),
+        (∀ t st, t < T → SourceInputs declName (d.bsIn.take kD) ids cache
+          (fun j => (bools j).val (T - 1 - t)) (fun j n => (ext i bools bits j n).val (T - 1 - t))
+          (seed t st)) →
+        (∀ t st r, r ∈ regs → seed t st r = st r) →
+        (∀ t st, seed t st "rst" = 0) →
+        (∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r →
+          d.shape.layout.slots[k]? = some f → st0 r = f.init) →
+        -- every call's module computes `F k`
+        (∀ k args mc st, (d.shape.insts.map (·.2.1))[k]? = some args → st ∈ m.body →
+          Tools.ShippingMachineInst.CallStmt (machNIn d.shape) d.shape.insts.length
+            d.shape.layout.slots.length
+            ((machPorts declName ids cache d.shape.binders).map (·.name)) k args mc st →
+          Sparkle.IR.Machine.moduleByName dsn.modules mc.name = some mc →
+          ChildFn mc (P k) (F k)) →
+        -- and the source's call is `F k` of its arguments
+        (∀ k args j, (d.shape.insts.map (·.2.1))[k]? = some args → j < T →
+          (∀ q ∈ args, q < d.ls.length ∧ q < (lsrc i bools bits).length) ∧
+          P k (args.map fun q => ((lsrc i bools bits)[q]?.map (· j)).getD 0) ∧
+          F k (args.map fun q => ((lsrc i bools bits)[q]?.map (· j)).getD 0) =
+            posEnc (fun p => (bools p).val j) (fun p n => (ext i bools bits p n).val j) (kD + k)
+              (((d.bsIn.drop kD)[k]?.map (·.2)).getD .domain)) →
+        ∃ envs, runModuleH (weOf m) (childMap dsn.modules) m.body seed T st0 mems = some envs ∧
+          envs.length = T ∧
+          ∀ j (hj : j < envs.length) (k : Nat) (o : OutField) (f : Nat → Nat),
+            d.shape.layout.outs[k]? = some o → (src i bools bits)[k]? = some f →
+            (envs[j]'hj) o.name = f j := by
+  obtain ⟨ids, nd, len, cache, regs, rnd, rlen, lets, llen, wired, trace⟩ := h
+  refine ⟨ids, nd, len, cache, regs, rnd, rlen, ?_⟩
+  intro i bools bits T seed st0 mems hin hpass hrst hinit hchild hval
+  obtain ⟨nnd, alloc, regsIn, hlets, calls, insts, link⟩ := wired
+  -- the ports: the declaration's, the calls', then the slots' and `let`s'
+  let bsD := d.bsIn.take kD
+  let bsI := d.bsIn.drop kD
+  let names := (machPorts declName ids cache d.shape.binders).map (·.name)
+  have hbin : d.shape.binders = (bsD ++ bsI) ++ (d.slotBs ++ d.letBs) := by
+    rw [List.take_append_drop, ← List.append_assoc]; exact d.binders_split
+  have hlenB : (bsD ++ bsI).length + (d.slotBs ++ d.letBs).length ≤ ids.length := by
+    rw [len, hbin]; simp only [List.length_append]; omega
+  obtain ⟨restP, hrestP⟩ := machPorts_append (declName := declName) (cache := cache)
+    (bsD ++ bsI) (d.slotBs ++ d.letBs) hlenB
+  have hlenDI : bsD.length + bsI.length ≤ ids.length := by
+    have := hlenB; simp only [List.length_append] at this ⊢; omega
+  obtain ⟨insP, hinsP⟩ := machPorts_append (declName := declName) (cache := cache) bsD bsI hlenDI
+  have hDlen : (machPorts declName ids cache bsD).length = machNIn d.shape := by
+    rw [hNIn]; exact machPorts_length bsD (by omega)
+  have hDIlen : (machPorts declName ids cache (bsD ++ bsI)).length =
+      machNIn d.shape + d.shape.insts.length := by
+    rw [machPorts_length _ (by omega), List.filter_append, List.length_append, ← hNIn,
+      List.filter_eq_self.mpr (fun b hb => by simpa using hI b hb), hIlen]
+  have hinsLen : insP.length = d.shape.insts.length := by
+    have := congrArg List.length hinsP
+    rw [List.length_append, hDIlen, hDlen] at this; omega
+  have hnamesEq : names = ((machPorts declName ids cache bsD).map (·.name) ++
+      insP.map (·.name)) ++ restP.map (·.name) := by
+    simp only [names]
+    rw [show machPorts declName ids cache d.shape.binders =
+      machPorts declName ids cache ((bsD ++ bsI) ++ (d.slotBs ++ d.letBs)) by rw [← hbin],
+      hrestP, hinsP, List.map_append, List.map_append]
+  have hallLen : names.length =
+      machNIn d.shape + d.shape.insts.length + d.shape.layout.slots.length +
+        d.shape.layout.lets := by
+    have hrestLen : restP.length = d.shape.layout.slots.length + d.shape.layout.lets := by
+      have h1 := congrArg List.length hrestP
+      rw [List.length_append, machPorts_length _ (by simp only [List.length_append] at hlenB ⊢; omega),
+        machPorts_length _ (by omega : (bsD ++ bsI).length ≤ ids.length), List.filter_append,
+        List.length_append,
+        (List.filter_eq_self (l := d.slotBs ++ d.letBs)).mpr (fun b hb => by simpa using hSL b hb),
+        List.length_append, hSlen, hLlen] at h1
+      omega
+    rw [hnamesEq]
+    simp only [List.length_append, List.length_map, hDlen, hinsLen, hrestLen]
+    omega
+  -- the calls' port names
+  let insNames := insP.map (·.name)
+  have hinsAt : ∀ k, k < d.shape.insts.length →
+      names[machNIn d.shape + k]? = insNames[k]? := by
+    intro k hk
+    rw [hnamesEq, List.append_assoc, List.getElem?_append_right (by simp [hDlen]),
+      List.getElem?_append_left (by simp [insNames, hinsLen, hDlen]; omega)]
+    simp [hDlen, insNames]
+  have hnd' : ((machPorts declName ids cache (bsD ++ bsI)).map (·.name)).Nodup := by
+    have := nnd
+    rw [show (machPorts declName ids cache d.shape.binders).map (·.name) = names from rfl,
+      hnamesEq, ← List.map_append, ← hinsP] at this
+    exact (List.nodup_append.mp this).1
+  have hinsNd : insNames.Nodup := by
+    rw [hinsP, List.map_append] at hnd'
+    exact (List.nodup_append.mp hnd').2.1
+  -- the values of the calls, by cycle
+  let V : Nat → Nat → Nat := fun k j =>
+    posEnc (fun p => (bools p).val j) (fun p n => (ext i bools bits p n).val j) (kD + k)
+      (((bsI)[k]?.map (·.2)).getD .domain)
+  let seed' : Nat → (String → Nat) → Env := fun t st x =>
+    if x ∈ insNames then V (insNames.idxOf x) (T - 1 - t) else seed t st x
+  have hoff : ∀ t st x, x ∉ insNames → seed' t st x = seed t st x := by
+    intro t st x hx; simp [seed', hx]
+  have hon : ∀ t st k p, insP[k]? = some p →
+      seed' t st p.name = V k (T - 1 - t) := by
+    intro t st k p hp
+    have hmem : p.name ∈ insNames := List.mem_map_of_mem (List.mem_of_getElem? hp)
+    have hidx : insNames.idxOf p.name = k := by
+      have hk : k < insP.length := (List.getElem?_eq_some_iff.mp hp).1
+      have : insNames[k]'(by simp [insNames]; exact hk) = p.name := by
+        simp [insNames, (List.getElem?_eq_some_iff.mp hp).2]
+      rw [← this]; exact idxOf_nodup hinsNd k _
+    simp [seed', hmem, hidx]
+  -- registers and reset are not calls' ports
+  have notIns : ∀ x ∈ names.drop (names.length - d.shape.layout.lets -
+      d.shape.layout.slots.length), x ∉ insNames := by
+    intro x hx hxi
+    have hdrop : names.drop (names.length - d.shape.layout.lets - d.shape.layout.slots.length) =
+        restP.map (·.name) := by
+      have hL : names.length - d.shape.layout.lets - d.shape.layout.slots.length =
+          ((machPorts declName ids cache bsD).map (·.name) ++ insP.map (·.name)).length := by
+        rw [hallLen]; simp [hDlen, hinsLen]
+      rw [hL, hnamesEq, List.drop_left]
+    rw [hdrop] at hx
+    have := nnd
+    rw [show (machPorts declName ids cache d.shape.binders).map (·.name) = names from rfl,
+      hnamesEq] at this
+    have hd := (List.nodup_append.mp this).2.2
+    exact hd x (List.mem_append_right _ hxi) x hx rfl
+  have rstNot : "rst" ∉ insNames := by
+    intro h
+    have : "rst" ∈ names := by
+      rw [hnamesEq]; exact List.mem_append_left _ (List.mem_append_right _ h)
+    exact Tools.ShippingRegisterSoundness.not_allocated_rst (alloc _ this)
+  -- the open run from `seed'`
+  have hlenIds : ids.length = d.shape.binders.length := len
+  obtain ⟨envs, hrun, hlenE, hobs, hletobs⟩ := trace i bools bits T seed' st0 mems
+    (by
+      intro t st ht
+      have hsrc := sourceInputs_extend (declName := declName) nd hlenDI hI hnd' (hin t st ht)
+        (env' := seed' t st) (fun x hx => hoff t st x (by rwa [hinsP, List.drop_left' (by
+          simp)] at hx))
+        (fun k p b hp hb => by
+          rw [hinsP, List.drop_left' (by simp)] at hp
+          rw [hon t st k p hp]
+          simp only [V, hb, Option.map_some, Option.getD_some]
+          congr 1; simp [bsD]; omega)
+      rw [show d.bsIn = bsD ++ bsI from (List.take_append_drop _ _).symm]
+      exact hsrc)
+    (by
+      intro t st r hr
+      rw [hoff t st r (notIns r (regsIn r hr))]
+      exact hpass t st r hr)
+    (by intro t st; rw [hoff t st _ rstNot]; exact hrst t st)
+    hinit
+  -- the linked run
+  have hwf : linkedWF (childMap dsn.modules) m.body = true := by
+    rw [← linkedOk_eq]; exact link
+  have hoff' : ∀ t st n, n ∉ bodyInstOuts (childMap dsn.modules) m.body →
+      seed' t st n = seed t st n := by
+    intro t st n hn
+    apply hoff
+    intro hni
+    obtain ⟨k, hk, hkn⟩ := List.getElem_of_mem hni
+    have hk' : k < d.shape.insts.length := by simp [insNames, hinsLen] at hk; exact hk
+    obtain ⟨args, mc, st', _, hst', hmc, hcall⟩ := calls k hk'
+    exact hn (callStmt_out hst' hcall hmc (by rw [hinsAt k hk', List.getElem?_eq_getElem hk, hkn]))
+  obtain ⟨_, henvs⟩ := runModule_envs (weOf m) m.body seed' T st0 mems envs hrun
+  refine ⟨envs, runModuleH_of_run (weOf m) (childMap dsn.modules) m.body seed seed' hwf hoff'
+    T st0 mems envs hrun ?_, hlenE, hobs⟩
+  intro j hj mems' mn iname conns hmem
+  obtain ⟨k, args, mc, hargs, hmc, hcall⟩ := insts mn iname conns hmem
+  have hname : mc.name = mn := Tools.ShippingMachineInst.moduleByName_name hmc
+  have hmc' : Sparkle.IR.Machine.moduleByName dsn.modules mc.name = some mc := by
+    rw [hname]; exact hmc
+  have hjT : j < T := by omega
+  obtain ⟨hq, hP, hF⟩ := hval k args j hargs hjT
+  refine childComputes_of_call hmc hcall (hchild k args mc _ hargs hmem hcall hmc') ?_
+  intro outW argWs hout hargWs
+  -- the argument wires are the `let` wires of the arguments
+  have hkI : k < d.shape.insts.length := by
+    have := (List.getElem?_eq_some_iff.mp hargs).1; simpa using this
+  have hargVals : argWs.map (envs[j]'hj) =
+      args.map fun q => ((lsrc i bools bits)[q]?.map (· j)).getD 0 := by
+    obtain ⟨hl, hget⟩ := Tools.ShippingMachineInst.mapM_some _ args argWs hargWs
+    apply List.ext_getElem (by simp [hl])
+    intro q h1 h2
+    have hqa : q < args.length := by simpa using h2
+    have hqw : q < argWs.length := by simpa using h1
+    simp only [List.getElem_map]
+    obtain ⟨w, hw, hwq⟩ := hget q hqa
+    have hwq' : argWs[q] = w := by
+      rw [List.getElem?_eq_getElem hqw] at hwq; exact Option.some.inj hwq
+    rw [hwq']
+    obtain ⟨hql, hqs⟩ := hq (args[q]'hqa) (List.getElem_mem _)
+    -- `w` is `let` wire `args[q]`
+    have hlw : lets[args[q]'hqa]? = some w := by
+      rw [hlets, List.getElem?_drop]
+      rw [← hw]
+      congr 1
+      rw [hallLen]; omega
+    obtain ⟨g, hg⟩ : ∃ g, (lsrc i bools bits)[args[q]'hqa]? = some g :=
+      ⟨_, List.getElem?_eq_getElem hqs⟩
+    rw [hletobs j hj (args[q]'hqa) w g hlw hg hql, hg]
+    rfl
+  have hout' : outW = insNames[k]'(by simp [insNames, hinsLen]; exact hkI) := by
+    rw [hinsAt k hkI, List.getElem?_eq_getElem (by simp [insNames, hinsLen]; exact hkI)] at hout
+    exact (Option.some.inj hout).symm
+  -- the call's wire carries the call's value: the open run leaves it as seeded
+  obtain ⟨stj, memsj, hev⟩ := henvs j hj
+  have hframe := evalAssigns_frame (weOf m) memsj (childMap dsn.modules) m.body _ _ outW hwf hev
+    (instOuts_not_written m.body outW hwf (by
+      rw [hout']
+      obtain ⟨args', mc', st', _, hst', hmc'', hcall'⟩ := calls k hkI
+      exact callStmt_out hst' hcall' hmc'' (by
+        rw [hinsAt k hkI, List.getElem?_eq_getElem (by simp [insNames, hinsLen]; exact hkI)])))
+  have hpk : insP[k]? = some (insP[k]'(by rw [hinsLen]; exact hkI)) :=
+    List.getElem?_eq_getElem _
+  have hseedv := hon (T - 1 - j) stj k _ hpk
+  refine ⟨by rw [hargVals]; exact hP, ?_⟩
+  rw [hargVals, hF, hframe, hout']
+  simp only [insNames, List.getElem_map]
+  rw [hseedv]
+  have : T - 1 - (T - 1 - j) = j := by omega
+  rw [this]
+
+end Linked
 
 end Tools.ShippingMachineCompose
