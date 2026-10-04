@@ -337,60 +337,60 @@ theorem runModuleH_of_open (we : WEnv) (children : String → Option (Module × 
 
 /-! ## The compiler's order check is the correspondence's condition -/
 
-/-- The children of `closeInsts` as the linked semantics reads them. -/
-def childMap (children : List (Module × Design)) : String → Option (Module × WEnv) :=
-  fun mn => (Sparkle.IR.Machine.childByName children mn).map fun c =>
+/-- A design's modules as the linked semantics reads them. -/
+def childMap (ms : List Module) : String → Option (Module × WEnv) :=
+  fun mn => (Sparkle.IR.Machine.moduleByName ms mn).map fun c =>
     (c, Sparkle.IR.RegDedup.declWidth c)
 
-theorem stmtOuts_eq (children : List (Module × Design)) (st : Stmt) :
-    Sparkle.IR.Machine.stmtOuts (Sparkle.IR.Machine.childByName children) st =
-      stmtInstOuts (childMap children) st := by
+theorem stmtOuts_eq (ms : List Module) (st : Stmt) :
+    Sparkle.IR.Machine.stmtOuts (Sparkle.IR.Machine.moduleByName ms) st =
+      stmtInstOuts (childMap ms) st := by
   cases st with
   | inst mn iname conns =>
     simp only [Sparkle.IR.Machine.stmtOuts, stmtInstOuts, childMap]
-    cases Sparkle.IR.Machine.childByName children mn <;> rfl
+    cases Sparkle.IR.Machine.moduleByName ms mn <;> rfl
   | _ => rfl
 
-theorem bodyOuts_eq (children : List (Module × Design)) :
-    ∀ body : List Stmt, Sparkle.IR.Machine.bodyOuts (Sparkle.IR.Machine.childByName children) body =
-      bodyInstOuts (childMap children) body
+theorem bodyOuts_eq (ms : List Module) :
+    ∀ body : List Stmt, Sparkle.IR.Machine.bodyOuts (Sparkle.IR.Machine.moduleByName ms) body =
+      bodyInstOuts (childMap ms) body
   | [] => rfl
   | st :: rest => by
-    simp only [Sparkle.IR.Machine.bodyOuts, bodyInstOuts, stmtOuts_eq, bodyOuts_eq children rest]
+    simp only [Sparkle.IR.Machine.bodyOuts, bodyInstOuts, stmtOuts_eq, bodyOuts_eq ms rest]
 
-theorem bodyWrites_eq (children : List (Module × Design)) :
+theorem bodyWrites_eq (ms : List Module) :
     ∀ body : List Stmt,
-      Sparkle.IR.Machine.bodyWrites (Sparkle.IR.Machine.childByName children) body =
-        linkedWrites (childMap children) body
+      Sparkle.IR.Machine.bodyWrites (Sparkle.IR.Machine.moduleByName ms) body =
+        linkedWrites (childMap ms) body
   | [] => rfl
   | .assign l r :: rest => by
-    simp only [Sparkle.IR.Machine.bodyWrites, linkedWrites, bodyWrites_eq children rest]
+    simp only [Sparkle.IR.Machine.bodyWrites, linkedWrites, bodyWrites_eq ms rest]
   | .inst mn iname conns :: rest => by
     show Sparkle.IR.Machine.stmtOuts _ (.inst mn iname conns) ++ _ =
       stmtInstOuts _ (.inst mn iname conns) ++ _
-    rw [stmtOuts_eq, bodyWrites_eq children rest]
+    rw [stmtOuts_eq, bodyWrites_eq ms rest]
   | .register o c rk i iv :: rest => by
     show Sparkle.IR.Machine.stmtOuts _ (.register o c rk i iv) ++ _ =
       stmtInstOuts _ (.register o c rk i iv) ++ _
-    rw [stmtOuts_eq, bodyWrites_eq children rest]
+    rw [stmtOuts_eq, bodyWrites_eq ms rest]
   | .memory nm aw dw clk wa wd wen ra rd cr ew er :: rest => by
     show Sparkle.IR.Machine.stmtOuts _ (.memory nm aw dw clk wa wd wen ra rd cr ew er) ++ _ =
       stmtInstOuts _ (.memory nm aw dw clk wa wd wen ra rd cr ew er) ++ _
-    rw [stmtOuts_eq, bodyWrites_eq children rest]
+    rw [stmtOuts_eq, bodyWrites_eq ms rest]
 
-theorem linkedOk_eq (children : List (Module × Design)) :
+theorem linkedOk_eq (ms : List Module) :
     ∀ body : List Stmt,
-      Sparkle.IR.Machine.linkedOk (Sparkle.IR.Machine.childByName children) body =
-        linkedWF (childMap children) body
+      Sparkle.IR.Machine.linkedOk (Sparkle.IR.Machine.moduleByName ms) body =
+        linkedWF (childMap ms) body
   | [] => rfl
   | .assign l r :: rest => by
-    simp only [Sparkle.IR.Machine.linkedOk, linkedWF, bodyOuts_eq, linkedOk_eq children rest]
+    simp only [Sparkle.IR.Machine.linkedOk, linkedWF, bodyOuts_eq, linkedOk_eq ms rest]
   | .inst mn iname conns :: rest => by
-    simp only [Sparkle.IR.Machine.linkedOk, linkedWF, linkedOk_eq children rest, bodyWrites_eq]
+    simp only [Sparkle.IR.Machine.linkedOk, linkedWF, linkedOk_eq ms rest, bodyWrites_eq]
     unfold childMap
-    cases Sparkle.IR.Machine.childByName children mn <;> rfl
+    cases Sparkle.IR.Machine.moduleByName ms mn <;> rfl
   | .register o c rk i iv :: rest => by
-    simp only [Sparkle.IR.Machine.linkedOk, linkedWF, linkedOk_eq children rest]
+    simp only [Sparkle.IR.Machine.linkedOk, linkedWF, linkedOk_eq ms rest]
   | .memory .. :: _ => rfl
 
 end Tools.ShippingMachineLinked

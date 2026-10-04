@@ -4594,7 +4594,11 @@ def closeInstsM (shape : MachineShape) (t m : Sparkle.IR.AST.Module)
   let children ← shape.insts.mapM fun (c, _, _) => synth c
   let kI := shape.insts.length
   let n := shape.layout.slots.length
-  let nIn := shape.binders.length - kI - n - shape.layout.lets
+  -- `t.inputs` has one port per binder EXCEPT a domain binder: count the
+  -- declaration's ports, not its binders (the call outputs and `let`s come
+  -- after them, and are never domains)
+  let nDecl := shape.binders.length - kI - n - shape.layout.lets
+  let nIn := ((shape.binders.take nDecl).filter (fun b => b.2 != .domain)).length
   return Sparkle.IR.Machine.closeInsts nIn kI n (t.inputs.map (·.name))
     (shape.insts.map (·.2.1)) children (m, design)
 

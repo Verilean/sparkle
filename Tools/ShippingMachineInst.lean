@@ -147,7 +147,7 @@ theorem closeInsts_some {nIn kI n : Nat} {portNames : List String} {insts : List
     ∃ L : List Stmt, L.all isInst = true ∧ (m₀.body ++ L).Perm m.body ∧
       WO [] (m₀.body ++ L) ∧ WO [] m.body ∧ seqOf (m₀.body ++ L) = seqOf m.body ∧
       ((m₀.body ++ L).filterMap stmtMemName).Nodup ∧ (nextKeys (m₀.body ++ L)).Nodup ∧
-      linkedOk (childByName children) m.body = true := by
+      d = designWith children d₀ ∧ linkedOk (moduleByName d.modules) m.body = true := by
   unfold closeInsts at h
   simp only [Option.bind_eq_bind] at h
   obtain ⟨stmts, _, h⟩ := Option.bind_eq_some_iff.mp h
@@ -156,11 +156,210 @@ theorem closeInsts_some {nIn kI n : Nat} {portNames : List String} {insts : List
   split at h
   · rename_i hc
     simp only [Bool.and_eq_true, decide_eq_true_eq] at hc
-    obtain ⟨⟨⟨⟨⟨⟨⟨hinst, hwo⟩, hwo'⟩, hperm⟩, hseq⟩, hkeys⟩, hmem⟩, hlink⟩ := hc
+    obtain ⟨⟨⟨⟨⟨⟨⟨⟨hinst, _⟩, hwo⟩, hwo'⟩, hperm⟩, hseq⟩, hkeys⟩, hmem⟩, hlink⟩ := hc
     cases h
     refine ⟨rfl, rfl, rfl, stmts, hinst, isPermOf_sound hperm, woCheck_sound _ _ hwo,
-      woCheck_sound _ _ hwo', hseq, hmem, hkeys, hlink⟩
+      woCheck_sound _ _ hwo', hseq, hmem, hkeys, rfl, hlink⟩
   · cases h
+
+/-- An `Option` `mapM` that succeeds succeeds at every element. -/
+theorem mapM_some {α β : Type} (f : α → Option β) :
+    ∀ (l : List α) (r : List β), l.mapM f = some r →
+      r.length = l.length ∧ ∀ i (hi : i < l.length), ∃ y, f l[i] = some y ∧ r[i]? = some y
+  | [], r, h => by
+    simp only [List.mapM_nil, pure, Option.some.injEq] at h
+    subst h; exact ⟨rfl, fun i hi => absurd hi (Nat.not_lt_zero i)⟩
+  | x :: xs, r, h => by
+    simp only [List.mapM_cons, bind, Option.bind_eq_bind] at h
+    obtain ⟨y, hy, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨ys, hys, h⟩ := Option.bind_eq_some_iff.mp h
+    simp only [pure, Option.some.injEq] at h
+    subst h
+    obtain ⟨hl, hget⟩ := mapM_some f xs ys hys
+    refine ⟨by simp [hl], fun i hi => ?_⟩
+    cases i with
+    | zero => exact ⟨y, hy, rfl⟩
+    | succ i =>
+      obtain ⟨z, hz, hzr⟩ := hget i (by simpa using hi)
+      exact ⟨z, hz, by simpa using hzr⟩
+
+/-- The instance statement of call `k`: an instance of the call's child,
+its input ports connected to the call's argument wires, its output port to
+the transition's input port `portNames[nIn + k]`. -/
+def CallStmt (nIn kI n : Nat) (portNames : List String) (k : Nat) (args : List Nat)
+    (mc : Module) (st : Stmt) : Prop :=
+  ∃ outW argWs outP iname, portNames[nIn + k]? = some outW ∧
+    args.mapM (fun j => portNames[nIn + kI + n + j]?) = some argWs ∧
+    mc.outputs = [outP] ∧
+    (mc.inputs.any (fun p => p.name == "clk" || p.name == "rst")) = false ∧
+    (mc.inputs.filter fun p => p.name != "clk" && p.name != "rst").length = argWs.length ∧
+    ((mc.inputs.filter fun p => p.name != "clk" && p.name != "rst").map (·.name)).Nodup ∧
+    outW ∉ argWs ∧
+    outP.name ∉ (mc.inputs.filter fun p => p.name != "clk" && p.name != "rst").map (·.name) ∧
+    st = .inst mc.name iname
+      (((mc.inputs.filter fun p => p.name != "clk" && p.name != "rst").zip argWs).map
+        (fun (p, w) => (p.name, Expr.ref w)) ++ [(outP.name, Expr.ref outW)])
+
+theorem instStmt_some {nIn kI n : Nat} {portNames : List String} {k : Nat} {args : List Nat}
+    {mc m : Module} {st : Stmt} (h : instStmt nIn kI n portNames k args mc m = some st) :
+    CallStmt nIn kI n portNames k args mc st := by
+  unfold instStmt at h
+  simp only [Option.bind_eq_bind] at h
+  obtain ⟨outW, hout, h⟩ := Option.bind_eq_some_iff.mp h
+  obtain ⟨argWs, hargs, h⟩ := Option.bind_eq_some_iff.mp h
+  split at h
+  · cases h
+  rename_i hlen
+  split at h
+  · cases h
+  rename_i hclk
+  split at h
+  · cases h
+  rename_i hnd
+  split at h
+  · rename_i outP houts
+    split at h
+    · cases h
+    rename_i hon
+    split at h
+    · cases h
+    split at h
+    · cases h
+    cases h
+    simp only [Bool.or_eq_true, Bool.not_eq_true', decide_eq_false_iff_not, not_or,
+      Bool.not_eq_true, List.contains_iff_mem] at hnd
+    refine ⟨outW, argWs, outP, _, hout, hargs, houts, by simpa using hclk, ?_, ?_, ?_, ?_, rfl⟩
+    · simpa using hlen
+    · simpa using hnd.1
+    · simpa using hnd.2
+    · simpa using hon
+  · cases h
+
+/-- **Every call is an instance statement of the closed module.** -/
+theorem closeInsts_calls {nIn kI n : Nat} {portNames : List String} {insts : List (List Nat)}
+    {children : List (Module × Design)} {m₀ : Module} {d₀ : Design} {m : Module} {d : Design}
+    (h : closeInsts nIn kI n portNames insts children (m₀, d₀) = some (m, d)) :
+    ∀ k, k < insts.length → ∃ args child mc, insts[k]? = some args ∧ children[k]? = some child ∧
+      moduleByName d.modules child.1.name = some mc ∧
+      ∃ st ∈ m.body, CallStmt nIn kI n portNames k args mc st := by
+  intro k hk
+  unfold closeInsts at h
+  simp only [Option.bind_eq_bind] at h
+  obtain ⟨stmts, hstmts, h⟩ := Option.bind_eq_some_iff.mp h
+  obtain ⟨outWs, _, h⟩ := Option.bind_eq_some_iff.mp h
+  obtain ⟨body, _, h⟩ := Option.bind_eq_some_iff.mp h
+  split at h
+  · rename_i hc
+    simp only [Bool.and_eq_true, decide_eq_true_eq] at hc
+    obtain ⟨⟨⟨⟨⟨⟨⟨⟨_, _⟩, _⟩, _⟩, hperm⟩, _⟩, _⟩, _⟩, _⟩ := hc
+    cases h
+    -- the `k`-th statement of `stmts`
+    obtain ⟨_, hget⟩ := mapM_some _ _ stmts hstmts
+    obtain ⟨st, hst, hstk⟩ := hget k (by simpa using hk)
+    simp only [List.getElem_range, Option.bind_eq_bind] at hst
+    obtain ⟨args, hargs, hst⟩ := Option.bind_eq_some_iff.mp hst
+    obtain ⟨child, hchild, hst⟩ := Option.bind_eq_some_iff.mp hst
+    obtain ⟨mc, hmc, hst⟩ := Option.bind_eq_some_iff.mp hst
+    refine ⟨args, child, mc, hargs, hchild, hmc, st, ?_, instStmt_some hst⟩
+    -- `st` is in the appended statements, hence in the permuted body
+    have hmem : st ∈ m₀.body ++ stmts := List.mem_append_right _ (List.mem_of_getElem? hstk)
+    exact (isPermOf_sound hperm).mem_iff.mp hmem
+  · cases h
+
+/-- **Every instance statement of the closed module is a call** (or was in
+the module before). -/
+theorem closeInsts_insts {nIn kI n : Nat} {portNames : List String} {insts : List (List Nat)}
+    {children : List (Module × Design)} {m₀ : Module} {d₀ : Design} {m : Module} {d : Design}
+    (h : closeInsts nIn kI n portNames insts children (m₀, d₀) = some (m, d)) :
+    ∀ st ∈ m.body, isInst st = true → st ∈ m₀.body ∨
+      ∃ k args child mc, insts[k]? = some args ∧ children[k]? = some child ∧
+        moduleByName d.modules child.1.name = some mc ∧ CallStmt nIn kI n portNames k args mc st := by
+  intro st hst hinst
+  unfold closeInsts at h
+  simp only [Option.bind_eq_bind] at h
+  obtain ⟨stmts, hstmts, h⟩ := Option.bind_eq_some_iff.mp h
+  obtain ⟨outWs, _, h⟩ := Option.bind_eq_some_iff.mp h
+  obtain ⟨body, _, h⟩ := Option.bind_eq_some_iff.mp h
+  split at h
+  · rename_i hc
+    simp only [Bool.and_eq_true, decide_eq_true_eq] at hc
+    obtain ⟨⟨⟨⟨⟨⟨⟨⟨_, _⟩, _⟩, _⟩, hperm⟩, _⟩, _⟩, _⟩, _⟩ := hc
+    cases h
+    have hmem : st ∈ m₀.body ++ stmts := (isPermOf_sound hperm).mem_iff.mpr hst
+    rcases List.mem_append.mp hmem with h0 | hs
+    · exact Or.inl h0
+    · right
+      obtain ⟨hlen, hget⟩ := mapM_some _ _ stmts hstmts
+      obtain ⟨k, hk, rfl⟩ := List.getElem_of_mem hs
+      obtain ⟨st', hst', hstk⟩ := hget k (by rw [← hlen]; exact hk)
+      rw [List.getElem?_eq_getElem hk, Option.some.injEq] at hstk
+      subst hstk
+      simp only [List.getElem_range, Option.bind_eq_bind] at hst'
+      obtain ⟨args, hargs, hst'⟩ := Option.bind_eq_some_iff.mp hst'
+      obtain ⟨child, hchild, hst'⟩ := Option.bind_eq_some_iff.mp hst'
+      obtain ⟨mc, hmc, hst'⟩ := Option.bind_eq_some_iff.mp hst'
+      exact ⟨k, args, child, mc, hargs, hchild, hmc, instStmt_some hst'⟩
+  · cases h
+
+theorem moduleByName_name {ms : List Module} {nm : String} {mc : Module}
+    (h : moduleByName ms nm = some mc) : mc.name = nm := by
+  unfold moduleByName at h
+  simpa using List.find?_some h
+
+/-! ### Bodies without instances -/
+
+/-- An assignment or a register. -/
+def plainStmt : Stmt → Bool
+  | .assign .. => true
+  | .register .. => true
+  | _ => false
+
+theorem bodyOuts_plain (f : String → Option Module) :
+    ∀ body : List Stmt, body.all plainStmt = true → bodyOuts f body = []
+  | [], _ => rfl
+  | st :: rest, h => by
+    simp only [List.all_cons, Bool.and_eq_true] at h
+    simp only [bodyOuts, bodyOuts_plain f rest h.2, List.append_nil]
+    cases st <;> simp_all [plainStmt, stmtOuts]
+
+/-- A body of assignments and registers is in the linked order. -/
+theorem linkedOk_plain (f : String → Option Module) :
+    ∀ body : List Stmt, body.all plainStmt = true → linkedOk f body = true
+  | [], _ => rfl
+  | st :: rest, h => by
+    simp only [List.all_cons, Bool.and_eq_true] at h
+    have ih := linkedOk_plain f rest h.2
+    cases st with
+    | assign l r => simp [linkedOk, bodyOuts_plain f rest h.2, ih]
+    | register o c rk i iv => simp [linkedOk, ih]
+    | _ => simp [plainStmt] at h
+
+theorem nextAssigns_plain (w : String) :
+    ∀ (ps : List Port) (fs : List SlotField), (nextAssigns w ps fs).all plainStmt = true
+  | p :: ps, f :: fs => by simp [nextAssigns, plainStmt, nextAssigns_plain w ps fs]
+  | [], _ => rfl
+  | _ :: _, [] => rfl
+
+theorem registers_plain (rk : Sparkle.IR.Type.ResetKind) :
+    ∀ (ps : List Port) (fs : List SlotField), (registers rk ps fs).all plainStmt = true
+  | p :: ps, f :: fs => by simp [registers, plainStmt, registers_plain rk ps fs]
+  | [], _ => rfl
+  | _ :: _, [] => rfl
+
+/-- Closing a body of assignments gives a body of assignments and registers. -/
+theorem closeMachine_plain (lay : Layout) (t : Module) (h : t.body.all Sparkle.IR.RegDedup.isAssign = true) :
+    (closeMachine lay t).body.all plainStmt = true := by
+  have ha : ∀ st ∈ t.body, plainStmt st = true := by
+    intro st hs
+    have := List.all_eq_true.mp h st hs
+    cases st <;> simp_all [Sparkle.IR.RegDedup.isAssign, plainStmt]
+  unfold closeMachine
+  split
+  · exact List.all_eq_true.mpr ha
+  · simp only [List.all_append, Bool.and_eq_true]
+    refine ⟨⟨⟨List.all_eq_true.mpr fun st hs => ha st (List.dropLast_subset _ hs),
+      nextAssigns_plain _ _ _⟩, registers_plain _ _ _⟩, ?_⟩
+    simp [outAssigns, plainStmt]
 
 /-- **`closeInsts` keeps every cycle.** -/
 theorem stepModule_of_closeInsts {nIn kI n : Nat} {portNames : List String}

@@ -628,6 +628,40 @@ def packedAt {srt : SType} (e : Term srt) (bpos vpos : Nat → Nat) (bools : Nat
     (bits : (j : Nat) → (n : Nat) → BitVec n) : Nat :=
   (pack srt (eval (fun j => bools (bpos j)) (fun j w => bits (vpos j) w) e)).toNat
 
+/-- The number of the declaration's ports (its binders but the calls, slots
+and `let`s, a domain binder having no port): where `closeInstsM` finds the
+calls' ports. -/
+def machNIn (shape : MachineShape) : Nat :=
+  ((shape.binders.take (shape.binders.length - shape.insts.length - shape.layout.slots.length -
+    shape.layout.lets)).filter (fun b => b.2 != .domain)).length
+
+/-- The ports the binders of a machine transition get, in order (a domain
+binder has none); their names depend on the allocator only. -/
+def machPorts (declName : Name) (ids : List FVarId) (cache : IO.Ref (ExprStructMap String))
+    (bs : List (Name × MixedGateBinder)) : List Port :=
+  inputPorts (fun _ => false) (fun _ n => 0#n) (bs.zip ids)
+    (start (entryCompilerState false cache) declName.toString)
+
+/-- How a machine module is wired to its children in its design: the
+transition's port names are distinct, the `let` wires are the last of them,
+every call `k` is an instance statement of the module (`CallStmt`) whose
+module is what its name resolves to in the design, every instance statement
+is such a call, and the body is in the linked order. -/
+def MachineWired (declName : Name) (shape : MachineShape) (ids : List FVarId)
+    (cache : IO.Ref (ExprStructMap String)) (m : Sparkle.IR.AST.Module) (dsn : Design)
+    (lets : List String) : Prop :=
+  let names := (machPorts declName ids cache shape.binders).map (·.name)
+  let kI := shape.insts.length
+  let n := shape.layout.slots.length
+  let nIn := machNIn shape
+  names.Nodup ∧ lets = names.drop (names.length - shape.layout.lets) ∧
+  (∀ k, k < kI → ∃ args mc st, (shape.insts.map (·.2.1))[k]? = some args ∧ st ∈ m.body ∧
+    moduleByName dsn.modules mc.name = some mc ∧ Tools.ShippingMachineInst.CallStmt nIn kI n names k args mc st) ∧
+  (∀ mn iname conns, Stmt.inst mn iname conns ∈ m.body → ∃ k args mc,
+    (shape.insts.map (·.2.1))[k]? = some args ∧ moduleByName dsn.modules mn = some mc ∧
+    Tools.ShippingMachineInst.CallStmt nIn kI n names k args mc (.inst mn iname conns)) ∧
+  linkedOk (moduleByName dsn.modules) m.body = true
+
 /-- **One cycle of a compiled state machine.** The module the machine route
 returns has one register per slot (`regs`, in slot order) and, on every
 environment that carries the inputs' values, holds the slots' values in the
@@ -638,7 +672,8 @@ at any valuation of the binders that gives the `let` binders the values of
 their fields (`LetsHold`). The transition's packed term is
 `let₀ ++ … ++ letₖ₋₁ ++ core`. -/
 def MachinePreserves (declName : Name) (shape : MachineShape)
-    (bsIn slotBs letBs : List (Name × MixedGateBinder)) (m : Sparkle.IR.AST.Module) : Prop :=
+    (bsIn slotBs letBs : List (Name × MixedGateBinder)) (m : Sparkle.IR.AST.Module)
+    (dsn : Design) : Prop :=
   ∃ ids : List FVarId, ids.Nodup ∧ ids.length = shape.binders.length ∧
   ∃ cache : IO.Ref (ExprStructMap String),
     ∀ (dom : Lean.Expr) (kb kv : Nat) (vw : Nat → Nat) (bpos vpos : Nat → Nat)
@@ -652,6 +687,7 @@ def MachinePreserves (declName : Name) (shape : MachineShape)
     (∀ o ∈ shape.layout.outs, o.lo + o.width ≤ c) →
     ∃ regs : List String, regs.Nodup ∧ regs.length = slotBs.length ∧
     ∃ lets : List String, lets.length = letBs.length ∧
+    MachineWired declName shape ids cache m dsn lets ∧
     ∀ (bools : Nat → Bool) (bits : (j : Nat) → (n : Nat) → BitVec n) (env0 : Env) (mems : MEnv),
       SourceInputs declName bsIn ids cache bools bits env0 →
       (∀ i r b, regs[i]? = some r → slotBs[i]? = some b →
@@ -671,8 +707,7 @@ def MachinePreserves (declName : Name) (shape : MachineShape)
 children (whatever the child entry returned). -/
 theorem closeInstsM_returns {shape t m₀ d₀ m d}
     (hr : MReturns (closeInstsM shape t m₀ d₀) (some (m, d))) :
-    ∃ children, closeInsts (shape.binders.length - shape.insts.length -
-        shape.layout.slots.length - shape.layout.lets) shape.insts.length
+    ∃ children, closeInsts (machNIn shape) shape.insts.length
         shape.layout.slots.length (t.inputs.map (·.name)) (shape.insts.map (·.2.1)) children
         (m₀, d₀) = some (m, d) := by
   unfold closeInstsM at hr
@@ -699,8 +734,7 @@ theorem synthesizeMachineCertified_returns {logProf declName shape m d}
         shape.binders shape.body) (t, d₀) ∧
       closeLets shape.layout.lets t = some t' ∧
       ((shape.insts = [] ∧ m = closeMachine shape.layout t' ∧ d = d₀) ∨
-       (shape.insts ≠ [] ∧ ∃ children, closeInsts (shape.binders.length - shape.insts.length -
-          shape.layout.slots.length - shape.layout.lets) shape.insts.length
+       (shape.insts ≠ [] ∧ ∃ children, closeInsts (machNIn shape) shape.insts.length
           shape.layout.slots.length (t.inputs.map (·.name)) (shape.insts.map (·.2.1)) children
           (closeMachine shape.layout t', d₀) = some (m, d))) := by
   unfold synthesizeMachineCertified at hr
@@ -760,17 +794,17 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
       shape.layout.slots slotBs)
     (outsOk : ∀ o ∈ shape.layout.outs, 0 < o.width ∧ outNameOk o.name = true)
     (outsNodup : (shape.layout.outs.map (·.name)).Nodup) :
-    MachinePreserves declName shape bsIn slotBs letBs m := by
+    MachinePreserves declName shape bsIn slotBs letBs m d := by
   obtain ⟨t, t', d₀, hrun, hcl, hmt⟩ := synthesizeMachineCertified_returns hr
   -- the module is the closed transition, or `closeInsts` of it
-  have hmt : m = closeMachine shape.layout t' ∨
-      ∃ (nIn kI n : Nat) (portNames : List String) (insts : List (List Nat))
-        (children : List (Sparkle.IR.AST.Module × Design)),
-        closeInsts nIn kI n portNames insts children (closeMachine shape.layout t', d₀) =
-          some (m, d) := by
-    rcases hmt with ⟨_, h, _⟩ | ⟨_, children, h⟩
-    · exact Or.inl h
-    · exact Or.inr ⟨_, _, _, _, _, children, h⟩
+  have hmt : (shape.insts = [] ∧ m = closeMachine shape.layout t') ∨
+      ∃ children : List (Sparkle.IR.AST.Module × Design),
+        closeInsts (machNIn shape) shape.insts.length shape.layout.slots.length
+          (t.inputs.map (·.name)) (shape.insts.map (·.2.1)) children
+          (closeMachine shape.layout t', d₀) = some (m, d) := by
+    rcases hmt with ⟨hi, h, _⟩ | ⟨_, children, h⟩
+    · exact Or.inl ⟨hi, h⟩
+    · exact Or.inr ⟨children, h⟩
   obtain ⟨ids, cache, returned, st, nd, len, run, hm, _, nameLegal⟩ :=
     synthesizeMixedCertified_returns hrun
   refine ⟨ids, nd, len, cache, ?_⟩
@@ -828,6 +862,7 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
   obtain ⟨_, _, _, ready, _, hwe0, _, _, base⟩ := raw _ _ _ (fun _ _ => 0) zero
   have pb := base positive
   have inNodup := pb.inputNames
+  have namesNodup := pb.inputNames
   rw [tInputs, List.map_append, List.map_append] at inNodup
   have psNodup : (ps.map Port.name).Nodup :=
     (List.nodup_append.mp (List.nodup_append.mp inNodup).1).2.1
@@ -1141,8 +1176,44 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
     | domain => exact absurd rfl hnd
     | bool => exact ⟨by rw [hw, hwe]; rfl, by rw [hwe]; exact Nat.one_pos⟩
     | bits n => exact ⟨by rw [hw, hwe]; rfl, by rw [hwe]; exact hpos n rfl⟩
+  -- the wiring of the instances
+  have hmp : machPorts declName ids cache shape.binders = t.inputs := (hinputs _ _).symm
+  have plain0 : (closeMachine shape.layout t').body.all Tools.ShippingMachineInst.plainStmt =
+      true := Tools.ShippingMachineInst.closeMachine_plain _ _ typed'.isAssign
+  have notInst0 : ∀ st ∈ (closeMachine shape.layout t').body,
+      Sparkle.IR.Machine.isInst st = true → False := by
+    intro st hs hi
+    have := List.all_eq_true.mp plain0 st hs
+    cases st <;> simp_all [Tools.ShippingMachineInst.plainStmt, Sparkle.IR.Machine.isInst]
+  have wired : MachineWired declName shape ids cache m d (ls.map Port.name) := by
+    dsimp only [MachineWired]
+    rw [hmp]
+    refine ⟨namesNodup, ?_, ?_, ?_, ?_⟩
+    · rw [← List.map_drop, List.length_map, hdropL]
+    · intro k hk
+      rcases hmt with ⟨hi, _⟩ | ⟨children, hci⟩
+      · rw [hi] at hk; exact absurd hk (Nat.not_lt_zero k)
+      · obtain ⟨args, child, mc, hargs, _, hmc, st, hst, hcall⟩ :=
+          Tools.ShippingMachineInst.closeInsts_calls hci k (by simpa using hk)
+        refine ⟨args, mc, st, hargs, hst, ?_, hcall⟩
+        rw [Tools.ShippingMachineInst.moduleByName_name hmc]; exact hmc
+    · intro mn iname conns hst
+      rcases hmt with ⟨_, hm'⟩ | ⟨children, hci⟩
+      · subst hm'; exact absurd rfl (notInst0 _ hst)
+      · rcases Tools.ShippingMachineInst.closeInsts_insts hci _ hst rfl with h0 |
+          ⟨k, args, child, mc, hargs, _, hmc, hcall⟩
+        · exact absurd rfl (notInst0 _ h0)
+        · refine ⟨k, args, mc, hargs, ?_, hcall⟩
+          obtain ⟨_, _, _, _, _, _, _, _, _, _, _, _, hst'⟩ := hcall
+          cases hst'
+          rw [Tools.ShippingMachineInst.moduleByName_name hmc]; exact hmc
+    · rcases hmt with ⟨_, hm'⟩ | ⟨children, hci⟩
+      · subst hm'; exact Tools.ShippingMachineInst.linkedOk_plain _ _ plain0
+      · obtain ⟨_, _, _, _, _, _, _, _, _, _, _, _, hlink⟩ :=
+          Tools.ShippingMachineInst.closeInsts_some hci
+        exact hlink
   refine ⟨ps.map Port.name, psNodup, by rw [List.length_map, psLen], ls.map Port.name,
-    by rw [List.length_map, lsLen], ?_⟩
+    by rw [List.length_map, lsLen], wired, ?_⟩
   intro bools bits env0 mems inputs slotVals hrst hold
   obtain ⟨R', hev, hcore, hletv⟩ := cycle bools bits env0 mems inputs
     (fun i p b hp hb => slotVals i p.name b (by simp [hp]) hb) hold
@@ -1179,7 +1250,7 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
           obtain ⟨o, ho, heq⟩ := List.mem_map.mp hmem
           exact (outNameOk_facts (outsOk o ho).2).1 (heq ▸ alloc)),
         hletv j p b hp hb]
-  rcases hmt with hmt | ⟨nIn, kI, n', portNames, insts, children, hci⟩
+  rcases hmt with ⟨_, hmt⟩ | ⟨children, hci⟩
   · subst hmt
     refine ⟨envF, hstep, fun o ho => ?_, hlets⟩
     rw [hout o ho, field_mask (R' "out") (houtfit o ho), hcore]
@@ -1201,8 +1272,8 @@ whose `let` values are the values of their fields. Then a `T`-cycle run of
 the emitted module, seeded each cycle with the inputs of that cycle over the
 register state and with reset low, succeeds, and cycle `j` drives `out` with
 the result field of the transition at time `j`. -/
-theorem machine_trace {declName shape m} {bsIn slotBs letBs : List (Name × MixedGateBinder)}
-    (h : MachinePreserves declName shape bsIn slotBs letBs m)
+theorem machine_trace {declName shape m dsn} {bsIn slotBs letBs : List (Name × MixedGateBinder)}
+    (h : MachinePreserves declName shape bsIn slotBs letBs m dsn)
     (slotsLen : shape.layout.slots.length = slotBs.length) :
     ∃ ids : List FVarId, ids.Nodup ∧ ids.length = shape.binders.length ∧
     ∃ cache : IO.Ref (ExprStructMap String),
@@ -1217,6 +1288,7 @@ theorem machine_trace {declName shape m} {bsIn slotBs letBs : List (Name × Mixe
       (∀ o ∈ shape.layout.outs, o.lo + o.width ≤ c) →
       ∃ regs : List String, regs.Nodup ∧ regs.length = slotBs.length ∧
       ∃ lets : List String, lets.length = letBs.length ∧
+      MachineWired declName shape ids cache m dsn lets ∧
       ∀ (T : Nat) (bools : Nat → Nat → Bool) (bits : Nat → (j : Nat) → (n : Nat) → BitVec n)
         (seed : Nat → (String → Nat) → Env) (st0 : String → Nat) (mems : MEnv),
         (∀ t st, t < T →
@@ -1238,9 +1310,9 @@ theorem machine_trace {declName shape m} {bsIn slotBs letBs : List (Name × Mixe
   obtain ⟨ids, nd, len, cache, h⟩ := h
   refine ⟨ids, nd, len, cache, ?_⟩
   intro dom kb kv vw bpos vpos fs c core he hb hv hbody hfit houtfit
-  obtain ⟨regs, regsNd, regsLen, lets, letsLen, step⟩ :=
+  obtain ⟨regs, regsNd, regsLen, lets, letsLen, wired, step⟩ :=
     h dom kb kv vw bpos vpos fs core he hb hv hbody hfit houtfit
-  refine ⟨regs, regsNd, regsLen, lets, letsLen, ?_⟩
+  refine ⟨regs, regsNd, regsLen, lets, letsLen, wired, ?_⟩
   intro T bools bits seed st0 mems inputs pass rst init follow hold
   -- `k` cycles remain; the state holds the slots' values at time `T - k`.
   suffices main : ∀ (k : Nat), k ≤ T → ∀ (st : String → Nat),
@@ -1418,7 +1490,7 @@ theorem synthesizeCombinationalCore_machine_sound {declName : Name}
       shape.layout.slots slotBs)
     (outsOk : ∀ o ∈ shape.layout.outs, 0 < o.width ∧ outNameOk o.name = true)
     (outsNodup : (shape.layout.outs.map (·.name)).Nodup) :
-    MachinePreserves declName shape bsIn slotBs letBs m := by
+    MachinePreserves declName shape bsIn slotBs letBs m d := by
   obtain ⟨logProf, envR, ci, w1, w2, w3, w4, w5, w6, get, henv, run⟩ :=
     synthesizeCombinationalCore_reads hr
   obtain ⟨old, miss, _⟩ := entry _ _ _ _ _ _ _ _ _ get henv henv

@@ -276,7 +276,9 @@ def instStmt (nIn kI n : Nat) (portNames : List String) (k : Nat) (args : List N
   let inPorts := mc.inputs.filter fun p => p.name != "clk" && p.name != "rst"
   if inPorts.length != argWs.length then none else
   if mc.inputs.any (fun p => p.name == "clk" || p.name == "rst") then none else
+  if !decide (inPorts.map (·.name)).Nodup || argWs.contains outW then none else
   let [outP] := mc.outputs | none
+  if inPorts.any (·.name == outP.name) then none else
   if !m.wires.any (·.name == outW) then none else
   let instName := s!"inst{k}_{mc.name}"
   let names := m.inputs.map (·.name) ++ m.outputs.map (·.name) ++ m.wires.map (·.name)
@@ -352,9 +354,10 @@ def linkedOk (children : String → Option Module) : List Stmt → Bool
   | .register _ _ _ _ _ :: rest => linkedOk children rest
   | .memory .. :: _ => false
 
-/-- The children by module name. -/
-def childByName (children : List (Module × Design)) (mn : String) : Option Module :=
-  (children.find? (fun c => c.1.name == mn)).map (·.1)
+/-- A design's module by name (the first of that name: what an instance of
+that name means in the design). -/
+def moduleByName (ms : List Module) (mn : String) : Option Module :=
+  ms.find? (fun c => c.name == mn)
 
 /-- Tie every call to an instance: the output ports stop being inputs, the
 instance statements are appended, and the combinational statements are put
@@ -365,22 +368,25 @@ order, the register and memory names distinct. -/
 def closeInsts (nIn kI n : Nat) (portNames : List String) (insts : List (List Nat))
     (children : List (Module × Design)) (md : Module × Design) : Option (Module × Design) := do
   let (m, d) := md
+  let d' := designWith children d
   let stmts ← (List.range insts.length).mapM fun k => do
     let args ← insts[k]?
     let child ← children[k]?
-    instStmt nIn kI n portNames k args child.1 m
+    -- the module the name resolves to in the shipped design
+    let mc ← moduleByName d'.modules child.1.name
+    instStmt nIn kI n portNames k args mc m
   let outWs ← (List.range insts.length).mapM fun k => portNames[nIn + k]?
   let m' : Module := { m with
     inputs := m.inputs.filter fun p => !outWs.contains p.name
     body := m.body ++ stmts }
   let body ← topoBody m'.body
-  if stmts.all isInst && Sparkle.IR.Reorder.woCheck [] m'.body &&
+  if stmts.all isInst && decide portNames.Nodup && Sparkle.IR.Reorder.woCheck [] m'.body &&
       Sparkle.IR.Reorder.woCheck [] body && Sparkle.IR.Reorder.isPermOf m'.body body &&
       decide (seqOf m'.body = seqOf body) &&
       decide (Sparkle.IR.Reorder.nextKeys m'.body).Nodup &&
       decide (m'.body.filterMap Sparkle.IR.Reorder.stmtMemName).Nodup &&
-      linkedOk (childByName children) body then
-    some ({ m' with body := body }, designWith children d)
+      linkedOk (moduleByName d'.modules) body then
+    some ({ m' with body := body }, d')
   else none
 
 end Sparkle.IR.Machine

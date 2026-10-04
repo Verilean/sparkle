@@ -668,8 +668,8 @@ writes are the typed values of the next-value terms, a run of the emitted
 module from the reset values shows on every output port the typed value of
 that port's term on the `circuit do`'s own state — at every cycle. -/
 theorem machine_endpoint {declName : Name} {shape : MachineShape} {m : Sparkle.IR.AST.Module}
-    {bsIn slotBs letBs : List (Name × MixedGateBinder)}
-    (h : MachinePreserves declName shape bsIn slotBs letBs m)
+    {dsn : Sparkle.IR.AST.Design} {bsIn slotBs letBs : List (Name × MixedGateBinder)}
+    (h : MachinePreserves declName shape bsIn slotBs letBs m dsn)
     {ss : List SType} {ls : List (Σ s : SType, Term s)} {nexts : Terms ss}
     {f0 : Σ w : Nat, Term (.bits w)} {rest : List (Σ w : Nat, Term (.bits w))}
     {K : Nat → Option SType} {kb kv : Nat} {vw bpos vpos : Nat → Nat} {dom : Lean.Expr}
@@ -696,6 +696,7 @@ theorem machine_endpoint {declName : Name} {shape : MachineShape} {m : Sparkle.I
     ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
       regs.Nodup ∧ regs.length = slotBs.length ∧
       ∃ lets : List String, lets.length = letBs.length ∧
+      MachineWired declName shape ids cache m dsn lets ∧
       ∀ {D : DomainConfig} (σ : Nat → HList (tys ss))
         (bools : Nat → Signal D Bool) (bits : (j : Nat) → (n : Nat) → Signal D (BitVec n)),
         (∀ i, encState ss (σ 0) i = (shape.layout.slots[i]?.map (·.init)).getD 0) →
@@ -732,8 +733,8 @@ theorem machine_endpoint {declName : Name} {shape : MachineShape} {m : Sparkle.I
   obtain ⟨ids, nd, len, cache, href⟩ := machine_ref_trace h layW
   have href' := href dom kb kv vw bpos vpos (ls.map fun l => toField l.1 l.2)
     (packList f0 rest).2 hwf hb hv hbody hfit houtfit hscoped
-  obtain ⟨regs, rnd, rlen, lets, llen, trace⟩ := href'
-  refine ⟨ids, nd, len, cache, regs, rnd, rlen, lets, llen, ?_⟩
+  obtain ⟨regs, rnd, rlen, lets, llen, wired, trace⟩ := href'
+  refine ⟨ids, nd, len, cache, regs, rnd, rlen, lets, llen, wired, ?_⟩
   intro D σ bools bits hinit hstep T seed st0 mems inputs pass rst init
   obtain ⟨envs, hrun, hlen, hobs, hlet⟩ := trace T (fun τ p => (bools p).val τ)
     (fun τ p w => (bits p w).val τ) seed st0 mems inputs pass rst init

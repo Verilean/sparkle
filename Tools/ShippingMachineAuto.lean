@@ -284,8 +284,10 @@ def MachineTraceWith (declName : Name) (d : MachineData) (m : Sparkle.IR.AST.Mod
 
 /-- `MachineTraceWith` and, for `let` observations `lsrc` (one per hardware
 `let` of the transition, as far as given), the `let` wires: wire `q` shows
-observation `q` at every cycle. -/
+observation `q` at every cycle; and the module is wired to its children in
+its design `dsn` (`MachineWired`). -/
 def MachineTraceL (declName : Name) (d : MachineData) (m : Sparkle.IR.AST.Module)
+    (dsn : Sparkle.IR.AST.Design)
     {ι : Type} (dom : ι → DomainConfig)
     (src : (i : ι) → (Nat → Signal (dom i) Bool) →
       ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat))
@@ -298,6 +300,7 @@ def MachineTraceL (declName : Name) (d : MachineData) (m : Sparkle.IR.AST.Module
   ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
     regs.Nodup ∧ regs.length = d.ss.length ∧
     ∃ lets : List String, lets.length = d.letBs.length ∧
+    MachineWired declName d.shape ids cache m dsn lets ∧
     ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
       (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
       (T : Nat) (seed : Nat → (String → Nat) → Env) (st0 : String → Nat) (mems : MEnv),
@@ -316,10 +319,10 @@ def MachineTraceL (declName : Name) (d : MachineData) (m : Sparkle.IR.AST.Module
           lets[q]? = some name → (lsrc i bools bits)[q]? = some g → q < d.ls.length →
           (envs[j]'hj) name = g j
 
-theorem MachineTraceL.toWith {declName d m ι dom src ext lsrc}
-    (h : @MachineTraceL declName d m ι dom src ext lsrc) :
+theorem MachineTraceL.toWith {declName d m dsn ι dom src ext lsrc}
+    (h : @MachineTraceL declName d m dsn ι dom src ext lsrc) :
     MachineTraceWith declName d m dom src ext := by
-  obtain ⟨ids, nd, len, cache, regs, rnd, rlen, _, _, h⟩ := h
+  obtain ⟨ids, nd, len, cache, regs, rnd, rlen, _, _, _, h⟩ := h
   refine ⟨ids, nd, len, cache, regs, rnd, rlen, ?_⟩
   intro i bools bits T seed st0 mems a b c e
   obtain ⟨envs, hrun, hlen, hobs, _⟩ := h i bools bits T seed st0 mems a b c e
@@ -413,7 +416,7 @@ theorem machine_trace_lets_of_stream {declName : Name} (d : MachineData) {ι : T
       (m, design) w')
     (entry : MachineDefines mctx mref cctx cref declName d.shape)
     (closes : MachineCloses mctx mref cctx cref declName d.shape) :
-    MachineTraceL declName d m dom src ext lsrc := by
+    MachineTraceL declName d m design dom src ext lsrc := by
   simp only [MachineData.ok, Bool.and_eq_true, decide_eq_true_eq, Bool.not_eq_true'] at ok
   obtain ⟨hlen, hlets, positive, slotKinds, letKinds, layB, outsOk, outsNodup, hwf, hb, hv,
     hfit, houtfit, hscoped, hslots, fb, fv, fslots, flets, nextsWF, houts, hne⟩ := ok
@@ -427,7 +430,7 @@ theorem machine_trace_lets_of_stream {declName : Name} (d : MachineData) {ι : T
     zip_of_all (by
       intro a b h
       simpa only [Bool.and_eq_true, decide_eq_true_eq] using h) layB
-  have hpres : MachinePreserves declName d.shape d.bsIn d.slotBs d.letBs m :=
+  have hpres : MachinePreserves declName d.shape d.bsIn d.slotBs d.letBs m design :=
     synthesizeCombinationalCore_machine_sound hr entry closes d.binders_split hlets
       (by
         intro name n hmem
@@ -473,11 +476,11 @@ theorem machine_trace_lets_of_stream {declName : Name} (d : MachineData) {ι : T
     exact ⟨fb, fv, fun i s hs => by
       have hi : i < d.ss.length := (List.getElem?_eq_some_iff.mp hs).1
       rw [fslots i hi, hs], flets⟩
-  obtain ⟨ids, nd, len, cache, regs, rnd, rlen, lets, llen, h⟩ :=
+  obtain ⟨ids, nd, len, cache, regs, rnd, rlen, lets, llen, wired, h⟩ :=
     machine_endpoint hpres (K := d.K) (nOuts := d.outs.length) layW hwf hb' hv' hbody hfit
       houtfit (by rw [hkIn, hn]; exact hscoped) hn hnexts (hf ▸ slotsFit_of hslots) facts
       nextsWF
-  refine ⟨ids, nd, len, cache, regs, rnd, rlen.trans hn, lets, llen, ?_⟩
+  refine ⟨ids, nd, len, cache, regs, rnd, rlen.trans hn, lets, llen, wired, ?_⟩
   intro ix bools bits T seed st0 mems inputs pass rst init
   have hinit' : ∀ i, encState d.ss inits i =
       (d.shape.layout.slots[i]?.map (·.init)).getD 0 := by

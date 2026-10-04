@@ -240,6 +240,15 @@ computes its source function) composed through the linked semantics
 (`evalAssignsH`, S6 `linked_open`); that composition exists for the
 mixed route's instances and is NOT yet done for machine modules — until
 it is, a machine with instances is certified relative to its children.
+This gap is not cosmetic: the open-module theorems cannot see WHICH wires an
+instance connects, and a real miscompile lived there — `closeInstsM` found
+the call's output and argument wires by BINDER position, so in a
+domain-polymorphic declaration (the domain binder has no port) the instance
+was wired one position off. It is fixed (the offset now counts ports;
+regression `callerD` in ShippingMachineInstTest checks the instance drives
+its own `_gen_inst` wire and reads only its argument wires); the entry
+theorem now quantifies over the offset, and the linked composition is what
+will rule out this class for good.
 Declarations are added with
 synchronous kernel checking and the theorem's axioms are audited, so a
 failed check cannot leave a constant behind. The command also runs the

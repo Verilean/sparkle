@@ -1,6 +1,7 @@
 import Sparkle.Core.CircuitDo
 import Sparkle.Compiler.InlineAttr
 import Tools.ShippingMachineCommand
+import Tools.ShippingMachineCompose
 
 /-! `@[hardware_module]` calls inside a `circuit do`, on the machine route.
 
@@ -70,12 +71,34 @@ def callerNested (x : Signal defaultDomain (BitVec 8)) (en : Signal defaultDomai
     acc <~ pick s (accS + x)
     return accS
 
+/-- A combinational child polymorphic in the domain. -/
+@[hardware_module]
+def pickD {dom : DomainConfig} (sel : Signal dom (BitVec 2)) (x : Signal dom (BitVec 8)) :
+    Signal dom (BitVec 8) :=
+  Signal.mux (sel === (Signal.pure 0#2 : Signal dom (BitVec 2))) x
+    (x ^^^ (Signal.pure 0xFF#8 : Signal dom (BitVec 8)))
+
+/-- A domain-polymorphic machine calling it: the domain binder has no port,
+so the call's output and argument wires are found by PORT position (a
+regression: counting binders connected the instance to the wrong wires). -/
+def callerD {dom : DomainConfig} (x : Signal dom (BitVec 8)) : Signal dom (BitVec 8) :=
+  circuit do
+    let sel ← Signal.reg 0#2
+    let acc ← Signal.reg 0#8
+    let selS := (sel : Signal dom (BitVec 2))
+    let accS := (acc : Signal dom (BitVec 8))
+    let y := pickD selS (accS + x)
+    sel <~ selS + (Signal.pure 1#2 : Signal dom (BitVec 2))
+    acc <~ y
+    return y
+
 /-! ## The route -/
 
 run_cmd liftTermElabM do
   let env ← getEnv
   let senv := structEnv env
-  for (n, insts) in [(``caller, 1), (``callerTwice, 1), (``callerNested, 1)] do
+  for (n, insts, child) in [(``caller, 1, ``pick), (``callerTwice, 1, ``pick),
+      (``callerNested, 1, ``pick), (``callerD, 1, ``pickD)] do
     let ci ← getConstInfo n
     let entry := entryConst true false [] ci (instancePredicate env) (userInliner env) senv
     let some shape := machineShape? false [] entry senv | throwError "{n}: not on the machine route"
@@ -84,27 +107,50 @@ run_cmd liftTermElabM do
     let (m, d) ← synthesizeCombinational n
     let emitted := m.body.filter fun st => match st with | .inst .. => true | _ => false
     unless emitted.length == insts do throwError "{n}: {emitted.length} instances emitted"
-    unless d.modules.any (·.name == toString ``pick) do throwError "{n}: the child is not in the design"
+    unless d.modules.any (·.name == toString child) do throwError "{n}: the child is not in the design"
     -- the instance's output is a wire, not an input port
     unless m.inputs.all (fun p => !p.name.startsWith "_gen_inst") do
       throwError "{n}: an instance output is still an input port"
+    -- the instance drives the call's output wire and reads the argument
+    -- wires (never a register's output or next-value wire)
+    for st in emitted do
+      match st with
+      | .inst _ _ conns =>
+        let outW := conns.getLast?.map (·.2)
+        unless outW == some (.ref "_gen_inst0") do
+          throwError "{n}: the instance drives {repr outW}, not the call's output wire"
+        for (_, e) in conns.dropLast do
+          match e with
+          | .ref w =>
+            unless w.startsWith "_gen_inst0_arg" do
+              throwError "{n}: the instance reads {w}, not an argument wire"
+          | _ => throwError "{n}: a non-wire connection"
+      | _ => pure ()
 
 /-! ## The endpoints -/
 
 #machine_endpoint caller
 #machine_endpoint callerTwice
 #machine_endpoint callerNested
+#machine_endpoint callerD
 
 run_cmd do
   if (← get).messages.hasErrors then throwError "machine instance regression failed"
   for name in [``caller.machine_sound, ``callerTwice.machine_sound, ``callerNested.machine_sound,
       ``caller.machine_inst_0, ``Tools.ShippingMachineAuto.machine_trace_of_data_ext,
       ``Tools.ShippingMachineNest.machine_trace_of_nested_ext,
-      ``Tools.ShippingMachineInst.runModule_of_closeInsts] do
+      ``Tools.ShippingMachineInst.runModule_of_closeInsts, ``callerD.machine_sound,
+      ``Tools.ShippingMachineInst.closeInsts_calls,
+      ``Tools.ShippingMachineCompose.runModuleH_of_seeded,
+      ``Tools.ShippingMachineCompose.childComputes_of_call,
+      ``Tools.ShippingMachineCompose.runModuleH_of_run,
+      ``Tools.ShippingMachineCompose.sourceInputs_extend,
+      ``Tools.ShippingMachineInst.closeInsts_insts,
+      ``Tools.ShippingMachineEntry.synthesizeMachineCertified_sound] do
     let axioms ← Lean.collectAxioms name
     for ax in axioms do
       unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do
         throwError "{name} uses a non-standard axiom: {ax}"
-  logInfo m!"MACHINE INSTANCES: three declarations calling a hardware module, each an instance in the emitted module with its kernel-checked endpoint"
+  logInfo m!"MACHINE INSTANCES: four declarations calling a hardware module, each an instance in the emitted module with its kernel-checked endpoint"
 
 end Sparkle.Tests.Compiler.ShippingMachineInstTest

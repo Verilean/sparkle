@@ -1227,7 +1227,12 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   `stepModuleH`, `runModuleH`, `runModuleH_of_open` — the open run from
   seeds the children compute IS the linked run); the compiler checks the
   linked order (713a6e1: `linkedOk` in `closeInsts`, `linkedOk_eq` = the
-  correspondence's `linkedWF`). Remaining: (1) expose, through the same
+  correspondence's `linkedWF`). Found and fixed on the way: `closeInstsM`
+  took the instance wires by BINDER position, so a domain-polymorphic
+  caller wired its instance one port off (invisible to the open-module
+  theorems); it now counts ports, `closeInstsM_returns` quantifies over the
+  offset, `closeInsts_calls` (ShippingMachineInst) gives each instance
+  statement's shape, regression `callerD`. Remaining: (1) expose, through the same
   chain, the names of the instance-output input ports (`ins`, the
   transition's `inputPorts` at positions `nDecl + k`) and the shape of each
   instance statement (`closeInsts`: output conn → `ins[nDecl+k]`, input

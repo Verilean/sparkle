@@ -518,6 +518,9 @@ lean_lib «Tools.ShippingMachineLoop» where
 lean_lib «Tools.ShippingMachineLinked» where
   roots := #[`Tools.ShippingMachineLinked]
 
+lean_lib «Tools.ShippingMachineCompose» where
+  roots := #[`Tools.ShippingMachineCompose]
+
 lean_lib «Tools.ShippingMachineCommand» where
   roots := #[`Tools.ShippingMachineCommand]
 

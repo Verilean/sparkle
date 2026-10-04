@@ -242,7 +242,7 @@ theorem mThree_machine {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.St
     (hr : RunsTo (synthesizeCombinationalCore ``mThree [] false) mctx mref cctx cref w
       (m, design) w')
     (entry : MachineDefines mctx mref cctx cref ``mThree mThreeShape) :
-    MachinePreserves ``mThree mThreeShape mThreeIn mThreeSlots [] m := by
+    MachinePreserves ``mThree mThreeShape mThreeIn mThreeSlots [] m design := by
   apply synthesizeCombinationalCore_machine_sound hr entry (machineCloses_of_noLets rfl rfl) rfl rfl
   · intro name n hmem
     simp only [mThreeShape, mThreeIn, mThreeSlots, List.cons_append, List.nil_append,
@@ -336,7 +336,7 @@ theorem mThree_execution {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.
           ∀ j (hj : j < envs.length),
             (envs[j]'hj) "out" = ((mThree (bools 1) (bits 2 4)).val j).toNat := by
   obtain ⟨ids, nd, len, cache, h⟩ := machine_trace (mThree_machine hr entry) rfl
-  obtain ⟨regs, rnd, rlen, _, _, trace⟩ := h (.bvar 5) 2 3 (fun _ => 4) mThreeBpos mThreeVpos
+  obtain ⟨regs, rnd, rlen, _, _, _, trace⟩ := h (.bvar 5) 2 3 (fun _ => 4) mThreeBpos mThreeVpos
     [] mThreeTerm mThreeTerm_wf
     (by
       intro j hj
@@ -532,7 +532,7 @@ theorem lin_machine {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State
       (m, design) w')
     (entry : MachineDefines mctx mref cctx cref ``linChk linShape)
     (closes : MachineCloses mctx mref cctx cref ``linChk linShape) :
-    MachinePreserves ``linChk linShape linIn linSlots linLets m := by
+    MachinePreserves ``linChk linShape linIn linSlots linLets m design := by
   apply synthesizeCombinationalCore_machine_sound hr entry closes rfl rfl
   · intro name n hmem
     simp only [linShape, linIn, linSlots, linLets, List.cons_append, List.nil_append,
@@ -697,7 +697,7 @@ theorem lin_execution {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.Sta
           ∀ j (hj : j < envs.length),
             (envs[j]'hj) "out" = ((linChk (bools 1) (bits 2 8) (bools 3)).val j).toNat := by
   obtain ⟨ids, nd, len, cache, h⟩ := machine_trace (lin_machine hr entry closes) rfl
-  obtain ⟨regs, rnd, rlen, _, _, trace⟩ := h (.bvar 22) 4 18 linVw linBpos linVpos
+  obtain ⟨regs, rnd, rlen, _, _, _, trace⟩ := h (.bvar 22) 4 18 linVw linBpos linVpos
     linFields linCore lin_wf
     (by
       intro j hj
@@ -847,7 +847,7 @@ theorem linHW_machine {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.Sta
       mctx mref cctx cref w (m, design) w')
     (entry : MachineDefines mctx mref cctx cref ``Sparkle.IP.Bus.LINHW.checksumHW linHWShape)
     (closes : MachineCloses mctx mref cctx cref ``Sparkle.IP.Bus.LINHW.checksumHW linHWShape) :
-    MachinePreserves ``Sparkle.IP.Bus.LINHW.checksumHW linHWShape linIn linSlots linLets m := by
+    MachinePreserves ``Sparkle.IP.Bus.LINHW.checksumHW linHWShape linIn linSlots linLets m design := by
   apply synthesizeCombinationalCore_machine_sound hr entry closes rfl rfl
   · intro name n hmem
     simp only [linHWShape, linIn, linSlots, linLets, List.cons_append, List.nil_append,
@@ -909,7 +909,7 @@ theorem linHW_execution {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.S
             (envs[j]'hj) "chk" = ((Sparkle.IP.Bus.LINHW.checksumHW (bools 1) (bits 2 8)
               (bools 3)).chk.val j).toNat := by
   obtain ⟨ids, nd, len, cache, h⟩ := machine_trace (linHW_machine hr entry closes) rfl
-  obtain ⟨regs, rnd, rlen, _, _, trace⟩ := h (.bvar 22) 4 18 linVw linBpos linVpos
+  obtain ⟨regs, rnd, rlen, _, _, _, trace⟩ := h (.bvar 22) 4 18 linVw linBpos linVpos
     linFields linHWCore linHW_wf
     (by
       intro j hj
@@ -1050,7 +1050,7 @@ theorem linHW_reference {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.S
             (envs[j]'hj) "chk" = linRef.out inB inV j 8 8 := by
   obtain ⟨ids, nd, len, cache, h⟩ := machine_ref_trace (linHW_machine hr entry closes)
     (.cons ⟨rfl, by simp, by decide⟩ .nil)
-  obtain ⟨regs, rnd, rlen, _, _, trace⟩ := h (.bvar 22) 4 18 linVw linBpos linVpos
+  obtain ⟨regs, rnd, rlen, _, _, _, trace⟩ := h (.bvar 22) 4 18 linVw linBpos linVpos
     linFields linHWCore linHW_wf
     (by
       intro j hj

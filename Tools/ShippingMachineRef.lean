@@ -278,8 +278,9 @@ starting at their reset values — succeeds, and at cycle `j` every output
 port shows its field of the reference machine at time `j`. No hypothesis
 about the valuation is left: the reference machine is computed from the
 terms. -/
-theorem machine_ref_trace {declName shape m} {bsIn slotBs letBs : List (Name × MixedGateBinder)}
-    (h : MachinePreserves declName shape bsIn slotBs letBs m)
+theorem machine_ref_trace {declName shape m dsn}
+    {bsIn slotBs letBs : List (Name × MixedGateBinder)}
+    (h : MachinePreserves declName shape bsIn slotBs letBs m dsn)
     (layW : Zip₂ (fun (f : SlotField) (b : Name × MixedGateBinder) =>
       f.width = machWidth b.2 ∧ b.2 ≠ .domain ∧ f.init < 2 ^ f.width)
       shape.layout.slots slotBs) :
@@ -297,6 +298,7 @@ theorem machine_ref_trace {declName shape m} {bsIn slotBs letBs : List (Name × 
       LetsScoped bpos vpos (bsIn.length + slotBs.length) letBs fs →
       ∃ regs : List String, regs.Nodup ∧ regs.length = slotBs.length ∧
       ∃ lets : List String, lets.length = letBs.length ∧
+      MachineWired declName shape ids cache m dsn lets ∧
       ∀ (T : Nat) (inB : Nat → Nat → Bool) (inV : Nat → (j : Nat) → (n : Nat) → BitVec n)
         (seed : Nat → (String → Nat) → Env) (st0 : String → Nat) (mems : MEnv),
         (∀ t st, t < T →
@@ -321,9 +323,9 @@ theorem machine_ref_trace {declName shape m} {bsIn slotBs letBs : List (Name × 
   obtain ⟨ids, nd, len, cache, h⟩ := machine_trace h slotsLen
   refine ⟨ids, nd, len, cache, ?_⟩
   intro dom kb kv vw bpos vpos fs c core he hb hv hbody hfit houtfit hscoped
-  obtain ⟨regs, regsNd, regsLen, lets, letsLen, trace⟩ :=
+  obtain ⟨regs, regsNd, regsLen, lets, letsLen, wired, trace⟩ :=
     h dom kb kv vw bpos vpos fs core he hb hv hbody hfit houtfit
-  refine ⟨regs, regsNd, regsLen, lets, letsLen, ?_⟩
+  refine ⟨regs, regsNd, regsLen, lets, letsLen, wired, ?_⟩
   intro T inB inV seed st0 mems inputs pass rst init
   -- the reference machine and its valuation over time
   let M : RefMachine := RefMachine.mk bsIn.length slotBs.length bpos vpos fs c core
