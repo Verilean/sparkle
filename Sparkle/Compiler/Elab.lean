@@ -4029,6 +4029,13 @@ def structEnv (env : Environment) : StructEnv :=
 def machOuts? (senv : StructEnv) :
     Lean.Expr → Option (Option Name × List (String × MixedGateBinder))
   | .forallE _ _ b _ => machOuts? senv b
+  -- a pair of Signals: two ports `out_0`, `out_1` (the legacy interface)
+  | .app (.app (.const ``Prod _) a) b =>
+    match mixedGateBinderKind? a, mixedGateBinderKind? b with
+    | some ka, some kb =>
+      if ka == .domain || kb == .domain then none
+      else some (some ``Prod.mk, [("out_0", ka), ("out_1", kb)])
+    | _, _ => none
   | e =>
     match mixedGateBinderKind? e with
     | some .bool => some (none, [("out", .bool)])
@@ -4336,6 +4343,14 @@ partial def machLiftScalarN (senv : StructEnv) (dom : Lean.Expr) (vars : List (N
     if wx != n then none else
     some (n, machSigBin ``HXor.hXor ``Sparkle.Core.Signal.instHXorSignalBitVec dom n
       (machPureE dom n (machBVLit n (2 ^ n - 1))) x')
+  -- `-x` is `0 - x` (by the definitions of `BitVec.neg` and `BitVec.sub`)
+  | e@(.app (.app (.app (.const ``Neg.neg _) (.app (.const ``BitVec _) nE)) _) x) => do
+    if !x.hasLooseBVars then machLiftConst senv dom e else
+    let n ← canonicalNatLitValue? nE
+    let (wx, x') ← machLiftScalarN senv dom vars x
+    if wx != n then none else
+    some (n, machSigBin ``HSub.hSub ``Sparkle.Core.Signal.instHSubSignalBitVec dom n
+      (machPureE dom n (machBVLit n 0)) x')
   | e@(.app (.app (.app (.const ``Complement.complement _) (.app (.const ``BitVec _) nE)) _) x) => do
     if !x.hasLooseBVars then machLiftConst senv dom e else
     let n ← canonicalNatLitValue? nE
@@ -4492,6 +4507,14 @@ def machNormNode (senv : StructEnv) (e : Lean.Expr) : Lean.Expr :=
      | some (dom, w) =>
        machSigBin ``HXor.hXor ``Sparkle.Core.Signal.instHXorSignalBitVec dom w
          (machPureE dom w (machBVLit w (2 ^ w - 1))) a
+     | none => e)
+  -- `-a` on a `BitVec` Signal is `pure 0 - a` (pointwise `0 - x = -x`)
+  | .app (.app (.app (.const ``Neg.neg _) sigTy)
+      (.app (.app (.const ``Sparkle.Core.Signal.instNegSignalBitVec _) _) _)) a =>
+    (match machSigBits? sigTy with
+     | some (dom, w) =>
+       machSigBin ``HSub.hSub ``Sparkle.Core.Signal.instHSubSignalBitVec dom w
+         (machPureE dom w (machBVLit w 0)) a
      | none => e)
   | .app (.app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.ap _) _) _) _) _) _ =>
     let e' := machNormAp e

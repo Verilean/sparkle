@@ -1298,8 +1298,8 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   | register-other (concrete domain, Bool loop register, chain) | 7 | DONE 4 (2026-10-05): a `Signal.loop` as the WHOLE value is read as `let s := loop; s` (`machLoopAsLet`, generator too) — the loop counters and the Bool toggle loop; 126 → 122, interfaces identical, 176/176 simulation. Left: a bare `Signal.register` (`synth_reg`), the 4-stage chain (`shift4Loop`), `memCirc` |
   | named-constant register inits (`sClosed`) | 6 | DONE 5 (2026-10-05): the real blocker was a closed `BitVec` VALUE `let` in the body (`let f := (packDataOffFlags … : BitVec 16)`), now substituted by `machNorm` like a `Nat` let. TCP server/client FSMs certified; 132 → 126 |
   | raw `runCircuitH` surface | 6 | DONE 5 (2026-10-05): `Sparkle/Compiler/MachRawSurface.lean` reads a pair-destructuring matcher as projection `let`s (checked against the matcher's `Prod.casesOn` chain), `Circuit.read r` as `r.fst`, the monad's `bind`/`pure` as `Circuit.bind`/`pure'`; 122 → 117, interfaces identical, 181/181 simulation. Left: `List.forM` over the handles |
-  | `ashr` / sign extension / negation | 8 | IR op + `Term` constructor + lemmas each, the slice/concat pattern (S each); also needed by `requantize` |
-  | Prod-of-Signals result, List recursion | 2 | (S) |
+  | `ashr` / sign extension / negation | 8 | negation DONE 2 (2026-10-05): `-x` is `0 - x` by the definitions of `BitVec.neg`/`sub`, a normal form. Sign extension / `sshiftRight` are NOT definitionally a mux/concat combination (`toInt` is stuck on a symbolic value): plan = `Term` constructors whose `quote` is the derived mux/concat/xor/shift expression (machine route only, so no shared arm and no legacy output change) |
+  | Prod-of-Signals result, List recursion | 2 | pair result DONE (2026-10-05): ports `out_0`/`out_1`, fields `fst`/`snd`. Measured 117 → 114 |
 
   Phase B — medium, IP-relevant (≈65):
   | blocker | # | work |

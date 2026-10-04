@@ -568,6 +568,12 @@ def observations (declName : Name) (D v : Lean.Expr) (fields : List (Option Name
         | .domain => throwError "{declName}: an output is a domain"
       mkLambdaFVars #[t] e
 
+/-- The structure field behind output `nm` (a pair result's ports are
+`out_0`/`out_1`, its fields `fst`/`snd`). -/
+def outFieldName (r : Read) (nm : String) : Name :=
+  if r.ctor? == some ``Prod.mk then (if nm == "out_0" then `fst else `snd)
+  else Name.mkSimple nm
+
 /-- The fields of the result type `rho` the output ports read: none for a
 Signal, every field for a structure result, the selected field under a
 projection. -/
@@ -575,7 +581,7 @@ def resultFields (declName : Name) (r : Read) (rho : Lean.Expr) : MetaM (List (O
   let env ← getEnv
   let rhoHead := rho.getAppFn.constName?.getD .anonymous
   if rhoHead == ``Sparkle.Core.Signal.Signal then pure [none]
-  else if r.ctor?.isSome then pure (r.outNames.map fun nm => some (Name.mkSimple nm))
+  else if r.ctor?.isSome then pure (r.outNames.map fun nm => some (outFieldName r nm))
   else match r.sel? with
     | some (_, _, idx) =>
       match (getStructureFields env rhoHead)[idx]? with
@@ -875,7 +881,7 @@ def nestedProof (declName : Name) (r : Read) (data ι i D bools bits src inst : 
     p := mkApp p (mkConst extName)
   let srcName := declName ++ `machineSource
   let fieldNames : List (Option Name) :=
-    if r.ctor?.isNone then [none] else r.outNames.map fun nm => some (Name.mkSimple nm)
+    if r.ctor?.isNone then [none] else r.outNames.map fun nm => some (outFieldName r nm)
   let obs ← observations declName D src fieldNames (r.shape.layout.outs.map outKind)
   addDef srcName (← inferType p).bindingDomain!
     (← mkLambdaFVars #[i, bools, bits] (listE (← mkArrow nat nat) obs))
@@ -932,7 +938,7 @@ def singleProof (declName : Name) (r : Read) (data ι i D bools bits src inst : 
   -- the source observations, one per output port
   let scalar := r.ctor?.isNone
   let obs ← (r.outNames.zip (r.shape.layout.outs.map outKind)).mapM fun (nm, k) => do
-    let field ← if scalar then pure src else mkProjection src (Name.mkSimple nm)
+    let field ← if scalar then pure src else mkProjection src (outFieldName r nm)
     withLocalDeclD `t nat fun t => do
       let v (α : Lean.Expr) :=
         mkApp (mkApp3 (mkConst ``Sparkle.Core.Signal.Signal.val [.zero]) D α field) t
@@ -949,7 +955,7 @@ def singleProof (declName : Name) (r : Read) (data ι i D bools bits src inst : 
   let rhoHead := rho.getAppFn.constName?.getD .anonymous
   let fieldNames : List (Option Name) ←
     if rhoHead == ``Sparkle.Core.Signal.Signal then pure [none]
-    else if r.ctor?.isSome then pure (r.outNames.map fun nm => some (Name.mkSimple nm))
+    else if r.ctor?.isSome then pure (r.outNames.map fun nm => some (outFieldName r nm))
     else match r.sel? with
       | some (_, _, idx) =>
         match (getStructureFields env rhoHead)[idx]? with
