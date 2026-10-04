@@ -1279,6 +1279,48 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   `dropZeroWidthModule raw = raw`, parents through sub-machines / loops
   (the generator takes single `circuit do`s with slots), and the shipped
   (optimized/printed) form of a module with instances.
+- [ ] **PLAN: the 147 legacy-only real declarations to zero (2026-10-04).**
+  Source-level classification of gold26's `legacy_decls.txt` (blocker =
+  the first feature outside the certified routes; † = inferred, confirm by
+  a probe). 31 are real IP/Examples, 2 library definitions, 114 test or
+  sample declarations (many are thin projections of real IP cores, so the
+  IP categories move most of them). Every unit keeps the standing rules:
+  compile success domain and compile TIME never shrink (gold27 lesson: the
+  wrapper head-unfold put huge crypto cores on the machine route and four
+  crypto test files timed out — reverted, patch kept), measurement +
+  simulation after each compiler change, identical calls shared (one
+  instance), hierarchy never flattened.
+
+  Phase A — small units, mostly tests (≈43):
+  | blocker | # | work |
+  |---|---|---|
+  | general lambda under `Signal.map`/`ap` | 14 | wire the proved `ApplicativeLowering.Arguments.correct` into the gate (S–M) |
+  | register-other (concrete domain, Bool loop register, chain) | 7 | canonical recognisers at `defaultDomain` (reset kind from the domain), Bool loop register, chains (S) |
+  | named-constant register inits (`sClosed`) | 6 | fold constant defs to literals before `machInit?` (S) |
+  | raw `runCircuitH` surface | 6 | match-destructured handles, `Circuit.read` in the reader (S) |
+  | `ashr` / sign extension / negation | 8 | IR op + `Term` constructor + lemmas each, the slice/concat pattern (S each); also needed by `requantize` |
+  | Prod-of-Signals result, List recursion | 2 | (S) |
+
+  Phase B — medium, IP-relevant (≈65):
+  | blocker | # | work |
+  |---|---|---|
+  | big crypto cores over the unfolding budget † | 36 | probe the reason; share `let`s instead of copying in the unfolding (keeps compile time bounded), then the 6 sign/point/scalar wrappers follow (M) |
+  | wrappers over budget, core certified | 2 | the head-unfold patch, only once its compile-time cost is bounded (S) |
+  | tuple ports / projection outside `circuit do` | 11 | packed Prod ports or projection reduction at the front end (M) |
+  | untagged `Signal.loop` engine inside a circuit | 8 | loop together with runs/instances, Bool slots, `projN!`; tvKalman's evaluated constants (M) |
+  | sub-machine chains (HFT) | 5 | several root-let sub-machines feeding each other (M) |
+  | CDC / other loops | 3 | unfold named loop bodies and state accessors; a loop as the root (S–M) |
+
+  Phase C — large proof units (≈39):
+  | blocker | # | work |
+  |---|---|---|
+  | sequential children (multi-output, Bool result) | 28 | child registers joining the parent's step in the linked semantics, instance projections; the open trace without pointwise calls (loop fixpoint) (L) |
+  | `memoryComboRead` (H.264) | 10 | combinational-read memory semantics + a machine-route memory slot (M–L) |
+  | memory-other, `conv2DEngine`/`convBnSiLU` | 1 + 2 | several memories; ashr inside a 5-slot loop (M) |
+
+  In parallel: extend the emitted-Verilog theorem (`machine_ships`, now 129
+  real declarations) to every certified declaration, so "zero legacy" means
+  source → printed Verilog, not only source → IR.
 - [ ] **WRAPPERS (found 2026-10-04, not landed):** the `@[hardware_module]`
   crypto wrappers (`wBlock`, `wSha256`, `wKeccakF`, …) are legacy-only
   because the front-end unfolding gives up on the core's size
@@ -1292,6 +1334,12 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   landing it needs (1) a look at why the two ROM calls are identical (if they
   are, sharing is correct and the pin is a structure choice, not a bug) and
   (2) a decision whether the certified route may change a pinned hierarchy.
+  UPDATE: the second ROM was a DEAD copy (output unconnected); the user
+  decided identical calls are ONE instance; digests re-verified (all four
+  fixtures pass). But the full measurement (gold27) showed the head-unfold
+  also routes huge crypto cores (signCore …) to the machine route and four
+  crypto test files time out — reverted; the patch waits for bounded
+  compile time (Phase B).
 - [ ] **NEXT: the remaining calls.** Sequential children (`toggle`,
   `wKeccakF`, `wBlock`, `wRx`, `wSha256`: ≈15 declarations) need clk/rst
   plumbing in `closeInsts` and the child's `MachineTrace` as the oracle
