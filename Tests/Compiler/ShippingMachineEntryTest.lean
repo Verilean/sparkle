@@ -336,7 +336,7 @@ theorem mThree_execution {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.
           ∀ j (hj : j < envs.length),
             (envs[j]'hj) "out" = ((mThree (bools 1) (bits 2 4)).val j).toNat := by
   obtain ⟨ids, nd, len, cache, h⟩ := machine_trace (mThree_machine hr entry) rfl
-  obtain ⟨regs, rnd, rlen, trace⟩ := h (.bvar 5) 2 3 (fun _ => 4) mThreeBpos mThreeVpos
+  obtain ⟨regs, rnd, rlen, _, _, trace⟩ := h (.bvar 5) 2 3 (fun _ => 4) mThreeBpos mThreeVpos
     [] mThreeTerm mThreeTerm_wf
     (by
       intro j hj
@@ -377,7 +377,7 @@ theorem mThree_execution {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.
   have hV2 : ∀ τ, V τ 2 4 = (bits 2 4).val τ := fun τ => rfl
   have hV3 : ∀ τ, V τ 3 4 = (S.val τ).1 := fun τ => by simp [V]
   have hV4 : ∀ τ, V τ 4 4 = (S.val τ).2.1 := fun τ => by simp [V]
-  obtain ⟨envs, hrun, hlen, hobs⟩ := trace T B V seed st0 mems
+  obtain ⟨envs, hrun, hlen, hobs, _⟩ := trace T B V seed st0 mems
     (by
       intro t st ht
       refine sourceInputs_congr nd ?_ ?_ (inputs t st ht)
@@ -697,7 +697,7 @@ theorem lin_execution {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.Sta
           ∀ j (hj : j < envs.length),
             (envs[j]'hj) "out" = ((linChk (bools 1) (bits 2 8) (bools 3)).val j).toNat := by
   obtain ⟨ids, nd, len, cache, h⟩ := machine_trace (lin_machine hr entry closes) rfl
-  obtain ⟨regs, rnd, rlen, trace⟩ := h (.bvar 22) 4 18 linVw linBpos linVpos
+  obtain ⟨regs, rnd, rlen, _, _, trace⟩ := h (.bvar 22) 4 18 linVw linBpos linVpos
     linFields linCore lin_wf
     (by
       intro j hj
@@ -742,7 +742,7 @@ theorem lin_execution {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.Sta
   have hV21 : ∀ τ, V τ 21 8 = linFold (S.val τ).1 ((bits 2 8).val τ) := fun τ => by
     simp [V, linV]
   have hV22 : ∀ τ, V τ 22 8 = (S.val τ).1 ^^^ 255#8 := fun τ => by simp [V, linV]
-  obtain ⟨envs, hrun, hlen, hobs⟩ := trace T B V seed st0 mems
+  obtain ⟨envs, hrun, hlen, hobs, _⟩ := trace T B V seed st0 mems
     (by
       intro t st ht
       refine sourceInputs_congr nd ?_ ?_ (inputs t st ht)
@@ -909,7 +909,7 @@ theorem linHW_execution {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.S
             (envs[j]'hj) "chk" = ((Sparkle.IP.Bus.LINHW.checksumHW (bools 1) (bits 2 8)
               (bools 3)).chk.val j).toNat := by
   obtain ⟨ids, nd, len, cache, h⟩ := machine_trace (linHW_machine hr entry closes) rfl
-  obtain ⟨regs, rnd, rlen, trace⟩ := h (.bvar 22) 4 18 linVw linBpos linVpos
+  obtain ⟨regs, rnd, rlen, _, _, trace⟩ := h (.bvar 22) 4 18 linVw linBpos linVpos
     linFields linHWCore linHW_wf
     (by
       intro j hj
@@ -955,7 +955,7 @@ theorem linHW_execution {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.S
   have hV21 : ∀ τ, V τ 21 8 = linFold (S.val τ).1 ((bits 2 8).val τ) := fun τ => by
     simp [V, linV]
   have hV22 : ∀ τ, V τ 22 8 = (S.val τ).1 ^^^ 255#8 := fun τ => by simp [V, linV]
-  obtain ⟨envs, hrun, hlen, hobs⟩ := trace T B V seed st0 mems
+  obtain ⟨envs, hrun, hlen, hobs, _⟩ := trace T B V seed st0 mems
     (by
       intro t st ht
       refine sourceInputs_congr nd ?_ ?_ (inputs t st ht)
@@ -1050,7 +1050,7 @@ theorem linHW_reference {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.S
             (envs[j]'hj) "chk" = linRef.out inB inV j 8 8 := by
   obtain ⟨ids, nd, len, cache, h⟩ := machine_ref_trace (linHW_machine hr entry closes)
     (.cons ⟨rfl, by simp, by decide⟩ .nil)
-  obtain ⟨regs, rnd, rlen, trace⟩ := h (.bvar 22) 4 18 linVw linBpos linVpos
+  obtain ⟨regs, rnd, rlen, _, _, trace⟩ := h (.bvar 22) 4 18 linVw linBpos linVpos
     linFields linHWCore linHW_wf
     (by
       intro j hj
@@ -1080,7 +1080,7 @@ theorem linHW_reference {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.S
   | [racc], _, _, trace =>
   refine ⟨ids, nd, len, cache, racc, ?_⟩
   intro T inB inV seed st0 mems inputs pass rst ia
-  obtain ⟨envs, hrun, hlen, hobs⟩ := trace T inB inV seed st0 mems inputs
+  obtain ⟨envs, hrun, hlen, hobs, _⟩ := trace T inB inV seed st0 mems inputs
     (by
       intro t st r hr
       simp only [List.mem_cons, List.not_mem_nil, or_false] at hr

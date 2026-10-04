@@ -250,6 +250,16 @@ def state (M : RefMachine) (inB : Nat → Nat → Bool)
   | 0 => fun i => (M.slots[i]?.map (·.init)).getD 0
   | τ + 1 => M.next (inB τ) (inV τ) (M.state inB inV τ)
 
+/-- The Bool binder values of the reference valuation at time `τ`. -/
+def valBAt (M : RefMachine) (inB : Nat → Nat → Bool)
+    (inV : Nat → (j : Nat) → (n : Nat) → BitVec n) (τ : Nat) : Nat → Bool :=
+  valB M.kIn (inB τ) (M.store (inB τ) (inV τ) (M.state inB inV τ))
+
+/-- The BitVec binder values of the reference valuation at time `τ`. -/
+def valVAt (M : RefMachine) (inB : Nat → Nat → Bool)
+    (inV : Nat → (j : Nat) → (n : Nat) → BitVec n) (τ : Nat) : (j : Nat) → (n : Nat) → BitVec n :=
+  valV M.kIn (inV τ) (M.store (inB τ) (inV τ) (M.state inB inV τ))
+
 /-- **The output of the reference machine** at time `τ`: the field
 `[lo + width - 1 : lo]` of the packed transition value. -/
 def out (M : RefMachine) (inB : Nat → Nat → Bool)
@@ -286,6 +296,7 @@ theorem machine_ref_trace {declName shape m} {bsIn slotBs letBs : List (Name × 
       (∀ o ∈ shape.layout.outs, o.lo + o.width ≤ c) →
       LetsScoped bpos vpos (bsIn.length + slotBs.length) letBs fs →
       ∃ regs : List String, regs.Nodup ∧ regs.length = slotBs.length ∧
+      ∃ lets : List String, lets.length = letBs.length ∧
       ∀ (T : Nat) (inB : Nat → Nat → Bool) (inV : Nat → (j : Nat) → (n : Nat) → BitVec n)
         (seed : Nat → (String → Nat) → Env) (st0 : String → Nat) (mems : MEnv),
         (∀ t st, t < T →
@@ -295,16 +306,24 @@ theorem machine_ref_trace {declName shape m} {bsIn slotBs letBs : List (Name × 
         (∀ (i : Nat) (r : String) (f : SlotField), regs[i]? = some r →
           shape.layout.slots[i]? = some f → st0 r = f.init) →
         ∃ envs, runModule (weOf m) m.body seed T st0 mems = some envs ∧ envs.length = T ∧
-          ∀ j (hj : j < envs.length), ∀ o ∈ shape.layout.outs, (envs[j]'hj) o.name =
+          (∀ j (hj : j < envs.length), ∀ o ∈ shape.layout.outs, (envs[j]'hj) o.name =
             RefMachine.out (RefMachine.mk bsIn.length slotBs.length bpos vpos fs c core
-              shape.layout.slots) inB inV j o.lo o.width := by
+              shape.layout.slots) inB inV j o.lo o.width) ∧
+          -- a `let` wire shows its field term under the reference valuation
+          ∀ j (hj : j < envs.length) (q : Nat) (name : String) (f : Σ w : Nat, Term (.bits w)),
+            lets[q]? = some name → fs[q]? = some f →
+            (envs[j]'hj) name =
+              (eval (fun i => (RefMachine.mk bsIn.length slotBs.length bpos vpos fs c core
+                  shape.layout.slots).valBAt inB inV j (bpos i))
+                (fun i w => (RefMachine.mk bsIn.length slotBs.length bpos vpos fs c core
+                  shape.layout.slots).valVAt inB inV j (vpos i) w) f.2).toNat := by
   have slotsLen : shape.layout.slots.length = slotBs.length := layW.length_eq
   obtain ⟨ids, nd, len, cache, h⟩ := machine_trace h slotsLen
   refine ⟨ids, nd, len, cache, ?_⟩
   intro dom kb kv vw bpos vpos fs c core he hb hv hbody hfit houtfit hscoped
-  obtain ⟨regs, regsNd, regsLen, trace⟩ :=
+  obtain ⟨regs, regsNd, regsLen, lets, letsLen, trace⟩ :=
     h dom kb kv vw bpos vpos fs core he hb hv hbody hfit houtfit
-  refine ⟨regs, regsNd, regsLen, ?_⟩
+  refine ⟨regs, regsNd, regsLen, lets, letsLen, ?_⟩
   intro T inB inV seed st0 mems inputs pass rst init
   -- the reference machine and its valuation over time
   let M : RefMachine := RefMachine.mk bsIn.length slotBs.length bpos vpos fs c core
@@ -342,7 +361,9 @@ theorem machine_ref_trace {declName shape m} {bsIn slotBs letBs : List (Name × 
     obtain ⟨hw, hk, _⟩ := layW.get i f b hf hb'
     rw [posEnc_store (by omega) hk (by
       rw [slotStore τ i hi, ← hw]; exact bounded τ i f hf), slotStore τ i hi]
-  obtain ⟨envs, hrun, hlen, hobs⟩ := trace T B V seed st0 mems
+  have holds : ∀ τ, LetsHold bpos vpos (B τ) (V τ) (bsIn.length + slotBs.length) letBs fs :=
+    fun τ => letStore_holds fs letBs (bsIn.length + slotBs.length) _ (by omega) hscoped
+  obtain ⟨envs, hrun, hlen, hobs, hlet⟩ := trace T B V seed st0 mems
     (by
       intro t st ht
       refine sourceInputs_congr nd ?_ ?_ (inputs t st ht)
@@ -362,7 +383,12 @@ theorem machine_ref_trace {declName shape m} {bsIn slotBs letBs : List (Name × 
       show M.next _ _ _ i = _
       simp only [RefMachine.next, M, hf]
       rfl)
-    (fun τ => letStore_holds fs letBs (bsIn.length + slotBs.length) _ (by omega) hscoped)
-  exact ⟨envs, hrun, hlen, fun j hj o ho => hobs j hj o ho⟩
+    holds
+  refine ⟨envs, hrun, hlen, fun j hj o ho => hobs j hj o ho, ?_⟩
+  intro j hj q name f hn hf
+  have hq : q < letBs.length := by
+    rw [(holds j).length_eq]; exact (List.getElem?_eq_some_iff.mp hf).1
+  rw [hlet j hj q name letBs[q] hn (List.getElem?_eq_getElem hq)]
+  exact ((holds j).get q letBs[q] f (List.getElem?_eq_getElem hq) hf).1
 
 end Tools.ShippingMachineRef

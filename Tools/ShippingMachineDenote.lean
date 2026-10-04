@@ -473,6 +473,16 @@ theorem typedVal_congr {D : DomainConfig} (kIn : Nat) (bpos vpos : Nat → Nat) 
     funext p w; exact h p w
   rw [this]
 
+theorem LetsTyped.get {bpos vpos : Nat → Nat} {kb kv : Nat} {vw : Nat → Nat}
+    {K : Nat → Option SType} :
+    ∀ {p : Nat} {ls : List (Σ s : SType, Term s)}, LetsTyped bpos vpos kb kv vw K p ls →
+      ∀ (q : Nat) (l : Σ s : SType, Term s), ls[q]? = some l → l.2.WF kb kv vw
+  | _, [], _, q, l, h => by simp at h
+  | _, _ :: _, h, 0, l, hl => by
+    simp only [List.getElem?_cons_zero, Option.some.injEq] at hl
+    subst hl; exact h.1
+  | _, _ :: _, h, q + 1, l, hl => LetsTyped.get h.2.2.2 q l (by simpa using hl)
+
 /-- What the terms of a machine must satisfy, as facts about data. -/
 structure TermFacts (kIn kb kv : Nat) (vw bpos vpos : Nat → Nat) (K : Nat → Option SType)
     (ss : List SType) (ls : List (Σ s : SType, Term s)) : Prop where
@@ -685,6 +695,7 @@ theorem machine_endpoint {declName : Name} {shape : MachineShape} {m : Sparkle.I
     ∃ ids : List FVarId, ids.Nodup ∧ ids.length = shape.binders.length ∧
     ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
       regs.Nodup ∧ regs.length = slotBs.length ∧
+      ∃ lets : List String, lets.length = letBs.length ∧
       ∀ {D : DomainConfig} (σ : Nat → HList (tys ss))
         (bools : Nat → Signal D Bool) (bits : (j : Nat) → (n : Nat) → Signal D (BitVec n)),
         (∀ i, encState ss (σ 0) i = (shape.layout.slots[i]?.map (·.init)).getD 0) →
@@ -702,7 +713,7 @@ theorem machine_endpoint {declName : Name} {shape : MachineShape} {m : Sparkle.I
         (∀ (i : Nat) (r : String) (f : SlotField), regs[i]? = some r →
           shape.layout.slots[i]? = some f → st0 r = f.init) →
         ∃ envs, runModule (weOf m) m.body seed T st0 mems = some envs ∧ envs.length = T ∧
-          ∀ j (hj : j < envs.length), ∀ o ∈ shape.layout.outs,
+          (∀ j (hj : j < envs.length), ∀ o ∈ shape.layout.outs,
             ∀ {s : SType} (ot : Term s), ot.WF kb kv vw → ∀ (k : Nat),
               (f0 :: rest)[k]? = some (toField s ot) →
               o.lo = (((f0 :: rest).drop (k + 1)).map (·.1)).sum →
@@ -710,23 +721,41 @@ theorem machine_endpoint {declName : Name} {shape : MachineShape} {m : Sparkle.I
               (envs[j]'hj) o.name = enc s (eval
                 (fun i => (typedVal bsIn.length bpos vpos ss ls bools bits j (σ j)).b (bpos i))
                 (fun i w => (typedVal bsIn.length bpos vpos ss ls bools bits j (σ j)).v
-                  (vpos i) w) ot) := by
+                  (vpos i) w) ot)) ∧
+          -- a `let` wire shows its term on the typed valuation of the cycle
+          ∀ j (hj : j < envs.length) (q : Nat) (name : String) (l : Σ s : SType, Term s),
+            lets[q]? = some name → ls[q]? = some l →
+            (envs[j]'hj) name = enc l.1 (eval
+              (fun i => (typedVal bsIn.length bpos vpos ss ls bools bits j (σ j)).b (bpos i))
+              (fun i w => (typedVal bsIn.length bpos vpos ss ls bools bits j (σ j)).v
+                (vpos i) w) l.2) := by
   obtain ⟨ids, nd, len, cache, href⟩ := machine_ref_trace h layW
   have href' := href dom kb kv vw bpos vpos (ls.map fun l => toField l.1 l.2)
     (packList f0 rest).2 hwf hb hv hbody hfit houtfit hscoped
-  obtain ⟨regs, rnd, rlen, trace⟩ := href'
-  refine ⟨ids, nd, len, cache, regs, rnd, rlen, ?_⟩
+  obtain ⟨regs, rnd, rlen, lets, llen, trace⟩ := href'
+  refine ⟨ids, nd, len, cache, regs, rnd, rlen, lets, llen, ?_⟩
   intro D σ bools bits hinit hstep T seed st0 mems inputs pass rst init
-  obtain ⟨envs, hrun, hlen, hobs⟩ := trace T (fun τ p => (bools p).val τ)
+  obtain ⟨envs, hrun, hlen, hobs, hlet⟩ := trace T (fun τ p => (bools p).val τ)
     (fun τ p w => (bits p w).val τ) seed st0 mems inputs pass rst init
-  refine ⟨envs, hrun, hlen, ?_⟩
-  intro j hj o ho s ot hot k hk hlo hw
   have hslotsLen : shape.layout.slots.length = ss.length := by
     rw [← hn]; exact layW.length_eq
   have hstate := denote_state σ bools bits ls nexts f0 rest (packList f0 rest).2
     shape.layout.slots nOuts rfl hnexts hslots hslotsLen hinit facts nextsWF hstep
-  have hout := denote_out σ bools bits ls f0 rest (packList f0 rest).2
-    shape.layout.slots rfl facts hstate ot hot k hk j
-  rw [hobs j hj o ho, hout, hlo, hw, hn]
+  refine ⟨envs, hrun, hlen, ?_, ?_⟩
+  · intro j hj o ho s ot hot k hk hlo hw
+    have hout := denote_out σ bools bits ls f0 rest (packList f0 rest).2
+      shape.layout.slots rfl facts hstate ot hot k hk j
+    rw [hobs j hj o ho, hout, hlo, hw, hn]
+  · intro j hj q name l hname hl
+    have hfq : (ls.map fun l => toField l.1 l.2)[q]? = some (toField l.1 l.2) := by
+      rw [List.getElem?_map, hl]; rfl
+    rw [hlet j hj q name _ hname hfq, eval_toField]
+    have hwfl := LetsTyped.get facts.lets q l hl
+    rw [eval_typed facts bools bits j (σ j) l.2 hwfl]
+    simp only [RefMachine.valBAt, RefMachine.valVAt]
+    rw [hn]
+    show _ = enc l.1 (eval _ _ l.2)
+    rw [hstate j]
+    rfl
 
 end Tools.ShippingMachineDenote

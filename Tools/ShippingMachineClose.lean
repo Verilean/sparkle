@@ -293,7 +293,10 @@ theorem closeMachine_step {t : Module} {lay : Layout} {B : List Stmt} {w : Strin
         some (envF,
           slotNexts (result "out") (t.inputs.drop (t.inputs.length - lay.slots.length)) lay.slots,
           mems) ∧
-      ∀ o ∈ lay.outs, envF o.name = mask o.width (result "out" >>> o.lo) := by
+      (∀ o ∈ lay.outs, envF o.name = mask o.width (result "out" >>> o.lo)) ∧
+      -- every other wire keeps the transition's value
+      ∀ z, z ≠ "out" → (∀ x, z ≠ nextName x) → z ∉ lay.outs.map (·.name) →
+        envF z = result z := by
   -- Shape of the closed module.
   have hpw : packedWire? t.body = some w := by
     simp [packedWire?, hbody]
@@ -394,7 +397,10 @@ theorem closeMachine_step {t : Module} {lay : Layout} {B : List Stmt} {w : Strin
         (outNameOk_facts (outsOk o ho).2).1 (heq ▸ allocOf w hwpos)⟩
     obtain ⟨envF, hF, frameF, valsO⟩ := outAssigns_eval (we := weOf (closeMachine lay t))
       (mems := mems) (w := w) lay.outs envN outsW outsNodup
-    refine ⟨envF, ?_, fun o ho => by rw [valsO o ho, hNw, hP]⟩
+    refine ⟨envF, ?_, fun o ho => by rw [valsO o ho, hNw, hP], fun z hz hnx hzo => ?_⟩
+    rotate_left
+    · rw [frameF z hzo, frameN z (fun p _ heq => hnx p.name heq), hresult]
+      simp [hz]
     have nextSeq : SeqBody (nextAssigns w ps lay.slots) :=
       fun st hs => Or.inl (nextAssigns_assigns w ps lay.slots st hs)
     have evalM : evalAssigns (weOf (closeMachine lay t)) mems (closeMachine lay t).body env0 =
@@ -717,7 +723,9 @@ theorem closeLets_some {K : Nat} {t t' : Module} (hK : K ≠ 0) (h : closeLets K
     ∃ w aliases core, packedWire? t.body = some w ∧
       letOperands t.body (t.inputs.drop (t.inputs.length - K)) w = some (aliases, core) ∧
       (∀ pa ∈ aliases, wireWidth t.wires pa.2 = pa.1.ty.bitWidth ∧ 0 < pa.1.ty.bitWidth) ∧
-      core ≠ "out" := by
+      core ≠ "out" ∧
+      (∀ pa ∈ aliases, pa.1.name ≠ "out" ∧
+        pa.1.name ∉ Sparkle.IR.Reorder.writesOf t.body) := by
   unfold closeLets at h
   simp only [hK, if_false] at h
   split at h
@@ -730,8 +738,10 @@ theorem closeLets_some {K : Nat} {t t' : Module} (hK : K ≠ 0) (h : closeLets K
       · rename_i hchk
         simp only [Bool.and_eq_true, List.all_eq_true, bne_iff_ne, ne_eq, beq_iff_eq,
           decide_eq_true_eq, Bool.not_eq_true'] at hchk
-        exact ⟨w, aliases, core, hpw, hops, fun pa hpa => ⟨(hchk.1.1 pa hpa).1.1.1.1,
-          (hchk.1.1 pa hpa).1.1.1.2⟩, hchk.1.2⟩
+        refine ⟨w, aliases, core, hpw, hops, fun pa hpa => ⟨(hchk.1.1 pa hpa).1.1.1.1,
+          (hchk.1.1 pa hpa).1.1.1.2⟩, hchk.1.2, fun pa hpa => ⟨(hchk.1.1 pa hpa).1.1.2, ?_⟩⟩
+        have := (hchk.1.1 pa hpa).2
+        simpa using this
       · cases h
 
 /-- The statements of the closed module are typed: the transition's, the

@@ -651,6 +651,7 @@ def MachinePreserves (declName : Name) (shape : MachineShape)
     (∀ f ∈ shape.layout.slots, f.lo + f.width ≤ c) →
     (∀ o ∈ shape.layout.outs, o.lo + o.width ≤ c) →
     ∃ regs : List String, regs.Nodup ∧ regs.length = slotBs.length ∧
+    ∃ lets : List String, lets.length = letBs.length ∧
     ∀ (bools : Nat → Bool) (bits : (j : Nat) → (n : Nat) → BitVec n) (env0 : Env) (mems : MEnv),
       SourceInputs declName bsIn ids cache bools bits env0 →
       (∀ i r b, regs[i]? = some r → slotBs[i]? = some b →
@@ -660,8 +661,11 @@ def MachinePreserves (declName : Name) (shape : MachineShape)
       ∃ envF, stepModule (weOf m) m.body env0 mems =
           some (envF, fieldNexts (packedAt core bpos vpos bools bits) regs shape.layout.slots,
             mems) ∧
-        ∀ o ∈ shape.layout.outs, envF o.name =
-          mask o.width (packedAt core bpos vpos bools bits >>> o.lo)
+        (∀ o ∈ shape.layout.outs, envF o.name =
+          mask o.width (packedAt core bpos vpos bools bits >>> o.lo)) ∧
+        -- the `let` wires carry the `let` binders' values
+        ∀ (j : Nat) (name : String) (b : Name × MixedGateBinder), lets[j]? = some name →
+          letBs[j]? = some b → envF name = posEnc bools bits (bsIn.length + slotBs.length + j) b.2
 
 /-- The run of `closeInstsM` is a `closeInsts` of the closed module, for SOME
 children (whatever the child entry returned). -/
@@ -851,7 +855,9 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
           env0 p.name = posEnc bools bits (bsIn.length + i) b.2) →
         LetsHold bpos vpos bools bits (bsIn.length + slotBs.length) letBs fs →
         ∃ R', evalAssigns (weOf t') mems t'.body env0 = some R' ∧
-          mask c (R' "out") = packedAt core bpos vpos bools bits := by
+          mask c (R' "out") = packedAt core bpos vpos bools bits ∧
+          ∀ (i : Nat) (p : Port) (b : Name × MixedGateBinder), ls[i]? = some p →
+            letBs[i]? = some b → R' p.name = posEnc bools bits (bsIn.length + slotBs.length + i) b.2 := by
     -- the cycle's environment with the let ports set carries every binder's value
     have full : ∀ (bools : Nat → Bool) (bits : (j : Nat) → (n : Nat) → BitVec n) (env0 : Env),
         SourceInputs declName bsIn ids cache bools bits env0 →
@@ -939,13 +945,13 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
       rw [lsNil] at values
       obtain ⟨result, hres, hval, _, _, hwe, _, _, _⟩ := raw bools bits env0 mems values
       rw [← hwe] at hres
-      refine ⟨result, hres, ?_⟩
+      refine ⟨result, hres, ?_, fun i p b hp => by rw [lsNil] at hp; simp at hp⟩
       subst hfs'
       rw [hval]
       exact Nat.mod_eq_of_lt
         (eval (fun j => bools (bpos j)) (fun j w => bits (vpos j) w) core).isLt
     · -- lets: tie the ports to the operand wires of their fields
-      obtain ⟨w0, aliases, coreW, hpw0, hops, hwid, hcoreOut⟩ := closeLets_some hK hcl
+      obtain ⟨w0, aliases, coreW, hpw0, hops, hwid, hcoreOut, hnw⟩ := closeLets_some hK hcl
       rw [hpw] at hpw0; cases hpw0
       rw [hdropL] at hops
       obtain ⟨chain, hmap⟩ := letOperands_chain ls w hops
@@ -996,7 +1002,10 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
           LetsHold bpos vpos bools bits (bsIn.length + slotBs.length) letBs fs →
           weOf t coreW = c ∧
           ∃ R', evalAssigns (weOf t') mems t'.body env0 = some R' ∧
-            mask c (R' "out") = packedAt core bpos vpos bools bits := by
+            mask c (R' "out") = packedAt core bpos vpos bools bits ∧
+            ∀ (i : Nat) (p : Port) (b : Name × MixedGateBinder), ls[i]? = some p →
+              letBs[i]? = some b →
+              R' p.name = posEnc bools bits (bsIn.length + slotBs.length + i) b.2 := by
         intro bools bits env0 mems inputs slotVals hold
         have values := full bools bits env0 inputs slotVals
         obtain ⟨R, hres, hval, ready', _, hwe, _, _, _⟩ := raw bools bits _ mems values
@@ -1025,7 +1034,7 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
               (eval (fun j => bools (bpos j)) (fun j w => bits (vpos j) w)
                 (packLets fs core).2).isLt)
         refine ⟨hcw, ?_⟩
-        obtain ⟨_, _, _, _, R', hev, hout, _⟩ := closeLets_eval (env0 := env0) hK hcl hpw
+        obtain ⟨_, _, _, _, R', hev, hout, hframe⟩ := closeLets_eval (env0 := env0) hK hcl hpw
           (by rw [hdropL]; exact hops) pb.order ready'.typed ready'.outWidthZero hres
           (fun z hz => setPorts_frame ls 0 env0 z (fun q hq => by
             obtain ⟨i, hi, hget⟩ := List.getElem_of_mem hq
@@ -1054,7 +1063,24 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
               Option.getD_some]
             rw [show k + n + i = bsIn.length + slotBs.length + i from rfl, hh, ← hfv, hwpa,
               h1, h2])
-        exact ⟨R', hev, by rw [hout]; exact hcorev⟩
+        refine ⟨R', hev, by rw [hout]; exact hcorev, ?_⟩
+        -- a `let` port: not written by the transition, so it keeps its value
+        intro i p b hp hb
+        have hia : i < aliases.length := by
+          rw [alLen]; exact (List.getElem?_eq_some_iff.mp hp).1
+        have hpa := aliasPort i aliases[i] (List.getElem?_eq_getElem hia)
+        rw [hp] at hpa
+        have hpe : p = aliases[i].1 := Option.some.inj hpa
+        obtain ⟨hno, hnwr⟩ := hnw aliases[i] (List.getElem_mem hia)
+        rw [← hpe] at hno hnwr
+        have hseq : Tools.ShippingRegisterSoundness.SeqBody t.body := fun st hs => by
+          have := ready'.typed st hs
+          obtain ⟨l, e, n, heq, _⟩ := this
+          exact Or.inl ⟨l, e, heq⟩
+        rw [hframe p.name hno, Tools.ShippingRegisterSoundness.evalAssigns_preserved hseq hres hnwr,
+          setPorts_get ls 0 env0 lsNodup i p hp]
+        simp only [Nat.zero_add, hb, Option.map_some, Option.getD_some]
+        rfl
       -- the structural facts
       obtain ⟨hin', hwires', ⟨B', hB'⟩, _⟩ : t'.inputs = t.inputs.take (t.inputs.length -
           shape.layout.lets) ∧ t'.wires = t.wires ∧
@@ -1115,11 +1141,12 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
     | domain => exact absurd rfl hnd
     | bool => exact ⟨by rw [hw, hwe]; rfl, by rw [hwe]; exact Nat.one_pos⟩
     | bits n => exact ⟨by rw [hw, hwe]; rfl, by rw [hwe]; exact hpos n rfl⟩
-  refine ⟨ps.map Port.name, psNodup, by rw [List.length_map, psLen], ?_⟩
+  refine ⟨ps.map Port.name, psNodup, by rw [List.length_map, psLen], ls.map Port.name,
+    by rw [List.length_map, lsLen], ?_⟩
   intro bools bits env0 mems inputs slotVals hrst hold
-  obtain ⟨R', hev, hcore⟩ := cycle bools bits env0 mems inputs
+  obtain ⟨R', hev, hcore, hletv⟩ := cycle bools bits env0 mems inputs
     (fun i p b hp hb => slotVals i p.name b (by simp [hp]) hb) hold
-  obtain ⟨envF, hstep, hout⟩ := closeMachine_step (lay := shape.layout) hB' typed'
+  obtain ⟨envF, hstep, hout, hkeep⟩ := closeMachine_step (lay := shape.layout) hB' typed'
     (fun p hp => pb.wireNames p (hwires' ▸ hp))
     (fun p hp => by
       rw [hwires']
@@ -1132,9 +1159,29 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
   rw [hdrop, slotNexts_congr ps shape.layout.slots (Q := packedAt core bpos vpos bools bits)
     (fun f hf => by
       rw [field_mask (R' "out") (hfit f hf), hcore]), slotNexts_eq] at hstep
+  -- the `let` wires keep the transition's values
+  have hlets : ∀ (j : Nat) (name : String) (b : Name × MixedGateBinder),
+      (ls.map Port.name)[j]? = some name → letBs[j]? = some b →
+      envF name = posEnc bools bits (bsIn.length + slotBs.length + j) b.2 := by
+    intro j name b hn hb
+    rw [List.getElem?_map] at hn
+    cases hp : ls[j]? with
+    | none => rw [hp] at hn; cases hn
+    | some p =>
+      rw [hp] at hn
+      cases hn
+      have hpin : p ∈ ls := List.mem_of_getElem? hp
+      have alloc : Sparkle.IR.NameHints.Allocated p.name :=
+        pb.wireNames p (pb.inputWires p (by rw [tInputs]; exact List.mem_append_right _ hpin))
+      rw [hkeep p.name (fun h => Tools.ShippingRegisterSoundness.not_allocated_out (h ▸ alloc))
+        (fun x h => nextName_not_allocated x (h ▸ alloc))
+        (fun hmem => by
+          obtain ⟨o, ho, heq⟩ := List.mem_map.mp hmem
+          exact (outNameOk_facts (outsOk o ho).2).1 (heq ▸ alloc)),
+        hletv j p b hp hb]
   rcases hmt with hmt | ⟨nIn, kI, n', portNames, insts, children, hci⟩
   · subst hmt
-    refine ⟨envF, hstep, fun o ho => ?_⟩
+    refine ⟨envF, hstep, fun o ho => ?_, hlets⟩
     rw [hout o ho, field_mask (R' "out") (houtfit o ho), hcore]
   · have hw : weOf m = weOf (closeMachine shape.layout t') := by
       obtain ⟨hwires, _⟩ := Tools.ShippingMachineInst.closeInsts_some hci
@@ -1142,7 +1189,7 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
       unfold weOf
       rw [hwires]
     rw [hw, Tools.ShippingMachineInst.stepModule_of_closeInsts hci]
-    refine ⟨envF, hstep, fun o ho => ?_⟩
+    refine ⟨envF, hstep, fun o ho => ?_, hlets⟩
     rw [hout o ho, field_mask (R' "out") (houtfit o ho), hcore]
 
 /-! ## The trace -/
@@ -1169,6 +1216,7 @@ theorem machine_trace {declName shape m} {bsIn slotBs letBs : List (Name × Mixe
       (∀ f ∈ shape.layout.slots, f.lo + f.width ≤ c) →
       (∀ o ∈ shape.layout.outs, o.lo + o.width ≤ c) →
       ∃ regs : List String, regs.Nodup ∧ regs.length = slotBs.length ∧
+      ∃ lets : List String, lets.length = letBs.length ∧
       ∀ (T : Nat) (bools : Nat → Nat → Bool) (bits : Nat → (j : Nat) → (n : Nat) → BitVec n)
         (seed : Nat → (String → Nat) → Env) (st0 : String → Nat) (mems : MEnv),
         (∀ t st, t < T →
@@ -1182,33 +1230,42 @@ theorem machine_trace {declName shape m} {bsIn slotBs letBs : List (Name × Mixe
             mask f.width (packedAt core bpos vpos (bools τ) (bits τ) >>> f.lo)) →
         (∀ τ, LetsHold bpos vpos (bools τ) (bits τ) (bsIn.length + slotBs.length) letBs fs) →
         ∃ envs, runModule (weOf m) m.body seed T st0 mems = some envs ∧ envs.length = T ∧
-          ∀ j (hj : j < envs.length), ∀ o ∈ shape.layout.outs, (envs[j]'hj) o.name =
-            mask o.width (packedAt core bpos vpos (bools j) (bits j) >>> o.lo) := by
+          (∀ j (hj : j < envs.length), ∀ o ∈ shape.layout.outs, (envs[j]'hj) o.name =
+            mask o.width (packedAt core bpos vpos (bools j) (bits j) >>> o.lo)) ∧
+          ∀ j (hj : j < envs.length) (k : Nat) (name : String) (b : Name × MixedGateBinder),
+            lets[k]? = some name → letBs[k]? = some b →
+            (envs[j]'hj) name = posEnc (bools j) (bits j) (bsIn.length + slotBs.length + k) b.2 := by
   obtain ⟨ids, nd, len, cache, h⟩ := h
   refine ⟨ids, nd, len, cache, ?_⟩
   intro dom kb kv vw bpos vpos fs c core he hb hv hbody hfit houtfit
-  obtain ⟨regs, regsNd, regsLen, step⟩ :=
+  obtain ⟨regs, regsNd, regsLen, lets, letsLen, step⟩ :=
     h dom kb kv vw bpos vpos fs core he hb hv hbody hfit houtfit
-  refine ⟨regs, regsNd, regsLen, ?_⟩
+  refine ⟨regs, regsNd, regsLen, lets, letsLen, ?_⟩
   intro T bools bits seed st0 mems inputs pass rst init follow hold
   -- `k` cycles remain; the state holds the slots' values at time `T - k`.
   suffices main : ∀ (k : Nat), k ≤ T → ∀ (st : String → Nat),
       (∀ i r b, regs[i]? = some r → slotBs[i]? = some b →
         st r = posEnc (bools (T - k)) (bits (T - k)) (bsIn.length + i) b.2) →
       ∃ envs, runModule (weOf m) m.body seed k st mems = some envs ∧ envs.length = k ∧
-        ∀ j (hj : j < envs.length), ∀ o ∈ shape.layout.outs, (envs[j]'hj) o.name =
+        (∀ j (hj : j < envs.length), ∀ o ∈ shape.layout.outs, (envs[j]'hj) o.name =
           mask o.width
-            (packedAt core bpos vpos (bools (T - k + j)) (bits (T - k + j)) >>> o.lo) by
-    obtain ⟨envs, hrun, hlen, hobs⟩ := main T (Nat.le_refl T) st0 (by simpa using init)
-    refine ⟨envs, hrun, hlen, fun j hj o ho => ?_⟩
-    simpa using hobs j hj o ho
+            (packedAt core bpos vpos (bools (T - k + j)) (bits (T - k + j)) >>> o.lo)) ∧
+        ∀ j (hj : j < envs.length) (q : Nat) (name : String) (b : Name × MixedGateBinder),
+          lets[q]? = some name → letBs[q]? = some b →
+          (envs[j]'hj) name =
+            posEnc (bools (T - k + j)) (bits (T - k + j)) (bsIn.length + slotBs.length + q) b.2 by
+    obtain ⟨envs, hrun, hlen, hobs, hlet⟩ := main T (Nat.le_refl T) st0 (by simpa using init)
+    refine ⟨envs, hrun, hlen, fun j hj o ho => ?_, fun j hj q name b hn hb => ?_⟩
+    · simpa using hobs j hj o ho
+    · simpa using hlet j hj q name b hn hb
   intro k
   induction k with
-  | zero => intro _ st _; exact ⟨[], rfl, rfl, fun j hj => absurd hj (Nat.not_lt_zero j)⟩
+  | zero => intro _ st _; exact ⟨[], rfl, rfl, fun j hj => absurd hj (Nat.not_lt_zero j),
+      fun j hj => absurd hj (Nat.not_lt_zero j)⟩
   | succ k ih =>
     intro hk st inv
     have hτ : T - 1 - k = T - (k + 1) := by omega
-    obtain ⟨envF, hstep, hout⟩ := step (bools (T - (k + 1))) (bits (T - (k + 1)))
+    obtain ⟨envF, hstep, hout, hletF⟩ := step (bools (T - (k + 1))) (bits (T - (k + 1)))
       (seed k st) mems (hτ ▸ inputs k st (by omega))
       (fun i r b hr hb' => by
         rw [pass k st r (List.mem_of_getElem? hr)]; exact inv i r b hr hb')
@@ -1224,8 +1281,8 @@ theorem machine_trace {declName shape m} {bsIn slotBs letBs : List (Name × Mixe
       have hT : T - k = T - (k + 1) + 1 := by omega
       rw [hT]
       exact (follow (T - (k + 1)) i _ b (List.getElem?_eq_getElem hi) hb').symm
-    obtain ⟨rest, hrun, hlen, hobs⟩ := ih (by omega) _ inv'
-    refine ⟨envF :: rest, ?_, by simp [hlen], ?_⟩
+    obtain ⟨rest, hrun, hlen, hobs, hletR⟩ := ih (by omega) _ inv'
+    refine ⟨envF :: rest, ?_, by simp [hlen], ?_, ?_⟩
     · unfold runModule
       simp [hstep, bind, hrun]
     · intro j hj o ho
@@ -1235,6 +1292,17 @@ theorem machine_trace {declName shape m} {bsIn slotBs letBs : List (Name × Mixe
         have hi : i < rest.length := by simpa using hj
         have hget : ((envF :: rest)[i + 1]'hj) = rest[i]'hi := by simp
         rw [hget, hobs i hi o ho]
+        have hidx : T - k + i = T - (k + 1) + (i + 1) := by
+          have : i < k := by omega
+          omega
+        rw [hidx]
+    · intro j hj q name b hn hb
+      cases j with
+      | zero => simpa using hletF q name b hn hb
+      | succ i =>
+        have hi : i < rest.length := by simpa using hj
+        have hget : ((envF :: rest)[i + 1]'hj) = rest[i]'hi := by simp
+        rw [hget, hletR i hi q name b hn hb]
         have hidx : T - k + i = T - (k + 1) + (i + 1) := by
           have : i < k := by omega
           omega
