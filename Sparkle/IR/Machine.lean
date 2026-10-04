@@ -302,6 +302,60 @@ def designWith (children : List (Module × Design)) (d : Design) : Design :=
       (dc.modules ++ [mc]).foldl (fun acc c =>
         if acc.any (·.name == c.name) then acc else acc ++ [c]) acc) d.modules }
 
+/-! ### The linked order
+
+The instances' outputs are produced by the children; in the linked
+semantics an assignment reading an instance output must come after the
+instance. `linkedOk` is `Tools.ShippingHierOpen.linkedWF` (the condition of
+the open/linked correspondence) over the children's modules. -/
+
+/-- The parent wires an instance drives. -/
+def instOuts (outs : List Port) (conns : List (String × Expr)) : List String :=
+  outs.filterMap fun p =>
+    match conns.lookup p.name with
+    | some (.ref w) => some w
+    | _ => none
+
+def stmtOuts (children : String → Option Module) : Stmt → List String
+  | .inst mn _ conns =>
+    match children mn with
+    | some child => instOuts child.outputs conns
+    | none => []
+  | _ => []
+
+def bodyOuts (children : String → Option Module) : List Stmt → List String
+  | [] => []
+  | st :: rest => stmtOuts children st ++ bodyOuts children rest
+
+def bodyWrites (children : String → Option Module) : List Stmt → List String
+  | [] => []
+  | .assign l _ :: rest => l :: bodyWrites children rest
+  | st :: rest => stmtOuts children st ++ bodyWrites children rest
+
+def linkedOk (children : String → Option Module) : List Stmt → Bool
+  | [] => true
+  | .assign l r :: rest =>
+    !(bodyOuts children rest).contains l &&
+      (Sparkle.IR.Reorder.refsOf r).all (fun n => !(bodyOuts children rest).contains n) &&
+      linkedOk children rest
+  | .inst mn _ conns :: rest =>
+    (match children mn with
+     | some child =>
+       (instOuts child.outputs conns).all (fun w => !(bodyWrites children rest).contains w) &&
+         decide (instOuts child.outputs conns).Nodup &&
+         conns.all (fun c =>
+           match c.2 with
+           | .ref w => (instOuts child.outputs conns).contains w ||
+               !(bodyWrites children rest).contains w
+           | _ => true)
+     | none => false) && linkedOk children rest
+  | .register _ _ _ _ _ :: rest => linkedOk children rest
+  | .memory .. :: _ => false
+
+/-- The children by module name. -/
+def childByName (children : List (Module × Design)) (mn : String) : Option Module :=
+  (children.find? (fun c => c.1.name == mn)).map (·.1)
+
 /-- Tie every call to an instance: the output ports stop being inputs, the
 instance statements are appended, and the combinational statements are put
 in dependency order. The result is kept only if the checks the
@@ -324,7 +378,8 @@ def closeInsts (nIn kI n : Nat) (portNames : List String) (insts : List (List Na
       Sparkle.IR.Reorder.woCheck [] body && Sparkle.IR.Reorder.isPermOf m'.body body &&
       decide (seqOf m'.body = seqOf body) &&
       decide (Sparkle.IR.Reorder.nextKeys m'.body).Nodup &&
-      decide (m'.body.filterMap Sparkle.IR.Reorder.stmtMemName).Nodup then
+      decide (m'.body.filterMap Sparkle.IR.Reorder.stmtMemName).Nodup &&
+      linkedOk (childByName children) body then
     some ({ m' with body := body }, designWith children d)
   else none
 

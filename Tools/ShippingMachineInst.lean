@@ -146,7 +146,8 @@ theorem closeInsts_some {nIn kI n : Nat} {portNames : List String} {insts : List
     m.wires = m₀.wires ∧ m.outputs = m₀.outputs ∧ m.name = m₀.name ∧
     ∃ L : List Stmt, L.all isInst = true ∧ (m₀.body ++ L).Perm m.body ∧
       WO [] (m₀.body ++ L) ∧ WO [] m.body ∧ seqOf (m₀.body ++ L) = seqOf m.body ∧
-      ((m₀.body ++ L).filterMap stmtMemName).Nodup ∧ (nextKeys (m₀.body ++ L)).Nodup := by
+      ((m₀.body ++ L).filterMap stmtMemName).Nodup ∧ (nextKeys (m₀.body ++ L)).Nodup ∧
+      linkedOk (childByName children) m.body = true := by
   unfold closeInsts at h
   simp only [Option.bind_eq_bind] at h
   obtain ⟨stmts, _, h⟩ := Option.bind_eq_some_iff.mp h
@@ -155,10 +156,10 @@ theorem closeInsts_some {nIn kI n : Nat} {portNames : List String} {insts : List
   split at h
   · rename_i hc
     simp only [Bool.and_eq_true, decide_eq_true_eq] at hc
-    obtain ⟨⟨⟨⟨⟨⟨hinst, hwo⟩, hwo'⟩, hperm⟩, hseq⟩, hkeys⟩, hmem⟩ := hc
+    obtain ⟨⟨⟨⟨⟨⟨⟨hinst, hwo⟩, hwo'⟩, hperm⟩, hseq⟩, hkeys⟩, hmem⟩, hlink⟩ := hc
     cases h
     refine ⟨rfl, rfl, rfl, stmts, hinst, isPermOf_sound hperm, woCheck_sound _ _ hwo,
-      woCheck_sound _ _ hwo', hseq, hmem, hkeys⟩
+      woCheck_sound _ _ hwo', hseq, hmem, hkeys, hlink⟩
   · cases h
 
 /-- **`closeInsts` keeps every cycle.** -/
@@ -168,7 +169,7 @@ theorem stepModule_of_closeInsts {nIn kI n : Nat} {portNames : List String}
     (h : closeInsts nIn kI n portNames insts children (m₀, d₀) = some (m, d))
     (we : WEnv) (env0 : Env) (mems : MEnv) :
     stepModule we m.body env0 mems = stepModule we m₀.body env0 mems := by
-  obtain ⟨_, _, _, L, hL, hperm, hwo, hwo', hseq, hmem, _⟩ := closeInsts_some h
+  obtain ⟨_, _, _, L, hL, hperm, hwo, hwo', hseq, hmem, _, _⟩ := closeInsts_some h
   exact stepModule_closeInsts we hL hperm hwo hwo' hseq hmem env0 mems
 
 /-- **`closeInsts` keeps every run.** -/
