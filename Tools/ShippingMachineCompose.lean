@@ -778,6 +778,66 @@ theorem machine_linked {declName : Name} {d : MachineData} {m : Sparkle.IR.AST.M
   have : T - 1 - (T - 1 - j) = j := by omega
   rw [this]
 
+/-- `machine_linked` with the calls' equations as a premise of their own
+(for every input, at every cycle): what the generated `f.machine_linked`
+discharges by kernel facts about the declaration. -/
+theorem machine_linked_calls {declName : Name} {d : MachineData} {m : Sparkle.IR.AST.Module} {dsn : Design}
+    {ι : Type} {dom : ι → DomainConfig}
+    {src : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat)}
+    {ext : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) →
+      (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)}
+    {lsrc : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat)}
+    (h : MachineTraceL declName d m dsn dom src ext lsrc)
+    (kD : Nat) (hkD : kD ≤ d.bsIn.length)
+    (hI : ∀ b ∈ d.bsIn.drop kD, b.2 ≠ .domain)
+    (hIlen : (d.bsIn.drop kD).length = d.shape.insts.length)
+    (hSL : ∀ b ∈ d.slotBs ++ d.letBs, b.2 ≠ .domain)
+    (hSlen : d.slotBs.length = d.shape.layout.slots.length)
+    (hLlen : d.letBs.length = d.shape.layout.lets)
+    (hNIn : machNIn d.shape = ((d.bsIn.take kD).filter (fun b => b.2 != .domain)).length)
+    (P : Nat → List Nat → Prop) (F : Nat → List Nat → Nat)
+    (hcalls : ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+      (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) k args j,
+      (d.shape.insts.map (·.2.1))[k]? = some args →
+      (∀ q ∈ args, q < d.ls.length ∧ q < (lsrc i bools bits).length) ∧
+      P k (args.map fun q => ((lsrc i bools bits)[q]?.map (· j)).getD 0) ∧
+      F k (args.map fun q => ((lsrc i bools bits)[q]?.map (· j)).getD 0) =
+        posEnc (fun p => (bools p).val j) (fun p n => (ext i bools bits p n).val j) (kD + k)
+          (((d.bsIn.drop kD)[k]?.map (·.2)).getD .domain)) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = d.shape.binders.length ∧
+    ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
+      regs.Nodup ∧ regs.length = d.ss.length ∧
+      ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+        (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
+        (T : Nat) (seed : Nat → (String → Nat) → Env) (st0 : String → Nat) (mems : MEnv),
+        (∀ t st, t < T → SourceInputs declName (d.bsIn.take kD) ids cache
+          (fun j => (bools j).val (T - 1 - t)) (fun j n => (ext i bools bits j n).val (T - 1 - t))
+          (seed t st)) →
+        (∀ t st r, r ∈ regs → seed t st r = st r) →
+        (∀ t st, seed t st "rst" = 0) →
+        (∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r →
+          d.shape.layout.slots[k]? = some f → st0 r = f.init) →
+        -- every call's module computes `F k`
+        (∀ k args mc st, (d.shape.insts.map (·.2.1))[k]? = some args → st ∈ m.body →
+          Tools.ShippingMachineInst.CallStmt (machNIn d.shape) d.shape.insts.length
+            d.shape.layout.slots.length
+            ((machPorts declName ids cache d.shape.binders).map (·.name)) k args mc st →
+          Sparkle.IR.Machine.moduleByName dsn.modules mc.name = some mc →
+          ChildFn mc (P k) (F k)) →
+        ∃ envs, runModuleH (weOf m) (childMap dsn.modules) m.body seed T st0 mems = some envs ∧
+          envs.length = T ∧
+          ∀ j (hj : j < envs.length) (k : Nat) (o : OutField) (f : Nat → Nat),
+            d.shape.layout.outs[k]? = some o → (src i bools bits)[k]? = some f →
+            (envs[j]'hj) o.name = f j := by
+  obtain ⟨ids, nd, len, cache, regs, rnd, rlen, H⟩ :=
+    machine_linked h kD hkD hI hIlen hSL hSlen hLlen hNIn P F
+  exact ⟨ids, nd, len, cache, regs, rnd, rlen,
+    fun i bools bits T seed st0 mems a b c e f => H i bools bits T seed st0 mems a b c e f
+      (fun k args j hk _ => hcalls i bools bits k args j hk)⟩
+
 end Linked
 
 end Tools.ShippingMachineCompose

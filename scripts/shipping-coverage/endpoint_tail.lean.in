@@ -34,4 +34,39 @@ run_cmd liftTermElabM do
     out := out ++ s!"{s}|{t1 - t0}ms|{res}\n"
   let h ← IO.FS.Handle.mk "@WORK@/endpoint_reasons.txt" .append
   h.putStr out
+  -- the linked composition: every combinational child its `machine_child`,
+  -- every declaration with calls its `machine_linked`
+  let mut lout := ""
+  for pass in [0, 1] do
+    for s in names do
+      let n0 := s.toName
+      let env ← getEnv
+      let n : Lean.Name :=
+        if (env.find? n0).isSome then n0
+        else if s.startsWith "_private." then
+          let user := (s.splitOn ".0.").getLast!
+          env.constants.map₂.foldl (fun acc c _ =>
+            if (Lean.privateToUserName? c).map toString == some user then c else acc) n0
+        else n0
+      unless (env.find? (n ++ `machine_sound)).isSome do continue
+      let hasCalls := (env.find? (n ++ `machineCall_0)).isSome
+      if pass == 0 && !hasCalls then
+        if (env.find? (n ++ `machine_child)).isSome then continue
+        let res ← try
+            let _ ← Tools.ShippingMachineLinkedCommand.generateChild n
+            pure "CHILD|OK"
+          catch _ => pure "CHILD|NA"
+        if res == "CHILD|OK" then lout := lout ++ s!"{s}|{res}\n"
+      if pass == 1 && hasCalls then
+        if (env.find? (n ++ `machine_linked)).isSome then
+          lout := lout ++ s!"{s}|LINKED|OK\n"; continue
+        let res ← try
+            let _ ← Tools.ShippingMachineLinkedCommand.generateLinked n
+            pure "LINKED|OK"
+          catch ex =>
+            let msg ← ex.toMessageData.toString
+            pure ("LINKED|FAIL|" ++ ((msg.replace "\n" " ").take 300).toString)
+        lout := lout ++ s!"{s}|{res}\n"
+  let hl ← IO.FS.Handle.mk "@WORK@/linked_reasons.txt" .append
+  hl.putStr lout
 end EndpointProbeZZ

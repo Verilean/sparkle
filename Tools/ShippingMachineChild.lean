@@ -378,7 +378,7 @@ theorem child_full {declName : Name} {d : MachineData} {ι : Type} {dom : ι →
       MachineTraceL declName d m design dom src (fun _ _ bits => bits) (fun _ _ _ => []))
     (hnoI : d.shape.insts = []) (hss : d.ss = []) (hsl : d.shape.layout.slots = [])
     (hlets : d.letBs.length = d.shape.layout.lets)
-    (o : Sparkle.IR.Machine.OutField) (hout : d.shape.layout.outs = [o])
+    (hout : d.shape.layout.outs.length = 1)
     (hsrc : ∀ i bools bits, (src i bools bits).length = 1) (i0 : ι)
     {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
     {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
@@ -399,7 +399,48 @@ theorem child_full {declName : Name} {d : MachineData} {ι : Type} {dom : ι →
     obtain ⟨_, _, _, _, _, _, _, _, _, wired, _⟩ := h
     obtain ⟨_, _, _, _, _, _, _, _, _, hall⟩ := wired
     exact hall hnoI hsl
+  obtain ⟨o, ho⟩ : ∃ o, d.shape.layout.outs = [o] := by
+    match hm : d.shape.layout.outs, hout with
+    | [o], _ => exact ⟨o, rfl⟩
   exact ⟨M, hpost, fun hdz => childFn_full
-    (childFn_of_trace h (fun _ _ _ => rfl) hnoI hss hsl hlets o hout hsrc i0) hall hpost hdz⟩
+    (childFn_of_trace h (fun _ _ _ => rfl) hnoI hss hsl hlets o ho hsrc i0) hall hpost hdz⟩
+
+/-! ## Assembling a call's equations -/
+
+/-- The argument values a child accepts: in range of its ports' types. -/
+def childRange (d : MachineData) (vals : List Nat) : Prop :=
+  InRange vals (d.bsIn.filter fun b => b.2 != .domain)
+
+/-- A statement about every entry of a list, entry by entry. -/
+theorem forall_getElem?_cons {α : Type} {Q : Nat → α → Prop} {a : α} {l : List α}
+    (h0 : Q 0 a) (hs : ∀ k b, l[k]? = some b → Q (k + 1) b) :
+    ∀ k b, (a :: l)[k]? = some b → Q k b
+  | 0, b, h => by simp only [List.getElem?_cons_zero, Option.some.injEq] at h; exact h ▸ h0
+  | k + 1, b, h => hs k b (by simpa using h)
+
+theorem forall_getElem?_nil {α : Type} {Q : Nat → α → Prop} :
+    ∀ k b, ([] : List α)[k]? = some b → Q k b := by
+  intro k b h; simp at h
+
+theorem encodeBool_lt (b : Bool) : Tools.ShippingMuxLoweringSoundness.encodeBool b < 2 := by
+  cases b <;> decide
+
+theorem encodeBool_ne (b : Bool) : (Tools.ShippingMuxLoweringSoundness.encodeBool b != 0) = b := by
+  cases b <;> rfl
+
+/-- A call's premise of `machine_linked_calls` from its parts: the argument
+values are `obs`, which the child's range predicate accepts and its
+function maps to `rhs`. -/
+theorem call_of_facts {argsN : List Nat} {lsrcL : List (Nat → Nat)} {lsLen : Nat} {j : Nat}
+    {P : List Nat → Prop} {F : List Nat → Nat} (obs : List Nat) {rhs : Nat}
+    (hlen : lsrcL.length = lsLen) (hbd : ∀ q ∈ argsN, q < lsLen)
+    (hv : argsN.map (fun q => (lsrcL[q]?.map (fun g => g j)).getD 0) = obs)
+    (hP : P obs) (hF : F obs = rhs) :
+    (∀ q ∈ argsN, q < lsLen ∧ q < lsrcL.length) ∧
+      P (argsN.map fun q => (lsrcL[q]?.map (fun g => g j)).getD 0) ∧
+      F (argsN.map fun q => (lsrcL[q]?.map (fun g => g j)).getD 0) = rhs := by
+  refine ⟨fun q hq => ⟨hbd q hq, hlen ▸ hbd q hq⟩, ?_, ?_⟩
+  · rw [hv]; exact hP
+  · rw [hv]; exact hF
 
 end Tools.ShippingMachineChild

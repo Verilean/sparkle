@@ -24,11 +24,12 @@ mkdir -p "$WORK/endpoint_jobs"
 sed "s#@WORK@#$WORK#g" "$HERE/endpoint_tail.lean.in" > "$WORK/endpoint_tail.lean"
 : > "$WORK/endpoint_reasons.txt"
 : > "$WORK/endpoint_status.txt"
+: > "$WORK/linked_reasons.txt"
 if [ $# -ge 2 ]; then cat "$2"; else grep " 0$" "$WORK/status.txt" | awk '{print $1}'; fi \
   | nl -w1 -s' ' > "$WORK/endpoint_jobs/list.txt"
 run_one() {
   i="$1"; f="$2"; job="$WORK/endpoint_jobs/e$i.lean"
-  { echo "import Tools.ShippingMachineCommand"; cat "$f" "$WORK/endpoint_tail.lean"; } > "$job"
+  { echo "import Tools.ShippingMachineLinkedCommand"; cat "$f" "$WORK/endpoint_tail.lean"; } > "$job"
   timeout -k 5 900 lake env lean --load-dynlib=.lake/build/lib/libsparkle_Sparkle.so "$job" \
     > /dev/null 2>&1
   echo "$f $?" >> "$WORK/endpoint_status.txt"
@@ -37,3 +38,7 @@ run_one() {
 export -f run_one; export WORK
 xargs -P 3 -L 1 bash -c 'run_one "$0" "$1"' < "$WORK/endpoint_jobs/list.txt"
 python3 "$HERE/report.py" endpoints "$WORK"
+# the linked composition (one success per declaration counts)
+echo "combinational children with machine_child: $(grep '|CHILD|OK' "$WORK/linked_reasons.txt" | cut -d'|' -f1 | sort -u | wc -l)"
+echo "declarations with calls and machine_linked: $(grep '|LINKED|OK' "$WORK/linked_reasons.txt" | cut -d'|' -f1 | sort -u | wc -l) of $(grep '|LINKED|' "$WORK/linked_reasons.txt" | cut -d'|' -f1 | sort -u | wc -l)"
+grep '|LINKED|FAIL' "$WORK/linked_reasons.txt" | sort -u | cut -c1-250 | head -20

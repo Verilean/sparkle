@@ -658,6 +658,118 @@ theorem machine_trace_of_data_ext {declName : Name} (d : MachineData) {ι : Type
     exact hres i bools bits (stateLoop inits (body i bools bits)) j
 
 
+/-- The `let` observations of a `circuit do` with calls: each `let` term's
+typed value on the source's own state loop. -/
+def letObs (d : MachineData) {ι : Type} (dom : ι → DomainConfig) [Inhabited (HList (tys d.ss))]
+    {ρ : ι → Type} (inits : HList (tys d.ss))
+    (body : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) →
+      RegList (dom i) (HList (tys d.ss)) (Circuit.SigList (dom i) (tys d.ss)) (tys d.ss) →
+      Circuit (dom i) (Circuit.SigList (dom i) (tys d.ss)) (ρ i))
+    (ext : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) →
+      Signal (dom i) (HList (tys d.ss)) → (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) :
+    (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat) :=
+  fun i bools bits => d.ls.map fun l => fun j => enc l.1 (eval
+    (fun k => (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools
+      (ext i bools bits (stateLoop inits (body i bools bits))) j
+      ((stateLoop inits (body i bools bits)).val j)).b (d.bpos k))
+    (fun k w => (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools
+      (ext i bools bits (stateLoop inits (body i bools bits))) j
+      ((stateLoop inits (body i bools bits)).val j)).v (d.vpos k) w) l.2)
+
+/-- `machine_trace_of_data_ext` with the wiring and the `let` wires: the same
+premises, the `MachineTraceL` conclusion with the `let` observations
+`letObs` (what `Tools.ShippingMachineCompose.machine_linked` composes). -/
+theorem machine_traceL_of_data_ext {declName : Name} (d : MachineData) {ι : Type}
+    (dom : ι → DomainConfig) [Inhabited (HList (tys d.ss))] {ρ : ι → Type}
+    (inits : HList (tys d.ss))
+    (body : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) →
+      RegList (dom i) (HList (tys d.ss)) (Circuit.SigList (dom i) (tys d.ss)) (tys d.ss) →
+      Circuit (dom i) (Circuit.SigList (dom i) (tys d.ss)) (ρ i))
+    (obsR : (i : ι) → ρ i → List (Nat → Nat))
+    (ext : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) →
+      Signal (dom i) (HList (tys d.ss)) → (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
+    (src : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat))
+    (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    (hinit : d.initOk inits = true)
+    (writes : ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+      (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
+      (S : Signal (dom i) (HList (tys d.ss))) (t : Nat),
+      valsAt (tys d.ss) (body i bools bits
+          (mkRegList S (tys d.ss) (fun s => s) (fun f => f)) (mkHolds (tys d.ss) S)).snd t =
+        evalTerms
+          (fun j => (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools (ext i bools bits S) t
+            (S.val t)).b (d.bpos j))
+          (fun j w => (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools (ext i bools bits S) t
+            (S.val t)).v (d.vpos j) w) d.nexts)
+    (hres : ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+      (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
+      (S : Signal (dom i) (HList (tys d.ss))) (t : Nat),
+      (obsR i (body i bools bits (mkRegList S (tys d.ss) (fun s => s) (fun f => f))
+          (mkHolds (tys d.ss) S)).fst).map (fun f => f t) =
+        d.outs.map fun o => enc o.1 (eval
+          (fun j => (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools (ext i bools bits S) t
+            (S.val t)).b (d.bpos j))
+          (fun j w => (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools (ext i bools bits S) t
+            (S.val t)).v (d.vpos j) w) o.2))
+    (hsrc : ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+      (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)),
+      src i bools bits = obsR i
+        (body i bools bits
+          (mkRegList (stateLoop inits (body i bools bits)) (tys d.ss) (fun s => s) (fun f => f))
+          (mkHolds (tys d.ss) (stateLoop inits (body i bools bits)))).fst)
+    (hext : ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+      (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
+      (S : Signal (dom i) (HList (tys d.ss))) (t p w : Nat),
+      (ext i bools bits S p w).val t = (ext i bools bits ⟨fun _ => S.val t⟩ p w).val t)
+    {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w
+      (m, design) w')
+    (entry : MachineDefines mctx mref cctx cref declName d.shape)
+    (closes : MachineCloses mctx mref cctx cref declName d.shape) :
+    MachineTraceL declName d m design dom src
+      (fun i bools bits => ext i bools bits (stateLoop inits (body i bools bits)))
+      (letObs d dom inits body ext) := by
+  refine machine_trace_lets_of_stream d dom inits src (letObs d dom inits body ext) ok hbody
+    hinit _ ?_ hr entry closes
+  intro i bools bits
+  have hloop := stateLoop_stream inits (body i bools bits)
+    (fun t x => evalTerms
+      (fun j => (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools
+        (ext i bools bits ⟨fun _ => x⟩) t x).b (d.bpos j))
+      (fun j w => (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools
+        (ext i bools bits ⟨fun _ => x⟩) t x).v (d.vpos j) w)
+      d.nexts) (by
+      intro S t
+      rw [writes i bools bits S t,
+        typedVal_congr d.nIn d.bpos d.vpos d.ss d.ls bools (ext i bools bits S)
+          (ext i bools bits ⟨fun _ => S.val t⟩) t (S.val t) (fun p w => hext i bools bits S t p w)])
+  refine ⟨fun t => (stateLoop inits (body i bools bits)).val t, hloop.1, ?_, ?_, ?_⟩
+  · intro t
+    show (stateLoop inits (body i bools bits)).val (t + 1) = _
+    rw [hloop.2 t]
+    rw [typedVal_congr d.nIn d.bpos d.vpos d.ss d.ls bools
+      (ext i bools bits (stateLoop inits (body i bools bits)))
+      (ext i bools bits ⟨fun _ => (stateLoop inits (body i bools bits)).val t⟩) t _
+      (fun p w => hext i bools bits (stateLoop inits (body i bools bits)) t p w)]
+  · intro j
+    rw [hsrc i bools bits]
+    exact hres i bools bits (stateLoop inits (body i bools bits)) j
+  · intro j q g l hg hl
+    simp only [letObs, List.getElem?_map, hl, Option.map_some, Option.some.injEq] at hg
+    subst hg
+    rfl
+
 /-- **Source to RTL for a `circuit do`, from data.** The check `ok` and
 five equations — each `rfl` for a declaration — give the trace theorem of
 every module a run of the real synthesis entry returns at the machine

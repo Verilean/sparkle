@@ -672,6 +672,9 @@ def instExtension (declName : Name) (r : Read) (D : Lean.Expr) (binders : Array 
     let cS := subst c
     let cC := substC c
     let pos := r.nDecl + k
+    -- the call over the state signal(s), for the linked composition
+    let callV ← mkLambdaFVars binders cS
+    addDef (declName ++ Name.mkSimple s!"machineCall_{k}") (← inferType callV) callV
     -- the pointwiseness fact, checked by the kernel
     let stmt ← mkForallFVars bindersT
       (mkApp3 (mkConst ``Eq [.one]) (mkApp (mkConst ``BitVec) (mkNatLit w)) (valAt w cS t)
