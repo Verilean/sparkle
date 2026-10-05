@@ -48,10 +48,32 @@ def chained (en : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 8) :
 
 #machine_endpoint chained
 
+/-- A sequential child whose own endpoint is causal (it calls `cnt`). -/
+@[hardware_module] def mid {dom : DomainConfig} (en : Signal dom Bool) : CntOut dom :=
+  circuit do
+    let r ← Signal.reg 0#8
+    let rs := (r : Signal dom (BitVec 8))
+    let k := cnt en
+    r <~ k.n
+    return ({ n := rs, hit := k.hit } : CntOut dom)
+
+/-- A parent of `mid` (the ECDSA demo top's shape: its children call engines),
+with a lifted negated comparison (`!(c == k)`, read as `~~~(c === k)`). -/
+def grand (en : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 8) :=
+  circuit do
+    let r ← Signal.reg 0#8
+    let rs := (r : Signal defaultDomain (BitVec 8))
+    let m := mid en
+    let nz := ((fun c => !(c == 0#8)) <$> m.n : Signal defaultDomain Bool)
+    r <~ Signal.mux (m.hit &&& nz) (rs + m.n) rs
+    return rs
+
+#machine_endpoint grand
+
 open Lean Lean.Elab.Command in
 run_cmd do
   if (← get).messages.hasErrors then throwError "sequential-child regression failed"
-  for name in [``parent.machine_sound, ``chained.machine_sound, ``Tools.ShippingMachineCausal.machine_trace_of_data_causal,
+  for name in [``parent.machine_sound, ``chained.machine_sound, ``grand.machine_sound, ``Tools.ShippingMachineCausal.machine_trace_of_data_causal,
       ``Tools.ShippingMachineCausal.src_causal_of_data, ``Tools.ShippingMachineCausal.field_causal,
       ``Tools.ShippingMachineCausal.field_causalB] do
     for ax in ← Lean.collectAxioms name do

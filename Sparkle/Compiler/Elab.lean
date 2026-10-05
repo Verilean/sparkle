@@ -4616,6 +4616,29 @@ def machNormApLift (senv : StructEnv) (e : Lean.Expr) : Lean.Expr :=
         | _ => none) : Option Lean.Expr).getD e
   | _ => e
 
+/-- A `Bool`-valued lambda over a `BitVec` Signal `a` of width `wa`: an
+    equality of lifted operands (`x == y`, `Signal.beq`), under `!`
+    (`~~~`, the Signal's Bool complement). -/
+partial def machBoolMap (senv : StructEnv) (dom a : Lean.Expr) (wa : Nat) :
+    Lean.Expr → Option Lean.Expr
+  | .app (.const c _) x =>
+    if c == ``Bool.not || c == ``not then do
+      let x' ← machBoolMap senv dom a wa x
+      some (mkApp3 (.const ``Complement.complement [.zero])
+        (mkApp2 (.const ``Sparkle.Core.Signal.Signal [.zero]) dom (.const ``Bool []))
+        (mkApp (.const ``Sparkle.Core.Signal.instComplementSignalBool []) dom) x')
+    else none
+  | .app (.app (.app (.app (.const ``BEq.beq _) ty) inst) x) y => do
+    let w ← machBits? ty
+    unless inst.isAppOf ``instBEqOfDecidableEq do none
+    let (wx, x') ← machLiftScalarN senv dom [(wa, a)] x
+    let (wy, y') ← machLiftScalarN senv dom [(wa, a)] y
+    if wx != w || wy != w then none else
+    some (mkApp5 (.const ``Sparkle.Core.Signal.Signal.beq []) ty dom
+      (mkApp2 (.const ``instBEqOfDecidableEq [.zero]) ty
+        (mkApp (.const ``instDecidableEqBitVec []) (inlNatLit w))) x' y')
+  | _ => none
+
 /-- A map over a `BitVec` Signal, `Signal.map f a` or `f <$> a`:
     * `fun x => x op c` / `fun x => c op x` with a constant `c`: the operator
       on `a` and `Signal.pure` of the literal;
@@ -4668,6 +4691,8 @@ def machNormMap (senv : StructEnv) (dom tyA tyB f a : Lean.Expr) (mk : Lean.Expr
            | some si, some l => machSigBin m si dom w (machPureE dom w l) a
            | _, _ => e)
         | _ => machNormLift senv dom tyA tyB a body e)
+     | some wa, none =>
+       if tyB.isConstOf ``Bool then (machBoolMap senv dom a wa body).getD e else e
      | _, _ => e)
   | _ => e
 where
