@@ -137,6 +137,11 @@ def bundleIota (e : Lean.Expr) : Lean.Expr :=
         ``Sparkle.Core.Signal.Signal.fst => a
     | .const ``Sparkle.Core.Signal.bundle2 _, #[_, _, _, _, b],
         ``Sparkle.Core.Signal.Signal.snd => b
+    -- a triple is a pair whose second component is a pair
+    | .const ``Sparkle.Core.Signal.bundle3 _, #[_, _, _, _, a, _, _],
+        ``Sparkle.Core.Signal.Signal.fst => a
+    | .const ``Sparkle.Core.Signal.bundle3 _, #[d, _, β, γ, _, b, c],
+        ``Sparkle.Core.Signal.Signal.snd => mkApp5 (.const ``Sparkle.Core.Signal.bundle2 [.zero]) d β γ b c
     | _, _, _ => e
   | .const ``Sparkle.Core.Signal.Signal.map _, #[_, _, _, f, s] =>
     -- `Signal.map Prod.fst (bundle2 a b)` (what `Signal.fst` unfolds to)

@@ -74,12 +74,18 @@ def tupReg (ab : Signal defaultDomain (BitVec 4 × BitVec 12)) : Signal defaultD
     let rs := (r : Signal defaultDomain (BitVec 12))
     r <~ rs + ab.snd
     return rs
+/-- `hw_let` over a triple: `Signal.snd (bundle3 a b c)` is `bundle2 b c`. -/
+def tupHwLet3 {dom : DomainConfig} (sig : Signal dom (BitVec 8 × (BitVec 16 × BitVec 32))) :
+    Signal dom (BitVec 16) :=
+  hw_let (_a, b, _c) := sig;
+  b
 end TupleInputs
 
 #machine_endpoint tupFst
 #machine_endpoint tupMapFst
 #machine_endpoint tupSum
 #machine_endpoint tupReg
+#machine_endpoint tupHwLet3
 
 run_cmd do
   if (← get).messages.hasErrors then throwError "machine raw-surface regression failed"

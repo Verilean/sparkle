@@ -92,6 +92,22 @@ def divQ (num den : Signal defaultDomain (BitVec 32)) (start : Signal defaultDom
 
 #machine_endpoint divQ
 
+/-- A loop whose whole tuple state is the result (one packed port): the
+state read as the bundle of its slots. -/
+def loopPair (start : Signal defaultDomain Bool) (act : Signal defaultDomain (BitVec 32)) :
+    Signal defaultDomain (BitVec 32 × BitVec 32) :=
+  Signal.loop fun (self : Signal defaultDomain (BitVec 32 × BitVec 32)) =>
+    let counter := Signal.fst self
+    let acc := Signal.snd self
+    let nextCounter : Signal defaultDomain (BitVec 32) :=
+      Signal.mux start (Signal.pure 0#32 : Signal defaultDomain (BitVec 32))
+        (counter + (Signal.pure 1#32 : Signal defaultDomain (BitVec 32)))
+    let nextAcc : Signal defaultDomain (BitVec 32) :=
+      Signal.mux start (Signal.pure 0#32 : Signal defaultDomain (BitVec 32)) (acc + act)
+    bundle2 (Signal.register 0#32 nextCounter) (Signal.register 0#32 nextAcc)
+
+#machine_endpoint loopPair
+
 run_cmd do
   if (← get).messages.hasErrors then throwError "machine loop regression failed"
   for name in [``counterLoop.machine_sound, ``accLoop.machine_sound,

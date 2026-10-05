@@ -3707,6 +3707,24 @@ partial def machConv (senv : StructEnv) : List MachVal → Nat → Lean.Expr →
     match env[j - d]? with
     | some (.val v) => some (v, st)
     | some (.state b 1) => some (machSlot b, st)
+    -- a whole loop state of several slots: the bundle of its slots (equal to
+    -- the state signal by structure eta)
+    | some (.state b n) => do
+      let dom ← st.dom
+      let tyOf (k : MixedGateBinder) : Option Lean.Expr := match k with
+        | .bits w => some (mkApp (.const ``BitVec []) (inlNatLit w))
+        | .bool => some (.const ``Bool [])
+        | .domain => none
+      let tys ← ((List.range n).map (b + ·)).mapM fun i => st.kinds[i]? >>= tyOf
+      let rec bundle : List Nat → List Lean.Expr → Option (Lean.Expr × Lean.Expr)
+        | [i], [t] => some (machSlot i, t)
+        | i :: is, t :: ts => do
+          let (rest, restT) ← bundle is ts
+          some (mkApp5 (.const ``Sparkle.Core.Signal.bundle2 [.zero]) dom t restT (machSlot i) rest,
+            mkApp2 (.const ``Prod [.zero, .zero]) t restT)
+        | _, _ => none
+      let (e, _) ← bundle ((List.range n).map (b + ·)) tys
+      some (e, st)
     | some _ => none
     | none => some (machIn (j - d - env.length), st)
   | env, d, .app f a, st =>
