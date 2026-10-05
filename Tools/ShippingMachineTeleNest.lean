@@ -34,6 +34,19 @@ inductive TeleT (ι : Type) (dom : ι → DomainConfig) (ss₂ : List SType) :
         RegList (dom i) (HList (tys ss)) (Circuit.SigList (dom i) (tys ss)) (tys ss) →
         Circuit (dom i) (Circuit.SigList (dom i) (tys ss)) (ρ i))
       (rest : TeleT ι dom ss₂ (fun i => ρ i :: pre i)) : TeleT ι dom ss₂ pre
+  | loop {pre : ι → List Type} (ss : List SType) (inh : Inhabited (HList (tys ss)))
+      (α : ι → Type) (inhα : ∀ i, Inhabited (α i)) (ρ : ι → Type)
+      (enc : ∀ i, α i → HList (tys ss)) (dec : ∀ i, HList (tys ss) → α i)
+      (hed : ∀ i x, enc i (dec i x) = x) (inits : HList (tys ss))
+      (f : (i : ι) → (Nat → Signal (dom i) Bool) →
+        ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) →
+        RegList (dom i) (HList (tys ss₂)) (Circuit.SigList (dom i) (tys ss₂)) (tys ss₂) →
+        HList (pre i) → Signal (dom i) (α i) → Signal (dom i) (α i))
+      (res : (i : ι) → (Nat → Signal (dom i) Bool) →
+        ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) →
+        RegList (dom i) (HList (tys ss₂)) (Circuit.SigList (dom i) (tys ss₂)) (tys ss₂) →
+        HList (pre i) → Signal (dom i) (α i) → ρ i)
+      (rest : TeleT ι dom ss₂ (fun i => ρ i :: pre i)) : TeleT ι dom ss₂ pre
 
 variable {ι : Type} {dom : ι → DomainConfig} {ss₂ : List SType}
 
@@ -44,16 +57,21 @@ def TeleT.at : {pre : ι → List Type} → TeleT ι dom ss₂ pre → (i : ι) 
   | _, .nil, _, _, _ => .nil
   | _, .cons ss inh ρ inits body rest, i, bools, bits =>
     .cons (tys ss) inh (ρ i) inits (body i bools bits) (rest.at i bools bits)
+  | _, .loop ss inh α inhα ρ enc dec hed inits f res rest, i, bools, bits =>
+    .loop (tys ss) inh (α i) (inhα i) (ρ i) (enc i) (dec i) (hed i) inits (f i bools bits)
+      (res i bools bits) (rest.at i bools bits)
 
 /-- The slot sorts of the chain, in order. -/
 def TeleT.sss : {pre : ι → List Type} → TeleT ι dom ss₂ pre → List SType
   | _, .nil => []
   | _, .cons ss _ _ _ _ rest => ss ++ rest.sss
+  | _, .loop ss _ _ _ _ _ _ _ _ _ _ rest => ss ++ rest.sss
 
 /-- The reset values of the chain, flattened. -/
 def TeleT.initsT : {pre : ι → List Type} → (l : TeleT ι dom ss₂ pre) → HList (tys l.sss)
   | _, .nil => ()
   | _, .cons ss _ _ inits _ rest => happendT ss rest.sss inits rest.initsT
+  | _, .loop ss _ _ _ _ _ _ _ inits _ _ rest => happendT ss rest.sss inits rest.initsT
 
 section
 variable (i : ι) (bools : Nat → Signal (dom i) Bool)
@@ -64,18 +82,26 @@ def TeleT.flat : {pre : ι → List Type} → (l : TeleT ι dom ss₂ pre) →
     HList (Tele.σs (l.at i bools bits)) → HList (tys l.sss)
   | _, .nil, _ => ()
   | _, .cons ss _ _ _ _ rest, xs => happendT ss rest.sss xs.1 (rest.flat xs.2)
+  | _, .loop ss _ _ _ _ _ _ _ _ _ _ rest, xs => happendT ss rest.sss xs.1 (rest.flat xs.2)
 
 /-- The chain's states from the flattened tuple. -/
 def TeleT.unflat : {pre : ι → List Type} → (l : TeleT ι dom ss₂ pre) →
     HList (tys l.sss) → HList (Tele.σs (l.at i bools bits))
   | _, .nil, _ => ()
   | _, .cons ss _ _ _ _ rest, x => (splitL ss rest.sss x, rest.unflat (splitR ss rest.sss x))
+  | _, .loop ss _ _ _ _ _ _ _ _ _ _ rest, x => (splitL ss rest.sss x, rest.unflat (splitR ss rest.sss x))
 
 theorem TeleT.unflat_flat : ∀ {pre : ι → List Type} (l : TeleT ι dom ss₂ pre)
     (xs : HList (Tele.σs (l.at i bools bits))),
     l.unflat i bools bits (l.flat i bools bits xs) = xs
   | _, .nil, _ => rfl
   | _, .cons ss _ _ _ _ rest, xs => by
+    show (splitL ss rest.sss (happendT ss rest.sss xs.1 (rest.flat i bools bits xs.2)),
+      rest.unflat i bools bits (splitR ss rest.sss
+        (happendT ss rest.sss xs.1 (rest.flat i bools bits xs.2)))) = xs
+    rw [splitL_happendT, splitR_happendT, TeleT.unflat_flat rest xs.2]
+    rfl
+  | _, .loop ss _ _ _ _ _ _ _ _ _ _ rest, xs => by
     show (splitL ss rest.sss (happendT ss rest.sss xs.1 (rest.flat i bools bits xs.2)),
       rest.unflat i bools bits (splitR ss rest.sss
         (happendT ss rest.sss xs.1 (rest.flat i bools bits xs.2)))) = xs
@@ -89,11 +115,19 @@ theorem TeleT.flat_unflat : ∀ {pre : ι → List Type} (l : TeleT ι dom ss₂
     show happendT ss rest.sss (splitL ss rest.sss x)
       (rest.flat i bools bits (rest.unflat i bools bits (splitR ss rest.sss x))) = x
     rw [TeleT.flat_unflat rest, happendT_split]
+  | _, .loop ss _ _ _ _ _ _ _ _ _ _ rest, x => by
+    show happendT ss rest.sss (splitL ss rest.sss x)
+      (rest.flat i bools bits (rest.unflat i bools bits (splitR ss rest.sss x))) = x
+    rw [TeleT.flat_unflat rest, happendT_split]
 
 theorem TeleT.flat_initsOf : ∀ {pre : ι → List Type} (l : TeleT ι dom ss₂ pre),
     l.flat i bools bits (Tele.initsOf (l.at i bools bits)) = l.initsT
   | _, .nil => rfl
   | _, .cons ss _ _ inits _ rest => by
+    show happendT ss rest.sss inits (rest.flat i bools bits (Tele.initsOf (rest.at i bools bits))) = _
+    rw [TeleT.flat_initsOf rest]
+    rfl
+  | _, .loop ss _ _ _ _ _ _ _ inits _ _ rest => by
     show happendT ss rest.sss inits (rest.flat i bools bits (Tele.initsOf (rest.at i bools bits))) = _
     rw [TeleT.flat_initsOf rest]
     rfl
@@ -171,6 +205,8 @@ theorem machine_trace_of_tele_ext {declName : Name} (d : MachineData)
       (ext i bools bits S Ss p w).val t =
         (ext i bools bits ⟨fun _ => S.val t⟩
           (Tele.constOf (l.at i bools bits) (Tele.valsOf (l.at i bools bits) Ss t)) p w).val t)
+    (hI : ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+      (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)), Tele.InitOk (l.at i bools bits))
     {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
     {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
     {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
@@ -227,7 +263,8 @@ theorem machine_trace_of_tele_ext {declName : Name} (d : MachineData)
     unfold TeleT.fstate
     rw [splitR_happendT, TeleT.unflat_flat]
   obtain ⟨h0, x0, hstep⟩ :=
-    Tools.ShippingMachineTele.fused_state inits (l.at i bools bits) (body i bools bits) _ hF _ hG
+    Tools.ShippingMachineTele.fused_state inits (l.at i bools bits) (body i bools bits) _ hF
+      (hI i bools bits) _ hG
   simp only at x0 hstep
   refine ⟨fun t => l.fstate i bools bits
     ((stateLoop inits (Tools.ShippingMachineTele.fusedBody (l.at i bools bits) (body i bools bits))).val t)
@@ -347,6 +384,8 @@ theorem machine_traceL_of_tele_ext {declName : Name} (d : MachineData)
       (ext i bools bits S Ss p w).val t =
         (ext i bools bits ⟨fun _ => S.val t⟩
           (Tele.constOf (l.at i bools bits) (Tele.valsOf (l.at i bools bits) Ss t)) p w).val t)
+    (hI : ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+      (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)), Tele.InitOk (l.at i bools bits))
     {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
     {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
     {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
@@ -403,7 +442,8 @@ theorem machine_traceL_of_tele_ext {declName : Name} (d : MachineData)
     rw [← hw S Ss t]
     unfold TeleT.fstate
     rw [splitR_happendT, TeleT.unflat_flat]
-  obtain ⟨h0, x0, hstep⟩ := Tools.ShippingMachineTele.fused_state inits (l.at i bools bits) (body i bools bits) _ hF _ hG
+  obtain ⟨h0, x0, hstep⟩ := Tools.ShippingMachineTele.fused_state inits (l.at i bools bits) (body i bools bits) _ hF
+      (hI i bools bits) _ hG
   simp only at x0 hstep
   refine ⟨fun t => l.fstate i bools bits
     ((stateLoop inits (Tools.ShippingMachineTele.fusedBody (l.at i bools bits) (body i bools bits))).val t)

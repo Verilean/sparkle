@@ -155,11 +155,15 @@ def bundleIota (e : Lean.Expr) : Lean.Expr :=
     | _, _, _ => e
   | _, _ => e
 
-/-- The root's `let`s floated out of an application's last argument:
+/-- The root's `let`s floated out of an application's last argument and out
+of a `let`'s value:
 `f (let x := v; b)` is `let x := v; f b` (zeta on both sides) — a projection
 of a `let` block (`(let s := Signal.loop …; bundle2 r d).fst`, an unfolded
 `projN! (dividerQ …) 2 0`) becomes a block whose root is the projection. -/
 partial def rootFloat : Lean.Expr → Lean.Expr
+  -- `let x := (let y := v; w); b` is `let y := v; let x := w; b`
+  | .letE n t (.letE n2 t2 v2 w nd2) b nd =>
+    rootFloat (.letE n2 t2 v2 (.letE n (t.liftLooseBVars 0 1) w (b.liftLooseBVars 1 1) nd) nd2)
   | .letE n t v b nd => .letE n t v (rootFloat b) nd
   | e@(.app f a) =>
     match a with

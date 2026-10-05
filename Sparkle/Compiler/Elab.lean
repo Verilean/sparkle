@@ -3492,6 +3492,10 @@ structure MachRead where
   inInner : Bool := false
   /-- `(first slot, slot count)` of every hand-written `Signal.loop`. -/
   loops : Array (Nat × Nat) := #[]
+  /-- Every hand-written loop read: `(first slot, slot count, its writes)` —
+      a later copy of the same loop (`circuit do` copies its `let`s) is that
+      loop when its body reads to the same writes. -/
+  loopWs : Array (Nat × Nat × List (Nat × Lean.Expr)) := #[]
 
 /-- A placeholder (a variable of the transition), as opposed to a compound
     expression. -/
@@ -3742,8 +3746,20 @@ partial def machConv (senv : StructEnv) : List MachVal → Nat → Lean.Expr →
       | some (b', st) => some (.forallE nm t' b' bi, st)
       | none => none
     | none => none
-  | env, d, .letE nm ty v b _, st =>
+  | env, d, .letE nm ty v b nd, st =>
     if d != 0 then none else
+    -- a `let` block in the value: its `let`s first
+    match Sparkle.Compiler.MachRawSurface.rootFloat v with
+    | .letE n2 t2 v2 w nd2 =>
+      machConv senv env 0
+        (.letE n2 t2 v2 (.letE nm (ty.liftLooseBVars 0 1) w (b.liftLooseBVars 1 1) nd) nd2) st
+    | v =>
+    -- a hand-written loop: a sub-machine of its own
+    if v.isAppOfArity ``Sparkle.Core.Signal.Signal.loop 4 then
+      match machLoopRoot senv env v st with
+      | some (mv, st) => machConv senv (mv :: env) 0 b st
+      | none => none
+    else
     match machTailV env 0 v with
     | some p => machConv senv (.regs p :: env) 0 b st
     | none =>
@@ -3838,7 +3854,20 @@ partial def machChain (senv : StructEnv) : List MachVal → Lean.Expr → MachRe
         | none => none
       else none
     | _, _ => none
-  | env, .letE nm ty v b _, st =>
+  | env, .letE nm ty v b nd, st =>
+    -- a `let` block in the value (an unfolded engine, `Signal.fst (let s :=
+    -- Signal.loop …; …)`): its `let`s first
+    match Sparkle.Compiler.MachRawSurface.rootFloat v with
+    | .letE n2 t2 v2 w nd2 =>
+      machChain senv env
+        (.letE n2 t2 v2 (.letE nm (ty.liftLooseBVars 0 1) w (b.liftLooseBVars 1 1) nd) nd2) st
+    | v =>
+    -- a hand-written loop: a sub-machine of its own (`machLoopRoot`)
+    if v.isAppOfArity ``Sparkle.Core.Signal.Signal.loop 4 then
+      match machLoopRoot senv env v st with
+      | some (mv, st) => machChain senv (mv :: env) b st
+      | none => none
+    else
     match machTailV env 0 v with
     | some p => machChain senv (.regs p :: env) b st
     | none =>
@@ -3851,7 +3880,6 @@ partial def machChain (senv : StructEnv) : List MachVal → Lean.Expr → MachRe
           machChain senv (.val x :: env) b { st with lets := lets }
         | none => none
   | _, _, _ => none
-end
 
 /-- The body of a hand-written `Signal.loop`: its `let`s (the state bound to
     `.state base n`), then the registers it returns; their next values are
@@ -3875,10 +3903,12 @@ partial def machLoopBody (senv : StructEnv) (base : Nat) :
     so far (kinds from the registers' types, reset values from their initial
     values), its body read with `s` standing for the state. Returns what the
     variable bound to the loop stands for. -/
-def machLoopRoot (senv : StructEnv) (env : List MachVal) (e : Lean.Expr) (st : MachRead) :
+partial def machLoopRoot (senv : StructEnv) (env : List MachVal) (e : Lean.Expr) (st : MachRead) :
     Option (MachVal × MachRead) := do
   let (.const ``Sparkle.Core.Signal.Signal.loop _, [dom, _, _, .lam _ _ body _]) := inlSpine e []
     | none
+  -- a loop inside a sub-machine's body is not what the endpoint covers
+  if st.inInner then none else
   let regs ← machLoopRegs (machLetTail body)
   if regs.any (fun (ty, init, _) => ty.hasLooseBVars || init.hasLooseBVars) then none else
   let kinds ← regs.mapM fun (ty, _, _) => machSlotKind? ty
@@ -3887,8 +3917,17 @@ def machLoopRoot (senv : StructEnv) (env : List MachVal) (e : Lean.Expr) (st : M
   match st.dom with
   | some d0 => if d0 != dom' then none else pure ()
   | none => pure ()
-  let base := st.kinds.size
   let n := kinds.length
+  -- the same loop met before: its body reads to the same writes there
+  let shared := st.loopWs.findSome? fun (b0, n0, ws0) =>
+    if n0 != n then none else
+    match machLoopBody senv b0 (.state b0 n :: env) body { st with ws := #[] } with
+    | some st' => if st'.ws.toList == ws0 then some (b0, { st' with ws := st.ws }) else none
+    | none => none
+  match shared with
+  | some (b0, st') => some (.state b0 n, st')
+  | none =>
+  let base := st.kinds.size
   let st := { st with
     kinds := st.kinds ++ kinds.toArray
     inits := st.inits ++ inits.toArray
@@ -3896,8 +3935,12 @@ def machLoopRoot (senv : StructEnv) (env : List MachVal) (e : Lean.Expr) (st : M
       Name.mkSimple s!"loop{st.loops.size}_r{i}").toArray
     dom := some dom'
     loops := st.loops.push (base, n) }
+  let before := st.ws.size
   let st ← machLoopBody senv base (.state base n :: env) body st
-  some (.state base n, st)
+  some (.state base n,
+    { st with loopWs := st.loopWs.push (base, n, (st.ws.toList.drop before)) })
+
+end
 
 /-- The next value of slot `i`: its LAST write (`Circuit.next` replaces the
     pending value), or the slot itself when the body never writes it. -/
@@ -4735,8 +4778,10 @@ def machineShape? (symbolicMode : Bool) (parameters : List (String × Nat)) (ci 
     -- unfolded entry constant, never instead of a combinational gate
     if n = 0 && (!st.insts.isEmpty || !st.loops.isEmpty || !st.runs.isEmpty) then none else
     if !allowInsts && !st.insts.isEmpty then none else
-    -- a hand-written loop alone (what the endpoint covers)
-    if !st.loops.isEmpty && (!st.runs.isEmpty || !st.insts.isEmpty || st.loops.size != 1) then
+    -- a hand-written loop alone, or loops as sub-machines of a `circuit do`
+    -- (the endpoint's telescope, `TeleT.loop`); several loops alone or a loop
+    -- with calls and no enclosing machine are not read
+    if !st.loops.isEmpty && st.runs.isEmpty && (!st.insts.isEmpty || st.loops.size != 1) then
       none else
     let kinds := st.kinds.toList
     let k := st.lets.size

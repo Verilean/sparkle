@@ -31,6 +31,16 @@ inductive Tele (dom : DomainConfig) (αs : List Type) : List Type → Type 1 whe
       (body : RegList dom (HList αs) (Circuit.SigList dom αs) αs → HList pre →
         RegList dom (HList βs) (Circuit.SigList dom βs) βs → Circuit dom (Circuit.SigList dom βs) ρ)
       (rest : Tele dom αs (ρ :: pre)) : Tele dom αs pre
+  /-- A hand-written `Signal.loop f` over a state `α` (a tuple of registers):
+  its slots `βs` through the encoding `enc` (inverse `dec`), its result the
+  state signal read by `res`. -/
+  | loop {pre : List Type} (βs : List Type) (inh : Inhabited (HList βs)) (α : Type)
+      (inhα : Inhabited α) (ρ : Type) (enc : α → HList βs) (dec : HList βs → α)
+      (hed : ∀ x, enc (dec x) = x) (inits : HList βs)
+      (f : RegList dom (HList αs) (Circuit.SigList dom αs) αs → HList pre →
+        Signal dom α → Signal dom α)
+      (res : RegList dom (HList αs) (Circuit.SigList dom αs) αs → HList pre → Signal dom α → ρ)
+      (rest : Tele dom αs (ρ :: pre)) : Tele dom αs pre
 
 namespace Tele
 variable {αs : List Type}
@@ -39,16 +49,19 @@ variable {αs : List Type}
 def ρs : {pre : List Type} → Tele dom αs pre → List Type
   | _, .nil => []
   | _, .cons _ _ ρ _ _ rest => ρ :: ρs rest
+  | _, .loop _ _ _ _ ρ _ _ _ _ _ _ rest => ρ :: ρs rest
 
 /-- The state types, in reading order. -/
 def σs : {pre : List Type} → Tele dom αs pre → List Type
   | _, .nil => []
   | _, .cons βs _ _ _ _ rest => HList βs :: σs rest
+  | _, .loop βs _ _ _ _ _ _ _ _ _ _ rest => HList βs :: σs rest
 
 /-- One state signal per sub-machine. -/
 def Sigs : {pre : List Type} → Tele dom αs pre → Type
   | _, .nil => Unit
   | _, .cons βs _ _ _ _ rest => Signal dom (HList βs) × Sigs rest
+  | _, .loop _ _ α _ _ _ _ _ _ _ _ rest => Signal dom α × Sigs rest
 
 /-- The results on given states, each sub-machine fed the earlier ones. -/
 def resultsOn (regs : RegList dom (HList αs) (Circuit.SigList dom αs) αs) :
@@ -56,6 +69,9 @@ def resultsOn (regs : RegList dom (HList αs) (Circuit.SigList dom αs) αs) :
   | _, .nil, _, _ => ()
   | _, .cons βs _ _ _ body rest, prev, Ss =>
     let r := resOn (body regs prev) Ss.1
+    (r, resultsOn regs rest (r, prev) Ss.2)
+  | _, .loop _ _ _ _ _ _ _ _ _ _ res rest, prev, Ss =>
+    let r := res regs prev Ss.1
     (r, resultsOn regs rest (r, prev) Ss.2)
 
 /-- Each sub-machine on its own loop, fed the earlier ones on theirs. -/
@@ -65,16 +81,21 @@ def loops (regs : RegList dom (HList αs) (Circuit.SigList dom αs) αs) :
   | _, .cons βs inh _ inits body rest, prev =>
     let L := @stateLoop dom βs _ inh inits (body regs prev)
     (L, loops regs rest (resOn (body regs prev) L, prev))
+  | _, .loop _ _ α inhα _ _ _ _ _ f res rest, prev =>
+    let L := @Signal.loop dom α inhα (f regs prev)
+    (L, loops regs rest (res regs prev L, prev))
 
 /-- The values of the states at a cycle. -/
 def valsOf : {pre : List Type} → (t : Tele dom αs pre) → Sigs t → Nat → HList (σs t)
   | _, .nil, _, _ => ()
   | _, .cons _ _ _ _ _ rest, Ss, n => (Ss.1.val n, valsOf rest Ss.2 n)
+  | _, .loop _ _ _ _ _ enc _ _ _ _ _ rest, Ss, n => (enc (Ss.1.val n), valsOf rest Ss.2 n)
 
 /-- Constant state signals. -/
 def constOf : {pre : List Type} → (t : Tele dom αs pre) → HList (σs t) → Sigs t
   | _, .nil, _ => ()
   | _, .cons _ _ _ _ _ rest, xs => (⟨fun _ => xs.1⟩, constOf rest xs.2)
+  | _, .loop _ _ _ _ _ _ dec _ _ _ _ rest, xs => (⟨fun _ => dec xs.1⟩, constOf rest xs.2)
 
 theorem valsOf_constOf : ∀ {pre : List Type} (t : Tele dom αs pre) (xs : HList (σs t)) (n : Nat),
     valsOf t (constOf t xs) n = xs
@@ -83,11 +104,16 @@ theorem valsOf_constOf : ∀ {pre : List Type} (t : Tele dom αs pre) (xs : HLis
     show (xs.1, valsOf rest (constOf rest xs.2) n) = xs
     rw [valsOf_constOf rest xs.2 n]
     rfl
+  | _, .loop _ _ _ _ _ enc dec hed _ _ _ rest, xs, n => by
+    show (enc (dec xs.1), valsOf rest (constOf rest xs.2) n) = xs
+    rw [valsOf_constOf rest xs.2 n, hed]
+    rfl
 
 /-- The reset values. -/
 def initsOf : {pre : List Type} → (t : Tele dom αs pre) → HList (σs t)
   | _, .nil => ()
   | _, .cons _ _ _ inits _ rest => (inits, initsOf rest)
+  | _, .loop _ _ _ _ _ _ _ _ inits _ _ rest => (inits, initsOf rest)
 
 /-- The values at a cycle of every sub-machine's pending writes, on given
 states. -/
@@ -97,6 +123,17 @@ def writesAt (regs : RegList dom (HList αs) (Circuit.SigList dom αs) αs) :
   | _, .cons βs _ _ _ body rest, prev, Ss, n =>
     (valsAt βs (writesOn (body regs prev) Ss.1) n,
       writesAt regs rest (resOn (body regs prev) Ss.1, prev) Ss.2 n)
+  | _, .loop _ _ _ _ _ enc _ _ _ f res rest, prev, Ss, n =>
+    (enc ((f regs prev Ss.1).val (n + 1)),
+      writesAt regs rest (res regs prev Ss.1, prev) Ss.2 n)
+
+/-- The loops' bodies start at their reset values whatever state they are
+given (a body made of registers: a `rfl` per declaration). -/
+def InitOk : {pre : List Type} → Tele dom αs pre → Prop
+  | _, .nil => True
+  | _, .cons _ _ _ _ _ rest => InitOk rest
+  | _, .loop _ _ _ _ _ enc _ _ inits f _ rest =>
+    (∀ regs prev l, enc ((f regs prev l).val 0) = inits) ∧ InitOk rest
 
 end Tele
 
@@ -110,6 +147,23 @@ def TelePointwise {αs : List Type} (t : Tele dom αs [])
   ∀ (S : Signal dom (HList αs)) (Ss : Sigs t) (n : Nat),
     writesAt (regsOf αs S) t () Ss n = F (S.val n) (valsOf t Ss n) n
 
+/-- The state stream of a `Signal.loop` (as `ShippingMachineLoop.loop_stream`). -/
+theorem loop_stream' {D : DomainConfig} {α : Type} [Inhabited α] {H : Type}
+    (f : Signal D α → Signal D α) (σ : α → H) (init : H) (F : Nat → H → H)
+    (h0 : ∀ l, σ ((f l).val 0) = init)
+    (hs : ∀ l t, σ ((f l).val (t + 1)) = F t (σ (l.val t))) :
+    σ ((Signal.loop f).val 0) = init ∧
+    ∀ t, σ ((Signal.loop f).val (t + 1)) = F t (σ ((Signal.loop f).val t)) := by
+  constructor
+  · show σ (Signal.loopGo f 0) = init
+    rw [Signal.loopGo_eq]
+    exact h0 _
+  · intro t
+    show σ (Signal.loopGo f (t + 1)) = F t (σ (Signal.loopGo f t))
+    rw [Signal.loopGo_eq, hs]
+    show F t (σ (if t < t + 1 then Signal.loopGo f t else default)) = _
+    rw [if_pos (by omega)]
+
 /-- The loops' recurrence, for a chain fed given earlier results: if the
 writes (fed those results computed on the given states) are a function `F`
 of the values at the cycle, every loop starts at its reset value and steps
@@ -119,11 +173,29 @@ theorem loops_rec {αs : List Type} (S : Signal dom (HList αs)) :
     ∀ {pre : List Type} (t : Tele dom αs pre) (prev : HList pre)
       (F : HList (σs t) → Nat → HList (σs t)),
       (∀ (Ss : Sigs t) (n : Nat), writesAt (regsOf αs S) t prev Ss n = F (valsOf t Ss n) n) →
+      InitOk t →
       valsOf t (loops (regsOf αs S) t prev) 0 = initsOf t ∧
       ∀ n, valsOf t (loops (regsOf αs S) t prev) (n + 1) =
         F (valsOf t (loops (regsOf αs S) t prev) n) n
-  | _, .nil, _, _, _ => ⟨rfl, fun _ => rfl⟩
-  | _, .cons βs inh ρ inits body rest, prev, F, hF => by
+  | _, .nil, _, _, _, _ => ⟨rfl, fun _ => rfl⟩
+  | _, .loop βs inh α inhα ρ enc dec hed inits f res rest, prev, F, hF, hI => by
+    let L := @Signal.loop dom α inhα (f (regsOf αs S) prev)
+    let restL := loops (regsOf αs S) rest (res (regsOf αs S) prev L, prev)
+    obtain ⟨r0, rs⟩ := loops_rec S rest (res (regsOf αs S) prev L, prev)
+      (fun xs n => (F (enc (L.val n), xs) n).2) (by
+        intro Ss n
+        exact congrArg Prod.snd (hF (L, Ss) n)) hI.2
+    obtain ⟨h0, hs⟩ := @loop_stream' dom α inhα (HList βs) (f (regsOf αs S) prev) enc inits
+      (fun n x => (F (x, valsOf rest restL n) n).1) (hI.1 (regsOf αs S) prev)
+      (fun l n => congrArg Prod.fst (hF (l, restL) n))
+    constructor
+    · show (enc (L.val 0), valsOf rest restL 0) = (inits, initsOf rest)
+      rw [r0, h0]
+    · intro n
+      show (enc (L.val (n + 1)), valsOf rest restL (n + 1)) = F (enc (L.val n), valsOf rest restL n) n
+      rw [rs n, hs n]
+      rfl
+  | _, .cons βs inh ρ inits body rest, prev, F, hF, hI => by
     -- the head's writes are pointwise in its own state (the rest held at its loops)
     let L := @stateLoop dom βs _ inh inits (body (regsOf αs S) prev)
     have hW : ∀ (l l' : Signal dom (HList βs)) (n : Nat), l.val n = l'.val n →
@@ -151,7 +223,7 @@ theorem loops_rec {αs : List Type} (S : Signal dom (HList αs)) :
       (fun xs n => (F (L.val n, xs) n).2) (by
         intro Ss n
         have h := hF (L, Ss) n
-        exact congrArg Prod.snd h)
+        exact congrArg Prod.snd h) hI
     constructor
     · show (L.val 0, valsOf rest (loops (regsOf αs S) rest _) 0) = _
       rw [r0, h0]
@@ -169,11 +241,11 @@ theorem loops_rec {αs : List Type} (S : Signal dom (HList αs)) :
 `< n`. -/
 theorem loops_causal {αs : List Type} (t : Tele dom αs [])
     (F : HList αs → HList (σs t) → Nat → HList (σs t)) (hF : TelePointwise t F)
-    (S S' : Signal dom (HList αs)) :
+    (hI : InitOk t) (S S' : Signal dom (HList αs)) :
     ∀ n, (∀ i, i < n → S.val i = S'.val i) →
       valsOf t (loops (regsOf αs S) t ()) n = valsOf t (loops (regsOf αs S') t ()) n := by
   have r := fun (S : Signal dom (HList αs)) =>
-    loops_rec S t () (fun xs n => F (S.val n) xs n) (fun Ss n => hF S Ss n)
+    loops_rec S t () (fun xs n => F (S.val n) xs n) (fun Ss n => hF S Ss n) hI
   intro n
   induction n with
   | zero => intro _; rw [(r S).1, (r S').1]
@@ -219,6 +291,7 @@ theorem fused_state {αs : List Type} {ρ : Type} [Inhabited (HList αs)] (inits
     (body : RegList dom (HList αs) (Circuit.SigList dom αs) αs → HList (ρs t) →
       Circuit dom (Circuit.SigList dom αs) ρ)
     (F : HList αs → HList (σs t) → Nat → HList (σs t)) (hF : TelePointwise t F)
+    (hI : InitOk t)
     (G : HList αs → HList (σs t) → Nat → HList αs) (hG : OuterPointwise t body G) :
     let s := stateLoop inits (fusedBody t body)
     let xs := fun n => valsOf t (loops (regsOf αs s) t ()) n
@@ -230,9 +303,9 @@ theorem fused_state {αs : List Type} {ρ : Type} [Inhabited (HList αs)] (inits
         valsAt αs (writesOn (fusedBody t body) l₂) n := by
     intro l₁ l₂ n h
     rw [fusedBody_writes t body G hG, fusedBody_writes t body G hG, h n (Nat.le_refl n),
-      loops_causal t F hF l₁ l₂ n (fun i hi => h i (Nat.le_of_lt hi))]
+      loops_causal t F hF hI l₁ l₂ n (fun i hi => h i (Nat.le_of_lt hi))]
   obtain ⟨h0, hs⟩ := circuit_state_causal inits (fusedBody t body) hW
-  obtain ⟨x0, xs'⟩ := loops_rec s t () (fun xs n => F (s.val n) xs n) (fun Ss n => hF s Ss n)
+  obtain ⟨x0, xs'⟩ := loops_rec s t () (fun xs n => F (s.val n) xs n) (fun Ss n => hF s Ss n) hI
   refine ⟨h0, x0, fun n => ⟨?_, xs' n⟩⟩
   rw [hs n, fusedBody_writes t body G hG]
 

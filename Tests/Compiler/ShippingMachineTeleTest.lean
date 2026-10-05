@@ -1,6 +1,7 @@
 import Tools.ShippingMachineLinkedCommand
 import IP.Net.HFTStrategy
 import Tests.Compiler.ShippingMachineCombTest
+import IP.Control.DividerQ
 
 /-! Chains of sub-machines on the machine route.
 
@@ -65,6 +66,20 @@ def hftByte (inByte : Signal defaultDomain (BitVec 8)) (inValid : Signal default
     Signal defaultDomain (BitVec 8) :=
   (hftStrategy inByte inValid).outByte
 
+/-- A hand-written `Signal.loop` engine (the Q7.8 divider, `@[reducible]`)
+inside a `circuit do`: a sub-machine of the telescope (`TeleT.loop`), its
+arguments read from the enclosing registers. -/
+def divInLoop (n d : Signal defaultDomain (BitVec 16)) : Signal defaultDomain (BitVec 16) :=
+  circuit do
+    let go ← Signal.reg false
+    let acc ← Signal.reg (0#16)
+    let goS := (go : Signal defaultDomain Bool)
+    let e := Sparkle.IP.Control.DividerQ.dividerQ7_8 n d goS
+    go <~ ~~~goS
+    acc <~ Signal.mux (Signal.snd e) (Signal.fst e) (acc : Signal defaultDomain (BitVec 16))
+    return acc
+
+#machine_endpoint divInLoop
 #machine_endpoint chain2
 #machine_endpoint chain3
 -- the byte table's endpoint is ShippingMachineCombTest's
@@ -74,7 +89,7 @@ def hftByte (inByte : Signal defaultDomain (BitVec 8)) (inValid : Signal default
 
 run_cmd do
   if (← get).messages.hasErrors then throwError "machine chain regression failed"
-  for name in [``chain2.machine_sound, ``chain3.machine_sound, ``hftByte.machine_sound,
+  for name in [``divInLoop.machine_sound, ``chain2.machine_sound, ``chain3.machine_sound, ``hftByte.machine_sound,
       ``hftByte.machine_linked,
       ``Tools.ShippingMachineTele.fused_state, ``Tools.ShippingMachineTele.loops_rec,
       ``Tools.ShippingMachineTeleNest.machine_trace_of_tele_ext,

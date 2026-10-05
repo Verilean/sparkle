@@ -714,13 +714,17 @@ rs`, each sub-machine replaced by its component of `rs`), each sub-machine
 as a function of the enclosing handles (`InnerT`), in the order the compiler
 reads them: the root `let`s' values in order, then the body, left to right. -/
 
+/-- A sub-machine: a `runCircuitH`, or a hand-written `Signal.loop`. -/
+def isSubApp (e : Lean.Expr) : Bool :=
+  e.isAppOfArity ``Sparkle.Core.runCircuitH 8 || e.isAppOfArity ``Sparkle.Core.Signal.Signal.loop 4
+
 /-- Walk an expression in the compiler's reading order (a `let`'s value
 before its body, a function before its argument), with the local context
 extended at every binder, applying `onRun` to every `runCircuitH`
 application (which is not entered). -/
 partial def walkRuns (onRun : Lean.Expr → MetaM Lean.Expr) : Lean.Expr → MetaM Lean.Expr
   | e@(.app ..) => do
-    if e.isAppOfArity ``Sparkle.Core.runCircuitH 8 then onRun e else
+    if isSubApp e then onRun e else
     let f ← walkRuns onRun e.appFn!
     let a ← walkRuns onRun e.appArg!
     return .app f a
@@ -753,7 +757,7 @@ reads the arguments before the call) and then goes to `onCall`. -/
 partial def walkInstsRuns (senv : StructEnv) (onRun onCall : Lean.Expr → MetaM Lean.Expr) :
     Lean.Expr → MetaM Lean.Expr
   | e@(.app ..) => do
-    if e.isAppOfArity ``Sparkle.Core.runCircuitH 8 then onRun e else
+    if isSubApp e then onRun e else
     if (machInstCall? senv e).isSome then onCall (← walkRuns onRun e) else
     let f ← walkInstsRuns senv onRun onCall e.appFn!
     let a ← walkInstsRuns senv onRun onCall e.appArg!
@@ -789,6 +793,56 @@ def slotSortsE (declName : Name) (αs : Lean.Expr) : MetaM (List SType × Lean.E
 /-- Component `j` of a right-nested tuple. -/
 def tupleProj (rs : Lean.Expr) (j : Nat) : Lean.Expr :=
   .proj ``Prod 0 ((List.range j).foldl (fun acc _ => .proj ``Prod 1 acc) rs)
+
+/-- The machine's typed tuple from a loop state tuple `x` of `n` components. -/
+def loopSigma (x : Lean.Expr) (n : Nat) : MetaM Lean.Expr := do
+  let mut comps : Array Lean.Expr := #[]
+  let mut cur := x
+  for k in [0:n] do
+    if k + 1 == n then comps := comps.push cur
+    else
+      comps := comps.push (← mkAppM ``Prod.fst #[cur])
+      cur ← mkAppM ``Prod.snd #[cur]
+  let mut hl := mkConst ``Unit.unit
+  for c in comps.reverse do
+    hl ← mkAppM ``Prod.mk #[c, hl]
+  return hl
+
+/-- The loop state a typed state tuple stands for: the inverse of `loopSigma`
+(`(h.1, (h.2.1, … h.2…2.1))`). -/
+def loopDec (h : Lean.Expr) (n : Nat) : MetaM Lean.Expr := do
+  let mut comps : Array Lean.Expr := #[]
+  let mut cur := h
+  for _ in [0:n] do
+    comps := comps.push (← mkAppM ``Prod.fst #[cur])
+    cur ← mkAppM ``Prod.snd #[cur]
+  let mut acc := comps.back!
+  for c in comps.pop.reverse do
+    acc ← mkAppM ``Prod.mk #[c, acc]
+  return acc
+
+/-- A proof of `∀ i bools bits, Tele.InitOk (l.at i bools bits)`: every
+loop's body at cycle 0 is its reset tuple, by evaluation. -/
+partial def initOkProof (T : Lean.Expr) : MetaM Lean.Expr :=
+  forallTelescope T fun xs body => do
+    let rec go (P : Lean.Expr) : MetaM Lean.Expr := do
+      let P ← whnf P
+      if P.isConstOf ``True then return mkConst ``True.intro
+      match P.and? with
+      | some (A, B) =>
+        let a ← forallTelescope A fun ys eq => do
+          let some (_, _, rhs) := eq.eq? | throwError "InitOk: not an equation"
+          mkLambdaFVars ys (← mkExpectedTypeHint (← mkEqRefl rhs) eq)
+        return mkApp4 (mkConst ``And.intro) A B a (← go B)
+      | none => throwError "InitOk: unexpected {P}"
+    mkLambdaFVars xs (← go body)
+
+/-- The reset tuple of a loop, from its registers' initial values. -/
+def loopInitsE (regs : List (Lean.Expr × Lean.Expr × Lean.Expr)) : MetaM Lean.Expr := do
+  let mut hl := mkConst ``Unit.unit
+  for (_, init, _) in regs.reverse do
+    hl ← mkAppM ``Prod.mk #[init, hl]
+  return hl
 
 /-- The endpoint of a declaration with sub-machines, through
 `machine_trace_of_nested`: the theorem applied to the data, the enclosing
@@ -839,13 +893,16 @@ def nestedProof (declName : Name) (r : Read) (data ι i D bools bits src inst : 
     match known.findIdx? (fun (z, _) => z == runZ) with
     | some j => occRef.modify (·.push j)
     | none =>
-      let a := runZ.getAppArgs
-      let (_, ssE) := (← slotSortsE declName a[1]!)
-      if a[6]!.hasFVar || a[5]!.hasFVar then
-        throwError "{declName}: a sub-machine's reset values depend on a binder"
-      let ρE ← mkLambdaFVars #[i] a[2]!
-      let bodyE ← mkLambdaFVars #[i, bools, bits, regsF] a[7]!
-      let inner := mkAppN (mkConst ``InnerT.mk) #[ι, domF, ss₂E, ssE, ρE, a[5]!, a[6]!, bodyE]
+      let inner ← if runZ.isAppOfArity ``Sparkle.Core.Signal.Signal.loop 4 then
+          pure (mkConst ``Unit.unit)
+        else do
+          let a := runZ.getAppArgs
+          let (_, ssE) := (← slotSortsE declName a[1]!)
+          if a[6]!.hasFVar || a[5]!.hasFVar then
+            throwError "{declName}: a sub-machine's reset values depend on a binder"
+          let ρE ← mkLambdaFVars #[i] a[2]!
+          let bodyE ← mkLambdaFVars #[i, bools, bits, regsF] a[7]!
+          pure (mkAppN (mkConst ``InnerT.mk) #[ι, domF, ss₂E, ssE, ρE, a[5]!, a[6]!, bodyE])
       occRef.modify (·.push known.size)
       runsRef.modify (·.push (runZ, inner))
     pure run) e0
@@ -853,22 +910,29 @@ def nestedProof (declName : Name) (r : Read) (data ι i D bools bits src inst : 
   let occ ← occRef.get
   let innerT := mkApp3 (mkConst ``InnerT) ι domF ss₂E
   let lE := listE innerT inners.toList .one
-  unless inners.size == r.shape.runs.length - (if run?.isSome then 1 else 0) do
-    throwError "{declName}: {inners.size} sub-machines found, the compiler read {r.shape.runs.length - (if run?.isSome then 1 else 0)}"
+  let nSubs := r.shape.runs.length - (if run?.isSome then 1 else 0) + r.shape.loops.length
+  unless inners.size == nSubs do
+    throwError "{declName}: {inners.size} sub-machines found, the compiler read {nSubs}"
   -- a CHAIN: a sub-machine reading an earlier one's result (its body holds
   -- the earlier `runCircuitH`): the sub-machines are a telescope (`TeleT`),
   -- each body over the earlier results (`prev`, latest first)
   let runsZ0 := (← runsRef.get).map (·.1)
-  let chain := (List.range runsZ0.size).any fun j =>
-    (List.range j).any fun k => runsZ0[k]!.occurs runsZ0[j]!
+  let isLoopZ (k : Nat) : Bool := runsZ0[k]!.isAppOfArity ``Sparkle.Core.Signal.Signal.loop 4
+  -- a chain, or a hand-written loop among the sub-machines: the telescope
+  let chain := (List.range runsZ0.size).any (fun j =>
+    (List.range j).any fun k => runsZ0[k]!.occurs runsZ0[j]!) ||
+    (List.range runsZ0.size).any isLoopZ
+  let resultT (k : Nat) : Lean.Expr :=
+    if isLoopZ k then mkApp2 (mkConst ``Sparkle.Core.Signal.Signal [.zero]) D runsZ0[k]!.getAppArgs[1]!
+    else runsZ0[k]!.getAppArgs[2]!
   let typeT := mkSort (.succ .zero)
   let preList (j : Nat) : Lean.Expr :=
-    listE typeT ((List.range j).reverse.map fun k => runsZ0[k]!.getAppArgs[2]!) .one
+    listE typeT ((List.range j).reverse.map resultT) .one
   let preE (j : Nat) : MetaM Lean.Expr := mkLambdaFVars #[i] (preList j)
   -- each body with the earlier sub-machines replaced by `prev`'s components
   let bodiesC ← (List.range runsZ0.size).mapM fun j =>
     withLocalDeclD `prev (hlistE (preList j)) fun pv => do
-      let b := runsZ0[j]!.getAppArgs[7]!
+      let b := if isLoopZ j then runsZ0[j]!.getAppArgs[3]! else runsZ0[j]!.getAppArgs[7]!
       let b' := if !chain then b else b.replace fun e =>
         (List.range j).findSome? fun k => if e == runsZ0[k]! then some (tupleProj pv (j - 1 - k)) else none
       for k in List.range j do
@@ -880,6 +944,32 @@ def nestedProof (declName : Name) (r : Read) (data ι i D bools bits src inst : 
     let mut tE := mkAppN (mkConst ``Tools.ShippingMachineTeleNest.TeleT.nil) #[ι, domF, ss₂E, ← preE n]
     for j in (List.range n).reverse do
       let a := runsZ0[j]!.getAppArgs
+      if isLoopZ j then
+        -- a hand-written loop: its registers read off the zeta-reduced body
+        let (α, inhα, f) := (a[1]!, a[2]!, a[3]!)
+        let fZ ← zetaReduce f
+        let .lam _ _ fb _ := fZ | throwError "{declName}: a loop body is not a function"
+        let some regs := machLoopRegs (machLetTail fb) | throwError "{declName}: a loop's registers"
+        if regs.any (fun (ty, init, _) => ty.hasLooseBVars || init.hasLooseBVars) then
+          throwError "{declName}: a loop's register types or reset values read its state"
+        let (_, ssE) ← slotSortsE declName (listE typeT (regs.map (·.1)) .one)
+        let n' := regs.length
+        let hlT := hlistE (tysE ssE)
+        let initsV ← loopInitsE regs
+        let inh := mkApp2 (mkConst ``Inhabited.mk [.succ .zero]) hlT initsV
+        let encE ← withLocalDeclD `x α fun x => do mkLambdaFVars #[i, x] (← loopSigma x n')
+        let decE ← withLocalDeclD `h hlT fun h => do mkLambdaFVars #[i, h] (← loopDec h n')
+        let hedE ← withLocalDeclD `h hlT fun h => do
+          let lhs := (encE.beta #[i, decE.beta #[i, h]]).headBeta
+          mkLambdaFVars #[i, h] (← mkExpectedTypeHint (← mkEqRefl h) (← mkEq lhs h))
+        let ρE ← mkLambdaFVars #[i] (resultT j)
+        let fE ← mkLambdaFVars #[i, bools, bits, regsF] bodiesC[j]!
+        let resE ← withLocalDeclD `prev (hlistE (preList j)) fun pv =>
+          withLocalDeclD `L (resultT j) fun L => mkLambdaFVars #[i, bools, bits, regsF, pv, L] L
+        tE := mkAppN (mkConst ``Tools.ShippingMachineTeleNest.TeleT.loop)
+          #[ι, domF, ss₂E, ← preE j, ssE, inh, ← mkLambdaFVars #[i] α, ← mkLambdaFVars #[i] inhα,
+            ρE, encE, decE, hedE, initsV, fE, resE, tE]
+        continue
       let (_, ssE) ← slotSortsE declName a[1]!
       let ρE ← mkLambdaFVars #[i] a[2]!
       let bodyE ← mkLambdaFVars #[i, bools, bits, regsF] bodiesC[j]!
@@ -954,6 +1044,8 @@ def nestedProof (declName : Name) (r : Read) (data ι i D bools bits src inst : 
           (mkApp5 (mkConst ``Tools.ShippingMachineFuse.valsOf) D (tysE ss₂E) atsE Ss t))
       -- a sub-machine's call reads its own handles: over its state signal
       let innerRegs (j : Nat) (Ss' : Lean.Expr) : MetaM Lean.Expr := do
+        -- a loop's body reads its state signal itself
+        if runsZ[j]!.isAppOfArity ``Sparkle.Core.Signal.Signal.loop 4 then return tupleProj Ss' j
         let some (_, ssJ) := runsZ[j]? |>.map (fun z => ((), z.getAppArgs[1]!)) | throwError "{declName}: sub-machine {j}"
         let (_, ssE) ← slotSortsE declName ssJ
         pure (mkApp3 (mkConst ``Tools.ShippingMachineFuse.regsOf) D (tysE ssE) (tupleProj Ss' j))
@@ -1152,20 +1244,6 @@ def resultObsOf (declName : Name) (r : Read) (D v rho : Lean.Expr) : MetaM (List
     pure [o]
   | none =>
     observations declName D v (← resultFields declName r rho) (r.shape.layout.outs.map outKind)
-
-/-- The machine's typed tuple from a loop state tuple `x` of `n` components. -/
-def loopSigma (x : Lean.Expr) (n : Nat) : MetaM Lean.Expr := do
-  let mut comps : Array Lean.Expr := #[]
-  let mut cur := x
-  for k in [0:n] do
-    if k + 1 == n then comps := comps.push cur
-    else
-      comps := comps.push (← mkAppM ``Prod.fst #[cur])
-      cur ← mkAppM ``Prod.snd #[cur]
-  let mut hl := mkConst ``Unit.unit
-  for c in comps.reverse do
-    hl ← mkAppM ``Prod.mk #[c, hl]
-  return hl
 
 /-- The endpoint of a machine without slots (a combinational body with
 `let`s), through `machine_trace_of_comb`. -/
@@ -1389,8 +1467,9 @@ def generateCore (declName : Name) (checkCloses : Bool) : MetaM Name := do
     let inst := Sparkle.Compiler.MachRawSurface.rootFloat (entryN.beta args.toArray)
     let (p, srcName, checks, extra) ←
       if r.shape.layout.slots.isEmpty then combProof declName r data ι i D bools bits srcN inst
-      else if !r.shape.loops.isEmpty then loopProof declName r data ι i D bools bits srcN inst
-      else if r.nested then nestedProof declName r data ι i D bools bits srcN inst
+      else if !r.shape.loops.isEmpty && r.shape.runs.isEmpty then
+        loopProof declName r data ι i D bools bits srcN inst
+      else if r.nested || !r.shape.loops.isEmpty then nestedProof declName r data ι i D bools bits srcN inst
       else singleProof declName r data ι i D bools bits srcN inst
     let mut p := p
     for (suffix, left) in checks do
@@ -1408,6 +1487,10 @@ def generateCore (declName : Name) (checkCloses : Bool) : MetaM Name := do
     -- the pointwiseness of the hardware-module calls' extension
     if let some hext := extra then
       p := mkApp p hext
+    -- a telescope's loops start at their reset values (`Tele.InitOk`)
+    if let .forallE _ dT _ _ := (← whnfR (← inferType p)) then
+      if (dT.find? (·.isConstOf ``Tools.ShippingMachineTele.Tele.InitOk)).isSome then
+        p := mkApp p (← initOkProof dT)
     progress s!"{declName}: theorem"
     -- back to the declaration: its observations are the rewritten value's
     let mut srcName := srcName
