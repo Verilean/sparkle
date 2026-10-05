@@ -1,5 +1,6 @@
 import Tools.ShippingMachineAuto
 import Tools.ShippingMachineNest
+import Tools.ShippingMachineTeleNest
 import Tools.ShippingMachineLoop
 import Tools.ShippingMachineShipping
 
@@ -851,9 +852,44 @@ def nestedProof (declName : Name) (r : Read) (data ι i D bools bits src inst : 
   let lE := listE innerT inners.toList .one
   unless inners.size == r.shape.runs.length - (if run?.isSome then 1 else 0) do
     throwError "{declName}: {inners.size} sub-machines found, the compiler read {r.shape.runs.length - (if run?.isSome then 1 else 0)}"
+  -- a CHAIN: a sub-machine reading an earlier one's result (its body holds
+  -- the earlier `runCircuitH`): the sub-machines are a telescope (`TeleT`),
+  -- each body over the earlier results (`prev`, latest first)
+  let runsZ0 := (← runsRef.get).map (·.1)
+  let chain := (List.range runsZ0.size).any fun j =>
+    (List.range j).any fun k => runsZ0[k]!.occurs runsZ0[j]!
+  let typeT := mkSort (.succ .zero)
+  let preList (j : Nat) : Lean.Expr :=
+    listE typeT ((List.range j).reverse.map fun k => runsZ0[k]!.getAppArgs[2]!) .one
+  let preE (j : Nat) : MetaM Lean.Expr := mkLambdaFVars #[i] (preList j)
+  -- each body with the earlier sub-machines replaced by `prev`'s components
+  let bodiesC ← (List.range runsZ0.size).mapM fun j =>
+    withLocalDeclD `prev (hlistE (preList j)) fun pv => do
+      let b := runsZ0[j]!.getAppArgs[7]!
+      let b' := if !chain then b else b.replace fun e =>
+        (List.range j).findSome? fun k => if e == runsZ0[k]! then some (tupleProj pv (j - 1 - k)) else none
+      for k in List.range j do
+        if runsZ0[k]!.occurs b' then
+          throwError "{declName}: sub-machine {j} reads sub-machine {k} other than by its result"
+      mkLambdaFVars #[pv] b'
+  let teleE ← if !chain then pure (mkConst ``Unit.unit) else do
+    let n := runsZ0.size
+    let mut tE := mkAppN (mkConst ``Tools.ShippingMachineTeleNest.TeleT.nil) #[ι, domF, ss₂E, ← preE n]
+    for j in (List.range n).reverse do
+      let a := runsZ0[j]!.getAppArgs
+      let (_, ssE) ← slotSortsE declName a[1]!
+      let ρE ← mkLambdaFVars #[i] a[2]!
+      let bodyE ← mkLambdaFVars #[i, bools, bits, regsF] bodiesC[j]!
+      tE := mkAppN (mkConst ``Tools.ShippingMachineTeleNest.TeleT.cons)
+        #[ι, domF, ss₂E, ← preE j, ssE, a[5]!, ρE, a[6]!, bodyE, tE]
+    pure tE
   -- pass B: the enclosing body, each sub-machine its component of `rs`
-  let atsE := mkAppN (mkConst ``ats) #[ι, domF, ss₂E, lE, i, bools, bits]
-  let rsTy := hlistE (mkApp3 (mkConst ``ρs) D (tysE ss₂E) atsE)
+  let atsE ← if chain then
+      pure (mkAppN (mkConst ``Tools.ShippingMachineTeleNest.TeleT.at)
+        #[ι, domF, ss₂E, ← preE 0, teleE, i, bools, bits])
+    else pure (mkAppN (mkConst ``ats) #[ι, domF, ss₂E, lE, i, bools, bits])
+  let rsTy ← if chain then pure (hlistE (← mkAppM ``Tools.ShippingMachineTele.Tele.ρs #[atsE]))
+    else pure (hlistE (mkApp3 (mkConst ``ρs) D (tysE ss₂E) atsE))
   withLocalDeclD `rs rsTy fun rsF => do
   let counter ← IO.mkRef 0
   -- the calls in the compiler's reading order: a call in the enclosing body
@@ -869,9 +905,14 @@ def nestedProof (declName : Name) (r : Read) (data ι i D bools bits src inst : 
     let j := occ[k]!
     unless (← seenRef.get).contains j do
       seenRef.modify (·.push j)
-      let bodyJ := runsZ[j]!.getAppArgs[7]!
+      -- the body with the earlier sub-machines as `prev` (a call reading
+      -- `prev` is refused below: `prev` is not a variable the endpoint covers)
+      withLocalDeclD `prev (hlistE (preList j)) fun pv => do
+      let bodyJ := bodiesC[j]!.bindingBody!.instantiate1 pv
       withLocalDeclD `regsI bodyJ.bindingDomain! fun rI => do
         for c in ← collectInsts senv0 (bodyJ.bindingBody!.instantiate1 rI) do
+          if c.containsFVar pv.fvarId! then
+            throwError "{declName}: a hardware-module call in sub-machine {j} reads an earlier sub-machine"
           let cl ← mkLambdaFVars #[rI] c
           unless (← callsRef.get).contains (some j, cl) do callsRef.modify (·.push (some j, cl))
     pure (tupleProj rsF j)
@@ -889,7 +930,12 @@ def nestedProof (declName : Name) (r : Read) (data ι i D bools bits src inst : 
   let ctxCalls ← callsRef.get
   let calls := if hasInsts then ctxCalls.map (·.2) else #[]
   let nat := mkConst ``Nat
-  let sigsT := mkApp3 (mkConst ``Tools.ShippingMachineFuse.Sigs) D (tysE ss₂E) atsE
+  let hasExt := hasInsts || chain
+  let sigsT ← if chain then mkAppM ``Tools.ShippingMachineTele.Tele.Sigs #[atsE]
+    else pure (mkApp3 (mkConst ``Tools.ShippingMachineFuse.Sigs) D (tysE ss₂E) atsE)
+  let resultsOnE (regs Ss : Lean.Expr) : MetaM Lean.Expr :=
+    if chain then mkAppM ``Tools.ShippingMachineTele.Tele.resultsOn #[regs, atsE, mkConst ``Unit.unit, Ss]
+    else pure (mkApp5 (mkConst ``Tools.ShippingMachineFuse.resultsOn) D (tysE ss₂E) regs atsE Ss)
   let (extE, hextE) ← withLocalDeclD `S (mkApp2 (mkConst ``Sparkle.Core.Signal.Signal [.zero]) D
       (hlistE (tysE ss₂E))) fun S =>
     withLocalDeclD `Ss sigsT fun Ss => withLocalDeclD `t nat fun t => do
@@ -898,8 +944,11 @@ def nestedProof (declName : Name) (r : Read) (data ι i D bools bits src inst : 
         (.lam `u nat (mkApp (mkApp3 (mkConst ``Sparkle.Core.Signal.Signal.val [.zero]) D
           (hlistE (tysE ss₂E)) S) t) .default)
       let regsC := mkApp3 (mkConst ``Tools.ShippingMachineFuse.regsOf) D (tysE ss₂E) constS
-      let SsC := mkApp4 (mkConst ``Tools.ShippingMachineFuse.constOf) D (tysE ss₂E) atsE
-        (mkApp5 (mkConst ``Tools.ShippingMachineFuse.valsOf) D (tysE ss₂E) atsE Ss t)
+      let SsC ← if chain then
+          mkAppM ``Tools.ShippingMachineTele.Tele.constOf
+            #[atsE, ← mkAppM ``Tools.ShippingMachineTele.Tele.valsOf #[atsE, Ss, t]]
+        else pure (mkApp4 (mkConst ``Tools.ShippingMachineFuse.constOf) D (tysE ss₂E) atsE
+          (mkApp5 (mkConst ``Tools.ShippingMachineFuse.valsOf) D (tysE ss₂E) atsE Ss t))
       -- a sub-machine's call reads its own handles: over its state signal
       let innerRegs (j : Nat) (Ss' : Lean.Expr) : MetaM Lean.Expr := do
         let some (_, ssJ) := runsZ[j]? |>.map (fun z => ((), z.getAppArgs[1]!)) | throwError "{declName}: sub-machine {j}"
@@ -913,10 +962,10 @@ def nestedProof (declName : Name) (r : Read) (data ι i D bools bits src inst : 
         | some j =>
           opened := opened.push (c.beta #[← innerRegs j Ss])
           openedC := openedC.push (c.beta #[← innerRegs j SsC])
-      let subst (k : Nat) (_ : Lean.Expr) := (opened[k]!.replaceFVar regsF regsS).replaceFVar rsF
-        (mkApp5 (mkConst ``Tools.ShippingMachineFuse.resultsOn) D (tysE ss₂E) regsS atsE Ss)
-      let substC (k : Nat) (_ : Lean.Expr) := (openedC[k]!.replaceFVar regsF regsC).replaceFVar rsF
-        (mkApp5 (mkConst ``Tools.ShippingMachineFuse.resultsOn) D (tysE ss₂E) regsC atsE SsC)
+      let resS ← resultsOnE regsS Ss
+      let resC ← resultsOnE regsC SsC
+      let subst (k : Nat) (_ : Lean.Expr) := (opened[k]!.replaceFVar regsF regsS).replaceFVar rsF resS
+      let substC (k : Nat) (_ : Lean.Expr) := (openedC[k]!.replaceFVar regsF regsC).replaceFVar rsF resC
       for c in calls do
         if c.hasAnyFVar (fun id => id != regsF.fvarId! && id != rsF.fvarId! && id != i.fvarId! &&
             id != bools.fvarId! && id != bits.fvarId!) then
@@ -924,8 +973,11 @@ def nestedProof (declName : Name) (r : Read) (data ι i D bools bits src inst : 
       let (extS, hext) ← instExtension declName r D #[i, bools, bits, S, Ss] t bits calls subst substC
       pure (← mkLambdaFVars #[i, bools, bits, S, Ss] extS, ← mkLambdaFVars #[i, bools, bits, S, Ss, t] hext)
   -- the generic theorem, applied step by step; the binder types name the facts
-  let mut p := mkAppN (mkConst (if hasInsts then ``machine_trace_of_nested_ext else ``machine_trace_of_nested))
-    #[ι, toExpr declName, data, domF, ss₂E, inhab₂, lE]
+  let mut p := if chain then
+      mkAppN (mkConst ``Tools.ShippingMachineTeleNest.machine_trace_of_tele_ext)
+        #[ι, toExpr declName, data, domF, ss₂E, inhab₂, teleE]
+    else mkAppN (mkConst (if hasInsts then ``machine_trace_of_nested_ext else ``machine_trace_of_nested))
+      #[ι, toExpr declName, data, domF, ss₂E, inhab₂, lE]
   -- the slots are the enclosing machine's then the sub-machines'
   let slotsStmt := (← inferType p).bindingDomain!
   let some (α, lhs, _) := slotsStmt.eq? | throwError "{declName}: the slot equation"
@@ -935,14 +987,17 @@ def nestedProof (declName : Name) (r : Read) (data ι i D bools bits src inst : 
   addDef initsName (← inferType p).bindingDomain! inits₂
   p := mkApp p (mkConst initsName)
   let innersName := declName ++ `machineInners
-  addDef innersName (mkApp (mkConst ``List [.one]) innerT) lE
+  if chain then
+    addDef innersName (← inferType teleE) teleE
+  else
+    addDef innersName (mkApp (mkConst ``List [.one]) innerT) lE
   let bodyName := declName ++ `machineBody
   addDef bodyName (← inferType p).bindingDomain! body₂
   p := mkApp p (mkConst bodyName)
   let resName := declName ++ `machineResult
   addDef resName (← inferType p).bindingDomain! (← resultObs declName r i D rho)
   p := mkApp p (mkConst resName)
-  if hasInsts then
+  if hasExt then
     let extName := declName ++ `machineExt
     addDef extName (← inferType p).bindingDomain! extE
     p := mkApp p (mkConst extName)
@@ -955,7 +1010,7 @@ def nestedProof (declName : Name) (r : Read) (data ι i D bools bits src inst : 
   p := mkApp p (mkConst srcName)
   return (p, srcName, [(`machine_ok, false), (`machine_body, true), (`machine_inits, false),
     (`machine_writes, true), (`machine_result, true), (`machine_source, true)],
-    if hasInsts then some hextE else none)
+    if hasExt then some hextE else none)
 
 /-- The endpoint of a declaration that is one `circuit do`, through
 `machine_trace_of_data`. Returns the partial application, the name of the

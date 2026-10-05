@@ -3782,14 +3782,8 @@ partial def machNested (senv : StructEnv) (env : List MachVal) (dom αs initsE b
     let (base, st) ← machReserve senv.natOf dom' αs initsE body st
     let outer := st.inInner
     let (ws, v, st) ← machChain senv (.regs base :: env) body { st with inInner := true }
-    -- a sub-machine reading ANOTHER sub-machine's state (the HFT chain: the
-    -- emitter reads the parser's result) is not what the endpoint covers
-    -- (its `InnerT` reads the enclosing handles only)
-    let others := st.nested.toList.filterMap fun n => st.runs.toList.find? (·.1 == n.1)
-    let readsOther (e : Lean.Expr) := e.hasAnyFVar fun id => match id.name with
-      | .num (.str .anonymous "_machSlot") i => others.any fun (b, k) => b ≤ i && i < b + k
-      | _ => false
-    if readsOther v || ws.any (fun w => readsOther w.2) then none else
+    -- a sub-machine may read an EARLIER sub-machine's state (a chain: the
+    -- HFT emitter reads the parser's result; the endpoint's `TeleT`)
     some (v, { st with ws := st.ws ++ ws.toArray, inInner := outer,
                        nested := st.nested.push (base, dom', αs, initsE, ws, v) })
 

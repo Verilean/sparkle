@@ -1308,7 +1308,7 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   | wrappers over budget, core certified | 2 | the head-unfold patch, only once its compile-time cost is bounded (S) |
   | tuple ports / projection outside `circuit do` | 11 | DONE 9 (2026-10-05): a projection of a bundle is its component (`MachRawSurface.bundleIota`: `(bundle2 a b).fst`, `Signal.map Prod.fst`, `proj3_k` of `bundle3`, structure eta) and a tuple-typed INPUT is one packed port, first component high (`Sparkle/Compiler/MachTupleIn.lean`: the binder read as `bundle2`/`bundle3` of slices of the port, the generator applies the declaration to the same unpacking — the theorem is about the port carrying the packed tuple, the legacy interface). `TestErrorDetection.lean` now compiles (`test_proj3_works` failed before). Measured 82 → 72 with the calls below, interfaces identical, 193/193 simulation (the harness now unpacks tuple inputs and packs tuple results: `test_tuple` was never simulated before) |
   | untagged `Signal.loop` engine inside a circuit | 8 | loop together with runs/instances, Bool slots, `projN!`; tvKalman's evaluated constants (M) |
-  | sub-machine chains (HFT) | 5 | calls inside a sub-machine's body DONE (2026-10-05, `callerInner`); the chain itself (the emitter reads the parser's result) is refused by the compiler until the telescoped `InnerT` lands: `Tools/ShippingMachineTele.lean` (`Tele`, `loops_rec`, `fused_state` for a chain) and `ShippingMachineTeleNest.lean` (`machine_trace_of_tele_ext`) drafted, not yet built (M) |
+  | sub-machine chains (HFT) | 5 | DONE 5 (2026-10-05): a sub-machine may read EARLIER sub-machines' results — a telescope (`Tools/ShippingMachineTele.lean`: `Tele`, each body over the earlier results latest first, `loops_rec`/`loops_causal`/`fused_state` for a chain; `ShippingMachineTeleNest.lean`: `machine_trace_of_tele_ext` and its linked twin `machine_traceL_of_tele_ext`); the generator abstracts each earlier `runCircuitH` inside a later body as a `prev` component. The HFT strategy (parser → emitter, the emitter calling `httpGetByte`) has its endpoint AND `machine_linked`. Measured 72 → 67, only the two HFT files' RTL changed (interfaces identical, `httpGetByte` one instance), 286/286 endpoints, linked 19/24 (the 5 failures are the pre-existing test-harness ordering ones), simulation 233 OK + 23 instance modules skipped (the flat IR simulation runs an instance as a no-op; they have `machine_linked`) — the harness now catches per-declaration errors, which un-hid 70 machine declarations that whole-file failures had dropped |
   | CDC / other loops | 3 | unfold named loop bodies and state accessors; a loop as the root (S–M) |
 
   Phase C — large proof units (≈39):
@@ -1351,11 +1351,8 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   sub-machine's body is read (`machInstance` no longer refuses `inInner`);
   the generator collects the calls in reading order, a sub-machine's over
   its own state signal (`regsOf (Ss.j)`), the same `machine_inst_k` rfl.
-  A sub-machine read INSIDE another's body (the HFT chain: the emitter reads
-  the parser's result) is now refused by the compiler — the endpoint's
-  `InnerT` reads the enclosing handles only, the `machine_writes` rfl fails
-  (checked on `hftStrategy`); a telescoped `InnerT` (each sub-machine reading
-  the earlier ones' results) is the HFT unit.
+  A sub-machine reading an EARLIER one's result (the HFT chain) is the
+  telescoped `TeleT` (DONE, see the plan table).
 
   In parallel: extend the emitted-Verilog theorem (`machine_ships`, now 129
   real declarations) to every certified declaration, so "zero legacy" means

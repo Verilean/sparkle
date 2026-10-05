@@ -140,7 +140,15 @@ def generateLinkedCore (declName : Name) : MetaM Name := do
   if r.shape.insts.isEmpty then throwError "{declName}: no hardware-module call"
   if r.shape.layout.slots.isEmpty || !r.shape.loops.isEmpty then
     throwError "{declName}: only a circuit do with slots (and sub-machines) is supported"
-  let (head, headL) := if r.nested then
+  -- the endpoint's head theorem, and its twin with the wiring and the lets
+  let soundHead := match (← getConstInfo (declName ++ `machine_sound)) with
+    | .thmInfo t => t.value.getAppFn.constName?.getD .anonymous
+    | _ => .anonymous
+  let (head, headL) :=
+    if soundHead == ``Tools.ShippingMachineTeleNest.machine_trace_of_tele_ext then
+      (``Tools.ShippingMachineTeleNest.machine_trace_of_tele_ext,
+        ``Tools.ShippingMachineTeleNest.machine_traceL_of_tele_ext)
+    else if r.nested then
       (``Tools.ShippingMachineNest.machine_trace_of_nested_ext,
         ``Tools.ShippingMachineNest.machine_traceL_of_nested_ext)
     else (``Tools.ShippingMachineAuto.machine_trace_of_data_ext,
