@@ -424,6 +424,8 @@ def readMachine (declName : Name) : MetaM Read := do
   -- a tuple-typed input is its packed port, as the reader reads it (`MachTupleIn`)
   let some (bsIn, entryBody) := mixedGatePeel (Sparkle.Compiler.MachTupleIn.packTupleInputs entryV)
     | throwError "{declName}: binders"
+  -- the root's `let`s floated out of a projection, as the reader does
+  let entryBody := Sparkle.Compiler.MachRawSurface.rootFloat entryBody
   let nDecl := bsIn.length
   let nIn := nDecl + shape.insts.length
   let nSlots := shape.layout.slots.length
@@ -1203,7 +1205,14 @@ def loopProof (declName : Name) (r : Read) (data ι i D bools bits src inst : Le
   let la := loopApp.getAppArgs
   let (α, inh, f) := (la[1]!, la[2]!, la[3]!)
   let .lam _ _ fBody _ := f | throwError "{declName}: the loop body is not a function"
-  let some regs := machLoopRegs (machLetTail fBody) | throwError "{declName}: the loop's registers"
+  -- the registers read off the body with its `let`s substituted (a reset
+  -- value may read a `let` of the body: `0#W`, `W := w + f`)
+  let fBodyZ ← withLocalDeclD `state (← inferType f).bindingDomain! fun st => do
+    let b ← zetaReduce (fBody.instantiate1 st)
+    pure (b.abstract #[st])
+  let some regs := machLoopRegs (machLetTail fBodyZ) | throwError "{declName}: the loop's registers"
+  if regs.any (fun (_, init, _) => init.hasLooseBVars) then
+    throwError "{declName}: a reset value reads the loop state"
   let n := regs.length
   unless n == r.shape.layout.slots.length do throwError "{declName}: slot count"
   if inh.hasFVar then throwError "{declName}: the state's Inhabited instance depends on a binder"
@@ -1293,7 +1302,7 @@ def generateCore (declName : Name) (checkCloses : Bool) : MetaM Name := do
         | some (_, ws) => Sparkle.Compiler.MachTupleIn.unpackE D ws (mkApp2 bits (mkNatLit p) (mkNatLit w))
         | none => mkApp2 bits (mkNatLit p) (mkNatLit w)
     let src := mkAppN (mkConst declName) args.toArray
-    let inst := entryV.beta args.toArray
+    let inst := Sparkle.Compiler.MachRawSurface.rootFloat (entryV.beta args.toArray)
     let (p, srcName, checks, extra) ←
       if r.shape.layout.slots.isEmpty then combProof declName r data ι i D bools bits src inst
       else if !r.shape.loops.isEmpty then loopProof declName r data ι i D bools bits src inst

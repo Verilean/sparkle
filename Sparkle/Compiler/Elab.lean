@@ -3249,8 +3249,9 @@ def inlLastComponent : Name → String
 /-- The definitions the front end may unfold: an ordinary, universe-monomorphic
     user definition from outside the Lean and Sparkle libraries that the legacy
     translator would inline at the call site — not tagged `@[hardware_module]`,
-    not a projection, matcher or instance, default reducibility, no smart
-    unfolding, and no name the legacy dispatcher intercepts.  A pure function
+    not a projection, matcher or instance, not irreducible (a `@[reducible]`
+    helper such as `dividerQ15_16` unfolds too), no smart unfolding (no
+    recursion), and no name the legacy dispatcher intercepts.  A pure function
     of the run's environment. -/
 def userDefinition? (env : Environment) (n : Name) : Option Lean.Expr :=
   match env.find? n with
@@ -3261,7 +3262,7 @@ def userDefinition? (env : Environment) (n : Name) : Option Lean.Expr :=
         (env.getProjectionFnInfo? n).isNone &&
         !Lean.Meta.isMatcherCore env n &&
         !Lean.Meta.isInstanceCore env n &&
-        Lean.getReducibilityStatusCore env n == .semireducible &&
+        Lean.getReducibilityStatusCore env n != .irreducible &&
         !env.contains (Lean.Meta.mkSmartUnfoldingNameFor n) &&
         d.safety == .safe && !isPrimitive n
     then some d.value else none
@@ -4652,7 +4653,11 @@ def machineShape? (symbolicMode : Bool) (parameters : List (String × Nat)) (ci 
       | none => machOuts? senv d.type
     if outs.isEmpty || !outs.all (fun o => Sparkle.IR.Machine.outNameOk o.1) ||
         !decide (outs.map (·.1)).Nodup then none else
-    let e := machLoopAsLet (machNorm senv e)
+    -- (literal `Nat` sums folded again: a width `W + 1` whose `W` was a
+    -- `let` is a literal sum only after `machNorm` substituted it)
+    let e := machLoopAsLet (Sparkle.Compiler.MachRawSurface.rootFloat
+      (Sparkle.Compiler.MachRawSurface.zeroLit inlNatLit canonicalNatLitValue?
+        (inlFoldNat (machNorm senv e))))
     let (rootLets, sel, run?, root) := machRoot senv.proj e []
     -- the enclosing machine's slots come first
     let st : MachRead := {}

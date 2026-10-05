@@ -3,6 +3,7 @@ import Sparkle.Core.StateMacro
 import Tools.ShippingMachineCommand
 import IP.YOLOv8.Blocks.Bottleneck
 import IP.RV32.Divider
+import IP.Control.DividerQ
 
 /-! Hand-written `Signal.loop` state machines on the machine route.
 
@@ -80,6 +81,16 @@ def wholeToggle {dom : DomainConfig} (en : Signal dom Bool) : Signal dom Bool :=
 #machine_endpoint accLoop
 #machine_endpoint Sparkle.IP.YOLOv8.Blocks.Bottleneck.bottleneckController
 #machine_endpoint Sparkle.IP.RV32.Divider.dividerSignal
+
+/-- The Q15.16 divider's quotient: an `@[reducible]` engine (unfolded at the
+entry), the projection of its `let` block floated to the root, the widths
+`W + 1` folded after the body's `Nat` lets are substituted, `BitVec.zero`
+read as a literal. -/
+def divQ (num den : Signal defaultDomain (BitVec 32)) (start : Signal defaultDomain Bool) :
+    Signal defaultDomain (BitVec 32) :=
+  projN! (Sparkle.IP.Control.DividerQ.dividerQ15_16 num den start) 2 0
+
+#machine_endpoint divQ
 
 run_cmd do
   if (← get).messages.hasErrors then throwError "machine loop regression failed"

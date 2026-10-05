@@ -155,4 +155,25 @@ def bundleIota (e : Lean.Expr) : Lean.Expr :=
     | _, _, _ => e
   | _, _ => e
 
+/-- The root's `let`s floated out of an application's last argument:
+`f (let x := v; b)` is `let x := v; f b` (zeta on both sides) — a projection
+of a `let` block (`(let s := Signal.loop …; bundle2 r d).fst`, an unfolded
+`projN! (dividerQ …) 2 0`) becomes a block whose root is the projection. -/
+partial def rootFloat : Lean.Expr → Lean.Expr
+  | .letE n t v b nd => .letE n t v (rootFloat b) nd
+  | e@(.app f a) =>
+    match a with
+    | .letE n t v b nd => .letE n t v (rootFloat (.app (f.liftLooseBVars 0 1) b)) nd
+    | _ => e
+  | e => e
+
+/-- `BitVec.zero n` at a literal width is the literal `BitVec.ofNat n 0` (the
+canonical literal form; both reduce to the same value). -/
+def zeroLit (natE : Nat → Lean.Expr) (natLit? : Lean.Expr → Option Nat) (e : Lean.Expr) : Lean.Expr :=
+  e.replace fun x =>
+    match x with
+    | .app (.const ``BitVec.zero _) w =>
+      (natLit? w).map fun n => mkApp2 (.const ``BitVec.ofNat []) (natE n) (natE 0)
+    | _ => none
+
 end Sparkle.Compiler.MachRawSurface
