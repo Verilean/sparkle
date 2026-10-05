@@ -5,6 +5,9 @@ open Lean Elab Command Meta
 -- For every machine-route declaration of the measurement this file sees
 -- (its own and the imported ones): generate its machine endpoint
 -- (`Tools.ShippingMachineCommand`), and record whether the kernel accepted it.
+-- One command generates every endpoint the file sees: no heartbeat limit
+-- for the measurement (each file still has the per-file time limit).
+set_option maxHeartbeats 0 in
 run_cmd liftTermElabM do
   let names ← IO.FS.lines "@WORK@/machine_decls.txt"
   let env ← getEnv

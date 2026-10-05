@@ -966,6 +966,14 @@ private initialize sparkleSubModuleCache :
     IO.Ref (Std.HashMap Lean.Name (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design)) ←
     IO.mkRef {}
 
+/-- Per top-level synthesis, the full-entry result of every child a call
+    site synthesised (`Rec.synthesizeCombinational`): a child projected at
+    several fields, or called from several places, is synthesised once.
+    Cleared with the other per-synth caches at depth 0. -/
+private initialize sparkleChildCache :
+    IO.Ref (Std.HashMap Lean.Name (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design)) ←
+    IO.mkRef {}
+
 /-- The synthesis entry a state machine uses for the `@[hardware_module]`
     children its body calls (`closeInsts`): the real entry
     `synthesizeCombinational`, set once it is defined (the machine synthesis
@@ -3272,7 +3280,7 @@ def userProjection? (env : Environment) (n : Name) : Option (Name × Nat × Nat)
 
 /-- Recursion depth and node budget of the front-end unfolding. -/
 def inlineDepth : Nat := 4096
-def inlineBudget : Nat := 200000
+def inlineBudget : Nat := 4000000
 
 /-- A user type alias (`abbrev S : Type := …`, no universe parameters): its value. Type aliases
     such as `abbrev S := Signal defaultDomain (BitVec 4)` in binder types are
@@ -4980,6 +4988,7 @@ def synthesizeCombinationalCoreWith (translate : TranslateFn) (declName : Name)
     sparkleTypeCacheHits.set 0
     sparkleTypeCacheMiss.set 0
     sparkleSubModuleCache.set {}
+    sparkleChildCache.set {}
     sparkleSubInstanceOutputs.set {}
     sparkleSingleOutInstanceCache.set {}
     sparkleFvarValueMap.set {}
@@ -7364,8 +7373,12 @@ mutual
       | _ => CompilerM.liftMetaM $ throwError s!"Could not identify primitive in lambda body: {e}"
 
   partial def synthesizeCombinational (declName : Name) :
-      MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) :=
-    synthesizeCombinationalWith (fun e h t n => translateExprToWire e h t n) declName
+      MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) := do
+    -- a child synthesised earlier in this top-level synthesis
+    if let some r := (← sparkleChildCache.get).get? declName then return r
+    let r ← synthesizeCombinationalWith (fun e h t n => translateExprToWire e h t n) declName
+    sparkleChildCache.modify (·.insert declName r)
+    return r
 
   partial def synthesizeCombinationalWithParameters (declName : Name)
       (parameters : List (String × Nat)) :
@@ -8251,7 +8264,10 @@ def synthesizeCombinationalCore := synthesizeCombinationalCoreWith (fun e h t n 
 /-- `#synthesizeVerilog`'s synthesis with the real translator (a plain
     definition, so the post-processing theorems apply to it directly). -/
 def synthesizeCombinational := synthesizeCombinationalWith (fun e h t n => translateExprToWire e h t n)
-initialize sparkleChildSynth.set (some fun n => synthesizeCombinational n)
+/-- The memoised child entry (`Rec.synthesizeCombinational`). -/
+def synthesizeChild (n : Name) : MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) :=
+  Rec.synthesizeCombinational (fun e h t n => translateExprToWire e h t n) n
+initialize sparkleChildSynth.set (some synthesizeChild)
 /-- `Rec.synthesizeCombinationalWithParameters` with the real translator as its recursive entry. -/
 def synthesizeCombinationalWithParameters := Rec.synthesizeCombinationalWithParameters (fun e h t n => translateExprToWire e h t n)
 
