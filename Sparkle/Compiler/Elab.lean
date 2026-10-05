@@ -4486,6 +4486,14 @@ partial def machLiftScalarN (senv : StructEnv) (dom : Lean.Expr) (vars : List (N
         some (w, machSigBin m si dom w x' y')
       else machLiftConst senv dom e
     | _, _ => machLiftConst senv dom e
+  | e@(.app (.app (.app (.app (.const ``BitVec.append _) nE) mE) x) y) => do
+    if !x.hasLooseBVars && !y.hasLooseBVars then machLiftConst senv dom e else
+    let n ← canonicalNatLitValue? nE <|> senv.natOf nE
+    let m ← canonicalNatLitValue? mE <|> senv.natOf mE
+    let (wx, x') ← machLiftScalarN senv dom vars x
+    let (wy, y') ← machLiftScalarN senv dom vars y
+    if wx != n || wy != m then none else
+    some (n + m, machConcatE dom n m x' y')
   | e@(.app (.app (.app (.app (.const ``BitVec.extractLsb' ls) nE) sE) lE) x) => do
     let n ← canonicalNatLitValue? nE <|> senv.natOf nE
     let st ← canonicalNatLitValue? sE <|> senv.natOf sE
@@ -4589,7 +4597,10 @@ def machNormApLift (senv : StructEnv) (e : Lean.Expr) : Lean.Expr :=
       let (dom, f, args) ← machApSpine e []
       let n := args.length
       if n < 2 then none else
-      let body ← machLamBody n f
+      -- a function that is not a lambda (`BitVec.append`): eta-expanded
+      let body ← machLamBody n f <|>
+        (if f.hasLooseBVars then none
+         else some (mkAppN f ((List.range n).reverse.map Lean.Expr.bvar).toArray))
       let vars ← args.reverse.mapM fun (p : Lean.Expr × Lean.Expr) =>
         (machBits? p.1).map fun w => (w, p.2)
       match machBits? β with
