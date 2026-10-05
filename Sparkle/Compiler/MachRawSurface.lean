@@ -123,4 +123,36 @@ def rawNode (prodMatch : Name → Option Nat) (e : Lean.Expr) : Option Lean.Expr
     | none => none
   | _, _ => none
 
+/-- A projection of a bundle, after the reader substituted the bundle's
+    `let`: `(bundle2 a b).fst` is `a`, `.snd` is `b`, and
+    `(bundle3 a b c).proj3_k` the `k`-th component, `Signal.map Prod.fst`
+    / `Prod.snd` of a `bundle2` too — definitionally (both
+    sides unfold to `⟨fun t => (a.val t, …).i⟩`, structure eta), so the
+    endpoint generator's kernel checks hold. Anything else is left as is. -/
+def bundleIota (e : Lean.Expr) : Lean.Expr :=
+  match e.getAppFn, e.getAppArgs with
+  | .const p _, #[_, _, _, s] =>
+    match s.getAppFn, s.getAppArgs, p with
+    | .const ``Sparkle.Core.Signal.bundle2 _, #[_, _, _, a, _],
+        ``Sparkle.Core.Signal.Signal.fst => a
+    | .const ``Sparkle.Core.Signal.bundle2 _, #[_, _, _, _, b],
+        ``Sparkle.Core.Signal.Signal.snd => b
+    | _, _, _ => e
+  | .const ``Sparkle.Core.Signal.Signal.map _, #[_, _, _, f, s] =>
+    -- `Signal.map Prod.fst (bundle2 a b)` (what `Signal.fst` unfolds to)
+    match s.getAppFn, s.getAppArgs, f.getAppFn, f.getAppNumArgs with
+    | .const ``Sparkle.Core.Signal.bundle2 _, #[_, _, _, a, _], .const ``Prod.fst _, 2 => a
+    | .const ``Sparkle.Core.Signal.bundle2 _, #[_, _, _, _, b], .const ``Prod.snd _, 2 => b
+    | _, _, _, _ => e
+  | .const p _, #[_, _, _, _, s] =>
+    match s.getAppFn, s.getAppArgs, p with
+    | .const ``Sparkle.Core.Signal.bundle3 _, #[_, _, _, _, a, _, _],
+        ``Sparkle.Core.Signal.Signal.proj3_1 => a
+    | .const ``Sparkle.Core.Signal.bundle3 _, #[_, _, _, _, _, b, _],
+        ``Sparkle.Core.Signal.Signal.proj3_2 => b
+    | .const ``Sparkle.Core.Signal.bundle3 _, #[_, _, _, _, _, _, c],
+        ``Sparkle.Core.Signal.Signal.proj3_3 => c
+    | _, _, _ => e
+  | _, _ => e
+
 end Sparkle.Compiler.MachRawSurface

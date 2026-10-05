@@ -29,6 +29,7 @@ import Sparkle.Core.Signal
 import Sparkle.Core.Vector
 import Sparkle.Core.CircuitMonad
 import Sparkle.Compiler.MachRawSurface
+import Sparkle.Compiler.MachTupleIn
 import Sparkle.Display.Mime
 
 namespace Sparkle.Compiler.Elab
@@ -3483,8 +3484,9 @@ structure MachRead where
   /-- Every `@[hardware_module]` call read: the module, the `let`s holding
       its arguments (in port order), the kind of its result. -/
   insts : Array (Name × List Nat × MixedGateBinder) := #[]
-  /-- Reading a nested machine's chain (a call there is not accepted yet:
-      the endpoint reads calls of the enclosing body only). -/
+  /-- Reading a nested machine's chain (a sub-machine met there — one
+      reading another's result — is refused: the endpoint's sub-machines
+      read the enclosing handles only). -/
   inInner : Bool := false
   /-- `(first slot, slot count)` of every hand-written `Signal.loop`. -/
   loops : Array (Nat × Nat) := #[]
@@ -3719,7 +3721,9 @@ partial def machConv (senv : StructEnv) : List MachVal → Nat → Lean.Expr →
       match machConv senv env d f st with
       | some (f', st) =>
         match machConv senv env d a st with
-        | some (a', st) => some (machProjIota senv.proj (.app f' a'), st)
+        | some (a', st) =>
+          some (Sparkle.Compiler.MachRawSurface.bundleIota
+            (machProjIota senv.proj (.app f' a')), st)
         | none => none
       | none => none
   | env, d, .lam nm t b bi, st =>
@@ -3759,6 +3763,9 @@ partial def machConv (senv : StructEnv) : List MachVal → Nat → Lean.Expr →
     value is its result. -/
 partial def machNested (senv : StructEnv) (env : List MachVal) (dom αs initsE body : Lean.Expr)
     (st : MachRead) : Option (Lean.Expr × MachRead) := do
+  -- a sub-machine read inside another one's body (a chain of sub-machines,
+  -- one reading another's result) is not what the endpoint covers
+  if st.inInner then none else
   let (dom', st) ← machConv senv env 0 dom st
   -- the same machine met before: the same domain, slots and reset values,
   -- and the same writes and result when its chain is read with that
@@ -3775,6 +3782,14 @@ partial def machNested (senv : StructEnv) (env : List MachVal) (dom αs initsE b
     let (base, st) ← machReserve senv.natOf dom' αs initsE body st
     let outer := st.inInner
     let (ws, v, st) ← machChain senv (.regs base :: env) body { st with inInner := true }
+    -- a sub-machine reading ANOTHER sub-machine's state (the HFT chain: the
+    -- emitter reads the parser's result) is not what the endpoint covers
+    -- (its `InnerT` reads the enclosing handles only)
+    let others := st.nested.toList.filterMap fun n => st.runs.toList.find? (·.1 == n.1)
+    let readsOther (e : Lean.Expr) := e.hasAnyFVar fun id => match id.name with
+      | .num (.str .anonymous "_machSlot") i => others.any fun (b, k) => b ≤ i && i < b + k
+      | _ => false
+    if readsOther v || ws.any (fun w => readsOther w.2) then none else
     some (v, { st with ws := st.ws ++ ws.toArray, inInner := outer,
                        nested := st.nested.push (base, dom', αs, initsE, ws, v) })
 
@@ -3784,8 +3799,8 @@ partial def machNested (senv : StructEnv) (env : List MachVal) (dom αs initsE b
 partial def machInstance (senv : StructEnv) (env : List MachVal) (c : Name)
     (kinds : List MixedGateBinder) (res : MixedGateBinder) (args : List Lean.Expr)
     (st : MachRead) : Option (Lean.Expr × MachRead) := do
-  -- a BitVec result, in the enclosing body (what the endpoint covers)
-  if st.inInner then none else
+  -- a BitVec result (what the endpoint covers), in the enclosing body or in
+  -- a sub-machine's (its value then reads that machine's state)
   match res with
   | .bits _ => pure ()
   | _ => none
@@ -4634,7 +4649,8 @@ def machineShape? (symbolicMode : Bool) (parameters : List (String × Nat)) (ci 
   match ci with
   | .defnInfo d =>
     if symbolicMode || !parameters.isEmpty then none else do
-    let (bs, e) ← mixedGatePeel d.value
+    -- a tuple-typed input is one packed port (`MachTupleIn`)
+    let (bs, e) ← mixedGatePeel (Sparkle.Compiler.MachTupleIn.packTupleInputs d.value)
     -- a tuple result is ONE port `out`, the components packed
     let tup? := machTupleKinds? d.type
     let (ctor?, outs) ← match tup? with

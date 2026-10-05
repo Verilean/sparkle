@@ -1306,9 +1306,9 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   |---|---|---|
   | big crypto cores over the unfolding budget | 36 | DONE 32 (2026-10-05): child synthesis memoised per top-level synthesis (`sparkleChildCache` in the opaque `Rec.synthesizeCombinational`, also the machine route's child entry) and the unfolding budget raised 200k → 4M. P-256 / secp256k1 / Ed25519 point and scalar engines, ECDSA, Fp6/G2 (BLS), BIP32 CKD take the machine route with kernel-checked endpoints; EcdsaSignDemoTest 110 s (heartbeat failure) → 26 s. Measured 114 → 82, ten crypto test files' RTL changed (machine route), interfaces identical, 183/183 simulation | probe the reason; share `let`s instead of copying in the unfolding (keeps compile time bounded), then the 6 sign/point/scalar wrappers follow (M) |
   | wrappers over budget, core certified | 2 | the head-unfold patch, only once its compile-time cost is bounded (S) |
-  | tuple ports / projection outside `circuit do` | 11 | packed Prod ports or projection reduction at the front end (M) |
+  | tuple ports / projection outside `circuit do` | 11 | DONE 9 (2026-10-05): a projection of a bundle is its component (`MachRawSurface.bundleIota`: `(bundle2 a b).fst`, `Signal.map Prod.fst`, `proj3_k` of `bundle3`, structure eta) and a tuple-typed INPUT is one packed port, first component high (`Sparkle/Compiler/MachTupleIn.lean`: the binder read as `bundle2`/`bundle3` of slices of the port, the generator applies the declaration to the same unpacking — the theorem is about the port carrying the packed tuple, the legacy interface). `TestErrorDetection.lean` now compiles (`test_proj3_works` failed before). Measured 82 → 72 with the calls below, interfaces identical, 193/193 simulation (the harness now unpacks tuple inputs and packs tuple results: `test_tuple` was never simulated before) |
   | untagged `Signal.loop` engine inside a circuit | 8 | loop together with runs/instances, Bool slots, `projN!`; tvKalman's evaluated constants (M) |
-  | sub-machine chains (HFT) | 5 | several root-let sub-machines feeding each other (M) |
+  | sub-machine chains (HFT) | 5 | calls inside a sub-machine's body DONE (2026-10-05, `callerInner`); the chain itself (the emitter reads the parser's result) is refused by the compiler until the telescoped `InnerT` lands: `Tools/ShippingMachineTele.lean` (`Tele`, `loops_rec`, `fused_state` for a chain) and `ShippingMachineTeleNest.lean` (`machine_trace_of_tele_ext`) drafted, not yet built (M) |
   | CDC / other loops | 3 | unfold named loop bodies and state accessors; a loop as the root (S–M) |
 
   Phase C — large proof units (≈39):
@@ -1317,6 +1317,45 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   | sequential children (multi-output, Bool result) | 28 | child registers joining the parent's step in the linked semantics, instance projections; the open trace without pointwise calls (loop fixpoint) (L) |
   | `memoryComboRead` (H.264) | 10 | combinational-read memory semantics + a machine-route memory slot (M–L) |
   | memory-other, `conv2DEngine`/`convBnSiLU` | 1 + 2 | several memories; ashr inside a 5-slot loop (M) |
+
+  PHASE C DESIGN (2026-10-05, research): the wrappers `wSignCore` /
+  `wSha256` / `wKeccakF` are NOT budget-bound any more (they unfold at 4M,
+  `wKeccakF` needs ≈5M) — their cores (`signCore`, `sha256StreamHW`,
+  `keccak256SpongeHW`) call STRUCTURE-result SEQUENTIAL engines (`wInv … :
+  ModInvOut`, projected `pInv.mulStart`), which `machInstance` refuses (one
+  `.bits` result only), so they are Phase C. Staged:
+  * A — multi-output (and Bool) children, combinational: a structure call is
+    ONE instance with one input binder per field (`machProjIota` turns
+    `pInv.mulStart` into the placeholder; the `(c, js)` dedup keeps one
+    instance); `instStmt`/`closeInsts` connect every child output;
+    `CallStmt`/`ChildFn`/`childComputes_of_call`/`machine_linked` per (call,
+    field); a Bool extension next to `extendBits` in `MachineTraceWith`/`L`.
+    The semantics (`evalAssignsH`/`bindOuts`, `linkedOk`) already handle
+    several outputs. Certifies tests only (every real structure-result
+    module is sequential) but B builds on it.
+  * B1 — sequential leaf children: child state in the linked semantics
+    (`evalAssignsHS`/`runModuleHS` with per-instance state, equal to
+    `runModuleH` for register-free children; `runModuleHS_of_runs` with a
+    run-determinism lemma), `instStmt` connects `clk`/`rst`; source side a
+    CAUSAL extension instead of the pointwise `hext` (`loop_state_causal`
+    already compares truncated loops); the generator drops `machine_inst_k`
+    for a sequential child (false, and the `rfl` would unfold its loop) and a
+    new `#machine_linked_seq` discharges "call k is causal / = child trace".
+    Certifies `signCore` (all six children are leaf engines).
+  * B2 — nested children (state keyed by instance path): the sponge, the
+    sign/Fido2/Policy demos and the wrappers.
+  Risks: kernel `rfl` sizes on signCore (≈45 call outputs, 256-bit lets),
+  quadratic `topoBody`/`linkedOk` (`List.contains`), the earlier compile-time
+  regressions of the crypto tests.
+  CALLS IN SUB-MACHINES (2026-10-05): a `@[hardware_module]` call inside a
+  sub-machine's body is read (`machInstance` no longer refuses `inInner`);
+  the generator collects the calls in reading order, a sub-machine's over
+  its own state signal (`regsOf (Ss.j)`), the same `machine_inst_k` rfl.
+  A sub-machine read INSIDE another's body (the HFT chain: the emitter reads
+  the parser's result) is now refused by the compiler — the endpoint's
+  `InnerT` reads the enclosing handles only, the `machine_writes` rfl fails
+  (checked on `hftStrategy`); a telescoped `InnerT` (each sub-machine reading
+  the earlier ones' results) is the HFT unit.
 
   In parallel: extend the emitted-Verilog theorem (`machine_ships`, now 129
   real declarations) to every certified declaration, so "zero legacy" means

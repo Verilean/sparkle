@@ -92,6 +92,24 @@ def callerD {dom : DomainConfig} (x : Signal dom (BitVec 8)) : Signal dom (BitVe
     acc <~ y
     return y
 
+/-- A call inside a SUB-MACHINE's body (its argument the sub-machine's own
+register): the extension reads that machine's state signal. -/
+def innerPick (en : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 8) :=
+  circuit do
+    let c ← Signal.reg 0#8
+    let cS := (c : Signal defaultDomain (BitVec 8))
+    c <~ Signal.mux en (pick (Signal.pure 1#2 : Signal defaultDomain (BitVec 2)) cS) cS
+    return cS
+
+def callerInner (x : Signal defaultDomain (BitVec 8)) (en : Signal defaultDomain Bool) :
+    Signal defaultDomain (BitVec 8) :=
+  let s := innerPick en
+  circuit do
+    let acc ← Signal.reg 0#8
+    let accS := (acc : Signal defaultDomain (BitVec 8))
+    acc <~ pick (Signal.pure 2#2 : Signal defaultDomain (BitVec 2)) (accS + s + x)
+    return accS
+
 /-! ## The route -/
 
 run_cmd liftTermElabM do
@@ -133,13 +151,14 @@ run_cmd liftTermElabM do
 #machine_endpoint callerTwice
 #machine_endpoint callerNested
 #machine_endpoint callerD
+#machine_endpoint callerInner
 
 run_cmd do
   if (← get).messages.hasErrors then throwError "machine instance regression failed"
   for name in [``caller.machine_sound, ``callerTwice.machine_sound, ``callerNested.machine_sound,
       ``caller.machine_inst_0, ``Tools.ShippingMachineAuto.machine_trace_of_data_ext,
       ``Tools.ShippingMachineNest.machine_trace_of_nested_ext,
-      ``Tools.ShippingMachineInst.runModule_of_closeInsts, ``callerD.machine_sound,
+      ``Tools.ShippingMachineInst.runModule_of_closeInsts, ``callerD.machine_sound, ``callerInner.machine_sound,
       ``Tools.ShippingMachineInst.closeInsts_calls,
       ``Tools.ShippingMachineCompose.runModuleH_of_seeded,
       ``Tools.ShippingMachineCompose.childComputes_of_call,
@@ -155,6 +174,6 @@ run_cmd do
     for ax in axioms do
       unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do
         throwError "{name} uses a non-standard axiom: {ax}"
-  logInfo m!"MACHINE INSTANCES: four declarations calling a hardware module, each an instance in the emitted module with its kernel-checked endpoint"
+  logInfo m!"MACHINE INSTANCES: five declarations calling a hardware module, each an instance in the emitted module with its kernel-checked endpoint"
 
 end Sparkle.Tests.Compiler.ShippingMachineInstTest

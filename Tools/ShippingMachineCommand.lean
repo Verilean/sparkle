@@ -420,7 +420,9 @@ def readMachine (declName : Name) : MetaM Read := do
   let some shape := machineShape? false [] entry senv
     | throwError "{declName}: not a machine shape"
   let some entryV := entry.value? | throwError "{declName}: no value"
-  let some (bsIn, entryBody) := mixedGatePeel entryV | throwError "{declName}: binders"
+  -- a tuple-typed input is its packed port, as the reader reads it (`MachTupleIn`)
+  let some (bsIn, entryBody) := mixedGatePeel (Sparkle.Compiler.MachTupleIn.packTupleInputs entryV)
+    | throwError "{declName}: binders"
   let nDecl := bsIn.length
   let nIn := nDecl + shape.insts.length
   let nSlots := shape.layout.slots.length
@@ -654,7 +656,7 @@ the constants).val t` by `rfl`, and `hext` from `extendBits_val`. Returns the
 extension (closed over the given binders) and the `hext` proof. -/
 def instExtension (declName : Name) (r : Read) (D : Lean.Expr) (binders : Array Lean.Expr)
     (t : Lean.Expr) (bits : Lean.Expr) (calls : Array Lean.Expr)
-    (subst substC : Lean.Expr → Lean.Expr) : MetaM (Lean.Expr × Lean.Expr) := do
+    (subst substC : Nat → Lean.Expr → Lean.Expr) : MetaM (Lean.Expr × Lean.Expr) := do
   unless calls.size == r.shape.insts.length do
     throwError "{declName}: {calls.size} hardware-module calls found, the compiler read {r.shape.insts.length}"
   let sigBV (w : Nat) := mkApp2 (mkConst ``Sparkle.Core.Signal.Signal [.zero]) D
@@ -675,8 +677,8 @@ def instExtension (declName : Name) (r : Read) (D : Lean.Expr) (binders : Array 
     let some (_, _, kind) := r.shape.insts[k]? | throwError "{declName}: call {k}"
     let .bits w := kind | throwError "{declName}: call {k} is not a BitVec"
     let c := calls[k]!
-    let cS := subst c
-    let cC := substC c
+    let cS := subst k c
+    let cC := substC k c
     let pos := r.nDecl + k
     -- the call over the state signal(s), for the linked composition
     let callV ← mkLambdaFVars binders cS
@@ -738,6 +740,38 @@ partial def walkRuns (onRun : Lean.Expr → MetaM Lean.Expr) : Lean.Expr → Met
       mkForallFVars #[x] b'
   | .mdata m b => do return .mdata m (← walkRuns onRun b)
   | .proj n k b => do return .proj n k (← walkRuns onRun b)
+  | e => pure e
+
+/-- `walkRuns` and `walkInsts` in one pass, in the compiler's reading order:
+a `runCircuitH` goes to `onRun` (not entered), a `@[hardware_module]` call
+first has the sub-machines in its arguments replaced (`onRun`, the compiler
+reads the arguments before the call) and then goes to `onCall`. -/
+partial def walkInstsRuns (senv : StructEnv) (onRun onCall : Lean.Expr → MetaM Lean.Expr) :
+    Lean.Expr → MetaM Lean.Expr
+  | e@(.app ..) => do
+    if e.isAppOfArity ``Sparkle.Core.runCircuitH 8 then onRun e else
+    if (machInstCall? senv e).isSome then onCall (← walkRuns onRun e) else
+    let f ← walkInstsRuns senv onRun onCall e.appFn!
+    let a ← walkInstsRuns senv onRun onCall e.appArg!
+    return .app f a
+  | .letE nm ty v b _ => do
+    let ty' ← walkInstsRuns senv onRun onCall ty
+    let v' ← walkInstsRuns senv onRun onCall v
+    withLetDecl nm ty' v' fun x => do
+      let b' ← walkInstsRuns senv onRun onCall (b.instantiate1 x)
+      mkLetFVars #[x] b' (usedLetOnly := false)
+  | .lam nm ty b bi => do
+    let ty' ← walkInstsRuns senv onRun onCall ty
+    withLocalDecl nm bi ty' fun x => do
+      let b' ← walkInstsRuns senv onRun onCall (b.instantiate1 x)
+      mkLambdaFVars #[x] b'
+  | .forallE nm ty b bi => do
+    let ty' ← walkInstsRuns senv onRun onCall ty
+    withLocalDecl nm bi ty' fun x => do
+      let b' ← walkInstsRuns senv onRun onCall (b.instantiate1 x)
+      mkForallFVars #[x] b'
+  | .mdata m b => do return .mdata m (← walkInstsRuns senv onRun onCall b)
+  | .proj n k b => do return .proj n k (← walkInstsRuns senv onRun onCall b)
   | e => pure e
 
 /-- The slot sorts of a `runCircuitH`'s slot types, as an expression. -/
@@ -822,10 +856,29 @@ def nestedProof (declName : Name) (r : Read) (data ι i D bools bits src inst : 
   let rsTy := hlistE (mkApp3 (mkConst ``ρs) D (tysE ss₂E) atsE)
   withLocalDeclD `rs rsTy fun rsF => do
   let counter ← IO.mkRef 0
-  let eB ← walkRuns (fun _ => do
+  -- the calls in the compiler's reading order: a call in the enclosing body
+  -- (over the handles and `rs`), and at the first occurrence of a
+  -- sub-machine the calls of its body (closed over its own handles: `some j`)
+  let callsRef ← IO.mkRef (#[] : Array (Option Nat × Lean.Expr))
+  let seenRef ← IO.mkRef (#[] : Array Nat)
+  let runsZ := (← runsRef.get).map (·.1)
+  let senv0 := structEnv env
+  let onRun : Lean.Expr → MetaM Lean.Expr := fun _ => do
     let k ← counter.get
     counter.set (k + 1)
-    pure (tupleProj rsF occ[k]!)) e0
+    let j := occ[k]!
+    unless (← seenRef.get).contains j do
+      seenRef.modify (·.push j)
+      let bodyJ := runsZ[j]!.getAppArgs[7]!
+      withLocalDeclD `regsI bodyJ.bindingDomain! fun rI => do
+        for c in ← collectInsts senv0 (bodyJ.bindingBody!.instantiate1 rI) do
+          let cl ← mkLambdaFVars #[rI] c
+          unless (← callsRef.get).contains (some j, cl) do callsRef.modify (·.push (some j, cl))
+    pure (tupleProj rsF j)
+  let eB ← walkInstsRuns senv0 onRun (fun c => do
+    let cZ ← zetaReduce c
+    unless (← callsRef.get).contains (none, cZ) do callsRef.modify (·.push (none, cZ))
+    pure c) e0
   let eB ← match chain? with
     | some _ => pure eB
     | none => pure (mkApp4 (mkConst ``Sparkle.Core.Circuit.pure') D (sigListE (tysE ss₂E)) rho eB)
@@ -833,7 +886,8 @@ def nestedProof (declName : Name) (r : Read) (data ι i D bools bits src inst : 
   -- the `@[hardware_module]` calls (over the handles and the results), their
   -- extension of the inputs and its pointwiseness
   let hasInsts := !r.shape.insts.isEmpty
-  let calls ← if hasInsts then collectInsts senv eB else pure #[]
+  let ctxCalls ← callsRef.get
+  let calls := if hasInsts then ctxCalls.map (·.2) else #[]
   let nat := mkConst ``Nat
   let sigsT := mkApp3 (mkConst ``Tools.ShippingMachineFuse.Sigs) D (tysE ss₂E) atsE
   let (extE, hextE) ← withLocalDeclD `S (mkApp2 (mkConst ``Sparkle.Core.Signal.Signal [.zero]) D
@@ -846,9 +900,22 @@ def nestedProof (declName : Name) (r : Read) (data ι i D bools bits src inst : 
       let regsC := mkApp3 (mkConst ``Tools.ShippingMachineFuse.regsOf) D (tysE ss₂E) constS
       let SsC := mkApp4 (mkConst ``Tools.ShippingMachineFuse.constOf) D (tysE ss₂E) atsE
         (mkApp5 (mkConst ``Tools.ShippingMachineFuse.valsOf) D (tysE ss₂E) atsE Ss t)
-      let subst (c : Lean.Expr) := (c.replaceFVar regsF regsS).replaceFVar rsF
+      -- a sub-machine's call reads its own handles: over its state signal
+      let innerRegs (j : Nat) (Ss' : Lean.Expr) : MetaM Lean.Expr := do
+        let some (_, ssJ) := runsZ[j]? |>.map (fun z => ((), z.getAppArgs[1]!)) | throwError "{declName}: sub-machine {j}"
+        let (_, ssE) ← slotSortsE declName ssJ
+        pure (mkApp3 (mkConst ``Tools.ShippingMachineFuse.regsOf) D (tysE ssE) (tupleProj Ss' j))
+      let mut opened : Array Lean.Expr := #[]
+      let mut openedC : Array Lean.Expr := #[]
+      for (ctx, c) in ctxCalls do
+        match ctx with
+        | none => opened := opened.push c; openedC := openedC.push c
+        | some j =>
+          opened := opened.push (c.beta #[← innerRegs j Ss])
+          openedC := openedC.push (c.beta #[← innerRegs j SsC])
+      let subst (k : Nat) (_ : Lean.Expr) := (opened[k]!.replaceFVar regsF regsS).replaceFVar rsF
         (mkApp5 (mkConst ``Tools.ShippingMachineFuse.resultsOn) D (tysE ss₂E) regsS atsE Ss)
-      let substC (c : Lean.Expr) := (c.replaceFVar regsF regsC).replaceFVar rsF
+      let substC (k : Nat) (_ : Lean.Expr) := (openedC[k]!.replaceFVar regsF regsC).replaceFVar rsF
         (mkApp5 (mkConst ``Tools.ShippingMachineFuse.resultsOn) D (tysE ss₂E) regsC atsE SsC)
       for c in calls do
         if c.hasAnyFVar (fun id => id != regsF.fvarId! && id != rsF.fvarId! && id != i.fvarId! &&
@@ -924,7 +991,7 @@ def singleProof (declName : Name) (r : Read) (data ι i D bools bits src inst : 
             id != bools.fvarId! && id != bits.fvarId!) then
           throwError "{declName}: a hardware-module call reads a variable the endpoint does not cover"
       let (extS, hext) ← instExtension declName r D #[i, bools, bits, S] t bits calls
-        (fun c => c.replaceFVar regsF regsS) (fun c => c.replaceFVar regsF regsC)
+        (fun _ c => c.replaceFVar regsF regsS) (fun _ c => c.replaceFVar regsF regsC)
       pure (← mkLambdaFVars #[i, bools, bits, S] extS, ← mkLambdaFVars #[i, bools, bits, S, t] hext)
   -- the generic theorem, applied step by step; the binder types name the facts
   let mut p := mkAppN (mkConst (if hasInsts then ``machine_trace_of_data_ext else ``machine_trace_of_data))
@@ -1157,11 +1224,19 @@ def generateCore (declName : Name) (checkCloses : Bool) : MetaM Name := do
     let bitsT := Lean.Expr.forallE `j nat
       (.forallE `n nat (sig (mkApp (mkConst ``BitVec) (.bvar 0))) .default) .default
     withLocalDeclD `bools boolsT fun bools => withLocalDeclD `bits bitsT fun bits => do
+    -- a tuple-typed input is its packed port, unpacked (`MachTupleIn`)
+    let rec binderTys : Lean.Expr → List Lean.Expr
+      | .forallE _ t b _ => t :: binderTys b
+      | _ => []
+    let tys := binderTys r.entry.type
     let args := ((List.range bsIn.length).zip bsIn).map fun (p, b) =>
       match b.2 with
       | .domain => D
       | .bool => mkApp bools (mkNatLit p)
-      | .bits w => mkApp2 bits (mkNatLit p) (mkNatLit w)
+      | .bits w =>
+        match (tys[p]?).bind Sparkle.Compiler.MachTupleIn.tupleInput? with
+        | some (_, ws) => Sparkle.Compiler.MachTupleIn.unpackE D ws (mkApp2 bits (mkNatLit p) (mkNatLit w))
+        | none => mkApp2 bits (mkNatLit p) (mkNatLit w)
     let src := mkAppN (mkConst declName) args.toArray
     let inst := entryV.beta args.toArray
     let (p, srcName, checks, extra) ←
