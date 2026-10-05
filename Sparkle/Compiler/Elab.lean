@@ -3456,6 +3456,10 @@ structure StructEnv where
       of its binders (the domain included) and of its result
       (`instSignature?`). -/
   inst : Name → Option (List MixedGateBinder × MixedGateBinder) := fun _ => none
+  /-- A `@[hardware_module]` declaration with hardware binders and any other
+      result (a structure of Signals): the kinds of its binders and its type
+      (`instSignatureS?`). -/
+  instS : Name → Option (List MixedGateBinder × Lean.Expr) := fun _ => none
   /-- A matcher destructuring one right-nested pair: its arity
       (`MachRawSurface.prodMatcherArity?`). -/
   prodMatch : Name → Option Nat := fun _ => none
@@ -3487,6 +3491,11 @@ structure MachRead where
   /-- Every `@[hardware_module]` call read: the module, the `let`s holding
       its arguments (in port order), the kind of its result. -/
   insts : Array (Name × List Nat × MixedGateBinder) := #[]
+  /-- The child output port each `insts` entry reads (`out` for a one-Signal
+      result, the field for a structure's), and whether a structure call was
+      read (then the shape's `instFields` are these). -/
+  instFields : Array String := #[]
+  instStruct : Bool := false
   /-- Reading a nested machine's chain (a sub-machine met there — one
       reading another's result — is refused: the endpoint's sub-machines
       read the enclosing handles only). -/
@@ -3573,6 +3582,17 @@ def machInstCall? (senv : StructEnv) (e : Lean.Expr) :
   | (.const c _, args) =>
     match senv.inst c with
     | some (kinds, res) => if args.length == kinds.length then some (c, kinds, res, args) else none
+    | none => none
+  | _ => none
+
+/-- A full application of a `@[hardware_module]` with a structure result:
+    the module, the kinds of its binders, its type, the arguments. -/
+def machInstCallS? (senv : StructEnv) (e : Lean.Expr) :
+    Option (Name × List MixedGateBinder × Lean.Expr × List Lean.Expr) :=
+  match inlSpine e [] with
+  | (.const c _, args) =>
+    match senv.instS c with
+    | some (kinds, ty) => if args.length == kinds.length then some (c, kinds, ty, args) else none
     | none => none
   | _ => none
 
@@ -3691,6 +3711,28 @@ def machProjIota (projs : Name → Option (Name × Nat × Nat)) (e : Lean.Expr) 
     | _, _ => e
   | _ => e
 
+/-- The output ports of a result type: one, `out`, for a Signal; one per
+    field, named after it, for a structure of Signals.  With the structure's
+    constructor in the second case. -/
+def machOuts? (senv : StructEnv) :
+    Lean.Expr → Option (Option Name × List (String × MixedGateBinder))
+  | .forallE _ _ b _ => machOuts? senv b
+  -- a pair of Signals: two ports `out_0`, `out_1` (the legacy interface)
+  | .app (.app (.const ``Prod _) a) b =>
+    match mixedGateBinderKind? a, mixedGateBinderKind? b with
+    | some ka, some kb =>
+      if ka == .domain || kb == .domain then none
+      else some (some ``Prod.mk, [("out_0", ka), ("out_1", kb)])
+    | _, _ => none
+  | e =>
+    match mixedGateBinderKind? e with
+    | some .bool => some (none, [("out", .bool)])
+    | some (.bits n) => some (none, [("out", .bits n)])
+    | _ =>
+      match e.getAppFn with
+      | .const s _ => (senv.fields s).map fun (ctor, fs) => (some ctor, fs)
+      | _ => none
+
 mutual
 /-- Rewrite a Signal expression of the `circuit do` body into the transition
     (placeholder form).  A bound variable of the body is replaced by what it
@@ -3739,6 +3781,10 @@ partial def machConv (senv : StructEnv) : List MachVal → Nat → Lean.Expr →
     match machInstCall? senv (.app f a) with
     | some (c, kinds, res, args) =>
       if d != 0 then none else machInstance senv env c kinds res args st
+    | none =>
+    match machInstCallS? senv (.app f a) with
+    | some (c, kinds, ty, args) =>
+      if d != 0 then none else machInstanceS senv env c kinds ty args st
     | none =>
     match machReadV env d (.app f a) with
     | some i => if i < st.kinds.size then some (machSlot i, st) else none
@@ -3850,7 +3896,54 @@ partial def machInstance (senv : StructEnv) (env : List MachVal) (c : Name)
   -- the same call met before (`circuit do` copies its `let`s): its output
   match st.insts.findIdx? (fun i => i.1 == c && i.2.1 == js) with
   | some k' => some (machInstOut k', st)
-  | none => some (machInstOut k, { st with insts := st.insts.push (c, js, res) })
+  | none => some (machInstOut k, { st with insts := st.insts.push (c, js, res),
+                                           instFields := st.instFields.push "out" })
+
+/-- A `@[hardware_module]` call whose result is a structure of Signals: ONE
+    call, one transition input per field (`machInstOut`, in field order), the
+    value the structure's constructor on them (a field projection of it is
+    the field's input, `machProjIota`). Its arguments are hardware `let`s;
+    the same call met again is the same entries. -/
+partial def machInstanceS (senv : StructEnv) (env : List MachVal) (c : Name)
+    (kinds : List MixedGateBinder) (ty : Lean.Expr) (args : List Lean.Expr)
+    (st : MachRead) : Option (Lean.Expr × MachRead) := do
+  -- in the enclosing body (what the endpoint covers)
+  if st.inInner then none else
+  -- the result type at the call
+  let rec inst : Lean.Expr → List Lean.Expr → Option Lean.Expr
+    | e, [] => some e
+    | .forallE _ _ b _, a :: as => inst (b.instantiate1 a) as
+    | _, _ => none
+  let resTy ← inst ty args
+  let (some ctor, fields) ← machOuts? senv resTy | none
+  if fields.isEmpty || fields.any (fun f => f.2 == .domain) then none else
+  let (js, st) ← (kinds.zip args).foldlM (init := (([] : List Nat), st))
+    fun (js, st) (kind, arg) => do
+      let (v', st) ← machConv senv env 0 arg st
+      match kind with
+      | .domain =>
+        match st.dom with
+        | some d => if d != v' then none else some (js, st)
+        | none => some (js, { st with dom := some v' })
+      | _ =>
+        let (j, lets) := machLetIndex (Name.mkSimple s!"inst{st.insts.size}_arg{js.length}")
+          kind v' st.lets
+        some (js ++ [j], { st with lets := lets })
+  -- the structure's parameters (its domain), read like the arguments
+  let (params, st) ← resTy.getAppArgs.toList.foldlM (init := (([] : List Lean.Expr), st))
+    fun (ps, st) p => do
+      let (p', st) ← machConv senv env 0 p st
+      some (ps ++ [p'], st)
+  let lvls := resTy.getAppFn.constLevels!
+  let (k0, st) := match st.insts.findIdx? (fun i => i.1 == c && i.2.1 == js) with
+    | some k0 => (k0, st)
+    | none =>
+      (st.insts.size, { st with
+        insts := st.insts ++ (fields.map fun f => (c, js, f.2)).toArray
+        instFields := st.instFields ++ (fields.map (·.1)).toArray
+        instStruct := true })
+  some (mkAppN (.const ctor lvls)
+    (params.toArray ++ ((List.range fields.length).map fun i => machInstOut (k0 + i)).toArray), st)
 
 /-- The statements of a `circuit do` body: the writes `handle <~ rhs` in
     order as `(slot, next value)`, and the final `pure` value, both in
@@ -4098,33 +4191,21 @@ def instSignature? (env : Environment) (n : Name) :
     some (kinds, res)
   | none => none
 
+/-- A `@[hardware_module]` declaration with hardware binders whose result is
+    not one Signal (a structure of Signals): their kinds, and its type. -/
+def instSignatureS? (env : Environment) (n : Name) : Option (List MixedGateBinder × Lean.Expr) :=
+  if !Sparkle.Compiler.isHardwareModule env n then none else
+  match env.find? n with
+  | some ci =>
+    if (machResultKind? ci.type).isSome || !ci.levelParams.isEmpty then none else
+    (telescopeKinds ci.type).map fun kinds => (kinds, ci.type)
+  | none => none
+
 /-- The structure facts of an environment. -/
 def structEnv (env : Environment) : StructEnv :=
   { proj := userProjection? env, fields := userStructure? env, natOf := kernelNat env,
-    inst := instSignature? env,
+    inst := instSignature? env, instS := instSignatureS? env,
     prodMatch := Sparkle.Compiler.MachRawSurface.prodMatcherArity? env }
-
-/-- The output ports of a result type: one, `out`, for a Signal; one per
-    field, named after it, for a structure of Signals.  With the structure's
-    constructor in the second case. -/
-def machOuts? (senv : StructEnv) :
-    Lean.Expr → Option (Option Name × List (String × MixedGateBinder))
-  | .forallE _ _ b _ => machOuts? senv b
-  -- a pair of Signals: two ports `out_0`, `out_1` (the legacy interface)
-  | .app (.app (.const ``Prod _) a) b =>
-    match mixedGateBinderKind? a, mixedGateBinderKind? b with
-    | some ka, some kb =>
-      if ka == .domain || kb == .domain then none
-      else some (some ``Prod.mk, [("out_0", ka), ("out_1", kb)])
-    | _, _ => none
-  | e =>
-    match mixedGateBinderKind? e with
-    | some .bool => some (none, [("out", .bool)])
-    | some (.bits n) => some (none, [("out", .bits n)])
-    | _ =>
-      match e.getAppFn with
-      | .const s _ => (senv.fields s).map fun (ctor, fs) => (some ctor, fs)
-      | _ => none
 
 /-- The `let`s in front of an expression, prepended (innermost first) to `acc`. -/
 def machRootLets : Lean.Expr → List (Name × Lean.Expr × Lean.Expr) →
@@ -4844,6 +4925,7 @@ def machineShape? (symbolicMode : Bool) (parameters : List (String × Nat)) (ci 
               lets := k }
           runs := st.runs.toList
           insts := st.insts.toList
+          instFields := if st.instStruct then st.instFields.toList else []
           loops := st.loops.toList }
     else none
   | _ => none

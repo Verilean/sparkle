@@ -127,6 +127,18 @@ def identsIn (body : String) : List String :=
         go rest [] acc'
   (go cs [] []).eraseDups
 
+
+/-- An instance line of the certified route: `Child inst<k>_<child> (.a(b), ...);`. -/
+def isInstLine (t : String) : Bool :=
+  match t.trim.splitOn " " with
+  | _ :: nm :: _ => nm.startsWith "inst" && !((nm.toList.drop 4).takeWhile Char.isDigit).isEmpty &&
+      containsSubstr t "(."
+  | _ => false
+
+/-- The instance name of an instance line. -/
+def instNameOf (t : String) : String :=
+  (t.trim.splitOn " ").getD 1 ""
+
 /-- Names bound by a `logic …;` declaration, a port, an instance name, or an
     instance port label (`.foo(bar)` — `foo` is the CHILD's port, not a wire
     of this module). -/
@@ -156,6 +168,7 @@ def boundNames (body : String) : List String := Id.run do
     if containsSubstr t "_tmp_inst_" then
       for tok in identsIn t do
         if tok.startsWith "_tmp_inst_" then out := tok :: out
+    if isInstLine t then out := instNameOf t :: out
     for seg in t.splitOn "." do
       if containsSubstr seg "(" then
         let lbl := (seg.splitOn "(").head!.trim
@@ -201,7 +214,9 @@ def countRegisters (body : String) : Nat :=
   (body.splitOn "always_ff").length - 1
 
 def countInstancesOf (verilog : String) (childModule : String) : Nat :=
-  ((verilog.splitOn s!"{childModule} _tmp_inst_").length) - 1
+  ((verilog.splitOn s!"{childModule} _tmp_inst_").length) - 1 +
+    ((verilog.splitOn "\n").filter fun l => isInstLine l &&
+      (l.trim.splitOn " ").head!.endsWith childModule).length
 
 /-! ### Designs under test
 
@@ -699,7 +714,18 @@ run_meta do
     let undriven := undrivenOutputs body
     unless undriven.isEmpty do
       throwError s!"RTL structure: sponge module {mname} undriven outputs {undriven}"
-  -- 59 registers / 1 permutation instance / 1 round-constant ROM instance.
+  -- 57 registers / 1 permutation instance / 1 round-constant ROM instance.
+  --
+  -- 59 → 57 (2026-10-06): a call of a sequential `@[hardware_module]` with a
+  -- structure result is now ONE instance on the certified machine route,
+  -- connected PORT BY PORT (`.done(_gen_inst26)` — no record slicing, so the
+  -- aliasing described below cannot occur). 57 is exactly the source's
+  -- registers: the top's 25 lanes + blkR/nBlkR/doneR/kfDonePrev/kfDoneP2 (30)
+  -- and the permutation's 25 lanes + cntR/doneR (27); the legacy lowering
+  -- kept 2 more. Re-verified: `keccak256-sponge-jit-test` (regenerated
+  -- `spongeSimTop_jit.c`) passes empty/abc/136B/200B.
+  --
+  -- The history of the previous pin (59):
   --
   -- These counts are DIGEST-VERIFIED: with them, `keccak256-sponge-jit-test`
   -- reproduces the reference hashes for `empty` and `abc`.  (The 136B/200B
@@ -713,10 +739,10 @@ run_meta do
   -- silently miscompiling wide records: field `idx ≥ 1` of an N>2-field
   -- record underflowed `(1 - idx)` in `Nat` and sliced the LOW bits of field
   -- 0, so `kf.done` (field 26 of 27) became `lane0 & 1`.  That aliasing is
-  -- what made the register count look smaller.  Don't "restore" 57 — it
-  -- encodes the bug.
-  unless total == 59 do
-    throwError s!"RTL structure: sponge register count = {total} (pinned 59). \
+  -- what made the register count look smaller.  That 57 encoded the bug; the
+  -- current 57 is a different design (see above), checked port by port.
+  unless total == 57 do
+    throwError s!"RTL structure: sponge register count = {total} (pinned 57). \
 The sponge is the design that breaks when `runCircuitH` is restructured — \
 run `lake exe keccak256-sponge-jit-test` and confirm the `empty`/`abc` \
 digests before repinning."
@@ -792,7 +818,7 @@ def unreachableRegisters (body : String) : List String := Id.run do
   let mut work : List String := outputPorts body
   for l in lines do
     let t := l.trim
-    if containsSubstr t "_tmp_inst_" then
+    if containsSubstr t "_tmp_inst_" || isInstLine t then
       work := work ++ identsIn t
   -- fixed point
   let mut live : List String := []

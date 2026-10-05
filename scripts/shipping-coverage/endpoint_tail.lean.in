@@ -22,8 +22,10 @@ run_cmd liftTermElabM do
           if (Lean.privateToUserName? c).map toString == some user then c else acc) n0
       else n0
     unless (env.find? n).isSome do continue
-    -- a file that already ran `#machine_endpoint` on it
-    if (env.find? (n ++ `machine_sound)).isSome then
+    -- a file that already ran `#machine_endpoint` on it, or an earlier entry
+    -- of this loop (two files' private declarations of one user name resolve
+    -- to the same constant here): the CURRENT environment
+    if ((← getEnv).find? (n ++ `machine_sound)).isSome then
       out := out ++ s!"{s}|0ms|OK\n"
       continue
     let t0 ← IO.monoMsNow

@@ -4,6 +4,7 @@ import Tools.ShippingMachineTeleNest
 import Tools.ShippingMachineLoop
 import Tools.ShippingMachineShipping
 import Tools.ShippingSignOps
+import Tools.ShippingMachineCausal
 
 /-! # The machine endpoint of a declaration, generated
 
@@ -1107,6 +1108,408 @@ def nestedProof (declName : Name) (r : Read) (data ι i D bools bits src inst : 
     (`machine_writes, true), (`machine_result, true), (`machine_source, true)],
     if hasExt then some hextE else none)
 
+/-! ### Calls with several outputs, calls of sequential children
+
+The entries of the calls (a structure call, one per field it has), their
+extension of BOTH input families, and the causality of every entry: a
+combinational child's value is pointwise in the state (a `rfl`); a
+sequential child's is causal by the child's own trace theorem
+(`src_causal_of_trace`, through `field_causal`). -/
+
+/-- `walkInsts` for calls with one Signal result or a structure result. -/
+partial def walkInstsG (senv : StructEnv) (onCall : Lean.Expr → MetaM Lean.Expr) :
+    Lean.Expr → MetaM Lean.Expr
+  | e@(.app ..) => do
+    if (machInstCall? senv e).isSome || (machInstCallS? senv e).isSome then onCall e else
+    let f ← walkInstsG senv onCall e.appFn!
+    let a ← walkInstsG senv onCall e.appArg!
+    return .app f a
+  | .letE nm ty v b _ => do
+    let ty' ← walkInstsG senv onCall ty
+    let v' ← walkInstsG senv onCall v
+    withLetDecl nm ty' v' fun x => do
+      let b' ← walkInstsG senv onCall (b.instantiate1 x)
+      mkLetFVars #[x] b' (usedLetOnly := false)
+  | .lam nm ty b bi => do
+    let ty' ← walkInstsG senv onCall ty
+    withLocalDecl nm bi ty' fun x => do
+      let b' ← walkInstsG senv onCall (b.instantiate1 x)
+      mkLambdaFVars #[x] b'
+  | .forallE nm ty b bi => do
+    let ty' ← walkInstsG senv onCall ty
+    withLocalDecl nm bi ty' fun x => do
+      let b' ← walkInstsG senv onCall (b.instantiate1 x)
+      mkForallFVars #[x] b'
+  | .mdata m b => do return .mdata m (← walkInstsG senv onCall b)
+  | .proj n k b => do return .proj n k (← walkInstsG senv onCall b)
+  | e => pure e
+
+/-- The call entries in reading order, each call once: `(call, entry term,
+index of the child output it reads)`. -/
+def callEntriesG (senv : StructEnv) (e : Lean.Expr) :
+    MetaM (Array (Lean.Expr × Lean.Expr × Nat)) := do
+  let acc ← IO.mkRef (#[] : Array (Lean.Expr × Lean.Expr × Nat))
+  let seen ← IO.mkRef (#[] : Array Lean.Expr)
+  let env ← getEnv
+  let _ ← walkInstsG senv (fun c => do
+    let cZ ← zetaReduce c
+    unless (← seen.get).contains cZ do
+      seen.modify (·.push cZ)
+      if (machInstCall? senv cZ).isSome then acc.modify (·.push (cZ, cZ, 0))
+      else
+        let ty ← whnfR (← inferType cZ)
+        let some sn := ty.getAppFn.constName? | throwError "a call's result type {ty}"
+        let fields := getStructureFields env sn
+        for k in [0:fields.size] do
+          acc.modify (·.push (cZ, ← mkProjection cZ fields[k]!, k))
+    pure c) e
+  acc.get
+
+/-- The calls' extension `machineExt` of a child is pointwise in its inputs
+and its state: `∀ i bools bits S t p w, (ext i bools bits S p w).val t =
+(ext i (bools at t) (bits at t) (S at t) p w).val t`. The extension is a
+chain of `extendBits` over `bits`; each call in it is pointwise (`rfl`),
+and the chain is walked with `extendBits_val`. -/
+def extPointwiseProof (declName : Name) (extC : Lean.Expr) : MetaM Lean.Expr := do
+  let some c := extC.constName? | throwError "{declName}: a child's extension is not a constant"
+  let some v := (← getConstInfo c).value? | throwError "{declName}: {c} has no value"
+  let nat := mkConst ``Nat
+  lambdaBoundedTelescope v 4 fun xs chain => do
+    unless xs.size == 4 do throwError "{declName}: {c} is not a 4-argument extension"
+    let (i, bools, bits, S) := (xs[0]!, xs[1]!, xs[2]!, xs[3]!)
+    -- the chain, innermost first
+    let mut calls : Array (Lean.Expr × Lean.Expr × Lean.Expr × Lean.Expr) := #[]
+    let mut e := chain
+    while e.isAppOfArity ``Tools.ShippingMachineAuto.extendBits 5 do
+      let a := e.getAppArgs
+      calls := calls.push (a[2]!, a[3]!, a[4]!, a[0]!)
+      e := a[1]!
+    unless e == bits do throwError "{declName}: {c}'s chain does not end in the inputs"
+    calls := calls.reverse
+    let D ← match calls[0]? with
+      | some (_, _, _, D) => pure D
+      | none => throwError "{declName}: {c} has no calls"
+    withLocalDeclD `t nat fun t => withLocalDeclD `p nat fun p => withLocalDeclD `w nat fun w => do
+      let sig (α : Lean.Expr) := mkApp2 (mkConst ``Sparkle.Core.Signal.Signal [.zero]) D α
+      let valE (α s : Lean.Expr) := mkApp (mkApp3 (mkConst ``Sparkle.Core.Signal.Signal.val [.zero]) D α s) t
+      let mkC (α v : Lean.Expr) := mkApp3 (mkConst ``Sparkle.Core.Signal.Signal.mk [.zero]) D α
+        (.lam `u nat v .default)
+      let bvN (n : Lean.Expr) := mkApp (mkConst ``BitVec) n
+      let cB ← withLocalDeclD `q nat fun q => mkLambdaFVars #[q]
+        (mkC (mkConst ``Bool) (valE (mkConst ``Bool) (mkApp bools q)))
+      let cV ← withLocalDeclD `q nat fun q => withLocalDeclD `n nat fun n => mkLambdaFVars #[q, n]
+        (mkC (bvN n) (valE (bvN n) (mkApp2 bits q n)))
+      let Sty ← inferType S
+      let σ := Sty.getAppArgs[1]!
+      let cS := mkC σ (valE σ S)
+      let subst (x : Lean.Expr) : Lean.Expr := x.replaceFVars #[bools, bits, S] #[cB, cV, cS]
+      let mut cur ← withLocalDeclD `j nat fun j => withLocalDeclD `n nat fun n => do
+        mkLambdaFVars #[j, n] (← mkEqRefl (valE (bvN n) (mkApp2 bits j n)))
+      let mut f := bits
+      let mut f' := cV
+      for (pos, wd, sg, _) in calls do
+        let fact ← mkEqRefl (valE (bvN wd) sg)
+        let fact ← mkExpectedTypeHint fact (← mkEq (valE (bvN wd) sg) (valE (bvN wd) (subst sg)))
+        cur := mkAppN (mkConst ``Tools.ShippingMachineAuto.extendBits_val)
+          #[D, f, f', pos, wd, sg, subst sg, t, cur, fact]
+        f := mkAppN (mkConst ``Tools.ShippingMachineAuto.extendBits) #[D, f, pos, wd, sg]
+        f' := mkAppN (mkConst ``Tools.ShippingMachineAuto.extendBits) #[D, f', pos, wd, subst sg]
+      mkLambdaFVars #[i, bools, bits, S, t, p, w] (mkApp2 cur p w)
+
+/-- The causality of a call entry (its term over the handles `regsF`), as a
+proof of `∀ i bools bits S S' t, (agree up to t) → (term S).val t =
+(term S').val t`. The EARLIER entries (`earlier`: term, input position,
+kind; their causality `earlierFacts`) may occur in the term and in the
+call's arguments: they are read from input families (`B`, `V`) at their
+positions, so what is left is pointwise in the state and those families
+(`causal_of_pointwise_fam`). A combinational child's entry is then causal;
+a sequential child's from the child's endpoint facts (`src_causal_of_data`,
+`field_causal`) on argument families that are causal the same way. -/
+def causalFactE (declName : Name) (D αs i bools bits regsF cl term : Lean.Expr) (cidx : Nat)
+    (kind : MixedGateBinder) (earlier : Array (Lean.Expr × Nat × MixedGateBinder))
+    (earlierFacts : Array Lean.Expr) (callName : Name) (combChild : Bool) :
+    MetaM Lean.Expr := do
+  let nat := mkConst ``Nat
+  let hlistT := mkApp (mkConst ``HList) αs
+  let sig (α : Lean.Expr) := mkApp2 (mkConst ``Sparkle.Core.Signal.Signal [.zero]) D α
+  let sigS := sig hlistT
+  let valE (α s t : Lean.Expr) := mkApp (mkApp3 (mkConst ``Sparkle.Core.Signal.Signal.val [.zero]) D α s) t
+  let over (e S : Lean.Expr) : Lean.Expr :=
+    e.replaceFVar regsF (mkApp3 (mkConst ``Tools.ShippingMachineFuse.regsOf) D αs S)
+  let mkConstSig (α v : Lean.Expr) : Lean.Expr :=
+    mkApp3 (mkConst ``Sparkle.Core.Signal.Signal.mk [.zero]) D α (.lam `u nat v .default)
+  let boolsT ← mkArrow nat (sig (mkConst ``Bool))
+  let bitsT := Lean.Expr.forallE `j nat
+    (.forallE `n nat (sig (mkApp (mkConst ``BitVec) (.bvar 0))) .default) .default
+  let bvT (w : Nat) := mkApp (mkConst ``BitVec) (mkNatLit w)
+  -- the earlier entries, read from the families `B`, `V`
+  let abstract (e B V : Lean.Expr) : Lean.Expr := e.replace fun x =>
+    match earlier.findIdx? (fun (t, _, _) => t == x) with
+    | some j =>
+      let (_, pos, kd) := earlier.getD j (x, 0, .bool)
+      match (kd : MixedGateBinder) with
+      | .bits w => some (mkApp2 V (mkNatLit pos) (mkNatLit w))
+      | _ => some (mkApp B (mkNatLit pos))
+    | none => none
+  -- the earlier entries' families over a state, and their agreement at `t`
+  let famsOver (S : Lean.Expr) : Lean.Expr × Lean.Expr := Id.run do
+    let mut fb := bools
+    let mut fv := bits
+    for (t, pos, kd) in earlier do
+      match kd with
+      | .bits w => fv := mkAppN (mkConst ``Tools.ShippingMachineAuto.extendBits) #[D, fv, mkNatLit pos, mkNatLit w, over t S]
+      | _ => fb := mkAppN (mkConst ``Tools.ShippingMachineCausal.extendBools) #[D, fb, mkNatLit pos, over t S]
+    return (fb, fv)
+  let FB ← withLocalDeclD `S sigS fun S => mkLambdaFVars #[S] (famsOver S).1
+  let FV ← withLocalDeclD `S sigS fun S => mkLambdaFVars #[S] (famsOver S).2
+  let agreeT (S S' t : Lean.Expr) : MetaM Lean.Expr := withLocalDeclD `c nat fun c => do
+    mkForallFVars #[c] (← mkArrow (← mkAppM ``LE.le #[c, t]) (← mkEq (valE hlistT S c) (valE hlistT S' c)))
+  let hFam (isB : Bool) : MetaM Lean.Expr :=
+    withLocalDeclD `S sigS fun S => withLocalDeclD `S' sigS fun S' => withLocalDeclD `t nat fun t => do
+    withLocalDeclD `h (← agreeT S S' t) fun h => do
+      let mut cur ← if isB then
+          withLocalDeclD `j nat fun j => do
+            mkLambdaFVars #[j] (← mkEqRefl (valE (mkConst ``Bool) (mkApp bools j) t))
+        else withLocalDeclD `j nat fun j => withLocalDeclD `n nat fun n => do
+            mkLambdaFVars #[j, n] (← mkEqRefl (valE (mkApp (mkConst ``BitVec) n) (mkApp2 bits j n) t))
+      let mut fS := if isB then bools else bits
+      let mut fS' := if isB then bools else bits
+      for q in [0:earlier.size] do
+        let (tq, pos, kd) := earlier.getD q (bools, 0, .bool)
+        let fact := mkAppN earlierFacts[q]! #[i, bools, bits, S, S', t, h]
+        match (kd : MixedGateBinder), isB with
+        | .bits w, false =>
+          cur := mkAppN (mkConst ``Tools.ShippingMachineAuto.extendBits_val)
+            #[D, fS, fS', mkNatLit pos, mkNatLit w, over tq S, over tq S', t, cur, fact]
+          fS := mkAppN (mkConst ``Tools.ShippingMachineAuto.extendBits) #[D, fS, mkNatLit pos, mkNatLit w, over tq S]
+          fS' := mkAppN (mkConst ``Tools.ShippingMachineAuto.extendBits) #[D, fS', mkNatLit pos, mkNatLit w, over tq S']
+        | .bool, true =>
+          cur := mkAppN (mkConst ``Tools.ShippingMachineCausal.extendBools_val)
+            #[D, fS, fS', mkNatLit pos, over tq S, over tq S', t, cur, fact]
+          fS := mkAppN (mkConst ``Tools.ShippingMachineCausal.extendBools) #[D, fS, mkNatLit pos, over tq S]
+          fS' := mkAppN (mkConst ``Tools.ShippingMachineCausal.extendBools) #[D, fS', mkNatLit pos, over tq S']
+        | _, _ => pure ()
+      mkLambdaFVars #[S, S', t, h] cur
+  let hFB ← hFam true
+  let hFV ← hFam false
+  -- reading an earlier entry back from the families: `lookup = entry` over `S`
+  let lookupEq (S : Lean.Expr) (q : Nat) : MetaM Lean.Expr := do
+    let (tq, posq, kq) := earlier.getD q (bools, 0, .bool)
+    let isB := match (kq : MixedGateBinder) with | .bits _ => false | _ => true
+    -- the family before each earlier entry of the same kind
+    let mut before : Array (Nat × Lean.Expr) := #[]
+    let mut f := if isB then bools else bits
+    for r in [0:earlier.size] do
+      let (tr, posr, kr) := earlier.getD r (bools, 0, .bool)
+      match (kr : MixedGateBinder), isB with
+      | .bits w, false =>
+        before := before.push (r, f)
+        f := mkAppN (mkConst ``Tools.ShippingMachineAuto.extendBits) #[D, f, mkNatLit posr, mkNatLit w, over tr S]
+      | .bool, true =>
+        before := before.push (r, f)
+        f := mkAppN (mkConst ``Tools.ShippingMachineCausal.extendBools) #[D, f, mkNatLit posr, over tr S]
+      | _, _ => pure ()
+    let mut pf : Option Lean.Expr := none
+    for (r, fr) in before.reverse do
+      if r < q then break
+      let (tr, posr, kr) := earlier.getD r (bools, 0, .bool)
+      let step := if r == q then
+          match (kr : MixedGateBinder) with
+          | .bits w => mkAppN (mkConst ``Tools.ShippingMachineCausal.extendBits_self)
+              #[D, fr, mkNatLit posr, mkNatLit w, over tr S]
+          | _ => mkAppN (mkConst ``Tools.ShippingMachineCausal.extendBools_self)
+              #[D, fr, mkNatLit posr, over tr S]
+        else
+          let ne := mkApp3 (mkConst ``Tools.ShippingMachineCausal.ne_of_beq) (mkNatLit posq) (mkNatLit posr)
+            (mkApp2 (mkConst ``Eq.refl [1]) (mkConst ``Bool) (mkConst ``Bool.false))
+          match (kr : MixedGateBinder), (kq : MixedGateBinder) with
+          | .bits w, .bits wq => mkAppN (mkConst ``Tools.ShippingMachineCausal.extendBits_ne)
+              #[D, fr, mkNatLit posr, mkNatLit w, over tr S, mkNatLit posq, mkNatLit wq, ne]
+          | _, _ => mkAppN (mkConst ``Tools.ShippingMachineCausal.extendBools_ne)
+              #[D, fr, mkNatLit posr, over tr S, mkNatLit posq, ne]
+      pf ← match pf with
+        | none => pure (some step)
+        | some p => pure (some (← mkEqTrans p step))
+    let _ := tq
+    match pf with
+    | some p => pure p
+    | none => throwError "{declName}: no earlier entry {q}"
+  -- the entry as written equals the entry read through the families
+  -- (`∀ S, over e S = g S (FB S) (FV S)`), and the causality moves along it
+  let transport (e α gS pfAbs : Lean.Expr) : MetaM Lean.Expr := do
+    let hits := (List.range earlier.size).filter fun q =>
+      (e.find? (· == (earlier.getD q (bools, 0, .bool)).1)).isSome
+    let f ← withLocalDeclD `S sigS fun S => mkLambdaFVars #[S] (over e S)
+    if hits.isEmpty then
+      return mkAppN (mkConst ``Tools.ShippingMachineCausal.causal_congr)
+        #[D, hlistT, α, f, gS, ← withLocalDeclD `S sigS fun S => do
+          mkLambdaFVars #[S] (← mkEqRefl (over e S)), pfAbs]
+    let he ← withLocalDeclD `S sigS fun S => do
+      let types ← hits.mapM fun q => do
+        let (tq, _, kq) := earlier.getD q (bools, 0, .bool)
+        pure (tq, match (kq : MixedGateBinder) with | .bits w => sig (bvT w) | _ => sig (mkConst ``Bool))
+      let F ← withLocalDecls (types.toArray.map fun (_, ty) => (`x, .default, fun _ => pure ty)) fun xs => do
+        let body := e.replace fun x =>
+          match types.findIdx? (fun (t, _) => t == x) with
+          | some j => some xs[j]!
+          | none => none
+        mkLambdaFVars xs (over body S)
+      let mut acc ← mkEqRefl F
+      for q in hits do
+        acc ← mkCongr acc (← mkEqSymm (← lookupEq S q))
+      mkLambdaFVars #[S] acc
+    pure (mkAppN (mkConst ``Tools.ShippingMachineCausal.causal_congr) #[D, hlistT, α, f, gS, he, pfAbs])
+  -- a value over the state and the families: pointwise (a `rfl`), so causal
+  let causalOf (e α : Lean.Expr) : MetaM (Lean.Expr × Lean.Expr) := do
+    let g ← withLocalDeclD `S sigS fun S => withLocalDeclD `B boolsT fun B =>
+      withLocalDeclD `V bitsT fun V => mkLambdaFVars #[S, B, V] (over (abstract e B V) S)
+    let stmt ← withLocalDeclD `S sigS fun S => withLocalDeclD `B boolsT fun B =>
+      withLocalDeclD `V bitsT fun V => withLocalDeclD `t nat fun t => do
+        let Sc := mkConstSig hlistT (valE hlistT S t)
+        let Bc ← withLocalDeclD `p nat fun pv => mkLambdaFVars #[pv]
+          (mkConstSig (mkConst ``Bool) (valE (mkConst ``Bool) (mkApp B pv) t))
+        let Vc ← withLocalDeclD `p nat fun pv => withLocalDeclD `n nat fun n => mkLambdaFVars #[pv, n]
+          (mkConstSig (mkApp (mkConst ``BitVec) n) (valE (mkApp (mkConst ``BitVec) n) (mkApp2 V pv n) t))
+        mkForallFVars #[S, B, V, t] (← mkEq (valE α (g.beta #[S, B, V]) t) (valE α (g.beta #[Sc, Bc, Vc]) t))
+    let hpt ← reflProof stmt true
+    let pf := mkAppN (mkConst ``Tools.ShippingMachineCausal.causal_of_pointwise_fam)
+      #[D, hlistT, α, g, FB, FV, hpt, hFB, hFV]
+    -- the value over a state
+    let gS ← withLocalDeclD `S sigS fun S => mkLambdaFVars #[S] (g.beta #[S, FB.beta #[S], FV.beta #[S]])
+    pure (gS, pf)
+  let α := match kind with
+    | .bits w => bvT w
+    | _ => mkConst ``Bool
+  let child := cl.getAppFn.constName!
+  if combChild then
+    let (gS, pf) ← causalOf term α
+    return ← mkLambdaFVars #[i, bools, bits] (← transport term α gS pf)
+  -- a sequential child: its endpoint's facts
+  let some (.thmInfo th) := (← getEnv).find? (child ++ `machine_sound)
+    | throwError "{declName}: the child {child} has no endpoint"
+  -- without calls: `src_causal_of_data`; with combinational calls: its
+  -- `_ext` twin, the extension pointwise in the inputs and state by `rfl`
+  let isExt := th.value.isAppOf ``Tools.ShippingMachineAuto.machine_trace_of_data_ext
+  unless th.value.isAppOf ``Tools.ShippingMachineAuto.machine_trace_of_data || isExt do
+    throwError "{declName}: the child {child}'s endpoint is not machine_trace_of_data(_ext)"
+  let cargs := th.value.getAppArgs
+  let ιC := cargs[2]!
+  let iC ← if ιC.isConstOf ``Sparkle.Core.Domain.DomainConfig then pure D
+    else if ιC.isConstOf ``Unit then pure (mkConst ``Unit.unit)
+    else throwError "{declName}: the child {child}'s family"
+  let srcC := if isExt then cargs[10]! else cargs[9]!
+  let causalHead ← if isExt then do
+      let pre := mkAppN (mkConst ``Tools.ShippingMachineCausal.src_causal_of_data_ext) cargs
+      pure (mkApp pre (← extPointwiseProof declName cargs[9]!))
+    else pure (mkAppN (mkConst ``Tools.ShippingMachineCausal.src_causal_of_data) cargs)
+  -- one theorem per child: every field of every call of it reuses it
+  let causalName := child ++ `machine_src_causal
+  unless (← getEnv).contains causalName do
+    let ty ← inferType causalHead
+    addDecl (.thmDecl { name := causalName, levelParams := [], type := ty, value := causalHead })
+  let causalHead := mkConst causalName
+  let srcF ← withLocalDeclD `B boolsT fun B => withLocalDeclD `V bitsT fun V =>
+    mkLambdaFVars #[B, V] (mkAppN srcC #[iC, B, V])
+  let hsrc ← withLocalDeclD `B boolsT fun B => withLocalDeclD `B' boolsT fun B' =>
+    withLocalDeclD `V bitsT fun V => withLocalDeclD `V' bitsT fun V' =>
+    withLocalDeclD `t nat fun t => do
+      let pf := mkAppN causalHead #[iC, B, B', V, V', t]
+      let hbT := (← inferType pf).bindingDomain!
+      withLocalDeclD `hb hbT fun hb => do
+        let pf := mkApp pf hb
+        let hvT := (← inferType pf).bindingDomain!
+        withLocalDeclD `hv hvT fun hv => mkLambdaFVars #[B, B', V, V', t, hb, hv] (mkApp pf hv)
+  -- the argument families over a state, and their causality
+  let some kinds := telescopeKinds (← getConstInfo child).type
+    | throwError "{declName}: the child {child}'s binders"
+  let args := cl.getAppArgs
+  let argFacts ← ((kinds.zip args.toList).zipIdx).filterMapM fun ((kd, ar), p) => do
+    match kd with
+    | .domain => pure none
+    | .bool => pure (some (p, kd, ← causalOf ar (mkConst ``Bool)))
+    | .bits w => pure (some (p, kd, ← causalOf ar (bvT w)))
+  let base0B ← withLocalDeclD `p nat fun pv => mkLambdaFVars #[pv]
+    (mkApp3 (mkConst ``Sparkle.Core.Signal.Signal.pure [.zero]) D (mkConst ``Bool) (mkConst ``Bool.false))
+  let base0V ← withLocalDeclD `p nat fun pv => withLocalDeclD `n nat fun n => mkLambdaFVars #[pv, n]
+    (mkApp3 (mkConst ``Sparkle.Core.Signal.Signal.pure [.zero]) D (mkApp (mkConst ``BitVec) n)
+      (mkApp2 (mkConst ``BitVec.ofNat) n (mkNatLit 0)))
+  let famsOf (S : Lean.Expr) : Lean.Expr × Lean.Expr := Id.run do
+    let mut fb := base0B
+    let mut fv := base0V
+    for (p, kd, (g, _)) in argFacts do
+      match kd with
+      | .bool => fb := mkAppN (mkConst ``Tools.ShippingMachineCausal.extendBools) #[D, fb, mkNatLit p, g.beta #[S]]
+      | .bits w => fv := mkAppN (mkConst ``Tools.ShippingMachineAuto.extendBits) #[D, fv, mkNatLit p, mkNatLit w, g.beta #[S]]
+      | .domain => pure ()
+    return (fb, fv)
+  let famB ← withLocalDeclD `S sigS fun S => mkLambdaFVars #[S] (famsOf S).1
+  let famV ← withLocalDeclD `S sigS fun S => mkLambdaFVars #[S] (famsOf S).2
+  -- `∀ S S' t, agree → ∀ p (n) c, c ≤ t → fam S at c = fam S' at c`
+  let famCausal (isB : Bool) : MetaM Lean.Expr :=
+    withLocalDeclD `S sigS fun S => withLocalDeclD `S' sigS fun S' => withLocalDeclD `t nat fun t => do
+    withLocalDeclD `h (← agreeT S S' t) fun h => withLocalDeclD `c nat fun c => do
+    withLocalDeclD `hc (← mkAppM ``LE.le #[c, t]) fun hc => do
+      let hcP ← withLocalDeclD `c' nat fun c' => do
+        withLocalDeclD `hc' (← mkAppM ``LE.le #[c', c]) fun hc' => do
+          mkLambdaFVars #[c', hc'] (mkApp2 h c' (← mkAppM ``Nat.le_trans #[hc', hc]))
+      let mut cur ← if isB then
+          withLocalDeclD `j nat fun j => do
+            mkLambdaFVars #[j] (← mkEqRefl (valE (mkConst ``Bool) (mkApp base0B j) c))
+        else withLocalDeclD `j nat fun j => withLocalDeclD `n nat fun n => do
+            mkLambdaFVars #[j, n] (← mkEqRefl (valE (mkApp (mkConst ``BitVec) n) (mkApp2 base0V j n) c))
+      let mut fS := if isB then base0B else base0V
+      let mut fS' := if isB then base0B else base0V
+      for (p, kd, (g, gc)) in argFacts do
+        let hsig := mkAppN gc #[S, S', c, hcP]
+        match kd, isB with
+        | .bool, true =>
+          cur := mkAppN (mkConst ``Tools.ShippingMachineCausal.extendBools_val)
+            #[D, fS, fS', mkNatLit p, g.beta #[S], g.beta #[S'], c, cur, hsig]
+          fS := mkAppN (mkConst ``Tools.ShippingMachineCausal.extendBools) #[D, fS, mkNatLit p, g.beta #[S]]
+          fS' := mkAppN (mkConst ``Tools.ShippingMachineCausal.extendBools) #[D, fS', mkNatLit p, g.beta #[S']]
+        | .bits w, false =>
+          cur := mkAppN (mkConst ``Tools.ShippingMachineAuto.extendBits_val)
+            #[D, fS, fS', mkNatLit p, mkNatLit w, g.beta #[S], g.beta #[S'], c, cur, hsig]
+          fS := mkAppN (mkConst ``Tools.ShippingMachineAuto.extendBits) #[D, fS, mkNatLit p, mkNatLit w, g.beta #[S]]
+          fS' := mkAppN (mkConst ``Tools.ShippingMachineAuto.extendBits) #[D, fS', mkNatLit p, mkNatLit w, g.beta #[S']]
+        | _, _ => pure ()
+      if isB then
+        withLocalDeclD `p nat fun pv => mkLambdaFVars #[S, S', t, h, pv, c, hc] (mkApp cur pv)
+      else
+        withLocalDeclD `p nat fun pv => withLocalDeclD `n nat fun n =>
+          mkLambdaFVars #[S, S', t, h, pv, n, c, hc] (mkApp2 cur pv n)
+  -- the call's causality, once per call (its fields share the families)
+  unless (← getEnv).contains callName do
+    let hfB ← famCausal true
+    let hfV ← famCausal false
+    let hcall ← withLocalDeclD `S sigS fun S => withLocalDeclD `S' sigS fun S' =>
+      withLocalDeclD `t nat fun t => do
+      withLocalDeclD `h (← agreeT S S' t) fun h => do
+        mkLambdaFVars #[i, bools, bits, S, S', t, h] (mkAppN hsrc
+          #[famB.beta #[S], famB.beta #[S'], famV.beta #[S], famV.beta #[S'], t,
+            mkAppN hfB #[S, S', t, h], mkAppN hfV #[S, S', t, h]])
+    let ty ← inferType hcall
+    progress s!"{callName}: checking"
+    addDecl (.thmDecl { name := callName, levelParams := [], type := ty, value := hcall })
+  let hcall := mkAppN (mkConst callName) #[i, bools, bits]
+  -- the observation the entry is
+  let (g, _) ← causalOf term α
+  let hobsStmt ← withLocalDeclD `S sigS fun S => do
+    let obs ← withLocalDeclD `t nat fun t => do
+      let v := valE α (g.beta #[S]) t
+      mkLambdaFVars #[t] (match kind with
+        | .bits w => mkApp2 (mkConst ``BitVec.toNat) (mkNatLit w) v
+        | _ => mkApp (mkConst ``Tools.ShippingMuxLoweringSoundness.encodeBool) v)
+    let lhs ← mkAppM ``GetElem?.getElem? #[mkAppN srcF #[famB.beta #[S], famV.beta #[S]], mkNatLit cidx]
+    mkForallFVars #[S] (← mkEq lhs (← mkAppM ``Option.some #[obs]))
+  let hobs ← reflProof hobsStmt true
+  let pf := match kind with
+    | .bits w => mkAppN (mkConst ``Tools.ShippingMachineCausal.field_causal_call)
+        #[D, hlistT, srcF, famB, famV, hcall, mkNatLit cidx, mkNatLit w, g, hobs]
+    | _ => mkAppN (mkConst ``Tools.ShippingMachineCausal.field_causalB_call)
+        #[D, hlistT, srcF, famB, famV, hcall, mkNatLit cidx, g, hobs]
+  mkLambdaFVars #[i, bools, bits] (← transport term α g pf)
+
 /-- The endpoint of a declaration that is one `circuit do`, through
 `machine_trace_of_data`. Returns the partial application, the name of the
 source observations and the checks (name suffix, side of the `rfl`). -/
@@ -1210,6 +1613,195 @@ def singleProof (declName : Name) (r : Read) (data ι i D bools bits src inst : 
   return (p, srcName, [(`machine_ok, false), (`machine_body, true), (`machine_inits, false),
     (`machine_writes, true), (`machine_result, true), (`machine_source, true)],
     if hasInsts then some hextE else none)
+
+def causalProof (declName : Name) (r : Read) (data ι i D bools bits src inst : Lean.Expr) :
+    MetaM (Lean.Expr × Name × List (Name × Bool) × Option Lean.Expr) := do
+  let nat := mkConst ``Nat
+  let some run := inst.find? fun t => t.isAppOfArity ``Sparkle.Core.runCircuitH 8
+    | throwError "{declName}: no runCircuitH in the unfolded value"
+  let a := run.getAppArgs
+  let (rho, inhab, inits, body) := (a[2]!, a[5]!, a[6]!, a[7]!)
+  if inits.hasFVar || inhab.hasFVar then
+    throwError "{declName}: the reset values depend on a binder"
+  -- the calls of the body, one entry per output read (a structure call one
+  -- per field), their extension of both input families, and its causality
+  let αs := a[1]!
+  let hlistT := mkApp (mkConst ``HList) αs
+  let sigS := mkApp2 (mkConst ``Sparkle.Core.Signal.Signal [.zero]) D hlistT
+  let kindOf (k : Nat) : MixedGateBinder := match r.shape.insts[k]? with
+    | some (_, _, kd) => kd
+    | none => .domain
+  let (extE, extBE, hcE) ← withLocalDeclD `regs body.bindingDomain! fun regsF => do
+    let env ← getEnv
+    let senv := structEnv env
+    let entries ← callEntriesG senv (body.bindingBody!.instantiate1 regsF)
+    unless entries.size == r.shape.insts.length do
+      throwError "{declName}: {entries.size} call outputs found, the compiler read {r.shape.insts.length}"
+    for (cl, _, _) in entries do
+      if cl.hasAnyFVar (fun id => id != regsF.fvarId! && id != i.fvarId! &&
+          id != bools.fvarId! && id != bits.fvarId!) then
+        throwError "{declName}: a hardware-module call reads a variable the endpoint does not cover"
+    -- an entry over a state signal
+    let over (e S : Lean.Expr) : Lean.Expr :=
+      e.replaceFVar regsF (mkApp3 (mkConst ``Tools.ShippingMachineFuse.regsOf) D αs S)
+    -- the extension over a state signal
+    let extOf (S : Lean.Expr) : MetaM (Lean.Expr × Lean.Expr) := do
+      let mut eV := bits
+      let mut eB := bools
+      for k in [0:entries.size] do
+        let (_, term, _) := entries[k]!
+        let pos := mkNatLit (r.nDecl + k)
+        match kindOf k with
+        | .bits w =>
+          eV := mkAppN (mkConst ``Tools.ShippingMachineAuto.extendBits) #[D, eV, pos, mkNatLit w, over term S]
+        | .bool =>
+          eB := mkAppN (mkConst ``Tools.ShippingMachineCausal.extendBools) #[D, eB, pos, over term S]
+        | .domain => throwError "{declName}: a call output is a domain"
+      pure (eV, eB)
+    -- the causality of every entry, a theorem each
+    let mut facts : Array Lean.Expr := #[]
+    let mut combCache : Std.HashMap Name Bool := {}
+    for k in [0:entries.size] do
+      let (cl, term, cidx) := entries[k]!
+      -- the entries before this call's first field: its arguments cannot read
+      -- its own fields, so the call's families are the same for every field
+      let k0 := ((List.range k).find? fun j => entries[j]!.1 == cl).getD k
+      let earlier := ((List.range k0).map fun j =>
+        (entries[j]!.2.1, r.nDecl + j, kindOf j)).toArray
+      -- whether the child is combinational (read once per child)
+      let child := cl.getAppFn.constName!
+      let comb ← match combCache.get? child with
+        | some b => pure b
+        | none => do
+          let rc ← readMachine child
+          pure (rc.shape.layout.slots.isEmpty && rc.shape.insts.isEmpty)
+      combCache := combCache.insert child comb
+      let pf ← causalFactE declName D αs i bools bits regsF cl term cidx (kindOf k) earlier
+        (facts.extract 0 k0) (declName ++ Name.mkSimple s!"machine_call_{k0}") comb
+      let name := declName ++ Name.mkSimple s!"machine_causal_{k}"
+      if (← IO.getEnv "SPARKLE_MACHINE_METACHECK").isSome then
+        withOptions (fun o => o.set `pp.rawOnError true) do Meta.check pf
+      let ty ← inferType pf
+      progress s!"{name}: checking ({cl.getAppFn.constName!} field {cidx}, {earlier.size} earlier, hits {earlier.filter (fun (t, _, _) => (cl.find? (· == t)).isSome || (term.find? (· == t)).isSome) |>.size}, size {term.approxDepth})"
+      addDecl (.thmDecl { name, levelParams := [], type := ty, value := pf })
+      progress s!"{name}: checked"
+      facts := facts.push (mkConst name)
+    withLocalDeclD `S sigS fun S => withLocalDeclD `S' sigS fun S' =>
+    withLocalDeclD `t (mkConst ``Nat) fun t => do
+    let agreeT ← mkForallFVars #[] (← withLocalDeclD `c (mkConst ``Nat) fun c => do
+      mkForallFVars #[c] (← mkArrow (← mkAppM ``LE.le #[c, t])
+        (← mkEq (mkApp (mkApp3 (mkConst ``Sparkle.Core.Signal.Signal.val [.zero]) D hlistT S) c)
+          (mkApp (mkApp3 (mkConst ``Sparkle.Core.Signal.Signal.val [.zero]) D hlistT S') c))))
+    withLocalDeclD `h agreeT fun h => do
+      let (eVS, eBS) ← extOf S
+      let (eVS', eBS') ← extOf S'
+      -- the extended families agree at `t`, entry by entry
+      let mut hV ← withLocalDeclD `j (mkConst ``Nat) fun j => withLocalDeclD `n (mkConst ``Nat) fun n => do
+        let v := mkApp (mkApp3 (mkConst ``Sparkle.Core.Signal.Signal.val [.zero]) D
+          (mkApp (mkConst ``BitVec) n) (mkApp2 bits j n)) t
+        mkLambdaFVars #[j, n] (← mkEqRefl v)
+      let mut hB ← withLocalDeclD `j (mkConst ``Nat) fun j => do
+        mkLambdaFVars #[j] (← mkEqRefl (mkApp (mkApp3 (mkConst ``Sparkle.Core.Signal.Signal.val [.zero]) D
+          (mkConst ``Bool) (mkApp bools j)) t))
+      let mut curV := bits
+      let mut curV' := bits
+      let mut curB := bools
+      let mut curB' := bools
+      for k in [0:entries.size] do
+        let (_, term, _) := entries[k]!
+        let pos := mkNatLit (r.nDecl + k)
+        let fact := mkAppN facts[k]! #[i, bools, bits, S, S', t, h]
+        match kindOf k with
+        | .bits w =>
+          hV := mkAppN (mkConst ``Tools.ShippingMachineAuto.extendBits_val)
+            #[D, curV, curV', pos, mkNatLit w, over term S, over term S', t, hV, fact]
+          curV := mkAppN (mkConst ``Tools.ShippingMachineAuto.extendBits) #[D, curV, pos, mkNatLit w, over term S]
+          curV' := mkAppN (mkConst ``Tools.ShippingMachineAuto.extendBits) #[D, curV', pos, mkNatLit w, over term S']
+        | .bool =>
+          hB := mkAppN (mkConst ``Tools.ShippingMachineCausal.extendBools_val)
+            #[D, curB, curB', pos, over term S, over term S', t, hB, fact]
+          curB := mkAppN (mkConst ``Tools.ShippingMachineCausal.extendBools) #[D, curB, pos, over term S]
+          curB' := mkAppN (mkConst ``Tools.ShippingMachineCausal.extendBools) #[D, curB', pos, over term S']
+        | .domain => pure ()
+      let conj ← mkAppM ``And.intro #[hV, hB]
+      let _ := (eVS, eBS, eVS', eBS')
+      pure (← withLocalDeclD `S sigS fun S0 => do
+              let (v, _) ← extOf S0
+              mkLambdaFVars #[i, bools, bits, S0] v,
+            ← withLocalDeclD `S sigS fun S0 => do
+              let (_, b) ← extOf S0
+              mkLambdaFVars #[i, bools, bits, S0] b,
+            ← mkLambdaFVars #[i, bools, bits, S, S', t, h] conj)
+  -- the generic theorem, applied step by step; the binder types name the facts
+  let mut p := mkAppN (mkConst ``Tools.ShippingMachineCausal.machine_trace_of_data_causal)
+    #[toExpr declName, data, ι, ← mkLambdaFVars #[i] D, inhab, ← mkLambdaFVars #[i] rho]
+  let initsName := declName ++ `machineInits
+  addDef initsName (← inferType p).bindingDomain! inits
+  p := mkApp p (mkConst initsName)
+  let bodyName := declName ++ `machineBody
+  addDef bodyName (← inferType p).bindingDomain! (← mkLambdaFVars #[i, bools, bits] body)
+  p := mkApp p (mkConst bodyName)
+  -- the source observations, one per output port
+  let scalar := r.ctor?.isNone
+  let obs ← (r.outNames.zip (r.shape.layout.outs.map outKind)).mapM fun (nm, k) => do
+    let field ← if scalar then pure src else mkProjection src (outFieldName r nm)
+    withLocalDeclD `t nat fun t => do
+      let v (α : Lean.Expr) :=
+        mkApp (mkApp3 (mkConst ``Sparkle.Core.Signal.Signal.val [.zero]) D α field) t
+      let e ← match k with
+        | .bool => pure (mkApp (mkConst ``Tools.ShippingMuxLoweringSoundness.encodeBool)
+            (v (mkConst ``Bool)))
+        | .bits w =>
+          let wE := mkNatLit w
+          pure (mkApp2 (mkConst ``BitVec.toNat) wE (v (mkApp (mkConst ``BitVec) wE)))
+        | .domain => throwError "{declName}: an output is a domain"
+      mkLambdaFVars #[t] e
+  -- the observations of a result, by field
+  let env ← getEnv
+  let rhoHead := rho.getAppFn.constName?.getD .anonymous
+  let fieldNames : List (Option Name) ←
+    if rhoHead == ``Sparkle.Core.Signal.Signal then pure [none]
+    else if r.ctor?.isSome then pure (r.outNames.map fun nm => some (outFieldName r nm))
+    else match r.sel? with
+      | some (_, _, idx) =>
+        match (getStructureFields env rhoHead)[idx]? with
+        | some f => pure [some f]
+        | none => throwError "{declName}: the selected field of {rhoHead}"
+      | none => throwError "{declName}: the result type {rhoHead}"
+  let resName := declName ++ `machineResult
+  let resV ← withLocalDeclD `r rho fun res => do
+    let fs ← (fieldNames.zip (r.shape.layout.outs.map outKind)).mapM fun (fn, k) => do
+      let field ← match fn with
+        | none => pure res
+        | some f => mkProjection res f
+      withLocalDeclD `t nat fun t => do
+        let v (α : Lean.Expr) :=
+          mkApp (mkApp3 (mkConst ``Sparkle.Core.Signal.Signal.val [.zero]) D α field) t
+        let e ← match k with
+          | .bool => pure (mkApp (mkConst ``Tools.ShippingMuxLoweringSoundness.encodeBool)
+              (v (mkConst ``Bool)))
+          | .bits w =>
+            let wE := mkNatLit w
+            pure (mkApp2 (mkConst ``BitVec.toNat) wE (v (mkApp (mkConst ``BitVec) wE)))
+          | .domain => throwError "{declName}: an output is a domain"
+        mkLambdaFVars #[t] e
+    mkLambdaFVars #[i, res] (listE (← mkArrow nat nat) fs)
+  addDef resName (← inferType p).bindingDomain! resV
+  p := mkApp p (mkConst resName)
+  let extName := declName ++ `machineExt
+  addDef extName (← inferType p).bindingDomain! extE
+  p := mkApp p (mkConst extName)
+  let extBName := declName ++ `machineExtB
+  addDef extBName (← inferType p).bindingDomain! extBE
+  p := mkApp p (mkConst extBName)
+  let srcName := declName ++ `machineSource
+  addDef srcName (← inferType p).bindingDomain!
+    (← mkLambdaFVars #[i, bools, bits] (listE (← mkArrow nat nat) obs))
+  p := mkApp p (mkConst srcName)
+  return (p, srcName, [(`machine_ok, false), (`machine_body, true), (`machine_inits, false),
+    (`machine_writes, true), (`machine_result, true), (`machine_source, true)],
+    some hcE)
+
 
 /-! ### A hand-written `Signal.loop`
 
@@ -1421,9 +2013,14 @@ def signNormalize (declName : Name) (v : Lean.Expr) : MetaM (Lean.Expr × Option
 checks, the theorem (whose name is returned). `checkCloses` also runs the
 machine synthesis and checks that it ties the `let`s (the `MachineCloses`
 boundary, in this environment). -/
-def generateCore (declName : Name) (checkCloses : Bool) : MetaM Name := do
+partial def generateCore (declName : Name) (checkCloses : Bool) : MetaM Name := do
   progress s!"{declName}: reading"
   let r ← readMachine declName
+  -- the children's own endpoints first (a sequential child's facts are used)
+  if !r.shape.instFields.isEmpty then
+    for c in (r.shape.insts.map (·.1)).eraseDups do
+      unless (← getEnv).contains (c ++ `machine_sound) do
+        discard <| generateCore c checkCloses
   let dataName := declName ++ `machineData
   progress s!"{declName}: data"
   addDef dataName (mkConst ``MachineData) (← dataE r)
@@ -1470,6 +2067,7 @@ def generateCore (declName : Name) (checkCloses : Bool) : MetaM Name := do
       else if !r.shape.loops.isEmpty && r.shape.runs.isEmpty then
         loopProof declName r data ι i D bools bits srcN inst
       else if r.nested || !r.shape.loops.isEmpty then nestedProof declName r data ι i D bools bits srcN inst
+      else if !r.shape.instFields.isEmpty then causalProof declName r data ι i D bools bits srcN inst
       else singleProof declName r data ι i D bools bits srcN inst
     let mut p := p
     for (suffix, left) in checks do
