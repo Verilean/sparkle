@@ -1,5 +1,6 @@
 import Sparkle.IR.Machine
 import Sparkle.IR.ReorderInvariance
+import Sparkle.IR.MachineInstG
 
 /-! # `closeInsts` keeps the flat semantics
 
@@ -409,6 +410,76 @@ theorem runModule_of_closeInsts {nIn kI n : Nat} {portNames : List String}
     intro st mems
     simp only [runModule]
     rw [stepModule_of_closeInsts h we (seed k st) mems]
+    cases stepModule we m₀.body (seed k st) mems with
+    | none => rfl
+    | some r =>
+      obtain ⟨envF, nexts, mems'⟩ := r
+      try simp only [Option.bind_eq_bind, Option.bind_some]
+      rw [ih]
+
+/-! ### Calls with several outputs, calls of sequential children -/
+
+/-- The facts `closeInstsG` establishes about its result (those of
+`closeInsts`). -/
+theorem closeInstsG_some {nIn kI n : Nat} {portNames : List String} {insts : List (List Nat)}
+    {fields : List String}
+    {children : List (Module × Design)} {m₀ : Module} {d₀ : Design} {m : Module} {d : Design}
+    (h : closeInstsG nIn kI n portNames insts fields children (m₀, d₀) = some (m, d)) :
+    m.wires = m₀.wires ∧ m.outputs = m₀.outputs ∧ m.name = m₀.name ∧
+    ∃ L : List Stmt, L.all isInst = true ∧ (m₀.body ++ L).Perm m.body ∧
+      WO [] (m₀.body ++ L) ∧ WO [] m.body ∧ seqOf (m₀.body ++ L) = seqOf m.body ∧
+      ((m₀.body ++ L).filterMap stmtMemName).Nodup ∧ (nextKeys (m₀.body ++ L)).Nodup ∧
+      d = designWith children d₀ ∧ linkedOk (moduleByName d.modules) m.body = true := by
+  unfold closeInstsG at h
+  simp only [Option.bind_eq_bind] at h
+  obtain ⟨stmts, _, h⟩ := Option.bind_eq_some_iff.mp h
+  obtain ⟨outWs, _, h⟩ := Option.bind_eq_some_iff.mp h
+  obtain ⟨body, hb, h⟩ := Option.bind_eq_some_iff.mp h
+  split at h
+  · rename_i hc
+    simp only [Bool.and_eq_true, decide_eq_true_eq] at hc
+    obtain ⟨⟨⟨⟨⟨⟨⟨⟨hinst, _⟩, hwo⟩, hwo'⟩, hperm⟩, hseq⟩, hkeys⟩, hmem⟩, hlink⟩ := hc
+    cases h
+    refine ⟨rfl, rfl, rfl, stmts, hinst, isPermOf_sound hperm, woCheck_sound _ _ hwo,
+      woCheck_sound _ _ hwo', hseq, hmem, hkeys, rfl, hlink⟩
+  · cases h
+
+/-- The closed module's inputs: the calls' ports stop being inputs. -/
+theorem closeInstsG_inputs {nIn kI n : Nat} {portNames : List String} {insts : List (List Nat)}
+    {fields : List String}
+    {children : List (Module × Design)} {m₀ : Module} {d₀ : Design} {m : Module} {d : Design}
+    (h : closeInstsG nIn kI n portNames insts fields children (m₀, d₀) = some (m, d)) :
+    ∃ outWs, (List.range insts.length).mapM (fun k => portNames[nIn + k]?) = some outWs ∧
+      m.inputs = m₀.inputs.filter (fun p => !outWs.contains p.name) := by
+  unfold closeInstsG at h
+  simp only [Option.bind_eq_bind] at h
+  obtain ⟨stmts, _, h⟩ := Option.bind_eq_some_iff.mp h
+  obtain ⟨outWs, houtWs, h⟩ := Option.bind_eq_some_iff.mp h
+  obtain ⟨body, _, h⟩ := Option.bind_eq_some_iff.mp h
+  split at h
+  · cases h
+    exact ⟨outWs, houtWs, rfl⟩
+  · cases h
+
+/-- **`closeInstsG` keeps every run.** -/
+theorem runModule_of_closeInstsG {nIn kI n : Nat} {portNames : List String}
+    {insts : List (List Nat)} {fields : List String} {children : List (Module × Design)}
+    {m₀ : Module} {d₀ : Design} {m : Module} {d : Design}
+    (h : closeInstsG nIn kI n portNames insts fields children (m₀, d₀) = some (m, d))
+    (we : WEnv) (seed : Nat → (String → Nat) → Env) :
+    ∀ (k : Nat) (st : String → Nat) (mems : MEnv),
+      runModule we m.body seed k st mems = runModule we m₀.body seed k st mems := by
+  have hstep : ∀ env0 mems, stepModule we m.body env0 mems = stepModule we m₀.body env0 mems := by
+    intro env0 mems
+    obtain ⟨_, _, _, L, hL, hperm, hwo, hwo', hseq, hmem, _, _⟩ := closeInstsG_some h
+    exact stepModule_closeInsts we hL hperm hwo hwo' hseq hmem env0 mems
+  intro k
+  induction k with
+  | zero => intros; rfl
+  | succ k ih =>
+    intro st mems
+    simp only [runModule]
+    rw [hstep (seed k st) mems]
     cases stepModule we m₀.body (seed k st) mems with
     | none => rfl
     | some r =>

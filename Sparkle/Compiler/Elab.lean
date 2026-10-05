@@ -22,6 +22,7 @@ import Sparkle.IR.RegDedup
 import Sparkle.IR.OptCheck
 import Sparkle.IR.RefineCheck
 import Sparkle.IR.Machine
+import Sparkle.IR.MachineInstG
 import Sparkle.IR.ModuleNameCheck
 import Sparkle.Compiler.DRC
 import Sparkle.Compiler.InlineAttr
@@ -4716,6 +4717,11 @@ structure MachineShape where
   insts : List (Name × List Nat × MixedGateBinder) := []
   /-- `(first slot, slot count)` of every hand-written `Signal.loop`. -/
   loops : List (Nat × Nat) := []
+  /-- For calls with several outputs or of sequential children: the child's
+      output port each `insts` entry reads (entries of one call share its
+      module and argument `let`s: one instance, `closeInstsG`). Empty: every
+      call is a one-output combinational child (`closeInsts`). -/
+  instFields : List String := []
 
 /-- The acceptance test of the state-machine route: the declaration's value
     is a lambda telescope of hardware binders over `let`s and a
@@ -4861,6 +4867,20 @@ def closeInstsM (shape : MachineShape) (t m : Sparkle.IR.AST.Module)
   return Sparkle.IR.Machine.closeInsts nIn kI n (t.inputs.map (·.name))
     (shape.insts.map (·.2.1)) children (m, design)
 
+/-- `closeInstsM` for calls with several outputs or of sequential children
+(`Sparkle.IR.Machine.closeInstsG`). -/
+def closeInstsGM (shape : MachineShape) (t m : Sparkle.IR.AST.Module)
+    (design : Sparkle.IR.AST.Design) :
+    MetaM (Option (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design)) := do
+  let some synth ← sparkleChildSynth.get | return none
+  let children ← shape.insts.mapM fun (c, _, _) => synth c
+  let kI := shape.insts.length
+  let n := shape.layout.slots.length
+  let nDecl := shape.binders.length - kI - n - shape.layout.lets
+  let nIn := ((shape.binders.take nDecl).filter (fun b => b.2 != .domain)).length
+  return Sparkle.IR.Machine.closeInstsG nIn kI n (t.inputs.map (·.name))
+    (shape.insts.map (·.2.1)) shape.instFields children (m, design)
+
 /-- The synthesis of a state machine: the transition through the certified
     combinational harness, the `let` ports tied to their fields, then the
     slot ports closed into registers, and the `@[hardware_module]` calls
@@ -4875,7 +4895,10 @@ def synthesizeMachineCertified (translate : TranslateFn) (logProf : String → I
   | some t' =>
     match shape.insts with
     | [] => return some (Sparkle.IR.Machine.closeMachine shape.layout t', design)
-    | _ :: _ => closeInstsM shape t (Sparkle.IR.Machine.closeMachine shape.layout t') design
+    | _ :: _ =>
+      if shape.instFields.isEmpty then
+        closeInstsM shape t (Sparkle.IR.Machine.closeMachine shape.layout t') design
+      else closeInstsGM shape t (Sparkle.IR.Machine.closeMachine shape.layout t') design
   | none => return none
 
 /-- The constant the entry hands to `synthesizeFromConst`: the declaration as

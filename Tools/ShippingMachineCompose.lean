@@ -545,6 +545,7 @@ theorem machine_linked {declName : Name} {d : MachineData} {m : Sparkle.IR.AST.M
     {lsrc : (i : ι) → (Nat → Signal (dom i) Bool) →
       ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat)}
     (h : MachineTraceL declName d m dsn dom src ext lsrc)
+    (hsimple : d.shape.instFields = [])
     (kD : Nat) (hkD : kD ≤ d.bsIn.length)
     (hI : ∀ b ∈ d.bsIn.drop kD, b.2 ≠ .domain)
     (hIlen : (d.bsIn.drop kD).length = d.shape.insts.length)
@@ -589,6 +590,8 @@ theorem machine_linked {declName : Name} {d : MachineData} {m : Sparkle.IR.AST.M
   refine ⟨ids, nd, len, cache, regs, rnd, rlen, ?_⟩
   intro i bools bits T seed st0 mems hin hpass hrst hinit hchild hval
   obtain ⟨nnd, alloc, regsIn, hlets, calls, insts, link, _, _, _⟩ := wired
+  have calls := calls hsimple
+  have insts := insts hsimple
   -- the ports: the declaration's, the calls', then the slots' and `let`s'
   let bsD := d.bsIn.take kD
   let bsI := d.bsIn.drop kD
@@ -791,6 +794,7 @@ theorem machine_linked_calls {declName : Name} {d : MachineData} {m : Sparkle.IR
     {lsrc : (i : ι) → (Nat → Signal (dom i) Bool) →
       ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat)}
     (h : MachineTraceL declName d m dsn dom src ext lsrc)
+    (hsimple : d.shape.instFields = [])
     (kD : Nat) (hkD : kD ≤ d.bsIn.length)
     (hI : ∀ b ∈ d.bsIn.drop kD, b.2 ≠ .domain)
     (hIlen : (d.bsIn.drop kD).length = d.shape.insts.length)
@@ -833,7 +837,7 @@ theorem machine_linked_calls {declName : Name} {d : MachineData} {m : Sparkle.IR
             d.shape.layout.outs[k]? = some o → (src i bools bits)[k]? = some f →
             (envs[j]'hj) o.name = f j := by
   obtain ⟨ids, nd, len, cache, regs, rnd, rlen, H⟩ :=
-    machine_linked h kD hkD hI hIlen hSL hSlen hLlen hNIn P F
+    machine_linked h hsimple kD hkD hI hIlen hSL hSlen hLlen hNIn P F
   exact ⟨ids, nd, len, cache, regs, rnd, rlen,
     fun i bools bits T seed st0 mems a b c e f => H i bools bits T seed st0 mems a b c e f
       (fun k args j hk _ => hcalls i bools bits k args j hk)⟩

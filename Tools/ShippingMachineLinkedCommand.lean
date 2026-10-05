@@ -162,8 +162,10 @@ def generateLinkedCore (declName : Name) : MetaM Name := do
   let traceT ← whnfR traceT
   let tyArgs := (← instantiateMVars traceT).getAppArgs
   unless tyArgs.size == 9 do throwError "{declName}: the trace's arguments"
+  -- every call is a one-output combinational child (`instFields = []`)
+  let hsimple ← mkEqRefl (mkApp (mkConst ``List.nil [.zero]) (mkConst ``String))
   let mut p := mkAppN (mkConst ``Tools.ShippingMachineCompose.machine_linked_calls)
-    (tyArgs ++ #[h, mkNatLit r.nDecl])
+    (tyArgs ++ #[h, hsimple, mkNatLit r.nDecl])
   -- the decidable facts about the data
   for _ in [0:7] do
     let ty := (← whnf (← inferType p)).bindingDomain!

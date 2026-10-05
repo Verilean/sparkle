@@ -526,8 +526,8 @@ def dataE (r : Read) : MetaM Lean.Expr := do
         (mkConst ``MixedGateBinder) (natListE js) (binderKindE k)))
   let loops := listE natPairT (r.shape.loops.map fun (a, b) =>
     mkApp4 (mkConst ``Prod.mk [.zero, .zero]) (mkConst ``Nat) (mkConst ``Nat) (natL a) (natL b))
-  let shape := mkApp6 (mkConst ``MachineShape.mk) (listE binderT (r.shape.binders.map binderE))
-    body layout runs insts loops
+  let shape := mkApp7 (mkConst ``MachineShape.mk) (listE binderT (r.shape.binders.map binderE))
+    body layout runs insts loops (listE (mkConst ``String) (r.shape.instFields.map toExpr))
   return mkAppN (mkConst ``MachineData.mk)
     #[shape, natL r.nIn, dom, natListE r.bposL, natListE r.vposL, natListE r.vwL,
       listE stypeT (r.nexts.map fun t => stypeE t.1), listE anyTermT (r.ls.map anyTermE),
