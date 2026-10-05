@@ -3,6 +3,7 @@ import Tools.ShippingMachineNest
 import Tools.ShippingMachineTeleNest
 import Tools.ShippingMachineLoop
 import Tools.ShippingMachineShipping
+import Tools.ShippingSignOps
 
 /-! # The machine endpoint of a declaration, generated
 
@@ -1258,6 +1259,86 @@ where
       hl ← mkAppM ``Prod.mk #[init, hl]
     return hl
 
+/-! ### Sign extension and arithmetic right shift
+
+The reader takes `signExtend` / `sshiftRight` / `Signal.ashr` in their
+derived form (`Sparkle.Compiler.MachSignOps`), which is equal to the
+operator by a theorem, not by evaluation. The generator rewrites the
+declaration's value with the Signal-level equations
+(`Tools.ShippingSignOps`), proves the endpoint for the rewritten value, and
+transports it back to the declaration along the equation. -/
+
+def hasSignOp (v : Lean.Expr) : Bool :=
+  (v.find? fun e => e.isConstOf ``BitVec.signExtend || e.isConstOf ``BitVec.sshiftRight ||
+    e.isConstOf ``Sparkle.Core.Signal.Signal.ashr).isSome
+
+/-- The `(width, target)` pairs of the `signExtend`s of `e`, at literal widths. -/
+partial def sextPairs (e : Lean.Expr) (acc : Array (Nat × Nat)) : Array (Nat × Nat) :=
+  match e with
+  | .app f a =>
+    let acc := match e with
+      | .app (.app (.app (.const ``BitVec.signExtend _) wE) vE) _ =>
+        match canonicalNatLitValue? wE, canonicalNatLitValue? vE with
+        | some w, some V => acc.push (w, V)
+        | _, _ => acc
+      | _ => acc
+    sextPairs a (sextPairs f acc)
+  | .lam _ t b _ | .forallE _ t b _ => sextPairs b (sextPairs t acc)
+  | .letE _ t v b _ => sextPairs b (sextPairs v (sextPairs t acc))
+  | .mdata _ b | .proj _ _ b => sextPairs b acc
+  | _ => acc
+
+/-- `h : f = g` applied to arguments: `f a₁ … aₙ = g a₁ … aₙ`. -/
+def mkCongrFun' (h : Lean.Expr) (args : Array Lean.Expr) : MetaM Lean.Expr :=
+  args.foldlM (fun h a => mkCongrFun h a) h
+
+/-- `funext` over three variables. -/
+def mkFunExt3 (x y z h : Lean.Expr) : MetaM Lean.Expr := do
+  let h ← mkAppM ``funext #[← mkLambdaFVars #[z] h]
+  let h ← mkAppM ``funext #[← mkLambdaFVars #[y] h]
+  mkAppM ``funext #[← mkLambdaFVars #[x] h]
+
+/-- `Signal.map (fun u => signExtend V u) x = sextS (V - w) x` for Signals of
+`BitVec w`, every domain (`map_signExtend` at `k := V - w`; `(V - w) + w` is
+`V` by evaluation). -/
+def sextThm (w V : Nat) : MetaM Lean.Expr := do
+  let k := V - w
+  withLocalDeclD `dom (mkConst ``Sparkle.Core.Domain.DomainConfig) fun dom => do
+  let bv (n : Nat) := mkApp (mkConst ``BitVec) (mkNatLit n)
+  withLocalDeclD `x (mkApp2 (mkConst ``Sparkle.Core.Signal.Signal [.zero]) dom (bv w)) fun x => do
+    let hw ← mkDecideProof (← mkLt (mkNatLit 0) (mkNatLit w))
+    let pf := mkAppN (mkConst ``Tools.ShippingSignOps.map_signExtend) #[dom, mkNatLit k, mkNatLit w, hw, x]
+    let lhs := mkAppN (mkConst ``Sparkle.Core.Signal.Signal.map [.zero]) #[dom, bv w, bv V,
+      .lam `u (bv w) (mkApp3 (mkConst ``BitVec.signExtend) (mkNatLit w) (mkNatLit V) (.bvar 0)) .default, x]
+    let rhs := mkAppN (mkConst ``Tools.ShippingSignOps.sextS) #[dom, mkNatLit k, mkNatLit w, x]
+    let ty := mkApp3 (mkConst ``Eq [.one]) (mkApp2 (mkConst ``Sparkle.Core.Signal.Signal [.zero]) dom (bv V))
+      lhs rhs
+    mkLambdaFVars #[dom, x] (← mkExpectedTypeHint pf ty)
+
+/-- The value with every sign operation rewritten to its derived form, and
+the equation (`none` when there is none to rewrite). -/
+def signNormalize (declName : Name) (v : Lean.Expr) : MetaM (Lean.Expr × Option Lean.Expr) := do
+  if !hasSignOp v then return (v, none)
+  let mut thms : SimpTheorems := {}
+  for n in [``Tools.ShippingSignOps.ashr_eq, ``Tools.ShippingSignOps.map_sshiftRight,
+      ``Tools.ShippingSignOps.lift_sshiftRight, ``Tools.ShippingSignOps.ap_sshiftRight] do
+    thms ← thms.addConst n
+  -- sign extension: one theorem per (width, target) pair met
+  for (w, V) in (sextPairs v #[]).toList.eraseDups do
+    if V ≤ w || w == 0 then continue
+    thms ← thms.add (.other (Name.mkSimple s!"sext_{w}_{V}")) #[] (← sextThm w V)
+  let cfg : Simp.Config := {}
+  let cfg := { cfg with zeta := false }
+  let cfg := { cfg with decide := true }
+  let ctx ← Simp.mkContext (config := cfg)
+    (simpTheorems := #[thms]) (congrTheorems := ← getSimpCongrTheorems)
+  let (r, _) ← simp v ctx
+  if hasSignOp r.expr then
+    throwError "{declName}: a sign operation is left after the rewriting to the derived forms"
+  return (r.expr, some (← match r.proof? with
+    | some p => pure p
+    | none => mkEqRefl v))
+
 /-- The machine endpoint of `declName`: the definitions, the six kernel
 checks, the theorem (whose name is returned). `checkCloses` also runs the
 machine synthesis and checks that it ties the `let`s (the `MachineCloses`
@@ -1302,12 +1383,15 @@ def generateCore (declName : Name) (checkCloses : Bool) : MetaM Name := do
         | some (_, ws) => Sparkle.Compiler.MachTupleIn.unpackE D ws (mkApp2 bits (mkNatLit p) (mkNatLit w))
         | none => mkApp2 bits (mkNatLit p) (mkNatLit w)
     let src := mkAppN (mkConst declName) args.toArray
-    let inst := Sparkle.Compiler.MachRawSurface.rootFloat (entryV.beta args.toArray)
+    -- sign operations: the endpoint is proved for the rewritten value
+    let (entryN, normPf?) ← signNormalize declName entryV
+    let srcN := if normPf?.isSome then entryN.beta args.toArray else src
+    let inst := Sparkle.Compiler.MachRawSurface.rootFloat (entryN.beta args.toArray)
     let (p, srcName, checks, extra) ←
-      if r.shape.layout.slots.isEmpty then combProof declName r data ι i D bools bits src inst
-      else if !r.shape.loops.isEmpty then loopProof declName r data ι i D bools bits src inst
-      else if r.nested then nestedProof declName r data ι i D bools bits src inst
-      else singleProof declName r data ι i D bools bits src inst
+      if r.shape.layout.slots.isEmpty then combProof declName r data ι i D bools bits srcN inst
+      else if !r.shape.loops.isEmpty then loopProof declName r data ι i D bools bits srcN inst
+      else if r.nested then nestedProof declName r data ι i D bools bits srcN inst
+      else singleProof declName r data ι i D bools bits srcN inst
     let mut p := p
     for (suffix, left) in checks do
       let stmt := (← inferType p).bindingDomain!
@@ -1325,6 +1409,25 @@ def generateCore (declName : Name) (checkCloses : Bool) : MetaM Name := do
     if let some hext := extra then
       p := mkApp p hext
     progress s!"{declName}: theorem"
+    -- back to the declaration: its observations are the rewritten value's
+    let mut srcName := srcName
+    if let some pf := normPf? then
+      let obsN := (← getConstInfo srcName).value!.beta #[i, bools, bits]
+      let motObs ← kabstract obsN srcN
+      unless motObs.hasLooseBVars do throwError "{declName}: the observations do not read the source"
+      let obsD := motObs.instantiate1 src
+      let srcDecl := declName ++ `machineSourceDecl
+      addDef srcDecl (← inferType (mkConst srcName)) (← mkLambdaFVars #[i, bools, bits] obsD)
+      -- `src = srcN`: the declaration applied is its (inlined) value applied
+      let hArgs ← mkCongrFun' pf args.toArray
+      let hObs ← mkCongrArg (.lam `s (← inferType src) motObs .default) hArgs
+      let hFun ← mkFunExt3 i bools bits hObs
+      let heq ← mkExpectedTypeHint hFun (← mkEq (mkConst srcDecl) (mkConst srcName))
+      let T ← inferType p
+      let motT ← kabstract T (mkConst srcName)
+      let hT ← mkCongrArg (.lam `s (← inferType (mkConst srcName)) motT .default) heq
+      p ← mkEqMPR hT p
+      srcName := srcDecl
     let soundName := declName ++ `machine_sound
     addDecl (.thmDecl
       { name := soundName, levelParams := [], type := ← inferType p, value := p })

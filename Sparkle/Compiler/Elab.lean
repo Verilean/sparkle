@@ -30,6 +30,7 @@ import Sparkle.Core.Vector
 import Sparkle.Core.CircuitMonad
 import Sparkle.Compiler.MachRawSurface
 import Sparkle.Compiler.MachTupleIn
+import Sparkle.Compiler.MachSignOps
 import Sparkle.Display.Mime
 
 namespace Sparkle.Compiler.Elab
@@ -4361,6 +4362,33 @@ partial def machLiftScalarN (senv : StructEnv) (dom : Lean.Expr) (vars : List (N
     if wx != n then none else
     some (n, machSigBin ``HXor.hXor ``Sparkle.Core.Signal.instHXorSignalBitVec dom n
       (machPureE dom n (machBVLit n (2 ^ n - 1))) x')
+  -- sign extension and arithmetic right shift: their derived forms
+  -- (`MachSignOps`, the right-hand sides of `ShippingSignOps.map_signExtend`
+  -- / `ashr_eq` / `map_sshiftRight`)
+  | e@(.app (.app (.app (.const ``BitVec.signExtend _) wE) vE) x) => do
+    if !x.hasLooseBVars then machLiftConst senv dom e else
+    let w ← canonicalNatLitValue? wE
+    let v ← canonicalNatLitValue? vE <|> senv.natOf vE
+    let (wx, x') ← machLiftScalarN senv dom vars x
+    if wx != w || w == 0 || v ≤ w then none else
+    some (v, Sparkle.Compiler.MachSignOps.sextE inlNatLit (machConcatE dom) dom (v - w) w x')
+  | e@(.app (.app (.app (.const ``BitVec.sshiftRight _) nE) x) s) => do
+    if !x.hasLooseBVars then machLiftConst senv dom e else
+    let n ← canonicalNatLitValue? nE
+    if n == 0 then none else
+    let (wx, x') ← machLiftScalarN senv dom vars x
+    if wx != n then none else
+    let y' ← match s with
+      | .app (.app (.const ``BitVec.toNat _) mE) y => do
+        if canonicalNatLitValue? mE != some n then none else
+        let (wy, y') ← machLiftScalarN senv dom vars y
+        if wy != n then none else some y'
+      | _ => do
+        if s.hasLooseBVars then none else
+        let k ← canonicalNatLitValue? s <|> senv.natOf s
+        if k ≥ 2 ^ n then none else some (machPureE dom n (machBVLit n k))
+    some (n, Sparkle.Compiler.MachSignOps.ashrE inlNatLit
+      (fun m a b => machSigBin m ((machSigInst m).getD .anonymous) dom n a b) dom n x' y')
   -- `-x` is `0 - x` (by the definitions of `BitVec.neg` and `BitVec.sub`)
   | e@(.app (.app (.app (.const ``Neg.neg _) (.app (.const ``BitVec _) nE)) _) x) => do
     if !x.hasLooseBVars then machLiftConst senv dom e else
@@ -4555,6 +4583,17 @@ def machNormNode (senv : StructEnv) (e : Lean.Expr) : Lean.Expr :=
     (see the section comment).  Types of binders are left as written. -/
 partial def machNorm (senv : StructEnv) : Lean.Expr → Lean.Expr
   | e@(.app f a) =>
+    -- `Signal.ashr a b`: its derived form (`MachSignOps`, `ShippingSignOps.ashr_eq`)
+    match e.getAppFn, e.getAppArgs with
+    | .const ``Sparkle.Core.Signal.Signal.ashr _, #[dom, nE, x, y] =>
+      match canonicalNatLitValue? nE with
+      | some n =>
+        if n == 0 then e else
+        Sparkle.Compiler.MachSignOps.ashrE inlNatLit
+          (fun m a b => machSigBin m ((machSigInst m).getD .anonymous) dom n a b)
+          dom n (machNorm senv x) (machNorm senv y)
+      | none => e
+    | _, _ =>
     -- the raw `runCircuitH` surface first (`MachRawSurface`)
     match Sparkle.Compiler.MachRawSurface.rawNode senv.prodMatch e with
     | some e' => machNorm senv e'
