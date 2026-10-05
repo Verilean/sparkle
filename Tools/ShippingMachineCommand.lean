@@ -780,7 +780,7 @@ partial def walkInstsRuns (senv : StructEnv) (onRun onCall : Lean.Expr → MetaM
 
 /-- The slot sorts of a `runCircuitH`'s slot types, as an expression. -/
 def slotSortsE (declName : Name) (αs : Lean.Expr) : MetaM (List SType × Lean.Expr) := do
-  let some kinds := machSlotKinds αs | throwError "{declName}: a sub-machine's slot types"
+  let some kinds := machSlotKinds (Sparkle.Compiler.MachRawSurface.zetaAll αs) | throwError "{declName}: a sub-machine's slot types"
   let ss ← kinds.mapM fun k => match sortOf k with
     | some s => pure s
     | none => throwError "{declName}: a sub-machine's slot kind"

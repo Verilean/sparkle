@@ -3283,7 +3283,7 @@ def userProjection? (env : Environment) (n : Name) : Option (Name × Nat × Nat)
 
 /-- Recursion depth and node budget of the front-end unfolding. -/
 def inlineDepth : Nat := 4096
-def inlineBudget : Nat := 4000000
+def inlineBudget : Nat := 16000000
 
 /-- A user type alias (`abbrev S : Type := …`, no universe parameters): its value. Type aliases
     such as `abbrev S := Signal defaultDomain (BitVec 4)` in binder types are
@@ -3546,9 +3546,9 @@ def machSlotNames (ordinal : Nat) (body : Lean.Expr) (kinds : List MixedGateBind
     domain in placeholder form, `dom'`). -/
 def machReserve (natOf : Lean.Expr → Option Nat) (dom' αs initsE body : Lean.Expr)
     (st : MachRead) : Option (Nat × MachRead) := do
-  let kinds ← machSlotKinds αs
+  let kinds ← machSlotKinds (Sparkle.Compiler.MachRawSurface.zetaAll αs)
   if kinds.isEmpty then none else
-  let inits ← machInits natOf kinds initsE
+  let inits ← machInits natOf kinds (Sparkle.Compiler.MachRawSurface.zetaAll initsE)
   match st.dom with
   | some d => if d != dom' then none else pure ()
   | none => pure ()

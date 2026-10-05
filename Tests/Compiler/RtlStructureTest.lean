@@ -699,7 +699,7 @@ run_meta do
     let undriven := undrivenOutputs body
     unless undriven.isEmpty do
       throwError s!"RTL structure: sponge module {mname} undriven outputs {undriven}"
-  -- 59 registers / 1 permutation instance / 2 round-constant ROM instances.
+  -- 59 registers / 1 permutation instance / 1 round-constant ROM instance.
   --
   -- These counts are DIGEST-VERIFIED: with them, `keccak256-sponge-jit-test`
   -- reproduces the reference hashes for `empty` and `abc`.  (The 136B/200B
@@ -722,9 +722,15 @@ run `lake exe keccak256-sponge-jit-test` and confirm the `empty`/`abc` \
 digests before repinning."
   unless kfInst == 1 do
     throwError s!"RTL structure: sponge has {kfInst} wKeccakF instances (want 1)"
-  unless rcInst == 2 do
+  -- 2 → 1 (2026-10-05): the second ROM instance was a DEAD copy (its
+  -- output drove nothing — a duplicated round counter and ROM left in the
+  -- top by the legacy lowering); with the unfolding budget at 16M
+  -- `wKeccakF` is read through its core on the certified machine route and
+  -- the one call is one instance. Re-verified: `keccak256-sponge-jit-test`
+  -- (regenerated `spongeSimTop_jit.c`) passes empty/abc/136B/200B.
+  unless rcInst == 1 do
     throwError s!"RTL structure: sponge has {rcInst} keccakRcHW ROM instances \
-(want 2)."
+(want 1)."
   IO.println s!"[rtl-structure] sponge: regs={total}, wKeccakF={kfInst}, \
 keccakRcHW={rcInst} (pinned)"
 

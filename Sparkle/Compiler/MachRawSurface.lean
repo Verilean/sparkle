@@ -176,4 +176,10 @@ def zeroLit (natE : Nat → Lean.Expr) (natLit? : Lean.Expr → Option Nat) (e :
       (natLit? w).map fun n => mkApp2 (.const ``BitVec.ofNat []) (natE n) (natE 0)
     | _ => none
 
+/-- Every `let` substituted (a long reset tuple written as a chain of `let`s). -/
+partial def zetaAll : Lean.Expr → Lean.Expr
+  | .letE _ _ v b _ => zetaAll (b.instantiate1 v)
+  | .app f a => .app (zetaAll f) (zetaAll a)
+  | e => e
+
 end Sparkle.Compiler.MachRawSurface
