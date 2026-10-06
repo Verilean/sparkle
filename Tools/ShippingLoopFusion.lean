@@ -163,4 +163,95 @@ theorem loop_nest {α β : Type} [Inhabited α] [Inhabited β]
   · show B = sndS (Signal.loop (fuse F G))
     rw [← hu]; rfl
 
+/-! ## Guardedness from the body's shape -/
+
+/-- Fixed by the argument up to `t` (inclusive). -/
+def Causal {α γ : Type} (e : Signal D α → Signal D γ) : Prop :=
+  ∀ (x y : Signal D α) (t : Nat), (∀ s, s ≤ t → x.val s = y.val s) → (e x).val t = (e y).val t
+
+/-- A register over a causal input is guarded. -/
+theorem register_guarded {α γ : Type} (init : γ) (e : Signal D α → Signal D γ) (he : Causal e) :
+    Guarded (fun x => Signal.register init (e x)) := by
+  intro x y t h
+  cases t with
+  | zero => rfl
+  | succ n =>
+    show (e x).val n = (e y).val n
+    exact he x y n (fun s hs => h s (by omega))
+
+/-- A pair of guarded values is guarded. -/
+theorem bundle2_guarded {α β γ : Type} (a : Signal D α → Signal D β) (b : Signal D α → Signal D γ)
+    (ha : Guarded a) (hb : Guarded b) : Guarded (fun x => Sparkle.Core.Signal.bundle2 (a x) (b x)) := by
+  intro x y t h
+  show ((a x).val t, (b x).val t) = ((a y).val t, (b y).val t)
+  rw [ha x y t h, hb x y t h]
+
+/-- Guarded is causal. -/
+theorem Guarded.causal {α γ : Type} {h : Signal D α → Signal D γ} (hg : Guarded h) : Causal h :=
+  fun x y t hxy => hg x y t (fun s hs => hxy s (Nat.le_of_lt hs))
+
+/-- A loop over a causal parameter is causal in the parameter. -/
+theorem loop_causal {α β : Type} [Inhabited β] (G : Signal D α → Signal D β → Signal D β)
+    (hG : Guarded2 G) : Causal (fun l => Signal.loop (G l)) := by
+  intro x y t h
+  -- the parameter agrees up to `t`, so before `t + 1`
+  exact loop_param G hG x y (t + 1) (fun s hs => h s (by omega)) t (by omega)
+
+/-- `Guarded2` from `Guarded` of the pair. -/
+theorem Guarded2.of_pair {α β γ : Type} (h : Signal D α → Signal D β → Signal D γ)
+    (hp : Guarded (fun p : Signal D (α × β) => h (fstS p) (sndS p))) : Guarded2 h := by
+  intro x x' y y' t hxy
+  have := hp (pairS x y) (pairS x' y') t (fun s hs => by
+    show (x.val s, y.val s) = (x'.val s, y'.val s)
+    rw [(hxy s hs).1, (hxy s hs).2])
+  exact this
+
+/-- **Independent loops over one parameter are one loop over the product.** -/
+theorem loop_prod {α β γ : Type} [Inhabited β] [Inhabited γ]
+    (G₁ : Signal D α → Signal D β → Signal D β) (G₂ : Signal D α → Signal D γ → Signal D γ)
+    (h₁ : Guarded2 G₁) (h₂ : Guarded2 G₂) (l : Signal D α) :
+    pairS (Signal.loop (G₁ l)) (Signal.loop (G₂ l)) =
+      Signal.loop (fun q => pairS (G₁ l (fstS q)) (G₂ l (sndS q))) := by
+  apply loop_unique
+  · intro x y t h
+    show ((G₁ l (fstS x)).val t, (G₂ l (sndS x)).val t) = ((G₁ l (fstS y)).val t, (G₂ l (sndS y)).val t)
+    rw [h₁ l l (fstS x) (fstS y) t (fun s hs => ⟨rfl, congrArg Prod.fst (h s hs)⟩),
+      h₂ l l (sndS x) (sndS y) t (fun s hs => ⟨rfl, congrArg Prod.snd (h s hs)⟩)]
+  · have e₁ : G₁ l (Signal.loop (G₁ l)) = Signal.loop (G₁ l) :=
+      loop_fix _ (fun x y t h => h₁ l l x y t (fun s hs => ⟨rfl, h s hs⟩))
+    have e₂ : G₂ l (Signal.loop (G₂ l)) = Signal.loop (G₂ l) :=
+      loop_fix _ (fun x y t h => h₂ l l x y t (fun s hs => ⟨rfl, h s hs⟩))
+    show pairS (G₁ l (Signal.loop (G₁ l))) (G₂ l (Signal.loop (G₂ l))) = _
+    rw [e₁, e₂]
+
+/-- Guarded in three arguments jointly. -/
+def Guarded3 {α β γ δ : Type} (h : Signal D α → Signal D β → Signal D γ → Signal D δ) : Prop :=
+  ∀ (x x' : Signal D α) (y y' : Signal D β) (z z' : Signal D γ) (t : Nat),
+    (∀ s, s < t → x.val s = x'.val s ∧ y.val s = y'.val s ∧ z.val s = z'.val s) →
+    (h x y z).val t = (h x' y' z').val t
+
+/-- **A chain of loops over one parameter is one loop**: the second reads the
+first's state; both are the components of one loop over the pair. -/
+theorem loop_chain {α β γ : Type} [Inhabited β] [Inhabited γ]
+    (G₁ : Signal D α → Signal D β → Signal D β)
+    (G₂ : Signal D α → Signal D β → Signal D γ → Signal D γ)
+    (h₁ : Guarded2 G₁) (h₂ : Guarded3 G₂) (l : Signal D α) :
+    pairS (Signal.loop (G₁ l)) (Signal.loop (G₂ l (Signal.loop (G₁ l)))) =
+      Signal.loop (fun q => pairS (G₁ l (fstS q)) (G₂ l (fstS q) (sndS q))) := by
+  apply loop_unique
+  · intro x y t h
+    show ((G₁ l (fstS x)).val t, (G₂ l (fstS x) (sndS x)).val t) =
+      ((G₁ l (fstS y)).val t, (G₂ l (fstS y) (sndS y)).val t)
+    rw [h₁ l l (fstS x) (fstS y) t (fun s hs => ⟨rfl, congrArg Prod.fst (h s hs)⟩),
+      h₂ l l (fstS x) (fstS y) (sndS x) (sndS y) t
+        (fun s hs => ⟨rfl, congrArg Prod.fst (h s hs), congrArg Prod.snd (h s hs)⟩)]
+  · have e₁ : G₁ l (Signal.loop (G₁ l)) = Signal.loop (G₁ l) :=
+      loop_fix _ (fun x y t h => h₁ l l x y t (fun s hs => ⟨rfl, h s hs⟩))
+    have e₂ : G₂ l (Signal.loop (G₁ l)) (Signal.loop (G₂ l (Signal.loop (G₁ l)))) =
+        Signal.loop (G₂ l (Signal.loop (G₁ l))) :=
+      loop_fix _ (fun x y t h => h₂ l l _ _ x y t (fun s hs => ⟨rfl, rfl, h s hs⟩))
+    show pairS (G₁ l (Signal.loop (G₁ l))) (G₂ l (Signal.loop (G₁ l))
+      (Signal.loop (G₂ l (Signal.loop (G₁ l))))) = _
+    rw [e₁, e₂]
+
 end Tools.ShippingLoopFusion
