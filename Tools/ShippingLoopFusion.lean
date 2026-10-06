@@ -254,4 +254,101 @@ theorem loop_chain {α β γ : Type} [Inhabited β] [Inhabited γ]
       (Signal.loop (G₂ l (Signal.loop (G₁ l))))) = _
     rw [e₁, e₂]
 
+/-! ## Causality of a body's register inputs
+
+A register input is pointwise in the state except for the memory reads in it
+(their contents are the writes of earlier cycles). The memory values are read
+from a family `V` at their positions; the rest is pointwise (a `rfl` per
+declaration), so the input is causal when the memory reads are. -/
+
+/-- `Guarded3` from `Guarded` of the nested pair. -/
+theorem Guarded3.of_pair {α β γ δ : Type} (h : Signal D α → Signal D β → Signal D γ → Signal D δ)
+    (hp : Guarded (fun p : Signal D (α × (β × γ)) => h (fstS p) (fstS (sndS p)) (sndS (sndS p)))) :
+    Guarded3 h := by
+  intro x x' y y' z z' t hxyz
+  exact hp (pairS x (pairS y z)) (pairS x' (pairS y' z')) t (fun s hs => by
+    show (x.val s, (y.val s, z.val s)) = (x'.val s, (y'.val s, z'.val s))
+    rw [(hxyz s hs).1, (hxyz s hs).2.1, (hxyz s hs).2.2])
+
+/-- Pointwise in the state and a family of memory values that is causal:
+causal. -/
+theorem causal_of_pointwise_V {σ γ : Type}
+    (g : Signal D σ → ((j : Nat) → (n : Nat) → Signal D (BitVec n)) → Signal D γ)
+    (FV : Signal D σ → (j : Nat) → (n : Nat) → Signal D (BitVec n))
+    (hpt : ∀ (S : Signal D σ) (V : (j : Nat) → (n : Nat) → Signal D (BitVec n)) (t : Nat),
+      (g S V).val t = (g ⟨fun _ => S.val t⟩ (fun p n => ⟨fun _ => (V p n).val t⟩)).val t)
+    (hFV : ∀ (S S' : Signal D σ) (t : Nat), (∀ s, s ≤ t → S.val s = S'.val s) →
+      ∀ p n, (FV S p n).val t = (FV S' p n).val t) :
+    Causal (fun S => g S (FV S)) := by
+  intro S S' t h
+  show (g S (FV S)).val t = (g S' (FV S')).val t
+  rw [hpt S (FV S) t, hpt S' (FV S') t, h t (Nat.le_refl t)]
+  have eV : (fun p n => (⟨fun _ => (FV S p n).val t⟩ : Signal D (BitVec n))) =
+      fun p n => ⟨fun _ => (FV S' p n).val t⟩ := by
+    funext p n; rw [hFV S S' t h p n]
+  rw [eV]
+
+/-- A family extended at one position, agreeing where both parts agree. -/
+def extV (V : (j : Nat) → (n : Nat) → Signal D (BitVec n)) (pos w : Nat) (sig : Signal D (BitVec w)) :
+    (j : Nat) → (n : Nat) → Signal D (BitVec n) :=
+  fun j n => if h : j = pos ∧ n = w then cast (by rw [h.2]) sig else V j n
+
+theorem extV_val {V V' : (j : Nat) → (n : Nat) → Signal D (BitVec n)} {pos w : Nat}
+    {sig sig' : Signal D (BitVec w)} {t : Nat}
+    (hV : ∀ j n, (V j n).val t = (V' j n).val t) (hs : sig.val t = sig'.val t) :
+    ∀ j n, (extV V pos w sig j n).val t = (extV V' pos w sig' j n).val t := by
+  intro j n
+  unfold extV
+  by_cases h : j = pos ∧ n = w
+  · rw [dif_pos h, dif_pos h]
+    obtain ⟨_, rfl⟩ := h
+    exact hs
+  · rw [dif_neg h, dif_neg h]; exact hV j n
+
+theorem extV_self (V : (j : Nat) → (n : Nat) → Signal D (BitVec n)) (pos w : Nat)
+    (sig : Signal D (BitVec w)) : extV V pos w sig pos w = sig := by
+  simp [extV]
+
+theorem extV_ne (V : (j : Nat) → (n : Nat) → Signal D (BitVec n)) (pos w : Nat)
+    (sig : Signal D (BitVec w)) (j n : Nat) (h : j ≠ pos) : extV V pos w sig j n = V j n := by
+  simp [extV, h]
+
+/-- A combinational-read memory is causal in the state when its operands are. -/
+theorem memoryComboRead_causal {σ : Type} {aw dw : Nat}
+    (wa : Signal D σ → Signal D (BitVec aw)) (wd : Signal D σ → Signal D (BitVec dw))
+    (we : Signal D σ → Signal D Bool) (ra : Signal D σ → Signal D (BitVec aw))
+    (hwa : Causal wa) (hwd : Causal wd) (hwe : Causal we) (hra : Causal ra) :
+    Causal (fun S => Signal.memoryComboRead (wa S) (wd S) (we S) (ra S)) := by
+  intro S S' t h
+  show Signal.memState _ (wa S) (wd S) (we S) t ((ra S).val t) =
+    Signal.memState _ (wa S') (wd S') (we S') t ((ra S').val t)
+  have hm : ∀ n, n ≤ t → Signal.memState (fun _ => 0#dw) (wa S) (wd S) (we S) n =
+      Signal.memState (fun _ => 0#dw) (wa S') (wd S') (we S') n := by
+    intro n
+    induction n with
+    | zero => intro _; rfl
+    | succ n ih =>
+      intro hn
+      funext a
+      have hc : ∀ s, s ≤ n → S.val s = S'.val s := fun s hs => h s (by omega)
+      rw [Signal.memState_succ, Signal.memState_succ, hwa S S' n hc, hwd S S' n hc,
+        hwe S S' n hc, ih (by omega)]
+  rw [hm t (Nat.le_refl t), hra S S' t h]
+
+/-- A registered-read memory is causal in the state when its operands are. -/
+theorem memory_causal {σ : Type} {aw dw : Nat}
+    (wa : Signal D σ → Signal D (BitVec aw)) (wd : Signal D σ → Signal D (BitVec dw))
+    (we : Signal D σ → Signal D Bool) (ra : Signal D σ → Signal D (BitVec aw))
+    (hwa : Causal wa) (hwd : Causal wd) (hwe : Causal we) (hra : Causal ra) :
+    Causal (fun S => Signal.memory (wa S) (wd S) (we S) (ra S)) := by
+  intro S S' t h
+  cases t with
+  | zero => rfl
+  | succ n =>
+    have hc : ∀ s, s ≤ n → S.val s = S'.val s := fun s hs => h s (by omega)
+    have := memoryComboRead_causal wa wd we ra hwa hwd hwe hra S S' n hc
+    show Signal.memState _ (wa S) (wd S) (we S) n ((ra S).val n) =
+      Signal.memState _ (wa S') (wd S') (we S') n ((ra S').val n)
+    exact this
+
 end Tools.ShippingLoopFusion
