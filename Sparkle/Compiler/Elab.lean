@@ -3497,6 +3497,9 @@ structure MachRead where
       read (then the shape's `instFields` are these). -/
   instFields : Array String := #[]
   instStruct : Bool := false
+  /-- Every bare `Signal.register` read (outside any loop): the source term
+      and its slot, so a copy of it is the same register. -/
+  bareRegs : Array (Lean.Expr × Nat) := #[]
   /-- Reading a nested machine's chain (a sub-machine met there — one
       reading another's result — is refused: the endpoint's sub-machines
       read the enclosing handles only). -/
@@ -3786,7 +3789,29 @@ partial def machConv (senv : StructEnv) : List MachVal → Nat → Lean.Expr →
       some (e, st)
     | some _ => none
     | none => some (machIn (j - d - env.length), st)
-  | env, d, .app f a, st =>
+  | env, d, e@(.app f a), st =>
+    -- a bare register (no loop, no `circuit do` in the declaration): a slot
+    -- whose next value is its input
+    match e.getAppFn, e.getAppArgs with
+    | .const ``Sparkle.Core.Signal.Signal.register _, #[dom, α, init, x] =>
+      if d != 0 || st.inInner || !st.loops.isEmpty || !st.runs.isEmpty then none else do
+      match st.bareRegs.find? (·.1 == e) with
+      | some (_, k) => some (machSlot k, st)
+      | none =>
+      let kind ← machSlotKind? α
+      let initN ← machInit? senv.natOf kind init
+      let (dom', st) ← machConv senv env 0 dom st
+      match st.dom with
+      | some d0 => if d0 != dom' then none else pure ()
+      | none => pure ()
+      let base := st.kinds.size
+      let st := { st with
+        kinds := st.kinds.push kind, inits := st.inits.push initN
+        names := st.names.push (Name.mkSimple s!"reg{base}"), dom := some dom'
+        bareRegs := st.bareRegs.push (e, base) }
+      let (x', st) ← machConv senv env 0 x st
+      some (machSlot base, { st with ws := st.ws.push (base, x') })
+    | _, _ =>
     match machLoopRead? env d (.app f a) with
     | some i => if i < st.kinds.size then some (machSlot i, st) else none
     | none =>

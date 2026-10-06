@@ -1984,6 +1984,53 @@ def combCallsProof (declName : Name) (r : Read) (data ι i D bools bits src inst
   return (p, srcName, [(`machine_ok, false), (`machine_body, true), (`machine_inits, false),
     (`machine_next, true), (`machine_result, true)], none)
 
+/-- The bare registers of a value, in the reader's order (a register before
+the registers in its input; a copy once). -/
+partial def bareRegisters (e : Lean.Expr) (acc : Array Lean.Expr) : Array Lean.Expr :=
+  if e.isAppOfArity ``Sparkle.Core.Signal.Signal.register 4 then
+    if acc.contains e then acc else bareRegisters e.appArg! (acc.push e)
+  else match e with
+    | .app f a => bareRegisters a (bareRegisters f acc)
+    | .lam _ _ b _ => bareRegisters b acc
+    | .mdata _ b => bareRegisters b acc
+    | _ => acc
+
+/-- The endpoint of a declaration of bare registers, through
+`machine_trace_of_regs`: the stream is the tuple of the registers' values. -/
+def regsProof (declName : Name) (r : Read) (data ι i D bools bits src inst : Lean.Expr) :
+    MetaM (Lean.Expr × Name × List (Name × Bool) × Option Lean.Expr) := do
+  let nat := mkConst ``Nat
+  let rho ← inferType inst
+  let instZ ← zetaReduce inst
+  let regs := bareRegisters instZ #[]
+  unless regs.size == r.shape.layout.slots.length do
+    throwError "{declName}: {regs.size} registers found, the compiler read {r.shape.layout.slots.length}"
+  let mut p := mkAppN (mkConst ``Tools.ShippingMachineLoop.machine_trace_of_regs)
+    #[toExpr declName, data, ι, ← mkLambdaFVars #[i] D]
+  -- the reset values, from the registers' initial values
+  let mut initsV := mkConst ``Unit.unit
+  for rg in regs.reverse do
+    initsV ← mkAppM ``Prod.mk #[rg.getAppArgs[2]!, initsV]
+  let initsName := declName ++ `machineInits
+  addDef initsName (← inferType p).bindingDomain! initsV
+  p := mkApp p (mkConst initsName)
+  -- the stream: the registers' values
+  let sigmaV ← withLocalDeclD `t nat fun t => do
+    let mut v := mkConst ``Unit.unit
+    for rg in regs.reverse do
+      let a := rg.getAppArgs
+      v ← mkAppM ``Prod.mk #[mkApp (mkApp3 (mkConst ``Sparkle.Core.Signal.Signal.val [.zero]) a[0]! a[1]! rg) t, v]
+    mkLambdaFVars #[i, bools, bits, t] v
+  let sigmaName := declName ++ `machineSigma
+  addDef sigmaName (← inferType p).bindingDomain! sigmaV
+  p := mkApp p (mkConst sigmaName)
+  let srcName := declName ++ `machineSource
+  addDef srcName (← inferType p).bindingDomain!
+    (← mkLambdaFVars #[i, bools, bits] (listE (← mkArrow nat nat) (← resultObsOf declName r D src rho)))
+  p := mkApp p (mkConst srcName)
+  return (p, srcName, [(`machine_ok, false), (`machine_body, true), (`machine_inits, false),
+    (`machine_reset, true), (`machine_writes, true), (`machine_result, true)], none)
+
 def loopProof (declName : Name) (r : Read) (data ι i D bools bits src inst : Lean.Expr) :
     MetaM (Lean.Expr × Name × List (Name × Bool) × Option Lean.Expr) := do
   let nat := mkConst ``Nat
@@ -2354,6 +2401,9 @@ partial def generateCore (declName : Name) (checkCloses : Bool) : MetaM Name := 
       if r.shape.layout.slots.isEmpty && !r.shape.instFields.isEmpty then
         combCallsProof declName r data ι i D bools bits srcN inst
       else if r.shape.layout.slots.isEmpty then combProof declName r data ι i D bools bits srcN inst
+      else if r.shape.runs.isEmpty && r.shape.loops.isEmpty &&
+          (inst.find? fun t => t.isAppOfArity ``Sparkle.Core.runCircuitH 8).isNone then
+        regsProof declName r data ι i D bools bits srcN inst
       else if !r.shape.loops.isEmpty && r.shape.runs.isEmpty then
         loopProof declName r data ι i D bools bits srcN inst
       else if r.nested || !r.shape.loops.isEmpty then nestedProof declName r data ι i D bools bits srcN inst
