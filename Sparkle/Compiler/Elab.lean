@@ -4967,6 +4967,21 @@ def machineShape? (symbolicMode : Bool) (parameters : List (String × Nat)) (ci 
       (Sparkle.Compiler.MachRawSurface.zeroLit inlNatLit canonicalNatLitValue?
         (inlFoldNat (machNorm senv e))))
     let (rootLets, sel, run?, root) := machRoot senv.proj e []
+    -- a result structure of one field holding the machine (`{ x1 := m }`):
+    -- the machine is the enclosing one, the result its constructor on the
+    -- machine's result
+    let wrap? : Option (Lean.Expr × Array Lean.Expr) := match run?, ctor? with
+      | none, some c =>
+        if root.getAppFn.isConstOf c && outs.length == 1 then
+          let args := root.getAppArgs
+          match args.back? with
+          | some r => if (machRunApp? r).isSome then some (root.getAppFn, args.pop) else none
+          | none => none
+        else none
+      | _, _ => none
+    let run? := match wrap? with
+      | some _ => root.getAppArgs.back?
+      | none => run?
     -- the enclosing machine's slots come first
     let st : MachRead := {}
     let run? := run?.bind machRunApp?
@@ -4998,6 +5013,9 @@ def machineShape? (symbolicMode : Bool) (parameters : List (String × Nat)) (ci 
     let (st, v) ← match run? with
       | some (_, _, _, body) => do
         let (ws, v, st) ← machChain senv (.regs 0 :: env) body st
+        let v := match wrap? with
+          | some (c, params) => mkAppN c (params.push v)
+          | none => v
         pure ({ st with ws := st.ws ++ ws.toArray }, v)
       | none => do
         let (v, st) ← machConv senv env 0 root st

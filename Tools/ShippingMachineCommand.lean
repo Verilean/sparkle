@@ -858,6 +858,16 @@ def nestedProof (declName : Name) (r : Read) (data ι i D bools bits src inst : 
   let env ← getEnv
   let senv := structEnv env
   let (rootLets, _, run?, root) := machRoot senv.proj inst []
+  -- a result structure of one field holding the machine (the compiler's
+  -- `wrap?`): that machine is the enclosing one
+  let run? := match run?, r.ctor? with
+    | none, some c =>
+      if root.getAppFn.isConstOf c && r.shape.layout.outs.length == 1 then
+        match root.getAppArgs.back? with
+        | some a => if (machRunApp? a).isSome then some a else none
+        | none => none
+      else none
+    | _, _ => run?
   let nat := mkConst ``Nat
   let domF ← mkLambdaFVars #[i] D
   let tysE (ss : Lean.Expr) := mkApp (mkConst ``Tools.ShippingMachineDenote.tys) ss
