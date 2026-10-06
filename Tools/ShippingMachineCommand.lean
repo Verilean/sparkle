@@ -2180,9 +2180,49 @@ declaration's value with the Signal-level equations
 (`Tools.ShippingSignOps`), proves the endpoint for the rewritten value, and
 transports it back to the declaration along the equation. -/
 
+/-- A slice past the top of its operand (`extractLsb' 0 l x`, `l > width x`):
+the zero extension the reader takes it for. -/
+def wideSlice? : Lean.Expr → Option (Nat × Nat)
+  | .app (.app (.app (.app (.const ``BitVec.extractLsb' _) nE) sE) lE) _ =>
+    match canonicalNatLitValue? nE, canonicalNatLitValue? sE, canonicalNatLitValue? lE with
+    | some n, some 0, some l => if l > n then some (n, l) else none
+    | _, _, _ => none
+  | _ => none
+
 def hasSignOp (v : Lean.Expr) : Bool :=
   (v.find? fun e => e.isConstOf ``BitVec.signExtend || e.isConstOf ``BitVec.sshiftRight ||
-    e.isConstOf ``Sparkle.Core.Signal.Signal.ashr).isSome
+    e.isConstOf ``Sparkle.Core.Signal.Signal.ashr || (wideSlice? e).isSome).isSome
+
+/-- The `(width, length)` pairs of the wide slices of `e`. -/
+def zextPairs (e : Lean.Expr) : List (Nat × Nat) := Id.run do
+    let mut acc : Array (Nat × Nat) := #[]
+    for sub in (collect e #[]) do
+      if let some p := wideSlice? sub then acc := acc.push p
+    return acc.toList.eraseDups
+where
+  collect (e : Lean.Expr) (acc : Array Lean.Expr) : Array Lean.Expr :=
+    match e with
+    | .app f a => collect a (collect f (acc.push e))
+    | .lam _ t b _ | .forallE _ t b _ => collect b (collect t acc)
+    | .letE _ t v b _ => collect b (collect v (collect t acc))
+    | .mdata _ b | .proj _ _ b => collect b acc
+    | _ => acc
+
+/-- `Signal.map (fun u => extractLsb' 0 l u) x = pure 0#(l-w) ++ x` at
+literal widths. -/
+def zextThm (w l : Nat) : MetaM Lean.Expr := do
+  let k := l - w
+  withLocalDeclD `dom (mkConst ``Sparkle.Core.Domain.DomainConfig) fun dom => do
+  let bv (n : Nat) := mkApp (mkConst ``BitVec) (mkNatLit n)
+  withLocalDeclD `x (mkApp2 (mkConst ``Sparkle.Core.Signal.Signal [.zero]) dom (bv w)) fun x => do
+    let pf := mkAppN (mkConst ``Tools.ShippingSignOps.map_extractLsb'_zext) #[dom, mkNatLit k, mkNatLit w, x]
+    let some (_, _, rhs) := (← inferType pf).eq? | throwError "zextThm"
+    let lhs := mkAppN (mkConst ``Sparkle.Core.Signal.Signal.map [.zero]) #[dom, bv w, bv l,
+      .lam `u (bv w) (mkApp4 (mkConst ``BitVec.extractLsb') (mkNatLit w) (mkNatLit 0) (mkNatLit l)
+        (.bvar 0)) .default, x]
+    let ty := mkApp3 (mkConst ``Eq [.one]) (mkApp2 (mkConst ``Sparkle.Core.Signal.Signal [.zero]) dom (bv l))
+      lhs rhs
+    mkLambdaFVars #[dom, x] (← mkExpectedTypeHint pf ty)
 
 /-- The `(width, target)` pairs of the `signExtend`s of `e`, at literal widths. -/
 partial def sextPairs (e : Lean.Expr) (acc : Array (Nat × Nat)) : Array (Nat × Nat) :=
@@ -2239,6 +2279,9 @@ def signNormalize (declName : Name) (v : Lean.Expr) : MetaM (Lean.Expr × Option
   for (w, V) in (sextPairs v #[]).toList.eraseDups do
     if V ≤ w || w == 0 then continue
     thms ← thms.add (.other (Name.mkSimple s!"sext_{w}_{V}")) #[] (← sextThm w V)
+  -- wide slices: one theorem per (width, length) pair met
+  for (w, l) in zextPairs v do
+    thms ← thms.add (.other (Name.mkSimple s!"zext_{w}_{l}")) #[] (← zextThm w l)
   let cfg : Simp.Config := {}
   let cfg := { cfg with zeta := false }
   let cfg := { cfg with decide := true }

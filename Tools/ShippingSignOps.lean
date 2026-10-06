@@ -134,4 +134,30 @@ theorem map_sshiftRight (k : Nat) {w : Nat} (hw : 0 < w) (hk : k < 2 ^ w)
   conv => lhs; rw [← hk', sshiftRight_derived hw]
   rfl
 
+/-! ## Zero extension written as a slice
+
+`extractLsb' 0 (k + w) x` of a `w`-bit `x` reads `k` bits past its top: the
+zero extension `0#k ++ x`. -/
+
+theorem extractLsb'_zext {w : Nat} (k : Nat) (x : BitVec w) :
+    BitVec.extractLsb' 0 (k + w) x = BitVec.ofNat k 0 ++ x := by
+  apply BitVec.eq_of_getElem_eq
+  intro i hi
+  rw [BitVec.getElem_extractLsb', BitVec.getElem_append]
+  by_cases h : i < w
+  · simp [h]
+  · simp [h, BitVec.getLsbD_of_ge x i (by omega)]
+
+theorem map_extractLsb'_zext (k : Nat) {w : Nat} (x : Signal dom (BitVec w)) :
+    Signal.map (fun v => BitVec.extractLsb' 0 (k + w) v) x =
+      (Signal.pure (BitVec.ofNat k 0) : Signal dom (BitVec k)) ++ x := by
+  cases x with
+  | mk xv =>
+  show (⟨fun t => BitVec.extractLsb' 0 (k + w) (xv t)⟩ : Signal dom (BitVec (k + w))) =
+    ⟨fun t => _⟩
+  congr 1
+  funext t
+  rw [extractLsb'_zext]
+  rfl
+
 end Tools.ShippingSignOps

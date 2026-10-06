@@ -4529,6 +4529,11 @@ partial def machLiftScalarN (senv : StructEnv) (dom : Lean.Expr) (vars : List (N
     if !x.hasLooseBVars then machLiftConst senv dom e else
     let (wx, x') ← machLiftScalarN senv dom vars x
     if wx != n then none else
+    -- a slice past the top from bit 0: the zero extension (the generator
+    -- rewrites the source by `ShippingSignOps.map_extractLsb'_zext`)
+    if st == 0 && l > n then
+      some (l, machConcatE dom (l - n) n (machPureE dom (l - n) (machBVLit (l - n) 0)) x')
+    else
     let f := Lean.Expr.lam `x (mkApp (.const ``BitVec []) (inlNatLit n))
       (mkApp4 (.const ``BitVec.extractLsb' ls) (inlNatLit n) (inlNatLit st) (inlNatLit l) (.bvar 0))
       .default
@@ -4691,7 +4696,14 @@ def machNormMap (senv : StructEnv) (dom tyA tyB f a : Lean.Expr) (mk : Lean.Expr
   | .lam nm t (.app (.app (.app (.app (.const ``BitVec.extractLsb' ls) wsE) startE) lenE)
       (.bvar 0)) bi =>
     (match canonicalNatLitValue? startE with
-     | some _ => e
+     | some st =>
+       -- a slice past the top from bit 0: the zero extension
+       match canonicalNatLitValue? wsE, canonicalNatLitValue? lenE with
+       | some n, some l =>
+         if st == 0 && l > n then
+           machConcatE dom (l - n) n (machPureE dom (l - n) (machBVLit (l - n) 0)) a
+         else e
+       | _, _ => e
      | none =>
        match senv.natOf startE with
        | some start =>
