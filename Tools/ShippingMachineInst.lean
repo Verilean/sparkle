@@ -440,17 +440,20 @@ theorem closeInstsG_some {nIn kI n : Nat} {portNames : List String} {insts : Lis
     simp only [Bool.and_eq_true, decide_eq_true_eq] at hc
     obtain ⟨⟨⟨⟨⟨⟨⟨⟨hinst, _⟩, hwo⟩, hwo'⟩, hperm⟩, hseq⟩, hkeys⟩, hmem⟩, hlink⟩ := hc
     cases h
-    refine ⟨rfl, rfl, rfl, stmts, hinst, isPermOf_sound hperm, woCheck_sound _ _ hwo,
+    obtain ⟨hn, ho, hw, hbd⟩ := withClockFor_same children m₀
+    simp only [hbd] at hwo hperm hseq hkeys hmem
+    refine ⟨hw, ho, hn, stmts, hinst, isPermOf_sound hperm, woCheck_sound _ _ hwo,
       woCheck_sound _ _ hwo', hseq, hmem, hkeys, rfl, hlink⟩
   · cases h
 
-/-- The closed module's inputs: the calls' ports stop being inputs. -/
+/-- The closed module's inputs: the calls' ports stop being inputs (and a
+module without a clock takes one for sequential children, `withClockFor`). -/
 theorem closeInstsG_inputs {nIn kI n : Nat} {portNames : List String} {insts : List (List Nat)}
     {fields : List String}
     {children : List (Module × Design)} {m₀ : Module} {d₀ : Design} {m : Module} {d : Design}
     (h : closeInstsG nIn kI n portNames insts fields children (m₀, d₀) = some (m, d)) :
     ∃ outWs, (List.range insts.length).mapM (fun k => portNames[nIn + k]?) = some outWs ∧
-      m.inputs = m₀.inputs.filter (fun p => !outWs.contains p.name) := by
+      m.inputs = (withClockFor children m₀).inputs.filter (fun p => !outWs.contains p.name) := by
   unfold closeInstsG at h
   simp only [Option.bind_eq_bind] at h
   obtain ⟨stmts, _, h⟩ := Option.bind_eq_some_iff.mp h

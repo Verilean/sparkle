@@ -356,4 +356,52 @@ theorem src_causal_of_loop {declName : Name} (d : MachineData) {ι : Type}
       (fun p => hb p t (Nat.le_refl t)) (fun p n => hv p n t (Nat.le_refl t))] at e1
   exact Option.some.inj (e1.trans e2.symm)
 
+set_option maxHeartbeats 2000000 in
+/-- **Source to RTL for a declaration without registers that calls
+sequential children** (`machine_trace_of_comb` with the calls' extensions):
+the state is the constant `inits`, the calls' values `ext`/`extB` are the
+input families at their positions, whatever the children hold. -/
+theorem machine_trace_of_comb_calls {declName : Name} (d : MachineData) {ι : Type}
+    (dom : ι → DomainConfig) (inits : HList (tys d.ss))
+    (ext : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) →
+      (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
+    (extB : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → Nat → Signal (dom i) Bool)
+    (src : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat))
+    (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    (hinit : d.initOk inits = true)
+    (hnext : ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+      (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) (t : Nat),
+      inits = evalTerms
+        (fun j => (typedVal d.nIn d.bpos d.vpos d.ss d.ls (extB i bools bits) (ext i bools bits)
+          t inits).b (d.bpos j))
+        (fun j w => (typedVal d.nIn d.bpos d.vpos d.ss d.ls (extB i bools bits) (ext i bools bits)
+          t inits).v (d.vpos j) w)
+        d.nexts)
+    (hres : ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+      (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) (t : Nat),
+      (src i bools bits).map (fun g => g t) =
+        d.outs.map fun o => enc o.1 (eval
+          (fun k => (typedVal d.nIn d.bpos d.vpos d.ss d.ls (extB i bools bits) (ext i bools bits)
+            t inits).b (d.bpos k))
+          (fun k w => (typedVal d.nIn d.bpos d.vpos d.ss d.ls (extB i bools bits) (ext i bools bits)
+            t inits).v (d.vpos k) w)
+          o.2))
+    {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w
+      (m, design) w')
+    (entry : MachineDefines mctx mref cctx cref declName d.shape)
+    (closes : MachineCloses mctx mref cctx cref declName d.shape) :
+    MachineTraceWithB declName d m dom src ext extB :=
+  machine_trace_of_streamB d dom inits src ok hbody hinit ext extB
+    (fun i bools bits => ⟨fun _ => inits, rfl, fun t => hnext i bools bits t, hres i bools bits⟩)
+    hr entry closes
+
 end Tools.ShippingMachineCausal

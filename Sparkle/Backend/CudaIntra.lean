@@ -155,6 +155,15 @@ inductive ConnSource where
   | topInput (port : String)
   | imm (value : Int) (width : Nat)
 
+/-- `x[w-1:0]` of a `w`-bit wire or port `x` is `x` itself (the certified
+route's hardware `let`s are such slices). -/
+private def fullSliceRef? (top : Module) : Expr → Option String
+  | .slice (.ref n) hi 0 =>
+    match (top.inputs ++ top.wires).find? (·.name == n) with
+    | some p => if p.ty.bitWidth == hi + 1 then some n else none
+    | none => none
+  | _ => none
+
 private def resolveRef (top : Module) (drivers : List (String × InstInfo × String)) :
     Nat → String → Except String ConnSource
   | 0, n => throw s!"reference chain too deep at '{n}' — loop in top-level assigns?"
@@ -171,6 +180,10 @@ private def resolveRef (top : Module) (drivers : List (String × InstInfo × Str
         match drv with
         | some (.ref n') => resolveRef top drivers fuel n'
         | some (.const v w) => pure (.imm v w)
+        | some e@(.slice ..) =>
+          match fullSliceRef? top e with
+          | some n' => resolveRef top drivers fuel n'
+          | none => throw s!"top-level combinational logic drives '{n}' — v1 supports only const/ref assigns at top; move the logic into a submodule"
         | some _ =>
           throw s!"top-level combinational logic drives '{n}' — v1 supports only const/ref assigns at top; move the logic into a submodule"
         | none => throw s!"'{n}' is undriven at the top level"
@@ -180,6 +193,10 @@ private def resolveConn (top : Module) (drivers : List (String × InstInfo × St
   match e with
   | .const v w => pure (.imm v w)
   | .ref n => resolveRef top drivers fuel n
+  | e@(.slice ..) =>
+    match fullSliceRef? top e with
+    | some n => resolveRef top drivers fuel n
+    | none => throw "instance connection must be a wire/port reference or a constant — got a compound expression (materialise it in a submodule)"
   | _ => throw "instance connection must be a wire/port reference or a constant — got a compound expression (materialise it in a submodule)"
 
 /-! ### Copy / immediate tables -/

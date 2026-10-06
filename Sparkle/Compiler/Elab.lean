@@ -4920,7 +4920,10 @@ def machineShape? (symbolicMode : Bool) (parameters : List (String × Nat)) (ci 
     let n := st.kinds.size
     -- no slot: a combinational body with `let`s (no clock); only through the
     -- unfolded entry constant, never instead of a combinational gate
-    if n = 0 && (!st.insts.isEmpty || !st.loops.isEmpty || !st.runs.isEmpty) then none else
+    -- (calls of structure / Bool / sequential children excepted: their
+    -- instances need the machine route, a parent without registers included)
+    if n = 0 && ((!st.insts.isEmpty && !st.instStruct) || !st.loops.isEmpty ||
+        !st.runs.isEmpty) then none else
     if !allowInsts && !st.insts.isEmpty then none else
     -- a hand-written loop alone, or loops as sub-machines of a `circuit do`
     -- (the endpoint's telescope, `TeleT.loop`); several loops alone or a loop

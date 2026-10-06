@@ -66,14 +66,30 @@ def stmtsG (nIn kI n : Nat) (portNames : List String) (insts : List (List Nat))
     let mc ← moduleByName d'.modules child.1.name
     instStmtG nIn kI n portNames gi args (g.map fun k => (k, fields.getD k "")) mc m
 
+/-- A module without a clock whose children are sequential takes a clock and
+a reset for them (the legacy interface of such a parent); otherwise as it is.
+Only the inputs change. -/
+def withClockFor (children : List (Module × Design)) (m : Module) : Module :=
+  let anySeq := children.any fun c => c.1.inputs.any (fun p => p.name == "clk" || p.name == "rst")
+  let hasClk := m.inputs.any (·.name == "clk") && m.inputs.any (·.name == "rst")
+  if anySeq && !hasClk then
+    { m with inputs := m.inputs ++ [{ name := "clk", ty := .bit }, { name := "rst", ty := .bit }] }
+  else m
+
+theorem withClockFor_same (children : List (Module × Design)) (m : Module) :
+    (withClockFor children m).name = m.name ∧ (withClockFor children m).outputs = m.outputs ∧
+    (withClockFor children m).wires = m.wires ∧ (withClockFor children m).body = m.body := by
+  unfold withClockFor; dsimp only; split <;> exact ⟨rfl, rfl, rfl, rfl⟩
+
 /-- `closeInsts` for calls with several outputs and calls of sequential
 children (`stmtsG`); the rest — the inputs closed, the re-ordering and its
 checks — is `closeInsts`'s. -/
 def closeInstsG (nIn kI n : Nat) (portNames : List String) (insts : List (List Nat))
     (fields : List String) (children : List (Module × Design)) (md : Module × Design) :
     Option (Module × Design) := do
-  let (m, d) := md
+  let (m0, d) := md
   let d' := designWith children d
+  let m := withClockFor children m0
   let stmts ← stmtsG nIn kI n portNames insts fields children m d'
   let outWs ← (List.range insts.length).mapM fun k => portNames[nIn + k]?
   let m' : Module := { m with

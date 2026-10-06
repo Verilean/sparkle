@@ -457,6 +457,9 @@ def readMachine (declName : Name) : MetaM Read := do
             | .forallE _ _ b _, k => resDom b (k + 1)
             | e, _ => match e.getAppFn, e.getAppArgs.toList with
               | .const ``Sparkle.Core.Signal.Signal _, [d, _] => some (d, 0)
+              -- a structure of Signals over its one parameter, the domain
+              | .const s _, [d] =>
+                if (senv.fields s).isSome then some (d, 0) else none
               | _, _ => none
           match resDom entry.type 0 with
           | some r => pure r
@@ -1696,8 +1699,12 @@ def causalProof (declName : Name) (r : Read) (data ι i D bools bits src inst : 
       let comb ← match combCache.get? child with
         | some b => pure b
         | none => do
-          let rc ← readMachine child
-          pure (rc.shape.layout.slots.isEmpty && rc.shape.insts.isEmpty)
+          -- a child that is not a machine is compiled by a certified gate:
+          -- combinational
+          try
+            let rc ← readMachine child
+            pure (rc.shape.layout.slots.isEmpty && rc.shape.insts.isEmpty)
+          catch _ => pure true
       combCache := combCache.insert child comb
       let pf ← causalFactE declName D αs i bools bits regsF cl term cidx (kindOf k) earlier
         (facts.extract 0 k0) (declName ++ Name.mkSimple s!"machine_call_{k0}") comb
@@ -1909,6 +1916,51 @@ def combProof (declName : Name) (r : Read) (data ι i D bools bits src inst : Le
   return (p, srcName, [(`machine_ok, false), (`machine_body, true), (`machine_inits, false),
     (`machine_next, true), (`machine_result, true)], none)
 
+/-- The endpoint of a machine without slots whose calls go through the
+structure path (sequential or Bool-result children), through
+`machine_trace_of_comb_calls`: the calls' values are the input families at
+their positions (`machineExt`, `machineExtB`). -/
+def combCallsProof (declName : Name) (r : Read) (data ι i D bools bits src inst : Lean.Expr) :
+    MetaM (Lean.Expr × Name × List (Name × Bool) × Option Lean.Expr) := do
+  let nat := mkConst ``Nat
+  let rho ← inferType inst
+  let kindOf (k : Nat) : MixedGateBinder := match r.shape.insts[k]? with
+    | some (_, _, kd) => kd
+    | none => .domain
+  let senv := structEnv (← getEnv)
+  let entries ← callEntriesG senv inst
+  unless entries.size == r.shape.insts.length do
+    throwError "{declName}: {entries.size} call outputs found, the compiler read {r.shape.insts.length}"
+  for (cl, _, _) in entries do
+    if cl.hasAnyFVar (fun id => id != i.fvarId! && id != bools.fvarId! && id != bits.fvarId!) then
+      throwError "{declName}: a hardware-module call reads a variable the endpoint does not cover"
+  let mut eV := bits
+  let mut eB := bools
+  for k in [0:entries.size] do
+    let (_, term, _) := entries[k]!
+    let pos := mkNatLit (r.nDecl + k)
+    match kindOf k with
+    | .bits w => eV := mkAppN (mkConst ``Tools.ShippingMachineAuto.extendBits) #[D, eV, pos, mkNatLit w, term]
+    | .bool => eB := mkAppN (mkConst ``Tools.ShippingMachineCausal.extendBools) #[D, eB, pos, term]
+    | .domain => throwError "{declName}: a call output is a domain"
+  let mut p := mkAppN (mkConst ``Tools.ShippingMachineCausal.machine_trace_of_comb_calls)
+    #[toExpr declName, data, ι, ← mkLambdaFVars #[i] D]
+  let initsName := declName ++ `machineInits
+  addDef initsName (← inferType p).bindingDomain! (mkConst ``Unit.unit)
+  p := mkApp p (mkConst initsName)
+  let extName := declName ++ `machineExt
+  addDef extName (← inferType p).bindingDomain! (← mkLambdaFVars #[i, bools, bits] eV)
+  p := mkApp p (mkConst extName)
+  let extBName := declName ++ `machineExtB
+  addDef extBName (← inferType p).bindingDomain! (← mkLambdaFVars #[i, bools, bits] eB)
+  p := mkApp p (mkConst extBName)
+  let srcName := declName ++ `machineSource
+  addDef srcName (← inferType p).bindingDomain!
+    (← mkLambdaFVars #[i, bools, bits] (listE (← mkArrow nat nat) (← resultObsOf declName r D src rho)))
+  p := mkApp p (mkConst srcName)
+  return (p, srcName, [(`machine_ok, false), (`machine_body, true), (`machine_inits, false),
+    (`machine_next, true), (`machine_result, true)], none)
+
 def loopProof (declName : Name) (r : Read) (data ι i D bools bits src inst : Lean.Expr) :
     MetaM (Lean.Expr × Name × List (Name × Bool) × Option Lean.Expr) := do
   let nat := mkConst ``Nat
@@ -2071,10 +2123,13 @@ partial def generateCore (declName : Name) (checkCloses : Bool) : MetaM Name := 
   progress s!"{declName}: reading"
   let r ← readMachine declName
   -- the children's own endpoints first (a sequential child's facts are used)
-  if !r.shape.instFields.isEmpty then
+  -- (only a parent with state reads them; a child the certified gate
+  -- compiles is combinational and has none)
+  if !r.shape.instFields.isEmpty && !r.shape.layout.slots.isEmpty then
     for c in (r.shape.insts.map (·.1)).eraseDups do
       unless (← getEnv).contains (c ++ `machine_sound) do
-        discard <| generateCore c checkCloses
+        if (← try discard (readMachine c); pure true catch _ => pure false) then
+          discard <| generateCore c checkCloses
   let dataName := declName ++ `machineData
   progress s!"{declName}: data"
   addDef dataName (mkConst ``MachineData) (← dataE r)
@@ -2117,7 +2172,9 @@ partial def generateCore (declName : Name) (checkCloses : Bool) : MetaM Name := 
     let srcN := if normPf?.isSome then entryN.beta args.toArray else src
     let inst := Sparkle.Compiler.MachRawSurface.rootFloat (entryN.beta args.toArray)
     let (p, srcName, checks, extra) ←
-      if r.shape.layout.slots.isEmpty then combProof declName r data ι i D bools bits srcN inst
+      if r.shape.layout.slots.isEmpty && !r.shape.instFields.isEmpty then
+        combCallsProof declName r data ι i D bools bits srcN inst
+      else if r.shape.layout.slots.isEmpty then combProof declName r data ι i D bools bits srcN inst
       else if !r.shape.loops.isEmpty && r.shape.runs.isEmpty then
         loopProof declName r data ι i D bools bits srcN inst
       else if r.nested || !r.shape.loops.isEmpty then nestedProof declName r data ι i D bools bits srcN inst
