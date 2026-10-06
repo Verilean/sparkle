@@ -518,6 +518,9 @@ lean_lib «Tools.ShippingMachineCausal» where
 lean_lib «Tools.ShippingMachineCausalCtx» where
   roots := #[`Tools.ShippingMachineCausalCtx]
 
+lean_lib «Tools.ShippingMachineMemCausal» where
+  roots := #[`Tools.ShippingMachineMemCausal]
+
 lean_lib «Tools.ShippingSignOps» where
   roots := #[`Tools.ShippingSignOps]
 

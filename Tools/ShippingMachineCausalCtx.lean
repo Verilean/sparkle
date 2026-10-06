@@ -404,4 +404,94 @@ theorem machine_trace_of_comb_calls {declName : Name} (d : MachineData) {ι : Ty
     (fun i bools bits => ⟨fun _ => inits, rfl, fun t => hnext i bools bits t, hres i bools bits⟩)
     hr entry closes
 
+set_option maxHeartbeats 2000000 in
+/-- **Source to RTL for a hand-written `Signal.loop` with causal calls**
+(`machine_trace_of_loop` with the calls' extensions over the loop's state
+signal, causal in it): the loop's step at `t + 1` sees the loop truncated
+after `t`, on which causal calls agree with the loop itself up to `t`. -/
+theorem machine_trace_of_loop_causal {declName : Name} (d : MachineData) {ι : Type}
+    (dom : ι → DomainConfig) {α : ι → Type} [∀ i, Inhabited (α i)] {ρ : ι → Type}
+    (σ : (i : ι) → α i → HList (tys d.ss))
+    (inits : HList (tys d.ss))
+    (f : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) →
+      Signal (dom i) (α i) → Signal (dom i) (α i))
+    (res : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → Signal (dom i) (α i) → ρ i)
+    (obsR : (i : ι) → ρ i → List (Nat → Nat))
+    (ext : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) →
+      Signal (dom i) (α i) → (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
+    (extB : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) →
+      Signal (dom i) (α i) → Nat → Signal (dom i) Bool)
+    (src : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat))
+    (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    (hinit : d.initOk inits = true)
+    (h0 : ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+      (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) (l : Signal (dom i) (α i)),
+      σ i ((f i bools bits l).val 0) = inits)
+    (writes : ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+      (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) (l : Signal (dom i) (α i))
+      (t : Nat),
+      σ i ((f i bools bits l).val (t + 1)) =
+        evalTerms
+          (fun j => (typedVal d.nIn d.bpos d.vpos d.ss d.ls (extB i bools bits l)
+            (ext i bools bits l) t (σ i (l.val t))).b (d.bpos j))
+          (fun j w => (typedVal d.nIn d.bpos d.vpos d.ss d.ls (extB i bools bits l)
+            (ext i bools bits l) t (σ i (l.val t))).v (d.vpos j) w) d.nexts)
+    (hres : ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+      (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) (L : Signal (dom i) (α i))
+      (t : Nat),
+      (obsR i (res i bools bits L)).map (fun g => g t) =
+        d.outs.map fun o => enc o.1 (eval
+          (fun j => (typedVal d.nIn d.bpos d.vpos d.ss d.ls (extB i bools bits L)
+            (ext i bools bits L) t (σ i (L.val t))).b (d.bpos j))
+          (fun j w => (typedVal d.nIn d.bpos d.vpos d.ss d.ls (extB i bools bits L)
+            (ext i bools bits L) t (σ i (L.val t))).v (d.vpos j) w) o.2))
+    (hsrc : ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+      (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)),
+      src i bools bits = obsR i (res i bools bits (Signal.loop (f i bools bits))))
+    (hcausal : ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+      (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
+      (l l' : Signal (dom i) (α i)) (t : Nat), (∀ c, c ≤ t → l.val c = l'.val c) →
+      (∀ p w, (ext i bools bits l p w).val t = (ext i bools bits l' p w).val t) ∧
+      (∀ p, (extB i bools bits l p).val t = (extB i bools bits l' p).val t))
+    {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w
+      (m, design) w')
+    (entry : MachineDefines mctx mref cctx cref declName d.shape)
+    (closes : MachineCloses mctx mref cctx cref declName d.shape) :
+    MachineTraceWithB declName d m dom src
+      (fun i bools bits => ext i bools bits (Signal.loop (f i bools bits)))
+      (fun i bools bits => extB i bools bits (Signal.loop (f i bools bits))) := by
+  refine machine_trace_of_streamB d dom inits src ok hbody hinit _ _ ?_ hr entry closes
+  intro i bools bits
+  refine ⟨fun t => σ i ((Signal.loop (f i bools bits)).val t), ?_, ?_, ?_⟩
+  · show σ i (Signal.loopGo (f i bools bits) 0) = inits
+    rw [Signal.loopGo_eq]
+    exact h0 i bools bits _
+  · intro t
+    show σ i (Signal.loopGo (f i bools bits) (t + 1)) = _
+    rw [Signal.loopGo_eq, writes]
+    -- the truncated loop agrees with the loop up to `t`
+    have hag : ∀ c, c ≤ t →
+        (⟨fun s => if s < t + 1 then Signal.loopGo (f i bools bits) s else default⟩ :
+          Signal (dom i) (α i)).val c = (Signal.loop (f i bools bits)).val c := by
+      intro c hc
+      show (if c < t + 1 then _ else _) = Signal.loopGo (f i bools bits) c
+      rw [if_pos (by omega)]
+    obtain ⟨hv, hb⟩ := hcausal i bools bits _ _ t hag
+    rw [hag t (Nat.le_refl t),
+      typedVal_congrB d.nIn d.bpos d.vpos d.ss d.ls _ _ _ _ t _ hb hv]
+  · intro j
+    rw [hsrc i bools bits]
+    exact hres i bools bits _ j
+
 end Tools.ShippingMachineCausal

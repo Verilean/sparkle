@@ -2542,18 +2542,36 @@ private def emitWireNameSwitch (wires : List Port)
     s!"        case {i}: return \"{sName}\";"
   String.intercalate "\n" cases
 
-private def emitMemoryAccessSwitches (body : List Stmt) :
+/-- The memories the JIT can poke: the module's own, then those of its
+direct sub-module instances in body order (a memory the certified route
+puts in a memory-only child), as C member paths. Existing designs keep
+their indices (their memories are the module's own). -/
+private def collectMemoryPaths (d : Design) (m : Module) : List (String × Nat × Nat) :=
+  let own := (collectMemories m.body).map fun (n, aw, dw) => (sanitizeName n, aw, dw)
+  let child := m.body.flatMap fun st => match st with
+    | .inst moduleName instName _ =>
+      let className := sanitizeName moduleName
+      let rawIName := sanitizeName instName
+      let iName := if rawIName == className then rawIName ++ "_inst" else rawIName
+      match d.findModule moduleName with
+      | some sm => (collectMemories sm.body).map fun (n, aw, dw) =>
+          (iName ++ "." ++ sanitizeName n, aw, dw)
+      | none => []
+    | _ => []
+  own ++ child
+
+private def emitMemoryAccessSwitches (d : Design) (m : Module) :
     String × String × Nat :=
-  let mems := collectMemories body
+  let mems := collectMemoryPaths d m
   let indexed := (List.range mems.length).zip mems
   let setCases := indexed.map fun (i, name, _addrWidth, dataWidth) =>
-    let sName := sanitizeName name
+    let sName := name
     if dataWidth > 64 then
       s!"        case {i}: s->{sName}[addr][0] = data; break;"
     else
       s!"        case {i}: s->{sName}[addr] = data; break;"
   let getCases := indexed.map fun (i, name, _addrWidth, dataWidth) =>
-    let sName := sanitizeName name
+    let sName := name
     if dataWidth > 64 then
       s!"        case {i}: return (uint32_t)s->{sName}[addr][0];"
     else
@@ -2562,11 +2580,11 @@ private def emitMemoryAccessSwitches (body : List Stmt) :
   , String.intercalate "\n" getCases
   , mems.length )
 
-private def emitMemsetWordSwitch (body : List Stmt) : String :=
-  let mems := collectMemories body
+private def emitMemsetWordSwitch (d : Design) (m : Module) : String :=
+  let mems := collectMemoryPaths d m
   let indexed := (List.range mems.length).zip mems
   let cases := indexed.map fun (i, name, addrWidth, dataWidth) =>
-    let sName := sanitizeName name
+    let sName := name
     let memSize := 2 ^ addrWidth
     if dataWidth > 64 then
       s!"        case {i}: for (uint32_t k = 0; k < count && (addr + k) < {memSize}; k++) s->{sName}[addr + k][0] = val; break;"
@@ -2632,8 +2650,8 @@ private def toCJITUnchecked (d : Design)
     let (wireSwitch, numWires) := emitGetWireSwitch m.wires observableWires
     let wireNameSwitch := emitWireNameSwitch m.wires observableWires
     let (memSetCases, memGetCases, numMems) :=
-      emitMemoryAccessSwitches m.body
-    let memsetWordCases := emitMemsetWordSwitch m.body
+      emitMemoryAccessSwitches d m
+    let memsetWordCases := emitMemsetWordSwitch d m
     let typeMap := buildTypeMap m
     let regs := collectRegisters m.body typeMap
     let numRegs := regs.length

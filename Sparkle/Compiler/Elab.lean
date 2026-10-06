@@ -23,6 +23,7 @@ import Sparkle.IR.OptCheck
 import Sparkle.IR.RefineCheck
 import Sparkle.IR.Machine
 import Sparkle.IR.MachineInstG
+import Sparkle.Compiler.MachMemory
 import Sparkle.IR.ModuleNameCheck
 import Sparkle.Compiler.DRC
 import Sparkle.Compiler.InlineAttr
@@ -3528,6 +3529,21 @@ def machBindLet (nm : Name) (ty v' : Lean.Expr) (lets : MachLets) : Lean.Expr ×
     | some j => (machLet j, lets)
     | none => (machLet lets.size, lets.push (nm.eraseMacroScopes, k, v'))
 
+/-- A slot placeholder. -/
+def machIsSlot : Lean.Expr → Bool
+  | .fvar ⟨.num (.str .anonymous "_machSlot") _⟩ => true
+  | _ => false
+
+/-- `machBindLet` keeping a `let` whose value is a slot (a named wire). -/
+def machBindLetNamed (nm : Name) (ty v' : Lean.Expr) (lets : MachLets) : Lean.Expr × MachLets :=
+  match mixedGateBinderKind? ty with
+  | some .domain => (v', lets)
+  | none => (v', lets)
+  | some k =>
+    match lets.findIdx? (fun l => l.2.2 == v') with
+    | some j => (machLet j, lets)
+    | none => (machLet lets.size, lets.push (nm.eraseMacroScopes, k, v'))
+
 /-- A `runCircuitH` application: `(domain, slot types, reset values, body
     under the regs binder)`. -/
 def machRunApp? (e : Lean.Expr) : Option (Lean.Expr × Lean.Expr × Lean.Expr × Lean.Expr) :=
@@ -3785,6 +3801,15 @@ partial def machConv (senv : StructEnv) : List MachVal → Nat → Lean.Expr →
     match machInstCallS? senv (.app f a) with
     | some (c, kinds, ty, args) =>
       if d != 0 then none else machInstanceS senv env c kinds ty args st
+    | none =>
+    -- a memory: a call of a memory-only child (`MachMemory`)
+    match Sparkle.Compiler.MachMemory.memCall? (fun e => canonicalNatLitValue? e <|> senv.natOf e)
+        (.app f a) with
+    | some (combo, aw, dw, dom, ops) =>
+      if d != 0 then none else do
+        let (v, st) ← machInstance senv env (Sparkle.Compiler.MachMemory.memChildName combo aw dw)
+          [.domain, .bits aw, .bits dw, .bool, .bits aw] (.bits dw) (dom :: ops) st
+        some (v, { st with instStruct := true })
     | none =>
     match machReadV env d (.app f a) with
     | some i => if i < st.kinds.size then some (machSlot i, st) else none
@@ -4906,7 +4931,10 @@ def machineShape? (symbolicMode : Bool) (parameters : List (String × Nat)) (ci 
       match machTailV env 0 v, machHandleV env 0 v with
       | none, none =>
         let (v', st) ← machConv senv env 0 v st
-        let (x, lets) := machBindLet nm ty v' st.lets
+        -- a named read of a hand-written loop's state is kept as a wire of
+        -- its name (`_gen_done`), as the legacy lowering names it
+        let (x, lets) := if !st.loops.isEmpty && machIsSlot v' then machBindLetNamed nm ty v' st.lets
+          else machBindLet nm ty v' st.lets
         pure (.val x :: env, { st with lets := lets })
       | _, _ => none
     -- the enclosing machine's chain, or the root expression
@@ -4928,7 +4956,8 @@ def machineShape? (symbolicMode : Bool) (parameters : List (String × Nat)) (ci 
     -- a hand-written loop alone, or loops as sub-machines of a `circuit do`
     -- (the endpoint's telescope, `TeleT.loop`); several loops alone or a loop
     -- with calls and no enclosing machine are not read
-    if !st.loops.isEmpty && st.runs.isEmpty && (!st.insts.isEmpty || st.loops.size != 1) then
+    if !st.loops.isEmpty && st.runs.isEmpty &&
+        ((!st.insts.isEmpty && !st.instStruct) || st.loops.size != 1) then
       none else
     let kinds := st.kinds.toList
     let k := st.lets.size
@@ -4997,7 +5026,11 @@ def closeInstsGM (shape : MachineShape) (t m : Sparkle.IR.AST.Module)
     (design : Sparkle.IR.AST.Design) :
     MetaM (Option (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design)) := do
   let some synth ← sparkleChildSynth.get | return none
-  let children ← shape.insts.mapM fun (c, _, _) => synth c
+  -- a memory's child is built, not compiled (`MachMemory.memChild?`)
+  let children ← shape.insts.mapM fun (c, _, _) =>
+    match Sparkle.Compiler.MachMemory.memChild? c with
+    | some md => pure md
+    | none => synth c
   let kI := shape.insts.length
   let n := shape.layout.slots.length
   let nDecl := shape.binders.length - kI - n - shape.layout.lets

@@ -4,7 +4,7 @@ import Tools.ShippingMachineTeleNest
 import Tools.ShippingMachineLoop
 import Tools.ShippingMachineShipping
 import Tools.ShippingSignOps
-import Tools.ShippingMachineCausalCtx
+import Tools.ShippingMachineMemCausal
 
 /-! # The machine endpoint of a declaration, generated
 
@@ -1123,7 +1123,9 @@ sequential child's is causal by the child's own trace theorem
 partial def walkInstsG (senv : StructEnv) (onCall : Lean.Expr → MetaM Lean.Expr) :
     Lean.Expr → MetaM Lean.Expr
   | e@(.app ..) => do
-    if (machInstCall? senv e).isSome || (machInstCallS? senv e).isSome then onCall e else
+    if (machInstCall? senv e).isSome || (machInstCallS? senv e).isSome ||
+        (Sparkle.Compiler.MachMemory.memCall? (fun e => canonicalNatLitValue? e <|> senv.natOf e) e).isSome
+    then onCall e else
     let f ← walkInstsG senv onCall e.appFn!
     let a ← walkInstsG senv onCall e.appArg!
     return .app f a
@@ -1158,7 +1160,9 @@ def callEntriesG (senv : StructEnv) (e : Lean.Expr) :
     let cZ ← zetaReduce c
     unless (← seen.get).contains cZ do
       seen.modify (·.push cZ)
-      if (machInstCall? senv cZ).isSome then acc.modify (·.push (cZ, cZ, 0))
+      if (machInstCall? senv cZ).isSome ||
+          (Sparkle.Compiler.MachMemory.memCall? (fun e => canonicalNatLitValue? e <|> senv.natOf e) cZ).isSome
+      then acc.modify (·.push (cZ, cZ, 0))
       else
         let ty ← whnfR (← inferType cZ)
         let some sn := ty.getAppFn.constName? | throwError "a call's result type {ty}"
@@ -1234,10 +1238,12 @@ of its own `src_causal_of_data_causal` with its `machine_ext_causal`) on
 argument families causal the same way. -/
 def causalFactE (declName : Name) (D αs i bools bits regsF cl term : Lean.Expr) (cidx : Nat)
     (kind : MixedGateBinder) (earlier : Array (Lean.Expr × Nat × MixedGateBinder))
-    (earlierFacts : Array Lean.Expr) (callName : Name) (combChild : Bool) :
+    (earlierFacts : Array Lean.Expr) (callName : Name) (combChild : Bool)
+    (σT : Lean.Expr) (stOf : Lean.Expr → Lean.Expr) :
     MetaM Lean.Expr := do
   let nat := mkConst ``Nat
-  let hlistT := mkApp (mkConst ``HList) αs
+  let _ := αs
+  let hlistT := σT
   let sig (α : Lean.Expr) := mkApp2 (mkConst ``Sparkle.Core.Signal.Signal [.zero]) D α
   let sigS := sig hlistT
   let ctxT := mkApp2 (mkConst ``Tools.ShippingMachineCausal.Ctx) D hlistT
@@ -1245,7 +1251,7 @@ def causalFactE (declName : Name) (D αs i bools bits regsF cl term : Lean.Expr)
   let xV (x : Lean.Expr) := mkApp3 (mkConst ``Tools.ShippingMachineCausal.Ctx.V) D hlistT x
   let xS (x : Lean.Expr) := mkApp3 (mkConst ``Tools.ShippingMachineCausal.Ctx.S) D hlistT x
   let valE (α s t : Lean.Expr) := mkApp (mkApp3 (mkConst ``Sparkle.Core.Signal.Signal.val [.zero]) D α s) t
-  let regsOf (S : Lean.Expr) := mkApp3 (mkConst ``Tools.ShippingMachineFuse.regsOf) D αs S
+  let regsOf (S : Lean.Expr) := stOf S
   -- a term over a context
   let over (e x : Lean.Expr) : Lean.Expr :=
     e.replaceFVars #[regsF, bools, bits] #[regsOf (xS x), xB x, xV x]
@@ -1391,6 +1397,22 @@ def causalFactE (declName : Name) (D αs i bools bits regsF cl term : Lean.Expr)
     | .bits w => bvT w
     | _ => mkConst ``Bool
   let child := cl.getAppFn.constName!
+  -- a memory: causal when its operands are (`memory(ComboRead)_causal_ctx`)
+  if child == ``Sparkle.Core.Signal.Signal.memory ||
+      child == ``Sparkle.Core.Signal.Signal.memoryComboRead then
+    let a := cl.getAppArgs
+    let some aw := canonicalNatLitValue? a[1]! | throwError "{declName}: a memory's address width"
+    let some dw := canonicalNatLitValue? a[2]! | throwError "{declName}: a memory's data width"
+    let ops ← [(a[3]!, bvT aw), (a[4]!, bvT dw), (a[5]!, mkConst ``Bool), (a[6]!, bvT aw)].mapM
+      fun (o, ty) => causalOf o ty
+    let gS ← withLocalDeclD `x ctxT fun x => mkLambdaFVars #[x]
+      (mkAppN cl.getAppFn (#[a[0]!, a[1]!, a[2]!] ++ (ops.map fun (g, _) => g.beta #[x]).toArray))
+    let lemma := if child == ``Sparkle.Core.Signal.Signal.memory then
+        ``Tools.ShippingMachineCausal.memory_causal_ctx
+      else ``Tools.ShippingMachineCausal.memoryComboRead_causal_ctx
+    let pf := mkAppN (mkConst lemma) (#[D, hlistT, a[1]!, a[2]!] ++ (ops.map (·.1)).toArray ++
+      (ops.map (·.2)).toArray)
+    return ← mkLambdaFVars #[i] (← transport term α gS pf)
   if combChild then
     let (gS, pf) ← causalOf term α
     return ← mkLambdaFVars #[i] (← transport term α gS pf)
@@ -1708,6 +1730,7 @@ def causalProof (declName : Name) (r : Read) (data ι i D bools bits src inst : 
       combCache := combCache.insert child comb
       let pf ← causalFactE declName D αs i bools bits regsF cl term cidx (kindOf k) earlier
         (facts.extract 0 k0) (declName ++ Name.mkSimple s!"machine_call_{k0}") comb
+        hlistT (fun S => mkApp3 (mkConst ``Tools.ShippingMachineFuse.regsOf) D αs S)
       progress s!"{declName}: fact {k} built"
       let name := declName ++ Name.mkSimple s!"machine_causal_{k}"
       if (← IO.getEnv "SPARKLE_MACHINE_METACHECK").isSome then
@@ -1998,7 +2021,9 @@ def loopProof (declName : Name) (r : Read) (data ι i D bools bits src inst : Le
   let rho ← inferType (rest.instantiate1 loopApp)
   let resV ← withLocalDeclD `L sigα fun L => mkLambdaFVars #[i, bools, bits, L] (rest.instantiate1 L)
   -- the generic theorem, applied step by step; the binder types name the facts
-  let mut p := mkAppN (mkConst ``Tools.ShippingMachineLoop.machine_trace_of_loop)
+  let hasCalls := !r.shape.instFields.isEmpty
+  let mut p := mkAppN (mkConst (if hasCalls then ``Tools.ShippingMachineCausal.machine_trace_of_loop_causal
+      else ``Tools.ShippingMachineLoop.machine_trace_of_loop))
     #[toExpr declName, data, ι, ← mkLambdaFVars #[i] D, ← mkLambdaFVars #[i] α,
       ← mkLambdaFVars #[i] inh, ← mkLambdaFVars #[i] rho]
   let sigmaName := declName ++ `machineSigma
@@ -2020,14 +2045,125 @@ def loopProof (declName : Name) (r : Read) (data ι i D bools bits src inst : Le
     mkLambdaFVars #[i, res] (listE (← mkArrow nat nat) (← resultObsOf declName r D res rho))
   addDef obsName (← inferType p).bindingDomain! obsV
   p := mkApp p (mkConst obsName)
+  -- calls in the loop body (sequential children, memories): their values
+  -- over the loop's state signal, causal in it (`causalFactE`)
+  let mut hcE? : Option Lean.Expr := none
+  if hasCalls then
+    let (extE, extBE, hcE) ← loopCalls sigα fBody
+    let extName := declName ++ `machineExt
+    addDef extName (← inferType p).bindingDomain! extE
+    p := mkApp p (mkConst extName)
+    let extBName := declName ++ `machineExtB
+    addDef extBName (← inferType p).bindingDomain! extBE
+    p := mkApp p (mkConst extBName)
+    hcE? := some hcE
   let srcName := declName ++ `machineSource
   addDef srcName (← inferType p).bindingDomain!
     (← mkLambdaFVars #[i, bools, bits] (listE (← mkArrow nat nat) (← resultObsOf declName r D src rho)))
   p := mkApp p (mkConst srcName)
   return (p, srcName, [(`machine_ok, false), (`machine_body, true), (`machine_inits, false),
     (`machine_reset, true), (`machine_writes, true), (`machine_result, true),
-    (`machine_source, true)], none)
+    (`machine_source, true)], hcE?)
 where
+  /-- The calls of the loop body over its state signal: the extensions and
+  the calls' causality in the state (`hcausal` of
+  `machine_trace_of_loop_causal`). -/
+  loopCalls (sigα fBody : Lean.Expr) : MetaM (Lean.Expr × Lean.Expr × Lean.Expr) := do
+    let nat := mkConst ``Nat
+    let α := sigα.getAppArgs[1]!
+    let kindOf (k : Nat) : MixedGateBinder := match r.shape.insts[k]? with
+      | some (_, _, kd) => kd
+      | none => .domain
+    withLocalDeclD `state sigα fun L => do
+    let senv := structEnv (← getEnv)
+    let entries ← callEntriesG senv (fBody.instantiate1 L)
+    unless entries.size == r.shape.insts.length do
+      throwError "{declName}: {entries.size} call outputs found, the compiler read {r.shape.insts.length}"
+    for (cl, _, _) in entries do
+      if cl.hasAnyFVar (fun id => id != L.fvarId! && id != i.fvarId! &&
+          id != bools.fvarId! && id != bits.fvarId!) then
+        throwError "{declName}: a hardware-module call reads a variable the endpoint does not cover"
+    -- the causality of every entry, a theorem each
+    let mut facts : Array Lean.Expr := #[]
+    let mut combCache : Std.HashMap Name Bool := {}
+    for k in [0:entries.size] do
+      let (cl, term, cidx) := entries[k]!
+      let k0 := ((List.range k).find? fun j => entries[j]!.1 == cl).getD k
+      let earlier := ((List.range k0).map fun j =>
+        (entries[j]!.2.1, r.nDecl + j, kindOf j)).toArray
+      let child := cl.getAppFn.constName!
+      let comb ← match combCache.get? child with
+        | some b => pure b
+        | none => do
+          try
+            let rc ← readMachine child
+            pure (rc.shape.layout.slots.isEmpty && rc.shape.insts.isEmpty)
+          catch _ => pure true
+      combCache := combCache.insert child comb
+      let pf ← causalFactE declName D (mkConst ``Unit) i bools bits L cl term cidx (kindOf k) earlier
+        (facts.extract 0 k0) (declName ++ Name.mkSimple s!"machine_call_{k0}") comb α (fun S => S)
+      let name := declName ++ Name.mkSimple s!"machine_causal_{k}"
+      let ty ← inferType pf
+      progress s!"{name}: checking"
+      addDecl (.thmDecl { name, levelParams := [], type := ty, value := pf })
+      facts := facts.push (mkConst name)
+    let over (e S : Lean.Expr) : Lean.Expr := e.replaceFVar L S
+    let extOf (S : Lean.Expr) : MetaM (Lean.Expr × Lean.Expr) := do
+      let mut eV := bits
+      let mut eB := bools
+      for k in [0:entries.size] do
+        let (_, term, _) := entries[k]!
+        let pos := mkNatLit (r.nDecl + k)
+        match kindOf k with
+        | .bits w =>
+          eV := mkAppN (mkConst ``Tools.ShippingMachineAuto.extendBits) #[D, eV, pos, mkNatLit w, over term S]
+        | .bool =>
+          eB := mkAppN (mkConst ``Tools.ShippingMachineCausal.extendBools) #[D, eB, pos, over term S]
+        | .domain => throwError "{declName}: a call output is a domain"
+      pure (eV, eB)
+    let extE ← withLocalDeclD `S sigα fun S0 => do
+      let (v, _) ← extOf S0
+      mkLambdaFVars #[i, bools, bits, S0] v
+    let extBE ← withLocalDeclD `S sigα fun S0 => do
+      let (_, b) ← extOf S0
+      mkLambdaFVars #[i, bools, bits, S0] b
+    -- the calls' causality in the state, entry by entry
+    let hcE ← withLocalDeclD `l sigα fun l => withLocalDeclD `l' sigα fun l' =>
+      withLocalDeclD `t nat fun t => do
+      let valE (ty s c : Lean.Expr) :=
+        mkApp (mkApp3 (mkConst ``Sparkle.Core.Signal.Signal.val [.zero]) D ty s) c
+      let agreeT ← withLocalDeclD `c nat fun c => do
+        mkForallFVars #[c] (← mkArrow (← mkAppM ``LE.le #[c, t]) (← mkEq (valE α l c) (valE α l' c)))
+      withLocalDeclD `h agreeT fun h => do
+        let mk (S : Lean.Expr) := mkApp5 (mkConst ``Tools.ShippingMachineCausal.Ctx.mk) D α bools bits S
+        let hag := mkAppN (mkConst ``Tools.ShippingMachineCausal.CtxAgree.of_state)
+          #[D, α, bools, bits, l, l', t, h]
+        let mut hV ← withLocalDeclD `j nat fun j => withLocalDeclD `n nat fun n => do
+          mkLambdaFVars #[j, n] (← mkEqRefl (valE (mkApp (mkConst ``BitVec) n) (mkApp2 bits j n) t))
+        let mut hB ← withLocalDeclD `j nat fun j => do
+          mkLambdaFVars #[j] (← mkEqRefl (valE (mkConst ``Bool) (mkApp bools j) t))
+        let mut curV := bits
+        let mut curV' := bits
+        let mut curB := bools
+        let mut curB' := bools
+        for k in [0:entries.size] do
+          let (_, term, _) := entries[k]!
+          let pos := mkNatLit (r.nDecl + k)
+          let fact := mkAppN facts[k]! #[i, mk l, mk l', t, hag]
+          match kindOf k with
+          | .bits w =>
+            hV := mkAppN (mkConst ``Tools.ShippingMachineAuto.extendBits_val)
+              #[D, curV, curV', pos, mkNatLit w, over term l, over term l', t, hV, fact]
+            curV := mkAppN (mkConst ``Tools.ShippingMachineAuto.extendBits) #[D, curV, pos, mkNatLit w, over term l]
+            curV' := mkAppN (mkConst ``Tools.ShippingMachineAuto.extendBits) #[D, curV', pos, mkNatLit w, over term l']
+          | .bool =>
+            hB := mkAppN (mkConst ``Tools.ShippingMachineCausal.extendBools_val)
+              #[D, curB, curB', pos, over term l, over term l', t, hB, fact]
+            curB := mkAppN (mkConst ``Tools.ShippingMachineCausal.extendBools) #[D, curB, pos, over term l]
+            curB' := mkAppN (mkConst ``Tools.ShippingMachineCausal.extendBools) #[D, curB', pos, over term l']
+          | .domain => pure ()
+        mkLambdaFVars #[i, bools, bits, l, l', t, h] (← mkAppM ``And.intro #[hV, hB])
+    pure (extE, extBE, hcE)
   /-- The reset tuple, from the registers' initial values. -/
   loopSigmaInits (regs : List (Lean.Expr × Lean.Expr × Lean.Expr)) : MetaM Lean.Expr := do
     let mut hl := mkConst ``Unit.unit
