@@ -3878,9 +3878,12 @@ partial def machInstance (senv : StructEnv) (env : List MachVal) (c : Name)
     (st : MachRead) : Option (Lean.Expr × MachRead) := do
   -- a BitVec result (what the endpoint covers), in the enclosing body or in
   -- a sub-machine's (its value then reads that machine's state)
-  match res with
-  | .bits _ => pure ()
-  | _ => none
+  -- a Bool result goes through the call path of structure results (one
+  -- instance, its `out` port, clocked if the child is sequential)
+  let st ← match res with
+    | .bits _ => pure st
+    | .bool => pure { st with instStruct := true }
+    | _ => none
   let k := st.insts.size
   let (js, st) ← (kinds.zip args).foldlM (init := (([] : List Nat), st))
     fun (js, st) (kind, arg) => do

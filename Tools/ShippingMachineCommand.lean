@@ -1400,18 +1400,23 @@ def causalFactE (declName : Name) (D αs i bools bits regsF cl term : Lean.Expr)
   -- `machine_ext_causal`
   let isExt := th.value.isAppOf ``Tools.ShippingMachineAuto.machine_trace_of_data_ext
   let isCausal := th.value.isAppOf ``Tools.ShippingMachineCausal.machine_trace_of_data_causal
-  unless th.value.isAppOf ``Tools.ShippingMachineAuto.machine_trace_of_data || isExt || isCausal do
-    throwError "{declName}: the child {child}'s endpoint is not machine_trace_of_data(_ext/_causal)"
+  let isLoop := th.value.isAppOf ``Tools.ShippingMachineLoop.machine_trace_of_loop
+  unless th.value.isAppOf ``Tools.ShippingMachineAuto.machine_trace_of_data || isExt || isCausal ||
+      isLoop do
+    throwError "{declName}: the child {child}'s endpoint is not machine_trace_of_data(_ext/_causal) or _of_loop"
   let cargs := th.value.getAppArgs
   let ιC := cargs[2]!
   let iC ← if ιC.isConstOf ``Sparkle.Core.Domain.DomainConfig then pure D
     else if ιC.isConstOf ``Unit then pure (mkConst ``Unit.unit)
     else throwError "{declName}: the child {child}'s family"
-  let srcC := if isCausal then cargs[11]! else if isExt then cargs[10]! else cargs[9]!
+  let srcC := if isLoop then cargs[12]! else if isCausal then cargs[11]! else if isExt then cargs[10]!
+    else cargs[9]!
   -- one theorem per child: every field of every call of it reuses it
   let causalName := child ++ `machine_src_causal
   unless (← getEnv).contains causalName do
-    let causalHead ← if isCausal then do
+    let causalHead ← if isLoop then
+        pure (mkAppN (mkConst ``Tools.ShippingMachineCausal.src_causal_of_loop) cargs)
+      else if isCausal then do
         unless (← getEnv).contains (child ++ `machine_ext_causal) do
           throwError "{declName}: the child {child} has no machine_ext_causal"
         pure (mkAppN (mkConst ``Tools.ShippingMachineCausal.src_causal_of_data_causal)
@@ -1507,7 +1512,9 @@ def causalFactE (declName : Name) (D αs i bools bits regsF cl term : Lean.Expr)
     addDecl (.thmDecl { name := callName, levelParams := [], type := ty, value := hcall })
   let hcall := mkApp (mkConst callName) i
   -- the observation the entry is
+  progress s!"{declName}: entry observation"
   let (g, _) ← causalOf term α
+  progress s!"{declName}: entry observation read"
   let hobsStmt ← withLocalDeclD `x ctxT fun x => do
     let obs ← withLocalDeclD `t nat fun t => do
       let v := valE α (g.beta #[x]) t
@@ -1516,7 +1523,9 @@ def causalFactE (declName : Name) (D αs i bools bits regsF cl term : Lean.Expr)
         | _ => mkApp (mkConst ``Tools.ShippingMuxLoweringSoundness.encodeBool) v)
     let lhs ← mkAppM ``GetElem?.getElem? #[mkAppN srcF #[famB.beta #[x], famV.beta #[x]], mkNatLit cidx]
     mkForallFVars #[x] (← mkEq lhs (← mkAppM ``Option.some #[obs]))
+  progress s!"{declName}: hobs statement"
   let hobs ← reflProof hobsStmt true
+  progress s!"{declName}: hobs"
   let pf := match kind with
     | .bits w => mkAppN (mkConst ``Tools.ShippingMachineCausal.field_causal_ctx)
         #[D, hlistT, srcF, famB, famV, hcall, mkNatLit cidx, mkNatLit w, g, hobs]
@@ -1692,6 +1701,7 @@ def causalProof (declName : Name) (r : Read) (data ι i D bools bits src inst : 
       combCache := combCache.insert child comb
       let pf ← causalFactE declName D αs i bools bits regsF cl term cidx (kindOf k) earlier
         (facts.extract 0 k0) (declName ++ Name.mkSimple s!"machine_call_{k0}") comb
+      progress s!"{declName}: fact {k} built"
       let name := declName ++ Name.mkSimple s!"machine_causal_{k}"
       if (← IO.getEnv "SPARKLE_MACHINE_METACHECK").isSome then
         withOptions (fun o => o.set `pp.rawOnError true) do Meta.check pf

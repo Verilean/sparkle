@@ -1,4 +1,5 @@
 import Tools.ShippingMachineCausal
+import Tools.ShippingMachineLoop
 
 /-! # Causality in the inputs AND the state: nested sequential children
 
@@ -272,6 +273,87 @@ theorem src_causal_of_data_causal {declName : Name} (d : MachineData) {ι : Type
   obtain ⟨hv', hb'⟩ := hjoint i _ _ t hag
   rw [hstate t (Nat.le_refl t) t (Nat.le_refl t),
     typedVal_congrB d.nIn d.bpos d.vpos d.ss d.ls _ _ _ _ t _ hb' hv'] at e1
+  exact Option.some.inj (e1.trans e2.symm)
+
+/-- **The source of a hand-written `Signal.loop` is causal in its inputs**,
+from its endpoint's facts (the arguments of `machine_trace_of_loop`): its
+encoded state starts at the reset values and steps by the next-value terms on
+the inputs of the cycle. -/
+theorem src_causal_of_loop {declName : Name} (d : MachineData) {ι : Type}
+    (dom : ι → DomainConfig) {α : ι → Type} [∀ i, Inhabited (α i)] {ρ : ι → Type}
+    (σ : (i : ι) → α i → HList (tys d.ss))
+    (inits : HList (tys d.ss))
+    (f : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) →
+      Signal (dom i) (α i) → Signal (dom i) (α i))
+    (res : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → Signal (dom i) (α i) → ρ i)
+    (obsR : (i : ι) → ρ i → List (Nat → Nat))
+    (src : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat))
+    (_ok : d.ok = true)
+    (_hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    (_hinit : d.initOk inits = true)
+    (h0 : ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+      (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) (l : Signal (dom i) (α i)),
+      σ i ((f i bools bits l).val 0) = inits)
+    (writes : ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+      (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) (l : Signal (dom i) (α i))
+      (t : Nat),
+      σ i ((f i bools bits l).val (t + 1)) =
+        evalTerms
+          (fun j => (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools bits t (σ i (l.val t))).b
+            (d.bpos j))
+          (fun j w => (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools bits t (σ i (l.val t))).v
+            (d.vpos j) w) d.nexts)
+    (hres : ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+      (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) (L : Signal (dom i) (α i))
+      (t : Nat),
+      (obsR i (res i bools bits L)).map (fun g => g t) =
+        d.outs.map fun o => enc o.1 (eval
+          (fun j => (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools bits t (σ i (L.val t))).b
+            (d.bpos j))
+          (fun j w => (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools bits t (σ i (L.val t))).v
+            (d.vpos j) w) o.2))
+    (hsrc : ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+      (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)),
+      src i bools bits = obsR i (res i bools bits (Signal.loop (f i bools bits))))
+    (i : ι) (B B' : Nat → Signal (dom i) Bool)
+    (V V' : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) (t : Nat)
+    (hb : ∀ p c, c ≤ t → (B p).val c = (B' p).val c)
+    (hv : ∀ p n c, c ≤ t → (V p n).val c = (V' p n).val c) :
+    ∀ (k : Nat) (f₁ f₂ : Nat → Nat), (src i B V)[k]? = some f₁ → (src i B' V')[k]? = some f₂ →
+      f₁ t = f₂ t := by
+  have stream := fun (Bx : Nat → Signal (dom i) Bool)
+      (Vx : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) =>
+    Tools.ShippingMachineLoop.loop_stream (f i Bx Vx) (σ i) inits
+      (fun t x => evalTerms
+        (fun j => (typedVal d.nIn d.bpos d.vpos d.ss d.ls Bx Vx t x).b (d.bpos j))
+        (fun j w => (typedVal d.nIn d.bpos d.vpos d.ss d.ls Bx Vx t x).v (d.vpos j) w)
+        d.nexts)
+      (h0 i Bx Vx) (writes i Bx Vx)
+  -- the encoded states agree up to `t`
+  have hstate : ∀ c, c ≤ t →
+      σ i ((Signal.loop (f i B V)).val c) = σ i ((Signal.loop (f i B' V')).val c) := by
+    intro c
+    induction c with
+    | zero => intro _; rw [(stream B V).1, (stream B' V').1]
+    | succ c ih =>
+      intro hc
+      rw [(stream B V).2 c, (stream B' V').2 c, ih (by omega),
+        typedVal_congrB d.nIn d.bpos d.vpos d.ss d.ls B B' V V' c _
+          (fun p => hb p c (by omega)) (fun p n => hv p n c (by omega))]
+  intro k f₁ f₂ hf hf'
+  rw [hsrc i B V] at hf
+  rw [hsrc i B' V'] at hf'
+  have e1 := congrArg (fun l => l[k]?) (hres i B V (Signal.loop (f i B V)) t)
+  have e2 := congrArg (fun l => l[k]?) (hres i B' V' (Signal.loop (f i B' V')) t)
+  simp only [List.getElem?_map, hf, hf', Option.map_some] at e1 e2
+  rw [hstate t (Nat.le_refl t),
+    typedVal_congrB d.nIn d.bpos d.vpos d.ss d.ls B B' V V' t _
+      (fun p => hb p t (Nat.le_refl t)) (fun p n => hv p n t (Nat.le_refl t))] at e1
   exact Option.some.inj (e1.trans e2.symm)
 
 end Tools.ShippingMachineCausal
