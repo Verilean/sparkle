@@ -72,6 +72,12 @@ partial def projChain (regs : Lean.Expr) (tys : List Lean.Expr) (j : Nat) (last 
   let b ← tail j
   return mkApp3 (.const ``Prod.fst [.zero, .zero]) a b cur
 
+/-- The elements of a literal list. -/
+def listElems : Lean.Expr → Option (List Lean.Expr)
+  | .app (.app (.app (.const ``List.cons _) _) a) rest => (listElems rest).map (a :: ·)
+  | .app (.const ``List.nil _) _ => some []
+  | _ => none
+
 /-- One raw-surface node, rewritten (`none`: not a raw-surface node). -/
 def rawNode (prodMatch : Name → Option Nat) (e : Lean.Expr) : Option Lean.Expr :=
   match e.getAppFn, e.getAppArgs with
@@ -92,6 +98,42 @@ def rawNode (prodMatch : Name → Option Nat) (e : Lean.Expr) : Option Lean.Expr
     | .const ``Sparkle.Core.Circuit _, #[dom, S], .const ``Applicative.toPure _ =>
       some (mkAppN (.const ``Sparkle.Core.Circuit.pure' []) #[dom, S, α, a])
     | _, _, _ => none
+  -- `(as.forM f) >>= k` over a literal list → `f a₁; …; f aₙ; k ()`, the
+  -- binds nested to the right (the reader monad's laws hold by evaluation)
+  | .const ``Sparkle.Core.Circuit.bind _, #[dom, S, _, β, x, k] =>
+    match x.getAppFn, x.getAppArgs with
+    | .const ``List.forM _, #[_, _, _, as, f] =>
+      match listElems as with
+      | none => none
+      | some xs =>
+        let punit := Lean.Expr.const ``PUnit [.succ .zero]
+        let n := xs.length
+        -- the `i`-th statement sits under `i` new binders, the continuation under `n`
+        let tail := (k.liftLooseBVars 0 n).beta #[.const ``PUnit.unit [.succ .zero]]
+        let stmts := xs.zipIdx.map fun (a, i) =>
+          ((f.liftLooseBVars 0 i).beta #[a.liftLooseBVars 0 i], i)
+        some (stmts.foldr (fun (st, i) rest => mkAppN (.const ``Sparkle.Core.Circuit.bind [])
+          #[dom.liftLooseBVars 0 i, S.liftLooseBVars 0 i, punit, β.liftLooseBVars 0 i, st,
+            .lam `_ punit rest .default]) tail)
+    | _, _ => none
+  -- `as.forM f` over a literal list → `f a₁; …; f aₙ; pure ()` (its
+  -- definition unfolded; the binds become `Circuit.bind` above)
+  | .const ``List.forM _, #[m, inst, _, as, f] =>
+    match listElems as with
+    | none => none
+    | some xs =>
+      let punit := Lean.Expr.const ``PUnit [.succ .zero]
+      let done := mkAppN (.const ``Pure.pure [.zero, .zero])
+        #[m, mkApp2 (.const ``Applicative.toPure [.zero, .zero]) m
+          (mkApp2 (.const ``Monad.toApplicative [.zero, .zero]) m inst), punit,
+          .const ``PUnit.unit [.succ .zero]]
+      let n := xs.length
+      let stmts := xs.zipIdx.map fun (a, i) =>
+        ((f.liftLooseBVars 0 i).beta #[a.liftLooseBVars 0 i], i)
+      some (stmts.foldr (fun (st, i) rest => mkAppN (.const ``Bind.bind [.zero, .zero])
+        #[m.liftLooseBVars 0 i, mkApp2 (.const ``Monad.toBind [.zero, .zero]) (m.liftLooseBVars 0 i)
+            (inst.liftLooseBVars 0 i), punit, punit, st, .lam `_ punit rest .default])
+        (done.liftLooseBVars 0 n))
   -- a pair-destructuring matcher → the `let`s of the projections
   | .const n _, args =>
     match prodMatch n with
