@@ -122,6 +122,12 @@ theorem ap_sshiftRight {w : Nat} (hw : 0 < w) (x y : Signal dom (BitVec w)) :
     Signal.ap (Signal.map (fun a b => BitVec.sshiftRight a (BitVec.toNat b)) x) y = ashrS x y :=
   ashr_eq hw x y
 
+/-- `Sparkle.Core.Signal.ashr` (the DSL's `sshiftRight` by a `BitVec`
+amount) lifted over two Signals. -/
+theorem ap_ashrBV {w : Nat} (hw : 0 < w) (x y : Signal dom (BitVec w)) :
+    Signal.ap (Signal.map (fun a b => Sparkle.Core.Signal.ashr a b) x) y = ashrS x y :=
+  ashr_eq hw x y
+
 theorem map_sshiftRight (k : Nat) {w : Nat} (hw : 0 < w) (hk : k < 2 ^ w)
     (x : Signal dom (BitVec w)) :
     Signal.map (fun v => BitVec.sshiftRight v k) x = ashrS x (Signal.pure (BitVec.ofNat w k)) := by

@@ -2238,7 +2238,8 @@ def wideSlice? : Lean.Expr → Option (Nat × Nat)
 
 def hasSignOp (v : Lean.Expr) : Bool :=
   (v.find? fun e => e.isConstOf ``BitVec.signExtend || e.isConstOf ``BitVec.sshiftRight ||
-    e.isConstOf ``Sparkle.Core.Signal.Signal.ashr || (wideSlice? e).isSome).isSome
+    e.isConstOf ``Sparkle.Core.Signal.Signal.ashr || e.isConstOf ``Sparkle.Core.Signal.ashr ||
+    (wideSlice? e).isSome).isSome
 
 /-- The `(width, length)` pairs of the wide slices of `e`. -/
 def zextPairs (e : Lean.Expr) : List (Nat × Nat) := Id.run do
@@ -2320,7 +2321,8 @@ def signNormalize (declName : Name) (v : Lean.Expr) : MetaM (Lean.Expr × Option
   if !hasSignOp v then return (v, none)
   let mut thms : SimpTheorems := {}
   for n in [``Tools.ShippingSignOps.ashr_eq, ``Tools.ShippingSignOps.map_sshiftRight,
-      ``Tools.ShippingSignOps.lift_sshiftRight, ``Tools.ShippingSignOps.ap_sshiftRight] do
+      ``Tools.ShippingSignOps.lift_sshiftRight, ``Tools.ShippingSignOps.ap_sshiftRight,
+      ``Tools.ShippingSignOps.ap_ashrBV] do
     thms ← thms.addConst n
   -- sign extension: one theorem per (width, target) pair met
   for (w, V) in (sextPairs v #[]).toList.eraseDups do
@@ -2334,7 +2336,9 @@ def signNormalize (declName : Name) (v : Lean.Expr) : MetaM (Lean.Expr × Option
   let cfg := { cfg with decide := true }
   let ctx ← Simp.mkContext (config := cfg)
     (simpTheorems := #[thms]) (congrTheorems := ← getSimpCongrTheorems)
-  let (r, _) ← simp v ctx
+  -- a deep value (an unfolded lookup table) needs the recursion depth
+  let (r, _) ← withTheReader Core.Context (fun c => { c with maxRecDepth := 1000000 }) do
+    simp v ctx
   if hasSignOp r.expr then
     throwError "{declName}: a sign operation is left after the rewriting to the derived forms"
   return (r.expr, some (← match r.proof? with

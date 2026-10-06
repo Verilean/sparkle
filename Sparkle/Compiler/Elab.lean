@@ -24,6 +24,7 @@ import Sparkle.IR.RefineCheck
 import Sparkle.IR.Machine
 import Sparkle.IR.MachineInstG
 import Sparkle.Compiler.MachMemory
+import Sparkle.Compiler.MachRecUnfold
 import Sparkle.IR.ModuleNameCheck
 import Sparkle.Compiler.DRC
 import Sparkle.Compiler.InlineAttr
@@ -3231,7 +3232,7 @@ def inlFoldNat : Lean.Expr → Lean.Expr
     would unfold the definition (`handleRegister`, `handleMux`, …). -/
 def inlReservedSuffixes : List String :=
   ["register", "registerWithEnable", "mux", "memory", "memoryComboRead", "memoize",
-   "lutMuxTree", "loop", "ofNat", "toNat", "ofFin"]
+   "loop", "ofNat", "toNat", "ofFin"]
 
 /-- A declaration from outside the Lean and Sparkle libraries. -/
 def inlUserModule (env : Environment) (n : Name) : Bool :=
@@ -3314,10 +3315,25 @@ def inlAbbrevs (env : Environment) : Nat → Lean.Expr → Lean.Expr
     `env`, within the budget (the expression itself when the budget is
     exhausted or a refused form is met), then literal `Nat` sums folded. -/
 def userInliner (env : Environment) : Lean.Expr → Lean.Expr := fun e =>
-  inlFoldNat
-    (match inlineDefs (userDefinition? env) (userProjection? env) inlineDepth e inlineBudget with
-     | some (e', _) => inlAbbrevs env 4 e'
-     | none => inlAbbrevs env 4 e)
+  let inl (e : Lean.Expr) : Lean.Expr :=
+    match inlineDefs (userDefinition? env) (userProjection? env) inlineDepth e inlineBudget with
+    | some (e', _) => e'
+    | none => e
+  -- recursive user helpers on literal data, unfolded (`MachRecUnfold`), then
+  -- inlined again, while that changes the value
+  let isRec (n : Name) : Bool :=
+    inlUserModule env n && !Sparkle.Compiler.isHardwareModule env n &&
+      env.contains (Lean.Meta.mkSmartUnfoldingNameFor n)
+  let rec rounds : Nat → Lean.Expr → Lean.Expr
+    | 0, e => e
+    | k + 1, e =>
+      let e' := Sparkle.Compiler.MachRecUnfold.pass env canonicalNatLitValue? isRec e
+      if e' == e then e else rounds k (inl e')
+  let e1 := inl e
+  -- only a value reaching a recursive helper or literal-data operation
+  if Sparkle.Compiler.MachRecUnfold.relevantClosure (userDefinition? env) isRec e then
+    inlFoldNat (inlAbbrevs env 4 (rounds 64 e1))
+  else inlFoldNat (inlAbbrevs env 4 e1)
 
 /-- A definition with its value rewritten. -/
 def inlinedConst (inl : Lean.Expr → Lean.Expr) : ConstantInfo → ConstantInfo
@@ -4598,6 +4614,10 @@ partial def machLiftScalarN (senv : StructEnv) (dom : Lean.Expr) (vars : List (N
         if k ≥ 2 ^ n then none else some (machPureE dom n (machBVLit n k))
     some (n, Sparkle.Compiler.MachSignOps.ashrE inlNatLit
       (fun m a b => machSigBin m ((machSigInst m).getD .anonymous) dom n a b) dom n x' y')
+  -- the DSL's `ashr a b` is `a.sshiftRight b.toNat` (its definition)
+  | .app (.app (.app (.const ``Sparkle.Core.Signal.ashr _) nE) x) y =>
+    machLiftScalarN senv dom vars
+      (mkApp3 (.const ``BitVec.sshiftRight []) nE x (mkApp2 (.const ``BitVec.toNat []) nE y))
   -- `-x` is `0 - x` (by the definitions of `BitVec.neg` and `BitVec.sub`)
   | e@(.app (.app (.app (.const ``Neg.neg _) (.app (.const ``BitVec _) nE)) _) x) => do
     if !x.hasLooseBVars then machLiftConst senv dom e else
