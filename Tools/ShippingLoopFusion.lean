@@ -351,4 +351,45 @@ theorem memory_causal {σ : Type} {aw dw : Nat}
       Signal.memState _ (wa S') (wd S') (we S') n ((ra S').val n)
     exact this
 
+/-! ## With parameters (an enclosing loop's state) -/
+
+theorem Guarded3.fix1 {π α β γ : Type} {h : Signal D π → Signal D α → Signal D β → Signal D γ}
+    (hg : Guarded3 h) (x : Signal D π) : Guarded2 (h x) :=
+  fun y y' z z' t hyz => hg x x y y' z z' t (fun s hs => ⟨rfl, hyz s hs⟩)
+
+theorem Guarded2.fix1 {π α γ : Type} {h : Signal D π → Signal D α → Signal D γ}
+    (hg : Guarded2 h) (x : Signal D π) : Guarded (h x) :=
+  fun y y' t hy => hg x x y y' t (fun s hs => ⟨rfl, hy s hs⟩)
+
+/-- The fused body of two bodies under a parameter is guarded jointly. -/
+theorem fuse_guarded2 {π α β : Type} (F : Signal D π → Signal D α → Signal D β → Signal D α)
+    (G : Signal D π → Signal D α → Signal D β → Signal D β) (hF : Guarded3 F) (hG : Guarded3 G) :
+    Guarded2 (fun x p => fuse (F x) (G x) p) := by
+  intro x x' p p' t h
+  have h' : ∀ s, s < t → x.val s = x'.val s ∧ (fstS p).val s = (fstS p').val s ∧
+      (sndS p).val s = (sndS p').val s := fun s hs => by
+    have := (h s hs).2
+    exact ⟨(h s hs).1, congrArg Prod.fst this, congrArg Prod.snd this⟩
+  show ((F x (fstS p) (sndS p)).val t, (G x (fstS p) (sndS p)).val t) =
+    ((F x' (fstS p') (sndS p')).val t, (G x' (fstS p') (sndS p')).val t)
+  rw [hF _ _ _ _ _ _ t h', hG _ _ _ _ _ _ t h']
+
+/-- The body of a chain of two loops under a parameter is guarded jointly. -/
+theorem chain_guarded {π β γ : Type} (G₁ : Signal D π → Signal D β → Signal D β)
+    (G₂ : Signal D π → Signal D β → Signal D γ → Signal D γ) (h₁ : Guarded2 G₁) (h₂ : Guarded3 G₂) :
+    Guarded2 (fun x q => pairS (G₁ x (fstS q)) (G₂ x (fstS q) (sndS q))) := by
+  intro x x' q q' t h
+  show ((G₁ x (fstS q)).val t, (G₂ x (fstS q) (sndS q)).val t) =
+    ((G₁ x' (fstS q')).val t, (G₂ x' (fstS q') (sndS q')).val t)
+  rw [h₁ x x' (fstS q) (fstS q') t (fun s hs => ⟨(h s hs).1, congrArg Prod.fst (h s hs).2⟩),
+    h₂ x x' (fstS q) (fstS q') (sndS q) (sndS q') t
+      (fun s hs => ⟨(h s hs).1, congrArg Prod.fst (h s hs).2, congrArg Prod.snd (h s hs).2⟩)]
+
+/-- `Guarded3` with the first two arguments packed is `Guarded2`. -/
+theorem Guarded3.pack {π α β γ : Type} {h : Signal D π → Signal D α → Signal D β → Signal D γ}
+    (hg : Guarded3 h) : Guarded2 (fun (x : Signal D (π × α)) y => h (fstS x) (sndS x) y) := by
+  intro x x' y y' t hxy
+  exact hg _ _ _ _ _ _ t (fun s hs =>
+    ⟨congrArg Prod.fst (hxy s hs).1, congrArg Prod.snd (hxy s hs).1, (hxy s hs).2⟩)
+
 end Tools.ShippingLoopFusion
