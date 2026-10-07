@@ -1,4 +1,5 @@
 import Sparkle.IR.Machine
+import Sparkle.Compiler.MachMemory
 
 /-! # Calls with several outputs, and calls of sequential children
 
@@ -131,7 +132,9 @@ def closeInstsG (nIn kI n : Nat) (portNames : List String) (insts : List (List N
       linkedOk (moduleByName d'.modules) body &&
       -- each instance its own name, none feeding itself (the stateful
       -- linked run's conditions; always so for the statements above)
-      decide (body.filterMap instNameOf).Nodup && noSelfFeed (moduleByName d'.modules) body then
+      decide (body.filterMap instNameOf).Nodup && noSelfFeed (moduleByName d'.modules) body &&
+      -- a memory child's name finds that memory module
+      children.all (fun c => Sparkle.Compiler.MachMemory.memSelf (moduleByName d'.modules) c.1) then
     some ({ m' with body := body }, d')
   else none
 

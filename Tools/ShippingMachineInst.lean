@@ -438,7 +438,7 @@ theorem closeInstsG_some {nIn kI n : Nat} {portNames : List String} {insts : Lis
   split at h
   · rename_i hc
     simp only [Bool.and_eq_true, decide_eq_true_eq] at hc
-    obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨hinst, _⟩, hwo⟩, hwo'⟩, hperm⟩, hseq⟩, hkeys⟩, hmem⟩, hlink⟩, _⟩, _⟩ := hc
+    obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨hinst, _⟩, hwo⟩, hwo'⟩, hperm⟩, hseq⟩, hkeys⟩, hmem⟩, hlink⟩, _⟩, _⟩, _⟩ := hc
     cases h
     obtain ⟨hn, ho, hw, hbd⟩ := withClockFor_same children m₀
     simp only [hbd] at hwo hperm hseq hkeys hmem

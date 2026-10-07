@@ -243,7 +243,7 @@ theorem closeInstsG_insts {nIn kI n : Nat} {portNames : List String} {insts : Li
   split at h
   · rename_i hc
     simp only [Bool.and_eq_true, decide_eq_true_eq] at hc
-    obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨_, _⟩, _⟩, _⟩, hperm⟩, _⟩, _⟩, _⟩, _⟩, _⟩, _⟩ := hc
+    obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨_, _⟩, _⟩, _⟩, hperm⟩, _⟩, _⟩, _⟩, _⟩, _⟩, _⟩, _⟩ := hc
     cases h
     have hbd := (withClockFor_same children m₀).2.2.2
     have hmem : st ∈ (withClockFor children m₀).body ++ stmts :=
@@ -321,7 +321,7 @@ theorem closeInstsG_calls {nIn kI n : Nat} {portNames : List String} {insts : Li
   split at h
   · rename_i hc
     simp only [Bool.and_eq_true, decide_eq_true_eq] at hc
-    obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨_, _⟩, _⟩, _⟩, hperm⟩, _⟩, _⟩, _⟩, _⟩, _⟩, _⟩ := hc
+    obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨_, _⟩, _⟩, _⟩, hperm⟩, _⟩, _⟩, _⟩, _⟩, _⟩, _⟩, _⟩ := hc
     cases h
     have hbd := (withClockFor_same children m₀).2.2.2
     unfold stmtsG at hstmts
@@ -370,7 +370,8 @@ theorem closeInstsG_names {nIn kI n : Nat} {portNames : List String} {insts : Li
     {fields : List String}
     {children : List (Module × Design)} {m₀ : Module} {d₀ : Design} {m : Module} {d : Design}
     (h : closeInstsG nIn kI n portNames insts fields children (m₀, d₀) = some (m, d)) :
-    (m.body.filterMap instNameOf).Nodup ∧ noSelfFeed (moduleByName d.modules) m.body = true := by
+    (m.body.filterMap instNameOf).Nodup ∧ noSelfFeed (moduleByName d.modules) m.body = true ∧
+      ∀ c ∈ children, Sparkle.Compiler.MachMemory.memSelf (moduleByName d.modules) c.1 = true := by
   unfold closeInstsG at h
   simp only [Option.bind_eq_bind] at h
   obtain ⟨stmts, _, h⟩ := Option.bind_eq_some_iff.mp h
@@ -379,9 +380,65 @@ theorem closeInstsG_names {nIn kI n : Nat} {portNames : List String} {insts : Li
   split at h
   · rename_i hc
     simp only [Bool.and_eq_true, decide_eq_true_eq] at hc
-    obtain ⟨⟨_, hnames⟩, hfeed⟩ := hc
+    obtain ⟨⟨⟨_, hnames⟩, hfeed⟩, hmem⟩ := hc
     cases h
-    exact ⟨hnames, hfeed⟩
+    exact ⟨hnames, hfeed, List.all_eq_true.mp hmem⟩
   · cases h
+
+/-! ## The memory children's module -/
+
+open Sparkle.Compiler.MachMemory in
+theorem portKey_inj : ∀ {a b : List Port}, portKey a = portKey b → a = b
+  | [], [], _ => rfl
+  | [], _ :: _, h => by simp [portKey] at h
+  | _ :: _, [], h => by simp [portKey] at h
+  | ⟨n, t⟩ :: as, ⟨n', t'⟩ :: bs, h => by
+    simp only [portKey, List.map_cons, List.cons.injEq, Prod.mk.injEq] at h
+    obtain ⟨⟨rfl, rfl⟩, h⟩ := h
+    rw [portKey_inj (a := as) (b := bs) (by simpa [portKey] using h)]
+
+open Sparkle.Compiler.MachMemory in
+/-- The recognizer is exact: a module it accepts IS the built memory module. -/
+theorem isMemModule_eq {cb : Bool} {aw dw : Nat} {m : Module} (h : isMemModule cb aw dw m = true) :
+    m = (memModule cb aw dw).1 := by
+  obtain ⟨name, params, ins, outs, wires, body, asserts, prim⟩ := m
+  unfold isMemModule at h
+  simp only [Bool.and_eq_true, decide_eq_true_eq, List.isEmpty_iff, Bool.not_eq_true'] at h
+  obtain ⟨⟨⟨⟨⟨⟨⟨hn, hp⟩, hi⟩, ho⟩, hw⟩, ha⟩, hpr⟩, hb⟩ := h
+  split at hb
+  · simp only [Bool.and_eq_true, decide_eq_true_eq] at hb
+    obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩, h7⟩, h8⟩, h9⟩, h10⟩, h11⟩, h12⟩ := hb
+    subst h1 h2 h3 h4 h5 h6 h7 h8 h9 h10 h11 h12
+    subst hp ha hpr
+    rw [portKey_inj hi, portKey_inj ho, portKey_inj hw, hn]
+    rfl
+  · cases hb
+
+open Sparkle.Compiler.MachMemory in
+theorem memParams_memModule (cb : Bool) (aw dw : Nat) :
+    memParams? (memModule cb aw dw).1 = some (cb, aw, dw) := rfl
+
+open Sparkle.Compiler.MachMemory in
+/-- A memory child's name finds the built memory module, in a design passing
+`closeInstsG`'s check. -/
+theorem find_memModule {find : String → Option Module} {cb : Bool} {aw dw : Nat} {mc : Module}
+    (hs : memSelf find (memModule cb aw dw).1 = true)
+    (hf : find (memModule cb aw dw).1.name = some mc) : mc = (memModule cb aw dw).1 := by
+  unfold memSelf at hs
+  rw [memParams_memModule, hf] at hs
+  exact isMemModule_eq (by simpa using hs)
+
+open Sparkle.Compiler.MachMemory in
+theorem memChild_eq {c : Lean.Name} {md : Module × Design} (h : memChild? c = some md) :
+    ∃ cb aw dw, md = memModule cb aw dw := by
+  unfold memChild? at h
+  split at h <;> try cases h
+  split at h <;> try cases h
+  split at h <;> try cases h
+  split at h
+  · cases h; exact ⟨_, _, _, rfl⟩
+  · split at h
+    · cases h; exact ⟨_, _, _, rfl⟩
+    · cases h
 
 end Tools.ShippingMachineInstG

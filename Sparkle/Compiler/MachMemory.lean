@@ -70,4 +70,35 @@ def memChild? (c : Name) : Option (Sparkle.IR.AST.Module × Design) :=
     | _ => none
   | _ => none
 
+/-- The parameters a module of `memModule`'s shape is built with, read off its
+memory statement. -/
+def memParams? (m : Sparkle.IR.AST.Module) : Option (Bool × Nat × Nat) :=
+  match m.body with
+  | [.memory _ aw dw _ _ _ _ _ _ cb _ _, _] => some (cb, aw, dw)
+  | _ => none
+
+/-- Ports as (name, type) pairs (decidable equality). -/
+def portKey (ps : List Port) : List (String × HWType) := ps.map fun p => (p.name, p.ty)
+
+/-- `m` is exactly the module `memModule combo aw dw` builds. -/
+def isMemModule (combo : Bool) (aw dw : Nat) (m : Sparkle.IR.AST.Module) : Bool :=
+  let r := (memModule combo aw dw).1
+  decide (m.name = r.name) && m.parameters.isEmpty && decide (portKey m.inputs = portKey r.inputs) &&
+    decide (portKey m.outputs = portKey r.outputs) && decide (portKey m.wires = portKey r.wires) &&
+    m.assertions.isEmpty && !m.isPrimitive &&
+    match m.body with
+    | [.memory nm aw' dw' clk (.ref a) (.ref b) (.ref c) (.ref e) rd cb [] [], .assign o (.ref s)] =>
+      decide (nm = "mem") && decide (aw' = aw) && decide (dw' = dw) && decide (clk = "clk") &&
+        decide (a = "wa") && decide (b = "wd") && decide (c = "we") && decide (e = "ra") &&
+        decide (rd = "out_rdata") && decide (cb = combo) && decide (o = "out") &&
+        decide (s = "out_rdata")
+    | _ => false
+
+/-- In a design, a memory child's name finds that very memory module (a
+design check of `closeInstsG`; always so, the builder being one). -/
+def memSelf (find : String → Option Sparkle.IR.AST.Module) (c : Sparkle.IR.AST.Module) : Bool :=
+  match memParams? c with
+  | some (cb, aw, dw) => (find c.name).any (isMemModule cb aw dw)
+  | none => true
+
 end Sparkle.Compiler.MachMemory

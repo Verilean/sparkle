@@ -691,7 +691,7 @@ def MachineWired (declName : Name) (shape : MachineShape) (ids : List FVarId)
         shape.instFields.getD e.1 "" = e.2 ∧
         -- a memory call's instance is of the built memory module's name
         ∀ c md, (shape.insts.map (·.1))[e.1]? = some c →
-          Sparkle.Compiler.MachMemory.memChild? c = some md → mc.name = md.1.name) ∧
+          Sparkle.Compiler.MachMemory.memChild? c = some md → mc = md.1) ∧
   -- ... and every call is read from its group's instance statement
   (shape.instFields ≠ [] → ∀ k, k < kI → ∃ st ∈ m.body,
     ∃ (args : List Nat) (outs : List (Nat × String)) (mc : Sparkle.IR.AST.Module),
@@ -1465,7 +1465,12 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
           · have hk := hmemc e.1 c hc md hmd
             have hn := (hall e he).2.1
             rw [hk, Option.map_some, Option.some.injEq] at hn
-            rw [Tools.ShippingMachineInst.moduleByName_name hmc, hn]
+            obtain ⟨cb, aw, dw, rfl⟩ := Tools.ShippingMachineInstG.memChild_eq hmd
+            have hs := (Tools.ShippingMachineInstG.closeInstsG_names hci).2.2 _
+              (List.mem_of_getElem? hk)
+            refine Tools.ShippingMachineInstG.find_memModule hs ?_
+            rw [hn, ← Tools.ShippingMachineInst.moduleByName_name hmc]
+            rw [Tools.ShippingMachineInst.moduleByName_name hmc]; exact hmc
     · intro hfe k hk
       rcases hmt with ⟨hi, _⟩ | ⟨_, children, hci⟩
       · rw [hi] at hk; exact absurd hk (Nat.not_lt_zero k)
@@ -1505,7 +1510,8 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
           rcases hci with ⟨hfe0, _⟩ | ⟨_, h, _⟩
           · exact absurd hfe0 hfe
           · exact h
-        exact Tools.ShippingMachineInstG.closeInstsG_names hci
+        exact ⟨(Tools.ShippingMachineInstG.closeInstsG_names hci).1,
+          (Tools.ShippingMachineInstG.closeInstsG_names hci).2.1⟩
   refine ⟨ps.map Port.name, psNodup, by rw [List.length_map, psLen], ls.map Port.name,
     by rw [List.length_map, lsLen], wired, ?_⟩
   intro bools bits env0 mems inputs slotVals hrst hold
