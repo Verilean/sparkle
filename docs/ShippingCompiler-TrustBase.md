@@ -287,6 +287,29 @@ module; they hold for 107 of 113
 machine-route declarations. The module parsed back from the printed bytes
 is not covered for machine modules.
 
+**Stateful composition with children (2026-10-08).** For a machine whose
+calls are memory reads and/or sequential machine children (`closeInstsG`),
+`f.machine_composedT` states the STATEFUL linked run (`runModuleT`,
+`runModuleTG` at depth `n`: each instance steps its own child module with
+its own registers and memories) of the emitted module. Its premises beyond
+the machine endpoint's: (1) the run boundary per sequential child
+(`BoundaryOf`: the module an instance of its calls resolves to is a run of
+the full entry on the child — the child synthesizer is an `IO.Ref`, opaque
+in the logic, as `SubSynthDefines`); memory children need none (the compiler
+builds the memory module and checks that its name finds it); (2) the
+children start from RESET (memories and sync-read latches zero, registers at
+their reset values: `ResetN`); (3) the top seed holds reset and clock low.
+Proved, not assumed: that the instance's connections feed the child exactly
+its argument wires (`connsG`, `seq_inst_run`), the child's module at the
+full entry (zero-width cleanup kept — now PROVED for every machine module,
+with or without instances, so the run-module gate `dropZeroWidthModule raw =
+raw` above is discharged; the merge is `refineCheck`-accepted or absent —
+`mergeChecked` no longer ships an unchecked merge), and that the merged
+design finds every child module and every module of a child's design as
+itself (checked by the compiler with the IR's decidable equality). Children
+that themselves have children are covered by the depth-`n` theorems up to
+the links listed in the TODO (F6).
+
 ## 7. What is outside every theorem
 
 - **Compiles that miss the certified gate.** The theorems apply when
