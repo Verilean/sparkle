@@ -3984,11 +3984,29 @@ The gaps, in the order they weaken the claim:
   child's output agree by `rfl`), the run boundary as one premise per
   sequential child (`BoundaryOf`: its instances' modules are runs of the full
   entry on it); `ShippingMachineSeqTest.parent` and `chained` kernel-checked
-  (`Tests/Compiler/ShippingMachineSeqLinkedTest.lean`). NEXT: MULTI-LEVEL —
-  `runModuleT` is one level (an instance steps its child flat); children that
-  call children (the signing demos' engines) need a recursive state
-  (`KidState` tree) and a depth-indexed run, with `SeqChildRun` stated over
-  the child's own stateful run.
+  (`Tests/Compiler/ShippingMachineSeqLinkedTest.lean`; also the
+  domain-generic `MultiInstance` parents). MULTI-LEVEL — semantics and
+  composition DONE: `Tools/ShippingHierStateG.lean` (kid state `σ`, child
+  step `KS`, `KState σ`, `flatKS`/`succKS`, depth tower `KT n`/`KSn n`, generic
+  bridge `runModuleTG_of_childRuns`, instance-free children run flat at every
+  depth), `machine_linkedTG`, `Tools/ShippingMachineDepth.lean` (`RunOn`,
+  `ResetN`, `SeqChildRunN`, `seq_inst_runN`), `machine_linkedT_callsN` (a
+  parent at any depth); `Tools/ShippingHierMono.lean` (the run is monotone in
+  the design); the compiler checks that the merged design finds every child
+  module and every module of a child's design as itself (`DecidableEq` on the
+  IR), the zero-width cleanup keeps every machine module (with instances too),
+  and the full entry post-processes only its own top module. REMAINING for
+  children that have children: (1) the instance-free `MachineWired` port and
+  register facts for modules WITH instances (declaration ports after the call
+  ports are removed, register statements, clock/reset inputs via
+  `withClockFor`); (2) `SeqChildRunN (n+1)` of such a child from its own
+  composed theorem (positional conversion as in `seqStream_of_trace`,
+  `KSn_mono` with the consistency check, `ResetN` across designs);
+  (3) closeInsts-path children (combinational calls inside a sequential child,
+  e.g. `wKeccakF`) inside the depth semantics; (4) a hierarchical run boundary
+  and the generator's recursion over child depth. Only test demos (signing
+  cores, Keccak sponge, FIDO2) need it; the real IP corpus has no multi-level
+  `closeInstsG` parent.
 - [ ] **F7. Synthesis and silicon.**  Out of scope and worth stating so
   the claim is not overread: the chain ends at emitted SystemVerilog.
   Trusting the synthesis tool and the fabric is the same class of trust
