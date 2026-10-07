@@ -243,7 +243,7 @@ theorem closeInstsG_insts {nIn kI n : Nat} {portNames : List String} {insts : Li
   split at h
   · rename_i hc
     simp only [Bool.and_eq_true, decide_eq_true_eq] at hc
-    obtain ⟨⟨⟨⟨⟨⟨⟨⟨_, _⟩, _⟩, _⟩, hperm⟩, _⟩, _⟩, _⟩, _⟩ := hc
+    obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨_, _⟩, _⟩, _⟩, hperm⟩, _⟩, _⟩, _⟩, _⟩, _⟩, _⟩ := hc
     cases h
     have hbd := (withClockFor_same children m₀).2.2.2
     have hmem : st ∈ (withClockFor children m₀).body ++ stmts :=
@@ -321,7 +321,7 @@ theorem closeInstsG_calls {nIn kI n : Nat} {portNames : List String} {insts : Li
   split at h
   · rename_i hc
     simp only [Bool.and_eq_true, decide_eq_true_eq] at hc
-    obtain ⟨⟨⟨⟨⟨⟨⟨⟨_, _⟩, _⟩, _⟩, hperm⟩, _⟩, _⟩, _⟩, _⟩ := hc
+    obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨_, _⟩, _⟩, _⟩, hperm⟩, _⟩, _⟩, _⟩, _⟩, _⟩, _⟩ := hc
     cases h
     have hbd := (withClockFor_same children m₀).2.2.2
     unfold stmtsG at hstmts
@@ -362,6 +362,26 @@ theorem closeInstsG_calls {nIn kI n : Nat} {portNames : List String} {insts : Li
     simp only [Option.some.injEq, Prod.mk.injEq] at hkey1
     obtain ⟨hn, ha⟩ := hkey1
     exact ⟨by rw [ha1, ha], by rw [hc1, Option.map_some, hn]⟩
+  · cases h
+
+/-- The closed module's instances have distinct names and none feeds itself
+(`closeInstsG`'s checks). -/
+theorem closeInstsG_names {nIn kI n : Nat} {portNames : List String} {insts : List (List Nat)}
+    {fields : List String}
+    {children : List (Module × Design)} {m₀ : Module} {d₀ : Design} {m : Module} {d : Design}
+    (h : closeInstsG nIn kI n portNames insts fields children (m₀, d₀) = some (m, d)) :
+    (m.body.filterMap instNameOf).Nodup ∧ noSelfFeed (moduleByName d.modules) m.body = true := by
+  unfold closeInstsG at h
+  simp only [Option.bind_eq_bind] at h
+  obtain ⟨stmts, _, h⟩ := Option.bind_eq_some_iff.mp h
+  obtain ⟨outWs, _, h⟩ := Option.bind_eq_some_iff.mp h
+  obtain ⟨body, _, h⟩ := Option.bind_eq_some_iff.mp h
+  split at h
+  · rename_i hc
+    simp only [Bool.and_eq_true, decide_eq_true_eq] at hc
+    obtain ⟨⟨_, hnames⟩, hfeed⟩ := hc
+    cases h
+    exact ⟨hnames, hfeed⟩
   · cases h
 
 end Tools.ShippingMachineInstG

@@ -81,6 +81,33 @@ theorem withClockFor_same (children : List (Module × Design)) (m : Module) :
     (withClockFor children m).wires = m.wires ∧ (withClockFor children m).body = m.body := by
   unfold withClockFor; dsimp only; split <;> exact ⟨rfl, rfl, rfl, rfl⟩
 
+/-- An instance statement's name. -/
+def instNameOf : Stmt → Option String
+  | .inst _ i _ => some i
+  | _ => none
+
+/-- The wires an instance's output ports drive (its connections of output
+ports). -/
+def instOutWiresOf (outs : List Port) (conns : List (String × Expr)) : List String :=
+  outs.filterMap fun p =>
+    match conns.lookup p.name with
+    | some (.ref w) => some w
+    | _ => none
+
+/-- No input connection of an instance reads one of the instance's own output
+wires (the instance does not feed itself). -/
+def noSelfFeed (find : String → Option Module) (body : List Stmt) : Bool :=
+  body.all fun st => match st with
+    | .inst mn _ conns =>
+      match find mn with
+      | some c =>
+        (conns.filter fun cn => !(c.outputs.map (·.name)).contains cn.1).all fun cn =>
+          match cn.2 with
+          | .ref w => !(instOutWiresOf c.outputs conns).contains w
+          | _ => true
+      | none => true
+    | _ => true
+
 /-- `closeInsts` for calls with several outputs and calls of sequential
 children (`stmtsG`); the rest — the inputs closed, the re-ordering and its
 checks — is `closeInsts`'s. -/
@@ -101,7 +128,10 @@ def closeInstsG (nIn kI n : Nat) (portNames : List String) (insts : List (List N
       decide (seqOf m'.body = seqOf body) &&
       decide (Sparkle.IR.Reorder.nextKeys m'.body).Nodup &&
       decide (m'.body.filterMap Sparkle.IR.Reorder.stmtMemName).Nodup &&
-      linkedOk (moduleByName d'.modules) body then
+      linkedOk (moduleByName d'.modules) body &&
+      -- each instance its own name, none feeding itself (the stateful
+      -- linked run's conditions; always so for the statements above)
+      decide (body.filterMap instNameOf).Nodup && noSelfFeed (moduleByName d'.modules) body then
     some ({ m' with body := body }, d')
   else none
 

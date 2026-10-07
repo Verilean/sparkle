@@ -688,13 +688,19 @@ def MachineWired (declName : Name) (shape : MachineShape) (ids : List FVarId)
       Tools.ShippingMachineInstG.CallStmtG nIn kI n names args outs mc st ∧
       moduleByName dsn.modules mc.name = some mc ∧ outs ≠ [] ∧
       ∀ e ∈ outs, (shape.insts.map (·.2.1))[e.1]? = some args ∧
-        shape.instFields.getD e.1 "" = e.2) ∧
+        shape.instFields.getD e.1 "" = e.2 ∧
+        -- a memory call's instance is of the built memory module's name
+        ∀ c md, (shape.insts.map (·.1))[e.1]? = some c →
+          Sparkle.Compiler.MachMemory.memChild? c = some md → mc.name = md.1.name) ∧
   -- ... and every call is read from its group's instance statement
   (shape.instFields ≠ [] → ∀ k, k < kI → ∃ st ∈ m.body,
     ∃ (args : List Nat) (outs : List (Nat × String)) (mc : Sparkle.IR.AST.Module),
       Tools.ShippingMachineInstG.CallStmtG nIn kI n names args outs mc st ∧
       moduleByName dsn.modules mc.name = some mc ∧ (k, shape.instFields.getD k "") ∈ outs ∧
-      (shape.insts.map (·.2.1))[k]? = some args)
+      (shape.insts.map (·.2.1))[k]? = some args) ∧
+  -- and the instances have distinct names, none feeding itself
+  (shape.instFields ≠ [] → (m.body.filterMap instNameOf).Nodup ∧
+    noSelfFeed (moduleByName dsn.modules) m.body = true)
 
 /-- **One cycle of a compiled state machine.** The module the machine route
 returns has one register per slot (`regs`, in slot order) and, on every
@@ -756,12 +762,44 @@ theorem closeInstsM_returns {shape t m₀ d₀ m d}
     have := MReturns.pure hr
     exact ⟨children, this.symm⟩
 
+/-- The children of a memory call are the built memory modules
+(`MachMemory.memChild?`). -/
+def MemChildren (shape : MachineShape) (children : List (Sparkle.IR.AST.Module × Design)) : Prop :=
+  ∀ (k : Nat) c, (shape.insts.map (·.1))[k]? = some c → ∀ md,
+    Sparkle.Compiler.MachMemory.memChild? c = some md → children[k]? = some md
+
+theorem MReturns_mapM_loop {α β : Type} (f : α → MetaM β) :
+    ∀ (l : List α) (acc r : List β), MReturns (List.mapM.loop f l acc) r →
+      ∃ ys, r = acc.reverse ++ ys ∧ ys.length = l.length ∧
+        ∀ k (hk : k < l.length), ∃ y, MReturns (f l[k]) y ∧ ys[k]? = some y
+  | [], acc, r, h => by
+    have := MReturns.pure h
+    exact ⟨[], by simp [this], rfl, fun k hk => absurd hk (Nat.not_lt_zero k)⟩
+  | x :: xs, acc, r, h => by
+    obtain ⟨y, hy, h⟩ := MReturns.bind h
+    obtain ⟨ys, hr, hlen, hget⟩ := MReturns_mapM_loop f xs (y :: acc) r h
+    refine ⟨y :: ys, by simp [hr], by simp [hlen], fun k hk => ?_⟩
+    cases k with
+    | zero => exact ⟨y, hy, rfl⟩
+    | succ k =>
+      obtain ⟨z, hz, hzk⟩ := hget k (by simpa using hk)
+      exact ⟨z, hz, by simpa using hzk⟩
+
+/-- A run of `List.mapM` in `MetaM`, entry by entry. -/
+theorem MReturns_mapM_get {α β : Type} (f : α → MetaM β) (l : List α) (r : List β)
+    (h : MReturns (l.mapM f) r) :
+    ∀ k (hk : k < l.length), ∃ y, MReturns (f l[k]) y ∧ r[k]? = some y := by
+  obtain ⟨ys, hr, _, hget⟩ := MReturns_mapM_loop f l [] r h
+  simp only [List.reverse_nil, List.nil_append] at hr
+  subst hr
+  exact hget
+
 /-- `closeInstsM` for several-output or sequential calls. -/
 theorem closeInstsGM_returns {shape t m₀ d₀ m d}
     (hr : MReturns (closeInstsGM shape t m₀ d₀) (some (m, d))) :
     ∃ children, closeInstsG (machNIn shape) shape.insts.length
         shape.layout.slots.length (t.inputs.map (·.name)) (shape.insts.map (·.2.1))
-        shape.instFields children (m₀, d₀) = some (m, d) := by
+        shape.instFields children (m₀, d₀) = some (m, d) ∧ MemChildren shape children := by
   unfold closeInstsGM at hr
   obtain ⟨synth?, _, hr⟩ := MReturns.bind hr
   cases synth? with
@@ -770,9 +808,24 @@ theorem closeInstsGM_returns {shape t m₀ d₀ m d}
     cases this
   | some synth =>
     dsimp only at hr
-    obtain ⟨children, _, hr⟩ := MReturns.bind hr
+    obtain ⟨children, hch, hr⟩ := MReturns.bind hr
     have := MReturns.pure hr
-    exact ⟨children, this.symm⟩
+    refine ⟨children, this.symm, ?_⟩
+    unfold MemChildren
+    intro k c hc md hmd
+    have hk : k < shape.insts.length := by
+      have := (List.getElem?_eq_some_iff.mp hc).1; simpa using this
+    obtain ⟨y, hy, hky⟩ := MReturns_mapM_get _ shape.insts children hch k hk
+    have hck : (shape.insts[k]).1 = c := by
+      rw [List.getElem?_map, List.getElem?_eq_getElem hk] at hc
+      simpa using hc
+    generalize shape.insts[k] = p at hy hck
+    obtain ⟨c', b, k'⟩ := p
+    simp only at hck
+    subst hck
+    simp only [hmd] at hy
+    rw [MReturns.pure hy] at hky
+    exact hky
 
 /-- How the synthesis ties a shape's calls: `closeInsts` when every call is
 a one-output combinational child (`instFields = []`), `closeInstsG`
@@ -783,7 +836,7 @@ def CloseCalls (shape : MachineShape) (t m₀ : Sparkle.IR.AST.Module) (d₀ : D
       (t.inputs.map (·.name)) (shape.insts.map (·.2.1)) children (m₀, d₀) = some (m, d)) ∨
   (shape.instFields ≠ [] ∧ closeInstsG (machNIn shape) shape.insts.length shape.layout.slots.length
       (t.inputs.map (·.name)) (shape.insts.map (·.2.1)) shape.instFields children (m₀, d₀) =
-      some (m, d))
+      some (m, d) ∧ MemChildren shape children)
 
 /-- The facts either closing establishes (`closeInsts_some`). -/
 theorem CloseCalls.some {shape t m₀ d₀ children m d}
@@ -795,7 +848,7 @@ theorem CloseCalls.some {shape t m₀ d₀ children m d}
       ((m₀.body ++ L).filterMap Sparkle.IR.Reorder.stmtMemName).Nodup ∧
       (Sparkle.IR.Reorder.nextKeys (m₀.body ++ L)).Nodup ∧
       d = designWith children d₀ ∧ linkedOk (moduleByName d.modules) m.body = true := by
-  rcases h with ⟨_, h⟩ | ⟨_, h⟩
+  rcases h with ⟨_, h⟩ | ⟨_, h, _⟩
   · exact Tools.ShippingMachineInst.closeInsts_some h
   · exact Tools.ShippingMachineInst.closeInstsG_some h
 
@@ -839,9 +892,9 @@ theorem synthesizeMachineCertified_returns {logProf declName shape m d}
         exact ⟨t, t', d', run, hcl, Or.inr ⟨hne, children,
           Or.inl ⟨List.isEmpty_iff.mp hf, hc⟩⟩⟩
       · rename_i hf
-        obtain ⟨children, hc⟩ := closeInstsGM_returns hr
+        obtain ⟨children, hc, hmc⟩ := closeInstsGM_returns hr
         exact ⟨t, t', d', run, hcl, Or.inr ⟨hne, children,
-          Or.inr ⟨fun h => hf (List.isEmpty_iff.mpr h), hc⟩⟩⟩
+          Or.inr ⟨fun h => hf (List.isEmpty_iff.mpr h), hc, hmc⟩⟩⟩
   · have eq := MReturns.pure hr
     cases eq
 
@@ -1281,7 +1334,7 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
     have outs0 : (closeMachine shape.layout t').outputs =
         shape.layout.outs.map (fun o => ({ name := o.name, ty := o.ty } : Port)) := by
       unfold closeMachine; rw [hpwC]
-    refine ⟨namesNodup, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+    refine ⟨namesNodup, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
     · intro x hx
       obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hx
       exact pb.wireNames p (pb.inputWires p hp)
@@ -1393,30 +1446,66 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
     · intro hfe st hst hinst
       rcases hmt with ⟨_, hm'⟩ | ⟨_, children, hci⟩
       · subst hm'; exact (notInst0 _ hst hinst).elim
-      · have hci : closeInstsG (machNIn shape) shape.insts.length shape.layout.slots.length
+      · have hmemc : MemChildren shape children := by
+          rcases hci with ⟨hfe0, _⟩ | ⟨_, _, h⟩
+          · exact absurd hfe0 hfe
+          · exact h
+        have hci : closeInstsG (machNIn shape) shape.insts.length shape.layout.slots.length
             (t.inputs.map (·.name)) (shape.insts.map (·.2.1)) shape.instFields children
             (closeMachine shape.layout t', d₀) = some (m, d) := by
-          rcases hci with ⟨hfe0, _⟩ | ⟨_, h⟩
+          rcases hci with ⟨hfe0, _⟩ | ⟨_, h, _⟩
           · exact absurd hfe0 hfe
           · exact h
         rcases Tools.ShippingMachineInstG.closeInstsG_insts hci st hst hinst with h0 |
           ⟨args, outs, child, mc, hcall, hmc, hne, hall⟩
         · exact (notInst0 _ h0 hinst).elim
-        · refine ⟨args, outs, mc, hcall, ?_, hne, fun e he => ⟨(hall e he).1, (hall e he).2.2⟩⟩
-          rw [Tools.ShippingMachineInst.moduleByName_name hmc]; exact hmc
+        · refine ⟨args, outs, mc, hcall, ?_, hne, fun e he => ⟨(hall e he).1, (hall e he).2.2,
+            fun c md hc hmd => ?_⟩⟩
+          · rw [Tools.ShippingMachineInst.moduleByName_name hmc]; exact hmc
+          · have hk := hmemc e.1 c hc md hmd
+            have hn := (hall e he).2.1
+            rw [hk, Option.map_some, Option.some.injEq] at hn
+            rw [Tools.ShippingMachineInst.moduleByName_name hmc, hn]
     · intro hfe k hk
       rcases hmt with ⟨hi, _⟩ | ⟨_, children, hci⟩
       · rw [hi] at hk; exact absurd hk (Nat.not_lt_zero k)
       · have hci : closeInstsG (machNIn shape) shape.insts.length shape.layout.slots.length
             (t.inputs.map (·.name)) (shape.insts.map (·.2.1)) shape.instFields children
             (closeMachine shape.layout t', d₀) = some (m, d) := by
-          rcases hci with ⟨hfe0, _⟩ | ⟨_, h⟩
+          rcases hci with ⟨hfe0, _⟩ | ⟨_, h, _⟩
           · exact absurd hfe0 hfe
           · exact h
         obtain ⟨st, hst, args, outs, child, mc, hcall, hmc, hmem, hargs, _⟩ :=
           Tools.ShippingMachineInstG.closeInstsG_calls hci k (by simpa using hk)
         refine ⟨st, hst, args, outs, mc, hcall, ?_, hmem, hargs⟩
         rw [Tools.ShippingMachineInst.moduleByName_name hmc]; exact hmc
+    · intro hfe
+      rcases hmt with ⟨_, hm'⟩ | ⟨_, children, hci⟩
+      · rcases hci' : shape.instFields with _ | _
+        · exact absurd hci' hfe
+        · -- no call: the closed transition has no instance
+          subst hm'
+          refine ⟨?_, ?_⟩
+          · have : ((closeMachine shape.layout t').body.filterMap instNameOf) = [] := by
+              apply List.filterMap_eq_nil_iff.mpr
+              intro st hst
+              cases st with
+              | inst mn i conns => exact (notInst0 _ hst rfl).elim
+              | _ => rfl
+            rw [this]; exact List.nodup_nil
+          · unfold noSelfFeed
+            apply List.all_eq_true.mpr
+            intro st hst
+            cases st with
+            | inst mn i conns => exact (notInst0 _ hst rfl).elim
+            | _ => rfl
+      · have hci : closeInstsG (machNIn shape) shape.insts.length shape.layout.slots.length
+            (t.inputs.map (·.name)) (shape.insts.map (·.2.1)) shape.instFields children
+            (closeMachine shape.layout t', d₀) = some (m, d) := by
+          rcases hci with ⟨hfe0, _⟩ | ⟨_, h, _⟩
+          · exact absurd hfe0 hfe
+          · exact h
+        exact Tools.ShippingMachineInstG.closeInstsG_names hci
   refine ⟨ps.map Port.name, psNodup, by rw [List.length_map, psLen], ls.map Port.name,
     by rw [List.length_map, lsLen], wired, ?_⟩
   intro bools bits env0 mems inputs slotVals hrst hold

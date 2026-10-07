@@ -94,4 +94,47 @@ theorem runT_of_traceLB {declName : Name} {d : MachineData} {m : Sparkle.IR.AST.
     show some ((envs.getD j (fun _ => 0)) w) = some ((envs.getD (T - 1 - (T - 1 - j)) _) w)
     rw [show T - 1 - (T - 1 - j) = j by omega]
 
+/-! ## The run's conditions from the wiring -/
+
+theorem instNames_eq : ∀ body : List Stmt, instNames body = body.filterMap instNameOf
+  | [] => rfl
+  | .inst _ i _ :: rest => by simp [instNames, instNameOf, instNames_eq rest]
+  | .assign .. :: rest => by simp [instNames, instNameOf, instNames_eq rest]
+  | .register .. :: rest => by simp [instNames, instNameOf, instNames_eq rest]
+  | .memory .. :: rest => by simp [instNames, instNameOf, instNames_eq rest]
+
+/-- The stateful linked run's conditions, for a machine with structure /
+sequential calls, from its wiring. -/
+theorem instOutWires_eq (outs : List Port) (conns : List (String × Sparkle.IR.AST.Expr)) :
+    instOutWires outs conns = instOutWiresOf outs conns := by
+  unfold instOutWires instOutWiresOf
+  rfl
+
+theorem wired_runT_conds {declName : Name} {shape : Sparkle.Compiler.Elab.MachineShape} {ids : List FVarId}
+    {cache : IO.Ref (ExprStructMap String)} {m : Sparkle.IR.AST.Module}
+    {dsn : Sparkle.IR.AST.Design} {regs lets : List String}
+    (wired : MachineWired declName shape ids cache m dsn regs lets)
+    (hfe : shape.instFields ≠ []) :
+    linkedWF (childMap dsn.modules) m.body = true ∧ (instNames m.body).Nodup ∧
+    ∀ mn iname conns, Stmt.inst mn iname conns ∈ m.body → ∀ child cwe,
+      childMap dsn.modules mn = some (child, cwe) → ∀ c ∈ inConns child.outputs conns, ∀ w,
+        c.2 = .ref w → w ∉ instOutWires child.outputs conns := by
+  obtain ⟨_, _, _, _, _, _, hlink, _, _, _, _, _, _, hnames⟩ := wired
+  obtain ⟨hnd, hfeed⟩ := hnames hfe
+  refine ⟨by rw [← linkedOk_eq]; exact hlink, by rw [instNames_eq]; exact hnd, ?_⟩
+  intro mn iname conns hm child cwe hc c hcin w hw
+  have hmod : moduleByName dsn.modules mn = some child := by
+    unfold childMap at hc
+    cases hb : moduleByName dsn.modules mn with
+    | none => rw [hb] at hc; cases hc
+    | some c' => rw [hb] at hc; simp only [Option.map_some, Option.some.injEq,
+        Prod.mk.injEq] at hc; rw [hc.1]
+  unfold noSelfFeed at hfeed
+  have hst := List.all_eq_true.mp hfeed _ hm
+  simp only [hmod] at hst
+  have hc' := List.all_eq_true.mp hst c hcin
+  rw [hw] at hc'
+  rw [instOutWires_eq]
+  simpa using hc'
+
 end Tools.ShippingMachineComposedT
