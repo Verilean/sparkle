@@ -721,7 +721,13 @@ def MachineWired (declName : Name) (shape : MachineShape) (ids : List FVarId)
   (shape.instFields ≠ [] → (m.body.filterMap instNameOf).Nodup ∧
     noSelfFeed (moduleByName dsn.modules) m.body = true) ∧
   -- and no statement assigns the reset or the clock
-  ∀ r, Stmt.assign "rst" r ∉ m.body ∧ Stmt.assign "clk" r ∉ m.body
+  (∀ r, Stmt.assign "rst" r ∉ m.body ∧ Stmt.assign "clk" r ∉ m.body) ∧
+  -- and the zero-width cleanup keeps the module, with or without instances
+  ((∀ o ∈ shape.layout.outs, o.ty.bitWidth = o.width) →
+    (Sparkle.IR.ZeroWidth.dropZeroWidthModule m).body = m.body ∧
+    weOf (Sparkle.IR.ZeroWidth.dropZeroWidthModule m) = weOf m ∧
+    (Sparkle.IR.ZeroWidth.dropZeroWidthModule m).inputs = m.inputs ∧
+    (Sparkle.IR.ZeroWidth.dropZeroWidthModule m).outputs = m.outputs)
 
 /-- **One cycle of a compiled state machine.** The module the machine route
 returns has one register per slot (`regs`, in slot order) and, on every
@@ -1355,7 +1361,7 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
     have outs0 : (closeMachine shape.layout t').outputs =
         shape.layout.outs.map (fun o => ({ name := o.name, ty := o.ty } : Port)) := by
       unfold closeMachine; rw [hpwC]
-    refine ⟨namesNodup, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+    refine ⟨namesNodup, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
     · intro x hx
       obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hx
       exact pb.wireNames p (pb.inputWires p hp)
@@ -1716,6 +1722,96 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
         exact Tools.ShippingMachineCleanup.closeMachine_noClkRst hB' typed'
           (fun p hp => pb.wireNames p (hwires' ▸ hp)) outsOk _ _ hx'
       exact ⟨fun h => (key _ _ h).1 rfl, fun h => (key _ _ h).2 rfl⟩
+    · intro houtTy
+      have names' : ∀ p ∈ t'.wires, Sparkle.IR.NameHints.Allocated p.name :=
+        fun p hp => pb.wireNames p (hwires' ▸ hp)
+      have inWires' : ∀ p ∈ t'.inputs, p ∈ t'.wires := fun p hp => by
+        rw [hwires']
+        exact pb.inputWires p (by rw [tInputs]; rw [hin'] at hp; exact List.mem_append_left _ hp)
+      have wiresNd' : (t'.wires.map Port.name).Nodup := by rw [hwires']; exact ready.wiresNodup
+      have inNd' : (t'.inputs.map Port.name).Nodup := by
+        rw [hin']
+        have := namesNodup
+        rw [tInputs] at this
+        exact this.sublist (List.Sublist.map _ (List.sublist_append_left _ _))
+      have hfixM := Tools.ShippingMachineCleanup.closeMachine_fixed hB' typed' names' inWires' inNd'
+        wiresNd' (hdrop ▸ slotsOk) outsOk outsNodup houtTy
+      rcases hmt with ⟨_, hm'⟩ | ⟨_, children, hci⟩
+      · subst hm'
+        exact Tools.ShippingMachineCleanup.closeMachine_cleanup hB' typed' names' inWires' inNd'
+          wiresNd' (hdrop ▸ slotsOk) outsOk outsNodup houtTy
+      · obtain ⟨hw, ho, _, L, hL, hperm, _⟩ := hci.some
+        refine Tools.ShippingMachineCleanup.calls_cleanup hfixM L ?_ hperm hw ho ?_ ?_
+          (Tools.ShippingMachineCleanup.closeMachine_wiresNodup hB' names' inNd' wiresNd')
+        · -- the added statements are calls connected by wires
+          intro st hst
+          have hinst := List.all_eq_true.mp hL st hst
+          have hmem : st ∈ m.body := hperm.mem_iff.mp (List.mem_append_right _ hst)
+          rcases hci with ⟨_, hci⟩ | ⟨_, hci, _⟩
+          · rcases Tools.ShippingMachineInst.closeInsts_insts hci st hmem hinst with h0 |
+              ⟨k, args, child, mc, _, _, _, hcall⟩
+            · exact (notInst0 _ h0 hinst).elim
+            · obtain ⟨outW, argWs, outP, iname, _, _, _, _, _, _, _, _, _, rfl⟩ := hcall
+              refine ⟨_, _, _, rfl, ?_⟩
+              intro c hc
+              simp only [List.mem_append, List.mem_map, List.mem_singleton] at hc
+              rcases hc with ⟨⟨p, w⟩, _, rfl⟩ | rfl
+              · exact ⟨w, rfl⟩
+              · exact ⟨outW, rfl⟩
+          · rcases Tools.ShippingMachineInstG.closeInstsG_insts hci st hmem hinst with h0 |
+              ⟨args, outs, child, mc, hcall, _⟩
+            · exact (notInst0 _ h0 hinst).elim
+            · obtain ⟨outWs, argWs, iname, _, _, _, _, _, _, _, _, _, _, _, rfl⟩ := hcall
+              refine ⟨_, _, _, rfl, ?_⟩
+              intro c hc
+              simp only [List.mem_append, List.mem_map] at hc
+              rcases hc with (⟨⟨p, w⟩, _, rfl⟩ | hc) | ⟨⟨f, w⟩, _, rfl⟩
+              · exact ⟨w, rfl⟩
+              · split at hc
+                · simp only [List.mem_cons, List.not_mem_nil, or_false] at hc
+                  rcases hc with rfl | rfl
+                  · exact ⟨_, rfl⟩
+                  · exact ⟨_, rfl⟩
+                · cases hc
+              · exact ⟨w, rfl⟩
+        · -- the module's inputs: the closed transition's, the clock and the reset
+          intro p hp
+          rcases hci with ⟨_, hci⟩ | ⟨_, hci, _⟩
+          · obtain ⟨outWs, _, hinp⟩ := Tools.ShippingMachineInst.closeInsts_inputs hci
+            rw [hinp] at hp
+            exact Or.inl (List.mem_filter.mp hp).1
+          · obtain ⟨outWs, _, hinp⟩ := Tools.ShippingMachineInst.closeInstsG_inputs hci
+            rw [hinp] at hp
+            have hp' := (List.mem_filter.mp hp).1
+            unfold withClockFor at hp'
+            dsimp only at hp'
+            split at hp'
+            · rcases List.mem_append.mp hp' with h | h
+              · exact Or.inl h
+              · simp only [List.mem_cons, List.not_mem_nil, or_false] at h
+                rcases h with rfl | rfl
+                · exact Or.inr (Or.inl rfl)
+                · exact Or.inr (Or.inr rfl)
+            · exact Or.inl hp'
+        · -- the closed transition's inputs: wires, the clock and the reset
+          intro p hp
+          have hinC : (closeMachine shape.layout t').inputs =
+              t'.inputs.take (t'.inputs.length - shape.layout.slots.length) ++
+                (if shape.layout.slots.isEmpty then [] else
+                  [{ name := "clk", ty := .bit }, { name := "rst", ty := .bit }]) := by
+            simp [closeMachine, hpwC]
+          have hwC : (closeMachine shape.layout t').wires = t'.wires ++
+              ps.map (fun p => ({ name := nextName p.name, ty := p.ty } : Port)) := by
+            simp [closeMachine, hpwC, hdrop]
+          rw [hinC] at hp
+          rcases List.mem_append.mp hp with h | h
+          · exact Or.inl (by rw [hwC]; exact List.mem_append_left _ (inWires' p (List.mem_of_mem_take h)))
+          · split at h
+            · simp at h
+            · simp only [List.mem_cons, List.not_mem_nil, or_false] at h
+              rcases h with rfl | rfl
+              · exact Or.inr (Or.inl rfl)
+              · exact Or.inr (Or.inr rfl)
   refine ⟨ps.map Port.name, psNodup, by rw [List.length_map, psLen], ls.map Port.name,
     by rw [List.length_map, lsLen], wired, ?_⟩
   intro bools bits env0 mems inputs slotVals hrst hold

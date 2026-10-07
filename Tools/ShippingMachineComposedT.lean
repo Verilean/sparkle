@@ -119,7 +119,7 @@ theorem wired_runT_conds {declName : Name} {shape : Sparkle.Compiler.Elab.Machin
     ∀ mn iname conns, Stmt.inst mn iname conns ∈ m.body → ∀ child cwe,
       childMap dsn.modules mn = some (child, cwe) → ∀ c ∈ inConns child.outputs conns, ∀ w,
         c.2 = .ref w → w ∉ instOutWires child.outputs conns := by
-  obtain ⟨_, _, _, _, _, _, hlink, _, _, _, _, _, _, hnames, _⟩ := wired
+  obtain ⟨_, _, _, _, _, _, hlink, _, _, _, _, _, _, hnames, _, _⟩ := wired
   obtain ⟨hnd, hfeed⟩ := hnames hfe
   refine ⟨by rw [← linkedOk_eq]; exact hlink, by rw [instNames_eq]; exact hnd, ?_⟩
   intro mn iname conns hm child cwe hc c hcin w hw

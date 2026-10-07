@@ -101,7 +101,7 @@ theorem machine_linkedTG {σ : Type} (KS : KStep σ) (hloc : KSLocal KS) {declNa
   intro i bools bits T seed st0 mems kids hin hpass hrst hclk0 hinit hchild
   have hconds := Tools.ShippingMachineComposedT.wired_runT_conds wired hfe
   obtain ⟨hwf, hnd, hnofb⟩ := hconds
-  obtain ⟨nnd, alloc, regsIn, hlets, _, _, link, _, _, _, _, gInsts, gCalls, hnames, hnoCR⟩ := wired
+  obtain ⟨nnd, alloc, regsIn, hlets, _, _, link, _, _, _, _, gInsts, gCalls, hnames, hnoCR, _⟩ := wired
   have gInsts := gInsts hfe
   have gCalls := gCalls hfe
   -- the ports: the declaration's, the calls', then the slots' and `let`s'

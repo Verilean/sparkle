@@ -68,8 +68,59 @@ theorem zip_left {α β : Type} {R : α → β → Prop} :
     · exact ⟨_, hab⟩
     · exact zip_left rest a h
 
-/-- **The cleanup keeps a closed transition, with or without slots.** -/
-theorem closeMachine_cleanup {t : Module} {lay : Layout} {B : List Stmt} {w : String}
+theorem not_allocated_clk : ¬ Allocated "clk" := by
+  intro h
+  have := h.2
+  revert this
+  decide
+
+theorem nextName_ne_rst (s : String) : nextName s ≠ "rst" := by
+  intro h
+  have := congrArg String.length h
+  have h3 : "rst".length = 3 := by decide
+  have h4 : "next".length = 4 := by decide
+  rw [nextName, String.length_append, h4, h3] at this
+  omega
+
+theorem nextName_ne_clk (s : String) : nextName s ≠ "clk" := by
+  intro h
+  have := congrArg String.length h
+  have h3 : "clk".length = 3 := by decide
+  have h4 : "next".length = 4 := by decide
+  rw [nextName, String.length_append, h4, h3] at this
+  omega
+
+/-- A closed transition's wires are distinct. -/
+theorem closeMachine_wiresNodup {t : Module} {lay : Layout} {B : List Stmt} {w : String}
+    (hbody : t.body = B ++ [.assign "out" (.ref w)])
+    (names : ∀ p ∈ t.wires, Allocated p.name)
+    (inNodup : (t.inputs.map Port.name).Nodup)
+    (wiresNodup : (t.wires.map Port.name).Nodup) :
+    ((closeMachine lay t).wires.map Port.name).Nodup := by
+  have hpw : packedWire? t.body = some w := by simp [packedWire?, hbody]
+  generalize hps : t.inputs.drop (t.inputs.length - lay.slots.length) = ps
+  have hMw : (closeMachine lay t).wires =
+      t.wires ++ ps.map fun p => { name := nextName p.name, ty := p.ty } := by
+    simp [closeMachine, hpw, hps]
+  have psNodup : (ps.map Port.name).Nodup := by
+    rw [← hps, List.map_drop]; exact inNodup.sublist (List.drop_sublist _ _)
+  rw [hMw, List.map_append, List.map_map]
+  refine List.nodup_append.mpr ⟨wiresNodup, ?_, ?_⟩
+  · show (ps.map fun p => nextName p.name).Nodup
+    rw [show (fun p : Port => nextName p.name) = nextName ∘ Port.name from rfl, ← List.map_map]
+    exact List.pairwise_map.mpr (psNodup.imp fun h he => h (nextName_inj he))
+  · intro a ha b hb hab
+    subst hab
+    obtain ⟨q, hq, rfl⟩ := List.mem_map.mp ha
+    obtain ⟨p, _, hpq⟩ := List.mem_map.mp hb
+    exact nextName_not_allocated p.name (by
+      have : (fun p : Port => ({ name := nextName p.name, ty := p.ty } : Port).name) p = q.name := hpq
+      simp only at this
+      rw [this]; exact names q hq)
+
+/-- Every statement of a closed transition is kept by the cleanup under any
+width map that agrees with the module's own off the clock and reset. -/
+theorem closeMachine_fixed {t : Module} {lay : Layout} {B : List Stmt} {w : String}
     (hbody : t.body = B ++ [.assign "out" (.ref w)])
     (typed : TypedStmts (weOf t) t.body)
     (names : ∀ p ∈ t.wires, Allocated p.name)
@@ -80,19 +131,15 @@ theorem closeMachine_cleanup {t : Module} {lay : Layout} {B : List Stmt} {w : St
       (t.inputs.drop (t.inputs.length - lay.slots.length)) lay.slots)
     (outsOk : ∀ o ∈ lay.outs, 0 < o.width ∧ outNameOk o.name = true)
     (outsNodup : (lay.outs.map (·.name)).Nodup)
-    (outTy : ∀ o ∈ lay.outs, o.ty.bitWidth = o.width) :
-    (Sparkle.IR.ZeroWidth.dropZeroWidthModule (closeMachine lay t)).body =
-        (closeMachine lay t).body ∧
-      weOf (Sparkle.IR.ZeroWidth.dropZeroWidthModule (closeMachine lay t)) =
-        weOf (closeMachine lay t) ∧
-      (Sparkle.IR.ZeroWidth.dropZeroWidthModule (closeMachine lay t)).inputs =
-        (closeMachine lay t).inputs ∧
-      (Sparkle.IR.ZeroWidth.dropZeroWidthModule (closeMachine lay t)).outputs =
-        (closeMachine lay t).outputs := by
+    (outTy : ∀ o ∈ lay.outs, o.ty.bitWidth = o.width)
+    (wm : Sparkle.IR.Optimize.WidthMap)
+    (hagree : ∀ x, x ≠ "clk" → x ≠ "rst" →
+      wm.get? x = (Sparkle.IR.Optimize.buildWidthMap (closeMachine lay t)).get? x) :
+    ∀ st ∈ (closeMachine lay t).body, Sparkle.IR.ZeroWidth.dzStmt wm st = some st := by
   have hpw : packedWire? t.body = some w := by simp [packedWire?, hbody]
   have hdrop : t.body.dropLast = B := by simp [hbody]
   generalize hps : t.inputs.drop (t.inputs.length - lay.slots.length) = ps at slots
-  generalize hM : closeMachine lay t = M
+  generalize hM : closeMachine lay t = M at hagree ⊢
   have hMw : M.wires = t.wires ++ ps.map fun p => { name := nextName p.name, ty := p.ty } := by
     rw [← hM]; simp [closeMachine, hpw, hps]
   have hMi : M.inputs = t.inputs.take (t.inputs.length - lay.slots.length) ++
@@ -163,11 +210,9 @@ theorem closeMachine_cleanup {t : Module} {lay : Layout} {B : List Stmt} {w : St
       rw [h2] at hpos; exact hpos
     rw [widthMap_internal hndM hposM]
     simp only [ne_eq, Option.some.injEq]; omega
-  unfold Sparkle.IR.ZeroWidth.dropZeroWidthModule
-  split
-  · exact ⟨rfl, rfl, rfl, rfl⟩
-  refine ⟨?_, Tools.ShippingPostSoundness.weOf_dropWires M hndM, rfl, rfl⟩
-  apply Tools.ShippingPostSoundness.filterMap_eq_self
+  -- the agreement at the names the statements read and write
+  have allocNe : ∀ x, Allocated x → x ≠ "clk" ∧ x ≠ "rst" := fun x hx =>
+    ⟨fun h => not_allocated_clk (h ▸ hx), fun h => Tools.ShippingRegisterSoundness.not_allocated_rst (h ▸ hx)⟩
   intro st hst
   rw [hMb] at hst
   simp only [List.mem_append] at hst
@@ -175,10 +220,19 @@ theorem closeMachine_cleanup {t : Module} {lay : Layout} {B : List Stmt} {w : St
   · -- a statement of the transition
     obtain ⟨l, e, n, rfl, ht, hl⟩ := typed st (by rw [hbody]; exact List.mem_append_left _ hB)
     have hwm : ∀ x ∈ Sparkle.IR.Reorder.refsOf e,
-        Sparkle.IR.ZeroWidth.exprWidth (Sparkle.IR.Optimize.buildWidthMap M) (.ref x) ≠ 0 := by
+        Sparkle.IR.ZeroWidth.exprWidth wm (.ref x) ≠ 0 := by
       intro x hx
       have hpos := ht.refs_positive x hx
       have hg := widthMap_internal hndM (show 0 < weOf M x by rw [hweT x hpos]; exact hpos)
+      have hxa : Allocated x := by
+        unfold weOf at hpos
+        cases hf : t.wires.find? (fun p => p.name == x) with
+        | none => rw [hf] at hpos; simp at hpos
+        | some p =>
+          have hx := List.find?_some hf
+          simp only [beq_iff_eq] at hx
+          exact hx ▸ names p (List.mem_of_find?_eq_some hf)
+      rw [← hagree x (allocNe x hxa).1 (allocNe x hxa).2] at hg
       simp only [Sparkle.IR.ZeroWidth.exprWidth, Std.HashMap.getD_eq_getD_getElem?,
         ← Std.HashMap.get?_eq_getElem?, hg, Option.getD_some]
       rw [hweT x hpos]; omega
@@ -214,30 +268,40 @@ theorem closeMachine_cleanup {t : Module} {lay : Layout} {B : List Stmt} {w : St
                 · simp at hm
                 · simp at hm)]
           simp
-    have hdz := dzExpr_typed ht (Sparkle.IR.Optimize.buildWidthMap M) hwm
+    have hdz := dzExpr_typed ht wm hwm
+    have hnz' : wm.get? l ≠ some 0 := by
+      have hl' : l ≠ "clk" ∧ l ≠ "rst" := by
+        rcases hl with hl | rfl
+        · have hpl : 0 < weOf t l := by rw [hl]; exact ht.positive
+          unfold weOf at hpl
+          cases hf : t.wires.find? (fun p => p.name == l) with
+          | none => rw [hf] at hpl; simp at hpl
+          | some p =>
+            have hx := List.find?_some hf
+            simp only [beq_iff_eq] at hx
+            exact allocNe l (hx ▸ names p (List.mem_of_find?_eq_some hf))
+        · exact ⟨by decide, by decide⟩
+      rw [hagree l hl'.1 hl'.2]; exact hnz
     simp only [Sparkle.IR.ZeroWidth.dzStmt]
-    cases hg : (Sparkle.IR.Optimize.buildWidthMap M).get? l with
+    cases hg : wm.get? l with
     | none => simp [hdz]
     | some k =>
       cases k with
-      | zero => exact absurd hg hnz
+      | zero => exact absurd hg hnz'
       | succ k => simp [hdz]
-  · exact dz_nextAssigns _ w ps lay.slots nextEntry st hN
+  · exact dz_nextAssigns _ w ps lay.slots (fun p hp => by
+      rw [hagree _ (nextName_ne_clk _) (nextName_ne_rst _)]; exact nextEntry p hp) st hN
   · exact dz_registers _ lay.resetKind ps lay.slots st hR
   · -- an output's part-select of the packed wire
     simp only [outAssigns, List.mem_map] at hO
     obtain ⟨o, ho, rfl⟩ := hO
-    simp only [Sparkle.IR.ZeroWidth.dzStmt, outEntry o ho]
+    have hok := (outsOk o ho).2
+    simp only [outNameOk, Bool.and_eq_true, bne_iff_ne, ne_eq] at hok
+    simp only [Sparkle.IR.ZeroWidth.dzStmt, hagree o.name hok.2 hok.1.2, outEntry o ho]
     have := (outsOk o ho).1
     split
     · rename_i h; simp at h; omega
     · simp [fieldRhs, Sparkle.IR.ZeroWidth.dzExpr]
-
-theorem not_allocated_clk : ¬ Allocated "clk" := by
-  intro h
-  have := h.2
-  revert this
-  decide
 
 /-- The register of slot `k`. -/
 theorem mem_registers (rk : ResetKind) :
@@ -269,21 +333,37 @@ theorem registers_mem (rk : ResetKind) :
   | [], _, _, h => by simp [registers] at h
   | _ :: _, [], _, h => by simp [registers] at h
 
-theorem nextName_ne_rst (s : String) : nextName s ≠ "rst" := by
-  intro h
-  have := congrArg String.length h
-  have h3 : "rst".length = 3 := by decide
-  have h4 : "next".length = 4 := by decide
-  rw [nextName, String.length_append, h4, h3] at this
-  omega
-
-theorem nextName_ne_clk (s : String) : nextName s ≠ "clk" := by
-  intro h
-  have := congrArg String.length h
-  have h3 : "clk".length = 3 := by decide
-  have h4 : "next".length = 4 := by decide
-  rw [nextName, String.length_append, h4, h3] at this
-  omega
+/-- **The cleanup keeps a closed transition, with or without slots.** -/
+theorem closeMachine_cleanup {t : Module} {lay : Layout} {B : List Stmt} {w : String}
+    (hbody : t.body = B ++ [.assign "out" (.ref w)])
+    (typed : TypedStmts (weOf t) t.body)
+    (names : ∀ p ∈ t.wires, Allocated p.name)
+    (inWires : ∀ p ∈ t.inputs, p ∈ t.wires)
+    (inNodup : (t.inputs.map Port.name).Nodup)
+    (wiresNodup : (t.wires.map Port.name).Nodup)
+    (slots : Zip₂ (SlotOk (weOf t))
+      (t.inputs.drop (t.inputs.length - lay.slots.length)) lay.slots)
+    (outsOk : ∀ o ∈ lay.outs, 0 < o.width ∧ outNameOk o.name = true)
+    (outsNodup : (lay.outs.map (·.name)).Nodup)
+    (outTy : ∀ o ∈ lay.outs, o.ty.bitWidth = o.width) :
+    (Sparkle.IR.ZeroWidth.dropZeroWidthModule (closeMachine lay t)).body =
+        (closeMachine lay t).body ∧
+      weOf (Sparkle.IR.ZeroWidth.dropZeroWidthModule (closeMachine lay t)) =
+        weOf (closeMachine lay t) ∧
+      (Sparkle.IR.ZeroWidth.dropZeroWidthModule (closeMachine lay t)).inputs =
+        (closeMachine lay t).inputs ∧
+      (Sparkle.IR.ZeroWidth.dropZeroWidthModule (closeMachine lay t)).outputs =
+        (closeMachine lay t).outputs := by
+  have hfix := closeMachine_fixed hbody typed names inWires inNodup wiresNodup slots outsOk
+    outsNodup outTy _ (fun _ _ _ => rfl)
+  have hpw : packedWire? t.body = some w := by simp [packedWire?, hbody]
+  have hndM : ((closeMachine lay t).wires.map Port.name).Nodup :=
+    (closeMachine_wiresNodup hbody names inNodup wiresNodup)
+  unfold Sparkle.IR.ZeroWidth.dropZeroWidthModule
+  split
+  · exact ⟨rfl, rfl, rfl, rfl⟩
+  exact ⟨Tools.ShippingPostSoundness.filterMap_eq_self _ hfix,
+    Tools.ShippingPostSoundness.weOf_dropWires _ hndM, rfl, rfl⟩
 
 theorem nextAssigns_mem (w : String) :
     ∀ (ps : List Port) (fs : List SlotField) (st : Stmt), st ∈ nextAssigns w ps fs →
@@ -340,5 +420,110 @@ theorem closeMachine_noClkRst {t : Module} {lay : Layout} {B : List Stmt} {w : S
     have hok := (outsOk o ho).2
     simp only [outNameOk, Bool.and_eq_true, bne_iff_ne, ne_eq] at hok
     exact ⟨hok.1.2, hok.2⟩
+
+/-! ## Modules with instances -/
+
+/-- A fold over ports decides the entry of a name it contains, whatever the
+start. -/
+theorem wmFold_indep (ports : List Port) :
+    ∀ (acc acc' : Sparkle.IR.Optimize.WidthMap) (x : String), x ∈ ports.map (·.name) →
+      (ports.foldl (fun acc p => acc.insert p.name p.ty.bitWidth) acc).get? x =
+        (ports.foldl (fun acc p => acc.insert p.name p.ty.bitWidth) acc').get? x := by
+  induction ports with
+  | nil => intro _ _ _ h; cases h
+  | cons q rest ih =>
+    intro acc acc' x hx
+    simp only [List.foldl_cons]
+    by_cases hr : x ∈ rest.map (·.name)
+    · exact ih _ _ x hr
+    · rw [Tools.ShippingPostSoundness.wmFold_notin rest _ x hr,
+        Tools.ShippingPostSoundness.wmFold_notin rest _ x hr]
+      have hq : x = q.name := by
+        rcases List.mem_cons.mp (by simpa using hx : x ∈ q.name :: rest.map (·.name)) with h | h
+        · exact h
+        · exact absurd h hr
+      subst hq
+      simp
+
+/-- **Width maps of a module and its closed transition agree off the clock and
+reset**, when they share wires and outputs and the module's inputs are the
+transition's (some dropped) and the clock and reset. -/
+theorem buildWidthMap_agree {M m : Module} (hw : m.wires = M.wires) (ho : m.outputs = M.outputs)
+    (hin : ∀ p ∈ m.inputs, p ∈ M.inputs ∨ p.name = "clk" ∨ p.name = "rst")
+    (hinW : ∀ p ∈ M.inputs, p ∈ M.wires ∨ p.name = "clk" ∨ p.name = "rst") :
+    ∀ x, x ≠ "clk" → x ≠ "rst" →
+      (Sparkle.IR.Optimize.buildWidthMap m).get? x =
+        (Sparkle.IR.Optimize.buildWidthMap M).get? x := by
+  intro x hc hr
+  simp only [Sparkle.IR.Optimize.buildWidthMap]
+  rw [hw, ho]
+  by_cases hxw : x ∈ M.wires.map (·.name)
+  · exact wmFold_indep M.wires _ _ x hxw
+  · rw [Tools.ShippingPostSoundness.wmFold_notin M.wires _ x hxw,
+      Tools.ShippingPostSoundness.wmFold_notin M.wires _ x hxw]
+    by_cases hxo : x ∈ M.outputs.map (·.name)
+    · exact wmFold_indep M.outputs _ _ x hxo
+    · rw [Tools.ShippingPostSoundness.wmFold_notin M.outputs _ x hxo,
+        Tools.ShippingPostSoundness.wmFold_notin M.outputs _ x hxo]
+      have hxM : x ∉ M.inputs.map (·.name) := by
+        intro hm
+        obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hm
+        rcases hinW p hp with h | h | h
+        · exact hxw (List.mem_map_of_mem h)
+        · exact hc h
+        · exact hr h
+      have hxm : x ∉ m.inputs.map (·.name) := by
+        intro hm
+        obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hm
+        rcases hin p hp with h | h | h
+        · exact hxM (List.mem_map_of_mem h)
+        · exact hc h
+        · exact hr h
+      rw [Tools.ShippingPostSoundness.wmFold_notin m.inputs _ x hxm,
+        Tools.ShippingPostSoundness.wmFold_notin M.inputs _ x hxM]
+
+/-- An instance statement connected by plain wires is kept by the cleanup. -/
+theorem dz_inst_refs (wm : Sparkle.IR.Optimize.WidthMap) (mn i : String)
+    (conns : List (String × Expr)) (h : ∀ c ∈ conns, ∃ w, c.2 = .ref w) :
+    Sparkle.IR.ZeroWidth.dzStmt wm (.inst mn i conns) = some (.inst mn i conns) := by
+  simp only [Sparkle.IR.ZeroWidth.dzStmt, Option.some.injEq, Stmt.inst.injEq, true_and]
+  conv => rhs; rw [← List.map_id conns]
+  apply List.map_congr_left
+  intro c hc
+  obtain ⟨w, hw⟩ := h c hc
+  obtain ⟨k, e⟩ := c
+  simp only at hw
+  subst hw
+  simp [Sparkle.IR.ZeroWidth.dzExpr]
+
+/-- **The cleanup keeps a module with instances**: its statements are its
+closed transition's (each kept under any width map agreeing off the clock and
+reset) and instance statements connected by plain wires. -/
+theorem calls_cleanup {M m : Module}
+    (hfixM : ∀ wm : Sparkle.IR.Optimize.WidthMap, (∀ x, x ≠ "clk" → x ≠ "rst" →
+      wm.get? x = (Sparkle.IR.Optimize.buildWidthMap M).get? x) →
+      ∀ st ∈ M.body, Sparkle.IR.ZeroWidth.dzStmt wm st = some st)
+    (L : List Stmt) (hL : ∀ st ∈ L, ∃ mn i conns, st = .inst mn i conns ∧
+      ∀ c ∈ conns, ∃ w, c.2 = .ref w)
+    (hperm : (M.body ++ L).Perm m.body) (hw : m.wires = M.wires) (ho : m.outputs = M.outputs)
+    (hin : ∀ p ∈ m.inputs, p ∈ M.inputs ∨ p.name = "clk" ∨ p.name = "rst")
+    (hinW : ∀ p ∈ M.inputs, p ∈ M.wires ∨ p.name = "clk" ∨ p.name = "rst")
+    (hndM : (M.wires.map Port.name).Nodup) :
+    (Sparkle.IR.ZeroWidth.dropZeroWidthModule m).body = m.body ∧
+      weOf (Sparkle.IR.ZeroWidth.dropZeroWidthModule m) = weOf m ∧
+      (Sparkle.IR.ZeroWidth.dropZeroWidthModule m).inputs = m.inputs ∧
+      (Sparkle.IR.ZeroWidth.dropZeroWidthModule m).outputs = m.outputs := by
+  have hagree := buildWidthMap_agree hw ho hin hinW
+  have hnd : (m.wires.map Port.name).Nodup := by rw [hw]; exact hndM
+  unfold Sparkle.IR.ZeroWidth.dropZeroWidthModule
+  split
+  · exact ⟨rfl, rfl, rfl, rfl⟩
+  refine ⟨?_, Tools.ShippingPostSoundness.weOf_dropWires _ hnd, rfl, rfl⟩
+  apply Tools.ShippingPostSoundness.filterMap_eq_self
+  intro st hst
+  rcases List.mem_append.mp (hperm.mem_iff.mpr hst) with h | h
+  · exact hfixM _ hagree st h
+  · obtain ⟨mn, i, conns, rfl, hc⟩ := hL st h
+    exact dz_inst_refs _ mn i conns hc
 
 end Tools.ShippingMachineCleanup
