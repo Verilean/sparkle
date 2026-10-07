@@ -133,4 +133,69 @@ theorem machine_traceL_of_loop_causal {declName : Name} (d : MachineData) {ι : 
     simp only [letObsLoop, List.getElem?_map, hl, Option.map_some, Option.some.injEq] at hg
     rw [← hg]
 
+/-- The hardware `let`s' values of a declaration without registers (the
+state the constant `inits`). -/
+def letObsComb (d : MachineData) {ι : Type} (dom : ι → DomainConfig) (inits : HList (tys d.ss))
+    (ext : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) →
+      (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
+    (extB : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → Nat → Signal (dom i) Bool) :
+    (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat) :=
+  fun i bools bits => d.ls.map fun l => fun j => enc l.1 (eval
+    (fun k => (typedVal d.nIn d.bpos d.vpos d.ss d.ls (extB i bools bits) (ext i bools bits) j
+      inits).b (d.bpos k))
+    (fun k w => (typedVal d.nIn d.bpos d.vpos d.ss d.ls (extB i bools bits) (ext i bools bits) j
+      inits).v (d.vpos k) w) l.2)
+
+set_option maxHeartbeats 2000000 in
+/-- `machine_trace_of_comb_calls` with the wiring and the `let` wires. -/
+theorem machine_traceL_of_comb_calls {declName : Name} (d : MachineData) {ι : Type}
+    (dom : ι → DomainConfig) (inits : HList (tys d.ss))
+    (ext : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) →
+      (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
+    (extB : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → Nat → Signal (dom i) Bool)
+    (src : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat))
+    (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    (hinit : d.initOk inits = true)
+    (hnext : ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+      (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) (t : Nat),
+      inits = evalTerms
+        (fun j => (typedVal d.nIn d.bpos d.vpos d.ss d.ls (extB i bools bits) (ext i bools bits)
+          t inits).b (d.bpos j))
+        (fun j w => (typedVal d.nIn d.bpos d.vpos d.ss d.ls (extB i bools bits) (ext i bools bits)
+          t inits).v (d.vpos j) w)
+        d.nexts)
+    (hres : ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+      (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) (t : Nat),
+      (src i bools bits).map (fun g => g t) =
+        d.outs.map fun o => enc o.1 (eval
+          (fun k => (typedVal d.nIn d.bpos d.vpos d.ss d.ls (extB i bools bits) (ext i bools bits)
+            t inits).b (d.bpos k))
+          (fun k w => (typedVal d.nIn d.bpos d.vpos d.ss d.ls (extB i bools bits) (ext i bools bits)
+            t inits).v (d.vpos k) w)
+          o.2))
+    {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w
+      (m, design) w')
+    (entry : MachineDefines mctx mref cctx cref declName d.shape)
+    (closes : MachineCloses mctx mref cctx cref declName d.shape) :
+    MachineTraceLB declName d m design dom src ext extB (letObsComb d dom inits ext extB) := by
+  refine machine_trace_lets_of_streamB d dom inits src (letObsComb d dom inits ext extB) ok hbody
+    hinit ext extB ?_ hr entry closes
+  intro i bools bits
+  refine ⟨fun _ => inits, rfl, fun t => hnext i bools bits t, hres i bools bits, ?_⟩
+  intro j q g l hg hl
+  simp only [letObsComb, List.getElem?_map, hl, Option.map_some, Option.some.injEq] at hg
+  rw [← hg]
+
 end Tools.ShippingMachineCausal

@@ -1,5 +1,6 @@
 import Sparkle
 import Tools.ShippingMachineMemCommand
+import Tests.Compiler.ShippingMachineFuseTest
 
 /-! A hand-written `Signal.loop` reading combinational-read memories,
 composed with its memory children: `#machine_composedT` proves that the
@@ -47,10 +48,14 @@ def mixedMems (we : Signal defaultDomain Bool) (wa : Signal defaultDomain (BitVe
 #machine_composedT twoMems
 #machine_endpoint mixedMems
 #machine_composedT mixedMems
+-- a fused nested loop with a memory and a dead memory (its endpoint is for
+-- the fused value, transported back to the declaration)
+#machine_composedT Sparkle.Tests.Compiler.ShippingMachineFuseTest.withMemory
 
 run_cmd do
   if (← get).messages.hasErrors then throwError "memory composition regression failed"
   for name in [``memCounter.machine_composedT, ``twoMems.machine_composedT, ``mixedMems.machine_composedT,
+      ``Sparkle.Tests.Compiler.ShippingMachineFuseTest.withMemory.machine_composedT,
       ``Tools.ShippingMachineMemLinked.machine_linkedT_mem] do
     for ax in ← Lean.collectAxioms name do
       unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do

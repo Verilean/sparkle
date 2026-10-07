@@ -3949,9 +3949,18 @@ The gaps, in the order they weaken the claim:
   from zeroed memories, the operand Signals read off the calls (kernel
   `rfl`s) — `Tests/Compiler/ShippingMachineMemLinkedTest.lean`. The memory
   placeholder is now a structured name (`SparkleMem.combo.aw.dw`) so that
-  `memChild?` reduces in the kernel. NEXT: the corpus memory parents (H.264
-  Quant/Dequant/IDCT/…, then the frame/MP4 encoders), synchronous-read
-  memories (`memModule false`), sequential machine children, multi-level.
+  `memChild?` reduces in the kernel. Both read kinds (`memRead`: combinational
+  `memChild_run`, synchronous `memSyncChild_run`); endpoint heads
+  `machine_trace_of_loop_causal` (also under the fused / sign-normalised
+  `Eq.mpr` transport) and `machine_trace_of_comb_calls`
+  (`machine_traceL_of_comb_calls`). CORPUS: every declaration whose calls are
+  all memories — 14 of 14 (H.264 Quant, Dequant, IDCT, ForwardDCT,
+  Reconstruct, QuantRoundtrip, CAVLC, Encoder/Decoder pipelines, FrameEncoder,
+  MP4Encoder; YOLOv8 ActivationBuffer; the fused-loop test) — has a
+  kernel-checked `machine_composedT`. NEXT: sequential machine children (the
+  zero-width cleanup clause for slot machines, the child's run at the full
+  entry via `refineCheck_transfer`, `connEnvS` ↔ `seedIn`, the call's argument
+  Signals, a reset-state hypothesis on the instances), then multi-level.
 - [ ] **F7. Synthesis and silicon.**  Out of scope and worth stating so
   the claim is not overread: the chain ends at emitted SystemVerilog.
   Trusting the synthesis tool and the fabric is the same class of trust

@@ -55,8 +55,26 @@ def generateCore (declName : Name) : MetaM Name := do
   progress s!"{declName}: composedT"
   let r ← readMachine declName
   if r.shape.insts.isEmpty then throwError "{declName}: no call"
-  let args ← soundArgs declName ``Tools.ShippingMachineCausal.machine_trace_of_loop_causal
-  let pL := mkAppN (mkConst ``Tools.ShippingMachineCausal.machine_traceL_of_loop_causal) args
+  -- the endpoint's head; a rewritten value (fused loops, sign operations) is
+  -- transported back to the declaration (`Eq.mpr` of `congrArg _ heq`)
+  let some (.thmInfo ti) := (← getEnv).find? (declName ++ `machine_sound)
+    | throwError "{declName}: no machine_sound"
+  let mut v := ti.value
+  let mut back? : Option (Lean.Expr × Lean.Expr) := none   -- (heq, the rewritten source)
+  if v.isAppOfArity ``Eq.mpr 4 then
+    let hT := v.getAppArgs[2]!
+    unless hT.isAppOfArity ``congrArg 6 do throwError "{declName}: the endpoint's transport"
+    let heq := hT.getAppArgs[5]!
+    let some (_, _, srcN) := (← inferType heq).eq? | throwError "{declName}: the transport's equation"
+    back? := some (heq, srcN)
+    v := v.getAppArgs[3]!
+  let headL ← if v.isAppOf ``Tools.ShippingMachineCausal.machine_trace_of_loop_causal then
+      pure ``Tools.ShippingMachineCausal.machine_traceL_of_loop_causal
+    else if v.isAppOf ``Tools.ShippingMachineCausal.machine_trace_of_comb_calls then
+      pure ``Tools.ShippingMachineCausal.machine_traceL_of_comb_calls
+    else throwError "{declName}.machine_sound is not built from machine_trace_of_loop_causal or machine_trace_of_comb_calls"
+  let args := v.getAppArgs
+  let pL := mkAppN (mkConst headL) args
   forallTelescope (← inferType pL) fun xs _ => do
   let h := mkAppN pL xs
   let mut p ← mkAppM ``Tools.ShippingMachineMemLinked.machine_linkedT_mem #[h]
@@ -71,7 +89,13 @@ def generateCore (declName : Name) : MetaM Name := do
   let hcallsT := (← whnf (← inferType p)).bindingDomain!
   let hcalls ← proveByTactic hcallsT (← callsTactic declName r.shape.insts)
   p := mkApp p hcalls
-  let value ← mkLambdaFVars xs p
+  let mut value ← mkLambdaFVars xs p
+  if let some (heq, srcN) := back? then
+    let T ← inferType value
+    let motT ← kabstract T srcN
+    unless motT.hasLooseBVars do throwError "{declName}: the theorem does not read the source"
+    let hT ← mkCongrArg (.lam `s (← inferType srcN) motT .default) heq
+    value ← mkEqMPR hT value
   let name := declName ++ `machine_composedT
   progress s!"{name}: checking"
   addTheorem name (← inferType value) value
@@ -80,7 +104,8 @@ def generateCore (declName : Name) : MetaM Name := do
 def generate (declName : Name) : MetaM Name := do
   let saved ← getEnv
   try
-    withOptions (fun o => Lean.Elab.async.set o false) (generateCore declName)
+    withOptions (fun o => maxRecDepth.set (Lean.Elab.async.set o false) 1000000) <|
+      withTheReader Core.Context (fun c => { c with maxRecDepth := 1000000 }) (generateCore declName)
   catch ex =>
     setEnv saved
     throw ex
