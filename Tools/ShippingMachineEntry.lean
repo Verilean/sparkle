@@ -1,6 +1,7 @@
 import Tools.ShippingMachineClose
 import Tools.ShippingMachineTrace
 import Tools.ShippingMachineInst
+import Tools.ShippingMachineInstG
 import Tools.ShippingUnifiedExecutionSoundness
 
 /-! # A state machine through the real synthesis
@@ -679,7 +680,21 @@ def MachineWired (declName : Name) (shape : MachineShape) (ids : List FVarId)
     (Sparkle.IR.ZeroWidth.dropZeroWidthModule m).body = m.body ∧
     weOf (Sparkle.IR.ZeroWidth.dropZeroWidthModule m) = weOf m ∧
     (Sparkle.IR.ZeroWidth.dropZeroWidthModule m).inputs = m.inputs ∧
-    (Sparkle.IR.ZeroWidth.dropZeroWidthModule m).outputs = m.outputs)
+    (Sparkle.IR.ZeroWidth.dropZeroWidthModule m).outputs = m.outputs) ∧
+  -- calls with several outputs or of sequential children: every instance
+  -- statement is a call group's (`closeInstsG`) ...
+  (shape.instFields ≠ [] → ∀ st ∈ m.body, Sparkle.IR.Machine.isInst st = true →
+    ∃ (args : List Nat) (outs : List (Nat × String)) (mc : Sparkle.IR.AST.Module),
+      Tools.ShippingMachineInstG.CallStmtG nIn kI n names args outs mc st ∧
+      moduleByName dsn.modules mc.name = some mc ∧ outs ≠ [] ∧
+      ∀ e ∈ outs, (shape.insts.map (·.2.1))[e.1]? = some args ∧
+        shape.instFields.getD e.1 "" = e.2) ∧
+  -- ... and every call is read from its group's instance statement
+  (shape.instFields ≠ [] → ∀ k, k < kI → ∃ st ∈ m.body,
+    ∃ (args : List Nat) (outs : List (Nat × String)) (mc : Sparkle.IR.AST.Module),
+      Tools.ShippingMachineInstG.CallStmtG nIn kI n names args outs mc st ∧
+      moduleByName dsn.modules mc.name = some mc ∧ (k, shape.instFields.getD k "") ∈ outs ∧
+      (shape.insts.map (·.2.1))[k]? = some args)
 
 /-- **One cycle of a compiled state machine.** The module the machine route
 returns has one register per slot (`regs`, in slot order) and, on every
@@ -1266,7 +1281,7 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
     have outs0 : (closeMachine shape.layout t').outputs =
         shape.layout.outs.map (fun o => ({ name := o.name, ty := o.ty } : Port)) := by
       unfold closeMachine; rw [hpwC]
-    refine ⟨namesNodup, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+    refine ⟨namesNodup, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
     · intro x hx
       obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hx
       exact pb.wireNames p (pb.inputWires p hp)
@@ -1375,6 +1390,33 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
               rw [tInputs]; rw [hin'] at hp; exact List.mem_append_left _ hp))
           (by rw [hwires']; exact ready.wiresNodup) outsOk outsNodup houtTy hsl
       · exact absurd hnil hne
+    · intro hfe st hst hinst
+      rcases hmt with ⟨_, hm'⟩ | ⟨_, children, hci⟩
+      · subst hm'; exact (notInst0 _ hst hinst).elim
+      · have hci : closeInstsG (machNIn shape) shape.insts.length shape.layout.slots.length
+            (t.inputs.map (·.name)) (shape.insts.map (·.2.1)) shape.instFields children
+            (closeMachine shape.layout t', d₀) = some (m, d) := by
+          rcases hci with ⟨hfe0, _⟩ | ⟨_, h⟩
+          · exact absurd hfe0 hfe
+          · exact h
+        rcases Tools.ShippingMachineInstG.closeInstsG_insts hci st hst hinst with h0 |
+          ⟨args, outs, child, mc, hcall, hmc, hne, hall⟩
+        · exact (notInst0 _ h0 hinst).elim
+        · refine ⟨args, outs, mc, hcall, ?_, hne, fun e he => ⟨(hall e he).1, (hall e he).2.2⟩⟩
+          rw [Tools.ShippingMachineInst.moduleByName_name hmc]; exact hmc
+    · intro hfe k hk
+      rcases hmt with ⟨hi, _⟩ | ⟨_, children, hci⟩
+      · rw [hi] at hk; exact absurd hk (Nat.not_lt_zero k)
+      · have hci : closeInstsG (machNIn shape) shape.insts.length shape.layout.slots.length
+            (t.inputs.map (·.name)) (shape.insts.map (·.2.1)) shape.instFields children
+            (closeMachine shape.layout t', d₀) = some (m, d) := by
+          rcases hci with ⟨hfe0, _⟩ | ⟨_, h⟩
+          · exact absurd hfe0 hfe
+          · exact h
+        obtain ⟨st, hst, args, outs, child, mc, hcall, hmc, hmem, hargs, _⟩ :=
+          Tools.ShippingMachineInstG.closeInstsG_calls hci k (by simpa using hk)
+        refine ⟨st, hst, args, outs, mc, hcall, ?_, hmem, hargs⟩
+        rw [Tools.ShippingMachineInst.moduleByName_name hmc]; exact hmc
   refine ⟨ps.map Port.name, psNodup, by rw [List.length_map, psLen], ls.map Port.name,
     by rw [List.length_map, lsLen], wired, ?_⟩
   intro bools bits env0 mems inputs slotVals hrst hold

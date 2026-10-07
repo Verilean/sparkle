@@ -454,7 +454,7 @@ theorem child_full_post {declName : Name} {d : MachineData} {ι : Type} {dom : �
     Tools.ShippingMachineShipping.synthesizeCombinational_checked hr
   have h := sound hcore entry closes
   obtain ⟨_, _, _, _, _, _, _, _, _, wired, _⟩ := id h
-  obtain ⟨_, _, _, _, _, _, _, _, _, hall, hclean⟩ := wired
+  obtain ⟨_, _, _, _, _, _, _, _, _, hall, hclean, _⟩ := wired
   have hall := hall hnoI hsl
   obtain ⟨hb, hw, hi, ho⟩ := hclean hnoI hsl houtTy
   obtain ⟨o, ho1⟩ : ∃ o, d.shape.layout.outs = [o] := by
