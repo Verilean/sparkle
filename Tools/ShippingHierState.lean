@@ -699,4 +699,109 @@ theorem runModuleT_of_childRuns (we : WEnv) (children : String → Option (Modul
       rw [kidsAfter_inst kids (nx m kids) (mx m kids) body kids hnd mn iname conns hm]
       exact hct
 
+/-! ## Instance outputs keep their seeds in the open run -/
+
+/-- The targets of a body's assignments. -/
+def assignTargets : List Stmt → List String
+  | [] => []
+  | .assign l _ :: rest => l :: assignTargets rest
+  | _ :: rest => assignTargets rest
+
+/-- The open fold of a body without memories changes only assignment
+targets. -/
+theorem evalAssigns_assignFrame (we : WEnv) (mems : MEnv)
+    (children : String → Option (Module × WEnv)) :
+    ∀ (body : List Stmt) (env result : Env) (z : String), linkedWF children body = true →
+      evalAssigns we mems body env = some result → z ∉ assignTargets body → result z = env z
+  | [], _, _, _, _, h, _ => by cases h; rfl
+  | .assign l r :: rest, env, result, z, hwf, h, hz => by
+    have hwf' : linkedWF children rest = true := by
+      simp only [linkedWF, Bool.and_eq_true] at hwf; exact hwf.2
+    have h' : ((evalExpr we env r).bind fun v =>
+        evalAssigns we mems rest (fun m => if m = l then v else env m)) = some result := h
+    cases hv : evalExpr we env r with
+    | none => rw [hv] at h'; cases h'
+    | some v =>
+      rw [hv] at h'
+      simp only [assignTargets, List.mem_cons, not_or] at hz
+      rw [evalAssigns_assignFrame we mems children rest _ result z hwf' h' hz.2]
+      simp [hz.1]
+  | .inst mn iname conns :: rest, env, result, z, hwf, h, hz => by
+    have hwf' : linkedWF children rest = true := by
+      simp only [linkedWF, Bool.and_eq_true] at hwf; exact hwf.2
+    exact evalAssigns_assignFrame we mems children rest env result z hwf' h (by
+      simpa [assignTargets] using hz)
+  | .register o c rk i iv :: rest, env, result, z, hwf, h, hz =>
+    evalAssigns_assignFrame we mems children rest env result z hwf h (by
+      simpa [assignTargets] using hz)
+  | .memory .. :: _, _, _, _, hwf, _, _ => by simp [linkedWF] at hwf
+
+theorem assignTargets_sub_linked {children : String → Option (Module × WEnv)} :
+    ∀ (body : List Stmt) (n : String), n ∈ assignTargets body → n ∈ linkedWrites children body
+  | [], _, h => by cases h
+  | .assign l r :: rest, n, h => by
+    simp only [assignTargets, List.mem_cons] at h
+    rcases h with rfl | h
+    · exact List.mem_cons_self
+    · exact List.mem_cons_of_mem _ (assignTargets_sub_linked rest n h)
+  | .inst .. :: rest, n, h => List.mem_append_right _ (assignTargets_sub_linked rest n h)
+  | .register .. :: rest, n, h => List.mem_append_right _ (assignTargets_sub_linked rest n h)
+  | .memory .. :: rest, n, h => List.mem_append_right _ (assignTargets_sub_linked rest n h)
+
+/-- An instance's output wire is never an assignment target. -/
+theorem instOuts_not_assigned {children : String → Option (Module × WEnv)} :
+    ∀ (body : List Stmt) (w : String), linkedWF children body = true →
+      w ∈ bodyInstOuts children body → w ∉ assignTargets body
+  | [], _, _, h, _ => by simp [bodyInstOuts] at h
+  | .assign l r :: rest, w, hwf, h, hw => by
+    have hwf' : (!(bodyInstOuts children rest).contains l &&
+        (refsOf r).all (fun n => !(bodyInstOuts children rest).contains n) &&
+        linkedWF children rest) = true := hwf
+    simp only [Bool.and_eq_true, Bool.not_eq_true'] at hwf'
+    have hrest : w ∈ bodyInstOuts children rest := by
+      simpa [bodyInstOuts, stmtInstOuts] using h
+    simp only [assignTargets, List.mem_cons] at hw
+    rcases hw with rfl | hw
+    · have := hwf'.1.1
+      simp [hrest] at this
+    · exact instOuts_not_assigned rest w hwf'.2 hrest hw
+  | .inst mn iname conns :: rest, w, hwf, h, hw => by
+    have hwf2 := hwf
+    simp only [linkedWF, Bool.and_eq_true] at hwf2
+    have hrestwf := hwf2.2
+    have hw' : w ∈ assignTargets rest := by simpa [assignTargets] using hw
+    simp only [bodyInstOuts, List.mem_append] at h
+    rcases h with h | h
+    · cases hc : children mn with
+      | none => simp [stmtInstOuts, hc] at h
+      | some cp =>
+        obtain ⟨child, cwe⟩ := cp
+        simp only [stmtInstOuts, hc] at h
+        have hm := hwf2.1
+        rw [hc] at hm
+        simp only [Bool.and_eq_true, List.all_eq_true, Bool.not_eq_true'] at hm
+        have := hm.1.1 w h
+        have hlw := assignTargets_sub_linked (children := children) rest w hw'
+        simp [hlw] at this
+    · exact instOuts_not_assigned rest w hrestwf h hw'
+  | .register .. :: rest, w, hwf, h, hw =>
+    instOuts_not_assigned rest w hwf (by simpa [bodyInstOuts, stmtInstOuts] using h)
+      (by simpa [assignTargets] using hw)
+  | .memory .. :: _, _, hwf, _, _ => by simp [linkedWF] at hwf
+
+/-- The open run's seeding relation from the same seed: instance outputs
+keep their seeds. -/
+theorem seed_seedOuts {we : WEnv} {children : String → Option (Module × WEnv)} {mems : MEnv}
+    {body : List Stmt} {env envF : Env} (hwf : linkedWF children body = true)
+    (h : evalAssigns we mems body env = some envF) :
+    env = seedOuts children body envF env := by
+  funext n
+  unfold seedOuts
+  split
+  · rename_i hc
+    have hn : n ∈ bodyInstOuts children body := by simpa using hc
+    exact (evalAssigns_assignFrame we mems children body env envF n hwf h
+      (instOuts_not_assigned body n hwf hn)).symm
+  · rfl
+
 end Tools.ShippingHierState
