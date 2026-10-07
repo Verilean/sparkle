@@ -554,6 +554,12 @@ lean_lib «Tools.ShippingMachineComposedT» where
 lean_lib «Tools.ShippingMachineLinkedT» where
   roots := #[`Tools.ShippingMachineLinkedT]
 
+lean_lib «Tools.ShippingMachineLinkedTG» where
+  roots := #[`Tools.ShippingMachineLinkedTG]
+
+lean_lib «Tools.ShippingHierStateG» where
+  roots := #[`Tools.ShippingHierStateG]
+
 lean_lib «Tools.ShippingMachineSeqCommand» where
   roots := #[`Tools.ShippingMachineSeqCommand]
 
