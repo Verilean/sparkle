@@ -130,7 +130,7 @@ theorem memComboRun {we : WEnv} {nm clk wa wd wen ra rd : String} {aw dw : Nat}
     {D : DomainConfig} (waS : Signal D (BitVec aw)) (wdS : Signal D (BitVec dw))
     (weS : Signal D Bool) (raS : Signal D (BitVec aw)) (T : Nat)
     (seed : Nat → (String → Nat) → Env) (mems0 : MEnv)
-    (hseed : ∀ t stv, seed t stv wa = (waS.val (T - 1 - t)).toNat ∧
+    (hseed : ∀ t stv, t < T → seed t stv wa = (waS.val (T - 1 - t)).toNat ∧
       seed t stv wd = (wdS.val (T - 1 - t)).toNat ∧
       seed t stv wen = (if weS.val (T - 1 - t) then 1 else 0) ∧
       seed t stv ra = (raS.val (T - 1 - t)).toNat) :
@@ -145,7 +145,7 @@ theorem memComboRun {we : WEnv} {nm clk wa wd wen ra rd : String} {aw dw : Nat}
     obtain ⟨envF, hstep, hout⟩ := memComboStep (we := we) (nm := nm) (clk := clk) (ra := ra)
       (aw := aw) (dw := dw) hwa hwd hwen hwa' hwd' hwen'
       (seed k st) (srcArr nm mems0 waS wdS weS (T - (k + 1)))
-    obtain ⟨h1, h2, h3, h4⟩ := hseed k st
+    obtain ⟨h1, h2, h3, h4⟩ := hseed k st (by omega)
     have hidx : T - 1 - k = T - (k + 1) := by omega
     rw [h1, h2, h3, hidx, ← writeArr_srcArr,
       show T - (k + 1) + 1 = T - k by omega] at hstep
