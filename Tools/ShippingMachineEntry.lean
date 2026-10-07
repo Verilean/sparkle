@@ -1,4 +1,5 @@
 import Tools.ShippingMachineClose
+import Tools.ShippingMachineCleanup
 import Tools.ShippingMachineTrace
 import Tools.ShippingMachineInst
 import Tools.ShippingMachineInstG
@@ -674,13 +675,17 @@ def MachineWired (declName : Name) (shape : MachineShape) (ids : List FVarId)
   -- without calls and slots, the body is assignments
   (shape.insts = [] → shape.layout.slots = [] → m.body.all Sparkle.IR.RegDedup.isAssign = true) ∧
   -- and the full entry's zero-width cleanup changes no statement, width or
-  -- port (the outputs' types are their widths: `machOutFields`)
-  (shape.insts = [] → shape.layout.slots = [] →
+  -- port (the outputs' types are their widths: `machOutFields`); each slot's
+  -- register is a register statement with the slot's reset value and width
+  (shape.insts = [] →
     (∀ o ∈ shape.layout.outs, o.ty.bitWidth = o.width) →
-    (Sparkle.IR.ZeroWidth.dropZeroWidthModule m).body = m.body ∧
-    weOf (Sparkle.IR.ZeroWidth.dropZeroWidthModule m) = weOf m ∧
-    (Sparkle.IR.ZeroWidth.dropZeroWidthModule m).inputs = m.inputs ∧
-    (Sparkle.IR.ZeroWidth.dropZeroWidthModule m).outputs = m.outputs) ∧
+    ((Sparkle.IR.ZeroWidth.dropZeroWidthModule m).body = m.body ∧
+      weOf (Sparkle.IR.ZeroWidth.dropZeroWidthModule m) = weOf m ∧
+      (Sparkle.IR.ZeroWidth.dropZeroWidthModule m).inputs = m.inputs ∧
+      (Sparkle.IR.ZeroWidth.dropZeroWidthModule m).outputs = m.outputs) ∧
+    ∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r → shape.layout.slots[k]? = some f →
+      weOf m r = f.width ∧
+      ∃ rk inp, Stmt.register r "clk" ("rst", rk) inp (Int.ofNat f.init) ∈ m.body) ∧
   -- calls with several outputs or of sequential children: every instance
   -- statement is a call group's (`closeInstsG`) ...
   (shape.instFields ≠ [] → ∀ st ∈ m.body, Sparkle.IR.Machine.isInst st = true →
@@ -1432,16 +1437,42 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
             List.all_eq_true.mp typed'.isAssign st (List.dropLast_subset _ hs)
         · simp [outAssigns, Sparkle.IR.RegDedup.isAssign]
       · exact absurd hnil hne
-    · intro hnil hsl houtTy
+    · intro hnil houtTy
       rcases hmt with ⟨_, hm'⟩ | ⟨hne, _⟩
       · subst hm'
-        exact closeMachine_comb_cleanup hB' typed'
+        have inNd' : (t'.inputs.map Port.name).Nodup := by
+          rw [hin']
+          have := namesNodup
+          rw [tInputs] at this
+          exact this.sublist (List.Sublist.map _ (List.sublist_append_left _ _))
+        refine ⟨Tools.ShippingMachineCleanup.closeMachine_cleanup hB' typed'
           (fun p hp => pb.wireNames p (hwires' ▸ hp))
           (fun p hp => by
             rw [hwires']
             exact pb.inputWires p (by
               rw [tInputs]; rw [hin'] at hp; exact List.mem_append_left _ hp))
-          (by rw [hwires']; exact ready.wiresNodup) outsOk outsNodup houtTy hsl
+          inNd' (by rw [hwires']; exact ready.wiresNodup) (hdrop ▸ slotsOk) outsOk outsNodup
+          houtTy, ?_⟩
+        intro k r f hr hf
+        obtain ⟨p, hp, rfl⟩ : ∃ p, ps[k]? = some p ∧ p.name = r := by
+          rw [List.getElem?_map] at hr
+          cases hpk : ps[k]? with
+          | none => rw [hpk] at hr; cases hr
+          | some p => rw [hpk] at hr; exact ⟨p, rfl, Option.some.inj hr⟩
+        have hsl := Tools.ShippingMachineClose.Zip₂.get slotsOk k p f hp hf
+        refine ⟨?_, ?_⟩
+        · have hpos : 0 < weOf t' p.name := by rw [hsl.1]; exact hsl.2
+          rw [Tools.ShippingMachineClose.weOf_wires_append (m := t')
+            (extra := ps.map fun p => { name := nextName p.name, ty := p.ty })
+            (by simp [closeMachine, hpwC, hdrop]) hpos]
+          exact hsl.1
+        · refine ⟨shape.layout.resetKind, .ref (nextName p.name), ?_⟩
+          rw [show (closeMachine shape.layout t').body = t'.body.dropLast ++
+              nextAssigns coreW ps shape.layout.slots ++
+              registers shape.layout.resetKind ps shape.layout.slots ++
+              outAssigns coreW shape.layout.outs by simp [closeMachine, hpwC, hdrop]]
+          refine List.mem_append_left _ (List.mem_append_right _ ?_)
+          exact Tools.ShippingMachineCleanup.mem_registers _ ps shape.layout.slots k p f hp hf
       · exact absurd hnil hne
     · intro hfe st hst hinst
       rcases hmt with ⟨_, hm'⟩ | ⟨_, children, hci⟩
