@@ -33,7 +33,7 @@ if [ $# -ge 2 ]; then cat "$2"; else grep " 0$" "$WORK/status.txt" | awk '{print
 run_one() {
   i="$1"; f="$2"; job="$WORK/endpoint_jobs/e$i.lean"
   { echo "import Tools.ShippingGateChildCommand"; cat "$f" "$WORK/endpoint_tail.lean"; } > "$job"
-  timeout -k 5 900 lake env lean --load-dynlib=.lake/build/lib/libsparkle_Sparkle.so "$job" \
+  timeout -k 5 1500 lake env lean --load-dynlib=.lake/build/lib/libsparkle_Sparkle.so "$job" \
     > /dev/null 2>&1
   echo "$f $?" >> "$WORK/endpoint_status.txt"
   rm -f "$job"
