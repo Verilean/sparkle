@@ -1277,11 +1277,21 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   about `c`'s module), so the parent's linked theorem exists and keeps, as its
   premise, that the gate child's module computes that function — 27/27
   callers measured (the four `pick`/`pickD` test callers, `wBlock`,
-  `wKeccakF`, both SHA-512 block outputs added). OPEN: discharge that premise
-  for a gate child (the gate's `execution_source_of_env` at the child, which
-  needs a reification of the child's value into a unified `Term` — the tests
-  write the `Term` by hand today — and the bridge from its `ExecutionValue`
-  to `ChildFn`, the gate analogue of `child_full`). Remaining: the boundary that the design's child module IS
+  `wKeccakF`, both SHA-512 block outputs added). That premise is DISCHARGED
+  for every gate child (same day): `Tools/ShippingGateChild.lean` —
+  `gate_child_full`, the gate analogue of `child_full`: the gate's harness is
+  the one the machine transition goes through, so `transition_facts` fixes the
+  module's input ports and its value; at one cycle, on in-range argument
+  values (reset low), the full entry's module (cleanup unchanged) computes the
+  unified term's value on them, decoded (`ChildFn`); the boundary is
+  `EntryDefines` (the declaration as read or its unfolding). Generated per
+  child by `#gate_child c` (`Tools/ShippingGateChildCommand.lean`: the term
+  read off the entry constant's peel by the machine reader's `unq`, the peel
+  by kernel `rfl`, well-formedness by `simp`, positions by evaluation, the
+  source function at constant inputs = the term's value by kernel `rfl`, and
+  `c.gate_binders`: the linked theorem's ports are the gate's binders). All
+  5 gate children of the corpus (`pick`, `pickD`, SHA-256/SHA-512 `kMux`,
+  `keccakRcHW`); the measurement generates them (`|GATECHILD|`). Remaining: the boundary that the design's child module IS
   the child's full-entry run (`sparkleChildSynth` is an opaque `IO.Ref`;
   stated, like S6's `SubSynthDefines`), the child's run gate
   `dropZeroWidthModule raw = raw`, parents through sub-machines / loops

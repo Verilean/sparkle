@@ -2,6 +2,7 @@ import Sparkle.Core.CircuitDo
 import Sparkle.Compiler.InlineAttr
 import Tools.ShippingMachineCommand
 import Tools.ShippingMachineLinkedCommand
+import Tools.ShippingGateChildCommand
 import Tools.ShippingMachineChild
 
 /-! `@[hardware_module]` calls inside a `circuit do`, on the machine route.
@@ -163,11 +164,18 @@ its premise, that their modules compute them. -/
 #machine_linked callerNested
 #machine_linked callerD
 
+/-! The children's own theorems: the gate's module computes the source
+function the linked theorems read (`Tools.ShippingGateChild.gate_child_full`
+at `pick` / `pickD`). -/
+#gate_child pick
+#gate_child pickD
+
 run_cmd do
   if (← get).messages.hasErrors then throwError "machine instance regression failed"
   for name in [``caller.machine_sound, ``callerTwice.machine_sound, ``callerNested.machine_sound,
       ``caller.machine_linked, ``callerTwice.machine_linked, ``callerNested.machine_linked,
-      ``callerD.machine_linked,
+      ``callerD.machine_linked, ``pick.gate_child, ``pickD.gate_child,
+      ``Tools.ShippingGateChild.gate_child_full,
       ``caller.machine_inst_0, ``Tools.ShippingMachineAuto.machine_trace_of_data_ext,
       ``Tools.ShippingMachineNest.machine_trace_of_nested_ext,
       ``Tools.ShippingMachineInst.runModule_of_closeInsts, ``callerD.machine_sound, ``callerInner.machine_sound,

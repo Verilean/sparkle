@@ -74,4 +74,40 @@ run_cmd liftTermElabM do
         lout := lout ++ s!"{s}|{res}\n"
   let hl ← IO.FS.Handle.mk "@WORK@/linked_reasons.txt" .append
   hl.putStr lout
+
+-- the children the certified GATE compiles, of every declaration with a
+-- linked theorem: their `gate_child` (the linked theorem's premise)
+set_option maxHeartbeats 0 in
+run_cmd do
+  let names ← IO.FS.lines "@WORK@/machine_decls.txt"
+  let mut gout := ""
+  for s in names do
+    let n0 := s.toName
+    let env ← getEnv
+    let n : Lean.Name :=
+      if (env.find? n0).isSome then n0
+      else if s.startsWith "_private." then
+        let user := (s.splitOn ".0.").getLast!
+        env.constants.map₂.foldl (fun acc c _ =>
+          if (Lean.privateToUserName? c).map toString == some user then c else acc) n0
+      else n0
+    unless (env.find? (n ++ `machine_linked)).isSome do continue
+    let children ← liftTermElabM do
+      try pure ((← Tools.ShippingMachineCommand.readMachine n).shape.insts.map (·.1)).eraseDups
+      catch _ => pure []
+    for c in children do
+      let env ← getEnv
+      if (env.find? (c ++ `machine_child)).isSome || (env.find? (c ++ `gate_child)).isSome then
+        continue
+      -- only a child without a machine endpoint (the gate compiles it)
+      if (env.find? (c ++ `machine_sound)).isSome then continue
+      let res ← try
+          let _ ← Tools.ShippingGateChildCommand.generateGateChild c
+          pure "GATECHILD|OK"
+        catch ex =>
+          let msg ← ex.toMessageData.toString
+          pure ("GATECHILD|FAIL|" ++ ((msg.replace "\n" " ").take 300).toString)
+      gout := gout ++ s!"{c}|{res}\n"
+  let hg ← IO.FS.Handle.mk "@WORK@/linked_reasons.txt" .append
+  hg.putStr gout
 end EndpointProbeZZ

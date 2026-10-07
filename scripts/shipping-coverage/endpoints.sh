@@ -32,7 +32,7 @@ if [ $# -ge 2 ]; then cat "$2"; else grep " 0$" "$WORK/status.txt" | awk '{print
   | nl -w1 -s' ' > "$WORK/endpoint_jobs/list.txt"
 run_one() {
   i="$1"; f="$2"; job="$WORK/endpoint_jobs/e$i.lean"
-  { echo "import Tools.ShippingMachineLinkedCommand"; cat "$f" "$WORK/endpoint_tail.lean"; } > "$job"
+  { echo "import Tools.ShippingGateChildCommand"; cat "$f" "$WORK/endpoint_tail.lean"; } > "$job"
   timeout -k 5 900 lake env lean --load-dynlib=.lake/build/lib/libsparkle_Sparkle.so "$job" \
     > /dev/null 2>&1
   echo "$f $?" >> "$WORK/endpoint_status.txt"
@@ -43,5 +43,7 @@ xargs -P "${ENDPOINT_JOBS:-3}" -L 1 bash -c 'run_one "$0" "$1"' < "$WORK/endpoin
 python3 "$HERE/report.py" endpoints "$WORK"
 # the linked composition (one success per declaration counts)
 echo "combinational children with machine_child: $(grep '|CHILD|OK' "$WORK/linked_reasons.txt" | cut -d'|' -f1 | sort -u | wc -l)"
+echo "gate-route children with gate_child: $(grep '|GATECHILD|OK' "$WORK/linked_reasons.txt" | cut -d'|' -f1 | sort -u | wc -l) of $(grep '|GATECHILD|' "$WORK/linked_reasons.txt" | cut -d'|' -f1 | sort -u | wc -l)"
+grep '|GATECHILD|FAIL' "$WORK/linked_reasons.txt" | sort -u | cut -c1-250 | head -10
 echo "declarations with calls and machine_linked: $(grep '|LINKED|OK' "$WORK/linked_reasons.txt" | cut -d'|' -f1 | sort -u | wc -l) of $(grep '|LINKED|' "$WORK/linked_reasons.txt" | cut -d'|' -f1 | sort -u | wc -l)"
 grep '|LINKED|FAIL' "$WORK/linked_reasons.txt" | sort -u | cut -c1-250 | head -20

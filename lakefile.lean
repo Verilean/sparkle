@@ -527,6 +527,12 @@ lean_lib «Tools.ShippingLoopFusion» where
 lean_lib «Tools.ShippingMachineFuseGen» where
   roots := #[`Tools.ShippingMachineFuseGen]
 
+lean_lib «Tools.ShippingGateChild» where
+  roots := #[`Tools.ShippingGateChild]
+
+lean_lib «Tools.ShippingGateChildCommand» where
+  roots := #[`Tools.ShippingGateChildCommand]
+
 lean_lib «Tools.ShippingSignOps» where
   roots := #[`Tools.ShippingSignOps]
 
