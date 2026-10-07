@@ -138,10 +138,12 @@ theorem machine_linkedT {declName : Name} {d : MachineData} {m : Module} {dsn : 
             machNIn d.shape + k]?) = some outWs →
           moduleByName dsn.modules mc.name = some mc →
           Stmt.inst mc.name iname (connsG mc argWs outs outWs) ∈ m.body →
+          outs ≠ [] → (outs.map (·.2)).Nodup →
+          (outs.map (·.2)).all (fun f => mc.outputs.any (·.name == f)) = true →
           (∀ e ∈ outs, (d.shape.insts.map (·.2.1))[e.1]? = some args ∧
             d.shape.instFields.getD e.1 "" = e.2 ∧
             ∀ c md, (d.shape.insts.map (·.1))[e.1]? = some c →
-              Sparkle.Compiler.MachMemory.memChild? c = some md → mc.name = md.1.name) →
+              Sparkle.Compiler.MachMemory.memChild? c = some md → mc = md.1) →
           ∀ Pw : Nat → Env,
             (∀ t, t < T → ∀ (q : Nat) (hq : q < args.length) (w : String) (g : Nat → Nat),
               argWs[q]? = some w → (lsrc i bools bits)[args[q]]? = some g → args[q] < d.ls.length →
@@ -362,15 +364,15 @@ theorem machine_linkedT {declName : Name} {d : MachineData} {m : Module} {dsn : 
       List.getElem?_eq_getElem hj']
     rfl
   · intro mn iname conns hm
-    obtain ⟨args, outs, mc, hcall, hmc, _, hall⟩ := gInsts _ hm rfl
-    obtain ⟨outWs, argWs, iname', hout, hargsW, _, _, _, _, _, _, _, _, _, heq⟩ := hcall
+    obtain ⟨args, outs, mc, hcall, hmc, hne, hall⟩ := gInsts _ hm rfl
+    obtain ⟨outWs, argWs, iname', hout, hargsW, _, _, hfields, hfnd, _, _, _, _, _, heq⟩ := hcall
     injection heq with h1 h2 h3
     subst h1; subst h2; subst h3
     refine ⟨mc, Sparkle.IR.RegDedup.declWidth mc, ?_⟩
     have hcm : childMap dsn.modules mc.name = some (mc, Sparkle.IR.RegDedup.declWidth mc) := by
       simp [childMap, hmc]
     obtain ⟨cenvs, hcrun, hcobs⟩ := hchild args outs mc iname argWs outWs hargsW hout hmc hm
-      hall (fun t => envs.getD (T - 1 - t) (fun _ => 0))
+      hne hfnd hfields hall (fun t => envs.getD (T - 1 - t) (fun _ => 0))
       (by
         intro t ht q hq w g hw hg hql
         have hjt : T - 1 - t < envs.length := by rw [hlenE]; omega
