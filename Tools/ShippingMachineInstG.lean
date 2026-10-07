@@ -79,4 +79,226 @@ theorem instStmtG_some {nIn kI n : Nat} {portNames : List String} {gi : Nat} {ar
   · simpa using houtWs.1
   · simpa using houtWs.2
 
+/-! ## The groups of `callGroups` -/
+
+theorem mem_modify {α : Type} {f : α → α} {l : List α} {i : Nat} {x : α}
+    (h : x ∈ l.modify i f) : x ∈ l ∨ ∃ y, l[i]? = some y ∧ x = f y := by
+  obtain ⟨j, hj, rfl⟩ := List.getElem_of_mem h
+  have hg := List.getElem?_modify f i l j
+  rw [List.getElem?_eq_getElem hj] at hg
+  by_cases hij : i = j
+  · subst hij
+    cases hl : l[i]? with
+    | none => rw [hl] at hg; simp at hg
+    | some y =>
+      rw [hl] at hg
+      simp only [if_true, Option.map_eq_map, Option.map_some, Option.some.injEq] at hg
+      exact Or.inr ⟨y, rfl, hg⟩
+  · cases hl : l[j]? with
+    | none => rw [hl] at hg; simp at hg
+    | some y =>
+      rw [hl] at hg
+      simp only [if_neg hij, Option.map_eq_map, Option.map_some, Option.some.injEq] at hg
+      exact Or.inl (by rw [hg]; exact List.mem_of_getElem? hl)
+
+/-- What the grouping keeps: every group is non-empty and its entries share
+the key of its first entry. -/
+def GroupsOk {κ : Type} (keys : List κ) (gs : List (List Nat)) : Prop :=
+  ∀ g ∈ gs, ∃ k0 rest, g = k0 :: rest ∧ ∀ k ∈ g, keys[k]? = keys[k0]?
+
+theorem mem_modify_append {l : List (List Nat)} {i k : Nat} {x : List Nat}
+    (h : x ∈ l.modify i (· ++ [k])) : x ∈ l ∨ ∃ y, l[i]? = some y ∧ x = y ++ [k] :=
+  mem_modify h
+
+/-- One step of `callGroups`. -/
+def groupStep (keys : List (String × List Nat)) (gs : List (List Nat))
+    (p : (String × List Nat) × Nat) : List (List Nat) :=
+  match gs.findIdx? (fun g => (g.head? >>= fun k0 => keys[k0]?) == some p.1) with
+  | some gi => gs.modify gi (· ++ [p.2])
+  | none => gs ++ [[p.2]]
+
+theorem callGroups_eq (keys : List (String × List Nat)) :
+    callGroups keys = keys.zipIdx.foldl (groupStep keys) [] := rfl
+
+theorem callGroups_fold (keys : List (String × List Nat)) :
+    ∀ (L : List ((String × List Nat) × Nat)) (gs : List (List Nat)),
+      (∀ p ∈ L, keys[p.2]? = some p.1) → GroupsOk keys gs →
+      GroupsOk keys (L.foldl (groupStep keys) gs) ∧
+        (∀ p ∈ L, ∃ g ∈ L.foldl (groupStep keys) gs, p.2 ∈ g) ∧
+        (∀ g ∈ gs, ∀ k ∈ g, ∃ g' ∈ L.foldl (groupStep keys) gs, k ∈ g')
+  | [], gs, _, hok => ⟨hok, fun _ hp => absurd hp List.not_mem_nil, fun g hg k hk => ⟨g, hg, hk⟩⟩
+  | (key, k) :: L, gs, hL, hok => by
+    have hk : keys[k]? = some key := hL (key, k) List.mem_cons_self
+    -- one step
+    let gs1 := groupStep keys gs (key, k)
+    have hstep : GroupsOk keys gs1 ∧ (∃ g ∈ gs1, k ∈ g) ∧
+        (∀ g ∈ gs, ∀ k' ∈ g, ∃ g' ∈ gs1, k' ∈ g') := by
+      cases hf : gs.findIdx? (fun g => (g.head? >>= fun k0 => keys[k0]?) == some key) with
+      | none =>
+        simp only [gs1, groupStep, hf]
+        refine ⟨?_, ⟨[k], by simp, by simp⟩, fun g hg k' hk' => ⟨g, by simp [hg], hk'⟩⟩
+        intro g hg
+        rcases List.mem_append.mp hg with hg | hg
+        · exact hok g hg
+        · simp at hg; subst hg; exact ⟨k, [], rfl, by simp⟩
+      | some gi =>
+        simp only [gs1, groupStep, hf]
+        obtain ⟨hgi, hsat⟩ := List.findIdx?_eq_some_iff_getElem.mp hf
+        have hsat := hsat.1
+        refine ⟨?_, ⟨gs[gi] ++ [k], ?_, by simp⟩, ?_⟩
+        · intro g hg
+          rcases mem_modify_append hg with hg | ⟨y, hy, rfl⟩
+          · exact hok g hg
+          · have hy' : y = gs[gi] := by
+              rw [List.getElem?_eq_getElem hgi] at hy; exact (Option.some.inj hy).symm
+            subst hy'
+            obtain ⟨k0, rest, hg0, hall⟩ := hok gs[gi] (List.getElem_mem hgi)
+            refine ⟨k0, rest ++ [k], by rw [hg0]; rfl, ?_⟩
+            intro k' hk'
+            rcases List.mem_append.mp hk' with hk' | hk'
+            · exact hall k' hk'
+            · simp at hk'; subst hk'
+              rw [hk]
+              rw [hg0] at hsat
+              exact (by simpa using hsat : keys[k0]? = some key).symm
+        · have : (gs.modify gi (· ++ [k]))[gi]? = some (gs[gi] ++ [k]) := by
+            rw [List.getElem?_modify_eq, List.getElem?_eq_getElem hgi]; rfl
+          exact List.mem_of_getElem? this
+        · intro g hg k' hk'
+          obtain ⟨j, hj, rfl⟩ := List.getElem_of_mem hg
+          by_cases hij : gi = j
+          · subst hij
+            refine ⟨gs[gi] ++ [k], ?_, List.mem_append_left _ hk'⟩
+            have : (gs.modify gi (· ++ [k]))[gi]? = some (gs[gi] ++ [k]) := by
+              rw [List.getElem?_modify_eq, List.getElem?_eq_getElem hgi]; rfl
+            exact List.mem_of_getElem? this
+          · refine ⟨gs[j], ?_, hk'⟩
+            have : (gs.modify gi (· ++ [k]))[j]? = some gs[j] := by
+              rw [List.getElem?_modify_ne _ _ hij, List.getElem?_eq_getElem hj]
+            exact List.mem_of_getElem? this
+    obtain ⟨hok1, ⟨gk, hgk, hkg⟩, hkeep⟩ := hstep
+    obtain ⟨hok', hcov, hkeep'⟩ := callGroups_fold keys L gs1
+      (fun p hp => hL p (List.mem_cons_of_mem _ hp)) hok1
+    refine ⟨hok', ?_, ?_⟩
+    · intro p hp
+      rcases List.mem_cons.mp hp with rfl | hp
+      · exact hkeep' gk hgk k hkg
+      · exact hcov p hp
+    · intro g hg k' hk'
+      obtain ⟨g1, hg1, hk1⟩ := hkeep g hg k' hk'
+      exact hkeep' g1 hg1 k' hk1
+
+/-- **The groups of the calls.** Every group is non-empty and its entries
+share its first entry's key; every entry is in a group. -/
+theorem callGroups_ok (keys : List (String × List Nat)) :
+    GroupsOk keys (callGroups keys) ∧ ∀ k, k < keys.length → ∃ g ∈ callGroups keys, k ∈ g := by
+  rw [callGroups_eq]
+  have h := callGroups_fold keys keys.zipIdx [] (fun p hp => by
+    obtain ⟨x, i⟩ := p
+    exact List.mk_mem_zipIdx_iff_getElem?.mp hp) (fun g hg => by cases hg)
+  refine ⟨h.1, fun k hk => ?_⟩
+  obtain ⟨g, hg, hkg⟩ := h.2.1 (keys[k], k) (List.mk_mem_zipIdx_iff_getElem?.mpr (by simp [hk]))
+  exact ⟨g, hg, hkg⟩
+
+/-! ## Every instance statement of the closed module -/
+
+/-- The keys of the entries: entry `k` is a call of `children[k]` on `insts[k]`. -/
+theorem keys_get {insts : List (List Nat)} {children : List (Module × Design)}
+    {keys : List (String × List Nat)}
+    (h : (List.range insts.length).mapM (fun k => do
+      let args ← insts[k]?
+      let child ← children[k]?
+      pure (child.1.name, args)) = some keys) :
+    keys.length = insts.length ∧ ∀ k, k < insts.length → ∃ args child,
+      insts[k]? = some args ∧ children[k]? = some child ∧ keys[k]? = some (child.1.name, args) := by
+  obtain ⟨hlen, hget⟩ := mapM_some _ _ keys h
+  refine ⟨by simpa using hlen, fun k hk => ?_⟩
+  obtain ⟨y, hy, hky⟩ := hget k (by simpa using hk)
+  simp only [List.getElem_range, Option.bind_eq_bind] at hy
+  obtain ⟨args, hargs, hy⟩ := Option.bind_eq_some_iff.mp hy
+  obtain ⟨child, hchild, hy⟩ := Option.bind_eq_some_iff.mp hy
+  simp only [pure, Option.some.injEq] at hy
+  subst hy
+  exact ⟨args, child, hargs, hchild, hky⟩
+
+/-- **The instance statements `closeInstsG` adds.** Every instance statement
+of the closed module is one of the original's or the statement of a call
+group: `CallStmtG` for the group's child, every entry of the group a call of
+that child on the group's arguments, reading the entry's field. -/
+theorem closeInstsG_insts {nIn kI n : Nat} {portNames : List String} {insts : List (List Nat)}
+    {fields : List String}
+    {children : List (Module × Design)} {m₀ : Module} {d₀ : Design} {m : Module} {d : Design}
+    (h : closeInstsG nIn kI n portNames insts fields children (m₀, d₀) = some (m, d)) :
+    ∀ st ∈ m.body, isInst st = true → st ∈ m₀.body ∨
+      ∃ (args : List Nat) (outs : List (Nat × String)) (child : Module × Design) (mc : Module), CallStmtG nIn kI n portNames args outs mc st ∧
+        moduleByName d.modules child.1.name = some mc ∧ outs ≠ [] ∧
+        ∀ e ∈ outs, insts[e.1]? = some args ∧ (children[e.1]?).map (·.1.name) = some child.1.name ∧
+          fields.getD e.1 "" = e.2 := by
+  intro st hst _
+  unfold closeInstsG at h
+  simp only [Option.bind_eq_bind] at h
+  obtain ⟨stmts, hstmts, h⟩ := Option.bind_eq_some_iff.mp h
+  obtain ⟨outWs, _, h⟩ := Option.bind_eq_some_iff.mp h
+  obtain ⟨body, _, h⟩ := Option.bind_eq_some_iff.mp h
+  split at h
+  · rename_i hc
+    simp only [Bool.and_eq_true, decide_eq_true_eq] at hc
+    obtain ⟨⟨⟨⟨⟨⟨⟨⟨_, _⟩, _⟩, _⟩, hperm⟩, _⟩, _⟩, _⟩, _⟩ := hc
+    cases h
+    have hbd := (withClockFor_same children m₀).2.2.2
+    have hmem : st ∈ (withClockFor children m₀).body ++ stmts :=
+      (Sparkle.IR.Reorder.isPermOf_sound hperm).mem_iff.mpr hst
+    rw [hbd] at hmem
+    rcases List.mem_append.mp hmem with h0 | hs
+    · exact Or.inl h0
+    · right
+      unfold stmtsG at hstmts
+      simp only [Option.bind_eq_bind] at hstmts
+      obtain ⟨keys, hkeys, hstmts⟩ := Option.bind_eq_some_iff.mp hstmts
+      obtain ⟨hklen, hkget⟩ := keys_get hkeys
+      obtain ⟨hgok, _⟩ := callGroups_ok keys
+      obtain ⟨hlen, hget⟩ := mapM_some _ _ stmts hstmts
+      obtain ⟨i, hi, rfl⟩ := List.getElem_of_mem hs
+      obtain ⟨st', hst', hsti⟩ := hget i (by rw [← hlen]; exact hi)
+      rw [List.getElem?_eq_getElem hi, Option.some.injEq] at hsti
+      subst hsti
+      have hi' : i < (callGroups keys).zipIdx.length := by rw [← hlen]; exact hi
+      obtain ⟨⟨g, gi⟩, hgz⟩ : ∃ p, (callGroups keys).zipIdx[i]? = some p :=
+        ⟨_, List.getElem?_eq_getElem hi'⟩
+      have hgmem : g ∈ callGroups keys := by
+        have := List.mk_mem_zipIdx_iff_getElem?.mp (List.mem_of_getElem? hgz)
+        exact List.mem_of_getElem? this
+      obtain ⟨_, hgi⟩ := List.getElem_of_getElem? hgz
+      rw [hgi] at hst'
+      simp only [Option.bind_eq_bind] at hst'
+      obtain ⟨k0, hk0, hst'⟩ := Option.bind_eq_some_iff.mp hst'
+      obtain ⟨args, hargs, hst'⟩ := Option.bind_eq_some_iff.mp hst'
+      obtain ⟨child, hchild, hst'⟩ := Option.bind_eq_some_iff.mp hst'
+      obtain ⟨mc, hmc, hst'⟩ := Option.bind_eq_some_iff.mp hst'
+      refine ⟨args, g.map (fun k => (k, fields.getD k "")), child, mc, instStmtG_some hst', hmc,
+        ?_, ?_⟩
+      · obtain ⟨k0', rest, hg, _⟩ := hgok g hgmem
+        simp [hg]
+      · intro e he
+        obtain ⟨k, hk, rfl⟩ := List.mem_map.mp he
+        obtain ⟨k0', rest, hg, hall⟩ := hgok g hgmem
+        have hk0' : k0 = k0' := by rw [hg] at hk0; simpa using hk0.symm
+        subst hk0'
+        have hkk0 := hall k hk
+        have hk0lt : k0 < insts.length := by
+          have := List.getElem?_eq_some_iff.mp hargs; exact this.1
+        obtain ⟨a0, c0, ha0, hc0, hkey0⟩ := hkget k0 hk0lt
+        rw [hargs] at ha0; cases ha0
+        rw [hchild] at hc0; cases hc0
+        have hklt : k < keys.length := by
+          rcases Nat.lt_or_ge k keys.length with hlt | hge
+          · exact hlt
+          · rw [List.getElem?_eq_none hge, hkey0] at hkk0; cases hkk0
+        obtain ⟨a1, c1, ha1, hc1, hkey1⟩ := hkget k (by omega)
+        rw [hkk0, hkey0] at hkey1
+        simp only [Option.some.injEq, Prod.mk.injEq] at hkey1
+        obtain ⟨hn, ha⟩ := hkey1
+        refine ⟨by rw [ha1, ha], by rw [hc1, Option.map_some, hn], rfl⟩
+  · cases h
+
 end Tools.ShippingMachineInstG
