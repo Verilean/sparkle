@@ -539,6 +539,9 @@ lean_lib «Tools.ShippingHierState» where
 lean_lib «Tools.ShippingMemComboSoundness» where
   roots := #[`Tools.ShippingMemComboSoundness]
 
+lean_lib «Tools.ShippingMachineInstG» where
+  roots := #[`Tools.ShippingMachineInstG]
+
 lean_lib «Tools.ShippingSignOps» where
   roots := #[`Tools.ShippingSignOps]
 
