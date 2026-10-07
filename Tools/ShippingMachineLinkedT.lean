@@ -87,6 +87,25 @@ theorem connsG_out {mc : Module} {argWs : List String} {outs : List (Nat × Stri
   apply List.mem_filterMap.mpr
   exact ⟨p, hp, by rw [hpf', hlk]⟩
 
+theorem mem_assignTargets : ∀ (body : List Stmt) (x : String), x ∈ assignTargets body →
+    ∃ r, Stmt.assign x r ∈ body
+  | [], _, h => by cases h
+  | .assign l r :: rest, x, h => by
+    simp only [assignTargets, List.mem_cons] at h
+    rcases h with rfl | h
+    · exact ⟨r, List.mem_cons_self⟩
+    · obtain ⟨r', hr⟩ := mem_assignTargets rest x h
+      exact ⟨r', List.mem_cons_of_mem _ hr⟩
+  | .register .. :: rest, x, h => by
+    obtain ⟨r', hr⟩ := mem_assignTargets rest x h
+    exact ⟨r', List.mem_cons_of_mem _ hr⟩
+  | .memory .. :: rest, x, h => by
+    obtain ⟨r', hr⟩ := mem_assignTargets rest x h
+    exact ⟨r', List.mem_cons_of_mem _ hr⟩
+  | .inst .. :: rest, x, h => by
+    obtain ⟨r', hr⟩ := mem_assignTargets rest x h
+    exact ⟨r', List.mem_cons_of_mem _ hr⟩
+
 /-- **A machine with structure / sequential / memory calls, composed with its
 children.** From the open endpoint (`MachineTraceLB`), the STATEFUL linked
 run of the emitted module, seeded with the declaration's own inputs only,
@@ -125,7 +144,7 @@ theorem machine_linkedT {declName : Name} {d : MachineData} {m : Module} {dsn : 
           (fun j => (extB i bools bits j).val (T - 1 - t))
           (fun j n => (ext i bools bits j n).val (T - 1 - t)) (seed t st)) →
         (∀ t st r, r ∈ regs → seed t st r = st r) →
-        (∀ t st, seed t st "rst" = 0) →
+        (∀ t st, seed t st "rst" = 0) → (∀ t st, seed t st "clk" = 0) →
         (∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r →
           d.shape.layout.slots[k]? = some f → st0 r = f.init) →
         -- every instance's child, on the source's argument and call values
@@ -145,6 +164,7 @@ theorem machine_linkedT {declName : Name} {d : MachineData} {m : Module} {dsn : 
             ∀ c md, (d.shape.insts.map (·.1))[e.1]? = some c →
               Sparkle.Compiler.MachMemory.memChild? c = some md → mc = md.1) →
           ∀ Pw : Nat → Env,
+            (∀ t, Pw t "rst" = 0) → (∀ t, Pw t "clk" = 0) →
             (∀ t, t < T → ∀ (q : Nat) (hq : q < args.length) (w : String) (g : Nat → Nat),
               argWs[q]? = some w → (lsrc i bools bits)[args[q]]? = some g → args[q] < d.ls.length →
               Pw t w = g (T - 1 - t)) →
@@ -166,10 +186,10 @@ theorem machine_linkedT {declName : Name} {d : MachineData} {m : Module} {dsn : 
             (envs[j]'hj) o.name = f j := by
   obtain ⟨ids, nd, len, cache, regs, rnd, rlen, lets, llen, wired, trace⟩ := h
   refine ⟨ids, nd, len, cache, regs, rnd, rlen, ?_⟩
-  intro i bools bits T seed st0 mems kids hin hpass hrst hinit hchild
+  intro i bools bits T seed st0 mems kids hin hpass hrst hclk0 hinit hchild
   have hconds := Tools.ShippingMachineComposedT.wired_runT_conds wired hfe
   obtain ⟨hwf, hnd, hnofb⟩ := hconds
-  obtain ⟨nnd, alloc, regsIn, hlets, _, _, link, _, _, _, _, gInsts, gCalls, hnames, _⟩ := wired
+  obtain ⟨nnd, alloc, regsIn, hlets, _, _, link, _, _, _, _, gInsts, gCalls, hnames, hnoCR⟩ := wired
   have gInsts := gInsts hfe
   have gCalls := gCalls hfe
   -- the ports: the declaration's, the calls', then the slots' and `let`s'
@@ -269,6 +289,11 @@ theorem machine_linkedT {declName : Name} {d : MachineData} {m : Module} {dsn : 
     have : "rst" ∈ names := by
       rw [hnamesEq]; exact List.mem_append_left _ (List.mem_append_right _ h)
     exact Tools.ShippingRegisterSoundness.not_allocated_rst (alloc _ this)
+  have clkNot : "clk" ∉ insNames := by
+    intro h
+    have : "clk" ∈ names := by
+      rw [hnamesEq]; exact List.mem_append_left _ (List.mem_append_right _ h)
+    exact Tools.ShippingMachineCleanup.not_allocated_clk (alloc _ this)
   -- the open run from `seed'`
   have hlenIds : ids.length = d.shape.binders.length := len
   obtain ⟨envs, hrun, hlenE, hobs, hletobs⟩ := trace i bools bits T seed' st0 mems
@@ -371,8 +396,29 @@ theorem machine_linkedT {declName : Name} {d : MachineData} {m : Module} {dsn : 
     refine ⟨mc, Sparkle.IR.RegDedup.declWidth mc, ?_⟩
     have hcm : childMap dsn.modules mc.name = some (mc, Sparkle.IR.RegDedup.declWidth mc) := by
       simp [childMap, hmc]
+    -- the reset and the clock are never assigned: every environment holds the seed's
+    have hfix : ∀ x, x ∉ insNames → (∀ t st, seed t st x = 0) → (∀ r, Stmt.assign x r ∉ m.body) →
+        ∀ t, envs.getD (T - 1 - t) (fun _ => 0) x = 0 := by
+      intro x hxi hx0 hna t
+      rw [List.getD_eq_getElem?_getD]
+      cases hj : envs[T - 1 - t]? with
+      | none => rfl
+      | some e =>
+        have hjl : T - 1 - t < envs.length := (List.getElem?_eq_some_iff.mp hj).1
+        obtain ⟨stj, memsj, hev⟩ := henvs (T - 1 - t) hjl
+        have he : envs[T - 1 - t] = e := (List.getElem?_eq_some_iff.mp hj).2
+        rw [he] at hev
+        have hnt : x ∉ assignTargets m.body := by
+          intro hx
+          obtain ⟨r, hr⟩ := mem_assignTargets m.body x hx
+          exact hna r hr
+        rw [Option.getD_some, evalAssigns_assignFrame (weOf m) memsj (childMap dsn.modules) m.body
+          _ _ x hwf hev hnt, hoff _ _ x hxi]
+        exact hx0 _ _
     obtain ⟨cenvs, hcrun, hcobs⟩ := hchild args outs mc iname argWs outWs hargsW hout hmc hm
       hne hfnd hfields hall (fun t => envs.getD (T - 1 - t) (fun _ => 0))
+      (hfix "rst" rstNot hrst (fun r => (hnoCR r).1))
+      (hfix "clk" clkNot hclk0 (fun r => (hnoCR r).2))
       (by
         intro t ht q hq w g hw hg hql
         have hjt : T - 1 - t < envs.length := by rw [hlenE]; omega

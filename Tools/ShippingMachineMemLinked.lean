@@ -104,19 +104,7 @@ theorem mem_hchild {D : DomainConfig} (shape : Sparkle.Compiler.Elab.MachineShap
     (extB : Nat → Signal D Bool) (ext : (j : Nat) → (n : Nat) → Signal D (BitVec n))
     (names : List String) (offA offO : Nat) (T : Nat) (kids : String → KidState)
     (hm0 : ∀ iname n a, (kids iname).mems n a = 0)
-    (hst0 : ∀ iname, (kids iname).st "out_rdata" = 0)
-    (hcalls : ∀ k c, (shape.insts.map (·.1))[k]? = some c →
-      ∃ (cb : Bool) (aw dw : Nat) (A : Signal D (BitVec aw)) (Dd : Signal D (BitVec dw)) (E : Signal D Bool)
-        (R : Signal D (BitVec aw)) (l0 l1 l2 l3 : Nat),
-        Sparkle.Compiler.MachMemory.memChild? c =
-          some (Sparkle.Compiler.MachMemory.memModule cb aw dw) ∧
-        (shape.insts.map (·.2.1))[k]? = some [l0, l1, l2, l3] ∧
-        lsrc[l0]? = some (fun j => (A.val j).toNat) ∧ l0 < nL ∧
-        lsrc[l1]? = some (fun j => (Dd.val j).toNat) ∧ l1 < nL ∧
-        lsrc[l2]? = some (fun j => if E.val j then 1 else 0) ∧ l2 < nL ∧
-        lsrc[l3]? = some (fun j => (R.val j).toNat) ∧ l3 < nL ∧
-        (bsI[k]?.map (·.2)) = some (.bits dw) ∧
-        ∀ j, (ext (kD + k) dw).val j = (memRead cb A Dd E R).val j) :
+    (hst0 : ∀ iname, (kids iname).st "out_rdata" = 0) :
     ∀ (args : List Nat) (outs : List (Nat × String)) (mc : Module) (iname : String)
       (argWs outWs : List String),
       args.mapM (fun j => names[offA + j]?) = some argWs →
@@ -129,7 +117,21 @@ theorem mem_hchild {D : DomainConfig} (shape : Sparkle.Compiler.Elab.MachineShap
         shape.instFields.getD e.1 "" = e.2 ∧
         ∀ c md, (shape.insts.map (·.1))[e.1]? = some c →
           Sparkle.Compiler.MachMemory.memChild? c = some md → mc = md.1) →
+      -- the calls of this instance are memory reads
+      (∀ e ∈ outs, ∀ c, (shape.insts.map (·.1))[e.1]? = some c →
+      ∃ (cb : Bool) (aw dw : Nat) (A : Signal D (BitVec aw)) (Dd : Signal D (BitVec dw)) (E : Signal D Bool)
+        (R : Signal D (BitVec aw)) (l0 l1 l2 l3 : Nat),
+        Sparkle.Compiler.MachMemory.memChild? c =
+          some (Sparkle.Compiler.MachMemory.memModule cb aw dw) ∧
+        (shape.insts.map (·.2.1))[e.1]? = some [l0, l1, l2, l3] ∧
+        lsrc[l0]? = some (fun j => (A.val j).toNat) ∧ l0 < nL ∧
+        lsrc[l1]? = some (fun j => (Dd.val j).toNat) ∧ l1 < nL ∧
+        lsrc[l2]? = some (fun j => if E.val j then 1 else 0) ∧ l2 < nL ∧
+        lsrc[l3]? = some (fun j => (R.val j).toNat) ∧ l3 < nL ∧
+        (bsI[e.1]?.map (·.2)) = some (.bits dw) ∧
+        ∀ j, (ext (kD + e.1) dw).val j = (memRead cb A Dd E R).val j) →
       ∀ Pw : Nat → Env,
+        (∀ t, Pw t "rst" = 0) → (∀ t, Pw t "clk" = 0) →
         (∀ t, t < T → ∀ (q : Nat) (hq : q < args.length) (w : String) (g : Nat → Nat),
           argWs[q]? = some w → lsrc[args[q]]? = some g → args[q] < nL →
           Pw t w = g (T - 1 - t)) →
@@ -144,7 +146,7 @@ theorem mem_hchild {D : DomainConfig} (shape : Sparkle.Compiler.Elab.MachineShap
           ∀ j, j < T → ∀ p ∈ mc.outputs, ∀ w,
             (connsG mc argWs outs outWs).lookup p.name = some (.ref w) →
             (cenvs[j]?).map (· p.name) = some (Pw (T - 1 - j) w) := by
-  intro args outs mc iname argWs outWs hargsW hout _ _ hne hfnd hfields hall Pw hPa hPo
+  intro args outs mc iname argWs outWs hargsW hout _ _ hne hfnd hfields hall hmemF Pw _ _ hPa hPo
   obtain ⟨e, he⟩ : ∃ e, e ∈ outs := by
     cases outs with
     | nil => exact absurd rfl hne
@@ -153,7 +155,7 @@ theorem mem_hchild {D : DomainConfig} (shape : Sparkle.Compiler.Elab.MachineShap
   have hk : e.1 < (shape.insts.map (·.1)).length := by
     have := (List.getElem?_eq_some_iff.mp hargs).1; simpa using this
   obtain ⟨cb, aw, dw, A, Dd, E, R, l0, l1, l2, l3, hmc, hla, h0, h0l, h1, h1l, h2, h2l, h3, h3l, hty,
-    hext⟩ := hcalls e.1 _ (List.getElem?_eq_getElem hk)
+    hext⟩ := hmemF e he _ (List.getElem?_eq_getElem hk)
   have hmc' := hmd _ _ (List.getElem?_eq_getElem hk) hmc
   subst hmc'
   rw [hla, Option.some.injEq] at hargs
@@ -236,7 +238,7 @@ theorem machine_linkedT_mem {declName : Name} {d : MachineData} {m : Module} {ds
           (fun j => (extB i bools bits j).val (T - 1 - t))
           (fun j n => (ext i bools bits j n).val (T - 1 - t)) (seed t st)) →
         (∀ t st r, r ∈ regs → seed t st r = st r) →
-        (∀ t st, seed t st "rst" = 0) →
+        (∀ t st, seed t st "rst" = 0) → (∀ t st, seed t st "clk" = 0) →
         (∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r →
           d.shape.layout.slots[k]? = some f → st0 r = f.init) →
         -- the memories (arrays and read latches) start zeroed
@@ -250,9 +252,11 @@ theorem machine_linkedT_mem {declName : Name} {d : MachineData} {m : Module} {ds
   obtain ⟨ids, nd, len, cache, regs, rnd, rlen, H⟩ :=
     machine_linkedT h hfe kD hkD hI hIlen hSL hSlen hLlen hNIn
   refine ⟨ids, nd, len, cache, regs, rnd, rlen, ?_⟩
-  intro i bools bits T seed st0 mems kids hin hpass hrst hinit hm0 hst0
-  exact H i bools bits T seed st0 mems kids hin hpass hrst hinit
-    (mem_hchild d.shape dsn m.body (lsrc i bools bits) d.ls.length (d.bsIn.drop kD) kD
-      (extB i bools bits) (ext i bools bits) _ _ _ T kids hm0 hst0 (hcalls i bools bits))
+  intro i bools bits T seed st0 mems kids hin hpass hrst hclk0 hinit hm0 hst0
+  exact H i bools bits T seed st0 mems kids hin hpass hrst hclk0 hinit
+    (fun args outs mc iname argWs outWs h1 h2 h3 h4 h5 h6 h7 h8 =>
+      mem_hchild d.shape dsn m.body (lsrc i bools bits) d.ls.length (d.bsIn.drop kD) kD
+        (extB i bools bits) (ext i bools bits) _ _ _ T kids hm0 hst0 args outs mc iname argWs
+        outWs h1 h2 h3 h4 h5 h6 h7 h8 (fun e _ c hc => hcalls i bools bits e.1 c hc))
 
 end Tools.ShippingMachineMemLinked

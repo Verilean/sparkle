@@ -198,9 +198,15 @@ theorem seq_inst_run {mc : Module} {bsC : List (Name × Sparkle.Compiler.Elab.Mi
     (hargs : ∀ t, t < T → argWs.map (Pw t) = vals (T - 1 - t))
     (hrstP : ∀ t, Pw t "rst" = 0) (hclkP : ∀ t, Pw t "clk" = 0)
     (hreset : ∀ r c rs inp init, Stmt.register r c rs inp init ∈ mc.body → kid.st r = init.toNat)
-    (hout : ∀ t, t < T → ∀ (idx : Nat) (e : Nat × String) (w : String), outs[idx]? = some e →
-      outWs[idx]? = some w → ∃ (k : Nat) (o : OutField) (f : Nat → Nat), outsC[k]? = some o ∧
-        o.name = e.2 ∧ (S vals)[k]? = some f ∧ Pw t w = f (T - 1 - t)) :
+    (hout : ∀ (idx : Nat) (e : Nat × String) (w : String), outs[idx]? = some e →
+      outWs[idx]? = some w →
+      ∃ (bsC' : List (Name × Sparkle.Compiler.Elab.MixedGateBinder)) (outsC' : List OutField)
+        (S' : (Nat → List Nat) → List (Nat → Nat)),
+        SeqChildRun mc bsC' outsC' S' ∧
+        (∀ τ, τ < T → Tools.ShippingMachineChild.InRange (vals τ)
+          (bsC'.filter fun b => b.2 != .domain)) ∧
+        ∃ (k : Nat) (o : OutField) (f : Nat → Nat), outsC'[k]? = some o ∧ o.name = e.2 ∧
+          (S' vals)[k]? = some f ∧ ∀ t, t < T → Pw t w = f (T - 1 - t)) :
     ∃ cenvs, runModule (Sparkle.IR.RegDedup.declWidth mc) mc.body
         (fun t cst => connEnvS (inConns mc.outputs (connsG mc argWs outs outWs)) (Pw t) cst)
         T kid.st kid.mems = some cenvs ∧
@@ -323,12 +329,18 @@ theorem seq_inst_run {mc : Module} {bsC : List (Name × Sparkle.Compiler.Elab.Mi
     | some e =>
       rw [he] at hf
       simp only [Option.map_some, Option.some.injEq] at hf
-      obtain ⟨k, o, f, hk, hon, hf', hPw⟩ := hout (T - 1 - j) (by omega) idx e w he hwo
-      rw [List.getElem?_eq_getElem hj', Option.map_some, hPw,
+      obtain ⟨bsC', outsC', S', hrun', hrange', k, o, f, hk, hon, hf', hPw⟩ := hout idx e w he hwo
+      obtain ⟨_, _, _, _, _, hS'⟩ := hrun'
+      obtain ⟨envs', hrun'', hlen', hobs'⟩ := hS' T ins kid.st kid.mems vals hrange' hports hrstI
+        hclkI hreset
+      -- the module's run is one run
+      have heq : envs' = envs := Option.some.inj (hrun''.symm.trans hrunE)
+      subst heq
+      rw [List.getElem?_eq_getElem hj', Option.map_some, hPw (T - 1 - j) (by omega),
         show T - 1 - (T - 1 - j) = j by omega]
       rw [hf] at hon
       rw [← hon]
-      exact congrArg some (hobs j hj' k o f hk hf')
+      exact congrArg some (hobs' j hj' k o f hk hf')
 
 open Tools.ShippingMachineEntry Tools.ShippingMachineAuto Tools.ShippingMachineChild in
 open Sparkle.Compiler.Elab Sparkle.IR.RefineCheck in

@@ -3957,10 +3957,22 @@ The gaps, in the order they weaken the claim:
   all memories — 14 of 14 (H.264 Quant, Dequant, IDCT, ForwardDCT,
   Reconstruct, QuantRoundtrip, CAVLC, Encoder/Decoder pipelines, FrameEncoder,
   MP4Encoder; YOLOv8 ActivationBuffer; the fused-loop test) — has a
-  kernel-checked `machine_composedT`. NEXT: sequential machine children (the
-  zero-width cleanup clause for slot machines, the child's run at the full
-  entry via `refineCheck_transfer`, `connEnvS` ↔ `seedIn`, the call's argument
-  Signals, a reset-state hypothesis on the instances), then multi-level.
+  kernel-checked `machine_composedT`. SEQUENTIAL CHILDREN (general theorems
+  done): the zero-width cleanup keeps every instance-free machine
+  (`closeMachine_cleanup`); `mergeChecked` now keeps a non-assign merge only
+  when `refineCheck` accepts it (no output change, gold57/58) and
+  `mergeDuplicates` keeps ports and wires by construction; `seqStream_full`
+  (a machine child with slots, at the full entry, from reset, runs as its
+  source over time, the clock held low being the only input assumption
+  beyond the argument values); `SeqChildRun` / `seq_inst_run` (an instance on
+  its call group's connections runs as its child); `machine_linkedT_calls`
+  (`Tools/ShippingMachineCallsLinkedT.lean`): a machine whose calls are
+  memory reads and sequential machine children, composed with them, given per
+  call `MemFacts` / `SeqFacts`, children from reset (memories zero, registers
+  at their reset values). NEXT: the generator for `SeqFacts` (the boundary
+  `MachineRun` per sequential call → `seqChildRun_full`; argument ranges; the
+  call's field value = the child's source on the decoded argument stream, a
+  per-declaration equation), then multi-level.
 - [ ] **F7. Synthesis and silicon.**  Out of scope and worth stating so
   the claim is not overread: the chain ends at emitted SystemVerilog.
   Trusting the synthesis tool and the fabric is the same class of trust
