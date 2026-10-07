@@ -432,13 +432,12 @@ open Sparkle.Compiler.MachMemory in
 theorem memChild_eq {c : Lean.Name} {md : Module × Design} (h : memChild? c = some md) :
     ∃ cb aw dw, md = memModule cb aw dw := by
   unfold memChild? at h
-  split at h <;> try cases h
-  split at h <;> try cases h
-  split at h <;> try cases h
   split at h
-  · cases h; exact ⟨_, _, _, rfl⟩
   · split at h
     · cases h; exact ⟨_, _, _, rfl⟩
-    · cases h
+    · split at h
+      · cases h; exact ⟨_, _, _, rfl⟩
+      · cases h
+  · cases h
 
 end Tools.ShippingMachineInstG

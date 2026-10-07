@@ -32,7 +32,7 @@ if [ $# -ge 2 ]; then cat "$2"; else grep " 0$" "$WORK/status.txt" | awk '{print
   | nl -w1 -s' ' > "$WORK/endpoint_jobs/list.txt"
 run_one() {
   i="$1"; f="$2"; job="$WORK/endpoint_jobs/e$i.lean"
-  { echo "import Tools.ShippingGateChildCommand"; cat "$f" "$WORK/endpoint_tail.lean"; } > "$job"
+  { echo "import Tools.ShippingGateChildCommand"; echo "import Tools.ShippingMachineMemCommand"; cat "$f" "$WORK/endpoint_tail.lean"; } > "$job"
   timeout -k 5 1500 lake env lean --load-dynlib=.lake/build/lib/libsparkle_Sparkle.so "$job" \
     > /dev/null 2>&1
   echo "$f $?" >> "$WORK/endpoint_status.txt"
@@ -47,5 +47,7 @@ echo "gate-route children with gate_child: $(grep '|GATECHILD|OK' "$WORK/linked_
 grep '|GATECHILD|FAIL' "$WORK/linked_reasons.txt" | sort -u | cut -c1-250 | head -10
 echo "declarations with machine_composed: $(grep '|COMPOSED|OK' "$WORK/linked_reasons.txt" | cut -d'|' -f1 | sort -u | wc -l) of $(grep '|COMPOSED|' "$WORK/linked_reasons.txt" | cut -d'|' -f1 | sort -u | wc -l)"
 grep '|COMPOSED|FAIL' "$WORK/linked_reasons.txt" | sort -u | cut -c1-250 | head -10
+echo "memory parents with machine_composedT: $(grep '|COMPOSEDT|OK' "$WORK/linked_reasons.txt" | cut -d'|' -f1 | sort -u | wc -l) of $(grep '|COMPOSEDT|\(OK\|FAIL\)' "$WORK/linked_reasons.txt" | cut -d'|' -f1 | sort -u | wc -l) (mixed children: $(grep '|COMPOSEDT|MIXED' "$WORK/linked_reasons.txt" | cut -d'|' -f1 | sort -u | wc -l))"
+grep '|COMPOSEDT|FAIL' "$WORK/linked_reasons.txt" | sort -u | cut -c1-250 | head -10
 echo "declarations with calls and machine_linked: $(grep '|LINKED|OK' "$WORK/linked_reasons.txt" | cut -d'|' -f1 | sort -u | wc -l) of $(grep '|LINKED|' "$WORK/linked_reasons.txt" | cut -d'|' -f1 | sort -u | wc -l)"
 grep '|LINKED|FAIL' "$WORK/linked_reasons.txt" | sort -u | cut -c1-250 | head -20

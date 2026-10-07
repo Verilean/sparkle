@@ -3936,12 +3936,22 @@ The gaps, in the order they weaken the claim:
   bridge `runModuleT_of_open` / `runModuleT_of_kids`: the open run from the
   seeding is the stateful run when every child, stepped on the values feeding
   it, reaches the seeded outputs (distinct instance names, no input reading
-  the instance's own outputs). PLAN: (1) `MachineWired` call facts for the
-  `closeInstsG` path (clocked, structure-result calls); (2) the memory child
-  modules' (`SparkleMem_*`) own trace theorem; (3) the children's state
-  sequence from their trace theorems; (4) `#machine_composed` for parents
-  with sequential / memory children (the H.264 frame/MP4 encoders); then
-  multi-level.
+  the instance's own outputs). DONE since: `MachineWired` call facts for the
+  `closeInstsG` path (`CallStmtG`, every instance a call group's, distinct
+  instance names / no self-feed and "a memory child's name finds the built
+  memory module" checked by `closeInstsG` — RTL unchanged); the memory child's
+  own run (`memComboRun`, `memChild_run`); `machine_linkedT` (a machine with
+  structure / sequential / memory calls: its open endpoint `MachineTraceLB` +
+  each child's own run ⇒ the stateful linked run, seeded with the
+  declaration's inputs only); `machine_linkedT_mem` + `#machine_composedT`
+  (`Tools/ShippingMachineMemCommand.lean`): a hand-written loop whose calls
+  are combinational-read memories is composed with its memory instances,
+  from zeroed memories, the operand Signals read off the calls (kernel
+  `rfl`s) — `Tests/Compiler/ShippingMachineMemLinkedTest.lean`. The memory
+  placeholder is now a structured name (`SparkleMem.combo.aw.dw`) so that
+  `memChild?` reduces in the kernel. NEXT: the corpus memory parents (H.264
+  Quant/Dequant/IDCT/…, then the frame/MP4 encoders), synchronous-read
+  memories (`memModule false`), sequential machine children, multi-level.
 - [ ] **F7. Synthesis and silicon.**  Out of scope and worth stating so
   the claim is not overread: the chain ends at emitted SystemVerilog.
   Trusting the synthesis tool and the fabric is the same class of trust

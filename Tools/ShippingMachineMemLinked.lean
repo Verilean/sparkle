@@ -21,16 +21,25 @@ open Tools.ShippingMachineLinked (childMap)
 
 /-- The memory child's connections from a call group (`connsG`): the four
 operands' wires, the clock and reset, the read on `out`. -/
-theorem memConnsG (aw dw : Nat) (a0 a1 a2 a3 ow : String) (k : Nat) :
-    connsG (Sparkle.Compiler.MachMemory.memModule true aw dw).1 [a0, a1, a2, a3] [(k, "out")] [ow] =
+theorem memConnsG (cb : Bool) (aw dw : Nat) (a0 a1 a2 a3 ow : String) (k : Nat) :
+    connsG (Sparkle.Compiler.MachMemory.memModule cb aw dw).1 [a0, a1, a2, a3] [(k, "out")] [ow] =
       [("wa", .ref a0), ("wd", .ref a1), ("we", .ref a2), ("ra", .ref a3),
        ("clk", .ref "clk"), ("rst", .ref "rst"), ("out", .ref ow)] := rfl
 
+/-- The source read of a memory call: combinational (`memoryComboRead`) or
+synchronous (`memory`). -/
+def memRead {D : DomainConfig} {aw dw : Nat} (cb : Bool) (A : Signal D (BitVec aw))
+    (Dd : Signal D (BitVec dw)) (E : Signal D Bool) (R : Signal D (BitVec aw)) :
+    Signal D (BitVec dw) :=
+  match cb with
+  | true => Signal.memoryComboRead A Dd E R
+  | false => Signal.memory A Dd E R
+
 /-- **A memory call's instance runs as the source read.** -/
-theorem memInst_run {D : DomainConfig} {aw dw : Nat} (we : WEnv) (argWs : List String)
+theorem memInst_run {D : DomainConfig} {cb : Bool} {aw dw : Nat} (we : WEnv) (argWs : List String)
     (outs : List (Nat × String)) (outWs : List String) (Pw : Nat → Env) (T : Nat) (kid : KidState)
     (hargs : argWs.length = 4) (houts : outs.map (·.2) = ["out"]) (houtWs : outWs.length = 1)
-    (hm0 : ∀ n i, kid.mems n i = 0)
+    (hm0 : ∀ n i, kid.mems n i = 0) (hst0 : kid.st "out_rdata" = 0)
     (A : Signal D (BitVec aw)) (Dd : Signal D (BitVec dw)) (E : Signal D Bool)
     (R : Signal D (BitVec aw))
     (hA : ∀ t, t < T → ∀ w, argWs[0]? = some w → Pw t w = (A.val (T - 1 - t)).toNat)
@@ -38,8 +47,8 @@ theorem memInst_run {D : DomainConfig} {aw dw : Nat} (we : WEnv) (argWs : List S
     (hE : ∀ t, t < T → ∀ w, argWs[2]? = some w → Pw t w = (if E.val (T - 1 - t) then 1 else 0))
     (hR : ∀ t, t < T → ∀ w, argWs[3]? = some w → Pw t w = (R.val (T - 1 - t)).toNat)
     (hO : ∀ t, t < T → ∀ w, outWs[0]? = some w →
-      Pw t w = ((Signal.memoryComboRead A Dd E R).val (T - 1 - t)).toNat) :
-    let mc := (Sparkle.Compiler.MachMemory.memModule true aw dw).1
+      Pw t w = ((memRead cb A Dd E R).val (T - 1 - t)).toNat) :
+    let mc := (Sparkle.Compiler.MachMemory.memModule cb aw dw).1
     ∃ cenvs, runModule we mc.body
         (fun t cst => connEnvS (inConns mc.outputs (connsG mc argWs outs outWs)) (Pw t) cst)
         T kid.st kid.mems = some cenvs ∧
@@ -50,10 +59,22 @@ theorem memInst_run {D : DomainConfig} {aw dw : Nat} (we : WEnv) (argWs : List S
   | [a0, a1, a2, a3], [(k, f)], [ow], _, houts, _ =>
     simp only [List.map_cons, List.map_nil, List.cons.injEq, and_true] at houts
     subst houts
-    obtain ⟨cenvs, hrun, hobs⟩ := memChild_run (D := D) (aw := aw) (dw := dw) we Pw T
-      (connsG mc [a0, a1, a2, a3] [(k, "out")] [ow]) a0 a1 a2 a3 ow rfl rfl rfl rfl A Dd E R
-      (fun t ht => hA t ht a0 rfl) (fun t ht => hD t ht a1 rfl) (fun t ht => hE t ht a2 rfl)
-      (fun t ht => hR t ht a3 rfl) (fun t ht => hO t ht ow rfl) kid.st kid.mems hm0
+    obtain ⟨cenvs, hrun, hobs⟩ : ∃ cenvs, runModule we mc.body
+        (fun t cst => connEnvS (inConns mc.outputs (connsG mc [a0, a1, a2, a3] [(k, "out")] [ow]))
+          (Pw t) cst) T kid.st kid.mems = some cenvs ∧
+        ∀ j, j < T → (cenvs[j]?).map (· "out") = some (Pw (T - 1 - j) ow) := by
+      cases cb with
+      | true =>
+        exact memChild_run (D := D) (aw := aw) (dw := dw) we Pw T
+          (connsG mc [a0, a1, a2, a3] [(k, "out")] [ow]) a0 a1 a2 a3 ow rfl rfl rfl rfl A Dd E R
+          (fun t ht => hA t ht a0 rfl) (fun t ht => hD t ht a1 rfl) (fun t ht => hE t ht a2 rfl)
+          (fun t ht => hR t ht a3 rfl) (fun t ht => hO t ht ow rfl) kid.st kid.mems hm0
+      | false =>
+        exact memSyncChild_run (D := D) (aw := aw) (dw := dw) we Pw T
+          (connsG mc [a0, a1, a2, a3] [(k, "out")] [ow]) a0 a1 a2 a3 ow rfl rfl rfl rfl rfl
+          A Dd E R
+          (fun t ht => hA t ht a0 rfl) (fun t ht => hD t ht a1 rfl) (fun t ht => hE t ht a2 rfl)
+          (fun t ht => hR t ht a3 rfl) (fun t ht => hO t ht ow rfl) kid.st hst0 kid.mems hm0
     refine ⟨cenvs, hrun, fun j hj p hp w hw => ?_⟩
     have hp' : p = { name := "out", ty := .bitVector dw } := by
       simpa [mc, Sparkle.Compiler.MachMemory.memModule] using hp
@@ -83,18 +104,19 @@ theorem mem_hchild {D : DomainConfig} (shape : Sparkle.Compiler.Elab.MachineShap
     (extB : Nat → Signal D Bool) (ext : (j : Nat) → (n : Nat) → Signal D (BitVec n))
     (names : List String) (offA offO : Nat) (T : Nat) (kids : String → KidState)
     (hm0 : ∀ iname n a, (kids iname).mems n a = 0)
+    (hst0 : ∀ iname, (kids iname).st "out_rdata" = 0)
     (hcalls : ∀ k c, (shape.insts.map (·.1))[k]? = some c →
-      ∃ (aw dw : Nat) (A : Signal D (BitVec aw)) (Dd : Signal D (BitVec dw)) (E : Signal D Bool)
+      ∃ (cb : Bool) (aw dw : Nat) (A : Signal D (BitVec aw)) (Dd : Signal D (BitVec dw)) (E : Signal D Bool)
         (R : Signal D (BitVec aw)) (l0 l1 l2 l3 : Nat),
         Sparkle.Compiler.MachMemory.memChild? c =
-          some (Sparkle.Compiler.MachMemory.memModule true aw dw) ∧
+          some (Sparkle.Compiler.MachMemory.memModule cb aw dw) ∧
         (shape.insts.map (·.2.1))[k]? = some [l0, l1, l2, l3] ∧
         lsrc[l0]? = some (fun j => (A.val j).toNat) ∧ l0 < nL ∧
         lsrc[l1]? = some (fun j => (Dd.val j).toNat) ∧ l1 < nL ∧
         lsrc[l2]? = some (fun j => if E.val j then 1 else 0) ∧ l2 < nL ∧
         lsrc[l3]? = some (fun j => (R.val j).toNat) ∧ l3 < nL ∧
         (bsI[k]?.map (·.2)) = some (.bits dw) ∧
-        ∀ j, (ext (kD + k) dw).val j = (Signal.memoryComboRead A Dd E R).val j) :
+        ∀ j, (ext (kD + k) dw).val j = (memRead cb A Dd E R).val j) :
     ∀ (args : List Nat) (outs : List (Nat × String)) (mc : Module) (iname : String)
       (argWs outWs : List String),
       args.mapM (fun j => names[offA + j]?) = some argWs →
@@ -130,7 +152,7 @@ theorem mem_hchild {D : DomainConfig} (shape : Sparkle.Compiler.Elab.MachineShap
   obtain ⟨hargs, _, hmd⟩ := hall e he
   have hk : e.1 < (shape.insts.map (·.1)).length := by
     have := (List.getElem?_eq_some_iff.mp hargs).1; simpa using this
-  obtain ⟨aw, dw, A, Dd, E, R, l0, l1, l2, l3, hmc, hla, h0, h0l, h1, h1l, h2, h2l, h3, h3l, hty,
+  obtain ⟨cb, aw, dw, A, Dd, E, R, l0, l1, l2, l3, hmc, hla, h0, h0l, h1, h1l, h2, h2l, h3, h3l, hty,
     hext⟩ := hcalls e.1 _ (List.getElem?_eq_getElem hk)
   have hmc' := hmd _ _ (List.getElem?_eq_getElem hk) hmc
   subst hmc'
@@ -150,8 +172,8 @@ theorem mem_hchild {D : DomainConfig} (shape : Sparkle.Compiler.Elab.MachineShap
   have he0 : outs[0]? = some e := by
     match outs, hol, he with
     | [e'], _, he => simp at he; subst he; rfl
-  refine memInst_run (D := D) (aw := aw) (dw := dw) _ argWs outs outWs Pw T (kids iname)
-    (by rw [hla']; rfl) hfo (by omega) (hm0 iname) A Dd E R ?_ ?_ ?_ ?_ ?_
+  refine memInst_run (D := D) (cb := cb) (aw := aw) (dw := dw) _ argWs outs outWs Pw T (kids iname)
+    (by rw [hla']; rfl) hfo (by omega) (hm0 iname) (hst0 iname) A Dd E R ?_ ?_ ?_ ?_ ?_
   · intro t ht w hw; exact hPa t ht 0 (by simp) w _ hw h0 h0l
   · intro t ht w hw; exact hPa t ht 1 (by simp) w _ hw h1 h1l
   · intro t ht w hw; exact hPa t ht 2 (by simp) w _ hw h2 h2l
@@ -192,17 +214,17 @@ theorem machine_linkedT_mem {declName : Name} {d : MachineData} {m : Module} {ds
     (hcalls : ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
       (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) k c,
       (d.shape.insts.map (·.1))[k]? = some c →
-      ∃ (aw dw : Nat) (A : Signal (dom i) (BitVec aw)) (Dd : Signal (dom i) (BitVec dw))
+      ∃ (cb : Bool) (aw dw : Nat) (A : Signal (dom i) (BitVec aw)) (Dd : Signal (dom i) (BitVec dw))
         (E : Signal (dom i) Bool) (R : Signal (dom i) (BitVec aw)) (l0 l1 l2 l3 : Nat),
         Sparkle.Compiler.MachMemory.memChild? c =
-          some (Sparkle.Compiler.MachMemory.memModule true aw dw) ∧
+          some (Sparkle.Compiler.MachMemory.memModule cb aw dw) ∧
         (d.shape.insts.map (·.2.1))[k]? = some [l0, l1, l2, l3] ∧
         (lsrc i bools bits)[l0]? = some (fun j => (A.val j).toNat) ∧ l0 < d.ls.length ∧
         (lsrc i bools bits)[l1]? = some (fun j => (Dd.val j).toNat) ∧ l1 < d.ls.length ∧
         (lsrc i bools bits)[l2]? = some (fun j => if E.val j then 1 else 0) ∧ l2 < d.ls.length ∧
         (lsrc i bools bits)[l3]? = some (fun j => (R.val j).toNat) ∧ l3 < d.ls.length ∧
         ((d.bsIn.drop kD)[k]?.map (·.2)) = some (.bits dw) ∧
-        ∀ j, (ext i bools bits (kD + k) dw).val j = (Signal.memoryComboRead A Dd E R).val j) :
+        ∀ j, (ext i bools bits (kD + k) dw).val j = (memRead cb A Dd E R).val j) :
     ∃ ids : List FVarId, ids.Nodup ∧ ids.length = d.shape.binders.length ∧
     ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
       regs.Nodup ∧ regs.length = d.ss.length ∧
@@ -217,8 +239,8 @@ theorem machine_linkedT_mem {declName : Name} {d : MachineData} {m : Module} {ds
         (∀ t st, seed t st "rst" = 0) →
         (∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r →
           d.shape.layout.slots[k]? = some f → st0 r = f.init) →
-        -- the memories start zeroed
-        (∀ iname n a, (kids iname).mems n a = 0) →
+        -- the memories (arrays and read latches) start zeroed
+        (∀ iname n a, (kids iname).mems n a = 0) → (∀ iname, (kids iname).st "out_rdata" = 0) →
         ∃ envs, runModuleT (Tools.ShippingEntrySoundness.weOf m) (childMap dsn.modules) m.body
             seed T st0 mems kids = some envs ∧
           envs.length = T ∧
@@ -228,9 +250,9 @@ theorem machine_linkedT_mem {declName : Name} {d : MachineData} {m : Module} {ds
   obtain ⟨ids, nd, len, cache, regs, rnd, rlen, H⟩ :=
     machine_linkedT h hfe kD hkD hI hIlen hSL hSlen hLlen hNIn
   refine ⟨ids, nd, len, cache, regs, rnd, rlen, ?_⟩
-  intro i bools bits T seed st0 mems kids hin hpass hrst hinit hm0
+  intro i bools bits T seed st0 mems kids hin hpass hrst hinit hm0 hst0
   exact H i bools bits T seed st0 mems kids hin hpass hrst hinit
     (mem_hchild d.shape dsn m.body (lsrc i bools bits) d.ls.length (d.bsIn.drop kD) kD
-      (extB i bools bits) (ext i bools bits) _ _ _ T kids hm0 (hcalls i bools bits))
+      (extB i bools bits) (ext i bools bits) _ _ _ T kids hm0 hst0 (hcalls i bools bits))
 
 end Tools.ShippingMachineMemLinked

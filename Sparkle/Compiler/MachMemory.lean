@@ -39,7 +39,8 @@ def memCall? (natOf : Lean.Expr → Option Nat) (e : Lean.Expr) :
 
 /-- The child's name (a placeholder in the shape's calls; no declaration). -/
 def memChildName (combo : Bool) (aw dw : Nat) : Name :=
-  Name.mkStr (Name.mkStr .anonymous "SparkleMem") s!"{if combo then "combo" else "sync"}_{aw}_{dw}"
+  Name.mkNum (Name.mkNum (Name.mkStr (Name.mkStr .anonymous "SparkleMem")
+    (if combo then "combo" else "sync")) aw) dw
 
 /-- The child module and its design. -/
 def memModule (combo : Bool) (aw dw : Nat) : Sparkle.IR.AST.Module × Design :=
@@ -59,15 +60,9 @@ def memModule (combo : Bool) (aw dw : Nat) : Sparkle.IR.AST.Module × Design :=
 /-- The child module of a placeholder name. -/
 def memChild? (c : Name) : Option (Sparkle.IR.AST.Module × Design) :=
   match c with
-  | .str (.str .anonymous "SparkleMem") s =>
-    match s.splitOn "_" with
-    | [k, a, d] =>
-      match a.toNat?, d.toNat? with
-      | some aw, some dw =>
-        if k == "combo" then some (memModule true aw dw)
-        else if k == "sync" then some (memModule false aw dw) else none
-      | _, _ => none
-    | _ => none
+  | .num (.num (.str (.str .anonymous "SparkleMem") k) aw) dw =>
+    if k == "combo" then some (memModule true aw dw)
+    else if k == "sync" then some (memModule false aw dw) else none
   | _ => none
 
 /-- The parameters a module of `memModule`'s shape is built with, read off its
