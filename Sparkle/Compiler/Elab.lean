@@ -5447,14 +5447,18 @@ def synthesizeCombinationalCoreWith (translate : TranslateFn) (declName : Name)
 def synthesizeCombinationalWith (translate : TranslateFn) (declName : Name) :
     MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) := do
   let (m, d) ← synthesizeCombinationalCoreWith translate declName [] false
-  let m := Sparkle.IR.ZeroWidth.dropZeroWidthModule m
-  let d := Sparkle.IR.ZeroWidth.dropZeroWidthDesign d
-  if (← IO.getEnv "SPARKLE_NO_REGDEDUP").isSome then return (m, d)
+  -- only the top module is cleaned up here: a child's modules come from its
+  -- own full entry (`synthesizeChild`), already cleaned up
+  let top (f : Sparkle.IR.AST.Module → Sparkle.IR.AST.Module) (d : Sparkle.IR.AST.Design) :
+      Sparkle.IR.AST.Design :=
+    { d with modules := d.modules.map fun x => if x.name == m.name then f x else x }
+  let m' := Sparkle.IR.ZeroWidth.dropZeroWidthModule m
+  let d := top Sparkle.IR.ZeroWidth.dropZeroWidthModule d
+  if (← IO.getEnv "SPARKLE_NO_REGDEDUP").isSome then return (m', d)
   -- the merge is result-checked on assign + register modules
   -- (`Sparkle.IR.RefineCheck.mergeChecked`): kept only if `refineCheck`
   -- accepts it
-  return (Sparkle.IR.RefineCheck.mergeChecked m,
-    Sparkle.IR.RefineCheck.mergeCheckedDesign d)
+  return (Sparkle.IR.RefineCheck.mergeChecked m', top Sparkle.IR.RefineCheck.mergeChecked d)
 
 /-! The translator block below takes its recursive entry as a PARAMETER
 (`translateExprToWire`, a section variable), so it no longer ties its own knot.
@@ -7797,11 +7801,13 @@ mutual
       MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) := do
     let (m, d) ← synthesizeCombinationalCoreWith (fun e h t n => translateExprToWire e h t n)
       declName parameters true
-    let m := Sparkle.IR.ZeroWidth.dropZeroWidthModule m
-    let d := Sparkle.IR.ZeroWidth.dropZeroWidthDesign d
-    if (← IO.getEnv "SPARKLE_NO_REGDEDUP").isSome then return (m, d)
-    return (Sparkle.IR.RefineCheck.mergeChecked m,
-      Sparkle.IR.RefineCheck.mergeCheckedDesign d)
+    let top (f : Sparkle.IR.AST.Module → Sparkle.IR.AST.Module) (d : Sparkle.IR.AST.Design) :
+        Sparkle.IR.AST.Design :=
+      { d with modules := d.modules.map fun x => if x.name == m.name then f x else x }
+    let m' := Sparkle.IR.ZeroWidth.dropZeroWidthModule m
+    let d := top Sparkle.IR.ZeroWidth.dropZeroWidthModule d
+    if (← IO.getEnv "SPARKLE_NO_REGDEDUP").isSome then return (m', d)
+    return (Sparkle.IR.RefineCheck.mergeChecked m', top Sparkle.IR.RefineCheck.mergeChecked d)
 end
 end Rec
 end TranslatorBlock

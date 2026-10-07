@@ -285,7 +285,14 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   slots, and cones whose reads go through the Reg-lifting operator
   instances.
 - [ ] **S4:** Remaining state/reset scope: the sequential `mergeDuplicates`
-  (the UNVALIDATED `mergeDuplicatesRaw`; needs register-bisimulation
+  — CLOSED IN THE PIPELINE (2026-10-08): `mergeChecked` now keeps the merge
+  of any body that is not assignment-only only when `refineCheck` (proved
+  sound) accepts it, and returns the module unmerged otherwise (corpus output
+  identical, gold57); `mergeDuplicatesRaw` is a `{ m with body, assertions }`
+  of `mergeDuplicatesParts`, so the merge keeps ports and wires by
+  construction; the full entry post-processes only its own top module (a
+  child's modules come post-processed from its own full entry; gold60
+  identical). Historical notes follow. (Was: the UNVALIDATED `mergeDuplicatesRaw`; needs register-bisimulation
   validation or proof — the register test exercises the merged default
   configuration numerically for 12 cycles). Groundwork landed:
   `mergeDuplicates_seq` proves the shipped sequential merge IS the raw
