@@ -170,11 +170,21 @@ at `pick` / `pickD`). -/
 #gate_child pick
 #gate_child pickD
 
+/-! The composition: each linked theorem with its premise about the calls'
+modules replaced by their being the children's full-entry runs (`GateRun`),
+discharged by the children's own theorems. -/
+#machine_composed caller
+#machine_composed callerTwice
+#machine_composed callerNested
+#machine_composed callerD
+
 run_cmd do
   if (← get).messages.hasErrors then throwError "machine instance regression failed"
   for name in [``caller.machine_sound, ``callerTwice.machine_sound, ``callerNested.machine_sound,
       ``caller.machine_linked, ``callerTwice.machine_linked, ``callerNested.machine_linked,
       ``callerD.machine_linked, ``pick.gate_child, ``pickD.gate_child,
+      ``caller.machine_composed, ``callerTwice.machine_composed, ``callerNested.machine_composed,
+      ``callerD.machine_composed, ``Tools.ShippingGateChild.runs_of_linked,
       ``Tools.ShippingGateChild.gate_child_full,
       ``caller.machine_inst_0, ``Tools.ShippingMachineAuto.machine_trace_of_data_ext,
       ``Tools.ShippingMachineNest.machine_trace_of_nested_ext,

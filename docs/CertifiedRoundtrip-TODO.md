@@ -1291,7 +1291,18 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   source function at constant inputs = the term's value by kernel `rfl`, and
   `c.gate_binders`: the linked theorem's ports are the gate's binders). All
   5 gate children of the corpus (`pick`, `pickD`, SHA-256/SHA-512 `kMux`,
-  `keccakRcHW`); the measurement generates them (`|GATECHILD|`). Remaining: the boundary that the design's child module IS
+  `keccakRcHW`); the measurement generates them (`|GATECHILD|`). The gate
+  child's theorem needs NO cleanup premise (`childFn_post`: the gate's module
+  is `TypedPostReady`, so `dropZeroWidth_typed` keeps its body, widths and
+  ports; then `childFn_merge`). COMPOSED (same day): `runs_of_linked` turns a
+  linked theorem's premise about each call's module into that module being a
+  run of the child's full entry (`GateRun`: the design's child module IS its
+  full-entry run — the one boundary left, stated), each call discharged by
+  its child's `c.gate_linked`; generated as `#machine_composed f`
+  (`f.machine_composed`) for every parent whose children are all the gate's:
+  the four test callers, `wBlock`, `wKeccakF`, both SHA-512 block outputs
+  (`|COMPOSED|`). Machine-route children keep `child_full`'s cleanup premise
+  (the machine module's wiring facts do not carry `TypedPostReady`). Remaining: the boundary that the design's child module IS
   the child's full-entry run (`sparkleChildSynth` is an opaque `IO.Ref`;
   stated, like S6's `SubSynthDefines`), the child's run gate
   `dropZeroWidthModule raw = raw`, parents through sub-machines / loops

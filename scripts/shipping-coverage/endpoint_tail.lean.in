@@ -108,6 +108,17 @@ run_cmd do
           let msg ← ex.toMessageData.toString
           pure ("GATECHILD|FAIL|" ++ ((msg.replace "\n" " ").take 300).toString)
       gout := gout ++ s!"{c}|{res}\n"
+    -- the composition, when every child is the gate's
+    if (← getEnv).contains (n ++ `machine_composed) then
+      gout := gout ++ s!"{s}|COMPOSED|OK\n"
+    else if children.all fun c => (env.find? (c ++ `machine_sound)).isNone then
+      let res ← try
+          let _ ← Tools.ShippingGateChildCommand.generateComposed n
+          pure "COMPOSED|OK"
+        catch ex =>
+          let msg ← ex.toMessageData.toString
+          pure ("COMPOSED|FAIL|" ++ ((msg.replace "\n" " ").take 300).toString)
+      gout := gout ++ s!"{s}|{res}\n"
   let hg ← IO.FS.Handle.mk "@WORK@/linked_reasons.txt" .append
   hg.putStr gout
 end EndpointProbeZZ

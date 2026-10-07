@@ -45,5 +45,7 @@ python3 "$HERE/report.py" endpoints "$WORK"
 echo "combinational children with machine_child: $(grep '|CHILD|OK' "$WORK/linked_reasons.txt" | cut -d'|' -f1 | sort -u | wc -l)"
 echo "gate-route children with gate_child: $(grep '|GATECHILD|OK' "$WORK/linked_reasons.txt" | cut -d'|' -f1 | sort -u | wc -l) of $(grep '|GATECHILD|' "$WORK/linked_reasons.txt" | cut -d'|' -f1 | sort -u | wc -l)"
 grep '|GATECHILD|FAIL' "$WORK/linked_reasons.txt" | sort -u | cut -c1-250 | head -10
+echo "declarations with machine_composed (every child the gate's): $(grep '|COMPOSED|OK' "$WORK/linked_reasons.txt" | cut -d'|' -f1 | sort -u | wc -l) of $(grep '|COMPOSED|' "$WORK/linked_reasons.txt" | cut -d'|' -f1 | sort -u | wc -l)"
+grep '|COMPOSED|FAIL' "$WORK/linked_reasons.txt" | sort -u | cut -c1-250 | head -10
 echo "declarations with calls and machine_linked: $(grep '|LINKED|OK' "$WORK/linked_reasons.txt" | cut -d'|' -f1 | sort -u | wc -l) of $(grep '|LINKED|' "$WORK/linked_reasons.txt" | cut -d'|' -f1 | sort -u | wc -l)"
 grep '|LINKED|FAIL' "$WORK/linked_reasons.txt" | sort -u | cut -c1-250 | head -20

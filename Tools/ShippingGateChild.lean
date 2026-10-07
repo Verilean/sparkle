@@ -121,9 +121,10 @@ theorem gate_childFn {declName : Name} {m : Sparkle.IR.AST.Module}
     (hF : ∀ vs, InRange vs (bs.filter fun b => b.2 != .domain) →
       F vs = (pack srt (eval (fun j => decB bs vs (bpos j)) (fun j w => decV bs vs (vpos j) w) e)).toNat) :
     ChildFn m (fun vs => InRange vs (bs.filter fun b => b.2 != .domain)) F ∧
-      m.body.all Sparkle.IR.RegDedup.isAssign = true := by
+      m.body.all Sparkle.IR.RegDedup.isAssign = true ∧
+      Tools.ShippingTypedPostSoundness.TypedPostReady m := by
   -- the facts that do not depend on the inputs, at the all-zero environment
-  obtain ⟨_, _, _, _, simple, _, _, _, pb⟩ := vals (fun _ => false) (fun _ n => 0#n) (fun _ => 0)
+  obtain ⟨_, _, _, tpr, simple, _, _, _, pb⟩ := vals (fun _ => false) (fun _ n => 0#n) (fun _ => 0)
     (fun _ _ => 0) (admissible_zero _ _)
   have pb := pb positive
   have hall : m.body.all Sparkle.IR.RegDedup.isAssign = true := by
@@ -131,7 +132,7 @@ theorem gate_childFn {declName : Name} {m : Sparkle.IR.AST.Module}
     intro st hs
     obtain ⟨l, r, rfl, _⟩ := simple st hs
     rfl
-  refine ⟨?_, hall⟩
+  refine ⟨?_, hall, tpr⟩
   obtain ⟨ty, hout⟩ := pb.output
   refine ⟨{ name := "out", ty := ty }, hout, ?_⟩
   intro mems env _ hP
@@ -204,11 +205,50 @@ theorem gate_childFn {declName : Name} {m : Sparkle.IR.AST.Module}
     rw [this]; exact hev
   · rw [hres, hF vs hP]
 
+/-- The zero-width cleanup keeps what a typed module computes: it changes no
+statement, width or port (`dropZeroWidth_typed`). -/
+theorem childFn_dropZW {M : Sparkle.IR.AST.Module} {P : List Nat → Prop} {F : List Nat → Nat}
+    (h : ChildFn M P F) (htp : Tools.ShippingTypedPostSoundness.TypedPostReady M) :
+    ChildFn (Sparkle.IR.ZeroWidth.dropZeroWidthModule M) P F := by
+  obtain ⟨hb, hw, hi, ho, _⟩ := Tools.ShippingTypedPostSoundness.dropZeroWidth_typed htp
+  obtain ⟨outP, houts, hf⟩ := h
+  refine ⟨outP, by rw [ho]; exact houts, ?_⟩
+  intro mems env hrst hP
+  have hargs : argPorts (Sparkle.IR.ZeroWidth.dropZeroWidthModule M) = argPorts M := by
+    unfold argPorts; rw [hi]
+  rw [hargs] at hP ⊢
+  obtain ⟨cres, hev, hcres⟩ := hf mems env hrst hP
+  have hdw : Sparkle.IR.RegDedup.declWidth (Sparkle.IR.ZeroWidth.dropZeroWidthModule M) =
+      Sparkle.IR.RegDedup.declWidth M := by
+    change Tools.ShippingEntrySoundness.weOf _ = Tools.ShippingEntrySoundness.weOf _
+    exact hw
+  exact ⟨cres, by rw [hdw, hb]; exact hev, hcres⟩
+
+/-- Both cleanups, as the full entry runs them, keep what a typed module of
+assignments computes. -/
+theorem childFn_post {M b : Sparkle.IR.AST.Module} {P : List Nat → Prop} {F : List Nat → Nat}
+    (h : ChildFn M P F) (htp : Tools.ShippingTypedPostSoundness.TypedPostReady M)
+    (hall : M.body.all Sparkle.IR.RegDedup.isAssign = true)
+    (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨
+      b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M)) :
+    ChildFn b P F := by
+  have hdz := childFn_dropZW h htp
+  have hall' : (Sparkle.IR.ZeroWidth.dropZeroWidthModule M).body.all
+      Sparkle.IR.RegDedup.isAssign = true := by
+    rw [(Tools.ShippingTypedPostSoundness.dropZeroWidth_typed htp).1]; exact hall
+  rcases hpost with rfl | rfl
+  · exact hdz
+  · rcases Sparkle.IR.RefineCheck.mergeChecked_cases (Sparkle.IR.ZeroWidth.dropZeroWidthModule M)
+      with he | he <;> rw [he]
+    · exact childFn_merge hdz hall'
+    · exact hdz
+
 /-- **A gate child at the full entry.** A run of the full entry on a
-declaration the unified gate accepts returns a module that — when the run's
-zero-width cleanup changes nothing — computes `F` on its argument ports, `F`
-being the term's value on them decoded (`ChildFn`, as `machine_linked` uses
-it): the gate analogue of `child_full`. -/
+declaration the unified gate accepts returns a module that computes `F` on
+its argument ports, `F` being the term's value on them decoded (`ChildFn`, as
+`machine_linked` uses it): the gate analogue of `child_full`, and without its
+cleanup premise — the gate's module is typed, so the zero-width cleanup
+changes nothing it computes. -/
 theorem gate_child_full {declName : Name} {mctx : Meta.Context}
     {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
     {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
@@ -226,15 +266,11 @@ theorem gate_child_full {declName : Name} {mctx : Meta.Context}
     {F : List Nat → Nat}
     (hF : ∀ vs, InRange vs (bs.filter fun b => b.2 != .domain) →
       F vs = (pack srt (eval (fun j => decB bs vs (bpos j)) (fun j w => decV bs vs (vpos j) w) e)).toNat) :
-    ∃ raw : Sparkle.IR.AST.Module,
-      (b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨
-        b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)) ∧
-      (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw = raw →
-        ChildFn b (fun vs => InRange vs (bs.filter fun b => b.2 != .domain)) F) := by
+    ChildFn b (fun vs => InRange vs (bs.filter fun b => b.2 != .domain)) F := by
   obtain ⟨M, D, w1, hcore, hpost⟩ := Tools.ShippingMachineShipping.synthesizeCombinational_checked hr
   obtain ⟨ids, cache, nd, len, vals, ins, positive⟩ := gate_core_facts hcore entry old peel he hb hv
-  obtain ⟨hfn, hall⟩ := gate_childFn nd len vals ins positive hF
-  exact ⟨M, hpost, fun hdz => childFn_full hfn hall hpost hdz⟩
+  obtain ⟨hfn, hall, htp⟩ := gate_childFn nd len vals ins positive hF
+  exact childFn_post hfn htp hall hpost
 
 /-! ## The positions of a generated instance, by evaluation -/
 
@@ -286,5 +322,98 @@ theorem bits_positions {bs : List (Name × MixedGateBinder)} {ps ws : List Nat}
     cases kind with
     | bits n => simp only [beq_iff_eq]; intro hn; exact ⟨name, by rw [hn]⟩
     | _ => simp
+
+/-! ## The linked theorem over the children's runs -/
+
+/-- **The boundary for a gate child.** The module an instance of `c`
+resolves to in the design is what a run of the full entry on `c` returned,
+in a run whose entry constant for `c` has value `v` (the design's child
+module IS the child's full-entry run: `sparkleChildSynth` is an opaque
+`IO.Ref`, so this is stated, like S6's `SubSynthDefines`). -/
+def GateRun (c : Name) (v : Lean.Expr) (mc : Sparkle.IR.AST.Module) : Prop :=
+  ∃ (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State) (cctx : Core.Context)
+    (cref : ST.Ref IO.RealWorld Core.State) (w w' : Void IO.RealWorld) (design : Design),
+    RunsTo (synthesizeCombinational c) mctx mref cctx cref w (mc, design) w' ∧
+    EntryDefines mctx mref cctx cref c v
+
+/-- A gate child's theorem at the module of a run. -/
+theorem childFn_of_gateRun {c : Name} {v : Lean.Expr} {mc : Sparkle.IR.AST.Module}
+    {P : List Nat → Prop} {F : List Nat → Nat}
+    (hc : ∀ {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+      {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+      {w w' : Void IO.RealWorld} {b : Sparkle.IR.AST.Module} {design : Design},
+      RunsTo (synthesizeCombinational c) mctx mref cctx cref w (b, design) w' →
+      EntryDefines mctx mref cctx cref c v → ChildFn b P F)
+    (h : GateRun c v mc) : ChildFn mc P F := by
+  obtain ⟨_, _, _, _, _, _, _, hr, entry⟩ := h
+  exact hc hr entry
+
+open Tools.ShippingMachineAuto Tools.ShippingMachineSource Tools.ShippingMachineLinked in
+/-- **The linked run, given the children's runs.** `machine_linked_calls`'s
+conclusion with its premise about each call's module (`ChildFn`) replaced by
+any premise `R` that gives it: with `R` the calls' `GateRun`s, the linked
+theorem rests on the children's own theorems and the run boundary only. -/
+theorem runs_of_linked {declName : Name} {d : MachineData} {m : Sparkle.IR.AST.Module}
+    {dsn : Design} {ι : Type} {dom : ι → DomainConfig}
+    {src : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat)}
+    {ext : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) →
+      (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)}
+    {kD : Nat} {P : Nat → List Nat → Prop} {F : Nat → List Nat → Nat}
+    (H : ∃ ids : List FVarId, ids.Nodup ∧ ids.length = d.shape.binders.length ∧
+      ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
+        regs.Nodup ∧ regs.length = d.ss.length ∧
+        ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+          (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
+          (T : Nat) (seed : Nat → (String → Nat) → Env) (st0 : String → Nat) (mems : MEnv),
+          (∀ t st, t < T → SourceInputs declName (d.bsIn.take kD) ids cache
+            (fun j => (bools j).val (T - 1 - t)) (fun j n => (ext i bools bits j n).val (T - 1 - t))
+            (seed t st)) →
+          (∀ t st r, r ∈ regs → seed t st r = st r) →
+          (∀ t st, seed t st "rst" = 0) →
+          (∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r →
+            d.shape.layout.slots[k]? = some f → st0 r = f.init) →
+          (∀ k args mc st, (d.shape.insts.map (·.2.1))[k]? = some args → st ∈ m.body →
+            Tools.ShippingMachineInst.CallStmt (machNIn d.shape) d.shape.insts.length
+              d.shape.layout.slots.length
+              ((machPorts declName ids cache d.shape.binders).map (·.name)) k args mc st →
+            Sparkle.IR.Machine.moduleByName dsn.modules mc.name = some mc →
+            ChildFn mc (P k) (F k)) →
+          ∃ envs, runModuleH (Tools.ShippingEntrySoundness.weOf m) (childMap dsn.modules) m.body seed T st0 mems = some envs ∧
+            envs.length = T ∧
+            ∀ j (hj : j < envs.length) (k : Nat) (o : OutField) (f : Nat → Nat),
+              d.shape.layout.outs[k]? = some o → (src i bools bits)[k]? = some f →
+              (envs[j]'hj) o.name = f j)
+    (R : Nat → Sparkle.IR.AST.Module → Prop)
+    (hR : ∀ k mc, R k mc → ChildFn mc (P k) (F k)) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = d.shape.binders.length ∧
+      ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
+        regs.Nodup ∧ regs.length = d.ss.length ∧
+        ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+          (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
+          (T : Nat) (seed : Nat → (String → Nat) → Env) (st0 : String → Nat) (mems : MEnv),
+          (∀ t st, t < T → SourceInputs declName (d.bsIn.take kD) ids cache
+            (fun j => (bools j).val (T - 1 - t)) (fun j n => (ext i bools bits j n).val (T - 1 - t))
+            (seed t st)) →
+          (∀ t st r, r ∈ regs → seed t st r = st r) →
+          (∀ t st, seed t st "rst" = 0) →
+          (∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r →
+            d.shape.layout.slots[k]? = some f → st0 r = f.init) →
+          (∀ k args mc st, (d.shape.insts.map (·.2.1))[k]? = some args → st ∈ m.body →
+            Tools.ShippingMachineInst.CallStmt (machNIn d.shape) d.shape.insts.length
+              d.shape.layout.slots.length
+              ((machPorts declName ids cache d.shape.binders).map (·.name)) k args mc st →
+            Sparkle.IR.Machine.moduleByName dsn.modules mc.name = some mc →
+            R k mc) →
+          ∃ envs, runModuleH (Tools.ShippingEntrySoundness.weOf m) (childMap dsn.modules) m.body seed T st0 mems = some envs ∧
+            envs.length = T ∧
+            ∀ j (hj : j < envs.length) (k : Nat) (o : OutField) (f : Nat → Nat),
+              d.shape.layout.outs[k]? = some o → (src i bools bits)[k]? = some f →
+              (envs[j]'hj) o.name = f j := by
+  obtain ⟨ids, nd, len, cache, regs, rnd, rlen, H⟩ := H
+  exact ⟨ids, nd, len, cache, regs, rnd, rlen,
+    fun i bools bits T seed st0 mems a b c e hrun => H i bools bits T seed st0 mems a b c e
+      (fun k args mc st h1 h2 h3 h4 => hR k mc (hrun k args mc st h1 h2 h3 h4))⟩
 
 end Tools.ShippingGateChild
