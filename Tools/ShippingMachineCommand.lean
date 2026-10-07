@@ -410,16 +410,17 @@ the endpoint goes through `machine_trace_of_nested`. -/
 def Read.nested (r : Read) : Bool :=
   r.shape.runs.length != 1 || r.rootLets != 0 || !r.hasOuter
 
-def readMachine (declName : Name) : MetaM Read := do
+def readMachine (declName : Name) (allowGate : Bool := false) : MetaM Read := do
   let env ← getEnv
   let ci ← getConstInfo declName
   unless ci.levelParams.isEmpty do throwError "{declName}: universe parameters"
   let senv := structEnv env
   let entry := entryConst true false [] ci (instancePredicate env) (userInliner env) senv
   -- the real entry takes the machine route only when both combinational
-  -- gates miss (`synthesizeFromConst`; the `MachineDefines` boundary)
-  if (certifiedShape? false [] entry).isSome ||
-      (mixedCertifiedShape? false [] entry (instancePredicate env)).isSome then
+  -- gates miss (`synthesizeFromConst`; the `MachineDefines` boundary);
+  -- `allowGate`: read anyway (a gate-route child's source function only)
+  if !allowGate && ((certifiedShape? false [] entry).isSome ||
+      (mixedCertifiedShape? false [] entry (instancePredicate env)).isSome) then
     throwError "{declName}: a combinational gate takes it, not the machine route"
   let some shape := machineShape? false [] entry senv
     | throwError "{declName}: not a machine shape"
@@ -2435,9 +2436,10 @@ def signNormalize (declName : Name) (v : Lean.Expr) : MetaM (Lean.Expr × Option
 checks, the theorem (whose name is returned). `checkCloses` also runs the
 machine synthesis and checks that it ties the `let`s (the `MachineCloses`
 boundary, in this environment). -/
-partial def generateCore (declName : Name) (checkCloses : Bool) : MetaM Name := do
+partial def generateCore (declName : Name) (checkCloses : Bool) (defsOnly : Bool := false) :
+    MetaM Name := do
   progress s!"{declName}: reading"
-  let r ← readMachine declName
+  let r ← readMachine declName (allowGate := defsOnly)
   -- the children's own endpoints first (a sequential child's facts are used)
   -- (only a parent with state reads them; a child the certified gate
   -- compiles is combinational and has none)
@@ -2520,6 +2522,10 @@ partial def generateCore (declName : Name) (checkCloses : Bool) : MetaM Name := 
       else if r.nested || !r.shape.loops.isEmpty then nestedProof declName r data ι i D bools bits srcN inst
       else if !r.shape.instFields.isEmpty then causalProof declName r data ι i D bools bits srcN inst
       else singleProof declName r data ι i D bools bits srcN inst
+    -- the definitions only (`generateSourceDefs`): no checks, no theorem
+    if defsOnly then
+      let _ := (checks, extra)
+      return srcName
     let mut p := p
     for (suffix, left) in checks do
       let stmt := (← inferType p).bindingDomain!
@@ -2586,6 +2592,20 @@ def generate (declName : Name) (checkCloses : Bool := true) : MetaM Name := do
   let saved ← getEnv
   try
     withOptions (fun o => Lean.Elab.async.set o false) (generateCore declName checkCloses)
+  catch ex =>
+    setEnv saved
+    throw ex
+
+/-- The machine data and source function of a combinational declaration the
+certified GATE compiles (a child of a linked parent): `c.machineData` (its
+ports) and `c.machineSource` (its source function, read the machine route's
+way). No theorem about `c`'s module: that its module computes the function is
+the linked theorem's premise, discharged separately. -/
+def generateSourceDefs (declName : Name) : MetaM Name := do
+  let saved ← getEnv
+  try
+    withOptions (fun o => Lean.Elab.async.set o false)
+      (generateCore declName (checkCloses := false) (defsOnly := true))
   catch ex =>
     setEnv saved
     throw ex

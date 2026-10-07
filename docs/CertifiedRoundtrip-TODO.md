@@ -1270,10 +1270,18 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   outputs) and responder, the HTTP GET/response byte generators, the PCIe
   HFT pulse, and the three round-trip tops), parents with sub-machines
   included (`machine_traceL_of_nested_ext`, `letObsN`); 32 combinational
-  children have their `machine_child`. Not covered: callers whose child is
-  on a combinational GATE route rather than the machine route (the four
-  test callers of `pick`/`pickD`: the gate route's theorem does not yet
-  expose its module's ports). Remaining: the boundary that the design's child module IS
+  children have their `machine_child`. GATE-ROUTE CHILDREN (2026-10-07): a
+  child the certified combinational gate compiles has no machine endpoint;
+  `#machine_linked` now reads its source function and ports anyway
+  (`generateSourceDefs`: `c.machineData`/`c.machineSource` only, no theorem
+  about `c`'s module), so the parent's linked theorem exists and keeps, as its
+  premise, that the gate child's module computes that function — 27/27
+  callers measured (the four `pick`/`pickD` test callers, `wBlock`,
+  `wKeccakF`, both SHA-512 block outputs added). OPEN: discharge that premise
+  for a gate child (the gate's `execution_source_of_env` at the child, which
+  needs a reification of the child's value into a unified `Term` — the tests
+  write the `Term` by hand today — and the bridge from its `ExecutionValue`
+  to `ChildFn`, the gate analogue of `child_full`). Remaining: the boundary that the design's child module IS
   the child's full-entry run (`sparkleChildSynth` is an opaque `IO.Ref`;
   stated, like S6's `SubSynthDefines`), the child's run gate
   `dropZeroWidthModule raw = raw`, parents through sub-machines / loops

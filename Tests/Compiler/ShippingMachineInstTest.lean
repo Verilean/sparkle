@@ -1,6 +1,7 @@
 import Sparkle.Core.CircuitDo
 import Sparkle.Compiler.InlineAttr
 import Tools.ShippingMachineCommand
+import Tools.ShippingMachineLinkedCommand
 import Tools.ShippingMachineChild
 
 /-! `@[hardware_module]` calls inside a `circuit do`, on the machine route.
@@ -153,9 +154,20 @@ run_cmd liftTermElabM do
 #machine_endpoint callerD
 #machine_endpoint callerInner
 
+/-! The linked runs: the children (`pick`, `pickD`) are compiled by the
+certified combinational gate, so they have no machine endpoint; the linked
+theorem reads their source functions (`generateSourceDefs`) and takes, as
+its premise, that their modules compute them. -/
+#machine_linked caller
+#machine_linked callerTwice
+#machine_linked callerNested
+#machine_linked callerD
+
 run_cmd do
   if (← get).messages.hasErrors then throwError "machine instance regression failed"
   for name in [``caller.machine_sound, ``callerTwice.machine_sound, ``callerNested.machine_sound,
+      ``caller.machine_linked, ``callerTwice.machine_linked, ``callerNested.machine_linked,
+      ``callerD.machine_linked,
       ``caller.machine_inst_0, ``Tools.ShippingMachineAuto.machine_trace_of_data_ext,
       ``Tools.ShippingMachineNest.machine_trace_of_nested_ext,
       ``Tools.ShippingMachineInst.runModule_of_closeInsts, ``callerD.machine_sound, ``callerInner.machine_sound,

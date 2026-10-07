@@ -178,7 +178,9 @@ def generateLinkedCore (declName : Name) : MetaM Name := do
     let cData := c ++ `machineData
     let cSrc := c ++ `machineSource
     unless (← getEnv).contains cSrc do
-      throwError "{declName}: run #machine_endpoint {c} first"
+      -- a child the certified gate compiles: its source function only
+      try discard <| Tools.ShippingMachineCommand.generateSourceDefs c
+      catch _ => throwError "{declName}: run #machine_endpoint {c} first"
     let srcT ← inferType (mkConst cSrc)
     let ιc := srcT.bindingDomain!
     let i0 := if ιc.isConstOf ``Unit then mkConst ``Unit.unit
@@ -187,7 +189,7 @@ def generateLinkedCore (declName : Name) : MetaM Name := do
     Fs := Fs.push (← mkAppM ``Tools.ShippingMachineChild.childValue
       #[mkConst cSrc, ← mkAppM ``Tools.ShippingMachineAuto.MachineData.bsIn #[mkConst cData], i0])
     -- the child's binder kinds (its declaration's binders)
-    let cr ← readMachine c
+    let cr ← readMachine c (allowGate := true)
     childInfo := childInfo.push (cSrc, cData, cr.shape.binders.take cr.nDecl |>.map (·.2))
   let nat := mkConst ``Nat
   let listNat := mkApp (mkConst ``List [.zero]) nat
