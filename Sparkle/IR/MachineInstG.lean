@@ -134,7 +134,11 @@ def closeInstsG (nIn kI n : Nat) (portNames : List String) (insts : List (List N
       -- linked run's conditions; always so for the statements above)
       decide (body.filterMap instNameOf).Nodup && noSelfFeed (moduleByName d'.modules) body &&
       -- a memory child's name finds that memory module
-      children.all (fun c => Sparkle.Compiler.MachMemory.memSelf (moduleByName d'.modules) c.1) then
+      children.all (fun c => Sparkle.Compiler.MachMemory.memSelf (moduleByName d'.modules) c.1) &&
+      -- every child module, and every module of a child's design, is found by
+      -- its name in the merged design as itself (the designs agree)
+      children.all (fun c => decide (moduleByName d'.modules c.1.name = some c.1) &&
+        c.2.modules.all (fun m => decide (moduleByName d'.modules m.name = some m))) then
     some ({ m' with body := body }, d')
   else none
 

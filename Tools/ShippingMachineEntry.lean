@@ -1656,7 +1656,7 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
             have hn := (hall e he).2.1
             rw [hk, Option.map_some, Option.some.injEq] at hn
             obtain ⟨cb, aw, dw, rfl⟩ := Tools.ShippingMachineInstG.memChild_eq hmd
-            have hs := (Tools.ShippingMachineInstG.closeInstsG_names hci).2.2 _
+            have hs := (Tools.ShippingMachineInstG.closeInstsG_names hci).2.2.1 _
               (List.mem_of_getElem? hk)
             refine Tools.ShippingMachineInstG.find_memModule hs ?_
             rw [hn, ← Tools.ShippingMachineInst.moduleByName_name hmc]

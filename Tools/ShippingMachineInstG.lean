@@ -243,7 +243,7 @@ theorem closeInstsG_insts {nIn kI n : Nat} {portNames : List String} {insts : Li
   split at h
   · rename_i hc
     simp only [Bool.and_eq_true, decide_eq_true_eq] at hc
-    obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨_, _⟩, _⟩, _⟩, hperm⟩, _⟩, _⟩, _⟩, _⟩, _⟩, _⟩, _⟩ := hc
+    obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨_, _⟩, _⟩, _⟩, hperm⟩, _⟩, _⟩, _⟩, _⟩, _⟩, _⟩, _⟩, _⟩ := hc
     cases h
     have hbd := (withClockFor_same children m₀).2.2.2
     have hmem : st ∈ (withClockFor children m₀).body ++ stmts :=
@@ -321,7 +321,7 @@ theorem closeInstsG_calls {nIn kI n : Nat} {portNames : List String} {insts : Li
   split at h
   · rename_i hc
     simp only [Bool.and_eq_true, decide_eq_true_eq] at hc
-    obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨_, _⟩, _⟩, _⟩, hperm⟩, _⟩, _⟩, _⟩, _⟩, _⟩, _⟩, _⟩ := hc
+    obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨_, _⟩, _⟩, _⟩, hperm⟩, _⟩, _⟩, _⟩, _⟩, _⟩, _⟩, _⟩, _⟩ := hc
     cases h
     have hbd := (withClockFor_same children m₀).2.2.2
     unfold stmtsG at hstmts
@@ -371,7 +371,9 @@ theorem closeInstsG_names {nIn kI n : Nat} {portNames : List String} {insts : Li
     {children : List (Module × Design)} {m₀ : Module} {d₀ : Design} {m : Module} {d : Design}
     (h : closeInstsG nIn kI n portNames insts fields children (m₀, d₀) = some (m, d)) :
     (m.body.filterMap instNameOf).Nodup ∧ noSelfFeed (moduleByName d.modules) m.body = true ∧
-      ∀ c ∈ children, Sparkle.Compiler.MachMemory.memSelf (moduleByName d.modules) c.1 = true := by
+      (∀ c ∈ children, Sparkle.Compiler.MachMemory.memSelf (moduleByName d.modules) c.1 = true) ∧
+      ∀ c ∈ children, moduleByName d.modules c.1.name = some c.1 ∧
+        ∀ m ∈ c.2.modules, moduleByName d.modules m.name = some m := by
   unfold closeInstsG at h
   simp only [Option.bind_eq_bind] at h
   obtain ⟨stmts, _, h⟩ := Option.bind_eq_some_iff.mp h
@@ -380,9 +382,12 @@ theorem closeInstsG_names {nIn kI n : Nat} {portNames : List String} {insts : Li
   split at h
   · rename_i hc
     simp only [Bool.and_eq_true, decide_eq_true_eq] at hc
-    obtain ⟨⟨⟨_, hnames⟩, hfeed⟩, hmem⟩ := hc
+    obtain ⟨⟨⟨⟨_, hnames⟩, hfeed⟩, hmem⟩, hcons⟩ := hc
     cases h
-    exact ⟨hnames, hfeed, List.all_eq_true.mp hmem⟩
+    refine ⟨hnames, hfeed, List.all_eq_true.mp hmem, fun c hc => ?_⟩
+    have := List.all_eq_true.mp hcons c hc
+    simp only [Bool.and_eq_true, decide_eq_true_eq, List.all_eq_true] at this
+    exact this
   · cases h
 
 /-! ## The memory children's module -/
