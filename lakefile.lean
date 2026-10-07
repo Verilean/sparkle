@@ -551,6 +551,9 @@ lean_lib «Tools.ShippingHierMem» where
 lean_lib «Tools.ShippingMachineComposedT» where
   roots := #[`Tools.ShippingMachineComposedT]
 
+lean_lib «Tools.ShippingMachineLinkedT» where
+  roots := #[`Tools.ShippingMachineLinkedT]
+
 lean_lib «Tools.ShippingSignOps» where
   roots := #[`Tools.ShippingSignOps]
 
