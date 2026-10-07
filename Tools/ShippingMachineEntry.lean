@@ -671,7 +671,15 @@ def MachineWired (declName : Name) (shape : MachineShape) (ids : List FVarId)
     machPorts declName ids cache
       (shape.binders.take (shape.binders.length - n - shape.layout.lets))) ∧
   -- without calls and slots, the body is assignments
-  (shape.insts = [] → shape.layout.slots = [] → m.body.all Sparkle.IR.RegDedup.isAssign = true)
+  (shape.insts = [] → shape.layout.slots = [] → m.body.all Sparkle.IR.RegDedup.isAssign = true) ∧
+  -- and the full entry's zero-width cleanup changes no statement, width or
+  -- port (the outputs' types are their widths: `machOutFields`)
+  (shape.insts = [] → shape.layout.slots = [] →
+    (∀ o ∈ shape.layout.outs, o.ty.bitWidth = o.width) →
+    (Sparkle.IR.ZeroWidth.dropZeroWidthModule m).body = m.body ∧
+    weOf (Sparkle.IR.ZeroWidth.dropZeroWidthModule m) = weOf m ∧
+    (Sparkle.IR.ZeroWidth.dropZeroWidthModule m).inputs = m.inputs ∧
+    (Sparkle.IR.ZeroWidth.dropZeroWidthModule m).outputs = m.outputs)
 
 /-- **One cycle of a compiled state machine.** The module the machine route
 returns has one register per slot (`regs`, in slot order) and, on every
@@ -1258,7 +1266,7 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
     have outs0 : (closeMachine shape.layout t').outputs =
         shape.layout.outs.map (fun o => ({ name := o.name, ty := o.ty } : Port)) := by
       unfold closeMachine; rw [hpwC]
-    refine ⟨namesNodup, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+    refine ⟨namesNodup, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
     · intro x hx
       obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hx
       exact pb.wireNames p (pb.inputWires p hp)
@@ -1355,6 +1363,17 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
         · exact List.all_eq_true.mpr fun st hs =>
             List.all_eq_true.mp typed'.isAssign st (List.dropLast_subset _ hs)
         · simp [outAssigns, Sparkle.IR.RegDedup.isAssign]
+      · exact absurd hnil hne
+    · intro hnil hsl houtTy
+      rcases hmt with ⟨_, hm'⟩ | ⟨hne, _⟩
+      · subst hm'
+        exact closeMachine_comb_cleanup hB' typed'
+          (fun p hp => pb.wireNames p (hwires' ▸ hp))
+          (fun p hp => by
+            rw [hwires']
+            exact pb.inputWires p (by
+              rw [tInputs]; rw [hin'] at hp; exact List.mem_append_left _ hp))
+          (by rw [hwires']; exact ready.wiresNodup) outsOk outsNodup houtTy hsl
       · exact absurd hnil hne
   refine ⟨ps.map Port.name, psNodup, by rw [List.length_map, psLen], ls.map Port.name,
     by rw [List.length_map, lsLen], wired, ?_⟩

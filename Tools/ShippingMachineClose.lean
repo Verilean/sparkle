@@ -800,4 +800,123 @@ theorem chain_core_pos {we : WEnv} {body : List Stmt} (typed : TypedStmts we bod
       | cat _ _ _ hb => exact hb
     | cons h2 r2 => exact ih (by simp)
 
+/-! ## The zero-width cleanup on a combinational machine module -/
+
+/-- **The cleanup keeps a closed combinational transition.** Without slots,
+`closeMachine` keeps the transition's typed statements and drives each output
+with a part-select of the packed wire; the full entry's zero-width cleanup
+then changes no statement, width or port: every target has a positive width
+(a typed wire, or an output port — output names are not allocated, so no wire
+shadows them) and every right-hand side reads positive-width wires. -/
+theorem closeMachine_comb_cleanup {t : Module} {lay : Layout} {B : List Stmt} {w : String}
+    (hbody : t.body = B ++ [.assign "out" (.ref w)])
+    (typed : TypedStmts (weOf t) t.body)
+    (names : ∀ p ∈ t.wires, Allocated p.name)
+    (inWires : ∀ p ∈ t.inputs, p ∈ t.wires)
+    (wiresNodup : (t.wires.map Port.name).Nodup)
+    (outsOk : ∀ o ∈ lay.outs, 0 < o.width ∧ outNameOk o.name = true)
+    (outsNodup : (lay.outs.map (·.name)).Nodup)
+    (outTy : ∀ o ∈ lay.outs, o.ty.bitWidth = o.width)
+    (hsl : lay.slots = []) :
+    (Sparkle.IR.ZeroWidth.dropZeroWidthModule (closeMachine lay t)).body =
+        (closeMachine lay t).body ∧
+      weOf (Sparkle.IR.ZeroWidth.dropZeroWidthModule (closeMachine lay t)) =
+        weOf (closeMachine lay t) ∧
+      (Sparkle.IR.ZeroWidth.dropZeroWidthModule (closeMachine lay t)).inputs =
+        (closeMachine lay t).inputs ∧
+      (Sparkle.IR.ZeroWidth.dropZeroWidthModule (closeMachine lay t)).outputs =
+        (closeMachine lay t).outputs := by
+  have hpw : packedWire? t.body = some w := by simp [packedWire?, hbody]
+  have hdrop : t.body.dropLast = B := by simp [hbody]
+  generalize hM : closeMachine lay t = M
+  have hMw : M.wires = t.wires := by
+    rw [← hM]; simp [closeMachine, hpw, hsl]
+  have hMi : M.inputs = t.inputs := by
+    rw [← hM]; simp [closeMachine, hpw, hsl]
+  have hMo : M.outputs = lay.outs.map fun o => ({ name := o.name, ty := o.ty } : Port) := by
+    rw [← hM]; simp [closeMachine, hpw]
+  have hMb : M.body = B ++ outAssigns w lay.outs := by
+    rw [← hM]; simp [closeMachine, hpw, hsl, hdrop, nextAssigns, registers]
+  have hweM : weOf M = weOf t := by
+    funext x; simp only [weOf, hMw]
+  have hndM : (M.wires.map Port.name).Nodup := by rw [hMw]; exact wiresNodup
+  -- a name no wire carries
+  have notWire : ∀ x, ¬ Allocated x → x ∉ M.wires.map Port.name := by
+    intro x hx hm
+    obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hm
+    exact hx (names p (hMw ▸ hp))
+  have notIn : ∀ x, ¬ Allocated x → x ∉ M.inputs.map Port.name := by
+    intro x hx hm
+    obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hm
+    exact hx (names p (inWires p (hMi ▸ hp)))
+  have hOutNames : (M.outputs.map Port.name).Nodup := by
+    rw [hMo, List.map_map]; exact outsNodup
+  -- an output port's entry in the width map
+  have outEntry : ∀ o ∈ lay.outs,
+      (Sparkle.IR.Optimize.buildWidthMap M).get? o.name = some o.width := by
+    intro o ho
+    have hna := (outNameOk_facts (outsOk o ho).2).1
+    simp only [Sparkle.IR.Optimize.buildWidthMap]
+    rw [Tools.ShippingPostSoundness.wmFold_notin M.wires _ _ (notWire _ hna)]
+    have hp : ({ name := o.name, ty := o.ty } : Port) ∈ M.outputs := by
+      rw [hMo]; exact List.mem_map.mpr ⟨o, ho, rfl⟩
+    rw [show o.name = ({ name := o.name, ty := o.ty } : Port).name from rfl,
+      Tools.ShippingPostSoundness.wmFold_mem M.outputs _ _ hOutNames hp, outTy o ho]
+  unfold Sparkle.IR.ZeroWidth.dropZeroWidthModule
+  split
+  · exact ⟨rfl, rfl, rfl, rfl⟩
+  refine ⟨?_, Tools.ShippingPostSoundness.weOf_dropWires M hndM, rfl, rfl⟩
+  apply Tools.ShippingPostSoundness.filterMap_eq_self
+  intro st hst
+  rw [hMb] at hst
+  rcases List.mem_append.mp hst with hB | hO
+  · -- a statement of the transition
+    obtain ⟨l, e, n, rfl, ht, hl⟩ := typed st (by rw [hbody]; exact List.mem_append_left _ hB)
+    have hwm : ∀ x ∈ Sparkle.IR.Reorder.refsOf e,
+        Sparkle.IR.ZeroWidth.exprWidth (Sparkle.IR.Optimize.buildWidthMap M) (.ref x) ≠ 0 := by
+      intro x hx
+      have hpos := ht.refs_positive x hx
+      have hg := widthMap_internal hndM (show 0 < weOf M x by rw [hweM]; exact hpos)
+      simp only [Sparkle.IR.ZeroWidth.exprWidth, Std.HashMap.getD_eq_getD_getElem?,
+        ← Std.HashMap.get?_eq_getElem?, hg, Option.getD_some]
+      rw [hweM]; omega
+    have hnz : (Sparkle.IR.Optimize.buildWidthMap M).get? l ≠ some 0 := by
+      rcases hl with hl | rfl
+      · rw [widthMap_internal hndM (show 0 < weOf M l by rw [hweM, hl]; exact ht.positive),
+          hweM, hl]
+        have := ht.positive
+        simp only [ne_eq, Option.some.injEq]; omega
+      · -- `out`: no wire, no input; an output with a positive width, or absent
+        have hna : ¬ Allocated "out" := Tools.ShippingRegisterSoundness.not_allocated_out
+        by_cases ho : ∃ o ∈ lay.outs, o.name = "out"
+        · obtain ⟨o, ho, hon⟩ := ho
+          rw [← hon, outEntry o ho]
+          have := (outsOk o ho).1
+          simp only [ne_eq, Option.some.injEq]; omega
+        · simp only [Sparkle.IR.Optimize.buildWidthMap]
+          rw [Tools.ShippingPostSoundness.wmFold_notin M.wires _ _ (notWire _ hna),
+            Tools.ShippingPostSoundness.wmFold_notin M.outputs _ _ (by
+              rw [hMo, List.map_map]
+              intro hm
+              obtain ⟨o, ho', hon⟩ := List.mem_map.mp hm
+              exact ho ⟨o, ho', hon⟩),
+            Tools.ShippingPostSoundness.wmFold_notin M.inputs _ _ (notIn _ hna)]
+          simp
+    have hdz := dzExpr_typed ht (Sparkle.IR.Optimize.buildWidthMap M) hwm
+    simp only [Sparkle.IR.ZeroWidth.dzStmt]
+    cases hg : (Sparkle.IR.Optimize.buildWidthMap M).get? l with
+    | none => simp [hdz]
+    | some k =>
+      cases k with
+      | zero => exact absurd hg hnz
+      | succ k => simp [hdz]
+  · -- an output's part-select of the packed wire
+    simp only [outAssigns, List.mem_map] at hO
+    obtain ⟨o, ho, rfl⟩ := hO
+    simp only [Sparkle.IR.ZeroWidth.dzStmt, outEntry o ho]
+    have := (outsOk o ho).1
+    split
+    · rename_i h; simp at h; omega
+    · simp [fieldRhs, Sparkle.IR.ZeroWidth.dzExpr]
+
 end Tools.ShippingMachineClose

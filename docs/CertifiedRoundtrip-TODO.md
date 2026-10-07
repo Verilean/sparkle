@@ -1301,8 +1301,16 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   its child's `c.gate_linked`; generated as `#machine_composed f`
   (`f.machine_composed`) for every parent whose children are all the gate's:
   the four test callers, `wBlock`, `wKeccakF`, both SHA-512 block outputs
-  (`|COMPOSED|`). Machine-route children keep `child_full`'s cleanup premise
-  (the machine module's wiring facts do not carry `TypedPostReady`). Remaining: the boundary that the design's child module IS
+  (`|COMPOSED|`). MACHINE-ROUTE CHILDREN too (same day): `MachineWired` now
+  carries the cleanup clause — without calls and slots, the full entry's
+  zero-width cleanup changes no statement, width or port
+  (`closeMachine_comb_cleanup`: every target is a typed wire or an output port
+  whose name no wire shadows, every right-hand side reads positive-width
+  wires), given the outputs' types are their widths (decided per child);
+  `child_full_post` is `child_full` without the cleanup premise;
+  `c.child_linked` at the module of a run (`MachineRun`: `MachineDefines` +
+  `MachineCloses` of the child's run); `#machine_composed` takes a parent
+  with children of either route. Remaining: the boundary that the design's child module IS
   the child's full-entry run (`sparkleChildSynth` is an opaque `IO.Ref`;
   stated, like S6's `SubSynthDefines`), the child's run gate
   `dropZeroWidthModule raw = raw`, parents through sub-machines / loops

@@ -1,5 +1,6 @@
 import Sparkle
 import Tools.ShippingMachineLinkedCommand
+import Tools.ShippingGateChildCommand
 
 /-! A machine composed with its child, in the linked semantics.
 
@@ -60,12 +61,19 @@ def callerLN (w : Signal defaultDomain (BitVec 16)) (en : Signal defaultDomain B
 #machine_endpoint callerLN
 #machine_linked callerLN
 
+/-! The composition with the child's own theorem: the call's module being
+the child's full-entry run (`MachineRun`) is all that is left. -/
+#machine_composed callerL
+#machine_composed callerLN
+
 run_cmd do
   if (← get).messages.hasErrors then throwError "machine linked regression failed"
   for name in [``pickByteH.machine_child, ``callerL.machine_linked, ``callerLN.machine_linked,
       ``Tools.ShippingMachineCompose.machine_linked_calls,
       ``Tools.ShippingMachineAuto.machine_traceL_of_data_ext,
-      ``Tools.ShippingMachineChild.child_full] do
+      ``Tools.ShippingMachineChild.child_full, ``Tools.ShippingMachineChild.child_full_post,
+      ``callerL.machine_composed, ``callerLN.machine_composed, ``pickByteH.child_linked,
+      ``Tools.ShippingMachineClose.closeMachine_comb_cleanup] do
     let axioms ← Lean.collectAxioms name
     for ax in axioms do
       unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do

@@ -108,10 +108,10 @@ run_cmd do
           let msg ← ex.toMessageData.toString
           pure ("GATECHILD|FAIL|" ++ ((msg.replace "\n" " ").take 300).toString)
       gout := gout ++ s!"{c}|{res}\n"
-    -- the composition, when every child is the gate's
+    -- the composition with the children's own theorems
     if (← getEnv).contains (n ++ `machine_composed) then
       gout := gout ++ s!"{s}|COMPOSED|OK\n"
-    else if children.all fun c => (env.find? (c ++ `machine_sound)).isNone then
+    else
       let res ← try
           let _ ← Tools.ShippingGateChildCommand.generateComposed n
           pure "COMPOSED|OK"

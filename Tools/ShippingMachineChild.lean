@@ -397,13 +397,79 @@ theorem child_full {declName : Name} {d : MachineData} {ι : Type} {dom : ι →
   have h := sound hcore entry closes
   have hall : M.body.all Sparkle.IR.RegDedup.isAssign = true := by
     obtain ⟨_, _, _, _, _, _, _, _, _, wired, _⟩ := h
-    obtain ⟨_, _, _, _, _, _, _, _, _, hall⟩ := wired
+    obtain ⟨_, _, _, _, _, _, _, _, _, hall, _⟩ := wired
     exact hall hnoI hsl
   obtain ⟨o, ho⟩ : ∃ o, d.shape.layout.outs = [o] := by
     match hm : d.shape.layout.outs, hout with
     | [o], _ => exact ⟨o, rfl⟩
   exact ⟨M, hpost, fun hdz => childFn_full
     (childFn_of_trace h (fun _ _ _ => rfl) hnoI hss hsl hlets o ho hsrc i0) hall hpost hdz⟩
+
+
+/-- A cleanup that keeps a module's statements, widths and ports keeps what
+it computes. -/
+theorem childFn_of_same {M M' : Sparkle.IR.AST.Module} {P : List Nat → Prop}
+    {F : List Nat → Nat} (h : ChildFn M P F)
+    (hb : M'.body = M.body) (hw : weOf M' = weOf M) (hi : M'.inputs = M.inputs)
+    (ho : M'.outputs = M.outputs) : ChildFn M' P F := by
+  obtain ⟨outP, houts, hf⟩ := h
+  refine ⟨outP, by rw [ho]; exact houts, ?_⟩
+  intro mems env hrst hP
+  have hargs : argPorts M' = argPorts M := by unfold argPorts; rw [hi]
+  rw [hargs] at hP ⊢
+  obtain ⟨cres, hev, hcres⟩ := hf mems env hrst hP
+  have hdw : Sparkle.IR.RegDedup.declWidth M' = Sparkle.IR.RegDedup.declWidth M := by
+    change weOf _ = weOf _; exact hw
+  exact ⟨cres, by rw [hdw, hb]; exact hev, hcres⟩
+
+/-- **A combinational child at the full entry, without the cleanup
+premise.** `child_full` with the run's zero-width cleanup shown to change
+nothing the module computes (`MachineWired`'s cleanup clause), given that
+the outputs' types are their widths (a decidable fact about the data). -/
+theorem child_full_post {declName : Name} {d : MachineData} {ι : Type} {dom : ι → DomainConfig}
+    {src : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat)}
+    (sound : ∀ {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+      {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+      {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design},
+      RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w
+        (m, design) w' →
+      MachineDefines mctx mref cctx cref declName d.shape →
+      MachineCloses mctx mref cctx cref declName d.shape →
+      MachineTraceL declName d m design dom src (fun _ _ bits => bits) (fun _ _ _ => []))
+    (hnoI : d.shape.insts = []) (hss : d.ss = []) (hsl : d.shape.layout.slots = [])
+    (hlets : d.letBs.length = d.shape.layout.lets)
+    (hout : d.shape.layout.outs.length = 1)
+    (houtTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
+    (hsrc : ∀ i bools bits, (src i bools bits).length = 1) (i0 : ι)
+    {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {b : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinational declName) mctx mref cctx cref w (b, design) w')
+    (entry : MachineDefines mctx mref cctx cref declName d.shape)
+    (closes : MachineCloses mctx mref cctx cref declName d.shape) :
+    ChildFn b (fun vals => InRange vals (d.bsIn.filter fun b => b.2 != .domain))
+      (childValue src d.bsIn i0) := by
+  obtain ⟨M, D, w1, hcore, hpost⟩ :=
+    Tools.ShippingMachineShipping.synthesizeCombinational_checked hr
+  have h := sound hcore entry closes
+  obtain ⟨_, _, _, _, _, _, _, _, _, wired, _⟩ := id h
+  obtain ⟨_, _, _, _, _, _, _, _, _, hall, hclean⟩ := wired
+  have hall := hall hnoI hsl
+  obtain ⟨hb, hw, hi, ho⟩ := hclean hnoI hsl houtTy
+  obtain ⟨o, ho1⟩ : ∃ o, d.shape.layout.outs = [o] := by
+    match hm : d.shape.layout.outs, hout with
+    | [o], _ => exact ⟨o, rfl⟩
+  have hfn := childFn_of_trace h (fun _ _ _ => rfl) hnoI hss hsl hlets o ho1 hsrc i0
+  have hdz := childFn_of_same hfn hb hw hi ho
+  have hall' : (Sparkle.IR.ZeroWidth.dropZeroWidthModule M).body.all
+      Sparkle.IR.RegDedup.isAssign = true := by rw [hb]; exact hall
+  rcases hpost with rfl | rfl
+  · exact hdz
+  · rcases Sparkle.IR.RefineCheck.mergeChecked_cases (Sparkle.IR.ZeroWidth.dropZeroWidthModule M)
+      with he | he <;> rw [he]
+    · exact childFn_merge hdz hall'
+    · exact hdz
 
 /-! ## Assembling a call's equations -/
 

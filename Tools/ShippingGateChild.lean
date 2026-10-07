@@ -348,6 +348,29 @@ theorem childFn_of_gateRun {c : Name} {v : Lean.Expr} {mc : Sparkle.IR.AST.Modul
   obtain ⟨_, _, _, _, _, _, _, hr, entry⟩ := h
   exact hc hr entry
 
+/-- **The boundary for a machine-route child.** The module an instance of `c`
+resolves to in the design is what a run of the full entry on `c` returned,
+in a run whose entry reads `c` as the machine `shape` (`MachineDefines`) and
+ties its `let`s (`MachineCloses`). -/
+def MachineRun (c : Name) (shape : MachineShape) (mc : Sparkle.IR.AST.Module) : Prop :=
+  ∃ (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State) (cctx : Core.Context)
+    (cref : ST.Ref IO.RealWorld Core.State) (w w' : Void IO.RealWorld) (design : Design),
+    RunsTo (synthesizeCombinational c) mctx mref cctx cref w (mc, design) w' ∧
+    MachineDefines mctx mref cctx cref c shape ∧ MachineCloses mctx mref cctx cref c shape
+
+/-- A machine-route child's theorem at the module of a run. -/
+theorem childFn_of_machineRun {c : Name} {shape : MachineShape} {mc : Sparkle.IR.AST.Module}
+    {P : List Nat → Prop} {F : List Nat → Nat}
+    (hc : ∀ {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+      {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+      {w w' : Void IO.RealWorld} {b : Sparkle.IR.AST.Module} {design : Design},
+      RunsTo (synthesizeCombinational c) mctx mref cctx cref w (b, design) w' →
+      MachineDefines mctx mref cctx cref c shape →
+      MachineCloses mctx mref cctx cref c shape → ChildFn b P F)
+    (h : MachineRun c shape mc) : ChildFn mc P F := by
+  obtain ⟨_, _, _, _, _, _, _, hr, entry, closes⟩ := h
+  exact hc hr entry closes
+
 open Tools.ShippingMachineAuto Tools.ShippingMachineSource Tools.ShippingMachineLinked in
 /-- **The linked run, given the children's runs.** `machine_linked_calls`'s
 conclusion with its premise about each call's module (`ChildFn`) replaced by

@@ -149,47 +149,95 @@ def generateGateChild (declName : Name) : CommandElabM Name := do
       throwError "{name} uses a non-standard axiom: {ax}"
   return name
 
+/-- `c.child_linked`, for a combinational child on the MACHINE route (after
+its `machine_sound`): at the module of a run of the child's full entry
+(`MachineRun`), the module computes the child's source function — `child_full`
+without its cleanup premise (`child_full_post`). -/
+def generateMachineChildLinked (c : Name) : MetaM Name := do
+  let name := c ++ `child_linked
+  if (← getEnv).contains name then return name
+  let args ← Tools.ShippingMachineLinkedCommand.soundArgs c ``Tools.ShippingMachineLoop.machine_trace_of_comb
+  let soundL := mkAppN (mkConst ``Tools.ShippingMachineChild.machine_traceL_of_comb) args
+  let data := args[1]!
+  let ι := args[2]!
+  let i0 := if ι.isConstOf ``Unit then mkConst ``Unit.unit
+    else mkConst ``Sparkle.Core.Domain.defaultDomain
+  let mut p ← mkAppOptM ``Tools.ShippingMachineChild.child_full_post
+    #[none, none, none, none, none, soundL]
+  -- the decidable facts about the data (no calls, slots, lets; one output; its type)
+  for _ in [0:6] do
+    let ty := (← whnf (← inferType p)).bindingDomain!
+    p := mkApp p (← mkDecideProof ty)
+  let hsrcT := (← whnf (← inferType p)).bindingDomain!
+  let hsrc ← forallTelescope hsrcT fun xs eq => do
+    let some (α, lhs, _) := eq.eq? | throwError "{c}: the source's length"
+    mkLambdaFVars xs (mkApp2 (mkConst ``Eq.refl [← getLevel α]) α lhs)
+  p := mkApp2 p hsrc i0
+  let shapeE ← mkAppM ``Tools.ShippingMachineAuto.MachineData.shape #[data]
+  let value ← withLocalDeclD `mc (mkConst ``Sparkle.IR.AST.Module) fun mc => do
+    let runT := mkApp3 (mkConst ``Tools.ShippingGateChild.MachineRun) (toExpr c) shapeE mc
+    withLocalDeclD `h runT fun h => do
+      mkLambdaFVars #[mc, h] (← mkAppOptM ``Tools.ShippingGateChild.childFn_of_machineRun
+        #[none, none, none, none, none, p, h])
+  Tools.ShippingMachineLinkedCommand.addTheorem name (← inferType value) value
+  return name
+
 open Lean.Elab.Command in
 /-- `declName.machine_composed`: `declName.machine_linked` with its premise
 about each call's module replaced by that module being a run of the child's
-full entry (`GateRun`), every child the gate's (`Tools.ShippingGateChild.
-runs_of_linked`, each call discharged by its child's `gate_linked`). -/
+full entry (`GateRun` for a child the gate compiles, `MachineRun` for one on
+the machine route; `Tools.ShippingGateChild.runs_of_linked`), each call
+discharged by its child's `gate_linked` / `child_linked`. -/
 def generateComposed (declName : Name) : CommandElabM Name := do
   let children ← liftTermElabM do
     let r ← Tools.ShippingMachineCommand.readMachine declName
     pure (r.shape.insts.map (·.1))
   unless (← getEnv).contains (declName ++ `machine_linked) do
     throwError "{declName}: run #machine_linked {declName} first"
-  for c in children.eraseDups do
-    unless (← getEnv).contains (c ++ `gate_linked) do
-      if (← getEnv).contains (c ++ `machine_sound) then
-        throwError "{declName}: the child {c} is on the machine route"
-      discard <| generateGateChild c
+  -- each child's boundary and its theorem
+  let mut kinds : Array (Name × Bool) := #[]   -- (child, on the gate)
+  for c in children do
+    if (← getEnv).contains (c ++ `machine_sound) then
+      discard <| liftTermElabM <| withOptions (fun o => Lean.Elab.async.set o false)
+        (generateMachineChildLinked c)
+      kinds := kinds.push (c, false)
+    else
+      unless (← getEnv).contains (c ++ `gate_linked) do
+        discard <| generateGateChild c
+      kinds := kinds.push (c, true)
   let n := children.length
   let name := declName ++ `machine_composed
   let rTac ← do
     -- one case per call, then the calls beyond the list are absurd
     let mut tac ← `(tactic| exact absurd hk (by omega))
-    for c in children.reverse do
+    for (c, gate) in kinds.reverse do
+      let lemma := mkIdent (`_root_ ++ c ++ (if gate then `gate_linked else `child_linked))
       tac ← `(tactic| (rcases k with _ | k
-                       · exact $(mkIdent (`_root_ ++ c ++ `gate_linked)) mc hrun
+                       · exact $lemma mc hrun
                        $tac:tactic))
     `(tactic| (intro k mc h; obtain ⟨hk, hrun⟩ := h; $tac:tactic))
   liftTermElabM do
     let lt ← inferType (mkConst (declName ++ `machine_linked))
     let value ← forallTelescope lt fun xs _ => do
       let H := mkAppN (mkConst (declName ++ `machine_linked)) xs
-      let nameT := mkConst ``Lean.Name
-      let csE := Tools.ShippingMachineCommand.listE nameT (children.map toExpr)
-      let vsE := Tools.ShippingMachineCommand.listE (mkConst ``Lean.Expr)
-        (children.map fun c => mkConst (c ++ `gateValue))
       let modT := mkConst ``Sparkle.IR.AST.Module
+      let predT ← mkArrow modT (mkSort .zero)
+      let preds ← kinds.toList.mapM fun (c, gate) => do
+        withLocalDeclD `mc modT fun mc => do
+          if gate then
+            mkLambdaFVars #[mc] (mkApp3 (mkConst ``Tools.ShippingGateChild.GateRun) (toExpr c)
+              (mkConst (c ++ `gateValue)) mc)
+          else
+            let shapeE ← mkAppM ``Tools.ShippingMachineAuto.MachineData.shape
+              #[mkConst (c ++ `machineData)]
+            mkLambdaFVars #[mc] (mkApp3 (mkConst ``Tools.ShippingGateChild.MachineRun)
+              (toExpr c) shapeE mc)
+      let predsE := Tools.ShippingMachineCommand.listE predT preds
+      let none' ← withLocalDeclD `mc modT fun mc => mkLambdaFVars #[mc] (mkConst ``False)
       let R ← withLocalDeclD `k (mkConst ``Nat) fun k => withLocalDeclD `mc modT fun mc => do
         let lt ← mkAppM ``LT.lt #[k, mkNatLit n]
-        let gr := mkApp3 (mkConst ``Tools.ShippingGateChild.GateRun)
-          (← mkAppM ``List.getD #[csE, k, toExpr Name.anonymous])
-          (← mkAppM ``List.getD #[vsE, k, mkConst ``Lean.Expr.bvar |>.app (mkNatLit 0)]) mc
-        mkLambdaFVars #[k, mc] (mkAnd lt gr)
+        let pk ← mkAppM ``List.getD #[predsE, k, none']
+        mkLambdaFVars #[k, mc] (mkAnd lt (mkApp pk mc))
       let p ← mkAppOptM ``Tools.ShippingGateChild.runs_of_linked
         #[none, none, none, none, none, none, none, none, none, none, none, H, R]
       let hRT := (← whnf (← inferType p)).bindingDomain!
