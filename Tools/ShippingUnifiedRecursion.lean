@@ -1,0 +1,2360 @@
+import Tools.ShippingUnifiedInvariant
+
+/-! Recursive translation contracts for the unified Bool/BitVec source domain.
+Each node of the actual shipping fuel translator preserves the unified
+invariant; the reserved-parent hypotheses of `Inv.emit_reserved` are derived
+from child frames rather than assumed. The entry/output connection and the
+dependency-order theorem are separate modules. -/
+namespace Tools.ShippingUnifiedRecursion
+open Lean Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Builder Sparkle.IR.Semantics
+open Tools.ShippingUnifiedSource Tools.ShippingUnifiedMeaning
+open Tools.ShippingUnifiedCache Tools.ShippingUnifiedInvariant
+open Tools.ShippingTranslateSoundness hiding Inv Spec
+open Tools.ShippingTypedExprSoundness
+open Tools.ShippingScalarSoundness Tools.ShippingBuilderSoundness
+open Tools.ShippingCompareLoweringSoundness Tools.ShippingMuxRecursionSoundness
+open Tools.ShippingMuxLoweringSoundness Tools.ShippingBoolLiteralSoundness
+open Tools.ShippingBoolMuxSoundness Tools.ShippingEntrySoundness
+open Tools.ShippingMuxTypeSoundness
+open Tools.ShippingBindingsSoundness (visible)
+open Tools.ShippingBoolSourceSoundness
+open Tools.ShippingMixedBinarySoundness (Frame ScalarWires binary_returns core_binary_returns)
+open Tools.ShippingMixedRecursion (emit_bool_frame compare_step boolBin_step boolEq_step
+  boolNot_step translateBoolUncachedWith_boolBin translateBoolBinary_returns typed_bool_bin
+  bool_bin_rhs bits_core_frame bits_recorded_frame)
+open Tools.ShippingMixedInvariant (translateStep_fvar_returns)
+open Tools.ShippingVectorMuxRecursion (emit_vector_frame vector_step vectorMuxUncached_muxE)
+
+open Tools.ShippingLinkCtx
+
+set_option linter.unusedSectionVars false
+
+variable [LinkCtx] [ChildSem]
+
+@[simp] theorem toNat_bool (b : Bool) : (Value.bool b).toNat = encodeBool b := rfl
+@[simp] theorem toNat_bits (n : Nat) (v : BitVec n) : (Value.bits n v).toNat = v.toNat := rfl
+@[simp] theorem kindWidth_bool (b : Bool) : (Value.bool b).kind.width = 1 := rfl
+@[simp] theorem kindWidth_bits (n : Nat) (v : BitVec n) : (Value.bits n v).kind.width = n := rfl
+
+/-- Environment-free binding facts, enough for structural child properties. -/
+structure Lookup (ctx : CompilerState) (inputs : FVarId → Option Value)
+    (s : CircuitState) : Prop where
+  lookup : ∀ id v, inputs id = some v → ∃ w, visible ctx s.sourceBindings id = some w ∧
+    s.usedNames.contains w = true
+
+theorem Lookup.ofInputs {ctx inputs we s env} (h : Inputs ctx inputs we s env) :
+    Lookup ctx inputs s := by
+  refine ⟨fun id v hi => ?_⟩
+  obtain ⟨w, bound, used, _, _⟩ := h.lookup id v hi
+  exact ⟨w, bound, used⟩
+
+theorem Lookup.transfer {ctx inputs s t} (h : Lookup ctx inputs s) (f : Frame s t) :
+    Lookup ctx inputs t := by
+  refine ⟨fun id v hi => ?_⟩
+  obtain ⟨w, bound, used⟩ := h.lookup id v hi
+  exact ⟨w, by rw [f.bindings]; exact bound, f.used w used⟩
+
+/-- Structure is available without a semantic or final-width premise; the
+semantic half then uses widths transported back from a later sibling. -/
+structure Child (rec : TranslateFn) (ctx : CompilerState) (inputs : FVarId → Option Value)
+    (we : WEnv) (mems : MEnv) (initial : Env) (e : Lean.Expr) (hint : String)
+    (v : Value) : Prop where
+  frame : ∀ s t w, Lookup ctx inputs s → Returns (rec e hint false false) ctx s w t → Frame s t
+  sem : ∀ s t w prior, Inv ctx inputs we mems initial s prior → ScalarWidthsAgree we t →
+    Returns (rec e hint false false) ctx s w t →
+    Outcome ctx inputs we mems initial prior s t w v
+
+/-- Unlike a child contract, this covers every top/named flag and hint. -/
+structure Contract (rec : TranslateFn) (ctx : CompilerState) (inputs : FVarId → Option Value)
+    (we : WEnv) (mems : MEnv) (initial : Env) (e : Lean.Expr) (v : Value) : Prop where
+  frame : ∀ hint top named s t w, Lookup ctx inputs s →
+    Returns (rec e hint top named) ctx s w t → Frame s t
+  sem : ∀ hint top named s t w prior, Inv ctx inputs we mems initial s prior →
+    ScalarWidthsAgree we t → Returns (rec e hint top named) ctx s w t →
+    Outcome ctx inputs we mems initial prior s t w v
+
+theorem Contract.child {rec ctx inputs we mems initial e v}
+    (h : Contract rec ctx inputs we mems initial e v) (hint : String) :
+    Child rec ctx inputs we mems initial e hint v :=
+  ⟨h.frame hint false false, h.sem hint false false⟩
+
+structure ActionSpec (action : CompilerM String) (ctx : CompilerState)
+    (inputs : FVarId → Option Value) (we : WEnv) (mems : MEnv) (initial : Env)
+    (v : Value) : Prop where
+  frame : ∀ s t w, Lookup ctx inputs s → Returns action ctx s w t → Frame s t
+  sem : ∀ s t w prior, Inv ctx inputs we mems initial s prior → ScalarWidthsAgree we t →
+    Returns action ctx s w t → Outcome ctx inputs we mems initial prior s t w v
+
+structure FreshAction (action : CompilerM String) (ctx : CompilerState)
+    (inputs : FVarId → Option Value) (we : WEnv) (mems : MEnv) (initial : Env)
+    (v : Value) : Prop extends ActionSpec action ctx inputs we mems initial v where
+  fresh : ∀ s t w, Lookup ctx inputs s → Returns action ctx s w t →
+    s.usedNames.contains w = false
+
+/-- Allocate a fresh scalar result and immediately assign it. The reserved
+hypotheses of `Inv.emit_reserved` follow from freshness at the pre-state. -/
+theorem allocate_assign_outcome {ctx inputs we mems initial s t prior hint named w ty rhs}
+    {v : Value} (h : Inv ctx inputs we mems initial s prior)
+    (hw : w = (CircuitM.makeWire hint ty named s).1)
+    (hs : t = (CircuitM.emitAssign w rhs (CircuitM.makeWire hint ty named s).2).2)
+    (tyw : ty.bitWidth = v.kind.width)
+    (typed : TypedExpr we rhs v.kind.width) (ev : evalExpr we prior rhs = some v.toNat)
+    (widths : ScalarWidthsAgree we t) :
+    Outcome ctx inputs we mems initial prior s t w v := by
+  have hm := CircuitM.makeWire_spec hint ty named s
+  have fresh : s.usedNames.contains w = false := by rw [hw]; exact hm.1
+  have used : t.usedNames = s.usedNames.insert w := by
+    rw [hs, emitAssign_usedNames, hm.2.1, ← hw]
+  have decl : ({name := w, ty := ty} : Port) ∈ t.module.wires := by
+    rw [hs, emitAssign_wires, hm.2.2.2, hw]; simp
+  have width : we w = v.kind.width := by rw [widths _ decl]; exact tyw
+  have grows : ∀ z, s.usedNames.contains z = true → t.usedNames.contains z = true := by
+    intro z hz; simp [used, Std.HashSet.contains_insert, hz]
+  have ia : Inv ctx inputs we mems initial (CircuitM.makeWire hint ty named s).2 prior :=
+    h.allocate hint ty named
+  have inputSafe : ∀ id u, inputs id = some u →
+      visible ctx (CircuitM.makeWire hint ty named s).2.sourceBindings id ≠ some w := by
+    intro id u hi bound
+    rw [CircuitM.makeWire_sourceBindings] at bound
+    obtain ⟨z, hz, hu, _, _⟩ := h.inputs.lookup id u hi
+    have eq : z = w := Option.some.inj (hz.symm.trans bound)
+    subst z; simp [fresh] at hu
+  have recordSafe : ∀ e u, (CircuitM.makeWire hint ty named s).2.translateRecord.get? w = some e →
+      ¬ Meaning inputs e u := by
+    intro e u record
+    rw [CircuitM.makeWire_translateRecord] at record
+    exact fun meaning => fresh_not_recorded h.records fresh meaning record
+  have final := ia.emit_reserved inputSafe recordSafe (width ▸ typed) ev
+  rw [← hs] at final
+  refine ⟨by simp [used], width, grows, write prior w v.toNat, final, by simp [write], ?_⟩
+  intro z hz
+  have ne : z ≠ w := by intro eq; subst z; simp [fresh] at hz
+  simp [write, ne]
+
+/-- Shared Bool emission preserves the unified invariant. This applies to
+literals, comparisons, Bool logic and Bool muxes. -/
+theorem emit_bool_outcome {ctx inputs we mems initial s t prior rhs hint named w b}
+    (h : Inv ctx inputs we mems initial s prior)
+    (typed : TypedExpr we rhs 1) (value : evalExpr we prior rhs = some (encodeBool b))
+    (widths : ScalarWidthsAgree we t)
+    (hr : Returns (emitBoolResult rhs hint named) ctx s w t) :
+    Outcome ctx inputs we mems initial prior s t w (.bool b) := by
+  obtain ⟨hw, ht⟩ := emitBoolResult_returns hr
+  exact allocate_assign_outcome h hw ht rfl typed value widths
+
+/-- Fresh vector-mux emission at the requested literal width. -/
+theorem emit_vector_outcome {ctx inputs we mems initial s t prior cw aw bw hint named w n}
+    {x : BitVec n} (h : Inv ctx inputs we mems initial s prior)
+    (typed : TypedExpr we (.op .mux [.ref cw, .ref aw, .ref bw]) n)
+    (ev : evalExpr we prior (.op .mux [.ref cw, .ref aw, .ref bw]) = some x.toNat)
+    (widths : ScalarWidthsAgree we t)
+    (hr : Returns (emitMuxResult cw aw bw hint named (.bitVector n)) ctx s w t) :
+    Outcome ctx inputs we mems initial prior s t w (.bits n x) := by
+  obtain ⟨hw, ht⟩ := emitMuxResult_returns hr
+  exact allocate_assign_outcome h hw ht rfl typed ev widths
+
+/-- Input leaves for either sort in one case: the real fvar step returns the
+prepared binding without touching the state. -/
+theorem input_contract {rec ctx inputs we mems initial id v} (hi : inputs id = some v) :
+    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial (.fvar id) v := by
+  constructor
+  · intro hint top named s t w lookup hr
+    obtain ⟨z, bound, _⟩ := lookup.lookup id v hi
+    obtain ⟨_, ht⟩ := translateStep_fvar_returns bound hr
+    subst t; exact Frame.refl s
+  · intro hint top named s t w prior h widths hr
+    obtain ⟨z, bound, used, val, width⟩ := h.inputs.lookup id v hi
+    obtain ⟨hw, ht⟩ := translateStep_fvar_returns bound hr
+    subst w t
+    exact ⟨used, width, fun _ hz => hz, prior, h, val, fun _ _ => rfl⟩
+
+/-- The cached-wrapper step for one meaningful node: a validated hit reuses
+the recorded wire; a miss lowers, records and preserves every prior wire. -/
+theorem cached_widths_outcome {ctx inputs we mems initial s t prior e w v lower hint top named}
+    (h : Inv ctx inputs we mems initial s prior) (meaning : Meaning inputs e v)
+    (widths : ScalarWidthsAgree we t)
+    (node : ∀ sm r, ScalarWidthsAgree we sm → Returns (lower e hint top named) ctx s r sm →
+      Outcome ctx inputs we mems initial prior s sm r v)
+    (hr : Returns (translateControlCachedWith lower e hint top named) ctx s w t) :
+    Outcome ctx inputs we mems initial prior s t w v := by
+  rcases translateControlCachedWith_returns hr with hit | ⟨sm, miss, record⟩
+  · exact hit_outcome h meaning hit
+  · have hs := recordTranslation_returns record
+    have wm : ScalarWidthsAgree we sm := by intro p hp; apply widths p; rw [hs]; exact hp
+    have step := node sm w wm miss
+    obtain ⟨result, inv, val, frame⟩ := step.execution
+    refine ⟨?_, step.width, ?_, result,
+      inv.record meaning step.used val step.width record, val, frame⟩
+    · rw [hs]; exact step.used
+    · rw [hs]; exact step.grows
+
+theorem cached_action {ctx inputs we mems initial lower e hint top named v}
+    (meaning : Meaning inputs e v)
+    (node : FreshAction (lower e hint top named) ctx inputs we mems initial v) :
+    ActionSpec (translateControlCachedWith lower e hint top named) ctx inputs we mems initial v := by
+  constructor
+  · intro s t w lookup hr
+    rcases translateControlCachedWith_returns hr with hit | ⟨sm, miss, record⟩
+    · have ht := (cacheLookupValidated_returns hit).1
+      subst t; exact Frame.refl s
+    · exact (node.frame s sm w lookup miss).record_new (node.fresh s sm w lookup miss) record
+  · intro s t w prior h widths hr
+    exact cached_widths_outcome h meaning widths
+      (fun sm r wm miss => node.sem s sm r prior h wm miss) hr
+
+theorem literal_fresh {ctx inputs we mems initial hint named} (b : Bool) :
+    FreshAction (emitBoolLiteral b hint named) ctx inputs we mems initial (.bool b) := by
+  refine ⟨⟨fun _ _ _ _ hr => (emit_bool_frame rfl hr).1, ?_⟩,
+    fun _ _ _ _ hr => (emit_bool_frame rfl hr).2⟩
+  intro s t w prior h widths hr
+  apply emit_bool_outcome h (.const _ 1 (by decide)) ?_ widths hr
+  have he := evalExpr_const_lt we prior (encodeBool b) 1 (encodeBool_lt b)
+  cases b <;> simpa [encodeBool] using he
+
+theorem bool_literal_contract {rec ctx inputs we mems initial dom} (b : Bool) :
+    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial
+      (literalE dom b) (.bool b) := by
+  have meaning : Meaning inputs (literalE dom b) (.bool b) := .value (view_boolLit dom b)
+  have fallback : ∀ hint top named, ActionSpec
+      (translateFallback rec (literalE dom b) hint top named) ctx inputs we mems initial (.bool b) := by
+    intro hint top named
+    rw [translateFallback_bool rec _ hint top named (by cases b <;> rfl)]
+    apply cached_action meaning
+    change FreshAction (translateBoolUncachedWith rec _ (literalE dom b) hint top named)
+      ctx inputs we mems initial (.bool b)
+    rw [literal_uncached]; exact literal_fresh b
+  constructor
+  · intro hint top named s t w lookup hr
+    unfold translateStepWith at hr
+    dsimp only at hr
+    split at hr
+    · obtain ⟨hit, sh, rh, hr⟩ := Returns.bind hr
+      have hs := (cacheLookupValidated_returns rh).1
+      subst sh
+      split at hr
+      · obtain ⟨hw, ht⟩ := Returns.pure hr
+        subst w t; exact Frame.refl s
+      · rw [literal_core] at hr
+        obtain ⟨v, sc, rv, hr⟩ := Returns.bind hr
+        obtain ⟨hv, hs⟩ := Returns.pure rv
+        subst v sc
+        exact (fallback hint top named).frame s t w lookup hr
+    · rw [literal_core] at hr
+      obtain ⟨v, sc, rv, hr⟩ := Returns.bind hr
+      obtain ⟨hv, hs⟩ := Returns.pure rv
+      subst v sc
+      exact (fallback hint top named).frame s t w lookup hr
+  · intro hint top named s t w prior h widths hr
+    unfold translateStepWith at hr
+    dsimp only at hr
+    split at hr
+    · obtain ⟨hit, sh, rh, hr⟩ := Returns.bind hr
+      have hs := (cacheLookupValidated_returns rh).1
+      subst sh
+      split at hr
+      · obtain ⟨hw, ht⟩ := Returns.pure hr
+        subst w t
+        exact hit_outcome h meaning rh
+      · rw [literal_core] at hr
+        obtain ⟨v, sc, rv, hr⟩ := Returns.bind hr
+        obtain ⟨hv, hs⟩ := Returns.pure rv
+        subst v sc
+        exact (fallback hint top named).sem s t w prior h widths hr
+    · rw [literal_core] at hr
+      obtain ⟨v, sc, rv, hr⟩ := Returns.bind hr
+      obtain ⟨hv, hs⟩ := Returns.pure rv
+      subst v sc
+      exact (fallback hint top named).sem s t w prior h widths hr
+
+
+theorem literal_payload_some {ctx s t args hint named r c n v}
+    (back : args.back? = some c) (lit : bitVecLitValue? c = some (n, v))
+    (hr : Returns (translateSignalPureLiteral? args hint named) ctx s r t) :
+    ∃ w, r = some w := by
+  unfold translateSignalPureLiteral? at hr
+  rw [back] at hr
+  simp only [Option.bind_some, lit] at hr
+  obtain ⟨w, sm, mk, rest⟩ := Returns.bind hr
+  obtain ⟨u, se, em, rest⟩ := Returns.bind rest
+  obtain ⟨hres, _⟩ := Returns.pure rest
+  exact ⟨w, hres⟩
+
+/-- Bits literal payload: fresh allocation and constant assignment. -/
+theorem literal_payload_outcome {ctx inputs we mems initial s t prior args hint named r c n v}
+    (h : Inv ctx inputs we mems initial s prior) (hn : 0 < n)
+    (back : args.back? = some c) (lit : bitVecLitValue? c = some (n, v))
+    (widths : ScalarWidthsAgree we t)
+    (hr : Returns (translateSignalPureLiteral? args hint named) ctx s r t) :
+    ∃ w, r = some w ∧
+      Outcome ctx inputs we mems initial prior s t w (.bits n (BitVec.ofNat n v)) := by
+  unfold translateSignalPureLiteral? at hr
+  rw [back] at hr
+  simp only [Option.bind_some, lit] at hr
+  obtain ⟨w, sm, mk, rest⟩ := Returns.bind hr
+  obtain ⟨hw, hm⟩ := makeWire_returns mk
+  obtain ⟨u, se, em, rest⟩ := Returns.bind rest
+  obtain ⟨rfl, ht⟩ := Returns.pure rest
+  have hs : t = (CircuitM.emitAssign w (.const v n)
+      (CircuitM.makeWire hint (.bitVector n) named s).2).2 := by
+    rw [ht, emitAssign_returns em, hm]
+  have lt := bitVecLitValue?_lt lit
+  refine ⟨w, rfl, allocate_assign_outcome h hw hs rfl (.const _ n hn) ?_ widths⟩
+  have val : (Value.bits n (BitVec.ofNat n v)).toNat = v := by
+    simp [BitVec.toNat_ofNat, Nat.mod_eq_of_lt lt]
+  rw [val]
+  exact evalExpr_const_lt we prior v n lt
+
+/-- Core literal lowering plus its record write under the unified invariant. -/
+theorem bits_literal_recorded {ctx inputs we mems initial s t prior e us hint named top rec w n v cacheable}
+    {c : Lean.Expr} {K : Option String → CompilerM String}
+    (h : Inv ctx inputs we mems initial s prior) (hn : 0 < n)
+    (fn : e.getAppFn = .const ``Sparkle.Core.Signal.Signal.pure us)
+    (back : e.getAppArgs.back? = some c) (lit : bitVecLitValue? c = some (n, v))
+    (meaning : Meaning inputs e (.bits n (BitVec.ofNat n v)))
+    (hk : ∀ z, K (some z) = (recordTranslation e z cacheable >>= fun _ => pure z))
+    (widths : ScalarWidthsAgree we t)
+    (hr : Returns (translateCore rec e hint top named >>= K) ctx s w t) :
+    Outcome ctx inputs we mems initial prior s t w (.bits n (BitVec.ofNat n v)) := by
+  obtain ⟨r, sm, core, rest⟩ := Returns.bind hr
+  unfold translateCore at core
+  split at core
+  · simp [Lean.Expr.getAppFn] at fn
+  · rw [fn] at core
+    simp only [beq_self_eq_true, if_true] at core
+    obtain ⟨w', hr'⟩ := literal_payload_some back lit core
+    subst r
+    rw [hk] at rest
+    obtain ⟨u, sr, record, rest⟩ := Returns.bind rest
+    obtain ⟨hw, ht⟩ := Returns.pure rest
+    subst w t
+    have hs := recordTranslation_returns record
+    have wm : ScalarWidthsAgree we sm := by intro p hp; apply widths p; rw [hs]; exact hp
+    obtain ⟨w2, hw2, step⟩ := literal_payload_outcome h hn back lit wm core
+    cases Option.some.inj hw2
+    obtain ⟨result, inv, val, frame⟩ := step.execution
+    refine ⟨?_, step.width, ?_, result,
+      inv.record meaning step.used val step.width record, val, frame⟩
+    · rw [hs]; exact step.used
+    · rw [hs]; exact step.grows
+
+/-- The full step for a quoted BitVec literal, through both cache layers. -/
+theorem bits_literal_contract {rec ctx inputs we mems initial dom n v}
+    {vi : Nat → Lean.Expr} (hn : 0 < n) (hv : v < 2 ^ n) :
+    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial
+      (quoteF dom n vi (.lit v)) (.bits n (BitVec.ofNat n v)) := by
+  have fn : (quoteF dom n vi (.lit v)).getAppFn =
+      .const ``Sparkle.Core.Signal.Signal.pure [.zero] := rfl
+  have hd : Denotes (fun _ => none) (quoteF dom n vi (.lit v)) n (BitVec.ofNat n v) :=
+    .pureLit (us := [.zero]) (c := mkApp2 (.const ``BitVec.ofNat []) (natE n) (natE v))
+      rfl rfl (litValue_natE n v hv)
+  have meaning : Meaning inputs (quoteF dom n vi (.lit v)) (.bits n (BitVec.ofNat n v)) :=
+    .value (view_bitsLit dom n v hv vi)
+  have back : (quoteF dom n vi (.lit v)).getAppArgs.back? =
+      some (mkApp2 (.const ``BitVec.ofNat []) (natE n) (natE v)) := rfl
+  have lit : bitVecLitValue? (mkApp2 (.const ``BitVec.ofNat []) (natE n) (natE v)) =
+      some (n, v) := litValue_natE n v hv
+  have nf := isFVar_false_of_const fn
+  constructor
+  · intro hint top named s t w lookup hr
+    unfold translateStepWith at hr
+    dsimp only at hr
+    split at hr
+    · obtain ⟨hit, sh, rh, hr⟩ := Returns.bind hr
+      have hs := (cacheLookupValidated_returns rh).1
+      subst sh
+      split at hr
+      · obtain ⟨hw, ht⟩ := Returns.pure hr
+        subst w t; exact Frame.refl s
+      · apply bits_recorded_frame (cacheable := !named && !(quoteF dom n vi (.lit v)).isFVar && !top)
+          fn hd ?_ hr
+        intro z; simp only [nf, Bool.false_eq_true, if_false]
+    · apply bits_recorded_frame (cacheable := !named && !(quoteF dom n vi (.lit v)).isFVar && !top)
+        fn hd ?_ hr
+      intro z; simp only [nf, Bool.false_eq_true, if_false]
+  · intro hint top named s t w prior h widths hr
+    unfold translateStepWith at hr
+    dsimp only at hr
+    split at hr
+    · obtain ⟨hit, sh, rh, hr⟩ := Returns.bind hr
+      have hs := (cacheLookupValidated_returns rh).1
+      subst sh
+      split at hr
+      · obtain ⟨hw, ht⟩ := Returns.pure hr
+        subst w t
+        exact hit_outcome h meaning rh
+      · apply bits_literal_recorded (cacheable := !named && !(quoteF dom n vi (.lit v)).isFVar && !top)
+          h hn fn back lit meaning ?_ widths hr
+        intro z; simp only [nf, Bool.false_eq_true, if_false]
+    · apply bits_literal_recorded (cacheable := !named && !(quoteF dom n vi (.lit v)).isFVar && !top)
+        h hn fn back lit meaning ?_ widths hr
+      intro z; simp only [nf, Bool.false_eq_true, if_false]
+
+/-- The same step for a numeric literal (`Signal.pure 5` at the `OfNat` instance). -/
+theorem num_literal_contract {rec ctx inputs we mems initial dom n v}
+    (hn : 0 < n) (hv : v < 2 ^ n) :
+    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial
+      (numSigE dom n v) (.bits n (BitVec.ofNat n v)) := by
+  have fn : (numSigE dom n v).getAppFn =
+      .const ``Sparkle.Core.Signal.Signal.pure [.zero] := rfl
+  have hd : Denotes (fun _ => none) (numSigE dom n v) n (BitVec.ofNat n v) :=
+    .pureLit (us := [.zero]) (c := numLitE n v)
+      rfl rfl (litValue_numLitE n v hv)
+  have meaning : Meaning inputs (numSigE dom n v) (.bits n (BitVec.ofNat n v)) :=
+    .value (view_bitsNum dom n v hv)
+  have back : (numSigE dom n v).getAppArgs.back? =
+      some (numLitE n v) := rfl
+  have lit : bitVecLitValue? (numLitE n v) =
+      some (n, v) := litValue_numLitE n v hv
+  have nf := isFVar_false_of_const fn
+  constructor
+  · intro hint top named s t w lookup hr
+    unfold translateStepWith at hr
+    dsimp only at hr
+    split at hr
+    · obtain ⟨hit, sh, rh, hr⟩ := Returns.bind hr
+      have hs := (cacheLookupValidated_returns rh).1
+      subst sh
+      split at hr
+      · obtain ⟨hw, ht⟩ := Returns.pure hr
+        subst w t; exact Frame.refl s
+      · apply bits_recorded_frame (cacheable := !named && !(numSigE dom n v).isFVar && !top)
+          fn hd ?_ hr
+        intro z; simp only [nf, Bool.false_eq_true, if_false]
+    · apply bits_recorded_frame (cacheable := !named && !(numSigE dom n v).isFVar && !top)
+        fn hd ?_ hr
+      intro z; simp only [nf, Bool.false_eq_true, if_false]
+  · intro hint top named s t w prior h widths hr
+    unfold translateStepWith at hr
+    dsimp only at hr
+    split at hr
+    · obtain ⟨hit, sh, rh, hr⟩ := Returns.bind hr
+      have hs := (cacheLookupValidated_returns rh).1
+      subst sh
+      split at hr
+      · obtain ⟨hw, ht⟩ := Returns.pure hr
+        subst w t
+        exact hit_outcome h meaning rh
+      · apply bits_literal_recorded (cacheable := !named && !(numSigE dom n v).isFVar && !top)
+          h hn fn back lit meaning ?_ widths hr
+        intro z; simp only [nf, Bool.false_eq_true, if_false]
+    · apply bits_literal_recorded (cacheable := !named && !(numSigE dom n v).isFVar && !top)
+        h hn fn back lit meaning ?_ widths hr
+      intro z; simp only [nf, Bool.false_eq_true, if_false]
+
+/-- The allocator precedes both recursive calls; the reserved parent keeps
+its record-free and binding-free status across the children. -/
+theorem binary_outcome {ctx inputs we mems initial s t prior rec e args hint named w n}
+    (op : Binary) (x y : BitVec n) (hn : 0 < n)
+    (h : Inv ctx inputs we mems initial s prior)
+    (width : canonicalSignalBitVecWidth args = some n)
+    (ca : Child rec ctx inputs we mems initial args[args.size - 2]! "op_a" (.bits n x))
+    (cb : Child rec ctx inputs we mems initial args[args.size - 1]! "op_b" (.bits n y))
+    (widths : ScalarWidthsAgree we t)
+    (hr : Returns (translateCanonicalSignalBinary rec e op.operator args true true hint named) ctx s w t) :
+    Frame s t ∧ Outcome ctx inputs we mems initial prior s t w (.bits n (op.apply x y)) := by
+  have lookup := Lookup.ofInputs h.inputs
+  obtain ⟨sa, sb, sc, a, b, hw, hsa, ra, rb, ht⟩ := binary_returns width hr
+  have alloc := CircuitM.makeWire_spec hint (.bitVector n) named s
+  have fresh : s.usedNames.contains w = false := by rw [hw]; exact alloc.1
+  have usedA : sa.usedNames.contains w = true := by rw [hsa, alloc.2.1, hw]; simp
+  have fa : Frame s sa := by rw [hsa]; exact Frame.makeWire s hint n named
+  have fb := ca.frame sa sb a (lookup.transfer fa) ra
+  have fc := cb.frame sb sc b ((lookup.transfer fa).transfer fb) rb
+  have fd : Frame sc t := by rw [ht]; exact Frame.emitAssign sc w _ (by cases op <;> rfl)
+  have all := ((fa.trans fb).trans fc).trans fd
+  have ia : Inv ctx inputs we mems initial sa prior := by
+    rw [hsa]; exact h.allocate hint (.bitVector n) named
+  have wa := ca.sem sa sb a prior ia ((fc.decls.trans fd.decls).widths widths) ra
+  obtain ⟨vb, ib, av, aframe⟩ := wa.execution
+  have wb := cb.sem sb sc b vb ib (fd.decls.widths widths) rb
+  obtain ⟨vc, ic, bv, bframe⟩ := wb.execution
+  have av' : vc a = x.toNat := (bframe a wa.used).trans av
+  have resultWidth : we w = n := by
+    apply widths ({name := w, ty := .bitVector n} : Port)
+    apply fd.decls; apply fc.decls; apply fb.decls
+    rw [hsa, alloc.2.2.2, hw]; simp
+  have sameBindings : sc.sourceBindings = s.sourceBindings :=
+    fc.bindings.trans (fb.bindings.trans fa.bindings)
+  have oldRecord : ∀ ex, sc.translateRecord.get? w = some ex → s.translateRecord.get? w = some ex := by
+    intro ex he
+    have old := fb.record_reserved usedA (fc.record_reserved (fb.used w usedA) he)
+    rw [hsa, CircuitM.makeWire_translateRecord] at old
+    exact old
+  have inputSafe : ∀ id u, inputs id = some u → visible ctx sc.sourceBindings id ≠ some w := by
+    intro id u hi bound
+    rw [sameBindings] at bound
+    obtain ⟨z, hz, hu, _, _⟩ := h.inputs.lookup id u hi
+    have eq : z = w := Option.some.inj (hz.symm.trans bound)
+    subst z; simp [fresh] at hu
+  have recordSafe : ∀ ex u, sc.translateRecord.get? w = some ex → ¬ Meaning inputs ex u := by
+    intro ex u he meaning
+    have hu := (h.records w ex (oldRecord ex he) u meaning).1
+    simp [fresh] at hu
+  have typed : TypedExpr we (.op op.operator [.ref a, .ref b]) (we w) := by
+    rw [resultWidth]
+    have wa' : we a = n := wa.width
+    have wb' : we b = n := wb.width
+    exact .bin op (wa' ▸ TypedExpr.ref (we := we) a (by rw [wa']; exact hn))
+      (wb' ▸ TypedExpr.ref (we := we) b (by rw [wb']; exact hn)) (by cases op <;> rfl)
+  have bv' : vc b = y.toNat := bv
+  have rhs := Binary.rhs_correct op we vc a b x y wa.width wb.width av' bv'
+  have final := ic.emit_reserved inputSafe recordSafe typed rhs
+  rw [← ht] at final
+  refine ⟨all, fd.used w (fc.used w (fb.used w usedA)), resultWidth, all.used,
+    write vc w (op.apply x y).toNat, final, ?_, ?_⟩
+  · simp [write]
+  · intro z hz
+    have ne : z ≠ w := by intro eq; subst z; simp [fresh] at hz
+    simp only [write, ne, if_false]
+    exact (bframe z (fb.used z (fa.used z hz))).trans (aframe z (fa.used z hz))
+
+/-- The structural half is independent of semantic invariants and widths. -/
+theorem binary_frame {ctx inputs we mems initial s t rec e args hint named w n va vb}
+    (op : Binary) (lookup : Lookup ctx inputs s) (width : canonicalSignalBitVecWidth args = some n)
+    (ca : Child rec ctx inputs we mems initial args[args.size - 2]! "op_a" va)
+    (cb : Child rec ctx inputs we mems initial args[args.size - 1]! "op_b" vb)
+    (hr : Returns (translateCanonicalSignalBinary rec e op.operator args true true hint named) ctx s w t) :
+    Frame s t ∧ s.usedNames.contains w = false := by
+  obtain ⟨sa, sb, sc, a, b, hw, hsa, ra, rb, ht⟩ := binary_returns width hr
+  have fa : Frame s sa := by rw [hsa]; exact Frame.makeWire s hint n named
+  have fb := ca.frame sa sb a (lookup.transfer fa) ra
+  have fc := cb.frame sb sc b ((lookup.transfer fa).transfer fb) rb
+  have fd : Frame sc t := by rw [ht]; exact Frame.emitAssign sc w _ (by cases op <;> rfl)
+  refine ⟨((fa.trans fb).trans fc).trans fd, ?_⟩
+  rw [hw]; exact (CircuitM.makeWire_spec hint (.bitVector n) named s).1
+
+theorem binary_recorded {ctx inputs we mems initial s t prior rec e m us hint named top w n cacheable}
+    {K : Option String → CompilerM String} (op : Binary) (x y : BitVec n) (hn : 0 < n)
+    (h : Inv ctx inputs we mems initial s prior)
+    (fn : e.getAppFn = .const m us) (hop : signalBinOpOf m = some op.operator)
+    (kinds : canonicalSignalBinKinds m e.getAppArgs = some (true, true))
+    (width : canonicalSignalBitVecWidth e.getAppArgs = some n)
+    (meaning : Meaning inputs e (.bits n (op.apply x y)))
+    (ca : Child rec ctx inputs we mems initial e.getAppArgs[e.getAppArgs.size - 2]! "op_a" (.bits n x))
+    (cb : Child rec ctx inputs we mems initial e.getAppArgs[e.getAppArgs.size - 1]! "op_b" (.bits n y))
+    (hk : ∀ z, K (some z) = (recordTranslation e z cacheable >>= fun _ => pure z))
+    (widths : ScalarWidthsAgree we t)
+    (hr : Returns (translateCore rec e hint top named >>= K) ctx s w t) :
+    Frame s t ∧ Outcome ctx inputs we mems initial prior s t w (.bits n (op.apply x y)) := by
+  obtain ⟨r, sm, core, rest⟩ := Returns.bind hr
+  obtain ⟨z, he, lower⟩ := core_binary_returns fn hop kinds width core
+  rw [he, hk] at rest
+  obtain ⟨u, sr, record, rest⟩ := Returns.bind rest
+  obtain ⟨hw, ht⟩ := Returns.pure rest
+  subst w t
+  have hs := recordTranslation_returns record
+  have wm : ScalarWidthsAgree we sm := by intro p hp; apply widths p; rw [hs]; exact hp
+  obtain ⟨growth, fresh⟩ := binary_frame op (Lookup.ofInputs h.inputs) width ca cb lower
+  obtain ⟨_, step⟩ := binary_outcome op x y hn h width ca cb wm lower
+  obtain ⟨result, inv, val, frame⟩ := step.execution
+  refine ⟨growth.record_new fresh record, ?_, step.width, ?_, result,
+    inv.record meaning step.used val step.width record, val, frame⟩
+  · rw [hs]; exact step.used
+  · rw [hs]; exact step.grows
+
+theorem binary_record_frame {ctx inputs we mems initial s t rec e m us hint named top w n va vb cacheable}
+    {K : Option String → CompilerM String} (op : Binary) (lookup : Lookup ctx inputs s)
+    (fn : e.getAppFn = .const m us) (hop : signalBinOpOf m = some op.operator)
+    (kinds : canonicalSignalBinKinds m e.getAppArgs = some (true, true))
+    (width : canonicalSignalBitVecWidth e.getAppArgs = some n)
+    (ca : Child rec ctx inputs we mems initial e.getAppArgs[e.getAppArgs.size - 2]! "op_a" va)
+    (cb : Child rec ctx inputs we mems initial e.getAppArgs[e.getAppArgs.size - 1]! "op_b" vb)
+    (hk : ∀ z, K (some z) = (recordTranslation e z cacheable >>= fun _ => pure z))
+    (hr : Returns (translateCore rec e hint top named >>= K) ctx s w t) : Frame s t := by
+  obtain ⟨r, sm, core, rest⟩ := Returns.bind hr
+  obtain ⟨z, he, lower⟩ := core_binary_returns fn hop kinds width core
+  rw [he, hk] at rest
+  obtain ⟨u, sr, record, rest⟩ := Returns.bind rest
+  obtain ⟨hw, ht⟩ := Returns.pure rest
+  subst w t
+  obtain ⟨growth, fresh⟩ := binary_frame op lookup width ca cb lower
+  exact growth.record_new fresh record
+
+/-- Actual core/cache step for canonical binary nodes whose operands may
+contain muxes and comparisons. -/
+theorem binary_contract {rec ctx inputs we mems initial e m us n}
+    (op : Binary) (x y : BitVec n) (hn : 0 < n)
+    (fn : e.getAppFn = .const m us) (hop : signalBinOpOf m = some op.operator)
+    (kinds : canonicalSignalBinKinds m e.getAppArgs = some (true, true))
+    (width : canonicalSignalBitVecWidth e.getAppArgs = some n)
+    (meaning : Meaning inputs e (.bits n (op.apply x y)))
+    (ca : Child rec ctx inputs we mems initial e.getAppArgs[e.getAppArgs.size - 2]! "op_a" (.bits n x))
+    (cb : Child rec ctx inputs we mems initial e.getAppArgs[e.getAppArgs.size - 1]! "op_b" (.bits n y)) :
+    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial e
+      (.bits n (op.apply x y)) := by
+  have nf := isFVar_false_of_const fn
+  constructor
+  · intro hint top named s t w lookup hr
+    unfold translateStepWith at hr
+    dsimp only at hr
+    split at hr
+    · obtain ⟨hit, sh, rh, hr⟩ := Returns.bind hr
+      have hs := (cacheLookupValidated_returns rh).1
+      subst sh
+      split at hr
+      · obtain ⟨hw, ht⟩ := Returns.pure hr
+        subst w t; exact Frame.refl _
+      · apply binary_record_frame (cacheable := !named && !e.isFVar && !top)
+          op lookup fn hop kinds width ca cb ?_ hr
+        intro z; simp only [nf, Bool.false_eq_true, if_false]
+    · apply binary_record_frame (cacheable := !named && !e.isFVar && !top)
+        op lookup fn hop kinds width ca cb ?_ hr
+      intro z; simp only [nf, Bool.false_eq_true, if_false]
+  · intro hint top named s t w prior h widths hr
+    unfold translateStepWith at hr
+    dsimp only at hr
+    split at hr
+    · obtain ⟨hit, sh, rh, hr⟩ := Returns.bind hr
+      have hs := (cacheLookupValidated_returns rh).1
+      subst sh
+      split at hr
+      · obtain ⟨hw, ht⟩ := Returns.pure hr
+        subst w t
+        exact hit_outcome h meaning rh
+      · exact (binary_recorded (cacheable := !named && !e.isFVar && !top)
+          op x y hn h fn hop kinds width meaning ca cb
+          (fun z => by simp only [nf, Bool.false_eq_true, if_false]) widths hr).2
+    · exact (binary_recorded (cacheable := !named && !e.isFVar && !top)
+        op x y hn h fn hop kinds width meaning ca cb
+        (fun z => by simp only [nf, Bool.false_eq_true, if_false]) widths hr).2
+
+/-- Structural comparison sequence: both children, then fresh Bool allocation. -/
+theorem compare_shape {ctx inputs we mems initial rec ae be le hint named va vb s t w}
+    (ca : Child rec ctx inputs we mems initial ae "a" va)
+    (cb : Child rec ctx inputs we mems initial be "b" vb)
+    (lookup : Lookup ctx inputs s)
+    (hr : Returns (translateSignalCompare rec le ae be hint named) ctx s w t) :
+    Frame s t ∧ s.usedNames.contains w = false := by
+  obtain ⟨a, b, sa, sb, ra, rb, re⟩ := translateSignalCompare_returns hr
+  have fa := ca.frame s sa a lookup ra
+  have fb := cb.frame sa sb b (lookup.transfer fa) rb
+  obtain ⟨fe, fresh⟩ := emit_bool_frame (by cases le <;> rfl) re
+  refine ⟨(fa.trans fb).trans fe, ?_⟩
+  cases hu : s.usedNames.contains w
+  · rfl
+  · have := fb.used w (fa.used w hu); simp [fresh] at this
+
+/-- Comparison over any operand sort whose value and width encode the given
+bit vectors. Bool operands at width one reuse the same emission. -/
+theorem compare_fresh {ctx inputs we mems initial rec ae be le hint named n va vb}
+    (x y : BitVec n) (hn : 0 < n)
+    (hva : va.toNat = x.toNat) (hwa : va.kind.width = n)
+    (hvb : vb.toNat = y.toNat) (hwb : vb.kind.width = n)
+    (ca : Child rec ctx inputs we mems initial ae "a" va)
+    (cb : Child rec ctx inputs we mems initial be "b" vb) :
+    FreshAction (translateSignalCompare rec le ae be hint named) ctx inputs we mems initial
+      (.bool (compareValue le x y)) := by
+  refine ⟨⟨fun _ _ _ lookup hr => (compare_shape ca cb lookup hr).1, ?_⟩,
+    fun _ _ _ lookup hr => (compare_shape ca cb lookup hr).2⟩
+  intro s t w prior h widths hr
+  obtain ⟨a, b, sa, sb, ra, rb, re⟩ := translateSignalCompare_returns hr
+  have fa := ca.frame s sa a (Lookup.ofInputs h.inputs) ra
+  have fb := cb.frame sa sb b ((Lookup.ofInputs h.inputs).transfer fa) rb
+  have fe := (emit_bool_frame (by cases le <;> rfl) re).1
+  have aout := ca.sem s sa a prior h ((fb.decls.trans fe.decls).widths widths) ra
+  obtain ⟨va', ia, av, af⟩ := aout.execution
+  have bout := cb.sem sa sb b va' ia (fe.decls.widths widths) rb
+  obtain ⟨vb', ib, bv, bf⟩ := bout.execution
+  have wa : we a = n := by rw [aout.width, hwa]
+  have wb : we b = n := by rw [bout.width, hwb]
+  have av2 : vb' a = x.toNat := by rw [(bf a aout.used).trans av, hva]
+  have bv2 : vb' b = y.toNat := by rw [bv, hvb]
+  have step := emit_bool_outcome ib (typed_compare_refs le hn wa wb)
+    (compare_rhs_correct le x y we vb' a b av2 bv2 wa wb) widths re
+  obtain ⟨result, inv, val, frame⟩ := step.execution
+  exact ⟨step.used, step.width, fun z hz => step.grows z (fb.used z (fa.used z hz)),
+    result, inv, val, fun z hz => (frame z (fb.used z (fa.used z hz))).trans
+      ((bf z (fa.used z hz)).trans (af z hz))⟩
+
+theorem compare_contract {rec ctx inputs we mems initial dom ae be n le}
+    (x y : BitVec n) (hn : 0 < n)
+    (meaning : Meaning inputs (compareE le dom n ae be) (.bool (compareValue le x y)))
+    (ca : Child rec ctx inputs we mems initial ae "a" (.bits n x))
+    (cb : Child rec ctx inputs we mems initial be "b" (.bits n y)) :
+    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial
+      (compareE le dom n ae be) (.bool (compareValue le x y)) := by
+  have step : ∀ hint top named, ActionSpec
+      (translateStepWith translateFallback rec (compareE le dom n ae be)
+        hint top named) ctx inputs we mems initial (.bool (compareValue le x y)) := by
+    intro hint top named
+    rw [compare_step, translateFallback_bool rec _ hint top named (by cases le <;> rfl)]
+    apply cached_action meaning
+    rw [translateBoolUncachedWith_compare]
+    exact compare_fresh x y hn rfl rfl rfl rfl ca cb
+  exact ⟨fun hint top named => (step hint top named).frame,
+    fun hint top named => (step hint top named).sem⟩
+
+theorem boolBin_shape {ctx inputs we mems initial rec ae be kind hint named va vb s t w}
+    (ca : Child rec ctx inputs we mems initial ae "a" va)
+    (cb : Child rec ctx inputs we mems initial be "b" vb)
+    (lookup : Lookup ctx inputs s)
+    (hr : Returns (translateBoolBinary rec kind ae be hint named) ctx s w t) :
+    Frame s t ∧ s.usedNames.contains w = false := by
+  obtain ⟨a, b, sa, sb, ra, rb, re⟩ := translateBoolBinary_returns hr
+  have fa := ca.frame s sa a lookup ra
+  have fb := cb.frame sa sb b (lookup.transfer fa) rb
+  obtain ⟨fe, fresh⟩ := emit_bool_frame (by cases kind <;> rfl) re
+  refine ⟨(fa.trans fb).trans fe, ?_⟩
+  cases hu : s.usedNames.contains w
+  · rfl
+  · have := fb.used w (fa.used w hu); simp [fresh] at this
+
+theorem boolBin_fresh {ctx inputs we mems initial rec ae be kind hint named}
+    (x y : Bool)
+    (ca : Child rec ctx inputs we mems initial ae "a" (.bool x))
+    (cb : Child rec ctx inputs we mems initial be "b" (.bool y)) :
+    FreshAction (translateBoolBinary rec kind ae be hint named) ctx inputs we mems initial
+      (.bool (boolBinValue kind x y)) := by
+  refine ⟨⟨fun _ _ _ lookup hr => (boolBin_shape ca cb lookup hr).1, ?_⟩,
+    fun _ _ _ lookup hr => (boolBin_shape ca cb lookup hr).2⟩
+  intro s t w prior h widths hr
+  obtain ⟨a, b, sa, sb, ra, rb, re⟩ := translateBoolBinary_returns hr
+  have fa := ca.frame s sa a (Lookup.ofInputs h.inputs) ra
+  have fb := cb.frame sa sb b ((Lookup.ofInputs h.inputs).transfer fa) rb
+  have fe := (emit_bool_frame (by cases kind <;> rfl) re).1
+  have aout := ca.sem s sa a prior h ((fb.decls.trans fe.decls).widths widths) ra
+  obtain ⟨va', ia, av, af⟩ := aout.execution
+  have bout := cb.sem sa sb b va' ia (fe.decls.widths widths) rb
+  obtain ⟨vb', ib, bv, bf⟩ := bout.execution
+  have step := emit_bool_outcome ib
+    (typed_bool_bin kind a b aout.width bout.width)
+    (bool_bin_rhs kind we vb' a b x y ((bf a aout.used).trans av) bv aout.width bout.width)
+    widths re
+  obtain ⟨result, inv, val, frame⟩ := step.execution
+  exact ⟨step.used, step.width, fun z hz => step.grows z (fb.used z (fa.used z hz)),
+    result, inv, val, fun z hz => (frame z (fb.used z (fa.used z hz))).trans
+      ((bf z (fa.used z hz)).trans (af z hz))⟩
+
+theorem boolBin_contract {rec ctx inputs we mems initial dom ae be}
+    (kind : SignalBoolBinKind) (a b : Bool)
+    (meaning : Meaning inputs (boolBinE kind dom ae be) (.bool (boolBinValue kind a b)))
+    (ca : Child rec ctx inputs we mems initial ae "a" (.bool a))
+    (cb : Child rec ctx inputs we mems initial be "b" (.bool b)) :
+    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial
+      (boolBinE kind dom ae be) (.bool (boolBinValue kind a b)) := by
+  have step : ∀ hint top named, ActionSpec
+      (translateStepWith translateFallback rec (boolBinE kind dom ae be) hint top named)
+      ctx inputs we mems initial (.bool (boolBinValue kind a b)) := by
+    intro hint top named
+    rw [boolBin_step, translateFallback_bool rec _ hint top named (by cases kind <;> rfl)]
+    apply cached_action meaning
+    rw [translateBoolUncachedWith_boolBin]
+    exact boolBin_fresh a b ca cb
+  exact ⟨fun hint top named => (step hint top named).frame,
+    fun hint top named => (step hint top named).sem⟩
+
+theorem boolEq_contract {rec ctx inputs we mems initial dom ae be}
+    (a b : Bool)
+    (meaning : Meaning inputs (boolEqE dom ae be) (.bool (a == b)))
+    (ca : Child rec ctx inputs we mems initial ae "a" (.bool a))
+    (cb : Child rec ctx inputs we mems initial be "b" (.bool b)) :
+    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial
+      (boolEqE dom ae be) (.bool (a == b)) := by
+  have step : ∀ hint top named, ActionSpec
+      (translateStepWith translateFallback rec (boolEqE dom ae be) hint top named)
+      ctx inputs we mems initial (.bool (a == b)) := by
+    intro hint top named
+    rw [boolEq_step, translateFallback_bool rec _ hint top named rfl]
+    apply cached_action meaning
+    change FreshAction (translateSignalCompare rec .eq ae be hint named)
+      ctx inputs we mems initial (.bool (a == b))
+    have val : compareValue .eq (BitVec.ofNat 1 (encodeBool a)) (BitVec.ofNat 1 (encodeBool b)) =
+        (a == b) := by cases a <;> cases b <;> rfl
+    rw [← val]
+    exact compare_fresh _ _ (by decide) (by cases a <;> rfl) rfl (by cases b <;> rfl) rfl ca cb
+  exact ⟨fun hint top named => (step hint top named).frame,
+    fun hint top named => (step hint top named).sem⟩
+
+theorem boolNot_contract {rec ctx inputs we mems initial dom ae}
+    (a : Bool)
+    (meaning : Meaning inputs (boolNotE dom ae) (.bool (!a)))
+    (ca : Child rec ctx inputs we mems initial ae "a" (.bool a))
+    (cb : Child rec ctx inputs we mems initial
+      (mkApp3 (.const ``Sparkle.Core.Signal.Signal.pure [.zero]) dom (.const ``Bool [])
+        (.const ``Bool.false [])) "b" (.bool false)) :
+    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial
+      (boolNotE dom ae) (.bool (!a)) := by
+  have step : ∀ hint top named, ActionSpec
+      (translateStepWith translateFallback rec (boolNotE dom ae) hint top named)
+      ctx inputs we mems initial (.bool (!a)) := by
+    intro hint top named
+    rw [boolNot_step, translateFallback_bool rec _ hint top named rfl]
+    apply cached_action meaning
+    change FreshAction (translateSignalCompare rec .eq ae
+      (mkApp3 (.const ``Sparkle.Core.Signal.Signal.pure [.zero]) dom (.const ``Bool [])
+        (.const ``Bool.false [])) hint named) ctx inputs we mems initial (.bool (!a))
+    have val : compareValue .eq (BitVec.ofNat 1 (encodeBool a)) (0#1) = !a := by cases a <;> rfl
+    rw [← val]
+    exact compare_fresh _ _ (by decide) (by cases a <;> rfl) rfl rfl rfl ca cb
+  exact ⟨fun hint top named => (step hint top named).frame,
+    fun hint top named => (step hint top named).sem⟩
+
+theorem mux_shape {ctx inputs we mems initial rec ce ae be hint named vc va vb s t w}
+    (cc : Child rec ctx inputs we mems initial ce "mux_cond" vc)
+    (ca : Child rec ctx inputs we mems initial ae "mux_then" va)
+    (cb : Child rec ctx inputs we mems initial be "mux_else" vb)
+    (lookup : Lookup ctx inputs s)
+    (hr : Returns (translateMuxWith rec (pure .bit) ce ae be hint named) ctx s w t) :
+    Frame s t ∧ s.usedNames.contains w = false := by
+  obtain ⟨c, a, b, sc, sa, sb, sq, ty, rc, ra, rb, rq, re⟩ := translateMuxWith_returns hr
+  obtain ⟨hty, hsq⟩ := Returns.pure rq
+  subst ty sq
+  have fc := cc.frame s sc c lookup rc
+  have fa := ca.frame sc sa a (lookup.transfer fc) ra
+  have fb := cb.frame sa sb b ((lookup.transfer fc).transfer fa) rb
+  obtain ⟨fe, fresh⟩ := emit_bool_frame rfl re
+  refine ⟨((fc.trans fa).trans fb).trans fe, ?_⟩
+  cases hu : s.usedNames.contains w
+  · rfl
+  · have := fb.used w (fa.used w (fc.used w hu)); simp [fresh] at this
+
+theorem mux_fresh {ctx inputs we mems initial rec ce ae be hint named}
+    (c a b : Bool)
+    (cc : Child rec ctx inputs we mems initial ce "mux_cond" (.bool c))
+    (ca : Child rec ctx inputs we mems initial ae "mux_then" (.bool a))
+    (cb : Child rec ctx inputs we mems initial be "mux_else" (.bool b)) :
+    FreshAction (translateMuxWith rec (pure .bit) ce ae be hint named) ctx inputs we mems initial
+      (.bool (if c then a else b)) := by
+  refine ⟨⟨fun _ _ _ lookup hr => (mux_shape cc ca cb lookup hr).1, ?_⟩,
+    fun _ _ _ lookup hr => (mux_shape cc ca cb lookup hr).2⟩
+  intro s t w prior h widths hr
+  obtain ⟨cw, aw, bw, sc, sa, sb, sq, ty, rc, ra, rb, rq, re⟩ := translateMuxWith_returns hr
+  obtain ⟨hty, hsq⟩ := Returns.pure rq
+  subst ty sq
+  have lookup := Lookup.ofInputs h.inputs
+  have fc := cc.frame s sc cw lookup rc
+  have fa := ca.frame sc sa aw (lookup.transfer fc) ra
+  have fb := cb.frame sa sb bw ((lookup.transfer fc).transfer fa) rb
+  have fe := (emit_bool_frame rfl re).1
+  have cout := cc.sem s sc cw prior h (((fa.decls.trans fb.decls).trans fe.decls).widths widths) rc
+  obtain ⟨vc', ic, cv, cf⟩ := cout.execution
+  have aout := ca.sem sc sa aw vc' ic ((fb.decls.trans fe.decls).widths widths) ra
+  obtain ⟨va', ia, av, af⟩ := aout.execution
+  have bout := cb.sem sa sb bw va' ia (fe.decls.widths widths) rb
+  obtain ⟨vb', ib, bv, bf⟩ := bout.execution
+  have cv' : vb' cw = encodeBool c := (bf cw (fa.used cw cout.used)).trans ((af cw cout.used).trans cv)
+  have av' : vb' aw = encodeBool a := (bf aw aout.used).trans av
+  have wc : we cw = 1 := cout.width
+  have wa : we aw = 1 := aout.width
+  have wb : we bw = 1 := bout.width
+  have step := emit_bool_outcome ib
+    (.mux (wc ▸ TypedExpr.ref (we := we) cw (by rw [wc]; decide))
+      (wa ▸ TypedExpr.ref (we := we) aw (by rw [wa]; decide))
+      (wb ▸ TypedExpr.ref (we := we) bw (by rw [wb]; decide)))
+    (bool_mux_rhs we vb' cw aw bw c a b cv' av' bv) widths re
+  obtain ⟨result, inv, val, frame⟩ := step.execution
+  have mono : ∀ z, s.usedNames.contains z = true → sb.usedNames.contains z = true :=
+    fun z hz => fb.used z (fa.used z (fc.used z hz))
+  exact ⟨step.used, step.width, fun z hz => step.grows z (mono z hz), result, inv, val,
+    fun z hz => (frame z (mono z hz)).trans ((bf z (fa.used z (fc.used z hz))).trans
+      ((af z (fc.used z hz)).trans (cf z hz)))⟩
+
+theorem mux_contract {rec ctx inputs we mems initial dom ce ae be}
+    (c a b : Bool)
+    (meaning : Meaning inputs (boolMuxE dom ce ae be) (.bool (if c then a else b)))
+    (cc : Child rec ctx inputs we mems initial ce "mux_cond" (.bool c))
+    (ca : Child rec ctx inputs we mems initial ae "mux_then" (.bool a))
+    (cb : Child rec ctx inputs we mems initial be "mux_else" (.bool b)) :
+    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial
+      (boolMuxE dom ce ae be) (.bool (if c then a else b)) := by
+  have step : ∀ hint top named, ActionSpec
+      (translateStepWith translateFallback rec (boolMuxE dom ce ae be) hint top named)
+      ctx inputs we mems initial (.bool (if c then a else b)) := by
+    intro hint top named
+    rw [boolMux_step, translateFallback_bool rec _ hint top named rfl]
+    apply cached_action meaning
+    change FreshAction (translateMuxWith rec (pure .bit) ce ae be hint named)
+      ctx inputs we mems initial (.bool (if c then a else b))
+    exact mux_fresh c a b cc ca cb
+  exact ⟨fun hint top named => (step hint top named).frame,
+    fun hint top named => (step hint top named).sem⟩
+
+theorem vector_shape {ctx inputs we mems initial rec ce ae be hint named n vc va vb s t w}
+    (cc : Child rec ctx inputs we mems initial ce "mux_cond" vc)
+    (ca : Child rec ctx inputs we mems initial ae "mux_then" va)
+    (cb : Child rec ctx inputs we mems initial be "mux_else" vb)
+    (lookup : Lookup ctx inputs s)
+    (hr : Returns (translateMuxWith rec (pure (.bitVector n)) ce ae be hint named) ctx s w t) :
+    Frame s t ∧ s.usedNames.contains w = false := by
+  obtain ⟨c, a, b, sc, sa, sb, sq, ty, rc, ra, rb, rq, re⟩ := translateMuxWith_returns hr
+  obtain ⟨hty, hsq⟩ := Returns.pure rq
+  subst ty sq
+  have fc := cc.frame s sc c lookup rc
+  have fa := ca.frame sc sa a (lookup.transfer fc) ra
+  have fb := cb.frame sa sb b ((lookup.transfer fc).transfer fa) rb
+  obtain ⟨fe, fresh⟩ := emit_vector_frame re
+  refine ⟨((fc.trans fa).trans fb).trans fe, ?_⟩
+  cases hu : s.usedNames.contains w
+  · rfl
+  · have := fb.used w (fa.used w (fc.used w hu)); simp [fresh] at this
+
+theorem vector_fresh {ctx inputs we mems initial rec ce ae be hint named n}
+    (c : Bool) (a b : BitVec n) (hn : 0 < n)
+    (cc : Child rec ctx inputs we mems initial ce "mux_cond" (.bool c))
+    (ca : Child rec ctx inputs we mems initial ae "mux_then" (.bits n a))
+    (cb : Child rec ctx inputs we mems initial be "mux_else" (.bits n b)) :
+    FreshAction (translateMuxWith rec (pure (.bitVector n)) ce ae be hint named)
+      ctx inputs we mems initial (.bits n (if c then a else b)) := by
+  refine ⟨⟨fun _ _ _ lookup hr => (vector_shape cc ca cb lookup hr).1, ?_⟩,
+    fun _ _ _ lookup hr => (vector_shape cc ca cb lookup hr).2⟩
+  intro s t w prior h widths hr
+  obtain ⟨cw, aw, bw, sc, sa, sb, sq, ty, rc, ra, rb, rq, re⟩ := translateMuxWith_returns hr
+  obtain ⟨hty, hsq⟩ := Returns.pure rq
+  subst ty sq
+  have lookup := Lookup.ofInputs h.inputs
+  have fc := cc.frame s sc cw lookup rc
+  have fa := ca.frame sc sa aw (lookup.transfer fc) ra
+  have fb := cb.frame sa sb bw ((lookup.transfer fc).transfer fa) rb
+  have fe := (emit_vector_frame re).1
+  have cout := cc.sem s sc cw prior h (((fa.decls.trans fb.decls).trans fe.decls).widths widths) rc
+  obtain ⟨vc', ic, cv, cf⟩ := cout.execution
+  have aout := ca.sem sc sa aw vc' ic ((fb.decls.trans fe.decls).widths widths) ra
+  obtain ⟨va', ia, av, af⟩ := aout.execution
+  have bout := cb.sem sa sb bw va' ia (fe.decls.widths widths) rb
+  obtain ⟨vb', ib, bv, bf⟩ := bout.execution
+  have cv' : vb' cw = encodeBool c := (bf cw (fa.used cw cout.used)).trans ((af cw cout.used).trans cv)
+  have av' : vb' aw = a.toNat := (bf aw aout.used).trans av
+  have wc : we cw = 1 := cout.width
+  have wa : we aw = n := aout.width
+  have wb : we bw = n := bout.width
+  have step := emit_vector_outcome (x := if c then a else b) ib
+    (.mux (wc ▸ TypedExpr.ref (we := we) cw (by rw [wc]; decide))
+      (wa ▸ TypedExpr.ref (we := we) aw (by rw [wa]; exact hn))
+      (wb ▸ TypedExpr.ref (we := we) bw (by rw [wb]; exact hn)))
+    (by cases c <;> simp [evalExpr, evalList, evalOp, cv', av', bv, encodeBool]) widths re
+  obtain ⟨result, inv, val, frame⟩ := step.execution
+  have mono : ∀ z, s.usedNames.contains z = true → sb.usedNames.contains z = true :=
+    fun z hz => fb.used z (fa.used z (fc.used z hz))
+  exact ⟨step.used, step.width, fun z hz => step.grows z (mono z hz), result, inv, val,
+    fun z hz => (frame z (mono z hz)).trans ((bf z (fa.used z (fc.used z hz))).trans
+      ((af z (fc.used z hz)).trans (cf z hz)))⟩
+
+theorem vector_contract {rec ctx inputs we mems initial dom ce ae be n}
+    (c : Bool) (a b : BitVec n) (hn : 0 < n)
+    (meaning : Meaning inputs (muxE dom (bitVecE n) ce ae be) (.bits n (if c then a else b)))
+    (cc : Child rec ctx inputs we mems initial ce "mux_cond" (.bool c))
+    (ca : Child rec ctx inputs we mems initial ae "mux_then" (.bits n a))
+    (cb : Child rec ctx inputs we mems initial be "mux_else" (.bits n b)) :
+    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial
+      (muxE dom (bitVecE n) ce ae be) (.bits n (if c then a else b)) := by
+  have step : ∀ hint top named, ActionSpec
+      (translateStepWith translateFallback rec (muxE dom (bitVecE n) ce ae be) hint top named)
+      ctx inputs we mems initial (.bits n (if c then a else b)) := by
+    intro hint top named
+    rw [vector_step]
+    apply cached_action meaning
+    show FreshAction (translateVectorMuxUncachedWith rec n (muxE dom (bitVecE n) ce ae be)
+      hint top named) ctx inputs we mems initial (.bits n (if c then a else b))
+    rw [vectorMuxUncached_muxE]
+    exact vector_fresh c a b hn cc ca cb
+  exact ⟨fun hint top named => (step hint top named).frame,
+    fun hint top named => (step hint top named).sem⟩
+
+/-! ### Width-changing map nodes -/
+
+theorem emitCastResult_returns {rhs : Sparkle.IR.AST.Expr} {wt : Nat} {hint w : String}
+    {named : Bool} {ctx : CompilerState} {s s' : CircuitState}
+    (h : Returns (emitCastResult rhs wt hint named) ctx s w s') :
+    w = (CircuitM.makeWire hint (.bitVector wt) named s).1 ∧
+    s' = (CircuitM.emitAssign w rhs (CircuitM.makeWire hint (.bitVector wt) named s).2).2 := by
+  unfold emitCastResult at h
+  obtain ⟨r, sm, hm, h⟩ := Returns.bind h
+  obtain ⟨hr, hs⟩ := makeWire_returns hm
+  obtain ⟨u, se, he, h⟩ := Returns.bind h
+  obtain ⟨hw, hs'⟩ := Returns.pure h
+  have hem := emitAssign_returns he
+  subst w s'
+  exact ⟨hr, by rw [hem, hs]⟩
+
+theorem setwRhs_simple (ws wt : Nat) (hwt : 0 < wt) (sw : String) :
+    Sparkle.IR.OptCheck.simpleRhs (setwRhs ws wt sw) = true := by
+  unfold setwRhs
+  split
+  · rfl
+  · split
+    · show ((0 == 0) && (wt - 1 + 1 == wt)) = true
+      simp only [beq_self_eq_true, Bool.true_and, beq_iff_eq]
+      omega
+    · rfl
+
+theorem emit_cast_frame {ctx s t w rhs wt hint named}
+    (hs : Sparkle.IR.OptCheck.simpleRhs rhs = true)
+    (h : Returns (emitCastResult rhs wt hint named) ctx s w t) :
+    Frame s t ∧ s.usedNames.contains w = false := by
+  obtain ⟨hw, ht⟩ := emitCastResult_returns h
+  refine ⟨?_, hw ▸ (CircuitM.makeWire_spec hint (.bitVector wt) named s).1⟩
+  rw [ht]
+  exact (Frame.makeWire s hint wt named).trans (Frame.emitAssign _ w _ hs)
+
+theorem setwRhs_typed {we : WEnv} {sw : String} {ws wt : Nat}
+    (hws : 0 < ws) (hwt : 0 < wt) (hsw : we sw = ws) :
+    TypedExpr we (setwRhs ws wt sw) wt := by
+  unfold setwRhs
+  split
+  · rename_i hlt
+    have step := TypedExpr.zext (we := we) sw (wt - ws) (by omega) (by rw [hsw]; exact hws)
+    rw [hsw] at step
+    rwa [show wt - ws + ws = wt from by omega] at step
+  · split
+    · rename_i h1 h2
+      exact TypedExpr.trunc sw wt hwt (by rw [hsw]; omega)
+    · rename_i h1 h2
+      have heq : wt = ws := by omega
+      subst heq
+      have step := TypedExpr.ref (we := we) sw (by rw [hsw]; exact hws)
+      rwa [hsw] at step
+
+theorem setwRhs_eval {we : WEnv} {env : Env} {sw : String} {ws wt : Nat} {x : BitVec ws}
+    (hwt : 0 < wt) (hsw : we sw = ws) (hv : env sw = x.toNat) :
+    evalExpr we env (setwRhs ws wt sw) = some (BitVec.setWidth wt x).toNat := by
+  have hx : x.toNat % 2 ^ ws = x.toNat := Nat.mod_eq_of_lt x.isLt
+  unfold setwRhs
+  split
+  · rename_i hlt
+    have hx' : x.toNat % 2 ^ wt = x.toNat :=
+      Nat.mod_eq_of_lt (Nat.lt_of_lt_of_le x.isLt (Nat.pow_le_pow_right (by omega) (by omega)))
+    simp [evalExpr, evalList, evalExpr.go, widthOf, mask, hsw, hv,
+      BitVec.toNat_setWidth, hx, hx', Nat.zero_shiftLeft]
+  · split
+    · rename_i h1 h2
+      have h3 : wt - 1 + 1 = wt := by omega
+      simp [evalExpr, evalList, evalExpr.go, widthOf, mask, hsw, hv,
+        BitVec.toNat_setWidth, hx, h3, Nat.zero_shiftLeft]
+    · rename_i h1 h2
+      have heq : wt = ws := by omega
+      subst heq
+      simp [evalExpr, hv, BitVec.toNat_setWidth, hx]
+
+theorem setw_fresh {ctx inputs we mems initial rec ae hint named} {ws wt : Nat} {x : BitVec ws}
+    (hws : 0 < ws) (hwt : 0 < wt)
+    (ca : Child rec ctx inputs we mems initial ae "s" (.bits ws x)) :
+    FreshAction (do
+        let sw ← rec ae "s" false false
+        emitCastResult (setwRhs ws wt sw) wt hint named)
+      ctx inputs we mems initial (.bits wt (BitVec.setWidth wt x)) := by
+  have shape : ∀ s t w, Lookup ctx inputs s →
+      Returns (do
+        let sw ← rec ae "s" false false
+        emitCastResult (setwRhs ws wt sw) wt hint named) ctx s w t →
+      Frame s t ∧ s.usedNames.contains w = false := by
+    intro s t w lookup hr
+    obtain ⟨sw, sm, ra, re⟩ := Returns.bind hr
+    have fa := ca.frame s sm sw lookup ra
+    obtain ⟨fe, fresh⟩ := emit_cast_frame (setwRhs_simple ws wt hwt sw) re
+    refine ⟨fa.trans fe, ?_⟩
+    cases hu : s.usedNames.contains w
+    · rfl
+    · have := fa.used w hu; simp [fresh] at this
+  refine ⟨⟨fun s t w lookup hr => (shape s t w lookup hr).1, ?_⟩,
+    fun s t w lookup hr => (shape s t w lookup hr).2⟩
+  intro s t w prior h widths hr
+  obtain ⟨sw, sm, ra, re⟩ := Returns.bind hr
+  obtain ⟨hw, ht⟩ := emitCastResult_returns re
+  have lookup := Lookup.ofInputs h.inputs
+  have fa := ca.frame s sm sw lookup ra
+  have fcast := (emit_cast_frame (setwRhs_simple ws wt hwt sw) re).1
+  have aout := ca.sem s sm sw prior h (fcast.decls.widths widths) ra
+  obtain ⟨va, ia, av, af⟩ := aout.execution
+  have step := allocate_assign_outcome (v := .bits wt (BitVec.setWidth wt x)) ia hw ht rfl
+    (setwRhs_typed hws hwt aout.width) (setwRhs_eval hwt aout.width av) widths
+  obtain ⟨result, inv, val, frame⟩ := step.execution
+  exact ⟨step.used, step.width, fun z hz => step.grows z (fa.used z hz), result, inv, val,
+    fun z hz => (frame z (fa.used z hz)).trans (af z hz)⟩
+
+set_option maxHeartbeats 1000000 in
+theorem setwUncached_setwE (rec : TranslateFn) (dom ae : Lean.Expr) (ws wt : Nat)
+    (hint : String) (top named : Bool) :
+    translateSetWidthUncachedWith rec ws wt (setwE dom ws wt ae) hint top named =
+      (do
+        let sw ← rec ae "s" false false
+        emitCastResult (setwRhs ws wt sw) wt hint named) := rfl
+
+theorem canonicalSetWidth?_setwE (dom ae : Lean.Expr) {ws wt : Nat}
+    (hws : 0 < ws) (hwt : 0 < wt) :
+    canonicalSetWidth? (setwE dom ws wt ae) = some (ws, wt, ae) := by
+  simp only [setwE, mkApp5, mkApp4, mkApp2, mkAppB, mkApp, bitVecE,
+    canonicalSetWidth?, canonicalNatLitValue?_natE]
+  simp [hws, hwt]
+
+set_option maxHeartbeats 1000000 in
+theorem setw_step (rec : TranslateFn) (dom ae : Lean.Expr) (ws wt : Nat)
+    (hws : 0 < ws) (hwt : 0 < wt) (hint : String) (top named : Bool) :
+    translateStepWith translateFallback rec (setwE dom ws wt ae) hint top named =
+      translateControlCachedWith (translateSetWidthUncachedWith rec ws wt)
+        (setwE dom ws wt ae) hint top named := by
+  have shape : translateCoreShape (setwE dom ws wt ae) = false := rfl
+  have core : translateCore rec (setwE dom ws wt ae) hint top named = pure none := rfl
+  have control : isBoolControl (setwE dom ws wt ae) = false := rfl
+  have mux : canonicalMuxType? (setwE dom ws wt ae) = none := rfl
+  have setw : canonicalSetWidth? (setwE dom ws wt ae) = some (ws, wt, ae) :=
+    canonicalSetWidth?_setwE dom ae hws hwt
+  have step : translateStepWith translateFallback rec (setwE dom ws wt ae) hint top named =
+      translateFallback rec (setwE dom ws wt ae) hint top named := by
+    simp [translateStepWith, shape, core]
+    rfl
+  rw [step]
+  simp only [translateFallback, fallbackKind, control, Bool.false_eq_true, if_false, mux, setw]
+
+theorem setw_contract {rec ctx inputs we mems initial dom ae} {ws wt : Nat} {x : BitVec ws}
+    (hws : 0 < ws) (hwt : 0 < wt)
+    (meaning : Meaning inputs (setwE dom ws wt ae) (.bits wt (BitVec.setWidth wt x)))
+    (ca : Child rec ctx inputs we mems initial ae "s" (.bits ws x)) :
+    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial
+      (setwE dom ws wt ae) (.bits wt (BitVec.setWidth wt x)) := by
+  have step : ∀ hint top named, ActionSpec
+      (translateStepWith translateFallback rec (setwE dom ws wt ae) hint top named)
+      ctx inputs we mems initial (.bits wt (BitVec.setWidth wt x)) := by
+    intro hint top named
+    rw [setw_step rec dom ae ws wt hws hwt]
+    apply cached_action meaning
+    show FreshAction (translateSetWidthUncachedWith rec ws wt (setwE dom ws wt ae)
+      hint top named) ctx inputs we mems initial (.bits wt (BitVec.setWidth wt x))
+    rw [setwUncached_setwE]
+    exact setw_fresh hws hwt ca
+  exact ⟨fun hint top named => (step hint top named).frame,
+    fun hint top named => (step hint top named).sem⟩
+
+/-! ## Slices
+
+`a.map (BitVec.extractLsb' start len ·)` lowers like the width cast: the
+child under hint `"s"`, then ONE part-select assignment `x[hi:lo]` to a fresh
+result wire — declared as a scalar `logic` when one bit wide, as the legacy
+lowering declares it. -/
+
+theorem hwTypeFromWidth_bitWidth (n : Nat) :
+    (Sparkle.IR.Type.hwTypeFromWidth n).bitWidth = n := by
+  unfold Sparkle.IR.Type.hwTypeFromWidth
+  split
+  · rename_i h
+    have : n = 1 := by simpa using h
+    subst this
+    rfl
+  · rfl
+
+theorem emitSliceResult_returns {rhs : Sparkle.IR.AST.Expr} {len : Nat} {hint w : String}
+    {named : Bool} {ctx : CompilerState} {s s' : CircuitState}
+    (h : Returns (emitSliceResult rhs len hint named) ctx s w s') :
+    w = (CircuitM.makeWire hint (Sparkle.IR.Type.hwTypeFromWidth len) named s).1 ∧
+    s' = (CircuitM.emitAssign w rhs
+      (CircuitM.makeWire hint (Sparkle.IR.Type.hwTypeFromWidth len) named s).2).2 := by
+  unfold emitSliceResult at h
+  obtain ⟨r, sm, hm, h⟩ := Returns.bind h
+  obtain ⟨hr, hs⟩ := makeWire_returns hm
+  obtain ⟨u, se, he, h⟩ := Returns.bind h
+  obtain ⟨hw, hs'⟩ := Returns.pure h
+  have hem := emitAssign_returns he
+  subst w s'
+  exact ⟨hr, by rw [hem, hs]⟩
+
+theorem emitSliceResult_one (rhs : Sparkle.IR.AST.Expr) (hint : String) (named : Bool) :
+    emitSliceResult rhs 1 hint named = emitBoolResult rhs hint named := rfl
+
+theorem emitSliceResult_wide {len : Nat} (h : len ≠ 1) (rhs : Sparkle.IR.AST.Expr)
+    (hint : String) (named : Bool) :
+    emitSliceResult rhs len hint named = emitCastResult rhs len hint named := by
+  have hty : Sparkle.IR.Type.hwTypeFromWidth len = .bitVector len := by
+    unfold Sparkle.IR.Type.hwTypeFromWidth
+    simp [h]
+  unfold emitSliceResult emitCastResult
+  rw [hty]
+
+theorem emit_slice_frame {ctx s t w rhs len hint named}
+    (hs : Sparkle.IR.OptCheck.simpleRhs rhs = true)
+    (h : Returns (emitSliceResult rhs len hint named) ctx s w t) :
+    Frame s t ∧ s.usedNames.contains w = false := by
+  by_cases h1 : len = 1
+  · subst h1
+    rw [emitSliceResult_one] at h
+    exact emit_bool_frame hs h
+  · rw [emitSliceResult_wide h1] at h
+    exact emit_cast_frame hs h
+
+theorem sliceRhs_simple (start len : Nat) (hlen : 0 < len) (sw : String) :
+    Sparkle.IR.OptCheck.simpleRhs (sliceRhs start len sw) = true := by
+  show decide (start ≤ start + len - 1) = true
+  simp only [decide_eq_true_eq]
+  omega
+
+theorem sliceRhs_typed {we : WEnv} {sw : String} {ws start len : Nat}
+    (hlen : 0 < len) (hr : start + len ≤ ws) (hsw : we sw = ws) :
+    TypedExpr we (sliceRhs start len sw) len := by
+  have step := TypedExpr.slice (we := we) sw (start + len - 1) start (by omega)
+    (by rw [hsw]; omega)
+  rwa [show start + len - 1 - start + 1 = len from by omega] at step
+
+theorem sliceRhs_eval {we : WEnv} {env : Env} {sw : String} {ws start len : Nat}
+    {x : BitVec ws} (hlen : 0 < len) (hv : env sw = x.toNat) :
+    evalExpr we env (sliceRhs start len sw) =
+      some (BitVec.extractLsb' start len x).toNat := by
+  have hw : start + len - 1 - start + 1 = len := by omega
+  simp [sliceRhs, evalExpr, hv, hw, mask, BitVec.extractLsb'_toNat]
+
+theorem slice_fresh {ctx inputs we mems initial rec ae hint named} {h : String}
+    {ws start len : Nat}
+    {x : BitVec ws} (hlen : 0 < len) (hr : start + len ≤ ws)
+    (ca : Child rec ctx inputs we mems initial ae h (.bits ws x)) :
+    FreshAction (do
+        let sw ← rec ae h false false
+        emitSliceResult (sliceRhs start len sw) len hint named)
+      ctx inputs we mems initial (.bits len (BitVec.extractLsb' start len x)) := by
+  have shape : ∀ s t w, Lookup ctx inputs s →
+      Returns (do
+        let sw ← rec ae h false false
+        emitSliceResult (sliceRhs start len sw) len hint named) ctx s w t →
+      Frame s t ∧ s.usedNames.contains w = false := by
+    intro s t w lookup hr'
+    obtain ⟨sw, sm, ra, re⟩ := Returns.bind hr'
+    have fa := ca.frame s sm sw lookup ra
+    obtain ⟨fe, fresh⟩ := emit_slice_frame (sliceRhs_simple start len hlen sw) re
+    refine ⟨fa.trans fe, ?_⟩
+    cases hu : s.usedNames.contains w
+    · rfl
+    · have := fa.used w hu; simp [fresh] at this
+  refine ⟨⟨fun s t w lookup hr' => (shape s t w lookup hr').1, ?_⟩,
+    fun s t w lookup hr' => (shape s t w lookup hr').2⟩
+  intro s t w prior hinv widths hr'
+  obtain ⟨sw, sm, ra, re⟩ := Returns.bind hr'
+  obtain ⟨hw, ht⟩ := emitSliceResult_returns re
+  have lookup := Lookup.ofInputs hinv.inputs
+  have fa := ca.frame s sm sw lookup ra
+  have fcast := (emit_slice_frame (sliceRhs_simple start len hlen sw) re).1
+  have aout := ca.sem s sm sw prior hinv (fcast.decls.widths widths) ra
+  obtain ⟨va, ia, av, af⟩ := aout.execution
+  have step := allocate_assign_outcome (v := .bits len (BitVec.extractLsb' start len x)) ia hw ht
+    (hwTypeFromWidth_bitWidth len)
+    (sliceRhs_typed hlen hr aout.width) (sliceRhs_eval hlen av) widths
+  obtain ⟨result, inv, val, frame⟩ := step.execution
+  exact ⟨step.used, step.width, fun z hz => step.grows z (fa.used z hz), result, inv, val,
+    fun z hz => (frame z (fa.used z hz)).trans (af z hz)⟩
+
+set_option maxHeartbeats 1000000 in
+theorem sliceE_back (dom ae : Lean.Expr) (nm : Lean.Name) (ws start len : Nat) :
+    (sliceE dom nm ws start len ae).getAppArgs.back! = ae := rfl
+
+theorem sliceUncached_sliceE (rec : TranslateFn) (dom ae : Lean.Expr) (nm : Lean.Name)
+    (ws start len : Nat) (hint : String) (top named : Bool) :
+    translateSliceUncachedWith rec start len (sliceE dom nm ws start len ae) hint top named =
+      (do
+        let sw ← rec ae "s" false false
+        emitSliceResult (sliceRhs start len sw) len hint named) := by
+  show (do
+      let sw ← rec (sliceE dom nm ws start len ae).getAppArgs.back! "s" false false
+      emitSliceResult (sliceRhs start len sw) len hint named) = _
+  rw [sliceE_back]
+
+set_option maxHeartbeats 1000000 in
+theorem slice_step (rec : TranslateFn) (dom ae : Lean.Expr) (nm : Lean.Name)
+    (ws start len : Nat) (hint : String) (top named : Bool)
+    (hlen : 0 < len) (hr : start + len ≤ ws) :
+    translateStepWith translateFallback rec (sliceE dom nm ws start len ae) hint top named =
+      translateControlCachedWith (translateSliceUncachedWith rec start len)
+        (sliceE dom nm ws start len ae) hint top named := by
+  have shape : translateCoreShape (sliceE dom nm ws start len ae) = false := rfl
+  have core : translateCore rec (sliceE dom nm ws start len ae) hint top named = pure none := rfl
+  have control : isBoolControl (sliceE dom nm ws start len ae) = false := rfl
+  have mux : canonicalMuxType? (sliceE dom nm ws start len ae) = none := rfl
+  have setw : canonicalSetWidth? (sliceE dom nm ws start len ae) = none := rfl
+  have reg : canonicalRegister? (sliceE dom nm ws start len ae) = none := rfl
+  have regEn : canonicalRegisterEnable? (sliceE dom nm ws start len ae) = none := rfl
+  have loopR : canonicalLoopRegister? (sliceE dom nm ws start len ae) = none := rfl
+  have cdo : canonicalCircuitDo? (sliceE dom nm ws start len ae) = none := rfl
+  have cdo2 : canonicalCircuitDo2? (sliceE dom nm ws start len ae) = none := rfl
+  have mem : canonicalMemory? (sliceE dom nm ws start len ae) = none := rfl
+  have sl := canonicalSlice?_sliceE dom nm ae hlen hr
+  have step : translateStepWith translateFallback rec (sliceE dom nm ws start len ae)
+      hint top named = translateFallback rec (sliceE dom nm ws start len ae) hint top named := by
+    simp [translateStepWith, shape, core]
+    rfl
+  rw [step]
+  simp only [translateFallback, fallbackKind, control, Bool.false_eq_true, if_false, mux, setw,
+    reg, regEn, loopR, cdo, cdo2, mem, sl]
+
+theorem slice_contract {rec ctx inputs we mems initial dom ae nm} {ws start len : Nat}
+    {x : BitVec ws} (hlen : 0 < len) (hr : start + len ≤ ws)
+    (meaning : Meaning inputs (sliceE dom nm ws start len ae)
+      (.bits len (BitVec.extractLsb' start len x)))
+    (ca : Child rec ctx inputs we mems initial ae "s" (.bits ws x)) :
+    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial
+      (sliceE dom nm ws start len ae) (.bits len (BitVec.extractLsb' start len x)) := by
+  have step : ∀ hint top named, ActionSpec
+      (translateStepWith translateFallback rec (sliceE dom nm ws start len ae) hint top named)
+      ctx inputs we mems initial (.bits len (BitVec.extractLsb' start len x)) := by
+    intro hint top named
+    rw [slice_step rec dom ae nm ws start len hint top named hlen hr]
+    apply cached_action meaning
+    show FreshAction (translateSliceUncachedWith rec start len (sliceE dom nm ws start len ae)
+      hint top named) ctx inputs we mems initial (.bits len (BitVec.extractLsb' start len x))
+    rw [sliceUncached_sliceE]
+    exact slice_fresh hlen hr ca
+  exact ⟨fun hint top named => (step hint top named).frame,
+    fun hint top named => (step hint top named).sem⟩
+
+/-! ## The zero-extending map and the `<$>` slice
+
+`a.map (fun v => BitVec.append (0#k) v)` lowers exactly like the
+zero-extending width cast: the child under hint `"s"`, then `{k'd0, s}`.
+`f <$> a` for a slice function lowers like the slice map, under the legacy
+`Functor.map` handler's child hint `"a"`. -/
+
+set_option maxHeartbeats 1000000 in
+theorem zextMapE_getAppArgs (dom : Lean.Expr) (nm : Lean.Name) (ae : Lean.Expr) (k n : Nat) :
+    (zextMapE dom nm k n ae).getAppArgs = #[dom, bitVecE n, bitVecE (k + n),
+      .lam nm (bitVecE n)
+        (mkApp4 (.const ``BitVec.append []) (natE k) (natE n) (litE k 0) (.bvar 0)) .default,
+      ae] := rfl
+
+theorem setwUncached_zextMapE (rec : TranslateFn) (dom : Lean.Expr) (nm : Lean.Name)
+    (ae : Lean.Expr) (k n : Nat) (hint : String) (top named : Bool) :
+    translateSetWidthUncachedWith rec n (k + n) (zextMapE dom nm k n ae) hint top named =
+      (do
+        let sw ← rec ae "s" false false
+        emitCastResult (setwRhs n (k + n) sw) (k + n) hint named) := by
+  show (do
+      let sw ← rec (zextMapE dom nm k n ae).getAppArgs.back! "s" false false
+      emitCastResult (setwRhs n (k + n) sw) (k + n) hint named) = _
+  rw [zextMapE_getAppArgs]
+  rfl
+
+set_option maxHeartbeats 1000000 in
+theorem zextMap_step (rec : TranslateFn) (dom : Lean.Expr) (nm : Lean.Name) (ae : Lean.Expr)
+    (k n : Nat) (hint : String) (top named : Bool) (hk : 0 < k) (hn : 0 < n) :
+    translateStepWith translateFallback rec (zextMapE dom nm k n ae) hint top named =
+      translateControlCachedWith (translateSetWidthUncachedWith rec n (k + n))
+        (zextMapE dom nm k n ae) hint top named := by
+  have shape : translateCoreShape (zextMapE dom nm k n ae) = false := rfl
+  have core : translateCore rec (zextMapE dom nm k n ae) hint top named = pure none := rfl
+  have control : isBoolControl (zextMapE dom nm k n ae) = false := rfl
+  have mux : canonicalMuxType? (zextMapE dom nm k n ae) = none := rfl
+  have setw : canonicalSetWidth? (zextMapE dom nm k n ae) = none := rfl
+  have reg : canonicalRegister? (zextMapE dom nm k n ae) = none := rfl
+  have regEn : canonicalRegisterEnable? (zextMapE dom nm k n ae) = none := rfl
+  have loopR : canonicalLoopRegister? (zextMapE dom nm k n ae) = none := rfl
+  have cdo : canonicalCircuitDo? (zextMapE dom nm k n ae) = none := rfl
+  have cdo2 : canonicalCircuitDo2? (zextMapE dom nm k n ae) = none := rfl
+  have mem : canonicalMemory? (zextMapE dom nm k n ae) = none := rfl
+  have sl := canonicalSlice?_zextMapE dom nm ae k n
+  have cc : canonicalConcat? (zextMapE dom nm k n ae) = none := rfl
+  have cl : canonicalConcatLit? (zextMapE dom nm k n ae) = none := rfl
+  have zx := canonicalZextMap?_zextMapE dom nm ae hk hn
+  have step : translateStepWith translateFallback rec (zextMapE dom nm k n ae)
+      hint top named = translateFallback rec (zextMapE dom nm k n ae) hint top named := by
+    simp [translateStepWith, shape, core]
+    rfl
+  rw [step]
+  simp only [translateFallback, fallbackKind, control, Bool.false_eq_true, if_false, mux, setw,
+    reg, regEn, loopR, cdo, cdo2, mem, sl, cc, cl, zx]
+
+theorem zextMap_contract {rec ctx inputs we mems initial dom ae nm} {k n : Nat}
+    {x : BitVec n} (hk : 0 < k) (hn : 0 < n)
+    (meaning : Meaning inputs (zextMapE dom nm k n ae)
+      (.bits (k + n) (BitVec.append (BitVec.ofNat k 0) x)))
+    (ca : Child rec ctx inputs we mems initial ae "s" (.bits n x)) :
+    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial
+      (zextMapE dom nm k n ae) (.bits (k + n) (BitVec.append (BitVec.ofNat k 0) x)) := by
+  have step : ∀ hint top named, ActionSpec
+      (translateStepWith translateFallback rec (zextMapE dom nm k n ae) hint top named)
+      ctx inputs we mems initial (.bits (k + n) (BitVec.append (BitVec.ofNat k 0) x)) := by
+    intro hint top named
+    rw [zextMap_step rec dom nm ae k n hint top named hk hn]
+    apply cached_action meaning
+    show FreshAction (translateSetWidthUncachedWith rec n (k + n) (zextMapE dom nm k n ae)
+      hint top named) ctx inputs we mems initial
+      (.bits (k + n) (BitVec.append (BitVec.ofNat k 0) x))
+    rw [setwUncached_zextMapE, ← setWidth_eq_zero_append]
+    exact setw_fresh hn (by omega) ca
+  exact ⟨fun hint top named => (step hint top named).frame,
+    fun hint top named => (step hint top named).sem⟩
+
+set_option maxHeartbeats 1000000 in
+theorem sliceFE_getAppArgs (dom : Lean.Expr) (nm : Lean.Name) (ae : Lean.Expr)
+    (w start len : Nat) :
+    (sliceFE dom nm w start len ae).getAppArgs =
+      #[.app (.const ``Sparkle.Core.Signal.Signal [.zero]) dom,
+        .app (.const ``Sparkle.Core.Signal.instFunctorSignal [.zero]) dom,
+        bitVecE w, bitVecE len, sliceLamE nm w start len, ae] := rfl
+
+theorem sliceFUncached_sliceFE (rec : TranslateFn) (dom : Lean.Expr) (nm : Lean.Name)
+    (ae : Lean.Expr) (w start len : Nat) (hint : String) (top named : Bool) :
+    translateSliceFUncachedWith rec start len (sliceFE dom nm w start len ae) hint top named =
+      (do
+        let sw ← rec ae "a" false false
+        emitSliceResult (sliceRhs start len sw) len hint named) := by
+  show (do
+      let sw ← rec (sliceFE dom nm w start len ae).getAppArgs.back! "a" false false
+      emitSliceResult (sliceRhs start len sw) len hint named) = _
+  rw [sliceFE_getAppArgs]
+  rfl
+
+set_option maxHeartbeats 1000000 in
+theorem sliceF_step (rec : TranslateFn) (dom : Lean.Expr) (nm : Lean.Name) (ae : Lean.Expr)
+    (w start len : Nat) (hint : String) (top named : Bool)
+    (hlen : 0 < len) (hr : start + len ≤ w) :
+    translateStepWith translateFallback rec (sliceFE dom nm w start len ae) hint top named =
+      translateControlCachedWith (translateSliceFUncachedWith rec start len)
+        (sliceFE dom nm w start len ae) hint top named := by
+  have shape : translateCoreShape (sliceFE dom nm w start len ae) = false := rfl
+  have core : translateCore rec (sliceFE dom nm w start len ae) hint top named = pure none := rfl
+  have control : isBoolControl (sliceFE dom nm w start len ae) = false := rfl
+  have mux : canonicalMuxType? (sliceFE dom nm w start len ae) = none := rfl
+  have setw : canonicalSetWidth? (sliceFE dom nm w start len ae) = none := rfl
+  have reg : canonicalRegister? (sliceFE dom nm w start len ae) = none := rfl
+  have regEn : canonicalRegisterEnable? (sliceFE dom nm w start len ae) = none := rfl
+  have loopR : canonicalLoopRegister? (sliceFE dom nm w start len ae) = none := rfl
+  have cdo : canonicalCircuitDo? (sliceFE dom nm w start len ae) = none := rfl
+  have cdo2 : canonicalCircuitDo2? (sliceFE dom nm w start len ae) = none := rfl
+  have mem : canonicalMemory? (sliceFE dom nm w start len ae) = none := rfl
+  have sl : canonicalSlice? (sliceFE dom nm w start len ae) = none := rfl
+  have cc := canonicalConcat?_sliceFE dom nm ae w start len
+  have cl := canonicalConcatLit?_sliceFE dom nm ae w start len
+  have zx : canonicalZextMap? (sliceFE dom nm w start len ae) = none := rfl
+  have sf := canonicalSliceF?_sliceFE dom nm ae hlen hr
+  have step : translateStepWith translateFallback rec (sliceFE dom nm w start len ae)
+      hint top named = translateFallback rec (sliceFE dom nm w start len ae) hint top named := by
+    simp [translateStepWith, shape, core]
+    rfl
+  rw [step]
+  simp only [translateFallback, fallbackKind, control, Bool.false_eq_true, if_false, mux, setw,
+    reg, regEn, loopR, cdo, cdo2, mem, sl, cc, cl, zx, sf]
+
+theorem sliceF_contract {rec ctx inputs we mems initial dom ae nm} {ws start len : Nat}
+    {x : BitVec ws} (hlen : 0 < len) (hr : start + len ≤ ws)
+    (meaning : Meaning inputs (sliceFE dom nm ws start len ae)
+      (.bits len (BitVec.extractLsb' start len x)))
+    (ca : Child rec ctx inputs we mems initial ae "a" (.bits ws x)) :
+    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial
+      (sliceFE dom nm ws start len ae) (.bits len (BitVec.extractLsb' start len x)) := by
+  have step : ∀ hint top named, ActionSpec
+      (translateStepWith translateFallback rec (sliceFE dom nm ws start len ae) hint top named)
+      ctx inputs we mems initial (.bits len (BitVec.extractLsb' start len x)) := by
+    intro hint top named
+    rw [sliceF_step rec dom nm ae ws start len hint top named hlen hr]
+    apply cached_action meaning
+    show FreshAction (translateSliceFUncachedWith rec start len (sliceFE dom nm ws start len ae)
+      hint top named) ctx inputs we mems initial (.bits len (BitVec.extractLsb' start len x))
+    rw [sliceFUncached_sliceFE]
+    exact slice_fresh hlen hr ca
+  exact ⟨fun hint top named => (step hint top named).frame,
+    fun hint top named => (step hint top named).sem⟩
+
+/-! ## Concatenation
+
+`a ++ b` lowers like a binary operator — the result wire is allocated BEFORE
+the operands, which are then lowered under the hints `"concat_hi"` and
+`"concat_lo"` — but its operands have their own widths and its right-hand
+side is the IR concatenation `{hi, lo}`. It takes the shared cache wrapper of
+the fallback arms rather than the core's. -/
+
+/-- A recursive child, as the action it is. -/
+theorem Child.action {rec ctx inputs we mems initial e hint v}
+    (c : Child rec ctx inputs we mems initial e hint v) :
+    ActionSpec (rec e hint false false) ctx inputs we mems initial v := ⟨c.frame, c.sem⟩
+
+theorem concatActs_returns {ctx s t hint named w} {wd : Nat} {hiAct loAct : CompilerM String}
+    (hr : Returns (translateConcatActs wd hiAct loAct hint named) ctx s w t) :
+    ∃ sa sb sc a b,
+      w = (CircuitM.makeWire hint (.bitVector wd) named s).1 ∧
+      sa = (CircuitM.makeWire hint (.bitVector wd) named s).2 ∧
+      Returns hiAct ctx sa a sb ∧
+      Returns loAct ctx sb b sc ∧
+      t = (CircuitM.emitAssign w (.concat [.ref a, .ref b]) sc).2 := by
+  unfold translateConcatActs at hr
+  obtain ⟨r, sa, mk, rest⟩ := Returns.bind hr
+  obtain ⟨hw, hsa⟩ := makeWire_returns mk
+  obtain ⟨a, sb, ra, rest⟩ := Returns.bind rest
+  obtain ⟨b, sc, rb, rest⟩ := Returns.bind rest
+  obtain ⟨u, sd, emit, rest⟩ := Returns.bind rest
+  obtain ⟨hrw, ht⟩ := Returns.pure rest
+  subst w t
+  exact ⟨sa, sb, sc, a, b, hw, hsa, ra, rb, emitAssign_returns emit⟩
+
+/-- `{a, b}` on two wires at their declared widths is the BitVec append. -/
+theorem concatRhs_eval {we : WEnv} {env : Env} {a b : String} {m n : Nat}
+    {x : BitVec m} {y : BitVec n}
+    (wa : we a = m) (wb : we b = n) (va : env a = x.toNat) (vb : env b = y.toNat) :
+    evalExpr we env (.concat [.ref a, .ref b]) = some (x ++ y).toNat := by
+  simp [evalExpr, evalList, evalExpr.go, widthOf, wa, wb, va, vb, mask, BitVec.toNat_append,
+    Nat.mod_eq_of_lt x.isLt, Nat.mod_eq_of_lt y.isLt]
+
+/-- The allocator precedes both operand actions; the reserved result keeps
+its record-free and binding-free status across them. -/
+theorem concat_outcome {ctx inputs we mems initial s t prior hint named w} {m n : Nat}
+    {hiAct loAct : CompilerM String}
+    (x : BitVec m) (y : BitVec n) (hm : 0 < m) (hn : 0 < n)
+    (h : Inv ctx inputs we mems initial s prior)
+    (ca : ActionSpec hiAct ctx inputs we mems initial (.bits m x))
+    (cb : ActionSpec loAct ctx inputs we mems initial (.bits n y))
+    (widths : ScalarWidthsAgree we t)
+    (hr : Returns (translateConcatActs (m + n) hiAct loAct hint named) ctx s w t) :
+    Outcome ctx inputs we mems initial prior s t w (.bits (m + n) (x ++ y)) := by
+  have lookup := Lookup.ofInputs h.inputs
+  obtain ⟨sa, sb, sc, a, b, hw, hsa, ra, rb, ht⟩ := concatActs_returns hr
+  have alloc := CircuitM.makeWire_spec hint (.bitVector (m + n)) named s
+  have fresh : s.usedNames.contains w = false := by rw [hw]; exact alloc.1
+  have usedA : sa.usedNames.contains w = true := by rw [hsa, alloc.2.1, hw]; simp
+  have fa : Frame s sa := by rw [hsa]; exact Frame.makeWire s hint (m + n) named
+  have fb := ca.frame sa sb a (lookup.transfer fa) ra
+  have fc := cb.frame sb sc b ((lookup.transfer fa).transfer fb) rb
+  have fd : Frame sc t := by rw [ht]; exact Frame.emitAssign sc w _ rfl
+  have all := ((fa.trans fb).trans fc).trans fd
+  have ia : Inv ctx inputs we mems initial sa prior := by
+    rw [hsa]; exact h.allocate hint (.bitVector (m + n)) named
+  have wa := ca.sem sa sb a prior ia ((fc.decls.trans fd.decls).widths widths) ra
+  obtain ⟨vb, ib, av, aframe⟩ := wa.execution
+  have wb := cb.sem sb sc b vb ib (fd.decls.widths widths) rb
+  obtain ⟨vc, ic, bv, bframe⟩ := wb.execution
+  have av' : vc a = x.toNat := (bframe a wa.used).trans av
+  have resultWidth : we w = m + n := by
+    apply widths ({name := w, ty := .bitVector (m + n)} : Port)
+    apply fd.decls; apply fc.decls; apply fb.decls
+    rw [hsa, alloc.2.2.2, hw]; simp
+  have sameBindings : sc.sourceBindings = s.sourceBindings :=
+    fc.bindings.trans (fb.bindings.trans fa.bindings)
+  have oldRecord : ∀ ex, sc.translateRecord.get? w = some ex → s.translateRecord.get? w = some ex := by
+    intro ex he
+    have old := fb.record_reserved usedA (fc.record_reserved (fb.used w usedA) he)
+    rw [hsa, CircuitM.makeWire_translateRecord] at old
+    exact old
+  have inputSafe : ∀ id u, inputs id = some u → visible ctx sc.sourceBindings id ≠ some w := by
+    intro id u hi bound
+    rw [sameBindings] at bound
+    obtain ⟨z, hz, hu, _, _⟩ := h.inputs.lookup id u hi
+    have eq : z = w := Option.some.inj (hz.symm.trans bound)
+    subst z; simp [fresh] at hu
+  have recordSafe : ∀ ex u, sc.translateRecord.get? w = some ex → ¬ Meaning inputs ex u := by
+    intro ex u he meaning
+    have hu := (h.records w ex (oldRecord ex he) u meaning).1
+    simp [fresh] at hu
+  have wa' : we a = m := wa.width
+  have wb' : we b = n := wb.width
+  have typed : TypedExpr we (.concat [.ref a, .ref b]) (we w) := by
+    rw [resultWidth]
+    have step := TypedExpr.cat (we := we) a b (by rw [wa']; exact hm) (by rw [wb']; exact hn)
+    rwa [wa', wb'] at step
+  have bv' : vc b = y.toNat := bv
+  have rhs := concatRhs_eval (we := we) (env := vc) wa' wb' av' bv'
+  have final := ic.emit_reserved inputSafe recordSafe typed rhs
+  rw [← ht] at final
+  refine ⟨fd.used w (fc.used w (fb.used w usedA)), resultWidth, all.used,
+    write vc w (x ++ y).toNat, final, ?_, ?_⟩
+  · simp [write]
+  · intro z hz
+    have ne : z ≠ w := by intro eq; subst z; simp [fresh] at hz
+    simp only [write, ne, if_false]
+    exact (bframe z (fb.used z (fa.used z hz))).trans (aframe z (fa.used z hz))
+
+/-- The structural half is independent of semantic invariants and widths. -/
+theorem concat_frame {ctx inputs we mems initial s t hint named w va vb} {wd : Nat}
+    {hiAct loAct : CompilerM String}
+    (lookup : Lookup ctx inputs s)
+    (ca : ActionSpec hiAct ctx inputs we mems initial va)
+    (cb : ActionSpec loAct ctx inputs we mems initial vb)
+    (hr : Returns (translateConcatActs wd hiAct loAct hint named) ctx s w t) :
+    Frame s t ∧ s.usedNames.contains w = false := by
+  obtain ⟨sa, sb, sc, a, b, hw, hsa, ra, rb, ht⟩ := concatActs_returns hr
+  have fa : Frame s sa := by rw [hsa]; exact Frame.makeWire s hint wd named
+  have fb := ca.frame sa sb a (lookup.transfer fa) ra
+  have fc := cb.frame sb sc b ((lookup.transfer fa).transfer fb) rb
+  have fd : Frame sc t := by rw [ht]; exact Frame.emitAssign sc w _ rfl
+  refine ⟨((fa.trans fb).trans fc).trans fd, ?_⟩
+  rw [hw]; exact (CircuitM.makeWire_spec hint (.bitVector wd) named s).1
+
+theorem concat_fresh {ctx inputs we mems initial hint named} {m n : Nat}
+    {hiAct loAct : CompilerM String}
+    {x : BitVec m} {y : BitVec n} (hm : 0 < m) (hn : 0 < n)
+    (ca : ActionSpec hiAct ctx inputs we mems initial (.bits m x))
+    (cb : ActionSpec loAct ctx inputs we mems initial (.bits n y)) :
+    FreshAction (translateConcatActs (m + n) hiAct loAct hint named) ctx inputs we mems initial
+      (.bits (m + n) (x ++ y)) := by
+  refine ⟨⟨fun s t w lookup hr => (concat_frame lookup ca cb hr).1, ?_⟩,
+    fun s t w lookup hr => (concat_frame lookup ca cb hr).2⟩
+  intro s t w prior h widths hr
+  exact concat_outcome x y hm hn h ca cb widths hr
+
+/-- The constant wire of a literal operand: a fresh wire holding the literal. -/
+theorem concatConst_spec {ctx inputs we mems initial} {k v : Nat} (hk : 0 < k) (hv : v < 2 ^ k) :
+    ActionSpec (emitConcatConst k v) ctx inputs we mems initial
+      (.bits k (BitVec.ofNat k v)) := by
+  constructor
+  · intro s t w lookup hr
+    unfold emitConcatConst at hr
+    exact (emit_cast_frame rfl hr).1
+  · intro s t w prior h widths hr
+    unfold emitConcatConst at hr
+    obtain ⟨hw, ht⟩ := emitCastResult_returns hr
+    refine allocate_assign_outcome (v := .bits k (BitVec.ofNat k v)) h hw ht rfl
+      (.const _ k hk) ?_ widths
+    have val : (Value.bits k (BitVec.ofNat k v)).toNat = v := by
+      simp [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hv]
+    rw [val]
+    exact evalExpr_const_lt we prior v k hv
+
+set_option maxHeartbeats 1000000 in
+theorem concatE_getAppArgs (dom ae be : Lean.Expr) (m n : Nat) :
+    (concatE dom m n ae be).getAppArgs = #[sigT dom m, sigT dom n, sigT dom (m + n),
+      mkApp3 (.const ``Sparkle.Core.Signal.instHAppendSignalBitVecHAddNat []) dom (natE m)
+        (natE n), ae, be] := rfl
+
+theorem concatE_args (dom ae be : Lean.Expr) (m n : Nat) :
+    (concatE dom m n ae be).getAppArgs[(concatE dom m n ae be).getAppArgs.size - 2]! = ae ∧
+      (concatE dom m n ae be).getAppArgs.back! = be := by
+  rw [concatE_getAppArgs]
+  exact ⟨rfl, rfl⟩
+
+theorem concatUncached_concatE (rec : TranslateFn) (dom ae be : Lean.Expr) (m n : Nat)
+    (hint : String) (top named : Bool) :
+    translateConcatUncachedWith rec m n (concatE dom m n ae be) hint top named =
+      translateConcatWith rec m n ae be hint named := by
+  show translateConcatWith rec m n
+    (concatE dom m n ae be).getAppArgs[(concatE dom m n ae be).getAppArgs.size - 2]!
+    (concatE dom m n ae be).getAppArgs.back! hint named = _
+  rw [(concatE_args dom ae be m n).1, (concatE_args dom ae be m n).2]
+
+set_option maxHeartbeats 1000000 in
+theorem concat_step (rec : TranslateFn) (dom ae be : Lean.Expr) (m n : Nat)
+    (hint : String) (top named : Bool) (hm : 0 < m) (hn : 0 < n) :
+    translateStepWith translateFallback rec (concatE dom m n ae be) hint top named =
+      translateControlCachedWith (translateConcatUncachedWith rec m n)
+        (concatE dom m n ae be) hint top named := by
+  have shape : translateCoreShape (concatE dom m n ae be) = false := rfl
+  have core : translateCore rec (concatE dom m n ae be) hint top named = pure none := rfl
+  have control : isBoolControl (concatE dom m n ae be) = false := rfl
+  have mux : canonicalMuxType? (concatE dom m n ae be) = none := rfl
+  have setw : canonicalSetWidth? (concatE dom m n ae be) = none := rfl
+  have reg : canonicalRegister? (concatE dom m n ae be) = none := rfl
+  have regEn : canonicalRegisterEnable? (concatE dom m n ae be) = none := rfl
+  have loopR : canonicalLoopRegister? (concatE dom m n ae be) = none := rfl
+  have cdo : canonicalCircuitDo? (concatE dom m n ae be) = none := rfl
+  have cdo2 : canonicalCircuitDo2? (concatE dom m n ae be) = none := rfl
+  have mem : canonicalMemory? (concatE dom m n ae be) = none := rfl
+  have sl : canonicalSlice? (concatE dom m n ae be) = none := rfl
+  have cc := canonicalConcat?_concatE dom ae be hm hn
+  have step : translateStepWith translateFallback rec (concatE dom m n ae be)
+      hint top named = translateFallback rec (concatE dom m n ae be) hint top named := by
+    simp [translateStepWith, shape, core]
+    rfl
+  rw [step]
+  simp only [translateFallback, fallbackKind, control, Bool.false_eq_true, if_false, mux, setw,
+    reg, regEn, loopR, cdo, cdo2, mem, sl, cc]
+
+theorem concat_contract {rec ctx inputs we mems initial dom ae be} {m n : Nat}
+    {x : BitVec m} {y : BitVec n} (hm : 0 < m) (hn : 0 < n)
+    (meaning : Meaning inputs (concatE dom m n ae be) (.bits (m + n) (x ++ y)))
+    (ca : Child rec ctx inputs we mems initial ae "concat_hi" (.bits m x))
+    (cb : Child rec ctx inputs we mems initial be "concat_lo" (.bits n y)) :
+    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial
+      (concatE dom m n ae be) (.bits (m + n) (x ++ y)) := by
+  have step : ∀ hint top named, ActionSpec
+      (translateStepWith translateFallback rec (concatE dom m n ae be) hint top named)
+      ctx inputs we mems initial (.bits (m + n) (x ++ y)) := by
+    intro hint top named
+    rw [concat_step rec dom ae be m n hint top named hm hn]
+    apply cached_action meaning
+    show FreshAction (translateConcatUncachedWith rec m n (concatE dom m n ae be)
+      hint top named) ctx inputs we mems initial (.bits (m + n) (x ++ y))
+    rw [concatUncached_concatE]
+    exact concat_fresh hm hn ca.action cb.action
+  exact ⟨fun hint top named => (step hint top named).frame,
+    fun hint top named => (step hint top named).sem⟩
+
+set_option maxHeartbeats 1000000 in
+theorem concatLitHiE_getAppArgs (dom be : Lean.Expr) (k v n : Nat) :
+    (concatLitHiE dom k v n be).getAppArgs = #[bitVecE k, sigT dom n, sigT dom (k + n),
+      mkApp3 (.const ``Sparkle.Core.Signal.instHAppendBitVecSignalHAddNat []) (natE k) dom
+        (natE n), litE k v, be] := rfl
+
+set_option maxHeartbeats 1000000 in
+theorem concatLitLoE_getAppArgs (dom ae : Lean.Expr) (m k v : Nat) :
+    (concatLitLoE dom m k v ae).getAppArgs = #[sigT dom m, bitVecE k, sigT dom (m + k),
+      mkApp3 (.const ``Sparkle.Core.Signal.instHAppendSignalBitVecHAddNat_1 []) dom (natE m)
+        (natE k), ae, litE k v] := rfl
+
+theorem concatLitUncached_hiE (rec : TranslateFn) (dom be : Lean.Expr) (k v n : Nat)
+    (hint : String) (top named : Bool) :
+    translateConcatLitUncachedWith rec true k v n (concatLitHiE dom k v n be) hint top named =
+      translateConcatActs (k + n) (emitConcatConst k v) (rec be "concat_lo" false false)
+        hint named := by
+  show translateConcatActs (k + n) (emitConcatConst k v)
+    (rec (concatLitHiE dom k v n be).getAppArgs.back! "concat_lo" false false) hint named = _
+  rw [concatLitHiE_getAppArgs]
+  rfl
+
+theorem concatLitUncached_loE (rec : TranslateFn) (dom ae : Lean.Expr) (m k v : Nat)
+    (hint : String) (top named : Bool) :
+    translateConcatLitUncachedWith rec false k v m (concatLitLoE dom m k v ae) hint top named =
+      translateConcatActs (m + k) (rec ae "concat_hi" false false) (emitConcatConst k v)
+        hint named := by
+  show translateConcatActs (m + k)
+    (rec (concatLitLoE dom m k v ae).getAppArgs[(concatLitLoE dom m k v ae).getAppArgs.size - 2]!
+      "concat_hi" false false) (emitConcatConst k v) hint named = _
+  rw [concatLitLoE_getAppArgs]
+  rfl
+
+set_option maxHeartbeats 1000000 in
+theorem concatLitHi_step (rec : TranslateFn) (dom be : Lean.Expr) (k v n : Nat)
+    (hint : String) (top named : Bool) (hk : 0 < k) (hv : v < 2 ^ k) (hn : 0 < n) :
+    translateStepWith translateFallback rec (concatLitHiE dom k v n be) hint top named =
+      translateControlCachedWith (translateConcatLitUncachedWith rec true k v n)
+        (concatLitHiE dom k v n be) hint top named := by
+  have shape : translateCoreShape (concatLitHiE dom k v n be) = false := rfl
+  have core : translateCore rec (concatLitHiE dom k v n be) hint top named = pure none := rfl
+  have control : isBoolControl (concatLitHiE dom k v n be) = false := rfl
+  have mux : canonicalMuxType? (concatLitHiE dom k v n be) = none := rfl
+  have setw : canonicalSetWidth? (concatLitHiE dom k v n be) = none := rfl
+  have reg : canonicalRegister? (concatLitHiE dom k v n be) = none := rfl
+  have regEn : canonicalRegisterEnable? (concatLitHiE dom k v n be) = none := rfl
+  have loopR : canonicalLoopRegister? (concatLitHiE dom k v n be) = none := rfl
+  have cdo : canonicalCircuitDo? (concatLitHiE dom k v n be) = none := rfl
+  have cdo2 : canonicalCircuitDo2? (concatLitHiE dom k v n be) = none := rfl
+  have mem : canonicalMemory? (concatLitHiE dom k v n be) = none := rfl
+  have sl : canonicalSlice? (concatLitHiE dom k v n be) = none := rfl
+  have cc := canonicalConcat?_hiE dom be k v n
+  have cl := canonicalConcatLit?_hiE dom be hk hv hn
+  have step : translateStepWith translateFallback rec (concatLitHiE dom k v n be)
+      hint top named = translateFallback rec (concatLitHiE dom k v n be) hint top named := by
+    simp [translateStepWith, shape, core]
+    rfl
+  rw [step]
+  simp only [translateFallback, fallbackKind, control, Bool.false_eq_true, if_false, mux, setw,
+    reg, regEn, loopR, cdo, cdo2, mem, sl, cc, cl]
+
+set_option maxHeartbeats 1000000 in
+theorem concatLitLo_step (rec : TranslateFn) (dom ae : Lean.Expr) (m k v : Nat)
+    (hint : String) (top named : Bool) (hk : 0 < k) (hv : v < 2 ^ k) (hm : 0 < m) :
+    translateStepWith translateFallback rec (concatLitLoE dom m k v ae) hint top named =
+      translateControlCachedWith (translateConcatLitUncachedWith rec false k v m)
+        (concatLitLoE dom m k v ae) hint top named := by
+  have shape : translateCoreShape (concatLitLoE dom m k v ae) = false := rfl
+  have core : translateCore rec (concatLitLoE dom m k v ae) hint top named = pure none := rfl
+  have control : isBoolControl (concatLitLoE dom m k v ae) = false := rfl
+  have mux : canonicalMuxType? (concatLitLoE dom m k v ae) = none := rfl
+  have setw : canonicalSetWidth? (concatLitLoE dom m k v ae) = none := rfl
+  have reg : canonicalRegister? (concatLitLoE dom m k v ae) = none := rfl
+  have regEn : canonicalRegisterEnable? (concatLitLoE dom m k v ae) = none := rfl
+  have loopR : canonicalLoopRegister? (concatLitLoE dom m k v ae) = none := rfl
+  have cdo : canonicalCircuitDo? (concatLitLoE dom m k v ae) = none := rfl
+  have cdo2 : canonicalCircuitDo2? (concatLitLoE dom m k v ae) = none := rfl
+  have mem : canonicalMemory? (concatLitLoE dom m k v ae) = none := rfl
+  have sl : canonicalSlice? (concatLitLoE dom m k v ae) = none := rfl
+  have cc := canonicalConcat?_loE dom ae m k v
+  have cl := canonicalConcatLit?_loE dom ae hk hv hm
+  have step : translateStepWith translateFallback rec (concatLitLoE dom m k v ae)
+      hint top named = translateFallback rec (concatLitLoE dom m k v ae) hint top named := by
+    simp [translateStepWith, shape, core]
+    rfl
+  rw [step]
+  simp only [translateFallback, fallbackKind, control, Bool.false_eq_true, if_false, mux, setw,
+    reg, regEn, loopR, cdo, cdo2, mem, sl, cc, cl]
+
+theorem concatLitHi_contract {rec ctx inputs we mems initial dom be} {k v n : Nat}
+    {y : BitVec n} (hk : 0 < k) (hv : v < 2 ^ k) (hn : 0 < n)
+    (meaning : Meaning inputs (concatLitHiE dom k v n be)
+      (.bits (k + n) (BitVec.ofNat k v ++ y)))
+    (cb : Child rec ctx inputs we mems initial be "concat_lo" (.bits n y)) :
+    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial
+      (concatLitHiE dom k v n be) (.bits (k + n) (BitVec.ofNat k v ++ y)) := by
+  have step : ∀ hint top named, ActionSpec
+      (translateStepWith translateFallback rec (concatLitHiE dom k v n be) hint top named)
+      ctx inputs we mems initial (.bits (k + n) (BitVec.ofNat k v ++ y)) := by
+    intro hint top named
+    rw [concatLitHi_step rec dom be k v n hint top named hk hv hn]
+    apply cached_action meaning
+    show FreshAction (translateConcatLitUncachedWith rec true k v n (concatLitHiE dom k v n be)
+      hint top named) ctx inputs we mems initial (.bits (k + n) (BitVec.ofNat k v ++ y))
+    rw [concatLitUncached_hiE]
+    exact concat_fresh hk hn (concatConst_spec hk hv) cb.action
+  exact ⟨fun hint top named => (step hint top named).frame,
+    fun hint top named => (step hint top named).sem⟩
+
+theorem concatLitLo_contract {rec ctx inputs we mems initial dom ae} {m k v : Nat}
+    {x : BitVec m} (hk : 0 < k) (hv : v < 2 ^ k) (hm : 0 < m)
+    (meaning : Meaning inputs (concatLitLoE dom m k v ae)
+      (.bits (m + k) (x ++ BitVec.ofNat k v)))
+    (ca : Child rec ctx inputs we mems initial ae "concat_hi" (.bits m x)) :
+    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial
+      (concatLitLoE dom m k v ae) (.bits (m + k) (x ++ BitVec.ofNat k v)) := by
+  have step : ∀ hint top named, ActionSpec
+      (translateStepWith translateFallback rec (concatLitLoE dom m k v ae) hint top named)
+      ctx inputs we mems initial (.bits (m + k) (x ++ BitVec.ofNat k v)) := by
+    intro hint top named
+    rw [concatLitLo_step rec dom ae m k v hint top named hk hv hm]
+    apply cached_action meaning
+    show FreshAction (translateConcatLitUncachedWith rec false k v m (concatLitLoE dom m k v ae)
+      hint top named) ctx inputs we mems initial (.bits (m + k) (x ++ BitVec.ofNat k v))
+    rw [concatLitUncached_loE]
+    exact concat_fresh hm hk ca.action (concatConst_spec hk hv)
+  exact ⟨fun hint top named => (step hint top named).frame,
+    fun hint top named => (step hint top named).sem⟩
+
+/-! ## Applicative-lifted Bool-result operators
+
+`(BitVec.ule · ·) <$> a <*> b` and `(· && ·) <$> a <*> b`, in the form the
+front end normalises them to (`Signal.ap (Signal.map f a) b`), take the Bool
+control arm: both operands under the legacy applicative lowering's hint
+(`"app_arg"`), then the SAME result assignment as the direct comparison /
+Boolean routes. The lemmas below are those routes' lemmas at that hint. -/
+
+theorem translateAppCompare_returns {rec : TranslateFn} {le : SignalCompareKind} {a b : Lean.Expr}
+    {hint w : String} {named : Bool} {ctx : CompilerState} {s s' : CircuitState}
+    (h : Returns (translateAppCompare rec le a b hint named) ctx s w s') :
+    ∃ aw bw sa sb, Returns (rec a "app_arg" false false) ctx s aw sa ∧
+      Returns (rec b "app_arg" false false) ctx sa bw sb ∧
+      Returns (emitCompareResult le aw bw hint named) ctx sb w s' := by
+  unfold translateAppCompare at h
+  obtain ⟨aw, sa, ha, h⟩ := Returns.bind h
+  obtain ⟨bw, sb, hb, he⟩ := Returns.bind h
+  exact ⟨aw, bw, sa, sb, ha, hb, he⟩
+
+theorem translateAppBoolBinary_returns {rec : TranslateFn} {kind : SignalBoolBinKind}
+    {a b : Lean.Expr}
+    {hint w : String} {named : Bool} {ctx : CompilerState} {s t : CircuitState}
+    (h : Returns (translateAppBoolBinary rec kind a b hint named) ctx s w t) :
+    ∃ aw bw sa sb, Returns (rec a "app_arg" false false) ctx s aw sa ∧
+      Returns (rec b "app_arg" false false) ctx sa bw sb ∧
+      Returns (emitBoolResult (.op (signalBoolBinOp kind) [.ref aw, .ref bw]) hint named)
+        ctx sb w t := by
+  unfold translateAppBoolBinary at h
+  obtain ⟨aw, sa, ha, h⟩ := Returns.bind h
+  obtain ⟨bw, sb, hb, he⟩ := Returns.bind h
+  exact ⟨aw, bw, sa, sb, ha, hb, he⟩
+
+theorem appE_step (rec : TranslateFn) (dom ty body ae be : Lean.Expr)
+    (hint : String) (top named : Bool) :
+    translateStepWith translateFallback rec (appE dom ty body ae be) hint top named =
+      translateFallback rec (appE dom ty body ae be) hint top named := by
+  have shape : translateCoreShape (appE dom ty body ae be) = false := rfl
+  have core : translateCore rec (appE dom ty body ae be) hint top named = pure none := rfl
+  simp [translateStepWith, shape, core]
+  rfl
+
+theorem appCompare_step (rec : TranslateFn) (dom ae be : Lean.Expr) (n : Nat)
+    (le : SignalCompareKind) (hint : String) (top named : Bool) :
+    translateStepWith translateFallback rec (appCompareE le dom n ae be) hint top named =
+      translateFallback rec (appCompareE le dom n ae be) hint top named :=
+  appE_step rec dom _ _ ae be hint top named
+
+theorem appBool_step (rec : TranslateFn) (kind : SignalBoolBinKind) (dom ae be : Lean.Expr)
+    (hint : String) (top named : Bool) :
+    translateStepWith translateFallback rec (appBoolE kind dom ae be) hint top named =
+      translateFallback rec (appBoolE kind dom ae be) hint top named :=
+  appE_step rec dom _ _ ae be hint top named
+
+theorem isBoolControl_appE (dom ty body ae be : Lean.Expr) :
+    isBoolControl (appE dom ty body ae be) =
+      ((appBoolOp? (appE dom ty body ae be)).isSome ||
+        (match canonicalMuxType? (appE dom ty body ae be) with
+          | some .bit => true
+          | _ => false)) := rfl
+
+theorem isBoolControl_appCompareE (dom ae be : Lean.Expr) (n : Nat) (le : SignalCompareKind) :
+    isBoolControl (appCompareE le dom n ae be) = true := by
+  rw [appCompareE, isBoolControl_appE]
+  show ((appBoolOp? (appCompareE le dom n ae be)).isSome || _) = true
+  rw [appBoolOp?_appCompareE]
+  rfl
+
+theorem isBoolControl_appBoolE (dom ae be : Lean.Expr) (kind : SignalBoolBinKind) :
+    isBoolControl (appBoolE kind dom ae be) = true := by
+  rw [appBoolE, isBoolControl_appE]
+  show ((appBoolOp? (appBoolE kind dom ae be)).isSome || _) = true
+  rw [appBoolOp?_appBoolE]
+  rfl
+
+theorem translateBoolUncachedWith_appE (rec legacy : TranslateFn) (dom ty body ae be : Lean.Expr)
+    (hint : String) (top named : Bool) :
+    translateBoolUncachedWith rec legacy (appE dom ty body ae be) hint top named =
+      (match appBoolOp? (appE dom ty body ae be) with
+        | some (op, a, b) => translateAppBool rec op a b hint named
+        | none => legacy (appE dom ty body ae be) hint top named) := rfl
+
+theorem translateBoolUncachedWith_appCompare (rec legacy : TranslateFn) (dom ae be : Lean.Expr)
+    (n : Nat) (le : SignalCompareKind) (hint : String) (top named : Bool) :
+    translateBoolUncachedWith rec legacy (appCompareE le dom n ae be) hint top named =
+      translateAppCompare rec le ae be hint named := by
+  rw [appCompareE, translateBoolUncachedWith_appE]
+  show (match appBoolOp? (appCompareE le dom n ae be) with
+    | some (op, a, b) => translateAppBool rec op a b hint named
+    | none => legacy _ hint top named) = _
+  rw [appBoolOp?_appCompareE]
+  rfl
+
+theorem translateBoolUncachedWith_appBool (rec legacy : TranslateFn) (kind : SignalBoolBinKind)
+    (dom ae be : Lean.Expr) (hint : String) (top named : Bool) :
+    translateBoolUncachedWith rec legacy (appBoolE kind dom ae be) hint top named =
+      translateAppBoolBinary rec kind ae be hint named := by
+  rw [appBoolE, translateBoolUncachedWith_appE]
+  show (match appBoolOp? (appBoolE kind dom ae be) with
+    | some (op, a, b) => translateAppBool rec op a b hint named
+    | none => legacy _ hint top named) = _
+  rw [appBoolOp?_appBoolE]
+  rfl
+
+theorem appCompare_shape {ctx inputs we mems initial rec ae be le hint named va vb s t w}
+    (ca : Child rec ctx inputs we mems initial ae "app_arg" va)
+    (cb : Child rec ctx inputs we mems initial be "app_arg" vb)
+    (lookup : Lookup ctx inputs s)
+    (hr : Returns (translateAppCompare rec le ae be hint named) ctx s w t) :
+    Frame s t ∧ s.usedNames.contains w = false := by
+  obtain ⟨a, b, sa, sb, ra, rb, re⟩ := translateAppCompare_returns hr
+  have fa := ca.frame s sa a lookup ra
+  have fb := cb.frame sa sb b (lookup.transfer fa) rb
+  obtain ⟨fe, fresh⟩ := emit_bool_frame (by cases le <;> rfl) re
+  refine ⟨(fa.trans fb).trans fe, ?_⟩
+  cases hu : s.usedNames.contains w
+  · rfl
+  · have := fb.used w (fa.used w hu); simp [fresh] at this
+
+theorem appCompare_fresh {ctx inputs we mems initial rec ae be le hint named n va vb}
+    (x y : BitVec n) (hn : 0 < n)
+    (hva : va.toNat = x.toNat) (hwa : va.kind.width = n)
+    (hvb : vb.toNat = y.toNat) (hwb : vb.kind.width = n)
+    (ca : Child rec ctx inputs we mems initial ae "app_arg" va)
+    (cb : Child rec ctx inputs we mems initial be "app_arg" vb) :
+    FreshAction (translateAppCompare rec le ae be hint named) ctx inputs we mems initial
+      (.bool (compareValue le x y)) := by
+  refine ⟨⟨fun _ _ _ lookup hr => (appCompare_shape ca cb lookup hr).1, ?_⟩,
+    fun _ _ _ lookup hr => (appCompare_shape ca cb lookup hr).2⟩
+  intro s t w prior h widths hr
+  obtain ⟨a, b, sa, sb, ra, rb, re⟩ := translateAppCompare_returns hr
+  have fa := ca.frame s sa a (Lookup.ofInputs h.inputs) ra
+  have fb := cb.frame sa sb b ((Lookup.ofInputs h.inputs).transfer fa) rb
+  have fe := (emit_bool_frame (by cases le <;> rfl) re).1
+  have aout := ca.sem s sa a prior h ((fb.decls.trans fe.decls).widths widths) ra
+  obtain ⟨va', ia, av, af⟩ := aout.execution
+  have bout := cb.sem sa sb b va' ia (fe.decls.widths widths) rb
+  obtain ⟨vb', ib, bv, bf⟩ := bout.execution
+  have wa : we a = n := by rw [aout.width, hwa]
+  have wb : we b = n := by rw [bout.width, hwb]
+  have av2 : vb' a = x.toNat := by rw [(bf a aout.used).trans av, hva]
+  have bv2 : vb' b = y.toNat := by rw [bv, hvb]
+  have step := emit_bool_outcome ib (typed_compare_refs le hn wa wb)
+    (compare_rhs_correct le x y we vb' a b av2 bv2 wa wb) widths re
+  obtain ⟨result, inv, val, frame⟩ := step.execution
+  exact ⟨step.used, step.width, fun z hz => step.grows z (fb.used z (fa.used z hz)),
+    result, inv, val, fun z hz => (frame z (fb.used z (fa.used z hz))).trans
+      ((bf z (fa.used z hz)).trans (af z hz))⟩
+
+theorem appCompare_contract {rec ctx inputs we mems initial dom ae be n le}
+    (x y : BitVec n) (hn : 0 < n)
+    (meaning : Meaning inputs (appCompareE le dom n ae be) (.bool (compareValue le x y)))
+    (ca : Child rec ctx inputs we mems initial ae "app_arg" (.bits n x))
+    (cb : Child rec ctx inputs we mems initial be "app_arg" (.bits n y)) :
+    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial
+      (appCompareE le dom n ae be) (.bool (compareValue le x y)) := by
+  have step : ∀ hint top named, ActionSpec
+      (translateStepWith translateFallback rec (appCompareE le dom n ae be)
+        hint top named) ctx inputs we mems initial (.bool (compareValue le x y)) := by
+    intro hint top named
+    rw [appCompare_step, translateFallback_bool rec _ hint top named
+      (isBoolControl_appCompareE dom ae be n le)]
+    apply cached_action meaning
+    rw [translateBoolUncachedWith_appCompare]
+    exact appCompare_fresh x y hn rfl rfl rfl rfl ca cb
+  exact ⟨fun hint top named => (step hint top named).frame,
+    fun hint top named => (step hint top named).sem⟩
+
+theorem appBool_shape {ctx inputs we mems initial rec ae be kind hint named va vb s t w}
+    (ca : Child rec ctx inputs we mems initial ae "app_arg" va)
+    (cb : Child rec ctx inputs we mems initial be "app_arg" vb)
+    (lookup : Lookup ctx inputs s)
+    (hr : Returns (translateAppBoolBinary rec kind ae be hint named) ctx s w t) :
+    Frame s t ∧ s.usedNames.contains w = false := by
+  obtain ⟨a, b, sa, sb, ra, rb, re⟩ := translateAppBoolBinary_returns hr
+  have fa := ca.frame s sa a lookup ra
+  have fb := cb.frame sa sb b (lookup.transfer fa) rb
+  obtain ⟨fe, fresh⟩ := emit_bool_frame (by cases kind <;> rfl) re
+  refine ⟨(fa.trans fb).trans fe, ?_⟩
+  cases hu : s.usedNames.contains w
+  · rfl
+  · have := fb.used w (fa.used w hu); simp [fresh] at this
+
+theorem appBool_fresh {ctx inputs we mems initial rec ae be kind hint named}
+    (x y : Bool)
+    (ca : Child rec ctx inputs we mems initial ae "app_arg" (.bool x))
+    (cb : Child rec ctx inputs we mems initial be "app_arg" (.bool y)) :
+    FreshAction (translateAppBoolBinary rec kind ae be hint named) ctx inputs we mems initial
+      (.bool (boolBinValue kind x y)) := by
+  refine ⟨⟨fun _ _ _ lookup hr => (appBool_shape ca cb lookup hr).1, ?_⟩,
+    fun _ _ _ lookup hr => (appBool_shape ca cb lookup hr).2⟩
+  intro s t w prior h widths hr
+  obtain ⟨a, b, sa, sb, ra, rb, re⟩ := translateAppBoolBinary_returns hr
+  have fa := ca.frame s sa a (Lookup.ofInputs h.inputs) ra
+  have fb := cb.frame sa sb b ((Lookup.ofInputs h.inputs).transfer fa) rb
+  have fe := (emit_bool_frame (by cases kind <;> rfl) re).1
+  have aout := ca.sem s sa a prior h ((fb.decls.trans fe.decls).widths widths) ra
+  obtain ⟨va', ia, av, af⟩ := aout.execution
+  have bout := cb.sem sa sb b va' ia (fe.decls.widths widths) rb
+  obtain ⟨vb', ib, bv, bf⟩ := bout.execution
+  have step := emit_bool_outcome ib
+    (typed_bool_bin kind a b aout.width bout.width)
+    (bool_bin_rhs kind we vb' a b x y ((bf a aout.used).trans av) bv aout.width bout.width)
+    widths re
+  obtain ⟨result, inv, val, frame⟩ := step.execution
+  exact ⟨step.used, step.width, fun z hz => step.grows z (fb.used z (fa.used z hz)),
+    result, inv, val, fun z hz => (frame z (fb.used z (fa.used z hz))).trans
+      ((bf z (fa.used z hz)).trans (af z hz))⟩
+
+theorem appBool_contract {rec ctx inputs we mems initial dom ae be}
+    (kind : SignalBoolBinKind) (a b : Bool)
+    (meaning : Meaning inputs (appBoolE kind dom ae be) (.bool (boolBinValue kind a b)))
+    (ca : Child rec ctx inputs we mems initial ae "app_arg" (.bool a))
+    (cb : Child rec ctx inputs we mems initial be "app_arg" (.bool b)) :
+    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial
+      (appBoolE kind dom ae be) (.bool (boolBinValue kind a b)) := by
+  have step : ∀ hint top named, ActionSpec
+      (translateStepWith translateFallback rec (appBoolE kind dom ae be) hint top named)
+      ctx inputs we mems initial (.bool (boolBinValue kind a b)) := by
+    intro hint top named
+    rw [appBool_step, translateFallback_bool rec _ hint top named
+      (isBoolControl_appBoolE dom ae be kind)]
+    apply cached_action meaning
+    rw [translateBoolUncachedWith_appBool]
+    exact appBool_fresh a b ca cb
+  exact ⟨fun hint top named => (step hint top named).frame,
+    fun hint top named => (step hint top named).sem⟩
+
+/-! ## Two-level Bool bodies of an applicative lift
+
+`(fun x y => x && !y) <$> a <*> b`, `!x && y` and `!(x || y)`: the operands
+under the applicative hint, the inner application on a wire of its own (hint
+`arg1`/`arg2`, its position in the outer operator), then the result. -/
+
+/-- The value on the inner wire. -/
+def appBool2InnerValue : AppBool2 → Bool → Bool → Bool
+  | .andNot, _, y => !y
+  | .notAnd, x, _ => !x
+  | .nor, x, y => x || y
+
+theorem typed_not1 {we : WEnv} (x : String) (wx : we x = 1) :
+    TypedExpr we (.op .not [.ref x]) 1 := by
+  have step := TypedExpr.not1 (we := we) x (by omega)
+  rwa [wx] at step
+
+theorem not1_rhs (we : WEnv) (env : Env) (x : String) (b : Bool)
+    (hx : env x = encodeBool b) (wx : we x = 1) :
+    evalExpr we env (.op .not [.ref x]) = some (encodeBool (!b)) := by
+  cases b <;> simp [evalExpr, evalList, evalOp, widthOf, hx, wx, encodeBool, mask]
+
+theorem appBool2Inner_simple (f : AppBool2) (a b : String) :
+    Sparkle.IR.OptCheck.simpleRhs (appBool2Inner f a b) = true := by cases f <;> rfl
+
+theorem appBool2Outer_simple (f : AppBool2) (a b n : String) :
+    Sparkle.IR.OptCheck.simpleRhs (appBool2Outer f a b n) = true := by cases f <;> rfl
+
+theorem appBool2Inner_typed {we : WEnv} (f : AppBool2) (a b : String)
+    (wa : we a = 1) (wb : we b = 1) : TypedExpr we (appBool2Inner f a b) 1 := by
+  cases f
+  · exact typed_not1 b wb
+  · exact typed_not1 a wa
+  · exact typed_bool_bin .bor a b wa wb
+
+theorem appBool2Inner_eval (f : AppBool2) (we : WEnv) (env : Env) (a b : String) (x y : Bool)
+    (ha : env a = encodeBool x) (hb : env b = encodeBool y) (wa : we a = 1) (wb : we b = 1) :
+    evalExpr we env (appBool2Inner f a b) = some (encodeBool (appBool2InnerValue f x y)) := by
+  cases f
+  · exact not1_rhs we env b y hb wb
+  · exact not1_rhs we env a x ha wa
+  · exact bool_bin_rhs .bor we env a b x y ha hb wa wb
+
+theorem appBool2Outer_typed {we : WEnv} (f : AppBool2) (a b n : String)
+    (wa : we a = 1) (wb : we b = 1) (wn : we n = 1) :
+    TypedExpr we (appBool2Outer f a b n) 1 := by
+  cases f
+  · exact typed_bool_bin .band a n wa wn
+  · exact typed_bool_bin .band n b wn wb
+  · exact typed_not1 n wn
+
+theorem appBool2Outer_eval (f : AppBool2) (we : WEnv) (env : Env) (a b n : String) (x y : Bool)
+    (ha : env a = encodeBool x) (hb : env b = encodeBool y)
+    (hn : env n = encodeBool (appBool2InnerValue f x y))
+    (wa : we a = 1) (wb : we b = 1) (wn : we n = 1) :
+    evalExpr we env (appBool2Outer f a b n) = some (encodeBool (appBool2Value f x y)) := by
+  cases f
+  · exact bool_bin_rhs .band we env a n x (!y) ha hn wa wn
+  · exact bool_bin_rhs .band we env n b (!x) y hn hb wn wb
+  · exact not1_rhs we env n (x || y) hn wn
+
+theorem translateAppBool2_returns {rec : TranslateFn} {f : AppBool2} {a b : Lean.Expr}
+    {hint w : String} {named : Bool} {ctx : CompilerState} {s t : CircuitState}
+    (h : Returns (translateAppBool2 rec f a b hint named) ctx s w t) :
+    ∃ aw bw n sa sb sn, Returns (rec a "app_arg" false false) ctx s aw sa ∧
+      Returns (rec b "app_arg" false false) ctx sa bw sb ∧
+      Returns (emitBoolResult (appBool2Inner f aw bw) (appBool2Hint f) false) ctx sb n sn ∧
+      Returns (emitBoolResult (appBool2Outer f aw bw n) hint named) ctx sn w t := by
+  unfold translateAppBool2 at h
+  obtain ⟨aw, sa, ha, h⟩ := Returns.bind h
+  obtain ⟨bw, sb, hb, h⟩ := Returns.bind h
+  obtain ⟨n, sn, hn, he⟩ := Returns.bind h
+  exact ⟨aw, bw, n, sa, sb, sn, ha, hb, hn, he⟩
+
+theorem translateBoolUncachedWith_appBool2 (rec legacy : TranslateFn) (f : AppBool2)
+    (dom ae be : Lean.Expr) (hint : String) (top named : Bool) :
+    translateBoolUncachedWith rec legacy (appBool2E f dom ae be) hint top named =
+      translateAppBool2 rec f ae be hint named := by
+  rw [appBool2E, translateBoolUncachedWith_appE]
+  show (match appBoolOp? (appBool2E f dom ae be) with
+    | some (op, a, b) => translateAppBool rec op a b hint named
+    | none => legacy _ hint top named) = _
+  rw [appBoolOp?_appBool2E]
+  rfl
+
+theorem appBool2_step (rec : TranslateFn) (f : AppBool2) (dom ae be : Lean.Expr)
+    (hint : String) (top named : Bool) :
+    translateStepWith translateFallback rec (appBool2E f dom ae be) hint top named =
+      translateFallback rec (appBool2E f dom ae be) hint top named :=
+  appE_step rec dom _ _ ae be hint top named
+
+theorem isBoolControl_appBool2E (dom ae be : Lean.Expr) (f : AppBool2) :
+    isBoolControl (appBool2E f dom ae be) = true := by
+  rw [appBool2E, isBoolControl_appE]
+  show ((appBoolOp? (appBool2E f dom ae be)).isSome || _) = true
+  rw [appBoolOp?_appBool2E]
+  rfl
+
+theorem appBool2_shape {ctx inputs we mems initial rec ae be f hint named va vb s t w}
+    (ca : Child rec ctx inputs we mems initial ae "app_arg" va)
+    (cb : Child rec ctx inputs we mems initial be "app_arg" vb)
+    (lookup : Lookup ctx inputs s)
+    (hr : Returns (translateAppBool2 rec f ae be hint named) ctx s w t) :
+    Frame s t ∧ s.usedNames.contains w = false := by
+  obtain ⟨a, b, n, sa, sb, sn, ra, rb, rn, re⟩ := translateAppBool2_returns hr
+  have fa := ca.frame s sa a lookup ra
+  have fb := cb.frame sa sb b (lookup.transfer fa) rb
+  have fn := (emit_bool_frame (appBool2Inner_simple f a b) rn).1
+  obtain ⟨fe, fresh⟩ := emit_bool_frame (appBool2Outer_simple f a b n) re
+  refine ⟨((fa.trans fb).trans fn).trans fe, ?_⟩
+  cases hu : s.usedNames.contains w
+  · rfl
+  · have := fn.used w (fb.used w (fa.used w hu)); simp [fresh] at this
+
+theorem appBool2_fresh {ctx inputs we mems initial rec ae be f hint named}
+    (x y : Bool)
+    (ca : Child rec ctx inputs we mems initial ae "app_arg" (.bool x))
+    (cb : Child rec ctx inputs we mems initial be "app_arg" (.bool y)) :
+    FreshAction (translateAppBool2 rec f ae be hint named) ctx inputs we mems initial
+      (.bool (appBool2Value f x y)) := by
+  refine ⟨⟨fun _ _ _ lookup hr => (appBool2_shape ca cb lookup hr).1, ?_⟩,
+    fun _ _ _ lookup hr => (appBool2_shape ca cb lookup hr).2⟩
+  intro s t w prior h widths hr
+  obtain ⟨a, b, n, sa, sb, sn, ra, rb, rn, re⟩ := translateAppBool2_returns hr
+  have fa := ca.frame s sa a (Lookup.ofInputs h.inputs) ra
+  have fb := cb.frame sa sb b ((Lookup.ofInputs h.inputs).transfer fa) rb
+  have fn := (emit_bool_frame (appBool2Inner_simple f a b) rn).1
+  have fe := (emit_bool_frame (appBool2Outer_simple f a b n) re).1
+  have aout := ca.sem s sa a prior h ((fb.decls.trans (fn.decls.trans fe.decls)).widths widths) ra
+  obtain ⟨va', ia, av, af⟩ := aout.execution
+  have bout := cb.sem sa sb b va' ia ((fn.decls.trans fe.decls).widths widths) rb
+  obtain ⟨vb', ib, bv, bf⟩ := bout.execution
+  have av' : vb' a = encodeBool x := (bf a aout.used).trans av
+  have nout := emit_bool_outcome ib
+    (appBool2Inner_typed f a b aout.width bout.width)
+    (appBool2Inner_eval f we vb' a b x y av' bv aout.width bout.width)
+    (fe.decls.widths widths) rn
+  obtain ⟨vn, inn, nv, nf⟩ := nout.execution
+  have step := emit_bool_outcome inn
+    (appBool2Outer_typed f a b n aout.width bout.width nout.width)
+    (appBool2Outer_eval f we vn a b n x y ((nf a (fb.used a aout.used)).trans av')
+      ((nf b bout.used).trans bv) nv aout.width bout.width nout.width)
+    widths re
+  obtain ⟨result, inv, val, frame⟩ := step.execution
+  exact ⟨step.used, step.width,
+    fun z hz => step.grows z (fn.used z (fb.used z (fa.used z hz))),
+    result, inv, val, fun z hz => (frame z (fn.used z (fb.used z (fa.used z hz)))).trans
+      ((nf z (fb.used z (fa.used z hz))).trans ((bf z (fa.used z hz)).trans (af z hz)))⟩
+
+theorem appBool2_contract {rec ctx inputs we mems initial dom ae be}
+    (f : AppBool2) (a b : Bool)
+    (meaning : Meaning inputs (appBool2E f dom ae be) (.bool (appBool2Value f a b)))
+    (ca : Child rec ctx inputs we mems initial ae "app_arg" (.bool a))
+    (cb : Child rec ctx inputs we mems initial be "app_arg" (.bool b)) :
+    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial
+      (appBool2E f dom ae be) (.bool (appBool2Value f a b)) := by
+  have step : ∀ hint top named, ActionSpec
+      (translateStepWith translateFallback rec (appBool2E f dom ae be) hint top named)
+      ctx inputs we mems initial (.bool (appBool2Value f a b)) := by
+    intro hint top named
+    rw [appBool2_step, translateFallback_bool rec _ hint top named
+      (isBoolControl_appBool2E dom ae be f)]
+    apply cached_action meaning
+    rw [translateBoolUncachedWith_appBool2]
+    exact appBool2_fresh a b ca cb
+  exact ⟨fun hint top named => (step hint top named).frame,
+    fun hint top named => (step hint top named).sem⟩
+
+/-- Closed fuel induction for the unified mutually recursive source domain
+with per-operation widths, over ARBITRARY leaf expressions: every leaf comes
+with its own contract at every fuel (an input binder, or an instance call). Mux nodes may sit under arithmetic and comparison
+parents and vice versa; widths vary across subtrees. -/
+theorem fuel_contract_leaves (fuel : Nat) {ctx : CompilerState}
+    {inputs : FVarId → Option Value}
+    {we : WEnv} {mems : MEnv} {initial : Env} {dom : Lean.Expr} {kb kv : Nat} {vw : Nat → Nat}
+    {bE vE : Nat → Lean.Expr} {bools : Nat → Bool} {bits : (j : Nat) → (w : Nat) → BitVec w}
+    (hb : ∀ j, j < kb → Meaning inputs (bE j) (.bool (bools j)))
+    (hv : ∀ j, j < kv → Meaning inputs (vE j) (.bits (vw j) (bits j (vw j))))
+    (hbC : ∀ j, j < kb → ∀ fuel, Contract (translateFuelFix translateStep fuel) ctx inputs
+      we mems initial (bE j) (.bool (bools j)))
+    (hvC : ∀ j, j < kv → ∀ fuel, Contract (translateFuelFix translateStep fuel) ctx inputs
+      we mems initial (vE j) (.bits (vw j) (bits j (vw j)))) :
+    ∀ {s : SType} (e : Term s), e.WF kb kv vw →
+      Contract (translateFuelFix translateStep fuel) ctx inputs we mems initial
+        (quote dom bE vE e)
+        (pack s (eval bools bits e)) := by
+  induction fuel with
+  | zero =>
+    intro s e he
+    constructor
+    · intro hint top named s' t w lookup hr; exact (Returns.throw hr).elim
+    · intro hint top named s' t w prior h widths hr; exact (Returns.throw hr).elim
+  | succ fuel ih =>
+    intro s e he
+    change Contract (translateStepWith translateFallback (translateFuelFix translateStep fuel)) _ _ _ _ _ _ _
+    cases e with
+    | boolInput j => exact hbC j he (fuel + 1)
+    | bitsInput w j =>
+      obtain ⟨hj, hw, hpos⟩ := he
+      cases hw
+      exact hvC j hj (fuel + 1)
+    | boolLit b => exact bool_literal_contract b
+    | bitsLit w v =>
+      obtain ⟨hval, hpos⟩ := he
+      exact bits_literal_contract hpos hval
+    | bitsNum w v =>
+      obtain ⟨hval, hpos⟩ := he
+      exact num_literal_contract hpos hval
+    | binary op a b =>
+      rename_i w
+      obtain ⟨ha, hb'⟩ := he
+      have hn : 0 < w := a.wf_pos ha
+      have ck := op_checks op dom (quote dom bE vE a)
+        (quote dom bE vE b) w
+      have ca : Child (translateFuelFix translateStep fuel) ctx inputs we mems initial
+          ((binE dom w op (quote dom bE vE a)
+            (quote dom bE vE b)).getAppArgs[(binE dom w op (quote dom bE vE a)
+            (quote dom bE vE b)).getAppArgs.size - 2]!)
+          "op_a" (.bits w (eval bools bits a)) := by
+        rw [ck.2.2.2.2.1]; exact (ih a ha).child "op_a"
+      have cb : Child (translateFuelFix translateStep fuel) ctx inputs we mems initial
+          ((binE dom w op (quote dom bE vE a)
+            (quote dom bE vE b)).getAppArgs[(binE dom w op (quote dom bE vE a)
+            (quote dom bE vE b)).getAppArgs.size - 1]!)
+          "op_b" (.bits w (eval bools bits b)) := by
+        rw [ck.2.2.2.2.2.1]; exact (ih b hb').child "op_b"
+      exact binary_contract op _ _ hn ck.1 ck.2.1 ck.2.2.1 ck.2.2.2.1
+        (meaning_quote_leaves hb hv (.binary op a b) ⟨ha, hb'⟩) ca cb
+    | compare op a b =>
+      rename_i w
+      obtain ⟨ha, hb'⟩ := he
+      exact compare_contract _ _ (a.wf_pos ha)
+        (meaning_quote_leaves hb hv (.compare op a b) ⟨ha, hb'⟩)
+        ((ih a ha).child "a") ((ih b hb').child "b")
+    | boolBinary op a b =>
+      obtain ⟨ha, hb'⟩ := he
+      exact boolBin_contract op _ _ (meaning_quote_leaves hb hv (.boolBinary op a b) ⟨ha, hb'⟩)
+        ((ih a ha).child "a") ((ih b hb').child "b")
+    | boolNot a =>
+      exact boolNot_contract _ (meaning_quote_leaves hb hv (.boolNot a) he)
+        ((ih a he).child "a") ((ih (.boolLit false) trivial).child "b")
+    | boolEq a b =>
+      obtain ⟨ha, hb'⟩ := he
+      exact boolEq_contract _ _ (meaning_quote_leaves hb hv (.boolEq a b) ⟨ha, hb'⟩)
+        ((ih a ha).child "a") ((ih b hb').child "b")
+    | mux c a b =>
+      obtain ⟨hc, ha, hb'⟩ := he
+      cases s with
+      | bool =>
+        exact mux_contract _ _ _ (meaning_quote_leaves hb hv (.mux c a b) ⟨hc, ha, hb'⟩)
+          ((ih c hc).child "mux_cond") ((ih a ha).child "mux_then") ((ih b hb').child "mux_else")
+      | bits w =>
+        exact vector_contract _ _ _ (a.wf_pos ha)
+          (meaning_quote_leaves hb hv (.mux c a b) ⟨hc, ha, hb'⟩)
+          ((ih c hc).child "mux_cond") ((ih a ha).child "mux_then") ((ih b hb').child "mux_else")
+    | setw w' a =>
+      obtain ⟨ha, hpos⟩ := he
+      exact setw_contract (a.wf_pos ha) hpos
+        (meaning_quote_leaves hb hv (.setw w' a) ⟨ha, hpos⟩) ((ih a ha).child "s")
+    | appCompare op a b =>
+      rename_i w
+      obtain ⟨ha, hb'⟩ := he
+      exact appCompare_contract _ _ (a.wf_pos ha)
+        (meaning_quote_leaves hb hv (.appCompare op a b) ⟨ha, hb'⟩)
+        ((ih a ha).child "app_arg") ((ih b hb').child "app_arg")
+    | appBool op a b =>
+      obtain ⟨ha, hb'⟩ := he
+      exact appBool_contract op _ _ (meaning_quote_leaves hb hv (.appBool op a b) ⟨ha, hb'⟩)
+        ((ih a ha).child "app_arg") ((ih b hb').child "app_arg")
+    | appBool2 f a b =>
+      obtain ⟨ha, hb'⟩ := he
+      exact appBool2_contract f _ _ (meaning_quote_leaves hb hv (.appBool2 f a b) ⟨ha, hb'⟩)
+        ((ih a ha).child "app_arg") ((ih b hb').child "app_arg")
+    | slice nm start len a =>
+      obtain ⟨ha, hlen, hr⟩ := he
+      exact slice_contract hlen hr
+        (meaning_quote_leaves hb hv (.slice nm start len a) ⟨ha, hlen, hr⟩) ((ih a ha).child "s")
+    | concat a b =>
+      have hab := he
+      obtain ⟨ha, hb'⟩ := he
+      exact concat_contract (a.wf_pos ha) (b.wf_pos hb')
+        (meaning_quote_leaves hb hv (.concat a b) hab)
+        ((ih a ha).child "concat_hi") ((ih b hb').child "concat_lo")
+    | concatLitHi k v b =>
+      have hall := he
+      obtain ⟨hb', hk, hlt⟩ := he
+      exact concatLitHi_contract hk hlt (b.wf_pos hb')
+        (meaning_quote_leaves hb hv (.concatLitHi k v b) hall) ((ih b hb').child "concat_lo")
+    | concatLitLo a k v =>
+      have hall := he
+      obtain ⟨ha, hk, hlt⟩ := he
+      exact concatLitLo_contract hk hlt (a.wf_pos ha)
+        (meaning_quote_leaves hb hv (.concatLitLo a k v) hall) ((ih a ha).child "concat_hi")
+    | zextMap nm k a =>
+      have hall := he
+      obtain ⟨ha, hk⟩ := he
+      exact zextMap_contract hk (a.wf_pos ha)
+        (meaning_quote_leaves hb hv (.zextMap nm k a) hall) ((ih a ha).child "s")
+    | sliceF nm start len a =>
+      obtain ⟨ha, hlen, hr⟩ := he
+      exact sliceF_contract hlen hr
+        (meaning_quote_leaves hb hv (.sliceF nm start len a) ⟨ha, hlen, hr⟩)
+        ((ih a ha).child "a")
+
+/-- An input binder satisfies its leaf contract at every fuel. -/
+theorem input_contract_fuel {ctx inputs we mems initial id v} (hi : inputs id = some v) :
+    ∀ fuel, Contract (translateFuelFix translateStep fuel) ctx inputs we mems initial
+      (.fvar id) v
+  | 0 => by
+    constructor
+    · intro hint top named s' t w lookup hr; exact (Returns.throw hr).elim
+    · intro hint top named s' t w prior h widths hr; exact (Returns.throw hr).elim
+  | fuel + 1 => by
+    change Contract (translateStepWith translateFallback (translateFuelFix translateStep fuel))
+      _ _ _ _ _ _ _
+    exact input_contract hi
+
+/-- The input-binder instance of the fuel induction. -/
+theorem fuel_contract (fuel : Nat) {ctx : CompilerState} {inputs : FVarId → Option Value}
+    {we : WEnv} {mems : MEnv} {initial : Env} {dom : Lean.Expr} {kb kv : Nat} {vw : Nat → Nat}
+    {bi vi : Nat → FVarId} {bools : Nat → Bool} {bits : (j : Nat) → (w : Nat) → BitVec w}
+    (hb : ∀ j, j < kb → inputs (bi j) = some (.bool (bools j)))
+    (hv : ∀ j, j < kv → inputs (vi j) = some (.bits (vw j) (bits j (vw j)))) :
+    ∀ {s : SType} (e : Term s), e.WF kb kv vw →
+      Contract (translateFuelFix translateStep fuel) ctx inputs we mems initial
+        (quote dom (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) e)
+        (pack s (eval bools bits e)) :=
+  fuel_contract_leaves fuel
+    (fun j hj => .input rfl (hb j hj)) (fun j hj => .input rfl (hv j hj))
+    (fun j hj => input_contract_fuel (hb j hj))
+    (fun j hj => input_contract_fuel (hv j hj))
+
+/-- Shipping translation needs no recursive-child premise for the unified
+quoted fragment. Entry invariants and final widths remain explicit. -/
+theorem translateExprToWire_contract {ctx : CompilerState} {inputs : FVarId → Option Value}
+    {we : WEnv} {mems : MEnv} {initial : Env} {dom : Lean.Expr} {kb kv : Nat} {vw : Nat → Nat}
+    {bi vi : Nat → FVarId} {bools : Nat → Bool} {bits : (j : Nat) → (w : Nat) → BitVec w}
+    (hb : ∀ j, j < kb → inputs (bi j) = some (.bool (bools j)))
+    (hv : ∀ j, j < kv → inputs (vi j) = some (.bits (vw j) (bits j (vw j))))
+    {s : SType} (e : Term s) (he : e.WF kb kv vw) :
+    Contract (fun e hint top named => translateExprToWire e hint top named) ctx inputs we mems initial
+      (quote dom (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) e)
+      (pack s (eval bools bits e)) :=
+  fuel_contract translateFuelLimit hb hv e he
+
+end Tools.ShippingUnifiedRecursion

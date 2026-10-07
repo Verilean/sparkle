@@ -52,6 +52,8 @@ extern_lib «sparkle_jit» pkg := do
 -- A missing entry shows up as an undefined-symbol load error naming the module.
 def sparkleModuleDeps : Array String := #[
     "-l:sparkle_Sparkle_Backend_CSim.so",
+    "-l:sparkle_Sparkle_Backend_CudaIntra.so",
+    "-l:sparkle_Sparkle_Backend_CudaSim.so",
     "-l:sparkle_Sparkle_Backend_VCD.so",
     "-l:sparkle_Sparkle_Backend_Verilog.so",
     "-l:sparkle_Sparkle_Compiler_DRC.so",
@@ -84,8 +86,14 @@ def sparkleModuleDeps : Array String := #[
     "-l:sparkle_Sparkle_Display_Synthesise.so",
     "-l:sparkle_Sparkle_IR_AST.so",
     "-l:sparkle_Sparkle_IR_Builder.so",
+    "-l:sparkle_Sparkle_IR_FreshNames.so",
     "-l:sparkle_Sparkle_IR_Optimize.so",
+    "-l:sparkle_Sparkle_IR_ReorderInvariance.so",
+    "-l:sparkle_Sparkle_IR_Semantics.so",
+    "-l:sparkle_Sparkle_IR_Specialize.so",
     "-l:sparkle_Sparkle_IR_Type.so",
+    "-l:sparkle_Sparkle_IR_ZeroWidth.so",
+    "-l:sparkle_Sparkle_IR_RegDedup.so",
     "-l:sparkle_Sparkle.so",
     "-l:sparkle_Sparkle_Utils_HexLoader.so",
     "-l:sparkle_Sparkle_Verification_Equivalence.so",
@@ -104,6 +112,28 @@ def sparkleModuleDeps : Array String := #[
 -- below: on macOS/Windows fall back to Lake's default linking (empty extra
 -- args), which is also all the IP libs need there since the editor force-load
 -- path that triggers the bug is the Linux interpreter/LSP.
+-- SVParser's `:shared` dynlib is linked by a HARD `cc`/`ld` step
+-- (a native dep of `verilog!` consumers like CounterProps), unlike the
+-- IP libs whose monolithic is only ever `--load-dynlib`-ed by the
+-- interpreter.  A hard link cannot tolerate `-l:` naming a file Lake
+-- never produces, so this variant (a) drops the two phantom entries
+-- from `sparkleModuleDeps` — `sparkle_Sparkle.so` (the root is only
+-- ever the aggregate `libsparkle_Sparkle.so`) and
+-- `..._Verification_LoopProps.so` (not built by default) — and (b)
+-- links the aggregate by name for the root module's initializer
+-- symbols.
+def sparkleSVParserLinkArgs : Array String :=
+  if System.Platform.isOSX || System.Platform.isWindows then
+    #[]
+  else
+    #["-L", "./.lake/build/lib/lean", "-L", "./.lake/build/lib",
+      "-Wl,--no-as-needed"]
+      ++ (sparkleModuleDeps.filter fun a =>
+           a != "-l:sparkle_Sparkle.so"
+           && a != "-l:sparkle_Sparkle_Verification_LoopProps.so")
+      ++ #["-l:libsparkle_Sparkle.so",
+           "-Wl,--as-needed", "-Wl,-rpath,$ORIGIN/lean", "-Wl,-rpath,$ORIGIN"]
+
 def sparkleDynlibLinkArgs : Array String :=
   if System.Platform.isOSX || System.Platform.isWindows then
     #[]
@@ -247,6 +277,387 @@ lean_lib «IP.Control» where
 
 lean_lib «Tools.SVParser» where
   roots := #[`Tools.SVParser]
+  -- The `«Tools.SVParser»:shared` dynlib is a required native dep of
+  -- consumers whose `verilog!` macro imports Tools.SVParser.Macro
+  -- (e.g. Sparkle.Verification.CounterProps).  Since this branch's
+  -- umbrella pulls in RoundtripProof→EmitSem, that .so's object code
+  -- references Sparkle.IR.{Optimize,Semantics,…} symbols, which must
+  -- be recorded NEEDED against the per-module Sparkle dynlibs — same
+  -- as the IP libs.  (Kept minimal: RoundtripProof was ALSO removed
+  -- from the Tools.SVParser umbrella, but Lower→Optimize alone still
+  -- pulls Optimize specializations, so the link args are required.)
+  -- Uses the SVParser-specific variant that survives a HARD link
+  -- (the IP libs' args name two files Lake never builds, tolerated
+  -- only by the interpreter's soft load).
+  moreLinkArgs := sparkleSVParserLinkArgs
+
+-- `#verify_elab` — the Signal↔IR link (see Tools/VerifyElab.lean)
+lean_lib «Tools.VerifyElab» where
+  roots := #[`Tools.VerifyElab]
+
+-- The GENERAL Signal↔IR theorem over the deep circuit grammar
+lean_lib «Tools.ConcatNorm» where
+  roots := #[`Tools.ConcatNorm]
+
+lean_lib «Tools.ConeFold» where
+  roots := #[`Tools.ConeFold]
+
+lean_lib «Tools.ConeFoldSlices» where
+  roots := #[`Tools.ConeFoldSlices]
+
+lean_lib «Tools.ConeFoldProbes» where
+  roots := #[`Tools.ConeFoldProbes]
+
+lean_lib «Tools.ConeFoldOpt» where
+  roots := #[`Tools.ConeFoldOpt]
+
+lean_lib «Tools.ConeFoldMem» where
+  roots := #[`Tools.ConeFoldMem]
+
+lean_lib «Tools.ConeFoldRT» where
+  roots := #[`Tools.ConeFoldRT]
+
+lean_lib «Tools.DeepElab» where
+  roots := #[`Tools.DeepElab]
+
+lean_lib «Tools.CertifiedRoundtrip» where
+  roots := #[`Tools.CertifiedRoundtrip]
+
+lean_lib «Tools.CertifyShared» where
+  roots := #[`Tools.CertifyShared]
+
+lean_lib «Tools.VerifiedBlock» where
+  roots := #[`Tools.VerifiedBlock]
+
+lean_lib «Tools.VerifiedState» where
+  roots := #[`Tools.VerifiedState]
+
+lean_lib «Tools.VerifiedCircuit» where
+  roots := #[`Tools.VerifiedCircuit]
+
+lean_lib «Tools.VerifiedSource» where
+  roots := #[`Tools.VerifiedSource]
+
+lean_lib «Tools.ReflectSource» where
+  roots := #[`Tools.ReflectSource]
+
+lean_lib «Tools.ApplicativeLowering» where
+  roots := #[`Tools.ApplicativeLowering]
+
+lean_lib «Tools.ShippingBuilderSoundness» where
+  roots := #[`Tools.ShippingBuilderSoundness]
+
+lean_lib «Tools.ShippingScalarSoundness» where
+  roots := #[`Tools.ShippingScalarSoundness]
+
+lean_lib «Tools.ShippingAllocationSoundness» where
+  roots := #[`Tools.ShippingAllocationSoundness]
+
+lean_lib «Tools.ShippingBindingsSoundness» where
+  roots := #[`Tools.ShippingBindingsSoundness]
+
+lean_lib «Tools.ShippingCacheSoundness» where
+  roots := #[`Tools.ShippingCacheSoundness]
+
+lean_lib «Tools.ShippingTranslateSoundness» where
+  roots := #[`Tools.ShippingTranslateSoundness]
+
+lean_lib «Tools.ShippingEntrySoundness» where
+  roots := #[`Tools.ShippingEntrySoundness]
+
+lean_lib «Tools.ShippingOptSoundness» where
+  roots := #[`Tools.ShippingOptSoundness]
+
+lean_lib «Tools.ShippingPrintSoundness» where
+  roots := #[`Tools.ShippingPrintSoundness]
+
+lean_lib «Tools.ShippingModulePrintSoundness» where
+  roots := #[`Tools.ShippingModulePrintSoundness]
+
+lean_lib «Tools.ShippingPrintEntrySoundness» where
+  roots := #[`Tools.ShippingPrintEntrySoundness]
+
+lean_lib «Tools.ShippingSVBridge» where
+  roots := #[`Tools.ShippingSVBridge]
+
+lean_lib «Tools.ShippingPendingSoundness» where
+  roots := #[`Tools.ShippingPendingSoundness]
+
+lean_lib «Tools.ShippingAssignmentOrder» where
+  roots := #[`Tools.ShippingAssignmentOrder]
+
+lean_lib «Tools.ShippingTranslationOrder» where
+  roots := #[`Tools.ShippingTranslationOrder]
+
+lean_lib «Tools.ShippingSyntaxSoundness» where
+  roots := #[`Tools.ShippingSyntaxSoundness]
+
+lean_lib «Tools.ShippingMuxLoweringSoundness» where
+  roots := #[`Tools.ShippingMuxLoweringSoundness]
+
+lean_lib «Tools.ShippingMuxRecursionSoundness» where
+  roots := #[`Tools.ShippingMuxRecursionSoundness]
+
+lean_lib «Tools.ShippingMuxTypeSoundness» where
+  roots := #[`Tools.ShippingMuxTypeSoundness]
+
+lean_lib «Tools.ShippingBoolSourceSoundness» where
+  roots := #[`Tools.ShippingBoolSourceSoundness]
+
+lean_lib «Tools.ShippingCompareLoweringSoundness» where
+  roots := #[`Tools.ShippingCompareLoweringSoundness]
+
+lean_lib «Tools.ShippingBoolLiteralSoundness» where
+  roots := #[`Tools.ShippingBoolLiteralSoundness]
+
+lean_lib «Tools.ShippingBoolMuxSoundness» where
+  roots := #[`Tools.ShippingBoolMuxSoundness]
+
+lean_lib «Tools.ShippingMixedInvariant» where
+  roots := #[`Tools.ShippingMixedInvariant]
+
+lean_lib «Tools.ShippingMixedLiteralSoundness» where
+  roots := #[`Tools.ShippingMixedLiteralSoundness]
+
+lean_lib «Tools.ShippingMixedBinarySoundness» where
+  roots := #[`Tools.ShippingMixedBinarySoundness]
+
+lean_lib «Tools.ShippingMixedRecursion» where
+  roots := #[`Tools.ShippingMixedRecursion]
+
+lean_lib «Tools.ShippingContractEntrySoundness» where
+  roots := #[`Tools.ShippingContractEntrySoundness]
+
+lean_lib «Tools.ShippingUnifiedRecursion» where
+  roots := #[`Tools.ShippingUnifiedRecursion]
+
+lean_lib «Tools.ShippingUnifiedProtection» where
+  roots := #[`Tools.ShippingUnifiedProtection]
+
+lean_lib «Tools.ShippingUnifiedEntrySoundness» where
+  roots := #[`Tools.ShippingUnifiedEntrySoundness]
+
+lean_lib «Tools.ShippingUnifiedExecutionSoundness» where
+  roots := #[`Tools.ShippingUnifiedExecutionSoundness]
+
+lean_lib «Tools.ShippingSeqOptSoundness» where
+  roots := #[`Tools.ShippingSeqOptSoundness]
+
+lean_lib «Tools.ShippingSeqSVSoundness» where
+  roots := #[`Tools.ShippingSeqSVSoundness]
+
+lean_lib «Tools.ShippingMemorySoundness» where
+  roots := #[`Tools.ShippingMemorySoundness]
+
+lean_lib «Tools.ShippingMemoryEntrySoundness» where
+  roots := #[`Tools.ShippingMemoryEntrySoundness]
+
+lean_lib «Tools.ShippingHierarchySoundness» where
+  roots := #[`Tools.ShippingHierarchySoundness]
+
+lean_lib «Tools.ShippingHierOpen» where
+  roots := #[`Tools.ShippingHierOpen]
+
+lean_lib «Tools.ShippingHierSVSoundness» where
+  roots := #[`Tools.ShippingHierSVSoundness]
+
+lean_lib «Tools.ShippingHierOptSoundness» where
+  roots := #[`Tools.ShippingHierOptSoundness]
+
+lean_lib «Tools.ShippingLinkCtx» where
+  roots := #[`Tools.ShippingLinkCtx]
+
+lean_lib «Tools.ShippingInstanceEntrySoundness» where
+  roots := #[`Tools.ShippingInstanceEntrySoundness]
+
+lean_lib «Tools.ShippingInstanceLeaf» where
+  roots := #[`Tools.ShippingInstanceLeaf]
+
+lean_lib «Tools.ShippingHierTermSoundness» where
+  roots := #[`Tools.ShippingHierTermSoundness]
+
+lean_lib «Tools.ShippingCoreSoundness» where
+  roots := #[`Tools.ShippingCoreSoundness]
+
+lean_lib «Tools.ShippingInlineSoundness» where
+  roots := #[`Tools.ShippingInlineSoundness]
+
+lean_lib «Tools.ShippingMachineSource» where
+  roots := #[`Tools.ShippingMachineSource]
+
+lean_lib «Tools.ShippingMachineTrace» where
+  roots := #[`Tools.ShippingMachineTrace]
+
+lean_lib «Tools.ShippingMachineClose» where
+  roots := #[`Tools.ShippingMachineClose]
+
+lean_lib «Tools.ShippingMachineInst» where
+  roots := #[`Tools.ShippingMachineInst]
+
+lean_lib «Tools.ShippingMachineEntry» where
+  roots := #[`Tools.ShippingMachineEntry]
+
+lean_lib «Tools.ShippingMachineRef» where
+  roots := #[`Tools.ShippingMachineRef]
+
+lean_lib «Tools.ShippingMachineDenote» where
+  roots := #[`Tools.ShippingMachineDenote]
+
+lean_lib «Tools.ShippingMachineAuto» where
+  roots := #[`Tools.ShippingMachineAuto]
+
+lean_lib «Tools.ShippingMachineFuse» where
+  roots := #[`Tools.ShippingMachineFuse]
+
+lean_lib «Tools.ShippingMachineNest» where
+  roots := #[`Tools.ShippingMachineNest]
+
+lean_lib «Tools.ShippingMachineCausal» where
+  roots := #[`Tools.ShippingMachineCausal]
+
+lean_lib «Tools.ShippingMachineCausalCtx» where
+  roots := #[`Tools.ShippingMachineCausalCtx]
+
+lean_lib «Tools.ShippingMachineMemCausal» where
+  roots := #[`Tools.ShippingMachineMemCausal]
+
+lean_lib «Tools.ShippingLoopFusion» where
+  roots := #[`Tools.ShippingLoopFusion]
+
+lean_lib «Tools.ShippingMachineFuseGen» where
+  roots := #[`Tools.ShippingMachineFuseGen]
+
+lean_lib «Tools.ShippingGateChild» where
+  roots := #[`Tools.ShippingGateChild]
+
+lean_lib «Tools.ShippingGateChildCommand» where
+  roots := #[`Tools.ShippingGateChildCommand]
+
+lean_lib «Tools.ShippingSignOps» where
+  roots := #[`Tools.ShippingSignOps]
+
+lean_lib «Tools.ShippingMachineTele» where
+  roots := #[`Tools.ShippingMachineTele]
+
+lean_lib «Tools.ShippingMachineTeleNest» where
+  roots := #[`Tools.ShippingMachineTeleNest]
+
+lean_lib «Tools.ShippingMachineLoop» where
+  roots := #[`Tools.ShippingMachineLoop]
+
+lean_lib «Tools.ShippingMachineLinked» where
+  roots := #[`Tools.ShippingMachineLinked]
+
+lean_lib «Tools.ShippingMachineCompose» where
+  roots := #[`Tools.ShippingMachineCompose]
+
+lean_lib «Tools.ShippingMachineChild» where
+  roots := #[`Tools.ShippingMachineChild]
+
+lean_lib «Tools.ShippingMachineLinkedCommand» where
+  roots := #[`Tools.ShippingMachineLinkedCommand]
+
+lean_lib «Tools.ShippingMachineCommand» where
+  roots := #[`Tools.ShippingMachineCommand]
+
+lean_lib «Tools.ShippingPipelineSoundness» where
+  roots := #[`Tools.ShippingPipelineSoundness]
+
+lean_lib «Tools.ShippingRefineSoundness» where
+  roots := #[`Tools.ShippingRefineSoundness]
+
+lean_lib «Tools.ShippingMachineShipping» where
+  roots := #[`Tools.ShippingMachineShipping]
+
+lean_lib «Tools.ShippingMemSVSoundness» where
+  roots := #[`Tools.ShippingMemSVSoundness]
+
+lean_lib «Tools.ShippingRegisterSoundness» where
+  roots := #[`Tools.ShippingRegisterSoundness]
+
+lean_lib «Tools.ShippingUnifiedInvariant» where
+  roots := #[`Tools.ShippingUnifiedInvariant]
+
+lean_lib «Tools.ShippingUnifiedCache» where
+  roots := #[`Tools.ShippingUnifiedCache]
+
+lean_lib «Tools.ShippingUnifiedMeaning» where
+  roots := #[`Tools.ShippingUnifiedMeaning]
+
+lean_lib «Tools.ShippingUnifiedSource» where
+  roots := #[`Tools.ShippingUnifiedSource]
+
+lean_lib «Tools.ShippingVectorMuxSoundness» where
+  roots := #[`Tools.ShippingVectorMuxSoundness]
+
+lean_lib «Tools.ShippingVectorMuxRecursion» where
+  roots := #[`Tools.ShippingVectorMuxRecursion]
+
+lean_lib «Tools.ShippingMixedOutputSoundness» where
+  roots := #[`Tools.ShippingMixedOutputSoundness]
+
+lean_lib «Tools.ShippingMixedInputSoundness» where
+  roots := #[`Tools.ShippingMixedInputSoundness]
+
+lean_lib «Tools.ShippingMixedEntrySoundness» where
+  roots := #[`Tools.ShippingMixedEntrySoundness]
+
+lean_lib «Tools.ShippingMixedGateSoundness» where
+  roots := #[`Tools.ShippingMixedGateSoundness]
+
+lean_lib «Tools.ShippingMixedPostSoundness» where
+  roots := #[`Tools.ShippingMixedPostSoundness]
+
+lean_lib «Tools.ShippingMixedSourceBridge» where
+  roots := #[`Tools.ShippingMixedSourceBridge]
+
+lean_lib «Tools.ShippingMixedExecutionSoundness» where
+  roots := #[`Tools.ShippingMixedExecutionSoundness]
+
+lean_lib «Tools.ShippingMixedOrderSoundness» where
+  roots := #[`Tools.ShippingMixedOrderSoundness]
+
+lean_lib «Tools.ShippingMixedForwardSoundness» where
+  roots := #[`Tools.ShippingMixedForwardSoundness]
+
+lean_lib «Tools.ShippingMixedBindingSoundness» where
+  roots := #[`Tools.ShippingMixedBindingSoundness]
+
+lean_lib «Tools.ShippingMixedDeclSoundness» where
+  roots := #[`Tools.ShippingMixedDeclSoundness]
+
+lean_lib «Tools.ShippingMixedPrintSoundness» where
+  roots := #[`Tools.ShippingMixedPrintSoundness]
+
+lean_lib «Tools.ShippingControlOptSoundness» where
+  roots := #[`Tools.ShippingControlOptSoundness]
+
+lean_lib «Tools.ShippingTypedPostSoundness» where
+  roots := #[`Tools.ShippingTypedPostSoundness]
+
+lean_lib «Tools.ShippingTypedExprSoundness» where
+  roots := #[`Tools.ShippingTypedExprSoundness]
+
+lean_lib «Tools.ShippingExecutionSoundness» where
+  roots := #[`Tools.ShippingExecutionSoundness]
+
+lean_lib «Tools.ShippingDeltaSemantics» where
+  roots := #[`Tools.ShippingDeltaSemantics]
+
+lean_lib «Tools.ShippingSettledSoundness» where
+  roots := #[`Tools.ShippingSettledSoundness]
+
+lean_lib «Tools.ShippingModuleNames» where
+  roots := #[`Tools.ShippingModuleNames]
+
+lean_lib «Tools.ShippingNameBinding» where
+  roots := #[`Tools.ShippingNameBinding]
+
+lean_lib «Tools.ShippingDeclWidths» where
+  roots := #[`Tools.ShippingDeclWidths]
+
+lean_lib «Tools.ShippingPostSoundness» where
+  roots := #[`Tools.ShippingPostSoundness]
 
 lean_lib «TutorialExtended» where
   roots := #[`TutorialExtended]
@@ -349,6 +760,13 @@ lean_exe «smt-bmc-test» where
 -- of .sv files, cataloguing failure classes (bench/xiangshan/README.md).
 lean_exe «sv-roundtrip» where
   root := `Tests.Drivers.SvRoundtripMain
+  supportInterpreter := true
+
+-- Certified-trace census at production scale: which fraction of a
+-- corpus do the M4 theorems actually cover (same decidable checkers
+-- the capstones consume).
+lean_exe «sv-cert-census» where
+  root := `Tests.Drivers.SvCertCensusMain
   supportInterpreter := true
 
 -- Phase-2 three-way co-sim: iverilog(original)=golden vs iverilog(roundtrip)

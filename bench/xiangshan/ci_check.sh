@@ -196,5 +196,318 @@ if [ -f "$DSL_FILE" ]; then
   echo "dsl-printable on the CI corpus: ${printable:-0}"
 fi
 
+# == phase 5: the Signal↔IR link (#verify_elab) ======================
+# Generates and kernel-checks, per demo circuit, that the elaborated
+# IR's register/output trace under the PROVEN evalExpr equals the
+# circuit's own Signal semantics.  The command aborts itself if any
+# generated proof smuggles in sorryAx, so grepping PROVEN is sound.
+ELAB_FILE=Tests/Verification/VerifyElabDemo.lean
+if [ -f "$ELAB_FILE" ]; then
+  echo "== phase 5: Signal ↔ IR (#verify_elab)"
+  lake build Sparkle Tools.VerifyElab > "$WORK/velab_build.log" 2>&1 || {
+    echo "FAIL: could not build the verify-elab import closure"
+    tail -5 "$WORK/velab_build.log" | sed 's/^/    /'
+    fail=1
+  }
+  if lake env lean "$ELAB_FILE" > "$WORK/verify_elab.log" 2>&1; then
+    vproven=$(grep -c 'PROVEN' "$WORK/verify_elab.log")
+    echo "verify-elab: $vproven circuits proven (axioms audited)"
+    if [ "$vproven" -lt 7 ]; then
+      echo "FAIL: verify-elab proved $vproven < 7 demo circuits"; fail=1
+    fi
+  else
+    echo "FAIL: #verify_elab demo did not close"
+    grep -m3 -E "error" "$WORK/verify_elab.log" | sed 's/^/    /'
+    fail=1
+  fi
+  # the GENERAL-theorem route: same circuits reified into the deep
+  # grammar, certified through Cdo.elab_general
+  DEEP_FILE=Tests/Verification/DeepElabReifyDemo.lean
+  if [ -f "$DEEP_FILE" ]; then
+    lake build Tools.DeepElab > "$WORK/deep_build.log" 2>&1 || {
+      echo "FAIL: could not build the deep-elab import closure"; fail=1; }
+    if lake env lean "$DEEP_FILE" > "$WORK/deep_elab.log" 2>&1; then
+      dproven=$(grep -c 'PROVEN' "$WORK/deep_elab.log")
+      echo "deep-elab (general theorem): $dproven circuits proven"
+      # 13 flat demos + 3 nested-circuit demos (outerNest, outerFb, lvl0)
+      # + 2 value-parameter wrappers (accK15, accN200)
+      # + 3 memory demos (memAcc, memTwo, comboAcc)
+      if [ "$dproven" -lt 21 ]; then
+        echo "FAIL: deep-elab proved $dproven < 21 demo circuits"; fail=1
+      fi
+    else
+      echo "FAIL: #verify_elab_deep demo did not close"
+      grep -m3 -E "error" "$WORK/deep_elab.log" | sed 's/^/    /'
+      fail=1
+    fi
+  fi
+  # the general theorem on REAL shipping IP (crc32Engine, …)
+  REAL_FILE=Tests/Verification/DeepElabRealIP.lean
+  if [ -f "$REAL_FILE" ]; then
+    lake build IP.Net.CRC32 IP.Net.UART IP.Crypto.EcdsaSignSmall IP.Bus.DroneCANHW IP.Bus.SBUSHW IP.Bus.SPIHW >> "$WORK/deep_build.log" 2>&1 || {
+      echo "FAIL: could not build the real-IP import closure"; fail=1; }
+    if lake env lean "$REAL_FILE" > "$WORK/deep_real.log" 2>&1; then
+      # one PROVEN line per output port: crc32Engine (1) + uartTxHW (2)
+      # + regFile (2) + transferIdTrackerHW (3) + frameAccumulatorHW (4)
+      # + spiMasterHW (5)
+      rproven=$(grep -c 'PROVEN' "$WORK/deep_real.log")
+      echo "deep-elab (real IP): $rproven ports proven"
+      if [ "$rproven" -lt 17 ]; then
+        echo "FAIL: deep-elab real-IP proved $rproven < 17 ports"; fail=1
+      fi
+    else
+      echo "FAIL: #verify_elab_deep real-IP did not close"
+      grep -m3 -E "error" "$WORK/deep_real.log" | sed 's/^/    /'
+      fail=1
+    fi
+  fi
+  # STATE CORRESPONDENCE + duplication-freedom: the trace theorems are
+  # invariant under duplicated hardware (two copies of one register hold
+  # the same value every cycle), so this is what catches the three
+  # duplication bugs the chain could not see.  The file's negative
+  # section pins non-vacuity, so a build failure here means either a
+  # real duplication or a broken checker.
+  CORR_FILE=Tests/Verification/StateCorrespondenceTest.lean
+  if [ -f "$CORR_FILE" ]; then
+    if lake build Tests.Verification.StateCorrespondenceTest \
+        > "$WORK/state_corr.log" 2>&1; then
+      echo "state correspondence: 6 shipping circuits, duplication-free"
+    else
+      echo "FAIL: state correspondence / duplication-freedom regressed"
+      grep -m5 -E "error" "$WORK/state_corr.log" | sed 's/^/    /'
+      fail=1
+    fi
+  fi
+  # value-parameter register inits: the shape the deep route used to
+  # die on with an internal `unknown free variable` (loop-node analysis
+  # ran outside the lambda scope it opened).  The file carries the
+  # once-failing circuit, its controls, a Nat-derived init and a
+  # two-level wrapper chain, plus a run_cmd pinning the IR init value.
+  # Checked BY NAME, not by count: each of the five circuits must have
+  # its PROVEN line, and the file's own run_cmd must emit a `VPI OK:`
+  # line for it — printed only after both `_deep_trace` and
+  # `_deep_signal_run` are found in the environment and pass the
+  # ALLOWED-AXIOMS policy (a subset check: capstone → standard axioms
+  # only; replay → standard + Lean.ofReduceBool + native_decide
+  # auxiliaries recognised by name STRUCTURE for that circuit; anything
+  # else, incl. sorryAx, rejects).  The file's negative cases must also
+  # report `VPI NEG OK`, so a classifier that accepts everything fails
+  # here.  A missing file is a failure, not a skip.
+  VPI_FILE=Tests/Verification/ValueParamInitRepro.lean
+  VPI_CIRCUITS="accK9 litInit initCirc7 natInit5 initCirc7Again"
+  if [ ! -f "$VPI_FILE" ]; then
+    echo "FAIL: $VPI_FILE is missing (value-param init regression gate)"
+    fail=1
+  elif lake build Tests.Verification.ValueParamInitRepro \
+      > "$WORK/vpi.log" 2>&1; then
+    vpi_ok=1
+    for c in $VPI_CIRCUITS; do
+      grep -q "ValueParamInitRepro\.$c: PROVEN" "$WORK/vpi.log" || {
+        echo "FAIL: value-param inits — $c not PROVEN"; vpi_ok=0; }
+      grep -q "VPI OK: $c " "$WORK/vpi.log" || {
+        echo "FAIL: value-param inits — $c trace/replay theorem check missing"; vpi_ok=0; }
+    done
+    grep -q "VPI NEG OK" "$WORK/vpi.log" || {
+      echo "FAIL: value-param inits — axiom-policy negative cases did not run"; vpi_ok=0; }
+    if [ "$vpi_ok" -eq 1 ]; then
+      echo "value-param register inits: 5 named circuits proven, trace+replay under allowed-axioms policy, negatives rejected"
+    else
+      fail=1
+    fi
+  else
+    echo "FAIL: ValueParamInitRepro did not build"
+    grep -m5 -E "error" "$WORK/vpi.log" | sed 's/^/    /'
+    fail=1
+  fi
+  # cone-sharing premises on crc16's REAL body (build-time run_cmd that
+  # throws on any failed premise; see the file header for the numbers)
+  CSP_FILE=Tests/Verification/ConeSharingPremises.lean
+  if [ ! -f "$CSP_FILE" ]; then
+    echo "FAIL: $CSP_FILE is missing (cone-sharing premise gate)"; fail=1
+  elif lake build Tests.Verification.ConeSharingPremises > "$WORK/csp.log" 2>&1 \
+      && grep -q "CONE-SHARING crc16: 26 shared wires" "$WORK/csp.log"; then
+    echo "cone-sharing premises: crc16 body, 26 shared wires, all premises hold"
+  else
+    echo "FAIL: cone-sharing premises on crc16 regressed"
+    grep -m5 -E "error" "$WORK/csp.log" | sed 's/^/    /'; fail=1
+  fi
+  # cone-sharing PROTOTYPE: the CdoW route on shareX4 (the inlined route
+  # fails this circuit); must build with no sorryAx in the trace theorem
+  CSPROTO_FILE=Tests/Verification/ConeSharingProto.lean
+  if [ ! -f "$CSPROTO_FILE" ]; then
+    echo "FAIL: $CSPROTO_FILE is missing (cone-sharing prototype gate)"; fail=1
+  elif lake build Tests.Verification.ConeSharingProto > "$WORK/csproto.log" 2>&1 \
+      && grep -q "ShareW.trace' depends on axioms" "$WORK/csproto.log" \
+      && ! grep -q "sorryAx" "$WORK/csproto.log"; then
+    echo "cone-sharing prototype: shareX4 trace theorem proven on the CdoW route"
+  else
+    echo "FAIL: cone-sharing prototype (ConeSharingProto) regressed"
+    grep -m5 -E "error|sorryAx" "$WORK/csproto.log" | sed 's/^/    /'; fail=1
+  fi
+  # cone-sharing REPLAY (plan step 2): signal_run on the shared route for
+  # shareX4, with an in-file axiom policy (std + decision-procedure
+  # auxiliaries only, never sorryAx); both policy lines must appear
+  CSR_FILE=Tests/Verification/ConeSharingReplay.lean
+  if [ ! -f "$CSR_FILE" ]; then
+    echo "FAIL: $CSR_FILE is missing (cone-sharing replay gate)"; fail=1
+  elif lake build Tests.Verification.ConeSharingReplay > "$WORK/csr.log" 2>&1 \
+      && grep -q "CONE-SHARING REPLAY OK: Sparkle.Tests.ShareW.trace" "$WORK/csr.log" \
+      && grep -q "CONE-SHARING REPLAY OK: Sparkle.Tests.ShareW.signal_run" "$WORK/csr.log"; then
+    echo "cone-sharing replay: shareX4 trace + signal_run proven on the CdoW route (axiom policy ok)"
+  else
+    echo "FAIL: cone-sharing replay (ConeSharingReplay) regressed"
+    grep -m5 -E "error|disallowed" "$WORK/csr.log" | sed 's/^/    /'; fail=1
+  fi
+  # F2 step 11 gate: the Opt and RT replay theorems must report the SAME
+  # decision-procedure auxiliary count as the plain IR replay — i.e. the
+  # optimizer/text bridges add no native_decide of their own; only the
+  # trace's bv_decide auxiliaries remain (docs/SharedRoute-Guarantees.md
+  # status table).  Reads the generator's "axioms: standard + N" clauses.
+  replay_aux_match() {
+    local log=$1 f=$2 n0 n1 n2
+    n0=$(grep -oE "IR replay ${f}_sdeep_signal_run PROVEN \(axioms: standard \+ [0-9]+" "$log" | grep -oE '[0-9]+$')
+    n1=$(grep -oE "${f}_sdeep_signal_runOpt PROVEN \([^)]*standard \+ [0-9]+" "$log" | grep -oE '[0-9]+$')
+    n2=$(grep -oE "${f}_sdeep_signal_runRT PROVEN \([^)]*standard \+ [0-9]+" "$log" | grep -oE '[0-9]+$')
+    if [ -n "$n0" ] && [ "$n0" = "$n1" ] && [ "$n0" = "$n2" ]; then return 0; fi
+    echo "  replay auxiliaries differ for $f: run=$n0 runOpt=$n1 runRT=$n2"; return 1
+  }
+  # the GENERATOR's cone-sharing route (set_option sparkle.deepShare true):
+  # trace + IR replay for shareX4 / shareX8, which the default route cannot
+  # prove; both "PROVEN via CdoW.elab_general … IR replay … PROVEN" lines
+  CSGEN_FILE=Tests/Verification/ConeSharingGen.lean
+  if [ ! -f "$CSGEN_FILE" ]; then
+    echo "FAIL: $CSGEN_FILE is missing (generator cone-sharing gate)"; fail=1
+  elif lake build Tests.Verification.ConeSharingGen > "$WORK/csgen.log" 2>&1 \
+      && [ "$(grep -c 'PROVEN via CdoW.elab_general' "$WORK/csgen.log")" -eq 2 ] \
+      && [ "$(grep -c 'IR replay .* PROVEN' "$WORK/csgen.log")" -eq 2 ] \
+      && [ "$(grep -c '_sdeep_signal_runOpt PROVEN' "$WORK/csgen.log")" -eq 2 ] \
+      && [ "$(grep -c '_sdeep_signal_svOpt PROVEN' "$WORK/csgen.log")" -eq 2 ] \
+      && [ "$(grep -c '_sdeep_signal_runRT PROVEN' "$WORK/csgen.log")" -eq 2 ] \
+      && [ "$(grep -c '_sdeep_text_parses PROVEN' "$WORK/csgen.log")" -eq 2 ] \
+      && replay_aux_match "$WORK/csgen.log" shareX4 \
+      && replay_aux_match "$WORK/csgen.log" shareX8 \
+      && ! grep -q 'SKIPPED' "$WORK/csgen.log"; then
+    echo "generator cone-sharing route: shareX4 + shareX8 trace, replay, optimizer + SV + text bridges proven (Opt/RT replay axioms = the trace's)"
+  else
+    echo "FAIL: generator cone-sharing route (ConeSharingGen) regressed"
+    grep -m5 -E "error|FAILED" "$WORK/csgen.log" | sed 's/^/    /'; fail=1
+  fi
+  # crc16CcittHW on the generator's cone-sharing route: trace + replay
+  # (the default route cannot finish this circuit).  ~12 min; its own step.
+  # F2: a cone equation discharged by the KERNEL (no native_decide).
+  # Both slots must depend on the standard three axioms only.
+  # (the two circuits' test modules cannot be imported into one file)
+  kslot_ok=1
+  for ks in ShareX Crc16; do
+    KSLOT_FILE=Tests/Verification/ConeKernelSlot$ks.lean
+    if [ ! -f "$KSLOT_FILE" ]; then
+      echo "FAIL: $KSLOT_FILE is missing (kernel cone-equation gate)"; kslot_ok=0
+    elif lake build Tests.Verification.ConeKernelSlot$ks > "$WORK/kslot$ks.log" 2>&1 \
+        && grep -q "depends on axioms: \[propext, Classical.choice, Quot.sound\]" "$WORK/kslot$ks.log" \
+        && ! grep -q "native_decide\|sorryAx" "$WORK/kslot$ks.log"; then
+      :
+    else
+      echo "FAIL: kernel cone-equation slot $ks regressed (or picked up a decision-procedure axiom)"
+      grep -m5 -E "error|axioms" "$WORK/kslot$ks.log" | sed 's/^/    /'; kslot_ok=0
+    fi
+  done
+  if [ "$kslot_ok" = 1 ]; then
+    echo "kernel cone equations: shareX4 + crc16 slots proven, standard axioms only"
+  else
+    fail=1
+  fi
+  CRC_FILE=Tests/Verification/ConeSharingCrc16.lean
+  if [ ! -f "$CRC_FILE" ]; then
+    echo "FAIL: $CRC_FILE is missing (crc16 cone-sharing gate)"; fail=1
+  elif lake build Tests.Verification.ConeSharingCrc16 > "$WORK/crc16share.log" 2>&1 \
+      && grep -q "crc16CcittHW: PROVEN via CdoW.elab_general" "$WORK/crc16share.log" \
+      && grep -q "IR replay crc16CcittHW_sdeep_signal_run PROVEN" "$WORK/crc16share.log" \
+      && grep -q "crc16CcittHW_sdeep_signal_runOpt PROVEN" "$WORK/crc16share.log" \
+      && grep -q "crc16CcittHW_sdeep_signal_runRT PROVEN" "$WORK/crc16share.log" \
+      && grep -q "crc16CcittHW_sdeep_text_parses PROVEN" "$WORK/crc16share.log" \
+      && replay_aux_match "$WORK/crc16share.log" crc16CcittHW \
+      && [ "$(grep -c 'SKIPPED' "$WORK/crc16share.log")" -eq 1 ] \
+      && grep -q "Opt SV-semantics theorem SKIPPED" "$WORK/crc16share.log"; then
+    echo "crc16 cone-sharing route: trace, IR replay, optimizer + text bridges proven (Opt/RT replay axioms = the trace's; SV-semantics theorem skipped by the M4 shl rule, as documented)"
+  else
+    echo "FAIL: crc16 on the cone-sharing route regressed"
+    grep -m5 -E "error|FAILED" "$WORK/crc16share.log" | sed 's/^/    /'; fail=1
+  fi
+  # Strict roundtrip acceptance: a proof-carrying artifact requires all links,
+  # and composes the parse theorem with replay. Partial PROVEN is not accepted.
+  cert_files_ok=1
+  for ct in CertifiedRoundtripTest CertifySharedCommandTest CertifiedRoundtripCrc16 VerifiedBlockTest VerifiedStateTest VerifiedCircuitTest VerifiedSourceTest ReflectSourceTest; do
+    if [ ! -f "Tests/Verification/$ct.lean" ]; then
+      echo "FAIL: missing strict certification test $ct"; cert_files_ok=0
+    fi
+  done
+  if [ "$cert_files_ok" -eq 1 ] \
+      && lake build Tests.Verification.CertifiedRoundtripTest \
+        Tests.Verification.CertifySharedCommandTest \
+        Tests.Verification.CertifiedRoundtripCrc16 \
+        Tests.Verification.VerifiedBlockTest \
+        Tests.Verification.VerifiedStateTest \
+        Tests.Verification.VerifiedCircuitTest \
+        Tests.Verification.VerifiedSourceTest \
+        Tests.Verification.ReflectSourceTest > "$WORK/certification.log" 2>&1 \
+      && grep -Fq "CERTIFICATION TEST OK:" "$WORK/certification.log" \
+      && grep -Fq "CERTIFIED_ROUNDTRIP Sparkle.Tests.CertifySharedCommandTest.counter:" "$WORK/certification.log" \
+      && grep -Fq "CRC16 CERTIFICATION OK:" "$WORK/certification.log" \
+      && grep -Fq "VERIFIED BLOCK OK:" "$WORK/certification.log" \
+      && grep -Fq "VERIFIED STATE OK:" "$WORK/certification.log" \
+      && grep -Fq "VERIFIED CIRCUIT OK:" "$WORK/certification.log" \
+      && grep -Fq "VERIFIED SOURCE OK:" "$WORK/certification.log" \
+      && grep -Fq "REFLECT SOURCE OK:" "$WORK/certification.log"; then
+    echo "certification: complete roundtrip artifacts, general soundness, negative cases checked"
+  else
+    echo "FAIL: strict roundtrip certification gate"; fail=1
+  fi
+  if [ -f Tests/Compiler/ApplicativeSemanticsTest.lean ] \
+      && lake build Tests.Compiler.ApplicativeSemanticsTest > "$WORK/applicative-semantics.log" 2>&1 \
+      && grep -Fq "APPLICATIVE SEMANTICS OK:" "$WORK/applicative-semantics.log"; then
+    echo "applicative semantics: shipping compiler regression and general source rule checked"
+  else
+    echo "FAIL: shipping applicative semantics gate"; fail=1
+  fi
+  if [ -f Tests/Compiler/ShippingScalarSoundnessTest.lean ] \
+      && lake build Tests.Compiler.ShippingScalarSoundnessTest > "$WORK/shipping-scalar.log" 2>&1 \
+      && grep -Fq "SHIPPING SCALAR OK:" "$WORK/shipping-scalar.log"; then
+    echo "shipping scalar: canonical primitives and local binding invariant checked"
+  else
+    echo "FAIL: shipping scalar soundness gate"; fail=1
+  fi
+  if [ -f Tests/Compiler/FreshNameSoundnessTest.lean ] \
+      && lake build Tests.Compiler.FreshNameSoundnessTest > "$WORK/fresh-name.log" 2>&1 \
+      && grep -Fq "FRESH NAME OK:" "$WORK/fresh-name.log"; then
+    echo "fresh names: total allocator and allocation-to-emission invariant checked"
+  else
+    echo "FAIL: fresh name soundness gate"; fail=1
+  fi
+  if [ -f Tests/Compiler/ShippingBindingsSoundnessTest.lean ] \
+      && lake build Tests.Compiler.ShippingBindingsSoundnessTest > "$WORK/shipping-bindings.log" 2>&1 \
+      && grep -Fq "SHIPPING BINDINGS OK:" "$WORK/shipping-bindings.log" \
+      && grep -Fq "BINDING STATE OK:" "$WORK/shipping-bindings.log"; then
+    echo "shipping bindings: scoped/persistent invariants and restoration checked"
+  else
+    echo "FAIL: shipping bindings soundness gate"; fail=1
+  fi
+  # the SEAM bridge: per-instance composition of the generated
+  # recurrence with the module-level fold semantics (ConeFold capstone
+  # instantiated on cnt8; checker hypotheses by native_decide)
+  BRIDGE_FILE=Tests/Verification/ConeBridgeDemo.lean
+  if [ -f "$BRIDGE_FILE" ]; then
+    lake build Tools.ConeFoldSlices Tests.Verification.VerifyElabDemo \
+        >> "$WORK/deep_build.log" 2>&1 || {
+      echo "FAIL: could not build the cone-bridge import closure"; fail=1; }
+    if lake env lean "$BRIDGE_FILE" > "$WORK/cone_bridge.log" 2>&1; then
+      echo "cone-bridge (seam per-instance): cnt8 step agreement proven"
+    else
+      echo "FAIL: cone-bridge demo did not close"
+      grep -m3 -E "error" "$WORK/cone_bridge.log" | sed 's/^/    /'
+      fail=1
+    fi
+  fi
+fi
+
 if [ "$fail" != "0" ]; then echo "== XiangShan gate: FAILED"; exit 1; fi
 echo "== XiangShan gate: OK (roundtrip ${wall}s, equiv $equiv_ok proven/$equiv_skip skipped)"

@@ -6,6 +6,39 @@ work) and add an "Owner / status" line once someone picks one up.
 
 ---
 
+## Compiler proof — current work
+
+Owner/status: S2 complete; S3 active, comparisons, Bool logic/equality and BitVec mux trees connected.
+
+- [x] Original BitVec fragment: syntax and RTL settling endpoint.
+- [x] Current mixed fragment: selected IR value preservation, output syntax and
+  declaration/reference binding (`2ad67ae`).
+- [x] Current mixed fragment: emitted RTL semantics and finite settling
+  (`execution_source_of_env`; 622 build jobs, standard-axiom audit).
+- [x] S3 extension: recursive `Signal.slt`/`Signal.sle` connected through the
+  same syntax and RTL settling theorem; sign-width and legacy-path regressions.
+- [x] S3 extension: standard BitVec `Signal.beq` through the RTL endpoint;
+  fix applicative lowering that discarded custom BEq implementations.
+- [x] S3 extension: canonical Bool and/or/xor/not and standard Bool equality,
+  recursively through the same syntax and RTL settling endpoint.
+- [x] S3 extension: positive common-width BitVec mux trees, with Bool conditions
+  and arithmetic leaves, through syntax and RTL settling; arbitrary output width.
+- [x] S3 foundation: unified Bool/BitVec source meanings, quotation/library
+  agreement, and preservation by the actual validated cache and record updates.
+- [ ] S3 next: close recursive translation with the unified state invariant,
+  protect reserved parent names, connect entry/output, and restore mux cache
+  reuse; then mixed/changed widths and remaining interfaces. The mutual source
+  language is defined, but its source-to-RTL endpoint is still open.
+- [ ] Remaining successful combinational paths, state/reset, memory, hierarchy,
+  and full successful-domain composition; `EnvDefines` remains explicit.
+
+Use the [active proof TODO](docs/CertifiedRoundtrip-TODO.md#current-shipping-compiler-todo)
+and [milestones with completion criteria](docs/ShippingCompiler-Milestones.md).
+For continuation from `52ab4c3`, see the [Claude Code handoff](docs/ShippingCompiler-ClaudeCode-Handoff.md).
+These are domain-specific coverage steps, not three independent global checks.
+Continue to the active milestone's endpoint; intermediate commits are review
+checkpoints rather than requests for another “continue”.
+
 ## High priority — production blockers
 
 ### memcached server top-level synth still hangs
