@@ -121,8 +121,9 @@ run_cmd do
       gout := gout ++ s!"{s}|{res}\n"
   let hg ← IO.FS.Handle.mk "@WORK@/linked_reasons.txt" .append
   hg.putStr gout
--- the declarations whose calls are all memory reads: their composition with
--- the memory instances (stateful run, `machine_composedT`)
+-- the declarations whose calls are memory reads or sequential children (the
+-- `closeInstsG` path): their composition with the children (stateful run,
+-- `machine_composedT`)
 set_option maxHeartbeats 0 in
 run_cmd do
   let names ← IO.FS.lines "@WORK@/machine_decls.txt"
@@ -140,16 +141,12 @@ run_cmd do
     unless (env.find? (n ++ `machine_sound)).isSome do continue
     if (env.find? (n ++ `machine_composedT)).isSome then
       mout := mout ++ s!"{s}|COMPOSEDT|OK\n"; continue
-    let children ← liftTermElabM do
-      try pure ((← Tools.ShippingMachineCommand.readMachine n).shape.insts.map (·.1))
-      catch _ => pure []
-    if children.isEmpty then continue
-    unless children.all (fun c => (Tools.ShippingMachineMemCommand.memWidths? c).isSome) do
-      if children.any (fun c => (Tools.ShippingMachineMemCommand.memWidths? c).isSome) then
-        mout := mout ++ s!"{s}|COMPOSEDT|MIXED\n"
-      continue
+    let gpath ← liftTermElabM do
+      try pure !(← Tools.ShippingMachineCommand.readMachine n).shape.instFields.isEmpty
+      catch _ => pure false
+    unless gpath do continue
     let res ← try
-        let _ ← liftTermElabM (Tools.ShippingMachineMemCommand.generate n)
+        let _ ← liftTermElabM (Tools.ShippingMachineSeqCommand.generateAny n)
         pure "COMPOSEDT|OK"
       catch ex =>
         let msg ← ex.toMessageData.toString

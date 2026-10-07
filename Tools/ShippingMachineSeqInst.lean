@@ -30,6 +30,7 @@ def SeqChildRun (mc : Module) (bsC : List (Name × Sparkle.Compiler.Elab.MixedGa
   (mc.inputs.map (·.name)).Nodup ∧ "clk" ∈ mc.inputs.map (·.name) ∧
   "rst" ∈ mc.inputs.map (·.name) ∧
   (∀ x ∈ mc.outputs.map (·.name), x ∉ mc.inputs.map (·.name)) ∧
+  (argPorts mc).length = (bsC.filter fun b => b.2 != .domain).length ∧
   ∀ (T : Nat) (ins : Nat → String → Nat) (st0 : String → Nat) (mems : MEnv)
     (vals : Nat → List Nat),
     (∀ τ, τ < T → Tools.ShippingMachineChild.InRange (vals τ)
@@ -213,7 +214,7 @@ theorem seq_inst_run {mc : Module} {bsC : List (Name × Sparkle.Compiler.Elab.Mi
       ∀ j, j < T → ∀ p ∈ mc.outputs, ∀ w,
         (connsG mc argWs outs outWs).lookup p.name = some (.ref w) →
         (cenvs[j]?).map (· p.name) = some (Pw (T - 1 - j) w) := by
-  obtain ⟨hO, hnd, hclk, hrst, hdisj, hS⟩ := hrun
+  obtain ⟨hO, hnd, hclk, hrst, hdisj, _, hS⟩ := hrun
   have hndA : ((argPorts mc).map (·.name)).Nodup :=
     hnd.sublist (List.Sublist.map _ List.filter_sublist)
   let C := inConns mc.outputs (connsG mc argWs outs outWs)
@@ -330,7 +331,7 @@ theorem seq_inst_run {mc : Module} {bsC : List (Name × Sparkle.Compiler.Elab.Mi
       rw [he] at hf
       simp only [Option.map_some, Option.some.injEq] at hf
       obtain ⟨bsC', outsC', S', hrun', hrange', k, o, f, hk, hon, hf', hPw⟩ := hout idx e w he hwo
-      obtain ⟨_, _, _, _, _, hS'⟩ := hrun'
+      obtain ⟨_, _, _, _, _, _, hS'⟩ := hrun'
       obtain ⟨envs', hrun'', hlen', hobs'⟩ := hS' T ins kid.st kid.mems vals hrange' hports hrstI
         hclkI hreset
       -- the module's run is one run
@@ -376,9 +377,19 @@ theorem seqChildRun_full {declName : Name} {d : MachineData} {ι : Type} {dom : 
   obtain ⟨raw, D, w1, hcore, hpost⟩ :=
     Tools.ShippingMachineShipping.synthesizeCombinational_checked hr
   have h := sound hcore entry closes
-  obtain ⟨_, _, _, _, _, _, _, _, _, wired, _⟩ := id h
-  obtain ⟨_, _, _, _, _, _, _, houts, _, _, hclean, _⟩ := wired
+  obtain ⟨ids, _, len, cache, _, _, _, _, _, wired, _⟩ := id h
+  obtain ⟨_, _, _, _, _, _, _, houts, hins, _, hclean, _⟩ := wired
   obtain ⟨⟨_, _, hi, ho⟩, hrstIn, _, _, hnd, hclk, hdisj, _⟩ := hclean hnoI houtTy
+  have hbsIn : d.shape.binders.take (d.shape.binders.length - d.shape.layout.slots.length -
+      d.shape.layout.lets) = d.bsIn := by
+    have hb := d.binders_split
+    rw [← hSlen, ← hLlen]
+    conv => lhs; rw [hb]
+    simp only [List.length_append]
+    rw [show d.bsIn.length + d.slotBs.length + d.letBs.length - d.slotBs.length - d.letBs.length =
+      d.bsIn.length by omega, List.append_assoc, List.take_left]
+  have hlenIn : d.bsIn.length ≤ ids.length := by
+    rw [len]; simp only [MachineData.bsIn, List.length_take]; omega
   have hports : b.inputs = raw.inputs ∧ b.outputs = raw.outputs := by
     rcases hpost with rfl | rfl
     · exact ⟨hi, ho⟩
@@ -386,7 +397,11 @@ theorem seqChildRun_full {declName : Name} {d : MachineData} {ι : Type} {dom : 
       exact ⟨h1.trans hi, h2.trans ho⟩
   obtain ⟨hbi, hbo⟩ := hports
   refine ⟨by rw [hbo, houts], by rw [hbi]; exact hnd, by rw [hbi]; exact hclk hsl,
-    by rw [hbi]; exact hrstIn hsl, by rw [hbi, hbo]; exact hdisj, ?_⟩
+    by rw [hbi]; exact hrstIn hsl, by rw [hbi, hbo]; exact hdisj, ?_, ?_⟩
+  · have : argPorts b = argPorts raw := by unfold argPorts; rw [hbi]
+    rw [this]
+    unfold argPorts
+    rw [hins hnoI, hbsIn, Tools.ShippingMachineCompose.machPorts_length _ hlenIn]
   exact seqStream_full sound hnoI hsl hSlen hSS hLlen houtTy hinitFit i hr entry closes
 
 end Tools.ShippingMachineSeqInst

@@ -41,6 +41,21 @@ def MemFacts {D : DomainConfig} (shape : Sparkle.Compiler.Elab.MachineShape)
     (bsI[k]?.map (·.2)) = some (.bits dw) ∧
     ∀ j, (ext (kD + k) dw).val j = (memRead cb A Dd E R).val j
 
+/-- `mc` is the module of an instance statement serving call `k`. -/
+abbrev InstOfCall (body : List Stmt) (mc : Module) (k : Nat) : Prop :=
+  ∃ (iname : String) (argWs : List String) (outs : List (Nat × String)) (outWs : List String),
+    Stmt.inst mc.name iname (connsG mc argWs outs outWs) ∈ body ∧ ∃ e ∈ outs, e.1 = k
+
+/-- Arguments that are `let`s have observations. -/
+theorem args_facts {lsrc : List (Nat → Nat)} {nL : Nat} {args : List Nat}
+    (hall : args.all (· < nL) = true) (hlen : lsrc.length = nL) :
+    ∀ (q : Nat) (hq : q < args.length), args[q] < nL ∧ ∃ g, lsrc[args[q]]? = some g := by
+  intro q hq
+  have hlt : args[q] < nL := by
+    have := List.all_eq_true.mp hall _ (List.getElem_mem hq)
+    simpa using this
+  exact ⟨hlt, _, List.getElem?_eq_getElem (by rw [hlen]; exact hlt)⟩
+
 /-- A sequential call's facts: the instance of the call runs as its child
 (`SeqChildRun`, the boundary), its arguments are `let`s, their values in
 range, and the call's value at its port is the child's output on them. -/
@@ -53,9 +68,7 @@ def SeqFacts {D : DomainConfig} (shape : Sparkle.Compiler.Elab.MachineShape) (ds
     (k : Nat) (c : Name) : Prop :=
   Sparkle.Compiler.MachMemory.memChild? c = none ∧
   ∃ args : List Nat, (shape.insts.map (·.2.1))[k]? = some args ∧
-    (∀ mc : Module, moduleByName dsn.modules mc.name = some mc →
-      (∃ (iname : String) (argWs : List String) (outs : List (Nat × String)) (outWs : List String),
-        Stmt.inst mc.name iname (connsG mc argWs outs outWs) ∈ body ∧ ∃ e ∈ outs, e.1 = k) →
+    (∀ mc : Module, moduleByName dsn.modules mc.name = some mc → InstOfCall body mc k →
       SeqChildRun mc (bsC c) (outsC c) (S c) ∧ (argPorts mc).length = args.length) ∧
     (∀ (q : Nat) (hq : q < args.length), args[q] < nL ∧ ∃ g, lsrc[args[q]]? = some g) ∧
     (∀ τ, Tools.ShippingMachineChild.InRange (valsOf lsrc args τ)
@@ -266,5 +279,57 @@ theorem machine_linkedT_calls {declName : Name} {d : MachineData} {m : Module} {
     (calls_hchild d.shape dsn m.body (lsrc i bools bits) d.ls.length (d.bsIn.drop kD) kD
       (extB i bools bits) (ext i bools bits) bsC outsC S _ _ _ T kids hm0 hst0 hreg
       (hcalls i bools bits))
+
+/-! ## A sequential call's argument stream, decoded -/
+
+open Tools.ShippingMachineChild in
+theorem decB_valsOf {D : DomainConfig} {bs : List (Name × Sparkle.Compiler.Elab.MixedGateBinder)}
+    {lsrc : List (Nat → Nat)} {args : List Nat} {p q : Nat} {A : Signal D Bool}
+    (hp : portIdx bs p = q) (hq : q < args.length)
+    (hl : lsrc[args[q]]? = some (fun τ => Tools.ShippingMuxLoweringSoundness.encodeBool (A.val τ)))
+    (τ : Nat) : decB bs (valsOf lsrc args τ) p = A.val τ := by
+  simp only [decB, valsOf, hp, List.getD_eq_getElem?_getD, List.getElem?_map,
+    List.getElem?_eq_getElem hq, Option.map_some, Option.getD_some, hl]
+  exact encodeBool_ne _
+
+open Tools.ShippingMachineChild in
+theorem decV_valsOf {D : DomainConfig} {bs : List (Name × Sparkle.Compiler.Elab.MixedGateBinder)}
+    {lsrc : List (Nat → Nat)} {args : List Nat} {p q n : Nat} {B : Signal D (BitVec n)}
+    (hp : portIdx bs p = q) (hq : q < args.length)
+    (hl : lsrc[args[q]]? = some (fun τ => (B.val τ).toNat)) (τ : Nat) :
+    decV bs (valsOf lsrc args τ) p n = B.val τ := by
+  simp only [decV, valsOf, hp, List.getD_eq_getElem?_getD, List.getElem?_map,
+    List.getElem?_eq_getElem hq, Option.map_some, Option.getD_some, hl, BitVec.ofNat_toNat,
+    BitVec.setWidth_eq]
+
+open Tools.ShippingMachineChild in
+/-- A decoded Bool input is the Signal whose values it decodes. -/
+theorem boolsOf_at {D : DomainConfig} {bs : List (Name × Sparkle.Compiler.Elab.MixedGateBinder)}
+    {vals : Nat → List Nat} {p : Nat} {A : Signal D Bool}
+    (h : ∀ τ, decB bs (vals τ) p = A.val τ) : (boolsOf bs vals p : Signal D Bool) = A := by
+  cases A with
+  | mk a =>
+    show (⟨fun τ => decB bs (vals τ) p⟩ : Signal D Bool) = ⟨a⟩
+    congr 1
+    funext τ; exact h τ
+
+open Tools.ShippingMachineChild in
+/-- A decoded bit-vector input is the Signal whose values it decodes. -/
+theorem bitsOf_at {D : DomainConfig} {bs : List (Name × Sparkle.Compiler.Elab.MixedGateBinder)}
+    {vals : Nat → List Nat} {p n : Nat} {B : Signal D (BitVec n)}
+    (h : ∀ τ, decV bs (vals τ) p n = B.val τ) : (bitsOf bs vals p n : Signal D (BitVec n)) = B := by
+  cases B with
+  | mk b =>
+    show (⟨fun τ => decV bs (vals τ) p n⟩ : Signal D (BitVec n)) = ⟨b⟩
+    congr 1
+    funext τ; exact h τ
+
+/-- A function of the decoded inputs is that function of any families they equal. -/
+theorem decoded_eq {D : DomainConfig} {α : Type}
+    (F : (Nat → Signal D Bool) → ((j : Nat) → (n : Nat) → Signal D (BitVec n)) → α)
+    {bools bools' : Nat → Signal D Bool}
+    {bits bits' : (j : Nat) → (n : Nat) → Signal D (BitVec n)}
+    (hb : bools = bools') (hv : bits = bits') : F bools bits = F bools' bits' := by
+  rw [hb, hv]
 
 end Tools.ShippingMachineCallsLinkedT

@@ -132,6 +132,7 @@ import Tests.Compiler.ShippingMachineNestTest
 import Tests.Compiler.ShippingMachineInstTest
 import Tests.Compiler.ShippingMachineLinkedTest
 import Tests.Compiler.ShippingMachineMemLinkedTest
+import Tests.Compiler.ShippingMachineSeqLinkedTest
 import Tests.Compiler.ShippingMachineTeleTest
 import Tests.Compiler.ShippingSignOpsTest
 import Tests.Compiler.ShippingMachineRawTest
