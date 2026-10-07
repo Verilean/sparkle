@@ -213,6 +213,48 @@ theorem declWidth_of_wires {a b : Sparkle.IR.AST.Module} (h : a.wires = b.wires)
     Sparkle.IR.RegDedup.declWidth a = Sparkle.IR.RegDedup.declWidth b := by
   funext x; unfold Sparkle.IR.RegDedup.declWidth; rw [h]
 
+/-- Port types of the hardware binders, alongside the filtered binder list. -/
+theorem inputPorts_typesD {bools bits} :
+    ∀ (L : List ((Name × MixedGateBinder) × FVarId)) (a : Setup),
+      Zip₂ (fun (p : Port) b => p.ty = kindTy b.1.2) (inputPorts bools bits L a)
+        (L.filter fun b => b.1.2 != .domain)
+  | [], _ => .nil
+  | ((name, .domain), id) :: rest, a => by
+    simp only [inputPorts, List.filter_cons]
+    simpa using inputPorts_typesD rest _
+  | ((name, .bool), id) :: rest, a => by
+    simp only [inputPorts, List.filter_cons]
+    exact .cons rfl (inputPorts_typesD rest _)
+  | ((name, .bits n), id) :: rest, a => by
+    simp only [inputPorts, List.filter_cons]
+    exact .cons rfl (inputPorts_typesD rest _)
+
+/-- An input of a module is an argument port, the clock or the reset. -/
+theorem input_cases {mc : Sparkle.IR.AST.Module} {x : String} (hx : x ∈ mc.inputs.map (·.name)) :
+    x ∈ (argPorts mc).map (·.name) ∨ x = "clk" ∨ x = "rst" := by
+  obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hx
+  by_cases hc : p.name = "clk"
+  · exact Or.inr (Or.inl hc)
+  by_cases hr : p.name = "rst"
+  · exact Or.inr (Or.inr hr)
+  refine Or.inl (List.mem_map.mpr ⟨p, ?_, rfl⟩)
+  unfold argPorts
+  exact List.mem_filter.mpr ⟨hp, by simp [hc, hr]⟩
+
+/-- A run reads its seeding only below its length. -/
+theorem runModule_seed_congr' (we : WEnv) (body : List Stmt) :
+    ∀ (k : Nat) (s1 s2 : Nat → (String → Nat) → Env),
+    (∀ td, td < k → s1 td = s2 td) →
+    ∀ (st : String → Nat) (mems : MEnv),
+    runModule we body s1 k st mems = runModule we body s2 k st mems
+  | 0, _, _, _, _, _ => rfl
+  | k + 1, s1, s2, h, st, mems => by
+    simp only [runModule, Option.bind_eq_bind]
+    rw [h k (by omega)]
+    congr 1
+    funext r
+    rw [runModule_seed_congr' we body k s1 s2 (fun td htd => h td (by omega))]
+
 open Sparkle.IR.RefineCheck Sparkle.IR.OptCheck in
 open Tools.ShippingRefineSoundness (refineCheck_transfer) in
 /-- **A sequential child at the full entry.** The module a run of
@@ -250,8 +292,7 @@ theorem seqStream_full {declName : Name} {d : MachineData} {ι : Type} {dom : ι
       (vals : Nat → List Nat),
       (∀ τ, τ < T → InRange (vals τ) (d.bsIn.filter fun b => b.2 != .domain)) →
       (∀ t, t < T → (argPorts b).map (fun p => ins t p.name) = vals (T - 1 - t)) →
-      (∀ t, ins t "rst" = 0) →
-      (∀ t x, x ∈ b.inputs.map (·.name) → ins t x < 2 ^ Sparkle.IR.RegDedup.declWidth b x) →
+      (∀ t, ins t "rst" = 0) → (∀ t, ins t "clk" = 0) →
       (∀ r c rs inp init, Stmt.register r c rs inp init ∈ b.body → st0 r = init.toNat) →
       ∃ envs, runModule (Sparkle.IR.RegDedup.declWidth b) b.body (seedIn b ins) T st0 mems =
           some envs ∧ envs.length = T ∧
@@ -259,13 +300,69 @@ theorem seqStream_full {declName : Name} {d : MachineData} {ι : Type} {dom : ι
           d.shape.layout.outs[k]? = some o →
           (src i (boolsOf d.bsIn vals) (bitsOf d.bsIn vals))[k]? = some f →
           (envs[j]'hj) o.name = f j := by
-  intro T ins st0 mems vals hrange hports hrstZ hfit hreset
+  intro T ins st0 mems vals hrange hports hrstZ hclkZ hreset
   obtain ⟨raw, D, w1, hcore, hpost⟩ :=
     Tools.ShippingMachineShipping.synthesizeCombinational_checked hr
   have h := sound hcore entry closes
-  obtain ⟨_, _, _, _, regs, _, rlen, _, _, wired, _⟩ := id h
-  obtain ⟨_, _, _, _, _, _, _, houts, _, _, hclean, _⟩ := wired
-  obtain ⟨⟨hb, hw, hi, ho⟩, hrstIn, hregs, hevery⟩ := hclean hnoI houtTy
+  obtain ⟨ids, nd, len, cache, regs, _, rlen, _, _, wired, _⟩ := id h
+  obtain ⟨_, _, _, _, _, _, _, houts, hins, _, hclean, _⟩ := wired
+  obtain ⟨⟨hb, hw, hi, ho⟩, hrstIn, hregs, hevery, _, _, _, hinW⟩ := hclean hnoI houtTy
+  -- the argument ports are the declaration's, of its binders' types
+  have hbsIn : d.shape.binders.take (d.shape.binders.length - d.shape.layout.slots.length -
+      d.shape.layout.lets) = d.bsIn := by
+    have hb := d.binders_split
+    rw [← hSlen, ← hLlen]
+    conv => lhs; rw [hb]
+    simp only [List.length_append]
+    rw [show d.bsIn.length + d.slotBs.length + d.letBs.length - d.slotBs.length - d.letBs.length =
+      d.bsIn.length by omega, List.append_assoc, List.take_left]
+  have hargs : argPorts raw = machPorts declName ids cache d.bsIn := by
+    unfold argPorts; rw [hins hnoI, hbsIn]
+  have hlenIn : d.bsIn.length ≤ ids.length := by
+    rw [len]; simp only [MachineData.bsIn, List.length_take]; omega
+  have hbIn : b.inputs = raw.inputs := by
+    rcases hpost with rfl | rfl
+    · exact hi
+    · exact (Sparkle.IR.RefineCheck.mergeChecked_ports _).1.trans hi
+  have hargsB : argPorts b = argPorts raw := by unfold argPorts; rw [hbIn]
+  -- an input value below the reset index fits its port
+  have fitRaw : ∀ t, t < T → ∀ x, x ∈ raw.inputs.map (·.name) →
+      ins t x < 2 ^ weOf raw x := by
+    intro t ht x hx
+    rcases input_cases hx with ha | hcr
+    · obtain ⟨p, hp, rfl⟩ := List.mem_map.mp ha
+      obtain ⟨q, hq, hpq⟩ := List.getElem_of_mem hp
+      have hpq' : (argPorts raw)[q]? = some p := by rw [List.getElem?_eq_getElem hq, hpq]
+      have hval : (vals (T - 1 - t)).getD q 0 = ins t p.name := by
+        rw [← hports t ht, hargsB]; simp [List.getD_eq_getElem?_getD, hpq']
+      -- the port's binder
+      have hty := inputPorts_typesD (bools := fun _ => false) (bits := fun _ n => 0#n)
+        (d.bsIn.zip ids) (start (entryCompilerState false cache) declName.toString)
+      rw [show inputPorts (fun _ => false) (fun _ n => 0#n) (d.bsIn.zip ids)
+          (start (entryCompilerState false cache) declName.toString) =
+          machPorts declName ids cache d.bsIn from rfl, ← hargs] at hty
+      obtain ⟨b, hb'⟩ : ∃ b, ((d.bsIn.zip ids).filter fun b => b.1.2 != .domain)[q]? = some b := by
+        have hl := hty.length_eq
+        exact ⟨_, List.getElem?_eq_getElem (by rw [← hl]; exact hq)⟩
+      have hpt := Zip₂.get hty q p b hpq' hb'
+      have hfq : (d.bsIn.filter fun b => b.2 != .domain)[q]? = some b.1 := by
+        rw [← zip_filter_fst _ _ hlenIn, List.getElem?_map, hb']; rfl
+      have hr := inRange_get (hrange (T - 1 - t) (by omega)) q b.1 hfq
+      rw [hval] at hr
+      have hpi : p ∈ raw.inputs := (List.mem_filter.mp hp).1
+      have hpn := (List.mem_filter.mp hp).2
+      simp only [Bool.and_eq_true, bne_iff_ne, ne_eq] at hpn
+      rw [hinW p hpi hpn.1 hpn.2, hpt]
+      obtain ⟨⟨nm, kind⟩, id⟩ := b
+      cases kind with
+      | domain =>
+        have := (List.mem_filter.mp (List.mem_of_getElem? hb')).2
+        simp at this
+      | bool => simpa [kindTy] using hr
+      | bits n => simpa [kindTy] using hr
+    · rcases hcr with rfl | rfl
+      · rw [hclkZ]; exact Nat.two_pow_pos _
+      · rw [hrstZ]; exact Nat.two_pow_pos _
   generalize hr0 : Sparkle.IR.ZeroWidth.dropZeroWidthModule raw = r0 at hb hw hi ho hpost
   have hargs0 : argPorts r0 = argPorts raw := by unfold argPorts; rw [hi]
   have hseed0 : seedIn r0 ins = seedIn raw ins :=
@@ -321,11 +418,24 @@ theorem seqStream_full {declName : Name} {d : MachineData} {ι : Type} {dom : ι
         simp only [stM, regOf_mem hnd hmem]
       obtain ⟨envsM, hrunM, hlenM, hobsM⟩ := core stM hstM (by rw [← hargsB]; exact hports)
       have hrstIn0 : "rst" ∈ r0.inputs.map (·.name) := by rw [hi]; exact hrstIn hsl
+      -- the inputs beyond the run held at zero
+      let ins' : Nat → String → Nat := fun t x => if t < T then ins t x else 0
+      have hcong : ∀ (m : Sparkle.IR.AST.Module), ∀ td, td < T → seedIn m ins td = seedIn m ins' td := by
+        intro m td htd
+        funext st x
+        simp [seedIn, ins', htd]
       have hinsFit : ∀ t x, x ∈ r0.inputs.map (·.name) →
-          ins t x < 2 ^ Sparkle.IR.RegDedup.declWidth r0 x := by
+          ins' t x < 2 ^ Sparkle.IR.RegDedup.declWidth r0 x := by
         intro t x hx
-        have := hfit t x (by rw [hinB]; exact hx)
-        rwa [declWidth_of_wires hwB] at this
+        by_cases ht : t < T
+        · simp only [ins', if_pos ht]
+          rw [show Sparkle.IR.RegDedup.declWidth r0 = weOf r0 from rfl, hw]
+          exact fitRaw t ht x (by rw [← hi]; exact hx)
+        · simp only [ins', if_neg ht]; exact Nat.two_pow_pos _
+      have hrstZ' : ∀ t, ins' t "rst" = 0 := by
+        intro t; by_cases ht : t < T
+        · simp only [ins', if_pos ht]; exact hrstZ t
+        · simp only [ins', if_neg ht]
       have hcpl : ∀ r ∈ seqRegs (mergeChecked r0), st0 r.1 = stM r.1 := by
         intro r hr
         obtain ⟨rn, rc, rrs, rinp, rinit⟩ := r
@@ -341,10 +451,13 @@ theorem seqStream_full {declName : Name} {d : MachineData} {ι : Type} {dom : ι
         simp only [stM, regOf_mem hnd hr]
         rw [show Sparkle.IR.RegDedup.declWidth r0 = weOf r0 from rfl, hw, hwid, hinit]
         exact hinitFit f (List.mem_of_getElem? hf)
+      rw [runModule_seed_congr' _ _ T _ _ (hcong r0)] at hrunM
       obtain ⟨envsO, hrunO, hlenO, hcorr⟩ :=
-        refineCheck_transfer hchk ins hinsFit hrstIn0 hrstZ hcpl hfitM hrunM
+        refineCheck_transfer hchk ins' hinsFit hrstIn0 hrstZ' hcpl hfitM hrunM
       refine ⟨envsO, ?_, by omega, ?_⟩
-      · rw [Tools.ShippingPipelineSoundness.seedIn_of_inputs hinB ins]; exact hrunO
+      · rw [runModule_seed_congr' _ _ T _ _ (hcong _),
+          Tools.ShippingPipelineSoundness.seedIn_of_inputs hinB ins']
+        exact hrunO
       · intro j hj k o f hk hf
         have hp : ({ name := o.name, ty := o.ty } : Port) ∈ r0.outputs := by
           rw [ho, houts]; exact List.mem_map.mpr ⟨o, List.mem_of_getElem? hk, rfl⟩

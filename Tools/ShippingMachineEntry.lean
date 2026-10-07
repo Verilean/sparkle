@@ -688,10 +688,18 @@ def MachineWired (declName : Name) (shape : MachineShape) (ids : List FVarId)
       weOf m r = f.width ∧ r ∉ m.inputs.map (·.name) ∧
       ∃ rk inp, Stmt.register r "clk" ("rst", rk) inp (Int.ofNat f.init) ∈ m.body) ∧
     -- and every register statement is a slot's
-    ∀ (r c : String) (rs : String × Sparkle.IR.Type.ResetKind) (inp : Sparkle.IR.AST.Expr) (init : Int),
+    (∀ (r c : String) (rs : String × Sparkle.IR.Type.ResetKind) (inp : Sparkle.IR.AST.Expr) (init : Int),
       Stmt.register r c rs inp init ∈ m.body →
       ∃ (k : Nat) (f : SlotField), regs[k]? = some r ∧ shape.layout.slots[k]? = some f ∧
         init = Int.ofNat f.init) ∧
+    -- and the ports: distinct inputs, the clock an input, no output an input
+    (m.inputs.map (·.name)).Nodup ∧ (shape.layout.slots ≠ [] → "clk" ∈ m.inputs.map (·.name)) ∧
+    (∀ x ∈ m.outputs.map (·.name), x ∉ m.inputs.map (·.name)) ∧
+    ∀ p ∈ m.inputs, p.name ≠ "clk" → p.name ≠ "rst" →
+      weOf m p.name = match p.ty with
+        | .bitVector k => k
+        | .bit => 1
+        | _ => 0) ∧
   -- calls with several outputs or of sequential children: every instance
   -- statement is a call group's (`closeInstsG`) ...
   (shape.instFields ≠ [] → ∀ st ∈ m.body, Sparkle.IR.Machine.isInst st = true →
@@ -1460,7 +1468,7 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
             exact pb.inputWires p (by
               rw [tInputs]; rw [hin'] at hp; exact List.mem_append_left _ hp))
           inNd' (by rw [hwires']; exact ready.wiresNodup) (hdrop ▸ slotsOk) outsOk outsNodup
-          houtTy, ?_, ?_, ?_⟩
+          houtTy, ?_, ?_, ?_, ?_⟩
         · intro hne
           have : (closeMachine shape.layout t').inputs =
               t'.inputs.take (t'.inputs.length - shape.layout.slots.length) ++
@@ -1534,6 +1542,96 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
           · simp only [outAssigns, List.mem_map] at hO
             obtain ⟨o, _, he⟩ := hO
             cases he
+        · -- the ports
+          have hinC : (closeMachine shape.layout t').inputs =
+              t'.inputs.take (t'.inputs.length - shape.layout.slots.length) ++
+                (if shape.layout.slots.isEmpty then [] else
+                  [{ name := "clk", ty := .bit }, { name := "rst", ty := .bit }]) := by
+            simp [closeMachine, hpwC]
+          have htake : t'.inputs.take (t'.inputs.length - shape.layout.slots.length) = P1 := by
+            rw [hin', List.length_append, slotsLen, psLen, Nat.add_sub_cancel, List.take_left]
+          have hP1nd : (P1.map Port.name).Nodup := by
+            have hnd := inNd'
+            rw [hin', List.map_append] at hnd
+            exact (List.nodup_append.mp hnd).1
+          have hP1alloc : ∀ x ∈ P1.map Port.name, Sparkle.IR.NameHints.Allocated x := by
+            intro x hx
+            obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hx
+            exact pb.wireNames p (pb.inputWires p (by
+              rw [tInputs]; exact List.mem_append_left _ (List.mem_append_left _ hp)))
+          have hwM : ∀ p ∈ P1, weOf (closeMachine shape.layout t') p.name = match p.ty with
+              | .bitVector k => k
+              | .bit => 1
+              | _ => 0 := by
+            intro p hp
+            have hpw : p ∈ t'.wires := by
+              rw [hwires']
+              exact pb.inputWires p (by
+                rw [tInputs]; exact List.mem_append_left _ (List.mem_append_left _ hp))
+            have hnd : (t'.wires.map (·.name)).Nodup := by rw [hwires']; exact ready.wiresNodup
+            have h1 := weOf_of_port hnd hpw
+            by_cases hpos : 0 < weOf t' p.name
+            · rw [Tools.ShippingMachineClose.weOf_wires_append (m := t')
+                (extra := ps.map fun p => { name := nextName p.name, ty := p.ty })
+                (by simp [closeMachine, hpwC, hdrop]) hpos]
+              exact h1
+            · -- a zero width: the port's type gives zero, and so does the closed module
+              have h0 : weOf t' p.name = 0 := by omega
+              rw [h0] at h1
+              unfold weOf
+              rw [show (closeMachine shape.layout t').wires = t'.wires ++
+                  ps.map (fun p => ({ name := nextName p.name, ty := p.ty } : Port)) by
+                  simp [closeMachine, hpwC, hdrop], List.find?_append,
+                Tools.ShippingEntrySoundness.find?_of_nodup hnd hpw]
+              obtain ⟨n, ty⟩ := p
+              cases ty <;> rfl
+          rw [hinC, htake]
+          refine ⟨?_, ?_, ?_, ?_⟩
+          · rw [List.map_append]
+            refine List.nodup_append.mpr ⟨hP1nd, ?_, ?_⟩
+            · split <;> simp
+            · intro a ha b hb hab
+              subst hab
+              have halloc := hP1alloc a ha
+              split at hb
+              · simp at hb
+              · simp only [List.map_cons, List.map_nil, List.mem_cons, List.not_mem_nil,
+                  or_false] at hb
+                rcases hb with rfl | rfl
+                · exact Tools.ShippingMachineCleanup.not_allocated_clk halloc
+                · exact Tools.ShippingRegisterSoundness.not_allocated_rst halloc
+          · intro hne
+            cases hsl : shape.layout.slots with
+            | nil => exact absurd hsl hne
+            | cons _ _ => simp
+          · intro x hx hxi
+            rw [outs0] at hx
+            simp only [List.map_map, List.mem_map, Function.comp] at hx
+            obtain ⟨o, ho, rfl⟩ := hx
+            obtain ⟨hna, hnr, _⟩ := Tools.ShippingMachineClose.outNameOk_facts (outsOk o ho).2
+            have hnc : o.name ≠ "clk" := by
+              have hok := (outsOk o ho).2
+              simp only [outNameOk, Bool.and_eq_true, bne_iff_ne, ne_eq] at hok
+              exact hok.2
+            rw [List.map_append] at hxi
+            rcases List.mem_append.mp hxi with h | h
+            · exact hna (hP1alloc _ h)
+            · split at h
+              · simp at h
+              · simp only [List.map_cons, List.map_nil, List.mem_cons, List.not_mem_nil,
+                  or_false] at h
+                rcases h with h | h
+                · exact hnc h
+                · exact hnr h
+          · intro p hp hpc hpr
+            rcases List.mem_append.mp hp with hp | hp
+            · exact hwM p hp
+            · split at hp
+              · simp at hp
+              · simp only [List.mem_cons, List.not_mem_nil, or_false] at hp
+                rcases hp with rfl | rfl
+                · exact absurd rfl hpc
+                · exact absurd rfl hpr
       · exact absurd hnil hne
     · intro hfe st hst hinst
       rcases hmt with ⟨_, hm'⟩ | ⟨_, children, hci⟩
