@@ -233,6 +233,12 @@ theorem closeMachine_cleanup {t : Module} {lay : Layout} {B : List Stmt} {w : St
     · rename_i h; simp at h; omega
     · simp [fieldRhs, Sparkle.IR.ZeroWidth.dzExpr]
 
+theorem not_allocated_clk : ¬ Allocated "clk" := by
+  intro h
+  have := h.2
+  revert this
+  decide
+
 /-- The register of slot `k`. -/
 theorem mem_registers (rk : ResetKind) :
     ∀ (ps : List Port) (fs : List SlotField) (k : Nat) (p : Port) (f : SlotField),
@@ -248,5 +254,91 @@ theorem mem_registers (rk : ResetKind) :
     exact List.mem_cons_of_mem _ (mem_registers rk ps fs k p f hp hf)
   | [], _, _, _, _, hp, _ => by simp at hp
   | _ :: _, [], _, _, _, _, hf => by simp at hf
+
+/-- Every statement of `registers` is a slot's register. -/
+theorem registers_mem (rk : ResetKind) :
+    ∀ (ps : List Port) (fs : List SlotField) (st : Stmt), st ∈ registers rk ps fs →
+      ∃ (k : Nat) (p : Port) (f : SlotField), ps[k]? = some p ∧ fs[k]? = some f ∧
+        st = Stmt.register p.name "clk" ("rst", rk) (.ref (nextName p.name)) (Int.ofNat f.init)
+  | q :: ps, g :: fs, st, h => by
+    simp only [registers, List.mem_cons] at h
+    rcases h with rfl | h
+    · exact ⟨0, q, g, rfl, rfl, rfl⟩
+    · obtain ⟨k, p, f, hp, hf, he⟩ := registers_mem rk ps fs st h
+      exact ⟨k + 1, p, f, by simpa using hp, by simpa using hf, he⟩
+  | [], _, _, h => by simp [registers] at h
+  | _ :: _, [], _, h => by simp [registers] at h
+
+theorem nextName_ne_rst (s : String) : nextName s ≠ "rst" := by
+  intro h
+  have := congrArg String.length h
+  have h3 : "rst".length = 3 := by decide
+  have h4 : "next".length = 4 := by decide
+  rw [nextName, String.length_append, h4, h3] at this
+  omega
+
+theorem nextName_ne_clk (s : String) : nextName s ≠ "clk" := by
+  intro h
+  have := congrArg String.length h
+  have h3 : "clk".length = 3 := by decide
+  have h4 : "next".length = 4 := by decide
+  rw [nextName, String.length_append, h4, h3] at this
+  omega
+
+theorem nextAssigns_mem (w : String) :
+    ∀ (ps : List Port) (fs : List SlotField) (st : Stmt), st ∈ nextAssigns w ps fs →
+      ∃ (p : Port) (f : SlotField), st = .assign (nextName p.name) (fieldRhs w f.lo f.width)
+  | q :: ps, g :: fs, st, h => by
+    simp only [nextAssigns, List.mem_cons] at h
+    rcases h with rfl | h
+    · exact ⟨q, g, rfl⟩
+    · exact nextAssigns_mem w ps fs st h
+  | [], _, _, h => by simp [nextAssigns] at h
+  | _ :: _, [], _, h => by simp [nextAssigns] at h
+
+/-- **No statement of a closed machine assigns the clock or the reset.** -/
+theorem closeMachine_noClkRst {t : Module} {lay : Layout} {B : List Stmt} {w : String}
+    (hbody : t.body = B ++ [.assign "out" (.ref w)])
+    (typed : TypedStmts (weOf t) t.body)
+    (names : ∀ p ∈ t.wires, Allocated p.name)
+    (outsOk : ∀ o ∈ lay.outs, 0 < o.width ∧ outNameOk o.name = true) :
+    ∀ x r, Stmt.assign x r ∈ (closeMachine lay t).body → x ≠ "rst" ∧ x ≠ "clk" := by
+  have hpw : packedWire? t.body = some w := by simp [packedWire?, hbody]
+  have hdrop : t.body.dropLast = B := by simp [hbody]
+  intro x r hx
+  have hM : (closeMachine lay t).body = B ++
+      nextAssigns w (t.inputs.drop (t.inputs.length - lay.slots.length)) lay.slots ++
+      registers lay.resetKind (t.inputs.drop (t.inputs.length - lay.slots.length)) lay.slots ++
+      outAssigns w lay.outs := by
+    simp [closeMachine, hpw, hdrop]
+  rw [hM] at hx
+  simp only [List.mem_append] at hx
+  rcases hx with ((hB | hN) | hR) | hO
+  · obtain ⟨l, e, n, he, ht, hl⟩ := typed _ (by rw [hbody]; exact List.mem_append_left _ hB)
+    cases he
+    rcases hl with hl | rfl
+    · have hpos : 0 < weOf t x := by rw [hl]; exact ht.positive
+      have halloc : Allocated x := by
+        unfold weOf at hpos
+        cases hf : t.wires.find? (fun p => p.name == x) with
+        | none => rw [hf] at hpos; simp at hpos
+        | some p =>
+          have hx := List.find?_some hf
+          simp only [beq_iff_eq] at hx
+          exact hx ▸ names p (List.mem_of_find?_eq_some hf)
+      exact ⟨fun h => Tools.ShippingRegisterSoundness.not_allocated_rst (h ▸ halloc),
+        fun h => not_allocated_clk (h ▸ halloc)⟩
+    · exact ⟨by decide, by decide⟩
+  · obtain ⟨p, f, he⟩ := nextAssigns_mem w _ _ _ hN
+    cases he
+    exact ⟨nextName_ne_rst _, nextName_ne_clk _⟩
+  · obtain ⟨k, p, f, _, _, he⟩ := registers_mem _ _ _ _ hR
+    cases he
+  · simp only [outAssigns, List.mem_map] at hO
+    obtain ⟨o, ho, he⟩ := hO
+    cases he
+    have hok := (outsOk o ho).2
+    simp only [outNameOk, Bool.and_eq_true, bne_iff_ne, ne_eq] at hok
+    exact ⟨hok.1.2, hok.2⟩
 
 end Tools.ShippingMachineCleanup

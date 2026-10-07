@@ -683,9 +683,15 @@ def MachineWired (declName : Name) (shape : MachineShape) (ids : List FVarId)
       weOf (Sparkle.IR.ZeroWidth.dropZeroWidthModule m) = weOf m ∧
       (Sparkle.IR.ZeroWidth.dropZeroWidthModule m).inputs = m.inputs ∧
       (Sparkle.IR.ZeroWidth.dropZeroWidthModule m).outputs = m.outputs) ∧
-    ∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r → shape.layout.slots[k]? = some f →
-      weOf m r = f.width ∧
+    (shape.layout.slots ≠ [] → "rst" ∈ m.inputs.map (·.name)) ∧
+    (∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r → shape.layout.slots[k]? = some f →
+      weOf m r = f.width ∧ r ∉ m.inputs.map (·.name) ∧
       ∃ rk inp, Stmt.register r "clk" ("rst", rk) inp (Int.ofNat f.init) ∈ m.body) ∧
+    -- and every register statement is a slot's
+    ∀ (r c : String) (rs : String × Sparkle.IR.Type.ResetKind) (inp : Sparkle.IR.AST.Expr) (init : Int),
+      Stmt.register r c rs inp init ∈ m.body →
+      ∃ (k : Nat) (f : SlotField), regs[k]? = some r ∧ shape.layout.slots[k]? = some f ∧
+        init = Int.ofNat f.init) ∧
   -- calls with several outputs or of sequential children: every instance
   -- statement is a call group's (`closeInstsG`) ...
   (shape.instFields ≠ [] → ∀ st ∈ m.body, Sparkle.IR.Machine.isInst st = true →
@@ -705,7 +711,9 @@ def MachineWired (declName : Name) (shape : MachineShape) (ids : List FVarId)
       (shape.insts.map (·.2.1))[k]? = some args) ∧
   -- and the instances have distinct names, none feeding itself
   (shape.instFields ≠ [] → (m.body.filterMap instNameOf).Nodup ∧
-    noSelfFeed (moduleByName dsn.modules) m.body = true)
+    noSelfFeed (moduleByName dsn.modules) m.body = true) ∧
+  -- and no statement assigns the reset or the clock
+  ∀ r, Stmt.assign "rst" r ∉ m.body ∧ Stmt.assign "clk" r ∉ m.body
 
 /-- **One cycle of a compiled state machine.** The module the machine route
 returns has one register per slot (`regs`, in slot order) and, on every
@@ -1339,7 +1347,7 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
     have outs0 : (closeMachine shape.layout t').outputs =
         shape.layout.outs.map (fun o => ({ name := o.name, ty := o.ty } : Port)) := by
       unfold closeMachine; rw [hpwC]
-    refine ⟨namesNodup, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+    refine ⟨namesNodup, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
     · intro x hx
       obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hx
       exact pb.wireNames p (pb.inputWires p hp)
@@ -1452,27 +1460,80 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
             exact pb.inputWires p (by
               rw [tInputs]; rw [hin'] at hp; exact List.mem_append_left _ hp))
           inNd' (by rw [hwires']; exact ready.wiresNodup) (hdrop ▸ slotsOk) outsOk outsNodup
-          houtTy, ?_⟩
-        intro k r f hr hf
-        obtain ⟨p, hp, rfl⟩ : ∃ p, ps[k]? = some p ∧ p.name = r := by
-          rw [List.getElem?_map] at hr
-          cases hpk : ps[k]? with
-          | none => rw [hpk] at hr; cases hr
-          | some p => rw [hpk] at hr; exact ⟨p, rfl, Option.some.inj hr⟩
-        have hsl := Tools.ShippingMachineClose.Zip₂.get slotsOk k p f hp hf
-        refine ⟨?_, ?_⟩
-        · have hpos : 0 < weOf t' p.name := by rw [hsl.1]; exact hsl.2
-          rw [Tools.ShippingMachineClose.weOf_wires_append (m := t')
-            (extra := ps.map fun p => { name := nextName p.name, ty := p.ty })
-            (by simp [closeMachine, hpwC, hdrop]) hpos]
-          exact hsl.1
-        · refine ⟨shape.layout.resetKind, .ref (nextName p.name), ?_⟩
+          houtTy, ?_, ?_, ?_⟩
+        · intro hne
+          have : (closeMachine shape.layout t').inputs =
+              t'.inputs.take (t'.inputs.length - shape.layout.slots.length) ++
+                [{ name := "clk", ty := .bit }, { name := "rst", ty := .bit }] := by
+            cases hsl : shape.layout.slots with
+            | nil => exact absurd hsl hne
+            | cons _ _ => simp [closeMachine, hpwC, hsl]
+          rw [this]; simp
+        · intro k r f hr hf
+          obtain ⟨p, hp, rfl⟩ : ∃ p, ps[k]? = some p ∧ p.name = r := by
+            rw [List.getElem?_map] at hr
+            cases hpk : ps[k]? with
+            | none => rw [hpk] at hr; cases hr
+            | some p => rw [hpk] at hr; exact ⟨p, rfl, Option.some.inj hr⟩
+          have hsl := Tools.ShippingMachineClose.Zip₂.get slotsOk k p f hp hf
+          have hpIn : p ∈ ps := List.mem_of_getElem? hp
+          refine ⟨?_, ?_, ?_⟩
+          · have hpos : 0 < weOf t' p.name := by rw [hsl.1]; exact hsl.2
+            rw [Tools.ShippingMachineClose.weOf_wires_append (m := t')
+              (extra := ps.map fun p => { name := nextName p.name, ty := p.ty })
+              (by simp [closeMachine, hpwC, hdrop]) hpos]
+            exact hsl.1
+          · -- a slot port is not an input of the closed module
+            have hinC : (closeMachine shape.layout t').inputs =
+                t'.inputs.take (t'.inputs.length - shape.layout.slots.length) ++
+                  (if shape.layout.slots.isEmpty then [] else
+                    [{ name := "clk", ty := .bit }, { name := "rst", ty := .bit }]) := by
+              simp [closeMachine, hpwC]
+            have htake : t'.inputs.take (t'.inputs.length - shape.layout.slots.length) = P1 := by
+              rw [hin', List.length_append, slotsLen, psLen, Nat.add_sub_cancel, List.take_left]
+            rw [hinC, htake, List.map_append]
+            intro hm
+            rcases List.mem_append.mp hm with hm | hm
+            · have hnd := inNd'
+              rw [hin', List.map_append] at hnd
+              exact (List.nodup_append.mp hnd).2.2 _ hm _ (List.mem_map_of_mem hpIn) rfl
+            · have halloc : Sparkle.IR.NameHints.Allocated p.name :=
+                pb.wireNames p (pb.inputWires p (by
+                  rw [tInputs]; exact List.mem_append_left _ (List.mem_append_right _ hpIn)))
+              split at hm
+              · simp at hm
+              · simp only [List.map_cons, List.map_nil, List.mem_cons, List.not_mem_nil,
+                  or_false] at hm
+                rcases hm with h | h
+                · exact Tools.ShippingMachineCleanup.not_allocated_clk (h ▸ halloc)
+                · exact Tools.ShippingRegisterSoundness.not_allocated_rst (h ▸ halloc)
+          · refine ⟨shape.layout.resetKind, .ref (nextName p.name), ?_⟩
+            rw [show (closeMachine shape.layout t').body = t'.body.dropLast ++
+                nextAssigns coreW ps shape.layout.slots ++
+                registers shape.layout.resetKind ps shape.layout.slots ++
+                outAssigns coreW shape.layout.outs by simp [closeMachine, hpwC, hdrop]]
+            refine List.mem_append_left _ (List.mem_append_right _ ?_)
+            exact Tools.ShippingMachineCleanup.mem_registers _ ps shape.layout.slots k p f hp hf
+        · intro r c rs inp init hmem
           rw [show (closeMachine shape.layout t').body = t'.body.dropLast ++
               nextAssigns coreW ps shape.layout.slots ++
               registers shape.layout.resetKind ps shape.layout.slots ++
-              outAssigns coreW shape.layout.outs by simp [closeMachine, hpwC, hdrop]]
-          refine List.mem_append_left _ (List.mem_append_right _ ?_)
-          exact Tools.ShippingMachineCleanup.mem_registers _ ps shape.layout.slots k p f hp hf
+              outAssigns coreW shape.layout.outs by simp [closeMachine, hpwC, hdrop]] at hmem
+          simp only [List.mem_append] at hmem
+          rcases hmem with ((hB | hN) | hR) | hO
+          · have := List.all_eq_true.mp typed'.isAssign _ (List.dropLast_subset _ hB)
+            simp [Sparkle.IR.RegDedup.isAssign] at this
+          · obtain ⟨l, rr, he⟩ := Tools.ShippingMachineClose.nextAssigns_assigns coreW ps
+              shape.layout.slots _ hN
+            cases he
+          · obtain ⟨k, p, f, hp, hf, he⟩ :=
+              Tools.ShippingMachineCleanup.registers_mem _ ps shape.layout.slots _ hR
+            injection he with h1 h2 h3 h4 h5
+            subst h1 h5
+            exact ⟨k, f, by rw [List.getElem?_map, hp]; rfl, hf, rfl⟩
+          · simp only [outAssigns, List.mem_map] at hO
+            obtain ⟨o, _, he⟩ := hO
+            cases he
       · exact absurd hnil hne
     · intro hfe st hst hinst
       rcases hmt with ⟨_, hm'⟩ | ⟨_, children, hci⟩
@@ -1543,6 +1604,20 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
           · exact h
         exact ⟨(Tools.ShippingMachineInstG.closeInstsG_names hci).1,
           (Tools.ShippingMachineInstG.closeInstsG_names hci).2.1⟩
+    · intro r
+      have key : ∀ x r, Stmt.assign x r ∈ m.body → x ≠ "rst" ∧ x ≠ "clk" := by
+        intro x r hx
+        have hx' : Stmt.assign x r ∈ (closeMachine shape.layout t').body := by
+          rcases hmt with ⟨_, hm'⟩ | ⟨_, children, hci⟩
+          · subst hm'; exact hx
+          · obtain ⟨_, _, _, L, hL, hperm, _⟩ := hci.some
+            rcases List.mem_append.mp (hperm.mem_iff.mpr hx) with h | h
+            · exact h
+            · have := List.all_eq_true.mp hL _ h
+              simp [Sparkle.IR.Machine.isInst] at this
+        exact Tools.ShippingMachineCleanup.closeMachine_noClkRst hB' typed'
+          (fun p hp => pb.wireNames p (hwires' ▸ hp)) outsOk _ _ hx'
+      exact ⟨fun h => (key _ _ h).1 rfl, fun h => (key _ _ h).2 rfl⟩
   refine ⟨ps.map Port.name, psNodup, by rw [List.length_map, psLen], ls.map Port.name,
     by rw [List.length_map, lsLen], wired, ?_⟩
   intro bools bits env0 mems inputs slotVals hrst hold

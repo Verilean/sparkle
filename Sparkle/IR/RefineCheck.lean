@@ -191,18 +191,15 @@ def seqGate (m : Module) : Bool :=
     | .register .. => true
     | _ => false)
 
-/-- `mergeDuplicates`, result-checked on assign + register modules whose own
-normal forms exist (`refineCheck m m`): the merged module is kept only if
-`refineCheck` accepts it, else the module is returned unmerged. A module
-outside the normal forms (a legacy module whose assigns reference wires
-defined later, a form the normaliser does not know) keeps `mergeDuplicates`
-unchecked, as before: the checked path never changes what the compiler emits
-for it. -/
+/-- `mergeDuplicates`, result-checked: an assignment-only body keeps its
+merge (`mergeDuplicates` validates it itself); any other body keeps the merge
+only if `refineCheck` accepts it, else it is returned unmerged. -/
 def mergeChecked (m : Module) : Module :=
   let r := Sparkle.IR.RegDedup.mergeDuplicates m
-  if seqGate m then
-    if refineCheck m r then r else if refineCheck m m then m else r
-  else r
+  -- an assignment-only body: `mergeDuplicates` validates its own merge
+  if m.body.all Sparkle.IR.RegDedup.isAssign then r
+  -- otherwise the merge is kept only when `refineCheck` accepts it
+  else if refineCheck m r then r else m
 
 def mergeCheckedDesign (d : Design) : Design :=
   { d with modules := d.modules.map mergeChecked }
@@ -212,23 +209,41 @@ theorem mergeChecked_cases (m : Module) :
   unfold mergeChecked
   dsimp only
   split
+  · exact Or.inl rfl
   · split
     · exact Or.inl rfl
-    · split
-      · exact Or.inr rfl
-      · exact Or.inl rfl
-  · exact Or.inl rfl
+    · exact Or.inr rfl
 
-/-- On a gated module in the normal forms the kept module is a checked
+/-- The checked merge keeps a module's ports and wires. -/
+theorem mergeChecked_ports (m : Module) :
+    (mergeChecked m).inputs = m.inputs ∧ (mergeChecked m).outputs = m.outputs ∧
+      (mergeChecked m).wires = m.wires := by
+  rcases mergeChecked_cases m with h | h <;> rw [h]
+  · exact Sparkle.IR.RegDedup.mergeDuplicates_ports m
+  · exact ⟨rfl, rfl, rfl⟩
+
+/-- On a body that is not assignment-only the kept module is a checked
 refinement or the module itself. -/
-theorem mergeChecked_seq {m : Module} (h : seqGate m = true) (hm : refineCheck m m = true) :
+theorem mergeChecked_nonAssign {m : Module}
+    (h : m.body.all Sparkle.IR.RegDedup.isAssign = false) :
     refineCheck m (mergeChecked m) = true ∨ mergeChecked m = m := by
   unfold mergeChecked
   dsimp only
-  rw [if_pos h]
+  rw [if_neg (by rw [h]; decide)]
   split
   · rename_i hc; exact Or.inl hc
   · exact Or.inr rfl
+
+/-- On a gated module the kept module is a checked refinement or the module
+itself. -/
+theorem mergeChecked_seq {m : Module} (h : seqGate m = true) (_hm : refineCheck m m = true) :
+    refineCheck m (mergeChecked m) = true ∨ mergeChecked m = m := by
+  apply mergeChecked_nonAssign
+  simp only [seqGate, Bool.and_eq_true, List.any_eq_true] at h
+  obtain ⟨_, st, hst, hreg⟩ := h
+  apply List.all_eq_false.mpr
+  refine ⟨st, hst, ?_⟩
+  cases st <;> simp_all [Sparkle.IR.RegDedup.isAssign]
 
 end Sparkle.IR.RefineCheck
 

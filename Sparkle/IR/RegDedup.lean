@@ -231,10 +231,10 @@ def isAssign : Stmt → Bool
     plain aliases `n := rep` (a duplicate register's output turns into an
     alias of the surviving register); user-named nodes keep their own
     statement is replaced by the alias as well (see below). -/
-def mergeDuplicatesRaw (m : Module) : Module := Id.run do
+def mergeDuplicatesParts (m : Module) : List Stmt × List (String × Expr) := Id.run do
   let nodes : List (String × Stmt) := m.body.filterMap fun st =>
     (definedNode st).map fun n => (n, st)
-  if nodes.length < 2 then return m
+  if nodes.length < 2 then return (m.body, m.assertions)
   let outputSet : HashMap String Bool :=
     m.outputs.foldl (fun h p => h.insert p.name true) {}
   -- plain aliases `y := x` (x ≠ y): canonical forms look through them
@@ -259,7 +259,7 @@ def mergeDuplicatesRaw (m : Module) : Module := Id.run do
     cls := next
     if n' == nClasses then break
     nClasses := n'
-  if nClasses == nodes.length then return m
+  if nClasses == nodes.length then return (m.body, m.assertions)
   -- User-named nodes (`_gen_<binder>`, module outputs — anything not an
   -- elaborator-internal `_tmp_*`) are read BY NAME at runtime (the JIT's
   -- wire table: `_gen_trap_taken`, `_gen_done`), and a plain alias would
@@ -281,7 +281,7 @@ def mergeDuplicatesRaw (m : Module) : Module := Id.run do
   for (n, _) in nodes do
     let r := rep.getD (cls.getD n 0) n
     if r != n then subst := subst.insert n r
-  if subst.isEmpty then return m
+  if subst.isEmpty then return (m.body, m.assertions)
   let rename := Sparkle.IR.Optimize.renameRefs subst
   let body := m.body.map fun st =>
     match definedNode st with
@@ -290,9 +290,13 @@ def mergeDuplicatesRaw (m : Module) : Module := Id.run do
       | some r => .assign n (.ref r)
       | none => Sparkle.IR.Optimize.mapStmtExprs rename st
     | none => Sparkle.IR.Optimize.mapStmtExprs rename st
-  return { m with
-    body := body,
-    assertions := m.assertions.map fun (n, e) => (n, rename e) }
+  return (body, m.assertions.map fun (n, e) => (n, rename e))
+
+/-- The merge: the module with the merged body (its ports and wires are
+kept). -/
+def mergeDuplicatesRaw (m : Module) : Module :=
+  let p := mergeDuplicatesParts m
+  { m with body := p.1, assertions := p.2 }
 
 /-- The merge, validated on combinational bodies: a combinational module's
 merge is kept only if `validateMerge` accepts it (else the module is returned
@@ -305,6 +309,16 @@ def mergeDuplicates (m : Module) : Module :=
       { m with body := r.body, assertions := r.assertions }
     else m
   else r
+
+/-- The merge keeps a module's ports and wires. -/
+theorem mergeDuplicates_ports (m : Module) :
+    (mergeDuplicates m).inputs = m.inputs ∧ (mergeDuplicates m).outputs = m.outputs ∧
+      (mergeDuplicates m).wires = m.wires := by
+  unfold mergeDuplicates mergeDuplicatesRaw
+  dsimp only
+  split
+  · split <;> exact ⟨rfl, rfl, rfl⟩
+  · exact ⟨rfl, rfl, rfl⟩
 
 def mergeDuplicatesDesign (d : Design) : Design :=
   { d with modules := d.modules.map mergeDuplicates }

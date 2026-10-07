@@ -456,7 +456,7 @@ theorem child_full_post {declName : Name} {d : MachineData} {ι : Type} {dom : �
   obtain ⟨_, _, _, _, _, _, _, _, _, wired, _⟩ := id h
   obtain ⟨_, _, _, _, _, _, _, _, _, hall, hclean, _⟩ := wired
   have hall := hall hnoI hsl
-  obtain ⟨⟨hb, hw, hi, ho⟩, _⟩ := hclean hnoI houtTy
+  obtain ⟨⟨hb, hw, hi, ho⟩, _, _, _⟩ := hclean hnoI houtTy
   obtain ⟨o, ho1⟩ : ∃ o, d.shape.layout.outs = [o] := by
     match hm : d.shape.layout.outs, hout with
     | [o], _ => exact ⟨o, rfl⟩
