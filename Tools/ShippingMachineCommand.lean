@@ -5,6 +5,7 @@ import Tools.ShippingMachineLoop
 import Tools.ShippingMachineShipping
 import Tools.ShippingSignOps
 import Tools.ShippingMachineMemCausal
+import Tools.ShippingMachineFuseGen
 
 /-! # The machine endpoint of a declaration, generated
 
@@ -542,7 +543,10 @@ own output is shown only when it ends). -/
 def progress (msg : String) : MetaM Unit := do
   if let some path ← IO.getEnv "SPARKLE_MACHINE_PROGRESS" then
     let h ← IO.FS.Handle.mk path .append
-    h.putStrLn s!"{← IO.monoMsNow} {msg}"
+    -- (the resident memory, where the system reports it)
+    let status ← try IO.FS.readFile "/proc/self/status" catch _ => pure ""
+    let rss := (status.splitOn "\n").find? (·.startsWith "VmRSS") |>.getD ""
+    h.putStrLn s!"{← IO.monoMsNow} {msg} [{rss}]"
     h.flush
 
 def addDef (name : Name) (type value : Lean.Expr) : MetaM Unit :=
@@ -2041,6 +2045,64 @@ def regsProof (declName : Name) (r : Read) (data ι i D bools bits src inst : Le
   return (p, srcName, [(`machine_ok, false), (`machine_body, true), (`machine_inits, false),
     (`machine_reset, true), (`machine_writes, true), (`machine_result, true)], none)
 
+/-- Every call of `e` (not under a binder), the ones in a call's arguments
+before the call, each once (cached over the shared subterms). -/
+def callsPost (senv : StructEnv) (e : Lean.Expr) : MetaM (Array Lean.Expr) := do
+  let isCall (x : Lean.Expr) : Bool :=
+    (machInstCall? senv x).isSome || (machInstCallS? senv x).isSome ||
+    (Sparkle.Compiler.MachMemory.memCall? (fun e => canonicalNatLitValue? e <|> senv.natOf e) x).isSome
+  let acc ← IO.mkRef (#[] : Array Lean.Expr)
+  let post (x : Lean.Expr) : MetaM TransformStep := do
+    if !x.hasLooseBVars && isCall x then
+      unless (← acc.get).contains x do acc.modify (·.push x)
+    return .done x
+  discard <| withTheReader Core.Context (fun c => { c with maxRecDepth := 1000000 }) do
+    Core.transform e (post := post)
+  acc.get
+
+/-- The call entries of calls already in reading order (`callEntriesG`'s
+entries, without walking the value again). -/
+def entriesOfCalls (senv : StructEnv) (calls : Array Lean.Expr) :
+    MetaM (Array (Lean.Expr × Lean.Expr × Nat)) := do
+  let env ← getEnv
+  let mut acc : Array (Lean.Expr × Lean.Expr × Nat) := #[]
+  for cZ in calls do
+    if (machInstCall? senv cZ).isSome ||
+        (Sparkle.Compiler.MachMemory.memCall? (fun e => canonicalNatLitValue? e <|> senv.natOf e) cZ).isSome
+    then acc := acc.push (cZ, cZ, 0)
+    else
+      let ty ← whnfR (← inferType cZ)
+      let some sn := ty.getAppFn.constName? | throwError "a call's result type {ty}"
+      let fields := getStructureFields env sn
+      for k in [0:fields.size] do
+        acc := acc.push (cZ, ← mkProjection cZ fields[k]!, k)
+  return acc
+
+/-- The reader-order calls of a fused loop (set while its endpoint is made). -/
+initialize fuseOrderRef : IO.Ref (Option (Lean.Expr → MetaM Lean.Expr)) ← IO.mkRef none
+
+/-- The register leaves of a tree of `bundle2` / `pairS` (pre-order). -/
+partial def loopRegsT (e : Lean.Expr) : Option (List (Lean.Expr × Lean.Expr × Lean.Expr)) :=
+  if e.isAppOfArity ``Sparkle.Core.Signal.bundle2 5 || e.isAppOfArity ``Tools.ShippingLoopFusion.pairS 5 then do
+    let a := e.getAppArgs
+    let l ← loopRegsT a[3]!
+    let r ← loopRegsT a[4]!
+    some (l ++ r)
+  else (machLoopReg? e).map fun r => [r]
+
+/-- The typed state tuple of a loop state `x` whose body is the tree `e`. -/
+partial def treeSigma (e x : Lean.Expr) : MetaM Lean.Expr := do
+  let rec leaves (e x : Lean.Expr) : MetaM (Array Lean.Expr) := do
+    if e.isAppOfArity ``Sparkle.Core.Signal.bundle2 5 || e.isAppOfArity ``Tools.ShippingLoopFusion.pairS 5 then
+      let a := e.getAppArgs
+      pure ((← leaves a[3]! (← mkAppM ``Prod.fst #[x])) ++ (← leaves a[4]! (← mkAppM ``Prod.snd #[x])))
+    else pure #[x]
+  let comps ← leaves e x
+  let mut hl := mkConst ``Unit.unit
+  for c in comps.reverse do
+    hl ← mkAppM ``Prod.mk #[c, hl]
+  return hl
+
 def loopProof (declName : Name) (r : Read) (data ι i D bools bits src inst : Lean.Expr) :
     MetaM (Lean.Expr × Name × List (Name × Bool) × Option Lean.Expr) := do
   let nat := mkConst ``Nat
@@ -2067,7 +2129,8 @@ def loopProof (declName : Name) (r : Read) (data ι i D bools bits src inst : Le
   let fBodyZ ← withLocalDeclD `state (← inferType f).bindingDomain! fun st => do
     let b ← zetaReduce (fBody.instantiate1 st)
     pure (b.abstract #[st])
-  let some regs := machLoopRegs (machLetTail fBodyZ) | throwError "{declName}: the loop's registers"
+  progress s!"{declName}: loop body read"
+  let some regs := loopRegsT (machLetTail fBodyZ) | throwError "{declName}: the loop's registers"
   if regs.any (fun (_, init, _) => init.hasLooseBVars) then
     throwError "{declName}: a reset value reads the loop state"
   let n := regs.length
@@ -2084,7 +2147,8 @@ def loopProof (declName : Name) (r : Read) (data ι i D bools bits src inst : Le
     #[toExpr declName, data, ι, ← mkLambdaFVars #[i] D, ← mkLambdaFVars #[i] α,
       ← mkLambdaFVars #[i] inh, ← mkLambdaFVars #[i] rho]
   let sigmaName := declName ++ `machineSigma
-  let sigmaV ← withLocalDeclD `x α fun x => do mkLambdaFVars #[i, x] (← loopSigma x n)
+  let sigmaV ← withLocalDeclD `x α fun x => do
+    mkLambdaFVars #[i, x] (← treeSigma (machLetTail fBodyZ) x)
   addDef sigmaName (← inferType p).bindingDomain! sigmaV
   p := mkApp p (mkConst sigmaName)
   let initsName := declName ++ `machineInits
@@ -2133,7 +2197,16 @@ where
       | none => .domain
     withLocalDeclD `state sigα fun L => do
     let senv := structEnv (← getEnv)
-    let entries ← callEntriesG senv (fBody.instantiate1 L)
+    -- (a fused loop's calls in the order the compiler read them)
+    let entries ← match (← fuseOrderRef.get) with
+      | some ord => do
+        -- (the values are zeta-reduced: a call read in a call's arguments
+        -- comes first, as the compiler binds a call's operands before it)
+        let items := (← ord L).getAppArgs
+        progress s!"{declName}: call order"
+        entriesOfCalls senv (← callsPost senv (mkAppN (mkConst ``Unit.unit) items))
+      | none => callEntriesG senv (fBody.instantiate1 L)
+    progress s!"{declName}: {entries.size} call entries"
     unless entries.size == r.shape.insts.length do
       throwError "{declName}: {entries.size} call outputs found, the compiler read {r.shape.insts.length}"
     for (cl, _, _) in entries do
@@ -2344,6 +2417,9 @@ def signNormalize (declName : Name) (v : Lean.Expr) : MetaM (Lean.Expr × Option
   let cfg : Simp.Config := {}
   let cfg := { cfg with zeta := false }
   let cfg := { cfg with decide := true }
+  -- a dead `let` stays: the compiler still reads its calls (an unused memory
+  -- is an instance)
+  let cfg := { cfg with zetaUnused := false }
   let ctx ← Simp.mkContext (config := cfg)
     (simpTheorems := #[thms]) (congrTheorems := ← getSimpCongrTheorems)
   -- a deep value (an unfolded lookup table) needs the recursion depth
@@ -2408,9 +2484,30 @@ partial def generateCore (declName : Name) (checkCloses : Bool) : MetaM Name := 
         | none => mkApp2 bits (mkNatLit p) (mkNatLit w)
     let src := mkAppN (mkConst declName) args.toArray
     -- sign operations: the endpoint is proved for the rewritten value
+    progress s!"{declName}: sign normalisation"
     let (entryN, normPf?) ← signNormalize declName entryV
-    let srcN := if normPf?.isSome then entryN.beta args.toArray else src
-    let inst := Sparkle.Compiler.MachRawSurface.rootFloat (entryN.beta args.toArray)
+    progress s!"{declName}: normalised"
+    let mut srcN := if normPf?.isSome then entryN.beta args.toArray else src
+    let mut inst := Sparkle.Compiler.MachRawSurface.rootFloat (entryN.beta args.toArray)
+    -- the value applied equals the value the endpoint is made for
+    let mut instEq? : Option Lean.Expr := none
+    if let some pf := normPf? then instEq? := some (← mkCongrFun' pf args.toArray)
+    -- nested hand-written loops: one fused loop (`Tools.ShippingMachineFuseGen`)
+    fuseOrderRef.set none
+    if r.shape.loops.length > 1 && r.shape.runs.isEmpty then
+      progress s!"{declName}: fusing"
+      match ← Tools.ShippingMachineFuseGen.fuseInst inst with
+      | some (inst', hv, order) =>
+        let base := entryN.beta args.toArray
+        let hv ← mkExpectedTypeHint hv (← mkEq base inst')
+        instEq? := some (← match instEq? with
+          | some h => mkEqTrans h hv
+          | none => pure hv)
+        srcN := inst'
+        inst := inst'
+        fuseOrderRef.set (some order)
+        progress s!"{declName}: fused"
+      | none => pure ()
     let (p, srcName, checks, extra) ←
       if r.shape.layout.slots.isEmpty && !r.shape.instFields.isEmpty then
         combCallsProof declName r data ι i D bools bits srcN inst
@@ -2446,7 +2543,7 @@ partial def generateCore (declName : Name) (checkCloses : Bool) : MetaM Name := 
     progress s!"{declName}: theorem"
     -- back to the declaration: its observations are the rewritten value's
     let mut srcName := srcName
-    if let some pf := normPf? then
+    if let some hArgs := instEq? then
       let obsN := (← getConstInfo srcName).value!.beta #[i, bools, bits]
       let motObs ← kabstract obsN srcN
       unless motObs.hasLooseBVars do throwError "{declName}: the observations do not read the source"
@@ -2454,7 +2551,6 @@ partial def generateCore (declName : Name) (checkCloses : Bool) : MetaM Name := 
       let srcDecl := declName ++ `machineSourceDecl
       addDef srcDecl (← inferType (mkConst srcName)) (← mkLambdaFVars #[i, bools, bits] obsD)
       -- `src = srcN`: the declaration applied is its (inlined) value applied
-      let hArgs ← mkCongrFun' pf args.toArray
       let hObs ← mkCongrArg (.lam `s (← inferType src) motObs .default) hArgs
       let hFun ← mkFunExt3 i bools bits hObs
       let heq ← mkExpectedTypeHint hFun (← mkEq (mkConst srcDecl) (mkConst srcName))

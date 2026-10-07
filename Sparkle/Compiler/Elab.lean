@@ -3516,6 +3516,11 @@ structure MachRead where
   /-- Every bare `Signal.register` read (outside any loop): the source term
       and its slot, so a copy of it is the same register. -/
   bareRegs : Array (Lean.Expr × Nat) := #[]
+  /-- How many hand-written loops enclose the body being read, and how many
+      loops were read inside the root loop's body (the frame encoder's
+      inlined pipelines; fused into one loop by `ShippingLoopFusion`). -/
+  loopDepth : Nat := 0
+  nestedLoops : Nat := 0
   /-- Reading a nested machine's chain (a sub-machine met there — one
       reading another's result — is refused: the endpoint's sub-machines
       read the enclosing handles only). -/
@@ -3553,6 +3558,11 @@ def machIsSlot : Lean.Expr → Bool
   | .fvar ⟨.num (.str .anonymous "_machSlot") _⟩ => true
   | _ => false
 
+/-- A `let` placeholder. -/
+def machIsLetVar : Lean.Expr → Bool
+  | .fvar ⟨.num (.str .anonymous "_machLet") _⟩ => true
+  | _ => false
+
 /-- `machBindLet` keeping a `let` whose value is a slot (a named wire). -/
 def machBindLetNamed (nm : Name) (ty v' : Lean.Expr) (lets : MachLets) : Lean.Expr × MachLets :=
   match mixedGateBinderKind? ty with
@@ -3562,6 +3572,30 @@ def machBindLetNamed (nm : Name) (ty v' : Lean.Expr) (lets : MachLets) : Lean.Ex
     match lets.findIdx? (fun l => l.2.2 == v') with
     | some j => (machLet j, lets)
     | none => (machLet lets.size, lets.push (nm.eraseMacroScopes, k, v'))
+
+/-- A `let` naming another `let` (`let y := x`): a wire of its own name
+    (legacy names it), whose value is `x`'s definition — not `x`'s port: a
+    `let` port driven by another `let` port cannot be tied (`closeLets` drives
+    a `let` from an operand wire). The same name and value met again is the
+    same `let`. -/
+def machBindLetAlias (nm : Name) (ty v' : Lean.Expr) (lets : MachLets) : Lean.Expr × MachLets :=
+  let rec resolve : Nat → Lean.Expr → Lean.Expr
+    | 0, e => e
+    | fuel + 1, e@(.fvar ⟨.num (.str .anonymous "_machLet") j⟩) =>
+      match lets[j]? with
+      | some (_, _, v) => resolve fuel v
+      | none => e
+    | _, e => e
+  let val := resolve lets.size v'
+  if machIsLetVar val then machBindLetNamed nm ty v' lets else
+  match mixedGateBinderKind? ty with
+  | some .domain => (v', lets)
+  | none => (v', lets)
+  | some k =>
+    let nm := nm.eraseMacroScopes
+    match lets.findIdx? (fun l => l.1 == nm && l.2.2 == val) with
+    | some j => (machLet j, lets)
+    | none => (machLet lets.size, lets.push (nm, k, val))
 
 /-- A `runCircuitH` application: `(domain, slot types, reset values, body
     under the regs binder)`. -/
@@ -4069,7 +4103,10 @@ partial def machLoopBody (senv : StructEnv) (base : Nat) :
     List MachVal → Lean.Expr → MachRead → Option MachRead
   | env, .letE nm ty v b _, st => do
     let (v', st) ← machConv senv env 0 v st
-    let (x, lets) := machBindLet nm ty v' st.lets
+    -- a named read of the loop's state stays a wire of its name (legacy names)
+    let (x, lets) := if machIsSlot v' then machBindLetNamed nm ty v' st.lets
+      else if machIsLetVar v' then machBindLetAlias nm ty v' st.lets
+      else machBindLet nm ty v' st.lets
     machLoopBody senv base (.val x :: env) b { st with lets := lets }
   | env, tail, st => do
     let regs ← machLoopRegs tail
@@ -4109,17 +4146,20 @@ partial def machLoopRoot (senv : StructEnv) (env : List MachVal) (e : Lean.Expr)
   | some (b0, st') => some (.state b0 n, st')
   | none =>
   let base := st.kinds.size
+  let depth := st.loopDepth
   let st := { st with
     kinds := st.kinds ++ kinds.toArray
     inits := st.inits ++ inits.toArray
     names := st.names ++ ((List.range n).map fun i =>
       Name.mkSimple s!"loop{st.loops.size}_r{i}").toArray
     dom := some dom'
-    loops := st.loops.push (base, n) }
+    loops := st.loops.push (base, n)
+    nestedLoops := if depth ≥ 1 then st.nestedLoops + 1 else st.nestedLoops
+    loopDepth := depth + 1 }
   let before := st.ws.size
   let st ← machLoopBody senv base (.state base n :: env) body st
   some (.state base n,
-    { st with loopWs := st.loopWs.push (base, n, (st.ws.toList.drop before)) })
+    { st with loopWs := st.loopWs.push (base, n, (st.ws.toList.drop before)), loopDepth := depth })
 
 end
 
@@ -5032,7 +5072,7 @@ def machineShape? (symbolicMode : Bool) (parameters : List (String × Nat)) (ci 
     -- (the endpoint's telescope, `TeleT.loop`); several loops alone or a loop
     -- with calls and no enclosing machine are not read
     if !st.loops.isEmpty && st.runs.isEmpty &&
-        ((!st.insts.isEmpty && !st.instStruct) || st.loops.size != 1) then
+        ((!st.insts.isEmpty && !st.instStruct) || st.loops.size != 1 + st.nestedLoops) then
       none else
     let kinds := st.kinds.toList
     let k := st.lets.size

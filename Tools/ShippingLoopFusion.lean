@@ -392,4 +392,19 @@ theorem Guarded3.pack {π α β γ : Type} {h : Signal D π → Signal D α → 
   exact hg _ _ _ _ _ _ t (fun s hs =>
     ⟨congrArg Prod.fst (hxy s hs).1, congrArg Prod.snd (hxy s hs).1, (hxy s hs).2⟩)
 
+/-- A body over a packed parameter, as a body of the two parts. -/
+theorem Guarded2.unpack {π α β : Type} {h : Signal D (π × α) → Signal D β → Signal D β}
+    (hg : Guarded2 h) : Guarded3 (fun x y z => h (pairS x y) z) := by
+  intro x x' y y' z z' t hxyz
+  exact hg _ _ _ _ t (fun s hs => ⟨by
+    show (x.val s, y.val s) = (x'.val s, y'.val s)
+    rw [(hxyz s hs).1, (hxyz s hs).2.1], (hxyz s hs).2.2⟩)
+
+/-- A pair of guarded values is guarded (`pairS`). -/
+theorem pairS_guarded {α β γ : Type} (a : Signal D α → Signal D β) (b : Signal D α → Signal D γ)
+    (ha : Guarded a) (hb : Guarded b) : Guarded (fun x => pairS (a x) (b x)) := by
+  intro x y t h
+  show ((a x).val t, (b x).val t) = ((a y).val t, (b y).val t)
+  rw [ha x y t h, hb x y t h]
+
 end Tools.ShippingLoopFusion

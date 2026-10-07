@@ -12,6 +12,9 @@
 # FILES.txt limits the
 # run to the files it lists (default: every file pass 1 ran successfully).
 #
+# ENDPOINT_JOBS sets how many files run at once (default 3; one elaboration
+# of a large file can take 3 GB, so a small machine wants fewer).
+#
 # Requires a completed `lake build Tests.AllTests` and must NOT run next to a
 # `lake build`.  A kernel check has no time limit of its own; the per-file
 # limit below is what stops a check that does not end, and such a file is
@@ -36,7 +39,7 @@ run_one() {
   rm -f "$job"
 }
 export -f run_one; export WORK
-xargs -P 3 -L 1 bash -c 'run_one "$0" "$1"' < "$WORK/endpoint_jobs/list.txt"
+xargs -P "${ENDPOINT_JOBS:-3}" -L 1 bash -c 'run_one "$0" "$1"' < "$WORK/endpoint_jobs/list.txt"
 python3 "$HERE/report.py" endpoints "$WORK"
 # the linked composition (one success per declaration counts)
 echo "combinational children with machine_child: $(grep '|CHILD|OK' "$WORK/linked_reasons.txt" | cut -d'|' -f1 | sort -u | wc -l)"
