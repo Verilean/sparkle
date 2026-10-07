@@ -3928,6 +3928,20 @@ The gaps, in the order they weaken the claim:
   no-ops, so a multi-module design's composition is covered dynamically
   by hierarchical co-sim, not proven.  CompCert's theorem composes
   across compilation units.  Research-scale.
+  STARTED (2026-10-08): combinational children are closed on the machine
+  route (`machine_composed`, 27/27, boundary `GateRun`/`MachineRun`).
+  STATEFUL children: `Tools/ShippingHierState.lean` — `runModuleT`, one level,
+  each instance owning a `KidState` (registers, memories) and stepping its
+  child by `stepModule` on its INPUT connections backed by that state; the
+  bridge `runModuleT_of_open` / `runModuleT_of_kids`: the open run from the
+  seeding is the stateful run when every child, stepped on the values feeding
+  it, reaches the seeded outputs (distinct instance names, no input reading
+  the instance's own outputs). PLAN: (1) `MachineWired` call facts for the
+  `closeInstsG` path (clocked, structure-result calls); (2) the memory child
+  modules' (`SparkleMem_*`) own trace theorem; (3) the children's state
+  sequence from their trace theorems; (4) `#machine_composed` for parents
+  with sequential / memory children (the H.264 frame/MP4 encoders); then
+  multi-level.
 - [ ] **F7. Synthesis and silicon.**  Out of scope and worth stating so
   the claim is not overread: the chain ends at emitted SystemVerilog.
   Trusting the synthesis tool and the fabric is the same class of trust
