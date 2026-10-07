@@ -301,4 +301,67 @@ theorem closeInstsG_insts {nIn kI n : Nat} {portNames : List String} {insts : Li
         refine ⟨by rw [ha1, ha], by rw [hc1, Option.map_some, hn], rfl⟩
   · cases h
 
+/-- **Every call is an instance's output.** For each entry `k` there is the
+instance statement of its group in the closed module, reading the entry's
+field into the entry's transition input. -/
+theorem closeInstsG_calls {nIn kI n : Nat} {portNames : List String} {insts : List (List Nat)}
+    {fields : List String}
+    {children : List (Module × Design)} {m₀ : Module} {d₀ : Design} {m : Module} {d : Design}
+    (h : closeInstsG nIn kI n portNames insts fields children (m₀, d₀) = some (m, d)) :
+    ∀ k, k < insts.length → ∃ st ∈ m.body, ∃ (args : List Nat) (outs : List (Nat × String))
+      (child : Module × Design) (mc : Module), CallStmtG nIn kI n portNames args outs mc st ∧
+      moduleByName d.modules child.1.name = some mc ∧ (k, fields.getD k "") ∈ outs ∧
+      insts[k]? = some args ∧ (children[k]?).map (·.1.name) = some child.1.name := by
+  intro k hk
+  unfold closeInstsG at h
+  simp only [Option.bind_eq_bind] at h
+  obtain ⟨stmts, hstmts, h⟩ := Option.bind_eq_some_iff.mp h
+  obtain ⟨outWs, _, h⟩ := Option.bind_eq_some_iff.mp h
+  obtain ⟨body, _, h⟩ := Option.bind_eq_some_iff.mp h
+  split at h
+  · rename_i hc
+    simp only [Bool.and_eq_true, decide_eq_true_eq] at hc
+    obtain ⟨⟨⟨⟨⟨⟨⟨⟨_, _⟩, _⟩, _⟩, hperm⟩, _⟩, _⟩, _⟩, _⟩ := hc
+    cases h
+    have hbd := (withClockFor_same children m₀).2.2.2
+    unfold stmtsG at hstmts
+    simp only [Option.bind_eq_bind] at hstmts
+    obtain ⟨keys, hkeys, hstmts⟩ := Option.bind_eq_some_iff.mp hstmts
+    obtain ⟨hklen, hkget⟩ := keys_get hkeys
+    obtain ⟨hgok, hcov⟩ := callGroups_ok keys
+    obtain ⟨g, hgmem, hkg⟩ := hcov k (by omega)
+    obtain ⟨gi, hgi, hgget⟩ := List.getElem_of_mem hgmem
+    obtain ⟨hlen, hget⟩ := mapM_some _ _ stmts hstmts
+    have hgi' : gi < (callGroups keys).zipIdx.length := by simpa using hgi
+    obtain ⟨st, hst, hsti⟩ := hget gi hgi'
+    have hz : (callGroups keys).zipIdx[gi] = ((callGroups keys)[gi], gi) := by simp
+    rw [hz] at hst
+    simp only [Option.bind_eq_bind] at hst
+    obtain ⟨k0, hk0, hst⟩ := Option.bind_eq_some_iff.mp hst
+    obtain ⟨args, hargs, hst⟩ := Option.bind_eq_some_iff.mp hst
+    obtain ⟨child, hchild, hst⟩ := Option.bind_eq_some_iff.mp hst
+    obtain ⟨mc, hmc, hst⟩ := Option.bind_eq_some_iff.mp hst
+    rw [hgget] at hk0 hst
+    -- `st` is in the closed module
+    have hstm : st ∈ m₀.body ++ stmts := List.mem_append_right _ (List.mem_of_getElem? hsti)
+    rw [← hbd] at hstm
+    refine ⟨st, (Sparkle.IR.Reorder.isPermOf_sound hperm).mem_iff.mp hstm, args,
+      g.map (fun k => (k, fields.getD k "")), child, mc, instStmtG_some hst, hmc,
+      List.mem_map.mpr ⟨k, hkg, rfl⟩, ?_⟩
+    -- entry `k` shares the group's key
+    obtain ⟨k0', rest, hg, hall⟩ := hgok g hgmem
+    have hk0' : k0 = k0' := by rw [hg] at hk0; simpa using hk0.symm
+    subst hk0'
+    have hkk0 := hall k hkg
+    have hk0lt : k0 < insts.length := (List.getElem?_eq_some_iff.mp hargs).1
+    obtain ⟨a0, c0, ha0, hc0, hkey0⟩ := hkget k0 hk0lt
+    rw [hargs] at ha0; cases ha0
+    rw [hchild] at hc0; cases hc0
+    obtain ⟨a1, c1, ha1, hc1, hkey1⟩ := hkget k hk
+    rw [hkk0, hkey0] at hkey1
+    simp only [Option.some.injEq, Prod.mk.injEq] at hkey1
+    obtain ⟨hn, ha⟩ := hkey1
+    exact ⟨by rw [ha1, ha], by rw [hc1, Option.map_some, hn]⟩
+  · cases h
+
 end Tools.ShippingMachineInstG
