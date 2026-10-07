@@ -237,13 +237,13 @@ theorem machine_linkedT_calls {declName : Name} {d : MachineData} {m : Module} {
     (hLlen : d.letBs.length = d.shape.layout.lets)
     (hNIn : machNIn d.shape = ((d.bsIn.take kD).filter (fun b => b.2 != .domain)).length)
     (bsC : Name → List (Name × MixedGateBinder)) (outsC : Name → List OutField)
-    (S : Name → (Nat → List Nat) → List (Nat → Nat))
+    (S : ι → Name → (Nat → List Nat) → List (Nat → Nat))
     (hcalls : ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
       (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) k c,
       (d.shape.insts.map (·.1))[k]? = some c →
       MemFacts d.shape (lsrc i bools bits) d.ls.length (d.bsIn.drop kD) kD (ext i bools bits) k c ∨
       SeqFacts d.shape dsn m.body (lsrc i bools bits) d.ls.length (d.bsIn.drop kD) kD
-        (extB i bools bits) (ext i bools bits) bsC outsC S k c) :
+        (extB i bools bits) (ext i bools bits) bsC outsC (S i) k c) :
     ∃ ids : List FVarId, ids.Nodup ∧ ids.length = d.shape.binders.length ∧
     ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
       regs.Nodup ∧ regs.length = d.ss.length ∧
@@ -277,7 +277,7 @@ theorem machine_linkedT_calls {declName : Name} {d : MachineData} {m : Module} {
   intro i bools bits T seed st0 mems kids hin hpass hrst hclk0 hinit hm0 hst0 hreg
   exact H i bools bits T seed st0 mems kids hin hpass hrst hclk0 hinit
     (calls_hchild d.shape dsn m.body (lsrc i bools bits) d.ls.length (d.bsIn.drop kD) kD
-      (extB i bools bits) (ext i bools bits) bsC outsC S _ _ _ T kids hm0 hst0 hreg
+      (extB i bools bits) (ext i bools bits) bsC outsC (S i) _ _ _ T kids hm0 hst0 hreg
       (hcalls i bools bits))
 
 /-! ## A sequential call's argument stream, decoded -/

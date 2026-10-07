@@ -46,15 +46,11 @@ def generateSeqChild (c : Name) : MetaM Name := do
   if (← getEnv).contains name then return name
   let args ← soundArgs c ``Tools.ShippingMachineAuto.machine_trace_of_data
   let soundL := mkAppN (mkConst ``Tools.ShippingMachineCausal.machine_traceL_of_data) args
-  let ιc := args[2]!
-  let i0 ← if ιc.isConstOf ``Unit then pure (mkConst ``Unit.unit)
-    else pure (mkConst ``Sparkle.Core.Domain.defaultDomain)
   let mut p ← mkAppOptM ``Tools.ShippingMachineSeqInst.seqChildRun_full
     #[none, none, none, none, none, none, soundL]
   for _ in [0:7] do
     let ty := (← whnf (← inferType p)).bindingDomain!
     p := mkApp p (← mkDecideProof ty)
-  p := mkApp p i0
   addTheorem name (← inferType p) p
   return name
 
@@ -165,32 +161,39 @@ def generateCoreS (declName : Name) : MetaM Name := do
   let obsTy := mkApp (mkConst ``List [.zero]) (← mkArrow nat nat)
   let mut bsCases : List (Name × Lean.Expr) := []
   let mut outsCases : List (Name × Lean.Expr) := []
-  let mut sCases : List (Name × Lean.Expr) := []
-  let mut srcOf : Std.HashMap Name (Lean.Expr × Lean.Expr) := {}  -- (source at i0, its domain)
+  -- the parent's family index type and domain map
+  let ιP := tyArgs[4]!
+  let domP := tyArgs[5]!
+  -- a child's source at the child index matching parent index `iv`, and its domain
+  let srcAt (c : Name) (iv : Lean.Expr) : MetaM (Lean.Expr × Lean.Expr × Lean.Expr) := do
+    let csrc := mkConst (c ++ `machineSource)
+    let ιc := (← inferType csrc).bindingDomain!
+    let idx ← if ιc.isConstOf ``Unit then pure (mkConst ``Unit.unit)
+      else whnf (mkApp domP iv)
+    let src0 := mkApp csrc idx
+    let Dc := ((← whnf (← inferType src0)).bindingDomain!).bindingBody!.getAppArgs[0]!
+    pure (src0, Dc, idx)
   for c in seqKids do
     let cd := mkConst (c ++ `machineData)
     let bsIn ← mkAppM ``Tools.ShippingMachineAuto.MachineData.bsIn #[cd]
     bsCases := bsCases ++ [(c, bsIn)]
     outsCases := outsCases ++ [(c, ← mkAppM ``Sparkle.IR.Machine.Layout.outs
       #[← mkAppM ``Sparkle.Compiler.Elab.MachineShape.layout #[← mkAppM ``Tools.ShippingMachineAuto.MachineData.shape #[cd]]])]
-    let csrc := mkConst (c ++ `machineSource)
-    let ιc := (← inferType csrc).bindingDomain!
-    let i0 := if ιc.isConstOf ``Unit then mkConst ``Unit.unit
-      else mkConst ``Sparkle.Core.Domain.defaultDomain
-    let src0 := mkApp csrc i0
-    let Dc := ((← whnf (← inferType src0)).bindingDomain!).bindingBody!.getAppArgs[0]!
-    srcOf := srcOf.insert c (src0, Dc)
-    let sF ← withLocalDeclD `vals valsTy fun vals => do
-      mkLambdaFVars #[vals] (mkApp2 src0
-        (← mkAppOptM ``Tools.ShippingMachineChild.boolsOf #[Dc, bsIn, vals])
-        (← mkAppOptM ``Tools.ShippingMachineChild.bitsOf #[Dc, bsIn, vals]))
-    sCases := sCases ++ [(c, sF)]
   let bsC ← nameCases bsTy bsCases (mkApp (mkConst ``List.nil [.zero]) bsTy.appArg!)
   let outsC ← nameCases outsTy outsCases (mkApp (mkConst ``List.nil [.zero]) outsTy.appArg!)
   let natNat ← mkArrow nat nat
   let sDflt ← withLocalDeclD `vals valsTy fun vals =>
     mkLambdaFVars #[vals] (mkApp (mkConst ``List.nil [.zero]) natNat)
-  let S ← nameCases (← mkArrow valsTy obsTy) sCases sDflt
+  let S ← withLocalDeclD `i ιP fun iv => do
+    let mut sCases : List (Name × Lean.Expr) := []
+    for (c, bsIn) in bsCases do
+      let (src0, Dc, _) ← srcAt c iv
+      let sF ← withLocalDeclD `vals valsTy fun vals => do
+        mkLambdaFVars #[vals] (mkApp2 src0
+          (← mkAppOptM ``Tools.ShippingMachineChild.boolsOf #[Dc, bsIn, vals])
+          (← mkAppOptM ``Tools.ShippingMachineChild.bitsOf #[Dc, bsIn, vals]))
+      sCases := sCases ++ [(c, sF)]
+    mkLambdaFVars #[iv] (← nameCases (← mkArrow valsTy obsTy) sCases sDflt)
   -- the boundary: per sequential child, its instances' modules are runs of the full entry on it
   let bTypes ← seqKids.mapM fun c => do
     let insts ← mkAppM ``Sparkle.Compiler.Elab.MachineShape.insts
@@ -240,8 +243,7 @@ def generateCoreS (declName : Name) : MetaM Name := do
         | none => try do
           let some seqRun := seqRuns.get? c | throwError "{declName}: child {c}"
           let some hB := hBOf.get? c | throwError "{declName}: boundary {c}"
-          let some (src0, Dc) := srcOf.get? c | throwError "{declName}: source {c}"
-          let isUnitIdx := (src0.appArg!).isConstOf ``Unit.unit
+          let (src0, Dc, idxE) ← srcAt c ibb[0]!
           -- the call: its signal at the call's port, and its arguments
           let pos := r.nDecl + k
           let some sig := (sigAtPos pos extBody).orElse fun _ => sigAtPos pos extBBody
@@ -273,14 +275,18 @@ def generateCoreS (declName : Name) : MetaM Name := do
           let jB := (seqKids.idxOf c)
           let tyA ← inferType A
           let tyB ← inferType B
-          let pr ← withLetDecl `famA tyA A fun aF => withLetDecl `famB tyB B fun bF => do
+          let tyI ← inferType idxE
+          let srcE := src0
+          let tyS ← inferType srcE
+          let pr ← withLetDecl `famA tyA A fun aF => withLetDecl `famB tyB B fun bF =>
+            withLetDecl `famI tyI idxE fun iF => withLetDecl `famS tyS srcE fun sF => do
            let pr ← proveByTacticT goalK (do
             let lit (n : Nat) := Syntax.mkNumLit (toString n)
             let argsArr : Array Term := (argsK.map fun n => (⟨lit n⟩ : Term)).toArray
             let argsS ← `([$argsArr,*])
             let hBS : Term := ⟨mkIdent (Name.mkSimple s!"hB{jB}")⟩
-            let srcS : Term ← if isUnitIdx then `($(mkIdent (`_root_ ++ c ++ `machineSource)) Unit.unit)
-              else `($(mkIdent (`_root_ ++ c ++ `machineSource)) Sparkle.Core.Domain.defaultDomain)
+            let srcS : Term := ⟨mkIdent `famS⟩
+            let idxS : Term := ⟨mkIdent `famI⟩
             let AS : Term := ⟨mkIdent `famA⟩
             let BS : Term := ⟨mkIdent `famB⟩
             let rangeS ← rangeSyntax kinds
@@ -292,8 +298,8 @@ def generateCoreS (declName : Name) : MetaM Name := do
               case b =>
                 intro mc hmc hinst
                 obtain ⟨_, _, _, _, _, _, _, hr', entry', closes'⟩ := $hBS $(lit k) mc rfl hmc hinst
-                exact ⟨$seqRunS hr' entry' closes',
-                  by rw [($seqRunS hr' entry' closes').2.2.2.2.2.1]; decide⟩
+                exact ⟨$seqRunS $idxS hr' entry' closes',
+                  by rw [($seqRunS $idxS hr' entry' closes').2.2.2.2.2.1]; decide⟩
               case l =>
                 exact Tools.ShippingMachineCallsLinkedT.args_facts (by decide)
                   (by simp [Tools.ShippingMachineCausal.letObsB, Tools.ShippingMachineCausal.letObsLoop,
@@ -316,10 +322,11 @@ def generateCoreS (declName : Name) : MetaM Name := do
                       funext p n
                       try simp (config := { zetaDelta := true }) only [Tools.ShippingMachineAuto.extendBits]
                       (repeat' split) <;> (first
-                        | (rename_i hp; obtain ⟨rfl, rfl⟩ := hp; exact Tools.ShippingMachineCallsLinkedT.bitsOf_at
+                        | (rename_i hp; obtain ⟨hp1, hp2⟩ := hp; subst hp1; subst hp2; (try simp only [cast_eq]); exact Tools.ShippingMachineCallsLinkedT.bitsOf_at
                             (fun τ => Tools.ShippingMachineCallsLinkedT.decV_valsOf rfl (by decide) rfl τ))
                         | rfl)))).trans rfl)))
-           pure ((← instantiateMVars pr).replaceFVar aF A |>.replaceFVar bF B)
+           pure ((← instantiateMVars pr).replaceFVar aF A |>.replaceFVar bF B |>.replaceFVar iF idxE
+             |>.replaceFVar sF srcE)
           pure pr
           catch e => throwError "call {k}: {e.toMessageData}"
       try check proofK catch e => throwError "call {k} proof ill-formed: {e.toMessageData}"

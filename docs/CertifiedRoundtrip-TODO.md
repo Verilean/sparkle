@@ -3969,10 +3969,19 @@ The gaps, in the order they weaken the claim:
   (`Tools/ShippingMachineCallsLinkedT.lean`): a machine whose calls are
   memory reads and sequential machine children, composed with them, given per
   call `MemFacts` / `SeqFacts`, children from reset (memories zero, registers
-  at their reset values). NEXT: the generator for `SeqFacts` (the boundary
-  `MachineRun` per sequential call → `seqChildRun_full`; argument ranges; the
-  call's field value = the child's source on the decoded argument stream, a
-  per-declaration equation), then multi-level.
+  at their reset values). GENERATOR DONE: `#machine_composedTS`
+  (`Tools/ShippingMachineSeqCommand.lean`): per sequential child
+  `c.seq_child_run` (its full-entry module is a `SeqChildRun` of its source),
+  per call `SeqFacts` (the decoded argument stream IS the call's argument
+  Signals — `boolsOf_at`/`bitsOf_at` — after which the call's value and the
+  child's output agree by `rfl`), the run boundary as one premise per
+  sequential child (`BoundaryOf`: its instances' modules are runs of the full
+  entry on it); `ShippingMachineSeqTest.parent` and `chained` kernel-checked
+  (`Tests/Compiler/ShippingMachineSeqLinkedTest.lean`). NEXT: MULTI-LEVEL —
+  `runModuleT` is one level (an instance steps its child flat); children that
+  call children (the signing demos' engines) need a recursive state
+  (`KidState` tree) and a depth-indexed run, with `SeqChildRun` stated over
+  the child's own stateful run.
 - [ ] **F7. Synthesis and silicon.**  Out of scope and worth stating so
   the claim is not overread: the chain ends at emitted SystemVerilog.
   Trusting the synthesis tool and the fabric is the same class of trust
