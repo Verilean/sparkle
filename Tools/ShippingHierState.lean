@@ -512,4 +512,191 @@ theorem runModuleT_of_kids (we : WEnv) (children : String → Option (Module × 
       rw [kidsAfter_inst kids (NX m) (MX m) body kids hnd mn iname conns hm, hks,
         hkids mn iname conns hm]
 
+/-! ## From the children's own runs -/
+
+/-- The first instance of a body with instance name `iname`: its module and
+connections. -/
+def instOf : List Stmt → String → Option (String × List (String × Expr))
+  | [], _ => none
+  | .inst mn i conns :: rest, iname => if i = iname then some (mn, conns) else instOf rest iname
+  | _ :: rest, iname => instOf rest iname
+
+theorem mem_instNames : ∀ (body : List Stmt) (mn iname : String) (conns : List (String × Expr)),
+    Stmt.inst mn iname conns ∈ body → iname ∈ instNames body
+  | [], _, _, _, h => by cases h
+  | st :: rest, mn, iname, conns, h => by
+    rcases List.mem_cons.mp h with h | h
+    · subst h; simp [instNames]
+    · have := mem_instNames rest mn iname conns h
+      cases st <;> simp only [instNames] <;> first
+        | exact List.mem_cons_of_mem _ this
+        | exact this
+
+theorem instOf_mem : ∀ (body : List Stmt), (instNames body).Nodup →
+    ∀ mn iname conns, Stmt.inst mn iname conns ∈ body → instOf body iname = some (mn, conns)
+  | [], _, _, _, _, h => by cases h
+  | .inst mn' i conns' :: rest, hnd, mn, iname, conns, h => by
+    simp only [instNames, List.nodup_cons] at hnd
+    simp only [instOf]
+    rcases List.mem_cons.mp h with h | h
+    · injection h with h1 h2 h3
+      subst h1; subst h2; subst h3
+      simp
+    · have hne : i ≠ iname := by
+        intro he; subst he
+        exact hnd.1 (mem_instNames rest mn i conns h)
+      rw [if_neg hne]
+      exact instOf_mem rest hnd.2 mn iname conns h
+  | .assign _ _ :: rest, hnd, mn, iname, conns, h =>
+    instOf_mem rest hnd mn iname conns (by
+      rcases List.mem_cons.mp h with h | h
+      · cases h
+      · exact h)
+  | .register .. :: rest, hnd, mn, iname, conns, h =>
+    instOf_mem rest hnd mn iname conns (by
+      rcases List.mem_cons.mp h with h | h
+      · cases h
+      · exact h)
+  | .memory .. :: rest, hnd, mn, iname, conns, h =>
+    instOf_mem rest hnd mn iname conns (by
+      rcases List.mem_cons.mp h with h | h
+      · cases h
+      · exact h)
+
+/-- The cycle of instance `iname`'s child on the values `env` gives the wires
+feeding it, from the child's state in `kids` (`none` when the instance or its
+child is missing or the step fails). -/
+def kidStep (children : String → Option (Module × WEnv)) (body : List Stmt) (env : Env)
+    (kids : String → KidState) (iname : String) :
+    Option (Env × List (String × Nat) × MEnv) := do
+  let (mn, conns) ← instOf body iname
+  let (child, cwe) ← children mn
+  stepModule cwe child.body (connEnvS (inConns child.outputs conns) env (kids iname).st)
+    (kids iname).mems
+
+/-- **The stateful linked run from the children's own runs.** If the open
+run of the parent produces `P`'s environments (by seed index) and every
+child's own run — fed, at every cycle, with the values `P` gives the wires
+feeding it, from its state in `kids` — shows the open run's values on its
+output wires, then the stateful linked run produces the same environments.
+Instance names are distinct and no input connection reads one of the
+instance's own output wires (decidable facts of the module). -/
+theorem runModuleT_of_childRuns (we : WEnv) (children : String → Option (Module × WEnv))
+    (body : List Stmt) (seed seed' : Nat → (String → Nat) → Env)
+    (hwf : linkedWF children body = true) (hnd : (instNames body).Nodup)
+    (hnofb : ∀ mn iname conns, Stmt.inst mn iname conns ∈ body → ∀ child cwe,
+      children mn = some (child, cwe) → ∀ c ∈ inConns child.outputs conns, ∀ w,
+        c.2 = .ref w → w ∉ instOutWires child.outputs conns)
+    (hseed : ∀ t st mems envF, evalAssigns we mems body (seed' t st) = some envF →
+      seed' t st = seedOuts children body envF (seed t st))
+    (P : Nat → Env) :
+    ∀ (k : Nat) (st : String → Nat) (mems : MEnv) (kids : String → KidState) (envs : List Env),
+      runModule we body seed' k st mems = some envs →
+      (∀ j, j < k → envs[j]? = some (P (k - 1 - j))) →
+      (∀ mn iname conns, Stmt.inst mn iname conns ∈ body → ∃ child cwe cenvs,
+        children mn = some (child, cwe) ∧
+        runModule cwe child.body (fun t cst => connEnvS (inConns child.outputs conns) (P t) cst)
+          k (kids iname).st (kids iname).mems = some cenvs ∧
+        ∀ j, j < k → ∀ p ∈ child.outputs, ∀ w, conns.lookup p.name = some (.ref w) →
+          (cenvs[j]?).map (· p.name) = some (P (k - 1 - j) w)) →
+      runModuleT we children body seed k st mems kids = some envs := by
+  intro k st mems kids envs hrun hP hk0
+  let Kid : Nat → (String → Nat) → MEnv → (String → KidState) → Prop := fun m st mems kids =>
+    (∃ envs', runModule we body seed' m st mems = some envs' ∧
+      ∀ j, j < m → envs'[j]? = some (P (m - 1 - j))) ∧
+    ∀ mn iname conns, Stmt.inst mn iname conns ∈ body → ∃ child cwe cenvs,
+      children mn = some (child, cwe) ∧
+      runModule cwe child.body (fun t cst => connEnvS (inConns child.outputs conns) (P t) cst)
+        m (kids iname).st (kids iname).mems = some cenvs ∧
+      ∀ j, j < m → ∀ p ∈ child.outputs, ∀ w, conns.lookup p.name = some (.ref w) →
+        (cenvs[j]?).map (· p.name) = some (P (m - 1 - j) w)
+  let nx : Nat → (String → KidState) → String → List (String × Nat) := fun m kids iname =>
+    match kidStep children body (P m) kids iname with
+    | some r => r.2.1
+    | none => []
+  let mx : Nat → (String → KidState) → String → MEnv := fun m kids iname =>
+    match kidStep children body (P m) kids iname with
+    | some r => r.2.2
+    | none => (kids iname).mems
+  apply runModuleT_of_open we children body seed seed' hwf Kid nx mx
+    _ k st mems kids envs ⟨⟨envs, hrun, hP⟩, hk0⟩ hrun
+  intro m st mems kids envF nexts mems' ⟨⟨envs', hrun', hP'⟩, hkids⟩ hF hN hM
+  have hstep : stepModule we body (seed' m st) mems = some (envF, nexts, mems') := by
+    simp [stepModule, hF, hN, hM]
+  have h' : (stepModule we body (seed' m st) mems).bind (fun r =>
+      (runModule we body seed' m (applyNexts st r.2.1) r.2.2).bind
+        (fun rest => some (r.1 :: rest))) = some envs' := hrun'
+  rw [hstep] at h'
+  simp only [Option.bind_some] at h'
+  cases hR : runModule we body seed' m (applyNexts st nexts) mems' with
+  | none => rw [hR] at h'; cases h'
+  | some rest =>
+    rw [hR] at h'
+    simp only [Option.bind_some, Option.some.injEq] at h'
+    subst h'
+    have hP0 := hP' 0 (by omega)
+    simp only [List.getElem?_cons_zero, Option.some.injEq, Nat.sub_zero] at hP0
+    rw [show m + 1 - 1 = m by omega] at hP0
+    -- each child's first cycle, and the rest of its run
+    have hchild : ∀ mn iname conns, Stmt.inst mn iname conns ∈ body → ∃ child cwe cres ctail,
+        children mn = some (child, cwe) ∧
+        kidStep children body (P m) kids iname = some (cres, nx m kids iname, mx m kids iname) ∧
+        stepModule cwe child.body (connEnvS (inConns child.outputs conns) envF (kids iname).st)
+          (kids iname).mems = some (cres, nx m kids iname, mx m kids iname) ∧
+        runModule cwe child.body (fun t cst => connEnvS (inConns child.outputs conns) (P t) cst)
+          m (applyNexts (kids iname).st (nx m kids iname)) (mx m kids iname) = some ctail ∧
+        (∀ p ∈ child.outputs, ∀ w, conns.lookup p.name = some (.ref w) → cres p.name = envF w) ∧
+        ∀ j, j < m → ∀ p ∈ child.outputs, ∀ w, conns.lookup p.name = some (.ref w) →
+          (ctail[j]?).map (· p.name) = some (P (m - 1 - j) w) := by
+      intro mn iname conns hm
+      obtain ⟨child, cwe, cenvs, hc, hcrun, hcobs⟩ := hkids mn iname conns hm
+      have hcrun' : (stepModule cwe child.body
+          (connEnvS (inConns child.outputs conns) (P m) (kids iname).st) (kids iname).mems).bind
+          (fun r => (runModule cwe child.body
+            (fun t cst => connEnvS (inConns child.outputs conns) (P t) cst) m
+            (applyNexts (kids iname).st r.2.1) r.2.2).bind (fun rest => some (r.1 :: rest))) =
+          some cenvs := hcrun
+      cases hcs : stepModule cwe child.body
+          (connEnvS (inConns child.outputs conns) (P m) (kids iname).st) (kids iname).mems with
+      | none => rw [hcs] at hcrun'; cases hcrun'
+      | some r =>
+        obtain ⟨cres, cn, cm⟩ := r
+        have hks : kidStep children body (P m) kids iname = some (cres, cn, cm) := by
+          simp [kidStep, instOf_mem body hnd mn iname conns hm, hc, hcs]
+        have hnx : nx m kids iname = cn := by simp [nx, hks]
+        have hmx : mx m kids iname = cm := by simp [mx, hks]
+        rw [hcs] at hcrun'
+        simp only [Option.bind_some] at hcrun'
+        cases hct : runModule cwe child.body
+            (fun t cst => connEnvS (inConns child.outputs conns) (P t) cst) m
+            (applyNexts (kids iname).st cn) cm with
+        | none => rw [hct] at hcrun'; cases hcrun'
+        | some ctail =>
+          rw [hct] at hcrun'
+          simp only [Option.bind_some, Option.some.injEq] at hcrun'
+          subst hcrun'
+          refine ⟨child, cwe, cres, ctail, hc, by rw [hks, hnx, hmx], by rw [hP0, hnx, hmx]; exact hcs,
+            by rw [hnx, hmx]; exact hct, ?_, ?_⟩
+          · intro p hp w hw
+            have := hcobs 0 (by omega) p hp w hw
+            simp only [List.getElem?_cons_zero, Option.map_some, Option.some.injEq] at this
+            rw [this, show m + 1 - 1 - 0 = m by omega, hP0]
+          · intro j hj p hp w hw
+            have := hcobs (j + 1) (by omega) p hp w hw
+            simp only [List.getElem?_cons_succ] at this
+            rw [this, show m + 1 - 1 - (j + 1) = m - 1 - j by omega]
+    refine ⟨hseed m st mems envF hF, ?_, ⟨⟨rest, hR, ?_⟩, ?_⟩⟩
+    · intro mn iname conns hm
+      obtain ⟨child, cwe, cres, ctail, hc, _, hcs, _, hout, _⟩ := hchild mn iname conns hm
+      exact childStepsK_of_step hc (hnofb mn iname conns hm child cwe hc) hcs hout
+    · intro j hj
+      have := hP' (j + 1) (by omega)
+      simp only [List.getElem?_cons_succ] at this
+      rw [this, show m + 1 - 1 - (j + 1) = m - 1 - j by omega]
+    · intro mn iname conns hm
+      obtain ⟨child, cwe, cres, ctail, hc, _, _, hct, _, hobs⟩ := hchild mn iname conns hm
+      refine ⟨child, cwe, ctail, hc, ?_, hobs⟩
+      rw [kidsAfter_inst kids (nx m kids) (mx m kids) body kids hnd mn iname conns hm]
+      exact hct
+
 end Tools.ShippingHierState
