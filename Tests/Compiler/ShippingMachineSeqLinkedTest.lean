@@ -83,6 +83,18 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     unless (Tools.ShippingSeqSVSoundness.seqNames o.body).all (fun x =>
         Sparkle.IR.RegDedup.declWidth o x == Tools.SVParser.EmitSem.weOf wof x) do
       throwError "{n}: checker and emitter widths disagree"
+    -- `design_sv_run`: every instance's child, by its own emitted Verilog
+    for st in o.body do
+      if let .inst mn _ _ := st then
+        let some (child, _) := C mn | throwError "{n}: no child {mn}"
+        let wofC := Tools.SVParser.RoundtripProof.moduleWof child
+        unless child.body.all Sparkle.IR.OptCheck.seqStmtOk do
+          throwError "{n}: child {mn} leaves the assign/register fragment"
+        unless Tools.SVParser.EmitSem.seqCheck wofC (Tools.SVParser.EmitSem.weOf wofC) child.body do
+          throwError "{n}: the emitted-Verilog check rejects child {mn}"
+        unless (Tools.ShippingSeqSVSoundness.seqNames child.body).all (fun x =>
+            Sparkle.IR.RegDedup.declWidth child x == Tools.SVParser.EmitSem.weOf wofC x) do
+          throwError "{n}: child {mn}: checker and emitter widths disagree"
   Lean.logInfo m!"SHIPS HIER: {ds.length} machines with sequential children, to the shipped module; module premises hold"
 
 run_cmd do
@@ -94,7 +106,7 @@ run_cmd do
       ``Tools.ShippingMachineSeqInst.seqChildRun_full,
       ``parent.machine_ships_hier, ``Sparkle.Tests.Compiler.MultiInstance.mesh2x2.machine_ships_hier,
       ``Tools.ShippingMachineShipsHier.machine_ships_hier,
-      ``Tools.ShippingHierSVRun.linked_sv_run] do
+      ``Tools.ShippingHierSVRun.linked_sv_run, ``Tools.ShippingHierSVRun.design_sv_run] do
     for ax in ← Lean.collectAxioms name do
       unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do
         throwError "{name} uses a non-standard axiom: {ax}"

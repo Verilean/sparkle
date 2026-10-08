@@ -377,9 +377,16 @@ widths. The shipped module's EMITTED VERILOG: `Tools.ShippingHierSVRun.linked_sv
 (`runModuleSV`) from the oracle seeding, its instance outputs at each cycle
 the values its children drove (`linked_open_runG`, then `seq_run_to_svI`),
 under the emitted-SV check and width agreement of the shipped module
-(evaluated on the five real shipped modules). OPEN: the children's own
-emitted Verilog driving those values (a design-level SV run),
-transported endpoints, memory-only parents (`#machine_composedT`),
+(evaluated on the five real shipped modules). And the DESIGN:
+`design_sv_run` — along that run (one-level children, `flatKS`), the
+emitted Verilog of every instance's child, fed at each cycle with the run's
+values on its input connections, runs to environments whose output ports
+carry exactly the oracle values the parent's emitted Verilog was given
+(`child_run_of_linked` + `seq_run_to_sv`): the emitted texts of parent and
+children, connected, run as the linked run. The children's emitted-SV
+premises are evaluated on the real children. OPEN: the boundedness
+premises of the SV seedings (instance outputs, connection-fed child inputs)
+discharged from widths, transported endpoints, memory-only parents (`#machine_composedT`),
 depth > 1.
 
 **Stateful composition with children (2026-10-08).** For a machine whose
