@@ -39,6 +39,8 @@ def ComposedH (R : Nat → Sparkle.IR.AST.Module → Prop) (declName : Name) (d 
   ∃ ids : List FVarId, ids.Nodup ∧ ids.length = d.shape.binders.length ∧
   ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
     regs.Nodup ∧ regs.length = d.ss.length ∧
+    ∃ lets : List String, lets.length = d.letBs.length ∧
+    MachineWired declName d.shape ids cache m dsn regs lets ∧
     ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
       (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
       (T : Nat) (seed : Nat → (String → Nat) → Env) (st0 : String → Nat) (mems : MEnv),
@@ -163,7 +165,7 @@ theorem machine_ships_hierH (R : Nat → Sparkle.IR.AST.Module → Prop)
   have hbB : b.body = raw.body := by rw [hbr]; exact hb
   have hbW : declWidth b = Tools.ShippingEntrySoundness.weOf raw := by rw [hbr]; exact hw
   have hbO : b.outputs = raw.outputs := by rw [hbr]; exact ho
-  obtain ⟨ids, nd, len, cache, regs, rnd, rlen, H⟩ := composed hcore entry closes
+  obtain ⟨ids, nd, len, cache, regs, rnd, rlen, _, _, _, H⟩ := composed hcore entry closes
   refine ⟨ids, nd, len, cache, regs, rnd, rlen, ?_⟩
   intro i bools bits T ins st0 mems hsrc hpass hrstZ hinit hcalls hinsFit hstX hstR
   have hrst : ∀ t st, seedIn b ins t st "rst" = 0 := by

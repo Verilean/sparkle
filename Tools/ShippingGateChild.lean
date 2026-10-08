@@ -387,6 +387,8 @@ theorem runs_of_linked {declName : Name} {d : MachineData} {m : Sparkle.IR.AST.M
     (H : ∃ ids : List FVarId, ids.Nodup ∧ ids.length = d.shape.binders.length ∧
       ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
         regs.Nodup ∧ regs.length = d.ss.length ∧
+        ∃ lets : List String, lets.length = d.letBs.length ∧
+        MachineWired declName d.shape ids cache m dsn regs lets ∧
         ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
           (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
           (T : Nat) (seed : Nat → (String → Nat) → Env) (st0 : String → Nat) (mems : MEnv),
@@ -413,6 +415,8 @@ theorem runs_of_linked {declName : Name} {d : MachineData} {m : Sparkle.IR.AST.M
     ∃ ids : List FVarId, ids.Nodup ∧ ids.length = d.shape.binders.length ∧
       ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
         regs.Nodup ∧ regs.length = d.ss.length ∧
+        ∃ lets : List String, lets.length = d.letBs.length ∧
+        MachineWired declName d.shape ids cache m dsn regs lets ∧
         ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
           (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
           (T : Nat) (seed : Nat → (String → Nat) → Env) (st0 : String → Nat) (mems : MEnv),
@@ -434,8 +438,8 @@ theorem runs_of_linked {declName : Name} {d : MachineData} {m : Sparkle.IR.AST.M
             ∀ j (hj : j < envs.length) (k : Nat) (o : OutField) (f : Nat → Nat),
               d.shape.layout.outs[k]? = some o → (src i bools bits)[k]? = some f →
               (envs[j]'hj) o.name = f j := by
-  obtain ⟨ids, nd, len, cache, regs, rnd, rlen, H⟩ := H
-  exact ⟨ids, nd, len, cache, regs, rnd, rlen,
+  obtain ⟨ids, nd, len, cache, regs, rnd, rlen, lets, llen, wired, H⟩ := H
+  exact ⟨ids, nd, len, cache, regs, rnd, rlen, lets, llen, wired,
     fun i bools bits T seed st0 mems a b c e hrun => H i bools bits T seed st0 mems a b c e
       (fun k args mc st h1 h2 h3 h4 => hR k mc (hrun k args mc st h1 h2 h3 h4))⟩
 

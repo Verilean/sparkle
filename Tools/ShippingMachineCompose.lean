@@ -557,6 +557,8 @@ theorem machine_linked {declName : Name} {d : MachineData} {m : Sparkle.IR.AST.M
     ∃ ids : List FVarId, ids.Nodup ∧ ids.length = d.shape.binders.length ∧
     ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
       regs.Nodup ∧ regs.length = d.ss.length ∧
+      ∃ lets : List String, lets.length = d.letBs.length ∧
+      MachineWired declName d.shape ids cache m dsn regs lets ∧
       ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
         (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
         (T : Nat) (seed : Nat → (String → Nat) → Env) (st0 : String → Nat) (mems : MEnv),
@@ -587,7 +589,7 @@ theorem machine_linked {declName : Name} {d : MachineData} {m : Sparkle.IR.AST.M
             d.shape.layout.outs[k]? = some o → (src i bools bits)[k]? = some f →
             (envs[j]'hj) o.name = f j := by
   obtain ⟨ids, nd, len, cache, regs, rnd, rlen, lets, llen, wired, trace⟩ := h
-  refine ⟨ids, nd, len, cache, regs, rnd, rlen, ?_⟩
+  refine ⟨ids, nd, len, cache, regs, rnd, rlen, lets, llen, wired, ?_⟩
   intro i bools bits T seed st0 mems hin hpass hrst hinit hchild hval
   obtain ⟨nnd, alloc, regsIn, hlets, calls, insts, link, _, _, _⟩ := wired
   have calls := calls hsimple
@@ -814,6 +816,8 @@ theorem machine_linked_calls {declName : Name} {d : MachineData} {m : Sparkle.IR
     ∃ ids : List FVarId, ids.Nodup ∧ ids.length = d.shape.binders.length ∧
     ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
       regs.Nodup ∧ regs.length = d.ss.length ∧
+      ∃ lets : List String, lets.length = d.letBs.length ∧
+      MachineWired declName d.shape ids cache m dsn regs lets ∧
       ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
         (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
         (T : Nat) (seed : Nat → (String → Nat) → Env) (st0 : String → Nat) (mems : MEnv),
@@ -836,9 +840,9 @@ theorem machine_linked_calls {declName : Name} {d : MachineData} {m : Sparkle.IR
           ∀ j (hj : j < envs.length) (k : Nat) (o : OutField) (f : Nat → Nat),
             d.shape.layout.outs[k]? = some o → (src i bools bits)[k]? = some f →
             (envs[j]'hj) o.name = f j := by
-  obtain ⟨ids, nd, len, cache, regs, rnd, rlen, H⟩ :=
+  obtain ⟨ids, nd, len, cache, regs, rnd, rlen, lets, llen, wired, H⟩ :=
     machine_linked h hsimple kD hkD hI hIlen hSL hSlen hLlen hNIn P F
-  exact ⟨ids, nd, len, cache, regs, rnd, rlen,
+  exact ⟨ids, nd, len, cache, regs, rnd, rlen, lets, llen, wired,
     fun i bools bits T seed st0 mems a b c e f => H i bools bits T seed st0 mems a b c e f
       (fun k args j hk _ => hcalls i bools bits k args j hk)⟩
 
