@@ -54,7 +54,7 @@ theorem calls_ports {declName : Name} {d : MachineData} {ids : List FVarId}
     "rst" ∈ m.inputs.map (·.name) ∧
     (∀ x ∈ m.outputs.map (·.name), x ∉ m.inputs.map (·.name)) ∧
     argPorts m = machPorts declName ids cache (d.bsIn.take kD) := by
-  obtain ⟨hnd, halloc, -, -, -, -, -, houts, -, -, -, -, -, -, -, -, hcl⟩ := wired
+  obtain ⟨hnd, halloc, -, -, -, -, -, houts, -, -, -, -, -, -, -, -, hcl, -⟩ := wired
   have hlenB : d.shape.binders.length ≤ ids.length := by omega
   have hsplit := d.binders_split
   -- the ports of the binders: the declaration's first

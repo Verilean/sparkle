@@ -743,7 +743,12 @@ def MachineWired (declName : Name) (shape : MachineShape) (ids : List FVarId)
           (names.length - shape.layout.lets - shape.layout.slots.length) ++
         (if shape.layout.slots.isEmpty then [] else
           [({ name := "clk", ty := .bit } : Port), { name := "rst", ty := .bit }]) ++ extra).filter
-        fun p => !outWs.contains p.name)
+        fun p => !outWs.contains p.name) ∧
+  -- and, with or without calls, each slot's register is a register statement
+  -- with the slot's reset value
+  (∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r →
+    shape.layout.slots[k]? = some f →
+    ∃ rk inp, Stmt.register r "clk" ("rst", rk) inp (Int.ofNat f.init) ∈ m.body)
 
 /-- **One cycle of a compiled state machine.** The module the machine route
 returns has one register per slot (`regs`, in slot order) and, on every
@@ -1377,7 +1382,7 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
     have outs0 : (closeMachine shape.layout t').outputs =
         shape.layout.outs.map (fun o => ({ name := o.name, ty := o.ty } : Port)) := by
       unfold closeMachine; rw [hpwC]
-    refine ⟨namesNodup, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+    refine ⟨namesNodup, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
     · intro x hx
       obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hx
       exact pb.wireNames p (pb.inputWires p hp)
@@ -1919,6 +1924,29 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
           simp only [List.getElem_range] at hy
           exact ⟨y, hy, List.mem_of_getElem? hyr⟩
         · rw [hin, hexE, hP1]
+    · -- each slot's register, with or without calls
+      intro k r f hr hf
+      obtain ⟨p, hp, rfl⟩ : ∃ p, ps[k]? = some p ∧ p.name = r := by
+        rw [List.getElem?_map] at hr
+        cases hpk : ps[k]? with
+        | none => rw [hpk] at hr; cases hr
+        | some p => rw [hpk] at hr; exact ⟨p, rfl, Option.some.inj hr⟩
+      have hmem0 : Stmt.register p.name "clk" ("rst", shape.layout.resetKind)
+          (.ref (nextName p.name)) (Int.ofNat f.init) ∈ (closeMachine shape.layout t').body := by
+        rw [show (closeMachine shape.layout t').body = t'.body.dropLast ++
+            nextAssigns coreW ps shape.layout.slots ++
+            registers shape.layout.resetKind ps shape.layout.slots ++
+            outAssigns coreW shape.layout.outs by simp [closeMachine, hpwC, hdrop]]
+        refine List.mem_append_left _ (List.mem_append_right _ ?_)
+        exact Tools.ShippingMachineCleanup.mem_registers _ ps shape.layout.slots k p f hp hf
+      refine ⟨shape.layout.resetKind, .ref (nextName p.name), ?_⟩
+      rcases hmt with ⟨_, hm'⟩ | ⟨_, children, hci⟩
+      · subst hm'; exact hmem0
+      · rcases hci with ⟨_, hci⟩ | ⟨_, hci, _⟩
+        · obtain ⟨_, _, _, L, _, hperm, _⟩ := Tools.ShippingMachineInst.closeInsts_some hci
+          exact hperm.mem_iff.mp (List.mem_append_left _ hmem0)
+        · obtain ⟨_, _, _, L, _, hperm, _⟩ := Tools.ShippingMachineInst.closeInstsG_some hci
+          exact hperm.mem_iff.mp (List.mem_append_left _ hmem0)
   refine ⟨ps.map Port.name, psNodup, by rw [List.length_map, psLen], ls.map Port.name,
     by rw [List.length_map, lsLen], wired, ?_⟩
   intro bools bits env0 mems inputs slotVals hrst hold
