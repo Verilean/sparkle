@@ -1,6 +1,7 @@
 import Tests.Compiler.ShippingMachineLinkedTest
 import Tests.Compiler.ShippingMachineInstTest
 import Tools.ShippingMachineShipsHierHCommand
+import Tools.ShippingHierSVRunH
 
 /-! Machines calling COMBINATIONAL `@[hardware_module]`s, to the shipped
 module (`#machine_ships_hierH`): the composed theorems (`#machine_composed`)
@@ -53,10 +54,24 @@ run_cmd Lean.Elab.Command.liftTermElabM do
         | none => true
       | _ => false
     if selfRead then throwError "{n}: an instance reads its own output"
+    -- `linked_sv_of_runH` on the shipped module: its emitted Verilog
+    let wof := Tools.SVParser.RoundtripProof.moduleWof o
+    unless Tools.ShippingHierTyped.hierTyped C o do throwError "{n}: the shipped module is not width-typed"
+    unless (bodyInstOuts C o.body).all (fun w =>
+        ((Sparkle.IR.HierCheck.openIns o).map (·.name)).contains w &&
+        decide (Sparkle.IR.RegDedup.declWidth o w ≤ Tools.SVParser.EmitSem.weOf wof w)) do
+      throwError "{n}: a shipped instance-driven wire is not extracted or is wider than emitted"
+    unless o.body.all Tools.ShippingHierSVSoundness.seqStmtOkI do
+      throwError "{n}: the shipped body leaves the instance/assign/register fragment"
+    unless Tools.SVParser.EmitSem.seqCheck wof (Tools.SVParser.EmitSem.weOf wof) o.body do
+      throwError "{n}: the emitted-Verilog check rejects the shipped module"
+    unless (Tools.ShippingSeqSVSoundness.seqNames o.body).all (fun x =>
+        Sparkle.IR.RegDedup.declWidth o x == Tools.SVParser.EmitSem.weOf wof x) do
+      throwError "{n}: checker and emitter widths disagree"
     let acc := Sparkle.IR.RefineCheck.hierRefineCheck b
       (Sparkle.IR.HierCheck.deinline b (Sparkle.IR.Optimize.optimizeModule b))
     Lean.logInfo m!"{n}: optimizer output {if acc then "accepted" else "rejected (unoptimized module shipped)"}"
-  Lean.logInfo m!"SHIPS HIER H: {ds.length} machines with combinational children, to the shipped module; module premises hold"
+  Lean.logInfo m!"SHIPS HIER H: {ds.length} machines with combinational children, to the shipped module; module and emitted-Verilog premises hold"
 
 run_cmd do
   if (← get).messages.hasErrors then throwError "combinational-children shipping regression failed"
@@ -64,7 +79,8 @@ run_cmd do
       ``Sparkle.Tests.Compiler.ShippingMachineInstTest.callerD.machine_ships_hierH,
       ``Tools.ShippingMachineShipsHierH.machine_ships_hierH,
       ``Tools.ShippingHierOptRunH.hierRefineCheck_linkedH, ``Tools.ShippingHierOptRunH.fitX_of_runH,
-      ``Tools.ShippingHierTyped.fitX_of_typed, ``Tools.ShippingHierTyped.runModuleH_typed] do
+      ``Tools.ShippingHierTyped.fitX_of_typed, ``Tools.ShippingHierSVRunH.linked_sv_of_runH,
+      ``Tools.ShippingHierSVRunH.runModuleTG_of_H, ``Tools.ShippingHierTyped.runModuleH_typed] do
     for ax in ← Lean.collectAxioms name do
       unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do
         throwError "{name} uses a non-standard axiom: {ax}"

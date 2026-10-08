@@ -476,6 +476,21 @@ distinct instance names, `kidsLocal`, no self-read, instance-driven wires
 extracted, `hierTyped`, a reset port) evaluated true on all 26 — the
 crypto wrappers (`wKeccakF`, SHA-512 block), the network byte machines
 (ARP, ICMP, HTTP, IPv4, HFT strategy), PCIe HFT and the iverilog tops.
+The shipped module's EMITTED VERILOG:
+`Tools.ShippingHierSVRunH.linked_sv_of_runH` — a combinational child is
+the stateless step `combKS` (its assignments on the connection-fed
+environment), a `runModuleH` run with local children IS a `runModuleTG
+combKS` run with the same environments (`runModuleTG_of_H`: `runModuleH`
+feeds a child every connection, the stateful step only the inputs, and a
+local child's outputs cannot tell), so `linked_sv_run` applies, its oracle
+seeding bounded by the width-typed run; its premises (the shipped module
+width-typed with local children, instance-driven wires extracted and no
+wider than emitted, the instance/assign/register fragment, the
+emitted-Verilog check, width agreement) evaluated on the six suite
+machines and in the corpus measurement (`sv*` tags): 16 of the 26 corpus
+machines satisfy every premise to the emitted Verilog; the other 10 (ARP /
+ICMP / IPv4 responders, PCIe HFT, `wKeccakF`) fail only the emitted-Verilog
+check `seqCheck` (the open `seqCheck` gap of §6b).
 
 **Loop children and transported parents (2026-10-08).** A sequential
 child proved by `machine_trace_of_loop` / `_of_regs` (a `Signal.loop`, the

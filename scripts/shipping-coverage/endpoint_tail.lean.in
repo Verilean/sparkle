@@ -154,7 +154,20 @@ run_cmd do
                  ("outs", (Tools.ShippingHierOpen.bodyInstOuts C b.body).all (fun w =>
                     ((Sparkle.IR.HierCheck.openIns b).map (·.name)).contains w)),
                  ("typed", Tools.ShippingHierTyped.hierTyped C b),
-                 ("rst", (b.inputs.map (·.name)).contains "rst")]
+                 ("rst", (b.inputs.map (·.name)).contains "rst"),
+                 -- `linked_sv_of_runH`: the shipped module's emitted Verilog
+                 ("svtyped", Tools.ShippingHierTyped.hierTyped C o &&
+                    Tools.ShippingHierOptRunH.kidsLocal D.modules o.body),
+                 ("svouts", (Tools.ShippingHierOpen.bodyInstOuts C o.body).all (fun w =>
+                    ((Sparkle.IR.HierCheck.openIns o).map (·.name)).contains w &&
+                    decide (Sparkle.IR.RegDedup.declWidth o w ≤
+                      Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof o) w))),
+                 ("svfrag", o.body.all Tools.ShippingHierSVSoundness.seqStmtOkI),
+                 ("svcheck", Tools.SVParser.EmitSem.seqCheck (Tools.SVParser.RoundtripProof.moduleWof o)
+                    (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof o)) o.body),
+                 ("svwidths", (Tools.ShippingSeqSVSoundness.seqNames o.body).all (fun x =>
+                    Sparkle.IR.RegDedup.declWidth o x ==
+                      Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof o) x))]
               let bad := checks.filter (!·.2) |>.map (·.1)
               pure (if bad.isEmpty then "PREM" else "NOPREM:" ++ ",".intercalate bad)
             catch _ => pure "NOPREM:eval"
