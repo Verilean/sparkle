@@ -2,6 +2,7 @@ import Tests.Compiler.ShippingMachineSeqTest
 import Tests.Compiler.MultiInstanceTest
 import Tools.ShippingMachineSeqCommand
 import Tools.ShippingMachineShipsHierCommand
+import Tools.ShippingHierSVRun
 
 /-! Machines calling SEQUENTIAL `@[hardware_module]`s (`ShippingMachineSeqTest`),
 composed with their children: `#machine_composedTS` proves that the stateful
@@ -73,6 +74,15 @@ run_cmd Lean.Elab.Command.liftTermElabM do
         | none => true
       | _ => false
     if selfRead then throwError "{n}: an instance reads its own output"
+    -- `linked_sv_run`: the shipped module's emitted Verilog
+    let wof := Tools.SVParser.RoundtripProof.moduleWof o
+    unless o.body.all Tools.ShippingHierSVSoundness.seqStmtOkI do
+      throwError "{n}: the shipped body leaves the instance/assign/register fragment"
+    unless Tools.SVParser.EmitSem.seqCheck wof (Tools.SVParser.EmitSem.weOf wof) o.body do
+      throwError "{n}: the emitted-Verilog check rejects the shipped module"
+    unless (Tools.ShippingSeqSVSoundness.seqNames o.body).all (fun x =>
+        Sparkle.IR.RegDedup.declWidth o x == Tools.SVParser.EmitSem.weOf wof x) do
+      throwError "{n}: checker and emitter widths disagree"
   Lean.logInfo m!"SHIPS HIER: {ds.length} machines with sequential children, to the shipped module; module premises hold"
 
 run_cmd do
@@ -83,7 +93,8 @@ run_cmd do
       ``Tools.ShippingMachineCallsLinkedT.machine_linkedT_calls,
       ``Tools.ShippingMachineSeqInst.seqChildRun_full,
       ``parent.machine_ships_hier, ``Sparkle.Tests.Compiler.MultiInstance.mesh2x2.machine_ships_hier,
-      ``Tools.ShippingMachineShipsHier.machine_ships_hier] do
+      ``Tools.ShippingMachineShipsHier.machine_ships_hier,
+      ``Tools.ShippingHierSVRun.linked_sv_run] do
     for ax in ← Lean.collectAxioms name do
       unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do
         throwError "{name} uses a non-standard axiom: {ax}"

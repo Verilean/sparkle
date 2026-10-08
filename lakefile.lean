@@ -584,6 +584,9 @@ lean_lib «Tools.ShippingMachineShipsHier» where
 lean_lib «Tools.ShippingMachineShipsHierCommand» where
   roots := #[`Tools.ShippingMachineShipsHierCommand]
 
+lean_lib «Tools.ShippingHierSVRun» where
+  roots := #[`Tools.ShippingHierSVRun]
+
 lean_lib «Tools.ShippingHierMono» where
   roots := #[`Tools.ShippingHierMono]
 

@@ -372,9 +372,15 @@ extracted, instance-output widths, a reset port) evaluated on the real
 modules. Remaining premises: the run boundary per sequential child
 (`BoundaryOf`, as for the composed theorem), the children's outputs within
 their ports' widths (`KSBounded`), inputs and start values within their
-widths. OPEN: the emitted Verilog of a hierarchical design (the per-module
-emitted-SV theorems are open-module), transported endpoints, memory-only
-parents (`#machine_composedT`), depth > 1.
+widths. The shipped module's EMITTED VERILOG: `Tools.ShippingHierSVRun.linked_sv_run`
+— a stateful linked run of a module is the run of its emitted Verilog
+(`runModuleSV`) from the oracle seeding, its instance outputs at each cycle
+the values its children drove (`linked_open_runG`, then `seq_run_to_svI`),
+under the emitted-SV check and width agreement of the shipped module
+(evaluated on the five real shipped modules). OPEN: the children's own
+emitted Verilog driving those values (a design-level SV run),
+transported endpoints, memory-only parents (`#machine_composedT`),
+depth > 1.
 
 **Stateful composition with children (2026-10-08).** For a machine whose
 calls are memory reads and/or sequential machine children (`closeInstsG`),
