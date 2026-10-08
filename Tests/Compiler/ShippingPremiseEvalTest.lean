@@ -50,7 +50,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     throwError "empty verdict: {v0.tag}"
   -- every module check holds but no trace taken: not applying
   let v1 : Verdict := { theoremName := "no trace", checker := .holds, childBound := .holds, svParent := .holds }
-  unless v1.tag == "MOD:PREM|TRACE:UNTRACED|SV:PARENT|SVCHILD:OPEN" && !v1.applies do
+  unless v1.tag == "MOD:PREM|TRACE:UNTRACED|SV:PARENT|SVCHILD:OPEN|CLOSED:NA" && !v1.applies do
     throwError "no-trace verdict: {v1.tag}"
   -- only unknown boundary facts: unknown
   let v2 : Verdict := { theoremName := "unknown", checker := .holds, childBound := .holds, boundaryChecks := [("x", .unknown "not evaluated")], traces := [("t", .matched)] }
@@ -61,6 +61,9 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   -- a mismatched trace
   let v4 : Verdict := { theoremName := "mismatch", checker := .holds, childBound := .holds, traces := [("t", .matched), ("u", .mismatch "differs")] }
   unless v4.traceTag == "TRACE:MISMATCH" && !v4.applies do throwError "mismatch verdict: {v4.tag}"
+  -- the children's texts checked but a child not assigning its outputs: uniqueness not claimed
+  let v5 : Verdict := { theoremName := "no outs", checker := .holds, childBound := .holds, traces := [("t", .matched)], svChildren := .holds, uniqueCheck := .fails "unassigned output" }
+  unless v5.uniqTag == "CLOSED:UNIQ?" do throwError "uniqueness verdict: {v5.tag}"
   Lean.logInfo m!"PREMISE EVAL: unverified / untraced / empty / rejected / mismatched never count as applying"
 
 end Sparkle.Tests.Compiler.ShippingPremiseEvalTest

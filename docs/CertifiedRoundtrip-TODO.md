@@ -1127,8 +1127,10 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   DERIVED for any depth (`svBounds_of_checks`, from `designCheck` + inputs /
   start states / instance states within their emitted widths) and composed
   with the shipping theorem (`ships_design_svN`; kernel-checked endpoints
-  `grandH.machine_design_svN1`, `topD2.machine_design_svN2`) — NOT yet:
-  uniqueness of the closed run, memory leaves (`leafCheck`/`seq_run_to_sv`
+  `grandH.machine_design_svN1`, `topD2.machine_design_svN2`; depth-0 and
+  combinational routes `#machine_design_sv0` / `#machine_design_svH`); the
+  closed run UNIQUE and equal to the IR run (`design_sv_backN`,
+  `design_sv_unique`, `design_sv_all`, under `outsCheck`) — NOT yet: memory leaves (`leafCheck`/`seq_run_to_sv`
   take no memory statement), the depth-0 / combinational routes' endpoints;
   open: hierarchical emitted
   Verilog of the children at depth ≥ 1 (derivation of `SVBounds`), the precise `BoundH` evaluated for

@@ -672,9 +672,32 @@ combinational route (`ships_design_svH`, `#machine_design_svH`: the
 body, `runModuleTG_flat_of_H`) have endpoints too: `parent.machine_design_sv0`,
 `caller.machine_design_svH`. A memory parent's endpoint is generated
 (`memCounter.machine_design_sv0`), but its premise `designCheck` is false
-on the real module (memory leaves), so it stays `SVCHILD:OPEN`. Still not claimed: uniqueness of
-the closed run (the backward direction), the run boundary as a theorem,
+on the real module (memory leaves), so it stays `SVCHILD:OPEN`. Still not
+claimed: the run boundary as a theorem,
 memory leaves, `mixD1`'s call–instance correspondence (traced: UNTRACED).
+
+**The closed run is unique: backward simulation (2026-10-09).**
+`Tools/ShippingDesignSVBack.lean`. `design_sv_backN ms n`: under
+`designCheck` and `outsCheck` (every child, at every level, assigns each of
+its output ports), from a seeding and states within the emitted widths
+(top seed, start state, `InvN`), EVERY closed run of the emitted texts
+(`DesignSV … envs`) is the IR linked run (`runModuleTG (KSn _ n) … = some
+envs`). No bound is assumed of the solution: the texts' semantics masks
+every assignment at its target's declared width (`evalAssignsSV`), so a
+child's assigned outputs are within their widths whatever its inputs
+(`runModuleSV_assigned`); the parent's instance-output wires carry exactly
+those values (`Supplies`, `PortsMatch`); then every environment of the
+parent's text is within its widths (`runModuleSV_bounded`), the text runs
+as the IR open run (`forward_trace_invI`), each child's text as its IR run
+(depth induction), and the open run with the children supplying their
+outputs is the linked run (`runModuleTG_of_childRuns`). Hence
+`design_sv_unique` (two closed runs from the same seeding and states are the
+same list of environments — every name, not only the ports: the text's run
+is a function of its seeding) and `design_sv_all` (what one closed run shows
+— the source's values, from `ships_design_svN` — every closed run shows).
+Forward + backward: under these checks the closed relation has exactly one
+solution, the IR run. The evaluator reports `CLOSED:UNIQUE` when
+`designCheck` and `outsCheck` hold (grandH, topD2, parent, caller).
 
 ## 6c. The printer (the CompCert framing, F3)
 

@@ -122,6 +122,10 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   let vmem ← evalShipsHierSeq ``Sparkle.Tests.Compiler.ShippingMachineMemLinkedTest.memCounter none
   Lean.logInfo m!"{vmem.report}"
   unless vmem.applies && vmem.svChildTag == "SVCHILD:OPEN" do throwError "memCounter: {vmem.tag}"
+  -- the closed run is unique (the IR run) on the real designs
+  for (n, v) in [(``topD2, vt), (``Sparkle.Tests.Compiler.ShippingMachineDepthHTest.grandH, vg),
+      (``Sparkle.Tests.Compiler.ShippingMachineSeqTest.parent, vp), (``Sparkle.Tests.Compiler.ShippingMachineInstTest.caller, vc)] do
+    unless v.uniqTag == "CLOSED:UNIQUE" do throwError "{n}: {v.tag}"
   let vx ← evalShipsHierSeq ``mixD1 (some 1)
   unless vx.svChildTag == "SVCHILD:CHECKED" do throwError "mixD1: {vx.tag}"
   -- two different sequential children: the instance correspondence is not reconstructed
@@ -130,6 +134,8 @@ run_cmd Lean.Elab.Command.liftTermElabM do
 
 run_cmd do
   for name in [``Tools.ShippingDesignSV.design_sv_runN,
+      ``Tools.ShippingDesignSVBack.design_sv_backN, ``Tools.ShippingDesignSVBack.design_sv_unique,
+      ``Tools.ShippingDesignSVBack.design_sv_all, ``Tools.ShippingDesignSVBack.runModuleSV_assigned,
       ``Sparkle.Tests.Compiler.ShippingMachineDepthHTest.grandH.machine_design_svN1, ``topD2.machine_design_svN2,
       ``Sparkle.Tests.Compiler.ShippingMachineSeqTest.parent.machine_design_sv0,
       ``Sparkle.Tests.Compiler.ShippingMachineInstTest.caller.machine_design_svH, ``Tools.ShippingShipsDesignSV.ships_design_svH,

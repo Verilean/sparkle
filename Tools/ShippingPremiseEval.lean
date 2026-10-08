@@ -4,6 +4,7 @@ import Tools.ShippingHierSVRunH
 import Tools.ShippingHierPremises
 import Tools.ShippingHierShipsSV
 import Tools.ShippingDesignSV
+import Tools.ShippingDesignSVBack
 import Tools.ShippingShipsDesignSVCommand
 
 /-! # Evaluating the shipping theorems' premises on a real compile
@@ -91,6 +92,9 @@ structure Verdict where
   /-- the kernel-checked source → `DesignSV` endpoint
   (`f.machine_design_svN{n}`, `ships_design_svN`), if generated -/
   designEndpoint : Option Name := none
+  /-- `outsCheck` (every child assigns its outputs): with `designCheck`, the
+  closed run is UNIQUE and is the IR run (`design_sv_backN`, `design_sv_unique`) -/
+  uniqueCheck : Status := .unknown "not evaluated"
   useConditions : List String := []
   reflection : List String := []
   deriving Inhabited
@@ -135,8 +139,14 @@ def Verdict.svChildTag (v : Verdict) : String :=
   | .fails _ => "SVCHILD:NO"
   | .unknown _ => "SVCHILD:OPEN"
 
+def Verdict.uniqTag (v : Verdict) : String :=
+  match v.svChildren, v.uniqueCheck with
+  | .holds, .holds => "CLOSED:UNIQUE"
+  | .holds, _ => "CLOSED:UNIQ?"
+  | _, _ => "CLOSED:NA"
+
 def Verdict.tag (v : Verdict) : String :=
-  s!"{v.moduleTag}|{v.traceTag}|{v.svTag}|{v.svChildTag}"
+  s!"{v.moduleTag}|{v.traceTag}|{v.svTag}|{v.svChildTag}|{v.uniqTag}"
 
 /-- The theorem applies to the run GIVEN its run-boundary premises: the
 module premises hold, and every required run boundary was MEASURED as
@@ -156,6 +166,7 @@ def Verdict.report (v : Verdict) : String :=
     v.traces.map fun (n, t) => s!"  trace {n}: {t.str}"
   let l4 := [s!"  svParent: {v.svParent.str}",
     s!"  svChildren (structural designCheck): {v.svChildren.str}",
+    s!"  closed run unique (outsCheck; design_sv_backN / design_sv_unique): {v.uniqueCheck.str}",
     match v.designEndpoint with
     | some e => s!"  source → DesignSV endpoint (svBounds_of_checks + design_sv_runN composed with the shipping theorem, kernel-checked): {e}"
     | none => "  source → DesignSV endpoint: not generated for this declaration (ships_design_svN not applied here; structure checked only)"]
@@ -298,6 +309,7 @@ def evalShipsHierSeq (declName : Name) (dep : Option Nat) : MetaM Verdict := do
         | some n => declName ++ Name.mkSimple s!"machine_design_svN{n}"
         | none => declName ++ `machine_design_sv0
       if env.contains e then some e else none
+    uniqueCheck := .ofBool (Tools.ShippingDesignSVBack.outsCheck C (dep.getD 0) o) "a child does not assign all its outputs"
     svChildren := match dep with
       | some n => .ofBool (Tools.ShippingDesignSV.designCheck C n o) s!"designCheck {n} rejects the shipped design"
       | none => match routeKind with
@@ -325,6 +337,8 @@ def evalShipsHierH (declName : Name) : MetaM Verdict := do
     traces := tr
     route := "combinational children: runModuleH, hierTyped"
     svParent := .ofBool (Tools.ShippingHierShipsSV.svHCheck D.modules o wof) "svHCheck rejects the shipped module"
+    uniqueCheck := .ofBool (Tools.ShippingDesignSVBack.outsCheck (Tools.ShippingMachineLinked.childMap D.modules) 0 o)
+      "a child does not assign all its outputs"
     -- the combinational linked run IS the depth-0 flatKS run when the
     -- children are kidsComb (runModuleTG_flat_of_H)
     designEndpoint := if (← getEnv).contains (declName ++ `machine_design_svH)

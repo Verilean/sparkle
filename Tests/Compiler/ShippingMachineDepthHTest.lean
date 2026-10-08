@@ -66,7 +66,7 @@ open Tools.ShippingPremiseEval in
 run_cmd Lean.Elab.Command.liftTermElabM do
   let v ← evalShipsHierSeq ``grandH (some 1)
   Lean.logInfo m!"{v.report}"
-  unless v.tag == "MOD:PREM|TRACE:MATCHED|SV:PARENT|SVCHILD:CHECKED" && v.applies do
+  unless v.tag == "MOD:PREM|TRACE:MATCHED|SV:PARENT|SVCHILD:CHECKED|CLOSED:UNIQUE" && v.applies do
     throwError "grandH: {v.tag}"
   -- both run boundaries were traced (measured), and each decidable boundary fact checked
   unless v.traces.length == 2 && v.boundaryChecks.length == 3 do
