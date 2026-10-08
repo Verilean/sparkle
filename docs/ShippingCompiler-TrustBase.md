@@ -587,6 +587,55 @@ so a TRANSPORTED parent (fused / sign-normalised source; the composed
 theorem is already transported) ships too: `loopParent` and the fused
 memory parent `withMemory` in `Tests/Compiler/ShippingMachineSeqLoopTest.lean`.
 
+**The whole design's emitted texts, at any depth (2026-10-09).**
+`Tools.ShippingDesignSV`. `DesignSV C n o seed T s envs` is a RELATION on
+the emitted texts (it embeds no IR run): `o`'s text runs from the oracle
+seeding built from `envs` to `envs`; every instance resolves in the design
+`C` (`Resolved`); every connection joins a parent wire and a child port of
+the same emitted width (`PortsMatch`); and each instance's child — looked up
+in `C`, from the instance's OWN state `s.kids iname`, fed at each cycle with
+that cycle's values on its input connections (`connSeed`) — runs to
+environments whose output ports carry the values of the wires the instance
+drives at the same cycle (`Supplies`): at depth 0 the child's own text, the
+child FLAT (`seqStmtOk`: no instance, so no output left to an oracle); at
+depth `n + 1`, `DesignSV C n` of the child. A design deeper than `n` cannot
+satisfy it (its depth-0 leaves would have instances).
+`design_sv_runN ms n` (C = `childMap ms`): an IR linked run at depth `n`
+(`runModuleTG (KSn C n)`), the decidable `designCheck C n` (each level's
+emitted-text checks, linked well-formedness, distinct instance names, no
+self-read, `PortsMatch`, every instance resolved; leaves flat and accepted)
+and the width premises `SVBounds` give `DesignSV` with the SAME
+environments. `child_runKS_of_linked` is the generic step (any local child
+step; `child_run_of_linked` was its `flatKS` case). Exactly what it is: a
+FORWARD SIMULATION — the IR run is a closed run of the texts. It does NOT
+say the connected texts admit no other run: uniqueness (the relation
+determines `envs` from the seed and the states) is not proved. It is
+expected from the linked order — each instance's inputs are computed before
+its outputs are read (`linkedWF`, no self-read), the parent's text and each
+child's text are deterministic functions — but that argument is open.
+Measured: `designCheck` holds on the shipped designs of `grandH` (depth 1),
+`topD2 → mid2 → midH → rcH` (depth 2, `topD2.machine_ships_hierN2`) and
+`mixD1` (two different sequential children), and is rejected one level
+shallower. The evaluator's `SVCHILD:CHECKED` means exactly this: the
+structural `designCheck` holds, so the CONDITIONAL forward theorem
+`design_sv_runN` applies given `SVBounds`; `SVBounds` is not derived and the
+link from the source theorem to `DesignSV` is not made — it is not a
+complete closed statement and is never counted as one (the depth-0
+sequential route is `KSn _ 0 = flatKS`; the combinational route through
+`runModuleTG_flat_of_H` when `kidsComb` holds). The memory route's step is
+ALSO `flatKS` (`composedG_of_Tmem`, `memKS_boundedIn`); what is not
+connected there is the memory child's TEXT: `leafCheck` requires
+`seqStmtOk` (assignments and registers; memory statements rejected) and
+`seq_run_to_sv` covers no memory — `SVCHILD:OPEN` with that reason, an
+unconnected checker and theorem, not a semantic obstacle. What still stands between
+`grandH` and a closed SV statement: (1) `SVBounds` — each level's seeding
+and start state within its emitted widths along the IR run (a run premise;
+its parts: the instance outputs within the emitted widths, the children's
+inputs from the parent's wires, the start registers of every instance);
+(2) the run boundaries (`MachineRunN`, `GateRun`: traced, not proved);
+(3) the reflection boundary; (4) the use conditions (inputs, reset);
+(5) the printer. Uniqueness of the closed run is a separate open item.
+
 ## 6c. The printer (the CompCert framing, F3)
 
 CompCert's guarantee ends at its assembly AST; the printer that turns it

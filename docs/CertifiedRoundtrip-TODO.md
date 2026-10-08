@@ -1116,8 +1116,18 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   condition), port clause unconditional; (b) small example DONE with every
   premise of `grandH.machine_ships_hierN1` evaluated or traced
   (`ShippingMachineDepthHTest`); (c) real Keccak sponge NOT completed
-  (timeout / stopped for memory: unmeasured); open: hierarchical emitted
-  Verilog of the children at depth ≥ 1, the precise `BoundH` evaluated for
+  (timeout / stopped for memory: unmeasured); the design's emitted texts at
+  any depth (2026-10-09, `Tools/ShippingDesignSV.lean`): the relation
+  `DesignSV` (leaves flat, every instance resolved, `PortsMatch`, children's
+  texts supplying every instance-output wire at the same cycle from their
+  own states) and the CONDITIONAL forward theorem `design_sv_runN` (IR run at
+  depth `n` + `designCheck` + width premises `SVBounds` ⇒ `DesignSV` with the
+  same environments), `designCheck` evaluated on grandH (1), topD2 (2), mixD1
+  (two different children) and rejected one level shallower — NOT yet:
+  `SVBounds` derived, the source theorem linked to `DesignSV`, uniqueness of
+  the closed run, memory leaves (`leafCheck`/`seq_run_to_sv` take no memory
+  statement); open: hierarchical emitted
+  Verilog of the children at depth ≥ 1 (derivation of `SVBounds`), the precise `BoundH` evaluated for
   calls of several children, combinational grandchildren below depth 1,
   multi-output gate children (`childTwo`); full corpus count pending — the
   run was stopped for memory at 38 of 184 files, 27 of 84 wired): `f.machine_ships` now needs

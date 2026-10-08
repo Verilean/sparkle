@@ -3,6 +3,7 @@ import Tools.ShippingMachineShipsHierHCommand
 import Tools.ShippingHierSVRunH
 import Tools.ShippingHierPremises
 import Tools.ShippingHierShipsSV
+import Tools.ShippingDesignSV
 
 /-! # Evaluating the shipping theorems' premises on a real compile
 
@@ -80,7 +81,12 @@ structure Verdict where
   boundaryReq : BoundaryReq := .required
   route : String := ""
   svParent : Status := .unknown "not evaluated"
-  svChildren : String := "not connected (the parent's Verilog runs against an oracle for the children's outputs)"
+  /-- the children's emitted texts: `holds` = the structural `designCheck`
+  holds on the shipped design, so the CONDITIONAL forward theorem
+  `design_sv_runN` applies given its width premises `SVBounds` (a run
+  premise, not derived) — not a complete closed statement; `fails` =
+  `designCheck` rejects it; `unknown` = not connected (why) -/
+  svChildren : Status := .unknown "not connected (the parent's Verilog runs against an oracle for the children's outputs)"
   useConditions : List String := []
   reflection : List String := []
   deriving Inhabited
@@ -114,8 +120,14 @@ def Verdict.svTag (v : Verdict) : String :=
 
 /-- The record: module premises, the boundary traces, the parent's emitted
 Verilog, and the children's emitted Verilog (always open here). -/
+def Verdict.svChildTag (v : Verdict) : String :=
+  match v.svChildren with
+  | .holds => "SVCHILD:CHECKED"   -- structure checked; SVBounds and the source→DesignSV link open
+  | .fails _ => "SVCHILD:NO"
+  | .unknown _ => "SVCHILD:OPEN"
+
 def Verdict.tag (v : Verdict) : String :=
-  s!"{v.moduleTag}|{v.traceTag}|{v.svTag}|SVCHILD:OPEN"
+  s!"{v.moduleTag}|{v.traceTag}|{v.svTag}|{v.svChildTag}"
 
 /-- The theorem applies to the run GIVEN its run-boundary premises: the
 module premises hold, and every required run boundary was MEASURED as
@@ -133,7 +145,8 @@ def Verdict.report (v : Verdict) : String :=
       | .required => s!"  run boundaries: required (premises of the theorem; measured below, not proved)"
       | .notRequired w => s!"  run boundaries: none required ({w})") ::
     v.traces.map fun (n, t) => s!"  trace {n}: {t.str}"
-  let l4 := [s!"  svParent: {v.svParent.str}", s!"  svChildren: {v.svChildren}"]
+  let l4 := [s!"  svParent: {v.svParent.str}",
+    s!"  svChildren (structural designCheck for the conditional design_sv_runN; SVBounds NOT derived, source→DesignSV not connected): {v.svChildren.str}"]
   let l5 := v.useConditions.map fun u => s!"  use condition (caller's obligation): {u}"
   let l6 := v.reflection.map fun r => s!"  reflection boundary: {r}"
   "\n".intercalate (s!"{v.theoremName} [{v.route}]: {v.tag}" :: l1 ++ l2 ++ l3 ++ l4 ++ l5 ++ l6)
@@ -244,12 +257,13 @@ def evalShipsHierSeq (declName : Name) (dep : Option Nat) : MetaM Verdict := do
     | some n => s!"{declName}.machine_ships_hierN{n}"
     | none => s!"{declName}.machine_ships_hier"
   -- the bound of the theorem GENERATED for this route (shared with the generator)
+  let routeKind ← Tools.ShippingMachineShipsHierCommand.hierRoute declName
   let (route, bd, bdO) ← match dep with
     | some n => pure (s!"depth {n}: KSn, kidsMaskedN",
                   Tools.ShippingMachineShipsDepth.kidsMaskedN D.modules b.body,
                   Tools.ShippingMachineShipsDepth.kidsMaskedN D.modules o.body)
     | none => do
-      match ← Tools.ShippingMachineShipsHierCommand.hierRoute declName with
+      match routeKind with
       | .seq => pure ("depth 0, sequential children: Reset1, kidsMasked",
                   Tools.ShippingMachineShipsHier.kidsMasked C b.body, Tools.ShippingMachineShipsHier.kidsMasked C o.body)
       | .mem => pure ("depth 0, memory reads: ResetM, kidsMem",
@@ -266,6 +280,11 @@ def evalShipsHierSeq (declName : Name) (dep : Option Nat) : MetaM Verdict := do
       else .notRequired "memory reads only: a memory call's instance is the built memory module (MachineWired / find_memModule)"
     route := route
     svParent := .ofBool (svc && bdO) (if svc then "the shipped module's children are not bounded" else "shippedSVCheck rejects the shipped module")
+    svChildren := match dep with
+      | some n => .ofBool (Tools.ShippingDesignSV.designCheck C n o) s!"designCheck {n} rejects the shipped design"
+      | none => match routeKind with
+        | .seq => .ofBool (Tools.ShippingDesignSV.designCheck C 0 o) "designCheck 0 rejects the shipped design"
+        | .mem => .unknown "memory children: the step IS flatKS = KSn _ 0 (composedG_of_Tmem), but a memory child's text is not connected: leafCheck requires seqStmtOk (assign/register only, memory statements rejected) and seq_run_to_sv covers no memory"
     useConditions := ["the children start at reset (Reset1 / ResetM / ResetNk)",
                       "the inputs are within the declared and the emitted widths",
                       "the start registers are within their widths"]
@@ -288,6 +307,11 @@ def evalShipsHierH (declName : Name) : MetaM Verdict := do
     traces := tr
     route := "combinational children: runModuleH, hierTyped"
     svParent := .ofBool (Tools.ShippingHierShipsSV.svHCheck D.modules o wof) "svHCheck rejects the shipped module"
+    -- the combinational linked run IS the depth-0 flatKS run when the
+    -- children are kidsComb (runModuleTG_flat_of_H)
+    svChildren := .ofBool (Tools.ShippingMachineDepthH.kidsComb D.modules o.body &&
+        Tools.ShippingDesignSV.designCheck (Tools.ShippingMachineLinked.childMap D.modules) 0 o)
+      "kidsComb or designCheck 0 rejects the shipped design"
     useConditions := ["the inputs are within the declared and the emitted widths",
                       "the start state is within its widths off the output ports"]
     reflection := s!"{declName}: MachineDefines / MachineCloses" :: refl }
