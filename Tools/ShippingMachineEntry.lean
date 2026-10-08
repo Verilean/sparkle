@@ -735,6 +735,7 @@ def MachineWired (declName : Name) (shape : MachineShape) (ids : List FVarId)
   -- sequential children), without the call ports
   (shape.instFields ≠ [] → ∃ (outWs extra : List String),
     (∀ w ∈ outWs, ∃ k, k < shape.insts.length ∧ names[machNIn shape + k]? = some w) ∧
+    (∀ k, k < shape.insts.length → ∃ w, names[machNIn shape + k]? = some w ∧ w ∈ outWs) ∧
     (extra = [] ∨ (extra = ["clk", "rst"] ∧ shape.layout.slots = [])) ∧
     m.inputs.map (·.name) =
       (names.take (names.length - shape.layout.lets - shape.layout.slots.length) ++
@@ -1868,7 +1869,10 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
       rcases hmt with ⟨_, hm'⟩ | ⟨_, children, hci⟩
       · -- no call statement: the closed transition, nothing removed
         subst hm'
-        refine ⟨[], [], fun w hw => by simp at hw, Or.inl rfl, ?_⟩
+        refine ⟨[], [], fun w hw => by simp at hw, fun k hk => ?_, Or.inl rfl, ?_⟩
+        · -- no call statement yet call fields: no call
+          rename_i hi0
+          exact absurd (by rw [hi0] at hk; exact hk) (Nat.not_lt_zero k)
         rw [hinC, htake, hP1]
         split <;> simp <;> exact (List.filter_eq_self.mpr (fun _ _ => rfl)).symm
       · have hci : closeInstsG (machNIn shape) shape.insts.length shape.layout.slots.length
@@ -1897,7 +1901,7 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
             · rw [h, hinC, htake]
               split <;> simp
         obtain ⟨extra, hex, hexE⟩ := hext
-        refine ⟨outWs, extra, ?_, hex, ?_⟩
+        refine ⟨outWs, extra, ?_, ?_, hex, ?_⟩
         · intro w hw
           obtain ⟨hlen, hget⟩ := Tools.ShippingMachineInst.mapM_some _ _ _ hmap
           obtain ⟨i, hi, rfl⟩ := List.getElem_of_mem hw
@@ -1908,6 +1912,12 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
           subst hyr
           simp only [List.getElem_range] at hy
           exact ⟨i, by simpa using hi', hy⟩
+        · intro k hk
+          obtain ⟨hlen, hget⟩ := Tools.ShippingMachineInst.mapM_some _ _ _ hmap
+          have hk' : k < (List.range (shape.insts.map (·.2.1)).length).length := by simpa using hk
+          obtain ⟨y, hy, hyr⟩ := hget k hk'
+          simp only [List.getElem_range] at hy
+          exact ⟨y, hy, List.mem_of_getElem? hyr⟩
         · rw [hin, hfm, hexE, hP1]
   refine ⟨ps.map Port.name, psNodup, by rw [List.length_map, psLen], ls.map Port.name,
     by rw [List.length_map, lsLen], wired, ?_⟩
