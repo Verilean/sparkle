@@ -43,17 +43,23 @@ def generate (declName : Name) : MetaM Name := do
     let bnd ← conj bTys
     let Bnd ← mkLambdaFVars #[m, design] bnd
     let memF ← mkAppM ``Tools.ConeFold.memFree #[← mkAppM ``Sparkle.IR.AST.Module.body #[m]]
-    let composed ← withLocalDeclD `hBnd bnd fun hBnd => withLocalDeclD `hm memF fun hm => do
+    -- the one-level step with sequential children, or memory reads only
+    let (composed, reset) ← withLocalDeclD `hBnd bnd fun hBnd => withLocalDeclD `hm memF fun hm => do
       let ps ← projs hBnd bTys
-      let inner ← mkAppM ``Tools.ShippingMachineShipsHier.composedG_of_T
-        #[mkAppN cT (base ++ ps.toArray), hm]
-      mkLambdaFVars (base ++ #[hBnd, hm]) inner
+      let hC := mkAppN cT (base ++ ps.toArray)
+      let (inner, reset) ← try
+          pure (← mkAppM ``Tools.ShippingMachineShipsHier.composedG_of_T #[hC, hm],
+            mkConst ``Tools.ShippingMachineShipsHier.Reset1)
+        catch _ =>
+          pure (← mkAppM ``Tools.ShippingMachineShipsHier.composedG_of_Tmem #[hC, hm],
+            mkConst ``Tools.ShippingMachineShipsHier.ResetM)
+      pure (← mkLambdaFVars (base ++ #[hBnd, hm]) inner, reset)
     let KS ← withLocalDeclD `D (mkConst ``Sparkle.IR.AST.Design) fun D =>
       mkLambdaFVars #[D] (mkConst ``Tools.ShippingHierStateG.flatKS)
     let hloc ← withLocalDeclD `D (mkConst ``Sparkle.IR.AST.Design) fun D =>
       mkLambdaFVars #[D] (mkConst ``Tools.ShippingHierStateG.flatKS_local)
     let thm ← mkAppM ``Tools.ShippingMachineShipsHier.machine_ships_hier
-      #[KS, hloc, mkConst ``Tools.ShippingMachineShipsHier.Reset1, Bnd, data, soundL, composed]
+      #[KS, hloc, reset, Bnd, data, soundL, composed]
     let ty ← inferType thm
     let .forallE _ hT _ _ ← whnfR ty | throwError "{declName}: the output-width premise"
     let thm := mkApp thm (← mkExpectedTypeHint (← mkDecideProof hT) hT)

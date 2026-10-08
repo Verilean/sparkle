@@ -156,6 +156,16 @@ run_cmd do
         let msg ← ex.toMessageData.toString
         pure ("COMPOSEDT|FAIL|" ++ ((msg.replace "\n" " ").take 300).toString)
     mout := mout ++ s!"{s}|{res}\n"
+    -- to the shipped module (`f.machine_ships_hier`)
+    if res == "COMPOSEDT|OK" then
+      let r2 ← try
+          let _ ← liftTermElabM (withOptions (fun o => Lean.Elab.async.set o false)
+            (Tools.ShippingMachineShipsHierCommand.generate n))
+          pure "SHIPSHIER|OK"
+        catch ex =>
+          let msg ← ex.toMessageData.toString
+          pure ("SHIPSHIER|FAIL|" ++ ((msg.replace "\n" " ").take 300).toString)
+      mout := mout ++ s!"{s}|{r2}\n"
   let hm ← IO.FS.Handle.mk "@WORK@/linked_reasons.txt" .append
   hm.putStr mout
 end EndpointProbeZZ

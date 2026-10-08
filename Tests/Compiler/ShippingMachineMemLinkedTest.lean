@@ -1,5 +1,6 @@
 import Sparkle
 import Tools.ShippingMachineMemCommand
+import Tools.ShippingMachineShipsHierCommand
 import Tests.Compiler.ShippingMachineFuseTest
 
 /-! A hand-written `Signal.loop` reading combinational-read memories,
@@ -52,9 +53,15 @@ def mixedMems (we : Signal defaultDomain Bool) (wa : Signal defaultDomain (BitVe
 -- the fused value, transported back to the declaration)
 #machine_composedT Sparkle.Tests.Compiler.ShippingMachineFuseTest.withMemory
 
+-- to the shipped module: the optimizer checked on the extracted interface
+#machine_ships_hier memCounter
+#machine_ships_hier twoMems
+#machine_ships_hier mixedMems
+
 run_cmd do
   if (← get).messages.hasErrors then throwError "memory composition regression failed"
-  for name in [``memCounter.machine_composedT, ``twoMems.machine_composedT, ``mixedMems.machine_composedT,
+  for name in [``memCounter.machine_ships_hier, ``mixedMems.machine_ships_hier,
+      ``Tools.ShippingMachineShipsHier.composedG_of_Tmem, ``memCounter.machine_composedT, ``twoMems.machine_composedT, ``mixedMems.machine_composedT,
       ``Sparkle.Tests.Compiler.ShippingMachineFuseTest.withMemory.machine_composedT,
       ``Tools.ShippingMachineMemLinked.machine_linkedT_mem] do
     for ax in ← Lean.collectAxioms name do

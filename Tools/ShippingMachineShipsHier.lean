@@ -391,4 +391,52 @@ theorem composedG_of_T {declName : Name} {d : MachineData} {kD : Nat}
   rw [← runModuleT_flat _ _ _ hm]
   exact hrun
 
+/-- The children's reset for memory-only parents: memories and read latches
+zero. -/
+def ResetM (_m : Sparkle.IR.AST.Module) (_dsn : Design) (kids : String → KidState) : Prop :=
+  (∀ iname n a, (kids iname).mems n a = 0) ∧ (∀ iname, (kids iname).st "out_rdata" = 0)
+
+/-- `machine_linkedT_mem`'s conclusion (`f.machine_composedT` of a parent
+whose calls are memory reads) in the general form. -/
+theorem composedG_of_Tmem {declName : Name} {d : MachineData} {kD : Nat}
+    {m : Sparkle.IR.AST.Module} {dsn : Design} {ι : Type} {dom : ι → DomainConfig}
+    {src : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat)}
+    {ext : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) →
+      (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)}
+    {extB : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → Nat → Signal (dom i) Bool}
+    (h : ∃ ids : List FVarId, ids.Nodup ∧ ids.length = d.shape.binders.length ∧
+      ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
+        regs.Nodup ∧ regs.length = d.ss.length ∧
+        ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+          (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
+          (T : Nat) (seed : Nat → (String → Nat) → Env) (st0 : String → Nat) (mems : MEnv)
+          (kids : String → KidState),
+          (∀ t st, t < T → SourceInputs declName (d.bsIn.take kD) ids cache
+            (fun j => (extB i bools bits j).val (T - 1 - t))
+            (fun j n => (ext i bools bits j n).val (T - 1 - t)) (seed t st)) →
+          (∀ t st r, r ∈ regs → seed t st r = st r) →
+          (∀ t st, seed t st "rst" = 0) → (∀ t st, seed t st "clk" = 0) →
+          (∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r →
+            d.shape.layout.slots[k]? = some f → st0 r = f.init) →
+          (∀ iname n a, (kids iname).mems n a = 0) → (∀ iname, (kids iname).st "out_rdata" = 0) →
+          ∃ envs, runModuleT (Tools.ShippingEntrySoundness.weOf m) (childMap dsn.modules) m.body
+              seed T st0 mems kids = some envs ∧
+            envs.length = T ∧
+            ∀ j (hj : j < envs.length) (k : Nat) (o : OutField) (f : Nat → Nat),
+              d.shape.layout.outs[k]? = some o → (src i bools bits)[k]? = some f →
+              (envs[j]'hj) o.name = f j)
+    (hm : Tools.ConeFold.memFree m.body) :
+    ComposedG (fun _ => flatKS) ResetM declName d kD m dsn dom src ext extB := by
+  obtain ⟨ids, nd, len, cache, regs, rnd, rlen, H⟩ := h
+  refine ⟨ids, nd, len, cache, regs, rnd, rlen, ?_⟩
+  intro i bools bits T seed st0 mems kids hin hpass hrst hclk hinit ⟨h1, h2⟩
+  obtain ⟨envs, hrun, hlen, hobs⟩ := H i bools bits T seed st0 mems kids hin hpass hrst hclk hinit
+    h1 h2
+  refine ⟨envs, ?_, hlen, hobs⟩
+  rw [← runModuleT_flat _ _ _ hm]
+  exact hrun
+
 end Tools.ShippingMachineShipsHier
