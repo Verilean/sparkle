@@ -1128,14 +1128,17 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   start states / instance states within their emitted widths) and composed
   with the shipping theorem (`ships_design_svN`; kernel-checked endpoints
   `grandH.machine_design_svN1`, `topD2.machine_design_svN2`; depth-0 and
-  combinational routes `#machine_design_sv0` / `#machine_design_svH`); the
-  closed run UNIQUE and equal to the IR run (`design_sv_backN`,
-  `design_sv_unique`, `design_sv_all`, under `outsCheck`) — NOT yet: memory leaves (`leafCheck`/`seq_run_to_sv`
-  take no memory statement), the depth-0 / combinational routes' endpoints;
-  open: hierarchical emitted
-  Verilog of the children at depth ≥ 1 (derivation of `SVBounds`), the precise `BoundH` evaluated for
-  calls of several children, combinational grandchildren below depth 1,
-  multi-output gate children (`childTwo`); full corpus count pending — the
+  combinational routes `#machine_design_sv0` / `#machine_design_svH`); AT
+  MOST ONE closed run, and any closed run is the IR run (`design_sv_backN`,
+  `design_sv_unique`, under `outsCheck`), the endpoints stating both the
+  existence of a closed run showing the source and that every closed run
+  shows it (`ships_design_svN_all` / `_svH_all`, `design_sv_all`) — still
+  open: memory leaves (`leafCheck`/`seq_run_to_sv` take no memory
+  statement; the memory route stays `SVCHILD:OPEN`), the run boundary as a
+  theorem (`ChildSynthIs`/`CacheSound`), the call–instance correspondence
+  for calls of several different children (`mixD1`: UNTRACED),
+  combinational grandchildren below depth 1, multi-output gate children
+  (`childTwo`), Stage 3 (the shape reader); full corpus count pending — the
   run was stopped for memory at 38 of 184 files, 27 of 84 wired): `f.machine_ships` now needs
   only structural facts about the run's modules (no zero-width wire, the
   assign + register shape, the normal forms of the core and merged module,

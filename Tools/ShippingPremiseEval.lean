@@ -92,8 +92,12 @@ structure Verdict where
   /-- the kernel-checked source → `DesignSV` endpoint
   (`f.machine_design_svN{n}`, `ships_design_svN`), if generated -/
   designEndpoint : Option Name := none
-  /-- `outsCheck` (every child assigns its outputs): with `designCheck`, the
-  closed run is UNIQUE and is the IR run (`design_sv_backN`, `design_sv_unique`) -/
+  /-- `outsCheck` (every child assigns its outputs): with `designCheck`, there
+  is AT MOST ONE closed run from given seeding and states within the emitted
+  widths, and any closed run is the IR run (`design_sv_backN`,
+  `design_sv_unique`) — a structural guarantee under those preconditions,
+  NOT a statement that the run boundary or the use conditions hold, and
+  apart from `SVCHILD:SOURCE` / the traces -/
   uniqueCheck : Status := .unknown "not evaluated"
   useConditions : List String := []
   reflection : List String := []
@@ -141,8 +145,8 @@ def Verdict.svChildTag (v : Verdict) : String :=
 
 def Verdict.uniqTag (v : Verdict) : String :=
   match v.svChildren, v.uniqueCheck with
-  | .holds, .holds => "CLOSED:UNIQUE"
-  | .holds, _ => "CLOSED:UNIQ?"
+  | .holds, .holds => "CLOSED:AT-MOST-ONE"
+  | .holds, _ => "CLOSED:UNPROVEN"
   | _, _ => "CLOSED:NA"
 
 def Verdict.tag (v : Verdict) : String :=
@@ -166,7 +170,7 @@ def Verdict.report (v : Verdict) : String :=
     v.traces.map fun (n, t) => s!"  trace {n}: {t.str}"
   let l4 := [s!"  svParent: {v.svParent.str}",
     s!"  svChildren (structural designCheck): {v.svChildren.str}",
-    s!"  closed run unique (outsCheck; design_sv_backN / design_sv_unique): {v.uniqueCheck.str}",
+    s!"  at most one closed run under the seeding/state width preconditions (designCheck + outsCheck; design_sv_backN / design_sv_unique; structural, not a discharge of premises): {v.uniqueCheck.str}",
     match v.designEndpoint with
     | some e => s!"  source → DesignSV endpoint (svBounds_of_checks + design_sv_runN composed with the shipping theorem, kernel-checked): {e}"
     | none => "  source → DesignSV endpoint: not generated for this declaration (ships_design_svN not applied here; structure checked only)"]

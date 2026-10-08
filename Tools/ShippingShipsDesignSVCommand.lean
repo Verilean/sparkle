@@ -1,13 +1,14 @@
 import Tools.ShippingMachineDepthCommand
-import Tools.ShippingShipsDesignSV
+import Tools.ShippingShipsDesignSVAll
 import Tools.ShippingMachineShipsHierHCommand
 
-/-! # `#machine_design_svN f n`
+/-! # `#machine_design_svN f n` (and `_sv0`, `_svH`)
 
-`f.machine_design_svN{n}`: `ships_design_svN` applied to
+`f.machine_design_svN{n}`: `ships_design_svN_all` applied to
 `f.machine_ships_hierN{n}` (generated first if absent) — from the source,
-through the real full entry and the checked optimizer, to the closed run of
-the shipped design's emitted texts, for every run of the compiler, every
+through the real full entry and the checked optimizer, to a closed run of
+the shipped design's emitted texts showing the source AND to every closed
+run showing it (`design_sv_all`, under `outsCheck`), for every run of the compiler, every
 input sequence and every length. Kernel-checked; standard axioms only. -/
 namespace Tools.ShippingShipsDesignSVCommand
 open Lean Meta Elab
@@ -29,7 +30,7 @@ def compose (declName ships name : Name) (n : Nat) : MetaM Name := do
   let ty ← inferType (mkConst ships)
   let value ← forallTelescope ty fun xs _ => do
     let h := mkAppN (mkConst ships) xs
-    let v ← mkAppOptM ``Tools.ShippingShipsDesignSV.ships_design_svN
+    let v ← mkAppOptM ``Tools.ShippingShipsDesignSVAll.ships_design_svN_all
       #[mkNatLit n, reset, bnd, bd, none, none, none, none, none, none, none, none, none, h]
     let v ← instantiateMVars v
     if v.hasMVar then throwError "{declName}: the composition's arguments were not all inferred"
@@ -65,7 +66,7 @@ def generateH (declName : Name) : MetaM Name := do
   let ty ← inferType (mkConst ships)
   let value ← forallTelescope ty fun xs _ => do
     let h := mkAppN (mkConst ships) xs
-    let v ← mkAppOptM ``Tools.ShippingShipsDesignSV.ships_design_svH
+    let v ← mkAppOptM ``Tools.ShippingShipsDesignSVAll.ships_design_svH_all
       #[r, none, none, none, none, none, none, none, none, h]
     let v ← instantiateMVars v
     if v.hasMVar then throwError "{declName}: the composition's arguments were not all inferred"

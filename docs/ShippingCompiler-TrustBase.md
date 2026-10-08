@@ -695,9 +695,17 @@ outputs is the linked run (`runModuleTG_of_childRuns`). Hence
 same list of environments — every name, not only the ports: the text's run
 is a function of its seeding) and `design_sv_all` (what one closed run shows
 — the source's values, from `ships_design_svN` — every closed run shows).
-Forward + backward: under these checks the closed relation has exactly one
-solution, the IR run. The evaluator reports `CLOSED:UNIQUE` when
-`designCheck` and `outsCheck` hold (grandH, topD2, parent, caller).
+Uniqueness alone says AT MOST ONE: that a closed run EXISTS is the forward
+theorem's, given a successful IR run and its premises — in the endpoints,
+the source shipping theorem's run. The generated endpoints
+(`#machine_design_svN` / `_sv0` / `_svH`, now built on
+`ships_design_svN_all` / `ships_design_svH_all`) state both, with
+`outsCheck` explicit: a closed run showing the source exists, AND every
+closed run from the same seeding and states shows it. The evaluator's
+`CLOSED:AT-MOST-ONE` (designCheck + outsCheck hold) is that structural
+guarantee under the seeding / state width preconditions — not a discharge
+of the run boundary or the use conditions, and separate from
+`SVCHILD:SOURCE` and the traces (grandH, topD2, parent, caller).
 
 ## 6c. The printer (the CompCert framing, F3)
 

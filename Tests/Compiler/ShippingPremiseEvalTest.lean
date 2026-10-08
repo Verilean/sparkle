@@ -63,7 +63,13 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   unless v4.traceTag == "TRACE:MISMATCH" && !v4.applies do throwError "mismatch verdict: {v4.tag}"
   -- the children's texts checked but a child not assigning its outputs: uniqueness not claimed
   let v5 : Verdict := { theoremName := "no outs", checker := .holds, childBound := .holds, traces := [("t", .matched)], svChildren := .holds, uniqueCheck := .fails "unassigned output" }
-  unless v5.uniqTag == "CLOSED:UNIQ?" do throwError "uniqueness verdict: {v5.tag}"
+  unless v5.uniqTag == "CLOSED:UNPROVEN" do throwError "uniqueness verdict: {v5.tag}"
+  -- designCheck false or unknown, or outsCheck false or unknown: never AT-MOST-ONE
+  let cases : List (Status × Status) := [(.fails "x", .holds), (.unknown "x", .holds), (.holds, .fails "x"),
+    (.holds, .unknown "x"), (.fails "x", .fails "y"), (.unknown "x", .unknown "y")]
+  for (dc, oc) in cases do
+    let v : Verdict := { theoremName := "u", checker := .holds, childBound := .holds, traces := [("t", .matched)], svChildren := dc, uniqueCheck := oc }
+    if v.uniqTag == "CLOSED:AT-MOST-ONE" then throwError "uniqueness claimed for {repr dc} / {repr oc}"
   Lean.logInfo m!"PREMISE EVAL: unverified / untraced / empty / rejected / mismatched never count as applying"
 
 end Sparkle.Tests.Compiler.ShippingPremiseEvalTest

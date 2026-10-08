@@ -7,7 +7,10 @@ import Tools.ShippingMachineCompose
 of the design's emitted texts (`DesignSV`). Here the converse:
 `design_sv_backN` — EVERY closed run of the emitted texts, from a seeding and
 states within the emitted widths, is the IR linked run. Hence the closed
-relation has exactly one solution (`design_sv_unique`), the IR run.
+relation has AT MOST ONE solution (`design_sv_unique`), and any solution is
+the IR run. That a solution EXISTS is a separate fact: the forward theorem
+(`design_sv_runN`) gives one when the IR run succeeds and its premises hold
+— in the shipping endpoints, from the source shipping theorem's run.
 
 No bound is assumed of the solution. The emitted texts' semantics masks
 every assignment at its target's declared width (`evalAssignsSV`), so a

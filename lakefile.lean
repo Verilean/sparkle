@@ -605,6 +605,9 @@ lean_lib «Tools.ShippingDesignSVBack» where
 lean_lib «Tools.ShippingShipsDesignSV» where
   roots := #[`Tools.ShippingShipsDesignSV]
 
+lean_lib «Tools.ShippingShipsDesignSVAll» where
+  roots := #[`Tools.ShippingShipsDesignSVAll]
+
 lean_lib «Tools.ShippingShipsDesignSVCommand» where
   roots := #[`Tools.ShippingShipsDesignSVCommand]
 

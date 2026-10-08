@@ -125,12 +125,39 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   -- the closed run is unique (the IR run) on the real designs
   for (n, v) in [(``topD2, vt), (``Sparkle.Tests.Compiler.ShippingMachineDepthHTest.grandH, vg),
       (``Sparkle.Tests.Compiler.ShippingMachineSeqTest.parent, vp), (``Sparkle.Tests.Compiler.ShippingMachineInstTest.caller, vc)] do
-    unless v.uniqTag == "CLOSED:UNIQUE" do throwError "{n}: {v.tag}"
+    unless v.uniqTag == "CLOSED:AT-MOST-ONE" do throwError "{n}: {v.tag}"
   let vx ← evalShipsHierSeq ``mixD1 (some 1)
   unless vx.svChildTag == "SVCHILD:CHECKED" do throwError "mixD1: {vx.tag}"
   -- two different sequential children: the instance correspondence is not reconstructed
   let vm ← evalShipsHierSeq ``mixD1 (some 1)
   unless vm.traceTag == "TRACE:UNTRACED" && !vm.applies do throwError "mixD1: {vm.tag}"
+
+-- every endpoint states the existence AND the all-runs part, with outsCheck explicit
+run_cmd Lean.Elab.Command.liftTermElabM do
+  for e in [``Sparkle.Tests.Compiler.ShippingMachineDepthHTest.grandH.machine_design_svN1,
+      ``topD2.machine_design_svN2, ``Sparkle.Tests.Compiler.ShippingMachineSeqTest.parent.machine_design_sv0,
+      ``Sparkle.Tests.Compiler.ShippingMachineInstTest.caller.machine_design_svH] do
+    let ty ← Lean.Meta.inferType (Lean.mkConst e)
+    unless (ty.find? (·.isConstOf ``Tools.ShippingDesignSVBack.outsCheck)).isSome do
+      throwError "{e}: no outsCheck premise"
+    -- `DesignSV` occurs twice: in the existence part and in the all-runs part
+    let rec occ (x : Lean.Expr) : Nat :=
+      (if x.isAppOf ``Tools.ShippingDesignSV.DesignSV then 1 else 0) +
+      match x with
+      | .app f a => occ f + occ a
+      | .lam _ t b _ => occ t + occ b
+      | .forallE _ t b _ => occ t + occ b
+      | .letE _ t v b _ => occ t + occ v + occ b
+      | .mdata _ b => occ b
+      | _ => 0
+    unless occ ty ≥ 2 do throwError "{e}: the all-runs part is missing ({occ ty} DesignSV)"
+  Lean.logInfo m!"ENDPOINTS: existence ∧ all closed runs, outsCheck explicit"
+
+run_cmd do
+  for name in [``Tools.ShippingShipsDesignSVAll.ships_design_svN_all, ``Tools.ShippingShipsDesignSVAll.ships_design_svH_all] do
+    for ax in ← Lean.collectAxioms name do
+      unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do
+        throwError "{name} uses a non-standard axiom: {ax}"
 
 run_cmd do
   for name in [``Tools.ShippingDesignSV.design_sv_runN,
