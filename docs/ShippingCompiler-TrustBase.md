@@ -427,6 +427,33 @@ itself (checked by the compiler with the IR's decidable equality). Children
 that themselves have children are covered by the depth-`n` theorems up to
 the links listed in the TODO (F6).
 
+## 6c. The printer (the CompCert framing, F3)
+
+CompCert's guarantee ends at its assembly AST; the printer that turns it
+into text is trusted. Sparkle's guarantee is framed the same way, with the
+FORWARD direction primary:
+
+- **Proved (forward):** the shipped module's emitted SystemVerilog objects
+  — the continuous assignments, register always-blocks and memory writes
+  `EmitSem.emitAssigns` / `emitRegs` / `emitMemWrites` build from the
+  shipped IR — run under the SV semantics (`runModuleSV`) as the source
+  (`seq_run_to_sv`, `machine_ships*`, `linked_sv_run`, `design_sv_run`).
+  This needs no parser.
+- **Trusted (printer):** that the bytes `Sparkle.Backend.Verilog.toVerilog`
+  / `toVerilogDesign` print are the SystemVerilog those objects denote —
+  the module header, declarations, and the printing of each object. It is
+  the analogue of CompCert's assembly printer.
+- **Validated (parse-back), not trusted:** where the suite runs it, the
+  printed bytes are read back by the shipping parser and the result is
+  checked against the shipped module (`semFragCheck`, `bodyImage`,
+  `bodyReorderCheck`, §4), and for those modules the parsed-back text is
+  proved trace-equal to the checked module. This direction trusts the
+  reader instead of the printer; it is a validation of the printer on the
+  checked corpus, not the primary claim.
+
+A verified printer with a proven inverse on the emitted sub-language would
+remove the printer from this list; it is not planned.
+
 ## 7. What is outside every theorem
 
 - **Compiles that miss the certified gate.** The theorems apply when

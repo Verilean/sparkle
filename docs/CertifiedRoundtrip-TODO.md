@@ -3918,7 +3918,11 @@ The gaps, in the order they weaken the claim:
   theorem (a bare `decide` on it is stuck in 3 ms, "did not reduce"; it
   needs the same structural-twin treatment).  The DEFAULT deep route
   is unchanged and keeps its own `native_decide` sites.
-- [ ] **F3. The printer/parser (M3).**  CompCert trusts its assembly
+- [x] **F3. The printer/parser (M3).** DECIDED (2026-10-08): the forward
+  direction is the primary guarantee and the printer is in the trust base,
+  as CompCert's assembly printer; the parse-back is validation — see
+  ShippingCompiler-TrustBase.md §6c. (A verified printer stays optional.)
+  Original note:  CompCert trusts its assembly
   PRINTER but not a parser of its own output.  Sparkle's roundtrip
   direction trusts the 26-`partial def` recursive-descent parser as an
   executable oracle on the specific text (`{f}_text_parses` under
