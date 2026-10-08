@@ -28,8 +28,9 @@ def projs (h : Lean.Expr) : List Lean.Expr → MetaM (List Lean.Expr)
     pure (l :: (← projs r bs))
 
 def generate (declName : Name) : MetaM Name := do
-  let (headL, args, back?) ← endpointParts declName
-  if back?.isSome then throwError "{declName}: a transported endpoint (not yet)"
+  -- a transported endpoint: the wired twin of its untransported head serves
+  -- the cleanup facts; the composed theorem is already transported
+  let (headL, args, _) ← endpointParts declName
   let soundL := mkAppN (mkConst headL) args
   let cT := mkConst (declName ++ `machine_composedT)
   let data := mkConst (declName ++ `machineData)

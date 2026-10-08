@@ -1099,8 +1099,11 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   sound over the stateful linked run (`hierRefineCheck_linked`); the
   shipping theorem for machines with instances DONE at the IR level
   (`machine_ships_hier`, generated `f.machine_ships_hier`, 5/5 suite
-  machines with sequential children); open: hierarchical emitted Verilog,
-  `KSBounded` from the children, transported endpoints (memory parents done, quantModule); full corpus count pending — the
+  machines with sequential children; `machine_ships_hierH` for
+  combinational children, 26/26 corpus with premises, bound from width-typed
+  runs `ShippingHierTyped`; loop children and transported parents done); open: hierarchical emitted Verilog,
+  `KSBounded` from the children (sequential + memory done), sequential children that have
+  combinational children (`wKeccakF` in the sponge), multi-output gate children (`childTwo`); full corpus count pending — the
   run was stopped for memory at 38 of 184 files, 27 of 84 wired): `f.machine_ships` now needs
   only structural facts about the run's modules (no zero-width wire, the
   assign + register shape, the normal forms of the core and merged module,

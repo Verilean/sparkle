@@ -32,7 +32,7 @@ if [ $# -ge 2 ]; then cat "$2"; else grep " 0$" "$WORK/status.txt" | awk '{print
   | nl -w1 -s' ' > "$WORK/endpoint_jobs/list.txt"
 run_one() {
   i="$1"; f="$2"; job="$WORK/endpoint_jobs/e$i.lean"
-  { echo "import Tools.ShippingGateChildCommand"; echo "import Tools.ShippingMachineSeqCommand"; echo "import Tools.ShippingMachineShipsHierCommand"; cat "$f" "$WORK/endpoint_tail.lean"; } > "$job"
+  { echo "import Tools.ShippingGateChildCommand"; echo "import Tools.ShippingMachineSeqCommand"; echo "import Tools.ShippingMachineShipsHierCommand"; echo "import Tools.ShippingMachineShipsHierHCommand"; cat "$f" "$WORK/endpoint_tail.lean"; } > "$job"
   timeout -k 5 1500 lake env lean --load-dynlib=.lake/build/lib/libsparkle_Sparkle.so "$job" \
     > /dev/null 2>&1
   echo "$f $?" >> "$WORK/endpoint_status.txt"
@@ -51,5 +51,7 @@ echo "memory/sequential-call parents with machine_composedT: $(grep '|COMPOSEDT|
 grep '|COMPOSEDT|FAIL' "$WORK/linked_reasons.txt" | sort -u | cut -c1-250 | head -10
 echo "machines with children to the shipped module (machine_ships_hier): $(grep '|SHIPSHIER|OK' "$WORK/linked_reasons.txt" | cut -d'|' -f1 | sort -u | wc -l) of $(grep '|SHIPSHIER|' "$WORK/linked_reasons.txt" | cut -d'|' -f1 | sort -u | wc -l)"
 grep '|SHIPSHIER|FAIL' "$WORK/linked_reasons.txt" | sort -u | cut -c1-250 | head -10
+echo "machines with combinational children to the shipped module (machine_ships_hierH): $(grep '|SHIPSHIERH|OK' "$WORK/linked_reasons.txt" | cut -d'|' -f1 | sort -u | wc -l) of $(grep '|SHIPSHIERH|' "$WORK/linked_reasons.txt" | cut -d'|' -f1 | sort -u | wc -l), module premises hold: $(grep '|SHIPSHIERH|OK|PREM' "$WORK/linked_reasons.txt" | cut -d'|' -f1 | sort -u | wc -l)"
+grep '|SHIPSHIERH|FAIL\||SHIPSHIERH|OK|NOPREM' "$WORK/linked_reasons.txt" | sort -u | cut -c1-250 | head -10
 echo "declarations with calls and machine_linked: $(grep '|LINKED|OK' "$WORK/linked_reasons.txt" | cut -d'|' -f1 | sort -u | wc -l) of $(grep '|LINKED|' "$WORK/linked_reasons.txt" | cut -d'|' -f1 | sort -u | wc -l)"
 grep '|LINKED|FAIL' "$WORK/linked_reasons.txt" | sort -u | cut -c1-250 | head -20

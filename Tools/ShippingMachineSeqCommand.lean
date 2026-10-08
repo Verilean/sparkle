@@ -1,6 +1,7 @@
 import Tools.ShippingMachineMemCommand
 import Tools.ShippingMachineCallsLinkedT
 import Tools.ShippingGateChild
+import Tools.ShippingMachineLoopL
 
 /-! # Generated composition with memory and sequential children
 
@@ -44,8 +45,19 @@ def proveByTacticT (goal : Lean.Expr) (mkTac : Term.TermElabM Syntax) : MetaM Le
 def generateSeqChild (c : Name) : MetaM Name := do
   let name := c ++ `seq_child_run
   if (← getEnv).contains name then return name
-  let args ← soundArgs c ``Tools.ShippingMachineAuto.machine_trace_of_data
-  let soundL := mkAppN (mkConst ``Tools.ShippingMachineCausal.machine_traceL_of_data) args
+  -- the endpoint's wired twin (a `circuit do`, a `Signal.loop`, a register
+  -- product: the same conclusion form)
+  let some (.thmInfo ti) := (← getEnv).find? (c ++ `machine_sound)
+    | throwError "{c}: no machine_sound"
+  let v := ti.value
+  let headL ← if v.isAppOf ``Tools.ShippingMachineAuto.machine_trace_of_data then
+      pure ``Tools.ShippingMachineCausal.machine_traceL_of_data
+    else if v.isAppOf ``Tools.ShippingMachineLoop.machine_trace_of_loop then
+      pure ``Tools.ShippingMachineLoopL.machine_traceL_of_loop
+    else if v.isAppOf ``Tools.ShippingMachineLoop.machine_trace_of_regs then
+      pure ``Tools.ShippingMachineLoopL.machine_traceL_of_regs
+    else throwError "{c}.machine_sound is not built from Tools.ShippingMachineAuto.machine_trace_of_data, _of_loop or _of_regs"
+  let soundL := mkAppN (mkConst headL) v.getAppArgs
   let mut p ← mkAppOptM ``Tools.ShippingMachineSeqInst.seqChildRun_full
     #[none, none, none, none, none, none, soundL]
   for _ in [0:7] do

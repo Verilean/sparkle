@@ -134,6 +134,7 @@ import Tests.Compiler.ShippingMachineLinkedTest
 import Tests.Compiler.ShippingMachineMemLinkedTest
 import Tests.Compiler.ShippingMachineSeqLinkedTest
 import Tests.Compiler.ShippingMachineShipsHierHTest
+import Tests.Compiler.ShippingMachineSeqLoopTest
 import Tests.Compiler.ShippingHierOptRunTest
 import Tests.Compiler.ShippingMachineDepthTest
 import Tests.Compiler.ShippingMachineTeleTest
