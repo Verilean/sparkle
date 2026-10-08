@@ -510,7 +510,13 @@ validated per program. Sparkle's claim is framed the same way:
   would be outside the claim. The corpus measurement counts them
   (`scripts/shipping-coverage/endpoints.sh`): legacy-only 0 of 391 real
   declarations and every machine-route declaration with an endpoint
-  (gold53); to be re-measured after every compiler change.
+  (gold53); re-measured on gold64 (2026-10-08): 367 of 367 machine-route
+  declarations with a kernel-checked endpoint (327 real corpus), of which
+  185 reach the emitted Verilog from the wiring (`machine_ships_wired`) and
+  44 as combinational machines (`machine_ships_comb`); machines with
+  children reach the shipped module in 18 of 21 (`machine_ships_hier`; the
+  3 others are transported endpoints); 8 heavy files (crypto demos,
+  MP4 encoder) did not finish within the per-file limit.
 
 Stage 3 (planned) strengthens the reflection: the shape readers
 (`machineShape?` and its `partial` helpers, §6d) rewritten total and
