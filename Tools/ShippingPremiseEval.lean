@@ -6,52 +6,141 @@ import Tools.ShippingHierShipsSV
 
 /-! # Evaluating the shipping theorems' premises on a real compile
 
-A generated shipping theorem is conditional: it holds of every run of the
-compiler, given facts about the run's modules. That the theorem was
-generated says nothing about whether those facts hold. This file evaluates
-them on the modules of an actual compile, premise by premise, with the
-checkers the theorems name (`shipsHierCheck`, `shipsHierHCheck`,
-`kidsMaskedN`, `kidsComb`, `extendsAwayB`, `noInstOfB`, …) and traces the
-run boundaries (the module an instance resolves to is a full-entry / core run
-of its child) by compiling the child again and comparing the modules.
-Each premise gets a status:
+A generated shipping theorem is conditional. That it was generated says
+nothing about whether its premises hold. This file evaluates them on the
+modules of an actual compile and returns a `Verdict` with FIXED fields — one
+per kind of premise — so that nothing unverified can be read as verified:
 
-* `holds` / `fails` — a decidable checker, evaluated (its soundness lemma
-  turns `holds` into the fact the proof uses);
-* `boundary` — a run boundary traced: a run of the child's entry produces
-  exactly the instance's module (the compiler's sub-synthesis is an
-  `IO.Ref`, opaque in the logic, so this stays a premise of the theorem);
-* `reflection` — the reflection boundary (`MachineDefines` / `EntryDefines`:
-  the declaration's value is the reified source; checked per declaration by
-  the endpoint generator's kernel checks, trusted as the validated parser);
-* `open` — a premise about the run's inputs or initial state, or a stage not
-  connected (named, not evaluated).
+* `checker` — the theorem's own bundled checker (`shipsHierCheck` /
+  `shipsHierHCheck`, the very function the theorem names), evaluated;
+* `childBound` — the children's output bound (`kidsMaskedN`, `kidsMasked` /
+  `kidsMem`, the width-typed run), evaluated;
+* `boundaryChecks` — decidable facts at the run boundary (`extendsAwayB`,
+  `noInstOfB`, `kidsComb`), evaluated; and facts the wiring DERIVES (a memory
+  call's instance is the built memory module: `MachineWired`, from the
+  compiler's own `memSelf` check, `find_memModule`), evaluated as a
+  cross-check;
+* `traces` — the run boundaries themselves (the module an instance resolves
+  to is a run of its child's entry). The compiler's sub-synthesis is an
+  `IO.Ref`, opaque in the logic: these stay PREMISES of the theorem. Here
+  they are MEASURED by compiling the child again and comparing modules —
+  a trace, never a proof, in its own field;
+* `svParent` — the decidable premises of the emitted-Verilog theorem of the
+  shipped module (`shippedSVCheck` / `svHCheck`, the theorems' own checkers)
+  and the children's bound on the shipped module;
+* `svChildren` — the children's own emitted Verilog: not connected (the
+  parent's Verilog runs against an ORACLE for the children's outputs);
+* `useConditions` — premises about the run's inputs and initial state: the
+  caller's obligations when using the theorem, not facts of the modules;
+* `reflection` — the reflection boundary (`MachineDefines`, `EntryDefines`).
 
-The shipped-IR stage and the emitted-Verilog stage are reported apart. -/
+The module verdict is `PREM` only when the checker, the child bound and
+every boundary check HOLD; `NOPREM` when one fails; otherwise `UNKNOWN`.
+The trace verdict is `MATCHED` only when at least one trace was taken and
+every trace matched; an untraced boundary is `UNTRACED`, never matched.
+The trace verdict is `NOTREQUIRED` when the route needs no run boundary
+beyond facts derived from the run (memory reads). A theorem counts as
+applying to the run — GIVEN its run-boundary premises, measured but not
+discharged — only with `MOD:PREM` and `TRACE:MATCHED` / `TRACE:NOTREQUIRED`
+(`Verdict.applies`). -/
 namespace Tools.ShippingPremiseEval
 open Lean Meta
 open Sparkle.IR.AST
-
 open Sparkle.IR.Machine (moduleByName)
 
-inductive Status | holds | fails | boundary | reflection | open_
+/-- A decidable premise's status. `unknown` is never success. -/
+inductive Status | holds | fails (why : String) | unknown (why : String)
   deriving BEq, Repr, Inhabited
 
-structure Item where
-  label : String
-  status : Status
-  sv : Bool := false
-  deriving Inhabited
+/-- A measured run boundary. Never a proof. -/
+inductive Trace | matched | mismatch (why : String) | untraced (why : String)
+  deriving BEq, Repr, Inhabited
 
-def chk (label : String) (b : Bool) (sv : Bool := false) : Item :=
-  { label, status := if b then .holds else .fails, sv }
+/-- What the route needs at the run boundary: traces of child runs
+(`required`), or nothing beyond facts a general theorem derives from the
+run (`notRequired`, e.g. memory reads: `MachineWired` / `find_memModule`). -/
+inductive BoundaryReq | required | notRequired (why : String)
+  deriving BEq, Repr, Inhabited
+
+def Status.ofBool (b : Bool) (why : String) : Status := if b then .holds else .fails why
 
 def Status.str : Status → String
-  | .holds => "holds" | .fails => "FAILS" | .boundary => "boundary(traced)"
-  | .reflection => "reflection" | .open_ => "open"
+  | .holds => "holds" | .fails w => s!"FAILS ({w})" | .unknown w => s!"UNKNOWN ({w})"
+
+def Trace.str : Trace → String
+  | .matched => "matched (measured, not proved)" | .mismatch w => s!"MISMATCH ({w})"
+  | .untraced w => s!"UNTRACED ({w})"
+
+structure Verdict where
+  theoremName : String
+  checker : Status := .unknown "not evaluated"
+  childBound : Status := .unknown "not evaluated"
+  boundaryChecks : List (String × Status) := []
+  traces : List (String × Trace) := []
+  boundaryReq : BoundaryReq := .required
+  route : String := ""
+  svParent : Status := .unknown "not evaluated"
+  svChildren : String := "not connected (the parent's Verilog runs against an oracle for the children's outputs)"
+  useConditions : List String := []
+  reflection : List String := []
+  deriving Inhabited
+
+def Verdict.moduleTag (v : Verdict) : String :=
+  let all : List (String × Status) :=
+    [("checker", v.checker), ("childBound", v.childBound)] ++ v.boundaryChecks
+  let fails := all.filter fun (_, s) => match s with | .fails _ => true | _ => false
+  let unknowns := all.filter fun (_, s) => match s with | .unknown _ => true | _ => false
+  let names (l : List (String × Status)) := ",".intercalate (l.map fun p => (p.1.take 40).toString)
+  if !fails.isEmpty then "MOD:NOPREM:" ++ names fails
+  else if !unknowns.isEmpty then "MOD:UNKNOWN:" ++ names unknowns
+  else "MOD:PREM"
+
+def Verdict.traceTag (v : Verdict) : String :=
+  match v.boundaryReq, v.traces with
+  | .notRequired _, [] => "TRACE:NOTREQUIRED"
+  | .required, [] => "TRACE:UNTRACED"
+  | _, ts =>
+    let bad := ts.filter fun (_, t) => t != .matched
+    let mism := bad.filter fun (_, t) => match t with | .mismatch _ => true | _ => false
+    if !mism.isEmpty then "TRACE:MISMATCH"
+    else if !bad.isEmpty then "TRACE:UNTRACED"
+    else "TRACE:MATCHED"
+
+def Verdict.svTag (v : Verdict) : String :=
+  match v.svParent with
+  | .holds => "SV:PARENT"
+  | .fails _ => "SV:NO"
+  | .unknown _ => "SV:UNKNOWN"
+
+/-- The record: module premises, the boundary traces, the parent's emitted
+Verilog, and the children's emitted Verilog (always open here). -/
+def Verdict.tag (v : Verdict) : String :=
+  s!"{v.moduleTag}|{v.traceTag}|{v.svTag}|SVCHILD:OPEN"
+
+/-- The theorem applies to the run GIVEN its run-boundary premises: the
+module premises hold, and every required run boundary was MEASURED as
+matching (or the route needs none beyond facts derived from the run). The
+run boundaries stay premises of the theorem — a matching trace is a
+measurement of them, not their discharge. -/
+def Verdict.applies (v : Verdict) : Bool :=
+  v.moduleTag == "MOD:PREM" &&
+    (v.traceTag == "TRACE:MATCHED" || v.traceTag == "TRACE:NOTREQUIRED")
+
+def Verdict.report (v : Verdict) : String :=
+  let l1 := [s!"  checker: {v.checker.str}", s!"  childBound: {v.childBound.str}"]
+  let l2 := v.boundaryChecks.map fun (n, s) => s!"  boundary check {n}: {s.str}"
+  let l3 := (match v.boundaryReq with
+      | .required => s!"  run boundaries: required (premises of the theorem; measured below, not proved)"
+      | .notRequired w => s!"  run boundaries: none required ({w})") ::
+    v.traces.map fun (n, t) => s!"  trace {n}: {t.str}"
+  let l4 := [s!"  svParent: {v.svParent.str}", s!"  svChildren: {v.svChildren}"]
+  let l5 := v.useConditions.map fun u => s!"  use condition (caller's obligation): {u}"
+  let l6 := v.reflection.map fun r => s!"  reflection boundary: {r}"
+  "\n".intercalate (s!"{v.theoremName} [{v.route}]: {v.tag}" :: l1 ++ l2 ++ l3 ++ l4 ++ l5 ++ l6)
 
 /-- The instance modules of a body, resolved in a design. -/
-def instMods (ms : List Sparkle.IR.AST.Module) (body : List Stmt) : List (String × Option Sparkle.IR.AST.Module) :=
+def instMods (ms : List Sparkle.IR.AST.Module) (body : List Stmt) :
+    List (String × Option Sparkle.IR.AST.Module) :=
   body.filterMap fun st => match st with
     | .inst mn _ _ => some (mn, moduleByName ms mn)
     | _ => none
@@ -60,171 +149,166 @@ def fullEntry (c : Name) : MetaM Sparkle.IR.AST.Module :=
   return (← Sparkle.Compiler.Elab.synthesizeCombinational c).1
 
 /-- The calls' premise of a composed theorem with combinational children
-(`R k mc`: the call's module is its child's full-entry run), through the
-sufficient condition `BoundH_of_each`: every instance module is the
-full-entry run of the (single) called child. With calls of several children
-the precise premise (`BoundH`, by the call–instance correspondence) is not
-evaluated here. -/
-def evalRuns (pre : String) (children : List Name) (ms : List Sparkle.IR.AST.Module) (body : List Stmt) :
-    MetaM (List Item) := do
+(`R k mc`: the call's module is its child's full-entry run). With calls of
+one child, `BoundH_of_each` reduces it to: every instance module is that
+child's full-entry run — traced. With calls of several children the precise
+premise (`BoundH`, by the call–instance correspondence) needs the wiring's
+call ports, which this measurement does not reconstruct: UNTRACED. -/
+def traceRuns (pre : String) (children : List Name) (ms : List Sparkle.IR.AST.Module)
+    (body : List Stmt) : MetaM (List (String × Trace) × List String) := do
   let kids := children.eraseDups
   if kids.length != 1 then
-    return [{ label := s!"{pre}calls' premise (several children: the call–instance correspondence `BoundH` is not evaluated)",
-              status := .open_ }]
+    return ([(s!"{pre}calls of {kids.length} different children",
+      .untraced "the call–instance correspondence (BoundH) is not reconstructed")],
+      kids.map fun c => s!"{c}: EntryDefines / MachineDefines")
   let c := kids.head!
   let mcc ← fullEntry c
-  let mut out : List Item := []
+  let mut out : List (String × Trace) := []
   for (mn, mc?) in instMods ms body do
     match mc? with
-    | none => out := out ++ [chk s!"{pre}instance {mn} resolves in the design" false]
+    | none => out := out ++ [(s!"{pre}instance {mn}", .mismatch "does not resolve in the design")]
     | some mc =>
-      out := out ++ [{ label := s!"{pre}instance {mn}: the full-entry run of {c} (GateRun/MachineRun)",
-                       status := if mcc == mc then .boundary else .fails }]
-  out := out ++ [{ label := s!"{pre}{c}: EntryDefines / MachineDefines", status := .reflection }]
-  return out
+      out := out ++ [(s!"{pre}instance {mn} is the full-entry run of {c}",
+        if mcc == mc then .matched else .mismatch "a recompile of the child gives another module")]
+  return (out, [s!"{c}: EntryDefines / MachineDefines"])
 
-/-- The run boundary `Bnd raw D` of `c`'s composed theorem at depth `dep`
-(`machineBoundN{dep}` / `BndH`), traced on its core run `(raw, D)`. -/
-partial def evalBnd (pre : String) (c : Name) (dep : Nat) (raw : Sparkle.IR.AST.Module) (D : Design) :
-    MetaM (List Item) := do
+structure BndEval where
+  /-- a non-memory child was met: its run boundary is required -/
+  required : Bool := false
+  checks : List (String × Status) := []
+  traces : List (String × Trace) := []
+  reflection : List String := []
+
+def BndEval.append (a b : BndEval) : BndEval :=
+  ⟨a.required || b.required, a.checks ++ b.checks, a.traces ++ b.traces, a.reflection ++ b.reflection⟩
+
+/-- The run boundary `Bnd raw D` of `c`'s composed theorem at depth `dep`,
+on its core run `(raw, D)`: the decidable facts evaluated, the run
+boundaries traced. -/
+partial def evalBnd (pre : String) (c : Name) (dep : Nat) (raw : Sparkle.IR.AST.Module)
+    (D : Design) : MetaM BndEval := do
   let r ← Tools.ShippingMachineCommand.readMachine c
   let calls := r.shape.insts.map (·.1)
   if r.shape.instFields.isEmpty then
-    -- combinational children (`BndH`): the calls' premise and the checker
-    let runs ← evalRuns pre calls D.modules raw.body
-    return runs ++ [chk s!"{pre}kidsComb {c}" (Tools.ShippingMachineDepthH.kidsComb D.modules raw.body)]
+    let (tr, refl) ← traceRuns pre calls D.modules raw.body
+    return { required := true, checks := [(s!"{pre}kidsComb {c}",
+               .ofBool (Tools.ShippingMachineDepthH.kidsComb D.modules raw.body) "a child is not assignments-only / local / wired")],
+             traces := tr, reflection := refl }
   let seqKids := (calls.filter fun k => (Tools.ShippingMachineMemCommand.memWidths? k).isNone).eraseDups
-  let mut out : List Item := []
-  if seqKids.length > 1 then
-    out := out ++ [{ label := s!"{pre}several sequential children: the call–instance correspondence (InstOfCall) is matched by module equality only",
-                     status := .open_ }]
+  let mut out : BndEval := {}
   for (mn, mc?) in instMods D.modules raw.body do
-    let some mc := mc? | out := out ++ [chk s!"{pre}instance {mn} resolves" false]; continue
-    if (Sparkle.Compiler.MachMemory.memParams? mc).isSome then continue
-    let mut matched := false
-    for k in seqKids do
-      if matched then continue
-      let kr ← Tools.ShippingMachineCommand.readMachine k
-      if kr.shape.insts.isEmpty then
-        -- `MachineRun k` (depth 0 leaf / `seq_child_run`)
-        if (← fullEntry k) == mc then
-          matched := true
-          out := out ++ [({ label := s!"{pre}instance {mn}: the full-entry run of {k} (MachineRun)", status := .boundary } : Item),
-                         ({ label := s!"{pre}{k}: MachineDefines / MachineCloses", status := .reflection } : Item)]
+    let some mc := mc? | out := out.append { traces := [(s!"{pre}instance {mn}", .mismatch "does not resolve")] }; continue
+    -- a memory instance: no run boundary — `MachineWired` DERIVES that it is
+    -- the built memory module (the compiler's `memSelf` check,
+    -- `find_memModule`); cross-checked here
+    if let some (cb, aw, dw) := Sparkle.Compiler.MachMemory.memParams? mc then
+      out := out.append { checks := [(s!"{pre}memory instance {mn} is the built memory module (derived: MachineWired / find_memModule)",
+        .ofBool (decide (mc = (Sparkle.Compiler.MachMemory.memModule cb aw dw).1)) "not the built memory module")] }
+      continue
+    out := out.append { required := true }
+    if seqKids.length != 1 then
+      out := out.append { traces := [(s!"{pre}instance {mn}",
+        .untraced s!"{seqKids.length} sequential children: the call–instance correspondence (InstOfCall) is not reconstructed")] }
+      continue
+    let k := seqKids.head!
+    let kr ← Tools.ShippingMachineCommand.readMachine k
+    if kr.shape.insts.isEmpty then
+      out := out.append { traces := [(s!"{pre}instance {mn} is the full-entry run of {k} (MachineRun)",
+                            if (← fullEntry k) == mc then .matched else .mismatch "recompile differs")],
+                          reflection := [s!"{k}: MachineDefines / MachineCloses"] }
+    else
+      let (rawk, Dk) ← Sparkle.Compiler.Elab.synthesizeCombinationalCore k [] false
+      let dz := Sparkle.IR.ZeroWidth.dropZeroWidthModule rawk
+      let same := dz == mc || Sparkle.IR.RefineCheck.mergeChecked dz == mc
+      out := out.append {
+        checks := [(s!"{pre}ExtendsAway {k}", .ofBool (Tools.ShippingHierPremisesBase.extendsAwayB rawk.name Dk.modules D.modules) "the designs disagree"),
+                   (s!"{pre}NoInstOf {k}", .ofBool (Tools.ShippingHierPremisesBase.noInstOfB rawk.name rawk.body) "self-instance")],
+        traces := [(s!"{pre}instance {mn} is the post-processing of a core run of {k} (MachineRunN)",
+                    if same then .matched else .mismatch "recompile differs")],
+        reflection := [s!"{k}: MachineDefines / MachineCloses"] }
+      if dep == 0 then
+        out := out.append { checks := [(s!"{pre}{k} has children", .fails "depth 0 is too shallow")] }
       else
-        -- `MachineRunN k` at depth `dep - 1`
-        let (rawk, Dk) ← Sparkle.Compiler.Elab.synthesizeCombinationalCore k [] false
-        let dz := Sparkle.IR.ZeroWidth.dropZeroWidthModule rawk
-        if dz == mc || Sparkle.IR.RefineCheck.mergeChecked dz == mc then
-          matched := true
-          out := out ++ [({ label := s!"{pre}instance {mn}: post-processing of a core run of {k} (MachineRunN)", status := .boundary } : Item),
-                         ({ label := s!"{pre}{k}: MachineDefines / MachineCloses", status := .reflection } : Item),
-                         chk s!"{pre}ExtendsAway {k}" (Tools.ShippingHierPremisesBase.extendsAwayB rawk.name Dk.modules D.modules),
-                         chk s!"{pre}NoInstOf {k}" (Tools.ShippingHierPremisesBase.noInstOfB rawk.name rawk.body)]
-          if dep == 0 then
-            out := out ++ [chk s!"{pre}{k} has children: depth 0 too shallow" false]
-          else
-            out := out ++ (← evalBnd s!"{pre}{k} > " k (dep - 1) rawk Dk)
-    unless matched do
-      out := out ++ [chk s!"{pre}instance {mn}: a run of one of {seqKids}" false]
+        out := out.append (← evalBnd s!"{pre}{k} > " k (dep - 1) rawk Dk)
   return out
-
-/-- The decidable premises of `linked_sv_run` / `linked_sv_of_run(H)` on the
-shipped module `o`: the parent's emitted Verilog under the oracle seeding. -/
-def evalSVParent (C : String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)) (o : Sparkle.IR.AST.Module) : List Item :=
-  let wof := Tools.SVParser.RoundtripProof.moduleWof o
-  let we := Tools.SVParser.EmitSem.weOf wof
-  [chk "sv: instance/assign/register fragment" (o.body.all Tools.ShippingHierSVSoundness.seqStmtOkI) true,
-   chk "sv: emitted-Verilog check (seqCheck)" (Tools.SVParser.EmitSem.seqCheck wof we o.body) true,
-   chk "sv: checker and emitter widths agree" ((Tools.ShippingSeqSVSoundness.seqNames o.body).all
-     (fun x => Sparkle.IR.RegDedup.declWidth o x == we x)) true,
-   chk "sv: instance-driven wires extracted, no wider than emitted"
-     ((Tools.ShippingHierOpen.bodyInstOuts C o.body).all fun w =>
-       ((Sparkle.IR.HierCheck.openIns o).map (·.name)).contains w &&
-       decide (Sparkle.IR.RegDedup.declWidth o w ≤ we w)) true]
 
 /-- The sequential / memory route: `f.machine_ships_hier` (depth `none`) or
 `f.machine_ships_hierN{n}`. -/
-def evalShipsHierSeq (declName : Name) (dep : Option Nat) : MetaM (List Item) := do
+def evalShipsHierSeq (declName : Name) (dep : Option Nat) : MetaM Verdict := do
   let (raw, D) ← Sparkle.Compiler.Elab.synthesizeCombinationalCore declName [] false
   let (b, _) ← Sparkle.Compiler.Elab.synthesizeCombinational declName
   let o := Sparkle.IR.OptCheck.checkedOptimize b
   let C := Tools.ShippingMachineLinked.childMap D.modules
-  let mut out : List Item := [chk "shipsHierCheck (hierBinds, linkedWF shipped, distinct instances, no self-read, extracted wires, widths, reset)"
-    (Tools.ShippingHierPremisesBase.shipsHierCheck C b)]
-  match dep with
-  | some n =>
-    out := out ++ [chk "Bd: kidsMaskedN" (Tools.ShippingMachineShipsDepth.kidsMaskedN D.modules b.body)]
-    out := out ++ (← evalBnd "Bnd: " declName n raw D)
-    out := out ++ [{ label := "children start at reset (ResetNk), inputs and start registers within widths", status := .open_ }]
-    out := out ++ evalSVParent C o
-    out := out ++ [chk "sv: instance-output widths on the shipped module (shipped_sv)"
-      (Tools.ShippingHierOpen.instOutWidthsOk C (Sparkle.IR.RegDedup.declWidth o) o.body) true]
-    out := out ++ [chk "sv: the shipped module's children bounded (kidsMaskedN on it)"
-      (Tools.ShippingMachineShipsDepth.kidsMaskedN D.modules o.body) true,
-      { label := "sv: the children's own emitted Verilog at depth ≥ 1 (not connected: design_sv_run is one-level)",
-        status := .open_, sv := true }]
-  | none =>
-    let seqB := Tools.ShippingMachineShipsHier.kidsMasked C b.body
-    let memB := Tools.ShippingMachineShipsHier.kidsMem C b.body
-    out := out ++ [chk "Bd: kidsMasked (sequential) or kidsMem (memory)" (seqB || memB)]
-    out := out ++ (← evalBnd "Bnd: " declName 0 raw D)
-    out := out ++ [{ label := "children start at reset (Reset1/ResetM), inputs and start registers within widths", status := .open_ }]
-    out := out ++ evalSVParent C o
-    out := out ++ [chk "sv: instance-output widths on the shipped module (shipped_sv)"
-      (Tools.ShippingHierOpen.instOutWidthsOk C (Sparkle.IR.RegDedup.declWidth o) o.body) true]
-    out := out ++ [chk "sv: the shipped module's children bounded"
-      (Tools.ShippingMachineShipsHier.kidsMasked C o.body || Tools.ShippingMachineShipsHier.kidsMem C o.body) true]
-  out := out ++ [{ label := s!"{declName}: MachineDefines / MachineCloses", status := .reflection }]
-  return out
+  let wof := Tools.SVParser.RoundtripProof.moduleWof o
+  let name := match dep with
+    | some n => s!"{declName}.machine_ships_hierN{n}"
+    | none => s!"{declName}.machine_ships_hier"
+  -- the bound of the theorem GENERATED for this route (shared with the generator)
+  let (route, bd, bdO) ← match dep with
+    | some n => pure (s!"depth {n}: KSn, kidsMaskedN",
+                  Tools.ShippingMachineShipsDepth.kidsMaskedN D.modules b.body,
+                  Tools.ShippingMachineShipsDepth.kidsMaskedN D.modules o.body)
+    | none => do
+      match ← Tools.ShippingMachineShipsHierCommand.hierRoute declName with
+      | .seq => pure ("depth 0, sequential children: Reset1, kidsMasked",
+                  Tools.ShippingMachineShipsHier.kidsMasked C b.body, Tools.ShippingMachineShipsHier.kidsMasked C o.body)
+      | .mem => pure ("depth 0, memory reads: ResetM, kidsMem",
+                  Tools.ShippingMachineShipsHier.kidsMem C b.body, Tools.ShippingMachineShipsHier.kidsMem C o.body)
+  let bnd ← evalBnd "" declName (dep.getD 0) raw D
+  let svc := Tools.ShippingHierShipsSV.shippedSVCheck C o wof
+  return {
+    theoremName := name
+    checker := .ofBool (Tools.ShippingHierPremisesBase.shipsHierCheck C b) "shipsHierCheck rejects the run's module"
+    childBound := .ofBool bd "a child's outputs are not bounded"
+    boundaryChecks := bnd.checks
+    traces := bnd.traces
+    boundaryReq := if bnd.required then .required
+      else .notRequired "memory reads only: a memory call's instance is the built memory module (MachineWired / find_memModule)"
+    route := route
+    svParent := .ofBool (svc && bdO) (if svc then "the shipped module's children are not bounded" else "shippedSVCheck rejects the shipped module")
+    useConditions := ["the children start at reset (Reset1 / ResetM / ResetNk)",
+                      "the inputs are within the declared and the emitted widths",
+                      "the start registers are within their widths"]
+    reflection := s!"{declName}: MachineDefines / MachineCloses" :: bnd.reflection }
 
 /-- The combinational route: `f.machine_ships_hierH`. -/
-def evalShipsHierH (declName : Name) : MetaM (List Item) := do
+def evalShipsHierH (declName : Name) : MetaM Verdict := do
   let (raw, D) ← Sparkle.Compiler.Elab.synthesizeCombinationalCore declName [] false
   let (b, _) ← Sparkle.Compiler.Elab.synthesizeCombinational declName
   let o := Sparkle.IR.OptCheck.checkedOptimize b
-  let C := Tools.ShippingMachineLinked.childMap D.modules
   let r ← Tools.ShippingMachineCommand.readMachine declName
-  let mut out : List Item := [chk "shipsHierHCheck (common facts, local children, width-typed)"
-    (Tools.ShippingHierPremises.shipsHierHCheck D.modules b)]
-  out := out ++ (← evalRuns "calls: " (r.shape.insts.map (·.1)) D.modules raw.body)
-  out := out ++ [{ label := "inputs within widths, start state within widths off the outputs", status := .open_ }]
-  out := out ++ evalSVParent C o
-  out := out ++ [chk "sv: the shipped module width-typed with local children"
-      (Tools.ShippingHierTyped.hierTyped C o && Tools.ShippingHierOptRunH.kidsLocal D.modules o.body) true,
-    { label := "sv: the children's own emitted Verilog (not connected for the combinational linked run)",
-      status := .open_, sv := true },
-    { label := s!"{declName}: MachineDefines / MachineCloses", status := .reflection }]
-  return out
+  let (tr, refl) ← traceRuns "" (r.shape.insts.map (·.1)) D.modules raw.body
+  let wof := Tools.SVParser.RoundtripProof.moduleWof o
+  return {
+    theoremName := s!"{declName}.machine_ships_hierH"
+    checker := .ofBool (Tools.ShippingHierPremises.shipsHierHCheck D.modules b) "shipsHierHCheck rejects the run's module"
+    -- the combinational route's child bound: the width-typed run (in its checker too)
+    childBound := .ofBool (Tools.ShippingHierTyped.hierTyped (Tools.ShippingMachineLinked.childMap D.modules) b)
+      "the body is not width-typed"
+    traces := tr
+    route := "combinational children: runModuleH, hierTyped"
+    svParent := .ofBool (Tools.ShippingHierShipsSV.svHCheck D.modules o wof) "svHCheck rejects the shipped module"
+    useConditions := ["the inputs are within the declared and the emitted widths",
+                      "the start state is within its widths off the output ports"]
+    reflection := s!"{declName}: MachineDefines / MachineCloses" :: refl }
 
-/-- The classification of a generated shipping theorem by its evaluated
-premises: `PREM` (every module premise holds or is a traced boundary) or
-`NOPREM:<failing>`; then `SV:parent` (the parent's emitted-Verilog premises
-hold), `SV:no:<failing>`. Generation alone is never counted as `PREM`. -/
-def classify (items : List Item) : String :=
-  let bad := items.filter fun i => !i.sv && i.status == .fails
-  let badSV := items.filter fun i => i.sv && i.status == .fails
-  let prem := if bad.isEmpty then "PREM" else "NOPREM:" ++ ",".intercalate (bad.map (fun i => (i.label.take 40).toString))
-  let sv := if !bad.isEmpty then "SV:na"
-    else if badSV.isEmpty then "SV:parent" else "SV:no:" ++ ",".intercalate (badSV.map (fun i => (i.label.take 40).toString))
-  s!"{prem}|{sv}"
-
-def report (items : List Item) : String :=
-  "\n".intercalate (items.map fun i => s!"  [{i.status.str}]{if i.sv then " (sv)" else ""} {i.label}")
-
-/-- One measurement record: `<tag>|GEN:FAIL:<why>` when the theorem is not
-generated; `<tag>|GEN:OK|EVAL:FAIL:<why>` when its premises could not be
-evaluated; otherwise `<tag>|GEN:OK|<classify>`. A theorem counts as applying
-to the run only with `PREM`, and reaching the emitted Verilog only with
-`SV:parent` (the parent's text; the children's text is reported apart). -/
-def measure (tag : String) (gen : MetaM Unit) (eval : MetaM (List Item)) : MetaM String := do
+/-- One measurement record and its details: `<tag>|GEN:FAIL:<why>` when the
+theorem cannot be generated; `GEN:EXISTS` when it was already in the
+environment (generation skipped, the evaluation still runs);
+`<tag>|GEN:OK|EVAL:FAIL:<why>` when its premises could not be evaluated;
+otherwise `<tag>|GEN:OK|<Verdict.tag>` and the verdict's report (every
+field with its reason, persisted by the measurement). -/
+def measure (tag : String) (exists_ : Bool) (gen : MetaM Unit) (eval : MetaM Verdict) :
+    MetaM (String × String) := do
   let clean (m : MessageData) : MetaM String := do
     return (((← m.toString).replace "\n" " ").replace "|" "/").take 300 |>.toString
-  try gen
-  catch ex => return s!"{tag}|GEN:FAIL:{← clean ex.toMessageData}"
+  let genTag := if exists_ then "GEN:EXISTS" else "GEN:OK"
+  unless exists_ do
+    try gen
+    catch ex => return (s!"{tag}|GEN:FAIL:{← clean ex.toMessageData}", "")
   try
-    let items ← eval
-    return s!"{tag}|GEN:OK|{classify items}"
-  catch ex => return s!"{tag}|GEN:OK|EVAL:FAIL:{← clean ex.toMessageData}"
+    let v ← eval
+    return (s!"{tag}|{genTag}|{v.tag}", v.report)
+  catch ex => return (s!"{tag}|{genTag}|EVAL:FAIL:{← clean ex.toMessageData}", "")
 
 end Tools.ShippingPremiseEval

@@ -52,6 +52,40 @@ than what the projection arm needs — it only queries the keys of the
 call at hand — and is false when the child itself instantiates
 multi-output modules; narrowing it to those keys is open.
 
+## 2b. Applying the general theorems to a real compile: what remains
+
+Each shipping theorem quantifies over every run of the compiler; using it
+on a particular compile leaves exactly these, per kind (the measurement
+reports them in separate fields, `Tools.ShippingPremiseEval.Verdict`):
+
+| Kind | What | Status on a real compile |
+| --- | --- | --- |
+| module premises | the route's bundled checker (`shipsHierCheck`, `shipsHierHCheck`), the child bound (`kidsMaskedN`, `kidsMasked`/`kidsMem`, `hierTyped`), boundary facts (`extendsAwayB`, `noInstOfB`, `kidsComb`) | EVALUATED on the run's modules; each checker has a soundness lemma (`…_sound`). The evaluation is a run of the checker on the compile's output, not a kernel proof about that particular run |
+| derived facts | the core body's linked well-formedness (`linkedOk_eq` from `MachineWired`), a memory call's instance is the built memory module (`MachineWired`, from the compiler's own `memSelf` check, `find_memModule`), the shipped module keeps the inputs (`checkedOptimize_inputs`) | PROVED from the run (`RunsTo`) — no premise; memory instances are cross-checked by the evaluator, and a memory-reads-only parent needs no run boundary (`TRACE:NOTREQUIRED`); its remaining memory-route conditions are `kidsMem` (evaluated) and `ResetM` (use condition) |
+| run boundaries | `MachineRun` / `MachineRunN` / `GateRun` (an instance's module is a run of its child's entry), `SubSynthDefines` | PREMISES. The measurement TRACES them by compiling the child again and comparing modules (`TRACE:MATCHED`) — a measurement, not a proof. With calls of several different children the call–instance correspondence is not reconstructed (`TRACE:UNTRACED`) |
+| use conditions | inputs within the declared and emitted widths, the children starting at reset (`Reset1`/`ResetM`/`ResetNk`), start registers within widths | the CALLER's obligations: statements about the environment the circuit runs in, not about the compile |
+| reflection | `MachineDefines` / `MachineCloses` / `EntryDefines` (the declaration's value is the reified source) | checked per declaration by the endpoint generator's kernel `rfl`s (§6e); Stage 3 (proving the shape reader) would reduce it to the reflection principle |
+| printer | the SystemVerilog text of the emitted objects | trusted (§6c) |
+| children's text | the children's own emitted Verilog under the parent (the parent's Verilog runs against an ORACLE for the children's outputs) | not connected except one-level `flatKS` (`design_sv_run`) |
+
+**Deriving the run boundary (investigation, 2026-10-09).** The child
+modules a parent's compile uses come from `sparkleChildSynth` — an `IO.Ref`
+holding the entry function (it breaks the mutual recursion between the
+front end and the entry) — memoised in `sparkleChildCache`. Two facts are
+missing in the logic: which function the ref holds, and that the cache holds
+only results of real child runs. A design that would DERIVE `MachineRun` /
+`GateRun` from the parent's `RunsTo`: (1) a run-environment boundary of the
+existing form for the ref (`ChildSynthIs`: every read of `sparkleChildSynth`
+returns the real `Rec.synthesizeCombinational`), discharged once per
+session the way `EnvDefines` is; (2) a state invariant `CacheSound` (every
+cache entry `(c, r)` is the result of a run of the child entry on `c`),
+proved preserved by each write of the cache (the only writer is the
+memoised entry, which stores the result it just computed); (3) a
+`RunsTo` decomposition through `mapM` and the memoised call. Then the
+boundary becomes a theorem about the parent's run, leaving the ref's
+content as the single boundary. Not implemented; until then the run
+boundaries are premises, traced by the measurement.
+
 ## 3. Premises about a linked child
 
 The hierarchical statements speak about a parent whose instance
@@ -643,11 +677,22 @@ validated per program. Sparkle's claim is framed the same way:
     did not finish (timeout at 1500 s, then an unbounded run stopped for
     memory): UNMEASURED.
   - From `endpoints.sh` after this revision, every shipping theorem of a
-    machine with instances is recorded as `GEN:OK|GEN:FAIL`, then its
-    premises evaluated on the real compile (`PREM` / `NOPREM:<which>` /
-    `EVAL:FAIL`), then the parent's emitted Verilog (`SV:parent` /
-    `SV:no:<which>`); generation alone is never counted as applying
-    (`Tools.ShippingPremiseEval.measure`), and files that do not finish are
+    machine with instances is recorded field by field
+    (`Tools.ShippingPremiseEval.measure`, details in `premise_items.txt`):
+    `GEN:OK` / `GEN:EXISTS` (already generated: generation skipped, the
+    premises still evaluated) / `GEN:FAIL`; `MOD:PREM` / `MOD:NOPREM:<which>`
+    / `MOD:UNKNOWN:<which>`; `TRACE:MATCHED` / `TRACE:UNTRACED` /
+    `TRACE:MISMATCH` (run boundaries measured, not proved) /
+    `TRACE:NOTREQUIRED` (the route needs no run boundary beyond facts
+    derived from the run: memory reads); `SV:PARENT` / `SV:NO` (the
+    parent's emitted Verilog); `SVCHILD:OPEN`. A theorem counts as APPLYING
+    GIVEN ITS RUN-BOUNDARY PREMISES only with `MOD:PREM` and
+    `TRACE:MATCHED`/`NOTREQUIRED` — a matching trace measures those premises,
+    it does not discharge them; an empty or unevaluated verdict is never
+    success. The depth-0 route (sequential children: `Reset1`/`kidsMasked`;
+    memory reads only: `ResetM`/`kidsMem`) is one function, `hierRoute`,
+    used by the generator and the evaluator alike, so the bound evaluated is
+    the bound of the theorem generated. Files that do not finish are
     listed as unmeasured with their exit status.
 
 Stage 3 (planned) strengthens the reflection: the shape readers

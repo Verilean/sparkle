@@ -1,6 +1,7 @@
 import Tools.ShippingHierSVRun
 import Tools.ShippingHierPremisesBase
 import Tools.ShippingMachineShipsHier
+import Tools.ShippingHierSVRunH
 
 /-! # From the shipped module's linked run to its emitted Verilog
 
@@ -91,5 +92,103 @@ theorem shipped_sv {σ : Type} (KS : KStep σ) (children : String → Option (Mo
   rw [← hseed] at hrun ⊢
   exact Tools.ShippingHierSVRun.linked_sv_of_run KS children Inv hKSb hF.wfO hF.ndO hIW hOut hOW
     hok hsv hwag ins (by rw [hin]; exact hinsW) hrun hinv hstX hst
+
+/-- The decidable emitted-Verilog premises of `shipped_sv` on the shipped
+module `o`, for the emitter's width map `wof`. -/
+def shippedSVCheck (children : String → Option (Module × WEnv)) (o : Module)
+    (wof : String → Option Nat) : Bool :=
+  instOutWidthsOk children (declWidth o) o.body &&
+    (bodyInstOuts children o.body).all (fun w =>
+      ((Sparkle.IR.HierCheck.openIns o).map (·.name)).contains w &&
+        decide (declWidth o w ≤ Tools.SVParser.EmitSem.weOf wof w)) &&
+    o.body.all Tools.ShippingHierSVSoundness.seqStmtOkI &&
+    Tools.SVParser.EmitSem.seqCheck wof (Tools.SVParser.EmitSem.weOf wof) o.body &&
+    (Tools.ShippingSeqSVSoundness.seqNames o.body).all (fun x =>
+      declWidth o x == Tools.SVParser.EmitSem.weOf wof x)
+
+/-- What `shippedSVCheck` gives. -/
+structure SVFacts (children : String → Option (Module × WEnv)) (o : Module)
+    (wof : String → Option Nat) : Prop where
+  iw : instOutWidthsOk children (declWidth o) o.body = true
+  outs : ∀ w ∈ bodyInstOuts children o.body, w ∈ (Sparkle.IR.HierCheck.openIns o).map (·.name)
+  ow : ∀ w ∈ bodyInstOuts children o.body, declWidth o w ≤ Tools.SVParser.EmitSem.weOf wof w
+  ok : o.body.all Tools.ShippingHierSVSoundness.seqStmtOkI = true
+  sv : Tools.SVParser.EmitSem.seqCheck wof (Tools.SVParser.EmitSem.weOf wof) o.body = true
+  wag : ∀ n ∈ Tools.ShippingSeqSVSoundness.seqNames o.body,
+    declWidth o n = Tools.SVParser.EmitSem.weOf wof n
+
+theorem shippedSVCheck_sound {children : String → Option (Module × WEnv)} {o : Module}
+    {wof : String → Option Nat} (h : shippedSVCheck children o wof = true) :
+    SVFacts children o wof := by
+  simp only [shippedSVCheck, Bool.and_eq_true] at h
+  obtain ⟨⟨⟨⟨hiw, hob⟩, hok⟩, hsv⟩, hwg⟩ := h
+  refine ⟨hiw, fun w hw => ?_, fun w hw => ?_, hok, hsv, fun n hn => ?_⟩
+  · have := List.all_eq_true.mp hob w hw
+    simp only [Bool.and_eq_true, List.contains_eq_mem, decide_eq_true_eq] at this
+    exact this.1
+  · have := List.all_eq_true.mp hob w hw
+    simp only [Bool.and_eq_true, List.contains_eq_mem, decide_eq_true_eq] at this
+    exact this.2
+  · have := List.all_eq_true.mp hwg n hn
+    simpa using this
+
+/-- `shipped_sv` with its decidable premises as the checker. -/
+theorem shipped_sv_checked {σ : Type} (KS : KStep σ) (children : String → Option (Module × WEnv))
+    {b : Module} {wof : String → Option Nat} (Inv : Module → σ → Prop)
+    (hchk : Tools.ShippingHierPremisesBase.hierCheck children b = true)
+    (hKSb : KSBoundedIn children KS (checkedOptimize b).body Inv)
+    (hsvc : shippedSVCheck children (checkedOptimize b) wof = true)
+    (ins : Nat → String → Nat)
+    (hinsW : ∀ t x, x ∈ b.inputs.map (·.name) → ins t x < 2 ^ Tools.SVParser.EmitSem.weOf wof x)
+    {T : Nat} {s : KState σ} {envs : List Env}
+    (hrun : runModuleTG KS (declWidth (checkedOptimize b)) children (checkedOptimize b).body
+      (seedIn b ins) T s = some envs)
+    (hinv : ∀ mn iname conns, Stmt.inst mn iname conns ∈ (checkedOptimize b).body → ∀ child cwe,
+      children mn = some (child, cwe) → Inv child (s.kids iname))
+    (hstX : ∀ x ∈ (Sparkle.IR.HierCheck.openIns (checkedOptimize b)).map (·.name),
+      x ∉ bodyInstOuts children (checkedOptimize b).body → s.st x < 2 ^ declWidth (checkedOptimize b) x)
+    (hst : Bounded (Tools.SVParser.EmitSem.weOf wof) s.st) :
+    ∃ pairs regs mprog,
+      Tools.SVParser.EmitSem.emitAssigns wof (checkedOptimize b).body = some pairs ∧
+      Tools.SVParser.EmitSem.emitRegs wof (checkedOptimize b).body = some regs ∧
+      Tools.SVParser.EmitSem.emitMemWrites wof (checkedOptimize b).body = some mprog ∧
+      Tools.SVParser.EmitSem.runModuleSV wof pairs regs mprog
+        (Tools.ShippingHierSVRun.oracle children (checkedOptimize b).body
+          (fun k => (envs[T - 1 - k]?).getD (fun _ => 0)) (seedIn b ins)) T
+        s.st s.mems = some envs := by
+  have F := shippedSVCheck_sound hsvc
+  exact shipped_sv KS children Inv hchk hKSb F.iw F.outs F.ow F.ok F.sv F.wag ins hinsW hrun hinv hstX hst
+
+/-- The decidable emitted-Verilog premises of `linked_sv_of_runH` (the
+combinational route): width-typed with local children, and the SV facts. -/
+def svHCheck (ms : List Module) (o : Module) (wof : String → Option Nat) : Bool :=
+  Tools.ShippingHierTyped.hierTyped (Tools.ShippingMachineLinked.childMap ms) o &&
+    Tools.ShippingHierOptRunH.kidsLocal ms o.body &&
+    Tools.ShippingHierOpen.linkedWF (Tools.ShippingMachineLinked.childMap ms) o.body &&
+    shippedSVCheck (Tools.ShippingMachineLinked.childMap ms) o wof
+
+/-- `linked_sv_of_runH` with its decidable premises as the checker. -/
+theorem linked_sv_of_runH_checked (ms : List Module) {o : Module} {wof : String → Option Nat}
+    (hc : svHCheck ms o wof = true)
+    (ins : Nat → String → Nat)
+    (hinsFit : ∀ t x, x ∈ o.inputs.map (·.name) → ins t x < 2 ^ declWidth o x)
+    (hinsW : ∀ t x, x ∈ o.inputs.map (·.name) → ins t x < 2 ^ Tools.SVParser.EmitSem.weOf wof x)
+    {T : Nat} {st : String → Nat} {mems : MEnv} {envs : List Env}
+    (hrun : Tools.ShippingMachineLinked.runModuleH (declWidth o) (Tools.ShippingMachineLinked.childMap ms)
+      o.body (seedIn o ins) T st mems = some envs)
+    (hstD : Tools.ShippingHierTyped.BoundOff (declWidth o) (o.outputs.map (·.name)) st)
+    (hst : Bounded (Tools.SVParser.EmitSem.weOf wof) st) :
+    ∃ pairs regs mprog,
+      Tools.SVParser.EmitSem.emitAssigns wof o.body = some pairs ∧
+      Tools.SVParser.EmitSem.emitRegs wof o.body = some regs ∧
+      Tools.SVParser.EmitSem.emitMemWrites wof o.body = some mprog ∧
+      Tools.SVParser.EmitSem.runModuleSV wof pairs regs mprog
+        (Tools.ShippingHierSVRun.oracle (Tools.ShippingMachineLinked.childMap ms) o.body
+          (fun k => (envs[T - 1 - k]?).getD (fun _ => 0)) (seedIn o ins)) T st mems = some envs := by
+  simp only [svHCheck, Bool.and_eq_true] at hc
+  obtain ⟨⟨⟨hty, hloc⟩, hwf⟩, hsvc⟩ := hc
+  have F := shippedSVCheck_sound hsvc
+  exact Tools.ShippingHierSVRunH.linked_sv_of_runH ms hty hloc hwf F.outs F.ow F.ok F.sv F.wag ins
+    hinsFit hinsW hrun hstD hst
 
 end Tools.ShippingHierShipsSV

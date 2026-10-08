@@ -27,11 +27,26 @@ def projs (h : Lean.Expr) : List Lean.Expr → MetaM (List Lean.Expr)
     let r ← mkAppM ``And.right #[h]
     pure (l :: (← projs r bs))
 
+/-- The route of a machine with instances at depth 0, decided ONCE and
+shared by the generator and the premise evaluator: memory reads only
+(`machine_composedT` from the memory composition, `composedG_of_Tmem`,
+reset `ResetM`, bound `kidsMem`) or sequential children
+(`composedG_of_T`, `Reset1`, `kidsMasked`). The same test as the composed
+theorem's generator (`generateAny`). -/
+inductive HierRoute | seq | mem
+  deriving BEq, Repr
+
+def hierRoute (declName : Name) : MetaM HierRoute := do
+  let r ← Tools.ShippingMachineCommand.readMachine declName
+  if r.shape.insts.all (fun (c, _, _) => (Tools.ShippingMachineMemCommand.memWidths? c).isSome)
+  then return .mem else return .seq
+
 def generate (declName : Name) : MetaM Name := do
   if (← getEnv).contains (declName ++ `machine_ships_hier) then return declName ++ `machine_ships_hier
   -- a transported endpoint: the wired twin of its untransported head serves
   -- the cleanup facts; the composed theorem is already transported
   let (headL, args, _) ← endpointParts declName
+  let route ← hierRoute declName
   let soundL := mkAppN (mkConst headL) args
   let cT := mkConst (declName ++ `machine_composedT)
   let data := mkConst (declName ++ `machineData)
@@ -49,11 +64,10 @@ def generate (declName : Name) : MetaM Name := do
     let (composed, reset) ← withLocalDeclD `hBnd bnd fun hBnd => withLocalDeclD `hm memF fun hm => do
       let ps ← projs hBnd bTys
       let hC := mkAppN cT (base ++ ps.toArray)
-      let (inner, reset) ← try
-          pure (← mkAppM ``Tools.ShippingMachineShipsHier.composedG_of_T #[hC, hm],
+      let (inner, reset) ← match route with
+        | .seq => pure (← mkAppM ``Tools.ShippingMachineShipsHier.composedG_of_T #[hC, hm],
             mkConst ``Tools.ShippingMachineShipsHier.Reset1)
-        catch _ =>
-          pure (← mkAppM ``Tools.ShippingMachineShipsHier.composedG_of_Tmem #[hC, hm],
+        | .mem => pure (← mkAppM ``Tools.ShippingMachineShipsHier.composedG_of_Tmem #[hC, hm],
             mkConst ``Tools.ShippingMachineShipsHier.ResetM)
       pure (← mkLambdaFVars (base ++ #[hBnd, hm]) inner, reset)
     -- the children's output bound: decidable checks, `kidsMasked` for sequential

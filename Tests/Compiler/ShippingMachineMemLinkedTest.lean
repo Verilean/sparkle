@@ -108,10 +108,10 @@ with the checker it names, its run boundaries traced; generation alone is not
 counted. -/
 open Tools.ShippingPremiseEval in
 run_cmd Lean.Elab.Command.liftTermElabM do
-  for (n, items) in ([(``memCounter, evalShipsHierSeq ``memCounter none), (``twoMems, evalShipsHierSeq ``twoMems none), (``mixedMems, evalShipsHierSeq ``mixedMems none)] : List (Lean.Name × Lean.Meta.MetaM (List Item))) do
-    let items ← items
-    unless classify items == "PREM|SV:parent" do
-      throwError "{n}: {classify items}\n{report items}"
+  for (n, items) in ([(``memCounter, evalShipsHierSeq ``memCounter none), (``twoMems, evalShipsHierSeq ``twoMems none), (``mixedMems, evalShipsHierSeq ``mixedMems none)] : List (Lean.Name × Lean.Meta.MetaM Verdict)) do
+    let v ← items
+    unless v.applies && v.svTag == "SV:PARENT" do
+      throwError "{n}: {v.tag}\n{v.report}"
   Lean.logInfo m!"MEM PARENTS: every module premise holds or is a traced boundary; the shipped module's emitted-Verilog premises hold"
 
 end Sparkle.Tests.Compiler.ShippingMachineMemLinkedTest

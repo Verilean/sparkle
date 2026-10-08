@@ -129,11 +129,14 @@ run_cmd do
     -- to the shipped module (`f.machine_ships_hierH`): generation, then its
     -- premises evaluated on the real compile (`Tools.ShippingPremiseEval`)
     if (← getEnv).contains (n ++ `machine_composed) then
-      let r2 ← liftTermElabM <| withOptions (fun o => Lean.Elab.async.set o false) <|
-        Tools.ShippingPremiseEval.measure "SHIPSHIERH"
+      let exH := (← getEnv).contains (n ++ `machine_ships_hierH)
+      let (r2, d2) ← liftTermElabM <| withOptions (fun o => Lean.Elab.async.set o false) <|
+        Tools.ShippingPremiseEval.measure "SHIPSHIERH" exH
           (discard <| Tools.ShippingMachineShipsHierHCommand.generate n)
           (Tools.ShippingPremiseEval.evalShipsHierH n)
       gout := gout ++ s!"{s}|{r2}\n"
+      let hd ← IO.FS.Handle.mk "@WORK@/premise_items.txt" .append
+      hd.putStr s!"{s}|{r2}\n{d2}\n"
   let hg ← IO.FS.Handle.mk "@WORK@/linked_reasons.txt" .append
   hg.putStr gout
 -- the declarations whose calls are memory reads or sequential children (the
@@ -143,6 +146,7 @@ set_option maxHeartbeats 0 in
 run_cmd do
   let names ← IO.FS.lines "@WORK@/machine_decls.txt"
   let mut mout := ""
+  let mut dout := ""
   for s in names do
     let n0 := s.toName
     let env ← getEnv
@@ -154,33 +158,41 @@ run_cmd do
           if (Lean.privateToUserName? c).map toString == some user then c else acc) n0
       else n0
     unless (env.find? (n ++ `machine_sound)).isSome do continue
-    if (env.find? (n ++ `machine_composedT)).isSome then
-      mout := mout ++ s!"{s}|COMPOSEDT|OK\n"; continue
     let gpath ← liftTermElabM do
       try pure !(← Tools.ShippingMachineCommand.readMachine n).shape.instFields.isEmpty
       catch _ => pure false
     unless gpath do continue
-    let res ← try
+    -- an already generated theorem skips GENERATION only: its premises are
+    -- evaluated and recorded like any other
+    let res ← if (env.find? (n ++ `machine_composedT)).isSome then pure "COMPOSEDT|EXISTS" else
+      try
         let _ ← liftTermElabM (Tools.ShippingMachineSeqCommand.generateAny n)
         pure "COMPOSEDT|OK"
       catch ex =>
         let msg ← ex.toMessageData.toString
         pure ("COMPOSEDT|FAIL|" ++ ((msg.replace "\n" " ").take 300).toString)
     mout := mout ++ s!"{s}|{res}\n"
+    let composed := res == "COMPOSEDT|OK" || res == "COMPOSEDT|EXISTS"
     -- a child with children of its own: the composition at depth 1
-    if res != "COMPOSEDT|OK" then
-      let r1 ← liftTermElabM <| withOptions (fun o => Lean.Elab.async.set o false) <|
-        Tools.ShippingPremiseEval.measure "SHIPSHIERN1"
+    if !composed then
+      let ex1 := (← getEnv).contains (n ++ `machine_ships_hierN1)
+      let (r1, d1) ← liftTermElabM <| withOptions (fun o => Lean.Elab.async.set o false) <|
+        Tools.ShippingPremiseEval.measure "SHIPSHIERN1" ex1
           (discard <| Tools.ShippingMachineDepthCommand.generateShipsN n 1)
           (Tools.ShippingPremiseEval.evalShipsHierSeq n (some 1))
       mout := mout ++ s!"{s}|{r1}\n"
+      dout := dout ++ s!"{s}|{r1}\n{d1}\n"
     -- to the shipped module (`f.machine_ships_hier`)
-    if res == "COMPOSEDT|OK" then
-      let r2 ← liftTermElabM <| withOptions (fun o => Lean.Elab.async.set o false) <|
-        Tools.ShippingPremiseEval.measure "SHIPSHIER"
+    if composed then
+      let ex0 := (← getEnv).contains (n ++ `machine_ships_hier)
+      let (r2, d2) ← liftTermElabM <| withOptions (fun o => Lean.Elab.async.set o false) <|
+        Tools.ShippingPremiseEval.measure "SHIPSHIER" ex0
           (discard <| Tools.ShippingMachineShipsHierCommand.generate n)
           (Tools.ShippingPremiseEval.evalShipsHierSeq n none)
       mout := mout ++ s!"{s}|{r2}\n"
+      dout := dout ++ s!"{s}|{r2}\n{d2}\n"
+  let hd ← IO.FS.Handle.mk "@WORK@/premise_items.txt" .append
+  hd.putStr dout
   let hm ← IO.FS.Handle.mk "@WORK@/linked_reasons.txt" .append
   hm.putStr mout
 end EndpointProbeZZ

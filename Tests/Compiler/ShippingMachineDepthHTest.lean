@@ -64,34 +64,31 @@ reflection boundary and the run's input / initial-state premises are listed,
 not evaluated. -/
 open Tools.ShippingPremiseEval in
 run_cmd Lean.Elab.Command.liftTermElabM do
-  let items ← evalShipsHierSeq ``grandH (some 1)
-  Lean.logInfo m!"grandH.machine_ships_hierN1 premises:\n{report items}"
-  unless classify items == "PREM|SV:parent" do
-    throwError "grandH: premises not all satisfied: {classify items}"
-  -- the boundary was traced, not assumed: both run boundaries appear
-  unless (items.filter (·.status == .boundary)).length == 2 do
-    throwError "grandH: the run boundaries were not both traced"
+  let v ← evalShipsHierSeq ``grandH (some 1)
+  Lean.logInfo m!"{v.report}"
+  unless v.tag == "MOD:PREM|TRACE:MATCHED|SV:PARENT|SVCHILD:OPEN" && v.applies do
+    throwError "grandH: {v.tag}"
+  -- both run boundaries were traced (measured), and each decidable boundary fact checked
+  unless v.traces.length == 2 && v.boundaryChecks.length == 3 do
+    throwError "grandH: {v.traces.length} traces, {v.boundaryChecks.length} boundary checks"
 
 /-! ## A rejected premise is reported as not applying
 
 `grand` (`ShippingMachineSeqTest`, whose child `mid` has a child of its
 own) has no depth-0 theorem: generation fails, and its premises evaluated
-with the depth-0 boundary are rejected (`NOPREM`), never counted. -/
+with the depth-0 boundary are rejected (`MOD:NOPREM`), never counted. -/
 open Tools.ShippingPremiseEval in
 run_cmd Lean.Elab.Command.liftTermElabM do
-  let items ← evalShipsHierSeq ``Sparkle.Tests.Compiler.ShippingMachineSeqTest.grand (some 0)
-  unless (classify items).startsWith "NOPREM:" do
-    throwError "grand at depth 0: a rejected premise was not reported: {classify items}"
+  let v ← evalShipsHierSeq ``Sparkle.Tests.Compiler.ShippingMachineSeqTest.grand (some 0)
+  unless v.moduleTag.startsWith "MOD:NOPREM:" && !v.applies do
+    throwError "grand at depth 0: a rejected premise was not reported: {v.tag}"
   let gen ← try
       discard <| Tools.ShippingMachineDepthCommand.generateShipsN
         ``Sparkle.Tests.Compiler.ShippingMachineSeqTest.grand 0
       pure true
     catch _ => pure false
   if gen then throwError "grand at depth 0: generated, but its boundary cannot hold"
-  -- the classification never counts a failing premise
-  let bad : List Item := [chk "x" true, chk "y" false, chk "s" true (sv := true)]
-  unless classify bad == "NOPREM:y|SV:na" do throwError "classify: {classify bad}"
-  Lean.logInfo m!"DEPTH H: rejected premises are reported, not counted: {classify items}"
+  Lean.logInfo m!"DEPTH H: rejected premises are reported, not counted: {v.tag}"
 
 run_cmd do
   if (← get).messages.hasErrors then throwError "depth with combinational grandchildren regression failed"

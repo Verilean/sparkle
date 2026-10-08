@@ -28,6 +28,7 @@ sed "s#@WORK@#$WORK#g" "$HERE/endpoint_tail.lean.in" > "$WORK/endpoint_tail.lean
 : > "$WORK/endpoint_reasons.txt"
 : > "$WORK/endpoint_status.txt"
 : > "$WORK/linked_reasons.txt"
+: > "$WORK/premise_items.txt"
 if [ $# -ge 2 ]; then cat "$2"; else grep " 0$" "$WORK/status.txt" | awk '{print $1}'; fi \
   | nl -w1 -s' ' > "$WORK/endpoint_jobs/list.txt"
 run_one() {
@@ -41,16 +42,26 @@ run_one() {
 export -f run_one; export WORK
 xargs -P "${ENDPOINT_JOBS:-3}" -L 1 bash -c 'run_one "$0" "$1"' < "$WORK/endpoint_jobs/list.txt"
 python3 "$HERE/report.py" endpoints "$WORK"
-# the shipping theorems of machines with instances: generated (GEN:OK), the
-# premises holding on the real compile (PREM), the parent's emitted Verilog
-# (SV:parent) — generation alone is never counted as applying
+# the shipping theorems of machines with instances, by what is established:
+# generated (GEN:OK) or already present (GEN:EXISTS, generation skipped, still
+# evaluated); module premises evaluated (MOD:PREM / NOPREM / UNKNOWN); the run
+# boundaries MEASURED by recompiling the children (TRACE:MATCHED / UNTRACED /
+# MISMATCH — a trace, not a proof; NOTREQUIRED when the route needs no run
+# boundary beyond facts derived from the run, e.g. memory reads); the parent's
+# emitted Verilog (SV:PARENT); the children's emitted Verilog is not connected
+# (SVCHILD:OPEN). "applies" = MOD:PREM and TRACE:MATCHED|NOTREQUIRED: the
+# theorem applies GIVEN its run-boundary premises, which a matching trace
+# measures but does not discharge. Every field's reason: premise_items.txt
 for tag in SHIPSHIER SHIPSHIERH SHIPSHIERN1; do
-  all=$(grep "|$tag|" "$WORK/linked_reasons.txt" | cut -d'|' -f1 | sort -u | wc -l)
-  gen=$(grep "|$tag|GEN:OK" "$WORK/linked_reasons.txt" | cut -d'|' -f1 | sort -u | wc -l)
-  prem=$(grep "|$tag|GEN:OK|PREM|" "$WORK/linked_reasons.txt" | cut -d'|' -f1 | sort -u | wc -l)
-  sv=$(grep "|$tag|GEN:OK|PREM|SV:parent" "$WORK/linked_reasons.txt" | cut -d'|' -f1 | sort -u | wc -l)
-  echo "$tag: attempted $all, generated $gen, premises hold on the run $prem, parent's emitted Verilog $sv"
-  grep "|$tag|" "$WORK/linked_reasons.txt" | grep -v "|PREM|SV:parent" | sort -u | cut -c1-250 | head -10
+  R="$WORK/linked_reasons.txt"
+  all=$(grep "|$tag|" "$R" | cut -d'|' -f1 | sort -u | wc -l)
+  gen=$(grep -E "\|$tag\|GEN:(OK|EXISTS)" "$R" | cut -d'|' -f1 | sort -u | wc -l)
+  prem=$(grep -E "\|$tag\|GEN:(OK|EXISTS)\|MOD:PREM\|" "$R" | cut -d'|' -f1 | sort -u | wc -l)
+  applies=$(grep -E "\|$tag\|GEN:(OK|EXISTS)\|MOD:PREM\|TRACE:(MATCHED|NOTREQUIRED)\|" "$R" | cut -d'|' -f1 | sort -u | wc -l)
+  sv=$(grep -E "\|$tag\|GEN:(OK|EXISTS)\|MOD:PREM\|TRACE:(MATCHED|NOTREQUIRED)\|SV:PARENT" "$R" | cut -d'|' -f1 | sort -u | wc -l)
+  unk=$(grep -E "\|$tag\|.*(MOD:UNKNOWN|TRACE:UNTRACED|EVAL:FAIL)" "$R" | cut -d'|' -f1 | sort -u | wc -l)
+  echo "$tag: attempted $all, generated/present $gen, module premises hold $prem, applies given the run-boundary premises (measured as matching or not required, NOT discharged) $applies, of which the parent's emitted Verilog $sv, unknown/untraced $unk"
+  grep "|$tag|" "$R" | grep -vE "MOD:PREM\\|TRACE:(MATCHED|NOTREQUIRED)\\|SV:PARENT" | sort -u | cut -c1-250 | head -10
 done
 # files that did not finish: their declarations are UNMEASURED (not failed)
 awk '$2 != 0 { r = ($2 == 124 ? "timeout" : ($2 == 137 ? "killed (OOM?)" : "exit " $2)); print "unmeasured file: " $1 " (" r ")" }' "$WORK/endpoint_status.txt"
