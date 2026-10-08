@@ -130,6 +130,9 @@ run_cmd do
     -- premises evaluated on the real compile (`Tools.ShippingPremiseEval`)
     if (← getEnv).contains (n ++ `machine_composed) then
       let exH := (← getEnv).contains (n ++ `machine_ships_hierH)
+      try discard <| liftTermElabM <| withOptions (fun o => Lean.Elab.async.set o false) <|
+          Tools.ShippingShipsDesignSVCommand.generateH n
+      catch _ => pure ()
       let (r2, d2) ← liftTermElabM <| withOptions (fun o => Lean.Elab.async.set o false) <|
         Tools.ShippingPremiseEval.measure "SHIPSHIERH" exH
           (discard <| Tools.ShippingMachineShipsHierHCommand.generate n)
@@ -202,6 +205,9 @@ run_cmd do
     -- to the shipped module (`f.machine_ships_hier`)
     if composed then
       let ex0 := (← getEnv).contains (n ++ `machine_ships_hier)
+      try discard <| liftTermElabM <| withOptions (fun o => Lean.Elab.async.set o false) <|
+          Tools.ShippingShipsDesignSVCommand.generate0 n
+      catch _ => pure ()
       let (r2, d2) ← liftTermElabM <| withOptions (fun o => Lean.Elab.async.set o false) <|
         Tools.ShippingPremiseEval.measure "SHIPSHIER" ex0
           (discard <| Tools.ShippingMachineShipsHierCommand.generate n)

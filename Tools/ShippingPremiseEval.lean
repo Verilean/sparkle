@@ -293,11 +293,11 @@ def evalShipsHierSeq (declName : Name) (dep : Option Nat) : MetaM Verdict := do
       else .notRequired "memory reads only: a memory call's instance is the built memory module (MachineWired / find_memModule)"
     route := route
     svParent := .ofBool (svc && bdO) (if svc then "the shipped module's children are not bounded" else "shippedSVCheck rejects the shipped module")
-    designEndpoint := match dep with
-      | some n =>
-        let e := declName ++ Name.mkSimple s!"machine_design_svN{n}"
-        if (env.contains e) then some e else none
-      | none => none
+    designEndpoint :=
+      let e := match dep with
+        | some n => declName ++ Name.mkSimple s!"machine_design_svN{n}"
+        | none => declName ++ `machine_design_sv0
+      if env.contains e then some e else none
     svChildren := match dep with
       | some n => .ofBool (Tools.ShippingDesignSV.designCheck C n o) s!"designCheck {n} rejects the shipped design"
       | none => match routeKind with
@@ -327,6 +327,8 @@ def evalShipsHierH (declName : Name) : MetaM Verdict := do
     svParent := .ofBool (Tools.ShippingHierShipsSV.svHCheck D.modules o wof) "svHCheck rejects the shipped module"
     -- the combinational linked run IS the depth-0 flatKS run when the
     -- children are kidsComb (runModuleTG_flat_of_H)
+    designEndpoint := if (← getEnv).contains (declName ++ `machine_design_svH)
+      then some (declName ++ `machine_design_svH) else none
     svChildren := .ofBool (Tools.ShippingMachineDepthH.kidsComb D.modules o.body &&
         Tools.ShippingDesignSV.designCheck (Tools.ShippingMachineLinked.childMap D.modules) 0 o)
       "kidsComb or designCheck 0 rejects the shipped design"

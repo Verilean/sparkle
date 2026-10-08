@@ -664,7 +664,15 @@ and emitted widths, start state and instance states within their widths);
 conclusion: `DesignSV` of the shipped design with those environments, whose
 output ports carry the source's values. Stages recorded apart by the
 evaluator: `SVCHILD:CHECKED` (structure checked only), `SVCHILD:SOURCE`
-(the kernel-checked endpoint above exists). Still not claimed: uniqueness of
+(the kernel-checked endpoint above exists). The depth-0 route
+(`#machine_design_sv0`: `machine_ships_hier` has `KS = flatKS = KSn _ 0`;
+the theorem's own reset / boundary / bound read off its proof term) and the
+combinational route (`ships_design_svH`, `#machine_design_svH`: the
+`runModuleH` run is the depth-0 `flatKS` run under `kidsComb` on the shipped
+body, `runModuleTG_flat_of_H`) have endpoints too: `parent.machine_design_sv0`,
+`caller.machine_design_svH`. A memory parent's endpoint is generated
+(`memCounter.machine_design_sv0`), but its premise `designCheck` is false
+on the real module (memory leaves), so it stays `SVCHILD:OPEN`. Still not claimed: uniqueness of
 the closed run (the backward direction), the run boundary as a theorem,
 memory leaves, `mixD1`'s call–instance correspondence (traced: UNTRACED).
 
