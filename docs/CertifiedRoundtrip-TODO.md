@@ -3664,7 +3664,17 @@ The gaps, in the order they weaken the claim:
   the test uses identity optimization and cycle-level reset semantics.
   **Boundary:** this validates each reader result; it does not prove the reader
   universally or certify the shipping elaborator, printer or external SV semantics.
-- [ ] **F2. `native_decide` out of the per-instance obligations.**
+- [x] **F2. `native_decide` out of the per-instance obligations.**
+  FOR THE SHIPPING COMPILER: satisfied (checked 2026-10-08). No
+  `Tools/Shipping*` proof and no `Tests/Compiler/Shipping*` test uses
+  `native_decide`; every shipping theorem and generated endpoint is audited
+  (`collectAxioms`) to propext / Classical.choice / Quot.sound, so
+  `ofReduceBool` is rejected; per-declaration facts are kernel `decide` /
+  `Eq.refl`. The remaining uses are in the separate deep-elab /
+  cone-sharing replay track (`Tools/VerifyElab.lean`, `Tools/DeepElab.lean`,
+  `Tests/Verification/ConeSharingReplay.lean`) and in unrelated test suites
+  (Hesper, RV32 ISA vectors), outside the shipping claim. The inventory
+  below is that track's history.
   **Shared-route inventory (shareX4 `_sdeep_signal_run`, 57 auxiliaries,
   measured 2026-09-16 by grouping `#print axioms`):** G1 glue
   `coneEval_*` 24 (4 per slot — compile / concatNorm / inlineConeT /
