@@ -1100,7 +1100,7 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   shipping theorem for machines with instances DONE at the IR level
   (`machine_ships_hier`, generated `f.machine_ships_hier`, 5/5 suite
   machines with sequential children); open: hierarchical emitted Verilog,
-  `KSBounded` from the children, memory-only parents, transported endpoints; full corpus count pending — the
+  `KSBounded` from the children, transported endpoints (memory parents done, quantModule); full corpus count pending — the
   run was stopped for memory at 38 of 184 files, 27 of 84 wired): `f.machine_ships` now needs
   only structural facts about the run's modules (no zero-width wire, the
   assign + register shape, the normal forms of the core and merged module,
