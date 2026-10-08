@@ -8,6 +8,7 @@ import Tools.ShippingMachineMemCausal
 import Tools.ShippingMachineFuseGen
 import Tools.ShippingMachineShipsW
 import Tools.ShippingMachineLoopL
+import Tools.ShippingMachineShipsComb
 
 /-! # The machine endpoint of a declaration, generated
 
@@ -2623,6 +2624,27 @@ partial def generateCore (declName : Name) (checkCloses : Bool) (defsOnly : Bool
         catch ex =>
           setEnv saved
           progress s!"{declName}: machine_ships_wired not generated: {← ex.toMessageData.toString}"
+      -- a combinational machine (no slots): `machine_ships_comb`
+      if r.shape.layout.slots.isEmpty && instEq?.isNone &&
+          p.isAppOf ``Tools.ShippingMachineLoop.machine_trace_of_comb then
+        let saved ← getEnv
+        try
+          let soundL := mkAppN (mkConst ``Tools.ShippingMachineChild.machine_traceL_of_comb)
+            p.getAppArgs
+          let wired ← mkAppM ``Tools.ShippingMachineShipsComb.machine_ships_comb #[data, soundL]
+          -- `insts = []`, no slot, no state, the output widths: by evaluation
+          let (hs, _, _) ← forallMetaTelescopeReducing (← inferType wired) (some 4)
+          let mut wired := wired
+          for h in hs do
+            let prop ← instantiateMVars (← inferType h)
+            wired := mkApp wired (← mkExpectedTypeHint (← mkDecideProof prop) prop)
+          let combName := declName ++ `machine_ships_comb
+          addDecl (.thmDecl
+            { name := combName, levelParams := [], type := ← inferType wired, value := wired })
+          names := names ++ [combName]
+        catch ex =>
+          setEnv saved
+          progress s!"{declName}: machine_ships_comb not generated: {← ex.toMessageData.toString}"
     for name in names do
       for ax in ← Lean.collectAxioms name do
         unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do

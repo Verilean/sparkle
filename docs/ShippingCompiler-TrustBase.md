@@ -308,6 +308,18 @@ instances. It is optional — a failure leaves
 nests, 3 of 4 telescopes. Corpus (partial: 38 of 184 files before the run
 was stopped for memory): 27 of 84 endpoints.
 
+**Combinational machines (2026-10-08).** `f.machine_ships_comb`
+(`Tools.ShippingMachineShipsComb.machine_ships_comb`) is the same for a
+machine without slots or calls: its module is assignments only (a
+`MachineWired` clause), the full entry's merge is the self-validating
+`mergeDuplicates` (the same environment), `checkedOptimize` keeps the
+optimizer's output only when `optCheck` accepts it (the same outputs), and
+the emitted Verilog runs as the module (`seq_run_to_sv`). Its statement
+(`MachineShipsComb`) seeds every cycle with the inputs and the reset name
+low (`seedR`: a combinational module has no reset port). Remaining premises:
+the shipped body is of the simple shape and the emitted-Verilog check.
+Suite: 4 of 4.
+
 **Stateful composition with children (2026-10-08).** For a machine whose
 calls are memory reads and/or sequential machine children (`closeInstsG`),
 `f.machine_composedT` states the STATEFUL linked run (`runModuleT`,

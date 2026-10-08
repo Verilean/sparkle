@@ -232,6 +232,10 @@ def endpoints():
     wired = [d for d in ok if result[d][2] == 'WIRED']
     print('to the emitted Verilog from the wiring (f.machine_ships_wired):', len(wired),
           'of which real corpus:', sum(1 for d in wired if not is_certification_test(d)))
+    comb = [d for d in ok if result[d][2] == 'COMBSHIP']
+    print('combinational, to the emitted Verilog (f.machine_ships_comb):', len(comb),
+          'of which real corpus:', sum(1 for d in comb if not is_certification_test(d)))
+    print('endpoints not yet to the emitted Verilog:', len(ok) - len(wired) - len(comb))
     for d in wanted:
         if d in result and result[d][0] != 'OK':
             print('  refused:', d, '--', result[d][2][:200])

@@ -32,7 +32,10 @@ run_cmd liftTermElabM do
     let res ← try
         let _ ← Tools.ShippingMachineCommand.generate n (checkCloses := false)
         -- `f.machine_ships_wired`: to the emitted Verilog from the wiring
-        pure (if (← getEnv).contains (n ++ `machine_ships_wired) then "OK|WIRED" else "OK")
+        -- `f.machine_ships_comb`: the same for a combinational machine
+        let env' ← getEnv
+        pure (if env'.contains (n ++ `machine_ships_wired) then "OK|WIRED"
+          else if env'.contains (n ++ `machine_ships_comb) then "OK|COMBSHIP" else "OK")
       catch ex =>
         let msg ← ex.toMessageData.toString
         pure ("FAIL|" ++ ((msg.replace "\n" " ").take 300).toString)

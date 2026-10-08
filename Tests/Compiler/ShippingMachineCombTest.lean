@@ -48,12 +48,38 @@ run_cmd liftTermElabM do
 #machine_endpoint Sparkle.IP.Net.IPv4.ipv4HeaderChecksumSig
 #machine_endpoint Sparkle.IP.Net.HTTP.httpGetByte
 
+/-! ## To the emitted Verilog (`f.machine_ships_comb`)
+
+The combinational machines' shipped modules: the merge self-validated, the
+optimizer's output kept by `optCheck`, the emitted Verilog running as the
+module. Its remaining premises (the simple body shape, the emitted-Verilog
+check) are evaluated here on the real modules. -/
+
+run_cmd Lean.Elab.Command.liftTermElabM do
+  let ds := [``pickByte, ``Sparkle.IP.Net.IPv4.ipv4HeaderByte,
+    ``Sparkle.IP.Net.IPv4.ipv4HeaderChecksumSig, ``Sparkle.IP.Net.HTTP.httpGetByte]
+  for n in ds do
+    unless (← Lean.getEnv).contains (n ++ `machine_ships_comb) do
+      throwError "{n}: no machine_ships_comb"
+    let (b, _) ← Sparkle.Compiler.Elab.synthesizeCombinational n
+    let o := Sparkle.IR.OptCheck.checkedOptimize b
+    let wof := Tools.SVParser.RoundtripProof.moduleWof o
+    unless Sparkle.IR.OptCheck.simpleBody b do throwError "{n}: not of the simple shape"
+    unless Tools.SVParser.EmitSem.seqCheck wof (Tools.SVParser.EmitSem.weOf wof) o.body do
+      throwError "{n}: the emitted-Verilog check rejects the optimized module"
+    unless (Tools.ShippingSeqSVSoundness.seqNames o.body).all (fun x =>
+        Sparkle.IR.RegDedup.declWidth o x == Tools.SVParser.EmitSem.weOf wof x) do
+      throwError "{n}: checker and emitter widths disagree"
+  Lean.logInfo m!"MACHINE COMB SHIPS: {ds.length} of {ds.length}, premises hold on the real modules"
+
 run_cmd do
   if (← get).messages.hasErrors then throwError "machine comb regression failed"
   for name in [``pickByte.machine_sound, ``Sparkle.IP.Net.IPv4.ipv4HeaderByte.machine_sound,
       ``Sparkle.IP.Net.IPv4.ipv4HeaderChecksumSig.machine_sound,
       ``Sparkle.IP.Net.HTTP.httpGetByte.machine_sound,
-      ``Tools.ShippingMachineLoop.machine_trace_of_comb] do
+      ``Tools.ShippingMachineLoop.machine_trace_of_comb,
+      ``Tools.ShippingMachineShipsComb.machine_ships_comb, ``pickByte.machine_ships_comb,
+      ``Sparkle.IP.Net.HTTP.httpGetByte.machine_ships_comb] do
     let axioms ← Lean.collectAxioms name
     for ax in axioms do
       unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do
