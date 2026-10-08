@@ -372,9 +372,12 @@ premises (the optimizer check binds, linked-well-formed bodies, distinct
 instance names, no instance reading its own output, instance-driven wires
 extracted, instance-output widths, a reset port) evaluated on the real
 modules. Remaining premises: the run boundary per sequential child
-(`BoundaryOf`, as for the composed theorem), the children's outputs within
-their ports' widths (`KSBounded`), inputs and start values within their
-widths. The shipped module's EMITTED VERILOG: `Tools.ShippingHierSVRun.linked_sv_run`
+(`BoundaryOf`, as for the composed theorem), inputs and start values within
+their widths, and the children's outputs within their ports' widths — for
+sequential children a decidable check (`kidsMasked`: no memory, every output
+port assigned once by a self-masked expression no wider than the port;
+`flatKS_boundedIn`), evaluated on the real modules; for memory children
+still the bound itself (`KSBoundedIn`; their output is the read data). The shipped module's EMITTED VERILOG: `Tools.ShippingHierSVRun.linked_sv_run`
 — a stateful linked run of a module is the run of its emitted Verilog
 (`runModuleSV`) from the oracle seeding, its instance outputs at each cycle
 the values its children drove (`linked_open_runG`, then `seq_run_to_svI`),

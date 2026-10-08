@@ -652,16 +652,21 @@ theorem hierRefineCheck_linked {σ : Type} (KS : KStep σ) (hloc : KSLocal KS)
     (fun _ _ _ => rfl)
   refine ⟨envsO, hlinked, hlenO, fun p hp j hj hj' => houtsO p (List.mem_append_left _ hp) j hj hj'⟩
 
-/-- Every child step's output ports fit their declared widths. -/
-def KSBounded {σ : Type} (KS : KStep σ) : Prop :=
-  ∀ child cwe cin env s cres s', KS child cwe cin env s = some (cres, s') →
+/-- Every step of the child of an instance of `body` keeps its output ports
+within their declared widths. -/
+def KSBoundedIn {σ : Type} (children : String → Option (Module × WEnv)) (KS : KStep σ)
+    (body : List Stmt) : Prop :=
+  ∀ mn iname conns, Stmt.inst mn iname conns ∈ body → ∀ child cwe,
+  children mn = some (child, cwe) →
+  ∀ cin env s cres s', KS child cwe cin env s = some (cres, s') →
     ∀ p ∈ child.outputs, cres p.name < 2 ^ p.ty.bitWidth
 
 /-- **The extracted inputs fit along a linked run**: the instance-driven ones
 are children's outputs at their ports' widths (`instOutWidthsOk`), the
 others are never written and keep their start values. -/
-theorem fitX_of_run {σ : Type} (KS : KStep σ) (hKSb : KSBounded KS)
-    (children : String → Option (Module × WEnv)) (m : Module) (ins : Nat → String → Nat)
+theorem fitX_of_run {σ : Type} (KS : KStep σ)
+    (children : String → Option (Module × WEnv)) (m : Module)
+    (hKSb : KSBoundedIn children KS m.body) (ins : Nat → String → Nat)
     (hwf : linkedWF children m.body = true) (hnd : (instNames m.body).Nodup)
     (hIW : instOutWidthsOk children (declWidth m) m.body = true) :
     ∀ (T : Nat) (s : KState σ) (envs : List Env),
@@ -725,13 +730,13 @@ theorem fitX_of_run {σ : Type} (KS : KStep σ) (hKSb : KSBounded KS)
           | none => intro h; cases h
           | some e => cases e <;> intro h <;> cases h <;> rfl
         rw [hout p hp x hl, instOutWidthsOk_at hIW hmem hc p hp x hl]
-        exact hKSb _ _ _ _ _ _ _ hk p hp
+        exact hKSb mn iname conns hmem child cwe hc _ _ _ _ _ hk p hp
       · rw [linked_frameKG KS (declWidth m) children s.kids s.mems x m.body _ envF' s.kids kids'
           hwf hK (fun hl => hxd (linkedWrites_drives _ hl hO))]
         simp only [seedIn, List.contains_eq_mem, hxi, decide_false, Bool.false_eq_true, if_false]
         exact hst x hx hO
     | succ j =>
-      have := fitX_of_run KS hKSb children m ins hwf hnd hIW k
+      have := fitX_of_run KS children m hKSb ins hwf hnd hIW k
         ⟨applyNexts s.st nexts, s.mems, kids'⟩ rest hR
         (fun y hy hyO => by
           show applyNexts s.st nexts y < _

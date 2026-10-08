@@ -66,6 +66,8 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     unless instOutWidthsOk C (Sparkle.IR.RegDedup.declWidth b) b.body do
       throwError "{n}: instance-output widths"
     unless (b.inputs.map (·.name)).contains "rst" do throwError "{n}: no reset port"
+    unless Tools.ShippingMachineShipsHier.kidsMasked C b.body do
+      throwError "{n}: a child's outputs are not masked (the output bound)"
     let selfRead := o.body.any fun st => match st with
       | .inst mn _ conns => match C mn with
         | some (child, _) => (inConns child.outputs conns).any fun c => match c.2 with
@@ -106,7 +108,8 @@ run_cmd do
       ``Tools.ShippingMachineSeqInst.seqChildRun_full,
       ``parent.machine_ships_hier, ``Sparkle.Tests.Compiler.MultiInstance.mesh2x2.machine_ships_hier,
       ``Tools.ShippingMachineShipsHier.machine_ships_hier,
-      ``Tools.ShippingHierSVRun.linked_sv_run, ``Tools.ShippingHierSVRun.design_sv_run] do
+      ``Tools.ShippingHierSVRun.linked_sv_run, ``Tools.ShippingHierSVRun.design_sv_run,
+      ``Tools.ShippingMachineShipsHier.flatKS_boundedIn] do
     for ax in ← Lean.collectAxioms name do
       unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do
         throwError "{name} uses a non-standard axiom: {ax}"

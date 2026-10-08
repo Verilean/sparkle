@@ -54,12 +54,31 @@ def generate (declName : Name) : MetaM Name := do
           pure (← mkAppM ``Tools.ShippingMachineShipsHier.composedG_of_Tmem #[hC, hm],
             mkConst ``Tools.ShippingMachineShipsHier.ResetM)
       pure (← mkLambdaFVars (base ++ #[hBnd, hm]) inner, reset)
+    -- the children's output bound: decidable for sequential children
+    -- (`kidsMasked`), the bound itself otherwise
+    let modT := mkConst ``Sparkle.IR.AST.Module
+    let desT := mkConst ``Sparkle.IR.AST.Design
+    let (Bd, hBd) ← withLocalDeclD `b modT fun b => withLocalDeclD `D desT fun D => do
+      let cm ← mkAppM ``Tools.ShippingMachineLinked.childMap #[← mkAppM ``Sparkle.IR.AST.Design.modules #[D]]
+      let body ← mkAppM ``Sparkle.IR.AST.Module.body #[b]
+      if reset.isConstOf ``Tools.ShippingMachineShipsHier.Reset1 then
+        let bd ← mkEq (← mkAppM ``Tools.ShippingMachineShipsHier.kidsMasked #[cm, body]) (mkConst ``Bool.true)
+        let Bd ← mkLambdaFVars #[b, D] bd
+        let hBd ← withLocalDeclD `h bd fun h => do
+          mkLambdaFVars #[b, D, h] (← mkAppM ``Tools.ShippingMachineShipsHier.flatKS_boundedIn #[cm, body, h])
+        pure (Bd, hBd)
+      else
+        let bd ← mkAppM ``Tools.ShippingHierOptRun.KSBoundedIn
+          #[cm, mkConst ``Tools.ShippingHierStateG.flatKS, body]
+        let Bd ← mkLambdaFVars #[b, D] bd
+        let hBd ← withLocalDeclD `h bd fun h => mkLambdaFVars #[b, D, h] h
+        pure (Bd, hBd)
     let KS ← withLocalDeclD `D (mkConst ``Sparkle.IR.AST.Design) fun D =>
       mkLambdaFVars #[D] (mkConst ``Tools.ShippingHierStateG.flatKS)
     let hloc ← withLocalDeclD `D (mkConst ``Sparkle.IR.AST.Design) fun D =>
       mkLambdaFVars #[D] (mkConst ``Tools.ShippingHierStateG.flatKS_local)
     let thm ← mkAppM ``Tools.ShippingMachineShipsHier.machine_ships_hier
-      #[KS, hloc, reset, Bnd, data, soundL, composed]
+      #[KS, hloc, reset, Bnd, Bd, hBd, data, soundL, composed]
     let ty ← inferType thm
     let .forallE _ hT _ _ ← whnfR ty | throwError "{declName}: the output-width premise"
     let thm := mkApp thm (← mkExpectedTypeHint (← mkDecideProof hT) hT)

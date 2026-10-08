@@ -144,6 +144,8 @@ outputs within their ports' widths. -/
 theorem machine_ships_hier {σ : Type} (KS : Design → KStep σ) (hloc : ∀ D, KSLocal (KS D))
     (Reset : Sparkle.IR.AST.Module → Design → (String → σ) → Prop)
     (Bnd : Sparkle.IR.AST.Module → Design → Prop)
+    (Bd : Sparkle.IR.AST.Module → Design → Prop)
+    (hBd : ∀ b D, Bd b D → KSBoundedIn (childMap D.modules) (KS D) b.body)
     {declName : Name} (d : MachineData) {kD : Nat}
     {ι : Type} {dom : ι → DomainConfig}
     {src : (i : ι) → (Nat → Signal (dom i) Bool) →
@@ -196,7 +198,7 @@ theorem machine_ships_hier {σ : Type} (KS : Design → KStep σ) (hloc : ∀ D,
         -- the run boundary of the children
         Bnd raw D →
         -- the children's outputs within their ports' widths
-        KSBounded (KS D) →
+        Bd b D →
         ∃ ids : List FVarId, ids.Nodup ∧ ids.length = d.shape.binders.length ∧
         ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
           regs.Nodup ∧ regs.length = d.ss.length ∧
@@ -229,7 +231,8 @@ theorem machine_ships_hier {σ : Type} (KS : Design → KStep σ) (hloc : ∀ D,
   obtain ⟨_, _, _, _, _, _, _, houts, _, _, _, _, _, _, _, hclean⟩ := wired
   obtain ⟨hb, hw, hi, ho⟩ := hclean houtTy
   refine ⟨raw, D, hpost, ?_⟩
-  intro hbind hwfB hwfO hndB hndO hnofb hOutM hIW hrstIn hBnd hKSb
+  intro hbind hwfB hwfO hndB hndO hnofb hOutM hIW hrstIn hBnd hBdb
+  have hKSb := hBd b D hBdb
   have hI := hasInst_of_hierBinds hbind
   have hbr : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw := by
     rcases hpost with h | h
@@ -268,7 +271,7 @@ theorem machine_ships_hier {σ : Type} (KS : Design → KStep σ) (hloc : ∀ D,
     obtain ⟨-, -, envsO, hrunO, hlenO, hcorr⟩ := hierRefineCheck_linked
       (KS D) (hloc D) (childMap D.modules) hacc
       hwfB hwfO hndB hndO hnofb hOutM ins hinsFit hrstIn hrstZ hrunB
-      (fitX_of_run _ hKSb (childMap D.modules) b ins hwfB hndB hIW T _ envs hrunB hstX) hstR
+      (fitX_of_run _ (childMap D.modules) b hKSb ins hwfB hndB hIW T _ envs hrunB hstX) hstR
     refine ⟨envsO, hrunO, by omega, ?_⟩
     intro j hj k o f hk hf
     obtain ⟨p, hp, hpn⟩ := List.mem_map.mp (houtSrc k o hk)
@@ -438,5 +441,135 @@ theorem composedG_of_Tmem {declName : Name} {d : MachineData} {kD : Nat}
   refine ⟨envs, ?_, hlen, hobs⟩
   rw [← runModuleT_flat _ _ _ hm]
   exact hrun
+
+/-! ## Children whose outputs are masked -/
+
+/-- An expression whose value fits its width whatever the environment. -/
+def selfMasked : Sparkle.IR.AST.Expr → Bool
+  | .const .. => true
+  | .slice .. => true
+  | _ => false
+
+theorem selfMasked_lt {we : WEnv} {env : Env} {r : Sparkle.IR.AST.Expr} {v : Nat} (h : selfMasked r = true)
+    (hv : evalExpr we env r = some v) : v < 2 ^ widthOf we r := by
+  cases r with
+  | const c w => exact Tools.ConeFold.evalExpr_bounded_const we env c w v hv
+  | slice e hi lo => exact Tools.ConeFold.evalExpr_bounded_slice we env e hi lo v hv
+  | _ => simp [selfMasked] at h
+
+/-- A child's output port is assigned exactly once, by a self-masked
+expression no wider than the port. -/
+def outMasked (we : WEnv) (body : List Stmt) (p : Port) : Bool :=
+  (Sparkle.IR.Reorder.writesOf body).count p.name == 1 && body.any fun st => match st with
+    | .assign l r => l == p.name && selfMasked r && decide (widthOf we r ≤ p.ty.bitWidth)
+    | _ => false
+
+/-- A body without memories. -/
+def noMem (body : List Stmt) : Bool :=
+  body.all fun st => match st with
+    | .memory .. => false
+    | _ => true
+
+theorem memFree_of_noMem : ∀ {body : List Stmt}, noMem body = true → Tools.ConeFold.memFree body
+  | [], _ => trivial
+  | st :: rest, h => by
+    simp only [noMem, List.all_cons, Bool.and_eq_true] at h
+    have ih := memFree_of_noMem (body := rest) (by simpa [noMem] using h.2)
+    cases st <;> simp_all [Tools.ConeFold.memFree]
+
+/-- The final value of a name assigned exactly once is its expression's value
+somewhere in the fold. -/
+theorem evalAssigns_once (we : WEnv) (mems : MEnv) {l : String} {r : Sparkle.IR.AST.Expr} :
+    ∀ (body : List Stmt) (env0 env1 : Env), evalAssigns we mems body env0 = some env1 →
+      Tools.ConeFold.memFree body → Stmt.assign l r ∈ body →
+      (Sparkle.IR.Reorder.writesOf body).count l = 1 →
+      ∃ env v, evalExpr we env r = some v ∧ env1 l = v
+  | [], _, _, _, _, hm, _ => by cases hm
+  | st :: rest, env0, env1, h, hmf, hm, hc => by
+    have hmf' : Tools.ConeFold.memFree rest := by
+      cases st <;> simp_all [Tools.ConeFold.memFree]
+    cases st with
+    | assign l' r' =>
+      simp only [evalAssigns] at h
+      cases hv : evalExpr we env0 r' with
+      | none => simp [hv] at h
+      | some v =>
+        simp only [hv, Option.bind_eq_bind, Option.bind_some] at h
+        have hcount : (Sparkle.IR.Reorder.writesOf (Stmt.assign l' r' :: rest)).count l =
+            (if l' = l then 1 else 0) + (Sparkle.IR.Reorder.writesOf rest).count l := by
+          simp only [Sparkle.IR.Reorder.writesOf, List.flatMap_cons, Sparkle.IR.Reorder.stmtWrites,
+            List.count_append, List.count_singleton]
+          by_cases he : l' = l <;> simp [he, beq_iff_eq]
+        rw [hcount] at hc
+        by_cases he : l' = l
+        · subst he
+          have h0 : (Sparkle.IR.Reorder.writesOf rest).count l' = 0 := by simp at hc; omega
+          have hnot : l' ∉ Sparkle.IR.Reorder.writesOf rest := List.count_eq_zero.mp h0
+          rcases List.mem_cons.mp hm with heq | hin
+          · cases heq
+            refine ⟨env0, v, hv, ?_⟩
+            rw [Tools.ConeFold.evalAssigns_frame we mems rest _ env1 h hmf' l' hnot]
+            simp
+          · exfalso
+            apply hnot
+            unfold Sparkle.IR.Reorder.writesOf
+            exact List.mem_flatMap.mpr ⟨_, hin, by simp [Sparkle.IR.Reorder.stmtWrites]⟩
+        · simp only [he, if_false, Nat.zero_add] at hc
+          rcases List.mem_cons.mp hm with heq | hin
+          · cases heq; exact absurd rfl he
+          · exact evalAssigns_once we mems rest _ env1 h hmf' hin hc
+    | register o c rk i iv =>
+      simp only [evalAssigns] at h
+      rcases List.mem_cons.mp hm with heq | hin
+      · cases heq
+      · exact evalAssigns_once we mems rest env0 env1 h hmf'
+          hin (by simpa [Sparkle.IR.Reorder.writesOf, Sparkle.IR.Reorder.stmtWrites] using hc)
+    | inst mn iname conns =>
+      simp only [evalAssigns] at h
+      rcases List.mem_cons.mp hm with heq | hin
+      · cases heq
+      · exact evalAssigns_once we mems rest env0 env1 h hmf'
+          hin (by simpa [Sparkle.IR.Reorder.writesOf, Sparkle.IR.Reorder.stmtWrites] using hc)
+    | memory nm aw dw c wa wd wen ra rd cr ew er => simp [Tools.ConeFold.memFree] at hmf
+
+/-- Decidable: the child of every instance of `body` has no memory and masked
+outputs. -/
+def kidsMasked (children : String → Option (Sparkle.IR.AST.Module × WEnv)) (body : List Stmt) : Bool :=
+  body.all fun st => match st with
+    | .inst mn _ _ => match children mn with
+      | some (child, cwe) => noMem child.body && child.outputs.all (outMasked cwe child.body)
+      | none => false
+    | _ => true
+
+/-- **One-level children with masked outputs keep their outputs within their
+ports' widths.** -/
+theorem flatKS_boundedIn (children : String → Option (Sparkle.IR.AST.Module × WEnv))
+    (body : List Stmt) (hok : kidsMasked children body = true) :
+    KSBoundedIn children flatKS body := by
+  intro mn iname conns hmem child cwe hc cin env s cres s' hk p hp
+  have h1 := List.all_eq_true.mp hok _ hmem
+  simp only [hc, Bool.and_eq_true] at h1
+  obtain ⟨hnm, hout⟩ := h1
+  simp only [flatKS] at hk
+  cases hst : stepModule cwe child.body (Tools.ShippingHierarchySoundness.connEnvS cin env s.st)
+      s.mems with
+  | none => simp [hst] at hk
+  | some r =>
+    simp only [hst, Option.map_some, Option.some.injEq, Prod.mk.injEq] at hk
+    obtain ⟨envF, nexts, mems', hF, -, -, rfl⟩ := stepModule_some hst
+    obtain ⟨rfl, -⟩ := hk
+    have hpm := List.all_eq_true.mp hout p hp
+    simp only [outMasked, Bool.and_eq_true, beq_iff_eq, List.any_eq_true] at hpm
+    obtain ⟨hcount, st, hst', hm⟩ := hpm
+    cases st with
+    | assign l r =>
+      simp only [Bool.and_eq_true, beq_iff_eq, decide_eq_true_eq] at hm
+      obtain ⟨⟨rfl, hsm⟩, hw⟩ := hm
+      obtain ⟨env', v, hv, hfin⟩ := evalAssigns_once cwe s.mems child.body _ envF hF
+        (memFree_of_noMem hnm) hst' hcount
+      show envF p.name < _
+      rw [hfin]
+      exact Nat.lt_of_lt_of_le (selfMasked_lt hsm hv) (Nat.pow_le_pow_right (by omega) hw)
+    | _ => simp at hm
 
 end Tools.ShippingMachineShipsHier
