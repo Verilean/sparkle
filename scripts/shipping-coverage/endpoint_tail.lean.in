@@ -26,7 +26,10 @@ run_cmd liftTermElabM do
     -- of this loop (two files' private declarations of one user name resolve
     -- to the same constant here): the CURRENT environment
     if ((← getEnv).find? (n ++ `machine_sound)).isSome then
-      out := out ++ s!"{s}|0ms|OK\n"
+      let env' ← getEnv
+      let tag := if env'.contains (n ++ `machine_ships_wired) then "OK|WIRED"
+        else if env'.contains (n ++ `machine_ships_comb) then "OK|COMBSHIP" else "OK"
+      out := out ++ s!"{s}|0ms|{tag}\n"
       continue
     let t0 ← IO.monoMsNow
     let res ← try
