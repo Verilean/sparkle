@@ -175,16 +175,28 @@ run_cmd do
     let composed := res == "COMPOSEDT|OK" || res == "COMPOSEDT|EXISTS"
     -- a child with children of its own: the composition at depth 1
     if !composed then
-      let ex1 := (← getEnv).contains (n ++ `machine_ships_hierN1)
+      -- the least depth (1..3) at which the composition is generated or present
+      let mut depth : Option Nat := none
+      for dn in [1, 2, 3] do
+        if depth.isSome then continue
+        if (← getEnv).contains (n ++ Name.mkSimple s!"machine_ships_hierN{dn}") then depth := some dn; continue
+        try
+          discard <| liftTermElabM <| withOptions (fun o => Lean.Elab.async.set o false) <|
+            Tools.ShippingMachineDepthCommand.generateCoreN n dn
+          depth := some dn
+        catch _ => pure ()
+      let dn := depth.getD 1
+      let tagN := s!"SHIPSHIERN{dn}"
+      let ex1 := (← getEnv).contains (n ++ Name.mkSimple s!"machine_ships_hierN{dn}")
       -- the source → closed design texts endpoint (recorded by the evaluator
       -- as SVCHILD:SOURCE only when it was generated)
       try discard <| liftTermElabM <| withOptions (fun o => Lean.Elab.async.set o false) <|
-          Tools.ShippingShipsDesignSVCommand.generate n 1
+          Tools.ShippingShipsDesignSVCommand.generate n dn
       catch _ => pure ()
       let (r1, d1) ← liftTermElabM <| withOptions (fun o => Lean.Elab.async.set o false) <|
-        Tools.ShippingPremiseEval.measure "SHIPSHIERN1" ex1
-          (discard <| Tools.ShippingMachineDepthCommand.generateShipsN n 1)
-          (Tools.ShippingPremiseEval.evalShipsHierSeq n (some 1))
+        Tools.ShippingPremiseEval.measure tagN ex1
+          (discard <| Tools.ShippingMachineDepthCommand.generateShipsN n dn)
+          (Tools.ShippingPremiseEval.evalShipsHierSeq n (some dn))
       mout := mout ++ s!"{s}|{r1}\n"
       dout := dout ++ s!"{s}|{r1}\n{d1}\n"
     -- to the shipped module (`f.machine_ships_hier`)
