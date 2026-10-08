@@ -1,4 +1,5 @@
 import Tools.ShippingHierTyped
+import Tools.ShippingHierPremises
 import Tools.ShippingGateChild
 
 /-! # A machine with combinational children, at the full entry and the optimizer
@@ -109,18 +110,9 @@ theorem machine_ships_hierH (R : Nat → Sparkle.IR.AST.Module → Prop)
     ∃ (raw : Sparkle.IR.AST.Module) (D : Design),
       (b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨
         b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)) ∧
-      (hierBinds b = true →
-        -- the design facts (decidable on the run's modules)
-        linkedWF (childMap D.modules) b.body = true →
-        linkedWF (childMap D.modules) (checkedOptimize b).body = true →
-        (instNames b.body).Nodup → (instNames (checkedOptimize b).body).Nodup →
-        kidsLocal D.modules (checkedOptimize b).body = true →
-        (∀ mn iname conns, Stmt.inst mn iname conns ∈ (checkedOptimize b).body → ∀ child cwe,
-          childMap D.modules mn = some (child, cwe) → ∀ c ∈ inConns child.outputs conns, ∀ w,
-            c.2 = .ref w → w ∉ instOutWires child.outputs conns) →
-        (∀ w ∈ bodyInstOuts (childMap D.modules) b.body, w ∈ (openIns b).map (·.name)) →
-        Tools.ShippingHierTyped.hierTyped (childMap D.modules) b = true →
-        "rst" ∈ b.inputs.map (·.name) →
+      (-- the run's modules pass the route's checker (`shipsHierHCheck_sound`);
+       -- the core body's linked well-formedness comes from its wiring
+       Tools.ShippingHierPremises.shipsHierHCheck D.modules b = true →
         ∃ ids : List FVarId, ids.Nodup ∧ ids.length = d.shape.binders.length ∧
         ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
           regs.Nodup ∧ regs.length = d.ss.length ∧
@@ -153,16 +145,20 @@ theorem machine_ships_hierH (R : Nat → Sparkle.IR.AST.Module → Prop)
   obtain ⟨raw, D, w1, hcore, hpost⟩ := synthesizeCombinational_checked hr
   have hL := soundL hcore entry closes
   obtain ⟨_, _, _, _, _, _, _, _, _, wired, _⟩ := id hL
-  obtain ⟨_, _, _, _, _, _, _, houts, _, _, _, _, _, _, _, hclean, _⟩ := wired
+  obtain ⟨_, _, _, _, _, _, hlink, houts, _, _, _, _, _, _, _, hclean, _⟩ := wired
   obtain ⟨hb, hw, hi, ho⟩ := hclean houtTy
   refine ⟨raw, D, hpost, ?_⟩
-  intro hbind hwfB hwfO hndB hndO hloc hnofb hOutM hkm hrstIn
+  intro hchk
+  obtain ⟨⟨hbind, hwfO, hndB, hndO, hnofb, hOutM, hrstIn⟩, hloc, hkm⟩ :=
+    Tools.ShippingHierPremises.shipsHierHCheck_sound hchk
   have hI := hasInst_of_hierBinds hbind
   have hbr : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw := by
     rcases hpost with h | h
     · exact h
     · exact mergeChecked_inst h hI
   have hbB : b.body = raw.body := by rw [hbr]; exact hb
+  have hwfB : linkedWF (childMap D.modules) b.body = true := by
+    rw [hbB, ← Tools.ShippingMachineLinked.linkedOk_eq]; exact hlink
   have hbW : declWidth b = Tools.ShippingEntrySoundness.weOf raw := by rw [hbr]; exact hw
   have hbO : b.outputs = raw.outputs := by rw [hbr]; exact ho
   obtain ⟨ids, nd, len, cache, regs, rnd, rlen, _, _, _, H⟩ := composed hcore entry closes

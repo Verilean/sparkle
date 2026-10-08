@@ -106,14 +106,14 @@ partial def generateCoreN (declName : Name) (dep : Nat) : MetaM Name := do
       #[none, none, none, none, none, none, none, none, mkConst (declName ++ `machine_composed)]
     let thm ← instantiateMVars thm
     if thm.hasMVar then throwError "{declName}: the calls' premise was not read"
-    -- the boundary: `BndH R d`, read off the theorem
+    -- the boundary: `BndH R declName d`, read off the theorem
     let ty ← inferType thm
     let bndE ← forallTelescope ty fun ys _ => do
       let hBT ← inferType ys[ys.size - 1]!
       unless hBT.isAppOf ``Tools.ShippingMachineDepthH.BndH do
         throwError "{declName}: the boundary's form"
       let args := hBT.getAppArgs
-      pure (mkApp2 (mkConst ``Tools.ShippingMachineDepthH.BndH) args[0]! args[1]!)
+      pure (mkApp3 (mkConst ``Tools.ShippingMachineDepthH.BndH) args[0]! args[1]! args[2]!)
     let bName := declName ++ boundName 0
     let bTy ← inferType bndE
     let decl : DefinitionVal :=
@@ -390,6 +390,8 @@ elab "#machine_composedN " d:ident n:num : command => do
 /-- `f.machine_ships_hierN{n}`: `machine_ships_hier` at depth `n`, the
 children's output bound from the decidable `kidsMaskedN`. -/
 def generateShipsN (declName : Name) (n : Nat) : MetaM Name := do
+  let name := declName ++ Name.mkSimple s!"machine_ships_hierN{n}"
+  if (← getEnv).contains name then return name
   let cN ← generateCoreN declName n
   let (headL, args, back?) ← endpointParts declName
   if back?.isSome then throwError "{declName}: a transported endpoint (not yet at depth)"

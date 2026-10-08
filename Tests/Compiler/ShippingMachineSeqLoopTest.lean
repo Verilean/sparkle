@@ -2,6 +2,7 @@ import Sparkle
 import Tests.Compiler.ShippingMachineFuseTest
 import Tools.ShippingMachineSeqCommand
 import Tools.ShippingMachineShipsHierCommand
+import Tools.ShippingPremiseEval
 
 /-! Sequential children and parents beyond `machine_trace_of_data`.
 
@@ -70,5 +71,18 @@ run_cmd do
     for ax in ← Lean.collectAxioms name do
       unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do
         throwError "{name} uses a non-standard axiom: {ax}"
+
+/-! ## The shipping theorems' premises, evaluated (`Tools.ShippingPremiseEval`)
+
+Every premise each generated theorem states is evaluated on the real compile
+with the checker it names, its run boundaries traced; generation alone is not
+counted. -/
+open Tools.ShippingPremiseEval in
+run_cmd Lean.Elab.Command.liftTermElabM do
+  for (n, items) in ([(``loopParent, evalShipsHierSeq ``loopParent none), (``Sparkle.Tests.Compiler.ShippingMachineFuseTest.withMemory, evalShipsHierSeq ``Sparkle.Tests.Compiler.ShippingMachineFuseTest.withMemory none)] : List (Lean.Name × Lean.Meta.MetaM (List Item))) do
+    let items ← items
+    unless classify items == "PREM|SV:parent" do
+      throwError "{n}: {classify items}\n{report items}"
+  Lean.logInfo m!"LOOP / TRANSPORTED: every module premise holds or is a traced boundary; the shipped module's emitted-Verilog premises hold"
 
 end Sparkle.Tests.Compiler.ShippingMachineSeqLoopTest

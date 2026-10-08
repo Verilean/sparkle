@@ -13,10 +13,10 @@ A sequential child may itself call combinational children (`closeInsts`:
 (`stepModule` on the connection-fed, state-backed environment). For children
 that are assignments only, compute from their input ports and have every input
 connected by a wire (`kidsComb`), the two runs coincide (`runModuleTG_flat_of_H`).
-The composed theorem's premise about each call's module is discharged from a
-boundary that names no wiring (`BoundH`: every instance module of the body
-satisfies the premise of each call) — true when the calls are of one child,
-as in `wKeccakF`. Then `composedNW0_of_H` is the child's composed theorem at
+The composed theorem's premise about each call's module is the boundary
+`BoundH`, stated by the call–instance correspondence under the module's
+wiring (`BoundH_of_each`: a sufficient condition without the wiring, exact
+when the calls are of one child, as in `wKeccakF`). Then `composedNW0_of_H` is the child's composed theorem at
 depth 0. -/
 namespace Tools.ShippingMachineDepthH
 open Lean Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Semantics Sparkle.IR.Machine
@@ -156,14 +156,38 @@ theorem runModuleTG_flat_of_H (W : WEnv) (ms : List Sparkle.IR.AST.Module) (body
     rw [runModuleTG_flat_of_H W ms body seed hm hloc k _ mems' kids' rest hR]
     rfl
 
-/-- The calls' premise, without the wiring: every instance module of the
-body satisfies the premise of every call (true when the calls are of one
-child). -/
-def BoundH (R : Nat → Sparkle.IR.AST.Module → Prop) (d : MachineData) (m : Sparkle.IR.AST.Module) (dsn : Design) : Prop :=
-  ∀ k mc, k < d.shape.insts.length → moduleByName dsn.modules mc.name = some mc →
-    (∃ iname conns, Stmt.inst mc.name iname conns ∈ m.body) → R k mc
+/-- **The calls' premise, by the call–instance correspondence.** Under the
+module's wiring (`MachineWired`, which every run of the core entry has), the
+module of the instance serving call `k` (`CallStmt`: the instance whose
+output drives call `k`'s port) satisfies `R k` — nothing is asked of an
+instance for a call it does not serve. -/
+def BoundH (R : Nat → Sparkle.IR.AST.Module → Prop) (declName : Name) (d : MachineData)
+    (m : Sparkle.IR.AST.Module) (dsn : Design) : Prop :=
+  ∀ (ids : List FVarId) (cache : IO.Ref (ExprStructMap String)) (regs lets : List String),
+    MachineWired declName d.shape ids cache m dsn regs lets →
+    ∀ k args mc st, (d.shape.insts.map (·.2.1))[k]? = some args → st ∈ m.body →
+      Tools.ShippingMachineInst.CallStmt (machNIn d.shape) d.shape.insts.length
+        d.shape.layout.slots.length
+        ((machPorts declName ids cache d.shape.binders).map (·.name)) k args mc st →
+      moduleByName dsn.modules mc.name = some mc → R k mc
 
-/-- **A machine with combinational children, composed at depth 0.** -/
+/-- A sufficient condition, without the wiring: every instance module of the
+body satisfies the premise of every call (exact for calls of one child, as in
+`wKeccakF`; for calls of several children it asks too much — the precise
+premise is `BoundH`). -/
+theorem BoundH_of_each {R : Nat → Sparkle.IR.AST.Module → Prop} {declName : Name}
+    {d : MachineData} {m : Sparkle.IR.AST.Module} {dsn : Design}
+    (h : ∀ k mc, k < d.shape.insts.length → moduleByName dsn.modules mc.name = some mc →
+      (∃ iname conns, Stmt.inst mc.name iname conns ∈ m.body) → R k mc) :
+    BoundH R declName d m dsn := by
+  intro ids cache regs lets _ k args mc st hk hst hcall hmc
+  apply h k mc _ hmc
+  · obtain ⟨_, _, _, iname, _, _, _, _, _, _, _, _, _, heq⟩ := hcall
+    subst heq
+    exact ⟨_, _, hst⟩
+  · have := (List.getElem?_eq_some_iff.mp hk).1
+    simpa using this
+
 theorem composedNW0_of_H {R : Nat → Sparkle.IR.AST.Module → Prop} {declName : Name} {d : MachineData} {kD : Nat}
     {m : Sparkle.IR.AST.Module} {dsn : Design} {ι : Type} {dom : ι → DomainConfig}
     {src : (i : ι) → (Nat → Signal (dom i) Bool) →
@@ -172,31 +196,27 @@ theorem composedNW0_of_H {R : Nat → Sparkle.IR.AST.Module → Prop} {declName 
       ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) →
       (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)}
     (hC : Tools.ShippingMachineShipsHierH.ComposedH R declName d kD m dsn dom src ext)
-    (hB : BoundH R d m dsn) (hcomb : kidsComb dsn.modules m.body = true)
-    (hwf : linkedWF (childMap dsn.modules) m.body = true) :
+    (hB : BoundH R declName d m dsn) (hcomb : kidsComb dsn.modules m.body = true) :
     Tools.ShippingMachineDepthRun.ComposedNW 0 declName d kD m dsn dom src ext
       (fun _ bools _ => bools) := by
   obtain ⟨ids, nd, len, cache, regs, rnd, rlen, lets, llen, wired, H⟩ := hC
   refine ⟨ids, nd, len, cache, regs, rnd, rlen, lets, llen, wired, ?_⟩
+  -- the body's linked well-formedness: its wiring
+  have hwf : linkedWF (childMap dsn.modules) m.body = true := by
+    obtain ⟨_, _, _, _, _, _, hlink, _⟩ := wired
+    rw [← Tools.ShippingMachineLinked.linkedOk_eq]; exact hlink
   intro i bools bits T seed st0 mems kids hsrc hpass hrst _ hinit _
   obtain ⟨envs, hrun, hlen, hobs⟩ := H i bools bits T seed st0 mems hsrc hpass hrst hinit
-    (fun k args mc st hk hst hcall hmc => by
-      apply hB k mc _ hmc
-      · obtain ⟨_, _, _, iname, _, _, _, _, _, _, _, _, _, heq⟩ := hcall
-        subst heq
-        exact ⟨_, _, hst⟩
-      · have := (List.getElem?_eq_some_iff.mp hk).1
-        simpa using this)
+    (hB ids cache regs lets wired)
   refine ⟨envs, ?_, hlen, hobs⟩
   exact runModuleTG_flat_of_H _ dsn.modules m.body seed
     (Tools.ShippingHierOptRun.memFree_of_linkedWF _ hwf) hcomb T st0 mems kids envs hrun
 
 /-- The run boundary of such a child: the calls' premise without the wiring,
 and the decidable facts about its children and body. -/
-def BndH (R : Nat → Sparkle.IR.AST.Module → Prop) (d : MachineData)
+def BndH (R : Nat → Sparkle.IR.AST.Module → Prop) (declName : Name) (d : MachineData)
     (m : Sparkle.IR.AST.Module) (dsn : Design) : Prop :=
-  BoundH R d m dsn ∧ kidsComb dsn.modules m.body = true ∧
-    linkedWF (childMap dsn.modules) m.body = true
+  BoundH R declName d m dsn ∧ kidsComb dsn.modules m.body = true
 
 /-- `composedNW0_of_H` at every run of the core entry: the form
 `seqChildRunN_of_composed` takes. -/
@@ -222,10 +242,10 @@ theorem composedN0_of_H {R : Nat → Sparkle.IR.AST.Module → Prop} {declName :
         mctx mref cctx cref w (m, design) w' →
       MachineDefines mctx mref cctx cref declName d.shape →
       MachineCloses mctx mref cctx cref declName d.shape →
-      BndH R d m design →
+      BndH R declName d m design →
       Tools.ShippingMachineDepthRun.ComposedNW 0 declName d kD m design dom src ext
         (fun _ bools _ => bools) := by
   intro mctx mref cctx cref w w' m design hr entry closes hB
-  exact composedNW0_of_H (composed hr entry closes) hB.1 hB.2.1 hB.2.2
+  exact composedNW0_of_H (composed hr entry closes) hB.1 hB.2
 
 end Tools.ShippingMachineDepthH

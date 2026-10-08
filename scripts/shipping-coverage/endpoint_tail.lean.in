@@ -126,55 +126,13 @@ run_cmd do
           let msg ← ex.toMessageData.toString
           pure ("COMPOSED|FAIL|" ++ ((msg.replace "\n" " ").take 300).toString)
       gout := gout ++ s!"{s}|{res}\n"
-    -- to the shipped module (`f.machine_ships_hierH`), with its module premises
+    -- to the shipped module (`f.machine_ships_hierH`): generation, then its
+    -- premises evaluated on the real compile (`Tools.ShippingPremiseEval`)
     if (← getEnv).contains (n ++ `machine_composed) then
-      let r2 ← try
-          let _ ← liftTermElabM (withOptions (fun o => Lean.Elab.async.set o false)
-            (Tools.ShippingMachineShipsHierHCommand.generate n))
-          let prem ← liftTermElabM do
-            try
-              let (_, D) ← Sparkle.Compiler.Elab.synthesizeCombinationalCore n [] false
-              let (b, _) ← Sparkle.Compiler.Elab.synthesizeCombinational n
-              let o := Sparkle.IR.OptCheck.checkedOptimize b
-              let C := Tools.ShippingMachineLinked.childMap D.modules
-              let selfRead := o.body.any fun st => match st with
-                | .inst mn _ conns => match C mn with
-                  | some (child, _) => (Tools.ShippingHierState.inConns child.outputs conns).any fun c =>
-                      match c.2 with
-                      | .ref w => (Tools.ShippingHierOpen.instOutWires child.outputs conns).contains w
-                      | _ => false
-                  | none => true
-                | _ => false
-              let checks : List (String × Bool) :=
-                [("binds", Sparkle.IR.RefineCheck.hierBinds b),
-                 ("wf", Tools.ShippingHierOpen.linkedWF C b.body && Tools.ShippingHierOpen.linkedWF C o.body),
-                 ("nodup", (Tools.ShippingHierState.instNames b.body).Nodup && (Tools.ShippingHierState.instNames o.body).Nodup),
-                 ("local", Tools.ShippingHierOptRunH.kidsLocal D.modules o.body),
-                 ("selfread", !selfRead),
-                 ("outs", (Tools.ShippingHierOpen.bodyInstOuts C b.body).all (fun w =>
-                    ((Sparkle.IR.HierCheck.openIns b).map (·.name)).contains w)),
-                 ("typed", Tools.ShippingHierTyped.hierTyped C b),
-                 ("rst", (b.inputs.map (·.name)).contains "rst"),
-                 -- `linked_sv_of_runH`: the shipped module's emitted Verilog
-                 ("svtyped", Tools.ShippingHierTyped.hierTyped C o &&
-                    Tools.ShippingHierOptRunH.kidsLocal D.modules o.body),
-                 ("svouts", (Tools.ShippingHierOpen.bodyInstOuts C o.body).all (fun w =>
-                    ((Sparkle.IR.HierCheck.openIns o).map (·.name)).contains w &&
-                    decide (Sparkle.IR.RegDedup.declWidth o w ≤
-                      Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof o) w))),
-                 ("svfrag", o.body.all Tools.ShippingHierSVSoundness.seqStmtOkI),
-                 ("svcheck", Tools.SVParser.EmitSem.seqCheck (Tools.SVParser.RoundtripProof.moduleWof o)
-                    (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof o)) o.body),
-                 ("svwidths", (Tools.ShippingSeqSVSoundness.seqNames o.body).all (fun x =>
-                    Sparkle.IR.RegDedup.declWidth o x ==
-                      Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof o) x))]
-              let bad := checks.filter (!·.2) |>.map (·.1)
-              pure (if bad.isEmpty then "PREM" else "NOPREM:" ++ ",".intercalate bad)
-            catch _ => pure "NOPREM:eval"
-          pure s!"SHIPSHIERH|OK|{prem}"
-        catch ex =>
-          let msg ← ex.toMessageData.toString
-          pure ("SHIPSHIERH|FAIL|" ++ ((msg.replace "\n" " ").take 300).toString)
+      let r2 ← liftTermElabM <| withOptions (fun o => Lean.Elab.async.set o false) <|
+        Tools.ShippingPremiseEval.measure "SHIPSHIERH"
+          (discard <| Tools.ShippingMachineShipsHierHCommand.generate n)
+          (Tools.ShippingPremiseEval.evalShipsHierH n)
       gout := gout ++ s!"{s}|{r2}\n"
   let hg ← IO.FS.Handle.mk "@WORK@/linked_reasons.txt" .append
   hg.putStr gout
@@ -211,25 +169,17 @@ run_cmd do
     mout := mout ++ s!"{s}|{res}\n"
     -- a child with children of its own: the composition at depth 1
     if res != "COMPOSEDT|OK" then
-      let r1 ← try
-          let _ ← liftTermElabM (withOptions (fun o => Lean.Elab.async.set o false)
-            (Tools.ShippingMachineDepthCommand.generateCoreN n 1))
-          let _ ← liftTermElabM (withOptions (fun o => Lean.Elab.async.set o false)
-            (Tools.ShippingMachineDepthCommand.generateShipsN n 1))
-          pure "SHIPSHIERN1|OK"
-        catch ex =>
-          let msg ← ex.toMessageData.toString
-          pure ("SHIPSHIERN1|FAIL|" ++ ((msg.replace "\n" " ").take 300).toString)
+      let r1 ← liftTermElabM <| withOptions (fun o => Lean.Elab.async.set o false) <|
+        Tools.ShippingPremiseEval.measure "SHIPSHIERN1"
+          (discard <| Tools.ShippingMachineDepthCommand.generateShipsN n 1)
+          (Tools.ShippingPremiseEval.evalShipsHierSeq n (some 1))
       mout := mout ++ s!"{s}|{r1}\n"
     -- to the shipped module (`f.machine_ships_hier`)
     if res == "COMPOSEDT|OK" then
-      let r2 ← try
-          let _ ← liftTermElabM (withOptions (fun o => Lean.Elab.async.set o false)
-            (Tools.ShippingMachineShipsHierCommand.generate n))
-          pure "SHIPSHIER|OK"
-        catch ex =>
-          let msg ← ex.toMessageData.toString
-          pure ("SHIPSHIER|FAIL|" ++ ((msg.replace "\n" " ").take 300).toString)
+      let r2 ← liftTermElabM <| withOptions (fun o => Lean.Elab.async.set o false) <|
+        Tools.ShippingPremiseEval.measure "SHIPSHIER"
+          (discard <| Tools.ShippingMachineShipsHierCommand.generate n)
+          (Tools.ShippingPremiseEval.evalShipsHierSeq n none)
       mout := mout ++ s!"{s}|{r2}\n"
   let hm ← IO.FS.Handle.mk "@WORK@/linked_reasons.txt" .append
   hm.putStr mout

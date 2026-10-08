@@ -1101,9 +1101,25 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   (`machine_ships_hier`, generated `f.machine_ships_hier`, 5/5 suite
   machines with sequential children; `machine_ships_hierH` for
   combinational children, 26/26 corpus with premises, bound from width-typed
-  runs `ShippingHierTyped`; loop children and transported parents done); open: hierarchical emitted Verilog,
-  `KSBounded` from the children (sequential + memory done), sequential children that have
-  combinational children (`wKeccakF` in the sponge), multi-output gate children (`childTwo`); full corpus count pending — the
+  runs `ShippingHierTyped`; loop children and transported parents done;
+  the module premises are ONE checker per route, proved sound —
+  `shipsHierCheck` / `shipsHierHCheck`, `Tools/ShippingHierPremisesBase.lean`
+  / `ShippingHierPremises.lean` — and the core body's `linkedWF` is derived
+  from the wiring; `shipped_sv` connects the shipped module's linked run to
+  its emitted Verilog; every suite shipping theorem's premises are evaluated
+  on the real compile by `Tools.ShippingPremiseEval`, the measurement
+  records generation / premises / SV apart); sequential children with
+  COMBINATIONAL grandchildren (`closeInsts` inside a sequential child,
+  2026-10-09): (a) general lemmas DONE — `runModuleTG_flat_of_H`,
+  `composedN0_of_H` under `BndH = BoundH ∧ kidsComb`, `BoundH` by the
+  call–instance correspondence (`BoundH_of_each` the one-child sufficient
+  condition), port clause unconditional; (b) small example DONE with every
+  premise of `grandH.machine_ships_hierN1` evaluated or traced
+  (`ShippingMachineDepthHTest`); (c) real Keccak sponge NOT completed
+  (timeout / stopped for memory: unmeasured); open: hierarchical emitted
+  Verilog of the children at depth ≥ 1, the precise `BoundH` evaluated for
+  calls of several children, combinational grandchildren below depth 1,
+  multi-output gate children (`childTwo`); full corpus count pending — the
   run was stopped for memory at 38 of 184 files, 27 of 84 wired): `f.machine_ships` now needs
   only structural facts about the run's modules (no zero-width wire, the
   assign + register shape, the normal forms of the core and merged module,

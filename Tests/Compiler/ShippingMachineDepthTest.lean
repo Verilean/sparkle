@@ -1,5 +1,6 @@
 import Tests.Compiler.ShippingMachineSeqTest
 import Tools.ShippingMachineDepthCommand
+import Tools.ShippingPremiseEval
 
 /-! Machines whose sequential children have children of their own
 (`ShippingMachineSeqTest.grand` → `mid` → `cnt`), composed at depth:
@@ -51,5 +52,18 @@ run_cmd do
       unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do
         throwError "{name} uses a non-standard axiom: {ax}"
   logInfo m!"DEPTH: a machine whose child has children, composed at depth 1, kernel-checked; standard axioms only"
+
+/-! ## The shipping theorems' premises, evaluated (`Tools.ShippingPremiseEval`)
+
+Every premise each generated theorem states is evaluated on the real compile
+with the checker it names, its run boundaries traced; generation alone is not
+counted. -/
+open Tools.ShippingPremiseEval in
+run_cmd Lean.Elab.Command.liftTermElabM do
+  for (n, items) in ([(``Sparkle.Tests.Compiler.ShippingMachineSeqTest.grand, evalShipsHierSeq ``Sparkle.Tests.Compiler.ShippingMachineSeqTest.grand (some 1))] : List (Lean.Name × Lean.Meta.MetaM (List Item))) do
+    let items ← items
+    unless classify items == "PREM|SV:parent" do
+      throwError "{n}: {classify items}\n{report items}"
+  Lean.logInfo m!"DEPTH 1 (grand): every module premise holds or is a traced boundary; the shipped module's emitted-Verilog premises hold"
 
 end Sparkle.Tests.Compiler.ShippingMachineDepthTest

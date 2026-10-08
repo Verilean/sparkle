@@ -28,6 +28,7 @@ def projs (h : Lean.Expr) : List Lean.Expr → MetaM (List Lean.Expr)
     pure (l :: (← projs r bs))
 
 def generate (declName : Name) : MetaM Name := do
+  if (← getEnv).contains (declName ++ `machine_ships_hier) then return declName ++ `machine_ships_hier
   -- a transported endpoint: the wired twin of its untransported head serves
   -- the cleanup facts; the composed theorem is already transported
   let (headL, args, _) ← endpointParts declName

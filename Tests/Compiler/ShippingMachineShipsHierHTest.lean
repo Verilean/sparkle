@@ -2,6 +2,7 @@ import Tests.Compiler.ShippingMachineLinkedTest
 import Tests.Compiler.ShippingMachineInstTest
 import Tools.ShippingMachineShipsHierHCommand
 import Tools.ShippingHierSVRunH
+import Tools.ShippingPremiseEval
 
 /-! Machines calling COMBINATIONAL `@[hardware_module]`s, to the shipped
 module (`#machine_ships_hierH`): the composed theorems (`#machine_composed`)
@@ -84,5 +85,18 @@ run_cmd do
     for ax in ← Lean.collectAxioms name do
       unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do
         throwError "{name} uses a non-standard axiom: {ax}"
+
+/-! ## The shipping theorems' premises, evaluated (`Tools.ShippingPremiseEval`)
+
+Every premise each generated theorem states is evaluated on the real compile
+with the checker it names, its run boundaries traced; generation alone is not
+counted. -/
+open Tools.ShippingPremiseEval in
+run_cmd Lean.Elab.Command.liftTermElabM do
+  for (n, items) in ([(``Sparkle.Tests.Compiler.ShippingMachineLinkedTest.callerL, evalShipsHierH ``Sparkle.Tests.Compiler.ShippingMachineLinkedTest.callerL), (``Sparkle.Tests.Compiler.ShippingMachineLinkedTest.callerLN, evalShipsHierH ``Sparkle.Tests.Compiler.ShippingMachineLinkedTest.callerLN), (``Sparkle.Tests.Compiler.ShippingMachineInstTest.caller, evalShipsHierH ``Sparkle.Tests.Compiler.ShippingMachineInstTest.caller), (``Sparkle.Tests.Compiler.ShippingMachineInstTest.callerTwice, evalShipsHierH ``Sparkle.Tests.Compiler.ShippingMachineInstTest.callerTwice), (``Sparkle.Tests.Compiler.ShippingMachineInstTest.callerNested, evalShipsHierH ``Sparkle.Tests.Compiler.ShippingMachineInstTest.callerNested), (``Sparkle.Tests.Compiler.ShippingMachineInstTest.callerD, evalShipsHierH ``Sparkle.Tests.Compiler.ShippingMachineInstTest.callerD)] : List (Lean.Name × Lean.Meta.MetaM (List Item))) do
+    let items ← items
+    unless classify items == "PREM|SV:parent" do
+      throwError "{n}: {classify items}\n{report items}"
+  Lean.logInfo m!"COMB PARENTS: every module premise holds or is a traced boundary; the shipped module's emitted-Verilog premises hold"
 
 end Sparkle.Tests.Compiler.ShippingMachineShipsHierHTest

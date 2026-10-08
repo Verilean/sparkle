@@ -13,6 +13,7 @@ open Lean Meta Elab
 open Tools.ShippingMachineLinkedCommand (soundArgs addTheorem)
 
 def generate (declName : Name) : MetaM Name := do
+  if (← getEnv).contains (declName ++ `machine_ships_hierH) then return declName ++ `machine_ships_hierH
   let cName := declName ++ `machine_composed
   unless (← getEnv).contains cName do
     throwError "{declName}: run #machine_composed {declName} first"

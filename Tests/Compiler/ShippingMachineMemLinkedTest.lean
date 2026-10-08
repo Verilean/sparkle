@@ -3,6 +3,7 @@ import Tools.ShippingMachineMemCommand
 import Tools.ShippingMachineShipsHierCommand
 import Tools.ShippingHierSVRun
 import Tests.Compiler.ShippingMachineFuseTest
+import Tools.ShippingPremiseEval
 
 /-! A hand-written `Signal.loop` reading combinational-read memories,
 composed with its memory children: `#machine_composedT` proves that the
@@ -99,5 +100,18 @@ run_cmd do
       unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do
         throwError "{name} uses a non-standard axiom: {ax}"
   logInfo m!"MEMORY COMPOSITION: loops reading memories (combinational and synchronous reads), composed with their memory instances (stateful run from zeroed memories), kernel-checked"
+
+/-! ## The shipping theorems' premises, evaluated (`Tools.ShippingPremiseEval`)
+
+Every premise each generated theorem states is evaluated on the real compile
+with the checker it names, its run boundaries traced; generation alone is not
+counted. -/
+open Tools.ShippingPremiseEval in
+run_cmd Lean.Elab.Command.liftTermElabM do
+  for (n, items) in ([(``memCounter, evalShipsHierSeq ``memCounter none), (``twoMems, evalShipsHierSeq ``twoMems none), (``mixedMems, evalShipsHierSeq ``mixedMems none)] : List (Lean.Name × Lean.Meta.MetaM (List Item))) do
+    let items ← items
+    unless classify items == "PREM|SV:parent" do
+      throwError "{n}: {classify items}\n{report items}"
+  Lean.logInfo m!"MEM PARENTS: every module premise holds or is a traced boundary; the shipped module's emitted-Verilog premises hold"
 
 end Sparkle.Tests.Compiler.ShippingMachineMemLinkedTest
