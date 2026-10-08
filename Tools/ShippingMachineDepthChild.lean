@@ -13,7 +13,7 @@ namespace Tools.ShippingMachineDepthChild
 open Lean hiding Module Expr
 open Sparkle.IR.AST Sparkle.IR.Semantics Sparkle.Compiler.Elab
 open Tools.ShippingMachineEntry Tools.ShippingMachineAuto
-open Tools.ShippingMachineCompose (argPorts machPorts_length)
+open Tools.ShippingMachineCompose (argPorts machPorts_length machPorts_append)
 open Sparkle.IR.Machine (OutField outNameOk)
 
 /-- A filter whose predicate holds exactly on the first `N` elements. -/
@@ -44,7 +44,8 @@ theorem calls_ports {declName : Name} {d : MachineData} {ids : List FVarId}
     (len : ids.length = d.shape.binders.length)
     (hfe : d.shape.instFields ≠ []) (hsl : d.shape.layout.slots ≠ [])
     (houtOk : ∀ o ∈ d.shape.layout.outs, outNameOk o.name = true)
-    (kD : Nat) (hIlen : (d.bsIn.drop kD).length = d.shape.insts.length)
+    (kD : Nat) (hkD : kD ≤ d.bsIn.length)
+    (hIlen : (d.bsIn.drop kD).length = d.shape.insts.length)
     (hSL : ∀ b ∈ d.slotBs ++ d.letBs, b.2 ≠ .domain)
     (hSlen : d.slotBs.length = d.shape.layout.slots.length)
     (hLlen : d.letBs.length = d.shape.layout.lets)
@@ -52,10 +53,22 @@ theorem calls_ports {declName : Name} {d : MachineData} {ids : List FVarId}
     (m.inputs.map (·.name)).Nodup ∧ "clk" ∈ m.inputs.map (·.name) ∧
     "rst" ∈ m.inputs.map (·.name) ∧
     (∀ x ∈ m.outputs.map (·.name), x ∉ m.inputs.map (·.name)) ∧
-    (argPorts m).length = ((d.bsIn.take kD).filter (fun b => b.2 != .domain)).length := by
+    argPorts m = machPorts declName ids cache (d.bsIn.take kD) := by
   obtain ⟨hnd, halloc, -, -, -, -, -, houts, -, -, -, -, -, -, -, -, hcl⟩ := wired
-  generalize hNm : (machPorts declName ids cache d.shape.binders).map (·.name) = names
-    at hnd halloc hcl
+  have hlenB : d.shape.binders.length ≤ ids.length := by omega
+  have hsplit := d.binders_split
+  -- the ports of the binders: the declaration's first
+  obtain ⟨restP, hPapp⟩ := machPorts_append (declName := declName) (ids := ids) (cache := cache)
+    (d.bsIn.take kD) (d.bsIn.drop kD ++ d.slotBs ++ d.letBs) (by
+      rw [len, hsplit]; simp only [List.length_append, List.length_take, List.length_drop]; omega)
+  have hPeq : machPorts declName ids cache d.shape.binders =
+      machPorts declName ids cache (d.bsIn.take kD) ++ restP := by
+    rw [← hPapp, hsplit]
+    conv => lhs; rw [← List.take_append_drop kD d.bsIn]
+    simp only [List.append_assoc]
+  have hDlen : (machPorts declName ids cache (d.bsIn.take kD)).length = machNIn d.shape := by
+    rw [machPorts_length _ (by rw [len, hsplit]; simp; omega), hNIn]
+  generalize hP : machPorts declName ids cache d.shape.binders = P at hnd halloc hcl hPeq
   obtain ⟨outWs, extra, hsub, hsup, hex, hin⟩ := hcl hfe
   have hext : extra = [] := by
     rcases hex with h | ⟨_, h⟩
@@ -68,32 +81,43 @@ theorem calls_ports {declName : Name} {d : MachineData} {ids : List FVarId}
     | cons _ _ => rfl
   rw [hslE] at hin
   simp only [Bool.false_eq_true, if_false, List.append_nil] at hin
+  generalize hK : (P.map (·.name)).length - d.shape.layout.lets - d.shape.layout.slots.length = K
+    at hin
   -- the names
-  have hnClk : ∀ x ∈ names, x ≠ "clk" := fun x hx h =>
-    Tools.ShippingMachineCleanup.not_allocated_clk (h ▸ halloc x hx)
-  have hnRst : ∀ x ∈ names, x ≠ "rst" := fun x hx h =>
-    Tools.ShippingRegisterSoundness.not_allocated_rst (h ▸ halloc x hx)
-  have hOW : ∀ w ∈ outWs, w ∈ names := by
+  have hnClk : ∀ p ∈ P, p.name ≠ "clk" := fun p hp h =>
+    Tools.ShippingMachineCleanup.not_allocated_clk (h ▸ halloc _ (List.mem_map_of_mem hp))
+  have hnRst : ∀ p ∈ P, p.name ≠ "rst" := fun p hp h =>
+    Tools.ShippingRegisterSoundness.not_allocated_rst (h ▸ halloc _ (List.mem_map_of_mem hp))
+  have hOW : ∀ w ∈ outWs, w ∈ P.map (·.name) := by
     intro w hw
     obtain ⟨k, _, hk⟩ := hsub w hw
     exact List.mem_of_getElem? hk
-  have clkOut : "clk" ∉ outWs := fun h => hnClk _ (hOW _ h) rfl
-  have rstOut : "rst" ∉ outWs := fun h => hnRst _ (hOW _ h) rfl
-  generalize hK : names.length - d.shape.layout.lets - d.shape.layout.slots.length = K at hin
-  have hTnd : (names.take K).Nodup := hnd.sublist (List.take_sublist _ _)
-  have hTmem : ∀ x ∈ names.take K, x ∈ names := fun x hx => List.mem_of_mem_take hx
-  have hLnd : (names.take K ++ ["clk", "rst"]).Nodup := by
+  have clkOut : "clk" ∉ outWs := fun h => by
+    obtain ⟨p, hp, hpn⟩ := List.mem_map.mp (hOW _ h); exact hnClk p hp hpn
+  have rstOut : "rst" ∉ outWs := fun h => by
+    obtain ⟨p, hp, hpn⟩ := List.mem_map.mp (hOW _ h); exact hnRst p hp hpn
+  have hTmem : ∀ p ∈ P.take K, p ∈ P := fun p hp => List.mem_of_mem_take hp
+  have hTnd : ((P.take K).map (·.name)).Nodup := by
+    rw [List.map_take]; exact hnd.sublist (List.take_sublist _ _)
+  have hinN : m.inputs.map (·.name) = ((P.take K).map (·.name) ++ ["clk", "rst"]).filter
+      fun x => !outWs.contains x := by
+    rw [hin, show (P.take K).map (·.name) ++ ["clk", "rst"] =
+      (P.take K ++ [({ name := "clk", ty := .bit } : Port), { name := "rst", ty := .bit }]).map
+        (·.name) by simp, List.filter_map]
+    rfl
+  have hLnd : ((P.take K).map (·.name) ++ ["clk", "rst"]).Nodup := by
     refine List.nodup_append.mpr ⟨hTnd, by simp, ?_⟩
     intro a ha b hb hab
     subst hab
+    obtain ⟨p, hp, rfl⟩ := List.mem_map.mp ha
     simp only [List.mem_cons, List.not_mem_nil, or_false] at hb
-    rcases hb with rfl | rfl
-    · exact hnClk _ (hTmem _ ha) rfl
-    · exact hnRst _ (hTmem _ ha) rfl
+    rcases hb with h | h
+    · exact hnClk p (hTmem p hp) h
+    · exact hnRst p (hTmem p hp) h
   refine ⟨?_, ?_, ?_, ?_, ?_⟩
-  · rw [hin]; exact hLnd.filter _
-  · rw [hin, List.mem_filter]; exact ⟨by simp, by simpa [List.contains_eq_mem] using clkOut⟩
-  · rw [hin, List.mem_filter]; exact ⟨by simp, by simpa [List.contains_eq_mem] using rstOut⟩
+  · rw [hinN]; exact hLnd.filter _
+  · rw [hinN, List.mem_filter]; exact ⟨by simp, by simpa [List.contains_eq_mem] using clkOut⟩
+  · rw [hinN, List.mem_filter]; exact ⟨by simp, by simpa [List.contains_eq_mem] using rstOut⟩
   · intro x hx hxi
     rw [houts] at hx
     simp only [List.map_map, List.mem_map, Function.comp] at hx
@@ -103,21 +127,20 @@ theorem calls_ports {declName : Name} {d : MachineData} {ids : List FVarId}
     have hnc : o.name ≠ "clk" := by
       simp only [outNameOk, Bool.and_eq_true, bne_iff_ne, ne_eq] at hok
       exact hok.2
-    rw [hin, List.mem_filter] at hxi
+    rw [hinN, List.mem_filter] at hxi
     rcases List.mem_append.mp hxi.1 with h | h
-    · exact hna (halloc _ (hTmem _ h))
+    · obtain ⟨p, hp, hpn⟩ := List.mem_map.mp h
+      exact hna (hpn ▸ halloc _ (List.mem_map_of_mem (hTmem p hp)))
     · simp only [List.mem_cons, List.not_mem_nil, or_false] at h
       rcases h with h | h
       · exact hnc h
       · exact hnr h
   · -- the argument ports: the declaration's
-    have hmapA : (argPorts m).map (·.name) = (m.inputs.map (·.name)).filter
-        (fun x => x != "clk" && x != "rst") := by
-      unfold argPorts; rw [List.filter_map]; rfl
-    have hA : (argPorts m).map (·.name) = (names.take K).filter fun x => !outWs.contains x := by
-      rw [hmapA, hin, List.filter_append, List.filter_append]
-      have e1 : ((["clk", "rst"].filter fun x => !outWs.contains x).filter
-          fun x => x != "clk" && x != "rst") = [] := by
+    have hA : argPorts m = (P.take K).filter fun p => !outWs.contains p.name := by
+      unfold argPorts
+      rw [hin, List.filter_append, List.filter_append]
+      have e1 : (([({ name := "clk", ty := .bit } : Port), { name := "rst", ty := .bit }].filter
+          fun p => !outWs.contains p.name).filter fun p => p.name != "clk" && p.name != "rst") = [] := by
         apply List.filter_eq_nil_iff.mpr
         intro x hx
         have := (List.mem_filter.mp hx).1
@@ -125,14 +148,12 @@ theorem calls_ports {declName : Name} {d : MachineData} {ids : List FVarId}
         rcases this with rfl | rfl <;> simp
       rw [e1, List.append_nil]
       apply List.filter_eq_self.mpr
-      intro x hx
-      have hx' := hTmem x (List.mem_filter.mp hx).1
-      simp [hnClk x hx', hnRst x hx']
+      intro p hp
+      have hp' := hTmem p (List.mem_filter.mp hp).1
+      simp [hnClk p hp', hnRst p hp']
     -- the lengths
-    have hlenB : d.shape.binders.length ≤ ids.length := by omega
-    have hNL : names.length = (d.shape.binders.filter fun b => b.2 != .domain).length := by
-      rw [← hNm, List.length_map, machPorts_length _ hlenB]
-    have hsplit := d.binders_split
+    have hNL : (P.map (·.name)).length = (d.shape.binders.filter fun b => b.2 != .domain).length := by
+      rw [List.length_map, ← hP, machPorts_length _ hlenB]
     have hSLf : ((d.slotBs ++ d.letBs).filter fun b => b.2 != .domain).length =
         d.slotBs.length + d.letBs.length := by
       rw [List.filter_eq_self.mpr (fun b hb => bne_iff_ne.mpr (hSL b hb)), List.length_append]
@@ -147,36 +168,35 @@ theorem calls_ports {declName : Name} {d : MachineData} {ids : List FVarId}
       rw [List.filter_append, List.length_append]
     have hDrop : ((d.bsIn.drop kD).filter fun b => b.2 != .domain).length ≤ d.shape.insts.length := by
       rw [← hIlen]; exact List.length_filter_le _ _
-    generalize hNv : machNIn d.shape = N at hsub hsup
+    generalize hNv : machNIn d.shape = N at hsub hsup hDlen
     have hNK : N ≤ K := by rw [hKv, hBsplit, ← hNIn, hNv]; omega
     have hKN : K ≤ N + d.shape.insts.length := by rw [hKv, hBsplit, ← hNIn, hNv]; omega
-    have hKlen : K ≤ names.length := by rw [← hK]; omega
-    have htk : (names.take K).length = K := by simp; omega
-    have hfeq : (names.take K).filter (fun x => !outWs.contains x) = (names.take K).take N := by
+    have hKlen : K ≤ P.length := by
+      have := hK; rw [List.length_map] at this; omega
+    have htk : (P.take K).length = K := by simp; omega
+    have hfeq : (P.take K).filter (fun p => !outWs.contains p.name) = (P.take K).take N := by
       apply filter_eq_take _ _ N (by rw [htk]; exact hNK)
       · intro i hi hiN
         simp only [Bool.not_eq_true', List.contains_eq_mem, decide_eq_false_iff_not]
         intro hmem
         obtain ⟨k, _, hk⟩ := hsub _ hmem
-        have hi' : i < names.length := by rw [htk] at hi; omega
-        have hkl : N + k < names.length := (List.getElem?_eq_some_iff.mp hk).1
-        have hik : names[N + k]? = names[i]? := by
-          rw [hk, List.getElem?_eq_getElem hi', List.getElem_take]
+        have hi' : i < P.length := by rw [htk] at hi; omega
+        have hkl : N + k < (P.map (·.name)).length := (List.getElem?_eq_some_iff.mp hk).1
+        have hik : (P.map (·.name))[N + k]? = (P.map (·.name))[i]? := by
+          rw [hk, List.getElem?_map, List.getElem?_eq_getElem hi', List.getElem_take]
+          rfl
         have := (List.getElem?_inj hkl hnd).mp hik
         omega
       · intro i hi hiN
         simp only [Bool.not_eq_false', List.contains_eq_mem, decide_eq_true_eq]
         have hik : i - N < d.shape.insts.length := by rw [htk] at hi; omega
         obtain ⟨w, hw, hwo⟩ := hsup (i - N) hik
-        rw [show N + (i - N) = i by omega] at hw
-        rw [List.getElem_take]
-        have : names[i]'(by rw [htk] at hi; omega) = w := by
-          have := List.getElem?_eq_some_iff.mp hw
-          exact this.2
-        rw [this]; exact hwo
-    have := congrArg List.length hA
-    rw [List.length_map, hfeq, List.length_take, htk] at this
-    rw [this, ← hNIn, hNv]
-    omega
+        rw [show N + (i - N) = i by omega, List.getElem?_map] at hw
+        have hi' : i < P.length := by rw [htk] at hi; omega
+        rw [List.getElem?_eq_getElem hi', Option.map_some, Option.some.injEq] at hw
+        rw [List.getElem_take, hw]; exact hwo
+    rw [hA, hfeq, List.take_take, show min N K = N by omega, hPeq,
+      List.take_append_of_le_length (Nat.le_of_eq hDlen.symm),
+      List.take_of_length_le (Nat.le_of_eq hDlen)]
 
 end Tools.ShippingMachineDepthChild

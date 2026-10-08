@@ -733,14 +733,17 @@ def MachineWired (declName : Name) (shape : MachineShape) (ids : List FVarId)
   -- and with call groups, the input names: the transition's ports before the
   -- slots and `let`s, the clock and reset (with slots, or added for
   -- sequential children), without the call ports
-  (shape.instFields ≠ [] → ∃ (outWs extra : List String),
+  (shape.instFields ≠ [] → ∃ (outWs : List String) (extra : List Port),
     (∀ w ∈ outWs, ∃ k, k < shape.insts.length ∧ names[machNIn shape + k]? = some w) ∧
     (∀ k, k < shape.insts.length → ∃ w, names[machNIn shape + k]? = some w ∧ w ∈ outWs) ∧
-    (extra = [] ∨ (extra = ["clk", "rst"] ∧ shape.layout.slots = [])) ∧
-    m.inputs.map (·.name) =
-      (names.take (names.length - shape.layout.lets - shape.layout.slots.length) ++
-        (if shape.layout.slots.isEmpty then [] else ["clk", "rst"]) ++ extra).filter
-        fun x => !outWs.contains x)
+    (extra = [] ∨ (extra = [({ name := "clk", ty := .bit } : Port), { name := "rst", ty := .bit }] ∧
+      shape.layout.slots = [])) ∧
+    m.inputs =
+      ((machPorts declName ids cache shape.binders).take
+          (names.length - shape.layout.lets - shape.layout.slots.length) ++
+        (if shape.layout.slots.isEmpty then [] else
+          [({ name := "clk", ty := .bit } : Port), { name := "rst", ty := .bit }]) ++ extra).filter
+        fun p => !outWs.contains p.name)
 
 /-- **One cycle of a compiled state machine.** The module the machine route
 returns has one register per slot (`regs`, in slot order) and, on every
@@ -1854,18 +1857,14 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
         simp [closeMachine, hpwC]
       have htake : t'.inputs.take (t'.inputs.length - shape.layout.slots.length) = P1 := by
         rw [hin', List.length_append, slotsLen, psLen, Nat.add_sub_cancel, List.take_left]
-      have hP1 : (t.inputs.map (·.name)).take ((t.inputs.map (·.name)).length -
-          shape.layout.lets - shape.layout.slots.length) = P1.map (·.name) := by
+      have hP1 : t.inputs.take ((t.inputs.map (·.name)).length -
+          shape.layout.lets - shape.layout.slots.length) = P1 := by
         rw [tInputs]
         simp only [List.map_append, List.length_append, List.length_map]
         rw [hlets, slotsLen, ← lsLen, ← psLen,
-          show P1.length + ps.length + ls.length - ls.length - ps.length = (P1.map (·.name)).length
-            by simp,
+          show P1.length + ps.length + ls.length - ls.length - ps.length = P1.length
+            by omega,
           List.append_assoc, List.take_left]
-      have hfm : ∀ (l : List Port) (ws : List String),
-          (l.filter fun p => !ws.contains p.name).map (·.name) =
-            (l.map (·.name)).filter fun x => !ws.contains x := by
-        intro l ws; rw [List.filter_map]; rfl
       rcases hmt with ⟨_, hm'⟩ | ⟨_, children, hci⟩
       · -- no call statement: the closed transition, nothing removed
         subst hm'
@@ -1882,24 +1881,25 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
           · exact absurd hfe0 hfe
           · exact h
         obtain ⟨outWs, hmap, hin⟩ := Tools.ShippingMachineInstG.closeInstsG_inputs hci
-        have hext : ∃ extra : List String,
-            (extra = [] ∨ (extra = ["clk", "rst"] ∧ shape.layout.slots = [])) ∧
-            (Sparkle.IR.Machine.withClockFor children (closeMachine shape.layout t')).inputs.map
-              (·.name) = P1.map (·.name) ++
-                (if shape.layout.slots.isEmpty then [] else ["clk", "rst"]) ++ extra := by
+        have hext : ∃ extra : List Port,
+            (extra = [] ∨ (extra = [{ name := "clk", ty := .bit }, { name := "rst", ty := .bit }] ∧
+              shape.layout.slots = [])) ∧
+            (Sparkle.IR.Machine.withClockFor children (closeMachine shape.layout t')).inputs =
+              P1 ++ (if shape.layout.slots.isEmpty then [] else
+                [{ name := "clk", ty := .bit }, { name := "rst", ty := .bit }]) ++ extra := by
           rcases Tools.ShippingMachineInstG.withClockFor_inputs children (closeMachine shape.layout t') with
             h | ⟨h, hno⟩
           · refine ⟨[], Or.inl rfl, ?_⟩
             rw [h, hinC, htake]
             split <;> simp
-          · refine ⟨["clk", "rst"], Or.inr ⟨rfl, ?_⟩, ?_⟩
+          · refine ⟨[{ name := "clk", ty := .bit }, { name := "rst", ty := .bit }],
+              Or.inr ⟨rfl, ?_⟩, ?_⟩
             · cases hsl : shape.layout.slots with
               | nil => rfl
               | cons _ _ =>
                 exfalso; apply hno
                 rw [hinC, hsl]; simp
             · rw [h, hinC, htake]
-              split <;> simp
         obtain ⟨extra, hex, hexE⟩ := hext
         refine ⟨outWs, extra, ?_, ?_, hex, ?_⟩
         · intro w hw
@@ -1918,7 +1918,7 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
           obtain ⟨y, hy, hyr⟩ := hget k hk'
           simp only [List.getElem_range] at hy
           exact ⟨y, hy, List.mem_of_getElem? hyr⟩
-        · rw [hin, hfm, hexE, hP1]
+        · rw [hin, hexE, hP1]
   refine ⟨ps.map Port.name, psNodup, by rw [List.length_map, psLen], ls.map Port.name,
     by rw [List.length_map, lsLen], wired, ?_⟩
   intro bools bits env0 mems inputs slotVals hrst hold
