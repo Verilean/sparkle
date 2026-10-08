@@ -53,7 +53,11 @@ theorem calls_ports {declName : Name} {d : MachineData} {ids : List FVarId}
     (m.inputs.map (·.name)).Nodup ∧ "clk" ∈ m.inputs.map (·.name) ∧
     "rst" ∈ m.inputs.map (·.name) ∧
     (∀ x ∈ m.outputs.map (·.name), x ∉ m.inputs.map (·.name)) ∧
-    argPorts m = machPorts declName ids cache (d.bsIn.take kD) := by
+    argPorts m = machPorts declName ids cache (d.bsIn.take kD) ∧
+    (∀ x ∈ ((machPorts declName ids cache d.shape.binders).map (·.name)).drop
+        (((machPorts declName ids cache d.shape.binders).map (·.name)).length -
+          d.shape.layout.lets - d.shape.layout.slots.length),
+      x ∉ m.inputs.map (·.name)) := by
   obtain ⟨hnd, halloc, -, -, -, -, -, houts, -, -, -, -, -, -, -, -, hcl, -⟩ := wired
   have hlenB : d.shape.binders.length ≤ ids.length := by omega
   have hsplit := d.binders_split
@@ -68,7 +72,7 @@ theorem calls_ports {declName : Name} {d : MachineData} {ids : List FVarId}
     simp only [List.append_assoc]
   have hDlen : (machPorts declName ids cache (d.bsIn.take kD)).length = machNIn d.shape := by
     rw [machPorts_length _ (by rw [len, hsplit]; simp; omega), hNIn]
-  generalize hP : machPorts declName ids cache d.shape.binders = P at hnd halloc hcl hPeq
+  generalize hP : machPorts declName ids cache d.shape.binders = P at hnd halloc hcl hPeq ⊢
   obtain ⟨outWs, extra, hsub, hsup, hex, hin⟩ := hcl hfe
   have hext : extra = [] := by
     rcases hex with h | ⟨_, h⟩
@@ -82,7 +86,7 @@ theorem calls_ports {declName : Name} {d : MachineData} {ids : List FVarId}
   rw [hslE] at hin
   simp only [Bool.false_eq_true, if_false, List.append_nil] at hin
   generalize hK : (P.map (·.name)).length - d.shape.layout.lets - d.shape.layout.slots.length = K
-    at hin
+    at hin ⊢
   -- the names
   have hnClk : ∀ p ∈ P, p.name ≠ "clk" := fun p hp h =>
     Tools.ShippingMachineCleanup.not_allocated_clk (h ▸ halloc _ (List.mem_map_of_mem hp))
@@ -114,7 +118,7 @@ theorem calls_ports {declName : Name} {d : MachineData} {ids : List FVarId}
     rcases hb with h | h
     · exact hnClk p (hTmem p hp) h
     · exact hnRst p (hTmem p hp) h
-  refine ⟨?_, ?_, ?_, ?_, ?_⟩
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩
   · rw [hinN]; exact hLnd.filter _
   · rw [hinN, List.mem_filter]; exact ⟨by simp, by simpa [List.contains_eq_mem] using clkOut⟩
   · rw [hinN, List.mem_filter]; exact ⟨by simp, by simpa [List.contains_eq_mem] using rstOut⟩
@@ -198,5 +202,21 @@ theorem calls_ports {declName : Name} {d : MachineData} {ids : List FVarId}
     rw [hA, hfeq, List.take_take, show min N K = N by omega, hPeq,
       List.take_append_of_le_length (Nat.le_of_eq hDlen.symm),
       List.take_of_length_le (Nat.le_of_eq hDlen)]
+  · -- a slot or `let` port is not an input
+    intro x hx hxi
+    rw [hinN, List.mem_filter] at hxi
+    have hxP : x ∈ P.map (·.name) := List.mem_of_mem_drop hx
+    rcases List.mem_append.mp hxi.1 with h | h
+    · rw [List.map_take] at h
+      have hsplit : (P.map (·.name)).take K ++ (P.map (·.name)).drop K = P.map (·.name) :=
+        List.take_append_drop _ _
+      have := hnd
+      rw [← hsplit] at this
+      exact (List.nodup_append.mp this).2.2 x h x hx rfl
+    · obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hxP
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at h
+      rcases h with h | h
+      · exact hnClk p hp h
+      · exact hnRst p hp h
 
 end Tools.ShippingMachineDepthChild

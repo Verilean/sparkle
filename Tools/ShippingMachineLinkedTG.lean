@@ -48,6 +48,8 @@ theorem machine_linkedTG {σ : Type} (KS : KStep σ) (hloc : KSLocal KS) {declNa
     ∃ ids : List FVarId, ids.Nodup ∧ ids.length = d.shape.binders.length ∧
     ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
       regs.Nodup ∧ regs.length = d.ss.length ∧
+      ∃ lets : List String, lets.length = d.letBs.length ∧
+      MachineWired declName d.shape ids cache m dsn regs lets ∧
       ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
         (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
         (T : Nat) (seed : Nat → (String → Nat) → Env) (st0 : String → Nat) (mems : MEnv)
@@ -97,7 +99,7 @@ theorem machine_linkedTG {σ : Type} (KS : KStep σ) (hloc : KSLocal KS) {declNa
             d.shape.layout.outs[k]? = some o → (src i bools bits)[k]? = some f →
             (envs[j]'hj) o.name = f j := by
   obtain ⟨ids, nd, len, cache, regs, rnd, rlen, lets, llen, wired, trace⟩ := h
-  refine ⟨ids, nd, len, cache, regs, rnd, rlen, ?_⟩
+  refine ⟨ids, nd, len, cache, regs, rnd, rlen, lets, llen, wired, ?_⟩
   intro i bools bits T seed st0 mems kids hin hpass hrst hclk0 hinit hchild
   have hconds := Tools.ShippingMachineComposedT.wired_runT_conds wired hfe
   obtain ⟨hwf, hnd, hnofb⟩ := hconds
