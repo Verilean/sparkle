@@ -51,4 +51,20 @@ run_cmd do
     throwError "sext.machine_sound is not about sext"
   Lean.logInfo m!"SIGN OPERATIONS: sign extension and arithmetic shifts with kernel-checked endpoints"
 
+/-! ## To the emitted Verilog, across the sign normalisation
+
+The endpoints above are proved for the rewritten value and transported back
+to the declaration; `f.machine_ships_comb` is transported the same way. -/
+
+run_cmd do
+  let env ← Lean.getEnv
+  for n in [``sext, ``ashrK, ``shiftSurface, ``ashrSig, ``scaleMul,
+      ``Sparkle.IP.YOLOv8.Primitives.Requantize.requantize] do
+    unless env.contains (n ++ `machine_ships_comb) do throwError "{n}: no machine_ships_comb"
+    unless env.contains (n ++ `machineSourceDecl) do throwError "{n}: not transported"
+    for ax in ← Lean.collectAxioms (n ++ `machine_ships_comb) do
+      unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do
+        throwError "{n} uses a non-standard axiom: {ax}"
+  Lean.logInfo m!"SIGN OPS SHIP: six transported endpoints, each to its emitted Verilog"
+
 end Sparkle.Tests.Compiler.ShippingSignOpsTest

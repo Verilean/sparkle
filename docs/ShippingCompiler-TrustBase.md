@@ -301,8 +301,9 @@ it for every register machine proved by `machine_trace_of_data`,
 `_of_loop`, `_of_regs`, `_of_nested` or `_of_tele_ext` on the declaration
 itself (their wired forms `machine_traceL_of_data`,
 `Tools.ShippingMachineLoopL`, `machine_traceL_of_tele_ext` take the same
-arguments); not after a sign-normalisation / fusion transport, not for
-instances. It is optional — a failure leaves
+arguments); after a sign-normalisation / fusion transport too (the
+theorem is built for the rewritten value and moved to the declaration's
+source by the same `Eq.mpr` as `f.machine_sound`); not for instances. It is optional — a failure leaves
 `f.machine_sound`/`f.machine_ships` as they were. Suite: 13 of 13
 `circuit do` declarations, 8 of 8 hand-written loops, 5 of 5 sub-machine
 nests, 3 of 4 telescopes. Corpus (partial: 38 of 184 files before the run
@@ -318,7 +319,7 @@ the emitted Verilog runs as the module (`seq_run_to_sv`). Its statement
 (`MachineShipsComb`) seeds every cycle with the inputs and the reset name
 low (`seedR`: a combinational module has no reset port). Remaining premises:
 the shipped body is of the simple shape and the emitted-Verilog check.
-Suite: 4 of 4.
+Suite: 4 of 4, and 6 of 6 sign-normalised (transported) endpoints.
 
 **Stateful composition with children (2026-10-08).** For a machine whose
 calls are memory reads and/or sequential machine children (`closeInstsG`),

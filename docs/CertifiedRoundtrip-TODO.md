@@ -1092,8 +1092,8 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   `_of_nested` / `_of_tele_ext`: only the emitted-Verilog check and
   `simpleBody = false` remain — and `f.machine_ships_comb` for
   combinational machines (only the simple-shape and emitted-Verilog checks
-  remain); open: transported (sign-normalised / fused)
-  endpoints and machines with instances; full corpus count pending — the
+  remain; transported sign-normalised / fused endpoints too); open:
+  machines with instances; full corpus count pending — the
   run was stopped for memory at 38 of 184 files, 27 of 84 wired): `f.machine_ships` now needs
   only structural facts about the run's modules (no zero-width wire, the
   assign + register shape, the normal forms of the core and merged module,

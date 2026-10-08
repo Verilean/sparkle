@@ -2552,6 +2552,10 @@ partial def generateCore (declName : Name) (checkCloses : Bool) (defsOnly : Bool
     progress s!"{declName}: theorem"
     -- back to the declaration: its observations are the rewritten value's
     let mut srcName := srcName
+    -- the endpoint before the transport, and the transport (source name,
+    -- `srcDecl = src`) for the theorems built from it below
+    let pPre := p
+    let mut transport? : Option (Name × Lean.Expr) := none
     if let some hArgs := instEq? then
       let obsN := (← getConstInfo srcName).value!.beta #[i, bools, bits]
       let motObs ← kabstract obsN srcN
@@ -2567,11 +2571,21 @@ partial def generateCore (declName : Name) (checkCloses : Bool) (defsOnly : Bool
       let motT ← kabstract T (mkConst srcName)
       let hT ← mkCongrArg (.lam `s (← inferType (mkConst srcName)) motT .default) heq
       p ← mkEqMPR hT p
+      transport? := some (srcName, heq)
       srcName := srcDecl
     let soundName := declName ++ `machine_sound
     addDecl (.thmDecl
       { name := soundName, levelParams := [], type := ← inferType p, value := p })
     let mut names := [soundName]
+    -- a theorem about the rewritten value's source, about the declaration's
+    let retarget (e : Lean.Expr) : MetaM Lean.Expr := do
+      match transport? with
+      | none => pure e
+      | some (old, heq) =>
+        let T ← inferType e
+        let motT ← kabstract T (mkConst old)
+        let hT ← mkCongrArg (.lam `s (← inferType (mkConst old)) motT .default) heq
+        mkEqMPR hT e
     -- to the emitted Verilog, at the full entry (gates as premises); not for
     -- a module with instances (the gates are for assign + register modules)
     if r.shape.insts.isEmpty then
@@ -2587,24 +2601,24 @@ partial def generateCore (declName : Name) (checkCloses : Bool) (defsOnly : Bool
       -- `_of_tele_ext` on the declaration itself (their wired forms take the
       -- same arguments)
       let wiredHead? : Option Name :=
-        if p.isAppOf ``Tools.ShippingMachineAuto.machine_trace_of_data then
+        if pPre.isAppOf ``Tools.ShippingMachineAuto.machine_trace_of_data then
           some ``Tools.ShippingMachineCausal.machine_traceL_of_data
-        else if p.isAppOf ``Tools.ShippingMachineLoop.machine_trace_of_loop then
+        else if pPre.isAppOf ``Tools.ShippingMachineLoop.machine_trace_of_loop then
           some ``Tools.ShippingMachineLoopL.machine_traceL_of_loop
-        else if p.isAppOf ``Tools.ShippingMachineLoop.machine_trace_of_regs then
+        else if pPre.isAppOf ``Tools.ShippingMachineLoop.machine_trace_of_regs then
           some ``Tools.ShippingMachineLoopL.machine_traceL_of_regs
-        else if p.isAppOf ``Tools.ShippingMachineNest.machine_trace_of_nested then
+        else if pPre.isAppOf ``Tools.ShippingMachineNest.machine_trace_of_nested then
           some ``Tools.ShippingMachineLoopL.machine_traceL_of_nested
         -- without instances the extension is the inputs themselves
-        else if p.isAppOf ``Tools.ShippingMachineTeleNest.machine_trace_of_tele_ext then
+        else if pPre.isAppOf ``Tools.ShippingMachineTeleNest.machine_trace_of_tele_ext then
           some ``Tools.ShippingMachineTeleNest.machine_traceL_of_tele_ext
         else none
       if let some headL := wiredHead? then
-       if !r.shape.layout.slots.isEmpty && instEq?.isNone then
+       if !r.shape.layout.slots.isEmpty then
         -- optional: a failure here leaves the endpoint as it was
         let saved ← getEnv
         try
-          let soundL := mkAppN (mkConst headL) p.getAppArgs
+          let soundL := mkAppN (mkConst headL) pPre.getAppArgs
           let dec (prop : Lean.Expr) : MetaM Lean.Expr := do
             let pf ← mkDecideProof prop
             mkExpectedTypeHint pf prop
@@ -2617,6 +2631,7 @@ partial def generateCore (declName : Name) (checkCloses : Bool) (defsOnly : Bool
           for h in hs do
             let prop ← instantiateMVars (← inferType h)
             wired := mkApp wired (← dec prop)
+          wired ← retarget wired
           let wiredName := declName ++ `machine_ships_wired
           addDecl (.thmDecl
             { name := wiredName, levelParams := [], type := ← inferType wired, value := wired })
@@ -2625,12 +2640,12 @@ partial def generateCore (declName : Name) (checkCloses : Bool) (defsOnly : Bool
           setEnv saved
           progress s!"{declName}: machine_ships_wired not generated: {← ex.toMessageData.toString}"
       -- a combinational machine (no slots): `machine_ships_comb`
-      if r.shape.layout.slots.isEmpty && instEq?.isNone &&
-          p.isAppOf ``Tools.ShippingMachineLoop.machine_trace_of_comb then
+      if r.shape.layout.slots.isEmpty &&
+          pPre.isAppOf ``Tools.ShippingMachineLoop.machine_trace_of_comb then
         let saved ← getEnv
         try
           let soundL := mkAppN (mkConst ``Tools.ShippingMachineChild.machine_traceL_of_comb)
-            p.getAppArgs
+            pPre.getAppArgs
           let wired ← mkAppM ``Tools.ShippingMachineShipsComb.machine_ships_comb #[data, soundL]
           -- `insts = []`, no slot, no state, the output widths: by evaluation
           let (hs, _, _) ← forallMetaTelescopeReducing (← inferType wired) (some 4)
@@ -2638,6 +2653,7 @@ partial def generateCore (declName : Name) (checkCloses : Bool) (defsOnly : Bool
           for h in hs do
             let prop ← instantiateMVars (← inferType h)
             wired := mkApp wired (← mkExpectedTypeHint (← mkDecideProof prop) prop)
+          wired ← retarget wired
           let combName := declName ++ `machine_ships_comb
           addDecl (.thmDecl
             { name := combName, levelParams := [], type := ← inferType wired, value := wired })
