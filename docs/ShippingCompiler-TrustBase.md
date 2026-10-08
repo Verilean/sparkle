@@ -496,7 +496,12 @@ bits out, and the literal-shift rule `SF4.bitwiseShl` demands no overflow
 bitwise sibling is EXACTLY as wide as `x` (amount no wider), the parent's
 context is the shift's own width, so the emitted text cuts the shifted-out
 bits where the IR's mask does — proved in `emit_sem`, admitted by
-`shlSideOK`. The compiler does not run `seqCheck`, so no output changes.
+`shlSideOK`. The compiler does not run `seqCheck`, so no output changes. The
+same rule closes the corpus' remaining emitted-Verilog rejections of the
+register-machine pipeline measurement (`pipeline.sh`; the PCIe / TCP /
+Ethernet parsers, NAL stream, dividers — 22 declarations rejected in
+gold52): re-measured on their 8 files, none fails the emitted-Verilog
+check any more.
 
 **Loop children and transported parents (2026-10-08).** A sequential
 child proved by `machine_trace_of_loop` / `_of_regs` (a `Signal.loop`, the
