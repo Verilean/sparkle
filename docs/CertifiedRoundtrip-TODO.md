@@ -1088,9 +1088,11 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   `machine_ships_checked`
   therefore drops both `refineCheck` premises (and since 2026-10-08
   `f.machine_ships_wired` drops the structural gates too, for register
-  machines proved by `machine_trace_of_data` / `_of_loop` / `_of_regs`:
-  only the emitted-Verilog check and `simpleBody = false` remain; open: the
-  same for nested / telescope / transported endpoints): `f.machine_ships` now needs
+  machines proved by `machine_trace_of_data` / `_of_loop` / `_of_regs` /
+  `_of_nested` / `_of_tele_ext`: only the emitted-Verilog check and
+  `simpleBody = false` remain; open: transported (sign-normalised / fused)
+  endpoints and machines with instances; full corpus count pending — the
+  run was stopped for memory at 38 of 184 files, 27 of 84 wired): `f.machine_ships` now needs
   only structural facts about the run's modules (no zero-width wire, the
   assign + register shape, the normal forms of the core and merged module,
   reset and output ports) and the emitted-Verilog

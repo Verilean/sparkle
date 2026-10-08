@@ -100,4 +100,17 @@ run_cmd do
         throwError "{name} uses a non-standard axiom: {ax}"
   Lean.logInfo m!"MACHINE CHAINS: sub-machines reading earlier ones' results, kernel-checked endpoints"
 
+/-! ## To the emitted Verilog, from the wiring (`f.machine_ships_wired`) -/
+
+run_cmd do
+  let env ← Lean.getEnv
+  let ds := [``divInLoop, ``chain2, ``chain3, ``hftByte]
+  let wired := ds.filter fun n => env.contains (n ++ `machine_ships_wired)
+  unless wired.length ≥ 3 do throwError "machine_ships_wired regressed: {wired}"
+  for n in wired do
+    for ax in ← Lean.collectAxioms (n ++ `machine_ships_wired) do
+      unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do
+        throwError "{n} uses a non-standard axiom: {ax}"
+  Lean.logInfo m!"MACHINE TELE WIRED: {wired.length} of {ds.length}: {wired}"
+
 end Sparkle.Tests.Compiler.ShippingMachineTeleTest

@@ -132,4 +132,17 @@ run_cmd do
         throwError "{name} uses a non-standard axiom: {ax}"
   logInfo m!"MACHINE NESTING: five declarations with sub-machines, each one flattened machine with its kernel-checked endpoint"
 
+/-! ## To the emitted Verilog, from the wiring (`f.machine_ships_wired`) -/
+
+run_cmd do
+  let env ← getEnv
+  let ds := [``latch2, ``loopBack, ``front, ``pair, ``consumer]
+  let wired := ds.filter fun n => env.contains (n ++ `machine_ships_wired)
+  unless wired.length ≥ 5 do throwError "machine_ships_wired regressed: {wired}"
+  for n in wired do
+    for ax in ← Lean.collectAxioms (n ++ `machine_ships_wired) do
+      unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do
+        throwError "{n} uses a non-standard axiom: {ax}"
+  logInfo m!"MACHINE NEST WIRED: {wired.length} of {ds.length}: {wired}"
+
 end Sparkle.Tests.Compiler.ShippingMachineNestTest

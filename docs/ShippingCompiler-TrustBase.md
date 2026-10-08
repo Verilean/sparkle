@@ -298,12 +298,15 @@ reset and output ports are facts. Its premises are only the emitted-Verilog
 check of the printed module (`EmitSem.seqCheck` and width agreement) and
 that the body is not of the simple combinational shape. The generator emits
 it for every register machine proved by `machine_trace_of_data`,
-`machine_trace_of_loop` or `machine_trace_of_regs` on the declaration itself
-(their wired forms `machine_traceL_of_data` / `Tools.ShippingMachineLoopL`
-take the same arguments); not after a sign-normalisation / fusion
-transport, not for nested runs, telescopes or instances. It is optional — a
-failure leaves `f.machine_sound`/`f.machine_ships` as they were. Suite: 13
-of 13 `circuit do` declarations, 8 of 8 hand-written loops.
+`_of_loop`, `_of_regs`, `_of_nested` or `_of_tele_ext` on the declaration
+itself (their wired forms `machine_traceL_of_data`,
+`Tools.ShippingMachineLoopL`, `machine_traceL_of_tele_ext` take the same
+arguments); not after a sign-normalisation / fusion transport, not for
+instances. It is optional — a failure leaves
+`f.machine_sound`/`f.machine_ships` as they were. Suite: 13 of 13
+`circuit do` declarations, 8 of 8 hand-written loops, 5 of 5 sub-machine
+nests, 3 of 4 telescopes. Corpus (partial: 38 of 184 files before the run
+was stopped for memory): 27 of 84 endpoints.
 
 **Stateful composition with children (2026-10-08).** For a machine whose
 calls are memory reads and/or sequential machine children (`closeInstsG`),

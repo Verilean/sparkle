@@ -2582,8 +2582,9 @@ partial def generateCore (declName : Name) (checkCloses : Bool) (defsOnly : Bool
       names := names ++ [shipsName]
       -- from the wiring (`machine_ships_wired`): the cleanup/merge/optimizer
       -- gates discharged; for a register machine proved by
-      -- `machine_trace_of_data` / `_of_loop` / `_of_regs` on the declaration
-      -- itself (their wired forms take the same arguments)
+      -- `machine_trace_of_data` / `_of_loop` / `_of_regs` / `_of_nested` /
+      -- `_of_tele_ext` on the declaration itself (their wired forms take the
+      -- same arguments)
       let wiredHead? : Option Name :=
         if p.isAppOf ``Tools.ShippingMachineAuto.machine_trace_of_data then
           some ``Tools.ShippingMachineCausal.machine_traceL_of_data
@@ -2591,6 +2592,11 @@ partial def generateCore (declName : Name) (checkCloses : Bool) (defsOnly : Bool
           some ``Tools.ShippingMachineLoopL.machine_traceL_of_loop
         else if p.isAppOf ``Tools.ShippingMachineLoop.machine_trace_of_regs then
           some ``Tools.ShippingMachineLoopL.machine_traceL_of_regs
+        else if p.isAppOf ``Tools.ShippingMachineNest.machine_trace_of_nested then
+          some ``Tools.ShippingMachineLoopL.machine_traceL_of_nested
+        -- without instances the extension is the inputs themselves
+        else if p.isAppOf ``Tools.ShippingMachineTeleNest.machine_trace_of_tele_ext then
+          some ``Tools.ShippingMachineTeleNest.machine_traceL_of_tele_ext
         else none
       if let some headL := wiredHead? then
        if !r.shape.layout.slots.isEmpty && instEq?.isNone then
