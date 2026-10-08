@@ -427,6 +427,21 @@ itself (checked by the compiler with the IR's decidable equality). Children
 that themselves have children are covered by the depth-`n` theorems up to
 the links listed in the TODO (F6).
 
+**Children with children (depth, 2026-10-08).** `#machine_composedN f n`
+(`Tools/ShippingMachineDepthCommand.lean`) composes a machine whose
+sequential children have children of their own: a child with calls holds at
+depth `n + 1` from its own composed theorem at depth `n`
+(`seqChildRunN_of_composed`), under the hierarchical run boundary
+`MachineRunN` (the instance's module is the full entry's post-processing of
+a core run of the child whose design the parent's extends away from the
+child's own name, which no module instantiates); `#machine_ships_hierN f n`
+carries it to the shipped module (`machine_ships_hier` with `KSn`, the
+children's bound from the decidable `kidsMaskedN`, `KSn_boundedIn`).
+`grand → mid → cnt`: composed and shipped at depth 1, its module premises
+evaluated. Remaining: memory children below depth 1, combinational
+(`closeInsts`-path) children inside a sequential child, the emitted Verilog
+at depth > 1.
+
 ## 6c. The printer (the CompCert framing, F3)
 
 CompCert's guarantee ends at its assembly AST; the printer that turns it

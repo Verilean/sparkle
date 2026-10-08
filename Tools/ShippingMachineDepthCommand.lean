@@ -1,6 +1,7 @@
 import Tools.ShippingMachineSeqCommand
 import Tools.ShippingMachineDepthRun
 import Tools.ShippingMachineShipsHierCommand
+import Tools.ShippingMachineShipsDepth
 
 /-! # Generated composition at depth
 
@@ -354,5 +355,62 @@ elab "#machine_composedN " d:ident n:num : command => do
       withTheReader Core.Context (fun c => { c with maxRecDepth := 1000000 })
         (generateCoreN declName n.getNat)
   logInfo m!"{name}: the stateful linked run, children at depth {n.getNat}, shows the source, checked by the kernel"
+
+/-- `f.machine_ships_hierN{n}`: `machine_ships_hier` at depth `n`, the
+children's output bound from the decidable `kidsMaskedN`. -/
+def generateShipsN (declName : Name) (n : Nat) : MetaM Name := do
+  let cN ← generateCoreN declName n
+  let (headL, args, back?) ← endpointParts declName
+  if back?.isSome then throwError "{declName}: a transported endpoint (not yet at depth)"
+  let soundL := mkAppN (mkConst headL) args
+  let cT := mkConst cN
+  let data := mkConst (declName ++ `machineData)
+  let bnd := mkConst (declName ++ boundName n)
+  let modT := mkConst ``Sparkle.IR.AST.Module
+  let desT := mkConst ``Sparkle.IR.AST.Design
+  let nE := mkNatLit n
+  forallTelescope (← inferType cT) fun ys _ => do
+    unless ys.size == 12 do throwError "{declName}: the composed theorem's binders ({ys.size})"
+    let m := ys[6]!
+    let memF ← mkAppM ``Tools.ConeFold.memFree #[← mkAppM ``Sparkle.IR.AST.Module.body #[m]]
+    let composed ← withLocalDeclD `hm memF fun hm => do
+      let inner ← mkAppM ``Tools.ShippingMachineShipsDepth.composedG_of_NW #[mkAppN cT ys]
+      mkLambdaFVars (ys ++ #[hm]) inner
+    let KS ← withLocalDeclD `D desT fun D => do
+      mkLambdaFVars #[D] (← mkAppM ``Tools.ShippingHierStateG.KSn
+        #[← mkAppM ``Tools.ShippingMachineLinked.childMap #[← mkAppM ``Sparkle.IR.AST.Design.modules #[D]], nE])
+    let hloc ← withLocalDeclD `D desT fun D => do
+      mkLambdaFVars #[D] (← mkAppM ``Tools.ShippingHierStateG.KSn_local
+        #[← mkAppM ``Tools.ShippingMachineLinked.childMap #[← mkAppM ``Sparkle.IR.AST.Design.modules #[D]], nE])
+    let reset := mkApp (mkConst ``Tools.ShippingMachineShipsDepth.ResetNk) nE
+    let (Bd, hBd) ← withLocalDeclD `b modT fun b => withLocalDeclD `D desT fun D => do
+      let ms ← mkAppM ``Sparkle.IR.AST.Design.modules #[D]
+      let body ← mkAppM ``Sparkle.IR.AST.Module.body #[b]
+      let bd ← mkEq (← mkAppM ``Tools.ShippingMachineShipsDepth.kidsMaskedN #[ms, body]) (mkConst ``Bool.true)
+      let Bd ← mkLambdaFVars #[b, D] bd
+      let hBd ← withLocalDeclD `h bd fun h => do
+        mkLambdaFVars #[b, D, h] (mkApp (← mkAppM ``Tools.ShippingMachineShipsDepth.KSn_boundedIn
+          #[ms, body, h]) nE)
+      pure (Bd, hBd)
+    let ktT := mkApp (mkConst ``Tools.ShippingHierStateG.KT) nE
+    let inv ← withLocalDeclD `c modT fun c => withLocalDeclD `s ktT fun sv =>
+      mkLambdaFVars #[c, sv] (mkConst ``True)
+    let hRI ← mkAppM ``Tools.ShippingMachineShipsHier.true_inv #[reset]
+    let thm ← mkAppM ``Tools.ShippingMachineShipsHier.machine_ships_hier
+      #[KS, hloc, reset, bnd, Bd, inv, hBd, hRI, data, soundL, composed]
+    let ty ← inferType thm
+    let .forallE _ hT _ _ ← whnfR ty | throwError "{declName}: the output-width premise"
+    let thm := mkApp thm (← mkExpectedTypeHint (← mkDecideProof hT) hT)
+    let name := declName ++ Name.mkSimple s!"machine_ships_hierN{n}"
+    addTheorem name (← inferType thm) thm
+    return name
+
+elab "#machine_ships_hierN " d:ident n:num : command => do
+  let declName ← Command.liftCoreM <| realizeGlobalConstNoOverloadWithInfo d
+  let name ← Command.liftTermElabM <|
+    withOptions (fun o => maxRecDepth.set (Lean.Elab.async.set o false) 1000000) <|
+      withTheReader Core.Context (fun c => { c with maxRecDepth := 1000000 })
+        (generateShipsN declName n.getNat)
+  logInfo m!"{name}: the shipped module's stateful linked run, children at depth {n.getNat}, shows the source, checked by the kernel"
 
 end Tools.ShippingMachineDepthCommand

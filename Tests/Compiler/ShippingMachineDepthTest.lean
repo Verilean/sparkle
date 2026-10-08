@@ -16,6 +16,28 @@ set_option maxHeartbeats 0 in
 set_option maxHeartbeats 0 in
 #machine_composedN Sparkle.Tests.Compiler.ShippingMachineSeqTest.grand 1
 
+set_option maxHeartbeats 0 in
+#machine_ships_hierN Sparkle.Tests.Compiler.ShippingMachineSeqTest.grand 1
+
+-- the shipped module's premises, on the real modules (depth 1: `mid`'s children too)
+open Tools.ShippingHierOpen Tools.ShippingHierState in
+run_cmd Lean.Elab.Command.liftTermElabM do
+  let n := ``Sparkle.Tests.Compiler.ShippingMachineSeqTest.grand
+  let (_, D) ← Sparkle.Compiler.Elab.synthesizeCombinationalCore n [] false
+  let (b, _) ← Sparkle.Compiler.Elab.synthesizeCombinational n
+  let o := Sparkle.IR.OptCheck.checkedOptimize b
+  let C := Tools.ShippingMachineLinked.childMap D.modules
+  unless Sparkle.IR.RefineCheck.hierBinds b do throwError "the optimizer check does not bind"
+  unless linkedWF C b.body && linkedWF C o.body do throwError "not linked-well-formed"
+  unless (instNames b.body).Nodup && (instNames o.body).Nodup do throwError "instance names repeat"
+  unless (bodyInstOuts C b.body).all (fun w =>
+      ((Sparkle.IR.HierCheck.openIns b).map (·.name)).contains w) do
+    throwError "an instance-driven wire is not an extracted input"
+  unless instOutWidthsOk C (Sparkle.IR.RegDedup.declWidth b) b.body do throwError "instance-output widths"
+  unless Tools.ShippingMachineShipsDepth.kidsMaskedN D.modules b.body do
+    throwError "a child's outputs are not masked"
+  Lean.logInfo m!"DEPTH SHIPS: grand's shipped-module premises hold"
+
 open Lean in
 run_cmd do
   for name in [``grand.machine_composedN1, ``mid.machine_composedN0, ``mid.seq_child_runN_of0,
@@ -23,7 +45,8 @@ run_cmd do
       ``Tools.ShippingMachineDepthRun.seqChildRunN_of_composed,
       ``Tools.ShippingMachineDepthRun.seqChildRunN_full,
       ``Tools.ShippingHierMono.KSn_mono_away,
-      ``Tools.ShippingMachineDepthChild.calls_ports] do
+      ``Tools.ShippingMachineDepthChild.calls_ports, ``grand.machine_ships_hierN1,
+      ``Tools.ShippingMachineShipsDepth.KSn_boundedIn] do
     for ax in ← Lean.collectAxioms name do
       unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do
         throwError "{name} uses a non-standard axiom: {ax}"
