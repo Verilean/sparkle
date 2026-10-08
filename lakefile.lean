@@ -581,11 +581,20 @@ lean_lib «Tools.ShippingHierOptRun» where
 lean_lib «Tools.ShippingHierOptRunH» where
   roots := #[`Tools.ShippingHierOptRunH]
 
+lean_lib «Tools.ShippingHierTyped» where
+  roots := #[`Tools.ShippingHierTyped]
+
 lean_lib «Tools.ShippingMachineShipsHier» where
   roots := #[`Tools.ShippingMachineShipsHier]
 
 lean_lib «Tools.ShippingMachineShipsHierCommand» where
   roots := #[`Tools.ShippingMachineShipsHierCommand]
+
+lean_lib «Tools.ShippingMachineShipsHierH» where
+  roots := #[`Tools.ShippingMachineShipsHierH]
+
+lean_lib «Tools.ShippingMachineShipsHierHCommand» where
+  roots := #[`Tools.ShippingMachineShipsHierHCommand]
 
 lean_lib «Tools.ShippingHierSVRun» where
   roots := #[`Tools.ShippingHierSVRun]
