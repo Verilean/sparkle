@@ -108,13 +108,32 @@ def loopPair (start : Signal defaultDomain Bool) (act : Signal defaultDomain (Bi
 
 #machine_endpoint loopPair
 
+/-! ## To the emitted Verilog, from the wiring
+
+`f.machine_ships_wired` (`machine_traceL_of_loop`): the cleanup / merge /
+optimizer gates discharged for the hand-written loops too. -/
+
+run_cmd do
+  let env ← getEnv
+  let ds := [``wholeLoop, ``wholeToggle, ``counterLoop, ``accLoop,
+    ``Sparkle.IP.YOLOv8.Blocks.Bottleneck.bottleneckController,
+    ``Sparkle.IP.RV32.Divider.dividerSignal, ``divQ, ``loopPair]
+  let wired := ds.filter fun n => env.contains (n ++ `machine_ships_wired)
+  for n in [``counterLoop, ``accLoop, ``Sparkle.IP.RV32.Divider.dividerSignal, ``loopPair] do
+    unless wired.contains n do throwError "{n}: no machine_ships_wired"
+  logInfo m!"MACHINE LOOPS WIRED: {wired.length} of {ds.length}: {wired}"
+
 run_cmd do
   if (← get).messages.hasErrors then throwError "machine loop regression failed"
   for name in [``counterLoop.machine_sound, ``accLoop.machine_sound,
       ``Sparkle.IP.YOLOv8.Blocks.Bottleneck.bottleneckController.machine_sound,
       ``Sparkle.IP.RV32.Divider.dividerSignal.machine_sound,
       ``Tools.ShippingMachineLoop.machine_trace_of_loop,
-      ``Tools.ShippingMachineLoop.loop_stream] do
+      ``Tools.ShippingMachineLoop.loop_stream,
+      ``Tools.ShippingMachineLoopL.machine_traceL_of_loop,
+      ``Tools.ShippingMachineLoopL.machine_traceL_of_regs,
+      ``counterLoop.machine_ships_wired, ``loopPair.machine_ships_wired,
+      ``Sparkle.IP.RV32.Divider.dividerSignal.machine_ships_wired] do
     let axioms ← Lean.collectAxioms name
     for ax in axioms do
       unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do

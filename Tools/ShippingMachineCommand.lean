@@ -6,6 +6,8 @@ import Tools.ShippingMachineShipping
 import Tools.ShippingSignOps
 import Tools.ShippingMachineMemCausal
 import Tools.ShippingMachineFuseGen
+import Tools.ShippingMachineShipsW
+import Tools.ShippingMachineLoopL
 
 /-! # The machine endpoint of a declaration, generated
 
@@ -2578,6 +2580,43 @@ partial def generateCore (declName : Name) (checkCloses : Bool) (defsOnly : Bool
       addDecl (.thmDecl
         { name := shipsName, levelParams := [], type := ← inferType ships, value := ships })
       names := names ++ [shipsName]
+      -- from the wiring (`machine_ships_wired`): the cleanup/merge/optimizer
+      -- gates discharged; for a register machine proved by
+      -- `machine_trace_of_data` / `_of_loop` / `_of_regs` on the declaration
+      -- itself (their wired forms take the same arguments)
+      let wiredHead? : Option Name :=
+        if p.isAppOf ``Tools.ShippingMachineAuto.machine_trace_of_data then
+          some ``Tools.ShippingMachineCausal.machine_traceL_of_data
+        else if p.isAppOf ``Tools.ShippingMachineLoop.machine_trace_of_loop then
+          some ``Tools.ShippingMachineLoopL.machine_traceL_of_loop
+        else if p.isAppOf ``Tools.ShippingMachineLoop.machine_trace_of_regs then
+          some ``Tools.ShippingMachineLoopL.machine_traceL_of_regs
+        else none
+      if let some headL := wiredHead? then
+       if !r.shape.layout.slots.isEmpty && instEq?.isNone then
+        -- optional: a failure here leaves the endpoint as it was
+        let saved ← getEnv
+        try
+          let soundL := mkAppN (mkConst headL) p.getAppArgs
+          let dec (prop : Lean.Expr) : MetaM Lean.Expr := do
+            let pf ← mkDecideProof prop
+            mkExpectedTypeHint pf prop
+          let wired ← mkAppM ``Tools.ShippingMachineShipsW.machine_ships_wired
+            #[data, soundL]
+          -- the four structural premises (`insts = []`, a slot, the slot
+          -- count, the output widths) by evaluation
+          let (hs, _, _) ← forallMetaTelescopeReducing (← inferType wired) (some 4)
+          let mut wired := wired
+          for h in hs do
+            let prop ← instantiateMVars (← inferType h)
+            wired := mkApp wired (← dec prop)
+          let wiredName := declName ++ `machine_ships_wired
+          addDecl (.thmDecl
+            { name := wiredName, levelParams := [], type := ← inferType wired, value := wired })
+          names := names ++ [declName ++ `machine_ships_wired]
+        catch ex =>
+          setEnv saved
+          progress s!"{declName}: machine_ships_wired not generated: {← ex.toMessageData.toString}"
     for name in names do
       for ax in ← Lean.collectAxioms name do
         unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do

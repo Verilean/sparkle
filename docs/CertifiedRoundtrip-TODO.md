@@ -1086,7 +1086,11 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   normaliser does not know; `rNormBody` reads the assigns in order), so a
   module outside the normal forms keeps the unchecked passes and its text.
   `machine_ships_checked`
-  therefore drops both `refineCheck` premises: `f.machine_ships` now needs
+  therefore drops both `refineCheck` premises (and since 2026-10-08
+  `f.machine_ships_wired` drops the structural gates too, for register
+  machines proved by `machine_trace_of_data` / `_of_loop` / `_of_regs`:
+  only the emitted-Verilog check and `simpleBody = false` remain; open: the
+  same for nested / telescope / transported endpoints): `f.machine_ships` now needs
   only structural facts about the run's modules (no zero-width wire, the
   assign + register shape, the normal forms of the core and merged module,
   reset and output ports) and the emitted-Verilog

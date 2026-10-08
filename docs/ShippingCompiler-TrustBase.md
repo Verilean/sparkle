@@ -287,6 +287,24 @@ module; they hold for 107 of 113
 machine-route declarations. The module parsed back from the printed bytes
 is not covered for machine modules.
 
+**From the wiring (2026-10-08).** `f.machine_ships_wired`
+(`Tools.ShippingMachineShipsW.machine_ships_wired`) discharges the
+structural gates for a register machine from its WIRED endpoint
+(`machine_traceL_of_data`): the zero-width cleanup is the identity
+(`MachineWired`), a body with a register is merged only if `refineCheck`
+accepts it (`mergeChecked_nonAssign`), an assign + register body is
+optimized only if `refineCheck` accepts it (`checkedOptimize_seqOk`), the
+reset and output ports are facts. Its premises are only the emitted-Verilog
+check of the printed module (`EmitSem.seqCheck` and width agreement) and
+that the body is not of the simple combinational shape. The generator emits
+it for every register machine proved by `machine_trace_of_data`,
+`machine_trace_of_loop` or `machine_trace_of_regs` on the declaration itself
+(their wired forms `machine_traceL_of_data` / `Tools.ShippingMachineLoopL`
+take the same arguments); not after a sign-normalisation / fusion
+transport, not for nested runs, telescopes or instances. It is optional — a
+failure leaves `f.machine_sound`/`f.machine_ships` as they were. Suite: 13
+of 13 `circuit do` declarations, 8 of 8 hand-written loops.
+
 **Stateful composition with children (2026-10-08).** For a machine whose
 calls are memory reads and/or sequential machine children (`closeInstsG`),
 `f.machine_composedT` states the STATEFUL linked run (`runModuleT`,

@@ -229,6 +229,9 @@ def endpoints():
     print('machine route:', len(wanted), 'of which real corpus:', len(real))
     print('kernel-checked endpoint (f.machine_sound):', len(ok),
           'of which real corpus:', sum(1 for d in ok if not is_certification_test(d)))
+    wired = [d for d in ok if result[d][2] == 'WIRED']
+    print('to the emitted Verilog from the wiring (f.machine_ships_wired):', len(wired),
+          'of which real corpus:', sum(1 for d in wired if not is_certification_test(d)))
     for d in wanted:
         if d in result and result[d][0] != 'OK':
             print('  refused:', d, '--', result[d][2][:200])

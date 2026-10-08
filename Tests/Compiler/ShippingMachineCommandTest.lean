@@ -188,6 +188,13 @@ run_cmd liftTermElabM do
     unless (Tools.ShippingSeqSVSoundness.seqNames o.body).all (fun x =>
         Sparkle.IR.RegDedup.declWidth o x == Tools.SVParser.EmitSem.weOf wof x) do
       throwError "{n}: checker and emitter widths disagree"
+  -- from the wiring: the cleanup/merge/optimizer gates are discharged
+  let wiredN := ([``mThree, ``twoHW, ``twoFlag, ``twoCnt, ``linChk, ``linChkDefault, ``toggle,
+      ``Sparkle.IP.Bus.LINHW.checksumHW, ``Sparkle.IP.Crypto.EcdsaSignDemo.wMulN,
+      ``Sparkle.IP.Crypto.EcdsaSignDemo.wTx, ``Sparkle.IP.Crypto.P256SignDemo.wMul,
+      ``Sparkle.IP.Crypto.P256SignDemo.wMulN, ``Sparkle.IP.USB.Fido2Demo.wTx].filter
+    fun n => env.contains (n ++ `machine_ships_wired)).length
+  logInfo m!"MACHINE SHIPS WIRED: {wiredN} of thirteen"
   logInfo m!"MACHINE SHIPPING GATES: the compiler's refineCheck gates kept the merge and the optimizer, and the emitted-Verilog check passes, on all thirteen declarations"
 
 /-! ## Axioms -/
@@ -205,6 +212,8 @@ run_cmd do
       ``Sparkle.IP.Bus.LINHW.checksumHW.machine_ships,
       ``Sparkle.IP.Crypto.EcdsaSignDemo.wMulN.machine_ships,
       ``mThree.machine_ships, ``toggle.machine_ships,
+      ``Tools.ShippingMachineShipsW.machine_ships_wired, ``mThree.machine_ships_wired,
+      ``Sparkle.IP.Crypto.EcdsaSignDemo.wMulN.machine_ships_wired,
       ``Sparkle.IP.Bus.LINHW.checksumHW.machine_sound,
       ``Sparkle.IP.Crypto.EcdsaSignDemo.wMulN.machine_sound,
       ``Sparkle.IP.Crypto.EcdsaSignDemo.wTx.machine_sound,

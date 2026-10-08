@@ -566,6 +566,9 @@ lean_lib «Tools.ShippingMachineLinkedTG» where
 lean_lib «Tools.ShippingMachineShipsW» where
   roots := #[`Tools.ShippingMachineShipsW]
 
+lean_lib «Tools.ShippingMachineLoopL» where
+  roots := #[`Tools.ShippingMachineLoopL]
+
 lean_lib «Tools.ShippingHierMono» where
   roots := #[`Tools.ShippingHierMono]
 
