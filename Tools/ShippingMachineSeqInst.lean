@@ -379,7 +379,7 @@ theorem seqChildRun_full {declName : Name} {d : MachineData} {ι : Type} {dom : 
   have h := sound hcore entry closes
   obtain ⟨ids, _, len, cache, _, _, _, _, _, wired, _⟩ := id h
   obtain ⟨_, _, _, _, _, _, _, houts, hins, _, hclean, _⟩ := wired
-  obtain ⟨⟨_, _, hi, ho⟩, hrstIn, _, _, hnd, hclk, hdisj, _⟩ := hclean hnoI houtTy
+  obtain ⟨⟨_, _, hi, ho⟩, hrstIn, _, _, hnd, hclk, hdisj, _, _⟩ := hclean hnoI houtTy
   have hbsIn : d.shape.binders.take (d.shape.binders.length - d.shape.layout.slots.length -
       d.shape.layout.lets) = d.bsIn := by
     have hb := d.binders_split

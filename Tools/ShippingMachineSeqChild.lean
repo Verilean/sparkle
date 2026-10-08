@@ -306,7 +306,7 @@ theorem seqStream_full {declName : Name} {d : MachineData} {ι : Type} {dom : ι
   have h := sound hcore entry closes
   obtain ⟨ids, nd, len, cache, regs, _, rlen, _, _, wired, _⟩ := id h
   obtain ⟨_, _, _, _, _, _, _, houts, hins, _, hclean, _⟩ := wired
-  obtain ⟨⟨hb, hw, hi, ho⟩, hrstIn, hregs, hevery, _, _, _, hinW⟩ := hclean hnoI houtTy
+  obtain ⟨⟨hb, hw, hi, ho⟩, hrstIn, hregs, hevery, _, _, _, hinW, _⟩ := hclean hnoI houtTy
   -- the argument ports are the declaration's, of its binders' types
   have hbsIn : d.shape.binders.take (d.shape.binders.length - d.shape.layout.slots.length -
       d.shape.layout.lets) = d.bsIn := by

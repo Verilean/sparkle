@@ -695,11 +695,13 @@ def MachineWired (declName : Name) (shape : MachineShape) (ids : List FVarId)
     -- and the ports: distinct inputs, the clock an input, no output an input
     (m.inputs.map (·.name)).Nodup ∧ (shape.layout.slots ≠ [] → "clk" ∈ m.inputs.map (·.name)) ∧
     (∀ x ∈ m.outputs.map (·.name), x ∉ m.inputs.map (·.name)) ∧
-    ∀ p ∈ m.inputs, p.name ≠ "clk" → p.name ≠ "rst" →
+    (∀ p ∈ m.inputs, p.name ≠ "clk" → p.name ≠ "rst" →
       weOf m p.name = match p.ty with
         | .bitVector k => k
         | .bit => 1
         | _ => 0) ∧
+    -- and the body is assignments and registers
+    m.body.all Sparkle.IR.OptCheck.seqStmtOk = true) ∧
   -- calls with several outputs or of sequential children: every instance
   -- statement is a call group's (`closeInstsG`) ...
   (shape.instFields ≠ [] → ∀ st ∈ m.body, Sparkle.IR.Machine.isInst st = true →
@@ -1592,7 +1594,7 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
               obtain ⟨n, ty⟩ := p
               cases ty <;> rfl
           rw [hinC, htake]
-          refine ⟨?_, ?_, ?_, ?_⟩
+          refine ⟨?_, ?_, ?_, ?_, ?_⟩
           · rw [List.map_append]
             refine List.nodup_append.mpr ⟨hP1nd, ?_, ?_⟩
             · split <;> simp
@@ -1638,6 +1640,26 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
                 rcases hp with rfl | rfl
                 · exact absurd rfl hpc
                 · exact absurd rfl hpr
+          · -- assignments and registers
+            apply List.all_eq_true.mpr
+            intro st hst
+            rw [show (closeMachine shape.layout t').body = t'.body.dropLast ++
+                nextAssigns coreW ps shape.layout.slots ++
+                registers shape.layout.resetKind ps shape.layout.slots ++
+                outAssigns coreW shape.layout.outs by simp [closeMachine, hpwC, hdrop]] at hst
+            simp only [List.mem_append] at hst
+            rcases hst with ((hB | hN) | hR) | hO
+            · have := List.all_eq_true.mp typed'.isAssign _ (List.dropLast_subset _ hB)
+              cases st <;> simp_all [Sparkle.IR.RegDedup.isAssign, Sparkle.IR.OptCheck.seqStmtOk]
+            · obtain ⟨l, rr, rfl⟩ := Tools.ShippingMachineClose.nextAssigns_assigns coreW ps
+                shape.layout.slots _ hN
+              rfl
+            · obtain ⟨k, p, f, _, _, rfl⟩ :=
+                Tools.ShippingMachineCleanup.registers_mem _ ps shape.layout.slots _ hR
+              rfl
+            · simp only [outAssigns, List.mem_map] at hO
+              obtain ⟨o, _, rfl⟩ := hO
+              rfl
       · exact absurd hnil hne
     · intro hfe st hst hinst
       rcases hmt with ⟨_, hm'⟩ | ⟨_, children, hci⟩

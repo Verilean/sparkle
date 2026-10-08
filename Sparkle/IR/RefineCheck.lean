@@ -252,29 +252,36 @@ open Sparkle.IR.AST
 
 /-- `optimizeModule`, result-checked: on modules of simple shape the optimised
 module is kept only if `optCheck` and the assignment-order check accept it;
-on assign + register modules in the normal forms (`RefineCheck.seqGate` and
-`refineCheck m m`) only if `refineCheck` accepts it; else the input module is
-returned unoptimised. Other modules get `optimizeModule` unchanged. -/
+on other assign + register modules only if `refineCheck` accepts it; else the
+input module is returned unoptimised. Other modules (memories, instances) get
+`optimizeModule` unchanged. -/
 def checkedOptimize (m : Module) : Module :=
   let o := Sparkle.IR.Optimize.optimizeModule m
   if simpleBody m then
     if optCheck m o && assignmentOrderCheck o.body then o else m
-  else if RefineCheck.seqGate m then
-    if RefineCheck.refineCheck m o then o
-    else if RefineCheck.refineCheck m m then m
-    else o
+  else if m.body.all seqStmtOk then
+    if RefineCheck.refineCheck m o then o else m
   else o
 
-/-- On a gated module in the normal forms that is not of simple shape, the
-optimizer's output is kept only as a checked refinement. -/
-theorem checkedOptimize_seq {m : Module} (hs : simpleBody m = false)
-    (hg : RefineCheck.seqGate m = true) (hm : RefineCheck.refineCheck m m = true) :
+/-- On an assign + register module not of simple shape, the optimizer's
+output is kept only as a checked refinement. -/
+theorem checkedOptimize_seqOk {m : Module} (hs : simpleBody m = false)
+    (hok : m.body.all seqStmtOk = true) :
     RefineCheck.refineCheck m (checkedOptimize m) = true ∨ checkedOptimize m = m := by
   unfold checkedOptimize
   dsimp only
-  simp only [hs, Bool.false_eq_true, if_false, hg, if_true]
+  simp only [hs, Bool.false_eq_true, if_false, hok, if_true]
   split
   · rename_i hc; exact Or.inl hc
   · exact Or.inr rfl
+
+/-- On a gated module that is not of simple shape, the optimizer's output is
+kept only as a checked refinement. -/
+theorem checkedOptimize_seq {m : Module} (hs : simpleBody m = false)
+    (hg : RefineCheck.seqGate m = true) (_hm : RefineCheck.refineCheck m m = true) :
+    RefineCheck.refineCheck m (checkedOptimize m) = true ∨ checkedOptimize m = m := by
+  apply checkedOptimize_seqOk hs
+  simp only [RefineCheck.seqGate, Bool.and_eq_true] at hg
+  exact hg.1
 
 end Sparkle.IR.OptCheck

@@ -99,9 +99,7 @@ theorem checkedOptimize_name (m : Sparkle.IR.AST.Module) :
     split
     · split
       · exact hn
-      · split
-        · rfl
-        · exact hn
+      · rfl
     · exact hn
 
 theorem postprocess_name {m m' : Sparkle.IR.AST.Module} {n : Nat}

@@ -374,9 +374,7 @@ theorem checkedOptimize_wires_sublist (m : Sparkle.IR.AST.Module) :
     split
     · split
       · exact optimizeModule_wires_sublist m
-      · split
-        · exact List.Sublist.refl _
-        · exact optimizeModule_wires_sublist m
+      · exact List.Sublist.refl _
     · exact optimizeModule_wires_sublist m
 
 theorem checkedOptimize_wires_subset (m : Sparkle.IR.AST.Module) :
@@ -392,9 +390,7 @@ theorem checkedOptimize_wires_subset (m : Sparkle.IR.AST.Module) :
     split at hp
     · split at hp
       · exact optimizeModule_wires_subset m p hp
-      · split at hp
-        · exact hp
-        · exact optimizeModule_wires_subset m p hp
+      · exact hp
     · exact optimizeModule_wires_subset m p hp
 
 end Tools.ShippingOptSoundness
