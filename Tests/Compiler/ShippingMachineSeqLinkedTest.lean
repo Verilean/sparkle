@@ -68,6 +68,15 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     unless (b.inputs.map (·.name)).contains "rst" do throwError "{n}: no reset port"
     unless Tools.ShippingMachineShipsHier.kidsMasked C b.body do
       throwError "{n}: a child's outputs are not masked (the output bound)"
+    -- `linked_sv_of_run` on the shipped module
+    let wofO := Tools.SVParser.RoundtripProof.moduleWof o
+    unless Tools.ShippingHierOpen.instOutWidthsOk C (Sparkle.IR.RegDedup.declWidth o) o.body do
+      throwError "{n}: shipped instance-output widths"
+    unless (Tools.ShippingHierOpen.bodyInstOuts C o.body).all (fun w =>
+        ((Sparkle.IR.HierCheck.openIns o).map (·.name)).contains w &&
+        decide (Sparkle.IR.RegDedup.declWidth o w ≤ Tools.SVParser.EmitSem.weOf wofO w)) do
+      throwError "{n}: a shipped instance-driven wire is not extracted or is wider than emitted"
+    unless Tools.ShippingMachineShipsHier.kidsMasked C o.body do throwError "{n}: the shipped module's children bound"
     let selfRead := o.body.any fun st => match st with
       | .inst mn _ conns => match C mn with
         | some (child, _) => (inConns child.outputs conns).any fun c => match c.2 with
@@ -109,7 +118,8 @@ run_cmd do
       ``parent.machine_ships_hier, ``Sparkle.Tests.Compiler.MultiInstance.mesh2x2.machine_ships_hier,
       ``Tools.ShippingMachineShipsHier.machine_ships_hier,
       ``Tools.ShippingHierSVRun.linked_sv_run, ``Tools.ShippingHierSVRun.design_sv_run,
-      ``Tools.ShippingMachineShipsHier.flatKS_boundedIn] do
+      ``Tools.ShippingMachineShipsHier.flatKS_boundedIn, ``Tools.ShippingMachineShipsHier.memKS_boundedIn,
+      ``Tools.ShippingHierSVRun.linked_sv_of_run] do
     for ax in ← Lean.collectAxioms name do
       unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do
         throwError "{name} uses a non-standard axiom: {ax}"

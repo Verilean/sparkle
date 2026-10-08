@@ -20,6 +20,7 @@ open Tools.ShippingHierState Tools.ShippingHierOptLinked Tools.ShippingHierOptRu
 open Tools.SVParser.EmitSem (seqCheck emitAssigns emitRegs emitMemWrites runModuleSV)
 open Tools.ShippingSeqSVSoundness (seqNames)
 open Tools.ShippingHierSVSoundness (seqStmtOkI seq_run_to_svI)
+open Tools.ShippingSeqOptSoundness (seedIn)
 
 /-- The oracle seeding of a run: at cycle `k`, the instance-driven wires
 carry `E k`. -/
@@ -294,5 +295,51 @@ theorem design_sv_run (children : String → Option (Module × WEnv))
   obtain ⟨pairs, regs, mprog, hA, hRg, hMw, hSV⟩ :=
     Tools.ShippingSeqSVSoundness.seq_run_to_sv hokC hsvC hwagC' _ hseedC hstC hcr
   exact ⟨pairs, regs, mprog, cenvs, hA, hRg, hMw, hSV, hcl, hco⟩
+
+/-- **A shipped module's linked run, to its emitted Verilog, under decidable
+facts.** The oracle seeding's bound is derived: the instance-driven wires are
+extracted inputs of `o` whose values fit `o`'s widths along the run
+(`fitX_of_run`: children within their port widths, `instOutWidthsOk`), no
+wider than the emitter's. -/
+theorem linked_sv_of_run {σ : Type} (KS : KStep σ) (children : String → Option (Module × WEnv))
+    {o : Module} {wof : String → Option Nat} (Inv : Module → σ → Prop)
+    (hKSb : KSBoundedIn children KS o.body Inv)
+    (hwf : linkedWF children o.body = true) (hnd : (instNames o.body).Nodup)
+    (hIW : instOutWidthsOk children (declWidth o) o.body = true)
+    (hOut : ∀ w ∈ bodyInstOuts children o.body, w ∈ (Sparkle.IR.HierCheck.openIns o).map (·.name))
+    (hOW : ∀ w ∈ bodyInstOuts children o.body, declWidth o w ≤ Tools.SVParser.EmitSem.weOf wof w)
+    (hok : o.body.all seqStmtOkI = true)
+    (hsv : seqCheck wof (Tools.SVParser.EmitSem.weOf wof) o.body = true)
+    (hwag : ∀ n ∈ seqNames o.body, declWidth o n = Tools.SVParser.EmitSem.weOf wof n)
+    (ins : Nat → String → Nat)
+    (hinsW : ∀ t x, x ∈ o.inputs.map (·.name) → ins t x < 2 ^ Tools.SVParser.EmitSem.weOf wof x)
+    {T : Nat} {s : KState σ} {envs : List Env}
+    (hrun : runModuleTG KS (declWidth o) children o.body (seedIn o ins) T s = some envs)
+    (hinv : ∀ mn iname conns, Stmt.inst mn iname conns ∈ o.body → ∀ child cwe,
+      children mn = some (child, cwe) → Inv child (s.kids iname))
+    (hstX : ∀ x ∈ (Sparkle.IR.HierCheck.openIns o).map (·.name), x ∉ bodyInstOuts children o.body →
+      s.st x < 2 ^ declWidth o x)
+    (hst : Bounded (Tools.SVParser.EmitSem.weOf wof) s.st) :
+    ∃ pairs regs mprog,
+      emitAssigns wof o.body = some pairs ∧ emitRegs wof o.body = some regs ∧
+      emitMemWrites wof o.body = some mprog ∧
+      runModuleSV wof pairs regs mprog
+        (oracle children o.body (fun k => (envs[T - 1 - k]?).getD (fun _ => 0)) (seedIn o ins)) T
+        s.st s.mems = some envs := by
+  have hfit := fitX_of_run KS children o Inv hKSb ins hwf hnd hIW T s envs hrun hinv hstX
+  apply linked_sv_run KS children hwf hok hsv hwag hrun _ hst
+  intro k st hb n
+  simp only [oracle, seedOuts]
+  split
+  · rename_i hO
+    have hO' : n ∈ bodyInstOuts children o.body := by simpa [List.contains_eq_mem] using hO
+    cases hj : envs[T - 1 - k]? with
+    | none => simp only [Option.getD_none]; exact Nat.two_pow_pos _
+    | some e =>
+      obtain ⟨hlt, rfl⟩ := List.getElem?_eq_some_iff.mp hj
+      simp only [Option.getD_some]
+      exact Nat.lt_of_lt_of_le (hfit _ hlt n (hOut n hO'))
+        (Nat.pow_le_pow_right (by omega) (hOW n hO'))
+  · exact Tools.ShippingSeqSVSoundness.seedIn_bounded hinsW k st hb n
 
 end Tools.ShippingHierSVRun

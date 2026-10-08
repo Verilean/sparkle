@@ -1,6 +1,7 @@
 import Sparkle
 import Tools.ShippingMachineMemCommand
 import Tools.ShippingMachineShipsHierCommand
+import Tools.ShippingHierSVRun
 import Tests.Compiler.ShippingMachineFuseTest
 
 /-! A hand-written `Signal.loop` reading combinational-read memories,
@@ -72,6 +73,20 @@ run_cmd Lean.Elab.Command.liftTermElabM do
       throwError "{n}: a child is not a memory module (the output bound)"
     unless Tools.ShippingHierOpen.instOutWidthsOk C (Sparkle.IR.RegDedup.declWidth b) b.body do
       throwError "{n}: instance-output widths"
+    -- `linked_sv_of_run` on the shipped module
+    let wofO := Tools.SVParser.RoundtripProof.moduleWof o
+    unless Tools.ShippingHierOpen.instOutWidthsOk C (Sparkle.IR.RegDedup.declWidth o) o.body do
+      throwError "{n}: shipped instance-output widths"
+    unless (Tools.ShippingHierOpen.bodyInstOuts C o.body).all (fun w =>
+        ((Sparkle.IR.HierCheck.openIns o).map (·.name)).contains w &&
+        decide (Sparkle.IR.RegDedup.declWidth o w ≤ Tools.SVParser.EmitSem.weOf wofO w)) do
+      throwError "{n}: a shipped instance-driven wire is not extracted or is wider than emitted"
+    unless Tools.ShippingMachineShipsHier.kidsMem C o.body do throwError "{n}: the shipped module's children bound"
+    unless o.body.all Tools.ShippingHierSVSoundness.seqStmtOkI &&
+        Tools.SVParser.EmitSem.seqCheck wofO (Tools.SVParser.EmitSem.weOf wofO) o.body &&
+        (Tools.ShippingSeqSVSoundness.seqNames o.body).all (fun x =>
+          Sparkle.IR.RegDedup.declWidth o x == Tools.SVParser.EmitSem.weOf wofO x) do
+      throwError "{n}: the emitted-Verilog premises of the shipped module"
   Lean.logInfo m!"MEMORY PARENTS SHIP: module premises hold"
 
 run_cmd do

@@ -388,7 +388,12 @@ semantics' well-formedness rejects); it now names a wire once. The shipped modul
 (`runModuleSV`) from the oracle seeding, its instance outputs at each cycle
 the values its children drove (`linked_open_runG`, then `seq_run_to_svI`),
 under the emitted-SV check and width agreement of the shipped module
-(evaluated on the five real shipped modules). And the DESIGN:
+(evaluated on the five real shipped modules); `linked_sv_of_run` derives
+the oracle seeding's bound from decidable facts of the shipped module (its
+children's bound check, instance-output widths, instance-driven wires
+extracted and no wider than emitted — evaluated on all eight shipped
+machines with children) and the inputs and start state within the emitter's
+widths. And the DESIGN:
 `design_sv_run` — along that run (one-level children, `flatKS`), the
 emitted Verilog of every instance's child, fed at each cycle with the run's
 values on its input connections, runs to environments whose output ports
