@@ -4042,7 +4042,14 @@ The gaps, in the order they weaken the claim:
   ports are removed, register statements, clock/reset inputs via
   `withClockFor`); (2) `SeqChildRunN (n+1)` of such a child from its own
   composed theorem (positional conversion as in `seqStream_of_trace`,
-  `KSn_mono` with the consistency check, `ResetN` across designs);
+  `KSn_mono` with the consistency check, `ResetN` across designs) —
+  DONE 2026-10-08 (`Tools/ShippingMachineDepthRun.lean`:
+  `seqChildRunN_of_composed` under the hierarchical run boundary
+  `MachineRunN`, `KSn_mono_away`, `resetN_away`; `calls_ports` and the
+  MachineWired call-group clauses supply item (1)); and the generator
+  recursion of item (4) — DONE (`#machine_composedN f n`,
+  `Tools/ShippingMachineDepthCommand.lean`: `grand → mid → cnt` composed at
+  depth 1, kernel-checked, `Tests/Compiler/ShippingMachineDepthTest.lean`);
   (3) closeInsts-path children (combinational calls inside a sequential child,
   e.g. `wKeccakF`) inside the depth semantics; (4) a hierarchical run boundary
   and the generator's recursion over child depth. Only test demos (signing

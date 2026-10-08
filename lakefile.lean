@@ -593,6 +593,9 @@ lean_lib «Tools.ShippingMachineDepthChild» where
 lean_lib «Tools.ShippingMachineDepthRun» where
   roots := #[`Tools.ShippingMachineDepthRun]
 
+lean_lib «Tools.ShippingMachineDepthCommand» where
+  roots := #[`Tools.ShippingMachineDepthCommand]
+
 lean_lib «Tools.ShippingHierMono» where
   roots := #[`Tools.ShippingHierMono]
 
