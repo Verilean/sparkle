@@ -42,7 +42,7 @@ theorem calls_ports {declName : Name} {d : MachineData} {ids : List FVarId}
     {cache : IO.Ref (ExprStructMap String)} {m : Module} {dsn : Design} {regs lets : List String}
     (wired : MachineWired declName d.shape ids cache m dsn regs lets)
     (len : ids.length = d.shape.binders.length)
-    (hfe : d.shape.instFields ≠ []) (hsl : d.shape.layout.slots ≠ [])
+    (hsl : d.shape.layout.slots ≠ [])
     (houtOk : ∀ o ∈ d.shape.layout.outs, outNameOk o.name = true)
     (kD : Nat) (hkD : kD ≤ d.bsIn.length)
     (hIlen : (d.bsIn.drop kD).length = d.shape.insts.length)
@@ -73,7 +73,7 @@ theorem calls_ports {declName : Name} {d : MachineData} {ids : List FVarId}
   have hDlen : (machPorts declName ids cache (d.bsIn.take kD)).length = machNIn d.shape := by
     rw [machPorts_length _ (by rw [len, hsplit]; simp; omega), hNIn]
   generalize hP : machPorts declName ids cache d.shape.binders = P at hnd halloc hcl hPeq ⊢
-  obtain ⟨outWs, extra, hsub, hsup, hex, hin⟩ := hcl hfe
+  obtain ⟨outWs, extra, hsub, hsup, hex, hin⟩ := hcl
   have hext : extra = [] := by
     rcases hex with h | ⟨_, h⟩
     · exact h

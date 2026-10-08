@@ -2,6 +2,7 @@ import Tools.ShippingMachineSeqCommand
 import Tools.ShippingMachineDepthRun
 import Tools.ShippingMachineShipsHierCommand
 import Tools.ShippingMachineShipsDepth
+import Tools.ShippingMachineDepthH
 
 /-! # Generated composition at depth
 
@@ -54,14 +55,16 @@ def extTactic (extName : Name) : MetaM Syntax := do
   let e := mkIdent (`_root_ ++ extName)
   `(tactic| (
     intro _ _ _ j _ hj
-    simp only [$e:ident, Tools.ShippingMachineAuto.extendBits, Tools.ShippingMachineCausal.extendBools]
+    delta $e:ident
+    simp only [Tools.ShippingMachineAuto.extendBits, Tools.ShippingMachineCausal.extendBools]
     (repeat' split) <;> first | rfl | (exfalso; omega)))
 
 def extBTactic (extName : Name) : MetaM Syntax := do
   let e := mkIdent (`_root_ ++ extName)
   `(tactic| (
     intro _ _ _ j hj
-    simp only [$e:ident, Tools.ShippingMachineAuto.extendBits, Tools.ShippingMachineCausal.extendBools]
+    delta $e:ident
+    simp only [Tools.ShippingMachineAuto.extendBits, Tools.ShippingMachineCausal.extendBools]
     (repeat' split) <;> first | rfl | (exfalso; omega)))
 
 mutual
@@ -75,11 +78,13 @@ partial def generateRunOf (c : Name) (n : Nat) : MetaM Name := do
   let bnd := mkConst (c ++ boundName n)
   let mut p ← mkAppM ``Tools.ShippingMachineDepthRun.seqChildRunN_of_composed
     #[mkNatLit n, bnd, mkConst cT]
-  for _ in [0:11] do
+  for _ in [0:10] do
     let ty := (← whnf (← inferType p)).bindingDomain!
     p := mkApp p (← mkDecideProof ty)
   let tyB := (← whnf (← inferType p)).bindingDomain!
-  p := mkApp p (← proveByTacticT tyB (extBTactic (c ++ `machineExtB)))
+  p := mkApp p (← if (← getEnv).contains (c ++ `machineExtB) then
+      proveByTacticT tyB (extBTactic (c ++ `machineExtB))
+    else proveByTacticT tyB `(tactic| (intro _ _ _ _ _; rfl)))
   let tyE := (← whnf (← inferType p)).bindingDomain!
   p := mkApp p (← proveByTacticT tyE (extTactic (c ++ `machineExt)))
   addTheorem name (← inferType p) p
@@ -91,6 +96,32 @@ partial def generateCoreN (declName : Name) (dep : Nat) : MetaM Name := do
   progress s!"{declName}: composedN {dep}"
   let r ← readMachine declName
   if r.shape.insts.isEmpty then throwError "{declName}: no call"
+  -- calls of one-output combinational children (`closeInsts`): the composed
+  -- theorem `f.machine_composed` at depth 0 (`composedN0_of_H`)
+  if r.shape.instFields.isEmpty then
+    if dep != 0 then throwError "{declName}: combinational children below depth 0 (not yet)"
+    unless (← getEnv).contains (declName ++ `machine_composed) do
+      throwError "{declName}: run #machine_composed {declName} first"
+    let thm ← mkAppOptM ``Tools.ShippingMachineDepthH.composedN0_of_H
+      #[none, none, none, none, none, none, none, none, mkConst (declName ++ `machine_composed)]
+    let thm ← instantiateMVars thm
+    if thm.hasMVar then throwError "{declName}: the calls' premise was not read"
+    -- the boundary: `BndH R d`, read off the theorem
+    let ty ← inferType thm
+    let bndE ← forallTelescope ty fun ys _ => do
+      let hBT ← inferType ys[ys.size - 1]!
+      unless hBT.isAppOf ``Tools.ShippingMachineDepthH.BndH do
+        throwError "{declName}: the boundary's form"
+      let args := hBT.getAppArgs
+      pure (mkApp2 (mkConst ``Tools.ShippingMachineDepthH.BndH) args[0]! args[1]!)
+    let bName := declName ++ boundName 0
+    let bTy ← inferType bndE
+    let decl : DefinitionVal :=
+      { name := bName, levelParams := [], type := bTy, value := bndE,
+        hints := .abbrev, safety := .safe }
+    addDecl (.defnDecl decl)
+    addTheorem name (← inferType thm) thm
+    return name
   let (headL, args, back?) ← endpointParts declName
   let pL := mkAppN (mkConst headL) args
   let calls := r.shape.insts

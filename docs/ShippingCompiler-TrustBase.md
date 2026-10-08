@@ -438,9 +438,21 @@ child's own name, which no module instantiates); `#machine_ships_hierN f n`
 carries it to the shipped module (`machine_ships_hier` with `KSn`, the
 children's bound from the decidable `kidsMaskedN`, `KSn_boundedIn`).
 `grand → mid → cnt`: composed and shipped at depth 1, its module premises
-evaluated. Remaining: memory children below depth 1, combinational
-(`closeInsts`-path) children inside a sequential child, the emitted Verilog
-at depth > 1.
+evaluated. COMBINATIONAL children inside a sequential child
+(`Tools/ShippingMachineDepthH.lean`, the Keccak sponge's shape: `wKeccakF`
+calls the round-constant table): the child's composed theorem is the
+combinational linked run; for grandchildren that are assignments only,
+local and fully wired (`kidsComb`) it IS the depth-0 `flatKS` run
+(`runModuleTG_flat_of_H`), so `composedN0_of_H` gives the child's
+`ComposedNW 0` under the boundary `BndH` (the calls' premise without the
+wiring: every instance module of the child satisfies it — true for a child
+calling one table), and `#machine_composedN f 1` / `#machine_ships_hierN f
+1` compose and ship the parent (`grandH → midH → rcH`). For this,
+`machine_linked` and the gate composition now carry the module's wiring
+(`MachineWired`, same ids), and `MachineWired`'s port clause holds for
+`closeInsts` too (unconditional; `calls_ports`, `seqChildRunN_of_composed`
+no longer require call groups). Remaining: memory children below depth 1,
+combinational grandchildren below depth 1, the emitted Verilog at depth > 1.
 
 **Machines with combinational children, to the shipped module
 (2026-10-08).** For a machine whose calls are one-output combinational

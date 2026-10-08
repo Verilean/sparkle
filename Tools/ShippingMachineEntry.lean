@@ -730,10 +730,10 @@ def MachineWired (declName : Name) (shape : MachineShape) (ids : List FVarId)
     weOf (Sparkle.IR.ZeroWidth.dropZeroWidthModule m) = weOf m ∧
     (Sparkle.IR.ZeroWidth.dropZeroWidthModule m).inputs = m.inputs ∧
     (Sparkle.IR.ZeroWidth.dropZeroWidthModule m).outputs = m.outputs) ∧
-  -- and with call groups, the input names: the transition's ports before the
-  -- slots and `let`s, the clock and reset (with slots, or added for
-  -- sequential children), without the call ports
-  (shape.instFields ≠ [] → ∃ (outWs : List String) (extra : List Port),
+  -- and the input names: the transition's ports before the slots and
+  -- `let`s, the clock and reset (with slots, or added for sequential
+  -- children), without the call ports
+  (∃ (outWs : List String) (extra : List Port),
     (∀ w ∈ outWs, ∃ k, k < shape.insts.length ∧ names[machNIn shape + k]? = some w) ∧
     (∀ k, k < shape.insts.length → ∃ w, names[machNIn shape + k]? = some w ∧ w ∈ outWs) ∧
     (extra = [] ∨ (extra = [({ name := "clk", ty := .bit } : Port), { name := "rst", ty := .bit }] ∧
@@ -1853,8 +1853,7 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
               rcases h with rfl | rfl
               · exact Or.inr (Or.inl rfl)
               · exact Or.inr (Or.inr rfl)
-    · -- with call groups: the input names
-      intro hfe
+    · -- the input names
       have hinC : (closeMachine shape.layout t').inputs =
           t'.inputs.take (t'.inputs.length - shape.layout.slots.length) ++
             (if shape.layout.slots.isEmpty then [] else
@@ -1879,12 +1878,27 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
           exact absurd (by rw [hi0] at hk; exact hk) (Nat.not_lt_zero k)
         rw [hinC, htake, hP1]
         split <;> simp <;> exact (List.filter_eq_self.mpr (fun _ _ => rfl)).symm
-      · have hci : closeInstsG (machNIn shape) shape.insts.length shape.layout.slots.length
-            (t.inputs.map (·.name)) (shape.insts.map (·.2.1)) shape.instFields children
-            (closeMachine shape.layout t', d₀) = some (m, d) := by
-          rcases hci with ⟨hfe0, _⟩ | ⟨_, h, _⟩
-          · exact absurd hfe0 hfe
-          · exact h
+      · rcases hci with ⟨_, hci⟩ | ⟨_, hci, _⟩
+        · -- one-output combinational calls: their ports removed, nothing added
+          obtain ⟨outWs, hmap, hin⟩ := Tools.ShippingMachineInst.closeInsts_inputs hci
+          refine ⟨outWs, [], ?_, ?_, Or.inl rfl, ?_⟩
+          · intro w hw
+            obtain ⟨hlen, hget⟩ := Tools.ShippingMachineInst.mapM_some _ _ _ hmap
+            obtain ⟨i, hi, rfl⟩ := List.getElem_of_mem hw
+            have hi' : i < (List.range (shape.insts.map (·.2.1)).length).length := by
+              rw [← hlen]; exact hi
+            obtain ⟨y, hy, hyr⟩ := hget i hi'
+            rw [List.getElem?_eq_getElem hi, Option.some.injEq] at hyr
+            subst hyr
+            simp only [List.getElem_range] at hy
+            exact ⟨i, by simpa using hi', hy⟩
+          · intro k hk
+            obtain ⟨hlen, hget⟩ := Tools.ShippingMachineInst.mapM_some _ _ _ hmap
+            have hk' : k < (List.range (shape.insts.map (·.2.1)).length).length := by simpa using hk
+            obtain ⟨y, hy, hyr⟩ := hget k hk'
+            simp only [List.getElem_range] at hy
+            exact ⟨y, hy, List.mem_of_getElem? hyr⟩
+          · rw [hin, hinC, htake, hP1, List.append_nil]
         obtain ⟨outWs, hmap, hin⟩ := Tools.ShippingMachineInstG.closeInstsG_inputs hci
         have hext : ∃ extra : List Port,
             (extra = [] ∨ (extra = [{ name := "clk", ty := .bit }, { name := "rst", ty := .bit }] ∧

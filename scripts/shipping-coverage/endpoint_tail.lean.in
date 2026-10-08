@@ -209,6 +209,18 @@ run_cmd do
         let msg ← ex.toMessageData.toString
         pure ("COMPOSEDT|FAIL|" ++ ((msg.replace "\n" " ").take 300).toString)
     mout := mout ++ s!"{s}|{res}\n"
+    -- a child with children of its own: the composition at depth 1
+    if res != "COMPOSEDT|OK" then
+      let r1 ← try
+          let _ ← liftTermElabM (withOptions (fun o => Lean.Elab.async.set o false)
+            (Tools.ShippingMachineDepthCommand.generateCoreN n 1))
+          let _ ← liftTermElabM (withOptions (fun o => Lean.Elab.async.set o false)
+            (Tools.ShippingMachineDepthCommand.generateShipsN n 1))
+          pure "SHIPSHIERN1|OK"
+        catch ex =>
+          let msg ← ex.toMessageData.toString
+          pure ("SHIPSHIERN1|FAIL|" ++ ((msg.replace "\n" " ").take 300).toString)
+      mout := mout ++ s!"{s}|{r1}\n"
     -- to the shipped module (`f.machine_ships_hier`)
     if res == "COMPOSEDT|OK" then
       let r2 ← try

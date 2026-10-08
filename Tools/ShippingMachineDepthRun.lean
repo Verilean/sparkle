@@ -146,7 +146,7 @@ theorem seqChildRunN_of_composed (n : Nat) {c : Name} {d : MachineData} {kD : Na
       Bnd m design → ComposedNW n c d kD m design dom src ext extB)
     (houtTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
     (houtOk : ∀ o ∈ d.shape.layout.outs, outNameOk o.name = true)
-    (hfe : d.shape.instFields ≠ []) (hsl : d.shape.layout.slots ≠ [])
+    (hsl : d.shape.layout.slots ≠ [])
     (hI0 : 0 < d.shape.insts.length)
     (hkD : kD ≤ d.bsIn.length) (hIlen : (d.bsIn.drop kD).length = d.shape.insts.length)
     (hSL : ∀ b ∈ d.slotBs ++ d.letBs, b.2 ≠ .domain)
@@ -161,15 +161,21 @@ theorem seqChildRunN_of_composed (n : Nat) {c : Name} {d : MachineData} {kD : Na
   obtain ⟨mctx, mref, cctx, cref, w, w', raw, D, hcore, entry, closes, hB, hpost, hEA, hNI⟩ := hrunN
   obtain ⟨ids, nd, len, cache, regs, _, _, lets, _, wired, H⟩ := composed hcore entry closes hB
   obtain ⟨hnd_in, hclk, hrst, hdisj, hargs, hslotNI⟩ :=
-    calls_ports wired len hfe hsl houtOk kD hkD hIlen hSL hSlen hLlen hNIn
-  obtain ⟨-, -, regsIn, -, -, -, -, houts, -, -, -, -, gCalls, -, -, hcleanG, -, hW1⟩ := wired
+    calls_ports wired len hsl houtOk kD hkD hIlen hSL hSlen hLlen hNIn
+  obtain ⟨-, -, regsIn, -, calls1, -, -, houts, -, -, -, -, gCalls, -, -, hcleanG, -, hW1⟩ := wired
   obtain ⟨hb, hw, hi, ho⟩ := hcleanG houtTy
   -- the core module has an instance, so the full entry kept it
   have hInst : Tools.ShippingMachineShipsHier.hasInst (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw) := by
-    obtain ⟨st, hst, args, outs, mc', hcall, _⟩ := gCalls hfe 0 hI0
-    obtain ⟨_, _, iname, _, _, _, _, _, _, _, _, _, _, _, heq⟩ := hcall
-    subst heq
-    exact ⟨_, _, _, by rw [hb]; exact hst⟩
+    by_cases hfe : d.shape.instFields = []
+    · -- one-output combinational calls (`closeInsts`)
+      obtain ⟨args, mc', st, _, hst, _, hcall⟩ := calls1 hfe 0 hI0
+      obtain ⟨_, _, _, iname, _, _, _, _, _, _, _, _, _, heq⟩ := hcall
+      subst heq
+      exact ⟨_, _, _, by rw [hb]; exact hst⟩
+    · obtain ⟨st, hst, args, outs, mc', hcall, _⟩ := gCalls hfe 0 hI0
+      obtain ⟨_, _, iname, _, _, _, _, _, _, _, _, _, _, _, heq⟩ := hcall
+      subst heq
+      exact ⟨_, _, _, by rw [hb]; exact hst⟩
   have hmc : mc = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw := by
     rcases hpost with h | h
     · exact h
