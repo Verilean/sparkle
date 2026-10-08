@@ -471,6 +471,38 @@ reaches is covered as follows — none is relied on unchecked:
 | the parser / lowering (`Tools/SVParser`) | reading bytes back | validation only (§6c) |
 | `Type.evaluate`, `specializeType/Expr` | parameterized synthesis | outside every theorem (§7) |
 
+## 6e. Universality (F1, stage 1 — decided 2026-10-08)
+
+CompCert's theorem is universal over Clight ASTs; the text-to-AST step is
+validated per program. Sparkle's claim is framed the same way:
+
+- **Universal (proved once):** the compiler-correctness theorems quantify
+  over EVERY reified source (`MachineData` with `d.ok`; the unified `Term`
+  of the gate route) and over EVERY run of the real compiler
+  (`RunsTo (synthesizeCombinationalCore …)`, `RunsTo (synthesizeCombinational …)`):
+  `machine_trace_of_data` / `_of_loop` / `_of_regs` / `_of_nested` /
+  `_of_tele_ext` / `_of_comb`, `machine_ships_wired`, `machine_ships_comb`,
+  `machine_ships_hier`, `translateExprToWire_sound`,
+  `execution_source_of_env`.
+- **Per declaration (validated reflection):** that the declaration's Lean
+  value IS the reified source — the kernel `Eq.refl` checks the endpoint
+  generator emits (`machine_body`, `machine_writes`, `machine_result`,
+  `machine_source`, …) and the boundary `MachineDefines` / `EntryDefines`
+  (§2). This is the analogue of CompCert's validated parser; the generator
+  that produces these checks is unverified meta-code, but every check it
+  emits is checked by the kernel.
+- **Monitored:** a successful compile without a kernel-checked endpoint
+  would be outside the claim. The corpus measurement counts them
+  (`scripts/shipping-coverage/endpoints.sh`): legacy-only 0 of 391 real
+  declarations and every machine-route declaration with an endpoint
+  (gold53); to be re-measured after every compiler change.
+
+Stage 3 (planned) strengthens the reflection: the shape readers
+(`machineShape?` and its `partial` helpers, §6d) rewritten total and
+proved — `read succeeds ⇒ the declaration's expression is quote(shape)
+∧ d.ok` — leaving only the reflection principle (a constant's value is its
+expression) per declaration.
+
 ## 7. What is outside every theorem
 
 - **Compiles that miss the certified gate.** The theorems apply when

@@ -3429,7 +3429,13 @@ scope/trust: `SharedRoute-Guarantees.md` and `CertifiedAcceptance.md`.
 
 The gaps, in the order they weaken the claim:
 
-- [ ] **F1. Universal quantification over the input language.**  THE
+- [ ] **F1. Universal quantification over the input language.**
+  STAGED (user decision 2026-10-08). Stage 1 CLOSED: the theorems are
+  universal over the reified source and every compiler run; per-declaration
+  reflection is validated by the kernel (CompCert's validated parser) and
+  monitored by the corpus measurement (TrustBase §6e). Stage 2: B, the
+  multi-level hierarchy (F6). Stage 3: total, proved shape readers
+  (`machineShape?`). Original note: THE
   headline difference.  CompCert's theorem is "for every well-formed
   input"; Sparkle's is "for every module of this corpus (52/52,
   1026/1026 assign RHSs) and for each circuit checked".  Per-instance
