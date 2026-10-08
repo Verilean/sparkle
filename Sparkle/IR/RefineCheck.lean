@@ -201,13 +201,15 @@ def hierGate (m : Module) : Bool :=
 
 /-- The optimizer's output `o` of an instance-bearing module `m`, validated
 on the extracted interface (`Sparkle.IR.HierCheck`): the same instance
-statements, every connection validated or untouched, and `refineCheck` on
-the extracted pair. -/
+statements, every connection validated or untouched, no extracted input
+driven by `o`, and `refineCheck` on the extracted pair. -/
 def hierRefineCheck (m o : Module) : Bool :=
   let insX := Sparkle.IR.HierCheck.openIns m
   let outsX := Sparkle.IR.HierCheck.openOuts m
   Sparkle.IR.HierCheck.instsKept m o && Sparkle.IR.HierCheck.instsKept o m &&
     Sparkle.IR.HierCheck.connAgreeOk m o outsX &&
+    -- `o` drives no wire the instances drive
+    insX.all (fun p => !(Sparkle.IR.HierCheck.drivesOf o.body).contains p.name) &&
     refineCheck (Sparkle.IR.HierCheck.openFlat m insX outsX)
       (Sparkle.IR.HierCheck.openFlat o insX outsX)
 

@@ -32,8 +32,16 @@ def openFlat (m : Module) (insX outsX : List Port) : Module :=
   { m with body := openBody m.body, inputs := m.inputs ++ insX,
            outputs := m.outputs ++ outsX }
 
+/-- The wires a body drives: assignment targets, combinational read data,
+registers. -/
+def drivesOf (body : List Stmt) : List String :=
+  writesOf body ++ body.filterMap fun st =>
+    match st with
+    | .register r .. => some r
+    | _ => none
+
 /-- Decidable: every wire an instance of `o` connects is either an output /
-extracted output of `m` (validated by the checker) or is written by neither
+extracted output of `m` (validated by the checker) or is driven by neither
 body (so it keeps its seeded value in both). -/
 def connAgreeOk (m o : Module) (outsX : List Port) : Bool :=
   o.body.all fun st =>
@@ -43,7 +51,7 @@ def connAgreeOk (m o : Module) (outsX : List Port) : Bool :=
         match c.2 with
         | .ref w =>
           ((m.outputs ++ outsX).map (·.name)).contains w ||
-            (!(writesOf m.body).contains w && !(writesOf o.body).contains w)
+            (!(drivesOf m.body).contains w && !(drivesOf o.body).contains w)
         | _ => true
     | _ => true
 
@@ -74,14 +82,14 @@ def connRefs (body : List Stmt) : List String :=
 are not ports (the instances drive them). -/
 def openIns (m : Module) : List Port :=
   m.wires.filter fun p =>
-    (connRefs m.body).contains p.name && !(writesOf m.body).contains p.name &&
+    (connRefs m.body).contains p.name && !(drivesOf m.body).contains p.name &&
       !(m.inputs.map (·.name)).contains p.name
 
 /-- The extracted outputs: connected wires the body writes (the instances
 read them). -/
 def openOuts (m : Module) : List Port :=
   m.wires.filter fun p =>
-    (connRefs m.body).contains p.name && (writesOf m.body).contains p.name
+    (connRefs m.body).contains p.name && (drivesOf m.body).contains p.name
 
 /-- `m`'s instance statement of this module and instance name. -/
 def instConns? (m : Module) (mn iname : String) : Option (List (String × Expr)) :=
@@ -107,7 +115,7 @@ def deinlineParts (m o : Module) : List Stmt × List String := Id.run do
         for c in conns do
           match c.2, mconns.lookup c.1 with
           | e, some (.ref w) =>
-            if e == .ref w || !(writesOf m.body).contains w then
+            if e == .ref w || !(drivesOf m.body).contains w then
               conns' := conns' ++ [c]
             else
               body := body ++ [.assign w e]

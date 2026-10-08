@@ -192,7 +192,8 @@ theorem hier_opt_transfer {m o : Module} {insX outsX : List Port}
   have hgate' := List.all_eq_true.mp hgate c hc
   rw [hw] at hgate'
   have hgate'' : (((m.outputs ++ outsX).map (·.name)).contains w ||
-      (!(writesOf m.body).contains w && !(writesOf o.body).contains w)) = true := hgate'
+      (!(Sparkle.IR.HierCheck.drivesOf m.body).contains w &&
+        !(Sparkle.IR.HierCheck.drivesOf o.body).contains w)) = true := hgate'
   rcases Bool.or_eq_true_iff.mp hgate'' with hin | hun
   · have hmem : w ∈ (m.outputs ++ outsX).map (·.name) := by
       simpa [List.contains_eq_mem] using hin
@@ -200,10 +201,12 @@ theorem hier_opt_transfer {m o : Module} {insX outsX : List Port}
     rw [← hpn]
     exact hout p hp
   · simp only [Bool.and_eq_true, Bool.not_eq_true'] at hun
-    have hnM : w ∉ writesOf m.body := by
-      simpa [List.contains_eq_mem] using hun.1
-    have hnO : w ∉ writesOf o.body := by
-      simpa [List.contains_eq_mem] using hun.2
+    have hnM : w ∉ writesOf m.body := fun h => by
+      have : w ∈ Sparkle.IR.HierCheck.drivesOf m.body := List.mem_append_left _ h
+      simp [List.contains_eq_mem, this] at hun
+    have hnO : w ∉ writesOf o.body := fun h => by
+      have : w ∈ Sparkle.IR.HierCheck.drivesOf o.body := List.mem_append_left _ h
+      simp [List.contains_eq_mem, this] at hun
     rw [Tools.ConeFold.evalAssigns_frame _ mems o.body _ envO hevO
         (memFree_of_comb _ hcombO) w hnO,
       Tools.ConeFold.evalAssigns_frame _ mems m.body _ envF hopen

@@ -1095,8 +1095,10 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   remain; transported sign-normalised / fused endpoints too); open:
   machines with instances — their optimizer step is now checked at compile
   time (`hierRefineCheck` on the `deinline`d output, gold62: statuses
-  identical, 21 files differ only by named connection wires), its soundness
-  over the stateful linked run is the next proof; full corpus count pending — the
+  identical, 21 files differ only by named connection wires) and PROVED
+  sound over the stateful linked run (`hierRefineCheck_linked`); next: the
+  shipping theorem for machines with instances (composed theorem × cleanup
+  /merge on instance modules × `hierRefineCheck_linked` × emitted Verilog); full corpus count pending — the
   run was stopped for memory at 38 of 184 files, 27 of 84 wired): `f.machine_ships` now needs
   only structural facts about the run's modules (no zero-width wire, the
   assign + register shape, the normal forms of the core and merged module,

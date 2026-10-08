@@ -572,6 +572,12 @@ lean_lib «Tools.ShippingMachineLoopL» where
 lean_lib «Tools.ShippingMachineShipsComb» where
   roots := #[`Tools.ShippingMachineShipsComb]
 
+lean_lib «Tools.ShippingHierOptLinked» where
+  roots := #[`Tools.ShippingHierOptLinked]
+
+lean_lib «Tools.ShippingHierOptRun» where
+  roots := #[`Tools.ShippingHierOptRun]
+
 lean_lib «Tools.ShippingHierMono» where
   roots := #[`Tools.ShippingHierMono]
 

@@ -334,10 +334,24 @@ instances dropped, instance-driven wires as inputs, instance-read wires as
 outputs); else the module ships unoptimised. Measured (gold62): every
 status identical; 21 output files differ, every difference an instance
 connection that reads a named wire again (`assign w = …;` plus its `logic`
-declaration). OPEN: the soundness of this check over the stateful linked
-run (the extracted pair's `refineCheck_transfer` carried through
-`linked_open` / `runModuleTG_of_open`), and the shipping theorem for
-machines with instances built on it.
+declaration). The check also requires that `o` drives no extracted input,
+and the extraction classifies registers as driven (`drivesOf`).
+PROVED (`Tools.ShippingHierOptRun.hierRefineCheck_linked`): when the check
+accepts, every run of the STATEFUL linked semantics of the module
+(`runModuleTG`, any child step `KS` that reads the parent only through its
+input connections) has a run of the shipped module from the same state with
+the same outputs — the linked run is an open run of the extracted module
+(`linked_open_run`, from `linked_openKG`), `refineCheck_transfer` carries it
+to the extracted optimized module, and that open run is a linked run of the
+optimized module with the children stepping as before (`open_linked_run`,
+from `linked_consistentKG` and `runModuleTG_of_open`). Premises: the
+design's (linked-well-formed bodies, distinct instance names, no instance
+reading its own output, the instance-driven wires among the extracted
+inputs — evaluated on four real modules in
+`Tests/Compiler/ShippingHierOptRunTest.lean`), inputs fitting their widths
+with reset low, instance outputs and start register values fitting their
+widths. OPEN: the shipping theorem for machines with instances built on it
+(the composed machine theorems are about the core module's linked run).
 
 **Stateful composition with children (2026-10-08).** For a machine whose
 calls are memory reads and/or sequential machine children (`closeInstsG`),
