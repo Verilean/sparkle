@@ -235,4 +235,82 @@ theorem seqChildRunN_of_composed (n : Nat) {c : Name} {d : MachineData} {kD : Na
   rw [hwe]
   exact hrun'
 
+/-- A body all of whose statements are assignments or registers has no instance. -/
+theorem instFree_of_seqOk {body : List Stmt} (h : body.all Sparkle.IR.OptCheck.seqStmtOk = true) :
+    instFree body := by
+  intro st hst
+  have := List.all_eq_true.mp h st hst
+  cases st <;> simp_all [Sparkle.IR.OptCheck.seqStmtOk, Sparkle.IR.Machine.isInst]
+
+/-- The checked merge of an instance-free module is instance-free. -/
+theorem mergeChecked_instFree {r : Module} (h : instFree r.body) : instFree (mergeChecked r).body := by
+  unfold mergeChecked
+  dsimp only
+  split
+  · rename_i hall
+    have hb : (Sparkle.IR.RegDedup.mergeDuplicates r).body.all Sparkle.IR.RegDedup.isAssign = true := by
+      unfold Sparkle.IR.RegDedup.mergeDuplicates
+      simp only [hall, if_true]
+      split
+      · rename_i hv
+        exact Tools.ShippingMachineShipsHier.validateMerge_go_assign _ _ _ hv hall
+      · exact hall
+    intro st hst
+    have := List.all_eq_true.mp hb st hst
+    cases st <;> simp_all [Sparkle.IR.RegDedup.isAssign, Sparkle.IR.Machine.isInst]
+  · split
+    · rename_i _ hrc
+      exact instFree_of_seqOk (Tools.ShippingMachineShipping.refineCheck_stmtOk_o hrc)
+    · exact h
+
+open Tools.ShippingMachineChild (boolsOf bitsOf) in
+/-- **A child without calls, at the full entry, at every depth.** -/
+theorem seqChildRunN_full {declName : Name} {d : MachineData} {ι : Type} {dom : ι → DomainConfig}
+    {src : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat)}
+    {lsrc : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat)}
+    (sound : ∀ {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+      {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+      {m : Module} {design : Design},
+      RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w
+        (m, design) w' →
+      MachineDefines mctx mref cctx cref declName d.shape →
+      MachineCloses mctx mref cctx cref declName d.shape →
+      MachineTraceL declName d m design dom src (fun _ _ bits => bits) lsrc)
+    (hnoI : d.shape.insts = []) (hfe0 : d.shape.instFields = []) (hsl : d.shape.layout.slots ≠ [])
+    (hSlen : d.slotBs.length = d.shape.layout.slots.length)
+    (hSS : d.ss.length = d.shape.layout.slots.length)
+    (hLlen : d.letBs.length = d.shape.layout.lets)
+    (houtTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
+    (hinitFit : ∀ f ∈ d.shape.layout.slots, f.init < 2 ^ f.width) (i : ι)
+    {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {b : Module} {design : Design}
+    (hr : RunsTo (synthesizeCombinational declName) mctx mref cctx cref w (b, design) w')
+    (entry : MachineDefines mctx mref cctx cref declName d.shape)
+    (closes : MachineCloses mctx mref cctx cref declName d.shape)
+    (children : String → Option (Module × WEnv)) (dsn : Design) (n : Nat) :
+    SeqChildRunN children dsn n b d.bsIn d.shape.layout.outs
+      (fun vals => src i (boolsOf d.bsIn vals) (bitsOf d.bsIn vals)) := by
+  have hrun := Tools.ShippingMachineSeqInst.seqChildRun_full sound hnoI hsl hSlen hSS hLlen houtTy
+    hinitFit i hr entry closes
+  refine seqChildRunN_of_flat children dsn ?_ hrun n
+  obtain ⟨raw, D, w1, hcore, hpost⟩ := Tools.ShippingMachineShipping.synthesizeCombinational_checked hr
+  have h := sound hcore entry closes
+  obtain ⟨_, _, _, _, _, _, _, _, _, wired, _⟩ := id h
+  obtain ⟨_, _, _, _, _, hcallInst, _, _, _, _, _, _, _, _, _, hcleanG, _⟩ := wired
+  obtain ⟨hb, _, _, _⟩ := hcleanG houtTy
+  have hraw : instFree raw.body := by
+    intro st hst
+    cases st with
+    | inst mn iname conns =>
+      obtain ⟨k, args, _, hk, _⟩ := hcallInst hfe0 mn iname conns hst
+      simp [hnoI] at hk
+    | _ => rfl
+  have h0 : instFree (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw).body := by rw [hb]; exact hraw
+  rcases hpost with rfl | rfl
+  · exact h0
+  · exact mergeChecked_instFree h0
+
 end Tools.ShippingMachineDepthRun
