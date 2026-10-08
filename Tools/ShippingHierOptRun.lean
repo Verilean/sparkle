@@ -652,4 +652,98 @@ theorem hierRefineCheck_linked {σ : Type} (KS : KStep σ) (hloc : KSLocal KS)
     (fun _ _ _ => rfl)
   refine ⟨envsO, hlinked, hlenO, fun p hp j hj hj' => houtsO p (List.mem_append_left _ hp) j hj hj'⟩
 
+/-- Every child step's output ports fit their declared widths. -/
+def KSBounded {σ : Type} (KS : KStep σ) : Prop :=
+  ∀ child cwe cin env s cres s', KS child cwe cin env s = some (cres, s') →
+    ∀ p ∈ child.outputs, cres p.name < 2 ^ p.ty.bitWidth
+
+/-- **The extracted inputs fit along a linked run**: the instance-driven ones
+are children's outputs at their ports' widths (`instOutWidthsOk`), the
+others are never written and keep their start values. -/
+theorem fitX_of_run {σ : Type} (KS : KStep σ) (hKSb : KSBounded KS)
+    (children : String → Option (Module × WEnv)) (m : Module) (ins : Nat → String → Nat)
+    (hwf : linkedWF children m.body = true) (hnd : (instNames m.body).Nodup)
+    (hIW : instOutWidthsOk children (declWidth m) m.body = true) :
+    ∀ (T : Nat) (s : KState σ) (envs : List Env),
+      runModuleTG KS (declWidth m) children m.body (seedIn m ins) T s = some envs →
+      (∀ x ∈ (openIns m).map (·.name), x ∉ bodyInstOuts children m.body →
+        s.st x < 2 ^ declWidth m x) →
+      ∀ j (hj : j < envs.length), ∀ x ∈ (openIns m).map (·.name),
+        (envs[j]'hj) x < 2 ^ declWidth m x
+  | 0, _, envs, h, _, j, hj, _, _ => by
+    simp only [runModuleTG, Option.some.injEq] at h; subst h; cases hj
+  | k + 1, s, envs, h, hst, j, hj, x, hx => by
+    have hmf := memFree_of_linkedWF _ hwf
+    simp only [runModuleTG] at h
+    cases hS : stepModuleTG KS (declWidth m) children m.body (seedIn m ins k s.st) s with
+    | none => simp [hS] at h
+    | some r =>
+    obtain ⟨envF, s'⟩ := r
+    simp only [hS, Option.bind_eq_bind, Option.bind_some] at h
+    cases hR : runModuleTG KS (declWidth m) children m.body (seedIn m ins) k s' with
+    | none => simp [hR] at h
+    | some rest =>
+    simp only [hR, Option.bind_some, Option.some.injEq] at h
+    subst h
+    unfold stepModuleTG at hS
+    cases hK : evalAssignsKG KS (declWidth m) children s.kids s.mems m.body
+        (seedIn m ins k s.st) s.kids with
+    | none => simp [hK] at hS
+    | some ek =>
+    obtain ⟨envF', kids'⟩ := ek
+    cases hN : regNexts (declWidth m) s.mems m.body envF' with
+    | none => simp [hK, hN] at hS
+    | some nexts =>
+    have hM : memNexts (declWidth m) m.body s.mems envF' = some s.mems :=
+      Tools.ConeFold.memNexts_memFree _ m.body hmf s.mems envF'
+    simp only [hK, hN, hM, Option.bind_eq_bind, Option.bind_some,
+      Option.some.injEq, Prod.mk.injEq] at hS
+    obtain ⟨rfl, rfl⟩ := hS
+    have hXp := List.mem_map.mp hx
+    obtain ⟨px, hpx, hpxn⟩ := hXp
+    have hflt := (List.mem_filter.mp hpx).2
+    simp only [Bool.and_eq_true, Bool.not_eq_true'] at hflt
+    have hxd : x ∉ drivesOf m.body := by
+      rw [← hpxn]; simpa [List.contains_eq_mem] using hflt.1.2
+    have hxi : x ∉ m.inputs.map (·.name) := by
+      rw [← hpxn]; simpa [List.contains_eq_mem] using hflt.2
+    cases j with
+    | zero =>
+      show envF' x < _
+      by_cases hO : x ∈ bodyInstOuts children m.body
+      · obtain ⟨mn, iname, conns, child, cwe, hmem, hc, hw⟩ := bodyInstOuts_mem hO
+        obtain ⟨child', cwe', envAt, cres, hc', hk, -, hout⟩ :=
+          linked_consistentKG KS (declWidth m) children s.kids s.mems m.body _ envF' s.kids kids'
+            hwf hnd hK mn iname conns hmem
+        rw [hc] at hc'
+        cases hc'
+        unfold instOutWires at hw
+        obtain ⟨p, hp, hpw⟩ := List.mem_filterMap.mp hw
+        have hl : conns.lookup p.name = some (.ref x) := by
+          revert hpw
+          cases conns.lookup p.name with
+          | none => intro h; cases h
+          | some e => cases e <;> intro h <;> cases h <;> rfl
+        rw [hout p hp x hl, instOutWidthsOk_at hIW hmem hc p hp x hl]
+        exact hKSb _ _ _ _ _ _ _ hk p hp
+      · rw [linked_frameKG KS (declWidth m) children s.kids s.mems x m.body _ envF' s.kids kids'
+          hwf hK (fun hl => hxd (linkedWrites_drives _ hl hO))]
+        simp only [seedIn, List.contains_eq_mem, hxi, decide_false, Bool.false_eq_true, if_false]
+        exact hst x hx hO
+    | succ j =>
+      have := fitX_of_run KS hKSb children m ins hwf hnd hIW k
+        ⟨applyNexts s.st nexts, s.mems, kids'⟩ rest hR
+        (fun y hy hyO => by
+          show applyNexts s.st nexts y < _
+          have hyp := List.mem_map.mp hy
+          obtain ⟨py, hpy, hpyn⟩ := hyp
+          have hf := (List.mem_filter.mp hpy).2
+          simp only [Bool.and_eq_true, Bool.not_eq_true'] at hf
+          have hyd : y ∉ drivesOf m.body := by
+            rw [← hpyn]; simpa [List.contains_eq_mem] using hf.1.2
+          rw [applyNexts_out (fun p hp he => hyd (by
+            rw [← he]; exact regNexts_names _ s.mems m.body envF' nexts hmf hN p hp))]
+          exact hst y hy hyO) j (by simpa using hj) x hx
+      simpa using this
+
 end Tools.ShippingHierOptRun
