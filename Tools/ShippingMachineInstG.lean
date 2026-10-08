@@ -445,4 +445,46 @@ theorem memChild_eq {c : Lean.Name} {md : Module × Design} (h : memChild? c = s
       · cases h
   · cases h
 
+
+/-- The inputs `closeInstsG` leaves: the clocked module's, without the call
+ports. -/
+theorem closeInstsG_inputs {nIn kI n : Nat} {portNames : List String} {insts : List (List Nat)}
+    {fields : List String}
+    {children : List (Module × Design)} {m₀ : Module} {d₀ : Design} {m : Module} {d : Design}
+    (h : closeInstsG nIn kI n portNames insts fields children (m₀, d₀) = some (m, d)) :
+    ∃ outWs : List String, (List.range insts.length).mapM (fun k => portNames[nIn + k]?) = some outWs ∧
+      m.inputs = (withClockFor children m₀).inputs.filter fun p => !outWs.contains p.name := by
+  unfold closeInstsG at h
+  simp only [Option.bind_eq_bind] at h
+  obtain ⟨stmts, _, h⟩ := Option.bind_eq_some_iff.mp h
+  obtain ⟨outWs, hout, h⟩ := Option.bind_eq_some_iff.mp h
+  obtain ⟨body, _, h⟩ := Option.bind_eq_some_iff.mp h
+  split at h
+  · cases h
+    exact ⟨outWs, hout, rfl⟩
+  · cases h
+
+/-- `withClockFor` keeps the inputs, or appends the clock and the reset. -/
+theorem withClockFor_inputs (children : List (Module × Design)) (m : Module) :
+    (withClockFor children m).inputs = m.inputs ∨
+      ((withClockFor children m).inputs = m.inputs ++
+        [{ name := "clk", ty := .bit }, { name := "rst", ty := .bit }] ∧
+        ¬ ("clk" ∈ m.inputs.map (·.name) ∧ "rst" ∈ m.inputs.map (·.name))) := by
+  unfold withClockFor
+  dsimp only
+  split
+  · rename_i hc
+    right
+    refine ⟨rfl, ?_⟩
+    simp only [Bool.and_eq_true, Bool.not_eq_true'] at hc
+    intro ⟨h1, h2⟩
+    have : (m.inputs.any (·.name == "clk") && m.inputs.any (·.name == "rst")) = true := by
+      simp only [Bool.and_eq_true, List.any_eq_true, beq_iff_eq]
+      obtain ⟨p, hp, hpn⟩ := List.mem_map.mp h1
+      obtain ⟨q, hq, hqn⟩ := List.mem_map.mp h2
+      exact ⟨⟨p, hp, hpn⟩, ⟨q, hq, hqn⟩⟩
+    rw [this] at hc
+    cases hc.2
+  · left; rfl
+
 end Tools.ShippingMachineInstG

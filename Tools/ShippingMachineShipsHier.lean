@@ -239,7 +239,7 @@ theorem machine_ships_hier {σ : Type} (KS : Design → KStep σ) (hloc : ∀ D,
   obtain ⟨raw, D, w1, hcore, hpost⟩ := synthesizeCombinational_checked hr
   have hL := soundL hcore entry closes
   obtain ⟨_, _, _, _, _, _, _, _, _, wired, _⟩ := id hL
-  obtain ⟨_, _, _, _, _, _, _, houts, _, _, _, _, _, _, _, hclean⟩ := wired
+  obtain ⟨_, _, _, _, _, _, _, houts, _, _, _, _, _, _, _, hclean, _⟩ := wired
   obtain ⟨hb, hw, hi, ho⟩ := hclean houtTy
   refine ⟨raw, D, hpost, ?_⟩
   intro hbind hwfB hwfO hndB hndO hnofb hOutM hIW hrstIn hBnd hBdb
