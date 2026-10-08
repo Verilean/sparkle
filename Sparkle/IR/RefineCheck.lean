@@ -40,6 +40,7 @@
   `refineCheck` is proved sound in `Tools/ShippingRefineSoundness.lean`.
 -/
 import Sparkle.IR.OptCheck
+import Sparkle.IR.HierCheck
 
 namespace Sparkle.IR.RefineCheck
 
@@ -191,6 +192,33 @@ def seqGate (m : Module) : Bool :=
     | .register .. => true
     | _ => false)
 
+/-- A module of instances, assignments and registers, with an instance. -/
+def hierGate (m : Module) : Bool :=
+  let isInst (st : Stmt) : Bool := match st with
+    | .inst .. => true
+    | _ => false
+  m.body.any isInst && m.body.all (fun st => isInst st || seqStmtOk st)
+
+/-- The optimizer's output `o` of an instance-bearing module `m`, validated
+on the extracted interface (`Sparkle.IR.HierCheck`): the same instance
+statements, every connection validated or untouched, and `refineCheck` on
+the extracted pair. -/
+def hierRefineCheck (m o : Module) : Bool :=
+  let insX := Sparkle.IR.HierCheck.openIns m
+  let outsX := Sparkle.IR.HierCheck.openOuts m
+  Sparkle.IR.HierCheck.instsKept m o && Sparkle.IR.HierCheck.instsKept o m &&
+    Sparkle.IR.HierCheck.connAgreeOk m o outsX &&
+    refineCheck (Sparkle.IR.HierCheck.openFlat m insX outsX)
+      (Sparkle.IR.HierCheck.openFlat o insX outsX)
+
+/-- The hierarchical check binds: an instance-bearing module whose extracted
+interface is in the normal forms `refineCheck` knows. -/
+def hierBinds (m : Module) : Bool :=
+  hierGate m &&
+    let flat := Sparkle.IR.HierCheck.openFlat m (Sparkle.IR.HierCheck.openIns m)
+      (Sparkle.IR.HierCheck.openOuts m)
+    refineCheck flat flat
+
 /-- `mergeDuplicates`, result-checked: an assignment-only body keeps its
 merge (`mergeDuplicates` validates it itself); any other body keeps the merge
 only if `refineCheck` accepts it, else it is returned unmerged. -/
@@ -252,15 +280,21 @@ open Sparkle.IR.AST
 
 /-- `optimizeModule`, result-checked: on modules of simple shape the optimised
 module is kept only if `optCheck` and the assignment-order check accept it;
-on other assign + register modules only if `refineCheck` accepts it; else the
-input module is returned unoptimised. Other modules (memories, instances) get
-`optimizeModule` unchanged. -/
+on other assign + register modules only if `refineCheck` accepts it; on an
+instance-bearing module whose extracted interface is in the normal forms
+its connections named again (`deinline`) and kept only if `hierRefineCheck`
+accepts it; else the input module is returned
+unoptimised. Other modules get `optimizeModule` unchanged. -/
 def checkedOptimize (m : Module) : Module :=
   let o := Sparkle.IR.Optimize.optimizeModule m
   if simpleBody m then
     if optCheck m o && assignmentOrderCheck o.body then o else m
   else if m.body.all seqStmtOk then
     if RefineCheck.refineCheck m o then o else m
+  -- instances: checked on the extracted interface, where that check binds
+  else if RefineCheck.hierBinds m then
+    let o' := Sparkle.IR.HierCheck.deinline m o
+    if RefineCheck.hierRefineCheck m o' then o' else m
   else o
 
 /-- On an assign + register module not of simple shape, the optimizer's

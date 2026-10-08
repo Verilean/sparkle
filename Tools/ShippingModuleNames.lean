@@ -92,15 +92,9 @@ theorem checkedOptimize_name (m : Sparkle.IR.AST.Module) :
     · rfl
     · rfl
   unfold checkedOptimize
-  split
-  · dsimp only
-    split <;> simp_all
-  · dsimp only
-    split
-    · split
-      · exact hn
-      · rfl
-    · exact hn
+  dsimp only
+  repeat' split
+  all_goals first | exact hn | rfl | exact (Sparkle.IR.HierCheck.deinline_name _ _).trans hn
 
 theorem postprocess_name {m m' : Sparkle.IR.AST.Module} {n : Nat}
     (hn : 0 < n) (hp : PostReady m n)

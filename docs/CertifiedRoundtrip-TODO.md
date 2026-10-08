@@ -1093,7 +1093,10 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   `simpleBody = false` remain — and `f.machine_ships_comb` for
   combinational machines (only the simple-shape and emitted-Verilog checks
   remain; transported sign-normalised / fused endpoints too); open:
-  machines with instances; full corpus count pending — the
+  machines with instances — their optimizer step is now checked at compile
+  time (`hierRefineCheck` on the `deinline`d output, gold62: statuses
+  identical, 21 files differ only by named connection wires), its soundness
+  over the stateful linked run is the next proof; full corpus count pending — the
   run was stopped for memory at 38 of 184 files, 27 of 84 wired): `f.machine_ships` now needs
   only structural facts about the run's modules (no zero-width wire, the
   assign + register shape, the normal forms of the core and merged module,

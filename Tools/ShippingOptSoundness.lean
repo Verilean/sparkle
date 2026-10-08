@@ -365,32 +365,15 @@ theorem optimizeModule_wires_sublist (m : Sparkle.IR.AST.Module) :
 theorem checkedOptimize_wires_sublist (m : Sparkle.IR.AST.Module) :
     (checkedOptimize m).wires.Sublist m.wires := by
   unfold checkedOptimize
-  split
-  · dsimp only
-    split
-    · exact optimizeModule_wires_sublist m
-    · exact List.Sublist.refl _
-  · dsimp only
-    split
-    · split
-      · exact optimizeModule_wires_sublist m
-      · exact List.Sublist.refl _
-    · exact optimizeModule_wires_sublist m
+  dsimp only
+  repeat' split
+  all_goals first
+    | exact optimizeModule_wires_sublist m
+    | exact List.Sublist.refl _
+    | exact Sparkle.IR.HierCheck.deinline_wires_sublist _ _
 
 theorem checkedOptimize_wires_subset (m : Sparkle.IR.AST.Module) :
-    ∀ p ∈ (checkedOptimize m).wires, p ∈ m.wires := by
-  intro p hp
-  unfold checkedOptimize at hp
-  split at hp
-  · dsimp only at hp
-    split at hp
-    · exact optimizeModule_wires_subset m p hp
-    · exact hp
-  · dsimp only at hp
-    split at hp
-    · split at hp
-      · exact optimizeModule_wires_subset m p hp
-      · exact hp
-    · exact optimizeModule_wires_subset m p hp
+    ∀ p ∈ (checkedOptimize m).wires, p ∈ m.wires :=
+  fun _ hp => (checkedOptimize_wires_sublist m).subset hp
 
 end Tools.ShippingOptSoundness

@@ -321,6 +321,24 @@ low (`seedR`: a combinational module has no reset port). Remaining premises:
 the shipped body is of the simple shape and the emitted-Verilog check.
 Suite: 4 of 4, and 6 of 6 sign-normalised (transported) endpoints.
 
+**The optimizer on instance-bearing modules, checked at compile time
+(2026-10-08).** `checkedOptimize` used to pass an instance-bearing module's
+optimizer output to the printer UNCHECKED (the optimizer inlines connection
+values into instance ports: `decoderPipeline` 530 → 175 statements). Now,
+where the extracted interface is in the normal forms (`hierBinds`), the
+output has its connections named again (`Sparkle.IR.HierCheck.deinline`)
+and is kept only if `hierRefineCheck` accepts it: the same instance
+statements both ways (`instsKept`), every connection validated or untouched
+(`connAgreeOk`), and `refineCheck` on the extracted pair (`openFlat`:
+instances dropped, instance-driven wires as inputs, instance-read wires as
+outputs); else the module ships unoptimised. Measured (gold62): every
+status identical; 21 output files differ, every difference an instance
+connection that reads a named wire again (`assign w = …;` plus its `logic`
+declaration). OPEN: the soundness of this check over the stateful linked
+run (the extracted pair's `refineCheck_transfer` carried through
+`linked_open` / `runModuleTG_of_open`), and the shipping theorem for
+machines with instances built on it.
+
 **Stateful composition with children (2026-10-08).** For a machine whose
 calls are memory reads and/or sequential machine children (`closeInstsG`),
 `f.machine_composedT` states the STATEFUL linked run (`runModuleT`,

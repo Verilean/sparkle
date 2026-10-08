@@ -16,6 +16,8 @@ as soon as its instance statements are the original ones and every wire
 they read keeps its value. -/
 namespace Tools.ShippingHierOptSoundness
 
+export Sparkle.IR.HierCheck (openBody openFlat connAgreeOk instsKept)
+
 open Sparkle.IR.AST Sparkle.IR.Semantics Sparkle.IR.OptCheck
 open Sparkle.IR.Reorder (writesOf)
 open Sparkle.IR.RegDedup (declWidth)
@@ -24,20 +26,6 @@ open Tools.SVParser.EmitSem (seqCheck emitAssigns emitRegs emitMemWrites runModu
 open Tools.ShippingSeqSVSoundness (seqNames seedIn_bounded)
 open Tools.ShippingHierarchySoundness Tools.ShippingHierOpen Tools.ShippingHierSVSoundness
 open Tools.ShippingOptSoundness (optCheck_sound)
-
-/-- The body without its instance statements. -/
-def openBody (body : List Stmt) : List Stmt :=
-  body.filter fun st =>
-    match st with
-    | .inst .. => false
-    | _ => true
-
-/-- Interface extraction: instance statements dropped, the given ports added
-as inputs (the instance-output wires) and as outputs (assigned wires the
-instances read). Declarations are untouched. -/
-def openFlat (m : Module) (insX outsX : List Port) : Module :=
-  { m with body := openBody m.body, inputs := m.inputs ++ insX,
-           outputs := m.outputs ++ outsX }
 
 /-- The open-module fold does not see instance statements. -/
 theorem evalAssigns_openBody (we : WEnv) (mems : MEnv) :
@@ -136,34 +124,6 @@ theorem consistent_transfer {children : String → Option (Module × WEnv)} {mem
   · intro p hp w hw
     rw [hagree mn iname conns hm (p.name, .ref w) (lookup_ref_mem conns hw) w rfl]
     exact houts p hp w hw
-
-/-- Decidable: every wire an instance of `o` connects is either an output /
-extracted output of `m` (validated by the checker) or is written by neither
-body (so it keeps its seeded value in both). -/
-def connAgreeOk (m o : Module) (outsX : List Port) : Bool :=
-  o.body.all fun st =>
-    match st with
-    | .inst _ _ conns =>
-      conns.all fun c =>
-        match c.2 with
-        | .ref w =>
-          ((m.outputs ++ outsX).map (·.name)).contains w ||
-            (!(writesOf m.body).contains w && !(writesOf o.body).contains w)
-        | _ => true
-    | _ => true
-
-/-- Decidable: the instance statements of `o` are instance statements of `m`. -/
-def instsKept (m o : Module) : Bool :=
-  o.body.all fun st =>
-    match st with
-    | .inst mn iname conns =>
-      m.body.any fun st' =>
-        match st' with
-        | .inst mn' iname' conns' =>
-          mn' == mn && iname' == iname &&
-            decide (conns' = conns)
-        | _ => false
-    | _ => true
 
 theorem instsKept_mem {m o : Module} (h : instsKept m o = true) :
     ∀ mn iname conns, Stmt.inst mn iname conns ∈ o.body →
