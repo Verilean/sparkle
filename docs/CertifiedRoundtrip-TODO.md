@@ -3942,7 +3942,13 @@ The gaps, in the order they weaken the claim:
   no parser at all) the primary guarantee and demote the roundtrip
   direction to validation.  The forward chain already has total corpus
   coverage, so this may be mostly a framing and documentation change.
-- [ ] **F4. `partial def`s on the shipping path.**  77 remain (Parser 26,
+- [x] **F4. `partial def`s on the shipping path.** AUDITED (2026-10-08):
+  every `partial def` a certified / machine-route compile reaches is covered
+  by a per-declaration kernel check, a compile-time result check, a named run
+  boundary, the trusted printer, or lies outside every theorem
+  (ShippingCompiler-TrustBase.md §6d). Replacing the front-end readers by
+  total, PROVED reifications is the F1 work (it turns the per-declaration
+  checks into one universal theorem). Original note:  77 remain (Parser 26,
   Lower 38, Optimize 10, Verilog 3).  A `partial def` has no unfolding
   equations, so nothing is provable about the shipping code as written;
   the verified-core/validated-shell split (total twins + `#guard`

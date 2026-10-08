@@ -454,6 +454,23 @@ FORWARD direction primary:
 A verified printer with a proven inverse on the emitted sub-language would
 remove the printer from this list; it is not planned.
 
+## 6d. `partial def`s on the shipping path (F4 audit, 2026-10-08)
+
+A `partial def` has no unfolding equations, so no theorem can look inside
+one. Each that a compile of a certified or machine-route declaration
+reaches is covered as follows — none is relied on unchecked:
+
+| `partial def`s | Where | Covered by |
+| --- | --- | --- |
+| `machConv`, `machNested`, `machChain`, `machLoopBody`, `machLoopRoot`, `machInstance(S)`, `machLiftScalarN`, `machBoolMap`, `machNorm` (Elab); `rootFloat`, `zetaAll`, `projChain`, `prodMatcherArity?` (MachRawSurface); `packTupleInputs` (MachTupleIn) | reading a declaration into a machine shape | the boundary `MachineDefines` (§2) and, per declaration, the kernel `Eq.refl` checks of the generated endpoint against the declaration's own value (`machine_body`, `machine_writes`, `machine_result`, `machine_source`) — translation validation |
+| `passM`, `iota`, `reduceHead`, `betaAll`, `listLit?`, `relevantClosure`, `headBetaM` (MachRecUnfold), `canonHardwareExpr`, `stripMemoizeWrappers`, `openRecordInputs`, `splitReturnLeaves` (Elab) | the front end's unfolding / normalisation | the same per-declaration kernel checks (`EntryDefines`/`MachineDefines` name the result; the endpoint's `rfl`s tie it to the declaration) |
+| `optimizeExpr`, `substituteExpr`, `resolveSlice`, `inferWidth`, … (Optimize); `canonExpr` (RegDedup) | the optimizer and the duplicate merge | compile-time result checks: `optCheck`, `refineCheck`, `hierRefineCheck`, `validateMerge` (proved sound); an unchecked result only where no gate binds, and the shipping theorems then require the gate (§4) |
+| the mutual `synthesizeCombinational` (child synthesis with `sparkleChildCache`) | a child compiled inside a parent's synthesis | the run boundary per child (`SubSynthDefines`, `BoundaryOf`, §2–3); the theorems are about the total top-level `synthesizeCombinational` |
+| `translateExprToWireImpl` and the `handle*` arms | the legacy front end | outside every theorem (§7); the certified knot is the total fuel-bounded `translateExprToWire` |
+| `emitDimExpr` and the printer (Backend/Verilog) | bytes | trusted printer (§6c) |
+| the parser / lowering (`Tools/SVParser`) | reading bytes back | validation only (§6c) |
+| `Type.evaluate`, `specializeType/Expr` | parameterized synthesis | outside every theorem (§7) |
+
 ## 7. What is outside every theorem
 
 - **Compiles that miss the certified gate.** The theorems apply when
