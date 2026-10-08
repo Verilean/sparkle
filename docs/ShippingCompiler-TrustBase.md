@@ -636,6 +636,38 @@ inputs from the parent's wires, the start registers of every instance);
 (3) the reflection boundary; (4) the use conditions (inputs, reset);
 (5) the printer. Uniqueness of the closed run is a separate open item.
 
+**Source → the closed emitted texts (2026-10-09).** The width premises are
+DERIVED (`Tools/ShippingDesignSVBounds.lean`, `svBounds_of_checks`), for any
+finite depth, from `designCheck` alone plus the use conditions — the top
+seeding within the emitted widths (inputs), the start state within them, and
+every instance's start state within its own (`InvN`). No step assumes the
+bound it proves: inside each cycle the fold follows the linked order
+(`evalAssignsKG_envBound`: an assignment's value fits its target by
+`seqCheck` + `sf4_bounded`, an instance's outputs fit the driven wires by
+`PortsMatch` because its inputs were already bounded), a child's step is
+bounded by induction on the depth (`KSn_stepBound`, `moduleStepBound`;
+leaves by `emit_sem_assigns` and masked register updates), and the run
+cycle by cycle (`runModuleTG_envBound`). `ships_design_svN`
+(`Tools/ShippingShipsDesignSV.lean`) composes the shipping theorem's own run
+(same design `D`, same shipped module `checkedOptimize b`, same seeding
+`seedIn b ins`) with `svBounds_of_checks` and `design_sv_runN`;
+`#machine_design_svN f n` instantiates it: `grandH.machine_design_svN1` and
+`topD2.machine_design_svN2` are kernel-checked (standard axioms), for every
+run of the compiler, every input sequence and every length. Their exact
+premises: the real full entry's run (`RunsTo`), the reflection boundary
+(`MachineDefines`, `MachineCloses`), the module checker `shipsHierCheck`,
+the design checker `designCheck`, the child bound `kidsMaskedN`, the run
+boundary `machineBoundN{n}` (child core runs: traced, not proved), and the
+use conditions (source inputs on the seed, reset low, start registers at
+their reset values, children at reset `ResetNk`, inputs within the declared
+and emitted widths, start state and instance states within their widths);
+conclusion: `DesignSV` of the shipped design with those environments, whose
+output ports carry the source's values. Stages recorded apart by the
+evaluator: `SVCHILD:CHECKED` (structure checked only), `SVCHILD:SOURCE`
+(the kernel-checked endpoint above exists). Still not claimed: uniqueness of
+the closed run (the backward direction), the run boundary as a theorem,
+memory leaves, `mixD1`'s call–instance correspondence (traced: UNTRACED).
+
 ## 6c. The printer (the CompCert framing, F3)
 
 CompCert's guarantee ends at its assembly AST; the printer that turns it

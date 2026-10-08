@@ -1123,10 +1123,14 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   own states) and the CONDITIONAL forward theorem `design_sv_runN` (IR run at
   depth `n` + `designCheck` + width premises `SVBounds` ⇒ `DesignSV` with the
   same environments), `designCheck` evaluated on grandH (1), topD2 (2), mixD1
-  (two different children) and rejected one level shallower — NOT yet:
-  `SVBounds` derived, the source theorem linked to `DesignSV`, uniqueness of
-  the closed run, memory leaves (`leafCheck`/`seq_run_to_sv` take no memory
-  statement); open: hierarchical emitted
+  (two different children) and rejected one level shallower; `SVBounds`
+  DERIVED for any depth (`svBounds_of_checks`, from `designCheck` + inputs /
+  start states / instance states within their emitted widths) and composed
+  with the shipping theorem (`ships_design_svN`; kernel-checked endpoints
+  `grandH.machine_design_svN1`, `topD2.machine_design_svN2`) — NOT yet:
+  uniqueness of the closed run, memory leaves (`leafCheck`/`seq_run_to_sv`
+  take no memory statement), the depth-0 / combinational routes' endpoints;
+  open: hierarchical emitted
   Verilog of the children at depth ≥ 1 (derivation of `SVBounds`), the precise `BoundH` evaluated for
   calls of several children, combinational grandchildren below depth 1,
   multi-output gate children (`childTwo`); full corpus count pending — the

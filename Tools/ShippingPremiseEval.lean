@@ -4,6 +4,7 @@ import Tools.ShippingHierSVRunH
 import Tools.ShippingHierPremises
 import Tools.ShippingHierShipsSV
 import Tools.ShippingDesignSV
+import Tools.ShippingShipsDesignSVCommand
 
 /-! # Evaluating the shipping theorems' premises on a real compile
 
@@ -87,6 +88,9 @@ structure Verdict where
   premise, not derived) — not a complete closed statement; `fails` =
   `designCheck` rejects it; `unknown` = not connected (why) -/
   svChildren : Status := .unknown "not connected (the parent's Verilog runs against an oracle for the children's outputs)"
+  /-- the kernel-checked source → `DesignSV` endpoint
+  (`f.machine_design_svN{n}`, `ships_design_svN`), if generated -/
+  designEndpoint : Option Name := none
   useConditions : List String := []
   reflection : List String := []
   deriving Inhabited
@@ -122,7 +126,12 @@ def Verdict.svTag (v : Verdict) : String :=
 Verilog, and the children's emitted Verilog (always open here). -/
 def Verdict.svChildTag (v : Verdict) : String :=
   match v.svChildren with
-  | .holds => "SVCHILD:CHECKED"   -- structure checked; SVBounds and the source→DesignSV link open
+  | .holds => match v.designEndpoint with
+    -- structure checked AND the source theorem composed with the width
+    -- derivation and design_sv_runN, kernel-checked
+    | some _ => "SVCHILD:SOURCE"
+    -- structure checked only: design_sv_runN applies given SVBounds
+    | none => "SVCHILD:CHECKED"
   | .fails _ => "SVCHILD:NO"
   | .unknown _ => "SVCHILD:OPEN"
 
@@ -146,7 +155,10 @@ def Verdict.report (v : Verdict) : String :=
       | .notRequired w => s!"  run boundaries: none required ({w})") ::
     v.traces.map fun (n, t) => s!"  trace {n}: {t.str}"
   let l4 := [s!"  svParent: {v.svParent.str}",
-    s!"  svChildren (structural designCheck for the conditional design_sv_runN; SVBounds NOT derived, source→DesignSV not connected): {v.svChildren.str}"]
+    s!"  svChildren (structural designCheck): {v.svChildren.str}",
+    match v.designEndpoint with
+    | some e => s!"  source → DesignSV endpoint (svBounds_of_checks + design_sv_runN composed with the shipping theorem, kernel-checked): {e}"
+    | none => "  source → DesignSV endpoint: not generated for this declaration (ships_design_svN not applied here; structure checked only)"]
   let l5 := v.useConditions.map fun u => s!"  use condition (caller's obligation): {u}"
   let l6 := v.reflection.map fun r => s!"  reflection boundary: {r}"
   "\n".intercalate (s!"{v.theoremName} [{v.route}]: {v.tag}" :: l1 ++ l2 ++ l3 ++ l4 ++ l5 ++ l6)
@@ -258,6 +270,7 @@ def evalShipsHierSeq (declName : Name) (dep : Option Nat) : MetaM Verdict := do
     | none => s!"{declName}.machine_ships_hier"
   -- the bound of the theorem GENERATED for this route (shared with the generator)
   let routeKind ← Tools.ShippingMachineShipsHierCommand.hierRoute declName
+  let env ← getEnv
   let (route, bd, bdO) ← match dep with
     | some n => pure (s!"depth {n}: KSn, kidsMaskedN",
                   Tools.ShippingMachineShipsDepth.kidsMaskedN D.modules b.body,
@@ -280,6 +293,11 @@ def evalShipsHierSeq (declName : Name) (dep : Option Nat) : MetaM Verdict := do
       else .notRequired "memory reads only: a memory call's instance is the built memory module (MachineWired / find_memModule)"
     route := route
     svParent := .ofBool (svc && bdO) (if svc then "the shipped module's children are not bounded" else "shippedSVCheck rejects the shipped module")
+    designEndpoint := match dep with
+      | some n =>
+        let e := declName ++ Name.mkSimple s!"machine_design_svN{n}"
+        if (env.contains e) then some e else none
+      | none => none
     svChildren := match dep with
       | some n => .ofBool (Tools.ShippingDesignSV.designCheck C n o) s!"designCheck {n} rejects the shipped design"
       | none => match routeKind with

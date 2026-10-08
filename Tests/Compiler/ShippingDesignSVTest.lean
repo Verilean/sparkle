@@ -1,6 +1,7 @@
 import Tests.Compiler.ShippingMachineDepthHTest
 import Tools.ShippingDesignSV
 import Tools.ShippingPremiseEval
+import Tools.ShippingShipsDesignSVCommand
 
 /-! The closed emitted-Verilog run of a design (`design_sv_runN`).
 
@@ -60,6 +61,18 @@ set_option maxHeartbeats 0 in
 set_option maxHeartbeats 0 in
 #machine_ships_hierN mixD1 1
 
+/-! ## Source → the closed emitted texts, kernel-checked
+
+`ships_design_svN` applied to the generated shipping theorems: for every run
+of the compiler, every input sequence and every length, the shipped
+design's emitted texts run closed (`DesignSV`) to environments showing the
+source — under the theorem's stated premises (the module checker, the
+run boundary, `designCheck`, the use conditions). -/
+set_option maxHeartbeats 0 in
+#machine_design_svN Sparkle.Tests.Compiler.ShippingMachineDepthHTest.grandH 1
+set_option maxHeartbeats 0 in
+#machine_design_svN topD2 2
+
 open Tools.ShippingDesignSV in
 run_cmd Lean.Elab.Command.liftTermElabM do
   let shipped (n : Lean.Name) : Lean.Meta.MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) := do
@@ -80,13 +93,23 @@ run_cmd Lean.Elab.Command.liftTermElabM do
       List (Lean.Name × Lean.Meta.MetaM Verdict)) do
     let v ← v
     Lean.logInfo m!"{v.report}"
-    unless v.moduleTag == "MOD:PREM" && v.svChildTag == "SVCHILD:CHECKED" do throwError "{n}: {v.tag}"
+    unless v.moduleTag == "MOD:PREM" do throwError "{n}: {v.tag}"
+  -- topD2: the source → DesignSV endpoint exists (SOURCE); mixD1: none generated (CHECKED only)
+  let vt ← evalShipsHierSeq ``topD2 (some 2)
+  unless vt.svChildTag == "SVCHILD:SOURCE" do throwError "topD2: {vt.tag}"
+  let vg ← evalShipsHierSeq ``Sparkle.Tests.Compiler.ShippingMachineDepthHTest.grandH (some 1)
+  unless vg.svChildTag == "SVCHILD:SOURCE" do throwError "grandH: {vg.tag}"
+  let vx ← evalShipsHierSeq ``mixD1 (some 1)
+  unless vx.svChildTag == "SVCHILD:CHECKED" do throwError "mixD1: {vx.tag}"
   -- two different sequential children: the instance correspondence is not reconstructed
   let vm ← evalShipsHierSeq ``mixD1 (some 1)
   unless vm.traceTag == "TRACE:UNTRACED" && !vm.applies do throwError "mixD1: {vm.tag}"
 
 run_cmd do
-  for name in [``Tools.ShippingDesignSV.design_sv_runN, ``Tools.ShippingDesignSV.child_runKS_of_linked,
+  for name in [``Tools.ShippingDesignSV.design_sv_runN,
+      ``Sparkle.Tests.Compiler.ShippingMachineDepthHTest.grandH.machine_design_svN1, ``topD2.machine_design_svN2,
+      ``Tools.ShippingShipsDesignSV.ships_design_svN, ``Tools.ShippingDesignSVBounds.svBounds_of_checks,
+      ``Tools.ShippingDesignSVBounds.KSn_stepBound, ``Tools.ShippingDesignSVBounds.runModuleTG_envBound, ``Tools.ShippingDesignSV.child_runKS_of_linked,
       ``Tools.ShippingDesignSV.portsMatchB_sound, ``topD2.machine_ships_hierN2, ``mixD1.machine_ships_hierN1,
       ``Tools.ShippingHierShipsSV.shipped_sv_checked, ``Tools.ShippingHierShipsSV.linked_sv_of_runH_checked] do
     for ax in ← Lean.collectAxioms name do

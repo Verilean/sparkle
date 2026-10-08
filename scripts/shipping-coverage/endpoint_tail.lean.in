@@ -176,6 +176,11 @@ run_cmd do
     -- a child with children of its own: the composition at depth 1
     if !composed then
       let ex1 := (← getEnv).contains (n ++ `machine_ships_hierN1)
+      -- the source → closed design texts endpoint (recorded by the evaluator
+      -- as SVCHILD:SOURCE only when it was generated)
+      try discard <| liftTermElabM <| withOptions (fun o => Lean.Elab.async.set o false) <|
+          Tools.ShippingShipsDesignSVCommand.generate n 1
+      catch _ => pure ()
       let (r1, d1) ← liftTermElabM <| withOptions (fun o => Lean.Elab.async.set o false) <|
         Tools.ShippingPremiseEval.measure "SHIPSHIERN1" ex1
           (discard <| Tools.ShippingMachineDepthCommand.generateShipsN n 1)

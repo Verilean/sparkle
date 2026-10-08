@@ -33,7 +33,7 @@ if [ $# -ge 2 ]; then cat "$2"; else grep " 0$" "$WORK/status.txt" | awk '{print
   | nl -w1 -s' ' > "$WORK/endpoint_jobs/list.txt"
 run_one() {
   i="$1"; f="$2"; job="$WORK/endpoint_jobs/e$i.lean"
-  { echo "import Tools.ShippingGateChildCommand"; echo "import Tools.ShippingMachineSeqCommand"; echo "import Tools.ShippingMachineShipsHierCommand"; echo "import Tools.ShippingMachineShipsHierHCommand"; echo "import Tools.ShippingHierSVRunH"; echo "import Tools.ShippingMachineDepthCommand"; echo "import Tools.ShippingPremiseEval"; cat "$f" "$WORK/endpoint_tail.lean"; } > "$job"
+  { echo "import Tools.ShippingGateChildCommand"; echo "import Tools.ShippingMachineSeqCommand"; echo "import Tools.ShippingMachineShipsHierCommand"; echo "import Tools.ShippingMachineShipsHierHCommand"; echo "import Tools.ShippingHierSVRunH"; echo "import Tools.ShippingMachineDepthCommand"; echo "import Tools.ShippingPremiseEval"; echo "import Tools.ShippingShipsDesignSVCommand"; cat "$f" "$WORK/endpoint_tail.lean"; } > "$job"
   timeout -k 5 1500 lake env lean --load-dynlib=.lake/build/lib/libsparkle_Sparkle.so "$job" \
     > /dev/null 2>&1
   echo "$f $?" >> "$WORK/endpoint_status.txt"
@@ -59,8 +59,10 @@ for tag in SHIPSHIER SHIPSHIERH SHIPSHIERN1; do
   prem=$(grep -E "\|$tag\|GEN:(OK|EXISTS)\|MOD:PREM\|" "$R" | cut -d'|' -f1 | sort -u | wc -l)
   applies=$(grep -E "\|$tag\|GEN:(OK|EXISTS)\|MOD:PREM\|TRACE:(MATCHED|NOTREQUIRED)\|" "$R" | cut -d'|' -f1 | sort -u | wc -l)
   sv=$(grep -E "\|$tag\|GEN:(OK|EXISTS)\|MOD:PREM\|TRACE:(MATCHED|NOTREQUIRED)\|SV:PARENT" "$R" | cut -d'|' -f1 | sort -u | wc -l)
+  src=$(grep -E "\\|$tag\\|.*SVCHILD:SOURCE" "$R" | cut -d'|' -f1 | sort -u | wc -l)
+  chk=$(grep -E "\\|$tag\\|.*SVCHILD:CHECKED" "$R" | cut -d'|' -f1 | sort -u | wc -l)
   unk=$(grep -E "\|$tag\|.*(MOD:UNKNOWN|TRACE:UNTRACED|EVAL:FAIL)" "$R" | cut -d'|' -f1 | sort -u | wc -l)
-  echo "$tag: attempted $all, generated/present $gen, module premises hold $prem, applies given the run-boundary premises (measured as matching or not required, NOT discharged) $applies, of which the parent's emitted Verilog $sv, unknown/untraced $unk"
+  echo "$tag: attempted $all, generated/present $gen, module premises hold $prem, applies given the run-boundary premises (measured as matching or not required, NOT discharged) $applies, of which the parent's emitted Verilog $sv, unknown/untraced $unk; children's texts: structure checked only $chk, source → DesignSV endpoint (kernel-checked) $src"
   grep "|$tag|" "$R" | grep -vE "MOD:PREM\\|TRACE:(MATCHED|NOTREQUIRED)\\|SV:PARENT" | sort -u | cut -c1-250 | head -10
 done
 # files that did not finish: their declarations are UNMEASURED (not failed)
