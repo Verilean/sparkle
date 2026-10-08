@@ -95,6 +95,16 @@ theorem simpleBody_inst {m : Sparkle.IR.AST.Module} (h : hasInst m) : simpleBody
   unfold simpleBody
   exact List.all_eq_false.mpr ⟨_, hm, by simp⟩
 
+/-- The children's reset gives their invariant. -/
+def ResetImpliesInv {σ : Type} (Reset : Sparkle.IR.AST.Module → Design → (String → σ) → Prop)
+    (Inv : Sparkle.IR.AST.Module → σ → Prop) : Prop :=
+  ∀ m D kids, Reset m D kids → ∀ mn iname conns, Stmt.inst mn iname conns ∈ m.body →
+    ∀ child cwe, childMap D.modules mn = some (child, cwe) → Inv child (kids iname)
+
+theorem true_inv {σ : Type} (Reset : Sparkle.IR.AST.Module → Design → (String → σ) → Prop) :
+    ResetImpliesInv Reset (fun _ _ => True) := by
+  intro _ _ _ _ _ _ _ _ _ _ _; trivial
+
 /-- A composed theorem's statement: the stateful linked run (children
 stepping by `KS dsn`, from states satisfying `Reset m dsn`) of the core
 module `m` in its design `dsn` shows the source. `machine_linkedT_calls`
@@ -144,8 +154,9 @@ outputs within their ports' widths. -/
 theorem machine_ships_hier {σ : Type} (KS : Design → KStep σ) (hloc : ∀ D, KSLocal (KS D))
     (Reset : Sparkle.IR.AST.Module → Design → (String → σ) → Prop)
     (Bnd : Sparkle.IR.AST.Module → Design → Prop)
-    (Bd : Sparkle.IR.AST.Module → Design → Prop)
-    (hBd : ∀ b D, Bd b D → KSBoundedIn (childMap D.modules) (KS D) b.body)
+    (Bd : Sparkle.IR.AST.Module → Design → Prop) (Inv : Sparkle.IR.AST.Module → σ → Prop)
+    (hBd : ∀ b D, Bd b D → KSBoundedIn (childMap D.modules) (KS D) b.body Inv)
+    (hRI : ResetImpliesInv Reset Inv)
     {declName : Name} (d : MachineData) {kD : Nat}
     {ι : Type} {dom : ι → DomainConfig}
     {src : (i : ι) → (Nat → Signal (dom i) Bool) →
@@ -271,7 +282,9 @@ theorem machine_ships_hier {σ : Type} (KS : Design → KStep σ) (hloc : ∀ D,
     obtain ⟨-, -, envsO, hrunO, hlenO, hcorr⟩ := hierRefineCheck_linked
       (KS D) (hloc D) (childMap D.modules) hacc
       hwfB hwfO hndB hndO hnofb hOutM ins hinsFit hrstIn hrstZ hrunB
-      (fitX_of_run _ (childMap D.modules) b hKSb ins hwfB hndB hIW T _ envs hrunB hstX) hstR
+      (fitX_of_run _ (childMap D.modules) b Inv hKSb ins hwfB hndB hIW T _ envs hrunB
+        (fun mn iname conns hm child cwe hc => hRI raw D kids hreset mn iname conns
+          (by rw [← hbB]; exact hm) child cwe hc) hstX) hstR
     refine ⟨envsO, hrunO, by omega, ?_⟩
     intro j hj k o f hk hf
     obtain ⟨p, hp, hpn⟩ := List.mem_map.mp (houtSrc k o hk)
@@ -545,14 +558,15 @@ def kidsMasked (children : String → Option (Sparkle.IR.AST.Module × WEnv)) (b
 ports' widths.** -/
 theorem flatKS_boundedIn (children : String → Option (Sparkle.IR.AST.Module × WEnv))
     (body : List Stmt) (hok : kidsMasked children body = true) :
-    KSBoundedIn children flatKS body := by
-  intro mn iname conns hmem child cwe hc cin env s cres s' hk p hp
+    KSBoundedIn children flatKS body (fun _ _ => True) := by
+  intro mn iname conns hmem child cwe hc env s cres s' _ hk
+  refine ⟨fun p hp => ?_, trivial⟩
   have h1 := List.all_eq_true.mp hok _ hmem
   simp only [hc, Bool.and_eq_true] at h1
   obtain ⟨hnm, hout⟩ := h1
   simp only [flatKS] at hk
-  cases hst : stepModule cwe child.body (Tools.ShippingHierarchySoundness.connEnvS cin env s.st)
-      s.mems with
+  cases hst : stepModule cwe child.body
+      (Tools.ShippingHierarchySoundness.connEnvS (inConns child.outputs conns) env s.st) s.mems with
   | none => simp [hst] at hk
   | some r =>
     simp only [hst, Option.map_some, Option.some.injEq, Prod.mk.injEq] at hk
@@ -571,5 +585,122 @@ theorem flatKS_boundedIn (children : String → Option (Sparkle.IR.AST.Module ×
       rw [hfin]
       exact Nat.lt_of_lt_of_le (selfMasked_lt hsm hv) (Nat.pow_le_pow_right (by omega) hw)
     | _ => simp at hm
+
+/-! ## Memory children -/
+
+/-- A memory child's invariant: its read latch fits its output port. -/
+def memInv (c : Sparkle.IR.AST.Module) (ks : KidState) : Prop :=
+  ∀ p ∈ c.outputs, ks.st "out_rdata" < 2 ^ p.ty.bitWidth
+
+theorem resetM_inv : ResetImpliesInv ResetM memInv := by
+  intro m D kids hR mn iname conns _ child cwe _ p _
+  rw [hR.2 iname]
+  exact Nat.two_pow_pos _
+
+/-- Decidable: the child of every instance of `body` is a memory module, and
+no connection names its read latch. -/
+def kidsMem (children : String → Option (Sparkle.IR.AST.Module × WEnv)) (body : List Stmt) : Bool :=
+  body.all fun st => match st with
+    | .inst mn _ conns => !(conns.any (·.1 == "out_rdata")) && match children mn with
+      | some (child, _) => match Sparkle.Compiler.MachMemory.memParams? child with
+        | some (cb, aw, dw) => decide (child = (Sparkle.Compiler.MachMemory.memModule cb aw dw).1)
+        | none => false
+      | none => false
+    | _ => true
+
+theorem lookup_none_of_not_any {k : String} :
+    ∀ {l : List (String × Sparkle.IR.AST.Expr)}, (l.any (·.1 == k)) = false → l.lookup k = none
+  | [], _ => rfl
+  | (a, b) :: rest, h => by
+    simp only [List.any_cons, Bool.or_eq_false_iff] at h
+    simp only [List.lookup]
+    have : (k == a) = false := by
+      have := h.1; simp only [beq_eq_false_iff_ne, ne_eq] at this ⊢; exact fun e => this e.symm
+    rw [this]
+    exact lookup_none_of_not_any h.2
+
+theorem inConns_lookup_none {outs : List Port} {conns : List (String × Sparkle.IR.AST.Expr)} {k : String}
+    (h : (conns.any (·.1 == k)) = false) : (inConns outs conns).lookup k = none := by
+  apply lookup_none_of_not_any
+  simp only [List.any_eq_false] at h ⊢
+  intro x hx
+  exact h x (List.mem_filter.mp hx).1
+
+/-- **Memory children keep their output within its width**, from a read
+latch within it. -/
+theorem memKS_boundedIn (children : String → Option (Sparkle.IR.AST.Module × WEnv))
+    (body : List Stmt) (hok : kidsMem children body = true) :
+    KSBoundedIn children flatKS body memInv := by
+  intro mn iname conns hmem child cwe hc env s cres s' hinv hk
+  have h1 := List.all_eq_true.mp hok _ hmem
+  simp only [Bool.and_eq_true, Bool.not_eq_true'] at h1
+  obtain ⟨hnr, h1⟩ := h1
+  rw [hc] at h1
+  simp only at h1
+  cases hp : Sparkle.Compiler.MachMemory.memParams? child with
+  | none => rw [hp] at h1; cases h1
+  | some prm =>
+  obtain ⟨cb, aw, dw⟩ := prm
+  rw [hp] at h1
+  have hchild : child = (Sparkle.Compiler.MachMemory.memModule cb aw dw).1 :=
+    of_decide_eq_true h1
+  subst hchild
+  have hlk : (inConns (Sparkle.Compiler.MachMemory.memModule cb aw dw).1.outputs conns).lookup
+      "out_rdata" = none := inConns_lookup_none hnr
+  simp only [flatKS] at hk
+  cases hst : stepModule cwe (Sparkle.Compiler.MachMemory.memModule cb aw dw).1.body
+      (Tools.ShippingHierarchySoundness.connEnvS
+        (inConns (Sparkle.Compiler.MachMemory.memModule cb aw dw).1.outputs conns) env s.st) s.mems with
+  | none => simp [hst] at hk
+  | some r =>
+  simp only [hst, Option.map_some, Option.some.injEq, Prod.mk.injEq] at hk
+  obtain ⟨envF, nexts, mems', hF, hN, -, rfl⟩ := stepModule_some hst
+  obtain ⟨rfl, rfl⟩ := hk
+  have hinv' : s.st "out_rdata" < 2 ^ dw := by
+    have := hinv ⟨"out", .bitVector dw⟩ (by simp [Sparkle.Compiler.MachMemory.memModule])
+    simpa [Sparkle.IR.Type.HWType.bitWidth] using this
+  have hout : ∀ p ∈ (Sparkle.Compiler.MachMemory.memModule cb aw dw).1.outputs,
+      p = ⟨"out", .bitVector dw⟩ := by
+    intro p hp
+    simpa [Sparkle.Compiler.MachMemory.memModule] using hp
+  cases cb with
+  | true =>
+    simp only [Sparkle.Compiler.MachMemory.memModule, evalAssigns, if_true, comboReads,
+      Option.bind_eq_bind] at hF
+    cases hav : evalExpr cwe (Tools.ShippingHierarchySoundness.connEnvS
+        (inConns [{ name := "out", ty := Sparkle.IR.Type.HWType.bitVector dw }] conns) env s.st)
+        (.ref "ra") with
+    | none => simp [hav] at hF
+    | some av =>
+      simp only [hav, Option.bind_some, evalExpr, Option.some.injEq] at hF
+      simp only [Sparkle.Compiler.MachMemory.memModule, regNexts, if_true, Option.some.injEq] at hN
+      subst hN
+      refine ⟨fun p hp => ?_, fun p hp => ?_⟩
+      · obtain rfl := hout p hp
+        rw [← hF]
+        simp [Sparkle.IR.Type.HWType.bitWidth]
+        exact Tools.ShippingMachineEntry.mask_lt _ _
+      · obtain rfl := hout p hp
+        simpa [applyNexts, Sparkle.IR.Type.HWType.bitWidth] using hinv'
+  | false =>
+    simp only [Sparkle.Compiler.MachMemory.memModule, evalAssigns, Bool.false_eq_true, if_false,
+      evalExpr, Option.bind_eq_bind, Option.bind_some, Option.some.injEq] at hF
+    simp only [Sparkle.Compiler.MachMemory.memModule, regNexts, Bool.false_eq_true, if_false,
+      syncReadLatches, Option.bind_eq_bind] at hN
+    have hlk' : (inConns [{ name := "out", ty := Sparkle.IR.Type.HWType.bitVector dw }] conns).lookup
+        "out_rdata" = none := hlk
+    refine ⟨fun p hp => ?_, fun p hp => ?_⟩
+    · obtain rfl := hout p hp
+      rw [← hF]
+      simp [Tools.ShippingHierarchySoundness.connEnvS, hlk', Sparkle.IR.Type.HWType.bitWidth]
+      exact hinv'
+    · obtain rfl := hout p hp
+      cases hav : evalExpr cwe envF (.ref "ra") with
+      | none => simp [hav] at hN
+      | some av =>
+        simp only [hav, Option.bind_some, Option.some.injEq] at hN
+        subst hN
+        simp [applyNexts, Sparkle.IR.Type.HWType.bitWidth]
+        exact Tools.ShippingMachineEntry.mask_lt _ _
 
 end Tools.ShippingMachineShipsHier

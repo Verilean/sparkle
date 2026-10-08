@@ -652,32 +652,36 @@ theorem hierRefineCheck_linked {σ : Type} (KS : KStep σ) (hloc : KSLocal KS)
     (fun _ _ _ => rfl)
   refine ⟨envsO, hlinked, hlenO, fun p hp j hj hj' => houtsO p (List.mem_append_left _ hp) j hj hj'⟩
 
-/-- Every step of the child of an instance of `body` keeps its output ports
-within their declared widths. -/
+/-- Every step of the child of an instance of `body`, from a state
+satisfying the child's invariant `Inv`, keeps its output ports within their
+declared widths and the invariant. -/
 def KSBoundedIn {σ : Type} (children : String → Option (Module × WEnv)) (KS : KStep σ)
-    (body : List Stmt) : Prop :=
+    (body : List Stmt) (Inv : Module → σ → Prop) : Prop :=
   ∀ mn iname conns, Stmt.inst mn iname conns ∈ body → ∀ child cwe,
   children mn = some (child, cwe) →
-  ∀ cin env s cres s', KS child cwe cin env s = some (cres, s') →
-    ∀ p ∈ child.outputs, cres p.name < 2 ^ p.ty.bitWidth
+  ∀ env s cres s', Inv child s → KS child cwe (inConns child.outputs conns) env s = some (cres, s') →
+    (∀ p ∈ child.outputs, cres p.name < 2 ^ p.ty.bitWidth) ∧ Inv child s'
 
 /-- **The extracted inputs fit along a linked run**: the instance-driven ones
 are children's outputs at their ports' widths (`instOutWidthsOk`), the
 others are never written and keep their start values. -/
 theorem fitX_of_run {σ : Type} (KS : KStep σ)
     (children : String → Option (Module × WEnv)) (m : Module)
-    (hKSb : KSBoundedIn children KS m.body) (ins : Nat → String → Nat)
+    (Inv : Module → σ → Prop)
+    (hKSb : KSBoundedIn children KS m.body Inv) (ins : Nat → String → Nat)
     (hwf : linkedWF children m.body = true) (hnd : (instNames m.body).Nodup)
     (hIW : instOutWidthsOk children (declWidth m) m.body = true) :
     ∀ (T : Nat) (s : KState σ) (envs : List Env),
       runModuleTG KS (declWidth m) children m.body (seedIn m ins) T s = some envs →
+      (∀ mn iname conns, Stmt.inst mn iname conns ∈ m.body → ∀ child cwe,
+        children mn = some (child, cwe) → Inv child (s.kids iname)) →
       (∀ x ∈ (openIns m).map (·.name), x ∉ bodyInstOuts children m.body →
         s.st x < 2 ^ declWidth m x) →
       ∀ j (hj : j < envs.length), ∀ x ∈ (openIns m).map (·.name),
         (envs[j]'hj) x < 2 ^ declWidth m x
-  | 0, _, envs, h, _, j, hj, _, _ => by
+  | 0, _, envs, h, _, _, j, hj, _, _ => by
     simp only [runModuleTG, Option.some.injEq] at h; subst h; cases hj
-  | k + 1, s, envs, h, hst, j, hj, x, hx => by
+  | k + 1, s, envs, h, hinv, hst, j, hj, x, hx => by
     have hmf := memFree_of_linkedWF _ hwf
     simp only [runModuleTG] at h
     cases hS : stepModuleTG KS (declWidth m) children m.body (seedIn m ins k s.st) s with
@@ -730,14 +734,21 @@ theorem fitX_of_run {σ : Type} (KS : KStep σ)
           | none => intro h; cases h
           | some e => cases e <;> intro h <;> cases h <;> rfl
         rw [hout p hp x hl, instOutWidthsOk_at hIW hmem hc p hp x hl]
-        exact hKSb mn iname conns hmem child cwe hc _ _ _ _ _ hk p hp
+        exact (hKSb mn iname conns hmem child cwe hc _ _ _ _ (hinv _ _ _ hmem _ _ hc) hk).1 p hp
       · rw [linked_frameKG KS (declWidth m) children s.kids s.mems x m.body _ envF' s.kids kids'
           hwf hK (fun hl => hxd (linkedWrites_drives _ hl hO))]
         simp only [seedIn, List.contains_eq_mem, hxi, decide_false, Bool.false_eq_true, if_false]
         exact hst x hx hO
     | succ j =>
-      have := fitX_of_run KS children m hKSb ins hwf hnd hIW k
+      have := fitX_of_run KS children m Inv hKSb ins hwf hnd hIW k
         ⟨applyNexts s.st nexts, s.mems, kids'⟩ rest hR
+        (fun mn iname conns hmem child cwe hc => by
+          obtain ⟨child', cwe', envAt, cres, hc', hk, -, -⟩ :=
+            linked_consistentKG KS (declWidth m) children s.kids s.mems m.body _ envF' s.kids kids'
+              hwf hnd hK mn iname conns hmem
+          rw [hc] at hc'
+          cases hc'
+          exact (hKSb mn iname conns hmem child cwe hc _ _ _ _ (hinv _ _ _ hmem _ _ hc) hk).2)
         (fun y hy hyO => by
           show applyNexts s.st nexts y < _
           have hyp := List.mem_map.mp hy

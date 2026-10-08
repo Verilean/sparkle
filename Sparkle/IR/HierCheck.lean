@@ -117,6 +117,9 @@ def deinlineParts (m o : Module) : List Stmt × List String := Id.run do
           | e, some (.ref w) =>
             if e == .ref w || !(drivesOf m.body).contains w then
               conns' := conns' ++ [c]
+            else if added.contains w then
+              -- named once: a later instance reads the same wire
+              conns' := conns' ++ [(c.1, .ref w)]
             else
               body := body ++ [.assign w e]
               added := added ++ [w]

@@ -377,7 +377,13 @@ their widths, and the children's outputs within their ports' widths — for
 sequential children a decidable check (`kidsMasked`: no memory, every output
 port assigned once by a self-masked expression no wider than the port;
 `flatKS_boundedIn`), evaluated on the real modules; for memory children
-still the bound itself (`KSBoundedIn`; their output is the read data). The shipped module's EMITTED VERILOG: `Tools.ShippingHierSVRun.linked_sv_run`
+the check `kidsMem` (every child the built memory module, no connection
+naming its read latch) with the read-latch invariant `memInv` (zero at
+reset, `resetM_inv`; a combinational read and a latched read are masked at
+the data width; `memKS_boundedIn`). Found on the way: `deinline` named a
+connection wire before EVERY instance reading it (two memory instances
+sharing a write-enable wire got two assignments of it, which the linked
+semantics' well-formedness rejects); it now names a wire once. The shipped module's EMITTED VERILOG: `Tools.ShippingHierSVRun.linked_sv_run`
 — a stateful linked run of a module is the run of its emitted Verilog
 (`runModuleSV`) from the oracle seeding, its instance outputs at each cycle
 the values its children drove (`linked_open_runG`, then `seq_run_to_svI`),

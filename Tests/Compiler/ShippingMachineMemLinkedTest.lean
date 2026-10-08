@@ -58,6 +58,22 @@ def mixedMems (we : Signal defaultDomain Bool) (wa : Signal defaultDomain (BitVe
 #machine_ships_hier twoMems
 #machine_ships_hier mixedMems
 
+-- its module premises, on the real modules (the memory children's output bound included)
+run_cmd Lean.Elab.Command.liftTermElabM do
+  for n in [``memCounter, ``twoMems, ``mixedMems] do
+    let (_, D) ← Sparkle.Compiler.Elab.synthesizeCombinationalCore n [] false
+    let (b, _) ← Sparkle.Compiler.Elab.synthesizeCombinational n
+    let o := Sparkle.IR.OptCheck.checkedOptimize b
+    let C := Tools.ShippingMachineLinked.childMap D.modules
+    unless Sparkle.IR.RefineCheck.hierBinds b do throwError "{n}: the optimizer check does not bind"
+    unless Tools.ShippingHierOpen.linkedWF C b.body && Tools.ShippingHierOpen.linkedWF C o.body do
+      throwError "{n}: not linked-well-formed"
+    unless Tools.ShippingMachineShipsHier.kidsMem C b.body do
+      throwError "{n}: a child is not a memory module (the output bound)"
+    unless Tools.ShippingHierOpen.instOutWidthsOk C (Sparkle.IR.RegDedup.declWidth b) b.body do
+      throwError "{n}: instance-output widths"
+  Lean.logInfo m!"MEMORY PARENTS SHIP: module premises hold"
+
 run_cmd do
   if (← get).messages.hasErrors then throwError "memory composition regression failed"
   for name in [``memCounter.machine_ships_hier, ``mixedMems.machine_ships_hier,
