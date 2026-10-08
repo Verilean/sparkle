@@ -487,10 +487,16 @@ seeding bounded by the width-typed run; its premises (the shipped module
 width-typed with local children, instance-driven wires extracted and no
 wider than emitted, the instance/assign/register fragment, the
 emitted-Verilog check, width agreement) evaluated on the six suite
-machines and in the corpus measurement (`sv*` tags): 16 of the 26 corpus
-machines satisfy every premise to the emitted Verilog; the other 10 (ARP /
-ICMP / IPv4 responders, PCIe HFT, `wKeccakF`) fail only the emitted-Verilog
-check `seqCheck` (the open `seqCheck` gap of §6b).
+machines and in the corpus measurement (`sv*` tags): all 26 corpus
+machines satisfy every premise to the emitted Verilog. 10 of them (ARP /
+ICMP / IPv4 responders, PCIe HFT, `wKeccakF`) were first rejected by the
+emitted-Verilog check: `(x << 8) & mask` with `x` as wide as the node shifts
+bits out, and the literal-shift rule `SF4.bitwiseShl` demands no overflow
+(its parent's context may be wider). New rule `SF4.bitwiseShlW`: when the
+bitwise sibling is EXACTLY as wide as `x` (amount no wider), the parent's
+context is the shift's own width, so the emitted text cuts the shifted-out
+bits where the IR's mask does — proved in `emit_sem`, admitted by
+`shlSideOK`. The compiler does not run `seqCheck`, so no output changes.
 
 **Loop children and transported parents (2026-10-08).** A sequential
 child proved by `machine_trace_of_loop` / `_of_regs` (a `Signal.loop`, the
