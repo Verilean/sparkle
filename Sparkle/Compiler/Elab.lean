@@ -157,7 +157,7 @@ end CompilerM
     shape circuits (handleTupleProjections / handleMux call
     getWireWidth in their hot loops, turning a ~5000-wire design
     into an O(n²) walk). -/
-private initialize sparkleWireWidthCache :
+initialize sparkleWireWidthCache :
     IO.Ref (Std.HashMap String Nat) ← IO.mkRef {}
 
 namespace CompilerM
@@ -913,7 +913,7 @@ private initialize sparkleCacheHits   : IO.Ref Nat ← IO.mkRef 0
     re-walk every previously-translated expression after the
     child returns, which trivially turns sub-module-instance
     synth into an O(n²) walk. -/
-private initialize sparkleSynthDepth : IO.Ref Nat ← IO.mkRef 0
+initialize sparkleSynthDepth : IO.Ref Nat ← IO.mkRef 0
 
 /-- Set of fvar names currently being zeta-reduced.  If we see
     the same fvar twice on the stack, the fvar's value contains
@@ -929,14 +929,14 @@ private initialize sparkleFvarZetaVisited : IO.Ref (Std.HashSet Lean.Name) ← I
     consumed by the multi-output sub-module projection shortcut
     so `engine.replyValid` can recover the underlying `kvHw …`
     call and instantiate it as a sub-module. -/
-private initialize sparkleFvarValueMap : IO.Ref (Std.HashMap Lean.Name Lean.Expr) ← IO.mkRef {}
+initialize sparkleFvarValueMap : IO.Ref (Std.HashMap Lean.Name Lean.Expr) ← IO.mkRef {}
 
 /-- Hardware-`let` wire cache, keyed by the value's structure PLUS the wires its
     free variables denote.  See the `.letE` handler for why the plain
     expression cache is insufficient (intermediate bindings are re-instantiated
     with fresh fvars once per consumer of a `circuit do` body).  Reset per
     top-level synth alongside the other caches. -/
-private initialize sparkleLetWireCache : IO.Ref (Std.HashMap String String) ← IO.mkRef {}
+initialize sparkleLetWireCache : IO.Ref (Std.HashMap String String) ← IO.mkRef {}
 
 /-- `Signal.loop` expression cache, keyed like `sparkleLetWireCache` (the loop
     lambda's structure plus the wires its free variables denote).
@@ -953,13 +953,13 @@ private initialize sparkleLetWireCache : IO.Ref (Std.HashMap String String) ← 
     `let stateLoop := Signal.loop …` binder — which `sparkleWireCanon`
     identifies, so the canonical keys coincide and the second pass reuses
     the first pass's wire.  Reset per synth alongside the other caches. -/
-private initialize sparkleLoopWireCache : IO.Ref (Std.HashMap String String) ← IO.mkRef {}
+initialize sparkleLoopWireCache : IO.Ref (Std.HashMap String String) ← IO.mkRef {}
 
 /-- Wire aliases for canonical-key purposes: a `Signal.loop`'s result wire
     is the same hardware as the loop wire its body binder denotes
     (`assign loopWire = resultWire`), so keys built from either name must
     agree.  Maps `resultWire ↦ loopWire`. -/
-private initialize sparkleWireCanon : IO.Ref (Std.HashMap String String) ← IO.mkRef {}
+initialize sparkleWireCanon : IO.Ref (Std.HashMap String String) ← IO.mkRef {}
 
 /-- Cache of previously-synthesised sub-modules.  Without this,
     the multi-output sub-module projection shortcut would re-
@@ -967,7 +967,7 @@ private initialize sparkleWireCanon : IO.Ref (Std.HashMap String String) ← IO.
     access (multiple fields per sub-module instance × multiple
     instances per design).  Cleared at the top of each
     `synthesizeCombinational` invocation. -/
-private initialize sparkleSubModuleCache :
+initialize sparkleSubModuleCache :
     IO.Ref (Std.HashMap Lean.Name (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design)) ←
     IO.mkRef {}
 
@@ -997,7 +997,7 @@ initialize sparkleChildSynth :
     Hash key (UInt64) is used instead of full Expr identity
     because Lean re-elaborates structurally equal expressions
     into objects that fail pointer equality but share `Expr.hash`. -/
-private initialize sparkleSubInstanceOutputs :
+initialize sparkleSubInstanceOutputs :
     IO.Ref (Std.HashMap (UInt64 × String) String) ← IO.mkRef {}
 
 /-- Idempotency cache for SINGLE-output sub-module instances
@@ -1023,7 +1023,7 @@ private initialize sparkleSubInstanceOutputs :
 
     Value: the instance's output wire.  Cleared at depth 0 with
     the other per-synth caches. -/
-private initialize sparkleSingleOutInstanceCache :
+initialize sparkleSingleOutInstanceCache :
     IO.Ref (Std.HashMap String String) ← IO.mkRef {}
 
 /-- Type-of-Expr cache.  `Lean.Meta.inferType` is the dominant
@@ -1032,13 +1032,13 @@ private initialize sparkleSingleOutInstanceCache :
     revisited many times when ρ-generic returns push the same
     sub-expression through multiple projections.  Memoising the
     inferred type by Expr identity collapses the hottest path. -/
-private initialize sparkleTypeCache : IO.Ref (Std.HashMap Lean.Expr Lean.Expr) ← IO.mkRef {}
+initialize sparkleTypeCache : IO.Ref (Std.HashMap Lean.Expr Lean.Expr) ← IO.mkRef {}
 
 /-- Memoised `Lean.Meta.inferType`.  Pure compiler-side cache;
     correctness relies on the cache being scoped per `synth*`
     invocation (we reset it at the start of `synthesizeCombinational`). -/
-private initialize sparkleTypeCacheHits : IO.Ref Nat ← IO.mkRef 0
-private initialize sparkleTypeCacheMiss : IO.Ref Nat ← IO.mkRef 0
+initialize sparkleTypeCacheHits : IO.Ref Nat ← IO.mkRef 0
+initialize sparkleTypeCacheMiss : IO.Ref Nat ← IO.mkRef 0
 
 /-- Counters for the Lean.Meta operations the compiler issues
     *directly*.  When SPARKLE_PROFILE=1 the tick log reports

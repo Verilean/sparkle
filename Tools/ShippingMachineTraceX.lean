@@ -1,5 +1,5 @@
 import Tools.ShippingMachineAuto
-import Tools.ShippingChildSynth
+import Tools.ShippingChildInv
 import Tools.ShippingChildServe
 
 /-! # The machine endpoint with the run's children
@@ -11,7 +11,7 @@ instance whose output wires are call `k`'s ports. This file carries a fact `X`
 of the ids and cache through the endpoint's layers (`machine_traceX`,
 `machine_ref_traceX`, `machine_endpointX`: the proofs of `machine_trace`,
 `machine_ref_trace`, `machine_endpoint` with `X` passed along), and instantiates
-it, from the parent's run and the `ChildSynthIs` boundary, by `ServedReal`:
+it, from the parent's run and the `ChildBnd` boundary, by `ServedReal`:
 on the general closing, the module of the instance serving call `k` is the
 built memory module or a result of the real entry on the call's declaration
 (`synthesizeCombinationalCore_machine_soundR`, `machine_trace_lets_of_streamBR`).
@@ -427,7 +427,7 @@ def ServedRealG (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State)
     (∃ e ∈ outs, e.1 = k) →
     moduleByName dsn.modules mc.name = some mc →
     (∃ md, Sparkle.Compiler.MachMemory.memChild? (shape.insts[k]).1 = some md ∧ mc = md.1) ∨
-      ∃ Dc, Tools.ShippingChildSynth.RealChild mctx mref cctx cref (shape.insts[k]).1 (mc, Dc) ∧
+      ∃ Dc, Tools.ShippingChildInv.RealChild mctx mref cctx cref (shape.insts[k]).1 (mc, Dc) ∧
         ∀ g ∈ Dc.modules, moduleByName dsn.modules g.name = some g
 
 /-- The one-output closing (`instFields = []`): the instance that is call `k`'s
@@ -445,7 +445,7 @@ def ServedReal1 (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State)
       ((machPorts declName ids cache shape.binders).map (·.name)) k args mc st →
     moduleByName dsn.modules mc.name = some mc →
     (∃ md, Sparkle.Compiler.MachMemory.memChild? (shape.insts[k]).1 = some md ∧ mc = md.1) ∨
-      ∃ Dc, Tools.ShippingChildSynth.RealChild mctx mref cctx cref (shape.insts[k]).1 (mc, Dc) ∧
+      ∃ Dc, Tools.ShippingChildInv.RealChild mctx mref cctx cref (shape.insts[k]).1 (mc, Dc) ∧
         ∀ g ∈ Dc.modules, moduleByName dsn.modules g.name = some g
 
 /-- **The instances serving the calls are real children**, on either closing. -/
@@ -463,7 +463,7 @@ theorem allocated_ne {x : String} (h : Sparkle.IR.NameHints.Allocated x) :
 
 /-- **A state machine through the real entry, with its children.** The
 one-cycle theorem of `synthesizeCombinationalCore_machine_sound`, with
-`ServedReal` for the same ids and cache, under the `ChildSynthIs` boundary. -/
+`ServedReal` for the same ids and cache, under the `ChildBnd` boundary. -/
 theorem synthesizeCombinationalCore_machine_soundR {declName : Name}
     {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
     {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
@@ -473,7 +473,7 @@ theorem synthesizeCombinationalCore_machine_soundR {declName : Name}
       (m, d) w')
     (entry : MachineDefines mctx mref cctx cref declName shape)
     (closes : MachineCloses mctx mref cctx cref declName shape)
-    (hsyn : Tools.ShippingChildSynth.ChildSynthIs mctx mref cctx cref)
+    (hsyn : Tools.ShippingChildInv.ChildBnd mctx mref cctx cref w)
     (hbs : shape.binders = bsIn ++ slotBs ++ letBs)
     (hlets : shape.layout.lets = letBs.length)
     (positive : PositiveBinders shape.binders)
@@ -485,19 +485,16 @@ theorem synthesizeCombinationalCore_machine_soundR {declName : Name}
     (outsNodup : (shape.layout.outs.map (·.name)).Nodup) :
     MachinePreservesX (ServedReal mctx mref cctx cref declName shape m d)
       declName shape bsIn slotBs letBs m d := by
-  obtain ⟨logProf, envR, ci, w1, w2, w3, w4, w5, w6, get, henv, run⟩ :=
-    synthesizeCombinationalCore_reads hr
-  obtain ⟨old, miss, _⟩ := entry _ _ _ _ _ _ _ _ _ get henv henv
-  obtain ⟨envR', w7, w8, henv', hmach⟩ := synthesizeFromConst_machine old miss run
-  obtain ⟨_, _, hshape⟩ := entry _ _ _ _ _ _ _ _ _ get henv henv'
-  obtain ⟨r, w9, w10, hrun, hres⟩ := hmach shape hshape
+  obtain ⟨logProf, r, w9, w10, hrun, hw9, hres⟩ :=
+    Tools.ShippingChildInv.machine_run_of_core hr entry hsyn
   have hne := closes logProf _ _ _ hrun
   cases r with
   | none => exact absurd rfl hne
   | some res =>
     have := hres res rfl
     subst this
-    obtain ⟨t, t', d₀, hmix, hcl, hmt⟩ := Tools.ShippingChildSynth.synthesizeMachineCertified_runs hrun hsyn
+    obtain ⟨t, t', d₀, hmix, hcl, hmt⟩ :=
+      Tools.ShippingChildInv.synthesizeMachineCertified_runs hsyn.1 hw9 hrun
     have hmt0 : (shape.insts = [] ∧ m = closeMachine shape.layout t' ∧ d = d₀) ∨
         (shape.insts ≠ [] ∧ ∃ children,
           CloseCalls shape t (closeMachine shape.layout t') d₀ children m d) := by
@@ -607,7 +604,7 @@ theorem machine_trace_lets_of_streamBR {declName : Name} (d : MachineData) {ι :
       (m, design) w')
     (entry : MachineDefines mctx mref cctx cref declName d.shape)
     (closes : MachineCloses mctx mref cctx cref declName d.shape)
-    (hsyn : Tools.ShippingChildSynth.ChildSynthIs mctx mref cctx cref) :
+    (hsyn : Tools.ShippingChildInv.ChildBnd mctx mref cctx cref w) :
     MachineTraceLBX (ServedReal mctx mref cctx cref declName d.shape m design)
       declName d m design dom src ext extB lsrc := by
   simp only [MachineData.ok, Bool.and_eq_true, decide_eq_true_eq, Bool.not_eq_true'] at ok

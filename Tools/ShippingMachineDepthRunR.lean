@@ -1,23 +1,24 @@
 import Tools.ShippingMachineDepthRun
 import Tools.ShippingChildServe
-import Tools.ShippingChildSynth
+import Tools.ShippingChildInv
 
 /-! # Children with calls: the depth conditions from the served child's run witness
 
 `MachineRunN` asks, of the module an instance resolves to, a core run of the
 child entry with the child's run boundary, `ExtendsAway` and `NoInstOf`.
-`MachineRunNC` takes the child's boundary in the run's contexts (`CtxBnd`),
-and `machineRunNC_of_real` DERIVES it from the run witness `ServedReal` gives
-for the served instance (`RealChild`: SOME run of the child's entry in the
-parent's contexts returning that module — what `ChildSynthIs` asserts; not a
-proof about the specific call, or cache hit, inside the parent's run): the
-core run under that
+`MachineRunNC` takes the child's boundary in the run's contexts and start
+world (`CtxBnd`), and `machineRunNC_of_real` DERIVES it from the run witness
+`ServedReal` gives for the served instance (`RealChild`: SOME run of the
+child's entry in the parent's contexts returning that module, starting in a
+world where the cache invariant holds — not a proof about the specific call,
+or cache hit, inside the parent's run): the core run under that
 run (`synthesizeCombinational_design`: the full entry changes only the
 module named after the top), the child's own closing (`closeInsts_acyclic` /
 `closeInstsG_acyclic`: the child's module and design do not instantiate it),
 and the parent's closing (every module of the child's design resolves in the
 parent's design to itself) give `ExtendsAway` and `NoInstOf`; the child's
-boundary, depending on the contexts only, is supplied. -/
+boundary is supplied for every start world where `ChildBnd` holds, and the
+child's run starts in one (`RealChild.bnd`). -/
 namespace Tools.ShippingMachineDepthRun
 open Lean hiding Module Expr
 open Sparkle.IR.AST Sparkle.IR.Semantics Sparkle.Compiler.Elab
@@ -39,7 +40,7 @@ def MachineRunNC (c : Name) (shape : MachineShape) (Bnd : Tools.ShippingMachineS
     (cref : ST.Ref IO.RealWorld Core.State) (w w' : Void IO.RealWorld) (raw : Module) (D : Design),
     RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (raw, D) w' ∧
     MachineDefines mctx mref cctx cref c shape ∧ MachineCloses mctx mref cctx cref c shape ∧
-    Bnd mctx mref cctx cref raw D ∧
+    Bnd mctx mref cctx cref w raw D ∧
     (mc = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨
       mc = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)) ∧
     ExtendsAway raw.name (childMap D.modules) (childMap dsn.modules) ∧
@@ -125,7 +126,7 @@ theorem seqChildRunN_of_composedC (n : Nat) {c : Name} {d : MachineData} {kD : N
       {m : Module} {design : Design},
       RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (m, design) w' →
       MachineDefines mctx mref cctx cref c d.shape → MachineCloses mctx mref cctx cref c d.shape →
-      Bnd mctx mref cctx cref m design → ComposedNW n c d kD m design dom src ext extB)
+      Bnd mctx mref cctx cref w m design → ComposedNW n c d kD m design dom src ext extB)
     (houtTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
     (houtOk : ∀ o ∈ d.shape.layout.outs, outNameOk o.name = true)
     (hsl : d.shape.layout.slots ≠ [])
@@ -231,7 +232,7 @@ theorem moduleByName_mem {ms : List Module} {nm : String} {mc : Module}
 /-- **The depth conditions from a run witness.** The module of a run of
 `c`'s entry in the parent's contexts — one the parent's closing found, so
 every module of its design resolves in the parent's design to itself — with
-`c`'s reflection facts, `ChildSynthIs` and `c`'s boundary (a fact of the
+`c`'s reflection facts, `ChildBnd` and `c`'s boundary (a fact of the
 contexts) satisfies `MachineRunNC`: the core run under it, its boundary, the
 post-processing, `ExtendsAway` (from the parent's closing and the full
 entry's changing only the top module) and `NoInstOf` (from `c`'s own
@@ -240,24 +241,25 @@ theorem machineRunNC_of_real {c : Name} {shape : MachineShape}
     {Bnd : Tools.ShippingMachineShipsHier.CtxBnd} {mc : Module} {Dc dsn : Design}
     {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
     {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
-    (hreal : Tools.ShippingChildSynth.RealChild mctx mref cctx cref c (mc, Dc))
+    (hreal : Tools.ShippingChildInv.RealChild mctx mref cctx cref c (mc, Dc))
     (hcons : ∀ g ∈ Dc.modules, moduleByName dsn.modules g.name = some g)
     (entry : MachineDefines mctx mref cctx cref c shape)
     (closes : MachineCloses mctx mref cctx cref c shape)
-    (hsyn : Tools.ShippingChildSynth.ChildSynthIs mctx mref cctx cref) (hi : shape.insts ≠ [])
-    (hB : ∀ raw D, Bnd mctx mref cctx cref raw D) :
+    (hL : Tools.ShippingChildInv.ChildLaws mctx mref cctx cref) (hi : shape.insts ≠ [])
+    (hB : ∀ w raw D, Tools.ShippingChildInv.ChildBnd mctx mref cctx cref w →
+      Bnd mctx mref cctx cref w raw D) :
     MachineRunNC c shape Bnd mc dsn := by
-  obtain ⟨w, w', hrun⟩ := hreal
+  obtain ⟨w, w', hb, hrun⟩ := hreal.bnd hL
   obtain ⟨raw, D, w1, hcore, hpost, hagree⟩ := synthesizeCombinational_design hrun
   obtain ⟨t, t', d₀, children, _, hcc, _⟩ :=
-    Tools.ShippingChildSynth.machine_children_real hcore entry closes hsyn hi
+    Tools.ShippingChildInv.machine_children_real hcore entry closes hb hi
   have acyc : NoInstOf raw.name raw.body ∧ ∀ g ∈ D.modules, NoInstOf raw.name g.body := by
     rcases hcc with ⟨_, h⟩ | ⟨_, h, _⟩
     · obtain ⟨_, h1, h2, _⟩ := Tools.ShippingChildServe.closeInsts_acyclic h
       exact ⟨h1, h2⟩
     · obtain ⟨_, h1, h2⟩ := Tools.ShippingChildServe.closeInstsG_acyclic h
       exact ⟨h1, h2⟩
-  refine ⟨mctx, mref, cctx, cref, w, w1, raw, D, hcore, entry, closes, hB raw D, hpost, ⟨?_, ?_⟩,
+  refine ⟨mctx, mref, cctx, cref, w, w1, raw, D, hcore, entry, closes, hB w raw D hb, hpost, ⟨?_, ?_⟩,
     acyc.1⟩
   · intro x r hx hD
     obtain ⟨g, hg, rfl⟩ := childMap_some.mp hD

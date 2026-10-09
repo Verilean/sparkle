@@ -1,14 +1,14 @@
 import Tools.ShippingMachineSeqCommand
 import Tools.ShippingMachineSeqLinkedR
 import Tools.ShippingMachineCallsLinkedTR
-import Tools.ShippingChildCache
+import Tools.ShippingChildInv
 import Tools.ShippingMachineShipsHierCommand
 import Tools.ShippingShipsDesignSVCommand
 
 /-! # Generated composition, the child-run boundary derived
 
 `#machine_composedTSR f`: as `#machine_composedTS`, from the wired endpoint
-carrying `ServedReal` (the `R` heads, under `ChildSynthIs`), through
+carrying `ServedReal` (the `R` heads, under `ChildBnd`), through
 `machine_linkedT_callsR`: per sequential call the CHILD's own theorem on any
 run of its entry (`c.seq_child_run`), and the children's reflection facts in
 the parent's contexts as one premise (`hrefl`). No `BoundaryOf` premise. -/
@@ -23,7 +23,7 @@ def generateCoreSR (declName : Name) : MetaM Name := do
   let r ← readMachine declName
   if r.shape.insts.isEmpty then throwError "{declName}: no call"
   let (headL, args, back?) ← endpointParts declName
-  -- the head carrying `ServedReal` (under `ChildSynthIs`)
+  -- the head carrying `ServedReal` (under `ChildBnd`)
   let pL := mkAppN (mkConst (headL.appendAfter "R")) args
   let calls := r.shape.insts
   let seqKids := ((calls.map (·.1)).eraseDups.filter fun c =>
@@ -229,12 +229,10 @@ def generateCoreSR (declName : Name) : MetaM Name := do
   let hreflT := (← whnf (← inferType p)).bindingDomain!
   withLocalDeclD `hrefl hreflT fun hrefl => do
   let p := mkApp p hrefl
-  -- `ChildSynthIs` from the ref's content and the cache's reads
+  -- the child boundary of the run (`ChildBnd`: the laws and the invariant in
+  -- the run's start world)
   let hsyn := xs.back!
-  let splitT ← Tools.ShippingChildCache.splitOf (← inferType hsyn)
-  withLocalDeclD `hsplit splitT fun hsplit => do
-  let p := p.replaceFVar hsyn (← Tools.ShippingChildCache.synOf hsplit)
-  let mut value ← mkLambdaFVars (xs.pop ++ #[hsplit, hrefl]) p
+  let mut value ← mkLambdaFVars (xs.pop ++ #[hsyn, hrefl]) p
   if let some (heq, srcN) := back? then
     let T ← inferType value
     let motT ← kabstract T srcN
@@ -260,10 +258,10 @@ open Lean.Elab.Command in
 elab "#machine_composedTSR " d:ident : command => do
   let declName ← liftCoreM <| realizeGlobalConstNoOverloadWithInfo d
   let name ← liftTermElabM (generateSR declName)
-  logInfo m!"{name}: the stateful linked run, its sequential children's instances derived to be runs of their entries (ChildSynthIs), shows the source, checked by the kernel"
+  logInfo m!"{name}: the stateful linked run, its sequential children's instances derived to be runs of their entries (ChildBnd), shows the source, checked by the kernel"
 
 /-- `f.machine_ships_hierR`: `machine_ships_hier` from `f.machine_composedTR`;
-its run boundary `Bnd` is `ChildSynthIs` and the children's reflection facts,
+its run boundary `Bnd` is `ChildBnd` and the children's reflection facts,
 in the run's contexts. -/
 def generateShipsR (declName : Name) : MetaM Name := do
   let _ ← generateSR declName
@@ -283,6 +281,6 @@ elab "#machine_design_svR0 " d:ident : command => do
     withOptions (fun o => maxRecDepth.set (Lean.Elab.async.set o false) 1000000) <|
       withTheReader Core.Context (fun c => { c with maxRecDepth := 1000000 })
         (generateDesignR0 declName)
-  logInfo m!"{name}: source → shipped design's closed emitted texts, the child-run boundary derived (RefIs + CacheReads + the children's reflection), checked by the kernel"
+  logInfo m!"{name}: source → shipped design's closed emitted texts, the child-run boundary derived (ChildBnd at the run's start world + the children's reflection), checked by the kernel"
 
 end Tools.ShippingMachineSeqCommand

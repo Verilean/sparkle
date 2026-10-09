@@ -1,14 +1,14 @@
 import Tools.ShippingMachineDepthH
 import Tools.ShippingMachineComposeR
 import Tools.ShippingMachineDepthRunR
-import Tools.ShippingChildCache
+import Tools.ShippingChildInv
 
 /-! # A child with one-output combinational calls, at depth 0, the boundary derived
 
 `composedN0_of_H` turns a combinational parent's composed theorem into the
 depth-0 form a parent of it composes, given `BndH` — the calls' premise and
 `kidsComb` of the run. With the derived composed theorem
-(`machine_composedR`: no calls' premise, `ChildSynthIs` and reflection facts
+(`machine_composedR`: no calls' premise, `ChildBnd` and reflection facts
 in the run's contexts), `BoundH` is trivial, and `kidsComb` of the run comes
 from the run itself: its closing CHECKS it (`kidsCombB`, `closeInsts_kidsComb`). -/
 namespace Tools.ShippingMachineDepthHR
@@ -58,7 +58,7 @@ theorem composedN0_of_HR {declName : Name} {d : MachineData} {kD : Nat} {ι : Ty
       RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (m, design) w' →
       MachineDefines mctx mref cctx cref declName d.shape →
       MachineCloses mctx mref cctx cref declName d.shape →
-      Tools.ShippingChildSynth.ChildSynthIs mctx mref cctx cref ∧ Rest mctx mref cctx cref →
+      Tools.ShippingChildInv.ChildBnd mctx mref cctx cref w ∧ Rest mctx mref cctx cref →
       Tools.ShippingMachineShipsHierH.ComposedH (fun _ _ => True) declName d kD m design dom src ext) :
     ∀ {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
       {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
@@ -66,13 +66,13 @@ theorem composedN0_of_HR {declName : Name} {d : MachineData} {kD : Nat} {ι : Ty
       RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (m, design) w' →
       MachineDefines mctx mref cctx cref declName d.shape →
       MachineCloses mctx mref cctx cref declName d.shape →
-      Tools.ShippingChildSynth.ChildSynthIs mctx mref cctx cref ∧ Rest mctx mref cctx cref →
+      Tools.ShippingChildInv.ChildBnd mctx mref cctx cref w ∧ Rest mctx mref cctx cref →
       Tools.ShippingMachineDepthRun.ComposedNW 0 declName d kD m design dom src ext
         (fun _ bools _ => bools) := by
   intro mctx mref cctx cref w w' m design hr entry closes hb
   have hC := composed hr entry closes hb
   obtain ⟨t, t', d₀, children, _, hcc, _⟩ :=
-    Tools.ShippingChildSynth.machine_children_real hr entry closes hb.1 hi
+    Tools.ShippingChildInv.machine_children_real hr entry closes hb.1 hi
   have hcomb : Tools.ShippingMachineDepthH.kidsComb design.modules m.body = true := by
     rcases hcc with ⟨_, h⟩ | ⟨hfe, _, _⟩
     · exact kidsComb_of_B (Tools.ShippingChildServe.closeInsts_kidsComb h)
@@ -249,8 +249,7 @@ theorem composedNn_of_HR (n : Nat) {declName : Name} {d : MachineData} {kD : Nat
       RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (m, design) w' →
       MachineDefines mctx mref cctx cref declName d.shape →
       MachineCloses mctx mref cctx cref declName d.shape →
-      (Tools.ShippingChildCache.RefIs mctx mref cctx cref ∧
-        Tools.ShippingChildCache.CacheReads mctx mref cctx cref) ∧ Rest mctx mref cctx cref →
+      Tools.ShippingChildInv.ChildBnd mctx mref cctx cref w ∧ Rest mctx mref cctx cref →
       Tools.ShippingMachineShipsHierH.ComposedH (fun _ _ => True) declName d kD m design dom src ext) :
     ∀ {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
       {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
@@ -258,15 +257,14 @@ theorem composedNn_of_HR (n : Nat) {declName : Name} {d : MachineData} {kD : Nat
       RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (m, design) w' →
       MachineDefines mctx mref cctx cref declName d.shape →
       MachineCloses mctx mref cctx cref declName d.shape →
-      (Tools.ShippingChildCache.RefIs mctx mref cctx cref ∧
-        Tools.ShippingChildCache.CacheReads mctx mref cctx cref) ∧ Rest mctx mref cctx cref →
+      Tools.ShippingChildInv.ChildBnd mctx mref cctx cref w ∧ Rest mctx mref cctx cref →
       Tools.ShippingMachineDepthRun.ComposedNW n declName d kD m design dom src ext
         (fun _ bools _ => bools) := by
   intro mctx mref cctx cref w w' m design hr entry closes hb
   have hC := composed hr entry closes hb
   obtain ⟨t, t', d₀, children, _, hcc, _⟩ :=
-    Tools.ShippingChildSynth.machine_children_real hr entry closes
-      (Tools.ShippingChildCache.childSynthIs_of hb.1.1 hb.1.2) hi
+    Tools.ShippingChildInv.machine_children_real hr entry closes
+      hb.1 hi
   have hcomb : Tools.ShippingMachineDepthH.kidsComb design.modules m.body = true := by
     rcases hcc with ⟨_, h⟩ | ⟨hfe, _, _⟩
     · exact kidsComb_of_B (Tools.ShippingChildServe.closeInsts_kidsComb h)

@@ -1,7 +1,7 @@
 import Tools.ShippingMachineLinkedCommand
 import Tools.ShippingGateChildCommand
 import Tools.ShippingMachineComposeR
-import Tools.ShippingChildCache
+import Tools.ShippingChildInv
 import Tools.ShippingMachineNestR
 import Tools.ShippingMachineTeleNestR
 import Tools.ShippingMachineShipsHierHCommand
@@ -11,11 +11,11 @@ import Tools.ShippingShipsDesignSVCommand
 /-! # `#machine_design_svHR f`: combinational children, the run boundary derived
 
 `f.machine_composedR`: `machine_linked_callsR` from the endpoint carrying
-`ServedReal` (the `data_ext` R head, under `ChildSynthIs`), each call's
+`ServedReal` (the `data_ext` R head, under `ChildBnd`), each call's
 `ChildFn` from its child's own theorem (`c.gate_linked` / `c.child_linked`) on
 the run that `ServedReal` gives for the instance serving the call, with the
 child's reflection fact (`EntryDefines` / `MachineDefines`+`MachineCloses`).
-Its premise: `ChildSynthIs` and those reflection facts, in the run's
+Its premise: `ChildBnd` and those reflection facts, in the run's
 contexts — no premise about the calls' modules (`GateRun` / `MachineRun` /
 `BoundH`). Then `f.machine_ships_hierHR` (`machine_ships_hierH` with the
 trivial `R` and that premise as `Bnd`) and `f.machine_design_svHR`. -/
@@ -232,9 +232,9 @@ def generateComposedRCore (declName : Name) : MetaM Name := do
     let hRS : Term := ⟨mkIdent (Name.mkSimple s!"hR{j}")⟩
     let lem := mkIdent (`_root_ ++ c ++ (if gateOf.getD c true then `gate_linked else `child_linked))
     let tac ← if gateOf.getD c true then
-        `(tactic| (exact ⟨rfl, fun mc Dc w w' hrun => $lem mc ⟨_, _, _, _, w, w', Dc, hrun, $hRS⟩⟩))
+        `(tactic| (exact ⟨rfl, fun mc Dc w w' _ hrun => $lem mc ⟨_, _, _, _, w, w', Dc, hrun, $hRS⟩⟩))
       else
-        `(tactic| (exact ⟨rfl, fun mc Dc w w' hrun => $lem mc ⟨_, _, _, _, w, w', Dc, hrun, ($hRS).1, ($hRS).2⟩⟩))
+        `(tactic| (exact ⟨rfl, fun mc Dc w w' _ hrun => $lem mc ⟨_, _, _, _, w, w', Dc, hrun, ($hRS).1, ($hRS).2⟩⟩))
     perR := perR.push (← proveByTactic goalK tac)
   let nameT := mkConst ``Name
   let QmR (m : Nat) : MetaM Lean.Expr :=
@@ -250,12 +250,12 @@ def generateComposedRCore (declName : Name) : MetaM Name := do
     chain ← mkAppOptM ``Tools.ShippingMachineChild.forall_getElem?_cons
       #[nameT, ← QmR m, toExpr names[m]!, rest', perR[m]!, chain]
   let p := mkApp p chain
-  -- the run boundary: `ChildSynthIs` and the children's reflection facts, bundled
-  let bTypes := (← Tools.ShippingChildCache.splitOf (← inferType hsyn)) :: rTypes
+  -- the run boundary: `ChildBnd` and the children's reflection facts, bundled
+  let bTypes := (← inferType hsyn) :: rTypes
   let bnd ← Tools.ShippingMachineShipsHierCommand.conj bTypes
   let value ← withLocalDeclD `hBnd bnd fun hBnd => do
     let ps ← Tools.ShippingMachineShipsHierCommand.projs hBnd bTypes
-    let p' := p.replaceFVars (#[hsyn] ++ hRs) ((← Tools.ShippingChildCache.synOf ps.head!) :: ps.tail).toArray
+    let p' := p.replaceFVars (#[hsyn] ++ hRs) ps.toArray
     mkLambdaFVars (xs.pop ++ #[hBnd]) p'
   progress s!"{name}: checking"
   addTheorem name (← inferType value) value
@@ -287,7 +287,7 @@ def generateShipsHR (declName : Name) : MetaM Name := do
   let cT := mkConst cR
   forallTelescope (← inferType cT) fun ys _ => do
     unless ys.size == 12 do throwError "{declName}: the composed theorem's binders ({ys.size})"
-    let Bnd ← mkLambdaFVars #[ys[0]!, ys[1]!, ys[2]!, ys[3]!, ys[6]!, ys[7]!] (← inferType ys[11]!)
+    let Bnd ← mkLambdaFVars #[ys[0]!, ys[1]!, ys[2]!, ys[3]!, ys[4]!, ys[6]!, ys[7]!] (← inferType ys[11]!)
     let trueR ← withLocalDeclD `k (mkConst ``Nat) fun k =>
       withLocalDeclD `mc (mkConst ``Sparkle.IR.AST.Module) fun mc => mkLambdaFVars #[k, mc] (mkConst ``True)
     let thm ← mkAppOptM ``Tools.ShippingMachineShipsHierH.machine_ships_hierH
@@ -330,6 +330,6 @@ elab "#machine_design_svHR " d:ident : command => do
     withOptions (fun o => maxRecDepth.set (Lean.Elab.async.set o false) 1000000) <|
       withTheReader Core.Context (fun c => { c with maxRecDepth := 1000000 })
         (generateDesignHR declName)
-  logInfo m!"{name}: source → shipped design's closed emitted texts, combinational children, the run boundary derived (RefIs + CacheReads + the children's reflection), checked by the kernel"
+  logInfo m!"{name}: source → shipped design's closed emitted texts, combinational children, the run boundary derived (ChildBnd at the run's start world + the children's reflection), checked by the kernel"
 
 end Tools.ShippingMachineComposeRCommand

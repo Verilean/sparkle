@@ -61,7 +61,7 @@ def generateWith (declName cName shipsName : Name) : MetaM Name := do
     let design := ys[7]!
     let bTys ← hBs.mapM inferType
     let bnd ← conj bTys
-    let Bnd ← mkLambdaFVars #[ys[0]!, ys[1]!, ys[2]!, ys[3]!, m, design] bnd
+    let Bnd ← mkLambdaFVars #[ys[0]!, ys[1]!, ys[2]!, ys[3]!, ys[4]!, m, design] bnd
     let memF ← mkAppM ``Tools.ConeFold.memFree #[← mkAppM ``Sparkle.IR.AST.Module.body #[m]]
     -- the one-level step with sequential children, or memory reads only
     let (composed, reset) ← withLocalDeclD `hBnd bnd fun hBnd => withLocalDeclD `hm memF fun hm => do

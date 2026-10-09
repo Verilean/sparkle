@@ -9,7 +9,7 @@ instance module of the parent satisfying `InstOfCall` is a run of the call's
 child — `InstOfCall` does not bind the call index, so for a parent with two
 different children (or a child next to a memory) that premise is false. Here
 the instance is the one whose output wires are the call's ports, and that it
-is a run of the call's child is DERIVED (`ServedReal`, under `ChildSynthIs`);
+is a run of the call's child is DERIVED (`ServedReal`, under `ChildBnd`);
 what remains per child is its own theorem and its reflection facts. -/
 namespace Tools.ShippingMachineCallsLinkedTR
 open Lean hiding Module Expr
@@ -189,7 +189,7 @@ open Sparkle.IR.Machine Sparkle.Compiler.Elab in
 composed with its children — the child-run boundary derived.** As
 `machine_linkedT_calls`, from the endpoint carrying `ServedReal` (the run's
 instances serving the calls are runs of the calls' children, from
-`ChildSynthIs`): the per-call premise is the CHILD's own theorem for runs of its
+`ChildBnd`): the per-call premise is the CHILD's own theorem for runs of its
 entry (`SeqFactsR`) and the children's reflection facts — no premise about the
 parent's instances (`BoundaryOf`). -/
 theorem machine_linkedT_callsR {declName : Name} {d : MachineData} {m : Module} {dsn : Design}
@@ -272,7 +272,7 @@ theorem machine_linkedT_callsR {declName : Name} {d : MachineData} {m : Module} 
         rcases hx.1 hfe k hk mc iname argWs outs outWs hst hout hke hmod with ⟨md, hmd, _⟩ | ⟨Dc, hrc, hcons⟩
         · rw [hck, hnone] at hmd; cases hmd
         · rw [hck] at hrc
-          obtain ⟨w, w', hrun⟩ := hrc
+          obtain ⟨w, w', _, hrun⟩ := hrc.inv
           obtain ⟨hdef, hcl⟩ := hrefl k c hc hnone
           exact ⟨mctx, mref, cctx, cref, w, w', Dc, hrun, hdef, hcl⟩)
       (hcalls i bools bits))

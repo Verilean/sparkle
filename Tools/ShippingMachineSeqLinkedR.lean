@@ -7,7 +7,7 @@ The three heads of the wired endpoint (`machine_traceL_of_loop_causal`,
 `_of_comb_calls`, `_of_data_causal`) with the endpoint carrying `ServedReal`
 for the run's ids — the instance serving each call is the built memory module
 or a result of the real entry on the call's declaration — under
-`ChildSynthIs` (`machine_trace_lets_of_streamBR`). The proofs are the heads'
+`ChildBnd` (`machine_trace_lets_of_streamBR`). The proofs are the heads'
 own, the stream lemma replaced. -/
 namespace Tools.ShippingMachineCausal
 open Lean Sparkle.Compiler.Elab Sparkle.IR.Semantics Sparkle.IR.Machine
@@ -80,7 +80,7 @@ theorem machine_traceL_of_loop_causalR {declName : Name} (d : MachineData) {ι :
       (m, design) w')
     (entry : MachineDefines mctx mref cctx cref declName d.shape)
     (closes : MachineCloses mctx mref cctx cref declName d.shape)
-    (hsyn : Tools.ShippingChildSynth.ChildSynthIs mctx mref cctx cref) :
+    (hsyn : Tools.ShippingChildInv.ChildBnd mctx mref cctx cref w) :
     MachineTraceLBX (ServedReal mctx mref cctx cref declName d.shape m design) declName d m design dom src
       (fun i bools bits => ext i bools bits (Signal.loop (f i bools bits)))
       (fun i bools bits => extB i bools bits (Signal.loop (f i bools bits)))
@@ -151,7 +151,7 @@ theorem machine_traceL_of_comb_callsR {declName : Name} (d : MachineData) {ι : 
       (m, design) w')
     (entry : MachineDefines mctx mref cctx cref declName d.shape)
     (closes : MachineCloses mctx mref cctx cref declName d.shape)
-    (hsyn : Tools.ShippingChildSynth.ChildSynthIs mctx mref cctx cref) :
+    (hsyn : Tools.ShippingChildInv.ChildBnd mctx mref cctx cref w) :
     MachineTraceLBX (ServedReal mctx mref cctx cref declName d.shape m design) declName d m design dom src ext extB (letObsComb d dom inits ext extB) := by
   refine machine_trace_lets_of_streamBR d dom inits src (letObsComb d dom inits ext extB) ok hbody
     hinit ext extB ?_ hr entry closes hsyn
@@ -223,7 +223,7 @@ theorem machine_traceL_of_data_causalR {declName : Name} (d : MachineData) {ι :
       (m, design) w')
     (entry : MachineDefines mctx mref cctx cref declName d.shape)
     (closes : MachineCloses mctx mref cctx cref declName d.shape)
-    (hsyn : Tools.ShippingChildSynth.ChildSynthIs mctx mref cctx cref) :
+    (hsyn : Tools.ShippingChildInv.ChildBnd mctx mref cctx cref w) :
     MachineTraceLBX (ServedReal mctx mref cctx cref declName d.shape m design) declName d m design dom src
       (fun i bools bits => ext i bools bits (stateLoop inits (body i bools bits)))
       (fun i bools bits => extB i bools bits (stateLoop inits (body i bools bits)))

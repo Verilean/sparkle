@@ -144,14 +144,15 @@ def ComposedG {σ : Type} (KS : Design → KStep σ)
           d.shape.layout.outs[k]? = some o → (src i bools bits)[k]? = some f →
           (envs[j]'hj) o.name = f j
 
-/-- A run boundary that may depend on the run's contexts (the boundary
-`ChildSynthIs` and the children's reflection facts do). -/
+/-- A run boundary that may depend on the run's contexts and its start world
+(the child boundary `ChildBnd` — the laws, and the cache invariant in the
+start world — and the children's reflection facts do). -/
 abbrev CtxBnd : Type :=
   Meta.Context → ST.Ref IO.RealWorld Meta.State → Core.Context → ST.Ref IO.RealWorld Core.State →
-    Sparkle.IR.AST.Module → Design → Prop
+    Void IO.RealWorld → Sparkle.IR.AST.Module → Design → Prop
 
 /-- A boundary of the run's modules alone. -/
-abbrev ctxFree (B : Sparkle.IR.AST.Module → Design → Prop) : CtxBnd := fun _ _ _ _ m D => B m D
+abbrev ctxFree (B : Sparkle.IR.AST.Module → Design → Prop) : CtxBnd := fun _ _ _ _ _ m D => B m D
 
 /-- **A machine with instances, at the full entry and the optimizer.** From
 its wired endpoint (`soundL`, for the cleanup facts) and its composed theorem
@@ -200,7 +201,7 @@ theorem machine_ships_hier {σ : Type} (KS : Design → KStep σ) (hloc : ∀ D,
         (m, design) w' →
       MachineDefines mctx mref cctx cref declName d.shape →
       MachineCloses mctx mref cctx cref declName d.shape →
-      Bnd mctx mref cctx cref m design → Tools.ConeFold.memFree m.body →
+      Bnd mctx mref cctx cref w m design → Tools.ConeFold.memFree m.body →
       ComposedG KS Reset declName d kD m design dom src ext extB)
     (houtTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
     {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
@@ -219,7 +220,7 @@ theorem machine_ships_hier {σ : Type} (KS : Design → KStep σ) (hloc : ∀ D,
        -- well-formedness comes from its wiring
        Tools.ShippingHierPremisesBase.shipsHierCheck (childMap D.modules) b = true →
         -- the run boundary of the children (in the run's contexts)
-        Bnd mctx mref cctx cref raw D →
+        Bnd mctx mref cctx cref w raw D →
         -- the children's outputs within their ports' widths
         Bd b D →
         ∃ ids : List FVarId, ids.Nodup ∧ ids.length = d.shape.binders.length ∧

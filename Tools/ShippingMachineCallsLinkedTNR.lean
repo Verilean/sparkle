@@ -194,7 +194,7 @@ open Sparkle.IR.Machine Sparkle.Compiler.Elab in
 /-- **Memory and sequential children at depth `n`, the instance binding
 derived.** `machine_linkedT_callsN` from the endpoint carrying `ServedReal`: the
 instance serving a sequential call is a run of the call's entry (under
-`ChildSynthIs`), so the per-child premise is that every run of the child's
+`ChildBnd`), so the per-child premise is that every run of the child's
 entry in the parent's contexts satisfies the child's predicate (`hrunN`;
 `MachineRun` for a child without calls — from its reflection facts —, or
 `MachineRunNC`: derived from that run — `machineRunNC_of_real`), given the
@@ -238,6 +238,7 @@ theorem machine_linkedT_callsRN (n : Nat) {declName : Name} {d : MachineData} {m
     (hrunN : ∀ (k : Nat) (c : Name), (d.shape.insts.map (·.1))[k]? = some c →
       Sparkle.Compiler.MachMemory.memChild? c = none →
       ∀ (mc : Module) (Dc : Design) (w w' : Void IO.RealWorld),
+        Tools.ShippingChildInv.InvW mctx mref cctx cref w →
         Tools.ShippingEntrySoundness.RunsTo (Sparkle.Compiler.Elab.synthesizeCombinational c)
           mctx mref cctx cref w (mc, Dc) w' →
         (∀ g ∈ Dc.modules, moduleByName dsn.modules g.name = some g) →
@@ -284,8 +285,8 @@ theorem machine_linkedT_callsRN (n : Nat) {declName : Name} {d : MachineData} {m
         rcases hx.1 hfe k hk mc iname argWs outs outWs hst hout hke hmod with ⟨md, hmd, _⟩ | ⟨Dc, hrc, hcons⟩
         · rw [hck, hnone] at hmd; cases hmd
         · rw [hck] at hrc
-          obtain ⟨w, w', hrun⟩ := hrc
-          exact hrunN k c hc hnone mc Dc w w' hrun hcons hmod)
+          obtain ⟨w, w', hw, hrun⟩ := hrc.inv
+          exact hrunN k c hc hnone mc Dc w w' hw hrun hcons hmod)
       (hcalls i bools bits))
 
 end Tools.ShippingMachineCallsLinkedTNR

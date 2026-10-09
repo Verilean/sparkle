@@ -15,7 +15,8 @@ open Lean Meta Elab
 open Tools.ShippingMachineLinkedCommand (addTheorem)
 
 /-- A run boundary in the run's contexts (`CtxBnd`) at the shipping theorem's
-own context binders `xs`, as a predicate of the core module and design. -/
+own context binders `xs` and the run's start world, as a predicate of the core
+module and design. -/
 def bndAt (ships : Name) (xs : Array Lean.Expr) (bnd : Lean.Expr) : MetaM Lean.Expr := do
   let ctxOf (n : Name) : MetaM Lean.Expr := do
     for x in xs do
@@ -30,9 +31,14 @@ def bndAt (ships : Name) (xs : Array Lean.Expr) (bnd : Lean.Expr) : MetaM Lean.E
     throwError "{ships}: no reference to {st}"
   let mref ← refOf ``Lean.Meta.State
   let cref ← refOf ``Lean.Core.State
+  -- the run's start world: the first world binder
+  let mut w? : Option Lean.Expr := none
+  for x in xs do
+    if w?.isNone && (← whnfR (← inferType x)).isAppOf ``Void then w? := some x
+  let some w := w? | throwError "{ships}: no world binder"
   withLocalDeclD `raw (mkConst ``Sparkle.IR.AST.Module) fun raw =>
     withLocalDeclD `D (mkConst ``Sparkle.IR.AST.Design) fun D =>
-      mkLambdaFVars #[raw, D] (mkAppN bnd #[mctx, mref, cctx, cref, raw, D]).headBeta
+      mkLambdaFVars #[raw, D] (mkAppN bnd #[mctx, mref, cctx, cref, w, raw, D]).headBeta
 
 /-- `ships_design_svN n` applied to a generated shipping theorem `ships`
 (`machine_ships_hier` at depth 0 — `KS = flatKS = KSn _ 0` — or

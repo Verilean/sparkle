@@ -100,7 +100,7 @@ theorem machine_ships_hierH (R : Nat → Sparkle.IR.AST.Module → Prop)
         (m, design) w' →
       MachineDefines mctx mref cctx cref declName d.shape →
       MachineCloses mctx mref cctx cref declName d.shape →
-      Bnd mctx mref cctx cref m design →
+      Bnd mctx mref cctx cref w m design →
       ComposedH R declName d kD m design dom src ext)
     (houtTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
     {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
@@ -116,7 +116,7 @@ theorem machine_ships_hierH (R : Nat → Sparkle.IR.AST.Module → Prop)
        -- the core body's linked well-formedness comes from its wiring
        Tools.ShippingHierPremises.shipsHierHCheck D.modules b = true →
         -- the run boundary, in the run's contexts
-        Bnd mctx mref cctx cref raw D →
+        Bnd mctx mref cctx cref w raw D →
         ∃ ids : List FVarId, ids.Nodup ∧ ids.length = d.shape.binders.length ∧
         ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
           regs.Nodup ∧ regs.length = d.ss.length ∧
@@ -223,7 +223,7 @@ theorem composedH_true {R : Nat → Sparkle.IR.AST.Module → Prop} {declName : 
         (m, design) w' →
       MachineDefines mctx mref cctx cref declName d.shape →
       MachineCloses mctx mref cctx cref declName d.shape →
-      ctxFree (fun _ _ => True) mctx mref cctx cref m design →
+      ctxFree (fun _ _ => True) mctx mref cctx cref w m design →
       ComposedH R declName d kD m design dom src ext :=
   fun hr entry closes _ => composed hr entry closes
 

@@ -1,7 +1,7 @@
 import Tools.ShippingMachineTeleNest
 import Tools.ShippingMachineTraceX
 
-/-! `machine_traceL_of_tele_ext` carrying `ServedReal` (under `ChildSynthIs`): the proof is the
+/-! `machine_traceL_of_tele_ext` carrying `ServedReal` (under `ChildBnd`): the proof is the
 head's own, the stream lemma replaced (`machine_trace_lets_of_streamBR`). -/
 namespace Tools.ShippingMachineTeleNest
 open Lean Sparkle.Compiler.Elab Sparkle.IR.Semantics Sparkle.IR.Machine
@@ -84,7 +84,7 @@ theorem machine_traceL_of_tele_extR {declName : Name} (d : MachineData)
       (m, design) w')
     (entry : MachineDefines mctx mref cctx cref declName d.shape)
     (closes : MachineCloses mctx mref cctx cref declName d.shape)
-    (hsyn : Tools.ShippingChildSynth.ChildSynthIs mctx mref cctx cref) :
+    (hsyn : Tools.ShippingChildInv.ChildBnd mctx mref cctx cref w) :
     MachineTraceLBX (ServedReal mctx mref cctx cref declName d.shape m design) declName d m design dom src (fun i bools bits =>
       ext i bools bits (stateLoop inits (Tools.ShippingMachineTele.fusedBody (l.at i bools bits) (body i bools bits)))
         (Tele.loops (regsOf (tys ss₂)

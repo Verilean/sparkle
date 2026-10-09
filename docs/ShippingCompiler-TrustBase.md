@@ -354,6 +354,66 @@ child's run — not a pre-miss snapshot), and the closings' children
 (`closeInstsGM_hoare` / `closeInstsM_hoare`). Not yet threaded to the
 endpoints (they still assume `RefIs ∧ CacheReads`).
 
+**The child boundary along the run (2026-10-11).** `RefIs ∧ CacheReads`
+(every read, in every world) is gone from every derived endpoint, replaced
+by `ChildBnd ctx w` at the world `w` the endpoint's run STARTS in
+(`Tools/ShippingChildInv.lean`; `ShippingChildSynth`, `ShippingChildCache`
+and `ShippingChildCacheRun` removed).
+
+- `RealChild c r` is now inductive: `r` is returned by a run of the real
+  entry on `c` that starts in a world where every cache entry read there is
+  itself a `RealChild` and the synthesis ref reads `synthesizeChild`. `InvW w`
+  states that by what reads IN `w` return.
+- `ChildBnd ctx w := ChildLaws ctx ∧ InvW ctx w`, and `ChildLaws` is:
+  - **generic runtime laws, a parameter (`Nonempty RefLaws`)**: the two refs'
+    values per world; `get`/`set`/`modify` of the cache and the read of the
+    synthesis ref; that the two reads can run; the frame of the entry
+    prefix's other operations — the twelve other per-synthesis refs
+    (`OtherRef`, made public in `Elab.lean` for this), the
+    `SPARKLE_PROFILE` read, the profile logger, `getConstInfo`, `getEnv`.
+    Nothing compiler-specific.
+  - **two scoped pre/post conditions, compiler-specific, NOT proved**:
+    `EntryHoare` (a run of the real entry from an `InvW` world ends in
+    one) and `HarnessHoare` (the same for the machine route's harness
+    `synthesizeMixedCertified`). Both reach the fuel fallback's `partial`
+    handlers, whose bodies the logic cannot see; the source's only cache
+    writers are the depth-0 clear and `synthesizeChild`, whose steps are
+    proved below. A failure caught inside those handlers is covered by
+    their being stated for the whole run (the proved steps resume after no
+    failure).
+- PROVED, standard axioms:
+  - the whole entry prefix keeps the invariant (`core_reads_inv`: profile
+    read and logger, depth read, snapshots, the depth-0 clear — which
+    establishes the cache half whatever was there — or the nested resets,
+    depth bump, `try`, `getConstInfo`, `getEnv`);
+  - the machine route's prefix (`synthesizeFromConst_machine_inv`);
+  - the memoised entry (`synthesizeChild_inv`: hit — the world's cache;
+    miss — the child's run from an invariant world, then the modify of the
+    cache as it is after that run);
+  - the closings (`closeInstsGM_inv` / `closeInstsM_inv`);
+  - the machine synthesis and `machine_children_real` from `ChildBnd` at
+    the parent run's start.
+- **Children.** A served child's `RealChild` yields its own run's start
+  world with `ChildBnd` (`RealChild.bnd`), so a child with calls gets its
+  boundary at its own start world (`machineRunNC_of_real`). `CtxBnd` gained
+  the start world; per-call premises over "every run of the child's entry"
+  now take the run's start-world `InvW`.
+- **Scope of the `Name` key.** A cached `RealChild c r` says `r` came from
+  SOME real run on `c` in these contexts, from an invariant world — not
+  that a fresh run in the current world (whose environment may differ)
+  returns it. Consumers use it only with the child's reflection facts,
+  which hold for every world of the contexts.
+- **Checked** (`ShippingChildBoundaryTest`):
+  - 20 derived endpoints (R0, NR at depths 1–3, HR) state `ChildBnd` at
+    their run's start world; every other `ChildBnd` occurrence is at a world
+    bound by a child's premise. No `ChildSynthIs` / `RefIs` / `CacheReads`
+    remains at any level. `ChildBnd` unfolds to `RefLaws` + `EntryHoare` +
+    `HarnessHoare` + `InvW`.
+  - On real compiles (`chained`, `callerTwice`, `seqMem`, `grandH`, `topD2`):
+    a child called twice is stored once; a nested compile stores the
+    grandchild; every cache entry equals a fresh top-level run of the entry
+    on its name.
+
 ## 3. Premises about a linked child
 
 The hierarchical statements speak about a parent whose instance
