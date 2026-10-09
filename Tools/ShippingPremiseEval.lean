@@ -301,8 +301,8 @@ def evalShipsHierSeq (declName : Name) (dep : Option Nat) : MetaM Verdict := do
                   Tools.ShippingMachineShipsDepth.kidsMaskedN D.modules o.body)
     | none => do
       match routeKind with
-      | .seq => pure ("depth 0, sequential children: Reset1, kidsMasked",
-                  Tools.ShippingMachineShipsHier.kidsMasked C b.body, Tools.ShippingMachineShipsHier.kidsMasked C o.body)
+      | .seq => pure ("depth 0, sequential children (memory reads among them): Reset1, kidsMixed",
+                  Tools.ShippingMachineShipsHier.kidsMixed C b.body, Tools.ShippingMachineShipsHier.kidsMixed C o.body)
       | .mem => pure ("depth 0, memory reads: ResetM, kidsMem",
                   Tools.ShippingMachineShipsHier.kidsMem C b.body, Tools.ShippingMachineShipsHier.kidsMem C o.body)
   let bnd ← evalBnd "" declName (dep.getD 0) raw D

@@ -31,7 +31,7 @@ def projs (h : Lean.Expr) : List Lean.Expr → MetaM (List Lean.Expr)
 shared by the generator and the premise evaluator: memory reads only
 (`machine_composedT` from the memory composition, `composedG_of_Tmem`,
 reset `ResetM`, bound `kidsMem`) or sequential children
-(`composedG_of_T`, `Reset1`, `kidsMasked`). The same test as the composed
+(`composedG_of_T`, `Reset1`, `kidsMixed`). The same test as the composed
 theorem's generator (`generateAny`). -/
 inductive HierRoute | seq | mem
   deriving BEq, Repr
@@ -41,14 +41,17 @@ def hierRoute (declName : Name) : MetaM HierRoute := do
   if r.shape.insts.all (fun (c, _, _) => (Tools.ShippingMachineMemCommand.memWidths? c).isSome)
   then return .mem else return .seq
 
-def generate (declName : Name) : MetaM Name := do
-  if (← getEnv).contains (declName ++ `machine_ships_hier) then return declName ++ `machine_ships_hier
+/-- `machine_ships_hier` from the composed theorem `cName` (its premises after
+the run's eleven binders become the run boundary `Bnd`, in the run's
+contexts), as `shipsName`. -/
+def generateWith (declName cName shipsName : Name) : MetaM Name := do
+  if (← getEnv).contains shipsName then return shipsName
   -- a transported endpoint: the wired twin of its untransported head serves
   -- the cleanup facts; the composed theorem is already transported
   let (headL, args, _) ← endpointParts declName
   let route ← hierRoute declName
   let soundL := mkAppN (mkConst headL) args
-  let cT := mkConst (declName ++ `machine_composedT)
+  let cT := mkConst cName
   let data := mkConst (declName ++ `machineData)
   forallTelescope (← inferType cT) fun ys _ => do
     unless ys.size ≥ 11 do throwError "{declName}: the composed theorem's binders"
@@ -58,7 +61,7 @@ def generate (declName : Name) : MetaM Name := do
     let design := ys[7]!
     let bTys ← hBs.mapM inferType
     let bnd ← conj bTys
-    let Bnd ← mkLambdaFVars #[m, design] bnd
+    let Bnd ← mkLambdaFVars #[ys[0]!, ys[1]!, ys[2]!, ys[3]!, m, design] bnd
     let memF ← mkAppM ``Tools.ConeFold.memFree #[← mkAppM ``Sparkle.IR.AST.Module.body #[m]]
     -- the one-level step with sequential children, or memory reads only
     let (composed, reset) ← withLocalDeclD `hBnd bnd fun hBnd => withLocalDeclD `hm memF fun hm => do
@@ -70,29 +73,28 @@ def generate (declName : Name) : MetaM Name := do
         | .mem => pure (← mkAppM ``Tools.ShippingMachineShipsHier.composedG_of_Tmem #[hC, hm],
             mkConst ``Tools.ShippingMachineShipsHier.ResetM)
       pure (← mkLambdaFVars (base ++ #[hBnd, hm]) inner, reset)
-    -- the children's output bound: decidable checks, `kidsMasked` for sequential
-    -- children, `kidsMem` for memory children (with the read-latch invariant)
+    -- the children's output bound: decidable checks, `kidsMixed` for sequential
+    -- children (memory children among them, instance by instance, with the
+    -- read-latch invariant `mixInv`), `kidsMem` for memory children only
     let modT := mkConst ``Sparkle.IR.AST.Module
     let desT := mkConst ``Sparkle.IR.AST.Design
     let isSeq := reset.isConstOf ``Tools.ShippingMachineShipsHier.Reset1
     let (Bd, hBd) ← withLocalDeclD `b modT fun b => withLocalDeclD `D desT fun D => do
       let cm ← mkAppM ``Tools.ShippingMachineLinked.childMap #[← mkAppM ``Sparkle.IR.AST.Design.modules #[D]]
       let body ← mkAppM ``Sparkle.IR.AST.Module.body #[b]
-      let chk := if isSeq then ``Tools.ShippingMachineShipsHier.kidsMasked
+      let chk := if isSeq then ``Tools.ShippingMachineShipsHier.kidsMixed
         else ``Tools.ShippingMachineShipsHier.kidsMem
-      let lem := if isSeq then ``Tools.ShippingMachineShipsHier.flatKS_boundedIn
+      let lem := if isSeq then ``Tools.ShippingMachineShipsHier.mixKS_boundedIn
         else ``Tools.ShippingMachineShipsHier.memKS_boundedIn
       let bd ← mkEq (← mkAppM chk #[cm, body]) (mkConst ``Bool.true)
       let Bd ← mkLambdaFVars #[b, D] bd
       let hBd ← withLocalDeclD `h bd fun h => do
         mkLambdaFVars #[b, D, h] (← mkAppM lem #[cm, body, h])
       pure (Bd, hBd)
-    let inv ← if isSeq then
-        withLocalDeclD `c modT fun c => withLocalDeclD `s (mkConst ``Tools.ShippingHierState.KidState) fun sv =>
-          mkLambdaFVars #[c, sv] (mkConst ``True)
-      else pure (mkConst ``Tools.ShippingMachineShipsHier.memInv)
-    let hRI ← if isSeq then mkAppM ``Tools.ShippingMachineShipsHier.true_inv #[reset]
-      else pure (mkConst ``Tools.ShippingMachineShipsHier.resetM_inv)
+    let inv := if isSeq then mkConst ``Tools.ShippingMachineShipsHier.mixInv
+      else mkConst ``Tools.ShippingMachineShipsHier.memInv
+    let hRI := if isSeq then mkConst ``Tools.ShippingMachineShipsHier.reset1_mixInv
+      else mkConst ``Tools.ShippingMachineShipsHier.resetM_inv
     let KS ← withLocalDeclD `D desT fun D =>
       mkLambdaFVars #[D] (mkConst ``Tools.ShippingHierStateG.flatKS)
     let hloc ← withLocalDeclD `D desT fun D =>
@@ -102,12 +104,15 @@ def generate (declName : Name) : MetaM Name := do
     let ty ← inferType thm
     let .forallE _ hT _ _ ← whnfR ty | throwError "{declName}: the output-width premise"
     let thm := mkApp thm (← mkExpectedTypeHint (← mkDecideProof hT) hT)
-    let name := declName ++ `machine_ships_hier
+    let name := shipsName
     addDecl (.thmDecl { name, levelParams := [], type := ← inferType thm, value := thm })
     for ax in ← Lean.collectAxioms name do
       unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do
         throwError "{name} uses a non-standard axiom: {ax}"
     return name
+
+def generate (declName : Name) : MetaM Name :=
+  generateWith declName (declName ++ `machine_composedT) (declName ++ `machine_ships_hier)
 
 elab "#machine_ships_hier " d:ident : command => do
   let declName ← Command.liftCoreM <| realizeGlobalConstNoOverloadWithInfo d

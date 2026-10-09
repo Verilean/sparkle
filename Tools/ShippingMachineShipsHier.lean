@@ -144,6 +144,15 @@ def ComposedG {σ : Type} (KS : Design → KStep σ)
           d.shape.layout.outs[k]? = some o → (src i bools bits)[k]? = some f →
           (envs[j]'hj) o.name = f j
 
+/-- A run boundary that may depend on the run's contexts (the boundary
+`ChildSynthIs` and the children's reflection facts do). -/
+abbrev CtxBnd : Type :=
+  Meta.Context → ST.Ref IO.RealWorld Meta.State → Core.Context → ST.Ref IO.RealWorld Core.State →
+    Sparkle.IR.AST.Module → Design → Prop
+
+/-- A boundary of the run's modules alone. -/
+abbrev ctxFree (B : Sparkle.IR.AST.Module → Design → Prop) : CtxBnd := fun _ _ _ _ m D => B m D
+
 /-- **A machine with instances, at the full entry and the optimizer.** From
 its wired endpoint (`soundL`, for the cleanup facts) and its composed theorem
 (`composed`), a run of the full entry returns a module `b` whose shipped
@@ -154,7 +163,7 @@ hold (decidable on the run's modules), and the children's steps keep their
 outputs within their ports' widths. -/
 theorem machine_ships_hier {σ : Type} (KS : Design → KStep σ) (hloc : ∀ D, KSLocal (KS D))
     (Reset : Sparkle.IR.AST.Module → Design → (String → σ) → Prop)
-    (Bnd : Sparkle.IR.AST.Module → Design → Prop)
+    (Bnd : CtxBnd)
     (Bd : Sparkle.IR.AST.Module → Design → Prop) (Inv : Sparkle.IR.AST.Module → σ → Prop)
     (hBd : ∀ b D, Bd b D → KSBoundedIn (childMap D.modules) (KS D) b.body Inv)
     (hRI : ResetImpliesInv Reset Inv)
@@ -191,7 +200,7 @@ theorem machine_ships_hier {σ : Type} (KS : Design → KStep σ) (hloc : ∀ D,
         (m, design) w' →
       MachineDefines mctx mref cctx cref declName d.shape →
       MachineCloses mctx mref cctx cref declName d.shape →
-      Bnd m design → Tools.ConeFold.memFree m.body →
+      Bnd mctx mref cctx cref m design → Tools.ConeFold.memFree m.body →
       ComposedG KS Reset declName d kD m design dom src ext extB)
     (houtTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
     {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
@@ -209,8 +218,8 @@ theorem machine_ships_hier {σ : Type} (KS : Design → KStep σ) (hloc : ∀ D,
        -- instance-output widths, a reset port); the core body's linked
        -- well-formedness comes from its wiring
        Tools.ShippingHierPremisesBase.shipsHierCheck (childMap D.modules) b = true →
-        -- the run boundary of the children
-        Bnd raw D →
+        -- the run boundary of the children (in the run's contexts)
+        Bnd mctx mref cctx cref raw D →
         -- the children's outputs within their ports' widths
         Bd b D →
         ∃ ids : List FVarId, ids.Nodup ∧ ids.length = d.shape.binders.length ∧
@@ -713,5 +722,71 @@ theorem memKS_boundedIn (children : String → Option (Sparkle.IR.AST.Module × 
         subst hN
         simp [applyNexts, Sparkle.IR.Type.HWType.bitWidth]
         exact Tools.ShippingMachineEntry.mask_lt _ _
+
+/-! ### Sequential and memory children together -/
+
+/-- Decidable: the child of every instance is a masked sequential child
+(`kidsMasked`) or the built memory module (`kidsMem`), instance by instance. -/
+def kidsMixed (children : String → Option (Sparkle.IR.AST.Module × WEnv)) (body : List Stmt) : Bool :=
+  body.all fun st => kidsMasked children [st] || kidsMem children [st]
+
+/-- The read latch of a memory child within its output's width (nothing of
+any other child). -/
+def mixInv (c : Sparkle.IR.AST.Module) (ks : KidState) : Prop :=
+  (Sparkle.Compiler.MachMemory.memParams? c).isSome = true → memInv c ks
+
+theorem reset1_mixInv : ResetImpliesInv Reset1 mixInv := by
+  intro m D kids hR mn iname conns _ child cwe _ _ p _
+  rw [hR.2.1 iname]
+  exact Nat.two_pow_pos _
+
+theorem memParams_noMem {c : Sparkle.IR.AST.Module} (h : noMem c.body = true) :
+    Sparkle.Compiler.MachMemory.memParams? c = none := by
+  unfold Sparkle.Compiler.MachMemory.memParams?
+  split
+  · rename_i heq
+    rw [heq] at h
+    simp [noMem] at h
+  · rfl
+
+theorem memParams_memModule' (cb : Bool) (aw dw : Nat) :
+    Sparkle.Compiler.MachMemory.memParams? (Sparkle.Compiler.MachMemory.memModule cb aw dw).1 =
+      some (cb, aw, dw) := rfl
+
+/-- **Sequential and memory children keep their outputs within their ports'
+widths**, instance by instance. -/
+theorem mixKS_boundedIn (children : String → Option (Sparkle.IR.AST.Module × WEnv))
+    (body : List Stmt) (hok : kidsMixed children body = true) :
+    KSBoundedIn children flatKS body mixInv := by
+  intro mn iname conns hmem child cwe hc env s cres s' hinv hk
+  have h1 := List.all_eq_true.mp hok _ hmem
+  simp only [Bool.or_eq_true] at h1
+  rcases h1 with hs | hm
+  · obtain ⟨hb, -⟩ := flatKS_boundedIn children _ hs mn iname conns List.mem_cons_self child cwe hc
+      env s cres s' trivial hk
+    refine ⟨hb, fun hp => ?_⟩
+    have h2 := List.all_eq_true.mp hs _ List.mem_cons_self
+    simp only [hc, Bool.and_eq_true] at h2
+    rw [memParams_noMem h2.1] at hp
+    cases hp
+  · have hmp : (Sparkle.Compiler.MachMemory.memParams? child).isSome = true := by
+      have h2 := List.all_eq_true.mp hm _ List.mem_cons_self
+      simp only [Bool.and_eq_true] at h2
+      rw [hc] at h2
+      simp only at h2
+      cases hp : Sparkle.Compiler.MachMemory.memParams? child with
+      | none => rw [hp] at h2; simp at h2
+      | some _ => rfl
+    obtain ⟨hb, hi⟩ := memKS_boundedIn children _ hm mn iname conns List.mem_cons_self child cwe hc
+      env s cres s' (hinv hmp) hk
+    exact ⟨hb, fun _ => hi⟩
+
+theorem kidsMixed_of_masked {children : String → Option (Sparkle.IR.AST.Module × WEnv)}
+    {body : List Stmt} (h : kidsMasked children body = true) : kidsMixed children body = true := by
+  simp only [kidsMixed, List.all_eq_true, Bool.or_eq_true]
+  intro st hst
+  left
+  simp only [kidsMasked, List.all_cons, List.all_nil, Bool.and_true]
+  exact List.all_eq_true.mp h st hst
 
 end Tools.ShippingMachineShipsHier

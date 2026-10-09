@@ -430,7 +430,7 @@ def generateShipsN (declName : Name) (n : Nat) : MetaM Name := do
       mkLambdaFVars #[c, sv] (mkConst ``True)
     let hRI ← mkAppM ``Tools.ShippingMachineShipsHier.true_inv #[reset]
     let thm ← mkAppM ``Tools.ShippingMachineShipsHier.machine_ships_hier
-      #[KS, hloc, reset, bnd, Bd, inv, hBd, hRI, data, soundL, composed]
+      #[KS, hloc, reset, ← mkAppM ``Tools.ShippingMachineShipsHier.ctxFree #[bnd], Bd, inv, hBd, hRI, data, soundL, composed]
     let ty ← inferType thm
     let .forallE _ hT _ _ ← whnfR ty | throwError "{declName}: the output-width premise"
     let thm := mkApp thm (← mkExpectedTypeHint (← mkDecideProof hT) hT)

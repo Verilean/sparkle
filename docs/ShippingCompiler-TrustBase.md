@@ -143,9 +143,40 @@ theorem for runs of its entry (`SeqFactsR`) and the children's reflection
 facts in the parent's contexts; no premise about the parent's instances
 (`InstOfCall` / `BoundaryOf` do not occur). `machine_linkedT` was split into
 `machine_linkedT_of` (explicit ids) so the binding is not lost to a second
-existential. Still to connect: the shipping chain (`machine_ships_hier`'s
-`Bnd` must take the run's contexts, then `ships_design_svN`/`_all` and the
-generators), the depth-`n` variant (`MachineRunN`; its `ExtendsAway` /
+existential.
+
+**Through the shipping chain, depth 0 (2026-10-09).** `machine_ships_hier`'s
+run boundary `Bnd` takes the run's contexts (`CtxBnd`; the existing
+boundaries are `ctxFree`), and `compose` instantiates it at the shipping
+theorem's own context binders, so `ships_design_svN`/`_all` are unchanged.
+`#machine_design_svR0 f` (`Tools/ShippingMachineSeqCommandR.lean`) builds
+`f.machine_composedTR` (the `R` endpoint heads of
+`Tools/ShippingMachineSeqLinkedR.lean` + `machine_linkedT_callsR`; per call the
+child's `c.seq_child_run` on any run of its entry), `f.machine_ships_hierR`
+(its `Bnd`: `ChildSynthIs` ∧ the children's reflection facts, in the run's
+contexts) and the source → closed emitted texts endpoint
+`f.machine_design_svR0` (existence ∧ every closed run). Kernel-checked on
+`parent` (one sequential child), `chained` (the same child twice), `two`
+(two DIFFERENT sequential children) and `seqMem` (a sequential child next to
+a memory read); their types mention `ChildSynthIs`, `MachineDefines`,
+`MachineCloses`, `designCheck`, `outsCheck`, and none of `BoundaryOf`,
+`InstOfCall`, `MachineRun`, `GateRun`, `MachineRunN`; their decidable
+premises hold on the shipped designs; for `two` / `seqMem` the old
+premise is MISMATCH (`Tests/Compiler/ShippingChildBoundaryTest.lean`). A
+parent mixing sequential and memory calls needed a child bound accepting
+both: `kidsMixed` (instance by instance `kidsMasked` or `kidsMem`, invariant
+`mixInv`, `mixKS_boundedIn`, `reset1_mixInv`) replaces `kidsMasked` on the
+sequential route (it is implied by `kidsMasked`: no parent is lost).
+What the boundary IS now: `ChildSynthIs ctx` — every read of
+`sparkleChildSynth` returns a function each of whose runs on `c` returns a
+result of `synthesizeCombinational c` in the same contexts. That ASSUMES
+the child's returned module is a result of the real entry (the ref's content,
+the memoised child entry's equation AND its cache's soundness), not merely
+that the ref points at the right function: it is a moved boundary, not a
+proved `CacheSound`. To close it later: make the child entry total (fuel)
+or state `CacheSound` as an explicit invariant of the cache across the
+writes of `Rec.synthesizeCombinational`, and the ref's content as the only
+assumption. Still to connect: the depth-`n` variant (`MachineRunN`; its `ExtendsAway` /
 `NoInstOf` remain evaluated checks on the child's run), and the
 one-output closing `closeInsts`, which does not check that a child resolves
 to itself (its instance level is not derived).

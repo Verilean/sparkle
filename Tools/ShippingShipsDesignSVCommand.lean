@@ -30,6 +30,22 @@ def compose (declName ships name : Name) (n : Nat) : MetaM Name := do
   let ty ← inferType (mkConst ships)
   let value ← forallTelescope ty fun xs _ => do
     let h := mkAppN (mkConst ships) xs
+    -- the boundary at the run's own contexts (the theorem's context binders)
+    let ctxOf (n : Name) : MetaM Lean.Expr := do
+      for x in xs do
+        if (← whnfR (← inferType x)).isAppOf n then return x
+      throwError "{ships}: no binder of type {n}"
+    let mctx ← ctxOf ``Lean.Meta.Context
+    let cctx ← ctxOf ``Lean.Core.Context
+    let refOf (st : Name) : MetaM Lean.Expr := do
+      for x in xs do
+        let t ← whnfR (← inferType x)
+        if t.isAppOf ``ST.Ref && (t.getAppArgs.back?.map (·.isConstOf st)).getD false then return x
+      throwError "{ships}: no reference to {st}"
+    let refs := #[← refOf ``Lean.Meta.State, ← refOf ``Lean.Core.State]
+    let bnd ← withLocalDeclD `raw (mkConst ``Sparkle.IR.AST.Module) fun raw =>
+      withLocalDeclD `D (mkConst ``Sparkle.IR.AST.Design) fun D =>
+        mkLambdaFVars #[raw, D] (mkAppN bnd #[mctx, refs[0]!, cctx, refs[1]!, raw, D]).headBeta
     let v ← mkAppOptM ``Tools.ShippingShipsDesignSVAll.ships_design_svN_all
       #[mkNatLit n, reset, bnd, bd, none, none, none, none, none, none, none, none, none, h]
     let v ← instantiateMVars v
@@ -47,7 +63,7 @@ def generate (declName : Name) (n : Nat) : MetaM Name := do
   compose declName ships (declName ++ Name.mkSimple s!"machine_design_svN{n}") n
 
 /-- `f.machine_design_sv0` from `f.machine_ships_hier` (the depth-0 route:
-sequential children `Reset1`/`kidsMasked`, or memory reads `ResetM`/`kidsMem`;
+sequential children `Reset1`/`kidsMixed`, or memory reads `ResetM`/`kidsMem`;
 generated if absent). -/
 def generate0 (declName : Name) : MetaM Name := do
   let ships ← Tools.ShippingMachineShipsHierCommand.generate declName
