@@ -7788,13 +7788,18 @@ mutual
       | .const name _ => return name
       | _ => CompilerM.liftMetaM $ throwError s!"Could not identify primitive in lambda body: {e}"
 
+  /-- A child's synthesis from inside the translator: the memoised child entry
+      `synthesizeChild` (through `sparkleChildSynth`, which breaks the knot
+      between the translator and the entry). The single reader and writer of
+      `sparkleChildCache` besides the depth-0 clear: every cached child is a
+      result of the real entry with the full translator — not of whatever
+      fuel-truncated translator this block is instantiated with (the cache key
+      is the declaration name only). -/
   partial def synthesizeCombinational (declName : Name) :
       MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) := do
-    -- a child synthesised earlier in this top-level synthesis
-    if let some r := (← sparkleChildCache.get).get? declName then return r
-    let r ← synthesizeCombinationalWith (fun e h t n => translateExprToWire e h t n) declName
-    sparkleChildCache.modify (·.insert declName r)
-    return r
+    let some synth ← sparkleChildSynth.get
+      | throwError "the child synthesis entry is not set"
+    synth declName
 
   partial def synthesizeCombinationalWithParameters (declName : Name)
       (parameters : List (String × Nat)) :

@@ -609,6 +609,9 @@ lean_lib «Tools.ShippingChildSynth» where
 lean_lib «Tools.ShippingChildCache» where
   roots := #[`Tools.ShippingChildCache]
 
+lean_lib «Tools.ShippingChildCacheRun» where
+  roots := #[`Tools.ShippingChildCacheRun]
+
 lean_lib «Tools.ShippingChildServe» where
   roots := #[`Tools.ShippingChildServe]
 

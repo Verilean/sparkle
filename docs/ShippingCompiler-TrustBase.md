@@ -331,6 +331,29 @@ variant's remaining items (`MachineRunN`; its `ExtendsAway` /
 one-output closing `closeInsts`, which does not check that a child resolves
 to itself (its instance level is not derived).
 
+**Single cache writer (2026-10-11).** Inventory of `sparkleChildCache`'s
+operations: the depth-0 clear in `synthesizeCombinationalCoreWith`, and
+`synthesizeChild`'s read and modify — nothing else. The legacy
+translator's `Rec.synthesizeCombinational` used to read and write the same
+`Name`-keyed cache with its OWN miss path, built on the fuel-truncated `rec`
+of the translator block; an entry it wrote was therefore not, in general, a
+result of the top-level entry, and "every entry is a real-entry result" was
+not provable for it. It now reads `sparkleChildSynth` and calls
+`synthesizeChild` (one reader, one writer, the full translator). Output
+digests of the 28 machine declarations with calls of the test modules plus
+their 7 children (35) are identical before and after; `Tests.AllTests` 815
+jobs. `Tools/ShippingChildCacheRun.lean` replaces the "every read in every
+world" form along the run: `CacheModel` (the cache's value per world and
+the generic laws of its `get`/`set`/`modify` and the frame of reading
+`sparkleChildSynth` — explicit parameters, nothing compiler-specific), the
+invariant `InvW` per world, `EntryHoare` (the real entry's runs keep it — a
+scoped pre/post condition), and PROVED: `invW_after_clear` (the depth-0
+clear), `synthesizeChild_hoare` (hit: the world's cache unchanged; miss:
+the real entry, then the modify applied to the cache AS IT IS after the
+child's run — not a pre-miss snapshot), and the closings' children
+(`closeInstsGM_hoare` / `closeInstsM_hoare`). Not yet threaded to the
+endpoints (they still assume `RefIs ∧ CacheReads`).
+
 ## 3. Premises about a linked child
 
 The hierarchical statements speak about a parent whose instance

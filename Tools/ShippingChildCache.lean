@@ -19,10 +19,12 @@ the cache is cleared at the start of each top-level synthesis) and preserved
 by `synthesizeChild`'s write (`cacheInv_insert`, the inserted result being a
 real one by the miss path). What `CacheReads` still assumes: that each read
 of the `IO.Ref` returns what the last write left (a law of `IO.Ref`, opaque in
-the logic), and that the other writer of the same cache — the legacy
-translator's `Rec.synthesizeCombinational`, a `partial def` whose body the
-logic cannot see — also inserts only real-entry results (its source does:
-the same miss path). `CacheSound` is reduced to these, not proved outright. -/
+the logic). The legacy translator no longer writes the cache: its
+`Rec.synthesizeCombinational` goes through `sparkleChildSynth`, so
+`synthesizeChild` is the cache's single reader and writer besides the depth-0
+clear (before, it inserted results of whatever fuel-truncated translator it
+was instantiated with, under the same name key). `CacheReads` is replaced
+along the run by pre/post conditions in `ShippingChildCacheRun`. -/
 namespace Tools.ShippingChildCache
 open Lean Meta
 open Tools.ShippingEntrySoundness (RunsTo)
