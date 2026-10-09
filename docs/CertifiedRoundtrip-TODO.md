@@ -1138,8 +1138,12 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   combinational read targets; memory parents SOURCE + AT-MOST-ONE, comb and
   sync; open: a synchronous read latch driving an output directly) — still
   open: the run boundary as a
-  theorem (`ChildSynthIs`/`CacheSound`), the call–instance correspondence
-  for calls of several different children (`mixD1`: UNTRACED),
+  theorem — call level DERIVED under the single `ChildSynthIs` boundary
+  (`machine_children_real`; `CacheSound` is not provable separately: partial
+  entry + `IO.Ref`), instance level open: `BoundaryOf`/`InstOfCall` do not
+  bind the call to its instance, so the stated premise is false for several
+  different children or a child next to a memory (`mixD1`: now MISMATCH);
+  the exact boundary needs the run's port names (in progress),
   combinational grandchildren below depth 1, multi-output gate children
   (`childTwo`), Stage 3 (the shape reader); full corpus count pending — the
   run was stopped for memory at 38 of 184 files, 27 of 84 wired): `f.machine_ships` now needs

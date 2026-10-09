@@ -83,8 +83,47 @@ proved preserved by each write of the cache (the only writer is the
 memoised entry, which stores the result it just computed); (3) a
 `RunsTo` decomposition through `mapM` and the memoised call. Then the
 boundary becomes a theorem about the parent's run, leaving the ref's
-content as the single boundary. Not implemented; until then the run
-boundaries are premises, traced by the measurement.
+content as the single boundary.
+
+**Call level DERIVED (2026-10-09).** `Tools/ShippingChildSynth.lean`.
+`ChildSynthIs ctx`: every read of `sparkleChildSynth` in the parent's
+contexts returns a function whose runs on a declaration `c` return results
+of the real entry `synthesizeCombinational c` in the same contexts. It packs
+(1) the ref's content, (2) the equation of the memoised child entry
+`Rec.synthesizeCombinational` and (3) the soundness of its cache
+`sparkleChildCache` into ONE session-level boundary, because none of the
+three is a theorem in the logic: `Rec.synthesizeCombinational` is a
+`partial def` (an opaque constant), and the ref and the cache are `IO.Ref`s
+whose contents across worlds are opaque — `CacheSound` cannot be proved
+separately, only assumed. From it, `machine_children_real` DERIVES for the
+module and design the parent's real core entry returned (under its
+`MachineDefines` / `MachineCloses`): they are `CloseCalls` of the transition
+with children that are, CALL BY CALL, the built memory module or a
+real-entry result on the call's declaration (`ChildrenReal`), through
+`closeInstsM_runs` / `closeInstsGM_runs` / `synthesizeMachineCertified_runs`
+(the `RunsTo` decompositions keep the contexts). Kernel-checked, standard
+axioms (`Tests/Compiler/ShippingChildSynthTest.lean`).
+
+**What stands between that and the boundary premises.** The generated
+premises `BoundaryOf c` / `BoundaryOfN c` are predicates of `(m, dsn)`
+alone, and `InstOfCall body mc k` does NOT bind the call index: `connsG`
+reads only the outputs' field names, so the `k` of `∃ e ∈ outs, e.1 = k` is
+free. Hence `BoundaryOf c` asks EVERY instance module of the body to be a
+run of `c` — FALSE for a parent with two different sequential children
+(`mixD1`) or with a sequential child and a memory call. The evaluator now
+evaluates the premise as stated, over every instance (`TRACE:MISMATCH`, not
+applying; previously `UNTRACED` for several children, and a memory
+instance next to one sequential child was not looked at). The binding of a
+call to its instance exists only in the run: on the general closing
+`closeInstsG` CHECKS `moduleByName d.modules c.1.name = some c.1` for every
+child (`closeInstsG_names`), so the instance whose output wires are call
+`k`'s ports (`portNames[nIn + k]`) is `children[k].1`; but the port names
+come from the run's fresh variables and wire cache, not from `(m, dsn)`. The
+exact boundary must therefore be stated inside the run's existential (with
+`MachineWired`'s names) and derived there from `ChildSynthIs` — a change of
+`SeqFacts` / `calls_hchild` (pass the out-wire binding they already hold)
+and of the endpoint's `MachinePreserves` package (carry the run's
+children). In progress; until then these premises remain, traced.
 
 ## 3. Premises about a linked child
 

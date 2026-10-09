@@ -127,9 +127,11 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     unless v.uniqTag == "CLOSED:AT-MOST-ONE" do throwError "{n}: {v.tag}"
   let vx ← evalShipsHierSeq ``mixD1 (some 1)
   unless vx.svChildTag == "SVCHILD:CHECKED" do throwError "mixD1: {vx.tag}"
-  -- two different sequential children: the instance correspondence is not reconstructed
+  -- two different sequential children: the boundary AS STATED (`BoundaryOf`
+  -- over every instance, `InstOfCall` not binding the call) is FALSE — each
+  -- child's premise would need the other child's instance to be its run
   let vm ← evalShipsHierSeq ``mixD1 (some 1)
-  unless vm.traceTag == "TRACE:UNTRACED" && !vm.applies do throwError "mixD1: {vm.tag}"
+  unless vm.traceTag == "TRACE:MISMATCH" && !vm.applies do throwError "mixD1: {vm.tag}"
 
 -- every endpoint states the existence AND the all-runs part, with outsCheck explicit
 run_cmd Lean.Elab.Command.liftTermElabM do

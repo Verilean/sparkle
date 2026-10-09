@@ -237,36 +237,44 @@ partial def evalBnd (pre : String) (c : Name) (dep : Nat) (raw : Sparkle.IR.AST.
              traces := tr, reflection := refl }
   let seqKids := (calls.filter fun k => (Tools.ShippingMachineMemCommand.memWidths? k).isNone).eraseDups
   let mut out : BndEval := {}
-  for (mn, mc?) in instMods D.modules raw.body do
+  let insts := instMods D.modules raw.body
+  for (mn, mc?) in insts do
     let some mc := mc? | out := out.append { traces := [(s!"{pre}instance {mn}", .mismatch "does not resolve")] }; continue
-    -- a memory instance: no run boundary — `MachineWired` DERIVES that it is
-    -- the built memory module (the compiler's `memSelf` check,
+    -- a memory instance: no run boundary of its own — `MachineWired` DERIVES
+    -- that it is the built memory module (the compiler's `memSelf` check,
     -- `find_memModule`); cross-checked here
     if let some (cb, aw, dw) := Sparkle.Compiler.MachMemory.memParams? mc then
       out := out.append { checks := [(s!"{pre}memory instance {mn} is the built memory module (derived: MachineWired / find_memModule)",
         .ofBool (decide (mc = (Sparkle.Compiler.MachMemory.memModule cb aw dw).1)) "not the built memory module")] }
-      continue
+  -- the boundary AS STATED: `BoundaryOf k` / `BoundaryOfN k` quantify over
+  -- EVERY instance module of the body (`InstOfCall` does not bind the call
+  -- index to the instance), so each sequential child's premise is evaluated
+  -- on every instance — a memory instance or another child's instance makes
+  -- it false (MISMATCH), not merely unmeasured
+  for k in seqKids do
     out := out.append { required := true }
-    if seqKids.length != 1 then
-      out := out.append { traces := [(s!"{pre}instance {mn}",
-        .untraced s!"{seqKids.length} sequential children: the call–instance correspondence (InstOfCall) is not reconstructed")] }
-      continue
-    let k := seqKids.head!
     let kr ← Tools.ShippingMachineCommand.readMachine k
     if kr.shape.insts.isEmpty then
-      out := out.append { traces := [(s!"{pre}instance {mn} is the full-entry run of {k} (MachineRun)",
-                            if (← fullEntry k) == mc then .matched else .mismatch "recompile differs")],
-                          reflection := [s!"{k}: MachineDefines / MachineCloses"] }
+      let mk ← fullEntry k
+      for (mn, mc?) in insts do
+        let some mc := mc? | continue
+        out := out.append { traces := [(s!"{pre}BoundaryOf {k}: instance {mn} is the full-entry run of {k} (MachineRun)",
+                              if mk == mc then .matched
+                              else .mismatch s!"BoundaryOf {k} quantifies over every instance (InstOfCall does not bind the call); {mn} is not a run of {k}")] }
+      out := out.append { reflection := [s!"{k}: MachineDefines / MachineCloses"] }
     else
       let (rawk, Dk) ← Sparkle.Compiler.Elab.synthesizeCombinationalCore k [] false
       let dz := Sparkle.IR.ZeroWidth.dropZeroWidthModule rawk
-      let same := dz == mc || Sparkle.IR.RefineCheck.mergeChecked dz == mc
       out := out.append {
         checks := [(s!"{pre}ExtendsAway {k}", .ofBool (Tools.ShippingHierPremisesBase.extendsAwayB rawk.name Dk.modules D.modules) "the designs disagree"),
                    (s!"{pre}NoInstOf {k}", .ofBool (Tools.ShippingHierPremisesBase.noInstOfB rawk.name rawk.body) "self-instance")],
-        traces := [(s!"{pre}instance {mn} is the post-processing of a core run of {k} (MachineRunN)",
-                    if same then .matched else .mismatch "recompile differs")],
         reflection := [s!"{k}: MachineDefines / MachineCloses"] }
+      for (mn, mc?) in insts do
+        let some mc := mc? | continue
+        let same := dz == mc || Sparkle.IR.RefineCheck.mergeChecked dz == mc
+        out := out.append { traces := [(s!"{pre}BoundaryOfN {k}: instance {mn} is the post-processing of a core run of {k} (MachineRunN)",
+                              if same then .matched
+                              else .mismatch s!"BoundaryOfN {k} quantifies over every instance (InstOfCall does not bind the call); {mn} is not a run of {k}")] }
       if dep == 0 then
         out := out.append { checks := [(s!"{pre}{k} has children", .fails "depth 0 is too shallow")] }
       else

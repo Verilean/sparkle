@@ -603,6 +603,9 @@ lean_lib «Tools.ShippingDesignSV» where
 lean_lib «Tools.ShippingDesignSVMem» where
   roots := #[`Tools.ShippingDesignSVMem]
 
+lean_lib «Tools.ShippingChildSynth» where
+  roots := #[`Tools.ShippingChildSynth]
+
 lean_lib «Tools.ShippingDesignSVBounds» where
   roots := #[`Tools.ShippingDesignSVBounds]
 

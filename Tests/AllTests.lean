@@ -139,6 +139,7 @@ import Tests.Compiler.ShippingMachineDepthHTest
 import Tests.Compiler.ShippingPremiseEvalTest
 import Tests.Compiler.ShippingDesignSVTest
 import Tests.Compiler.ShippingDesignSVMemTest
+import Tests.Compiler.ShippingChildSynthTest
 import Tests.Compiler.ShippingHierOptRunTest
 import Tests.Compiler.ShippingMachineDepthTest
 import Tests.Compiler.ShippingMachineTeleTest
