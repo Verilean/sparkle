@@ -269,7 +269,7 @@ theorem machine_linkedT_callsR {declName : Name} {d : MachineData} {m : Module} 
           have := (List.getElem?_eq_some_iff.mp hc).1; simpa using this
         have hck : (d.shape.insts[k]).1 = c := by
           rw [List.getElem?_map, List.getElem?_eq_getElem hk] at hc; simpa using hc
-        rcases hx hfe k hk mc iname argWs outs outWs hst hout hke hmod with ⟨md, hmd, _⟩ | ⟨Dc, hrc⟩
+        rcases hx.1 hfe k hk mc iname argWs outs outWs hst hout hke hmod with ⟨md, hmd, _⟩ | ⟨Dc, hrc⟩
         · rw [hck, hnone] at hmd; cases hmd
         · rw [hck] at hrc
           obtain ⟨w, w', hrun⟩ := hrc

@@ -133,6 +133,7 @@ theorem ships_design_svN_all (n : Nat)
     hdc hoc (seedIn_bound hinsW) hstW hkidsW hD ⟨hlen, hobs⟩ envs' hD'
 
 theorem ships_design_svH_all (R : Nat → Sparkle.IR.AST.Module → Prop)
+    (Bnd : Sparkle.IR.AST.Module → Design → Prop)
     {declName : Name} {d : MachineData} {kD : Nat}
     {ι : Type} {dom : ι → DomainConfig}
     {src : (i : ι) → (Nat → Signal (dom i) Bool) →
@@ -145,6 +146,7 @@ theorem ships_design_svH_all (R : Nat → Sparkle.IR.AST.Module → Prop)
       (b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨
         b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)) ∧
       (Tools.ShippingHierPremises.shipsHierHCheck D.modules b = true →
+        Bnd raw D →
         ∃ ids : List FVarId, ids.Nodup ∧ ids.length = d.shape.binders.length ∧
         ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
           regs.Nodup ∧ regs.length = d.ss.length ∧
@@ -177,6 +179,7 @@ theorem ships_design_svH_all (R : Nat → Sparkle.IR.AST.Module → Prop)
       (b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨
         b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)) ∧
       (Tools.ShippingHierPremises.shipsHierHCheck D.modules b = true →
+        Bnd raw D →
         -- the shipped body's children are assignments only, local, fully wired
         Tools.ShippingMachineDepthH.kidsComb D.modules (checkedOptimize b).body = true →
         designCheck (childMap D.modules) 0 (checkedOptimize b) = true →
@@ -222,10 +225,10 @@ theorem ships_design_svH_all (R : Nat → Sparkle.IR.AST.Module → Prop)
                 ∀ j (hj : j < envs'.length) (k : Nat) (o : OutField) (f : Nat → Nat),
                   d.shape.layout.outs[k]? = some o → (src i bools bits)[k]? = some f →
                   (envs'[j]'hj) o.name = f j)   := by
-  obtain ⟨raw, D, hpost, H'⟩ := ships_design_svH R H
+  obtain ⟨raw, D, hpost, H'⟩ := ships_design_svH R Bnd H
   refine ⟨raw, D, hpost, ?_⟩
-  intro hchk hcomb hdc hoc
-  obtain ⟨ids, nd, len, cache, regs, rnd, rlen, H''⟩ := H' hchk hcomb hdc
+  intro hchk hBnd hcomb hdc hoc
+  obtain ⟨ids, nd, len, cache, regs, rnd, rlen, H''⟩ := H' hchk hBnd hcomb hdc
   refine ⟨ids, nd, len, cache, regs, rnd, rlen, ?_⟩
   intro i bools bits T ins st0 mems kids a1 a2 a3 a4 a5 a6 a7 a8 hinsW hstW hkidsW
   obtain ⟨envsO, hD, hlen, hobs⟩ :=

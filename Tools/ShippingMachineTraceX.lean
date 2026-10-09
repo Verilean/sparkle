@@ -414,7 +414,7 @@ wire cache of the run: on the general closing (`instFields ≠ []`), an
 instance statement one of whose output connections is call `k`'s port has as
 its module (resolved by name) the built memory module of a memory call, or a
 result of the real entry on call `k`'s declaration in these contexts. -/
-def ServedReal (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State)
+def ServedRealG (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State)
     (cctx : Core.Context) (cref : ST.Ref IO.RealWorld Core.State) (declName : Name)
     (shape : MachineShape) (m : Sparkle.IR.AST.Module) (dsn : Sparkle.IR.AST.Design)
     (ids : List FVarId) (cache : IO.Ref (ExprStructMap String)) : Prop :=
@@ -428,6 +428,31 @@ def ServedReal (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State)
     moduleByName dsn.modules mc.name = some mc →
     (∃ md, Sparkle.Compiler.MachMemory.memChild? (shape.insts[k]).1 = some md ∧ mc = md.1) ∨
       ∃ Dc, Tools.ShippingChildSynth.RealChild mctx mref cctx cref (shape.insts[k]).1 (mc, Dc)
+
+/-- The one-output closing (`instFields = []`): the instance that is call `k`'s
+statement (`CallStmt`, for the run's port names) has as its module the built
+memory module of a memory call, or a result of the real entry on call `k`'s
+declaration in these contexts. -/
+def ServedReal1 (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State)
+    (cctx : Core.Context) (cref : ST.Ref IO.RealWorld Core.State) (declName : Name)
+    (shape : MachineShape) (m : Sparkle.IR.AST.Module) (dsn : Sparkle.IR.AST.Design)
+    (ids : List FVarId) (cache : IO.Ref (ExprStructMap String)) : Prop :=
+  shape.instFields = [] →
+  ∀ k (hk : k < shape.insts.length) (args : List Nat) (mc : Sparkle.IR.AST.Module) (st : Stmt),
+    (shape.insts.map (·.2.1))[k]? = some args → st ∈ m.body →
+    Tools.ShippingMachineInst.CallStmt (machNIn shape) shape.insts.length shape.layout.slots.length
+      ((machPorts declName ids cache shape.binders).map (·.name)) k args mc st →
+    moduleByName dsn.modules mc.name = some mc →
+    (∃ md, Sparkle.Compiler.MachMemory.memChild? (shape.insts[k]).1 = some md ∧ mc = md.1) ∨
+      ∃ Dc, Tools.ShippingChildSynth.RealChild mctx mref cctx cref (shape.insts[k]).1 (mc, Dc)
+
+/-- **The instances serving the calls are real children**, on either closing. -/
+def ServedReal (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State)
+    (cctx : Core.Context) (cref : ST.Ref IO.RealWorld Core.State) (declName : Name)
+    (shape : MachineShape) (m : Sparkle.IR.AST.Module) (dsn : Sparkle.IR.AST.Design)
+    (ids : List FVarId) (cache : IO.Ref (ExprStructMap String)) : Prop :=
+  ServedRealG mctx mref cctx cref declName shape m dsn ids cache ∧
+    ServedReal1 mctx mref cctx cref declName shape m dsn ids cache
 
 /-- An allocated name is not the clock or the reset. -/
 theorem allocated_ne {x : String} (h : Sparkle.IR.NameHints.Allocated x) :
@@ -479,7 +504,29 @@ theorem synthesizeCombinationalCore_machine_soundR {declName : Name}
       · exact Or.inr ⟨hi, children, hcc⟩
     refine synthesizeMachineCertified_soundX _ hmix hcl hmt0 ?_ hbs hlets positive slotKinds
       letKinds layW outsOk outsNodup
-    intro ids cache regs lets wired hmp notInst hfe k hk mc iname argWs outs outWs hst hout hke hmod
+    intro ids cache regs lets wired hmp notInst
+    have h0 : ∀ st ∈ (closeMachine shape.layout t').body, isInst st = false := fun st hs => by
+      cases hi : isInst st
+      · rfl
+      · exact absurd (notInst st hs hi) id
+    refine ⟨?g, ?o⟩
+    case o =>
+      intro hfe1 k hk args mc st hargs hst hcs hmod
+      rcases hmt with ⟨h0', _, _⟩ | ⟨_, children, hcc, hreal⟩
+      · rw [h0'] at hk; exact absurd hk (Nat.not_lt_zero _)
+      rcases hcc with ⟨_, hC⟩ | ⟨hfe0, _, _⟩
+      case inr => exact absurd hfe1 hfe0
+      rw [hmp] at hcs
+      obtain ⟨y, hy, hmcy⟩ := Tools.ShippingChildServe.closeInsts_serves hC h0 hst hcs hmod
+      obtain ⟨_, hkr⟩ := hreal
+      obtain ⟨y', hy', hor⟩ := hkr k hk
+      rw [hy] at hy'; cases hy'
+      subst hmcy
+      rcases hor with hmem | hrc
+      · exact Or.inl ⟨y, hmem, rfl⟩
+      · exact Or.inr ⟨y.2, hrc⟩
+    case g =>
+    intro hfe k hk mc iname argWs outs outWs hst hout hke hmod
     rcases hmt with ⟨h0, _, _⟩ | ⟨_, children, hcc, hreal⟩
     · rw [h0] at hk; exact absurd hk (Nat.not_lt_zero _)
     rcases hcc with ⟨hfe0, _⟩ | ⟨_, hG, _⟩

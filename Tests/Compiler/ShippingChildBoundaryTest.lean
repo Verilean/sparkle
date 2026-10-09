@@ -2,6 +2,7 @@ import Tests.Compiler.ShippingMachineSeqLinkedTest
 import Tests.Compiler.ShippingDesignSVTest
 import Tools.ShippingMachineSeqCommandR
 import Tools.ShippingMachineDepthCommandR
+import Tools.ShippingMachineComposeRCommand
 
 /-! The child-run boundary DERIVED on real compiles (`#machine_design_svR0`).
 
@@ -191,5 +192,44 @@ run_cmd Lean.Elab.Command.liftTermElabM do
         Tools.ShippingMachineShipsDepth.kidsMaskedN D.modules b.body do
       throwError "{f}: a decidable premise fails on the shipped design"
   Lean.logInfo m!"DERIVED BOUNDARY AT DEPTH: mixD1 (two different children), grandH, topD2 — the top level free of BoundaryOf / BoundaryOfN / InstOfCall; mixD1 and grandH also below (the child's own boundary is the combinational BndH); topD2's grandchild level keeps BoundaryOfN (mid2.machineBoundN1); decidable premises hold; standard axioms"
+
+/-! ### Combinational children (the one-output closing) -/
+
+set_option maxHeartbeats 0 in
+#machine_design_svHR Sparkle.Tests.Compiler.ShippingMachineInstTest.caller
+set_option maxHeartbeats 0 in
+#machine_design_svHR Sparkle.Tests.Compiler.ShippingMachineDepthHTest.midH
+
+def hrDecls : List Lean.Name :=
+  [``Sparkle.Tests.Compiler.ShippingMachineInstTest.caller,
+   ``Sparkle.Tests.Compiler.ShippingMachineDepthHTest.midH]
+
+-- the calls' premise is gone (the trivial `R`), the boundary is `ChildSynthIs`
+-- and the children's `EntryDefines`, in the run's contexts
+run_cmd Lean.Elab.Command.liftTermElabM do
+  for f in hrDecls do
+    let e := f ++ `machine_design_svHR
+    let ty ← Lean.instantiateMVars (← Lean.Meta.inferType (Lean.mkConst e))
+    for c in [``Tools.ShippingChildSynth.ChildSynthIs, ``Tools.ShippingInlineSoundness.EntryDefines,
+        ``Tools.ShippingDesignSVBack.outsCheck, ``Tools.ShippingDesignSV.designCheck,
+        ``Tools.ShippingDesignSV.DesignSV] do
+      unless mentions ty c do throwError "{e}: {c} missing"
+    for c in [``Tools.ShippingGateChild.GateRun, ``Tools.ShippingGateChild.MachineRun,
+        ``Tools.ShippingMachineDepthH.BoundH, ``Tools.ShippingMachineDepthH.BndH,
+        ``Tools.ShippingMachineCompose.ChildFn] do
+      if mentionsDeep (← Lean.getEnv) ty c then throwError "{e}: still mentions {c}"
+    for ax in ← Lean.collectAxioms e do
+      unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do
+        throwError "{e} uses a non-standard axiom: {ax}"
+    -- the decidable premises on the shipped design
+    let (_, D) ← Sparkle.Compiler.Elab.synthesizeCombinationalCore f [] false
+    let (b, _) ← Sparkle.Compiler.Elab.synthesizeCombinational f
+    let o := Sparkle.IR.OptCheck.checkedOptimize b
+    let C := Tools.ShippingMachineLinked.childMap D.modules
+    unless Tools.ShippingHierPremises.shipsHierHCheck D.modules b &&
+        Tools.ShippingMachineDepthH.kidsComb D.modules o.body &&
+        Tools.ShippingDesignSV.designCheck C 0 o && Tools.ShippingDesignSVBack.outsCheck C 0 o do
+      throwError "{f}: a decidable premise fails on the shipped design"
+  Lean.logInfo m!"DERIVED BOUNDARY (COMBINATIONAL): caller, midH — ChildSynthIs + EntryDefines, no GateRun / MachineRun / BoundH / ChildFn premise; decidable premises hold; standard axioms"
 
 end Sparkle.Tests.Compiler.ShippingChildBoundaryTest

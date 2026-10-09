@@ -208,8 +208,19 @@ endpoint regenerated) — no parent lost; the corpus is not re-measured (the
 full-corpus run stays stopped). `closeInsts_serves`
 (`Tools/ShippingChildServe.lean`): the instance that is call `k`'s statement
 (`CallStmt`) has module `children[k].1`. This is the check plus its lemma,
-not yet the derived boundary of the combinational route (its composition
-`BndH` / `GateRun` is still the premise). Still to connect: the derived boundary recursively below the
+then (same day) the derived boundary of the combinational route:
+`ServedReal` gained the one-output clause (`ServedReal1`, from
+`closeInsts_serves`); `machine_linked` split into `machine_linked_of`;
+`machine_linked_callsR` (`Tools/ShippingMachineComposeR.lean`) discharges each
+call's `ChildFn` from the run witness `ServedReal` gives and the child's own
+theorem on that run, concluding `ComposedH` with the trivial calls' premise;
+`machine_ships_hierH` / `ships_design_svH(_all)` take a run boundary `Bnd`
+(existing endpoints: `True`); `#machine_design_svHR f`
+(`Tools/ShippingMachineComposeRCommand.lean`) — kernel-checked for `caller`
+and `midH`, boundary `ChildSynthIs` ∧ the children's `EntryDefines`, types
+free of `GateRun` / `MachineRun` / `BoundH` / `BndH` / `ChildFn` (checked
+through the generated definitions). Only the `data_ext` endpoint head has its
+R twin (nested / tele heads: not yet). Still to connect: the derived boundary recursively below the
 top level (`MachineRunN` with a context-dependent boundary), the depth-`n`
 variant's remaining items (`MachineRunN`; its `ExtendsAway` /
 `NoInstOf` remain evaluated checks on the child's run), and the

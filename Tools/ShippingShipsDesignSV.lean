@@ -150,6 +150,7 @@ depth-0 `flatKS` run from any children's states (`runModuleTG_flat_of_H`), so
 the depth-0 forward simulation applies. The children's states are
 quantified (each within its emitted widths). -/
 theorem ships_design_svH (R : Nat → Sparkle.IR.AST.Module → Prop)
+    (Bnd : Sparkle.IR.AST.Module → Design → Prop)
     {declName : Name} {d : MachineData} {kD : Nat}
     {ι : Type} {dom : ι → DomainConfig}
     {src : (i : ι) → (Nat → Signal (dom i) Bool) →
@@ -162,6 +163,7 @@ theorem ships_design_svH (R : Nat → Sparkle.IR.AST.Module → Prop)
       (b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨
         b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)) ∧
       (Tools.ShippingHierPremises.shipsHierHCheck D.modules b = true →
+        Bnd raw D →
         ∃ ids : List FVarId, ids.Nodup ∧ ids.length = d.shape.binders.length ∧
         ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
           regs.Nodup ∧ regs.length = d.ss.length ∧
@@ -194,6 +196,7 @@ theorem ships_design_svH (R : Nat → Sparkle.IR.AST.Module → Prop)
       (b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨
         b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)) ∧
       (Tools.ShippingHierPremises.shipsHierHCheck D.modules b = true →
+        Bnd raw D →
         -- the shipped body's children are assignments only, local, fully wired
         Tools.ShippingMachineDepthH.kidsComb D.modules (checkedOptimize b).body = true →
         designCheck (childMap D.modules) 0 (checkedOptimize b) = true →
@@ -232,8 +235,8 @@ theorem ships_design_svH (R : Nat → Sparkle.IR.AST.Module → Prop)
                 (envsO[j]'hj) o.name = f j) := by
   obtain ⟨raw, D, hpost, H⟩ := H
   refine ⟨raw, D, hpost, ?_⟩
-  intro hchk hcomb hdc
-  obtain ⟨ids, nd, len, cache, regs, rnd, rlen, H⟩ := H hchk
+  intro hchk hBnd hcomb hdc
+  obtain ⟨ids, nd, len, cache, regs, rnd, rlen, H⟩ := H hchk hBnd
   refine ⟨ids, nd, len, cache, regs, rnd, rlen, ?_⟩
   intro i bools bits T ins st0 mems kids hsrc hpass hrst hinit hcalls hinsFit hstD hstR hinsW hstW hkidsW
   obtain ⟨envsO, hrunH, hlen, hobs⟩ := H i bools bits T ins st0 mems hsrc hpass hrst hinit hcalls

@@ -13,10 +13,21 @@ That function is the memoised child entry `Rec.synthesizeCombinational` — a
 `ChildSynthIs` is the ONE boundary this file assumes, for the contexts of the
 parent's run: a read of `sparkleChildSynth` returns a function each of whose
 runs on a declaration `c` returns what some run of the real entry
-`synthesizeCombinational c` returns, in the same contexts (the ref's content,
-the partial child entry's equation and the soundness of its cache, together;
-none of the three is expressible as a theorem in the logic — the first two
-are opaque constants, the third a property of an `IO.Ref` across worlds).
+`synthesizeCombinational c` returns, in the same contexts. It is a STRONG
+assumption: not merely that the ref holds the right function, but that the
+child's returned module IS a real-entry result — it bundles (1) the ref's
+content, (2) the equation of the memoised child entry
+`Rec.synthesizeCombinational` and (3) the soundness of its cache
+`sparkleChildCache` (`CacheSound`: every entry is the result of a real run).
+None of the three can be unfolded from the CURRENT definitions: (2) is a
+`partial def`, an opaque constant, and (1), (3) are contents of `IO.Ref`s,
+opaque across worlds. That is a limitation of the present code, not of the
+logic: with the child entry made total (fuel, or a well-founded measure) its
+equation becomes provable, and `CacheSound` can then be stated as an explicit
+invariant of the cache over the world (initialised empty at depth 0, preserved
+by the single writer, which stores the result it just computed) and proved
+for that writer, leaving the ref's content as the only assumption.
+`CacheSound` is NOT proved here; it remains inside `ChildSynthIs`.
 
 From it and the parent's own run, `machine_children_real` DERIVES, for the
 module and design the parent's real entry returned: they are the closing

@@ -72,6 +72,7 @@ semantics over the children of the core design, shows the source — when the
 optimizer check binds on `b` and the decidable design facts hold, and given
 (as the composed theorem does) that each call's module satisfies `R`. -/
 theorem machine_ships_hierH (R : Nat → Sparkle.IR.AST.Module → Prop)
+    (Bnd : Tools.ShippingMachineShipsHier.CtxBnd)
     {declName : Name} (d : MachineData) {kD : Nat}
     {ι : Type} {dom : ι → DomainConfig}
     {src : (i : ι) → (Nat → Signal (dom i) Bool) →
@@ -99,6 +100,7 @@ theorem machine_ships_hierH (R : Nat → Sparkle.IR.AST.Module → Prop)
         (m, design) w' →
       MachineDefines mctx mref cctx cref declName d.shape →
       MachineCloses mctx mref cctx cref declName d.shape →
+      Bnd mctx mref cctx cref m design →
       ComposedH R declName d kD m design dom src ext)
     (houtTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
     {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
@@ -113,6 +115,8 @@ theorem machine_ships_hierH (R : Nat → Sparkle.IR.AST.Module → Prop)
       (-- the run's modules pass the route's checker (`shipsHierHCheck_sound`);
        -- the core body's linked well-formedness comes from its wiring
        Tools.ShippingHierPremises.shipsHierHCheck D.modules b = true →
+        -- the run boundary, in the run's contexts
+        Bnd mctx mref cctx cref raw D →
         ∃ ids : List FVarId, ids.Nodup ∧ ids.length = d.shape.binders.length ∧
         ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
           regs.Nodup ∧ regs.length = d.ss.length ∧
@@ -148,7 +152,7 @@ theorem machine_ships_hierH (R : Nat → Sparkle.IR.AST.Module → Prop)
   obtain ⟨_, _, _, _, _, _, hlink, houts, _, _, _, _, _, _, _, hclean, _⟩ := wired
   obtain ⟨hb, hw, hi, ho⟩ := hclean houtTy
   refine ⟨raw, D, hpost, ?_⟩
-  intro hchk
+  intro hchk hBnd
   obtain ⟨⟨hbind, hwfO, hndB, hndO, hnofb, hOutM, hrstIn⟩, hloc, hkm⟩ :=
     Tools.ShippingHierPremises.shipsHierHCheck_sound hchk
   have hI := hasInst_of_hierBinds hbind
@@ -161,7 +165,7 @@ theorem machine_ships_hierH (R : Nat → Sparkle.IR.AST.Module → Prop)
     rw [hbB, ← Tools.ShippingMachineLinked.linkedOk_eq]; exact hlink
   have hbW : declWidth b = Tools.ShippingEntrySoundness.weOf raw := by rw [hbr]; exact hw
   have hbO : b.outputs = raw.outputs := by rw [hbr]; exact ho
-  obtain ⟨ids, nd, len, cache, regs, rnd, rlen, _, _, _, H⟩ := composed hcore entry closes
+  obtain ⟨ids, nd, len, cache, regs, rnd, rlen, _, _, _, H⟩ := composed hcore entry closes hBnd
   refine ⟨ids, nd, len, cache, regs, rnd, rlen, ?_⟩
   intro i bools bits T ins st0 mems hsrc hpass hrstZ hinit hcalls hinsFit hstX hstR
   have hrst : ∀ t st, seedIn b ins t st "rst" = 0 := by
@@ -195,5 +199,32 @@ theorem machine_ships_hierH (R : Nat → Sparkle.IR.AST.Module → Prop)
     exact hobs j (by omega) k o f hk hf
   · rw [hopt, if_neg hacc]
     exact ⟨envs, hrunB, hlen, hobs⟩
+
+/-- A composed theorem without a run boundary, as one with the trivial boundary. -/
+theorem composedH_true {R : Nat → Sparkle.IR.AST.Module → Prop} {declName : Name} {d : MachineData}
+    {kD : Nat} {ι : Type} {dom : ι → DomainConfig}
+    {src : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat)}
+    {ext : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) →
+      (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)}
+    (composed : ∀ {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+      {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+      {m : Sparkle.IR.AST.Module} {design : Design},
+      RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w
+        (m, design) w' →
+      MachineDefines mctx mref cctx cref declName d.shape →
+      MachineCloses mctx mref cctx cref declName d.shape →
+      ComposedH R declName d kD m design dom src ext) :
+    ∀ {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+      {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+      {m : Sparkle.IR.AST.Module} {design : Design},
+      RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w
+        (m, design) w' →
+      MachineDefines mctx mref cctx cref declName d.shape →
+      MachineCloses mctx mref cctx cref declName d.shape →
+      ctxFree (fun _ _ => True) mctx mref cctx cref m design →
+      ComposedH R declName d kD m design dom src ext :=
+  fun hr entry closes _ => composed hr entry closes
 
 end Tools.ShippingMachineShipsHierH

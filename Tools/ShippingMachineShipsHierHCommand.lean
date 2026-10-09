@@ -34,9 +34,15 @@ def generate (declName : Name) : MetaM Name := do
   let args ← soundArgs declName head
   let soundL := mkAppN (mkConst headL) args
   let data := mkConst (declName ++ `machineData)
+  -- no run boundary beyond the composed theorem's own premise: the trivial one
+  let trueB ← withLocalDeclD `m (mkConst ``Sparkle.IR.AST.Module) fun m =>
+    withLocalDeclD `D (mkConst ``Sparkle.IR.AST.Design) fun D => mkLambdaFVars #[m, D] (mkConst ``True)
+  let bnd ← mkAppM ``Tools.ShippingMachineShipsHier.ctxFree #[trueB]
+  let composed ← mkAppOptM ``Tools.ShippingMachineShipsHierH.composedH_true
+    #[none, none, none, none, none, none, none, none, mkConst cName]
   let thm ← mkAppOptM ``Tools.ShippingMachineShipsHierH.machine_ships_hierH
-    #[none, none, data, none, none, none, none, none, none, none, none,
-      soundL, mkConst cName]
+    #[none, bnd, none, data, none, none, none, none, none, none, none, none,
+      soundL, composed]
   let thm ← instantiateMVars thm
   let ty ← inferType thm
   let .forallE _ hT _ _ ← whnfR ty | throwError "{declName}: the output-width premise"
