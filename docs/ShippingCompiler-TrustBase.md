@@ -256,7 +256,18 @@ route would have wired or composed incorrectly; a rejected closing returns
 transition and child: the actual design accepted with the instance being the
 child; a different module under the child's name rejected; an identical one
 accepted; a design module instantiating the closed module rejected; a child
-with a register rejected by `kidsCombB`. The corpus is not re-measured. Still to connect: the derived boundary recursively below the
+with a register rejected by `kidsCombB`. The corpus is not re-measured.
+
+**Depth is an upper bound (2026-10-10).** `composedNWn_of_H` /
+`composedNn_of_HR` (`Tools/ShippingMachineDepthHR.lean`): a parent whose
+children are combinational runs the same at every depth — at depth `n` an
+assignment-only child steps by its assignments (`KSn_assigns_step`), so its
+outputs are those of the combinational step (`runModuleTG_KSn_of_H`).
+`generateRunOfR` lifts such a child to the depth its parent uses (no longer
+depth 0 only). Kernel-checked: `grandH` at depth 2 (midH deeper than it
+needs), `mixD1` at 2, `topD2` at 3, and `mixDeep` at 2 — a deep branch
+`mid2 → midH → rcH`, a shallow `midH → rcH` and a leaf `cnt` under one
+parent; `mixDeep` at depth 1 is refused (its deep branch is too shallow). Still to connect: the derived boundary recursively below the
 top level (`MachineRunN` with a context-dependent boundary), the depth-`n`
 variant's remaining items (`MachineRunN`; its `ExtendsAway` /
 `NoInstOf` remain evaluated checks on the child's run), and the

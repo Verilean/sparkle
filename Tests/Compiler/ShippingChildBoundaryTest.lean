@@ -195,6 +195,69 @@ run_cmd Lean.Elab.Command.liftTermElabM do
       throwError "{f}: a decidable premise fails on the shipped design"
   Lean.logInfo m!"DERIVED BOUNDARY AT DEPTH: mixD1 (two different children), grandH, topD2 — at every level: no BoundaryOf / BoundaryOfN / InstOfCall / BndH / BoundH / GateRun / MachineRun(N/NC) premise; the boundary is ChildSynthIs and the descendants' reflection facts; decidable premises hold; standard axioms"
 
+/-! ### Depth is an upper bound: shallow subtrees under deeper parents -/
+
+open Sparkle.Tests.Compiler.ShippingMachineDepthHTest (midH) in
+open Sparkle.Tests.Compiler.ShippingDesignSVTest (mid2) in
+/-- A deep branch (`mid2 → midH → rcH`), a shallow one (`midH → rcH`) and a
+leaf (`cnt`) under one parent. -/
+def mixDeep (en : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 8) :=
+  circuit do
+    let r ← Signal.reg 0#8
+    let rs := (r : Signal defaultDomain (BitVec 8))
+    let a := mid2 en
+    let b := midH en
+    let c := cnt en
+    r <~ Signal.mux a.hit (rs + b.n + c.n) rs
+    return rs
+
+#machine_endpoint mixDeep
+
+set_option maxHeartbeats 0 in
+#machine_design_svNR Sparkle.Tests.Compiler.ShippingMachineDepthHTest.grandH 2
+set_option maxHeartbeats 0 in
+#machine_design_svNR Sparkle.Tests.Compiler.ShippingDesignSVTest.mixD1 2
+set_option maxHeartbeats 0 in
+#machine_design_svNR Sparkle.Tests.Compiler.ShippingDesignSVTest.topD2 3
+set_option maxHeartbeats 0 in
+#machine_design_svNR mixDeep 2
+
+run_cmd Lean.Elab.Command.liftTermElabM do
+  for (f, n) in [(``Sparkle.Tests.Compiler.ShippingMachineDepthHTest.grandH, 2),
+      (``Sparkle.Tests.Compiler.ShippingDesignSVTest.mixD1, 2),
+      (``Sparkle.Tests.Compiler.ShippingDesignSVTest.topD2, 3), (``mixDeep, 2)] do
+    let e := f ++ Lean.Name.mkSimple s!"machine_design_svNR{n}"
+    let ty ← Lean.instantiateMVars (← Lean.Meta.inferType (Lean.mkConst e))
+    for c in [``Tools.ShippingMachineSeqCommand.BoundaryOf, ``Tools.ShippingMachineDepthCommand.BoundaryOfN,
+        ``Tools.ShippingMachineCallsLinkedT.InstOfCall, ``Tools.ShippingMachineDepthH.BndH,
+        ``Tools.ShippingMachineDepthH.BoundH, ``Tools.ShippingGateChild.GateRun,
+        ``Tools.ShippingGateChild.MachineRun, ``Tools.ShippingMachineDepthRun.MachineRunN,
+        ``Tools.ShippingMachineDepthRun.MachineRunNC] do
+      if mentionsDeep (← Lean.getEnv) ty c then throwError "{e}: the boundary mentions {c}"
+    unless mentions ty ``Tools.ShippingChildSynth.ChildSynthIs && mentions ty ``Tools.ShippingDesignSV.DesignSV do
+      throwError "{e}: shape"
+    for ax in ← Lean.collectAxioms e do
+      unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do
+        throwError "{e} uses a non-standard axiom: {ax}"
+    -- the decidable premises at that depth on the shipped design
+    let (_, D) ← Sparkle.Compiler.Elab.synthesizeCombinationalCore f [] false
+    let (b, _) ← Sparkle.Compiler.Elab.synthesizeCombinational f
+    let o := Sparkle.IR.OptCheck.checkedOptimize b
+    let C := Tools.ShippingMachineLinked.childMap D.modules
+    unless Tools.ShippingDesignSV.designCheck C n o && Tools.ShippingDesignSVBack.outsCheck C n o &&
+        Tools.ShippingMachineShipsDepth.kidsMaskedN D.modules b.body do
+      throwError "{f}: a decidable premise fails at depth {n}"
+  -- too shallow: `mixDeep`'s deep branch needs depth 2
+  let r ← try
+      discard <| Tools.ShippingMachineDepthCommand.generateDesignNR ``mixDeep 1
+      pure none
+    catch e => pure (some (← e.toMessageData.toString))
+  match r with
+  | none => throwError "mixDeep at depth 1 was generated"
+  | some msg =>
+    unless (msg.splitOn "too shallow").length > 1 do throwError "mixDeep at depth 1 failed otherwise: {msg}"
+  Lean.logInfo m!"MIXED DEPTH: grandH at 2, mixD1 at 2, topD2 at 3, mixDeep (deep + shallow + leaf) at 2 — derived boundary, decidable premises hold, standard axioms; mixDeep at depth 1 refused"
+
 /-! ### Combinational children (the one-output closing) -/
 
 set_option maxHeartbeats 0 in

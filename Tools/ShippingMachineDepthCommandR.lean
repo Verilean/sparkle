@@ -29,10 +29,11 @@ def bndOfComposed (cT : Name) : MetaM Lean.Expr := do
     unless ys.size == 12 do throwError "{cT}: the composed theorem's binders ({ys.size})"
     mkLambdaFVars #[ys[0]!, ys[1]!, ys[2]!, ys[3]!, ys[6]!, ys[7]!] (← inferType ys[11]!)
 
-/-- `c.machine_composedNR0` for a child with one-output combinational calls:
-`composedN0_of_HR` over `c.machine_composedR`. -/
-def generateCombN0R (c : Name) : MetaM Name := do
-  let name := c ++ `machine_composedNR0
+/-- `c.machine_composedNRH{n}` for a child with one-output combinational
+calls, at depth `n` (depth is an upper bound: `composedNn_of_HR` over
+`c.machine_composedR`, its children combinational at every depth). -/
+def generateCombNR (c : Name) (n : Nat) : MetaM Name := do
+  let name := c ++ Name.mkSimple s!"machine_composedNRH{n}"
   if (← getEnv).contains name then return name
   let cR ← Tools.ShippingMachineComposeRCommand.generateComposedR c
   let rest ← forallTelescope (← inferType (mkConst cR)) fun ys _ => do
@@ -40,7 +41,7 @@ def generateCombN0R (c : Name) : MetaM Name := do
     let bT ← whnfR (← inferType ys[11]!)
     unless bT.isAppOfArity ``And 2 do throwError "{cR}: the boundary is not ChildSynthIs ∧ …"
     mkLambdaFVars #[ys[0]!, ys[1]!, ys[2]!, ys[3]!] bT.appArg!
-  let f := mkConst ``Tools.ShippingMachineDepthHR.composedN0_of_HR
+  let f := mkApp (mkConst ``Tools.ShippingMachineDepthHR.composedNn_of_HR) (mkNatLit n)
   let (ms, _, _) ← forallMetaBoundedTelescope (← inferType f) 7
   let f7 := mkAppN f ms
   let fR := mkApp f7 rest
@@ -65,9 +66,7 @@ mutual
 DERIVED composed theorem at depth `n`; returns it and that theorem's boundary. -/
 partial def generateRunOfR (c : Name) (n : Nat) : MetaM (Name × Lean.Expr) := do
   let cr ← readMachine c
-  let cT ← if cr.shape.instFields.isEmpty then
-      if n != 0 then throwError "{c}: one-output combinational calls below depth 0 (not yet)"
-      else generateCombN0R c
+  let cT ← if cr.shape.instFields.isEmpty then generateCombNR c n
     else generateCoreNR c n
   let bnd ← bndOfComposed cT
   let name := c ++ Name.mkSimple s!"seq_child_runN_ofR{n}"
