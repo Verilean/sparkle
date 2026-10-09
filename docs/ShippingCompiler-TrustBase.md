@@ -195,7 +195,21 @@ top level the children's OWN boundaries are still the generated old ones:
 one-output closing, whose instance level is not derived), and `topD2`'s
 grandchild level keeps `mid2.machineBoundN1`'s `BoundaryOfN` (exact there —
 one child kind — but not derived); the test checks this by unfolding those
-definitions. Still to connect: the derived boundary recursively below the
+definitions. **One-output closing (2026-10-09).** `closeInsts` did not check that a
+child resolves by its name in the merged design to itself (`designWith`
+keeps the FIRST module of a name, which may be a sibling's or a grandchild's),
+so its instance level could not be derived from the run. It now CHECKS it,
+as `closeInstsG` does (`Sparkle/IR/Machine.lean`). Effect on the success
+domain: a one-output parent whose child's name resolves to another module
+is no longer certified (falls back to the legacy route) — such a parent's
+instance computed a module other than its call's child. Measured: the full
+test suite (`Tests.AllTests`, 806 jobs, every certified one-output parent's
+endpoint regenerated) — no parent lost; the corpus is not re-measured (the
+full-corpus run stays stopped). `closeInsts_serves`
+(`Tools/ShippingChildServe.lean`): the instance that is call `k`'s statement
+(`CallStmt`) has module `children[k].1`. This is the check plus its lemma,
+not yet the derived boundary of the combinational route (its composition
+`BndH` / `GateRun` is still the premise). Still to connect: the derived boundary recursively below the
 top level (`MachineRunN` with a context-dependent boundary), the depth-`n`
 variant's remaining items (`MachineRunN`; its `ExtendsAway` /
 `NoInstOf` remain evaluated checks on the child's run), and the

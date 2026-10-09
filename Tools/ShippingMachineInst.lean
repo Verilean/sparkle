@@ -157,7 +157,7 @@ theorem closeInsts_some {nIn kI n : Nat} {portNames : List String} {insts : List
   split at h
   · rename_i hc
     simp only [Bool.and_eq_true, decide_eq_true_eq] at hc
-    obtain ⟨⟨⟨⟨⟨⟨⟨⟨hinst, _⟩, hwo⟩, hwo'⟩, hperm⟩, hseq⟩, hkeys⟩, hmem⟩, hlink⟩ := hc
+    obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨hinst, _⟩, hwo⟩, hwo'⟩, hperm⟩, hseq⟩, hkeys⟩, hmem⟩, hlink⟩, _⟩ := hc
     cases h
     refine ⟨rfl, rfl, rfl, stmts, hinst, isPermOf_sound hperm, woCheck_sound _ _ hwo,
       woCheck_sound _ _ hwo', hseq, hmem, hkeys, rfl, hlink⟩
@@ -259,7 +259,7 @@ theorem closeInsts_calls {nIn kI n : Nat} {portNames : List String} {insts : Lis
   split at h
   · rename_i hc
     simp only [Bool.and_eq_true, decide_eq_true_eq] at hc
-    obtain ⟨⟨⟨⟨⟨⟨⟨⟨_, _⟩, _⟩, _⟩, hperm⟩, _⟩, _⟩, _⟩, _⟩ := hc
+    obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨_, _⟩, _⟩, _⟩, hperm⟩, _⟩, _⟩, _⟩, _⟩, _⟩ := hc
     cases h
     -- the `k`-th statement of `stmts`
     obtain ⟨_, hget⟩ := mapM_some _ _ stmts hstmts
@@ -307,7 +307,7 @@ theorem closeInsts_insts {nIn kI n : Nat} {portNames : List String} {insts : Lis
   split at h
   · rename_i hc
     simp only [Bool.and_eq_true, decide_eq_true_eq] at hc
-    obtain ⟨⟨⟨⟨⟨⟨⟨⟨_, _⟩, _⟩, _⟩, hperm⟩, _⟩, _⟩, _⟩, _⟩ := hc
+    obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨_, _⟩, _⟩, _⟩, hperm⟩, _⟩, _⟩, _⟩, _⟩, _⟩ := hc
     cases h
     have hmem : st ∈ m₀.body ++ stmts := (isPermOf_sound hperm).mem_iff.mpr hst
     rcases List.mem_append.mp hmem with h0 | hs

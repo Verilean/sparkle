@@ -131,4 +131,60 @@ theorem closeInstsG_serves {nIn kI n : Nat} {portNames : List String} {insts : L
       rw [hnm, hmc'] at this
       exact Option.some.inj this
 
+/-- `closeInsts`'s checks: the port names are distinct and every child is
+found by its name in the merged design as itself. -/
+theorem closeInsts_names {nIn kI n : Nat} {portNames : List String} {insts : List (List Nat)}
+    {children : List (Module × Design)} {m₀ : Module} {d₀ : Design} {m : Module} {d : Design}
+    (h : closeInsts nIn kI n portNames insts children (m₀, d₀) = some (m, d)) :
+    portNames.Nodup ∧ ∀ c ∈ children, moduleByName d.modules c.1.name = some c.1 := by
+  unfold closeInsts at h
+  simp only [Option.bind_eq_bind] at h
+  obtain ⟨_, _, h⟩ := Option.bind_eq_some_iff.mp h
+  obtain ⟨_, _, h⟩ := Option.bind_eq_some_iff.mp h
+  obtain ⟨_, _, h⟩ := Option.bind_eq_some_iff.mp h
+  split at h
+  · rename_i hc
+    simp only [Bool.and_eq_true, decide_eq_true_eq] at hc
+    cases h
+    refine ⟨hc.1.1.1.1.1.1.1.1.2, fun c hcm => ?_⟩
+    have := List.all_eq_true.mp hc.2 c hcm
+    simpa using this
+  · cases h
+
+/-- **The instance serving call `k`, on the one-output closing.** An instance
+statement of the closing that is call `k`'s statement (`CallStmt`: its last
+connection is call `k`'s port) has, as its module resolved by name,
+`children[k].1`. -/
+theorem closeInsts_serves {nIn kI n : Nat} {portNames : List String} {insts : List (List Nat)}
+    {children : List (Module × Design)} {m₀ : Module} {d₀ : Design} {m : Module} {d : Design}
+    (h : closeInsts nIn kI n portNames insts children (m₀, d₀) = some (m, d))
+    (h0 : ∀ st ∈ m₀.body, isInst st = false)
+    {k : Nat} {args : List Nat} {mc : Module} {st : Stmt}
+    (hst : st ∈ m.body) (hcs : Tools.ShippingMachineInst.CallStmt nIn kI n portNames k args mc st)
+    (hmod : moduleByName d.modules mc.name = some mc) :
+    ∃ y, children[k]? = some y ∧ mc = y.1 := by
+  obtain ⟨hpn, hcons⟩ := closeInsts_names h
+  obtain ⟨outW, argWs, outP, iname, hW, _, _, _, _, _, _, _, _, hstE⟩ := hcs
+  have hi : isInst st = true := by subst hstE; rfl
+  rcases Tools.ShippingMachineInst.closeInsts_insts h st hst hi with h0' | ⟨k', args', child, mc', _, hchild, hmc', hcs'⟩
+  · exact absurd (h0 _ h0') (by simp [hi])
+  obtain ⟨outW', argWs', outP', iname', hW', _, _, _, _, _, _, _, _, hstE'⟩ := hcs'
+  rw [hstE] at hstE'
+  simp only [Stmt.inst.injEq] at hstE'
+  obtain ⟨hname, _, hconns⟩ := hstE'
+  have hlast := congrArg List.getLast? hconns
+  simp only [List.getLast?_append, List.getLast?_singleton, Option.some_or,
+    Option.some.injEq, Prod.mk.injEq, Expr.ref.injEq] at hlast
+  have hkk := nodup_getElem?_inj hpn hW (hlast.2 ▸ hW')
+  have hk : k = k' := by omega
+  subst hk
+  have hmc'n : mc'.name = child.1.name := Tools.ShippingMachineInst.moduleByName_name hmc'
+  have hmm : mc = mc' := by
+    rw [hname, hmc'n, hmc'] at hmod; exact (Option.some.inj hmod).symm
+  subst hmm
+  refine ⟨child, hchild, ?_⟩
+  have := hcons child (List.mem_of_getElem? hchild)
+  rw [hmc'] at this
+  exact Option.some.inj this
+
 end Tools.ShippingChildServe

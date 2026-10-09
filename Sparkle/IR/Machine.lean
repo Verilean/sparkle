@@ -385,7 +385,11 @@ def closeInsts (nIn kI n : Nat) (portNames : List String) (insts : List (List Na
       decide (seqOf m'.body = seqOf body) &&
       decide (Sparkle.IR.Reorder.nextKeys m'.body).Nodup &&
       decide (m'.body.filterMap Sparkle.IR.Reorder.stmtMemName).Nodup &&
-      linkedOk (moduleByName d'.modules) body then
+      linkedOk (moduleByName d'.modules) body &&
+      -- every child module is found by its name in the merged design as
+      -- itself (as `closeInstsG` checks): the instance of call `k` is the
+      -- module the child entry returned for `k`
+      children.all (fun c => decide (moduleByName d'.modules c.1.name = some c.1)) then
     some ({ m' with body := body }, d')
   else none
 
