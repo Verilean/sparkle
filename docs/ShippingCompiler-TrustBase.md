@@ -277,7 +277,27 @@ picks the head of the declaration's endpoint (`headsOf`). Kernel-checked and
 audited unfolded: `callerNested`, `callerLN` (nested), `hftByte` (tele, its
 child the real `httpGetByte`), `callerMix` (two different combinational
 children), `callerTwice`, `callerD`, `callerL`; decidable premises true on
-every shipped design. Still to connect: the derived boundary recursively below the
+every shipped design.
+
+**What the new closing checks cost (2026-10-10, measured).** Only conjuncts
+were added to the closings' acceptance; when a closing accepts, its output is
+unchanged. The checks fall in two kinds. Miswiring prevention: every child
+(and every module of a child's design) resolves by its name to itself, and
+nothing in the closed module or its design instantiates the module being
+closed — a rejection there is a compile whose instance would have computed
+another module. Proof alignment: `kidsCombB` on the one-output closing (its
+children combinational, local, wired) — what that closing's composition
+takes of its children; it can only shrink the certified route, so it is not
+counted as generality. Measured with the closing of 12e84834 against the
+current one on the same inputs (`scripts/shipping-coverage/closing_compare.lean`):
+all 28 machine declarations with calls of the test modules imported by
+`ShippingChildBoundaryTest` (11 one-output, 17 general closings) are accepted
+by both — nothing moved to the legacy route. A one-output call of a
+SEQUENTIAL child (`useCtr1`) was never certified: the old closing refuses its
+instance (`instStmt`: no clock/reset child), so the machine route returns
+`none` and the real entry succeeds on the legacy route
+(`ShippingCloseInstsCheckTest`); the legacy route's output is not covered by
+the certified theorems. The corpus is not re-measured. Still to connect: the derived boundary recursively below the
 top level (`MachineRunN` with a context-dependent boundary), the depth-`n`
 variant's remaining items (`MachineRunN`; its `ExtendsAway` /
 `NoInstOf` remain evaluated checks on the child's run), and the

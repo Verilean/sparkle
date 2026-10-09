@@ -72,4 +72,41 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   if Sparkle.IR.Machine.kidsCombB D' m.body then throwError "a register child passed kidsCombB"
   Lean.logInfo m!"KIDSCOMB: a child with a register is rejected"
 
+/-! ### The legacy fallback, on a real source
+
+A one-output call of a SEQUENTIAL child: the one-output closing never took
+it — before the checks of `97952d0`/`ffe0259` as after (its instance statement
+refuses a child with a clock or reset, `instStmt`) — so the machine route
+returns `none` and the real entry succeeds on the legacy route. The legacy
+route's output is not covered by the certified theorems. -/
+
+open Sparkle.Core.Domain Sparkle.Core.Signal in
+/-- A sequential child with one plain output. -/
+@[hardware_module] def ctr1 {dom : DomainConfig} (en : Signal dom Bool) : Signal dom (BitVec 8) :=
+  circuit do
+    let c ← Signal.reg 0#8
+    let cs := (c : Signal dom (BitVec 8))
+    c <~ Signal.mux en (cs + (Signal.pure 1#8 : Signal dom (BitVec 8))) cs
+    return cs
+
+open Sparkle.Core.Domain Sparkle.Core.Signal in
+def useCtr1 (en : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 8) :=
+  circuit do
+    let r ← Signal.reg 0#8
+    let rs := (r : Signal defaultDomain (BitVec 8))
+    let k := ctr1 en
+    r <~ rs + k
+    return rs
+
+run_cmd Lean.Elab.Command.liftTermElabM do
+  let n := ``useCtr1
+  let r ← Tools.ShippingMachineCommand.readMachine n
+  unless r.shape.instFields.isEmpty && r.shape.insts.length == 1 do throwError "not a one-output call"
+  let translate : TranslateFn := fun e h t nm => translateExprToWire e h t nm
+  if (← synthesizeMachineCertified translate (fun _ => pure ()) n r.shape).isSome then
+    throwError "the machine route took a one-output sequential call"
+  let (b, _) ← synthesizeCombinational n
+  unless b.name == n.toString do throwError "the entry did not produce the module"
+  Lean.logInfo m!"LEGACY FALLBACK: useCtr1 (one-output call of a sequential child) — machine route none, entry succeeds ({b.body.length} statements)"
+
 end Sparkle.Tests.Compiler.ShippingCloseInstsCheckTest
