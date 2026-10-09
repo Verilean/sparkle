@@ -222,11 +222,14 @@ free of `GateRun` / `MachineRun` / `BoundH` / `BndH` / `ChildFn` (checked
 through the generated definitions). Only the `data_ext` endpoint head has its
 R twin (nested / tele heads: not yet).
 
-**Below the top level, from the actual run (2026-10-10).** The depth
+**Below the top level, from a run witness (2026-10-10).** The depth
 variant no longer assumes that every run of a child's entry satisfies
 `MachineRunN`. `machineRunNC_of_real` (`Tools/ShippingMachineDepthRunR.lean`)
 derives `MachineRunNC` (`MachineRunN` with the child's boundary in the run's
-contexts) from the run the parent's compile USED — the witness `ServedReal`
+contexts) from the run WITNESS `ServedReal` gives for the served instance — SOME
+run of the child's entry in the parent's contexts returning that module, as
+`ChildSynthIs` asserts (not a proof about the specific call or cache hit
+inside the parent's run) — `ServedReal`
 now carries together with that run's design's consistency with the
 parent's — : the core run under it (`synthesizeCombinational_design`: the
 full entry changes only the modules named after the top), the child's own
@@ -234,7 +237,7 @@ closing (`closeInsts_acyclic` / `closeInstsG_acyclic`: neither the child's
 module nor its design instantiates it) and the parent's closing (every module
 of the child's design resolves in the parent's design to itself) give
 `ExtendsAway` and `NoInstOf`; the child's boundary is again `ChildSynthIs`
-and reflection facts — facts of the contexts only, so the actual run needs
+and reflection facts — facts of the contexts only, so the witness run needs
 no identification. A child with one-output calls reaches depth 0 through
 `composedN0_of_HR` (`Tools/ShippingMachineDepthHR.lean`; `kidsComb` of its
 run from its closing, `BoundH` trivial). `#machine_design_svNR` now builds
@@ -297,7 +300,31 @@ SEQUENTIAL child (`useCtr1`) was never certified: the old closing refuses its
 instance (`instStmt`: no clock/reset child), so the machine route returns
 `none` and the real entry succeeds on the legacy route
 (`ShippingCloseInstsCheckTest`); the legacy route's output is not covered by
-the certified theorems. The corpus is not re-measured. Still to connect: the derived boundary recursively below the
+the certified theorems. The corpus is not re-measured.
+
+**`ChildSynthIs` reduced (2026-10-10).** The function the machine route reads
+from `sparkleChildSynth`, `synthesizeChild`, is now an ORDINARY definition
+(`Sparkle/Compiler/Elab.lean`): a hit in `sparkleChildCache` returns the
+cached result, a miss runs the real entry `synthesizeCombinational` and
+records its result — the same cache and the same computation as
+`Rec.synthesizeCombinational` with the real translator (whose miss path is
+`synthesizeCombinationalWith` of that translator); only the cache lost
+`private`. `Tools/ShippingChildCache.lean` proves: the memoised entry's hit
+and miss (`synthesizeChild_run`), the cache invariant `CacheInv` (every entry
+a real-entry result) at initialisation (`cacheInv_empty`) and under the
+write (`cacheInv_insert`, the miss path's result being real), and
+`childSynthIs_of : RefIs → CacheReads → ChildSynthIs`. Every derived endpoint
+(`#machine_design_svR0` / `svNR` / `svHR`) now assumes `RefIs` (a read of the
+ref returns `synthesizeChild`) and `CacheReads` (a read of the cache returns
+a map satisfying `CacheInv`) in place of `ChildSynthIs` — checked on 16
+endpoints, unfolded. What `CacheReads` still assumes, and why it is not yet a
+theorem: that each read of the `IO.Ref` returns what the last write left (a
+law of `IO.Ref`, opaque in the logic: proving it needs the world-passing
+semantics of `ST.Ref.get` / `modify`), and that the cache's other writer —
+the legacy translator's `Rec.synthesizeCombinational`, a `partial def` whose
+body the logic cannot see — also inserts only real-entry results (its source
+does). Closing it: state the ref laws as the single assumption about `IO.Ref`
+and route the legacy writer through `synthesizeChild` (or make it total). Still to connect: the derived boundary recursively below the
 top level (`MachineRunN` with a context-dependent boundary), the depth-`n`
 variant's remaining items (`MachineRunN`; its `ExtendsAway` /
 `NoInstOf` remain evaluated checks on the child's run), and the

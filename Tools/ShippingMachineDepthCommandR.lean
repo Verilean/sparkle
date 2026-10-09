@@ -4,6 +4,7 @@ import Tools.ShippingMachineSeqLinkedR
 import Tools.ShippingShipsDesignSVCommand
 import Tools.ShippingMachineComposeRCommand
 import Tools.ShippingMachineDepthHR
+import Tools.ShippingChildCache
 
 /-! # Generated composition at depth `n`, the instance binding derived
 
@@ -405,11 +406,11 @@ partial def generateCoreNR (declName : Name) (dep : Nat) : MetaM Name := do
       #[nameT, ← QmR m, toExpr names[m]!, rest', perR[m]!, chain]
   p := mkApp p chain
   -- the boundary in the run's contexts: `ChildSynthIs` and the children's premises, bundled
-  let bTypes := (← inferType hsyn) :: pTypes
+  let bTypes := (← Tools.ShippingChildCache.splitOf (← inferType hsyn)) :: pTypes
   let bnd ← conj bTypes
   let value ← withLocalDeclD `hBnd bnd fun hBnd => do
     let ps ← projs hBnd bTypes
-    let p' := p.replaceFVars (#[hsyn] ++ hPs) ps.toArray
+    let p' := p.replaceFVars (#[hsyn] ++ hPs) ((← Tools.ShippingChildCache.synOf ps.head!) :: ps.tail).toArray
     mkLambdaFVars (xs.pop ++ #[hBnd]) p'
   progress s!"{name}: checking"
   addTheorem name (← inferType value) value
@@ -480,6 +481,6 @@ elab "#machine_design_svNR " d:ident n:num : command => do
     withOptions (fun o => maxRecDepth.set (Lean.Elab.async.set o false) 1000000) <|
       withTheReader Core.Context (fun c => { c with maxRecDepth := 1000000 })
         (generateDesignNR declName n.getNat)
-  logInfo m!"{name}: source → shipped design's closed emitted texts at depth {n.getNat}, the instance binding derived (ChildSynthIs + the children's premises), checked by the kernel"
+  logInfo m!"{name}: source → shipped design's closed emitted texts at depth {n.getNat}, the instance binding derived (RefIs + CacheReads + the children's premises), checked by the kernel"
 
 end Tools.ShippingMachineDepthCommand

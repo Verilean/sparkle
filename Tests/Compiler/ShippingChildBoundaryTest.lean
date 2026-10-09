@@ -6,6 +6,7 @@ import Tests.Compiler.ShippingDesignSVTest
 import Tools.ShippingMachineSeqCommandR
 import Tools.ShippingMachineDepthCommandR
 import Tools.ShippingMachineComposeRCommand
+import Tools.ShippingChildCache
 
 /-! The child-run boundary DERIVED on real compiles (`#machine_design_svR0`).
 
@@ -91,7 +92,7 @@ def mentions (e : Lean.Expr) (c : Lean.Name) : Bool := (e.find? (·.isConstOf c)
 run_cmd Lean.Elab.Command.liftTermElabM do
   for e in rEndpoints do
     let ty ← Lean.instantiateMVars (← Lean.Meta.inferType (Lean.mkConst e))
-    for c in [``Tools.ShippingChildSynth.ChildSynthIs, ``Tools.ShippingMachineEntry.MachineDefines,
+    for c in [``Tools.ShippingChildCache.RefIs, ``Tools.ShippingChildCache.CacheReads, ``Tools.ShippingMachineEntry.MachineDefines,
         ``Tools.ShippingMachineEntry.MachineCloses, ``Tools.ShippingDesignSVBack.outsCheck,
         ``Tools.ShippingDesignSV.designCheck, ``Tools.ShippingDesignSV.DesignSV] do
       unless mentions ty c do throwError "{e}: {c} missing"
@@ -103,7 +104,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     let some (.thmInfo ti) := (← Lean.getEnv).find? e | throwError "{e}"
     let ships := (ti.value.find? fun x => x.isConstOf (e.getPrefix ++ `machine_ships_hierR)).isSome
     unless ships do throwError "{e}: not built from machine_ships_hierR"
-  Lean.logInfo m!"DERIVED BOUNDARY: {rEndpoints.length} endpoints state ChildSynthIs + the children's reflection, no BoundaryOf / InstOfCall / MachineRun premise"
+  Lean.logInfo m!"DERIVED BOUNDARY: {rEndpoints.length} endpoints state RefIs + CacheReads + the children's reflection, no BoundaryOf / InstOfCall / MachineRun premise"
 
 -- the shipped designs pass the decidable premises the endpoints state
 run_cmd Lean.Elab.Command.liftTermElabM do
@@ -169,7 +170,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   for (f, n) in nrEndpoints do
     let e := f ++ Lean.Name.mkSimple s!"machine_design_svNR{n}"
     let ty ← Lean.instantiateMVars (← Lean.Meta.inferType (Lean.mkConst e))
-    for c in [``Tools.ShippingChildSynth.ChildSynthIs, ``Tools.ShippingDesignSVBack.outsCheck,
+    for c in [``Tools.ShippingChildCache.RefIs, ``Tools.ShippingChildCache.CacheReads, ``Tools.ShippingDesignSVBack.outsCheck,
         ``Tools.ShippingDesignSV.designCheck, ``Tools.ShippingDesignSV.DesignSV] do
       unless mentions ty c do throwError "{e}: {c} missing"
     for c in [``Tools.ShippingMachineSeqCommand.BoundaryOf, ``Tools.ShippingMachineDepthCommand.BoundaryOfN,
@@ -196,7 +197,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     unless Tools.ShippingDesignSV.designCheck C n o && Tools.ShippingDesignSVBack.outsCheck C n o &&
         Tools.ShippingMachineShipsDepth.kidsMaskedN D.modules b.body do
       throwError "{f}: a decidable premise fails on the shipped design"
-  Lean.logInfo m!"DERIVED BOUNDARY AT DEPTH: mixD1 (two different children), grandH, topD2 — at every level: no BoundaryOf / BoundaryOfN / InstOfCall / BndH / BoundH / GateRun / MachineRun(N/NC) premise; the boundary is ChildSynthIs and the descendants' reflection facts; decidable premises hold; standard axioms"
+  Lean.logInfo m!"DERIVED BOUNDARY AT DEPTH: mixD1 (two different children), grandH, topD2 — at every level: no BoundaryOf / BoundaryOfN / InstOfCall / BndH / BoundH / GateRun / MachineRun(N/NC) premise; the boundary is RefIs + CacheReads and the descendants' reflection facts; decidable premises hold; standard axioms"
 
 /-! ### Depth is an upper bound: shallow subtrees under deeper parents -/
 
@@ -237,7 +238,8 @@ run_cmd Lean.Elab.Command.liftTermElabM do
         ``Tools.ShippingGateChild.MachineRun, ``Tools.ShippingMachineDepthRun.MachineRunN,
         ``Tools.ShippingMachineDepthRun.MachineRunNC] do
       if mentionsDeep (← Lean.getEnv) ty c then throwError "{e}: the boundary mentions {c}"
-    unless mentions ty ``Tools.ShippingChildSynth.ChildSynthIs && mentions ty ``Tools.ShippingDesignSV.DesignSV do
+    unless mentions ty ``Tools.ShippingChildCache.RefIs && mentions ty ``Tools.ShippingChildCache.CacheReads &&
+        mentions ty ``Tools.ShippingDesignSV.DesignSV do
       throwError "{e}: shape"
     for ax in ← Lean.collectAxioms e do
       unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do
@@ -300,7 +302,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   for f in hrDecls do
     let e := f ++ `machine_design_svHR
     let ty ← Lean.instantiateMVars (← Lean.Meta.inferType (Lean.mkConst e))
-    for c in [``Tools.ShippingChildSynth.ChildSynthIs,
+    for c in [``Tools.ShippingChildCache.RefIs, ``Tools.ShippingChildCache.CacheReads,
         ``Tools.ShippingDesignSVBack.outsCheck, ``Tools.ShippingDesignSV.designCheck,
         ``Tools.ShippingDesignSV.DesignSV] do
       unless mentions ty c do throwError "{e}: {c} missing"
@@ -324,6 +326,23 @@ run_cmd Lean.Elab.Command.liftTermElabM do
         Tools.ShippingMachineDepthH.kidsComb D.modules o.body &&
         Tools.ShippingDesignSV.designCheck C 0 o && Tools.ShippingDesignSVBack.outsCheck C 0 o do
       throwError "{f}: a decidable premise fails on the shipped design"
-  Lean.logInfo m!"DERIVED BOUNDARY (COMBINATIONAL): {hrDecls.length} parents (data, nested and tele heads; callerMix with two different children) — ChildSynthIs + the children's EntryDefines / MachineDefines, no GateRun / MachineRun / BoundH / ChildFn premise; decidable premises hold; standard axioms"
+  Lean.logInfo m!"DERIVED BOUNDARY (COMBINATIONAL): {hrDecls.length} parents (data, nested and tele heads; callerMix with two different children) — RefIs + CacheReads + the children's EntryDefines / MachineDefines, no GateRun / MachineRun / BoundH / ChildFn premise; decidable premises hold; standard axioms"
+
+-- `ChildSynthIs` is no longer a premise of any derived endpoint: it is proved
+-- from the ref's content and the cache's reads (`childSynthIs_of`)
+run_cmd Lean.Elab.Command.liftTermElabM do
+  let es := rEndpoints ++ hrDecls.map (· ++ `machine_design_svHR) ++
+    [``Sparkle.Tests.Compiler.ShippingDesignSVTest.mixD1.machine_design_svNR1,
+     ``Sparkle.Tests.Compiler.ShippingDesignSVTest.topD2.machine_design_svNR3, ``mixDeep.machine_design_svNR2]
+  for e in es do
+    let ty ← Lean.instantiateMVars (← Lean.Meta.inferType (Lean.mkConst e))
+    if mentionsDeep (← Lean.getEnv) ty ``Tools.ShippingChildSynth.ChildSynthIs then
+      throwError "{e}: still assumes ChildSynthIs"
+  for name in [``Tools.ShippingChildCache.childSynthIs_of, ``Tools.ShippingChildCache.synthesizeChild_run,
+      ``Tools.ShippingChildCache.cacheInv_insert, ``Tools.ShippingChildCache.cacheInv_empty] do
+    for ax in ← Lean.collectAxioms name do
+      unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do
+        throwError "{name} uses a non-standard axiom: {ax}"
+  Lean.logInfo m!"CHILD CACHE: {es.length} derived endpoints assume RefIs + CacheReads, not ChildSynthIs; the memoised entry's hit / miss and the cache invariant's initialisation / write preservation proved; standard axioms"
 
 end Sparkle.Tests.Compiler.ShippingChildBoundaryTest

@@ -2,13 +2,16 @@ import Tools.ShippingMachineDepthRun
 import Tools.ShippingChildServe
 import Tools.ShippingChildSynth
 
-/-! # Children with calls: the depth conditions from the actual run
+/-! # Children with calls: the depth conditions from the served child's run witness
 
 `MachineRunN` asks, of the module an instance resolves to, a core run of the
 child entry with the child's run boundary, `ExtendsAway` and `NoInstOf`.
 `MachineRunNC` takes the child's boundary in the run's contexts (`CtxBnd`),
-and `machineRunNC_of_real` DERIVES it from the run the parent's compile
-actually used (`RealChild`, as `ServedReal` gives it): the core run under that
+and `machineRunNC_of_real` DERIVES it from the run witness `ServedReal` gives
+for the served instance (`RealChild`: SOME run of the child's entry in the
+parent's contexts returning that module — what `ChildSynthIs` asserts; not a
+proof about the specific call, or cache hit, inside the parent's run): the
+core run under that
 run (`synthesizeCombinational_design`: the full entry changes only the
 module named after the top), the child's own closing (`closeInsts_acyclic` /
 `closeInstsG_acyclic`: the child's module and design do not instantiate it),
@@ -225,7 +228,7 @@ theorem moduleByName_mem {ms : List Module} {nm : String} {mc : Module}
   unfold moduleByName at h
   exact List.mem_of_find?_eq_some h
 
-/-- **The depth conditions from the actual run.** The module of a run of
+/-- **The depth conditions from a run witness.** The module of a run of
 `c`'s entry in the parent's contexts — one the parent's closing found, so
 every module of its design resolves in the parent's design to itself — with
 `c`'s reflection facts, `ChildSynthIs` and `c`'s boundary (a fact of the

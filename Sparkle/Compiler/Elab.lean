@@ -975,7 +975,7 @@ private initialize sparkleSubModuleCache :
     site synthesised (`Rec.synthesizeCombinational`): a child projected at
     several fields, or called from several places, is synthesised once.
     Cleared with the other per-synth caches at depth 0. -/
-private initialize sparkleChildCache :
+initialize sparkleChildCache :
     IO.Ref (Std.HashMap Lean.Name (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design)) ←
     IO.mkRef {}
 
@@ -8682,9 +8682,18 @@ def synthesizeCombinationalCore := synthesizeCombinationalCoreWith (fun e h t n 
 /-- `#synthesizeVerilog`'s synthesis with the real translator (a plain
     definition, so the post-processing theorems apply to it directly). -/
 def synthesizeCombinational := synthesizeCombinationalWith (fun e h t n => translateExprToWire e h t n)
-/-- The memoised child entry (`Rec.synthesizeCombinational`). -/
-def synthesizeChild (n : Name) : MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) :=
-  Rec.synthesizeCombinational (fun e h t n => translateExprToWire e h t n) n
+/-- The memoised child entry the machine route reads (`sparkleChildSynth`):
+    a child synthesised earlier in this top-level synthesis is returned from
+    `sparkleChildCache`, otherwise the real entry `synthesizeCombinational` runs
+    and its result is recorded. The same cache and the same computation as
+    `Rec.synthesizeCombinational` with the real translator (whose miss path is
+    `synthesizeCombinationalWith` of that translator), as an ordinary
+    definition — so its equation is available to the proofs. -/
+def synthesizeChild (n : Name) : MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) := do
+  if let some r := (← sparkleChildCache.get).get? n then return r
+  let r ← synthesizeCombinational n
+  sparkleChildCache.modify (·.insert n r)
+  return r
 initialize sparkleChildSynth.set (some synthesizeChild)
 /-- `Rec.synthesizeCombinationalWithParameters` with the real translator as its recursive entry. -/
 def synthesizeCombinationalWithParameters := Rec.synthesizeCombinationalWithParameters (fun e h t n => translateExprToWire e h t n)

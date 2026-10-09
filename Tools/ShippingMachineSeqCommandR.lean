@@ -1,6 +1,7 @@
 import Tools.ShippingMachineSeqCommand
 import Tools.ShippingMachineSeqLinkedR
 import Tools.ShippingMachineCallsLinkedTR
+import Tools.ShippingChildCache
 import Tools.ShippingMachineShipsHierCommand
 import Tools.ShippingShipsDesignSVCommand
 
@@ -228,7 +229,12 @@ def generateCoreSR (declName : Name) : MetaM Name := do
   let hreflT := (← whnf (← inferType p)).bindingDomain!
   withLocalDeclD `hrefl hreflT fun hrefl => do
   let p := mkApp p hrefl
-  let mut value ← mkLambdaFVars (xs ++ #[hrefl]) p
+  -- `ChildSynthIs` from the ref's content and the cache's reads
+  let hsyn := xs.back!
+  let splitT ← Tools.ShippingChildCache.splitOf (← inferType hsyn)
+  withLocalDeclD `hsplit splitT fun hsplit => do
+  let p := p.replaceFVar hsyn (← Tools.ShippingChildCache.synOf hsplit)
+  let mut value ← mkLambdaFVars (xs.pop ++ #[hsplit, hrefl]) p
   if let some (heq, srcN) := back? then
     let T ← inferType value
     let motT ← kabstract T srcN
@@ -277,6 +283,6 @@ elab "#machine_design_svR0 " d:ident : command => do
     withOptions (fun o => maxRecDepth.set (Lean.Elab.async.set o false) 1000000) <|
       withTheReader Core.Context (fun c => { c with maxRecDepth := 1000000 })
         (generateDesignR0 declName)
-  logInfo m!"{name}: source → shipped design's closed emitted texts, the child-run boundary derived (ChildSynthIs + the children's reflection), checked by the kernel"
+  logInfo m!"{name}: source → shipped design's closed emitted texts, the child-run boundary derived (RefIs + CacheReads + the children's reflection), checked by the kernel"
 
 end Tools.ShippingMachineSeqCommand

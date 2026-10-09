@@ -1,6 +1,7 @@
 import Tools.ShippingMachineLinkedCommand
 import Tools.ShippingGateChildCommand
 import Tools.ShippingMachineComposeR
+import Tools.ShippingChildCache
 import Tools.ShippingMachineNestR
 import Tools.ShippingMachineTeleNestR
 import Tools.ShippingMachineShipsHierHCommand
@@ -250,11 +251,11 @@ def generateComposedRCore (declName : Name) : MetaM Name := do
       #[nameT, ← QmR m, toExpr names[m]!, rest', perR[m]!, chain]
   let p := mkApp p chain
   -- the run boundary: `ChildSynthIs` and the children's reflection facts, bundled
-  let bTypes := (← inferType hsyn) :: rTypes
+  let bTypes := (← Tools.ShippingChildCache.splitOf (← inferType hsyn)) :: rTypes
   let bnd ← Tools.ShippingMachineShipsHierCommand.conj bTypes
   let value ← withLocalDeclD `hBnd bnd fun hBnd => do
     let ps ← Tools.ShippingMachineShipsHierCommand.projs hBnd bTypes
-    let p' := p.replaceFVars (#[hsyn] ++ hRs) ps.toArray
+    let p' := p.replaceFVars (#[hsyn] ++ hRs) ((← Tools.ShippingChildCache.synOf ps.head!) :: ps.tail).toArray
     mkLambdaFVars (xs.pop ++ #[hBnd]) p'
   progress s!"{name}: checking"
   addTheorem name (← inferType value) value
@@ -329,6 +330,6 @@ elab "#machine_design_svHR " d:ident : command => do
     withOptions (fun o => maxRecDepth.set (Lean.Elab.async.set o false) 1000000) <|
       withTheReader Core.Context (fun c => { c with maxRecDepth := 1000000 })
         (generateDesignHR declName)
-  logInfo m!"{name}: source → shipped design's closed emitted texts, combinational children, the run boundary derived (ChildSynthIs + the children's reflection), checked by the kernel"
+  logInfo m!"{name}: source → shipped design's closed emitted texts, combinational children, the run boundary derived (RefIs + CacheReads + the children's reflection), checked by the kernel"
 
 end Tools.ShippingMachineComposeRCommand

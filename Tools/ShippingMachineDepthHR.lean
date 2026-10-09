@@ -1,6 +1,7 @@
 import Tools.ShippingMachineDepthH
 import Tools.ShippingMachineComposeR
 import Tools.ShippingMachineDepthRunR
+import Tools.ShippingChildCache
 
 /-! # A child with one-output combinational calls, at depth 0, the boundary derived
 
@@ -248,7 +249,8 @@ theorem composedNn_of_HR (n : Nat) {declName : Name} {d : MachineData} {kD : Nat
       RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (m, design) w' →
       MachineDefines mctx mref cctx cref declName d.shape →
       MachineCloses mctx mref cctx cref declName d.shape →
-      Tools.ShippingChildSynth.ChildSynthIs mctx mref cctx cref ∧ Rest mctx mref cctx cref →
+      (Tools.ShippingChildCache.RefIs mctx mref cctx cref ∧
+        Tools.ShippingChildCache.CacheReads mctx mref cctx cref) ∧ Rest mctx mref cctx cref →
       Tools.ShippingMachineShipsHierH.ComposedH (fun _ _ => True) declName d kD m design dom src ext) :
     ∀ {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
       {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
@@ -256,13 +258,15 @@ theorem composedNn_of_HR (n : Nat) {declName : Name} {d : MachineData} {kD : Nat
       RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (m, design) w' →
       MachineDefines mctx mref cctx cref declName d.shape →
       MachineCloses mctx mref cctx cref declName d.shape →
-      Tools.ShippingChildSynth.ChildSynthIs mctx mref cctx cref ∧ Rest mctx mref cctx cref →
+      (Tools.ShippingChildCache.RefIs mctx mref cctx cref ∧
+        Tools.ShippingChildCache.CacheReads mctx mref cctx cref) ∧ Rest mctx mref cctx cref →
       Tools.ShippingMachineDepthRun.ComposedNW n declName d kD m design dom src ext
         (fun _ bools _ => bools) := by
   intro mctx mref cctx cref w w' m design hr entry closes hb
   have hC := composed hr entry closes hb
   obtain ⟨t, t', d₀, children, _, hcc, _⟩ :=
-    Tools.ShippingChildSynth.machine_children_real hr entry closes hb.1 hi
+    Tools.ShippingChildSynth.machine_children_real hr entry closes
+      (Tools.ShippingChildCache.childSynthIs_of hb.1.1 hb.1.2) hi
   have hcomb : Tools.ShippingMachineDepthH.kidsComb design.modules m.body = true := by
     rcases hcc with ⟨_, h⟩ | ⟨hfe, _, _⟩
     · exact kidsComb_of_B (Tools.ShippingChildServe.closeInsts_kidsComb h)
