@@ -138,7 +138,9 @@ def closeInstsG (nIn kI n : Nat) (portNames : List String) (insts : List (List N
       -- every child module, and every module of a child's design, is found by
       -- its name in the merged design as itself (the designs agree)
       children.all (fun c => decide (moduleByName d'.modules c.1.name = some c.1) &&
-        c.2.modules.all (fun m => decide (moduleByName d'.modules m.name = some m))) then
+        c.2.modules.all (fun m => decide (moduleByName d'.modules m.name = some m))) &&
+      -- no instance of the module being closed, in it or in its design
+      noInstOfB m0.name body && d'.modules.all (fun g => noInstOfB m0.name g.body) then
     some ({ m' with body := body }, d')
   else none
 

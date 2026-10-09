@@ -2,6 +2,8 @@ import Tools.ShippingMachineDepthCommand
 import Tools.ShippingMachineCallsLinkedTNR
 import Tools.ShippingMachineSeqLinkedR
 import Tools.ShippingShipsDesignSVCommand
+import Tools.ShippingMachineComposeRCommand
+import Tools.ShippingMachineDepthHR
 
 /-! # Generated composition at depth `n`, the instance binding derived
 
@@ -20,7 +22,71 @@ open Tools.ShippingMachineLinkedCommand (addTheorem soundArgs)
 open Tools.ShippingMachineSeqCommand
 open Tools.ShippingMachineShipsHierCommand (conj projs)
 
-def generateCoreNR (declName : Name) (dep : Nat) : MetaM Name := do
+/-- A derived composed theorem's run boundary (its last premise), as a
+boundary in the run's contexts (`CtxBnd`): it depends on the contexts only. -/
+def bndOfComposed (cT : Name) : MetaM Lean.Expr := do
+  forallTelescope (← inferType (mkConst cT)) fun ys _ => do
+    unless ys.size == 12 do throwError "{cT}: the composed theorem's binders ({ys.size})"
+    mkLambdaFVars #[ys[0]!, ys[1]!, ys[2]!, ys[3]!, ys[6]!, ys[7]!] (← inferType ys[11]!)
+
+/-- `c.machine_composedNR0` for a child with one-output combinational calls:
+`composedN0_of_HR` over `c.machine_composedR`. -/
+def generateCombN0R (c : Name) : MetaM Name := do
+  let name := c ++ `machine_composedNR0
+  if (← getEnv).contains name then return name
+  let cR ← Tools.ShippingMachineComposeRCommand.generateComposedR c
+  let rest ← forallTelescope (← inferType (mkConst cR)) fun ys _ => do
+    unless ys.size == 12 do throwError "{cR}: binders ({ys.size})"
+    let bT ← whnfR (← inferType ys[11]!)
+    unless bT.isAppOfArity ``And 2 do throwError "{cR}: the boundary is not ChildSynthIs ∧ …"
+    mkLambdaFVars #[ys[0]!, ys[1]!, ys[2]!, ys[3]!] bT.appArg!
+  let f := mkConst ``Tools.ShippingMachineDepthHR.composedN0_of_HR
+  let (ms, _, _) ← forallMetaBoundedTelescope (← inferType f) 7
+  let f7 := mkAppN f ms
+  let fR := mkApp f7 rest
+  let fT ← whnf (← inferType fR)
+  -- the composed theorem fixes the implicit arguments
+  let compT := ((← whnf fT.bindingBody!).bindingBody!).bindingDomain!
+  unless ← isDefEq compT (← inferType (mkConst cR)) do
+    throwError "{c}: the derived composed theorem does not match"
+  let fR ← instantiateMVars fR
+  let hsT := (← whnf (← inferType fR)).bindingDomain!
+  let p1 := mkApp fR (← mkDecideProof hsT)
+  let hiT := (← whnf (← inferType p1)).bindingDomain!
+  let p2 := mkApp p1 (← mkDecideProof hiT)
+  let p ← instantiateMVars (mkApp p2 (mkConst cR))
+  if p.hasMVar then throwError "{c}: arguments not inferred"
+  addTheorem name (← inferType p) p
+  return name
+
+mutual
+
+/-- `c.seq_child_runN_ofR{n}`: a child with calls, at depth `n + 1`, from its
+DERIVED composed theorem at depth `n`; returns it and that theorem's boundary. -/
+partial def generateRunOfR (c : Name) (n : Nat) : MetaM (Name × Lean.Expr) := do
+  let cr ← readMachine c
+  let cT ← if cr.shape.instFields.isEmpty then
+      if n != 0 then throwError "{c}: one-output combinational calls below depth 0 (not yet)"
+      else generateCombN0R c
+    else generateCoreNR c n
+  let bnd ← bndOfComposed cT
+  let name := c ++ Name.mkSimple s!"seq_child_runN_ofR{n}"
+  if (← getEnv).contains name then return (name, bnd)
+  let mut p ← mkAppM ``Tools.ShippingMachineDepthRun.seqChildRunN_of_composedC
+    #[mkNatLit n, bnd, mkConst cT]
+  for _ in [0:10] do
+    let ty := (← whnf (← inferType p)).bindingDomain!
+    p := mkApp p (← mkDecideProof ty)
+  let tyB := (← whnf (← inferType p)).bindingDomain!
+  p := mkApp p (← if (← getEnv).contains (c ++ `machineExtB) then
+      proveByTacticT tyB (extBTactic (c ++ `machineExtB))
+    else proveByTacticT tyB `(tactic| (intro _ _ _ _ _; rfl)))
+  let tyE := (← whnf (← inferType p)).bindingDomain!
+  p := mkApp p (← proveByTacticT tyE (extTactic (c ++ `machineExt)))
+  addTheorem name (← inferType p) p
+  return (name, bnd)
+
+partial def generateCoreNR (declName : Name) (dep : Nat) : MetaM Name := do
   let name := declName ++ Name.mkSimple s!"machine_composedNR{dep}"
   if (← getEnv).contains name then return name
   progress s!"{declName}: composedNR {dep}"
@@ -38,6 +104,7 @@ def generateCoreNR (declName : Name) (dep : Nat) : MetaM Name := do
   -- calls, from its composed theorem one level down
   let mut seqRuns : Std.HashMap Name Name := {}
   let mut leaf : Std.HashMap Name Bool := {}
+  let mut bndOf : Std.HashMap Name Lean.Expr := {}
   for c in seqKids do
     let cr ← readMachine c
     let isLeaf := cr.shape.insts.isEmpty
@@ -46,7 +113,9 @@ def generateCoreNR (declName : Name) (dep : Nat) : MetaM Name := do
       seqRuns := seqRuns.insert c (← (try generateSeqChildN c catch e => throwError "seq child {c}: {e.toMessageData}"))
     else
       if dep == 0 then throwError "{declName}: the child {c} has children; depth 0 is too shallow"
-      seqRuns := seqRuns.insert c (← (try generateRunOf c (dep - 1) catch e => throwError "child {c}: {e.toMessageData}"))
+      let (rn, bnd) ← (try generateRunOfR c (dep - 1) catch e => throwError "child {c}: {e.toMessageData}")
+      seqRuns := seqRuns.insert c rn
+      bndOf := bndOf.insert c bnd
   forallTelescope (← inferType pL) fun xs traceT => do
   let h := mkAppN pL xs
   let tyArgs := (← whnfR traceT).getAppArgs
@@ -123,25 +192,22 @@ def generateCoreNR (declName : Name) (dep : Nat) : MetaM Name := do
       if leaf.getD c true then
         mkLambdaFVars #[mc] (← mkAppM ``Tools.ShippingGateChild.MachineRun #[toExpr c, cshape, mc])
       else
-        mkLambdaFVars #[mc] (← mkAppM ``Tools.ShippingMachineDepthRun.MachineRunN
-          #[toExpr c, cshape, mkConst (c ++ boundName (dep - 1)), mc, dsnE])
+        let some bnd := bndOf.get? c | throwError "{declName}: boundary of {c}"
+        mkLambdaFVars #[mc] (← mkAppM ``Tools.ShippingMachineDepthRun.MachineRunNC
+          #[toExpr c, cshape, bnd, mc, dsnE])
     pcCases := pcCases ++ [(c, pcF)]
     let pT ← if leaf.getD c true then
         mkAppM ``And #[mkAppN (mkConst ``Tools.ShippingMachineEntry.MachineDefines) (ctx ++ #[toExpr c, cshape]),
           mkAppN (mkConst ``Tools.ShippingMachineEntry.MachineCloses) (ctx ++ #[toExpr c, cshape])]
-      else
-        withLocalDeclD `mc modT fun mc => withLocalDeclD `Dc desT fun Dc =>
-          withLocalDeclD `w (mkApp (mkConst ``Void) (mkConst ``IO.RealWorld)) fun w =>
-          withLocalDeclD `w' (mkApp (mkConst ``Void) (mkConst ``IO.RealWorld)) fun w' => do
-            let runT := mkAppN (mkConst ``Tools.ShippingEntrySoundness.RunsTo [])
-              #[← mkAppM ``Prod #[modT, desT], mkApp (mkConst ``Sparkle.Compiler.Elab.synthesizeCombinational) (toExpr c)]
-            let runT := mkAppN runT (ctx ++ #[w, ← mkAppM ``Prod.mk #[mc, Dc], w'])
-            withLocalDeclD `hrun runT fun hrun => do
-              let modE ← mkAppM ``Sparkle.IR.Machine.moduleByName
-                #[← mkAppM ``Sparkle.IR.AST.Design.modules #[dsnE], ← mkAppM ``Sparkle.IR.AST.Module.name #[mc]]
-              let hmT ← mkEq modE (← mkAppM ``Option.some #[mc])
-              withLocalDeclD `hmod hmT fun hmod => do
-                mkForallFVars #[mc, Dc, w, w', hrun, hmod] (pcF.beta #[mc])
+      else do
+        -- with calls: its reflection facts and its own derived boundary, in
+        -- these contexts (a fact of the contexts; `machineRunNC_of_real`
+        -- derives the rest from the run the compile used)
+        let some bnd := bndOf.get? c | throwError "{declName}: boundary of {c}"
+        let bndHere := (bnd.beta (ctx ++ #[tyArgs[3]!, dsnE])).headBeta
+        mkAppM ``And #[mkAppN (mkConst ``Tools.ShippingMachineEntry.MachineDefines) (ctx ++ #[toExpr c, cshape]),
+          ← mkAppM ``And #[mkAppN (mkConst ``Tools.ShippingMachineEntry.MachineCloses) (ctx ++ #[toExpr c, cshape]),
+            bndHere]]
     pTypes := pTypes ++ [pT]
   let some (_, pc0) := pcCases.head? | throwError "{declName}: no sequential child"
   let PC ← nameCases (← mkArrow modT (mkSort .zero)) pcCases pc0
@@ -320,9 +386,9 @@ def generateCoreNR (declName : Name) (dep : Nat) : MetaM Name := do
         let hPS : Term := ⟨mkIdent (Name.mkSimple s!"hP{j}")⟩
         let _ := hP
         if leaf.getD c true then
-          proveByTacticT goalK `(tactic| (intro _ mc Dc w w' hrun _; exact ⟨_, _, _, _, w, w', Dc, hrun, ($hPS).1, ($hPS).2⟩))
+          proveByTacticT goalK `(tactic| (intro _ mc Dc w w' hrun _ _; exact ⟨_, _, _, _, w, w', Dc, hrun, ($hPS).1, ($hPS).2⟩))
         else
-          proveByTacticT goalK `(tactic| (intro _ mc Dc w w' hrun hmod; exact $hPS mc Dc w w' hrun hmod))
+          proveByTacticT goalK `(tactic| (intro _ mc Dc w w' hrun hcons _; exact Tools.ShippingMachineDepthRun.machineRunNC_of_real ⟨w, w', hrun⟩ hcons ($hPS).1 ($hPS).2.1 (by assumption) (by decide) (fun _ _ => ($hPS).2.2)))
     perR := perR.push prK
   let nameT := mkConst ``Name
   let nat := mkConst ``Nat
@@ -349,6 +415,8 @@ def generateCoreNR (declName : Name) (dep : Nat) : MetaM Name := do
   progress s!"{name}: checking"
   addTheorem name (← inferType value) value
   return name
+
+end
 
 def generateShipsNR (declName : Name) (n : Nat) : MetaM Name := do
   let name := declName ++ Name.mkSimple s!"machine_ships_hierNR{n}"

@@ -173,7 +173,7 @@ theorem machine_linked_callsR {declName : Name} {d : MachineData} {m : Sparkle.I
       have hc : (d.shape.insts.map (·.1))[k]? = some (d.shape.insts[k]).1 := by
         rw [List.getElem?_map, List.getElem?_eq_getElem hk]; rfl
       obtain ⟨hnone, hf⟩ := hfn k _ hc
-      rcases hx.2 hsimple k hk args mc st hargs hst hcs hmod with ⟨md, hmd, _⟩ | ⟨Dc, w, w', hrun⟩
+      rcases hx.2 hsimple k hk args mc st hargs hst hcs hmod with ⟨md, hmd, _⟩ | ⟨Dc, ⟨w, w', hrun⟩, _⟩
       · rw [hnone] at hmd; cases hmd
       · exact hf mc Dc w w' hrun)
     (fun k args j hk _ => hcalls i bools bits k args j hk)

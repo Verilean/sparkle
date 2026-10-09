@@ -1,5 +1,6 @@
 import Tools.ShippingMachineInstG
 import Tools.ShippingMachineLinkedT
+import Tools.ShippingHierMono
 
 /-! # The instance serving a call, on the general closing
 
@@ -61,7 +62,7 @@ theorem closeInstsG_serves {nIn kI n : Nat} {portNames : List String} {insts : L
     split at h
     · rename_i hc
       simp only [Bool.and_eq_true, decide_eq_true_eq] at hc
-      exact hc.1.1.1.1.1.1.1.1.1.1.1.2
+      exact hc.1.1.1.1.1.1.1.1.1.1.1.1.1.2
     · cases h
   rcases closeInstsG_insts h _ hst rfl with h0' | ⟨args', outs', child, mc', hcs, hmc', _, hall'⟩
   · exact absurd (h0 _ h0') (by simp [isInst])
@@ -146,9 +147,10 @@ theorem closeInsts_names {nIn kI n : Nat} {portNames : List String} {insts : Lis
   · rename_i hc
     simp only [Bool.and_eq_true, decide_eq_true_eq] at hc
     cases h
-    refine ⟨hc.1.1.1.1.1.1.1.1.2, fun c hcm => ?_⟩
-    have := List.all_eq_true.mp hc.2 c hcm
-    simpa using this
+    refine ⟨hc.1.1.1.1.1.1.1.1.1.1.1.2, fun c hcm => ?_⟩
+    have := List.all_eq_true.mp hc.1.1.1.2 c hcm
+    simp only [Bool.and_eq_true, decide_eq_true_eq] at this
+    exact this.1
   · cases h
 
 /-- **The instance serving call `k`, on the one-output closing.** An instance
@@ -186,5 +188,77 @@ theorem closeInsts_serves {nIn kI n : Nat} {portNames : List String} {insts : Li
   have := hcons child (List.mem_of_getElem? hchild)
   rw [hmc'] at this
   exact Option.some.inj this
+
+theorem noInstOf_of_B {t : String} {body : List Stmt} (h : noInstOfB t body = true) :
+    Tools.ShippingHierMono.NoInstOf t body := by
+  intro mn iname conns hm
+  have := List.all_eq_true.mp h _ hm
+  simpa using this
+
+/-- **The one-output closing is acyclic at its module, and its children's
+designs are consistent with it.** -/
+theorem closeInsts_acyclic {nIn kI n : Nat} {portNames : List String} {insts : List (List Nat)}
+    {children : List (Module × Design)} {m₀ : Module} {d₀ : Design} {m : Module} {d : Design}
+    (h : closeInsts nIn kI n portNames insts children (m₀, d₀) = some (m, d)) :
+    m.name = m₀.name ∧ Tools.ShippingHierMono.NoInstOf m.name m.body ∧
+      (∀ g ∈ d.modules, Tools.ShippingHierMono.NoInstOf m.name g.body) ∧
+      ∀ c ∈ children, ∀ g ∈ c.2.modules, moduleByName d.modules g.name = some g := by
+  unfold closeInsts at h
+  simp only [Option.bind_eq_bind] at h
+  obtain ⟨_, _, h⟩ := Option.bind_eq_some_iff.mp h
+  obtain ⟨_, _, h⟩ := Option.bind_eq_some_iff.mp h
+  obtain ⟨_, _, h⟩ := Option.bind_eq_some_iff.mp h
+  split at h
+  · rename_i hc
+    simp only [Bool.and_eq_true, decide_eq_true_eq] at hc
+    cases h
+    refine ⟨rfl, noInstOf_of_B hc.1.1.2, fun g hg => noInstOf_of_B (List.all_eq_true.mp hc.1.2 g hg),
+      fun c hcm g hg => ?_⟩
+    have := List.all_eq_true.mp hc.1.1.1.2 c hcm
+    simp only [Bool.and_eq_true, decide_eq_true_eq, List.all_eq_true] at this
+    exact this.2 g hg
+  · cases h
+
+/-- **The general closing is acyclic at its module.** -/
+theorem closeInstsG_acyclic {nIn kI n : Nat} {portNames : List String} {insts : List (List Nat)}
+    {fields : List String}
+    {children : List (Module × Design)} {m₀ : Module} {d₀ : Design} {m : Module} {d : Design}
+    (h : closeInstsG nIn kI n portNames insts fields children (m₀, d₀) = some (m, d)) :
+    m.name = m₀.name ∧ Tools.ShippingHierMono.NoInstOf m.name m.body ∧
+      ∀ g ∈ d.modules, Tools.ShippingHierMono.NoInstOf m.name g.body := by
+  unfold closeInstsG at h
+  simp only [Option.bind_eq_bind] at h
+  obtain ⟨_, _, h⟩ := Option.bind_eq_some_iff.mp h
+  obtain ⟨_, _, h⟩ := Option.bind_eq_some_iff.mp h
+  obtain ⟨_, _, h⟩ := Option.bind_eq_some_iff.mp h
+  split at h
+  · rename_i hc
+    simp only [Bool.and_eq_true, decide_eq_true_eq] at hc
+    cases h
+    have hn : (withClockFor children m₀).name = m₀.name := (withClockFor_same children m₀).1
+    refine ⟨hn, ?_, fun g hg => ?_⟩
+    · show Tools.ShippingHierMono.NoInstOf (withClockFor children m₀).name _
+      rw [hn]; exact noInstOf_of_B hc.1.2
+    · show Tools.ShippingHierMono.NoInstOf (withClockFor children m₀).name _
+      rw [hn]; exact noInstOf_of_B (List.all_eq_true.mp hc.2 g hg)
+  · cases h
+
+/-- The one-output closing's children are combinational, local and wired
+(`kidsCombB`, checked by the closing). -/
+theorem closeInsts_kidsComb {nIn kI n : Nat} {portNames : List String} {insts : List (List Nat)}
+    {children : List (Module × Design)} {m₀ : Module} {d₀ : Design} {m : Module} {d : Design}
+    (h : closeInsts nIn kI n portNames insts children (m₀, d₀) = some (m, d)) :
+    kidsCombB d.modules m.body = true := by
+  unfold closeInsts at h
+  simp only [Option.bind_eq_bind] at h
+  obtain ⟨_, _, h⟩ := Option.bind_eq_some_iff.mp h
+  obtain ⟨_, _, h⟩ := Option.bind_eq_some_iff.mp h
+  obtain ⟨_, _, h⟩ := Option.bind_eq_some_iff.mp h
+  split at h
+  · rename_i hc
+    simp only [Bool.and_eq_true, decide_eq_true_eq] at hc
+    cases h
+    exact hc.2
+  · cases h
 
 end Tools.ShippingChildServe

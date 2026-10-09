@@ -220,7 +220,43 @@ theorem on that run, concluding `ComposedH` with the trivial calls' premise;
 and `midH`, boundary `ChildSynthIs` ∧ the children's `EntryDefines`, types
 free of `GateRun` / `MachineRun` / `BoundH` / `BndH` / `ChildFn` (checked
 through the generated definitions). Only the `data_ext` endpoint head has its
-R twin (nested / tele heads: not yet). Still to connect: the derived boundary recursively below the
+R twin (nested / tele heads: not yet).
+
+**Below the top level, from the actual run (2026-10-10).** The depth
+variant no longer assumes that every run of a child's entry satisfies
+`MachineRunN`. `machineRunNC_of_real` (`Tools/ShippingMachineDepthRunR.lean`)
+derives `MachineRunNC` (`MachineRunN` with the child's boundary in the run's
+contexts) from the run the parent's compile USED — the witness `ServedReal`
+now carries together with that run's design's consistency with the
+parent's — : the core run under it (`synthesizeCombinational_design`: the
+full entry changes only the modules named after the top), the child's own
+closing (`closeInsts_acyclic` / `closeInstsG_acyclic`: neither the child's
+module nor its design instantiates it) and the parent's closing (every module
+of the child's design resolves in the parent's design to itself) give
+`ExtendsAway` and `NoInstOf`; the child's boundary is again `ChildSynthIs`
+and reflection facts — facts of the contexts only, so the actual run needs
+no identification. A child with one-output calls reaches depth 0 through
+`composedN0_of_HR` (`Tools/ShippingMachineDepthHR.lean`; `kidsComb` of its
+run from its closing, `BoundH` trivial). `#machine_design_svNR` now builds
+the children's derived theorems recursively (`generateRunOfR`,
+`generateCombN0R`); for `mixD1`, `grandH` and `topD2` the endpoint's types,
+UNFOLDED through the generated definitions, contain no `BoundaryOf`,
+`BoundaryOfN`, `InstOfCall`, `BndH`, `BoundH`, `GateRun`, `MachineRun`,
+`MachineRunN(C)`: their boundary is `ChildSynthIs` and the reflection facts
+of every descendant (the grandchild `rcH`'s `EntryDefines` among them).
+The compiler's closings check more for this (`Sparkle/IR/Machine.lean`,
+`MachineInstG.lean`): no instance of the module being closed in it or in its
+design (`noInstOfB`); on the one-output closing, every module of a child's
+design resolves to itself, and the children are combinational, local and
+wired (`kidsCombB`). Each new check rejects only compiles whose certified
+route would have wired or composed incorrectly; a rejected closing returns
+`none` and the entry takes the legacy route. Measured on `Tests.AllTests`
+(811 jobs, no certified parent lost) and by
+`Tests/Compiler/ShippingCloseInstsCheckTest.lean` on `caller`'s real
+transition and child: the actual design accepted with the instance being the
+child; a different module under the child's name rejected; an identical one
+accepted; a design module instantiating the closed module rejected; a child
+with a register rejected by `kidsCombB`. The corpus is not re-measured. Still to connect: the derived boundary recursively below the
 top level (`MachineRunN` with a context-dependent boundary), the depth-`n`
 variant's remaining items (`MachineRunN`; its `ExtendsAway` /
 `NoInstOf` remain evaluated checks on the child's run), and the

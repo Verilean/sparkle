@@ -427,7 +427,8 @@ def ServedRealG (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State)
     (∃ e ∈ outs, e.1 = k) →
     moduleByName dsn.modules mc.name = some mc →
     (∃ md, Sparkle.Compiler.MachMemory.memChild? (shape.insts[k]).1 = some md ∧ mc = md.1) ∨
-      ∃ Dc, Tools.ShippingChildSynth.RealChild mctx mref cctx cref (shape.insts[k]).1 (mc, Dc)
+      ∃ Dc, Tools.ShippingChildSynth.RealChild mctx mref cctx cref (shape.insts[k]).1 (mc, Dc) ∧
+        ∀ g ∈ Dc.modules, moduleByName dsn.modules g.name = some g
 
 /-- The one-output closing (`instFields = []`): the instance that is call `k`'s
 statement (`CallStmt`, for the run's port names) has as its module the built
@@ -444,7 +445,8 @@ def ServedReal1 (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State)
       ((machPorts declName ids cache shape.binders).map (·.name)) k args mc st →
     moduleByName dsn.modules mc.name = some mc →
     (∃ md, Sparkle.Compiler.MachMemory.memChild? (shape.insts[k]).1 = some md ∧ mc = md.1) ∨
-      ∃ Dc, Tools.ShippingChildSynth.RealChild mctx mref cctx cref (shape.insts[k]).1 (mc, Dc)
+      ∃ Dc, Tools.ShippingChildSynth.RealChild mctx mref cctx cref (shape.insts[k]).1 (mc, Dc) ∧
+        ∀ g ∈ Dc.modules, moduleByName dsn.modules g.name = some g
 
 /-- **The instances serving the calls are real children**, on either closing. -/
 def ServedReal (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State)
@@ -518,13 +520,14 @@ theorem synthesizeCombinationalCore_machine_soundR {declName : Name}
       case inr => exact absurd hfe1 hfe0
       rw [hmp] at hcs
       obtain ⟨y, hy, hmcy⟩ := Tools.ShippingChildServe.closeInsts_serves hC h0 hst hcs hmod
+      have hyc := (Tools.ShippingChildServe.closeInsts_acyclic hC).2.2.2 y (List.mem_of_getElem? hy)
       obtain ⟨_, hkr⟩ := hreal
       obtain ⟨y', hy', hor⟩ := hkr k hk
       rw [hy] at hy'; cases hy'
       subst hmcy
       rcases hor with hmem | hrc
       · exact Or.inl ⟨y, hmem, rfl⟩
-      · exact Or.inr ⟨y.2, hrc⟩
+      · exact Or.inr ⟨y.2, hrc, hyc⟩
     case g =>
     intro hfe k hk mc iname argWs outs outWs hst hout hke hmod
     rcases hmt with ⟨h0, _, _⟩ | ⟨_, children, hcc, hreal⟩
@@ -541,13 +544,14 @@ theorem synthesizeCombinationalCore_machine_soundR {declName : Name}
         · rfl
         · exact absurd (notInst st hs hi) id)
       hcr hk hst hout hke hmod
+    have hyc := ((Tools.ShippingMachineInstG.closeInstsG_names hG).2.2.2 y (List.mem_of_getElem? hy)).2
     obtain ⟨_, hkr⟩ := hreal
     obtain ⟨y', hy', hor⟩ := hkr k hk
     rw [hy] at hy'; cases hy'
     subst hmcy
     rcases hor with hmem | hrc
     · exact Or.inl ⟨y, hmem, rfl⟩
-    · exact Or.inr ⟨y.2, hrc⟩
+    · exact Or.inr ⟨y.2, hrc, hyc⟩
 
 set_option maxHeartbeats 2000000 in
 /-- **Source to RTL for a state machine, from data and a state stream.** The

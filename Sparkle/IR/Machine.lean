@@ -359,6 +359,34 @@ that name means in the design). -/
 def moduleByName (ms : List Module) (mn : String) : Option Module :=
   ms.find? (fun c => c.name == mn)
 
+/-- Every statement reads names of `S` or names written before it. -/
+def readsClosedB : List String → List Stmt → Bool
+  | _, [] => true
+  | S, st :: rest => (Sparkle.IR.Reorder.stmtReads st).all (fun n => S.contains n) &&
+      readsClosedB (S ++ Sparkle.IR.Reorder.stmtWrites st) rest
+
+/-- Every instance's child is assignments only, computes its outputs from its
+input ports, and has every input connected by a wire (what the one-output
+closing's composition takes of its children). -/
+def kidsCombB (ms : List Module) (body : List Stmt) : Bool :=
+  body.all fun st => match st with
+    | .inst mn _ conns => match moduleByName ms mn with
+      | some c => c.body.all Sparkle.IR.RegDedup.isAssign &&
+          readsClosedB (c.inputs.map (·.name)) c.body &&
+          c.outputs.all (fun p => (Sparkle.IR.Reorder.writesOf c.body).contains p.name) &&
+          c.outputs.all (fun p => !(c.inputs.map (·.name)).contains p.name) &&
+          c.inputs.all (fun p => match conns.lookup p.name with
+            | some (.ref _) => true
+            | _ => false)
+      | none => false
+    | _ => true
+
+/-- No statement of `body` is an instance of the module named `t`. -/
+def noInstOfB (t : String) (body : List Stmt) : Bool :=
+  body.all fun st => match st with
+    | .inst mn _ _ => mn != t
+    | _ => true
+
 /-- Tie every call to an instance: the output ports stop being inputs, the
 instance statements are appended, and the combinational statements are put
 in dependency order. The result is kept only if the checks the
@@ -389,7 +417,12 @@ def closeInsts (nIn kI n : Nat) (portNames : List String) (insts : List (List Na
       -- every child module is found by its name in the merged design as
       -- itself (as `closeInstsG` checks): the instance of call `k` is the
       -- module the child entry returned for `k`
-      children.all (fun c => decide (moduleByName d'.modules c.1.name = some c.1)) then
+      children.all (fun c => decide (moduleByName d'.modules c.1.name = some c.1) &&
+        c.2.modules.all (fun g => decide (moduleByName d'.modules g.name = some g))) &&
+      -- no instance of the module being closed, in it or in its design
+      noInstOfB m.name body && d'.modules.all (fun g => noInstOfB m.name g.body) &&
+      -- the children are combinational, local and wired
+      kidsCombB d'.modules body then
     some ({ m' with body := body }, d')
   else none
 

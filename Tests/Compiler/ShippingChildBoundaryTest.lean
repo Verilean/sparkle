@@ -172,13 +172,15 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     for c in [``Tools.ShippingMachineSeqCommand.BoundaryOf, ``Tools.ShippingMachineDepthCommand.BoundaryOfN,
         ``Tools.ShippingMachineCallsLinkedT.InstOfCall] do
       if mentions ty c then throwError "{e}: still mentions {c}"
-      -- below the children: the children's OWN boundaries (generated
-      -- definitions) are the old ones; derived only at the top level so far
-      let deep := mentionsDeep (← Lean.getEnv) ty c
-      if f == ``Sparkle.Tests.Compiler.ShippingDesignSVTest.topD2 then
-        if c == ``Tools.ShippingMachineDepthCommand.BoundaryOfN && !deep then
-          throwError "{e}: expected the grandchild level to keep BoundaryOfN"
-      else if deep then throwError "{e}: a child's boundary mentions {c}"
+      -- and below the top level: the children's own boundaries are derived too
+      if mentionsDeep (← Lean.getEnv) ty c then throwError "{e}: a child's boundary mentions {c}"
+    for c in [``Tools.ShippingMachineDepthH.BndH, ``Tools.ShippingMachineDepthH.BoundH,
+        ``Tools.ShippingGateChild.GateRun, ``Tools.ShippingGateChild.MachineRun,
+        ``Tools.ShippingMachineDepthRun.MachineRunN, ``Tools.ShippingMachineDepthRun.MachineRunNC] do
+      if mentionsDeep (← Lean.getEnv) ty c then throwError "{e}: the boundary mentions {c}"
+    -- the grandchild level: the combinational grandchild `rcH`'s reflection
+    unless mentions ty ``Tools.ShippingInlineSoundness.EntryDefines do
+      throwError "{e}: no grandchild reflection fact"
     for ax in ← Lean.collectAxioms e do
       unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do
         throwError "{e} uses a non-standard axiom: {ax}"
@@ -191,7 +193,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     unless Tools.ShippingDesignSV.designCheck C n o && Tools.ShippingDesignSVBack.outsCheck C n o &&
         Tools.ShippingMachineShipsDepth.kidsMaskedN D.modules b.body do
       throwError "{f}: a decidable premise fails on the shipped design"
-  Lean.logInfo m!"DERIVED BOUNDARY AT DEPTH: mixD1 (two different children), grandH, topD2 — the top level free of BoundaryOf / BoundaryOfN / InstOfCall; mixD1 and grandH also below (the child's own boundary is the combinational BndH); topD2's grandchild level keeps BoundaryOfN (mid2.machineBoundN1); decidable premises hold; standard axioms"
+  Lean.logInfo m!"DERIVED BOUNDARY AT DEPTH: mixD1 (two different children), grandH, topD2 — at every level: no BoundaryOf / BoundaryOfN / InstOfCall / BndH / BoundH / GateRun / MachineRun(N/NC) premise; the boundary is ChildSynthIs and the descendants' reflection facts; decidable premises hold; standard axioms"
 
 /-! ### Combinational children (the one-output closing) -/
 

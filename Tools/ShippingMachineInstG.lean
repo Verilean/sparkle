@@ -243,7 +243,7 @@ theorem closeInstsG_insts {nIn kI n : Nat} {portNames : List String} {insts : Li
   split at h
   · rename_i hc
     simp only [Bool.and_eq_true, decide_eq_true_eq] at hc
-    obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨_, _⟩, _⟩, _⟩, hperm⟩, _⟩, _⟩, _⟩, _⟩, _⟩, _⟩, _⟩, _⟩ := hc
+    obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨_, _⟩, _⟩, _⟩, hperm⟩, _⟩, _⟩, _⟩, _⟩, _⟩, _⟩, _⟩, _⟩, _⟩, _⟩ := hc
     cases h
     have hbd := (withClockFor_same children m₀).2.2.2
     have hmem : st ∈ (withClockFor children m₀).body ++ stmts :=
@@ -321,7 +321,7 @@ theorem closeInstsG_calls {nIn kI n : Nat} {portNames : List String} {insts : Li
   split at h
   · rename_i hc
     simp only [Bool.and_eq_true, decide_eq_true_eq] at hc
-    obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨_, _⟩, _⟩, _⟩, hperm⟩, _⟩, _⟩, _⟩, _⟩, _⟩, _⟩, _⟩, _⟩ := hc
+    obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨_, _⟩, _⟩, _⟩, hperm⟩, _⟩, _⟩, _⟩, _⟩, _⟩, _⟩, _⟩, _⟩, _⟩, _⟩ := hc
     cases h
     have hbd := (withClockFor_same children m₀).2.2.2
     unfold stmtsG at hstmts
@@ -382,7 +382,7 @@ theorem closeInstsG_names {nIn kI n : Nat} {portNames : List String} {insts : Li
   split at h
   · rename_i hc
     simp only [Bool.and_eq_true, decide_eq_true_eq] at hc
-    obtain ⟨⟨⟨⟨_, hnames⟩, hfeed⟩, hmem⟩, hcons⟩ := hc
+    obtain ⟨⟨⟨⟨⟨⟨_, hnames⟩, hfeed⟩, hmem⟩, hcons⟩, _⟩, _⟩ := hc
     cases h
     refine ⟨hnames, hfeed, List.all_eq_true.mp hmem, fun c hc => ?_⟩
     have := List.all_eq_true.mp hcons c hc

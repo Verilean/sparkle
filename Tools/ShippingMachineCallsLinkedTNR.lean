@@ -197,7 +197,8 @@ instance serving a sequential call is a run of the call's entry (under
 `ChildSynthIs`), so the per-child premise is that every run of the child's
 entry in the parent's contexts satisfies the child's predicate (`hrunN`;
 `MachineRun` for a child without calls — from its reflection facts —, or
-`MachineRunN`: its reflection, its own boundary, `ExtendsAway`, `NoInstOf`),
+`MachineRunNC`: derived from that run — `machineRunNC_of_real`), given the
+run's witness and its design's consistency with the parent's,
 not a premise about the parent's instances (`BoundaryOfN`). -/
 theorem machine_linkedT_callsRN (n : Nat) {declName : Name} {d : MachineData} {m : Module} {dsn : Design}
     {ι : Type} {dom : ι → DomainConfig}
@@ -239,6 +240,7 @@ theorem machine_linkedT_callsRN (n : Nat) {declName : Name} {d : MachineData} {m
       ∀ (mc : Module) (Dc : Design) (w w' : Void IO.RealWorld),
         Tools.ShippingEntrySoundness.RunsTo (Sparkle.Compiler.Elab.synthesizeCombinational c)
           mctx mref cctx cref w (mc, Dc) w' →
+        (∀ g ∈ Dc.modules, moduleByName dsn.modules g.name = some g) →
         moduleByName dsn.modules mc.name = some mc → PC c mc) :
     ∃ ids : List FVarId, ids.Nodup ∧ ids.length = d.shape.binders.length ∧
     ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
@@ -279,11 +281,11 @@ theorem machine_linkedT_callsRN (n : Nat) {declName : Name} {d : MachineData} {m
           have := (List.getElem?_eq_some_iff.mp hc).1; simpa using this
         have hck : (d.shape.insts[k]).1 = c := by
           rw [List.getElem?_map, List.getElem?_eq_getElem hk] at hc; simpa using hc
-        rcases hx.1 hfe k hk mc iname argWs outs outWs hst hout hke hmod with ⟨md, hmd, _⟩ | ⟨Dc, hrc⟩
+        rcases hx.1 hfe k hk mc iname argWs outs outWs hst hout hke hmod with ⟨md, hmd, _⟩ | ⟨Dc, hrc, hcons⟩
         · rw [hck, hnone] at hmd; cases hmd
         · rw [hck] at hrc
           obtain ⟨w, w', hrun⟩ := hrc
-          exact hrunN k c hc hnone mc Dc w w' hrun hmod)
+          exact hrunN k c hc hnone mc Dc w w' hrun hcons hmod)
       (hcalls i bools bits))
 
 end Tools.ShippingMachineCallsLinkedTNR
