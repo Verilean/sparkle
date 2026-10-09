@@ -176,7 +176,28 @@ that the ref points at the right function: it is a moved boundary, not a
 proved `CacheSound`. To close it later: make the child entry total (fuel)
 or state `CacheSound` as an explicit invariant of the cache across the
 writes of `Rec.synthesizeCombinational`, and the ref's content as the only
-assumption. Still to connect: the depth-`n` variant (`MachineRunN`; its `ExtendsAway` /
+assumption.
+
+**At depth (2026-10-09).** `machine_linkedT_callsRN`
+(`Tools/ShippingMachineCallsLinkedTNR.lean`; `machine_linkedTG` split into
+`machine_linkedTG_of`) and `#machine_design_svNR f n`
+(`Tools/ShippingMachineDepthCommandR.lean`): the per-child premise is a
+predicate of the CHILD — for a child without calls its reflection facts (its
+instance is then a `MachineRun`), for a child with calls that every run of its
+entry in the parent's contexts satisfies its depth conditions (`MachineRunN`:
+its reflection, its own boundary, `ExtendsAway`, `NoInstOf` — a statement
+over the child's runs, true of a deterministic entry, where the old
+`BoundaryOfN` was a statement over the parent's instances and false for
+different children). Kernel-checked: `mixD1` (two DIFFERENT children, one
+with calls) at depth 1, `grandH` at depth 1, `topD2` at depth 2. Below the
+top level the children's OWN boundaries are still the generated old ones:
+`midH.machineBoundN0` is the combinational `BndH` (its `rcH` call through the
+one-output closing, whose instance level is not derived), and `topD2`'s
+grandchild level keeps `mid2.machineBoundN1`'s `BoundaryOfN` (exact there —
+one child kind — but not derived); the test checks this by unfolding those
+definitions. Still to connect: the derived boundary recursively below the
+top level (`MachineRunN` with a context-dependent boundary), the depth-`n`
+variant's remaining items (`MachineRunN`; its `ExtendsAway` /
 `NoInstOf` remain evaluated checks on the child's run), and the
 one-output closing `closeInsts`, which does not check that a child resolves
 to itself (its instance level is not derived).

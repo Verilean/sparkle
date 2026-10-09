@@ -1,0 +1,418 @@
+import Tools.ShippingMachineDepthCommand
+import Tools.ShippingMachineCallsLinkedTNR
+import Tools.ShippingMachineSeqLinkedR
+import Tools.ShippingShipsDesignSVCommand
+
+/-! # Generated composition at depth `n`, the instance binding derived
+
+`#machine_design_svNR f n`: as `#machine_design_svN`, through
+`machine_linkedT_callsRN` from the wired endpoint carrying `ServedReal` (the
+`R` heads, under `ChildSynthIs`). The run boundary, in the run's contexts, is
+`ChildSynthIs` and per sequential child its premise: the reflection facts
+(a child without calls), or that every run of its entry satisfies its depth
+conditions (`MachineRunN`: its own boundary, `ExtendsAway`, `NoInstOf`). No
+premise about the parent's instances (`BoundaryOf` / `BoundaryOfN`). -/
+namespace Tools.ShippingMachineDepthCommand
+open Lean Meta Elab
+open Sparkle.Compiler.Elab
+open Tools.ShippingMachineCommand (readMachine progress listE)
+open Tools.ShippingMachineLinkedCommand (addTheorem soundArgs)
+open Tools.ShippingMachineSeqCommand
+open Tools.ShippingMachineShipsHierCommand (conj projs)
+
+def generateCoreNR (declName : Name) (dep : Nat) : MetaM Name := do
+  let name := declName ++ Name.mkSimple s!"machine_composedNR{dep}"
+  if (← getEnv).contains name then return name
+  progress s!"{declName}: composedNR {dep}"
+  let r ← readMachine declName
+  if r.shape.insts.isEmpty then throwError "{declName}: no call"
+  if r.shape.instFields.isEmpty then
+    throwError "{declName}: one-output combinational calls (the derived boundary needs the general closing)"
+  let (headL, args, back?) ← endpointParts declName
+  -- the head carrying `ServedReal` (under `ChildSynthIs`)
+  let pL := mkAppN (mkConst (headL.appendAfter "R")) args
+  let calls := r.shape.insts
+  let seqKids := ((calls.map (·.1)).eraseDups.filter fun c =>
+    (Tools.ShippingMachineMemCommand.memWidths? c).isNone)
+  -- each sequential child's own theorem: without calls at any depth; with
+  -- calls, from its composed theorem one level down
+  let mut seqRuns : Std.HashMap Name Name := {}
+  let mut leaf : Std.HashMap Name Bool := {}
+  for c in seqKids do
+    let cr ← readMachine c
+    let isLeaf := cr.shape.insts.isEmpty
+    leaf := leaf.insert c isLeaf
+    if isLeaf then
+      seqRuns := seqRuns.insert c (← (try generateSeqChildN c catch e => throwError "seq child {c}: {e.toMessageData}"))
+    else
+      if dep == 0 then throwError "{declName}: the child {c} has children; depth 0 is too shallow"
+      seqRuns := seqRuns.insert c (← (try generateRunOf c (dep - 1) catch e => throwError "child {c}: {e.toMessageData}"))
+  forallTelescope (← inferType pL) fun xs traceT => do
+  let h := mkAppN pL xs
+  let tyArgs := (← whnfR traceT).getAppArgs
+  unless tyArgs.size == 11 do throwError "{declName}: the trace's arguments"
+  let (dE, _mE, dsnE) := (tyArgs[2]!, tyArgs[3]!, tyArgs[4]!)
+  -- the run's contexts (the endpoint's binders) and its `ChildSynthIs` premise
+  let hsyn := xs.back!
+  let ctxOf (n : Name) : MetaM Lean.Expr := do
+    for x in xs do
+      if (← whnfR (← inferType x)).isAppOf n then return x
+    throwError "{declName}: no binder of type {n}"
+  let refOf (st : Name) : MetaM Lean.Expr := do
+    for x in xs do
+      let t ← whnfR (← inferType x)
+      if t.isAppOf ``ST.Ref && (t.getAppArgs.back?.map (·.isConstOf st)).getD false then return x
+    throwError "{declName}: no reference to {st}"
+  let ctx := #[← ctxOf ``Lean.Meta.Context, ← refOf ``Lean.Meta.State, ← ctxOf ``Lean.Core.Context,
+    ← refOf ``Lean.Core.State]
+  -- the families over the sequential children
+  let bsTy ← inferType (← mkAppM ``Tools.ShippingMachineAuto.MachineData.bsIn #[dE])
+  let outsTy ← inferType (← mkAppM ``Sparkle.IR.Machine.Layout.outs
+    #[← mkAppM ``Sparkle.Compiler.Elab.MachineShape.layout #[← mkAppM ``Tools.ShippingMachineAuto.MachineData.shape #[dE]]])
+  let nat := mkConst ``Nat
+  let valsTy ← mkArrow nat (mkApp (mkConst ``List [.zero]) nat)
+  let obsTy := mkApp (mkConst ``List [.zero]) (← mkArrow nat nat)
+  let mut bsCases : List (Name × Lean.Expr) := []
+  let mut outsCases : List (Name × Lean.Expr) := []
+  -- the parent's family index type and domain map
+  let ιP := tyArgs[5]!
+  let domP := tyArgs[6]!
+  -- a child's source at the child index matching parent index `iv`, and its domain
+  let srcAt (c : Name) (iv : Lean.Expr) : MetaM (Lean.Expr × Lean.Expr × Lean.Expr) := do
+    let csrc := mkConst (c ++ `machineSource)
+    let ιc := (← inferType csrc).bindingDomain!
+    let idx ← if ιc.isConstOf ``Unit then pure (mkConst ``Unit.unit)
+      else whnf (mkApp domP iv)
+    let src0 := mkApp csrc idx
+    let Dc := ((← whnf (← inferType src0)).bindingDomain!).bindingBody!.getAppArgs[0]!
+    pure (src0, Dc, idx)
+  for c in seqKids do
+    let cd := mkConst (c ++ `machineData)
+    let bsIn0 ← mkAppM ``Tools.ShippingMachineAuto.MachineData.bsIn #[cd]
+    let bsIn ← if leaf.getD c true then pure bsIn0
+      else mkAppM ``List.take #[mkNatLit (← readMachine c).nDecl, bsIn0]
+    bsCases := bsCases ++ [(c, bsIn)]
+    outsCases := outsCases ++ [(c, ← mkAppM ``Sparkle.IR.Machine.Layout.outs
+      #[← mkAppM ``Sparkle.Compiler.Elab.MachineShape.layout #[← mkAppM ``Tools.ShippingMachineAuto.MachineData.shape #[cd]]])]
+  let bsC ← nameCases bsTy bsCases (mkApp (mkConst ``List.nil [.zero]) bsTy.appArg!)
+  let outsC ← nameCases outsTy outsCases (mkApp (mkConst ``List.nil [.zero]) outsTy.appArg!)
+  let natNat ← mkArrow nat nat
+  let sDflt ← withLocalDeclD `vals valsTy fun vals =>
+    mkLambdaFVars #[vals] (mkApp (mkConst ``List.nil [.zero]) natNat)
+  let S ← withLocalDeclD `i ιP fun iv => do
+    let mut sCases : List (Name × Lean.Expr) := []
+    for (c, bsIn) in bsCases do
+      let (src0, Dc, _) ← srcAt c iv
+      let sF ← withLocalDeclD `vals valsTy fun vals => do
+        mkLambdaFVars #[vals] (mkApp2 src0
+          (← mkAppOptM ``Tools.ShippingMachineChild.boolsOf #[Dc, bsIn, vals])
+          (← mkAppOptM ``Tools.ShippingMachineChild.bitsOf #[Dc, bsIn, vals]))
+      sCases := sCases ++ [(c, sF)]
+    mkLambdaFVars #[iv] (← nameCases (← mkArrow valsTy obsTy) sCases sDflt)
+  -- per sequential child: its predicate `PC c` (`MachineRun` without calls,
+  -- `MachineRunN` with them), and its premise in the run's contexts — the
+  -- reflection facts (no calls), or that every run of its entry satisfies
+  -- its depth conditions (with calls)
+  let modT := mkConst ``Sparkle.IR.AST.Module
+  let desT := mkConst ``Sparkle.IR.AST.Design
+  let mut pcCases : List (Name × Lean.Expr) := []
+  let mut pTypes : List Lean.Expr := []
+  for c in seqKids do
+    let cshape ← mkAppM ``Tools.ShippingMachineAuto.MachineData.shape #[mkConst (c ++ `machineData)]
+    let pcF ← withLocalDeclD `mc modT fun mc => do
+      if leaf.getD c true then
+        mkLambdaFVars #[mc] (← mkAppM ``Tools.ShippingGateChild.MachineRun #[toExpr c, cshape, mc])
+      else
+        mkLambdaFVars #[mc] (← mkAppM ``Tools.ShippingMachineDepthRun.MachineRunN
+          #[toExpr c, cshape, mkConst (c ++ boundName (dep - 1)), mc, dsnE])
+    pcCases := pcCases ++ [(c, pcF)]
+    let pT ← if leaf.getD c true then
+        mkAppM ``And #[mkAppN (mkConst ``Tools.ShippingMachineEntry.MachineDefines) (ctx ++ #[toExpr c, cshape]),
+          mkAppN (mkConst ``Tools.ShippingMachineEntry.MachineCloses) (ctx ++ #[toExpr c, cshape])]
+      else
+        withLocalDeclD `mc modT fun mc => withLocalDeclD `Dc desT fun Dc =>
+          withLocalDeclD `w (mkApp (mkConst ``Void) (mkConst ``IO.RealWorld)) fun w =>
+          withLocalDeclD `w' (mkApp (mkConst ``Void) (mkConst ``IO.RealWorld)) fun w' => do
+            let runT := mkAppN (mkConst ``Tools.ShippingEntrySoundness.RunsTo [])
+              #[← mkAppM ``Prod #[modT, desT], mkApp (mkConst ``Sparkle.Compiler.Elab.synthesizeCombinational) (toExpr c)]
+            let runT := mkAppN runT (ctx ++ #[w, ← mkAppM ``Prod.mk #[mc, Dc], w'])
+            withLocalDeclD `hrun runT fun hrun => do
+              let modE ← mkAppM ``Sparkle.IR.Machine.moduleByName
+                #[← mkAppM ``Sparkle.IR.AST.Design.modules #[dsnE], ← mkAppM ``Sparkle.IR.AST.Module.name #[mc]]
+              let hmT ← mkEq modE (← mkAppM ``Option.some #[mc])
+              withLocalDeclD `hmod hmT fun hmod => do
+                mkForallFVars #[mc, Dc, w, w', hrun, hmod] (pcF.beta #[mc])
+    pTypes := pTypes ++ [pT]
+  let some (_, pc0) := pcCases.head? | throwError "{declName}: no sequential child"
+  let PC ← nameCases (← mkArrow modT (mkSort .zero)) pcCases pc0
+  let pDecls := (seqKids.zip pTypes).toArray.mapIdx fun j (_, ty) =>
+    (Name.mkSimple s!"hP{j}", fun (_ : Array Lean.Expr) => pure ty)
+  withLocalDeclsD pDecls fun hPs => do
+  let hPOf : Std.HashMap Name Lean.Expr := Id.run do
+    let mut m : Std.HashMap Name Lean.Expr := {}
+    for (c, hb) in seqKids.zip hPs.toList do m := m.insert c hb
+    m
+  let mut p ← mkAppM ``Tools.ShippingMachineCallsLinkedTNR.machine_linkedT_callsRN #[mkNatLit dep, h]
+  p := mkApp p (← mkDecideProof (← whnf (← inferType p)).bindingDomain!)
+  p := mkApp p (mkNatLit r.nDecl)
+  for _ in [0:7] do
+    let ty := (← whnf (← inferType p)).bindingDomain!
+    p := mkApp p (← mkDecideProof ty)
+  p := mkApp4 p bsC outsC S PC
+  let hcallsT := (← whnf (← inferType p)).bindingDomain!
+  let hcalls ← forallBoundedTelescope hcallsT (some 3) fun ibb rest => do
+    let names := calls.map (·.1)
+    -- the parent's let observations and call extension at this family point
+    let lsrcE := (tyArgs[10]!).beta ibb
+    let extE := (tyArgs[8]!).beta ibb
+    let extBE := (tyArgs[9]!).beta ibb
+    -- the call extension's definition, for the calls' argument Signals
+    let unfoldExt (e : Lean.Expr) : MetaM Lean.Expr := do
+      let e ← whnfCore e.headBeta
+      let f := e.getAppFn
+      if let .const n _ := f then
+        if let some v := (← getEnv).find? n >>= (·.value?) then
+          return (v.beta e.getAppArgs).headBeta
+      pure e
+    let extBody ← unfoldExt extE
+    let extBBody ← unfoldExt extBE
+    let mut perK : Array Lean.Expr := #[]
+    for k in [0:calls.length] do
+      let some (c, argsK, _) := calls[k]? | throwError "{declName}: call {k}"
+      let goalK := ((rest.bindingBody!.instantiate1 (mkNatLit k)).bindingBody!.instantiate1
+        (toExpr c)).bindingBody!
+      let proofK ← match Tools.ShippingMachineMemCommand.memWidths? c with
+        | some (cb, aw, dw) =>
+          proveByTacticT goalK (do pure (← memTactic cb aw dw argsK))
+        | none => try do
+          let some seqRun := seqRuns.get? c | throwError "{declName}: child {c}"
+          let (src0, Dc, idxE) ← srcAt c ibb[0]!
+          -- the call: its signal at the call's port, and its arguments
+          let pos := r.nDecl + k
+          let some sig := (sigAtPos pos extBody).orElse fun _ => sigAtPos pos extBBody
+            | throwError "{declName}: call {k}: no signal at port {pos}"
+          let some call := findCall c sig | throwError "{declName}: call {k}: no call of {c}"
+          let callArgs := call.getAppArgs
+          let cr ← readMachine c
+          let bsIn : List (Name × MixedGateBinder) := cr.shape.binders.take cr.nDecl
+          unless callArgs.size == bsIn.length do
+            throwError "{declName}: call {k}: {callArgs.size} arguments, {bsIn.length} binders"
+          -- the child's output read by this call
+          let field := r.shape.instFields.getD k ""
+          let some k' := cr.shape.layout.outs.findIdx? (fun (o : Sparkle.IR.Machine.OutField) => o.name == field)
+            | throwError "{declName}: call {k}: field {field}"
+          let bsInE0 ← mkAppM ``Tools.ShippingMachineAuto.MachineData.bsIn #[mkConst (c ++ `machineData)]
+          let bsInE ← if leaf.getD c true then pure bsInE0
+            else mkAppM ``List.take #[mkNatLit cr.nDecl, bsInE0]
+          let vs ← mkAppM ``Tools.ShippingMachineCallsLinkedT.valsOf
+            #[lsrcE, listE nat (argsK.map mkNatLit)]
+          -- the families the decoded inputs are: the call's arguments at their positions
+          let mut A ← mkAppOptM ``Tools.ShippingMachineChild.boolsOf #[Dc, bsInE, vs]
+          let mut B ← mkAppOptM ``Tools.ShippingMachineChild.bitsOf #[Dc, bsInE, vs]
+          for (pIdx, bnd) in (List.range bsIn.length).zip bsIn do
+            let kind : MixedGateBinder := bnd.2
+            if kind == MixedGateBinder.bool then
+              A ← mkAppM ``Tools.ShippingMachineCausal.extendBools #[A, mkNatLit pIdx, callArgs[pIdx]!]
+            if let .bits w := kind then
+              B ← mkAppM ``Tools.ShippingMachineAuto.extendBits
+                #[B, mkNatLit pIdx, mkNatLit w, callArgs[pIdx]!]
+          let kinds : List MixedGateBinder := bsIn.map (fun b => b.2)
+          let tyA ← inferType A
+          let tyB ← inferType B
+          let tyI ← inferType idxE
+          let srcE := src0
+          let tyS ← inferType srcE
+          let pr ← withLetDecl `famA tyA A fun aF => withLetDecl `famB tyB B fun bF =>
+            withLetDecl `famI tyI idxE fun iF => withLetDecl `famS tyS srcE fun sF => do
+           let pr ← proveByTacticT goalK (do
+            let lit (n : Nat) := Syntax.mkNumLit (toString n)
+            let argsArr : Array Term := (argsK.map fun n => (⟨lit n⟩ : Term)).toArray
+            let argsS ← `([$argsArr,*])
+            let srcS : Term := ⟨mkIdent `famS⟩
+            let idxS : Term := ⟨mkIdent `famI⟩
+            let AS : Term := ⟨mkIdent `famA⟩
+            let BS : Term := ⟨mkIdent `famB⟩
+            let rangeS ← rangeSyntax kinds
+            let seqRunS := mkIdent (`_root_ ++ seqRun)
+            let caseB ← if leaf.getD c true then
+                `(tactic| (
+                  obtain ⟨_, _, _, _, _, _, _, hr', entry', closes'⟩ := hmr
+                  refine ⟨$seqRunS $idxS hr' entry' closes' _ _ _, ?_⟩
+                  rw [($seqRunS $idxS hr' entry' closes' (fun _ => none)
+                    { topModule := "", modules := [] } 0).2.2.2.2.2.1]
+                  decide))
+              else
+                `(tactic| (
+                  have hrn := hmr
+                  exact ⟨$seqRunS $idxS hrn, by rw [($seqRunS $idxS hrn).2.2.2.2.2.1]; decide⟩))
+            `(tactic| (
+              right
+              unfold Tools.ShippingMachineCallsLinkedTNR.SeqFactsRN
+              refine ⟨rfl, $argsS, rfl, ?b, ?l, ?r, $(lit k'), _, _, rfl, rfl, ?f, fun τ => rfl⟩
+              case b =>
+                intro mc hmr
+                $caseB:tactic
+              case l =>
+                exact Tools.ShippingMachineCallsLinkedT.args_facts (by decide)
+                  (by simp [Tools.ShippingMachineCausal.letObsB, Tools.ShippingMachineCausal.letObsLoop,
+                    Tools.ShippingMachineCausal.letObsComb])
+              case r =>
+                intro τ
+                unfold Tools.ShippingMachineChild.InRange
+                exact $rangeS
+              case f =>
+                exact (congrArg (fun l => l[$(lit k')]?)
+                  (Tools.ShippingMachineCallsLinkedT.decoded_eq (bools' := $AS) (bits' := $BS) $srcS
+                    (by
+                      funext p
+                      try simp (config := { zetaDelta := true }) only [Tools.ShippingMachineCausal.extendBools]
+                      (repeat' split) <;> (first
+                        | (rename_i hp; subst hp; exact Tools.ShippingMachineCallsLinkedT.boolsOf_at
+                            (fun τ => Tools.ShippingMachineCallsLinkedT.decB_valsOf rfl (by decide) rfl τ))
+                        | rfl))
+                    (by
+                      funext p n
+                      try simp (config := { zetaDelta := true }) only [Tools.ShippingMachineAuto.extendBits]
+                      (repeat' split) <;> (first
+                        | (rename_i hp; obtain ⟨hp1, hp2⟩ := hp; subst hp1; subst hp2; (try simp only [cast_eq]); exact Tools.ShippingMachineCallsLinkedT.bitsOf_at
+                            (fun τ => Tools.ShippingMachineCallsLinkedT.decV_valsOf rfl (by decide) rfl τ))
+                        | rfl)))).trans rfl)))
+           pure ((← instantiateMVars pr).replaceFVar aF A |>.replaceFVar bF B |>.replaceFVar iF idxE
+             |>.replaceFVar sF srcE)
+          pure pr
+          catch e => throwError "call {k}: {e.toMessageData}"
+      try check proofK catch e => throwError "call {k} proof ill-formed: {e.toMessageData}"
+      perK := perK.push proofK
+    -- the chain over the call list
+    let nameT := mkConst ``Name
+    let Qm (m : Nat) : MetaM Lean.Expr :=
+      withLocalDeclD `k nat fun kv => withLocalDeclD `c nameT fun cv => do
+        let rk := ((rest.bindingBody!.instantiate1 (← mkAdd kv (mkNatLit m))).bindingBody!.instantiate1
+          cv).bindingBody!
+        mkLambdaFVars #[kv, cv] rk
+    let n := names.length
+    let mut chain ← mkAppOptM ``Tools.ShippingMachineChild.forall_getElem?_nil #[nameT, ← Qm n]
+    for m' in [0:n] do
+      let m := n - 1 - m'
+      let rest' := listE nameT ((names.drop (m + 1)).map toExpr)
+      chain ← mkAppOptM ``Tools.ShippingMachineChild.forall_getElem?_cons
+        #[nameT, ← Qm m, toExpr names[m]!, rest', perK[m]!, chain]
+    withLocalDeclD `k nat fun kv => withLocalDeclD `c nameT fun cv => do
+      let hkT := ((rest.bindingBody!.instantiate1 kv).bindingBody!.instantiate1 cv).bindingDomain!
+      withLocalDeclD `hk hkT fun hk => do
+        mkLambdaFVars (ibb ++ #[kv, cv, hk]) (mkAppN chain #[kv, cv, hk])
+  try check hcalls catch e => throwError "hcalls ill-formed: {e.toMessageData}"
+  p := mkApp p hcalls
+  if back?.isSome then throwError "{declName}: a transported endpoint (not yet at depth)"
+  -- `hrunN`, call by call, from the children's premises
+  let hrunNT := (← whnf (← inferType p)).bindingDomain!
+  let names := calls.map (·.1)
+  let mut perR : Array Lean.Expr := #[]
+  for k in [0:calls.length] do
+    let some (c, _, _) := calls[k]? | throwError "{declName}: call {k}"
+    let goalK := ((hrunNT.bindingBody!.instantiate1 (mkNatLit k)).bindingBody!.instantiate1
+      (toExpr c)).bindingBody!
+    let prK ← match Tools.ShippingMachineMemCommand.memWidths? c with
+      | some _ => proveByTacticT goalK `(tactic| (intro h; first | cases h | simp [Sparkle.Compiler.MachMemory.memChild?] at h))
+      | none => do
+        let some hP := hPOf.get? c | throwError "{declName}: premise {c}"
+        let j := seqKids.idxOf c
+        let hPS : Term := ⟨mkIdent (Name.mkSimple s!"hP{j}")⟩
+        let _ := hP
+        if leaf.getD c true then
+          proveByTacticT goalK `(tactic| (intro _ mc Dc w w' hrun _; exact ⟨_, _, _, _, w, w', Dc, hrun, ($hPS).1, ($hPS).2⟩))
+        else
+          proveByTacticT goalK `(tactic| (intro _ mc Dc w w' hrun hmod; exact $hPS mc Dc w w' hrun hmod))
+    perR := perR.push prK
+  let nameT := mkConst ``Name
+  let nat := mkConst ``Nat
+  let QmR (m : Nat) : MetaM Lean.Expr :=
+    withLocalDeclD `k nat fun kv => withLocalDeclD `c nameT fun cv => do
+      let rk := ((hrunNT.bindingBody!.instantiate1 (← mkAdd kv (mkNatLit m))).bindingBody!.instantiate1
+        cv).bindingBody!
+      mkLambdaFVars #[kv, cv] rk
+  let n := names.length
+  let mut chain ← mkAppOptM ``Tools.ShippingMachineChild.forall_getElem?_nil #[nameT, ← QmR n]
+  for m' in [0:n] do
+    let m := n - 1 - m'
+    let rest' := listE nameT ((names.drop (m + 1)).map toExpr)
+    chain ← mkAppOptM ``Tools.ShippingMachineChild.forall_getElem?_cons
+      #[nameT, ← QmR m, toExpr names[m]!, rest', perR[m]!, chain]
+  p := mkApp p chain
+  -- the boundary in the run's contexts: `ChildSynthIs` and the children's premises, bundled
+  let bTypes := (← inferType hsyn) :: pTypes
+  let bnd ← conj bTypes
+  let value ← withLocalDeclD `hBnd bnd fun hBnd => do
+    let ps ← projs hBnd bTypes
+    let p' := p.replaceFVars (#[hsyn] ++ hPs) ps.toArray
+    mkLambdaFVars (xs.pop ++ #[hBnd]) p'
+  progress s!"{name}: checking"
+  addTheorem name (← inferType value) value
+  return name
+
+def generateShipsNR (declName : Name) (n : Nat) : MetaM Name := do
+  let name := declName ++ Name.mkSimple s!"machine_ships_hierNR{n}"
+  if (← getEnv).contains name then return name
+  let cN ← generateCoreNR declName n
+  let (headL, args, back?) ← endpointParts declName
+  if back?.isSome then throwError "{declName}: a transported endpoint (not yet at depth)"
+  let soundL := mkAppN (mkConst headL) args
+  let cT := mkConst cN
+  let data := mkConst (declName ++ `machineData)
+  let modT := mkConst ``Sparkle.IR.AST.Module
+  let desT := mkConst ``Sparkle.IR.AST.Design
+  let nE := mkNatLit n
+  forallTelescope (← inferType cT) fun ys _ => do
+    unless ys.size == 12 do throwError "{declName}: the composed theorem's binders ({ys.size})"
+    let m := ys[6]!
+    -- the run boundary in the run's contexts: the composed theorem's last premise
+    let Bnd ← mkLambdaFVars #[ys[0]!, ys[1]!, ys[2]!, ys[3]!, m, ys[7]!] (← inferType ys[11]!)
+    let memF ← mkAppM ``Tools.ConeFold.memFree #[← mkAppM ``Sparkle.IR.AST.Module.body #[m]]
+    let composed ← withLocalDeclD `hm memF fun hm => do
+      let inner ← mkAppM ``Tools.ShippingMachineShipsDepth.composedG_of_NW #[mkAppN cT ys]
+      mkLambdaFVars (ys ++ #[hm]) inner
+    let KS ← withLocalDeclD `D desT fun D => do
+      mkLambdaFVars #[D] (← mkAppM ``Tools.ShippingHierStateG.KSn
+        #[← mkAppM ``Tools.ShippingMachineLinked.childMap #[← mkAppM ``Sparkle.IR.AST.Design.modules #[D]], nE])
+    let hloc ← withLocalDeclD `D desT fun D => do
+      mkLambdaFVars #[D] (← mkAppM ``Tools.ShippingHierStateG.KSn_local
+        #[← mkAppM ``Tools.ShippingMachineLinked.childMap #[← mkAppM ``Sparkle.IR.AST.Design.modules #[D]], nE])
+    let reset := mkApp (mkConst ``Tools.ShippingMachineShipsDepth.ResetNk) nE
+    let (Bd, hBd) ← withLocalDeclD `b modT fun b => withLocalDeclD `D desT fun D => do
+      let ms ← mkAppM ``Sparkle.IR.AST.Design.modules #[D]
+      let body ← mkAppM ``Sparkle.IR.AST.Module.body #[b]
+      let bd ← mkEq (← mkAppM ``Tools.ShippingMachineShipsDepth.kidsMaskedN #[ms, body]) (mkConst ``Bool.true)
+      let Bd ← mkLambdaFVars #[b, D] bd
+      let hBd ← withLocalDeclD `h bd fun h => do
+        mkLambdaFVars #[b, D, h] (mkApp (← mkAppM ``Tools.ShippingMachineShipsDepth.KSn_boundedIn
+          #[ms, body, h]) nE)
+      pure (Bd, hBd)
+    let ktT := mkApp (mkConst ``Tools.ShippingHierStateG.KT) nE
+    let inv ← withLocalDeclD `c modT fun c => withLocalDeclD `s ktT fun sv =>
+      mkLambdaFVars #[c, sv] (mkConst ``True)
+    let hRI ← mkAppM ``Tools.ShippingMachineShipsHier.true_inv #[reset]
+    let thm ← mkAppM ``Tools.ShippingMachineShipsHier.machine_ships_hier
+      #[KS, hloc, reset, Bnd, Bd, inv, hBd, hRI, data, soundL, composed]
+    let ty ← inferType thm
+    let .forallE _ hT _ _ ← whnfR ty | throwError "{declName}: the output-width premise"
+    let thm := mkApp thm (← mkExpectedTypeHint (← mkDecideProof hT) hT)
+    let name := declName ++ Name.mkSimple s!"machine_ships_hierNR{n}"
+    addTheorem name (← inferType thm) thm
+    return name
+
+
+/-- `f.machine_design_svNR{n}` from `f.machine_ships_hierNR{n}`. -/
+def generateDesignNR (declName : Name) (n : Nat) : MetaM Name := do
+  let ships ← generateShipsNR declName n
+  Tools.ShippingShipsDesignSVCommand.compose declName ships
+    (declName ++ Name.mkSimple s!"machine_design_svNR{n}") n
+
+elab "#machine_design_svNR " d:ident n:num : command => do
+  let declName ← Command.liftCoreM <| realizeGlobalConstNoOverloadWithInfo d
+  let name ← Command.liftTermElabM <|
+    withOptions (fun o => maxRecDepth.set (Lean.Elab.async.set o false) 1000000) <|
+      withTheReader Core.Context (fun c => { c with maxRecDepth := 1000000 })
+        (generateDesignNR declName n.getNat)
+  logInfo m!"{name}: source → shipped design's closed emitted texts at depth {n.getNat}, the instance binding derived (ChildSynthIs + the children's premises), checked by the kernel"
+
+end Tools.ShippingMachineDepthCommand

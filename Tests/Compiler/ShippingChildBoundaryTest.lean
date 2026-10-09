@@ -1,6 +1,7 @@
 import Tests.Compiler.ShippingMachineSeqLinkedTest
 import Tests.Compiler.ShippingDesignSVTest
 import Tools.ShippingMachineSeqCommandR
+import Tools.ShippingMachineDepthCommandR
 
 /-! The child-run boundary DERIVED on real compiles (`#machine_design_svR0`).
 
@@ -133,5 +134,62 @@ run_cmd do
       unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do
         throwError "{name} uses a non-standard axiom: {ax}"
   Lean.logInfo m!"DERIVED BOUNDARY AXIOMS: standard only"
+
+/-! ### At depth: children with calls of their own -/
+
+set_option maxHeartbeats 0 in
+#machine_design_svNR Sparkle.Tests.Compiler.ShippingDesignSVTest.mixD1 1
+set_option maxHeartbeats 0 in
+#machine_design_svNR Sparkle.Tests.Compiler.ShippingMachineDepthHTest.grandH 1
+set_option maxHeartbeats 0 in
+#machine_design_svNR Sparkle.Tests.Compiler.ShippingDesignSVTest.topD2 2
+
+/-- The constants `e` mentions, unfolding the generated boundary definitions
+(`….machineBoundN…`) it refers to. -/
+partial def mentionsDeep (env : Lean.Environment) (e : Lean.Expr) (c : Lean.Name) : Bool :=
+  mentions e c || (e.getUsedConstants.any fun n =>
+    (n.toString.splitOn "machineBoundN").length > 1 &&
+      match env.find? n >>= (·.value?) with
+      | some v => mentionsDeep env v c
+      | none => false)
+
+def nrEndpoints : List (Lean.Name × Nat) :=
+  [(``Sparkle.Tests.Compiler.ShippingDesignSVTest.mixD1, 1),
+   (``Sparkle.Tests.Compiler.ShippingMachineDepthHTest.grandH, 1),
+   (``Sparkle.Tests.Compiler.ShippingDesignSVTest.topD2, 2)]
+
+-- the instance binding derived at depth: `ChildSynthIs` and per child its
+-- premise (reflection; or every run of its entry satisfying its depth
+-- conditions, `MachineRunN`), no premise about the parent's instances
+run_cmd Lean.Elab.Command.liftTermElabM do
+  for (f, n) in nrEndpoints do
+    let e := f ++ Lean.Name.mkSimple s!"machine_design_svNR{n}"
+    let ty ← Lean.instantiateMVars (← Lean.Meta.inferType (Lean.mkConst e))
+    for c in [``Tools.ShippingChildSynth.ChildSynthIs, ``Tools.ShippingDesignSVBack.outsCheck,
+        ``Tools.ShippingDesignSV.designCheck, ``Tools.ShippingDesignSV.DesignSV] do
+      unless mentions ty c do throwError "{e}: {c} missing"
+    for c in [``Tools.ShippingMachineSeqCommand.BoundaryOf, ``Tools.ShippingMachineDepthCommand.BoundaryOfN,
+        ``Tools.ShippingMachineCallsLinkedT.InstOfCall] do
+      if mentions ty c then throwError "{e}: still mentions {c}"
+      -- below the children: the children's OWN boundaries (generated
+      -- definitions) are the old ones; derived only at the top level so far
+      let deep := mentionsDeep (← Lean.getEnv) ty c
+      if f == ``Sparkle.Tests.Compiler.ShippingDesignSVTest.topD2 then
+        if c == ``Tools.ShippingMachineDepthCommand.BoundaryOfN && !deep then
+          throwError "{e}: expected the grandchild level to keep BoundaryOfN"
+      else if deep then throwError "{e}: a child's boundary mentions {c}"
+    for ax in ← Lean.collectAxioms e do
+      unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do
+        throwError "{e} uses a non-standard axiom: {ax}"
+  -- the shipped designs pass the decidable premises at their depth
+  for (f, n) in nrEndpoints do
+    let (_, D) ← Sparkle.Compiler.Elab.synthesizeCombinationalCore f [] false
+    let (b, _) ← Sparkle.Compiler.Elab.synthesizeCombinational f
+    let o := Sparkle.IR.OptCheck.checkedOptimize b
+    let C := Tools.ShippingMachineLinked.childMap D.modules
+    unless Tools.ShippingDesignSV.designCheck C n o && Tools.ShippingDesignSVBack.outsCheck C n o &&
+        Tools.ShippingMachineShipsDepth.kidsMaskedN D.modules b.body do
+      throwError "{f}: a decidable premise fails on the shipped design"
+  Lean.logInfo m!"DERIVED BOUNDARY AT DEPTH: mixD1 (two different children), grandH, topD2 — the top level free of BoundaryOf / BoundaryOfN / InstOfCall; mixD1 and grandH also below (the child's own boundary is the combinational BndH); topD2's grandchild level keeps BoundaryOfN (mid2.machineBoundN1); decidable premises hold; standard axioms"
 
 end Sparkle.Tests.Compiler.ShippingChildBoundaryTest
