@@ -639,6 +639,12 @@ lean_lib «Tools.ShippingMachineDepthRunR» where
 lean_lib «Tools.ShippingMachineDepthHR» where
   roots := #[`Tools.ShippingMachineDepthHR]
 
+lean_lib «Tools.ShippingMachineNestR» where
+  roots := #[`Tools.ShippingMachineNestR]
+
+lean_lib «Tools.ShippingMachineTeleNestR» where
+  roots := #[`Tools.ShippingMachineTeleNestR]
+
 lean_lib «Tools.ShippingDesignSVBounds» where
   roots := #[`Tools.ShippingDesignSVBounds]
 

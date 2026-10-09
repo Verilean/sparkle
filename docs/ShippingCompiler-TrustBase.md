@@ -267,7 +267,17 @@ outputs are those of the combinational step (`runModuleTG_KSn_of_H`).
 depth 0 only). Kernel-checked: `grandH` at depth 2 (midH deeper than it
 needs), `mixD1` at 2, `topD2` at 3, and `mixDeep` at 2 — a deep branch
 `mid2 → midH → rcH`, a shallow `midH → rcH` and a leaf `cnt` under one
-parent; `mixDeep` at depth 1 is refused (its deep branch is too shallow). Still to connect: the derived boundary recursively below the
+parent; `mixDeep` at depth 1 is refused (its deep branch is too shallow).
+
+**Nested and tele endpoint heads (2026-10-10).** `machine_traceL_of_nested_extR`
+(`Tools/ShippingMachineNestR.lean`) and `machine_traceL_of_tele_extR`
+(`Tools/ShippingMachineTeleNestR.lean`): the heads' own proofs, the stream
+lemma replaced by `machine_trace_lets_of_streamBR`. `#machine_design_svHR`
+picks the head of the declaration's endpoint (`headsOf`). Kernel-checked and
+audited unfolded: `callerNested`, `callerLN` (nested), `hftByte` (tele, its
+child the real `httpGetByte`), `callerMix` (two different combinational
+children), `callerTwice`, `callerD`, `callerL`; decidable premises true on
+every shipped design. Still to connect: the derived boundary recursively below the
 top level (`MachineRunN` with a context-dependent boundary), the depth-`n`
 variant's remaining items (`MachineRunN`; its `ExtendsAway` /
 `NoInstOf` remain evaluated checks on the child's run), and the

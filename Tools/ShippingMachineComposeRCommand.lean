@@ -1,6 +1,8 @@
 import Tools.ShippingMachineLinkedCommand
 import Tools.ShippingGateChildCommand
 import Tools.ShippingMachineComposeR
+import Tools.ShippingMachineNestR
+import Tools.ShippingMachineTeleNestR
 import Tools.ShippingMachineShipsHierHCommand
 import Tools.ShippingMachineShipsHierCommand
 import Tools.ShippingShipsDesignSVCommand
@@ -22,6 +24,20 @@ open Sparkle.Compiler.Elab
 open Tools.ShippingMachineCommand (readMachine progress listE)
 open Tools.ShippingMachineLinkedCommand
 
+/-- The endpoint head, its derived-boundary twin and its wired twin. -/
+def headsOf (soundHead : Name) (nested : Bool) : Name × Name × Name :=
+  if soundHead == ``Tools.ShippingMachineTeleNest.machine_trace_of_tele_ext then
+    (``Tools.ShippingMachineTeleNest.machine_trace_of_tele_ext,
+      ``Tools.ShippingMachineTeleNest.machine_traceL_of_tele_extR,
+      ``Tools.ShippingMachineTeleNest.machine_traceL_of_tele_ext)
+  else if nested then
+    (``Tools.ShippingMachineNest.machine_trace_of_nested_ext,
+      ``Tools.ShippingMachineNest.machine_traceL_of_nested_extR,
+      ``Tools.ShippingMachineNest.machine_traceL_of_nested_ext)
+  else (``Tools.ShippingMachineAuto.machine_trace_of_data_ext,
+    ``Tools.ShippingMachineComposeR.machine_traceL_of_data_extR,
+    ``Tools.ShippingMachineAuto.machine_traceL_of_data_ext)
+
 def generateComposedRCore (declName : Name) : MetaM Name := do
   let name := declName ++ `machine_composedR
   if (← getEnv).contains name then return name
@@ -34,10 +50,7 @@ def generateComposedRCore (declName : Name) : MetaM Name := do
   let soundHead := match (← getConstInfo (declName ++ `machine_sound)) with
     | .thmInfo t => t.value.getAppFn.constName?.getD .anonymous
     | _ => .anonymous
-  unless soundHead == ``Tools.ShippingMachineAuto.machine_trace_of_data_ext && !r.nested do
-    throwError "{declName}: only the data endpoint head has its derived-boundary twin (not yet: nested / tele)"
-  let (head, headL) := (``Tools.ShippingMachineAuto.machine_trace_of_data_ext,
-    ``Tools.ShippingMachineComposeR.machine_traceL_of_data_extR)
+  let (head, headL, _) := headsOf soundHead r.nested
   let args ← soundArgs declName head
   let pL := mkAppN (mkConst headL) args
   let data := args[1]!
@@ -263,9 +276,12 @@ def generateShipsHR (declName : Name) : MetaM Name := do
   if (← getEnv).contains name then return name
   let cR ← generateComposedR declName
   let r ← readMachine declName
-  let args ← soundArgs declName ``Tools.ShippingMachineAuto.machine_trace_of_data_ext
-  let _ := r
-  let soundL := mkAppN (mkConst ``Tools.ShippingMachineAuto.machine_traceL_of_data_ext) args
+  let soundHead := match (← getConstInfo (declName ++ `machine_sound)) with
+    | .thmInfo t => t.value.getAppFn.constName?.getD .anonymous
+    | _ => .anonymous
+  let (head, _, wiredL) := headsOf soundHead r.nested
+  let args ← soundArgs declName head
+  let soundL := mkAppN (mkConst wiredL) args
   let data := mkConst (declName ++ `machineData)
   let cT := mkConst cR
   forallTelescope (← inferType cT) fun ys _ => do

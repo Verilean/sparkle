@@ -1,4 +1,7 @@
 import Tests.Compiler.ShippingMachineSeqLinkedTest
+import Tests.Compiler.ShippingMachineLinkedTest
+import Tests.Compiler.ShippingMachineTeleTest
+import Tests.Compiler.ShippingPremiseEvalTest
 import Tests.Compiler.ShippingDesignSVTest
 import Tools.ShippingMachineSeqCommandR
 import Tools.ShippingMachineDepthCommandR
@@ -264,10 +267,32 @@ set_option maxHeartbeats 0 in
 #machine_design_svHR Sparkle.Tests.Compiler.ShippingMachineInstTest.caller
 set_option maxHeartbeats 0 in
 #machine_design_svHR Sparkle.Tests.Compiler.ShippingMachineDepthHTest.midH
+-- the nested and tele endpoint heads, and two different children
+set_option maxHeartbeats 0 in
+#machine_design_svHR Sparkle.Tests.Compiler.ShippingMachineInstTest.callerNested
+set_option maxHeartbeats 0 in
+#machine_design_svHR Sparkle.Tests.Compiler.ShippingMachineLinkedTest.callerLN
+set_option maxHeartbeats 0 in
+#machine_design_svHR Sparkle.Tests.Compiler.ShippingMachineTeleTest.hftByte
+set_option maxHeartbeats 0 in
+#machine_design_svHR Sparkle.Tests.Compiler.ShippingPremiseEvalTest.callerMix
+set_option maxHeartbeats 0 in
+#machine_design_svHR Sparkle.Tests.Compiler.ShippingMachineInstTest.callerTwice
+set_option maxHeartbeats 0 in
+#machine_design_svHR Sparkle.Tests.Compiler.ShippingMachineInstTest.callerD
+set_option maxHeartbeats 0 in
+#machine_design_svHR Sparkle.Tests.Compiler.ShippingMachineLinkedTest.callerL
 
 def hrDecls : List Lean.Name :=
   [``Sparkle.Tests.Compiler.ShippingMachineInstTest.caller,
-   ``Sparkle.Tests.Compiler.ShippingMachineDepthHTest.midH]
+   ``Sparkle.Tests.Compiler.ShippingMachineDepthHTest.midH,
+   ``Sparkle.Tests.Compiler.ShippingMachineInstTest.callerNested,
+   ``Sparkle.Tests.Compiler.ShippingMachineLinkedTest.callerLN,
+   ``Sparkle.Tests.Compiler.ShippingMachineTeleTest.hftByte,
+   ``Sparkle.Tests.Compiler.ShippingPremiseEvalTest.callerMix,
+   ``Sparkle.Tests.Compiler.ShippingMachineInstTest.callerTwice,
+   ``Sparkle.Tests.Compiler.ShippingMachineInstTest.callerD,
+   ``Sparkle.Tests.Compiler.ShippingMachineLinkedTest.callerL]
 
 -- the calls' premise is gone (the trivial `R`), the boundary is `ChildSynthIs`
 -- and the children's `EntryDefines`, in the run's contexts
@@ -275,10 +300,14 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   for f in hrDecls do
     let e := f ++ `machine_design_svHR
     let ty ← Lean.instantiateMVars (← Lean.Meta.inferType (Lean.mkConst e))
-    for c in [``Tools.ShippingChildSynth.ChildSynthIs, ``Tools.ShippingInlineSoundness.EntryDefines,
+    for c in [``Tools.ShippingChildSynth.ChildSynthIs,
         ``Tools.ShippingDesignSVBack.outsCheck, ``Tools.ShippingDesignSV.designCheck,
         ``Tools.ShippingDesignSV.DesignSV] do
       unless mentions ty c do throwError "{e}: {c} missing"
+    -- each child's reflection: `EntryDefines` (gate-compiled) or `MachineDefines` (machine route)
+    unless mentions ty ``Tools.ShippingInlineSoundness.EntryDefines ||
+        mentions ty ``Tools.ShippingMachineEntry.MachineDefines do
+      throwError "{e}: no child reflection fact"
     for c in [``Tools.ShippingGateChild.GateRun, ``Tools.ShippingGateChild.MachineRun,
         ``Tools.ShippingMachineDepthH.BoundH, ``Tools.ShippingMachineDepthH.BndH,
         ``Tools.ShippingMachineCompose.ChildFn] do
@@ -295,6 +324,6 @@ run_cmd Lean.Elab.Command.liftTermElabM do
         Tools.ShippingMachineDepthH.kidsComb D.modules o.body &&
         Tools.ShippingDesignSV.designCheck C 0 o && Tools.ShippingDesignSVBack.outsCheck C 0 o do
       throwError "{f}: a decidable premise fails on the shipped design"
-  Lean.logInfo m!"DERIVED BOUNDARY (COMBINATIONAL): caller, midH — ChildSynthIs + EntryDefines, no GateRun / MachineRun / BoundH / ChildFn premise; decidable premises hold; standard axioms"
+  Lean.logInfo m!"DERIVED BOUNDARY (COMBINATIONAL): {hrDecls.length} parents (data, nested and tele heads; callerMix with two different children) — ChildSynthIs + the children's EntryDefines / MachineDefines, no GateRun / MachineRun / BoundH / ChildFn premise; decidable premises hold; standard axioms"
 
 end Sparkle.Tests.Compiler.ShippingChildBoundaryTest
