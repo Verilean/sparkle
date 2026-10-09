@@ -593,8 +593,15 @@ lean_lib «Tools.ShippingHierPremisesBase» where
 lean_lib «Tools.ShippingHierShipsSV» where
   roots := #[`Tools.ShippingHierShipsSV]
 
+
+lean_lib «Tools.ShippingDesignSVLeaf» where
+  roots := #[`Tools.ShippingDesignSVLeaf]
+
 lean_lib «Tools.ShippingDesignSV» where
   roots := #[`Tools.ShippingDesignSV]
+
+lean_lib «Tools.ShippingDesignSVMem» where
+  roots := #[`Tools.ShippingDesignSVMem]
 
 lean_lib «Tools.ShippingDesignSVBounds» where
   roots := #[`Tools.ShippingDesignSVBounds]

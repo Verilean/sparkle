@@ -92,7 +92,8 @@ structure Verdict where
   /-- the kernel-checked source → `DesignSV` endpoint
   (`f.machine_design_svN{n}`, `ships_design_svN`), if generated -/
   designEndpoint : Option Name := none
-  /-- `outsCheck` (every child assigns its outputs): with `designCheck`, there
+  /-- `outsCheck` (every child writes its outputs: assigned, or a leaf's
+  combinational read target): with `designCheck`, there
   is AT MOST ONE closed run from given seeding and states within the emitted
   widths, and any closed run is the IR run (`design_sv_backN`,
   `design_sv_unique`) — a structural guarantee under those preconditions,
@@ -318,7 +319,10 @@ def evalShipsHierSeq (declName : Name) (dep : Option Nat) : MetaM Verdict := do
       | some n => .ofBool (Tools.ShippingDesignSV.designCheck C n o) s!"designCheck {n} rejects the shipped design"
       | none => match routeKind with
         | .seq => .ofBool (Tools.ShippingDesignSV.designCheck C 0 o) "designCheck 0 rejects the shipped design"
-        | .mem => .unknown "memory children: the step IS flatKS = KSn _ 0 (composedG_of_Tmem), but a memory child's text is not connected: leafCheck requires seqStmtOk (assign/register only, memory statements rejected) and seq_run_to_sv covers no memory"
+        -- memory children: the step IS flatKS = KSn _ 0 (composedG_of_Tmem); a
+        -- memory leaf runs as `LeafRun` (combinational reads `.reads`, synchronous
+        -- reads with their read latch), accepted by `leafCheck`
+        | .mem => .ofBool (Tools.ShippingDesignSV.designCheck C 0 o) "designCheck 0 rejects the shipped design (a memory leaf fails leafCheck)"
     useConditions := ["the children start at reset (Reset1 / ResetM / ResetNk)",
                       "the inputs are within the declared and the emitted widths",
                       "the start registers are within their widths"]

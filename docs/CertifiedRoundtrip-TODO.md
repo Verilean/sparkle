@@ -1133,8 +1133,11 @@ Intermediate commits are checkpoints, not automatic turn/task endpoints.
   `design_sv_unique`, under `outsCheck`), the endpoints stating both the
   existence of a closed run showing the source and that every closed run
   shows it (`ships_design_svN_all` / `_svH_all`, `design_sv_all`) — still
-  open: memory leaves (`leafCheck`/`seq_run_to_sv` take no memory
-  statement; the memory route stays `SVCHILD:OPEN`), the run boundary as a
+  memory leaves DONE (`LeafRun`, `leaf_forward/backward/stepBound/outs`,
+  `leafCheck_memModule` for every read kind and widths, `outsLeaf` covers
+  combinational read targets; memory parents SOURCE + AT-MOST-ONE, comb and
+  sync; open: a synchronous read latch driving an output directly) — still
+  open: the run boundary as a
   theorem (`ChildSynthIs`/`CacheSound`), the call–instance correspondence
   for calls of several different children (`mixD1`: UNTRACED),
   combinational grandchildren below depth 1, multi-output gate children

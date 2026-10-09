@@ -285,8 +285,6 @@ theorem moduleStepBound (ms : List Module) (m : Nat) (ih : StepBoundAt ms m) {o 
 theorem KSn_stepBound (ms : List Module) : ∀ n, StepBoundAt ms n
   | 0 => by
     intro child hlc cin env s cres s' hin hinv hstep
-    obtain ⟨hlok, hlsv, hlwg⟩ := leafCheck_sound hlc
-    have hokI := Tools.ShippingHierSVSoundness.seqStmtOkI_of_ok hlok
     have hseed := connEnvS_bound hin hinv
     change (stepModule (declWidth child) child.body (connEnvS cin env (KidState.st s))
       (KidState.mems s)).map (fun r => (r.1, (⟨applyNexts (KidState.st s) r.2.1, r.2.2⟩ : KidState))) =
@@ -298,21 +296,8 @@ theorem KSn_stepBound (ms : List Module) : ∀ n, StepBoundAt ms n
       rw [hsm] at hstep
       simp only [Option.map_some, Option.some.injEq, Prod.mk.injEq] at hstep
       obtain ⟨rfl, rfl⟩ := hstep
-      rw [Tools.ShippingHierSVSoundness.stepModule_we_congrI hokI hlwg] at hsm
-      unfold stepModule at hsm
-      obtain ⟨pairs, env', _, hev, _, hbe, _⟩ := Tools.SVParser.EmitSem.emit_sem_assigns (KidState.mems s)
-        child.body (connEnvS cin env (KidState.st s)) (Tools.SVParser.EmitSem.seqCheck_assigns hlsv)
-        hseed (Tools.SVParser.EmitSem.bounded_iff_wof hseed)
-      rw [hev] at hsm
-      simp only [Option.bind_eq_bind, Option.bind_some] at hsm
-      cases hn : regNexts (weS child) (KidState.mems s) child.body env' with
-      | none => rw [hn] at hsm; simp at hsm
-      | some nx =>
-        rw [hn] at hsm
-        simp only [Option.bind_some, Tools.ShippingHierSVSoundness.memNexts_okI hokI,
-          Option.some.injEq, Prod.mk.injEq] at hsm
-        obtain ⟨rfl, rfl, rfl⟩ := hsm
-        exact ⟨hbe, applyNexts_bound hinv (Tools.ShippingHierSVSoundness.regNexts_boundedI hokI hn)⟩
+      obtain ⟨hbe, hnb⟩ := leaf_stepBound hlc hseed hsm
+      exact ⟨hbe, applyNexts_bound hinv hnb⟩
   | m + 1 => by
     intro child hlc cin env s cres s' hin hinv hstep
     obtain ⟨hst, hkids⟩ := hinv

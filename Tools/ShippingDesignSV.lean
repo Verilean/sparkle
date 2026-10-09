@@ -1,6 +1,7 @@
 import Tools.ShippingHierSVRun
 import Tools.ShippingHierPremisesBase
 import Tools.ShippingSeqSVSoundness
+import Tools.ShippingDesignSVLeaf
 
 /-! # The emitted Verilog of a whole design, at any depth
 
@@ -36,25 +37,12 @@ open Tools.ShippingHierarchySoundness (connEnvS)
 open Tools.ShippingHierSVRun (oracle)
 open Tools.ShippingHierOptLinked (linked_consistentKG)
 
-/-- The emitter's width map of a module (what the printer declares). -/
-abbrev wofOf (m : Module) : String → Option Nat := Tools.SVParser.RoundtripProof.moduleWof m
-abbrev weS (m : Module) : WEnv := Tools.SVParser.EmitSem.weOf (wofOf m)
-
 /-- The environment of cycle `k` (the seed index counts down). -/
 def envAt (envs : List Env) (T : Nat) : Nat → Env := fun k => (envs[T - 1 - k]?).getD (fun _ => 0)
 
 /-- A child's seeding: its input connections read the parent's values of the cycle. -/
 def connSeed (cin : List (String × Expr)) (E : Nat → Env) : Nat → (String → Nat) → Env :=
   fun k st => connEnvS cin (E k) st
-
-/-- A module's emitted text runs from `seed`. -/
-def TextRun (m : Module) (seed : Nat → (String → Nat) → Env) (T : Nat) (st : String → Nat)
-    (mems : MEnv) (envs : List Env) : Prop :=
-  ∃ pairs regs mprog,
-    Tools.SVParser.EmitSem.emitAssigns (wofOf m) m.body = some pairs ∧
-    Tools.SVParser.EmitSem.emitRegs (wofOf m) m.body = some regs ∧
-    Tools.SVParser.EmitSem.emitMemWrites (wofOf m) m.body = some mprog ∧
-    Tools.SVParser.EmitSem.runModuleSV (wofOf m) pairs regs mprog seed T st mems = some envs
 
 /-- Every instance resolves in the design. -/
 def Resolved (C : String → Option (Module × WEnv)) (body : List Stmt) : Prop :=
@@ -98,8 +86,7 @@ def DesignSV (C : String → Option (Module × WEnv)) :
     TextRun o (oracle C o.body (envAt envs T) seed) T s.st s.mems envs ∧ Resolved C o.body ∧
     PortsMatch C o ∧
     ∀ mn iname conns child cwe, Stmt.inst mn iname conns ∈ o.body → C mn = some (child, cwe) →
-      child.body.all Sparkle.IR.OptCheck.seqStmtOk = true ∧
-      ∃ cenvs, TextRun child (connSeed (inConns child.outputs conns) (envAt envs T)) T
+      ∃ cenvs, LeafRun child (connSeed (inConns child.outputs conns) (envAt envs T)) T
           (KidState.st (s.kids iname)) (KidState.mems (s.kids iname)) cenvs ∧
         Supplies child conns envs cenvs
   | n + 1, o, seed, T, s, envs =>
@@ -122,12 +109,6 @@ def textCheckI (C : String → Option (Module × WEnv)) (o : Module) : Bool :=
     o.body.all (fun st => match st with
       | .inst mn _ _ => (C mn).isSome
       | _ => true)
-
-/-- A leaf child's checks (`seq_run_to_sv`'s): flat, accepted, widths agree. -/
-def leafCheck (m : Module) : Bool :=
-  m.body.all Sparkle.IR.OptCheck.seqStmtOk &&
-    Tools.SVParser.EmitSem.seqCheck (wofOf m) (weS m) m.body &&
-    (Tools.ShippingSeqSVSoundness.seqNames m.body).all (fun x => declWidth m x == weS m x)
 
 /-- Each instance's child passes `f`. -/
 def kidsPass (C : String → Option (Module × WEnv)) (f : Module → Bool) (body : List Stmt) : Bool :=
@@ -284,14 +265,6 @@ theorem kidsPass_at {C : String → Option (Module × WEnv)} {f : Module → Boo
   simp only [hc] at this
   exact this
 
-theorem leafCheck_sound {m : Module} (h : leafCheck m = true) :
-    m.body.all Sparkle.IR.OptCheck.seqStmtOk = true ∧
-    Tools.SVParser.EmitSem.seqCheck (wofOf m) (weS m) m.body = true ∧
-    ∀ n ∈ Tools.ShippingSeqSVSoundness.seqNames m.body, declWidth m n = weS m n := by
-  simp only [leafCheck, Bool.and_eq_true] at h
-  obtain ⟨⟨hok, hsv⟩, hwg⟩ := h
-  exact ⟨hok, hsv, fun n hn => by have := List.all_eq_true.mp hwg n hn; simpa using this⟩
-
 /-- **The IR linked run at depth `n` is a closed run of the design's emitted
 texts** (forward simulation): along a run of `o`'s module with its children
 stepping at depth `n` (`KSn`), under the decidable `designCheck` and the
@@ -320,7 +293,6 @@ theorem design_sv_runN (ms : List Module) :
     have hleaf := kidsPass_at hchk.2 hm hc
     obtain ⟨x, -, hxe⟩ := Tools.ShippingHierPremisesBase.childMap_some' hc
     cases hxe
-    obtain ⟨hlok, hlsv, hlwg⟩ := leafCheck_sound hleaf
     obtain ⟨cenvs, hcr, hsup⟩ := child_runKS_of_linked (KSn C 0) (KSn_local C 0) _ C o.body seed
       (envAt envs T) hwf hnd hm hc (Tools.ShippingHierPremisesBase.noSelfRead_sound hns mn iname conns hm child _ hc)
       T s envs hrun (envAt_spec hlen)
@@ -330,7 +302,7 @@ theorem design_sv_runN (ms : List Module) :
       have := runKS_flat child (declWidth child) (inConns child.outputs conns) (envAt envs T) T (s.kids iname)
       exact this.symm.trans hcr
     obtain ⟨hcs, hcst⟩ := hkB mn iname conns child _ hm hc
-    exact ⟨hlok, cenvs, Tools.ShippingSeqSVSoundness.seq_run_to_sv hlok hlsv hlwg _ hcs hcst hcr', hsup⟩
+    exact ⟨cenvs, leaf_forward hleaf hcs hcst hcr', hsup⟩
   | succ m ih =>
     intro o seed T s envs hchk hrun hB
     simp only [designCheck, Bool.and_eq_true] at hchk

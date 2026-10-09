@@ -623,11 +623,8 @@ link from the source theorem to `DesignSV` is not made — it is not a
 complete closed statement and is never counted as one (the depth-0
 sequential route is `KSn _ 0 = flatKS`; the combinational route through
 `runModuleTG_flat_of_H` when `kidsComb` holds). The memory route's step is
-ALSO `flatKS` (`composedG_of_Tmem`, `memKS_boundedIn`); what is not
-connected there is the memory child's TEXT: `leafCheck` requires
-`seqStmtOk` (assignments and registers; memory statements rejected) and
-`seq_run_to_sv` covers no memory — `SVCHILD:OPEN` with that reason, an
-unconnected checker and theorem, not a semantic obstacle. What still stands between
+ALSO `flatKS` (`composedG_of_Tmem`, `memKS_boundedIn`); its memory
+children's TEXTS are now connected too (memory leaves, below). What still stands between
 `grandH` and a closed SV statement: (1) `SVBounds` — each level's seeding
 and start state within its emitted widths along the IR run (a run premise;
 its parts: the instance outputs within the emitted widths, the children's
@@ -670,11 +667,50 @@ the theorem's own reset / boundary / bound read off its proof term) and the
 combinational route (`ships_design_svH`, `#machine_design_svH`: the
 `runModuleH` run is the depth-0 `flatKS` run under `kidsComb` on the shipped
 body, `runModuleTG_flat_of_H`) have endpoints too: `parent.machine_design_sv0`,
-`caller.machine_design_svH`. A memory parent's endpoint is generated
-(`memCounter.machine_design_sv0`), but its premise `designCheck` is false
-on the real module (memory leaves), so it stays `SVCHILD:OPEN`. Still not
-claimed: the run boundary as a theorem,
-memory leaves, `mixD1`'s call–instance correspondence (traced: UNTRACED).
+`caller.machine_design_svH`. Memory parents: see the memory leaves below. Still not
+claimed: the run boundary as a theorem, `mixD1`'s call–instance
+correspondence (traced: UNTRACED).
+
+**Memory leaves (2026-10-09).** `Tools/ShippingDesignSVLeaf.lean`,
+`Tools/ShippingDesignSVMem.lean`. A depth-0 child of `DesignSV` runs as
+`LeafRun`: without a synchronously-read memory its text runs by
+`runModuleSV` (combinational reads are its `.reads` steps, `seqCheck`); with
+one, by `runModuleSVM`, the read latches among its sequential drivers
+(`seqCheckM`, `mem_run_to_sv` / `forward_trace_mem_inv`). `leafCheck`
+(assign / register / memory statements, memory write operands plain
+references, checker and emitter widths agreeing on the names the IR step
+consults — `leafNames`: a plain-reference operand consults no width — and
+the emitted-text check of its kind) gives the four facts every design
+theorem uses: `leaf_forward` (IR run ⇒ text run), `leaf_backward` (text run
+⇒ IR run), `leaf_stepBound` (one step within the emitted widths) and
+`leaf_outs` (outputs within their widths in ANY text run). No width
+condition is placed on the memory contents or the initial memory: every read
+is masked at the data width (`comboReadsSV`, read latches), and a read port's
+target is at least that wide (`readPortsCheck`: `emitAssigns_readsOK`), so
+`evalAssignsSV_written` bounds every assigned or combinationally-read name
+whatever the inputs and the memory hold. `outsCheck`'s leaf predicate is
+`outsLeaf` (each output assigned or a combinational read target; it extends
+`outsAssigned`); a synchronous read latch driving an output DIRECTLY is not
+covered (`outsLeaf` false, so not AT-MOST-ONE). The read latch's start value
+is part of the instance's start state (`InvN`: within its width).
+`leafCheck_memModule` / `outsLeaf_memModule`: the built memory module
+`memModule cb aw dw` passes both for EVERY read kind and widths, and
+`designCheck_memKids`: a parent whose instances are all built memory modules
+has `designCheck 0` = its own `textCheckI`, and `outsCheck 0`. The forward
+(`design_sv_runN`), bounds (`KSn_stepBound`), backward (`design_sv_backN`)
+and all-runs (`design_sv_all`) theorems use the leaf facts at depth 0, so the
+memory parents' generated endpoints apply: `memCounter`, `twoMems`,
+`mixedMems` (combinational AND synchronous children), `memWide` (aw 6 /
+dw 16), `syncNarrow` (aw 3 / dw 5) are `SVCHILD:SOURCE` and
+`CLOSED:AT-MOST-ONE` with `designCheck` and `outsCheck` evaluated true on the
+shipped module (`Tests/Compiler/ShippingDesignSVMemTest.lean`; a false
+premise is never counted: SOURCE is derived from `designCheck`, not from the
+endpoint's existence). The memory module's IR run, its emitted text's run
+and an independent reference model agree over multi-cycle read/write
+schedules (7 read-kind/width pairs, past an address wrap). Kept rejected:
+non-reference write operands, a read target narrower than the data, a leaf
+mixing combinational and synchronous reads, an instance in a leaf; `outsLeaf`
+rejects an unwritten output and a latch-driven output.
 
 **The closed run is unique: backward simulation (2026-10-09).**
 `Tools/ShippingDesignSVBack.lean`. `design_sv_backN ms n`: under

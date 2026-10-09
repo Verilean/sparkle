@@ -1,5 +1,6 @@
 import Tools.ShippingDesignSVBounds
 import Tools.ShippingMachineCompose
+import Tools.ShippingDesignSVLeaf
 
 /-! # The closed emitted texts determine the run (backward simulation)
 
@@ -13,8 +14,9 @@ the IR run. That a solution EXISTS is a separate fact: the forward theorem
 — in the shipping endpoints, from the source shipping theorem's run.
 
 No bound is assumed of the solution. The emitted texts' semantics masks
-every assignment at its target's declared width (`evalAssignsSV`), so a
-child's output port — assigned in its body (`outsCheck`) — carries a value
+every assignment at its target's declared width (`evalAssignsSV`) and every
+memory read at the data width, so a child's output port — assigned in its
+body, or a leaf's combinational read target (`outsCheck`) — carries a value
 within its width WHATEVER its inputs (`runModuleSV_assigned`); the parent's
 instance-output wires carry exactly those values (`Supplies`), within the
 same widths (`PortsMatch`); with the seeding and states within their widths,
@@ -34,243 +36,11 @@ open Tools.ShippingSeqSVSoundness (seqNames)
 open Tools.ShippingHierSVSoundness (seqStmtOkI)
 open Tools.SVParser.EmitSem (CombStep emitAssigns evalAssignsSV regNextsSV runModuleSV weOf)
 
-/-! ## The emitted combinational program of a memory-free body -/
-
-def isAssignStep : CombStep → Bool
-  | .assign .. => true
-  | .reads .. => false
-
-theorem emitAssigns_assigns {wof : String → Option Nat} :
-    ∀ {body : List Stmt} {pairs : List CombStep}, body.all seqStmtOkI = true →
-      emitAssigns wof body = some pairs → pairs.all isAssignStep = true
-  | [], pairs, _, h => by simp only [emitAssigns, Option.some.injEq] at h; subst h; rfl
-  | st :: rest, pairs, hok, h => by
-    simp only [List.all_cons, Bool.and_eq_true] at hok
-    cases st with
-    | assign l r =>
-      simp only [emitAssigns, Option.bind_eq_bind] at h
-      obtain ⟨sv, _, h⟩ := Option.bind_eq_some_iff.mp h
-      obtain ⟨others, ho, h⟩ := Option.bind_eq_some_iff.mp h
-      simp only [Option.some.injEq] at h
-      subst h
-      simp [isAssignStep, emitAssigns_assigns hok.2 ho]
-    | register => exact emitAssigns_assigns hok.2 h
-    | inst => exact emitAssigns_assigns hok.2 h
-    | memory => simp [seqStmtOkI] at hok
-
-theorem emitAssigns_mem {wof : String → Option Nat} :
-    ∀ {body : List Stmt} {pairs : List CombStep}, emitAssigns wof body = some pairs →
-      ∀ {l : String} {r : Expr}, Stmt.assign l r ∈ body → ∃ sv, CombStep.assign l sv ∈ pairs
-  | [], _, _, _, _, hm => by cases hm
-  | st :: rest, pairs, h, l, r, hm => by
-    cases st with
-    | assign l' r' =>
-      simp only [emitAssigns, Option.bind_eq_bind] at h
-      obtain ⟨sv, _, h⟩ := Option.bind_eq_some_iff.mp h
-      obtain ⟨others, ho, h⟩ := Option.bind_eq_some_iff.mp h
-      simp only [Option.some.injEq] at h
-      subst h
-      rcases List.mem_cons.mp hm with he | hin
-      · cases he; exact ⟨sv, List.mem_cons_self⟩
-      · obtain ⟨sv', h'⟩ := emitAssigns_mem ho hin
-        exact ⟨sv', List.mem_cons_of_mem _ h'⟩
-    | register =>
-      simp only [emitAssigns] at h
-      rcases List.mem_cons.mp hm with he | hin
-      · cases he
-      · exact emitAssigns_mem h hin
-    | inst =>
-      simp only [emitAssigns] at h
-      rcases List.mem_cons.mp hm with he | hin
-      · cases he
-      · exact emitAssigns_mem h hin
-    | memory name aw dw c wa wd wen ra rd cr ew er =>
-      rcases List.mem_cons.mp hm with he | hin
-      · cases he
-      · simp only [emitAssigns] at h
-        split at h
-        · simp only [Option.bind_eq_bind] at h
-          obtain ⟨ports, _, h⟩ := Option.bind_eq_some_iff.mp h
-          obtain ⟨others, ho, h⟩ := Option.bind_eq_some_iff.mp h
-          simp only [Option.some.injEq] at h
-          subst h
-          obtain ⟨sv', h'⟩ := emitAssigns_mem ho hin
-          exact ⟨sv', List.mem_cons_of_mem _ h'⟩
-        · exact emitAssigns_mem h hin
-
-/-! ## The emitted texts' values are within their declared widths -/
-
-theorem mask_lt (w v : Nat) : mask w v < 2 ^ w := Nat.mod_lt _ (Nat.two_pow_pos _)
-
-theorem evalAssignsSV_frame {wof : String → Option Nat} {mems : MEnv} :
-    ∀ {pairs : List CombStep} {env env' : Env}, pairs.all isAssignStep = true →
-      evalAssignsSV wof mems pairs env = some env' →
-      ∀ n, (∀ sv, CombStep.assign n sv ∉ pairs) → env' n = env n
-  | [], env, env', _, h, n, _ => by simp only [evalAssignsSV, Option.some.injEq] at h; subst h; rfl
-  | .assign m sv :: rest, env, env', hok, h, n, hn => by
-    simp only [List.all_cons, Bool.and_eq_true] at hok
-    simp only [evalAssignsSV, Option.bind_eq_bind] at h
-    obtain ⟨w, _, h⟩ := Option.bind_eq_some_iff.mp h
-    obtain ⟨v, _, h⟩ := Option.bind_eq_some_iff.mp h
-    rw [evalAssignsSV_frame hok.2 h n (fun sv' hm => hn sv' (List.mem_cons_of_mem _ hm))]
-    have hne : n ≠ m := by
-      intro he; subst he; exact hn sv List.mem_cons_self
-    simp [hne]
-  | .reads .. :: _, _, _, hok, _, _, _ => by simp [isAssignStep] at hok
-
-/-- **An assigned name ends within its declared width**, whatever the
-environment the program starts from. -/
-theorem evalAssignsSV_assigned {wof : String → Option Nat} {mems : MEnv} :
-    ∀ {pairs : List CombStep} {env env' : Env}, pairs.all isAssignStep = true →
-      evalAssignsSV wof mems pairs env = some env' →
-      ∀ {n : String} {sv : Tools.SVParser.AST.SVExpr}, CombStep.assign n sv ∈ pairs →
-        env' n < 2 ^ weOf wof n
-  | [], _, _, _, _, _, _, hm => by cases hm
-  | .assign m sv' :: rest, env, env', hok, h, n, sv, hm => by
-    simp only [List.all_cons, Bool.and_eq_true] at hok
-    simp only [evalAssignsSV, Option.bind_eq_bind] at h
-    obtain ⟨w, hw, h⟩ := Option.bind_eq_some_iff.mp h
-    obtain ⟨v, _, h⟩ := Option.bind_eq_some_iff.mp h
-    by_cases hrest : ∃ sv'', CombStep.assign n sv'' ∈ rest
-    · obtain ⟨sv'', hm'⟩ := hrest
-      exact evalAssignsSV_assigned hok.2 h hm'
-    · have hnr : ∀ sv'', CombStep.assign n sv'' ∉ rest := fun sv'' hm' => hrest ⟨sv'', hm'⟩
-      rw [evalAssignsSV_frame hok.2 h n hnr]
-      rcases List.mem_cons.mp hm with he | hin
-      · cases he
-        simp only [if_true, weOf, hw, Option.getD_some]
-        exact mask_lt w v
-      · exact absurd hin (hnr sv)
-  | .reads .. :: _, _, _, hok, _, _, _, _ => by simp [isAssignStep] at hok
-
-theorem evalAssignsSV_bounded {wof : String → Option Nat} {mems : MEnv} :
-    ∀ {pairs : List CombStep} {env env' : Env}, pairs.all isAssignStep = true →
-      Bounded (weOf wof) env → evalAssignsSV wof mems pairs env = some env' →
-      Bounded (weOf wof) env'
-  | [], env, env', _, hb, h => by simp only [evalAssignsSV, Option.some.injEq] at h; subst h; exact hb
-  | .assign m sv :: rest, env, env', hok, hb, h => by
-    simp only [List.all_cons, Bool.and_eq_true] at hok
-    simp only [evalAssignsSV, Option.bind_eq_bind] at h
-    obtain ⟨w, hw, h⟩ := Option.bind_eq_some_iff.mp h
-    obtain ⟨v, _, h⟩ := Option.bind_eq_some_iff.mp h
-    refine evalAssignsSV_bounded hok.2 ?_ h
-    intro n
-    by_cases he : n = m
-    · subst he; simp only [if_true, weOf, hw, Option.getD_some]; exact mask_lt w v
-    · simp only [he, if_false]; exact hb n
-  | .reads .. :: _, _, _, hok, _, _ => by simp [isAssignStep] at hok
-
-theorem regNextsSV_bounded {wof : String → Option Nat} :
-    ∀ {regs : List (String × String × Tools.SVParser.AST.SVExpr × Int)} {env : Env}
-      {nexts : List (String × Nat)}, regNextsSV wof regs env = some nexts →
-      ∀ pr ∈ nexts, pr.2 < 2 ^ weOf wof pr.1
-  | [], _, nexts, h, pr, hpr => by
-    simp only [regNextsSV, Option.some.injEq] at h; subst h; cases hpr
-  | (out, rst, svin, init) :: rest, env, nexts, h, pr, hpr => by
-    simp only [regNextsSV, Option.bind_eq_bind] at h
-    obtain ⟨w, hw, h⟩ := Option.bind_eq_some_iff.mp h
-    obtain ⟨v, _, h⟩ := Option.bind_eq_some_iff.mp h
-    obtain ⟨rs, hrs, h⟩ := Option.bind_eq_some_iff.mp h
-    simp only [Option.some.injEq] at h
-    subst h
-    rcases List.mem_cons.mp hpr with he | hin
-    · subst he
-      simp only [weOf, hw, Option.getD_some]
-      split
-      · exact Nat.mod_lt _ (Nat.two_pow_pos _)
-      · exact mask_lt w v
-    · exact regNextsSV_bounded hrs pr hin
-
-/-- Every cycle's environment of an emitted text assigns its assigned names
-within their declared widths. -/
-theorem runModuleSV_assigned {wof : String → Option Nat}
-    {pairs : List CombStep} {regs : List (String × String × Tools.SVParser.AST.SVExpr × Int)}
-    {mprog : List (String × Nat × Nat × List (Tools.SVParser.AST.SVExpr × Tools.SVParser.AST.SVExpr × Tools.SVParser.AST.SVExpr))}
-    {seed : Nat → (String → Nat) → Env} (hok : pairs.all isAssignStep = true)
-    {n : String} {sv : Tools.SVParser.AST.SVExpr} (hm : CombStep.assign n sv ∈ pairs) :
-    ∀ (k : Nat) (st : String → Nat) (mems : MEnv) (envs : List Env),
-      runModuleSV wof pairs regs mprog seed k st mems = some envs →
-      ∀ j (hj : j < envs.length), (envs[j]'hj) n < 2 ^ weOf wof n
-  | 0, _, _, envs, h, j, hj => by
-    simp only [runModuleSV, Option.some.injEq] at h; subst h; cases hj
-  | k + 1, st, mems, envs, h, j, hj => by
-    simp only [runModuleSV, Option.bind_eq_bind] at h
-    obtain ⟨envF, hF, h⟩ := Option.bind_eq_some_iff.mp h
-    obtain ⟨nexts, _, h⟩ := Option.bind_eq_some_iff.mp h
-    obtain ⟨mems', _, h⟩ := Option.bind_eq_some_iff.mp h
-    obtain ⟨rest, hR, h⟩ := Option.bind_eq_some_iff.mp h
-    simp only [Option.some.injEq] at h
-    subst h
-    cases j with
-    | zero => exact evalAssignsSV_assigned hok hF hm
-    | succ j => exact runModuleSV_assigned hok hm k _ mems' rest hR j (by simpa using hj)
-
-/-- Every cycle's environment of an emitted text is within its declared
-widths, from a seeding and a state that are. -/
-theorem runModuleSV_bounded {wof : String → Option Nat}
-    {pairs : List CombStep} {regs : List (String × String × Tools.SVParser.AST.SVExpr × Int)}
-    {mprog : List (String × Nat × Nat × List (Tools.SVParser.AST.SVExpr × Tools.SVParser.AST.SVExpr × Tools.SVParser.AST.SVExpr))}
-    {seed : Nat → (String → Nat) → Env} (hok : pairs.all isAssignStep = true)
-    (hseedB : ∀ k st, Bounded (weOf wof) st → Bounded (weOf wof) (seed k st)) :
-    ∀ (k : Nat) (st : String → Nat) (mems : MEnv) (envs : List Env), Bounded (weOf wof) st →
-      runModuleSV wof pairs regs mprog seed k st mems = some envs →
-      ∀ j (hj : j < envs.length), Bounded (weOf wof) (envs[j]'hj)
-  | 0, _, _, envs, _, h, j, hj => by
-    simp only [runModuleSV, Option.some.injEq] at h; subst h; cases hj
-  | k + 1, st, mems, envs, hst, h, j, hj => by
-    simp only [runModuleSV, Option.bind_eq_bind] at h
-    obtain ⟨envF, hF, h⟩ := Option.bind_eq_some_iff.mp h
-    obtain ⟨nexts, hN, h⟩ := Option.bind_eq_some_iff.mp h
-    obtain ⟨mems', _, h⟩ := Option.bind_eq_some_iff.mp h
-    obtain ⟨rest, hR, h⟩ := Option.bind_eq_some_iff.mp h
-    simp only [Option.some.injEq] at h
-    subst h
-    cases j with
-    | zero => exact evalAssignsSV_bounded hok (hseedB k st hst) hF
-    | succ j =>
-      exact runModuleSV_bounded hok hseedB k _ mems' rest
-        (applyNexts_bound hst (regNextsSV_bounded hN)) hR j (by simpa using hj)
-
-theorem runModuleSV_length {wof : String → Option Nat}
-    {pairs : List CombStep} {regs : List (String × String × Tools.SVParser.AST.SVExpr × Int)}
-    {mprog : List (String × Nat × Nat × List (Tools.SVParser.AST.SVExpr × Tools.SVParser.AST.SVExpr × Tools.SVParser.AST.SVExpr))}
-    {seed : Nat → (String → Nat) → Env} :
-    ∀ (k : Nat) (st : String → Nat) (mems : MEnv) (envs : List Env),
-      runModuleSV wof pairs regs mprog seed k st mems = some envs → envs.length = k
-  | 0, _, _, envs, h => by simp only [runModuleSV, Option.some.injEq] at h; subst h; rfl
-  | k + 1, st, mems, envs, h => by
-    simp only [runModuleSV, Option.bind_eq_bind] at h
-    obtain ⟨envF, _, h⟩ := Option.bind_eq_some_iff.mp h
-    obtain ⟨nexts, _, h⟩ := Option.bind_eq_some_iff.mp h
-    obtain ⟨mems', _, h⟩ := Option.bind_eq_some_iff.mp h
-    obtain ⟨rest, hR, h⟩ := Option.bind_eq_some_iff.mp h
-    simp only [Option.some.injEq] at h
-    subst h
-    simp [runModuleSV_length k _ mems' rest hR]
-
 /-! ## The decidable fact the backward direction adds -/
-
-/-- Every output port is assigned in the body. -/
-def outsAssigned (m : Module) : Bool :=
-  m.outputs.all fun p => m.body.any fun st => match st with
-    | .assign l _ => l == p.name
-    | _ => false
-
-theorem outsAssigned_sound {m : Module} (h : outsAssigned m = true) :
-    ∀ p ∈ m.outputs, ∃ r, Stmt.assign p.name r ∈ m.body := by
-  intro p hp
-  have := List.all_eq_true.mp h p hp
-  obtain ⟨st, hst, hm⟩ := List.any_eq_true.mp this
-  cases st with
-  | assign l r =>
-    simp only [beq_iff_eq] at hm
-    subst hm
-    exact ⟨r, hst⟩
-  | _ => simp at hm
 
 /-- Every child of the design, at every level below `o`, assigns its outputs. -/
 def outsCheck (C : String → Option (Module × WEnv)) : Nat → Module → Bool
-  | 0, o => kidsPass C outsAssigned o.body
+  | 0, o => kidsPass C outsLeaf o.body
   | n + 1, o => kidsPass C (fun c => outsAssigned c && outsCheck C n c) o.body
 
 /-! ## Transfer lemmas -/
@@ -307,16 +77,6 @@ theorem textRun_open {m : Module} (hok : m.body.all seqStmtOkI = true)
   refine ⟨?_, runModuleSV_bounded (emitAssigns_assigns hok hA) hseedB T st mems envs hst hrun⟩
   rw [Tools.ShippingHierSVSoundness.runModule_we_congrI m.body hok hwg seed T st mems, heq T st mems hst]
   exact hrun
-
-/-- A leaf's emitted text runs as its IR run. -/
-theorem leafText_run {m : Module} (hlc : leafCheck m = true)
-    {seed : Nat → (String → Nat) → Env}
-    (hseedB : ∀ k st, Bounded (weS m) st → Bounded (weS m) (seed k st))
-    {T : Nat} {st : String → Nat} {mems : MEnv} {envs : List Env} (hst : Bounded (weS m) st)
-    (h : TextRun m seed T st mems envs) :
-    runModule (declWidth m) m.body seed T st mems = some envs := by
-  obtain ⟨hok, hsv, hwg⟩ := leafCheck_sound hlc
-  exact (textRun_open (Tools.ShippingHierSVSoundness.seqStmtOkI_of_ok hok) hsv hwg hseedB hst h).1
 
 /-- The instance-output wires of a closed run are within the parent's widths. -/
 theorem instOuts_bound {C : String → Option (Module × WEnv)} {o : Module} {envs : List Env} {T : Nat}
@@ -414,9 +174,8 @@ theorem design_sv_backN (ms : List Module) :
         ∃ cenvs : List Env, Supplies child conns envs cenvs ∧
           ∀ j (hj : j < cenvs.length), ∀ p ∈ child.outputs, (cenvs[j]'hj) p.name < 2 ^ weS child p.name := by
       intro mn iname conns child cwe hm hc
-      obtain ⟨hflat, cenvs, ht, hsup⟩ := hch mn iname conns child cwe hm hc
-      exact ⟨cenvs, hsup, textRun_outs (Tools.ShippingHierSVSoundness.seqStmtOkI_of_ok hflat)
-        (kidsPass_at hoc hm hc) ht⟩
+      obtain ⟨cenvs, ht, hsup⟩ := hch mn iname conns child cwe hm hc
+      exact ⟨cenvs, hsup, leaf_outs (kidsPass_at hchk.2 hm hc) (kidsPass_at hoc hm hc) ht⟩
     have hseed' := oracle_bound' (instOuts_bound (T := T) hpm hout) hseedB
     obtain ⟨hopen, hbE⟩ := textRun_open hok hsv hwg hseed' hst htext
     have hE := envAt_bound (T := T) hbE
@@ -425,9 +184,9 @@ theorem design_sv_backN (ms : List Module) :
     obtain ⟨child, cwe, hc⟩ := hres mn iname conns hm
     obtain ⟨x, -, hxe⟩ := Tools.ShippingHierPremisesBase.childMap_some' hc
     cases hxe
-    obtain ⟨-, cenvs, ht, hsup⟩ := hch mn iname conns child _ hm hc
+    obtain ⟨cenvs, ht, hsup⟩ := hch mn iname conns child _ hm hc
     refine ⟨child, _, cenvs, hc, ?_, hsup⟩
-    have hrun := leafText_run (kidsPass_at hchk.2 hm hc)
+    have hrun := leaf_backward (kidsPass_at hchk.2 hm hc)
       (fun k st' hst' => connEnvS_bound (fun c hcin w hw => by
         have := hE k w
         rwa [hpm mn iname conns child _ hm hc c (List.mem_filter.mp hcin).1 w hw] at this) hst')

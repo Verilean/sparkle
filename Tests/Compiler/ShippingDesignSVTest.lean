@@ -79,9 +79,8 @@ set_option maxHeartbeats 0 in
 /-! The depth-0 route (`machine_ships_hier`: `KS = flatKS = KSn _ 0`, the
 theorem's own reset / boundary / bound) and the combinational route
 (`machine_ships_hierH` through `runModuleTG_flat_of_H`). A memory parent's
-endpoint is generated too, but its premise `designCheck` is false on the real
-module (memory leaves: `leafCheck` takes no memory statement), so it is not
-counted as reaching the texts. -/
+endpoint is generated too and applies: its memory leaves pass `leafCheck`
+(`LeafRun`; see `ShippingDesignSVMemTest`). -/
 set_option maxHeartbeats 0 in
 #machine_design_sv0 Sparkle.Tests.Compiler.ShippingMachineSeqTest.parent
 set_option maxHeartbeats 0 in
@@ -121,7 +120,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   unless vc.applies && vc.svChildTag == "SVCHILD:SOURCE" do throwError "caller: {vc.tag}"
   let vmem ← evalShipsHierSeq ``Sparkle.Tests.Compiler.ShippingMachineMemLinkedTest.memCounter none
   Lean.logInfo m!"{vmem.report}"
-  unless vmem.applies && vmem.svChildTag == "SVCHILD:OPEN" do throwError "memCounter: {vmem.tag}"
+  unless vmem.applies && vmem.svChildTag == "SVCHILD:SOURCE" && vmem.uniqTag == "CLOSED:AT-MOST-ONE" do throwError "memCounter: {vmem.tag}"
   -- the closed run is unique (the IR run) on the real designs
   for (n, v) in [(``topD2, vt), (``Sparkle.Tests.Compiler.ShippingMachineDepthHTest.grandH, vg),
       (``Sparkle.Tests.Compiler.ShippingMachineSeqTest.parent, vp), (``Sparkle.Tests.Compiler.ShippingMachineInstTest.caller, vc)] do
