@@ -1,6 +1,8 @@
 import Tools.ShippingChildSynth
+import Tools.ShippingMachineSeqCommand
 import Tools.ShippingGateChild
 import Tools.ShippingMachineDepthRun
+import Tools.ShippingMachineCallsLinkedTR
 
 /-! The children of a machine-route compile are runs of the real entry
 (`machine_children_real`), under the single `ChildSynthIs` boundary: the
@@ -29,5 +31,37 @@ run_cmd do
       unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do
         throwError "{name} uses a non-standard axiom: {ax}"
   Lean.logInfo m!"CHILD SYNTH AXIOMS: standard only"
+
+-- the instance level: the composed theorem's per-call premise is the child's
+-- own theorem for runs of its entry and the child's reflection facts; the
+-- served instance's being such a run is DERIVED (`ServedReal`, from
+-- `ChildSynthIs`, through the endpoint's layers with the run's ids)
+run_cmd Lean.Elab.Command.liftTermElabM do
+  let ty ← Lean.Meta.inferType (Lean.mkConst ``Tools.ShippingMachineCallsLinkedTR.machine_linkedT_callsR)
+  for c in [``Tools.ShippingMachineTraceX.ServedReal, ``Tools.ShippingMachineCallsLinkedTR.SeqFactsR,
+      ``Tools.ShippingMachineEntry.MachineDefines] do
+    unless (ty.find? (·.isConstOf c)).isSome do throwError "machine_linkedT_callsR: {c} missing"
+  for c in [``Tools.ShippingMachineCallsLinkedT.InstOfCall, ``Tools.ShippingMachineCallsLinkedT.SeqFacts,
+      ``Tools.ShippingMachineSeqCommand.BoundaryOf] do
+    if (ty.find? (·.isConstOf c)).isSome then throwError "machine_linkedT_callsR mentions {c}"
+  let ty2 ← Lean.Meta.inferType (Lean.mkConst ``Tools.ShippingMachineTraceX.machine_trace_lets_of_streamBR)
+  unless (ty2.find? (·.isConstOf ``Tools.ShippingChildSynth.ChildSynthIs)).isSome do
+    throwError "machine_trace_lets_of_streamBR: no ChildSynthIs premise"
+  Lean.logInfo m!"CHILD SERVED: the call-to-instance binding derived from the run (ServedReal)"
+
+run_cmd do
+  for name in [``Tools.ShippingChildServe.closeInstsG_serves,
+      ``Tools.ShippingMachineEntry.synthesizeMachineCertified_soundX,
+      ``Tools.ShippingMachineEntry.synthesizeMachineCertified_sound,
+      ``Tools.ShippingMachineTraceX.synthesizeCombinationalCore_machine_soundR,
+      ``Tools.ShippingMachineTraceX.machine_trace_lets_of_streamBR,
+      ``Tools.ShippingMachineTraceX.machine_endpointX,
+      ``Tools.ShippingMachineLinkedT.machine_linkedT_of, ``Tools.ShippingMachineLinkedT.machine_linkedT,
+      ``Tools.ShippingMachineCallsLinkedTR.calls_hchildR,
+      ``Tools.ShippingMachineCallsLinkedTR.machine_linkedT_callsR] do
+    for ax in ← Lean.collectAxioms name do
+      unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do
+        throwError "{name} uses a non-standard axiom: {ax}"
+  Lean.logInfo m!"CHILD SERVED AXIOMS: standard only"
 
 end Sparkle.Tests.Compiler.ShippingChildSynthTest

@@ -113,7 +113,7 @@ shows the source, provided every instance's child — run on environments
 whose argument wires carry the source's argument values (the `let`
 observations) and whose output wires carry the source's call values — shows
 those output values. -/
-theorem machine_linkedT {declName : Name} {d : MachineData} {m : Module} {dsn : Design}
+theorem machine_linkedT_of {declName : Name} {d : MachineData} {m : Module} {dsn : Design}
     {ι : Type} {dom : ι → DomainConfig}
     {src : (i : ι) → (Nat → Signal (dom i) Bool) →
       ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat)}
@@ -124,7 +124,29 @@ theorem machine_linkedT {declName : Name} {d : MachineData} {m : Module} {dsn : 
       ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → Nat → Signal (dom i) Bool}
     {lsrc : (i : ι) → (Nat → Signal (dom i) Bool) →
       ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat)}
-    (h : MachineTraceLB declName d m dsn dom src ext extB lsrc)
+    {ids : List FVarId} (nd : ids.Nodup) (len : ids.length = d.shape.binders.length)
+    {cache : IO.Ref (ExprStructMap String)} {regs : List String} (rnd : regs.Nodup)
+    (rlen : regs.length = d.ss.length) {lets : List String} (llen : lets.length = d.letBs.length)
+    (wired : MachineWired declName d.shape ids cache m dsn regs lets)
+    (trace :
+    ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+      (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
+      (T : Nat) (seed : Nat → (String → Nat) → Env) (st0 : String → Nat) (mems : MEnv),
+      (∀ t st, t < T → SourceInputs declName d.bsIn ids cache
+        (fun j => (extB i bools bits j).val (T - 1 - t))
+        (fun j n => (ext i bools bits j n).val (T - 1 - t))
+        (seed t st)) →
+      (∀ t st r, r ∈ regs → seed t st r = st r) →
+      (∀ t st, seed t st "rst" = 0) →
+      (∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r →
+        d.shape.layout.slots[k]? = some f → st0 r = f.init) →
+      ∃ envs, runModule (weOf m) m.body seed T st0 mems = some envs ∧ envs.length = T ∧
+        (∀ j (hj : j < envs.length) (k : Nat) (o : OutField) (f : Nat → Nat),
+          d.shape.layout.outs[k]? = some o → (src i bools bits)[k]? = some f →
+          (envs[j]'hj) o.name = f j) ∧
+        ∀ j (hj : j < envs.length) (q : Nat) (name : String) (g : Nat → Nat),
+          lets[q]? = some name → (lsrc i bools bits)[q]? = some g → q < d.ls.length →
+          (envs[j]'hj) name = g j)
     (hfe : d.shape.instFields ≠ [])
     (kD : Nat) (hkD : kD ≤ d.bsIn.length)
     (hI : ∀ b ∈ d.bsIn.drop kD, b.2 ≠ .domain)
@@ -133,59 +155,54 @@ theorem machine_linkedT {declName : Name} {d : MachineData} {m : Module} {dsn : 
     (hSlen : d.slotBs.length = d.shape.layout.slots.length)
     (hLlen : d.letBs.length = d.shape.layout.lets)
     (hNIn : machNIn d.shape = ((d.bsIn.take kD).filter (fun b => b.2 != .domain)).length) :
-    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = d.shape.binders.length ∧
-    ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
-      regs.Nodup ∧ regs.length = d.ss.length ∧
-      ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
-        (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
-        (T : Nat) (seed : Nat → (String → Nat) → Env) (st0 : String → Nat) (mems : MEnv)
-        (kids : String → KidState),
-        (∀ t st, t < T → SourceInputs declName (d.bsIn.take kD) ids cache
-          (fun j => (extB i bools bits j).val (T - 1 - t))
-          (fun j n => (ext i bools bits j n).val (T - 1 - t)) (seed t st)) →
-        (∀ t st r, r ∈ regs → seed t st r = st r) →
-        (∀ t st, seed t st "rst" = 0) → (∀ t st, seed t st "clk" = 0) →
-        (∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r →
-          d.shape.layout.slots[k]? = some f → st0 r = f.init) →
-        -- every instance's child, on the source's argument and call values
-        (∀ (args : List Nat) (outs : List (Nat × String)) (mc : Module) (iname : String)
-            (argWs outWs : List String),
-          args.mapM (fun j => ((machPorts declName ids cache d.shape.binders).map (·.name))[
-            machNIn d.shape + d.shape.insts.length + d.shape.layout.slots.length + j]?) =
-            some argWs →
-          outs.mapM (fun (k, _) => ((machPorts declName ids cache d.shape.binders).map (·.name))[
-            machNIn d.shape + k]?) = some outWs →
-          moduleByName dsn.modules mc.name = some mc →
-          Stmt.inst mc.name iname (connsG mc argWs outs outWs) ∈ m.body →
-          outs ≠ [] → (outs.map (·.2)).Nodup →
-          (outs.map (·.2)).all (fun f => mc.outputs.any (·.name == f)) = true →
-          (∀ e ∈ outs, (d.shape.insts.map (·.2.1))[e.1]? = some args ∧
-            d.shape.instFields.getD e.1 "" = e.2 ∧
-            ∀ c md, (d.shape.insts.map (·.1))[e.1]? = some c →
-              Sparkle.Compiler.MachMemory.memChild? c = some md → mc = md.1) →
-          ∀ Pw : Nat → Env,
-            (∀ t, Pw t "rst" = 0) → (∀ t, Pw t "clk" = 0) →
-            (∀ t, t < T → ∀ (q : Nat) (hq : q < args.length) (w : String) (g : Nat → Nat),
-              argWs[q]? = some w → (lsrc i bools bits)[args[q]]? = some g → args[q] < d.ls.length →
-              Pw t w = g (T - 1 - t)) →
-            (∀ t, t < T → ∀ (idx : Nat) (e : Nat × String) (w : String), outs[idx]? = some e →
-              outWs[idx]? = some w →
-              Pw t w = posEnc (fun p => (extB i bools bits p).val (T - 1 - t))
-                (fun p n => (ext i bools bits p n).val (T - 1 - t)) (kD + e.1)
-                (((d.bsIn.drop kD)[e.1]?.map (·.2)).getD .domain)) →
-            ∃ cenvs, runModule (Sparkle.IR.RegDedup.declWidth mc) mc.body
-                (fun t cst => connEnvS (inConns mc.outputs (connsG mc argWs outs outWs)) (Pw t) cst)
-                T (kids iname).st (kids iname).mems = some cenvs ∧
-              ∀ j, j < T → ∀ p ∈ mc.outputs, ∀ w,
-                (connsG mc argWs outs outWs).lookup p.name = some (.ref w) →
-                (cenvs[j]?).map (· p.name) = some (Pw (T - 1 - j) w)) →
-        ∃ envs, runModuleT (weOf m) (childMap dsn.modules) m.body seed T st0 mems kids = some envs ∧
-          envs.length = T ∧
-          ∀ j (hj : j < envs.length) (k : Nat) (o : OutField) (f : Nat → Nat),
-            d.shape.layout.outs[k]? = some o → (src i bools bits)[k]? = some f →
-            (envs[j]'hj) o.name = f j := by
-  obtain ⟨ids, nd, len, cache, regs, rnd, rlen, lets, llen, wired, trace⟩ := h
-  refine ⟨ids, nd, len, cache, regs, rnd, rlen, ?_⟩
+    ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+      (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
+      (T : Nat) (seed : Nat → (String → Nat) → Env) (st0 : String → Nat) (mems : MEnv)
+      (kids : String → KidState),
+      (∀ t st, t < T → SourceInputs declName (d.bsIn.take kD) ids cache
+        (fun j => (extB i bools bits j).val (T - 1 - t))
+        (fun j n => (ext i bools bits j n).val (T - 1 - t)) (seed t st)) →
+      (∀ t st r, r ∈ regs → seed t st r = st r) →
+      (∀ t st, seed t st "rst" = 0) → (∀ t st, seed t st "clk" = 0) →
+      (∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r →
+        d.shape.layout.slots[k]? = some f → st0 r = f.init) →
+      -- every instance's child, on the source's argument and call values
+      (∀ (args : List Nat) (outs : List (Nat × String)) (mc : Module) (iname : String)
+          (argWs outWs : List String),
+        args.mapM (fun j => ((machPorts declName ids cache d.shape.binders).map (·.name))[
+          machNIn d.shape + d.shape.insts.length + d.shape.layout.slots.length + j]?) =
+          some argWs →
+        outs.mapM (fun (k, _) => ((machPorts declName ids cache d.shape.binders).map (·.name))[
+          machNIn d.shape + k]?) = some outWs →
+        moduleByName dsn.modules mc.name = some mc →
+        Stmt.inst mc.name iname (connsG mc argWs outs outWs) ∈ m.body →
+        outs ≠ [] → (outs.map (·.2)).Nodup →
+        (outs.map (·.2)).all (fun f => mc.outputs.any (·.name == f)) = true →
+        (∀ e ∈ outs, (d.shape.insts.map (·.2.1))[e.1]? = some args ∧
+          d.shape.instFields.getD e.1 "" = e.2 ∧
+          ∀ c md, (d.shape.insts.map (·.1))[e.1]? = some c →
+            Sparkle.Compiler.MachMemory.memChild? c = some md → mc = md.1) →
+        ∀ Pw : Nat → Env,
+          (∀ t, Pw t "rst" = 0) → (∀ t, Pw t "clk" = 0) →
+          (∀ t, t < T → ∀ (q : Nat) (hq : q < args.length) (w : String) (g : Nat → Nat),
+            argWs[q]? = some w → (lsrc i bools bits)[args[q]]? = some g → args[q] < d.ls.length →
+            Pw t w = g (T - 1 - t)) →
+          (∀ t, t < T → ∀ (idx : Nat) (e : Nat × String) (w : String), outs[idx]? = some e →
+            outWs[idx]? = some w →
+            Pw t w = posEnc (fun p => (extB i bools bits p).val (T - 1 - t))
+              (fun p n => (ext i bools bits p n).val (T - 1 - t)) (kD + e.1)
+              (((d.bsIn.drop kD)[e.1]?.map (·.2)).getD .domain)) →
+          ∃ cenvs, runModule (Sparkle.IR.RegDedup.declWidth mc) mc.body
+              (fun t cst => connEnvS (inConns mc.outputs (connsG mc argWs outs outWs)) (Pw t) cst)
+              T (kids iname).st (kids iname).mems = some cenvs ∧
+            ∀ j, j < T → ∀ p ∈ mc.outputs, ∀ w,
+              (connsG mc argWs outs outWs).lookup p.name = some (.ref w) →
+              (cenvs[j]?).map (· p.name) = some (Pw (T - 1 - j) w)) →
+      ∃ envs, runModuleT (weOf m) (childMap dsn.modules) m.body seed T st0 mems kids = some envs ∧
+        envs.length = T ∧
+        ∀ j (hj : j < envs.length) (k : Nat) (o : OutField) (f : Nat → Nat),
+          d.shape.layout.outs[k]? = some o → (src i bools bits)[k]? = some f →
+          (envs[j]'hj) o.name = f j := by
   intro i bools bits T seed st0 mems kids hin hpass hrst hclk0 hinit hchild
   have hconds := Tools.ShippingMachineComposedT.wired_runT_conds wired hfe
   obtain ⟨hwf, hnd, hnofb⟩ := hconds
@@ -466,5 +483,83 @@ theorem machine_linkedT {declName : Name} {d : MachineData} {m : Module} {dsn : 
           (instOuts_not_written m.body w hwf hwout)
         rw [hframe, ← hpw, hon _ stj e.1 p hp, show T - 1 - (T - 1 - t) = t by omega])
     exact ⟨cenvs, hcm, hcrun, hcobs⟩
+
+/-- **A machine with structure / sequential / memory calls, composed with its
+children** (`machine_linkedT_of` for the endpoint's ids). -/
+theorem machine_linkedT {declName : Name} {d : MachineData} {m : Module} {dsn : Design}
+    {ι : Type} {dom : ι → DomainConfig}
+    {src : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat)}
+    {ext : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) →
+      (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)}
+    {extB : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → Nat → Signal (dom i) Bool}
+    {lsrc : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat)}
+    (h : MachineTraceLB declName d m dsn dom src ext extB lsrc)
+    (hfe : d.shape.instFields ≠ [])
+    (kD : Nat) (hkD : kD ≤ d.bsIn.length)
+    (hI : ∀ b ∈ d.bsIn.drop kD, b.2 ≠ .domain)
+    (hIlen : (d.bsIn.drop kD).length = d.shape.insts.length)
+    (hSL : ∀ b ∈ d.slotBs ++ d.letBs, b.2 ≠ .domain)
+    (hSlen : d.slotBs.length = d.shape.layout.slots.length)
+    (hLlen : d.letBs.length = d.shape.layout.lets)
+    (hNIn : machNIn d.shape = ((d.bsIn.take kD).filter (fun b => b.2 != .domain)).length) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = d.shape.binders.length ∧
+    ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
+      regs.Nodup ∧ regs.length = d.ss.length ∧
+      ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+        (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
+        (T : Nat) (seed : Nat → (String → Nat) → Env) (st0 : String → Nat) (mems : MEnv)
+        (kids : String → KidState),
+        (∀ t st, t < T → SourceInputs declName (d.bsIn.take kD) ids cache
+          (fun j => (extB i bools bits j).val (T - 1 - t))
+          (fun j n => (ext i bools bits j n).val (T - 1 - t)) (seed t st)) →
+        (∀ t st r, r ∈ regs → seed t st r = st r) →
+        (∀ t st, seed t st "rst" = 0) → (∀ t st, seed t st "clk" = 0) →
+        (∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r →
+          d.shape.layout.slots[k]? = some f → st0 r = f.init) →
+        -- every instance's child, on the source's argument and call values
+        (∀ (args : List Nat) (outs : List (Nat × String)) (mc : Module) (iname : String)
+            (argWs outWs : List String),
+          args.mapM (fun j => ((machPorts declName ids cache d.shape.binders).map (·.name))[
+            machNIn d.shape + d.shape.insts.length + d.shape.layout.slots.length + j]?) =
+            some argWs →
+          outs.mapM (fun (k, _) => ((machPorts declName ids cache d.shape.binders).map (·.name))[
+            machNIn d.shape + k]?) = some outWs →
+          moduleByName dsn.modules mc.name = some mc →
+          Stmt.inst mc.name iname (connsG mc argWs outs outWs) ∈ m.body →
+          outs ≠ [] → (outs.map (·.2)).Nodup →
+          (outs.map (·.2)).all (fun f => mc.outputs.any (·.name == f)) = true →
+          (∀ e ∈ outs, (d.shape.insts.map (·.2.1))[e.1]? = some args ∧
+            d.shape.instFields.getD e.1 "" = e.2 ∧
+            ∀ c md, (d.shape.insts.map (·.1))[e.1]? = some c →
+              Sparkle.Compiler.MachMemory.memChild? c = some md → mc = md.1) →
+          ∀ Pw : Nat → Env,
+            (∀ t, Pw t "rst" = 0) → (∀ t, Pw t "clk" = 0) →
+            (∀ t, t < T → ∀ (q : Nat) (hq : q < args.length) (w : String) (g : Nat → Nat),
+              argWs[q]? = some w → (lsrc i bools bits)[args[q]]? = some g → args[q] < d.ls.length →
+              Pw t w = g (T - 1 - t)) →
+            (∀ t, t < T → ∀ (idx : Nat) (e : Nat × String) (w : String), outs[idx]? = some e →
+              outWs[idx]? = some w →
+              Pw t w = posEnc (fun p => (extB i bools bits p).val (T - 1 - t))
+                (fun p n => (ext i bools bits p n).val (T - 1 - t)) (kD + e.1)
+                (((d.bsIn.drop kD)[e.1]?.map (·.2)).getD .domain)) →
+            ∃ cenvs, runModule (Sparkle.IR.RegDedup.declWidth mc) mc.body
+                (fun t cst => connEnvS (inConns mc.outputs (connsG mc argWs outs outWs)) (Pw t) cst)
+                T (kids iname).st (kids iname).mems = some cenvs ∧
+              ∀ j, j < T → ∀ p ∈ mc.outputs, ∀ w,
+                (connsG mc argWs outs outWs).lookup p.name = some (.ref w) →
+                (cenvs[j]?).map (· p.name) = some (Pw (T - 1 - j) w)) →
+        ∃ envs, runModuleT (weOf m) (childMap dsn.modules) m.body seed T st0 mems kids = some envs ∧
+          envs.length = T ∧
+          ∀ j (hj : j < envs.length) (k : Nat) (o : OutField) (f : Nat → Nat),
+            d.shape.layout.outs[k]? = some o → (src i bools bits)[k]? = some f →
+            (envs[j]'hj) o.name = f j := by
+  obtain ⟨ids, nd, len, cache, regs, rnd, rlen, lets, llen, wired, trace⟩ := h
+  exact ⟨ids, nd, len, cache, regs, rnd, rlen,
+    machine_linkedT_of nd len rnd rlen llen wired trace hfe kD hkD hI hIlen hSL hSlen hLlen hNIn⟩
+
 
 end Tools.ShippingMachineLinkedT

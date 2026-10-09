@@ -791,6 +791,53 @@ def MachinePreserves (declName : Name) (shape : MachineShape)
         ∀ (j : Nat) (name : String) (b : Name × MixedGateBinder), lets[j]? = some name →
           letBs[j]? = some b → envF name = posEnc bools bits (bsIn.length + slotBs.length + j) b.2
 
+/-- `MachinePreserves` with a fact `X` of the run's binder ids and wire
+cache, stated beside the wiring (the same ids and cache). -/
+def MachinePreservesX (X : List FVarId → IO.Ref (ExprStructMap String) → Prop)
+    (declName : Name) (shape : MachineShape)
+    (bsIn slotBs letBs : List (Name × MixedGateBinder)) (m : Sparkle.IR.AST.Module)
+    (dsn : Design) : Prop :=
+  ∃ ids : List FVarId, ids.Nodup ∧ ids.length = shape.binders.length ∧
+  ∃ cache : IO.Ref (ExprStructMap String),
+    ∀ (dom : Lean.Expr) (kb kv : Nat) (vw : Nat → Nat) (bpos vpos : Nat → Nat)
+      (fs : List (Σ w : Nat, Term (.bits w))) {c : Nat} (core : Term (.bits c)),
+    (packLets fs core).2.WF kb kv vw →
+    (∀ j, j < kb → ∃ name, shape.binders[bpos j]? = some (name, .bool)) →
+    (∀ j, j < kv → ∃ name, shape.binders[vpos j]? = some (name, .bits (vw j))) →
+    shape.body = quote dom (fun j => inputExpr shape.binders.length (bpos j))
+      (fun j => inputExpr shape.binders.length (vpos j)) (packLets fs core).2 →
+    (∀ f ∈ shape.layout.slots, f.lo + f.width ≤ c) →
+    (∀ o ∈ shape.layout.outs, o.lo + o.width ≤ c) →
+    ∃ regs : List String, regs.Nodup ∧ regs.length = slotBs.length ∧
+    ∃ lets : List String, lets.length = letBs.length ∧
+    MachineWired declName shape ids cache m dsn regs lets ∧ X ids cache ∧
+    ∀ (bools : Nat → Bool) (bits : (j : Nat) → (n : Nat) → BitVec n) (env0 : Env) (mems : MEnv),
+      SourceInputs declName bsIn ids cache bools bits env0 →
+      (∀ i r b, regs[i]? = some r → slotBs[i]? = some b →
+        env0 r = posEnc bools bits (bsIn.length + i) b.2) →
+      env0 "rst" = 0 →
+      LetsHold bpos vpos bools bits (bsIn.length + slotBs.length) letBs fs →
+      ∃ envF, stepModule (weOf m) m.body env0 mems =
+          some (envF, fieldNexts (packedAt core bpos vpos bools bits) regs shape.layout.slots,
+            mems) ∧
+        (∀ o ∈ shape.layout.outs, envF o.name =
+          mask o.width (packedAt core bpos vpos bools bits >>> o.lo)) ∧
+        -- the `let` wires carry the `let` binders' values
+        ∀ (j : Nat) (name : String) (b : Name × MixedGateBinder), lets[j]? = some name →
+          letBs[j]? = some b → envF name = posEnc bools bits (bsIn.length + slotBs.length + j) b.2
+
+theorem MachinePreservesX.toPreserves {X : List FVarId → IO.Ref (ExprStructMap String) → Prop}
+    {declName : Name} {shape : MachineShape} {bsIn slotBs letBs : List (Name × MixedGateBinder)}
+    {m : Sparkle.IR.AST.Module} {dsn : Design}
+    (h : MachinePreservesX X declName shape bsIn slotBs letBs m dsn) :
+    MachinePreserves declName shape bsIn slotBs letBs m dsn := by
+  obtain ⟨ids, nd, len, cache, h⟩ := h
+  refine ⟨ids, nd, len, cache, ?_⟩
+  intro dom kb kv vw bpos vpos fs c core he hb hv hbody hfit houtfit
+  obtain ⟨regs, rnd, rlen, lets, llen, wired, _, step⟩ :=
+    h dom kb kv vw bpos vpos fs core he hb hv hbody hfit houtfit
+  exact ⟨regs, rnd, rlen, lets, llen, wired, step⟩
+
 /-- The run of `closeInstsM` is a `closeInsts` of the closed module, for SOME
 children (whatever the child entry returned). -/
 theorem closeInstsM_returns {shape t m₀ d₀ m d}
@@ -971,12 +1018,24 @@ theorem kindTy_bitWidth (k : MixedGateBinder) (h : k ≠ .domain) :
 
 set_option maxHeartbeats 4000000 in
 open Tools.ShippingSettledSoundness in
-/-- **The machine route preserves one cycle.** -/
-theorem synthesizeMachineCertified_sound {logProf declName shape m d}
+/-- **The machine route preserves one cycle**, from the run's transition and
+closing, with any fact `X` of the binder ids and wire cache that follows from
+their ports being the transition's inputs. -/
+theorem synthesizeMachineCertified_soundX {logProf declName shape m d}
     {bsIn slotBs letBs : List (Name × MixedGateBinder)}
-    (hr : MReturns (synthesizeMachineCertified
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName shape)
-      (some (m, d)))
+    {t t' : Sparkle.IR.AST.Module} {d₀ : Design}
+    (X : List FVarId → IO.Ref (ExprStructMap String) → Prop)
+    (hrun : MReturns (synthesizeMixedCertified
+        (fun e hint top named => translateExprToWire e hint top named) logProf declName
+        shape.binders shape.body) (t, d₀))
+    (hcl : closeLets shape.layout.lets t = some t')
+    (hmt0 : (shape.insts = [] ∧ m = closeMachine shape.layout t' ∧ d = d₀) ∨
+       (shape.insts ≠ [] ∧ ∃ children,
+          CloseCalls shape t (closeMachine shape.layout t') d₀ children m d))
+    (hX : ∀ ids cache regs lets, MachineWired declName shape ids cache m d regs lets →
+      machPorts declName ids cache shape.binders = t.inputs →
+      (∀ st ∈ (closeMachine shape.layout t').body, Sparkle.IR.Machine.isInst st = true → False) →
+      X ids cache)
     (hbs : shape.binders = bsIn ++ slotBs ++ letBs)
     (hlets : shape.layout.lets = letBs.length)
     (positive : PositiveBinders shape.binders)
@@ -986,8 +1045,8 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
       shape.layout.slots slotBs)
     (outsOk : ∀ o ∈ shape.layout.outs, 0 < o.width ∧ outNameOk o.name = true)
     (outsNodup : (shape.layout.outs.map (·.name)).Nodup) :
-    MachinePreserves declName shape bsIn slotBs letBs m d := by
-  obtain ⟨t, t', d₀, hrun, hcl, hmt⟩ := synthesizeMachineCertified_returns hr
+    MachinePreservesX X declName shape bsIn slotBs letBs m d := by
+  have hmt := hmt0
   -- the module is the closed transition, or `closeInsts` of it
   have hmt : (shape.insts = [] ∧ m = closeMachine shape.layout t') ∨
       (shape.insts ≠ [] ∧ ∃ children : List (Sparkle.IR.AST.Module × Design),
@@ -1962,7 +2021,7 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
         · obtain ⟨_, _, _, L, _, hperm, _⟩ := Tools.ShippingMachineInst.closeInstsG_some hci
           exact hperm.mem_iff.mp (List.mem_append_left _ hmem0)
   refine ⟨ps.map Port.name, psNodup, by rw [List.length_map, psLen], ls.map Port.name,
-    by rw [List.length_map, lsLen], wired, ?_⟩
+    by rw [List.length_map, lsLen], wired, hX ids cache _ _ wired hmp notInst0, ?_⟩
   intro bools bits env0 mems inputs slotVals hrst hold
   obtain ⟨R', hev, hcore, hletv⟩ := cycle bools bits env0 mems inputs
     (fun i p b hp hb => slotVals i p.name b (by simp [hp]) hb) hold
@@ -2011,6 +2070,27 @@ theorem synthesizeMachineCertified_sound {logProf declName shape m d}
     rw [hw, hci.step]
     refine ⟨envF, hstep, fun o ho => ?_, hlets⟩
     rw [hout o ho, field_mask (R' "out") (houtfit o ho), hcore]
+
+set_option maxHeartbeats 4000000 in
+/-- **The machine route preserves one cycle.** -/
+theorem synthesizeMachineCertified_sound {logProf declName shape m d}
+    {bsIn slotBs letBs : List (Name × MixedGateBinder)}
+    (hr : MReturns (synthesizeMachineCertified
+      (fun e hint top named => translateExprToWire e hint top named) logProf declName shape)
+      (some (m, d)))
+    (hbs : shape.binders = bsIn ++ slotBs ++ letBs)
+    (hlets : shape.layout.lets = letBs.length)
+    (positive : PositiveBinders shape.binders)
+    (slotKinds : ∀ b ∈ slotBs, b.2 ≠ .domain)
+    (letKinds : ∀ b ∈ letBs, b.2 ≠ .domain)
+    (layW : Zip₂ (fun (f : SlotField) (b : Name × MixedGateBinder) => f.width = machWidth b.2)
+      shape.layout.slots slotBs)
+    (outsOk : ∀ o ∈ shape.layout.outs, 0 < o.width ∧ outNameOk o.name = true)
+    (outsNodup : (shape.layout.outs.map (·.name)).Nodup) :
+    MachinePreserves declName shape bsIn slotBs letBs m d := by
+  obtain ⟨t, t', d₀, hrun, hcl, hmt⟩ := synthesizeMachineCertified_returns hr
+  exact (synthesizeMachineCertified_soundX (fun _ _ => True) hrun hcl hmt (fun _ _ _ _ _ _ _ => trivial)
+    hbs hlets positive slotKinds letKinds layW outsOk outsNodup).toPreserves
 
 /-! ## The trace -/
 

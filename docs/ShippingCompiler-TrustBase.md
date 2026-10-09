@@ -120,10 +120,35 @@ child (`closeInstsG_names`), so the instance whose output wires are call
 `k`'s ports (`portNames[nIn + k]`) is `children[k].1`; but the port names
 come from the run's fresh variables and wire cache, not from `(m, dsn)`. The
 exact boundary must therefore be stated inside the run's existential (with
-`MachineWired`'s names) and derived there from `ChildSynthIs` — a change of
-`SeqFacts` / `calls_hchild` (pass the out-wire binding they already hold)
-and of the endpoint's `MachinePreserves` package (carry the run's
-children). In progress; until then these premises remain, traced.
+`MachineWired`'s names) and derived there from `ChildSynthIs`.
+
+**Instance level DERIVED for the composed theorem (2026-10-09).**
+`closeInstsG_serves` (`Tools/ShippingChildServe.lean`): on the general
+closing, an instance statement one of whose output connections is call
+`k`'s port has as its module (resolved by name) `children[k].1` — from the
+closing's own checks (distinct port names, every child resolving to
+itself). `synthesizeMachineCertified_soundX` (the one-cycle proof,
+generalized with a fact `X` of the run's binder ids and wire cache, proved
+beside `MachineWired` from `machPorts … = t.inputs`; the old theorem is its
+`X = True` instance) and `Tools/ShippingMachineTraceX.lean` carry `X` through
+the endpoint's layers with the SAME ids (`machine_traceX`,
+`machine_ref_traceX`, `machine_endpointX`, `MachineTraceLBX`), instantiated by
+`ServedReal` — the instance serving call `k` is the built memory module or
+a real-entry result on `k`'s declaration — under `ChildSynthIs`
+(`synthesizeCombinationalCore_machine_soundR`,
+`machine_trace_lets_of_streamBR`). `machine_linkedT_callsR`
+(`Tools/ShippingMachineCallsLinkedTR.lean`) composes a parent with memory
+and sequential children from it: its per-call premise is the CHILD's own
+theorem for runs of its entry (`SeqFactsR`) and the children's reflection
+facts in the parent's contexts; no premise about the parent's instances
+(`InstOfCall` / `BoundaryOf` do not occur). `machine_linkedT` was split into
+`machine_linkedT_of` (explicit ids) so the binding is not lost to a second
+existential. Still to connect: the shipping chain (`machine_ships_hier`'s
+`Bnd` must take the run's contexts, then `ships_design_svN`/`_all` and the
+generators), the depth-`n` variant (`MachineRunN`; its `ExtendsAway` /
+`NoInstOf` remain evaluated checks on the child's run), and the
+one-output closing `closeInsts`, which does not check that a child resolves
+to itself (its instance level is not derived).
 
 ## 3. Premises about a linked child
 
