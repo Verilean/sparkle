@@ -724,6 +724,17 @@ and `ShippingChildCacheRun` removed).
     `MachineDefines` / `EntryDefines` are stated in the child's contexts
     (bound, under the `ChildRanIn` guard); they could be lifted to the
     parent's by the same transfer and are not yet.
+  - `MachineCloses` discharged where it is a theorem: for a leaf child whose
+    shape has no `let` and no call (`closesFree`, decided by the kernel on
+    the generated shape) the generators use `machineCloses_of_noLets` and ask
+    only its `MachineDefines`. Effect on the 20 endpoints: `mixD1` (NR1, NR2)
+    and `mixDeep` each lose one child's `MachineCloses`; the others' machine
+    children have `let`s or calls, or come through the sequential head's
+    generic `hrefl`, and keep it. For a shape with `let`s or calls, closing
+    depends on the transition module the run produced and on the children's
+    modules (`closeLets`, `closeInsts`' checks); it is not derived, and a run
+    of the same declaration in two contexts agreeing
+    (`ShippingReflectCtxTest`) is evidence about those two runs only.
   - `scripts/shipping-coverage/endpoint_premises.lean` (run in the cgroup)
     prints, per endpoint with the boundary definitions unfolded: the
     reflection facts by own / bound contexts, the context quantifiers and the

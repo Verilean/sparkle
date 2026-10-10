@@ -86,4 +86,19 @@ theorem EntryDefines.ctx {c : Name} {v : Lean.Expr}
     (h : EntryDefines mctx mref cctx cref c v) : EntryDefines mctx' mref cctx' cref c v :=
   fun _ _ _ _ _ _ g e1 => h _ _ _ _ _ _ (getConstInfo_ctx c g) (getEnv_ctx e1)
 
+/-- A child whose shape has no `let` and no call: its machine synthesis closes
+in every context (`machineCloses_of_noLets`), so nothing is asked. Decided by
+the kernel on the child's generated shape; `false` when that does not hold. -/
+def closesFree (shapeE : Lean.Expr) : MetaM Bool := do
+  try
+    let lets ← mkAppM ``Sparkle.IR.Machine.Layout.lets #[← mkAppM ``Sparkle.Compiler.Elab.MachineShape.layout #[shapeE]]
+    let insts ← mkAppM ``Sparkle.Compiler.Elab.MachineShape.insts #[shapeE]
+    let p1 ← mkEq lets (mkNatLit 0)
+    let p2 ← mkEq insts (← mkAppOptM ``List.nil #[some (← whnfR (← inferType insts)).appArg!])
+    let d1 ← mkDecideProof p1
+    let d2 ← mkDecideProof p2
+    Meta.check d1; Meta.check d2
+    return true
+  catch _ => return false
+
 end Tools.ShippingReflectCtx

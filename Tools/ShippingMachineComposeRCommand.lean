@@ -212,6 +212,7 @@ def generateComposedRCore (declName : Name) : MetaM Name := do
         mkForallFVars #[mc', cc'] (← k #[mc', ctx[1]!, cc', ctx[3]!])
   let mut rTypes : List Lean.Expr := []
   let mut gateOf : Std.HashMap Name Bool := {}
+  let mut freeOf : Std.HashMap Name Bool := {}
   for c in kids do
     if (← getEnv).contains (c ++ `machine_sound) then
       discard <| Tools.ShippingGateChildCommand.generateMachineChildLinked c
@@ -220,6 +221,13 @@ def generateComposedRCore (declName : Name) : MetaM Name := do
       -- what the declaration is: asked ONCE, in the run's own contexts (it does
       -- not depend on them, `MachineDefines.ctx`); that its machine synthesis
       -- closes: in the contexts the child is synthesised in (`ChildRanIn`)
+      -- (a child without `let`s and calls closes in every context: proved,
+      -- `machineCloses_of_noLets` — only its `MachineDefines` is asked)
+      let free ← Tools.ShippingReflectCtx.closesFree shapeE
+      freeOf := freeOf.insert c free
+      if free then
+        rTypes := rTypes ++ [mkAppN (mkConst ``Tools.ShippingMachineEntry.MachineDefines) (ctx ++ #[toExpr c, shapeE])]
+      else
       rTypes := rTypes ++ [← mkAppM ``And #[mkAppN (mkConst ``Tools.ShippingMachineEntry.MachineDefines) (ctx ++ #[toExpr c, shapeE]),
         ← anyCtx fun ctx' => mkArrow (mkAppN (mkConst ``Tools.ShippingChildInv.ChildRanIn) #[ctx[1]!, ctx[3]!, toExpr c, ctx'[0]!, ctx'[2]!])
           (mkAppN (mkConst ``Tools.ShippingMachineEntry.MachineCloses) (ctx' ++ #[toExpr c, shapeE]))]]
@@ -245,6 +253,8 @@ def generateComposedRCore (declName : Name) : MetaM Name := do
     let lem := mkIdent (`_root_ ++ c ++ (if gateOf.getD c true then `gate_linked else `child_linked))
     let tac ← if gateOf.getD c true then
         `(tactic| (exact ⟨rfl, fun mctx' cctx' mc Dc w w' _ hrun => $lem mc ⟨_, _, _, _, w, w', Dc, hrun, Tools.ShippingReflectCtx.EntryDefines.ctx $hRS⟩⟩))
+      else if freeOf.getD c false then
+        `(tactic| (exact ⟨rfl, fun mctx' cctx' mc Dc w w' hw hrun => $lem mc ⟨_, _, _, _, w, w', Dc, hrun, Tools.ShippingReflectCtx.MachineDefines.ctx $hRS, Tools.ShippingMachineEntry.machineCloses_of_noLets (by decide) (by decide)⟩⟩))
       else
         `(tactic| (exact ⟨rfl, fun mctx' cctx' mc Dc w w' hw hrun => $lem mc ⟨_, _, _, _, w, w', Dc, hrun, Tools.ShippingReflectCtx.MachineDefines.ctx ($hRS).1, ($hRS).2 mctx' cctx' (Tools.ShippingChildInv.ChildRanIn.of_run hw hrun)⟩⟩))
     perR := perR.push (← proveByTactic goalK tac)

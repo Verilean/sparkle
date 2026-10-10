@@ -187,6 +187,7 @@ partial def generateCoreNR (declName : Name) (dep : Nat) : MetaM Name := do
   let desT := mkConst ``Sparkle.IR.AST.Design
   let mut pcCases : List (Name × Lean.Expr) := []
   let mut pTypes : List Lean.Expr := []
+  let mut freeOf : Std.HashMap Name Bool := {}
   for c in seqKids do
     let cshape ← mkAppM ``Tools.ShippingMachineAuto.MachineData.shape #[mkConst (c ++ `machineData)]
     let pcF ← withLocalDeclD `mc modT fun mc => do
@@ -220,7 +221,11 @@ partial def generateCoreNR (declName : Name) (dep : Nat) : MetaM Name := do
           mkAppM ``And #[closes, bndHere]
       let ran := mkAppN (mkConst ``Tools.ShippingChildInv.ChildRanIn) #[ctx[1]!, ctx[3]!, toExpr c, mc', cc']
       mkForallFVars #[mc', cc'] (← mkArrow ran body)
-    pTypes := pTypes ++ [← mkAppM ``And #[defs0, pT]]
+    -- (a leaf child without `let`s closes in every context: proved,
+    -- `machineCloses_of_noLets` — only its `MachineDefines` is asked)
+    let free ← if leaf.getD c true then Tools.ShippingReflectCtx.closesFree cshape else pure false
+    freeOf := freeOf.insert c free
+    pTypes := pTypes ++ [← if free then pure defs0 else mkAppM ``And #[defs0, pT]]
   let some (_, pc0) := pcCases.head? | throwError "{declName}: no sequential child"
   let PC ← nameCases (← mkArrow modT (mkSort .zero)) pcCases pc0
   let pDecls := (seqKids.zip pTypes).toArray.mapIdx fun j (_, ty) =>
@@ -397,7 +402,9 @@ partial def generateCoreNR (declName : Name) (dep : Nat) : MetaM Name := do
         let j := seqKids.idxOf c
         let hPS : Term := ⟨mkIdent (Name.mkSimple s!"hP{j}")⟩
         let _ := hP
-        if leaf.getD c true then
+        if freeOf.getD c false then
+          proveByTacticT goalK `(tactic| (intro _ mctx' cctx' mc Dc w w' hw hrun _ _; exact ⟨_, _, _, _, w, w', Dc, hrun, Tools.ShippingReflectCtx.MachineDefines.ctx $hPS, Tools.ShippingMachineEntry.machineCloses_of_noLets (by decide) (by decide)⟩))
+        else if leaf.getD c true then
           proveByTacticT goalK `(tactic| (intro _ mctx' cctx' mc Dc w w' hw hrun _ _; exact ⟨_, _, _, _, w, w', Dc, hrun, Tools.ShippingReflectCtx.MachineDefines.ctx ($hPS).1, ($hPS).2 mctx' cctx' (Tools.ShippingChildInv.ChildRanIn.of_run hw hrun)⟩))
         else
           proveByTacticT goalK `(tactic| (intro _ mctx' cctx' mc Dc w w' hw hrun hcons _; exact Tools.ShippingMachineDepthRun.machineRunNC_of_real (Tools.ShippingChildInv.RealChild.of_inv hw hrun) hcons ($hPS).1 ($hPS).2 (Tools.ShippingChildInv.ChildBnd.laws (by assumption)) (by decide)))
