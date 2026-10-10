@@ -663,13 +663,65 @@ and `ShippingChildCacheRun` removed).
   - Scope: `BodyRel` is the body at `parameters = []`, `symbolicMode =
     false`, `certifiedFrontEnd = true` — the arguments of the child entry.
     Symbolic-width synthesis stays outside (§7).
-  - NOT changed by this: the reflection premises (`MachineDefines`,
-    `MachineCloses`, `EntryDefines`) are still asked in every Meta/Core
-    context (open: transfer restricted to reachable contexts, or evidence
-    carried by the run witness); the depth limit 1024 and
+  - NOT changed by this: the reflection premises (next item); the depth limit 1024 and
     `helperFuelLimit = 2^20` are still fixed constants (open: proofs for an
     arbitrary limit, and "enough fuel reproduces a finite successful run");
     `kidsCombB` narrowing is open.
+- **The reflection premises and the contexts (2026-10-11,
+  `Tools/ShippingReflectCtx.lean`).** Since `41fc8789` the child-side
+  premises are asked in every Meta/Core context. What that asks, by premise:
+  - `MachineDefines`, `EntryDefines`: nothing more than in one context.
+    PROVED: a successful run of `getEnv` or `getConstInfo` is the same run in
+    any contexts over the same state refs (`getEnv_ctx`, `getConstInfo_ctx`;
+    the failing branch `throwUnknownConstant` reads the Core context's `ref`
+    but does not return, `throwUnknownConstant_not_runs`), hence
+    `MachineDefines.ctx` / `EntryDefines.ctx`: the premise in one pair of
+    contexts gives it in every pair. `hctx_of_one` restates the child premise
+    of `machineRunNC_of_real` with `MachineDefines` asked once. What changes
+    under `withLocalDecl` / a telescope / `withTransparency` is the Meta
+    context (local context, local instances, config); the environment is in
+    the Core STATE, which these do not touch.
+  - `MachineCloses` and a child's own boundary: NOT transferred, and still
+    asked in every context. They are about runs of the machine synthesis,
+    which does depend on the contexts (it elaborates under the local context
+    and reduces at the context's transparency). The statement is about the
+    runs that exist, so it constrains only contexts in which the synthesis
+    runs; it is still stronger than "the contexts actually reached", which is
+    not expressed (open: a reachability relation on contexts carried by
+    `RealChild`, which would have to be threaded through every continuation
+    law). For a shape without `let`s and calls it holds in every context
+    (`machineCloses_of_noLets`).
+  - Regression on real declarations (`ShippingReflectCtxTest`): the run
+    `MachineCloses` speaks of is made in the command's contexts and under an
+    added local declaration with transparency `all`; it must close to the
+    same module in both — `ctr1` (no lets), `caller` / `callerTwice` /
+    `callerNested` (2 lets, 1 call each) do; `mid1` is refused in both. This
+    is an instance check in two reachable contexts, not a proof.
+  - The generated endpoints' statements are unchanged (they still take the
+    all-context form); the transfer lemma is what a caller holding the
+    one-context facts uses.
+- **The two limits (state, 2026-10-11).** Both are behaviour changes of the
+  compiler, separate from the proofs:
+  - `sparkleSynthDepthLimit = 1024`: a nest of `@[hardware_module]` calls
+    deeper than this is now REJECTED (it used to be synthesised, or to
+    overflow the stack). `helperFuelLimit = 2^20` and `translateFuelLimit`:
+    an expression whose helper recursion is deeper is now rejected with an
+    out-of-fuel error. No measured design reaches either.
+  - The proofs do not use the values: `entry_keeps` is an induction on any
+    `k` with `limit ≤ D + k`, and `fuelFixM_keeps` / `fuelFix_keepsC` hold at
+    every fuel. But the STATEMENTS are about the entry with the constant
+    built in; an entry parameterised by the limit (a compiler change) is not
+    made.
+  - Not proved: that a run which succeeded without the limit succeeds with
+    it and returns the same. Plan: (1) step monotonicity — if `rec ⊑ rec'`
+    (every successful run of `rec` is a successful run of `rec'` with the
+    same result and end world) then `step rec ⊑ step rec'`, by the same
+    syntax walk as `vc` with a relational rule per construct; (2) hence
+    `fuelFix step k ⊑ fuelFix step (k+1)`; (3) a finite successful run of
+    the old `partial` definition is a run of `fuelFix step k` for the depth
+    `k` of its call tree — this last step needs an account of the `partial`
+    definition's runs (its unfolding equation as a law), which is outside
+    the kernel today.
   - **Heavy runs are confined** (`scripts/shipping-coverage/cgrun.sh`): one
     transient `systemd --user` service per run, `MemoryMax` / `MemoryHigh` /
     `MemorySwapMax=0`, group OOM kill, a timeout, limits read back from the
