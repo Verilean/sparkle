@@ -536,6 +536,20 @@ and `ShippingChildCacheRun` removed).
     `RefLaws` field: the combinator leaves the three values and runs its
     continuation, in whatever contexts, for every predicate of the three
     values).
+- **The legacy translator block is ordinary code (2026-10-10).** The 17
+  functions of `Rec.*` (2,300 lines) are no longer `partial` nor `mutual`:
+  they are plain definitions in dependency order (handlers, shift helper,
+  the application dispatch, the implementation, the caching shim). The only
+  recursion among them was through the translator argument, which each now
+  receives explicitly. Three local recursions were on a sub-expression
+  reached through `getAppArgs` and are now structural on the expression —
+  `apSpine` (applicative spine), `peelMemoizeApps` (nested `memoize`), and
+  the mini-translator `toIR` (an application with at least two arguments is
+  `.app (.app _ a) b`, its last two arguments `a`, `b`). Same computation;
+  `Tests.AllTests` 819 jobs unchanged. Nothing is proved about the block
+  yet: `LegacyRel` still stands, and the block still calls `partial`
+  helpers (`inferHWType`, `extractNat`, `extractDimExpr`,
+  `inferHWTypeWithDimensions`, `extractBitVecList`, `canonHardwareExpr`).
 - **Checked** (`ShippingChildBoundaryTest`):
   - 20 derived endpoints (R0, NR at depths 1–3, HR) state `ChildBnd` at
     their run's start world; every other `ChildBnd` occurrence is at a world
