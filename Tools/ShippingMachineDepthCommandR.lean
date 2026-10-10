@@ -4,7 +4,7 @@ import Tools.ShippingMachineSeqLinkedR
 import Tools.ShippingShipsDesignSVCommand
 import Tools.ShippingMachineComposeRCommand
 import Tools.ShippingMachineDepthHR
-import Tools.ShippingChildInv
+import Tools.ShippingChildRun
 
 /-! # Generated composition at depth `n`, the instance binding derived
 

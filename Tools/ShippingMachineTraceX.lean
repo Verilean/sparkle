@@ -1,5 +1,5 @@
 import Tools.ShippingMachineAuto
-import Tools.ShippingChildInv
+import Tools.ShippingChildRun
 import Tools.ShippingChildServe
 
 /-! # The machine endpoint with the run's children

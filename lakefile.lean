@@ -606,6 +606,12 @@ lean_lib «Tools.ShippingDesignSVMem» where
 lean_lib «Tools.ShippingChildInv» where
   roots := #[`Tools.ShippingChildInv]
 
+lean_lib «Tools.ShippingChildKeeps» where
+  roots := #[`Tools.ShippingChildKeeps]
+
+lean_lib «Tools.ShippingChildRun» where
+  roots := #[`Tools.ShippingChildRun]
+
 lean_lib «Tools.ShippingChildServe» where
   roots := #[`Tools.ShippingChildServe]
 

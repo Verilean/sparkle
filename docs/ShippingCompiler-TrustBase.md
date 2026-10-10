@@ -425,6 +425,46 @@ and `ShippingChildCacheRun` removed).
     digests are evidence on those 35 declarations, not an equivalence of the
     old and new legacy child paths: they differ when the old path's
     remaining translator fuel would run out inside the child.
+- **Every outcome, and the recursion closed (2026-10-10).** The two
+  conditions that were assumed outright (`EntryHoare`, `HarnessHoare`: a
+  RETURNING run keeps the invariant) are gone.
+  - `Tools/ShippingChildKeeps.lean` works with `Triple P m Q R` (a returning
+    run ends in `Q`, a THROWING run in `R`) and `Keeps I m` (the world a run
+    ends in, whatever its outcome, satisfies `I`). A failure's side effects
+    are part of every statement; `try … finally` is handled as it runs
+    (`Triple.tryFinally`: the `finally` starts from the world the body ended
+    in, returned or thrown).
+  - PROVED from the generic laws: the memoised entry keeps the invariant if
+    the real entry does (`child_keeps`; a throwing child run leaves an
+    invariant world); the entry's shell keeps it at depth `D` if
+    `synthesizeFromConst` does at `D + 1` (`core_keeps` / `full_keeps`:
+    prefix, guard, clear or nested resets, bump, body, `finally` restoring
+    the depth on both paths).
+  - Also proved: the machine route's own code keeps the invariant on every
+    outcome given its harness does (`machine_keeps`: the harness, the pure
+    `closeLets` / `closeMachine`, and the closings' children one by one —
+    `closeInstsM_keeps` / `closeInstsGM_keeps`).
+  - **The recursion** entry → translator → `synthesizeChild` → entry goes
+    through a ref, so the logic has no induction for it. The entry now
+    refuses to start at `sparkleSynthDepthLimit` (1024; a behaviour change
+    for hierarchies nested deeper than that), which makes the depth a
+    measure: `entry_keeps` is by induction on it. No use of the conclusion.
+  - **What is still assumed, compiler-specific** — two RELATIVE conditions:
+    `BodyRel` (`synthesizeFromConst`, with the entry's logger, keeps the
+    invariant at depth `D` on every outcome PROVIDED the memoised child
+    entry does there) and `HarnessRel` (the same for the machine route's
+    harness). They do not presuppose that the entry keeps the invariant.
+    Inside them and opaque: the translator's fuel fallback (the 2,300-line
+    `partial` block `Rec.*`), the certified arms' and the legacy tail's own
+    code (not yet walked), and Lean's own `MetaM` primitives they call.
+  - **Generic laws now**: the three values per world (cache, synthesis ref,
+    depth); a successful `get` / `set` / `modify` of each; and one frame law
+    over the operations listed in `Framed` (reads of the three refs, the 11
+    other per-synthesis refs, the profile read, the entry's logger,
+    `getConstInfo`, `getEnv`, building an error) — on every outcome. That a
+    ref operation cannot fail is no longer a law: it is proved from the
+    lift's definition (`refGet_runs`, `refSet_runs`, `refModify_runs`), as
+    is that `throwError` does not return.
 - **Checked** (`ShippingChildBoundaryTest`):
   - 20 derived endpoints (R0, NR at depths 1–3, HR) state `ChildBnd` at
     their run's start world; every other `ChildBnd` occurrence is at a world

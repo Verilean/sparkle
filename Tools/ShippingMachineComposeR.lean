@@ -1,7 +1,7 @@
 import Tools.ShippingMachineTraceX
 import Tools.ShippingMachineCompose
 import Tools.ShippingMachineShipsHierH
-import Tools.ShippingChildInv
+import Tools.ShippingChildRun
 
 /-! # Combinational children composed, the run boundary derived
 

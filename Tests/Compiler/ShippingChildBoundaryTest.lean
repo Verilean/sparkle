@@ -6,7 +6,7 @@ import Tests.Compiler.ShippingDesignSVTest
 import Tools.ShippingMachineSeqCommandR
 import Tools.ShippingMachineDepthCommandR
 import Tools.ShippingMachineComposeRCommand
-import Tools.ShippingChildInv
+import Tools.ShippingChildRun
 
 /-! The child-run boundary DERIVED on real compiles (`#machine_design_svR0`).
 
@@ -334,11 +334,14 @@ run_cmd Lean.Elab.Command.liftTermElabM do
 Every derived endpoint states `ChildBnd ctx w` for the world `w` its run of the
 entry STARTS in — not a statement about every world — and nothing of the
 replaced boundaries (`ChildSynthIs`, `RefIs`, `CacheReads`) remains anywhere,
-also inside the children's boundaries. Unfolded, `ChildBnd` is the generic
-laws (`RefLaws`, a `Nonempty` parameter), the scoped pre/post conditions
-`EntryHoare` / `HarnessHoare`, and the start condition `StartW` of that world
-(the synthesis ref reads `synthesizeChild`, and the depth reads 0 or the cache
-satisfies the invariant). -/
+also inside the children's boundaries. Unfolded, `ChildBnd` is: generic laws
+(`RefLaws`) under which the two RELATIVE conditions hold (`BodyRel` /
+`HarnessRel`: the body, resp. the machine route's harness, with the entry's
+own logger, keeps the invariant on every outcome PROVIDED the memoised child
+entry does), and the start condition `StartW` of that world (the synthesis ref
+reads `synthesizeChild`, and the depth reads 0 or the cache satisfies the
+invariant). That the entry itself keeps the invariant is no premise: it is
+`entry_keeps`, by induction on the synthesis depth. -/
 
 /-- The `ChildBnd` occurrences of `ty`: how many are at the start world of the
 endpoint's run (a top-level `RunsTo` binder's world), and whether every other
@@ -389,26 +392,48 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   for c in [``Tools.ShippingChildInv.ChildLaws, ``Tools.ShippingChildInv.StartW] do
     unless mentions body c do throwError "ChildBnd unfolds without {c}"
   let laws ← unfoldAt ``Tools.ShippingChildInv.ChildLaws
-  for c in [``Tools.ShippingChildInv.RefLaws, ``Tools.ShippingChildInv.EntryHoare,
-      ``Tools.ShippingChildInv.HarnessHoare] do
+  for c in [``Tools.ShippingChildInv.RefLaws, ``Tools.ShippingChildInv.BodyRel,
+      ``Tools.ShippingChildInv.HarnessRel] do
     unless mentions laws c do throwError "ChildLaws unfolds without {c}"
-  -- the harness condition speaks of the entry's own logger only, not of an
-  -- arbitrary callback
-  let hh ← unfoldAt ``Tools.ShippingChildInv.HarnessHoare
-  unless mentions hh ``Tools.ShippingChildInv.profLogIO do throwError "HarnessHoare: not at profLogIO"
-  if (hh.find? fun e => e.isForall && e.bindingDomain!.isArrow &&
-      e.bindingDomain!.bindingDomain!.isConstOf ``String).isSome then
-    throwError "HarnessHoare quantifies over a logger callback"
+  -- the two conditions are RELATIVE (their premise is the child entry's
+  -- keeping the invariant), about every outcome (`Keeps`, by the end world),
+  -- and speak of the entry's own logger only, not of an arbitrary callback
+  for c in [``Tools.ShippingChildInv.BodyRel, ``Tools.ShippingChildInv.HarnessRel] do
+    let b ← unfoldAt c
+    for d in [``Tools.ShippingChildInv.ChildKeeps, ``Tools.ShippingChildInv.Keeps,
+        ``Tools.ShippingChildInv.profLogIO] do
+      unless mentions b d do throwError "{c}: no {d}"
+    if (b.find? fun e => e.isForall && e.bindingDomain!.isArrow &&
+        e.bindingDomain!.bindingDomain!.isConstOf ``String).isSome then
+      throwError "{c} quantifies over a logger callback"
+  unless mentions (← unfoldAt ``Tools.ShippingChildInv.Keeps) ``Tools.ShippingChildInv.endW do
+    throwError "Keeps is not about the end world of every outcome"
+  -- the entry's keeping the invariant is a theorem from `BodyRel` alone
+  let ek ← Lean.Meta.inferType (Lean.mkConst ``Tools.ShippingChildInv.entry_keeps)
+  unless mentions ek ``Tools.ShippingChildInv.BodyRel && mentions ek ``Tools.ShippingChildInv.Keeps do
+    throwError "entry_keeps: shape"
+  if mentions ek ``Tools.ShippingChildInv.HarnessRel || mentions ek ``Tools.ShippingChildInv.ChildKeeps then
+    throwError "entry_keeps assumes more than BodyRel"
+  -- no law says a ref operation can run: that is proved
+  let lawsT ← Lean.Meta.inferType (Lean.mkConst ``Tools.ShippingChildInv.RefLaws.mk)
+  if (lawsT.find? fun e => e.isAppOf ``Exists).isSome then throwError "RefLaws has a totality law"
   for name in [``Tools.ShippingChildInv.core_reads_inv, ``Tools.ShippingChildInv.synthesizeChild_inv,
       ``Tools.ShippingChildInv.closeInstsGM_inv, ``Tools.ShippingChildInv.closeInstsM_inv,
       ``Tools.ShippingChildInv.synthesizeFromConst_machine_inv,
       ``Tools.ShippingChildInv.synthesizeMachineCertified_inv,
       ``Tools.ShippingChildInv.machine_children_real, ``Tools.ShippingChildInv.machine_run_of_core,
-      ``Tools.ShippingChildInv.inv_clear, ``Tools.ShippingChildInv.cacheInv_insert] do
+      ``Tools.ShippingChildInv.inv_clear, ``Tools.ShippingChildInv.cacheInv_insert,
+      ``Tools.ShippingChildInv.entry_keeps, ``Tools.ShippingChildInv.child_keeps,
+      ``Tools.ShippingChildInv.core_keeps, ``Tools.ShippingChildInv.full_keeps,
+      ``Tools.ShippingChildInv.entry_inv, ``Tools.ShippingChildInv.harness_inv,
+      ``Tools.ShippingChildInv.Triple.tryFinally, ``Tools.ShippingChildInv.refGet_runs,
+      ``Tools.ShippingChildInv.refSet_runs, ``Tools.ShippingChildInv.refModify_runs,
+      ``Tools.ShippingChildInv.throwError_not_runs, ``Tools.ShippingChildInv.machine_keeps,
+      ``Tools.ShippingChildInv.closeInstsM_keeps, ``Tools.ShippingChildInv.closeInstsGM_keeps] do
     for ax in ← Lean.collectAxioms name do
       unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do
         throwError "{name} uses a non-standard axiom: {ax}"
-  Lean.logInfo m!"CHILD BOUNDARY ALONG THE RUN: {es.length} derived endpoints state ChildBnd at their run's start world (children's at worlds their premises bind), no ChildSynthIs / RefIs / CacheReads at any level; ChildBnd unfolds to RefLaws + EntryHoare + HarnessHoare + StartW (synthesis ref, and depth 0 or the cache invariant); the prefix, the memoised entry (hit / miss), the closings and the machine route keep the invariant; standard axioms"
+  Lean.logInfo m!"CHILD BOUNDARY ALONG THE RUN: {es.length} derived endpoints state ChildBnd at their run's start world (children's at worlds their premises bind), no ChildSynthIs / RefIs / CacheReads at any level; ChildBnd unfolds to RefLaws + BodyRel + HarnessRel (relative to the child entry, every outcome, the entry's logger) + StartW (synthesis ref, and depth 0 or the cache invariant); the entry keeps the invariant by induction on the depth (entry_keeps, from BodyRel alone); the prefix, the memoised entry (hit / miss), the closings and the machine route keep the invariant; standard axioms"
 
 /-! ### The cache on real compiles: repeated, nested, sequential + memory
 
@@ -451,5 +476,39 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   let g ← cacheAfter ``Sparkle.Tests.Compiler.ShippingMachineDepthHTest.grandH
   unless g.length ≥ 2 do throwError "grandH: the nested compile cached {g.map (·.1)}"
   Lean.logInfo m!"CACHE ON REAL COMPILES: repeated children stored once, nested misses store the grandchild, every entry equals a fresh run"
+
+/-! ### The depth guard
+
+The entry refuses to start at `sparkleSynthDepthLimit` (the measure of the
+induction in `entry_keeps`), before changing anything: the depth is left as
+it was. Below the limit it runs as before. -/
+
+run_cmd Lean.Elab.Command.liftTermElabM do
+  let f := ``Sparkle.Tests.Compiler.ShippingMachineSeqTest.chained
+  let lim := Sparkle.Compiler.Elab.sparkleSynthDepthLimit
+  Sparkle.Compiler.Elab.sparkleSynthDepth.set lim
+  let r ← try
+      discard <| Sparkle.Compiler.Elab.synthesizeCombinational f
+      pure none
+    catch e => pure (some (← e.toMessageData.toString))
+  let after ← Sparkle.Compiler.Elab.sparkleSynthDepth.get
+  Sparkle.Compiler.Elab.sparkleSynthDepth.set 0
+  match r with
+  | none => throwError "the entry ran at the depth limit"
+  | some msg =>
+    unless (msg.splitOn "depth limit").length > 1 do throwError "failed otherwise: {msg}"
+  unless after == lim do throwError "the refused run changed the depth ({after})"
+  -- a failing run below the limit restores the depth (the `finally`)
+  let bad ← try
+      discard <| Sparkle.Compiler.Elab.synthesizeCombinational ``Nat.add
+      pure false
+    catch _ => pure true
+  unless bad do throwError "Nat.add synthesized"
+  unless (← Sparkle.Compiler.Elab.sparkleSynthDepth.get) == 0 do
+    throwError "a failing run left the depth raised"
+  -- and the entry still runs
+  discard <| Sparkle.Compiler.Elab.synthesizeCombinational f
+  unless (← Sparkle.Compiler.Elab.sparkleSynthDepth.get) == 0 do throwError "depth not restored"
+  Lean.logInfo m!"DEPTH GUARD: refused at the limit ({lim}) with the depth untouched; a failing run and a returning run both leave the depth at 0"
 
 end Sparkle.Tests.Compiler.ShippingChildBoundaryTest

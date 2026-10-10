@@ -915,6 +915,13 @@ private initialize sparkleCacheHits   : IO.Ref Nat ← IO.mkRef 0
     synth into an O(n²) walk. -/
 initialize sparkleSynthDepth : IO.Ref Nat ← IO.mkRef 0
 
+/-- Bound on the nesting of syntheses (`@[hardware_module]` children inside
+    children).  The entry refuses to start beyond it.  Real hierarchies are a
+    few levels deep; the bound is what makes "every child synthesis is at a
+    greater depth" a well-founded measure for the entry's recursion through
+    `sparkleChildSynth` (Tools/ShippingChildKeeps.lean). -/
+def sparkleSynthDepthLimit : Nat := 1024
+
 /-- Set of fvar names currently being zeta-reduced.  If we see
     the same fvar twice on the stack, the fvar's value contains
     a reference back to itself — typical of Signal.loop bodies
@@ -5362,6 +5369,8 @@ def synthesizeCombinationalCoreWith (translate : TranslateFn) (declName : Name)
   -- around the body via `try ... finally` so it stays
   -- balanced across throwError / panic exits.
   let depth ← sparkleSynthDepth.get
+  if depth ≥ sparkleSynthDepthLimit then
+    throwError "hardware modules nested deeper than the synthesis depth limit"
   -- Snapshot the fvar-value and sub-instance maps so nested
   -- `synthesizeCombinational` calls (e.g. memcachedServer
   -- inside memcachedServerTop) don't pollute their parent's

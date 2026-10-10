@@ -1,7 +1,7 @@
 import Tools.ShippingMachineDepthH
 import Tools.ShippingMachineComposeR
 import Tools.ShippingMachineDepthRunR
-import Tools.ShippingChildInv
+import Tools.ShippingChildRun
 
 /-! # A child with one-output combinational calls, at depth 0, the boundary derived
 
