@@ -109,4 +109,70 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   unless b.name == n.toString do throwError "the entry did not produce the module"
   Lean.logInfo m!"LEGACY FALLBACK: useCtr1 (one-output call of a sequential child) — machine route none, entry succeeds ({b.body.length} statements)"
 
+/-! ### The legacy route's children after the single-writer change
+
+A legacy-route parent's child is now what `synthesizeChild` returns — the
+real entry with the full translator — where it used to be the block's own
+miss path on the fuel-truncated translator. The two differ only when the
+remaining fuel would run out inside the child (the old path then failed), so
+equal outputs on these cases are evidence for these cases, not an equivalence
+of the two routes. Checked here on the legacy route: a fallback parent, the
+same child called twice, and a nested legacy chain — the parent's design holds
+ONE module per child, equal to a fresh top-level run of the entry on it, and
+so does the cache. -/
+
+open Sparkle.Core.Domain Sparkle.Core.Signal in
+/-- The same sequential one-output child twice (legacy route). -/
+def useCtr1Twice (en : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 8) :=
+  circuit do
+    let r ← Signal.reg 0#8
+    let rs := (r : Signal defaultDomain (BitVec 8))
+    let k := ctr1 en
+    let j := ctr1 (Signal.map (fun b => !b) en)
+    r <~ rs + k + j
+    return rs
+
+open Sparkle.Core.Domain Sparkle.Core.Signal in
+/-- A legacy-route child that itself calls `ctr1` on the legacy route. -/
+@[hardware_module] def mid1 {dom : DomainConfig} (en : Signal dom Bool) : Signal dom (BitVec 8) :=
+  circuit do
+    let r ← Signal.reg 0#8
+    let rs := (r : Signal dom (BitVec 8))
+    let k := ctr1 en
+    r <~ rs + k
+    return rs
+
+open Sparkle.Core.Domain Sparkle.Core.Signal in
+def useMid1 (en : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 8) :=
+  circuit do
+    let r ← Signal.reg 0#8
+    let rs := (r : Signal defaultDomain (BitVec 8))
+    let k := mid1 en
+    r <~ rs + k
+    return rs
+
+run_cmd Lean.Elab.Command.liftTermElabM do
+  let dg (m : Sparkle.IR.AST.Module) : String := toString (hash (repr m).pretty)
+  let translate : TranslateFn := fun e h t nm => translateExprToWire e h t nm
+  for (f, kids) in [(``useCtr1, [``ctr1]), (``useCtr1Twice, [``ctr1]), (``useMid1, [``mid1, ``ctr1])] do
+    -- on the legacy route: the machine route refuses the parent
+    let legacy ← try
+        let r ← Tools.ShippingMachineCommand.readMachine f
+        pure (← synthesizeMachineCertified translate (fun _ => pure ()) f r.shape).isNone
+      catch _ => pure true
+    unless legacy do throwError "{f}: not on the legacy route"
+    let (_, D) ← synthesizeCombinational f
+    let cache ← sparkleChildCache.get
+    for c in kids do
+      -- one module of the child in the parent's design
+      let ms := D.modules.filter (·.name == c.toString)
+      let [dm] := ms | throwError "{f}: {ms.length} modules named {c}"
+      -- the cache holds it
+      let some (cm, _) := cache.get? c | throwError "{f}: {c} is not cached"
+      -- and both equal a fresh top-level run of the entry on the child
+      let (fm, _) ← synthesizeCombinational c
+      unless dg cm == dg fm do throwError "{f}: the cached {c} differs from a fresh run"
+      unless dg dm == dg fm do throwError "{f}: the design's {c} differs from a fresh run"
+    Lean.logInfo m!"LEGACY CHILDREN: {f} — {kids} one module each, cached, equal to a fresh run"
+
 end Sparkle.Tests.Compiler.ShippingCloseInstsCheckTest

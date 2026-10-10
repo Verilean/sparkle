@@ -403,6 +403,28 @@ and `ShippingChildCacheRun` removed).
   that a fresh run in the current world (whose environment may differ)
   returns it. Consumers use it only with the child's reflection facts,
   which hold for every world of the contexts.
+- **Logger, clear, start condition (2026-10-10).**
+  - `HarnessHoare` no longer quantifies over an arbitrary logger callback
+    (which could write the refs): it speaks of the entry's own `profLogIO b`.
+    That the entry hands on exactly that logger is proved (`core_reads_inv`
+    returns it); its frame is the existing `profLog` law.
+  - `inv_clear` ESTABLISHES the cache half from any cache (only the synthesis
+    ref's value is carried); it is no longer a preservation lemma.
+  - The endpoints' world-level premise is the start condition `StartW w`:
+    the synthesis ref reads `synthesizeChild`, and EITHER the synthesis depth
+    reads 0 (an outermost run — the cache may hold anything) OR the cache
+    satisfies the invariant (a nested run inherits `InvW`). The synthesis
+    ref's content at start is not derivable in the logic (it is set by the
+    module initializer) and stays a start condition. New generic laws for
+    this: the depth ref's value and its read, and that the profile read and
+    the logger leave it.
+  - Legacy-route children after the single-writer change, on the legacy
+    route (`ShippingCloseInstsCheckTest`): a fallback parent, the same child
+    twice, a nested legacy chain — one module per child in the parent's
+    design, cached, equal to a fresh top-level run. The earlier 35 identical
+    digests are evidence on those 35 declarations, not an equivalence of the
+    old and new legacy child paths: they differ when the old path's
+    remaining translator fuel would run out inside the child.
 - **Checked** (`ShippingChildBoundaryTest`):
   - 20 derived endpoints (R0, NR at depths 1–3, HR) state `ChildBnd` at
     their run's start world; every other `ChildBnd` occurrence is at a world

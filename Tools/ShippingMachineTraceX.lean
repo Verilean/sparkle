@@ -485,9 +485,9 @@ theorem synthesizeCombinationalCore_machine_soundR {declName : Name}
     (outsNodup : (shape.layout.outs.map (·.name)).Nodup) :
     MachinePreservesX (ServedReal mctx mref cctx cref declName shape m d)
       declName shape bsIn slotBs letBs m d := by
-  obtain ⟨logProf, r, w9, w10, hrun, hw9, hres⟩ :=
+  obtain ⟨prof, r, w9, w10, hrun, hw9, hres⟩ :=
     Tools.ShippingChildInv.machine_run_of_core hr entry hsyn
-  have hne := closes logProf _ _ _ hrun
+  have hne := closes (Tools.ShippingChildInv.profLogIO prof) _ _ _ hrun
   cases r with
   | none => exact absurd rfl hne
   | some res =>

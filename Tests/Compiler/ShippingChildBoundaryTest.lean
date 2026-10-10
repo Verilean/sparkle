@@ -336,7 +336,9 @@ entry STARTS in — not a statement about every world — and nothing of the
 replaced boundaries (`ChildSynthIs`, `RefIs`, `CacheReads`) remains anywhere,
 also inside the children's boundaries. Unfolded, `ChildBnd` is the generic
 laws (`RefLaws`, a `Nonempty` parameter), the scoped pre/post conditions
-`EntryHoare` / `HarnessHoare`, and `InvW` of that world. -/
+`EntryHoare` / `HarnessHoare`, and the start condition `StartW` of that world
+(the synthesis ref reads `synthesizeChild`, and the depth reads 0 or the cache
+satisfies the invariant). -/
 
 /-- The `ChildBnd` occurrences of `ty`: how many are at the start world of the
 endpoint's run (a top-level `RunsTo` binder's world), and whether every other
@@ -384,12 +386,19 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     Lean.Meta.forallTelescope (← Lean.Meta.inferType (Lean.mkConst c)) fun xs _ =>
       Lean.Meta.whnfD (Lean.mkAppN (Lean.mkConst c) xs)
   let body ← unfoldAt ``Tools.ShippingChildInv.ChildBnd
-  for c in [``Tools.ShippingChildInv.ChildLaws, ``Tools.ShippingChildInv.InvW] do
+  for c in [``Tools.ShippingChildInv.ChildLaws, ``Tools.ShippingChildInv.StartW] do
     unless mentions body c do throwError "ChildBnd unfolds without {c}"
   let laws ← unfoldAt ``Tools.ShippingChildInv.ChildLaws
   for c in [``Tools.ShippingChildInv.RefLaws, ``Tools.ShippingChildInv.EntryHoare,
       ``Tools.ShippingChildInv.HarnessHoare] do
     unless mentions laws c do throwError "ChildLaws unfolds without {c}"
+  -- the harness condition speaks of the entry's own logger only, not of an
+  -- arbitrary callback
+  let hh ← unfoldAt ``Tools.ShippingChildInv.HarnessHoare
+  unless mentions hh ``Tools.ShippingChildInv.profLogIO do throwError "HarnessHoare: not at profLogIO"
+  if (hh.find? fun e => e.isForall && e.bindingDomain!.isArrow &&
+      e.bindingDomain!.bindingDomain!.isConstOf ``String).isSome then
+    throwError "HarnessHoare quantifies over a logger callback"
   for name in [``Tools.ShippingChildInv.core_reads_inv, ``Tools.ShippingChildInv.synthesizeChild_inv,
       ``Tools.ShippingChildInv.closeInstsGM_inv, ``Tools.ShippingChildInv.closeInstsM_inv,
       ``Tools.ShippingChildInv.synthesizeFromConst_machine_inv,
@@ -399,7 +408,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     for ax in ← Lean.collectAxioms name do
       unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do
         throwError "{name} uses a non-standard axiom: {ax}"
-  Lean.logInfo m!"CHILD BOUNDARY ALONG THE RUN: {es.length} derived endpoints state ChildBnd at their run's start world (children's at worlds their premises bind), no ChildSynthIs / RefIs / CacheReads at any level; ChildBnd unfolds to RefLaws + EntryHoare + HarnessHoare + InvW; the prefix, the memoised entry (hit / miss), the closings and the machine route keep the invariant; standard axioms"
+  Lean.logInfo m!"CHILD BOUNDARY ALONG THE RUN: {es.length} derived endpoints state ChildBnd at their run's start world (children's at worlds their premises bind), no ChildSynthIs / RefIs / CacheReads at any level; ChildBnd unfolds to RefLaws + EntryHoare + HarnessHoare + StartW (synthesis ref, and depth 0 or the cache invariant); the prefix, the memoised entry (hit / miss), the closings and the machine route keep the invariant; standard axioms"
 
 /-! ### The cache on real compiles: repeated, nested, sequential + memory
 
