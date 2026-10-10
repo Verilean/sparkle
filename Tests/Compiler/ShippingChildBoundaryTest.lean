@@ -336,9 +336,9 @@ entry STARTS in — not a statement about every world — and nothing of the
 replaced boundaries (`ChildSynthIs`, `RefIs`, `CacheReads`) remains anywhere,
 also inside the children's boundaries. Unfolded, `ChildBnd` is: generic laws
 (`RefLaws`) under which the two RELATIVE conditions hold (`BodyRel` /
-`HarnessRel`: the body, resp. the machine route's harness, with the entry's
-own logger, keeps the invariant on every outcome PROVIDED the memoised child
-entry does), and the start condition `StartW` of that world (the synthesis ref
+`TranslateRel`: the body with the entry's own logger, resp. the translator,
+keeps the invariant on every outcome PROVIDED the memoised child entry does;
+the machine route's harness around the translator is proved, `harnessRel_of`), and the start condition `StartW` of that world (the synthesis ref
 reads `synthesizeChild`, and the depth reads 0 or the cache satisfies the
 invariant). That the entry itself keeps the invariant is no premise: it is
 `entry_keeps`, by induction on the synthesis depth. -/
@@ -393,15 +393,21 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     unless mentions body c do throwError "ChildBnd unfolds without {c}"
   let laws ← unfoldAt ``Tools.ShippingChildInv.ChildLaws
   for c in [``Tools.ShippingChildInv.RefLaws, ``Tools.ShippingChildInv.BodyRel,
-      ``Tools.ShippingChildInv.HarnessRel] do
+      ``Tools.ShippingChildInv.TranslateRel] do
     unless mentions laws c do throwError "ChildLaws unfolds without {c}"
+  if mentions laws ``Tools.ShippingChildInv.HarnessRel then
+    throwError "ChildLaws still assumes the harness condition"
   -- the two conditions are RELATIVE (their premise is the child entry's
   -- keeping the invariant), about every outcome (`Keeps`, by the end world),
   -- and speak of the entry's own logger only, not of an arbitrary callback
-  for c in [``Tools.ShippingChildInv.BodyRel, ``Tools.ShippingChildInv.HarnessRel] do
+  for (c, ds) in [(``Tools.ShippingChildInv.BodyRel, [``Tools.ShippingChildInv.ChildKeeps,
+        ``Tools.ShippingChildInv.Keeps, ``Tools.ShippingChildInv.profLogIO]),
+      (``Tools.ShippingChildInv.HarnessRel, [``Tools.ShippingChildInv.ChildKeeps,
+        ``Tools.ShippingChildInv.Keeps, ``Tools.ShippingChildInv.profLogIO]),
+      (``Tools.ShippingChildInv.TranslateRel, [``Tools.ShippingChildInv.ChildKeeps,
+        ``Tools.ShippingChildInv.KeepsC, ``Sparkle.Compiler.Elab.translateExprToWire])] do
     let b ← unfoldAt c
-    for d in [``Tools.ShippingChildInv.ChildKeeps, ``Tools.ShippingChildInv.Keeps,
-        ``Tools.ShippingChildInv.profLogIO] do
+    for d in ds do
       unless mentions b d do throwError "{c}: no {d}"
     if (b.find? fun e => e.isForall && e.bindingDomain!.isArrow &&
         e.bindingDomain!.bindingDomain!.isConstOf ``String).isSome then
@@ -412,7 +418,8 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   let ek ← Lean.Meta.inferType (Lean.mkConst ``Tools.ShippingChildInv.entry_keeps)
   unless mentions ek ``Tools.ShippingChildInv.BodyRel && mentions ek ``Tools.ShippingChildInv.Keeps do
     throwError "entry_keeps: shape"
-  if mentions ek ``Tools.ShippingChildInv.HarnessRel || mentions ek ``Tools.ShippingChildInv.ChildKeeps then
+  if mentions ek ``Tools.ShippingChildInv.HarnessRel || mentions ek ``Tools.ShippingChildInv.ChildKeeps ||
+      mentions ek ``Tools.ShippingChildInv.TranslateRel then
     throwError "entry_keeps assumes more than BodyRel"
   -- no law says a ref operation can run: that is proved
   let lawsT ← Lean.Meta.inferType (Lean.mkConst ``Tools.ShippingChildInv.RefLaws.mk)
@@ -429,11 +436,14 @@ run_cmd Lean.Elab.Command.liftTermElabM do
       ``Tools.ShippingChildInv.Triple.tryFinally, ``Tools.ShippingChildInv.refGet_runs,
       ``Tools.ShippingChildInv.refSet_runs, ``Tools.ShippingChildInv.refModify_runs,
       ``Tools.ShippingChildInv.throwError_not_runs, ``Tools.ShippingChildInv.machine_keeps,
-      ``Tools.ShippingChildInv.closeInstsM_keeps, ``Tools.ShippingChildInv.closeInstsGM_keeps] do
+      ``Tools.ShippingChildInv.closeInstsM_keeps, ``Tools.ShippingChildInv.closeInstsGM_keeps,
+      ``Tools.ShippingChildInv.harnessRel_of, ``Tools.ShippingChildInv.emitLeaves_tripleC,
+      ``Tools.ShippingChildInv.bindMixedCertifiedInputs_tripleC,
+      ``Tools.ShippingChildInv.finishSynth_triple] do
     for ax in ← Lean.collectAxioms name do
       unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do
         throwError "{name} uses a non-standard axiom: {ax}"
-  Lean.logInfo m!"CHILD BOUNDARY ALONG THE RUN: {es.length} derived endpoints state ChildBnd at their run's start world (children's at worlds their premises bind), no ChildSynthIs / RefIs / CacheReads at any level; ChildBnd unfolds to RefLaws + BodyRel + HarnessRel (relative to the child entry, every outcome, the entry's logger) + StartW (synthesis ref, and depth 0 or the cache invariant); the entry keeps the invariant by induction on the depth (entry_keeps, from BodyRel alone); the prefix, the memoised entry (hit / miss), the closings and the machine route keep the invariant; standard axioms"
+  Lean.logInfo m!"CHILD BOUNDARY ALONG THE RUN: {es.length} derived endpoints state ChildBnd at their run's start world (children's at worlds their premises bind), no ChildSynthIs / RefIs / CacheReads at any level; ChildBnd unfolds to RefLaws + BodyRel + TranslateRel (relative to the child entry, every outcome; the harness around the translator is proved, harnessRel_of) + StartW (synthesis ref, and depth 0 or the cache invariant); the entry keeps the invariant by induction on the depth (entry_keeps, from BodyRel alone); the prefix, the memoised entry (hit / miss), the closings and the machine route keep the invariant; standard axioms"
 
 /-! ### The cache on real compiles: repeated, nested, sequential + memory
 

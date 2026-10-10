@@ -452,16 +452,27 @@ and `ShippingChildCacheRun` removed).
   - **What is still assumed, compiler-specific** — two RELATIVE conditions:
     `BodyRel` (`synthesizeFromConst`, with the entry's logger, keeps the
     invariant at depth `D` on every outcome PROVIDED the memoised child
-    entry does there) and `HarnessRel` (the same for the machine route's
-    harness). They do not presuppose that the entry keeps the invariant.
-    Inside them and opaque: the translator's fuel fallback (the 2,300-line
-    `partial` block `Rec.*`), the certified arms' and the legacy tail's own
-    code (not yet walked), and Lean's own `MetaM` primitives they call.
+    entry does there) and `TranslateRel` (the same for the translator
+    `translateExprToWire` alone, from every compiler state). They do not
+    presuppose that the entry keeps the invariant.
+    The machine route's harness around the translator is PROVED from
+    `TranslateRel` (`harnessRel_of`, `Tools/ShippingChildHarness.lean`: fresh
+    ids, the distinctness check, the translation cache, the binder walk, the
+    leaf emission with its port-name check, `finishSynth` — every outcome).
+    Inside the two conditions and opaque or not yet walked: the translator's
+    step (`translateStep`'s certified arms — ordinary definitions — and the
+    fuel fallback, the 2,300-line `partial` block `Rec.*`), the certified
+    and legacy routes of `synthesizeFromConst` (the legacy tail calls
+    `partial` helpers: `openRecordInputs`, `splitReturnLeaves`,
+    `inferHWType`), and Lean's own `MetaM` primitives they call.
   - **Generic laws now**: the three values per world (cache, synthesis ref,
     depth); a successful `get` / `set` / `modify` of each; and one frame law
     over the operations listed in `Framed` (reads of the three refs, the 11
     other per-synthesis refs, the profile read, the entry's logger,
-    `getConstInfo`, `getEnv`, building an error) — on every outcome. That a
+    `getConstInfo`, `getEnv`, building an error; for the harness: a fresh
+    free-variable id, the clock read, the two profile counters, creating or
+    modifying a translation cache — a ref of another type than the three
+    tracked ones) — on every outcome. That a
     ref operation cannot fail is no longer a law: it is proved from the
     lift's definition (`refGet_runs`, `refSet_runs`, `refModify_runs`), as
     is that `throwError` does not return.

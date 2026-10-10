@@ -28,11 +28,11 @@ successful run of the entry gives its closings).
   (`Framed`: on every outcome they leave the three values). Nothing about the
   compiler's invariant is in them. That a ref operation cannot fail is NOT a
   law: it is proved from the lift's definition (`refGet_runs` …).
-* `BodyRel` / `HarnessRel` — the compiler-specific conditions NOT proved.
-  They are RELATIVE: `synthesizeFromConst` (resp. the machine route's harness
-  `synthesizeMixedCertified`), run with the entry's own logger, keeps the
-  invariant at depth `D` on every outcome PROVIDED the memoised child entry
-  does at that depth. They do not presuppose that the entry keeps the
+* `BodyRel` / `TranslateRel` — the compiler-specific conditions NOT proved.
+  They are RELATIVE: `synthesizeFromConst` with the entry's own logger (resp.
+  the translator `translateExprToWire`) keeps the invariant at depth `D` on
+  every outcome PROVIDED the memoised child entry does at that depth. The
+  machine route's harness around the translator is proved (`harnessRel_of`). They do not presuppose that the entry keeps the
   invariant: that is a theorem (`entry_keeps`), by induction on the depth
   (the entry refuses to start at `sparkleSynthDepthLimit`, and every child
   synthesis runs one level deeper). What is inside them and opaque: the fuel
@@ -67,10 +67,14 @@ inductive SideRef : {σ : Type} → IO.Ref σ → Prop
   | typeCache : SideRef sparkleTypeCache
   | typeHits : SideRef sparkleTypeCacheHits
   | typeMiss : SideRef sparkleTypeCacheMiss
+  | callCounter : SideRef sparkleCallCounter
+  | cacheHits : SideRef sparkleCacheHits
 
 /-- The operations whose frame is a law: reads of the three tracked refs,
 any operation on the other per-synthesis refs, the environment-variable read,
-the entry's logger, `getConstInfo`, `getEnv`, and building an error. -/
+the entry's logger, `getConstInfo`, `getEnv`, building an error; and, for the
+harness: a fresh free-variable id, the clock read, and creating or modifying
+a translation cache (a ref of ANOTHER type than the three tracked ones). -/
 inductive Framed : {α : Type} → MetaM α → Prop
   | cacheGet : Framed (sparkleChildCache.get : MetaM _)
   | synthGet : Framed (sparkleChildSynth.get : MetaM _)
@@ -84,6 +88,13 @@ inductive Framed : {α : Type} → MetaM α → Prop
   | constInfo (n : Name) : Framed (getConstInfo n : MetaM _)
   | env : Framed (getEnv : MetaM Environment)
   | throwErr {α : Type} (msg : MessageData) : Framed (throwError msg : MetaM α)
+  | freshFVar : Framed (mkFreshFVarId : MetaM FVarId)
+  | monoMs : Framed (liftM IO.monoMsNow : MetaM Nat)
+  | mkExprCache (v : Lean.ExprStructMap String) :
+      Framed (IO.mkRef v : MetaM (IO.Ref (Lean.ExprStructMap String)))
+  | exprCacheModify (r : IO.Ref (Lean.ExprStructMap String))
+      (f : Lean.ExprStructMap String → Lean.ExprStructMap String) :
+      Framed (ST.Ref.modify r f : MetaM Unit)
 
 section Defs
 variable (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State)
@@ -198,8 +209,23 @@ def BodyRel (L : RefLaws mctx mref cctx cref) : Prop :=
       (synthesizeFromConst (fun e h t n => translateExprToWire e h t n) (profLogIO b)
         declName [] false true ci isInst)
 
-/-- **The machine route's harness, relative to the child entry** (not
-proved): the same for `synthesizeMixedCertified` with the entry's own logger. -/
+/-- A `CompilerM` action keeps `I`, from every compiler and circuit state. -/
+def KeepsC {α : Type} (I : Void IO.RealWorld → Prop) (c : CompilerM α) : Prop :=
+  ∀ (ctx : CompilerState) (st : Sparkle.IR.Builder.CircuitState),
+    Keeps mctx mref cctx cref I (c ctx st)
+
+/-- **The translator, relative to the child entry** (not proved): at any
+depth, IF the memoised child entry keeps the invariant there, a run of the
+translator `translateExprToWire` keeps it — on every outcome, from every
+compiler state. -/
+def TranslateRel (L : RefLaws mctx mref cctx cref) : Prop :=
+  ∀ D, ChildKeeps L D → ∀ e hint top named,
+    KeepsC (mctx := mctx) (mref := mref) (cctx := cctx) (cref := cref) (J L D)
+      (translateExprToWire e hint top named)
+
+/-- The machine route's harness, relative to the child entry: the same for
+`synthesizeMixedCertified` with the entry's own logger. PROVED from
+`TranslateRel` (`harnessRel_of`, `Tools/ShippingChildHarness.lean`). -/
 def HarnessRel (L : RefLaws mctx mref cctx cref) : Prop :=
   ∀ D, ChildKeeps L D → ∀ (b : Bool) declName bs body,
     Keeps mctx mref cctx cref (J L D)
@@ -214,7 +240,7 @@ variable (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State)
 the two relative conditions hold. The world-level part is `StartW` at the
 run's start. -/
 def ChildLaws : Prop :=
-  ∃ L : RefLaws mctx mref cctx cref, BodyRel L ∧ HarnessRel L
+  ∃ L : RefLaws mctx mref cctx cref, BodyRel L ∧ TranslateRel L
 
 /-- **The child boundary of a run starting in `w`**: the context-level laws
 and the start condition in the start world. -/

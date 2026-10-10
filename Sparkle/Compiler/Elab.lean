@@ -902,8 +902,8 @@ def extractBitVecArray (expr : Lean.Expr) : CompilerM (Array (Nat × Nat)) := do
 
 /-- Global call counters for `translateExprToWire` profiling.
     Populated only when `SPARKLE_PROFILE=1`. -/
-private initialize sparkleCallCounter : IO.Ref Nat ← IO.mkRef 0
-private initialize sparkleCacheHits   : IO.Ref Nat ← IO.mkRef 0
+initialize sparkleCallCounter : IO.Ref Nat ← IO.mkRef 0
+initialize sparkleCacheHits   : IO.Ref Nat ← IO.mkRef 0
 /-- Nested-synth depth counter.  `synthesizeCombinational` only
     resets the per-synth caches when entering at depth 0 (the
     outermost user-triggered `#synthesizeVerilog`).  When the

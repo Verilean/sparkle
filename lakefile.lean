@@ -609,6 +609,9 @@ lean_lib «Tools.ShippingChildInv» where
 lean_lib «Tools.ShippingChildKeeps» where
   roots := #[`Tools.ShippingChildKeeps]
 
+lean_lib «Tools.ShippingChildHarness» where
+  roots := #[`Tools.ShippingChildHarness]
+
 lean_lib «Tools.ShippingChildRun» where
   roots := #[`Tools.ShippingChildRun]
 

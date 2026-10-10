@@ -1,4 +1,4 @@
-import Tools.ShippingChildKeeps
+import Tools.ShippingChildHarness
 
 /-! # A successful run of the real entry: what its closings receive
 
@@ -7,8 +7,8 @@ satisfying the start condition (`StartW`: the synthesis ref, and depth 0 or
 the cache invariant): the invariant is established by the prefix
 (`core_reads_inv` — at depth 0 by the clear, from any cache; nested, by
 inheritance), carried through the machine route's prefix and its harness
-(`harness_inv`, from `HarnessRel` and the entry's recursion,
-`Tools/ShippingChildKeeps.lean`), and the closings' children are then
+(`harness_inv`; the harness is proved from the translator's condition,
+`harnessRel_of`, and the entry's recursion, `Tools/ShippingChildKeeps.lean`), and the closings' children are then
 `RealChild`s, call by call (`machine_children_real`). The logger the entry
 hands on is its own (`profLogIO b`).
 
@@ -411,7 +411,8 @@ theorem machine_children_real {declName : Name} {shape : MachineShape}
       Sparkle.IR.Machine.closeLets shape.layout.lets t = some t' ∧
       CloseCalls shape t (Sparkle.IR.Machine.closeMachine shape.layout t') d₀ children m d ∧
       ChildrenReal mctx mref cctx cref shape children := by
-  obtain ⟨⟨L, hB, hH⟩, hw⟩ := hb
+  obtain ⟨⟨L, hB, hT⟩, hw⟩ := hb
+  have hH := harnessRel_of L hT
   obtain ⟨b, envR, ci, w1, w2, w3, w4, w5, w6, get, henv, run, hw3⟩ :=
     core_reads_inv L (startV_of_startW L hw) hr
   obtain ⟨old, miss, _⟩ := entry _ _ _ _ _ _ _ _ _ get henv henv
@@ -465,7 +466,8 @@ theorem synthesizeMachineCertified_runs {b : Bool} {declName shape m d} {w w'}
        (shape.insts ≠ [] ∧ ∃ children,
           CloseCalls shape t (Sparkle.IR.Machine.closeMachine shape.layout t') d₀ children m d ∧
           ChildrenReal mctx mref cctx cref shape children)) := by
-  obtain ⟨L, hB, hH⟩ := hL
+  obtain ⟨L, hB, hT⟩ := hL
+  have hH := harnessRel_of L hT
   exact synthesizeMachineCertified_inv L hB hH (invV_of_invW L hw) hr
 
 end Tools.ShippingChildInv
