@@ -2,6 +2,7 @@ import Tools.ShippingMachineLinkedCommand
 import Tools.ShippingGateChildCommand
 import Tools.ShippingMachineComposeR
 import Tools.ShippingChildRun
+import Tools.ShippingReflectCtx
 import Tools.ShippingMachineNestR
 import Tools.ShippingMachineTeleNestR
 import Tools.ShippingMachineShipsHierHCommand
@@ -216,14 +217,19 @@ def generateComposedRCore (declName : Name) : MetaM Name := do
       discard <| Tools.ShippingGateChildCommand.generateMachineChildLinked c
       gateOf := gateOf.insert c false
       let shapeE ← mkAppM ``Tools.ShippingMachineAuto.MachineData.shape #[mkConst (c ++ `machineData)]
-      rTypes := rTypes ++ [← anyCtx fun ctx' => mkAppM ``And #[mkAppN (mkConst ``Tools.ShippingMachineEntry.MachineDefines) (ctx' ++ #[toExpr c, shapeE]),
-        mkAppN (mkConst ``Tools.ShippingMachineEntry.MachineCloses) (ctx' ++ #[toExpr c, shapeE])]]
+      -- what the declaration is: asked ONCE, in the run's own contexts (it does
+      -- not depend on them, `MachineDefines.ctx`); that its machine synthesis
+      -- closes: in the contexts the child is synthesised in (`ChildRanIn`)
+      rTypes := rTypes ++ [← mkAppM ``And #[mkAppN (mkConst ``Tools.ShippingMachineEntry.MachineDefines) (ctx ++ #[toExpr c, shapeE]),
+        ← anyCtx fun ctx' => mkArrow (mkAppN (mkConst ``Tools.ShippingChildInv.ChildRanIn) #[ctx[1]!, ctx[3]!, toExpr c, ctx'[0]!, ctx'[2]!])
+          (mkAppN (mkConst ``Tools.ShippingMachineEntry.MachineCloses) (ctx' ++ #[toExpr c, shapeE]))]]
     else
       unless (← getEnv).contains (c ++ `gate_linked) do
         throwError "{declName}: run #gate_child {c} first"
       gateOf := gateOf.insert c true
-      rTypes := rTypes ++ [← anyCtx fun ctx' => pure (mkAppN (mkConst ``Tools.ShippingInlineSoundness.EntryDefines)
-        (ctx' ++ #[toExpr c, mkConst (c ++ `gateValue)]))]
+      -- asked once, in the run's own contexts (`EntryDefines.ctx`)
+      rTypes := rTypes ++ [mkAppN (mkConst ``Tools.ShippingInlineSoundness.EntryDefines)
+        (ctx ++ #[toExpr c, mkConst (c ++ `gateValue)])]
   let rDecls := (kids.zip rTypes).toArray.mapIdx fun j (_, ty) =>
     (Name.mkSimple s!"hR{j}", fun (_ : Array Lean.Expr) => pure ty)
   withLocalDeclsD rDecls fun hRs => do
@@ -238,9 +244,9 @@ def generateComposedRCore (declName : Name) : MetaM Name := do
     let hRS : Term := ⟨mkIdent (Name.mkSimple s!"hR{j}")⟩
     let lem := mkIdent (`_root_ ++ c ++ (if gateOf.getD c true then `gate_linked else `child_linked))
     let tac ← if gateOf.getD c true then
-        `(tactic| (exact ⟨rfl, fun mctx' cctx' mc Dc w w' _ hrun => $lem mc ⟨_, _, _, _, w, w', Dc, hrun, $hRS mctx' cctx'⟩⟩))
+        `(tactic| (exact ⟨rfl, fun mctx' cctx' mc Dc w w' _ hrun => $lem mc ⟨_, _, _, _, w, w', Dc, hrun, Tools.ShippingReflectCtx.EntryDefines.ctx $hRS⟩⟩))
       else
-        `(tactic| (exact ⟨rfl, fun mctx' cctx' mc Dc w w' _ hrun => $lem mc ⟨_, _, _, _, w, w', Dc, hrun, ($hRS mctx' cctx').1, ($hRS mctx' cctx').2⟩⟩))
+        `(tactic| (exact ⟨rfl, fun mctx' cctx' mc Dc w w' hw hrun => $lem mc ⟨_, _, _, _, w, w', Dc, hrun, Tools.ShippingReflectCtx.MachineDefines.ctx ($hRS).1, ($hRS).2 mctx' cctx' (Tools.ShippingChildInv.ChildRanIn.of_run hw hrun)⟩⟩))
     perR := perR.push (← proveByTactic goalK tac)
   let nameT := mkConst ``Name
   let QmR (m : Nat) : MetaM Lean.Expr :=

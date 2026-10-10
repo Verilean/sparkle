@@ -1,6 +1,7 @@
 import Tools.ShippingMachineDepthRun
 import Tools.ShippingChildServe
 import Tools.ShippingChildRun
+import Tools.ShippingReflectCtx
 
 /-! # Children with calls: the depth conditions from the served child's run witness
 
@@ -240,16 +241,26 @@ closing). -/
 theorem machineRunNC_of_real {c : Name} {shape : MachineShape}
     {Bnd : Tools.ShippingMachineShipsHier.CtxBnd} {mc : Module} {Dc dsn : Design}
     {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
+    {mctx₀ : Meta.Context} {cctx₀ : Core.Context}
     (hreal : Tools.ShippingChildInv.RealChild mref cref c (mc, Dc))
     (hcons : ∀ g ∈ Dc.modules, moduleByName dsn.modules g.name = some g)
-    -- the child's facts in whatever contexts it was synthesised
+    -- what the child's declaration is: in ANY one pair of contexts (it does
+    -- not depend on them, `MachineDefines.ctx`)
+    (entry₀ : MachineDefines mctx₀ mref cctx₀ cref c shape)
+    -- that its synthesis closes, and its own boundary: in the contexts the
+    -- child was synthesised in (`ChildRanIn`, given by the run `hreal` holds)
     (hctx : ∀ (mctx : Meta.Context) (cctx : Core.Context),
-      MachineDefines mctx mref cctx cref c shape ∧ MachineCloses mctx mref cctx cref c shape ∧
+      Tools.ShippingChildInv.ChildRanIn mref cref c mctx cctx →
+      MachineCloses mctx mref cctx cref c shape ∧
         ∀ w raw D, Tools.ShippingChildInv.ChildBnd mref cref w → Bnd mctx mref cctx cref w raw D)
     (hL : Tools.ShippingChildInv.ChildLaws mref cref) (hi : shape.insts ≠ []) :
     MachineRunNC c shape Bnd mc dsn := by
-  obtain ⟨mctx, cctx, w, w', hb, hrun⟩ := hreal.bnd hL
-  obtain ⟨entry, closes, hB⟩ := hctx mctx cctx
+  obtain ⟨mctx, cctx, w, w', hin, hw, hrun⟩ := hreal.ranIn
+  have hb : Tools.ShippingChildInv.ChildBnd mref cref w :=
+    ⟨hL, Tools.ShippingChildInv.startW_of_invW hw⟩
+  have entry : MachineDefines mctx mref cctx cref c shape :=
+    Tools.ShippingReflectCtx.MachineDefines.ctx entry₀
+  obtain ⟨closes, hB⟩ := hctx mctx cctx hin
   obtain ⟨raw, D, w1, hcore, hpost, hagree⟩ := synthesizeCombinational_design hrun
   obtain ⟨t, t', d₀, children, _, hcc, _⟩ :=
     Tools.ShippingChildInv.machine_children_real hcore entry closes hb hi

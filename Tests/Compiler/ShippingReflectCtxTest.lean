@@ -17,8 +17,7 @@ open Sparkle.Tests.Compiler.ShippingCloseInstsCheckTest
 
 run_cmd Lean.Elab.Command.liftTermElabM do
   for n in [``Tools.ShippingReflectCtx.MachineDefines.ctx, ``Tools.ShippingReflectCtx.EntryDefines.ctx,
-      ``Tools.ShippingReflectCtx.getConstInfo_ctx, ``Tools.ShippingReflectCtx.getEnv_ctx,
-      ``Tools.ShippingReflectCtx.hctx_of_one] do
+      ``Tools.ShippingReflectCtx.getConstInfo_ctx, ``Tools.ShippingReflectCtx.getEnv_ctx] do
     let ax ← Lean.collectAxioms n
     for a in ax do
       unless a == ``propext || a == ``Classical.choice || a == ``Quot.sound do

@@ -1,6 +1,7 @@
 import Tools.ShippingMachineCallsLinkedT
 import Tools.ShippingMachineTraceX
 import Tools.ShippingGateChild
+import Tools.ShippingReflectCtx
 
 /-! # Sequential children composed, the run boundary derived
 
@@ -225,12 +226,15 @@ theorem machine_linkedT_callsR {declName : Name} {d : MachineData} {m : Module} 
       MemFacts d.shape (lsrc i bools bits) d.ls.length (d.bsIn.drop kD) kD (ext i bools bits) k c ∨
       SeqFactsR d.shape dsn m.body (lsrc i bools bits) d.ls.length (d.bsIn.drop kD) kD
         (extB i bools bits) (ext i bools bits) bsC outsC (S i) shC k c)
-    -- the children's reflection facts, in whatever Meta and Core contexts a
-    -- child was synthesised (over the parent's state references)
+    -- the children's reflection facts: what the child's declaration is, in the
+    -- parent's own contexts (it does not depend on them); that its machine
+    -- synthesis closes, in the Meta and Core contexts the child was
+    -- synthesised in (`ChildRanIn`: its entry has a run there)
     (hrefl : ∀ (k : Nat) (c : Name), (d.shape.insts.map (·.1))[k]? = some c →
       Sparkle.Compiler.MachMemory.memChild? c = none →
+      Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref c (shC c) ∧
       ∀ (mctx' : Meta.Context) (cctx' : Core.Context),
-      Tools.ShippingMachineEntry.MachineDefines mctx' mref cctx' cref c (shC c) ∧
+        Tools.ShippingChildInv.ChildRanIn mref cref c mctx' cctx' →
         Tools.ShippingMachineEntry.MachineCloses mctx' mref cctx' cref c (shC c)) :
     ∃ ids : List FVarId, ids.Nodup ∧ ids.length = d.shape.binders.length ∧
     ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
@@ -274,9 +278,11 @@ theorem machine_linkedT_callsR {declName : Name} {d : MachineData} {m : Module} 
         rcases hx.1 hfe k hk mc iname argWs outs outWs hst hout hke hmod with ⟨md, hmd, _⟩ | ⟨Dc, hrc, hcons⟩
         · rw [hck, hnone] at hmd; cases hmd
         · rw [hck] at hrc
-          obtain ⟨mctx', cctx', w, w', _, hrun⟩ := hrc.inv
-          obtain ⟨hdef, hcl⟩ := hrefl k c hc hnone mctx' cctx'
-          exact ⟨mctx', mref, cctx', cref, w, w', Dc, hrun, hdef, hcl⟩)
+          obtain ⟨mctx', cctx', w, w', hw, hrun⟩ := hrc.inv
+          obtain ⟨hdef, hcl⟩ := hrefl k c hc hnone
+          exact ⟨mctx', mref, cctx', cref, w, w', Dc, hrun,
+            Tools.ShippingReflectCtx.MachineDefines.ctx hdef,
+            hcl mctx' cctx' (Tools.ShippingChildInv.ChildRanIn.of_run hw hrun)⟩)
       (hcalls i bools bits))
 
 end Tools.ShippingMachineCallsLinkedTR

@@ -1,5 +1,6 @@
-import Tools.ShippingMachineDepthRunR
+import Tools.ShippingMachineEntry
 import Tools.ShippingInlineSoundness
+import Tools.ShippingChildKeeps
 
 /-! # The reflection premises and the Meta / Core contexts
 
@@ -20,11 +21,13 @@ Core context. What that costs, premise by premise:
   `EntryDefines.ctx`), over the same state references.
 * `MachineCloses` and a child's own boundary — NOT transferred. They speak of
   runs of the machine synthesis itself, which does run under the contexts
-  (local declarations, `whnf` at the context's transparency). They stay
-  asked in every context; each is a statement about the runs that exist in a
-  context, so in a context no child is synthesised in it constrains nothing.
-  `hctx_of_one` is the premise of `machineRunNC_of_real` with the two
-  definitional parts asked once. -/
+  (local declarations, `whnf` at the context's transparency); nothing here
+  says a run in one pair of contexts closes because a run in another does.
+  They are asked in the contexts the child IS synthesised in
+  (`Tools.ShippingChildInv.ChildRanIn`: the child's entry has a successful
+  run there from a world satisfying the invariant) — every consumer holds
+  such a run (`RealChild.ranIn`, or the run its per-call premise is about),
+  so the restriction is derived from the run, not assumed of the contexts. -/
 namespace Tools.ShippingReflectCtx
 open Lean Meta
 open Sparkle.Compiler.Elab
@@ -82,19 +85,5 @@ theorem MachineDefines.ctx {c : Name} {shape : MachineShape}
 theorem EntryDefines.ctx {c : Name} {v : Lean.Expr}
     (h : EntryDefines mctx mref cctx cref c v) : EntryDefines mctx' mref cctx' cref c v :=
   fun _ _ _ _ _ _ g e1 => h _ _ _ _ _ _ (getConstInfo_ctx c g) (getEnv_ctx e1)
-
-/-- The child premise of `machineRunNC_of_real`, with `MachineDefines` asked
-in ONE pair of contexts: what remains for every context is the closing and
-the child's own boundary. -/
-theorem hctx_of_one {c : Name} {shape : MachineShape}
-    {Bnd : Tools.ShippingMachineShipsHier.CtxBnd}
-    (entry : MachineDefines mctx mref cctx cref c shape)
-    (rest : ∀ (mctx : Meta.Context) (cctx : Core.Context),
-      MachineCloses mctx mref cctx cref c shape ∧
-        ∀ w raw D, ChildBnd mref cref w → Bnd mctx mref cctx cref w raw D) :
-    ∀ (mctx : Meta.Context) (cctx : Core.Context),
-      MachineDefines mctx mref cctx cref c shape ∧ MachineCloses mctx mref cctx cref c shape ∧
-        ∀ w raw D, ChildBnd mref cref w → Bnd mctx mref cctx cref w raw D :=
-  fun mctx' cctx' => ⟨MachineDefines.ctx entry, rest mctx' cctx'⟩
 
 end Tools.ShippingReflectCtx

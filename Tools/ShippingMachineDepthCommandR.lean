@@ -5,6 +5,7 @@ import Tools.ShippingShipsDesignSVCommand
 import Tools.ShippingMachineComposeRCommand
 import Tools.ShippingMachineDepthHR
 import Tools.ShippingChildRun
+import Tools.ShippingReflectCtx
 
 /-! # Generated composition at depth `n`, the instance binding derived
 
@@ -196,14 +197,17 @@ partial def generateCoreNR (declName : Name) (dep : Nat) : MetaM Name := do
         mkLambdaFVars #[mc] (← mkAppM ``Tools.ShippingMachineDepthRun.MachineRunNC
           #[toExpr c, cshape, bnd, mc, dsnE])
     pcCases := pcCases ++ [(c, pcF)]
-    -- the child's premise holds in whatever Meta and Core contexts the child
-    -- was synthesised (over the run's state references)
+    -- what the child's declaration is (`MachineDefines`): asked ONCE, in the
+    -- run's own contexts — it does not depend on them (`MachineDefines.ctx`).
+    -- That its machine synthesis closes, and its own boundary: in the Meta
+    -- and Core contexts the child is synthesised in (`ChildRanIn`: its entry
+    -- has a run there, over the run's state references)
+    let defs0 := mkAppN (mkConst ``Tools.ShippingMachineEntry.MachineDefines) (ctx ++ #[toExpr c, cshape])
     let pT ← withLocalDeclD `mctx' (mkConst ``Lean.Meta.Context) fun mc' =>
       withLocalDeclD `cctx' (mkConst ``Lean.Core.Context) fun cc' => do
       let ctx' := #[mc', ctx[1]!, cc', ctx[3]!]
-      let defs := mkAppN (mkConst ``Tools.ShippingMachineEntry.MachineDefines) (ctx' ++ #[toExpr c, cshape])
       let closes := mkAppN (mkConst ``Tools.ShippingMachineEntry.MachineCloses) (ctx' ++ #[toExpr c, cshape])
-      let body ← if leaf.getD c true then mkAppM ``And #[defs, closes]
+      let body ← if leaf.getD c true then pure closes
         else do
           -- with calls: its reflection facts and its own derived boundary, in
           -- every start world where the child boundary holds
@@ -213,9 +217,10 @@ partial def generateCoreNR (declName : Name) (dep : Nat) : MetaM Name := do
             withLocalDeclD `raw modT fun raw => withLocalDeclD `D desT fun dD => do
             let cb := mkAppN (mkConst ``Tools.ShippingChildInv.ChildBnd) #[ctx[1]!, ctx[3]!, wc]
             mkForallFVars #[wc, raw, dD] (← mkArrow cb (bnd.beta (ctx' ++ #[wc, raw, dD])).headBeta)
-          mkAppM ``And #[defs, ← mkAppM ``And #[closes, bndHere]]
-      mkForallFVars #[mc', cc'] body
-    pTypes := pTypes ++ [pT]
+          mkAppM ``And #[closes, bndHere]
+      let ran := mkAppN (mkConst ``Tools.ShippingChildInv.ChildRanIn) #[ctx[1]!, ctx[3]!, toExpr c, mc', cc']
+      mkForallFVars #[mc', cc'] (← mkArrow ran body)
+    pTypes := pTypes ++ [← mkAppM ``And #[defs0, pT]]
   let some (_, pc0) := pcCases.head? | throwError "{declName}: no sequential child"
   let PC ← nameCases (← mkArrow modT (mkSort .zero)) pcCases pc0
   let pDecls := (seqKids.zip pTypes).toArray.mapIdx fun j (_, ty) =>
@@ -393,9 +398,9 @@ partial def generateCoreNR (declName : Name) (dep : Nat) : MetaM Name := do
         let hPS : Term := ⟨mkIdent (Name.mkSimple s!"hP{j}")⟩
         let _ := hP
         if leaf.getD c true then
-          proveByTacticT goalK `(tactic| (intro _ mctx' cctx' mc Dc w w' _ hrun _ _; exact ⟨_, _, _, _, w, w', Dc, hrun, ($hPS mctx' cctx').1, ($hPS mctx' cctx').2⟩))
+          proveByTacticT goalK `(tactic| (intro _ mctx' cctx' mc Dc w w' hw hrun _ _; exact ⟨_, _, _, _, w, w', Dc, hrun, Tools.ShippingReflectCtx.MachineDefines.ctx ($hPS).1, ($hPS).2 mctx' cctx' (Tools.ShippingChildInv.ChildRanIn.of_run hw hrun)⟩))
         else
-          proveByTacticT goalK `(tactic| (intro _ mctx' cctx' mc Dc w w' hw hrun hcons _; exact Tools.ShippingMachineDepthRun.machineRunNC_of_real (Tools.ShippingChildInv.RealChild.of_inv hw hrun) hcons $hPS (Tools.ShippingChildInv.ChildBnd.laws (by assumption)) (by decide)))
+          proveByTacticT goalK `(tactic| (intro _ mctx' cctx' mc Dc w w' hw hrun hcons _; exact Tools.ShippingMachineDepthRun.machineRunNC_of_real (Tools.ShippingChildInv.RealChild.of_inv hw hrun) hcons ($hPS).1 ($hPS).2 (Tools.ShippingChildInv.ChildBnd.laws (by assumption)) (by decide)))
     perR := perR.push prK
   let nameT := mkConst ``Name
   let nat := mkConst ``Nat

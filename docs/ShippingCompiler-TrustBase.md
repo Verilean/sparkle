@@ -697,9 +697,42 @@ and `ShippingChildCacheRun` removed).
     same module in both — `ctr1` (no lets), `caller` / `callerTwice` /
     `callerNested` (2 lets, 1 call each) do; `mid1` is refused in both. This
     is an instance check in two reachable contexts, not a proof.
-  - The generated endpoints' statements are unchanged (they still take the
-    all-context form); the transfer lemma is what a caller holding the
-    one-context facts uses.
+  - (superseded, next item) The generated endpoints' statements were still
+    in the all-context form at this commit.
+- **The reflection premises as the generated endpoints now take them
+  (2026-10-11).** Both generators (`#machine_composed…`,
+  `ShippingMachineDepthCommandR`) and the sequential head
+  (`CallsLinkedTR.hrefl`) changed; the 20 endpoints are regenerated.
+  - `MachineDefines` / `EntryDefines` of a child: ONE premise, in the
+    endpoint's own contexts; moved to the child's contexts inside the proof
+    by `MachineDefines.ctx` / `EntryDefines.ctx`.
+  - `MachineCloses` of a child, and a nested child's own boundary: asked
+    only for contexts `mctx' cctx'` with `ChildRanIn mref cref c mctx' cctx'`
+    — the child's entry `synthesizeCombinational c` has a successful run in
+    those contexts from a world satisfying the invariant. This is defined by
+    the runs of the entry (not by a property wanted of the contexts), and
+    every consumer supplies it from a run it already holds: the per-call run
+    of the head (`ChildRanIn.of_run hw hrun`) or the `RealChild` witness the
+    compile recorded (`RealChild.ranIn`).
+  - What this is NOT: a description of contexts by the operations that reach
+    them (`withLocalDecl`, a telescope, `withTransparency`). `ChildRanIn` is
+    the set of contexts where the child was in fact compiled, which is what
+    the proofs consume; an operation-generated relation would have to be
+    threaded through every continuation law of `RefLaws` and is not made.
+    Nor is `MachineCloses` transferred between two such contexts.
+  - Inside a nested child's boundary (depth ≥ 2) the grandchildren's
+    `MachineDefines` / `EntryDefines` are stated in the child's contexts
+    (bound, under the `ChildRanIn` guard); they could be lifted to the
+    parent's by the same transfer and are not yet.
+  - `scripts/shipping-coverage/endpoint_premises.lean` (run in the cgroup)
+    prints, per endpoint with the boundary definitions unfolded: the
+    reflection facts by own / bound contexts, the context quantifiers and the
+    `ChildRanIn` guards, the use conditions, retired or proved conditions
+    still mentioned (none: no `BodyRel` / `LegacyRel` / `HarnessRel` /
+    `TranslateRel` / `ChildSynthIs` / `RefIs` / `CacheReads`), axioms
+    (standard); then `ChildBnd = ChildLaws ∧ StartW`, `ChildLaws = Nonempty
+    RefLaws`, `StartW`, `ChildRanIn` unfolded and the fields of `RefLaws`,
+    `Framed`, `SideRef`.
 - **The two limits (state, 2026-10-11).** Both are behaviour changes of the
   compiler, separate from the proofs:
   - `sparkleSynthDepthLimit = 1024`: a nest of `@[hardware_module]` calls

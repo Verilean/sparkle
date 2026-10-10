@@ -546,6 +546,30 @@ theorem RealChild.inv {c : Name} {r : Res} (h : RealChild mref cref c r) :
   | run mctx cctx w w' cache synth hr =>
     exact ⟨mctx, cctx, w, w', ⟨fun mctx' cctx' m w1 h => cache mctx' cctx' m w1 h, synth⟩, hr⟩
 
+/-- **The contexts a child is synthesised in**: `c`'s entry has a successful
+run in the Meta and Core contexts `mctx`, `cctx` (over these state
+references) starting in a world satisfying the invariant. Defined by the
+runs of the entry — not by what one wants of the contexts — and every
+`RealChild` of `c` gives one (`RealChild.ranIn`): the child-side premises of
+the composed endpoints are asked in these contexts only. -/
+def ChildRanIn (mref : ST.Ref IO.RealWorld Meta.State) (cref : ST.Ref IO.RealWorld Core.State)
+    (c : Name) (mctx : Meta.Context) (cctx : Core.Context) : Prop :=
+  ∃ (w : Void IO.RealWorld) (r : Res) (w' : Void IO.RealWorld),
+    InvW mref cref w ∧ RunsTo (synthesizeCombinational c) mctx mref cctx cref w r w'
+
+theorem ChildRanIn.of_run {c : Name} {r : Res} {w w' : Void IO.RealWorld}
+    (hw : InvW mref cref w)
+    (hr : RunsTo (synthesizeCombinational c) mctx mref cctx cref w r w') :
+    ChildRanIn mref cref c mctx cctx := ⟨w, r, w', hw, hr⟩
+
+/-- A `RealChild`'s run, with the contexts it ran in. -/
+theorem RealChild.ranIn {c : Name} {r : Res} (h : RealChild mref cref c r) :
+    ∃ (mctx : Meta.Context) (cctx : Core.Context) (w w' : Void IO.RealWorld),
+      ChildRanIn mref cref c mctx cctx ∧ InvW mref cref w ∧
+        RunsTo (synthesizeCombinational c) mctx mref cctx cref w r w' := by
+  obtain ⟨mctx, cctx, w, w', hw, hr⟩ := h.inv
+  exact ⟨mctx, cctx, w, w', ⟨w, r, w', hw, hr⟩, hw, hr⟩
+
 /-- A `RealChild`'s run: it starts in a world where the boundary holds. -/
 theorem RealChild.bnd {c : Name} {r : Res} (hL : ChildLaws mref cref)
     (h : RealChild mref cref c r) :
