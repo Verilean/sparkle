@@ -1,4 +1,4 @@
-import Tools.ShippingChildHarness
+import Tools.ShippingChildFallback
 
 /-! # A successful run of the real entry: what its closings receive
 
@@ -411,8 +411,8 @@ theorem machine_children_real {declName : Name} {shape : MachineShape}
       Sparkle.IR.Machine.closeLets shape.layout.lets t = some t' ∧
       CloseCalls shape t (Sparkle.IR.Machine.closeMachine shape.layout t') d₀ children m d ∧
       ChildrenReal mref cref shape children := by
-  obtain ⟨⟨L, hB, hT⟩, hw⟩ := hb
-  have hH := harnessRel_of L hT
+  obtain ⟨⟨L, hB, hLg⟩, hw⟩ := hb
+  have hH := harnessRel_of L (translateRel_of_legacy L hLg)
   obtain ⟨b, envR, ci, w1, w2, w3, w4, w5, w6, get, henv, run, hw3⟩ :=
     core_reads_inv L (startV_of_startW mctx cctx L hw) hr
   obtain ⟨old, miss, _⟩ := entry _ _ _ _ _ _ _ _ _ get henv henv
@@ -466,8 +466,8 @@ theorem synthesizeMachineCertified_runs {b : Bool} {declName shape m d} {w w'}
        (shape.insts ≠ [] ∧ ∃ children,
           CloseCalls shape t (Sparkle.IR.Machine.closeMachine shape.layout t') d₀ children m d ∧
           ChildrenReal mref cref shape children)) := by
-  obtain ⟨L, hB, hT⟩ := hL
-  have hH := harnessRel_of L hT
+  obtain ⟨L, hB, hLg⟩ := hL
+  have hH := harnessRel_of L (translateRel_of_legacy L hLg)
   exact synthesizeMachineCertified_inv L hB hH (invV_of_invW mctx cctx L hw) hr
 
 end Tools.ShippingChildInv

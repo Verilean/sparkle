@@ -394,8 +394,7 @@ def ChildCorrect (mn : Name) (mc : Sparkle.IR.AST.Module) (cwe : WEnv) (outName 
 /-- Every child synthesis of `mn` the run performs, at ANY recursion fuel,
 returns the pinned pair (inside a cone the arm runs below the entry fuel). -/
 def SubSynthDefinesAll (mn : Name) (mc : Sparkle.IR.AST.Module) (dc : Design) : Prop :=
-  ∀ fuel r, MReturns (Rec.synthesizeCombinational
-    (fun e h t n => translateFuelFix translateStep fuel e h t n) mn) r → r = (mc, dc)
+  ∀ (_fuel : Nat) r, MReturns (childSynthEntry mn) r → r = (mc, dc)
 
 theorem instHitValid_record {record : Std.HashMap String Lean.Expr} {e : Lean.Expr}
     {cw : String} (h : instHitValid record e cw = true) : record.get? cw = some e := by
@@ -446,8 +445,7 @@ theorem inst_leaf_contract {rec : TranslateFn} {ctx : CompilerState}
         (instEN mn lvls dom argsE) hint top named =
       translateInstanceOrFallback rec (instEN mn lvls dom argsE) hint top named)
     (htag : HardwareTagged mn)
-    (hsub : ∀ r, MReturns (Rec.synthesizeCombinational
-      (fun e h t n => rec e h t n) mn) r → r = (mc, dc))
+    (hsub : ∀ r, MReturns (childSynthEntry mn) r → r = (mc, dc))
     (hdc : dc.modules = [])
     (hnoclk : ∀ p ∈ mc.inputs, (p.name == "clk") = false ∧ (p.name == "rst") = false)
     (hnodup : (mc.inputs.map (·.name)).Nodup)

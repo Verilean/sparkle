@@ -325,9 +325,7 @@ def HardwareTagged (mn : Name) : Prop :=
 /-- Every nested child synthesis of `mn` this run performs returns exactly
 the pinned pair — the hierarchical mirror of `EnvDefines`. -/
 def SubSynthDefines (mn : Name) (mc : Sparkle.IR.AST.Module) (dc : Design) : Prop :=
-  ∀ r, MReturns (Rec.synthesizeCombinational
-    (fun e h t n => translateFuelFix translateStep 1048575 e h t n) mn) r →
-    r = (mc, dc)
+  ∀ r, MReturns (childSynthEntry mn) r → r = (mc, dc)
 
 /-- No cache entry validates against an empty record: at a root call the
 single-out dedupe cache cannot hit, whatever it holds. -/

@@ -33,11 +33,13 @@ successful run of the entry gives its closings).
   (`Framed`: on every outcome they leave the three values). Nothing about the
   compiler's invariant is in them. That a ref operation cannot fail is NOT a
   law: it is proved from the lift's definition (`refGet_runs` …).
-* `BodyRel` / `TranslateRel` — the compiler-specific conditions NOT proved.
+* `BodyRel` / `LegacyRel` — the compiler-specific conditions NOT proved.
   They are RELATIVE: `synthesizeFromConst` with the entry's own logger (resp.
-  the translator `translateExprToWire`) keeps the invariant at depth `D` on
-  every outcome PROVIDED the memoised child entry does at that depth. The
-  machine route's harness around the translator is proved (`harnessRel_of`). They do not presuppose that the entry keeps the
+  the legacy translator, the `partial` block `Rec.*`) keeps the invariant at
+  depth `D` on every outcome PROVIDED the memoised child entry (and, for the
+  legacy translator, its recursive argument) does. Proved around them: the
+  machine route's harness (`harnessRel_of`), the translator's fuel induction,
+  its step and every ordinary arm (`translateRel_of_legacy`). They do not presuppose that the entry keeps the
   invariant: that is a theorem (`entry_keeps`), by induction on the depth
   (the entry refuses to start at `sparkleSynthDepthLimit`, and every child
   synthesis runs one level deeper). What is inside them and opaque: the fuel
@@ -93,10 +95,19 @@ inductive Framed : {α : Type} → MetaM α → Prop
   | constInfo (n : Name) : Framed (getConstInfo n : MetaM _)
   | env : Framed (getEnv : MetaM Environment)
   | throwErr {α : Type} (msg : MessageData) : Framed (throwError msg : MetaM α)
+  | coreThrowErr {α : Type} (msg : MessageData) :
+      Framed (liftM (throwError msg : CoreM α) : MetaM α)
+  /- Lean's own elaborator primitives (they read and write the Meta and Core
+  states, not these refs) -/
+  | whnf (e : Lean.Expr) : Framed (Lean.Meta.whnf e)
   | freshFVar : Framed (mkFreshFVarId : MetaM FVarId)
   | monoMs : Framed (liftM IO.monoMsNow : MetaM Nat)
   | mkExprCache (v : Lean.ExprStructMap String) :
       Framed (IO.mkRef v : MetaM (IO.Ref (Lean.ExprStructMap String)))
+  | exprCacheGet (r : IO.Ref (Lean.ExprStructMap String)) :
+      Framed (ST.Ref.get r : MetaM (Lean.ExprStructMap String))
+  | exprCacheGetIO (r : IO.Ref (Lean.ExprStructMap String)) :
+      Framed (liftM (ST.Ref.get r : IO (Lean.ExprStructMap String)) : MetaM _)
   | exprCacheModify (r : IO.Ref (Lean.ExprStructMap String))
       (f : Lean.ExprStructMap String → Lean.ExprStructMap String) :
       Framed (ST.Ref.modify r f : MetaM Unit)
@@ -205,6 +216,16 @@ structure RefLaws where
   depthModify : ∀ {mctx : Meta.Context} {cctx : Core.Context} (f : Nat → Nat) w u w',
     RunsTo (ST.Ref.modify sparkleSynthDepth f : MetaM Unit) mctx mref cctx cref w u w' →
     val w' = val w ∧ sval w' = sval w ∧ dval w' = f (dval w)
+  /- Lean's continuation-passing combinators: the combinator itself leaves the
+  three values, and runs its continuation — possibly in other Meta and Core
+  contexts. For every predicate `I` of the three values. -/
+  telescope : ∀ {mctx : Meta.Context} {cctx : Core.Context} {α : Type}
+    (I : Void IO.RealWorld → Prop),
+    (∀ w w', val w' = val w → sval w' = sval w → dval w' = dval w → I w → I w') →
+    ∀ (ty : Lean.Expr) (k : Array Lean.Expr → Lean.Expr → MetaM α),
+    (∀ (mctx' : Meta.Context) (cctx' : Core.Context) xs b,
+      Keeps mctx' mref cctx' cref I (k xs b)) →
+    Keeps mctx mref cctx cref I (Lean.Meta.forallTelescopeReducing ty k)
 
 end Defs
 
@@ -242,10 +263,26 @@ def BodyRel (L : RefLaws mref cref) : Prop :=
       (synthesizeFromConst (fun e h t n => translateExprToWire e h t n) (profLogIO b)
         declName [] false true ci isInst)
 
-/-- **The translator, relative to the child entry** (not proved): at any
-depth, IF the memoised child entry keeps the invariant there, a run of the
-translator `translateExprToWire` keeps it — on every outcome, from every
-compiler state, in every Meta and Core context. -/
+/-- **The legacy translator, relative to the child entry and to its
+recursive argument** (not proved): at any depth, in any contexts, IF the
+memoised child entry keeps the invariant and the translator handed in as
+`rec` does, the two entry points of the `partial` block `Rec.*` keep it — on
+every outcome, from every compiler state. -/
+def LegacyRel (L : RefLaws mref cref) : Prop :=
+  ∀ D, ChildKeeps L D → ∀ (mctx : Meta.Context) (cctx : Core.Context) (rec : TranslateFn),
+    (∀ e hint top named, KeepsC mctx mref cctx cref (J L D) (rec e hint top named)) →
+    (∀ e hint top named, KeepsC mctx mref cctx cref (J L D)
+      (Rec.translateExprToWireCached (fun e h t n => rec e h t n) e hint top named)) ∧
+    (∀ e hint top named, KeepsC mctx mref cctx cref (J L D)
+      (Rec.translateExprToWireImpl (fun e h t n => rec e h t n) e hint top named)) ∧
+    -- a `partial` helper the projection-instance arm calls (the call key)
+    (∀ e, KeepsC mctx mref cctx cref (J L D) (canonHardwareKey e))
+
+/-- The translator, relative to the child entry: at any depth, IF the
+memoised child entry keeps the invariant there, a run of the translator
+`translateExprToWire` keeps it — on every outcome, from every compiler state,
+in every Meta and Core context. PROVED from `LegacyRel`
+(`translateRel_of_legacy`, `Tools/ShippingChildFallback.lean`). -/
 def TranslateRel (L : RefLaws mref cref) : Prop :=
   ∀ D, ChildKeeps L D → ∀ (mctx : Meta.Context) (cctx : Core.Context) e hint top named,
     KeepsC mctx mref cctx cref (J L D) (translateExprToWire e hint top named)
@@ -266,7 +303,7 @@ variable (mref : ST.Ref IO.RealWorld Meta.State) (cref : ST.Ref IO.RealWorld Cor
 the two relative conditions hold. The world-level part is `StartW` at the
 run's start. -/
 def ChildLaws : Prop :=
-  ∃ L : RefLaws mref cref, BodyRel L ∧ TranslateRel L
+  ∃ L : RefLaws mref cref, BodyRel L ∧ LegacyRel L
 
 /-- **The child boundary of a run starting in `w`**: the laws and the start
 condition in the start world. -/

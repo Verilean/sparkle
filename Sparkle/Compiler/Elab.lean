@@ -5476,6 +5476,17 @@ The knot is `translateExprToWire` after the block: an ordinary definition,
 through the fuel. `partial` handlers remain, but only as the fallback of that
 step — which is what lets the recursion be discharged by induction
 (Tools/ShippingTranslateSoundness.lean). -/
+/-- A child's synthesis from inside the translator: the memoised child entry
+    `synthesizeChild`, read from `sparkleChildSynth` (which breaks the knot
+    between the translator and the entry).  An ORDINARY definition, outside
+    the `partial` block, so the instance arms that call it can be reasoned
+    about (Tools/ShippingChildFallback.lean). -/
+def childSynthEntry (declName : Name) :
+    MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) := do
+  let some synth ← sparkleChildSynth.get
+    | throwError "the child synthesis entry is not set"
+  synth declName
+
 section TranslatorBlock
 variable (translateExprToWire : (e : Lean.Expr) → (hint : String := "wire") →
   (isTopLevel : Bool := false) → (isNamed : Bool := false) → CompilerM String)
@@ -7805,10 +7816,8 @@ mutual
       fuel-truncated translator this block is instantiated with (the cache key
       is the declaration name only). -/
   partial def synthesizeCombinational (declName : Name) :
-      MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) := do
-    let some synth ← sparkleChildSynth.get
-      | throwError "the child synthesis entry is not set"
-    synth declName
+      MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) :=
+    childSynthEntry declName
 
   partial def synthesizeCombinationalWithParameters (declName : Name)
       (parameters : List (String × Nat)) :
@@ -8504,7 +8513,7 @@ def translateInstanceOrFallback (rec : TranslateFn) : TranslateFn :=
       let env ← CompilerM.liftMetaM instArmEnv
       if Sparkle.Compiler.isHardwareModule env mn then
         let sub ← CompilerM.liftMetaM
-          (Rec.synthesizeCombinational (fun e h t n => rec e h t n) mn)
+          (childSynthEntry mn)
         match sub.1.outputs with
         | [singleOut] =>
           translateControlCachedWith
@@ -8522,7 +8531,7 @@ def translateInstanceOrFallback (rec : TranslateFn) : TranslateFn :=
               match ← CompilerM.liftMetaM (projFieldName? mn structName) with
               | some fieldName =>
                 let sub ← CompilerM.liftMetaM
-                  (Rec.synthesizeCombinational (fun e h t n => rec e h t n) recName)
+                  (childSynthEntry recName)
                 if decide (2 ≤ sub.1.outputs.length) &&
                     sub.1.outputs.any (fun p => p.name == fieldName) then
                   translateControlCachedWith

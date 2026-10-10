@@ -495,6 +495,47 @@ and `ShippingChildCacheRun` removed).
     Open: `MachineDefines` / `EntryDefines` speak of `getConstInfo` /
     `getEnv`, whose returning runs do not depend on the contexts, so their
     transfer between contexts should be provable (not done).
+- **The translator walked (2026-10-10).** `TranslateRel` is no longer a
+  premise. `ChildLaws` is now `∃ RefLaws, BodyRel ∧ LegacyRel`.
+  - `Tools/ShippingChildVC.lean`: the rules in `Keeps` / `KeepsC` form
+    (bind, `pure`, `if`, `match`, `throw`, state reads/writes, lifts,
+    `try … catch` — the handler runs from the failing run's world, an
+    interrupt or runtime exception is re-thrown from it —, `<$>`,
+    `List.mapM`, a context read) and the tactic `vc`, which applies them
+    along a definition's syntax, closes a leaf by a hypothesis, a registered
+    theorem or a `Framed` law, unfolds any other non-recursive definition,
+    and FAILS, naming it, at an opaque function, a primitive without a law
+    or a recursive definition without a theorem. It runs with error
+    recovery off (a failing step fails; nothing is admitted) and every
+    theorem it closed is in the axiom audit.
+  - PROVED with it, on every outcome: the fuel induction
+    (`fuelFix_keepsC`), the step (`translateStepWith_keepsC`: validated
+    lookup, `translateCore`, record), the fourteen certified arms of
+    `translateFallback`, the shared cache wrapper, the instance arm
+    (`translateInstanceOrFallback_keepsC`: environment read, the child's
+    synthesis, single-output and projection lowerings, with their
+    recursive helpers `instArgs` / `instAddModules` / `instClkRst` /
+    `instOutWires` by induction), and the dispatch. Hence
+    `translateRel_of_legacy`.
+  - Compiler: the instance arm's child synthesis is the ordinary
+    `childSynthEntry` (it was the `partial` `Rec.synthesizeCombinational`;
+    same code: read `sparkleChildSynth`, call it).
+  - **`LegacyRel`**, what is still assumed of the translator: given the
+    memoised child entry and the recursive argument keep the invariant, so
+    do the two entry points of the `partial` block
+    (`Rec.translateExprToWireCached`, `Rec.translateExprToWireImpl`) and the
+    `partial` helper `canonHardwareKey` (the projection arm's call key).
+    Found on the way: that block's call graph is acyclic except through
+    the recursive argument (its two apparent self-calls are a trace string
+    and a structural recursion), so it can become ordinary definitions by
+    reordering; its `let rec`s and the `partial` helpers it calls
+    (`inferHWType`, `extractNat`, `extractDimExpr`, `canonHardwareExpr`, …)
+    need fuel or a structural measure. Not done yet.
+  - New generic laws (in `Framed` unless noted): the translation cache's
+    read; Lean's `whnf`; a `CoreM` error; `forallTelescopeReducing` (a
+    `RefLaws` field: the combinator leaves the three values and runs its
+    continuation, in whatever contexts, for every predicate of the three
+    values).
 - **Checked** (`ShippingChildBoundaryTest`):
   - 20 derived endpoints (R0, NR at depths 1–3, HR) state `ChildBnd` at
     their run's start world; every other `ChildBnd` occurrence is at a world
