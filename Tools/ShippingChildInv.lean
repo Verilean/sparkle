@@ -76,6 +76,24 @@ inductive SideRef : {σ : Type} → IO.Ref σ → Prop
   | typeMiss : SideRef sparkleTypeCacheMiss
   | callCounter : SideRef sparkleCallCounter
   | cacheHits : SideRef sparkleCacheHits
+  | hwInferCalls : SideRef sparkleHWInferCalls
+  | hwInferMs : SideRef sparkleHWInferMs
+  | fvarZetaVisited : SideRef sparkleFvarZetaVisited
+  | whnfCalls : SideRef sparkleWhnfCalls
+  | inferCalls : SideRef sparkleInferCalls
+  | unfoldDefCalls : SideRef sparkleUnfoldDefCalls
+  | whnfMs : SideRef sparkleWhnfMs
+  | inferMs : SideRef sparkleInferMs
+  | unfoldDefMs : SideRef sparkleUnfoldDefMs
+  | handlerCalls : SideRef sparkleHandlerCalls
+  | handlerMs : SideRef sparkleHandlerMs
+
+/-- The types of the refs a run creates for itself (a translation cache, a
+handler's scratch cell): a ref of such a type is not one of the three tracked
+refs, whose types are different. -/
+inductive LocalRefType : Type → Prop
+  | exprCache : LocalRefType (Lean.ExprStructMap String)
+  | optException : LocalRefType (Option Lean.Exception)
 
 /-- The operations whose frame is a law: reads of the three tracked refs,
 any operation on the other per-synthesis refs, the environment-variable read,
@@ -90,6 +108,16 @@ inductive Framed : {α : Type} → MetaM α → Prop
   | sideSet {σ : Type} {r : IO.Ref σ} (v : σ) : SideRef r → Framed (ST.Ref.set r v : MetaM Unit)
   | sideModify {σ : Type} {r : IO.Ref σ} (f : σ → σ) : SideRef r →
       Framed (ST.Ref.modify r f : MetaM Unit)
+  | sideModifyGet {σ β : Type} {r : IO.Ref σ} (f : σ → β × σ) : SideRef r →
+      Framed (ST.Ref.modifyGet r f : MetaM β)
+  | sideModifyGetIO {σ β : Type} {r : IO.Ref σ} (f : σ → β × σ) : SideRef r →
+      Framed (liftM (ST.Ref.modifyGet r f : IO β) : MetaM β)
+  /- the same, written as an `IO` action and lifted -/
+  | sideGetIO {σ : Type} {r : IO.Ref σ} : SideRef r → Framed (liftM (ST.Ref.get r : IO σ) : MetaM σ)
+  | sideSetIO {σ : Type} {r : IO.Ref σ} (v : σ) : SideRef r →
+      Framed (liftM (ST.Ref.set r v : IO Unit) : MetaM Unit)
+  | sideModifyIO {σ : Type} {r : IO.Ref σ} (f : σ → σ) : SideRef r →
+      Framed (liftM (ST.Ref.modify r f : IO Unit) : MetaM Unit)
   | ioEnv (n : String) : Framed (liftM (IO.getEnv n) : MetaM _)
   | profLog (b : Bool) (msg : String) : Framed (liftM (profLogIO b msg) : MetaM Unit)
   | constInfo (n : Name) : Framed (getConstInfo n : MetaM _)
@@ -97,9 +125,30 @@ inductive Framed : {α : Type} → MetaM α → Prop
   | throwErr {α : Type} (msg : MessageData) : Framed (throwError msg : MetaM α)
   | coreThrowErr {α : Type} (msg : MessageData) :
       Framed (liftM (throwError msg : CoreM α) : MetaM α)
+  | fvarThrowUnknown {α : Type} (id : FVarId) :
+      Framed (liftM (id.throwUnknown : CoreM α) : MetaM α)
   /- Lean's own elaborator primitives (they read and write the Meta and Core
   states, not these refs) -/
   | whnf (e : Lean.Expr) : Framed (Lean.Meta.whnf e)
+  | inferType (e : Lean.Expr) : Framed (Lean.Meta.inferType e)
+  | ppExpr (e : Lean.Expr) : Framed (Lean.Meta.ppExpr e)
+  | isClass? (e : Lean.Expr) : Framed (Lean.Meta.isClass? e)
+  | whnfUntil (e : Lean.Expr) (n : Name) : Framed (Lean.Meta.whnfUntil e n)
+  | ioEprintln (s : String) : Framed (liftM (IO.eprintln s) : MetaM Unit)
+  | msgToString (m : MessageData) : Framed (liftM m.toString : MetaM String)
+  | ioGetStderr : Framed (liftM IO.getStderr : MetaM IO.FS.Stream)
+  | ioFlush (h : IO.FS.Stream) : Framed (liftM h.flush : MetaM Unit)
+  | ioHandleMk (p : System.FilePath) (m : IO.FS.Mode) :
+      Framed (liftM (IO.FS.Handle.mk p m) : MetaM IO.FS.Handle)
+  | ioHandlePutStrLn (h : IO.FS.Handle) (s : String) : Framed (liftM (h.putStrLn s) : MetaM Unit)
+  | ioHandleFlush (h : IO.FS.Handle) : Framed (liftM h.flush : MetaM Unit)
+  | unfoldDefinition? (e : Lean.Expr) : Framed (Lean.Meta.unfoldDefinition? e)
+  | reduce (e : Lean.Expr) (explicitOnly skipTypes skipProofs : Bool) :
+      Framed (Lean.Meta.reduce e explicitOnly skipTypes skipProofs)
+  | metaGet : Framed (get : MetaM Meta.State)
+  | coreModifyTrace (f : TraceState → TraceState) :
+      Framed (liftM (modifyTraceState f : CoreM Unit) : MetaM Unit)
+  | metaModify (f : Meta.State → Meta.State) : Framed (modify f : MetaM Unit)
   | freshFVar : Framed (mkFreshFVarId : MetaM FVarId)
   | monoMs : Framed (liftM IO.monoMsNow : MetaM Nat)
   | mkExprCache (v : Lean.ExprStructMap String) :
@@ -108,6 +157,19 @@ inductive Framed : {α : Type} → MetaM α → Prop
       Framed (ST.Ref.get r : MetaM (Lean.ExprStructMap String))
   | exprCacheGetIO (r : IO.Ref (Lean.ExprStructMap String)) :
       Framed (liftM (ST.Ref.get r : IO (Lean.ExprStructMap String)) : MetaM _)
+  /- a ref of a run-local type: created, read, written -/
+  | localMk {σ : Type} (v : σ) : LocalRefType σ → Framed (liftM (IO.mkRef v) : MetaM (IO.Ref σ))
+  | localGet {σ : Type} (r : IO.Ref σ) : LocalRefType σ → Framed (ST.Ref.get r : MetaM σ)
+  | localSet {σ : Type} (r : IO.Ref σ) (v : σ) : LocalRefType σ →
+      Framed (ST.Ref.set r v : MetaM Unit)
+  | localModify {σ : Type} (r : IO.Ref σ) (f : σ → σ) : LocalRefType σ →
+      Framed (ST.Ref.modify r f : MetaM Unit)
+  | localGetIO {σ : Type} (r : IO.Ref σ) : LocalRefType σ →
+      Framed (liftM (ST.Ref.get r : IO σ) : MetaM σ)
+  | localSetIO {σ : Type} (r : IO.Ref σ) (v : σ) : LocalRefType σ →
+      Framed (liftM (ST.Ref.set r v : IO Unit) : MetaM Unit)
+  | localModifyIO {σ : Type} (r : IO.Ref σ) (f : σ → σ) : LocalRefType σ →
+      Framed (liftM (ST.Ref.modify r f : IO Unit) : MetaM Unit)
   | exprCacheModify (r : IO.Ref (Lean.ExprStructMap String))
       (f : Lean.ExprStructMap String → Lean.ExprStructMap String) :
       Framed (ST.Ref.modify r f : MetaM Unit)
@@ -226,6 +288,18 @@ structure RefLaws where
     (∀ (mctx' : Meta.Context) (cctx' : Core.Context) xs b,
       Keeps mctx' mref cctx' cref I (k xs b)) →
     Keeps mctx mref cctx cref I (Lean.Meta.forallTelescopeReducing ty k)
+  localDecl : ∀ {mctx : Meta.Context} {cctx : Core.Context} {α : Type}
+    (I : Void IO.RealWorld → Prop),
+    (∀ w w', val w' = val w → sval w' = sval w → dval w' = dval w → I w → I w') →
+    ∀ (n : Name) (ty : Lean.Expr) (k : Lean.Expr → MetaM α),
+    (∀ (mctx' : Meta.Context) (cctx' : Core.Context) x, Keeps mctx' mref cctx' cref I (k x)) →
+    Keeps mctx mref cctx cref I (Lean.Meta.withLocalDeclD n ty k)
+  letDecl : ∀ {mctx : Meta.Context} {cctx : Core.Context} {α : Type}
+    (I : Void IO.RealWorld → Prop),
+    (∀ w w', val w' = val w → sval w' = sval w → dval w' = dval w → I w → I w') →
+    ∀ (n : Name) (ty v : Lean.Expr) (k : Lean.Expr → MetaM α),
+    (∀ (mctx' : Meta.Context) (cctx' : Core.Context) x, Keeps mctx' mref cctx' cref I (k x)) →
+    Keeps mctx mref cctx cref I (Lean.Meta.withLetDecl n ty v k)
 
 end Defs
 
@@ -266,17 +340,18 @@ def BodyRel (L : RefLaws mref cref) : Prop :=
 /-- **The legacy translator, relative to the child entry and to its
 recursive argument** (not proved): at any depth, in any contexts, IF the
 memoised child entry keeps the invariant and the translator handed in as
-`rec` does, the two entry points of the `partial` block `Rec.*` keep it — on
+`rec` does (in every context: the handlers call it under changed ones), the
+two entry points of the `partial` block `Rec.*` keep it — on
 every outcome, from every compiler state. -/
 def LegacyRel (L : RefLaws mref cref) : Prop :=
-  ∀ D, ChildKeeps L D → ∀ (mctx : Meta.Context) (cctx : Core.Context) (rec : TranslateFn),
-    (∀ e hint top named, KeepsC mctx mref cctx cref (J L D) (rec e hint top named)) →
+  ∀ D, ChildKeeps L D → ∀ (rec : TranslateFn),
+    (∀ (mctx : Meta.Context) (cctx : Core.Context) e hint top named,
+      KeepsC mctx mref cctx cref (J L D) (rec e hint top named)) →
+    ∀ (mctx : Meta.Context) (cctx : Core.Context),
     (∀ e hint top named, KeepsC mctx mref cctx cref (J L D)
       (Rec.translateExprToWireCached (fun e h t n => rec e h t n) e hint top named)) ∧
     (∀ e hint top named, KeepsC mctx mref cctx cref (J L D)
-      (Rec.translateExprToWireImpl (fun e h t n => rec e h t n) e hint top named)) ∧
-    -- a `partial` helper the projection-instance arm calls (the call key)
-    (∀ e, KeepsC mctx mref cctx cref (J L D) (canonHardwareKey e))
+      (Rec.translateExprToWireImpl (fun e h t n => rec e h t n) e hint top named))
 
 /-- The translator, relative to the child entry: at any depth, IF the
 memoised child entry keeps the invariant there, a run of the translator

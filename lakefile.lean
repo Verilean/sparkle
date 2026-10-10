@@ -615,11 +615,17 @@ lean_lib «Tools.ShippingChildHarness» where
 lean_lib «Tools.ShippingChildVC» where
   roots := #[`Tools.ShippingChildVC]
 
+lean_lib «Tools.ShippingChildHelpers» where
+  roots := #[`Tools.ShippingChildHelpers]
+
 lean_lib «Tools.ShippingChildTranslate» where
   roots := #[`Tools.ShippingChildTranslate]
 
 lean_lib «Tools.ShippingChildFallback» where
   roots := #[`Tools.ShippingChildFallback]
+
+lean_lib «Tools.ShippingChildLegacy» where
+  roots := #[`Tools.ShippingChildLegacy]
 
 lean_lib «Tools.ShippingChildRun» where
   roots := #[`Tools.ShippingChildRun]

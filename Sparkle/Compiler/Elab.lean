@@ -466,7 +466,77 @@ def isPrimitive (name : Name) : Bool :=
 def getOperator (name : Name) : Option Operator :=
   primitiveRegistry.lookup name
 
-partial def inferHWType (type : Lean.Expr) : MetaM (Option HWType) := do
+/-- A fuel-bounded fixpoint of a non-recursive monadic step, as the
+    translator's `translateFuelFix`: fuel exhaustion is a compile error.  The
+    helpers below recurse on sub-terms that `whnf` exposes — no structural
+    measure — so they are steps of this fixpoint instead of `partial`
+    definitions, which have no equations to reason with. -/
+def fuelFixM {m : Type → Type} [Monad m] [MonadExcept Lean.Exception m] {α β : Type}
+    (step : (α → m β) → α → m β) : Nat → α → m β
+  | 0, _ => throw (Lean.Exception.error .missing "recursion fuel exhausted")
+  | k + 1, a => step (fuelFixM step k) a
+
+/-- `fuelFixM` for a step of two arguments. -/
+def fuelFixM2 {m : Type → Type} [Monad m] [MonadExcept Lean.Exception m] {α β γ : Type}
+    (step : (α → β → m γ) → α → β → m γ) : Nat → α → β → m γ
+  | 0, _, _ => throw (Lean.Exception.error .missing "recursion fuel exhausted")
+  | k + 1, a, b => step (fuelFixM2 step k) a b
+
+/-- Nesting bound of the helpers' recursion (as `translateFuelLimit`). -/
+def helperFuelLimit : Nat := 1 <<< 20
+
+/-- One step of `extractWidth`: a width expression as a number. -/
+def extractWidthStep (extractWidth : Lean.Expr → MetaM Nat) (e : Lean.Expr) : MetaM Nat := do
+  let e ← whnf e
+  match e with
+  | .lit (.natVal n) => return n
+  | .app _ _ =>
+    let fnConst := e.getAppFn
+    let args := e.getAppArgs
+    if fnConst.isConstOf ``OfNat.ofNat && args.size >= 2 then
+      -- OfNat.ofNat Type n inst -> extract n
+      extractWidth args[1]!
+    -- Closed Nat arithmetic: widths of width-generic IP (`BitVec (w + f)`,
+    -- `BitVec (W + 1)`, …) reach here as `Nat.succ`/`Nat.add`/… applications
+    -- after `whnf` — `whnf` only exposes the head.  Evaluate structurally.
+    --
+    -- ⚠ Previously these fell into the silent `return 8` default below,
+    -- which MISCOMPILES: a 49-bit signal gets an 8-bit wire and the mux
+    -- feeding a 49-bit register truncates to zero.  Caught by iverilog
+    -- simulation of the emitted `IP/Control/DividerQ` RTL (the divisor
+    -- register never latched); invisible to every Lean-side test.
+    else if fnConst.isConstOf ``Nat.succ && args.size == 1 then
+      return (← extractWidth args[0]!) + 1
+    else if fnConst.isConstOf ``Nat.add && args.size == 2 then
+      return (← extractWidth args[0]!) + (← extractWidth args[1]!)
+    else if fnConst.isConstOf ``Nat.sub && args.size == 2 then
+      return (← extractWidth args[0]!) - (← extractWidth args[1]!)
+    else if fnConst.isConstOf ``Nat.mul && args.size == 2 then
+      return (← extractWidth args[0]!) * (← extractWidth args[1]!)
+    else if fnConst.isConstOf ``Nat.pow && args.size == 2 then
+      return (← extractWidth args[0]!) ^ (← extractWidth args[1]!)
+    else if fnConst.isConstOf ``Nat.mod && args.size == 2 then
+      return (← extractWidth args[0]!) % (← extractWidth args[1]!)
+    else if fnConst.isConstOf ``Nat.div && args.size == 2 then
+      return (← extractWidth args[0]!) / (← extractWidth args[1]!)
+    else if (fnConst.isConstOf ``HAdd.hAdd || fnConst.isConstOf ``HSub.hSub ||
+             fnConst.isConstOf ``HMul.hMul || fnConst.isConstOf ``HPow.hPow)
+            && args.size >= 6 then
+      let a ← extractWidth args[4]!
+      let b ← extractWidth args[5]!
+      if fnConst.isConstOf ``HAdd.hAdd then return a + b
+      else if fnConst.isConstOf ``HSub.hSub then return a - b
+      else if fnConst.isConstOf ``HMul.hMul then return a * b
+      else return a ^ b
+    else
+      return 8
+  | _ => return 8
+
+/-- A width expression as a number (closed arithmetic evaluated structurally). -/
+def extractWidth (e : Lean.Expr) : MetaM Nat := fuelFixM extractWidthStep helperFuelLimit e
+
+def inferHWTypeStep (inferHWType : Lean.Expr → MetaM (Option HWType)) (type : Lean.Expr) :
+    MetaM (Option HWType) := do
   -- Use `.all` transparency so reducible defs like `HList`
   -- (which unfolds to a nested `Prod`/`Unit` chain via
   -- pattern-match) are reduced past their match head.
@@ -549,55 +619,13 @@ partial def inferHWType (type : Lean.Expr) : MetaM (Option HWType) := do
             return some (.bitVector totalW)
       return none
     | _ => return none
-where
-  extractWidth (e : Lean.Expr) : MetaM Nat := do
-    let e ← whnf e
-    match e with
-    | .lit (.natVal n) => return n
-    | .app _ _ =>
-      let fnConst := e.getAppFn
-      let args := e.getAppArgs
-      if fnConst.isConstOf ``OfNat.ofNat && args.size >= 2 then
-        -- OfNat.ofNat Type n inst -> extract n
-        extractWidth args[1]!
-      -- Closed Nat arithmetic: widths of width-generic IP (`BitVec (w + f)`,
-      -- `BitVec (W + 1)`, …) reach here as `Nat.succ`/`Nat.add`/… applications
-      -- after `whnf` — `whnf` only exposes the head.  Evaluate structurally.
-      --
-      -- ⚠ Previously these fell into the silent `return 8` default below,
-      -- which MISCOMPILES: a 49-bit signal gets an 8-bit wire and the mux
-      -- feeding a 49-bit register truncates to zero.  Caught by iverilog
-      -- simulation of the emitted `IP/Control/DividerQ` RTL (the divisor
-      -- register never latched); invisible to every Lean-side test.
-      else if fnConst.isConstOf ``Nat.succ && args.size == 1 then
-        return (← extractWidth args[0]!) + 1
-      else if fnConst.isConstOf ``Nat.add && args.size == 2 then
-        return (← extractWidth args[0]!) + (← extractWidth args[1]!)
-      else if fnConst.isConstOf ``Nat.sub && args.size == 2 then
-        return (← extractWidth args[0]!) - (← extractWidth args[1]!)
-      else if fnConst.isConstOf ``Nat.mul && args.size == 2 then
-        return (← extractWidth args[0]!) * (← extractWidth args[1]!)
-      else if fnConst.isConstOf ``Nat.pow && args.size == 2 then
-        return (← extractWidth args[0]!) ^ (← extractWidth args[1]!)
-      else if fnConst.isConstOf ``Nat.mod && args.size == 2 then
-        return (← extractWidth args[0]!) % (← extractWidth args[1]!)
-      else if fnConst.isConstOf ``Nat.div && args.size == 2 then
-        return (← extractWidth args[0]!) / (← extractWidth args[1]!)
-      else if (fnConst.isConstOf ``HAdd.hAdd || fnConst.isConstOf ``HSub.hSub ||
-               fnConst.isConstOf ``HMul.hMul || fnConst.isConstOf ``HPow.hPow)
-              && args.size >= 6 then
-        let a ← extractWidth args[4]!
-        let b ← extractWidth args[5]!
-        if fnConst.isConstOf ``HAdd.hAdd then return a + b
-        else if fnConst.isConstOf ``HSub.hSub then return a - b
-        else if fnConst.isConstOf ``HMul.hMul then return a * b
-        else return a ^ b
-      else
-        return 8
-    | _ => return 8
+
+def inferHWType (type : Lean.Expr) : MetaM (Option HWType) :=
+  fuelFixM inferHWTypeStep helperFuelLimit type
 
 /-- Preserve a retained top-level Nat binder as a closed symbolic dimension. -/
-partial def extractDimExpr (expr : Lean.Expr) : CompilerM DimExpr := do
+def extractDimExprStep (extractDimExpr : Lean.Expr → CompilerM DimExpr) (expr : Lean.Expr) :
+    CompilerM DimExpr := do
   let expr ← CompilerM.liftMetaM (whnf expr)
   match expr with
   | .lit (.natVal value) => return .literal value
@@ -653,9 +681,13 @@ partial def extractDimExpr (expr : Lean.Expr) : CompilerM DimExpr := do
       let rendered ← CompilerM.liftMetaM (ppExpr expr)
       CompilerM.liftMetaM $ throwError s!"Unsupported symbolic hardware dimension '{rendered}'"
 
+def extractDimExpr (expr : Lean.Expr) : CompilerM DimExpr :=
+  fuelFixM extractDimExprStep helperFuelLimit expr
+
 /-- Infer hardware types with retained dimensions when parameter synthesis is active.
     The established concrete inference path remains untouched for ordinary APIs. -/
-partial def inferHWTypeWithDimensions (type : Lean.Expr) : CompilerM (Option HWType) := do
+def inferHWTypeWithDimensionsStep (inferHWTypeWithDimensions : Lean.Expr → CompilerM (Option HWType)) (type : Lean.Expr) :
+    CompilerM (Option HWType) := do
   let state ← CompilerM.getCompilerState
   if !state.symbolicMode then
     return ← CompilerM.liftMetaM (inferHWType type)
@@ -679,6 +711,8 @@ partial def inferHWTypeWithDimensions (type : Lean.Expr) : CompilerM (Option HWT
     CompilerM.liftMetaM $ throwError
       s!"Parameterized synthesis currently supports packed BitVec/Bool/Prod payloads; unsupported type '{rendered}'"
 
+def inferHWTypeWithDimensions (type : Lean.Expr) : CompilerM (Option HWType) :=
+  fuelFixM inferHWTypeWithDimensionsStep helperFuelLimit type
 
 /-- Extract `ResetKind` from a `Signal dom α` expression.
 
@@ -717,8 +751,8 @@ def inferResetKindFromSignal (signalType : Lean.Expr) :
   | _ =>
     return .asynchronous
 
-private initialize sparkleHWInferCalls : IO.Ref Nat ← IO.mkRef 0
-private initialize sparkleHWInferMs    : IO.Ref Nat ← IO.mkRef 0
+initialize sparkleHWInferCalls : IO.Ref Nat ← IO.mkRef 0
+initialize sparkleHWInferMs    : IO.Ref Nat ← IO.mkRef 0
 
 def inferHWTypeFromSignal (signalType : Lean.Expr) : CompilerM HWType := do
   let t0 ← CompilerM.liftMetaM IO.monoMsNow
@@ -753,7 +787,8 @@ def isSignalBinderType (type : Lean.Expr) : CompilerM Bool := do
   | _ => return false
 
 /-- Helper to extract a Nat literal or OfNat.ofNat wrap. -/
-partial def extractNat (e : Lean.Expr) : CompilerM Nat := do
+def extractNatStep (extractNat : Lean.Expr → CompilerM Nat) (e : Lean.Expr) :
+    CompilerM Nat := do
   let e ← CompilerM.liftMetaM (whnf e)
   let fn := e.getAppFn
   let args := e.getAppArgs
@@ -802,6 +837,9 @@ partial def extractNat (e : Lean.Expr) : CompilerM Nat := do
        CompilerM.liftMetaM $ throwError s!"Expected Nat literal, got constant: {name}"
   | .lit (.natVal n) => return n
   | _ => CompilerM.liftMetaM $ throwError s!"Expected Nat, got: {e}"
+
+def extractNat (e : Lean.Expr) : CompilerM Nat :=
+  fuelFixM extractNatStep helperFuelLimit e
 
 /-- Build a concrete or symbolic IR slice without freezing either bound. -/
 def makeSliceExpr (source : Sparkle.IR.AST.Expr) (hi lo : DimExpr) :
@@ -865,7 +903,8 @@ def extractNatLiteral (expr : Lean.Expr) : CompilerM (Nat × Unit) := do
   return (n, ())
 
 /-- Extract values from a List (BitVec n) expression into an array of (value, width) pairs -/
-partial def extractBitVecList (expr : Lean.Expr) : CompilerM (Array (Nat × Nat)) := do
+def extractBitVecListStep (extractBitVecList : Lean.Expr → CompilerM (Array (Nat × Nat))) (expr : Lean.Expr) :
+    CompilerM (Array (Nat × Nat)) := do
   let expr ← CompilerM.liftMetaM (whnf expr)
   let fn := expr.getAppFn
   let args := expr.getAppArgs
@@ -883,6 +922,9 @@ partial def extractBitVecList (expr : Lean.Expr) : CompilerM (Array (Nat × Nat)
       CompilerM.liftMetaM $ throwError s!"Expected List.cons or List.nil, got: {name}"
   | _ =>
     CompilerM.liftMetaM $ throwError s!"Expected List expression, got: {expr}"
+
+def extractBitVecList (expr : Lean.Expr) : CompilerM (Array (Nat × Nat)) :=
+  fuelFixM extractBitVecListStep helperFuelLimit expr
 
 /-- Extract values from an Array (BitVec n) expression -/
 def extractBitVecArray (expr : Lean.Expr) : CompilerM (Array (Nat × Nat)) := do
@@ -928,7 +970,7 @@ def sparkleSynthDepthLimit : Nat := 1024
     that bind the loop state to an fvar whose definition then
     transitively references that fvar through the loop's
     memoize chain.  Use this to detect and abort cleanly. -/
-private initialize sparkleFvarZetaVisited : IO.Ref (Std.HashSet Lean.Name) ← IO.mkRef {}
+initialize sparkleFvarZetaVisited : IO.Ref (Std.HashSet Lean.Name) ← IO.mkRef {}
 
 /-- Map from `let`-bound HW fvar names back to their defining
     expressions.  Populated by the HW-let branch of
@@ -1052,12 +1094,12 @@ initialize sparkleTypeCacheMiss : IO.Ref Nat ← IO.mkRef 0
     each total — gives a direct read on which Meta call is
     the actual hot spot rather than guessing from handler
     inclusive times. -/
-private initialize sparkleWhnfCalls       : IO.Ref Nat ← IO.mkRef 0
-private initialize sparkleInferCalls      : IO.Ref Nat ← IO.mkRef 0
-private initialize sparkleUnfoldDefCalls  : IO.Ref Nat ← IO.mkRef 0
-private initialize sparkleWhnfMs          : IO.Ref Nat ← IO.mkRef 0
-private initialize sparkleInferMs         : IO.Ref Nat ← IO.mkRef 0
-private initialize sparkleUnfoldDefMs     : IO.Ref Nat ← IO.mkRef 0
+initialize sparkleWhnfCalls       : IO.Ref Nat ← IO.mkRef 0
+initialize sparkleInferCalls      : IO.Ref Nat ← IO.mkRef 0
+initialize sparkleUnfoldDefCalls  : IO.Ref Nat ← IO.mkRef 0
+initialize sparkleWhnfMs          : IO.Ref Nat ← IO.mkRef 0
+initialize sparkleInferMs         : IO.Ref Nat ← IO.mkRef 0
+initialize sparkleUnfoldDefMs     : IO.Ref Nat ← IO.mkRef 0
 
 /-- Wrap a MetaM `whnf` with counters. -/
 def countedWhnf (e : Lean.Expr) : CompilerM Lean.Expr := do
@@ -1095,8 +1137,8 @@ def cachedInferType (e : Lean.Expr) : CompilerM Lean.Expr := do
 
 /-- Per-handler invocation counters + cumulative ms.  Index is
     fixed by `sparkleProfHandlerNames` below. -/
-private initialize sparkleHandlerCalls : IO.Ref (Array Nat) ← IO.mkRef (Array.replicate 11 0)
-private initialize sparkleHandlerMs    : IO.Ref (Array Nat) ← IO.mkRef (Array.replicate 11 0)
+initialize sparkleHandlerCalls : IO.Ref (Array Nat) ← IO.mkRef (Array.replicate 11 0)
+initialize sparkleHandlerMs    : IO.Ref (Array Nat) ← IO.mkRef (Array.replicate 11 0)
 
 private def sparkleProfHandlerNames : Array String :=
   #["handleErrorPatterns", "handleCircuitMonad", "handleTupleProjections",
@@ -1171,7 +1213,8 @@ def instLinkCheck (recName : Name) (child : Sparkle.IR.AST.Module)
     the correct INSTANCE identity for multi-output sub-modules: calls with
     different argument wires get different keys (issue #120), while repeated
     projections of one `let engine := …` binder share one key (issue #71). -/
-partial def canonHardwareExpr (value : Lean.Expr) : CompilerM Lean.Expr := do
+def canonHardwareExprStep (canonHardwareExpr : Lean.Expr → CompilerM Lean.Expr) (value : Lean.Expr) :
+    CompilerM Lean.Expr := do
   let canon ← CompilerM.liftMetaM (sparkleWireCanon.get : IO _)
   let canonOf (w : String) : String := Id.run do
     let mut w := w
@@ -1246,6 +1289,9 @@ partial def canonHardwareExpr (value : Lean.Expr) : CompilerM Lean.Expr := do
     match sub with
     | .fvar fid => repl.get? fid.name
     | _ => none
+
+def canonHardwareExpr (value : Lean.Expr) : CompilerM Lean.Expr :=
+  fuelFixM canonHardwareExprStep helperFuelLimit value
 
 def canonHardwareKey (value : Lean.Expr) : CompilerM String := do
   return toString (← canonHardwareExpr value).hash
@@ -1808,8 +1854,9 @@ def translateCanonicalSignalBinary (translate : TranslateFn) (e : Lean.Expr)
     Falls back to `[(none, e)]` if the type doesn't match any
     of the above — that keeps non-Signal payloads round-
     tripping through the legacy single-wire path. -/
-partial def splitReturnLeaves
-    (e : Lean.Expr) (prefix? : Option String := none) :
+def splitReturnLeavesStep
+    (splitReturnLeaves : Lean.Expr → Option String → MetaM (Array (String × Lean.Expr)))
+    (e : Lean.Expr) (prefix? : Option String) :
     MetaM (Array (String × Lean.Expr)) := do
   -- If the body is still wrapped in lambdas (e.g. the top-
   -- level `def f (x : ...) : RxOut dom := …` whose params
@@ -1913,6 +1960,10 @@ partial def splitReturnLeaves
   -- Anything else: treat as a single leaf with whatever name.
   return #[(prefix?.getD "out", e)]
 
+def splitReturnLeaves (e : Lean.Expr) (prefix? : Option String := none) :
+    MetaM (Array (String × Lean.Expr)) :=
+  fuelFixM2 splitReturnLeavesStep helperFuelLimit e prefix?
+
 /-- "Open" record-typed parameters at the synth boundary.
 
     For a function `body = fun (p₁ : T₁) (rec : MyRec) (p₂) => …`
@@ -1935,7 +1986,7 @@ partial def splitReturnLeaves
     every fvar stays in scope when `mkLambdaFVars` runs at
     the deepest layer.  No IO.Ref shenanigans — the worker
     threads state purely. -/
-partial def openRecordInputs (body : Lean.Expr) : MetaM Lean.Expr := do
+def openRecordInputs (body : Lean.Expr) : MetaM Lean.Expr := do
   let bodyType ← inferType body
   forallTelescopeReducing bodyType fun params _ => do
     let inner := mkAppN body params
@@ -1946,57 +1997,63 @@ partial def openRecordInputs (body : Lean.Expr) : MetaM Lean.Expr := do
     -- `forallTelescopeReducing` cb we open so the field
     -- fvars remain in the local context when we finally call
     -- `mkLambdaFVars`.
+    -- `fuel` bounds the recursion structurally: each call advances `idx`, so
+    -- `params.size + 1` steps always suffice (it is never exhausted).
     let rec walk
+        (fuel : Nat)
         (idx : Nat)
         (binders : Array Lean.Expr)
         (subst   : Array (Lean.FVarId × Lean.Expr))
         (opened  : Bool) : MetaM Lean.Expr := do
-      if h : idx < params.size then
-        let p := params[idx]
-        let pType ← whnf (← inferType p)
-        match pType.getAppFn with
-        | .const indName _ =>
-          let some indVal ← (try some <$> getConstInfoInduct indName catch _ => pure none)
-            | walk (idx + 1) (binders.push p) subst opened
-          unless indVal.ctors.length == 1 && !indVal.isRec do
-            return ← walk (idx + 1) (binders.push p) subst opened
-          let ctorName := indVal.ctors.head!
-          let ctorInfo ← getConstInfoCtor ctorName
-          let nParams := indVal.numParams
-          let paramArgs := pType.getAppArgs.toList.take nParams |>.toArray
-          let ctorType ← instantiateForall ctorInfo.type paramArgs
-          forallTelescopeReducing ctorType fun fields _ => do
-            -- Guard: only open records whose every field is
-            -- `Signal _ _`.  Reg, Slot, Prod-as-state, etc.
-            -- are technically single-ctor but opening them
-            -- would split a register handle into its internal
-            -- (Signal, Slot) pair and break the rest of the
-            -- elaborator.  HFT-NIC `RxIn` / `RxOut` / similar
-            -- shapes are all "flat Signal record"; that's
-            -- exactly what we want to catch.
-            let allSignalFields ← fields.allM fun f => do
-              let fT ← whnf (← inferType f)
-              return fT.isAppOf ``Sparkle.Core.Signal.Signal
-            if !allSignalFields then
-              walk (idx + 1) (binders.push p) subst opened
-            else
-              let recVal := mkAppN (.const ctorName (ctorInfo.levelParams.map Level.param))
-                              (paramArgs ++ fields)
-              walk (idx + 1)
-                (binders ++ fields)
-                (subst.push (p.fvarId!, recVal))
-                true
-        | _ => walk (idx + 1) (binders.push p) subst opened
-      else
-        -- Reached the end of the param list.  If nothing was
-        -- opened, return the original `body` as-is; otherwise
-        -- apply the accumulated substitution and close.
-        if !opened then return body
-        let mut substituted := inner
-        for (origFvarId, recVal) in subst do
-          substituted := substituted.replaceFVarId origFvarId recVal
-        mkLambdaFVars binders substituted
-    walk 0 #[] #[] false
+      match fuel with
+      | 0 => throwError "openRecordInputs: parameter walk out of fuel"
+      | fuel + 1 =>
+        if h : idx < params.size then
+          let p := params[idx]
+          let pType ← whnf (← inferType p)
+          match pType.getAppFn with
+          | .const indName _ =>
+            let some indVal ← (try some <$> getConstInfoInduct indName catch _ => pure none)
+              | walk fuel (idx + 1) (binders.push p) subst opened
+            unless indVal.ctors.length == 1 && !indVal.isRec do
+              return ← walk fuel (idx + 1) (binders.push p) subst opened
+            let ctorName := indVal.ctors.head!
+            let ctorInfo ← getConstInfoCtor ctorName
+            let nParams := indVal.numParams
+            let paramArgs := pType.getAppArgs.toList.take nParams |>.toArray
+            let ctorType ← instantiateForall ctorInfo.type paramArgs
+            forallTelescopeReducing ctorType fun fields _ => do
+              -- Guard: only open records whose every field is
+              -- `Signal _ _`.  Reg, Slot, Prod-as-state, etc.
+              -- are technically single-ctor but opening them
+              -- would split a register handle into its internal
+              -- (Signal, Slot) pair and break the rest of the
+              -- elaborator.  HFT-NIC `RxIn` / `RxOut` / similar
+              -- shapes are all "flat Signal record"; that's
+              -- exactly what we want to catch.
+              let allSignalFields ← fields.allM fun f => do
+                let fT ← whnf (← inferType f)
+                return fT.isAppOf ``Sparkle.Core.Signal.Signal
+              if !allSignalFields then
+                walk fuel (idx + 1) (binders.push p) subst opened
+              else
+                let recVal := mkAppN (.const ctorName (ctorInfo.levelParams.map Level.param))
+                                (paramArgs ++ fields)
+                walk fuel (idx + 1)
+                  (binders ++ fields)
+                  (subst.push (p.fvarId!, recVal))
+                  true
+          | _ => walk fuel (idx + 1) (binders.push p) subst opened
+        else
+          -- Reached the end of the param list.  If nothing was
+          -- opened, return the original `body` as-is; otherwise
+          -- apply the accumulated substitution and close.
+          if !opened then return body
+          let mut substituted := inner
+          for (origFvarId, recVal) in subst do
+            substituted := substituted.replaceFVarId origFvarId recVal
+          mkLambdaFVars binders substituted
+    walk (params.size + 1) 0 #[] #[] false
 
 /-- Deep-strip every `Signal.memoize x` sub-expression to `x`
     in a Lean expression tree.  `Signal.memoize` is a sim-only
@@ -6284,8 +6341,17 @@ def handleDefinitionUnfold (e : Lean.Expr) (name : Name) (args : Array Lean.Expr
       let recordArg := args.back!
       let mkName := structName ++ `mk
       let mut cur := recordArg
-      let mut steps := 0
-      while steps < 32 do
+      -- At most 32 reduction steps.  This was
+      --   `let mut steps := 0; while steps < 32 do …; steps := steps + 1`
+      -- with the same two `break`s and no `continue`: `steps` started at 0
+      -- and grew by exactly 1 per completed iteration, so the body ran at
+      -- most 32 times and the loop stopped at the first `break` or after the
+      -- 32nd iteration.  `for _ in [0:32]` runs the same body under the same
+      -- two `break`s at most 32 times: the same iterations, the same final
+      -- `cur`.  (`steps` was read nowhere else.)  The bound 32 is the
+      -- ORIGINAL one, not a new limit.  Why a `for`: `while` is Lean's
+      -- `Loop.forIn`, a `partial` loop about which nothing can be proved.
+      for _ in [0:32] do
         -- Reduce the head: try unfoldDefinition? first, then
         -- whnf for the harder cases (typeclass dispatch under
         -- runCircuitH).  Stop as soon as the head is the
@@ -6299,7 +6365,6 @@ def handleDefinitionUnfold (e : Lean.Expr) (name : Name) (args : Array Lean.Expr
           | none => Lean.Meta.whnf cur
         if stepped == cur then break
         cur := stepped
-        steps := steps + 1
       if cur != recordArg then
         -- Got the constructor — directly grab the projected
         -- field from the ctor's args rather than re-applying

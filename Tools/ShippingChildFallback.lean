@@ -37,7 +37,8 @@ given the memoised child entry does: the synthesis ref's read returns
 
 section Arms
 variable (rec : TranslateFn)
-  (hrec : ∀ e hint top named, KeepsC mctx mref cctx cref (J L D) (rec e hint top named))
+  (hrec : ∀ (mctx : Meta.Context) (cctx : Core.Context) e hint top named,
+    KeepsC mctx mref cctx cref (J L D) (rec e hint top named))
 include hrec
 
 @[keeps] theorem translateBoolUncachedWith_keepsC (legacy : TranslateFn)
@@ -162,14 +163,14 @@ end Arms
 
 section Dispatch
 variable (rec : TranslateFn)
-  (hrec : ∀ e hint top named, KeepsC mctx mref cctx cref (J L D) (rec e hint top named))
+  (hrec : ∀ (mctx : Meta.Context) (cctx : Core.Context) e hint top named,
+    KeepsC mctx mref cctx cref (J L D) (rec e hint top named))
   (hC : ChildKeeps L D)
   (hlegC : ∀ e hint top named, KeepsC mctx mref cctx cref (J L D)
     (Rec.translateExprToWireCached (fun e h t n => rec e h t n) e hint top named))
   (hlegI : ∀ e hint top named, KeepsC mctx mref cctx cref (J L D)
     (Rec.translateExprToWireImpl (fun e h t n => rec e h t n) e hint top named))
-  (hkey : ∀ e, KeepsC mctx mref cctx cref (J L D) (canonHardwareKey e))
-include hrec hC hlegC hkey
+include hrec hC hlegC
 
 /-- **The instance arm**: the environment read, the child's synthesis
 (`childSynthEntry`), the single-output and the projection lowerings under the
@@ -190,9 +191,9 @@ end Dispatch
 
 /-- **`FallbackRel` from `LegacyRel`.** -/
 theorem fallbackRel_of_legacy (hLg : LegacyRel L) : FallbackRel L := by
-  intro D hC mctx cctx rec hrec e hint top named
-  obtain ⟨h1, h2, h3⟩ := hLg D hC mctx cctx rec hrec
-  exact translateFallback_keepsC L D rec hrec hC h1 h2 h3 e hint top named
+  intro D hC rec hrec mctx cctx e hint top named
+  obtain ⟨h1, h2⟩ := hLg D hC rec hrec mctx cctx
+  exact translateFallback_keepsC L D rec hrec hC h1 h2 e hint top named
 
 /-- **`TranslateRel` from `LegacyRel`**: the fuel induction, the step's own
 code and every ordinary arm are proved; what is left is the legacy translator. -/

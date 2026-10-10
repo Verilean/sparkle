@@ -550,6 +550,59 @@ and `ShippingChildCacheRun` removed).
   yet: `LegacyRel` still stands, and the block still calls `partial`
   helpers (`inferHWType`, `extractNat`, `extractDimExpr`,
   `inferHWTypeWithDimensions`, `extractBitVecList`, `canonHardwareExpr`).
+- **Helpers and handlers walked; the tactic's cost measured (2026-10-11).**
+  - Compiler: the monadic helpers that were `partial` are fuel-bounded
+    fixpoints of ordinary steps (`fuelFixM` / `fuelFixM2`, limit
+    `helperFuelLimit` = `translateFuelLimit`): `extractWidth`, `inferHWType`,
+    `extractDimExpr`, `inferHWTypeWithDimensions`, `extractNat`,
+    `extractBitVecList`, `canonHardwareExpr`, `splitReturnLeaves`;
+    `openRecordInputs`' worker by a fuel equal to the parameter count + 1
+    (never exhausted). The remaining `partial` definitions are pure (the
+    `mach*` shape readers, `stripMemoizeWrappers`). One `while steps < 32`
+    loop is `for _ in [0:32]` — the same at-most-32 iterations and the same
+    two `break`s (the reason is in the code comment); `while` is Lean's
+    `partial` `Loop.forIn`. The other per-synthesis refs are public (laws
+    must name them).
+  - PROVED (`Tools/ShippingChildHelpers.lean`, `ShippingChildLegacy.lean`),
+    every outcome: the fuel induction for the helpers, the twelve helpers
+    (so `canonHardwareKey` left `LegacyRel`), tracing, and of the legacy
+    block: its three local recursions, the eleven handlers and the
+    application dispatch `Rec.translateExprToWireApp`.
+  - **`LegacyRel` now**: only `Rec.translateExprToWireImpl` (1,055 lines)
+    and its caching shim `Rec.translateExprToWireCached`, relative to the
+    recursive argument in every context. NOT proved: `vc` does not finish
+    on `translateExprToWireImpl` within its budget (below).
+  - New generic laws: Lean's `inferType`, `reduce`, `ppExpr`, `whnfUntil`,
+    `unfoldDefinition?`, `isClass?`, the Meta state's read/modify, the trace
+    state's modify, an unknown-fvar error, `withLocalDeclD` / `withLetDecl`
+    (continuation in any contexts), stderr/handle output, message
+    rendering, and refs of run-local types (`LocalRefType`: a translation
+    cache, a handler's `Option Exception` cell).
+  - **Cost of the tactic, measured** (same lemma before → after; kernel
+    type checking stayed ≈10 ms per lemma — the time was all in the search):
+    - one `trace[…]`: 4.1 s → under 0.1 s (its two parts are lemmas now,
+      walked once);
+    - `handleTupleProjections`: 14.7 s → 0.40 s; `handleCircuitMonad`:
+      15.4 s → 0.28 s; `handleLoop`: no result in 150 s → 2.6 s;
+      `handleDefinitionUnfold`: no result in 3400 s → 27 s;
+      `translateExprToWireApp`: timeout after 103 s → 11 s;
+    - module builds: helpers 24 s → 3.0 s, translate 5.7 s → 1.3 s.
+    - What it was: (1) a failed attempt to close a leaf by a law unified the
+      law's pattern with an unrelated large program (0.6 s each) — now
+      rejected on syntax first; (2) the "is this branch contradictory" check
+      ran on side goals too and at every enclosing level; (3) the `try/catch`
+      rule was tried on every instance projection; (4) join points
+      (`__do_jp`) were walked once per use — now once, as a local fact;
+      (5) `for` rules were tried in turn instead of picked by the
+      collection's type; (6) the walk descended into Lean's internals —
+      now refused, the public primitive needs a law; (7) a `CompilerM` action
+      applied to its states was matched against `MetaM` rules first.
+    - Tried and rejected by measurement: walking each `match` alternative
+      once as a local fact made the helpers file 60× slower (3 s → 190 s);
+      it is off.
+    - Still the limit: `translateExprToWireImpl` exceeds a 120 s budget
+      (about 31,000 goals visited); `handleDefinitionUnfold` at 27 s visits
+      32,000. The duplication there is not yet located.
 - **Checked** (`ShippingChildBoundaryTest`):
   - 20 derived endpoints (R0, NR at depths 1–3, HR) state `ChildBnd` at
     their run's start world; every other `ChildBnd` occurrence is at a world

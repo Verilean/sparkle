@@ -7,6 +7,7 @@ import Tools.ShippingMachineSeqCommandR
 import Tools.ShippingMachineDepthCommandR
 import Tools.ShippingMachineComposeRCommand
 import Tools.ShippingChildRun
+import Tools.ShippingChildLegacy
 
 /-! The child-run boundary DERIVED on real compiles (`#machine_design_svR0`).
 
@@ -402,11 +403,12 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   -- entry points and one `partial` helper, relative to the recursive argument
   let lg ← unfoldAt ``Tools.ShippingChildInv.LegacyRel
   for c in [``Sparkle.Compiler.Elab.Rec.translateExprToWireCached,
-      ``Sparkle.Compiler.Elab.Rec.translateExprToWireImpl, ``Sparkle.Compiler.Elab.canonHardwareKey,
+      ``Sparkle.Compiler.Elab.Rec.translateExprToWireImpl,
       ``Tools.ShippingChildInv.ChildKeeps, ``Tools.ShippingChildInv.KeepsC] do
     unless mentions lg c do throwError "LegacyRel: no {c}"
+  -- (the call-key helper is proved now: `canonHardwareKey_keeps`)
   for c in [``Sparkle.Compiler.Elab.translateExprToWire, ``Sparkle.Compiler.Elab.translateFallback,
-      ``Sparkle.Compiler.Elab.translateStep] do
+      ``Sparkle.Compiler.Elab.translateStep, ``Sparkle.Compiler.Elab.canonHardwareKey] do
     if mentions lg c then throwError "LegacyRel mentions {c}"
   -- the two conditions are RELATIVE (their premise is the child entry's
   -- keeping the invariant), about every outcome (`Keeps`, by the end world),
@@ -459,7 +461,12 @@ run_cmd Lean.Elab.Command.liftTermElabM do
       ``Tools.ShippingChildInv.translateBoolUncachedWith_keepsC,
       ``Tools.ShippingChildInv.translateCircuitDo2UncachedWith_keepsC,
       ``Tools.ShippingChildInv.translateMemoryUncachedWith_keepsC,
-      ``Tools.ShippingChildInv.childSynthEntry_keeps, ``Tools.ShippingChildInv.Keeps.tryCatch] do
+      ``Tools.ShippingChildInv.childSynthEntry_keeps, ``Tools.ShippingChildInv.Keeps.tryCatch,
+      ``Tools.ShippingChildInv.canonHardwareKey_keeps, ``Tools.ShippingChildInv.extractNat_keeps,
+      ``Tools.ShippingChildInv.inferHWType_keeps, ``Tools.ShippingChildInv.fuelFixM_keepsC,
+      ``Tools.ShippingChildInv.Keeps.forIn_range, ``Tools.ShippingChildInv.KeepsC.bindE,
+      ``Tools.ShippingChildInv.handleDefinitionUnfold_keeps, ``Tools.ShippingChildInv.handleLoop_keeps,
+      ``Tools.ShippingChildInv.translateExprToWireApp_keeps] do
     for ax in ← Lean.collectAxioms name do
       unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do
         throwError "{name} uses a non-standard axiom: {ax}"

@@ -1,4 +1,4 @@
-import Tools.ShippingChildVC
+import Tools.ShippingChildHelpers
 
 /-! # The translator keeps the child invariant, given its fallback does
 
@@ -7,8 +7,9 @@ an ordinary definition: a fuel-bounded fixpoint of the non-recursive step
 `translateStep = translateStepWith translateFallback`.
 
 * **The fuel induction** (`fuelFix_keepsC`): if a step keeps the invariant
-  whenever its recursive argument does, the fixpoint keeps it at every fuel —
-  at fuel 0 it throws. Every outcome; the world, the compiler state and the
+  whenever its recursive argument does, the fixpoint keeps it at every fuel, in every Meta and Core context (the
+  handlers call the recursive argument under changed contexts) — at fuel 0
+  it throws. Every outcome; the world, the compiler state and the
   circuit state are whatever the run reaches.
 * **The step's own code** (`translateStepWith_keepsC`): the validated cache
   lookup, the core (`translateCore`: a bound variable, a `Signal.pure`
@@ -31,9 +32,11 @@ translator**: at any depth, in any contexts, IF the memoised child entry
 keeps the invariant and the recursive argument `rec` does, a run of
 `translateFallback rec` keeps it — on every outcome. -/
 def FallbackRel (L : RefLaws mref cref) : Prop :=
-  ∀ D, ChildKeeps L D → ∀ (mctx : Meta.Context) (cctx : Core.Context) (rec : TranslateFn),
-    (∀ e hint top named, KeepsC mctx mref cctx cref (J L D) (rec e hint top named)) →
-    ∀ e hint top named, KeepsC mctx mref cctx cref (J L D) (translateFallback rec e hint top named)
+  ∀ D, ChildKeeps L D → ∀ (rec : TranslateFn),
+    (∀ (mctx : Meta.Context) (cctx : Core.Context) e hint top named,
+      KeepsC mctx mref cctx cref (J L D) (rec e hint top named)) →
+    ∀ (mctx : Meta.Context) (cctx : Core.Context) e hint top named,
+      KeepsC mctx mref cctx cref (J L D) (translateFallback rec e hint top named)
 
 variable (L : RefLaws mref cref) (D : Nat)
 
@@ -58,14 +61,16 @@ variable (L : RefLaws mref cref) (D : Nat)
 /-- **The core**: a bound variable, a `Signal.pure` literal, a canonical
 library operator (two recursive operand translations, a wire, an assign). -/
 @[keeps] theorem translateCore_keepsC (rec : TranslateFn)
-    (hrec : ∀ e hint top named, KeepsC mctx mref cctx cref (J L D) (rec e hint top named))
+    (hrec : ∀ (mctx : Meta.Context) (cctx : Core.Context) e hint top named,
+      KeepsC mctx mref cctx cref (J L D) (rec e hint top named))
     (e : Lean.Expr) (hint : String) (top named : Bool) :
     KeepsC mctx mref cctx cref (J L D) (translateCore rec e hint top named) := by
   vc
 
 /-- **One step of the knot**, given the recursive argument and the fallback. -/
 theorem translateStepWith_keepsC (fallback : TranslateFn → TranslateFn) (rec : TranslateFn)
-    (hrec : ∀ e hint top named, KeepsC mctx mref cctx cref (J L D) (rec e hint top named))
+    (hrec : ∀ (mctx : Meta.Context) (cctx : Core.Context) e hint top named,
+      KeepsC mctx mref cctx cref (J L D) (rec e hint top named))
     (hfb : ∀ e hint top named, KeepsC mctx mref cctx cref (J L D) (fallback rec e hint top named))
     (e : Lean.Expr) (hint : String) (top named : Bool) :
     KeepsC mctx mref cctx cref (J L D) (translateStepWith fallback rec e hint top named) := by
@@ -73,26 +78,31 @@ theorem translateStepWith_keepsC (fallback : TranslateFn → TranslateFn) (rec :
 
 /-- **The fuel induction.** A step that keeps the invariant whenever its
 recursive argument does gives a fixpoint that keeps it at every fuel. -/
-theorem fuelFix_keepsC {I : Void IO.RealWorld → Prop} (step : TranslateFn → TranslateFn)
+theorem fuelFix_keepsC {mref : ST.Ref IO.RealWorld Meta.State}
+    {cref : ST.Ref IO.RealWorld Core.State} {I : Void IO.RealWorld → Prop}
+    (step : TranslateFn → TranslateFn)
     (hstep : ∀ rec : TranslateFn,
-      (∀ e hint top named, KeepsC mctx mref cctx cref I (rec e hint top named)) →
-      ∀ e hint top named, KeepsC mctx mref cctx cref I (step rec e hint top named)) :
-    ∀ (k : Nat) e hint top named,
+      (∀ (mctx : Meta.Context) (cctx : Core.Context) e hint top named,
+        KeepsC mctx mref cctx cref I (rec e hint top named)) →
+      ∀ (mctx : Meta.Context) (cctx : Core.Context) e hint top named,
+        KeepsC mctx mref cctx cref I (step rec e hint top named)) :
+    ∀ (k : Nat) (mctx : Meta.Context) (cctx : Core.Context) e hint top named,
       KeepsC mctx mref cctx cref I (translateFuelFix step k e hint top named)
-  | 0, e, hint, top, named => by
+  | 0, mctx, cctx, e, hint, top, named => by
     unfold translateFuelFix
     exact KeepsC.throw _
-  | k + 1, e, hint, top, named => by
+  | k + 1, mctx, cctx, e, hint, top, named => by
     unfold translateFuelFix
-    exact hstep _ (fuelFix_keepsC step hstep k) e hint top named
+    exact hstep _ (fuelFix_keepsC step hstep k) mctx cctx e hint top named
 
 /-- **`TranslateRel` from `FallbackRel`.** -/
 theorem translateRel_of_fallback (hF : FallbackRel L) : TranslateRel L := by
   intro D hC mctx cctx e hint top named
   unfold translateExprToWire
-  refine fuelFix_keepsC translateStep (fun rec hrec e hint top named => ?_) _ e hint top named
+  refine fuelFix_keepsC translateStep (fun rec hrec mctx cctx e hint top named => ?_) _ mctx cctx
+    e hint top named
   unfold translateStep
   exact translateStepWith_keepsC L D translateFallback rec hrec
-    (hF D hC mctx cctx rec hrec) e hint top named
+    (hF D hC rec hrec mctx cctx) e hint top named
 
 end Tools.ShippingChildInv
