@@ -33,7 +33,8 @@ successful run of the entry gives its closings).
   (`Framed`: on every outcome they leave the three values). Nothing about the
   compiler's invariant is in them. That a ref operation cannot fail is NOT a
   law: it is proved from the lift's definition (`refGet_runs` …).
-* `BodyRel` — the compiler-specific condition NOT proved. It is RELATIVE:
+* `BodyRel` — PROVED (`bodyRel`, `Tools/ShippingChildBody.lean`), no longer
+  part of the boundary: `ChildLaws` is the generic laws alone. It is RELATIVE:
   `synthesizeFromConst` with the entry's own logger keeps the invariant at
   depth `D` on every outcome PROVIDED the memoised child entry does.
   (`LegacyRel`, the same about the legacy translator `Rec.*`, is PROVED —
@@ -135,6 +136,12 @@ inductive Framed : {α : Type} → MetaM α → Prop
   | ppExpr (e : Lean.Expr) : Framed (Lean.Meta.ppExpr e)
   | isClass? (e : Lean.Expr) : Framed (Lean.Meta.isClass? e)
   | whnfUntil (e : Lean.Expr) (n : Name) : Framed (Lean.Meta.whnfUntil e n)
+  | instantiateForall (e : Lean.Expr) (ps : Array Lean.Expr) :
+      Framed (Lean.Meta.instantiateForall e ps)
+  | mkLambdaFVars (xs : Array Lean.Expr) (e : Lean.Expr) (usedOnly usedLetOnly etaReduce
+      generalizeNondepLet : Bool) (bi : BinderInfo) :
+      Framed (Lean.Meta.mkLambdaFVars xs e usedOnly usedLetOnly etaReduce generalizeNondepLet bi)
+  | mkAppM (c : Name) (xs : Array Lean.Expr) : Framed (Lean.Meta.mkAppM c xs)
   | ioEprintln (s : String) : Framed (liftM (IO.eprintln s) : MetaM Unit)
   | msgToString (m : MessageData) : Framed (liftM m.toString : MetaM String)
   | ioGetStderr : Framed (liftM IO.getStderr : MetaM IO.FS.Stream)
@@ -289,6 +296,13 @@ structure RefLaws where
     (∀ (mctx' : Meta.Context) (cctx' : Core.Context) xs b,
       Keeps mctx' mref cctx' cref I (k xs b)) →
     Keeps mctx mref cctx cref I (Lean.Meta.forallTelescopeReducing ty k)
+  lamTelescope : ∀ {mctx : Meta.Context} {cctx : Core.Context} {α : Type}
+    (I : Void IO.RealWorld → Prop),
+    (∀ w w', val w' = val w → sval w' = sval w → dval w' = dval w → I w → I w') →
+    ∀ (e : Lean.Expr) (k : Array Lean.Expr → Lean.Expr → MetaM α) (cleanup : Bool),
+    (∀ (mctx' : Meta.Context) (cctx' : Core.Context) xs b,
+      Keeps mctx' mref cctx' cref I (k xs b)) →
+    Keeps mctx mref cctx cref I (Lean.Meta.lambdaTelescope e k cleanup)
   localDecl : ∀ {mctx : Meta.Context} {cctx : Core.Context} {α : Type}
     (I : Void IO.RealWorld → Prop),
     (∀ w w', val w' = val w → sval w' = sval w → dval w' = dval w → I w → I w') →
@@ -328,7 +342,8 @@ def ChildKeeps (L : RefLaws mref cref) (D : Nat) : Prop :=
   ∀ (mctx : Meta.Context) (cctx : Core.Context) c,
     Keeps mctx mref cctx cref (J L D) (synthesizeChild c)
 
-/-- **The body, relative to the child entry** (not proved): at any depth, IF
+/-- **The body, relative to the child entry** (PROVED: `bodyRel`,
+`Tools/ShippingChildBody.lean`; not part of `ChildLaws`): at any depth, IF
 the memoised child entry keeps the invariant there, a run of
 `synthesizeFromConst` with the entry's own logger keeps it — on every
 outcome, in every Meta and Core context. -/
@@ -376,12 +391,13 @@ def HarnessRel (L : RefLaws mref cref) : Prop :=
 section Bnd
 variable (mref : ST.Ref IO.RealWorld Meta.State) (cref : ST.Ref IO.RealWorld Core.State)
 
-/-- The context-level part of the child boundary: generic laws under which
-the one relative condition left holds (the body, `BodyRel`; the translator
-— harness, fuel recursion, certified arms, instance arm, legacy block — is
-proved). The world-level part is `StartW` at the run's start. -/
+/-- The context-level part of the child boundary: the GENERIC laws of the
+three refs and of Lean's primitives (`RefLaws`) — nothing about the compiler.
+Both compiler-specific conditions that used to stand here are proved under
+them (`bodyRel`, `legacyRel`). The world-level part is `StartW` at the run's
+start. -/
 def ChildLaws : Prop :=
-  ∃ L : RefLaws mref cref, BodyRel L
+  Nonempty (RefLaws mref cref)
 
 /-- **The child boundary of a run starting in `w`**: the laws and the start
 condition in the start world. -/

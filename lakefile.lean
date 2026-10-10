@@ -627,6 +627,9 @@ lean_lib «Tools.ShippingChildFallback» where
 lean_lib «Tools.ShippingChildLegacy» where
   roots := #[`Tools.ShippingChildLegacy]
 
+lean_lib «Tools.ShippingChildBody» where
+  roots := #[`Tools.ShippingChildBody]
+
 lean_lib «Tools.ShippingChildRun» where
   roots := #[`Tools.ShippingChildRun]
 

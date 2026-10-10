@@ -120,6 +120,14 @@ theorem Keeps.map {α β : Type} {I : Void IO.RealWorld → Prop} {m : MetaM α}
     (h : Keeps mctx mref cctx cref I m) : Keeps mctx mref cctx cref I (f <$> m) :=
   Keeps.bind h fun a => Keeps.pure (f a)
 
+/-- `lambdaTelescope`: its continuation, in whatever contexts it runs. -/
+theorem Keeps.lambdaTelescope {α : Type} (L : RefLaws mref cref) (D : Nat) (e : Lean.Expr)
+    (k : Array Lean.Expr → Lean.Expr → MetaM α) (cleanup : Bool)
+    (hk : ∀ (mctx' : Meta.Context) (cctx' : Core.Context) xs b,
+      Keeps mctx' mref cctx' cref (J L D) (k xs b)) :
+    Keeps mctx mref cctx cref (J L D) (Lean.Meta.lambdaTelescope e k cleanup) :=
+  L.lamTelescope (J L D) (fun _ _ h1 h2 h3 hw => J_same L ⟨h1, h2, h3⟩ hw) e k cleanup hk
+
 /-- `forallTelescopeReducing`: its continuation, in whatever contexts it runs. -/
 theorem Keeps.forallTelescopeReducing {α : Type} (L : RefLaws mref cref) (D : Nat) (ty : Lean.Expr)
     (k : Array Lean.Expr → Lean.Expr → MetaM α)
@@ -1032,6 +1040,9 @@ partial def walkCore (g : MVarId) (fuel : Nat) : MetaM Unit := do
       if c == ``Lean.Meta.withLocalDeclD then
         return ← applyThen g
           (← mkConstWithFreshMVarLevels ``Tools.ShippingChildInv.Keeps.withLocalDeclD) fuel
+      if c == ``Lean.Meta.lambdaTelescope then
+        return ← applyThen g
+          (← mkConstWithFreshMVarLevels ``Tools.ShippingChildInv.Keeps.lambdaTelescope) fuel
       if c == ``Lean.Meta.forallTelescopeReducing then
         return ← applyThen g
           (← mkConstWithFreshMVarLevels ``Tools.ShippingChildInv.Keeps.forallTelescopeReducing) fuel
@@ -1059,6 +1070,16 @@ partial def walkCore (g : MVarId) (fuel : Nat) : MetaM Unit := do
 end
 
 end VC
+
+/-- `unfold` for a private constant of another module (Lean's own loop under
+`Array.mapM`), named by its module and name. -/
+elab "unfoldPriv" md:ident n:ident : tactic =>
+  Lean.Elab.Tactic.liftMetaTactic1 fun g =>
+    Lean.Meta.unfoldTarget g (Lean.mkPrivateNameCore md.getId n.getId)
+
+/-- A private constant of another module, by its module and name. -/
+elab "privConst%" md:ident n:ident : term =>
+  mkConstWithFreshMVarLevels (Lean.mkPrivateNameCore md.getId n.getId)
 
 /-- Walk the goal's program (see the file's header). -/
 elab "vc" : tactic => Lean.Elab.Tactic.liftMetaTactic fun g => do

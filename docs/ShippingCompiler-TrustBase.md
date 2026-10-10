@@ -640,6 +640,36 @@ and `ShippingChildCacheRun` removed).
   - Remaining rate limiter: none in the translator. Next is `BodyRel`'s
     legacy tail (`openRecordInputs`, `lambdaTelescope`, `splitReturnLeaves`,
     `bindInputsLegacy`).
+- **`BodyRel` proved; the child boundary has no compiler-specific premise
+  left (2026-10-11).** `ChildLaws` is `Nonempty RefLaws`: the generic laws of
+  the three refs and of Lean's primitives. `bodyRel : BodyRel L`
+  (`Tools/ShippingChildBody.lean`) walks `synthesizeFromConst` on every
+  outcome, by route: certified (`synthesizeCertified_keeps`, with
+  `bindCertifiedInputs`), mixed (`harnessRel_of` + `translateRel`), machine
+  (`machine_keeps`), and the legacy tail — `openRecordInputs` (its worker by
+  induction on its fuel, in every context), the `lambdaTelescope`,
+  `splitReturnLeaves` (`fuelFixM2`), `bindInputsLegacy` (induction on a
+  bound of `xs.size - i`), `emitLeaves`, `finishSynth`. `childKeeps`: the
+  memoised entry keeps the invariant at every depth, unconditionally.
+  - What was ADDED to the generic laws for this (all about Lean, none about
+    the compiler): frame laws for `instantiateForall`, `mkLambdaFVars`,
+    `mkAppM` (every outcome leaves the three ref values), and the
+    continuation law for `lambdaTelescope` (as for
+    `forallTelescopeReducing`). They are assumptions about Lean's runtime,
+    not proved here.
+  - Generic rules proved: `Array.allM` (through `Array.anyM.loop`) and
+    `Array.mapM` (through Lean's private loop, named by `privConst%` /
+    `unfoldPriv`).
+  - Scope: `BodyRel` is the body at `parameters = []`, `symbolicMode =
+    false`, `certifiedFrontEnd = true` — the arguments of the child entry.
+    Symbolic-width synthesis stays outside (§7).
+  - NOT changed by this: the reflection premises (`MachineDefines`,
+    `MachineCloses`, `EntryDefines`) are still asked in every Meta/Core
+    context (open: transfer restricted to reachable contexts, or evidence
+    carried by the run witness); the depth limit 1024 and
+    `helperFuelLimit = 2^20` are still fixed constants (open: proofs for an
+    arbitrary limit, and "enough fuel reproduces a finite successful run");
+    `kidsCombB` narrowing is open.
   - **Heavy runs are confined** (`scripts/shipping-coverage/cgrun.sh`): one
     transient `systemd --user` service per run, `MemoryMax` / `MemoryHigh` /
     `MemorySwapMax=0`, group OOM kill, a timeout, limits read back from the

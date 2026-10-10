@@ -1,4 +1,4 @@
-import Tools.ShippingChildLegacy
+import Tools.ShippingChildBody
 
 /-! # A successful run of the real entry: what its closings receive
 
@@ -399,8 +399,7 @@ theorem synthesizeMachineCertified_inv (L : RefLaws mref cref)
 successful run of the real core entry at the machine boundary, STARTING in a
 world satisfying the invariant, returns the closing of its transition with
 children that are, call by call, built memory modules or `RealChild`s of the
-call's declaration — under the generic laws and the body's relative
-condition (`ChildLaws`). -/
+call's declaration — under the generic laws alone (`ChildLaws`). -/
 theorem machine_children_real {declName : Name} {shape : MachineShape}
     {w w' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {d : Sparkle.IR.AST.Design}
     (hr : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (m, d) w')
@@ -411,7 +410,8 @@ theorem machine_children_real {declName : Name} {shape : MachineShape}
       Sparkle.IR.Machine.closeLets shape.layout.lets t = some t' ∧
       CloseCalls shape t (Sparkle.IR.Machine.closeMachine shape.layout t') d₀ children m d ∧
       ChildrenReal mref cref shape children := by
-  obtain ⟨⟨L, hB⟩, hw⟩ := hb
+  obtain ⟨⟨L⟩, hw⟩ := hb
+  have hB := bodyRel L
   have hH := harnessRel_of L (translateRel L)
   obtain ⟨b, envR, ci, w1, w2, w3, w4, w5, w6, get, henv, run, hw3⟩ :=
     core_reads_inv L (startV_of_startW mctx cctx L hw) hr
@@ -443,7 +443,7 @@ theorem machine_run_of_core {declName : Name} {shape : MachineShape}
         (fun e hint top named => translateExprToWire e hint top named) (profLogIO b) declName shape)
         mctx mref cctx cref w9 r w10 ∧ InvW mref cref w9 ∧
       ∀ res, r = some res → res = (m, d) := by
-  obtain ⟨L, _⟩ := hb.1
+  obtain ⟨L⟩ := hb.1
   obtain ⟨b, envR, ci, w1, w2, w3, w4, w5, w6, get, henv, run, hw3⟩ :=
     core_reads_inv L (startV_of_startW mctx cctx L hb.2) hr
   obtain ⟨old, miss, _⟩ := entry _ _ _ _ _ _ _ _ _ get henv henv
@@ -466,7 +466,8 @@ theorem synthesizeMachineCertified_runs {b : Bool} {declName shape m d} {w w'}
        (shape.insts ≠ [] ∧ ∃ children,
           CloseCalls shape t (Sparkle.IR.Machine.closeMachine shape.layout t') d₀ children m d ∧
           ChildrenReal mref cref shape children)) := by
-  obtain ⟨L, hB⟩ := hL
+  obtain ⟨L⟩ := hL
+  have hB := bodyRel L
   have hH := harnessRel_of L (translateRel L)
   exact synthesizeMachineCertified_inv L hB hH (invV_of_invW mctx cctx L hw) hr
 
