@@ -33,11 +33,12 @@ successful run of the entry gives its closings).
   (`Framed`: on every outcome they leave the three values). Nothing about the
   compiler's invariant is in them. That a ref operation cannot fail is NOT a
   law: it is proved from the lift's definition (`refGet_runs` …).
-* `BodyRel` / `LegacyRel` — the compiler-specific conditions NOT proved.
-  They are RELATIVE: `synthesizeFromConst` with the entry's own logger (resp.
-  the legacy translator, the `partial` block `Rec.*`) keeps the invariant at
-  depth `D` on every outcome PROVIDED the memoised child entry (and, for the
-  legacy translator, its recursive argument) does. Proved around them: the
+* `BodyRel` — the compiler-specific condition NOT proved. It is RELATIVE:
+  `synthesizeFromConst` with the entry's own logger keeps the invariant at
+  depth `D` on every outcome PROVIDED the memoised child entry does.
+  (`LegacyRel`, the same about the legacy translator `Rec.*`, is PROVED —
+  `legacyRel`, `Tools/ShippingChildLegacy.lean` — and no longer part of the
+  boundary.) Proved around them: the
   machine route's harness (`harnessRel_of`), the translator's fuel induction,
   its step and every ordinary arm (`translateRel_of_legacy`). They do not presuppose that the entry keeps the
   invariant: that is a theorem (`entry_keeps`), by induction on the depth
@@ -338,10 +339,11 @@ def BodyRel (L : RefLaws mref cref) : Prop :=
         declName [] false true ci isInst)
 
 /-- **The legacy translator, relative to the child entry and to its
-recursive argument** (not proved): at any depth, in any contexts, IF the
+recursive argument** (PROVED: `legacyRel`, `Tools/ShippingChildLegacy.lean`;
+not part of `ChildLaws`): at any depth, in any contexts, IF the
 memoised child entry keeps the invariant and the translator handed in as
 `rec` does (in every context: the handlers call it under changed ones), the
-two entry points of the `partial` block `Rec.*` keep it — on
+two entry points of the block `Rec.*` keep it — on
 every outcome, from every compiler state. -/
 def LegacyRel (L : RefLaws mref cref) : Prop :=
   ∀ D, ChildKeeps L D → ∀ (rec : TranslateFn),
@@ -356,8 +358,8 @@ def LegacyRel (L : RefLaws mref cref) : Prop :=
 /-- The translator, relative to the child entry: at any depth, IF the
 memoised child entry keeps the invariant there, a run of the translator
 `translateExprToWire` keeps it — on every outcome, from every compiler state,
-in every Meta and Core context. PROVED from `LegacyRel`
-(`translateRel_of_legacy`, `Tools/ShippingChildFallback.lean`). -/
+in every Meta and Core context. PROVED (`translateRel`,
+`Tools/ShippingChildLegacy.lean`). -/
 def TranslateRel (L : RefLaws mref cref) : Prop :=
   ∀ D, ChildKeeps L D → ∀ (mctx : Meta.Context) (cctx : Core.Context) e hint top named,
     KeepsC mctx mref cctx cref (J L D) (translateExprToWire e hint top named)
@@ -375,10 +377,11 @@ section Bnd
 variable (mref : ST.Ref IO.RealWorld Meta.State) (cref : ST.Ref IO.RealWorld Core.State)
 
 /-- The context-level part of the child boundary: generic laws under which
-the two relative conditions hold. The world-level part is `StartW` at the
-run's start. -/
+the one relative condition left holds (the body, `BodyRel`; the translator
+— harness, fuel recursion, certified arms, instance arm, legacy block — is
+proved). The world-level part is `StartW` at the run's start. -/
 def ChildLaws : Prop :=
-  ∃ L : RefLaws mref cref, BodyRel L ∧ LegacyRel L
+  ∃ L : RefLaws mref cref, BodyRel L
 
 /-- **The child boundary of a run starting in `w`**: the laws and the start
 condition in the start world. -/

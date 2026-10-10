@@ -336,10 +336,10 @@ Every derived endpoint states `ChildBnd ctx w` for the world `w` its run of the
 entry STARTS in — not a statement about every world — and nothing of the
 replaced boundaries (`ChildSynthIs`, `RefIs`, `CacheReads`) remains anywhere,
 also inside the children's boundaries. Unfolded, `ChildBnd` is: generic laws
-(`RefLaws`) under which the two RELATIVE conditions hold (`BodyRel` /
-`LegacyRel`: the body with the entry's own logger, resp. the legacy translator,
-keeps the invariant on every outcome PROVIDED the memoised child entry does;
-the machine route's harness around the translator is proved, `harnessRel_of`), and the start condition `StartW` of that world (the synthesis ref
+(`RefLaws`) under which ONE RELATIVE condition holds (`BodyRel`: the body
+with the entry's own logger keeps the invariant on every outcome PROVIDED the
+memoised child entry does; the translator — harness `harnessRel_of`, fuel
+recursion, arms, legacy block `legacyRel` — is proved), and the start condition `StartW` of that world (the synthesis ref
 reads `synthesizeChild`, and the depth reads 0 or the cache satisfies the
 invariant). That the entry itself keeps the invariant is no premise: it is
 `entry_keeps`, by induction on the synthesis depth. -/
@@ -393,14 +393,14 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   for c in [``Tools.ShippingChildInv.ChildLaws, ``Tools.ShippingChildInv.StartW] do
     unless mentions body c do throwError "ChildBnd unfolds without {c}"
   let laws ← unfoldAt ``Tools.ShippingChildInv.ChildLaws
-  for c in [``Tools.ShippingChildInv.RefLaws, ``Tools.ShippingChildInv.BodyRel,
-      ``Tools.ShippingChildInv.LegacyRel] do
+  for c in [``Tools.ShippingChildInv.RefLaws, ``Tools.ShippingChildInv.BodyRel] do
     unless mentions laws c do throwError "ChildLaws unfolds without {c}"
-  -- the harness and the translator as a whole are no longer assumed
-  for c in [``Tools.ShippingChildInv.HarnessRel, ``Tools.ShippingChildInv.TranslateRel] do
+  -- the harness, the translator and its legacy block are no longer assumed
+  for c in [``Tools.ShippingChildInv.HarnessRel, ``Tools.ShippingChildInv.TranslateRel,
+      ``Tools.ShippingChildInv.LegacyRel] do
     if mentions laws c then throwError "ChildLaws still assumes {c}"
-  -- what is assumed of the translator is about the `partial` legacy block's
-  -- entry points and one `partial` helper, relative to the recursive argument
+  -- the (proved) statement about the legacy block is about its two entry
+  -- points, relative to the recursive argument
   let lg ← unfoldAt ``Tools.ShippingChildInv.LegacyRel
   for c in [``Sparkle.Compiler.Elab.Rec.translateExprToWireCached,
       ``Sparkle.Compiler.Elab.Rec.translateExprToWireImpl,
@@ -454,6 +454,10 @@ run_cmd Lean.Elab.Command.liftTermElabM do
       ``Tools.ShippingChildInv.bindMixedCertifiedInputs_tripleC,
       ``Tools.ShippingChildInv.finishSynth_triple,
       ``Tools.ShippingChildInv.translateRel_of_legacy, ``Tools.ShippingChildInv.fallbackRel_of_legacy,
+      ``Tools.ShippingChildInv.legacyRel, ``Tools.ShippingChildInv.translateRel,
+      ``Tools.ShippingChildInv.translateExprToWireImpl_keeps,
+      ``Tools.ShippingChildInv.translateExprToWireCached_keeps,
+      ``Tools.ShippingChildInv.toIR_keepsC,
       ``Tools.ShippingChildInv.translateRel_of_fallback, ``Tools.ShippingChildInv.fuelFix_keepsC,
       ``Tools.ShippingChildInv.translateStepWith_keepsC, ``Tools.ShippingChildInv.translateCore_keepsC,
       ``Tools.ShippingChildInv.translateFallback_keepsC,
@@ -470,7 +474,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     for ax in ← Lean.collectAxioms name do
       unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do
         throwError "{name} uses a non-standard axiom: {ax}"
-  Lean.logInfo m!"CHILD BOUNDARY ALONG THE RUN: {es.length} derived endpoints state ChildBnd at their run's start world (children's at worlds their premises bind), no ChildSynthIs / RefIs / CacheReads at any level; ChildBnd unfolds to RefLaws + BodyRel + LegacyRel (relative to the child entry, every outcome; the harness, the translator's fuel induction, its step and every ordinary arm are proved — translateRel_of_legacy) + StartW (synthesis ref, and depth 0 or the cache invariant); the entry keeps the invariant by induction on the depth (entry_keeps, from BodyRel alone); the prefix, the memoised entry (hit / miss), the closings and the machine route keep the invariant; standard axioms"
+  Lean.logInfo m!"CHILD BOUNDARY ALONG THE RUN: {es.length} derived endpoints state ChildBnd at their run's start world (children's at worlds their premises bind), no ChildSynthIs / RefIs / CacheReads at any level; ChildBnd unfolds to RefLaws + BodyRel (relative to the child entry, every outcome; the translator is proved outright — harness, fuel induction, step, every arm and the legacy block: translateRel, legacyRel) + StartW (synthesis ref, and depth 0 or the cache invariant); the entry keeps the invariant by induction on the depth (entry_keeps, from BodyRel alone); the prefix, the memoised entry (hit / miss), the closings and the machine route keep the invariant; standard axioms"
 
 /-! ### The cache on real compiles: repeated, nested, sequential + memory
 

@@ -412,16 +412,48 @@ register_option vc.stats : Bool := { defValue := false }
 initialize vcStats : IO.Ref (Std.HashMap String (Nat × Nat)) ← IO.mkRef {}
 initialize vcStart : IO.Ref Nat ← IO.mkRef 0
 initialize vcLastUnfold : IO.Ref Name ← IO.mkRef .anonymous
+/-- Programs visited, up to the names of local variables: shape ↦ (visits, a
+representative). Only filled under `vc.stats` / a budget. -/
+initialize vcShapes : IO.Ref (Std.HashMap UInt64 (Nat × Expr)) ← IO.mkRef {}
+/-- The chain of programs being walked (outermost first), as short labels. -/
+initialize vcStack : IO.Ref (Array String) ← IO.mkRef #[]
+/-- For a program shape: the chain at its first visit; and, for the largest
+shape seen twice, the two chains (to see where a duplication starts). -/
+initialize vcFirstPath : IO.Ref (Std.HashMap UInt64 (Array String)) ← IO.mkRef {}
+initialize vcDup : IO.Ref (Option (Nat × Array String × Array String)) ← IO.mkRef none
 
 namespace VC
+
+/-- A note in the trace file `VC_TRACE_FILE` (written at once: a command's
+stderr is shown only when the command ends). -/
+def vcNote (msg : Unit → MetaM String) : MetaM Unit := do
+  if let some f ← IO.getEnv "VC_TRACE_FILE" then
+    let m ← msg ()
+    IO.FS.withFile f .append fun hd => hd.putStrLn m
 
 /-- Run `x`, charging its time to `stage`. -/
 def timed {α : Type} (stage : String) (x : MetaM α) : MetaM α := do
   let t0 ← IO.monoMsNow
+  vcNote fun _ => return s!"  > {stage}"
   try x
   finally
     let dt := (← IO.monoMsNow) - t0
     vcStats.modify fun m => let (c, ms) := m.getD stage (0, 0); m.insert stage (c + 1, ms + dt)
+
+/-- The programs visited most often, with how often and how large they are. -/
+def shapesLine : MetaM String := do
+  let l := ((← vcShapes.get).toList.map (·.2)).mergeSort (fun a b => a.1 ≥ b.1)
+  let mut out := ""
+  for (c, e) in l.take 12 do
+    let txt := ((← ppExpr e).pretty.replace "\n" " ").take 150
+    out := out ++ s!"\n  {c}× [size {e.approxDepth}] {txt}"
+  -- the LARGEST programs visited more than once: where a duplication starts
+  out := out ++ "\n  largest revisited:"
+  let big := (l.filter (·.1 ≥ 2)).mergeSort (fun a b => a.2.approxDepth ≥ b.2.approxDepth)
+  for (c, e) in big.take 8 do
+    let txt := ((← ppExpr e).pretty.replace "\n" " ").take 220
+    out := out ++ s!"\n  {c}× [size {e.approxDepth}] {txt}"
+  return out
 
 def statsLine : MetaM String := do
   let m ← vcStats.get
@@ -429,7 +461,12 @@ def statsLine : MetaM String := do
   let l := stages.mergeSort (fun a b => a.2.2 ≥ b.2.2)
   let hs := (heads.mergeSort (fun a b => a.2.1 ≥ b.2.1)).take 14
   return ", ".intercalate (l.map fun (k, c, ms) => s!"{k}: {c}× {ms}ms") ++ " | visits " ++
-    ", ".intercalate (hs.map fun (k, c, _) => s!"{k} {c}")
+    ", ".intercalate (hs.map fun (k, c, _) => s!"{k} {c}") ++ " | most revisited programs:" ++
+    (← shapesLine) ++ (match ← vcDup.get with
+      | some (sz, a, b) =>
+        let common := (a.zip b).takeWhile (fun (x, y) => x == y) |>.size
+        s!"\n  largest program walked twice (size {sz}): the two walks share {common} enclosing steps, then\n    1st: {(a.extract common (common + 6)).toList}\n    2nd: {(b.extract common (common + 6)).toList}\n    last shared: {(a.extract (common - 3) common).toList}\n    end of 2nd: {(b.extract (b.size - 9) b.size).toList}"
+      | none => "")
 
 /-- Apply `e` to `g` by its SYNTACTIC binders only: instantiate them, unify
 the conclusion with the goal, and return what is left to prove. (`apply`
@@ -437,7 +474,23 @@ also unfolds the conclusion to find more binders — `Keeps` is a `∀` —
 and can then miss the intended instance.) -/
 def applyExact (g : MVarId) (e : Expr) : MetaM (List MVarId) := g.withContext do
   let (ms, bis, concl) ← forallMetaTelescope (← instantiateMVars (← inferType e))
-  unless ← isDefEq concl (← g.getType) do
+  let gT ← instantiateMVars (← g.getType)
+  -- a `Keeps` / `KeepsC` statement against one: argument by argument. (Unifying
+  -- the two applications whole, a mismatch in an early argument — another
+  -- context — makes the unifier unfold `Keeps` on both sides and compare the
+  -- runs of the two programs: unbounded time and memory on a large program.)
+  let ok ← match keepsProg? concl.cleanupAnnotations, keepsProg? gT.cleanupAnnotations with
+    | some (c1, _), some (c2, _) =>
+      if c1 != c2 then pure false
+      else
+        let (as, bs) := (concl.cleanupAnnotations.getAppArgs, gT.cleanupAnnotations.getAppArgs)
+        let mut ok := true
+        for a in as, b in bs do
+          if ok then
+            unless ← isDefEq a b do ok := false
+        pure ok
+    | _, _ => isDefEq concl gT
+  unless ok do
     throwError "vc: {e} does not apply"
   for m in ms, bi in bis do
     if bi.isInstImplicit then
@@ -447,6 +500,14 @@ def applyExact (g : MVarId) (e : Expr) : MetaM (List MVarId) := g.withContext do
   let mut out := []
   for m in ms do
     unless ← m.mvarId!.isAssigned do
+      -- a `Unit` argument: unification succeeds by eta for `Unit` without
+      -- assigning it (a join point `jp : Unit → m α` called as `jp ()`); it has
+      -- one value
+      let mT ← whnfR (← instantiateMVars (← inferType m))
+      if mT.isConstOf ``Unit || mT.isAppOf ``PUnit then
+        m.mvarId!.assign (if mT.isConstOf ``Unit then mkConst ``Unit.unit
+          else mkConst ``PUnit.unit mT.getAppFn.constLevels!)
+        continue
       -- what is left must be a proposition: an undetermined type or value
       -- means the statement did not really match
       unless ← isProp (← inferType m) do throwError "vc: {e} leaves {← inferType m} undetermined"
@@ -491,10 +552,22 @@ def mayMatch (xs : Array Expr) (pat p : Expr) : MetaM Bool := do
       else unless b.isFVar || b.isMVar || b.isProj do return false
   return true
 
+/-- Close `g` by a tactic, with no error recovery: a failing tactic must fail,
+not admit the goal. -/
+def closeBy (g : MVarId) (stx : Syntax) : MetaM Unit := do
+  let gs ← (Lean.Elab.Term.withoutErrToSorry
+    (Lean.Elab.Tactic.run g (Lean.Elab.Tactic.withoutRecover (Lean.Elab.Tactic.evalTactic stx)))).run'
+  unless gs.isEmpty do throwError "not closed"
+
 /-- Close a side goal: a hypothesis, or constructors (of `Framed`, `SideRef`),
 each tried only when its statement's program has the goal's head. -/
 partial def side (g : MVarId) (depth : Nat := 4) : MetaM Unit := g.withContext do
   if ← attempt g.assumption then return
+  -- a size bound (the premise of an induction hypothesis of a definition
+  -- recursive on sub-terms): arithmetic over `sizeOf`
+  let t0 ← instantiateMVars (← g.getType)
+  if t0.isAppOfArity ``LT.lt 4 && (t0.getArg! 0).isConstOf ``Nat then
+    if ← attempt (do closeBy g (← `(tactic| first | omega | (subst_vars; simp only [Lean.Expr.app.sizeOf_spec] at *; omega)))) then return
   if depth == 0 then throwError "vc: side goal {← g.getType}"
   let t ← whnfR (← instantiateMVars (← g.getType))
   let .const ind _ := t.getAppFn | throwError "vc: side goal {t}"
@@ -523,13 +596,6 @@ def simpHead? (p : Expr) : Option Expr :=
     some (mkAppN (p'.getAppFn.letBody!.instantiate1 p'.getAppFn.letValue!) p'.getAppArgs)
   else if p' != p then some p'
   else none
-
-/-- Close `g` by a tactic, with no error recovery: a failing tactic must fail,
-not admit the goal. -/
-def closeBy (g : MVarId) (stx : Syntax) : MetaM Unit := do
-  let gs ← (Lean.Elab.Term.withoutErrToSorry
-    (Lean.Elab.Tactic.run g (Lean.Elab.Tactic.withoutRecover (Lean.Elab.Tactic.evalTactic stx)))).run'
-  unless gs.isEmpty do throwError "not closed"
 
 /-- Close a goal whose hypotheses contradict each other (a branch the
 surrounding `match` / `if` has already excluded). -/
@@ -575,13 +641,17 @@ partial def walk (g : MVarId) (fuel : Nat) : MetaM Unit := do
     throw (Exception.error (← getRef) (MessageData.tagged `vcFinal
       m!"vc: over its {budget} ms budget — {← statsLine}"))
   let (_, g) ← g.intros
-  try walkCore g (fuel - 1)
+  let depth := (← vcStack.get).size
+  try
+    try walkCore g (fuel - 1)
+    finally vcStack.modify (·.shrink depth)
   catch e =>
     -- a branch that cannot happen (only for a program's goal: a side goal
     -- that fails is just not provable this way)
     let isProg := (keepsProg? (← instantiateMVars (← g.getType)).cleanupAnnotations).isSome
     -- only at the innermost failing goal: an enclosing goal has no more
     -- hypotheses than it, so if that one is not absurd neither is this one
+    vcNote fun _ => return s!"  failed: {((← e.toMessageData.toString).take 300)}"
     if e.toMessageData.hasTag (· == `vcFinal) then throw e
     let headName := match keepsProg? (← instantiateMVars (← g.getType)).cleanupAnnotations with
       | some (_, q) => toString q.getAppFn.constName?
@@ -602,10 +672,27 @@ partial def walkCore (g : MVarId) (fuel : Nat) : MetaM Unit := do
     let k := "@" ++ (if h.isConst then toString h.constName! else if h.isFVar then
       toString fvName else if pm0.isLet then "let:" ++ toString pm0.letName! else "other")
     vcStats.modify fun m => let (c, ms) := m.getD k (0, 0); m.insert k (c + 1, ms)
+    -- the program's shape: local variables forgotten
+    let shape := (p.replace fun e => if e.isFVar then some (mkConst `x) else none).hash
+    vcShapes.modify fun m => let (c, _) := m.getD shape (0, p); m.insert shape (c + 1, p)
+    let label := s!"{if isC then "C" else "M"}:{if h.isConst then toString h.constName!.getString! else if h.isFVar then toString fvName else if pm0.isLet then "let " ++ toString pm0.letName! else "·"}#{shape % 10000}"
+    let path := (← vcStack.get).push label
+    match (← vcFirstPath.get).get? shape with
+    | none => vcFirstPath.modify (·.insert shape path)
+    | some first =>
+      let sz := p.approxDepth.toNat
+      if ((← vcDup.get).map (·.1)).getD 0 < sz then vcDup.set (some (sz, first, path))
+    vcStack.modify (·.push label)
   if vc.trace.get (← getOptions) then
     let h := p.getAppFn
     IO.eprintln s!"vc {if isC then "C" else "M"} {if h.isConst then toString h.constName! else if h.isFVar then "fvar" else if h.isProj then "proj" else if p.isLet then "let" else if p.isLambda then "lam" else "other"} args={p.getAppNumArgs}"
     unless h.isConst || h.isFVar || h.isProj do IO.eprintln s!"   :: {((← ppExpr p).pretty.take 400)}"
+    -- (a command's stderr is shown only when the command ends; a run that does
+    -- not end is followed in this file)
+    if let some f ← IO.getEnv "VC_TRACE_FILE" then
+      let ms := (← IO.monoMsNow) - (← vcStart.get)
+      IO.FS.withFile f .append fun hd => hd.putStrLn
+        s!"{ms} {if isC then "C" else "M"} {h.constName?.getD (if h.isFVar then `fvar else `other)} args={p.getAppNumArgs} size={p.approxDepth}"
   -- a join point (`have jp := fun r => …; …`, used at several exits of a `do`
   -- block): walked ONCE, as a local fact about `jp`, instead of once per use
   let pm := p.consumeMData
@@ -628,17 +715,81 @@ partial def walkCore (g : MVarId) (fuel : Nat) : MetaM Unit := do
       return (resTy r).map fun (c, a) => (c, a.abstract xs)
     if let some (jC, _) := (if vc.shareJoinPoints.get (← getOptions) then kind? else none) then
       let keepsFn := t.appFn!
+      -- a `have` (the body does not depend on the value): the body is walked
+      -- for ANY `jp` with the fact — `(fun jp hjp => body's proof) value fact`.
+      -- The value is then in no goal of the body's walk; kept there as a local
+      -- definition, every `match` split under it carries it in its motive, and
+      -- the proof term of a large definition grows past any memory.
+      if pm.letNondep! then
+        let ka := keepsFn.getAppArgs
+        let facts (anyCtx : Bool) : MetaM (Expr × Expr) :=
+          forallTelescope jT fun xs r => do
+            let some (_, α') := resTy r | throwError "vc: join point type"
+            let mk (f mc cc : Expr) := mkAppN (mkConst (if jC then ``KeepsC else ``Keeps))
+              #[mc, ka[1]!, cc, ka[3]!, α', ka[5]!, (mkAppN f xs).headBeta]
+            let close (f : Expr) : MetaM Expr :=
+              if anyCtx then
+                withLocalDeclD `mctx' (mkConst ``Lean.Meta.Context) fun mc =>
+                  withLocalDeclD `cctx' (mkConst ``Lean.Core.Context) fun cc => do
+                    mkForallFVars (#[mc, cc] ++ xs) (mk f mc cc)
+              else mkForallFVars xs (mk f ka[0]! ka[2]!)
+            -- about the value, and about a variable standing for it
+            let t1 ← close jv
+            let t2 ← withLocalDeclD jn jT fun jp => do
+              let hT ← close jp
+              withLocalDeclD `hjp hT fun hjp =>
+                mkForallFVars #[jp, hjp] (mkApp keepsFn (jb.instantiate1 jp))
+            pure (t1, t2)
+        let run (anyCtx : Bool) : MetaM Unit := do
+          let (t1, t2) ← facts anyCtx
+          let h1 ← mkFreshExprSyntheticOpaqueMVar t1
+          walk h1.mvarId! fuel
+          let h1 ← (do
+            let v ← instantiateMVars h1
+            if v.hasMVar then pure h1
+            else timed "seal" (mkAuxTheorem t1 v) : MetaM Expr)
+          let h2 ← mkFreshExprSyntheticOpaqueMVar t2
+          walk h2.mvarId! fuel
+          -- each of the two, once proved, is an auxiliary theorem (checked by
+          -- the kernel there): the enclosing proof term refers to it by name
+          let v2 ← instantiateMVars h2
+          let h2 ← if v2.hasMVar then pure h2 else timed "seal" (mkAuxTheorem t2 v2)
+          g.assign (mkApp2 h2 jv h1)
+        let sj ← saveState
+        try run true
+        catch _ =>
+          sj.restore
+          run false
+        return
       let g1 ← g.replaceTargetDefEq (mkLet jn jT jv (mkApp keepsFn jb))
       let (jp, g2) ← g1.intro jn
-      let (hT, hm) ← g2.withContext do
-        let hT ← forallTelescope jT fun xs r => do
+      -- the fact, for EVERY Meta and Core context if that can be walked (the
+      -- join point may be used under a changed context — `withLocalDecl` — and
+      -- a fact about this context only would not apply there, so its body
+      -- would be walked again at each such use); else for this context
+      let stmt (anyCtx : Bool) : MetaM Expr := g2.withContext do
+        forallTelescope jT fun xs r => do
           let ka := keepsFn.getAppArgs
           let some (_, α') := resTy r | throwError "vc: join point type"
-          mkForallFVars xs (mkAppN (mkConst (if jC then ``KeepsC else ``Keeps))
-            #[ka[0]!, ka[1]!, ka[2]!, ka[3]!, α', ka[5]!, mkAppN (mkFVar jp) xs])
-        let hm ← mkFreshExprSyntheticOpaqueMVar hT
-        pure (hT, hm)
-      walk hm.mvarId! fuel
+          let mk (mc cc : Expr) := mkAppN (mkConst (if jC then ``KeepsC else ``Keeps))
+            #[mc, ka[1]!, cc, ka[3]!, α', ka[5]!, mkAppN (mkFVar jp) xs]
+          if anyCtx then
+            withLocalDeclD `mctx' (mkConst ``Lean.Meta.Context) fun mc =>
+              withLocalDeclD `cctx' (mkConst ``Lean.Core.Context) fun cc => do
+                mkForallFVars (#[mc, cc] ++ xs) (mk mc cc)
+          else mkForallFVars xs (mk ka[0]! ka[2]!)
+      let sj ← saveState
+      let (hT, hm) ← try
+          let hT ← stmt true
+          let hm ← g2.withContext (mkFreshExprSyntheticOpaqueMVar hT)
+          walk hm.mvarId! fuel
+          pure (hT, hm)
+        catch _ =>
+          sj.restore
+          let hT ← stmt false
+          let hm ← g2.withContext (mkFreshExprSyntheticOpaqueMVar hT)
+          walk hm.mvarId! fuel
+          pure (hT, hm)
       let (_, g3) ← (← g2.assert `hjp hT hm).intro1
       return ← walk g3 fuel
   -- `let`, `have`, beta
@@ -743,7 +894,14 @@ partial def walkCore (g : MVarId) (fuel : Nat) : MetaM Unit := do
       | some (c, q) => c == isC && q.getAppFn == fn
       | none => false
     if fits then
+      vcNote fun _ => return s!"  hyp {← d.fvarId.getUserName} fits"
       if ← commitApply g d.toExpr fuel then return
+      vcNote fun _ => return s!"  hyp {← d.fvarId.getUserName} not applied"
+      if vc.trace.get (← getOptions) then
+        let s ← saveState
+        try discard <| applyExact g d.toExpr
+        catch e => IO.eprintln s!"vc hyp {← d.fvarId.getUserName} fits, not applied: {← e.toMessageData.toString}\n  hyp: {← ppExpr ty}\n  goal: {← ppExpr t}"
+        s.restore
   -- `try … catch` (the instance's `tryCatch` field, applied)
   -- (a projection only if it IS the `tryCatch` field: field 1 of `MonadExcept` /
   -- `MonadExceptOf`; unifying the rule with any other projection is costly)
@@ -774,6 +932,7 @@ partial def walkCore (g : MVarId) (fuel : Nat) : MetaM Unit := do
   -- a local definition (a join point being walked): its value
   if fn.isFVar then
     if let some v ← fn.fvarId!.getValue? then
+      vcNote fun _ => return s!"  local value of {← fn.fvarId!.getUserName}"
       let g ← g.replaceTargetDefEq (mkApp t.appFn! (p.replace fun e => if e == fn then some v else none).headBeta)
       return ← walk g fuel
   match fn with
@@ -904,8 +1063,18 @@ end VC
 /-- Walk the goal's program (see the file's header). -/
 elab "vc" : tactic => Lean.Elab.Tactic.liftMetaTactic fun g => do
   vcStats.set {}
+  vcShapes.set {}
+  vcStack.set #[]
+  vcFirstPath.set {}
+  vcDup.set none
   vcStart.set (← IO.monoMsNow)
   VC.walk g 2000
+  VC.vcNote fun _ => return s!"walk done {(← IO.monoMsNow) - (← vcStart.get)}"
+  if (← IO.getEnv "VC_TRACE_FILE").isSome then
+    let pf ← instantiateMVars (mkMVar g)
+    VC.vcNote fun _ => return s!"proof instantiated {(← IO.monoMsNow) - (← vcStart.get)}; mvars left: {pf.hasMVar}"
+    let n := pf.numObjs
+    VC.vcNote fun _ => return s!"proof objects (shared) {← n} at {(← IO.monoMsNow) - (← vcStart.get)}"
   if vc.stats.get (← getOptions) then
     logInfo m!"vc: {(← IO.monoMsNow) - (← vcStart.get)} ms — {← VC.statsLine}"
   return []

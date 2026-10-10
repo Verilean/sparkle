@@ -125,4 +125,55 @@ set_option maxHeartbeats 1000000
     KeepsC mctx mref cctx cref (J L D) (Rec.translateExprToWireApp tr e hint named) := by
   vc
 
+/-- The applicative `map`'s inline mini-translator, recursive on the two
+operands of an application: by induction on a bound of the expression's size,
+in every context (it runs under `withLocalDecl`). -/
+theorem toIR_keepsC_bound (wireS : String) (fvarId : FVarId) :
+    ∀ (n : Nat) (e : Lean.Expr), sizeOf e < n →
+      ∀ (mctx : Meta.Context) (cctx : Core.Context),
+        KeepsC mctx mref cctx cref (J L D) (Rec.translateExprToWireImpl.toIR wireS fvarId e)
+  | 0, _, h => by omega
+  | n + 1, e, h => by
+    intro mctx cctx
+    have ih := fun e' (h' : sizeOf e' < n) (mctx : Meta.Context) (cctx : Core.Context) =>
+      toIR_keepsC_bound wireS fvarId n e' h' mctx cctx
+    unfold Rec.translateExprToWireImpl.toIR
+    vc
+
+@[keeps] theorem toIR_keepsC (wireS : String) (fvarId : FVarId) (e : Lean.Expr) :
+    KeepsC mctx mref cctx cref (J L D) (Rec.translateExprToWireImpl.toIR wireS fvarId e) :=
+  toIR_keepsC_bound L D wireS fvarId (sizeOf e + 1) e (Nat.lt_succ_self _) mctx cctx
+
+/-- **The legacy translator's body**: its own inline arms and the handler
+chain, every recursive translation through `tr`. -/
+@[keeps] theorem translateExprToWireImpl_keeps (tr : TranslateFn)
+    (htr : ∀ (mctx : Meta.Context) (cctx : Core.Context) e hint top named,
+      KeepsC mctx mref cctx cref (J L D) (tr e hint top named))
+    (hC : ChildKeeps L D) (e : Lean.Expr) (hint : String) (top named : Bool) :
+    KeepsC mctx mref cctx cref (J L D) (Rec.translateExprToWireImpl tr e hint top named) := by
+  vc
+
+/-- **Its caching shim**: the translation cache's read, the body, the cache's update. -/
+@[keeps] theorem translateExprToWireCached_keeps (tr : TranslateFn)
+    (htr : ∀ (mctx : Meta.Context) (cctx : Core.Context) e hint top named,
+      KeepsC mctx mref cctx cref (J L D) (tr e hint top named))
+    (hC : ChildKeeps L D) (e : Lean.Expr) (hint : String) (top named : Bool) :
+    KeepsC mctx mref cctx cref (J L D) (Rec.translateExprToWireCached tr e hint top named) := by
+  vc
+
+/-- **`LegacyRel`, proved**: the legacy translator keeps the child invariant
+whenever the memoised child entry and its recursive argument do. -/
+theorem legacyRel : LegacyRel L := by
+  intro D hC rec hrec mctx cctx
+  exact ⟨fun e hint top named =>
+      translateExprToWireCached_keeps L D (fun e h t n => rec e h t n) hrec hC e hint top named,
+    fun e hint top named =>
+      translateExprToWireImpl_keeps L D (fun e h t n => rec e h t n) hrec hC e hint top named⟩
+
+/-- **`TranslateRel`, proved** — with no condition on the compiler left: the
+fuel induction, the step, the certified arms, the instance arm and the legacy
+translator are all walked. -/
+theorem translateRel : TranslateRel L :=
+  translateRel_of_legacy L (legacyRel L)
+
 end Tools.ShippingChildInv

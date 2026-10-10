@@ -496,7 +496,7 @@ and `ShippingChildCacheRun` removed).
     `getEnv`, whose returning runs do not depend on the contexts, so their
     transfer between contexts should be provable (not done).
 - **The translator walked (2026-10-10).** `TranslateRel` is no longer a
-  premise. `ChildLaws` is now `∃ RefLaws, BodyRel ∧ LegacyRel`.
+  premise. `ChildLaws` was then `∃ RefLaws, BodyRel ∧ LegacyRel` (now `∃ RefLaws, BodyRel`, below).
   - `Tools/ShippingChildVC.lean`: the rules in `Keeps` / `KeepsC` form
     (bind, `pure`, `if`, `match`, `throw`, state reads/writes, lifts,
     `try … catch` — the handler runs from the failing run's world, an
@@ -600,9 +600,50 @@ and `ShippingChildCacheRun` removed).
     - Tried and rejected by measurement: walking each `match` alternative
       once as a local fact made the helpers file 60× slower (3 s → 190 s);
       it is off.
-    - Still the limit: `translateExprToWireImpl` exceeds a 120 s budget
-      (about 31,000 goals visited); `handleDefinitionUnfold` at 27 s visits
-      32,000. The duplication there is not yet located.
+    - (superseded, next item) `translateExprToWireImpl` exceeded a 120 s
+      budget (about 31,000 goals visited); `handleDefinitionUnfold` at 27 s
+      visited 32,000.
+- **`LegacyRel` proved and removed from the boundary (2026-10-11).**
+  `ChildLaws` is now `∃ RefLaws, BodyRel`. `legacyRel : LegacyRel L` and
+  `translateRel : TranslateRel L` (`Tools/ShippingChildLegacy.lean`) hold
+  with no condition on the compiler: `translateExprToWireImpl_keeps`,
+  `translateExprToWireCached_keeps`, and the applicative arm's inline
+  recursion `toIR` (`toIR_keepsC`, by induction on a bound of the
+  expression's size, in every context). Standard axioms.
+  - **Where the duplication was** (found by classifying visits by program
+    shape and comparing the chains of enclosing steps of the first and the
+    second walk of the same program): a join point is `jp : Unit → m α`,
+    called as `jp ()`. Its fact `∀ x : Unit, Keeps … (jp x)` unifies with the
+    call by eta for `Unit`, which leaves `x` unassigned; the tactic's own
+    "nothing may stay undetermined" check then REJECTED the fact, and the
+    join point's body was walked again at every call — once per exit of
+    every enclosing `do` block, multiplicatively. A `Unit` argument is now
+    filled in. `handleDefinitionUnfold`: 31.6 s / 31,897 visits → 2.0 s /
+    680 visits (same lemma, same machine).
+  - **Proof-term size** was the second limit: with the duplication gone the
+    walk of `translateExprToWireImpl` took 2.4 s, and instantiating its
+    proof term did not finish (memory grew past 2.6 GiB — this is what
+    exhausted the host). A join point's value was a local definition in the
+    goal, so every `match` split under it carried the rest of the program in
+    its motive. Now, for a `have` join point, the body is walked for an
+    ARBITRARY `jp` with the fact as a hypothesis (`(fun jp hjp => …) value
+    fact`), and the two halves are sealed as auxiliary theorems (kernel
+    checked there). Result: `translateExprToWireImpl` 3.0 s, 7,474 proof
+    objects at the top, peak 328 MB in its cgroup.
+  - Also: `Keeps` statements are unified argument by argument (a mismatch in
+    an early argument no longer makes the unifier unfold `Keeps` on two
+    programs); size-bound side goals (`sizeOf a < n`) are closed by
+    arithmetic, for inductions on sub-terms.
+  - Module builds: fallback 16 s → 5.0 s, legacy (11 handlers, dispatch,
+    Impl, Cached) 47 s → 8.7 s; boundary tests with their 20 endpoints
+    rebuilt in 67 s, peak 758 MB.
+  - Remaining rate limiter: none in the translator. Next is `BodyRel`'s
+    legacy tail (`openRecordInputs`, `lambdaTelescope`, `splitReturnLeaves`,
+    `bindInputsLegacy`).
+  - **Heavy runs are confined** (`scripts/shipping-coverage/cgrun.sh`): one
+    transient `systemd --user` service per run, `MemoryMax` / `MemoryHigh` /
+    `MemorySwapMax=0`, group OOM kill, a timeout, limits read back from the
+    cgroup of the real PID, peak / events / exit code saved.
 - **Checked** (`ShippingChildBoundaryTest`):
   - 20 derived endpoints (R0, NR at depths 1–3, HR) state `ChildBnd` at
     their run's start world; every other `ChildBnd` occurrence is at a world
