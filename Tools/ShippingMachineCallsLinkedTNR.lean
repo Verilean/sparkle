@@ -237,10 +237,11 @@ theorem machine_linkedT_callsRN (n : Nat) {declName : Name} {d : MachineData} {m
     -- satisfies the child's depth conditions
     (hrunN : ∀ (k : Nat) (c : Name), (d.shape.insts.map (·.1))[k]? = some c →
       Sparkle.Compiler.MachMemory.memChild? c = none →
-      ∀ (mc : Module) (Dc : Design) (w w' : Void IO.RealWorld),
-        Tools.ShippingChildInv.InvW mctx mref cctx cref w →
+      ∀ (mctx' : Meta.Context) (cctx' : Core.Context) (mc : Module) (Dc : Design)
+        (w w' : Void IO.RealWorld),
+        Tools.ShippingChildInv.InvW mref cref w →
         Tools.ShippingEntrySoundness.RunsTo (Sparkle.Compiler.Elab.synthesizeCombinational c)
-          mctx mref cctx cref w (mc, Dc) w' →
+          mctx' mref cctx' cref w (mc, Dc) w' →
         (∀ g ∈ Dc.modules, moduleByName dsn.modules g.name = some g) →
         moduleByName dsn.modules mc.name = some mc → PC c mc) :
     ∃ ids : List FVarId, ids.Nodup ∧ ids.length = d.shape.binders.length ∧
@@ -285,8 +286,8 @@ theorem machine_linkedT_callsRN (n : Nat) {declName : Name} {d : MachineData} {m
         rcases hx.1 hfe k hk mc iname argWs outs outWs hst hout hke hmod with ⟨md, hmd, _⟩ | ⟨Dc, hrc, hcons⟩
         · rw [hck, hnone] at hmd; cases hmd
         · rw [hck] at hrc
-          obtain ⟨w, w', hw, hrun⟩ := hrc.inv
-          exact hrunN k c hc hnone mc Dc w w' hw hrun hcons hmod)
+          obtain ⟨mctx', cctx', w, w', hw, hrun⟩ := hrc.inv
+          exact hrunN k c hc hnone mctx' cctx' mc Dc w w' hw hrun hcons hmod)
       (hcalls i bools bits))
 
 end Tools.ShippingMachineCallsLinkedTNR

@@ -154,7 +154,7 @@ theorem Triple.of_runs {α : Type} {P : Void IO.RealWorld → Prop} {m : MetaM �
 
 /-! ## The invariant under the laws -/
 
-variable (L : RefLaws mctx mref cctx cref)
+variable (L : RefLaws mref cref)
 
 theorem J_same {D : Nat} {w w'}
     (hk : L.val w' = L.val w ∧ L.sval w' = L.sval w ∧ L.dval w' = L.dval w) (h : J L D w) :
@@ -164,14 +164,14 @@ theorem J_same {D : Nat} {w w'}
 /-- A framed operation keeps the invariant at its depth, on every outcome. -/
 theorem Triple.frame {α : Type} {p : MetaM α} (hp : Framed p) (D : Nat) :
     Triple mctx mref cctx cref (J L D) p (fun _ => J L D) (J L D) :=
-  keeps_iff.mp fun w hw => J_same L (L.frame p hp w) hw
+  keeps_iff.mp fun w hw => J_same L (L.frame (mctx := mctx) (cctx := cctx) p hp w) hw
 
 /-- A framed operation, with a fact of its result on a successful run. -/
 theorem Triple.frameQ {α : Type} {p : MetaM α} (hp : Framed p) (D : Nat) {φ : α → Prop}
     (hφ : ∀ w a w', J L D w → RunsTo p mctx mref cctx cref w a w' → φ a) :
     Triple mctx mref cctx cref (J L D) p (fun a w => J L D w ∧ φ a) (J L D) := by
   intro w hw
-  have hk := L.frame p hp w
+  have hk := L.frame (mctx := mctx) (cctx := cctx) p hp w
   unfold endW at hk
   cases hm : p mctx mref cctx cref w with
   | ok a w1 => rw [hm] at hk; exact ⟨J_same L hk hw, hφ w a w1 hw hm⟩
@@ -190,7 +190,7 @@ theorem Triple.throwErr {α : Type} (msg : MessageData) (D : Nat)
     {Q : α → Void IO.RealWorld → Prop} :
     Triple mctx mref cctx cref (J L D) (Lean.throwError msg : MetaM α) Q (J L D) := by
   intro w hw
-  have hk := L.frame _ (Framed.throwErr (α := α) msg) w
+  have hk := L.frame (mctx := mctx) (cctx := cctx) _ (Framed.throwErr (α := α) msg) w
   unfold endW at hk
   cases hm : (Lean.throwError msg : MetaM α) mctx mref cctx cref w with
   | ok a w1 => exact (throwError_not_runs msg hm).elim
@@ -235,9 +235,10 @@ from an invariant world: if it throws, the world it ends in satisfies the
 invariant and `synthesizeChild` throws from there; if it returns, its result
 is a `RealChild` and the cache AS IT IS after that run gets it inserted. -/
 theorem child_keeps (D : Nat)
-    (hE : ∀ c, Keeps mctx mref cctx cref (J L D) (synthesizeCombinational c)) :
+    (hE : ∀ (mctx : Meta.Context) (cctx : Core.Context) c,
+      Keeps mctx mref cctx cref (J L D) (synthesizeCombinational c)) :
     ChildKeeps L D := by
-  intro c
+  intro mctx cctx c
   rw [keeps_iff]
   unfold synthesizeChild
   refine Triple.bind (Q := fun m w1 => J L D w1 ∧ m = L.val w1)
@@ -250,9 +251,9 @@ theorem child_keeps (D : Nat)
     exact Triple.pure fun w hw => hw.1
   | none =>
     simp only [hc]
-    refine Triple.bind (Q := fun r w2 => J L D w2 ∧ RealChild mctx mref cctx cref c r) ?_ ?_
+    refine Triple.bind (Q := fun r w2 => J L D w2 ∧ RealChild mref cref c r) ?_ ?_
     · intro w1 hw1
-      have hk := hE c w1 hw1.1
+      have hk := hE mctx cctx c w1 hw1.1
       unfold endW at hk
       cases hm : synthesizeCombinational c mctx mref cctx cref w1 with
       | ok r w2 => rw [hm] at hk; exact ⟨hk, RealChild.of_inv (invW_of_invV L hw1.1.1) hm⟩
@@ -398,42 +399,45 @@ entry keeps the invariant by `child_keeps` and the induction hypothesis — so
 `BodyRel`'s premise holds there. -/
 theorem entry_keeps (hB : BodyRel L) :
     ∀ (k D : Nat), sparkleSynthDepthLimit ≤ D + k →
-      ∀ c, Keeps mctx mref cctx cref (J L D) (synthesizeCombinational c) := by
+      ∀ (mctx : Meta.Context) (cctx : Core.Context) c,
+        Keeps mctx mref cctx cref (J L D) (synthesizeCombinational c) := by
   intro k
   induction k with
   | zero =>
-    intro D hD c
+    intro D hD mctx cctx c
     exact full_keeps L D c (core_keeps L D c fun hlt => absurd hD (Nat.not_le_of_lt (by simpa using hlt)))
   | succ k ih =>
-    intro D hD c
+    intro D hD mctx cctx c
     refine full_keeps L D c (core_keeps L D c fun _ b ci isInst => ?_)
-    exact hB (D + 1) (child_keeps L (D + 1) (ih (D + 1) (by omega))) b c ci isInst
+    exact hB (D + 1) (child_keeps L (D + 1) (ih (D + 1) (by omega))) mctx cctx b c ci isInst
 
 theorem entry_keeps_all (hB : BodyRel L) (D : Nat) (c : Name) :
     Keeps mctx mref cctx cref (J L D) (synthesizeCombinational c) :=
-  entry_keeps L hB sparkleSynthDepthLimit D (Nat.le_add_left _ _) c
+  entry_keeps L hB sparkleSynthDepthLimit D (Nat.le_add_left _ _) mctx cctx c
 
 theorem childKeeps_all (hB : BodyRel L) (D : Nat) : ChildKeeps L D :=
-  child_keeps L D (entry_keeps_all L hB D)
+  child_keeps L D fun _ _ c => entry_keeps_all L hB D c
 
 /-! ## On a successful run -/
 
 /-- A returning run of the real entry from an invariant world ends in one. -/
-theorem entry_inv (hB : BodyRel L) {c : Name} {w r w'} (hw : InvW mctx mref cctx cref w)
+theorem entry_inv (hB : BodyRel L) {c : Name} {w r w'} (hw : InvW mref cref w)
     (h : RunsTo (synthesizeCombinational c) mctx mref cctx cref w r w') :
-    InvW mctx mref cctx cref w' := by
-  have := entry_keeps_all L hB (L.dval w) c w ⟨invV_of_invW L hw, rfl⟩
+    InvW mref cref w' := by
+  have := entry_keeps_all (mctx := mctx) (cctx := cctx) L hB (L.dval w) c w
+    ⟨invV_of_invW mctx cctx L hw, rfl⟩
   rw [endW_of_runs h] at this
   exact invW_of_invV L this.1
 
 /-- A returning run of the machine route's harness, with the entry's logger,
 from an invariant world ends in one. -/
 theorem harness_inv (hB : BodyRel L) (hH : HarnessRel L) {b : Bool} {declName bs body}
-    {w r w'} (hw : InvW mctx mref cctx cref w)
+    {w r w'} (hw : InvW mref cref w)
     (h : RunsTo (synthesizeMixedCertified
       (fun e hint top named => translateExprToWire e hint top named) (profLogIO b) declName bs body)
-      mctx mref cctx cref w r w') : InvW mctx mref cctx cref w' := by
-  have := hH (L.dval w) (childKeeps_all L hB _) b declName bs body w ⟨invV_of_invW L hw, rfl⟩
+      mctx mref cctx cref w r w') : InvW mref cref w' := by
+  have := hH (L.dval w) (childKeeps_all L hB _) mctx cctx b declName bs body w
+    ⟨invV_of_invW mctx cctx L hw, rfl⟩
   rw [endW_of_runs h] at this
   exact invW_of_invV L this.1
 
@@ -471,7 +475,7 @@ theorem closeInstsM_keeps (D : Nat) (hC : ChildKeeps L D) (shape : MachineShape)
   dsimp only
   refine Triple.bind (Triple.mapM _ (fun x => ?_) _) ?_
   · obtain ⟨c, b, k⟩ := x
-    exact keeps_iff.mp (hC c)
+    exact keeps_iff.mp (hC mctx cctx c)
   · intro _
     exact Triple.pure fun _ hw => hw
 
@@ -491,7 +495,7 @@ theorem closeInstsGM_keeps (D : Nat) (hC : ChildKeeps L D) (shape : MachineShape
     dsimp only
     cases Sparkle.Compiler.MachMemory.memChild? c with
     | some md => exact Triple.pure fun _ hw => hw
-    | none => exact keeps_iff.mp (hC c)
+    | none => exact keeps_iff.mp (hC mctx cctx c)
   · intro _
     exact Triple.pure fun _ hw => hw
 
@@ -505,7 +509,7 @@ theorem machine_keeps (hH : HarnessRel L) (D : Nat) (hC : ChildKeeps L D) (b : B
         (profLogIO b) declName shape) := by
   rw [keeps_iff]
   unfold synthesizeMachineCertified
-  refine Triple.bind (keeps_iff.mp (hH D hC b declName _ _)) ?_
+  refine Triple.bind (keeps_iff.mp (hH D hC mctx cctx b declName _ _)) ?_
   rintro ⟨t, d⟩
   dsimp only
   split

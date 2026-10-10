@@ -196,21 +196,25 @@ partial def generateCoreNR (declName : Name) (dep : Nat) : MetaM Name := do
         mkLambdaFVars #[mc] (← mkAppM ``Tools.ShippingMachineDepthRun.MachineRunNC
           #[toExpr c, cshape, bnd, mc, dsnE])
     pcCases := pcCases ++ [(c, pcF)]
-    let pT ← if leaf.getD c true then
-        mkAppM ``And #[mkAppN (mkConst ``Tools.ShippingMachineEntry.MachineDefines) (ctx ++ #[toExpr c, cshape]),
-          mkAppN (mkConst ``Tools.ShippingMachineEntry.MachineCloses) (ctx ++ #[toExpr c, cshape])]
-      else do
-        -- with calls: its reflection facts and its own derived boundary, in
-        -- these contexts (a fact of the contexts; `machineRunNC_of_real`
-        -- derives the rest from the run the compile used)
-        let some bnd := bndOf.get? c | throwError "{declName}: boundary of {c}"
-        -- in every start world where the child boundary holds
-        let bndHere ← withLocalDeclD `wc (mkConst ``Void [] |>.app (mkConst ``IO.RealWorld)) fun wc => do
-          let cb := mkAppN (mkConst ``Tools.ShippingChildInv.ChildBnd) (ctx ++ #[wc])
-          mkForallFVars #[wc] (← mkArrow cb (bnd.beta (ctx ++ #[wc, tyArgs[3]!, dsnE])).headBeta)
-        mkAppM ``And #[mkAppN (mkConst ``Tools.ShippingMachineEntry.MachineDefines) (ctx ++ #[toExpr c, cshape]),
-          ← mkAppM ``And #[mkAppN (mkConst ``Tools.ShippingMachineEntry.MachineCloses) (ctx ++ #[toExpr c, cshape]),
-            bndHere]]
+    -- the child's premise holds in whatever Meta and Core contexts the child
+    -- was synthesised (over the run's state references)
+    let pT ← withLocalDeclD `mctx' (mkConst ``Lean.Meta.Context) fun mc' =>
+      withLocalDeclD `cctx' (mkConst ``Lean.Core.Context) fun cc' => do
+      let ctx' := #[mc', ctx[1]!, cc', ctx[3]!]
+      let defs := mkAppN (mkConst ``Tools.ShippingMachineEntry.MachineDefines) (ctx' ++ #[toExpr c, cshape])
+      let closes := mkAppN (mkConst ``Tools.ShippingMachineEntry.MachineCloses) (ctx' ++ #[toExpr c, cshape])
+      let body ← if leaf.getD c true then mkAppM ``And #[defs, closes]
+        else do
+          -- with calls: its reflection facts and its own derived boundary, in
+          -- every start world where the child boundary holds
+          -- (`machineRunNC_of_real` derives the rest from the run the compile used)
+          let some bnd := bndOf.get? c | throwError "{declName}: boundary of {c}"
+          let bndHere ← withLocalDeclD `wc (mkConst ``Void [] |>.app (mkConst ``IO.RealWorld)) fun wc =>
+            withLocalDeclD `raw modT fun raw => withLocalDeclD `D desT fun dD => do
+            let cb := mkAppN (mkConst ``Tools.ShippingChildInv.ChildBnd) #[ctx[1]!, ctx[3]!, wc]
+            mkForallFVars #[wc, raw, dD] (← mkArrow cb (bnd.beta (ctx' ++ #[wc, raw, dD])).headBeta)
+          mkAppM ``And #[defs, ← mkAppM ``And #[closes, bndHere]]
+      mkForallFVars #[mc', cc'] body
     pTypes := pTypes ++ [pT]
   let some (_, pc0) := pcCases.head? | throwError "{declName}: no sequential child"
   let PC ← nameCases (← mkArrow modT (mkSort .zero)) pcCases pc0
@@ -389,9 +393,9 @@ partial def generateCoreNR (declName : Name) (dep : Nat) : MetaM Name := do
         let hPS : Term := ⟨mkIdent (Name.mkSimple s!"hP{j}")⟩
         let _ := hP
         if leaf.getD c true then
-          proveByTacticT goalK `(tactic| (intro _ mc Dc w w' _ hrun _ _; exact ⟨_, _, _, _, w, w', Dc, hrun, ($hPS).1, ($hPS).2⟩))
+          proveByTacticT goalK `(tactic| (intro _ mctx' cctx' mc Dc w w' _ hrun _ _; exact ⟨_, _, _, _, w, w', Dc, hrun, ($hPS mctx' cctx').1, ($hPS mctx' cctx').2⟩))
         else
-          proveByTacticT goalK `(tactic| (intro _ mc Dc w w' hw hrun hcons _; exact Tools.ShippingMachineDepthRun.machineRunNC_of_real (Tools.ShippingChildInv.RealChild.of_inv hw hrun) hcons ($hPS).1 ($hPS).2.1 (Tools.ShippingChildInv.ChildBnd.laws (by assumption)) (by decide) (fun wc _ _ hb => ($hPS).2.2 wc hb)))
+          proveByTacticT goalK `(tactic| (intro _ mctx' cctx' mc Dc w w' hw hrun hcons _; exact Tools.ShippingMachineDepthRun.machineRunNC_of_real (Tools.ShippingChildInv.RealChild.of_inv hw hrun) hcons $hPS (Tools.ShippingChildInv.ChildBnd.laws (by assumption)) (by decide)))
     perR := perR.push prK
   let nameT := mkConst ``Name
   let nat := mkConst ``Nat

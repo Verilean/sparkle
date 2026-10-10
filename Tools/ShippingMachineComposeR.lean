@@ -84,7 +84,7 @@ theorem machine_traceL_of_data_extR {declName : Name} (d : MachineData) {ι : Ty
       (m, design) w')
     (entry : MachineDefines mctx mref cctx cref declName d.shape)
     (closes : MachineCloses mctx mref cctx cref declName d.shape)
-    (hsyn : Tools.ShippingChildInv.ChildBnd mctx mref cctx cref w) :
+    (hsyn : Tools.ShippingChildInv.ChildBnd mref cref w) :
     MachineTraceLBX (ServedReal mctx mref cctx cref declName d.shape m design) declName d m design dom src
       (fun i bools bits => ext i bools bits (stateLoop inits (body i bools bits)))
       (fun _ bools _ => bools)
@@ -158,9 +158,10 @@ theorem machine_linked_callsR {declName : Name} {d : MachineData} {m : Sparkle.I
     -- per call: not a memory, and the child's theorem on any run of its entry here
     (hfn : ∀ (k : Nat) (c : Name), (d.shape.insts.map (·.1))[k]? = some c →
       Sparkle.Compiler.MachMemory.memChild? c = none ∧
-      ∀ (mc : Sparkle.IR.AST.Module) (Dc : Design) (w w' : Void IO.RealWorld),
-        Tools.ShippingChildInv.InvW mctx mref cctx cref w →
-        RunsTo (synthesizeCombinational c) mctx mref cctx cref w (mc, Dc) w' →
+      ∀ (mctx' : Meta.Context) (cctx' : Core.Context) (mc : Sparkle.IR.AST.Module) (Dc : Design)
+        (w w' : Void IO.RealWorld),
+        Tools.ShippingChildInv.InvW mref cref w →
+        RunsTo (synthesizeCombinational c) mctx' mref cctx' cref w (mc, Dc) w' →
         ChildFn mc (P k) (F k)) :
     Tools.ShippingMachineShipsHierH.ComposedH (fun _ _ => True) declName d kD m dsn dom src ext := by
   obtain ⟨ids, nd, len, cache, regs, rnd, rlen, lets, llen, wired, hx, trace⟩ := h
@@ -176,8 +177,8 @@ theorem machine_linked_callsR {declName : Name} {d : MachineData} {m : Sparkle.I
       obtain ⟨hnone, hf⟩ := hfn k _ hc
       rcases hx.2 hsimple k hk args mc st hargs hst hcs hmod with ⟨md, hmd, _⟩ | ⟨Dc, hrc, _⟩
       · rw [hnone] at hmd; cases hmd
-      · obtain ⟨w, w', hw, hrun⟩ := hrc.inv
-        exact hf mc Dc w w' hw hrun)
+      · obtain ⟨mctx', cctx', w, w', hw, hrun⟩ := hrc.inv
+        exact hf mctx' cctx' mc Dc w w' hw hrun)
     (fun k args j hk _ => hcalls i bools bits k args j hk)
 
 end Tools.ShippingMachineComposeR

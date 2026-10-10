@@ -476,6 +476,25 @@ and `ShippingChildCacheRun` removed).
     ref operation cannot fail is no longer a law: it is proved from the
     lift's definition (`refGet_runs`, `refSet_runs`, `refModify_runs`), as
     is that `throwError` does not return.
+- **Contexts (2026-10-10).** The invariant was tied to the endpoint's own
+  Meta and Core contexts ("every cache entry is a real run IN THESE
+  contexts"). That is not what the compiler does: the legacy handlers
+  change the Meta context inside a run (`withLocalDecl` and the like, 14
+  uses in the `Rec.*` block) and can synthesise a child there, whose result
+  the closings later read from the cache. Stated for fixed contexts, the
+  relative conditions would have been false for such a design. Now:
+  - `RealChild`, `InvW`, `StartW`, `RefLaws`, `ChildLaws`, `ChildBnd` depend
+    on the two STATE REFERENCES only. A `RealChild`'s run is in SOME Meta and
+    Core contexts; the laws and the relative conditions are for EVERY
+    context. (A ref read is literally context-independent: `refGet_ctx`.)
+  - A child's reflection premises (`MachineDefines` / `MachineCloses` /
+    `EntryDefines`, and a child-with-calls' boundary) are therefore asked in
+    every Meta and Core context — the contexts the child was actually
+    synthesised in are not known to the parent. This is a STRONGER premise
+    than before on the endpoints (`∀ mctx' cctx', …`), and the honest one.
+    Open: `MachineDefines` / `EntryDefines` speak of `getConstInfo` /
+    `getEnv`, whose returning runs do not depend on the contexts, so their
+    transfer between contexts should be provable (not done).
 - **Checked** (`ShippingChildBoundaryTest`):
   - 20 derived endpoints (R0, NR at depths 1–3, HR) state `ChildBnd` at
     their run's start world; every other `ChildBnd` occurrence is at a world

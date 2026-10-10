@@ -360,7 +360,7 @@ def boundaryWorlds (ty : Lean.Expr) : Lean.MetaM (Nat × Bool) :=
     let found ← IO.mkRef (#[] : Array Lean.Expr)
     for e in parts do
       Lean.Meta.forEachExpr (← Lean.instantiateMVars e) fun y => do
-        if y.isAppOfArity ``Tools.ShippingChildInv.ChildBnd 5 then found.modify (·.push y.appArg!)
+        if y.isAppOfArity ``Tools.ShippingChildInv.ChildBnd 3 then found.modify (·.push y.appArg!)
     let mut n := 0
     let mut ok := true
     for wv in ← found.get do

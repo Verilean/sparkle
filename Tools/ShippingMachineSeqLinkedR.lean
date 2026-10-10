@@ -80,7 +80,7 @@ theorem machine_traceL_of_loop_causalR {declName : Name} (d : MachineData) {ι :
       (m, design) w')
     (entry : MachineDefines mctx mref cctx cref declName d.shape)
     (closes : MachineCloses mctx mref cctx cref declName d.shape)
-    (hsyn : Tools.ShippingChildInv.ChildBnd mctx mref cctx cref w) :
+    (hsyn : Tools.ShippingChildInv.ChildBnd mref cref w) :
     MachineTraceLBX (ServedReal mctx mref cctx cref declName d.shape m design) declName d m design dom src
       (fun i bools bits => ext i bools bits (Signal.loop (f i bools bits)))
       (fun i bools bits => extB i bools bits (Signal.loop (f i bools bits)))
@@ -151,7 +151,7 @@ theorem machine_traceL_of_comb_callsR {declName : Name} (d : MachineData) {ι : 
       (m, design) w')
     (entry : MachineDefines mctx mref cctx cref declName d.shape)
     (closes : MachineCloses mctx mref cctx cref declName d.shape)
-    (hsyn : Tools.ShippingChildInv.ChildBnd mctx mref cctx cref w) :
+    (hsyn : Tools.ShippingChildInv.ChildBnd mref cref w) :
     MachineTraceLBX (ServedReal mctx mref cctx cref declName d.shape m design) declName d m design dom src ext extB (letObsComb d dom inits ext extB) := by
   refine machine_trace_lets_of_streamBR d dom inits src (letObsComb d dom inits ext extB) ok hbody
     hinit ext extB ?_ hr entry closes hsyn
@@ -223,7 +223,7 @@ theorem machine_traceL_of_data_causalR {declName : Name} (d : MachineData) {ι :
       (m, design) w')
     (entry : MachineDefines mctx mref cctx cref declName d.shape)
     (closes : MachineCloses mctx mref cctx cref declName d.shape)
-    (hsyn : Tools.ShippingChildInv.ChildBnd mctx mref cctx cref w) :
+    (hsyn : Tools.ShippingChildInv.ChildBnd mref cref w) :
     MachineTraceLBX (ServedReal mctx mref cctx cref declName d.shape m design) declName d m design dom src
       (fun i bools bits => ext i bools bits (stateLoop inits (body i bools bits)))
       (fun i bools bits => extB i bools bits (stateLoop inits (body i bools bits)))

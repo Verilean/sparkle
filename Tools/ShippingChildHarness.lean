@@ -40,7 +40,7 @@ def TripleC {α : Type} (P : Void IO.RealWorld → Prop) (c : CompilerM α)
 end Calculus
 
 theorem keepsC_iff {α : Type} {I : Void IO.RealWorld → Prop} {c : CompilerM α} :
-    KeepsC (mctx := mctx) (mref := mref) (cctx := cctx) (cref := cref) I c ↔
+    KeepsC mctx mref cctx cref I c ↔
       TripleC mctx mref cctx cref I c (fun _ => I) I :=
   ⟨fun h ctx st => keeps_iff.mp (h ctx st), fun h ctx st => keeps_iff.mpr (h ctx st)⟩
 
@@ -107,7 +107,7 @@ theorem TripleC.ite {α : Type} {c : Prop} [Decidable c] {P : Void IO.RealWorld 
   · rw [if_pos hc]; exact ha hc
   · rw [if_neg hc]; exact hb hc
 
-variable (L : RefLaws mctx mref cctx cref)
+variable (L : RefLaws mref cref)
 
 /-! ## The circuit-state primitives -/
 
@@ -302,7 +302,7 @@ theorem finishSynth_triple (D : Nat) (declName : Name) (st : CircuitState) :
 
 /-- **`HarnessRel` from `TranslateRel`.** -/
 theorem harnessRel_of (hT : TranslateRel L) : HarnessRel L := by
-  intro D hC b declName bs body
+  intro D hC mctx cctx b declName bs body
   rw [keeps_iff]
   unfold synthesizeMixedCertified
   refine Triple.bind (Triple.mapM _ (fun _ => Triple.frame L Framed.freshFVar D) _) ?_
@@ -313,7 +313,7 @@ theorem harnessRel_of (hT : TranslateRel L) : HarnessRel L := by
     intro cacheRef
     refine Triple.bind
       (bindMixedCertifiedInputs_tripleC L D _
-        (emitLeaves_tripleC L D b cacheRef (fun e hint top named => keepsC_iff.mp (hT D hC e hint top named))
+        (emitLeaves_tripleC L D b cacheRef (fun e hint top named => keepsC_iff.mp (hT D hC mctx cctx e hint top named))
           _ _ _) _ _ _) ?_
     rintro ⟨_, fs⟩
     exact finishSynth_triple L D declName fs

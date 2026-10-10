@@ -427,7 +427,7 @@ def ServedRealG (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State)
     (∃ e ∈ outs, e.1 = k) →
     moduleByName dsn.modules mc.name = some mc →
     (∃ md, Sparkle.Compiler.MachMemory.memChild? (shape.insts[k]).1 = some md ∧ mc = md.1) ∨
-      ∃ Dc, Tools.ShippingChildInv.RealChild mctx mref cctx cref (shape.insts[k]).1 (mc, Dc) ∧
+      ∃ Dc, Tools.ShippingChildInv.RealChild mref cref (shape.insts[k]).1 (mc, Dc) ∧
         ∀ g ∈ Dc.modules, moduleByName dsn.modules g.name = some g
 
 /-- The one-output closing (`instFields = []`): the instance that is call `k`'s
@@ -445,7 +445,7 @@ def ServedReal1 (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State)
       ((machPorts declName ids cache shape.binders).map (·.name)) k args mc st →
     moduleByName dsn.modules mc.name = some mc →
     (∃ md, Sparkle.Compiler.MachMemory.memChild? (shape.insts[k]).1 = some md ∧ mc = md.1) ∨
-      ∃ Dc, Tools.ShippingChildInv.RealChild mctx mref cctx cref (shape.insts[k]).1 (mc, Dc) ∧
+      ∃ Dc, Tools.ShippingChildInv.RealChild mref cref (shape.insts[k]).1 (mc, Dc) ∧
         ∀ g ∈ Dc.modules, moduleByName dsn.modules g.name = some g
 
 /-- **The instances serving the calls are real children**, on either closing. -/
@@ -473,7 +473,7 @@ theorem synthesizeCombinationalCore_machine_soundR {declName : Name}
       (m, d) w')
     (entry : MachineDefines mctx mref cctx cref declName shape)
     (closes : MachineCloses mctx mref cctx cref declName shape)
-    (hsyn : Tools.ShippingChildInv.ChildBnd mctx mref cctx cref w)
+    (hsyn : Tools.ShippingChildInv.ChildBnd mref cref w)
     (hbs : shape.binders = bsIn ++ slotBs ++ letBs)
     (hlets : shape.layout.lets = letBs.length)
     (positive : PositiveBinders shape.binders)
@@ -604,7 +604,7 @@ theorem machine_trace_lets_of_streamBR {declName : Name} (d : MachineData) {ι :
       (m, design) w')
     (entry : MachineDefines mctx mref cctx cref declName d.shape)
     (closes : MachineCloses mctx mref cctx cref declName d.shape)
-    (hsyn : Tools.ShippingChildInv.ChildBnd mctx mref cctx cref w) :
+    (hsyn : Tools.ShippingChildInv.ChildBnd mref cref w) :
     MachineTraceLBX (ServedReal mctx mref cctx cref declName d.shape m design)
       declName d m design dom src ext extB lsrc := by
   simp only [MachineData.ok, Bool.and_eq_true, decide_eq_true_eq, Bool.not_eq_true'] at ok

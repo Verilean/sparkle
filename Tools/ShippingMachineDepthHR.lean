@@ -58,7 +58,7 @@ theorem composedN0_of_HR {declName : Name} {d : MachineData} {kD : Nat} {ι : Ty
       RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (m, design) w' →
       MachineDefines mctx mref cctx cref declName d.shape →
       MachineCloses mctx mref cctx cref declName d.shape →
-      Tools.ShippingChildInv.ChildBnd mctx mref cctx cref w ∧ Rest mctx mref cctx cref →
+      Tools.ShippingChildInv.ChildBnd mref cref w ∧ Rest mctx mref cctx cref →
       Tools.ShippingMachineShipsHierH.ComposedH (fun _ _ => True) declName d kD m design dom src ext) :
     ∀ {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
       {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
@@ -66,7 +66,7 @@ theorem composedN0_of_HR {declName : Name} {d : MachineData} {kD : Nat} {ι : Ty
       RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (m, design) w' →
       MachineDefines mctx mref cctx cref declName d.shape →
       MachineCloses mctx mref cctx cref declName d.shape →
-      Tools.ShippingChildInv.ChildBnd mctx mref cctx cref w ∧ Rest mctx mref cctx cref →
+      Tools.ShippingChildInv.ChildBnd mref cref w ∧ Rest mctx mref cctx cref →
       Tools.ShippingMachineDepthRun.ComposedNW 0 declName d kD m design dom src ext
         (fun _ bools _ => bools) := by
   intro mctx mref cctx cref w w' m design hr entry closes hb
@@ -249,7 +249,7 @@ theorem composedNn_of_HR (n : Nat) {declName : Name} {d : MachineData} {kD : Nat
       RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (m, design) w' →
       MachineDefines mctx mref cctx cref declName d.shape →
       MachineCloses mctx mref cctx cref declName d.shape →
-      Tools.ShippingChildInv.ChildBnd mctx mref cctx cref w ∧ Rest mctx mref cctx cref →
+      Tools.ShippingChildInv.ChildBnd mref cref w ∧ Rest mctx mref cctx cref →
       Tools.ShippingMachineShipsHierH.ComposedH (fun _ _ => True) declName d kD m design dom src ext) :
     ∀ {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
       {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
@@ -257,7 +257,7 @@ theorem composedNn_of_HR (n : Nat) {declName : Name} {d : MachineData} {kD : Nat
       RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (m, design) w' →
       MachineDefines mctx mref cctx cref declName d.shape →
       MachineCloses mctx mref cctx cref declName d.shape →
-      Tools.ShippingChildInv.ChildBnd mctx mref cctx cref w ∧ Rest mctx mref cctx cref →
+      Tools.ShippingChildInv.ChildBnd mref cref w ∧ Rest mctx mref cctx cref →
       Tools.ShippingMachineDepthRun.ComposedNW n declName d kD m design dom src ext
         (fun _ bools _ => bools) := by
   intro mctx mref cctx cref w w' m design hr entry closes hb

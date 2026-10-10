@@ -84,7 +84,7 @@ theorem machine_traceL_of_tele_extR {declName : Name} (d : MachineData)
       (m, design) w')
     (entry : MachineDefines mctx mref cctx cref declName d.shape)
     (closes : MachineCloses mctx mref cctx cref declName d.shape)
-    (hsyn : Tools.ShippingChildInv.ChildBnd mctx mref cctx cref w) :
+    (hsyn : Tools.ShippingChildInv.ChildBnd mref cref w) :
     MachineTraceLBX (ServedReal mctx mref cctx cref declName d.shape m design) declName d m design dom src (fun i bools bits =>
       ext i bools bits (stateLoop inits (Tools.ShippingMachineTele.fusedBody (l.at i bools bits) (body i bools bits)))
         (Tele.loops (regsOf (tys ss₂)

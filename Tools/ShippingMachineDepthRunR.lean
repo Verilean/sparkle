@@ -239,17 +239,17 @@ entry's changing only the top module) and `NoInstOf` (from `c`'s own
 closing). -/
 theorem machineRunNC_of_real {c : Name} {shape : MachineShape}
     {Bnd : Tools.ShippingMachineShipsHier.CtxBnd} {mc : Module} {Dc dsn : Design}
-    {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
-    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
-    (hreal : Tools.ShippingChildInv.RealChild mctx mref cctx cref c (mc, Dc))
+    {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
+    (hreal : Tools.ShippingChildInv.RealChild mref cref c (mc, Dc))
     (hcons : ∀ g ∈ Dc.modules, moduleByName dsn.modules g.name = some g)
-    (entry : MachineDefines mctx mref cctx cref c shape)
-    (closes : MachineCloses mctx mref cctx cref c shape)
-    (hL : Tools.ShippingChildInv.ChildLaws mctx mref cctx cref) (hi : shape.insts ≠ [])
-    (hB : ∀ w raw D, Tools.ShippingChildInv.ChildBnd mctx mref cctx cref w →
-      Bnd mctx mref cctx cref w raw D) :
+    -- the child's facts in whatever contexts it was synthesised
+    (hctx : ∀ (mctx : Meta.Context) (cctx : Core.Context),
+      MachineDefines mctx mref cctx cref c shape ∧ MachineCloses mctx mref cctx cref c shape ∧
+        ∀ w raw D, Tools.ShippingChildInv.ChildBnd mref cref w → Bnd mctx mref cctx cref w raw D)
+    (hL : Tools.ShippingChildInv.ChildLaws mref cref) (hi : shape.insts ≠ []) :
     MachineRunNC c shape Bnd mc dsn := by
-  obtain ⟨w, w', hb, hrun⟩ := hreal.bnd hL
+  obtain ⟨mctx, cctx, w, w', hb, hrun⟩ := hreal.bnd hL
+  obtain ⟨entry, closes, hB⟩ := hctx mctx cctx
   obtain ⟨raw, D, w1, hcore, hpost, hagree⟩ := synthesizeCombinational_design hrun
   obtain ⟨t, t', d₀, children, _, hcc, _⟩ :=
     Tools.ShippingChildInv.machine_children_real hcore entry closes hb hi

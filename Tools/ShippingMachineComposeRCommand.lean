@@ -203,6 +203,12 @@ def generateComposedRCore (declName : Name) : MetaM Name := do
   -- the children's reflection facts in the run's contexts: `EntryDefines` for
   -- a gate-compiled child, `MachineDefines`/`MachineCloses` for a machine one
   let kids := (r.shape.insts.map (·.1)).eraseDups
+  -- a child's fact, in whatever Meta and Core contexts the child was
+  -- synthesised (over the run's state references)
+  let anyCtx (k : Array Lean.Expr → MetaM Lean.Expr) : MetaM Lean.Expr :=
+    withLocalDeclD `mctx' (mkConst ``Lean.Meta.Context) fun mc' =>
+      withLocalDeclD `cctx' (mkConst ``Lean.Core.Context) fun cc' => do
+        mkForallFVars #[mc', cc'] (← k #[mc', ctx[1]!, cc', ctx[3]!])
   let mut rTypes : List Lean.Expr := []
   let mut gateOf : Std.HashMap Name Bool := {}
   for c in kids do
@@ -210,14 +216,14 @@ def generateComposedRCore (declName : Name) : MetaM Name := do
       discard <| Tools.ShippingGateChildCommand.generateMachineChildLinked c
       gateOf := gateOf.insert c false
       let shapeE ← mkAppM ``Tools.ShippingMachineAuto.MachineData.shape #[mkConst (c ++ `machineData)]
-      rTypes := rTypes ++ [← mkAppM ``And #[mkAppN (mkConst ``Tools.ShippingMachineEntry.MachineDefines) (ctx ++ #[toExpr c, shapeE]),
-        mkAppN (mkConst ``Tools.ShippingMachineEntry.MachineCloses) (ctx ++ #[toExpr c, shapeE])]]
+      rTypes := rTypes ++ [← anyCtx fun ctx' => mkAppM ``And #[mkAppN (mkConst ``Tools.ShippingMachineEntry.MachineDefines) (ctx' ++ #[toExpr c, shapeE]),
+        mkAppN (mkConst ``Tools.ShippingMachineEntry.MachineCloses) (ctx' ++ #[toExpr c, shapeE])]]
     else
       unless (← getEnv).contains (c ++ `gate_linked) do
         throwError "{declName}: run #gate_child {c} first"
       gateOf := gateOf.insert c true
-      rTypes := rTypes ++ [mkAppN (mkConst ``Tools.ShippingInlineSoundness.EntryDefines)
-        (ctx ++ #[toExpr c, mkConst (c ++ `gateValue)])]
+      rTypes := rTypes ++ [← anyCtx fun ctx' => pure (mkAppN (mkConst ``Tools.ShippingInlineSoundness.EntryDefines)
+        (ctx' ++ #[toExpr c, mkConst (c ++ `gateValue)]))]
   let rDecls := (kids.zip rTypes).toArray.mapIdx fun j (_, ty) =>
     (Name.mkSimple s!"hR{j}", fun (_ : Array Lean.Expr) => pure ty)
   withLocalDeclsD rDecls fun hRs => do
@@ -232,9 +238,9 @@ def generateComposedRCore (declName : Name) : MetaM Name := do
     let hRS : Term := ⟨mkIdent (Name.mkSimple s!"hR{j}")⟩
     let lem := mkIdent (`_root_ ++ c ++ (if gateOf.getD c true then `gate_linked else `child_linked))
     let tac ← if gateOf.getD c true then
-        `(tactic| (exact ⟨rfl, fun mc Dc w w' _ hrun => $lem mc ⟨_, _, _, _, w, w', Dc, hrun, $hRS⟩⟩))
+        `(tactic| (exact ⟨rfl, fun mctx' cctx' mc Dc w w' _ hrun => $lem mc ⟨_, _, _, _, w, w', Dc, hrun, $hRS mctx' cctx'⟩⟩))
       else
-        `(tactic| (exact ⟨rfl, fun mc Dc w w' _ hrun => $lem mc ⟨_, _, _, _, w, w', Dc, hrun, ($hRS).1, ($hRS).2⟩⟩))
+        `(tactic| (exact ⟨rfl, fun mctx' cctx' mc Dc w w' _ hrun => $lem mc ⟨_, _, _, _, w, w', Dc, hrun, ($hRS mctx' cctx').1, ($hRS mctx' cctx').2⟩⟩))
     perR := perR.push (← proveByTactic goalK tac)
   let nameT := mkConst ``Name
   let QmR (m : Nat) : MetaM Lean.Expr :=
