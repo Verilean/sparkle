@@ -69,6 +69,7 @@ def LP (P : String → Prop) (bnd : FVarId → Option String) (Vk : Nat → Stri
     (body : List Stmt) : Nat → List Lean.Expr → String → Prop
   | _, [], _ => True
   | i, e :: es, w => ∃ x y pre, link w x y ∈ body ∧ pre <:+ body ∧ Src P bnd pre e x ∧
+      (P x → Vk i x) ∧
       (∀ l r, Stmt.assign l r ∈ pre → ReadsOK P (Vk i) r) ∧ LP P bnd Vk body (i + 1) es y
 
 theorem LP.mono {bnd : FVarId → Option String} {Vk : Nat → String → Prop} {body : List Stmt}
@@ -76,8 +77,9 @@ theorem LP.mono {bnd : FVarId → Option String} {Vk : Nat → String → Prop} 
     ∀ {i : Nat} {es : List Lean.Expr} {w : String},
       LP P bnd Vk body i es w → LP P bnd Vk (more ++ body) i es w
   | _, [], _, _ => trivial
-  | _, _ :: _, _, ⟨x, y, pre, hm, hs, hd, hr, hl⟩ =>
-    ⟨x, y, pre, List.mem_append_right _ hm, hs.trans (List.suffix_append _ _), hd, hr, hl.mono more⟩
+  | _, _ :: _, _, ⟨x, y, pre, hm, hs, hd, hv, hr, hl⟩ =>
+    ⟨x, y, pre, List.mem_append_right _ hm, hs.trans (List.suffix_append _ _), hd, hv, hr,
+      hl.mono more⟩
 
 theorem ReadsOK.mono {V V' : String → Prop} (h : ∀ x, V x → V' x) {rhs : Sparkle.IR.AST.Expr}
     (hr : ReadsOK P V rhs) : ReadsOK P V' rhs := fun x hx hp => h x (hr x hx hp)
@@ -90,14 +92,34 @@ theorem St.weaken {B B' : FVarId → Prop} {V V' : String → Prop} {s : Circuit
     St ctx inputs B' P V' s :=
   ⟨h.1, h.2.1, h.2.2.1, h.2.2.2.1, hB, fun l r hm => ReadsOK.mono hV (h.2.2.2.2.2 l r hm)⟩
 
+/-- A quoted term that is a variable is one of the term's input variables. -/
+theorem quote_fvar {ub uv : Nat → Prop} {id : FVarId} :
+    ∀ {s : SType} (e : Term s), Uses ub uv e → Q(e) = .fvar id →
+      (∃ j, ub j ∧ id = bi j) ∨ (∃ j, uv j ∧ id = vi j) := by
+  intro s e hu h
+  cases e
+  case boolInput j =>
+    exact Or.inl ⟨j, hu, by cases h; rfl⟩
+  case bitsInput w j =>
+    exact Or.inr ⟨j, hu.1, by cases h; rfl⟩
+  all_goals (first | cases h | (simp [quote] at h))
+
 section Run
 variable {ubk uvk : Nat → Nat → Prop} {Vk : Nat → String → Prop} {kb kv : Nat} {vw : Nat → Nat}
   {bools : Nat → Bool} {bits : (j : Nat) → (w : Nat) → BitVec w}
 
+theorem fieldsOK_wf {c : Nat} {core : Term (.bits c)} :
+    ∀ (gs : List (Σ w : Nat, Term (.bits w))) (j : Nat), FieldsOK ubk uvk kb kv vw j gs →
+      core.WF kb kv vw → (packLets gs core).2.WF kb kv vw
+  | [], _, _, hc => hc
+  | _ :: gs, j, h, hc => ⟨h.1, fieldsOK_wf gs (j + 1) h.2.2 hc⟩
+
 /-- A cache hit on a packed term: the links are the record invariant's; the
 point of emission is the whole body now. -/
 theorem lp_of_spineQ {bnd : FVarId → Option String} {wires : List Port} {body : List Stmt}
-    (hmonoV : ∀ k x, Vk k x → Vk (k + 1) x) :
+    (hmonoV : ∀ k x, Vk k x → Vk (k + 1) x)
+    (hnw : ∀ l r, Stmt.assign l r ∈ body → ¬ P l)
+    (hbind : ∀ k id z, Bk bi vi ubk uvk k id → bnd id = some z → Vk k z) :
     ∀ (fs : List (Σ w : Nat, Term (.bits w))) {c : Nat} (core : Term (.bits c)) (i : Nat)
       (w : String), FieldsOK ubk uvk kb kv vw i fs → core.WF kb kv vw →
       (∀ l r, Stmt.assign l r ∈ body → ReadsOK P (Vk i) r) →
@@ -105,18 +127,21 @@ theorem lp_of_spineQ {bnd : FVarId → Option String} {wires : List Port} {body 
       LP P bnd Vk body i (fs.map fun f => Q(f.2)) w
   | [], _, _, _, _, _, _, _, _ => trivial
   | f :: rest, c, core, i, w, hf, hc, hread, hs => by
-    obtain ⟨hwf, -, hrest⟩ := hf
-    have hrestWF : (packLets rest core).2.WF kb kv vw := by
-      clear hs hread
-      induction rest generalizing i with
-      | nil => exact hc
-      | cons g gs ih => exact ⟨hrest.1, ih (i + 1) hrest.2.2⟩
+    obtain ⟨hwf, huf, hrest⟩ := hf
+    have hrestWF : (packLets rest core).2.WF kb kv vw := fieldsOK_wf rest (i + 1) hrest hc
     have hcc : canonicalConcat? Q((packLets (f :: rest) core).2) =
         some (f.1, (packLets rest core).1, Q(f.2), Q((packLets rest core).2)) :=
       canonicalConcat?_concatE dom _ _ (f.2.wf_pos hwf) ((packLets rest core).2.wf_pos hrestWF)
     obtain ⟨x, y, hm, -, hd, hr⟩ := hs _ _ _ _ hcc
-    exact ⟨x, y, body, hm, List.suffix_refl _, hd, hread,
-      lp_of_spineQ hmonoV rest core (i + 1) y hrest hc
+    have hvx : P x → Vk i x := by
+      intro hp
+      rcases hd with ⟨-, rhs, hm'⟩ | ⟨id, he, hb, -⟩
+      · exact absurd hp (hnw x rhs hm')
+      · rcases quote_fvar (dom := dom) f.2 huf he with ⟨j, hj, rfl⟩ | ⟨j, hj, rfl⟩
+        · exact hbind i _ x (Or.inl ⟨j, hj, rfl⟩) hb
+        · exact hbind i _ x (Or.inr ⟨j, hj, rfl⟩) hb
+    exact ⟨x, y, body, hm, List.suffix_refl _, hd, hvx, hread,
+      lp_of_spineQ hmonoV hnw hbind rest core (i + 1) y hrest hc
         (fun l r hl => ReadsOK.mono (hmonoV i) (hread l r hl)) hr⟩
 
 /-- **The packed spine, link by link.** Translating `packLets fs core` from a
@@ -161,7 +186,7 @@ theorem spine_links
     · obtain ⟨hs, hrec⟩ := cacheLookupValidated_returns hit
       subst hs
       refine ⟨lp_of_spineQ (wires := t.module.wires) (dom := dom) (bi := bi) (vi := vi) hmonoV
-        (f :: rest) core i w
+        hq.2.2.2.1 hbind (f :: rest) core i w
         ⟨hwf, huf, hrest⟩ hc hq.2.2.2.2.2 ?_, Ext.refl _⟩
       have := (hq.1 w _ (hrec w rfl)).1 (f :: rest).length
       rw [hσ] at this
@@ -176,7 +201,7 @@ theorem spine_links
       subst ht
       subst hwv
       obtain ⟨qA, xA, -, -⟩ := makeWire_facts hmk hq
-      obtain ⟨qB, xAB, -, -, -, hdrv⟩ := fuel_spine (ctx := ctx) (P := P) (V := Vk i) (dom := dom)
+      obtain ⟨qB, xAB, -, -, hva, hdrv⟩ := fuel_spine (ctx := ctx) (P := P) (V := Vk i) (dom := dom)
         fuel hb hv (fun j h => Or.inl ⟨j, h, rfl⟩) (fun j h => Or.inr ⟨j, h, rfl⟩) f.2 hwf huf
         "concat_hi" false sA sB wa ha qA
       have hσB : sB.sourceBindings = σ := by rw [xAB.2.1, xA.2.1, hσ]
@@ -193,7 +218,7 @@ theorem spine_links
       have hbody : (CircuitM.emitAssign w (.concat [.ref wa, .ref wb]) sC).2.module.body =
           [.assign w (.concat [.ref wa, .ref wb])] ++ sC.module.body := by
         rw [emitAssign_body_cons]; rfl
-      refine ⟨⟨wa, wb, sB.module.body, ?_, ?_, hσB ▸ hdrv, qB.2.2.2.2.2, ?_⟩,
+      refine ⟨⟨wa, wb, sB.module.body, ?_, ?_, hσB ▸ hdrv, hva, qB.2.2.2.2.2, ?_⟩,
         (xA.trans (xAB.trans (xBC.trans xCD))).trans ⟨Kept.refl _, rfl, fun _ h => h⟩⟩
       · show link w wa wb ∈ (CircuitM.emitAssign w (.concat [.ref wa, .ref wb]) sC).2.module.body
         rw [emitAssign_body_cons]; exact List.mem_cons_self ..
