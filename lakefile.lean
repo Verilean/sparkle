@@ -660,6 +660,9 @@ lean_lib «Tools.ShippingCloseMachineFacts» where
 lean_lib «Tools.ShippingTransitionFields» where
   roots := #[`Tools.ShippingTransitionFields]
 
+lean_lib «Tools.ShippingRankNames» where
+  roots := #[`Tools.ShippingRankNames]
+
 lean_lib «Tools.ShippingCallsClose» where
   roots := #[`Tools.ShippingCallsClose]
 
