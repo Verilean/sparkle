@@ -917,6 +917,27 @@ and `ShippingChildCacheRun` removed).
     `LetsClose` (proved from data) and `CallsPure`: `closeInsts` /
     `closeInstsG` succeed on every list of real children. `CallsPure` is
     open, and the heads have not been moved to `MachineClosesAt`.
+  - **The runtime laws were inconsistent until 2026-10-11** (commit
+    `dc50653e`). `Framed.ioFlush (h : IO.FS.Stream)` was a frame law for the
+    `flush` of ANY stream — a structure of closures, so of any `IO Unit`;
+    with `cacheSet`, `RefLaws → False` (proved in a probe, standard axioms).
+    Every `ChildBnd`-premised theorem was vacuous before the fix; the axiom
+    audits did not show it. Now the compiler's stderr flush is the named
+    action `Sparkle.Compiler.flushStderr` and the law is about it; a test
+    rejects `Framed` constructors over caller-supplied streams or actions.
+    Still assumptions about the environment, not derived: the frames of
+    `IO.eprintln`, `flushStderr`, the file-handle writes, `profLog` (the
+    compiler's logger, named — derivable from the others in content, not
+    derived) and `msgToString` (a message may carry a lazy thunk). A model
+    of the laws is not exhibited.
+  - **`MachineClosesAt` at the heads** (commit `46739be4`): the nine HR
+    endpoints ask no fallback where a real compile runs the machine
+    synthesis (child-cache invariant world, the compiler's logger) instead
+    of the all-worlds `MachineCloses`. It is still a premise there. The pure
+    side of `closeInsts` returning a module is proved
+    (`ShippingCloseChecks.closeChecks_of` and the files it uses); the facts
+    about a real transition and its children that it needs are not, so no
+    endpoint has lost its closing premise for a shape with calls.
 - **The two limits (state, 2026-10-11).** Both are behaviour changes of the
   compiler, separate from the proofs:
   - `sparkleSynthDepthLimit = 1024`: a nest of `@[hardware_module]` calls

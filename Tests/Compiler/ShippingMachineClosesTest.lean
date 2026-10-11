@@ -2,6 +2,7 @@ import Tests.Compiler.ShippingReflectCtxTest
 import Tools.ShippingMachineCommand
 import Tools.ShippingMachineClosesGen
 import Tools.ShippingCallsClose
+import Tools.ShippingCloseMachineFacts
 
 /-! # `MachineCloses` derived for `let` shapes without calls
 
@@ -185,3 +186,29 @@ run_cmd Lean.Elab.Command.liftTermElabM do
       if ty.isAppOf ``Tools.ShippingChildInv.CallsPure then pure := true
     unless pure do throwError "machineClosesAt_of_pure: CallsPure is not a premise"
   Lean.logInfo m!"CALLS FROM AN INVARIANT WORLD: a run of closeInstsM / closeInstsGM is the pure closing of real children (module or nothing); MachineClosesAt from LetsClose + CallsPure under RefLaws; CallsPure is NOT proved"
+
+/-! The pure side of the calls' closing (`closeInsts`): it returns a module
+when its four steps succeed (`closeInsts_some_of`); the reordering succeeds
+and the checks hold from facts about the closed body and the instance
+statements (`closeChecks_of`, with `topoBody_some_rank`, `rank_of_names`,
+`woCheck_ordered`, `linkedOk_ordered`); the closed machine's body gives the
+static ones (`closeMachine_body`, `static_checks`). NOT proved, and still
+premises of `closeChecks_of`: the rank on names for a real transition, the
+instance statements (`instStmtsOf`), the agreement of each instance with its
+child's ports, the design facts (name resolution, `noInstOfB`,
+`kidsCombB`). No endpoint uses these theorems yet. -/
+run_cmd Lean.Elab.Command.liftTermElabM do
+  for n in [``Tools.ShippingTopoBody.topoBody_some, ``Tools.ShippingTopoBody.topoBody_some_rank,
+      ``Tools.ShippingTopoBody.rank_of_names, ``Tools.ShippingTopoChecks.woCheck_ordered,
+      ``Tools.ShippingTopoChecks.isPermOf_complete, ``Tools.ShippingTopoLinked.linkedOk_ordered,
+      ``Tools.ShippingCloseInstsSome.closeInsts_some_of, ``Tools.ShippingCloseChecks.closeChecks_of,
+      ``Tools.ShippingCloseMachineFacts.closeMachine_body,
+      ``Tools.ShippingCloseMachineFacts.static_checks] do
+    for a in ← Lean.collectAxioms n do
+      unless a == ``propext || a == ``Classical.choice || a == ``Quot.sound do
+        throwError "{n} depends on {a}"
+  -- `closeInsts_some_of` concludes about the REAL `closeInsts`
+  let t ← Lean.Meta.inferType (mkConst ``Tools.ShippingCloseInstsSome.closeInsts_some_of)
+  unless (t.find? (·.isConstOf ``Sparkle.IR.Machine.closeInsts)).isSome do
+    throwError "closeInsts_some_of is not about closeInsts"
+  Lean.logInfo m!"CLOSEINSTS, PURE SIDE: four steps ⇒ a module; topoBody does not get stuck given a rank; woCheck / isPermOf / seqOf / linkedOk of its result; the closed machine's body is ordered assignments around registers — standard axioms. OPEN (premises, no endpoint uses this yet): the rank for a real transition, the instance statements, instance/child agreement, name resolution, noInstOfB, kidsCombB"
