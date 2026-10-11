@@ -4,8 +4,8 @@ import Tools.ShippingMachineDepthChild
 
 /-! # A machine child WITH calls of its own, from its own run
 
-A run of the FULL entry on a machine-route declaration with registers whose
-calls go through the general closing returns a module and a design with what
+A run of the FULL entry on a machine-route declaration with registers and
+calls (closed by either closing: one-output or general) returns a module and a design with what
 a parent's closing asks (`ChildIfaceD`), the design described by the printed
 names of its children and of their descendants:
 
@@ -79,6 +79,31 @@ theorem synthesizeCombinational_designL {declName : Name} {mctx : Meta.Context}
     show (D.modules.map _).map _ = _
     rw [map_other M.name _ D.modules hx, map_other M.name _ D.modules hx]
 
+/-- **What a child with calls asks of ITS children**: the name, and the
+design described by printed names (no port fact). -/
+structure KidNames (c : Name) (names : List String) (b : Sparkle.IR.AST.Module)
+    (design : Design) : Prop where
+  name : b.name = c.toString
+  desNames : ∀ g ∈ design.modules, g.name ∈ names
+  closed : ∀ g ∈ b :: design.modules, ∀ mn i conns, Stmt.inst mn i conns ∈ g.body → mn ∈ names
+
+theorem _root_.Tools.ShippingCallsKidsD.ChildIfaceD.kid {c : Name} {n : Nat}
+    {outs names : List String} {b : Sparkle.IR.AST.Module} {design : Design}
+    (h : ChildIfaceD c n outs names b design) : KidNames c names b design :=
+  ⟨h.name, h.desNames, h.closed⟩
+
+/-- A gate child or a slotless machine child (`ChildIface`): no descendant. -/
+theorem kid_of_iface {c : Name} {n : Nat} {b : Sparkle.IR.AST.Module} {design : Design}
+    (h : Tools.ShippingCallsGate.ChildIface c n b design) : KidNames c [] b design := by
+  obtain ⟨hcomb, -, hname, hdes⟩ := h
+  refine ⟨hname, (by rw [hdes]; intro g hg; cases hg), ?_⟩
+  rw [hdes]
+  intro g hg mn i conns hm
+  have hgb : g = b := by simpa using hg
+  subst hgb
+  have := List.all_eq_true.mp hcomb.assigns _ hm
+  simp [Sparkle.IR.RegDedup.isAssign] at this
+
 /-- The printed names of a machine's children and of their descendants. -/
 def namesOf (d : MachineData) (namesK : Nat → List String) : List String :=
   d.shape.insts.map (·.1.toString) ++ (List.range d.shape.insts.length).flatMap namesK
@@ -95,7 +120,7 @@ theorem kidsChild_iface {c : Name} (d : MachineData) (ok : d.ok = true)
     {nDecl : Nat} (hC : d.callsOk nDecl = true)
     (hslots : d.ss.length = d.shape.layout.slots.length)
     (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
-    (hins : d.shape.insts ≠ []) (hfne : d.shape.instFields ≠ [])
+    (hins : d.shape.insts ≠ [])
     (hsl : d.shape.layout.slots ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
     (kD : Nat) (hkD : kD ≤ d.bsIn.length)
@@ -104,11 +129,11 @@ theorem kidsChild_iface {c : Name} (d : MachineData) (ok : d.ok = true)
     (hSlen : d.slotBs.length = d.shape.layout.slots.length)
     (hLlen : d.letBs.length = d.shape.layout.lets)
     (hNIn : machNIn d.shape = ((d.bsIn.take kD).filter (fun b => b.2 != .domain)).length)
-    (nk : Nat → Nat) (outsK : Nat → List String) (namesK : Nat → List String)
+    (namesK : Nat → List String)
     (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
     (hkid : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y →
-      ChildIfaceD (d.shape.insts[k]).1 (nk k) (outsK k) (namesK k) y.1 y.2)
+      KidNames (d.shape.insts[k]).1 (namesK k) y.1 y.2)
     (hself : c.toString ∉ namesOf d namesK)
     {w w' : Void IO.RealWorld} {b : Sparkle.IR.AST.Module} {design : Design}
     (hw : InvW mref cref w)
@@ -129,10 +154,7 @@ theorem kidsChild_iface {c : Name} (d : MachineData) (ok : d.ok = true)
   obtain ⟨t, t', d₀, run, hcl, hmt⟩ := synthesizeMachineCertified_runs hw9 hrun9
   rcases hmt with ⟨hno, -, -⟩ | ⟨-, children, hcc, hreal⟩
   · exact absurd hno hins
-  rcases hcc with ⟨hf0, -⟩ | ⟨-, hG, -⟩
-  · exact absurd hf0 hfne
-  obtain ⟨-, -, hMname, L, hLinst, hperm, -, -, -, -, -, hDeq, -⟩ :=
-    Tools.ShippingMachineInst.closeInstsG_some hG
+  obtain ⟨-, -, hMname, L, hLinst, hperm, -, -, -, -, -, hDeq, -⟩ := hcc.some
   obtain ⟨hseq0, hname0, hd0⟩ := closedBody_kinds_of_run d ok hbody hC hslots hdomB run hcl
   -- the raw module's wiring
   have ok' := ok
@@ -178,20 +200,29 @@ theorem kidsChild_iface {c : Name} (d : MachineData) (ok : d.ok = true)
   obtain ⟨hinNd, -, -, houtIn, hargP, -⟩ :=
     Tools.ShippingMachineDepthChild.calls_ports wired hlenIds hsl (fun o ho => (outsOk o ho).2)
       kD hkD hIlen hSL hSlen hLlen hNIn
-  obtain ⟨-, -, -, -, -, -, -, houtsM, -, -, -, hGinst, hGcall, -, -, hcleanAny, -⟩ := wired
+  obtain ⟨-, -, -, -, hcall1, hinst1, -, houtsM, -, -, -, hGinst, hGcall, -, -, hcleanAny, -⟩ :=
+    wired
   obtain ⟨hzb, -, hzi, hzo⟩ := hcleanAny outTy
   -- an instance statement of the module names a module of its design
   have hinstD : ∀ mn i conns, Stmt.inst mn i conns ∈ M.body → ∃ mc ∈ D.modules, mc.name = mn := by
     intro mn i conns hm
-    obtain ⟨args, outs, mc, hcs, hfind, -⟩ := hGinst hfne _ hm rfl
-    obtain ⟨_, _, _, -, -, -, -, -, -, -, -, -, -, -, he⟩ := hcs
-    cases he
-    exact ⟨mc, List.mem_of_find?_eq_some hfind, rfl⟩
+    by_cases hf : d.shape.instFields = []
+    · obtain ⟨k, args, mc, -, hfind, -⟩ := hinst1 hf mn i conns hm
+      unfold moduleByName at hfind
+      exact ⟨mc, List.mem_of_find?_eq_some hfind, by simpa using List.find?_some hfind⟩
+    · obtain ⟨args, outs, mc, hcs, hfind, -⟩ := hGinst hf _ hm rfl
+      obtain ⟨_, _, _, -, -, -, -, -, -, -, -, -, -, -, he⟩ := hcs
+      cases he
+      exact ⟨mc, List.mem_of_find?_eq_some hfind, rfl⟩
   have hhas : Tools.ShippingMachineShipsHier.hasInst M := by
     have hk0 : 0 < d.shape.insts.length := List.length_pos_iff.mpr hins
-    obtain ⟨st, hst, args, outs, mc, hcs, -⟩ := hGcall hfne 0 hk0
-    obtain ⟨_, _, iname, -, -, -, -, -, -, -, -, -, -, -, he⟩ := hcs
-    exact ⟨mc.name, iname, _, he ▸ hst⟩
+    by_cases hf : d.shape.instFields = []
+    · obtain ⟨args, mc, st, -, hst, -, hcs⟩ := hcall1 hf 0 hk0
+      obtain ⟨_, _, _, iname, -, -, -, -, -, -, -, -, -, he⟩ := hcs
+      exact ⟨mc.name, iname, _, he ▸ hst⟩
+    · obtain ⟨st, hst, args, outs, mc, hcs, -⟩ := hGcall hf 0 hk0
+      obtain ⟨_, _, iname, -, -, -, -, -, -, -, -, -, -, -, he⟩ := hcs
+      exact ⟨mc.name, iname, _, he ▸ hst⟩
   have hbeq : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M := by
     rcases hpost with h | h
     · exact h
@@ -205,7 +236,7 @@ theorem kidsChild_iface {c : Name} (d : MachineData) (ok : d.ok = true)
   -- the children, by their witnesses
   obtain ⟨hlenC, hall⟩ := hreal
   have hfull : ∀ (k : Nat) (y : Res), children[k]? = some y → ∃ hk : k < d.shape.insts.length,
-      ChildIfaceD (d.shape.insts[k]).1 (nk k) (outsK k) (namesK k) y.1 y.2 := by
+      KidNames (d.shape.insts[k]).1 (namesK k) y.1 y.2 := by
     intro k y hc
     have hk : k < d.shape.insts.length := by
       rw [← hlenC]
@@ -311,7 +342,7 @@ theorem kidsChild_of_real {c : Name} (d : MachineData) (ok : d.ok = true)
     {nDecl : Nat} (hC : d.callsOk nDecl = true)
     (hslots : d.ss.length = d.shape.layout.slots.length)
     (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
-    (hins : d.shape.insts ≠ []) (hfne : d.shape.instFields ≠ [])
+    (hins : d.shape.insts ≠ [])
     (hsl : d.shape.layout.slots ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
     (kD : Nat) (hkD : kD ≤ d.bsIn.length)
@@ -320,11 +351,11 @@ theorem kidsChild_of_real {c : Name} (d : MachineData) (ok : d.ok = true)
     (hSlen : d.slotBs.length = d.shape.layout.slots.length)
     (hLlen : d.letBs.length = d.shape.layout.lets)
     (hNIn : machNIn d.shape = ((d.bsIn.take kD).filter (fun b => b.2 != .domain)).length)
-    (nk : Nat → Nat) (outsK : Nat → List String) (namesK : Nat → List String)
+    (namesK : Nat → List String)
     (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
     (hkid : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y →
-      ChildIfaceD (d.shape.insts[k]).1 (nk k) (outsK k) (namesK k) y.1 y.2)
+      KidNames (d.shape.insts[k]).1 (namesK k) y.1 y.2)
     (hself : c.toString ∉ namesOf d namesK)
     (entry : MachineDefines mctx mref cctx cref c d.shape)
     (closes : ∀ (mctx' : Meta.Context) (cctx' : Core.Context),
@@ -334,8 +365,8 @@ theorem kidsChild_of_real {c : Name} (d : MachineData) (ok : d.ok = true)
     ChildIfaceD c ((d.bsIn.take kD).filter (fun b => b.2 != .domain)).length
       (d.shape.layout.outs.map (·.name)) (namesOf d namesK) y.1 y.2 := by
   obtain ⟨mctx', cctx', w, w', hw, hr⟩ := h.inv
-  exact kidsChild_iface d ok hbody hC hslots hdomB hins hfne hsl outTy kD hkD hIlen hSL hSlen
-    hLlen hNIn nk outsK namesK hnomem hkid hself hw hr
+  exact kidsChild_iface d ok hbody hC hslots hdomB hins hsl outTy kD hkD hIlen hSL hSlen
+    hLlen hNIn namesK hnomem hkid hself hw hr
     (Tools.ShippingReflectCtx.MachineDefines.ctx entry)
     (closes mctx' cctx' (Tools.ShippingReflectCtx.MachineDefines.ctx entry))
 
