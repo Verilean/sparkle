@@ -158,6 +158,53 @@ theorem RecQ.empty {ctx inputs P} {s : CircuitState} (h : s.translateRecord = {}
 def ReadsOK (P V : String → Prop) (rhs : Sparkle.IR.AST.Expr) : Prop :=
   ∀ x ∈ refsOf rhs, P x → V x
 
+/-! ### Closed reads
+
+Every statement reads only protected names and names driven EARLIER. The
+builder's list is in reverse emission order, so "earlier" is "in the rest of
+the list". `Cl P W s`: the body is closed, and every name in `W` — the wires
+the program in hand may read — is protected or already driven. A wire that
+was only MADE (reserved) is not in `W` until its assignment is emitted. -/
+
+/-- Every statement reads protected names or names the statements after it in
+the list (emitted before it) drive. -/
+def ClosedB (P : String → Prop) : List Stmt → Prop
+  | [] => True
+  | st :: post => (∀ x ∈ stmtReads st, P x ∨ x ∈ writesOf post) ∧ ClosedB P post
+
+/-- The body is closed, and every name of `W` is protected or driven. -/
+def Cl (P W : String → Prop) (s : CircuitState) : Prop :=
+  ClosedB P s.module.body ∧ ∀ x, W x → Drv P s.module.body x
+
+theorem Cl.weaken {P W W' : String → Prop} {s : CircuitState} (h : ∀ x, W' x → W x) :
+    Cl P W s → Cl P W' s := fun hc => ⟨hc.1, fun x hx => hc.2 x (h x hx)⟩
+
+theorem Cl.add {P W : String → Prop} {s : CircuitState} {x : String}
+    (hd : Drv P s.module.body x) : Cl P W s → Cl P (fun y => W y ∨ y = x) s :=
+  fun hc => ⟨hc.1, fun y hy => hy.elim (hc.2 y) (fun e => e ▸ hd)⟩
+
+theorem Cl.body {P W : String → Prop} {s t : CircuitState} (hb : t.module.body = s.module.body) :
+    Cl P W s → Cl P W t := fun hc => ⟨hb ▸ hc.1, fun x hx => hb ▸ hc.2 x hx⟩
+
+theorem mem_writesOf_assign {x : String} {rhs : Sparkle.IR.AST.Expr} {body : List Stmt}
+    (h : Stmt.assign x rhs ∈ body) : x ∈ writesOf body :=
+  List.mem_flatMap.mpr ⟨_, h, by simp [stmtWrites]⟩
+
+/-- An assignment reading names of `W`: the body stays closed, and the
+assigned name is now driven. -/
+theorem Cl.emit {P W : String → Prop} {s : CircuitState} (lhs : String)
+    (rhs : Sparkle.IR.AST.Expr) (h : ∀ x ∈ refsOf rhs, W x) :
+    Cl P W s → Cl P (fun y => W y ∨ y = lhs) (CircuitM.emitAssign lhs rhs s).2 := by
+  intro hc
+  rw [Cl, emitAssign_body_cons]
+  refine ⟨⟨fun x hx => ?_, hc.1⟩, fun y hy => ?_⟩
+  · rcases hc.2 x (h x hx) with ⟨r, hr⟩ | hp
+    · exact Or.inr (mem_writesOf_assign hr)
+    · exact Or.inl hp
+  · rcases hy with hy | hy
+    · exact (hc.2 y hy).mono (fun st hs => List.mem_cons_of_mem _ hs)
+    · exact hy ▸ Or.inl ⟨rhs, List.mem_cons_self ..⟩
+
 /-- The state invariant.
 * the record invariant;
 * every input variable is bound to a wire declared at its value's width;
@@ -209,11 +256,13 @@ def Good (ctx : CompilerState) (inputs : FVarId → Option Value) (B : FVarId �
     (P V : String → Prop) {α : Type} (a : CompilerM α) : Prop :=
   ∀ s t r, Returns a ctx s r t → St ctx inputs B P V s → St ctx inputs B P V t ∧ Ext s t
 
-/-- …and the wire it returns, if protected, is in `V`. -/
+/-- …and the wire it returns, if protected, is in `V`; and it keeps the reads
+closed, the returned wire being protected or driven (`Cl`). -/
 def GoodR (ctx : CompilerState) (inputs : FVarId → Option Value) (B : FVarId → Prop)
     (P V : String → Prop) (a : CompilerM String) : Prop :=
   ∀ s t r, Returns a ctx s r t → St ctx inputs B P V s →
-    St ctx inputs B P V t ∧ Ext s t ∧ (P r → V r)
+    St ctx inputs B P V t ∧ Ext s t ∧ (P r → V r) ∧
+      ∀ W, Cl P W s → Cl P (fun y => W y ∨ y = r) t
 
 variable {ctx : CompilerState} {inputs : FVarId → Option Value} {B : FVarId → Prop}
   {P V : String → Prop}
@@ -242,7 +291,7 @@ theorem Good.bindR {β : Type} {m : CompilerM String} {f : String → CompilerM 
     Good ctx inputs B P V (m >>= f) := by
   intro s t r hr hq
   obtain ⟨a, sm, h1, h2⟩ := Returns.bind hr
-  obtain ⟨q1, k1, hv⟩ := hm s sm a h1 hq
+  obtain ⟨q1, k1, hv, -⟩ := hm s sm a h1 hq
   obtain ⟨q2, k2⟩ := hf a hv sm t r h2 q1
   exact ⟨q2, k1.trans k2⟩
 
@@ -331,7 +380,7 @@ theorem Last.bindR {N : Nat} {m : CompilerM String} {f : String → CompilerM St
     Last ctx inputs B P V N (m >>= f) := by
   intro s t r hr hq
   obtain ⟨a, sm, h1, h2⟩ := Returns.bind hr
-  obtain ⟨q1, -, hv⟩ := hm s sm a h1 hq
+  obtain ⟨q1, -, hv, -⟩ := hm s sm a h1 hq
   exact hf a hv sm t r h2 q1
 
 /-- A result wire made, assigned and returned. -/
@@ -390,6 +439,133 @@ theorem Drives.assignRet {r : String} {rhs : Sparkle.IR.AST.Expr} :
   subst ht
   exact ⟨rhs, by rw [emitAssign_body_cons]; exact List.mem_cons_self ..⟩
 
+/-! ### The closed-reads walk -/
+
+/-- An action keeps the reads closed, for the readable names `W`. -/
+def Cls (ctx : CompilerState) (inputs : FVarId → Option Value) (B : FVarId → Prop)
+    (P V W : String → Prop) {α : Type} (a : CompilerM α) : Prop :=
+  ∀ s t r, Returns a ctx s r t → St ctx inputs B P V s → Cl P W s → Cl P W t
+
+/-- …and the wire it returns is protected or driven: readable from then on. -/
+def ClsR (ctx : CompilerState) (inputs : FVarId → Option Value) (B : FVarId → Prop)
+    (P V W : String → Prop) (a : CompilerM String) : Prop :=
+  ∀ s t r, Returns a ctx s r t → St ctx inputs B P V s → Cl P W s →
+    Cl P (fun y => W y ∨ y = r) t
+
+variable {W : String → Prop}
+
+theorem GoodR.cls {a : CompilerM String} (h : GoodR ctx inputs B P V a) (W : String → Prop) :
+    ClsR ctx inputs B P V W a :=
+  fun s t r hr hq hc => (h s t r hr hq).2.2.2 W hc
+
+theorem Cls.pure {α : Type} (a : α) : Cls ctx inputs B P V W (Pure.pure a : CompilerM α) := by
+  intro s t r hr _ hc
+  obtain ⟨-, rfl⟩ := Returns.pure hr
+  exact hc
+
+theorem Cls.throw {α : Type} (e : Exception) : Cls ctx inputs B P V W (throw e : CompilerM α) :=
+  fun _ _ _ hr _ _ => (Returns.throw hr).elim
+
+theorem Cls.liftMetaM {α : Type} (x : MetaM α) :
+    Cls ctx inputs B P V W (CompilerM.liftMetaM x) := by
+  intro s t r hr _ hc
+  obtain rfl := Returns.liftMetaM hr
+  exact hc
+
+theorem Cls.lookupVar (id : FVarId) : Cls ctx inputs B P V W (CompilerM.lookupVar id) := by
+  intro s t r hr _ hc
+  obtain ⟨-, rfl⟩ := Tools.ShippingTranslateSoundness.lookupVar_returns hr
+  exact hc
+
+/-- Making a wire changes no statement: the wire is reserved, not readable. -/
+theorem Cls.makeWire (hint : String) (ty : Sparkle.IR.Type.HWType) (named : Bool) :
+    Cls ctx inputs B P V W (CompilerM.makeWire hint ty named) := by
+  intro s t r hr _ hc
+  obtain ⟨-, ht⟩ := makeWire_returns hr
+  obtain ⟨-, -, hb, -⟩ := CircuitM.makeWire_spec hint ty named s
+  subst ht
+  exact hc.body hb
+
+theorem Cls.emitAssign (lhs : String) (rhs : Sparkle.IR.AST.Expr) (h : ∀ x ∈ refsOf rhs, W x) :
+    Cls ctx inputs B P V W (CompilerM.emitAssign lhs rhs) := by
+  intro s t r hret _ hc
+  have ht := emitAssign_returns hret
+  subst ht
+  exact (hc.emit lhs rhs h).weaken (fun _ hx => Or.inl hx)
+
+theorem Cls.bind {α β : Type} {m : CompilerM α} {f : α → CompilerM β}
+    (hg : Good ctx inputs B P V m) (hm : Cls ctx inputs B P V W m)
+    (hf : ∀ a, Cls ctx inputs B P V W (f a)) : Cls ctx inputs B P V W (m >>= f) := by
+  intro s t r hr hq hc
+  obtain ⟨a, sm, h1, h2⟩ := Returns.bind hr
+  exact hf a sm t r h2 (hg s sm a h1 hq).1 (hm s sm a h1 hq hc)
+
+/-- A bind of a translation: the wire it returns is readable in what follows. -/
+theorem Cls.bindR {β : Type} {m : CompilerM String} {f : String → CompilerM β}
+    (hg : GoodR ctx inputs B P V m)
+    (hf : ∀ a, (P a → V a) → Cls ctx inputs B P V (fun y => W y ∨ y = a) (f a)) :
+    Cls ctx inputs B P V W (m >>= f) := by
+  intro s t r hr hq hc
+  obtain ⟨a, sm, h1, h2⟩ := Returns.bind hr
+  obtain ⟨q1, -, hv, hcl⟩ := hg s sm a h1 hq
+  exact (hf a hv sm t r h2 q1 (hcl W hc)).weaken (fun _ hx => Or.inl hx)
+
+/-- A bind of `makeWire`: the reserved wire is NOT readable. -/
+theorem Cls.bindMake {β : Type} {hint : String} {ty : Sparkle.IR.Type.HWType} {named : Bool}
+    {f : String → CompilerM β} (hf : ∀ r, ¬ P r → Cls ctx inputs B P V W (f r)) :
+    Cls ctx inputs B P V W (CompilerM.makeWire hint ty named >>= f) := by
+  intro s t r hr hq hc
+  obtain ⟨a, sm, h1, h2⟩ := Returns.bind hr
+  obtain ⟨q1, -, hp, -⟩ := makeWire_facts h1 hq
+  exact hf a hp sm t r h2 q1 (Cls.makeWire _ _ _ s sm a h1 hq hc)
+
+/-- Assign a wire reading names of `W`, and return it: now driven. -/
+theorem ClsR.emitRet {r : String} {rhs : Sparkle.IR.AST.Expr} (h : ∀ x ∈ refsOf rhs, W x) :
+    ClsR ctx inputs B P V W (CompilerM.emitAssign r rhs >>= fun _ => Pure.pure r) := by
+  intro s t x hr _ hc
+  obtain ⟨u, sm, h1, h2⟩ := Returns.bind hr
+  obtain ⟨rfl, rfl⟩ := Returns.pure h2
+  have ht := emitAssign_returns h1
+  subst ht
+  exact hc.emit _ rhs h
+
+theorem ClsR.bind {α : Type} {m : CompilerM α} {f : α → CompilerM String}
+    (hg : Good ctx inputs B P V m) (hm : Cls ctx inputs B P V W m)
+    (hf : ∀ a, ClsR ctx inputs B P V W (f a)) : ClsR ctx inputs B P V W (m >>= f) := by
+  intro s t r hr hq hc
+  obtain ⟨a, sm, h1, h2⟩ := Returns.bind hr
+  exact hf a sm t r h2 (hg s sm a h1 hq).1 (hm s sm a h1 hq hc)
+
+/-- A bind of an action that keeps the state invariant and returns a readable
+wire. -/
+theorem ClsR.bindS {m : CompilerM String} {f : String → CompilerM String}
+    (hg : ∀ s t r, Returns m ctx s r t → St ctx inputs B P V s → St ctx inputs B P V t)
+    (hm : ClsR ctx inputs B P V W m)
+    (hf : ∀ a, ClsR ctx inputs B P V (fun y => W y ∨ y = a) (f a)) :
+    ClsR ctx inputs B P V W (m >>= f) := by
+  intro s t r hr hq hc
+  obtain ⟨a, sm, h1, h2⟩ := Returns.bind hr
+  exact (hf a sm t r h2 (hg s sm a h1 hq) (hm s sm a h1 hq hc)).weaken
+    (fun _ hx => hx.elim (fun h => Or.inl (Or.inl h)) Or.inr)
+
+theorem ClsR.bindR {m : CompilerM String} {f : String → CompilerM String}
+    (hg : GoodR ctx inputs B P V m)
+    (hf : ∀ a, (P a → V a) → ClsR ctx inputs B P V (fun y => W y ∨ y = a) (f a)) :
+    ClsR ctx inputs B P V W (m >>= f) := by
+  intro s t r hr hq hc
+  obtain ⟨a, sm, h1, h2⟩ := Returns.bind hr
+  obtain ⟨q1, -, hv, hcl⟩ := hg s sm a h1 hq
+  exact (hf a hv sm t r h2 q1 (hcl W hc)).weaken
+    (fun _ hx => hx.elim (fun h => Or.inl (Or.inl h)) Or.inr)
+
+theorem ClsR.bindMake {hint : String} {ty : Sparkle.IR.Type.HWType} {named : Bool}
+    {f : String → CompilerM String} (hf : ∀ r, ¬ P r → ClsR ctx inputs B P V W (f r)) :
+    ClsR ctx inputs B P V W (CompilerM.makeWire hint ty named >>= f) := by
+  intro s t r hr hq hc
+  obtain ⟨a, sm, h1, h2⟩ := Returns.bind hr
+  obtain ⟨q1, -, hp, -⟩ := makeWire_facts h1 hq
+  exact hf a hp sm t r h2 q1 (Cls.makeWire _ _ _ s sm a h1 hq hc)
+
 -- (the rules are matched on the operations' names: unfolding them while
 -- unifying a rule with another program is what makes a failed match slow)
 attribute [local irreducible] CompilerM.makeWire CompilerM.emitAssign CompilerM.lookupVar
@@ -419,6 +595,33 @@ macro "good" : tactic => `(tactic| repeat (first
   | split
   | intro _))
 
+set_option hygiene false in
+/-- A right-hand side over references, each readable (in `W`): the wires the
+enclosing binds returned. -/
+macro "wr" : tactic => `(tactic| (
+  intro wrx wrh
+  simp [refsOf, refsOf.refsList] at wrh
+  repeat' (rcases wrh with wrh | wrh)
+  all_goals ((try subst wrh); simp)))
+
+/-- The closed-reads walk of an arm. -/
+macro "cls" : tactic => `(tactic| repeat (first
+  | exact ClsR.emitRet (by wr)
+  | exact Cls.pure _
+  | exact Cls.emitAssign _ _ (by wr)
+  | exact Cls.makeWire _ _ _
+  | exact Cls.liftMetaM _
+  | exact Cls.lookupVar _
+  | exact Cls.throw _
+  | refine ClsR.bindMake (fun _ _ => ?_)
+  | refine Cls.bindMake (fun _ _ => ?_)
+  | refine ClsR.bindR (by assumption) (fun _ _ => ?_)
+  | refine Cls.bindR (by assumption) (fun _ _ => ?_)
+  | refine ClsR.bind (by good) ?_ (fun _ => ?_)
+  | refine Cls.bind (by good) ?_ (fun _ => ?_)
+  | split
+  | intro _))
+
 /-- The declared width of the result: skip to the final emit. -/
 macro "last" : tactic => `(tactic| repeat (first
   | exact Last.emit
@@ -431,10 +634,11 @@ macro "drives" : tactic => `(tactic| repeat (first
   | refine Drives.bind (fun _ => ?_)))
 
 /-- An arm: it keeps the invariant; its result is a wire it made, declared at
-width `N`, and driven. -/
+width `N`, and driven; it keeps the reads closed. -/
 def Arm (ctx : CompilerState) (inputs : FVarId → Option Value) (B : FVarId → Prop)
     (P V : String → Prop) (N : Nat) (a : CompilerM String) : Prop :=
-  Good ctx inputs B P V a ∧ Last ctx inputs B P V N a ∧ Drives ctx a
+  Good ctx inputs B P V a ∧ Last ctx inputs B P V N a ∧ Drives ctx a ∧
+    ∀ W, ClsR ctx inputs B P V W a
 
 /-! ## The arms that are not a concatenation -/
 
@@ -445,37 +649,41 @@ theorem compare_arm {le : SignalCompareKind}
     (oa : GoodR ctx inputs B P V (rec ae "a" false false))
     (ob : GoodR ctx inputs B P V (rec be "b" false false)) :
     Arm ctx inputs B P V 1 (translateSignalCompare rec le ae be hint named) := by
-  refine ⟨?_, ?_, ?_⟩ <;> unfold translateSignalCompare emitCompareResult emitBoolResult
+  refine ⟨?_, ?_, ?_, fun W => ?_⟩ <;> unfold translateSignalCompare emitCompareResult emitBoolResult
   · good
   · last
   · drives
+  · cls
 
 theorem appCompare_arm {le : SignalCompareKind}
     (oa : GoodR ctx inputs B P V (rec ae "app_arg" false false))
     (ob : GoodR ctx inputs B P V (rec be "app_arg" false false)) :
     Arm ctx inputs B P V 1 (translateAppCompare rec le ae be hint named) := by
-  refine ⟨?_, ?_, ?_⟩ <;> unfold translateAppCompare emitCompareResult emitBoolResult
+  refine ⟨?_, ?_, ?_, fun W => ?_⟩ <;> unfold translateAppCompare emitCompareResult emitBoolResult
   · good
   · last
   · drives
+  · cls
 
 theorem boolBin_arm {kind : SignalBoolBinKind}
     (oa : GoodR ctx inputs B P V (rec ae "a" false false))
     (ob : GoodR ctx inputs B P V (rec be "b" false false)) :
     Arm ctx inputs B P V 1 (translateBoolBinary rec kind ae be hint named) := by
-  refine ⟨?_, ?_, ?_⟩ <;> unfold translateBoolBinary emitBoolResult
+  refine ⟨?_, ?_, ?_, fun W => ?_⟩ <;> unfold translateBoolBinary emitBoolResult
   · good
   · last
   · drives
+  · cls
 
 theorem appBool_arm {kind : SignalBoolBinKind}
     (oa : GoodR ctx inputs B P V (rec ae "app_arg" false false))
     (ob : GoodR ctx inputs B P V (rec be "app_arg" false false)) :
     Arm ctx inputs B P V 1 (translateAppBoolBinary rec kind ae be hint named) := by
-  refine ⟨?_, ?_, ?_⟩ <;> unfold translateAppBoolBinary emitBoolResult
+  refine ⟨?_, ?_, ?_, fun W => ?_⟩ <;> unfold translateAppBoolBinary emitBoolResult
   · good
   · last
   · drives
+  · cls
 
 /-- A Bool result wire: made (not protected), assigned, returned. -/
 theorem emitBool_facts {rhs : Sparkle.IR.AST.Expr} {hint : String} {named : Bool}
@@ -511,7 +719,7 @@ theorem appBool2_arm {f : AppBool2}
       ∀ s t n, Returns (emitBoolResult (appBool2Inner f aw bw) (appBool2Hint f) false) ctx s n t →
         St ctx inputs B P V s → St ctx inputs B P V t ∧ Ext s t ∧ ¬ P n :=
     fun aw bw ha hb s t n hr hq => emitBool_facts (inner aw bw ha hb) hr hq
-  refine ⟨?_, ?_, ?_⟩
+  refine ⟨?_, ?_, ?_, fun W => ?_⟩
   · unfold translateAppBool2
     refine Good.bindR oa (fun aw ha => Good.bindR ob (fun bw hb => ?_))
     intro s t r hr hq
@@ -527,13 +735,29 @@ theorem appBool2_arm {f : AppBool2}
     unfold emitBoolResult at h2
     exact Last.emit (ty := .bit) _ _ _ h2 q1
   · unfold translateAppBool2 emitBoolResult; drives
+  · unfold translateAppBool2
+    refine ClsR.bindR oa (fun aw ha => ClsR.bindR ob (fun bw hb => ?_))
+    refine ClsR.bindS (fun s t n hr hq => (mid aw bw ha hb s t n hr hq).1) ?_ (fun n => ?_)
+    · unfold emitBoolResult
+      refine ClsR.bindMake (fun r _ => ClsR.emitRet ?_)
+      intro x hx
+      rcases appBool2Inner_refs hx with rfl | rfl
+      · exact Or.inl (Or.inr rfl)
+      · exact Or.inr rfl
+    · unfold emitBoolResult
+      refine ClsR.bindMake (fun r _ => ClsR.emitRet ?_)
+      intro x hx
+      rcases appBool2Outer_refs hx with rfl | rfl | rfl
+      · exact Or.inl (Or.inl (Or.inr rfl))
+      · exact Or.inl (Or.inr rfl)
+      · exact Or.inr rfl
 
 theorem mux_arm {ty : Sparkle.IR.Type.HWType}
     (oc : GoodR ctx inputs B P V (rec ce "mux_cond" false false))
     (oa : GoodR ctx inputs B P V (rec ae "mux_then" false false))
     (ob : GoodR ctx inputs B P V (rec be "mux_else" false false)) :
     Arm ctx inputs B P V ty.bitWidth (translateMuxWith rec (pure ty) ce ae be hint named) := by
-  refine ⟨?_, ?_, ?_⟩ <;> unfold translateMuxWith emitMuxResult
+  refine ⟨?_, ?_, ?_, fun W => ?_⟩ <;> unfold translateMuxWith emitMuxResult
   · good
   · refine Last.bindR oc (fun _ _ => Last.bindR oa (fun _ _ => Last.bindR ob (fun _ _ => ?_)))
     intro s t r hr hq
@@ -541,12 +765,13 @@ theorem mux_arm {ty : Sparkle.IR.Type.HWType}
     obtain ⟨rfl, rfl⟩ := Returns.pure h1
     exact Last.emit _ _ _ h2 hq
   · drives
+  · cls
 
 theorem setw_arm {ws wt : Nat} (oa : GoodR ctx inputs B P V (rec ae "s" false false)) :
     Arm ctx inputs B P V wt (do
       let sw ← rec ae "s" false false
       emitCastResult (setwRhs ws wt sw) wt hint named) := by
-  refine ⟨?_, ?_, ?_⟩ <;> unfold emitCastResult
+  refine ⟨?_, ?_, ?_, fun W => ?_⟩ <;> unfold emitCastResult
   · refine Good.bindR oa (fun sw hsw => Good.bindMake (fun r hr =>
       Good.bind (Good.emitAssign _ _ hr ?_) (fun _ => Good.pure _)))
     intro x hx hp
@@ -555,6 +780,11 @@ theorem setw_arm {ws wt : Nat} (oa : GoodR ctx inputs B P V (rec ae "s" false fa
     exact hsw hp
   · exact Last.bindR oa (fun _ _ => Last.emit (ty := .bitVector wt))
   · drives
+  · refine ClsR.bindR oa (fun sw _ => ClsR.bindMake (fun r _ => ClsR.emitRet ?_))
+    intro x hx
+    have := setwRhs_refs hx
+    subst this
+    exact Or.inr rfl
 
 theorem hwTypeFromWidth_bitWidth (len : Nat) :
     (Sparkle.IR.Type.hwTypeFromWidth len).bitWidth = len := by
@@ -568,7 +798,7 @@ theorem slice_arm {hd : String} {start len : Nat}
     Arm ctx inputs B P V len (do
       let sw ← rec ae hd false false
       emitSliceResult (sliceRhs start len sw) len hint named) := by
-  refine ⟨?_, ?_, ?_⟩ <;> unfold emitSliceResult
+  refine ⟨?_, ?_, ?_, fun W => ?_⟩ <;> unfold emitSliceResult
   · refine Good.bindR oa (fun sw hsw => Good.bindMake (fun r hr =>
       Good.bind (Good.emitAssign _ _ hr ?_) (fun _ => Good.pure _)))
     intro x hx hp
@@ -582,27 +812,34 @@ theorem slice_arm {hd : String} {start len : Nat}
     rw [hwTypeFromWidth_bitWidth] at this
     exact this
   · drives
+  · refine ClsR.bindR oa (fun sw _ => ClsR.bindMake (fun r _ => ClsR.emitRet ?_))
+    intro x hx
+    have := sliceRhs_refs hx
+    subst this
+    exact Or.inr rfl
 
 theorem Arm.goodR {N : Nat} {a : CompilerM String} (h : Arm ctx inputs B P V N a) :
     GoodR ctx inputs B P V a :=
   fun s t r hr hq => ⟨(h.1 s t r hr hq).1, (h.1 s t r hr hq).2,
-    fun hp => absurd hp (h.2.1 s t r hr hq).2⟩
+    fun hp => absurd hp (h.2.1 s t r hr hq).2, fun W hc => h.2.2.2 W s t r hr hq hc⟩
 
 theorem concatConst_arm {k v : Nat} : Arm ctx inputs B P V k (emitConcatConst k v) := by
-  refine ⟨?_, ?_, ?_⟩ <;> unfold emitConcatConst emitCastResult
+  refine ⟨?_, ?_, ?_, fun W => ?_⟩ <;> unfold emitConcatConst emitCastResult
   · good
   · exact Last.emit (ty := .bitVector k)
   · drives
+  · cls
 
 theorem concatActs_arm {wd : Nat} {hiAct loAct : CompilerM String}
     (oa : GoodR ctx inputs B P V hiAct) (ob : GoodR ctx inputs B P V loAct) :
     Arm ctx inputs B P V wd (translateConcatActs wd hiAct loAct hint named) := by
-  refine ⟨?_, ?_, ?_⟩ <;> unfold translateConcatActs
+  refine ⟨?_, ?_, ?_, fun W => ?_⟩ <;> unfold translateConcatActs
   · good
   · refine Last.makeFirst (ty := .bitVector wd) (fun r hr => ?_) (fun r => ?_)
     · good
     · exact Ret.bind (fun _ => Ret.bind (fun _ => Ret.bind (fun _ => Ret.pure r)))
   · drives
+  · cls
 
 end Arms
 
@@ -611,18 +848,20 @@ end Arms
 /-- An action for the expression `e`: it keeps the invariant, the statements
 and the bindings; the wire it returns has the links of `e`, is declared at
 the width of the value `e` means, is in `V` if protected, and is driven (or
-is an input). -/
+is an input); the reads stay closed, the returned wire readable. -/
 def Spec (ctx : CompilerState) (inputs : FVarId → Option Value) (B : FVarId → Prop)
     (P V : String → Prop) (e : Lean.Expr) (a : CompilerM String) : Prop :=
   ∀ s t w, Returns a ctx s w t → St ctx inputs B P V s →
     St ctx inputs B P V t ∧ Ext s t ∧
       (∀ n, SpineQ P (fun id => visible ctx t.sourceBindings id) t.module.wires t.module.body n e w) ∧
       (∀ v, Meaning inputs e v → Decl t.module.wires w v.kind.width) ∧
-      (P w → V w) ∧ Src P (fun id => visible ctx t.sourceBindings id) t.module.body e w
+      (P w → V w) ∧ Src P (fun id => visible ctx t.sourceBindings id) t.module.body e w ∧
+      ∀ W, Cl P W s → Cl P (fun y => W y ∨ y = w) t
 
 theorem Spec.goodR {e : Lean.Expr} {a : CompilerM String} (h : Spec ctx inputs B P V e a) :
     GoodR ctx inputs B P V a :=
-  fun s t r hr hq => ⟨(h s t r hr hq).1, (h s t r hr hq).2.1, (h s t r hr hq).2.2.2.2.1⟩
+  fun s t r hr hq => ⟨(h s t r hr hq).1, (h s t r hr hq).2.1, (h s t r hr hq).2.2.2.2.1,
+    (h s t r hr hq).2.2.2.2.2.2⟩
 
 /-- …and the wire is one the action made and drove (what the cache may record). -/
 def SpecA (ctx : CompilerState) (inputs : FVarId → Option Value) (B : FVarId → Prop)
@@ -638,8 +877,9 @@ theorem SpecA.of_arm {e : Lean.Expr} {a : CompilerM String} {N : Nat}
     (hm : ∀ v, Meaning inputs e v → v.kind.width = N) : SpecA ctx inputs B P V e a :=
   ⟨fun s t r hr hq => ⟨(ha.1 s t r hr hq).1, (ha.1 s t r hr hq).2, SpineQ.of_none hn,
       fun v hv => by rw [hm v hv]; exact (ha.2.1 s t r hr hq).1,
-      fun hp => absurd hp (ha.2.1 s t r hr hq).2, .inl ⟨hf, ha.2.2 s t r hr⟩⟩, hf,
-    fun s t r hr hq => ⟨(ha.2.1 s t r hr hq).2, ha.2.2 s t r hr⟩⟩
+      fun hp => absurd hp (ha.2.1 s t r hr hq).2, .inl ⟨hf, ha.2.2.1 s t r hr⟩,
+      fun W hc => ha.2.2.2 W s t r hr hq hc⟩, hf,
+    fun s t r hr hq => ⟨(ha.2.1 s t r hr hq).2, ha.2.2.1 s t r hr⟩⟩
 
 /-- A record of the result keeps the record invariant. -/
 theorem St.record {s : CircuitState} {e : Lean.Expr} {w : String} (h : St ctx inputs B P V s)
@@ -667,12 +907,13 @@ theorem Spec.cached {lower : TranslateFn} {e : Lean.Expr} {hint : String} {top n
   · obtain ⟨hs, hrec⟩ := cacheLookupValidated_returns hit
     subst hs
     obtain ⟨h1, h2, h3, h4, h5⟩ := hq.1 w e (hrec w rfl)
-    exact ⟨hq, Ext.refl _, h1, h2, fun hp => absurd hp h3, .inl ⟨h5, h4⟩⟩
-  · obtain ⟨q, k, sp, sd, hv, hdv⟩ := h.1 s sm w miss hq
+    exact ⟨hq, Ext.refl _, h1, h2, fun hp => absurd hp h3, .inl ⟨h5, h4⟩,
+      fun W hc => hc.add (.inl h4)⟩
+  · obtain ⟨q, k, sp, sd, hv, hdv, hcl⟩ := h.1 s sm w miss hq
     obtain ⟨hnp, hdr⟩ := h.2.2 s sm w miss hq
     have ht := recordTranslation_returns record
     subst ht
-    exact ⟨q.record sp sd hnp hdr h.2.1, k, sp, sd, hv, hdv⟩
+    exact ⟨q.record sp sd hnp hdr h.2.1, k, sp, sd, hv, hdv, fun W hc => (hcl W hc).body rfl⟩
 
 /-- **The concat arm**: the result wire is driven by `{hi, lo}`; `hi` is
 declared at the high operand's width and driven (or an input); `lo` has the
@@ -687,10 +928,11 @@ theorem concat_spec {e a b : Lean.Expr} {m k : Nat} {hint : String} {named : Boo
   have hfv : e.isFVar = false := by
     cases e <;> first | rfl | (simp [canonicalConcat?] at he)
   refine ⟨fun s t w hr hq => ?_, hfv, fun s t w hr hq =>
-    ⟨(harm.2.1 s t w hr hq).2, harm.2.2 s t w hr⟩⟩
+    ⟨(harm.2.1 s t w hr hq).2, harm.2.2.1 s t w hr⟩⟩
   have hg := harm.1 s t w hr hq
   refine ⟨hg.1, hg.2, ?_, fun v hv => by rw [hm v hv]; exact (harm.2.1 s t w hr hq).1,
-    fun hp => absurd hp (harm.2.1 s t w hr hq).2, .inl ⟨hfv, harm.2.2 s t w hr⟩⟩
+    fun hp => absurd hp (harm.2.1 s t w hr hq).2, .inl ⟨hfv, harm.2.2.1 s t w hr⟩,
+    fun W hc => harm.2.2.2 W s t w hr hq hc⟩
   unfold translateConcatActs at hr
   obtain ⟨res, sA, hmk, rest⟩ := Returns.bind hr
   obtain ⟨wa, sB, ha, rest⟩ := Returns.bind rest
@@ -701,7 +943,7 @@ theorem concat_spec {e a b : Lean.Expr} {m k : Nat} {hint : String} {named : Boo
   subst hwv
   obtain ⟨qA, -⟩ := Good.makeWire (ctx := ctx) (inputs := inputs) (B := B) (P := P) (V := V)
     _ _ _ s sA w hmk hq
-  obtain ⟨qB, -, -, hda, -, hdrv⟩ := oa sA sB wa ha qA
+  obtain ⟨qB, -, -, hda, -, hdrv, -⟩ := oa sA sB wa ha qA
   obtain ⟨-, xBC, spb, -⟩ := ob sB sC wb hb' qB
   have hD := emitAssign_returns hem
   subst hD
@@ -729,6 +971,7 @@ when the core declines. -/
 theorem step_spec {rec : TranslateFn} {e : Lean.Expr} {hint : String} {top named : Bool}
     (hn : canonicalConcat? e = none)
     (hcore : Good ctx inputs B P V (translateCore rec e hint top named))
+    (hcl : ∀ W, Cls ctx inputs B P V W (translateCore rec e hint top named))
     (hres : ∀ s t z, Returns (translateCore rec e hint top named) ctx s (some z) t →
       St ctx inputs B P V s →
       (∀ v, Meaning inputs e v → Decl t.module.wires z v.kind.width) ∧ (P z → V z) ∧
@@ -748,7 +991,8 @@ theorem step_spec {rec : TranslateFn} {e : Lean.Expr} {hint : String} {top named
       St ctx inputs B P V t ∧ Ext s t ∧
         (∀ n, SpineQ P (fun id => visible ctx t.sourceBindings id) t.module.wires t.module.body n e w) ∧
         (∀ v, Meaning inputs e v → Decl t.module.wires w v.kind.width) ∧
-        (P w → V w) ∧ Src P (fun id => visible ctx t.sourceBindings id) t.module.body e w := by
+        (P w → V w) ∧ Src P (fun id => visible ctx t.sourceBindings id) t.module.body e w ∧
+        ∀ W, Cl P W s → Cl P (fun y => W y ∨ y = w) t := by
     intro s t w K c hsome hnone hr hq
     obtain ⟨r, sc, hc, rest⟩ := Returns.bind hr
     obtain ⟨qc, kc⟩ := hcore s sc r hc hq
@@ -759,23 +1003,27 @@ theorem step_spec {rec : TranslateFn} {e : Lean.Expr} {hint : String} {top named
           St ctx inputs B P V t ∧ Ext s t ∧
             (∀ n, SpineQ P (fun id => visible ctx t.sourceBindings id) t.module.wires t.module.body n e w) ∧
             (∀ v, Meaning inputs e v → Decl t.module.wires w v.kind.width) ∧
-            (P w → V w) ∧ Src P (fun id => visible ctx t.sourceBindings id) t.module.body e w := by
+            (P w → V w) ∧ Src P (fun id => visible ctx t.sourceBindings id) t.module.body e w ∧
+            ∀ W, Cl P W s → Cl P (fun y => W y ∨ y = w) t := by
         intro t w h
         obtain ⟨rfl, rfl⟩ := Returns.pure h
-        exact ⟨qc, kc, SpineQ.of_none hn, hdz, hvz, hdrz⟩
+        exact ⟨qc, kc, SpineQ.of_none hn, hdz, hvz, hdrz,
+          fun W hW => (hcl W s _ _ hc hq hW).add hdrz.drv⟩
       have hrc : ∀ {t w}, e.isFVar = false →
           Returns (recordTranslation e z c >>= fun _ => (Pure.pure z : CompilerM String))
             ctx sc w t → St ctx inputs B P V t ∧ Ext s t ∧
             (∀ n, SpineQ P (fun id => visible ctx t.sourceBindings id) t.module.wires t.module.body n e w) ∧
             (∀ v, Meaning inputs e v → Decl t.module.wires w v.kind.width) ∧
-            (P w → V w) ∧ Src P (fun id => visible ctx t.sourceBindings id) t.module.body e w := by
+            (P w → V w) ∧ Src P (fun id => visible ctx t.sourceBindings id) t.module.body e w ∧
+            ∀ W, Cl P W s → Cl P (fun y => W y ∨ y = w) t := by
         intro t w hnf h
         obtain ⟨u, sr, record, ret⟩ := Returns.bind h
         obtain ⟨rfl, rfl⟩ := Returns.pure ret
         have hs := recordTranslation_returns record
         subst hs
         exact ⟨qc.record (SpineQ.of_none hn) hdz (hfz hnf).1 (hfz hnf).2 hnf,
-          kc.trans ⟨Kept.refl _, rfl, fun _ h => h⟩, SpineQ.of_none hn, hdz, hvz, hdrz⟩
+          kc.trans ⟨Kept.refl _, rfl, fun _ h => h⟩, SpineQ.of_none hn, hdz, hvz, hdrz,
+          fun W hW => ((hcl W s sc _ hc hq hW).add hdrz.drv).body rfl⟩
       rcases hsome z with hk | ⟨hnf, hk⟩ | hk <;> rw [hk] at rest
       · exact hp rest
       · exact hrc hnf rest
@@ -785,8 +1033,8 @@ theorem step_spec {rec : TranslateFn} {e : Lean.Expr} {hint : String} {top named
           exact hrc (by simpa using hnf) rest
     | none =>
       rw [hnone] at rest
-      obtain ⟨q, k, sp, sd, hv, hdv⟩ := hfb s sc hq hc sc t w rest qc
-      exact ⟨q, kc.trans k, sp, sd, hv, hdv⟩
+      obtain ⟨q, k, sp, sd, hv, hdv, hcl'⟩ := hfb s sc hq hc sc t w rest qc
+      exact ⟨q, kc.trans k, sp, sd, hv, hdv, fun W hW => hcl' W (hcl W s sc _ hc hq hW)⟩
   intro s t w hr hq
   unfold translateStepWith at hr
   dsimp only at hr
@@ -801,7 +1049,8 @@ theorem step_spec {rec : TranslateFn} {e : Lean.Expr} {hint : String} {top named
          obtain ⟨hw, ht⟩ := Returns.pure hr
          subst ht hw
          obtain ⟨h1, h2, h3, h4, h5⟩ := hq.1 _ e (hrec _ rfl)
-         exact ⟨hq, Ext.refl _, h1, h2, fun hp => absurd hp h3, .inl ⟨h5, h4⟩⟩
+         exact ⟨hq, Ext.refl _, h1, h2, fun hp => absurd hp h3, .inl ⟨h5, h4⟩,
+           fun W hW => hW.add (.inl h4)⟩
        | none => exact cont _ (fun z => by first | exact Or.inl rfl | exact Or.inr (Or.inl ⟨by simp_all, rfl⟩) | exact Or.inr (Or.inr rfl)) rfl hr hq)
 
 /-! ## The step's own cases: a bound variable, a literal, a library operator -/
@@ -810,13 +1059,18 @@ theorem pureLiteral_good (args : Array Lean.Expr) (hint : String) (named : Bool)
     Good ctx inputs B P V (translateSignalPureLiteral? args hint named) := by
   unfold translateSignalPureLiteral?; good
 
+theorem pureLiteral_cls (args : Array Lean.Expr) (hint : String) (named : Bool)
+    (W : String → Prop) :
+    Cls ctx inputs B P V W (translateSignalPureLiteral? args hint named) := by
+  unfold translateSignalPureLiteral?; cls
+
 /-- A bound variable the term uses: its wire, declared at the variable's
 width, in `V`; nothing changes. -/
 theorem input_spec {rec : TranslateFn} {id : FVarId} {v₀ : Value} {hint : String} {named : Bool}
     (hi : inputs id = some v₀) (hB : B id) :
     Spec ctx inputs B P V (.fvar id)
       (translateStepWith translateFallback rec (.fvar id) hint false named) := by
-  refine step_spec rfl (Good.lookupVar id) ?_ ?_
+  refine step_spec rfl (Good.lookupVar id) (fun W => Cls.lookupVar id) ?_ ?_
   · intro s t z hr hq
     obtain ⟨hz, rfl⟩ := Tools.ShippingTranslateSoundness.lookupVar_returns (id := id) hr
     obtain ⟨z', hbound, hd, hpz⟩ := hq.2.1 id v₀ hi
@@ -846,7 +1100,8 @@ theorem literal_step_spec {rec : TranslateFn} {e c : Lean.Expr} {us : List Level
     split
     · simp [Lean.Expr.getAppFn] at fn
     · rw [fn]; simp only [beq_self_eq_true, if_true]
-  refine step_spec hn (by rw [hcore]; exact pureLiteral_good _ _ _) ?_ ?_
+  refine step_spec hn (by rw [hcore]; exact pureLiteral_good _ _ _)
+    (fun W => by rw [hcore]; exact pureLiteral_cls _ _ _ W) ?_ ?_
   · intro s t z hr hq
     rw [hcore] at hr
     unfold translateSignalPureLiteral? at hr
@@ -875,7 +1130,8 @@ theorem bool_literal_spec {rec : TranslateFn} {dom : Lean.Expr} {hint : String} 
     (hm : ∀ x, Meaning inputs (literalE dom b) x → x.kind.width = 1) :
     Spec ctx inputs B P V (literalE dom b)
       (translateStepWith translateFallback rec (literalE dom b) hint false named) := by
-  refine step_spec hn (by rw [literal_core]; exact Good.pure _) ?_ ?_
+  refine step_spec hn (by rw [literal_core]; exact Good.pure _)
+    (fun W => by rw [literal_core]; exact Cls.pure _) ?_ ?_
   · intro s t z hr
     rw [literal_core] at hr
     cases (Returns.pure hr).1
@@ -884,10 +1140,11 @@ theorem bool_literal_spec {rec : TranslateFn} {dom : Lean.Expr} {hint : String} 
     refine Spec.cached (SpecA.of_arm (N := 1) ?_ hn (by cases b <;> rfl) hm)
     show Arm ctx inputs B P V 1 (translateBoolUncachedWith rec _ _ hint false named)
     rw [literal_uncached]
-    refine ⟨?_, ?_, ?_⟩ <;> unfold emitBoolLiteral emitBoolResult
+    refine ⟨?_, ?_, ?_, fun W => ?_⟩ <;> unfold emitBoolLiteral emitBoolResult
     · good
     · exact Last.emit (ty := .bit)
     · drives
+    · cls
 
 /-- A canonical library operator: the result wire, the two operands, the assign. -/
 theorem binary_step_spec {rec : TranslateFn} {e : Lean.Expr} {m : Name} {us : List Level}
@@ -901,7 +1158,8 @@ theorem binary_step_spec {rec : TranslateFn} {e : Lean.Expr} {m : Name} {us : Li
     Spec ctx inputs B P V e (translateStepWith translateFallback rec e hint false named) := by
   have hbin : Arm ctx inputs B P V n
       (translateCanonicalSignalBinary rec e op.operator e.getAppArgs true true hint named) := by
-    refine ⟨?_, ?_, ?_⟩ <;> unfold translateCanonicalSignalBinary <;> simp only [width, if_true]
+    refine ⟨?_, ?_, ?_, fun W => ?_⟩ <;> unfold translateCanonicalSignalBinary <;>
+      simp only [width, if_true]
     · good
     · intro s t r hr hq
       obtain ⟨ty, sm, h1, h2⟩ := Returns.bind hr
@@ -910,15 +1168,19 @@ theorem binary_step_spec {rec : TranslateFn} {e : Lean.Expr} {m : Name} {us : Li
       · good
       · exact Ret.bind (fun _ => Ret.bind (fun _ => Ret.bind (fun _ => Ret.pure r)))
     · drives
-  refine step_spec hn ?_ ?_ ?_
+    · cls
+  refine step_spec hn ?_ ?_ ?_ ?_
   · intro s t r hr hq
     obtain ⟨w, -, lower⟩ := core_binary_returns fn hop kinds width hr
     exact hbin.1 s t w lower hq
+  · intro W s t r hr hq hW
+    obtain ⟨w, -, lower⟩ := core_binary_returns fn hop kinds width hr
+    exact (hbin.2.2.2 W s t w lower hq hW).weaken (fun _ hx => Or.inl hx)
   · intro s t z hr hq
     obtain ⟨w, hw, lower⟩ := core_binary_returns fn hop kinds width hr
     cases hw
     obtain ⟨hd, hnp⟩ := hbin.2.1 s t z lower hq
-    have hdr := hbin.2.2 s t z lower
+    have hdr := hbin.2.2.1 s t z lower
     exact ⟨fun x hx => by rw [hm x hx]; exact hd, fun hp => absurd hp hnp,
       .inl ⟨isFVar_false_of_const fn, hdr⟩, fun _ => ⟨hnp, hdr⟩⟩
   · intro s t hq hr

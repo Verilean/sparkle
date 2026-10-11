@@ -201,7 +201,7 @@ theorem spine_links
       subst ht
       subst hwv
       obtain ⟨qA, xA, -, -⟩ := makeWire_facts hmk hq
-      obtain ⟨qB, xAB, -, -, hva, hdrv⟩ := fuel_spine (ctx := ctx) (P := P) (V := Vk i) (dom := dom)
+      obtain ⟨qB, xAB, -, -, hva, hdrv, -⟩ := fuel_spine (ctx := ctx) (P := P) (V := Vk i) (dom := dom)
         fuel hb hv (fun j h => Or.inl ⟨j, h, rfl⟩) (fun j h => Or.inr ⟨j, h, rfl⟩) f.2 hwf huf
         "concat_hi" false sA sB wa ha qA
       have hσB : sB.sourceBindings = σ := by rw [xAB.2.1, xA.2.1, hσ]
