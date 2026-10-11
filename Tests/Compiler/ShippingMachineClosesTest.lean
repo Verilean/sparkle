@@ -6,6 +6,7 @@ import Tools.ShippingCloseMachineFacts
 import Tools.ShippingCallsRank
 import Tools.ShippingTransitionFields
 import Tools.ShippingRankRun
+import Tools.ShippingCallsShape
 
 /-! # `MachineCloses` derived for `let` shapes without calls
 
@@ -260,3 +261,14 @@ run_cmd Lean.Elab.Command.liftTermElabM do
       unless a == ``propext || a == ``Classical.choice || a == ``Quot.sound do
         throwError "{n} depends on {a}"
   Lean.logInfo m!"RANK OF A RUN (B1): rank_of_facts, closed_classes — standard axioms; open: instance statements, the child's interface and kidsCombB (needs a new invariant: every read is an input or driven earlier), design name resolution"
+
+/-! S3 (the calls' shape condition, `MachineData.callsOk`) evaluated by the
+kernel on the three callers' generated data. This is the check on THESE
+declarations; that the shape reader always produces data passing it is not
+proved (G3). -/
+section
+open Sparkle.Tests.Compiler.ShippingMachineInstTest
+example : caller.machineData.callsOk 1 = true := by decide
+example : callerTwice.machineData.callsOk 1 = true := by decide
+example : callerNested.machineData.callsOk 2 = true := by decide
+end
