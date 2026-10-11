@@ -907,6 +907,16 @@ and `ShippingChildCacheRun` removed).
     On the 20 derived endpoints the change removes the children's
     `MachineCloses` (and its context quantifier and `ChildRanIn` guards)
     from `callerLN`, `hftByte`, `callerL`; the other 17 are unchanged.
+  - **`MachineCloses` with calls is over-stated** (found 2026-10-11). It
+    quantifies over every world and every logger; the calls' closing reads
+    the child-synthesis reference, so from a world where it is not installed
+    the synthesis returns nothing. No endpoint with calls can have this
+    premise DISCHARGED as stated; it can only be assumed. The statement a
+    real compile supports is `MachineClosesAt` (invariant worlds,
+    `profLogIO`; `Tools/ShippingCallsClose.lean`), reduced there to
+    `LetsClose` (proved from data) and `CallsPure`: `closeInsts` /
+    `closeInstsG` succeed on every list of real children. `CallsPure` is
+    open, and the heads have not been moved to `MachineClosesAt`.
 - **The two limits (state, 2026-10-11).** Both are behaviour changes of the
   compiler, separate from the proofs:
   - `sparkleSynthDepthLimit = 1024`: a nest of `@[hardware_module]` calls

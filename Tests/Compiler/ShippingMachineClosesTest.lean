@@ -1,6 +1,7 @@
 import Tests.Compiler.ShippingReflectCtxTest
 import Tools.ShippingMachineCommand
 import Tools.ShippingMachineClosesGen
+import Tools.ShippingCallsClose
 
 /-! # `MachineCloses` derived for `let` shapes without calls
 
@@ -159,3 +160,28 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   unless (t.find? (·.isConstOf ``Tools.ShippingClosesSplit.CallsClose)).isSome do
     throwError "closes_of_data_calls: CallsClose is not a premise"
   Lean.logInfo m!"WITH CALLS: closeLets accepts every harness run's transition of caller, callerTwice, callerNested (proved, every context); the calls' closing (CallsClose) remains a premise"
+
+/-! The calls' closing from an invariant world (`Tools/ShippingCallsClose.lean`):
+`MachineClosesAt` — no fallback from worlds satisfying the child-cache
+invariant, with the compiler's logger — follows from `LetsClose` and
+`CallsPure` under the generic runtime laws. `CallsPure` (the pure
+`closeInsts` / `closeInstsG` succeed on real children) is a premise there; it
+is not proved, and the endpoints still ask `MachineCloses`. -/
+run_cmd Lean.Elab.Command.liftTermElabM do
+  for n in [``Tools.ShippingChildInv.closeInstsM_run, ``Tools.ShippingChildInv.closeInstsGM_run,
+      ``Tools.ShippingChildInv.machineClosesAt_of_pure, ``Tools.ShippingChildInv.MachineCloses.at] do
+    for a in ← Lean.collectAxioms n do
+      unless a == ``propext || a == ``Classical.choice || a == ``Quot.sound do
+        throwError "{n} depends on {a}"
+  let t ← Lean.Meta.inferType (mkConst ``Tools.ShippingChildInv.machineClosesAt_of_pure)
+  Lean.Meta.forallTelescope t fun xs _ => do
+    let mut pure := false
+    for x in xs do
+      let ty ← Lean.Meta.inferType x
+      if (ty.find? (·.isConstOf ``Tools.ShippingMachineEntry.MachineCloses)).isSome then
+        throwError "machineClosesAt_of_pure assumes MachineCloses"
+      if (ty.find? (·.isConstOf ``Tools.ShippingChildInv.BodyRel)).isSome then
+        throwError "machineClosesAt_of_pure assumes BodyRel"
+      if ty.isAppOf ``Tools.ShippingChildInv.CallsPure then pure := true
+    unless pure do throwError "machineClosesAt_of_pure: CallsPure is not a premise"
+  Lean.logInfo m!"CALLS FROM AN INVARIANT WORLD: a run of closeInstsM / closeInstsGM is the pure closing of real children (module or nothing); MachineClosesAt from LetsClose + CallsPure under RefLaws; CallsPure is NOT proved"
