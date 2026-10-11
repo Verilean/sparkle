@@ -133,6 +133,36 @@ semantics; no timing, no X/Z, no multi-clock.
 | C2 | depth / fuel limits | — (they are behaviour changes) | see G4 |
 | C3 | `kidsCombB` narrowing | — | open: designs it rejects go to the legacy route (§4) |
 
+### `let`s of `let`s and of inputs (checked 2026-10-13)
+
+What the shape reader does, on real sources (`~` the probe is in the session
+log; the reader's code is `machBindLet` / `machBindLetAlias` /
+`machBindLetNamed`):
+
+| Source | Hardware `let`s kept | Operands |
+|---|---|---|
+| `let a := x` (an input), `let b := a` | none (bare variables are substituted) | — |
+| `let a := x + rs; let b := a; let c := b + a` | `a`, `c` (`b` is resolved to `a`) | both driven |
+| `let a := x + rs; let b := x + rs` | one (same value → same `let`) | driven |
+| `let a := x; let c := a + rs` | `c` | driven |
+
+So on these the kept fields are compound and every operand is driven. The
+reader CAN keep a field that is a bare variable (`machBindLetNamed`: a `let`
+whose value is a slot; `machLetIndex`: a call's argument), and a bare `let`
+variable only in a fall-through branch of `machBindLetAlias`. The reader is
+`partial`, so none of this is a theorem.
+
+What the real `closeLets` does with a `let` whose operand is another `let`'s
+port, on hand-built modules (regression in `ShippingReflectCtxTest`):
+`let0 := input; let1 := let0` — ACCEPTED (both aliases at the front, in
+order); `let0 := x + x; let1 := let0` — REFUSED (the front alias reads a port
+driven later), so the entry takes the legacy fallback there.
+
+`closed_acyclic` follows the real behaviour: an operand may be an EARLIER
+alias' port provided that alias' operand is driven by nothing. It does not
+ask "no field is a `let` variable". The refused case stays outside
+(`MachineCloses` is false of it); it is not hidden by a scoping condition.
+
 ## 7. Gaps not among the twelve
 
 | ID | Gap | Why it blocks a general theorem |

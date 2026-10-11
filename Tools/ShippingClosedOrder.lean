@@ -74,17 +74,20 @@ theorem writes_aliasBlock (L : List (Port × String)) :
     rfl
 
 /-- A block of aliases in front of an ordered list: distinct ports written
-nowhere after, operands written nowhere after and not ports of the block. -/
+nowhere after; each operand written nowhere after, not its own port, and not
+the port of a LATER alias of the block (it may be an earlier one's: `let y :=
+x` after `let x := input`). -/
 theorem acyclic_aliasBlock : ∀ (L : List (Port × String)) (T : List Stmt), Acyclic T →
     (L.map (·.1.name)).Nodup → (∀ pa ∈ L, pa.1.name ∉ writesOf T) →
-    (∀ pa ∈ L, pa.2 ∉ writesOf T ∧ ∀ pa' ∈ L, pa.2 ≠ pa'.1.name) →
+    (∀ pa ∈ L, pa.2 ∉ writesOf T ∧ pa.2 ≠ pa.1.name) →
+    L.Pairwise (fun pa pb => pa.2 ≠ pb.1.name) →
     Acyclic ((L.map fun pa => aliasStmt pa.1 pa.2) ++ T)
-  | [], T, hT, _, _, _ => hT
-  | pa :: rest, T, hT, hnd, hp, ha => by
+  | [], T, hT, _, _, _, _ => hT
+  | pa :: rest, T, hT, hnd, hp, ha, hpw => by
     rw [List.map_cons, List.nodup_cons] at hnd
+    rw [List.pairwise_cons] at hpw
     have ih := acyclic_aliasBlock rest T hT hnd.2 (fun q hq => hp q (List.mem_cons_of_mem _ hq))
-      (fun q hq => ⟨(ha q (List.mem_cons_of_mem _ hq)).1,
-        fun q' hq' => (ha q (List.mem_cons_of_mem _ hq)).2 q' (List.mem_cons_of_mem _ hq')⟩)
+      (fun q hq => ha q (List.mem_cons_of_mem _ hq)) hpw.2
     show Acyclic (.assign pa.1.name (.slice (.ref pa.2) (pa.1.ty.bitWidth - 1) 0) :: _)
     have hw : writesOf ((rest.map fun pa => aliasStmt pa.1 pa.2) ++ T) =
         rest.map (·.1.name) ++ writesOf T := by rw [writesOf_append, writes_aliasBlock]
@@ -99,11 +102,11 @@ theorem acyclic_aliasBlock : ∀ (L : List (Port × String)) (T : List Stmt), Ac
     · intro x hx
       have hxa : x = pa.2 := by simpa [refsOf] using hx
       subst hxa
-      refine ⟨(ha pa List.mem_cons_self).2 pa List.mem_cons_self, ?_⟩
+      refine ⟨(ha pa List.mem_cons_self).2, ?_⟩
       intro h0
       rcases key _ h0 with h | h
       · obtain ⟨q, hq, hqn⟩ := List.mem_map.mp h
-        exact (ha pa List.mem_cons_self).2 q (List.mem_cons_of_mem _ hq) hqn.symm
+        exact hpw.1 q hq hqn.symm
       · exact (ha pa List.mem_cons_self).1 h
 
 /-- What the alias insertion writes: what the body writes, and the ports of
@@ -164,6 +167,13 @@ theorem Acyclic.prefix : ∀ {X Y : List Stmt}, Acyclic (X ++ Y) → Acyclic X
         (fun x hx => ⟨(hr x hx).1, fun h => (hr x hx).2 (mem_writes_left h)⟩)
         (Acyclic.prefix (X := X) htl)
 
+theorem pairwise_of_all {α : Type} {R : α → α → Prop} : ∀ {l : List α},
+    (∀ a ∈ l, ∀ b ∈ l, R a b) → l.Pairwise R
+  | [], _ => .nil
+  | a :: l, h => List.pairwise_cons.mpr
+    ⟨fun b hb => h a List.mem_cons_self b (List.mem_cons_of_mem _ hb),
+      pairwise_of_all (fun x hx y hy => h x (List.mem_cons_of_mem _ hx) y (List.mem_cons_of_mem _ hy))⟩
+
 theorem mem_writes_assign {l : String} {r : Expr} {X : List Stmt} (h : Stmt.assign l r ∈ X) :
     l ∈ writesOf X := by
   unfold writesOf
@@ -172,8 +182,7 @@ theorem mem_writes_assign {l : String} {r : Expr} {X : List Stmt} (h : Stmt.assi
 /-- **The alias insertion keeps the order**, for a suffix `B` of the body
 after a prefix `pre`, in front of any ordered `T` it does not interfere with. -/
 theorem acyclic_insert (aliases : List (Port × String))
-    (hnd : (aliases.map (·.1.name)).Nodup)
-    (hops : ∀ pa ∈ aliases, ∀ pa' ∈ aliases, pa.2 ≠ pa'.1.name) :
+    (hnd : (aliases.map (·.1.name)).Nodup) :
     ∀ (B pre T : List Stmt), Acyclic (pre ++ B) → Acyclic T →
       (∀ pa ∈ aliases, pa.1.name ∉ writesOf (pre ++ B)) →
       (∀ pa ∈ aliases, ∀ pre1 l r post, B = pre1 ++ Stmt.assign l r :: post →
@@ -202,7 +211,7 @@ theorem acyclic_insert (aliases : List (Port × String))
         rw [show Stmt.assign l r :: rest = [Stmt.assign l r] ++ rest from rfl]
         exact mem_writes_right hr')
     have ih : Acyclic (insertAliases aliases rest ++ T) := by
-      refine acyclic_insert aliases hnd hops rest (pre ++ [Stmt.assign l r]) T (happ ▸ hacy) hT
+      refine acyclic_insert aliases hnd rest (pre ++ [Stmt.assign l r]) T (happ ▸ hacy) hT
         (fun pa hpa => happ ▸ hports pa hpa) ?_ ?_
       · intro pa hpa pre1 l' r' post hB hx
         have := hread pa hpa (Stmt.assign l r :: pre1) l' r' post (by rw [hB]; rfl) hx
@@ -228,7 +237,7 @@ theorem acyclic_insert (aliases : List (Port × String))
     have hTl : l ∉ writesOf T := fun h => (hTc l h).1 (mem_writes_assign List.mem_cons_self)
     have hblock : Acyclic (((aliases.filter fun pa => pa.2 == l).map fun pa => aliasStmt pa.1 pa.2) ++
         (insertAliases aliases rest ++ T)) := by
-      refine acyclic_aliasBlock _ _ ih (hnd.sublist (List.filter_sublist.map _)) ?_ ?_
+      refine acyclic_aliasBlock _ _ ih (hnd.sublist (List.filter_sublist.map _)) ?_ ?_ ?_
       · intro pa hpa hw
         obtain ⟨hmem, hop⟩ := List.mem_filter.mp hpa
         have hpl : pa.2 = l := by simpa using hop
@@ -241,12 +250,16 @@ theorem acyclic_insert (aliases : List (Port × String))
       · intro pa hpa
         obtain ⟨hmem, hop⟩ := List.mem_filter.mp hpa
         have hpl : pa.2 = l := by simpa using hop
-        refine ⟨fun hw => ?_, fun pa' hpa' => hops pa hmem pa' (List.mem_filter.mp hpa').1⟩
+        refine ⟨fun hw => ?_, fun h => hports pa hmem (by rw [← h, hpl]; exact hlB)⟩
         rw [hpl] at hw
         rcases key _ hw with h | ⟨pa', hpa', hn, -⟩ | h
         · exact htgt h
         · exact hports pa' hpa' (hn ▸ hlB)
         · exact hTl h
+      · -- the operands of this block are all `l`, a driven wire: no port
+        refine pairwise_of_all (fun pa hpa pb hpb h => ?_)
+        have hpl : pa.2 = l := by simpa using (List.mem_filter.mp hpa).2
+        exact hports pb (List.mem_filter.mp hpb).1 (by rw [← h, hpl]; exact hlB)
     show Acyclic (Stmt.assign l r :: (((aliases.filter fun pa => pa.2 == l).map
       fun pa => aliasStmt pa.1 pa.2) ++ insertAliases aliases rest) ++ T)
     rw [show (Stmt.assign l r :: (((aliases.filter fun pa => pa.2 == l).map
@@ -286,12 +299,17 @@ theorem acyclic_insert (aliases : List (Port × String))
         · exact h (hrestB _ hw)
       · exact (hTc x h).2.2 l r List.mem_cons_self hx
 
-/-- **The let-closed body is in dependency order.** -/
+/-- **The let-closed body is in dependency order.** An operand may be an
+EARLIER alias' port (`let y := x`) provided that alias' own operand is driven
+by nothing (so both go to the front, in order); an operand that is the port of
+an alias placed after a driver is what the real `closeLets` refuses. -/
 theorem closed_acyclic {B : List Stmt} {w core : String} (aliases : List (Port × String))
     (hacy : Acyclic (B ++ [Stmt.assign "out" (.ref w)]))
     (hnd : (aliases.map (·.1.name)).Nodup)
     (hports : ∀ pa ∈ aliases, pa.1.name ∉ writesOf B ∧ pa.1.name ≠ "out")
-    (hops : ∀ pa ∈ aliases, (∀ pa' ∈ aliases, pa.2 ≠ pa'.1.name) ∧ pa.2 ≠ "out")
+    (hops : ∀ pa ∈ aliases, pa.2 ≠ "out" ∧ pa.2 ≠ pa.1.name)
+    (hpair : aliases.Pairwise (fun pa pb => pa.2 ≠ pb.1.name))
+    (hfront : ∀ pa ∈ aliases, ∀ pa' ∈ aliases, pa.2 = pa'.1.name → pa'.2 ∉ writesOf B)
     (hcore : core ≠ "out")
     (hread : ∀ pa ∈ aliases, ∀ pre l r post, B = pre ++ Stmt.assign l r :: post →
       pa.1.name ∈ refsOf r → pa.2 ∈ writesOf pre ∨ pa.2 ∉ writesOf B) :
@@ -305,17 +323,18 @@ theorem closed_acyclic {B : List Stmt} {w core : String} (aliases : List (Port �
   have hout : ∀ x, x ∈ writesOf [Stmt.assign "out" (Expr.ref core)] → x = "out" := by
     intro x hx; simpa [writesOf, stmtWrites] using hx
   have hins : Acyclic (insertAliases aliases B ++ [Stmt.assign "out" (.ref core)]) := by
-    refine acyclic_insert aliases hnd (fun pa hpa pa' hpa' => (hops pa hpa).1 pa' hpa') B [] _
+    refine acyclic_insert aliases hnd B [] _
       hB hT (fun pa hpa => (hports pa hpa).1) (fun pa hpa pre l r post h hx => by
         simpa using hread pa hpa pre l r post h hx) ?_
     intro x hx
     obtain rfl := hout x hx
     refine ⟨fun h => Acyclic.writes_disjoint hacy _ h (by simp [writesOf, stmtWrites]),
-      fun pa hpa => ⟨(hports pa hpa).2, (hops pa hpa).2⟩, fun l r hm hx' => ?_⟩
+      fun pa hpa => ⟨(hports pa hpa).2, (hops pa hpa).1⟩, fun l r hm hx' => ?_⟩
     exact Acyclic.reads_disjoint hacy l r hm _ hx' (by simp [writesOf, stmtWrites])
   rw [List.append_assoc]
   unfold frontAliases
   refine acyclic_aliasBlock _ _ hins (hnd.sublist (List.filter_sublist.map _)) ?_ ?_
+    (hpair.sublist List.filter_sublist)
   · intro pa hpa hw
     obtain ⟨hmem, hfr⟩ := List.mem_filter.mp hpa
     have hnotw : pa.2 ∉ writesOf B := by simpa using hfr
@@ -330,12 +349,12 @@ theorem closed_acyclic {B : List Stmt} {w core : String} (aliases : List (Port �
   · intro pa hpa
     obtain ⟨hmem, hfr⟩ := List.mem_filter.mp hpa
     have hnotw : pa.2 ∉ writesOf B := by simpa using hfr
-    refine ⟨fun hw => ?_, fun pa' hpa' => (hops pa hmem).1 pa' (List.mem_filter.mp hpa').1⟩
+    refine ⟨fun hw => ?_, (hops pa hmem).2⟩
     rw [writesOf_append] at hw
     rcases List.mem_append.mp hw with h | h
-    · rcases writes_insertAliases aliases B _ h with h | ⟨pa', hpa', hn, -⟩
+    · rcases writes_insertAliases aliases B _ h with h | ⟨pa', hpa', hn, hw'⟩
       · exact hnotw h
-      · exact (hops pa hmem).1 pa' hpa' hn.symm
-    · exact (hops pa hmem).2 (hout _ h)
+      · exact hfront pa hmem pa' hpa' hn.symm hw'
+    · exact (hops pa hmem).1 (hout _ h)
 
 end Tools.ShippingClosedOrder

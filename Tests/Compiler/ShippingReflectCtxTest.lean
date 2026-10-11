@@ -2,6 +2,8 @@ import Tests.Compiler.ShippingCloseInstsCheckTest
 import Tools.ShippingReflectCtx
 import Tools.ShippingCloseLetsSplit
 import Tools.ShippingCloseLetsRun
+import Tools.ShippingSpineOrder
+import Tools.ShippingClosedOrder
 
 /-! The reflection premises against the contexts a child is synthesised in.
 
@@ -28,7 +30,9 @@ run_cmd Lean.Elab.Command.liftTermElabM do
       ``Tools.ShippingUnifiedSpine.Spec.cached, ``Tools.ShippingUnifiedSpine.concat_spec,
       ``Tools.ShippingHarnessSpine.harness_spine_at, ``Tools.ShippingCloseLetsRun.transition_spine,
       ``Tools.ShippingCloseLetsRun.concatParts?_of_mem, ``Tools.ShippingCloseLetsRun.spine_of_packLets,
-      ``Tools.ShippingCloseLetsRun.wireWidth_of_decl, ``Tools.ShippingCloseLetsRun.link_not_out] do
+      ``Tools.ShippingCloseLetsRun.wireWidth_of_decl, ``Tools.ShippingCloseLetsRun.link_not_out,
+      ``Tools.ShippingSpineOrder.spine_links, ``Tools.ShippingClosedOrder.closed_acyclic,
+      ``Tools.ShippingClosedOrder.acyclic_insert] do
     let ax ← Lean.collectAxioms n
     for a in ax do
       unless a == ``propext || a == ``Classical.choice || a == ``Quot.sound do
@@ -143,3 +147,33 @@ run_cmd Lean.Elab.Command.liftTermElabM do
       unless ok do throwError "{n}: closeLets refuses this run's transition"
       Lean.logInfo m!"LET-ONLY, NO CALL (checker on this run, not a derivation): {n} lets={k} statements={t.body.length} closeLets accepts"
     catch e => throwError "{n}: {e.toMessageData}"
+
+/-! What the REAL `closeLets` does when a `let`'s operand is another `let`'s
+port, on hand-built transition modules (the shape reader does not produce
+these from the sources tried — it resolves `let y := x` to `x`'s definition —
+so they are built directly):
+
+* `let0 := x` (an input), `let1 := let0`: both aliases go to the front, in
+  order — ACCEPTED. `closed_acyclic` covers it (an operand may be an EARLIER
+  front alias' port).
+* `let0 := x + x` (driven), `let1 := let0`: `let1`'s alias goes to the front
+  and reads `let0`'s port, driven only after `x + x` — REFUSED. The entry then
+  takes the legacy fallback; `MachineCloses` is false of such a shape. -/
+run_cmd Lean.Elab.Command.liftTermElabM do
+  let p (n : String) (w : Nat) : Sparkle.IR.AST.Port := { name := n, ty := .bitVector w }
+  let mk (body : List Sparkle.IR.AST.Stmt) (wires : List Sparkle.IR.AST.Port) : Sparkle.IR.AST.Module :=
+    { name := "t", inputs := [p "x" 8, p "p0" 8, p "p1" 8], outputs := [p "out" 24],
+      wires := wires, body := body }
+  let core : Sparkle.IR.AST.Stmt := .assign "core" (.op .add [.ref "p0", .ref "p1"])
+  let b1 : Sparkle.IR.AST.Stmt := .assign "b1" (.concat [.ref "p0", .ref "core"])
+  let base := [p "x" 8, p "p0" 8, p "p1" 8, p "core" 8, p "b1" 16, p "w" 24]
+  -- (i) let0 := x, let1 := let0
+  let t1 := mk [core, b1, .assign "w" (.concat [.ref "x", .ref "b1"]), .assign "out" (.ref "w")] base
+  unless (Sparkle.IR.Machine.closeLets 2 t1).isSome do
+    throwError "closeLets refuses `let0 := x; let1 := let0`"
+  -- (ii) let0 := x + x, let1 := let0
+  let t2 := mk [.assign "a0" (.op .add [.ref "x", .ref "x"]), core, b1,
+    .assign "w" (.concat [.ref "a0", .ref "b1"]), .assign "out" (.ref "w")] (p "a0" 8 :: base)
+  if (Sparkle.IR.Machine.closeLets 2 t2).isSome then
+    throwError "closeLets accepts `let0 := x + x; let1 := let0`"
+  Lean.logInfo m!"CLOSELETS ON LET-OF-LET (real function, hand-built modules): let0 := input, let1 := let0 accepted; let0 := x + x, let1 := let0 refused"
