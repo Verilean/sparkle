@@ -67,7 +67,7 @@ theorem machineClosesAt_of_seqKids {declName : Name} (d : MachineData) (ok : d.o
       nk k = (d.shape.insts[k]).2.1.length)
     (hfieldOut : ∀ (k : Nat), k < d.shape.insts.length →
       d.shape.instFields.getD k "" ∈ outsK k)
-    (hfieldsNd : ∀ (k k' : Nat) (hk : k < d.shape.insts.length)
+    (hfieldsNd : ∀ (k : Nat) (hk : k < d.shape.insts.length) (k' : Nat)
       (hk' : k' < d.shape.insts.length), (d.shape.insts[k]).1 = (d.shape.insts[k']).1 →
       (d.shape.insts[k]).2.1 = (d.shape.insts[k']).2.1 →
       d.shape.instFields.getD k "" = d.shape.instFields.getD k' "" → k = k')
@@ -179,7 +179,7 @@ theorem machineClosesAt_of_seqKids {declName : Name} (d : MachineData) (ok : d.o
         List.mem_map_of_mem (List.getElem_mem hk)
       have hnj : (d.shape.insts[k']).1 ∈ d.shape.insts.map (·.1) :=
         List.mem_map_of_mem (List.getElem_mem hk')
-      exact hfieldsNd k k' hk hk' (hsep _ hni _ hnj hn)
+      exact hfieldsNd k hk k' hk' (hsep _ hni _ hnj hn)
         (by rw [e1, e2, hxa, hxa']; exact he.2) hf
     · intro gi c hc o ho
       obtain ⟨k, hk⟩ := List.mem_iff_getElem?.mp hc

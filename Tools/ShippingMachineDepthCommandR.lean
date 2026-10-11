@@ -593,8 +593,9 @@ def generateDesignNR (declName : Name) (n : Nat) : MetaM Name := do
   Tools.ShippingShipsDesignSVCommand.compose declName ships
     (declName ++ Name.mkSimple s!"machine_design_svNR{n}") n
 
-/-- The machine descendants of `declName` whose calls are all one-output
-(candidates of `c.machine_closes_at`), children first. -/
+/-- The machine descendants of `declName` that have calls (candidates of
+`c.machine_closes_at`: one-output calls, or the general closing), children
+first. -/
 partial def closingCandidates (declName : Name) (seen : IO.Ref (List Name)) : MetaM (List Name) := do
   let r ← try readMachine declName catch _ => return []
   let mut out : List Name := []
@@ -604,7 +605,7 @@ partial def closingCandidates (declName : Name) (seen : IO.Ref (List Name)) : Me
     out := out ++ (← closingCandidates c seen)
     let cr? ← try some <$> readMachine c catch _ => pure none
     if let some cr := cr? then
-      if !cr.shape.insts.isEmpty && cr.shape.instFields.isEmpty then out := out ++ [c]
+      if !cr.shape.insts.isEmpty then out := out ++ [c]
   return out
 
 /-- Generate `c.machine_closes_at` for the descendants that can have one,

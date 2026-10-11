@@ -2,6 +2,7 @@ import Tools.ShippingCallsGate
 import Tools.ShippingMachineChildRun
 import Tools.ShippingMachineClosesGen
 import Tools.ShippingGateChildCommand
+import Tools.ShippingMachineClosesAtGenG
 
 /-! # Generating `f.machine_closes_at`
 
@@ -72,6 +73,12 @@ binders to state the data check at, instead of the reader's. -/
 def closesAtCore (c : Name) (nDecl? : Option Nat) (name : Name := c ++ `machine_closes_at) :
     CommandElabM Name := do
   let r ← liftTermElabM <| Tools.ShippingMachineCommand.readMachine c
+  -- calls with several outputs or of sequential children: the general
+  -- closing's generator (`machineClosesAt_of_seqKids`)
+  if !r.shape.instFields.isEmpty then
+    let nm ← Tools.ShippingMachineClosesAtGenG.closesAtCoreG c nDecl? name
+    liftTermElabM (auditClosesAt c nm)
+    return nm
   let calls := r.shape.insts.map (·.1)
   if calls.isEmpty then throwError "{c}: no call"
   let kids := calls.eraseDups
@@ -287,6 +294,6 @@ elab "#machine_closes_at " d:ident : command => do
     if (← getEnv).contains (c ++ s) then
       let nn := Tools.ShippingMachineClosesGen.closedName (c ++ s)
       if ← liftTermElabM (closeEndpointAt c cl (c ++ s) nn) then made := made.push nn
-  logInfo m!"{made}: MachineClosesAt derived (one-output calls of gate children); premises: the children's reflection and name conditions"
+  logInfo m!"{made}: MachineClosesAt derived (one-output calls of gate / slotless machine children, or the general closing over machine children without calls); premises: the children's reflection and name conditions"
 
 end Tools.ShippingMachineClosesAtGen

@@ -2003,3 +2003,6 @@ lean_lib «Tools.ShippingSeqChildIface» where
 
 lean_lib «Tools.ShippingCallsSeqKids» where
   roots := #[`Tools.ShippingCallsSeqKids]
+
+lean_lib «Tools.ShippingMachineClosesAtGenG» where
+  roots := #[`Tools.ShippingMachineClosesAtGenG]
