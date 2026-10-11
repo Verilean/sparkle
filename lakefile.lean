@@ -630,6 +630,9 @@ lean_lib «Tools.ShippingChildLegacy» where
 lean_lib «Tools.ShippingChildBody» where
   roots := #[`Tools.ShippingChildBody]
 
+lean_lib «Tools.ShippingUnifiedSpine» where
+  roots := #[`Tools.ShippingUnifiedSpine]
+
 lean_lib «Tools.ShippingCloseLetsSplit» where
   roots := #[`Tools.ShippingCloseLetsSplit]
 
