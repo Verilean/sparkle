@@ -2,7 +2,7 @@ import Tests.Compiler.ShippingChildBoundaryTest
 /-! Premises of the derived endpoints, by kind (run, inside the cgroup:
 `scripts/shipping-coverage/cgrun.sh -n premises -- lake env lean scripts/shipping-coverage/endpoint_premises.lean`).
 For each endpoint, with the generated boundary definitions UNFOLDED and applied: the child boundary,
-the reflection facts — how many are asked in the endpoint's own contexts and how many in bound
+the reflection facts — how many DISTINCT ones are asked in the endpoint's own contexts and how many in bound
 contexts, and how many context quantifiers are guarded by `ChildRanIn` —, the decidable use
 conditions, any retired boundary or proved condition still mentioned (expected: none), and its
 axioms; then what `ChildBnd` unfolds to and the generic laws' fields. -/
@@ -30,13 +30,16 @@ partial def unfoldBnd (env : Environment) (e : Expr) : Expr :=
     | _ => none
   if e' == e then e else unfoldBnd env e'
 
-/-- Occurrences of `c` applied with its Meta context a free variable (the endpoint's own
-contexts) / a bound variable (contexts quantified inside the premise). -/
-def ctxKinds (c : Name) (argIdx : Nat) (e : Expr) : Nat × Nat := go e (0, 0)
+/-- The DISTINCT occurrences of `c` in `e`, split by its context argument: a free variable (the
+endpoint's own contexts) / a bound variable (contexts quantified inside the premise). -/
+def ctxOccs (c : Name) (argIdx : Nat) (e : Expr) (acc : Array Expr × Array Expr) : Array Expr × Array Expr :=
+  go e acc
 where
-  go (e : Expr) (acc : Nat × Nat) : Nat × Nat :=
+  go (e : Expr) (acc : Array Expr × Array Expr) : Array Expr × Array Expr :=
     let acc := if e.isAppOf c && e.getAppNumArgs > argIdx then
-        (if (e.getArg! argIdx).isFVar then (acc.1 + 1, acc.2) else (acc.1, acc.2 + 1)) else acc
+        (if (e.getArg! argIdx).isFVar then
+          (if acc.1.contains e then acc else (acc.1.push e, acc.2))
+         else (if acc.2.contains e then acc else (acc.1, acc.2.push e))) else acc
     match e with
     | .app f a => go a (go f acc)
     | .lam _ t b _ | .forallE _ t b _ => go b (go t acc)
@@ -89,12 +92,13 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     let kinds ← forallTelescope ty fun _ body => do
       let hyps ← (← getLCtx).foldlM (init := #[]) fun a d => pure (a.push d.type)
       let all := (hyps.push body).map (unfoldBnd env ·)
-      let sum (c : Name) : Nat × Nat := all.foldl (fun (o, b) e =>
-        let (o', b') := ctxKinds c 0 e; (o + o', b + b')) (0, 0)
+      let sum (c : Name) (i : Nat := 0) : Nat × Nat :=
+        let (o, b) := all.foldl (fun acc e => ctxOccs c i e acc) (#[], #[])
+        (o.size, b.size)
       let md := sum ``Tools.ShippingMachineEntry.MachineDefines
       let ed := sum ``Tools.ShippingInlineSoundness.EntryDefines
       let mcl := sum ``Tools.ShippingMachineEntry.MachineCloses
-      let ran := all.foldl (fun n e => n + (ctxKinds ``Tools.ShippingChildInv.ChildRanIn 3 e).2) 0
+      let ran := (sum ``Tools.ShippingChildInv.ChildRanIn 3).2
       let qs := all.foldl (fun n e => n + ctxForalls e) 0
       pure s!" defines(own,bound)={md} entryDefines(own,bound)={ed} closes(own,bound)={mcl} ctx-quantifiers={qs} ChildRanIn-guards={ran}"
     line := line ++ kinds

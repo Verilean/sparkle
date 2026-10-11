@@ -2,6 +2,7 @@ import Tools.ShippingMachineSeqCommand
 import Tools.ShippingMachineSeqLinkedR
 import Tools.ShippingMachineCallsLinkedTR
 import Tools.ShippingChildRun
+import Tools.ShippingReflectCtx
 import Tools.ShippingMachineShipsHierCommand
 import Tools.ShippingShipsDesignSVCommand
 
@@ -225,10 +226,66 @@ def generateCoreSR (declName : Name) : MetaM Name := do
         mkLambdaFVars (ibb ++ #[kv, cv, hk]) (mkAppN chain #[kv, cv, hk])
   try check hcalls catch e => throwError "hcalls ill-formed: {e.toMessageData}"
   p := mkApp p hcalls
-  -- the children's reflection facts, in the parent's contexts: a premise
+  -- the children's reflection facts: ONE premise, the conjunction over the
+  -- sequential children of what each child's declaration is (`MachineDefines`,
+  -- in the parent's contexts) and — unless the child has no `let` and no call,
+  -- where it is a theorem (`machineCloses_of_noLets`) — that its machine
+  -- synthesis closes in the contexts the child is synthesised in
   let hreflT := (← whnf (← inferType p)).bindingDomain!
-  withLocalDeclD `hrefl hreflT fun hrefl => do
-  let p := mkApp p hrefl
+  let ctx ← forallTelescope hreflT fun _ body => do
+    let some (a, _) := body.and? | throwError "{declName}: the reflection premise's shape"
+    pure a.getAppArgs[0:4].toArray
+  let mut rTypes : List Lean.Expr := []
+  let mut freeOf : Std.HashMap Name Bool := {}
+  for c in seqKids do
+    let shapeE ← mkAppM ``Tools.ShippingMachineAuto.MachineData.shape #[mkConst (c ++ `machineData)]
+    let defs := mkAppN (mkConst ``Tools.ShippingMachineEntry.MachineDefines) (ctx ++ #[toExpr c, shapeE])
+    let free ← Tools.ShippingReflectCtx.closesFree shapeE
+    freeOf := freeOf.insert c free
+    if free then rTypes := rTypes ++ [defs]
+    else
+      let closes ← withLocalDeclD `mctx' (mkConst ``Lean.Meta.Context) fun mc' =>
+        withLocalDeclD `cctx' (mkConst ``Lean.Core.Context) fun cc' => do
+          mkForallFVars #[mc', cc'] (← mkArrow
+            (mkAppN (mkConst ``Tools.ShippingChildInv.ChildRanIn) #[ctx[1]!, ctx[3]!, toExpr c, mc', cc'])
+            (mkAppN (mkConst ``Tools.ShippingMachineEntry.MachineCloses) #[mc', ctx[1]!, cc', ctx[3]!, toExpr c, shapeE]))
+      rTypes := rTypes ++ [← mkAppM ``And #[defs, closes]]
+  let hreflNewT ← Tools.ShippingMachineShipsHierCommand.conj rTypes
+  withLocalDeclD `hrefl hreflNewT fun hrefl => do
+  let ps ← Tools.ShippingMachineShipsHierCommand.projs hrefl rTypes
+  let rDecls := (seqKids.zip rTypes).toArray.mapIdx fun j (_, ty) =>
+    (Name.mkSimple s!"hR{j}", fun (_ : Array Lean.Expr) => pure ty)
+  let hreflP ← withLocalDeclsD rDecls fun hRs => do
+    let names := calls.map (·.1)
+    let nameT := mkConst ``Name
+    let mut perR : Array Lean.Expr := #[]
+    for k in [0:names.length] do
+      let c := names[k]!
+      let goalK := ((hreflT.bindingBody!.instantiate1 (mkNatLit k)).bindingBody!.instantiate1
+        (toExpr c)).bindingBody!
+      let hRS : Term := ⟨mkIdent (Name.mkSimple s!"hR{seqKids.idxOf c}")⟩
+      let prK ← match Tools.ShippingMachineMemCommand.memWidths? c with
+        | some _ => proveByTacticT goalK `(tactic| (intro h; first | cases h | simp [Sparkle.Compiler.MachMemory.memChild?] at h))
+        | none =>
+          if freeOf.getD c false then
+            proveByTacticT goalK `(tactic| (intro _; exact ⟨$hRS, fun _ _ _ =>
+              Tools.ShippingMachineEntry.machineCloses_of_noLets (by decide) (by decide)⟩))
+          else proveByTacticT goalK `(tactic| (intro _; exact $hRS))
+      perR := perR.push prK
+    let QmR (m : Nat) : MetaM Lean.Expr :=
+      withLocalDeclD `k nat fun kv => withLocalDeclD `c nameT fun cv => do
+        let rk := ((hreflT.bindingBody!.instantiate1 (← mkAdd kv (mkNatLit m))).bindingBody!.instantiate1
+          cv).bindingBody!
+        mkLambdaFVars #[kv, cv] rk
+    let n := names.length
+    let mut chain ← mkAppOptM ``Tools.ShippingMachineChild.forall_getElem?_nil #[nameT, ← QmR n]
+    for m' in [0:n] do
+      let m := n - 1 - m'
+      let rest' := listE nameT ((names.drop (m + 1)).map toExpr)
+      chain ← mkAppOptM ``Tools.ShippingMachineChild.forall_getElem?_cons
+        #[nameT, ← QmR m, toExpr names[m]!, rest', perR[m]!, chain]
+    pure (chain.replaceFVars hRs ps.toArray)
+  let p := mkApp p hreflP
   -- the child boundary of the run (`ChildBnd`: the laws and the invariant in
   -- the run's start world)
   let hsyn := xs.back!

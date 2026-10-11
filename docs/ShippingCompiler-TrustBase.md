@@ -735,6 +735,20 @@ and `ShippingChildCacheRun` removed).
     modules (`closeLets`, `closeInsts`' checks); it is not derived, and a run
     of the same declaration in two contexts agreeing
     (`ShippingReflectCtxTest`) is evidence about those two runs only.
+  - The same on the R0 route (`ShippingMachineSeqCommandR`): the head's
+    generic `hrefl` (∀ call) is no longer the endpoint's premise; the
+    endpoint takes the conjunction over the sequential children and the
+    generator proves the head's premise from it per call. Before → after
+    (`endpoint_premises`): `parent`, `chained`, `two`, `seqMem`
+    `.machine_design_svR0` each had the child's `MachineCloses` under one
+    context quantifier with a `ChildRanIn` guard; now none — no bound
+    `MachineCloses`, no context quantifier. What is left there is the
+    parent's own `MachineCloses` at the endpoint's contexts.
+  - `ChildRanIn` precisely: the set of contexts in which the child's ENTRY
+    succeeds from some invariant world — not the contexts reached from this
+    parent by a sequence of operations, and not a statement that the machine
+    route was taken there: the entry also succeeds through the legacy
+    fallback, so `ChildRanIn` does not give `MachineCloses`.
   - `scripts/shipping-coverage/endpoint_premises.lean` (run in the cgroup)
     prints, per endpoint with the boundary definitions unfolded: the
     reflection facts by own / bound contexts, the context quantifiers and the
