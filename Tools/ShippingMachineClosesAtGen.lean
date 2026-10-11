@@ -290,7 +290,11 @@ elab "#machine_closes_at " d:ident : command => do
   let c ← liftCoreM <| realizeGlobalConstNoOverloadWithInfo d
   let cl ← closesAtTheorem c
   let mut made := #[cl]
-  for s in [`machine_design_svHR, `machine_ships_hierHR, `machine_composedRA] do
+  -- the endpoints asking `MachineClosesAt` of `c`: the hierarchical heads and
+  -- the depth heads at the depths generated so far
+  let depthNames := (List.range 8).flatMap fun n =>
+    [Name.mkSimple s!"machine_design_svNR{n}", Name.mkSimple s!"machine_ships_hierNR{n}"]
+  for s in [`machine_design_svHR, `machine_ships_hierHR, `machine_composedRA] ++ depthNames do
     if (← getEnv).contains (c ++ s) then
       let nn := Tools.ShippingMachineClosesGen.closedName (c ++ s)
       if ← liftTermElabM (closeEndpointAt c cl (c ++ s) nn) then made := made.push nn

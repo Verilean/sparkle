@@ -39,9 +39,9 @@ and the transition's closure (`Tools/ShippingMachineChildComb.lean`); the
 child's premise is its machine reflection (`MachineDefines`), its own closing
 is proved (`c.machine_closes`).
 
-Not covered: machine children with calls of their own or without a `let`,
-several-output / sequential children (`closeInstsG`, B2). (Parents without a
-`let`: see below.)
+Not covered: machine children with calls of their own (B3), memory children.
+Several-output / sequential children without calls (`closeInstsG`, B2): the
+last section. (Parents without a `let`: see below.)
 
 These are conditional theorems under the generic runtime laws (`ChildBnd`);
 that does not make the laws consistent with the runtime (G5), and the shape
@@ -546,3 +546,61 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   let es := hr ++ Sparkle.Tests.Compiler.ShippingChildBoundaryTest.rEndpoints ++ nr
   for e in es do lawAudit e
   Lean.logInfo m!"LAW AUDIT FROM THE ENDPOINTS: {es.length} generated endpoints (closed HR, R0, NR at every depth) — each reaches ChildBnd and the law bundle; no reached unconditional frame law is about a diagnostic operation or a throw; the diagnostic law is under quiet, rendering under the message class, a captured context under its environment's printers; no exception-cell law; the cache-pinning auxiliary predicate is constrained by no law and no start condition. The laws themselves stay assumptions (no runtime model); the elaborator primitives and profLog remain unconditional / one constructor."
+
+/-! ## The general closing (B2): several outputs, sequential children
+
+`parent` reads two fields of ONE call of the sequential child `cnt`; `chained`
+calls `cnt` twice, the second on a field of the first. The compiler closes
+them by `closeInstsGM`; their `MachineClosesAt` is derived
+(`machineClosesAt_of_seqKids`: the child read by the `RealChild` witness of
+its own run, the entries of one call the same child by the cache pin), and
+the depth endpoint's closing premise is replaced by the theorem's premises:
+the child's reflection and the name condition (N1, an obligation). A parent
+whose child has calls of its own (`mid2`) is REFUSED with that reason — its
+closing stays a premise (B3). -/
+
+set_option maxHeartbeats 0 in
+#machine_design_svNR Sparkle.Tests.Compiler.ShippingMachineSeqTest.parent 1
+set_option maxHeartbeats 0 in
+#machine_closes_at Sparkle.Tests.Compiler.ShippingMachineSeqTest.parent
+set_option maxHeartbeats 0 in
+#machine_design_svNR Sparkle.Tests.Compiler.ShippingMachineSeqTest.chained 1
+set_option maxHeartbeats 0 in
+#machine_closes_at Sparkle.Tests.Compiler.ShippingMachineSeqTest.chained
+
+/-- The closed depth endpoint of `f` reaches no closing premise, the open one
+asks `MachineClosesAt`; standard axioms; the closing theorem's premises are
+the child's reflection and the name condition, which holds when evaluated. -/
+def auditClosedNR (f : Name) (n nPremises : Nat) : MetaM Unit := do
+  let env ← getEnv
+  let o := f ++ Name.mkSimple s!"machine_design_svNR{n}"
+  let e := Tools.ShippingMachineClosesGen.closedName o
+  let info ← getConstInfo e
+  let open0 ← getConstInfo o
+  let seen := reach env info.type.getUsedConstants.toList {}
+  let seen0 := reach env open0.type.getUsedConstants.toList {}
+  if banned.any fun b => seen.contains b then throwError "{e} still reaches a closing premise"
+  if !seen0.contains ``Tools.ShippingChildInv.MachineClosesAt then
+    throwError "the audit does not see MachineClosesAt in the open endpoint {o}"
+  let axs ← Lean.collectAxioms e
+  if axs.any fun a => !(a == ``propext || a == ``Classical.choice || a == ``Quot.sound) then
+    throwError "{e} depends on a non-standard axiom: {axs}"
+  let hyps ← premises (f ++ `machine_closes_at)
+  if hyps.size != nPremises then throwError "{f}.machine_closes_at has {hyps.size} premises: {hyps}"
+  if !hyps[0]!.isAppOf ``Tools.ShippingMachineEntry.MachineDefines then
+    throwError "the first premise is not a child's reflection: {hyps[0]!}"
+  if (info.type.find? (·.isConstOf ``Lean.Name.toString)).isNone then
+    throwError "{e}: the name-separation obligation is not stated"
+  if !(← namesHold f) then throwError "{f}: a name condition is false"
+  -- the general closing really is the route: the shape reads fields
+  let r ← Tools.ShippingMachineCommand.readMachine f
+  if r.shape.instFields.isEmpty then throwError "{f}: not a general-closing shape"
+  lawAudit e
+
+run_cmd do
+  Lean.Elab.Command.liftTermElabM do
+    auditClosedNR ``Sparkle.Tests.Compiler.ShippingMachineSeqTest.parent 1 2
+    auditClosedNR ``Sparkle.Tests.Compiler.ShippingMachineSeqTest.chained 1 2
+  -- a child with calls of its own: refused, nothing left behind
+  failsClean ``Sparkle.Tests.Compiler.ShippingDesignSVTest.mid2 none "calls of its own"
+  Lean.logInfo m!"GENERAL CLOSING (B2): parent (two fields of one call of the sequential child cnt) and chained (two calls, the second on a field of the first) — the depth SV endpoints closed: MachineClosesAt derived, premises the child's reflection and the name condition; mid2 (a child with calls of its own) refused"
