@@ -818,13 +818,29 @@ and `ShippingChildCacheRun` removed).
     `Spine … fs.length w`; membership links become the `concatParts?` spine by
     the returned body's order invariant (`Acyclic`: one driver per wire,
     `concatParts?_of_mem`). No premise about the run beyond its being a run.
+  - **Conditions (4) and (5) derived too (2026-10-12)**, in the same
+    `transition_spine`. (4): the walk carries protected names — the input
+    ports, in use from the start — and `makeWire` returns a name not in use,
+    so no assignment target is a port (`Good.bindMake`, `Good.emitAssign`);
+    the harness' final assign drives `out`, not in use when the translator
+    returned: every input port's name ∉ `writesOf body`. (5) and the
+    "not `out`" half of (3): a link's two operands are typed at a positive
+    declared width (`TypedExpr.cat`) and `out` is declared at none
+    (`link_not_out`), so neither an operand wire nor the core is `out`.
   - Still NOT derived, so `MachineCloses` of a `let` shape is still a premise:
-    (3) operand widths (needs the declared type of each arm's result wire,
-    through cache hits by `Meaning.deterministic`); (4) `let` ports undriven
-    (needs "assign targets are freshly made wires" in the walk); (5) `core ≠
-    out` (from typedness / allocated names); (6) dependency order of the
-    closed body (needs positions: readers of a `let` port come after its
-    operand's driver — emission order plus the shape-side scoping check).
+    (3) the width half: each operand wire declared at its port's width
+    (typedness gives only the SUM of a link's two operand widths; the split
+    needs the declared type of each arm's result wire in the walk, through
+    cache hits by `Meaning.deterministic`); (6) dependency order of the
+    closed body: every reader of a `let` port must come after its operand's
+    driver. That is positional (statements appended in order, not only
+    kept), needs which ports the statements emitted for a term may read
+    (result-wire tracking per arm, as the order induction does), and a
+    shape-side scoping condition. Read off `closeLets`' code, not yet
+    checked on a run: a field that is itself an earlier `let` variable puts
+    its alias at the front, before the alias that drives that variable, so
+    `MachineCloses` should be FALSE for such a shape — the condition to
+    state on the shape must exclude it.
   - (earlier plan, kept for the record) a spine postcondition
     for the translator on `packLets fs core` giving (2)–(5), then (6) from
     the existing order invariant plus (b). Calls (`closeInsts`,

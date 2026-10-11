@@ -85,6 +85,22 @@ theorem spine_of_packLets {body : List Stmt} (ho : Acyclic body) {dom : Lean.Exp
     cases this
     exact hr'
 
+/-- **A link's operands are not `out`** in a typed body: both have a positive
+declared width, and `out` has none. -/
+theorem link_not_out {m : Sparkle.IR.AST.Module} (ready : TypedPostReady m) {w a b : String}
+    (h : concatParts? m.body w = some (a, b)) : a ≠ "out" ∧ b ≠ "out" := by
+  obtain ⟨l, e, n, heq, hty, -⟩ := ready.typed _ (concatParts?_mem h)
+  cases heq
+  cases hty with
+  | cat _ _ ha hb =>
+    constructor
+    · intro h'
+      rw [h', ready.outWidthZero] at ha
+      cases ha
+    · intro h'
+      rw [h', ready.outWidthZero] at hb
+      cases hb
+
 /-- **Conditions (1) and (2) of `closeLets`, from a run of the harness** on a
 packed machine body: the final `assign out = w`, and the spine from `w` with
 one link per `let` field. -/
@@ -108,12 +124,13 @@ theorem transition_spine {logProf : String → IO Unit} {declName : Name}
     (hbody : body = quote dom (fun j => inputExpr bs.length (bpos j))
       (fun j => inputExpr bs.length (vpos j)) (packLets fs core).2) :
     ∃ B w, m.body = B ++ [.assign "out" (.ref w)] ∧ Spine m.body fs.length w ∧
-      ∀ port ∈ m.inputs, port.name ∉ Sparkle.IR.Reorder.writesOf m.body := by
+      (∀ port ∈ m.inputs, port.name ∉ Sparkle.IR.Reorder.writesOf m.body) ∧
+      ∀ x a b, concatParts? m.body x = some (a, b) → a ≠ "out" ∧ b ≠ "out" := by
   have facts := transition_facts nd len run hm nameLegal he hb hv hbody
   have fresh : ((bs.zip ids).map Prod.snd).Nodup := by rw [zip_ids len]; exact nd
   have zero : SourceInputs declName bs ids cache (fun _ => false) (fun _ n => 0#n)
       (fun _ => 0) := admissible_zero _ _
-  obtain ⟨_, _, _, _, simple, _, _, _, base⟩ := facts.1 _ _ _ (fun _ _ => 0) zero
+  obtain ⟨_, _, _, ready, simple, _, _, _, base⟩ := facts.1 _ _ _ (fun _ _ => 0) zero
   have order : Acyclic m.body := (base positive).order
   subst hbody
   have hin := facts.2.2 (boolValues ids fun _ => false) (bitValues ids fun _ n => 0#n)
@@ -146,7 +163,8 @@ theorem transition_spine {logProf : String → IO Unit} {declName : Name}
       · intro j hj
         obtain ⟨name, pos⟩ := hv j hj
         exact instantiated_input len (List.getElem_of_getElem? pos).choose)
-  refine ⟨B, w, hB, spine_of_packLets order fs core w he hsp, fun port hp hw => ?_⟩
+  refine ⟨B, w, hB, spine_of_packLets order fs core w he hsp, fun port hp hw => ?_,
+    fun x a b h => link_not_out ready h⟩
   -- condition (4): an input port is driven by no statement
   unfold Sparkle.IR.Reorder.writesOf at hw
   obtain ⟨stmt, hs, hl⟩ := List.mem_flatMap.mp hw
