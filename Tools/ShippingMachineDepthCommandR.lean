@@ -8,6 +8,7 @@ import Tools.ShippingChildRun
 import Tools.ShippingReflectCtx
 import Tools.ShippingMachineClosesGen
 import Tools.ShippingMachineClosesAtGen
+import Tools.ShippingChildIfaceGen
 
 /-! # Generated composition at depth `n`, the instance binding derived
 
@@ -71,16 +72,33 @@ partial def andParts (h : Lean.Expr) : MetaM (List (Lean.Expr × Lean.Expr)) := 
     return (← andParts (← mkAppM ``And.left #[h])) ++ (← andParts (← mkAppM ``And.right #[h]))
   else return [(t, h)]
 
+/-- The closing theorem of `c`: `c.machine_closes_at` (one-output calls, or
+the general closing over children without calls), else `c.closes_deep` (over
+children with calls). -/
+def closingThm? (c : Name) : MetaM (Option Name) := do
+  if (← getEnv).contains (c ++ `machine_closes_at) then return some (c ++ `machine_closes_at)
+  if (← getEnv).contains (c ++ `closes_deep) then return some (c ++ `closes_deep)
+  return none
+
 /-- The premises of `c.machine_closes_at` that are not a child's reflection
 (the name separation; they do not depend on the contexts). `none`: no such
 theorem, or a premise of another form. -/
 def closesAtNames (c : Name) : MetaM (Option (List Lean.Expr)) := do
-  let some (.thmInfo info) := (← getEnv).find? (c ++ `machine_closes_at) | return none
+  let some thm ← closingThm? c | return none
+  let some (.thmInfo info) := (← getEnv).find? thm | return none
+  -- the child's boundary carries the reflection of its DIRECT children only:
+  -- a closing that asks a deeper descendant's reflection is not discharged
+  -- from it (it then stays a premise of the endpoint)
+  let kids ← try pure ((← readMachine c).shape.insts.map (·.1)) catch _ => return none
   forallTelescope info.type fun xs _ => do
     let mut out : List Lean.Expr := []
     for x in xs.extract 4 xs.size do
       let t ← instantiateMVars (← inferType x)
-      unless t.isAppOf ``Tools.ShippingInlineSoundness.EntryDefines do
+      if t.isAppOf ``Tools.ShippingInlineSoundness.EntryDefines ||
+          t.isAppOf ``Tools.ShippingMachineEntry.MachineDefines then
+        let arg := t.getArg! 4
+        unless ← kids.anyM fun k => isDefEq (toExpr k) arg do return none
+      else
         if t.hasFVar then return none
         out := out ++ [t]
     return some out
@@ -91,12 +109,13 @@ name premises from `names`. -/
 def closesAtProof (c : Name) (ctx : Array Lean.Expr) (hb : Lean.Expr) (names : List Lean.Expr) :
     MetaM Lean.Expr := do
   let parts ← andParts hb
-  let mut p := mkAppN (mkConst (c ++ `machine_closes_at)) ctx
+  let some thm ← closingThm? c | throwError "{c}: no closing theorem"
+  let mut p := mkAppN (mkConst thm) ctx
   let mut names := names
   for _ in [0:64] do
     let t ← instantiateMVars (← inferType p)
     if t.isAppOf ``Tools.ShippingChildInv.MachineClosesAt then return p
-    unless t.isForall do throwError "{c}.machine_closes_at: its statement"
+    unless t.isForall do throwError "{thm}: its statement"
     let dom := t.bindingDomain!
     let mut arg? : Option Lean.Expr := none
     for (pt, ph) in parts do
@@ -107,9 +126,9 @@ def closesAtProof (c : Name) (ctx : Array Lean.Expr) (hb : Lean.Expr) (names : L
         if ← isDefEq (← inferType n) dom then
           arg? := some n
           names := rest
-    let some arg := arg? | throwError "{c}.machine_closes_at: no proof of its premise {dom}"
+    let some arg := arg? | throwError "{thm}: no proof of its premise {dom}"
     p := mkApp p arg
-  throwError "{c}.machine_closes_at: too many premises"
+  throwError "{thm}: too many premises"
 
 mutual
 
@@ -615,12 +634,22 @@ closing is not derived is reported; its closing stays a premise. -/
 def preClose (declName : Name) : Command.CommandElabM Unit := do
   let cands ← Command.liftTermElabM do closingCandidates declName (← IO.mkRef [])
   for c in cands do
-    unless (← getEnv).contains (c ++ `machine_closes_at) do
+    unless (← getEnv).contains (c ++ `machine_closes_at) || (← getEnv).contains (c ++ `closes_deep) do
       try
         discard <| Tools.ShippingMachineClosesAtGen.closesAtTheorem c
         logInfo m!"{c}.machine_closes_at: generated for the depth endpoint of {declName}"
       catch ex =>
-        logInfo m!"{declName}: the closing of the descendant {c} is NOT derived — it stays a premise of the depth endpoint ({ex.toMessageData})"
+        -- a descendant whose children have calls: the deep generator
+        let savedEnv ← getEnv
+        let savedMsgs := (← get).messages
+        try
+          discard <| Command.withScope (fun s => { s with opts := Lean.Elab.async.set s.opts false })
+            (Tools.ShippingChildIfaceGen.closesDeep c)
+          logInfo m!"{c}.closes_deep: generated for the depth endpoint of {declName}"
+        catch ex2 =>
+          setEnv savedEnv
+          modify fun s => { s with messages := savedMsgs }
+          logInfo m!"{declName}: the closing of the descendant {c} is NOT derived — it stays a premise of the depth endpoint ({ex.toMessageData}; {ex2.toMessageData})"
 
 elab "#machine_design_svNR " d:ident n:num : command => do
   let declName ← Command.liftCoreM <| realizeGlobalConstNoOverloadWithInfo d
