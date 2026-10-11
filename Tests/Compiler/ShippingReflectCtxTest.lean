@@ -1,5 +1,6 @@
 import Tests.Compiler.ShippingCloseInstsCheckTest
 import Tools.ShippingReflectCtx
+import Tools.ShippingCloseLetsSplit
 
 /-! The reflection premises against the contexts a child is synthesised in.
 
@@ -17,7 +18,9 @@ open Sparkle.Tests.Compiler.ShippingCloseInstsCheckTest
 
 run_cmd Lean.Elab.Command.liftTermElabM do
   for n in [``Tools.ShippingReflectCtx.MachineDefines.ctx, ``Tools.ShippingReflectCtx.EntryDefines.ctx,
-      ``Tools.ShippingReflectCtx.getConstInfo_ctx, ``Tools.ShippingReflectCtx.getEnv_ctx] do
+      ``Tools.ShippingReflectCtx.getConstInfo_ctx, ``Tools.ShippingReflectCtx.getEnv_ctx,
+      ``Tools.ShippingCloseLetsSplit.closeLets_isSome_iff,
+      ``Tools.ShippingCloseLetsSplit.machineCloses_noCalls_iff] do
     let ax ← Lean.collectAxioms n
     for a in ax do
       unless a == ``propext || a == ``Classical.choice || a == ``Quot.sound do
@@ -49,3 +52,29 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     | none, none => report := report.push s!"{n}: machine route refuses in both contexts (MachineCloses is false of it in both)"
     | _, _ => throwError "{n}: the machine synthesis closes in one context and not in the other"
   Lean.logInfo m!"MACHINE CLOSES IN TWO CONTEXTS: {report}"
+
+/-! The six conditions of `closeLets_isSome_iff`, evaluated on the transition
+modules of real declarations with `let`s: which hold, per declaration. (The
+transition module is the harness' output in this run; this is the checker on
+real artifacts, not a derivation.) -/
+run_cmd Lean.Elab.Command.liftTermElabM do
+  let translate : TranslateFn := fun e h t nm => translateExprToWire e h t nm
+  let mut report := #[]
+  for n in [``Sparkle.Tests.Compiler.ShippingMachineInstTest.caller,
+      ``Sparkle.Tests.Compiler.ShippingMachineInstTest.callerTwice,
+      ``Sparkle.Tests.Compiler.ShippingMachineInstTest.callerNested] do
+    let r ← Tools.ShippingMachineCommand.readMachine n
+    let k := r.shape.layout.lets
+    let (t, _) ← synthesizeMixedCertified translate (fun _ => pure ()) n r.shape.binders r.shape.body
+    let some w := Sparkle.IR.Machine.packedWire? t.body | throwError "{n}: (1) no final assign out"
+    let some (aliases, core) := Sparkle.IR.Machine.letOperands t.body (t.inputs.drop (t.inputs.length - k)) w
+      | throwError "{n}: (2) no concatenation chain"
+    let c3 := aliases.all fun pa => Sparkle.IR.Machine.wireWidth t.wires pa.2 == pa.1.ty.bitWidth &&
+      decide (0 < pa.1.ty.bitWidth) && pa.1.name != "out" && pa.2 != "out"
+    let c4 := aliases.all fun pa => !(Sparkle.IR.Reorder.writesOf t.body).contains pa.1.name
+    let c5 := core != "out"
+    let c6 := Sparkle.IR.OptCheck.assignmentOrderCheck (Tools.ShippingCloseLetsSplit.closedBody t aliases core)
+    unless c3 && c4 && c5 && c6 do throwError "{n}: conditions 3–6 = {c3} {c4} {c5} {c6}"
+    unless (Sparkle.IR.Machine.closeLets k t).isSome do throwError "{n}: closeLets refuses"
+    report := report.push s!"{n.getString!}: lets={k}, aliases={aliases.length}, {t.body.length} statements"
+  Lean.logInfo m!"CLOSELETS CONDITIONS ON REAL TRANSITIONS (all six hold): {report}"

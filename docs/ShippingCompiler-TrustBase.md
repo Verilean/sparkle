@@ -758,6 +758,49 @@ and `ShippingChildCacheRun` removed).
     (standard); then `ChildBnd = ChildLaws ∧ StartW`, `ChildLaws = Nonempty
     RefLaws`, `StartW`, `ChildRanIn` unfolded and the fields of `RefLaws`,
     `Framed`, `SideRef`.
+- **`MachineCloses` for shapes with `let`s, decomposed (2026-10-11,
+  `Tools/ShippingCloseLetsSplit.lean`).** PROVED, exact:
+  - `machineCloses_noCalls_iff`: for a shape without calls, `MachineCloses`
+    in a pair of contexts ⟺ `closeLets` accepts the transition module of
+    every run of the certified harness there. Nothing else is in it.
+  - `closeLets_isSome_iff`: with `let`s, `closeLets` accepts `t` ⟺ (1) the
+    body ends in `assign out = w`; (2) from `w`, one two-operand
+    concatenation per `let` port; (3) each operand wire is declared at its
+    port's positive width, neither name being `out`; (4) no `let` port is
+    driven by `t`; (5) the wire left after the last `let` is not `out`;
+    (6) the closed statements (each alias after its operand's driver) pass
+    `assignmentOrderCheck`.
+  - Status of the six against a successful harness run — none is a premise
+    under a new name; what is not derived stays inside `MachineCloses`:
+    1. final `assign out`: obtained from the run inside the machine entry
+       theorem (`hB`, with the port list and port widths), under that
+       theorem's source premises; no standalone lemma yet.
+    2. concatenation chain: NOT derived. The source body is `packLets fs
+       core` (known), but that the translator's concat arm leaves `assign w
+       = {a, b}` as the FIRST driver of a fresh `w`, also when the validated
+       cache answers, is a syntactic postcondition the fuel induction does
+       not carry today (its contract is about values, widths and order of
+       fresh wires, not statement shapes).
+    3. operand widths: the ports' widths come from the run; the operands'
+       would follow from (2) and the typedness of the concat statement.
+    4. `let` ports not driven, 5. `core ≠ out`: expected from the allocator's
+       name discipline (fresh wire names are `Allocated`, ports are input
+       names); not derived.
+    6. dependency order of the closed body: NOT derived. Needs (a) emission
+       order — a statement reading `let` port `i` is emitted after the driver
+       of operand `i` — and (b) a shape-side, decidable scoping fact: the
+       definition of `let` `k` mentions only `let`s before `k`. (b) is not
+       currently a field or a check of `MachineShape`.
+  - Next lemma (the smallest that removes a premise): a spine postcondition
+    for the translator on `packLets fs core` giving (2)–(5), then (6) from
+    the existing order invariant plus (b). Calls (`closeInsts`,
+    `closeInstsG`) come after: their checks (`kidsCombB`, name resolution)
+    are on the children's modules, which the proofs already hold as
+    `RealChild`s.
+  - Checker on real artifacts (`ShippingReflectCtxTest`): the six conditions
+    evaluated on the harness' transition modules of `caller`, `callerTwice`,
+    `callerNested` (2 `let`s each) all hold and `closeLets` accepts. This is
+    the checker run on those runs, not a derivation.
 - **The two limits (state, 2026-10-11).** Both are behaviour changes of the
   compiler, separate from the proofs:
   - `sparkleSynthDepthLimit = 1024`: a nest of `@[hardware_module]` calls
