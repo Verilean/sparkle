@@ -2006,3 +2006,12 @@ lean_lib «Tools.ShippingCallsSeqKids» where
 
 lean_lib «Tools.ShippingMachineClosesAtGenG» where
   roots := #[`Tools.ShippingMachineClosesAtGenG]
+
+lean_lib «Tools.ShippingLegacySemCalc» where
+  roots := #[`Tools.ShippingLegacySemCalc]
+
+lean_lib «Tools.ShippingLegacySemInline» where
+  roots := #[`Tools.ShippingLegacySemInline]
+
+lean_lib «Tools.ShippingLegacySemContract» where
+  roots := #[`Tools.ShippingLegacySemContract]
