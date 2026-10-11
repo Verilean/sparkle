@@ -53,7 +53,9 @@ theorem harness_spine_at {logProf : String → IO Unit} {declName : Name}
     (qeq : instFVars (ids.map Lean.Expr.fvar).toArray 0 body =
       quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) e) :
     ∃ B w, m.body = B ++ [.assign "out" (.ref w)] ∧
-      (∀ n, SpineQ m.wires m.body n
+      (∀ n, SpineQ (fun x => (prepare bools bits (bs.zip ids)
+          (start (entryCompilerState false cache) declName.toString)).state.usedNames.contains x = true)
+        m.wires m.body n
         (quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) e) w) ∧
       -- no statement of the returned body drives an input port
       ∀ port ∈ (prepare bools bits (bs.zip ids)
@@ -74,18 +76,22 @@ theorem harness_spine_at {logProf : String → IO Unit} {declName : Name}
   obtain ⟨w, sm, ty, tr, outFresh, ht, -⟩ := emitLeaves_single leaf
   have decls := prepare_declarations (bools := bools) (bits := bits) (bs.zip ids) a
     (List.Sublist.refl []) (by intro port hp; cases hp)
-  have st0 : St p.context (inputValues p.bools p.bits)
-      (fun x => ∃ port ∈ p.state.module.inputs, port.name = x) p.state := by
-    refine ⟨RecQ.empty (prepared.2.2.2.trans rfl), ?_, ?_, ?_⟩
-    · -- every input variable is bound to a wire declared at its value's width
+  have look := lookup_of_ports prepared.1 prepared.2.1
+  have st0 : St p.context (inputValues p.bools p.bits) (fun _ => True)
+      (fun x => p.state.usedNames.contains x = true) (fun _ => True) p.state := by
+    refine ⟨RecQ.empty (prepared.2.2.2.trans rfl), ?_, fun _ h => h, ?_, fun _ _ _ _ => trivial, ?_⟩
+    · -- every input variable is bound to a wire in use, declared at its value's width
       intro id v hi
+      obtain ⟨z0, hz0, hu0⟩ := look.lookup id v hi
       unfold inputValues at hi
       cases hρ : p.bools id with
       | some b =>
         simp only [hρ] at hi
         cases hi
         obtain ⟨z, bound, decl, -⟩ := prepared.1.bool id b hρ
-        exact ⟨z, bound, _, decl, rfl⟩
+        rw [bound] at hz0
+        cases hz0
+        exact ⟨_, bound, ⟨_, decl, rfl⟩, hu0⟩
       | none =>
         simp only [hρ] at hi
         cases hβ : p.bits id with
@@ -95,16 +101,20 @@ theorem harness_spine_at {logProf : String → IO Unit} {declName : Name}
           simp only [hβ, Option.map_some] at hi
           cases hi
           obtain ⟨z, bound, decl, -⟩ := prepared.1.bits id n x hβ
-          exact ⟨z, bound, _, decl, rfl⟩
-    · rintro x ⟨port, hp, rfl⟩
-      exact prepared.2.1.2 port (decls.1.subset hp)
+          rw [bound] at hz0
+          cases hz0
+          exact ⟨_, bound, ⟨_, decl, rfl⟩, hu0⟩
+    · intro l r hm
+      rw [prepared.2.2.1] at hm
+      cases hm
     · intro l r hm
       rw [prepared.2.2.1] at hm
       cases hm
   obtain ⟨stm, -, hsp, -⟩ := translateExprToWire_spine (ctx := p.context)
-    (inputs := inputValues p.bools p.bits)
-    (P := fun x => ∃ port ∈ p.state.module.inputs, port.name = x) (dom := dom) (bi := binp)
-    (vi := vinp) hb' hv' e he "out" true p.state sm w tr st0
+    (inputs := inputValues p.bools p.bits) (B := fun _ => True)
+    (P := fun x => p.state.usedNames.contains x = true) (V := fun _ => True) (dom := dom)
+    (bi := binp) (vi := vinp) (ub := fun _ => True) (uv := fun _ => True) hb' hv'
+    (fun _ _ => trivial) (fun _ _ => trivial) e he (Uses.top e) "out" true p.state sm w tr st0
   have bodyEq : m.body = st.module.body.reverse := by
     rw [hm]; simp only [Module.finalize, (addClockReset_facts st.module).1]
   have wireEq : m.wires = st.module.wires.reverse := by
@@ -119,13 +129,15 @@ theorem harness_spine_at {logProf : String → IO Unit} {declName : Name}
     rw [bodyEq, ht, emitAssign_body_cons, List.mem_reverse]
     exact List.mem_cons_of_mem _ hs
   · intro port hp l r hm heq
+    have hused : p.state.usedNames.contains port.name = true :=
+      prepared.2.1.2 port (decls.1.subset hp)
     rw [bodyEq, ht, emitAssign_body_cons, List.mem_reverse] at hm
     rcases List.mem_cons.mp hm with hout | hin
     · -- the final assign drives `out`, a name not in use when the translator returned
       cases hout
-      have := stm.2.2.1 port.name ⟨port, hp, rfl⟩
+      have := stm.2.2.1 port.name hused
       rw [← heq, outFresh] at this
       cases this
-    · exact stm.2.2.2 l r hin ⟨port, hp, heq.symm⟩
+    · exact stm.2.2.2.1 l r hin (heq ▸ hused)
 
 end Tools.ShippingHarnessSpine

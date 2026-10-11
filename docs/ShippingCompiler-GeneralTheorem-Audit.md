@@ -124,7 +124,7 @@ semantics; no timing, no X/Z, no multi-clock.
 | A2 | (4) ports undriven | 〃 | **proved** |
 | A3 | (5) core ≠ `out`, (3) operands ≠ `out` | 〃 | **proved** |
 | A4 | (3) operand declared at the field's width | 〃 | **proved**; shape-side "port width = field width, positive" to be taken from the entry theorem's facts |
-| A5 | (6a) positional invariant: readers of a `let` port after its operand's driver | 〃 | not started |
+| A5 | (6a) positional invariant: readers of a `let` port after its operand's driver | 〃 | translator level **proved** (`fuel_spine`: statements only added in front, every arm's result made and driven, statements read among protected names only those bound to variables the term `Uses`); the per-`let` statement on the harness' module (an induction over the fields) not yet |
 | A6 | (6b) shape-side scoping condition + soundness; (6c) order of the closed body | 〃 | not started; the condition becomes part of the theorem's stated domain (it is not a compiler gate) |
 | A7 | assembly: the six conditions ⇒ `MachineCloses` for let-only shapes; generators | `MachineCloses` for let-only children and parents | not started |
 | B1 | `closeInsts` (one output) from the child-run facts | `MachineCloses` with calls | not started |
