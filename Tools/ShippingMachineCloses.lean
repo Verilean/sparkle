@@ -119,6 +119,34 @@ theorem binding_split {bools bits} (L1 L2 : List ((Name × MixedGateBinder) × F
     · intro hin
       exact nd.2.2 b.2 (List.mem_map_of_mem hb) b.2 hin rfl
 
+/-- **Where the binder at position `pos` is bound**, after a walk `L1 ++ L2`
+(`L2` without domains, the `let`s): to one of `L1`'s ports when `pos` is in
+`L1`, to the port at its index among `L2`'s when it is in `L2`. -/
+theorem bound_where {bools bits} (L1 L2 : List ((Name × MixedGateBinder) × FVarId)) (a : Setup)
+    (nd : ((L1 ++ L2).map Prod.snd).Nodup) (hk2 : ∀ b ∈ L2, b.1.2 ≠ .domain)
+    (hlen : (inputPorts bools bits L2 (prepare bools bits L1 a)).length = L2.length)
+    {pos : Nat} {b : (Name × MixedGateBinder) × FVarId} (hb : (L1 ++ L2)[pos]? = some b)
+    (hk : b.1.2 ≠ .domain) :
+    (pos < L1.length ∧ ∃ port ∈ inputPorts bools bits L1 a,
+      visible (prepare bools bits (L1 ++ L2) a).context
+        (prepare bools bits (L1 ++ L2) a).state.sourceBindings b.2 = some port.name) ∨
+    (∃ i port, pos = L1.length + i ∧
+      (inputPorts bools bits L2 (prepare bools bits L1 a))[i]? = some port ∧
+      visible (prepare bools bits (L1 ++ L2) a).context
+        (prepare bools bits (L1 ++ L2) a).state.sourceBindings b.2 = some port.name) := by
+  obtain ⟨hA, hB⟩ := binding_split (bools := bools) (bits := bits) L1 L2 a nd hk2
+  by_cases hlt : pos < L1.length
+  · rw [List.getElem?_append_left hlt] at hb
+    obtain ⟨port, hp, hv⟩ := hB b (List.mem_of_getElem? hb) hk
+    exact Or.inl ⟨hlt, port, hp, hv⟩
+  · have hge : L1.length ≤ pos := Nat.le_of_not_lt hlt
+    rw [List.getElem?_append_right hge] at hb
+    have hi : pos - L1.length < L2.length := (List.getElem?_eq_some_iff.mp hb).1
+    have hp : (inputPorts bools bits L2 (prepare bools bits L1 a))[pos - L1.length]? =
+        some ((inputPorts bools bits L2 (prepare bools bits L1 a))[pos - L1.length]'(hlen ▸ hi)) :=
+      List.getElem?_eq_getElem _
+    exact Or.inr ⟨pos - L1.length, _, by omega, hp, hA _ b _ hb hp⟩
+
 /-! ## The aliases `letOperands` picks, with what the run says of each -/
 
 /-- What the run says of the alias list, position by position from `i`: the
@@ -364,5 +392,61 @@ theorem closeLets_isSome_of_facts {P : String → Prop} {bnd : FVarId → Option
         intro hw'
         obtain ⟨r', hr'⟩ := hBmem _ hw'
         exact hnw _ r' hr' hPa
+
+/-! ## The shape-side predicates -/
+
+/-- The term is an input variable. -/
+def IsVar : {s : SType} → Term s → Prop
+  | _, .boolInput _ => True
+  | _, .bitsInput _ _ => True
+  | _, _ => False
+
+/-- The term is the input variable whose binder position is `n`. -/
+def VarPos (bpos vpos : Nat → Nat) : {s : SType} → Term s → Nat → Prop
+  | _, .boolInput q, n => bpos q = n
+  | _, .bitsInput _ q, n => vpos q = n
+  | _, _, _ => False
+
+theorem quote_isVar {dom : Lean.Expr} {bi vi : Nat → FVarId} {s : SType} (e : Term s)
+    (h : IsVar e) : ∃ id, quote dom (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) e = .fvar id := by
+  cases e <;> first | exact ⟨_, rfl⟩ | exact h.elim
+
+/-- A quoted well-formed term that is a variable is an input variable, at its
+binder's position. -/
+theorem quote_fvar_var {dom : Lean.Expr} {bi vi : Nat → FVarId} {bpos vpos : Nat → Nat}
+    {kb kv : Nat} {vw : Nat → Nat} {id : FVarId} {s : SType} (e : Term s) (hwf : e.WF kb kv vw)
+    (h : quote dom (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) e = .fvar id) :
+    (∃ q, q < kb ∧ VarPos bpos vpos e (bpos q) ∧ id = bi q) ∨
+      (∃ q, q < kv ∧ VarPos bpos vpos e (vpos q) ∧ id = vi q) := by
+  cases e
+  case boolInput q => exact Or.inl ⟨q, hwf, rfl, by cases h; rfl⟩
+  case bitsInput w q => exact Or.inr ⟨q, hwf.1, rfl, by cases h; rfl⟩
+  all_goals (first | cases h | (simp [quote] at h))
+
+/-- A well-formed term uses only variables below its bounds. -/
+theorem uses_of_wf {ub uv : Nat → Prop} {kb kv : Nat} {vw : Nat → Nat}
+    (hub : ∀ j, j < kb → ub j) (huv : ∀ j, j < kv → uv j) :
+    ∀ {s : SType} (e : Term s), e.WF kb kv vw → Uses ub uv e
+  | _, .boolInput j, h => hub j h
+  | _, .bitsInput _ j, h => ⟨huv j h.1, trivial, trivial⟩
+  | _, .boolLit _, _ => trivial
+  | _, .bitsLit _ _, _ => trivial
+  | _, .bitsNum _ _, _ => trivial
+  | _, .binary _ a b, h => ⟨uses_of_wf hub huv a h.1, uses_of_wf hub huv b h.2⟩
+  | _, .compare _ a b, h => ⟨uses_of_wf hub huv a h.1, uses_of_wf hub huv b h.2⟩
+  | _, .boolBinary _ a b, h => ⟨uses_of_wf hub huv a h.1, uses_of_wf hub huv b h.2⟩
+  | _, .boolNot a, h => uses_of_wf hub huv a h
+  | _, .boolEq a b, h => ⟨uses_of_wf hub huv a h.1, uses_of_wf hub huv b h.2⟩
+  | _, .mux c a b, h => ⟨uses_of_wf hub huv c h.1, uses_of_wf hub huv a h.2.1, uses_of_wf hub huv b h.2.2⟩
+  | _, .setw _ a, h => ⟨uses_of_wf hub huv a h.1, trivial⟩
+  | _, .appCompare _ a b, h => ⟨uses_of_wf hub huv a h.1, uses_of_wf hub huv b h.2⟩
+  | _, .appBool _ a b, h => ⟨uses_of_wf hub huv a h.1, uses_of_wf hub huv b h.2⟩
+  | _, .appBool2 _ a b, h => ⟨uses_of_wf hub huv a h.1, uses_of_wf hub huv b h.2⟩
+  | _, .slice _ _ _ a, h => ⟨uses_of_wf hub huv a h.1, trivial, trivial⟩
+  | _, .concat a b, h => ⟨uses_of_wf hub huv a h.1, uses_of_wf hub huv b h.2⟩
+  | _, .concatLitHi _ _ b, h => ⟨uses_of_wf hub huv b h.1, trivial, trivial⟩
+  | _, .concatLitLo a _ _, h => ⟨uses_of_wf hub huv a h.1, trivial, trivial⟩
+  | _, .zextMap _ _ a, h => ⟨uses_of_wf hub huv a h.1, trivial⟩
+  | _, .sliceF _ _ _ a, h => ⟨uses_of_wf hub huv a h.1, trivial, trivial⟩
 
 end Tools.ShippingMachineCloses

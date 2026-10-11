@@ -198,9 +198,14 @@ theorem harness_links_at {logProf : String → IO Unit} {declName : Name}
           (start (entryCompilerState false cache) declName.toString)).state.sourceBindings id)
         Vk bodyB 0
         (fs.map fun f => quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) f.2) w ∧
-      ∀ l r, Stmt.assign l r ∈ bodyB →
+      (∀ l r, Stmt.assign l r ∈ bodyB →
         ¬ (prepare bools bits (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).state.usedNames.contains l = true := by
+          (start (entryCompilerState false cache) declName.toString)).state.usedNames.contains l = true) ∧
+      -- the input ports are names in use before the translation
+      ∀ port ∈ (prepare bools bits (bs.zip ids)
+          (start (entryCompilerState false cache) declName.toString)).state.module.inputs,
+        (prepare bools bits (bs.zip ids)
+          (start (entryCompilerState false cache) declName.toString)).state.usedNames.contains port.name = true := by
   let a := start (entryCompilerState false cache) declName.toString
   let p := prepare bools bits (bs.zip ids) a
   have empty := empty_layout (entryCompilerState false cache) declName.toString initial
@@ -296,7 +301,8 @@ theorem harness_links_at {logProf : String → IO Unit} {declName : Name}
     (fun _ _ => trivial) (fun _ _ => trivial) _ he (Uses.top _) "out" true p.state sm w tr st0
   have bodyEq : m.body = st.module.body.reverse := by
     rw [hm]; simp only [Module.finalize, (addClockReset_facts st.module).1]
-  refine ⟨sm.module.body, w, ?_, hlp, fun l r hm' => stm.2.2.2.1 l r hm'⟩
+  refine ⟨sm.module.body, w, ?_, hlp, fun l r hm' => stm.2.2.2.1 l r hm',
+    fun port hp => prepared.2.1.2 port (decls.1.subset hp)⟩
   rw [bodyEq, ht, emitAssign_body_cons, List.reverse_cons]
   rfl
 
