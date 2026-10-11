@@ -2000,3 +2000,6 @@ lean_exe «mulmodser-jit» where
 
 lean_lib «Tools.ShippingSeqChildIface» where
   roots := #[`Tools.ShippingSeqChildIface]
+
+lean_lib «Tools.ShippingCallsSeqKids» where
+  roots := #[`Tools.ShippingCallsSeqKids]
