@@ -705,6 +705,9 @@ lean_lib «Tools.ShippingCallsAssembly» where
 lean_lib «Tools.ShippingCallsRun» where
   roots := #[`Tools.ShippingCallsRun]
 
+lean_lib «Tools.ShippingCallsSame» where
+  roots := #[`Tools.ShippingCallsSame]
+
 lean_lib «Tools.ShippingCallsGate» where
   roots := #[`Tools.ShippingCallsGate]
 

@@ -1,6 +1,7 @@
 import Tools.ShippingCallsRun
 import Tools.ShippingCallsShape
 import Tools.ShippingCallsClose
+import Tools.ShippingCallsSame
 import Tools.ShippingGateChildComb
 import Tools.ShippingReflectCtx
 
@@ -236,7 +237,9 @@ theorem machineClosesAt_of_gateKids {declName : Name} (d : MachineData) (ok : d.
       RealChild mref cref (d.shape.insts[k]).1 y → ChildFull (d.shape.insts[k]).1 (kbs k) y.1 y.2)
     (hargsN : ∀ (k : Nat) (hk : k < d.shape.insts.length),
       ((kbs k).filter fun x => x.2 != .domain).length = (d.shape.insts[k]).2.1.length)
-    (hnames : (d.shape.insts.map fun c => c.1.toString).Nodup)
+    (hblocks : Tools.ShippingCallsSame.sepB (d.shape.insts.map (·.1)) = true)
+    (hsep : ∀ c ∈ d.shape.insts.map (·.1), ∀ c' ∈ d.shape.insts.map (·.1),
+      c.toString = c'.toString → c = c')
     (hparent : ∀ c ∈ d.shape.insts, c.1.toString ≠ declName.toString)
     (hfresh : ∀ (k : Nat) (hk : k < d.shape.insts.length), ∀ o ∈ d.shape.layout.outs,
       o.name ≠ s!"inst{k}_{(d.shape.insts[k]).1.toString}") :
@@ -244,57 +247,85 @@ theorem machineClosesAt_of_gateKids {declName : Name} (d : MachineData) (ok : d.
   have hf : d.shape.instFields = [] := by
     simp only [MachineData.gateCallsOk, Bool.and_eq_true, List.isEmpty_iff] at hS
     exact hS.2
-  refine machineClosesAt_of_pure (letsClose_of_data d ok hbody halias mctx mref cctx cref) ?_
-  intro b t d₀ t' children run hcl hreal
-  refine ⟨fun _ => ?_, fun h => absurd hf h⟩
-  obtain ⟨hlenC, hall⟩ := hreal
-  -- each child, by the witness of its own run
-  have hfull : ∀ (k : Nat) (c : Res), children[k]? = some c → ∃ hk : k < d.shape.insts.length,
-      ChildFull (d.shape.insts[k]).1 (kbs k) c.1 c.2 := by
-    intro k c hc
-    have hk : k < d.shape.insts.length := by
-      rw [← hlenC]
-      exact (List.getElem?_eq_some_iff.mp hc).1
-    obtain ⟨y, hy, hor⟩ := hall k hk
-    rw [hc] at hy
-    cases hy
-    rcases hor with hmem | hre
-    · rw [hnomem _ (List.getElem_mem hk)] at hmem
-      cases hmem
-    · exact ⟨hk, hkid k hk c hre⟩
-  refine closeInsts_of_run d ok hbody hS run hcl hlenC ?_ ?_ ?_
-  · intro k c hc
-    obtain ⟨hk, full⟩ := hfull k c hc
-    refine ⟨full.comb, full.design, ?_, ?_⟩
-    · intro args hargs
-      obtain ⟨x, hx, rfl⟩ := inst_get hargs
-      have hx' : d.shape.insts[k] = x := by
-        have := List.getElem?_eq_getElem hk
-        rw [hx] at this
-        exact (Option.some.inj this).symm
-      have := congrArg List.length full.tys
-      simp only [List.length_map] at this
-      rw [this, hargsN k hk, hx']
-    · rw [full.name]
-      exact hparent _ (List.getElem_mem hk)
-  · intro a ha c hc' hn
-    obtain ⟨i, hi, hai⟩ := List.getElem_of_mem ha
-    obtain ⟨j, hj, hcj⟩ := List.getElem_of_mem hc'
-    obtain ⟨hki, fi⟩ := hfull i a (by rw [List.getElem?_eq_getElem hi, hai])
-    obtain ⟨hkj, fj⟩ := hfull j c (by rw [List.getElem?_eq_getElem hj, hcj])
-    rw [fi.name, fj.name] at hn
-    have hij : i = j := by
-      have h1 : (d.shape.insts.map fun c => c.1.toString)[i]? = some (d.shape.insts[i]).1.toString := by
-        simp [hki]
-      have h2 : (d.shape.insts.map fun c => c.1.toString)[j]? = some (d.shape.insts[j]).1.toString := by
-        simp [hkj]
-      rw [← hn] at h2
-      exact (List.getElem?_inj (by simpa using hki) hnames).mp (h1.trans h2.symm)
-    subst hij
-    rw [← hai, ← hcj]
-  · intro k c hc o ho
-    obtain ⟨hk, full⟩ := hfull k c hc
-    rw [full.name]
-    exact hfresh k hk o ho
+  have hl : Tools.ShippingClosesSplit.LetsClose mctx mref cctx cref declName d.shape :=
+    letsClose_of_data d ok hbody halias mctx mref cctx cref
+  rintro ⟨L⟩ b w r w' hw' hr
+  have hw := invV_of_invW mctx cctx L hw'
+  have hB := bodyRel L
+  unfold synthesizeMachineCertified at hr
+  obtain ⟨⟨t, d₀⟩, w1, run, hr⟩ := RunsTo.bind hr
+  have hw1 := invV_of_invW mctx cctx L
+    (harness_inv L hB (harnessRel_of L (translateRel L)) (invW_of_invV L hw) run)
+  dsimp only at hr
+  obtain ⟨t', hcl⟩ := Option.isSome_iff_exists.mp (hl (profLogIO b) w t d₀ w1 run)
+  rw [hcl] at hr
+  dsimp only at hr
+  split at hr
+  · have := RunsTo.pure_eq hr
+    rw [this]
+    exact Option.some_ne_none _
+  split at hr
+  rotate_left
+  · rename_i hne
+    exact absurd (List.isEmpty_iff.mpr hf) hne
+  -- the children the run's closing returns: real compiles, and a call of the
+  -- previous call's declaration gets the previous child (the cache)
+  obtain ⟨children, rfl, hreal, hadj, -⟩ := Tools.ShippingCallsSame.closeInstsM_run_adj L hB hw1 hr
+  have key : (closeInsts (machNIn d.shape) d.shape.insts.length d.shape.layout.slots.length
+      (t.inputs.map (·.name)) (d.shape.insts.map (·.2.1)) children
+      (closeMachine d.shape.layout t', d₀)).isSome = true := by
+    obtain ⟨hlenC, hall⟩ := hreal
+    -- each child, by the witness of its own run
+    have hfull : ∀ (k : Nat) (c : Res), children[k]? = some c → ∃ hk : k < d.shape.insts.length,
+        ChildFull (d.shape.insts[k]).1 (kbs k) c.1 c.2 := by
+      intro k c hc
+      have hk : k < d.shape.insts.length := by
+        rw [← hlenC]
+        exact (List.getElem?_eq_some_iff.mp hc).1
+      obtain ⟨y, hy, hor⟩ := hall k hk
+      rw [hc] at hy
+      cases hy
+      rcases hor with hmem | hre
+      · rw [hnomem _ (List.getElem_mem hk)] at hmem
+        cases hmem
+      · exact ⟨hk, hkid k hk c hre⟩
+    refine closeInsts_of_run d ok hbody hS run.mreturns hcl hlenC ?_ ?_ ?_
+    · intro k c hc
+      obtain ⟨hk, full⟩ := hfull k c hc
+      refine ⟨full.comb, full.design, ?_, ?_⟩
+      · intro args hargs
+        obtain ⟨x, hx, rfl⟩ := inst_get hargs
+        have hx' : d.shape.insts[k] = x := by
+          have := List.getElem?_eq_getElem hk
+          rw [hx] at this
+          exact (Option.some.inj this).symm
+        have := congrArg List.length full.tys
+        simp only [List.length_map] at this
+        rw [this, hargsN k hk, hx']
+      · rw [full.name]
+        exact hparent _ (List.getElem_mem hk)
+    · intro a ha c hc' hn
+      obtain ⟨i, hi, hai⟩ := List.getElem_of_mem ha
+      obtain ⟨j, hj, hcj⟩ := List.getElem_of_mem hc'
+      obtain ⟨hki, fi⟩ := hfull i a (by rw [List.getElem?_eq_getElem hi, hai])
+      obtain ⟨hkj, fj⟩ := hfull j c (by rw [List.getElem?_eq_getElem hj, hcj])
+      rw [fi.name, fj.name] at hn
+      have hni : (d.shape.insts.map (·.1))[i]? = some (d.shape.insts[i]).1 := by simp [hki]
+      have hnj : (d.shape.insts.map (·.1))[j]? = some (d.shape.insts[j]).1 := by simp [hkj]
+      have hcc := hsep _ (List.mem_of_getElem? hni) _ (List.mem_of_getElem? hnj) hn
+      rw [← hcc] at hnj
+      have hsame : children[i]? = children[j]? := by
+        rcases Nat.le_total i j with h | h
+        · exact Tools.ShippingCallsSame.same_of_adj _ children hblocks hadj j i _ h hni hnj
+        · exact (Tools.ShippingCallsSame.same_of_adj _ children hblocks hadj i j _ h hnj hni).symm
+      rw [List.getElem?_eq_getElem hi, List.getElem?_eq_getElem hj, hai, hcj] at hsame
+      exact congrArg Prod.fst (Option.some.inj hsame)
+    · intro k c hc o ho
+      obtain ⟨hk, full⟩ := hfull k c hc
+      rw [full.name]
+      exact hfresh k hk o ho
+  intro h0
+  rw [h0] at key
+  cases key
 
 end Tools.ShippingCallsGate

@@ -15,10 +15,16 @@ ask `MachineClosesAt` with that premise replaced by the theorem's own
 
 * the reflection of each called declaration (`EntryDefines`, already a
   premise of the endpoints);
-* conditions on NAMES the kernel cannot evaluate (`Name.toString` does not
-  reduce): no call names the parent; with several calls, the called
-  declarations' names are distinct; and — only when an output port's name
+* NAME SEPARATION, obligations about the compiler's module names that the
+  kernel cannot evaluate (`Name.toString` with escaping does not reduce; the
+  unescaped renderer does, but no theorem relates the two): no call's printed
+  name is the parent's; with several called declarations, different
+  declarations print differently; and — only when an output port's name
   starts with `i` — no output port is named as an instance.
+
+Several instances of one declaration are covered when its calls are
+consecutive (`sepB`: the later call is a cache hit of the earlier, from the
+run's order); otherwise nothing is generated.
 
 The data conditions (the endpoint's checks, `letsAliasOk`, `gateCallsOk`, no
 memory child, the argument counts) are decided by the kernel. Where one of
@@ -57,11 +63,12 @@ def closesAtCore (c : Name) (nDecl? : Option Nat) : CommandElabM Name := do
     unless (← getEnv).contains (k ++ `gate_peel) do
       throwError "{c}: {k} is not a generated gate child (#gate_child)"
   let kids := calls.eraseDups
-  -- two calls of one declaration: their modules are equal by the child cache,
-  -- which `ChildrenReal` does not record — not derived, nothing is generated
-  -- (the premise "distinct names" would be false)
-  if kids.length != calls.length then
-    throwError "{c}: two calls of one declaration (needs the cache's witness; not derived)"
+  -- two instances of one declaration are one module by the child cache; that
+  -- is derived for CONSECUTIVE calls (the later one starts where the earlier
+  -- ended: a hit). With other calls between, the entry's survival through
+  -- their synthesis is not derived: nothing is generated
+  unless Tools.ShippingCallsSame.sepB calls do
+    throwError "{c}: calls of one declaration with other calls between (the cache entry's survival is not derived)"
   let n (d : Name) (s : String) : Ident := mkIdent (`_root_ ++ d ++ Name.mkSimple s)
   let data := n c "machineData"
   let cq : Term := quote c
@@ -73,11 +80,18 @@ def closesAtCore (c : Name) (nDecl? : Option Nat) : CommandElabM Name := do
     binders := binders.push (← `(bracketedBinder|
       ($(hR j) : Tools.ShippingInlineSoundness.EntryDefines mctx mref cctx cref $kq $(n k "gateValue"))))
   -- the names
-  let hnames ← if calls.length == 1 then
-      `(List.Pairwise.cons (fun _ h => nomatch h) List.Pairwise.nil)
+  -- different declarations have different printed names: nothing to ask with
+  -- one called declaration; otherwise a premise (`Name.toString` does not
+  -- reduce in the kernel)
+  let k0 : Term := quote kids[0]!
+  let hnames ← if kids.length == 1 then
+      `(fun c hc c' hc' _ =>
+        ((by decide : ∀ c ∈ ($data).shape.insts.map (·.1), c = $k0) c hc).trans
+          ((by decide : ∀ c ∈ ($data).shape.insts.map (·.1), c = $k0) c' hc').symm)
     else do
       binders := binders.push (← `(bracketedBinder|
-        (hnames : (($data).shape.insts.map fun c => c.1.toString).Nodup)))
+        (hnames : ∀ c ∈ ($data).shape.insts.map (·.1), ∀ c' ∈ ($data).shape.insts.map (·.1),
+          c.toString = c'.toString → c = c')))
       `(hnames)
   binders := binders.push (← `(bracketedBinder|
     (hparent : ∀ c ∈ ($data).shape.insts, c.1.toString ≠ ($cq : Lean.Name).toString)))
@@ -119,7 +133,7 @@ def closesAtCore (c : Name) (nDecl? : Option Nat) : CommandElabM Name := do
           intro k hk y hy
           have hk' : k < $nCalls := hk
           $tac:tactic)
-        (by decide) $hnames hparent $hfresh))
+        (by decide) (by decide) $hnames hparent $hfresh))
   let msgs := (← get).messages.toList.drop before
   if msgs.any (·.severity == .error) || !(← getEnv).contains name then
     let errs ← (msgs.filter (·.severity == .error)).mapM fun m => m.data.toString

@@ -22,9 +22,13 @@ argument), `callerD` (a domain-polymorphic child), `midH` (two outputs) and
   parent and, for `callerMix`, the two callees' names differ. They are
   evaluated here by the compiled code — evidence, not a proof;
 * standard axioms;
-* two INSTANCES of one declaration (`callerRep`) are REFUSED: their closing
-  needs the child cache's witness (equal modules), which `ChildrenReal` does
-  not record. Nothing is added; such a parent keeps `MachineClosesAt`.
+* two INSTANCES of one declaration (`callerRep`: `pick` twice, consecutive)
+  are closed too: the second call is a cache hit of the first, from the order
+  the closing's `mapM` runs (`closeInstsM_run_adj`) — not from an assumption
+  that two real compiles agree;
+* calls of one declaration with ANOTHER call between (`callerABA`) are
+  REFUSED: the cache entry's survival through the middle call's synthesis is
+  not derived. Nothing is added; such a parent keeps `MachineClosesAt`.
 
 Not covered: machine-route children (`callerL`, `callerLN`, `hftByte` keep
 the premise), several-output / sequential children (`closeInstsG`), parents
@@ -65,6 +69,27 @@ set_option maxHeartbeats 0 in
 set_option maxHeartbeats 0 in
 #machine_closes_at Sparkle.Tests.Compiler.ShippingPremiseEvalTest.callerMix
 
+/-- `pick`, `pickD`, `pick`: the two `pick` instances are not consecutive. -/
+def callerABA (x : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec 8) :=
+  circuit do
+    let sel ← Signal.reg 0#2
+    let acc ← Signal.reg 0#8
+    let selS := (sel : Signal defaultDomain (BitVec 2))
+    let accS := (acc : Signal defaultDomain (BitVec 8))
+    let y := pick selS (accS + x)
+    let z := pickD selS y
+    let u := pick selS z
+    sel <~ selS + (Signal.pure 1#2 : Signal defaultDomain (BitVec 2))
+    acc <~ u
+    return u
+
+set_option maxHeartbeats 0 in
+#machine_endpoint callerRep
+set_option maxHeartbeats 0 in
+#machine_design_svHR callerRep
+set_option maxHeartbeats 0 in
+#machine_closes_at callerRep
+
 /-- The constants a statement reaches: its own and, transitively, those of
 the definitions (not theorems) it mentions. -/
 partial def reach (env : Environment) (todo : List Name) (seen : NameSet) : NameSet :=
@@ -98,7 +123,9 @@ def premises (thm : Name) : MetaM (Array Lean.Expr) := do
 def namesHold (f : Name) : MetaM Bool := do
   let r ← Tools.ShippingMachineCommand.readMachine f
   let ks := r.shape.insts.map fun c => nameStr c.1
-  return !ks.contains (nameStr f) && ks.eraseDups.length == ks.length
+  -- no callee prints as the parent; different callees print differently
+  let ds := (r.shape.insts.map (·.1)).eraseDups
+  return !ks.contains (nameStr f) && (ds.map nameStr).eraseDups.length == ds.length
 
 /-- The closed endpoint of `f` reaches no closing premise; the open one does. -/
 def auditClosed (f : Name) (nPremises : Nat) : MetaM (Array Lean.Expr) := do
@@ -119,6 +146,10 @@ def auditClosed (f : Name) (nPremises : Nat) : MetaM (Array Lean.Expr) := do
   if hyps.size != nPremises then throwError "{f}.machine_closes_at has {hyps.size} premises: {hyps}"
   if !hyps[0]!.isAppOf ``Tools.ShippingInlineSoundness.EntryDefines then
     throwError "the first premise is not a child's reflection: {hyps[0]!}"
+  -- NOT premise-free: the closed endpoint states the name separation (an
+  -- obligation about the compiler's module names, tracked — not proved)
+  if (info.type.find? (·.isConstOf ``Lean.Name.toString)).isNone then
+    throwError "{e}: the name-separation obligation is not stated"
   if !(← namesHold f) then throwError "{f}: a name condition is false"
   return hyps
 
@@ -129,7 +160,12 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   discard <| auditClosed ``callerD 2
   discard <| auditClosed ``Sparkle.Tests.Compiler.ShippingMachineDepthHTest.midH 2
   let hypsMix ← auditClosed ``Sparkle.Tests.Compiler.ShippingPremiseEvalTest.callerMix 4
-  Lean.logInfo m!"ONE-OUTPUT GATE CHILDREN CLOSED (caller, callerTwice, callerNested, callerD, midH, callerMix): machine_design_svHR_closed reaches none of MachineCloses / MachineClosesAt / CallsPure / CallsClose / LetsClose (statement and every definition under it); standard axioms. Premises of caller.machine_closes_at: {hyps}; of callerMix.machine_closes_at: {hypsMix}. The name conditions are evaluated true, not proved (Name.toString does not reduce in the kernel)."
+  -- two instances of one child
+  let rep ← Tools.ShippingMachineCommand.readMachine ``callerRep
+  if (rep.shape.insts.map (·.1)) != [``pick, ``pick] then
+    throwError "callerRep does not have two instances of pick: {rep.shape.insts.map (·.1)}"
+  discard <| auditClosed ``callerRep 2
+  Lean.logInfo m!"ONE-OUTPUT GATE CHILDREN CLOSED (caller, callerTwice, callerNested, callerD, midH, callerMix, callerRep): machine_design_svHR_closed reaches none of MachineCloses / MachineClosesAt / CallsPure / CallsClose / LetsClose (statement and every definition under it); standard axioms. Premises of caller.machine_closes_at: {hyps}; of callerMix.machine_closes_at: {hypsMix}. NAME SEPARATION stays an obligation of every closed endpoint (stated with Name.toString; evaluated true here by compiled code, not proved: the escaping renderer does not reduce in the kernel, and no theorem bridges it to the unescaped one, which does)."
 
 /-- Two instances of one declaration: refused (the cache's witness is not
 derived), nothing is added. -/
@@ -141,13 +177,13 @@ def refused (f : Name) : Lean.Elab.Command.CommandElabM Unit := do
   match r with
   | none => throwError "{f}: machine_closes_at was generated"
   | some msg =>
-    if (msg.splitOn "two calls of one declaration").length ≤ 1 then
+    if (msg.splitOn "with other calls between").length ≤ 1 then
       throwError "{f} failed otherwise: {msg}"
   if (← getEnv).contains (f ++ `machine_closes_at) then throwError "{f}: a theorem was left"
 
 run_cmd do
-  refused ``callerRep
-  Lean.logInfo m!"REPEATED CALLEE (callerRep, two instances of pick): refused — equal modules for two instances of one declaration come from the child cache, not recorded by ChildrenReal; such a parent keeps MachineClosesAt"
+  refused ``callerABA
+  Lean.logInfo m!"REPEATED CALLEE: callerRep (pick, pick) closed from the run's order (the second call is a cache hit); callerABA (pick, pickD, pick) refused — the cache entry's survival through the middle call's synthesis is not derived; such a parent keeps MachineClosesAt"
 
 /-! ### A failed generation leaves nothing
 
