@@ -399,19 +399,21 @@ nothing proof-like, but the `circuit do` candidate `ctrU` and the
 
 ## 11. Integrator's run of the reproduction test (2026-10-12)
 
- was run through the protected
-queue at +. Verdicts, with the fault INJECTED at the inline
-attempt's translation call (no source that fails late by itself was found:
-):
+`Tests/Compiler/LegacyCacheRollbackTest.lean` was run through the protected
+queue (base `ffad8424` + the test). Verdicts, with the fault INJECTED at the
+inline attempt's translation call (no source that fails late by itself was
+found: `natural candidates: []`):
 
-* retry, argument used twice (): the emitted module reads
-  , neither declared nor driven;  for every input
-  (source: ).
-* retry, then a later operand (): the module is WELL FORMED
-  and computes another function (): the stale name
-   was re-allocated to .
-* sub-module after a failed inline (): rejected by .
+* retry, argument used twice (`parentRetry`): the emitted module reads
+  `_tmp_op_a_0`, neither declared nor driven; `out = 0` for every input
+  (source: `2 * (x + 1)`).
+* retry, then a later operand (`parentRealloc`): the module is WELL FORMED
+  and computes another function (`x = 5`: `out = 23`, source `19`): the
+  stale name `_tmp_op_b_2` was re-allocated to `x + x`.
+* sub-module after a failed inline (`parentSub`): rejected by
+  `instLinkCheck`.
 
 So the stale hit is real given a late failure of an inline attempt. Whether
-any real source fails late is NOT established. 
-failed its first build (returned to the worker);  was not reached.
+any real source fails late is NOT established.
+`Tools.ShippingLegacySemDispatch` failed its first build (returned to the
+worker); `Tools.ShippingLegacySemShim` was not reached.
