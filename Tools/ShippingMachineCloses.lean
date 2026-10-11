@@ -705,4 +705,43 @@ theorem transition_closes {logProf : String → IO Unit} {declName : Name}
       · obtain ⟨name, hvq⟩ := hv q hq'
         exact key (vpos q) _ hvq (by simp) hid hvp
 
+/-! ## `MachineCloses`, proved -/
+
+/-- **`MachineCloses` for a shape with `let`s and no calls** — in every Meta
+and Core context, for every run: the machine synthesis does not fall back.
+The premises are about the SHAPE (its binders, its packed body, the two
+conditions on the fields); none is about a run. -/
+theorem machineCloses_of_lets {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {declName : Name}
+    {shape : MachineShape} (hi : shape.insts = [])
+    (positive : PositiveBinders shape.binders)
+    {dom : Lean.Expr} {kb kv : Nat} {vw : Nat → Nat} {bpos vpos : Nat → Nat}
+    (fs : List (Σ w : Nat, Term (.bits w))) {c : Nat} (core : Term (.bits c))
+    (he : (packLets fs core).2.WF kb kv vw)
+    (hb : ∀ j, j < kb → ∃ name, shape.binders[bpos j]? = some (name, .bool))
+    (hv : ∀ j, j < kv → ∃ name, shape.binders[vpos j]? = some (name, .bits (vw j)))
+    (hbody : shape.body = quote dom (fun j => inputExpr shape.binders.length (bpos j))
+      (fun j => inputExpr shape.binders.length (vpos j)) (packLets fs core).2)
+    {bsIn letBs : List (Name × MixedGateBinder)} (hbs : shape.binders = bsIn ++ letBs)
+    (hlets : shape.layout.lets = letBs.length)
+    (letKinds : ∀ b ∈ letBs, b.2 ≠ .domain)
+    (hfitL : fs.length = letBs.length)
+    (hfit : ∀ (k : Nat) (b : Name × MixedGateBinder) (f : Σ w : Nat, Term (.bits w)),
+      letBs[k]? = some b → fs[k]? = some f → machWidth b.2 = f.1)
+    (hscope : FieldsOK (fun k j => j < kb ∧ bpos j < bsIn.length + k)
+      (fun k j => j < kv ∧ vpos j < bsIn.length + k) kb kv vw 0 fs)
+    (hS2 : ∀ (i j : Nat) (fi fj : Σ w : Nat, Term (.bits w)), fs[i]? = some fi → fs[j]? = some fj →
+      VarPos bpos vpos fi.2 (bsIn.length + j) → IsVar fj.2) :
+    MachineCloses mctx mref cctx cref declName shape := by
+  rw [Tools.ShippingCloseLetsSplit.machineCloses_noCalls_iff hi]
+  intro logProf w t d w' hr
+  by_cases hK : letBs = []
+  · rw [hlets, hK]
+    rfl
+  · obtain ⟨ids, cache, returned, st, nd, len, run, hm, -, nameLegal⟩ :=
+      synthesizeMixedCertified_returns hr.mreturns
+    rw [hlets]
+    exact transition_closes nd len run hm nameLegal positive fs core he hb hv hbody hbs hK letKinds
+      hfitL hfit hscope hS2
+
 end Tools.ShippingMachineCloses
