@@ -8,6 +8,7 @@ import Tools.ShippingTransitionFields
 import Tools.ShippingRankRun
 import Tools.ShippingCallsShape
 import Tools.ShippingHarnessClosed
+import Tools.ShippingGateChildComb
 
 /-! # `MachineCloses` derived for `let` shapes without calls
 
@@ -309,3 +310,38 @@ run_cmd Lean.Elab.Command.liftTermElabM do
       throwError "{n}: the transition's body is not closed over its input ports"
     seen := seen.push m!"{n} ({t.body.length} statements)"
   Lean.logInfo m!"CLOSED READS (K1): harness_closed — readsClosedB for every harness run, no closed-reads premise, standard axioms; checker agrees on {seen}; the full-entry child (cleanup, merge) is not covered yet"
+
+/-! K2 / K3 (child side). `gate_child_comb`: for a declaration the unified
+gate accepts, a run of the FULL entry (core, zero-width cleanup, checked
+merge) returns a module that is assignment-only, closed over its input
+ports, drives its one output `out`, with distinct allocated input names —
+from the run and the declaration's reflection (`EntryDefines`), no premise
+about the module. Checked: the type, the axioms, and the real full-entry
+module of `pick` against the checker. The fifth `kidsCombB` condition
+(inputs connected by wires) and the parent side are not derived yet. -/
+run_cmd Lean.Elab.Command.liftTermElabM do
+  for n in [``Tools.ShippingGateChildComb.gate_child_comb,
+      ``Tools.ShippingMergeClosed.mergeChecked_closed,
+      ``Tools.ShippingTransitionClosed.transition_closed] do
+    for a in ← Lean.collectAxioms n do
+      unless a == ``propext || a == ``Classical.choice || a == ``Quot.sound do
+        throwError "{n} depends on {a}"
+  let t ← Lean.Meta.inferType (mkConst ``Tools.ShippingGateChildComb.gate_child_comb)
+  Lean.Meta.forallTelescope t fun xs concl => do
+    let mut full := false
+    for x in xs do
+      let ty ← Lean.Meta.inferType x
+      if (ty.find? (·.isConstOf ``Sparkle.Compiler.Elab.synthesizeCombinational)).isSome then full := true
+      for c in [``Sparkle.IR.Machine.readsClosedB, ``Sparkle.IR.Machine.kidsCombB,
+          ``Tools.ShippingGateChildComb.ChildComb] do
+        if (ty.find? (·.isConstOf c)).isSome then throwError "gate_child_comb assumes {c}"
+    unless full do throwError "gate_child_comb is not about the full entry"
+    unless concl.isAppOf ``Tools.ShippingGateChildComb.ChildComb do
+      throwError "gate_child_comb: conclusion"
+  -- the real full-entry module of `pick`
+  let (b, _) ← synthesizeCombinational ``Sparkle.Tests.Compiler.ShippingMachineInstTest.pick
+  unless b.body.all Sparkle.IR.RegDedup.isAssign &&
+      Sparkle.IR.Machine.readsClosedB (b.inputs.map (·.name)) b.body &&
+      (Sparkle.IR.Reorder.writesOf b.body).contains "out" && b.outputs.length == 1 do
+    throwError "pick: the full-entry module fails the child-side conditions"
+  Lean.logInfo m!"CHILD SIDE (K2/K3): gate_child_comb — the full-entry module of a gate child is assignment-only, closed over its inputs, one driven output, distinct allocated inputs; from the run and EntryDefines; standard axioms; checker agrees on pick ({b.body.length} statements). Open: inputs connected (instance statement), parent side, design names"
