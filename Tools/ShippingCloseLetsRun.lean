@@ -107,13 +107,14 @@ theorem SpineW.spine {wires : List Port} {body : List Stmt} :
 body with once-declared scalar wires, the links of a packed term's expression
 are the spine `letOperands` walks — one link per `let` field, its high operand
 declared at the field's width. -/
-theorem spine_of_packLets {P : String → Prop} {wires : List Port} {body : List Stmt}
+theorem spine_of_packLets {P : String → Prop} {bnd : FVarId → Option String} {wires : List Port}
+    {body : List Stmt}
     (ho : Acyclic body)
     (nd : (wires.map (·.name)).Nodup) (hty : ∀ p ∈ wires, p.ty = .bit ∨ ∃ k, p.ty = .bitVector k)
     {dom : Lean.Expr} {bi vi : Nat → Lean.Expr} {kb kv : Nat} {vw : Nat → Nat} :
     ∀ (fs : List (Σ w : Nat, Term (.bits w))) {c : Nat} (core : Term (.bits c)) (w : String),
       (packLets fs core).2.WF kb kv vw →
-      (∀ n, SpineQ P wires body n (quote dom bi vi (packLets fs core).2) w) →
+      (∀ n, SpineQ P bnd wires body n (quote dom bi vi (packLets fs core).2) w) →
       SpineW wires body (fs.map (·.1)) w
   | [], _, _, _, _, _ => trivial
   | f :: rest, c, core, w, hwf, hs => by
@@ -124,7 +125,7 @@ theorem spine_of_packLets {P : String → Prop} {wires : List Port} {body : List
       canonicalConcat?_concatE dom _ _ (f.2.wf_pos hf) ((packLets rest core).2.wf_pos hrest)
     obtain ⟨x, y, hm, hd, -, -⟩ := hs 1 _ _ _ _ hc
     refine ⟨x, y, concatParts?_of_mem ho hm, wireWidth_of_decl nd hty hd,
-      spine_of_packLets (P := P) ho nd hty (dom := dom) (bi := bi) (vi := vi) rest core y hrest
+      spine_of_packLets (P := P) (bnd := bnd) ho nd hty (dom := dom) (bi := bi) (vi := vi) rest core y hrest
         (fun n => ?_)⟩
     obtain ⟨x', y', hm', -, -, hr'⟩ := hs (n + 1) _ _ _ _ hc
     have := (concatParts?_of_mem ho hm).symm.trans (concatParts?_of_mem ho hm')

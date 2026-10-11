@@ -26,6 +26,7 @@ open Tools.ShippingMixedEntrySoundness Tools.ShippingMixedExecutionSoundness
 open Tools.ShippingMixedSourceBridge
 open Tools.ShippingMixedPrintSoundness (mixedShape_positive)
 open Tools.ShippingUnifiedSpine
+open Tools.ShippingBindingsSoundness (visible)
 
 /-- **The harness' module has the spine.** For a run of the harness on a
 quoted term: the returned body ends in `assign out = w`, and `w` has the links
@@ -55,6 +56,10 @@ theorem harness_spine_at {logProf : String → IO Unit} {declName : Name}
     ∃ B w, m.body = B ++ [.assign "out" (.ref w)] ∧
       (∀ n, SpineQ (fun x => (prepare bools bits (bs.zip ids)
           (start (entryCompilerState false cache) declName.toString)).state.usedNames.contains x = true)
+        (fun id => visible (prepare bools bits (bs.zip ids)
+          (start (entryCompilerState false cache) declName.toString)).context
+          (prepare bools bits (bs.zip ids)
+          (start (entryCompilerState false cache) declName.toString)).state.sourceBindings id)
         m.wires m.body n
         (quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) e) w) ∧
       -- no statement of the returned body drives an input port
@@ -110,7 +115,7 @@ theorem harness_spine_at {logProf : String → IO Unit} {declName : Name}
     · intro l r hm
       rw [prepared.2.2.1] at hm
       cases hm
-  obtain ⟨stm, -, hsp, -⟩ := translateExprToWire_spine (ctx := p.context)
+  obtain ⟨stm, hext, hsp, -⟩ := translateExprToWire_spine (ctx := p.context)
     (inputs := inputValues p.bools p.bits) (B := fun _ => True)
     (P := fun x => p.state.usedNames.contains x = true) (V := fun _ => True) (dom := dom)
     (bi := binp) (vi := vinp) (ub := fun _ => True) (uv := fun _ => True) hb' hv'
@@ -119,15 +124,18 @@ theorem harness_spine_at {logProf : String → IO Unit} {declName : Name}
     rw [hm]; simp only [Module.finalize, (addClockReset_facts st.module).1]
   have wireEq : m.wires = st.module.wires.reverse := by
     rw [hm]; simp only [Module.finalize, (addClockReset_facts st.module).2.1]
-  refine ⟨(CircuitM.addOutput "out" ty sm).2.module.body.reverse, w, ?_,
-    fun n => (hsp n).mono ?_ ?_, ?_⟩
-  · rw [bodyEq, ht, emitAssign_body_cons, List.reverse_cons]
-  · intro port hp
+  have hwires : ∀ port ∈ sm.module.wires, port ∈ m.wires := by
+    intro port hp
     rw [wireEq, List.mem_reverse, ht, emitAssign_wires]
     exact hp
-  · intro stmt hs
+  have hstmts : ∀ stmt ∈ sm.module.body, stmt ∈ m.body := by
+    intro stmt hs
     rw [bodyEq, ht, emitAssign_body_cons, List.mem_reverse]
     exact List.mem_cons_of_mem _ hs
+  have hsp' := fun n => (hsp n).mono hwires hstmts
+  rw [hext.2.1] at hsp'
+  refine ⟨(CircuitM.addOutput "out" ty sm).2.module.body.reverse, w, ?_, hsp', ?_⟩
+  · rw [bodyEq, ht, emitAssign_body_cons, List.reverse_cons]
   · intro port hp l r hm heq
     have hused : p.state.usedNames.contains port.name = true :=
       prepared.2.1.2 port (decls.1.subset hp)

@@ -76,27 +76,48 @@ theorem Drv.mono {P : String → Prop} {body body' : List Stmt} (h : ∀ st ∈ 
   | .inl ⟨rhs, hm⟩ => .inl ⟨rhs, h _ hm⟩
   | .inr hp => .inr hp
 
+/-- Where a result wire comes from: a statement of `body` drives it, or the
+expression is a variable and the wire is the one bound to it (an input:
+protected, never driven). -/
+def Src (P : String → Prop) (bnd : FVarId → Option String) (body : List Stmt) (e : Lean.Expr)
+    (x : String) : Prop :=
+  (∃ rhs, Stmt.assign x rhs ∈ body) ∨ ∃ id, e = .fvar id ∧ bnd id = some x ∧ P x
+
+theorem Src.mono {P : String → Prop} {bnd : FVarId → Option String} {body body' : List Stmt}
+    (h : ∀ st ∈ body, st ∈ body') {e : Lean.Expr} {x : String} : Src P bnd body e x → Src P bnd body' e x
+  | .inl ⟨rhs, hm⟩ => .inl ⟨rhs, h _ hm⟩
+  | .inr hp => .inr hp
+
+theorem Src.drv {P : String → Prop} {bnd : FVarId → Option String} {body : List Stmt}
+    {e : Lean.Expr} {x : String} : Src P bnd body e x → Drv P body x
+  | .inl h => .inl h
+  | .inr ⟨_, _, _, hp⟩ => .inr hp
+
 /-- `n` links from `w`, following the expression `e`: while `e` is a canonical
 concatenation `hi ++ lo` (the compiler's `canonicalConcat?`), `w` is driven by
-a concat statement `{x, y}`, `x` is declared at `hi`'s width and is driven (or
-an input), and `y` has the links of `lo`. -/
-def SpineQ (P : String → Prop) (wires : List Port) (body : List Stmt) :
-    Nat → Lean.Expr → String → Prop
+a concat statement `{x, y}`, `x` is declared at `hi`'s width and is driven or
+is the wire bound to the variable `hi` is (`Src`), and `y` has the links of
+`lo`. `bnd` is the binding of variables to wires. -/
+def SpineQ (P : String → Prop) (bnd : FVarId → Option String) (wires : List Port)
+    (body : List Stmt) : Nat → Lean.Expr → String → Prop
   | 0, _, _ => True
   | n + 1, e, w => ∀ m k a b, canonicalConcat? e = some (m, k, a, b) →
-      ∃ x y, link w x y ∈ body ∧ Decl wires x m ∧ Drv P body x ∧ SpineQ P wires body n b y
+      ∃ x y, link w x y ∈ body ∧ Decl wires x m ∧ Src P bnd body a x ∧
+        SpineQ P bnd wires body n b y
 
-theorem SpineQ.mono {P : String → Prop} {wires wires' : List Port} {body body' : List Stmt}
+theorem SpineQ.mono {P : String → Prop} {bnd : FVarId → Option String}
+    {wires wires' : List Port} {body body' : List Stmt}
     (hw : ∀ p ∈ wires, p ∈ wires') (hb : ∀ st ∈ body, st ∈ body') :
     ∀ {n : Nat} {e : Lean.Expr} {w : String},
-      SpineQ P wires body n e w → SpineQ P wires' body' n e w
+      SpineQ P bnd wires body n e w → SpineQ P bnd wires' body' n e w
   | 0, _, _, _ => trivial
   | _ + 1, _, _, hs => fun m k a b he =>
     let ⟨x, y, hm, hd, hv, hr⟩ := hs m k a b he
     ⟨x, y, hb _ hm, hd.mono hw, hv.mono hb, SpineQ.mono hw hb hr⟩
 
-theorem SpineQ.of_none {P : String → Prop} {wires : List Port} {body : List Stmt}
-    {e : Lean.Expr} {w : String} (h : canonicalConcat? e = none) : ∀ n, SpineQ P wires body n e w
+theorem SpineQ.of_none {P : String → Prop} {bnd : FVarId → Option String} {wires : List Port}
+    {body : List Stmt} {e : Lean.Expr} {w : String} (h : canonicalConcat? e = none) :
+    ∀ n, SpineQ P bnd wires body n e w
   | 0 => trivial
   | _ + 1 => fun m k a b he => by rw [h] at he; cases he
 
@@ -120,13 +141,15 @@ theorem Kept.mem {s t : CircuitState} (h : Kept s t) : ∀ st ∈ s.module.body,
 /-- **The record invariant**: every recorded wire has the links of the
 expression it is recorded for, is declared at the width of the value that
 expression means, is not a protected name, and is driven. -/
-def RecQ (inputs : FVarId → Option Value) (P : String → Prop) (s : CircuitState) : Prop :=
+def RecQ (ctx : CompilerState) (inputs : FVarId → Option Value) (P : String → Prop)
+    (s : CircuitState) : Prop :=
   ∀ w e, s.translateRecord.get? w = some e →
-    (∀ n, SpineQ P s.module.wires s.module.body n e w) ∧
+    (∀ n, SpineQ P (fun id => visible ctx s.sourceBindings id) s.module.wires s.module.body n e w) ∧
     (∀ v, Meaning inputs e v → Decl s.module.wires w v.kind.width) ∧
     ¬ P w ∧ ∃ rhs, Stmt.assign w rhs ∈ s.module.body
 
-theorem RecQ.empty {inputs P} {s : CircuitState} (h : s.translateRecord = {}) : RecQ inputs P s := by
+theorem RecQ.empty {ctx inputs P} {s : CircuitState} (h : s.translateRecord = {}) :
+    RecQ ctx inputs P s := by
   intro w e he; simp [h] at he
 
 /-- Among the protected names, an expression reads only those in `V`. -/
@@ -143,7 +166,7 @@ def ReadsOK (P V : String → Prop) (rhs : Sparkle.IR.AST.Expr) : Prop :=
   among the protected names, only those in `V`. -/
 def St (ctx : CompilerState) (inputs : FVarId → Option Value) (B : FVarId → Prop)
     (P V : String → Prop) (s : CircuitState) : Prop :=
-  RecQ inputs P s ∧
+  RecQ ctx inputs P s ∧
     (∀ id v, inputs id = some v → ∃ z, visible ctx s.sourceBindings id = some z ∧
       Decl s.module.wires z v.kind.width ∧ P z) ∧
     (∀ x, P x → s.usedNames.contains x = true) ∧
@@ -168,7 +191,8 @@ theorem St.transfer {ctx inputs B P V} {s t : CircuitState} (h : St ctx inputs B
     St ctx inputs B P V t :=
   ⟨fun w e he => by
       obtain ⟨h1, h2, h3, rhs, h4⟩ := h.1 w e (hr ▸ he)
-      exact ⟨fun n => (h1 n).mono hx.1.2 hx.1.mem, fun v hv => (h2 v hv).mono hx.1.2, h3,
+      exact ⟨fun n => by rw [hx.2.1]; exact (h1 n).mono hx.1.2 hx.1.mem,
+        fun v hv => (h2 v hv).mono hx.1.2, h3,
         rhs, hx.1.mem _ h4⟩,
     fun id v hi => by
       obtain ⟨z, hz, hd, hp⟩ := h.2.1 id v hi
@@ -590,9 +614,9 @@ def Spec (ctx : CompilerState) (inputs : FVarId → Option Value) (B : FVarId �
     (P V : String → Prop) (e : Lean.Expr) (a : CompilerM String) : Prop :=
   ∀ s t w, Returns a ctx s w t → St ctx inputs B P V s →
     St ctx inputs B P V t ∧ Ext s t ∧
-      (∀ n, SpineQ P t.module.wires t.module.body n e w) ∧
+      (∀ n, SpineQ P (fun id => visible ctx t.sourceBindings id) t.module.wires t.module.body n e w) ∧
       (∀ v, Meaning inputs e v → Decl t.module.wires w v.kind.width) ∧
-      (P w → V w) ∧ Drv P t.module.body w
+      (P w → V w) ∧ Src P (fun id => visible ctx t.sourceBindings id) t.module.body e w
 
 theorem Spec.goodR {e : Lean.Expr} {a : CompilerM String} (h : Spec ctx inputs B P V e a) :
     GoodR ctx inputs B P V a :=
@@ -617,7 +641,7 @@ theorem SpecA.of_arm {e : Lean.Expr} {a : CompilerM String} {N : Nat}
 
 /-- A record of the result keeps the record invariant. -/
 theorem St.record {s : CircuitState} {e : Lean.Expr} {w : String} (h : St ctx inputs B P V s)
-    (hw : ∀ n, SpineQ P s.module.wires s.module.body n e w)
+    (hw : ∀ n, SpineQ P (fun id => visible ctx s.sourceBindings id) s.module.wires s.module.body n e w)
     (hd : ∀ v, Meaning inputs e v → Decl s.module.wires w v.kind.width)
     (hp : ¬ P w) (hdr : ∃ rhs, Stmt.assign w rhs ∈ s.module.body) :
     St ctx inputs B P V { s with translateRecord := s.translateRecord.insert w e } := by
@@ -689,7 +713,8 @@ theorem concat_spec {e a b : Lean.Expr} {m k : Nat} {hint : String} {named : Boo
     refine ⟨wa, wb, by rw [emitAssign_body_cons]; exact List.mem_cons_self .., ?_, ?_, ?_⟩
     · rw [← hwa]
       exact (hda va hva).mono (xBC.1.trans xCD.1).2
-    · exact hdrv.mono (xBC.1.trans xCD.1).mem
+    · rw [(xBC.trans xCD).2.1]
+      exact hdrv.mono (xBC.1.trans xCD.1).mem
     · exact (spb n).mono xCD.1.2 xCD.1.mem
 
 /-! ## One step of the knot, for an expression that is not a concatenation -/
@@ -703,7 +728,7 @@ theorem step_spec {rec : TranslateFn} {e : Lean.Expr} {hint : String} {top named
     (hres : ∀ s t z, Returns (translateCore rec e hint top named) ctx s (some z) t →
       St ctx inputs B P V s →
       (∀ v, Meaning inputs e v → Decl t.module.wires z v.kind.width) ∧ (P z → V z) ∧
-        Drv P t.module.body z ∧
+        Src P (fun id => visible ctx t.sourceBindings id) t.module.body e z ∧
         (e.isFVar = false → ¬ P z ∧ ∃ rhs, Stmt.assign z rhs ∈ t.module.body))
     (hfb : ∀ s t, St ctx inputs B P V s →
       Returns (translateCore rec e hint top named) ctx s none t →
@@ -717,9 +742,9 @@ theorem step_spec {rec : TranslateFn} {e : Lean.Expr} {hint : String} {top named
       K none = translateFallback rec e hint top named →
       Returns (translateCore rec e hint top named >>= K) ctx s w t → St ctx inputs B P V s →
       St ctx inputs B P V t ∧ Ext s t ∧
-        (∀ n, SpineQ P t.module.wires t.module.body n e w) ∧
+        (∀ n, SpineQ P (fun id => visible ctx t.sourceBindings id) t.module.wires t.module.body n e w) ∧
         (∀ v, Meaning inputs e v → Decl t.module.wires w v.kind.width) ∧
-        (P w → V w) ∧ Drv P t.module.body w := by
+        (P w → V w) ∧ Src P (fun id => visible ctx t.sourceBindings id) t.module.body e w := by
     intro s t w K c hsome hnone hr hq
     obtain ⟨r, sc, hc, rest⟩ := Returns.bind hr
     obtain ⟨qc, kc⟩ := hcore s sc r hc hq
@@ -728,18 +753,18 @@ theorem step_spec {rec : TranslateFn} {e : Lean.Expr} {hint : String} {top named
       obtain ⟨hdz, hvz, hdrz, hfz⟩ := hres s sc z hc hq
       have hp : ∀ {t w}, Returns (Pure.pure z : CompilerM String) ctx sc w t →
           St ctx inputs B P V t ∧ Ext s t ∧
-            (∀ n, SpineQ P t.module.wires t.module.body n e w) ∧
+            (∀ n, SpineQ P (fun id => visible ctx t.sourceBindings id) t.module.wires t.module.body n e w) ∧
             (∀ v, Meaning inputs e v → Decl t.module.wires w v.kind.width) ∧
-            (P w → V w) ∧ Drv P t.module.body w := by
+            (P w → V w) ∧ Src P (fun id => visible ctx t.sourceBindings id) t.module.body e w := by
         intro t w h
         obtain ⟨rfl, rfl⟩ := Returns.pure h
         exact ⟨qc, kc, SpineQ.of_none hn, hdz, hvz, hdrz⟩
       have hrc : ∀ {t w}, e.isFVar = false →
           Returns (recordTranslation e z c >>= fun _ => (Pure.pure z : CompilerM String))
             ctx sc w t → St ctx inputs B P V t ∧ Ext s t ∧
-            (∀ n, SpineQ P t.module.wires t.module.body n e w) ∧
+            (∀ n, SpineQ P (fun id => visible ctx t.sourceBindings id) t.module.wires t.module.body n e w) ∧
             (∀ v, Meaning inputs e v → Decl t.module.wires w v.kind.width) ∧
-            (P w → V w) ∧ Drv P t.module.body w := by
+            (P w → V w) ∧ Src P (fun id => visible ctx t.sourceBindings id) t.module.body e w := by
         intro t w hnf h
         obtain ⟨u, sr, record, ret⟩ := Returns.bind h
         obtain ⟨rfl, rfl⟩ := Returns.pure ret
@@ -793,7 +818,8 @@ theorem input_spec {rec : TranslateFn} {id : FVarId} {v₀ : Value} {hint : Stri
     obtain ⟨z', hbound, hd, hpz⟩ := hq.2.1 id v₀ hi
     rw [hbound] at hz
     cases hz
-    refine ⟨fun v hv => ?_, fun _ => hq.2.2.2.2.1 id z hB hbound, .inr hpz, fun h => by cases h⟩
+    refine ⟨fun v hv => ?_, fun _ => hq.2.2.2.2.1 id z hB hbound, .inr ⟨id, rfl, hbound, hpz⟩,
+      fun h => by cases h⟩
     have : v = v₀ := hv.deterministic (.input rfl hi)
     rw [this]
     exact hd

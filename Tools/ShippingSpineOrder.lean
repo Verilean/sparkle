@@ -61,19 +61,22 @@ def FieldsOK (ubk uvk : Nat → Nat → Prop) (kb kv : Nat) (vw : Nat → Nat) :
   | _, [] => True
   | i, f :: rest => f.2.WF kb kv vw ∧ Uses (ubk i) (uvk i) f.2 ∧ FieldsOK ubk uvk kb kv vw (i + 1) rest
 
-/-- From `w`, `n` links starting at position `i`: link `{x, y}` of `w`, with a
-suffix `pre` of the builder's body in which `x` is driven (or `x` is an input)
-and whose statements read only `Vk i` among the protected names. -/
-def LP (P : String → Prop) (Vk : Nat → String → Prop) (body : List Stmt) :
-    Nat → Nat → String → Prop
-  | _, 0, _ => True
-  | i, n + 1, w => ∃ x y pre, link w x y ∈ body ∧ pre <:+ body ∧ Drv P pre x ∧
-      (∀ l r, Stmt.assign l r ∈ pre → ReadsOK P (Vk i) r) ∧ LP P Vk body (i + 1) n y
+/-- From `w`, one link per expression of `es`, starting at position `i`: link
+`{x, y}` of `w`, with a suffix `pre` of the builder's body in which `x` is
+driven — or `x` is the wire bound to the variable the expression is — and
+whose statements read only `Vk i` among the protected names. -/
+def LP (P : String → Prop) (bnd : FVarId → Option String) (Vk : Nat → String → Prop)
+    (body : List Stmt) : Nat → List Lean.Expr → String → Prop
+  | _, [], _ => True
+  | i, e :: es, w => ∃ x y pre, link w x y ∈ body ∧ pre <:+ body ∧ Src P bnd pre e x ∧
+      (∀ l r, Stmt.assign l r ∈ pre → ReadsOK P (Vk i) r) ∧ LP P bnd Vk body (i + 1) es y
 
-theorem LP.mono {Vk : Nat → String → Prop} {body : List Stmt} (more : List Stmt) :
-    ∀ {i n : Nat} {w : String}, LP P Vk body i n w → LP P Vk (more ++ body) i n w
-  | _, 0, _, _ => trivial
-  | _, _ + 1, _, ⟨x, y, pre, hm, hs, hd, hr, hl⟩ =>
+theorem LP.mono {bnd : FVarId → Option String} {Vk : Nat → String → Prop} {body : List Stmt}
+    (more : List Stmt) :
+    ∀ {i : Nat} {es : List Lean.Expr} {w : String},
+      LP P bnd Vk body i es w → LP P bnd Vk (more ++ body) i es w
+  | _, [], _, _ => trivial
+  | _, _ :: _, _, ⟨x, y, pre, hm, hs, hd, hr, hl⟩ =>
     ⟨x, y, pre, List.mem_append_right _ hm, hs.trans (List.suffix_append _ _), hd, hr, hl.mono more⟩
 
 theorem ReadsOK.mono {V V' : String → Prop} (h : ∀ x, V x → V' x) {rhs : Sparkle.IR.AST.Expr}
@@ -93,12 +96,13 @@ variable {ubk uvk : Nat → Nat → Prop} {Vk : Nat → String → Prop} {kb kv 
 
 /-- A cache hit on a packed term: the links are the record invariant's; the
 point of emission is the whole body now. -/
-theorem lp_of_spineQ {wires : List Port} {body : List Stmt}
+theorem lp_of_spineQ {bnd : FVarId → Option String} {wires : List Port} {body : List Stmt}
     (hmonoV : ∀ k x, Vk k x → Vk (k + 1) x) :
     ∀ (fs : List (Σ w : Nat, Term (.bits w))) {c : Nat} (core : Term (.bits c)) (i : Nat)
       (w : String), FieldsOK ubk uvk kb kv vw i fs → core.WF kb kv vw →
       (∀ l r, Stmt.assign l r ∈ body → ReadsOK P (Vk i) r) →
-      SpineQ P wires body fs.length Q((packLets fs core).2) w → LP P Vk body i fs.length w
+      SpineQ P bnd wires body fs.length Q((packLets fs core).2) w →
+      LP P bnd Vk body i (fs.map fun f => Q(f.2)) w
   | [], _, _, _, _, _, _, _, _ => trivial
   | f :: rest, c, core, i, w, hf, hc, hread, hs => by
     obtain ⟨hwf, -, hrest⟩ := hf
@@ -132,7 +136,7 @@ theorem spine_links
       St ctx inputs (Bk bi vi ubk uvk i) P (Vk i) s →
       Returns (translateFuelFix translateStep fuel Q((packLets fs core).2) hint false named)
         ctx s w t →
-      LP P Vk t.module.body i fs.length w ∧ Ext s t
+      LP P (fun id => visible ctx σ id) Vk t.module.body i (fs.map fun f => Q(f.2)) w ∧ Ext s t
   | [], _, core, i, fuel, s, t, w, hint, named, _, hc, hu, _, hq, hr => by
     obtain ⟨-, hx, -⟩ := fuel_spine (ctx := ctx) (P := P) (V := Vk i) (dom := dom) fuel hb hv
       (fun j h => Or.inl ⟨j, h, rfl⟩) (fun j h => Or.inr ⟨j, h, rfl⟩) core hc
@@ -159,7 +163,9 @@ theorem spine_links
       refine ⟨lp_of_spineQ (wires := t.module.wires) (dom := dom) (bi := bi) (vi := vi) hmonoV
         (f :: rest) core i w
         ⟨hwf, huf, hrest⟩ hc hq.2.2.2.2.2 ?_, Ext.refl _⟩
-      exact (hq.1 w _ (hrec w rfl)).1 _
+      have := (hq.1 w _ (hrec w rfl)).1 (f :: rest).length
+      rw [hσ] at this
+      exact this
     · rw [concatUncached_concatE] at miss
       unfold translateConcatWith translateConcatActs at miss
       obtain ⟨res, sA, hmk, rest1⟩ := Returns.bind miss
@@ -187,7 +193,7 @@ theorem spine_links
       have hbody : (CircuitM.emitAssign w (.concat [.ref wa, .ref wb]) sC).2.module.body =
           [.assign w (.concat [.ref wa, .ref wb])] ++ sC.module.body := by
         rw [emitAssign_body_cons]; rfl
-      refine ⟨⟨wa, wb, sB.module.body, ?_, ?_, hdrv, qB.2.2.2.2.2, ?_⟩,
+      refine ⟨⟨wa, wb, sB.module.body, ?_, ?_, hσB ▸ hdrv, qB.2.2.2.2.2, ?_⟩,
         (xA.trans (xAB.trans (xBC.trans xCD))).trans ⟨Kept.refl _, rfl, fun _ h => h⟩⟩
       · show link w wa wb ∈ (CircuitM.emitAssign w (.concat [.ref wa, .ref wb]) sC).2.module.body
         rw [emitAssign_body_cons]; exact List.mem_cons_self ..
@@ -195,7 +201,7 @@ theorem spine_links
         obtain ⟨more, hm⟩ := xBC.1.1
         rw [hbody, hm, ← List.append_assoc]
         exact List.suffix_append _ _
-      · show LP P Vk (CircuitM.emitAssign w (.concat [.ref wa, .ref wb]) sC).2.module.body _ _ _
+      · show LP P _ Vk (CircuitM.emitAssign w (.concat [.ref wa, .ref wb]) sC).2.module.body _ _ _
         rw [hbody]
         exact lp.mono _
 
