@@ -7,6 +7,7 @@ import Tools.ShippingCallsRank
 import Tools.ShippingTransitionFields
 import Tools.ShippingRankRun
 import Tools.ShippingCallsShape
+import Tools.ShippingHarnessClosed
 
 /-! # `MachineCloses` derived for `let` shapes without calls
 
@@ -272,3 +273,39 @@ example : caller.machineData.callsOk 1 = true := by decide
 example : callerTwice.machineData.callsOk 1 = true := by decide
 example : callerNested.machineData.callsOk 2 = true := by decide
 end
+
+/-! K1 — closed reads. `harness_closed`: for every run of the harness on a
+quoted term, the returned body reads only its input ports' names and names
+driven earlier (`readsClosedB`, the read-closure condition of `kidsCombB`),
+with no closed-reads premise. Checked here: the theorem's premises mention no
+`readsClosedB` / `ClosedB` / `Cl`; standard axioms; and the checker agrees on
+real harness modules — a plain gate (`pick`), a transition with a shared
+subexpression (a validated-cache hit, `reflSharedLet`), transitions with
+concatenations whose result wire is reserved first (`caller`,
+`closesChain`). This is the CORE harness module; the child `closeInsts`
+sees is the full entry's (cleanup, merge): not covered yet. -/
+run_cmd Lean.Elab.Command.liftTermElabM do
+  for n in [``Tools.ShippingHarnessClosed.harness_closed, ``Tools.ShippingHarnessClosed.closed_forward,
+      ``Tools.ShippingUnifiedSpine.fuel_spine, ``Tools.ShippingUnifiedSpine.Spec.cached] do
+    for a in ← Lean.collectAxioms n do
+      unless a == ``propext || a == ``Classical.choice || a == ``Quot.sound do
+        throwError "{n} depends on {a}"
+  let t ← Lean.Meta.inferType (mkConst ``Tools.ShippingHarnessClosed.harness_closed)
+  Lean.Meta.forallTelescope t fun xs concl => do
+    for x in xs do
+      let ty ← Lean.Meta.inferType x
+      for c in [``Sparkle.IR.Machine.readsClosedB, ``Tools.ShippingUnifiedSpine.ClosedB,
+          ``Tools.ShippingUnifiedSpine.Cl] do
+        if (ty.find? (·.isConstOf c)).isSome then throwError "harness_closed assumes {c}"
+    unless (concl.find? (·.isConstOf ``Sparkle.IR.Machine.readsClosedB)).isSome do
+      throwError "harness_closed does not conclude readsClosedB"
+  -- the checker on real harness modules
+  let translate : TranslateFn := fun e h t nm => translateExprToWire e h t nm
+  let mut seen := #[]
+  for n in [``reflSharedLet, ``closesChain, ``Sparkle.Tests.Compiler.ShippingMachineInstTest.caller] do
+    let r ← Tools.ShippingMachineCommand.readMachine n
+    let (t, _) ← synthesizeMixedCertified translate (fun _ => pure ()) n r.shape.binders r.shape.body
+    unless Sparkle.IR.Machine.readsClosedB (t.inputs.map (·.name)) t.body do
+      throwError "{n}: the transition's body is not closed over its input ports"
+    seen := seen.push m!"{n} ({t.body.length} statements)"
+  Lean.logInfo m!"CLOSED READS (K1): harness_closed — readsClosedB for every harness run, no closed-reads premise, standard axioms; checker agrees on {seen}; the full-entry child (cleanup, merge) is not covered yet"
