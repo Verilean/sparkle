@@ -146,3 +146,15 @@ for unit work the rate-limiting step is **writing proofs**, not CPU or the
 one-job queue: parallel authorship helps; a second concurrent Lean job would
 not, and is not introduced. (Host: 4 cores, 7.8 GiB, ≈6.3 GiB available.)
 To be re-measured at the first `AllTests` integration run.
+
+## 6. Status log
+
+- 2026-10-12, `704d44d5`. B2 closed for machine children without calls
+  (`parent`, `chained`: closed depth SV endpoints). B3 next (integrator).
+  G2: contract layer integrated, conditional on `ReachesInline`; worker B on a
+  reproduction test for the unvalidated legacy cache and the dispatch walk.
+  G3a: worker A's strict term reader (`readTerm_sound`) failed its first build
+  (13 errors), returned with the log; finding to be confirmed by a run: the
+  compiler's gate recognisers match some positions with wildcards, so
+  "recogniser accepts ⟹ body is a quotation" is false as stated.
+  `Tests.AllTests` 881 jobs green at `ffad8424` (8 s incremental, peak 0.42 GiB).

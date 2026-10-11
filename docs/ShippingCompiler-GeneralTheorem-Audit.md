@@ -8,8 +8,9 @@ here as G-items.
 
 ## 0. Current status (2026-10-12)
 
-Verification record: snapshot `8876ea13`, `Tests.AllTests` 868 jobs green
-(every Lean / lake run under the cgroup runner, 3 GiB cap, one job).
+Verification record: snapshot `ffad8424`, `Tests.AllTests` 881 jobs green
+(every Lean / lake run under the cgroup runner, 3 GiB cap, one job; peak
+0.42 GiB); `704d44d5` adds three modules (worker B, G2), each built.
 
 **Reading the tables**: the twelve work packages (§6) are a decomposition of
 ONE compile route's premises. "Done" for a package means its premise is
@@ -21,12 +22,12 @@ would need is the gaps G1–G5 and N1 below, which are open.
 |---|---|---|---|
 | A1–A7 (`closeLets`) | done | machines whose `let`s pass `letsOk` (per-declaration data check) | S2 / reader correspondence under G3 |
 | B1 (`closeInsts`, one output) | done as `MachineClosesAt` | parents whose calls are one-output calls of **gate children** or **slotless machine children** (`let`s, no register, no call); callees may repeat in any order; with or without `let`s (no real K = 0 instance with calls exists: such a parent is not a machine shape) | name separation N1 as premises; child's reflection (`EntryDefines` / `MachineDefines`) |
-| B2 (`closeInstsG`: several outputs, sequential children) | **in work** — pure assembly proved (`closeInstsG_of_facts`, `258523c8`: one instance per call group, write SETS in the rank, `clk` / `rst` in the linked order, distinct instance names, no self-feed); not yet connected to a run | no endpoint closed yet: the parents of sequential children (`parent`, `mixD1`, `grandH`, `topD2`, `mid2`, R0 parents) keep `MachineClosesAt` | run level (`closeInstsGM` with the cache pin), child interface of a real sequential child (post-passes), design checks from the children's designs, generator; then children with calls (B3) |
+| B2 (`closeInstsG`: several outputs, sequential children) | **done for machine children without calls** (`machineClosesAt_of_seqKids`; pure core `closeInstsG_of_facts`: one instance per call group, write SETS in the rank, `clk` / `rst` in the linked order, distinct instance names, no self-feed; run level with the cache pin; child interface `ChildIfaceG` from the child's own run) | parents whose calls go through `closeInstsGM` over machine children WITHOUT calls and without memory children: `parent`, `chained` closed at depth 1 (`f.machine_design_svNR1_closed`) | per-declaration data conditions (S3, field-is-output, distinct fields within a call — G3b); N1 name premise; children with calls (B3): `mixD1`, `grandH`, `topD2`, `mid2`, R0 parents keep `MachineClosesAt`; memory children |
 | Machine children with calls of their own | open | `ChildIface` asks an empty design and an assign-only body, so it does not extend to a child with calls; `closeInsts` itself asks `kidsCombB` of every child | — |
 | C1–C3 | see §6 | — | — |
 | R0 / NR heads | migrated to `MachineClosesAt` | all R0 / NR test endpoints; `midH`'s closing DISCHARGED at depth | parents of sequential children (B2) |
 | G1 output checks | open | — | the decidable checks on the result are obligations of the endpoints |
-| G2 / C3 legacy route semantics | open | — | — |
+| G2 / C3 legacy route semantics | open — contract layer proved, CONDITIONAL (`legacy_translate_contract`; `Tools/ShippingLegacySem*`, `docs/parallel/G2-legacy.md`) | no real fallback declaration end to end | `ReachesInline` (dispatch to the inline attempt; blocked by legacy cache hits not validated against the builder state — a suspected stale-hit defect, not reproduced yet); a deep source for legacy syntax (SEM0); the entry-level legacy arm |
 | G3 reader coverage (S3, `letsAliasOk`, `gateCallsOk` evaluated per declaration) | open | — | no theorem about the shape reader |
 | G4 | open | — | — |
 | G5 runtime laws | **conditional** | `quiet` / `Diag` / `OkMsg` / `OkEnv` laws; exception provenance by value; law audit from 22 endpoints | no runtime model; `profLog` one constructor; elaborator primitives unconditional; T3 trusted |
@@ -35,7 +36,8 @@ would need is the gaps G1–G5 and N1 below, which are open.
 Closed SV endpoints today (`f.machine_design_svHR_closed`): `caller`,
 `callerTwice`, `callerNested`, `callerD`, `midH`, `callerMix`, `callerRep`,
 `callerABA` (gate children); `callerL`, `callerLN`, `hftByte` (slotless
-machine children).
+machine children). Closed depth endpoints (`f.machine_design_svNR1_closed`,
+the general closing): `parent`, `chained` (sequential two-output child `cnt`).
 
 ## 1. The target statement
 
