@@ -25,6 +25,7 @@ open Tools.ShippingUnifiedSpine Tools.ShippingCloseLetsSplit Tools.ShippingHarne
 open Tools.ShippingSettledSoundness (Acyclic)
 open Tools.ShippingBindingsSoundness (visible)
 open Tools.ShippingSpineOrder Tools.ShippingClosedOrder Tools.ShippingCloseLetsRun
+open Sparkle.IR.Reorder
 
 /-- Binders bound later do not change an earlier binding. -/
 theorem prepare_visible_keep {bools bits} :
@@ -75,15 +76,37 @@ operand is declared at the width `m`; there is a suffix `pre` of the builder's
 body with the operand's source (`Src`) and reads within `Vk i`; and the
 operand, if protected, is in `Vk i`. -/
 def Facts (P : String → Prop) (bnd : FVarId → Option String) (Vk : Nat → String → Prop)
-    (wires : List Port) (bodyB : List Stmt) :
+    (wires : List Port) (body bodyB : List Stmt) :
     Nat → List (Port × String) → List Lean.Expr → List Nat → Prop
   | _, [], [], [] => True
   | i, pa :: al, e :: es, m :: ws =>
-    wireWidth wires pa.2 = m ∧
+    wireWidth wires pa.2 = m ∧ (∃ x b, concatParts? body x = some (pa.2, b)) ∧
       (∃ pre, pre <:+ bodyB ∧ Src P bnd pre e pa.2 ∧
         ∀ l r, Stmt.assign l r ∈ pre → ReadsOK P (Vk i) r) ∧
-      (P pa.2 → Vk i pa.2) ∧ Facts P bnd Vk wires bodyB (i + 1) al es ws
+      (P pa.2 → Vk i pa.2) ∧ Facts P bnd Vk wires body bodyB (i + 1) al es ws
   | _, _, _, _ => False
+
+/-- The facts of the alias at index `k`. -/
+theorem Facts.get {P : String → Prop} {bnd : FVarId → Option String} {Vk : Nat → String → Prop}
+    {wires : List Port} {body bodyB : List Stmt} :
+    ∀ {al : List (Port × String)} {es : List Lean.Expr} {ws : List Nat} {i : Nat} (k : Nat)
+      {pa : Port × String}, Facts P bnd Vk wires body bodyB i al es ws → al[k]? = some pa →
+      ∃ e m, es[k]? = some e ∧ ws[k]? = some m ∧ wireWidth wires pa.2 = m ∧
+        (∃ x b, concatParts? body x = some (pa.2, b)) ∧
+        (∃ pre, pre <:+ bodyB ∧ Src P bnd pre e pa.2 ∧
+          ∀ l r, Stmt.assign l r ∈ pre → ReadsOK P (Vk (i + k)) r) ∧
+        (P pa.2 → Vk (i + k) pa.2)
+  | pa' :: al, e :: es, m :: ws, i, 0, pa, hf, hk => by
+    cases hk
+    exact ⟨e, m, rfl, rfl, hf.1, hf.2.1, hf.2.2.1, hf.2.2.2.1⟩
+  | pa' :: al, e :: es, m :: ws, i, k + 1, pa, hf, hk => by
+    obtain ⟨e', m', h1, h2, h3⟩ := Facts.get (i := i + 1) k hf.2.2.2.2 (by simpa using hk)
+    refine ⟨e', m', by simpa using h1, by simpa using h2, ?_⟩
+    rw [show i + (k + 1) = i + 1 + k by omega]
+    exact h3
+  | [], _, _, _, _, _, _, hk => by simp at hk
+  | _ :: _, [], _, _, _, _, hf, _ => by cases hf
+  | _ :: _, _ :: _, [], _, _, _, hf, _ => by cases hf
 
 /-- **The aliases are the run's links.** With the spine (and its widths) on
 the final body and the per-field facts on the builder's body — the same
@@ -96,7 +119,7 @@ theorem letOperands_facts {P : String → Prop} {bnd : FVarId → Option String}
       ls.length = ws.length → SpineW wires body ws w → LP P bnd Vk bodyB i es w →
       es.length = ws.length →
       ∃ al core, letOperands body ls w = some (al, core) ∧ al.map (·.1) = ls ∧
-        Facts P bnd Vk wires bodyB i al es ws ∧
+        Facts P bnd Vk wires body bodyB i al es ws ∧
         (ws ≠ [] → ∃ x a, concatParts? body x = some (a, core))
   | [], [], [], _, w, _, _, _, _ => ⟨[], w, rfl, rfl, trivial, fun h => absurd rfl h⟩
   | p :: ls, m :: ws, e :: es, i, w, hl, hs, hlp, he => by
@@ -107,7 +130,8 @@ theorem letOperands_facts {P : String → Prop} {bnd : FVarId → Option String}
     cases hxy
     obtain ⟨al, core, hlo, hmap, hf, hcore⟩ := letOperands_facts hacy hsub ls ws es (i + 1) b
       (by simpa using hl) hs' hlp' (by simpa using he)
-    refine ⟨(p, a) :: al, core, ?_, by rw [List.map_cons, hmap], ⟨hw, ⟨pre, hpre, hsrc, hrd⟩, hv, hf⟩,
+    refine ⟨(p, a) :: al, core, ?_, by rw [List.map_cons, hmap],
+      ⟨hw, ⟨w, b, hc⟩, ⟨pre, hpre, hsrc, hrd⟩, hv, hf⟩,
       fun _ => ?_⟩
     · simp only [letOperands, hc, hlo]
     · by_cases hws : ws = []
@@ -123,5 +147,172 @@ theorem letOperands_facts {P : String → Prop} {bnd : FVarId → Option String}
   | _ :: _, [], _, _, _, hl, _, _, _ => by simp at hl
   | _ :: _, _ :: _, [], _, _, _, _, _, he => by simp at he
   | [], [], _ :: _, _, _, _, _, _, he => by simp at he
+
+/-! ## From the facts to `closeLets` -/
+
+theorem mem_of_writes {X : List Stmt} (h : Acyclic X) {x : String} (hx : x ∈ writesOf X) :
+    ∃ r, Stmt.assign x r ∈ X := by
+  unfold writesOf at hx
+  obtain ⟨st, hst, hw⟩ := List.mem_flatMap.mp hx
+  obtain ⟨l, r, rfl⟩ := Acyclic.assign h st hst
+  have : x = l := by simpa [stmtWrites] using hw
+  subst this
+  exact ⟨r, hst⟩
+
+/-- A prefix that does not contain `st` lies before `st`. -/
+theorem prefix_before {α : Type} {X pre post : List α} {st : α}
+    (h : X <+: pre ++ st :: post) (hn : st ∉ X) : X <+: pre := by
+  rcases List.prefix_or_prefix_of_prefix h (List.prefix_append pre (st :: post)) with h1 | h1
+  · exact h1
+  · obtain ⟨Z, rfl⟩ := h1
+    have hZ : Z <+: st :: post := by
+      obtain ⟨Y, hY⟩ := h
+      rw [List.append_assoc] at hY
+      exact ⟨Y, List.append_cancel_left hY⟩
+    cases Z with
+    | nil => simp
+    | cons z Z' =>
+      have : z = st := by
+        obtain ⟨Y, hY⟩ := hZ
+        simp at hY
+        exact hY.1
+      subst this
+      exact absurd (List.mem_append_right _ List.mem_cons_self) hn
+
+theorem writes_prefix {X Y : List Stmt} (h : X <+: Y) : ∀ x ∈ writesOf X, x ∈ writesOf Y := by
+  obtain ⟨Z, rfl⟩ := h
+  intro x hx
+  exact mem_writes_left hx
+
+/-- **`closeLets` accepts**, from the run's facts about the transition module
+and the per-field order facts. `hS2` is the one shape-side condition: a field
+that is the variable of `let` `j` requires field `j` to be a variable too (the
+case the real `closeLets` refuses otherwise). -/
+theorem closeLets_isSome_of_facts {P : String → Prop} {bnd : FVarId → Option String}
+    {Vk : Nat → String → Prop} {t : Sparkle.IR.AST.Module} {K : Nat} (hK : K ≠ 0)
+    {bodyB : List Stmt} {w : String} {ws : List Nat} {es : List Lean.Expr}
+    (hbody : t.body = bodyB.reverse ++ [.assign "out" (.ref w)])
+    (hacy : Acyclic t.body)
+    (hlsK : (t.inputs.drop (t.inputs.length - K)).length = K)
+    (hlsnd : ((t.inputs.drop (t.inputs.length - K)).map (·.name)).Nodup)
+    (hlsw : ∀ p ∈ t.inputs.drop (t.inputs.length - K), p.name ∉ writesOf t.body)
+    (hlen : (t.inputs.drop (t.inputs.length - K)).length = ws.length) (hes : es.length = ws.length)
+    (hwid : ∀ (k : Nat) (p : Port) (m : Nat), (t.inputs.drop (t.inputs.length - K))[k]? = some p → ws[k]? = some m →
+      m = p.ty.bitWidth ∧ 0 < p.ty.bitWidth)
+    (hspine : SpineW t.wires t.body ws w)
+    (hout : ∀ x a b, concatParts? t.body x = some (a, b) → a ≠ "out" ∧ b ≠ "out")
+    (hlp : LP P bnd Vk bodyB 0 es w)
+    (hP : ∀ p ∈ t.inputs.drop (t.inputs.length - K), P p.name)
+    (hnw : ∀ l r, Stmt.assign l r ∈ bodyB → ¬ P l)
+    (hVk : ∀ (k k' : Nat) (p : Port), (t.inputs.drop (t.inputs.length - K))[k']? = some p → k ≤ k' → ¬ Vk k p.name)
+    (hS2 : ∀ (i j : Nat) (id : FVarId) (p : Port), es[i]? = some (Lean.Expr.fvar id) →
+      (t.inputs.drop (t.inputs.length - K))[j]? = some p → bnd id = some p.name →
+      ∃ id', es[j]? = some (Lean.Expr.fvar id')) :
+    (closeLets K t).isSome = true := by
+  generalize hls : t.inputs.drop (t.inputs.length - K) = ls at *
+  have hsub : ∀ st ∈ bodyB, st ∈ t.body := fun st hs => by
+    rw [hbody]; exact List.mem_append_left _ (List.mem_reverse.mpr hs)
+  have hB : Acyclic (bodyB.reverse ++ [Stmt.assign "out" (.ref w)]) := hbody ▸ hacy
+  have hBw : ∀ x, x ∈ writesOf bodyB.reverse → x ∈ writesOf t.body := fun x hx => by
+    rw [hbody]; exact mem_writes_left hx
+  have hBmem : ∀ x, x ∈ writesOf bodyB.reverse → ∃ r, Stmt.assign x r ∈ bodyB := fun x hx => by
+    obtain ⟨r, hr⟩ := mem_of_writes (Acyclic.prefix hB) hx
+    exact ⟨r, List.mem_reverse.mp hr⟩
+  have houtw : "out" ∈ writesOf t.body := by
+    rw [hbody]; exact mem_writes_right (by simp [writesOf, stmtWrites])
+  obtain ⟨al, core, hlo, hmap, hf, hcore⟩ := letOperands_facts hacy hsub ls ws es 0 w hlen hspine
+    hlp hes
+  have hwsne : ws ≠ [] := by
+    intro h; rw [h] at hlen; rw [hlen] at hlsK; exact hK hlsK.symm
+  have hidx : ∀ (k : Nat) (pa : Port × String), al[k]? = some pa → ls[k]? = some pa.1 := by
+    intro k pa hk
+    rw [← hmap, List.getElem?_map, hk]; rfl
+  -- what each alias satisfies
+  have hal : ∀ (k : Nat) (pa : Port × String), al[k]? = some pa →
+      pa.1.name ∉ writesOf t.body ∧ P pa.1.name ∧ pa.2 ≠ "out" ∧
+      wireWidth t.wires pa.2 = pa.1.ty.bitWidth ∧ 0 < pa.1.ty.bitWidth ∧
+      ∃ e, es[k]? = some e ∧ (P pa.2 → Vk k pa.2) ∧
+        ∃ pre, pre <:+ bodyB ∧ Src P bnd pre e pa.2 ∧
+          ∀ l r, Stmt.assign l r ∈ pre → ReadsOK P (Vk k) r := by
+    intro k pa hk
+    have hp := hidx k pa hk
+    have hmem : pa.1 ∈ ls := List.mem_of_getElem? hp
+    obtain ⟨e, m, he, hm, hw, ⟨x, b, hc⟩, hpre, hv⟩ := hf.get k hk
+    obtain ⟨hm1, hm2⟩ := hwid k pa.1 m hp hm
+    refine ⟨hlsw _ hmem, hP _ hmem, (hout x pa.2 b hc).1, by rw [hw, hm1], hm2, e, he,
+      by simpa using hv, ?_⟩
+    obtain ⟨pre, h1, h2, h3⟩ := hpre
+    exact ⟨pre, h1, h2, by simpa using h3⟩
+  have hgetAl : ∀ pa ∈ al, ∃ k, al[k]? = some pa := fun pa h => List.mem_iff_getElem?.mp h
+  -- an operand is its port's name only if it is protected
+  have hne : ∀ (k k' : Nat) (pa pb : Port × String), al[k]? = some pa → al[k']? = some pb → k ≤ k' →
+      pa.2 ≠ pb.1.name := by
+    intro k k' pa pb hk hk' hle heq
+    obtain ⟨-, -, -, -, -, e, -, hv, -⟩ := hal k pa hk
+    obtain ⟨-, hPb, -⟩ := hal k' pb hk'
+    exact hVk k k' pb.1 (hidx k' pb hk') hle (heq ▸ hv (heq ▸ hPb))
+  rw [closeLets_isSome_iff hK]
+  refine ⟨w, al, core, by simp [packedWire?, hbody], hls ▸ hlo, ?_, ?_, ?_, ?_⟩
+  · intro pa hpa
+    obtain ⟨k, hk⟩ := hgetAl pa hpa
+    obtain ⟨h1, -, h3, h4, h5, -⟩ := hal k pa hk
+    exact ⟨h4, h5, fun h => h1 (h ▸ houtw), h3⟩
+  · intro pa hpa
+    obtain ⟨k, hk⟩ := hgetAl pa hpa
+    exact (hal k pa hk).1
+  · obtain ⟨x, a, hc⟩ := hcore hwsne
+    exact (hout x a core hc).2
+  · rw [Tools.ShippingSettledSoundness.assignmentOrderCheck_iff]
+    unfold closedBody
+    have hdrop : t.body.dropLast = bodyB.reverse := by rw [hbody]; simp
+    rw [hdrop]
+    refine closed_acyclic al hB ?_ ?_ ?_ ?_ ?_ ?_ ?_
+    · rw [show al.map (·.1.name) = (al.map (·.1)).map (·.name) by simp, hmap]; exact hlsnd
+    · intro pa hpa
+      obtain ⟨k, hk⟩ := hgetAl pa hpa
+      obtain ⟨h1, -⟩ := hal k pa hk
+      exact ⟨fun h => h1 (hBw _ h), fun h => h1 (h ▸ houtw)⟩
+    · intro pa hpa
+      obtain ⟨k, hk⟩ := hgetAl pa hpa
+      exact ⟨(hal k pa hk).2.2.1, hne k k pa pa hk hk (Nat.le_refl _)⟩
+    · rw [List.pairwise_iff_getElem]
+      intro i j hi hj hij
+      exact hne i j _ _ (List.getElem?_eq_getElem hi) (List.getElem?_eq_getElem hj) (Nat.le_of_lt hij)
+    · -- an operand that is another alias' port: that alias' operand is driven by nothing
+      intro pa hpa pa' hpa' heq hw'
+      obtain ⟨i, hi⟩ := hgetAl pa hpa
+      obtain ⟨j, hj⟩ := hgetAl pa' hpa'
+      obtain ⟨-, -, -, -, -, e, he, -, pre, hpre, hsrc, -⟩ := hal i pa hi
+      obtain ⟨-, hPp, -, -, -, e', he', -, pre', hpre', hsrc', -⟩ := hal j pa' hj
+      have hPa : P pa.2 := heq ▸ hPp
+      rcases hsrc with ⟨-, rhs, hm⟩ | ⟨id, hid, hb, -⟩
+      · exact hnw _ rhs (hpre.subset hm) hPa
+      · obtain ⟨id', hid'⟩ := hS2 i j id pa'.1 (hid ▸ he) (hidx j pa' hj) (heq ▸ hb)
+        rw [he'] at hid'
+        cases hid'
+        rcases hsrc' with ⟨hf', -⟩ | ⟨-, -, -, hP'⟩
+        · cases hf'
+        · obtain ⟨r, hr⟩ := hBmem _ hw'
+          exact hnw _ r hr hP'
+    · obtain ⟨x, a, hc⟩ := hcore hwsne
+      exact (hout x a core hc).2
+    · -- every reader of a port comes after the driver of its operand
+      intro pa hpa pre0 l r post hsplit hx
+      obtain ⟨k, hk⟩ := hgetAl pa hpa
+      obtain ⟨-, hPp, -, -, -, e, -, -, pre, hpre, hsrc, hrd⟩ := hal k pa hk
+      rcases hsrc with ⟨-, rhs, hm⟩ | ⟨-, -, -, hPa⟩
+      · left
+        have hnotin : Stmt.assign l r ∉ pre.reverse := by
+          intro hin
+          have := hrd l r (List.mem_reverse.mp hin) _ hx hPp
+          exact hVk k k pa.1 (hidx k pa hk) (Nat.le_refl _) this
+        have hpfx : pre.reverse <+: bodyB.reverse := List.reverse_prefix.mpr hpre
+        rw [hsplit] at hpfx
+        exact writes_prefix (prefix_before hpfx hnotin) _
+          (mem_writes_assign (List.mem_reverse.mpr hm))
+      · right
+        intro hw'
+        obtain ⟨r', hr'⟩ := hBmem _ hw'
+        exact hnw _ r' hr' hPa
 
 end Tools.ShippingMachineCloses
