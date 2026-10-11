@@ -221,6 +221,20 @@ theorem childFull_of_real {c : Name} {y : Res}
   obtain ⟨mctx', cctx', w, w', -, hr⟩ := h.inv
   exact gate_child_fullFacts hr (Tools.ShippingReflectCtx.EntryDefines.ctx entry) old peel he hb hv
 
+/-- **What the parent's closing needs of a child's full-entry result**: the
+child-side `kidsCombB` facts, the number of its input ports, its name, and a
+design with no module. (A gate child gives it by `ChildFull.iface`; a
+slotless machine child by `machineChild_iface`.) -/
+def ChildIface (c : Name) (n : Nat) (b : Sparkle.IR.AST.Module) (design : Design) : Prop :=
+  ChildComb b ∧ b.inputs.length = n ∧ b.name = c.toString ∧ design.modules = []
+
+theorem ChildFull.iface {c : Name} {bs : List (Name × MixedGateBinder)}
+    {b : Sparkle.IR.AST.Module} {design : Design} (h : ChildFull c bs b design) :
+    ChildIface c ((bs.filter fun x => x.2 != .domain).length) b design := by
+  refine ⟨h.comb, ?_, h.name, h.design⟩
+  have := congrArg List.length h.tys
+  simpa using this
+
 set_option maxHeartbeats 1000000 in
 /-- **`MachineClosesAt` for one-output calls of gate children.** The children
 are the ones the run's closing returns: each is read by its `RealChild`
@@ -231,12 +245,12 @@ theorem machineClosesAt_of_gateKids {declName : Name} (d : MachineData) (ok : d.
       (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
     (halias : d.letsAliasOk = true)
     {nDecl : Nat} (hS : d.gateCallsOk nDecl = true)
-    (kbs : Nat → List (Name × MixedGateBinder))
+    (nk : Nat → Nat)
     (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
     (hkid : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
-      RealChild mref cref (d.shape.insts[k]).1 y → ChildFull (d.shape.insts[k]).1 (kbs k) y.1 y.2)
+      RealChild mref cref (d.shape.insts[k]).1 y → ChildIface (d.shape.insts[k]).1 (nk k) y.1 y.2)
     (hargsN : ∀ (k : Nat) (hk : k < d.shape.insts.length),
-      ((kbs k).filter fun x => x.2 != .domain).length = (d.shape.insts[k]).2.1.length)
+      nk k = (d.shape.insts[k]).2.1.length)
     (hsep : ∀ c ∈ d.shape.insts.map (·.1), ∀ c' ∈ d.shape.insts.map (·.1),
       c.toString = c'.toString → c = c')
     (hparent : ∀ c ∈ d.shape.insts, c.1.toString ≠ declName.toString)
@@ -282,7 +296,7 @@ theorem machineClosesAt_of_gateKids {declName : Name} (d : MachineData) (ok : d.
     obtain ⟨hlenC, hall⟩ := hreal
     -- each child, by the witness of its own run
     have hfull : ∀ (k : Nat) (c : Res), children[k]? = some c → ∃ hk : k < d.shape.insts.length,
-        ChildFull (d.shape.insts[k]).1 (kbs k) c.1 c.2 := by
+        ChildIface (d.shape.insts[k]).1 (nk k) c.1 c.2 := by
       intro k c hc
       have hk : k < d.shape.insts.length := by
         rw [← hlenC]
@@ -297,24 +311,23 @@ theorem machineClosesAt_of_gateKids {declName : Name} (d : MachineData) (ok : d.
     refine closeInsts_of_run d ok hbody hS run.mreturns hcl hlenC ?_ ?_ ?_
     · intro k c hc
       obtain ⟨hk, full⟩ := hfull k c hc
-      refine ⟨full.comb, full.design, ?_, ?_⟩
+      obtain ⟨fcomb, flen, fname, fdes⟩ := full
+      refine ⟨fcomb, fdes, ?_, ?_⟩
       · intro args hargs
         obtain ⟨x, hx, rfl⟩ := inst_get hargs
         have hx' : d.shape.insts[k] = x := by
           have := List.getElem?_eq_getElem hk
           rw [hx] at this
           exact (Option.some.inj this).symm
-        have := congrArg List.length full.tys
-        simp only [List.length_map] at this
-        rw [this, hargsN k hk, hx']
-      · rw [full.name]
+        rw [flen, hargsN k hk, hx']
+      · rw [fname]
         exact hparent _ (List.getElem_mem hk)
     · intro a ha c hc' hn
       obtain ⟨i, hi, hai⟩ := List.getElem_of_mem ha
       obtain ⟨j, hj, hcj⟩ := List.getElem_of_mem hc'
       obtain ⟨hki, fi⟩ := hfull i a (by rw [List.getElem?_eq_getElem hi, hai])
       obtain ⟨hkj, fj⟩ := hfull j c (by rw [List.getElem?_eq_getElem hj, hcj])
-      rw [fi.name, fj.name] at hn
+      rw [fi.2.2.1, fj.2.2.1] at hn
       have hni : (d.shape.insts.map (·.1))[i]? = some (d.shape.insts[i]).1 := by simp [hki]
       have hnj : (d.shape.insts.map (·.1))[j]? = some (d.shape.insts[j]).1 := by simp [hkj]
       have hcc := hsep _ (List.mem_of_getElem? hni) _ (List.mem_of_getElem? hnj) hn
@@ -328,7 +341,7 @@ theorem machineClosesAt_of_gateKids {declName : Name} (d : MachineData) (ok : d.
       exact congrArg Prod.fst (Option.some.inj hsame)
     · intro k c hc o ho
       obtain ⟨hk, full⟩ := hfull k c hc
-      rw [full.name]
+      rw [full.2.2.1]
       exact hfresh k hk o ho
   intro h0
   rw [h0] at key

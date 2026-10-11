@@ -31,9 +31,17 @@ argument), `callerD` (a domain-polymorphic child), `midH` (two outputs) and
   middle call's synthesis (`synthesizeChild_pin`, at the positive depth a
   real compile runs the machine synthesis at), so the third call is a hit.
 
-Not covered: machine-route children (`callerL`, `callerLN`, `hftByte` keep
-the premise), several-output / sequential children (`closeInstsG`), parents
-without a `let`.
+Slotless machine children (a combinational body with hardware `let`s, no
+register, no call: `pickByteH`, the IP library's `httpGetByte`) are covered
+too: `callerL`, `callerLN`, `hftByte` — the child's module is `closeMachine`
+of `closeLets` of its transition, read-closed by `closeLets`' own order check
+and the transition's closure (`Tools/ShippingMachineChildComb.lean`); the
+child's premise is its machine reflection (`MachineDefines`), its own closing
+is proved (`c.machine_closes`).
+
+Not covered: machine children with calls of their own or without a `let`,
+several-output / sequential children (`closeInstsG`, B2), parents without a
+`let` (K = 0).
 
 These are conditional theorems under the generic runtime laws (`ChildBnd`);
 that does not make the laws consistent with the runtime (G5), and the shape
@@ -83,6 +91,16 @@ def callerABA (x : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitV
     sel <~ selS + (Signal.pure 1#2 : Signal defaultDomain (BitVec 2))
     acc <~ u
     return u
+
+-- machine-route children: `pickByteH` is a slotless machine (hardware `let`s,
+-- no register, no call), compiled by the machine route
+set_option maxHeartbeats 0 in
+#machine_closes_at Sparkle.Tests.Compiler.ShippingMachineLinkedTest.callerL
+set_option maxHeartbeats 0 in
+#machine_closes_at Sparkle.Tests.Compiler.ShippingMachineLinkedTest.callerLN
+-- a child from the IP library (`httpGetByte`: 12 hardware `let`s)
+set_option maxHeartbeats 0 in
+#machine_closes_at Sparkle.Tests.Compiler.ShippingMachineTeleTest.hftByte
 
 set_option maxHeartbeats 0 in
 #machine_endpoint callerABA
@@ -151,7 +169,8 @@ def auditClosed (f : Name) (nPremises : Nat) : MetaM (Array Lean.Expr) := do
     throwError "{e} depends on a non-standard axiom: {axs}"
   let hyps ← premises (f ++ `machine_closes_at)
   if hyps.size != nPremises then throwError "{f}.machine_closes_at has {hyps.size} premises: {hyps}"
-  if !hyps[0]!.isAppOf ``Tools.ShippingInlineSoundness.EntryDefines then
+  if !hyps[0]!.isAppOf ``Tools.ShippingInlineSoundness.EntryDefines &&
+      !hyps[0]!.isAppOf ``Tools.ShippingMachineEntry.MachineDefines then
     throwError "the first premise is not a child's reflection: {hyps[0]!}"
   -- NOT premise-free: the closed endpoint states the name separation (an
   -- obligation about the compiler's module names, tracked — not proved)
@@ -177,7 +196,14 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   if (aba.shape.insts.map (·.1)) != [``pick, ``pickD, ``pick] then
     throwError "callerABA is not pick, pickD, pick: {aba.shape.insts.map (·.1)}"
   discard <| auditClosed ``callerABA 4
-  Lean.logInfo m!"ONE-OUTPUT GATE CHILDREN CLOSED (caller, callerTwice, callerNested, callerD, midH, callerMix, callerRep, callerABA): machine_design_svHR_closed reaches none of MachineCloses / MachineClosesAt / CallsPure / CallsClose / LetsClose (statement and every definition under it); standard axioms. Premises of caller.machine_closes_at: {hyps}; of callerMix.machine_closes_at: {hypsMix}. NAME SEPARATION stays an obligation of every closed endpoint (stated with Name.toString; evaluated true here by compiled code, not proved: the escaping renderer does not reduce in the kernel, and no theorem bridges it to the unescaped one, which does)."
+  -- machine-route (slotless) children: the child's reflection is its machine
+  -- shape (`MachineDefines`), its own closing is proved (`pickByteH.machine_closes`)
+  let hypsL ← auditClosed ``Sparkle.Tests.Compiler.ShippingMachineLinkedTest.callerL 2
+  discard <| auditClosed ``Sparkle.Tests.Compiler.ShippingMachineLinkedTest.callerLN 2
+  discard <| auditClosed ``Sparkle.Tests.Compiler.ShippingMachineTeleTest.hftByte 2
+  unless hypsL[0]!.isAppOf ``Tools.ShippingMachineEntry.MachineDefines do
+    throwError "callerL: the child's premise is not its machine reflection: {hypsL[0]!}"
+  Lean.logInfo m!"ONE-OUTPUT COMBINATIONAL CHILDREN CLOSED (gate children: caller, callerTwice, callerNested, callerD, midH, callerMix, callerRep, callerABA; slotless machine children: callerL, callerLN, hftByte): machine_design_svHR_closed reaches none of MachineCloses / MachineClosesAt / CallsPure / CallsClose / LetsClose (statement and every definition under it); standard axioms. Premises of caller.machine_closes_at: {hyps}; of callerMix.machine_closes_at: {hypsMix}. NAME SEPARATION stays an obligation of every closed endpoint (stated with Name.toString; evaluated true here by compiled code, not proved: the escaping renderer does not reduce in the kernel, and no theorem bridges it to the unescaped one, which does)."
 
 run_cmd do
   Lean.logInfo m!"REPEATED CALLEE: callerRep (pick, pick) and callerABA (pick, pickD, pick) closed from the run's order — the later call of a declaration is a cache hit of the entry the earlier call left, kept by the calls between at a positive synthesis depth (synthesizeChild_pin); no restriction on the call list"
@@ -456,7 +482,10 @@ run_cmd Lean.Elab.Command.liftTermElabM do
 run_cmd Lean.Elab.Command.liftTermElabM do
   let hr := [``caller, ``callerTwice, ``callerNested, ``callerD,
     ``Sparkle.Tests.Compiler.ShippingMachineDepthHTest.midH,
-    ``Sparkle.Tests.Compiler.ShippingPremiseEvalTest.callerMix, ``callerRep, ``callerABA].map
+    ``Sparkle.Tests.Compiler.ShippingPremiseEvalTest.callerMix, ``callerRep, ``callerABA,
+    ``Sparkle.Tests.Compiler.ShippingMachineLinkedTest.callerL,
+    ``Sparkle.Tests.Compiler.ShippingMachineLinkedTest.callerLN,
+    ``Sparkle.Tests.Compiler.ShippingMachineTeleTest.hftByte].map
       (· ++ `machine_design_svHR_closed)
   let nr := (Sparkle.Tests.Compiler.ShippingChildBoundaryTest.nrEndpoints.map fun (f, n) =>
       f ++ Name.mkSimple s!"machine_design_svNR{n}") ++

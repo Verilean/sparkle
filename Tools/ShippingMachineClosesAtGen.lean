@@ -1,11 +1,14 @@
 import Tools.ShippingCallsGate
+import Tools.ShippingMachineChildRun
 import Tools.ShippingMachineClosesGen
 import Tools.ShippingGateChildCommand
 
 /-! # Generating `f.machine_closes_at`
 
 For a machine `f` whose calls are one-output calls of gate children
-(`#gate_child` run on each): the theorem
+(`#gate_child` run on each) or of SLOTLESS machine children (a combinational
+body with `let`s and no call, e.g. `pickByteH`; `#machine_endpoint` run on
+each): the theorem
 
   `f.machine_closes_at : EntryDefines … c c.gateValue → … → MachineClosesAt mctx mref cctx cref f f.machineData.shape`
 
@@ -71,10 +74,28 @@ def closesAtCore (c : Name) (nDecl? : Option Nat) (name : Name := c ++ `machine_
   let r ← liftTermElabM <| Tools.ShippingMachineCommand.readMachine c
   let calls := r.shape.insts.map (·.1)
   if calls.isEmpty then throwError "{c}: no call"
-  for k in calls do
-    unless (← getEnv).contains (k ++ `gate_peel) do
-      throwError "{c}: {k} is not a generated gate child (#gate_child)"
   let kids := calls.eraseDups
+  -- a callee: a gate child (`#gate_child`), or a SLOTLESS machine child (a
+  -- combinational body with `let`s and no call: the machine route compiles
+  -- it); the number of its declaration binders, for a machine child
+  let mut machKid : Std.HashMap Name Nat := {}
+  for k in kids do
+    if (← getEnv).contains (k ++ `gate_peel) then continue
+    unless (← getEnv).contains (k ++ `machineData) && (← getEnv).contains (k ++ `machine_ok) &&
+        (← getEnv).contains (k ++ `machine_body) do
+      throwError "{c}: {k} is neither a generated gate child (#gate_child) nor a machine with an endpoint (#machine_endpoint)"
+    let cr ← liftTermElabM <| Tools.ShippingMachineCommand.readMachine k
+    unless cr.shape.insts.isEmpty do
+      throwError "{c}: the machine child {k} has calls of its own (not derived here)"
+    unless cr.shape.layout.slots.isEmpty do
+      throwError "{c}: the machine child {k} has registers (a sequential child: the general closing, B2)"
+    if cr.shape.layout.lets == 0 then
+      throwError "{c}: the machine child {k} has no `let` (K = 0: not derived)"
+    unless cr.shape.layout.outs.map (·.name) == ["out"] do
+      throwError "{c}: the machine child {k} does not have the one output `out`"
+    unless (← liftTermElabM <| Tools.ShippingMachineClosesGen.closesTheorem? k).isSome do
+      throwError "{c}: the machine child {k}'s own closing is not derived ({k}.machine_closes)"
+    machKid := machKid.insert k cr.nDecl
   -- several instances of one declaration are one module by the child cache:
   -- derived from the run's order, with any calls between (the entry survives
   -- their synthesis at a positive depth) — no restriction on the call list
@@ -86,7 +107,11 @@ def closesAtCore (c : Name) (nDecl? : Option Nat) (name : Name := c ++ `machine_
   for j in [0:kids.length] do
     let k := kids[j]!
     let kq : Term := quote k
-    binders := binders.push (← `(bracketedBinder|
+    binders := binders.push (← if machKid.contains k then
+      `(bracketedBinder|
+        ($(hR j) : Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref $kq
+          ($(n k "machineData")).shape))
+    else `(bracketedBinder|
       ($(hR j) : Tools.ShippingInlineSoundness.EntryDefines mctx mref cctx cref $kq $(n k "gateValue"))))
   -- the names
   -- different declarations have different printed names: nothing to ask with
@@ -119,14 +144,33 @@ def closesAtCore (c : Name) (nDecl? : Option Nat) (name : Name := c ++ `machine_
     let i := calls.length - 1 - i'
     let k := calls[i]!
     let h := hR (kids.idxOf k)
-    tac ← `(tactic| cases k with
-      | zero =>
-        exact Tools.ShippingCallsGate.childFull_of_real $h $(n k "gate_old") $(n k "gate_peel")
-          $(n k "gate_wf") (Tools.ShippingGateChild.bool_positions (by decide))
-          (Tools.ShippingGateChild.bits_positions (by decide)) hy
-      | succ k => $tac:tactic)
-  let kbArr : Array Term := (calls.map fun k => (n k "gateBinders" : Term)).toArray
-  let kbs ← `([$kbArr,*])
+    tac ← match machKid.get? k with
+      | some nd =>
+        let ndS := Syntax.mkNumLit (toString nd)
+        `(tactic| cases k with
+          | zero =>
+            exact Tools.ShippingMachineChildRun.machineChild_of_real (nDecl := $ndS)
+              $(n k "machineData") $(n k "machine_ok") $(n k "machine_body") (by decide) rfl rfl
+              ⟨_, rfl, rfl⟩ (by decide) $h
+              (fun mc cc => $(n k "machine_closes") mc _ cc _) hy
+          | succ k => $tac:tactic)
+      | none =>
+        `(tactic| cases k with
+          | zero =>
+            exact Tools.ShippingCallsGate.ChildFull.iface
+              (Tools.ShippingCallsGate.childFull_of_real $h $(n k "gate_old") $(n k "gate_peel")
+                $(n k "gate_wf") (Tools.ShippingGateChild.bool_positions (by decide))
+                (Tools.ShippingGateChild.bits_positions (by decide)) hy)
+          | succ k => $tac:tactic)
+  -- the number of input ports of each call's child
+  let mut nkArr : Array Term := #[]
+  for k in calls do
+    nkArr := nkArr.push (← match machKid.get? k with
+      | some nd =>
+        let ndS := Syntax.mkNumLit (toString nd)
+        `(((($(n k "machineData")).shape.binders.take $ndS).filter fun x => x.2 != .domain).length)
+      | none => `((($(n k "gateBinders")).filter fun x => x.2 != .domain).length))
+  let kbs ← `([$nkArr,*])
   let nDecl := Syntax.mkNumLit (toString (nDecl?.getD r.nDecl))
   let before := (← get).messages.toList.length
   elabCommand (← `(command|
@@ -136,7 +180,7 @@ def closesAtCore (c : Name) (nDecl? : Option Nat) (name : Name := c ++ `machine_
         Tools.ShippingChildInv.MachineClosesAt mctx mref cctx cref $cq ($data).shape :=
       Tools.ShippingCallsGate.machineClosesAt_of_gateKids (nDecl := $nDecl) $data
         $(n c "machine_ok") $(n c "machine_body") (by decide) (by decide)
-        (fun k => List.getD $kbs k [])
+        (fun k => List.getD $kbs k 0)
         (by decide)
         (by
           intro k hk y hy

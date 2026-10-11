@@ -136,4 +136,26 @@ theorem machineChild_iface {c : Name} (d : MachineData) (ok : d.ok = true)
     hclosedT ready.typed ready.wiresNodup pb.wires outsOk outTy hsl houts (hMeq ▸ hpost)
   exact ⟨hC, by rw [hI, hPI], by rw [hN, hname], hdesM (by rw [hDeq, hD, hdes]; rfl)⟩
 
+/-- **A real child of a slotless machine declaration has the interface** —
+from its OWN run (the `RealChild` witness): the declaration's reflection moved
+to that run's contexts, the child's closing there (a let-only child closes in
+every context). -/
+theorem machineChild_of_real {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    {nDecl : Nat} (hS : d.gateCallsOk nDecl = true)
+    (hno : d.shape.insts = []) (hsl : d.shape.layout.slots = [])
+    (houts : ∃ o, d.shape.layout.outs = [o] ∧ o.name = "out")
+    (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
+    (entry : MachineDefines mctx mref cctx cref c d.shape)
+    (closes : ∀ (mctx' : Meta.Context) (cctx' : Core.Context),
+      MachineCloses mctx' mref cctx' cref c d.shape)
+    {y : Res} (h : RealChild mref cref c y) :
+    ChildIface c ((d.shape.binders.take nDecl).filter fun x => x.2 != .domain).length y.1 y.2 := by
+  obtain ⟨mctx', cctx', w, w', hw, hr⟩ := h.inv
+  exact machineChild_iface d ok hbody hS hno hsl houts outTy hw hr
+    (Tools.ShippingReflectCtx.MachineDefines.ctx entry)
+    (machineClosesAt_of_closes (closes mctx' cctx'))
+
 end Tools.ShippingMachineChildRun
