@@ -5,6 +5,7 @@ import Tools.ShippingCallsClose
 import Tools.ShippingCloseMachineFacts
 import Tools.ShippingCallsRank
 import Tools.ShippingTransitionFields
+import Tools.ShippingRankRun
 
 /-! # `MachineCloses` derived for `let` shapes without calls
 
@@ -241,3 +242,21 @@ run_cmd Lean.Elab.Command.liftTermElabM do
         if (ty.find? (·.isConstOf c)).isSome then throwError "transition_fields assumes {c}"
     unless run do throwError "transition_fields is not about a harness run"
   Lean.logInfo m!"RANK (B1, one output per statement): rank_closed (pure) and transition_fields (real harness run, any binder split incl. call outputs) — standard axioms; NOT joined yet: the hypotheses of rank_closed are not derived for a real transition"
+
+/-! The rank joined to a run's facts: `rank_of_facts` (from the `Facts` of
+`letOperands_facts` under `okRule` — a call's output is read only once its
+argument `let`s are passed) and `closed_classes` (the closed body's
+statements by kind). Still hypotheses there: the instance statements and
+that every call has a bound for its argument `let`s. NOT derived anywhere
+yet, for the child: its module's interface at the FULL entry and
+`kidsCombB` — `readsClosedB` asks that every name a child statement reads is
+an input or driven EARLIER, which no proved invariant of the translator
+states (the order invariant says "not driven later"). No endpoint has lost
+its closing premise. -/
+run_cmd Lean.Elab.Command.liftTermElabM do
+  for n in [``Tools.ShippingRankRun.rank_of_facts, ``Tools.ShippingRankRun.closed_classes,
+      ``Tools.ShippingRankRun.facts_pres] do
+    for a in ← Lean.collectAxioms n do
+      unless a == ``propext || a == ``Classical.choice || a == ``Quot.sound do
+        throwError "{n} depends on {a}"
+  Lean.logInfo m!"RANK OF A RUN (B1): rank_of_facts, closed_classes — standard axioms; open: instance statements, the child's interface and kidsCombB (needs a new invariant: every read is an input or driven earlier), design name resolution"
