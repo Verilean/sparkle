@@ -27,7 +27,8 @@ run_cmd Lean.Elab.Command.liftTermElabM do
       ``Tools.ShippingUnifiedSpine.fuel_spine, ``Tools.ShippingUnifiedSpine.translateExprToWire_spine,
       ``Tools.ShippingUnifiedSpine.Spec.cached, ``Tools.ShippingUnifiedSpine.concat_spec,
       ``Tools.ShippingHarnessSpine.harness_spine_at, ``Tools.ShippingCloseLetsRun.transition_spine,
-      ``Tools.ShippingCloseLetsRun.concatParts?_of_mem] do
+      ``Tools.ShippingCloseLetsRun.concatParts?_of_mem, ``Tools.ShippingCloseLetsRun.spine_of_packLets,
+      ``Tools.ShippingCloseLetsRun.wireWidth_of_decl, ``Tools.ShippingCloseLetsRun.link_not_out] do
     let ax ← Lean.collectAxioms n
     for a in ax do
       unless a == ``propext || a == ``Classical.choice || a == ``Quot.sound do
@@ -98,9 +99,10 @@ run_cmd Lean.Elab.Command.liftTermElabM do
           ``Tools.ShippingUnifiedSpine.RecQ, ``Tools.ShippingUnifiedSpine.SpineQ,
           ``Sparkle.IR.Machine.letOperands, ``Tools.ShippingMachineEntry.MachineCloses] do
         if (t.find? (·.isConstOf c)).isSome then throwError "transition_spine assumes {c}"
-    unless (concl.find? (·.isConstOf ``Tools.ShippingCloseLetsSplit.Spine)).isSome do
-      throwError "transition_spine does not conclude the spine"
-  Lean.logInfo m!"TRANSITION SPINE: closeLets' conditions (1) final assign and (2) concatenation spine hold of every harness run on a packed machine body (no spine / closeLets / record premise); conditions (3)–(6) are not derived"
+    unless (concl.find? (·.isConstOf ``Tools.ShippingCloseLetsRun.SpineW)).isSome &&
+        (concl.find? (·.isConstOf ``Sparkle.IR.Reorder.writesOf)).isSome do
+      throwError "transition_spine does not conclude the spine with widths and the undriven ports"
+  Lean.logInfo m!"TRANSITION SPINE: closeLets' conditions (1) final assign, (2) concatenation spine, (3) operand wires declared at the fields' widths and not out, (4) input ports undriven, (5) core not out hold of every harness run on a packed machine body (no spine / closeLets / record premise); condition (6), the closed body's dependency order, is not derived"
 
 /-! Let-only sources without calls — the shapes `machineCloses_noCalls_iff`
 is about (`caller` etc. above have calls). `reflSharedLet` translates the

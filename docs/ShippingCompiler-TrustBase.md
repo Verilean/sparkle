@@ -827,11 +827,21 @@ and `ShippingChildCacheRun` removed).
     "not `out`" half of (3): a link's two operands are typed at a positive
     declared width (`TypedExpr.cat`) and `out` is declared at none
     (`link_not_out`), so neither an operand wire nor the core is `out`.
+  - **Condition (3)'s width half derived (2026-10-12).** The spine now
+    carries declarations: `SpineQ wires body` asks each link's high operand
+    to be declared at the concatenation's high width; the record invariant
+    adds "a recorded wire is declared at the width of the value its
+    expression means" (`Meaning`, with `Meaning.deterministic` for cache
+    hits); every arm states the declared width of its result (`Arm` = `Good`
+    ∧ `Last`; `Last.emit` for arms that make their result last,
+    `Last.makeFirst` for the library operator and the concat arm); bound
+    variables are declared at their value's width (`PortInputs`).
+    `transition_spine` concludes `SpineW m.wires m.body (fs.map (·.1)) w`:
+    `wireWidth` of link `i`'s high operand is field `i`'s width (once-declared
+    scalar wires: `wireWidth_of_decl`). What is left of (3) is on the shape
+    side: the `let` port's width is the field's and is positive.
   - Still NOT derived, so `MachineCloses` of a `let` shape is still a premise:
-    (3) the width half: each operand wire declared at its port's width
-    (typedness gives only the SUM of a link's two operand widths; the split
-    needs the declared type of each arm's result wire in the walk, through
-    cache hits by `Meaning.deterministic`); (6) dependency order of the
+    (6) dependency order of the
     closed body: every reader of a `let` port must come after its operand's
     driver. That is positional (statements appended in order, not only
     kept), needs which ports the statements emitted for a term may read

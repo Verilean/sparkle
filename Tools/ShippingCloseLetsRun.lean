@@ -64,23 +64,67 @@ theorem concatParts?_of_mem : ∀ {body : List Stmt} {w a b : String}, Acyclic b
         rw [concatParts?_cons_ne (fun (h : l = w) => ht (by rw [h]; exact hw))]
         exact concatParts?_of_mem ha hin
 
-/-- **Condition (2) from the expression links**: in an ordered body, the links
-of a packed term's expression are the spine `letOperands` walks, one link per
-`let` field. -/
-theorem spine_of_packLets {body : List Stmt} (ho : Acyclic body) {dom : Lean.Expr}
-    {bi vi : Nat → Lean.Expr} {kb kv : Nat} {vw : Nat → Nat} :
+/-- A wire declared once, at a scalar type, has that type's width as its
+`wireWidth`. -/
+theorem wireWidth_of_decl : ∀ {wires : List Port} {x : String} {n : Nat},
+    (wires.map (·.name)).Nodup → (∀ p ∈ wires, p.ty = .bit ∨ ∃ k, p.ty = .bitVector k) →
+    Decl wires x n → wireWidth wires x = n
+  | q :: rest, x, n, nd, hty, ⟨ty, hm, hw⟩ => by
+    rw [List.map_cons, List.nodup_cons] at nd
+    unfold wireWidth
+    rw [List.find?_cons]
+    by_cases hq : q.name = x
+    · have hqe : q = { name := x, ty := ty } := by
+        rcases List.mem_cons.mp hm with h | h
+        · exact h.symm
+        · exact absurd (List.mem_map.mpr ⟨_, h, hq.symm⟩) nd.1
+      subst hqe
+      simp only [beq_self_eq_true]
+      rcases hty _ List.mem_cons_self with h | ⟨k, h⟩
+      · simp only at h; subst h; exact hw
+      · simp only at h; subst h; exact hw
+    · have hin : ({ name := x, ty := ty } : Port) ∈ rest := by
+        rcases List.mem_cons.mp hm with h | h
+        · exact absurd (by rw [← h]) hq
+        · exact h
+      have hne : (q.name == x) = false := by simpa using hq
+      simp only [hne]
+      exact wireWidth_of_decl nd.2 (fun p hp => hty p (List.mem_cons_of_mem _ hp)) ⟨ty, hin, hw⟩
+
+/-- The spine with the operands' widths: from `w`, one link per width, its
+high operand declared at that width. -/
+def SpineW (wires : List Port) (body : List Stmt) : List Nat → String → Prop
+  | [], _ => True
+  | m :: rest, w => ∃ a b, concatParts? body w = some (a, b) ∧ wireWidth wires a = m ∧
+      SpineW wires body rest b
+
+theorem SpineW.spine {wires : List Port} {body : List Stmt} :
+    ∀ {ws : List Nat} {w : String}, SpineW wires body ws w → Spine body ws.length w
+  | [], _, _ => trivial
+  | _ :: _, _, ⟨a, b, h, _, hr⟩ => ⟨a, b, h, hr.spine⟩
+
+/-- **Conditions (2) and (3)-width from the expression links**: in an ordered
+body with once-declared scalar wires, the links of a packed term's expression
+are the spine `letOperands` walks — one link per `let` field, its high operand
+declared at the field's width. -/
+theorem spine_of_packLets {wires : List Port} {body : List Stmt} (ho : Acyclic body)
+    (nd : (wires.map (·.name)).Nodup) (hty : ∀ p ∈ wires, p.ty = .bit ∨ ∃ k, p.ty = .bitVector k)
+    {dom : Lean.Expr} {bi vi : Nat → Lean.Expr} {kb kv : Nat} {vw : Nat → Nat} :
     ∀ (fs : List (Σ w : Nat, Term (.bits w))) {c : Nat} (core : Term (.bits c)) (w : String),
       (packLets fs core).2.WF kb kv vw →
-      (∀ n, SpineQ body n (quote dom bi vi (packLets fs core).2) w) → Spine body fs.length w
+      (∀ n, SpineQ wires body n (quote dom bi vi (packLets fs core).2) w) →
+      SpineW wires body (fs.map (·.1)) w
   | [], _, _, _, _, _ => trivial
   | f :: rest, c, core, w, hwf, hs => by
     obtain ⟨hf, hrest⟩ := hwf
-    have hlo : concatLo? (quote dom bi vi (packLets (f :: rest) core).2) =
-        some (quote dom bi vi (packLets rest core).2) :=
-      concatLo?_concatE dom _ _ (f.2.wf_pos hf) ((packLets rest core).2.wf_pos hrest)
-    obtain ⟨x, y, hm, -⟩ := hs 1 _ hlo
-    refine ⟨x, y, concatParts?_of_mem ho hm, spine_of_packLets ho (dom := dom) (bi := bi) (vi := vi) rest core y hrest (fun n => ?_)⟩
-    obtain ⟨x', y', hm', hr'⟩ := hs (n + 1) _ hlo
+    have hc : canonicalConcat? (quote dom bi vi (packLets (f :: rest) core).2) =
+        some (f.1, (packLets rest core).1, quote dom bi vi f.2,
+          quote dom bi vi (packLets rest core).2) :=
+      canonicalConcat?_concatE dom _ _ (f.2.wf_pos hf) ((packLets rest core).2.wf_pos hrest)
+    obtain ⟨x, y, hm, hd, -⟩ := hs 1 _ _ _ _ hc
+    refine ⟨x, y, concatParts?_of_mem ho hm, wireWidth_of_decl nd hty hd,
+      spine_of_packLets ho nd hty (dom := dom) (bi := bi) (vi := vi) rest core y hrest (fun n => ?_)⟩
+    obtain ⟨x', y', hm', -, hr'⟩ := hs (n + 1) _ _ _ _ hc
     have := (concatParts?_of_mem ho hm).symm.trans (concatParts?_of_mem ho hm')
     cases this
     exact hr'
@@ -101,9 +145,11 @@ theorem link_not_out {m : Sparkle.IR.AST.Module} (ready : TypedPostReady m) {w a
       rw [h', ready.outWidthZero] at hb
       cases hb
 
-/-- **Conditions (1) and (2) of `closeLets`, from a run of the harness** on a
-packed machine body: the final `assign out = w`, and the spine from `w` with
-one link per `let` field. -/
+/-- **`closeLets`' conditions from a run of the harness** on a packed machine
+body: (1) the final `assign out = w`; (2) the spine from `w`, one link per
+`let` field, with (3) each link's high operand declared at the field's width;
+(4) no input port driven; (5) and the rest of (3): no operand of a link is
+`out`. -/
 theorem transition_spine {logProf : String → IO Unit} {declName : Name}
     {bs : List (Name × MixedGateBinder)} {body : Lean.Expr} {m : Sparkle.IR.AST.Module}
     {ids : List FVarId} {cache : IO.Ref (ExprStructMap String)} {returned : String}
@@ -123,7 +169,7 @@ theorem transition_spine {logProf : String → IO Unit} {declName : Name}
     (hv : ∀ j, j < kv → ∃ name, bs[vpos j]? = some (name, .bits (vw j)))
     (hbody : body = quote dom (fun j => inputExpr bs.length (bpos j))
       (fun j => inputExpr bs.length (vpos j)) (packLets fs core).2) :
-    ∃ B w, m.body = B ++ [.assign "out" (.ref w)] ∧ Spine m.body fs.length w ∧
+    ∃ B w, m.body = B ++ [.assign "out" (.ref w)] ∧ SpineW m.wires m.body (fs.map (·.1)) w ∧
       (∀ port ∈ m.inputs, port.name ∉ Sparkle.IR.Reorder.writesOf m.body) ∧
       ∀ x a b, concatParts? m.body x = some (a, b) → a ≠ "out" ∧ b ≠ "out" := by
   have facts := transition_facts nd len run hm nameLegal he hb hv hbody
@@ -163,7 +209,8 @@ theorem transition_spine {logProf : String → IO Unit} {declName : Name}
       · intro j hj
         obtain ⟨name, pos⟩ := hv j hj
         exact instantiated_input len (List.getElem_of_getElem? pos).choose)
-  refine ⟨B, w, hB, spine_of_packLets order fs core w he hsp, fun port hp hw => ?_,
+  refine ⟨B, w, hB, spine_of_packLets order ready.wiresNodup (base positive).wires fs core w he hsp,
+    fun port hp hw => ?_,
     fun x a b h => link_not_out ready h⟩
   -- condition (4): an input port is driven by no statement
   unfold Sparkle.IR.Reorder.writesOf at hw
