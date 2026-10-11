@@ -131,10 +131,33 @@ handles (`IO.FS.Handle`); refs restricted to the listed side refs or to
 run-local TYPES (`LocalRefType`: other types than the three tracked refs');
 Lean expressions. One stated assumption of the same flavour remains:
 `msgToString (m : MessageData)` — a message can carry a lazy thunk
-(`MessageData.ofLazy`, a `BaseIO` closure) that rendering runs. It cannot be
-refuted in the kernel (`MessageData.format` is `partial`), but it is an
-assumption about every message the translator renders (exceptions it
-caught), not a fact about Lean.
+(`MessageData.ofLazy`, a `BaseIO` closure) that rendering runs.
+
+**`msgToString`, `ppExpr`, stderr — checked 2026-10-11 (second pass).** The
+same shape of counterexample as `ioFlush` was tried for `msgToString`: a
+message `ofLazy (fun _ => do sparkleChildCache.set v; …)`
+(`~/sparkle-work/probes/laws4.lean`). It does NOT go through:
+`MessageData.formatAux` is `opaque` in the kernel (a `partial def`), so no
+theorem relates rendering to the thunk; `RefLaws → False` is not derivable
+this way. So the laws are not shown inconsistent by it — but the law is
+FALSE of the runtime for such a message, and likewise `ppExpr` (it runs the
+environment's registered delaborators / printers, arbitrary code) and
+`ioEprintln` (the installed stderr stream). Where they are used: the
+translator renders the message of a CAUGHT exception on an error path
+(`Elab.lean`, "Inline expansion failed with"), and pretty-prints
+expressions in diagnostics; the invariant must hold on failing runs too,
+because callers catch. The messages there are whatever Lean or the
+translator threw, including Lean's own lazy `ofExpr` messages, so their
+safety cannot be derived from the compiler's construction: it depends on
+the environment's printers. Status: three ENVIRONMENT ASSUMPTIONS — no
+registered printer, no thrown message's thunk and not the installed stderr
+stream writes the three refs. They are premises of every `ChildBnd`
+theorem, stated generically (for every message / expression), which is
+stronger than what a run needs. Not kernel-refutable; not derived; a model
+of the laws is not exhibited, so "consistent" is NOT claimed — only that
+the one derivable contradiction is removed. The surface-type test on
+`Framed` constructors does not see callbacks inside structures and is not a
+consistency audit.
 
 (a) Compiler-specific constructors. "None mentions a compiler function" was
 wrong: `profLog (b) (msg) : Framed (liftM (profLogIO b msg))` names the

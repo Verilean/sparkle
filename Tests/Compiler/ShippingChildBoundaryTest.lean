@@ -562,9 +562,16 @@ argument is a stream (`IO.FS.Stream` is a structure of closures) or a function
 into a monad of effects states a frame for an ARBITRARY action; with the cache
 laws that is a contradiction (it was: `ioFlush (h : IO.FS.Stream)`, removed
 2026-10-11 — a stream whose `flush` writes the cache gave `RefLaws → False`).
-Checked on every constructor. Not covered by this check, and stated as an
-assumption: `msgToString (m : MessageData)` — a message can carry a lazy
-thunk (`MessageData.ofLazy`), which rendering runs. -/
+Checked on every constructor's argument TYPES at the surface. This is NOT a
+consistency audit: a structure argument can hide a callback (it does:
+`msgToString (m : MessageData)` — `MessageData.ofLazy` holds a `BaseIO`
+thunk that rendering runs; and `ppExpr` runs the environment's registered
+printers). Those two laws are false of an adversarial message / environment.
+They are not refutable in the kernel (`MessageData.formatAux` is `opaque`,
+the environment is read from an opaque ref — probe `laws4.lean`), so they do
+not make the laws inconsistent the way `ioFlush` did; they are assumptions
+about the environment: no registered printer and no thrown message writes the
+three refs. -/
 run_cmd Lean.Elab.Command.liftTermElabM do
   let some (.inductInfo ii) := (← Lean.getEnv).find? ``Tools.ShippingChildInv.Framed
     | throwError "Framed"
@@ -584,6 +591,6 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     unless bad.isEmpty do
       throwError "{c}: a frame law about a caller-supplied action ({bad})"
     n := n + 1
-  Lean.logInfo m!"FRAMED: {n} constructors, none takes a stream or an action as an argument; the stderr flush is the named action flushStderr; msgToString (lazy thunks in a message) is a stated assumption"
+  Lean.logInfo m!"FRAMED: {n} constructors, none takes a stream or an action as a surface argument (not a consistency audit: msgToString and ppExpr run thunks / registered printers — environment assumptions, kernel-unrefutable since the renderer is opaque); the stderr flush is the named action flushStderr"
 
 end Sparkle.Tests.Compiler.ShippingChildBoundaryTest
