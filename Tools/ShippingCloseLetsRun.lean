@@ -107,15 +107,17 @@ theorem transition_spine {logProf : String → IO Unit} {declName : Name}
     (hv : ∀ j, j < kv → ∃ name, bs[vpos j]? = some (name, .bits (vw j)))
     (hbody : body = quote dom (fun j => inputExpr bs.length (bpos j))
       (fun j => inputExpr bs.length (vpos j)) (packLets fs core).2) :
-    ∃ B w, m.body = B ++ [.assign "out" (.ref w)] ∧ Spine m.body fs.length w := by
+    ∃ B w, m.body = B ++ [.assign "out" (.ref w)] ∧ Spine m.body fs.length w ∧
+      ∀ port ∈ m.inputs, port.name ∉ Sparkle.IR.Reorder.writesOf m.body := by
   have facts := transition_facts nd len run hm nameLegal he hb hv hbody
   have fresh : ((bs.zip ids).map Prod.snd).Nodup := by rw [zip_ids len]; exact nd
   have zero : SourceInputs declName bs ids cache (fun _ => false) (fun _ n => 0#n)
       (fun _ => 0) := admissible_zero _ _
-  obtain ⟨_, _, _, _, _, _, _, _, base⟩ := facts.1 _ _ _ (fun _ _ => 0) zero
+  obtain ⟨_, _, _, _, simple, _, _, _, base⟩ := facts.1 _ _ _ (fun _ _ => 0) zero
   have order : Acyclic m.body := (base positive).order
   subst hbody
-  obtain ⟨B, w, hB, hsp⟩ := harness_spine_at run hm
+  have hin := facts.2.2 (boolValues ids fun _ => false) (bitValues ids fun _ n => 0#n)
+  obtain ⟨B, w, hB, hsp, hnw⟩ := harness_spine_at run hm
     (boolValues ids fun _ => false) (bitValues ids fun _ n => 0#n) (fun _ => 0) zero
     (instFVars (ids.map Lean.Expr.fvar).toArray 0 dom)
     kb kv vw (fun j => ids[bpos j]!) (fun j => ids[vpos j]!) (fun _ => false) (fun _ n => 0#n)
@@ -144,6 +146,17 @@ theorem transition_spine {logProf : String → IO Unit} {declName : Name}
       · intro j hj
         obtain ⟨name, pos⟩ := hv j hj
         exact instantiated_input len (List.getElem_of_getElem? pos).choose)
-  exact ⟨B, w, hB, spine_of_packLets order fs core w he hsp⟩
+  refine ⟨B, w, hB, spine_of_packLets order fs core w he hsp, fun port hp hw => ?_⟩
+  -- condition (4): an input port is driven by no statement
+  unfold Sparkle.IR.Reorder.writesOf at hw
+  obtain ⟨stmt, hs, hl⟩ := List.mem_flatMap.mp hw
+  obtain ⟨l, r, rfl, -⟩ := simple stmt hs
+  have hport : port ∈ (prepare (boolValues ids fun _ => false) (bitValues ids fun _ n => 0#n)
+      (bs.zip ids) (start (entryCompilerState false cache) declName.toString)).state.module.inputs := by
+    rw [prepare_inputs, ← hin]
+    simp only [start, CircuitM.init, Module.empty, List.append_nil, List.mem_reverse]
+    exact hp
+  have hl' : port.name = l := by simpa [Sparkle.IR.Reorder.stmtWrites] using hl
+  exact hnw port hport l r hs hl'.symm
 
 end Tools.ShippingCloseLetsRun

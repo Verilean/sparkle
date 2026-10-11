@@ -53,7 +53,11 @@ theorem harness_spine_at {logProf : String → IO Unit} {declName : Name}
     (qeq : instFVars (ids.map Lean.Expr.fvar).toArray 0 body =
       quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) e) :
     ∃ B w, m.body = B ++ [.assign "out" (.ref w)] ∧
-      ∀ n, SpineQ m.body n (quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) e) w := by
+      (∀ n, SpineQ m.body n (quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) e) w) ∧
+      -- no statement of the returned body drives an input port
+      ∀ port ∈ (prepare bools bits (bs.zip ids)
+          (start (entryCompilerState false cache) declName.toString)).state.module.inputs,
+        ∀ l r, Stmt.assign l r ∈ m.body → l ≠ port.name := by
   let a := start (entryCompilerState false cache) declName.toString
   let p := prepare bools bits (bs.zip ids) a
   have empty := empty_layout (entryCompilerState false cache) declName.toString initial
@@ -66,23 +70,42 @@ theorem harness_spine_at {logProf : String → IO Unit} {declName : Name}
   have hv' : ∀ j, j < kv → inputValues p.bools p.bits (vinp j) =
       some (.bits (vw j) (vvals j (vw j))) :=
     fun j hj => inputValues_bits separate (hvv j hj)
-  obtain ⟨w, sm, ty, tr, -, ht, -⟩ := emitLeaves_single leaf
+  obtain ⟨w, sm, ty, tr, outFresh, ht, -⟩ := emitLeaves_single leaf
+  have decls := prepare_declarations (bools := bools) (bits := bits) (bs.zip ids) a
+    (List.Sublist.refl []) (by intro port hp; cases hp)
   have look := lookup_of_ports prepared.1 prepared.2.1
-  have st0 : St p.context (fun id => ∃ v, inputValues p.bools p.bits id = some v) p.state := by
-    refine ⟨RecQ.empty (prepared.2.2.2.trans rfl), ?_⟩
-    rintro id ⟨v, hv⟩
-    obtain ⟨z, hz, -⟩ := look.lookup id v hv
-    exact ⟨z, hz⟩
-  obtain ⟨-, -, hsp⟩ := translateExprToWire_spine (ctx := p.context)
-    (B := fun id => ∃ v, inputValues p.bools p.bits id = some v) (dom := dom) (bi := binp)
+  have st0 : St p.context (fun id => ∃ v, inputValues p.bools p.bits id = some v)
+      (fun x => ∃ port ∈ p.state.module.inputs, port.name = x) p.state := by
+    refine ⟨RecQ.empty (prepared.2.2.2.trans rfl), ?_, ?_, ?_⟩
+    · rintro id ⟨v, hv⟩
+      obtain ⟨z, hz, -⟩ := look.lookup id v hv
+      exact ⟨z, hz⟩
+    · rintro x ⟨port, hp, rfl⟩
+      exact prepared.2.1.2 port (decls.1.subset hp)
+    · intro l r hm
+      rw [prepared.2.2.1] at hm
+      cases hm
+  obtain ⟨stm, -, hsp⟩ := translateExprToWire_spine (ctx := p.context)
+    (B := fun id => ∃ v, inputValues p.bools p.bits id = some v)
+    (P := fun x => ∃ port ∈ p.state.module.inputs, port.name = x) (dom := dom) (bi := binp)
     (vi := vinp) (fun j hj => ⟨_, hb' j hj⟩) (fun j hj => ⟨_, hv' j hj⟩) e he "out" true
     p.state sm w tr st0
   have bodyEq : m.body = st.module.body.reverse := by
     rw [hm]; simp only [Module.finalize, (addClockReset_facts st.module).1]
-  refine ⟨(CircuitM.addOutput "out" ty sm).2.module.body.reverse, w, ?_, fun n => (hsp n).mono ?_⟩
+  refine ⟨(CircuitM.addOutput "out" ty sm).2.module.body.reverse, w, ?_,
+    fun n => (hsp n).mono ?_, ?_⟩
   · rw [bodyEq, ht, emitAssign_body_cons, List.reverse_cons]
   · intro stmt hs
     rw [bodyEq, ht, emitAssign_body_cons, List.mem_reverse]
     exact List.mem_cons_of_mem _ hs
+  · intro port hp l r hm heq
+    rw [bodyEq, ht, emitAssign_body_cons, List.mem_reverse] at hm
+    rcases List.mem_cons.mp hm with hout | hin
+    · -- the final assign drives `out`, a name not in use when the translator returned
+      cases hout
+      have := stm.2.2.1 port.name ⟨port, hp, rfl⟩
+      rw [← heq, outFresh] at this
+      cases this
+    · exact stm.2.2.2 l r hin ⟨port, hp, heq.symm⟩
 
 end Tools.ShippingHarnessSpine

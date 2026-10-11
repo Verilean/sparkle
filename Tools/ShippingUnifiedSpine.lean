@@ -85,80 +85,117 @@ def RecQ (s : CircuitState) : Prop :=
 theorem RecQ.empty {s : CircuitState} (h : s.translateRecord = {}) : RecQ s := by
   intro w e he; simp [h] at he
 
-/-- The state invariant: the record invariant, and the variables `B` are bound
-(so translating one of them returns its wire and changes nothing). -/
-def St (ctx : CompilerState) (B : FVarId → Prop) (s : CircuitState) : Prop :=
-  RecQ s ∧ ∀ id, B id → ∃ v, visible ctx s.sourceBindings id = some v
+/-- The state invariant: the record invariant; the variables `B` are bound
+(so translating one of them returns its wire and changes nothing); and the
+PROTECTED names `P` (the input ports) are in use — so no wire made from here
+on is one of them — and no statement drives one. -/
+def St (ctx : CompilerState) (B : FVarId → Prop) (P : String → Prop) (s : CircuitState) : Prop :=
+  RecQ s ∧ (∀ id, B id → ∃ v, visible ctx s.sourceBindings id = some v) ∧
+    (∀ x, P x → s.usedNames.contains x = true) ∧
+    (∀ l r, Stmt.assign l r ∈ s.module.body → ¬ P l)
 
 /-- What every action does to the state: statements kept, bindings unchanged. -/
 def Ext (s t : CircuitState) : Prop :=
-  Kept s t ∧ t.sourceBindings = s.sourceBindings
+  Kept s t ∧ t.sourceBindings = s.sourceBindings ∧
+    ∀ z, s.usedNames.contains z = true → t.usedNames.contains z = true
 
-theorem Ext.refl (s : CircuitState) : Ext s s := ⟨Kept.refl s, rfl⟩
+theorem Ext.refl (s : CircuitState) : Ext s s := ⟨Kept.refl s, rfl, fun _ h => h⟩
 theorem Ext.trans {s t u : CircuitState} (h : Ext s t) (k : Ext t u) : Ext s u :=
-  ⟨h.1.trans k.1, k.2.trans h.2⟩
+  ⟨h.1.trans k.1, k.2.1.trans h.2.1, fun z hz => k.2.2 z (h.2.2 z hz)⟩
 
-theorem St.transfer {ctx B} {s t : CircuitState} (h : St ctx B s)
-    (hr : t.translateRecord = s.translateRecord) (hx : Ext s t) : St ctx B t :=
-  ⟨fun w e he n => (h.1 w e (hr ▸ he) n).mono hx.1, fun id hid => by rw [hx.2]; exact h.2 id hid⟩
+theorem St.transfer {ctx B P} {s t : CircuitState} (h : St ctx B P s)
+    (hr : t.translateRecord = s.translateRecord) (hx : Ext s t)
+    (hb : ∀ l r, Stmt.assign l r ∈ t.module.body → Stmt.assign l r ∈ s.module.body ∨ ¬ P l) :
+    St ctx B P t :=
+  ⟨fun w e he n => (h.1 w e (hr ▸ he) n).mono hx.1,
+    fun id hid => by rw [hx.2.1]; exact h.2.1 id hid,
+    fun x hx' => hx.2.2 x (h.2.2.1 x hx'),
+    fun l r hm => (hb l r hm).elim (h.2.2.2 l r) id⟩
 
 /-- An action keeps the state invariant, the statements and the bindings. -/
-def Good (ctx : CompilerState) (B : FVarId → Prop) {α : Type} (a : CompilerM α) : Prop :=
-  ∀ s t r, Returns a ctx s r t → St ctx B s → St ctx B t ∧ Ext s t
+def Good (ctx : CompilerState) (B : FVarId → Prop) (P : String → Prop) {α : Type}
+    (a : CompilerM α) : Prop :=
+  ∀ s t r, Returns a ctx s r t → St ctx B P s → St ctx B P t ∧ Ext s t
 
-/-- An action that writes no record, keeps the statements and the bindings. -/
-def Quiet (ctx : CompilerState) {α : Type} (a : CompilerM α) : Prop :=
-  ∀ s t r, Returns a ctx s r t → t.translateRecord = s.translateRecord ∧ Ext s t
+variable {ctx : CompilerState} {B : FVarId → Prop} {P : String → Prop}
 
-variable {ctx : CompilerState} {B : FVarId → Prop}
-
-theorem Quiet.good {α : Type} {a : CompilerM α} (h : Quiet ctx a) : Good ctx B a :=
-  fun s t r hr hq => ⟨hq.transfer (h s t r hr).1 (h s t r hr).2, (h s t r hr).2⟩
-
-theorem Good.pure {α : Type} (a : α) : Good ctx B (Pure.pure a : CompilerM α) := by
+theorem Good.pure {α : Type} (a : α) : Good ctx B P (Pure.pure a : CompilerM α) := by
   intro s t r hr hq
   obtain ⟨-, rfl⟩ := Returns.pure hr
   exact ⟨hq, Ext.refl _⟩
 
 theorem Good.bind {α β : Type} {m : CompilerM α} {f : α → CompilerM β}
-    (hm : Good ctx B m) (hf : ∀ a, Good ctx B (f a)) : Good ctx B (m >>= f) := by
+    (hm : Good ctx B P m) (hf : ∀ a, Good ctx B P (f a)) : Good ctx B P (m >>= f) := by
   intro s t r hr hq
   obtain ⟨a, sm, h1, h2⟩ := Returns.bind hr
   obtain ⟨q1, k1⟩ := hm s sm a h1 hq
   obtain ⟨q2, k2⟩ := hf a sm t r h2 q1
   exact ⟨q2, k1.trans k2⟩
 
-theorem Good.throw {α : Type} (e : Exception) : Good ctx B (throw e : CompilerM α) :=
+theorem Good.throw {α : Type} (e : Exception) : Good ctx B P (throw e : CompilerM α) :=
   fun _ _ _ hr _ => (Returns.throw hr).elim
 
-theorem Good.liftMetaM {α : Type} (x : MetaM α) : Good ctx B (CompilerM.liftMetaM x) := by
+theorem Good.liftMetaM {α : Type} (x : MetaM α) : Good ctx B P (CompilerM.liftMetaM x) := by
   intro s t r hr hq
   obtain rfl := Returns.liftMetaM hr
   exact ⟨hq, Ext.refl _⟩
 
-theorem Good.makeWire (hint : String) (ty : Sparkle.IR.Type.HWType) (named : Bool) :
-    Good ctx B (CompilerM.makeWire hint ty named) := by
-  apply Quiet.good
-  intro s t r hr
-  obtain ⟨-, ht⟩ := makeWire_returns hr
-  obtain ⟨-, -, hb, -⟩ := CircuitM.makeWire_spec hint ty named s
+/-- What `makeWire` does: a name not in use before (so not a protected one),
+nothing else that the invariant reads. -/
+theorem makeWire_facts {hint : String} {ty : Sparkle.IR.Type.HWType} {named : Bool}
+    {s t : CircuitState} {r : String}
+    (hr : Returns (CompilerM.makeWire hint ty named) ctx s r t) (hq : St ctx B P s) :
+    St ctx B P t ∧ Ext s t ∧ ¬ P r := by
+  obtain ⟨hn, ht⟩ := makeWire_returns hr
+  obtain ⟨hf, hu, hb, -⟩ := CircuitM.makeWire_spec hint ty named s
+  rw [← hn] at hf hu
   subst ht
-  exact ⟨CircuitM.makeWire_translateRecord _ _ _ _, fun st hs => by rw [hb]; exact hs,
-    CircuitM.makeWire_sourceBindings _ _ _ _⟩
+  have hx : Ext s (CircuitM.makeWire hint ty named s).2 :=
+    ⟨fun st hs => by rw [hb]; exact hs, CircuitM.makeWire_sourceBindings _ _ _ _,
+      fun z hz => by rw [hu]; simp [Std.HashSet.contains_insert, hz]⟩
+  refine ⟨hq.transfer (CircuitM.makeWire_translateRecord _ _ _ _) hx
+    (fun l r' hm => Or.inl (hb ▸ hm)), hx, fun hp => ?_⟩
+  have := hq.2.2.1 r hp
+  rw [hf] at this
+  cases this
 
-theorem Good.emitAssign (lhs : String) (rhs : Sparkle.IR.AST.Expr) :
-    Good ctx B (CompilerM.emitAssign lhs rhs) := by
-  apply Quiet.good
-  intro s t r hr
+theorem Good.makeWire (hint : String) (ty : Sparkle.IR.Type.HWType) (named : Bool) :
+    Good ctx B P (CompilerM.makeWire hint ty named) :=
+  fun _ _ _ hr hq => ⟨(makeWire_facts hr hq).1, (makeWire_facts hr hq).2.1⟩
+
+/-- A bind of `makeWire`: the wire it returns is not a protected name. -/
+theorem Good.bindMake {β : Type} {hint : String} {ty : Sparkle.IR.Type.HWType} {named : Bool}
+    {f : String → CompilerM β} (hf : ∀ r, ¬ P r → Good ctx B P (f r)) :
+    Good ctx B P (CompilerM.makeWire hint ty named >>= f) := by
+  intro s t r hr hq
+  obtain ⟨a, sm, h1, h2⟩ := Returns.bind hr
+  obtain ⟨q1, k1, hp⟩ := makeWire_facts h1 hq
+  obtain ⟨q2, k2⟩ := hf a hp sm t r h2 q1
+  exact ⟨q2, k1.trans k2⟩
+
+/-- An assignment to a name that is not protected. -/
+theorem Good.emitAssign (lhs : String) (rhs : Sparkle.IR.AST.Expr) (hl : ¬ P lhs) :
+    Good ctx B P (CompilerM.emitAssign lhs rhs) := by
+  intro s t r hr hq
   have ht := emitAssign_returns hr
   subst ht
-  exact ⟨emitAssign_translateRecord _ _ _, fun st hs => by
-    rw [emitAssign_body_cons]; exact List.mem_cons_of_mem _ hs, rfl⟩
+  have hx : Ext s (CircuitM.emitAssign lhs rhs s).2 :=
+    ⟨fun st hs => by rw [emitAssign_body_cons]; exact List.mem_cons_of_mem _ hs, rfl,
+      fun z hz => by rw [emitAssign_usedNames]; exact hz⟩
+  refine ⟨hq.transfer (emitAssign_translateRecord _ _ _) hx (fun l r' hm => ?_), hx⟩
+  rw [emitAssign_body_cons] at hm
+  rcases List.mem_cons.mp hm with heq | hin
+  · cases heq; exact Or.inr hl
+  · exact Or.inl hin
 
-theorem Good.lookupVar (id : FVarId) : Good ctx B (CompilerM.lookupVar id) := by
+theorem Good.lookupVar (id : FVarId) : Good ctx B P (CompilerM.lookupVar id) := by
   intro s t r hr hq
   obtain ⟨-, rfl⟩ := Tools.ShippingTranslateSoundness.lookupVar_returns hr
   exact ⟨hq, Ext.refl _⟩
+
+-- (the rules are matched on the operations' names: unfolding them while
+-- unifying a rule with another program is what makes a failed match slow)
+attribute [local irreducible] CompilerM.makeWire CompilerM.emitAssign CompilerM.lookupVar
 
 /-- The walk: binds, `pure`, the builder's operations, branches, and the
 hypotheses in scope. -/
@@ -166,7 +203,8 @@ macro "good" : tactic => `(tactic| repeat (first
   | assumption
   | exact Good.pure _
   | exact Good.makeWire _ _ _
-  | exact Good.emitAssign _ _
+  | exact Good.emitAssign _ _ (by assumption)
+  | refine Good.bindMake (fun _ _ => ?_)
   | exact Good.liftMetaM _
   | exact Good.lookupVar _
   | exact Good.throw _
@@ -180,55 +218,55 @@ section Arms
 variable {rec : TranslateFn} {ae be ce : Lean.Expr} {hint : String} {named : Bool}
 
 theorem compare_good {le : SignalCompareKind}
-    (oa : Good ctx B (rec ae "a" false false)) (ob : Good ctx B (rec be "b" false false)) :
-    Good ctx B (translateSignalCompare rec le ae be hint named) := by
+    (oa : Good ctx B P (rec ae "a" false false)) (ob : Good ctx B P (rec be "b" false false)) :
+    Good ctx B P (translateSignalCompare rec le ae be hint named) := by
   unfold translateSignalCompare emitCompareResult emitBoolResult; good
 
 theorem appCompare_good {le : SignalCompareKind}
-    (oa : Good ctx B (rec ae "app_arg" false false)) (ob : Good ctx B (rec be "app_arg" false false)) :
-    Good ctx B (translateAppCompare rec le ae be hint named) := by
+    (oa : Good ctx B P (rec ae "app_arg" false false)) (ob : Good ctx B P (rec be "app_arg" false false)) :
+    Good ctx B P (translateAppCompare rec le ae be hint named) := by
   unfold translateAppCompare emitCompareResult emitBoolResult; good
 
 theorem boolBin_good {kind : SignalBoolBinKind}
-    (oa : Good ctx B (rec ae "a" false false)) (ob : Good ctx B (rec be "b" false false)) :
-    Good ctx B (translateBoolBinary rec kind ae be hint named) := by
+    (oa : Good ctx B P (rec ae "a" false false)) (ob : Good ctx B P (rec be "b" false false)) :
+    Good ctx B P (translateBoolBinary rec kind ae be hint named) := by
   unfold translateBoolBinary emitBoolResult; good
 
 theorem appBool_good {kind : SignalBoolBinKind}
-    (oa : Good ctx B (rec ae "app_arg" false false)) (ob : Good ctx B (rec be "app_arg" false false)) :
-    Good ctx B (translateAppBoolBinary rec kind ae be hint named) := by
+    (oa : Good ctx B P (rec ae "app_arg" false false)) (ob : Good ctx B P (rec be "app_arg" false false)) :
+    Good ctx B P (translateAppBoolBinary rec kind ae be hint named) := by
   unfold translateAppBoolBinary emitBoolResult; good
 
 theorem appBool2_good {f : AppBool2}
-    (oa : Good ctx B (rec ae "app_arg" false false)) (ob : Good ctx B (rec be "app_arg" false false)) :
-    Good ctx B (translateAppBool2 rec f ae be hint named) := by
+    (oa : Good ctx B P (rec ae "app_arg" false false)) (ob : Good ctx B P (rec be "app_arg" false false)) :
+    Good ctx B P (translateAppBool2 rec f ae be hint named) := by
   unfold translateAppBool2 emitBoolResult; good
 
 theorem mux_good {ty : Sparkle.IR.Type.HWType}
-    (oc : Good ctx B (rec ce "mux_cond" false false))
-    (oa : Good ctx B (rec ae "mux_then" false false))
-    (ob : Good ctx B (rec be "mux_else" false false)) :
-    Good ctx B (translateMuxWith rec (pure ty) ce ae be hint named) := by
+    (oc : Good ctx B P (rec ce "mux_cond" false false))
+    (oa : Good ctx B P (rec ae "mux_then" false false))
+    (ob : Good ctx B P (rec be "mux_else" false false)) :
+    Good ctx B P (translateMuxWith rec (pure ty) ce ae be hint named) := by
   unfold translateMuxWith emitMuxResult; good
 
-theorem setw_good {ws wt : Nat} (oa : Good ctx B (rec ae "s" false false)) :
-    Good ctx B (do
+theorem setw_good {ws wt : Nat} (oa : Good ctx B P (rec ae "s" false false)) :
+    Good ctx B P (do
       let sw ← rec ae "s" false false
       emitCastResult (setwRhs ws wt sw) wt hint named) := by
   unfold emitCastResult; good
 
-theorem slice_good {hd : String} {start len : Nat} (oa : Good ctx B (rec ae hd false false)) :
-    Good ctx B (do
+theorem slice_good {hd : String} {start len : Nat} (oa : Good ctx B P (rec ae hd false false)) :
+    Good ctx B P (do
       let sw ← rec ae hd false false
       emitSliceResult (sliceRhs start len sw) len hint named) := by
   unfold emitSliceResult; good
 
-theorem concatConst_good {k v : Nat} : Good ctx B (emitConcatConst k v) := by
+theorem concatConst_good {k v : Nat} : Good ctx B P (emitConcatConst k v) := by
   unfold emitConcatConst emitCastResult; good
 
 theorem concatActs_good {wd : Nat} {hiAct loAct : CompilerM String}
-    (oa : Good ctx B hiAct) (ob : Good ctx B loAct) :
-    Good ctx B (translateConcatActs wd hiAct loAct hint named) := by
+    (oa : Good ctx B P hiAct) (ob : Good ctx B P loAct) :
+    Good ctx B P (translateConcatActs wd hiAct loAct hint named) := by
   unfold translateConcatActs; good
 
 end Arms
@@ -237,23 +275,24 @@ end Arms
 
 /-- An action for the expression `e`: it keeps the invariant, the statements
 and the bindings, and the wire it returns has the links of `e`. -/
-def Spec (ctx : CompilerState) (B : FVarId → Prop) (e : Lean.Expr) (a : CompilerM String) : Prop :=
-  ∀ s t w, Returns a ctx s w t → St ctx B s →
-    St ctx B t ∧ Ext s t ∧ ∀ n, SpineQ t.module.body n e w
+def Spec (ctx : CompilerState) (B : FVarId → Prop) (P : String → Prop) (e : Lean.Expr)
+    (a : CompilerM String) : Prop :=
+  ∀ s t w, Returns a ctx s w t → St ctx B P s →
+    St ctx B P t ∧ Ext s t ∧ ∀ n, SpineQ t.module.body n e w
 
-theorem Spec.good {e : Lean.Expr} {a : CompilerM String} (h : Spec ctx B e a) : Good ctx B a :=
+theorem Spec.good {e : Lean.Expr} {a : CompilerM String} (h : Spec ctx B P e a) : Good ctx B P a :=
   fun s t r hr hq => ⟨(h s t r hr hq).1, (h s t r hr hq).2.1⟩
 
 /-- For an expression that is not a canonical concatenation there is nothing
 to say about the result. -/
-theorem Spec.of_good {e : Lean.Expr} {a : CompilerM String} (hg : Good ctx B a)
-    (hn : concatLo? e = none) : Spec ctx B e a :=
+theorem Spec.of_good {e : Lean.Expr} {a : CompilerM String} (hg : Good ctx B P a)
+    (hn : concatLo? e = none) : Spec ctx B P e a :=
   fun s t r hr hq => ⟨(hg s t r hr hq).1, (hg s t r hr hq).2, SpineQ.of_none hn⟩
 
 /-- A record of the result keeps the record invariant: the result has its links. -/
-theorem St.record {s : CircuitState} {e : Lean.Expr} {w : String} (h : St ctx B s)
+theorem St.record {s : CircuitState} {e : Lean.Expr} {w : String} (h : St ctx B P s)
     (hw : ∀ n, SpineQ s.module.body n e w) :
-    St ctx B { s with translateRecord := s.translateRecord.insert w e } := by
+    St ctx B P { s with translateRecord := s.translateRecord.insert w e } := by
   refine ⟨fun w' e' he' n => ?_, h.2⟩
   rw [Std.HashMap.get?_insert] at he'
   split at he'
@@ -266,8 +305,8 @@ theorem St.record {s : CircuitState} {e : Lean.Expr} {w : String} (h : St ctx B 
 /-- **The validated cache wrapper**: a hit returns a recorded wire — it has
 its links by the record invariant; a miss lowers and records the result. -/
 theorem Spec.cached {lower : TranslateFn} {e : Lean.Expr} {hint : String} {top named : Bool}
-    (h : Spec ctx B e (lower e hint top named)) :
-    Spec ctx B e (translateControlCachedWith lower e hint top named) := by
+    (h : Spec ctx B P e (lower e hint top named)) :
+    Spec ctx B P e (translateControlCachedWith lower e hint top named) := by
   intro s t w hr hq
   rcases translateControlCachedWith_returns hr with hit | ⟨sm, miss, record⟩
   · obtain ⟨hs, hrec⟩ := cacheLookupValidated_returns hit
@@ -282,8 +321,8 @@ theorem Spec.cached {lower : TranslateFn} {e : Lean.Expr} {hint : String} {top n
 the links of the low operand. -/
 theorem concat_spec {e b : Lean.Expr} {wd : Nat} {hint : String} {named : Bool}
     {hiAct loAct : CompilerM String} (he : concatLo? e = some b)
-    (oa : Good ctx B hiAct) (ob : Spec ctx B b loAct) :
-    Spec ctx B e (translateConcatActs wd hiAct loAct hint named) := by
+    (oa : Good ctx B P hiAct) (ob : Spec ctx B P b loAct) :
+    Spec ctx B P e (translateConcatActs wd hiAct loAct hint named) := by
   intro s t w hr hq
   have hg := concatActs_good (hint := hint) (named := named) (wd := wd) oa ob.good s t w hr hq
   refine ⟨hg.1, hg.2, ?_⟩
@@ -295,7 +334,7 @@ theorem concat_spec {e b : Lean.Expr} {wd : Nat} {hint : String} {named : Bool}
   obtain ⟨hwv, ht⟩ := Returns.pure ret
   subst ht
   subst hwv
-  obtain ⟨qA, -⟩ := Good.makeWire (ctx := ctx) (B := B) _ _ _ s sA w hmk hq
+  obtain ⟨qA, -⟩ := Good.makeWire (ctx := ctx) (B := B) (P := P) _ _ _ s sA w hmk hq
   obtain ⟨qB, -⟩ := oa sA sB wa ha qA
   obtain ⟨-, -, spb⟩ := ob sB sC wb hb' qB
   have hD := emitAssign_returns hem
@@ -316,29 +355,29 @@ theorem concat_spec {e b : Lean.Expr} {wd : Nat} {hint : String} {named : Bool}
 /-- Recording a result for an expression that is not a canonical
 concatenation: nothing to check (also when it overwrites a record). -/
 theorem Good.record {e : Lean.Expr} (hn : concatLo? e = none) (w : String) (c : Bool) :
-    Good ctx B (recordTranslation e w c) := by
+    Good ctx B P (recordTranslation e w c) := by
   intro s t r hr hq
   have ht := recordTranslation_returns hr
   subst ht
-  exact ⟨hq.record (SpineQ.of_none hn), fun _ h => h, rfl⟩
+  exact ⟨hq.record (SpineQ.of_none hn), fun _ h => h, rfl, fun _ h => h⟩
 
-theorem Good.apply {α : Type} {a : CompilerM α} (h : Good ctx B a) {s t : CircuitState} {r : α}
-    (hr : Returns a ctx s r t) (hq : St ctx B s) : St ctx B t ∧ Ext s t := h s t r hr hq
+theorem Good.apply {α : Type} {a : CompilerM α} (h : Good ctx B P a) {s t : CircuitState} {r : α}
+    (hr : Returns a ctx s r t) (hq : St ctx B P s) : St ctx B P t ∧ Ext s t := h s t r hr hq
 
 /-- **The step**, for `e` not a canonical concatenation: the validated lookup
 (a hit changes nothing), the core, the record of its result, or the fallback
 when the core declines. -/
 theorem step_spec {rec : TranslateFn} {e : Lean.Expr} {hint : String} {top named : Bool}
     (hn : concatLo? e = none)
-    (hcore : Good ctx B (translateCore rec e hint top named))
-    (hfb : ∀ s t, St ctx B s → Returns (translateCore rec e hint top named) ctx s none t →
-      Good ctx B (translateFallback rec e hint top named)) :
-    Spec ctx B e (translateStepWith translateFallback rec e hint top named) := by
+    (hcore : Good ctx B P (translateCore rec e hint top named))
+    (hfb : ∀ s t, St ctx B P s → Returns (translateCore rec e hint top named) ctx s none t →
+      Good ctx B P (translateFallback rec e hint top named)) :
+    Spec ctx B P e (translateStepWith translateFallback rec e hint top named) := by
   apply Spec.of_good _ hn
   have cont : ∀ {s t w} {K : Option String → CompilerM String},
-      (∀ z, Good ctx B (K (some z))) → K none = translateFallback rec e hint top named →
-      Returns (translateCore rec e hint top named >>= K) ctx s w t → St ctx B s →
-      St ctx B t ∧ Ext s t := by
+      (∀ z, Good ctx B P (K (some z))) → K none = translateFallback rec e hint top named →
+      Returns (translateCore rec e hint top named >>= K) ctx s w t → St ctx B P s →
+      St ctx B P t ∧ Ext s t := by
     intro s t w K hsome hnone hr hq
     obtain ⟨r, sc, hc, rest⟩ := Returns.bind hr
     obtain ⟨qc, kc⟩ := hcore s sc r hc hq
@@ -350,12 +389,12 @@ theorem step_spec {rec : TranslateFn} {e : Lean.Expr} {hint : String} {top named
       rw [hnone] at rest
       obtain ⟨q, k⟩ := hfb s sc hq hc sc t w rest qc
       exact ⟨q, kc.trans k⟩
-  have hrec := fun (z : String) (c : Bool) => Good.record (ctx := ctx) (B := B) hn z c
-  have ksome : ∀ (c : Bool) (z : String), Good ctx B (do
+  have hrec := fun (z : String) (c : Bool) => Good.record (ctx := ctx) (B := B) (P := P) hn z c
+  have ksome : ∀ (c : Bool) (z : String), Good ctx B P (do
       unless e.isFVar do recordTranslation e z c
       pure z : CompilerM String) := by
     intro c z
-    show Good ctx B (if e.isFVar = true then pure z else recordTranslation e z c >>= fun _ => pure z)
+    show Good ctx B P (if e.isFVar = true then pure z else recordTranslation e z c >>= fun _ => pure z)
     split
     · exact Good.pure _
     · exact Good.bind (hrec z c) (fun _ => Good.pure _)
@@ -376,16 +415,16 @@ theorem step_spec {rec : TranslateFn} {e : Lean.Expr} {hint : String} {top named
 /-! ## The step's own cases: a bound variable, a literal, a library operator -/
 
 theorem pureLiteral_good (args : Array Lean.Expr) (hint : String) (named : Bool) :
-    Good ctx B (translateSignalPureLiteral? args hint named) := by
+    Good ctx B P (translateSignalPureLiteral? args hint named) := by
   unfold translateSignalPureLiteral?; good
 
 /-- A bound variable: its wire, nothing changes. -/
 theorem input_spec {rec : TranslateFn} {id : FVarId} {hint : String} {named : Bool} (hB : B id) :
-    Spec ctx B (.fvar id) (translateStepWith translateFallback rec (.fvar id) hint false named) := by
+    Spec ctx B P (.fvar id) (translateStepWith translateFallback rec (.fvar id) hint false named) := by
   refine step_spec rfl (Good.lookupVar id) ?_
   intro s t hq hr
   obtain ⟨hv, -⟩ := Tools.ShippingTranslateSoundness.lookupVar_returns (id := id) hr
-  obtain ⟨v, hbound⟩ := hq.2 id hB
+  obtain ⟨v, hbound⟩ := hq.2.1 id hB
   rw [hbound] at hv
   cases hv
 
@@ -395,7 +434,7 @@ theorem literal_step_spec {rec : TranslateFn} {e c : Lean.Expr} {us : List Level
     (fn : e.getAppFn = .const ``Sparkle.Core.Signal.Signal.pure us)
     (back : e.getAppArgs.back? = some c) (lit : bitVecLitValue? c = some (n, v))
     (hn : concatLo? e = none) :
-    Spec ctx B e (translateStepWith translateFallback rec e hint false named) := by
+    Spec ctx B P e (translateStepWith translateFallback rec e hint false named) := by
   have hcore : translateCore rec e hint false named =
       translateSignalPureLiteral? e.getAppArgs hint named := by
     unfold translateCore
@@ -412,13 +451,13 @@ theorem literal_step_spec {rec : TranslateFn} {e c : Lean.Expr} {us : List Level
 validated cache. -/
 theorem bool_literal_spec {rec : TranslateFn} {dom : Lean.Expr} {hint : String} {named : Bool}
     (b : Bool) (hn : concatLo? (literalE dom b) = none) :
-    Spec ctx B (literalE dom b)
+    Spec ctx B P (literalE dom b)
       (translateStepWith translateFallback rec (literalE dom b) hint false named) := by
   refine step_spec hn (by rw [literal_core]; exact Good.pure _) ?_
   intro s t hq hr
   rw [translateFallback_bool rec _ hint false named (by cases b <;> rfl)]
   refine (Spec.cached (Spec.of_good ?_ hn)).good
-  show Good ctx B (translateBoolUncachedWith rec _ _ hint false named)
+  show Good ctx B P (translateBoolUncachedWith rec _ _ hint false named)
   rw [literal_uncached]
   unfold emitBoolLiteral emitBoolResult; good
 
@@ -429,10 +468,10 @@ theorem binary_step_spec {rec : TranslateFn} {e : Lean.Expr} {m : Name} {us : Li
     (kinds : canonicalSignalBinKinds m e.getAppArgs = some (true, true))
     (width : canonicalSignalBitVecWidth e.getAppArgs = some n)
     (hn : concatLo? e = none)
-    (oa : Good ctx B (rec e.getAppArgs[e.getAppArgs.size - 2]! "op_a" false false))
-    (ob : Good ctx B (rec e.getAppArgs[e.getAppArgs.size - 1]! "op_b" false false)) :
-    Spec ctx B e (translateStepWith translateFallback rec e hint false named) := by
-  have hbin : Good ctx B
+    (oa : Good ctx B P (rec e.getAppArgs[e.getAppArgs.size - 2]! "op_a" false false))
+    (ob : Good ctx B P (rec e.getAppArgs[e.getAppArgs.size - 1]! "op_b" false false)) :
+    Spec ctx B P e (translateStepWith translateFallback rec e hint false named) := by
+  have hbin : Good ctx B P
       (translateCanonicalSignalBinary rec e op.operator e.getAppArgs true true hint named) := by
     unfold translateCanonicalSignalBinary
     simp only [width, if_true]
@@ -467,14 +506,14 @@ bindings, and the wire it returns has the links of the term's expression. -/
 theorem fuel_spine (fuel : Nat) {kb kv : Nat} {vw : Nat → Nat}
     (hb : ∀ j, j < kb → B (bi j)) (hv : ∀ j, j < kv → B (vi j)) :
     ∀ {s : SType} (e : Term s), e.WF kb kv vw → ∀ hint named,
-      Spec ctx B Q(e) (translateFuelFix translateStep fuel Q(e) hint false named) := by
+      Spec ctx B P Q(e) (translateFuelFix translateStep fuel Q(e) hint false named) := by
   induction fuel with
   | zero =>
     intro s e he hint named s' t w hr hq
     exact (Returns.throw hr).elim
   | succ fuel ih =>
     intro s e he hint named
-    change Spec ctx B _ (translateStepWith translateFallback
+    change Spec ctx B P _ (translateStepWith translateFallback
       (translateFuelFix translateStep fuel) _ hint false named)
     cases e with
     | boolInput j => exact input_spec (hb j he)
@@ -497,107 +536,107 @@ theorem fuel_spine (fuel : Nat) {kb kv : Nat} {vw : Nat → Nat}
       obtain ⟨ha, hb'⟩ := he
       have ck := op_checks op dom Q(a) Q(b) w
       refine binary_step_spec op ck.1 ck.2.1 ck.2.2.1 ck.2.2.2.1 (by cases op <;> rfl) ?_ ?_
-      · show Good ctx B (translateFuelFix translateStep fuel
+      · show Good ctx B P (translateFuelFix translateStep fuel
           (binE dom w op Q(a) Q(b)).getAppArgs[(binE dom w op Q(a) Q(b)).getAppArgs.size - 2]!
           "op_a" false false)
         rw [ck.2.2.2.2.1]; exact (ih a ha "op_a" false).good
-      · show Good ctx B (translateFuelFix translateStep fuel
+      · show Good ctx B P (translateFuelFix translateStep fuel
           (binE dom w op Q(a) Q(b)).getAppArgs[(binE dom w op Q(a) Q(b)).getAppArgs.size - 1]!
           "op_b" false false)
         rw [ck.2.2.2.2.2.1]; exact (ih b hb' "op_b" false).good
     | compare le a b =>
       rename_i w
       obtain ⟨ha, hb'⟩ := he
-      show Spec ctx B _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
+      show Spec ctx B P _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
         (compareE le dom w Q(a) Q(b)) hint false named)
       rw [compare_step, translateFallback_bool _ _ hint false named (by cases le <;> rfl)]
       apply Spec.cached
       refine Spec.of_good ?_ (by cases le <;> rfl)
-      show Good ctx B (translateBoolUncachedWith _ _ (compareE le dom w Q(a) Q(b)) hint false named)
+      show Good ctx B P (translateBoolUncachedWith _ _ (compareE le dom w Q(a) Q(b)) hint false named)
       rw [Tools.ShippingCompareLoweringSoundness.translateBoolUncachedWith_compare]
       exact compare_good (ih a ha "a" false).good (ih b hb' "b" false).good
     | boolBinary kind a b =>
       obtain ⟨ha, hb'⟩ := he
-      show Spec ctx B _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
+      show Spec ctx B P _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
         (boolBinE kind dom Q(a) Q(b)) hint false named)
       rw [boolBin_step, translateFallback_bool _ _ hint false named (by cases kind <;> rfl)]
       apply Spec.cached
       refine Spec.of_good ?_ (by cases kind <;> rfl)
-      show Good ctx B (translateBoolUncachedWith _ _ (boolBinE kind dom Q(a) Q(b)) hint false named)
+      show Good ctx B P (translateBoolUncachedWith _ _ (boolBinE kind dom Q(a) Q(b)) hint false named)
       rw [translateBoolUncachedWith_boolBin]
       exact boolBin_good (ih a ha "a" false).good (ih b hb' "b" false).good
     | appCompare le a b =>
       rename_i w
       obtain ⟨ha, hb'⟩ := he
-      show Spec ctx B _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
+      show Spec ctx B P _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
         (appCompareE le dom w Q(a) Q(b)) hint false named)
       rw [appCompare_step, translateFallback_bool _ _ hint false named
         (isBoolControl_appCompareE _ _ _ _ _)]
       apply Spec.cached
       refine Spec.of_good ?_ (by cases le <;> rfl)
-      show Good ctx B (translateBoolUncachedWith _ _ (appCompareE le dom w Q(a) Q(b)) hint false named)
+      show Good ctx B P (translateBoolUncachedWith _ _ (appCompareE le dom w Q(a) Q(b)) hint false named)
       rw [translateBoolUncachedWith_appCompare]
       exact appCompare_good (ih a ha "app_arg" false).good (ih b hb' "app_arg" false).good
     | appBool kind a b =>
       obtain ⟨ha, hb'⟩ := he
-      show Spec ctx B _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
+      show Spec ctx B P _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
         (appBoolE kind dom Q(a) Q(b)) hint false named)
       rw [appBool_step, translateFallback_bool _ _ hint false named (isBoolControl_appBoolE _ _ _ _)]
       apply Spec.cached
       refine Spec.of_good ?_ (by cases kind <;> rfl)
-      show Good ctx B (translateBoolUncachedWith _ _ (appBoolE kind dom Q(a) Q(b)) hint false named)
+      show Good ctx B P (translateBoolUncachedWith _ _ (appBoolE kind dom Q(a) Q(b)) hint false named)
       rw [translateBoolUncachedWith_appBool]
       exact appBool_good (ih a ha "app_arg" false).good (ih b hb' "app_arg" false).good
     | appBool2 f a b =>
       obtain ⟨ha, hb'⟩ := he
-      show Spec ctx B _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
+      show Spec ctx B P _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
         (appBool2E f dom Q(a) Q(b)) hint false named)
       rw [appBool2_step, translateFallback_bool _ _ hint false named (isBoolControl_appBool2E _ _ _ _)]
       apply Spec.cached
       refine Spec.of_good ?_ (by cases f <;> rfl)
-      show Good ctx B (translateBoolUncachedWith _ _ (appBool2E f dom Q(a) Q(b)) hint false named)
+      show Good ctx B P (translateBoolUncachedWith _ _ (appBool2E f dom Q(a) Q(b)) hint false named)
       rw [translateBoolUncachedWith_appBool2]
       exact appBool2_good (ih a ha "app_arg" false).good (ih b hb' "app_arg" false).good
     | boolNot a =>
-      show Spec ctx B _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
+      show Spec ctx B P _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
         (boolNotE dom Q(a)) hint false named)
       rw [boolNot_step, translateFallback_bool _ _ hint false named rfl]
       apply Spec.cached
       refine Spec.of_good ?_ rfl
-      show Good ctx B (translateSignalCompare (translateFuelFix translateStep fuel) .eq Q(a)
+      show Good ctx B P (translateSignalCompare (translateFuelFix translateStep fuel) .eq Q(a)
         (mkApp3 (.const ``Sparkle.Core.Signal.Signal.pure [.zero]) dom (.const ``Bool [])
           (.const ``Bool.false [])) hint named)
       exact compare_good (ih a he "a" false).good (ih (.boolLit false) trivial "b" false).good
     | boolEq a b =>
       obtain ⟨ha, hb'⟩ := he
-      show Spec ctx B _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
+      show Spec ctx B P _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
         (boolEqE dom Q(a) Q(b)) hint false named)
       rw [boolEq_step, translateFallback_bool _ _ hint false named rfl]
       apply Spec.cached
       refine Spec.of_good ?_ rfl
-      show Good ctx B (translateSignalCompare (translateFuelFix translateStep fuel) .eq Q(a) Q(b)
+      show Good ctx B P (translateSignalCompare (translateFuelFix translateStep fuel) .eq Q(a) Q(b)
         hint named)
       exact compare_good (ih a ha "a" false).good (ih b hb' "b" false).good
     | mux c a b =>
       obtain ⟨hc, ha, hb'⟩ := he
       cases s with
       | bool =>
-        show Spec ctx B _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
+        show Spec ctx B P _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
           (boolMuxE dom Q(c) Q(a) Q(b)) hint false named)
         rw [boolMux_step, translateFallback_bool _ _ hint false named rfl]
         apply Spec.cached
         refine Spec.of_good ?_ rfl
-        show Good ctx B (translateMuxWith (translateFuelFix translateStep fuel) (pure .bit)
+        show Good ctx B P (translateMuxWith (translateFuelFix translateStep fuel) (pure .bit)
           _ _ _ hint named)
         exact mux_good (ih c hc "mux_cond" false).good (ih a ha "mux_then" false).good
           (ih b hb' "mux_else" false).good
       | bits w =>
-        show Spec ctx B _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
+        show Spec ctx B P _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
           (muxE dom (bitVecE w) Q(c) Q(a) Q(b)) hint false named)
         rw [vector_step]
         apply Spec.cached
         refine Spec.of_good ?_ rfl
-        show Good ctx B (translateVectorMuxUncachedWith (translateFuelFix translateStep fuel) w
+        show Good ctx B P (translateVectorMuxUncachedWith (translateFuelFix translateStep fuel) w
           (muxE dom (bitVecE w) Q(c) Q(a) Q(b)) hint false named)
         rw [vectorMuxUncached_muxE]
         exact mux_good (ih c hc "mux_cond" false).good (ih a ha "mux_then" false).good
@@ -605,35 +644,35 @@ theorem fuel_spine (fuel : Nat) {kb kv : Nat} {vw : Nat → Nat}
     | setw w' a =>
       rename_i w
       obtain ⟨ha, hpos⟩ := he
-      show Spec ctx B _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
+      show Spec ctx B P _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
         (setwE dom w w' Q(a)) hint false named)
       rw [setw_step _ _ _ _ _ (a.wf_pos ha) hpos]
       apply Spec.cached
       refine Spec.of_good ?_ rfl
-      show Good ctx B (translateSetWidthUncachedWith (translateFuelFix translateStep fuel) w w'
+      show Good ctx B P (translateSetWidthUncachedWith (translateFuelFix translateStep fuel) w w'
         (setwE dom w w' Q(a)) hint false named)
       rw [setwUncached_setwE]
       exact setw_good (ih a ha "s" false).good
     | slice nm start len a =>
       rename_i w
       obtain ⟨ha, hlen, hr⟩ := he
-      show Spec ctx B _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
+      show Spec ctx B P _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
         (sliceE dom nm w start len Q(a)) hint false named)
       rw [slice_step _ _ _ _ _ _ _ _ _ _ hlen hr]
       apply Spec.cached
       refine Spec.of_good ?_ rfl
-      show Good ctx B (translateSliceUncachedWith (translateFuelFix translateStep fuel) start len
+      show Good ctx B P (translateSliceUncachedWith (translateFuelFix translateStep fuel) start len
         (sliceE dom nm w start len Q(a)) hint false named)
       rw [sliceUncached_sliceE]
       exact slice_good (ih a ha "s" false).good
     | concat a b =>
       rename_i m n
       obtain ⟨ha, hb'⟩ := he
-      show Spec ctx B _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
+      show Spec ctx B P _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
         (concatE dom m n Q(a) Q(b)) hint false named)
       rw [concat_step _ _ _ _ _ _ _ _ _ (a.wf_pos ha) (b.wf_pos hb')]
       apply Spec.cached
-      show Spec ctx B _ (translateConcatUncachedWith (translateFuelFix translateStep fuel) m n
+      show Spec ctx B P _ (translateConcatUncachedWith (translateFuelFix translateStep fuel) m n
         (concatE dom m n Q(a) Q(b)) hint false named)
       rw [concatUncached_concatE]
       exact concat_spec (concatLo?_concatE dom _ _ (a.wf_pos ha) (b.wf_pos hb'))
@@ -641,48 +680,48 @@ theorem fuel_spine (fuel : Nat) {kb kv : Nat} {vw : Nat → Nat}
     | concatLitHi k v b =>
       rename_i n
       obtain ⟨hb', hk, hlt⟩ := he
-      show Spec ctx B _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
+      show Spec ctx B P _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
         (concatLitHiE dom k v n Q(b)) hint false named)
       rw [concatLitHi_step _ _ _ _ _ _ _ _ _ hk hlt (b.wf_pos hb')]
       apply Spec.cached
       refine Spec.of_good ?_ rfl
-      show Good ctx B (translateConcatLitUncachedWith (translateFuelFix translateStep fuel)
+      show Good ctx B P (translateConcatLitUncachedWith (translateFuelFix translateStep fuel)
         true k v n (concatLitHiE dom k v n Q(b)) hint false named)
       rw [concatLitUncached_hiE]
       exact concatActs_good concatConst_good (ih b hb' "concat_lo" false).good
     | concatLitLo a k v =>
       rename_i m
       obtain ⟨ha, hk, hlt⟩ := he
-      show Spec ctx B _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
+      show Spec ctx B P _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
         (concatLitLoE dom m k v Q(a)) hint false named)
       rw [concatLitLo_step _ _ _ _ _ _ _ _ _ hk hlt (a.wf_pos ha)]
       apply Spec.cached
       refine Spec.of_good ?_ rfl
-      show Good ctx B (translateConcatLitUncachedWith (translateFuelFix translateStep fuel)
+      show Good ctx B P (translateConcatLitUncachedWith (translateFuelFix translateStep fuel)
         false k v m (concatLitLoE dom m k v Q(a)) hint false named)
       rw [concatLitUncached_loE]
       exact concatActs_good (ih a ha "concat_hi" false).good concatConst_good
     | zextMap nm k a =>
       rename_i n
       obtain ⟨ha, hk⟩ := he
-      show Spec ctx B _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
+      show Spec ctx B P _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
         (zextMapE dom nm k n Q(a)) hint false named)
       rw [zextMap_step _ _ _ _ _ _ _ _ _ hk (a.wf_pos ha)]
       apply Spec.cached
       refine Spec.of_good ?_ rfl
-      show Good ctx B (translateSetWidthUncachedWith (translateFuelFix translateStep fuel) n
+      show Good ctx B P (translateSetWidthUncachedWith (translateFuelFix translateStep fuel) n
         (k + n) (zextMapE dom nm k n Q(a)) hint false named)
       rw [setwUncached_zextMapE]
       exact setw_good (ih a ha "s" false).good
     | sliceF nm start len a =>
       rename_i w
       obtain ⟨ha, hlen, hr⟩ := he
-      show Spec ctx B _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
+      show Spec ctx B P _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
         (sliceFE dom nm w start len Q(a)) hint false named)
       rw [sliceF_step _ _ _ _ _ _ _ _ _ _ hlen hr]
       apply Spec.cached
       refine Spec.of_good ?_ rfl
-      show Good ctx B (translateSliceFUncachedWith (translateFuelFix translateStep fuel)
+      show Good ctx B P (translateSliceFUncachedWith (translateFuelFix translateStep fuel)
         start len (sliceFE dom nm w start len Q(a)) hint false named)
       rw [sliceFUncached_sliceFE]
       exact slice_good (ih a ha "a" false).good
@@ -691,7 +730,7 @@ theorem fuel_spine (fuel : Nat) {kb kv : Nat} {vw : Nat → Nat}
 theorem translateExprToWire_spine {kb kv : Nat} {vw : Nat → Nat}
     (hb : ∀ j, j < kb → B (bi j)) (hv : ∀ j, j < kv → B (vi j))
     {s : SType} (e : Term s) (he : e.WF kb kv vw) (hint : String) (named : Bool) :
-    Spec ctx B Q(e) (translateExprToWire Q(e) hint false named) :=
+    Spec ctx B P Q(e) (translateExprToWire Q(e) hint false named) :=
   fuel_spine translateFuelLimit hb hv e he hint named
 
 end Fuel
