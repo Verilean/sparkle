@@ -1,6 +1,7 @@
 import Tests.Compiler.ShippingCloseInstsCheckTest
 import Tools.ShippingReflectCtx
 import Tools.ShippingCloseLetsSplit
+import Tools.ShippingCloseLetsRun
 
 /-! The reflection premises against the contexts a child is synthesised in.
 
@@ -22,7 +23,11 @@ run_cmd Lean.Elab.Command.liftTermElabM do
       ``Tools.ShippingCloseLetsSplit.closeLets_isSome_iff,
       ``Tools.ShippingCloseLetsSplit.machineCloses_noCalls_iff,
       ``Tools.ShippingCloseLetsSplit.letOperands_isSome_iff, ``Tools.ShippingCloseLetsSplit.Spine.emit,
-      ``Tools.ShippingCloseLetsSplit.Spine.append] do
+      ``Tools.ShippingCloseLetsSplit.Spine.append,
+      ``Tools.ShippingUnifiedSpine.fuel_spine, ``Tools.ShippingUnifiedSpine.translateExprToWire_spine,
+      ``Tools.ShippingUnifiedSpine.Spec.cached, ``Tools.ShippingUnifiedSpine.concat_spec,
+      ``Tools.ShippingHarnessSpine.harness_spine_at, ``Tools.ShippingCloseLetsRun.transition_spine,
+      ``Tools.ShippingCloseLetsRun.concatParts?_of_mem] do
     let ax ← Lean.collectAxioms n
     for a in ax do
       unless a == ``propext || a == ``Classical.choice || a == ``Quot.sound do
@@ -80,3 +85,19 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     unless (Sparkle.IR.Machine.closeLets k t).isSome do throwError "{n}: closeLets refuses"
     report := report.push s!"{n.getString!}: lets={k}, aliases={aliases.length}, {t.body.length} statements"
   Lean.logInfo m!"CLOSELETS CONDITIONS ON REAL TRANSITIONS (all six hold): {report}"
+
+/-! `transition_spine` is about EVERY run of the harness: its statement has no
+premise about the returned module beside its being the run's (no `closeLets`,
+no `Spine`, no record invariant assumed). -/
+run_cmd Lean.Elab.Command.liftTermElabM do
+  let ty ← Lean.Meta.inferType (Lean.mkConst ``Tools.ShippingCloseLetsRun.transition_spine)
+  Lean.Meta.forallTelescope ty fun xs concl => do
+    for x in xs do
+      let t ← Lean.Meta.inferType x
+      for c in [``Sparkle.IR.Machine.closeLets, ``Tools.ShippingCloseLetsSplit.Spine,
+          ``Tools.ShippingUnifiedSpine.RecQ, ``Tools.ShippingUnifiedSpine.SpineQ,
+          ``Sparkle.IR.Machine.letOperands, ``Tools.ShippingMachineEntry.MachineCloses] do
+        if (t.find? (·.isConstOf c)).isSome then throwError "transition_spine assumes {c}"
+    unless (concl.find? (·.isConstOf ``Tools.ShippingCloseLetsSplit.Spine)).isSome do
+      throwError "transition_spine does not conclude the spine"
+  Lean.logInfo m!"TRANSITION SPINE: closeLets' conditions (1) final assign and (2) concatenation spine hold of every harness run on a packed machine body (no spine / closeLets / record premise); conditions (3)–(6) are not derived"

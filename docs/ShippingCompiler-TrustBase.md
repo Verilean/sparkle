@@ -799,7 +799,33 @@ and `ShippingChildCacheRun` removed).
     (an invariant on `translateRecord`: every recorded concat term's wire has
     its spine; each arm must be shown to only append statements and to
     record only its result).
-  - Next lemma (the smallest that removes a premise): a spine postcondition
+  - **Conditions (1) and (2) are now DERIVED from every harness run
+    (2026-10-12).** `Tools/ShippingUnifiedSpine.lean`: a structural invariant
+    on the real cache `translateRecord : wire → Lean.Expr` (`RecQ`: a recorded
+    wire has the links of its expression while that is a canonical
+    concatenation — by the compiler's own `canonicalConcat?`), statements only
+    added (`Kept`), bindings unchanged; a `Returns`-based walk (`Good`, tactic
+    `good`) for every arm; the validated cache wrapper on hit, miss and record
+    overwrite (`Spec.cached`, `St.record`); the concat arm (`concat_spec`); the
+    step for non-concat expressions (`step_spec`: lookup, core, record,
+    fallback) with bound variables, literals and library operators; and the
+    fuel induction over `Term` (`fuel_spine`, all 21 constructors) —
+    `translateExprToWire_spine`. `Tools/ShippingHarnessSpine.lean`
+    (`harness_spine_at`): the harness starts from the empty record, binders
+    are bound by the port walk, the output port and final assign keep the
+    statements. `Tools/ShippingCloseLetsRun.lean` (`transition_spine`): on a
+    packed machine body the returned module ends in `assign out = w` and has
+    `Spine … fs.length w`; membership links become the `concatParts?` spine by
+    the returned body's order invariant (`Acyclic`: one driver per wire,
+    `concatParts?_of_mem`). No premise about the run beyond its being a run.
+  - Still NOT derived, so `MachineCloses` of a `let` shape is still a premise:
+    (3) operand widths (needs the declared type of each arm's result wire,
+    through cache hits by `Meaning.deterministic`); (4) `let` ports undriven
+    (needs "assign targets are freshly made wires" in the walk); (5) `core ≠
+    out` (from typedness / allocated names); (6) dependency order of the
+    closed body (needs positions: readers of a `let` port come after its
+    operand's driver — emission order plus the shape-side scoping check).
+  - (earlier plan, kept for the record) a spine postcondition
     for the translator on `packLets fs core` giving (2)–(5), then (6) from
     the existing order invariant plus (b). Calls (`closeInsts`,
     `closeInstsG`) come after: their checks (`kidsCombB`, name resolution)
