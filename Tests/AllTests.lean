@@ -146,6 +146,7 @@ import Tests.Compiler.ShippingReflectCtxTest
 import Tests.Compiler.ShippingMachineClosesTest
 import Tests.Compiler.ShippingCallsCloseTest
 import Tests.Compiler.ReaderWildcardTest
+import Tests.Compiler.LegacyCacheRollbackTest
 import Tests.Compiler.InlineUnfoldRegressionTest
 import Tests.Compiler.ShippingHierOptRunTest
 import Tests.Compiler.ShippingMachineDepthTest

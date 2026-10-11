@@ -236,3 +236,182 @@ imports `Tools.ShippingUnifiedRecursion`).
    counterpart of `ships_design_*` at all; `lambdaTelescope` /
    `splitReturnLeaves` / `bindInputsLegacy` have to produce `Inv` at the
    start and read the outputs off `emitLeaves`.
+
+## 8. The reproduction test
+
+`Tests/Compiler/LegacyCacheRollbackTest.lean`. It never throws; it logs.
+
+**A guard I had missed in §2.** `instLinkCheck` (`Elab.lean`, before every
+`emitInstance` of the legacy handler) refuses an instance one of whose
+connections is not a declared wire or input of the parent with the port's
+width. So in the SUB-MODULE recovery path a stale argument wire that is
+undeclared in the rolled-back module is not emitted: the compile is REJECTED
+("a connected wire's width differs from the port's width"). That path
+miscompiles only if the stale name has been re-allocated, at the same width,
+before the instance is emitted. The RETRY path has no such guard: the
+unfolding is lowered by the certified binary arm, which reads its operand
+wires without looking at their declarations.
+
+**Method.** The real entry (`synthesizeCombinationalCoreWith`, legacy front
+end) with the real step `translateStepWith translateFallback`, tied by
+`translateFuelFix` like `translateExprToWire`, every recursive call through
+`inject`: a one-shot fault at the inline attempt's own translation call,
+raised `before` it (clean failure), `after` it (the attempt's
+sub-translations are in the cache), or not at all. The fault is INJECTED; it
+stands for any exception late in an inline attempt. I did not find, by
+reading, a source whose attempt fails late by itself AND recovers (a failure
+in the unfolded body also fails the sub-module synthesis of the same body;
+the retry translates the same unfolding). The plausible natural trigger is a
+helper that only compiles as a module because the entry preprocesses a module
+body (`stripMemoizeWrappers`, `openRecordInputs`) and not an inlined one — the
+"circular zeta-reduction" failure of FSM bodies; the test's second block
+measures two natural candidates (`natDeep`, `natCtr`) and reports whether any
+recursive translation failed and was recovered from.
+
+**Scenarios and what my reading of the allocator predicts** (names from
+`freshTemporary`: `_tmp_{hint}_{counter}`, counter rolled back by the catch):
+
+| Scenario | Source | Predicted `after` run |
+|---|---|---|
+| retry, argument twice | `helperFR (helperG x)`, `helperFR y := y + y` reducible | `_gen_out := _tmp_op_a_0 + _tmp_op_a_0`, `_tmp_op_a_0` neither declared nor driven: malformed module, emitted |
+| retry, later operand | `helperFK (helperG x) + (x + x)`, `helperFK y := 3 + y` reducible | the stale name `_tmp_op_b_2` (was `helperG x`) is re-allocated to `x + x`: module well formed, computes `(3 + 2x) + 2x` instead of `(3 + (x + 1)) + 2x` — a SILENT miscompile, caught only by the evaluation |
+| sub-module after a failed inline | `helperF (helperG x)`, `helperF` not reducible | rejected by `instLinkCheck` |
+
+The checks: declared / driven / driven-once over statements and instance
+connections (an instance drives what is connected to its module's output
+ports), and the port `out` evaluated with `Sparkle.IR.Semantics.evalAssigns`
+(iterated to a fixpoint) against the source function at x = 0, 1, 5, 200.
+Verdict lines: `STALE HIT REPRODUCED: …`, `STALE HIT REPRODUCED, CAUGHT AS A
+REJECTION: …`, `no stale hit: …`, `FAULT NOT REACHED` (my reading of the
+dispatch is wrong), `INCONCLUSIVE` (a control is not clean).
+
+Only `ctx.exprCache` is exercised. `sparkleLetWireCache` /
+`sparkleLoopWireCache` / `sparkleSingleOutInstanceCache` have the same shape
+(a name read from an `IO.Ref`, state rolled back by the catch) and are not
+tested here.
+
+## 9. Proposal: validate the legacy hits (NOT applied)
+
+### 9.1 The shim (`Elab.lean` 7854–7889, `Rec.translateExprToWireCached`)
+
+Move `cacheLookupValidated` (7910–7921) and `recordTranslation` (7925–7931)
+above `section TranslatorBlock` (5569); they use only `CompilerM` and
+`ExprDecEq`. Replace the body of the shim by
+
+```lean
+def translateExprToWireCached (e : Lean.Expr) (hint : String := "wire")
+    (isTopLevel : Bool := false) (isNamed : Bool := false) : CompilerM String := do
+  let cacheable := !isNamed && !e.isFVar && !isTopLevel
+  if cacheable then
+    if let some w ← cacheLookupValidated e then
+      CompilerM.liftMetaM (sparkleCacheHits.modify (· + 1))
+      return w
+  let s0 ← get
+  let r ← translateExprToWireImpl (fun e h t n => translateExprToWire e h t n) e hint isTopLevel isNamed
+  -- record (and cache) only a wire this call made: a result that is an
+  -- existing wire (a bound variable's, a wrapper's payload) keeps its record
+  if !s0.usedNames.contains r then recordTranslation e r cacheable
+  return r
+```
+
+Changes against today: the hit is honoured only if the pure state records
+the wire for THIS expression (`translateRecord[w] = e`, decided by
+`ExprDecEq`); the second lookup under `e.consumeMData` is dropped; the
+insert goes through `recordTranslation` (pure record always, `IO.Ref` when
+cacheable). `emitLeaves`' own insert (2174) needs no change: the leaf's wire
+was recorded by the shim when it was fresh.
+
+**Accepted sources.** A validated hit returns what today's hit returns. Where
+today hits and the new code misses, the new code runs the body — the same
+call today's code makes on a miss. Three kinds of new miss: (a) a stale entry
+after a rollback (today's defect); (b) an `mdata`-stripped key; (c) an
+expression whose first lowering returned an existing wire (not recorded). In
+(b) and (c) the expression was lowered successfully once in an earlier state
+of the same module, and is lowered again. That the second lowering succeeds
+is NOT a theorem (the translation-call limit is the one state-dependent
+failure I know of); it has to be confirmed by the corpus diff. If exactly
+today's hit set minus (a) is wanted, make the record multi-valued instead
+(`translateRecord : HashMap String (List Expr)`, a hit valid when the list
+contains `e`): then (c) hits as today, at the price of restating `Records` /
+`RecordFresh` over lists. The emitted text can differ in (b)/(c) (duplicated
+hardware); for the legacy route that is a new difference and needs
+`compare_outputs.py`.
+
+**Lemmas that then apply, unchanged:** `cacheLookupValidated_returns`,
+`recordTranslation_returns`, `validated_hit` / `hit_outcome` (the hit's
+`Outcome` from `Inv.records`), `Records.insert` / `record_preserves`,
+`Frame.record_new` (the result is fresh), `cached_widths_outcome`. One new
+inversion lemma replaces `legacyShim_returns`: a run of the new shim is a
+validated hit, or the body's run followed by `recordTranslation` on a fresh
+wire, or the body's run alone. With it `ShimAt` holds for EVERY call
+(`Tools/ShippingLegacySemDispatch.lean`), so `ReachesAt` and
+`inline_step_contract_at` need no cacheability premise. `legacyRel`'s proof
+of the shim is by `vc` and should go through (`cacheLookupValidated` and
+`recordTranslation` are already walked for the certified arms).
+
+### 9.2 The three name caches
+
+`sparkleLetWireCache` (read 7745, written 7774), `sparkleLoopWireCache`
+(read 6064, written 6087; also 1276), `sparkleSingleOutInstanceCache` (read
+6549, written 6554; `instArmCacheGet/Put` 8359/8363) are keyed by a
+canonical hash, not by the expression, so `translateRecord` cannot validate
+them. Proposal: make them fields of `CircuitState`
+(`Sparkle/IR/Builder.lean`) instead of global `IO.Ref`s. They are per-module
+already (the entry clears them on every nested synthesis, 5471–5487), so the
+lifetime is the same; a `catch` then rolls them back together with the wires
+they name, and they become visible to `Returns`. `sparkleSubInstanceOutputs`
+deliberately persists across nested syntheses and re-declares its wires in
+the new parent (`alreadyDeclared`), so it stays an `IO.Ref`; its remaining
+unvalidated read is the projection shortcut (6364), which should get the
+same `alreadyDeclared` test.
+
+## 10. The dispatch, in stages
+
+`Tools/ShippingLegacySemDispatch.lean`: `ReachesAt rec ctx e hint top named`
+(per call: the inline attempt's wire, or a validated hit `t = s ∧
+translateRecord[w] = e`), `inline_at_action`, `inline_step_contract_at`
+(the contract from `ReachesAt`, hit included, with `Meaning e v` for the
+hit), and the stages: `fallback_eq_arm`, `arm_to_shim` (proved),
+`ShimAt` and `BodyReachesInline` (premises), `reachesAt_of_stages`.
+
+`Tools/ShippingLegacySemShim.lean`: `legacyShim_returns` (today's shim is
+the body's run or an unvalidated hit), hence `shimAt_of_uncacheable`,
+`shimAt_of_noCache`, `reachesAt_uncacheable`, `reachesAt_noCache`.
+
+NOT done: `BodyReachesInline`. Its walk needs, for a plain call, (i) the
+body's prefix (`trace[…]`, the call counter, the limit, the profile tick —
+oracles), (ii) every inline arm of `Rec.translateExprToWireImpl` before the
+`match e with | .app ..` declining on the head's name, (iii) the
+`hasMappedFvar` / `whnf` step (an oracle that may REPLACE `e`: the statement
+needs "the expression has a mapped `fvar`", or a premise on the oracle),
+(iv) `handleErrorPatterns` and the eight handlers before
+`handleDefinitionUnfold` returning `none`, (v) `handleDefinitionUnfold`'s
+own prefix. Each handler's "returns `none` on this head" is a name test in
+its first lines, but they are nine separate programs; I did not write them
+blind.
+
+Spots that may not elaborate: `arm_to_shim`'s last step (the two-discriminant
+`match` after the projection test is rewritten to `none`; three alternatives
+are tried); all of `legacyShim_returns` (see the file's header); in the test,
+nothing proof-like, but the `circuit do` candidate `ctrU` and the
+`evalAssigns` call are the API uses I could not check.
+
+
+## 11. Integrator's run of the reproduction test (2026-10-12)
+
+ was run through the protected
+queue at +. Verdicts, with the fault INJECTED at the inline
+attempt's translation call (no source that fails late by itself was found:
+):
+
+* retry, argument used twice (): the emitted module reads
+  , neither declared nor driven;  for every input
+  (source: ).
+* retry, then a later operand (): the module is WELL FORMED
+  and computes another function (): the stale name
+   was re-allocated to .
+* sub-module after a failed inline (): rejected by .
+
+So the stale hit is real given a late failure of an inline attempt. Whether
+any real source fails late is NOT established. 
+failed its first build (returned to the worker);  was not reached.
