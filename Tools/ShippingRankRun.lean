@@ -211,6 +211,43 @@ theorem rank_of_facts {P : String → Prop} {bnd : FVarId → Option String} {t 
 
 /-! ## The closed body's statements and driven names -/
 
+/-- **The combinational statements of the closed body, by kind** (no fact
+about the instances needed). -/
+theorem closed_comb {T : List Stmt} {al : List (Port × String)} {core : String}
+    {ps : List Port} {lay : Layout} {R stmts : List Stmt}
+    (hTa : ∀ st ∈ T, ∃ l r, st = Stmt.assign l r)
+    (hR : ∀ st ∈ R, isReg st = true)
+    (outsOk : ∀ o ∈ lay.outs, 0 < o.width ∧ outNameOk o.name = true) :
+    ∀ st ∈ combOf (((frontAliases al T ++ insertAliases al T) ++
+        (nextAssigns core ps lay.slots ++ (R ++ outAssigns core lay.outs))) ++ stmts),
+      (∃ l r, st = Stmt.assign l r ∧ Stmt.assign l r ∈ T) ∨
+      (∃ (a : Nat) (pa : Port × String), al[a]? = some pa ∧ st = aliasStmt pa.1 pa.2) ∨
+      (∃ l lo wd, st = Stmt.assign l (fieldRhs core lo wd) ∧ ¬ Allocated l) ∨ st ∈ stmts := by
+  intro st hs
+  rw [combOf_eq] at hs
+  obtain ⟨hm, hc⟩ := List.mem_filter.mp hs
+  have aliasCase : ∀ pa ∈ al, st = aliasStmt pa.1 pa.2 →
+      ∃ (a : Nat) (pa : Port × String), al[a]? = some pa ∧ st = aliasStmt pa.1 pa.2 := by
+    intro pa hpa he
+    obtain ⟨a, ha⟩ := List.mem_iff_getElem?.mp hpa
+    exact ⟨a, pa, ha, he⟩
+  simp only [List.mem_append] at hm
+  rcases hm with ((h | h) | h | h | h) | h
+  · obtain ⟨pa, hpa, he⟩ := mem_frontAliases h
+    exact Or.inr (Or.inl (aliasCase pa hpa he))
+  · rcases mem_insertAliases h with h | ⟨pa, hpa, he⟩
+    · obtain ⟨l, r, rfl⟩ := hTa st h
+      exact Or.inl ⟨l, r, rfl, h⟩
+    · exact Or.inr (Or.inl (aliasCase pa hpa he))
+  · obtain ⟨p, f, he⟩ := nextAssigns_mem core ps lay.slots st h
+    exact Or.inr (Or.inr (Or.inl ⟨_, _, _, he, nextName_not_allocated p.name⟩))
+  · have := hR st h
+    cases st <;> simp_all [isReg, isComb]
+  · simp only [outAssigns, List.mem_map] at h
+    obtain ⟨o, ho, he⟩ := h
+    exact Or.inr (Or.inr (Or.inl ⟨_, _, _, he.symm, (outNameOk_facts (outsOk o ho).2).1⟩))
+  · exact Or.inr (Or.inr (Or.inr h))
+
 /-- **The combinational statements of the closed body, by kind**, and the
 names they drive: a transition statement, the alias of a `let`, a next-value
 or output assignment (a name that is not allocated), an instance. -/
@@ -230,33 +267,8 @@ theorem closed_classes {T : List Stmt} {al : List (Port × String)} {core : Stri
     (∀ x ∈ drivenOf body0, x ∈ writesOf T ∨ x ∈ al.map (·.1.name) ∨ x ∈ instNames ∨
       ¬ Allocated x) := by
   intro body0
-  have hcls : ∀ st ∈ combOf body0, (∃ l r, st = Stmt.assign l r ∧ Stmt.assign l r ∈ T) ∨
-      (∃ (a : Nat) (pa : Port × String), al[a]? = some pa ∧ st = aliasStmt pa.1 pa.2) ∨
-      (∃ l lo wd, st = Stmt.assign l (fieldRhs core lo wd) ∧ ¬ Allocated l) ∨ st ∈ stmts := by
-    intro st hs
-    rw [combOf_eq] at hs
-    obtain ⟨hm, hc⟩ := List.mem_filter.mp hs
-    have aliasCase : ∀ pa ∈ al, st = aliasStmt pa.1 pa.2 →
-        ∃ (a : Nat) (pa : Port × String), al[a]? = some pa ∧ st = aliasStmt pa.1 pa.2 := by
-      intro pa hpa he
-      obtain ⟨a, ha⟩ := List.mem_iff_getElem?.mp hpa
-      exact ⟨a, pa, ha, he⟩
-    simp only [body0, List.mem_append] at hm
-    rcases hm with ((h | h) | h | h | h) | h
-    · obtain ⟨pa, hpa, he⟩ := mem_frontAliases h
-      exact Or.inr (Or.inl (aliasCase pa hpa he))
-    · rcases mem_insertAliases h with h | ⟨pa, hpa, he⟩
-      · obtain ⟨l, r, rfl⟩ := hTa st h
-        exact Or.inl ⟨l, r, rfl, h⟩
-      · exact Or.inr (Or.inl (aliasCase pa hpa he))
-    · obtain ⟨p, f, he⟩ := nextAssigns_mem core ps lay.slots st h
-      exact Or.inr (Or.inr (Or.inl ⟨_, _, _, he, nextName_not_allocated p.name⟩))
-    · have := hR st h
-      cases st <;> simp_all [isReg, isComb]
-    · simp only [outAssigns, List.mem_map] at h
-      obtain ⟨o, ho, he⟩ := h
-      exact Or.inr (Or.inr (Or.inl ⟨_, _, _, he.symm, (outNameOk_facts (outsOk o ho).2).1⟩))
-    · exact Or.inr (Or.inr (Or.inr h))
+  have hcls := closed_comb (al := al) (core := core) (ps := ps) (lay := lay) (stmts := stmts)
+    hTa hR outsOk
   refine ⟨hcls, ?_⟩
   intro x hx
   obtain ⟨st, hs, hw⟩ := mem_driven hx
