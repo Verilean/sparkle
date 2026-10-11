@@ -2048,3 +2048,12 @@ lean_lib «Tools.ShippingReaderNodes2» where
 
 lean_lib «Tools.ShippingLegacySemDispatch» where
   roots := #[`Tools.ShippingLegacySemDispatch]
+
+lean_lib «Tools.ShippingNameSep» where
+  roots := #[`Tools.ShippingNameSep]
+
+lean_lib «Tools.ShippingReaderKinds» where
+  roots := #[`Tools.ShippingReaderKinds]
+
+lean_lib «Tools.ShippingReaderComplete2» where
+  roots := #[`Tools.ShippingReaderComplete2]

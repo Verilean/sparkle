@@ -369,3 +369,45 @@ for every binder list; anything about the three `app*` kinds (none of the 44
 bodies needed them); the corpus outside these test modules; and the compiler
 does not run this reader.
 
+<!-- worker A, round 4 (its own numbering) -->
+
+## 9. Round 4 (branch `par/g3-reader-4`, base `35c79af3`) — UNVERIFIED, not built
+
+Build 3 result (integrator): the five modules of round 3 built unchanged;
+coverage run: 47 `machineData`, 3 gate-route (expected errors), of the 44
+machine bodies `core11` reads 39 and `ext18` reads 44, every reading quotes
+back; the five core misses stop at `Signal.map/5`.
+
+Added:
+
+* `Tools/ShippingReaderKinds.lean`: `kindsOK : KindsOK ks` for EVERY binder
+  list (`posB_spec`, `posV_spec`), so `kindsCfg_complete'` and
+  `readTerm_expr_quote'` have no hypothesis about the binders.
+* `Tools/ShippingReaderComplete2.lean`: `readTerm2_quote` — completeness of
+  the extended reader on all eighteen kinds (`core2`), `quote2_injective`,
+  and `readTerm2_extends_on_quotes` (on the quotation of a well-formed core
+  term both readers return the same). No ambiguity met: `bitsNum` vs
+  `bitsLit` by the payload's head, the three `Signal.map` kinds by the
+  function argument, the three `HAppend` kinds by which type argument is a
+  Signal type.
+
+Still open: the three `app*` lifts (none of the 44 measured bodies needs
+them); "`readTerm2` extends `readTerm` on every expression" (needs: a term
+`readTerm` returns is core — one more `readTerm_induct` instance).
+
+Build order: `Tools.ShippingReaderKinds` (after `ShippingReaderComplete`),
+`Tools.ShippingReaderComplete2` (after `ShippingReaderComplete` and
+`ShippingReaderNodes2`). Name separation (N1) is on its own branch
+`par/n1-names`: `Tools/ShippingNameSep.lean`, `Tests/Compiler/NameSepTest.lean`.
+
+## Integrator's builds and runs of round 4 (2026-10-12)
+
+`Tools.ShippingReaderKinds` and `Tools.ShippingReaderComplete2` built with no
+change: `kindsOK` holds of every binder list, and the 18-kind reader is
+complete on its kinds (`readTerm2_quote`). Separately (branch `par/n1-names`)
+`Tools.ShippingNameSep` built with no change and its test ran in 5 s: the
+kernel evaluates `sepB` on real test names (including a five-component pair),
+`toString_mem` / `toString_ne` / `hparent_of` / `hnames_of` depend on
+standard axioms only; the collision example (`a».b`) prints the same for two
+different names and `sepB` is false on it, as predicted.
+
