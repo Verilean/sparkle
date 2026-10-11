@@ -7,6 +7,7 @@ import Tools.ShippingMachineDepthHR
 import Tools.ShippingChildRun
 import Tools.ShippingReflectCtx
 import Tools.ShippingMachineClosesGen
+import Tools.ShippingMachineClosesAtGen
 
 /-! # Generated composition at depth `n`, the instance binding derived
 
@@ -240,7 +241,11 @@ partial def generateCoreNR (declName : Name) (dep : Nat) : MetaM Name := do
   let mut namesOf : Std.HashMap Name (List Lean.Expr) := {}
   for c in seqKids do
     unless leaf.getD c true do
-      if let some names ← closesAtNames c then namesOf := namesOf.insert c names
+      match ← closesAtNames c with
+      | some names => namesOf := namesOf.insert c names
+      | none =>
+        -- not silently: the endpoint will ASK this child's closing
+        logWarning m!"{declName}: the closing of the child {c} stays a premise of this endpoint (MachineClosesAt in the contexts {c} is synthesised in): there is no {c}.machine_closes_at"
   for c in seqKids do
     let cshape ← mkAppM ``Tools.ShippingMachineAuto.MachineData.shape #[mkConst (c ++ `machineData)]
     let pcF ← withLocalDeclD `mc modT fun mc => do
@@ -588,8 +593,37 @@ def generateDesignNR (declName : Name) (n : Nat) : MetaM Name := do
   Tools.ShippingShipsDesignSVCommand.compose declName ships
     (declName ++ Name.mkSimple s!"machine_design_svNR{n}") n
 
+/-- The machine descendants of `declName` whose calls are all one-output
+(candidates of `c.machine_closes_at`), children first. -/
+partial def closingCandidates (declName : Name) (seen : IO.Ref (List Name)) : MetaM (List Name) := do
+  let r ← try readMachine declName catch _ => return []
+  let mut out : List Name := []
+  for (c, _, _) in r.shape.insts do
+    if (Tools.ShippingMachineMemCommand.memWidths? c).isSome || (← seen.get).contains c then continue
+    seen.modify (c :: ·)
+    out := out ++ (← closingCandidates c seen)
+    let cr? ← try some <$> readMachine c catch _ => pure none
+    if let some cr := cr? then
+      if !cr.shape.insts.isEmpty && cr.shape.instFields.isEmpty then out := out ++ [c]
+  return out
+
+/-- Generate `c.machine_closes_at` for the descendants that can have one,
+BEFORE the depth endpoint (which uses an existing theorem only): the result
+does not depend on the order the user ran the commands in. A descendant whose
+closing is not derived is reported; its closing stays a premise. -/
+def preClose (declName : Name) : Command.CommandElabM Unit := do
+  let cands ← Command.liftTermElabM do closingCandidates declName (← IO.mkRef [])
+  for c in cands do
+    unless (← getEnv).contains (c ++ `machine_closes_at) do
+      try
+        discard <| Tools.ShippingMachineClosesAtGen.closesAtTheorem c
+        logInfo m!"{c}.machine_closes_at: generated for the depth endpoint of {declName}"
+      catch ex =>
+        logInfo m!"{declName}: the closing of the descendant {c} is NOT derived — it stays a premise of the depth endpoint ({ex.toMessageData})"
+
 elab "#machine_design_svNR " d:ident n:num : command => do
   let declName ← Command.liftCoreM <| realizeGlobalConstNoOverloadWithInfo d
+  preClose declName
   let name ← Command.liftTermElabM <|
     withOptions (fun o => maxRecDepth.set (Lean.Elab.async.set o false) 1000000) <|
       withTheReader Core.Context (fun c => { c with maxRecDepth := 1000000 })
