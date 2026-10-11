@@ -15,7 +15,10 @@ open Tools.ShippingUnifiedSpine Tools.ShippingMachineCloses
 open Tools.ShippingSettledSoundness (Acyclic)
 open Sparkle.IR.NameHints (Allocated)
 open Tools.ShippingClosedOrder Tools.ShippingRankNames Tools.ShippingCallsRank Tools.ShippingTopoBody
-open Tools.ShippingMachineClose (concatParts?_mem)
+open Tools.ShippingMachineClose (concatParts?_mem mem_frontAliases mem_insertAliases outNameOk_facts
+  nextName_not_allocated)
+open Tools.ShippingMachineCleanup (nextAssigns_mem)
+open Tools.ShippingTopoChecks (combOf_eq isComb isReg)
 
 /-- **The prefixes of the fields.** -/
 theorem facts_pres {P : String → Prop} {bnd : FVarId → Option String} {Vk : Nat → String → Prop}
@@ -205,5 +208,68 @@ theorem rank_of_facts {P : String → Prop} {bnd : FVarId → Option String} {t 
       rw [hc] at hc'
       cases hc'
       exact hle
+
+/-! ## The closed body's statements and driven names -/
+
+/-- **The combinational statements of the closed body, by kind**, and the
+names they drive: a transition statement, the alias of a `let`, a next-value
+or output assignment (a name that is not allocated), an instance. -/
+theorem closed_classes {T : List Stmt} {al : List (Port × String)} {core : String}
+    {ps : List Port} {lay : Layout} {R stmts : List Stmt} {instNames : List String}
+    (hTa : ∀ st ∈ T, ∃ l r, st = Stmt.assign l r)
+    (hR : ∀ st ∈ R, isReg st = true)
+    (outsOk : ∀ o ∈ lay.outs, 0 < o.width ∧ outNameOk o.name = true)
+    (hinst : ∀ st ∈ stmts, ∃ outW, outW ∈ instNames ∧
+      combWrites (byAssignOf (((frontAliases al T ++ insertAliases al T) ++
+        (nextAssigns core ps lay.slots ++ (R ++ outAssigns core lay.outs))) ++ stmts)) st = [outW]) :
+    let body0 := ((frontAliases al T ++ insertAliases al T) ++
+        (nextAssigns core ps lay.slots ++ (R ++ outAssigns core lay.outs))) ++ stmts
+    (∀ st ∈ combOf body0, (∃ l r, st = Stmt.assign l r ∧ Stmt.assign l r ∈ T) ∨
+      (∃ (a : Nat) (pa : Port × String), al[a]? = some pa ∧ st = aliasStmt pa.1 pa.2) ∨
+      (∃ l lo wd, st = Stmt.assign l (fieldRhs core lo wd) ∧ ¬ Allocated l) ∨ st ∈ stmts) ∧
+    (∀ x ∈ drivenOf body0, x ∈ writesOf T ∨ x ∈ al.map (·.1.name) ∨ x ∈ instNames ∨
+      ¬ Allocated x) := by
+  intro body0
+  have hcls : ∀ st ∈ combOf body0, (∃ l r, st = Stmt.assign l r ∧ Stmt.assign l r ∈ T) ∨
+      (∃ (a : Nat) (pa : Port × String), al[a]? = some pa ∧ st = aliasStmt pa.1 pa.2) ∨
+      (∃ l lo wd, st = Stmt.assign l (fieldRhs core lo wd) ∧ ¬ Allocated l) ∨ st ∈ stmts := by
+    intro st hs
+    rw [combOf_eq] at hs
+    obtain ⟨hm, hc⟩ := List.mem_filter.mp hs
+    have aliasCase : ∀ pa ∈ al, st = aliasStmt pa.1 pa.2 →
+        ∃ (a : Nat) (pa : Port × String), al[a]? = some pa ∧ st = aliasStmt pa.1 pa.2 := by
+      intro pa hpa he
+      obtain ⟨a, ha⟩ := List.mem_iff_getElem?.mp hpa
+      exact ⟨a, pa, ha, he⟩
+    simp only [body0, List.mem_append] at hm
+    rcases hm with ((h | h) | h | h | h) | h
+    · obtain ⟨pa, hpa, he⟩ := mem_frontAliases h
+      exact Or.inr (Or.inl (aliasCase pa hpa he))
+    · rcases mem_insertAliases h with h | ⟨pa, hpa, he⟩
+      · obtain ⟨l, r, rfl⟩ := hTa st h
+        exact Or.inl ⟨l, r, rfl, h⟩
+      · exact Or.inr (Or.inl (aliasCase pa hpa he))
+    · obtain ⟨p, f, he⟩ := nextAssigns_mem core ps lay.slots st h
+      exact Or.inr (Or.inr (Or.inl ⟨_, _, _, he, nextName_not_allocated p.name⟩))
+    · have := hR st h
+      cases st <;> simp_all [isReg, isComb]
+    · simp only [outAssigns, List.mem_map] at h
+      obtain ⟨o, ho, he⟩ := h
+      exact Or.inr (Or.inr (Or.inl ⟨_, _, _, he.symm, (outNameOk_facts (outsOk o ho).2).1⟩))
+    · exact Or.inr (Or.inr (Or.inr h))
+  refine ⟨hcls, ?_⟩
+  intro x hx
+  obtain ⟨st, hs, hw⟩ := mem_driven hx
+  rcases hcls st hs with ⟨l, r, rfl, hm⟩ | ⟨a, pa, hpa, rfl⟩ | ⟨l, lo, wd, rfl, hna⟩ | h
+  · have : x = l := by simpa [combWrites, stmtWrites] using hw
+    exact Or.inl (this ▸ mem_writes_assign hm)
+  · have : x = pa.1.name := by simpa [aliasStmt, combWrites, stmtWrites] using hw
+    exact Or.inr (Or.inl (this ▸ List.mem_map.mpr ⟨pa, List.mem_of_getElem? hpa, rfl⟩))
+  · have : x = l := by simpa [combWrites, stmtWrites] using hw
+    exact Or.inr (Or.inr (Or.inr (this ▸ hna)))
+  · obtain ⟨outW, ho, hcw⟩ := hinst st h
+    rw [hcw] at hw
+    have : x = outW := by simpa using hw
+    exact Or.inr (Or.inr (Or.inl (this ▸ ho)))
 
 end Tools.ShippingRankRun
