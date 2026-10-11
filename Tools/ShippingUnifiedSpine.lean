@@ -76,21 +76,23 @@ theorem Drv.mono {P : String → Prop} {body body' : List Stmt} (h : ∀ st ∈ 
   | .inl ⟨rhs, hm⟩ => .inl ⟨rhs, h _ hm⟩
   | .inr hp => .inr hp
 
-/-- Where a result wire comes from: a statement of `body` drives it, or the
-expression is a variable and the wire is the one bound to it (an input:
-protected, never driven). -/
+/-- Where a result wire comes from — exactly one of: the expression is NOT a
+variable and a statement of `body` drives the wire; or the expression IS a
+variable and the wire is the one bound to it (an input: protected, never
+driven). -/
 def Src (P : String → Prop) (bnd : FVarId → Option String) (body : List Stmt) (e : Lean.Expr)
     (x : String) : Prop :=
-  (∃ rhs, Stmt.assign x rhs ∈ body) ∨ ∃ id, e = .fvar id ∧ bnd id = some x ∧ P x
+  (e.isFVar = false ∧ ∃ rhs, Stmt.assign x rhs ∈ body) ∨
+    ∃ id, e = .fvar id ∧ bnd id = some x ∧ P x
 
 theorem Src.mono {P : String → Prop} {bnd : FVarId → Option String} {body body' : List Stmt}
     (h : ∀ st ∈ body, st ∈ body') {e : Lean.Expr} {x : String} : Src P bnd body e x → Src P bnd body' e x
-  | .inl ⟨rhs, hm⟩ => .inl ⟨rhs, h _ hm⟩
+  | .inl ⟨hf, rhs, hm⟩ => .inl ⟨hf, rhs, h _ hm⟩
   | .inr hp => .inr hp
 
 theorem Src.drv {P : String → Prop} {bnd : FVarId → Option String} {body : List Stmt}
     {e : Lean.Expr} {x : String} : Src P bnd body e x → Drv P body x
-  | .inl h => .inl h
+  | .inl ⟨_, h⟩ => .inl h
   | .inr ⟨_, _, _, hp⟩ => .inr hp
 
 /-- `n` links from `w`, following the expression `e`: while `e` is a canonical
@@ -146,7 +148,7 @@ def RecQ (ctx : CompilerState) (inputs : FVarId → Option Value) (P : String �
   ∀ w e, s.translateRecord.get? w = some e →
     (∀ n, SpineQ P (fun id => visible ctx s.sourceBindings id) s.module.wires s.module.body n e w) ∧
     (∀ v, Meaning inputs e v → Decl s.module.wires w v.kind.width) ∧
-    ¬ P w ∧ ∃ rhs, Stmt.assign w rhs ∈ s.module.body
+    ¬ P w ∧ (∃ rhs, Stmt.assign w rhs ∈ s.module.body) ∧ e.isFVar = false
 
 theorem RecQ.empty {ctx inputs P} {s : CircuitState} (h : s.translateRecord = {}) :
     RecQ ctx inputs P s := by
@@ -190,10 +192,10 @@ theorem St.transfer {ctx inputs B P V} {s t : CircuitState} (h : St ctx inputs B
       Stmt.assign l r ∈ s.module.body ∨ (¬ P l ∧ ReadsOK P V r)) :
     St ctx inputs B P V t :=
   ⟨fun w e he => by
-      obtain ⟨h1, h2, h3, rhs, h4⟩ := h.1 w e (hr ▸ he)
+      obtain ⟨h1, h2, h3, ⟨rhs, h4⟩, h5⟩ := h.1 w e (hr ▸ he)
       exact ⟨fun n => by rw [hx.2.1]; exact (h1 n).mono hx.1.2 hx.1.mem,
         fun v hv => (h2 v hv).mono hx.1.2, h3,
-        rhs, hx.1.mem _ h4⟩,
+        ⟨rhs, hx.1.mem _ h4⟩, h5⟩,
     fun id v hi => by
       obtain ⟨z, hz, hd, hp⟩ := h.2.1 id v hi
       exact ⟨z, by rw [hx.2.1]; exact hz, hd.mono hx.1.2, hp⟩,
@@ -625,25 +627,25 @@ theorem Spec.goodR {e : Lean.Expr} {a : CompilerM String} (h : Spec ctx inputs B
 /-- …and the wire is one the action made and drove (what the cache may record). -/
 def SpecA (ctx : CompilerState) (inputs : FVarId → Option Value) (B : FVarId → Prop)
     (P V : String → Prop) (e : Lean.Expr) (a : CompilerM String) : Prop :=
-  Spec ctx inputs B P V e a ∧
+  Spec ctx inputs B P V e a ∧ e.isFVar = false ∧
     ∀ s t w, Returns a ctx s w t → St ctx inputs B P V s →
       ¬ P w ∧ ∃ rhs, Stmt.assign w rhs ∈ t.module.body
 
 /-- For an expression that is not a canonical concatenation: the arm, and the
 width its value has. -/
 theorem SpecA.of_arm {e : Lean.Expr} {a : CompilerM String} {N : Nat}
-    (ha : Arm ctx inputs B P V N a) (hn : canonicalConcat? e = none)
+    (ha : Arm ctx inputs B P V N a) (hn : canonicalConcat? e = none) (hf : e.isFVar = false)
     (hm : ∀ v, Meaning inputs e v → v.kind.width = N) : SpecA ctx inputs B P V e a :=
   ⟨fun s t r hr hq => ⟨(ha.1 s t r hr hq).1, (ha.1 s t r hr hq).2, SpineQ.of_none hn,
       fun v hv => by rw [hm v hv]; exact (ha.2.1 s t r hr hq).1,
-      fun hp => absurd hp (ha.2.1 s t r hr hq).2, .inl (ha.2.2 s t r hr)⟩,
+      fun hp => absurd hp (ha.2.1 s t r hr hq).2, .inl ⟨hf, ha.2.2 s t r hr⟩⟩, hf,
     fun s t r hr hq => ⟨(ha.2.1 s t r hr hq).2, ha.2.2 s t r hr⟩⟩
 
 /-- A record of the result keeps the record invariant. -/
 theorem St.record {s : CircuitState} {e : Lean.Expr} {w : String} (h : St ctx inputs B P V s)
     (hw : ∀ n, SpineQ P (fun id => visible ctx s.sourceBindings id) s.module.wires s.module.body n e w)
     (hd : ∀ v, Meaning inputs e v → Decl s.module.wires w v.kind.width)
-    (hp : ¬ P w) (hdr : ∃ rhs, Stmt.assign w rhs ∈ s.module.body) :
+    (hp : ¬ P w) (hdr : ∃ rhs, Stmt.assign w rhs ∈ s.module.body) (hf : e.isFVar = false) :
     St ctx inputs B P V { s with translateRecord := s.translateRecord.insert w e } := by
   refine ⟨fun w' e' he' => ?_, h.2⟩
   rw [Std.HashMap.get?_insert] at he'
@@ -651,7 +653,7 @@ theorem St.record {s : CircuitState} {e : Lean.Expr} {w : String} (h : St ctx in
   · rename_i hww
     cases he'
     rw [← (beq_iff_eq.mp hww)]
-    exact ⟨hw, hd, hp, hdr⟩
+    exact ⟨hw, hd, hp, hdr, hf⟩
   · exact h.1 w' e' he'
 
 /-- **The validated cache wrapper**: a hit returns a recorded wire — its
@@ -664,13 +666,13 @@ theorem Spec.cached {lower : TranslateFn} {e : Lean.Expr} {hint : String} {top n
   rcases translateControlCachedWith_returns hr with hit | ⟨sm, miss, record⟩
   · obtain ⟨hs, hrec⟩ := cacheLookupValidated_returns hit
     subst hs
-    obtain ⟨h1, h2, h3, h4⟩ := hq.1 w e (hrec w rfl)
-    exact ⟨hq, Ext.refl _, h1, h2, fun hp => absurd hp h3, .inl h4⟩
+    obtain ⟨h1, h2, h3, h4, h5⟩ := hq.1 w e (hrec w rfl)
+    exact ⟨hq, Ext.refl _, h1, h2, fun hp => absurd hp h3, .inl ⟨h5, h4⟩⟩
   · obtain ⟨q, k, sp, sd, hv, hdv⟩ := h.1 s sm w miss hq
-    obtain ⟨hnp, hdr⟩ := h.2 s sm w miss hq
+    obtain ⟨hnp, hdr⟩ := h.2.2 s sm w miss hq
     have ht := recordTranslation_returns record
     subst ht
-    exact ⟨q.record sp sd hnp hdr, k, sp, sd, hv, hdv⟩
+    exact ⟨q.record sp sd hnp hdr h.2.1, k, sp, sd, hv, hdv⟩
 
 /-- **The concat arm**: the result wire is driven by `{hi, lo}`; `hi` is
 declared at the high operand's width and driven (or an input); `lo` has the
@@ -682,11 +684,13 @@ theorem concat_spec {e a b : Lean.Expr} {m k : Nat} {hint : String} {named : Boo
     (oa : Spec ctx inputs B P V a hiAct) (ob : Spec ctx inputs B P V b loAct) :
     SpecA ctx inputs B P V e (translateConcatActs (m + k) hiAct loAct hint named) := by
   have harm := concatActs_arm (hint := hint) (named := named) (wd := m + k) oa.goodR ob.goodR
-  refine ⟨fun s t w hr hq => ?_, fun s t w hr hq =>
+  have hfv : e.isFVar = false := by
+    cases e <;> first | rfl | (simp [canonicalConcat?] at he)
+  refine ⟨fun s t w hr hq => ?_, hfv, fun s t w hr hq =>
     ⟨(harm.2.1 s t w hr hq).2, harm.2.2 s t w hr⟩⟩
   have hg := harm.1 s t w hr hq
   refine ⟨hg.1, hg.2, ?_, fun v hv => by rw [hm v hv]; exact (harm.2.1 s t w hr hq).1,
-    fun hp => absurd hp (harm.2.1 s t w hr hq).2, .inl (harm.2.2 s t w hr)⟩
+    fun hp => absurd hp (harm.2.1 s t w hr hq).2, .inl ⟨hfv, harm.2.2 s t w hr⟩⟩
   unfold translateConcatActs at hr
   obtain ⟨res, sA, hmk, rest⟩ := Returns.bind hr
   obtain ⟨wa, sB, ha, rest⟩ := Returns.bind rest
@@ -770,7 +774,7 @@ theorem step_spec {rec : TranslateFn} {e : Lean.Expr} {hint : String} {top named
         obtain ⟨rfl, rfl⟩ := Returns.pure ret
         have hs := recordTranslation_returns record
         subst hs
-        exact ⟨qc.record (SpineQ.of_none hn) hdz (hfz hnf).1 (hfz hnf).2,
+        exact ⟨qc.record (SpineQ.of_none hn) hdz (hfz hnf).1 (hfz hnf).2 hnf,
           kc.trans ⟨Kept.refl _, rfl, fun _ h => h⟩, SpineQ.of_none hn, hdz, hvz, hdrz⟩
       rcases hsome z with hk | ⟨hnf, hk⟩ | hk <;> rw [hk] at rest
       · exact hp rest
@@ -796,8 +800,8 @@ theorem step_spec {rec : TranslateFn} {e : Lean.Expr} {hint : String} {top named
        | some w' =>
          obtain ⟨hw, ht⟩ := Returns.pure hr
          subst ht hw
-         obtain ⟨h1, h2, h3, h4⟩ := hq.1 _ e (hrec _ rfl)
-         exact ⟨hq, Ext.refl _, h1, h2, fun hp => absurd hp h3, .inl h4⟩
+         obtain ⟨h1, h2, h3, h4, h5⟩ := hq.1 _ e (hrec _ rfl)
+         exact ⟨hq, Ext.refl _, h1, h2, fun hp => absurd hp h3, .inl ⟨h5, h4⟩⟩
        | none => exact cont _ (fun z => by first | exact Or.inl rfl | exact Or.inr (Or.inl ⟨by simp_all, rfl⟩) | exact Or.inr (Or.inr rfl)) rfl hr hq)
 
 /-! ## The step's own cases: a bound variable, a literal, a library operator -/
@@ -858,7 +862,7 @@ theorem literal_step_spec {rec : TranslateFn} {e c : Lean.Expr} {us : List Level
     have hdr : ∃ rhs, Stmt.assign z rhs ∈ (CircuitM.emitAssign z (.const v n) sm).2.module.body :=
       ⟨_, by rw [emitAssign_body_cons]; exact List.mem_cons_self ..⟩
     exact ⟨fun x hx => by rw [hm x hx]; exact hd.mono (emitAssign_ext _ _ _).1.2,
-      fun hp => absurd hp hnp, .inl hdr, fun _ => ⟨hnp, hdr⟩⟩
+      fun hp => absurd hp hnp, .inl ⟨isFVar_false_of_const fn, hdr⟩, fun _ => ⟨hnp, hdr⟩⟩
   · intro s t hq hr
     rw [hcore] at hr
     obtain ⟨w', hw'⟩ := literal_payload_some back lit hr
@@ -877,7 +881,7 @@ theorem bool_literal_spec {rec : TranslateFn} {dom : Lean.Expr} {hint : String} 
     cases (Returns.pure hr).1
   · intro s t hq hr
     rw [translateFallback_bool rec _ hint false named (by cases b <;> rfl)]
-    refine Spec.cached (SpecA.of_arm (N := 1) ?_ hn hm)
+    refine Spec.cached (SpecA.of_arm (N := 1) ?_ hn (by cases b <;> rfl) hm)
     show Arm ctx inputs B P V 1 (translateBoolUncachedWith rec _ _ hint false named)
     rw [literal_uncached]
     refine ⟨?_, ?_, ?_⟩ <;> unfold emitBoolLiteral emitBoolResult
@@ -915,8 +919,8 @@ theorem binary_step_spec {rec : TranslateFn} {e : Lean.Expr} {m : Name} {us : Li
     cases hw
     obtain ⟨hd, hnp⟩ := hbin.2.1 s t z lower hq
     have hdr := hbin.2.2 s t z lower
-    exact ⟨fun x hx => by rw [hm x hx]; exact hd, fun hp => absurd hp hnp, .inl hdr,
-      fun _ => ⟨hnp, hdr⟩⟩
+    exact ⟨fun x hx => by rw [hm x hx]; exact hd, fun hp => absurd hp hnp,
+      .inl ⟨isFVar_false_of_const fn, hdr⟩, fun _ => ⟨hnp, hdr⟩⟩
   · intro s t hq hr
     obtain ⟨w, hw, -⟩ := core_binary_returns fn hop kinds width hr
     cases hw
@@ -1041,7 +1045,7 @@ theorem fuel_spine (fuel : Nat) {kb kv : Nat} {vw : Nat → Nat} {bools : Nat �
         (compareE le dom w Q(a) Q(b)) hint false named)
       rw [compare_step, translateFallback_bool _ _ hint false named (by cases le <;> rfl)]
       apply Spec.cached
-      refine SpecA.of_arm ?_ (by cases le <;> rfl) hmw
+      refine SpecA.of_arm ?_ (by cases le <;> rfl) (by first | rfl | (rename_i x; cases x <;> rfl)) hmw
       show Arm ctx inputs B P V _ (translateBoolUncachedWith _ _ (compareE le dom w Q(a) Q(b)) hint false named)
       rw [Tools.ShippingCompareLoweringSoundness.translateBoolUncachedWith_compare]
       exact compare_arm (ih a ha ua "a" false).goodR (ih b hb' ub' "b" false).goodR
@@ -1052,7 +1056,7 @@ theorem fuel_spine (fuel : Nat) {kb kv : Nat} {vw : Nat → Nat} {bools : Nat �
         (boolBinE kind dom Q(a) Q(b)) hint false named)
       rw [boolBin_step, translateFallback_bool _ _ hint false named (by cases kind <;> rfl)]
       apply Spec.cached
-      refine SpecA.of_arm ?_ (by cases kind <;> rfl) hmw
+      refine SpecA.of_arm ?_ (by cases kind <;> rfl) (by first | rfl | (rename_i x; cases x <;> rfl)) hmw
       show Arm ctx inputs B P V _ (translateBoolUncachedWith _ _ (boolBinE kind dom Q(a) Q(b)) hint false named)
       rw [translateBoolUncachedWith_boolBin]
       exact boolBin_arm (ih a ha ua "a" false).goodR (ih b hb' ub' "b" false).goodR
@@ -1065,7 +1069,7 @@ theorem fuel_spine (fuel : Nat) {kb kv : Nat} {vw : Nat → Nat} {bools : Nat �
       rw [appCompare_step, translateFallback_bool _ _ hint false named
         (isBoolControl_appCompareE _ _ _ _ _)]
       apply Spec.cached
-      refine SpecA.of_arm ?_ (by cases le <;> rfl) hmw
+      refine SpecA.of_arm ?_ (by cases le <;> rfl) (by first | rfl | (rename_i x; cases x <;> rfl)) hmw
       show Arm ctx inputs B P V _ (translateBoolUncachedWith _ _ (appCompareE le dom w Q(a) Q(b)) hint false named)
       rw [translateBoolUncachedWith_appCompare]
       exact appCompare_arm (ih a ha ua "app_arg" false).goodR (ih b hb' ub' "app_arg" false).goodR
@@ -1076,7 +1080,7 @@ theorem fuel_spine (fuel : Nat) {kb kv : Nat} {vw : Nat → Nat} {bools : Nat �
         (appBoolE kind dom Q(a) Q(b)) hint false named)
       rw [appBool_step, translateFallback_bool _ _ hint false named (isBoolControl_appBoolE _ _ _ _)]
       apply Spec.cached
-      refine SpecA.of_arm ?_ (by cases kind <;> rfl) hmw
+      refine SpecA.of_arm ?_ (by cases kind <;> rfl) (by first | rfl | (rename_i x; cases x <;> rfl)) hmw
       show Arm ctx inputs B P V _ (translateBoolUncachedWith _ _ (appBoolE kind dom Q(a) Q(b)) hint false named)
       rw [translateBoolUncachedWith_appBool]
       exact appBool_arm (ih a ha ua "app_arg" false).goodR (ih b hb' ub' "app_arg" false).goodR
@@ -1087,7 +1091,7 @@ theorem fuel_spine (fuel : Nat) {kb kv : Nat} {vw : Nat → Nat} {bools : Nat �
         (appBool2E f dom Q(a) Q(b)) hint false named)
       rw [appBool2_step, translateFallback_bool _ _ hint false named (isBoolControl_appBool2E _ _ _ _)]
       apply Spec.cached
-      refine SpecA.of_arm ?_ (by cases f <;> rfl) hmw
+      refine SpecA.of_arm ?_ (by cases f <;> rfl) (by first | rfl | (rename_i x; cases x <;> rfl)) hmw
       show Arm ctx inputs B P V _ (translateBoolUncachedWith _ _ (appBool2E f dom Q(a) Q(b)) hint false named)
       rw [translateBoolUncachedWith_appBool2]
       exact appBool2_arm (ih a ha ua "app_arg" false).goodR (ih b hb' ub' "app_arg" false).goodR
@@ -1096,7 +1100,7 @@ theorem fuel_spine (fuel : Nat) {kb kv : Nat} {vw : Nat → Nat} {bools : Nat �
         (boolNotE dom Q(a)) hint false named)
       rw [boolNot_step, translateFallback_bool _ _ hint false named rfl]
       apply Spec.cached
-      refine SpecA.of_arm ?_ rfl hmw
+      refine SpecA.of_arm ?_ rfl (by first | rfl | (rename_i x; cases x <;> rfl)) hmw
       show Arm ctx inputs B P V _ (translateSignalCompare (translateFuelFix translateStep fuel) .eq Q(a)
         (mkApp3 (.const ``Sparkle.Core.Signal.Signal.pure [.zero]) dom (.const ``Bool [])
           (.const ``Bool.false [])) hint named)
@@ -1108,7 +1112,7 @@ theorem fuel_spine (fuel : Nat) {kb kv : Nat} {vw : Nat → Nat} {bools : Nat �
         (boolEqE dom Q(a) Q(b)) hint false named)
       rw [boolEq_step, translateFallback_bool _ _ hint false named rfl]
       apply Spec.cached
-      refine SpecA.of_arm ?_ rfl hmw
+      refine SpecA.of_arm ?_ rfl (by first | rfl | (rename_i x; cases x <;> rfl)) hmw
       show Arm ctx inputs B P V _ (translateSignalCompare (translateFuelFix translateStep fuel) .eq Q(a) Q(b)
         hint named)
       exact compare_arm (ih a ha ua "a" false).goodR (ih b hb' ub' "b" false).goodR
@@ -1121,7 +1125,7 @@ theorem fuel_spine (fuel : Nat) {kb kv : Nat} {vw : Nat → Nat} {bools : Nat �
           (boolMuxE dom Q(c) Q(a) Q(b)) hint false named)
         rw [boolMux_step, translateFallback_bool _ _ hint false named rfl]
         apply Spec.cached
-        refine SpecA.of_arm ?_ rfl hmw
+        refine SpecA.of_arm ?_ rfl (by first | rfl | (rename_i x; cases x <;> rfl)) hmw
         show Arm ctx inputs B P V _ (translateMuxWith (translateFuelFix translateStep fuel) (pure .bit)
           _ _ _ hint named)
         exact mux_arm (ih c hc uc "mux_cond" false).goodR (ih a ha ua "mux_then" false).goodR
@@ -1131,7 +1135,7 @@ theorem fuel_spine (fuel : Nat) {kb kv : Nat} {vw : Nat → Nat} {bools : Nat �
           (muxE dom (bitVecE w) Q(c) Q(a) Q(b)) hint false named)
         rw [vector_step]
         apply Spec.cached
-        refine SpecA.of_arm ?_ rfl hmw
+        refine SpecA.of_arm ?_ rfl (by first | rfl | (rename_i x; cases x <;> rfl)) hmw
         show Arm ctx inputs B P V _ (translateVectorMuxUncachedWith (translateFuelFix translateStep fuel) w
           (muxE dom (bitVecE w) Q(c) Q(a) Q(b)) hint false named)
         rw [vectorMuxUncached_muxE]
@@ -1145,7 +1149,7 @@ theorem fuel_spine (fuel : Nat) {kb kv : Nat} {vw : Nat → Nat} {bools : Nat �
         (setwE dom w w' Q(a)) hint false named)
       rw [setw_step _ _ _ _ _ (a.wf_pos ha) hpos]
       apply Spec.cached
-      refine SpecA.of_arm ?_ rfl hmw
+      refine SpecA.of_arm ?_ rfl (by first | rfl | (rename_i x; cases x <;> rfl)) hmw
       show Arm ctx inputs B P V _ (translateSetWidthUncachedWith (translateFuelFix translateStep fuel) w w'
         (setwE dom w w' Q(a)) hint false named)
       rw [setwUncached_setwE]
@@ -1158,7 +1162,7 @@ theorem fuel_spine (fuel : Nat) {kb kv : Nat} {vw : Nat → Nat} {bools : Nat �
         (sliceE dom nm w start len Q(a)) hint false named)
       rw [slice_step _ _ _ _ _ _ _ _ _ _ hlen hr]
       apply Spec.cached
-      refine SpecA.of_arm ?_ rfl hmw
+      refine SpecA.of_arm ?_ rfl (by first | rfl | (rename_i x; cases x <;> rfl)) hmw
       show Arm ctx inputs B P V _ (translateSliceUncachedWith (translateFuelFix translateStep fuel) start len
         (sliceE dom nm w start len Q(a)) hint false named)
       rw [sliceUncached_sliceE]
@@ -1185,7 +1189,7 @@ theorem fuel_spine (fuel : Nat) {kb kv : Nat} {vw : Nat → Nat} {bools : Nat �
         (concatLitHiE dom k v n Q(b)) hint false named)
       rw [concatLitHi_step _ _ _ _ _ _ _ _ _ hk hlt (b.wf_pos hb')]
       apply Spec.cached
-      refine SpecA.of_arm ?_ rfl hmw
+      refine SpecA.of_arm ?_ rfl (by first | rfl | (rename_i x; cases x <;> rfl)) hmw
       show Arm ctx inputs B P V _ (translateConcatLitUncachedWith (translateFuelFix translateStep fuel)
         true k v n (concatLitHiE dom k v n Q(b)) hint false named)
       rw [concatLitUncached_hiE]
@@ -1198,7 +1202,7 @@ theorem fuel_spine (fuel : Nat) {kb kv : Nat} {vw : Nat → Nat} {bools : Nat �
         (concatLitLoE dom m k v Q(a)) hint false named)
       rw [concatLitLo_step _ _ _ _ _ _ _ _ _ hk hlt (a.wf_pos ha)]
       apply Spec.cached
-      refine SpecA.of_arm ?_ rfl hmw
+      refine SpecA.of_arm ?_ rfl (by first | rfl | (rename_i x; cases x <;> rfl)) hmw
       show Arm ctx inputs B P V _ (translateConcatLitUncachedWith (translateFuelFix translateStep fuel)
         false k v m (concatLitLoE dom m k v Q(a)) hint false named)
       rw [concatLitUncached_loE]
@@ -1211,7 +1215,7 @@ theorem fuel_spine (fuel : Nat) {kb kv : Nat} {vw : Nat → Nat} {bools : Nat �
         (zextMapE dom nm k n Q(a)) hint false named)
       rw [zextMap_step _ _ _ _ _ _ _ _ _ hk (a.wf_pos ha)]
       apply Spec.cached
-      refine SpecA.of_arm ?_ rfl hmw
+      refine SpecA.of_arm ?_ rfl (by first | rfl | (rename_i x; cases x <;> rfl)) hmw
       show Arm ctx inputs B P V _ (translateSetWidthUncachedWith (translateFuelFix translateStep fuel) n
         (k + n) (zextMapE dom nm k n Q(a)) hint false named)
       rw [setwUncached_zextMapE]
@@ -1224,7 +1228,7 @@ theorem fuel_spine (fuel : Nat) {kb kv : Nat} {vw : Nat → Nat} {bools : Nat �
         (sliceFE dom nm w start len Q(a)) hint false named)
       rw [sliceF_step _ _ _ _ _ _ _ _ _ _ hlen hr]
       apply Spec.cached
-      refine SpecA.of_arm ?_ rfl hmw
+      refine SpecA.of_arm ?_ rfl (by first | rfl | (rename_i x; cases x <;> rfl)) hmw
       show Arm ctx inputs B P V _ (translateSliceFUncachedWith (translateFuelFix translateStep fuel)
         start len (sliceFE dom nm w start len Q(a)) hint false named)
       rw [sliceFUncached_sliceFE]
