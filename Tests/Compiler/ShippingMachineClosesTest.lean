@@ -3,6 +3,8 @@ import Tools.ShippingMachineCommand
 import Tools.ShippingMachineClosesGen
 import Tools.ShippingCallsClose
 import Tools.ShippingCloseMachineFacts
+import Tools.ShippingCallsRank
+import Tools.ShippingTransitionFields
 
 /-! # `MachineCloses` derived for `let` shapes without calls
 
@@ -212,3 +214,30 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   unless (t.find? (·.isConstOf ``Sparkle.IR.Machine.closeInsts)).isSome do
     throwError "closeInsts_some_of is not about closeInsts"
   Lean.logInfo m!"CLOSEINSTS, PURE SIDE: four steps ⇒ a module; topoBody does not get stuck given a rank; woCheck / isPermOf / seqOf / linkedOk of its result; the closed machine's body is ordered assignments around registers — standard axioms. OPEN (premises, no endpoint uses this yet): the rank for a real transition, the instance statements, instance/child agreement, name resolution, noInstOfB, kidsCombB"
+
+/-! The rank for the one-output closing: `rank_closed` (pure: `rho` orders the
+closed body given what each kind of statement reads) and `transition_fields`
+(a real harness run: the per-field read facts for any split of the binders —
+the calls' output ports included). They are NOT yet joined: the hypotheses of
+`rank_closed` are not derived from `transition_fields` for a real transition,
+and the instance / child / design facts are open. `rank_of_names` and
+`rank_closed` assume one driven name per statement: B1 only, not the
+several-output closing. -/
+run_cmd Lean.Elab.Command.liftTermElabM do
+  for n in [``Tools.ShippingCallsRank.rank_closed, ``Tools.ShippingTransitionFields.transition_fields,
+      ``Tools.ShippingRankNames.lt_body_body, ``Tools.ShippingCloseMachineFacts.named_of_typed] do
+    for a in ← Lean.collectAxioms n do
+      unless a == ``propext || a == ``Classical.choice || a == ``Quot.sound do
+        throwError "{n} depends on {a}"
+  -- `transition_fields` is about a run of the real harness and assumes no closing fact
+  let t ← Lean.Meta.inferType (mkConst ``Tools.ShippingTransitionFields.transition_fields)
+  Lean.Meta.forallTelescope t fun xs _ => do
+    let mut run := false
+    for x in xs do
+      let ty ← Lean.Meta.inferType x
+      if (ty.find? (·.isConstOf ``Sparkle.Compiler.Elab.bindMixedCertifiedInputs)).isSome then run := true
+      for c in [``Sparkle.IR.Machine.closeLets, ``Sparkle.IR.Machine.closeInsts,
+          ``Tools.ShippingMachineEntry.MachineCloses] do
+        if (ty.find? (·.isConstOf c)).isSome then throwError "transition_fields assumes {c}"
+    unless run do throwError "transition_fields is not about a harness run"
+  Lean.logInfo m!"RANK (B1, one output per statement): rank_closed (pure) and transition_fields (real harness run, any binder split incl. call outputs) — standard axioms; NOT joined yet: the hypotheses of rank_closed are not derived for a real transition"
