@@ -2036,3 +2036,6 @@ lean_lib «Tools.ShippingClosedKinds» where
 
 lean_lib «Tools.ShippingKidsChildIface» where
   roots := #[`Tools.ShippingKidsChildIface]
+
+lean_lib «Tools.ShippingChildIfaceGen» where
+  roots := #[`Tools.ShippingChildIfaceGen]
