@@ -148,3 +148,58 @@ def refused (f : Name) : Lean.Elab.Command.CommandElabM Unit := do
 run_cmd do
   refused ``callerRep
   Lean.logInfo m!"REPEATED CALLEE (callerRep, two instances of pick): refused — equal modules for two instances of one declaration come from the child cache, not recorded by ChildrenReal; such a parent keeps MachineClosesAt"
+
+/-! ### A failed generation leaves nothing
+
+`callerBad` has a machine endpoint; stated at a wrong number of declaration
+binders the generated proof does not check (the data check is false), after
+the theorem command has run. `callerNoEndpoint` has no generated data at all.
+In both cases: an error, no declaration, no message left — and the real
+generation of `callerBad` then succeeds. -/
+
+def callerBad (x : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec 8) :=
+  circuit do
+    let sel ← Signal.reg 0#2
+    let acc ← Signal.reg 0#8
+    let selS := (sel : Signal defaultDomain (BitVec 2))
+    let accS := (acc : Signal defaultDomain (BitVec 8))
+    let y := pick selS (accS + x)
+    sel <~ selS + (Signal.pure 1#2 : Signal defaultDomain (BitVec 2))
+    acc <~ y
+    return y
+
+def callerNoEndpoint (x : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec 8) :=
+  circuit do
+    let acc ← Signal.reg 0#8
+    let accS := (acc : Signal defaultDomain (BitVec 8))
+    let y := pick (Signal.pure 1#2 : Signal defaultDomain (BitVec 2)) (accS + x)
+    acc <~ y
+    return y
+
+set_option maxHeartbeats 0 in
+#machine_endpoint callerBad
+
+/-- The generation fails with `why` in its error, and leaves no declaration
+of `f` and no message. -/
+def failsClean (f : Name) (nDecl? : Option Nat) (why : String) : Lean.Elab.Command.CommandElabM Unit := do
+  let env0 ← getEnv
+  let msgs0 := (← get).messages.toList.length
+  let r ← try
+      discard <| Tools.ShippingMachineClosesAtGen.closesAtTheorem f nDecl?
+      pure none
+    catch ex => pure (some (← ex.toMessageData.toString))
+  match r with
+  | none => throwError "{f}: machine_closes_at was generated"
+  | some msg =>
+    if (msg.splitOn why).length ≤ 1 then throwError "{f} failed otherwise: {msg}"
+  if (← get).messages.toList.length != msgs0 then throwError "{f}: messages were left"
+  let env ← getEnv
+  let left : Nat := env.constants.fold (init := (0 : Nat)) fun (n : Nat) c _ =>
+    if f.isPrefixOf c && !env0.contains c then n + 1 else n
+  if left != 0 then throwError "{f}: {left} declarations were left"
+
+run_cmd do
+  failsClean ``callerBad (some 0) "the generated proof fails"
+  failsClean ``callerNoEndpoint none "the generated proof fails"
+  discard <| Tools.ShippingMachineClosesAtGen.closesAtTheorem ``callerBad
+  Lean.logInfo m!"FAILED GENERATION LEAVES NOTHING: a false data check (callerBad at 0 declaration binders) and missing data (callerNoEndpoint) fail after the theorem command ran; no declaration under the name, no message; callerBad then generates"
