@@ -20,7 +20,9 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   for n in [``Tools.ShippingReflectCtx.MachineDefines.ctx, ``Tools.ShippingReflectCtx.EntryDefines.ctx,
       ``Tools.ShippingReflectCtx.getConstInfo_ctx, ``Tools.ShippingReflectCtx.getEnv_ctx,
       ``Tools.ShippingCloseLetsSplit.closeLets_isSome_iff,
-      ``Tools.ShippingCloseLetsSplit.machineCloses_noCalls_iff] do
+      ``Tools.ShippingCloseLetsSplit.machineCloses_noCalls_iff,
+      ``Tools.ShippingCloseLetsSplit.letOperands_isSome_iff, ``Tools.ShippingCloseLetsSplit.Spine.emit,
+      ``Tools.ShippingCloseLetsSplit.Spine.append] do
     let ax ← Lean.collectAxioms n
     for a in ax do
       unless a == ``propext || a == ``Classical.choice || a == ``Quot.sound do

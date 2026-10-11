@@ -122,4 +122,79 @@ theorem machineCloses_noCalls_iff {declName : Name} {shape : MachineShape}
     rw [this]
     exact Option.some_ne_none _
 
+/-! ## Condition (2) as a spine
+
+What the translator would have to leave for condition (2), stated on the body
+alone: these are the pure facts a spine postcondition of the concat arm
+composes with (`Spine.emit` for a freshly driven wire, `Spine.append` for
+everything emitted afterwards). The induction over the translator that
+supplies `Spine` for the wire it returns — through the validated cache too —
+is NOT here. -/
+
+/-- From `w`, `n` links of two-operand concatenations in `body`: the shape
+`letOperands` walks, one link per `let` port. -/
+def Spine (body : List Stmt) : Nat → String → Prop
+  | 0, _ => True
+  | n + 1, w => ∃ a b, concatParts? body w = some (a, b) ∧ Spine body n b
+
+/-- **Condition (2) is the spine.** `letOperands` succeeds on `ps` from `w`
+iff `body` has a spine of `ps.length` links from `w`. -/
+theorem letOperands_isSome_iff (body : List Stmt) :
+    ∀ (ps : List Port) (w : String),
+      (letOperands body ps w).isSome = true ↔ Spine body ps.length w
+  | [], w => by simp [letOperands, Spine]
+  | p :: ps, w => by
+    unfold letOperands
+    simp only [List.length_cons, Spine]
+    cases hc : concatParts? body w with
+    | none => simp
+    | some ab =>
+      obtain ⟨a, b⟩ := ab
+      have ih := letOperands_isSome_iff body ps b
+      cases hr : letOperands body ps b with
+      | none =>
+        rw [hr] at ih
+        simp only [Option.isSome_none, Bool.false_eq_true, false_iff] at ih
+        constructor
+        · intro h; simp [hr] at h
+        · rintro ⟨a', b', h, hs⟩
+          cases h
+          exact absurd hs ih
+      | some rc =>
+        rw [hr] at ih
+        simp only [Option.isSome_some, true_iff] at ih
+        exact ⟨fun _ => ⟨a, b, rfl, ih⟩, fun _ => by simp [hr]⟩
+
+/-- A link found in a body is still the link after more statements. -/
+theorem concatParts?_append {body : List Stmt} {w a b : String} (more : List Stmt)
+    (h : concatParts? body w = some (a, b)) : concatParts? (body ++ more) w = some (a, b) := by
+  unfold concatParts? at h ⊢
+  rw [List.findSome?_append, h]
+  rfl
+
+/-- A spine survives appended statements. -/
+theorem Spine.append {body : List Stmt} (more : List Stmt) :
+    ∀ {n : Nat} {w : String}, Spine body n w → Spine (body ++ more) n w
+  | 0, _, _ => trivial
+  | _ + 1, _, ⟨a, b, h, hs⟩ => ⟨a, b, concatParts?_append more h, hs.append more⟩
+
+/-- No statement of `body` is a two-operand concatenation driving `w`. -/
+def NoConcat (body : List Stmt) (w : String) : Prop := concatParts? body w = none
+
+/-- **One link, as the concat arm emits it**: after a body in which `w` has
+no concatenation driver (a fresh wire), `assign w = {a, b}` is `w`'s link. -/
+theorem concatParts?_emit {body : List Stmt} {w a b : String} (h : NoConcat body w) :
+    concatParts? (body ++ [.assign w (.concat [.ref a, .ref b])]) w = some (a, b) := by
+  unfold NoConcat concatParts? at *
+  rw [List.findSome?_append, h]
+  simp
+
+/-- The spine of a wire the concat arm has just driven, from its right
+operand's spine. -/
+theorem Spine.emit {body : List Stmt} {w a b : String} {n : Nat} (h : NoConcat body w)
+    (hb : Spine body n b) :
+    Spine (body ++ [.assign w (.concat [.ref a, .ref b])]) (n + 1) w :=
+  ⟨a, b, concatParts?_emit h, hb.append _⟩
+
+
 end Tools.ShippingCloseLetsSplit

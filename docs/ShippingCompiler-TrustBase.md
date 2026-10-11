@@ -791,6 +791,14 @@ and `ShippingChildCacheRun` removed).
        of operand `i` — and (b) a shape-side, decidable scoping fact: the
        definition of `let` `k` mentions only `let`s before `k`. (b) is not
        currently a field or a check of `MachineShape`.
+  - Condition (2) on the body alone (proved): `letOperands_isSome_iff` —
+    it is a `Spine` of one concatenation link per `let` port; `Spine.append`
+    (later statements keep it) and `Spine.emit` (the link a fresh wire gets
+    from `assign w = {a, b}`). Missing: the induction over the translator
+    giving `Spine` for the wire it returns, including validated-cache hits
+    (an invariant on `translateRecord`: every recorded concat term's wire has
+    its spine; each arm must be shown to only append statements and to
+    record only its result).
   - Next lemma (the smallest that removes a premise): a spine postcondition
     for the translator on `packLets fs core` giving (2)–(5), then (6) from
     the existing order invariant plus (b). Calls (`closeInsts`,
