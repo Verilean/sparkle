@@ -708,6 +708,9 @@ lean_lib «Tools.ShippingCallsRun» where
 lean_lib «Tools.ShippingCallsGate» where
   roots := #[`Tools.ShippingCallsGate]
 
+lean_lib «Tools.ShippingMachineClosesAtGen» where
+  roots := #[`Tools.ShippingMachineClosesAtGen]
+
 lean_lib «Tools.ShippingCallsClose» where
   roots := #[`Tools.ShippingCallsClose]
 

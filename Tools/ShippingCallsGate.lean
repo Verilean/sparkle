@@ -48,6 +48,12 @@ theorem core_wf {kb kv : Nat} {vw : Nat → Nat} {c : Nat} (core : Term (.bits c
   | [], h => h
   | _ :: fs, h => core_wf core fs h.2
 
+/-- A name that does not start with `i` is no instance name. -/
+theorem instName_ne_of_head {s : String} (h : s.toList.head? ≠ some 'i') (k : Nat) (nm : String) :
+    s ≠ s!"inst{k}_{nm}" := by
+  intro e
+  exact h (e ▸ Tools.ShippingCallsParent.instName_head k nm)
+
 theorem inst_get {insts : List (Name × List Nat × MixedGateBinder)} {k : Nat} {args : List Nat}
     (h : (insts.map (·.2.1))[k]? = some args) : ∃ c, insts[k]? = some c ∧ c.2.1 = args := by
   rw [List.getElem?_map] at h
