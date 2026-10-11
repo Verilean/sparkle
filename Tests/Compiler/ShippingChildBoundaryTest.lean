@@ -511,6 +511,16 @@ run_cmd Lean.Elab.Command.liftTermElabM do
       throwError "Framed.{d}: throwing any message is still a tracked operation"
   if env.contains (``Tools.ShippingChildInv.LocalRefType ++ `optException) then
     throwError "an exception cell is still a generic local ref"
+  -- no exception cell at all: the compiler returns the caught exception
+  for d in [`Tools.ShippingChildInv.CellOk, `Tools.ShippingChildInv.RefLaws.cell,
+      `Tools.ShippingChildInv.RefLaws.cellGet] do
+    if env.contains d then throwError "{d}: an exception-cell law is back"
+  unless env.contains ``Sparkle.Compiler.Elab.Rec.tryInlineUnfold do
+    throwError "Rec.tryInlineUnfold is gone"
+  -- a captured context is in the class only with inert printers
+  let wcTy ← Lean.Meta.inferType (Lean.mkConst ``Tools.ShippingChildInv.OkMsg.withContext)
+  unless mentions wcTy ``Tools.ShippingChildInv.OkEnv do
+    throwError "OkMsg.withContext accepts every captured context"
   let excTy ← fieldTy `excOk
   unless mentions excTy ``Tools.ShippingChildInv.Op && mentions excTy ``Tools.ShippingChildInv.OkExc &&
       mentions excTy ``Tools.ShippingChildInv.RefLaws.quiet do
@@ -606,7 +616,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     for ax in ← Lean.collectAxioms name do
       unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do
         throwError "{name} uses a non-standard axiom: {ax}"
-  Lean.logInfo m!"CHILD BOUNDARY ALONG THE RUN: {es.length} derived endpoints state ChildBnd at their run's start world (children's at worlds their premises bind), no ChildSynthIs / RefIs / CacheReads at any level; ChildBnd is ONE law witness with the start condition by its values and the start world quiet for it (∃ L, StartV L w ∧ L.quiet w); the diagnostic operations (Diag) are no generic frame law — RefLaws.diag is asked in quiet worlds only; the body, harness, translator and legacy block are proved under the laws, not assumed. rendering a message is a law for the class OkMsg only (text, formats, structure; trusted lazy leaves: ofExpr, ofConstName), a thrown exception is tracked by Keeps (OkExc; T3 = RefLaws.excOk), exception cells have their own laws. NOT a runtime model: the laws stay assumptions"
+  Lean.logInfo m!"CHILD BOUNDARY ALONG THE RUN: {es.length} derived endpoints state ChildBnd at their run's start world (children's at worlds their premises bind), no ChildSynthIs / RefIs / CacheReads at any level; ChildBnd is ONE law witness with the start condition by its values and the start world quiet for it (∃ L, StartV L w ∧ L.quiet w); the diagnostic operations (Diag) are no generic frame law — RefLaws.diag is asked in quiet worlds only; the body, harness, translator and legacy block are proved under the laws, not assumed. rendering a message is a law for the class OkMsg only (text, formats, structure; trusted lazy leaves: ofExpr, ofConstName), a thrown exception is tracked by Keeps (OkExc; T3 = RefLaws.excOk), the rendered exception is a value the inline attempt returns (no exception cell, no heap condition), a captured context is in the class only with inert printers (OkEnv). NOT a runtime model: the laws stay assumptions"
 
 /-! ### The cache on real compiles: repeated, nested, sequential + memory
 

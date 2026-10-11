@@ -111,6 +111,36 @@ set_option maxHeartbeats 1000000
     KeepsC mctx mref cctx cref (J L D) (Rec.handleCircuitMonad tr e name args hint named) := by
   vc
 
+/-- **The inline attempt's result**: the invariant is kept, and the exception
+it returns (its second component) is none or an exception in the class — it
+is one a `catch` of this run handed over (`TripleC.tryCatchQ`). This is the
+provenance of what the terminal error site renders: a VALUE the calculus
+tracks, not the content of a heap cell. -/
+theorem tryInlineUnfold_tripleC (tr : TranslateFn)
+    (htr : ∀ (mctx : Meta.Context) (cctx : Core.Context) e hint top named,
+      KeepsC mctx mref cctx cref (J L D) (tr e hint top named))
+    (e : Lean.Expr) (hint : String) (named : Bool) :
+    TripleC mctx mref cctx cref (J L D) (Rec.tryInlineUnfold tr e hint named)
+      (fun a w => J L D w ∧ OkOpt a.2) (JE L D) := by
+  unfold Rec.tryInlineUnfold
+  refine TripleC.bind (Q := fun _ => J L D) (keepsC_iff.mp (by vc)) ?_
+  intro eReduced
+  refine TripleC.ite (fun _ => ?_) (fun _ => TripleC.pure fun w hw => ⟨hw, OkOpt.none⟩)
+  refine TripleC.tryCatchQ ?_ ?_
+  · refine TripleC.bind (Q := fun _ => J L D) (keepsC_iff.mp (htr _ _ _ _ _ _)) ?_
+    intro w
+    exact TripleC.pure fun _ hw => ⟨hw, OkOpt.none⟩
+  · intro ex1 h1
+    refine TripleC.tryCatchQ ?_ ?_
+    · refine TripleC.bind (Q := fun _ => J L D) (keepsC_iff.mp (by vc)) ?_
+      intro eReduced2
+      refine TripleC.ite (fun _ => ?_) (fun _ => TripleC.pure fun _ hw => ⟨hw, OkOpt.some h1⟩)
+      refine TripleC.bind (Q := fun _ => J L D) (keepsC_iff.mp (htr _ _ _ _ _ _)) ?_
+      intro w
+      exact TripleC.pure fun _ hw => ⟨hw, OkOpt.none⟩
+    · intro ex2 h2
+      exact TripleC.pure fun _ hw => ⟨hw, OkOpt.some h2⟩
+
 @[keeps] theorem handleDefinitionUnfold_keeps (tr : TranslateFn)
     (htr : ∀ (mctx : Meta.Context) (cctx : Core.Context) e hint top named,
       KeepsC mctx mref cctx cref (J L D) (tr e hint top named))

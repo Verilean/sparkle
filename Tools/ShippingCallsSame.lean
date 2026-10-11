@@ -74,6 +74,29 @@ theorem harness_depth (L : RefLaws mref cref) (hB : ∀ L' : RefLaws mref cref, 
   rw [endW_of_runs h] at this
   exact this.1.2.1
 
+/-! ## One witness: nothing is mixed
+
+`InvV L w`, `StartV L w`, `J L D w` are statements about ONE law witness `L`
+(its `val`, `sval`, `dval`, `quiet`). `invW_of_invV L` packs `L` itself as the
+world's quiet witness, and `invV_of_invW` hands back a witness with ITS OWN
+invariant — the four readings are never taken from two witnesses. Changing
+the auxiliary predicate changes none of them. -/
+
+theorem withAux_val (L : RefLaws mref cref) (A hA) : (L.withAux A hA).val = L.val := rfl
+theorem withAux_sval (L : RefLaws mref cref) (A hA) : (L.withAux A hA).sval = L.sval := rfl
+theorem withAux_dval (L : RefLaws mref cref) (A hA) : (L.withAux A hA).dval = L.dval := rfl
+theorem withAux_quiet (L : RefLaws mref cref) (A hA) : (L.withAux A hA).quiet = L.quiet := rfl
+
+/-- The invariant by the values does not depend on the auxiliary predicate. -/
+theorem invV_withAux (L : RefLaws mref cref) (A hA) (w : Void IO.RealWorld) :
+    InvV (L.withAux A hA) w ↔ InvV L w := Iff.rfl
+
+/-- A witness's invariant world, read back: SOME witness with its own
+invariant there (the one `invW_of_invV` packed is such a witness). -/
+theorem invV_of_invW_of_invV (mctx : Meta.Context) (cctx : Core.Context) (L : RefLaws mref cref)
+    {w : Void IO.RealWorld} (h : InvV L w) : ∃ L' : RefLaws mref cref, InvV L' w :=
+  invV_of_invW mctx cctx (invW_of_invV L h)
+
 /-! ## An existing entry survives a child's synthesis — at a positive depth -/
 
 /-- The cache holds `y0` under `c0`. -/

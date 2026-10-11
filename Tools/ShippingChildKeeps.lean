@@ -186,9 +186,6 @@ theorem op_end {α : Type} {p : MetaM α} (hp : Op p) {D : Nat} {w} (hw : J L D 
   | coreThrowErr msg _ =>
     have := L.frameT (mctx := mctx) (cctx := cctx) _ (Throws.coreErr (α := α) msg) w
     exact J_same L this.1 this.2 hw
-  | cell hc =>
-    have := L.cell (mctx := mctx) (cctx := cctx) p hc w
-    exact J_same L this.1 this.2 hw
 
 /-- The invariant at depth `D`, with the thrown exception in the class. -/
 def JE (D : Nat) : Exception → Void IO.RealWorld → Prop := fun e w => J L D w ∧ OkExc e

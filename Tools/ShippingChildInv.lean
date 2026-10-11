@@ -96,13 +96,42 @@ refs, whose types are different. -/
 inductive LocalRefType : Type → Prop
   | exprCache : LocalRefType (Lean.ExprStructMap String)
 
+/-- What a read of the ref `r` returns in world `w`. -/
+def readOf {σ : Type} (r : IO.Ref σ) (w : Void IO.RealWorld) : σ :=
+  match (ST.Ref.get r : ST IO.RealWorld σ) w with
+  | .mk a _ => a
+
+/-- A `BaseIO` action (it cannot throw) leaves what the three tracked refs
+read — from every world. -/
+def Inert {α : Type} (x : BaseIO α) : Prop :=
+  ∀ w, match x w with
+    | .mk _ w' =>
+      readOf sparkleChildCache w' = readOf sparkleChildCache w ∧
+      readOf sparkleChildSynth w' = readOf sparkleChildSynth w ∧
+      readOf sparkleSynthDepth w' = readOf sparkleSynthDepth w
+
+/-- **An environment whose pretty-printers do not touch the tracked refs.** A
+lazy message leaf under `withContext ctx` calls the printer functions stored
+in `ctx.env` (`ppExt.getState ctx.env`) — the CAPTURED environment's, not the
+current world's — which in turn run the delaborators / unexpanders registered
+there. Stated by what those printers do: the two entry points a message of
+the class reaches (`ppExprWithInfos`, `ppConstNameWithInfos`), in any printing
+context over this environment. -/
+def OkEnv (env : Environment) : Prop :=
+  ∀ ctx : PPContext, ctx.env = env →
+    (∀ e : Lean.Expr, Inert (ppExprWithInfos ctx e)) ∧
+    (∀ n : Name, Inert (ppConstNameWithInfos ctx n))
+
 /-- **The messages whose rendering the diagnostic law covers.** A message is
 a tree; `MessageData.ofLazy` carries CODE (a thunk run when the message is
 rendered), so a law "rendering any message leaves the refs" is false of the
-runtime. This class has no arbitrary thunk: text, formats, the structural
-constructors, and — the lazy leaves, a TRUSTED boundary — `ofExpr e` and
-`ofConstName n`, whose thunks call the environment's pretty-printers (covered
-by `quiet`). -/
+runtime. This class has no arbitrary thunk: text, formats (a
+`FormatWithInfos` contributes its format only), the structural constructors,
+and two lazy leaves — `ofExpr e`, `ofConstName n`. WITHOUT a context a leaf
+prints text and calls nothing; under `withContext c` it calls the printers of
+`c.env`: so `withContext c` is in the class only for an environment whose
+printers are inert (`OkEnv c.env`) — not for every captured context. A naming
+context only shortens names. -/
 inductive OkMsg : MessageData → Prop
   | str (s : String) : OkMsg (stringToMessageData s)
   | fmt (f : FormatWithInfos) : OkMsg (.ofFormatWithInfos f)
@@ -110,7 +139,8 @@ inductive OkMsg : MessageData → Prop
   | nest (n : Nat) {a : MessageData} : OkMsg a → OkMsg (.nest n a)
   | group {a : MessageData} : OkMsg a → OkMsg (.group a)
   | tagged (n : Name) {a : MessageData} : OkMsg a → OkMsg (.tagged n a)
-  | withContext (c : MessageDataContext) {a : MessageData} : OkMsg a → OkMsg (.withContext c a)
+  | withContext (c : MessageDataContext) {a : MessageData} :
+      OkEnv c.env → OkMsg a → OkMsg (.withContext c a)
   | withNamingContext (c : NamingContext) {a : MessageData} :
       OkMsg a → OkMsg (.withNamingContext c a)
   | ofSyntax (stx : Syntax) {a : MessageData} : OkMsg a → OkMsg (.ofOriginatingSyntax stx a)
@@ -144,7 +174,6 @@ macro "okmsg" : tactic => `(tactic|
     | refine OkMsg.nest _ ?_
     | refine OkMsg.group ?_
     | refine OkMsg.tagged _ ?_
-    | refine OkMsg.withContext _ ?_
     | refine OkMsg.withNamingContext _ ?_
     | refine OkMsg.ofSyntax _ ?_)))
 
@@ -246,21 +275,6 @@ inductive Diag : {α : Type} → MetaM α → Prop
   | ioHandlePutStrLn (h : IO.FS.Handle) (s : String) : Diag (liftM (h.putStrLn s) : MetaM Unit)
   | ioHandleFlush (h : IO.FS.Handle) : Diag (liftM h.flush : MetaM Unit)
 
-/-- **Exception cells** (run-local refs of type `Option Exception`: the
-translator's `lastInlineFail`): created, read, and written WITH a content in
-the class. A write of an arbitrary exception is not here — the cell's
-content is what the one rendering site prints. -/
-inductive CellOk : {α : Type} → MetaM α → Prop
-  | mk (v : Option Exception) : OkOpt v →
-      CellOk (liftM (IO.mkRef v) : MetaM (IO.Ref (Option Exception)))
-  | get (r : IO.Ref (Option Exception)) : CellOk (ST.Ref.get r : MetaM (Option Exception))
-  | getIO (r : IO.Ref (Option Exception)) :
-      CellOk (liftM (ST.Ref.get r : IO (Option Exception)) : MetaM (Option Exception))
-  | set (r : IO.Ref (Option Exception)) (v : Option Exception) : OkOpt v →
-      CellOk (ST.Ref.set r v : MetaM Unit)
-  | setIO (r : IO.Ref (Option Exception)) (v : Option Exception) : OkOpt v →
-      CellOk (liftM (ST.Ref.set r v : IO Unit) : MetaM Unit)
-
 /-- Building and throwing an error (any message): the frame is generic. -/
 inductive Throws : {α : Type} → MetaM α → Prop
   | err {α : Type} (msg : MessageData) : Throws (throwError msg : MetaM α)
@@ -275,7 +289,6 @@ inductive Op : {α : Type} → MetaM α → Prop
   | throwErr {α : Type} (msg : MessageData) : OkMsg msg → Op (throwError msg : MetaM α)
   | coreThrowErr {α : Type} (msg : MessageData) :
       OkMsg msg → Op (liftM (throwError msg : CoreM α) : MetaM α)
-  | cell {α : Type} {p : MetaM α} : CellOk p → Op p
 
 section Runs
 variable (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State)
@@ -329,11 +342,10 @@ structure RefLaws where
   auxInsert : ∀ (m0 m1 : Std.HashMap Name Res) (n : Name) (r : Res),
     aux m0 → m0.get? n = none → aux m1 → aux (m1.insert n r)
   /-- The worlds in which the diagnostic operations do not touch the three
-  refs — no registered printer and not the installed standard error writes
-  them — AND every exception cell (a ref of type `Option Exception`) holds
-  none or an exception whose message is in the class `OkMsg`. A condition on
-  the ENVIRONMENT and the heap, asked of the run's start world (`ChildBnd`)
-  and carried by the invariant. -/
+  refs: no registered printer and not the installed standard error writes
+  them. A condition on the diagnostic ENVIRONMENT only (nothing about other
+  heap cells), asked of the run's start world (`ChildBnd`) and carried by the
+  invariant. -/
   quiet : Void IO.RealWorld → Prop
   /-- A diagnostic operation, in a quiet world: the three values are left,
   and the world it ends in is quiet — on every outcome. -/
@@ -346,24 +358,13 @@ structure RefLaws where
     (val (endW mctx mref cctx cref p w) = val w ∧ sval (endW mctx mref cctx cref p w) = sval w ∧
       dval (endW mctx mref cctx cref p w) = dval w) ∧
     (quiet w → quiet (endW mctx mref cctx cref p w))
-  /-- An exception cell's operations leave the three values; with a content
-  in the class they keep the world quiet (`quiet` includes: every exception
-  cell holds none or an exception in the class). -/
-  cell : ∀ {mctx : Meta.Context} {cctx : Core.Context} {α : Type} (p : MetaM α), CellOk p → ∀ w,
-    (val (endW mctx mref cctx cref p w) = val w ∧ sval (endW mctx mref cctx cref p w) = sval w ∧
-      dval (endW mctx mref cctx cref p w) = dval w) ∧
-    (quiet w → quiet (endW mctx mref cctx cref p w))
-  /-- In a quiet world, a read of an exception cell returns none or an
-  exception in the class. -/
-  cellGet : ∀ {mctx : Meta.Context} {cctx : Core.Context} (r : IO.Ref (Option Exception)) w v w',
-    RunsTo (ST.Ref.get r : MetaM (Option Exception)) mctx mref cctx cref w v w' → quiet w → OkOpt v
-  cellGetIO : ∀ {mctx : Meta.Context} {cctx : Core.Context} (r : IO.Ref (Option Exception)) w v w',
-    RunsTo (liftM (ST.Ref.get r : IO (Option Exception)) : MetaM (Option Exception))
-      mctx mref cctx cref w v w' → quiet w → OkOpt v
   /-- TRUSTED (T3): an exception one of these operations throws from a quiet
   world has a message in the class — Lean's own error messages are text,
   formats and lazily printed expressions; a `throwError msg` of a message in
-  the class adds only context wrappers. -/
+  the class adds only context wrappers. This INCLUDES: the context such an
+  error captures (the run's current environment) has inert printers
+  (`OkEnv`) — an assumption about the environments the compile runs in, not
+  implied by anything about the current world's stderr. -/
   excOk : ∀ {mctx : Meta.Context} {cctx : Core.Context} {α : Type} (p : MetaM α), Op p →
     ∀ w e w', quiet w → p mctx mref cctx cref w = .error e w' → OkExc e
   /-- The generic operations and the tracked refs' writes do not make a
@@ -692,10 +693,7 @@ theorem sameOp {α : Type} {p : MetaM α} (hp : Op p) {w a w'}
     have := L.frameT (mctx := mctx) (cctx := cctx) _ (Throws.coreErr (α := α) msg) w
     rw [endW_of_runs h] at this
     exact ⟨this.1, this.2 hq⟩
-  | cell hc =>
-    have := L.cell (mctx := mctx) (cctx := cctx) p hc w
-    rw [endW_of_runs h] at this
-    exact ⟨this.1, this.2 hq⟩
+
 
 theorem get {w m w'} (h : RunsTo (sparkleChildCache.get : MetaM _) mctx mref cctx cref w m w') :
     m = L.val w ∧ L.val w' = L.val w ∧ L.sval w' = L.sval w :=

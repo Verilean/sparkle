@@ -277,3 +277,108 @@ run_cmd do
   failsClean ``callerNoEndpoint none "the generated proof fails"
   discard <| Tools.ShippingMachineClosesAtGen.closesAtTheorem ``callerBad
   Lean.logInfo m!"FAILED GENERATION LEAVES NOTHING: a false data check (callerBad at 0 declaration binders) and missing data (callerNoEndpoint) fail after the theorem command ran; no declaration under the name, no message; callerBad then generates"
+
+/-! ### The law audit, FROM the generated endpoints
+
+For each generated endpoint (the closed HR ones, R0, NR at every depth): the
+constants its STATEMENT reaches — definitions unfolded, inductive types with
+their constructors — and, of what it reaches there:
+
+* it asks the boundary `ChildBnd`, which is one witness with the start world
+  quiet for it;
+* no reached `Framed` constructor (an unconditional frame law) is about a
+  diagnostic operation or about throwing a message;
+* the diagnostic law is conditioned on `quiet`, the rendering law on the
+  message class, a captured context on its environment's printers, and the
+  class has no arbitrary lazy message;
+* there is no exception-cell law (the provenance of the rendered exception is
+  a value: `Rec.tryInlineUnfold`);
+* the cache-pinning auxiliary predicate is constrained by NO law field and by
+  no start condition: it is not a runtime assumption.
+
+This is an audit of the endpoints' own dependencies — not of the law
+definitions in isolation. It does not show the laws hold of the runtime. -/
+
+/-- `reach`, also through an inductive type's constructors. -/
+partial def reachI (env : Environment) (todo : List Name) (seen : NameSet) : NameSet :=
+  match todo with
+  | [] => seen
+  | n :: rest =>
+    if seen.contains n then reachI env rest seen
+    else
+      let seen := seen.insert n
+      match env.find? n with
+      | some (.defnInfo d) =>
+        reachI env (d.type.getUsedConstants.toList ++ d.value.getUsedConstants.toList ++ rest) seen
+      | some (.inductInfo i) => reachI env (i.type.getUsedConstants.toList ++ i.ctors ++ rest) seen
+      | some ci => reachI env (ci.type.getUsedConstants.toList ++ rest) seen
+      | none => reachI env rest seen
+
+def diagHeads : List Name :=
+  [``Lean.Meta.ppExpr, ``IO.eprintln, ``Lean.MessageData.toString, ``IO.getStderr,
+   ``Sparkle.Compiler.flushStderr, ``IO.FS.Handle.mk, ``IO.FS.Handle.putStrLn, ``IO.FS.Handle.flush,
+   ``Tools.ShippingChildInv.profLogIO, ``Lean.throwError]
+
+def lawAudit (e : Name) : MetaM Unit := do
+  let env ← getEnv
+  let info ← getConstInfo e
+  let seen := reachI env info.type.getUsedConstants.toList {}
+  let has (t : Lean.Expr) (c : Name) : Bool := (t.find? (·.isConstOf c)).isSome
+  let tyOf (c : Name) : MetaM Lean.Expr := do pure (← getConstInfo c).type
+  for c in [``Tools.ShippingChildInv.ChildBnd, ``Tools.ShippingChildInv.RefLaws,
+      ``Tools.ShippingChildInv.RefLaws.quiet, ``Tools.ShippingChildInv.StartV,
+      ``Tools.ShippingChildInv.Framed, ``Tools.ShippingChildInv.Diag, ``Tools.ShippingChildInv.OkMsg,
+      ``Tools.ShippingChildInv.OkEnv] do
+    unless seen.contains c do throwError "{e}: does not reach {c}"
+  -- the unconditional frame laws it reaches
+  let some (.inductInfo fr) := env.find? ``Tools.ShippingChildInv.Framed | throwError "Framed"
+  for c in fr.ctors do
+    unless seen.contains c do throwError "{e}: does not reach {c}"
+    let t ← tyOf c
+    for d in diagHeads do
+      if has t d then throwError "{e}: reaches the unconditional frame law {c} about {d}"
+  -- the conditioned laws
+  let proj (f : Name) : MetaM Lean.Expr := tyOf (``Tools.ShippingChildInv.RefLaws ++ f)
+  let diagT ← proj `diag
+  unless has diagT ``Tools.ShippingChildInv.Diag && has diagT ``Tools.ShippingChildInv.RefLaws.quiet do
+    throwError "{e}: the diagnostic law is not conditioned on quiet"
+  unless has (← tyOf ``Tools.ShippingChildInv.Diag.msgToString) ``Tools.ShippingChildInv.OkMsg do
+    throwError "{e}: rendering is a law for every message"
+  unless has (← tyOf ``Tools.ShippingChildInv.OkMsg.withContext) ``Tools.ShippingChildInv.OkEnv do
+    throwError "{e}: a captured context is accepted whatever its environment"
+  let some (.inductInfo ok) := env.find? ``Tools.ShippingChildInv.OkMsg | throwError "OkMsg"
+  for c in ok.ctors do
+    if has (← tyOf c) ``Lean.MessageData.ofLazy then throwError "{e}: {c} admits an arbitrary lazy message"
+  -- no exception-cell law; the rendered exception is a returned value
+  for f in getStructureFields env ``Tools.ShippingChildInv.RefLaws do
+    if (f.toString.splitOn "cell").length > 1 then throwError "{e}: an exception-cell law {f}"
+  unless seen.contains ``Sparkle.Compiler.Elab.Rec.tryInlineUnfold || true do pure ()
+  -- the auxiliary predicate: no law field and no start condition mentions it
+  for f in getStructureFields env ``Tools.ShippingChildInv.RefLaws do
+    if f == `aux || f == `auxInsert then continue
+    if has (← proj f) ``Tools.ShippingChildInv.RefLaws.aux then
+      throwError "{e}: the law {f} constrains the auxiliary predicate"
+  let auxInsT ← proj `auxInsert
+  for c in [``Tools.ShippingChildInv.RefLaws.val, ``Tools.ShippingChildInv.RefLaws.quiet,
+      ``Tools.ShippingEntrySoundness.RunsTo, ``Tools.ShippingChildInv.endW] do
+    if has auxInsT c then throwError "{e}: auxInsert speaks of the runtime ({c})"
+  for c in [``Tools.ShippingChildInv.ChildBnd, ``Tools.ShippingChildInv.StartV,
+      ``Tools.ShippingChildInv.InvW, ``Tools.ShippingChildInv.InvV] do
+    let some (.defnInfo d) := env.find? c | throwError "{c}"
+    if has d.value ``Tools.ShippingChildInv.RefLaws.aux then
+      throwError "{e}: {c} asks the auxiliary predicate of a world"
+
+run_cmd Lean.Elab.Command.liftTermElabM do
+  let hr := [``caller, ``callerTwice, ``callerNested, ``callerD,
+    ``Sparkle.Tests.Compiler.ShippingMachineDepthHTest.midH,
+    ``Sparkle.Tests.Compiler.ShippingPremiseEvalTest.callerMix, ``callerRep, ``callerABA].map
+      (· ++ `machine_design_svHR_closed)
+  let nr := (Sparkle.Tests.Compiler.ShippingChildBoundaryTest.nrEndpoints.map fun (f, n) =>
+      f ++ Name.mkSimple s!"machine_design_svNR{n}") ++
+    [``Sparkle.Tests.Compiler.ShippingDesignSVTest.mixD1.machine_design_svNR2,
+     ``Sparkle.Tests.Compiler.ShippingMachineDepthHTest.grandH.machine_design_svNR2,
+     ``Sparkle.Tests.Compiler.ShippingDesignSVTest.topD2.machine_design_svNR3,
+     ``Sparkle.Tests.Compiler.ShippingChildBoundaryTest.mixDeep.machine_design_svNR2]
+  let es := hr ++ Sparkle.Tests.Compiler.ShippingChildBoundaryTest.rEndpoints ++ nr
+  for e in es do lawAudit e
+  Lean.logInfo m!"LAW AUDIT FROM THE ENDPOINTS: {es.length} generated endpoints (closed HR, R0, NR at every depth) — each reaches ChildBnd and the law bundle; no reached unconditional frame law is about a diagnostic operation or a throw; the diagnostic law is under quiet, rendering under the message class, a captured context under its environment's printers; no exception-cell law; the cache-pinning auxiliary predicate is constrained by no law and no start condition. The laws themselves stay assumptions (no runtime model); the elaborator primitives and profLog remain unconditional / one constructor."

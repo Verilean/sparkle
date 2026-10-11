@@ -6200,6 +6200,45 @@ def synthesizeCombinational (declName : Name) :
     MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) :=
   childSynthEntry declName
 
+/-- The "unfold and translate inline" path of `handleDefinitionUnfold`: the
+    wire on success; otherwise the last inline failure, as the EXCEPTION
+    ITSELF and not its rendered string. Rendering a Lean exception
+    (`toMessageData.toString`) pretty-prints the offending Expr and is
+    expensive; on wide FSMs the inline path fails-then-recovers thousands of
+    times, so the render is deferred to the single terminal error site,
+    which only runs when we actually throw. The exception is RETURNED (not
+    kept in a cell): what the terminal site renders is an exception this run
+    caught. -/
+def tryInlineUnfold (e : Lean.Expr) (hint : String) (isNamed : Bool) :
+    CompilerM (Option String × Option Lean.Exception) := do
+  let eReduced ← CompilerM.liftMetaM do
+    match ← Lean.Meta.unfoldDefinition? e with
+      | some e' => return e'
+      | none => return e
+  if eReduced != e then
+    try
+      let w ← translateExprToWire eReduced hint (isNamed := isNamed)
+      pure (some w, none)
+    catch ex1 =>
+      -- Inline expansion failed (often due to mixed Signal/BitVec operators
+      -- inside the expanded body). Retry with reducible transparency to
+      -- prevent over-expansion of Signal.pure and OfNat instances.
+      try
+        let eReduced2 ← CompilerM.liftMetaM do
+          Lean.Meta.withTransparency .reducible do
+            match ← Lean.Meta.unfoldDefinition? e with
+            | some e' => return e'
+            | none => return e
+        if eReduced2 != e then
+          let w ← translateExprToWire eReduced2 hint (isNamed := isNamed)
+          pure (some w, none)
+        else
+          pure (none, some ex1)
+      catch ex2 =>
+        pure (none, some ex2)
+  else
+    pure (none, none)
+
 /-- Handle a Lean function call by either inlining the body
     (the **default**) or emitting a sub-module instance (only
     when the declaration is tagged `@[hardware_module]`).
@@ -6397,48 +6436,6 @@ def handleDefinitionUnfold (e : Lean.Expr) (name : Name) (args : Array Lean.Expr
 
   let optedIntoModule := Sparkle.Compiler.isHardwareModule env name
 
-  -- Helper: try the "unfold and translate inline" path — the default.
-  -- Returns the wire on success, or stashes the deepest captured
-  -- inline failure for the outer error message.
-  -- Hold the raw exception, NOT its rendered string.  Rendering a
-  -- Lean exception (`toMessageData.toString`) pretty-prints the
-  -- offending Expr and is expensive; on wide FSMs the inline path
-  -- fails-then-recovers thousands of times, so eagerly stringifying
-  -- every recoverable failure dominated synth wall-time.  We defer
-  -- the render to the single terminal error site (line ~2548),
-  -- which only runs when we actually throw.
-  let lastInlineFail : IO.Ref (Option Lean.Exception) ← IO.mkRef none
-  let tryInline : CompilerM (Option String) := do
-    let eReduced ← CompilerM.liftMetaM do
-      match ← Lean.Meta.unfoldDefinition? e with
-        | some e' => return e'
-        | none => return e
-    if eReduced != e then
-      try
-        let w ← translateExprToWire eReduced hint (isNamed := isNamed)
-        return some w
-      catch ex1 =>
-        lastInlineFail.set (some ex1)
-        -- Inline expansion failed (often due to mixed Signal/BitVec operators
-        -- inside the expanded body). Retry with reducible transparency to
-        -- prevent over-expansion of Signal.pure and OfNat instances.
-        try
-          let eReduced2 ← CompilerM.liftMetaM do
-            Lean.Meta.withTransparency .reducible do
-              match ← Lean.Meta.unfoldDefinition? e with
-              | some e' => return e'
-              | none => return e
-          if eReduced2 != e then
-            let w ← translateExprToWire eReduced2 hint (isNamed := isNamed)
-            return some w
-          else
-            return none
-        catch ex2 =>
-          lastInlineFail.set (some ex2)
-          return none
-    else
-      return none
-
   -- Default: inline the body into the caller.  Only opt INTO a
   -- sub-module instance when the user tagged the definition
   -- `@[hardware_module]`, OR when inlining genuinely fails
@@ -6456,23 +6453,27 @@ def handleDefinitionUnfold (e : Lean.Expr) (name : Name) (args : Array Lean.Expr
       -- Try inlining first.  If it succeeds we return immediately;
       -- if not, fall through to a sub-module synthesis attempt.
       trace[sparkle.compiler] "→ definition unfold {name} (inline by default)"
-      match ← tryInline with
-      | some w => return some w
-      | none =>
+      match ← tryInlineUnfold (fun e h t n => translateExprToWire e h t n) e hint isNamed with
+      | (some w, _) => return some w
+      | (none, lastFail) =>
         try
           some <$> CompilerM.liftMetaM (synthesizeCombinational name)
-        catch _ => pure none
+        catch _ =>
+          -- the terminal error: the one place the last inline failure is
+          -- rendered (`lastFail` is the value the inline attempt returned)
+          let detail ←
+            match lastFail with
+            | some ex => do
+              let msg ← CompilerM.liftMetaM ex.toMessageData.toString
+              pure s!"\n\nInline expansion failed with:\n{msg}\n\nCommon causes (sim-pass but synth-fail patterns):\n  · `sig.map (fun _ => true)` / `(fun _ => false)` — lifts a Bool constant\n    the synth elaborator has no rule for.  Use Signal.pure or drop the\n    redundant `&& true`.\n  · `sig.map (fun b => if b then C1 else C2)` for BitVec constants —\n    replace with `Signal.mux sig (Signal.pure C1) (Signal.pure C2)`.\n  · `(· != ·) <$> a <*> b` or `Bool.not <$> sig` —\n    use `(fun a b => !(a == b)) <$> a <*> b` and `(fun b => !b) <$> sig`.\n  · Returning a tuple from `circuit do` — wrap in a structure with\n    `HasDomain` (see IP/Net/Ethernet.lean RxOut)."
+            | none => pure ""
+          CompilerM.liftMetaM $ throwError
+            s!"Cannot synthesise {name}: not inlinable and not a hardware module.{detail}"
   match subResult? with
   | none =>
-    let lastFail ← lastInlineFail.get
-    let detail ←
-      match lastFail with
-      | some ex => do
-        let msg ← CompilerM.liftMetaM ex.toMessageData.toString
-        pure s!"\n\nInline expansion failed with:\n{msg}\n\nCommon causes (sim-pass but synth-fail patterns):\n  · `sig.map (fun _ => true)` / `(fun _ => false)` — lifts a Bool constant\n    the synth elaborator has no rule for.  Use Signal.pure or drop the\n    redundant `&& true`.\n  · `sig.map (fun b => if b then C1 else C2)` for BitVec constants —\n    replace with `Signal.mux sig (Signal.pure C1) (Signal.pure C2)`.\n  · `(· != ·) <$> a <*> b` or `Bool.not <$> sig` —\n    use `(fun a b => !(a == b)) <$> a <*> b` and `(fun b => !b) <$> sig`.\n  · Returning a tuple from `circuit do` — wrap in a structure with\n    `HasDomain` (see IP/Net/Ethernet.lean RxOut)."
-      | none => pure ""
+    -- not reached: both branches above return a module or throw
     CompilerM.liftMetaM $ throwError
-      s!"Cannot synthesise {name}: not inlinable and not a hardware module.{detail}"
+      s!"Cannot synthesise {name}: not inlinable and not a hardware module."
   | some (subModule, subDesign) =>
 
   trace[sparkle.compiler] "→ sub-module synthesis {name}"

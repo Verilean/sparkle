@@ -209,21 +209,45 @@ Part 2, as implemented (`Tools/ShippingChildInv.lean`, `…Keeps`, `…VC`):
   `okmsg`, called by `vc` at every `throw` / `throwError` side goal: all sites
   of the harness, the translator, the fallback and the legacy block close (the
   one lazy form met was `ofConstName`).
-* The exception cell (`lastInlineFail : IO.Ref (Option Exception)`) is no
-  generic local ref: `CellOk` (create / read / write WITH a content in the
-  class), laws `cell`, `cellGet`, `cellGetIO` (a read in a quiet world returns
-  none or an `OkExc` exception). `quiet` is documented to include "every
-  exception cell holds none or an exception in the class". The bind on a cell
-  read hands that fact to its continuation (`KeepsC.bindOpt`), so the ONE
-  rendering site (`ex.toMessageData.toString`) renders an `OkMsg` message.
+* **The rendered exception's provenance is a VALUE, not a heap cell** (sixth
+  pass; the fifth pass used a law "every `IO.Ref (Option Exception)` holds an
+  in-class exception" folded into `quiet` — a condition on the whole heap,
+  not a provenance; removed). The compiler's inline attempt is the top-level
+  `Rec.tryInlineUnfold`, which RETURNS the caught exception with its result
+  (same messages and control flow; the cell `lastInlineFail` is gone).
+  `tryInlineUnfold_tripleC` proves the returned exception is none or `OkExc`
+  (`TripleC.tryCatchQ`: a `catch` with a postcondition), and the bind on its
+  result hands that to the continuation (`KeepsC.bindCaught`), where the ONE
+  rendering site is. No law about any ref of type `Option Exception` exists;
+  `quiet` is a condition on the diagnostic environment only.
+* **Captured contexts** (checked against Lean's `MessageData.formatAux`):
+  `MessageData.toString` formats with NO context; a lazy leaf then prints text
+  and calls nothing. Under `withContext ctx` a lazy leaf calls the printer
+  functions stored in `ctx.env` (`ppExt.getState ctx.env`) — the CAPTURED
+  environment's, which `quiet` (a world predicate) does not cover. So
+  `OkMsg.withContext c` requires `OkEnv c.env`, defined semantically: in any
+  printing context over that environment, `ppExprWithInfos` and
+  `ppConstNameWithInfos` leave what the three tracked refs read (`Inert`),
+  from every world. `FormatWithInfos` contributes its format only (no
+  callback); a naming context only shortens names.
 
-Trusted in part 2, explicitly: the two lazy leaves; `excOk` (T3); the cell
-laws (generic laws of refs of type `Option Exception`, with the "all cells
-hold in-class contents" reading of `quiet` at the start world); that the
-generic operations do not write exception cells (inside `frameQ`). NOT
-done: `profLog` is still one constructor (not derived from `eprintln` /
-`flushStderr` / the file handle); the elaborator primitives remain in the
-unconditional class; the per-child-world witness is existentially re-packed.
+Trusted in part 2, explicitly: the two lazy leaves under a context with
+inert printers; `excOk` (T3), which INCLUDES that the context a run's own
+error captures (its current environment) is `OkEnv` — an assumption about the
+environments the compile runs in. NOT done: `profLog` is still one
+constructor (not derived from `eprintln` / `flushStderr` / the file handle);
+the elaborator primitives remain in the unconditional class. Witnesses: the
+value-level invariant, the start condition and `J` are each about ONE
+witness; `invW_of_invV L` packs `L` itself, `invV_of_invW` returns a witness
+with its own invariant, and `withAux` changes none of `val` / `sval` / `dval`
+/ `quiet` (`Tools/ShippingCallsSame.lean`, by `rfl`). An audit FROM the 19
+generated endpoints (closed HR, R0, NR at every depth; definitions and
+inductive constructors unfolded) checks: `ChildBnd` reached, no unconditional
+frame law about a diagnostic or a throw, the conditioned laws' shapes, no
+exception-cell law, and that the cache-pinning auxiliary predicate is
+constrained by no law and no start condition
+(`Tests/Compiler/ShippingCallsCloseTest.lean`, `LAW AUDIT FROM THE
+ENDPOINTS`). No runtime model: all endpoints stay conditional theorems.
 
 (Previous status line: part 1 implemented, part 2 not done.)
 
