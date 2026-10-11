@@ -136,7 +136,7 @@ theorem slotless_childComb {P : String → Prop} {bnd : Lean.FVarId → Option S
     (hslots : lay.slots = [])
     (houts : ∃ o, lay.outs = [o] ∧ o.name = "out") :
     ChildComb (closeMachine lay t') ∧ (closeMachine lay t').inputs = PI ∧
-      (closeMachine lay t').name = t.name := by
+      (closeMachine lay t').name = t.name ∧ Acyclic (closeMachine lay t').body := by
   obtain ⟨w0, al, core, hpw, hops, ht', hord⟩ := closeLets_eq hK hcl
   have hti : t'.inputs = t.inputs.take (t.inputs.length - K) := by rw [ht']
   have htn : t'.name = t.name := by rw [ht']
@@ -274,7 +274,7 @@ theorem slotless_childComb {P : String → Prop} {bnd : Lean.FVarId → Option S
       obtain ⟨o', _, rfl⟩ := h
       have : n = core := by simpa [stmtReads, fieldRhs, refsOf] using hn
       exact this ▸ hreadCore
-  refine ⟨⟨?_, ?_, ?_, ?_, ?_, ?_⟩, hMin, by rw [hname, htn]⟩
+  refine ⟨⟨?_, ?_, ?_, ?_, ?_, ?_⟩, hMin, by rw [hname, htn], by rw [hMbody]; exact hMacy⟩
   · rw [hMbody]
     exact acyclic_isAssign hMacy
   · rw [hMin, hMbody]
@@ -290,5 +290,109 @@ theorem slotless_childComb {P : String → Prop} {bnd : Lean.FVarId → Option S
   · rw [hMin]
     intro p hp
     exact hwAlloc p (hinW p (hin ▸ List.mem_append_left _ hp))
+
+set_option maxHeartbeats 2000000 in
+/-- **The slotless machine child at the full entry**: the zero-width cleanup
+changes nothing of the closed module (typed statements, positive widths:
+`closeMachine_comb_cleanup`), and the checked merge keeps closure and the
+driven names (`mergeChecked_closed`) — so the module the entry returns has
+the child-side facts, the declaration's input ports and the transition's
+name. -/
+theorem slotless_childComb_full {P : String → Prop} {bnd : Lean.FVarId → Option String}
+    {Vk : Nat → String → Prop}
+    {t t' b : Module} {lay : Layout} {bodyB : List Stmt} {w : String}
+    {PI ls : List Port} {K : Nat}
+    (hK : K ≠ 0) (hcl : closeLets K t = some t')
+    (hin : t.inputs = PI ++ ls) (hlsLen : ls.length = K)
+    (hnd : (t.inputs.map (·.name)).Nodup) (hinW : ∀ p ∈ t.inputs, p ∈ t.wires)
+    (hwAlloc : ∀ p ∈ t.wires, Allocated p.name)
+    (hbody : t.body = bodyB.reverse ++ [.assign "out" (.ref w)]) (hacy : Acyclic t.body)
+    (hnamed : ∀ l r, Stmt.assign l r ∈ bodyB.reverse → Allocated l ∧ ∀ x ∈ refsOf r, Allocated x)
+    (hF : ∀ (al : List (Port × String)) (core : String),
+      letOperands t.body (t.inputs.drop (t.inputs.length - K)) w = some (al, core) →
+      ∃ es ws, Facts P bnd Vk t.wires t.body bodyB 0 al es ws ∧ al.map (·.1) = ls ∧ Allocated core)
+    (hclosed : readsClosedB (t.inputs.map (·.name)) t.body = true)
+    (typed : Tools.ShippingTypedPostSoundness.TypedStmts (Tools.ShippingEntrySoundness.weOf t) t.body)
+    (wnd : (t.wires.map (·.name)).Nodup)
+    (hwty : ∀ p ∈ t.wires, p.ty = .bit ∨ ∃ n, p.ty = .bitVector n)
+    (outsOk : ∀ o ∈ lay.outs, 0 < o.width ∧ outNameOk o.name = true)
+    (outTy : ∀ o ∈ lay.outs, o.ty.bitWidth = o.width)
+    (hslots : lay.slots = [])
+    (houts : ∃ o, lay.outs = [o] ∧ o.name = "out")
+    (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule (closeMachine lay t') ∨
+      b = Sparkle.IR.RefineCheck.mergeChecked
+        (Sparkle.IR.ZeroWidth.dropZeroWidthModule (closeMachine lay t'))) :
+    ChildComb b ∧ b.inputs = PI ∧ b.name = t.name := by
+  obtain ⟨hM, hMin, hMname, hMacy⟩ := slotless_childComb hK hcl hin hlsLen hnd hinW hwAlloc hbody
+    hacy hnamed hF hclosed outsOk hslots houts
+  obtain ⟨w0, al, core, hpw, hops, ht', hord⟩ := closeLets_eq hK hcl
+  have htw : t'.wires = t.wires := by rw [ht']
+  have hti : t'.inputs = t.inputs.take (t.inputs.length - K) := by rw [ht']
+  have htb : t'.body = closedBody t al core := by rw [ht']
+  clear ht'
+  have hpw' : packedWire? t.body = some w := by simp [packedWire?, hbody]
+  rw [hpw'] at hpw
+  cases hpw
+  obtain ⟨es, ws, hfacts, hal, -⟩ := hF al core hops
+  have hdrop : t.body.dropLast = bodyB.reverse := by simp [hbody]
+  have hbody' : t'.body =
+      (frontAliases al bodyB.reverse ++ insertAliases al bodyB.reverse) ++
+        [.assign "out" (.ref core)] := by
+    rw [htb]
+    unfold closedBody
+    rw [hdrop]
+  -- the let-closed body is typed
+  have hport : ∀ pa ∈ al, Tools.ShippingEntrySoundness.weOf t pa.1.name = pa.1.ty.bitWidth := by
+    intro pa hpa
+    have hp : pa.1 ∈ t.wires :=
+      hinW _ (hin ▸ List.mem_append_right _ (hal ▸ List.mem_map_of_mem hpa))
+    rw [Tools.ShippingMachineCleanup.weOf_port wnd hp]
+    rcases hwty _ hp with h | ⟨n, h⟩ <;> rw [h] <;> rfl
+  have hcorePos : 0 < Tools.ShippingEntrySoundness.weOf t core := by
+    obtain ⟨x, a, hcp⟩ := letOperands_core _ w (by
+      intro h
+      have := congrArg List.length h
+      simp only [List.length_drop, List.length_nil, hin, List.length_append, hlsLen] at this
+      omega) hops
+    obtain ⟨l', e, k, heq, hte, _⟩ := typed _ (concatParts?_mem hcp)
+    cases heq
+    exact hte.refs_positive core (by simp [refsOf, refsOf.refsList])
+  have typed' := Tools.ShippingMachineClose.closeLets_typed hK hcl hpw' hops typed hport hcorePos
+  obtain ⟨o, hlo, hon⟩ := houts
+  have outsNodup : (lay.outs.map (·.name)).Nodup := by rw [hlo]; simp
+  obtain ⟨dzb, -, dzi, dzo⟩ := Tools.ShippingMachineClose.closeMachine_comb_cleanup (lay := lay)
+    hbody' typed' (by rw [htw]; exact hwAlloc)
+    (fun p hp => by
+      rw [htw]
+      rw [hti] at hp
+      exact hinW p (List.mem_of_mem_take hp))
+    (by rw [htw]; exact wnd) outsOk outsNodup outTy hslots
+  generalize closeMachine lay t' = M at hM hMin hMname hMacy dzb dzi dzo hpost
+  have hZ : ChildComb (Sparkle.IR.ZeroWidth.dropZeroWidthModule M) :=
+    { assigns := by rw [dzb]; exact hM.assigns
+      closed := by rw [dzb, dzi]; exact hM.closed
+      output := by rw [dzo]; exact hM.output
+      outDriven := by rw [dzb]; exact hM.outDriven
+      inputNames := by rw [dzi]; exact hM.inputNames
+      inputAlloc := by rw [dzi]; exact hM.inputAlloc }
+  rcases hpost with rfl | rfl
+  · exact ⟨hZ, by rw [dzi, hMin], by rw [dropZeroWidth_name, hMname]⟩
+  · obtain ⟨mi, mo, _⟩ := Sparkle.IR.RefineCheck.mergeChecked_ports
+      (Sparkle.IR.ZeroWidth.dropZeroWidthModule M)
+    obtain ⟨mc, mw⟩ := Tools.ShippingMergeClosed.mergeChecked_closed
+      (S := (Sparkle.IR.ZeroWidth.dropZeroWidthModule M).inputs.map (·.name)) hZ.assigns hZ.closed
+    refine ⟨{ assigns := ?_, closed := by rw [mi]; exact mc, output := by rw [mo]; exact hZ.output,
+              outDriven := by rw [mw]; exact hZ.outDriven, inputNames := by rw [mi]; exact hZ.inputNames,
+              inputAlloc := by rw [mi]; exact hZ.inputAlloc },
+      by rw [mi, dzi, hMin],
+      by rw [Tools.ShippingMachineDepthRun.mergeChecked_name, dropZeroWidth_name, hMname]⟩
+    -- the merge of an ordered assignment-only body is ordered, so assignments
+    have hmd : Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M) =
+        Sparkle.IR.RegDedup.mergeDuplicates (Sparkle.IR.ZeroWidth.dropZeroWidthModule M) := by
+      unfold Sparkle.IR.RefineCheck.mergeChecked
+      simp only [hZ.assigns, if_true]
+    rw [hmd]
+    exact acyclic_isAssign (Tools.ShippingPostSoundness.mergeDuplicates_order
+      (by rw [dzb]; exact hMacy))
 
 end Tools.ShippingMachineChildComb
