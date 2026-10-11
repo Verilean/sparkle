@@ -720,6 +720,9 @@ lean_lib «Tools.ShippingRankG» where
 lean_lib «Tools.ShippingCloseChecksG» where
   roots := #[`Tools.ShippingCloseChecksG]
 
+lean_lib «Tools.ShippingCallGroups» where
+  roots := #[`Tools.ShippingCallGroups]
+
 lean_lib «Tools.ShippingInstStmtG» where
   roots := #[`Tools.ShippingInstStmtG]
 
