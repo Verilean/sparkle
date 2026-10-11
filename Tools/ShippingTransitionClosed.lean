@@ -50,7 +50,8 @@ theorem transition_closed {logProf : String → IO Unit} {declName : Name}
       (fun j => inputExpr bs.length (vpos j)) e) :
     readsClosedB (m.inputs.map (·.name)) m.body = true ∧
       (∀ stmt ∈ m.body, ∃ l r, stmt = Stmt.assign l r) ∧
-      (∃ ow, PrintBaseAt ow m) ∧ TypedPostReady m := by
+      (∃ ow, PrintBaseAt ow m) ∧ TypedPostReady m ∧
+      st.design = (CircuitM.init declName.toString).design := by
   have facts := transition_facts nd len run hm nameLegal he hb hv hbody
   have fresh : ((bs.zip ids).map Prod.snd).Nodup := by rw [zip_ids len]; exact nd
   have zero : SourceInputs declName bs ids cache (fun _ => false) (fun _ n => 0#n)
@@ -105,6 +106,6 @@ theorem transition_closed {logProf : String → IO Unit} {declName : Name}
       exact ⟨vpos j, (name, .bits (vw j)), zipAt _ _ hpos, by simp⟩)
     hassign
   rw [hin]
-  exact ⟨h, hassign, ⟨_, pb⟩, ready⟩
+  exact ⟨h.1, hassign, ⟨_, pb⟩, ready, h.2⟩
 
 end Tools.ShippingTransitionClosed

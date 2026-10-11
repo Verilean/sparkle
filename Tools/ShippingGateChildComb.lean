@@ -79,7 +79,7 @@ theorem gate_child_comb {declName : Name} {mctx : Meta.Context}
   obtain ⟨ids, cache, returned, st, nd, len, hrun, hm, _, nameLegal⟩ :=
     synthesizeMixedCertified_returns core
   have positive := Tools.ShippingMixedPrintSoundness.mixedShape_positive (shape (fun _ => false))
-  obtain ⟨hclosed, hassign, ⟨ow, pb⟩, ready⟩ :=
+  obtain ⟨hclosed, hassign, ⟨ow, pb⟩, ready, -⟩ :=
     transition_closed nd len hrun hm nameLegal positive e he hb hv rfl
   obtain ⟨_, ⟨B, wOut, hB⟩, _⟩ := transition_facts nd len hrun hm nameLegal he hb hv rfl
   -- the core module

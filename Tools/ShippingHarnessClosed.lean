@@ -1,4 +1,5 @@
 import Tools.ShippingMachineCloses
+import Tools.ShippingInstanceEntrySoundness
 
 /-! # The harness' module reads its input ports and wires driven earlier
 
@@ -108,7 +109,9 @@ theorem harness_closed {logProf : String → IO Unit} {declName : Name}
     (hpv : ∀ j, j < kv → ∃ (pos : Nat) (b : Name × MixedGateBinder), (bs.zip ids)[pos]? = some (b, vinp j) ∧ b.2 ≠ .domain)
     (hassign : ∀ stmt ∈ m.body, ∃ l r, stmt = Stmt.assign l r) :
     readsClosedB ((inputPorts bools bits (bs.zip ids)
-      (start (entryCompilerState false cache) declName.toString)).map (·.name)) m.body = true := by
+      (start (entryCompilerState false cache) declName.toString)).map (·.name)) m.body = true ∧
+    -- and the run adds no sub-module: the design is the initial one
+    st.design = (CircuitM.init declName.toString).design := by
   let a := start (entryCompilerState false cache) declName.toString
   let p := prepare bools bits (bs.zip ids) a
   have empty := empty_layout (entryCompilerState false cache) declName.toString initial
@@ -184,6 +187,13 @@ theorem harness_closed {logProf : String → IO Unit} {declName : Name}
   have hBB : st.module.body = Stmt.assign "out" (.ref w) :: sm.module.body := by
     rw [ht, emitAssign_body_cons]
     rfl
+  refine ⟨?_, ?_⟩
+  rotate_left
+  · rw [ht]
+    show sm.design = _
+    rw [hext.2.2.2]
+    exact Tools.ShippingInstanceEntrySoundness.prepare_design (bools := bools) (bits := bits)
+      (bs.zip ids) a
   rw [bodyEq, hBB]
   refine closed_forward (P := fun x => p.state.usedNames.contains x = true) _ ⟨?_, c1.1⟩ ?_
   · intro x hx
