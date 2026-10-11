@@ -666,6 +666,9 @@ lean_lib «Tools.ShippingRankNames» where
 lean_lib «Tools.ShippingCallsRank» where
   roots := #[`Tools.ShippingCallsRank]
 
+lean_lib «Tools.ShippingRankRun» where
+  roots := #[`Tools.ShippingRankRun]
+
 lean_lib «Tools.ShippingCallsClose» where
   roots := #[`Tools.ShippingCallsClose]
 
