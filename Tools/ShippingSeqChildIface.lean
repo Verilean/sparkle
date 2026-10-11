@@ -1,6 +1,7 @@
 import Tools.ShippingCallsRunG
 import Tools.ShippingMachineDepthRunR
 import Tools.ShippingTransitionClosed
+import Tools.ShippingReflectCtx
 
 /-! # A sequential (or several-output) machine child without calls, from its own run
 
@@ -17,8 +18,8 @@ machine-route declaration WITHOUT calls returns a module with it:
 
 From ONE run witness: the core run reaches the machine synthesis, which does
 not fall back (the CHILD's closing); the raw module's wiring is
-`MachineWired` — taken from the child's own endpoint (`hwired`), which every
-generated `machine_sound` gives; the post-passes (zero-width cleanup, checked
+`MachineWired`, by the core entry's theorem at this run
+(`synthesizeCombinationalCore_machine_sound` on the declaration's data); the post-passes (zero-width cleanup, checked
 merge) keep the ports, the name and the statement kinds.
 
 Data conditions, decided per declaration: the endpoint's `ok`, no call, the
@@ -102,22 +103,17 @@ theorem seqChild_iface {c : Name} (d : MachineData) (ok : d.ok = true)
       (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
     (hno : d.shape.insts = [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hwired : ∀ {w w' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {design : Design},
-      RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (m, design) w' →
-      ∃ (ids : List FVarId) (cache : IO.Ref (ExprStructMap String)) (regs lets : List String),
-        ids.length = d.shape.binders.length ∧
-        MachineWired c d.shape ids cache m design regs lets)
     {w w' : Void IO.RealWorld} {b : Sparkle.IR.AST.Module} {design : Design}
     (hw : InvW mref cref w)
     (hr : RunsTo (synthesizeCombinational c) mctx mref cctx cref w (b, design) w')
     (entry : MachineDefines mctx mref cctx cref c d.shape)
-    (closes : MachineClosesAt mctx mref cctx cref c d.shape) :
+    (closesM : MachineCloses mctx mref cctx cref c d.shape) :
     ChildIfaceG c
       ((d.shape.binders.take (d.shape.binders.length - d.shape.layout.slots.length -
         d.shape.layout.lets)).filter fun x => x.2 != .domain).length
       (d.shape.layout.outs.map (·.name)) b design := by
   obtain ⟨M, D, w1, hcore, hpost, hdesM⟩ := synthesizeCombinational_parts hr
-  obtain ⟨ids, cache, regs, lets, hlenIds, wired⟩ := hwired hcore
+  have closes : MachineClosesAt mctx mref cctx cref c d.shape := machineClosesAt_of_closes closesM
   obtain ⟨bb, r, w9, w10, hrun9, hw9, hd9, hres⟩ :=
     machine_run_of_core hcore entry (ChildBnd.of_invW mctx cctx hw)
   have hne := closes bb _ _ _ hw9 hd9 hrun9
@@ -131,8 +127,8 @@ theorem seqChild_iface {c : Name} (d : MachineData) (ok : d.ok = true)
   rotate_left
   · exact absurd hno hne'
   simp only [MachineData.ok, Bool.and_eq_true, decide_eq_true_eq, Bool.not_eq_true'] at ok
-  obtain ⟨hlen, hlets, positive, _, _, _, outsOk, outsNodup, hwf, hb, hv,
-    _, _, hscoped, _, _, _, _, _, _, _, _⟩ := ok
+  obtain ⟨hlen, hlets, positive, slotKinds, letKinds, layB, outsOk, outsNodup, hwf, hb, hv,
+    hfit, houtfit, hscoped, _, _, _, _, _, _, _, _⟩ := ok
   have hposv : PositiveBinders d.shape.binders := by
     intro name n hmem
     have := List.all_eq_true.mp positive _ hmem
@@ -163,7 +159,19 @@ theorem seqChild_iface {c : Name} (d : MachineData) (ok : d.ok = true)
     transition_closed nd len hrun hm nameLegal hposv d.packed hwf hb' hv' hbody
   have hMname : M.name = c.toString := by
     rw [hMeq, closeMachine_name, closeLets_name hcl, hname]
-  -- the raw module's wiring
+  -- the raw module's wiring: the core entry's theorem at this run
+  have layW : Tools.ShippingMachineClose.Zip₂
+      (fun (f : SlotField) (b : Name × MixedGateBinder) =>
+        f.width = machWidth b.2 ∧ b.2 ≠ .domain ∧ f.init < 2 ^ f.width)
+      d.shape.layout.slots d.slotBs :=
+    zip_of_all (by
+      intro a b h
+      simpa only [Bool.and_eq_true, decide_eq_true_eq] using h) layB
+  obtain ⟨ids, -, hlenIds, cache, hP⟩ :=
+    synthesizeCombinationalCore_machine_sound hcore entry closesM d.binders_split hlets hposv
+      slotKinds letKinds (layW.imp fun _ _ h => h.1) outsOk outsNodup
+  obtain ⟨regs, -, -, lets, -, wired, -⟩ :=
+    hP d.dom d.kb d.kv d.vw d.bpos d.vpos d.letFields d.core.2 hwf hb' hv' hbody hfit houtfit
   obtain ⟨-, -, -, -, -, -, -, houtsM, hinsM, -, hclean, -⟩ := wired
   obtain ⟨⟨hzb, -, hzi, hzo⟩, -, -, -, hinNd, -, houtIn, -, hseq⟩ := hclean hno outTy
   have hinsM' := hinsM hno
@@ -219,5 +227,27 @@ theorem seqChild_iface {c : Name} (d : MachineData) (ok : d.ok = true)
       ((Tools.ShippingMachineDepthRun.mergeChecked_name _).trans
         (Tools.ShippingMachineDepthRun.dropZW_name M))
       (mergeChecked_seqOk (by rw [hzb]; exact hseq))
+
+/-- **A real child of a machine declaration without calls has the interface**
+— from its OWN run (the `RealChild` witness): the declaration's reflection
+moved to that run's contexts, the child's closing there (a machine without
+calls closes in every context: `c.machine_closes`). -/
+theorem seqChild_of_real {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    (hno : d.shape.insts = [])
+    (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
+    (entry : MachineDefines mctx mref cctx cref c d.shape)
+    (closes : ∀ (mctx' : Meta.Context) (cctx' : Core.Context),
+      MachineCloses mctx' mref cctx' cref c d.shape)
+    {y : Res} (h : RealChild mref cref c y) :
+    ChildIfaceG c
+      ((d.shape.binders.take (d.shape.binders.length - d.shape.layout.slots.length -
+        d.shape.layout.lets)).filter fun x => x.2 != .domain).length
+      (d.shape.layout.outs.map (·.name)) y.1 y.2 := by
+  obtain ⟨mctx', cctx', w, w', hw, hr⟩ := h.inv
+  exact seqChild_iface d ok hbody hno outTy hw hr
+    (Tools.ShippingReflectCtx.MachineDefines.ctx entry) (closes mctx' cctx')
 
 end Tools.ShippingSeqChildIface
