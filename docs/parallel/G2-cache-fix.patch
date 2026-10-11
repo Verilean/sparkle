@@ -1,0 +1,175 @@
+G2 — the legacy wire caches across a caught inline failure: proposed fix
+=========================================================================
+
+NOT APPLIED, NOT COMPILED. Unified diff against Sparkle/Compiler/Elab.lean at
+f91da85a (`patch -p1 --dry-run < docs/parallel/G2-cache-fix.patch` from the
+repository root). Text before the first `---` line is ignored by `patch`.
+
+Defect (Tests/Compiler/LegacyCacheRollbackTest.lean, run on cab870c0):
+`Rec.tryInlineUnfold` catches a failed first attempt; the `catch` restores the
+builder state (wires, `usedNames`, the name counter) but not the `IO.Ref`
+caches the attempt wrote. An entry left behind names a wire that no longer
+exists (`parentRetry`: `_tmp_op_a_0` read, never declared) or that the
+rolled-back counter gives to another expression (`parentRealloc`: a
+well-formed module, out = 23 where the source is 19 at x = 5).
+
+VARIANT A (the diff below) — restore the caches on the catch paths
+------------------------------------------------------------------
+`snapshotWireCaches` before the attempt, `restoreWireCaches` at the head of
+both `catch` branches of `Rec.tryInlineUnfold`. Restored: the expression
+cache of the context, `sparkleLetWireCache`, `sparkleLoopWireCache`,
+`sparkleWireCanon`, `sparkleSingleOutInstanceCache`,
+`sparkleSubInstanceOutputs`, `sparkleWireWidthCache`, `sparkleFvarValueMap`,
+and `sparkleFvarZetaVisited` (a second leak of the same kind: the zeta arm
+inserts the fvar, translates, erases — with no `finally`, so a failure under
+it leaves the fvar marked and every later reference to it throws "circular
+zeta-reduction"). Not restored: `sparkleSubModuleCache`, `sparkleChildCache`
+(module results; the child-cache invariant of `childKeeps` is about them and
+is untouched), the type cache, the counters.
+
+It is the only `catch` in `CompilerM` that goes on TRANSLATING after a failed
+translation: the other `try … catch` of the translator wrap a type query, a
+literal extraction or a child's synthesis in `MetaM`, none of which writes
+these caches for the parent's module and then continues in the parent.
+
+Sources that compile today:
+* a compile in which no inline attempt fails: byte-identical output — the
+  restore never runs, and the snapshot only reads;
+* a compile in which an attempt fails and is recovered from: the recovery
+  re-lowers what the failed attempt had cached, instead of reusing its names.
+  Output differs exactly where today's output refers to a rolled-back wire.
+  No natural source of this kind is known (docs/parallel/G2-legacy.md §11;
+  Tests/Compiler/LegacyCacheNaturalTest.lean), so on the corpus the expected
+  diff is empty;
+* the accepted set: a recovery that today is REJECTED by `instLinkCheck`
+  because a stale argument wire is undeclared (`parentSub` with the injected
+  fault) compiles after the fix. Nothing that compiles today is rejected.
+
+Cost: a snapshot keeps a second reference to each map, so the FIRST insert
+into each map after it copies the map once (`Std.HashMap` is updated in place
+only when unshared). That is O(size of the caches) per inline attempt of an
+untagged helper call — on every such call, failing or not. The shim's own
+comment (Elab.lean 7863–7869) records that exactly this sharing made a
+large FSM quadratic. If the corpus timing shows it, use A' instead.
+
+Proofs to redo: `tryInlineUnfold_tripleC` (Tools/ShippingChildLegacy.lean)
+and `tryInlineUnfold_ensures` (Tools/ShippingLegacySemInline.lean) gain the
+snapshot bind and one restore per handler; the reads and writes are already
+in the frame class (`Framed.sideGetIO` / `sideSetIO` for the eight global
+refs — all are `SideRef`s — and `localGetIO` / `localSetIO` for the context's
+cache). `tryInlineUnfold_returns`' statement is unchanged.
+`InlineUnfoldRegressionTest` compares against the old cell on scripted
+translators: unaffected (same calls, same results).
+
+VARIANT A' — clear instead of restore (not in the diff)
+--------------------------------------------------------
+No snapshot. In both `catch` branches set the same refs to empty (`{}`; the
+context's cache by `ref.set {}`). An empty cache is always valid. Zero cost
+when nothing fails. After a recovered failure, sharing built up BEFORE the
+attempt is lost for the rest of the module: later identical expressions are
+lowered again (more wires, same function), a later call equal to an earlier
+one gets its own instance (the single-output dedupe of Issue #107 and the
+projection sharing of Issue #71 start over), a later evaluation of the same
+`Signal.loop` gets its own registers (same function). Only compiles with a
+caught failure are affected. The diff is the one below with
+`restoreWireCaches saved` replaced by a `clearWireCaches` that writes `{}`,
+and without the `let saved ← snapshotWireCaches` line.
+
+VARIANT B — validate the hit (docs/parallel/G2-legacy.md §9.1; not in the diff)
+-------------------------------------------------------------------------------
+The shim honours a hit only if the pure builder state records the wire for
+the expression (`cacheLookupValidated` / `recordTranslation`). It removes the
+stale hit of the EXPRESSION cache at no cost on the success path and is what
+the proofs need (`ShimAt` for every call), but it does not cover the hash-keyed
+caches (let / loop / instance), which need A, A' or a move into `CircuitState`
+(§9.2), and it changes hits that are not stale (`mdata`-stripped keys,
+results that are existing wires), so its corpus diff is not expected to be
+empty. A or A' fixes the defect; B is for the proof and is independent.
+
+--- a/Sparkle/Compiler/Elab.lean
++++ b/Sparkle/Compiler/Elab.lean
+@@ -5566,6 +5566,61 @@
+     | _ => ex
+   | ex => ex
+ 
++/-- The `IO.Ref` caches whose entries NAME WIRES of the module being built
++    (or mark work in progress on it), read together.  A `catch` in `CompilerM`
++    restores the builder state — wires, `usedNames`, the name counter — but
++    not these refs: an entry written by the failed attempt would name a wire
++    that no longer exists, or that the rolled-back counter hands out again to
++    another expression (Tests/Compiler/LegacyCacheRollbackTest.lean).  So a
++    `catch` that goes on translating has to put them back as well.
++
++    Not included: `sparkleSubModuleCache` / `sparkleChildCache` (module
++    results, valid whatever the parent's builder state), `sparkleTypeCache`
++    and the profile counters. -/
++structure WireCaches where
++  expr : Option (Lean.ExprStructMap String)
++  letWire : Std.HashMap String String
++  loopWire : Std.HashMap String String
++  wireCanon : Std.HashMap String String
++  singleOut : Std.HashMap String String
++  subInstOut : Std.HashMap (UInt64 × String) String
++  wireWidth : Std.HashMap String Nat
++  fvarValue : Std.HashMap Lean.Name Lean.Expr
++  zetaVisited : Std.HashSet Lean.Name
++
++/-- Read the wire-naming caches. -/
++def snapshotWireCaches : CompilerM WireCaches := do
++  let expr ←
++    match (← CompilerM.getCompilerState).exprCache with
++    | some ref => do
++      let m ← CompilerM.liftMetaM (ref.get : IO _)
++      pure (some m)
++    | none => pure none
++  let letWire ← CompilerM.liftMetaM (sparkleLetWireCache.get : IO _)
++  let loopWire ← CompilerM.liftMetaM (sparkleLoopWireCache.get : IO _)
++  let wireCanon ← CompilerM.liftMetaM (sparkleWireCanon.get : IO _)
++  let singleOut ← CompilerM.liftMetaM (sparkleSingleOutInstanceCache.get : IO _)
++  let subInstOut ← CompilerM.liftMetaM (sparkleSubInstanceOutputs.get : IO _)
++  let wireWidth ← CompilerM.liftMetaM (sparkleWireWidthCache.get : IO _)
++  let fvarValue ← CompilerM.liftMetaM (sparkleFvarValueMap.get : IO _)
++  let zetaVisited ← CompilerM.liftMetaM (sparkleFvarZetaVisited.get : IO _)
++  return { expr, letWire, loopWire, wireCanon, singleOut, subInstOut, wireWidth,
++           fvarValue, zetaVisited }
++
++/-- Write the wire-naming caches back. -/
++def restoreWireCaches (c : WireCaches) : CompilerM Unit := do
++  match (← CompilerM.getCompilerState).exprCache, c.expr with
++  | some ref, some m => CompilerM.liftMetaM (ref.set m : IO Unit)
++  | _, _ => pure ()
++  CompilerM.liftMetaM (sparkleLetWireCache.set c.letWire : IO Unit)
++  CompilerM.liftMetaM (sparkleLoopWireCache.set c.loopWire : IO Unit)
++  CompilerM.liftMetaM (sparkleWireCanon.set c.wireCanon : IO Unit)
++  CompilerM.liftMetaM (sparkleSingleOutInstanceCache.set c.singleOut : IO Unit)
++  CompilerM.liftMetaM (sparkleSubInstanceOutputs.set c.subInstOut : IO Unit)
++  CompilerM.liftMetaM (sparkleWireWidthCache.set c.wireWidth : IO Unit)
++  CompilerM.liftMetaM (sparkleFvarValueMap.set c.fvarValue : IO Unit)
++  CompilerM.liftMetaM (sparkleFvarZetaVisited.set c.zetaVisited : IO Unit)
++
+ section TranslatorBlock
+ variable (translateExprToWire : (e : Lean.Expr) → (hint : String := "wire") →
+   (isTopLevel : Bool := false) → (isNamed : Bool := false) → CompilerM String)
+@@ -6216,10 +6271,14 @@
+       | some e' => return e'
+       | none => return e
+   if eReduced != e then
++    -- The catches below restore the builder state; `saved` lets them restore
++    -- the wire-naming `IO.Ref` caches too (see `WireCaches`).
++    let saved ← snapshotWireCaches
+     try
+       let w ← translateExprToWire eReduced hint (isNamed := isNamed)
+       pure (some w, none)
+     catch ex1 =>
++      restoreWireCaches saved
+       -- Inline expansion failed (often due to mixed Signal/BitVec operators
+       -- inside the expanded body). Retry with reducible transparency to
+       -- prevent over-expansion of Signal.pure and OfNat instances.
+@@ -6235,6 +6294,7 @@
+         else
+           pure (none, some ex1)
+       catch ex2 =>
++        restoreWireCaches saved
+         pure (none, some ex2)
+   else
+     pure (none, none)

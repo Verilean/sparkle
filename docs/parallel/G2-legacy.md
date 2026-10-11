@@ -417,3 +417,179 @@ So the stale hit is real given a late failure of an inline attempt. Whether
 any real source fails late is NOT established.
 `Tools.ShippingLegacySemDispatch` failed its first build (returned to the
 worker); `Tools.ShippingLegacySemShim` was not reached.
+
+<!-- worker B, round 3 (its own numbering 11–13) -->
+
+## 12. Integrator's run of the reproduction test (2026-10-12)
+
+`Tests/Compiler/LegacyCacheRollbackTest.lean` was run through the protected
+queue (base `ffad8424` + the test). Verdicts, with the fault INJECTED at the
+inline attempt's translation call (no source that fails late by itself was
+found: `natural candidates: []`):
+
+* retry, argument used twice (`parentRetry`): the emitted module reads
+  `_tmp_op_a_0`, neither declared nor driven; `out = 0` for every input
+  (source: `2 * (x + 1)`).
+* retry, then a later operand (`parentRealloc`): the module is WELL FORMED
+  and computes another function (`x = 5`: `out = 23`, source `19`): the
+  stale name `_tmp_op_b_2` was re-allocated to `x + x`.
+* sub-module after a failed inline (`parentSub`): rejected by
+  `instLinkCheck`.
+
+So the stale hit is real given a late failure of an inline attempt. Whether
+any real source fails late is NOT established.
+`Tools.ShippingLegacySemDispatch` failed its first build (returned to the
+worker); `Tools.ShippingLegacySemShim` was not reached.
+
+---
+
+# Round 3 (branch `par/g2-legacy-3`, base `f91da85a`)
+
+New: `Tests/Compiler/LegacyCacheNaturalTest.lean`,
+`docs/parallel/G2-cache-fix.patch`; `Tools/ShippingLegacySemDispatch.lean`
+and `Tools/ShippingLegacySemShim.lean` again (not integrated in round 2),
+fixed. NOT BUILT.
+
+## 11. Is there a natural trigger? — a bound, not a proof of absence
+
+The defect needs a compile in which (1) an inline attempt
+(`Rec.tryInlineUnfold`, the call `tr eReduced`) throws AFTER a cacheable
+sub-translation returned, and (2) the compile still succeeds. Only two things
+follow a failed attempt: the reducible retry (R1) and, in
+`Rec.handleDefinitionUnfold`, the sub-module synthesis of the callee followed
+by the translation of the call's arguments (R2). These are the only catches
+in `CompilerM` that go on translating (the other `try`s — Elab.lean 734,
+1950, 2135, 6265, 6447, 6459, 7017, 7022, 7194, 7688, 7794 — wrap a type
+query, a literal extraction or a `MetaM` child synthesis and either rethrow
+or continue without having translated anything in the `try`).
+
+**I found no source that satisfies (1) and (2), and the reasons are these.**
+
+*What can throw inside the attempt* (the block `Rec.*`, 5572–7904, and what it
+calls): unsupported shapes (`handleErrorPatterns` 5577/5585, "Cannot
+instantiate" 6777, "Unsupported application" 6781, lambda bodies 5718/6790,
+`Prod.rec` continuations 7269–7328, projections 7652, "Signal.loop argument
+must be a lambda" 6089); unbound variables (6895, 7684); literal / width /
+type extraction (`extractNat`, `extractWidth`, `extractBitVecLiteral`,
+`inferHWTypeFromSignal`); instance checks (`instArityCheck`, `instLinkGuard`,
+6508); a child's synthesis failing (6450/6470); the zeta cycle guard (6863,
+6879); the call limit (6808); fuel exhaustion (`translateFuelFix`); and Lean's
+own (`whnf`, `inferType`; interrupts and runtime exceptions are not caught at
+all). Any of them can come after a cached sub-translation — e.g. a binary
+node whose first operand is a helper call and whose second is unsupported.
+So (1) alone is easy; `natBadTail` is such a source.
+
+*R1, the retry.* It runs only for a `@[reducible]` / `abbrev` callee, and it
+translates `unfoldDefinition? e` again. The handler reaches the attempt only
+for a head that is NOT a structure projection (the projection branch returns
+before it), so the head is an ordinary definition and the reducible unfolding
+is the same δβ-step as the first one: `eReduced2 = eReduced`. The translator
+is a function of the expression, the context, the builder state and the
+`IO.Ref`s. The retry starts from the SAME builder state (rollback) and a heap
+that differs only by what the failed attempt added. The sub-expression that
+threw was never cached, so the retry reaches it again; it can behave
+differently only through the heap:
+* expression / let / loop / instance caches: they make the retry SKIP
+  sub-translations that succeeded — never the one that failed;
+* the call counter and `sparkleFvarZetaVisited` only grow (the zeta arm does
+  not erase its mark on an exception), so they can turn a success into a
+  failure, not the reverse;
+* checks that read the builder state (`instLinkCheck`, `instArityCheck`) see
+  FEWER declarations after a stale hit, so they fail more, not less.
+So a natural retry fails where the first attempt failed. The rollback test's
+`after` runs succeed only because the injected fault fires once.
+
+*R2, the sub-module.* `synthesizeCombinational f` is the full entry on `f`'s
+own value; then every argument that is a port is translated in the parent
+and `instLinkCheck` asks each connected wire to be declared at the port's
+width. For the compile to succeed the entry must compile `f`'s body although
+the parent could not translate `body[args]`:
+* a failure in the body itself (the first list above, when it does not depend
+  on the arguments) fails the child's entry too — unless the child takes a
+  ROUTE the inlined body does not: a gate or the machine route. That needs a
+  body the certified / machine front end accepts and the legacy lowering of
+  the same expression rejects. I do not know such a body; the legacy lowering
+  is the older, wider one, and the corpus compiled on it. NOT excluded by
+  argument — class (a) below;
+* a failure in an argument: the recovery translates the same argument
+  (`translateExprToWire args[i]`), from the same builder state — it fails
+  again, by the R1 reasoning. Arguments the callee ignores are not translated
+  by the inline attempt at all;
+* a failure that depends on the parent's context (the parent's local
+  declarations, its varMap, its remaining fuel, its caches) and disappears in
+  the child's fresh one: the only instances I can name are fuel (2^20 nested
+  calls: Lean's stack ends first) and the zeta cycle guard, whose documented
+  cause — the explicit `Signal.memoize` chain of nested `circuit do` — was
+  removed from `Signal.loop` (Sparkle/Core/Signal.lean 829–843: "no longer
+  trigger the inline-and-translate cycle"). `natCtr` (round 2) and
+  `natFsmInFsm` / `natFsm2` (this round) are that shape. NOT excluded by
+  argument — class (b);
+* the entry preprocesses a module body and not an inlined one
+  (`openRecordInputs`, `stripMemoizeWrappers`, `splitReturnLeaves`): a callee
+  with a record parameter needs more arguments than the call has (6508
+  throws); `.memoize` heads are peeled by the dispatcher as well. No case
+  found.
+
+And even with (1) and (2): a stale ARGUMENT wire is rejected by
+`instLinkCheck` unless its name was re-allocated at the same width; what
+passes the check is a stale wire INSIDE a freshly built argument
+(`g x + 1`: the sum is new and declared, its operand `g x` is the stale
+name).
+
+**Residual classes (not closed by the argument):**
+(a) a callee the gates / machine route compile but whose unfolded body the
+legacy lowering rejects late; (b) a context-dependent failure of the inlined
+body; (c) the front end's own unfolding versus the handler's (recursive
+helpers on literal data: `natRec`). `Tests/Compiler/LegacyCacheNaturalTest.lean`
+runs one declaration per class and the class-1 control, under both front
+ends, counting every recursive translation that throws; a declaration that
+compiles with a non-zero count is a natural trigger. `runNatural` takes any
+declaration: running it over the corpus (391 declarations) is the measurement
+that would actually bound (a)–(c); I could not run it.
+
+**Severity as far as this goes.** The mechanism is real and one-sided: it
+needs a compile that recovers from a late inline failure. No such source is
+known; the comment at `tryInlineUnfold` ("fails-then-recovers thousands of
+times") predates the removal of the memoize chain. Until the corpus count is
+in, the fix (§12) is cheap insurance, and it also repairs the
+`sparkleFvarZetaVisited` leak (a failure under a zeta-reduced `let` leaves
+the variable marked: every later reference to it throws "circular
+zeta-reduction" — a wrong REJECTION after a recovered failure, same
+precondition).
+
+## 12. The fix, as a patch
+
+`docs/parallel/G2-cache-fix.patch` (applies with `patch -p1 --dry-run`; not
+compiled). Variant A in the diff: snapshot the wire-naming refs before the
+attempt, restore them at the head of both `catch` branches. Its header gives
+A' (clear instead of restore: no cost on the success path, loses earlier
+sharing after a recovered failure) and B (validated hit, §9.1: what the
+PROOF needs, not what the defect needs), with what each changes for sources
+that compile today and which proofs have to be redone.
+
+After A or A', the rollback test's `after` runs should read "no stale hit"
+for the two retry scenarios and compile the sub-module scenario.
+
+## 13. Dispatch and shim, fixed
+
+The round-2 failure was mine, and it was not the one named in the verdict's
+gloss: the bind WAS inverted (`obtain ⟨env, sE, hEnvRead, tr⟩ :=
+Returns.bind tr`), but I reused the name `tr` and then `subst hsE`; `subst`
+eliminated the theorem's own state variable, reverted the OLD `tr` (which
+mentions it) and reintroduced it last, so `tr` named the whole program again
+and the continuation became `tr✝`. The existing proofs I copied do not hit
+this because their start state is a compound term, so `subst` eliminates the
+fresh variable. Fix, in both files: every inversion binds a NEW name (`k0`,
+`k1`, …) and state / context equations are used by `rw … at`, never `subst`.
+`legacyShim_returns` had the same pattern at every step; rewritten.
+
+## Integrator's builds and runs of round 3 (2026-10-12)
+
+`Tools.ShippingLegacySemDispatch` built with no change (integrated).
+`Tests/Compiler/LegacyCacheNaturalTest.lean` RAN: `LEGACY CACHE, NATURAL
+TRIGGER: none` — no candidate compiled after a failed recursive translation;
+this bounds the listed classes on those sources only. The corpus was NOT
+measured (the full corpus stays stopped by the user's instruction).
+`Tools.ShippingLegacySemShim` failed its first build (4 errors, returned).
+`docs/parallel/G2-cache-fix.patch` is a proposal: NOT applied, not compiled.
+

@@ -2045,3 +2045,6 @@ lean_lib «Tools.ShippingReaderComplete» where
 
 lean_lib «Tools.ShippingReaderNodes2» where
   roots := #[`Tools.ShippingReaderNodes2]
+
+lean_lib «Tools.ShippingLegacySemDispatch» where
+  roots := #[`Tools.ShippingLegacySemDispatch]
