@@ -6,13 +6,13 @@ import Tools.ShippingTopoBody
 For the one-output closing only (every statement drives one name). The rank
 of a name, by what drives it:
 
-* a wire a transition statement drives: `3·f·M + pos` — `f` the first field
-  whose prefix of the body contains the driver (the number of fields if
-  none: the core), `pos` its position;
-* the port of `let` `a`: `(3a+1)·M`;
-* the output port of call `j`: `(3·m_j+2)·M`, `m_j` a bound of its argument
-  `let`s;
-* anything else (next-value and output names): `3·(K+1)·M`.
+* a wire a transition statement drives: `(4f+2)·M + pos` — `f` the first
+  field whose prefix of the body contains the driver (the number of fields
+  if none: the core), `pos` its position;
+* the port of `let` `a`: `(4a+3)·M`;
+* the output port of call `j`: `(4c+1)·M`, every argument `let` of the call
+  below `c`;
+* anything else (next-value and output names): `4·(K+1)·M`.
 
 Here: the definitions and the order facts about lists. Which reads a real
 transition's statements have is not here. -/
@@ -183,5 +183,101 @@ theorem prefix_closed {T pre : List Stmt} (hT : Acyclic T) (hp : pre <+: T) {l :
   rcases List.mem_append.mp hw with h | h
   · exact h
   · exact absurd h (hrdj l r hin x hx)
+
+/-! ## The rank -/
+
+/-- The rank of a name (see the file's header). -/
+def rho (T : List Stmt) (pres : List (List Stmt)) (letNames instNames : List String)
+    (cs : List Nat) (x : String) : Nat :=
+  if x ∈ writesOf T then (4 * firstIdx pres x + 2) * (T.length + 1) + posOf (writesOf T) x
+  else if x ∈ letNames then (4 * posOf letNames x + 3) * (T.length + 1)
+  else if x ∈ instNames then (4 * cs.getD (posOf instNames x) 0 + 1) * (T.length + 1)
+  else 4 * (pres.length + 1) * (T.length + 1)
+
+variable {T : List Stmt} {pres : List (List Stmt)} {letNames instNames : List String}
+  {cs : List Nat}
+
+theorem writes_length : ∀ {T : List Stmt}, Acyclic T → (writesOf T).length = T.length
+  | [], _ => rfl
+  | _ :: T, h => by
+    cases h with
+    | @cons l r _ _ _ htl =>
+      show (l :: writesOf T).length = _
+      simp [writes_length htl]
+
+theorem rho_body {x : String} (h : x ∈ writesOf T) :
+    rho T pres letNames instNames cs x =
+      (4 * firstIdx pres x + 2) * (T.length + 1) + posOf (writesOf T) x := by
+  unfold rho
+  rw [if_pos h]
+
+theorem rho_let {x : String} {a : Nat} (h1 : x ∉ writesOf T) (hnd : letNames.Nodup)
+    (ha : letNames[a]? = some x) :
+    rho T pres letNames instNames cs x = (4 * a + 3) * (T.length + 1) := by
+  unfold rho
+  rw [if_neg h1, if_pos (List.mem_of_getElem? ha), posOf_getElem hnd ha]
+
+theorem rho_inst {x : String} {j c : Nat} (h1 : x ∉ writesOf T) (h2 : x ∉ letNames)
+    (hnd : instNames.Nodup) (hj : instNames[j]? = some x) (hc : cs[j]? = some c) :
+    rho T pres letNames instNames cs x = (4 * c + 1) * (T.length + 1) := by
+  unfold rho
+  rw [if_neg h1, if_neg h2, if_pos (List.mem_of_getElem? hj), posOf_getElem hnd hj]
+  simp [List.getD, hc]
+
+theorem rho_other {x : String} (h1 : x ∉ writesOf T) (h2 : x ∉ letNames) (h3 : x ∉ instNames) :
+    rho T pres letNames instNames cs x = 4 * (pres.length + 1) * (T.length + 1) := by
+  unfold rho
+  rw [if_neg h1, if_neg h2, if_neg h3]
+
+theorem pos_lt_M {x : String} (hT : Acyclic T) (h : x ∈ writesOf T) :
+    posOf (writesOf T) x < T.length + 1 := by
+  have := posOf_lt h
+  rw [writes_length hT] at this
+  omega
+
+/-- The field of a body statement's target bounds what the reads' rules say:
+if every prefix that drives `l` puts `n` below its index, and `n ≤ K`
+otherwise, then `n` is at most the field of `l`. -/
+theorem le_field {l : String} {n : Nat}
+    (hpre : ∀ i pre, pres[i]? = some pre → l ∈ writesOf pre → n ≤ i) (hK : n ≤ pres.length) :
+    n ≤ firstIdx pres l := by
+  by_cases h : firstIdx pres l < pres.length
+  · obtain ⟨pre, h1, h2⟩ := firstIdx_spec h
+    exact hpre _ pre h1 h2
+  · omega
+
+/-- A body statement reads a body-driven name: below. -/
+theorem lt_body_body (hT : Acyclic T) (hpre : ∀ pre ∈ pres, pre <+: T) {l x : String} {r : Expr}
+    (hm : Stmt.assign l r ∈ T) (hx : x ∈ refsOf r) (hw : x ∈ writesOf T) :
+    rho T pres letNames instNames cs x < rho T pres letNames instNames cs l := by
+  rw [rho_body hw, rho_body (mem_writes_assign hm)]
+  refine block_le_lt ?_ (pos_lt_of_read hT hm hx hw)
+  have : firstIdx pres x ≤ firstIdx pres l := by
+    by_cases h : firstIdx pres l < pres.length
+    · obtain ⟨pre, h1, h2⟩ := firstIdx_spec h
+      exact firstIdx_le h1 (prefix_closed hT (hpre pre (List.mem_of_getElem? h1)) hm h2 hx hw)
+    · have := firstIdx_le_length pres x
+      omega
+  omega
+
+/-- A body statement of field `≥ n + 1` (for a `let` port: `n = a`)… the
+generic comparison: a name of block `b` is below a body-driven name whose
+field is `f` when `b < 4f + 2`. -/
+theorem lt_block_body (hT : Acyclic T) {l : String} {b : Nat} (hl : l ∈ writesOf T)
+    (hb : b < 4 * firstIdx pres l + 2) :
+    b * (T.length + 1) < rho T pres letNames instNames cs l := by
+  rw [rho_body hl]
+  have := block_lt (r1 := 0) (r2 := posOf (writesOf T) l) (M := T.length + 1) hb (Nat.succ_pos _)
+  simpa using this
+
+/-- A body-driven name whose field is at most `f` is below block `b` when
+`4f + 2 < b`. -/
+theorem lt_body_block (hT : Acyclic T) {x : String} {b f : Nat} (hx : x ∈ writesOf T)
+    (hf : firstIdx pres x ≤ f) (hb : 4 * f + 2 < b) :
+    rho T pres letNames instNames cs x < b * (T.length + 1) := by
+  rw [rho_body hx]
+  have := block_lt (c1 := 4 * firstIdx pres x + 2) (c2 := b) (r1 := posOf (writesOf T) x) (r2 := 0)
+    (M := T.length + 1) (by omega) (pos_lt_M hT hx)
+  simpa using this
 
 end Tools.ShippingRankNames
