@@ -38,7 +38,7 @@ calls, at depth `n` (depth is an upper bound: `composedNn_of_HR` over
 def generateCombNR (c : Name) (n : Nat) : MetaM Name := do
   let name := c ++ Name.mkSimple s!"machine_composedNRH{n}"
   if (← getEnv).contains name then return name
-  let cR ← Tools.ShippingMachineComposeRCommand.generateComposedR c
+  let cR ← Tools.ShippingMachineComposeRCommand.generateComposedR c (atW := true)
   let rest ← forallTelescope (← inferType (mkConst cR)) fun ys _ => do
     unless ys.size == 12 do throwError "{cR}: binders ({ys.size})"
     let bT ← whnfR (← inferType ys[11]!)
@@ -62,6 +62,53 @@ def generateCombNR (c : Name) (n : Nat) : MetaM Name := do
   if p.hasMVar then throwError "{c}: arguments not inferred"
   addTheorem name (← inferType p) p
   return name
+
+/-- The components of a proof of a conjunction. -/
+partial def andParts (h : Lean.Expr) : MetaM (List (Lean.Expr × Lean.Expr)) := do
+  let t ← whnfR (← inferType h)
+  if t.isAppOfArity ``And 2 then
+    return (← andParts (← mkAppM ``And.left #[h])) ++ (← andParts (← mkAppM ``And.right #[h]))
+  else return [(t, h)]
+
+/-- The premises of `c.machine_closes_at` that are not a child's reflection
+(the name separation; they do not depend on the contexts). `none`: no such
+theorem, or a premise of another form. -/
+def closesAtNames (c : Name) : MetaM (Option (List Lean.Expr)) := do
+  let some (.thmInfo info) := (← getEnv).find? (c ++ `machine_closes_at) | return none
+  forallTelescope info.type fun xs _ => do
+    let mut out : List Lean.Expr := []
+    for x in xs.extract 4 xs.size do
+      let t ← instantiateMVars (← inferType x)
+      unless t.isAppOf ``Tools.ShippingInlineSoundness.EntryDefines do
+        if t.hasFVar then return none
+        out := out ++ [t]
+    return some out
+
+/-- `MachineClosesAt ctx c c.shape` from `c.machine_closes_at`: its reflection
+premises from the components of the child's boundary `hb` (at `ctx`), its
+name premises from `names`. -/
+def closesAtProof (c : Name) (ctx : Array Lean.Expr) (hb : Lean.Expr) (names : List Lean.Expr) :
+    MetaM Lean.Expr := do
+  let parts ← andParts hb
+  let mut p := mkAppN (mkConst (c ++ `machine_closes_at)) ctx
+  let mut names := names
+  for _ in [0:64] do
+    let t ← instantiateMVars (← inferType p)
+    if t.isAppOf ``Tools.ShippingChildInv.MachineClosesAt then return p
+    unless t.isForall do throwError "{c}.machine_closes_at: its statement"
+    let dom := t.bindingDomain!
+    let mut arg? : Option Lean.Expr := none
+    for (pt, ph) in parts do
+      if arg?.isNone then
+        if ← isDefEq pt dom then arg? := some ph
+    if arg?.isNone then
+      if let n :: rest := names then
+        if ← isDefEq (← inferType n) dom then
+          arg? := some n
+          names := rest
+    let some arg := arg? | throwError "{c}.machine_closes_at: no proof of its premise {dom}"
+    p := mkApp p arg
+  throwError "{c}.machine_closes_at: too many premises"
 
 mutual
 
@@ -98,7 +145,7 @@ partial def generateCoreNR (declName : Name) (dep : Nat) : MetaM Name := do
     throwError "{declName}: one-output combinational calls (the derived boundary needs the general closing)"
   let (headL, args, back?) ← endpointParts declName
   -- the head carrying `ServedReal` (under `ChildBnd`)
-  let pL := mkAppN (mkConst (headL.appendAfter "R")) args
+  let pL := mkAppN (mkConst (headL.appendAfter "RA")) args
   let calls := r.shape.insts
   let seqKids := ((calls.map (·.1)).eraseDups.filter fun c =>
     (Tools.ShippingMachineMemCommand.memWidths? c).isNone)
@@ -189,6 +236,11 @@ partial def generateCoreNR (declName : Name) (dep : Nat) : MetaM Name := do
   let mut pcCases : List (Name × Lean.Expr) := []
   let mut pTypes : List Lean.Expr := []
   let mut freeOf : Std.HashMap Name Bool := {}
+  -- children with calls whose closing is derived: the name premises it asks
+  let mut namesOf : Std.HashMap Name (List Lean.Expr) := {}
+  for c in seqKids do
+    unless leaf.getD c true do
+      if let some names ← closesAtNames c then namesOf := namesOf.insert c names
   for c in seqKids do
     let cshape ← mkAppM ``Tools.ShippingMachineAuto.MachineData.shape #[mkConst (c ++ `machineData)]
     let pcF ← withLocalDeclD `mc modT fun mc => do
@@ -209,6 +261,10 @@ partial def generateCoreNR (declName : Name) (dep : Nat) : MetaM Name := do
       withLocalDeclD `cctx' (mkConst ``Lean.Core.Context) fun cc' => do
       let ctx' := #[mc', ctx[1]!, cc', ctx[3]!]
       let closes := mkAppN (mkConst ``Tools.ShippingMachineEntry.MachineCloses) (ctx' ++ #[toExpr c, cshape])
+      -- a child with calls: where the real compile runs its machine synthesis
+      -- (`MachineClosesAt`) — not asked when `c.machine_closes_at` derives it
+      -- from the child's own boundary (its children's reflection)
+      let closesAt := mkAppN (mkConst ``Tools.ShippingChildInv.MachineClosesAt) (ctx' ++ #[toExpr c, cshape])
       let body ← if leaf.getD c true then pure closes
         else do
           -- with calls: its reflection facts and its own derived boundary, in
@@ -219,14 +275,17 @@ partial def generateCoreNR (declName : Name) (dep : Nat) : MetaM Name := do
             withLocalDeclD `raw modT fun raw => withLocalDeclD `D desT fun dD => do
             let cb := mkAppN (mkConst ``Tools.ShippingChildInv.ChildBnd) #[ctx[1]!, ctx[3]!, wc]
             mkForallFVars #[wc, raw, dD] (← mkArrow cb (bnd.beta (ctx' ++ #[wc, raw, dD])).headBeta)
-          mkAppM ``And #[closes, bndHere]
+          if (namesOf.get? c).isSome then pure bndHere else mkAppM ``And #[closesAt, bndHere]
       let ran := mkAppN (mkConst ``Tools.ShippingChildInv.ChildRanIn) #[ctx[1]!, ctx[3]!, toExpr c, mc', cc']
       mkForallFVars #[mc', cc'] (← mkArrow ran body)
     -- (a leaf child without `let`s closes in every context: proved,
     -- `c.machine_closes`: no call, `let`s that pass `MachineData.letsOk` — only its `MachineDefines` is asked)
     let free ← if leaf.getD c true then (do pure (← Tools.ShippingMachineClosesGen.closesTheorem? c).isSome) else pure false
     freeOf := freeOf.insert c free
-    pTypes := pTypes ++ [← if free then pure defs0 else mkAppM ``And #[defs0, pT]]
+    pTypes := pTypes ++ [← if free then pure defs0
+      else match namesOf.get? c with
+        | some names => do mkAppM ``And #[defs0, ← mkAppM ``And #[← conj names, pT]]
+        | none => mkAppM ``And #[defs0, pT]]
   let some (_, pc0) := pcCases.head? | throwError "{declName}: no sequential child"
   let PC ← nameCases (← mkArrow modT (mkSort .zero)) pcCases pc0
   let pDecls := (seqKids.zip pTypes).toArray.mapIdx fun j (_, ty) =>
@@ -407,8 +466,26 @@ partial def generateCoreNR (declName : Name) (dep : Nat) : MetaM Name := do
           proveByTacticT goalK `(tactic| (intro _ mctx' cctx' mc Dc w w' hw hrun _ _; exact ⟨_, _, _, _, w, w', Dc, hrun, Tools.ShippingReflectCtx.MachineDefines.ctx $hPS, $(mkIdent (`_root_ ++ c ++ `machine_closes)) _ _ _ _⟩))
         else if leaf.getD c true then
           proveByTacticT goalK `(tactic| (intro _ mctx' cctx' mc Dc w w' hw hrun _ _; exact ⟨_, _, _, _, w, w', Dc, hrun, Tools.ShippingReflectCtx.MachineDefines.ctx ($hPS).1, ($hPS).2 mctx' cctx' (Tools.ShippingChildInv.ChildRanIn.of_run hw hrun)⟩))
-        else
-          proveByTacticT goalK `(tactic| (intro _ mctx' cctx' mc Dc w w' hw hrun hcons _; exact Tools.ShippingMachineDepthRun.machineRunNC_of_real (Tools.ShippingChildInv.RealChild.of_inv hw hrun) hcons ($hPS).1 ($hPS).2 (Tools.ShippingChildInv.ChildBnd.laws (by assumption)) (by decide)))
+        else match namesOf.get? c with
+          | none =>
+            proveByTacticT goalK `(tactic| (intro _ mctx' cctx' mc Dc w w' hw hrun hcons _; exact Tools.ShippingMachineDepthRun.machineRunNC_of_real (Tools.ShippingChildInv.RealChild.of_inv hw hrun) hcons ($hPS).1 (fun mc cc ran => (($hPS).2 mc cc ran).2) (fun mc cc _ _ _ ran _ => (($hPS).2 mc cc ran).1) (Tools.ShippingChildInv.ChildBnd.laws (by assumption)) (by decide)))
+          | some names => do
+            -- the closing, from the child's boundary: `c.machine_closes_at`
+            let some bnd := bndOf.get? c | throwError "{declName}: boundary of {c}"
+            let worldT := mkApp (mkConst ``Void []) (mkConst ``IO.RealWorld)
+            let hclE ← withLocalDeclD `mc (mkConst ``Lean.Meta.Context) fun mc' =>
+              withLocalDeclD `cc (mkConst ``Lean.Core.Context) fun cc' =>
+              withLocalDeclD `wc worldT fun wc =>
+              withLocalDeclD `raw modT fun raw => withLocalDeclD `D desT fun dD => do
+              let ctx' := #[mc', ctx[1]!, cc', ctx[3]!]
+              let ran := mkAppN (mkConst ``Tools.ShippingChildInv.ChildRanIn) #[ctx[1]!, ctx[3]!, toExpr c, mc', cc']
+              withLocalDeclD `ran ran fun hran =>
+              withLocalDeclD `hb (bnd.beta (ctx' ++ #[wc, raw, dD])).headBeta fun hb => do
+                let nameHs ← projs (← mkAppM ``And.left #[← mkAppM ``And.right #[hP]]) names
+                mkLambdaFVars #[mc', cc', wc, raw, dD, hran, hb] (← closesAtProof c ctx' hb nameHs)
+            withLocalDeclD `hclC (← inferType hclE) fun hclV => do
+              let pr ← proveByTacticT goalK `(tactic| (intro _ mctx' cctx' mc Dc w w' hw hrun hcons _; exact Tools.ShippingMachineDepthRun.machineRunNC_of_real (Tools.ShippingChildInv.RealChild.of_inv hw hrun) hcons ($hPS).1 (fun mc cc ran => ($hPS).2.2 mc cc ran) $(mkIdent `hclC) (Tools.ShippingChildInv.ChildBnd.laws (by assumption)) (by decide)))
+              pure ((← mkLambdaFVars #[hclV] pr).beta #[hclE])
     perR := perR.push prK
   let nameT := mkConst ``Name
   let nat := mkConst ``Nat
@@ -479,8 +556,24 @@ def generateShipsNR (declName : Name) (n : Nat) : MetaM Name := do
     let inv ← withLocalDeclD `c modT fun c => withLocalDeclD `s ktT fun sv =>
       mkLambdaFVars #[c, sv] (mkConst ``True)
     let hRI ← mkAppM ``Tools.ShippingMachineShipsHier.true_inv #[reset]
-    let thm ← mkAppM ``Tools.ShippingMachineShipsHier.machine_ships_hier
-      #[KS, hloc, reset, Bnd, Bd, inv, hBd, hRI, data, soundL, composed]
+    -- the closing premise of the composed theorem (`MachineClosesAt`), and the
+    -- wired endpoint from the head asking the same, under the run boundary
+    let _ := soundL
+    let C ← mkLambdaFVars #[ys[0]!, ys[1]!, ys[2]!, ys[3]!] (← inferType ys[10]!)
+    let pLA := mkAppN (mkConst (headL.appendAfter "RA")) args
+    let soundA ← forallTelescope (← inferType pLA) fun zs _ => do
+      unless zs.size == 12 do throwError "{declName}: the head's binders ({zs.size})"
+      let bndT := (Bnd.beta #[zs[0]!, zs[1]!, zs[2]!, zs[3]!, zs[4]!, zs[6]!, zs[7]!]).headBeta
+      withLocalDeclD `hB bndT fun hB => do
+        let hsynT ← inferType zs[11]!
+        let hsyn ← if ← isDefEq bndT hsynT then pure hB else mkAppM ``And.left #[hB]
+        let tr ← mkAppM ``Tools.ShippingMachineTraceX.MachineTraceLBX.toLB
+          #[(mkAppN pLA zs).replaceFVar zs[11]! hsyn]
+        mkLambdaFVars (zs.pop ++ #[hB]) tr
+    let thm ← mkAppOptM ``Tools.ShippingMachineShipsHier.machine_ships_hierC
+      #[none, KS, hloc, reset, Bnd, C, Bd, inv, hBd, hRI, none, data, none, none, none, none,
+        none, none, none, none, none, none, soundA, composed]
+    let thm ← instantiateMVars thm
     let ty ← inferType thm
     let .forallE _ hT _ _ ← whnfR ty | throwError "{declName}: the output-width premise"
     let thm := mkApp thm (← mkExpectedTypeHint (← mkDecideProof hT) hT)

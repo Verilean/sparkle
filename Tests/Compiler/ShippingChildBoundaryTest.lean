@@ -8,6 +8,7 @@ import Tools.ShippingMachineDepthCommandR
 import Tools.ShippingMachineComposeRCommand
 import Tools.ShippingChildRun
 import Tools.ShippingChildLegacy
+import Tools.ShippingMachineClosesAtGen
 
 /-! The child-run boundary DERIVED on real compiles (`#machine_design_svR0`).
 
@@ -145,6 +146,11 @@ run_cmd do
 
 /-! ### At depth: children with calls of their own -/
 
+-- `midH` (a machine calling the gate child `rcH`) closes by its own
+-- children's reflection: generated BEFORE the depth endpoints, so they use it
+set_option maxHeartbeats 0 in
+#machine_closes_at Sparkle.Tests.Compiler.ShippingMachineDepthHTest.midH
+
 set_option maxHeartbeats 0 in
 #machine_design_svNR Sparkle.Tests.Compiler.ShippingDesignSVTest.mixD1 1
 set_option maxHeartbeats 0 in
@@ -165,6 +171,54 @@ def nrEndpoints : List (Lean.Name × Nat) :=
   [(``Sparkle.Tests.Compiler.ShippingDesignSVTest.mixD1, 1),
    (``Sparkle.Tests.Compiler.ShippingMachineDepthHTest.grandH, 1),
    (``Sparkle.Tests.Compiler.ShippingDesignSVTest.topD2, 2)]
+
+/-- Which of `cands` a closing premise `k` (`MachineCloses` / `MachineClosesAt`)
+is stated about in `e`, the generated boundary definitions unfolded. -/
+partial def closersOf (env : Lean.Environment) (k : Lean.Name) (cands : List Lean.Name)
+    (e : Lean.Expr) : List Lean.Name :=
+  let here := cands.filter fun c =>
+    (e.find? fun x => x.isAppOfArity k 6 && x.getArg! 4 == Lean.toExpr c).isSome
+  let below := e.getUsedConstants.toList.flatMap fun n =>
+    if (n.toString.splitOn "machineBoundN").length > 1 then
+      match env.find? n >>= (·.value?) with
+      | some v => closersOf env k cands v
+      | none => []
+    else []
+  (here ++ below).eraseDups
+
+-- the closing premises at depth, by declaration. `MachineClosesAt` replaced
+-- the all-worlds `MachineCloses` of every declaration WITH calls (a
+-- migration: a weaker premise, not a discharge). DISCHARGED: `midH`'s, by
+-- `midH.machine_closes_at` at the contexts and world of the child's own run
+-- (its boundary gives `rcH`'s reflection there) — in `grandH` and under
+-- `mid2` in `topD2`. What stays: the parents' own (sequential children: B2).
+run_cmd Lean.Elab.Command.liftTermElabM do
+  let env ← Lean.getEnv
+  let midH := ``Sparkle.Tests.Compiler.ShippingMachineDepthHTest.midH
+  let cands := [``Sparkle.Tests.Compiler.ShippingDesignSVTest.mixD1,
+    ``Sparkle.Tests.Compiler.ShippingMachineDepthHTest.grandH,
+    ``Sparkle.Tests.Compiler.ShippingDesignSVTest.topD2,
+    ``Sparkle.Tests.Compiler.ShippingDesignSVTest.mid2, midH,
+    ``Sparkle.Tests.Compiler.ShippingMachineDepthHTest.rcH,
+    ``Sparkle.Tests.Compiler.ShippingMachineSeqTest.cnt]
+  let mut report : Lean.MessageData := m!""
+  for (f, n) in [(``Sparkle.Tests.Compiler.ShippingDesignSVTest.mixD1, 1),
+      (``Sparkle.Tests.Compiler.ShippingMachineDepthHTest.grandH, 1),
+      (``Sparkle.Tests.Compiler.ShippingDesignSVTest.topD2, 2)] do
+    let e := f ++ Lean.Name.mkSimple s!"machine_design_svNR{n}"
+    let ty ← Lean.instantiateMVars (← Lean.Meta.inferType (Lean.mkConst e))
+    let all := closersOf env ``Tools.ShippingMachineEntry.MachineCloses cands ty
+    let at' := closersOf env ``Tools.ShippingChildInv.MachineClosesAt cands ty
+    if all.contains midH || at'.contains midH then
+      throwError "{e}: midH's closing is still asked ({all}, {at'})"
+    if !at'.contains f then throwError "{e}: the parent's own MachineClosesAt is not stated"
+    if all.contains f then throwError "{e}: the parent's all-worlds MachineCloses is still asked"
+    -- the name separation `midH.machine_closes_at` asks is stated
+    if f != ``Sparkle.Tests.Compiler.ShippingDesignSVTest.mixD1 &&
+        !mentionsDeep env ty ``Lean.Name.toString then
+      throwError "{e}: the name-separation obligation of midH is not stated"
+    report := report ++ m!"\n  {e}: MachineClosesAt asked of {at'}, all-worlds MachineCloses of {all}"
+  Lean.logInfo m!"CLOSING AT DEPTH: midH's closing is discharged in every depth endpoint (midH.machine_closes_at at the child's own contexts); name separation stated.{report}"
 
 -- the instance binding derived at depth: `ChildBnd` and per child its
 -- premise (reflection; or every run of its entry satisfying its depth

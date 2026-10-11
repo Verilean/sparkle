@@ -40,7 +40,8 @@ def MachineRunNC (c : Name) (shape : MachineShape) (Bnd : Tools.ShippingMachineS
   ∃ (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State) (cctx : Core.Context)
     (cref : ST.Ref IO.RealWorld Core.State) (w w' : Void IO.RealWorld) (raw : Module) (D : Design),
     RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (raw, D) w' ∧
-    MachineDefines mctx mref cctx cref c shape ∧ MachineCloses mctx mref cctx cref c shape ∧
+    MachineDefines mctx mref cctx cref c shape ∧
+    Tools.ShippingChildInv.MachineClosesAt mctx mref cctx cref c shape ∧
     Bnd mctx mref cctx cref w raw D ∧
     (mc = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨
       mc = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)) ∧
@@ -126,7 +127,8 @@ theorem seqChildRunN_of_composedC (n : Nat) {c : Name} {d : MachineData} {kD : N
       {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
       {m : Module} {design : Design},
       RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (m, design) w' →
-      MachineDefines mctx mref cctx cref c d.shape → MachineCloses mctx mref cctx cref c d.shape →
+      MachineDefines mctx mref cctx cref c d.shape →
+      Tools.ShippingChildInv.MachineClosesAt mctx mref cctx cref c d.shape →
       Bnd mctx mref cctx cref w m design → ComposedNW n c d kD m design dom src ext extB)
     (houtTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
     (houtOk : ∀ o ∈ d.shape.layout.outs, outNameOk o.name = true)
@@ -247,12 +249,18 @@ theorem machineRunNC_of_real {c : Name} {shape : MachineShape}
     -- what the child's declaration is: in ANY one pair of contexts (it does
     -- not depend on them, `MachineDefines.ctx`)
     (entry₀ : MachineDefines mctx₀ mref cctx₀ cref c shape)
-    -- that its synthesis closes, and its own boundary: in the contexts the
-    -- child was synthesised in (`ChildRanIn`, given by the run `hreal` holds)
+    -- its own boundary: in the contexts the child was synthesised in
+    -- (`ChildRanIn`, given by the run `hreal` holds)
     (hctx : ∀ (mctx : Meta.Context) (cctx : Core.Context),
       Tools.ShippingChildInv.ChildRanIn mref cref c mctx cctx →
-      MachineCloses mctx mref cctx cref c shape ∧
-        ∀ w raw D, Tools.ShippingChildInv.ChildBnd mref cref w → Bnd mctx mref cctx cref w raw D)
+      ∀ w raw D, Tools.ShippingChildInv.ChildBnd mref cref w → Bnd mctx mref cctx cref w raw D)
+    -- that its machine synthesis closes where the real compile runs it
+    -- (`MachineClosesAt`), in those contexts — possibly FROM its boundary (a
+    -- child whose closing is derived from its own children's reflection)
+    (hcl : ∀ (mctx : Meta.Context) (cctx : Core.Context) w raw D,
+      Tools.ShippingChildInv.ChildRanIn mref cref c mctx cctx →
+      Bnd mctx mref cctx cref w raw D →
+      Tools.ShippingChildInv.MachineClosesAt mctx mref cctx cref c shape)
     (hL : Tools.ShippingChildInv.ChildLaws mref cref) (hi : shape.insts ≠ []) :
     MachineRunNC c shape Bnd mc dsn := by
   obtain ⟨mctx, cctx, w, w', hin, hw, hrun⟩ := hreal.ranIn
@@ -260,10 +268,11 @@ theorem machineRunNC_of_real {c : Name} {shape : MachineShape}
     ⟨hL, Tools.ShippingChildInv.startW_of_invW hw⟩
   have entry : MachineDefines mctx mref cctx cref c shape :=
     Tools.ShippingReflectCtx.MachineDefines.ctx entry₀
-  obtain ⟨closes, hB⟩ := hctx mctx cctx hin
+  have hB := hctx mctx cctx hin
   obtain ⟨raw, D, w1, hcore, hpost, hagree⟩ := synthesizeCombinational_design hrun
+  have closes := hcl mctx cctx w raw D hin (hB w raw D hb)
   obtain ⟨t, t', d₀, children, _, hcc, _⟩ :=
-    Tools.ShippingChildInv.machine_children_real hcore entry closes hb hi
+    Tools.ShippingChildInv.machine_children_realA hcore entry closes hb hi
   have acyc : NoInstOf raw.name raw.body ∧ ∀ g ∈ D.modules, NoInstOf raw.name g.body := by
     rcases hcc with ⟨_, h⟩ | ⟨_, h, _⟩
     · obtain ⟨_, h1, h2, _⟩ := Tools.ShippingChildServe.closeInsts_acyclic h

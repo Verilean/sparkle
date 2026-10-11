@@ -57,7 +57,7 @@ theorem composedN0_of_HR {declName : Name} {d : MachineData} {kD : Nat} {ι : Ty
       {m : Sparkle.IR.AST.Module} {design : Design},
       RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (m, design) w' →
       MachineDefines mctx mref cctx cref declName d.shape →
-      MachineCloses mctx mref cctx cref declName d.shape →
+      Tools.ShippingChildInv.MachineClosesAt mctx mref cctx cref declName d.shape →
       Tools.ShippingChildInv.ChildBnd mref cref w ∧ Rest mctx mref cctx cref →
       Tools.ShippingMachineShipsHierH.ComposedH (fun _ _ => True) declName d kD m design dom src ext) :
     ∀ {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
@@ -65,14 +65,14 @@ theorem composedN0_of_HR {declName : Name} {d : MachineData} {kD : Nat} {ι : Ty
       {m : Sparkle.IR.AST.Module} {design : Design},
       RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (m, design) w' →
       MachineDefines mctx mref cctx cref declName d.shape →
-      MachineCloses mctx mref cctx cref declName d.shape →
+      Tools.ShippingChildInv.MachineClosesAt mctx mref cctx cref declName d.shape →
       Tools.ShippingChildInv.ChildBnd mref cref w ∧ Rest mctx mref cctx cref →
       Tools.ShippingMachineDepthRun.ComposedNW 0 declName d kD m design dom src ext
         (fun _ bools _ => bools) := by
   intro mctx mref cctx cref w w' m design hr entry closes hb
   have hC := composed hr entry closes hb
   obtain ⟨t, t', d₀, children, _, hcc, _⟩ :=
-    Tools.ShippingChildInv.machine_children_real hr entry closes hb.1 hi
+    Tools.ShippingChildInv.machine_children_realA hr entry closes hb.1 hi
   have hcomb : Tools.ShippingMachineDepthH.kidsComb design.modules m.body = true := by
     rcases hcc with ⟨_, h⟩ | ⟨hfe, _, _⟩
     · exact kidsComb_of_B (Tools.ShippingChildServe.closeInsts_kidsComb h)
@@ -248,7 +248,7 @@ theorem composedNn_of_HR (n : Nat) {declName : Name} {d : MachineData} {kD : Nat
       {m : Sparkle.IR.AST.Module} {design : Design},
       RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (m, design) w' →
       MachineDefines mctx mref cctx cref declName d.shape →
-      MachineCloses mctx mref cctx cref declName d.shape →
+      Tools.ShippingChildInv.MachineClosesAt mctx mref cctx cref declName d.shape →
       Tools.ShippingChildInv.ChildBnd mref cref w ∧ Rest mctx mref cctx cref →
       Tools.ShippingMachineShipsHierH.ComposedH (fun _ _ => True) declName d kD m design dom src ext) :
     ∀ {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
@@ -256,14 +256,14 @@ theorem composedNn_of_HR (n : Nat) {declName : Name} {d : MachineData} {kD : Nat
       {m : Sparkle.IR.AST.Module} {design : Design},
       RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (m, design) w' →
       MachineDefines mctx mref cctx cref declName d.shape →
-      MachineCloses mctx mref cctx cref declName d.shape →
+      Tools.ShippingChildInv.MachineClosesAt mctx mref cctx cref declName d.shape →
       Tools.ShippingChildInv.ChildBnd mref cref w ∧ Rest mctx mref cctx cref →
       Tools.ShippingMachineDepthRun.ComposedNW n declName d kD m design dom src ext
         (fun _ bools _ => bools) := by
   intro mctx mref cctx cref w w' m design hr entry closes hb
   have hC := composed hr entry closes hb
   obtain ⟨t, t', d₀, children, _, hcc, _⟩ :=
-    Tools.ShippingChildInv.machine_children_real hr entry closes
+    Tools.ShippingChildInv.machine_children_realA hr entry closes
       hb.1 hi
   have hcomb : Tools.ShippingMachineDepthH.kidsComb design.modules m.body = true := by
     rcases hcc with ⟨_, h⟩ | ⟨hfe, _, _⟩
