@@ -9,6 +9,7 @@ import Tools.ShippingRankRun
 import Tools.ShippingCallsShape
 import Tools.ShippingHarnessClosed
 import Tools.ShippingGateChildComb
+import Tools.ShippingKidsComb
 
 /-! # `MachineCloses` derived for `let` shapes without calls
 
@@ -345,3 +346,18 @@ run_cmd Lean.Elab.Command.liftTermElabM do
       (Sparkle.IR.Reorder.writesOf b.body).contains "out" && b.outputs.length == 1 do
     throwError "pick: the full-entry module fails the child-side conditions"
   Lean.logInfo m!"CHILD SIDE (K2/K3): gate_child_comb — the full-entry module of a gate child is assignment-only, closed over its inputs, one driven output, distinct allocated inputs; from the run and EntryDefines; standard axioms; checker agrees on pick ({b.body.length} statements). Open: inputs connected (instance statement), parent side, design names"
+
+/-! `kidsCombB`, all five conditions (`kidsCombB_of`), and the instance
+statement (`instStmt_some`, `conns_comb`, `conns_instOuts`, `conns_inputs`):
+pure, from the child-side facts, the statement's connections and name
+resolution in the design. NOT yet joined to a real parent run: that the
+child's ports fit the call, the instance name is fresh, each instance
+resolves to its child in `designWith`, and the assembly into
+`MachineClosesAt`. No endpoint has lost its closing premise. -/
+run_cmd Lean.Elab.Command.liftTermElabM do
+  for n in [``Tools.ShippingKidsComb.kidsCombB_of, ``Tools.ShippingInstStmt.instStmt_some,
+      ``Tools.ShippingInstStmt.conns_comb, ``Tools.ShippingInstStmt.conns_instOuts] do
+    for a in ← Lean.collectAxioms n do
+      unless a == ``propext || a == ``Classical.choice || a == ``Quot.sound do
+        throwError "{n} depends on {a}"
+  Lean.logInfo m!"KIDSCOMB (five conditions) and the instance statement: pure assembly lemmas, standard axioms; not yet joined to a real parent run (port fit, fresh instance name, designWith name resolution, MachineClosesAt)"
