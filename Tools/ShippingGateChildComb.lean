@@ -1,6 +1,7 @@
 import Tools.ShippingGateChild
 import Tools.ShippingTransitionClosed
 import Tools.ShippingMergeClosed
+import Tools.ShippingTransitionFields
 import Tools.ShippingMachineDepthRunR
 
 /-! # A gate-compiled child at the FULL entry: what `kidsCombB` asks of it
@@ -127,24 +128,6 @@ theorem gate_child_comb {declName : Name} {mctx : Meta.Context}
 
 /-! ## The same run's ports, name and design -/
 
-/-- One port per hardware binder, of the binder's type, in order. -/
-theorem inputPorts_tys {bools bits} :
-    ∀ (bs : List (Name × MixedGateBinder)) (ids : List FVarId) (a : Setup),
-      ids.length = bs.length →
-      (inputPorts bools bits (bs.zip ids) a).map (·.ty) =
-        (bs.filter fun b => b.2 != .domain).map fun b => kindTy b.2
-  | [], _, _, _ => rfl
-  | _ :: _, [], _, h => by simp at h
-  | (name, .domain) :: rest, id :: ids, a, h => by
-    simp only [List.zip_cons_cons, inputPorts, List.filter_cons]
-    simpa using inputPorts_tys rest ids _ (by simpa using h)
-  | (name, .bool) :: rest, id :: ids, a, h => by
-    simp only [List.zip_cons_cons, inputPorts, List.filter_cons]
-    simpa [kindTy] using inputPorts_tys rest ids _ (by simpa using h)
-  | (name, .bits n) :: rest, id :: ids, a, h => by
-    simp only [List.zip_cons_cons, inputPorts, List.filter_cons]
-    simpa [kindTy] using inputPorts_tys rest ids _ (by simpa using h)
-
 theorem dropZeroWidth_name (m : Sparkle.IR.AST.Module) :
     (Sparkle.IR.ZeroWidth.dropZeroWidthModule m).name = m.name := by
   unfold Sparkle.IR.ZeroWidth.dropZeroWidthModule
@@ -221,7 +204,7 @@ theorem gate_child_fullFacts {declName : Name} {mctx : Meta.Context}
   obtain ⟨_, _, hin⟩ := transition_facts nd len hrun hm nameLegal he hb hv rfl
   have hMtys : M.inputs.map (·.ty) = (bs.filter fun x => x.2 != .domain).map fun x => kindTy x.2 := by
     rw [hin (fun _ => false) (fun _ n => 0#n)]
-    exact inputPorts_tys bs ids _ len
+    exact Tools.ShippingTransitionFields.inputPorts_tys bs ids _ len
   have hDm : D.modules = [] := by
     rw [hD, hdesign]
     rfl

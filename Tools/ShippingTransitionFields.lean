@@ -30,6 +30,24 @@ open Tools.ShippingSpineOrder Tools.ShippingClosedOrder Tools.ShippingCloseLetsR
 open Tools.ShippingMachineCloses
 open Sparkle.IR.Reorder
 
+/-- One port per hardware binder, of the binder's type, in order. -/
+theorem inputPorts_tys {bools bits} :
+    ∀ (bs : List (Name × MixedGateBinder)) (ids : List FVarId) (a : Setup),
+      ids.length = bs.length →
+      (inputPorts bools bits (bs.zip ids) a).map (·.ty) =
+        (bs.filter fun b => b.2 != .domain).map fun b => kindTy b.2
+  | [], _, _, _ => rfl
+  | _ :: _, [], _, h => by simp at h
+  | (name, .domain) :: rest, id :: ids, a, h => by
+    simp only [List.zip_cons_cons, inputPorts, List.filter_cons]
+    simpa using inputPorts_tys rest ids _ (by simpa using h)
+  | (name, .bool) :: rest, id :: ids, a, h => by
+    simp only [List.zip_cons_cons, inputPorts, List.filter_cons]
+    simpa [kindTy] using inputPorts_tys rest ids _ (by simpa using h)
+  | (name, .bits n) :: rest, id :: ids, a, h => by
+    simp only [List.zip_cons_cons, inputPorts, List.filter_cons]
+    simpa [kindTy] using inputPorts_tys rest ids _ (by simpa using h)
+
 set_option maxHeartbeats 1000000 in
 theorem transition_fields {logProf : String → IO Unit} {declName : Name}
     {bs : List (Name × MixedGateBinder)} {body : Lean.Expr} {m : Sparkle.IR.AST.Module}
@@ -60,6 +78,7 @@ theorem transition_fields {logProf : String → IO Unit} {declName : Name}
     (hscope : FieldsOK ubk uvk kb kv vw 0 fs)
     (hcoreU : Uses (ubk fs.length) (uvk fs.length) core) :
     ∃ (PI ls : List Port), m.inputs = PI ++ ls ∧ ls.length = bsB.length ∧
+      PI.length = (bsA.filter fun b => b.2 != .domain).length ∧
       (ls.map Port.name).Nodup ∧ (∀ p ∈ PI, ∀ q ∈ ls, p.name ≠ q.name) ∧
       (∃ ow, PrintBaseAt ow m) ∧ TypedPostReady m ∧
       ∃ (bodyB : List Stmt) (w : String) (P : String → Prop) (bnd : FVarId → Option String),
@@ -178,7 +197,11 @@ theorem transition_fields {logProf : String → IO Unit} {declName : Name}
         obtain ⟨name, pos⟩ := hv j hj
         exact instantiated_input len (List.getElem_of_getElem? pos).choose)
     (Vk := Vk) (fun k x h i p hp heq => hmono k i (h i p hp heq)) hbind hscope hcoreU
-  refine ⟨PI, ls, hinputs, lsLen, lsNodup, lsDisj, ⟨_, pb⟩, ready, bodyB, w', _, _, hbody', hlp, hnw, ?_⟩
+  refine ⟨PI, ls, hinputs, lsLen, ?_, lsNodup, lsDisj, ⟨_, pb⟩, ready, bodyB, w', _, _, hbody', hlp,
+    hnw, ?_⟩
+  · have := congrArg List.length (inputPorts_tys (bools := zb) (bits := zv) bsA
+      (ids.take bsA.length) a (by simp; omega))
+    simpa using this
   intro port hp
   apply hused
   rw [prepare_inputs, ← hin]
