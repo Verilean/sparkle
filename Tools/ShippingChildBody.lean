@@ -152,7 +152,7 @@ theorem bodyRel : BodyRel L :=
 
 /-- **The memoised child entry keeps the invariant at every depth** — under
 the generic laws alone. -/
-theorem childKeeps (D : Nat) : ChildKeeps L D :=
-  childKeeps_all L (bodyRel L) D
+theorem childKeeps (D : Nat) (hA : D = 0 → L.aux {}) : ChildKeeps L D :=
+  childKeeps_all L (bodyRel L) D hA
 
 end Tools.ShippingChildInv

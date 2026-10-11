@@ -319,6 +319,15 @@ structure RefLaws where
   val : Void IO.RealWorld → Std.HashMap Name Res
   sval : Void IO.RealWorld → Option (Name → MetaM Res)
   dval : Void IO.RealWorld → Nat
+  /-- NOT a law of the runtime: a proof parameter riding in the bundle. An
+  auxiliary predicate of the cache's map that the invariant `J` carries, with
+  the one closure condition the memoised entry needs (`auxInsert`: a MISS
+  inserts under a key the map did not have). Any witness can be given any
+  such predicate (`RefLaws.withAux`; `True` costs nothing), so it adds no
+  assumption. Used to pin an existing entry through a child's synthesis. -/
+  aux : Std.HashMap Name Res → Prop
+  auxInsert : ∀ (m0 m1 : Std.HashMap Name Res) (n : Name) (r : Res),
+    aux m0 → m0.get? n = none → aux m1 → aux (m1.insert n r)
   /-- The worlds in which the diagnostic operations do not touch the three
   refs — no registered printer and not the installed standard error writes
   them — AND every exception cell (a ref of type `Option Exception`) holds
@@ -498,9 +507,20 @@ def InvV (L : RefLaws mref cref) (w : Void IO.RealWorld) : Prop :=
 def StartV (L : RefLaws mref cref) (w : Void IO.RealWorld) : Prop :=
   L.sval w = some synthesizeChild ∧ (L.dval w = 0 ∨ CacheInv mref cref (L.val w))
 
-/-- The invariant at synthesis depth `D`. -/
+/-- The invariant at synthesis depth `D` (with the witness's auxiliary
+predicate of the cache's map). -/
 def J (L : RefLaws mref cref) (D : Nat) (w : Void IO.RealWorld) : Prop :=
-  InvV L w ∧ L.dval w = D
+  InvV L w ∧ L.dval w = D ∧ L.aux (L.val w)
+
+/-- The same laws with another auxiliary predicate. -/
+def RefLaws.withAux (L : RefLaws mref cref) (A : Std.HashMap Name Res → Prop)
+    (hA : ∀ (m0 m1 : Std.HashMap Name Res) (n : Name) (r : Res),
+      A m0 → m0.get? n = none → A m1 → A (m1.insert n r)) : RefLaws mref cref :=
+  { L with aux := A, auxInsert := hA }
+
+/-- The trivial auxiliary predicate. -/
+def RefLaws.plain (L : RefLaws mref cref) : RefLaws mref cref :=
+  L.withAux (fun _ => True) (fun _ _ _ _ _ _ _ => trivial)
 
 /-- A `CompilerM` action keeps `I`, from every compiler and circuit state. -/
 def KeepsC (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State) (cctx : Core.Context)

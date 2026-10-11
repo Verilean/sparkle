@@ -32,7 +32,7 @@ variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
 
 /-- **A run of the one-output closing, from an invariant world**: the pure
 closing of real children — a module or nothing. -/
-theorem closeInstsM_run (L : RefLaws mref cref) (hB : BodyRel L)
+theorem closeInstsM_run (L : RefLaws mref cref) (hB : ∀ L' : RefLaws mref cref, BodyRel L')
     {shape t m₀ d₀ r} {w w'} (hw : InvV L w)
     (hr : RunsTo (closeInstsM shape t m₀ d₀) mctx mref cctx cref w r w') :
     ∃ children, r = Sparkle.IR.Machine.closeInsts (machNIn shape) shape.insts.length
@@ -55,7 +55,7 @@ theorem closeInstsM_run (L : RefLaws mref cref) (hB : BodyRel L)
   exact ⟨children, heq, ⟨hlen, hk⟩, hw2⟩
 
 /-- **A run of the general closing, from an invariant world.** -/
-theorem closeInstsGM_run (L : RefLaws mref cref) (hB : BodyRel L)
+theorem closeInstsGM_run (L : RefLaws mref cref) (hB : ∀ L' : RefLaws mref cref, BodyRel L')
     {shape t m₀ d₀ r} {w w'} (hw : InvV L w)
     (hr : RunsTo (closeInstsGM shape t m₀ d₀) mctx mref cctx cref w r w') :
     ∃ children, r = Sparkle.IR.Machine.closeInstsG (machNIn shape) shape.insts.length
@@ -127,12 +127,12 @@ theorem machineClosesAt_of_pure {declName : Name} {shape : MachineShape}
     (hl : LetsClose mctx mref cctx cref declName shape)
     (hp : CallsPure mref cref declName shape) :
     MachineClosesAt mctx mref cctx cref declName shape := by
-  intro b w r w' hw' hr
+  intro b w r w' hw' _ hr
   obtain ⟨L, hw⟩ := invV_of_invW mctx cctx hw'
-  have hB := bodyRel L
+  have hB := fun L' : RefLaws mref cref => bodyRel L'
   unfold synthesizeMachineCertified at hr
   obtain ⟨⟨t, d'⟩, w1, run, hr⟩ := RunsTo.bind hr
-  have hw1 := harness_inv L hB (harnessRel_of L (translateRel L)) hw run
+  have hw1 := harness_inv L hB (fun L' => harnessRel_of L' (translateRel L')) hw run
   dsimp only at hr
   obtain ⟨t', ht'⟩ := Option.isSome_iff_exists.mp (hl (profLogIO b) w t d' w1 run)
   rw [ht'] at hr

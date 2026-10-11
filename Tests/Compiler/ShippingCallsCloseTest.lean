@@ -26,9 +26,10 @@ argument), `callerD` (a domain-polymorphic child), `midH` (two outputs) and
   are closed too: the second call is a cache hit of the first, from the order
   the closing's `mapM` runs (`closeInstsM_run_adj`) — not from an assumption
   that two real compiles agree;
-* calls of one declaration with ANOTHER call between (`callerABA`) are
-  REFUSED: the cache entry's survival through the middle call's synthesis is
-  not derived. Nothing is added; such a parent keeps `MachineClosesAt`.
+* calls of one declaration with ANOTHER call between (`callerABA`: `pick`,
+  `pickD`, `pick`) are closed too: the entry the first call left survives the
+  middle call's synthesis (`synthesizeChild_pin`, at the positive depth a
+  real compile runs the machine synthesis at), so the third call is a hit.
 
 Not covered: machine-route children (`callerL`, `callerLN`, `hftByte` keep
 the premise), several-output / sequential children (`closeInstsG`), parents
@@ -83,6 +84,12 @@ def callerABA (x : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitV
     acc <~ u
     return u
 
+set_option maxHeartbeats 0 in
+#machine_endpoint callerABA
+set_option maxHeartbeats 0 in
+#machine_design_svHR callerABA
+set_option maxHeartbeats 0 in
+#machine_closes_at callerABA
 set_option maxHeartbeats 0 in
 #machine_endpoint callerRep
 set_option maxHeartbeats 0 in
@@ -165,25 +172,15 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   if (rep.shape.insts.map (·.1)) != [``pick, ``pick] then
     throwError "callerRep does not have two instances of pick: {rep.shape.insts.map (·.1)}"
   discard <| auditClosed ``callerRep 2
-  Lean.logInfo m!"ONE-OUTPUT GATE CHILDREN CLOSED (caller, callerTwice, callerNested, callerD, midH, callerMix, callerRep): machine_design_svHR_closed reaches none of MachineCloses / MachineClosesAt / CallsPure / CallsClose / LetsClose (statement and every definition under it); standard axioms. Premises of caller.machine_closes_at: {hyps}; of callerMix.machine_closes_at: {hypsMix}. NAME SEPARATION stays an obligation of every closed endpoint (stated with Name.toString; evaluated true here by compiled code, not proved: the escaping renderer does not reduce in the kernel, and no theorem bridges it to the unescaped one, which does)."
-
-/-- Two instances of one declaration: refused (the cache's witness is not
-derived), nothing is added. -/
-def refused (f : Name) : Lean.Elab.Command.CommandElabM Unit := do
-  let r ← try
-      discard <| Tools.ShippingMachineClosesAtGen.closesAtTheorem f
-      pure none
-    catch ex => pure (some (← ex.toMessageData.toString))
-  match r with
-  | none => throwError "{f}: machine_closes_at was generated"
-  | some msg =>
-    if (msg.splitOn "with other calls between").length ≤ 1 then
-      throwError "{f} failed otherwise: {msg}"
-  if (← getEnv).contains (f ++ `machine_closes_at) then throwError "{f}: a theorem was left"
+  -- the same child with another call between
+  let aba ← Tools.ShippingMachineCommand.readMachine ``callerABA
+  if (aba.shape.insts.map (·.1)) != [``pick, ``pickD, ``pick] then
+    throwError "callerABA is not pick, pickD, pick: {aba.shape.insts.map (·.1)}"
+  discard <| auditClosed ``callerABA 4
+  Lean.logInfo m!"ONE-OUTPUT GATE CHILDREN CLOSED (caller, callerTwice, callerNested, callerD, midH, callerMix, callerRep, callerABA): machine_design_svHR_closed reaches none of MachineCloses / MachineClosesAt / CallsPure / CallsClose / LetsClose (statement and every definition under it); standard axioms. Premises of caller.machine_closes_at: {hyps}; of callerMix.machine_closes_at: {hypsMix}. NAME SEPARATION stays an obligation of every closed endpoint (stated with Name.toString; evaluated true here by compiled code, not proved: the escaping renderer does not reduce in the kernel, and no theorem bridges it to the unescaped one, which does)."
 
 run_cmd do
-  refused ``callerABA
-  Lean.logInfo m!"REPEATED CALLEE: callerRep (pick, pick) closed from the run's order (the second call is a cache hit); callerABA (pick, pickD, pick) refused — the cache entry's survival through the middle call's synthesis is not derived; such a parent keeps MachineClosesAt"
+  Lean.logInfo m!"REPEATED CALLEE: callerRep (pick, pick) and callerABA (pick, pickD, pick) closed from the run's order — the later call of a declaration is a cache hit of the entry the earlier call left, kept by the calls between at a positive synthesis depth (synthesizeChild_pin); no restriction on the call list"
 
 /-! ### A failed generation leaves nothing
 

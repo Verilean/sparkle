@@ -245,7 +245,7 @@ theorem Triple.throwErr {α : Type} (msg : MessageData) (hmsg : OkMsg msg) (D : 
     exact ⟨hk, L.excOk _ (Op.throwErr (α := α) msg hmsg) w e w1 hw.1.2.2 hm⟩
 
 /-- The cache's clear keeps the invariant at its depth (it cannot fail). -/
-theorem Triple.clear (D : Nat) {R : Exception → Void IO.RealWorld → Prop} :
+theorem Triple.clear (D : Nat) (h0 : L.aux {}) {R : Exception → Void IO.RealWorld → Prop} :
     Triple mctx mref cctx cref (J L D) (sparkleChildCache.set {} : MetaM Unit)
       (fun _ => J L D) R :=
   Triple.of_runs (refSet_runs _ _) fun w u w' hw h => by
@@ -253,7 +253,7 @@ theorem Triple.clear (D : Nat) {R : Exception → Void IO.RealWorld → Prop} :
     refine ⟨⟨?_, ?_, L.cacheSetQ _ _ _ _ h hw.1.2.2⟩, ?_⟩
     · rw [hv]; exact cacheInv_empty
     · rw [hs]; exact hw.1.2.1
-    · rw [hd]; exact hw.2
+    · rw [hd, hv]; exact ⟨hw.2.1, h0⟩
 
 /-- Setting the depth moves the invariant to that depth (it cannot fail). -/
 theorem Triple.depthSet (D v : Nat) {R : Exception → Void IO.RealWorld → Prop} :
@@ -261,7 +261,7 @@ theorem Triple.depthSet (D v : Nat) {R : Exception → Void IO.RealWorld → Pro
       (fun _ => J L v) R :=
   Triple.of_runs (refSet_runs _ _) fun w u w' hw h => by
     obtain ⟨hv, hs, hd⟩ := L.depthSet _ _ _ _ h
-    refine ⟨⟨?_, ?_, L.depthSetQ _ _ _ _ h hw.1.2.2⟩, hd⟩
+    refine ⟨⟨?_, ?_, L.depthSetQ _ _ _ _ h hw.1.2.2⟩, hd, by rw [hv]; exact hw.2.2⟩
     · rw [hv]; exact hw.1.1
     · rw [hs]; exact hw.1.2.1
 
@@ -273,7 +273,7 @@ theorem Triple.depthModify (D : Nat) (f : Nat → Nat) {R : Exception → Void I
     refine ⟨⟨?_, ?_, L.depthModifyQ _ _ _ _ h hw.1.2.2⟩, ?_⟩
     · rw [hv]; exact hw.1.1
     · rw [hs]; exact hw.1.2.1
-    · rw [hd, hw.2]
+    · rw [hd, hw.2.1, hv]; exact ⟨rfl, hw.2.2⟩
 
 /-! ## The memoised entry -/
 
@@ -300,21 +300,24 @@ theorem child_keeps (D : Nat)
     exact Triple.pure fun w hw => hw.1
   | none =>
     simp only [hc]
-    refine Triple.bind (Q := fun r w2 => J L D w2 ∧ RealChild mref cref c r) ?_ ?_
+    -- the map read at the miss keeps the auxiliary predicate, and has no `c`
+    refine Triple.bind (Q := fun r w2 => (J L D w2 ∧ RealChild mref cref c r) ∧ L.aux m) ?_ ?_
     · intro w1 hw1
       have hk := hE mctx cctx c w1 hw1.1
       unfold endW ErrOk at hk
       cases hm : synthesizeCombinational c mctx mref cctx cref w1 with
-      | ok r w2 => rw [hm] at hk; exact ⟨hk.1, RealChild.of_inv (invW_of_invV L hw1.1.1) hm⟩
+      | ok r w2 =>
+        rw [hm] at hk
+        exact ⟨⟨hk.1, RealChild.of_inv (invW_of_invV L hw1.1.1) hm⟩, by rw [hw1.2]; exact hw1.1.2.2⟩
       | error e w2 => rw [hm] at hk; exact hk
     · intro r
       refine Triple.bind (Q := fun _ w3 => J L D w3)
         (Triple.of_runs (refModify_runs _ _) fun w u w' hw h => ?_) ?_
       · obtain ⟨hv, hs, hd⟩ := L.cacheModify _ _ _ _ h
-        refine ⟨⟨?_, ?_, L.cacheModifyQ _ _ _ _ h hw.1.1.2.2⟩, ?_⟩
-        · rw [hv]; exact cacheInv_insert hw.1.1.1 hw.2
-        · rw [hs]; exact hw.1.1.2.1
-        · rw [hd]; exact hw.1.2
+        refine ⟨⟨?_, ?_, L.cacheModifyQ _ _ _ _ h hw.1.1.1.2.2⟩, ?_⟩
+        · rw [hv]; exact cacheInv_insert hw.1.1.1.1 hw.1.2
+        · rw [hs]; exact hw.1.1.1.2.1
+        · rw [hd, hv]; exact ⟨hw.1.1.2.1, L.auxInsert m _ c r hw.2 hc hw.1.1.2.2⟩
       · intro _
         exact Triple.pure fun w hw => hw
 
@@ -361,7 +364,7 @@ only below the limit). Otherwise: the prefix, the clear or the nested resets,
 the depth bump to `D + 1`, the body — which may return or throw — and the
 `finally`, which runs from whichever world the body ended in and brings the
 depth back to `D`. -/
-theorem core_keeps (D : Nat) (declName : Name)
+theorem core_keeps (D : Nat) (declName : Name) (hA0 : D = 0 → L.aux {})
     (hbody : D < sparkleSynthDepthLimit → ∀ (b : Bool) ci isInst,
       Keeps mctx mref cctx cref (J L (D + 1))
         (synthesizeFromConst (fun e h t n => translateExprToWire e h t n) (profLogIO b)
@@ -375,7 +378,7 @@ theorem core_keeps (D : Nat) (declName : Name)
   refine Triple.bind (Triple.diag L (Diag.profLog prof.isSome _) D) ?_
   intro _
   refine Triple.bindQ (φ := fun d => d = D)
-    (Triple.frameQ L Framed.depthGet D fun w d w' hw h => by rw [L.depthGet _ _ _ h]; exact hw.2) ?_
+    (Triple.frameQ L Framed.depthGet D fun w d w' hw h => by rw [L.depthGet _ _ _ h]; exact hw.2.1) ?_
   intro d hd
   subst hd
   refine Triple.ite (fun _ => ?_) (fun hlt => ?_)
@@ -414,7 +417,8 @@ theorem core_keeps (D : Nat) (declName : Name)
     · simp only [h0, ↓reduceIte]
       tpure L d; tpure L d
       tset L d; tset L d; tset L d; tset L d
-      tclear L d
+      refine Triple.bind (Triple.clear L d (hA0 (by simpa using h0))) ?_
+      intro _
       tset L d; tset L d; tset L d; tset L d; tset L d; tset L d; tset L d
       refine Triple.bind (Triple.depthSet L d (d + 1)) ?_
       intro _
@@ -448,44 +452,52 @@ throws. Below it, the body runs one level deeper, where the memoised child
 entry keeps the invariant by `child_keeps` and the induction hypothesis — so
 `BodyRel`'s premise holds there. -/
 theorem entry_keeps (hB : BodyRel L) :
-    ∀ (k D : Nat), sparkleSynthDepthLimit ≤ D + k →
+    ∀ (k D : Nat), sparkleSynthDepthLimit ≤ D + k → (D = 0 → L.aux {}) →
       ∀ (mctx : Meta.Context) (cctx : Core.Context) c,
         Keeps mctx mref cctx cref (J L D) (synthesizeCombinational c) := by
   intro k
   induction k with
   | zero =>
-    intro D hD mctx cctx c
-    exact full_keeps L D c (core_keeps L D c fun hlt => absurd hD (Nat.not_le_of_lt (by simpa using hlt)))
+    intro D hD hA mctx cctx c
+    exact full_keeps L D c (core_keeps L D c hA fun hlt =>
+      absurd hD (Nat.not_le_of_lt (by simpa using hlt)))
   | succ k ih =>
-    intro D hD mctx cctx c
-    refine full_keeps L D c (core_keeps L D c fun _ b ci isInst => ?_)
-    exact hB (D + 1) (child_keeps L (D + 1) (ih (D + 1) (by omega))) mctx cctx b c ci isInst
+    intro D hD hA mctx cctx c
+    refine full_keeps L D c (core_keeps L D c hA fun _ b ci isInst => ?_)
+    exact hB (D + 1) (child_keeps L (D + 1) (ih (D + 1) (by omega) (fun h => by omega)))
+      mctx cctx b c ci isInst
 
-theorem entry_keeps_all (hB : BodyRel L) (D : Nat) (c : Name) :
+/-- (The cache's clear happens at depth 0 only: there the auxiliary predicate
+must hold of the empty map; at a positive depth nothing is asked of it.) -/
+theorem entry_keeps_all (hB : BodyRel L) (D : Nat) (hA : D = 0 → L.aux {}) (c : Name) :
     Keeps mctx mref cctx cref (J L D) (synthesizeCombinational c) :=
-  entry_keeps L hB sparkleSynthDepthLimit D (Nat.le_add_left _ _) mctx cctx c
+  entry_keeps L hB sparkleSynthDepthLimit D (Nat.le_add_left _ _) hA mctx cctx c
 
-theorem childKeeps_all (hB : BodyRel L) (D : Nat) : ChildKeeps L D :=
-  child_keeps L D fun _ _ c => entry_keeps_all L hB D c
+theorem childKeeps_all (hB : BodyRel L) (D : Nat) (hA : D = 0 → L.aux {}) : ChildKeeps L D :=
+  child_keeps L D fun _ _ c => entry_keeps_all L hB D hA c
 
 /-! ## On a successful run -/
 
 /-- A returning run of the real entry from an invariant world ends in one. -/
-theorem entry_inv (hB : BodyRel L) {c : Name} {w r w'} (hw : InvV L w)
+theorem entry_inv (hB : ∀ L' : RefLaws mref cref, BodyRel L') {c : Name} {w r w'}
+    (hw : InvV L w)
     (h : RunsTo (synthesizeCombinational c) mctx mref cctx cref w r w') :
     InvV L w' := by
-  have := entry_keeps_all (mctx := mctx) (cctx := cctx) L hB (L.dval w) c w ⟨hw, rfl⟩
+  have := entry_keeps_all (mctx := mctx) (cctx := cctx) L.plain (hB _) (L.dval w)
+    (fun _ => trivial) c w ⟨hw, rfl, trivial⟩
   rw [endW_of_runs h] at this
   exact this.1.1
 
 /-- A returning run of the machine route's harness, with the entry's logger,
 from an invariant world ends in one. -/
-theorem harness_inv (hB : BodyRel L) (hH : HarnessRel L) {b : Bool} {declName bs body}
+theorem harness_inv (hB : ∀ L' : RefLaws mref cref, BodyRel L')
+    (hH : ∀ L' : RefLaws mref cref, HarnessRel L') {b : Bool} {declName bs body}
     {w r w'} (hw : InvV L w)
     (h : RunsTo (synthesizeMixedCertified
       (fun e hint top named => translateExprToWire e hint top named) (profLogIO b) declName bs body)
       mctx mref cctx cref w r w') : InvV L w' := by
-  have := hH (L.dval w) (childKeeps_all L hB _) mctx cctx b declName bs body w ⟨hw, rfl⟩
+  have := hH L.plain (L.dval w) (childKeeps_all L.plain (hB _) _ (fun _ => trivial)) mctx cctx b
+    declName bs body w ⟨hw, rfl, trivial⟩
   rw [endW_of_runs h] at this
   exact this.1.1
 

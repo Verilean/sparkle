@@ -237,7 +237,6 @@ theorem machineClosesAt_of_gateKids {declName : Name} (d : MachineData) (ok : d.
       RealChild mref cref (d.shape.insts[k]).1 y → ChildFull (d.shape.insts[k]).1 (kbs k) y.1 y.2)
     (hargsN : ∀ (k : Nat) (hk : k < d.shape.insts.length),
       ((kbs k).filter fun x => x.2 != .domain).length = (d.shape.insts[k]).2.1.length)
-    (hblocks : Tools.ShippingCallsSame.sepB (d.shape.insts.map (·.1)) = true)
     (hsep : ∀ c ∈ d.shape.insts.map (·.1), ∀ c' ∈ d.shape.insts.map (·.1),
       c.toString = c'.toString → c = c')
     (hparent : ∀ c ∈ d.shape.insts, c.1.toString ≠ declName.toString)
@@ -249,12 +248,17 @@ theorem machineClosesAt_of_gateKids {declName : Name} (d : MachineData) (ok : d.
     exact hS.2
   have hl : Tools.ShippingClosesSplit.LetsClose mctx mref cctx cref declName d.shape :=
     letsClose_of_data d ok hbody halias mctx mref cctx cref
-  intro b w r w' hw' hr
+  intro b w r w' hw' hdp hr
   obtain ⟨L, hw⟩ := invV_of_invW mctx cctx hw'
-  have hB := bodyRel L
+  have hB := fun L' : RefLaws mref cref => bodyRel L'
   unfold synthesizeMachineCertified at hr
   obtain ⟨⟨t, d₀⟩, w1, run, hr⟩ := RunsTo.bind hr
-  have hw1 := harness_inv L hB (harnessRel_of L (translateRel L)) hw run
+  have hw1 := harness_inv L hB (fun L' => harnessRel_of L' (translateRel L')) hw run
+  -- the depth is positive here (inside an entry) and the harness keeps it
+  have hd1 : L.dval w1 ≠ 0 := by
+    rw [Tools.ShippingCallsSame.harness_depth L hB (fun L' => harnessRel_of L' (translateRel L'))
+      hw run]
+    exact dval_ne_of_depthPos mctx cctx L hdp
   dsimp only at hr
   obtain ⟨t', hcl⟩ := Option.isSome_iff_exists.mp (hl (profLogIO b) w t d₀ w1 run)
   rw [hcl] at hr
@@ -267,9 +271,11 @@ theorem machineClosesAt_of_gateKids {declName : Name} (d : MachineData) (ok : d.
   rotate_left
   · rename_i hne
     exact absurd (List.isEmpty_iff.mpr hf) hne
-  -- the children the run's closing returns: real compiles, and a call of the
-  -- previous call's declaration gets the previous child (the cache)
-  obtain ⟨children, rfl, hreal, hadj, -⟩ := Tools.ShippingCallsSame.closeInstsM_run_adj L hB hw1 hr
+  -- the children the run's closing returns: real compiles, and two calls of
+  -- one declaration get the same child (the cache, kept under the calls
+  -- between at a positive depth)
+  obtain ⟨children, rfl, hreal, hpair, -⟩ :=
+    Tools.ShippingCallsSame.closeInstsM_run_all L hB hw1 hd1 hr
   have key : (closeInsts (machNIn d.shape) d.shape.insts.length d.shape.layout.slots.length
       (t.inputs.map (·.name)) (d.shape.insts.map (·.2.1)) children
       (closeMachine d.shape.layout t', d₀)).isSome = true := by
@@ -314,9 +320,10 @@ theorem machineClosesAt_of_gateKids {declName : Name} (d : MachineData) (ok : d.
       have hcc := hsep _ (List.mem_of_getElem? hni) _ (List.mem_of_getElem? hnj) hn
       rw [← hcc] at hnj
       have hsame : children[i]? = children[j]? := by
-        rcases Nat.le_total i j with h | h
-        · exact Tools.ShippingCallsSame.same_of_adj _ children hblocks hadj j i _ h hni hnj
-        · exact (Tools.ShippingCallsSame.same_of_adj _ children hblocks hadj i j _ h hnj hni).symm
+        rcases Nat.lt_trichotomy i j with h | h | h
+        · exact hpair i j _ h hni hnj
+        · rw [h]
+        · exact (hpair j i _ h hnj hni).symm
       rw [List.getElem?_eq_getElem hi, List.getElem?_eq_getElem hj, hai, hcj] at hsame
       exact congrArg Prod.fst (Option.some.inj hsame)
     · intro k c hc o ho

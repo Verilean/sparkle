@@ -29,23 +29,24 @@ variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
 /-- The invariant with a CONDITIONAL cache half: the synthesis ref's value,
 and the cache's entries when `C` holds. `InvC L True` is `InvV L`; `InvC L
 False` is the synthesis ref alone (what an outermost run starts from). -/
-def InvC (L : RefLaws mref cref) (C : Prop) (w : Void IO.RealWorld) : Prop :=
-  (C → CacheInv mref cref (L.val w)) ∧ L.sval w = some synthesizeChild ∧ L.quiet w
+def InvC (L : RefLaws mref cref) (C Dp : Prop) (w : Void IO.RealWorld) : Prop :=
+  (C → CacheInv mref cref (L.val w)) ∧ L.sval w = some synthesizeChild ∧ L.quiet w ∧
+    (Dp → L.dval w ≠ 0)
 
-theorem invV_of_invC (L : RefLaws mref cref) {w} (h : InvC L True w) : InvV L w :=
-  ⟨h.1 trivial, h.2⟩
+theorem invV_of_invC (L : RefLaws mref cref) {Dp : Prop} {w} (h : InvC L True Dp w) : InvV L w :=
+  ⟨h.1 trivial, h.2.1, h.2.2.1⟩
 
 /-- The values are left and the end world is quiet (an operation's successful
 run from a quiet world: `RefLaws.sameOp`). -/
-theorem invC_keep (L : RefLaws mref cref) {C : Prop} {w w'}
+theorem invC_keep (L : RefLaws mref cref) {C Dp : Prop} {w w'}
     (hk : (L.val w' = L.val w ∧ L.sval w' = L.sval w ∧ L.dval w' = L.dval w) ∧ L.quiet w')
-    (h : InvC L C w) : InvC L C w' := by
-  unfold InvC; rw [hk.1.1, hk.1.2.1]; exact ⟨h.1, h.2.1, hk.2⟩
+    (h : InvC L C Dp w) : InvC L C Dp w' := by
+  unfold InvC; rw [hk.1.1, hk.1.2.1, hk.1.2.2]; exact ⟨h.1, h.2.1, hk.2, h.2.2.2⟩
 
 /-- A generic operation's successful run keeps the invariant. -/
-theorem invC_framed (L : RefLaws mref cref) {C : Prop} {α : Type} {p : MetaM α} (hp : Framed p)
-    {w a w'} (h : RunsTo p mctx mref cctx cref w a w') (hw : InvC L C w) : InvC L C w' :=
-  invC_keep L (L.sameOp (.framed hp) h hw.2.2) hw
+theorem invC_framed (L : RefLaws mref cref) {C Dp : Prop} {α : Type} {p : MetaM α} (hp : Framed p)
+    {w a w'} (h : RunsTo p mctx mref cctx cref w a w') (hw : InvC L C Dp w) : InvC L C Dp w' :=
+  invC_keep L (L.sameOp (.framed hp) h hw.2.2.1) hw
 
 theorem invV_keep (L : RefLaws mref cref) {w w'}
     (hk : (L.val w' = L.val w ∧ L.sval w' = L.sval w ∧ L.dval w' = L.dval w) ∧ L.quiet w')
@@ -59,37 +60,40 @@ theorem invV_framed (L : RefLaws mref cref) {α : Type} {p : MetaM α} (hp : Fra
 
 /-! ## One step of the prefix -/
 
-theorem inv_pure (L : RefLaws mref cref) {C : Prop} {α : Type} {a b : α} {w w'}
-    (h : RunsTo (Pure.pure a : MetaM α) mctx mref cctx cref w b w') (hw : InvC L C w) :
-    InvC L C w' := by
+theorem inv_pure (L : RefLaws mref cref) {C Dp : Prop} {α : Type} {a b : α} {w w'}
+    (h : RunsTo (Pure.pure a : MetaM α) mctx mref cctx cref w b w') (hw : InvC L C Dp w) :
+    InvC L C Dp w' := by
   rw [(RunsTo.pure_world h).2]; exact hw
 
 /-- A framed operation's successful run. -/
-theorem inv_framed (L : RefLaws mref cref) {C : Prop} {α : Type} {p : MetaM α}
-    {w a w'} (h : RunsTo p mctx mref cctx cref w a w') (hw : InvC L C w)
+theorem inv_framed (L : RefLaws mref cref) {C Dp : Prop} {α : Type} {p : MetaM α}
+    {w a w'} (h : RunsTo p mctx mref cctx cref w a w') (hw : InvC L C Dp w)
     (hp : Op p := by first
       | exact Op.framed (Framed.sideSet _ (by constructor))
       | exact Op.framed (Framed.sideGet (by constructor))
       | exact Op.framed (Framed.sideModify _ (by constructor))
       | exact Op.framed (by constructor)
-      | exact Op.diag (by constructor)) : InvC L C w' := invC_keep L (L.sameOp hp h hw.2.2) hw
+      | exact Op.diag (by constructor)) : InvC L C Dp w' :=
+  invC_keep L (L.sameOp hp h hw.2.2.1) hw
 
-/-- The depth's set leaves the cache and the synthesis ref. -/
-theorem inv_depthSet (L : RefLaws mref cref) {C : Prop} {v : Nat} {w u w'}
+/-- The depth's set leaves the cache and the synthesis ref — and from then on
+the depth is the value set (nonzero when that is). -/
+theorem inv_depthSet (L : RefLaws mref cref) {C Dp : Prop} {v : Nat} {w u w'}
     (h : RunsTo (ST.Ref.set sparkleSynthDepth v : MetaM Unit) mctx mref cctx cref w u w')
-    (hw : InvC L C w) : InvC L C w' := by
-  obtain ⟨hv, hs, _⟩ := L.depthSet _ _ _ _ h
-  unfold InvC; rw [hv, hs]; exact ⟨hw.1, hw.2.1, L.depthSetQ _ _ _ _ h hw.2.2⟩
+    (hw : InvC L C Dp w) : InvC L C (v ≠ 0) w' := by
+  obtain ⟨hv, hs, hd⟩ := L.depthSet _ _ _ _ h
+  unfold InvC; rw [hv, hs, hd]; exact ⟨hw.1, hw.2.1, L.depthSetQ _ _ _ _ h hw.2.2.1, fun h => h⟩
 
 /-- **The depth-0 clear ESTABLISHES the cache half**, from any cache: only
 the synthesis ref's value is carried over. -/
-theorem inv_clear (L : RefLaws mref cref) {C : Prop} {w u w'}
+theorem inv_clear (L : RefLaws mref cref) {C Dp : Prop} {w u w'}
     (h : RunsTo (sparkleChildCache.set {} : MetaM Unit) mctx mref cctx cref w u w')
-    (hw : InvC L C w) : InvC L True w' := by
-  obtain ⟨hv, hs, _⟩ := L.cacheSet _ _ _ _ h
-  refine ⟨fun _ => ?_, ?_, L.cacheSetQ _ _ _ _ h hw.2.2⟩
+    (hw : InvC L C Dp w) : InvC L True Dp w' := by
+  obtain ⟨hv, hs, hd⟩ := L.cacheSet _ _ _ _ h
+  refine ⟨fun _ => ?_, ?_, L.cacheSetQ _ _ _ _ h hw.2.2.1, ?_⟩
   · rw [hv]; exact cacheInv_empty
   · rw [hs]; exact hw.2.1
+  · rw [hd]; exact hw.2.2.2
 
 /-- The lemma carrying the invariant over one step, by the step's head. -/
 meta def stepLemma (prog : Lean.Expr) : Lean.MetaM (Lean.TSyntax `term) := do
@@ -136,7 +140,7 @@ theorem core_reads_inv (L : RefLaws mref cref) {declName : Name}
         (entryConst true false [] ci (Sparkle.Compiler.Elab.instancePredicate envR)
           (userInliner envR) (structEnv envR))
         (Sparkle.Compiler.Elab.instancePredicate envR))
-        mctx mref cctx cref w3 (M, D) w4 ∧ InvV L w3 := by
+        mctx mref cctx cref w3 (M, D) w4 ∧ InvV L w3 ∧ L.dval w3 ≠ 0 := by
   unfold synthesizeCombinationalCore synthesizeCombinationalCoreWith at h
   simp only [Bool.false_eq_true, ↓reduceIte] at h
   obtain ⟨prof, wa, s1, h⟩ := RunsTo.bind h
@@ -159,7 +163,7 @@ theorem core_reads_inv (L : RefLaws mref cref) {declName : Name}
     exact (throwError_not_runs _ ht).elim
   by_cases h0 : (d == 0) = true
   · -- outermost: the clear establishes the cache half
-    have hw : InvC L False wc := invC_keep L keep ⟨fun f => f.elim, hw.1, hq⟩
+    have hw : InvC L False False wc := invC_keep L keep ⟨fun f => f.elim, hw.1, hq, fun f => f.elim⟩
     simp only [h0, ↓reduceIte] at h
     iterate 40 (first | peel_inv L h hw | skip)
     obtain ⟨_, h⟩ := RunsTo.try_finally h
@@ -167,13 +171,14 @@ theorem core_reads_inv (L : RefLaws mref cref) {declName : Name}
     have hw := invC_framed L (.constInfo _) hget hw
     obtain ⟨env, w2b, henv, h⟩ := RunsTo.bind h
     have hw := invC_framed L .env henv hw
-    exact ⟨prof.isSome, env, ci, _, w2, _, _, _, _, hget, henv, h, invV_of_invC L hw⟩
+    exact ⟨prof.isSome, env, ci, _, w2, _, _, _, _, hget, henv, h, invV_of_invC L hw,
+      hw.2.2.2 (Nat.succ_ne_zero _)⟩
   · -- nested: the start condition's cache half is inherited
     have hc : CacheInv mref cref (L.val w) := by
       rcases hw.2 with hz | hc
       · exact absurd (by rw [hd, hz]; rfl) h0
       · exact hc
-    have hw : InvC L True wc := invC_keep L keep ⟨fun _ => hc, hw.1, hq⟩
+    have hw : InvC L True False wc := invC_keep L keep ⟨fun _ => hc, hw.1, hq, fun f => f.elim⟩
     simp only [h0, Bool.false_eq_true, ↓reduceIte] at h
     iterate 40 (first | peel_inv L h hw | skip)
     obtain ⟨_, h⟩ := RunsTo.try_finally h
@@ -181,7 +186,8 @@ theorem core_reads_inv (L : RefLaws mref cref) {declName : Name}
     have hw := invC_framed L (.constInfo _) hget hw
     obtain ⟨env, w2b, henv, h⟩ := RunsTo.bind h
     have hw := invC_framed L .env henv hw
-    exact ⟨prof.isSome, env, ci, _, w2, _, _, _, _, hget, henv, h, invV_of_invC L hw⟩
+    exact ⟨prof.isSome, env, ci, _, w2, _, _, _, _, hget, henv, h, invV_of_invC L hw,
+      hw.2.2.2 (Nat.succ_ne_zero _)⟩
 
 /-! ## The memoised entry and the closings -/
 
@@ -191,7 +197,7 @@ real entry from a world satisfying the invariant (so its result is a
 `RealChild`; the run keeps the invariant, `entry_inv`) and then modifies the
 cache AS IT IS after that run, inserting the result. -/
 theorem synthesizeChild_inv (L : RefLaws mref cref)
-    (hB : BodyRel L)
+    (hB : ∀ L' : RefLaws mref cref, BodyRel L')
     {c : Name} {w w' : Void IO.RealWorld} {y : Res}
     (hw : InvV L w) (h : RunsTo (synthesizeChild c) mctx mref cctx cref w y w') :
     RealChild mref cref c y ∧ InvV L w' := by
@@ -260,7 +266,7 @@ theorem synthRead (L : RefLaws mref cref) {w s w'} (hw : InvV L w)
   exact ⟨(L.synthGet _ _ _ h).trans hw.2.1, invV_framed L .synthGet h hw⟩
 
 /-- **The general closing's children, world by world.** -/
-theorem closeInstsGM_inv (L : RefLaws mref cref) (hB : BodyRel L)
+theorem closeInstsGM_inv (L : RefLaws mref cref) (hB : ∀ L' : RefLaws mref cref, BodyRel L')
     {shape t m₀ d₀ m d} {w w'} (hw : InvV L w)
     (hr : RunsTo (closeInstsGM shape t m₀ d₀) mctx mref cctx cref w (some (m, d)) w') :
     ∃ children, Sparkle.IR.Machine.closeInstsG (machNIn shape) shape.insts.length
@@ -305,7 +311,7 @@ theorem closeInstsGM_inv (L : RefLaws mref cref) (hB : BodyRel L)
     exact ⟨y, hky, hor⟩
 
 /-- **The one-output closing's children, world by world.** -/
-theorem closeInstsM_inv (L : RefLaws mref cref) (hB : BodyRel L)
+theorem closeInstsM_inv (L : RefLaws mref cref) (hB : ∀ L' : RefLaws mref cref, BodyRel L')
     {shape t m₀ d₀ m d} {w w'} (hw : InvV L w)
     (hr : RunsTo (closeInstsM shape t m₀ d₀) mctx mref cctx cref w (some (m, d)) w') :
     ∃ children, Sparkle.IR.Machine.closeInsts (machNIn shape) shape.insts.length
@@ -344,7 +350,7 @@ theorem synthesizeFromConst_machine_inv (L : RefLaws mref cref)
       ∀ shape, machineShape? false [] ci (structEnv envR) = some shape →
         ∃ r w7 w8, RunsTo (synthesizeMachineCertified
             (fun e hint top named => translateExprToWire e hint top named) logProf declName
-            shape) mctx mref cctx cref w7 r w8 ∧ InvV L w7 ∧
+            shape) mctx mref cctx cref w7 r w8 ∧ InvV L w7 ∧ L.dval w7 = L.dval w ∧
           ∀ res, r = some res → res = (m, d) := by
   unfold synthesizeFromConst at hr
   simp only [↓reduceIte, old, miss, Bool.not_false, Bool.and_self, List.isEmpty_nil] at hr
@@ -358,7 +364,7 @@ theorem synthesizeFromConst_machine_inv (L : RefLaws mref cref)
   rw [hs] at hr
   dsimp only at hr
   obtain ⟨r, w3, hmach, hr⟩ := RunsTo.bind hr
-  refine ⟨r, _, _, hmach, hw1, ?_⟩
+  refine ⟨r, _, _, hmach, hw1, (L.same .env henv).2.2, ?_⟩
   intro res hres
   subst hres
   dsimp only at hr
@@ -371,7 +377,8 @@ theorem synthesizeFromConst_machine_inv (L : RefLaws mref cref)
 The harness keeps the invariant (`harness_inv`); the closings' children are
 then `RealChild`s (`closeInstsM_inv` / `closeInstsGM_inv`). -/
 theorem synthesizeMachineCertified_inv (L : RefLaws mref cref)
-    (hB : BodyRel L) (hH : HarnessRel L)
+    (hB : ∀ L' : RefLaws mref cref, BodyRel L')
+    (hH : ∀ L' : RefLaws mref cref, HarnessRel L')
     {b : Bool} {declName shape m d} {w w'} (hw : InvV L w)
     (hr : RunsTo (synthesizeMachineCertified
       (fun e hint top named => translateExprToWire e hint top named) (profLogIO b) declName shape)
@@ -410,6 +417,25 @@ theorem synthesizeMachineCertified_inv (L : RefLaws mref cref)
   · have eq := RunsTo.pure_eq hr
     cases eq
 
+/-- In world `w` the synthesis depth reads nonzero: `w` is INSIDE an entry's
+run (the entry bumps the depth before its body). Where the machine synthesis
+runs in a real compile this holds; it is what keeps the cache from being
+cleared under the children (the clear is the depth-0 entry's). -/
+def DepthPos (mref : ST.Ref IO.RealWorld Meta.State) (cref : ST.Ref IO.RealWorld Core.State)
+    (w : Void IO.RealWorld) : Prop :=
+  ∀ (mctx : Meta.Context) (cctx : Core.Context) d w1,
+    RunsTo (ST.Ref.get sparkleSynthDepth : MetaM Nat) mctx mref cctx cref w d w1 → d ≠ 0
+
+theorem depthPos_of (L : RefLaws mref cref) {w} (h : L.dval w ≠ 0) : DepthPos mref cref w :=
+  fun _ _ d w1 hg => by rw [L.depthGet _ _ _ hg]; exact h
+
+theorem dval_ne_of_depthPos (mctx : Meta.Context) (cctx : Core.Context) (L : RefLaws mref cref)
+    {w} (h : DepthPos mref cref w) : L.dval w ≠ 0 := by
+  obtain ⟨d, w1, hg⟩ := refGet_runs (mctx := mctx) (mref := mref) (cctx := cctx) (cref := cref)
+    sparkleSynthDepth w
+  rw [← L.depthGet _ _ _ hg]
+  exact h mctx cctx d w1 hg
+
 /-- **The machine synthesis does not fall back — where a real compile runs
 it.** Under the generic runtime laws, from a world satisfying the child-cache
 invariant, with the compiler's own logger. `MachineCloses` (every world,
@@ -418,7 +444,7 @@ calls' closing reads the child-synthesis reference. -/
 def MachineClosesAt (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State)
     (cctx : Core.Context) (cref : ST.Ref IO.RealWorld Core.State) (declName : Name)
     (shape : MachineShape) : Prop :=
-  ∀ (b : Bool) w r w', InvW mref cref w →
+  ∀ (b : Bool) w r w', InvW mref cref w → DepthPos mref cref w →
     RunsTo (synthesizeMachineCertified
       (fun e hint top named => translateExprToWire e hint top named) (profLogIO b) declName shape)
       mctx mref cctx cref w r w' → r ≠ none
@@ -426,7 +452,7 @@ def MachineClosesAt (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State
 theorem machineClosesAt_of_closes {declName : Name} {shape : MachineShape}
     (h : MachineCloses mctx mref cctx cref declName shape) :
     MachineClosesAt mctx mref cctx cref declName shape :=
-  fun _ w r w' _ hr => h _ w r w' hr
+  fun _ w r w' _ _ hr => h _ w r w' hr
 
 /-- **The children of a real compile, from the run's start world.** One
 successful run of the real core entry at the machine boundary, STARTING in a
@@ -444,15 +470,15 @@ theorem machine_children_realA {declName : Name} {shape : MachineShape}
       CloseCalls shape t (Sparkle.IR.Machine.closeMachine shape.layout t') d₀ children m d ∧
       ChildrenReal mref cref shape children := by
   obtain ⟨L, hw, hq⟩ := hb
-  have hB := bodyRel L
-  have hH := harnessRel_of L (translateRel L)
-  obtain ⟨b, envR, ci, w1, w2, w3, w4, w5, w6, get, henv, run, hw3⟩ :=
+  have hB := fun L' : RefLaws mref cref => bodyRel L'
+  have hH := fun L' : RefLaws mref cref => harnessRel_of L' (translateRel L')
+  obtain ⟨b, envR, ci, w1, w2, w3, w4, w5, w6, get, henv, run, hw3, hd3⟩ :=
     core_reads_inv L hw hq hr
   obtain ⟨old, miss, _⟩ := entry _ _ _ _ _ _ _ _ _ get henv henv
   obtain ⟨envR', w7, w8, henv', hmach⟩ := synthesizeFromConst_machine_inv L old miss hw3 run
   obtain ⟨_, _, hshape⟩ := entry _ _ _ _ _ _ _ _ _ get henv henv'
-  obtain ⟨r, w9, w10, hrun, hw9, hres⟩ := hmach shape hshape
-  have hne := closes b _ _ _ (invW_of_invV L hw9) hrun
+  obtain ⟨r, w9, w10, hrun, hw9, hd9, hres⟩ := hmach shape hshape
+  have hne := closes b _ _ _ (invW_of_invV L hw9) (depthPos_of L (by rw [hd9]; exact hd3)) hrun
   cases r with
   | none => exact absurd rfl hne
   | some res =>
@@ -487,16 +513,16 @@ theorem machine_run_of_core {declName : Name} {shape : MachineShape}
     ∃ (b : Bool) (r : Option Res) (w9 w10 : Void IO.RealWorld),
       RunsTo (synthesizeMachineCertified
         (fun e hint top named => translateExprToWire e hint top named) (profLogIO b) declName shape)
-        mctx mref cctx cref w9 r w10 ∧ InvW mref cref w9 ∧
+        mctx mref cctx cref w9 r w10 ∧ InvW mref cref w9 ∧ DepthPos mref cref w9 ∧
       ∀ res, r = some res → res = (m, d) := by
   obtain ⟨L, hsv, hq⟩ := hb
-  obtain ⟨b, envR, ci, w1, w2, w3, w4, w5, w6, get, henv, run, hw3⟩ :=
+  obtain ⟨b, envR, ci, w1, w2, w3, w4, w5, w6, get, henv, run, hw3, hd3⟩ :=
     core_reads_inv L hsv hq hr
   obtain ⟨old, miss, _⟩ := entry _ _ _ _ _ _ _ _ _ get henv henv
   obtain ⟨envR', w7, w8, henv', hmach⟩ := synthesizeFromConst_machine_inv L old miss hw3 run
   obtain ⟨_, _, hshape⟩ := entry _ _ _ _ _ _ _ _ _ get henv henv'
-  obtain ⟨r, w9, w10, hrun, hw9, hres⟩ := hmach shape hshape
-  exact ⟨b, r, w9, w10, hrun, invW_of_invV L hw9, hres⟩
+  obtain ⟨r, w9, w10, hrun, hw9, hd9, hres⟩ := hmach shape hshape
+  exact ⟨b, r, w9, w10, hrun, invW_of_invV L hw9, depthPos_of L (by rw [hd9]; exact hd3), hres⟩
 
 /-- `synthesizeMachineCertified_inv` from the read-based invariant. -/
 theorem synthesizeMachineCertified_runs {b : Bool} {declName shape m d} {w w'}
@@ -513,8 +539,8 @@ theorem synthesizeMachineCertified_runs {b : Bool} {declName shape m d} {w w'}
           CloseCalls shape t (Sparkle.IR.Machine.closeMachine shape.layout t') d₀ children m d ∧
           ChildrenReal mref cref shape children)) := by
   obtain ⟨L, hv⟩ := invV_of_invW mctx cctx hw
-  have hB := bodyRel L
-  have hH := harnessRel_of L (translateRel L)
+  have hB := fun L' : RefLaws mref cref => bodyRel L'
+  have hH := fun L' : RefLaws mref cref => harnessRel_of L' (translateRel L')
   exact synthesizeMachineCertified_inv L hB hH hv hr
 
 end Tools.ShippingChildInv

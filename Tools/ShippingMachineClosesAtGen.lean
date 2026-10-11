@@ -22,9 +22,9 @@ ask `MachineClosesAt` with that premise replaced by the theorem's own
   declarations print differently; and — only when an output port's name
   starts with `i` — no output port is named as an instance.
 
-Several instances of one declaration are covered when its calls are
-consecutive (`sepB`: the later call is a cache hit of the earlier, from the
-run's order); otherwise nothing is generated.
+Several instances of one declaration are covered, with any calls between: the
+later call is a cache hit of the entry the earlier left, which the calls
+between keep (`Tools/ShippingCallsSame.lean`).
 
 The data conditions (the endpoint's checks, `letsAliasOk`, `gateCallsOk`, no
 memory child, the argument counts) are decided by the kernel. Where one of
@@ -75,12 +75,9 @@ def closesAtCore (c : Name) (nDecl? : Option Nat) (name : Name := c ++ `machine_
     unless (← getEnv).contains (k ++ `gate_peel) do
       throwError "{c}: {k} is not a generated gate child (#gate_child)"
   let kids := calls.eraseDups
-  -- two instances of one declaration are one module by the child cache; that
-  -- is derived for CONSECUTIVE calls (the later one starts where the earlier
-  -- ended: a hit). With other calls between, the entry's survival through
-  -- their synthesis is not derived: nothing is generated
-  unless Tools.ShippingCallsSame.sepB calls do
-    throwError "{c}: calls of one declaration with other calls between (the cache entry's survival is not derived)"
+  -- several instances of one declaration are one module by the child cache:
+  -- derived from the run's order, with any calls between (the entry survives
+  -- their synthesis at a positive depth) — no restriction on the call list
   let n (d : Name) (s : String) : Ident := mkIdent (`_root_ ++ d ++ Name.mkSimple s)
   let data := n c "machineData"
   let cq : Term := quote c
@@ -145,7 +142,7 @@ def closesAtCore (c : Name) (nDecl? : Option Nat) (name : Name := c ++ `machine_
           intro k hk y hy
           have hk' : k < $nCalls := hk
           $tac:tactic)
-        (by decide) (by decide) $hnames hparent $hfresh))
+        (by decide) $hnames hparent $hfresh))
   let msgs := (← get).messages.toList.drop before
   if msgs.any (·.severity == .error) || !(← getEnv).contains name then
     let errs ← (msgs.filter (·.severity == .error)).mapM fun m => m.data.toString
