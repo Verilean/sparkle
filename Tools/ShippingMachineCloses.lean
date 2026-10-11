@@ -69,6 +69,56 @@ theorem prepare_visible_port {bools bits} :
       | bool => exact prepare_visible_port rest _ nd.2 hrest k b port hb hp
       | bits n => exact prepare_visible_port rest _ nd.2 hrest k b port hb hp
 
+/-- A non-domain binder is bound to one of the walk's input ports. -/
+theorem prepare_visible_mem {bools bits} :
+    ∀ (L : List ((Name × MixedGateBinder) × FVarId)) (a : Setup), (L.map Prod.snd).Nodup →
+      ∀ (b : (Name × MixedGateBinder) × FVarId), b ∈ L → b.1.2 ≠ .domain →
+      ∃ port ∈ inputPorts bools bits L a,
+        visible (prepare bools bits L a).context (prepare bools bits L a).state.sourceBindings b.2 =
+          some port.name
+  | ((name, kind), id) :: rest, a, nd, b, hb, hk => by
+    rw [List.map_cons, List.nodup_cons] at nd
+    rcases List.mem_cons.mp hb with rfl | hin
+    · rw [prepare, prepare_visible_keep rest _ id nd.1]
+      cases kind with
+      | domain => exact absurd rfl hk
+      | bool =>
+        exact ⟨{ name := inputWire a.state name.toString .bit, ty := .bit },
+          by simp only [inputPorts]; exact List.mem_cons_self, visible_new⟩
+      | bits n =>
+        exact ⟨{ name := inputWire a.state name.toString (.bitVector n), ty := .bitVector n },
+          by simp only [inputPorts]; exact List.mem_cons_self, visible_new⟩
+    · obtain ⟨port, hp, hv⟩ := prepare_visible_mem rest (extend a ((name, kind), id) bools bits)
+        nd.2 b hin hk
+      refine ⟨port, ?_, by rw [prepare]; exact hv⟩
+      cases kind with
+      | domain => simpa only [inputPorts] using hp
+      | bool => simp only [inputPorts]; exact List.mem_cons_of_mem _ hp
+      | bits n => simp only [inputPorts]; exact List.mem_cons_of_mem _ hp
+
+/-- **Bindings after a two-part walk** `L1 ++ L2` (`L2` without domains): a
+binder of `L2` is bound to the port at its index among `L2`'s ports; a
+non-domain binder of `L1` is bound to one of `L1`'s ports. -/
+theorem binding_split {bools bits} (L1 L2 : List ((Name × MixedGateBinder) × FVarId)) (a : Setup)
+    (nd : ((L1 ++ L2).map Prod.snd).Nodup) (hk2 : ∀ b ∈ L2, b.1.2 ≠ .domain) :
+    (∀ (k : Nat) (b : (Name × MixedGateBinder) × FVarId) (port : Port), L2[k]? = some b →
+      (inputPorts bools bits L2 (prepare bools bits L1 a))[k]? = some port →
+      visible (prepare bools bits (L1 ++ L2) a).context
+        (prepare bools bits (L1 ++ L2) a).state.sourceBindings b.2 = some port.name) ∧
+    (∀ b ∈ L1, b.1.2 ≠ .domain → ∃ port ∈ inputPorts bools bits L1 a,
+      visible (prepare bools bits (L1 ++ L2) a).context
+        (prepare bools bits (L1 ++ L2) a).state.sourceBindings b.2 = some port.name) := by
+  rw [List.map_append, List.nodup_append] at nd
+  refine ⟨fun k b port hb hp => ?_, fun b hb hk => ?_⟩
+  · rw [prepare_append]
+    exact prepare_visible_port L2 _ nd.2.1 hk2 k b port hb hp
+  · obtain ⟨port, hp, hv⟩ := prepare_visible_mem (bools := bools) (bits := bits) L1 a nd.1 b hb hk
+    refine ⟨port, hp, ?_⟩
+    rw [prepare_append, prepare_visible_keep L2 _ b.2 ?_]
+    · exact hv
+    · intro hin
+      exact nd.2.2 b.2 (List.mem_map_of_mem hb) b.2 hin rfl
+
 /-! ## The aliases `letOperands` picks, with what the run says of each -/
 
 /-- What the run says of the alias list, position by position from `i`: the
