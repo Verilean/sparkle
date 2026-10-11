@@ -93,22 +93,64 @@ A compile that succeeds on the legacy route has no source theorem.
 
 ## 5. `RefLaws` and `StartW`, unfolded
 
-`RefLaws` fields (all about Lean's runtime, none mentions a compiler
-function other than the three refs and the listed side refs): `val`, `sval`,
+`RefLaws` fields (about Lean's runtime, the three refs and the listed side
+refs; one `Framed` constructor names the compiler's logger — see (a) below): `val`, `sval`,
 `dval` (the three refs' values per world); `cacheGet/Set/Modify`,
 `synthGet`, `depthGet/Set/Modify` (what a successful operation does);
 `frame` (every `Framed` operation leaves the three values, on every
 outcome); `telescope`, `lamTelescope`, `localDecl`, `letDecl` (a combinator
 leaves the values and runs its continuation in some contexts).
 
-To audit, not yet done mechanically (G5): (a) every `Framed` constructor is
-a Lean primitive or a read/write of a ref OTHER than the three — a
-constructor naming a compiler function would smuggle a compiler property;
-(b) the laws are consistent (a model exists) — not shown; an inconsistent
-law set would make every endpoint vacuous, and the axiom audit cannot see
-that. `StartW w`: the synthesis ref reads `synthesizeChild`, and depth 0 or
-the cache invariant — the first is true after the compiler's `initialize`,
-which is outside the kernel.
+**G5 audit, 2026-10-11 — the laws WERE inconsistent; fixed.**
+
+(b) Consistency. `Framed` had `ioFlush (h : IO.FS.Stream)`: a frame law for
+the `flush` of ANY stream. `IO.FS.Stream` is a structure of closures, so that
+is a frame law for an arbitrary `IO Unit`. With `cacheSet` it is a
+contradiction: for the stream whose `flush` is `sparkleChildCache.set v`, the
+frame says the cache value is unchanged and `cacheSet` says it is `v`, for
+every `v`. A probe proved `RefLaws mref cref → False` (standard axioms;
+`~/sparkle-work/probes/laws1.lean`). Consequence: **until the fix, every
+theorem with a `ChildBnd` / `ChildLaws` premise — the 20 derived endpoints,
+`childKeeps`, `bodyRel`, `legacyRel` — was vacuous.** The axiom audits could
+not see this.
+
+Fix: the compiler's four `(← IO.getStderr).flush` are the named action
+`Sparkle.Compiler.flushStderr` (same behaviour), and the constructor is
+`stderrFlush : Framed (liftM flushStderr)` — a law about THAT action. It is
+an assumption about the environment (the process's stderr stream does not
+write the three refs), not derivable, and no longer refutable from inside:
+`IO.getStderr` is opaque. A test (`ShippingChildBoundaryTest`, "FRAMED")
+rejects any `Framed` constructor taking a stream or an action as an
+argument.
+
+Not shown: that the remaining laws have a model. What was checked is that
+the one known contradiction is gone and that no constructor quantifies over
+caller-supplied actions. Remaining generic arguments, by kind: pure
+functions (`sideModify f`, `metaModify f`, `coreModifyTrace f`); opaque
+handles (`IO.FS.Handle`); refs restricted to the listed side refs or to
+run-local TYPES (`LocalRefType`: other types than the three tracked refs');
+Lean expressions. One stated assumption of the same flavour remains:
+`msgToString (m : MessageData)` — a message can carry a lazy thunk
+(`MessageData.ofLazy`, a `BaseIO` closure) that rendering runs. It cannot be
+refuted in the kernel (`MessageData.format` is `partial`), but it is an
+assumption about every message the translator renders (exceptions it
+caught), not a fact about Lean.
+
+(a) Compiler-specific constructors. "None mentions a compiler function" was
+wrong: `profLog (b) (msg) : Framed (liftM (profLogIO b msg))` names the
+entry's logger (a copy in `Tools/`, the entry's closure by `rfl`). Its parts
+all have constructors of their own (`ioEprintln`, `stderrFlush`,
+`ioHandleMk`, `ioHandlePutStrLn`, `ioHandleFlush`), so it should be
+derivable; it is NOT derived: `vc` has no rule to push the `IO → MetaM` lift
+through `>>=` / `if`, and the lift-of-bind equation was not closed in the
+time spent (the instance's auxiliary definitions do not unfold by `simp`).
+Status: one compiler-named constructor, redundant in content, kept as a law.
+`ioEprintln` / `ioGetStderr` are fixed Lean actions whose frame is likewise
+an environment assumption.
+
+`StartW w`: the synthesis ref reads `synthesizeChild`, and depth 0 or the
+cache invariant — the first is true after the compiler's `initialize`, which
+is outside the kernel.
 
 Model scope of the SV conclusion: one clock, `rst` low throughout the run,
 registers at reset values at the start; the emitted objects' cycle
@@ -201,7 +243,7 @@ counts are syntactic occurrences, not logical premises.
 | G2 | legacy route has no source theorem | a successful compile may be outside every theorem; needs a stated domain (§4) |
 | G3 | reader soundness, source ↔ `MachineData`, generator coverage | endpoints exist per declaration by generation; no theorem quantifies over sources |
 | G4 | fuel / depth: (a) monotonicity `fuelFix k ⊑ fuelFix (k+1)`; (b) equivalence with the former `partial` definitions | (a) is provable by a relational walk; (b) cannot be stated in the kernel — a `partial` definition has no unfolding equation. Adding one as a law would be an assumption, not a proof. Honest form: the total fuel-bounded definition IS the compiler now; "same as before on runs that used to succeed" is tracked as untested-in-general, with the depth-1024 and fuel-2^20 rejections listed as behaviour changes |
-| G5 | `RefLaws` audit: no compiler-specific constructor in `Framed`; satisfiability | see §5 |
+| G5 | `RefLaws` audit: compiler-specific constructors in `Framed`; satisfiability | audited 2026-10-11 (§5): an INCONSISTENCY found and removed (`ioFlush` of any stream); `profLog` is compiler-named and not derived; `msgToString` is an assumption; a model is not exhibited |
 | G6 | final statement shape: existence + uniqueness over every finite `T` is proved per endpoint; the quantification "for every source and run" is not a Lean statement yet | the target of §1 has no formal counterpart to check progress against |
 | G7 | printer | trusted by design (TrustBase §6c); listed so it is not forgotten |
 

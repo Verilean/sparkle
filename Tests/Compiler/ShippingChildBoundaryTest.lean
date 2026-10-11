@@ -557,4 +557,33 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   unless (← Sparkle.Compiler.Elab.sparkleSynthDepth.get) == 0 do throwError "depth not restored"
   Lean.logInfo m!"DEPTH GUARD: refused at the limit ({lim}) with the depth untouched; a failing run and a returning run both leave the depth at 0"
 
+/-! No frame law about a caller-supplied action. A `Framed` constructor whose
+argument is a stream (`IO.FS.Stream` is a structure of closures) or a function
+into a monad of effects states a frame for an ARBITRARY action; with the cache
+laws that is a contradiction (it was: `ioFlush (h : IO.FS.Stream)`, removed
+2026-10-11 — a stream whose `flush` writes the cache gave `RefLaws → False`).
+Checked on every constructor. Not covered by this check, and stated as an
+assumption: `msgToString (m : MessageData)` — a message can carry a lazy
+thunk (`MessageData.ofLazy`), which rendering runs. -/
+run_cmd Lean.Elab.Command.liftTermElabM do
+  let some (.inductInfo ii) := (← Lean.getEnv).find? ``Tools.ShippingChildInv.Framed
+    | throwError "Framed"
+  let effect (e : Lean.Expr) : Bool :=
+    (e.find? fun x => x.isConstOf ``IO.FS.Stream || x.isConstOf ``EIO || x.isConstOf ``BaseIO ||
+      x.isConstOf ``IO || x.isConstOf ``EST || x.isConstOf ``ST || x.isConstOf ``Lean.Meta.MetaM ||
+      x.isConstOf ``Lean.Core.CoreM).isSome
+  let mut n : Nat := 0
+  for c in ii.ctors do
+    let t ← Lean.Meta.inferType (Lean.mkConst c [])
+    let bad ← Lean.Meta.forallTelescope t fun xs _ => do
+      let mut bad := #[]
+      for x in xs do
+        let ty ← Lean.Meta.inferType x
+        if effect ty then bad := bad.push ty
+      return bad
+    unless bad.isEmpty do
+      throwError "{c}: a frame law about a caller-supplied action ({bad})"
+    n := n + 1
+  Lean.logInfo m!"FRAMED: {n} constructors, none takes a stream or an action as an argument; the stderr flush is the named action flushStderr; msgToString (lazy thunks in a message) is a stated assumption"
+
 end Sparkle.Tests.Compiler.ShippingChildBoundaryTest

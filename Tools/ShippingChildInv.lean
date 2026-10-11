@@ -58,7 +58,7 @@ abbrev Res := Sparkle.IR.AST.Module × Sparkle.IR.AST.Design
 def profLogIO (profile : Bool) (msg : String) : IO Unit := do
   if profile then
     IO.eprintln msg
-    (← IO.getStderr).flush
+    Sparkle.Compiler.flushStderr
     let h ← IO.FS.Handle.mk "/tmp/sparkle-profile.log" .append
     h.putStrLn msg
     h.flush
@@ -99,7 +99,9 @@ inductive LocalRefType : Type → Prop
 
 /-- The operations whose frame is a law: reads of the three tracked refs,
 any operation on the other per-synthesis refs, the environment-variable read,
-the entry's logger, `getConstInfo`, `getEnv`, building an error; and, for the
+the entry's logger (`profLog`: it NAMES the logger, a copy of the entry's closure —
+the one constructor about a compiler-specific action), `getConstInfo`, `getEnv`,
+building an error; and, for the
 harness: a fresh free-variable id, the clock read, and creating or modifying
 a translation cache (a ref of ANOTHER type than the three tracked ones). -/
 inductive Framed : {α : Type} → MetaM α → Prop
@@ -145,7 +147,10 @@ inductive Framed : {α : Type} → MetaM α → Prop
   | ioEprintln (s : String) : Framed (liftM (IO.eprintln s) : MetaM Unit)
   | msgToString (m : MessageData) : Framed (liftM m.toString : MetaM String)
   | ioGetStderr : Framed (liftM IO.getStderr : MetaM IO.FS.Stream)
-  | ioFlush (h : IO.FS.Stream) : Framed (liftM h.flush : MetaM Unit)
+  /- the flush of the process's standard error — NOT of an arbitrary stream:
+  `IO.FS.Stream` is a structure of closures, and a frame law for `h.flush` of
+  any `h` contradicts the cache laws (a stream whose `flush` writes the cache) -/
+  | stderrFlush : Framed (liftM Sparkle.Compiler.flushStderr : MetaM Unit)
   | ioHandleMk (p : System.FilePath) (m : IO.FS.Mode) :
       Framed (liftM (IO.FS.Handle.mk p m) : MetaM IO.FS.Handle)
   | ioHandlePutStrLn (h : IO.FS.Handle) (s : String) : Framed (liftM (h.putStrLn s) : MetaM Unit)

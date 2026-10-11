@@ -25,6 +25,7 @@ import Sparkle.IR.Machine
 import Sparkle.IR.MachineInstG
 import Sparkle.Compiler.MachMemory
 import Sparkle.Compiler.MachRecUnfold
+import Sparkle.Compiler.StderrFlush
 import Sparkle.IR.ModuleNameCheck
 import Sparkle.Compiler.DRC
 import Sparkle.Compiler.InlineAttr
@@ -5400,7 +5401,7 @@ def synthesizeCombinationalCoreWith (translate : TranslateFn) (declName : Name)
   let logProf (msg : String) : IO Unit := do
     if profile then
       IO.eprintln msg
-      (← IO.getStderr).flush
+      Sparkle.Compiler.flushStderr
       let h ← IO.FS.Handle.mk "/tmp/sparkle-profile.log" .append
       h.putStrLn msg
       h.flush
@@ -6244,7 +6245,7 @@ def handleDefinitionUnfold (e : Lean.Expr) (name : Name) (args : Array Lean.Expr
       let cache ← CompilerM.liftMetaM (sparkleSubInstanceOutputs.get : IO _)
       CompilerM.liftMetaM $ IO.eprintln
         s!"[hwcall-dbg] {name} eHash={e.hash} args.size={args.size} subInstanceMap.size={cache.size}"
-      CompilerM.liftMetaM (← IO.getStderr).flush
+      CompilerM.liftMetaM Sparkle.Compiler.flushStderr
   -- Structure field accessors (e.g. `RxOut.dmac`) are valid
   -- `defnInfo`s but they have a different calling convention
   -- than a hardware function: the value-level arg is the
@@ -6831,7 +6832,7 @@ def translateExprToWireImpl (e : Lean.Expr) (hint : String := "wire") (isTopLeve
             tickLines := tickLines.push s!"  {sparkleProfHandlerNames.getD h "?"}: {n} calls / {m} ms"
         let body := String.intercalate "\n" tickLines.toList
         IO.eprintln body
-        (← IO.getStderr).flush
+        Sparkle.Compiler.flushStderr
         let fh ← IO.FS.Handle.mk "/tmp/sparkle-profile.log" .append
         fh.putStrLn body
         fh.flush
@@ -8845,7 +8846,7 @@ elab "#synthesizeVerilog" id:ident : command => do
   let logProf (msg : String) : IO Unit := do
     if profile then
       IO.eprintln msg
-      (← IO.getStderr).flush
+      Sparkle.Compiler.flushStderr
       let h ← IO.FS.Handle.mk "/tmp/sparkle-profile.log" .append
       h.putStrLn msg
       h.flush
