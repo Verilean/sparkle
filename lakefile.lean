@@ -2027,3 +2027,6 @@ lean_lib «Tools.ShippingReaderMachine» where
 
 lean_lib «Tools.ShippingDesignWithG» where
   roots := #[`Tools.ShippingDesignWithG]
+
+lean_lib «Tools.ShippingCallsKidsD» where
+  roots := #[`Tools.ShippingCallsKidsD]
