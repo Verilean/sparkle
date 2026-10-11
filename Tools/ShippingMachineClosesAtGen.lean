@@ -38,24 +38,36 @@ def standardAxioms (name : Name) : CoreM Unit := do
     unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do
       throwError "{name} uses a non-standard axiom: {ax}"
 
-/-- `name` is a theorem concluding `MachineClosesAt … c c.machineData.shape`,
-on standard axioms (so not through `sorry`). -/
+/-- `name` is a theorem `∀ {mctx mref cctx cref}, … → MachineClosesAt mctx mref
+cctx cref c c.machineData.shape` — the conclusion at the theorem's OWN four
+context binders, every other binder a premise — on standard axioms (so not
+through `sorry`). A structural check of a freshly generated theorem; an
+EXISTING one is compared with the generated statement (`closesAtTheorem`). -/
 def auditClosesAt (c name : Name) : MetaM Unit := do
   let some (.thmInfo info) := (← getEnv).find? name | throwError "{name}: not a theorem"
   let shape ← mkAppM ``MachineData.shape #[mkConst (c ++ `machineData)]
-  let ok ← forallTelescope info.type fun _ body => do
+  let ok ← forallTelescope info.type fun xs body => do
     let body ← instantiateMVars body
-    if body.isAppOfArity ``Tools.ShippingChildInv.MachineClosesAt 6 && body.getArg! 4 == toExpr c then
+    if xs.size < 4 then return false
+    let tys ← (xs.extract 0 4).mapM fun x => do whnfR (← inferType x)
+    let refOf (t : Lean.Expr) (st : Name) : Bool :=
+      t.isAppOfArity ``ST.Ref 2 && t.getArg! 0 == mkConst ``IO.RealWorld && t.getArg! 1 == mkConst st
+    unless tys[0]!.isConstOf ``Lean.Meta.Context && refOf tys[1]! ``Lean.Meta.State &&
+        tys[2]!.isConstOf ``Lean.Core.Context && refOf tys[3]! ``Lean.Core.State do return false
+    for x in xs.extract 4 xs.size do
+      unless ← isProp (← inferType x) do return false
+    if body.isAppOfArity ``Tools.ShippingChildInv.MachineClosesAt 6 && body.getArg! 4 == toExpr c &&
+        (body.getAppArgs.extract 0 4) == xs.extract 0 4 then
       isDefEq (body.getArg! 5) shape
     else pure false
-  unless ok do throwError "{name}: does not conclude MachineClosesAt of {c}'s shape"
+  unless ok do throwError "{name}: not a closing theorem of {c}'s shape at its own context binders"
   standardAxioms name
 
 /-- The generation itself; may leave declarations and messages behind on
 failure (`closesAtTheorem` restores them). `nDecl?`: the number of declaration
 binders to state the data check at, instead of the reader's. -/
-def closesAtCore (c : Name) (nDecl? : Option Nat) : CommandElabM Name := do
-  let name := c ++ `machine_closes_at
+def closesAtCore (c : Name) (nDecl? : Option Nat) (name : Name := c ++ `machine_closes_at) :
+    CommandElabM Name := do
   let r ← liftTermElabM <| Tools.ShippingMachineCommand.readMachine c
   let calls := r.shape.insts.map (·.1)
   if calls.isEmpty then throwError "{c}: no call"
@@ -148,55 +160,77 @@ error recovery added, a failed audit — the environment and the message log
 are restored to what they were, and the error is thrown: nothing is left. -/
 def closesAtTheorem (c : Name) (nDecl? : Option Nat := none) : CommandElabM Name := do
   let name := c ++ `machine_closes_at
-  if (← getEnv).contains name then
-    liftTermElabM (auditClosesAt c name)
-    return name
   let savedEnv ← getEnv
   let savedMsgs := (← get).messages
+  let restore : CommandElabM Unit := do
+    setEnv savedEnv
+    modify fun s => { s with messages := savedMsgs }
+  if (← getEnv).contains name then
+    -- an existing declaration of that name is NOT trusted: it must be a
+    -- theorem whose statement is the one generated now (regenerated under a
+    -- scratch name, then dropped), on standard axioms
+    let expected ← try
+        let scratch := c ++ `machine_closes_at_expected
+        discard <| withScope (fun s => { s with opts := Lean.Elab.async.set s.opts false })
+          (closesAtCore c nDecl? scratch)
+        let t := (← getConstInfo scratch).type
+        restore
+        pure t
+      catch ex =>
+        restore
+        throwError "{name} exists, and its statement cannot be regenerated: {ex.toMessageData}"
+    liftTermElabM do
+      let some (.thmInfo info) := (← getEnv).find? name | throwError "{name} exists and is not a theorem"
+      unless ← isDefEq info.type expected do
+        throwError "{name} exists with another statement than the generated one"
+      standardAxioms name
+    return name
   try
     withScope (fun s => { s with opts := Lean.Elab.async.set s.opts false }) (closesAtCore c nDecl?)
   catch ex =>
-    setEnv savedEnv
-    modify fun s => { s with messages := savedMsgs }
+    restore
     throwError "{c}: machine_closes_at was not generated: {ex.toMessageData}"
 
 /-- The endpoint `thm` of `c` with its `MachineClosesAt` premise about `c`
 replaced by the premises of `c.machine_closes_at` (in the same contexts):
 added as `newName`. `false` where `thm` has no such premise. -/
 def closeEndpointAt (c cl thm newName : Name) : MetaM Bool := do
-  -- no `MachineClosesAt` premise about `c` is left, standard axioms
-  let audit : MetaM Unit := do
-    let some (.thmInfo ni) := (← getEnv).find? newName | throwError "{newName}: not a theorem"
-    if (ni.type.find? fun e =>
-        e.isAppOfArity ``Tools.ShippingChildInv.MachineClosesAt 6 && e.getArg! 4 == toExpr c).isSome then
-      throwError "{newName}: still asks MachineClosesAt of {c}"
-    standardAxioms newName
+  let info ← getConstInfo thm
+  let clT := (← getConstInfo cl).type
+  -- the statement and proof of the closed endpoint, from `thm` and `cl`
+  let value? ← forallTelescope info.type fun xs _ => do
+    let mut idx? : Option Nat := none
+    for i in [0:xs.size] do
+      let t ← instantiateMVars (← inferType xs[i]!)
+      if t.isAppOfArity ``Tools.ShippingChildInv.MachineClosesAt 6 && t.getArg! 4 == toExpr c then
+        idx? := some i
+    let some idx := idx? | return none
+    let t ← instantiateMVars (← inferType xs[idx]!)
+    let ctx := t.getAppArgs.extract 0 4
+    forallTelescope (← instantiateForall clT ctx) fun hs _ => do
+      let body := (mkAppN (mkConst thm (info.levelParams.map mkLevelParam)) xs).replaceFVars
+        #[xs[idx]!] #[mkAppN (mkConst cl) (ctx ++ hs)]
+      return some (← mkLambdaFVars (xs.extract 0 idx ++ hs ++ xs.extract (idx + 1) xs.size) body)
+  let some value := value? | return false
+  let type ← inferType value
+  if (type.find? fun e =>
+      e.isAppOfArity ``Tools.ShippingChildInv.MachineClosesAt 6 && e.getArg! 4 == toExpr c).isSome then
+    throwError "{newName}: the closed statement still asks MachineClosesAt of {c}"
   if (← getEnv).contains newName then
-    audit
+    -- an existing declaration of that name is NOT trusted: it must be a
+    -- theorem of exactly the statement built here, on standard axioms
+    let some (.thmInfo ni) := (← getEnv).find? newName
+      | throwError "{newName} exists and is not a theorem"
+    unless ni.levelParams == info.levelParams && (← isDefEq ni.type type) do
+      throwError "{newName} exists with another statement than {thm} closed by {cl}"
+    standardAxioms newName
     return true
   let saved ← getEnv
   try
-   let info ← getConstInfo thm
-   let clT := (← getConstInfo cl).type
-   let value? ← forallTelescope info.type fun xs _ => do
-     let mut idx? : Option Nat := none
-     for i in [0:xs.size] do
-       let t ← instantiateMVars (← inferType xs[i]!)
-       if t.isAppOfArity ``Tools.ShippingChildInv.MachineClosesAt 6 && t.getArg! 4 == toExpr c then
-         idx? := some i
-     let some idx := idx? | return none
-     let t ← instantiateMVars (← inferType xs[idx]!)
-     let ctx := t.getAppArgs.extract 0 4
-     forallTelescope (← instantiateForall clT ctx) fun hs _ => do
-       let body := (mkAppN (mkConst thm (info.levelParams.map mkLevelParam)) xs).replaceFVars
-         #[xs[idx]!] #[mkAppN (mkConst cl) (ctx ++ hs)]
-       return some (← mkLambdaFVars (xs.extract 0 idx ++ hs ++ xs.extract (idx + 1) xs.size) body)
-   let some value := value? | return false
-   let type ← inferType value
-   withOptions (fun o => Lean.Elab.async.set o false) do
-     addDecl (.thmDecl { name := newName, levelParams := info.levelParams, type, value })
-   audit
-   return true
+    withOptions (fun o => Lean.Elab.async.set o false) do
+      addDecl (.thmDecl { name := newName, levelParams := info.levelParams, type, value })
+    standardAxioms newName
+    return true
   catch ex =>
     setEnv saved
     throw ex

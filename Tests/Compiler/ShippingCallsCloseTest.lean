@@ -234,6 +234,47 @@ def failsClean (f : Name) (nDecl? : Option Nat) (why : String) : Lean.Elab.Comma
     if f.isPrefixOf c && !env0.contains c then n + 1 else n
   if left != 0 then throwError "{f}: {left} declarations were left"
 
+/-- An EXISTING declaration under the generator's names is not trusted: an
+unrelated theorem `True` put there (in a temporary environment) is refused —
+for the closing theorem and for a closed endpoint — and the environment is
+put back. Distinct from the rollback of a failed NEW generation above. -/
+def refusesBogus : Lean.Elab.Command.CommandElabM Unit := do
+  let saved ← getEnv
+  let bogus (n : Name) : Lean.Elab.Command.CommandElabM Unit :=
+    Lean.Elab.Command.liftCoreM <| Lean.addDecl (.thmDecl
+      { name := n, levelParams := [], type := mkConst ``True, value := mkConst ``True.intro })
+  let expectErr (what : String) (why : String) (act : Lean.Elab.Command.CommandElabM Unit) :
+      Lean.Elab.Command.CommandElabM Unit := do
+    let r ← try act; pure none catch ex => pure (some (← ex.toMessageData.toString))
+    match r with
+    | none => throwError "{what}: the unrelated theorem was accepted"
+    | some msg => if (msg.splitOn why).length ≤ 1 then throwError "{what} failed otherwise: {msg}"
+  -- the closing theorem's name
+  bogus (``callerBad ++ `machine_closes_at)
+  expectErr "callerBad.machine_closes_at" "another statement" do
+    discard <| Tools.ShippingMachineClosesAtGen.closesAtTheorem ``callerBad
+  setEnv saved
+  -- a closed endpoint's name (a fresh name, so the real one is not disturbed)
+  let nn := ``caller ++ `machine_design_svHR_bogus
+  bogus nn
+  expectErr "caller.machine_design_svHR_bogus" "another statement" do
+    discard <| Lean.Elab.Command.liftTermElabM <|
+      Tools.ShippingMachineClosesAtGen.closeEndpointAt ``caller (``caller ++ `machine_closes_at)
+        (``caller ++ `machine_design_svHR) nn
+  setEnv saved
+  -- the real names are reused only as the generated statements
+  discard <| Tools.ShippingMachineClosesAtGen.closesAtTheorem ``caller
+  unless ← Lean.Elab.Command.liftTermElabM <|
+      Tools.ShippingMachineClosesAtGen.closeEndpointAt ``caller (``caller ++ `machine_closes_at)
+        (``caller ++ `machine_design_svHR) (``caller ++ `machine_design_svHR_closed) do
+    throwError "the real closed endpoint was not accepted"
+  if (← getEnv).contains nn || (← getEnv).contains (``callerBad ++ `machine_closes_at) then
+    throwError "a temporary declaration was left"
+
+run_cmd do
+  refusesBogus
+  Lean.logInfo m!"EXISTING NAMES ARE NOT TRUSTED: an unrelated theorem True under callerBad.machine_closes_at and under a closed endpoint's name is refused (statement compared with the generated one); the real caller.machine_closes_at / machine_design_svHR_closed are accepted as exactly the generated statements; the temporary environment is dropped"
+
 run_cmd do
   failsClean ``callerBad (some 0) "the generated proof fails"
   failsClean ``callerNoEndpoint none "the generated proof fails"
