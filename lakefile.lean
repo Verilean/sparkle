@@ -714,6 +714,9 @@ lean_lib «Tools.ShippingCallsGate» where
 lean_lib «Tools.ShippingTopoLinkedG» where
   roots := #[`Tools.ShippingTopoLinkedG]
 
+lean_lib «Tools.ShippingRankG» where
+  roots := #[`Tools.ShippingRankG]
+
 lean_lib «Tools.ShippingInstStmtG» where
   roots := #[`Tools.ShippingInstStmtG]
 
