@@ -681,6 +681,9 @@ lean_lib «Tools.ShippingMergeClosed» where
 lean_lib «Tools.ShippingTransitionClosed» where
   roots := #[`Tools.ShippingTransitionClosed]
 
+lean_lib «Tools.ShippingGateChildComb» where
+  roots := #[`Tools.ShippingGateChildComb]
+
 lean_lib «Tools.ShippingCallsClose» where
   roots := #[`Tools.ShippingCallsClose]
 
