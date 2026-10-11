@@ -158,3 +158,13 @@ To be re-measured at the first `AllTests` integration run.
   compiler's gate recognisers match some positions with wildcards, so
   "recogniser accepts ⟹ body is a quotation" is false as stated.
   `Tests.AllTests` 881 jobs green at `ffad8424` (8 s incremental, peak 0.42 GiB).
+- 2026-10-12, `0aeb3e45`, `Tests.AllTests` 892 jobs green. B3 closed for
+  children with registers (`grand`, `grandH`, `mixD1` without any closing
+  premise; `topD2` keeps `mid2`'s). G3a: strict reader sound (18 kinds) and
+  complete (11); reads 44 / 44 measured machine bodies; the wildcard gap of
+  the compiler's recognisers confirmed by a run. G2: the legacy cache
+  rollback defect reproduced with an injected fault. Workers: A on N1 (name
+  separation), then `KindsOK` and completeness of the added kinds; B on a
+  natural trigger for the cache defect, a reviewable fix patch, and the
+  dispatch walk. Open decisions for the user: applying a compiler fix for the
+  cache rollback; making the strict reader part of route acceptance.
