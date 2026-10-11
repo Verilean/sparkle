@@ -169,7 +169,7 @@ invariant, with the compiler's logger — follows from `LetsClose` and
 is not proved, and the endpoints still ask `MachineCloses`. -/
 run_cmd Lean.Elab.Command.liftTermElabM do
   for n in [``Tools.ShippingChildInv.closeInstsM_run, ``Tools.ShippingChildInv.closeInstsGM_run,
-      ``Tools.ShippingChildInv.machineClosesAt_of_pure, ``Tools.ShippingChildInv.MachineCloses.at] do
+      ``Tools.ShippingChildInv.machineClosesAt_of_pure, ``Tools.ShippingChildInv.machineClosesAt_of_closes] do
     for a in ← Lean.collectAxioms n do
       unless a == ``propext || a == ``Classical.choice || a == ``Quot.sound do
         throwError "{n} depends on {a}"

@@ -11,11 +11,12 @@ open Tools.ShippingMachineEntry Tools.ShippingMachineSource Tools.ShippingMachin
 open Tools.ShippingMachineAuto Tools.ShippingMachineFuse
 open Tools.ShippingMixedEntrySoundness Tools.ShippingMixedSourceBridge
 open Tools.ShippingEntrySoundness
-open Tools.ShippingMachineTraceX (MachineTraceLBX ServedReal machine_trace_lets_of_streamBR)
+open Tools.ShippingMachineTraceX (MachineTraceLBX ServedReal machine_trace_lets_of_streamBR
+  machine_trace_lets_of_streamBRA)
 
 set_option maxHeartbeats 4000000 in
 /-- `machine_traceL_of_nested_ext` carrying `ServedReal`. -/
-theorem machine_traceL_of_nested_extR {declName : Name} (d : MachineData)
+theorem machine_traceL_of_nested_extRA {declName : Name} (d : MachineData)
     (dom : ι → DomainConfig) (ss₂ : List SType) [Inhabited (HList (tys ss₂))]
     (l : List (InnerT ι dom ss₂)) (hss : ss₂ ++ sss l = d.ss) {ρ : ι → Type}
     (inits : HList (tys ss₂))
@@ -80,7 +81,7 @@ theorem machine_traceL_of_nested_extR {declName : Name} (d : MachineData)
     (hr : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w
       (m, design) w')
     (entry : MachineDefines mctx mref cctx cref declName d.shape)
-    (closes : MachineCloses mctx mref cctx cref declName d.shape)
+    (closes : Tools.ShippingChildInv.MachineClosesAt mctx mref cctx cref declName d.shape)
     (hsyn : Tools.ShippingChildInv.ChildBnd mref cref w) :
     MachineTraceLBX (ServedReal mctx mref cctx cref declName d.shape m design) declName d m design dom src (fun i bools bits =>
       ext i bools bits (stateLoop inits (fusedBody (ats l i bools bits) (body i bools bits)))
@@ -92,7 +93,7 @@ theorem machine_traceL_of_nested_extR {declName : Name} (d : MachineData)
   obtain ⟨shape, nIn, domE, bposL, vposL, vwL, ss, ls, outs, nexts⟩ := d
   simp only at hss
   subst hss
-  refine machine_trace_lets_of_streamBR _ dom (happendT ss₂ (sss l) inits (initsT l)) src _ ok hbody
+  refine machine_trace_lets_of_streamBRA _ dom (happendT ss₂ (sss l) inits (initsT l)) src _ ok hbody
     hinit _ (fun _ bools _ => bools) ?_ hr entry closes hsyn
   intro i bools bits
   -- the recurrence functions, read off the terms, with the extension at the
@@ -168,5 +169,82 @@ theorem machine_traceL_of_nested_extR {declName : Name} (d : MachineData)
     simp only [letObsN, List.getElem?_map, hl, Option.map_some, Option.some.injEq] at hg
     subst hg
     rfl
+
+/-- `machine_traceL_of_nested_extRA` from the all-worlds closing premise. -/
+theorem machine_traceL_of_nested_extR {declName : Name} (d : MachineData)
+    (dom : ι → DomainConfig) (ss₂ : List SType) [Inhabited (HList (tys ss₂))]
+    (l : List (InnerT ι dom ss₂)) (hss : ss₂ ++ sss l = d.ss) {ρ : ι → Type}
+    (inits : HList (tys ss₂))
+    (body : (i : ι) → (bools : Nat → Signal (dom i) Bool) →
+      (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) →
+      RegList (dom i) (HList (tys ss₂)) (Circuit.SigList (dom i) (tys ss₂)) (tys ss₂) →
+      HList (ρs (ats l i bools bits)) →
+      Circuit (dom i) (Circuit.SigList (dom i) (tys ss₂)) (ρ i))
+    (obsR : (i : ι) → ρ i → List (Nat → Nat))
+    (ext : (i : ι) → (bools : Nat → Signal (dom i) Bool) →
+      (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) →
+      Signal (dom i) (HList (tys ss₂)) → Sigs (ats l i bools bits) →
+      (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
+    (src : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat))
+    (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    (hinit : d.initOk (castSS hss (happendT ss₂ (sss l) inits (initsT l))) = true)
+    (writes : ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+      (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
+      (S : Signal (dom i) (HList (tys ss₂))) (Ss : Sigs (ats l i bools bits)) (t : Nat),
+      castSS hss (fstate i bools bits l
+        (valsAt (tys ss₂) (body i bools bits (regsOf (tys ss₂) S)
+          (resultsOn (regsOf (tys ss₂) S) (ats l i bools bits) Ss) (mkHolds (tys ss₂) S)).snd t)
+        (innerValsAt (ats l i bools bits)
+          (innerWrites (regsOf (tys ss₂) S) (ats l i bools bits) Ss) t)) =
+      evalTerms
+        (fun j => (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools (ext i bools bits S Ss) t
+          (castSS hss (fstate i bools bits l (S.val t) (valsOf (ats l i bools bits) Ss t)))).b
+          (d.bpos j))
+        (fun j w => (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools (ext i bools bits S Ss) t
+          (castSS hss (fstate i bools bits l (S.val t) (valsOf (ats l i bools bits) Ss t)))).v
+          (d.vpos j) w) d.nexts)
+    (hres : ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+      (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
+      (S : Signal (dom i) (HList (tys ss₂))) (Ss : Sigs (ats l i bools bits)) (t : Nat),
+      (obsR i (body i bools bits (regsOf (tys ss₂) S)
+          (resultsOn (regsOf (tys ss₂) S) (ats l i bools bits) Ss) (mkHolds (tys ss₂) S)).fst).map
+          (fun f => f t) =
+        d.outs.map fun o => enc o.1 (eval
+          (fun j => (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools (ext i bools bits S Ss) t
+            (castSS hss (fstate i bools bits l (S.val t) (valsOf (ats l i bools bits) Ss t)))).b
+            (d.bpos j))
+          (fun j w => (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools (ext i bools bits S Ss) t
+            (castSS hss (fstate i bools bits l (S.val t) (valsOf (ats l i bools bits) Ss t)))).v
+            (d.vpos j) w) o.2))
+    (hsrc : ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+      (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)),
+      src i bools bits = obsR i (resOn (fusedBody (ats l i bools bits) (body i bools bits))
+        (stateLoop inits (fusedBody (ats l i bools bits) (body i bools bits)))))
+    (hext : ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+      (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
+      (S : Signal (dom i) (HList (tys ss₂))) (Ss : Sigs (ats l i bools bits)) (t p w : Nat),
+      (ext i bools bits S Ss p w).val t =
+        (ext i bools bits ⟨fun _ => S.val t⟩
+          (constOf (ats l i bools bits) (valsOf (ats l i bools bits) Ss t)) p w).val t)
+    {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w
+      (m, design) w')
+    (entry : MachineDefines mctx mref cctx cref declName d.shape)
+    (closes : MachineCloses mctx mref cctx cref declName d.shape)
+    (hsyn : Tools.ShippingChildInv.ChildBnd mref cref w) :
+    MachineTraceLBX (ServedReal mctx mref cctx cref declName d.shape m design) declName d m design dom src (fun i bools bits =>
+      ext i bools bits (stateLoop inits (fusedBody (ats l i bools bits) (body i bools bits)))
+        (innerLoops (regsOf (tys ss₂)
+          (stateLoop inits (fusedBody (ats l i bools bits) (body i bools bits))))
+          (ats l i bools bits)))
+      (fun _ bools _ => bools)
+      (letObsN d dom ss₂ l hss inits body ext) :=
+  machine_traceL_of_nested_extRA d dom ss₂ l hss inits body obsR ext src ok hbody hinit writes hres hsrc hext hr entry (Tools.ShippingChildInv.machineClosesAt_of_closes closes) hsyn
 
 end Tools.ShippingMachineNest

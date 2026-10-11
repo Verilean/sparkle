@@ -395,16 +395,34 @@ theorem synthesizeMachineCertified_inv (L : RefLaws mref cref)
   · have eq := RunsTo.pure_eq hr
     cases eq
 
+/-- **The machine synthesis does not fall back — where a real compile runs
+it.** Under the generic runtime laws, from a world satisfying the child-cache
+invariant, with the compiler's own logger. `MachineCloses` (every world,
+every logger) implies it; for a shape with calls only this form can hold: the
+calls' closing reads the child-synthesis reference. -/
+def MachineClosesAt (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State)
+    (cctx : Core.Context) (cref : ST.Ref IO.RealWorld Core.State) (declName : Name)
+    (shape : MachineShape) : Prop :=
+  ChildLaws mref cref → ∀ (b : Bool) w r w', InvW mref cref w →
+    RunsTo (synthesizeMachineCertified
+      (fun e hint top named => translateExprToWire e hint top named) (profLogIO b) declName shape)
+      mctx mref cctx cref w r w' → r ≠ none
+
+theorem machineClosesAt_of_closes {declName : Name} {shape : MachineShape}
+    (h : MachineCloses mctx mref cctx cref declName shape) :
+    MachineClosesAt mctx mref cctx cref declName shape :=
+  fun _ _ w r w' _ hr => h _ w r w' hr
+
 /-- **The children of a real compile, from the run's start world.** One
 successful run of the real core entry at the machine boundary, STARTING in a
 world satisfying the invariant, returns the closing of its transition with
 children that are, call by call, built memory modules or `RealChild`s of the
 call's declaration — under the generic laws alone (`ChildLaws`). -/
-theorem machine_children_real {declName : Name} {shape : MachineShape}
+theorem machine_children_realA {declName : Name} {shape : MachineShape}
     {w w' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {d : Sparkle.IR.AST.Design}
     (hr : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (m, d) w')
     (entry : MachineDefines mctx mref cctx cref declName shape)
-    (closes : MachineCloses mctx mref cctx cref declName shape)
+    (closes : MachineClosesAt mctx mref cctx cref declName shape)
     (hb : ChildBnd mref cref w) (hi : shape.insts ≠ []) :
     ∃ t t' d₀ children,
       Sparkle.IR.Machine.closeLets shape.layout.lets t = some t' ∧
@@ -419,7 +437,7 @@ theorem machine_children_real {declName : Name} {shape : MachineShape}
   obtain ⟨envR', w7, w8, henv', hmach⟩ := synthesizeFromConst_machine_inv L old miss hw3 run
   obtain ⟨_, _, hshape⟩ := entry _ _ _ _ _ _ _ _ _ get henv henv'
   obtain ⟨r, w9, w10, hrun, hw9, hres⟩ := hmach shape hshape
-  have hne := closes (profLogIO b) _ _ _ hrun
+  have hne := closes ⟨L⟩ b _ _ _ (invW_of_invV L hw9) hrun
   cases r with
   | none => exact absurd rfl hne
   | some res =>
@@ -429,6 +447,19 @@ theorem machine_children_real {declName : Name} {shape : MachineShape}
     rcases hmt with ⟨h0, _, _⟩ | ⟨_, children, hcc, hreal⟩
     · exact absurd h0 hi
     · exact ⟨t, t', d₀, children, hcl, hcc, hreal⟩
+
+/-- `machine_children_realA` from the all-worlds premise. -/
+theorem machine_children_real {declName : Name} {shape : MachineShape}
+    {w w' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {d : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (m, d) w')
+    (entry : MachineDefines mctx mref cctx cref declName shape)
+    (closes : MachineCloses mctx mref cctx cref declName shape)
+    (hb : ChildBnd mref cref w) (hi : shape.insts ≠ []) :
+    ∃ t t' d₀ children,
+      Sparkle.IR.Machine.closeLets shape.layout.lets t = some t' ∧
+      CloseCalls shape t (Sparkle.IR.Machine.closeMachine shape.layout t') d₀ children m d ∧
+      ChildrenReal mref cref shape children :=
+  machine_children_realA hr entry (machineClosesAt_of_closes closes) hb hi
 
 /-- **The machine synthesis inside a real core run**, from a start world
 where the boundary holds: the run of `synthesizeMachineCertified` the entry

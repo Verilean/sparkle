@@ -464,7 +464,7 @@ theorem allocated_ne {x : String} (h : Sparkle.IR.NameHints.Allocated x) :
 /-- **A state machine through the real entry, with its children.** The
 one-cycle theorem of `synthesizeCombinationalCore_machine_sound`, with
 `ServedReal` for the same ids and cache, under the `ChildBnd` boundary. -/
-theorem synthesizeCombinationalCore_machine_soundR {declName : Name}
+theorem synthesizeCombinationalCore_machine_soundRA {declName : Name}
     {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
     {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
     {w w' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {d : Design}
@@ -472,7 +472,7 @@ theorem synthesizeCombinationalCore_machine_soundR {declName : Name}
     (hr : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w
       (m, d) w')
     (entry : MachineDefines mctx mref cctx cref declName shape)
-    (closes : MachineCloses mctx mref cctx cref declName shape)
+    (closes : Tools.ShippingChildInv.MachineClosesAt mctx mref cctx cref declName shape)
     (hsyn : Tools.ShippingChildInv.ChildBnd mref cref w)
     (hbs : shape.binders = bsIn ++ slotBs ++ letBs)
     (hlets : shape.layout.lets = letBs.length)
@@ -487,7 +487,7 @@ theorem synthesizeCombinationalCore_machine_soundR {declName : Name}
       declName shape bsIn slotBs letBs m d := by
   obtain ⟨prof, r, w9, w10, hrun, hw9, hres⟩ :=
     Tools.ShippingChildInv.machine_run_of_core hr entry hsyn
-  have hne := closes (Tools.ShippingChildInv.profLogIO prof) _ _ _ hrun
+  have hne := closes hsyn.1 prof _ _ _ hw9 hrun
   cases r with
   | none => exact absurd rfl hne
   | some res =>
@@ -559,7 +559,7 @@ output terms on SOME stream of states that starts at the reset values and
 advances by the typed values of the next-value terms. The stream is the
 state loop of a `circuit do` (`machine_trace_of_data`) or the tuple of the
 loops of a `circuit do` with sub-machines (ShippingMachineNest). -/
-theorem machine_trace_lets_of_streamBR {declName : Name} (d : MachineData) {ι : Type}
+theorem machine_trace_lets_of_streamBRA {declName : Name} (d : MachineData) {ι : Type}
     (dom : ι → DomainConfig)
     (inits : HList (tys d.ss))
     (src : (i : ι) → (Nat → Signal (dom i) Bool) →
@@ -603,7 +603,7 @@ theorem machine_trace_lets_of_streamBR {declName : Name} (d : MachineData) {ι :
     (hr : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w
       (m, design) w')
     (entry : MachineDefines mctx mref cctx cref declName d.shape)
-    (closes : MachineCloses mctx mref cctx cref declName d.shape)
+    (closes : Tools.ShippingChildInv.MachineClosesAt mctx mref cctx cref declName d.shape)
     (hsyn : Tools.ShippingChildInv.ChildBnd mref cref w) :
     MachineTraceLBX (ServedReal mctx mref cctx cref declName d.shape m design)
       declName d m design dom src ext extB lsrc := by
@@ -622,7 +622,7 @@ theorem machine_trace_lets_of_streamBR {declName : Name} (d : MachineData) {ι :
       simpa only [Bool.and_eq_true, decide_eq_true_eq] using h) layB
   have hpres : MachinePreservesX (ServedReal mctx mref cctx cref declName d.shape m design)
       declName d.shape d.bsIn d.slotBs d.letBs m design :=
-    synthesizeCombinationalCore_machine_soundR hr entry closes hsyn d.binders_split hlets
+    synthesizeCombinationalCore_machine_soundRA hr entry closes hsyn d.binders_split hlets
       (by
         intro name n hmem
         have := List.all_eq_true.mp positive _ hmem
@@ -713,5 +713,89 @@ theorem machine_trace_lets_of_streamBR {declName : Name} (d : MachineData) {ι :
     exact h1.symm
 
 
+
+/-- `machine_trace_lets_of_streamBRA` from the all-worlds closing premise. -/
+theorem machine_trace_lets_of_streamBR {declName : Name} (d : MachineData) {ι : Type}
+    (dom : ι → DomainConfig)
+    (inits : HList (tys d.ss))
+    (src : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat))
+    (lsrc : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat))
+    (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    (hinit : d.initOk inits = true)
+    (ext : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) →
+      (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
+    (extB : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → Nat → Signal (dom i) Bool)
+    (stream : ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+      (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)),
+      ∃ σ : Nat → HList (tys d.ss), σ 0 = inits ∧
+        (∀ t, σ (t + 1) = evalTerms
+          (fun j => (typedVal d.nIn d.bpos d.vpos d.ss d.ls (extB i bools bits) (ext i bools bits) t (σ t)).b
+            (d.bpos j))
+          (fun j w => (typedVal d.nIn d.bpos d.vpos d.ss d.ls (extB i bools bits) (ext i bools bits) t (σ t)).v
+            (d.vpos j) w) d.nexts) ∧
+        (∀ j, (src i bools bits).map (fun f => f j) =
+          d.outs.map fun o => enc o.1 (eval
+            (fun k => (typedVal d.nIn d.bpos d.vpos d.ss d.ls (extB i bools bits) (ext i bools bits) j (σ j)).b
+              (d.bpos k))
+            (fun k w => (typedVal d.nIn d.bpos d.vpos d.ss d.ls (extB i bools bits) (ext i bools bits) j (σ j)).v
+              (d.vpos k) w) o.2)) ∧
+        ∀ (j q : Nat) (g : Nat → Nat) (l : Σ s : SType, Term s),
+          (lsrc i bools bits)[q]? = some g → d.ls[q]? = some l →
+          g j = enc l.1 (eval
+            (fun k => (typedVal d.nIn d.bpos d.vpos d.ss d.ls (extB i bools bits) (ext i bools bits) j (σ j)).b
+              (d.bpos k))
+            (fun k w => (typedVal d.nIn d.bpos d.vpos d.ss d.ls (extB i bools bits) (ext i bools bits) j (σ j)).v
+              (d.vpos k) w) l.2))
+    {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w
+      (m, design) w')
+    (entry : MachineDefines mctx mref cctx cref declName d.shape)
+    (closes : MachineCloses mctx mref cctx cref declName d.shape)
+    (hsyn : Tools.ShippingChildInv.ChildBnd mref cref w) :
+    MachineTraceLBX (ServedReal mctx mref cctx cref declName d.shape m design)
+      declName d m design dom src ext extB lsrc :=
+  machine_trace_lets_of_streamBRA d dom inits src lsrc ok hbody hinit ext extB stream hr entry (Tools.ShippingChildInv.machineClosesAt_of_closes closes) hsyn
+
+/-- `synthesizeCombinationalCore_machine_soundRA` from the all-worlds closing premise. -/
+theorem synthesizeCombinationalCore_machine_soundR {declName : Name}
+    {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+    {w w' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {d : Design}
+    {shape : MachineShape} {bsIn slotBs letBs : List (Name × MixedGateBinder)}
+    (hr : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w
+      (m, d) w')
+    (entry : MachineDefines mctx mref cctx cref declName shape)
+    (closes : MachineCloses mctx mref cctx cref declName shape)
+    (hsyn : Tools.ShippingChildInv.ChildBnd mref cref w)
+    (hbs : shape.binders = bsIn ++ slotBs ++ letBs)
+    (hlets : shape.layout.lets = letBs.length)
+    (positive : PositiveBinders shape.binders)
+    (slotKinds : ∀ b ∈ slotBs, b.2 ≠ .domain)
+    (letKinds : ∀ b ∈ letBs, b.2 ≠ .domain)
+    (layW : Zip₂ (fun (f : SlotField) (b : Name × MixedGateBinder) => f.width = machWidth b.2)
+      shape.layout.slots slotBs)
+    (outsOk : ∀ o ∈ shape.layout.outs, 0 < o.width ∧ outNameOk o.name = true)
+    (outsNodup : (shape.layout.outs.map (·.name)).Nodup) :
+    MachinePreservesX (ServedReal mctx mref cctx cref declName shape m d)
+      declName shape bsIn slotBs letBs m d :=
+  synthesizeCombinationalCore_machine_soundRA hr entry (Tools.ShippingChildInv.machineClosesAt_of_closes closes) hsyn hbs hlets positive slotKinds letKinds layW
+    outsOk outsNodup
+
+/-- Forgetting the extra clause. -/
+theorem MachineTraceLBX.toLB {X : List FVarId → IO.Ref (ExprStructMap String) → Prop}
+    {declName d m dsn ι dom src ext extB lsrc}
+    (h : @MachineTraceLBX X declName d m dsn ι dom src ext extB lsrc) :
+    MachineTraceLB declName d m dsn dom src ext extB lsrc := by
+  obtain ⟨ids, nd, len, cache, regs, rnd, rlen, lets, llen, wired, _, h⟩ := h
+  exact ⟨ids, nd, len, cache, regs, rnd, rlen, lets, llen, wired, h⟩
 
 end Tools.ShippingMachineTraceX

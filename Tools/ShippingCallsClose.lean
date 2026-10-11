@@ -10,7 +10,7 @@ derived: the closing reads the child-synthesis reference
 real compile gives is a world satisfying the child-cache invariant (`InvV`),
 and the compiler's own logger (`profLogIO`).
 
-`MachineClosesAt` is the statement at such worlds. Here it is reduced to a
+`MachineClosesAt` (`Tools/ShippingChildRun.lean`) is the statement at such worlds. Here it is reduced to a
 statement about the PURE functions `closeInsts` / `closeInstsG`:
 
 * `closeInstsM_run` / `closeInstsGM_run`: from an invariant world, a run of
@@ -99,21 +99,6 @@ theorem closeInstsGM_run (L : RefLaws mref cref) (hB : BodyRel L)
   · obtain ⟨y, hky, _, hor⟩ := hk k hkl
     exact ⟨y, hky, hor⟩
 
-/-- The machine synthesis does not fall back — from a world satisfying the
-child-cache invariant, with the compiler's own logger. -/
-def MachineClosesAt (L : RefLaws mref cref) (mctx : Meta.Context) (cctx : Core.Context)
-    (declName : Name) (shape : MachineShape) : Prop :=
-  ∀ (b : Bool) w r w', InvV L w →
-    RunsTo (synthesizeMachineCertified
-      (fun e hint top named => translateExprToWire e hint top named) (profLogIO b) declName shape)
-      mctx mref cctx cref w r w' → r ≠ none
-
-/-- What the endpoints ask is stronger. -/
-theorem MachineCloses.at {declName : Name} {shape : MachineShape} (L : RefLaws mref cref)
-    (h : MachineCloses mctx mref cctx cref declName shape) :
-    MachineClosesAt L mctx cctx declName shape :=
-  fun _ w r w' _ hr => h _ w r w' hr
-
 /-- **The pure closing succeeds on real children**: for a transition the
 harness returned and `closeLets` accepted, and children that are real
 compiles of the calls' declarations. A statement about `closeInsts` /
@@ -138,11 +123,12 @@ def CallsPure (mref : ST.Ref IO.RealWorld Meta.State) (cref : ST.Ref IO.RealWorl
 
 /-- **`MachineClosesAt` from `LetsClose` and `CallsPure`** — under the generic
 runtime laws alone. -/
-theorem machineClosesAt_of_pure (L : RefLaws mref cref) {declName : Name} {shape : MachineShape}
+theorem machineClosesAt_of_pure {declName : Name} {shape : MachineShape}
     (hl : LetsClose mctx mref cctx cref declName shape)
     (hp : CallsPure mref cref declName shape) :
-    MachineClosesAt L mctx cctx declName shape := by
-  intro b w r w' hw hr
+    MachineClosesAt mctx mref cctx cref declName shape := by
+  rintro ⟨L⟩ b w r w' hw' hr
+  have hw := invV_of_invW mctx cctx L hw'
   have hB := bodyRel L
   unfold synthesizeMachineCertified at hr
   obtain ⟨⟨t, d'⟩, w1, run, hr⟩ := RunsTo.bind hr

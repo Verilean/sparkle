@@ -41,8 +41,18 @@ def headsOf (soundHead : Name) (nested : Bool) : Name × Name × Name :=
     ``Tools.ShippingMachineComposeR.machine_traceL_of_data_extR,
     ``Tools.ShippingMachineAuto.machine_traceL_of_data_ext)
 
-def generateComposedRCore (declName : Name) : MetaM Name := do
-  let name := declName ++ `machine_composedR
+/-- The invariant-world twin of an R head (`MachineClosesAt` in place of
+`MachineCloses`). -/
+def headA (headL : Name) : Name :=
+  match headL with
+  | .str p s => .str p (s ++ "A")
+  | n => n
+
+/-- `f.machine_composedR`; with `atW`, `f.machine_composedRA`: the same from
+the head that asks `MachineClosesAt` (no fallback where the real compile runs
+the machine synthesis) instead of the all-worlds `MachineCloses`. -/
+def generateComposedRCore (declName : Name) (atW : Bool := false) : MetaM Name := do
+  let name := declName ++ (if atW then `machine_composedRA else `machine_composedR)
   if (← getEnv).contains name then return name
   progress s!"{declName}: composedR (combinational, boundary derived)"
   let r ← readMachine declName
@@ -55,7 +65,7 @@ def generateComposedRCore (declName : Name) : MetaM Name := do
     | _ => .anonymous
   let (head, headL, _) := headsOf soundHead r.nested
   let args ← soundArgs declName head
-  let pL := mkAppN (mkConst headL) args
+  let pL := mkAppN (mkConst (if atW then headA headL else headL)) args
   let data := args[1]!
   let pLT ← inferType pL
   forallTelescope pLT fun xs traceT => do
@@ -285,10 +295,10 @@ def generateComposedRCore (declName : Name) : MetaM Name := do
   return name
 
 
-def generateComposedR (declName : Name) : MetaM Name := do
+def generateComposedR (declName : Name) (atW : Bool := false) : MetaM Name := do
   let saved ← getEnv
   try
-    withOptions (fun o => Lean.Elab.async.set o false) (generateComposedRCore declName)
+    withOptions (fun o => Lean.Elab.async.set o false) (generateComposedRCore declName atW)
   catch ex =>
     setEnv saved
     throw ex
@@ -298,14 +308,14 @@ premise and the derived run boundary. -/
 def generateShipsHR (declName : Name) : MetaM Name := do
   let name := declName ++ `machine_ships_hierHR
   if (← getEnv).contains name then return name
-  let cR ← generateComposedR declName
+  let cR ← generateComposedR declName (atW := true)
   let r ← readMachine declName
   let soundHead := match (← getConstInfo (declName ++ `machine_sound)) with
     | .thmInfo t => t.value.getAppFn.constName?.getD .anonymous
     | _ => .anonymous
-  let (head, _, wiredL) := headsOf soundHead r.nested
+  let (head, headL, _) := headsOf soundHead r.nested
   let args ← soundArgs declName head
-  let soundL := mkAppN (mkConst wiredL) args
+  let pLA := mkAppN (mkConst (headA headL)) args
   let data := mkConst (declName ++ `machineData)
   let cT := mkConst cR
   forallTelescope (← inferType cT) fun ys _ => do
@@ -313,8 +323,23 @@ def generateShipsHR (declName : Name) : MetaM Name := do
     let Bnd ← mkLambdaFVars #[ys[0]!, ys[1]!, ys[2]!, ys[3]!, ys[4]!, ys[6]!, ys[7]!] (← inferType ys[11]!)
     let trueR ← withLocalDeclD `k (mkConst ``Nat) fun k =>
       withLocalDeclD `mc (mkConst ``Sparkle.IR.AST.Module) fun mc => mkLambdaFVars #[k, mc] (mkConst ``True)
-    let thm ← mkAppOptM ``Tools.ShippingMachineShipsHierH.machine_ships_hierH
-      #[trueR, Bnd, none, data, none, none, none, none, none, none, none, none, soundL, cT]
+    -- the closing premise: no fallback where the real compile runs the
+    -- machine synthesis (`MachineClosesAt`)
+    let C ← mkLambdaFVars #[ys[0]!, ys[1]!, ys[2]!, ys[3]!] (← inferType ys[10]!)
+    unless (← inferType ys[10]!).isAppOf ``Tools.ShippingChildInv.MachineClosesAt do
+      throwError "{declName}: the composed theorem's closing premise"
+    -- the wired endpoint, from the same R head under the run boundary
+    let soundL ← forallTelescope (← inferType pLA) fun zs _ => do
+      unless zs.size == 12 do throwError "{declName}: the R head's binders ({zs.size})"
+      let bndT := (Bnd.beta #[zs[0]!, zs[1]!, zs[2]!, zs[3]!, zs[4]!, zs[6]!, zs[7]!]).headBeta
+      withLocalDeclD `hB bndT fun hB => do
+        let hsynT ← inferType zs[11]!
+        let hsyn ← if ← isDefEq bndT hsynT then pure hB else mkAppM ``And.left #[hB]
+        let tr ← mkAppM ``Tools.ShippingMachineTraceX.MachineTraceLBX.toLB
+          #[(mkAppN pLA zs).replaceFVar zs[11]! hsyn]
+        mkLambdaFVars (zs.pop ++ #[hB]) tr
+    let thm ← mkAppOptM ``Tools.ShippingMachineShipsHierH.machine_ships_hierHC
+      #[trueR, Bnd, C, none, data, none, none, none, none, none, none, none, none, soundL, cT]
     let thm ← instantiateMVars thm
     let ty ← inferType thm
     let .forallE _ hT _ _ ← whnfR ty | throwError "{declName}: the output-width premise"

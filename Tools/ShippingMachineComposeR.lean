@@ -24,12 +24,13 @@ open Tools.ShippingMachineDenote Tools.ShippingMachineAuto
 open Tools.ShippingMachineClose (Zip₂)
 open Tools.ShippingMixedEntrySoundness Tools.ShippingMixedSourceBridge
 open Tools.ShippingEntrySoundness Sparkle.IR.AST
-open Tools.ShippingMachineTraceX (MachineTraceLBX ServedReal machine_trace_lets_of_streamBR)
+open Tools.ShippingMachineTraceX (MachineTraceLBX ServedReal machine_trace_lets_of_streamBR
+  machine_trace_lets_of_streamBRA)
 open Tools.ShippingMachineCompose (ChildFn)
 
 set_option maxHeartbeats 2000000 in
 /-- `machine_traceL_of_data_ext` carrying `ServedReal` (under `ChildBnd`). -/
-theorem machine_traceL_of_data_extR {declName : Name} (d : MachineData) {ι : Type}
+theorem machine_traceL_of_data_extRA {declName : Name} (d : MachineData) {ι : Type}
     (dom : ι → DomainConfig) [Inhabited (HList (tys d.ss))] {ρ : ι → Type}
     (inits : HList (tys d.ss))
     (body : (i : ι) → (Nat → Signal (dom i) Bool) →
@@ -83,13 +84,13 @@ theorem machine_traceL_of_data_extR {declName : Name} (d : MachineData) {ι : Ty
     (hr : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w
       (m, design) w')
     (entry : MachineDefines mctx mref cctx cref declName d.shape)
-    (closes : MachineCloses mctx mref cctx cref declName d.shape)
+    (closes : Tools.ShippingChildInv.MachineClosesAt mctx mref cctx cref declName d.shape)
     (hsyn : Tools.ShippingChildInv.ChildBnd mref cref w) :
     MachineTraceLBX (ServedReal mctx mref cctx cref declName d.shape m design) declName d m design dom src
       (fun i bools bits => ext i bools bits (stateLoop inits (body i bools bits)))
       (fun _ bools _ => bools)
       (letObs d dom inits body ext) := by
-  refine machine_trace_lets_of_streamBR d dom inits src (letObs d dom inits body ext) ok hbody
+  refine machine_trace_lets_of_streamBRA d dom inits src (letObs d dom inits body ext) ok hbody
     hinit _ (fun _ bools _ => bools) ?_ hr entry closes hsyn
   intro i bools bits
   have hloop := stateLoop_stream inits (body i bools bits)
@@ -180,5 +181,68 @@ theorem machine_linked_callsR {declName : Name} {d : MachineData} {m : Sparkle.I
       · obtain ⟨mctx', cctx', w, w', hw, hrun⟩ := hrc.inv
         exact hf mctx' cctx' mc Dc w w' hw hrun)
     (fun k args j hk _ => hcalls i bools bits k args j hk)
+
+/-- `machine_traceL_of_data_extRA` from the all-worlds closing premise. -/
+theorem machine_traceL_of_data_extR {declName : Name} (d : MachineData) {ι : Type}
+    (dom : ι → DomainConfig) [Inhabited (HList (tys d.ss))] {ρ : ι → Type}
+    (inits : HList (tys d.ss))
+    (body : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) →
+      RegList (dom i) (HList (tys d.ss)) (Circuit.SigList (dom i) (tys d.ss)) (tys d.ss) →
+      Circuit (dom i) (Circuit.SigList (dom i) (tys d.ss)) (ρ i))
+    (obsR : (i : ι) → ρ i → List (Nat → Nat))
+    (ext : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) →
+      Signal (dom i) (HList (tys d.ss)) → (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
+    (src : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat))
+    (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    (hinit : d.initOk inits = true)
+    (writes : ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+      (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
+      (S : Signal (dom i) (HList (tys d.ss))) (t : Nat),
+      valsAt (tys d.ss) (body i bools bits
+          (mkRegList S (tys d.ss) (fun s => s) (fun f => f)) (mkHolds (tys d.ss) S)).snd t =
+        evalTerms
+          (fun j => (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools (ext i bools bits S) t
+            (S.val t)).b (d.bpos j))
+          (fun j w => (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools (ext i bools bits S) t
+            (S.val t)).v (d.vpos j) w) d.nexts)
+    (hres : ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+      (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
+      (S : Signal (dom i) (HList (tys d.ss))) (t : Nat),
+      (obsR i (body i bools bits (mkRegList S (tys d.ss) (fun s => s) (fun f => f))
+          (mkHolds (tys d.ss) S)).fst).map (fun f => f t) =
+        d.outs.map fun o => enc o.1 (eval
+          (fun j => (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools (ext i bools bits S) t
+            (S.val t)).b (d.bpos j))
+          (fun j w => (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools (ext i bools bits S) t
+            (S.val t)).v (d.vpos j) w) o.2))
+    (hsrc : ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+      (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)),
+      src i bools bits = obsR i
+        (body i bools bits
+          (mkRegList (stateLoop inits (body i bools bits)) (tys d.ss) (fun s => s) (fun f => f))
+          (mkHolds (tys d.ss) (stateLoop inits (body i bools bits)))).fst)
+    (hext : ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+      (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
+      (S : Signal (dom i) (HList (tys d.ss))) (t p w : Nat),
+      (ext i bools bits S p w).val t = (ext i bools bits ⟨fun _ => S.val t⟩ p w).val t)
+    {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w
+      (m, design) w')
+    (entry : MachineDefines mctx mref cctx cref declName d.shape)
+    (closes : MachineCloses mctx mref cctx cref declName d.shape)
+    (hsyn : Tools.ShippingChildInv.ChildBnd mref cref w) :
+    MachineTraceLBX (ServedReal mctx mref cctx cref declName d.shape m design) declName d m design dom src
+      (fun i bools bits => ext i bools bits (stateLoop inits (body i bools bits)))
+      (fun _ bools _ => bools)
+      (letObs d dom inits body ext) :=
+  machine_traceL_of_data_extRA d dom inits body obsR ext src ok hbody hinit writes hres hsrc hext hr entry (Tools.ShippingChildInv.machineClosesAt_of_closes closes) hsyn
 
 end Tools.ShippingMachineComposeR
