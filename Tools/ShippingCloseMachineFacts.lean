@@ -255,4 +255,97 @@ theorem closeMachine_body {t : Module} {lay : Layout} {B : List Stmt} {w : Strin
     obtain ⟨k, p, f, _, _, rfl⟩ := registers_mem lay.resetKind ps lay.slots st hs
     rfl
 
+/-! ## What `closeChecks_of` asks of the body -/
+
+theorem filter_comb_assigns {X : List Stmt} (h : ∀ st ∈ X, ∃ l r, st = Stmt.assign l r) :
+    X.filter isComb = X := by
+  rw [List.filter_eq_self]
+  intro st hs
+  obtain ⟨l, r, rfl⟩ := h st hs
+  rfl
+
+theorem filter_comb_regs {R : List Stmt} (h : ∀ st ∈ R, isReg st = true) :
+    R.filter isComb = [] := by
+  rw [List.filter_eq_nil_iff]
+  intro st hs
+  have := h st hs
+  cases st <;> simp_all [isReg, isComb]
+
+theorem filter_comb_insts {S : List Stmt} (h : S.all isInst = true) : S.filter isComb = S := by
+  rw [List.filter_eq_self]
+  intro st hs
+  have := List.all_eq_true.mp h st hs
+  cases st <;> simp_all [isInst, isComb]
+
+theorem nextKeys_registers (rk : Sparkle.IR.Type.ResetKind) :
+    ∀ (ps : List Port) (fs : List SlotField) (n : String), n ∈ nextKeys (registers rk ps fs) →
+      n ∈ ps.map Port.name
+  | [], _, _, h => by simp [registers, nextKeys] at h
+  | _ :: _, [], _, h => by simp [registers, nextKeys] at h
+  | p :: ps, f :: fs, n, h => by
+    rcases List.mem_cons.mp (show n ∈ p.name :: nextKeys (registers rk ps fs) from h) with e | h
+    · exact e ▸ List.mem_cons_self ..
+    · exact List.mem_cons_of_mem _ (nextKeys_registers rk ps fs n h)
+
+theorem nextKeys_registers_nodup (rk : Sparkle.IR.Type.ResetKind) :
+    ∀ (ps : List Port) (fs : List SlotField), (ps.map Port.name).Nodup →
+      (nextKeys (registers rk ps fs)).Nodup
+  | [], _, _ => by simp [registers, nextKeys]
+  | _ :: _, [], _ => by simp [registers, nextKeys]
+  | p :: ps, f :: fs, h => by
+    have h' := List.nodup_cons.mp (show (p.name :: ps.map Port.name).Nodup from h)
+    show (p.name :: nextKeys (registers rk ps fs)).Nodup
+    exact List.nodup_cons.mpr ⟨fun hm => h'.1 (nextKeys_registers rk ps fs _ hm),
+      nextKeys_registers_nodup rk ps fs h'.2⟩
+
+theorem nextKeys_assigns {X : List Stmt} (h : ∀ st ∈ X, ∃ l r, st = Stmt.assign l r) :
+    nextKeys X = [] := by
+  unfold nextKeys
+  rw [List.flatMap_eq_nil_iff]
+  intro st hs
+  obtain ⟨l, r, rfl⟩ := h st hs
+  rfl
+
+/-- **The static premises of `closeChecks_of`**, for a body
+`X ++ (R ++ Y)` — ordered assignments `X ++ Y` around registers `R` — and
+instance statements `stmts`. -/
+theorem static_checks {X R Y stmts : List Stmt} (hacy : Acyclic (X ++ Y))
+    (hR : ∀ st ∈ R, isReg st = true) (hkeys : (nextKeys R).Nodup)
+    (hinst : stmts.all isInst = true) :
+    woCheck [] (X ++ (R ++ Y)) = true ∧
+    combOf ((X ++ (R ++ Y)) ++ stmts) = (X ++ Y) ++ stmts ∧
+    (∀ st ∈ othersOf ((X ++ (R ++ Y)) ++ stmts), isReg st = true) ∧
+    (writesOf (combOf ((X ++ (R ++ Y)) ++ stmts))).Nodup ∧
+    (nextKeys (X ++ (R ++ Y))).Nodup := by
+  have hXY := Acyclic.assign hacy
+  have hX : ∀ st ∈ X, ∃ l r, st = Stmt.assign l r := fun st hs => hXY st (List.mem_append_left _ hs)
+  have hY : ∀ st ∈ Y, ∃ l r, st = Stmt.assign l r := fun st hs => hXY st (List.mem_append_right _ hs)
+  have hcomb : combOf ((X ++ (R ++ Y)) ++ stmts) = (X ++ Y) ++ stmts := by
+    rw [combOf_eq]
+    simp only [List.filter_append, filter_comb_assigns hX, filter_comb_assigns hY,
+      filter_comb_regs hR, filter_comb_insts hinst, List.nil_append]
+  refine ⟨woCheck_insert_regs R Y hR X [] (woCheck_acyclic hacy [] (fun _ h => by simp at h)),
+    hcomb, ?_, ?_, ?_⟩
+  · intro st hs
+    rw [othersOf_eq] at hs
+    obtain ⟨hm, hc⟩ := List.mem_filter.mp hs
+    simp only [List.mem_append] at hm
+    rcases hm with (h | h | h) | h
+    · obtain ⟨l, r, rfl⟩ := hX st h
+      simp [isComb] at hc
+    · exact hR st h
+    · obtain ⟨l, r, rfl⟩ := hY st h
+      simp [isComb] at hc
+    · have := List.all_eq_true.mp hinst st h
+      cases st <;> simp_all [isInst, isComb]
+  · rw [hcomb, Tools.ShippingTopoChecks.writesOf_append, writesOf_insts stmts hinst,
+      List.append_nil]
+    exact Acyclic.nodup hacy
+  · unfold nextKeys at hkeys ⊢
+    have h1 := nextKeys_assigns hX
+    have h2 := nextKeys_assigns hY
+    unfold nextKeys at h1 h2
+    rw [List.flatMap_append, List.flatMap_append, h1, h2, List.nil_append, List.append_nil]
+    exact hkeys
+
 end Tools.ShippingCloseMachineFacts
