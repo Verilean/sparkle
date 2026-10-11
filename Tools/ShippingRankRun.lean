@@ -13,6 +13,9 @@ namespace Tools.ShippingRankRun
 open Lean Sparkle.IR.AST Sparkle.IR.Machine Sparkle.IR.Reorder
 open Tools.ShippingUnifiedSpine Tools.ShippingMachineCloses
 open Tools.ShippingSettledSoundness (Acyclic)
+open Sparkle.IR.NameHints (Allocated)
+open Tools.ShippingClosedOrder Tools.ShippingRankNames Tools.ShippingCallsRank Tools.ShippingTopoBody
+open Tools.ShippingMachineClose (concatParts?_mem)
 
 /-- **The prefixes of the fields.** -/
 theorem facts_pres {P : String → Prop} {bnd : FVarId → Option String} {Vk : Nat → String → Prop}
@@ -51,5 +54,156 @@ theorem facts_pres {P : String → Prop} {bnd : FVarId → Option String} {Vk : 
   | [], [], _ :: _, _, hf => by cases hf
   | _ :: _, [], _, _, hf => by cases hf
   | _ :: _, _ :: _, [], _, hf => by cases hf
+
+/-- Which tail port (index `idx` among the calls' outputs, the slots, the
+`let`s) field `i` may read: a call's output once the bound `c` of its
+argument `let`s is passed; a `let` port only of an earlier `let`. -/
+def okRule (kI n : Nat) (cs : List Nat) (i idx : Nat) : Prop :=
+  (idx < kI → ∃ c, cs[idx]? = some c ∧ c ≤ i) ∧ (kI + n ≤ idx → idx - (kI + n) < i)
+
+set_option maxHeartbeats 1000000 in
+/-- **The rank orders the closed body of a real transition** — from the
+run's facts (`transition_fields`, `letOperands_facts`) about the transition
+`t`: its body, the tail ports `ls` (the calls' outputs, the slots, the
+`let`s), the aliases `al` with their `Facts` under `okRule`. What remains as
+hypotheses is about the closed body's statements: which they are (`hcomb`),
+the driven names (`hD`), the remaining wire, the instances. -/
+theorem rank_of_facts {P : String → Prop} {bnd : FVarId → Option String} {t : Sparkle.IR.AST.Module}
+    {bodyB : List Stmt} {w : String} {ls : List Port} {kI n : Nat} {cs : List Nat}
+    {al : List (Port × String)} {es : List Lean.Expr} {ws : List Nat}
+    {core : String} {stmts comb : List Stmt} {A D : List String}
+    (hbody : t.body = bodyB.reverse ++ [.assign "out" (.ref w)])
+    (hacy : Acyclic t.body)
+    (hnamed : ∀ l r, Stmt.assign l r ∈ bodyB.reverse → Allocated l ∧ ∀ x ∈ refsOf r, Allocated x)
+    (hnw : ∀ l r, Stmt.assign l r ∈ bodyB → ¬ P l)
+    (hPls : ∀ p ∈ ls, P p.name) (hlsAlloc : ∀ p ∈ ls, Allocated p.name)
+    (hlsNd : (ls.map Port.name).Nodup)
+    (hal : al.map (·.1) = ls.drop (kI + n))
+    (hfacts : Facts P bnd
+      (fun i x => ∀ (idx : Nat) (p : Port), ls[idx]? = some p → x = p.name → okRule kI n cs i idx)
+      t.wires t.body bodyB 0 al es ws)
+    (hcsK : ∀ j, j < kI → ∃ c, cs[j]? = some c ∧ c ≤ al.length)
+    (hcore : Allocated core)
+    (hinst : ∀ st ∈ stmts, ∃ (j : Nat) (outW : String) (c : Nat),
+      ((ls.take kI).map Port.name)[j]? = some outW ∧ cs[j]? = some c ∧
+      combWrites A st = [outW] ∧
+      ∀ x ∈ combReads A st, ∃ a : Nat, (al.map (·.1.name))[a]? = some x ∧ a < c)
+    (hcomb : ∀ st ∈ comb, (∃ l r, st = Stmt.assign l r ∧ Stmt.assign l r ∈ bodyB.reverse) ∨
+      (∃ (a : Nat) (pa : Port × String), al[a]? = some pa ∧ st = aliasStmt pa.1 pa.2) ∨
+      (∃ l lo wd, st = Stmt.assign l (fieldRhs core lo wd) ∧ ¬ Allocated l) ∨ st ∈ stmts)
+    (hD : ∀ x ∈ D, x ∈ writesOf bodyB.reverse ∨ x ∈ al.map (·.1.name) ∨
+      x ∈ (ls.take kI).map Port.name ∨ ¬ Allocated x) :
+    ∃ pres : List (List Stmt),
+      (∀ st ∈ comb, ∃ l, combWrites A st = [l]) ∧
+      ∀ st ∈ comb, ∀ l, combWrites A st = [l] → ∀ r ∈ combReads A st, r ∈ D →
+        rho bodyB.reverse pres (al.map (·.1.name)) ((ls.take kI).map Port.name) cs r <
+          rho bodyB.reverse pres (al.map (·.1.name)) ((ls.take kI).map Port.name) cs l := by
+  have hT : Acyclic bodyB.reverse := Acyclic.prefix (hbody ▸ hacy)
+  obtain ⟨pres, hlen, hall⟩ := facts_pres al es ws 0 hfacts
+  -- the `let` ports and the calls' output ports, as tail ports
+  have hletEq : al.map (·.1.name) = (ls.drop (kI + n)).map Port.name := by
+    rw [← hal, List.map_map]
+    rfl
+  have letAt : ∀ (a : Nat) (x : String), (al.map (·.1.name))[a]? = some x →
+      ∃ p, ls[kI + n + a]? = some p ∧ p.name = x := by
+    intro a x h
+    rw [hletEq, List.getElem?_map, List.getElem?_drop] at h
+    cases hp : ls[kI + n + a]? with
+    | none => rw [hp] at h; cases h
+    | some p =>
+      rw [hp] at h
+      exact ⟨p, rfl, by simpa using h⟩
+  have instAt : ∀ (j : Nat) (x : String), ((ls.take kI).map Port.name)[j]? = some x →
+      j < kI ∧ ∃ p, ls[j]? = some p ∧ p.name = x := by
+    intro j x h
+    rw [List.getElem?_map, List.getElem?_take] at h
+    by_cases hj : j < kI
+    · rw [if_pos hj] at h
+      cases hp : ls[j]? with
+      | none => rw [hp] at h; cases h
+      | some p =>
+        rw [hp] at h
+        exact ⟨hj, p, rfl, by simpa using h⟩
+    · rw [if_neg hj] at h
+      cases h
+  have notDriven : ∀ x, P x → x ∉ writesOf bodyB.reverse := by
+    intro x hp hw
+    obtain ⟨r, hr⟩ := mem_of_writes hT hw
+    exact hnw x r (List.mem_reverse.mp hr) hp
+  have hsplit : ls.map Port.name =
+      (ls.take kI).map Port.name ++ (ls.drop kI).map Port.name := by
+    rw [← List.map_append, List.take_append_drop]
+  have hpre : ∀ pre ∈ pres, pre <+: bodyB.reverse := by
+    intro pre hp
+    obtain ⟨k, hk⟩ := List.mem_iff_getElem?.mp hp
+    have hkl : k < al.length := hlen ▸ (List.getElem?_eq_some_iff.mp hk).1
+    obtain ⟨pre', h1, h2, _⟩ := hall k _ (List.getElem?_eq_getElem hkl)
+    rw [hk] at h1
+    cases h1
+    exact h2
+  refine ⟨pres, rank_closed (cs := cs) hT hnamed ?_ ?_ ?_ ?_ hlen hpre ?_ ?_ ?_ hcore hinst hcomb hD⟩
+  · -- the ports are undriven and allocated
+    intro x hx
+    rcases hx with hx | hx
+    · obtain ⟨a, ha⟩ := List.mem_iff_getElem?.mp hx
+      obtain ⟨p, hp, rfl⟩ := letAt a x ha
+      exact ⟨notDriven _ (hPls p (List.mem_of_getElem? hp)), hlsAlloc p (List.mem_of_getElem? hp)⟩
+    · obtain ⟨j, hj⟩ := List.mem_iff_getElem?.mp hx
+      obtain ⟨_, p, hp, rfl⟩ := instAt j x hj
+      exact ⟨notDriven _ (hPls p (List.mem_of_getElem? hp)), hlsAlloc p (List.mem_of_getElem? hp)⟩
+  · rw [hletEq, List.map_drop]
+    exact hlsNd.sublist (List.drop_sublist _ _)
+  · rw [List.map_take]
+    exact hlsNd.sublist (List.take_sublist _ _)
+  · intro x hx hx'
+    obtain ⟨a, ha⟩ := List.mem_iff_getElem?.mp hx
+    obtain ⟨p, hp, hpn⟩ := letAt a x ha
+    obtain ⟨j, hj⟩ := List.mem_iff_getElem?.mp hx'
+    obtain ⟨hjk, q, hq, hqn⟩ := instAt j x hj
+    have := nodup_index hlsNd hp hq (hpn.trans hqn.symm)
+    omega
+  · -- what a statement of field `i`'s prefix reads
+    intro i pre hi l r hm x hx
+    have hil : i < al.length := hlen ▸ (List.getElem?_eq_some_iff.mp hi).1
+    obtain ⟨pre', h1, _, h3, _⟩ := hall i _ (List.getElem?_eq_getElem hil)
+    rw [hi] at h1
+    cases h1
+    rw [Nat.zero_add] at h3
+    have hv := h3 l r hm x hx
+    refine ⟨fun a ha => ?_, fun j c hj hc => ?_⟩
+    · obtain ⟨p, hp, hpn⟩ := letAt a x ha
+      have := (hv (hpn ▸ hPls p (List.mem_of_getElem? hp)) (kI + n + a) p hp hpn.symm).2 (by omega)
+      omega
+    · obtain ⟨hjk, p, hp, hpn⟩ := instAt j x hj
+      obtain ⟨c', hc', hle⟩ := (hv (hpn ▸ hPls p (List.mem_of_getElem? hp)) j p hp hpn.symm).1 hjk
+      rw [hc] at hc'
+      cases hc'
+      exact hle
+  · intro j x hj
+    exact hcsK j (instAt j x hj).1
+  · -- the aliases
+    intro a pa hpa
+    obtain ⟨pre, h1, _, _, hsrc, hv, x', b', hcp⟩ := hall a pa hpa
+    rw [Nat.zero_add] at hv
+    refine ⟨?_, ?_, ?_, ?_⟩
+    · have hm := concatParts?_mem hcp
+      rw [hbody] at hm
+      rcases List.mem_append.mp hm with hm | hm
+      · exact (hnamed _ _ hm).2 pa.2 (by simp [refsOf, refsOf.refsList])
+      · simp at hm
+    · intro hw
+      rcases hsrc with ⟨rhs, hm⟩ | hp
+      · exact ⟨pre, h1, mem_writes_assign hm⟩
+      · exact absurd hw (notDriven _ hp)
+    · intro b hb
+      obtain ⟨p, hp, hpn⟩ := letAt b pa.2 hb
+      have := (hv (hpn ▸ hPls p (List.mem_of_getElem? hp)) (kI + n + b) p hp hpn.symm).2 (by omega)
+      omega
+    · intro j c hj hc
+      obtain ⟨hjk, p, hp, hpn⟩ := instAt j pa.2 hj
+      obtain ⟨c', hc', hle⟩ := (hv (hpn ▸ hPls p (List.mem_of_getElem? hp)) j p hp hpn.symm).1 hjk
+      rw [hc] at hc'
+      cases hc'
+      exact hle
 
 end Tools.ShippingRankRun
