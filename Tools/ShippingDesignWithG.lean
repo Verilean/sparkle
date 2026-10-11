@@ -52,6 +52,19 @@ theorem designWith_resolvesG {children : List (Module × Design)} {d : Design}
   subst this
   exact find_of_nodup _ hn y hy
 
+/-- The joined design of a parent design without modules: distinct names,
+every module a visited one — whatever the children. -/
+theorem designWith_modules {children : List (Module × Design)} {d : Design}
+    (hd : d.modules = []) :
+    ((designWith children d).modules.map (·.name)).Nodup ∧
+    ∀ g ∈ (designWith children d).modules, g ∈ visited children := by
+  rw [designWith_flatG children d, hd]
+  obtain ⟨hn, hs, -⟩ := fold_facts (visited children) [] (by simp)
+  refine ⟨hn, fun g hg => ?_⟩
+  rcases hs g hg with h | h
+  · cases h
+  · exact h
+
 theorem mem_visited {children : List (Module × Design)} {g : Module} :
     g ∈ visited children ↔ ∃ c ∈ children, g = c.1 ∨ g ∈ c.2.modules := by
   unfold visited
