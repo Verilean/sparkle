@@ -65,7 +65,7 @@ theorem transition_calls_facts {logProf : String → IO Unit} {declName : Name}
       (fun j => inputExpr bs.length (vpos j)) (packLets fs core).2)
     {bsA bsB : List (Name × MixedGateBinder)} (hbs : bs = bsA ++ bsB)
     (letKinds : ∀ b ∈ bsB, b.2 ≠ .domain)
-    {kI n K : Nat} {cs : List Nat} (hBlen : bsB.length = kI + n + K) (hK : K ≠ 0)
+    {kI n K : Nat} {cs : List Nat} (hBlen : bsB.length = kI + n + K)
     (hfsK : fs.length = K)
     (hscope : FieldsOK (fun k q => q < kb ∧ ∀ idx, bpos q = bsA.length + idx → okRule kI n cs k idx)
       (fun k q => q < kv ∧ ∀ idx, vpos q = bsA.length + idx → okRule kI n cs k idx) kb kv vw 0 fs)
@@ -97,7 +97,7 @@ theorem transition_calls_facts {logProf : String → IO Unit} {declName : Name}
   have hsame := hB.symm.trans hbody'
   obtain ⟨hBeq, hweq⟩ := List.append_inj' hsame rfl
   cases hweq
-  obtain ⟨hnamed, _⟩ := named_of_typed hbody' pb.order ready.typed pb.wireNames
+  obtain ⟨hnamed, hwA⟩ := named_of_typed hbody' pb.order ready.typed pb.wireNames
   have hlen' : ls.length = kI + n + K := hlsLen.trans hBlen
   have hdropEq : m.inputs.drop (m.inputs.length - K) = ls.drop (kI + n) := by
     rw [hin, List.length_append, hlen', show PI.length + (kI + n + K) - K = PI.length + (kI + n) by omega,
@@ -114,11 +114,22 @@ theorem transition_calls_facts {logProf : String → IO Unit} {declName : Name}
   obtain ⟨h1, h2⟩ := Prod.mk.inj (Option.some.inj hops)
   rw [← h1, ← h2]
   refine ⟨_, _, hfacts, hmap, ?_⟩
+  -- without a `let` the core is the packed wire itself
+  by_cases hfs : fs = []
+  · subst hfs
+    have hl0 : ls.drop (kI + n) = [] := by
+      apply List.drop_eq_nil_of_le
+      simp only [List.length_nil] at hfsK
+      omega
+    rw [hl0] at hlo
+    simp only [letOperands, Option.some.injEq, Prod.mk.injEq] at hlo
+    rw [← hlo.2]
+    exact hwA
   obtain ⟨x, a, hcp⟩ := hcore (by
     intro h
     have := congrArg List.length h
     simp only [List.length_map, List.length_nil] at this
-    omega)
+    exact hfs (List.length_eq_zero_iff.mp this))
   have hm' := concatParts?_mem hcp
   rw [hbody'] at hm'
   rcases List.mem_append.mp hm' with hm' | hm'

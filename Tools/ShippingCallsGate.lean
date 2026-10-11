@@ -69,12 +69,11 @@ end Tools.ShippingCallsGate
 namespace Tools.ShippingMachineAuto.MachineData
 
 /-- The data conditions of the one-output closing of gate children: S3, the
-slots are the layout's, the binders after the declaration's have ports, there
-is a `let`, and no call has several outputs. -/
+slots are the layout's, the binders after the declaration's have ports, and
+no call has several outputs. (No condition on the number of `let`s.) -/
 def gateCallsOk (d : MachineData) (nDecl : Nat) : Bool :=
   d.callsOk nDecl && decide (d.ss.length = d.shape.layout.slots.length) &&
-  decide (∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain) &&
-  decide (d.shape.layout.lets ≠ 0) && d.shape.instFields.isEmpty
+  decide (∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain) && d.shape.instFields.isEmpty
 
 end Tools.ShippingMachineAuto.MachineData
 
@@ -116,7 +115,7 @@ theorem closeInsts_of_run {declName : Name} (d : MachineData) (ok : d.ok = true)
       (closeMachine d.shape.layout t', d₀)).isSome = true := by
   simp only [MachineData.gateCallsOk, MachineData.callsOk, Bool.and_eq_true, decide_eq_true_eq,
     List.isEmpty_iff] at hS
-  obtain ⟨⟨⟨⟨⟨⟨⟨hnIn, hargs⟩, hfields⟩, hcoreR⟩, hslots⟩, hdomB⟩, hK⟩, -⟩ := hS
+  obtain ⟨⟨⟨⟨⟨⟨hnIn, hargs⟩, hfields⟩, hcoreR⟩, hslots⟩, hdomB⟩, -⟩ := hS
   simp only [MachineData.ok, Bool.and_eq_true, decide_eq_true_eq, Bool.not_eq_true'] at ok
   obtain ⟨hlen, hlets, positive, _, _, _, outsOk, outsNodup, hwf, hb, hv,
     _, _, hscoped, _, _, _, _, _, _, _, _⟩ := ok
@@ -155,7 +154,6 @@ theorem closeInsts_of_run {declName : Name} (d : MachineData) (ok : d.ok = true)
     omega
   have hsplit : d.shape.binders = d.shape.binders.take nDecl ++ d.shape.binders.drop nDecl :=
     (List.take_append_drop ..).symm
-  have hKne : d.letBs.length ≠ 0 := by rw [← hlets]; exact hK
   have hBlen : (d.shape.binders.drop nDecl).length =
       d.shape.insts.length + d.ss.length + d.letBs.length := by
     rw [List.length_drop]
@@ -164,7 +162,7 @@ theorem closeInsts_of_run {declName : Name} (d : MachineData) (ok : d.ok = true)
   obtain ⟨PI, ls, bodyB, w, P, bnd, hin, hPI, hlsL, hndI, hinW, hwAlloc, hbodyT, hacy, hnamed, hnw,
       hP, hF, hdes, hname⟩ :=
     transition_calls_facts (cs := d.callBounds) nd len hrun hm nameLegal hposv d.letFields d.core.2
-      hwf hb' hv' hbody hsplit hdomB hBlen hKne hfitL
+      hwf hb' hv' hbody hsplit hdomB hBlen hfitL
       (by rw [hA]; exact fieldsOK_of_B d.letFields 0 d.core.2 hfields hwf)
       (by
         rw [hA, hlsLen]
@@ -184,7 +182,7 @@ theorem closeInsts_of_run {declName : Name} (d : MachineData) (ok : d.ok = true)
     have := List.all_eq_true.mp (List.all_eq_true.mp hargs c (List.mem_of_getElem? hc)) a ha
     have : a < d.ls.length := by simpa using this
     omega
-  refine closeInsts_of_facts (cs := d.callBounds) hKne hcl hin hlsL hndI hinW hwAlloc hbodyT hacy
+  refine closeInsts_of_facts (cs := d.callBounds) hcl hin hlsL hndI hinW hwAlloc hbodyT hacy
     hnamed hnw hP hF outsOk outsNodup (by simp) hchL hargs' ?_ ?_ (by rw [hD, hdes]; rfl) ?_ hcons
     hfreshOuts
   · intro j hj

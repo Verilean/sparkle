@@ -40,8 +40,8 @@ child's premise is its machine reflection (`MachineDefines`), its own closing
 is proved (`c.machine_closes`).
 
 Not covered: machine children with calls of their own or without a `let`,
-several-output / sequential children (`closeInstsG`, B2), parents without a
-`let` (K = 0).
+several-output / sequential children (`closeInstsG`, B2). (Parents without a
+`let`: see below.)
 
 These are conditional theorems under the generic runtime laws (`ChildBnd`);
 that does not make the laws consistent with the runtime (G5), and the shape
@@ -207,6 +207,56 @@ run_cmd Lean.Elab.Command.liftTermElabM do
 
 run_cmd do
   Lean.logInfo m!"REPEATED CALLEE: callerRep (pick, pick) and callerABA (pick, pickD, pick) closed from the run's order — the later call of a declaration is a cache hit of the entry the earlier call left, kept by the calls between at a positive synthesis depth (synthesizeChild_pin); no restriction on the call list"
+
+/-! ### Parents without a `let`
+
+The closing theorem no longer asks a `let` (`closeLets_eq'`: without `let`s
+`closeLets` returns the module, the same shape with no alias;
+`gateCallsOk` has no such condition). A call's arguments ARE hardware `let`s,
+so a parent with calls and no `let` has only zero-argument calls. The one
+such declaration tried is NOT a machine shape (the reader refuses it; the
+entry compiles it by the legacy route, with the instance): there is no real
+instance of the K = 0 case with calls here — the theorem covers it, a
+positive endpoint is not shown. -/
+
+/-- A zero-argument combinational child. -/
+@[hardware_module]
+def konst : Signal defaultDomain (BitVec 8) := (Signal.pure 5#8 : Signal defaultDomain (BitVec 8))
+
+/-- A parent whose only call has no argument. -/
+def callerK (x : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec 8) :=
+  circuit do
+    let acc ← Signal.reg 0#8
+    let accS := (acc : Signal defaultDomain (BitVec 8))
+    let y := konst
+    acc <~ accS + y + x
+    return accS
+
+run_cmd Lean.Elab.Command.liftTermElabM do
+  -- the closing theorem and the data check ask no `let`
+  let t ← inferType (mkConst ``Tools.ShippingCallsAssembly.closeInsts_of_facts)
+  let noLetPremise ← forallTelescope t fun xs _ => do
+    let mut bad := false
+    for x in xs do
+      let ty ← whnfR (← inferType x)
+      -- a premise `K ≠ 0`
+      if ty.isAppOfArity ``Ne 3 && (ty.getArg! 2).isRawNatLit then bad := true
+      if ty.isForall && ty.bindingDomain!.isAppOfArity ``Eq 3 && ty.bindingBody!.isConstOf ``False &&
+          (ty.bindingDomain!.getArg! 2 == mkNatLit 0 || (ty.bindingDomain!.getArg! 2).isAppOf ``OfNat.ofNat) then
+        bad := true
+    pure (!bad)
+  unless noLetPremise do throwError "closeInsts_of_facts still asks a let"
+  -- the zero-argument caller is outside the machine route
+  let r ← try
+      discard <| Tools.ShippingMachineCommand.readMachine ``callerK
+      pure true
+    catch _ => pure false
+  if r then throwError "callerK is a machine shape now: add its positive endpoint"
+  let (m, D) ← Sparkle.Compiler.Elab.synthesizeCombinational ``callerK
+  unless D.modules.any (fun c => (c.name.splitOn "konst").length > 1) &&
+      m.body.any (fun st => match st with | .inst .. => true | _ => false) do
+    throwError "callerK did not compile with an instance of konst"
+  logInfo m!"NO-LET PARENTS: the closing theorem and gateCallsOk ask no let (K = 0 by closeLets_eq'); the zero-argument caller callerK is not a machine shape (legacy route, one instance of konst) — no real K = 0 instance with calls in the machine route was found, so no positive endpoint is shown for that branch"
 
 /-! ### A failed generation leaves nothing
 

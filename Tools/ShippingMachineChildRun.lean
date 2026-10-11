@@ -17,7 +17,7 @@ the same run), `closeLets` succeeded, and the module is `closeMachine` of it
 (`slotless_childComb_full`).
 
 Data conditions, decided per declaration: the endpoint's `ok`, S3
-(`gateCallsOk`: here the `let`s' scoping), no call, no slot, one output named
+(`gateCallsOk`: here the `let`s' scoping), at least one `let`, no call, no slot, one output named
 `out`, output types of their widths. -/
 namespace Tools.ShippingMachineChildRun
 open Lean Meta
@@ -41,7 +41,7 @@ theorem machineChild_iface {c : Name} (d : MachineData) (ok : d.ok = true)
     (hbody : d.shape.body = quote d.dom
       (fun j => inputExpr d.shape.binders.length (d.bpos j))
       (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
-    {nDecl : Nat} (hS : d.gateCallsOk nDecl = true)
+    {nDecl : Nat} (hS : d.gateCallsOk nDecl = true) (hK : d.shape.layout.lets ≠ 0)
     (hno : d.shape.insts = []) (hsl : d.shape.layout.slots = [])
     (houts : ∃ o, d.shape.layout.outs = [o] ∧ o.name = "out")
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
@@ -68,7 +68,7 @@ theorem machineChild_iface {c : Name} (d : MachineData) (ok : d.ok = true)
   · exact absurd hno hne'
   simp only [MachineData.gateCallsOk, MachineData.callsOk, Bool.and_eq_true, decide_eq_true_eq,
     List.isEmpty_iff] at hS
-  obtain ⟨⟨⟨⟨⟨⟨⟨hnIn, hargs⟩, hfields⟩, hcoreR⟩, hslots⟩, hdomB⟩, hK⟩, -⟩ := hS
+  obtain ⟨⟨⟨⟨⟨⟨hnIn, hargs⟩, hfields⟩, hcoreR⟩, hslots⟩, hdomB⟩, -⟩ := hS
   simp only [MachineData.ok, Bool.and_eq_true, decide_eq_true_eq, Bool.not_eq_true'] at ok
   obtain ⟨hlen, hlets, positive, _, _, _, outsOk, outsNodup, hwf, hb, hv,
     _, _, hscoped, _, _, _, _, _, _, _, _⟩ := ok
@@ -116,7 +116,7 @@ theorem machineChild_iface {c : Name} (d : MachineData) (ok : d.ok = true)
   obtain ⟨PI, ls, bodyB, w, P, bnd, hin, hPI, hlsL, hndI, hinW, hwAlloc, hbodyT, hacy, hnamed, hnw,
       hP, hF, hdes, hname⟩ :=
     transition_calls_facts (cs := d.callBounds) nd len hrun hm nameLegal hposv d.letFields d.core.2
-      hwf hb' hv' hbody hsplit hdomB hBlen hKne hfitL
+      hwf hb' hv' hbody hsplit hdomB hBlen hfitL
       (by rw [hA]; exact fieldsOK_of_B d.letFields 0 d.core.2 hfields hwf)
       (by
         rw [hA, hlsLen]
@@ -144,7 +144,7 @@ theorem machineChild_of_real {c : Name} (d : MachineData) (ok : d.ok = true)
     (hbody : d.shape.body = quote d.dom
       (fun j => inputExpr d.shape.binders.length (d.bpos j))
       (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
-    {nDecl : Nat} (hS : d.gateCallsOk nDecl = true)
+    {nDecl : Nat} (hS : d.gateCallsOk nDecl = true) (hK : d.shape.layout.lets ≠ 0)
     (hno : d.shape.insts = []) (hsl : d.shape.layout.slots = [])
     (houts : ∃ o, d.shape.layout.outs = [o] ∧ o.name = "out")
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
@@ -154,7 +154,7 @@ theorem machineChild_of_real {c : Name} (d : MachineData) (ok : d.ok = true)
     {y : Res} (h : RealChild mref cref c y) :
     ChildIface c ((d.shape.binders.take nDecl).filter fun x => x.2 != .domain).length y.1 y.2 := by
   obtain ⟨mctx', cctx', w, w', hw, hr⟩ := h.inv
-  exact machineChild_iface d ok hbody hS hno hsl houts outTy hw hr
+  exact machineChild_iface d ok hbody hS hK hno hsl houts outTy hw hr
     (Tools.ShippingReflectCtx.MachineDefines.ctx entry)
     (machineClosesAt_of_closes (closes mctx' cctx'))
 

@@ -40,6 +40,43 @@ theorem closeLets_eq {K : Nat} {t t' : Module} (hK : K ≠ 0) (h : closeLets K t
         exact ⟨w, al, core, hpw, hops, rfl, hchk.2⟩
       · cases h
 
+theorem insertAliases_nil : ∀ (B : List Stmt), insertAliases [] B = B
+  | [] => rfl
+  | st :: rest => by
+    have : aliasesOf [] st = [] := by cases st <;> rfl
+    simp only [insertAliases, this, List.nil_append, insertAliases_nil rest]
+
+/-- **What `closeLets` returns, with or without `let`s.** Without (`K = 0`)
+it returns the module itself, which is the same shape with no alias: the
+operands' walk stops at the packed wire, and the body's order is its own. -/
+theorem closeLets_eq' {K : Nat} {t t' : Module} {B : List Stmt} {w : String}
+    (hbody : t.body = B ++ [.assign "out" (.ref w)])
+    (hacy : Tools.ShippingSettledSoundness.Acyclic t.body)
+    (h : closeLets K t = some t') :
+    ∃ w0 al core, packedWire? t.body = some w0 ∧
+      letOperands t.body (t.inputs.drop (t.inputs.length - K)) w0 = some (al, core) ∧
+      t' = { t with inputs := t.inputs.take (t.inputs.length - K), body := closedBody t al core } ∧
+      Sparkle.IR.OptCheck.assignmentOrderCheck (closedBody t al core) = true := by
+  by_cases hK : K = 0
+  · subst hK
+    have ht : t' = t := by
+      unfold closeLets at h
+      simpa using h.symm
+    subst ht
+    have hpw : packedWire? t'.body = some w := by simp [packedWire?, hbody]
+    have hcb : closedBody t' [] w = t'.body := by
+      unfold closedBody
+      have hd : t'.body.dropLast = B := by simp [hbody]
+      rw [hd, insertAliases_nil, hbody]
+      simp [frontAliases]
+    refine ⟨w, [], w, hpw, by simp [letOperands], ?_, ?_⟩
+    · rw [hcb]
+      cases t'
+      simp
+    · rw [hcb]
+      exact (Tools.ShippingSettledSoundness.assignmentOrderCheck_iff _).mpr hacy
+  · exact closeLets_eq hK h
+
 /-- The register-closed module's wires, inputs, outputs and name. -/
 theorem closeMachine_parts {lay : Layout} {t : Module} {B : List Stmt} {w : String}
     (hbody : t.body = B ++ [.assign "out" (.ref w)]) :

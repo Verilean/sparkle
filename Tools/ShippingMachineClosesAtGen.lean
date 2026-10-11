@@ -150,7 +150,8 @@ def closesAtCore (c : Name) (nDecl? : Option Nat) (name : Name := c ++ `machine_
         `(tactic| cases k with
           | zero =>
             exact Tools.ShippingMachineChildRun.machineChild_of_real (nDecl := $ndS)
-              $(n k "machineData") $(n k "machine_ok") $(n k "machine_body") (by decide) rfl rfl
+              $(n k "machineData") $(n k "machine_ok") $(n k "machine_body") (by decide) (by decide)
+              rfl rfl
               ⟨_, rfl, rfl⟩ (by decide) $h
               (fun mc cc => $(n k "machine_closes") mc _ cc _) hy
           | succ k => $tac:tactic)

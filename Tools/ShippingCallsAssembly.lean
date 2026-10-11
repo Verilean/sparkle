@@ -91,7 +91,7 @@ theorem closeInsts_of_facts {P : String → Prop} {bnd : Lean.FVarId → Option 
     {t t' : Module} {lay : Layout} {d : Design} {bodyB : List Stmt} {w : String}
     {PI ls : List Port} {kI n K : Nat} {cs : List Nat} {insts : List (List Nat)}
     {children : List (Module × Design)}
-    (hK : K ≠ 0) (hcl : closeLets K t = some t')
+    (hcl : closeLets K t = some t')
     (hin : t.inputs = PI ++ ls) (hlsLen : ls.length = kI + n + K)
     (hnd : (t.inputs.map (·.name)).Nodup) (hinW : ∀ p ∈ t.inputs, p ∈ t.wires)
     (hwAlloc : ∀ p ∈ t.wires, Allocated p.name)
@@ -120,7 +120,7 @@ theorem closeInsts_of_facts {P : String → Prop} {bnd : Lean.FVarId → Option 
       ∀ o ∈ lay.outs, o.name ≠ s!"inst{k}_{c.1.name}") :
     (closeInsts PI.length kI n (t.inputs.map (·.name)) insts children
       (closeMachine lay t', d)).isSome = true := by
-  obtain ⟨w0, al, core, hpw, hops, ht', hord⟩ := closeLets_eq hK hcl
+  obtain ⟨w0, al, core, hpw, hops, ht', hord⟩ := closeLets_eq' hbody hacy hcl
   have hti : t'.inputs = t.inputs.take (t.inputs.length - K) := by rw [ht']
   have htw : t'.wires = t.wires := by rw [ht']
   have htn : t'.name = t.name := by rw [ht']
