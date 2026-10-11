@@ -319,6 +319,23 @@ def diagHeads : List Name :=
    ``Sparkle.Compiler.flushStderr, ``IO.FS.Handle.mk, ``IO.FS.Handle.putStrLn, ``IO.FS.Handle.flush,
    ``Tools.ShippingChildInv.profLogIO, ``Lean.throwError]
 
+/-- No constructor of the frame-law class `framed` is about a diagnostic
+operation or a throw. -/
+def noDiagFrame (framed : Name) : MetaM Unit := do
+  let some (.inductInfo fr) := (← getEnv).find? framed | throwError "{framed}: not an inductive"
+  for c in fr.ctors do
+    let t := (← getConstInfo c).type
+    for d in diagHeads do
+      if (t.find? (·.isConstOf d)).isSome then
+        throwError "the unconditional frame law {c} is about {d}"
+
+/-- The message class `ok` admits no arbitrary lazy message. -/
+def noLazyMsg (ok : Name) : MetaM Unit := do
+  let some (.inductInfo oi) := (← getEnv).find? ok | throwError "{ok}: not an inductive"
+  for c in oi.ctors do
+    if (((← getConstInfo c).type).find? (·.isConstOf ``Lean.MessageData.ofLazy)).isSome then
+      throwError "{c} admits an arbitrary lazy message"
+
 def lawAudit (e : Name) : MetaM Unit := do
   let env ← getEnv
   let info ← getConstInfo e
@@ -334,9 +351,7 @@ def lawAudit (e : Name) : MetaM Unit := do
   let some (.inductInfo fr) := env.find? ``Tools.ShippingChildInv.Framed | throwError "Framed"
   for c in fr.ctors do
     unless seen.contains c do throwError "{e}: does not reach {c}"
-    let t ← tyOf c
-    for d in diagHeads do
-      if has t d then throwError "{e}: reaches the unconditional frame law {c} about {d}"
+  noDiagFrame ``Tools.ShippingChildInv.Framed
   -- the conditioned laws
   let proj (f : Name) : MetaM Lean.Expr := tyOf (``Tools.ShippingChildInv.RefLaws ++ f)
   let diagT ← proj `diag
@@ -346,13 +361,13 @@ def lawAudit (e : Name) : MetaM Unit := do
     throwError "{e}: rendering is a law for every message"
   unless has (← tyOf ``Tools.ShippingChildInv.OkMsg.withContext) ``Tools.ShippingChildInv.OkEnv do
     throwError "{e}: a captured context is accepted whatever its environment"
-  let some (.inductInfo ok) := env.find? ``Tools.ShippingChildInv.OkMsg | throwError "OkMsg"
-  for c in ok.ctors do
-    if has (← tyOf c) ``Lean.MessageData.ofLazy then throwError "{e}: {c} admits an arbitrary lazy message"
-  -- no exception-cell law; the rendered exception is a returned value
+  noLazyMsg ``Tools.ShippingChildInv.OkMsg
+  -- no law field speaks of a ref of type `Option Exception` (a check of the
+  -- field TYPES: there is no exception-cell law to read a provenance from)
   for f in getStructureFields env ``Tools.ShippingChildInv.RefLaws do
-    if (f.toString.splitOn "cell").length > 1 then throwError "{e}: an exception-cell law {f}"
-  unless seen.contains ``Sparkle.Compiler.Elab.Rec.tryInlineUnfold || true do pure ()
+    let t ← proj f
+    if (t.find? fun x => x.isAppOfArity ``Option 1 && x.appArg!.isConstOf ``Lean.Exception).isSome then
+      throwError "{e}: the law {f} speaks of an exception cell"
   -- the auxiliary predicate: no law field and no start condition mentions it
   for f in getStructureFields env ``Tools.ShippingChildInv.RefLaws do
     if f == `aux || f == `auxInsert then continue
@@ -367,6 +382,76 @@ def lawAudit (e : Name) : MetaM Unit := do
     let some (.defnInfo d) := env.find? c | throwError "{c}"
     if has d.value ``Tools.ShippingChildInv.RefLaws.aux then
       throwError "{e}: {c} asks the auxiliary predicate of a world"
+
+/-- **Where the rendered exception comes from** — checked on the compiler's
+handler and on its proof, not on the endpoints' types (an endpoint need not
+mention the helper): the handler allocates no ref and reads no exception
+cell, it calls the helper that returns the caught exception, and the proof
+that the handler keeps the invariant uses the helper's result theorem
+through the bind rule that hands the result's fact on. -/
+def provenanceAudit : MetaM Unit := do
+  let env ← getEnv
+  let some (.defnInfo h) := env.find? ``Sparkle.Compiler.Elab.Rec.handleDefinitionUnfold
+    | throwError "handleDefinitionUnfold"
+  let used := h.value.getUsedConstants
+  unless used.contains ``Sparkle.Compiler.Elab.Rec.tryInlineUnfold do
+    throwError "the handler does not call the inline helper"
+  -- the rendering site renders a VARIABLE bound by the helper's result
+  -- pattern, and the handler has no `Option Exception` ref
+  if (h.value.find? fun x => x.isAppOf ``IO.Ref &&
+      (x.find? (·.isConstOf ``Lean.Exception)).isSome).isSome then
+    throwError "the handler has an exception cell"
+  let some (.defnInfo t) := env.find? ``Sparkle.Compiler.Elab.Rec.tryInlineUnfold | throwError "helper"
+  if (t.value.find? fun x => x.isAppOf ``IO.Ref || x.isConstOf ``IO.mkRef || x.isConstOf ``ST.Ref.set).isSome then
+    throwError "the inline helper uses a ref"
+  let some (.thmInfo k) := env.find? ``Tools.ShippingChildInv.handleDefinitionUnfold_keeps
+    | throwError "handleDefinitionUnfold_keeps"
+  -- (through the proof's own auxiliary declarations)
+  let rec deep (fuel : Nat) (todo : List Name) (acc : NameSet) : NameSet :=
+    match fuel, todo with
+    | 0, _ | _, [] => acc
+    | fuel + 1, n :: rest =>
+      if acc.contains n then deep fuel rest acc
+      else
+        let acc := acc.insert n
+        if (``Tools.ShippingChildInv.handleDefinitionUnfold_keeps).isPrefixOf n then
+          match env.find? n with
+          | some (.thmInfo t) => deep fuel (t.value.getUsedConstants.toList ++ rest) acc
+          | some (.defnInfo d) => deep fuel (d.value.getUsedConstants.toList ++ rest) acc
+          | _ => deep fuel rest acc
+        else deep fuel rest acc
+  let usedK := deep 100000 k.value.getUsedConstants.toList {}
+  for c in [``Tools.ShippingChildInv.tryInlineUnfold_tripleC, ``Tools.ShippingChildInv.KeepsC.bindCaught] do
+    unless usedK.contains c do
+      throwError "the handler's invariance proof does not use {c}"
+  let some (.thmInfo r) := env.find? ``Tools.ShippingChildInv.tryInlineUnfold_tripleC | throwError "result thm"
+  unless r.value.getUsedConstants.contains ``Tools.ShippingChildInv.TripleC.tryCatchQ do
+    throwError "the helper's result theorem does not go through the catch rule"
+
+/-! Negative cases: the audit's checks reject what they are meant to reject. -/
+
+/-- A frame-law class with a diagnostic operation in it. -/
+inductive BadFramed : {α : Type} → MetaM α → Prop
+  | pp (e : Lean.Expr) : BadFramed (Lean.Meta.ppExpr e)
+
+/-- A message class with an arbitrary lazy message. -/
+inductive BadMsg : MessageData → Prop
+  | lazy (f : Option PPContext → BaseIO Dynamic) (g : MetavarContext → Bool) :
+      BadMsg (.ofLazy f g)
+
+def rejects (what : String) (act : MetaM Unit) : MetaM Unit := do
+  let r ← try act; pure false catch _ => pure true
+  unless r do throwError "the audit accepted: {what}"
+
+run_cmd Lean.Elab.Command.liftTermElabM do
+  rejects "a frame law about ppExpr" (noDiagFrame ``BadFramed)
+  rejects "a message class with an arbitrary lazy message" (noLazyMsg ``BadMsg)
+  rejects "a statement that does not ask the boundary" (lawAudit ``Nat.add_comm)
+  -- the open endpoint (it still asks the closing premise) passes the LAW
+  -- audit — that audit is about the laws, not about closing
+  lawAudit (``caller ++ `machine_design_svHR)
+  provenanceAudit
+  Lean.logInfo m!"AUDIT NEGATIVES: a frame-law class with a diagnostic operation, a message class with an arbitrary lazy message, and a statement not asking the boundary are rejected. PROVENANCE: the handler calls the inline helper and has no exception ref, the helper uses no ref, and the handler's invariance proof goes through the helper's result theorem (tryCatchQ) and the bind rule that hands the fact on"
 
 run_cmd Lean.Elab.Command.liftTermElabM do
   let hr := [``caller, ``callerTwice, ``callerNested, ``callerD,
