@@ -2015,3 +2015,12 @@ lean_lib «Tools.ShippingLegacySemInline» where
 
 lean_lib «Tools.ShippingLegacySemContract» where
   roots := #[`Tools.ShippingLegacySemContract]
+
+lean_lib «Tools.ShippingReaderTerm» where
+  roots := #[`Tools.ShippingReaderTerm]
+
+lean_lib «Tools.ShippingReaderInputs» where
+  roots := #[`Tools.ShippingReaderInputs]
+
+lean_lib «Tools.ShippingReaderMachine» where
+  roots := #[`Tools.ShippingReaderMachine]
