@@ -444,8 +444,31 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     Lean.Meta.forallTelescope (← Lean.Meta.inferType (Lean.mkConst c)) fun xs _ =>
       Lean.Meta.whnfD (Lean.mkAppN (Lean.mkConst c) xs)
   let body ← unfoldAt ``Tools.ShippingChildInv.ChildBnd
-  for c in [``Tools.ShippingChildInv.ChildLaws, ``Tools.ShippingChildInv.StartW] do
+  -- ONE law witness, with the start condition by ITS values and the start
+  -- world quiet for IT — not laws and a start condition side by side
+  for c in [``Tools.ShippingChildInv.RefLaws, ``Tools.ShippingChildInv.StartV,
+      ``Tools.ShippingChildInv.RefLaws.quiet] do
     unless mentions body c do throwError "ChildBnd unfolds without {c}"
+  for c in [``Tools.ShippingChildInv.ChildLaws, ``Tools.ShippingChildInv.StartW] do
+    if mentions body c then throwError "ChildBnd still separates the laws from the world ({c})"
+  unless body.isAppOf ``Exists do throwError "ChildBnd is not one witness: {body}"
+  -- the diagnostic operations are not generic frame laws: they are the class
+  -- `Diag`, whose law is asked in quiet worlds only
+  let env ← Lean.getEnv
+  for d in [`ppExpr, `ioEprintln, `msgToString, `ioGetStderr, `stderrFlush, `ioHandleMk,
+      `ioHandlePutStrLn, `ioHandleFlush, `profLog] do
+    if env.contains (``Tools.ShippingChildInv.Framed ++ d) then
+      throwError "Framed.{d}: a diagnostic operation is still an unconditional frame law"
+    unless env.contains (``Tools.ShippingChildInv.Diag ++ d) do throwError "Diag.{d} missing"
+  let fieldTy (f : Lean.Name) : Lean.MetaM Lean.Expr := do
+    Lean.Meta.inferType (Lean.mkConst (``Tools.ShippingChildInv.RefLaws ++ f))
+  let diagTy ← fieldTy `diag
+  unless mentions diagTy ``Tools.ShippingChildInv.Diag &&
+      mentions diagTy ``Tools.ShippingChildInv.RefLaws.quiet do
+    throwError "RefLaws.diag is not conditioned on quiet"
+  let frameTy ← fieldTy `frame
+  if mentions frameTy ``Tools.ShippingChildInv.Diag then
+    throwError "RefLaws.frame covers a diagnostic operation"
   let laws ← unfoldAt ``Tools.ShippingChildInv.ChildLaws
   for c in [``Tools.ShippingChildInv.RefLaws] do
     unless mentions laws c do throwError "ChildLaws unfolds without {c}"
@@ -534,7 +557,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     for ax in ← Lean.collectAxioms name do
       unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do
         throwError "{name} uses a non-standard axiom: {ax}"
-  Lean.logInfo m!"CHILD BOUNDARY ALONG THE RUN: {es.length} derived endpoints state ChildBnd at their run's start world (children's at worlds their premises bind), no ChildSynthIs / RefIs / CacheReads at any level; ChildBnd unfolds to RefLaws (generic: refs and Lean primitives; the body and the translator are proved under them — bodyRel, translateRel, legacyRel) + StartW (synthesis ref, and depth 0 or the cache invariant); the entry keeps the invariant by induction on the depth (entry_keeps, from BodyRel alone); the prefix, the memoised entry (hit / miss), the closings and the machine route keep the invariant; standard axioms"
+  Lean.logInfo m!"CHILD BOUNDARY ALONG THE RUN: {es.length} derived endpoints state ChildBnd at their run's start world (children's at worlds their premises bind), no ChildSynthIs / RefIs / CacheReads at any level; ChildBnd is ONE law witness with the start condition by its values and the start world quiet for it (∃ L, StartV L w ∧ L.quiet w); the diagnostic operations (Diag) are no generic frame law — RefLaws.diag is asked in quiet worlds only; the body, harness, translator and legacy block are proved under the laws, not assumed. NOT a runtime model: the laws stay assumptions, and Diag.msgToString is still for every message (G5 part 2 open)"
 
 /-! ### The cache on real compiles: repeated, nested, sequential + memory
 

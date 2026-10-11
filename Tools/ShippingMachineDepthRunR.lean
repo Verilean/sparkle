@@ -261,11 +261,11 @@ theorem machineRunNC_of_real {c : Name} {shape : MachineShape}
       Tools.ShippingChildInv.ChildRanIn mref cref c mctx cctx →
       Bnd mctx mref cctx cref w raw D →
       Tools.ShippingChildInv.MachineClosesAt mctx mref cctx cref c shape)
-    (hL : Tools.ShippingChildInv.ChildLaws mref cref) (hi : shape.insts ≠ []) :
+    (hi : shape.insts ≠ []) :
     MachineRunNC c shape Bnd mc dsn := by
   obtain ⟨mctx, cctx, w, w', hin, hw, hrun⟩ := hreal.ranIn
   have hb : Tools.ShippingChildInv.ChildBnd mref cref w :=
-    ⟨hL, Tools.ShippingChildInv.startW_of_invW hw⟩
+    Tools.ShippingChildInv.ChildBnd.of_invW mctx cctx hw
   have entry : MachineDefines mctx mref cctx cref c shape :=
     Tools.ShippingReflectCtx.MachineDefines.ctx entry₀
   have hB := hctx mctx cctx hin

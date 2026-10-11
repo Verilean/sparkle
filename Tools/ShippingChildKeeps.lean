@@ -157,25 +157,47 @@ theorem Triple.of_runs {α : Type} {P : Void IO.RealWorld → Prop} {m : MetaM �
 variable (L : RefLaws mref cref)
 
 theorem J_same {D : Nat} {w w'}
-    (hk : L.val w' = L.val w ∧ L.sval w' = L.sval w ∧ L.dval w' = L.dval w) (h : J L D w) :
+    (hk : L.val w' = L.val w ∧ L.sval w' = L.sval w ∧ L.dval w' = L.dval w)
+    (hq : L.quiet w → L.quiet w') (h : J L D w) :
     J L D w' := by
-  unfold J InvV; rw [hk.1, hk.2.1, hk.2.2]; exact h
+  unfold J InvV; rw [hk.1, hk.2.1, hk.2.2]; exact ⟨⟨h.1.1, h.1.2.1, hq h.1.2.2⟩, h.2⟩
+
+/-- An operation (generic or diagnostic) from an invariant world: the values
+are left and the end world is quiet, on every outcome. -/
+theorem op_end {α : Type} {p : MetaM α} (hp : Op p) {D : Nat} {w} (hw : J L D w) :
+    J L D (endW mctx mref cctx cref p w) := by
+  cases hp with
+  | framed hf =>
+    exact J_same L (L.frame (mctx := mctx) (cctx := cctx) p hf w)
+      (L.frameQ (mctx := mctx) (cctx := cctx) p hf w) hw
+  | diag hd =>
+    have := L.diag (mctx := mctx) (cctx := cctx) p hd w hw.1.2.2
+    exact J_same L this.1 (fun _ => this.2) hw
 
 /-- A framed operation keeps the invariant at its depth, on every outcome. -/
+theorem Triple.op {α : Type} {p : MetaM α} (hp : Op p) (D : Nat) :
+    Triple mctx mref cctx cref (J L D) p (fun _ => J L D) (J L D) :=
+  keeps_iff.mp fun w hw => op_end L hp hw
+
 theorem Triple.frame {α : Type} {p : MetaM α} (hp : Framed p) (D : Nat) :
     Triple mctx mref cctx cref (J L D) p (fun _ => J L D) (J L D) :=
-  keeps_iff.mp fun w hw => J_same L (L.frame (mctx := mctx) (cctx := cctx) p hp w) hw
+  Triple.op L (.framed hp) D
+
+/-- A diagnostic operation keeps the invariant (its worlds are quiet). -/
+theorem Triple.diag {α : Type} {p : MetaM α} (hp : Diag p) (D : Nat) :
+    Triple mctx mref cctx cref (J L D) p (fun _ => J L D) (J L D) :=
+  Triple.op L (.diag hp) D
 
 /-- A framed operation, with a fact of its result on a successful run. -/
 theorem Triple.frameQ {α : Type} {p : MetaM α} (hp : Framed p) (D : Nat) {φ : α → Prop}
     (hφ : ∀ w a w', J L D w → RunsTo p mctx mref cctx cref w a w' → φ a) :
     Triple mctx mref cctx cref (J L D) p (fun a w => J L D w ∧ φ a) (J L D) := by
   intro w hw
-  have hk := L.frame (mctx := mctx) (cctx := cctx) p hp w
+  have hk := op_end (mctx := mctx) (cctx := cctx) L (.framed hp) hw
   unfold endW at hk
   cases hm : p mctx mref cctx cref w with
-  | ok a w1 => rw [hm] at hk; exact ⟨J_same L hk hw, hφ w a w1 hw hm⟩
-  | error e w1 => rw [hm] at hk; exact J_same L hk hw
+  | ok a w1 => rw [hm] at hk; exact ⟨hk, hφ w a w1 hw hm⟩
+  | error e w1 => rw [hm] at hk; exact hk
 
 /-- `throwError` does not return. -/
 theorem throwError_not_runs {α : Type} (msg : MessageData) {w a w'}
@@ -190,11 +212,11 @@ theorem Triple.throwErr {α : Type} (msg : MessageData) (D : Nat)
     {Q : α → Void IO.RealWorld → Prop} :
     Triple mctx mref cctx cref (J L D) (Lean.throwError msg : MetaM α) Q (J L D) := by
   intro w hw
-  have hk := L.frame (mctx := mctx) (cctx := cctx) _ (Framed.throwErr (α := α) msg) w
+  have hk := op_end (mctx := mctx) (cctx := cctx) L (.framed (Framed.throwErr (α := α) msg)) hw
   unfold endW at hk
   cases hm : (Lean.throwError msg : MetaM α) mctx mref cctx cref w with
   | ok a w1 => exact (throwError_not_runs msg hm).elim
-  | error e w1 => rw [hm] at hk; exact J_same L hk hw
+  | error e w1 => rw [hm] at hk; exact hk
 
 /-- The cache's clear keeps the invariant at its depth (it cannot fail). -/
 theorem Triple.clear (D : Nat) {R : Void IO.RealWorld → Prop} :
@@ -202,9 +224,9 @@ theorem Triple.clear (D : Nat) {R : Void IO.RealWorld → Prop} :
       (fun _ => J L D) R :=
   Triple.of_runs (refSet_runs _ _) fun w u w' hw h => by
     obtain ⟨hv, hs, hd⟩ := L.cacheSet _ _ _ _ h
-    refine ⟨⟨?_, ?_⟩, ?_⟩
+    refine ⟨⟨?_, ?_, L.cacheSetQ _ _ _ _ h hw.1.2.2⟩, ?_⟩
     · rw [hv]; exact cacheInv_empty
-    · rw [hs]; exact hw.1.2
+    · rw [hs]; exact hw.1.2.1
     · rw [hd]; exact hw.2
 
 /-- Setting the depth moves the invariant to that depth (it cannot fail). -/
@@ -213,18 +235,18 @@ theorem Triple.depthSet (D v : Nat) {R : Void IO.RealWorld → Prop} :
       (fun _ => J L v) R :=
   Triple.of_runs (refSet_runs _ _) fun w u w' hw h => by
     obtain ⟨hv, hs, hd⟩ := L.depthSet _ _ _ _ h
-    refine ⟨⟨?_, ?_⟩, hd⟩
+    refine ⟨⟨?_, ?_, L.depthSetQ _ _ _ _ h hw.1.2.2⟩, hd⟩
     · rw [hv]; exact hw.1.1
-    · rw [hs]; exact hw.1.2
+    · rw [hs]; exact hw.1.2.1
 
 theorem Triple.depthModify (D : Nat) (f : Nat → Nat) {R : Void IO.RealWorld → Prop} :
     Triple mctx mref cctx cref (J L D) (ST.Ref.modify sparkleSynthDepth f : MetaM Unit)
       (fun _ => J L (f D)) R :=
   Triple.of_runs (refModify_runs _ _) fun w u w' hw h => by
     obtain ⟨hv, hs, hd⟩ := L.depthModify _ _ _ _ h
-    refine ⟨⟨?_, ?_⟩, ?_⟩
+    refine ⟨⟨?_, ?_, L.depthModifyQ _ _ _ _ h hw.1.2.2⟩, ?_⟩
     · rw [hv]; exact hw.1.1
-    · rw [hs]; exact hw.1.2
+    · rw [hs]; exact hw.1.2.1
     · rw [hd, hw.2]
 
 /-! ## The memoised entry -/
@@ -243,7 +265,8 @@ theorem child_keeps (D : Nat)
   unfold synthesizeChild
   refine Triple.bind (Q := fun m w1 => J L D w1 ∧ m = L.val w1)
     (Triple.of_runs (refGet_runs _) fun w m w' hw h =>
-      ⟨J_same L (L.same .cacheGet h) hw, by rw [L.cacheGet _ _ _ h, (L.same .cacheGet h).1]⟩) ?_
+      ⟨J_same L (L.same .cacheGet h) (L.sameQ .cacheGet h) hw,
+        by rw [L.cacheGet _ _ _ h, (L.same .cacheGet h).1]⟩) ?_
   intro m
   cases hc : m.get? c with
   | some r =>
@@ -262,9 +285,9 @@ theorem child_keeps (D : Nat)
       refine Triple.bind (Q := fun _ w3 => J L D w3)
         (Triple.of_runs (refModify_runs _ _) fun w u w' hw h => ?_) ?_
       · obtain ⟨hv, hs, hd⟩ := L.cacheModify _ _ _ _ h
-        refine ⟨⟨?_, ?_⟩, ?_⟩
+        refine ⟨⟨?_, ?_, L.cacheModifyQ _ _ _ _ h hw.1.1.2.2⟩, ?_⟩
         · rw [hv]; exact cacheInv_insert hw.1.1.1 hw.2
-        · rw [hs]; exact hw.1.1.2
+        · rw [hs]; exact hw.1.1.2.1
         · rw [hd]; exact hw.1.2
       · intro _
         exact Triple.pure fun w hw => hw
@@ -323,7 +346,7 @@ theorem core_keeps (D : Nat) (declName : Name)
   simp only [Bool.false_eq_true, ↓reduceIte]
   refine Triple.bind (Triple.frame L (Framed.ioEnv _) D) ?_
   intro prof
-  refine Triple.bind (Triple.frame L (Framed.profLog prof.isSome _) D) ?_
+  refine Triple.bind (Triple.diag L (Diag.profLog prof.isSome _) D) ?_
   intro _
   refine Triple.bindQ (φ := fun d => d = D)
     (Triple.frameQ L Framed.depthGet D fun w d w' hw h => by rw [L.depthGet _ _ _ h]; exact hw.2) ?_
@@ -421,25 +444,23 @@ theorem childKeeps_all (hB : BodyRel L) (D : Nat) : ChildKeeps L D :=
 /-! ## On a successful run -/
 
 /-- A returning run of the real entry from an invariant world ends in one. -/
-theorem entry_inv (hB : BodyRel L) {c : Name} {w r w'} (hw : InvW mref cref w)
+theorem entry_inv (hB : BodyRel L) {c : Name} {w r w'} (hw : InvV L w)
     (h : RunsTo (synthesizeCombinational c) mctx mref cctx cref w r w') :
-    InvW mref cref w' := by
-  have := entry_keeps_all (mctx := mctx) (cctx := cctx) L hB (L.dval w) c w
-    ⟨invV_of_invW mctx cctx L hw, rfl⟩
+    InvV L w' := by
+  have := entry_keeps_all (mctx := mctx) (cctx := cctx) L hB (L.dval w) c w ⟨hw, rfl⟩
   rw [endW_of_runs h] at this
-  exact invW_of_invV L this.1
+  exact this.1
 
 /-- A returning run of the machine route's harness, with the entry's logger,
 from an invariant world ends in one. -/
 theorem harness_inv (hB : BodyRel L) (hH : HarnessRel L) {b : Bool} {declName bs body}
-    {w r w'} (hw : InvW mref cref w)
+    {w r w'} (hw : InvV L w)
     (h : RunsTo (synthesizeMixedCertified
       (fun e hint top named => translateExprToWire e hint top named) (profLogIO b) declName bs body)
-      mctx mref cctx cref w r w') : InvW mref cref w' := by
-  have := hH (L.dval w) (childKeeps_all L hB _) mctx cctx b declName bs body w
-    ⟨invV_of_invW mctx cctx L hw, rfl⟩
+      mctx mref cctx cref w r w') : InvV L w' := by
+  have := hH (L.dval w) (childKeeps_all L hB _) mctx cctx b declName bs body w ⟨hw, rfl⟩
   rw [endW_of_runs h] at this
-  exact invW_of_invV L this.1
+  exact this.1
 
 /-! ## The machine route's own code -/
 
@@ -459,7 +480,7 @@ theorem Triple.mapM {α β : Type} {I : Void IO.RealWorld → Prop} (f : α → 
 theorem Triple.synthRead (D : Nat) :
     Triple mctx mref cctx cref (J L D) (sparkleChildSynth.get : MetaM _)
       (fun s w => J L D w ∧ s = some synthesizeChild) (J L D) :=
-  Triple.frameQ L Framed.synthGet D fun _ _ _ hw h => (L.synthGet _ _ _ h).trans hw.1.2
+  Triple.frameQ L Framed.synthGet D fun _ _ _ hw h => (L.synthGet _ _ _ h).trans hw.1.2.1
 
 /-- **The one-output closing keeps the invariant**, given the memoised child
 entry does: the synthesis ref's read, then one `synthesizeChild` per call

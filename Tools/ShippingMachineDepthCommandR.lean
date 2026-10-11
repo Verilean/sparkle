@@ -468,7 +468,7 @@ partial def generateCoreNR (declName : Name) (dep : Nat) : MetaM Name := do
           proveByTacticT goalK `(tactic| (intro _ mctx' cctx' mc Dc w w' hw hrun _ _; exact ⟨_, _, _, _, w, w', Dc, hrun, Tools.ShippingReflectCtx.MachineDefines.ctx ($hPS).1, ($hPS).2 mctx' cctx' (Tools.ShippingChildInv.ChildRanIn.of_run hw hrun)⟩))
         else match namesOf.get? c with
           | none =>
-            proveByTacticT goalK `(tactic| (intro _ mctx' cctx' mc Dc w w' hw hrun hcons _; exact Tools.ShippingMachineDepthRun.machineRunNC_of_real (Tools.ShippingChildInv.RealChild.of_inv hw hrun) hcons ($hPS).1 (fun mc cc ran => (($hPS).2 mc cc ran).2) (fun mc cc _ _ _ ran _ => (($hPS).2 mc cc ran).1) (Tools.ShippingChildInv.ChildBnd.laws (by assumption)) (by decide)))
+            proveByTacticT goalK `(tactic| (intro _ mctx' cctx' mc Dc w w' hw hrun hcons _; exact Tools.ShippingMachineDepthRun.machineRunNC_of_real (Tools.ShippingChildInv.RealChild.of_inv hw hrun) hcons ($hPS).1 (fun mc cc ran => (($hPS).2 mc cc ran).2) (fun mc cc _ _ _ ran _ => (($hPS).2 mc cc ran).1) (by decide)))
           | some names => do
             -- the closing, from the child's boundary: `c.machine_closes_at`
             let some bnd := bndOf.get? c | throwError "{declName}: boundary of {c}"
@@ -484,7 +484,7 @@ partial def generateCoreNR (declName : Name) (dep : Nat) : MetaM Name := do
                 let nameHs ← projs (← mkAppM ``And.left #[← mkAppM ``And.right #[hP]]) names
                 mkLambdaFVars #[mc', cc', wc, raw, dD, hran, hb] (← closesAtProof c ctx' hb nameHs)
             withLocalDeclD `hclC (← inferType hclE) fun hclV => do
-              let pr ← proveByTacticT goalK `(tactic| (intro _ mctx' cctx' mc Dc w w' hw hrun hcons _; exact Tools.ShippingMachineDepthRun.machineRunNC_of_real (Tools.ShippingChildInv.RealChild.of_inv hw hrun) hcons ($hPS).1 (fun mc cc ran => ($hPS).2.2 mc cc ran) $(mkIdent `hclC) (Tools.ShippingChildInv.ChildBnd.laws (by assumption)) (by decide)))
+              let pr ← proveByTacticT goalK `(tactic| (intro _ mctx' cctx' mc Dc w w' hw hrun hcons _; exact Tools.ShippingMachineDepthRun.machineRunNC_of_real (Tools.ShippingChildInv.RealChild.of_inv hw hrun) hcons ($hPS).1 (fun mc cc ran => ($hPS).2.2 mc cc ran) $(mkIdent `hclC) (by decide)))
               pure ((← mkLambdaFVars #[hclV] pr).beta #[hclE])
     perR := perR.push prK
   let nameT := mkConst ``Name

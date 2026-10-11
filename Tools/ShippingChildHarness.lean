@@ -223,7 +223,7 @@ theorem emitLeaves_tripleC (D : Nat) (b : Bool) (cacheRef : IO.Ref (Lean.ExprStr
       TripleC.lift (Triple.frame L (Framed.sideGet .cacheHits) D)
     have log : ∀ msg, TripleC mctx mref cctx cref (J L D)
         (CompilerM.liftMetaM (liftM (profLogIO b msg))) (fun _ => J L D) (J L D) :=
-      fun msg => TripleC.lift (Triple.frame L (Framed.profLog b msg) D)
+      fun msg => TripleC.lift (Triple.diag L (Diag.profLog b msg) D)
     refine TripleC.bind clock ?_; intro t0
     refine TripleC.bind calls ?_; intro c0
     refine TripleC.bind hits ?_; intro h0

@@ -181,7 +181,64 @@ semantics; no timing, no X/Z, no multi-clock.
 
 ### G5 — the diagnostic laws: what is wrong and the design to fix it (2026-10-11, third pass)
 
-**Status: NOT fixed.** `msgToString (m : MessageData)` is a frame law for
+**Status 2026-10-11 (fourth pass): part 1 (`quiet`) IMPLEMENTED and every
+dependent re-verified; part 2 (`msgToString` provenance) NOT done.**
+
+Part 1, as implemented (`Tools/ShippingChildInv.lean`):
+
+* `Framed` no longer contains the diagnostic operations. They are the
+  separate class `Diag`: `ppExpr`, `IO.eprintln`, `msgToString`,
+  `IO.getStderr`, `flushStderr`, `Handle.mk` / `putStrLn` / `flush`,
+  `profLog`.
+* `RefLaws` has a field `quiet : world → Prop`. `frame` (the generic
+  operations) is unchanged and unconditional. `diag` is asked ONLY in quiet
+  worlds: values left and the end world quiet, on every outcome. The
+  generic operations and the tracked refs' writes keep quietness
+  (`frameQ`, `cacheSetQ`, `cacheModifyQ`, `depthSetQ`, `depthModifyQ` — the
+  trusted condition T2); the telescope laws' closure premise carries it.
+* `quiet` is a conjunct of the invariant (`InvV`, `J`, `InvC`), so every
+  `Keeps` theorem (`bodyRel`, `legacyRel`, `translateRel`, `harnessRel_of`)
+  is re-proved under the new laws — no proof of them uses a diagnostic frame
+  outside a quiet world.
+* `ChildBnd w := ∃ L, StartV L w ∧ L.quiet w`: ONE witness, whose start
+  condition and quietness are about the run's start world. It is no longer
+  `Nonempty RefLaws ∧ StartW w`.
+* The law-free invariant `InvW` (what `RealChild`, `MachineClosesAt` and the
+  depth premises speak of) carries `∃ L, L.quiet w`: a child's world is quiet
+  for a witness, and the laws used from that world on are that witness's
+  (`invV_of_invW` returns it). `MachineClosesAt` lost its separate
+  `ChildLaws` premise for that reason. The witness at a child's world is
+  DERIVED from the parent's (the parent's invariant, by `invW_of_invV`), not
+  assumed; but it is existentially re-packed there, so the statement "the
+  same `L` throughout" holds along one entry's own run, and per child world
+  "some `L` quiet here".
+* This is not vacuous by `quiet := False` (the endpoint asks `L.quiet w₀`),
+  and `quiet := True` is the old, stronger assumption as a special case.
+
+What part 1 does NOT do: (i) `Diag.msgToString m` is still for EVERY message
+`m` (in quiet worlds) — a lazy message carries code, which no world
+predicate covers; (ii) `profLog` is still one constructor naming the whole
+logger, not derived from its parts (`eprintln`, `flushStderr`, the file
+handle), which are in `Diag` separately; (iii) the elaborator primitives
+(`whnf`, `inferType`, `reduce`, `unfoldDefinition?`, `mkAppM`, …) stay in
+the unconditional class — trusted (they evaluate terms, but `whnf` can run
+compiled code through `reduceBool` / `reduceNat`); (iv) no runtime model
+shows the laws satisfiable: these remain conditional theorems.
+
+Part 2 design, with what it needs concretely (not started in code):
+`OkMsg : MessageData → Prop` as an INDUCTIVE (composition constructors
+provable; leaves `ofFormat`, `ofExpr`, `ofName`, … an explicit trusted list),
+`OkExc`; a law `excOk` (T3: an exception a primitive throws from a quiet
+world is `OkExc`); the message law only for `OkMsg m`; `Keeps` / `Triple`
+gain "the thrown exception is `OkExc`" (so `tryCatch` hands its handler an
+`OkExc` exception, including runs that fail and continue); the content of
+`lastInlineFail` tracked by generic laws of run-local refs of type
+`Option Exception` (`mkRef` / `get` / `set` values) with "holds an `OkExc`"
+in the invariant; an `OkMsg` side goal at each of the compiler's 61
+`throwError` sites and 19 `throw (Exception.error …)` sites, closed by
+closure lemmas.
+
+Earlier text (third pass): **NOT fixed.** `msgToString (m : MessageData)` is a frame law for
 EVERY message; it is false of the runtime (a lazy message's thunk can write
 the cache). That the kernel cannot refute it (`formatAux` is opaque) does
 not make it true. `ppExpr`, `ioEprintln`, `stderrFlush`, `profLog` and the

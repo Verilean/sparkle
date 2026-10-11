@@ -63,9 +63,9 @@ theorem Keeps.throwError {α : Type} (L : RefLaws mref cref) (D : Nat) (msg : Me
   keeps_iff.mpr (Triple.throwErr L msg D)
 
 /-- An operation whose frame is a law. -/
-theorem Keeps.framed {α : Type} (L : RefLaws mref cref) (D : Nat) {p : MetaM α} (hp : Framed p) :
+theorem Keeps.framed {α : Type} (L : RefLaws mref cref) (D : Nat) {p : MetaM α} (hp : Op p) :
     Keeps mctx mref cctx cref (J L D) p :=
-  keeps_iff.mpr (Triple.frame L hp D)
+  keeps_iff.mpr (Triple.op L hp D)
 
 theorem Keeps.mapM {α β : Type} {I : Void IO.RealWorld → Prop} (f : α → MetaM β)
     (hf : ∀ x, Keeps mctx mref cctx cref I (f x)) (l : List α) :
@@ -126,7 +126,7 @@ theorem Keeps.lambdaTelescope {α : Type} (L : RefLaws mref cref) (D : Nat) (e :
     (hk : ∀ (mctx' : Meta.Context) (cctx' : Core.Context) xs b,
       Keeps mctx' mref cctx' cref (J L D) (k xs b)) :
     Keeps mctx mref cctx cref (J L D) (Lean.Meta.lambdaTelescope e k cleanup) :=
-  L.lamTelescope (J L D) (fun _ _ h1 h2 h3 hw => J_same L ⟨h1, h2, h3⟩ hw) e k cleanup hk
+  L.lamTelescope (J L D) (fun _ _ h1 h2 h3 hq hw => J_same L ⟨h1, h2, h3⟩ hq hw) e k cleanup hk
 
 /-- `forallTelescopeReducing`: its continuation, in whatever contexts it runs. -/
 theorem Keeps.forallTelescopeReducing {α : Type} (L : RefLaws mref cref) (D : Nat) (ty : Lean.Expr)
@@ -134,7 +134,7 @@ theorem Keeps.forallTelescopeReducing {α : Type} (L : RefLaws mref cref) (D : N
     (hk : ∀ (mctx' : Meta.Context) (cctx' : Core.Context) xs b,
       Keeps mctx' mref cctx' cref (J L D) (k xs b)) :
     Keeps mctx mref cctx cref (J L D) (Lean.Meta.forallTelescopeReducing ty k) :=
-  L.telescope (J L D) (fun _ _ h1 h2 h3 hw => J_same L ⟨h1, h2, h3⟩ hw) ty k hk
+  L.telescope (J L D) (fun _ _ h1 h2 h3 hq hw => J_same L ⟨h1, h2, h3⟩ hq hw) ty k hk
 
 /-- A `for` loop over a list: its body, at every element and accumulator. -/
 theorem Keeps.forIn_list {α β : Type} {I : Void IO.RealWorld → Prop}
@@ -193,7 +193,7 @@ theorem Keeps.withLocalDeclD {α : Type} (L : RefLaws mref cref) (D : Nat) (n : 
     (hk : ∀ (mctx' : Meta.Context) (cctx' : Core.Context) x,
       Keeps mctx' mref cctx' cref (J L D) (k x)) :
     Keeps mctx mref cctx cref (J L D) (Lean.Meta.withLocalDeclD n ty k) :=
-  L.localDecl (J L D) (fun _ _ h1 h2 h3 hw => J_same L ⟨h1, h2, h3⟩ hw) n ty k hk
+  L.localDecl (J L D) (fun _ _ h1 h2 h3 hq hw => J_same L ⟨h1, h2, h3⟩ hq hw) n ty k hk
 
 /-- `withLetDecl`: its continuation, in whatever contexts it runs. -/
 theorem Keeps.withLetDecl {α : Type} (L : RefLaws mref cref) (D : Nat) (n : Name)
@@ -201,7 +201,7 @@ theorem Keeps.withLetDecl {α : Type} (L : RefLaws mref cref) (D : Nat) (n : Nam
     (hk : ∀ (mctx' : Meta.Context) (cctx' : Core.Context) x,
       Keeps mctx' mref cctx' cref (J L D) (k x)) :
     Keeps mctx mref cctx cref (J L D) (Lean.Meta.withLetDecl n ty v k) :=
-  L.letDecl (J L D) (fun _ _ h1 h2 h3 hw => J_same L ⟨h1, h2, h3⟩ hw) n ty v k hk
+  L.letDecl (J L D) (fun _ _ h1 h2 h3 hq hw => J_same L ⟨h1, h2, h3⟩ hq hw) n ty v k hk
 
 /-! ## The rules, in `KeepsC` form -/
 

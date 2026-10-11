@@ -123,7 +123,6 @@ inductive Framed : {α : Type} → MetaM α → Prop
   | sideModifyIO {σ : Type} {r : IO.Ref σ} (f : σ → σ) : SideRef r →
       Framed (liftM (ST.Ref.modify r f : IO Unit) : MetaM Unit)
   | ioEnv (n : String) : Framed (liftM (IO.getEnv n) : MetaM _)
-  | profLog (b : Bool) (msg : String) : Framed (liftM (profLogIO b msg) : MetaM Unit)
   | constInfo (n : Name) : Framed (getConstInfo n : MetaM _)
   | env : Framed (getEnv : MetaM Environment)
   | throwErr {α : Type} (msg : MessageData) : Framed (throwError msg : MetaM α)
@@ -135,7 +134,6 @@ inductive Framed : {α : Type} → MetaM α → Prop
   states, not these refs) -/
   | whnf (e : Lean.Expr) : Framed (Lean.Meta.whnf e)
   | inferType (e : Lean.Expr) : Framed (Lean.Meta.inferType e)
-  | ppExpr (e : Lean.Expr) : Framed (Lean.Meta.ppExpr e)
   | isClass? (e : Lean.Expr) : Framed (Lean.Meta.isClass? e)
   | whnfUntil (e : Lean.Expr) (n : Name) : Framed (Lean.Meta.whnfUntil e n)
   | instantiateForall (e : Lean.Expr) (ps : Array Lean.Expr) :
@@ -144,17 +142,6 @@ inductive Framed : {α : Type} → MetaM α → Prop
       generalizeNondepLet : Bool) (bi : BinderInfo) :
       Framed (Lean.Meta.mkLambdaFVars xs e usedOnly usedLetOnly etaReduce generalizeNondepLet bi)
   | mkAppM (c : Name) (xs : Array Lean.Expr) : Framed (Lean.Meta.mkAppM c xs)
-  | ioEprintln (s : String) : Framed (liftM (IO.eprintln s) : MetaM Unit)
-  | msgToString (m : MessageData) : Framed (liftM m.toString : MetaM String)
-  | ioGetStderr : Framed (liftM IO.getStderr : MetaM IO.FS.Stream)
-  /- the flush of the process's standard error — NOT of an arbitrary stream:
-  `IO.FS.Stream` is a structure of closures, and a frame law for `h.flush` of
-  any `h` contradicts the cache laws (a stream whose `flush` writes the cache) -/
-  | stderrFlush : Framed (liftM Sparkle.Compiler.flushStderr : MetaM Unit)
-  | ioHandleMk (p : System.FilePath) (m : IO.FS.Mode) :
-      Framed (liftM (IO.FS.Handle.mk p m) : MetaM IO.FS.Handle)
-  | ioHandlePutStrLn (h : IO.FS.Handle) (s : String) : Framed (liftM (h.putStrLn s) : MetaM Unit)
-  | ioHandleFlush (h : IO.FS.Handle) : Framed (liftM h.flush : MetaM Unit)
   | unfoldDefinition? (e : Lean.Expr) : Framed (Lean.Meta.unfoldDefinition? e)
   | reduce (e : Lean.Expr) (explicitOnly skipTypes skipProofs : Bool) :
       Framed (Lean.Meta.reduce e explicitOnly skipTypes skipProofs)
@@ -187,6 +174,34 @@ inductive Framed : {α : Type} → MetaM α → Prop
       (f : Lean.ExprStructMap String → Lean.ExprStructMap String) :
       Framed (ST.Ref.modify r f : MetaM Unit)
 
+/-- **The diagnostic operations**: printing an expression, rendering a
+message, writing to the process's standard error or to a file handle, the
+entry's profile logger. Their ARGUMENTS are data; what they run is the
+environment's — registered pretty-printers, the installed standard-error
+stream. That they leave the three tracked values is NOT a generic law of ref
+operations: it is asked only in worlds the laws call `quiet`
+(`RefLaws.diag`). (`msgToString` takes a message, which can carry code of
+its own: see the audit, G5 — its law is still over-general.) -/
+inductive Diag : {α : Type} → MetaM α → Prop
+  | profLog (b : Bool) (msg : String) : Diag (liftM (profLogIO b msg) : MetaM Unit)
+  | ppExpr (e : Lean.Expr) : Diag (Lean.Meta.ppExpr e)
+  | ioEprintln (s : String) : Diag (liftM (IO.eprintln s) : MetaM Unit)
+  | msgToString (m : MessageData) : Diag (liftM m.toString : MetaM String)
+  | ioGetStderr : Diag (liftM IO.getStderr : MetaM IO.FS.Stream)
+  /- the flush of the process's standard error — NOT of an arbitrary stream:
+  `IO.FS.Stream` is a structure of closures, and a frame law for `h.flush` of
+  any `h` contradicts the cache laws (a stream whose `flush` writes the cache) -/
+  | stderrFlush : Diag (liftM Sparkle.Compiler.flushStderr : MetaM Unit)
+  | ioHandleMk (p : System.FilePath) (m : IO.FS.Mode) :
+      Diag (liftM (IO.FS.Handle.mk p m) : MetaM IO.FS.Handle)
+  | ioHandlePutStrLn (h : IO.FS.Handle) (s : String) : Diag (liftM (h.putStrLn s) : MetaM Unit)
+  | ioHandleFlush (h : IO.FS.Handle) : Diag (liftM h.flush : MetaM Unit)
+
+/-- An operation the invariant is kept by: a generic one, or a diagnostic. -/
+inductive Op : {α : Type} → MetaM α → Prop
+  | framed {α : Type} {p : MetaM α} : Framed p → Op p
+  | diag {α : Type} {p : MetaM α} : Diag p → Op p
+
 section Runs
 variable (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State)
   (cctx : Core.Context) (cref : ST.Ref IO.RealWorld Core.State)
@@ -210,55 +225,6 @@ the like), and a child may be synthesised under such a changed context: a
 statement tied to the endpoint's own contexts would not survive that. -/
 variable (mref : ST.Ref IO.RealWorld Meta.State) (cref : ST.Ref IO.RealWorld Core.State)
 
-/-- In world `w`, a read of the synthesis ref returns `synthesizeChild`. -/
-def SynthAt (w : Void IO.RealWorld) : Prop :=
-  ∀ (mctx : Meta.Context) (cctx : Core.Context) s w1,
-    RunsTo (sparkleChildSynth.get : MetaM _) mctx mref cctx cref w s w1 → s = some synthesizeChild
-
-/-- `r` is returned by a run of the real entry on `c` — in SOME Meta and Core
-contexts, over these state references — starting in a world where the
-cache's entries are `RealChild` and the synthesis ref reads
-`synthesizeChild`. -/
-inductive RealChild : Name → Res → Prop
-  | run {c : Name} {r : Res} (mctx : Meta.Context) (cctx : Core.Context)
-      (w w' : Void IO.RealWorld)
-      (cache : ∀ (mctx' : Meta.Context) (cctx' : Core.Context) m w1,
-        RunsTo (sparkleChildCache.get : MetaM _) mctx' mref cctx' cref w m w1 →
-        ∀ c' r', m.get? c' = some r' → RealChild c' r')
-      (synth : SynthAt mref cref w)
-      (hr : RunsTo (synthesizeCombinational c) mctx mref cctx cref w r w') : RealChild c r
-
-/-- Every entry of the map is a `RealChild`. -/
-def CacheInv (m : Std.HashMap Name Res) : Prop :=
-  ∀ c r, m.get? c = some r → RealChild mref cref c r
-
-/-- The cache's entries read in `w` are `RealChild`s. -/
-def CacheAt (w : Void IO.RealWorld) : Prop :=
-  ∀ (mctx : Meta.Context) (cctx : Core.Context) m w1,
-    RunsTo (sparkleChildCache.get : MetaM _) mctx mref cctx cref w m w1 → CacheInv mref cref m
-
-/-- The invariant in world `w`, by what reads in `w` return. -/
-def InvW (w : Void IO.RealWorld) : Prop :=
-  CacheAt mref cref w ∧ SynthAt mref cref w
-
-/-- **The start condition of an entry run** in world `w`: the synthesis ref
-reads `synthesizeChild`, and EITHER the synthesis depth reads 0 (an outermost
-run: the entry clears the cache, whatever it holds) OR the cache's entries
-are `RealChild`s (a nested run inherits the invariant). -/
-def StartW (w : Void IO.RealWorld) : Prop :=
-  SynthAt mref cref w ∧
-    ((∀ (mctx : Meta.Context) (cctx : Core.Context) d w1,
-        RunsTo (ST.Ref.get sparkleSynthDepth : MetaM Nat) mctx mref cctx cref w d w1 → d = 0) ∨
-     CacheAt mref cref w)
-
-/-- The children of a shape's calls, call by call: the built memory module
-for a memory call, a `RealChild` of the call's declaration otherwise. -/
-def ChildrenReal (shape : MachineShape) (children : List Res) : Prop :=
-  children.length = shape.insts.length ∧
-  ∀ k (hk : k < shape.insts.length), ∃ y, children[k]? = some y ∧
-    (Sparkle.Compiler.MachMemory.memChild? (shape.insts[k]).1 = some y ∨
-      RealChild mref cref (shape.insts[k]).1 y)
-
 /-- **Generic runtime laws** (a parameter, never proved), for runs over these
 state references in EVERY Meta and Core context. The values of the cache, of
 the synthesis ref and of the synthesis depth in each world; what a SUCCESSFUL
@@ -269,6 +235,33 @@ structure RefLaws where
   val : Void IO.RealWorld → Std.HashMap Name Res
   sval : Void IO.RealWorld → Option (Name → MetaM Res)
   dval : Void IO.RealWorld → Nat
+  /-- The worlds in which the diagnostic operations do not touch the three
+  refs: no registered printer and not the installed standard error writes
+  them. An ENVIRONMENT condition, asked of the run's start world
+  (`ChildBnd`) and carried by the invariant. -/
+  quiet : Void IO.RealWorld → Prop
+  /-- A diagnostic operation, in a quiet world: the three values are left,
+  and the world it ends in is quiet — on every outcome. -/
+  diag : ∀ {mctx : Meta.Context} {cctx : Core.Context} {α : Type} (p : MetaM α), Diag p → ∀ w,
+    quiet w →
+    (val (endW mctx mref cctx cref p w) = val w ∧ sval (endW mctx mref cctx cref p w) = sval w ∧
+      dval (endW mctx mref cctx cref p w) = dval w) ∧ quiet (endW mctx mref cctx cref p w)
+  /-- The generic operations and the tracked refs' writes do not make a
+  quiet world unquiet (the compile registers no printer and does not replace
+  standard error). -/
+  frameQ : ∀ {mctx : Meta.Context} {cctx : Core.Context} {α : Type} (p : MetaM α), Framed p → ∀ w,
+    quiet w → quiet (endW mctx mref cctx cref p w)
+  cacheSetQ : ∀ {mctx : Meta.Context} {cctx : Core.Context} v w u w',
+    RunsTo (sparkleChildCache.set v : MetaM Unit) mctx mref cctx cref w u w' → quiet w → quiet w'
+  cacheModifyQ : ∀ {mctx : Meta.Context} {cctx : Core.Context}
+    (f : Std.HashMap Name Res → Std.HashMap Name Res) w u w',
+    RunsTo (sparkleChildCache.modify f : MetaM Unit) mctx mref cctx cref w u w' → quiet w → quiet w'
+  depthSetQ : ∀ {mctx : Meta.Context} {cctx : Core.Context} v w u w',
+    RunsTo (ST.Ref.set sparkleSynthDepth v : MetaM Unit) mctx mref cctx cref w u w' →
+    quiet w → quiet w'
+  depthModifyQ : ∀ {mctx : Meta.Context} {cctx : Core.Context} (f : Nat → Nat) w u w',
+    RunsTo (ST.Ref.modify sparkleSynthDepth f : MetaM Unit) mctx mref cctx cref w u w' →
+    quiet w → quiet w'
   frame : ∀ {mctx : Meta.Context} {cctx : Core.Context} {α : Type} (p : MetaM α), Framed p → ∀ w,
     val (endW mctx mref cctx cref p w) = val w ∧ sval (endW mctx mref cctx cref p w) = sval w ∧
       dval (endW mctx mref cctx cref p w) = dval w
@@ -296,30 +289,90 @@ structure RefLaws where
   contexts. For every predicate `I` of the three values. -/
   telescope : ∀ {mctx : Meta.Context} {cctx : Core.Context} {α : Type}
     (I : Void IO.RealWorld → Prop),
-    (∀ w w', val w' = val w → sval w' = sval w → dval w' = dval w → I w → I w') →
+    (∀ w w', val w' = val w → sval w' = sval w → dval w' = dval w → (quiet w → quiet w') →
+      I w → I w') →
     ∀ (ty : Lean.Expr) (k : Array Lean.Expr → Lean.Expr → MetaM α),
     (∀ (mctx' : Meta.Context) (cctx' : Core.Context) xs b,
       Keeps mctx' mref cctx' cref I (k xs b)) →
     Keeps mctx mref cctx cref I (Lean.Meta.forallTelescopeReducing ty k)
   lamTelescope : ∀ {mctx : Meta.Context} {cctx : Core.Context} {α : Type}
     (I : Void IO.RealWorld → Prop),
-    (∀ w w', val w' = val w → sval w' = sval w → dval w' = dval w → I w → I w') →
+    (∀ w w', val w' = val w → sval w' = sval w → dval w' = dval w → (quiet w → quiet w') →
+      I w → I w') →
     ∀ (e : Lean.Expr) (k : Array Lean.Expr → Lean.Expr → MetaM α) (cleanup : Bool),
     (∀ (mctx' : Meta.Context) (cctx' : Core.Context) xs b,
       Keeps mctx' mref cctx' cref I (k xs b)) →
     Keeps mctx mref cctx cref I (Lean.Meta.lambdaTelescope e k cleanup)
   localDecl : ∀ {mctx : Meta.Context} {cctx : Core.Context} {α : Type}
     (I : Void IO.RealWorld → Prop),
-    (∀ w w', val w' = val w → sval w' = sval w → dval w' = dval w → I w → I w') →
+    (∀ w w', val w' = val w → sval w' = sval w → dval w' = dval w → (quiet w → quiet w') →
+      I w → I w') →
     ∀ (n : Name) (ty : Lean.Expr) (k : Lean.Expr → MetaM α),
     (∀ (mctx' : Meta.Context) (cctx' : Core.Context) x, Keeps mctx' mref cctx' cref I (k x)) →
     Keeps mctx mref cctx cref I (Lean.Meta.withLocalDeclD n ty k)
   letDecl : ∀ {mctx : Meta.Context} {cctx : Core.Context} {α : Type}
     (I : Void IO.RealWorld → Prop),
-    (∀ w w', val w' = val w → sval w' = sval w → dval w' = dval w → I w → I w') →
+    (∀ w w', val w' = val w → sval w' = sval w → dval w' = dval w → (quiet w → quiet w') →
+      I w → I w') →
     ∀ (n : Name) (ty v : Lean.Expr) (k : Lean.Expr → MetaM α),
     (∀ (mctx' : Meta.Context) (cctx' : Core.Context) x, Keeps mctx' mref cctx' cref I (k x)) →
     Keeps mctx mref cctx cref I (Lean.Meta.withLetDecl n ty v k)
+
+/-- In world `w`, a read of the synthesis ref returns `synthesizeChild`. -/
+def SynthAt (w : Void IO.RealWorld) : Prop :=
+  ∀ (mctx : Meta.Context) (cctx : Core.Context) s w1,
+    RunsTo (sparkleChildSynth.get : MetaM _) mctx mref cctx cref w s w1 → s = some synthesizeChild
+
+/-- `r` is returned by a run of the real entry on `c` — in SOME Meta and Core
+contexts, over these state references — starting in a world where the
+cache's entries are `RealChild` and the synthesis ref reads
+`synthesizeChild`. -/
+inductive RealChild : Name → Res → Prop
+  | run {c : Name} {r : Res} (mctx : Meta.Context) (cctx : Core.Context)
+      (w w' : Void IO.RealWorld)
+      (cache : ∀ (mctx' : Meta.Context) (cctx' : Core.Context) m w1,
+        RunsTo (sparkleChildCache.get : MetaM _) mctx' mref cctx' cref w m w1 →
+        ∀ c' r', m.get? c' = some r' → RealChild c' r')
+      (synth : SynthAt mref cref w)
+      (quiet : ∃ L : RefLaws mref cref, L.quiet w)
+      (hr : RunsTo (synthesizeCombinational c) mctx mref cctx cref w r w') : RealChild c r
+
+/-- Every entry of the map is a `RealChild`. -/
+def CacheInv (m : Std.HashMap Name Res) : Prop :=
+  ∀ c r, m.get? c = some r → RealChild mref cref c r
+
+/-- The cache's entries read in `w` are `RealChild`s. -/
+def CacheAt (w : Void IO.RealWorld) : Prop :=
+  ∀ (mctx : Meta.Context) (cctx : Core.Context) m w1,
+    RunsTo (sparkleChildCache.get : MetaM _) mctx mref cctx cref w m w1 → CacheInv mref cref m
+
+/-- `w` is a quiet world of SOME law witness. -/
+def QuietAt (w : Void IO.RealWorld) : Prop :=
+  ∃ L : RefLaws mref cref, L.quiet w
+
+/-- The invariant in world `w`, by what reads in `w` return — and `w` is a
+quiet world of a law witness (the laws used from `w` on are that witness's:
+`invV_of_invW`). -/
+def InvW (w : Void IO.RealWorld) : Prop :=
+  CacheAt mref cref w ∧ SynthAt mref cref w ∧ QuietAt mref cref w
+
+/-- **The start condition of an entry run** in world `w`: the synthesis ref
+reads `synthesizeChild`, and EITHER the synthesis depth reads 0 (an outermost
+run: the entry clears the cache, whatever it holds) OR the cache's entries
+are `RealChild`s (a nested run inherits the invariant). -/
+def StartW (w : Void IO.RealWorld) : Prop :=
+  SynthAt mref cref w ∧
+    ((∀ (mctx : Meta.Context) (cctx : Core.Context) d w1,
+        RunsTo (ST.Ref.get sparkleSynthDepth : MetaM Nat) mctx mref cctx cref w d w1 → d = 0) ∨
+     CacheAt mref cref w)
+
+/-- The children of a shape's calls, call by call: the built memory module
+for a memory call, a `RealChild` of the call's declaration otherwise. -/
+def ChildrenReal (shape : MachineShape) (children : List Res) : Prop :=
+  children.length = shape.insts.length ∧
+  ∀ k (hk : k < shape.insts.length), ∃ y, children[k]? = some y ∧
+    (Sparkle.Compiler.MachMemory.memChild? (shape.insts[k]).1 = some y ∨
+      RealChild mref cref (shape.insts[k]).1 y)
 
 end Defs
 
@@ -328,7 +381,11 @@ variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
 
 /-- The invariant by the values (the laws' view). -/
 def InvV (L : RefLaws mref cref) (w : Void IO.RealWorld) : Prop :=
-  CacheInv mref cref (L.val w) ∧ L.sval w = some synthesizeChild
+  CacheInv mref cref (L.val w) ∧ L.sval w = some synthesizeChild ∧ L.quiet w
+
+/-- The start condition by the values. -/
+def StartV (L : RefLaws mref cref) (w : Void IO.RealWorld) : Prop :=
+  L.sval w = some synthesizeChild ∧ (L.dval w = 0 ∨ CacheInv mref cref (L.val w))
 
 /-- The invariant at synthesis depth `D`. -/
 def J (L : RefLaws mref cref) (D : Nat) (w : Void IO.RealWorld) : Prop :=
@@ -404,10 +461,12 @@ start. -/
 def ChildLaws : Prop :=
   Nonempty (RefLaws mref cref)
 
-/-- **The child boundary of a run starting in `w`**: the laws and the start
-condition in the start world. -/
+/-- **The child boundary of a run starting in `w`**: ONE law witness `L`
+with the start condition by `L`'s values and `w` quiet for `L`. The laws and
+the world are tied: the witness whose diagnostic law is used is the one the
+start world is quiet for. -/
 def ChildBnd (w : Void IO.RealWorld) : Prop :=
-  ChildLaws mref cref ∧ StartW mref cref w
+  ∃ L : RefLaws mref cref, StartV L w ∧ L.quiet w
 
 end Bnd
 
@@ -474,6 +533,27 @@ theorem same {α : Type} {p : MetaM α} (hp : Framed p) {w a w'}
   have := L.frame (mctx := mctx) (cctx := cctx) p hp w
   rwa [endW_of_runs h] at this
 
+/-- A generic operation's successful run stays quiet. -/
+theorem sameQ {α : Type} {p : MetaM α} (hp : Framed p) {w a w'}
+    (h : RunsTo p mctx mref cctx cref w a w') (hq : L.quiet w) : L.quiet w' := by
+  have := L.frameQ (mctx := mctx) (cctx := cctx) p hp w hq
+  rwa [endW_of_runs h] at this
+
+/-- A diagnostic operation's successful run from a quiet world. -/
+theorem sameD {α : Type} {p : MetaM α} (hp : Diag p) {w a w'}
+    (h : RunsTo p mctx mref cctx cref w a w') (hq : L.quiet w) :
+    (L.val w' = L.val w ∧ L.sval w' = L.sval w ∧ L.dval w' = L.dval w) ∧ L.quiet w' := by
+  have := L.diag (mctx := mctx) (cctx := cctx) p hp w hq
+  rwa [endW_of_runs h] at this
+
+/-- An operation's successful run from a quiet world: the values, and quiet. -/
+theorem sameOp {α : Type} {p : MetaM α} (hp : Op p) {w a w'}
+    (h : RunsTo p mctx mref cctx cref w a w') (hq : L.quiet w) :
+    (L.val w' = L.val w ∧ L.sval w' = L.sval w ∧ L.dval w' = L.dval w) ∧ L.quiet w' := by
+  cases hp with
+  | framed hf => exact ⟨L.same hf h, L.sameQ hf h hq⟩
+  | diag hd => exact L.sameD hd h hq
+
 theorem get {w m w'} (h : RunsTo (sparkleChildCache.get : MetaM _) mctx mref cctx cref w m w') :
     m = L.val w ∧ L.val w' = L.val w ∧ L.sval w' = L.sval w :=
   ⟨L.cacheGet _ _ _ h, (L.same .cacheGet h).1, (L.same .cacheGet h).2.1⟩
@@ -483,41 +563,32 @@ end RefLaws
 /-! ## The invariant by the values -/
 
 theorem invW_of_invV (L : RefLaws mref cref) {w} (h : InvV L w) : InvW mref cref w := by
-  refine ⟨fun mctx cctx m w1 hg => ?_, fun mctx cctx s w1 hs => ?_⟩
+  refine ⟨fun mctx cctx m w1 hg => ?_, fun mctx cctx s w1 hs => ?_, L, h.2.2⟩
   · rw [L.cacheGet _ _ _ hg]; exact h.1
-  · rw [L.synthGet _ _ _ hs]; exact h.2
+  · rw [L.synthGet _ _ _ hs]; exact h.2.1
 
-/-- (The contexts only serve to run a read; any will do.) -/
-theorem invV_of_invW (mctx : Meta.Context) (cctx : Core.Context) (L : RefLaws mref cref) {w}
-    (h : InvW mref cref w) : InvV L w := by
+/-- The invariant by the values of the witness `w` is quiet for. (The
+contexts only serve to run a read; any will do.) -/
+theorem invV_of_invW (mctx : Meta.Context) (cctx : Core.Context) {w}
+    (h : InvW mref cref w) : ∃ L : RefLaws mref cref, InvV L w := by
+  obtain ⟨hc, hsy, L, hq⟩ := h
   obtain ⟨m, w1, hg⟩ := refGet_runs (mctx := mctx) (mref := mref) (cctx := cctx) (cref := cref)
     sparkleChildCache w
   obtain ⟨s, w2, hs⟩ := refGet_runs (mctx := mctx) (mref := mref) (cctx := cctx) (cref := cref)
     sparkleChildSynth w
-  refine ⟨?_, ?_⟩
-  · have := h.1 mctx cctx m w1 hg; rwa [L.cacheGet _ _ _ hg] at this
-  · have := h.2 mctx cctx s w2 hs; rwa [L.synthGet _ _ _ hs] at this
+  refine ⟨L, ?_, ?_, hq⟩
+  · have := hc mctx cctx m w1 hg; rwa [L.cacheGet _ _ _ hg] at this
+  · have := hsy mctx cctx s w2 hs; rwa [L.synthGet _ _ _ hs] at this
 
-theorem startW_of_invW {w} (h : InvW mref cref w) : StartW mref cref w :=
-  ⟨h.2, Or.inr h.1⟩
+theorem startV_of_invV (L : RefLaws mref cref) {w} (h : InvV L w) : StartV L w :=
+  ⟨h.2.1, Or.inr h.1⟩
 
-/-- The start condition by the values. -/
-def StartV (L : RefLaws mref cref) (w : Void IO.RealWorld) : Prop :=
-  L.sval w = some synthesizeChild ∧ (L.dval w = 0 ∨ CacheInv mref cref (L.val w))
-
-theorem startV_of_startW (mctx : Meta.Context) (cctx : Core.Context) (L : RefLaws mref cref) {w}
-    (h : StartW mref cref w) : StartV L w := by
-  obtain ⟨s, w2, hs⟩ := refGet_runs (mctx := mctx) (mref := mref) (cctx := cctx) (cref := cref)
-    sparkleChildSynth w
-  refine ⟨?_, ?_⟩
-  · have := h.1 mctx cctx s w2 hs; rwa [L.synthGet _ _ _ hs] at this
-  · rcases h.2 with hd | hc
-    · obtain ⟨d, w1, hg⟩ := refGet_runs (mctx := mctx) (mref := mref) (cctx := cctx)
-        (cref := cref) sparkleSynthDepth w
-      left; rw [← L.depthGet _ _ _ hg]; exact hd mctx cctx d w1 hg
-    · obtain ⟨m, w1, hg⟩ := refGet_runs (mctx := mctx) (mref := mref) (cctx := cctx)
-        (cref := cref) sparkleChildCache w
-      right; have := hc mctx cctx m w1 hg; rwa [L.cacheGet _ _ _ hg] at this
+/-- An invariant world is a start world of the boundary, for the witness it
+is quiet for. -/
+theorem ChildBnd.of_invW (mctx : Meta.Context) (cctx : Core.Context) {w}
+    (h : InvW mref cref w) : ChildBnd mref cref w := by
+  obtain ⟨L, hv⟩ := invV_of_invW mctx cctx h
+  exact ⟨L, startV_of_invV L hv, hv.2.2⟩
 
 theorem cacheInv_empty : CacheInv mref cref {} := by
   intro c r h; simp at h
@@ -540,7 +611,7 @@ theorem RealChild.of_inv {c : Name} {r : Res} {w w' : Void IO.RealWorld}
     (hw : InvW mref cref w)
     (hr : RunsTo (synthesizeCombinational c) mctx mref cctx cref w r w') :
     RealChild mref cref c r :=
-  RealChild.run mctx cctx w w' (fun mctx' cctx' m w1 h => hw.1 mctx' cctx' m w1 h) hw.2 hr
+  RealChild.run mctx cctx w w' (fun mctx' cctx' m w1 h => hw.1 mctx' cctx' m w1 h) hw.2.1 hw.2.2 hr
 
 /-- A `RealChild`'s run — in some Meta and Core contexts — with the
 invariant at its start. -/
@@ -548,8 +619,8 @@ theorem RealChild.inv {c : Name} {r : Res} (h : RealChild mref cref c r) :
     ∃ (mctx : Meta.Context) (cctx : Core.Context) (w w' : Void IO.RealWorld),
       InvW mref cref w ∧ RunsTo (synthesizeCombinational c) mctx mref cctx cref w r w' := by
   cases h with
-  | run mctx cctx w w' cache synth hr =>
-    exact ⟨mctx, cctx, w, w', ⟨fun mctx' cctx' m w1 h => cache mctx' cctx' m w1 h, synth⟩, hr⟩
+  | run mctx cctx w w' cache synth quiet hr =>
+    exact ⟨mctx, cctx, w, w', ⟨fun mctx' cctx' m w1 h => cache mctx' cctx' m w1 h, synth, quiet⟩, hr⟩
 
 /-- **The contexts a child is synthesised in**: `c`'s entry has a successful
 run in the Meta and Core contexts `mctx`, `cctx` (over these state
@@ -576,15 +647,14 @@ theorem RealChild.ranIn {c : Name} {r : Res} (h : RealChild mref cref c r) :
   exact ⟨mctx, cctx, w, w', ⟨w, r, w', hw, hr⟩, hw, hr⟩
 
 /-- A `RealChild`'s run: it starts in a world where the boundary holds. -/
-theorem RealChild.bnd {c : Name} {r : Res} (hL : ChildLaws mref cref)
-    (h : RealChild mref cref c r) :
+theorem RealChild.bnd {c : Name} {r : Res} (h : RealChild mref cref c r) :
     ∃ (mctx : Meta.Context) (cctx : Core.Context) (w w' : Void IO.RealWorld),
       ChildBnd mref cref w ∧ RunsTo (synthesizeCombinational c) mctx mref cctx cref w r w' := by
   obtain ⟨mctx, cctx, w, w', hw, hr⟩ := h.inv
-  exact ⟨mctx, cctx, w, w', ⟨hL, startW_of_invW hw⟩, hr⟩
+  exact ⟨mctx, cctx, w, w', ChildBnd.of_invW mctx cctx hw, hr⟩
 
 theorem ChildBnd.laws {w : Void IO.RealWorld} (h : ChildBnd mref cref w) :
-    ChildLaws mref cref := h.1
+    ChildLaws mref cref := ⟨h.choose⟩
 
 theorem RunsTo.pure_world {α : Type} {a b : α} {w w' : Void IO.RealWorld}
     (h : RunsTo (Pure.pure a : MetaM α) mctx mref cctx cref w b w') : b = a ∧ w' = w := by

@@ -249,13 +249,12 @@ theorem machineClosesAt_of_gateKids {declName : Name} (d : MachineData) (ok : d.
     exact hS.2
   have hl : Tools.ShippingClosesSplit.LetsClose mctx mref cctx cref declName d.shape :=
     letsClose_of_data d ok hbody halias mctx mref cctx cref
-  rintro ⟨L⟩ b w r w' hw' hr
-  have hw := invV_of_invW mctx cctx L hw'
+  intro b w r w' hw' hr
+  obtain ⟨L, hw⟩ := invV_of_invW mctx cctx hw'
   have hB := bodyRel L
   unfold synthesizeMachineCertified at hr
   obtain ⟨⟨t, d₀⟩, w1, run, hr⟩ := RunsTo.bind hr
-  have hw1 := invV_of_invW mctx cctx L
-    (harness_inv L hB (harnessRel_of L (translateRel L)) (invW_of_invV L hw) run)
+  have hw1 := harness_inv L hB (harnessRel_of L (translateRel L)) hw run
   dsimp only at hr
   obtain ⟨t', hcl⟩ := Option.isSome_iff_exists.mp (hl (profLogIO b) w t d₀ w1 run)
   rw [hcl] at hr

@@ -487,14 +487,14 @@ theorem synthesizeCombinationalCore_machine_soundRA {declName : Name}
       declName shape bsIn slotBs letBs m d := by
   obtain ⟨prof, r, w9, w10, hrun, hw9, hres⟩ :=
     Tools.ShippingChildInv.machine_run_of_core hr entry hsyn
-  have hne := closes hsyn.1 prof _ _ _ hw9 hrun
+  have hne := closes prof _ _ _ hw9 hrun
   cases r with
   | none => exact absurd rfl hne
   | some res =>
     have := hres res rfl
     subst this
     obtain ⟨t, t', d₀, hmix, hcl, hmt⟩ :=
-      Tools.ShippingChildInv.synthesizeMachineCertified_runs hsyn.1 hw9 hrun
+      Tools.ShippingChildInv.synthesizeMachineCertified_runs hw9 hrun
     have hmt0 : (shape.insts = [] ∧ m = closeMachine shape.layout t' ∧ d = d₀) ∨
         (shape.insts ≠ [] ∧ ∃ children,
           CloseCalls shape t (closeMachine shape.layout t') d₀ children m d) := by
