@@ -654,6 +654,9 @@ lean_lib «Tools.ShippingCloseInstsSome» where
 lean_lib «Tools.ShippingCloseChecks» where
   roots := #[`Tools.ShippingCloseChecks]
 
+lean_lib «Tools.ShippingCloseMachineFacts» where
+  roots := #[`Tools.ShippingCloseMachineFacts]
+
 lean_lib «Tools.ShippingCallsClose» where
   roots := #[`Tools.ShippingCallsClose]
 
