@@ -37,17 +37,24 @@ def plainDef (n : Nat) : Nat := n + 1
 def plainSig (x : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec 8) :=
   x + (Signal.pure 1#8 : Signal defaultDomain (BitVec 8))
 
-inductive Step | ok (w : String) | err (msg : String) | interrupt | wire8
+inductive Step | ok (w : String) | err (msg : String) | interrupt | runtime | wire8
 
 /-- A translator following a script, counting its calls. -/
-def scripted (ctr : IO.Ref Nat) (script : List Step) : TranslateFn := fun _ _ _ _ => do
+def scripted (ctr : IO.Ref Nat) (script : List Step) (made : Option (IO.Ref (List String)) := none) :
+    TranslateFn := fun _ _ _ _ => do
   let n ← CompilerM.liftMetaM (ctr.modifyGet fun n => (n, n + 1) : IO Nat)
   match script[n]? with
   | some (.ok w) => pure w
   | some (.err msg) => CompilerM.liftMetaM (throwError msg)
   | some .interrupt => throw (Exception.internal Lean.interruptExceptionId)
   -- a real 8-bit wire of the circuit (an argument of an instance)
-  | some .wire8 => CompilerM.makeWire "arg" (.bitVector 8) false
+  | some .wire8 => do
+    let w ← CompilerM.makeWire "arg" (.bitVector 8) false
+    if let some r := made then CompilerM.liftMetaM (r.modify (· ++ [w]) : IO Unit)
+    pure w
+  -- a resource-limit exception (`Exception.isRuntime`): like an interrupt, a
+  -- `catch` does not handle it
+  | some .runtime => CompilerM.liftMetaM (Lean.throwMaxRecDepthAt .missing)
   | none => CompilerM.liftMetaM (throwError "script exhausted")
 
 /-- The OLD inline attempt (with its cell), and what the cell holds after. -/
@@ -119,7 +126,8 @@ def observe (f : TranslateFn → Lean.Expr → String → Bool → CompilerM (Op
     let kept ← ex?.mapM fun ex => ex.toMessageData.toString
     return { wire := w, kept, thrown := none, calls := ← ctr.get }
   | .error ex =>
-    let t ← if ex.isInterrupt then pure "interrupt" else ex.toMessageData.toString
+    let t ← if ex.isInterrupt then pure "interrupt" else if ex.isRuntime then pure "runtime"
+      else ex.toMessageData.toString
     return { wire := none, kept := none, thrown := some t, calls := ← ctr.get }
 
 def plainE : Lean.Expr := mkApp (mkConst ``plainDef) (mkNatLit 1)
@@ -134,7 +142,9 @@ run_cmd Lean.Elab.Command.liftTermElabM do
      ("fail, retry succeeds", [.err "A", .ok "w2"], redE),
      ("fail, retry fails", [.err "A", .err "B"], redE),
      ("interrupt at the first attempt", [.interrupt, .ok "w2"], redE),
-     ("fail, interrupt at the retry", [.err "A", .interrupt], redE)]
+     ("fail, interrupt at the retry", [.err "A", .interrupt], redE),
+     ("runtime exception at the first attempt", [.runtime, .ok "w2"], redE),
+     ("fail, runtime exception at the retry", [.err "A", .runtime], redE)]
   let mut lines : MessageData := m!""
   for (what, script, e) in cases do
     let o ← observe oldTryInline script e
@@ -155,17 +165,43 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   exp [.err "A", .err "B"] redE { wire := none, kept := some "B", thrown := none, calls := 2 }
   exp [.interrupt, .ok "w2"] redE { wire := none, kept := none, thrown := some "interrupt", calls := 1 }
   exp [.err "A", .interrupt] redE { wire := none, kept := none, thrown := some "interrupt", calls := 2 }
-  logInfo m!"INLINE ATTEMPT vs THE OLD CELL: same wire, kept failure, thrown error and translator calls in {cases.length} scripted cases; first failure kept without a retry, second failure kept when the retry fails, an interrupt propagates without a retry (first attempt) and from the retry.{lines}"
+  exp [.runtime, .ok "w2"] redE { wire := none, kept := none, thrown := some "runtime", calls := 1 }
+  exp [.err "A", .runtime] redE { wire := none, kept := none, thrown := some "runtime", calls := 2 }
+  logInfo m!"INLINE ATTEMPT vs THE OLD CELL: same wire, kept failure, thrown error and translator calls in {cases.length} scripted cases; first failure kept without a retry, second failure kept when the retry fails, an interrupt and a runtime (resource-limit) exception propagate without a retry (first attempt) and from the retry — the two branches `Core.tryCatch` does not handle.{lines}"
 
 /-- The handler, end to end, with a scripted translator. -/
+structure Inst where
+  module : String
+  /-- the names its connections read -/
+  refs : List String
+  deriving Repr
+
+def runHandlerX (script : List Step) (e : Lean.Expr) (name : Name) :
+    MetaM (Except String (Option String × List String × List Inst × List String) × Nat) := do
+  let ctr ← IO.mkRef 0
+  let made ← IO.mkRef ([] : List String)
+  match ← outcome (runC (Rec.handleDefinitionUnfold
+      (fun e h t n => scripted ctr script (some made) e h t n) e name e.getAppArgs "h" false)) with
+  | .ok (r, st) =>
+    let insts := st.module.body.filterMap fun s => match s with
+      | .inst mn _ conns => some { module := mn, refs := conns.filterMap fun c => match c.2 with
+          | .ref x => some x | _ => none : Inst }
+      | _ => none
+    return (.ok (r, st.design.modules.map (·.name), insts, ← made.get), ← ctr.get)
+  | .error ex =>
+    let t ← if ex.isInterrupt then pure "interrupt" else if ex.isRuntime then pure "runtime"
+      else ex.toMessageData.toString
+    return (.error t, ← ctr.get)
+
 def runHandler (script : List Step) (e : Lean.Expr) (name : Name) :
     MetaM (Except String (Option String × List String) × Nat) := do
   let ctr ← IO.mkRef 0
-  match ← outcome (runC (Rec.handleDefinitionUnfold (fun e h t n => scripted ctr script e h t n)
+  match ← outcome (runC (Rec.handleDefinitionUnfold (fun e h t n => scripted ctr script none e h t n)
       e name e.getAppArgs "h" false)) with
   | .ok (r, st) => return (.ok (r, st.design.modules.map (·.name)), ← ctr.get)
   | .error ex =>
-    let t ← if ex.isInterrupt then pure "interrupt" else ex.toMessageData.toString
+    let t ← if ex.isInterrupt then pure "interrupt" else if ex.isRuntime then pure "runtime"
+      else ex.toMessageData.toString
     return (.error t, ← ctr.get)
 
 run_cmd Lean.Elab.Command.liftTermElabM do
@@ -193,7 +229,14 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     if msg != "interrupt" || calls != 1 then
       throwError "interrupt: {calls} calls, message:\n{msg}"
   | .ok _ => throwError "interrupt: the handler returned"
-  logInfo m!"HANDLER DIAGNOSTICS: both attempts and the sub-module fail → 'Cannot synthesise … Inline expansion failed with' the SECOND failure; no retry → the FIRST; an interrupt propagates (no terminal error, one call)"
+  -- nor is a runtime exception
+  let (r, calls) ← runHandler [.runtime] redE ``redDef
+  match r with
+  | .error msg =>
+    if msg != "runtime" || calls != 1 then
+      throwError "runtime exception: {calls} calls, message:\n{msg}"
+  | .ok _ => throwError "runtime exception: the handler returned"
+  logInfo m!"HANDLER DIAGNOSTICS: both attempts and the sub-module fail → 'Cannot synthesise … Inline expansion failed with' the SECOND failure; no retry → the FIRST; an interrupt and a runtime exception propagate (no terminal error, one call)"
 
 end Sparkle.Tests.Compiler.InlineUnfoldRegressionTest
 
@@ -207,12 +250,21 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   let sigT ← mkAppM ``Signal #[mkConst ``defaultDomain, ← mkAppM ``BitVec #[mkNatLit 8]]
   withLocalDeclD `x sigT fun x => do
     let e := mkApp (mkConst ``plainSig) x
-    let (r, calls) ← runHandler ([.err "INLINE"] ++ List.replicate 8 .wire8) e ``plainSig
+    let (r, calls) ← runHandlerX ([.err "INLINE"] ++ List.replicate 8 .wire8) e ``plainSig
     match r with
-    | .ok (w, mods) =>
-      unless mods.any (fun m => (m.splitOn "plainSig").length > 1) do
-        throwError "sub-module success: the child's module is not in the design ({mods}); result {w}"
-      logInfo m!"HANDLER, SUB-MODULE AFTER A FAILED INLINE: result {w}, design modules {mods}, {calls} translator calls"
+    | .ok (w, mods, insts, made) =>
+      let isChild (m : String) : Bool := (m.splitOn "plainSig").length > 1
+      -- a wire came back; the design has the child ONCE; the body has exactly
+      -- one instance, of the child, reading the argument wire the translator
+      -- made and driving the wire that came back
+      let some rw := w | throwError "sub-module success: no wire came back"
+      unless (mods.filter isChild).length == 1 do
+        throwError "sub-module success: the child's module in the design: {mods}"
+      let [i] := insts | throwError "sub-module success: instances {repr insts}"
+      unless isChild i.module && made.length == 1 && made.all (i.refs.contains ·) &&
+          i.refs.contains rw && calls == 2 do
+        throwError "sub-module success: instance {repr i}, argument wires {made}, result {rw}, {calls} calls"
+      logInfo m!"HANDLER, SUB-MODULE AFTER A FAILED INLINE: result {rw}; the design has the child once ({mods}); one instance, of the child, connected to the argument wire {made} and to the result wire ({repr i}); {calls} translator calls. (One case — not a proof about the success domain.)"
     | .error msg => throwError "sub-module success: the handler threw after {calls} calls:\n{msg}"
 
 end Sparkle.Tests.Compiler.InlineUnfoldRegressionTest
