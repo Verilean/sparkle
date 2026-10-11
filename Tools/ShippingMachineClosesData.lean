@@ -152,10 +152,13 @@ end Tools.ShippingMachineClosesData
 namespace Tools.ShippingMachineAuto.MachineData
 open Tools.ShippingMachineClosesData
 
-/-- The shape has no call, and a `let` that is the variable of another `let`
-reads one whose field is a variable. -/
-def letsOk (d : MachineData) : Bool :=
-  d.shape.insts.isEmpty && aliasOk d.bpos d.vpos (d.nIn + d.ss.length) d.letFields
+/-- A `let` that is the variable of another `let` reads one whose field is a
+variable. -/
+def letsAliasOk (d : MachineData) : Bool :=
+  aliasOk d.bpos d.vpos (d.nIn + d.ss.length) d.letFields
+
+/-- No call, and `letsAliasOk`. -/
+def letsOk (d : MachineData) : Bool := d.shape.insts.isEmpty && d.letsAliasOk
 
 end Tools.ShippingMachineAuto.MachineData
 
@@ -167,31 +170,29 @@ open Tools.ShippingMachineEntry Tools.ShippingMachineRef Tools.ShippingMachineSo
 open Tools.ShippingMachineDenote Tools.ShippingMachineAuto
 open Tools.ShippingMachineCloses
 
-/-- **`MachineCloses` from the endpoint's own checks.** For a machine whose
-data pass `ok` (the endpoint's check), whose body is the quotation of the
-packed term (the endpoint's body equation), and that passes `letsOk`: the
-machine synthesis closes the `let`s in every context, for every run. -/
-theorem closes_of_data {declName : Name} (d : MachineData) (ok : d.ok = true)
+/-- **`closeLets` accepts every transition, from the endpoint's own checks** —
+for a machine with or without calls whose data pass `ok` (the endpoint's
+check), whose body is the quotation of the packed term (the endpoint's body
+equation), and that passes `letsAliasOk`. -/
+theorem letsClose_of_data {declName : Name} (d : MachineData) (ok : d.ok = true)
     (hbody : d.shape.body = quote d.dom
       (fun j => inputExpr d.shape.binders.length (d.bpos j))
       (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
-    (hl : d.letsOk = true)
+    (halias : d.letsAliasOk = true)
     (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State)
     (cctx : Core.Context) (cref : ST.Ref IO.RealWorld Core.State) :
-    MachineCloses mctx mref cctx cref declName d.shape := by
+    Tools.ShippingClosesSplit.LetsClose mctx mref cctx cref declName d.shape := by
   simp only [MachineData.ok, Bool.and_eq_true, decide_eq_true_eq, Bool.not_eq_true'] at ok
   obtain ⟨hlen, hlets, positive, _, letKinds, _, _, _, hwf, hb, hv,
     _, _, hscoped, _, _, _, _, _, _, _, _⟩ := ok
-  simp only [MachineData.letsOk, Bool.and_eq_true, List.isEmpty_iff] at hl
-  obtain ⟨hi, halias⟩ := hl
   have hlenB : (d.bsIn ++ d.slotBs).length = d.nIn + d.ss.length := by
     simp only [List.length_append, MachineData.bsIn, MachineData.slotBs, List.length_take,
       List.length_drop]
     omega
   obtain ⟨hfitL, hfit⟩ := scoped_fit d.letBs d.letFields _ hscoped
-  refine machineCloses_of_lets (dom := d.dom) (kb := d.kb) (kv := d.kv) (vw := d.vw)
+  refine letsClose_of_lets (dom := d.dom) (kb := d.kb) (kv := d.kv) (vw := d.vw)
     (bpos := d.bpos) (vpos := d.vpos) (bsIn := d.bsIn ++ d.slotBs) (letBs := d.letBs)
-    hi ?_ d.letFields d.core.2 hwf ?_ ?_ hbody d.binders_split hlets letKinds hfitL hfit ?_ ?_
+    ?_ d.letFields d.core.2 hwf ?_ ?_ hbody d.binders_split hlets letKinds hfitL hfit ?_ ?_
   · intro name n hmem
     have := List.all_eq_true.mp positive _ hmem
     simpa using this
@@ -217,5 +218,43 @@ theorem closes_of_data {declName : Name} (d : MachineData) (ok : d.ok = true)
     exact fieldsOK_of_scoped (d.nIn + d.ss.length) d.letFields d.letBs 0 d.core.2 hscoped hwf
   · rw [hlenB]
     exact aliasOk_sound halias
+
+/-- **`MachineCloses` from the endpoint's own checks**, for a machine without
+calls (`letsOk`): the machine synthesis closes the `let`s in every context,
+for every run. -/
+theorem closes_of_data {declName : Name} (d : MachineData) (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    (hl : d.letsOk = true)
+    (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State)
+    (cctx : Core.Context) (cref : ST.Ref IO.RealWorld Core.State) :
+    MachineCloses mctx mref cctx cref declName d.shape := by
+  simp only [MachineData.letsOk, Bool.and_eq_true, List.isEmpty_iff] at hl
+  exact Tools.ShippingClosesSplit.machineCloses_of_letsClose hl.1
+    (letsClose_of_data d ok hbody hl.2 mctx mref cctx cref)
+
+end Tools.ShippingMachineClosesData
+
+namespace Tools.ShippingMachineClosesData
+open Lean Sparkle.Compiler.Elab
+open Tools.ShippingUnifiedSource Tools.ShippingMixedSourceBridge
+open Tools.ShippingMachineEntry Tools.ShippingMachineAuto
+
+/-- **With calls, what is left of `MachineCloses` is the calls' closing.** For
+a machine whose data pass `ok`, the body equation and `letsAliasOk`:
+`MachineCloses` follows from `CallsClose` alone — `closeLets` accepting the
+transition is proved (`letsClose_of_data`). `CallsClose` is NOT derived. -/
+theorem closes_of_data_calls {declName : Name} (d : MachineData) (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    (halias : d.letsAliasOk = true)
+    {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+    (hc : Tools.ShippingClosesSplit.CallsClose mctx mref cctx cref declName d.shape) :
+    MachineCloses mctx mref cctx cref declName d.shape :=
+  Tools.ShippingClosesSplit.machineCloses_iff.mpr
+    ⟨letsClose_of_data d ok hbody halias mctx mref cctx cref, fun _ => hc⟩
 
 end Tools.ShippingMachineClosesData

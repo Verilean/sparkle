@@ -639,6 +639,9 @@ lean_lib «Tools.ShippingSpineOrder» where
 lean_lib «Tools.ShippingClosedOrder» where
   roots := #[`Tools.ShippingClosedOrder]
 
+lean_lib «Tools.ShippingClosesSplit» where
+  roots := #[`Tools.ShippingClosesSplit]
+
 lean_lib «Tools.ShippingMachineCloses» where
   roots := #[`Tools.ShippingMachineCloses]
 

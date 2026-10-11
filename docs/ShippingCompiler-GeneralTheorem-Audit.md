@@ -44,7 +44,7 @@ its counts are distinct syntactic occurrences, NOT logical premises):
 | inputs / `rst` / start-state bounds, `SourceInputs`, reset values | use conditions | — | legitimate premises |
 | `ChildBnd` = `Nonempty RefLaws ∧ StartW` | runtime laws + start world | — | trusted (§5); no compiler-specific condition left inside |
 | `MachineDefines`, `EntryDefines` | what the declaration is, as read | — | reflection (§3); asked once per child, context-independent (proved) |
-| `MachineCloses` (parent's own; children with `let`s or calls) | the machine route was taken, not the legacy fallback | NO (it is the outcome of `closeLets` / `closeInsts`, which the compiler runs, but success of the ENTRY does not imply it: the entry also succeeds through the fallback) | obligation; partly derived (A1–A7) |
+| `MachineCloses` (parent's own; children with `let`s or calls) | the machine route was taken, not the legacy fallback | NO (it is the outcome of `closeLets` / `closeInsts`, which the compiler runs, but success of the ENTRY does not imply it: the entry also succeeds through the fallback) | obligation; **derived for shapes without calls that pass `letsOk`** (A1–A7; `f.machine_closes`); still a premise for shapes with calls (B1/B2) |
 | `designCheck`, `outsCheck` | internal structure of the emitted design (text checks, children pass) | NO — defined in `Tools/`, 0 uses in `Sparkle/` | **obligation, not a use condition**; evaluated by `decide` per declaration; not derived for arbitrary runs (G1) |
 | `shipsHierCheck` / `shipsHierHCheck`, `kidsMixed`, `kidsMem`, `kidsMaskedN`, `kidsComb` | structure of the closed module and its children | NO (same) | obligation; same status (G1) |
 | `kidsCombB` | children combinational, local, wired | YES (`closeInsts`) | a runtime check — but one that NARROWED what the machine route accepts (C3) |
@@ -125,9 +125,9 @@ semantics; no timing, no X/Z, no multi-clock.
 | A3 | (5) core ≠ `out`, (3) operands ≠ `out` | 〃 | **proved** |
 | A4 | (3) operand declared at the field's width | 〃 | **proved**; shape-side "port width = field width, positive" to be taken from the entry theorem's facts |
 | A5 | (6a) positional invariant: readers of a `let` port after its operand's driver | 〃 | **proved** on the builder state: `fuel_spine` (statements only added in front; every arm's result made and driven; statements read, among protected names, only wires bound to variables the term `Uses`) and `spine_links` (`Tools/ShippingSpineOrder.lean`: for each field of a packed body, a suffix of the builder's body in which the field's wire is driven and which reads only what the fields before it may read; cache hits included). Its instantiation on the harness' module (protected = names in use at the start; `Vk k` = not a `let` port ≥ `k`) is part of A6/A7 |
-| A6 | (6b) shape-side scoping condition + soundness; (6c) order of the closed body | 〃 | (6c) **proved** as a statement about lists (`closed_acyclic`, `Tools/ShippingClosedOrder.lean`): the let-closed body is `Acyclic` given the ordered transition body, distinct undriven ports, operands that are no port and not `out`, and "every reader of a port comes after the driver of its operand" — no assumption that the check passed. (6b), the shape-side condition (field `k` uses only variables before `let` `k`; no field is a bare `let` variable) and the instantiation of A5 on the harness' module, not yet; the condition becomes part of the theorem's stated domain (it is not a compiler gate) |
-| A7 | assembly: the six conditions ⇒ `MachineCloses` for let-only shapes; generators | `MachineCloses` for let-only children and parents | not started |
-| B1 | `closeInsts` (one output) from the child-run facts | `MachineCloses` with calls | not started |
+| A6 | (6b) shape-side scoping condition + soundness; (6c) order of the closed body | 〃 | (6c) **proved** as a statement about lists (`closed_acyclic`, `Tools/ShippingClosedOrder.lean`): the let-closed body is `Acyclic` given the ordered transition body, distinct undriven ports, operands that are no port and not `out`, and "every reader of a port comes after the driver of its operand" — no assumption that the check passed. (6b) **proved**: `harness_links_at` instantiates A5 on the harness' module, `transition_closes` assembles the six conditions for EVERY run of the harness, under two conditions on the shape: (S1) field `k` uses only variables bound before `let` `k` — this is the endpoint check's own `LetsScoped`, nothing new; (S2) a field that is the variable of `let` `j` requires field `j` to be a variable — NEW, part of the stated domain (`MachineData.letsOk`), not a compiler gate. "No field is a `let` variable" is NOT asked |
+| A7 | assembly: the six conditions ⇒ `MachineCloses` for let-only shapes; generators | `MachineCloses` for let-only children and parents | **done and connected**: `machineCloses_of_lets` (shape premises only) → `closes_of_data` (premises = the endpoint's `ok` + body equation + `letsOk`, all kernel-evaluated on generated data) → generated `f.machine_closes`. `#machine_endpoint` adds `f.machine_sound_closed` / `machine_ships_closed` / `machine_ships_wired_closed` (no `MachineCloses` in the type) where the data give it; the three R generators discharge a no-call child's `MachineCloses` by it. NOT covered: shapes with calls (B1/B2); the S2-refused shape (below) |
+| B1 | `closeInsts` (one output) from the child-run facts | `MachineCloses` with calls | **reduced, not derived**: `machineCloses_iff` (`Tools/ShippingClosesSplit.lean`): `MachineCloses ↔ LetsClose ∧ (insts ≠ [] → CallsClose)`; `LetsClose` is proved from the data for shapes WITH calls too (`letsClose_of_data`; checked on `caller`, `callerTwice`, `callerNested`). What is left is `CallsClose` = every run of `closeInstsM`/`closeInstsGM` after an accepted transition returns a module. It is NOT substituted into the endpoints (it would be a smaller premise under a new name, not a discharge). Its conditions, read off `closeInsts`: child synth installed; `instStmt` per call (port counts, names, the output wire declared); `topoBody` succeeds; `woCheck` ×2, `isPermOf`, `seqOf`, key/memory names distinct; `linkedOk`; every child found by its own name in the merged design (name collisions); `noInstOfB`; `kidsCombB` (false for a one-output SEQUENTIAL child — a real fallback, `useCtr1`). None proved for every run |
 | B2 | `closeInstsG` (general) | 〃 | not started |
 | C1 | lift grandchildren's `Defines` out of nested boundaries | bound `Defines` occurrences | not started; does NOT address §3.2–3.4 |
 | C2 | depth / fuel limits | — (they are behaviour changes) | see G4 |
@@ -163,6 +163,36 @@ alias' port provided that alias' operand is driven by nothing. It does not
 ask "no field is a `let` variable". The refused case stays outside
 (`MachineCloses` is false of it); it is not hidden by a scoping condition.
 
+### What A7's domain is, case by case (regressions in `ShippingMachineClosesTest`)
+
+| Case | Reader's shape | In the guaranteed domain? |
+|---|---|---|
+| field that is an input (`let a := x`) | no hardware `let` on the source tried (`closesInputLet`, lets=0); as data: field = input variable | YES (`aliasOk` true; real endpoint closed) |
+| `let` that is an earlier `let` whose field is a variable | data only | YES (`aliasOk` true; the real `closeLets` accepts) |
+| `let b := a` after an operation (`closesOpAlias`, `reflAliasLet`) | ONE hardware `let` (reader resolves `b`) | YES for what the reader produces (real endpoints closed). The DATA shape `let0 := x + x; let1 := let0` is NOT: `aliasOk` false, and the real `closeLets` refuses it — `MachineCloses` is false there, the entry falls back to the legacy route. Registered as a refused case, not hidden |
+| shared subexpression (`reflSharedLet`, cache hit) | 2 `let`s | YES (real endpoint closed) |
+| `let`s chained under operations (`closesChain`) | 3 `let`s | YES |
+| any shape with calls | — | NO: `MachineCloses` stays a premise (B1/B2) |
+
+`letsOk` is sufficient, not shown necessary: S2 mirrors the one refusal
+observed; no claim that every shape outside it is refused. That the reader
+never produces an S2-violating shape is NOT a theorem (the reader is
+`partial`, G3) — for such a declaration `f.machine_closes` is simply not
+generated and the premise stays.
+
+### Effect on the 20 derived endpoints (`endpoint_premises.lean`, 2026-10-11)
+
+Distinct `MachineCloses` occurrences (own contexts, bound contexts):
+
+| Endpoints | Before | After |
+|---|---|---|
+| `callerLN`, `hftByte`, `callerL` (HR; children with `let`s, no call) | (6, 6), 1 context quantifier, 2 `ChildRanIn` guards | (6, 0), 0, 0 |
+| the other 17 | unchanged | unchanged |
+
+What remains everywhere is the PARENT's own `MachineCloses` (a shape with
+calls: B1/B2) and, at depth ≥ 1, the children's (shapes with calls). The
+counts are syntactic occurrences, not logical premises.
+
 ## 7. Gaps not among the twelve
 
 | ID | Gap | Why it blocks a general theorem |
@@ -179,7 +209,9 @@ ask "no field is a `let` variable". The refused case stays outside
 
 - Proved for every run: the child-cache invariant (`childKeeps`), the
   translator's order / value contract on quoted terms (earlier work), and
-  `closeLets`' conditions (1)–(5) on packed machine bodies.
+  `closeLets`' six conditions on packed machine bodies under S1/S2, hence
+  `MachineCloses` for every shape without calls whose data pass `ok` and
+  `letsOk`.
 - Validated per declaration (kernel-checked, generated): the 20 endpoints.
 - Not claimed: a theorem over all sources; anything about the legacy route;
   that the per-declaration checks hold of every output.

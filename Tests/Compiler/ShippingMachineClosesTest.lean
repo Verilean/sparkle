@@ -120,3 +120,42 @@ example : aliasOk (fun _ => 0) (fun j => j) 2
 example : aliasOk (fun _ => 0) (fun j => j) 2
     [⟨8, .binary .add (.bitsInput 8 0) (.bitsInput 8 1)⟩,
      ⟨8, .binary .add (.bitsInput 8 2) (.bitsInput 8 0)⟩] = true := by decide
+
+/-! With calls: `MachineCloses` is `LetsClose ∧ CallsClose`
+(`machineCloses_iff`), and `LetsClose` is proved from the same data. On the
+real callers (2 `let`s and a call each) the `let` half holds in every
+context; the calls' half (`CallsClose`) stays a premise — nothing here
+discharges it. -/
+section
+open Sparkle.Tests.Compiler.ShippingMachineInstTest
+
+theorem caller_letsClose (mctx mref cctx cref) :
+    Tools.ShippingClosesSplit.LetsClose mctx mref cctx cref ``caller caller.machineData.shape :=
+  letsClose_of_data _ caller.machine_ok caller.machine_body (Eq.refl true) mctx mref cctx cref
+
+theorem callerTwice_letsClose (mctx mref cctx cref) :
+    Tools.ShippingClosesSplit.LetsClose mctx mref cctx cref ``callerTwice
+      callerTwice.machineData.shape :=
+  letsClose_of_data _ callerTwice.machine_ok callerTwice.machine_body (Eq.refl true)
+    mctx mref cctx cref
+
+theorem callerNested_letsClose (mctx mref cctx cref) :
+    Tools.ShippingClosesSplit.LetsClose mctx mref cctx cref ``callerNested
+      callerNested.machineData.shape :=
+  letsClose_of_data _ callerNested.machine_ok callerNested.machine_body (Eq.refl true)
+    mctx mref cctx cref
+
+end
+
+run_cmd Lean.Elab.Command.liftTermElabM do
+  for n in [``caller_letsClose, ``callerTwice_letsClose, ``callerNested_letsClose,
+      ``Tools.ShippingClosesSplit.machineCloses_iff,
+      ``Tools.ShippingMachineClosesData.closes_of_data_calls] do
+    for a in ← Lean.collectAxioms n do
+      unless a == ``propext || a == ``Classical.choice || a == ``Quot.sound do
+        throwError "{n} depends on {a}"
+  -- what is left with calls is named in the type: `CallsClose`, a premise
+  let t ← Lean.Meta.inferType (mkConst ``Tools.ShippingMachineClosesData.closes_of_data_calls)
+  unless (t.find? (·.isConstOf ``Tools.ShippingClosesSplit.CallsClose)).isSome do
+    throwError "closes_of_data_calls: CallsClose is not a premise"
+  Lean.logInfo m!"WITH CALLS: closeLets accepts every harness run's transition of caller, callerTwice, callerNested (proved, every context); the calls' closing (CallsClose) remains a premise"

@@ -869,6 +869,44 @@ and `ShippingChildCacheRun` removed).
     evaluated on the harness' transition modules of `caller`, `callerTwice`,
     `callerNested` (2 `let`s each) all hold and `closeLets` accepts. This is
     the checker run on those runs, not a derivation.
+  - **Condition (6) and the assembly (2026-10-11).** The notes above
+    ("conditions (3)-width and (6) are missing", "should be FALSE for such a
+    shape") are superseded:
+    `spine_links` / `harness_links_at` (per field, a suffix of the builder's
+    body that drives the field's wire and reads only what earlier fields may
+    read), `closed_acyclic` (the let-closed body is ordered; an operand may
+    be an EARLIER front alias' port if that alias' operand is undriven),
+    `transition_closes` (the six conditions for every run of the harness on a
+    packed body) and `machineCloses_of_lets` give `MachineCloses` for a shape
+    WITHOUT CALLS from premises about the shape only.
+    `Tools/ShippingMachineClosesData.lean` (`closes_of_data`) takes them from
+    the endpoint's check `MachineData.ok`, its body equation, and one more
+    kernel-evaluated check, `MachineData.letsOk`: no call, and a field that
+    is the variable of `let j` requires field `j` to be a variable. The
+    excluded shape (`let0 := x + x; let1 := let0` as hardware `let`s) is one
+    the real `closeLets` REFUSES (regression on hand-built modules), so the
+    premise is false there, not merely unproved.
+  - **Connected** (`Tools/ShippingMachineClosesGen.lean`): `#machine_endpoint
+    f` adds `f.machine_closes` and `f.machine_sound_closed`,
+    `f.machine_ships_closed`, `f.machine_ships_wired_closed` — the same
+    theorems without the `MachineCloses` premise — where the data give it;
+    otherwise nothing is added and the premise stays. The R0 / NR / HR
+    generators discharge a child's `MachineCloses` by `c.machine_closes`
+    (before: only children with no `let`). Checked in
+    `ShippingMachineClosesTest`: five let-only declarations (cache hit,
+    alias after an operation, input `let`, chained `let`s), the closed
+    endpoints' types contain no `MachineCloses`, standard axioms; a
+    declaration with a call gets none. `MachineDefines` and the run of the
+    entry remain premises of the closed endpoints.
+  - **With calls** (`Tools/ShippingClosesSplit.lean`): `MachineCloses ↔
+    LetsClose ∧ (insts ≠ [] → CallsClose)`. `LetsClose` (`closeLets` accepts
+    every harness run's transition) is proved from the data for shapes with
+    calls as well (`letsClose_of_data`). `CallsClose` — the closing of the
+    calls returns a module — is not derived; the parent's own
+    `MachineCloses` therefore stays a premise of every endpoint with calls.
+    On the 20 derived endpoints the change removes the children's
+    `MachineCloses` (and its context quantifier and `ChildRanIn` guards)
+    from `callerLN`, `hftByte`, `callerL`; the other 17 are unchanged.
 - **The two limits (state, 2026-10-11).** Both are behaviour changes of the
   compiler, separate from the proofs:
   - `sparkleSynthDepthLimit = 1024`: a nest of `@[hardware_module]` calls
