@@ -2057,3 +2057,9 @@ lean_lib «Tools.ShippingReaderKinds» where
 
 lean_lib «Tools.ShippingReaderComplete2» where
   roots := #[`Tools.ShippingReaderComplete2]
+
+lean_lib «Tools.ShippingLegacySemBody» where
+  roots := #[`Tools.ShippingLegacySemBody]
+
+lean_lib «Tools.ShippingLegacySemShim» where
+  roots := #[`Tools.ShippingLegacySemShim]
