@@ -645,6 +645,9 @@ lean_lib «Tools.ShippingTopoBody» where
 lean_lib «Tools.ShippingTopoChecks» where
   roots := #[`Tools.ShippingTopoChecks]
 
+lean_lib «Tools.ShippingTopoLinked» where
+  roots := #[`Tools.ShippingTopoLinked]
+
 lean_lib «Tools.ShippingCallsClose» where
   roots := #[`Tools.ShippingCallsClose]
 
