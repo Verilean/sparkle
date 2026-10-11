@@ -54,13 +54,16 @@ theorem Keeps.dite {α : Type} {c : Prop} [Decidable c] {I : Void IO.RealWorld �
   · rw [dif_pos hc]; exact ha hc
   · rw [dif_neg hc]; exact hb hc
 
-theorem Keeps.throw {α : Type} {I : Void IO.RealWorld → Prop} (e : Exception) :
+/-- A plain `throw` of an exception in the class. -/
+theorem Keeps.throw {α : Type} {I : Void IO.RealWorld → Prop} (e : Exception) (he : OkExc e) :
     Keeps mctx mref cctx cref I (throw e : MetaM α) :=
-  keeps_iff.mpr (Triple.throw e fun _ hw => hw)
+  keeps_iff.mpr (Triple.throw e fun _ hw => ⟨hw, he⟩)
 
-theorem Keeps.throwError {α : Type} (L : RefLaws mref cref) (D : Nat) (msg : MessageData) :
+/-- `throwError` of a message in the class. -/
+theorem Keeps.throwError {α : Type} (L : RefLaws mref cref) (D : Nat) (msg : MessageData)
+    (hmsg : OkMsg msg) :
     Keeps mctx mref cctx cref (J L D) (Lean.throwError msg : MetaM α) :=
-  keeps_iff.mpr (Triple.throwErr L msg D)
+  keeps_iff.mpr (Triple.throwErr L msg hmsg D)
 
 /-- An operation whose frame is a law. -/
 theorem Keeps.framed {α : Type} (L : RefLaws mref cref) (D : Nat) {p : MetaM α} (hp : Op p) :
@@ -77,18 +80,18 @@ ended in — or, for an interrupt or a runtime exception, does not run and the
 exception goes on from that same world (`Core.tryCatch`). -/
 theorem Keeps.tryCatch {α : Type} {I : Void IO.RealWorld → Prop} {x : MetaM α}
     {h : Exception → MetaM α} (hx : Keeps mctx mref cctx cref I x)
-    (hh : ∀ e, Keeps mctx mref cctx cref I (h e)) :
+    (hh : ∀ e, OkExc e → Keeps mctx mref cctx cref I (h e)) :
     Keeps mctx mref cctx cref I (MonadExcept.tryCatch x h) := by
+  rw [keeps_iff] at hx ⊢
   intro w hw
   have h1 := hx w hw
-  unfold endW at h1 ⊢
-  change I (match (Core.tryCatch (x mctx mref) (fun e => h e mctx mref)) cctx cref w with
-    | .ok _ w' => w' | .error _ w' => w')
+  change match (Core.tryCatch (x mctx mref) (fun e => h e mctx mref)) cctx cref w with
+    | .ok _ w' => I w' | .error e w' => I w' ∧ OkExc e
   unfold Core.tryCatch
-  change I (match (EST.tryCatch (x mctx mref cctx cref)
+  change match (EST.tryCatch (x mctx mref cctx cref)
       (fun ex => (if (ex.isInterrupt || ex.isRuntime) = true then (MonadExcept.throw ex : CoreM α)
         else h ex mctx mref) cctx cref)) w with
-    | .ok _ w' => w' | .error _ w' => w')
+    | .ok _ w' => I w' | .error e w' => I w' ∧ OkExc e
   unfold EST.tryCatch
   cases hxw : x mctx mref cctx cref w with
   | ok a w1 => rw [hxw] at h1; exact h1
@@ -98,16 +101,14 @@ theorem Keeps.tryCatch {α : Type} {I : Void IO.RealWorld → Prop} {x : MetaM �
     by_cases hc : (e.isInterrupt || e.isRuntime) = true
     · rw [if_pos hc]; exact h1
     · rw [if_neg hc]
-      have := hh e w1 h1
-      unfold endW at this
-      exact this
+      exact keeps_iff.mp (hh e h1.2) w1 h1.1
 
 /-- An action that returns in the world it started in (a context read). -/
 theorem Keeps.of_ok {α : Type} {I : Void IO.RealWorld → Prop} {m : MetaM α}
     (h : ∀ w, ∃ a, m mctx mref cctx cref w = .ok a w) : Keeps mctx mref cctx cref I m := by
   intro w hw
   obtain ⟨a, ha⟩ := h w
-  unfold endW; rw [ha]; exact hw
+  unfold endW ErrOk; rw [ha]; exact ⟨hw, trivial⟩
 
 /-- `withReader` on the Meta context: the action, in the changed context. -/
 theorem Keeps.withReader {α : Type} {I : Void IO.RealWorld → Prop} {x : MetaM α}
@@ -239,9 +240,9 @@ theorem KeepsC.dite {α : Type} {c : Prop} [Decidable c] {I : Void IO.RealWorld 
   · rw [dif_pos hc]; exact ha hc
   · rw [dif_neg hc]; exact hb hc
 
-theorem KeepsC.throw {α : Type} {I : Void IO.RealWorld → Prop} (e : Exception) :
+theorem KeepsC.throw {α : Type} {I : Void IO.RealWorld → Prop} (e : Exception) (he : OkExc e) :
     KeepsC mctx mref cctx cref I (throw e : CompilerM α) :=
-  keepsC_iff.mpr (TripleC.throw e fun _ hw => hw)
+  keepsC_iff.mpr (TripleC.throw e fun _ hw => ⟨hw, he⟩)
 
 theorem KeepsC.lift {α : Type} {I : Void IO.RealWorld → Prop} {m : MetaM α}
     (h : Keeps mctx mref cctx cref I m) :
@@ -280,9 +281,9 @@ theorem KeepsC.withReader {α : Type} {I : Void IO.RealWorld → Prop} {k : Comp
 
 theorem KeepsC.tryCatch {α : Type} {I : Void IO.RealWorld → Prop} {x : CompilerM α}
     {h : Exception → CompilerM α} (hx : KeepsC mctx mref cctx cref I x)
-    (hh : ∀ e, KeepsC mctx mref cctx cref I (h e)) :
+    (hh : ∀ e, OkExc e → KeepsC mctx mref cctx cref I (h e)) :
     KeepsC mctx mref cctx cref I (MonadExcept.tryCatch x h) :=
-  fun ctx st => Keeps.tryCatch (hx ctx st) fun e => hh e ctx st
+  fun ctx st => Keeps.tryCatch (hx ctx st) fun e he => hh e he ctx st
 
 theorem KeepsC.map {α β : Type} {I : Void IO.RealWorld → Prop} {c : CompilerM α} (f : α → β)
     (h : KeepsC mctx mref cctx cref I c) : KeepsC mctx mref cctx cref I (f <$> c) :=
@@ -340,6 +341,54 @@ theorem KeepsC.liftIO {α : Type} {I : Void IO.RealWorld → Prop} {x : IO α}
     (h : Keeps mctx mref cctx cref I (_root_.liftM x : MetaM α)) :
     KeepsC mctx mref cctx cref I (_root_.liftM x : CompilerM α) :=
   KeepsC.lift h
+
+/-! ### An exception cell's read: the content's fact goes to the continuation -/
+
+theorem Triple.cellGetIO (L : RefLaws mref cref) (D : Nat) (r : IO.Ref (Option Exception)) :
+    Triple mctx mref cctx cref (J L D)
+      (_root_.liftM (ST.Ref.get r : IO (Option Exception)) : MetaM (Option Exception))
+      (fun v w => J L D w ∧ OkOpt v) (JE L D) := by
+  intro w hw
+  have h := Triple.op (mctx := mctx) (cctx := cctx) L (Op.cell (.getIO r)) D w hw
+  cases hm : (_root_.liftM (ST.Ref.get r : IO (Option Exception)) : MetaM (Option Exception))
+      mctx mref cctx cref w with
+  | ok v w1 => rw [hm] at h; exact ⟨h, L.cellGetIO r w v w1 hm hw.1.2.2⟩
+  | error e w1 => rw [hm] at h; exact h
+
+theorem Triple.cellGet (L : RefLaws mref cref) (D : Nat) (r : IO.Ref (Option Exception)) :
+    Triple mctx mref cctx cref (J L D) (ST.Ref.get r : MetaM (Option Exception))
+      (fun v w => J L D w ∧ OkOpt v) (JE L D) := by
+  intro w hw
+  have h := Triple.op (mctx := mctx) (cctx := cctx) L (Op.cell (.get r)) D w hw
+  cases hm : (ST.Ref.get r : MetaM (Option Exception)) mctx mref cctx cref w with
+  | ok v w1 => rw [hm] at h; exact ⟨h, L.cellGet r w v w1 hm hw.1.2.2⟩
+  | error e w1 => rw [hm] at h; exact h
+
+theorem TripleC.cellGetIO (L : RefLaws mref cref) (D : Nat) (r : IO.Ref (Option Exception)) :
+    TripleC mctx mref cctx cref (J L D)
+      (_root_.liftM (ST.Ref.get r : IO (Option Exception)) : CompilerM (Option Exception))
+      (fun v w => J L D w ∧ OkOpt v) (JE L D) :=
+  TripleC.lift (Triple.cellGetIO L D r)
+
+theorem TripleC.cellGetLift (L : RefLaws mref cref) (D : Nat) (r : IO.Ref (Option Exception)) :
+    TripleC mctx mref cctx cref (J L D)
+      (CompilerM.liftMetaM (ST.Ref.get r : MetaM (Option Exception)))
+      (fun v w => J L D w ∧ OkOpt v) (JE L D) :=
+  TripleC.lift (Triple.cellGet L D r)
+
+theorem TripleC.cellGet (L : RefLaws mref cref) (D : Nat) (r : IO.Ref (Option Exception)) :
+    TripleC mctx mref cctx cref (J L D) (ST.Ref.get r : CompilerM (Option Exception))
+      (fun v w => J L D w ∧ OkOpt v) (JE L D) :=
+  TripleC.lift (Triple.cellGet L D r)
+
+/-- A bind on a read of an exception cell: the continuation is asked only for
+contents in the class. -/
+theorem KeepsC.bindOpt {β : Type} (L : RefLaws mref cref) (D : Nat)
+    {c : CompilerM (Option Exception)} {f : Option Exception → CompilerM β}
+    (h1 : TripleC mctx mref cctx cref (J L D) c (fun v w => J L D w ∧ OkOpt v) (JE L D))
+    (h2 : ∀ v, OkOpt v → KeepsC mctx mref cctx cref (J L D) (f v)) :
+    KeepsC mctx mref cctx cref (J L D) (c >>= f) :=
+  keepsC_iff.mpr (TripleC.bind h1 fun v ctx st w hw => keepsC_iff.mp (h2 v hw.2) ctx st w hw.1)
 
 theorem KeepsC.pureE {ρ α : Type} {I : Void IO.RealWorld → Prop} (a : α) :
     KeepsC mctx mref cctx cref I (Pure.pure a : ExceptT ρ CompilerM α) :=
@@ -571,6 +620,27 @@ def closeBy (g : MVarId) (stx : Syntax) : MetaM Unit := do
 each tried only when its statement's program has the goal's head. -/
 partial def side (g : MVarId) (depth : Nat := 4) : MetaM Unit := g.withContext do
   if ← attempt g.assumption then return
+  let tm ← instantiateMVars (← g.getType)
+  -- the read of an exception cell (`KeepsC.bindOpt`'s first premise)
+  if tm.isAppOf ``Tools.ShippingChildInv.TripleC then
+    if ← attempt (do closeBy g (← `(tactic| first
+        | exact Tools.ShippingChildInv.TripleC.cellGetIO _ _ _
+        | exact Tools.ShippingChildInv.TripleC.cellGetLift _ _ _
+        | exact Tools.ShippingChildInv.TripleC.cellGet _ _ _))) then return
+    throwError "vc: not a read of an exception cell: {tm}"
+  -- a message / exception of the tracked class: the closure rules
+  if tm.isAppOf ``Tools.ShippingChildInv.OkMsg || tm.isAppOf ``Tools.ShippingChildInv.OkExc then
+    if ← attempt (do closeBy g (← `(tactic| okmsg))) then return
+    -- from a cell's content (a hypothesis `OkOpt (some ex)`)
+    for d in ← getLCtx do
+      if (← instantiateMVars d.type).isAppOf ``Tools.ShippingChildInv.OkOpt then
+        if ← attempt (do closeBy g (← `(tactic| exact $(mkIdent d.userName) _ rfl))) then return
+    throwError "vc: the message is not shown to be in the tracked class: {tm}"
+  if tm.isAppOf ``Tools.ShippingChildInv.OkOpt then
+    if ← attempt (do closeBy g (← `(tactic|
+        first | exact Tools.ShippingChildInv.OkOpt.none
+              | exact Tools.ShippingChildInv.OkOpt.some (by assumption)))) then return
+    throwError "vc: the cell's new content is not shown to be in the tracked class: {tm}"
   -- a size bound (the premise of an induction hypothesis of a definition
   -- recursive on sub-terms): arithmetic over `sizeOf`
   let t0 ← instantiateMVars (← g.getType)
@@ -950,6 +1020,10 @@ partial def walkCore (g : MVarId) (fuel : Nat) : MetaM Unit := do
     if (toString c).startsWith "_private.Lean." then
       throwError "vc: reached the Lean internal {c} (last unfolded: {← vcLastUnfold.get}); the public primitive needs a law"
     if c == ``Bind.bind then
+      -- a read of an exception cell: its content's fact goes to the continuation
+      if isC && p.getAppArgs[2]? == some (mkApp (mkConst ``Option [levelZero]) (mkConst ``Lean.Exception)) then
+        if ← attempt (applyThen g (← mkConstWithFreshMVarLevels ``Tools.ShippingChildInv.KeepsC.bindOpt) fuel) then
+          return
       return ← rule2 ``Keeps.bind ``KeepsC.bind ``Tools.ShippingChildInv.Keeps.bindE
         ``Tools.ShippingChildInv.KeepsC.bindE
     if c == ``Functor.map then return ← rule ``Keeps.map ``KeepsC.map

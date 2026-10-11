@@ -90,7 +90,7 @@ theorem fuelFix_keepsC {mref : ST.Ref IO.RealWorld Meta.State}
       KeepsC mctx mref cctx cref I (translateFuelFix step k e hint top named)
   | 0, mctx, cctx, e, hint, top, named => by
     unfold translateFuelFix
-    exact KeepsC.throw _
+    exact KeepsC.throw _ (by okmsg)
   | k + 1, mctx, cctx, e, hint, top, named => by
     unfold translateFuelFix
     exact hstep _ (fuelFix_keepsC step hstep k) mctx cctx e hint top named

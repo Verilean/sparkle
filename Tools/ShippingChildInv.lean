@@ -95,7 +95,58 @@ handler's scratch cell): a ref of such a type is not one of the three tracked
 refs, whose types are different. -/
 inductive LocalRefType : Type → Prop
   | exprCache : LocalRefType (Lean.ExprStructMap String)
-  | optException : LocalRefType (Option Lean.Exception)
+
+/-- **The messages whose rendering the diagnostic law covers.** A message is
+a tree; `MessageData.ofLazy` carries CODE (a thunk run when the message is
+rendered), so a law "rendering any message leaves the refs" is false of the
+runtime. This class has no arbitrary thunk: text, formats, the structural
+constructors, and — the lazy leaves, a TRUSTED boundary — `ofExpr e` and
+`ofConstName n`, whose thunks call the environment's pretty-printers (covered
+by `quiet`). -/
+inductive OkMsg : MessageData → Prop
+  | str (s : String) : OkMsg (stringToMessageData s)
+  | fmt (f : FormatWithInfos) : OkMsg (.ofFormatWithInfos f)
+  | compose {a b : MessageData} : OkMsg a → OkMsg b → OkMsg (.compose a b)
+  | nest (n : Nat) {a : MessageData} : OkMsg a → OkMsg (.nest n a)
+  | group {a : MessageData} : OkMsg a → OkMsg (.group a)
+  | tagged (n : Name) {a : MessageData} : OkMsg a → OkMsg (.tagged n a)
+  | withContext (c : MessageDataContext) {a : MessageData} : OkMsg a → OkMsg (.withContext c a)
+  | withNamingContext (c : NamingContext) {a : MessageData} :
+      OkMsg a → OkMsg (.withNamingContext c a)
+  | ofSyntax (stx : Syntax) {a : MessageData} : OkMsg a → OkMsg (.ofOriginatingSyntax stx a)
+  | ofExpr (e : Lean.Expr) : OkMsg (.ofExpr e)
+  /- the same kind of lazy leaf: the environment's constant-name printer -/
+  | ofConstName (n : Name) (full : Bool) : OkMsg (.ofConstName n full)
+
+/-- An exception whose message is in the class. -/
+def OkExc (e : Exception) : Prop := OkMsg e.toMessageData
+
+/-- The content of an exception cell: none, or an exception in the class. -/
+def OkOpt (v : Option Exception) : Prop := ∀ ex, v = some ex → OkExc ex
+
+theorem OkOpt.none : OkOpt none := fun _ h => nomatch h
+
+theorem OkOpt.some {e : Exception} (h : OkExc e) : OkOpt (some e) :=
+  fun _ h' => by cases h'; exact h
+
+/-- Close `OkMsg m` / `OkExc e` for a message built from text, formats,
+printed expressions and the structural constructors. Fails on anything else
+(a lazy message of unknown code). -/
+macro "okmsg" : tactic => `(tactic|
+  (first | (show OkMsg _) | skip
+   repeat (first
+    | assumption
+    | exact OkMsg.str _
+    | exact OkMsg.fmt _
+    | exact OkMsg.ofExpr _
+    | exact OkMsg.ofConstName _ _
+    | refine OkMsg.compose ?_ ?_
+    | refine OkMsg.nest _ ?_
+    | refine OkMsg.group ?_
+    | refine OkMsg.tagged _ ?_
+    | refine OkMsg.withContext _ ?_
+    | refine OkMsg.withNamingContext _ ?_
+    | refine OkMsg.ofSyntax _ ?_)))
 
 /-- The operations whose frame is a law: reads of the three tracked refs,
 any operation on the other per-synthesis refs, the environment-variable read,
@@ -125,9 +176,6 @@ inductive Framed : {α : Type} → MetaM α → Prop
   | ioEnv (n : String) : Framed (liftM (IO.getEnv n) : MetaM _)
   | constInfo (n : Name) : Framed (getConstInfo n : MetaM _)
   | env : Framed (getEnv : MetaM Environment)
-  | throwErr {α : Type} (msg : MessageData) : Framed (throwError msg : MetaM α)
-  | coreThrowErr {α : Type} (msg : MessageData) :
-      Framed (liftM (throwError msg : CoreM α) : MetaM α)
   | fvarThrowUnknown {α : Type} (id : FVarId) :
       Framed (liftM (id.throwUnknown : CoreM α) : MetaM α)
   /- Lean's own elaborator primitives (they read and write the Meta and Core
@@ -180,13 +228,14 @@ entry's profile logger. Their ARGUMENTS are data; what they run is the
 environment's — registered pretty-printers, the installed standard-error
 stream. That they leave the three tracked values is NOT a generic law of ref
 operations: it is asked only in worlds the laws call `quiet`
-(`RefLaws.diag`). (`msgToString` takes a message, which can carry code of
-its own: see the audit, G5 — its law is still over-general.) -/
+(`RefLaws.diag`). `msgToString` takes a message, which can carry code of its
+own: its law is for the class `OkMsg` only. -/
 inductive Diag : {α : Type} → MetaM α → Prop
   | profLog (b : Bool) (msg : String) : Diag (liftM (profLogIO b msg) : MetaM Unit)
   | ppExpr (e : Lean.Expr) : Diag (Lean.Meta.ppExpr e)
   | ioEprintln (s : String) : Diag (liftM (IO.eprintln s) : MetaM Unit)
-  | msgToString (m : MessageData) : Diag (liftM m.toString : MetaM String)
+  /- rendering a message OF THE CLASS — not any message -/
+  | msgToString (m : MessageData) : OkMsg m → Diag (liftM m.toString : MetaM String)
   | ioGetStderr : Diag (liftM IO.getStderr : MetaM IO.FS.Stream)
   /- the flush of the process's standard error — NOT of an arbitrary stream:
   `IO.FS.Stream` is a structure of closures, and a frame law for `h.flush` of
@@ -197,10 +246,36 @@ inductive Diag : {α : Type} → MetaM α → Prop
   | ioHandlePutStrLn (h : IO.FS.Handle) (s : String) : Diag (liftM (h.putStrLn s) : MetaM Unit)
   | ioHandleFlush (h : IO.FS.Handle) : Diag (liftM h.flush : MetaM Unit)
 
-/-- An operation the invariant is kept by: a generic one, or a diagnostic. -/
+/-- **Exception cells** (run-local refs of type `Option Exception`: the
+translator's `lastInlineFail`): created, read, and written WITH a content in
+the class. A write of an arbitrary exception is not here — the cell's
+content is what the one rendering site prints. -/
+inductive CellOk : {α : Type} → MetaM α → Prop
+  | mk (v : Option Exception) : OkOpt v →
+      CellOk (liftM (IO.mkRef v) : MetaM (IO.Ref (Option Exception)))
+  | get (r : IO.Ref (Option Exception)) : CellOk (ST.Ref.get r : MetaM (Option Exception))
+  | getIO (r : IO.Ref (Option Exception)) :
+      CellOk (liftM (ST.Ref.get r : IO (Option Exception)) : MetaM (Option Exception))
+  | set (r : IO.Ref (Option Exception)) (v : Option Exception) : OkOpt v →
+      CellOk (ST.Ref.set r v : MetaM Unit)
+  | setIO (r : IO.Ref (Option Exception)) (v : Option Exception) : OkOpt v →
+      CellOk (liftM (ST.Ref.set r v : IO Unit) : MetaM Unit)
+
+/-- Building and throwing an error (any message): the frame is generic. -/
+inductive Throws : {α : Type} → MetaM α → Prop
+  | err {α : Type} (msg : MessageData) : Throws (throwError msg : MetaM α)
+  | coreErr {α : Type} (msg : MessageData) : Throws (liftM (throwError msg : CoreM α) : MetaM α)
+
+/-- An operation the invariant is kept by, AND whose exceptions are in the
+class: a generic one, a diagnostic, or a `throwError` of a message in the
+class. -/
 inductive Op : {α : Type} → MetaM α → Prop
   | framed {α : Type} {p : MetaM α} : Framed p → Op p
   | diag {α : Type} {p : MetaM α} : Diag p → Op p
+  | throwErr {α : Type} (msg : MessageData) : OkMsg msg → Op (throwError msg : MetaM α)
+  | coreThrowErr {α : Type} (msg : MessageData) :
+      OkMsg msg → Op (liftM (throwError msg : CoreM α) : MetaM α)
+  | cell {α : Type} {p : MetaM α} : CellOk p → Op p
 
 section Runs
 variable (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State)
@@ -212,9 +287,18 @@ def endW {α : Type} (m : MetaM α) (w : Void IO.RealWorld) : Void IO.RealWorld 
   | .ok _ w' => w'
   | .error _ w' => w'
 
-/-- From a world satisfying `I`, `m` ends in one — returning or throwing. -/
+/-- If `m` throws from `w`, the exception's message is in the class. -/
+def ErrOk {α : Type} (m : MetaM α) (w : Void IO.RealWorld) : Prop :=
+  match m mctx mref cctx cref w with
+  | .ok _ _ => True
+  | .error e _ => OkExc e
+
+/-- From a world satisfying `I`, `m` ends in one — returning or throwing —
+and an exception it throws has a message in the class (`OkExc`): what a
+`catch` hands its handler, and what a failed-and-recovered run leaves in an
+exception cell, is tracked. -/
 def Keeps {α : Type} (I : Void IO.RealWorld → Prop) (m : MetaM α) : Prop :=
-  ∀ w, I w → I (endW mctx mref cctx cref m w)
+  ∀ w, I w → I (endW mctx mref cctx cref m w) ∧ ErrOk mctx mref cctx cref m w
 
 end Runs
 
@@ -236,9 +320,11 @@ structure RefLaws where
   sval : Void IO.RealWorld → Option (Name → MetaM Res)
   dval : Void IO.RealWorld → Nat
   /-- The worlds in which the diagnostic operations do not touch the three
-  refs: no registered printer and not the installed standard error writes
-  them. An ENVIRONMENT condition, asked of the run's start world
-  (`ChildBnd`) and carried by the invariant. -/
+  refs — no registered printer and not the installed standard error writes
+  them — AND every exception cell (a ref of type `Option Exception`) holds
+  none or an exception whose message is in the class `OkMsg`. A condition on
+  the ENVIRONMENT and the heap, asked of the run's start world (`ChildBnd`)
+  and carried by the invariant. -/
   quiet : Void IO.RealWorld → Prop
   /-- A diagnostic operation, in a quiet world: the three values are left,
   and the world it ends in is quiet — on every outcome. -/
@@ -246,6 +332,31 @@ structure RefLaws where
     quiet w →
     (val (endW mctx mref cctx cref p w) = val w ∧ sval (endW mctx mref cctx cref p w) = sval w ∧
       dval (endW mctx mref cctx cref p w) = dval w) ∧ quiet (endW mctx mref cctx cref p w)
+  /-- Building and throwing an error leaves the values and quietness. -/
+  frameT : ∀ {mctx : Meta.Context} {cctx : Core.Context} {α : Type} (p : MetaM α), Throws p → ∀ w,
+    (val (endW mctx mref cctx cref p w) = val w ∧ sval (endW mctx mref cctx cref p w) = sval w ∧
+      dval (endW mctx mref cctx cref p w) = dval w) ∧
+    (quiet w → quiet (endW mctx mref cctx cref p w))
+  /-- An exception cell's operations leave the three values; with a content
+  in the class they keep the world quiet (`quiet` includes: every exception
+  cell holds none or an exception in the class). -/
+  cell : ∀ {mctx : Meta.Context} {cctx : Core.Context} {α : Type} (p : MetaM α), CellOk p → ∀ w,
+    (val (endW mctx mref cctx cref p w) = val w ∧ sval (endW mctx mref cctx cref p w) = sval w ∧
+      dval (endW mctx mref cctx cref p w) = dval w) ∧
+    (quiet w → quiet (endW mctx mref cctx cref p w))
+  /-- In a quiet world, a read of an exception cell returns none or an
+  exception in the class. -/
+  cellGet : ∀ {mctx : Meta.Context} {cctx : Core.Context} (r : IO.Ref (Option Exception)) w v w',
+    RunsTo (ST.Ref.get r : MetaM (Option Exception)) mctx mref cctx cref w v w' → quiet w → OkOpt v
+  cellGetIO : ∀ {mctx : Meta.Context} {cctx : Core.Context} (r : IO.Ref (Option Exception)) w v w',
+    RunsTo (liftM (ST.Ref.get r : IO (Option Exception)) : MetaM (Option Exception))
+      mctx mref cctx cref w v w' → quiet w → OkOpt v
+  /-- TRUSTED (T3): an exception one of these operations throws from a quiet
+  world has a message in the class — Lean's own error messages are text,
+  formats and lazily printed expressions; a `throwError msg` of a message in
+  the class adds only context wrappers. -/
+  excOk : ∀ {mctx : Meta.Context} {cctx : Core.Context} {α : Type} (p : MetaM α), Op p →
+    ∀ w e w', quiet w → p mctx mref cctx cref w = .error e w' → OkExc e
   /-- The generic operations and the tracked refs' writes do not make a
   quiet world unquiet (the compile registers no printer and does not replace
   standard error). -/
@@ -553,6 +664,18 @@ theorem sameOp {α : Type} {p : MetaM α} (hp : Op p) {w a w'}
   cases hp with
   | framed hf => exact ⟨L.same hf h, L.sameQ hf h hq⟩
   | diag hd => exact L.sameD hd h hq
+  | throwErr msg _ =>
+    have := L.frameT (mctx := mctx) (cctx := cctx) _ (Throws.err (α := α) msg) w
+    rw [endW_of_runs h] at this
+    exact ⟨this.1, this.2 hq⟩
+  | coreThrowErr msg _ =>
+    have := L.frameT (mctx := mctx) (cctx := cctx) _ (Throws.coreErr (α := α) msg) w
+    rw [endW_of_runs h] at this
+    exact ⟨this.1, this.2 hq⟩
+  | cell hc =>
+    have := L.cell (mctx := mctx) (cctx := cctx) p hc w
+    rw [endW_of_runs h] at this
+    exact ⟨this.1, this.2 hq⟩
 
 theorem get {w m w'} (h : RunsTo (sparkleChildCache.get : MetaM _) mctx mref cctx cref w m w') :
     m = L.val w ∧ L.val w' = L.val w ∧ L.sval w' = L.sval w :=

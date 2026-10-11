@@ -181,8 +181,51 @@ semantics; no timing, no X/Z, no multi-clock.
 
 ### G5 — the diagnostic laws: what is wrong and the design to fix it (2026-10-11, third pass)
 
-**Status 2026-10-11 (fourth pass): part 1 (`quiet`) IMPLEMENTED and every
-dependent re-verified; part 2 (`msgToString` provenance) NOT done.**
+**Status 2026-10-11 (fifth pass): parts 1 (`quiet`) and 2 (message
+provenance) IMPLEMENTED, every dependent re-verified. Still conditional
+theorems: the laws are assumptions, no runtime model shows them satisfiable.**
+
+Part 2, as implemented (`Tools/ShippingChildInv.lean`, `…Keeps`, `…VC`):
+
+* `OkMsg : MessageData → Prop`, an inductive over the message tree: text
+  (`stringToMessageData`), formats, `compose` / `nest` / `group` / `tagged` /
+  context wrappers / originating syntax — and two lazy leaves, the TRUSTED
+  list (pinned by a test): `ofExpr e`, `ofConstName n` (their thunks call the
+  environment's printers: covered by `quiet`). No constructor for an arbitrary
+  `ofLazy`. `OkExc e := OkMsg e.toMessageData`.
+* The rendering law is `Diag.msgToString m : OkMsg m → …` — no frame law for
+  every message is left.
+* **`Keeps` tracks the thrown exception**: from an invariant world a program
+  ends in one AND, if it throws, the exception is `OkExc` (`ErrOk`). `Triple`'s
+  error clause takes the exception. So `tryCatch` hands its handler an `OkExc`
+  exception — this covers the runs that fail and continue. A plain `throw e`
+  needs `OkExc e`; `throwError msg` needs `OkMsg msg`.
+* Trusted law T3 is ONE field, `RefLaws.excOk`: an exception thrown from a
+  quiet world by a generic primitive, a diagnostic, a `throwError` of a message
+  in the class (it adds context wrappers), or a cell operation is `OkExc`.
+  `throwError` of an ARBITRARY message has only its value frame (`Throws`,
+  `frameT`) and is not a tracked operation.
+* The compiler's own messages are PROVED in the class by the closure tactic
+  `okmsg`, called by `vc` at every `throw` / `throwError` side goal: all sites
+  of the harness, the translator, the fallback and the legacy block close (the
+  one lazy form met was `ofConstName`).
+* The exception cell (`lastInlineFail : IO.Ref (Option Exception)`) is no
+  generic local ref: `CellOk` (create / read / write WITH a content in the
+  class), laws `cell`, `cellGet`, `cellGetIO` (a read in a quiet world returns
+  none or an `OkExc` exception). `quiet` is documented to include "every
+  exception cell holds none or an exception in the class". The bind on a cell
+  read hands that fact to its continuation (`KeepsC.bindOpt`), so the ONE
+  rendering site (`ex.toMessageData.toString`) renders an `OkMsg` message.
+
+Trusted in part 2, explicitly: the two lazy leaves; `excOk` (T3); the cell
+laws (generic laws of refs of type `Option Exception`, with the "all cells
+hold in-class contents" reading of `quiet` at the start world); that the
+generic operations do not write exception cells (inside `frameQ`). NOT
+done: `profLog` is still one constructor (not derived from `eprintln` /
+`flushStderr` / the file handle); the elaborator primitives remain in the
+unconditional class; the per-child-world witness is existentially re-packed.
+
+(Previous status line: part 1 implemented, part 2 not done.)
 
 Part 1, as implemented (`Tools/ShippingChildInv.lean`):
 

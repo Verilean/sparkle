@@ -44,54 +44,59 @@ variable (mctx mref cctx cref)
 
 /-- From `P`: a returning run ends in `Q a`, a throwing run in `R`. -/
 def Triple {α : Type} (P : Void IO.RealWorld → Prop) (m : MetaM α)
-    (Q : α → Void IO.RealWorld → Prop) (R : Void IO.RealWorld → Prop) : Prop :=
+    (Q : α → Void IO.RealWorld → Prop) (R : Exception → Void IO.RealWorld → Prop) : Prop :=
   ∀ w, P w → match m mctx mref cctx cref w with
     | .ok a w' => Q a w'
-    | .error _ w' => R w'
+    | .error e w' => R e w'
 
 end Calculus
 
 theorem keeps_iff {α : Type} {I : Void IO.RealWorld → Prop} {m : MetaM α} :
-    Keeps mctx mref cctx cref I m ↔ Triple mctx mref cctx cref I m (fun _ => I) I := by
+    Keeps mctx mref cctx cref I m ↔
+      Triple mctx mref cctx cref I m (fun _ => I) (fun e w => I w ∧ OkExc e) := by
   constructor
   · intro h w hw
     have := h w hw
-    unfold endW at this
-    split <;> rename_i heq <;> rw [heq] at this <;> exact this
+    unfold endW ErrOk at this
+    cases hm : m mctx mref cctx cref w with
+    | ok a w' => rw [hm] at this; exact this.1
+    | error e w' => rw [hm] at this; exact this
   · intro h w hw
     have := h w hw
-    unfold endW
-    split <;> rename_i heq <;> rw [heq] at this <;> exact this
+    unfold endW ErrOk
+    cases hm : m mctx mref cctx cref w with
+    | ok a w' => rw [hm] at this; exact ⟨this, trivial⟩
+    | error e w' => rw [hm] at this; exact this
 
 theorem Triple.conseq {α : Type} {P P' : Void IO.RealWorld → Prop} {m : MetaM α}
-    {Q Q' : α → Void IO.RealWorld → Prop} {R R' : Void IO.RealWorld → Prop}
+    {Q Q' : α → Void IO.RealWorld → Prop} {R R' : Exception → Void IO.RealWorld → Prop}
     (h : Triple mctx mref cctx cref P m Q R) (hP : ∀ w, P' w → P w)
-    (hQ : ∀ a w, Q a w → Q' a w) (hR : ∀ w, R w → R' w) :
+    (hQ : ∀ a w, Q a w → Q' a w) (hR : ∀ e w, R e w → R' e w) :
     Triple mctx mref cctx cref P' m Q' R' := by
   intro w hw
   have := h w (hP w hw)
   split <;> rename_i heq <;> rw [heq] at this
   · exact hQ _ _ this
-  · exact hR _ this
+  · exact hR _ _ this
 
 theorem Triple.pure {α : Type} {P : Void IO.RealWorld → Prop} {a : α}
-    {Q : α → Void IO.RealWorld → Prop} {R : Void IO.RealWorld → Prop} (h : ∀ w, P w → Q a w) :
+    {Q : α → Void IO.RealWorld → Prop} {R : Exception → Void IO.RealWorld → Prop} (h : ∀ w, P w → Q a w) :
     Triple mctx mref cctx cref P (Pure.pure a : MetaM α) Q R := by
   intro w hw
   change match (EST.Out.ok a w : EST.Out Exception IO.RealWorld α) with
-    | .ok a w' => Q a w' | .error _ w' => R w'
+    | .ok a w' => Q a w' | .error e w' => R e w'
   exact h w hw
 
 theorem Triple.bind {α β : Type} {P : Void IO.RealWorld → Prop} {m : MetaM α} {f : α → MetaM β}
     {Q : α → Void IO.RealWorld → Prop} {Q' : β → Void IO.RealWorld → Prop}
-    {R : Void IO.RealWorld → Prop}
+    {R : Exception → Void IO.RealWorld → Prop}
     (h1 : Triple mctx mref cctx cref P m Q R)
     (h2 : ∀ a, Triple mctx mref cctx cref (Q a) (f a) Q' R) :
     Triple mctx mref cctx cref P (m >>= f) Q' R := by
   intro w hw
   have h := h1 w hw
   change match (EST.bind (m mctx mref cctx cref) fun a => f a mctx mref cctx cref) w with
-    | .ok a w' => Q' a w' | .error _ w' => R w'
+    | .ok a w' => Q' a w' | .error e w' => R e w'
   unfold EST.bind
   cases hm : m mctx mref cctx cref w with
   | ok a w1 => rw [hm] at h; exact h2 a w1 h
@@ -100,14 +105,14 @@ theorem Triple.bind {α β : Type} {P : Void IO.RealWorld → Prop} {m : MetaM �
 /-- A bind whose first run also establishes a fact `φ` of its result. -/
 theorem Triple.bindQ {α β : Type} {P P' : Void IO.RealWorld → Prop} {m : MetaM α}
     {f : α → MetaM β} {φ : α → Prop} {Q' : β → Void IO.RealWorld → Prop}
-    {R : Void IO.RealWorld → Prop}
+    {R : Exception → Void IO.RealWorld → Prop}
     (h1 : Triple mctx mref cctx cref P m (fun a w => P' w ∧ φ a) R)
     (h2 : ∀ a, φ a → Triple mctx mref cctx cref P' (f a) Q' R) :
     Triple mctx mref cctx cref P (m >>= f) Q' R :=
   Triple.bind h1 fun a w hw => h2 a hw.2 w hw.1
 
 theorem Triple.ite {α : Type} {c : Prop} [Decidable c] {P : Void IO.RealWorld → Prop}
-    {a b : MetaM α} {Q : α → Void IO.RealWorld → Prop} {R : Void IO.RealWorld → Prop}
+    {a b : MetaM α} {Q : α → Void IO.RealWorld → Prop} {R : Exception → Void IO.RealWorld → Prop}
     (ha : c → Triple mctx mref cctx cref P a Q R) (hb : ¬c → Triple mctx mref cctx cref P b Q R) :
     Triple mctx mref cctx cref P (if c then a else b) Q R := by
   by_cases hc : c
@@ -116,16 +121,16 @@ theorem Triple.ite {α : Type} {c : Prop} [Decidable c] {P : Void IO.RealWorld �
 
 /-- `try x finally fin`: `fin` runs from the world `x` ends in, whether `x`
 returned or threw; the whole run ends where `fin` ends. -/
-theorem Triple.tryFinally {α β : Type} {P M N : Void IO.RealWorld → Prop} {x : MetaM α}
-    {fin : MetaM β}
-    (hx : Triple mctx mref cctx cref P x (fun _ => M) M)
-    (hf : Triple mctx mref cctx cref M fin (fun _ => N) N) :
-    Triple mctx mref cctx cref P (_root_.tryFinally x fin) (fun _ => N) N := by
+theorem Triple.tryFinally {α β : Type} {P M N : Void IO.RealWorld → Prop} {E : Exception → Prop}
+    {x : MetaM α} {fin : MetaM β}
+    (hx : Triple mctx mref cctx cref P x (fun _ => M) (fun e w => M w ∧ E e))
+    (hf : Triple mctx mref cctx cref M fin (fun _ => N) (fun e w => N w ∧ E e)) :
+    Triple mctx mref cctx cref P (_root_.tryFinally x fin) (fun _ => N) (fun e w => N w ∧ E e) := by
   intro w hw
   have h1 := hx w hw
   change match (EST.bind (@MonadFinally.tryFinally' (EST Exception IO.RealWorld) _ _ _
       (x mctx mref cctx cref) (fun _ => fin mctx mref cctx cref)) (fun p => EST.pure p.1)) w with
-    | .ok _ w' => N w' | .error _ w' => N w'
+    | .ok _ w' => N w' | .error e w' => N w' ∧ E e
   unfold EST.bind
   simp only [MonadFinally.tryFinally']
   cases hxw : x mctx mref cctx cref w with
@@ -136,13 +141,15 @@ theorem Triple.tryFinally {α β : Type} {P M N : Void IO.RealWorld → Prop} {x
     cases hfw : fin mctx mref cctx cref w1 <;> rw [hfw] at h2 <;> simpa [EST.pure] using h2
   | error e w1 =>
     rw [hxw] at h1
-    have h2 := hf w1 h1
+    have h2 := hf w1 h1.1
     dsimp only
-    cases hfw : fin mctx mref cctx cref w1 <;> rw [hfw] at h2 <;> simpa [EST.pure] using h2
+    cases hfw : fin mctx mref cctx cref w1 with
+    | ok b w2 => rw [hfw] at h2; simpa [EST.pure] using ⟨h2, h1.2⟩
+    | error e' w2 => rw [hfw] at h2; simpa [EST.pure] using h2
 
 /-- A run that always returns: its triple from its successful runs. -/
 theorem Triple.of_runs {α : Type} {P : Void IO.RealWorld → Prop} {m : MetaM α}
-    {Q : α → Void IO.RealWorld → Prop} {R : Void IO.RealWorld → Prop}
+    {Q : α → Void IO.RealWorld → Prop} {R : Exception → Void IO.RealWorld → Prop}
     (total : ∀ w, ∃ a w', RunsTo m mctx mref cctx cref w a w')
     (h : ∀ w a w', P w → RunsTo m mctx mref cctx cref w a w' → Q a w') :
     Triple mctx mref cctx cref P m Q R := by
@@ -173,31 +180,48 @@ theorem op_end {α : Type} {p : MetaM α} (hp : Op p) {D : Nat} {w} (hw : J L D 
   | diag hd =>
     have := L.diag (mctx := mctx) (cctx := cctx) p hd w hw.1.2.2
     exact J_same L this.1 (fun _ => this.2) hw
+  | throwErr msg _ =>
+    have := L.frameT (mctx := mctx) (cctx := cctx) _ (Throws.err (α := α) msg) w
+    exact J_same L this.1 this.2 hw
+  | coreThrowErr msg _ =>
+    have := L.frameT (mctx := mctx) (cctx := cctx) _ (Throws.coreErr (α := α) msg) w
+    exact J_same L this.1 this.2 hw
+  | cell hc =>
+    have := L.cell (mctx := mctx) (cctx := cctx) p hc w
+    exact J_same L this.1 this.2 hw
+
+/-- The invariant at depth `D`, with the thrown exception in the class. -/
+def JE (D : Nat) : Exception → Void IO.RealWorld → Prop := fun e w => J L D w ∧ OkExc e
 
 /-- A framed operation keeps the invariant at its depth, on every outcome. -/
 theorem Triple.op {α : Type} {p : MetaM α} (hp : Op p) (D : Nat) :
-    Triple mctx mref cctx cref (J L D) p (fun _ => J L D) (J L D) :=
-  keeps_iff.mp fun w hw => op_end L hp hw
+    Triple mctx mref cctx cref (J L D) p (fun _ => J L D) (JE L D) := by
+  intro w hw
+  have hk := op_end (mctx := mctx) (cctx := cctx) L hp hw
+  unfold endW at hk
+  cases hm : p mctx mref cctx cref w with
+  | ok a w1 => rw [hm] at hk; exact hk
+  | error e w1 => rw [hm] at hk; exact ⟨hk, L.excOk p hp w e w1 hw.1.2.2 hm⟩
 
 theorem Triple.frame {α : Type} {p : MetaM α} (hp : Framed p) (D : Nat) :
-    Triple mctx mref cctx cref (J L D) p (fun _ => J L D) (J L D) :=
+    Triple mctx mref cctx cref (J L D) p (fun _ => J L D) (JE L D) :=
   Triple.op L (.framed hp) D
 
 /-- A diagnostic operation keeps the invariant (its worlds are quiet). -/
 theorem Triple.diag {α : Type} {p : MetaM α} (hp : Diag p) (D : Nat) :
-    Triple mctx mref cctx cref (J L D) p (fun _ => J L D) (J L D) :=
+    Triple mctx mref cctx cref (J L D) p (fun _ => J L D) (JE L D) :=
   Triple.op L (.diag hp) D
 
 /-- A framed operation, with a fact of its result on a successful run. -/
 theorem Triple.frameQ {α : Type} {p : MetaM α} (hp : Framed p) (D : Nat) {φ : α → Prop}
     (hφ : ∀ w a w', J L D w → RunsTo p mctx mref cctx cref w a w' → φ a) :
-    Triple mctx mref cctx cref (J L D) p (fun a w => J L D w ∧ φ a) (J L D) := by
+    Triple mctx mref cctx cref (J L D) p (fun a w => J L D w ∧ φ a) (JE L D) := by
   intro w hw
   have hk := op_end (mctx := mctx) (cctx := cctx) L (.framed hp) hw
   unfold endW at hk
   cases hm : p mctx mref cctx cref w with
   | ok a w1 => rw [hm] at hk; exact ⟨hk, hφ w a w1 hw hm⟩
-  | error e w1 => rw [hm] at hk; exact hk
+  | error e w1 => rw [hm] at hk; exact ⟨hk, L.excOk p (.framed hp) w e w1 hw.1.2.2 hm⟩
 
 /-- `throwError` does not return. -/
 theorem throwError_not_runs {α : Type} (msg : MessageData) {w a w'}
@@ -208,18 +232,20 @@ theorem throwError_not_runs {α : Type} (msg : MessageData) {w a w'}
   exact MReturns.throw h.mreturns
 
 /-- `throwError`: no returning run; the throwing run keeps the invariant. -/
-theorem Triple.throwErr {α : Type} (msg : MessageData) (D : Nat)
+theorem Triple.throwErr {α : Type} (msg : MessageData) (hmsg : OkMsg msg) (D : Nat)
     {Q : α → Void IO.RealWorld → Prop} :
-    Triple mctx mref cctx cref (J L D) (Lean.throwError msg : MetaM α) Q (J L D) := by
+    Triple mctx mref cctx cref (J L D) (Lean.throwError msg : MetaM α) Q (JE L D) := by
   intro w hw
-  have hk := op_end (mctx := mctx) (cctx := cctx) L (.framed (Framed.throwErr (α := α) msg)) hw
+  have hk := op_end (mctx := mctx) (cctx := cctx) L (Op.throwErr (α := α) msg hmsg) hw
   unfold endW at hk
   cases hm : (Lean.throwError msg : MetaM α) mctx mref cctx cref w with
   | ok a w1 => exact (throwError_not_runs msg hm).elim
-  | error e w1 => rw [hm] at hk; exact hk
+  | error e w1 =>
+    rw [hm] at hk
+    exact ⟨hk, L.excOk _ (Op.throwErr (α := α) msg hmsg) w e w1 hw.1.2.2 hm⟩
 
 /-- The cache's clear keeps the invariant at its depth (it cannot fail). -/
-theorem Triple.clear (D : Nat) {R : Void IO.RealWorld → Prop} :
+theorem Triple.clear (D : Nat) {R : Exception → Void IO.RealWorld → Prop} :
     Triple mctx mref cctx cref (J L D) (sparkleChildCache.set {} : MetaM Unit)
       (fun _ => J L D) R :=
   Triple.of_runs (refSet_runs _ _) fun w u w' hw h => by
@@ -230,7 +256,7 @@ theorem Triple.clear (D : Nat) {R : Void IO.RealWorld → Prop} :
     · rw [hd]; exact hw.2
 
 /-- Setting the depth moves the invariant to that depth (it cannot fail). -/
-theorem Triple.depthSet (D v : Nat) {R : Void IO.RealWorld → Prop} :
+theorem Triple.depthSet (D v : Nat) {R : Exception → Void IO.RealWorld → Prop} :
     Triple mctx mref cctx cref (J L D) (ST.Ref.set sparkleSynthDepth v : MetaM Unit)
       (fun _ => J L v) R :=
   Triple.of_runs (refSet_runs _ _) fun w u w' hw h => by
@@ -239,7 +265,7 @@ theorem Triple.depthSet (D v : Nat) {R : Void IO.RealWorld → Prop} :
     · rw [hv]; exact hw.1.1
     · rw [hs]; exact hw.1.2.1
 
-theorem Triple.depthModify (D : Nat) (f : Nat → Nat) {R : Void IO.RealWorld → Prop} :
+theorem Triple.depthModify (D : Nat) (f : Nat → Nat) {R : Exception → Void IO.RealWorld → Prop} :
     Triple mctx mref cctx cref (J L D) (ST.Ref.modify sparkleSynthDepth f : MetaM Unit)
       (fun _ => J L (f D)) R :=
   Triple.of_runs (refModify_runs _ _) fun w u w' hw h => by
@@ -277,9 +303,9 @@ theorem child_keeps (D : Nat)
     refine Triple.bind (Q := fun r w2 => J L D w2 ∧ RealChild mref cref c r) ?_ ?_
     · intro w1 hw1
       have hk := hE mctx cctx c w1 hw1.1
-      unfold endW at hk
+      unfold endW ErrOk at hk
       cases hm : synthesizeCombinational c mctx mref cctx cref w1 with
-      | ok r w2 => rw [hm] at hk; exact ⟨hk, RealChild.of_inv (invW_of_invV L hw1.1.1) hm⟩
+      | ok r w2 => rw [hm] at hk; exact ⟨hk.1, RealChild.of_inv (invW_of_invV L hw1.1.1) hm⟩
       | error e w2 => rw [hm] at hk; exact hk
     · intro r
       refine Triple.bind (Q := fun _ w3 => J L D w3)
@@ -319,7 +345,7 @@ theorem fin_triple (D d : Nat) (m1 : Std.HashMap Lean.Name Lean.Expr) (m2 : Std.
             ST.Ref.set sparkleFvarValueMap m1
             ST.Ref.set sparkleWireWidthCache m2
           else pure () : MetaM Unit)
-      (fun _ => J L D) (J L D) := by
+      (fun _ => J L D) (JE L D) := by
   refine Triple.bind (Triple.depthModify L (D + 1) _) ?_
   intro _
   simp only [Nat.add_sub_cancel]
@@ -354,7 +380,8 @@ theorem core_keeps (D : Nat) (declName : Name)
   subst hd
   refine Triple.ite (fun _ => ?_) (fun hlt => ?_)
   · -- at the limit: the entry throws
-    refine Triple.bind (Q := fun _ _ => False) (Triple.throwErr L _ d) ?_
+    refine Triple.bind (Q := fun _ _ => False)
+      (Triple.throwErr L _ (by first | exact .str _ | exact .fmt _) d) ?_
     intro _ w hf
     exact hf.elim
   · have hlt : d < sparkleSynthDepthLimit := Nat.lt_of_not_ge hlt
@@ -375,9 +402,9 @@ theorem core_keeps (D : Nat) (declName : Name)
                   ST.Ref.set sparkleFvarValueMap m1
                   ST.Ref.set sparkleWireWidthCache m2
                 else pure () : MetaM Unit))
-          (fun _ => J L d) (J L d) := by
+          (fun _ => J L d) (JE L d) := by
       intro m1 m2
-      refine Triple.tryFinally (M := J L (d + 1)) ?_ (fin_triple L d d m1 m2)
+      refine Triple.tryFinally (M := J L (d + 1)) (E := OkExc) ?_ (fin_triple L d d m1 m2)
       refine Triple.bind (Triple.frame L (Framed.constInfo _) (d + 1)) ?_
       intro ci
       refine Triple.bind (Triple.frame L Framed.env (d + 1)) ?_
@@ -449,7 +476,7 @@ theorem entry_inv (hB : BodyRel L) {c : Name} {w r w'} (hw : InvV L w)
     InvV L w' := by
   have := entry_keeps_all (mctx := mctx) (cctx := cctx) L hB (L.dval w) c w ⟨hw, rfl⟩
   rw [endW_of_runs h] at this
-  exact this.1
+  exact this.1.1
 
 /-- A returning run of the machine route's harness, with the entry's logger,
 from an invariant world ends in one. -/
@@ -460,26 +487,28 @@ theorem harness_inv (hB : BodyRel L) (hH : HarnessRel L) {b : Bool} {declName bs
       mctx mref cctx cref w r w') : InvV L w' := by
   have := hH (L.dval w) (childKeeps_all L hB _) mctx cctx b declName bs body w ⟨hw, rfl⟩
   rw [endW_of_runs h] at this
-  exact this.1
+  exact this.1.1
 
 /-! ## The machine route's own code -/
 
-theorem Triple.mapM_loop {α β : Type} {I : Void IO.RealWorld → Prop} (f : α → MetaM β)
-    (hf : ∀ x, Triple mctx mref cctx cref I (f x) (fun _ => I) I) :
+theorem Triple.mapM_loop {α β : Type} {I : Void IO.RealWorld → Prop}
+    {R : Exception → Void IO.RealWorld → Prop} (f : α → MetaM β)
+    (hf : ∀ x, Triple mctx mref cctx cref I (f x) (fun _ => I) R) :
     ∀ (l : List α) (acc : List β),
-      Triple mctx mref cctx cref I (List.mapM.loop f l acc) (fun _ => I) I
+      Triple mctx mref cctx cref I (List.mapM.loop f l acc) (fun _ => I) R
   | [], _ => Triple.pure fun _ hw => hw
   | x :: xs, acc => Triple.bind (hf x) fun y => Triple.mapM_loop f hf xs (y :: acc)
 
-theorem Triple.mapM {α β : Type} {I : Void IO.RealWorld → Prop} (f : α → MetaM β)
-    (hf : ∀ x, Triple mctx mref cctx cref I (f x) (fun _ => I) I) (l : List α) :
-    Triple mctx mref cctx cref I (l.mapM f) (fun _ => I) I :=
+theorem Triple.mapM {α β : Type} {I : Void IO.RealWorld → Prop}
+    {R : Exception → Void IO.RealWorld → Prop} (f : α → MetaM β)
+    (hf : ∀ x, Triple mctx mref cctx cref I (f x) (fun _ => I) R) (l : List α) :
+    Triple mctx mref cctx cref I (l.mapM f) (fun _ => I) R :=
   Triple.mapM_loop f hf l []
 
 /-- The synthesis ref's read, in an invariant world: `synthesizeChild`. -/
 theorem Triple.synthRead (D : Nat) :
     Triple mctx mref cctx cref (J L D) (sparkleChildSynth.get : MetaM _)
-      (fun s w => J L D w ∧ s = some synthesizeChild) (J L D) :=
+      (fun s w => J L D w ∧ s = some synthesizeChild) (JE L D) :=
   Triple.frameQ L Framed.synthGet D fun _ _ _ hw h => (L.synthGet _ _ _ h).trans hw.1.2.1
 
 /-- **The one-output closing keeps the invariant**, given the memoised child

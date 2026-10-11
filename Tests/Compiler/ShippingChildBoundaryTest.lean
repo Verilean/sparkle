@@ -469,6 +469,39 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   let frameTy ← fieldTy `frame
   if mentions frameTy ``Tools.ShippingChildInv.Diag then
     throwError "RefLaws.frame covers a diagnostic operation"
+  -- rendering a message is a law for the class `OkMsg` only — not for every
+  -- message — and the class has no arbitrary thunk: its only lazy leaves are
+  -- the two environment-printer ones (the trusted list, pinned here)
+  let msgTy ← Lean.Meta.inferType (Lean.mkConst ``Tools.ShippingChildInv.Diag.msgToString)
+  unless mentions msgTy ``Tools.ShippingChildInv.OkMsg do
+    throwError "Diag.msgToString is for every message"
+  let some (.inductInfo okI) := env.find? ``Tools.ShippingChildInv.OkMsg | throwError "OkMsg"
+  let mut lazy : List Lean.Name := []
+  for c in okI.ctors do
+    let cty ← Lean.Meta.inferType (Lean.mkConst c)
+    if mentions cty ``Lean.MessageData.ofLazy then throwError "{c}: an arbitrary lazy message"
+    if mentions cty ``Lean.MessageData.ofExpr || mentions cty ``Lean.MessageData.ofConstName then
+      lazy := lazy ++ [c]
+  unless lazy == [``Tools.ShippingChildInv.OkMsg.ofExpr, ``Tools.ShippingChildInv.OkMsg.ofConstName] do
+    throwError "the trusted lazy leaves of OkMsg changed: {lazy}"
+  -- an exception is tracked: `Keeps` says a thrown exception is in the class,
+  -- `throwError` of an arbitrary message has only its value frame, an
+  -- exception cell is no generic local ref, and T3 is one law field
+  let keepsBody ← unfoldAt ``Tools.ShippingChildInv.Keeps
+  unless mentions keepsBody ``Tools.ShippingChildInv.ErrOk do
+    throwError "Keeps does not track the thrown exception"
+  for d in [`throwErr, `coreThrowErr] do
+    if env.contains (``Tools.ShippingChildInv.Framed ++ d) then
+      throwError "Framed.{d}: throwing any message is still a tracked operation"
+  if env.contains (``Tools.ShippingChildInv.LocalRefType ++ `optException) then
+    throwError "an exception cell is still a generic local ref"
+  let excTy ← fieldTy `excOk
+  unless mentions excTy ``Tools.ShippingChildInv.Op && mentions excTy ``Tools.ShippingChildInv.OkExc &&
+      mentions excTy ``Tools.ShippingChildInv.RefLaws.quiet do
+    throwError "RefLaws.excOk: shape"
+  let opTy ← Lean.Meta.inferType (Lean.mkConst ``Tools.ShippingChildInv.Op.throwErr)
+  unless mentions opTy ``Tools.ShippingChildInv.OkMsg do
+    throwError "Op.throwErr: a throwError of any message has tracked exceptions"
   let laws ← unfoldAt ``Tools.ShippingChildInv.ChildLaws
   for c in [``Tools.ShippingChildInv.RefLaws] do
     unless mentions laws c do throwError "ChildLaws unfolds without {c}"
@@ -557,7 +590,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     for ax in ← Lean.collectAxioms name do
       unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do
         throwError "{name} uses a non-standard axiom: {ax}"
-  Lean.logInfo m!"CHILD BOUNDARY ALONG THE RUN: {es.length} derived endpoints state ChildBnd at their run's start world (children's at worlds their premises bind), no ChildSynthIs / RefIs / CacheReads at any level; ChildBnd is ONE law witness with the start condition by its values and the start world quiet for it (∃ L, StartV L w ∧ L.quiet w); the diagnostic operations (Diag) are no generic frame law — RefLaws.diag is asked in quiet worlds only; the body, harness, translator and legacy block are proved under the laws, not assumed. NOT a runtime model: the laws stay assumptions, and Diag.msgToString is still for every message (G5 part 2 open)"
+  Lean.logInfo m!"CHILD BOUNDARY ALONG THE RUN: {es.length} derived endpoints state ChildBnd at their run's start world (children's at worlds their premises bind), no ChildSynthIs / RefIs / CacheReads at any level; ChildBnd is ONE law witness with the start condition by its values and the start world quiet for it (∃ L, StartV L w ∧ L.quiet w); the diagnostic operations (Diag) are no generic frame law — RefLaws.diag is asked in quiet worlds only; the body, harness, translator and legacy block are proved under the laws, not assumed. rendering a message is a law for the class OkMsg only (text, formats, structure; trusted lazy leaves: ofExpr, ofConstName), a thrown exception is tracked by Keeps (OkExc; T3 = RefLaws.excOk), exception cells have their own laws. NOT a runtime model: the laws stay assumptions"
 
 /-! ### The cache on real compiles: repeated, nested, sequential + memory
 

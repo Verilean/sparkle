@@ -30,7 +30,7 @@ argument does (in every context) gives a fixpoint that keeps it at every fuel. -
       Keeps mctx mref cctx cref I (fuelFixM step k a)
   | 0, mctx, cctx, a => by
     unfold fuelFixM
-    exact Keeps.throw _
+    exact Keeps.throw _ (by okmsg)
   | k + 1, mctx, cctx, a => by
     unfold fuelFixM
     exact hstep _ (fuelFixM_keeps step hstep k) mctx cctx a
@@ -46,7 +46,7 @@ argument does (in every context) gives a fixpoint that keeps it at every fuel. -
       KeepsC mctx mref cctx cref I (fuelFixM step k a)
   | 0, mctx, cctx, a => by
     unfold fuelFixM
-    exact KeepsC.throw _
+    exact KeepsC.throw _ (by okmsg)
   | k + 1, mctx, cctx, a => by
     unfold fuelFixM
     exact hstep _ (fuelFixM_keepsC step hstep k) mctx cctx a
@@ -63,7 +63,7 @@ argument does (in every context) gives a fixpoint that keeps it at every fuel. -
       Keeps mctx mref cctx cref I (fuelFixM2 step k a b)
   | 0, mctx, cctx, a, b => by
     unfold fuelFixM2
-    exact Keeps.throw _
+    exact Keeps.throw _ (by okmsg)
   | k + 1, mctx, cctx, a, b => by
     unfold fuelFixM2
     exact hstep _ (fuelFixM2_keeps step hstep k) mctx cctx a b
