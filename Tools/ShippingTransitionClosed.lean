@@ -51,7 +51,7 @@ theorem transition_closed {logProf : String → IO Unit} {declName : Name}
     readsClosedB (m.inputs.map (·.name)) m.body = true ∧
       (∀ stmt ∈ m.body, ∃ l r, stmt = Stmt.assign l r) ∧
       (∃ ow, PrintBaseAt ow m) ∧ TypedPostReady m ∧
-      st.design = (CircuitM.init declName.toString).design := by
+      st.design = (CircuitM.init declName.toString).design ∧ m.name = declName.toString := by
   have facts := transition_facts nd len run hm nameLegal he hb hv hbody
   have fresh : ((bs.zip ids).map Prod.snd).Nodup := by rw [zip_ids len]; exact nd
   have zero : SourceInputs declName bs ids cache (fun _ => false) (fun _ n => 0#n)
@@ -106,6 +106,14 @@ theorem transition_closed {logProf : String → IO Unit} {declName : Name}
       exact ⟨vpos j, (name, .bits (vw j)), zipAt _ _ hpos, by simp⟩)
     hassign
   rw [hin]
-  exact ⟨h.1, hassign, ⟨_, pb⟩, ready, h.2⟩
+  refine ⟨h.1, hassign, ⟨_, pb⟩, ready, h.2.1, ?_⟩
+  have hname : (addClockResetIfSequential st.module).name = st.module.name := by
+    unfold addClockResetIfSequential
+    dsimp only
+    split
+    · split <;> split <;> rfl
+    · rfl
+  rw [hm, ← h.2.2]
+  simpa only [Module.finalize] using hname
 
 end Tools.ShippingTransitionClosed

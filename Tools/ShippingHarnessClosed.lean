@@ -79,6 +79,26 @@ theorem closed_forward {P : String → Prop} {S : List String} :
     · exact List.mem_append_left _ (hP st (List.mem_cons_self ..) x hx hp)
     · exact List.mem_append_right _ (mem_writesOf_reverse hw)
 
+/-- Declaring an input port keeps the module's name. -/
+theorem input_name (s : CircuitState) (name : String) (ty : Sparkle.IR.Type.HWType) :
+    (Tools.ShippingMixedInputSoundness.inputState s name ty).module.name = s.module.name := by
+  have h : (Tools.ShippingMixedInputSoundness.inputState s name ty).module.name =
+      (CircuitM.makeWire name ty true s).2.module.name := rfl
+  rw [h]
+  exact makeWire_name' _ _ _ _
+
+/-- Input preparation keeps the module's name. -/
+theorem prepare_name {bools bits} (L : List ((Name × MixedGateBinder) × FVarId)) (a : Setup) :
+    (prepare bools bits L a).state.module.name = a.state.module.name := by
+  induction L generalizing a with
+  | nil => rfl
+  | cons binder rest ih =>
+    obtain ⟨⟨name, kind⟩, id⟩ := binder
+    cases kind with
+    | domain => exact ih a
+    | bool => exact (ih _).trans (input_name _ _ _)
+    | bits n => exact (ih _).trans (input_name _ _ _)
+
 set_option maxHeartbeats 1000000 in
 /-- **The harness' body is closed over its input ports** — for every run of
 the harness on a quoted term. -/
@@ -111,7 +131,9 @@ theorem harness_closed {logProf : String → IO Unit} {declName : Name}
     readsClosedB ((inputPorts bools bits (bs.zip ids)
       (start (entryCompilerState false cache) declName.toString)).map (·.name)) m.body = true ∧
     -- and the run adds no sub-module: the design is the initial one
-    st.design = (CircuitM.init declName.toString).design := by
+    st.design = (CircuitM.init declName.toString).design ∧
+    -- and the module keeps the name it was started with
+    st.module.name = declName.toString := by
   let a := start (entryCompilerState false cache) declName.toString
   let p := prepare bools bits (bs.zip ids) a
   have empty := empty_layout (entryCompilerState false cache) declName.toString initial
@@ -187,13 +209,17 @@ theorem harness_closed {logProf : String → IO Unit} {declName : Name}
   have hBB : st.module.body = Stmt.assign "out" (.ref w) :: sm.module.body := by
     rw [ht, emitAssign_body_cons]
     rfl
-  refine ⟨?_, ?_⟩
+  refine ⟨?_, ?_, ?_⟩
   rotate_left
   · rw [ht]
     show sm.design = _
-    rw [hext.2.2.2]
+    rw [hext.2.2.2.1]
     exact Tools.ShippingInstanceEntrySoundness.prepare_design (bools := bools) (bits := bits)
       (bs.zip ids) a
+  · rw [ht]
+    show sm.module.name = _
+    rw [hext.2.2.2.2]
+    exact prepare_name (bools := bools) (bits := bits) (bs.zip ids) a
   rw [bodyEq, hBB]
   refine closed_forward (P := fun x => p.state.usedNames.contains x = true) _ ⟨?_, c1.1⟩ ?_
   · intro x hx

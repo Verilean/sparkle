@@ -225,16 +225,16 @@ def St (ctx : CompilerState) (inputs : FVarId → Option Value) (B : FVarId → 
 
 /-- What every action does to the state: statements added in front,
 declarations kept, bindings unchanged, names in use stay in use, the design
-(the sub-modules collected so far) unchanged. -/
+(the sub-modules collected so far) and the module's name unchanged. -/
 def Ext (s t : CircuitState) : Prop :=
   Kept s t ∧ t.sourceBindings = s.sourceBindings ∧
     (∀ z, s.usedNames.contains z = true → t.usedNames.contains z = true) ∧
-    t.design = s.design
+    t.design = s.design ∧ t.module.name = s.module.name
 
-theorem Ext.refl (s : CircuitState) : Ext s s := ⟨Kept.refl s, rfl, fun _ h => h, rfl⟩
+theorem Ext.refl (s : CircuitState) : Ext s s := ⟨Kept.refl s, rfl, fun _ h => h, rfl, rfl⟩
 theorem Ext.trans {s t u : CircuitState} (h : Ext s t) (k : Ext t u) : Ext s u :=
   ⟨h.1.trans k.1, k.2.1.trans h.2.1, fun z hz => k.2.2.1 z (h.2.2.1 z hz),
-    k.2.2.2.trans h.2.2.2⟩
+    k.2.2.2.1.trans h.2.2.2.1, k.2.2.2.2.trans h.2.2.2.2⟩
 
 theorem St.transfer {ctx inputs B P V} {s t : CircuitState} (h : St ctx inputs B P V s)
     (hr : t.translateRecord = s.translateRecord) (hx : Ext s t)
@@ -316,6 +316,15 @@ theorem makeWire_design' (hint : String) (ty : Sparkle.IR.Type.HWType) (named : 
   unfold CircuitM.freshName
   (repeat' split) <;> (try unfold CircuitM.freshNamed) <;> (repeat' split) <;> rfl
 
+/-- Allocating a wire keeps the module's name. -/
+theorem makeWire_name' (hint : String) (ty : Sparkle.IR.Type.HWType) (named : Bool)
+    (s : CircuitState) : (CircuitM.makeWire hint ty named s).2.module.name = s.module.name := by
+  have h : (CircuitM.makeWire hint ty named s).2.module.name =
+      (CircuitM.freshName (CircuitM.sanitizeName hint) named s).2.module.name := rfl
+  rw [h]
+  unfold CircuitM.freshName
+  (repeat' split) <;> (try unfold CircuitM.freshNamed) <;> (repeat' split) <;> rfl
+
 /-- What `makeWire` does: a name not in use before (so not a protected one),
 declared at the given type; nothing else that the invariant reads. -/
 theorem makeWire_facts {hint : String} {ty : Sparkle.IR.Type.HWType} {named : Bool}
@@ -329,7 +338,8 @@ theorem makeWire_facts {hint : String} {ty : Sparkle.IR.Type.HWType} {named : Bo
   have hx : Ext s (CircuitM.makeWire hint ty named s).2 :=
     ⟨⟨⟨[], by rw [hb]; rfl⟩, fun p hp => by rw [hw]; exact List.mem_cons_of_mem _ hp⟩,
       CircuitM.makeWire_sourceBindings _ _ _ _,
-      fun z hz => by rw [hu]; simp [Std.HashSet.contains_insert, hz], makeWire_design' _ _ _ _⟩
+      fun z hz => by rw [hu]; simp [Std.HashSet.contains_insert, hz], makeWire_design' _ _ _ _,
+      makeWire_name' _ _ _ _⟩
   refine ⟨hq.transfer (CircuitM.makeWire_translateRecord _ _ _ _) hx
     (fun l r' hm => Or.inl (hb ▸ hm)), hx, fun hp => ?_, ty, by rw [hw]; exact List.mem_cons_self .., rfl⟩
   have := hq.2.2.1 r hp
@@ -354,7 +364,7 @@ theorem emitAssign_ext (lhs : String) (rhs : Sparkle.IR.AST.Expr) (s : CircuitSt
     Ext s (CircuitM.emitAssign lhs rhs s).2 :=
   ⟨⟨⟨[.assign lhs rhs], by rw [emitAssign_body_cons]; rfl⟩,
       fun p hp => by rw [emitAssign_wires]; exact hp⟩, rfl,
-    fun z hz => by rw [emitAssign_usedNames]; exact hz, rfl⟩
+    fun z hz => by rw [emitAssign_usedNames]; exact hz, rfl, rfl⟩
 
 /-- An assignment to a name that is not protected, reading only what `V` allows. -/
 theorem Good.emitAssign (lhs : String) (rhs : Sparkle.IR.AST.Expr) (hl : ¬ P lhs)
@@ -1034,7 +1044,7 @@ theorem step_spec {rec : TranslateFn} {e : Lean.Expr} {hint : String} {top named
         have hs := recordTranslation_returns record
         subst hs
         exact ⟨qc.record (SpineQ.of_none hn) hdz (hfz hnf).1 (hfz hnf).2 hnf,
-          kc.trans ⟨Kept.refl _, rfl, fun _ h => h, rfl⟩, SpineQ.of_none hn, hdz, hvz, hdrz,
+          kc.trans ⟨Kept.refl _, rfl, fun _ h => h, rfl, rfl⟩, SpineQ.of_none hn, hdz, hvz, hdrz,
           fun W hW => ((hcl W s sc _ hc hq hW).add hdrz.drv).body rfl⟩
       rcases hsome z with hk | ⟨hnf, hk⟩ | hk <;> rw [hk] at rest
       · exact hp rest
