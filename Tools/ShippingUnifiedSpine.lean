@@ -311,4 +311,389 @@ theorem concat_spec {e b : Lean.Expr} {wd : Nat} {hint : String} {named : Bool}
     refine ⟨wa, wb, by rw [hbody]; exact List.mem_cons_self .., ?_⟩
     exact (spb n).mono (fun st hs => by rw [hbody]; exact List.mem_cons_of_mem _ hs)
 
+/-! ## One step of the knot, for an expression that is not a concatenation -/
+
+/-- Recording a result for an expression that is not a canonical
+concatenation: nothing to check (also when it overwrites a record). -/
+theorem Good.record {e : Lean.Expr} (hn : concatLo? e = none) (w : String) (c : Bool) :
+    Good ctx B (recordTranslation e w c) := by
+  intro s t r hr hq
+  have ht := recordTranslation_returns hr
+  subst ht
+  exact ⟨hq.record (SpineQ.of_none hn), fun _ h => h, rfl⟩
+
+theorem Good.apply {α : Type} {a : CompilerM α} (h : Good ctx B a) {s t : CircuitState} {r : α}
+    (hr : Returns a ctx s r t) (hq : St ctx B s) : St ctx B t ∧ Ext s t := h s t r hr hq
+
+/-- **The step**, for `e` not a canonical concatenation: the validated lookup
+(a hit changes nothing), the core, the record of its result, or the fallback
+when the core declines. -/
+theorem step_spec {rec : TranslateFn} {e : Lean.Expr} {hint : String} {top named : Bool}
+    (hn : concatLo? e = none)
+    (hcore : Good ctx B (translateCore rec e hint top named))
+    (hfb : ∀ s t, St ctx B s → Returns (translateCore rec e hint top named) ctx s none t →
+      Good ctx B (translateFallback rec e hint top named)) :
+    Spec ctx B e (translateStepWith translateFallback rec e hint top named) := by
+  apply Spec.of_good _ hn
+  have cont : ∀ {s t w} {K : Option String → CompilerM String},
+      (∀ z, Good ctx B (K (some z))) → K none = translateFallback rec e hint top named →
+      Returns (translateCore rec e hint top named >>= K) ctx s w t → St ctx B s →
+      St ctx B t ∧ Ext s t := by
+    intro s t w K hsome hnone hr hq
+    obtain ⟨r, sc, hc, rest⟩ := Returns.bind hr
+    obtain ⟨qc, kc⟩ := hcore s sc r hc hq
+    cases r with
+    | some z =>
+      obtain ⟨q, k⟩ := hsome z sc t w rest qc
+      exact ⟨q, kc.trans k⟩
+    | none =>
+      rw [hnone] at rest
+      obtain ⟨q, k⟩ := hfb s sc hq hc sc t w rest qc
+      exact ⟨q, kc.trans k⟩
+  have hrec := fun (z : String) (c : Bool) => Good.record (ctx := ctx) (B := B) hn z c
+  have ksome : ∀ (c : Bool) (z : String), Good ctx B (do
+      unless e.isFVar do recordTranslation e z c
+      pure z : CompilerM String) := by
+    intro c z
+    show Good ctx B (if e.isFVar = true then pure z else recordTranslation e z c >>= fun _ => pure z)
+    split
+    · exact Good.pure _
+    · exact Good.bind (hrec z c) (fun _ => Good.pure _)
+  intro s t w hr hq
+  unfold translateStepWith at hr
+  dsimp only at hr
+  split at hr
+  · obtain ⟨hit, sh, rh, hr⟩ := Returns.bind hr
+    have hs := (cacheLookupValidated_returns rh).1
+    subst sh
+    split at hr
+    · obtain ⟨hw, ht⟩ := Returns.pure hr
+      subst ht
+      exact ⟨hq, Ext.refl _⟩
+    · exact cont (fun z => ksome _ z) rfl hr hq
+  · exact cont (fun z => ksome _ z) rfl hr hq
+
+/-! ## The step's own cases: a bound variable, a literal, a library operator -/
+
+theorem pureLiteral_good (args : Array Lean.Expr) (hint : String) (named : Bool) :
+    Good ctx B (translateSignalPureLiteral? args hint named) := by
+  unfold translateSignalPureLiteral?; good
+
+/-- A bound variable: its wire, nothing changes. -/
+theorem input_spec {rec : TranslateFn} {id : FVarId} {hint : String} {named : Bool} (hB : B id) :
+    Spec ctx B (.fvar id) (translateStepWith translateFallback rec (.fvar id) hint false named) := by
+  refine step_spec rfl (Good.lookupVar id) ?_
+  intro s t hq hr
+  obtain ⟨hv, -⟩ := Tools.ShippingTranslateSoundness.lookupVar_returns (id := id) hr
+  obtain ⟨v, hbound⟩ := hq.2 id hB
+  rw [hbound] at hv
+  cases hv
+
+/-- A `Signal.pure` literal the core lowers. -/
+theorem literal_step_spec {rec : TranslateFn} {e c : Lean.Expr} {us : List Level} {n v : Nat}
+    {hint : String} {named : Bool}
+    (fn : e.getAppFn = .const ``Sparkle.Core.Signal.Signal.pure us)
+    (back : e.getAppArgs.back? = some c) (lit : bitVecLitValue? c = some (n, v))
+    (hn : concatLo? e = none) :
+    Spec ctx B e (translateStepWith translateFallback rec e hint false named) := by
+  have hcore : translateCore rec e hint false named =
+      translateSignalPureLiteral? e.getAppArgs hint named := by
+    unfold translateCore
+    split
+    · simp [Lean.Expr.getAppFn] at fn
+    · rw [fn]; simp only [beq_self_eq_true, if_true]
+  refine step_spec hn (by rw [hcore]; exact pureLiteral_good _ _ _) ?_
+  intro s t hq hr
+  rw [hcore] at hr
+  obtain ⟨w', hw'⟩ := literal_payload_some back lit hr
+  cases hw'
+
+/-- The Bool literal: the core declines, the fallback emits it under the
+validated cache. -/
+theorem bool_literal_spec {rec : TranslateFn} {dom : Lean.Expr} {hint : String} {named : Bool}
+    (b : Bool) (hn : concatLo? (literalE dom b) = none) :
+    Spec ctx B (literalE dom b)
+      (translateStepWith translateFallback rec (literalE dom b) hint false named) := by
+  refine step_spec hn (by rw [literal_core]; exact Good.pure _) ?_
+  intro s t hq hr
+  rw [translateFallback_bool rec _ hint false named (by cases b <;> rfl)]
+  refine (Spec.cached (Spec.of_good ?_ hn)).good
+  show Good ctx B (translateBoolUncachedWith rec _ _ hint false named)
+  rw [literal_uncached]
+  unfold emitBoolLiteral emitBoolResult; good
+
+/-- A canonical library operator: the result wire, the two operands, the assign. -/
+theorem binary_step_spec {rec : TranslateFn} {e : Lean.Expr} {m : Name} {us : List Level}
+    {hint : String} {named : Bool} {n : Nat} (op : Binary)
+    (fn : e.getAppFn = .const m us) (hop : signalBinOpOf m = some op.operator)
+    (kinds : canonicalSignalBinKinds m e.getAppArgs = some (true, true))
+    (width : canonicalSignalBitVecWidth e.getAppArgs = some n)
+    (hn : concatLo? e = none)
+    (oa : Good ctx B (rec e.getAppArgs[e.getAppArgs.size - 2]! "op_a" false false))
+    (ob : Good ctx B (rec e.getAppArgs[e.getAppArgs.size - 1]! "op_b" false false)) :
+    Spec ctx B e (translateStepWith translateFallback rec e hint false named) := by
+  have hbin : Good ctx B
+      (translateCanonicalSignalBinary rec e op.operator e.getAppArgs true true hint named) := by
+    unfold translateCanonicalSignalBinary
+    simp only [width, if_true]
+    good
+  refine step_spec hn ?_ ?_
+  · intro s t r hr hq
+    obtain ⟨w, -, lower⟩ := core_binary_returns fn hop kinds width hr
+    exact hbin s t w lower hq
+  · intro s t hq hr
+    obtain ⟨w, hw, -⟩ := core_binary_returns fn hop kinds width hr
+    cases hw
+
+/-! ## The fuel induction -/
+
+/-- The low operand of a quoted concatenation, by the compiler's recognizer. -/
+theorem concatLo?_concatE (dom a b : Lean.Expr) {m n : Nat} (hm : 0 < m) (hn : 0 < n) :
+    concatLo? (concatE dom m n a b) = some b := by
+  unfold concatLo?
+  rw [canonicalConcat?_concatE dom a b hm hn]
+  rfl
+
+section Fuel
+variable {dom : Lean.Expr} {bi vi : Nat → FVarId}
+
+local notation "Q(" e ")" =>
+  quote dom (fun j => Lean.Expr.fvar (bi j)) (fun j => Lean.Expr.fvar (vi j)) e
+
+set_option maxHeartbeats 1000000 in
+/-- **The translator leaves the spine**, at every fuel, for every quoted
+well-formed term: it keeps the record invariant, the statements and the
+bindings, and the wire it returns has the links of the term's expression. -/
+theorem fuel_spine (fuel : Nat) {kb kv : Nat} {vw : Nat → Nat}
+    (hb : ∀ j, j < kb → B (bi j)) (hv : ∀ j, j < kv → B (vi j)) :
+    ∀ {s : SType} (e : Term s), e.WF kb kv vw → ∀ hint named,
+      Spec ctx B Q(e) (translateFuelFix translateStep fuel Q(e) hint false named) := by
+  induction fuel with
+  | zero =>
+    intro s e he hint named s' t w hr hq
+    exact (Returns.throw hr).elim
+  | succ fuel ih =>
+    intro s e he hint named
+    change Spec ctx B _ (translateStepWith translateFallback
+      (translateFuelFix translateStep fuel) _ hint false named)
+    cases e with
+    | boolInput j => exact input_spec (hb j he)
+    | bitsInput w j =>
+      obtain ⟨hj, hw, hpos⟩ := he
+      cases hw
+      exact input_spec (hv j hj)
+    | boolLit b => exact bool_literal_spec b (by cases b <;> rfl)
+    | bitsLit w v =>
+      exact literal_step_spec (us := [.zero]) rfl
+        (show (quoteF dom w (fun j => Lean.Expr.fvar (vi j)) (.lit v)).getAppArgs.back? =
+          some (mkApp2 (.const ``BitVec.ofNat []) (natE w) (natE v)) from rfl)
+        (litValue_natE w v he.1) rfl
+    | bitsNum w v =>
+      exact literal_step_spec (us := [.zero]) rfl
+        (show (numSigE dom w v).getAppArgs.back? = some (numLitE w v) from rfl)
+        (litValue_numLitE w v he.1) rfl
+    | binary op a b =>
+      rename_i w
+      obtain ⟨ha, hb'⟩ := he
+      have ck := op_checks op dom Q(a) Q(b) w
+      refine binary_step_spec op ck.1 ck.2.1 ck.2.2.1 ck.2.2.2.1 (by cases op <;> rfl) ?_ ?_
+      · show Good ctx B (translateFuelFix translateStep fuel
+          (binE dom w op Q(a) Q(b)).getAppArgs[(binE dom w op Q(a) Q(b)).getAppArgs.size - 2]!
+          "op_a" false false)
+        rw [ck.2.2.2.2.1]; exact (ih a ha "op_a" false).good
+      · show Good ctx B (translateFuelFix translateStep fuel
+          (binE dom w op Q(a) Q(b)).getAppArgs[(binE dom w op Q(a) Q(b)).getAppArgs.size - 1]!
+          "op_b" false false)
+        rw [ck.2.2.2.2.2.1]; exact (ih b hb' "op_b" false).good
+    | compare le a b =>
+      rename_i w
+      obtain ⟨ha, hb'⟩ := he
+      show Spec ctx B _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
+        (compareE le dom w Q(a) Q(b)) hint false named)
+      rw [compare_step, translateFallback_bool _ _ hint false named (by cases le <;> rfl)]
+      apply Spec.cached
+      refine Spec.of_good ?_ (by cases le <;> rfl)
+      show Good ctx B (translateBoolUncachedWith _ _ (compareE le dom w Q(a) Q(b)) hint false named)
+      rw [Tools.ShippingCompareLoweringSoundness.translateBoolUncachedWith_compare]
+      exact compare_good (ih a ha "a" false).good (ih b hb' "b" false).good
+    | boolBinary kind a b =>
+      obtain ⟨ha, hb'⟩ := he
+      show Spec ctx B _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
+        (boolBinE kind dom Q(a) Q(b)) hint false named)
+      rw [boolBin_step, translateFallback_bool _ _ hint false named (by cases kind <;> rfl)]
+      apply Spec.cached
+      refine Spec.of_good ?_ (by cases kind <;> rfl)
+      show Good ctx B (translateBoolUncachedWith _ _ (boolBinE kind dom Q(a) Q(b)) hint false named)
+      rw [translateBoolUncachedWith_boolBin]
+      exact boolBin_good (ih a ha "a" false).good (ih b hb' "b" false).good
+    | appCompare le a b =>
+      rename_i w
+      obtain ⟨ha, hb'⟩ := he
+      show Spec ctx B _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
+        (appCompareE le dom w Q(a) Q(b)) hint false named)
+      rw [appCompare_step, translateFallback_bool _ _ hint false named
+        (isBoolControl_appCompareE _ _ _ _ _)]
+      apply Spec.cached
+      refine Spec.of_good ?_ (by cases le <;> rfl)
+      show Good ctx B (translateBoolUncachedWith _ _ (appCompareE le dom w Q(a) Q(b)) hint false named)
+      rw [translateBoolUncachedWith_appCompare]
+      exact appCompare_good (ih a ha "app_arg" false).good (ih b hb' "app_arg" false).good
+    | appBool kind a b =>
+      obtain ⟨ha, hb'⟩ := he
+      show Spec ctx B _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
+        (appBoolE kind dom Q(a) Q(b)) hint false named)
+      rw [appBool_step, translateFallback_bool _ _ hint false named (isBoolControl_appBoolE _ _ _ _)]
+      apply Spec.cached
+      refine Spec.of_good ?_ (by cases kind <;> rfl)
+      show Good ctx B (translateBoolUncachedWith _ _ (appBoolE kind dom Q(a) Q(b)) hint false named)
+      rw [translateBoolUncachedWith_appBool]
+      exact appBool_good (ih a ha "app_arg" false).good (ih b hb' "app_arg" false).good
+    | appBool2 f a b =>
+      obtain ⟨ha, hb'⟩ := he
+      show Spec ctx B _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
+        (appBool2E f dom Q(a) Q(b)) hint false named)
+      rw [appBool2_step, translateFallback_bool _ _ hint false named (isBoolControl_appBool2E _ _ _ _)]
+      apply Spec.cached
+      refine Spec.of_good ?_ (by cases f <;> rfl)
+      show Good ctx B (translateBoolUncachedWith _ _ (appBool2E f dom Q(a) Q(b)) hint false named)
+      rw [translateBoolUncachedWith_appBool2]
+      exact appBool2_good (ih a ha "app_arg" false).good (ih b hb' "app_arg" false).good
+    | boolNot a =>
+      show Spec ctx B _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
+        (boolNotE dom Q(a)) hint false named)
+      rw [boolNot_step, translateFallback_bool _ _ hint false named rfl]
+      apply Spec.cached
+      refine Spec.of_good ?_ rfl
+      show Good ctx B (translateSignalCompare (translateFuelFix translateStep fuel) .eq Q(a)
+        (mkApp3 (.const ``Sparkle.Core.Signal.Signal.pure [.zero]) dom (.const ``Bool [])
+          (.const ``Bool.false [])) hint named)
+      exact compare_good (ih a he "a" false).good (ih (.boolLit false) trivial "b" false).good
+    | boolEq a b =>
+      obtain ⟨ha, hb'⟩ := he
+      show Spec ctx B _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
+        (boolEqE dom Q(a) Q(b)) hint false named)
+      rw [boolEq_step, translateFallback_bool _ _ hint false named rfl]
+      apply Spec.cached
+      refine Spec.of_good ?_ rfl
+      show Good ctx B (translateSignalCompare (translateFuelFix translateStep fuel) .eq Q(a) Q(b)
+        hint named)
+      exact compare_good (ih a ha "a" false).good (ih b hb' "b" false).good
+    | mux c a b =>
+      obtain ⟨hc, ha, hb'⟩ := he
+      cases s with
+      | bool =>
+        show Spec ctx B _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
+          (boolMuxE dom Q(c) Q(a) Q(b)) hint false named)
+        rw [boolMux_step, translateFallback_bool _ _ hint false named rfl]
+        apply Spec.cached
+        refine Spec.of_good ?_ rfl
+        show Good ctx B (translateMuxWith (translateFuelFix translateStep fuel) (pure .bit)
+          _ _ _ hint named)
+        exact mux_good (ih c hc "mux_cond" false).good (ih a ha "mux_then" false).good
+          (ih b hb' "mux_else" false).good
+      | bits w =>
+        show Spec ctx B _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
+          (muxE dom (bitVecE w) Q(c) Q(a) Q(b)) hint false named)
+        rw [vector_step]
+        apply Spec.cached
+        refine Spec.of_good ?_ rfl
+        show Good ctx B (translateVectorMuxUncachedWith (translateFuelFix translateStep fuel) w
+          (muxE dom (bitVecE w) Q(c) Q(a) Q(b)) hint false named)
+        rw [vectorMuxUncached_muxE]
+        exact mux_good (ih c hc "mux_cond" false).good (ih a ha "mux_then" false).good
+          (ih b hb' "mux_else" false).good
+    | setw w' a =>
+      rename_i w
+      obtain ⟨ha, hpos⟩ := he
+      show Spec ctx B _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
+        (setwE dom w w' Q(a)) hint false named)
+      rw [setw_step _ _ _ _ _ (a.wf_pos ha) hpos]
+      apply Spec.cached
+      refine Spec.of_good ?_ rfl
+      show Good ctx B (translateSetWidthUncachedWith (translateFuelFix translateStep fuel) w w'
+        (setwE dom w w' Q(a)) hint false named)
+      rw [setwUncached_setwE]
+      exact setw_good (ih a ha "s" false).good
+    | slice nm start len a =>
+      rename_i w
+      obtain ⟨ha, hlen, hr⟩ := he
+      show Spec ctx B _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
+        (sliceE dom nm w start len Q(a)) hint false named)
+      rw [slice_step _ _ _ _ _ _ _ _ _ _ hlen hr]
+      apply Spec.cached
+      refine Spec.of_good ?_ rfl
+      show Good ctx B (translateSliceUncachedWith (translateFuelFix translateStep fuel) start len
+        (sliceE dom nm w start len Q(a)) hint false named)
+      rw [sliceUncached_sliceE]
+      exact slice_good (ih a ha "s" false).good
+    | concat a b =>
+      rename_i m n
+      obtain ⟨ha, hb'⟩ := he
+      show Spec ctx B _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
+        (concatE dom m n Q(a) Q(b)) hint false named)
+      rw [concat_step _ _ _ _ _ _ _ _ _ (a.wf_pos ha) (b.wf_pos hb')]
+      apply Spec.cached
+      show Spec ctx B _ (translateConcatUncachedWith (translateFuelFix translateStep fuel) m n
+        (concatE dom m n Q(a) Q(b)) hint false named)
+      rw [concatUncached_concatE]
+      exact concat_spec (concatLo?_concatE dom _ _ (a.wf_pos ha) (b.wf_pos hb'))
+        (ih a ha "concat_hi" false).good (ih b hb' "concat_lo" false)
+    | concatLitHi k v b =>
+      rename_i n
+      obtain ⟨hb', hk, hlt⟩ := he
+      show Spec ctx B _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
+        (concatLitHiE dom k v n Q(b)) hint false named)
+      rw [concatLitHi_step _ _ _ _ _ _ _ _ _ hk hlt (b.wf_pos hb')]
+      apply Spec.cached
+      refine Spec.of_good ?_ rfl
+      show Good ctx B (translateConcatLitUncachedWith (translateFuelFix translateStep fuel)
+        true k v n (concatLitHiE dom k v n Q(b)) hint false named)
+      rw [concatLitUncached_hiE]
+      exact concatActs_good concatConst_good (ih b hb' "concat_lo" false).good
+    | concatLitLo a k v =>
+      rename_i m
+      obtain ⟨ha, hk, hlt⟩ := he
+      show Spec ctx B _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
+        (concatLitLoE dom m k v Q(a)) hint false named)
+      rw [concatLitLo_step _ _ _ _ _ _ _ _ _ hk hlt (a.wf_pos ha)]
+      apply Spec.cached
+      refine Spec.of_good ?_ rfl
+      show Good ctx B (translateConcatLitUncachedWith (translateFuelFix translateStep fuel)
+        false k v m (concatLitLoE dom m k v Q(a)) hint false named)
+      rw [concatLitUncached_loE]
+      exact concatActs_good (ih a ha "concat_hi" false).good concatConst_good
+    | zextMap nm k a =>
+      rename_i n
+      obtain ⟨ha, hk⟩ := he
+      show Spec ctx B _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
+        (zextMapE dom nm k n Q(a)) hint false named)
+      rw [zextMap_step _ _ _ _ _ _ _ _ _ hk (a.wf_pos ha)]
+      apply Spec.cached
+      refine Spec.of_good ?_ rfl
+      show Good ctx B (translateSetWidthUncachedWith (translateFuelFix translateStep fuel) n
+        (k + n) (zextMapE dom nm k n Q(a)) hint false named)
+      rw [setwUncached_zextMapE]
+      exact setw_good (ih a ha "s" false).good
+    | sliceF nm start len a =>
+      rename_i w
+      obtain ⟨ha, hlen, hr⟩ := he
+      show Spec ctx B _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
+        (sliceFE dom nm w start len Q(a)) hint false named)
+      rw [sliceF_step _ _ _ _ _ _ _ _ _ _ hlen hr]
+      apply Spec.cached
+      refine Spec.of_good ?_ rfl
+      show Good ctx B (translateSliceFUncachedWith (translateFuelFix translateStep fuel)
+        start len (sliceFE dom nm w start len Q(a)) hint false named)
+      rw [sliceFUncached_sliceFE]
+      exact slice_good (ih a ha "a" false).good
+
+/-- The real translator leaves the spine. -/
+theorem translateExprToWire_spine {kb kv : Nat} {vw : Nat → Nat}
+    (hb : ∀ j, j < kb → B (bi j)) (hv : ∀ j, j < kv → B (vi j))
+    {s : SType} (e : Term s) (he : e.WF kb kv vw) (hint : String) (named : Bool) :
+    Spec ctx B Q(e) (translateExprToWire Q(e) hint false named) :=
+  fuel_spine translateFuelLimit hb hv e he hint named
+
+end Fuel
+
 end Tools.ShippingUnifiedSpine
