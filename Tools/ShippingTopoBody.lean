@@ -8,9 +8,8 @@ first ready statement at each round — and returns nothing when it gets stuck.
 Here: it does not get stuck when SOME order of those statements is a
 dependency order (`Ordered`), and what it returns is one.
 
-Pure statements about lists; no run, no module. Where an ordered witness
-comes from (the transition's own order, each instance placed after the
-drivers of its arguments) is not here. -/
+Pure statements about lists; no run, no module. Where an ordered witness or
+a rank comes from is not here. -/
 namespace Tools.ShippingTopoBody
 open Sparkle.IR.AST Sparkle.IR.Machine
 
@@ -165,6 +164,102 @@ theorem go_some (A D : List String) :
       rw [hrest] at hpp
       exact hpp.cons st
 
+/-! ## From a rank
+
+An ordered witness need not be exhibited: a RANK on the statements under
+which every driven name a statement reads is written by a statement of
+smaller rank is enough (the pending statement of least rank is ready). -/
+
+theorem exists_min_rank (rank : Stmt → Nat) :
+    ∀ (l : List Stmt), l ≠ [] → ∃ x ∈ l, ∀ y ∈ l, rank x ≤ rank y
+  | [], h => absurd rfl h
+  | [x], _ => ⟨x, List.mem_cons_self .., fun y hy => by
+      rcases List.mem_cons.mp hy with e | e
+      · rw [e]; exact Nat.le_refl _
+      · cases e⟩
+  | x :: y :: l, _ => by
+    obtain ⟨m, hm, hmin⟩ := exists_min_rank rank (y :: l) (List.cons_ne_nil _ _)
+    by_cases hx : rank x ≤ rank m
+    · refine ⟨x, List.mem_cons_self .., fun z hz => ?_⟩
+      rcases List.mem_cons.mp hz with e | e
+      · rw [e]; exact Nat.le_refl _
+      · exact Nat.le_trans hx (hmin z e)
+    · refine ⟨m, List.mem_cons_of_mem _ hm, fun z hz => ?_⟩
+      rcases List.mem_cons.mp hz with e | e
+      · rw [e]; omega
+      · exact hmin z e
+
+/-- **The loop does not get stuck when a rank exists.** `comb`: all the
+statements; the invariant: a statement no longer pending has its writes
+settled. -/
+theorem go_some_rank (A D : List String) (comb : List Stmt) (rank : Stmt → Nat)
+    (hrank : ∀ st ∈ comb, ∀ r ∈ combReads A st, r ∈ D →
+      ∃ st' ∈ comb, r ∈ combWrites A st' ∧ rank st' < rank st) :
+    ∀ (fuel : Nat) (S : List String) (pending acc : List Stmt),
+      pending.length < fuel → (∀ st ∈ pending, st ∈ comb) →
+      (∀ st' ∈ comb, st' ∉ pending → ∀ n ∈ combWrites A st', n ∈ S) →
+      ∃ picked, topoBody.go A D fuel S pending acc = some (acc.reverse ++ picked) ∧
+        picked.Perm pending ∧ Ordered A D S picked
+  | 0, _, _, _, hf, _, _ => absurd hf (Nat.not_lt_zero _)
+  | fuel + 1, S, [], acc, _, _, _ => by
+    refine ⟨[], ?_, List.Perm.refl _, trivial⟩
+    unfold topoBody.go
+    simp
+  | fuel + 1, S, p :: ps, acc, hf, hsub, hinv => by
+    -- the pending statement of least rank is ready
+    obtain ⟨mn, hmn, hmin⟩ := exists_min_rank rank (p :: ps) (List.cons_ne_nil _ _)
+    have hmr : readyB A D S mn = true := by
+      simp only [readyB, List.all_eq_true, Bool.or_eq_true, List.contains_iff_mem,
+        Bool.not_eq_true']
+      intro r hr
+      by_cases hd : r ∈ D
+      · obtain ⟨st', hc', hw', hlt⟩ := hrank mn (hsub mn hmn) r hr hd
+        refine Or.inl (hinv st' hc' (fun hp => ?_) r hw')
+        have := hmin st' hp
+        omega
+      · exact Or.inr (by simpa using hd)
+    obtain ⟨st, rest, hpick⟩ := pickReady_some A D S (p :: ps) mn hmn hmr
+    obtain ⟨hready, pre, post, hpend, hrest⟩ := pickReady_spec A D S _ _ _ hpick
+    have hlen : rest.length < fuel := by
+      have : (p :: ps).length = rest.length + 1 := by
+        rw [hpend, hrest]
+        simp only [List.length_append, List.length_cons]
+        omega
+      simp only [List.length_cons] at this hf
+      omega
+    have hsub' : ∀ s ∈ rest, s ∈ comb := by
+      intro s hs
+      refine hsub s ?_
+      rw [hpend]
+      rw [hrest] at hs
+      rcases List.mem_append.mp hs with h | h
+      · exact List.mem_append_left _ h
+      · exact List.mem_append_right _ (List.mem_cons_of_mem _ h)
+    have hinv' : ∀ st' ∈ comb, st' ∉ rest → ∀ n ∈ combWrites A st', n ∈ combWrites A st ++ S := by
+      intro st' hc' hnr n hn
+      by_cases he : st' = st
+      · subst he
+        exact List.mem_append_left _ hn
+      · refine List.mem_append_right _ (hinv st' hc' (fun hp => hnr ?_) n hn)
+        rw [hpend] at hp
+        rw [hrest]
+        rcases List.mem_append.mp hp with h | h
+        · exact List.mem_append_left _ h
+        · rcases List.mem_cons.mp h with h | h
+          · exact absurd h he
+          · exact List.mem_append_right _ h
+    obtain ⟨picked, hgo, hpp, hpo⟩ :=
+      go_some_rank A D comb rank hrank fuel (combWrites A st ++ S) rest (st :: acc) hlen hsub' hinv'
+    refine ⟨st :: picked, ?_, ?_, hready, hpo⟩
+    · unfold topoBody.go
+      simp only [hpick]
+      rw [hgo]
+      simp
+    · rw [hpend]
+      refine List.Perm.trans ?_ List.perm_middle.symm
+      rw [hrest] at hpp
+      exact hpp.cons st
+
 /-! ## `topoBody` -/
 
 /-- The combinational statements of a body. -/
@@ -195,6 +290,23 @@ theorem topoBody_some {body L : List Stmt} (hperm : L.Perm (combOf body))
       Ordered (byAssignOf body) (drivenOf body) [] sorted := by
   obtain ⟨picked, hgo, hpp, hpo⟩ := go_some (byAssignOf body) (drivenOf body)
     ((combOf body).length + 1) [] (combOf body) [] L (Nat.lt_succ_self _) hperm hord
+  refine ⟨picked, ?_, hpp, hpo⟩
+  unfold topoBody
+  simp only []
+  show (topoBody.go (byAssignOf body) (drivenOf body) ((combOf body).length + 1) []
+    (combOf body) []).map (· ++ othersOf body) = _
+  rw [hgo]
+  simp
+
+/-- **`topoBody` succeeds when the combinational statements have a rank.** -/
+theorem topoBody_some_rank {body : List Stmt} (rank : Stmt → Nat)
+    (hrank : ∀ st ∈ combOf body, ∀ r ∈ combReads (byAssignOf body) st, r ∈ drivenOf body →
+      ∃ st' ∈ combOf body, r ∈ combWrites (byAssignOf body) st' ∧ rank st' < rank st) :
+    ∃ sorted, topoBody body = some (sorted ++ othersOf body) ∧ sorted.Perm (combOf body) ∧
+      Ordered (byAssignOf body) (drivenOf body) [] sorted := by
+  obtain ⟨picked, hgo, hpp, hpo⟩ := go_some_rank (byAssignOf body) (drivenOf body) (combOf body)
+    rank hrank ((combOf body).length + 1) [] (combOf body) [] (Nat.lt_succ_self _)
+    (fun _ h => h) (fun st' hc hn => absurd hc hn)
   refine ⟨picked, ?_, hpp, hpo⟩
   unfold topoBody
   simp only []
