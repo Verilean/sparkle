@@ -95,12 +95,13 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   for e in rEndpoints do
     let ty ← Lean.instantiateMVars (← Lean.Meta.inferType (Lean.mkConst e))
     for c in [``Tools.ShippingChildInv.ChildBnd, ``Tools.ShippingMachineEntry.MachineDefines,
-        ``Tools.ShippingMachineEntry.MachineCloses, ``Tools.ShippingDesignSVBack.outsCheck,
+        -- the parent's closing at invariant worlds (not the all-worlds `MachineCloses`)
+        ``Tools.ShippingChildInv.MachineClosesAt, ``Tools.ShippingDesignSVBack.outsCheck,
         ``Tools.ShippingDesignSV.designCheck, ``Tools.ShippingDesignSV.DesignSV] do
       unless mentions ty c do throwError "{e}: {c} missing"
     for c in [``Tools.ShippingMachineSeqCommand.BoundaryOf, ``Tools.ShippingMachineCallsLinkedT.InstOfCall,
         ``Tools.ShippingGateChild.MachineRun, ``Tools.ShippingGateChild.GateRun,
-        ``Tools.ShippingMachineDepthRun.MachineRunN] do
+        ``Tools.ShippingMachineDepthRun.MachineRunN, ``Tools.ShippingMachineEntry.MachineCloses] do
       if mentions ty c then throwError "{e}: still mentions {c}"
     -- and its proof is built from the derived composition, not the old one
     let some (.thmInfo ti) := (← Lean.getEnv).find? e | throwError "{e}"
@@ -136,7 +137,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
 
 run_cmd do
   for name in rEndpoints ++ [``two.machine_ships_hierR, ``seqMem.machine_ships_hierR,
-      ``two.machine_composedTR, ``seqMem.machine_composedTR] do
+      ``two.machine_composedTRA, ``seqMem.machine_composedTRA] do
     for ax in ← Lean.collectAxioms name do
       unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do
         throwError "{name} uses a non-standard axiom: {ax}"

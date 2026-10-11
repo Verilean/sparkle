@@ -20,13 +20,18 @@ open Sparkle.Compiler.Elab
 open Tools.ShippingMachineCommand (readMachine progress listE)
 open Tools.ShippingMachineLinkedCommand (addTheorem soundArgs)
 
-def generateCoreSR (declName : Name) : MetaM Name := do
+/-- `f.machine_composedTR`; with `atW`, `f.machine_composedTRA`: the same from
+the head that asks `MachineClosesAt` instead of the all-worlds
+`MachineCloses`. -/
+def generateCoreSR (declName : Name) (atW : Bool := false) : MetaM Name := do
+  let name := declName ++ (if atW then `machine_composedTRA else `machine_composedTR)
+  if (← getEnv).contains name then return name
   progress s!"{declName}: composedTR (sequential, boundary derived)"
   let r ← readMachine declName
   if r.shape.insts.isEmpty then throwError "{declName}: no call"
   let (headL, args, back?) ← endpointParts declName
   -- the head carrying `ServedReal` (under `ChildBnd`)
-  let pL := mkAppN (mkConst (headL.appendAfter "R")) args
+  let pL := mkAppN (mkConst (headL.appendAfter (if atW then "RA" else "R"))) args
   let calls := r.shape.insts
   let seqKids := ((calls.map (·.1)).eraseDups.filter fun c =>
     (Tools.ShippingMachineMemCommand.memWidths? c).isNone)
@@ -297,17 +302,16 @@ def generateCoreSR (declName : Name) : MetaM Name := do
     unless motT.hasLooseBVars do throwError "{declName}: the theorem does not read the source"
     let hT ← mkCongrArg (.lam `s (← inferType srcN) motT .default) heq
     value ← mkEqMPR hT value
-  let name := declName ++ `machine_composedTR
   progress s!"{name}: checking"
   addTheorem name (← inferType value) value
   return name
 
 
-def generateSR (declName : Name) : MetaM Name := do
+def generateSR (declName : Name) (atW : Bool := false) : MetaM Name := do
   let saved ← getEnv
   try
     withOptions (fun o => maxRecDepth.set (Lean.Elab.async.set o false) 1000000) <|
-      withTheReader Core.Context (fun c => { c with maxRecDepth := 1000000 }) (generateCoreSR declName)
+      withTheReader Core.Context (fun c => { c with maxRecDepth := 1000000 }) (generateCoreSR declName atW)
   catch ex =>
     setEnv saved
     throw ex
@@ -318,13 +322,14 @@ elab "#machine_composedTSR " d:ident : command => do
   let name ← liftTermElabM (generateSR declName)
   logInfo m!"{name}: the stateful linked run, its sequential children's instances derived to be runs of their entries (ChildBnd), shows the source, checked by the kernel"
 
-/-- `f.machine_ships_hierR`: `machine_ships_hier` from `f.machine_composedTR`;
-its run boundary `Bnd` is `ChildBnd` and the children's reflection facts,
-in the run's contexts. -/
+/-- `f.machine_ships_hierR`: `machine_ships_hierC` from `f.machine_composedTRA`
+(closing premise `MachineClosesAt`); its run boundary `Bnd` is `ChildBnd` and
+the children's reflection facts, in the run's contexts. -/
 def generateShipsR (declName : Name) : MetaM Name := do
-  let _ ← generateSR declName
+  let cR ← generateSR declName (atW := true)
+  let (headL, _, _) ← endpointParts declName
   Tools.ShippingMachineShipsHierCommand.generateWith declName
-    (declName ++ `machine_composedTR) (declName ++ `machine_ships_hierR)
+    cR (declName ++ `machine_ships_hierR) (headA? := some (headL.appendAfter "RA"))
 
 /-- `f.machine_design_svR0`: source → the closed emitted texts (`ships_design_svN_all` at
 depth 0) from `f.machine_ships_hierR`. -/

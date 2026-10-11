@@ -1,5 +1,6 @@
 import Tools.ShippingMachineSeqCommand
 import Tools.ShippingMachineShipsHier
+import Tools.ShippingMachineTraceX
 
 /-! # `#machine_ships_hier f`
 
@@ -44,7 +45,7 @@ def hierRoute (declName : Name) : MetaM HierRoute := do
 /-- `machine_ships_hier` from the composed theorem `cName` (its premises after
 the run's eleven binders become the run boundary `Bnd`, in the run's
 contexts), as `shipsName`. -/
-def generateWith (declName cName shipsName : Name) : MetaM Name := do
+def generateWith (declName cName shipsName : Name) (headA? : Option Name := none) : MetaM Name := do
   if (← getEnv).contains shipsName then return shipsName
   -- a transported endpoint: the wired twin of its untransported head serves
   -- the cleanup facts; the composed theorem is already transported
@@ -99,8 +100,28 @@ def generateWith (declName cName shipsName : Name) : MetaM Name := do
       mkLambdaFVars #[D] (mkConst ``Tools.ShippingHierStateG.flatKS)
     let hloc ← withLocalDeclD `D desT fun D =>
       mkLambdaFVars #[D] (mkConst ``Tools.ShippingHierStateG.flatKS_local)
-    let thm ← mkAppM ``Tools.ShippingMachineShipsHier.machine_ships_hier
-      #[KS, hloc, reset, Bnd, Bd, inv, hBd, hRI, data, soundL, composed]
+    let thm ← do
+      if let some headA := headA? then
+        -- the closing premise of the composed theorem (`MachineClosesAt`), and
+        -- the wired endpoint from the head asking the same, under the run boundary
+        let C ← mkLambdaFVars #[ys[0]!, ys[1]!, ys[2]!, ys[3]!] (← inferType ys[10]!)
+        let pLA := mkAppN (mkConst headA) args
+        let soundA ← forallTelescope (← inferType pLA) fun zs _ => do
+          unless zs.size == 12 do throwError "{declName}: the head's binders ({zs.size})"
+          let bndT := (Bnd.beta #[zs[0]!, zs[1]!, zs[2]!, zs[3]!, zs[4]!, zs[6]!, zs[7]!]).headBeta
+          withLocalDeclD `hB bndT fun hB => do
+            let hsynT ← inferType zs[11]!
+            let hsyn ← if ← isDefEq bndT hsynT then pure hB else mkAppM ``And.left #[hB]
+            let tr ← mkAppM ``Tools.ShippingMachineTraceX.MachineTraceLBX.toLB
+              #[(mkAppN pLA zs).replaceFVar zs[11]! hsyn]
+            mkLambdaFVars (zs.pop ++ #[hB]) tr
+        let thm ← mkAppOptM ``Tools.ShippingMachineShipsHier.machine_ships_hierC
+          #[none, KS, hloc, reset, Bnd, C, Bd, inv, hBd, hRI, none, data, none, none, none, none,
+            none, none, none, none, none, none, soundA, composed]
+        instantiateMVars thm
+      else
+        mkAppM ``Tools.ShippingMachineShipsHier.machine_ships_hier
+          #[KS, hloc, reset, Bnd, Bd, inv, hBd, hRI, data, soundL, composed]
     let ty ← inferType thm
     let .forallE _ hT _ _ ← whnfR ty | throwError "{declName}: the output-width premise"
     let thm := mkApp thm (← mkExpectedTypeHint (← mkDecideProof hT) hT)

@@ -49,10 +49,12 @@ def compose (declName ships name : Name) (n : Nat) : MetaM Name := do
   if (← getEnv).contains name then return name
   let some (.thmInfo ti) := (← getEnv).find? ships | throwError "{ships}: not a theorem"
   let v := ti.value
-  unless v.isAppOf ``Tools.ShippingMachineShipsHier.machine_ships_hier do
+  -- `machine_ships_hierC` has the closing premise `C` between `Bnd` and `Bd`
+  let atC := v.isAppOf ``Tools.ShippingMachineShipsHier.machine_ships_hierC
+  unless atC || v.isAppOf ``Tools.ShippingMachineShipsHier.machine_ships_hier do
     throwError "{ships}: not built from machine_ships_hier"
   let args := v.getAppArgs
-  let (reset, bnd, bd) := (args[3]!, args[4]!, args[5]!)
+  let (reset, bnd, bd) := (args[3]!, args[4]!, if atC then args[6]! else args[5]!)
   let ty ← inferType (mkConst ships)
   let value ← forallTelescope ty fun xs _ => do
     let h := mkAppN (mkConst ships) xs
