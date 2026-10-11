@@ -219,7 +219,7 @@ theorem spine_links
           [.assign w (.concat [.ref wa, .ref wb])] ++ sC.module.body := by
         rw [emitAssign_body_cons]; rfl
       refine ⟨⟨wa, wb, sB.module.body, ?_, ?_, hσB ▸ hdrv, hva, qB.2.2.2.2.2, ?_⟩,
-        (xA.trans (xAB.trans (xBC.trans xCD))).trans ⟨Kept.refl _, rfl, fun _ h => h⟩⟩
+        (xA.trans (xAB.trans (xBC.trans xCD))).trans ⟨Kept.refl _, rfl, fun _ h => h, rfl⟩⟩
       · show link w wa wb ∈ (CircuitM.emitAssign w (.concat [.ref wa, .ref wb]) sC).2.module.body
         rw [emitAssign_body_cons]; exact List.mem_cons_self ..
       · show sB.module.body <:+ (CircuitM.emitAssign w (.concat [.ref wa, .ref wb]) sC).2.module.body
