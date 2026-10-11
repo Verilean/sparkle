@@ -675,6 +675,9 @@ lean_lib «Tools.ShippingCallsShape» where
 lean_lib «Tools.ShippingHarnessClosed» where
   roots := #[`Tools.ShippingHarnessClosed]
 
+lean_lib «Tools.ShippingMergeClosed» where
+  roots := #[`Tools.ShippingMergeClosed]
+
 lean_lib «Tools.ShippingCallsClose» where
   roots := #[`Tools.ShippingCallsClose]
 
