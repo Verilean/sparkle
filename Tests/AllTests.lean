@@ -143,6 +143,7 @@ import Tests.Compiler.ShippingChildSynthTest
 import Tests.Compiler.ShippingChildBoundaryTest
 import Tests.Compiler.ShippingCloseInstsCheckTest
 import Tests.Compiler.ShippingReflectCtxTest
+import Tests.Compiler.ShippingMachineClosesTest
 import Tests.Compiler.ShippingHierOptRunTest
 import Tests.Compiler.ShippingMachineDepthTest
 import Tests.Compiler.ShippingMachineTeleTest

@@ -3,6 +3,7 @@ import Tools.ShippingMachineSeqLinkedR
 import Tools.ShippingMachineCallsLinkedTR
 import Tools.ShippingChildRun
 import Tools.ShippingReflectCtx
+import Tools.ShippingMachineClosesGen
 import Tools.ShippingMachineShipsHierCommand
 import Tools.ShippingShipsDesignSVCommand
 
@@ -229,7 +230,7 @@ def generateCoreSR (declName : Name) : MetaM Name := do
   -- the children's reflection facts: ONE premise, the conjunction over the
   -- sequential children of what each child's declaration is (`MachineDefines`,
   -- in the parent's contexts) and — unless the child has no `let` and no call,
-  -- where it is a theorem (`machineCloses_of_noLets`) — that its machine
+  -- where it is a theorem (`c.machine_closes`: no call, `let`s that pass `MachineData.letsOk`) — that its machine
   -- synthesis closes in the contexts the child is synthesised in
   let hreflT := (← whnf (← inferType p)).bindingDomain!
   let ctx ← forallTelescope hreflT fun _ body => do
@@ -240,7 +241,7 @@ def generateCoreSR (declName : Name) : MetaM Name := do
   for c in seqKids do
     let shapeE ← mkAppM ``Tools.ShippingMachineAuto.MachineData.shape #[mkConst (c ++ `machineData)]
     let defs := mkAppN (mkConst ``Tools.ShippingMachineEntry.MachineDefines) (ctx ++ #[toExpr c, shapeE])
-    let free ← Tools.ShippingReflectCtx.closesFree shapeE
+    let free ← (do pure (← Tools.ShippingMachineClosesGen.closesTheorem? c).isSome)
     freeOf := freeOf.insert c free
     if free then rTypes := rTypes ++ [defs]
     else
@@ -269,7 +270,7 @@ def generateCoreSR (declName : Name) : MetaM Name := do
         | none =>
           if freeOf.getD c false then
             proveByTacticT goalK `(tactic| (intro _; exact ⟨$hRS, fun _ _ _ =>
-              Tools.ShippingMachineEntry.machineCloses_of_noLets (by decide) (by decide)⟩))
+              $(mkIdent (`_root_ ++ c ++ `machine_closes)) _ _ _ _⟩))
           else proveByTacticT goalK `(tactic| (intro _; exact $hRS))
       perR := perR.push prK
     let QmR (m : Nat) : MetaM Lean.Expr :=

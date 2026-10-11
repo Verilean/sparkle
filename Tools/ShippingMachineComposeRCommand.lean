@@ -3,6 +3,7 @@ import Tools.ShippingGateChildCommand
 import Tools.ShippingMachineComposeR
 import Tools.ShippingChildRun
 import Tools.ShippingReflectCtx
+import Tools.ShippingMachineClosesGen
 import Tools.ShippingMachineNestR
 import Tools.ShippingMachineTeleNestR
 import Tools.ShippingMachineShipsHierHCommand
@@ -222,8 +223,8 @@ def generateComposedRCore (declName : Name) : MetaM Name := do
       -- not depend on them, `MachineDefines.ctx`); that its machine synthesis
       -- closes: in the contexts the child is synthesised in (`ChildRanIn`)
       -- (a child without `let`s and calls closes in every context: proved,
-      -- `machineCloses_of_noLets` — only its `MachineDefines` is asked)
-      let free ← Tools.ShippingReflectCtx.closesFree shapeE
+      -- `c.machine_closes`: no call, `let`s that pass `MachineData.letsOk` — only its `MachineDefines` is asked)
+      let free ← (do pure (← Tools.ShippingMachineClosesGen.closesTheorem? c).isSome)
       freeOf := freeOf.insert c free
       if free then
         rTypes := rTypes ++ [mkAppN (mkConst ``Tools.ShippingMachineEntry.MachineDefines) (ctx ++ #[toExpr c, shapeE])]
@@ -254,7 +255,7 @@ def generateComposedRCore (declName : Name) : MetaM Name := do
     let tac ← if gateOf.getD c true then
         `(tactic| (exact ⟨rfl, fun mctx' cctx' mc Dc w w' _ hrun => $lem mc ⟨_, _, _, _, w, w', Dc, hrun, Tools.ShippingReflectCtx.EntryDefines.ctx $hRS⟩⟩))
       else if freeOf.getD c false then
-        `(tactic| (exact ⟨rfl, fun mctx' cctx' mc Dc w w' hw hrun => $lem mc ⟨_, _, _, _, w, w', Dc, hrun, Tools.ShippingReflectCtx.MachineDefines.ctx $hRS, Tools.ShippingMachineEntry.machineCloses_of_noLets (by decide) (by decide)⟩⟩))
+        `(tactic| (exact ⟨rfl, fun mctx' cctx' mc Dc w w' hw hrun => $lem mc ⟨_, _, _, _, w, w', Dc, hrun, Tools.ShippingReflectCtx.MachineDefines.ctx $hRS, $(mkIdent (`_root_ ++ c ++ `machine_closes)) _ _ _ _⟩⟩))
       else
         `(tactic| (exact ⟨rfl, fun mctx' cctx' mc Dc w w' hw hrun => $lem mc ⟨_, _, _, _, w, w', Dc, hrun, Tools.ShippingReflectCtx.MachineDefines.ctx ($hRS).1, ($hRS).2 mctx' cctx' (Tools.ShippingChildInv.ChildRanIn.of_run hw hrun)⟩⟩))
     perR := perR.push (← proveByTactic goalK tac)

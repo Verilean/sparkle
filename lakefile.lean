@@ -642,6 +642,12 @@ lean_lib «Tools.ShippingClosedOrder» where
 lean_lib «Tools.ShippingMachineCloses» where
   roots := #[`Tools.ShippingMachineCloses]
 
+lean_lib «Tools.ShippingMachineClosesData» where
+  roots := #[`Tools.ShippingMachineClosesData]
+
+lean_lib «Tools.ShippingMachineClosesGen» where
+  roots := #[`Tools.ShippingMachineClosesGen]
+
 lean_lib «Tools.ShippingHarnessSpine» where
   roots := #[`Tools.ShippingHarnessSpine]
 

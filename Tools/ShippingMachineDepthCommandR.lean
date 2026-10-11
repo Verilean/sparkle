@@ -6,6 +6,7 @@ import Tools.ShippingMachineComposeRCommand
 import Tools.ShippingMachineDepthHR
 import Tools.ShippingChildRun
 import Tools.ShippingReflectCtx
+import Tools.ShippingMachineClosesGen
 
 /-! # Generated composition at depth `n`, the instance binding derived
 
@@ -222,8 +223,8 @@ partial def generateCoreNR (declName : Name) (dep : Nat) : MetaM Name := do
       let ran := mkAppN (mkConst ``Tools.ShippingChildInv.ChildRanIn) #[ctx[1]!, ctx[3]!, toExpr c, mc', cc']
       mkForallFVars #[mc', cc'] (← mkArrow ran body)
     -- (a leaf child without `let`s closes in every context: proved,
-    -- `machineCloses_of_noLets` — only its `MachineDefines` is asked)
-    let free ← if leaf.getD c true then Tools.ShippingReflectCtx.closesFree cshape else pure false
+    -- `c.machine_closes`: no call, `let`s that pass `MachineData.letsOk` — only its `MachineDefines` is asked)
+    let free ← if leaf.getD c true then (do pure (← Tools.ShippingMachineClosesGen.closesTheorem? c).isSome) else pure false
     freeOf := freeOf.insert c free
     pTypes := pTypes ++ [← if free then pure defs0 else mkAppM ``And #[defs0, pT]]
   let some (_, pc0) := pcCases.head? | throwError "{declName}: no sequential child"
@@ -403,7 +404,7 @@ partial def generateCoreNR (declName : Name) (dep : Nat) : MetaM Name := do
         let hPS : Term := ⟨mkIdent (Name.mkSimple s!"hP{j}")⟩
         let _ := hP
         if freeOf.getD c false then
-          proveByTacticT goalK `(tactic| (intro _ mctx' cctx' mc Dc w w' hw hrun _ _; exact ⟨_, _, _, _, w, w', Dc, hrun, Tools.ShippingReflectCtx.MachineDefines.ctx $hPS, Tools.ShippingMachineEntry.machineCloses_of_noLets (by decide) (by decide)⟩))
+          proveByTacticT goalK `(tactic| (intro _ mctx' cctx' mc Dc w w' hw hrun _ _; exact ⟨_, _, _, _, w, w', Dc, hrun, Tools.ShippingReflectCtx.MachineDefines.ctx $hPS, $(mkIdent (`_root_ ++ c ++ `machine_closes)) _ _ _ _⟩))
         else if leaf.getD c true then
           proveByTacticT goalK `(tactic| (intro _ mctx' cctx' mc Dc w w' hw hrun _ _; exact ⟨_, _, _, _, w, w', Dc, hrun, Tools.ShippingReflectCtx.MachineDefines.ctx ($hPS).1, ($hPS).2 mctx' cctx' (Tools.ShippingChildInv.ChildRanIn.of_run hw hrun)⟩))
         else

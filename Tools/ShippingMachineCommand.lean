@@ -1,4 +1,5 @@
 import Tools.ShippingMachineAuto
+import Tools.ShippingMachineClosesGen
 import Tools.ShippingMachineNest
 import Tools.ShippingMachineTeleNest
 import Tools.ShippingMachineLoop
@@ -2665,6 +2666,11 @@ partial def generateCore (declName : Name) (checkCloses : Bool) (defsOnly : Bool
       for ax in ← Lean.collectAxioms name do
         unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do
           throwError "{name} uses a non-standard axiom: {ax}"
+    -- where the data give `MachineCloses` (no call, `MachineData.letsOk`):
+    -- `f.machine_closes`, and each endpoint without that premise (`_closed`)
+    for name in names do
+      discard <| Tools.ShippingMachineClosesGen.closeEndpoint declName name
+        (Tools.ShippingMachineClosesGen.closedName name)
     progress s!"{declName}: done"
     return soundName
 

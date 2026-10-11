@@ -106,7 +106,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     unless (concl.find? (·.isConstOf ``Tools.ShippingCloseLetsRun.SpineW)).isSome &&
         (concl.find? (·.isConstOf ``Sparkle.IR.Reorder.writesOf)).isSome do
       throwError "transition_spine does not conclude the spine with widths and the undriven ports"
-  Lean.logInfo m!"TRANSITION SPINE: closeLets' conditions (1) final assign, (2) concatenation spine, (3) operand wires declared at the fields' widths and not out, (4) input ports undriven, (5) core not out hold of every harness run on a packed machine body (no spine / closeLets / record premise); condition (6), the closed body's dependency order, is not derived"
+  Lean.logInfo m!"TRANSITION SPINE: closeLets' conditions (1) final assign, (2) concatenation spine, (3) operand wires declared at the fields' widths and not out, (4) input ports undriven, (5) core not out hold of every harness run on a packed machine body (no spine / closeLets / record premise); condition (6), the closed body's dependency order, is derived separately (closed_acyclic, transition_closes; ShippingMachineClosesTest)"
 
 /-! Let-only sources without calls — the shapes `machineCloses_noCalls_iff`
 is about (`caller` etc. above have calls). `reflSharedLet` translates the
