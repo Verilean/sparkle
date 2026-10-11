@@ -2039,3 +2039,9 @@ lean_lib «Tools.ShippingKidsChildIface» where
 
 lean_lib «Tools.ShippingChildIfaceGen» where
   roots := #[`Tools.ShippingChildIfaceGen]
+
+lean_lib «Tools.ShippingReaderComplete» where
+  roots := #[`Tools.ShippingReaderComplete]
+
+lean_lib «Tools.ShippingReaderNodes2» where
+  roots := #[`Tools.ShippingReaderNodes2]

@@ -15,12 +15,14 @@ This file has a TOTAL reader `readTerm`, a kernel-reducible function on
   `readTerm cfg e = some ⟨s, t⟩ → quote cfg.dom cfg.bools cfg.bits t = e ∧ t.WF …`
 
 (`readTerm_sound`). The proof is ONE induction on the expression
-(`go_induct` / `readTerm_induct`), generic in the property: a node kind is a case
+(`goWith_induct` / `readTerm_induct`), generic in the property and in the
+leaf / node readers: a node kind is a case
 of `readNode` plus one lemma about a non-recursive function; the induction is
 not touched when a kind is added.
 
 What is proved
-* `readTerm_induct`: the induction principle of the reader, for any property
+* `goWith_induct`, `readWith_induct`, `readTerm_induct`: the induction
+  principle of the reader (of any reader `readWith leaf nd`), for any property
   `P : AnyTerm → Lean.Expr → Prop` closed under the leaf reader and the node
   reader.
 * `readTerm_sound`: the quotation of the term read is the expression, and the
@@ -1036,53 +1038,76 @@ theorem readNode_sound {cfg : Cfg} (hs : cfg.Sound) {c : Lean.Name} {ls : List L
     cases h
 
 /-- The reading of an expression (first component), and the reading of the
-expression applied to further arguments (second component). -/
-def go (cfg : Cfg) : Lean.Expr → Option AnyTerm × (List Arg → Option AnyTerm)
-  | .bvar i => (readInput cfg i, fun _ => none)
-  | .const c ls => (none, fun args => readNode cfg c ls args)
+expression applied to further arguments (second component), for a leaf
+reader and a node reader. -/
+def goWith (leaf : Nat → Option AnyTerm)
+    (nd : Lean.Name → List Lean.Level → List Arg → Option AnyTerm) :
+    Lean.Expr → Option AnyTerm × (List Arg → Option AnyTerm)
+  | .bvar i => (leaf i, fun _ => none)
+  | .const c ls => (none, fun args => nd c ls args)
   | .app f a =>
-    let gf := (go cfg f).2
-    let ra := (go cfg a).1
+    let gf := (goWith leaf nd f).2
+    let ra := (goWith leaf nd a).1
     (gf [(a, ra)], fun args => gf ((a, ra) :: args))
   | _ => (none, fun _ => none)
 
-/-- **The reader.** Total, by structural recursion on the expression; no
-type inference, no environment. -/
-def readTerm (cfg : Cfg) (e : Lean.Expr) : Option AnyTerm := (go cfg e).1
+/-- The reader over a leaf reader and a node reader. Total, by structural
+recursion on the expression; no type inference, no environment. -/
+def readWith (leaf : Nat → Option AnyTerm)
+    (nd : Lean.Name → List Lean.Level → List Arg → Option AnyTerm) (e : Lean.Expr) :
+    Option AnyTerm := (goWith leaf nd e).1
+
+/-- **The reader.** The node kinds of `readNode`. -/
+def readTerm (cfg : Cfg) (e : Lean.Expr) : Option AnyTerm :=
+  readWith (readInput cfg) (readNode cfg) e
 
 /-- **The reader's induction.** A property of readings that holds of the
 leaves the leaf reader accepts and passes through the node reader holds of
 every reading — of the expression itself and of the expression applied to
-arguments that have it. -/
-theorem go_induct (cfg : Cfg) (P : AnyTerm → Lean.Expr → Prop)
-    (leaf : ∀ i r, readInput cfg i = some r → P r (.bvar i))
-    (node : ∀ c ls (args : List Arg) r,
+arguments that have it. For ANY leaf reader and node reader: a reader with
+more node kinds reuses it. -/
+theorem goWith_induct (leaf : Nat → Option AnyTerm)
+    (nd : Lean.Name → List Lean.Level → List Arg → Option AnyTerm)
+    (P : AnyTerm → Lean.Expr → Prop)
+    (hleaf : ∀ i r, leaf i = some r → P r (.bvar i))
+    (hnode : ∀ c ls (args : List Arg) r,
       (∀ p, p ∈ args → ∀ r', p.2 = some r' → P r' p.1) →
-      readNode cfg c ls args = some r → P r (apps (.const c ls) args))
+      nd c ls args = some r → P r (apps (.const c ls) args))
     (e : Lean.Expr) :
-    (∀ r, (go cfg e).1 = some r → P r e) ∧
+    (∀ r, (goWith leaf nd e).1 = some r → P r e) ∧
     (∀ (args : List Arg) r, (∀ p, p ∈ args → ∀ r', p.2 = some r' → P r' p.1) →
-      (go cfg e).2 args = some r → P r (apps e args)) := by
+      (goWith leaf nd e).2 args = some r → P r (apps e args)) := by
   induction e with
-  | bvar i => exact ⟨fun r h => leaf i r h, fun _ _ _ h => none_ne h⟩
-  | const c ls => exact ⟨fun _ h => none_ne h, fun args r ha h => node c ls args r ha h⟩
+  | bvar i => exact ⟨fun r h => hleaf i r h, fun _ _ _ h => none_ne h⟩
+  | const c ls => exact ⟨fun _ h => none_ne h, fun args r ha h => hnode c ls args r ha h⟩
   | app f a ihf iha =>
     refine ⟨fun r h => ?_, fun args r ha h => ?_⟩
-    · have hx : ∀ p, p ∈ [((a, (go cfg a).1) : Arg)] → ∀ r', p.2 = some r' → P r' p.1 := by
+    · have hx : ∀ p, p ∈ [((a, (goWith leaf nd a).1) : Arg)] →
+          ∀ r', p.2 = some r' → P r' p.1 := by
         intro p hp r' hr'
-        have hp' : p = (a, (go cfg a).1) := List.mem_singleton.mp hp
+        have hp' : p = (a, (goWith leaf nd a).1) := List.mem_singleton.mp hp
         subst hp'
         exact iha.1 r' hr'
-      exact ihf.2 [(a, (go cfg a).1)] r hx h
-    · have hx : ∀ p, p ∈ ((a, (go cfg a).1) : Arg) :: args →
+      exact ihf.2 [(a, (goWith leaf nd a).1)] r hx h
+    · have hx : ∀ p, p ∈ ((a, (goWith leaf nd a).1) : Arg) :: args →
           ∀ r', p.2 = some r' → P r' p.1 := by
         intro p hp r' hr'
         rcases List.mem_cons.mp hp with hp' | hp'
         · subst hp'
           exact iha.1 r' hr'
         · exact ha p hp' r' hr'
-      exact ihf.2 ((a, (go cfg a).1) :: args) r hx h
+      exact ihf.2 ((a, (goWith leaf nd a).1) :: args) r hx h
   | _ => exact ⟨fun _ h => none_ne h, fun _ _ _ h => none_ne h⟩
+
+theorem readWith_induct (leaf : Nat → Option AnyTerm)
+    (nd : Lean.Name → List Lean.Level → List Arg → Option AnyTerm)
+    (P : AnyTerm → Lean.Expr → Prop)
+    (hleaf : ∀ i r, leaf i = some r → P r (.bvar i))
+    (hnode : ∀ c ls (args : List Arg) r,
+      (∀ p, p ∈ args → ∀ r', p.2 = some r' → P r' p.1) →
+      nd c ls args = some r → P r (apps (.const c ls) args))
+    (e : Lean.Expr) (r : AnyTerm) (h : readWith leaf nd e = some r) : P r e :=
+  (goWith_induct leaf nd P hleaf hnode e).1 r h
 
 theorem readTerm_induct (cfg : Cfg) (P : AnyTerm → Lean.Expr → Prop)
     (leaf : ∀ i r, readInput cfg i = some r → P r (.bvar i))
@@ -1090,7 +1115,7 @@ theorem readTerm_induct (cfg : Cfg) (P : AnyTerm → Lean.Expr → Prop)
       (∀ p, p ∈ args → ∀ r', p.2 = some r' → P r' p.1) →
       readNode cfg c ls args = some r → P r (apps (.const c ls) args))
     (e : Lean.Expr) (r : AnyTerm) (h : readTerm cfg e = some r) : P r e :=
-  (go_induct cfg P leaf node e).1 r h
+  readWith_induct (readInput cfg) (readNode cfg) P leaf node e r h
 
 /-- Every reading is a reading (`Reads`). -/
 theorem readTerm_reads (cfg : Cfg) (hs : cfg.Sound) (e : Lean.Expr) (r : AnyTerm)
@@ -1105,5 +1130,41 @@ theorem readTerm_sound (cfg : Cfg) (hs : cfg.Sound) (e : Lean.Expr) (r : AnyTerm
     (h : readTerm cfg e = some r) :
     quote cfg.dom cfg.bools cfg.bits r.2 = e ∧ r.2.WF cfg.kb cfg.kv cfg.vw :=
   ⟨(readTerm_reads cfg hs e r h).eq, (readTerm_reads cfg hs e r h).wf⟩
+
+/-! ## A node applied to its arguments
+
+The reading of a constant applied to three … six arguments is the node
+reader of that arity on the arguments' readings (by computation). -/
+
+theorem readWith_app3 {leaf : Nat → Option AnyTerm}
+    {nd : Lean.Name → List Lean.Level → List Arg → Option AnyTerm} {c : Lean.Name}
+    {ls : List Lean.Level} {x0 x1 x2 : Lean.Expr} :
+    readWith leaf nd (.app (.app (.app (.const c ls) x0) x1) x2) =
+      nd c ls [(x0, readWith leaf nd x0), (x1, readWith leaf nd x1),
+        (x2, readWith leaf nd x2)] := rfl
+
+theorem readWith_app4 {leaf : Nat → Option AnyTerm}
+    {nd : Lean.Name → List Lean.Level → List Arg → Option AnyTerm} {c : Lean.Name}
+    {ls : List Lean.Level} {x0 x1 x2 x3 : Lean.Expr} :
+    readWith leaf nd (.app (.app (.app (.app (.const c ls) x0) x1) x2) x3) =
+      nd c ls [(x0, readWith leaf nd x0), (x1, readWith leaf nd x1),
+        (x2, readWith leaf nd x2), (x3, readWith leaf nd x3)] := rfl
+
+theorem readWith_app5 {leaf : Nat → Option AnyTerm}
+    {nd : Lean.Name → List Lean.Level → List Arg → Option AnyTerm} {c : Lean.Name}
+    {ls : List Lean.Level} {x0 x1 x2 x3 x4 : Lean.Expr} :
+    readWith leaf nd (.app (.app (.app (.app (.app (.const c ls) x0) x1) x2) x3) x4) =
+      nd c ls [(x0, readWith leaf nd x0), (x1, readWith leaf nd x1),
+        (x2, readWith leaf nd x2), (x3, readWith leaf nd x3),
+        (x4, readWith leaf nd x4)] := rfl
+
+theorem readWith_app6 {leaf : Nat → Option AnyTerm}
+    {nd : Lean.Name → List Lean.Level → List Arg → Option AnyTerm} {c : Lean.Name}
+    {ls : List Lean.Level} {x0 x1 x2 x3 x4 x5 : Lean.Expr} :
+    readWith leaf nd
+        (.app (.app (.app (.app (.app (.app (.const c ls) x0) x1) x2) x3) x4) x5) =
+      nd c ls [(x0, readWith leaf nd x0), (x1, readWith leaf nd x1),
+        (x2, readWith leaf nd x2), (x3, readWith leaf nd x3),
+        (x4, readWith leaf nd x4), (x5, readWith leaf nd x5)] := rfl
 
 end Tools.ShippingReaderTerm

@@ -289,3 +289,83 @@ Spots most likely to need a touch (same fix pattern each time):
 * `go_induct`: the `| _ =>` alternative closes the nine other constructors
   by `none_ne`, which needs `(go cfg (.fvar _)).1` to reduce to `none` by
   `whnf`.
+
+## 8. Round 3 (branch `par/g3-reader-3`, base `efeade5f`) — UNVERIFIED, not built
+
+Build 2 result (integrator): the three modules of §5 built unchanged at
+`1b4fe1bb`; axioms `propext`, `Quot.sound`; the wildcard test ran and
+confirmed §3 (recognisers `true` on the level-1 `pure` and the mixed-domain
+`mux`, "equals its quotation" `false`, control `true`).
+
+Added in round 3:
+
+* `Tools/ShippingReaderTerm.lean` (EDITED, my own file): the reader is now
+  `readWith leaf nd` over any leaf reader and node reader (`goWith`,
+  `goWith_induct`, `readWith_induct`); `readTerm cfg = readWith (readInput
+  cfg) (readNode cfg)`. `go` / `go_induct` are gone (nothing outside the
+  file used them). `readTerm_induct`, `readTerm_reads`, `readTerm_sound`
+  keep their statements. New: `readWith_app3 … readWith_app6` (`rfl`).
+* `Tools/ShippingReaderComplete.lean`: completeness on the eleven core
+  kinds, `readTerm_quote`; `quote_injective`; `readTerm_quote_iff`;
+  `Complete` (the exact condition on the leaf tables) and
+  `kindsCfg_complete` from `KindsOK` (a premise about the binder list).
+  **Finding for the eleven kinds: completeness goes through for every one of
+  them as written; no two distinct well-formed terms with one quotation were
+  met.** Shared heads are separated by a type argument: `Signal.pure` (Bool
+  vs `BitVec w` payload type), `Signal.mux` (result type), `Signal.beq`
+  (element type), and `&&& ||| ^^^` between `binary` and `boolBinary`
+  (`Signal dom (BitVec w)` vs `Signal dom Bool`). Conditions without which
+  it fails, all stated: inputs are loose bound variables that the tables map
+  back (a Bool and a BitVec input must not share a bound variable — the Bool
+  table is asked first); the term is well formed (a literal `v ≥ 2^w` or a
+  width-0 literal is refused by the reader on purpose).
+* `Tools/ShippingReaderNodes2.lean`: `readTerm2`, seven more kinds
+  (`bitsNum`, `setw`, `slice`, `zextMap`, `sliceF`, `concatLitHi`,
+  `concatLitLo`) with `readTerm2_sound` / `readTerm2_expr_sound`. NOT done:
+  `appCompare`, `appBool`, `appBool2` — their first operand is an argument
+  of an argument (`Signal.ap … (Signal.map … fn a) b`), and a node reader
+  only gets the readings of its own arguments; needs a third component in
+  `goWith`'s result (the reading of an argument's last argument). No
+  completeness for the seven; no theorem that `readTerm2` extends
+  `readTerm`.
+* `Tests/Compiler/ReaderCoverageTest.lean`: the measurement of §6 step 4
+  made runnable — every imported `f.machineData`, both readers, one
+  `READER …` line each and a `READER TOTAL` line.
+
+Build order for round 3:
+
+    Tools.ShippingReaderTerm → Tools.ShippingReaderInputs →
+    Tools.ShippingReaderMachine, Tools.ShippingReaderComplete,
+    Tools.ShippingReaderNodes2 → Tests/Compiler/ReaderCoverageTest.lean
+
+Least sure: in `ShippingReaderComplete`, the evaluations through `Name`
+equality (`ne_compl_pure`, `ne_beq_mux` by `decide`; `cmpOf?_compareName`,
+`binOf?_binMethod`, `boolBinOf?_name`, `binOf?_append` by `rfl`;
+`readBoolLit_false`'s `by decide`), the `show`s that expose a destructor's
+`if` on a quoted form (`natE?_natE`, `sigBitsT?_sigT`, …), the unification
+in `readTerm_appN.trans (readN_… …)` (the quotation must unfold to the
+application spine), and `bind_bind_none`'s higher-order pattern in
+`readBinary_type`. In the coverage test: `env.constants.fold`, mutation
+inside `try`, and `readMachine` on a declaration whose endpoint was generated
+in another module.
+
+## 9. Integrator's builds and runs of round 3 (2026-10-12)
+
+`Tools.ShippingReaderTerm` (refactored), `…Inputs`, `…Machine`,
+`…Complete`, `…Nodes2` built through the protected queue with no change.
+`readTerm_quote`, `quote_injective`, `readTerm2_sound` depend on `propext`,
+`Quot.sound` only.
+
+Coverage run (`Tests/Compiler/ReaderCoverageTest.lean`, compiled evaluation):
+47 declarations with `machineData` in the imported test modules; 3 are
+gate-route declarations (`rcH`, `pick`, `pickD`: not machine shapes, logged as
+errors by design). Of the 44 machine bodies: the 11-kind reader reads 39, the
+18-kind reader reads ALL 44, each with `quote` of the term read equal to the
+body. The 5 the 11-kind reader misses stop at `Signal.map/5` (`ipv4HeaderByte`,
+`ipv4HeaderChecksumSig`, `pickByte`, `pickByteH`, `divInLoop`).
+
+Not established by this: completeness for the seven added kinds; `KindsOK`
+for every binder list; anything about the three `app*` kinds (none of the 44
+bodies needed them); the corpus outside these test modules; and the compiler
+does not run this reader.
+
