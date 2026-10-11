@@ -72,12 +72,38 @@ theorem rank_of_names_G {body : List Stmt} (ρ : String → Nat)
   unfold rankMin
   omega
 
+/-- The rank of a statement: the least rank of the KEPT names it drives. -/
+def rankMinK (keep : String → Bool) (A : List String) (ρ : String → Nat) (st : Stmt) : Nat :=
+  minOf ρ ((combWrites A st).filter keep)
+
+/-- **A rank on names orders statements**, some writes left out of the rank
+(`keep`: an instance's connected `clk` / `rst`, which no statement reads as
+a driven name). -/
+theorem rank_of_names_K {body : List Stmt} (keep : String → Bool) (ρ : String → Nat)
+    (hne : ∀ st ∈ combOf body, (combWrites (byAssignOf body) st).filter keep ≠ [])
+    (hkeep : ∀ st ∈ combOf body, ∀ r ∈ combReads (byAssignOf body) st, r ∈ drivenOf body →
+      keep r = true)
+    (hρ : ∀ st ∈ combOf body, ∀ l ∈ combWrites (byAssignOf body) st, keep l = true →
+      ∀ r ∈ combReads (byAssignOf body) st, r ∈ drivenOf body → ρ r < ρ l) :
+    ∀ st ∈ combOf body, ∀ r ∈ combReads (byAssignOf body) st, r ∈ drivenOf body →
+      ∃ st' ∈ combOf body, r ∈ combWrites (byAssignOf body) st' ∧
+        rankMinK keep (byAssignOf body) ρ st' < rankMinK keep (byAssignOf body) ρ st := by
+  intro st hs r hr hd
+  obtain ⟨st', hs', hw'⟩ := mem_driven hd
+  refine ⟨st', hs', hw', ?_⟩
+  obtain ⟨l, hl, he⟩ := minOf_mem ρ _ (hne st hs)
+  obtain ⟨hl1, hl2⟩ := List.mem_filter.mp hl
+  have h1 := minOf_le ρ _ r (List.mem_filter.mpr ⟨hw', hkeep st hs r hr hd⟩)
+  have h2 := hρ st hs l hl1 hl2 r hr hd
+  unfold rankMinK
+  omega
+
 /-! ## One stand-in per write -/
 
 /-- The stand-ins of an instance: one per name it drives, reading what it
 reads. -/
-def standIns (A : List String) (st : Stmt) : List Stmt :=
-  (combWrites A st).map fun w =>
+def standIns (keep : String → Bool) (A : List String) (st : Stmt) : List Stmt :=
+  ((combWrites A st).filter keep).map fun w =>
     Stmt.inst "" "" (("", Expr.ref w) :: (combReads A st).map fun x => ("", Expr.ref x))
 
 theorem inst_write_notA {A : List String} {mn i : String} {conns : List (String × Expr)}
@@ -135,7 +161,7 @@ theorem rank_of_facts_G {P : String → Prop} {bnd : Lean.FVarId → Option Stri
     {t : Sparkle.IR.AST.Module}
     {bodyB : List Stmt} {w : String} {ls : List Port} {kI n : Nat} {cs : List Nat}
     {al : List (Port × String)} {es : List Lean.Expr} {ws : List Nat}
-    {core : String} {stmts comb : List Stmt} {A D : List String}
+    {core : String} {stmts comb : List Stmt} {A D : List String} (keep : String → Bool)
     (hbody : t.body = bodyB.reverse ++ [.assign "out" (.ref w)])
     (hacy : Acyclic t.body)
     (hnamed : ∀ l r, Stmt.assign l r ∈ bodyB.reverse → Allocated l ∧ ∀ x ∈ refsOf r, Allocated x)
@@ -148,7 +174,8 @@ theorem rank_of_facts_G {P : String → Prop} {bnd : Lean.FVarId → Option Stri
       t.wires t.body bodyB 0 al es ws)
     (hcsK : ∀ j, j < kI → ∃ c, cs[j]? = some c ∧ c ≤ al.length)
     (hcore : Allocated core)
-    (hinst : ∀ st ∈ stmts, isInst st = true ∧ ∀ outW ∈ combWrites A st, ∃ (j c : Nat),
+    (hinst : ∀ st ∈ stmts, isInst st = true ∧ ∀ outW ∈ combWrites A st, keep outW = true →
+      ∃ (j c : Nat),
       ((ls.take kI).map Port.name)[j]? = some outW ∧ cs[j]? = some c ∧
       ∀ x ∈ combReads A st, ∃ a : Nat, (al.map (·.1.name))[a]? = some x ∧ a < c)
     (hcomb : ∀ st ∈ comb, (∃ l r, st = Stmt.assign l r ∧ Stmt.assign l r ∈ bodyB.reverse) ∨
@@ -157,7 +184,7 @@ theorem rank_of_facts_G {P : String → Prop} {bnd : Lean.FVarId → Option Stri
     (hD : ∀ x ∈ D, x ∈ writesOf bodyB.reverse ∨ x ∈ al.map (·.1.name) ∨
       x ∈ (ls.take kI).map Port.name ∨ ¬ Allocated x) :
     ∃ pres : List (List Stmt),
-      ∀ st ∈ comb, ∀ l ∈ combWrites A st, ∀ r ∈ combReads A st, r ∈ D →
+      ∀ st ∈ comb, ∀ l ∈ combWrites A st, keep l = true → ∀ r ∈ combReads A st, r ∈ D →
         rho bodyB.reverse pres (al.map (·.1.name)) ((ls.take kI).map Port.name) cs r <
           rho bodyB.reverse pres (al.map (·.1.name)) ((ls.take kI).map Port.name) cs l := by
   -- a stand-in's writes and reads
@@ -175,14 +202,15 @@ theorem rank_of_facts_G {P : String → Prop} {bnd : Lean.FVarId → Option Stri
     | _ => simp [isInst] at hi
   obtain ⟨pres, hsingle, hρ⟩ := rank_of_facts (P := P) (bnd := bnd) (t := t) (bodyB := bodyB)
     (w := w) (ls := ls) (kI := kI) (n := n) (cs := cs) (al := al) (es := es) (ws := ws)
-    (core := core) (stmts := stmts.flatMap (standIns A))
-    (comb := comb.flatMap fun st => if isInst st then standIns A st else [st]) (A := A) (D := D)
+    (core := core) (stmts := stmts.flatMap (standIns keep A))
+    (comb := comb.flatMap fun st => if isInst st then standIns keep A st else [st]) (A := A) (D := D)
     hbody hacy hnamed hnw hPls hlsAlloc hlsNd hal hfacts hcsK hcore
     (by
       intro st' hs'
       obtain ⟨st, hs, hm⟩ := List.mem_flatMap.mp hs'
-      obtain ⟨l, hl, rfl⟩ := List.mem_map.mp hm
-      obtain ⟨j, c, hj, hc, hrd⟩ := (hinst st hs).2 l hl
+      obtain ⟨l, hlk, rfl⟩ := List.mem_map.mp hm
+      obtain ⟨hl, hk⟩ := List.mem_filter.mp hlk
+      obtain ⟨j, c, hj, hc, hrd⟩ := (hinst st hs).2 l hl hk
       obtain ⟨hw', hr'⟩ := hstand st hs l hl
       exact ⟨j, l, c, hj, hc, hw', fun x hx => hrd x (by rw [hr'] at hx; exact hx)⟩)
     (by
@@ -205,7 +233,7 @@ theorem rank_of_facts_G {P : String → Prop} {bnd : Lean.FVarId → Option Stri
         · exact absurd (hinst st' h).1 hi)
     hD
   refine ⟨pres, ?_⟩
-  intro st hs l hl r hr hd
+  intro st hs l hl hkl r hr hd
   by_cases hi : isInst st = true
   · have hst : st ∈ stmts := by
       rcases hcomb st hs with ⟨l, r, rfl, _⟩ | ⟨a, pa, _, rfl⟩ | ⟨l, lo, wd, rfl, _⟩ | h
@@ -216,8 +244,8 @@ theorem rank_of_facts_G {P : String → Prop} {bnd : Lean.FVarId → Option Stri
     obtain ⟨hw', hr'⟩ := hstand st hst l hl
     refine hρ _ (List.mem_flatMap.mpr ⟨st, hs, ?_⟩) l hw' r (by rw [hr']; exact hr) hd
     rw [if_pos hi]
-    exact List.mem_map.mpr ⟨l, hl, rfl⟩
-  · have hm : st ∈ comb.flatMap fun st => if isInst st then standIns A st else [st] :=
+    exact List.mem_map.mpr ⟨l, List.mem_filter.mpr ⟨hl, hkl⟩, rfl⟩
+  · have hm : st ∈ comb.flatMap fun st => if isInst st then standIns keep A st else [st] :=
       List.mem_flatMap.mpr ⟨st, hs, by rw [if_neg hi]; exact List.mem_singleton.mpr rfl⟩
     obtain ⟨l', hl'⟩ := hsingle st hm
     have : l = l' := by
