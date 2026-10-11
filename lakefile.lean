@@ -687,6 +687,9 @@ lean_lib «Tools.ShippingGateChildComb» where
 lean_lib «Tools.ShippingInstStmt» where
   roots := #[`Tools.ShippingInstStmt]
 
+lean_lib «Tools.ShippingKidsComb» where
+  roots := #[`Tools.ShippingKidsComb]
+
 lean_lib «Tools.ShippingCallsClose» where
   roots := #[`Tools.ShippingCallsClose]
 
