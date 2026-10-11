@@ -449,4 +449,260 @@ theorem uses_of_wf {ub uv : Nat → Prop} {kb kv : Nat} {vw : Nat → Nat}
   | _, .zextMap _ _ a, h => ⟨uses_of_wf hub huv a h.1, trivial⟩
   | _, .sliceF _ _ _ a, h => ⟨uses_of_wf hub huv a h.1, trivial, trivial⟩
 
+theorem fieldsOK_get {ubk uvk : Nat → Nat → Prop} {kb kv : Nat} {vw : Nat → Nat} :
+    ∀ {fs : List (Σ w : Nat, Term (.bits w))} {i : Nat} (k : Nat) {f : Σ w : Nat, Term (.bits w)},
+      FieldsOK ubk uvk kb kv vw i fs → fs[k]? = some f →
+      f.2.WF kb kv vw ∧ Uses (ubk (i + k)) (uvk (i + k)) f.2
+  | _ :: _, _, 0, _, h, hk => by cases hk; exact ⟨h.1, h.2.1⟩
+  | _ :: fs, i, k + 1, f, h, hk => by
+    have := fieldsOK_get (i := i + 1) k h.2.2 (by simpa using hk)
+    rw [show i + (k + 1) = i + 1 + k by omega]
+    exact this
+  | [], _, _, _, _, hk => by simp at hk
+
+theorem nodup_index {l : List Port} (h : (l.map Port.name).Nodup) {i j : Nat} {p q : Port}
+    (hi : l[i]? = some p) (hj : l[j]? = some q) (hn : p.name = q.name) : i = j := by
+  have hi' : (l.map Port.name)[i]? = some p.name := by rw [List.getElem?_map, hi]; rfl
+  have hj' : (l.map Port.name)[j]? = some q.name := by rw [List.getElem?_map, hj]; rfl
+  have hpw := List.pairwise_iff_getElem.mp h
+  have bi := (List.getElem?_eq_some_iff.mp hi').1
+  have bj := (List.getElem?_eq_some_iff.mp hj').1
+  have ei := (List.getElem?_eq_some_iff.mp hi').2
+  have ej := (List.getElem?_eq_some_iff.mp hj').2
+  rcases Nat.lt_trichotomy i j with hlt | heq | hgt
+  · exact absurd (ei.trans (hn.trans ej.symm)) (hpw i j bi bj hlt)
+  · exact heq
+  · exact absurd (ej.trans (hn.symm.trans ei.symm)) (hpw j i bj bi hgt)
+
+/-! ## The transition of a packed machine body closes -/
+
+set_option maxHeartbeats 1000000 in
+/-- **`closeLets` accepts the transition of every run of the harness** on a
+packed machine body whose binders are `bsIn ++ letBs`, under two shape-side
+conditions on the fields: `hscope` — field `k` uses only variables whose
+binder comes before `let` `k`; `hS2` — a field that is the variable of `let`
+`j` requires field `j` to be a variable too (otherwise the real `closeLets`
+refuses). Nothing is assumed of the run. -/
+theorem transition_closes {logProf : String → IO Unit} {declName : Name}
+    {bs : List (Name × MixedGateBinder)} {body : Lean.Expr} {m : Sparkle.IR.AST.Module}
+    {ids : List FVarId} {cache : IO.Ref (ExprStructMap String)} {returned : String}
+    {st : CircuitState}
+    (nd : ids.Nodup) (len : ids.length = bs.length)
+    (run : Returns (bindMixedCertifiedInputs
+        (emitLeaves (fun e hint top named => translateExprToWire e hint top named) cache logProf
+          [("out", instFVars (ids.map Lean.Expr.fvar).toArray 0 body)] none 0) (bs.zip ids))
+        (entryCompilerState false cache) (CircuitM.init declName.toString) returned st)
+    (hm : m = (addClockResetIfSequential st.module).finalize)
+    (nameLegal : Sparkle.IR.ModuleNames.legal (Sparkle.Backend.Verilog.sanitizeName m.name) = true)
+    (positive : PositiveBinders bs)
+    {dom : Lean.Expr} {kb kv : Nat} {vw : Nat → Nat} {bpos vpos : Nat → Nat}
+    (fs : List (Σ w : Nat, Term (.bits w))) {c : Nat} (core : Term (.bits c))
+    (he : (packLets fs core).2.WF kb kv vw)
+    (hb : ∀ j, j < kb → ∃ name, bs[bpos j]? = some (name, .bool))
+    (hv : ∀ j, j < kv → ∃ name, bs[vpos j]? = some (name, .bits (vw j)))
+    (hbody : body = quote dom (fun j => inputExpr bs.length (bpos j))
+      (fun j => inputExpr bs.length (vpos j)) (packLets fs core).2)
+    {bsIn letBs : List (Name × MixedGateBinder)} (hbs : bs = bsIn ++ letBs) (hK : letBs ≠ [])
+    (letKinds : ∀ b ∈ letBs, b.2 ≠ .domain)
+    (hfitL : fs.length = letBs.length)
+    (hfit : ∀ (k : Nat) (b : Name × MixedGateBinder) (f : Σ w : Nat, Term (.bits w)),
+      letBs[k]? = some b → fs[k]? = some f → machWidth b.2 = f.1)
+    (hscope : FieldsOK (fun k j => j < kb ∧ bpos j < bsIn.length + k)
+      (fun k j => j < kv ∧ vpos j < bsIn.length + k) kb kv vw 0 fs)
+    (hS2 : ∀ (i j : Nat) (fi fj : Σ w : Nat, Term (.bits w)), fs[i]? = some fi → fs[j]? = some fj →
+      VarPos bpos vpos fi.2 (bsIn.length + j) → IsVar fj.2) :
+    (closeLets letBs.length m).isSome = true := by
+  -- the run's facts about the module
+  have facts := transition_facts nd len run hm nameLegal he hb hv hbody
+  obtain ⟨B, w, hB, hspine, hports, hlink⟩ :=
+    transition_spine nd len run hm nameLegal positive fs core he hb hv hbody
+  have fresh : ((bs.zip ids).map Prod.snd).Nodup := by rw [zip_ids len]; exact nd
+  have zero : SourceInputs declName bs ids cache (fun _ => false) (fun _ n => 0#n)
+      (fun _ => 0) := admissible_zero _ _
+  obtain ⟨_, _, _, ready, _, _, _, _, base⟩ := facts.1 _ _ _ (fun _ _ => 0) zero
+  have pb := base positive
+  have hin := facts.2.2 (boolValues ids fun _ => false) (bitValues ids fun _ n => 0#n)
+  -- the port walk in two parts
+  let a := start (entryCompilerState false cache) declName.toString
+  let zb := boolValues ids fun _ => false
+  let zv := bitValues ids fun _ n => 0#n
+  let L1 := bsIn.zip (ids.take bsIn.length)
+  let L2 := letBs.zip (ids.drop bsIn.length)
+  have hidsLen : ids.length = bsIn.length + letBs.length := by rw [len, hbs, List.length_append]
+  have hzip : bs.zip ids = L1 ++ L2 := by
+    show bs.zip ids = bsIn.zip (ids.take bsIn.length) ++ letBs.zip (ids.drop bsIn.length)
+    conv => lhs; rw [hbs, ← List.take_append_drop bsIn.length ids]
+    rw [List.zip_append (by simp; omega)]
+  have hL1 : L1.length = bsIn.length := by simp [L1]; omega
+  have hL2 : L2.length = letBs.length := by simp [L2]; omega
+  have hL2dom : ∀ b ∈ L2, b.1.2 ≠ .domain := fun b hb' => letKinds b.1 (List.of_mem_zip hb').1
+  let PI := inputPorts zb zv L1 a
+  let ls := inputPorts zb zv L2 (prepare zb zv L1 a)
+  have hinputs : m.inputs = PI ++ ls := by
+    rw [hin, hzip, inputPorts_append]
+  have lsTypes := inputPorts_types (bools := zb) (bits := zv) L2 (prepare zb zv L1 a) hL2dom
+  have lsLen : ls.length = letBs.length := by rw [lsTypes.length_eq, hL2]
+  have hdrop : m.inputs.drop (m.inputs.length - letBs.length) = ls := by
+    rw [hinputs, List.length_append, lsLen, Nat.add_sub_cancel, List.drop_left]
+  have inNodup : ((PI ++ ls).map Port.name).Nodup := hinputs ▸ pb.inputNames
+  rw [List.map_append, List.nodup_append] at inNodup
+  have ndz : ((L1 ++ L2).map Prod.snd).Nodup := hzip ▸ fresh
+  -- where a term variable is bound
+  have hwhere : ∀ (pos : Nat) (binder : Name × MixedGateBinder), bs[pos]? = some binder →
+      binder.2 ≠ .domain → ∀ z,
+      visible (prepare zb zv (bs.zip ids) a).context
+        (prepare zb zv (bs.zip ids) a).state.sourceBindings ids[pos]! = some z →
+      (pos < bsIn.length ∧ ∃ port ∈ PI, z = port.name) ∨
+        (∃ i port, pos = bsIn.length + i ∧ ls[i]? = some port ∧ z = port.name) := by
+    intro pos binder hpos hk z hz
+    have hmem : (L1 ++ L2)[pos]? = some (binder, ids[pos]!) := by
+      rw [← hzip]
+      have bound : pos < bs.length := (List.getElem?_eq_some_iff.mp hpos).1
+      exact List.getElem?_zip_eq_some.mpr ⟨hpos, by
+        simp [List.getElem?_eq_getElem (show pos < ids.length by omega),
+          List.getElem!_eq_getElem?_getD]⟩
+    rw [hzip] at hz
+    rcases bound_where (bools := zb) (bits := zv) L1 L2 a ndz hL2dom
+      (by rw [lsTypes.length_eq]) hmem hk with ⟨hlt, port, hp, hv'⟩ | ⟨i, port, hi, hp, hv'⟩
+    · rw [hv'] at hz
+      cases hz
+      exact Or.inl ⟨hL1 ▸ hlt, port, hp, rfl⟩
+    · rw [hv'] at hz
+      cases hz
+      exact Or.inr ⟨i, port, hL1 ▸ hi, hp, rfl⟩
+  have lsNodup : (ls.map Port.name).Nodup := inNodup.2.1
+  have lsDisj : ∀ p ∈ PI, ∀ q ∈ ls, p.name ≠ q.name := fun p hp q hq =>
+    inNodup.2.2 p.name (List.mem_map_of_mem hp) q.name (List.mem_map_of_mem hq)
+  -- the ports a position may read: not the `let` ports from it on
+  let Vk : Nat → String → Prop := fun k x => ∀ (j : Nat) (p : Port), k ≤ j → ls[j]? = some p → x ≠ p.name
+  have hbind : ∀ k id z,
+      Bk (fun j => ids[bpos j]!) (fun j => ids[vpos j]!) (fun k j => j < kb ∧ bpos j < bsIn.length + k)
+        (fun k j => j < kv ∧ vpos j < bsIn.length + k) k id →
+      visible (prepare zb zv (bs.zip ids) a).context
+        (prepare zb zv (bs.zip ids) a).state.sourceBindings id = some z → Vk k z := by
+    rintro k id z (⟨q, ⟨hq, hpos⟩, rfl⟩ | ⟨q, ⟨hq, hpos⟩, rfl⟩) hz j p hkj hp heq
+    · obtain ⟨name, hbq⟩ := hb q hq
+      rcases hwhere (bpos q) (name, .bool) hbq (by simp) z hz with
+        ⟨-, port, hport, rfl⟩ | ⟨i, port, hi, hpi, rfl⟩
+      · exact lsDisj port hport p (List.mem_of_getElem? hp) heq
+      · have := nodup_index lsNodup hpi hp heq
+        omega
+    · obtain ⟨name, hvq⟩ := hv q hq
+      rcases hwhere (vpos q) (name, .bits (vw q)) hvq (by simp) z hz with
+        ⟨-, port, hport, rfl⟩ | ⟨i, port, hi, hpi, rfl⟩
+      · exact lsDisj port hport p (List.mem_of_getElem? hp) heq
+      · have := nodup_index lsNodup hpi hp heq
+        omega
+  have hbsLen : bs.length = bsIn.length + fs.length := by rw [hbs, List.length_append, hfitL]
+  have hcoreU : Uses (fun j => j < kb ∧ bpos j < bsIn.length + fs.length)
+      (fun j => j < kv ∧ vpos j < bsIn.length + fs.length) core :=
+    uses_of_wf (fun j hj => ⟨hj, by
+        obtain ⟨name, h⟩ := hb j hj
+        have := (List.getElem?_eq_some_iff.mp h).1
+        omega⟩)
+      (fun j hj => ⟨hj, by
+        obtain ⟨name, h⟩ := hv j hj
+        have := (List.getElem?_eq_some_iff.mp h).1
+        omega⟩) core (packLets_wf fs core he)
+  subst hbody
+  obtain ⟨bodyB, w', hbody', hlp, hnw, hused⟩ := harness_links_at run hm zb zv (fun _ => 0) zero
+    (instFVars (ids.map Lean.Expr.fvar).toArray 0 dom)
+    kb kv vw (fun j => ids[bpos j]!) (fun j => ids[vpos j]!) (fun _ => false) (fun _ n => 0#n)
+    fs core he
+    (by
+      intro j hj
+      obtain ⟨name, pos⟩ := hb j hj
+      have bound := (List.getElem_of_getElem? pos).choose
+      have lookup := prepare_bool_lookup (bools := boolValues ids fun _ => false)
+        (bits := bitValues ids fun _ n => 0#n) (bs.zip ids)
+        (start (entryCompilerState false cache) declName.toString) fresh (zip_member len pos)
+      simpa only [boolValues, index_fresh ids nd (bpos j) (by omega)] using lookup)
+    (by
+      intro j hj
+      obtain ⟨name, pos⟩ := hv j hj
+      have bound := (List.getElem_of_getElem? pos).choose
+      have lookup := prepare_bits_lookup (bools := boolValues ids fun _ => false)
+        (bits := bitValues ids fun _ n => 0#n) (bs.zip ids)
+        (start (entryCompilerState false cache) declName.toString) fresh (zip_member len pos)
+      simpa only [bitValues, index_fresh ids nd (vpos j) (by omega)] using lookup)
+    (by
+      apply instantiated_quote _ _ _ he
+      · intro j hj
+        obtain ⟨name, pos⟩ := hb j hj
+        exact instantiated_input len (List.getElem_of_getElem? pos).choose
+      · intro j hj
+        obtain ⟨name, pos⟩ := hv j hj
+        exact instantiated_input len (List.getElem_of_getElem? pos).choose)
+    (Vk := Vk) (fun k x h j p hkj hp => h j p (by omega) hp) hbind hscope hcoreU
+  -- the two decompositions of the body are the same
+  have hsame := hB.symm.trans hbody'
+  obtain ⟨hBeq, hweq⟩ := List.append_inj' hsame rfl
+  cases hweq
+  refine closeLets_isSome_of_facts (Vk := Vk) (ws := fs.map (·.1))
+    (fun h => hK (List.length_eq_zero_iff.mp h)) hbody' pb.order
+    (by rw [hdrop]; exact lsLen) (by rw [hdrop]; exact lsNodup)
+    (by rw [hdrop]; exact fun p hp => hports p (hinputs ▸ List.mem_append_right _ hp))
+    (by rw [hdrop, lsLen, List.length_map, hfitL]) (by simp) ?_ hspine hlink hlp ?_ hnw
+    (by rw [hdrop]; exact fun k k' p hp hle h => h k' p hle hp rfl) ?_
+  · -- a `let` port is as wide as its field, and that is positive
+    rw [hdrop]
+    intro k p mm hp hm'
+    rw [List.getElem?_map] at hm'
+    cases hfk : fs[k]? with
+    | none => rw [hfk] at hm'; cases hm'
+    | some f =>
+      rw [hfk] at hm'
+      cases hm'
+      have hk : k < L2.length := by
+        rw [hL2, ← lsLen]; exact (List.getElem?_eq_some_iff.mp hp).1
+      have hty := lsTypes.get k p _ hp (List.getElem?_eq_getElem hk)
+      have hb2 : letBs[k]? = some (L2[k]).1 := by
+        have := List.getElem?_eq_getElem hk
+        obtain ⟨h1, -⟩ := List.getElem?_zip_eq_some.mp this
+        exact h1
+      rw [hty, kindTy_bitWidth _ (hL2dom _ (List.getElem_mem hk)), hfit k _ f hb2 hfk]
+      exact ⟨rfl, f.2.wf_pos (fieldsOK_get k hscope hfk).1⟩
+  · -- the `let` ports are in use before the translation
+    rw [hdrop]
+    intro p hp
+    apply hused
+    rw [prepare_inputs, ← hin]
+    simp only [start, CircuitM.init, Module.empty, List.append_nil, List.mem_reverse]
+    exact hinputs ▸ List.mem_append_right _ hp
+  · -- a field that is the variable of `let` `j`
+    rw [hdrop]
+    intro i j id p hei hlj hbnd
+    rw [List.getElem?_map] at hei
+    cases hfi : fs[i]? with
+    | none => rw [hfi] at hei; cases hei
+    | some fi =>
+      rw [hfi] at hei
+      have hq : quote (instFVars (ids.map Lean.Expr.fvar).toArray 0 dom)
+          (fun j => .fvar (ids[bpos j]!)) (fun j => .fvar (ids[vpos j]!)) fi.2 = .fvar id := by
+        simpa using hei
+      have hjlt : j < fs.length := by
+        rw [hfitL, ← lsLen]; exact (List.getElem?_eq_some_iff.mp hlj).1
+      have key : ∀ (pos : Nat) (binder : Name × MixedGateBinder), bs[pos]? = some binder →
+          binder.2 ≠ .domain → id = ids[pos]! → VarPos bpos vpos fi.2 pos →
+          ∃ id', (fs.map fun f => quote (instFVars (ids.map Lean.Expr.fvar).toArray 0 dom)
+            (fun j => Lean.Expr.fvar (ids[bpos j]!)) (fun j => Lean.Expr.fvar (ids[vpos j]!)) f.2)[j]? =
+              some (Lean.Expr.fvar id') := by
+        intro pos binder hpos hk hid hvp
+        subst hid
+        rcases hwhere pos binder hpos hk p.name hbnd with ⟨-, port, hport, heq⟩ | ⟨i', port, hi', hpi, heq⟩
+        · exact absurd heq.symm (lsDisj port hport p (List.mem_of_getElem? hlj))
+        · have hij := nodup_index lsNodup hpi hlj heq.symm
+          subst hij
+          subst hi'
+          have hfj := List.getElem?_eq_getElem hjlt
+          obtain ⟨id', hid'⟩ := quote_isVar (dom := instFVars (ids.map Lean.Expr.fvar).toArray 0 dom)
+            (bi := fun j => ids[bpos j]!) (vi := fun j => ids[vpos j]!) _ (hS2 i i' fi _ hfi hfj hvp)
+          exact ⟨id', by rw [List.getElem?_map, hfj]; exact congrArg some hid'⟩
+      rcases quote_fvar_var (bpos := bpos) (vpos := vpos) fi.2 (fieldsOK_get i hscope hfi).1 hq with
+        ⟨q, hq', hvp, hid⟩ | ⟨q, hq', hvp, hid⟩
+      · obtain ⟨name, hbq⟩ := hb q hq'
+        exact key (bpos q) _ hbq (by simp) hid hvp
+      · obtain ⟨name, hvq⟩ := hv q hq'
+        exact key (vpos q) _ hvq (by simp) hid hvp
+
 end Tools.ShippingMachineCloses
