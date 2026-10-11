@@ -10,6 +10,7 @@ import Tools.ShippingCallsShape
 import Tools.ShippingHarnessClosed
 import Tools.ShippingGateChildComb
 import Tools.ShippingKidsComb
+import Tools.ShippingCallsAssembly
 
 /-! # `MachineCloses` derived for `let` shapes without calls
 
@@ -284,8 +285,12 @@ with no closed-reads premise. Checked here: the theorem's premises mention no
 real harness modules — a plain gate (`pick`), a transition with a shared
 subexpression (a validated-cache hit, `reflSharedLet`), transitions with
 concatenations whose result wire is reserved first (`caller`,
-`closesChain`). This is the CORE harness module; the child `closeInsts`
-sees is the full entry's (cleanup, merge): not covered yet. -/
+`closesChain`). This is the CORE harness module; the full-entry child
+(cleanup, merge) is covered by `gate_child_comb` / `gate_child_fullFacts`
+below (K2 / K3). These are theorems under `RefLaws` where a run boundary is
+involved; the diagnostic laws of `RefLaws` are over-general (G5, not fixed),
+so they strengthen the conditional theorems, they do not establish runtime
+soundness. -/
 run_cmd Lean.Elab.Command.liftTermElabM do
   for n in [``Tools.ShippingHarnessClosed.harness_closed, ``Tools.ShippingHarnessClosed.closed_forward,
       ``Tools.ShippingUnifiedSpine.fuel_spine, ``Tools.ShippingUnifiedSpine.Spec.cached] do
@@ -310,7 +315,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     unless Sparkle.IR.Machine.readsClosedB (t.inputs.map (·.name)) t.body do
       throwError "{n}: the transition's body is not closed over its input ports"
     seen := seen.push m!"{n} ({t.body.length} statements)"
-  Lean.logInfo m!"CLOSED READS (K1): harness_closed — readsClosedB for every harness run, no closed-reads premise, standard axioms; checker agrees on {seen}; the full-entry child (cleanup, merge) is not covered yet"
+  Lean.logInfo m!"CLOSED READS (K1): harness_closed — readsClosedB for every harness run, no closed-reads premise, standard axioms; checker agrees on {seen}; the full-entry child is K2/K3 below"
 
 /-! K2 / K3 (child side). `gate_child_comb`: for a declaration the unified
 gate accepts, a run of the FULL entry (core, zero-width cleanup, checked
@@ -361,3 +366,31 @@ run_cmd Lean.Elab.Command.liftTermElabM do
       unless a == ``propext || a == ``Classical.choice || a == ``Quot.sound do
         throwError "{n} depends on {a}"
   Lean.logInfo m!"KIDSCOMB (five conditions) and the instance statement: pure assembly lemmas, standard axioms; not yet joined to a real parent run (port fit, fresh instance name, designWith name resolution, MachineClosesAt)"
+
+/-! The one-output closing, assembled (`closeInsts_of_facts`): `closeInsts`
+returns a module from the transition's run facts, its `let` closing and the
+children's facts; with `instStmts_some`, `designWith_resolves`,
+`gate_child_fullFacts`. Pure / per-run lemmas with standard axioms. What is
+NOT done: deriving these facts inside a run of the machine synthesis
+(`MachineClosesAt`), so no endpoint has lost its closing premise. Premises
+that are real conditions and stay in `closeInsts_of_facts`: name-consistent
+children, no child named as the parent, no output port named as an
+instance. -/
+run_cmd Lean.Elab.Command.liftTermElabM do
+  for n in [``Tools.ShippingCallsAssembly.closeInsts_of_facts,
+      ``Tools.ShippingCallsStmts.instStmts_some, ``Tools.ShippingDesignWith.designWith_resolves,
+      ``Tools.ShippingGateChildComb.gate_child_fullFacts] do
+    for a in ← Lean.collectAxioms n do
+      unless a == ``propext || a == ``Classical.choice || a == ``Quot.sound do
+        throwError "{n} depends on {a}"
+  let t ← Lean.Meta.inferType (mkConst ``Tools.ShippingCallsAssembly.closeInsts_of_facts)
+  Lean.Meta.forallTelescope t fun xs concl => do
+    for x in xs do
+      let ty ← Lean.Meta.inferType x
+      for c in [``Sparkle.IR.Machine.closeInsts, ``Sparkle.IR.Machine.kidsCombB,
+          ``Sparkle.IR.Machine.topoBody, ``Sparkle.IR.Machine.readsClosedB,
+          ``Tools.ShippingMachineEntry.MachineCloses] do
+        if (ty.find? (·.isConstOf c)).isSome then throwError "closeInsts_of_facts assumes {c}"
+    unless (concl.find? (·.isConstOf ``Sparkle.IR.Machine.closeInsts)).isSome do
+      throwError "closeInsts_of_facts: conclusion"
+  Lean.logInfo m!"ONE-OUTPUT CLOSING ASSEMBLED: closeInsts_of_facts concludes about the real closeInsts and assumes none of closeInsts / kidsCombB / topoBody / readsClosedB / MachineCloses; standard axioms. NOT yet derived inside a machine-synthesis run (MachineClosesAt): the endpoints keep their closing premise"
