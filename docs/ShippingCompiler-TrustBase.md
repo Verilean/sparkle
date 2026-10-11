@@ -840,7 +840,15 @@ and `ShippingChildCacheRun` removed).
     checked on a run: a field that is itself an earlier `let` variable puts
     its alias at the front, before the alias that drives that variable, so
     `MachineCloses` should be FALSE for such a shape — the condition to
-    state on the shape must exclude it.
+    state on the shape must exclude it. (On the one source tried,
+    `reflAliasLet` with `let b := a`, the shape reader keeps a single
+    hardware `let` and `closeLets` accepts; whether the reader can ever
+    produce such a shape is not established.)
+  - Regression, let-only sources without calls (`ShippingReflectCtxTest`):
+    `reflSharedLet` (2 `let`s sharing a subexpression, so a validated-cache
+    hit) and `reflAliasLet`; `closeLets` accepts both runs' transitions.
+    This is the checker on those runs. `MachineCloses` is NOT discharged for
+    them: conditions (3)-width and (6) are missing.
   - (earlier plan, kept for the record) a spine postcondition
     for the translator on `packLets fs core` giving (2)–(5), then (6) from
     the existing order invariant plus (b). Calls (`closeInsts`,

@@ -101,3 +101,43 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     unless (concl.find? (·.isConstOf ``Tools.ShippingCloseLetsSplit.Spine)).isSome do
       throwError "transition_spine does not conclude the spine"
   Lean.logInfo m!"TRANSITION SPINE: closeLets' conditions (1) final assign and (2) concatenation spine hold of every harness run on a packed machine body (no spine / closeLets / record premise); conditions (3)–(6) are not derived"
+
+/-! Let-only sources without calls — the shapes `machineCloses_noCalls_iff`
+is about (`caller` etc. above have calls). `reflSharedLet` translates the
+same subexpression in two `let` fields, so the second goes through a
+validated-cache hit. `reflAliasLet` writes a `let` that is another `let`'s
+variable: the shape reader keeps ONE hardware `let` for it. -/
+open Sparkle.Core.Domain Sparkle.Core.Signal in
+/-- A `let` that is another `let`'s variable. -/
+def reflAliasLet (x : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec 8) :=
+  circuit do
+    let r ← Signal.reg 0#8
+    let rs := (r : Signal defaultDomain (BitVec 8))
+    let a := rs + x
+    let b := a
+    r <~ a + b
+    return rs
+
+open Sparkle.Core.Domain Sparkle.Core.Signal in
+/-- The same subexpression in two `let` fields (a validated-cache hit). -/
+def reflSharedLet (x : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec 8) :=
+  circuit do
+    let r ← Signal.reg 0#8
+    let rs := (r : Signal defaultDomain (BitVec 8))
+    let a := (rs + x) + x
+    let b := (rs + x) + rs
+    r <~ a + b
+    return rs
+
+run_cmd Lean.Elab.Command.liftTermElabM do
+  let translate : TranslateFn := fun e h t nm => translateExprToWire e h t nm
+  for n in [``reflAliasLet, ``reflSharedLet] do
+    try
+      let r ← Tools.ShippingMachineCommand.readMachine n
+      let k := r.shape.layout.lets
+      let (t, _) ← synthesizeMixedCertified translate (fun _ => pure ()) n r.shape.binders r.shape.body
+      let ok := (Sparkle.IR.Machine.closeLets k t).isSome
+      unless r.shape.insts.isEmpty do throwError "{n}: has calls"
+      unless ok do throwError "{n}: closeLets refuses this run's transition"
+      Lean.logInfo m!"LET-ONLY, NO CALL (checker on this run, not a derivation): {n} lets={k} statements={t.body.length} closeLets accepts"
+    catch e => throwError "{n}: {e.toMessageData}"
