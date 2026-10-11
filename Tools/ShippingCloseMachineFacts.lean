@@ -1,5 +1,5 @@
 import Tools.ShippingMachineCleanup
-import Tools.ShippingClosedOrder
+import Tools.ShippingMachineCloses
 import Tools.ShippingCloseChecks
 
 /-! # The closed machine's body, statically
@@ -163,14 +163,14 @@ theorem woCheck_insert_regs (R Y : List Stmt) (hr : ∀ st ∈ R, isReg st = tru
 /-! ## The closed machine -/
 
 /-- **The closed machine's body.** For a transition whose body is ordered
-assignments `B` ending in `assign out = w` (declared, allocated names): the
-closed body is `B`, the next-value assignments, the registers, the output
+assignments `B` ending in `assign out = w`, over allocated names: the closed
+body is `B`, the next-value assignments, the registers, the output
 assignments; the assignments are in dependency order. -/
 theorem closeMachine_body {t : Module} {lay : Layout} {B : List Stmt} {w : String}
     (hbody : t.body = B ++ [.assign "out" (.ref w)])
     (acyclic : Acyclic t.body)
-    (typed : TypedStmts (weOf t) t.body)
-    (names : ∀ p ∈ t.wires, Allocated p.name)
+    (named : ∀ l r, Stmt.assign l r ∈ B → Allocated l ∧ ∀ x ∈ refsOf r, Allocated x)
+    (hw : Allocated w)
     (inNodup : (t.inputs.map Port.name).Nodup)
     (outsOk : ∀ o ∈ lay.outs, 0 < o.width ∧ outNameOk o.name = true)
     (outsNodup : (lay.outs.map (·.name)).Nodup) :
@@ -178,50 +178,25 @@ theorem closeMachine_body {t : Module} {lay : Layout} {B : List Stmt} {w : Strin
       (closeMachine lay t).body = B ++ (nextAssigns w ps lay.slots ++
         (registers lay.resetKind ps lay.slots ++ outAssigns w lay.outs)) ∧
       Acyclic (B ++ (nextAssigns w ps lay.slots ++ outAssigns w lay.outs)) ∧
-      (∀ st ∈ registers lay.resetKind ps lay.slots, isReg st = true) := by
+      (∀ st ∈ registers lay.resetKind ps lay.slots, isReg st = true) ∧
+      (ps.map Port.name).Nodup := by
   have hpw : packedWire? t.body = some w := by simp [packedWire?, hbody]
   have hdrop : t.body.dropLast = B := by simp [hbody]
   obtain ⟨ps, hps⟩ : ∃ ps, ps = t.inputs.drop (t.inputs.length - lay.slots.length) := ⟨_, rfl⟩
-  refine ⟨ps, hps, by simp [closeMachine, hpw, hdrop, hps], ?_, ?_⟩
+  have psNodup : (ps.map Port.name).Nodup := by
+    rw [hps, List.map_drop]
+    exact inNodup.sublist (List.drop_sublist _ _)
+  refine ⟨ps, hps, by simp [closeMachine, hpw, hdrop, hps], ?_, ?_, psNodup⟩
   · rw [hbody] at acyclic
     have haB : Acyclic B := Acyclic.prefix acyclic
-    have outFresh : "out" ∉ writesOf B := acyclic_last_fresh acyclic
-    have hBassign : ∀ st ∈ B, ∃ l r, st = .assign l r := by
-      intro st hs
-      obtain ⟨l, e, n, rfl, _⟩ := typed st (by rw [hbody]; exact List.mem_append_left _ hs)
-      exact ⟨l, e, rfl⟩
-    have hpos : ∀ l r, Stmt.assign l r ∈ B → ∀ n ∈ refsOf r, 0 < weOf t n := by
-      intro l r hs n hn
-      obtain ⟨l', e, k, heq, ht, _⟩ := typed _ (by rw [hbody]; exact List.mem_append_left _ hs)
-      cases heq
-      exact ht.refs_positive n hn
-    have hwpos : 0 < weOf t w := by
-      obtain ⟨l', e, k, heq, ht, _⟩ := typed (.assign "out" (.ref w)) (by rw [hbody]; simp)
-      cases heq
-      exact ht.refs_positive w (by simp [refsOf])
-    have allocOf : ∀ x, 0 < weOf t x → Allocated x := by
-      intro x hx
-      unfold weOf at hx
-      cases h : t.wires.find? (fun p => p.name == x) with
-      | none => rw [h] at hx; simp at hx
-      | some p =>
-        have hn : p.name = x := by simpa using List.find?_some h
-        exact hn ▸ names p (List.mem_of_find?_eq_some h)
     have targets : ∀ n ∈ writesOf B, Allocated n := by
       intro n hn
-      obtain ⟨r, hr⟩ := assign_of_writes hBassign hn
-      obtain ⟨l', e, k, heq, ht, hl⟩ := typed _ (by rw [hbody]; exact List.mem_append_left _ hr)
-      cases heq
-      rcases hl with hl | hl
-      · exact allocOf n (by rw [hl]; exact ht.positive)
-      · exact absurd (hl ▸ hn) outFresh
-    have psNodup : (ps.map Port.name).Nodup := by
-      rw [hps, List.map_drop]
-      exact inNodup.sublist (List.drop_sublist _ _)
+      obtain ⟨r, hr⟩ := Tools.ShippingMachineCloses.mem_of_writes haB hn
+      exact (named n r hr).1
     have nextNeW : ∀ p ∈ ps, nextName p.name ≠ w := fun p _ heq =>
-      nextName_not_allocated p.name (heq ▸ allocOf w hwpos)
+      nextName_not_allocated p.name (heq ▸ hw)
     have outsW : ∀ o ∈ lay.outs, o.name ≠ w := fun o ho heq =>
-      (outNameOk_facts (outsOk o ho).2).1 (heq ▸ allocOf w hwpos)
+      (outNameOk_facts (outsOk o ho).2).1 (heq ▸ hw)
     have haN := acyclic_nextAssigns w ps lay.slots psNodup nextNeW
     have haO := acyclic_outAssigns w lay.outs outsNodup outsW
     have notAllocNO : ∀ n ∈ writesOf (nextAssigns w ps lay.slots ++ outAssigns w lay.outs),
@@ -250,10 +225,37 @@ theorem closeMachine_body {t : Module} {lay : Layout} {B : List Stmt} {w : Strin
         exact outsW o ho (e'.trans hxw)
     exact Acyclic.append' haB haNO
       (fun n hn hNO => notAllocNO n hNO (targets n hn))
-      (fun l r hm x hx hNO => notAllocNO x hNO (allocOf x (hpos l r hm x hx)))
+      (fun l r hm x hx hNO => notAllocNO x hNO ((named l r hm).2 x hx))
   · intro st hs
     obtain ⟨k, p, f, _, _, rfl⟩ := registers_mem lay.resetKind ps lay.slots st hs
     rfl
+
+/-- The names of a typed body are allocated (what `closeMachine_body` asks),
+for a body all of whose wires are. -/
+theorem named_of_typed {t : Module} {B : List Stmt} {w : String}
+    (hbody : t.body = B ++ [.assign "out" (.ref w)]) (acyclic : Acyclic t.body)
+    (typed : TypedStmts (weOf t) t.body) (names : ∀ p ∈ t.wires, Allocated p.name) :
+    (∀ l r, Stmt.assign l r ∈ B → Allocated l ∧ ∀ x ∈ refsOf r, Allocated x) ∧ Allocated w := by
+  have allocOf : ∀ x, 0 < weOf t x → Allocated x := by
+    intro x hx
+    unfold weOf at hx
+    cases h : t.wires.find? (fun p => p.name == x) with
+    | none => rw [h] at hx; simp at hx
+    | some p =>
+      have hn : p.name = x := by simpa using List.find?_some h
+      exact hn ▸ names p (List.mem_of_find?_eq_some h)
+  rw [hbody] at acyclic
+  have outFresh : "out" ∉ writesOf B := acyclic_last_fresh acyclic
+  refine ⟨fun l r hm => ?_, ?_⟩
+  · obtain ⟨l', e, k, heq, ht, hl⟩ := typed _ (by rw [hbody]; exact List.mem_append_left _ hm)
+    cases heq
+    refine ⟨?_, fun x hx => allocOf x (ht.refs_positive x hx)⟩
+    rcases hl with hl | hl
+    · exact allocOf l (by rw [hl]; exact ht.positive)
+    · exact absurd (hl ▸ mem_writes_assign hm) outFresh
+  · obtain ⟨l', e, k, heq, ht, _⟩ := typed (.assign "out" (.ref w)) (by rw [hbody]; simp)
+    cases heq
+    exact allocOf w (ht.refs_positive w (by simp [refsOf]))
 
 /-! ## What `closeChecks_of` asks of the body -/
 

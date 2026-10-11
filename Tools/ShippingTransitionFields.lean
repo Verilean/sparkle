@@ -60,7 +60,8 @@ theorem transition_fields {logProf : String → IO Unit} {declName : Name}
     (hscope : FieldsOK ubk uvk kb kv vw 0 fs)
     (hcoreU : Uses (ubk fs.length) (uvk fs.length) core) :
     ∃ (PI ls : List Port), m.inputs = PI ++ ls ∧ ls.length = bsB.length ∧
-      (ls.map Port.name).Nodup ∧ (∀ p ∈ PI, ∀ q ∈ ls, p.name ≠ q.name) ∧ Acyclic m.body ∧
+      (ls.map Port.name).Nodup ∧ (∀ p ∈ PI, ∀ q ∈ ls, p.name ≠ q.name) ∧
+      (∃ ow, PrintBaseAt ow m) ∧ TypedPostReady m ∧
       ∃ (bodyB : List Stmt) (w : String) (P : String → Prop) (bnd : FVarId → Option String),
         m.body = bodyB.reverse ++ [.assign "out" (.ref w)] ∧
         LP P bnd (fun k x => ∀ (i : Nat) (p : Port), ls[i]? = some p → x = p.name → ok k i) bodyB 0
@@ -177,7 +178,7 @@ theorem transition_fields {logProf : String → IO Unit} {declName : Name}
         obtain ⟨name, pos⟩ := hv j hj
         exact instantiated_input len (List.getElem_of_getElem? pos).choose)
     (Vk := Vk) (fun k x h i p hp heq => hmono k i (h i p hp heq)) hbind hscope hcoreU
-  refine ⟨PI, ls, hinputs, lsLen, lsNodup, lsDisj, pb.order, bodyB, w', _, _, hbody', hlp, hnw, ?_⟩
+  refine ⟨PI, ls, hinputs, lsLen, lsNodup, lsDisj, ⟨_, pb⟩, ready, bodyB, w', _, _, hbody', hlp, hnw, ?_⟩
   intro port hp
   apply hused
   rw [prepare_inputs, ← hin]
