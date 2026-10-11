@@ -315,4 +315,46 @@ theorem topoBody_some_rank {body : List Stmt} (rank : Stmt → Nat)
   rw [hgo]
   simp
 
+/-! ## A rank from a rank on names
+
+Every combinational statement here drives one name (an assignment its
+target; an instance its output wire). A rank `ρ` on NAMES under which each
+statement's driven reads rank below the name it drives gives the rank on
+statements `topoBody_some_rank` asks. -/
+
+/-- The rank of a statement: the rank of the (first) name it drives. -/
+def rankOf (A : List String) (ρ : String → Nat) (st : Stmt) : Nat :=
+  match combWrites A st with
+  | n :: _ => ρ n
+  | [] => 0
+
+theorem mem_driven {body : List Stmt} {r : String} (h : r ∈ drivenOf body) :
+    ∃ st' ∈ combOf body, r ∈ combWrites (byAssignOf body) st' := by
+  unfold drivenOf at h
+  rcases List.mem_append.mp h with h | h
+  · unfold byAssignOf at h
+    obtain ⟨st', hs, hw⟩ := List.mem_flatMap.mp h
+    refine ⟨st', hs, ?_⟩
+    cases st' <;> first | exact hw | (simp [Sparkle.IR.Reorder.stmtWrites] at hw)
+  · exact List.mem_flatMap.mp h
+
+theorem rank_of_names {body : List Stmt} (ρ : String → Nat)
+    (hsingle : ∀ st ∈ combOf body, ∃ l, combWrites (byAssignOf body) st = [l])
+    (hρ : ∀ st ∈ combOf body, ∀ l, combWrites (byAssignOf body) st = [l] →
+      ∀ r ∈ combReads (byAssignOf body) st, r ∈ drivenOf body → ρ r < ρ l) :
+    ∀ st ∈ combOf body, ∀ r ∈ combReads (byAssignOf body) st, r ∈ drivenOf body →
+      ∃ st' ∈ combOf body, r ∈ combWrites (byAssignOf body) st' ∧
+        rankOf (byAssignOf body) ρ st' < rankOf (byAssignOf body) ρ st := by
+  intro st hs r hr hd
+  obtain ⟨st', hs', hw'⟩ := mem_driven hd
+  obtain ⟨l, hl⟩ := hsingle st hs
+  obtain ⟨l', hl'⟩ := hsingle st' hs'
+  refine ⟨st', hs', hw', ?_⟩
+  have e : r = l' := by
+    rw [hl'] at hw'
+    simpa using hw'
+  unfold rankOf
+  rw [hl, hl']
+  exact e ▸ hρ st hs l hl r hr hd
+
 end Tools.ShippingTopoBody
