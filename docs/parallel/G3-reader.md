@@ -411,3 +411,44 @@ kernel evaluates `sepB` on real test names (including a five-component pair),
 standard axioms only; the collision example (`a».b`) prints the same for two
 different names and `sepB` is false on it, as predicted.
 
+<!-- worker A, round 11 (its own numbering) -->
+
+## 10.4 The three `app*` kinds: the reader change they need (not implemented)
+
+`appCompare` / `appBool` / `appBool2` quote to
+`Signal.ap dom ty Bool (Signal.map dom ty π (fun x1 x2 => body) a) b`: the
+operand `a` is the last argument of the node's fourth ARGUMENT.
+
+Change of `Tools/ShippingReaderTerm.lean` (my file; not done this round):
+
+* `Arg := Lean.Expr × Option AnyTerm × Option AnyTerm` — the argument, its
+  reading, and the reading of ITS last application argument;
+* `goWith` returns a third component: for `.app f a` it is `(goWith a).1`,
+  for everything else `none`; the argument record of `a` in its parent's
+  list is `(a, (goWith a).1, (goWith a).3)`;
+* `goWith_induct` gets a third conjunct:
+  `∀ r, (goWith e).3 = some r → ∃ f a, e = .app f a ∧ P r a`, and the
+  node hypothesis sees, for each argument `p`, also
+  `∀ r, p.2.2 = some r → ∃ f a, p.1 = .app f a ∧ P r a`;
+* the node reader `readAp` checks the outer `Signal.ap` arguments, then that
+  the fourth argument is EXACTLY
+  `Signal.map dom ty (∀ a : ty, Bool) (appLamE ty body)` applied to
+  something (a destructor returning the operator from `ty` and `body`, the
+  strict twin of `appBoolBody?`), and uses `p.2.2` of that argument as the
+  reading of `a`; its soundness lemma gets `e = .app f a` from the new
+  conjunct and the destructor's equation gives `f`.
+
+Every existing node lemma is unchanged except for the argument projections
+(`x.2` becomes `x.2.1`); the completeness files follow the same renaming.
+None of the 44 measured machine bodies contains these kinds.
+
+## Integrator's run of the well-typed wildcard test (2026-10-12)
+
+`Tests/Compiler/ReaderWellTypedWildcardTest.lean` RAN: for the well-typed
+declaration `wtMux` (a Bool `mux` whose nodes mention two definitionally
+equal but syntactically different domain terms) `unifiedGateBoolBody = true`,
+`mixedGateBoolBody = true`, `mixedCertifiedShape?` accepts, the entry keeps
+the value, the real compile SUCCEEDS (4 statements) — and the strict reader
+returns nothing at either domain term. So the strict reader's domain is
+strictly smaller than the compiler's on well-typed sources: it is NOT to be
+made the acceptance condition (user's ruling); shadow use only.

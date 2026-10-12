@@ -378,3 +378,119 @@ of these outputs. `kept = false` on all (the optimizer changes every body).
 `shipsHierHCheck` is true only for the one-output combinational parents.
 This is a measurement of the test modules, not of the corpus; P1 / P2 remain
 unimplemented (the user's decision).
+
+<!-- worker round (its own numbering) -->
+
+## 9. Round 10 (branch `par/g1-checks-6`) — UNVERIFIED, not built
+
+Measurement of round 9 (integrator's run, 27 real parents): `hierGate`,
+`hierBinds`, `outsCheck0`, `outsA`, P1, `instNamesNodup(o)`, P2b all true on
+every one; `kept` false on all (the optimizer's output is always kept);
+`shipsHierHCheck` true only on the one-output combinational parents.
+
+### 9.1 Which design is the heads' `D`? (read from the sources)
+
+* `machine_ships_hierC` (`Tools/ShippingMachineShipsHier.lean`) takes
+  `hr : RunsTo (synthesizeCombinational declName) … (b, design) w'` and
+  concludes `∃ raw D, (b = dropZeroWidthModule raw ∨ b = mergeChecked …) ∧
+  (shipsHierCheck (childMap D.modules) b = true → …)`. Its proof starts with
+  `obtain ⟨raw, D, w1, hcore, hpost⟩ := synthesizeCombinational_checked hr`:
+  `(raw, D)` is the result of the CORE run
+  (`synthesizeCombinationalCore declName [] false`) inside the full entry.
+  **`D` is the core run's design, not the `design` the full entry returns.**
+* `ships_design_svN_all` / `ships_design_svH_all`
+  (`Tools/ShippingShipsDesignSVAll.lean`) take the previous conclusion as
+  their hypothesis `H` and return the same `∃ raw D, …` with two more
+  premises inside: `designCheck (childMap D.modules) n (checkedOptimize b)`
+  and `outsCheck (childMap D.modules) n (checkedOptimize b)`. Same `D`.
+* The generated endpoints (`Tools/ShippingShipsDesignSVCommand.lean`,
+  `compose`) are `ships_design_svN_all n Reset Bnd Bd … (ships xs)`: they do
+  NOT discharge the two checks. The checks stay as premises INSIDE the
+  existential; `Tools/ShippingPremiseEval.lean` and the tests evaluate them
+  on the real modules (evidence). So there is no `decide` to replace in the
+  endpoint: the premise has to be removed from the head.
+* The two designs: by `synthesizeCombinational_designL`,
+  `design.modules = D.modules` when no module of `D` has the top module's
+  name (the full entry post-processes the modules of that name only);
+  `kidsChild_iface` / `kids_run_kid` derive that condition from `hself`.
+  `kidsDesign_real` and `parent_run_outsCheck0_kids` (round 9) are about
+  `design`; `core_kids_facts` and `core_outsCheck_all` (this round) are
+  about `D`.
+
+**The exact statement that removes the premise** — a head proved with the
+core run in hand. In `machine_ships_hierC`'s proof, right after
+`synthesizeCombinational_checked hr` gives `hcore` and `hpost`:
+
+    core_outsCheck_all d ok hbody hC hslots hdomB hins outTy hnomem hkidA hkidR
+      hw hcore hpost entry closes hbind n
+      : outsCheck (childMap D.modules) n (checkedOptimize b) = true
+
+with `hbind : hierBinds b = true` (the first fact `shipsHierCheck_sound`
+gives from the head's own premise). The types match the heads' literally
+(`childMap D.modules`, any depth `n`, the module `checkedOptimize b`).
+What the head needs in addition to what it has: `hw : InvW mref cref w`
+(the closing's world invariant; where the head would get it from its `Bnd` was not traced),
+`closes : MachineClosesAt …` (it takes a generic `C`; at the `…RA` heads
+`C` is that), the data conditions `ok`, `hbody`, `callsOk`, `hslots`,
+`hdomB`, `hins`, `hnomem` (all already asked by the closing), and per child
+`hkidA` / `hkidR` (`leaf_real_kidA`, `leaf_real_kidR`; `kids_real_kid` for a
+child with calls). Because the existential hides the core run, this cannot
+be done from OUTSIDE the head: either a variant of
+`ships_design_svN_all` whose hypothesis `H` exposes
+`RunsTo (synthesizeCombinationalCore declName [] false) … (raw, D) w1`
+next to `hpost`, or the derivation inside `machine_ships_hierC` and a
+conjunct `outsCheck … = true` added to its conclusion.
+
+### 9.2 `hkidA` / `hkidR` at depth
+
+`core_outsCheck_all` gives every depth at once from a design closed under
+resolution (`outsCheck_opt_all`, pure). `kids_real_kid` produces both facts
+for a child with calls from the same facts of its children, so
+`grand → mid → cnt` is: `leaf_real_kidA` + `leaf_real_kidR` at `cnt`,
+`kids_real_kid` at `mid`, `core_outsCheck_all` at `grand` with `n = 1`.
+
+### 9.3 `designCheck` for a parent whose design modules are machines without calls
+
+`designCheck C 0 o = textCheckI C o && kidsPass C leafCheck o.body` is a
+conjunction of Bools; `designCheck0_of` assembles it from nine named facts.
+
+| # | Conjunct | Kind | Status |
+|---|---|---|---|
+| 1 | `o.body.all seqStmtOkI` | structural | compiler-checked in principle (`hierRefineCheck`'s `refineCheck` on the extracted pair), no lemma from `openFlat o` back to `o.body`; trivially from `b` when `o = b` — never the case on the 27 parents |
+| 2 | `seqCheck (wofOf o) (weS o) o.body` | TEXT | gap |
+| 3 | `declWidth o x == weS o x` on `seqNames` | TEXT (width tables) | gap |
+| 4 | `linkedWF C o.body` | structural | gap (P2); true on all 27 (P2b) |
+| 5 | `(instNames o.body).Nodup` | structural | gap (P1); true on all 27 |
+| 6 | `noSelfRead C o.body` | structural | `noSelfRead_opt` from `noSelfRead C b.body`; the latter from `MachineWired`'s `noSelfFeed` — the two predicates are not related by any lemma I found |
+| 7 | `portsMatchB C o` | TEXT (widths of connections) | gap |
+| 8 | instances resolve | structural | DERIVED (`core_kids_facts` + `resolved_opt`) |
+| 9a | each child: `body.all seqStmtOkA`, `body.all memOpsRefs` | structural | from `ChildIfaceG.seqOk` per real child (not assembled: `seqStmtOkA` / `memOpsRefs` definitions not read) |
+| 9b | each child: width agreement, `seqCheck` | TEXT | gap |
+
+So the structural part is {1, 4, 5, 6, 8, 9a}; of it only 8 is derived, 6
+and 9a are within reach, 1 needs an `openFlat` lemma, 4 and 5 need P2 / P1.
+The text part {2, 3, 7, 9b} is untouched.
+
+**Factoring proposal** (a Tools definition, the integrator's to change):
+
+    def designStruct (C) (o : Module) : Bool :=
+      o.body.all seqStmtOkI && linkedWF C o.body && decide (instNames o.body).Nodup &&
+      noSelfRead C o.body && o.body.all (inst ⇒ (C mn).isSome) &&
+      kidsPass C (fun c => c.body.all seqStmtOkA && c.body.all memOpsRefs) o.body
+    def designText (C) (o : Module) : Bool :=
+      seqCheck (wofOf o) (weS o) o.body &&
+      (seqNames o.body).all (fun x => declWidth o x == weS o x) && portsMatchB C o &&
+      kidsPass C (fun c => (leafNames c.body).all (fun x => declWidth c x == weS c x) &&
+        (if hasSyncMem c.body then seqCheckM … else seqCheck …)) o.body
+    theorem designCheck0_split : designCheck C 0 o = (designStruct C o && designText C o)
+
+(`kidsPass C (f && g) = kidsPass C f && kidsPass C g` is the one lemma the
+split needs.) The heads then take `designText` as their premise and
+`designStruct` becomes a derived fact, conjunct by conjunct as above.
+
+## Integrator's build (2026-10-12, round 10)
+
+`Tools.ShippingChecksDepth` and `Tools.ShippingChecksCore` built through the
+protected queue with no change; `core_outsCheck_all` depends on standard
+axioms only. Not done: no endpoint head uses it yet (the heads hide that
+their `(raw, D)` is a core run) — that connection is the integrator's.

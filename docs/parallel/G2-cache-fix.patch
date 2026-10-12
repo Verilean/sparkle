@@ -50,7 +50,7 @@ into each map after it copies the map once (`Std.HashMap` is updated in place
 only when unshared). That is O(size of the caches) per inline attempt of an
 untagged helper call — on every such call, failing or not. The shim's own
 comment (Elab.lean 7863–7869) records that exactly this sharing made a
-large FSM quadratic. If the corpus timing shows it, use A' instead.
+large FSM quadratic. If a timing measurement shows it, the snapshot has to be made cheaper (not replaced by clearing: see A').
 
 Proofs to redo: `tryInlineUnfold_tripleC` (Tools/ShippingChildLegacy.lean)
 and `tryInlineUnfold_ensures` (Tools/ShippingLegacySemInline.lean) gain the
@@ -61,19 +61,17 @@ cache). `tryInlineUnfold_returns`' statement is unchanged.
 `InlineUnfoldRegressionTest` compares against the old cell on scripted
 translators: unaffected (same calls, same results).
 
-VARIANT A' — clear instead of restore (not in the diff)
---------------------------------------------------------
-No snapshot. In both `catch` branches set the same refs to empty (`{}`; the
-context's cache by `ref.set {}`). An empty cache is always valid. Zero cost
-when nothing fails. After a recovered failure, sharing built up BEFORE the
-attempt is lost for the rest of the module: later identical expressions are
-lowered again (more wires, same function), a later call equal to an earlier
-one gets its own instance (the single-output dedupe of Issue #107 and the
-projection sharing of Issue #71 start over), a later evaluation of the same
-`Signal.loop` gets its own registers (same function). Only compiles with a
-caught failure are affected. The diff is the one below with
-`restoreWireCaches saved` replaced by a `clearWireCaches` that writes `{}`,
-and without the `let saved ← snapshotWireCaches` line.
+VARIANT A' — clear instead of restore (NOT PROPOSED; withdrawn)
+---------------------------------------------------------------
+An earlier version of this header offered "set the same refs to empty in
+both `catch` branches" as a cheaper alternative and called its effect "same
+function". That claim is NOT established and the variant is withdrawn: after
+a recovered failure it throws away sharing built up BEFORE the attempt, so a
+later call equal to an earlier one gets its own instance (Issue #107 /
+Issue #71) and a later evaluation of the same `Signal.loop` gets its own
+registers. Whether two copies of a stateful instance or of a loop's
+registers behave like the one shared copy is a property of the design's
+state sharing, not something this patch may assume. Variant A is the fix.
 
 VARIANT B — validate the hit (docs/parallel/G2-legacy.md §9.1; not in the diff)
 -------------------------------------------------------------------------------
@@ -84,7 +82,7 @@ the proofs need (`ShimAt` for every call), but it does not cover the hash-keyed
 caches (let / loop / instance), which need A, A' or a move into `CircuitState`
 (§9.2), and it changes hits that are not stale (`mdata`-stripped keys,
 results that are existing wires), so its corpus diff is not expected to be
-empty. A or A' fixes the defect; B is for the proof and is independent.
+empty. A fixes the defect; B is for the proof and is independent.
 
 --- a/Sparkle/Compiler/Elab.lean
 +++ b/Sparkle/Compiler/Elab.lean

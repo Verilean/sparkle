@@ -2118,5 +2118,23 @@ lean_lib «Tools.ShippingChecksRun2» where
 lean_lib «Tools.ShippingLegacySemSuffix» where
   roots := #[`Tools.ShippingLegacySemSuffix]
 
+lean_lib «Tools.ShippingLegacySemPre» where
+  roots := #[`Tools.ShippingLegacySemPre]
+
+lean_lib «Tools.ShippingLegacySemInstance» where
+  roots := #[`Tools.ShippingLegacySemInstance]
+
+lean_lib «Tools.ShippingChecksDepth» where
+  roots := #[`Tools.ShippingChecksDepth]
+
+lean_lib «Tools.ShippingChecksCore» where
+  roots := #[`Tools.ShippingChecksCore]
+
+lean_lib «Tools.ShippingFinalGoal» where
+  roots := #[`Tools.ShippingFinalGoal]
+
+lean_lib «Tools.ShippingFinalGoalCommand» where
+  roots := #[`Tools.ShippingFinalGoalCommand]
+
 lean_lib «Tools.ShippingLegacySemEntry» where
   roots := #[`Tools.ShippingLegacySemEntry]

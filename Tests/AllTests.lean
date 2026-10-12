@@ -145,12 +145,16 @@ import Tests.Compiler.ShippingCloseInstsCheckTest
 import Tests.Compiler.ShippingReflectCtxTest
 import Tests.Compiler.ShippingMachineClosesTest
 import Tests.Compiler.ShippingCallsCloseTest
+import Tests.Compiler.ShippingCallsCloseDeepTest
 import Tests.Compiler.ReaderWildcardTest
 import Tests.Compiler.LegacyCacheRollbackTest
 import Tests.Compiler.ReaderCoverageTest
 import Tests.Compiler.LegacyCacheNaturalTest
 import Tests.Compiler.NameSepTest
 import Tests.Compiler.ChecksDerivedTest
+import Tests.Compiler.LegacySemInstanceTest
+import Tests.Compiler.LegacyCacheFixTest
+import Tests.Compiler.ReaderWellTypedWildcardTest
 import Tests.Compiler.InlineUnfoldRegressionTest
 import Tests.Compiler.ShippingHierOptRunTest
 import Tests.Compiler.ShippingMachineDepthTest
