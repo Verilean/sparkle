@@ -2162,3 +2162,6 @@ lean_lib «Tools.ShippingChildIfaceTy» where
 
 lean_lib «Tools.ShippingChecksExtract» where
   roots := #[`Tools.ShippingChecksExtract]
+
+lean_lib «Tools.ShippingLinkedFresh» where
+  roots := #[`Tools.ShippingLinkedFresh]
