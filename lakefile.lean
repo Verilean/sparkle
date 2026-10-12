@@ -2201,3 +2201,12 @@ lean_lib «Tools.ShippingReaderApp» where
 
 lean_lib «Tools.ShippingChecksGate» where
   roots := #[`Tools.ShippingChecksGate]
+
+lean_lib «Tools.ShippingLegacySemThrows» where
+  roots := #[`Tools.ShippingLegacySemThrows]
+
+lean_lib «Tools.ShippingLegacySemBinderBound» where
+  roots := #[`Tools.ShippingLegacySemBinderBound]
+
+lean_lib «Tools.ShippingLegacySemEntryBound» where
+  roots := #[`Tools.ShippingLegacySemEntryBound]
