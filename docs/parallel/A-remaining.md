@@ -262,3 +262,202 @@ generator on `midH` that adds `midH.oneout_*` / `midH.machine_factsH` /
 `…_ships_hier` (upstream); `two` is not in the sweep's candidates.
 `acc.machine_closes` is asked by the BUILT `two.machine_design_svR0`
 generator (`ShippingMachineSeqCommandR` 278), so it is expected upstream.
+
+---
+
+# Round par/a-13 (base poc `e260bf3f`): proper tests for `mid` / `callerInner`; unit U2 written for `grandH`
+
+NOTHING in this section was built or run. Every line is "WRITTEN, NOT
+BUILT"; no premise of any endpoint counts as removed until the
+integrator's build.
+
+## 4. Task 1 — the two declarations of the probe, as proper tests
+
+| declaration | endpoint | premise (of which endpoint) | predicted state |
+|---|---|---|---|
+| `mid` | `mid.machine_design_noPortsNR1` (+ `_closed`) | `shipsHierCheck`, `kidsMaskedN`, `designCheck 1`, `outsCheck 1` (of `mid.machine_design_svNR1`, generated in the same file) | WRITTEN (`Tests/Compiler/NoPortsMidTest.lean`; the probe logged OK for the same commands) — predicted absent, pending build |
+| | | `MachineClosesAt mid` | predicted absent in `_closed`, pending build |
+| | | `hr`, `MachineDefines mid`, `MachineDefines cnt`, `ChildBnd` | stay premises |
+| `callerInner` | `callerInner.machine_design_svH_full` (+ `_closed`) | A₁ `shipsHierHCheck`, A₂ `kidsComb`, A₃ `designCheck 0`, A₄ `outsCheck 0` (of `callerInner.machine_design_svHR`, generated in the same file) | WRITTEN (`Tests/Compiler/OneOutCallerInnerTest.lean`) — predicted absent, pending build |
+| | | `MachineClosesAt callerInner` | predicted absent in `_closed`, pending build |
+| | | `hr`, `MachineDefines callerInner`, `EntryDefines pick`, `ChildBnd` | stay premises |
+
+`mid` AS AN ENTRY gives NOTHING for `grand` (`grand → mid → cnt`):
+`grand.machine_design_svNR2` keeps its four check premises; the test
+asserts that and that no check-free constant exists under `grand`'s names.
+
+NAME CLASH: `Tests/Compiler/RemainingProbeTest.lean` creates the same
+constants. The new tests do not import it; it must not import them. Drop
+its sections (A1) and (A3), or keep it target-built only.
+
+## 5. Task 2 — unit U2, as written
+
+### 5.1 Corrections to §2 (U2) by reading
+
+* "OPEN and not resolvable by reading: the grandchild's reflection at the
+  child's run contexts" — RESOLVED by reading: `MachineDefines.ctx` and
+  `EntryDefines.ctx` (`Tools/ShippingReflectCtx.lean`, BUILT) move a
+  reflection to any contexts; `RealChild.inv` gives the child's full-entry
+  run from an `InvW` world.
+* (2.3) existed: `Tools.ShippingChecksCore.kids_real_kid` (BUILT) is
+  `hkidA` / `hkidR` for a child with calls.
+* (2.4) as sketched (`hkidM` of `core_kidsMaskedN`) is NOT derivable: that
+  hypothesis also asks `outsMaskedN` of the modules of the child's design —
+  a GATE grandchild's output is not known to be assigned by a constant or
+  a slice. Replaced by a parent theorem that asks the child's own module
+  only (`core_kidsMaskedN_top`).
+* (2.5) the correct form of the children's check (`core_kidsPass_deep`)
+  needs module IDENTITY between the parent's design and the child's, which
+  `core_kids_facts` does not state (names only) and `RealChild` does not
+  give (two real children of one declaration need not be equal). Both
+  closings CHECK it ("found by its name in the merged design as itself"):
+  `core_kids_self` reads it off a successful closing.
+* The child's module in the parent's design is UNOPTIMISED
+  (`checkedOptimize` is applied to the top module only), so the child's
+  `…machine_designFullH` (about `checkedOptimize b`) is NOT what the parent
+  asks: `designCheck C 0 b` of the raw module is derived
+  (`core_designCheck_in₁`) from the raw facts (`core_runFactsH`,
+  `core_linkedWF`, `TypedIn`, `…machine_portsRawH`).
+* `declWidths dk` is wrong for a child with calls (`declN` counts the call
+  binders): the argument widths are `argWidths dk kD` over `dk.bsIn.take kD`.
+* The input-width clause of `MachineWired` is under `insts = []`; for a
+  machine with one-output calls it is derived (`core_calls_ports₁`, `argW`).
+
+### 5.2 New files and their main statements
+
+    Tools/ShippingChildMapCongr.lean    AgreeOn; linkedWF_congr, noSelfRead_congr, portsMatchB_congr,
+                                        kidsPass_congr; outMaskedB_perm_insts; outsMaskedN_of_typed   (pure)
+    Tools/ShippingKidsSelf.lean         core_kids_self, core_kidsPass_deep, core_kidsMaskedN_top
+    Tools/ShippingCallsChildPorts.lean  argWidths, CallsPorts, CallsPorts.inWidths, core_calls_ports₁,
+                                        core_conn_wires₁, outsMaskedN_of_calls
+    Tools/ShippingKidFacts.lean         KidFacts; kids_runFacts, kids_outsCheck, kids_maskedN, kids_designCheck
+    Tools/ShippingOneOutKid.lean        core_designCheck_in₁; OneOutKid; OneOutKid.core (the bridge),
+                                        .outsIn, .kidAR, .ports, .typedIn, .masked, .clk, .check, .facts
+    Tests/Compiler/NoPortsGrandHTest.lean   grandH by hand
+
+    theorem core_kids_self … (hB) (hcore : RunsTo (synthesizeCombinationalCore c [] false) … (M, D) w1)
+        (entry) (closes) :
+        ∀ g ∈ D.modules, ∃ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
+          RealChild mref cref (d.shape.insts[k]).1 y ∧ (g = y.1 ∨ g ∈ y.2.modules) ∧
+          moduleByName D.modules y.1.name = some y.1 ∧
+          ∀ g2 ∈ y.2.modules, moduleByName D.modules g2.name = some g2
+
+    theorem core_kidsPass_deep … (hfne : d.shape.instFields ≠ []) … (n : Nat)
+        (hkidK : ∀ k hk (y : Res), RealChild mref cref (d.shape.insts[k]).1 y →
+          ∀ ms : List Module, moduleByName ms y.1.name = some y.1 →
+            (∀ g ∈ y.2.modules, moduleByName ms g.name = some g) →
+            kidCheck (childMap ms) n y.1 = true ∧ ∀ g ∈ y.2.modules, kidCheck (childMap ms) n g = true) … :
+        kidsPass (childMap D.modules) (kidCheck (childMap D.modules) n) (checkedOptimize b).body = true
+
+    theorem OneOutKid.core (K : OneOutKid mref cref c dk nDecl namesK) {y : Res}
+        (hy : RealChild mref cref c y) :
+        ∃ mctx' cctx' w w1 M D, ChildBnd mref cref w ∧
+          RunsTo (synthesizeCombinationalCore c [] false) mctx' mref cctx' cref w (M, D) w1 ∧
+          (y.1 = dropZeroWidthModule M ∨ y.1 = mergeChecked (dropZeroWidthModule M)) ∧
+          y.2.modules = D.modules
+
+    theorem OneOutKid.check (K : …) {y : Res} (hy : RealChild mref cref c y) (ms : List Module)
+        (hms : ∀ g ∈ y.2.modules, moduleByName ms g.name = some g) :
+        designCheck (childMap ms) 0 y.1 = true ∧ ∀ g ∈ y.2.modules, ∀ C n, kidCheck C n g = true
+
+    theorem OneOutKid.facts (K : OneOutKid mref cref c dk nDecl namesK) :
+        KidFacts mref cref c dk.shape.layout.outs (argWidths dk nDecl) 1
+
+    theorem kids_designCheck … (hkid : ∀ k hk, KidFacts mref cref (d.shape.insts[k]).1 (kidOuts k) (kidIns k) n)
+        (hcw : callWidthsOk d nDecl kidOuts = true) (hargs : callArgsOk d nDecl kidIns = true) … (hon) (hoty) :
+        designCheck (childMap D.modules) n (checkedOptimize b) = true
+
+`OneOutKid` (the `LeafKid`-like interface WITHOUT `leaf`): the callee's data
+conditions (`ok`, `body`, `callsOk nDecl`, slot lengths, no late domain
+binder, `insts ≠ []`, `instFields = []`, `slots ≠ []`, output width / name /
+scalar, no memory callee, the argument split at `nDecl`), the
+grandchildren's `KidNames` / `kidA` / `kidR` / leaf-form `kidK`, the name
+separation `self`, `portsRaw` (the callee's `…machine_portsRawH` over every
+core run), its reflection and closing in every context.
+
+### 5.3 The declaration
+
+| declaration | endpoint | premise (of `grandH.machine_design_svNR1`) | predicted state |
+|---|---|---|---|
+| `grandH` | `grandH.machine_design_noPortsNR1` (+ `_closed`) | `shipsHierCheck (childMap D.modules) b` | WRITTEN (hand lemmas over the new Tools theorems; none built) — predicted absent, pending build |
+| | | `kidsMaskedN D.modules b.body` | predicted absent, pending build |
+| | | `designCheck (childMap D.modules) 1 (checkedOptimize b)` | predicted absent, pending build |
+| | | `outsCheck (childMap D.modules) 1 (checkedOptimize b)` | predicted absent, pending build |
+| | | `MachineClosesAt grandH` | predicted absent in `_closed` (BUILT `grandH.closes_deep`), pending build |
+| | | the boundary (`ChildBnd`, `MachineDefines midH`, `midH`'s own boundary in the contexts it is synthesised in) | STAYS unchanged — its ∀-contexts conjunct is not in the goal-gap classifier's allowed classes; inherited from the base endpoint, not removed |
+| | | — | ADDED to the OPEN form: `EntryDefines mctx mref cctx cref rcH rcH.gateValue` (the grandchild's reflection at the run's contexts; already a binder of the BUILT `grandH.machine_design_svNR1_closed`) |
+| `mixD1` | — | — | NOT written: needs `KidFacts` of the leaf `cnt` too (`LeafKid → KidFacts n`: each field a BUILT `leaf_real_*`) and `kidOuts` / `kidIns` by entry |
+| `topD2`, `mixDeep`, `grand` | — | — | NOT written (U3): `KidFacts … n` for a callee under the general closing = the `kids_*` theorems at the CHILD's run + the ports of a `closeInstsG` module (`withClockFor`'s inputs: not read) |
+
+### 5.4 Not done / open
+
+* No generator: `scopeP` still refuses `grandH`; the hand file copies
+  `Tools.ShippingNoPortsCommand.generate` with one change (the extra
+  reflection binder).
+* The extra reflection binder could be derived from the boundary
+  (`ChildRanIn.of_run` + the child's boundary conjunct); not done — the
+  shape of the generated child boundary was not read.
+* `LeafKid → KidFacts` (for `mixD1`): not written.
+* No goal-gap theorem for `grandH` (the inherited boundary is not in the
+  classifier's allowed classes).
+
+### 5.5 Build queue (integrator)
+
+`lakefile.lean`:
+
+    lean_lib «Tools.ShippingChildMapCongr» where
+      roots := #[`Tools.ShippingChildMapCongr]
+
+    lean_lib «Tools.ShippingKidsSelf» where
+      roots := #[`Tools.ShippingKidsSelf]
+
+    lean_lib «Tools.ShippingCallsChildPorts» where
+      roots := #[`Tools.ShippingCallsChildPorts]
+
+    lean_lib «Tools.ShippingKidFacts» where
+      roots := #[`Tools.ShippingKidFacts]
+
+    lean_lib «Tools.ShippingOneOutKid» where
+      roots := #[`Tools.ShippingOneOutKid]
+
+`Tests/AllTests.lean`:
+
+    import Tests.Compiler.NoPortsMidTest
+    import Tests.Compiler.OneOutCallerInnerTest
+    import Tests.Compiler.NoPortsGrandHTest
+
+Order: (1) `Tests.Compiler.NoPortsMidTest`; (2)
+`Tests.Compiler.OneOutCallerInnerTest` (imports 1); independently (3)
+`Tools.ShippingChildMapCongr`, (4) `Tools.ShippingKidsSelf`, (5)
+`Tools.ShippingCallsChildPorts` (imports 3), (6) `Tools.ShippingKidFacts`
+(imports 4), (7) `Tools.ShippingOneOutKid` (imports 5, 6), (8)
+`Tests.Compiler.NoPortsGrandHTest` (imports 7, `OneOutMidHTest`,
+`NoPortsTwoTest`, `ShippingCallsCloseDeepTest`).
+
+### 5.6 UNVERIFIED, in risk order
+
+1. `core_calls_ports₁` (`Tools/ShippingCallsChildPorts.lean`): the copied
+   run prelude with the 18-part pattern of `MachineWired`, `calls_ports`
+   before the pattern, `closeInsts_inputs` / `closeMachine_inputs`, the
+   `match` on `p.ty` of `weOf_of_port` after `rw [hty]`, `rw [hweb]` on an
+   applied `weOf b`, the frame of `closeMachine_typed`.
+2. `Tools/ShippingChildMapCongr.lean`: the `simp only [f, …]` unfoldings of
+   `linkedWF` / `linkedWrites` on each constructor (catch-all alternatives),
+   `simp only [e]` reducing the `match` of `noSelfRead` / `portsMatchB` /
+   `kidsPass` on `.inst`, `Perm.count_eq`, `writesOf_insts`.
+3. `NoPortsGrandHTest`: `generateH` / `closeDeep` (MetaM; the premises of
+   `grandH.closes_deep` are ASSUMED to be the reflections of `midH` and
+   `rcH`, of `midH.closes_deep` the reflection of `rcH` only — read off the
+   BUILT "DEEP CLOSINGS … (2, 2, 3, 3)" line, not off the statements);
+   `MachineDefines midH` found among the boundary's conjuncts; the six
+   `decide`s of `midH_kid`'s argument split; `grandH_callArgs` against
+   `argWidths`; the audit's binder count (4) and its `bad.size ≤ 1`.
+4. `core_kids_self`: `closeInsts_names` / `closeInsts_acyclic` /
+   `closeInstsG_names` on `hcc`'s two cases; `rw [← hDeq]`.
+5. `core_designCheck_in₁`: `simp only [childMap, h1, h2]`, `textCheckI_of`'s
+   argument order, `kidCheck … 0` after `simp only [hc]`.
+6. `OneOutKid.core`: `synthesizeCombinational_designL (M' := y.1) (D' := y.2)`
+   against a run returning `y` (pair eta); `OneOutKid.facts`: `kidCheck C 1`
+   as `kidCheck C (0 + 1)`.
+7. Task 1: `OneOutCallerInnerTest` imports `NoPortsMidTest` (to reproduce
+   the probe's environment); a failure of the latter blocks the former.

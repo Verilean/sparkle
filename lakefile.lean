@@ -2534,3 +2534,18 @@ lean_lib «Tools.ShippingLeafOneOutGen» where
 
 lean_lib «Tools.ShippingOneOutAnyGenCommand» where
   roots := #[`Tools.ShippingOneOutAnyGenCommand]
+
+lean_lib «Tools.ShippingChildMapCongr» where
+  roots := #[`Tools.ShippingChildMapCongr]
+
+lean_lib «Tools.ShippingKidsSelf» where
+  roots := #[`Tools.ShippingKidsSelf]
+
+lean_lib «Tools.ShippingCallsChildPorts» where
+  roots := #[`Tools.ShippingCallsChildPorts]
+
+lean_lib «Tools.ShippingKidFacts» where
+  roots := #[`Tools.ShippingKidFacts]
+
+lean_lib «Tools.ShippingOneOutKid» where
+  roots := #[`Tools.ShippingOneOutKid]
