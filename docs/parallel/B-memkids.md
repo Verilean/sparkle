@@ -449,3 +449,358 @@ touched.
 5. `NoPortsMemDataProbe`: `generateDesignR0` on a memory-only parent inside
    `try` (a failure after `generateSR`'s own rollback may leave
    `…composedTRA`); the field `shape.loops`.
+
+
+---
+
+# Round par/b-14 — memory-only parents
+
+Branch `par/b-14` from 4a0d8356. WRITTEN, NOT BUILT: nothing below counts as
+removed until the integrator builds it. No Lean was run.
+
+## 8. Memory-only parents: what was read
+
+### 8.1 The probe's real log (MEASURED — corrects §5.2 items 1 and 3)
+
+`docs/parallel/verification-b13.md` 88–92 quotes only the first physical line
+of each probe message. The full lines are in the run's log
+(`~/sparkle-work/runs/20261013-055644-b13b-alltests/log*`, READ this round):
+
+| declaration | nDecl | binders | call entries | argument lets | instFields | slots | lets | loops |
+|---|---|---|---|---|---|---|---|---|
+| `memCounter` | 3 | 10 | `[SparkleMem.combo.4.8]` | `[[1,2,3,0]]` | `[out]` | 2 | 4 | 1 |
+| `twoMems` | 3 | 12 | `[SparkleMem.combo.4.8, SparkleMem.combo.4.8]` | `[[1,2,3,0],[0,2,3,4]]` | `[out,out]` | 2 | 5 | 1 |
+| `mixedMems` | 3 | 12 | `[SparkleMem.combo.4.8, SparkleMem.sync.4.8]` | `[[1,2,3,0],[1,4,3,0]]` | `[out,out]` | 2 | 5 | 1 |
+| `memWide` | 3 | 10 | `[SparkleMem.combo.6.16]` | `[[1,2,3,0]]` | `[out]` | 2 | 4 | 1 |
+| `syncNarrow` | 3 | 10 | `[SparkleMem.sync.3.5]` | `[[1,2,3,0]]` | `[out]` | 2 | 4 | 1 |
+
+For all five: constants present `[machineData, machine_ok, machine_body,
+machine_ships_hier, machine_design_sv0]`; absent `[machine_closes,
+machine_ships_hierR, machine_design_svR0]`. And:
+
+    NOPORTS MEM PROBE R0 …memCounter: REFUSED — …memCounter: no sequential child
+
+Consequences (MEASURED):
+
+* the `Signal.loop` registers ARE `layout.slots` (2 each): `hsl :
+  d.shape.layout.slots ≠ []` holds; the "parent without a register" axis does
+  NOT apply to any of the five;
+* `instFields ≠ []`: they are tied by the general closing (`hfne` holds);
+* `#machine_design_svR0` does not go through — not for a missing register:
+  `generateCoreSR` builds the composed theorem from the sequential children
+  (`Tools/ShippingMachineSeqCommandR.lean` 36–38 `seqKids` = the callees that
+  are not memories; 93 `let some (_, sh0) := shCases.head? | throwError "…: no
+  sequential child"`).
+
+### 8.2 The statement template of `f.machine_design_sv0` for a memory-only parent (READ)
+
+`#machine_design_sv0 f` = `generate0` (`Tools/ShippingShipsDesignSVCommand.lean`
+82–84): `compose f f.machine_ships_hier f.machine_design_sv0 0` (48–72), i.e.
+`ships_design_svN_all 0 Reset Bnd Bd` (`Tools/ShippingShipsDesignSVAll.lean`
+30–98) with `Reset`, `Bnd`, `Bd` read off the proof term of
+`f.machine_ships_hier` (57: arguments 3, 4, 5).
+
+`f.machine_ships_hier` = `generateWith` without `headA?`
+(`Tools/ShippingMachineShipsHierCommand.lean` 48–133, branch 122–124): the
+head `machine_ships_hier` (`Tools/ShippingMachineShipsHier.lean` 324–414),
+which is `machine_ships_hierC` at `C := fun … => MachineCloses … declName
+d.shape` with the wired endpoint wrapped as `fun hr e c _ => soundL hr e c`
+(412–414). On the route `.mem` (40–43: every callee has `memWidths?`):
+`Reset = ResetM` (75; def `ShippingMachineShipsHier` 529–530), `Bd = fun b D
+=> kidsMem (childMap D.modules) b.body = true` (86–91; def 719–726), `Inv =
+memInv` (96; 709–710), `hBd = memKS_boundedIn` (89; 748), `hRI = resetM_inv`
+(98; 712), `KS = fun _ => flatKS` (99–100).
+
+So, for `f ∈ {memCounter, twoMems, mixedMems, memWide, syncNarrow}`:
+
+    theorem f.machine_design_sv0 {mctx mref cctx cref w w' b design}
+        (hr : RunsTo (synthesizeCombinational f) mctx mref cctx cref w (b, design) w')
+        (entry : MachineDefines mctx mref cctx cref f f.machineData.shape)
+        (closes : MachineCloses mctx mref cctx cref f f.machineData.shape) :
+        ∃ raw D, (b = dropZeroWidthModule raw ∨ b = mergeChecked (dropZeroWidthModule raw)) ∧
+          (shipsHierCheck (childMap D.modules) b = true →                    -- (1)
+           designCheck (childMap D.modules) 0 (checkedOptimize b) = true →   -- (2)
+           outsCheck (childMap D.modules) 0 (checkedOptimize b) = true →     -- (3)
+           True →                                                            -- (4) the boundary
+           kidsMem (childMap D.modules) b.body = true →                      -- (5)
+           ∃ ids …, ∀ i bools bits T ins st0 mems (kids : String → KT 0), … → ResetM raw D kids → … →
+             (∃ envsO, DesignSV (childMap D.modules) 0 (checkedOptimize b) … ∧ …) ∧ ∀ envs', …)
+
+Each premise:
+
+* (1) `shipsHierCheck`: antecedent of `machine_ships_hierC`'s conclusion
+  (`ShippingMachineShipsHier` 225), kept by `ships_design_svN_all` (77);
+* (2) `designCheck … 0`, (3) `outsCheck … 0`: added by `ships_design_svN_all`
+  (79, 81);
+* (4) **"the old boundary" is `True`** — it is NOT `BoundaryOf` /
+  `InstOfCall` / a reflection. READ: `Bnd` is the conjunction of the composed
+  theorem's premises after its eleven run binders
+  (`ShippingMachineShipsHierCommand` 58–65; `conj [] = True`, 17–18); the
+  composed theorem of a memory-only parent is `machine_linkedT_mem` applied to
+  the wired head (`Tools/ShippingMachineMemCommand.lean` 56–100), whose run
+  binders are `hr`, `entry`, `closes : MachineCloses`
+  (`machine_traceL_of_loop_causal`, `Tools/ShippingMachineSeqLinked.lean`
+  102–105) and nothing else; `machine_linkedT_mem`'s further hypotheses
+  (`Tools/ShippingMachineMemLinked.lean` 208–229) are all discharged by the
+  generator. INFERRED (not measured): hence `hBs = []`. The new generator
+  ASSERTS it (throws unless the boundary argument is `fun … => True`), and the
+  audit asserts an antecedent printed `True` in the old endpoint;
+* (5) `kidsMem`: the `Bd` of the route;
+* the binder `closes` is **`MachineCloses`** — every world, every logger
+  (`Tools/ShippingMachineEntry.lean` 2279–2284) — not `MachineClosesAt`
+  (`Tools/ShippingChildRun.lean` 444–449). The comment at
+  `ShippingChildRun` 439–443 says "for a shape with calls only this form
+  [`MachineClosesAt`] can hold: the calls' closing reads the child-synthesis
+  reference". Whether `MachineCloses` holds of a shape all of whose calls are
+  memories (whose children are `pure md`, §1.2) was NOT read.
+
+### 8.3 What the R0-style head needs that a memory-only parent lacks (READ + MEASURED)
+
+`seqMem.machine_design_noPortsR0` is `machine_design_noPorts` at `n = 0`
+(`Tools/ShippingNoPorts.lean` 42–162) on the arguments of
+`seqMem.machine_ships_hierR`, which is `machine_ships_hierC` with `C =
+MachineClosesAt`, `Bnd = ChildBnd ∧ reflections` (`generateShipsR`,
+`ShippingMachineSeqCommandR` 328–332). What is lacking for a memory-only
+parent is ONLY the constant `f.machine_ships_hierR` (its generator refuses,
+§8.1). The head itself asks nothing a memory-only parent lacks:
+
+* no register hypothesis in the head; `hsl` is asked by `kidsM_runFacts` and
+  `kidsM_designCheck` (`core_clkM`, `core_raw_factsM`) and HOLDS (slots = 2);
+* the head is generic in `C`, `Bnd`, `Bd`, `Inv`, `Reset`; `machine_ships_hier`
+  is `machine_ships_hierC` at `C := MachineCloses`, so the head applies to the
+  arguments of the EXISTING `f.machine_ships_hier` with that `C` — provided the
+  boundary is one under which the four run hypotheses can be proved.
+
+The built `kidsM_*` theorems all take `hB : ChildBnd mref cref w` and `closes
+: MachineClosesAt` (`Tools/ShippingMemKidFacts.lean` 580, 585; 608, 613; 679,
+684; 711, 716). The second follows from `MachineCloses`
+(`machineClosesAt_of_closes`, `ShippingChildRun` 452–455). The first does NOT
+follow from the old boundary `True`: this is the one thing a memory-only
+parent's old endpoint lacks. So the new endpoint's boundary is `ChildBnd mref
+cref w` — an antecedent ADDED against `f.machine_design_sv0`.
+
+### 8.4 The hypotheses of the built `kidsM_*` theorems, for `memCounter`
+
+| hypothesis (`kidsM_runFacts` 564–590, `_outsCheck` 594–619, `_designCheck` 694–739) | status for `memCounter` |
+|---|---|
+| `ok : d.ok = true` | constant `memCounter.machine_ok` present (MEASURED) |
+| `hbody` | constant `memCounter.machine_body` present (MEASURED) |
+| `hC : d.callsOk nDecl = true`, `nDecl = 3` | `nDecl = 3` MEASURED; `callsOk 3` NOT MEASURED (`Tools/ShippingCallsShape.lean` 106–113: `nDecl + insts.length = d.nIn`, argument lets `< d.ls.length`, `fieldsOkB`, `reads … posOk`) — decided by `memCounter_calls`; no existing theorem of a `Signal.loop` memory parent decides it (`machine_linkedT_mem` asks other data facts, 208–215, decided by its generator) |
+| `hslots : d.ss.length = d.shape.layout.slots.length` | NOT MEASURED (slots = 2 MEASURED; `d.ss.length` not) — decided by `memCounter_slots` |
+| `hdomB : ∀ b ∈ binders.drop nDecl, b.2 ≠ .domain` | NOT MEASURED — decided by `memCounter_domB` (`machine_linkedT_mem`'s `hI` / `hSL`, 210, 212, say the same of `bsIn.drop kD` and of `slotBs ++ letBs` and ARE decided by the built generator; that these lists make up `binders.drop nDecl` was NOT read) |
+| `hins : insts ≠ []` | HOLDS (1 entry, MEASURED) |
+| `hsl : layout.slots ≠ []` | HOLDS (slots = 2, MEASURED) |
+| `hfne : instFields ≠ []` | HOLDS (`[out]`, MEASURED) |
+| `outTy` | decided already inside `memCounter.machine_ships_hier` (`generateWith` 126–127, BUILT) |
+| `hkid : ∀ k hk, KidFactsM mref cref insts[k].1 (kidOuts k) (kidIns k) n` | `memKid_facts` at `n = 0` with `kidOuts = fun _ => memOuts 8`, `kidIns = fun _ => memIns 4 8`, from `memChild? insts[k].1 = some (memModule true 4 8)`: the entry name is `SparkleMem.combo.4.8` (MEASURED); that it IS `memChildName true 4 8` is decided by `memCounter_entry`; `memChild? (memChildName true 4 8) = some (memModule true 4 8)` is the BUILT `mem_isMem` of `NoPortsMemSeqMemTest` 165–168 |
+| `hcw : callWidthsOk d nDecl kidOuts` | NOT MEASURED: binder `3 + k` must be `.bits 8` for the field `out`. INFERRED from `machine_linkedT_mem`'s `hcalls` clause `((d.bsIn.drop kD)[k]?.map (·.2)) = some (.bits dw)` (228), which the built generator proves by `rfl` with `kD = nDecl` |
+| `hargs : callArgsOk d nDecl kidIns` | NOT MEASURED: the binders of the argument lets `[1,2,3,0]` must have widths `[4,8,1,4]` (`Tools/ShippingPortsMatchRaw.lean` 196–202). INFERRED from the source (`wa : BitVec 4`, `wd : BitVec 8`, `we : Bool`, `addr : BitVec 4`) |
+| `hon`, `hoty` | output `out : BitVec 8`; decided (`memCounter_outChars`, `memCounter_outScalar`) |
+| `hB : ChildBnd mref cref w` | **NOT AVAILABLE from the old endpoint** (its boundary is `True`): becomes the new endpoint's boundary |
+| `entry : MachineDefines` | a binder of the old endpoint |
+| `closes : MachineClosesAt` | from the old endpoint's binder `MachineCloses` by `machineClosesAt_of_closes` |
+
+No hypothesis fails by reading. `kidsM_mixed` is NOT used: the route's `Bd` is
+`kidsMem`, which `kidsMixed` does not give.
+
+## 9. WRITTEN this round — not built
+
+### 9.1 `Tools/ShippingMemOnly.lean` (imports `Tools.ShippingMemKidFacts`)
+
+No scripted copy. The only repeated proof text is eleven lines of
+`core_kidsMemM` (the memory branch of the built `core_kidsMixedM`, 647–662,
+with `kidsMem_of` in place of `kidsMixed_of`); `kidsMem` does not follow from
+`kidsMixed`, so it is not derived from that theorem but from the same built
+lemmas (`core_callStmtM`, `kidsMem_one`, `mem_conns_noRdata`).
+
+    theorem kidsMem_of {C} {body : List Stmt}
+        (h : ∀ mn iname conns, Stmt.inst mn iname conns ∈ body →
+          kidsMem C [Stmt.inst mn iname conns] = true) :
+        kidsMem C body = true
+
+    theorem core_kidsMemM {c : Name} (d : MachineData) (ok : d.ok = true) (hbody : …)
+        {nDecl : Nat} (hC : d.callsOk nDecl = true)
+        (hslots : d.ss.length = d.shape.layout.slots.length)
+        (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
+        (hins : d.shape.insts ≠ []) (hfne : d.shape.instFields ≠ [])
+        (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
+        (hkidF : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
+          Kid mref cref (d.shape.insts[k]).1 y → ∃ cb aw dw, y.1 = (memModule cb aw dw).1)
+        {w w1 : Void IO.RealWorld} {M b : Module} {D : Design}
+        (hB : ChildBnd mref cref w)
+        (hcore : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, D) w1)
+        (hpost : b = dropZeroWidthModule M ∨ b = mergeChecked (dropZeroWidthModule M))
+        (entry : MachineDefines mctx mref cctx cref c d.shape)
+        (closes : MachineClosesAt mctx mref cctx cref c d.shape) :
+        kidsMem (childMap D.modules) b.body = true
+
+    structure MemOnlyData (d : MachineData) (nDecl aw dw : Nat) : Prop where
+      ok, body, calls, slots, domB, ins, sl, fne, outTy,
+      mem : ∀ (k : Nat) (hk : k < d.shape.insts.length),
+        ∃ cb, memChild? (d.shape.insts[k]).1 = some (memModule cb aw dw)
+      cw : callWidthsOk d nDecl (fun _ => memOuts dw) = true
+      args : callArgsOk d nDecl (fun _ => memIns aw dw) = true
+      outNames, outScalar
+
+    theorem memOnly_kids {d} {aw dw} (hmem : …as the field `mem`…) :
+        ∀ k hk, KidFactsM mref cref (d.shape.insts[k]).1 (memOuts dw) (memIns aw dw) 0
+
+    theorem memOnly_runFacts    (h : MemOnlyData d nDecl aw dw) (hB) (hcore) (hpost) (entry) (closes) :
+        RunFacts (childMap D.modules) b
+    theorem memOnly_outsCheck   (h) (hB) (hcore) (hpost) (entry) (closes) (hg : hierGate b = true) :
+        outsCheck (childMap D.modules) 0 (checkedOptimize b) = true
+    theorem memOnly_kidsMem     (h) (hB) (hcore) (hpost) (entry) (closes) :
+        kidsMem (childMap D.modules) b.body = true
+    theorem memOnly_designCheck (h) (hB) (hcore) (hpost) (entry) (closes) :
+        designCheck (childMap D.modules) 0 (checkedOptimize b) = true
+
+(`closes : MachineClosesAt`, `hB : ChildBnd mref cref w` in all four.) The
+widths `aw`, `dw` are the same for every entry; the read kind may differ
+(`mixedMems` fits: combo and sync at 4 / 8 — not instantiated this round).
+
+### 9.2 `Tests/Compiler/NoPortsMemOnlyCounterTest.lean`
+
+* first `run_cmd`: LOGS the reader data and the constants present / absent,
+  then asserts `nDecl = 3`, every entry `= memChildName true 4 8`,
+  `instFields ≠ []`, a slot (the error text names the no-register axis);
+* `Tests.Compiler.NoPortsMemOnly.generateM0 f facts outs mem design`: the head
+  `machine_design_noPorts` at `n = 0` on the 24 arguments of the EXISTING
+  `f.machine_ships_hier`, with `C := MachineCloses …` (the theorem's own
+  closing binder, abstracted), `Bnd := fun _ mref _ cref w _ _ => ChildBnd mref
+  cref w`, the wired endpoint and the composed theorem wrapped to ignore the
+  new boundary (the composed one given `True.intro` for the old). Throws unless
+  the route is `.mem` (`ResetM`, `kidsMem`) and the old boundary is `True`.
+  The four run hypotheses are discharged by `dischargeWith … #[]` from the
+  boundary only: no binder added. Endpoint `f.machine_design_noPorts0`;
+* `auditM0`: standard axioms; no checker constant; the old endpoint asks the
+  four; both ask `MachineCloses`, neither `MachineClosesAt`; the same three
+  proposition binders, printed the same; ONE antecedent, and it is `ChildBnd`,
+  which the old endpoint does not ask (and the old one has an antecedent
+  printed `True`); antecedent listing before / after and the complete premise
+  list with ALLOWED / NOT ALLOWED LOGGED, not hidden;
+* by hand: `memCounter_entry`, `_calls`, `_slots`, `_domB`, `_outTy`,
+  `_callWidths`, `_callArgs`, `_outChars`, `_outScalar` (one named theorem per
+  decided condition, so a failing one is named by the build), `memCounter_data
+  : MemOnlyData memCounter.machineData 3 4 8`, and the four run lemmas.
+
+### 9.3 `Tests/Compiler/NoPortsMemOnlySyncTest.lean`, `…TwoTest.lean`
+
+The same text (derived by `sed` from 9.2's per-declaration part) for
+`syncNarrow` (`MemOnlyData … 3 3 5`, every entry `memChildName false 3 5`,
+`Exists.intro false`) and `twoMems` (`MemOnlyData … 3 4 8`, two entries of one
+name). `memKid_facts` is stated for both `cb` (READ, 468–470, its lemmas over a
+variable `cb`); `syncNarrow` is the first instance at `cb = false`.
+
+### 9.4 `Tests/Compiler/NoPortsMemOnlyAtProbe.lean` — PROBE, target-built only
+
+`generateM0 … (atForm := true)` inside `try`: the same head with `C :=
+MachineClosesAt`, the wired endpoint the `RA` twin of `machine_sound`'s head
+(`machine_traceL_of_loop_causalRA`, `ShippingMachineSeqLinkedR` 25–85) through
+`MachineTraceLBX.toLB`, the composed theorem `machine_linkedT_mem` on it with
+the ten data arguments of the existing `memCounter.machine_composedT`. Logs
+`GENERATED memCounter.machine_design_noPortsR0 …` with its premise list, or
+`REFUSED — …`. Nothing claimed.
+
+## 10. Per declaration (round par/b-14)
+
+| declaration | endpoint | premise (of `f.machine_design_sv0`) | predicted state |
+|---|---|---|---|
+| `memCounter` | `memCounter.machine_design_noPorts0` | `shipsHierCheck (childMap D.modules) b` | WRITTEN — predicted absent, pending build |
+| | | `designCheck (childMap D.modules) 0 (checkedOptimize b)` | predicted absent, pending build |
+| | | `outsCheck (childMap D.modules) 0 (checkedOptimize b)` | predicted absent, pending build |
+| | | `kidsMem (childMap D.modules) b.body` | predicted absent, pending build |
+| | | the boundary `True` | REPLACED by `ChildBnd mref cref w` — ADDED antecedent |
+| | | `MachineCloses memCounter` (all worlds) | STILL A PREMISE (binder), unchanged |
+| | | `hr`, `MachineDefines memCounter` | stay |
+| `syncNarrow` | `syncNarrow.machine_design_noPorts0` | the same seven rows | the same |
+| `twoMems` | `twoMems.machine_design_noPorts0` | the same seven rows | the same |
+| `mixedMems`, `memWide` | none | all | STILL PREMISES — not written (the pattern applies as is: `MemOnlyData … 3 4 8` with a two-way `mem` field, `… 3 6 16`) |
+| `memCounter` | `memCounter.machine_design_noPortsR0` (PROBE) | closing in the form `MachineClosesAt` | attempt only, logged |
+
+The new endpoints are NOT strengthenings of the old ones: four decidable
+check premises are traded for the runtime boundary `ChildBnd`.
+
+## 11. Blocked / not done (round par/b-14)
+
+1. Nothing in tasks 1–4 stopped on a missing statement by reading. The
+   no-register axis does not apply (slots = 2, MEASURED).
+2. NOT removable with what exists: the antecedent `ChildBnd` of the new
+   endpoints. The exact missing statement, if the old boundary `True` is to be
+   kept: the `core_*M` chain from the ALL-WORLDS closing without a start-world
+   invariant, e.g.
+
+       theorem core_callStmtM_closes … (hcore) (hpost) (entry)
+           (closes : MachineCloses mctx mref cctx cref c d.shape)
+           (hmem : ∀ c ∈ d.shape.insts, (memChild? c.1).isSome) : … (the conclusion of core_callStmtM)
+
+   and the same for `core_runFactsM`, `core_outsCheck_all_gateM`,
+   `core_portsMatch_rawM`, `core_kidsPass_deepM`, `core_designCheck_runM`,
+   `core_clkM`, `core_hierGateM`: each opens the run by `machine_run_of_core
+   hcore entry hB` (`ShippingChildRun` 508), which needs `ChildBnd`. That
+   would be another copy of the chain — not written.
+3. The closing: `MachineCloses f` (all worlds) stays a binder of the three
+   endpoints; whether it can hold of these shapes was not read (§8.2). An
+   endpoint under `MachineClosesAt` is only probed (9.4). No closing theorem
+   was worked on (worker A's area).
+4. `mixedMems`, `memWide`: not written. A generator: not written.
+
+## 12. Build queue (integrator), round par/b-14
+
+`lakefile.lean`:
+
+    lean_lib «Tools.ShippingMemOnly» where
+      roots := #[`Tools.ShippingMemOnly]
+
+`Tests/AllTests.lean`:
+
+    import Tests.Compiler.NoPortsMemOnlyCounterTest
+    import Tests.Compiler.NoPortsMemOnlySyncTest
+    import Tests.Compiler.NoPortsMemOnlyTwoTest
+
+`Tests.Compiler.NoPortsMemOnlyAtProbe`: TARGET-BUILT ONLY.
+
+Order: (1) `Tools.ShippingMemOnly` (imports the built
+`Tools.ShippingMemKidFacts`); (2) `Tests.Compiler.NoPortsMemOnlyCounterTest`
+(imports 1, `NoPortsGrandHTest`, `ShippingDesignSVMemTest`); (3)
+`…NoPortsMemOnlySyncTest`, `…NoPortsMemOnlyTwoTest` (each imports 2 only);
+independently (4) `…NoPortsMemOnlyAtProbe` (imports 2). A partial result is
+usable: (1) alone gives `core_kidsMemM` and the `memOnly_*` theorems; (2)
+alone gives `memCounter`'s endpoint.
+
+Name clashes checked by `grep`: no other module defines a constant under
+`Tools.ShippingMemOnly`, `Tests.Compiler.NoPortsMemOnly*`, or
+`….machine_design_noPorts0`; no file of worker A's prefixes is touched; no
+existing file is changed except this append.
+
+## 13. UNVERIFIED, in risk order (round par/b-14)
+
+1. The data conditions never measured for a `Signal.loop` memory parent, each a
+   named kernel `decide`: `memCounter_calls` (`callsOk 3`), `memCounter_callArgs`,
+   `memCounter_callWidths`, `memCounter_slots`, `memCounter_domB` (and the
+   `syncNarrow` / `twoMems` twins). If one is FALSE the chain does not apply to
+   that declaration and the build names it.
+2. `generateM0`: `mkAppOptM` of the head at `n = 0` with the arguments of
+   `machine_ships_hier` (24 arguments, indices READ off the signature, measured
+   for the 25-argument `…hierC` form only); `C` as a lambda (`closes : C mctx
+   mref cctx cref` against the binder's `MachineCloses …` by beta); `hBd :
+   KSBoundedIn … flatKS … memInv` against `KSn _ 0` / `KT 0` (built for
+   `mixKS_boundedIn`, not for `memKS_boundedIn`); the wrapped `soundL`
+   (`forallTelescope` of the argument's type: 11 binders) and `composed` (13
+   binders, the 12th `True`); `lambdaTelescope` of the old boundary giving 7
+   binders and the body `True`; `dischargeWith` on a boundary that is not a
+   conjunction.
+3. `kidsMem_of`: `refine Eq.trans ?_ (h …)` then `exact (Bool.and_true _).symm`
+   (defeq of `kidsMem C [st]` with `f st && true` through `List.all`), `simp
+   [kidsMem]` as the second alternative; `| _ => rfl` on the other statement
+   kinds.
+4. `core_kidsMemM` (the built proof's lines; `rw [hmem] at hcs hCm`);
+   `memOnly_kidsMem`'s `congrArg Prod.fst (hy.mem hc)`; `MemOnlyData.mk` with
+   fourteen positional arguments (field order as declared).
+5. `auditM0`: the old endpoint's boundary printed exactly `True`; the binders
+   of old and new printed the same.
+6. `syncNarrow`: `mem_isMem` at `false 3 5` by `rfl` (the generators' own
+   `rfl` for a sync placeholder is BUILT, `ShippingMachineMemCommand` 46);
+   every `mem_*` lemma at `cb = false` is built generically, never instantiated.
+7. `NoPortsMemOnlyAtProbe` (inside `try`): `…RA` head on the endpoint's data
+   arguments, `machine_composedT`'s value being a lambda of 11 binders over
+   `machine_linkedT_mem` on 21 arguments.

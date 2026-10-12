@@ -2588,3 +2588,6 @@ lean_lib «Tools.ShippingCallsKidsS» where
 
 lean_lib «Tools.ShippingCallsKidsSGen» where
   roots := #[`Tools.ShippingCallsKidsSGen]
+
+lean_lib «Tools.ShippingMemOnly» where
+  roots := #[`Tools.ShippingMemOnly]
