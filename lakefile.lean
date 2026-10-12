@@ -2309,3 +2309,6 @@ lean_lib «Tools.ShippingCoreClk» where
 
 lean_lib «Tools.ShippingPortsMatchRawLeaf» where
   roots := #[`Tools.ShippingPortsMatchRawLeaf]
+
+lean_lib «Tools.ShippingCallCast» where
+  roots := #[`Tools.ShippingCallCast]
