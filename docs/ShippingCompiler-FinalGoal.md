@@ -293,3 +293,19 @@ To be re-measured at the first `AllTests` integration run.
   the endpoints take children unoptimized; it agrees with `checkedOptimize`
   on 15 of the 39. The optimizer is idempotent on every module of only 5 of
   the 37 designs (`#sim` applies it twice).
+- Finding D, option 1 tried in isolation: branch `fix/design-writer-build`
+  (`98a14eca` + audit; on top of the fallback branch; AllTests 1005 green
+  there; NOT merged). A writer `toVerilogDesignChecked` prints the artifact
+  the design endpoints speak about (top through `checkedOptimize`, the other
+  modules as they are); `#synthesizeVerilogDesign`, `#writeVerilogDesign`,
+  `#writeDesign` call it; `#sim` is not switched. Kernel-checked:
+  `writer_prints_endpoint_artifact` (the writer's module list is the core
+  design's modules followed by `checkedOptimize b`), standard axioms.
+  Measured on 37 declarations: the writer's top module and text equal the
+  endpoints' on 37; all 39 children equal the core design's modules; no
+  child keeps a zero-width wire. Cost: the children's text is 49358
+  characters unoptimized against 25348 through the unchecked optimizer
+  (40998 through `checkedOptimize`). Not run: any simulation of a design with
+  children under the new writer; files that depend on the design commands'
+  text (`fpga/tangNano20k/blinky/blinky.v`, the RV32 SoC testbench's internal
+  signal names, substring tests) are listed in the worker report, not edited.
