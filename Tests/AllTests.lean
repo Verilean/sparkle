@@ -155,6 +155,7 @@ import Tests.Compiler.ChecksDerivedTest
 import Tests.Compiler.ChecksRawTest
 import Tests.Compiler.HierBindsCensusTest
 import Tests.Compiler.PrintArtifactCensusTest
+import Tests.Compiler.DesignWriterAuditTest
 import Tests.Compiler.OptFallbackTest
 import Tests.Compiler.GuardFallbackTest
 import Tests.Compiler.LegacySemInstanceTest

@@ -75,7 +75,41 @@ one line `PRINTARTIFACT <decl>: …` with the columns
   `optimizeModule (optimizeModule m) == optimizeModule m` (the `#sim` path);
   the others are listed.
 
-Then the totals line `PRINTARTIFACT CENSUS: …`. -/
+Then the totals line `PRINTARTIFACT CENSUS: …`.
+
+## The checked writer (isolated branch `fix/design-writer`)
+
+On this branch `#synthesizeVerilogDesign`, `#writeVerilogDesign` and
+`#writeDesign` print `toVerilogDesignChecked dH`
+(`Sparkle/Backend/VerilogDesign.lean`): the module named `dH.topModule`
+through `checkedOptimize`, every other module as it is (`designArtifact`).
+`#sim` still prints `toVerilogDesign (optimizeDesign dH)`. A second line
+`PRINTARTIFACT <decl>: WRITER …` per declaration, with `art` =
+`designArtifact dH` and `(raw, D)` the core run:
+
+* `wTop` the module of `art` named `bC.name` is `checkedOptimize bC`
+  (expected T on every declaration); `wTopText` its emitted text is
+  `emitModule (checkedOptimize bC)`;
+* `wKids` number of the other modules of `art`; `wKidEq` those `==` to the
+  module of that name in `D` (the endpoints' child, `childMap D.modules`);
+  `wKidTxt` those whose emitted text is `emitModule` of that module (expected:
+  all); the others are listed;
+* `wList` `art == D.modules ++ [checkedOptimize bC]` and `wText`
+  `toVerilogDesignChecked dH ==
+  "\n".intercalate (D.modules.map emitModule ++ [emitModule (checkedOptimize bC)])`
+  — the two equations `Tools.ShippingDesignWriterRun.writer_prints_endpoint_artifact`
+  concludes, observed;
+* `hno` no module of `D` is named `raw.name` and `htop`
+  `D.topModule == raw.name` — that theorem's two data premises;
+* `kZero` number of children `c` with `dropZeroWidthModule c != c` (a
+  zero-width wire the optimizer's 0-bit pass would have removed is still
+  there; expected 0 — the children come from their own full entry);
+* the cost of printing the children as they are: `kLen` characters of their
+  emitted texts, `kLenOpt` through `optimizeModule`, `kLenChk` through
+  `checkedOptimize` (the variant `toVerilogDesignCheckedKids`, not used by
+  any command).
+
+Then `PRINTARTIFACT WRITER CENSUS: …` with the totals. -/
 namespace Tests.Compiler.PrintArtifactCensusTest
 open Lean Meta
 
@@ -170,6 +204,21 @@ structure Row where
   setUnequal : List String
   idem : Nat
   notIdem : List String
+  -- the checked writer
+  wTop : Bool
+  wTopText : Bool
+  wKids : Nat
+  wKidEq : Nat
+  wKidTxt : Nat
+  wKidDiff : List String
+  wList : Bool
+  wText : Bool
+  hno : Bool
+  htop : Bool
+  kZero : List String
+  kLen : Nat
+  kLenOpt : Nat
+  kLenChk : Nat
 
 def Row.str (r : Row) : String :=
   s!"mods={r.mods} kids={r.kids} inst={bs r.hasInst} topFound={bs r.topFound} " ++
@@ -182,6 +231,12 @@ def Row.str (r : Row) : String :=
   s!"setEq={r.setEq}/{r.mods} unequal={r.setUnequal} " ++
   s!"idem={r.idem}/{r.mods} notIdem={r.notIdem}"
 
+def Row.writerStr (r : Row) : String :=
+  s!"wTop={bs r.wTop} wTopText={bs r.wTopText} wKids={r.wKids} wKidEq={r.wKidEq} " ++
+  s!"wKidTxt={r.wKidTxt} wKidDiff={r.wKidDiff} wList={bs r.wList} wText={bs r.wText} " ++
+  s!"hno={bs r.hno} htop={bs r.htop} kZero={r.kZero} " ++
+  s!"kLen={r.kLen} kLenOpt={r.kLenOpt} kLenChk={r.kLenChk}"
+
 def Row.kidsStr (r : Row) : String :=
   s!"optimizer changes {r.kOptChg}; optimizer changes the text {r.kTxtChg}; " ++
   s!"unchecked == checked {r.kUnchkChk}; checked == child {r.kChkSame}"
@@ -193,7 +248,7 @@ def census (n : Name) : MetaM Row := do
   -- the endpoints' module: a separate run of the single-module entry
   let (bC, dC) ← Sparkle.Compiler.Elab.synthesizeCombinational n
   -- the core run's design
-  let (_, D) ← Sparkle.Compiler.Elab.synthesizeCombinationalCore n [] false
+  let (raw, D) ← Sparkle.Compiler.Elab.synthesizeCombinationalCore n [] false
   let opt (m : Sparkle.IR.AST.Module) : Sparkle.IR.AST.Module := Sparkle.IR.Optimize.optimizeModule m
   let chk (m : Sparkle.IR.AST.Module) : Sparkle.IR.AST.Module := Sparkle.IR.OptCheck.checkedOptimize m
   let emit (m : Sparkle.IR.AST.Module) : String := Sparkle.Backend.Verilog.emitModule m
@@ -220,6 +275,33 @@ def census (n : Name) : MetaM Row := do
     | some r => r == m
     | none => false
   let idemOf (m : Sparkle.IR.AST.Module) : Bool := opt (opt m) == opt m
+  -- the checked writer's modules and text
+  let art : List Sparkle.IR.AST.Module := Sparkle.Backend.Verilog.designArtifact dH
+  let aTop? := art.find? (·.name == topN)
+  let aKids := art.filter (fun m => !(m.name == topN))
+  let kidRef (m : Sparkle.IR.AST.Module) : Option Sparkle.IR.AST.Module :=
+    D.modules.find? (·.name == m.name)
+  let kidEq (m : Sparkle.IR.AST.Module) : Bool :=
+    match kidRef m with
+    | some r => r == m
+    | none => false
+  let kidTxt (m : Sparkle.IR.AST.Module) : Bool :=
+    match kidRef m with
+    | some r => emit r == emit m
+    | none => false
+  let wTopB : Bool :=
+    match aTop? with
+    | some m => m == cC
+    | none => false
+  let wTopTextB : Bool :=
+    match aTop? with
+    | some m => emit m == tSingle
+    | none => false
+  let endpointMods : List Sparkle.IR.AST.Module := D.modules ++ [cC]
+  let endpointText : String :=
+    String.intercalate "\n" (D.modules.map emit ++ [emit cC])
+  let len (f : Sparkle.IR.AST.Module → Sparkle.IR.AST.Module) : Nat :=
+    kids.foldl (fun a c => a + (emit (f c)).length) 0
   return {
     mods := dH.modules.length
     kids := kids.length
@@ -250,7 +332,22 @@ def census (n : Name) : MetaM Row := do
     setEq := (dH.modules.filter eqByName).length
     setUnequal := (dH.modules.filter fun m => !eqByName m).map (·.name)
     idem := (dH.modules.filter idemOf).length
-    notIdem := (dH.modules.filter fun m => !idemOf m).map (·.name) }
+    notIdem := (dH.modules.filter fun m => !idemOf m).map (·.name)
+    wTop := wTopB
+    wTopText := wTopTextB
+    wKids := aKids.length
+    wKidEq := (aKids.filter kidEq).length
+    wKidTxt := (aKids.filter kidTxt).length
+    wKidDiff := (aKids.filter fun m => !kidTxt m).map (·.name)
+    wList := art == endpointMods
+    wText := Sparkle.Backend.Verilog.toVerilogDesignChecked dH == endpointText
+    hno := D.modules.all fun x => !(x.name == raw.name)
+    htop := D.topModule == raw.name
+    kZero := (kids.filter fun c =>
+      !(Sparkle.IR.ZeroWidth.dropZeroWidthModule c == c)).map (·.name)
+    kLen := len id
+    kLenOpt := len opt
+    kLenChk := len chk }
 
 run_cmd Lean.Elab.Command.liftTermElabM do
   let env ← getEnv
@@ -266,6 +363,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
         let r ← census n
         rows := rows ++ [(n, r)]
         logInfo m!"PRINTARTIFACT {n}: {r.str}"
+        logInfo m!"PRINTARTIFACT {n}: WRITER {r.writerStr}"
         unless r.top do
           logInfo m!"PRINTARTIFACT {n}: TOPDIFF {r.topDiff}"
         unless r.text do
@@ -302,5 +400,27 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     s!"optimizer idempotent on all modules {cnt allIdem}, not {names (fun r => !allIdem r)}; " ++
     s!"failures {failed}"
   logInfo m!"{line}"
+  let wline : String :=
+    s!"PRINTARTIFACT WRITER CENSUS: {rows.length} declarations; " ++
+    s!"writer top module == checkedOptimize bC {cnt (fun r => r.wTop)}, " ++
+    s!"not {names (fun r => !r.wTop)}; " ++
+    s!"writer top text == emitModule (checkedOptimize bC) {cnt (fun r => r.wTopText)}, " ++
+    s!"not {names (fun r => !r.wTopText)}; " ++
+    s!"children printed: total {sum (fun r => r.wKids)}, " ++
+    s!"== the core design's module {sum (fun r => r.wKidEq)}, " ++
+    s!"text == emitModule of it {sum (fun r => r.wKidTxt)}, " ++
+    s!"declarations with a differing child {names (fun r => !r.wKidDiff.isEmpty)}; " ++
+    s!"module list == D.modules ++ [checkedOptimize bC] {cnt (fun r => r.wList)}, " ++
+    s!"not {names (fun r => !r.wList)}; " ++
+    s!"whole text == the endpoints' text {cnt (fun r => r.wText)}, " ++
+    s!"not {names (fun r => !r.wText)}; " ++
+    s!"premise hno {cnt (fun r => r.hno)}, not {names (fun r => !r.hno)}; " ++
+    s!"premise htop {cnt (fun r => r.htop)}, not {names (fun r => !r.htop)}; " ++
+    s!"children with a zero-width wire left {sum (fun r => r.kZero.length)} " ++
+    s!"in {names (fun r => !r.kZero.isEmpty)}; " ++
+    s!"children's text: as they are {sum (fun r => r.kLen)} characters, " ++
+    s!"optimizeModule {sum (fun r => r.kLenOpt)}, " ++
+    s!"checkedOptimize {sum (fun r => r.kLenChk)}"
+  logInfo m!"{wline}"
 
 end Tests.Compiler.PrintArtifactCensusTest
