@@ -313,3 +313,68 @@ further change. `ChildIfaceD` now exports instance resolution
 (`ChildIfaceD.resolves`, integrator). The strengthening proposals P1 / P2 of
 §6 are NOT implemented: they change what the compiler's checked optimizer
 accepts and are the user's decision.
+
+## 7. Round 8 (branch `par/g1-checks-4`) — UNVERIFIED, not built
+
+* `Tools/ShippingChecksPacked.lean`: `closeLets_packed`, `transition_out`,
+  `transition_packed` (the harness's module ends in `assign out = w`, from
+  `harness_spine_at` with the instantiation `transition_closed` uses).
+* `Tools/ShippingChecksRun.lean`:
+  `leaf_run_outsAssigned` / `leaf_real_outsAssigned` (a machine without
+  calls and with a register: the full entry's module assigns every output —
+  over every run; hypotheses of `seqChild_iface` plus a slot), and
+  `parent_run_outsCheck0` (hypotheses of `kidsChild_iface`, the gate
+  `hierBinds b`, and `outsA` on the design's modules): the depth-0
+  `outsCheck` of the printed module and the resolution of its instances.
+* `Tests/Compiler/ChecksDerivedTest.lean`: on every parent with a
+  `machineData`, the gate (`hierBinds`), today's bundles, `outsA`, and the
+  proposed P1 / P2b checks, one `CHECKS` line each.
+
+What `parent_run_outsCheck0` would replace in an endpoint: the premise
+`outsCheck (childMap D.modules) 0 (checkedOptimize b) = true` of
+`ships_design_svN_all` (at `n = 0`) and `ships_design_svH_all`, PROVIDED the
+heads' `D` is the full entry's design (not checked) — at the price of
+`outsA`. The resolution conjunct is the last conjunct of `textCheckI` (inside
+`designCheck`, not separately removable while `designCheck` is one Bool).
+`hierBinds b` is already a conjunct of the `shipsHierCheck` those heads take,
+so it adds no premise there.
+
+Still missing for `outsA` over runs: which module of the design each child
+is (an export next to `resolves`: every module of the full entry's design is
+a real child's full-entry module or a module of its design).
+
+## 8. Round 9 (branch `par/g1-checks-5`) — UNVERIFIED, not built
+
+* `Tools/ShippingChecksRun.lean` repaired: the "a slot ⇒ a register name"
+  step no longer rewrites with the wiring's length fact (which is about
+  `d.slotBs`, not `d.ss`); it is `omega` from that fact,
+  `d.slotBs.length = d.ss.length` (from `ok`'s first conjunct) and the
+  hypothesis `d.ss.length = slots.length`.
+* `Tests/Compiler/ChecksDerivedTest.lean` no longer imports the theorems.
+* `Tools/ShippingChecksRun2.lean`: `kidsDesign_real` (every module of the
+  full entry's design is a real child's module or a module of a real
+  child's design), `parent_run_outsCheck0_kids` (`outsA` replaced by one
+  fact per real child), `leaf_real_kidA` (that fact for a child without
+  calls and with a register).
+
+With these, for a parent whose children are machines without calls and with
+a register, the premise `outsCheck (childMap D.modules) 0 (checkedOptimize b)
+= true` needs: the parent's and the children's data conditions and
+reflections (already premises of the closing), and the gate `hierBinds b`.
+
+## Integrator's builds and run (2026-10-12, rounds 8–9)
+
+`Tools.ShippingChecksPacked`, `Tools.ShippingChecksRun` (after one repair
+round) and `Tools.ShippingChecksRun2` built through the protected queue with
+no further change. `Tests/Compiler/ChecksDerivedTest.lean` RAN on every
+declaration with a `machineData` and calls in the imported test modules:
+27 real parents (3 further names are gate-route declarations, logged as
+errors by design). On all 27: `hierGate = true`, `hierBinds = true` (the gate
+hypothesis of `parent_run_outsCheck0_kids` holds), `outsCheck0 = true`,
+`outsA = true`, and the proposals' checks hold — `P1 = true` (the optimized
+body has the module's instance statements as a LIST), `instNamesNodup = true`,
+`P2b = true` (`linkedWF` of the printed body). So P1 / P2b would reject none
+of these outputs. `kept = false` on all (the optimizer changes every body).
+`shipsHierHCheck` is true only for the one-output combinational parents.
+This is a measurement of the test modules, not of the corpus; P1 / P2 remain
+unimplemented (the user's decision).
