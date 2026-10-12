@@ -8,9 +8,9 @@ here as G-items.
 
 ## 0. Current status (2026-10-12)
 
-Verification record: snapshot `0aeb3e45`, `Tests.AllTests` 892 jobs green
+Verification record: snapshot `3a291ec6`, `Tests.AllTests` 895 jobs green
 (every Lean / lake run under the cgroup runner, 3 GiB cap, one job; peak
-0.42 GiB).
+0.43 GiB; one test module peaks at 1.43 GiB).
 
 **Reading the tables**: the twelve work packages (§6) are a decomposition of
 ONE compile route's premises. "Done" for a package means its premise is
@@ -26,12 +26,12 @@ would need is the gaps G1–G5 and N1 below, which are open.
 | B3: machine children with calls of their own | **done for children with registers, to any depth, by either closing** (`machineClosesAt_of_kidsD` over `ChildIfaceD`; `kidsChild_of_real`: the child's ports from its wiring, its design the join of its children, post-passes; generator `#machine_closes_deep`) | `grand`, `grandH`, `mixD1` closed with no `MachineClosesAt` left (`machine_design_svNR{1,2}_closed`); `topD2` closed of its own closing | `topD2`'s endpoint still asks `mid2`'s closing in `mid2`'s contexts (needs `rcH`'s reflection there: the child's boundary carries direct children's only); N1 premises per node (parent / child / descendants print differently); NOT covered: two different children with a common descendant, slotless children with calls, memory children, gate children directly under a general closing |
 | C1–C3 | see §6 | — | — |
 | R0 / NR heads | migrated to `MachineClosesAt` | all R0 / NR test endpoints; `midH`'s closing DISCHARGED at depth | parents of sequential children (B2) |
-| G1 output checks | open | — | the decidable checks on the result are obligations of the endpoints |
+| G1 output checks | open — first unit: for a machine WITHOUT calls the instance-only checks are derived from every run (`leaf_run_outsCheck`, `leaf_run_kids`; `Tools/ShippingChecksDerived`, inventory `docs/parallel/G1-checks.md`) | the child-side conjuncts of a parent's recursive checks, for leaf children | the emitted-text checks (`seqCheck`, widths, `portsMatchB`: not run by the compiler, nothing proved of the optimizer's output), `simpleBody b = false`, every check on the optimized body of a module with instances (needs one lemma about `hierRefineCheck`), `outsAssigned` through `refineCheck` |
 | G2 / C3 legacy route semantics | open — contract layer proved, CONDITIONAL (`legacy_translate_contract`; `Tools/ShippingLegacySem*`, `docs/parallel/G2-legacy.md`) | no real fallback declaration end to end | `ReachesInline` (dispatch to the inline attempt; blocked by legacy cache hits not validated against the builder state). **Defect reproduced with an injected fault** (`LegacyCacheRollbackTest`): after an inline attempt that fails late, the retry emits a module reading an undeclared wire, or a well-formed module computing another function; no source that fails late by itself is known; fix not applied; a deep source for legacy syntax (SEM0); the entry-level legacy arm |
 | G3 reader coverage (S3, `letsAliasOk`, `gateCallsOk` evaluated per declaration) | open — a STRICT term reader proved sound (18 node kinds) and complete (11 kinds) (`readTerm_sound`, `readTerm2_sound`, `readTerm_quote`; `Tools/ShippingReader*`, `docs/parallel/G3-reader.md`) | measured: the 18-kind reader reads all 44 machine bodies with endpoints in the test modules | the compiler does not run this reader; its own gate recognisers accept non-quotations (run: `ReaderWildcardTest`); `machineShape?` is 15 `partial` functions; completeness of 7 kinds; data checks (G3b) |
 | G4 | open | — | — |
 | G5 runtime laws | **conditional** | `quiet` / `Diag` / `OkMsg` / `OkEnv` laws; exception provenance by value; law audit from 22 endpoints | no runtime model; `profLog` one constructor; elaborator primitives unconditional; T3 trusted |
-| N1 name separation | open | `Name.toString` (escaping) does not reduce in the kernel; no bridge to the unescaped renderer | premises of every closed endpoint |
+| N1 name separation | **done on the first-level closings**, by a kernel-decidable sufficient test (`Tools/ShippingNameSep`: the printed name is one of finitely many candidate renderings — `toString_mem`; `Name.toString`'s escape test is an opaque `partial` function and is never evaluated) | `f.machine_closes_at` of 11 parents has only the children's reflection as premise; `callerMix`, `callerABA` two reflections | deep closings (`closes_deep`) still state their name premises over lists of printed names; a premise remains wherever the candidates do not separate; `Name.toString` is NOT injective in general (a component containing `»`) |
 
 Closed SV endpoints today (`f.machine_design_svHR_closed`): `caller`,
 `callerTwice`, `callerNested`, `callerD`, `midH`, `callerMix`, `callerRep`,

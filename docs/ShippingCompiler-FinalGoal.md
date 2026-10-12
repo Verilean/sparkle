@@ -168,3 +168,10 @@ To be re-measured at the first `AllTests` integration run.
   natural trigger for the cache defect, a reviewable fix patch, and the
   dispatch walk. Open decisions for the user: applying a compiler fix for the
   cache rollback; making the strict reader part of route acceptance.
+- 2026-10-12, `3a291ec6`, `Tests.AllTests` 895 jobs green. N1: first-level
+  name premises PROVED (11 closed parents keep only the child's reflection).
+  G1: first unit (leaf machines' instance-only checks from every run) and an
+  inventory of what is derivable / needs one optimizer lemma / is a real gap
+  (the emitted-text checks). G3a: 18-kind reader complete, `KindsOK`
+  unconditional. G2: five handler walks, the true statement of the unfold
+  handler (inline attempt OR sub-module path); three walk files returned.
