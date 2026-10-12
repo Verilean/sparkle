@@ -4,6 +4,7 @@ import Tools.ShippingLegacySemLeaf
 import Tools.ShippingLegacySemEntryOne
 import Tools.ShippingLegacySemSignalFrame
 import Tools.ShippingLegacySemEntryBound
+import Tools.ShippingLegacySemTelescopeN
 import Sparkle
 
 /-! # The legacy inline arm on a real call: which premises can be discharged
@@ -190,6 +191,23 @@ carries x + x)`. The skip is created only by the handler of the walk's
 `bindInputsLegacy_one_bound`). Same class as `hinf` (the oracle on one
 type): `hinf` speaks of its returning runs, `hinfT` of its failing ones. The
 `hinf EVIDENCE` log observes one run that returned.
+
+## Round 17: a second declaration (two inputs) and the axiom audit
+
+* `useDbl2 x y := dbl x` — two `BitVec 8` inputs (the second unused by the
+  result), compiled with the legacy front end. `useDbl2_output`: the list
+  form of the entry theorem (`list_entry_output`: the binder walk over a LIST
+  of scalar binders, `Tools/ShippingLegacySemBinderList.lean`) with the
+  n-binder Meta-library fact `LamTelescopeN`
+  (`Tools/ShippingLegacySemTelescopeN.lean`); premises of the same classes as
+  `useDbl_output`, the binder-type oracle premises once per binder. The leaf
+  is the same call `dbl x`, so the leaf lemmas are reused; a leaf that uses
+  BOTH inputs through an inline call (`add2 x y`) needs the two-input
+  analogue of `dbl_unfold_dom` and of the `dbl_*` name lemmas — not written.
+* The last `run_cmd` is the ACCEPTANCE CHECK: it throws unless
+  `useDbl_output`, `useDbl2_output`, `one_binder_entry_output_bound`,
+  `list_entry_output` and `returns_tryCatch_throws` depend on no axiom
+  beyond `propext`, `Classical.choice`, `Quot.sound`.
 -/
 
 open Lean Meta Sparkle.Compiler.Elab
@@ -669,6 +687,137 @@ theorem useDbl_output {logProf : String → IO Unit} {dv : DefinitionVal}
           obtain ⟨dom, rfl⟩ := hunfE id e' hU
           exact LeafDom.dom (dbl_unfold_dom (useDbl_input id cache bools bits))))
 
+/-! ## Round 17: a second declaration, two inputs -/
+
+/-- A second real declaration on the legacy route: two inputs. -/
+def useDbl2 (x y : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec 8) := dbl x
+
+/-- The binders of `useDbl2`. -/
+abbrev useDbl2Binders : List (Name × MixedGateBinder) := [(`x, .bits 8), (`y, .bits 8)]
+
+/-- The binders of `useDbl2` with their declared types. -/
+abbrev useDbl2Spec (xTy yTy : Lean.Expr) : List (Name × MixedGateBinder × Lean.Expr) :=
+  [(`x, .bits 8, xTy), (`y, .bits 8, yTy)]
+
+/-- **The prepared setup of `useDbl2` maps the first binder to its value.** -/
+theorem useDbl2_input (id1 id2 : FVarId) (cache : IO.Ref (ExprStructMap String))
+    (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n) :
+    Tools.ShippingUnifiedMeaning.inputValues
+      (setupOf ``useDbl2 useDbl2Binders [id1, id2] cache bools bits).bools
+      (setupOf ``useDbl2 useDbl2Binders [id1, id2] cache bools bits).bits id1 =
+      some (.bits 8 (bits id1 8)) := by
+  refine Tools.ShippingUnifiedMeaning.inputValues_bits ?_ ?_
+  · intro key b h
+    exfalso
+    revert h
+    show (if key = id2 then (none : Option Bool) else if key = id1 then none else none) =
+      some b → False
+    intro h
+    by_cases e2 : key = id2
+    · rw [if_pos e2] at h
+      cases h
+    · rw [if_neg e2] at h
+      by_cases e1 : key = id1
+      · rw [if_pos e1] at h
+        cases h
+      · rw [if_neg e1] at h
+        cases h
+  · by_cases e : id1 = id2
+    · subst e
+      exact if_pos rfl
+    · exact (if_neg e).trans (if_pos rfl)
+
+/-- **`useDbl2`, from the entry to the output wire.** The premises of
+`useDbl_output`, for two binders: the n-binder Meta-library fact (`htel`),
+the body's shape (`hbody`), the binder-type oracle on each declared type
+(returning runs `hinfX` / `hinfY`, failing runs `hinfTX` / `hinfTY`), the
+result-type oracle (`hres`), the dispatch premises and the unfolding oracle.
+Two outcomes: memo hit, or `out` carries `x + x`. -/
+theorem useDbl2_output {logProf : String → IO Unit} {dv : DefinitionVal}
+    {isInst : Lean.Expr → Bool} {m : Sparkle.IR.AST.Module} {d : Sparkle.IR.AST.Design}
+    {xTy yTy : Lean.Expr}
+    (htel : LamTelescopeN)
+    (hbody : ∀ body0, Tools.ShippingEntrySoundness.MReturns (openRecordInputs dv.value) body0 →
+      ∃ (T1 T2 b : Lean.Expr) (bi1 bi2 : BinderInfo),
+        stripMemoizeWrappers body0 =
+          Lean.Expr.lam `x T1 (Lean.Expr.lam `y T2 b bi2) bi1 ∧
+        b.isLambda = false ∧
+        T1.instantiateRevRange 0 (#[] : Array Lean.Expr).size #[] = xTy ∧
+        (∀ id1 : FVarId, T2.instantiateRevRange 0 (fv1 id1).size (fv1 id1) = yTy) ∧
+        ∀ id1 id2 : FVarId,
+          b.instantiateRevRange 0 (fv2 id1 id2).size (fv2 id1 id2) = callE id1)
+    (hinfX : InfersBits xTy 8) (hinfTX : InfersNoCatch xTy)
+    (hinfY : InfersBits yTy 8) (hinfTY : InfersNoCatch yTy)
+    (hres : ∀ id : FVarId, SignalTyped (callE id))
+    (hmap : ∀ (id1 id2 : FVarId) (cache : IO.Ref (ExprStructMap String))
+      (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n),
+      HasMappedFVar (setupOf ``useDbl2 useDbl2Binders [id1, id2] cache bools bits).context
+        (callE id1))
+    (hplain : PlainHead ``dbl)
+    (hnosub : ∀ (id1 id2 : FVarId) (cache : IO.Ref (ExprStructMap String))
+      (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n) (fuel : Nat),
+      NoSubModule (translateFuelFix translateStep fuel)
+        (setupOf ``useDbl2 useDbl2Binders [id1, id2] cache bools bits).context (callE id1))
+    (hunfE : ∀ (xid : FVarId) (e' : Lean.Expr), InlineUnfolds (callE xid) e' →
+      ∃ dom : Lean.Expr, e' = dblUnfoldE dom xid)
+    (hr : Tools.ShippingEntrySoundness.MReturns (synthesizeFromConst
+      (fun e hint top named => translateExprToWire e hint top named)
+      logProf ``useDbl2 [] false false (.defnInfo dv) isInst) (m, d)) :
+    MemoHit ``useDbl2 m d ∨
+    ∃ (id1 id2 : FVarId) (cache : IO.Ref (ExprStructMap String)),
+      ∀ (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n)
+        (initial : Sparkle.IR.Semantics.Env) (mems : Sparkle.IR.Semantics.MEnv),
+      Tools.ShippingMixedEntrySoundness.Admissible bools bits initial
+        (useDbl2Binders.zip [id1, id2])
+        (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
+          (``useDbl2 : Name).toString) →
+      Tools.ShippingMixedEntrySoundness.RawValueAt 8 useDbl2Binders m initial mems
+        (bits id1 8 + bits id1 8).toNat := by
+  have htele : ∀ body0,
+      Tools.ShippingEntrySoundness.MReturns (openRecordInputs dv.value) body0 →
+      TelescopeIn (stripMemoizeWrappers body0)
+        (ListScope (useDbl2Spec xTy yTy) (fun ids => callE (xOf ids))) := by
+    intro body0 hopen
+    obtain ⟨T1, T2, b, bi1, bi2, hb, hl, hT1, hT2, hi⟩ := hbody body0 hopen
+    exact telescopeIn_of_lam2 (k1 := .bits 8) (k2 := .bits 8)
+      (leafOf := fun ids => callE (xOf ids)) htel hb hl hT1 hT2 hi
+  have horacle : ∀ q, q ∈ useDbl2Spec xTy yTy → BinderOracle q := by
+    intro q hq
+    rcases List.mem_cons.mp hq with rfl | hq
+    · exact And.intro (by intro h; cases h) (And.intro hinfX.hw hinfTX)
+    · rcases List.mem_cons.mp hq with rfl | hq
+      · exact And.intro (by intro h; cases h) (And.intro hinfY.hw hinfTY)
+      · cases hq
+  rcases list_entry_output (cfe := false) (B := useDbl2Spec xTy yTy)
+      (leafOf := fun ids => callE (xOf ids))
+      (fun h => absurd h Bool.false_ne_true) (fun h => absurd h Bool.false_ne_true)
+      (fun h => absurd h Bool.false_ne_true) htele horacle
+      (fun ids => ⟨rfl, hres (xOf ids)⟩) hr with hit | ⟨ids, cache, hlen, H⟩
+  · exact Or.inl hit
+  · have len' : ids.length = 2 := hlen
+    obtain ⟨id1, id2, rfl⟩ : ∃ id1 id2, ids = [id1, id2] := by
+      cases ids with
+      | nil => first | simp at len' | (simp only [List.length_nil] at len'; omega)
+      | cons a tl =>
+        cases tl with
+        | nil =>
+          first | simp at len' | (simp only [List.length_cons, List.length_nil] at len'; omega)
+        | cons b tl2 =>
+          cases tl2 with
+          | nil => exact ⟨a, b, rfl⟩
+          | cons c tl3 =>
+            first | simp at len' | (simp only [List.length_cons] at len'; omega)
+    refine Or.inr ⟨id1, id2, cache, ?_⟩
+    intro bools bits initial mems values
+    exact H bools bits initial mems values
+      (.bits 8 (bits id1 8 + bits id1 8)) (Nat.succ_pos 7)
+      (LeafDom.inlineAt (dbl_notCore id1)
+        (fun fuel => dbl_reachesAt (hmap id1 id2 cache bools bits) hplain
+          (translateFuelFix translateStep fuel) (hnosub id1 id2 cache bools bits fuel) "out")
+        (fun e' hU => by
+          obtain ⟨dom, rfl⟩ := hunfE id1 e' hU
+          exact LeafDom.dom (dbl_unfold_dom (useDbl2_input id1 id2 cache bools bits))))
+
 /-! ## Evidence for the undischarged facts, by compiled code -/
 
 run_cmd Lean.Elab.Command.liftTermElabM do
@@ -754,5 +903,28 @@ run_cmd Lean.Elab.Command.liftTermElabM do
       logInfo m!"LEGACY ENTRY, SKIPPED-INPUT EVIDENCE: emitLeaves on the leaf `dbl x` with no input port bound (empty varMap, fresh builder state): {skipped}"
   catch ex =>
     logInfo m!"LEGACY ENTRY, ROUND 15 EVIDENCE: harness error: {ex.toMessageData}"
+
+/-! ## Round 17: the second declaration compiles on the legacy route; the axiom audit -/
+
+run_cmd Lean.Elab.Command.liftTermElabM do
+  let compiled ← try
+      let _ ← synthesizeCombinationalCoreWith
+        (fun e h t n => translateExprToWire e h t n) ``useDbl2 [] false
+        (certifiedFrontEnd := false)
+      pure true
+    catch _ => pure false
+  logInfo m!"LEGACY ENTRY, SECOND DECLARATION: useDbl2 (two inputs) compiles with the legacy front end: {compiled}"
+
+-- The acceptance check: standard axioms only. This one THROWS.
+run_cmd Lean.Elab.Command.liftTermElabM do
+  let audited : List Name := [``useDbl_output, ``useDbl2_output,
+    ``Tools.ShippingLegacySem.one_binder_entry_output_bound,
+    ``Tools.ShippingLegacySem.list_entry_output,
+    ``Tools.ShippingLegacySem.returns_tryCatch_throws]
+  for n in audited do
+    let axs ← Lean.collectAxioms n
+    if axs.any fun a => !(a == ``propext || a == ``Classical.choice || a == ``Quot.sound) then
+      throwError "{n} depends on a non-standard axiom: {axs}"
+  logInfo m!"LEGACY ENTRY, AXIOM AUDIT: {audited} depend on no axiom beyond propext, Classical.choice, Quot.sound"
 
 end Sparkle.Tests.Compiler.LegacySemInstanceTest

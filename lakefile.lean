@@ -2210,3 +2210,15 @@ lean_lib «Tools.ShippingLegacySemBinderBound» where
 
 lean_lib «Tools.ShippingLegacySemEntryBound» where
   roots := #[`Tools.ShippingLegacySemEntryBound]
+
+lean_lib «Tools.ShippingLegacySemHarnessLeaf» where
+  roots := #[`Tools.ShippingLegacySemHarnessLeaf]
+
+lean_lib «Tools.ShippingLegacySemBinderList» where
+  roots := #[`Tools.ShippingLegacySemBinderList]
+
+lean_lib «Tools.ShippingLegacySemEntryList» where
+  roots := #[`Tools.ShippingLegacySemEntryList]
+
+lean_lib «Tools.ShippingLegacySemTelescopeN» where
+  roots := #[`Tools.ShippingLegacySemTelescopeN]
