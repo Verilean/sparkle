@@ -184,6 +184,7 @@ import Tests.Compiler.NoPortsGrandHBTest
 import Tests.Compiler.NoPortsMixD1BTest
 import Tests.Compiler.NoPortsGrandBTest
 import Tests.Compiler.NoPortsTopD2BTest
+import Tests.Compiler.NoPortsTopD2N3BTest
 import Tests.Compiler.LegacySemInstanceTest
 import Tests.Compiler.LegacyCacheFixTest
 import Tests.Compiler.LegacySemMemoTest
