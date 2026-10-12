@@ -593,3 +593,106 @@ measured (the full corpus stays stopped by the user's instruction).
 `Tools.ShippingLegacySemShim` failed its first build (4 errors, returned).
 `docs/parallel/G2-cache-fix.patch` is a proposal: NOT applied, not compiled.
 
+<!-- worker round (its own numbering) -->
+
+## 25. Corrections to earlier text in this note (the user's rulings)
+
+* §12 / the patch header call variant A' (clear instead of restore) "same
+  function". That is NOT established and must not be relied on: clearing the
+  loop cache and the instance caches after a recovered failure can give a
+  later evaluation its own registers / its own instance where the design
+  shares one, and state sharing is part of the design's behaviour. Variant A
+  (snapshot / restore) is the fix; A' is not proposed.
+* §21 / §22 suggest replacing the `Name.toString … endsWith` tests by tests on
+  the last name component. Withdrawn: the two are not equivalent (escaping,
+  numeric components, a separator inside a component, a suffix spanning two
+  components). The tests of the CURRENT operation are proved through the
+  candidate renderings (`endsWith_false_of`, §24).
+
+## 26. `Expr.find?`: what it is, exactly
+
+`~/.elan/toolchains/leanprover--lean4---v4.32.1/src/lean/Lean/Util/FindExpr.lean`:
+
+```
+16  @[extern "lean_find_expr"]
+17  opaque findImpl? (p : @& (Expr → Bool)) (e : @& Expr) : Option Expr
+18
+19  @[inline] def find? (p : Expr → Bool) (e : Expr) : Option Expr := findImpl? p e
+```
+
+`find?` is a `def` with a logical body — `findImpl? p e`. `findImpl?` is
+declared with the keyword `opaque`: a constant with no body the kernel can
+unfold (an `opaque` declaration only needs its type to be inhabited). This
+is different from a `def` carrying `@[extern]` or `@[implemented_by]`, which
+keeps its Lean body for the kernel — that is not the case here. Neither
+declaration is `partial`. `findImpl?` occurs nowhere else in the toolchain's
+sources: there is no lemma about it.
+
+So `HasMappedFVar ctx e` (the body's test before its `whnf` step) unfolds to
+`(Expr.findImpl? p e).isSome = true` and stops. It cannot be proved for the
+instance; it stays the one kernel-opaque premise of `dbl_call_step_closed`.
+
+## 27. `pre_plain`, last step
+
+Second build: everything elaborated up to `exact k9`. `k9` is the
+continuation applied to the expression, un-reduced, so `rw [hfn]` had
+nothing to rewrite (the `try` hid it). Now: `conv at k9 => arg 1; whnf`
+(the beta step, the `have`, the `match` on the application; it stops at the
+inner `match` on `(f.app a).getAppFn`), `rw [hfn] at k9`, an explicit `show`
+of the goal (the translator is eta-expanded once more in `k9`), `exact k9`.
+
+## 28. Acceptance scenarios for the cache fix (variant A)
+
+`Tests/Compiler/LegacyCacheFixTest.lean`, to be run on the fix branch (it
+also runs on the unfixed compiler and reports the defect). Seven scenarios,
+`PASS` / `FAIL` / `NO VERDICT` per line, nothing thrown: the two injected
+retries; the sub-module after a failed attempt; a nested attempt whose inner
+attempt fails late; the same with the outer attempt failing late as well
+(two restores, the outer to an older snapshot); a child synthesis inside the
+failed attempt; the zeta mark.
+
+What a child's entry writes to the refs variant A restores (from
+`synthesizeCombinationalCoreWith`, Elab.lean 5478–5508):
+
+| Ref | The nested entry | After a restore |
+|---|---|---|
+| `sparkleChildCache`, `sparkleSubModuleCache` | the child's result | NOT restored: kept |
+| `sparkleFvarValueMap`, `sparkleWireWidthCache` | `{}` on entry, put back by the entry's `finally` | no net write to undo |
+| `sparkleLetWireCache`, `sparkleLoopWireCache`, `sparkleWireCanon` | `{}` on entry, NOT put back | the snapshot's entries come back |
+| `sparkleSingleOutInstanceCache`, `sparkleSubInstanceOutputs` | entries of the child's own instances | those written in the attempt are dropped; the child is cached and not walked again |
+| `sparkleFvarZetaVisited` | untouched | marks made in the attempt removed |
+
+The third row is the one to look at: TODAY a child's synthesis empties the
+parent's let / loop / canon caches for the rest of the parent's module
+(independently of any failure). After a recovered failure that contained a
+child synthesis, variant A puts the snapshot's entries back — entries naming
+wires of the builder state the `catch` returns to — so a later `let` / loop
+of the parent equal to an earlier one is shared where today it is lowered
+again. That is observable in the emitted text of such a compile (and, for a
+loop, in whether the design has one copy of the registers or two). It is
+the pre-attempt state restored; whether it is the WANTED state is a design
+question about the nested entry's clearing, not about the fix.
+
+Also found while writing scenario 7: `sparkleFvarZetaVisited` is cleared
+nowhere — not on a failure, and not at the start of a top-level synthesis
+(it is not in the depth-0 reset list). A mark left by a failure survives
+into every later compile of the same process.
+
+## Integrator's builds and runs (2026-10-12, rounds 8–9)
+
+`Tools.ShippingLegacySemPre`, `…Instance`, `…Suffix` and
+`Tests/Compiler/LegacySemInstanceTest.lean` built through the protected
+queue (Pre after two repair rounds). `pre_plain`, `plain_call_step` depend on
+standard axioms only. The instance `dbl_call_step_closed` — the legacy inline
+arm at the real named leaf `dbl x` — has these premises left: `HasMappedFVar`
+(`Expr.find?` is `findImpl?`, declared `opaque`: confirmed kernel-opaque),
+`PlainHead` (environment), `NoSubModule` (a fact about the run), the
+unfoldings' contracts. This is NOT yet meaning preservation of a real
+fallback declaration end to end.
+
+Cache fix, variant A, on the isolated branch `fix/cache-rollback` (worktree,
+not merged): `Sparkle/Compiler/Elab.lean` with the patch compiles; the three
+injected-fault scenarios of `LegacyCacheRollbackTest` then report "no stale
+hit" (before: undeclared wire / another function / rejection); the natural
+test still reports none. The Elab build ran at the cgroup's MemoryHigh
+(2.74 GiB, 429 `high` events, no `max` / OOM).

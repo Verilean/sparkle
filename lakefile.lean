@@ -2117,3 +2117,15 @@ lean_lib «Tools.ShippingChecksRun2» where
 
 lean_lib «Tools.ShippingLegacySemSuffix» where
   roots := #[`Tools.ShippingLegacySemSuffix]
+
+lean_lib «Tools.ShippingLegacySemPre» where
+  roots := #[`Tools.ShippingLegacySemPre]
+
+lean_lib «Tools.ShippingLegacySemInstance» where
+  roots := #[`Tools.ShippingLegacySemInstance]
+
+lean_lib «Tools.ShippingChecksDepth» where
+  roots := #[`Tools.ShippingChecksDepth]
+
+lean_lib «Tools.ShippingChecksCore» where
+  roots := #[`Tools.ShippingChecksCore]

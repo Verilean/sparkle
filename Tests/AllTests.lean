@@ -151,6 +151,8 @@ import Tests.Compiler.ReaderCoverageTest
 import Tests.Compiler.LegacyCacheNaturalTest
 import Tests.Compiler.NameSepTest
 import Tests.Compiler.ChecksDerivedTest
+import Tests.Compiler.LegacySemInstanceTest
+import Tests.Compiler.LegacyCacheFixTest
 import Tests.Compiler.InlineUnfoldRegressionTest
 import Tests.Compiler.ShippingHierOptRunTest
 import Tests.Compiler.ShippingMachineDepthTest
