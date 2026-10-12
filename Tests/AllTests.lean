@@ -153,6 +153,7 @@ import Tests.Compiler.LegacyCacheNaturalTest
 import Tests.Compiler.NameSepTest
 import Tests.Compiler.ChecksDerivedTest
 import Tests.Compiler.ChecksRawTest
+import Tests.Compiler.HierBindsCensusTest
 import Tests.Compiler.LegacySemInstanceTest
 import Tests.Compiler.LegacyCacheFixTest
 import Tests.Compiler.ReaderWellTypedWildcardTest

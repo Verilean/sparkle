@@ -2183,3 +2183,9 @@ lean_lib «Tools.ShippingInstWidthsParts» where
 
 lean_lib «Tools.ShippingChecksWidths» where
   roots := #[`Tools.ShippingChecksWidths]
+
+lean_lib «Tools.ShippingShipsHierSame» where
+  roots := #[`Tools.ShippingShipsHierSame]
+
+lean_lib «Tools.ShippingCallWidths» where
+  roots := #[`Tools.ShippingCallWidths]

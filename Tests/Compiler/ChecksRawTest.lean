@@ -3,6 +3,8 @@ import Tools.ShippingChecksRaw
 import Tools.ShippingChildIfaceTy
 import Tools.ShippingChecksOuts
 import Tools.ShippingChecksWidths
+import Tools.ShippingCallWidths
+import Tools.ShippingShipsHierSame
 
 /-! # The raw-module facts on a real declaration (G1)
 
@@ -346,5 +348,51 @@ run_cmd liftTermElabM do
       unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do
         throwError "{n} uses a non-standard axiom: {ax}"
   logInfo m!"CHECKSWIDTHS: transitionPortTys_of_run, instOutWidthsOk_of, callStmtG_outWireF, hierGate_of, core_callPorts, core_instOutWidthsOk, core_shipsHier_rest3, core_hierGate, core_shipsHier_rest3F, parent_kidP, parent_kidW, parent_widths, parent_hierGate, parent_shipsHier3 — standard axioms only"
+
+/-! ## The width agreement as a condition on the data (Finding A)
+
+`parent_callWidths`: `callWidthsOk` of `parent` against `cnt`'s layout — ONE
+`decide` over the two declarations' reflected data, no run.
+`parent_kidW_data`: `hkidW` from it and `cnt`'s output ports
+(`hkidW_of_data`, `leaf_real_outTys`). -/
+
+theorem parent_callWidths :
+    Tools.ShippingCallWidths.callWidthsOk parent.machineData 1
+      (fun _ => cnt.machineData.shape.layout.outs) = true := by decide
+
+set_option maxHeartbeats 0 in
+theorem parent_kidW_data {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State}
+    {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State}
+    (entryC : Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref ``cnt
+      cnt.machineData.shape) :
+    ∀ (k : Nat) (hk : k < parent.machineData.shape.insts.length)
+      (y : Tools.ShippingChildInv.Res),
+      Tools.ShippingChildInv.RealChild mref cref (parent.machineData.shape.insts[k]).1 y →
+      ∀ p ∈ y.1.outputs, p.name = parent.machineData.shape.instFields.getD k "" →
+        (parent.machineData.shape.binders[1 + k]?).map
+          (fun bn => (Tools.ShippingMachineEntry.kindTy bn.2).bitWidth) = some p.ty.bitWidth :=
+  Tools.ShippingCallWidths.hkidW_of_data parent_callWidths (by
+    intro k hk y hy
+    have hk' : k < 2 := hk
+    have hall := fun (h : Tools.ShippingChildInv.RealChild mref cref ``cnt y) =>
+      Tools.ShippingChildIfaceTy.leaf_real_outTys cnt.machineData cnt.machine_ok cnt.machine_body
+        rfl (fun h0 => absurd (congrArg List.length h0) (by decide)) (by decide) (by decide)
+        entryC (fun mc cc => cnt.machine_closes mc _ cc _) h
+    cases k with
+    | zero => exact hall hy
+    | succ k =>
+      cases k with
+      | zero => exact hall hy
+      | succ k => exact absurd hk' (by omega))
+
+open Lean Elab Command in
+run_cmd liftTermElabM do
+  for n in [``Tools.ShippingCallWidths.hkidW_of_data,
+      ``Tools.ShippingShipsHierSame.machine_ships_hierC_same,
+      ``parent_callWidths, ``parent_kidW_data] do
+    for ax in ← Lean.collectAxioms n do
+      unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do
+        throwError "{n} uses a non-standard axiom: {ax}"
+  logInfo m!"CHECKSDATA: hkidW_of_data, machine_ships_hierC_same, parent_callWidths, parent_kidW_data — standard axioms only"
 
 end Tests.Compiler.ChecksRawTest
