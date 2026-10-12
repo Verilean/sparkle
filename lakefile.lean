@@ -2504,3 +2504,18 @@ lean_lib «Tools.ShippingOneOutFacts» where
 
 lean_lib «Tools.ShippingOneOutHead» where
   roots := #[`Tools.ShippingOneOutHead]
+
+lean_lib «Tools.ShippingOneOutSameRun» where
+  roots := #[`Tools.ShippingOneOutSameRun]
+
+lean_lib «Tools.ShippingOneOutCommand» where
+  roots := #[`Tools.ShippingOneOutCommand]
+
+lean_lib «Tools.ShippingTypedWidthOk» where
+  roots := #[`Tools.ShippingTypedWidthOk]
+
+lean_lib «Tools.ShippingGatePorts» where
+  roots := #[`Tools.ShippingGatePorts]
+
+lean_lib «Tools.ShippingOneOutConns» where
+  roots := #[`Tools.ShippingOneOutConns]
