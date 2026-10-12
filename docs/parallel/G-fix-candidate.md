@@ -218,3 +218,27 @@ Cannot be decided without running:
 5. `Elab.lean`: the type ascription of the saved map; low.
 6. Not an elaboration risk but a result risk: a `Tests.AllTests` test that pins the TEXT of a
    module which used to re-declare a sibling's wire names.
+
+## Verification of this candidate in isolation (integrator, 2026-10-13)
+
+Tree: `fix/subinst-key-build` = par/b-12 e027a8df + ONE integrator change (`set_option maxHeartbeats 1600000 in`
+on `synthesizeCombinationalCore_reads` in `Tools/ShippingEntrySoundness.lean`: the first build timed out
+there at 200000 heartbeats; statement unchanged). Worker patches of `ShippingMemoLaws`, `ShippingMemoLawsWith`,
+`ShippingChildKeeps` built as written. All runs through cgrun (3 GiB, swap 0, one job).
+
+Measured on this tree:
+- `Tests.AllTests`: Build completed successfully (1172 jobs — this tree's base is 85ebb9fd, not poc's head).
+- `SubInstanceKeyTest`: `fixed=T; collisions []` (hWR collision was T on poc and on 83b2faf9).
+- `subinst_key_sim.sh`: hTopWR, gTopWR, gTopRW, gW, gR all `command==source T`, x-cycles 0 (hTopWR was got 14 / want 24).
+- `nested_let_sim.sh`: fTop, fMid, lPlain `command==source T`, x-cycles 0.
+- `writer_sim.sh`: 7/7 `new==source T`.
+- Combined digests equal to poc's and 83b2faf9's runs: 361 declarations 11874691237837614088; 84 declarations 2141260620024790681.
+
+Not established: equality for all successful inputs; a corpus declaration that had the Finding-G pattern
+(none found by reading); the per-declaration digest lines were compared only through the combined values;
+NOT integrated into poc — integration is the user's decision, and would be re-verified on the integrated tree.
+
+Run records:
+- `20261013-035121-gfix-tools`: result=exit-code, exit=1, memory_peak_file=1325568000
+- `20261013-040044-gfix-tools2`: result=success, exit=0, memory_peak_file=1991503872
+- `20261013-042102-gfix-all`: result=success, exit=0, memory_peak_file=1515905024

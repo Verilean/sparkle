@@ -1080,6 +1080,7 @@ theorem entryConst_cases (ci : ConstantInfo) (isInst : Lean.Expr → Bool)
     · exact Or.inl rfl
   · exact Or.inl rfl
 
+set_option maxHeartbeats 1600000 in
 /-- The real entry reads the declaration with `getConstInfo`, then computes the
 run's instance predicate and unfolding from `getEnv`, then runs
 `synthesizeFromConst` on the ENTRY CONSTANT of that declaration and that
