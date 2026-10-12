@@ -204,16 +204,18 @@ theorem kidsChild_iface {c : Name} (d : MachineData) (ok : d.ok = true)
     wired
   obtain ⟨hzb, -, hzi, hzo⟩ := hcleanAny outTy
   -- an instance statement of the module names a module of its design
-  have hinstD : ∀ mn i conns, Stmt.inst mn i conns ∈ M.body → ∃ mc ∈ D.modules, mc.name = mn := by
+  have hinstD : ∀ mn i conns, Stmt.inst mn i conns ∈ M.body →
+      ∃ mc, moduleByName D.modules mn = some mc ∧ mc ∈ D.modules ∧ mc.name = mn := by
     intro mn i conns hm
     by_cases hf : d.shape.instFields = []
     · obtain ⟨k, args, mc, -, hfind, -⟩ := hinst1 hf mn i conns hm
-      unfold moduleByName at hfind
-      exact ⟨mc, List.mem_of_find?_eq_some hfind, by simpa using List.find?_some hfind⟩
+      have hfind' := hfind
+      unfold moduleByName at hfind'
+      exact ⟨mc, hfind, List.mem_of_find?_eq_some hfind', by simpa using List.find?_some hfind'⟩
     · obtain ⟨args, outs, mc, hcs, hfind, -⟩ := hGinst hf _ hm rfl
       obtain ⟨_, _, _, -, -, -, -, -, -, -, -, -, -, -, he⟩ := hcs
       cases he
-      exact ⟨mc, List.mem_of_find?_eq_some hfind, rfl⟩
+      exact ⟨mc, hfind, List.mem_of_find?_eq_some hfind, rfl⟩
   have hhas : Tools.ShippingMachineShipsHier.hasInst M := by
     have hk0 : 0 < d.shape.insts.length := List.length_pos_iff.mpr hins
     by_cases hf : d.shape.instFields = []
@@ -284,7 +286,7 @@ theorem kidsChild_iface {c : Name} (d : MachineData) (ok : d.ok = true)
     rw [hbin]
     exact hargP
   refine ⟨hbname, ?_, ?_, houtNames, ?_, by rw [houtNames]; exact outsNodup, ?_,
-    by rw [hdesEq]; exact hdNd, by rw [hdesEq]; exact fun g hg => (hvisN g hg).1, ?_⟩
+    by rw [hdesEq]; exact hdNd, by rw [hdesEq]; exact fun g hg => (hvisN g hg).1, ?_, ?_⟩
   · rw [hinP]
     exact Tools.ShippingMachineCompose.machPorts_length _ (by
       have : d.bsIn.length ≤ d.shape.binders.length := by
@@ -327,10 +329,14 @@ theorem kidsChild_iface {c : Name} (d : MachineData) (ok : d.ok = true)
   · intro g hg mn i conns hm
     rcases List.mem_cons.mp hg with rfl | hg
     · rw [hbody'] at hm
-      obtain ⟨mc, hmc, rfl⟩ := hinstD mn i conns hm
+      obtain ⟨mc, -, hmc, rfl⟩ := hinstD mn i conns hm
       exact (hvisN mc hmc).1
     · rw [hdesEq] at hg
       exact (hvisN g hg).2 mn i conns hm
+  · intro mn i conns hm
+    rw [hbody'] at hm
+    obtain ⟨mc, hfind, -, -⟩ := hinstD mn i conns hm
+    exact ⟨mc, by rw [hdesEq]; exact hfind⟩
 
 /-- **A real child of a machine declaration with calls has the interface** —
 from its OWN run (the `RealChild` witness), its reflection and its closing in

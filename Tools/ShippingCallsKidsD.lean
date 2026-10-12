@@ -47,19 +47,24 @@ structure ChildIfaceD (c : Name) (nArgs : Nat) (outs names : List String)
   desNd : (design.modules.map (·.name)).Nodup
   desNames : ∀ g ∈ design.modules, g.name ∈ names
   closed : ∀ g ∈ b :: design.modules, ∀ mn i conns, Stmt.inst mn i conns ∈ g.body → mn ∈ names
+  resolves : ∀ mn i conns, Stmt.inst mn i conns ∈ b.body →
+    ∃ mc, moduleByName design.modules mn = some mc
 
 /-- A child without calls: no descendant. -/
 theorem ChildIfaceG.toD {c : Name} {nArgs : Nat} {outs : List String}
     {b : Sparkle.IR.AST.Module} {design : Design} (h : ChildIfaceG c nArgs outs b design) :
     ChildIfaceD c nArgs outs [] b design := by
   refine ⟨h.name, h.nIn, h.inNd, h.outs, h.outsIn, h.outsNd, memParams_none_of_seqOk h.seqOk,
-    (by rw [h.design]; exact List.nodup_nil), (by rw [h.design]; intro g hg; cases hg), ?_⟩
-  rw [h.design]
-  intro g hg mn i conns hm
-  have hgb : g = b := by simpa using hg
-  subst hgb
-  have := List.all_eq_true.mp h.seqOk _ hm
-  simp [seqStmtOk] at this
+    (by rw [h.design]; exact List.nodup_nil), (by rw [h.design]; intro g hg; cases hg), ?_, ?_⟩
+  · rw [h.design]
+    intro g hg mn i conns hm
+    have hgb : g = b := by simpa using hg
+    subst hgb
+    have := List.all_eq_true.mp h.seqOk _ hm
+    simp [seqStmtOk] at this
+  · intro mn i conns hm
+    have := List.all_eq_true.mp h.seqOk _ hm
+    simp [seqStmtOk] at this
 
 theorem module_of_name : ∀ (l : List Sparkle.IR.AST.Module), (l.map (·.name)).Nodup →
     ∀ a ∈ l, ∀ b ∈ l, a.name = b.name → a = b
