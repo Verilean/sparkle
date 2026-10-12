@@ -666,3 +666,25 @@ lake targets (never one import closure).
    four binders (the audits' binder count 5 throws otherwise).
 6. The audits' `ppExpr`-string comparison of binders (`auditB`), the
    `parent` compare (`machine_closes_at`'s binder order not read; `_try`).
+
+## 11. Repair after the first build of par/a-14 (WRITTEN, NOT BUILT)
+
+BUILT by the integrator: `Tools.ShippingBoundaryClose`,
+`Tools.ShippingLeafKidFacts`, `NoPortsGrandHBTest` (closedB: 0 NOT ALLOWED,
+gap theorem generated), `BoundaryCloseBaseProbe`. FAILED:
+`NoPortsMixD1Test`, `Tools.ShippingNoPortsKidsCommand`.
+
+MEASURED (build log): `mixD1`'s call entries are `[midH, midH, cnt, cnt]`
+(one entry per projected field; FOUR entries) — the "two entries, either
+order" of §7 was wrong.
+
+Changes: `NoPortsMixD1Test` — the abbreviations `dM` / `dC` are gone (the
+constants are written out; the compiler rejected the abbreviations);
+`outsT` / `insT` are `noncomputable def`s `if k < 2 then (midH's) else
+(cnt's)`; ONE decided statement `mixD1_entry : ∀ k hk, (insts[k]).1 = if k
+< 2 then midH else cnt`; `mixD1_tables` is `rw [mixD1_entry k hk]` and a
+case split on `k < 2` (no `first` over orders); the data assertion asks
+exactly `[midH, midH, cnt, cnt]`. `Tools.ShippingNoPortsKidsCommand` —
+`let env ← getEnv` before the pure `let cl?`; the per-entry tables and the
+nested `cases` already run over the reader's ENTRIES (4 for `mixD1`), the
+single-callee case over a decided ∀ (2 entries for `grandH`).
