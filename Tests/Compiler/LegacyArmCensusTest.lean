@@ -87,6 +87,32 @@ Log lines: `PROJ CLASS: fits N of M`, the fitting ones by
 `binders | index | kind`, and each non-fitting declaration with its first
 failing observation.
 
+**Pass 4 (round 23) — the `Signal.fst` class.** For each RETURNED
+declaration whose leaf has the head `Signal.fst` (39 in round 20: one
+structured Signal binder + the domain binder):
+
+* `fstObs` — the leaf's chain of `Signal.fst` / `Signal.snd` applications
+  (outermost first) and what it is applied to; `fallbackKind`; per binder the
+  type oracle's outcome and, for a Signal binder, its payload after `whnf` as
+  a nesting shape with its leaf count and the sum of the leaf widths; the
+  result's payload and the oracle on the result type; and the bit range
+  `(lo, width)` the chain denotes in the packed payload when the FIRST
+  component of a product sits in the HIGH bits (`chainRange`, computed from
+  the types only);
+* the entry is run again (`runEntryModule`) and the EMITTED raw module is
+  read (`sliceObs`): is `out`, followed through the wire assignments, a
+  slice `[hi:lo]` of one input port (slices of slices composed), with every
+  statement an assignment? The shapes that occur are tabulated
+  (`slice steps | assigns | input ports | wires`), and the composed range is
+  compared with the type-derived one.
+
+Log lines, all starting `FST CLASS`: `slice-of-input N of M`; the shapes;
+`composed range = type-derived range: N of M`; the non-fitting ones with the
+first expression that is neither a reference nor a slice; per declaration
+`port[hi:lo] of <port type>`; three detailed observations (the first with a
+Bool result, the first with a BitVec result, the deepest chain); the ports
+and the body of the smallest emitted module.
+
 One run in this environment: an observation. The whole block is inside
 `try … catch`, each declaration in its own; the outer heartbeat limit is
 lifted. -/
@@ -347,6 +373,242 @@ def projCheck (n : Name) : MetaM (Bool × String) := do
   saved.restore
   pure r
 
+/-! ### Pass 4 helpers: the `Signal.fst` class -/
+
+/-- A hardware type, as a label. -/
+def hwLabel : Sparkle.IR.Type.HWType → String
+  | .bit => "bit"
+  | .bitVector n => s!"bitVector {n}"
+  | _ => "another hardware type"
+
+/-- The first `n` characters of a string. -/
+def prefixN (n : Nat) (s : String) : String :=
+  String.join ((s.toList.take n).map fun c => c.toString)
+
+/-- The chain of `Signal.fst` / `Signal.snd` applications at the top of an
+expression, OUTERMOST first, and the head of what it is applied to. -/
+partial def chainOf (e : Lean.Expr) : List String × String :=
+  match e.getAppFn with
+  | .const n _ =>
+    if n == ``Sparkle.Core.Signal.Signal.fst && e.getAppNumArgs ≥ 1 then
+      let r := chainOf e.appArg!
+      ("fst" :: r.1, r.2)
+    else if n == ``Sparkle.Core.Signal.Signal.snd && e.getAppNumArgs ≥ 1 then
+      let r := chainOf e.appArg!
+      ("snd" :: r.1, r.2)
+    else ([], headOf e)
+  | _ => ([], headOf e)
+
+/-- A payload type after `whnf`: its nesting shape with the leaf payloads,
+its number of leaves, and the sum of the leaf widths (`none`: a leaf of
+unknown width). -/
+partial def payloadShape (ty : Lean.Expr) : MetaM (String × Nat × Option Nat) := do
+  let t ← whnf ty
+  if t.isAppOfArity ``Prod 2 then
+    let a ← payloadShape t.appFn!.appArg!
+    let b ← payloadShape t.appArg!
+    let w : Option Nat :=
+      match a.2.2, b.2.2 with
+      | some x, some y => some (x + y)
+      | _, _ => none
+    return (s!"({a.1} × {b.1})", a.2.1 + b.2.1, w)
+  else if t.isAppOfArity ``BitVec 1 then
+    let w ← (evalNat t.appArg!).run
+    return (s!"BitVec {w.getD 0}", 1, w)
+  else if t.isConstOf ``Bool then
+    return ("Bool", 1, some 1)
+  else if t.isConstOf ``Unit || t.isConstOf ``PUnit then
+    return ("Unit", 0, some 0)
+  else
+    return (headOf t, 1, none)
+
+/-- The bit range `(lo, width)` that a chain of projections (INNERMOST step
+first) denotes in the packed payload `ty`, the first component of a product
+in the high bits. Computed from the types only. -/
+partial def chainRange (ty : Lean.Expr) (steps : List String) :
+    MetaM (Option (Nat × Nat)) := do
+  let t ← whnf ty
+  match steps with
+  | [] =>
+    let sh ← payloadShape t
+    return sh.2.2.map fun w => (0, w)
+  | st :: rest =>
+    if t.isAppOfArity ``Prod 2 then
+      let a := t.appFn!.appArg!
+      let b := t.appArg!
+      if st == "fst" then
+        let shb ← payloadShape b
+        let r ← chainRange a rest
+        match shb.2.2, r with
+        | some wb, some (lo, w) => return some (lo + wb, w)
+        | _, _ => return none
+      else
+        chainRange b rest
+    else
+      return none
+
+/-- What pass 4 records of a declaration, from the source side. -/
+structure FstObs where
+  depth : Nat
+  payload : String
+  text : String
+  range : Option (Nat × Nat)
+
+/-- The source-side observation of a `Signal.fst`-headed declaration. -/
+def fstObsCore (n : Name) : MetaM FstObs := do
+  let env ← getEnv
+  let ci ← getConstInfo n
+  let ec := entryConst true false [] ci (instancePredicate env) (userInliner env)
+    (structEnv env)
+  let body0 ← openRecordInputs ec.value!
+  let body := stripMemoizeWrappers body0
+  lambdaTelescope body fun xs inner => do
+    let ch := chainOf inner
+    let mut binderText : String := ""
+    let mut structTy : Option Lean.Expr := none
+    for x in xs do
+      let ty ← inferType x
+      let d ← x.fvarId!.getDecl
+      let hw ← hwOf? ty
+      let hwText : String :=
+        match hw with
+        | some h => hwLabel h
+        | none => "THREW"
+      if ty.getAppFn.isConstOf ``Sparkle.Core.Signal.Signal then
+        let p := ty.appArg!
+        let sh ← payloadShape p
+        let shText := prefixN 400 sh.1
+        binderText := binderText ++
+          s!" [{d.userName}: a Signal; payload after whnf: {sh.2.1} leaves, sum of the leaf widths {sh.2.2}; the oracle on the binder type: {hwText}; shape (first 400 characters): {shText}]"
+        structTy := some p
+      else
+        binderText := binderText ++ s!" [{d.userName}: {headOf ty}; the oracle: {hwText}]"
+    let range : Option (Nat × Nat) ←
+      match structTy with
+      | some p => chainRange p ch.1.reverse
+      | none => pure none
+    let ty ← inferType inner
+    let resHw ← hwOf? ty
+    let resText : String :=
+      match resHw with
+      | some h => hwLabel h
+      | none => "THREW"
+    let chainText := prefixN 240 (String.intercalate "." ch.1)
+    let depth := ch.1.length
+    let pl := payloadOf ty
+    let txt : String :=
+      s!"{n}: chain (outermost first, first 240 characters) {chainText}, depth {depth}, applied to {ch.2}; fallbackKind {kindOf inner}; result payload {pl}, the oracle on the result type: {resText}; type-derived (lo, width) with the first component high: {range}; binders:{binderText}"
+    return { depth := depth, payload := pl, text := txt, range := range }
+
+/-- `fstObsCore`, isolated; `none` on an exception. -/
+def fstObs (n : Name) : MetaM (Option FstObs) := do
+  let saved ← Meta.saveState
+  let r ← tryCatchRuntimeEx
+    (do
+      let o ← fstObsCore n
+      pure (some o))
+    (fun _ => pure none)
+  saved.restore
+  pure r
+
+/-- ONE run of the shipping entry on `n`, isolated and bounded; the raw
+module it returns. -/
+def runEntryModule (n : Name) : MetaM (Option Sparkle.IR.AST.Module) := do
+  let saved ← Meta.saveState
+  sparkleSynthDepth.set 0
+  sparkleCallCounter.set 0
+  let r ← tryCatchRuntimeEx
+    (do
+      let md ← withTheReader Core.Context
+        (fun c => { c with maxHeartbeats := runHeartbeats * 1000 }) <|
+        withCurrHeartbeats <| synthesizeCombinationalCore n [] false
+      pure (some md.1))
+    (fun _ => pure none)
+  saved.restore
+  sparkleSynthDepth.set 0
+  pure r
+
+/-- An IR expression, compactly. -/
+partial def exprText : Sparkle.IR.AST.Expr → String
+  | .ref n => n
+  | .slice e hi lo => s!"{exprText e}[{hi}:{lo}]"
+  | .const v w => s!"const {v} width {w}"
+  | .concat _ => "<concat>"
+  | .op _ _ => "<op>"
+  | _ => "<other>"
+
+/-- The assignment of a statement. -/
+def assignOf? : Sparkle.IR.AST.Stmt → Option (String × Sparkle.IR.AST.Expr)
+  | .assign l r => some (l, r)
+  | _ => none
+
+/-- `e` as a slice of an input port, following the wire assignments: the
+port, the bit range `(hi, lo)` (`none`: the whole port) and the number of
+slice steps; or the first expression that is neither a reference nor a
+slice. A slice `[hi:lo]` of a slice `[h0:l0]` is `[l0+hi : l0+lo]`. -/
+def sliceOfInput (inputs : List String) (assigns : List (String × Sparkle.IR.AST.Expr)) :
+    Nat → Sparkle.IR.AST.Expr → Except String (String × Option (Nat × Nat) × Nat)
+  | 0, _ => .error "the assignment chain is longer than the body"
+  | fuel + 1, e =>
+    match e with
+    | .ref n =>
+      if inputs.contains n then .ok (n, none, 0)
+      else
+        match assigns.find? (fun p => p.1 == n) with
+        | some p => sliceOfInput inputs assigns fuel p.2
+        | none => .error s!"a reference to {n}, neither an input nor an assigned wire"
+    | .slice e' hi lo =>
+      match sliceOfInput inputs assigns fuel e' with
+      | .ok (inp, none, k) => .ok (inp, some (hi, lo), k + 1)
+      | .ok (inp, some (_, l0), k) => .ok (inp, some (l0 + hi, l0 + lo), k + 1)
+      | .error msg => .error msg
+    | .const _ _ => .error "a constant"
+    | .concat _ => .error "a concat"
+    | .op _ _ => .error "an operator"
+    | _ => .error "another expression"
+
+/-- What pass 4 records of an emitted module. -/
+structure SliceObs where
+  ok : Bool
+  key : String
+  detail : String
+  range : Option (Nat × Nat)
+
+/-- Is `out` a slice of one input port, every statement an assignment? -/
+def sliceObs (m : Sparkle.IR.AST.Module) : SliceObs :=
+  let assigns : List (String × Sparkle.IR.AST.Expr) := m.body.filterMap assignOf?
+  let inputs : List String := m.inputs.map fun p => p.name
+  if assigns.length != m.body.length then
+    { ok := false, key := "", range := none,
+      detail := s!"{m.body.length - assigns.length} statements are not assignments" }
+  else
+    match sliceOfInput inputs assigns (2 * assigns.length + 4)
+        (Sparkle.IR.AST.Expr.ref "out") with
+    | .ok (inp, some (hi, lo), k) =>
+      let iw : String :=
+        match m.inputs.find? (fun p => p.name == inp) with
+        | some p => hwLabel p.ty
+        | none => "?"
+      { ok := true, range := some (lo, hi - lo + 1),
+        key := s!"{k} slice steps | {assigns.length} assigns | {m.inputs.length} input ports | {m.wires.length} wires",
+        detail := s!"{inp}[{hi}:{lo}] of {iw}" }
+    | .ok (inp, none, _) =>
+      { ok := false, key := "", range := none, detail := s!"out is the whole input {inp}" }
+    | .error msg => { ok := false, key := "", range := none, detail := msg }
+
+/-- The ports and the body of a module, compactly. -/
+def moduleText (m : Sparkle.IR.AST.Module) : String :=
+  let port (p : Sparkle.IR.AST.Port) : String := s!"{p.name}:{hwLabel p.ty}"
+  let stmt (st : Sparkle.IR.AST.Stmt) : String :=
+    match assignOf? st with
+    | some (l, r) => s!"{l} = {exprText r}"
+    | none => "<not an assignment>"
+  let ins := String.intercalate ", " (m.inputs.map port)
+  let outs := String.intercalate ", " (m.outputs.map port)
+  let ws := String.intercalate ", " (m.wires.map port)
+  let body := String.intercalate "; " (m.body.map stmt)
+  s!"module {m.name}: inputs [{ins}]; outputs [{outs}]; wires [{ws}]; body [{body}]"
+
 set_option maxHeartbeats 0 in
 run_cmd Lean.Elab.Command.liftTermElabM do
   try
@@ -425,6 +687,8 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     let mut rClasses : Std.HashMap String (Nat × String) := {}
     let mut tHeads : Std.HashMap String (Nat × String) := {}
     let mut projNames : Array Name := #[]
+    let mut fstNames : Array Name := #[]
+    let fstHead : String := (``Sparkle.Core.Signal.Signal.fst : Name).toString
     for i in legacy do
       let now ← IO.monoMsNow
       if now - t0 > runBudgetMs then
@@ -440,6 +704,8 @@ run_cmd Lean.Elab.Command.liftTermElabM do
           if i.head == "<lambda>" then
             rBeta := bump rBeta i.betaHead i.name.toString
             projNames := projNames.push i.name
+          if i.head == fstHead then
+            fstNames := fstNames.push i.name
           rClasses := bump rClasses s!"{i.head} | {i.binders} | result {i.payload}"
             i.name.toString
         else if r == "TIMEOUT" || r == "RUNTIME" || r == "HARNESS ERROR" then
@@ -473,6 +739,66 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     logInfo m!"PROJ CLASS, fitting, by binders | index of the field's variable | kind: {render fitTable}"
     let misText : String := String.intercalate "; " misfits.toList
     logInfo m!"PROJ CLASS, NOT fitting ({misfits.size}), declaration and first failing observation: {misText}"
+    -- pass 4: the `Signal.fst` class, source side and emitted module
+    let mut fstOk : Nat := 0
+    let mut fstAgree : Nat := 0
+    let mut fstTable : Std.HashMap String (Nat × String) := {}
+    let mut fstBad : Array String := #[]
+    let mut fstRanges : Array String := #[]
+    let mut boolText : String := "none"
+    let mut bitsText : String := "none"
+    let mut deepText : String := "none"
+    let mut deepDepth : Nat := 0
+    let mut smallText : String := "none"
+    let mut smallSize : Nat := 0
+    for n in fstNames do
+      let o? ← fstObs n
+      let m? ← runEntryModule n
+      let typeRange : Option (Nat × Nat) :=
+        match o? with
+        | some o => o.range
+        | none => none
+      match o? with
+      | some o =>
+        if boolText == "none" && o.payload == "Bool" then
+          boolText := o.text
+        if bitsText == "none" && o.payload == "BitVec" then
+          bitsText := o.text
+        if deepText == "none" || o.depth > deepDepth then
+          deepText := o.text
+          deepDepth := o.depth
+      | none =>
+        fstBad := fstBad.push s!"{n}: no source-side observation (an exception)"
+      match m? with
+      | none =>
+        fstBad := fstBad.push s!"{n}: the entry returned no module on this run"
+      | some m =>
+        let so := sliceObs m
+        if smallText == "none" || m.body.length < smallSize then
+          smallText := s!"{n}: {moduleText m}"
+          smallSize := m.body.length
+        if so.ok then
+          fstOk := fstOk + 1
+          fstTable := bump fstTable so.key n.toString
+          fstRanges := fstRanges.push s!"{n}: {so.detail}"
+          if so.range.isSome && so.range == typeRange then
+            fstAgree := fstAgree + 1
+          else
+            fstBad := fstBad.push
+              s!"{n}: the composed (lo, width) {so.range} differs from the type-derived {typeRange}"
+        else
+          fstBad := fstBad.push s!"{n}: {so.detail}"
+    let fstBadText : String := String.intercalate "; " fstBad.toList
+    let fstRangeText : String := String.intercalate "; " fstRanges.toList
+    logInfo m!"FST CLASS: slice-of-input {fstOk} of {fstNames.size} (the RETURNED declarations with head Signal.fst; in the emitted raw module every statement is an assignment and out, followed through the wire assignments, is a slice [hi:lo] of one input port)"
+    logInfo m!"FST CLASS, shapes (slice steps | assigns | input ports | wires): {render fstTable}"
+    logInfo m!"FST CLASS, composed range = type-derived range (first component of a product in the high bits): {fstAgree} of {fstNames.size}"
+    logInfo m!"FST CLASS, NOT fitting or differing ({fstBad.size}): {fstBadText}"
+    logInfo m!"FST CLASS, per declaration, port[hi:lo] of the port's type: {fstRangeText}"
+    logInfo m!"FST CLASS, DETAIL (first with a Bool result): {boolText}"
+    logInfo m!"FST CLASS, DETAIL (first with a BitVec result): {bitsText}"
+    logInfo m!"FST CLASS, DETAIL (deepest chain): {deepText}"
+    logInfo m!"FST CLASS, SMALLEST emitted module: {smallText}"
   catch ex =>
     logInfo m!"LEGACY ARM CENSUS: harness error: {ex.toMessageData}"
 

@@ -2243,3 +2243,12 @@ lean_lib «Tools.ShippingLegacySemInputAt» where
 
 lean_lib «Tools.ShippingLegacySemProj» where
   roots := #[`Tools.ShippingLegacySemProj]
+
+lean_lib «Tools.ShippingLegacySemPacked» where
+  roots := #[`Tools.ShippingLegacySemPacked]
+
+lean_lib «Tools.ShippingLegacySemFst» where
+  roots := #[`Tools.ShippingLegacySemFst]
+
+lean_lib «Tools.ShippingLegacySemFstArm» where
+  roots := #[`Tools.ShippingLegacySemFstArm]

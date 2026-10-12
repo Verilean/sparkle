@@ -9,6 +9,7 @@ import Tools.ShippingLegacySemLeafHandled
 import Tools.ShippingLegacySemEntryListD
 import Tools.ShippingLegacySemBeta
 import Tools.ShippingLegacySemProj
+import Tools.ShippingLegacySemFst
 import Sparkle
 
 /-! # The legacy inline arm on a real call: which premises can be discharged
@@ -258,6 +259,17 @@ became `LamTelescopeND` (distinct variables). The hand proof of round 21 is
 kept as `SHA256Out_done_output_r21` (premise `LamTelescopeN`). Which of the
 45 projection declarations meet the observable premises: the line
 `PROJ CLASS` of the census test.
+
+## Round 23: the `Signal.fst` class — the entry part
+
+`Tools/ShippingLegacySemFst.lean`, `fst_entry_output_of_chain`: for the 39
+declarations whose leaf is a `Signal.fst` / `Signal.snd` chain over one
+structured Signal binder (bound as ONE `.bits N` port), `out` carries a slice
+of the PACKED input, from the walk's obligation `FstChainLeaf` (open: three
+decisions, `docs/parallel/G2-legacy-round23.md`). No instance here: the
+obligation is not discharged for any declaration. The packing function under
+which the slice is the source's field: `Tools/ShippingLegacySemPacked.lean`
+(`PShape.pack`, `pack_fst`, `pack_snd`). The audit below covers them.
 -/
 
 open Lean Meta Sparkle.Compiler.Elab
@@ -1664,6 +1676,8 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     ``Tools.ShippingLegacySem.telescopeIn_of_lams, ``Tools.ShippingLegacySem.telescopeIn_of_lamsN,
     ``Tools.ShippingLegacySem.declsAtD_of_open, ``Tools.ShippingLegacySem.prepare_inputValue,
     ``Tools.ShippingLegacySem.LamTelescopeND.toN,
+    ``Tools.ShippingLegacySem.fst_entry_output_of_chain,
+    ``Tools.ShippingLegacySem.PShape.pack_fst, ``Tools.ShippingLegacySem.PShape.pack_snd,
     ``Tools.ShippingLegacySem.list_entry_outputD,
     ``Tools.ShippingLegacySem.leafDom_betaWire,
     ``Tools.ShippingLegacySem.plainCallee_leaf, ``Tools.ShippingLegacySem.handlerCase_inline,
