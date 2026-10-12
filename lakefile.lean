@@ -2456,3 +2456,18 @@ lean_lib «Tools.ShippingCallShadow» where
 
 lean_lib «Tools.ShippingCallWidthsStrict» where
   roots := #[`Tools.ShippingCallWidthsStrict]
+
+lean_lib «Tools.ShippingHierGateAny» where
+  roots := #[`Tools.ShippingHierGateAny]
+
+lean_lib «Tools.ShippingCombKidText» where
+  roots := #[`Tools.ShippingCombKidText]
+
+lean_lib «Tools.ShippingPortsMatchRawLeafAny» where
+  roots := #[`Tools.ShippingPortsMatchRawLeafAny]
+
+lean_lib «Tools.ShippingInstSignature» where
+  roots := #[`Tools.ShippingInstSignature]
+
+lean_lib «Tools.ShippingReaderResultKind» where
+  roots := #[`Tools.ShippingReaderResultKind]
