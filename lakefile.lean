@@ -2225,3 +2225,15 @@ lean_lib «Tools.ShippingShipsFreeMaskedCommand» where
 
 lean_lib «Tools.ShippingChecksDesign» where
   roots := #[`Tools.ShippingChecksDesign]
+
+lean_lib «Tools.ShippingWidthTables» where
+  roots := #[`Tools.ShippingWidthTables]
+
+lean_lib «Tools.ShippingNamesStable» where
+  roots := #[`Tools.ShippingNamesStable]
+
+lean_lib «Tools.ShippingNamesNext» where
+  roots := #[`Tools.ShippingNamesNext]
+
+lean_lib «Tools.ShippingSeqCheckTyped» where
+  roots := #[`Tools.ShippingSeqCheckTyped]

@@ -162,6 +162,8 @@ import Tests.Compiler.FinalGoalTest
 import Tests.Compiler.ShipsFreeTest
 import Tests.Compiler.ShipsFreeMaskedTest
 import Tests.Compiler.MasksKeptCensusTest
+import Tests.Compiler.DesignTextTest
+import Tests.Compiler.NamesNextTest
 import Tests.Compiler.NameSepFastTest
 import Tests.Compiler.ReaderAppTest
 import Tests.Compiler.InlineUnfoldRegressionTest
