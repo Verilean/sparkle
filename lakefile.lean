@@ -2603,3 +2603,9 @@ lean_lib «Tools.ShippingMemOnlyAtAll» where
 
 lean_lib «Tools.ShippingMemOnlyCloses» where
   roots := #[`Tools.ShippingMemOnlyCloses]
+
+lean_lib «Tools.ShippingCoreFromM» where
+  roots := #[`Tools.ShippingCoreFromM]
+
+lean_lib «Tools.ShippingCoreFromMPorts» where
+  roots := #[`Tools.ShippingCoreFromMPorts]
