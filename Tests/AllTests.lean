@@ -210,6 +210,7 @@ import Tests.Compiler.OneOutCallerBadTest
 import Tests.Compiler.OneOutInnerPickTest
 import Tests.Compiler.NoPortsKidsMid2Test
 import Tests.Compiler.NoPortsLoopParentTest
+import Tests.Compiler.NoPortsMemWithMemoryTest
 import Tests.Compiler.LegacySemInstanceTest
 import Tests.Compiler.LegacyCacheFixTest
 import Tests.Compiler.LegacySemMemoTest
