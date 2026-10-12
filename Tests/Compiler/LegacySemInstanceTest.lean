@@ -8,6 +8,7 @@ import Tools.ShippingLegacySemTelescopeN
 import Tools.ShippingLegacySemLeafHandled
 import Tools.ShippingLegacySemEntryListD
 import Tools.ShippingLegacySemBeta
+import Tools.ShippingLegacySemProj
 import Sparkle
 
 /-! # The legacy inline arm on a real call: which premises can be discharged
@@ -246,6 +247,17 @@ for the real constant is in the census test), in the SHIPPING configuration
   `Tools/ShippingLegacySemBeta.lean`);
 * conclusion: memo hit, or `out` carries the value of the input bound for
   `done`.
+
+## Round 22: the projection class as one theorem
+
+`Tools/ShippingLegacySemProj.lean`, `proj_entry_output`: generic over the
+declaration, the binder list and the field's position (arity-generic
+telescope `telescopeIn_of_lamsN`, generic input fact `prepare_inputValue`).
+`SHA256Out_done_output` is now its corollary; its Meta-library premise
+became `LamTelescopeND` (distinct variables). The hand proof of round 21 is
+kept as `SHA256Out_done_output_r21` (premise `LamTelescopeN`). Which of the
+45 projection declarations meet the observable premises: the line
+`PROJ CLASS` of the census test.
 -/
 
 open Lean Meta Sparkle.Compiler.Elab
@@ -1226,7 +1238,7 @@ the leaf is an application with a lambda head (`hshape`) of fallback kind
 domain binder's type (`hdom`), `bitVector 256` and `bit` for the two fields
 (`hhash`, `hdone`), the leaf's reducible `whnf` is the third variable
 (`hwhnf`), the leaf's type is Signal-headed (`hres`). The run: `hr`. -/
-theorem SHA256Out_done_output {logProf : String → IO Unit} {dv : DefinitionVal}
+theorem SHA256Out_done_output_r21 {logProf : String → IO Unit} {dv : DefinitionVal}
     {isInst : Lean.Expr → Bool} {m : Sparkle.IR.AST.Module} {d : Sparkle.IR.AST.Design}
     {leafOf : List FVarId → Lean.Expr} {domTy : Lean.Expr} {hashTy doneTy : FVarId → Lean.Expr}
     (old : certifiedShape? false [] (.defnInfo dv) = none)
@@ -1337,6 +1349,144 @@ theorem SHA256Out_done_output {logProf : String → IO Unit} {dv : DefinitionVal
       exact leafDom_betaWire hfnL hk hw (sha256Out_done_input id1 id2 id3 cache bools bits)
     exact H bools bits initial mems values
       (Tools.ShippingUnifiedMeaning.Value.bool (bools id3)) Nat.zero_lt_one dom
+
+/-! ## Round 22: the same declaration as an instance of the generic projection theorem -/
+
+/-- A list of length three is three elements. -/
+theorem len3 {α : Type} (ids : List α) (len' : ids.length = 3) :
+    ∃ a b c, ids = [a, b, c] := by
+  cases ids with
+  | nil => first | simp at len' | (simp only [List.length_nil] at len'; omega)
+  | cons a tl =>
+    cases tl with
+    | nil =>
+      first | simp at len' | (simp only [List.length_cons, List.length_nil] at len'; omega)
+    | cons b tl2 =>
+      cases tl2 with
+      | nil =>
+        first
+          | simp at len'
+          | (simp only [List.length_cons, List.length_nil] at len'; omega)
+      | cons c tl3 =>
+        cases tl3 with
+        | nil => exact ⟨a, b, c, rfl⟩
+        | cons e tl4 =>
+          first | simp at len' | (simp only [List.length_cons] at len'; omega)
+
+/-- **`SHA256Out.done` as a corollary of `proj_entry_output`** (binders
+`sha256OutBinders`, field position 2, kind `.bool`). The statement of round
+21 (`SHA256Out_done_output_r21`) with ONE change: the Meta-library premise is
+`LamTelescopeND` (the telescope's variables are distinct) instead of
+`LamTelescopeN` — the generic input fact `prepare_inputValue` needs
+distinctness where the hand proof `sha256Out_done_input` did not (the field
+is the LAST binder, so nothing overwrites it). -/
+theorem SHA256Out_done_output {logProf : String → IO Unit} {dv : DefinitionVal}
+    {isInst : Lean.Expr → Bool} {m : Sparkle.IR.AST.Module} {d : Sparkle.IR.AST.Design}
+    {leafOf : List FVarId → Lean.Expr} {domTy : Lean.Expr} {hashTy doneTy : FVarId → Lean.Expr}
+    (old : certifiedShape? false [] (.defnInfo dv) = none)
+    (mixed : mixedCertifiedShape? false [] (.defnInfo dv) isInst = none)
+    (hmach : ∀ projs, machineShape? false [] (.defnInfo dv) projs = none)
+    (htel : LamTelescopeND)
+    (hbody : ∀ body0, Tools.ShippingEntrySoundness.MReturns (openRecordInputs dv.value) body0 →
+      ∃ (T1 T2 T3 b : Lean.Expr) (bi1 bi2 bi3 : BinderInfo),
+        stripMemoizeWrappers body0 =
+          Lean.Expr.lam `dom T1 (Lean.Expr.lam `hash T2 (Lean.Expr.lam `done T3 b bi3) bi2) bi1 ∧
+        b.isLambda = false ∧
+        T1.instantiateRevRange 0 (#[] : Array Lean.Expr).size #[] = domTy ∧
+        (∀ id1 : FVarId, T2.instantiateRevRange 0 (fv1 id1).size (fv1 id1) = hashTy id1) ∧
+        (∀ id1 id2 : FVarId,
+          T3.instantiateRevRange 0 (fv2p id1 id2).size (fv2p id1 id2) = doneTy id1) ∧
+        ∀ id1 id2 id3 : FVarId,
+          b.instantiateRevRange 0 (fv3 id1 id2 id3).size (fv3 id1 id2 id3) =
+            leafOf [id1, id2, id3])
+    (hdom : InfersNothing domTy)
+    (hhash : ∀ id1 : FVarId,
+      InfersHW (hashTy id1) (.bitVector 256) ∧ InfersNoCatch (hashTy id1))
+    (hdone : ∀ id1 : FVarId, InfersHW (doneTy id1) .bit ∧ InfersNoCatch (doneTy id1))
+    (hshape : ∀ ids : List FVarId, ∃ (f a : Lean.Expr) (n : Name) (ty b : Lean.Expr)
+      (bi : BinderInfo), leafOf ids = Lean.Expr.app f a ∧
+        (Lean.Expr.app f a).getAppFn = Lean.Expr.lam n ty b bi)
+    (hkind : ∀ ids : List FVarId, fallbackKind (leafOf ids) = .other)
+    (hwhnf : ∀ id1 id2 id3 : FVarId, WhnfIsVar (leafOf [id1, id2, id3]) id3)
+    (hres : ∀ ids : List FVarId, SignalTyped (leafOf ids))
+    (hr : Tools.ShippingEntrySoundness.MReturns (synthesizeFromConst
+      (fun e hint top named => translateExprToWire e hint top named)
+      logProf sha256DoneName [] false true (.defnInfo dv) isInst) (m, d)) :
+    MemoHit sha256DoneName m d ∨
+    ∃ (id1 id2 id3 : FVarId) (cache : IO.Ref (ExprStructMap String)),
+      ∀ (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n)
+        (initial : Sparkle.IR.Semantics.Env) (mems : Sparkle.IR.Semantics.MEnv),
+      Tools.ShippingMixedEntrySoundness.Admissible bools bits initial
+        (sha256OutBinders.zip [id1, id2, id3])
+        (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
+          sha256DoneName.toString) →
+      Tools.ShippingMixedEntrySoundness.RawValueAt
+        (Tools.ShippingUnifiedMeaning.Value.bool (bools id3)).kind.width sha256OutBinders m
+        initial mems (Tools.ShippingUnifiedMeaning.Value.bool (bools id3)).toNat := by
+  have hbody' : ∀ body0,
+      Tools.ShippingEntrySoundness.MReturns (openRecordInputs dv.value) body0 →
+      ∃ (sp : List (Name × Lean.Expr × BinderInfo)) (b : Lean.Expr),
+        stripMemoizeWrappers body0 = lams sp b ∧
+        b.isLambda = false ∧
+        TypesOkFrom sp sha256OutBinders #[] ∧
+        ∀ ids : List FVarId, ids.length = sha256OutBinders.length →
+          b.instantiateRevRange 0 (ids.map Lean.Expr.fvar).toArray.size
+            (ids.map Lean.Expr.fvar).toArray = leafOf ids := by
+    intro body0 hopen
+    obtain ⟨T1, T2, T3, b, bi1, bi2, bi3, hb, hl, hT1, hT2, hT3, hi⟩ := hbody body0 hopen
+    have o1 : TypeOk .domain (T1.instantiateRevRange 0 (#[] : Array Lean.Expr).size #[]) := by
+      rw [hT1]
+      exact hdom
+    have o2 : ∀ id1 : FVarId,
+        TypeOk (.bits 256) (T2.instantiateRevRange 0 (fv1 id1).size (fv1 id1)) := by
+      intro id1
+      rw [hT2 id1]
+      exact hhash id1
+    have o3 : ∀ id1 id2 : FVarId,
+        TypeOk .bool (T3.instantiateRevRange 0 (fv2p id1 id2).size (fv2p id1 id2)) := by
+      intro id1 id2
+      rw [hT3 id1 id2]
+      exact hdone id1
+    have hty : TypesOkFrom [(`dom, T1, bi1), (`hash, T2, bi2), (`done, T3, bi3)]
+        sha256OutBinders #[] :=
+      And.intro rfl (And.intro o1 (fun id1 =>
+        And.intro rfl (And.intro (o2 id1) (fun id2 =>
+          And.intro rfl (And.intro (o3 id1 id2) (fun _ => True.intro))))))
+    have hi' : ∀ ids : List FVarId, ids.length = sha256OutBinders.length →
+        b.instantiateRevRange 0 (ids.map Lean.Expr.fvar).toArray.size
+          (ids.map Lean.Expr.fvar).toArray = leafOf ids := by
+      intro ids hlen
+      have len' : ids.length = 3 := hlen
+      obtain ⟨a1, a2, a3, hids⟩ := len3 ids len'
+      rw [hids]
+      exact hi a1 a2 a3
+    exact ⟨[(`dom, T1, bi1), (`hash, T2, bi2), (`done, T3, bi3)], b, hb, hl, hty, hi'⟩
+  have hwhnf' : ∀ (ids : List FVarId) (x : FVarId), ids.length = sha256OutBinders.length →
+      AtIdx ids 2 x → WhnfIsVar (leafOf ids) x := by
+    intro ids x hlen hx
+    have len' : ids.length = 3 := hlen
+    obtain ⟨a1, a2, a3, hids⟩ := len3 ids len'
+    rw [hids] at hx
+    have e : a3 = x := hx
+    rw [hids, ← e]
+    exact hwhnf a1 a2 a3
+  have hfield : AtIdx sha256OutBinders 2 ((`done, MixedGateBinder.bool) : Name × MixedGateBinder) :=
+    (rfl : ((`done, MixedGateBinder.bool) : Name × MixedGateBinder) = (`done, .bool))
+  rcases proj_entry_output (declName := sha256DoneName) (bs := sha256OutBinders)
+      (leafOf := leafOf) (i := 2) (nm := `done) (k := MixedGateBinder.bool)
+      old mixed hmach htel hbody' hfield (by intro h; cases h) Nat.zero_lt_one
+      (fun ids _ => hshape ids) (fun ids _ => hkind ids) hwhnf' (fun ids _ => hres ids) hr with
+    hit | ⟨ids, x, cache, hlen, _, hx, H⟩
+  · exact Or.inl hit
+  · have len' : ids.length = 3 := hlen
+    obtain ⟨id1, id2, id3, hids⟩ := len3 ids len'
+    rw [hids] at hx
+    rw [hids] at H
+    have e : id3 = x := hx
+    rw [← e] at H
+    refine Or.inr ⟨id1, id2, id3, cache, ?_⟩
+    intro bools bits initial mems values
+    exact H bools bits initial mems values
 
 /-! ## Evidence for the undischarged facts, by compiled code -/
 
@@ -1509,7 +1659,12 @@ run_cmd Lean.Elab.Command.liftTermElabM do
 -- The acceptance check: standard axioms only. This one THROWS.
 run_cmd Lean.Elab.Command.liftTermElabM do
   let audited : List Name := [``useDbl_output, ``useDbl2_output, ``useAdd2_output,
-    ``SHA256Out_done_output, ``Tools.ShippingLegacySem.list_entry_outputD,
+    ``SHA256Out_done_output, ``SHA256Out_done_output_r21,
+    ``Tools.ShippingLegacySem.proj_entry_output, ``Tools.ShippingLegacySem.list_entry_outputDN,
+    ``Tools.ShippingLegacySem.telescopeIn_of_lams, ``Tools.ShippingLegacySem.telescopeIn_of_lamsN,
+    ``Tools.ShippingLegacySem.declsAtD_of_open, ``Tools.ShippingLegacySem.prepare_inputValue,
+    ``Tools.ShippingLegacySem.LamTelescopeND.toN,
+    ``Tools.ShippingLegacySem.list_entry_outputD,
     ``Tools.ShippingLegacySem.leafDom_betaWire,
     ``Tools.ShippingLegacySem.plainCallee_leaf, ``Tools.ShippingLegacySem.handlerCase_inline,
     ``Tools.ShippingLegacySem.one_binder_entry_output_bound,

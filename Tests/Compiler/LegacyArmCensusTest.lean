@@ -58,6 +58,35 @@ leaves need `splitReturnLeaves`); declarations outside the imports. A
 declaration the gates route to `machine` whose machine synthesis then
 declines also ends in the legacy arm; those are not run here.
 
+**Pass 3 (round 22) — the projection class.** For each RETURNED declaration
+with a `<lambda>` head (the 45 structure projection functions), the
+OBSERVABLE premises of the generic theorem `proj_entry_output`
+(`Tools/ShippingLegacySemProj.lean`) are checked on the real constant
+(`projCheck`), in this order — the first one that fails is reported:
+
+1. the three gates decline on the entry's constant (`old`, `mixed`, `hmach`);
+2. the stripped value has as many nested lambdas as the telescope opens
+   variables (`hbody`: `lams sp b`, `b` not a lambda);
+3. each declared type and the leaf equal the `instantiateRevRange` results
+   over the variables opened before (`TypesOkFrom`'s types, the leaf
+   equation);
+4. the telescope's variables are distinct (`LamTelescopeND`'s extra
+   conjunct, observed on this run);
+5. the leaf is an application with a lambda head (`hshape`);
+6. its `fallbackKind` is `other` (`hkind`);
+7. its reducible `whnf` is the variable at some index `i` (`hwhnf`);
+8. the type oracle THROWS on a domain binder and on no other, and returns
+   `bit` on a `Bool` payload / `bitVector n` (`n ≠ 1`) on a `BitVec` payload
+   (`TypesOkFrom`'s oracle facts; a returning or throwing run is one
+   observation, not the universally quantified premise). A `bit` port on a
+   `BitVec` payload is a WIDTH-ONE field: reported as non-fitting;
+9. the binder at index `i` is not the domain binder (`hk`);
+10. the `whnf` of the leaf's inferred type is Signal-headed (`hres`).
+
+Log lines: `PROJ CLASS: fits N of M`, the fitting ones by
+`binders | index | kind`, and each non-fitting declaration with its first
+failing observation.
+
 One run in this environment: an observation. The whole block is inside
 `try … catch`, each declaration in its own; the outer heartbeat limit is
 lifted. -/
@@ -190,6 +219,134 @@ def runEntry (n : Name) : MetaM String := do
   sparkleSynthDepth.set 0
   pure r
 
+/-- The binder types and the body of nested lambdas (loose bound variables,
+as in the constant's value). -/
+def lamParts : Lean.Expr → List Lean.Expr × Lean.Expr
+  | .lam _ T b _ =>
+    let r := lamParts b
+    (T :: r.1, r.2)
+  | e => ([], e)
+
+/-- The hardware-type oracle on a type; `none` when it throws. -/
+def hwOf? (T : Lean.Expr) : MetaM (Option Sparkle.IR.Type.HWType) := do
+  let cache ← IO.mkRef ({} : ExprStructMap String)
+  try
+    let (h, _) ←
+      ((inferHWTypeFromSignal T).run (entryCompilerState false cache)).run
+        (Sparkle.IR.Builder.CircuitM.init "evidence")
+    pure (some h)
+  catch _ => pure none
+
+/-- The kind of a binder as `proj_entry_output` needs it, from the oracle's
+outcome on its declared type; or the failing observation. -/
+def binderKindOf (nm : Name) (isDom : Bool) (payload : String)
+    (hw : Option Sparkle.IR.Type.HWType) : Except String String :=
+  match hw with
+  | none =>
+    if isDom then .ok "domain"
+    else .error s!"the type oracle throws on the non-domain binder {nm}"
+  | some h =>
+    if isDom then .error s!"the type oracle returns on the domain binder {nm}"
+    else
+      match h with
+      | .bit =>
+        if payload == "Bool" then .ok "bool"
+        else if payload == "BitVec" then
+          .error s!"width-one BitVec field {nm} (the oracle gives bit)"
+        else .error s!"bit port for the binder {nm} of payload {payload}"
+      | .bitVector w =>
+        if w == 1 then .error s!"bitVector 1 for the binder {nm}"
+        else if payload == "BitVec" then .ok s!"bits {w}"
+        else .error s!"bitVector {w} port for the binder {nm} of payload {payload}"
+      | _ => .error s!"another hardware type for the binder {nm}"
+
+/-- The observable premises of `proj_entry_output` on the declaration `n`:
+`(true, binders | index | kind)` when all hold, `(false, the first failing
+observation)` otherwise. -/
+def projCheckCore (n : Name) : MetaM (Bool × String) := do
+  let env ← getEnv
+  let ci ← getConstInfo n
+  let ec := entryConst true false [] ci (instancePredicate env) (userInliner env)
+    (structEnv env)
+  let gatesDecline : Bool :=
+    (certifiedShape? false [] ec).isNone &&
+      (mixedCertifiedShape? false [] ec (instancePredicate env)).isNone &&
+      (machineShape? false [] ec (structEnv env)).isNone
+  if !gatesDecline then
+    return (false, "a gate accepts the entry's constant")
+  let body0 ← openRecordInputs ec.value!
+  let body := stripMemoizeWrappers body0
+  let parts := lamParts body
+  let tys : List Lean.Expr := parts.1
+  let rawLeaf : Lean.Expr := parts.2
+  lambdaTelescope body fun xs inner => do
+    if xs.size != tys.length then
+      return (false, s!"{tys.length} nested lambdas but {xs.size} telescope variables")
+    -- the declared types and the leaf, as the premise `hbody` states them
+    let mut pre : Array Lean.Expr := #[]
+    let mut rawOk : Bool := true
+    for T in tys do
+      let x := xs[pre.size]!
+      let d ← x.fvarId!.getDecl
+      if !(T.instantiateRevRange 0 pre.size pre == d.type) then
+        rawOk := false
+      pre := pre.push x
+    if !(rawLeaf.instantiateRevRange 0 xs.size xs == inner) then
+      rawOk := false
+    if !rawOk then
+      return (false, "a declared type or the leaf differs from its instantiateRevRange form")
+    if xs.toList.eraseDups.length != xs.size then
+      return (false, "the telescope's variables are not distinct")
+    if !(inner.isApp && inner.getAppFn.isLambda) then
+      return (false, s!"the leaf is not a lambda-headed application (head {headOf inner})")
+    if kindOf inner != "other" then
+      return (false, s!"the leaf's fallbackKind is {kindOf inner}")
+    let wh ← withTransparency TransparencyMode.reducible (whnf inner)
+    let mut idx : Option Nat := none
+    let mut j : Nat := 0
+    for x in xs do
+      if x == wh then
+        idx := some j
+      j := j + 1
+    let some i := idx
+      | return (false, s!"the leaf's reducible whnf is not one of the variables (its head: {headOf wh})")
+    -- the type oracle on every declared type
+    let mut fieldKind : String := "?"
+    let mut pos : Nat := 0
+    let mut bad : Option String := none
+    for x in xs do
+      let ty ← inferType x
+      let d ← x.fvarId!.getDecl
+      let hw ← hwOf? ty
+      match binderKindOf d.userName (ty.isConstOf ``Sparkle.Core.Domain.DomainConfig)
+          (payloadOf ty) hw with
+      | .ok kd =>
+        if pos == i then
+          fieldKind := kd
+      | .error msg =>
+        if bad.isNone then
+          bad := some msg
+      pos := pos + 1
+    if let some msg := bad then
+      return (false, msg)
+    if fieldKind == "domain" then
+      return (false, "the leaf reduces to the domain variable")
+    let ty ← inferType inner
+    let tyN ← whnf ty
+    if !(tyN.getAppFn.isConstOf ``Sparkle.Core.Signal.Signal) then
+      return (false, "the whnf of the leaf's inferred type is not Signal-headed")
+    return (true, s!"{xs.size} binders | index {i} | {fieldKind}")
+
+/-- `projCheckCore`, isolated; an exception is a failing observation. -/
+def projCheck (n : Name) : MetaM (Bool × String) := do
+  let saved ← Meta.saveState
+  let r ← tryCatchRuntimeEx (projCheckCore n)
+    (fun ex => do
+      let msg ← ex.toMessageData.toString
+      pure (false, "harness error: " ++ prefixOf msg))
+  saved.restore
+  pure r
+
 set_option maxHeartbeats 0 in
 run_cmd Lean.Elab.Command.liftTermElabM do
   try
@@ -267,6 +424,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     let mut rBeta : Std.HashMap String (Nat × String) := {}
     let mut rClasses : Std.HashMap String (Nat × String) := {}
     let mut tHeads : Std.HashMap String (Nat × String) := {}
+    let mut projNames : Array Name := #[]
     for i in legacy do
       let now ← IO.monoMsNow
       if now - t0 > runBudgetMs then
@@ -281,6 +439,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
           rPayloads := bump rPayloads i.payload i.name.toString
           if i.head == "<lambda>" then
             rBeta := bump rBeta i.betaHead i.name.toString
+            projNames := projNames.push i.name
           rClasses := bump rClasses s!"{i.head} | {i.binders} | result {i.payload}"
             i.name.toString
         else if r == "TIMEOUT" || r == "RUNTIME" || r == "HARNESS ERROR" then
@@ -299,6 +458,21 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     logInfo m!"LEGACY ENTRY RUNS, RETURNED by the result type's payload: {render rPayloads}"
     logInfo m!"LEGACY ENTRY RUNS, RETURNED with a <lambda> head, by the head after headBeta: {render rBeta}"
     logInfo m!"LEGACY ENTRY RUNS, RETURNED by class (head | binders | result payload): {render rClasses}"
+    -- pass 3: the observable premises of `proj_entry_output` on the projections
+    let mut fitN : Nat := 0
+    let mut fitTable : Std.HashMap String (Nat × String) := {}
+    let mut misfits : Array String := #[]
+    for n in projNames do
+      let r ← projCheck n
+      if r.1 then
+        fitN := fitN + 1
+        fitTable := bump fitTable r.2 n.toString
+      else
+        misfits := misfits.push s!"{n}: {r.2}"
+    logInfo m!"PROJ CLASS: fits {fitN} of {projNames.size} (the RETURNED declarations with a <lambda> head; observable premises of proj_entry_output: gates decline, nested lambdas = telescope variables, declared types and leaf in instantiateRevRange form, distinct variables, lambda-headed application of kind other, reducible whnf = the variable at an index, type oracle throws exactly on the domain binder and gives bit on Bool / bitVector n (n ≠ 1) on BitVec, Signal-headed result)"
+    logInfo m!"PROJ CLASS, fitting, by binders | index of the field's variable | kind: {render fitTable}"
+    let misText : String := String.intercalate "; " misfits.toList
+    logInfo m!"PROJ CLASS, NOT fitting ({misfits.size}), declaration and first failing observation: {misText}"
   catch ex =>
     logInfo m!"LEGACY ARM CENSUS: harness error: {ex.toMessageData}"
 
