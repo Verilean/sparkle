@@ -195,24 +195,24 @@ partial def closesDeep (c : Name) : CommandElabM (Array Prem) := do
         ← `(fun k hk => Tools.ShippingNameSep.not_mem_map_of _ _
           ((by decide : ∀ (k : Nat), k < ($data).shape.insts.length →
             ((List.getD $kds k []).all fun c' =>
-              Tools.ShippingNameSep.sepB ($cq : Lean.Name) c') = true) k hk)),
+              Tools.ShippingNameSep.sep ($cq : Lean.Name) c') = true) k hk)),
         ← `(fun k hk => Tools.ShippingNameSep.not_mem_map_of _ _
           ((by decide : ∀ (k : Nat) (hk : k < ($data).shape.insts.length),
             ((List.getD $kds k []).all fun c' =>
-              Tools.ShippingNameSep.sepB (($data).shape.insts[k]).1 c') = true) k hk)),
+              Tools.ShippingNameSep.sep (($data).shape.insts[k]).1 c') = true) k hk)),
         ← `(fun k hk k' hk' hne =>
           ⟨Tools.ShippingNameSep.not_mem_map_of _ _
             ((by decide : ∀ (k : Nat) (hk : k < ($data).shape.insts.length) (k' : Nat)
               (hk' : k' < ($data).shape.insts.length),
               (($data).shape.insts[k]).1 ≠ (($data).shape.insts[k']).1 →
               ((List.getD $kds k' []).all fun c' =>
-                Tools.ShippingNameSep.sepB (($data).shape.insts[k]).1 c') = true) k hk k' hk' hne),
+                Tools.ShippingNameSep.sep (($data).shape.insts[k]).1 c') = true) k hk k' hk' hne),
            Tools.ShippingNameSep.disjoint_map_of _ _
             ((by decide : ∀ (k : Nat) (hk : k < ($data).shape.insts.length) (k' : Nat)
               (hk' : k' < ($data).shape.insts.length),
               (($data).shape.insts[k]).1 ≠ (($data).shape.insts[k']).1 →
               ((List.getD $kds k []).all fun a => (List.getD $kds k' []).all fun b =>
-                Tools.ShippingNameSep.sepB a b) = true) k hk k' hk' hne)⟩))
+                Tools.ShippingNameSep.sep a b) = true) k hk k' hk' hne)⟩))
     else do
       let p1 := Name.mkSimple s!"hN_{tag}_parentD"
       let p2 := Name.mkSimple s!"hN_{tag}_selfD"

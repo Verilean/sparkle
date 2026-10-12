@@ -17,7 +17,10 @@ design the full entry returns. This file states the derived checks on that
   module of the name of every module of that child's design and of the
   child; `b` assigns every output.
 * `core_outsCheck_all`: `outsCheck (childMap D.modules) n (checkedOptimize b)
-  = true` for EVERY depth `n`, under the gate `hierBinds b` and two facts
+  = true` for EVERY depth `n`, at a run starting in a world of the child
+  boundary (`ChildBnd`: what the generated endpoints assume — NOT the
+  stronger `InvW`, which an outermost run's start world need not satisfy;
+  round 13), under the gate `hierBinds b` and two facts
   per real child: its modules assign their outputs (`hkidA`) and its
   instance statements name modules of its own design (`hkidR`).
 * `kids_run_kid` / `kids_real_kid`: `hkidA` and `hkidR` for a child WITH
@@ -76,7 +79,7 @@ theorem core_kids_facts {c : Name} (d : MachineData) (ok : d.ok = true)
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
     (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
     {w w1 : Void IO.RealWorld} {M b : Sparkle.IR.AST.Module} {D : Design}
-    (hw : InvW mref cref w)
+    (hB : ChildBnd mref cref w)
     (hcore : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, D) w1)
     (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨
       b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M))
@@ -89,7 +92,7 @@ theorem core_kids_facts {c : Name} (d : MachineData) (ok : d.ok = true)
       ∀ g2 ∈ y.1 :: y.2.modules, ∃ g' ∈ D.modules, g'.name = g2.name) ∧
     Tools.ShippingDesignSVBack.outsAssigned b = true := by
   obtain ⟨bb, r, w9, w10, hrun9, hw9, hd9, hres⟩ :=
-    machine_run_of_core hcore entry (ChildBnd.of_invW mctx cctx hw)
+    machine_run_of_core hcore entry hB
   have hne := closes bb _ _ _ hw9 hd9 hrun9
   cases r with
   | none => exact absurd rfl hne
@@ -244,7 +247,7 @@ theorem core_outsCheck_all {c : Name} (d : MachineData) (ok : d.ok = true)
       ∀ g ∈ y.1 :: y.2.modules, ∀ mn i conns, Stmt.inst mn i conns ∈ g.body →
         ∃ g2 ∈ y.2.modules, g2.name = mn)
     {w w1 : Void IO.RealWorld} {M b : Sparkle.IR.AST.Module} {D : Design}
-    (hw : InvW mref cref w)
+    (hB : ChildBnd mref cref w)
     (hcore : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, D) w1)
     (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨
       b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M))
@@ -253,7 +256,7 @@ theorem core_outsCheck_all {c : Name} (d : MachineData) (ok : d.ok = true)
     (hb : hierBinds b = true) (n : Nat) :
     Tools.ShippingDesignSVBack.outsCheck (childMap D.modules) n (checkedOptimize b) = true := by
   obtain ⟨-, hbody', -, hresM, hrealD, -⟩ :=
-    core_kids_facts d ok hbody hC hslots hdomB hins outTy hnomem hw hcore hpost entry closes
+    core_kids_facts d ok hbody hC hslots hdomB hins outTy hnomem hB hcore hpost entry closes
   refine Tools.ShippingChecksDepth.outsCheck_opt_all hb ?_ ?_ ?_ n
   · intro mn iname conns hm
     rw [hbody'] at hm
@@ -314,7 +317,7 @@ theorem kids_run_kid {c : Name} (d : MachineData) (ok : d.ok = true)
       ∃ g2 ∈ design.modules, g2.name = mn) := by
   obtain ⟨M, D, w1, hcore, hpost, hdesL⟩ := synthesizeCombinational_designL hr
   obtain ⟨hMn, hbody', -, hresM, hrealD, hbA⟩ :=
-    core_kids_facts d ok hbody hC hslots hdomB hins outTy hnomem hw hcore hpost entry closes
+    core_kids_facts d ok hbody hC hslots hdomB hins outTy hnomem (ChildBnd.of_invW mctx cctx hw) hcore hpost entry closes
   -- the full entry's design is the core run's: no module of it has the top's name
   have hdes : design.modules = D.modules := by
     refine hdesL (fun x hx e => hself ?_)

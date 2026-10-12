@@ -192,3 +192,25 @@ To be re-measured at the first `AllTests` integration run.
   (the emitted-text checks). G3a: 18-kind reader complete, `KindsOK`
   unconditional. G2: five handler walks, the true statement of the unfold
   handler (inline attempt OR sub-module path); three walk files returned.
+- 2026-10-12, `484a1267` (`Tests.AllTests` 936 jobs green on the tree of
+  `627b5763`; `484a1267` adds one built module). **G1, first check removed
+  from a real run:** `parent` and `chained` have depth SV endpoints without
+  the `outsCheck` antecedent, generated per declaration (`#machine_no_outs`);
+  the kernel-checked goal gap of `parent` (`#machine_goal_gap`) is three
+  not-allowed premises: `shipsHierCheck`, `designCheck`, `kidsMaskedN`.
+  `grandH` is refused with the reason (its child has calls). `kidsMaskedN`
+  is BLOCKED on main: the checked merge may turn an output's defining slice
+  into an alias, which `outMasked` rejects (`docs/parallel/G1-masked.md`); a
+  guarded merge is being verified on the isolated branch `fix/merge-guards`
+  (not merged; needs the user's word). **N1:** every generated closing keeps
+  only reflections as premises; arbitrary `Name`s stay open (printing is not
+  injective). **G2 (branch `fix/cache-rollback` only, not merged):** cache
+  rollback fix verified in isolation; `useDbl_output` is a statement about a
+  real fallback declaration with reflection premises and three outcomes
+  (memo hit, the output carries `x + x`, input skipped) — the two side
+  outcomes are not excluded. **G3:** strict reader is shadow-only by ruling;
+  `app*` kinds read by levels (sound; completeness open); a well-typed
+  wildcard counter-example exists, so recogniser acceptance does not imply a
+  quotation. Rows B2/B3/N1 of §3 are superseded by this log: B2 done for
+  children without calls, B3 done for children with registers (`topD2`
+  keeps `mid2`'s closing), N1 done for generated names.

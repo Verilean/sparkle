@@ -2186,3 +2186,18 @@ lean_lib «Tools.ShippingLegacySemEntryOne» where
 
 lean_lib «Tools.ShippingLegacySemFVarArm» where
   roots := #[`Tools.ShippingLegacySemFVarArm]
+
+lean_lib «Tools.ShippingShipsNoOuts» where
+  roots := #[`Tools.ShippingShipsNoOuts]
+
+lean_lib «Tools.ShippingShipsNoOutsCommand» where
+  roots := #[`Tools.ShippingShipsNoOutsCommand]
+
+lean_lib «Tools.ShippingChecksMasked» where
+  roots := #[`Tools.ShippingChecksMasked]
+
+lean_lib «Tools.ShippingReaderApp» where
+  roots := #[`Tools.ShippingReaderApp]
+
+lean_lib «Tools.ShippingChecksGate» where
+  roots := #[`Tools.ShippingChecksGate]
