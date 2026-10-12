@@ -2591,3 +2591,9 @@ lean_lib «Tools.ShippingCallsKidsSGen» where
 
 lean_lib «Tools.ShippingMemOnly» where
   roots := #[`Tools.ShippingMemOnly]
+
+lean_lib «Tools.ShippingMemClosesRun» where
+  roots := #[`Tools.ShippingMemClosesRun]
+
+lean_lib «Tools.ShippingMemClosesKids» where
+  roots := #[`Tools.ShippingMemClosesKids]
