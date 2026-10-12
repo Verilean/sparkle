@@ -99,3 +99,29 @@ Capital `L` = the child's `sparkleLetWireCache` entries kept: the module equals 
 - Not known to occur in the measured populations: `WIREREFS LOCAL` saw 0 legacy-route runs with child modules among 84; the 29 census parents are on the machine route.
 - The isolated WireRefs candidate (restore on a declined machine arm) happens to avoid it for `dTop` because it clears the let cache before the legacy arm; it is NOT a fix of the cause (a plain legacy parent with a nested child and no declined arm is not covered).
 - The earlier prediction "stale refs change `dTop` on poc relative to a clean run" was false in the sense tested (poc equals the cold run) — because the cold run has the same defect.
+
+## Simulated on poc (2026-10-13, real commands, iverilog; runs `nlbefore`, `nlsimb2`)
+
+Test `Tests/Compiler/NestedLetCacheTest.lean` and `scripts/shipping-coverage/nested_let_sim.sh` (worker B), run UNCHANGED on the poc tree `66766481`. `fTop`/`fMid` are copies of `dTop`/`dMid`; `lPlain` is a PLAIN legacy parent (no machine shape, no declined arm) with a nested legacy child sharing a `let` key.
+
+```
+NESTEDLET FIXED: nested entry ran=T restores let=F loop=F canon=F => fixed=F (assertions are made only when it is T)
+NESTEDLET fTop real: route=machine-shape stmts=12 insts=[fMid] selfAssign=[_gen_rs,
+NESTEDLET fTop cold: route=machine-shape stmts=12 insts=[fMid] selfAssign=[_gen_rs,
+NESTEDLET fTop nofe: route=machine-shape stmts=12 insts=[fMid] selfAssign=[_gen_rs,
+NESTEDLET fTop real==cold T
+NESTEDLET fMid real: route=machine-shape stmts=12 insts=[Tests.Compiler.CallWidthHuntTest.kCount] selfAssign=[] undriven=[] outCone=[out,
+NESTEDLET lPlain real: route=legacy-only stmts=6 insts=[fMid] selfAssign=[_gen_t] undriven=[] outCone=[out,
+NESTEDLET lPlain nofe: route=legacy-only stmts=6 insts=[fMid] selfAssign=[_gen_t] undriven=[] outCone=[out,
+NESTEDLET LOCAL: 84 legacy-route runs returned (0 not run: time budget); with child modules 0; end orphans in 0 runs without a machine shape [] and in 0 runs with one (logged only: a declined machine arm's harness) []; self-assignments in 0 runs []
+NESTEDLET DIGEST: 84 declarations, combined digest 2141260620024790681
+NESTEDLET: fixed=F; failing rows [fTop real: self-assignment,
+
+NESTEDLETSIM lean: exit=0 log=.lake/build/gen/nested-let-sim/lean.log
+NESTEDLETSIM fTop: command==source F nofe==source F command==nofe T x-cycles command=94 nofe=94 cycles=94
+NESTEDLETSIM fMid: command==source T nofe==source T command==nofe T x-cycles command=0 nofe=0 cycles=94
+NESTEDLETSIM lPlain: command==source F nofe==source F command==nofe T x-cycles command=94 nofe=94 cycles=94
+  command/source (lPlain): got [R1 1 x] want [R1 1 29]
+```
+
+So on the present compiler the SV written by the real design command for `fTop` and for the plain legacy parent `lPlain` is X on all 94 simulated cycles where the Lean source has values; the child-shaped `fMid` equals the source. The defect needs no declined machine arm: a legacy parent with a nested legacy child whose `let` key coincides is enough. Among the 84 measured legacy-route declarations none has a child module (0 self-assignments), so the measured population does not exercise it.
