@@ -447,3 +447,182 @@ lacks the base endpoint. The one question common to all but `caller`:
 whether every call argument is a `let` port with `callArgsOk` true — a
 `decide` per declaration, false makes the theorem not exist (nothing false
 is proved).
+
+## 11. par/a-9: the hand instances as a GENERATOR, and the next four declarations
+
+Branch `par/a-9` (base poc a1aad854, where §9 is BUILT:
+`caller.machine_design_svH_full_closed` has no check premise).
+WRITTEN, NOT BUILT: `Tools/ShippingOneOutGenCommand.lean`
+(`#machine_oneout f`, `#machine_oneout_try f "EXPECTED"`),
+`Tests/Compiler/OneOutFamilyTest.lean`. No existing file is edited but this
+document. Until the integrator has built the test and its premise lists are
+read, NO premise of any endpoint below counts as removed.
+
+### 11.1 What the generator writes
+
+The hand instances of `OneOutCallerTest` / `OneOutCallerPortsTest`, as the
+same applications of the same general theorems at `f`'s data:
+
+| hand instance (`caller`) | generated | general theorem |
+|---|---|---|
+| `pick_full` | `c.gate_full` | `childFull_of_real` |
+| `pick_ports` | `c.gate_ports` | `gate_real_ports` |
+| (inline in `caller_designH`) | `c.gate_kidK` | `gate_real_kidK` |
+| `pick_width` | `c.gate_width : SType.width c.gateSort = W` | `rfl` / `decide` |
+| `caller_factsH` | `f.machine_factsH` | `core_runFactsH` |
+| `caller_outsH` | `f.machine_outsH` | `core_outsCheck_all_gate`, `gate_kidA` / `gate_kidR` |
+| `caller_portsRaw` | `f.machine_portsRawH` | `core_portsMatch_raw₁` |
+| `caller_portsShipped` | `f.machine_portsShippedH` | `portsMatchB_shipped`, `core_hierGate_any` |
+| `caller_hierTyped` | `f.machine_hierTypedH` | `core_hierTyped₁` |
+| `caller_designH` + `caller_designFull` | `f.machine_designFullH` | `core_designCheckH` |
+| `#machine_design_svH_full caller [...]` | `buildFull` at the four generated names | the head |
+
+Differences from the hand text, all of form:
+
+* each `by decide` of the hand proofs is a NAMED theorem `f.oneout_*`
+  (list in the generator's header), so a failed condition is reported by
+  name (`ONEOUT GEN f: FAILED (data condition …)`) and decided once;
+* the per-entry `cases k` (one arm per entry, `absurd hk'` at the end) is
+  replaced by ONE decided statement `f.oneout_entries : ∀ k (hk : k <
+  insts.length), …` and `rw [hc] at hy` — no entry count in a proof; with
+  several distinct callees the statement is a disjunction over them
+  (written, not exercised in this round);
+* `kidIns` is `f.oneout_kidIns`, a list of NUMERALS per entry computed by
+  the generator from the widths of the types of `f`'s `let` binders of each
+  call's arguments. `f.oneout_callArgs` (`callArgsOk` at these numerals) is
+  then true by construction of the numerals; the comparison with the CALLEE
+  is `f.oneout_entries`' second conjunct (`f.oneout_kidIns k` = the widths
+  of `c`'s declared non-domain binders) — the same content as the hand
+  instance's one `decide`, split in two;
+* the result binder's width is the numeral `W` of `c.gate_width`, compared
+  with `binders[nDecl + k]` in `f.oneout_entries`' third conjunct.
+
+### 11.2 Is a call argument always a `let` port? (the open question of §10)
+
+Read in `Sparkle/Compiler/Elab.lean`: `machInstance` converts every
+argument and, for a non-domain kind, calls `machLetIndex nm kind v' lets`
+with `kind` THE CALLEE'S binder kind: if the converted argument is already
+a `let` placeholder its index is reused; if a `let` with the same value
+exists it is reused; otherwise a NEW `let` `inst{k}_arg{j}` of that kind is
+pushed. So `args[j]` is always a `let` index, whatever the argument is —
+an input (`callerTwice`: `x`), a sub-machine's state (`callerNested`: `s`),
+another call's result (`callerRep`: `y`, read as the call output's
+transition input inside the new `let`'s value). `core_callConns₁` describes
+exactly that (the argument wire is the transition port of the `let`
+`args[j]`), for every entry. NO generalisation of `core_callConns₁` is
+needed for these four and none was written. `callArgsOk` is expected true:
+a new `let` has the callee's kind by construction; a reused one has the
+kind it was made with, which is the kind of the same Lean type.
+This is a reading of the (partial) reader, not a theorem about it: the
+kernel `decide`s on the reflected data are what the endpoints rest on.
+
+### 11.3 Per declaration: endpoint — premise — predicted state
+
+Starting endpoint in every row: `f.machine_design_svHR` (BUILT earlier),
+whose four check premises under `∃ raw D` are
+A₁ `shipsHierHCheck D.modules b`, A₂ `kidsComb D.modules (checkedOptimize b).body`,
+A₃ `designCheck (childMap D.modules) 0 (checkedOptimize b)`,
+A₄ `outsCheck (childMap D.modules) 0 (checkedOptimize b)`.
+"Predicted" = what `#machine_oneout f` is expected to produce;
+"BUILT / REMOVED" is filled by the integrator's build only.
+
+| declaration | new endpoint | A₁ | A₂ | A₃ | A₄ | predicted `ONEOUT GEN` line | BUILT / REMOVED |
+|---|---|---|---|---|---|---|---|
+| (i) `caller` | `caller.machine_design_svH_full` (exists, BUILT at a1aad854 from hand lemmas) | absent (built) | absent (built) | absent (built) | absent (built) | `PRESENT` — statement rebuilt from the generated lemmas `isDefEq` the existing one; rebuilt proof added as `caller.machine_design_svH_full_gen` | endpoint: BUILT / REMOVED at a1aad854; the generator's reproduction: pending the integrator's build |
+| (ii) `callerTwice` | `callerTwice.machine_design_svH_full` (+ `_closed`) | predicted absent | predicted absent | predicted absent | predicted absent | `GENERATED` | pending the integrator's build |
+| (iii) `callerD` | `callerD.machine_design_svH_full` (+ `_closed`) | predicted absent | predicted absent | predicted absent | predicted absent | `GENERATED` | pending the integrator's build |
+| (iv) `callerNested` | `callerNested.machine_design_svH_full` (+ `_closed`) | predicted absent | predicted absent | predicted absent | predicted absent | `GENERATED` | pending the integrator's build |
+| (v) `callerRep` | `callerRep.machine_design_svH_full` (+ `_closed`) | predicted absent | predicted absent | predicted absent | predicted absent | `GENERATED` | pending the integrator's build |
+
+Predicted premises of each `f.machine_design_svH_full_closed`: the data
+binders; `hr : RunsTo (synthesizeCombinational f) …`; `MachineDefines f`;
+the premises of `f.machine_closes_at` — one `EntryDefines` of the callee
+(`ShippingCallsCloseTest` audits exactly 1 premise for each of the four);
+under `∃ raw D`: `ChildBnd mref cref w` and `EntryDefines` of the callee.
+`other`: none (the test throws otherwise).
+
+Data conditions decided per declaration (kernel `decide` / `rfl`; all are
+conditions on the reflected data, none is a reduction):
+
+| declaration | `nDecl` (reader) | callee, `W` | predicted `f.oneout_kidIns` | conditions decided | known true before this round |
+|---|---|---|---|---|---|
+| `callerTwice` | 1 | `pick`, 8 | `[[2, 8]]` | `oneout_callsOk`, `_slotLen`, `_domB`, `_insts`, `_instFields`, `_outTy`, `_nomem`, `_slots`, `_outChars`, `_outScalar`, `_callArgs`, `_entries`; `pick.gate_width` and the Bool / bit-vector positions inside `pick.gate_full` / `_ports` / `_kidK` | `callsOk`, slot count, no late domain binder, `instFields = []` (= `gateCallsOk`, decided inside the BUILT `callerTwice.machine_closes_at`); `_nomem` (same theorem) |
+| `callerD` | 2 | `pickD`, 8 | `[[2, 8]]` | the same list, with `pickD.gate_*` | as above (`callerD.machine_closes_at`) |
+| `callerNested` | 2 | `pick`, 8 | `[[2, 8]]` | the same list | as above (`callerNested.machine_closes_at`) |
+| `callerRep` | 1 | `pick`, 8 | `[[2, 8], [2, 8]]` | the same list; `_entries` over two entries | as above (`callerRep.machine_closes_at`) |
+
+The `nDecl` and `oneout_kidIns` columns are predictions; the generator
+computes both from the reflected data and prints them in its log line.
+
+NOT known before the build for any of the four: `_outTy`, `_slots`,
+`_insts`, `_outChars`, `_outScalar`, `_callArgs`, `_entries`, and that the
+generated proofs elaborate (the generator is Meta code written without a
+build). If a condition is false the line is `FAILED (data condition <name>
+…)`, the endpoint does not exist for that declaration and nothing is left
+in the environment; the test's assertion `"GENERATED"` then fails for that
+section only.
+
+Out of scope in this round: `callerMix`, `callerABA` (two called
+declarations: `machine_closes_at` may contribute name-separation premises,
+class `other`, to the closed form; the generator's several-callee branch is
+unexercised); `callerInner` (no `machine_ships_hierHR`: the test asserts
+`REFUSED`).
+
+### 11.4 The scope sentence required with any "no check premise" claim of this section
+
+For ONE declaration `f` at a time (a parent WITH a register, GATE children,
+the one-output closing): `f.machine_design_svH_full_closed` has none of the
+four check premises of `f.machine_design_svHR` — GIVEN (1) the
+per-declaration data conditions `f.oneout_*`, `c.gate_width` and what
+`#gate_child c` left, decided by the kernel on the reflected data
+(conditions, not reductions); (2) the runtime boundary, which stays
+premises: the run of the entry, `MachineDefines f`, `EntryDefines c`,
+`ChildBnd`; (3) the compiler's guards with fallback; and the conclusion is
+(4) about `DesignSV (childMap D.modules) 0 (checkedOptimize b)` — the module
+list, not the SV string, not `#sim`. NOT covered: slotless parents (the
+head needs the parent's register), machine-route children, several
+outputs, any declaration not listed as GENERATED in a built log, "all
+successful inputs".
+
+### 11.5 UNVERIFIED (par/a-9), in risk order
+
+1. `Tools/ShippingOneOutGenCommand.lean` — Meta / syntax code written
+   blind: the tactic quotations `( … ; … )` with `obtain` / `rcases`
+   patterns and the shared hygiene of `k hk y hy p hp j q hq hc hki hres`
+   between the quotation that introduces them and the ones that use them
+   (the built generators share `k hk' y hy` the same way); `rw [hc] at hy`
+   on `RealChild mref cref (insts[k]).1 y`; `rw [hki]` on the goal under
+   `∃`; the term `hres.trans (congrArg Option.some …)`; `decide` on
+   `f.oneout_entries` (a bounded `∀ k (hk : k < insts.length)` with a
+   `Name` equality, a `List Nat` equality and an `Option Nat` equality);
+   `emitOrVerify`'s scratch generation and `setEnv`; the `TSyntax`
+   constructions `⟨….raw⟩`; the empty binder splice of `f.machine_factsH`.
+2. The statements of the named data lemmas must be the hypotheses of the
+   general theorems up to `isDefEq` (they were copied from the signatures
+   with full names: `MixedGateBinder.domain` written out, `nDecl` a
+   numeral).
+3. `endpoint`: `buildFull`'s `discharge` on generated lemmas (their binder
+   order is the hand lemmas': `hcore hpost entry closes [hg] hB hR…`); for
+   `caller` the `PRESENT` path with another record and `addTheorem` of
+   `_gen`.
+4. `callerD` / `callerNested`: `f.machine_ships_hierHR` having the 16
+   arguments / 11 binders `build` expects (true for `caller`; not read for
+   these); `callerNested`'s data under the nested reading.
+5. The data conditions listed as "NOT known before the build" in §11.3.
+6. `Tests/Compiler/OneOutFamilyTest.lean`: `gapOf` on the new closed
+   forms; `premiseList` on `callerD`'s endpoint.
+
+### 11.6 Build queue (par/a-9)
+
+1. `Tools.ShippingOneOutGenCommand`
+2. `Tests.Compiler.OneOutFamilyTest` (the concrete endpoints; imports
+   `Tests.Compiler.OneOutCallerFullTest`)
+
+`lakefile.lean` (integrator):
+
+    lean_lib «Tools.ShippingOneOutGenCommand» where
+      roots := #[`Tools.ShippingOneOutGenCommand]
+
+`Tests/AllTests.lean` (integrator):
+
+    import Tests.Compiler.OneOutFamilyTest
