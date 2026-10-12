@@ -357,3 +357,35 @@ an:168:0: NOPORTS MID2: Sparkle.Tests.Compiler.ShippingDesignSVTest.mid2 AS AN E
 8691:error: Tests/Compiler/NoPortsLoopParentTest.lean:229:2: Unknown constant `Sparkle.Tests.Compiler.ShippingMachineSeqLoopTest.loopParent.machine_design_noPortsNR1_closed`
 8692:error: Tests/Compiler/NoPortsLoopParentTest.lean:240:0: Sparkle.Tests.Compiler.ShippingMachineSeqLoopTest.loopParent.machine_runFacts: not generated
 ```
+
+## Build record 2: `loopParent` (integrator, 2026-10-13)
+
+After ONE integrator correction in `NoPortsLoopParentTest.lean:212` (the constant is
+`Tools.ShippingMachineDepth.SeqChildRunN`; a check on the generated statement, no proof changed) the test
+builds and is in AllTests. `loopParent` (register parent; callee `toggleL`, a leaf register machine written
+as a `Signal.loop`; depth 1): the test supplies `toggleL.seq_child_runN` from the loop endpoint's wired twin
+(the case the depth generator's head table lacks), then the BUILT `#machine_design_svNR`,
+`#machine_closes_at`, `#machine_no_ports` go through: against `loopParent.machine_design_svNR1` the premises
+`shipsHierCheck`, `kidsMaskedN`, `designCheck`, `outsCheck` are absent from
+`loopParent.machine_design_noPortsNR1`, and `MachineClosesAt` from its `_closed` form; premises run,
+`MachineDefines loopParent`, `MachineDefines toggleL`, `ChildBnd` — all ALLOWED.
+
+```
+20261013-073756-a22b-loop: lake build Tests.Compiler.NoPortsLoopParentTest 
+result=success
+exit=0
+memory_peak_file=354357248
+Build completed successfully (550 jobs).
+20261013-073809-a22b-alltests: lake build Tests.AllTests 
+result=success
+exit=0
+memory_peak_file=442388480
+Build completed successfully (1241 jobs).
+lean:130:0: NOPORTS LOOPPARENT DATA Sparkle.Tests.Compiler.ShippingMachineSeqLoopTest.loopParent: nDecl=1, binders=4, slots=1, lets=1, call entries [Sparkle.Tests.Compiler.ShippingMachineSeqLoopTest.toggleL], argument lets [[0]], instFields=[out], outputs [out]. CHILD Sparkle.Tests.Compiler.ShippingMachineSeqLoopTest.toggleL: nDecl=2, binders=3, slots=1, lets=0, loops=1, call entries [], instFields=[], outputs [out]; the head of its machine_sound: machine_trace_of_loop. In the environment: [Sparkle.Tests.Compile
+lean:206:0: NOPORTS LOOPPARENT SEQCHILD Sparkle.Tests.Compiler.ShippingMachineSeqLoopTest.toggleL.seq_child_runN: Tools.ShippingMachineDepthRun.seqChildRunN_full at the wired twin of Sparkle.Tests.Compiler.ShippingMachineSeqLoopTest.toggleL.machine_sound (a Signal.loop endpoint), its eight data conditions decided by the kernel, standard axioms — the theorem generateSeqChildN builds for a machine_trace_of_data child; nothing else is new in this file
+lean:246:0: NOPORTS LOOPPARENT: Sparkle.Tests.Compiler.ShippingMachineSeqLoopTest.loopParent — a parent WITH a register whose one callee Sparkle.Tests.Compiler.ShippingMachineSeqLoopTest.toggleL is a leaf register machine written as a Signal.loop. Sparkle.Tests.Compiler.ShippingMachineSeqLoopTest.loopParent.machine_design_noPortsNR1 and its _closed form by the BUILT #machine_design_svNR / #machine_closes_at / #machine_no_ports, after Sparkle.Tests.Compiler.ShippingMachineSeqLoopTest.toggleL.seq_child_runN was su
+NOPORTS PREMISE Sparkle.Tests.Compiler.ShippingMachineSeqLoopTest.loopParent.machine_design_noPortsNR1_closed: ALLOWED     antecedent under the existentials : Tools.ShippingChildInv.ChildBnd mref cref w ∧
+NOPORTS PREMISE Sparkle.Tests.Compiler.ShippingMachineSeqLoopTest.loopParent.machine_design_noPortsNR1_closed: ALLOWED     binder entry : Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref
+NOPORTS PREMISE Sparkle.Tests.Compiler.ShippingMachineSeqLoopTest.loopParent.machine_design_noPortsNR1_closed: ALLOWED     binder hR0 : Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Sparkle.Tests.Compiler.ShippingMachineSeqLoopTest.toggleL
+NOPORTS PREMISE Sparkle.Tests.Compiler.ShippingMachineSeqLoopTest.loopParent.machine_design_noPortsNR1_closed: ALLOWED     binder hr : Tools.ShippingEntrySoundness.RunsTo
+```
