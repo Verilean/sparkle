@@ -2567,3 +2567,6 @@ lean_lib «Tools.ShippingGenKid» where
 
 lean_lib «Tools.ShippingOneOutKidDepth» where
   roots := #[`Tools.ShippingOneOutKidDepth]
+
+lean_lib «Tools.ShippingNoPortsDeepCommand» where
+  roots := #[`Tools.ShippingNoPortsDeepCommand]

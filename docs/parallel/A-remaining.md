@@ -935,3 +935,30 @@ as a target of its own.
    `KidFacts … 3`; the audit's depth read off `DesignSV`'s second argument.
 5. The two B tests: every conjunct derived (measured for `topD2` at depth 3
    on the base closed form; inferred for `mixDeep`).
+
+## 18. Repair after the first build of par/a-16 (WRITTEN, NOT BUILT)
+
+BUILT (integrator, 3b70e5eb): `NoPortsTopD2N3Test`, `NoPortsTopD2N3BTest`.
+
+* `mixDeep`: NO closed form, and §17.2's rows for `mixDeep.closes_deep`,
+  `…noPortsNR2_closed`, `…closedB` are WITHDRAWN. MEASURED:
+  `mixDeep.closes_deep` came out with three name premises. READ
+  (`Tools/ShippingChildIfaceGen.lean` 181–232): the generator decides the
+  three name hypotheses only when `namesSep` holds, else it makes all three
+  premises (a branch, not a caught failure); `namesSep` fails because
+  `midH` is a direct callee of `mixDeep` AND a descendant of its callee
+  `mid2` (`sepB midH midH` is false). The third premise, `hdD` of
+  `machineClosesAt_of_kidsD` (`Tools/ShippingCallsKidsD.lean` 131–133), is
+  FALSE BY READING for `mixDeep` (not proved false): `midH`'s printed name
+  is among the names of `mid2`'s descendants. MISSING: a closing theorem
+  for callees that SHARE a descendant declaration (`hdD` weakened to "a
+  printed name met under two callees is of the same declaration").
+  `NoPortsMixDeepTest` now generates the OPEN endpoint only (it asks
+  `MachineClosesAt mixDeep`; boundary unreduced), does not run
+  `#machine_closes_deep mixDeep`, and its audit throws if a closed form
+  exists. `NoPortsMixDeepBTest.lean` is removed.
+* `Tools/ShippingNoPortsDeepCommand.lean`: the `match` of `factOf` has a
+  typed scrutinee; every constructor pattern in the file is fully qualified.
+* `Tests/AllTests.lean`: `import Tests.Compiler.NoPortsTopD2N3BTest` only;
+  `NoPortsMixDeepTest` may be imported too (it owns
+  `mixDeep.machine_design_noPortsNR2`; the family test stays target-only).
