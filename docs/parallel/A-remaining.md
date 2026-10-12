@@ -688,3 +688,159 @@ exactly `[midH, midH, cnt, cnt]`. `Tools.ShippingNoPortsKidsCommand` —
 `let env ← getEnv` before the pure `let cl?`; the per-entry tables and the
 nested `cases` already run over the reader's ENTRIES (4 for `mixD1`), the
 single-callee case over a decided ∀ (2 entries for `grandH`).
+
+---
+
+# Round par/a-15 (base poc `c46b309c`): unit U3 — a callee under the GENERAL closing (`grand → mid → cnt`, `topD2 → mid2 → midH → rcH`)
+
+NOTHING in this section was built or run. Every line is "WRITTEN, NOT
+BUILT"; no premise of any endpoint counts as removed until the
+integrator's build.
+
+## 12. What was read (task 1)
+
+* `grand` (`Tests/Compiler/ShippingMachineSeqTest.lean` 62–69, READ):
+  callee `mid`; `mid`'s callee `cnt` (leaf register machine). MEASURED for
+  `mid`: `nDecl = 2`, entries `[cnt, cnt]`, `instFields ≠ []`
+  (`verification-a13.md`). `grand`'s `nDecl` / entries: NOT measured —
+  asserted by the first `run_cmd` of `NoPortsGrandTest` (logged before the
+  checks), `grand_entry` is one decided ∀-statement.
+* `grand.machine_design_svNR2` (`ShippingCallsCloseDeepTest` 25): MEASURED
+  to carry `shipsHierCheck`, `designCheck … 2`, `outsCheck … 2`,
+  `kidsMaskedN` (`verification-a14.md` 146–150); the statement text itself
+  was not printed anywhere and was not read.
+* Why `LeafKid` / `OneOutKid` do not apply to `mid`: `LeafKid.leaf` asks
+  `insts = []`; `OneOutKid.oneOut` asks `instFields = []`, used by
+  `core_calls_ports₁` / `core_conn_wires₁` / `core_runFactsH` /
+  `core_designCheck_in₁`. READ of what the general closing changes
+  (`Sparkle/IR/MachineInstG.lean` 73–78, `Tools/ShippingMachineInstG.lean`
+  451–490): `closeInstsG` closes `withClockFor children m₀`, whose inputs
+  are `m₀`'s, or `m₀`'s with `clk`, `rst` appended; outputs, wires, name,
+  body are `m₀`'s (`withClockFor_same`). Everything else `core_calls_ports₁`
+  uses (`MachineWired`, `calls_ports`, `CloseCalls.some`) does not read the
+  closing. `RealChild mid y` gives (`RealChild.inv`) a run of `mid`'s FULL
+  entry from an `InvW` world in some contexts — the bridge of
+  `OneOutKid.core` uses only `core_kids_facts` (either closing) and goes
+  through unchanged.
+* The depth: `KidFacts c … m` `.check` asks `kidCheck C m` of the child's
+  module AND of every module of its design (what `core_kidsPass_deep`
+  consumes). For a callee under the general closing at `m = n + 1` this
+  needs its callees' `KidFacts` at `n` (its own `designCheck C n`) AND at
+  `n + 1` (the modules of its design): `GenKid.kidsLo` / `kidsHi`. No
+  depth-2 form of `kids_*` / `core_kidsPass_deep` is needed: they are
+  already stated for every `n`.
+
+## 13. New files and main statements
+
+    Tools/ShippingCallsPortsG.lean      core_calls_portsG, core_conn_refsG, outsMaskedN_of_callsG
+    Tools/ShippingGenKid.lean           kids_designCheck_in, GenKid, .core, .outsIn, .kidAR, .ports,
+                                        .typedIn, .masked, .clk, .check, .facts
+    Tools/ShippingOneOutKidDepth.lean   core_designCheck_inN₁, checkN, factsN
+    Tests/Compiler/NoPortsGrandTest.lean / NoPortsGrandBTest.lean
+    Tests/Compiler/NoPortsTopD2Test.lean / NoPortsTopD2BTest.lean
+
+    theorem core_calls_portsG … (hfne : d.shape.instFields ≠ []) … (hsl) (kD) (hkD) (hIlen) (hSL) (hSlen)
+        (hLlen) (hNIn) (hB) (hcore) (hpost) (entry) (closes) : CallsPorts c d kD b
+
+    theorem kids_designCheck_in … (hsl) (hfne) … (kidOuts) (kidIns) (n : Nat)
+        (hkid : ∀ k hk, KidFacts mref cref (d.shape.insts[k]).1 (kidOuts k) (kidIns k) n)
+        (hcw : callWidthsOk d nDecl kidOuts = true) (hargs : callArgsOk d nDecl kidIns = true)
+        (hB) (hcore) (hpost) (entry) (closes) (hon) (hoty)
+        (ms : List Module) (hms : ∀ g ∈ D.modules, moduleByName ms g.name = some g) :
+        designCheck (childMap ms) n b = true
+
+    structure GenKid (mref) (cref) (c : Name) (dk : MachineData) (nDecl : Nat)
+        (namesK : Nat → List String) (kidOuts : Nat → List OutField) (kidIns : Nat → List Nat)
+        (n : Nat) : Prop      -- data conditions, `general : instFields ≠ []`, the argument split,
+                              -- kid (KidNames), self, kidsLo (KidFacts … n), kidsHi (KidFacts … (n + 1)),
+                              -- callW, callA, entry / closes in every context
+
+    theorem GenKid.check (K : GenKid mref cref c dk nDecl namesK kidOuts kidIns n) {y : Res}
+        (hy : RealChild mref cref c y) (ms : List Module)
+        (hms : ∀ g ∈ y.2.modules, moduleByName ms g.name = some g) :
+        designCheck (childMap ms) n y.1 = true ∧
+          ∀ g ∈ y.2.modules, kidCheck (childMap ms) (n + 1) g = true
+
+    theorem GenKid.facts (K : GenKid mref cref c dk nDecl namesK kidOuts kidIns n) :
+        KidFacts mref cref c dk.shape.layout.outs (argWidths dk nDecl) (n + 1)
+
+    theorem Tools.ShippingOneOutKidDepth.factsN (K : OneOutKid mref cref c dk nDecl namesK) (n : Nat) :
+        KidFacts mref cref c dk.shape.layout.outs (argWidths dk nDecl) (n + 1)
+
+## 14. The declarations
+
+| declaration | endpoint | premise (of the base endpoint `…machine_design_svNR2`) | predicted state |
+|---|---|---|---|
+| `grand` | `grand.machine_design_noPortsNR2` (+ `_closed`) | `shipsHierCheck (childMap D.modules) b` | WRITTEN — predicted absent, pending build |
+| | | `kidsMaskedN D.modules b.body` | predicted absent, pending build |
+| | | `designCheck (childMap D.modules) 2 (checkedOptimize b)` | predicted absent, pending build |
+| | | `outsCheck (childMap D.modules) 2 (checkedOptimize b)` | predicted absent, pending build |
+| | | `MachineClosesAt grand` | predicted absent in `_closed` (BUILT `grand.closes_deep`), pending build |
+| | | — | ADDED to the OPEN form: `MachineDefines cnt` at the run's contexts (a binder of the base CLOSED endpoint already) |
+| | `grand.machine_design_noPortsNR2_closedB` (+ `_gap`) | the boundary's conjuncts other than `ChildBnd` | predicted DERIVED from the binders (measured on the base closed endpoint), 0 NOT ALLOWED, no gap hypothesis; pending build |
+| `topD2` | `topD2.machine_design_noPortsNR2` (+ `_closed`) | the same four, at depth 2 | WRITTEN — predicted absent, pending build |
+| | | `MachineClosesAt topD2` | predicted absent in `_closed` (BUILT `topD2.closes_deep`), pending build |
+| | | — | ADDED to the OPEN form: `MachineDefines midH`, `EntryDefines rcH` at the run's contexts (the second may be a conjunct of the boundary already — `names(mid2)`, inferred; then it is a redundant binder of the open form) |
+| | `topD2.machine_design_noPortsNR2_closedB` (+ `_gap`) | the boundary's conjuncts other than `ChildBnd` | predicted DERIVED (measured on the base closed endpoint), pending build |
+| `topD2` at depth 3 | `topD2.machine_design_svNR3` | the four checks | NOT written: `GenKid mid2` at `n = 2` (`kidsLo` = `factsN … 1`, `kidsHi` = `factsN … 2`) and `kids_*` at 3 — the same theorems, not instantiated |
+| `mixDeep` | `mixDeep.machine_design_svNR2` | the four checks | NOT written. It lacks (i) a closed base form — `#machine_closes_deep mixDeep` was never run, so there is no `mixDeep.closes_deep` and no `…_svNR2_closed`; (ii) with it, the hand chain is `mixD1`'s pattern with three kinds of entries: `GenKid.facts` of `mid2` (this round), `factsN (midH_kid …) 1` of `midH` at depth 2, `leafKid_facts … 2` of `cnt`; (iii) the open form would need the reflections of `midH`, `rcH` (and possibly `cnt`) at the run's contexts as binders, as §6.2 states |
+
+## 15. Build queue (integrator)
+
+`lakefile.lean`:
+
+    lean_lib «Tools.ShippingCallsPortsG» where
+      roots := #[`Tools.ShippingCallsPortsG]
+
+    lean_lib «Tools.ShippingGenKid» where
+      roots := #[`Tools.ShippingGenKid]
+
+    lean_lib «Tools.ShippingOneOutKidDepth» where
+      roots := #[`Tools.ShippingOneOutKidDepth]
+
+`Tests/AllTests.lean`:
+
+    import Tests.Compiler.NoPortsGrandBTest
+    import Tests.Compiler.NoPortsTopD2BTest
+
+Order: (1) `Tools.ShippingCallsPortsG`; (2) `Tools.ShippingGenKid` (imports
+1); (3) `Tests.Compiler.NoPortsGrandTest`; (4)
+`Tests.Compiler.NoPortsGrandBTest`; independently (5)
+`Tools.ShippingOneOutKidDepth`; (6) `Tests.Compiler.NoPortsTopD2Test`
+(imports 2, 5); (7) `Tests.Compiler.NoPortsTopD2BTest`. 3–4 and 6–7 are
+independent of each other (a failure of `topD2` does not block `grand`).
+
+Name clashes checked by `grep`: no module defines
+`grand.machine_design_noPortsNR2*` or `topD2.machine_design_noPortsNR2*`
+(`NoPortsKidsFamilyTest` and `RemainingProbeTest` only run the REFUSING
+`_try` commands on them; `BoundaryCloseBaseProbe` creates
+`…_svNR2_closedB`, other names).
+
+## 16. UNVERIFIED, in risk order
+
+1. `NoPortsTopD2Test`: nothing about `mid2` / `topD2` was measured (`nDecl`,
+   entries — asserted first); `midH_names` (`kidsChild_of_real` over the
+   fields of `midH_kid`, `rw [h] at h0`); `mid2_kid.self` (a kernel
+   `decide` of the name separation of `mid2` from `midH`, `rcH` through
+   nested `declsOf`); the premise order of `mid2.closes_deep` (`first` over
+   both); `generateX` / `closeDeepX` (MetaM, `withLocalDeclsD`); the audit's
+   binder count 5.
+2. `core_calls_portsG`: the copied run prelude; `rcases hcc with ⟨hfe, -⟩ |
+   ⟨-, hG, -⟩`; `withClockFor` named unqualified under `open
+   Sparkle.IR.Machine`; `rw [e] at hpw` on `(withClockFor …).inputs`;
+   `absurd (congrArg Port.name h) hp3.1` (a projection of a structure
+   literal against `"clk"`).
+3. `kids_designCheck_in`: `simp only [hc]` on the `kidsPass` match at depth
+   `n`; `core_kids_self`'s argument order; `(hkid k hk).check` after
+   `obtain` of the dependent `hk`.
+4. `NoPortsGrandTest`: `grand`'s data (`nDecl = 1`, every entry `mid`) and
+   its decided conditions (`callWidthsOk` / `callArgsOk` against `mid`; the
+   lifted `nz` binding is new against `grandH`); `mid_kid`'s decides at
+   `nDecl = 2`; `mid.closes_deep` with exactly one premise (the reflection
+   of `cnt`); `KidFacts … (1 + 1)` accepted as `… 2`; `generateM`.
+5. `GenKid.masked` (`(K.outsIn hy p hp).2` as `p.name ≠ "clk" ∧ p.name ≠
+   "rst"`); `GenKid.facts`' `check` field.
+6. `Tools.ShippingOneOutKidDepth`: `K.facts.outsIn` as field projections of
+   a theorem application; `core_designCheck_inN₁` is a copy with `n` for `0`.
+7. The B tests: that every conjunct of the two boundaries is derived
+   (measured on the BASE closed endpoints only).

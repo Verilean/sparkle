@@ -2558,3 +2558,12 @@ lean_lib «Tools.ShippingLeafKidFacts» where
 
 lean_lib «Tools.ShippingNoPortsKidsCommand» where
   roots := #[`Tools.ShippingNoPortsKidsCommand]
+
+lean_lib «Tools.ShippingCallsPortsG» where
+  roots := #[`Tools.ShippingCallsPortsG]
+
+lean_lib «Tools.ShippingGenKid» where
+  roots := #[`Tools.ShippingGenKid]
+
+lean_lib «Tools.ShippingOneOutKidDepth» where
+  roots := #[`Tools.ShippingOneOutKidDepth]
