@@ -2078,3 +2078,21 @@ lean_lib «Tools.ShippingLegacySemTrace» where
 
 lean_lib «Tools.ShippingChecksDerived» where
   roots := #[`Tools.ShippingChecksDerived]
+
+lean_lib «Tools.ShippingLegacySemWalk3» where
+  roots := #[`Tools.ShippingLegacySemWalk3]
+
+lean_lib «Tools.ShippingLegacySemWalk4» where
+  roots := #[`Tools.ShippingLegacySemWalk4]
+
+lean_lib «Tools.ShippingLegacySemSteps» where
+  roots := #[`Tools.ShippingLegacySemSteps]
+
+lean_lib «Tools.ShippingLegacySemUnfoldWalk» where
+  roots := #[`Tools.ShippingLegacySemUnfoldWalk]
+
+lean_lib «Tools.ShippingLegacySemChain» where
+  roots := #[`Tools.ShippingLegacySemChain]
+
+lean_lib «Tools.ShippingLegacySemBodyPlain» where
+  roots := #[`Tools.ShippingLegacySemBodyPlain]
