@@ -2075,3 +2075,6 @@ lean_lib «Tools.ShippingLegacySemWalk2» where
 
 lean_lib «Tools.ShippingLegacySemTrace» where
   roots := #[`Tools.ShippingLegacySemTrace]
+
+lean_lib «Tools.ShippingChecksDerived» where
+  roots := #[`Tools.ShippingChecksDerived]
