@@ -461,3 +461,208 @@ Order: (1) `Tests.Compiler.NoPortsMidTest`; (2)
    as `kidCheck C (0 + 1)`.
 7. Task 1: `OneOutCallerInnerTest` imports `NoPortsMidTest` (to reproduce
    the probe's environment); a failure of the latter blocks the former.
+
+---
+
+# Round par/a-14 (base poc `099dacf0`): `grandH`'s boundary, `mixD1`, the generator for two kinds of callees
+
+NOTHING in this section was built or run. Every line is "WRITTEN, NOT
+BUILT"; no premise of any endpoint counts as removed until the
+integrator's build.
+
+## 6. Task 1 — the ∀-contexts conjunct of the boundary
+
+### 6.1 `grandH.machine_design_noPortsNR1_closed`: YES, it follows from the binders
+
+READ (real log, `verification-a13.md` 88–105): binders `entry :
+MachineDefines … grandH`, `hR_…midH : MachineDefines mctx mref cctx cref
+midH midH.machineData.shape`, `hRr : EntryDefines mctx mref cctx cref rcH
+rcH.gateValue`; ONE antecedent under the existentials,
+
+    ChildBnd mref cref w ∧ MachineDefines mctx mref cctx cref midH … ∧ True ∧
+      ∀ mctx' cctx', ChildRanIn mref cref midH mctx' cctx' →
+        ∀ wc raw D, ChildBnd mref cref wc →
+          ChildBnd mref cref wc ∧ EntryDefines mctx' mref cctx' cref rcH rcH.gateValue
+
+READ (generator, `Tools/ShippingMachineDepthCommandR.lean` 302–336): the
+shape is `MachineDefines c ∧ (conj names ∧ ∀ mc' cc', ChildRanIn … c mc'
+cc' → ∀ wc raw D, ChildBnd wc → Bnd_c mc' cc' wc raw D)`; `conj [] = True`
+(`ShippingMachineShipsHierCommand.conj`).
+
+The last conjunct is `fun _ _ _ _ _ _ hb => ⟨hb,
+Tools.ShippingReflectCtx.EntryDefines.ctx hRr⟩`: `EntryDefines` has no world
+argument and does not depend on the contexts (BUILT). `ChildRanIn` is not
+used. Conjunct 2 is a binder. So under the binders the antecedent is
+equivalent to `ChildBnd mref cref w`.
+
+WRITTEN: `Tools/ShippingBoundaryClose.lean` (`#machine_boundary_close thm`
+→ `thmB`; general, MetaM, no new statement about the compiler: each
+NOT-ALLOWED antecedent is replaced by the conjunction of its conjuncts that
+do NOT follow from the binders by {a binder, `True`, `∧`, `∀ … →` with its
+own hypotheses, `MachineDefines.ctx`, `EntryDefines.ctx`}; `thmB` is `thm`
+applied to the reassembled antecedent; a conjunct that is not derived is
+KEPT and logged; nothing derived ⇒ error) and
+`Tests/Compiler/NoPortsGrandHBTest.lean`:
+
+| endpoint | premise (of `grandH.machine_design_noPortsNR1_closed`) | predicted state |
+|---|---|---|
+| `grandH.machine_design_noPortsNR1_closedB` | antecedent conjuncts `MachineDefines midH`, `True`, the ∀-contexts conjunct | WRITTEN — predicted absent from the antecedent, pending build |
+| | `ChildBnd mref cref w` | stays (the one antecedent) |
+| | binders (run, `MachineDefines grandH`, `MachineDefines midH`, `EntryDefines rcH`) | stay; none added |
+| `…_closedB_gap` (`#machine_goal_gap_of`) | — | predicted: no `gap_…` hypothesis; premise listing 0 NOT ALLOWED |
+
+### 6.2 The base family (same command; probe `Tests/Compiler/BoundaryCloseBaseProbe.lean`, logs only)
+
+* `grandH.machine_design_svNR1_closed` (and `…NR2_closed`): READ — its
+  boundary is the antecedent quoted above (the audit of `NoPortsGrandHTest`
+  compares it with an antecedent of the OPEN base form; the closed base
+  form has the reflections of `midH` and `rcH` as binders: "DEEP CLOSINGS
+  … (2, …)"). The same derivation applies: the boundary reduces to
+  `ChildBnd`. The four check antecedents are untouched (they are
+  equations; the command keeps them). At depth 2 the same child `midH` has
+  the same boundary (INFERRED: `bndOf` is per child).
+* `mixD1.machine_design_svNR1_closed` (and `…NR2_closed`): INFERRED from
+  the generator — boundary `ChildBnd ∧ (MachineDefines midH ∧ names ∧
+  ∀-contexts conjunct about rcH) ∧ MachineDefines cnt` (`cnt` is `free`:
+  `cnt.machine_closes` exists, so only its `MachineDefines` is asked);
+  binders: reflections of `midH`, `rcH`, `cnt` (3, BUILT log). Reduces to
+  `ChildBnd` IF `names` is `True` as in `grandH` (same child, same
+  generator; not read off the statement).
+* `topD2.machine_design_svNR2_closed` (and `…NR3_closed`): INFERRED —
+  `mid2`'s conjunct is `MachineDefines mid2 ∧ names ∧ ∀ ctx', ChildRanIn
+  mid2 ctx' → ∀ wc raw D, ChildBnd wc → Bnd_mid2 ctx' wc raw D` with
+  `Bnd_mid2 = ChildBnd wc ∧ (MachineDefines ctx' midH ∧ names ∧ ∀ ctx'',
+  ChildRanIn midH ctx'' → … EntryDefines ctx'' rcH)`. With the binders
+  `MachineDefines mid2 / midH`, `EntryDefines rcH` (3, BUILT log) every
+  part is a reflection moved by `.ctx`, a local `ChildBnd`, or `True`: the
+  same lemma, one level deeper (the solver recurses through `∀`). NOT READ:
+  whether `mid2`'s conjunct also carries `MachineClosesAt mid2` at the
+  child's contexts (the generator's `namesOf.get? c = none` branch, line
+  326: `closesAt ∧ bndHere`) — a closing does NOT transfer between contexts
+  (`ShippingReflectCtx` header), so that conjunct would be KEPT, NOT
+  ALLOWED. MISSING in that case: `∀ mctx' cctx', ChildRanIn mref cref mid2
+  mctx' cctx' → MachineClosesAt mctx' mref cctx' cref mid2
+  mid2.machineData.shape` from the reflections (a `mid2.closes_deep` in
+  every context; whether one exists was not read). Also not read: whether
+  `Bnd_mid2` is a `….machineBoundN…` constant (the solver unfolds those).
+* `mixDeep.machine_design_svNR2`: NO closed form exists (`#machine_closes_deep
+  mixDeep` was never run; READ `ShippingCallsCloseDeepTest`). The open
+  form's only reflection binder is `MachineDefines mixDeep`; the
+  reflections of `mid2`, `midH`, `cnt` are boundary conjuncts and `rcH`'s is
+  only under the ∀-contexts conjuncts. `.ctx` does NOT give the reduction:
+  it moves a reflection between contexts but needs ONE instance of it, and
+  the conjunct `∀ ctx', ChildRanIn midH ctx' → … EntryDefines ctx' rcH`
+  yields an instance only from a `ChildRanIn midH ctx'` witness, which
+  exists only after the run (a child's real run), not at the level of the
+  statement's binders. MISSING: either the binder `EntryDefines mctx mref
+  cctx cref rcH rcH.gateValue` (i.e. the closed form: run
+  `#machine_closes_deep mixDeep`, then the same command), or a statement
+  "a run of `mixDeep`'s core entry from a `ChildBnd` world gives `∃ mctx'
+  cctx', ChildRanIn mref cref midH mctx' cctx'`" — not available today.
+
+## 7. Task 2 — `mixD1` by hand
+
+    Tools/ShippingLeafKidFacts.lean            leafKid_facts
+    Tests/Compiler/NoPortsMixD1Test.lean       mixD1_tables, mixD1_runFacts/_outsG1/_maskedG/_designP1, the endpoint, the audit
+    Tests/Compiler/NoPortsMixD1BTest.lean      #machine_boundary_close + #machine_goal_gap_of + audit
+
+    theorem leafKid_facts (K : LeafKid mctx mref cctx cref c dk) (n : Nat) :
+        KidFacts mref cref c dk.shape.layout.outs (Tools.ShippingPortWidthsPure.declWidths dk) n
+
+    theorem mixD1_tables (hRm : MachineDefines mctx mref cctx cref ``midH midH.machineData.shape)
+        (hRr : EntryDefines mctx mref cctx cref ``rcH rcH.gateValue)
+        (hRc : MachineDefines mctx mref cctx cref ``cnt cnt.machineData.shape) :
+        ∃ (kidOuts : Nat → List OutField) (kidIns : Nat → List Nat),
+          (∀ k (hk : k < mixD1.machineData.shape.insts.length),
+            KidFacts mref cref (mixD1.machineData.shape.insts[k]).1 (kidOuts k) (kidIns k) 1) ∧
+          callWidthsOk mixD1.machineData 1 kidOuts = true ∧
+          callArgsOk mixD1.machineData 1 kidIns = true
+
+READ vs INFERRED about `mixD1`'s data: header of `NoPortsMixD1Test.lean`
+(READ: the source, the callees, the projected fields; INFERRED and asserted
+on the reader's data first: `nDecl = 1`, two entries, one per callee; the
+entry ORDER is not assumed — `mixD1_tables` tries both).
+
+| declaration | endpoint | premise (of `mixD1.machine_design_svNR1`) | predicted state |
+|---|---|---|---|
+| `mixD1` | `mixD1.machine_design_noPortsNR1` (+ `_closed`) | `shipsHierCheck`, `kidsMaskedN`, `designCheck 1`, `outsCheck 1` | WRITTEN — predicted absent, pending build |
+| | | `MachineClosesAt mixD1` | predicted absent in `_closed` (`mixD1.closes_deep`, BUILT), pending build |
+| | | the boundary | stays in `_closed`; reduced to `ChildBnd` in `_closedB` (predicted, pending build) |
+| | | — | ADDED to the open form: `EntryDefines rcH` at the run's contexts |
+
+## 8. Task 3 — the generator
+
+`Tools/ShippingNoPortsKidsCommand.lean`: `#machine_no_ports_kids f n`
+(`_try`: refusal logged). Callees: leaf register machines
+(`leafKid_facts`) or register machines with one-output calls of ONE gate
+child (`k.machine_oneOutKid`, generated as the hand `midH_kid`; depth 1).
+Compare path: an existing endpoint name ⇒ the statement is rebuilt, added
+as `…_regen`, and must be `isDefEq` the existing one (error otherwise).
+Refused with a reason: memory callee, callee without a machine endpoint,
+callee without a register, leaf callee without `machine_closes`, callee
+with calls under the general closing, several distinct grandchildren, a
+machine grandchild, missing `oneout_*` / `machine_portsRawH` /
+`closes_deep` / `gate_full` / `gate_kidK`, depth ≠ 1 with a one-output
+callee, parent without a register, parent under the one-output closing.
+`Tests/Compiler/NoPortsKidsFamilyTest.lean`: `grandH` (compare), `mixD1`
+(generated; then `_closedB` and its gap), refusals `topD2`, `mixDeep`,
+`grand`, and `parent` (leaf-only, log only).
+
+## 9. Build queue (integrator)
+
+`lakefile.lean`:
+
+    lean_lib «Tools.ShippingBoundaryClose» where
+      roots := #[`Tools.ShippingBoundaryClose]
+
+    lean_lib «Tools.ShippingLeafKidFacts» where
+      roots := #[`Tools.ShippingLeafKidFacts]
+
+    lean_lib «Tools.ShippingNoPortsKidsCommand» where
+      roots := #[`Tools.ShippingNoPortsKidsCommand]
+
+`Tests/AllTests.lean` (ONE of the two alternatives — the hand `mixD1` files
+and the family test define the same `mixD1.*` constants):
+
+    import Tests.Compiler.NoPortsGrandHBTest
+    import Tests.Compiler.NoPortsKidsFamilyTest          -- (A) generator in AllTests; NoPortsMixD1Test / NoPortsMixD1BTest target-built only
+    -- or (B): import Tests.Compiler.NoPortsMixD1BTest   -- hand files in AllTests; NoPortsKidsFamilyTest target-built only
+
+`Tests.Compiler.BoundaryCloseBaseProbe`: target-built only (leaves `…B`
+constants under the base endpoints' names).
+
+Order: (1) `Tools.ShippingBoundaryClose`; (2)
+`Tests.Compiler.NoPortsGrandHBTest`; (3) `Tools.ShippingLeafKidFacts`; (4)
+`Tests.Compiler.NoPortsMixD1Test`; (5) `Tests.Compiler.NoPortsMixD1BTest`;
+(6) `Tests.Compiler.BoundaryCloseBaseProbe`; (7)
+`Tools.ShippingNoPortsKidsCommand`; (8)
+`Tests.Compiler.NoPortsKidsFamilyTest`. (4)/(5) and (8) must be SEPARATE
+lake targets (never one import closure).
+
+## 10. UNVERIFIED, in risk order
+
+1. `Tools/ShippingNoPortsKidsCommand.lean`: ~500 lines of quoted syntax
+   never elaborated — the term-mode `have hent … ; { … }` before a structure
+   instance, the `rw [hent k hk] at hy ⊢` with a local hypothesis, the
+   `(fun _ => …) k` tables under `rw` / `exact`, `closedTerm`'s binder
+   arithmetic, the compare path (`isDefEq` of the rebuilt and the hand
+   statements of `grandH`), `Ctx.binders` hygiene across quotations (as
+   `portsTheorem` does).
+2. `mixD1_tables`: `first | (refine …; intro …; cases …) | …` with nested
+   `by first | decide | decide +kernel` (a wrong-order `decide` must fail,
+   not time out); the unifier seeing `(mixD1.machineData.shape.insts[0]).1`
+   as the callee's name and `List.getD […] 0 []` as its head under `exact`
+   (the BUILT generator relies on the same for `two`); the entry order and
+   count of `mixD1` (asserted first, never measured).
+3. `Tools/ShippingBoundaryClose.lean`: `transfer?` (`forallMetaTelescope`
+   on the `.ctx` lemmas, `withoutModifyingState`), the hand-built
+   `And.left/right/intro` and `Exists.elim/intro` terms, `solve` through
+   the `∀` (proposition binders as hypotheses), that `names` is literally
+   `True` in `mixD1`'s boundary.
+4. `leafKid_facts`: argument orders of nine `leaf_real_*` lemmas (read off
+   their signatures); `check` at `childMap ms`.
+5. `closeDeep` on `mixD1.closes_deep`: its three premises ASSUMED to be
+   the reflections of `midH`, `cnt`, `rcH` with the contexts as its first
+   four binders (the audits' binder count 5 throws otherwise).
+6. The audits' `ppExpr`-string comparison of binders (`auditB`), the
+   `parent` compare (`machine_closes_at`'s binder order not read; `_try`).
