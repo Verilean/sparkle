@@ -626,3 +626,247 @@ successful inputs".
 `Tests/AllTests.lean` (integrator):
 
     import Tests.Compiler.OneOutFamilyTest
+
+## 12. par/a-10: two called declarations (`callerMix`, `callerABA`) and a machine-route slotless child (`callerL` → `pickByteH`)
+
+Branch `par/a-10` (base poc 04e5327b, where §11 is BUILT: `caller`,
+`callerTwice`, `callerD`, `callerNested`, `callerRep` have
+`f.machine_design_svH_full(_closed)` with no check premise).
+WRITTEN, NOT BUILT: `Tools/ShippingLeafOneOut.lean`,
+`Tests/Compiler/OneOutTwoCalleeTest.lean`,
+`Tests/Compiler/OneOutCallerLTest.lean`. No existing file is edited but this
+document. Until the integrator has built the tests and their premise lists
+are read, NO premise of any endpoint below counts as removed.
+
+### 12.1 `callerMix`, `callerABA`: what was read, what is expected
+
+* `closesAtCore` (`Tools/ShippingMachineClosesAtGen.lean`): the name
+  premises `hnames` / `hparent` are BINDERS of `f.machine_closes_at` only
+  when `Tools.ShippingNameSep.sepB` fails on a pair of names; otherwise the
+  proof discharges them (`hnames_of _ (by decide)`,
+  `hparent_of _ _ (by decide)`); `hfresh` is discharged when no output name
+  starts with `i`.
+* `Tests/Compiler/ShippingCallsCloseTest.lean` (BUILT, in `Tests.AllTests`)
+  asserts `auditClosed callerMix 2` and `auditClosed callerABA 2`: exactly
+  two proposition binders each. With two distinct callees the generator
+  pushes two reflection binders first, so there is NO name binder.
+  §10 / §11 ("name-separation premises expected in the closed form") was a
+  guess made without reading this; it is expected to be wrong.
+* `#machine_oneout`'s several-callee branch (`perEntry` at `n ≥ 2`, the
+  disjunction `alt`, the `binders` / `hRs` loops) was read against the
+  single-callee branch that built: no defect found, NO corrected generator
+  written. It has never been elaborated.
+
+| declaration | endpoint | premise of `f.machine_design_svHR` | state |
+|---|---|---|---|
+| `callerMix` | `callerMix.machine_design_svH_full` (+ `_closed`), by `#machine_oneout` | A₁ `shipsHierHCheck D.modules b` | WRITTEN (the test; the generator is built) — predicted absent, pending build |
+| | | A₂ `kidsComb D.modules (checkedOptimize b).body` | predicted absent, pending build |
+| | | A₃ `designCheck (childMap D.modules) 0 (checkedOptimize b)` | predicted absent, pending build |
+| | | A₄ `outsCheck (childMap D.modules) 0 (checkedOptimize b)` | predicted absent, pending build |
+| | | name separation in the closed form | predicted NOT a premise (discharged inside `callerMix.machine_closes_at` by `ShippingNameSep`: a per-declaration decided condition, not a reduction), pending build |
+| `callerABA` | `callerABA.machine_design_svH_full` (+ `_closed`), by `#machine_oneout` | A₁–A₄ | predicted absent, pending build |
+| | | name separation in the closed form | predicted NOT a premise, pending build |
+
+Predicted log: `ONEOUT GEN callerMix: GENERATED [callerMix.machine_design_svH_full,
+callerMix.machine_design_svH_full_closed] — … callArgsOk with
+callerMix.oneout_kidIns = [[2, 8], [2, 8]], per entry the callee among
+[pick, pickD] … [8, 8]`; the same for `callerABA` with three rows
+`[[2, 8], [2, 8], [2, 8]]`; `ONEOUT FAMILY f: … other: NONE …`;
+`ONEOUT TWO-CALLEE f: f.machine_closes_at has 2 proposition binders, all
+EntryDefines …`. Closed-form proposition binders: `hr`, `entry`
+(`MachineDefines f`), `hR0` (`EntryDefines pick`), `hR1`
+(`EntryDefines pickD`); under `∃ raw D`: `ChildBnd`, the two `EntryDefines`.
+The numerals are predictions; the generator prints the computed ones.
+
+Data conditions decided per declaration: the `f.oneout_*` list of §11.3
+(`_entries` a disjunction over `pick` / `pickD`), `pick.gate_width`,
+`pickD.gate_width`, what `#gate_child` left, and — inside the BUILT
+`f.machine_closes_at` — `gateCallsOk` and the name separation on the
+candidate renderings.
+
+### 12.2 `callerL` → `pickByteH`: the child-side hypotheses for a slotless leaf MACHINE child
+
+`callerL`: one register (`sel`), `nDecl = 1` (`w`), one entry
+`pickByteH w selS`, `instFields = []`. `pickByteH`: machine route, three
+`let`s, no register, no call, the one output `out`.
+
+Which child-side hypothesis comes from where (`Tools/ShippingLeafOneOut.lean`;
+all read off ONE bundle `SlotlessLeaf mctx mref cctx cref c dk` =
+`LeafKidAny` + `gateCallsOk dk.nIn`, `lets ≠ 0`, `slots = []`, the one
+output `out`):
+
+| hypothesis | consumer | for the machine leaf | existing (built) / NEW (written) |
+|---|---|---|---|
+| `hkidW` | `core_portsMatch_raw₁`, `core_hierTyped₁` | `hkidW_one` + `SlotlessLeaf.outTys` + the data condition `callWidthsStrict d nDecl (fun _ => dk.shape.layout.outs)` | existing: `hkidW_one`, `leaf_real_outTys_any` |
+| `hkidT : PortsIn y.1` | `core_portsMatch_raw₁` | `SlotlessLeaf.portsIn` | existing: `leaf_real_portsIn` |
+| `hkidIn` (emitter widths), `hkidInD` (IR widths) | both | `SlotlessLeaf.inWidths` — ONE statement, both tables, from the common `LeafPorts` facts (`args`, `argW`, `wal`, `pos`, `ins`) | NEW: `inPort_both` (the IR view is the intermediate fact of `inPort_weS`'s proof), `leafPorts_inWidths2`, `leafPorts_inPortsOf_eq` (slotless: every input is an argument port) |
+| `hkidTy : childTyped (declWidth y.1) y.1` | `core_hierTyped₁` | `SlotlessLeaf.childTyped` | NEW: `typedIn_childTyped_out`, `childTyped_post_out`, `leaf_run_typedIn_out` / `leaf_real_typedIn_out` (see below) |
+| `hkidK` | `core_designCheckH` | `SlotlessLeaf.kidK` | existing: `leaf_real_kidK_out` |
+| `hkidA`, `hkidR` | `core_outsCheck_all_gate` | `SlotlessLeaf.kidA`, `.kidR` | NEW (pure): `comb_kidA`, `comb_kidR` from `ChildComb` + empty design; the `ChildComb` from the existing `machineChild_of_real`. The existing `leaf_real_kidA` asks `slots ≠ []` and does not apply |
+
+FINDING (why `hkidTy` needed a run theorem and not only `leaf_real_typedIn`).
+`leaf_real_typedIn` returns `y.1 = m0 ∨ y.1 = mergeChecked m0` with
+`TypedIn m0`. For the merged case `typedIn_mergeDuplicates_out` needs `m0`
+ASSIGNMENT-ONLY, and `childTyped` needs `out` written exactly once; the
+conclusion of `leaf_real_typedIn` has neither (only the opposite fact for a
+machine WITH slots), `mergeChecked_print_cases`' third alternative
+(`printOk` of the merge) gives no typing, and nothing says a raw merge of a
+body with a register keeps a register. `machineChild_of_real` has
+`ChildComb y.1` but about another existential witness. So
+`leaf_run_typedIn_out` is `leaf_run_typedIn`'s proof — lines 374–573 of
+`Tools/ShippingLeafTyped.lean` copied unchanged by a script, in that file's
+namespace and `open`s — with `hsl : slots = []`, `hone : outs' names =
+["out"]` and the conclusion `… ∧ m0.body.all isAssign = true ∧
+count "out" (writesOf m0.body) = 1`. The two new conjuncts:
+`closeMachine_slotless_body` (no slot: the closed body is the transition's
+statements before the packed assignment, then `outAssigns`),
+`TypedStmts` of the closed transition (assignments), the transition's
+targets are allocated names (`closedTransition_of_run`) and `out` is not
+(`count_out_slotless`). Through the validated merge the writes are kept by
+the existing `mergeDuplicates_closed`, fed with `readsClosedB_of_all` (any
+body is read-closed over the list of every name it reads).
+
+| declaration | endpoint | premise of `callerL.machine_design_svHR` | state |
+|---|---|---|---|
+| `callerL` | `callerL.machine_design_svH_full` (+ `_closed`), by the existing `#machine_design_svH_full callerL [callerL_factsH, callerL_hierTyped, callerL_designFull, callerL_outsH]` | A₁ `shipsHierHCheck D.modules b` (incl. `hierTyped`) | WRITTEN — pending build |
+| | | A₂ `kidsComb D.modules (checkedOptimize b).body` | WRITTEN — pending build |
+| | | A₃ `designCheck (childMap D.modules) 0 (checkedOptimize b)` (incl. `portsMatchB`) | WRITTEN — pending build |
+| | | A₄ `outsCheck (childMap D.modules) 0 (checkedOptimize b)` | WRITTEN — pending build |
+| | | `hr`, `MachineDefines callerL`, `MachineDefines pickByteH`, `ChildBnd` | run boundary: they stay premises |
+
+No residual was needed by reading: every child-side hypothesis has a
+WRITTEN derivation. If `leaf_run_typedIn_out` or `SlotlessLeaf.childTyped`
+does not build, the fallback is `#machine_design_svH_free callerL
+(fun b D => hierTyped (childMap D.modules) b = true) [...]` with (R1) as the
+one independent residual — NOT written in this round.
+
+Predicted log: `SVHFULL GENERATED [callerL.machine_design_svH_full,
+callerL.machine_design_svH_full_closed]: …`; the closed form's non-data
+premise lines:
+
+    run         binder hr : RunsTo (synthesizeCombinational `callerL) mctx mref cctx cref w (b, design) w'
+    reflection  binder entry : MachineDefines mctx mref cctx cref `callerL callerL.machineData.shape
+    reflection  binder hR0 : MachineDefines mctx mref cctx cref `pickByteH pickByteH.machineData.shape
+    ChildBnd    antecedent under the existentials : ChildBnd mref cref w
+    reflection  antecedent under the existentials : MachineDefines mctx mref cctx cref `pickByteH pickByteH.machineData.shape
+    other       NONE
+
+and `ONEOUT MACHINE-LEAF callerL: … other: NONE … goal gap …: none NOT ALLOWED`.
+
+Data conditions (kernel `decide` / `rfl`; conditions, not reductions).
+`callerL` at `nDecl = 1`: `callerL_callsOk`, `_slotLen`, `_domB`, `_insts`,
+`_instFields`, `_outTy`, `_nomem`, `_slots` (the PARENT has a register),
+`_outChars`, `_outScalar`, `_strict` (`callWidthsStrict callerL.machineData 1
+(fun _ => pickByteH.machineData.shape.layout.outs)`: the result binder's
+width), `_callArgs` (`callArgsOk callerL.machineData 1 kidIns`, `kidIns` =
+`declWidths pickByteH.machineData`), and that entry 0's callee is
+`pickByteH` (by reduction). `pickByteH` at `nIn` (the fields of
+`pickByteH_leaf`): `ok`, the body equation, `callsOk nIn`, no domain binder
+after `nIn`, `insts = []`, the slot count, output width / name / scalar
+conditions, `gateCallsOk nIn`, `lets ≠ 0`, `slots = []`, the one output
+`out`; its closing `pickByteH.machine_closes` is the generated theorem.
+
+SCOPE sentence (binding). For ONE declaration, `callerL` — a parent WITH a
+register, one call of a SLOTLESS LEAF MACHINE child with the one output
+`out`, the one-output closing — `callerL.machine_design_svH_full_closed` is
+WRITTEN to have none of the four check premises of
+`callerL.machine_design_svHR`, GIVEN (1) the per-declaration data conditions
+above; (2) the runtime boundary, which stays premises: the run,
+`MachineDefines callerL`, `MachineDefines pickByteH`, `ChildBnd`; (3) the
+compiler's guards with fallback (`checkedOptimize`, `deinline`,
+`closeInsts`' checks, `mergeChecked`'s validation of the child's merge); and
+the conclusion is (4) about `DesignSV (childMap D.modules) 0
+(checkedOptimize b)` — the module list, not the SV string, not `#sim`. NOT
+covered: slotless PARENTS, machine children with registers or calls,
+several outputs, `callerLN`, `hftByte`, "all successful inputs". "The parent
+has a register" (`callerL_slots`, the head) and "the child is a slotless
+machine" (`SlotlessLeaf.slots`) are separate conditions.
+
+### 12.3 `callerLN`, `hftByte`: what they need beyond `callerL` (READING only; nothing written, nothing measured)
+
+Both have `machine_design_svHR` (`ShippingChildBoundaryTest`) and
+`machine_closes_at` with ONE premise, the child's `MachineDefines`
+(`auditClosed … 1`). Every `#machine_design_svHR` is built from the one head
+`machine_ships_hierHC` (`ShippingMachineComposeRCommand` 341), so
+`buildFull`'s 16-argument test is expected to pass.
+
+* `callerLN` (child `pickByteH`; a flattened sub-machine `counterB`; the
+  call is the `return` value; `nDecl = 2`): the SAME chain as `callerL` with
+  `nDecl := 2` and the same `pickByteH_*` theorems. New `decide`s only:
+  `callsOk 2`, `callWidthsStrict … 2 …`, `callArgsOk … 2 kidIns` (the first
+  argument is a register, the second a sub-machine's result: by §11.2 both
+  are `let`s of the callee's kinds). No new general theorem is expected.
+* `hftByte` (child `Sparkle.IP.Net.HTTP.httpGetByte`, an implicit DOMAIN
+  binder; the parent is `(hftStrategy inByte inValid).outByte`, the call
+  sits in a sub-machine of the telescope): the general theorems quantify
+  over any `MachineData`, and `SlotlessLeaf` is stated at `dk.nIn` with
+  `declWidths` filtering the domain binder, so no new statement is expected.
+  To check, none of it read off the data: (a) `httpGetByte`'s `SlotlessLeaf`
+  fields — `callsOk nIn` and "no domain binder after `nIn`" with the
+  implicit domain binder among the first `nIn`; `lets ≠ 0`, `slots = []`,
+  `outs = [out]` are already decided inside the BUILT
+  `hftByte.machine_closes_at`; (b) the PARENT's `slots ≠ []` (its registers
+  are the flattened sub-machines'), `instFields = []`, `callArgsOk` and
+  `callWidthsStrict` at its `nDecl`; (c) the cost of the kernel `decide`s on
+  the larger data (12 `let`s in the child; the strategy's telescope) — may
+  need `decide +kernel` or fail on depth, which is a failed data condition,
+  not a false theorem; (d) the per-entry `cases k` arms need the entry's
+  callee to reduce to `httpGetByte`.
+
+A generator for the machine-leaf case (`#machine_oneout` accepting a
+machine-route callee, emitting `c.machine_leaf` instead of `c.gate_*`) is
+the natural next step once `callerL` is BUILT; not written.
+
+### 12.4 UNVERIFIED (par/a-10), in risk order
+
+1. `Tools/ShippingLeafOneOut.lean`, `leaf_run_typedIn_out`: the copied body
+   is the built text, but it is elaborated in a NEW file (same namespace and
+   `open`s re-declared by hand; `variable {m}` of the original not
+   re-declared — the copied lines do not use it); the appended tail:
+   `closeMachine_slotless_body hbodyc hsl` (unification of `B`, `w` with
+   `Bc`, `coreW`), `typedc st hst'` then `subst he`, `simp only [outAssigns,
+   List.mem_map] at h1`, `count_out_slotless hBa namedc hone`.
+2. `closeMachine_slotless_body`: `simp [closeMachine, hpw, hdrop]` proving
+   the body equation (the built `closeMachine_body` uses the same `simp`
+   with one more rewrite), then the `rw` chain through `nextAssigns_nil` /
+   `registers_nil`.
+3. `typedIn_childTyped_out`: the `cases st` arms (`register` / `inst` by
+   `rfl`, `memory` from `hall`), the `show`s through `childStmtTyped` and
+   the `any` predicate (mirrored from `GateChildPorts.childTyped_ok`);
+   `childTyped_post_out`: `rw [e, mergeChecked_assign hall]`,
+   `mergeDuplicates_ports … .2.1.trans hout`.
+4. `count_out_slotless` (`rfl` for `writesOf (outAssigns w [o]) = [o.name]`,
+   the final `omega` over `List.count` atoms), `readsClosedB_of_all` (the
+   `show` through the recursive definition), `mergeDuplicates_assign`.
+5. `inPort_both` / `leafPorts_inWidths2` (copies of built proofs with one
+   more conjunct), `leafPorts_inPortsOf_eq`, `SlotlessLeaf.comb` (the `have`
+   through the definition `ChildIface`).
+6. `Tests/Compiler/OneOutCallerLTest.lean`: the `decide`s on
+   `pickByteH.machineData` at `nIn` and on `callerL.machineData` at `1`
+   (`callerL_callArgs`, `callerL_strict` are true only if the reading of the
+   source is right); `hy`'s type reducing to `RealChild … ``pickByteH y`;
+   `discharge` finding `MachineDefines pickByteH` among the boundary's
+   conjuncts (`isDefEq` with the statement `#machine_design_svHR` wrote);
+   the `hidden` scan on a `MachineDefines` premise of a child; `gapOf`.
+7. `Tests/Compiler/OneOutTwoCalleeTest.lean`: the generator's several-callee
+   branch elaborated for the first time (`rcases hcase with ⟨hc, hki, hres⟩
+   | hcase` and the shared names across quotations; `decide` on the
+   disjunctive `oneout_entries`; `discharge` with two `EntryDefines`); the
+   assertion that `machine_closes_at`'s proof uses `hnames_of` AND
+   `hparent_of`.
+
+### 12.5 Build queue (par/a-10)
+
+1. `Tools.ShippingLeafOneOut`
+2. `Tests.Compiler.OneOutTwoCalleeTest` (imports `Tests.Compiler.OneOutFamilyTest`)
+3. `Tests.Compiler.OneOutCallerLTest` (imports `Tests.Compiler.OneOutCallerFullTest`, `Tools.ShippingLeafOneOut`)
+
+2 and 3 are independent of each other. `lakefile.lean` (integrator):
+
+    lean_lib «Tools.ShippingLeafOneOut» where
+      roots := #[`Tools.ShippingLeafOneOut]
+
+`Tests/AllTests.lean` (integrator):
+
+    import Tests.Compiler.OneOutTwoCalleeTest
+    import Tests.Compiler.OneOutCallerLTest
