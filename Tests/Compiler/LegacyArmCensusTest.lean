@@ -10,12 +10,12 @@ import IP.RV32.SoC
 
 /-! # A census of the legacy route's top leaves (logs only; never throws)
 
-Purpose (G2, round 19): choose the next arm of the fallback to walk from a
+Purpose (G2, rounds 19–20): choose where the proof effort goes from a
 MEASUREMENT instead of a guess.
 
-**What is measured.** Over the definitions of the imported `IP` / `Examples`
-/ `Tests` modules whose result type is syntactically a `Signal` (after the
-binders), in name order, at most `cap` of them:
+**Pass 1 (round 19) — syntactic.** Over the definitions of the imported `IP`
+/ `Examples` / `Tests` modules whose result type is syntactically a `Signal`
+(after the binders), in name order, at most `cap` of them:
 
 1. the ROUTE the shipping entry gives the declaration, from the entry's own
    pure gates on the entry's own constant
@@ -24,34 +24,58 @@ binders), in name order, at most `cap` of them:
    `machine` / `legacy`;
 2. for the `legacy` ones, the TOP LEAF: the body after `openRecordInputs`,
    `stripMemoizeWrappers` and `lambdaTelescope` (the entry's own steps), and
-   of it
-   * the head (a constant's name, or `<fvar>` / `<lambda>` / `<let>` / …),
-   * `fallbackKind` (the arm `translateFallback` dispatches to),
-   * for a `Signal.map` / `Functor.map` head: the head of the mapped
-     function's body.
+   of it the head, `fallbackKind`, and for a map head the head of the mapped
+   function's body.
 
-**What is NOT measured.** Which handler ACCEPTS the leaf at run time: that
-needs instrumenting the translator (a compiler file). The classification is
-syntactic, on the expression the translator is handed; `fallbackKind` is the
-compiler's own function, so that column is exact; the head tells which
-name-guarded arm or handler the body's chain will stop at. Sub-expressions
-of the leaf are not counted: only the top node of each declaration.
+**Pass 2 (round 20) — the real entry is RUN.** The population of pass 1 is
+every Signal-valued definition, not the declarations the entry RETURNS for.
+So each legacy-route candidate is handed to the shipping entry itself
+(`synthesizeCombinationalCore n [] false`: the certified front end on, no
+parameters, not symbolic — what `#synthesize…` runs before its cleanup), and
+the outcome is recorded: `RETURNED`, `THREW` (first line of the message),
+`TIMEOUT` (the per-declaration heartbeat bound), `RUNTIME` (another runtime
+exception, e.g. the recursion depth), or `NOT RUN` (the test's wall-clock
+budget was used up). For the RETURNED ones only: the head / `fallbackKind`
+tables again, and per declaration
 
-**Limits.** Only the listed imports are in the environment (eight `IP`
-modules already imported by other tests, and whatever they import);
-structure- and product-valued declarations are skipped (their leaves need
-`splitReturnLeaves`); `cap` bounds the work. One run in this environment:
-an observation.
+* the binders: how many are scalar Signals (`BitVec` / `Bool` payload),
+  structured Signals, domain binders, others (parameters, instances);
+* the payload of the result type;
+* for a `<lambda>` head (a beta-redex at the top of the leaf): the head after
+  `headBeta`;
+* the combined class `head | binders | result payload`.
 
-The whole block is inside `try … catch`, and each declaration in its own;
-the heartbeat limit is lifted (a heartbeat exception is not catchable). -/
+**Isolation of the runs.** Each run is between `Meta.saveState` and its
+`restore` (environment, messages, metavariables); the entry resets its own
+`IO.Ref` caches at depth 0, and `sparkleSynthDepth` is set to 0 before each
+run in case an earlier one was cut off. Runtime exceptions (heartbeats,
+recursion depth) are caught with `tryCatchRuntimeEx`: plain `try … catch`
+does not catch them.
+
+**What is still NOT measured.** Which handler accepts each node at run time;
+sub-expressions of the leaf; structure- / product-valued declarations (their
+leaves need `splitReturnLeaves`); declarations outside the imports. A
+declaration the gates route to `machine` whose machine synthesis then
+declines also ends in the legacy arm; those are not run here.
+
+One run in this environment: an observation. The whole block is inside
+`try … catch`, each declaration in its own; the outer heartbeat limit is
+lifted. -/
 
 open Lean Meta Sparkle.Compiler.Elab
 
 namespace Sparkle.Tests.Compiler.LegacyArmCensusTest
 
-/-- At most this many candidate declarations are examined. -/
+/-- At most this many candidate declarations are examined (pass 1). -/
 def cap : Nat := 400
+
+/-- Heartbeat bound of ONE run of the entry in pass 2 (in the units of the
+`maxHeartbeats` option). -/
+def runHeartbeats : Nat := 200000
+
+/-- Wall-clock budget of pass 2, in milliseconds; declarations not reached
+are reported as `NOT RUN`. -/
+def runBudgetMs : Nat := 240000
 
 /-- The head of an expression, as a label. -/
 def headOf (e : Lean.Expr) : String :=
@@ -105,6 +129,67 @@ def render (m : Std.HashMap String (Nat × String)) : String :=
   let l := m.toList.toArray.qsort (fun a b => decide (a.2.1 > b.2.1))
   String.intercalate "; " (l.toList.map fun p => s!"{p.1}: {p.2.1} (e.g. {p.2.2})")
 
+/-- The payload of a Signal type `Signal dom α`, as a label. -/
+def payloadOf (ty : Lean.Expr) : String :=
+  match ty.getAppArgs.back? with
+  | some p =>
+    if p.getAppFn.isConstOf ``BitVec then "BitVec"
+    else if p.isConstOf ``Bool then "Bool"
+    else headOf p
+  | none => "?"
+
+/-- The binders of a telescope, by kind. -/
+def binderKey (xs : Array Lean.Expr) : MetaM String := do
+  let mut sc : Nat := 0
+  let mut st : Nat := 0
+  let mut dm : Nat := 0
+  let mut ot : Nat := 0
+  for x in xs do
+    let ty ← inferType x
+    if ty.getAppFn.isConstOf ``Sparkle.Core.Signal.Signal then
+      let p := payloadOf ty
+      if p == "BitVec" || p == "Bool" then sc := sc + 1 else st := st + 1
+    else if ty.isConstOf ``Sparkle.Core.Domain.DomainConfig then dm := dm + 1
+    else ot := ot + 1
+  return s!"{xs.size} binders = {sc} scalar Signal + {st} structured Signal + {dm} domain + {ot} other"
+
+/-- What pass 1 records of a legacy-route declaration. -/
+structure Info where
+  name : Name
+  head : String
+  kind : String
+  binders : String
+  payload : String
+  betaHead : String
+
+/-- The first line of a message, at most sixty characters. -/
+def prefixOf (msg : String) : String :=
+  let line := (msg.splitOn "\n").headD ""
+  String.join ((line.toList.take 60).map fun c => c.toString)
+
+/-- ONE run of the shipping entry on `n`, isolated and bounded. -/
+def runEntry (n : Name) : MetaM String := do
+  let saved ← Meta.saveState
+  sparkleSynthDepth.set 0
+  -- the translator's call counter is never reset by the entry; its limit is
+  -- per process, so it is reset here between declarations
+  sparkleCallCounter.set 0
+  let r ← tryCatchRuntimeEx
+    (do
+      let _ ← withTheReader Core.Context
+        (fun c => { c with maxHeartbeats := runHeartbeats * 1000 }) <|
+        withCurrHeartbeats <| synthesizeCombinationalCore n [] false
+      pure "RETURNED")
+    (fun ex => do
+      if ex.isMaxHeartbeat then pure "TIMEOUT"
+      else if ex.isRuntime then pure "RUNTIME"
+      else
+        let msg ← ex.toMessageData.toString
+        pure ("THREW: " ++ prefixOf msg))
+  saved.restore
+  sparkleSynthDepth.set 0
+  pure r
+
 set_option maxHeartbeats 0 in
 run_cmd Lean.Elab.Command.liftTermElabM do
   try
@@ -133,6 +218,8 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     let mut otherHeads : Std.HashMap String (Nat × String) := {}
     let mut maps : Std.HashMap String (Nat × String) := {}
     let mut errors : Nat := 0
+    let mut legacy : Array Info := #[]
+    -- pass 1
     for n in cands do
       try
         let ci ← getConstInfo n
@@ -147,8 +234,9 @@ run_cmd Lean.Elab.Command.liftTermElabM do
         if route == "legacy" then
           let body0 ← openRecordInputs ec.value!
           let body := stripMemoizeWrappers body0
-          let (hd, kd, mb) ← lambdaTelescope body fun _ inner =>
-            pure (headOf inner, kindOf inner, mapBodyOf inner)
+          let (hd, kd, mb, bk, bh) ← lambdaTelescope body fun xs inner => do
+            let bk ← binderKey xs
+            pure (headOf inner, kindOf inner, mapBodyOf inner, bk, headOf inner.headBeta)
           heads := bump heads hd n.toString
           kinds := bump kinds kd n.toString
           if kd == "other" then
@@ -158,6 +246,9 @@ run_cmd Lean.Elab.Command.liftTermElabM do
             match mb with
             | some b => maps := bump maps b n.toString
             | none => pure ()
+          legacy := legacy.push
+            { name := n, head := hd, kind := kd, binders := bk,
+              payload := payloadOf ci.type.getForallBody, betaHead := bh }
       catch _ =>
         errors := errors + 1
     logInfo m!"LEGACY ARM CENSUS: {all.size} Signal-valued definitions in the imported IP / Examples / Tests modules, {cands.size} examined (cap {cap}), {errors} errors. ROUTES: {render routes}"
@@ -165,6 +256,49 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     logInfo m!"LEGACY ARM CENSUS, top leaf of the legacy-route declarations, by head: {render heads}"
     logInfo m!"LEGACY ARM CENSUS, legacy-route leaves of fallbackKind other, by head: {render otherHeads}"
     logInfo m!"LEGACY ARM CENSUS, map leaves, by the head of the mapped function's body: {render maps}"
+    -- pass 2: the real entry on every legacy-route candidate
+    let t0 ← IO.monoMsNow
+    let mut outcomes : Std.HashMap String (Nat × String) := {}
+    let mut thrown : Std.HashMap String (Nat × String) := {}
+    let mut rHeads : Std.HashMap String (Nat × String) := {}
+    let mut rKinds : Std.HashMap String (Nat × String) := {}
+    let mut rBinders : Std.HashMap String (Nat × String) := {}
+    let mut rPayloads : Std.HashMap String (Nat × String) := {}
+    let mut rBeta : Std.HashMap String (Nat × String) := {}
+    let mut rClasses : Std.HashMap String (Nat × String) := {}
+    let mut tHeads : Std.HashMap String (Nat × String) := {}
+    for i in legacy do
+      let now ← IO.monoMsNow
+      if now - t0 > runBudgetMs then
+        outcomes := bump outcomes "NOT RUN (time budget)" i.name.toString
+      else
+        let r ← try runEntry i.name catch _ => pure "HARNESS ERROR"
+        if r == "RETURNED" then
+          outcomes := bump outcomes "RETURNED" i.name.toString
+          rHeads := bump rHeads i.head i.name.toString
+          rKinds := bump rKinds i.kind i.name.toString
+          rBinders := bump rBinders i.binders i.name.toString
+          rPayloads := bump rPayloads i.payload i.name.toString
+          if i.head == "<lambda>" then
+            rBeta := bump rBeta i.betaHead i.name.toString
+          rClasses := bump rClasses s!"{i.head} | {i.binders} | result {i.payload}"
+            i.name.toString
+        else if r == "TIMEOUT" || r == "RUNTIME" || r == "HARNESS ERROR" then
+          outcomes := bump outcomes r i.name.toString
+        else
+          outcomes := bump outcomes "THREW" i.name.toString
+          thrown := bump thrown r i.name.toString
+          tHeads := bump tHeads i.head i.name.toString
+    let t1 ← IO.monoMsNow
+    logInfo m!"LEGACY ENTRY RUNS: the shipping entry (synthesizeCombinationalCore, certified front end on) on the {legacy.size} legacy-route candidates, {t1 - t0} ms, heartbeat bound {runHeartbeats} per declaration. OUTCOMES: {render outcomes}"
+    logInfo m!"LEGACY ENTRY RUNS, THREW by first line of the message: {render thrown}"
+    logInfo m!"LEGACY ENTRY RUNS, THREW by the leaf's head: {render tHeads}"
+    logInfo m!"LEGACY ENTRY RUNS, RETURNED by the leaf's head: {render rHeads}"
+    logInfo m!"LEGACY ENTRY RUNS, RETURNED by fallbackKind: {render rKinds}"
+    logInfo m!"LEGACY ENTRY RUNS, RETURNED by binders: {render rBinders}"
+    logInfo m!"LEGACY ENTRY RUNS, RETURNED by the result type's payload: {render rPayloads}"
+    logInfo m!"LEGACY ENTRY RUNS, RETURNED with a <lambda> head, by the head after headBeta: {render rBeta}"
+    logInfo m!"LEGACY ENTRY RUNS, RETURNED by class (head | binders | result payload): {render rClasses}"
   catch ex =>
     logInfo m!"LEGACY ARM CENSUS: harness error: {ex.toMessageData}"
 
