@@ -70,9 +70,11 @@ syntactic notion of "plain".
 What is NOT proved here
 * `n.toString = n.toString (escape := false)` for any class of names (the
   bridge above).
-* That `decide` evaluates `sepB` on the endpoints' names in acceptable time:
-  a name of `k` string components has `2^k` candidates, so a pair costs
-  `2^k · 2^k'` string comparisons in the kernel. UNMEASURED.
+* `sepB` is costly in the kernel: a name of `k` string components has `2^k`
+  candidates, so a pair costs `2^k · 2^k'` string comparisons (measured by
+  the integrator: one test module peaks at 2.44 GiB). The structural test at
+  the end of this file (`sepC` / `sepFast`, `inj_of`) avoids both the
+  enumeration and the strings, for names with plain string components.
 * Nothing about names with numeric components beyond the candidate list
   (`Nat.repr` is used as written).
 
@@ -264,5 +266,389 @@ theorem nodup_map_of (L : List Lean.Name) (hnd : L.Nodup)
     (h : (L.all fun c => L.all fun c' => decide (c = c') || sepB c c') = true) :
     (L.map (fun n => n.toString)).Nodup :=
   nodup_map_of_inj L hnd (hnames_of L h)
+
+/-! ## A cheaper, structural test (round 12)
+
+`sepB` enumerates `2^k` candidates per name and compares STRINGS in the
+kernel (appends and equality on UTF-8 byte arrays): one test module peaked
+at 2.44 GiB. The test below never builds a string and never enumerates.
+
+A name is given by the CHARACTERS of its components, last component first
+(`CN`); `nameOf` rebuilds the name with `String.ofList`, which a string
+literal unfolds to (so `nameOf [['c','n','t'], ['M']]` and `` `M.cnt `` are
+expected to be definitionally equal at the cost of expanding the literals —
+NOT measured). A component is PLAIN (`plainC`) when it contains none of
+
+    '.'   the separator `toStringWithSep "."` writes between components
+    '«'   `idBeginEscape`, written by `escapePart` in front of an escaped part
+    '»'   `idEndEscape`, written behind it
+
+Those three are the only characters the proof needs to know about: whatever
+`escapePart` decides (its test looks at `isIdFirst` / `isIdRest` /
+`isIdEndEscape` and the opaque ASCII scan), the result is the component or
+the component between `«` `»`, so deleting `«` `»` from ANY candidate of a
+name with plain components leaves the components joined by dots, and a list
+of dot-free components is recovered from that. Hence:
+
+* `inj_of`: on names with plain string components, printing is INJECTIVE —
+  no comparison of candidates at all;
+* `sepC A B = okC A && okC B && decide (A ≠ B)`: linear in the characters;
+* the list forms `hnames_of'` (the check is `L.all okC`, linear — no
+  pairwise test), `hparent_of'`, `not_mem_map_of'`, `disjoint_map_of'`,
+  `nodup_map_of'`;
+* `sepFast a b` on `Lean.Name`s (through `String.toList`, whose kernel cost
+  on a literal is NOT measured; the `CN` forms avoid it).
+
+What `sepFast` / `sepC` cannot separate and `sepB` can: names with a
+numeric component (private names, macro scopes), the anonymous name, names
+with a component containing `.`, `«` or `»` (e.g. `` `«a.b».c `` against
+`` `d ``), and — for `fresh_of` / `not_mem_of` — a printed name against an
+arbitrary string (`s!"inst{k}_{c}"`): those two keep the candidate lists. -/
+
+/-- A name by the characters of its string components, last component
+first. -/
+abbrev CN := List (List Char)
+
+/-- The name of a component list. -/
+def nameOf : CN → Lean.Name
+  | [] => .anonymous
+  | cs :: rest => .str (nameOf rest) (String.ofList cs)
+
+/-- An escape bracket. -/
+def bra (c : Char) : Bool :=
+  decide (c = Lean.idBeginEscape) || decide (c = Lean.idEndEscape)
+
+/-- A character list without the escape brackets. -/
+def stripL (l : List Char) : List Char := l.filter fun c => !bra c
+
+/-- A component with no separator and no escape bracket. -/
+def plainC (cs : List Char) : Bool := cs.all fun c => !bra c && !decide (c = '.')
+
+/-- A non-anonymous name whose components are all plain. -/
+def okC (A : CN) : Bool := !A.isEmpty && A.all plainC
+
+/-- The printed form after deleting the brackets: the components joined by
+dots. -/
+def key : CN → List Char
+  | [] => []
+  | [cs] => cs
+  | cs :: rest => key rest ++ '.' :: cs
+
+theorem and_tt {a b : Bool} (h : (a && b) = true) : a = true ∧ b = true := by
+  cases a <;> cases b <;> first | exact ⟨rfl, rfl⟩ | (have h' : false = true := h; cases h')
+
+theorem not_tt {a : Bool} (h : (!a) = true) : a = false := by
+  cases a <;> first | rfl | (have h' : false = true := h; cases h')
+
+theorem not_ff {a : Bool} (h : a = false) : (!a) = true := by
+  subst h
+  rfl
+
+theorem or_l {a b : Bool} (h : a = true) : (a || b) = true := by
+  subst h
+  rfl
+
+theorem or_r {a b : Bool} (h : b = true) : (a || b) = true := by
+  subst h
+  cases a <;> rfl
+
+theorem bra_b : bra Lean.idBeginEscape = true := by
+  unfold bra
+  exact or_l (decide_eq_true rfl)
+
+theorem bra_e : bra Lean.idEndEscape = true := by
+  unfold bra
+  exact or_r (decide_eq_true rfl)
+
+theorem bra_dot : bra '.' = false := by decide
+
+theorem plain_mem {cs : List Char} (h : plainC cs = true) {c : Char} (hc : c ∈ cs) :
+    bra c = false ∧ c ≠ '.' := by
+  have h1 : (!bra c && !decide (c = '.')) = true := List.all_eq_true.mp h c hc
+  obtain ⟨ha, hb⟩ := and_tt h1
+  exact ⟨not_tt ha, of_decide_eq_false (not_tt hb)⟩
+
+theorem dot_not_mem {cs : List Char} (h : plainC cs = true) : '.' ∉ cs :=
+  fun hm => (plain_mem h hm).2 rfl
+
+theorem strip_plain {cs : List Char} (h : plainC cs = true) : stripL cs = cs := by
+  unfold stripL
+  exact List.filter_eq_self.mpr fun a ha => not_ff (plain_mem h ha).1
+
+theorem strip_append (a b : List Char) : stripL (a ++ b) = stripL a ++ stripL b := by
+  unfold stripL
+  exact List.filter_append a b
+
+theorem strip_single {c : Char} (h : bra c = true) : stripL [c] = [] := by
+  unfold stripL
+  exact List.filter_cons_of_neg fun hh => absurd (h.symm.trans (not_tt hh)) (by decide)
+
+theorem strip_dot : stripL ['.'] = ['.'] := by
+  unfold stripL
+  exact List.filter_cons_of_pos (not_ff bra_dot)
+
+theorem dot_toList : (".": String).toList = ['.'] :=
+  (congrArg String.toList (rfl : (".": String) = String.ofList ['.'])).trans String.toList_ofList
+
+theorem esc_toList (s : String) :
+    (esc s).toList = [Lean.idBeginEscape] ++ s.toList ++ [Lean.idEndEscape] := by
+  unfold esc
+  rw [String.toList_append, String.toList_append, Char.toString_eq_singleton,
+    Char.toString_eq_singleton, String.toList_singleton, String.toList_singleton]
+
+theorem strip_esc (s : String) : stripL (esc s).toList = stripL s.toList := by
+  have h1 : stripL (esc s).toList = [] ++ stripL s.toList ++ [] := by
+    rw [esc_toList, strip_append, strip_append, strip_single bra_b, strip_single bra_e]
+  exact h1.trans (List.append_nil _)
+
+/-- A plain component, as itself or escaped, strips to itself. -/
+theorem strip_part {cs : List Char} (h : plainC cs = true) {y : String}
+    (hy : y = String.ofList cs ∨ y = esc (String.ofList cs)) : stripL y.toList = cs := by
+  have h0 : stripL (String.ofList cs).toList = cs :=
+    (congrArg stripL String.toList_ofList).trans (strip_plain h)
+  rcases hy with e | e
+  · exact (congrArg (fun (z : String) => stripL z.toList) e).trans h0
+  · exact (congrArg (fun (z : String) => stripL z.toList) e).trans ((strip_esc _).trans h0)
+
+theorem strip_join (r y : String) (k cs : List Char) (hr : stripL r.toList = k)
+    (hy : stripL y.toList = cs) : stripL (r ++ "." ++ y).toList = k ++ '.' :: cs := by
+  have h1 : stripL (r ++ "." ++ y).toList = k ++ ['.'] ++ cs := by
+    rw [String.toList_append, String.toList_append, strip_append, strip_append, hr, hy,
+      dot_toList, strip_dot]
+  exact h1.trans (List.append_assoc k ['.'] cs)
+
+theorem all_tail {α : Type} {p : α → Bool} {a : α} {l : List α}
+    (h : (a :: l).all p = true) : l.all p = true :=
+  List.all_eq_true.mpr fun y hy => List.all_eq_true.mp h y (List.Mem.tail _ hy)
+
+/-- **Every candidate rendering of a name with plain components strips to
+the dotted components.** -/
+theorem cand_strip : ∀ (A : CN), A ≠ [] → A.all plainC = true →
+    ∀ x, x ∈ cands (nameOf A) → stripL x.toList = key A
+  | [], h, _, _, _ => absurd rfl h
+  | [cs], _, hp, x, hx => by
+    have hcs : plainC cs = true := List.all_eq_true.mp hp cs (List.Mem.head _)
+    have hx' : x ∈ [String.ofList cs, esc (String.ofList cs)] := hx
+    show stripL x.toList = cs
+    rcases List.mem_cons.mp hx' with e | hx''
+    · exact strip_part hcs (Or.inl e)
+    · exact strip_part hcs (Or.inr (List.mem_singleton.mp hx''))
+  | cs :: c2 :: rest, _, hp, x, hx => by
+    have hcs : plainC cs = true := List.all_eq_true.mp hp cs (List.Mem.head _)
+    have hx' : x ∈ (cands (nameOf (c2 :: rest))).flatMap
+        (fun r => [r ++ "." ++ String.ofList cs, r ++ "." ++ esc (String.ofList cs)]) := hx
+    obtain ⟨r, hr, hxr⟩ := List.mem_flatMap.mp hx'
+    have ih := cand_strip (c2 :: rest) (List.cons_ne_nil _ _) (all_tail hp) r hr
+    show stripL x.toList = key (c2 :: rest) ++ '.' :: cs
+    have hxr' : x ∈ [r ++ "." ++ String.ofList cs, r ++ "." ++ esc (String.ofList cs)] := hxr
+    rcases List.mem_cons.mp hxr' with e | hx''
+    · exact (congrArg (fun (z : String) => stripL z.toList) e).trans
+        (strip_join r (String.ofList cs) _ cs ih (strip_part hcs (Or.inl rfl)))
+    · have e : x = r ++ "." ++ esc (String.ofList cs) := List.mem_singleton.mp hx''
+      exact (congrArg (fun (z : String) => stripL z.toList) e).trans
+        (strip_join r (esc (String.ofList cs)) _ cs ih (strip_part hcs (Or.inr rfl)))
+
+/-- Two lists split at a separator that occurs in neither tail agree part
+by part. -/
+theorem append_sep_inj {α : Type} {d : α} : ∀ (X Y a b : List α), d ∉ a → d ∉ b →
+    X ++ d :: a = Y ++ d :: b → X = Y ∧ a = b
+  | [], [], a, b, _, _, h => by
+    have h1 : d :: a = d :: b := h
+    exact ⟨rfl, (List.cons.inj h1).2⟩
+  | [], y :: Y, a, b, ha, _, h => by
+    have h1 : d :: a = y :: (Y ++ d :: b) := h
+    have h2 : a = Y ++ d :: b := (List.cons.inj h1).2
+    have h3 : d ∈ Y ++ d :: b := List.mem_append_right Y (List.Mem.head _)
+    exact absurd (Eq.mpr (congrArg (fun (l : List α) => d ∈ l) h2) h3) ha
+  | x :: X, [], a, b, _, hb, h => by
+    have h1 : x :: (X ++ d :: a) = d :: b := h
+    have h2 : X ++ d :: a = b := (List.cons.inj h1).2
+    have h3 : d ∈ X ++ d :: a := List.mem_append_right X (List.Mem.head _)
+    exact absurd (Eq.mp (congrArg (fun (l : List α) => d ∈ l) h2) h3) hb
+  | x :: X, y :: Y, a, b, ha, hb, h => by
+    have h1 : x :: (X ++ d :: a) = y :: (Y ++ d :: b) := h
+    obtain ⟨hxy, ht⟩ := List.cons.inj h1
+    obtain ⟨e1, e2⟩ := append_sep_inj X Y a b ha hb ht
+    exact ⟨(congrArg (fun (z : α) => z :: X) hxy).trans (congrArg (fun (Z : List α) => y :: Z) e1), e2⟩
+
+/-- The dotted form determines the plain components. -/
+theorem key_inj : ∀ (A B : CN), A ≠ [] → B ≠ [] → A.all plainC = true → B.all plainC = true →
+    key A = key B → A = B
+  | [], _, h, _, _, _, _ => absurd rfl h
+  | _ :: _, [], _, h, _, _, _ => absurd rfl h
+  | [a], [b], _, _, _, _, h => by
+    have h1 : a = b := h
+    exact congrArg (fun (z : List Char) => [z]) h1
+  | [a], b :: b2 :: rb, _, _, hpa, _, h => by
+    have h1 : a = key (b2 :: rb) ++ '.' :: b := h
+    have ha : '.' ∉ a := dot_not_mem (List.all_eq_true.mp hpa a (List.Mem.head _))
+    have h3 : '.' ∈ key (b2 :: rb) ++ '.' :: b := List.mem_append_right _ (List.Mem.head _)
+    exact absurd (Eq.mpr (congrArg (fun (l : List Char) => '.' ∈ l) h1) h3) ha
+  | a :: a2 :: ra, [b], _, _, _, hpb, h => by
+    have h1 : key (a2 :: ra) ++ '.' :: a = b := h
+    have hb : '.' ∉ b := dot_not_mem (List.all_eq_true.mp hpb b (List.Mem.head _))
+    have h3 : '.' ∈ key (a2 :: ra) ++ '.' :: a := List.mem_append_right _ (List.Mem.head _)
+    exact absurd (Eq.mp (congrArg (fun (l : List Char) => '.' ∈ l) h1) h3) hb
+  | a :: a2 :: ra, b :: b2 :: rb, _, _, hpa, hpb, h => by
+    have h1 : key (a2 :: ra) ++ '.' :: a = key (b2 :: rb) ++ '.' :: b := h
+    have ha : '.' ∉ a := dot_not_mem (List.all_eq_true.mp hpa a (List.Mem.head _))
+    have hb : '.' ∉ b := dot_not_mem (List.all_eq_true.mp hpb b (List.Mem.head _))
+    obtain ⟨e1, e2⟩ := append_sep_inj _ _ a b ha hb h1
+    have ih : a2 :: ra = b2 :: rb :=
+      key_inj (a2 :: ra) (b2 :: rb) (List.cons_ne_nil _ _) (List.cons_ne_nil _ _)
+        (all_tail hpa) (all_tail hpb) e1
+    exact (congrArg (fun (z : List Char) => z :: a2 :: ra) e2).trans
+      (congrArg (fun (z : CN) => b :: z) ih)
+
+theorem okC_spec {A : CN} (h : okC A = true) : A ≠ [] ∧ A.all plainC = true := by
+  have h' : (!A.isEmpty && A.all plainC) = true := h
+  obtain ⟨h1, h2⟩ := and_tt h'
+  refine ⟨?_, h2⟩
+  intro e
+  have h3 : A.isEmpty = false := not_tt h1
+  have h4 : A.isEmpty = true := congrArg List.isEmpty e
+  exact absurd (h4.symm.trans h3) (by decide)
+
+/-- **Printing is injective on names with plain string components.** -/
+theorem inj_of {A B : CN} (hA : okC A = true) (hB : okC B = true)
+    (h : (nameOf A).toString = (nameOf B).toString) : A = B := by
+  obtain ⟨a1, a2⟩ := okC_spec hA
+  obtain ⟨b1, b2⟩ := okC_spec hB
+  have k1 : stripL (nameOf A).toString.toList = key A :=
+    cand_strip A a1 a2 _ (toString_mem (nameOf A))
+  have k2 : stripL (nameOf B).toString.toList = key B :=
+    cand_strip B b1 b2 _ (toString_mem (nameOf B))
+  have k3 : stripL (nameOf A).toString.toList = stripL (nameOf B).toString.toList :=
+    congrArg (fun (z : String) => stripL z.toList) h
+  exact key_inj A B a1 b1 a2 b2 (k1.symm.trans (k3.trans k2))
+
+/-- The structural test: both plain, and different. -/
+def sepC (A B : CN) : Bool := okC A && okC B && decide (A ≠ B)
+
+/-- **Separation by the structural test.** -/
+theorem sepC_ne {A B : CN} (h : sepC A B = true) :
+    (nameOf A).toString ≠ (nameOf B).toString := by
+  have h' : (okC A && okC B && decide (A ≠ B)) = true := h
+  obtain ⟨h12, h3⟩ := and_tt h'
+  obtain ⟨h1, h2⟩ := and_tt h12
+  exact fun heq => of_decide_eq_true h3 (inj_of h1 h2 heq)
+
+/-- `hnames`, structurally: printing is injective on a list of plain names.
+The check is linear in the list. -/
+theorem hnames_of' (L : List CN) (h : (L.all okC) = true) :
+    ∀ c ∈ L.map nameOf, ∀ c' ∈ L.map nameOf, c.toString = c'.toString → c = c' := by
+  intro c hc c' hc' heq
+  obtain ⟨A, hA, eA⟩ := List.mem_map.mp hc
+  obtain ⟨B, hB, eB⟩ := List.mem_map.mp hc'
+  have h0 : (nameOf A).toString = (nameOf B).toString :=
+    (congrArg (fun (n : Lean.Name) => n.toString) eA).trans
+      (heq.trans (congrArg (fun (n : Lean.Name) => n.toString) eB).symm)
+  have e : A = B := inj_of (List.all_eq_true.mp h A hA) (List.all_eq_true.mp h B hB) h0
+  exact eA.symm.trans ((congrArg nameOf e).trans eB)
+
+/-- `hparent`, structurally. -/
+theorem hparent_of' {α : Type} (insts : List (CN × α)) (parent : CN)
+    (h : (insts.all fun c => sepC c.1 parent) = true) :
+    ∀ c ∈ insts.map (fun c => (nameOf c.1, c.2)), c.1.toString ≠ (nameOf parent).toString := by
+  intro c hc heq
+  obtain ⟨d, hd, e⟩ := List.mem_map.mp hc
+  have h1 : sepC d.1 parent = true := List.all_eq_true.mp h d hd
+  have e1 : nameOf d.1 = c.1 := congrArg Prod.fst e
+  have h2 : (nameOf d.1).toString = (nameOf parent).toString :=
+    (congrArg (fun (n : Lean.Name) => n.toString) e1).trans heq
+  exact sepC_ne h1 h2
+
+/-- `c` prints differently from every declaration of `L`, structurally. -/
+theorem not_mem_map_of' (c : CN) (L : List CN) (h : (L.all fun c' => sepC c c') = true) :
+    (nameOf c).toString ∉ (L.map nameOf).map (fun n => n.toString) := by
+  intro hm
+  obtain ⟨n, hn, e1⟩ := List.mem_map.mp hm
+  obtain ⟨B, hB, e2⟩ := List.mem_map.mp hn
+  have h1 : sepC c B = true := List.all_eq_true.mp h B hB
+  have e1' : n.toString = (nameOf c).toString := e1
+  have h2 : (nameOf c).toString = (nameOf B).toString :=
+    e1'.symm.trans (congrArg (fun (n : Lean.Name) => n.toString) e2).symm
+  exact sepC_ne h1 h2
+
+/-- No declaration of `L` prints as a declaration of `L'`, structurally. -/
+theorem disjoint_map_of' (L L' : List CN)
+    (h : (L.all fun c => L'.all fun c' => sepC c c') = true) :
+    ∀ x ∈ (L.map nameOf).map (fun n => n.toString),
+      x ∉ (L'.map nameOf).map (fun n => n.toString) := by
+  intro x hx hx'
+  obtain ⟨n, hn, e1⟩ := List.mem_map.mp hx
+  obtain ⟨A, hA, e2⟩ := List.mem_map.mp hn
+  have e1' : n.toString = x := e1
+  have e3 : (nameOf A).toString = x :=
+    (congrArg (fun (n : Lean.Name) => n.toString) e2).trans e1'
+  have h0 : (L'.all fun c' => sepC A c') = true := List.all_eq_true.mp h A hA
+  exact not_mem_map_of' A L' h0
+    (Eq.mpr (congrArg (fun (z : String) => z ∈ (L'.map nameOf).map (fun n => n.toString)) e3) hx')
+
+/-- The printed names of a list of plain names are pairwise distinct when
+the names are. -/
+theorem nodup_map_of' (L : List CN) (hnd : (L.map nameOf).Nodup) (h : (L.all okC) = true) :
+    ((L.map nameOf).map (fun n => n.toString)).Nodup :=
+  nodup_map_of_inj _ hnd (hnames_of' L h)
+
+/-! ### On `Lean.Name`s directly -/
+
+/-- The components of a name without numeric parts, last first. -/
+def compsOf : Lean.Name → Option CN
+  | .anonymous => some []
+  | .str p s => (compsOf p).map fun r => s.toList :: r
+  | .num _ _ => none
+
+theorem nameOf_compsOf : ∀ (n : Lean.Name) (A : CN), compsOf n = some A → nameOf A = n
+  | .anonymous, A, h => by
+    have h1 : some ([] : CN) = some A := h
+    cases h1
+    rfl
+  | .str p s, A, h => by
+    have h1 : (compsOf p).map (fun r => s.toList :: r) = some A := h
+    obtain ⟨R, hp, hR⟩ := Option.map_eq_some_iff.mp h1
+    have ih : nameOf R = p := nameOf_compsOf p R hp
+    have e1 : nameOf (s.toList :: R) = Lean.Name.str p s :=
+      (congrArg (fun (q : Lean.Name) => Lean.Name.str q (String.ofList s.toList)) ih).trans
+        (congrArg (fun (t : String) => Lean.Name.str p t) String.ofList_toList)
+    exact (congrArg nameOf hR).symm.trans e1
+  | .num _ _, A, h => by
+    have h1 : (none : Option CN) = some A := h
+    cases h1
+
+/-- The test on two optional component lists. -/
+def sepFastO : Option CN → Option CN → Bool
+  | some A, some B => sepC A B
+  | some _, none => false
+  | none, some _ => false
+  | none, none => false
+
+theorem sepFastO_spec : ∀ (x y : Option CN), sepFastO x y = true →
+    ∃ A B, x = some A ∧ y = some B ∧ sepC A B = true
+  | some A, some B, h => ⟨A, B, rfl, rfl, h⟩
+  | some _, none, h => by
+    have h1 : false = true := h
+    cases h1
+  | none, some _, h => by
+    have h1 : false = true := h
+    cases h1
+  | none, none, h => by
+    have h1 : false = true := h
+    cases h1
+
+/-- The structural test on names: no numeric component, every component
+plain, and the component lists differ. -/
+def sepFast (a b : Lean.Name) : Bool := sepFastO (compsOf a) (compsOf b)
+
+/-- **Separation of two names by the structural test.** -/
+theorem sepFast_ne {a b : Lean.Name} (h : sepFast a b = true) : a.toString ≠ b.toString := by
+  obtain ⟨A, B, ha, hb, hs⟩ := sepFastO_spec _ _ h
+  have ea : nameOf A = a := nameOf_compsOf a A ha
+  have eb : nameOf B = b := nameOf_compsOf b B hb
+  intro heq
+  have h2 : (nameOf A).toString = (nameOf B).toString :=
+    (congrArg (fun (n : Lean.Name) => n.toString) ea).trans
+      (heq.trans (congrArg (fun (n : Lean.Name) => n.toString) eb).symm)
+  exact sepC_ne hs h2
 
 end Tools.ShippingNameSep

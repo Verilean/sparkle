@@ -696,3 +696,32 @@ injected-fault scenarios of `LegacyCacheRollbackTest` then report "no stale
 hit" (before: undeclared wire / another function / rejection); the natural
 test still reports none. The Elab build ran at the cgroup's MemoryHigh
 (2.74 GiB, 429 `high` events, no `max` / OOM).
+
+## Cache rollback fix, variant A — verification record (integrator, 2026-10-12)
+
+Branch `fix/cache-rollback` (isolated worktree; NOT merged into
+`poc/roundtrip-proof`): `85cd33f0` the fix + acceptance test, `68ee67d2` the
+proofs (worker B), `3a680402` merge of the main line (`527c782b`).
+
+At `3a680402`, through the protected runner (3 GiB cap, one job):
+
+- `Tests.AllTests`: 920 jobs green (peak 2.23 GiB, no `high` / `max` / OOM
+  event). The first full run, before the proofs, failed at exactly one
+  module, `Tools.ShippingChildLegacy` (the proof about the inline attempt).
+- `LegacyCacheFixTest`: scenarios 1–7 PASS (on the unfixed compiler at
+  `4d3cd186`: all seven FAIL) — retry with a twice-used argument, a
+  re-allocated name, sub-module after a failed attempt, nested attempts
+  (inner fails / both fail), a child synthesis inside the failed attempt, the
+  zeta mark.
+- Success path, limited set: the emitted-design digests of 17 real
+  declarations are identical on `527c782b` and on the fix branch
+  (`LegacyCacheFixCostTest`); at most 21 inline attempts per declaration and
+  at most 22 map entries at a snapshot there.
+
+NOT established: the snapshot's cost on large designs (copy-on-write of the
+maps at every inline attempt); outputs outside those 17 declarations (the
+full corpus stays stopped by the user's instruction); whether any real
+source triggers the defect by itself. Found by reading, not reproduced: a
+child synthesis already empties the parent's let / loop / canon caches
+today, so restoring them after a recovered failure can change sharing in the
+emitted text; `sparkleFvarZetaVisited` is not in the depth-0 reset list.

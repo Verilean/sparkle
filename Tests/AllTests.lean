@@ -155,6 +155,8 @@ import Tests.Compiler.ChecksDerivedTest
 import Tests.Compiler.LegacySemInstanceTest
 import Tests.Compiler.LegacyCacheFixTest
 import Tests.Compiler.ReaderWellTypedWildcardTest
+import Tests.Compiler.FinalGoalTest
+import Tests.Compiler.NameSepFastTest
 import Tests.Compiler.InlineUnfoldRegressionTest
 import Tests.Compiler.ShippingHierOptRunTest
 import Tests.Compiler.ShippingMachineDepthTest
