@@ -2,6 +2,7 @@ import Tests.Compiler.ShippingCallsCloseTest
 import Tools.ShippingChecksRaw
 import Tools.ShippingChildIfaceTy
 import Tools.ShippingChecksOuts
+import Tools.ShippingChecksWidths
 
 /-! # The raw-module facts on a real declaration (G1)
 
@@ -174,5 +175,176 @@ run_cmd liftTermElabM do
       unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do
         throwError "{n} uses a non-standard axiom: {ax}"
   logInfo m!"CHECKSOUTS: closedBody_regs, closedPorts_of_run, outsExtracted_of_parts, callStmtG_outWire, core_outsExtracted, core_shipsHier_rest4, parent_outs, parent_shipsHier4 — standard axioms only"
+
+/-! ## Conjunct 8, `instOutWidthsOk`, and the gate half of conjunct 1, on `parent`
+
+The two per-child premises as theorems of `parent` / `cnt`:
+* `parent_kidP` — `hkidP`, from `cnt`'s interface (as in `parent_outs`);
+* `parent_kidW` — `hkidW`, the width agreement: a real `cnt`'s output ports
+  are its layout's fields with their types (`leaf_real_outTys`), and for
+  each of `parent`'s two call entries the layout field of that name has the
+  width of the type of the entry's binder — ONE `decide` over the two
+  declarations' data per entry. Nothing in the compiler makes this
+  comparison (`Tools/ShippingChecksWidths.lean`, header).
+
+Then `parent_widths` (`core_instOutWidthsOk`), `parent_shipsHier3`
+(`shipsHierCheck` with conjuncts 1, 2, 4 left), `parent_hierGate`. -/
+
+theorem parent_kidP {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State}
+    {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State}
+    (entryC : Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref ``cnt
+      cnt.machineData.shape) :
+    ∀ (k : Nat) (hk : k < parent.machineData.shape.insts.length)
+      (y : Tools.ShippingChildInv.Res),
+      Tools.ShippingChildInv.RealChild mref cref (parent.machineData.shape.insts[k]).1 y →
+      ∀ p ∈ y.1.outputs, (∀ q ∈ Tools.ShippingInstStmtG.inPortsOf y.1, q.name ≠ p.name) ∧
+        p.name ≠ "clk" ∧ p.name ≠ "rst" := by
+  intro k hk y hy
+  have hk' : k < 2 := hk
+  have hall := (Tools.ShippingSeqChildIface.seqChild_of_real cnt.machineData cnt.machine_ok
+      cnt.machine_body rfl (by decide) entryC (fun mc cc => cnt.machine_closes mc _ cc _)
+      (y := y))
+  cases k with
+  | zero => exact (hall hy).outsIn
+  | succ k =>
+    cases k with
+    | zero => exact (hall hy).outsIn
+    | succ k => exact absurd hk' (by omega)
+
+set_option maxHeartbeats 0 in
+theorem parent_kidW {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State}
+    {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State}
+    (entryC : Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref ``cnt
+      cnt.machineData.shape) :
+    ∀ (k : Nat) (hk : k < parent.machineData.shape.insts.length)
+      (y : Tools.ShippingChildInv.Res),
+      Tools.ShippingChildInv.RealChild mref cref (parent.machineData.shape.insts[k]).1 y →
+      ∀ p ∈ y.1.outputs, p.name = parent.machineData.shape.instFields.getD k "" →
+        (parent.machineData.shape.binders[1 + k]?).map
+          (fun bn => (Tools.ShippingMachineEntry.kindTy bn.2).bitWidth) = some p.ty.bitWidth := by
+  intro k hk y hy p hp hpn
+  have hk' : k < 2 := hk
+  have hout := fun (h : Tools.ShippingChildInv.RealChild mref cref ``cnt y) =>
+    (Tools.ShippingChildIfaceTy.leaf_real_outTys cnt.machineData cnt.machine_ok cnt.machine_body
+      rfl (fun h0 => absurd (congrArg List.length h0) (by decide)) (by decide) (by decide) entryC
+      (fun mc cc => cnt.machine_closes mc _ cc _) h).outputs
+  cases k with
+  | zero =>
+    rw [hout hy] at hp
+    obtain ⟨o, ho, rfl⟩ := List.mem_map.mp hp
+    exact (by decide : ∀ o ∈ cnt.machineData.shape.layout.outs,
+      o.name = parent.machineData.shape.instFields.getD 0 "" →
+      (parent.machineData.shape.binders[1 + 0]?).map
+        (fun bn => (Tools.ShippingMachineEntry.kindTy bn.2).bitWidth) = some o.ty.bitWidth)
+      o ho hpn
+  | succ k =>
+    cases k with
+    | zero =>
+      rw [hout hy] at hp
+      obtain ⟨o, ho, rfl⟩ := List.mem_map.mp hp
+      exact (by decide : ∀ o ∈ cnt.machineData.shape.layout.outs,
+        o.name = parent.machineData.shape.instFields.getD (0 + 1) "" →
+        (parent.machineData.shape.binders[1 + (0 + 1)]?).map
+          (fun bn => (Tools.ShippingMachineEntry.kindTy bn.2).bitWidth) = some o.ty.bitWidth)
+        o ho hpn
+    | succ k => exact absurd hk' (by omega)
+
+set_option maxHeartbeats 0 in
+theorem parent_widths {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State}
+    {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State}
+    {w w1 : Void IO.RealWorld} {raw b : Sparkle.IR.AST.Module} {D : Sparkle.IR.AST.Design}
+    (hcore : Tools.ShippingEntrySoundness.RunsTo
+      (Sparkle.Compiler.Elab.synthesizeCombinationalCore ``parent [] false)
+      mctx mref cctx cref w (raw, D) w1)
+    (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨
+      b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw))
+    (entry : Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref ``parent
+      parent.machineData.shape)
+    (closes : Tools.ShippingChildInv.MachineClosesAt mctx mref cctx cref ``parent
+      parent.machineData.shape)
+    (hB : Tools.ShippingChildInv.ChildBnd mref cref w)
+    (entryC : Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref ``cnt
+      cnt.machineData.shape) :
+    Tools.ShippingHierOpen.instOutWidthsOk (Tools.ShippingMachineLinked.childMap D.modules)
+      (Sparkle.IR.RegDedup.declWidth b) b.body = true :=
+  Tools.ShippingChecksWidths.core_instOutWidthsOk (nDecl := 1) parent.machineData
+    parent.machine_ok parent.machine_body (by decide) (by decide) (by decide)
+    (fun h0 => absurd (congrArg List.length h0) (by decide))
+    (fun h0 => absurd (congrArg List.length h0) (by decide))
+    (by decide) (by decide) (parent_kidP entryC) (parent_kidW entryC)
+    hB hcore hpost entry closes
+
+set_option maxHeartbeats 0 in
+theorem parent_hierGate {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State}
+    {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State}
+    {w w1 : Void IO.RealWorld} {raw b : Sparkle.IR.AST.Module} {D : Sparkle.IR.AST.Design}
+    (hcore : Tools.ShippingEntrySoundness.RunsTo
+      (Sparkle.Compiler.Elab.synthesizeCombinationalCore ``parent [] false)
+      mctx mref cctx cref w (raw, D) w1)
+    (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨
+      b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw))
+    (entry : Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref ``parent
+      parent.machineData.shape)
+    (closes : Tools.ShippingChildInv.MachineClosesAt mctx mref cctx cref ``parent
+      parent.machineData.shape)
+    (hB : Tools.ShippingChildInv.ChildBnd mref cref w) :
+    Sparkle.IR.RefineCheck.hierGate b = true :=
+  Tools.ShippingChecksWidths.core_hierGate (nDecl := 1) parent.machineData
+    parent.machine_ok parent.machine_body (by decide) (by decide) (by decide)
+    (fun h0 => absurd (congrArg List.length h0) (by decide))
+    (fun h0 => absurd (congrArg List.length h0) (by decide))
+    (by decide) (by decide) hB hcore hpost entry closes
+
+set_option maxHeartbeats 0 in
+theorem parent_shipsHier3 {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State}
+    {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State}
+    {w w1 : Void IO.RealWorld} {raw b : Sparkle.IR.AST.Module} {D : Sparkle.IR.AST.Design}
+    (hcore : Tools.ShippingEntrySoundness.RunsTo
+      (Sparkle.Compiler.Elab.synthesizeCombinationalCore ``parent [] false)
+      mctx mref cctx cref w (raw, D) w1)
+    (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨
+      b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw))
+    (entry : Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref ``parent
+      parent.machineData.shape)
+    (closes : Tools.ShippingChildInv.MachineClosesAt mctx mref cctx cref ``parent
+      parent.machineData.shape)
+    (hB : Tools.ShippingChildInv.ChildBnd mref cref w)
+    (entryC : Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref ``cnt
+      cnt.machineData.shape)
+    (hflat : Sparkle.IR.RefineCheck.refineCheck
+      (Sparkle.IR.HierCheck.openFlat b (Sparkle.IR.HierCheck.openIns b)
+        (Sparkle.IR.HierCheck.openOuts b))
+      (Sparkle.IR.HierCheck.openFlat b (Sparkle.IR.HierCheck.openIns b)
+        (Sparkle.IR.HierCheck.openOuts b)) = true)
+    (hwfO : Tools.ShippingHierOpen.linkedWF (Tools.ShippingMachineLinked.childMap D.modules)
+      (Sparkle.IR.OptCheck.checkedOptimize b).body = true)
+    (hndO : (Tools.ShippingHierState.instNames
+      (Sparkle.IR.OptCheck.checkedOptimize b).body).Nodup) :
+    Tools.ShippingHierPremisesBase.shipsHierCheck (Tools.ShippingMachineLinked.childMap D.modules)
+      b = true :=
+  Tools.ShippingChecksWidths.core_shipsHier_rest3F (nDecl := 1) parent.machineData
+    parent.machine_ok parent.machine_body (by decide) (by decide) (by decide)
+    (fun h0 => absurd (congrArg List.length h0) (by decide))
+    (fun h0 => absurd (congrArg List.length h0) (by decide))
+    (fun h0 => absurd (congrArg List.length h0) (by decide))
+    (by decide) (by decide) (parent_kidP entryC) (parent_kidW entryC)
+    hB hcore hpost entry closes hflat hwfO hndO
+
+open Lean Elab Command in
+run_cmd liftTermElabM do
+  for n in [``Tools.ShippingTransitionPortTys.transitionPortTys_of_run,
+      ``Tools.ShippingInstWidthsParts.instOutWidthsOk_of,
+      ``Tools.ShippingInstWidthsParts.callStmtG_outWireF,
+      ``Tools.ShippingInstWidthsParts.hierGate_of,
+      ``Tools.ShippingChecksWidths.core_callPorts,
+      ``Tools.ShippingChecksWidths.core_instOutWidthsOk,
+      ``Tools.ShippingChecksWidths.core_shipsHier_rest3,
+      ``Tools.ShippingChecksWidths.core_hierGate,
+      ``Tools.ShippingChecksWidths.core_shipsHier_rest3F,
+      ``parent_kidP, ``parent_kidW, ``parent_widths, ``parent_hierGate, ``parent_shipsHier3] do
+    for ax in ← Lean.collectAxioms n do
+      unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do
+        throwError "{n} uses a non-standard axiom: {ax}"
+  logInfo m!"CHECKSWIDTHS: transitionPortTys_of_run, instOutWidthsOk_of, callStmtG_outWireF, hierGate_of, core_callPorts, core_instOutWidthsOk, core_shipsHier_rest3, core_hierGate, core_shipsHier_rest3F, parent_kidP, parent_kidW, parent_widths, parent_hierGate, parent_shipsHier3 — standard axioms only"
 
 end Tests.Compiler.ChecksRawTest

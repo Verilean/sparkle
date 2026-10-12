@@ -2174,3 +2174,12 @@ lean_lib «Tools.ShippingOutsExtractedParts» where
 
 lean_lib «Tools.ShippingChecksOuts» where
   roots := #[`Tools.ShippingChecksOuts]
+
+lean_lib «Tools.ShippingTransitionPortTys» where
+  roots := #[`Tools.ShippingTransitionPortTys]
+
+lean_lib «Tools.ShippingInstWidthsParts» where
+  roots := #[`Tools.ShippingInstWidthsParts]
+
+lean_lib «Tools.ShippingChecksWidths» where
+  roots := #[`Tools.ShippingChecksWidths]
