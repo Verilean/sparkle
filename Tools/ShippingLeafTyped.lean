@@ -64,7 +64,16 @@ With the guard `… && masksKept m r && Sparkle.IR.PrintGuard.printOk r` in
 `mergeChecked`'s last branch (the pattern of `keepGuarded`), `mergeChecked
 m0 = m0 ∨ printOk (mergeChecked m0) = true` holds for every `m0` whose body
 is not assignments only (the analogue of `deinline_print`), which is
-`hmergePrint`. NOT implemented (no compiler file is edited here).
+`hmergePrint`.
+
+IMPLEMENTED since (round par/a-1) for bodies that are not assignments only:
+`mergeChecked`'s last branch asks `printOk` of the merge
+(`Sparkle.IR.RefineCheck.mergeChecked_print`), `leaf_run_typedIn` also
+returns "with a slot, `m0`'s body is not assignments only", and
+`leaf_real_kidK_reg` is `leaf_real_kidK` for a leaf child WITH A REGISTER
+without `hmergePrint`. For a slotless leaf (an assignment-only body) the
+merge is `mergeDuplicates`' own validated one, not guarded: there
+`hmergePrint` stays a hypothesis (`leaf_real_kidK`).
 
 UNVERIFIED at the time of writing: this file was not built. -/
 namespace Tools.ShippingLeafTyped
@@ -360,7 +369,8 @@ theorem leaf_run_typedIn {c : Name} (d : MachineData) (ok : d.ok = true)
     (hoty : ∀ o ∈ d.shape.layout.outs, Tools.ShippingTextTyped.scalarTy o.ty = true) :
     ∃ m0 : Sparkle.IR.AST.Module, (b = m0 ∨ b = mergeChecked m0) ∧
       Tools.ShippingTextTyped.TypedIn m0 ∧ m0.body.all seqStmtOk = true ∧
-      PortsIn b ∧ b.body.all seqStmtOk = true := by
+      PortsIn b ∧ b.body.all seqStmtOk = true ∧
+      (d.shape.layout.slots ≠ [] → m0.body.all Sparkle.IR.RegDedup.isAssign = false) := by
   obtain ⟨M, D, w1, hcore, hpost, hdesM⟩ := synthesizeCombinational_parts hr
   have closes : MachineClosesAt mctx mref cctx cref c d.shape := machineClosesAt_of_closes closesM
   obtain ⟨bb, r, w9, w10, hrun9, hw9, hd9, hres⟩ :=
@@ -418,7 +428,33 @@ theorem leaf_run_typedIn {c : Name} (d : MachineData) (ok : d.ok = true)
   obtain ⟨regs, -, rlen, lets, -, wired, -⟩ :=
     hP d.dom d.kb d.kv d.vw d.bpos d.vpos d.letFields d.core.2 hwf hb' hv' hbody hfit houtfit
   obtain ⟨-, -, -, -, -, -, -, -, -, -, hclean, -⟩ := wired
-  obtain ⟨⟨hzb, hzw, -, hzo⟩, -, -, -, -, -, -, -, hseq⟩ := hclean hno outTy
+  obtain ⟨⟨hzb, hzw, -, hzo⟩, -, hregs, -, -, -, -, -, hseq⟩ := hclean hno outTy
+  -- with a slot, the core module has a register: the cleaned body is not
+  -- assignments only (the steps of `leaf_run_masked`, copied)
+  have hnAZ : d.shape.layout.slots ≠ [] →
+      (Sparkle.IR.ZeroWidth.dropZeroWidthModule M).body.all Sparkle.IR.RegDedup.isAssign =
+        false := by
+    intro hsl
+    obtain ⟨f0, hf0⟩ : ∃ f, d.shape.layout.slots[0]? = some f := by
+      cases hs : d.shape.layout.slots with
+      | nil => exact absurd hs hsl
+      | cons f _ => exact ⟨f, rfl⟩
+    obtain ⟨r0n, hr0n⟩ : ∃ r, regs[0]? = some r := by
+      cases hrs : regs with
+      | nil =>
+        have hreg0 : regs.length = 0 := by simp [hrs]
+        have hsb : d.slotBs.length = d.ss.length := by
+          simp only [MachineData.slotBs, List.length_take, List.length_drop]
+          omega
+        have : d.shape.layout.slots.length = 0 := by omega
+        rw [List.length_eq_zero_iff] at this; exact absurd this hsl
+      | cons r _ => exact ⟨r, rfl⟩
+    obtain ⟨_, _, rk0, inp0, hm0⟩ := hregs 0 r0n f0 hr0n hf0
+    have hnA : M.body.all Sparkle.IR.RegDedup.isAssign = false := by
+      apply List.all_eq_false.mpr
+      exact ⟨_, hm0, by simp [Sparkle.IR.RegDedup.isAssign]⟩
+    rw [hzb]
+    exact hnA
   obtain ⟨-, -, hwCM, hiCM, hoCM, hkCM, haCM, hrCM⟩ :=
     Tools.ShippingCloseMachineTyped.closeMachine_typed (lay := d.shape.layout) hbodyc typedc
       namedc namesc inWc inNdc wNdc slotsc
@@ -536,7 +572,7 @@ theorem leaf_run_typedIn {c : Name} (d : MachineData) (ok : d.ok = true)
       rw [hweZ]
       exact ht
   have hPZ : PortsIn (Sparkle.IR.ZeroWidth.dropZeroWidthModule M) := PortsIn.of_typedIn hT
-  refine ⟨Sparkle.IR.ZeroWidth.dropZeroWidthModule M, hpost, hT, hseqZ, ?_, ?_⟩
+  refine ⟨Sparkle.IR.ZeroWidth.dropZeroWidthModule M, hpost, hT, hseqZ, ?_, ?_, hnAZ⟩
   · rcases hpost with h | h
     · rw [h]
       exact hPZ
@@ -569,7 +605,8 @@ theorem leaf_real_typedIn {c : Name} (d : MachineData) (ok : d.ok = true)
     {y : Res} (h : RealChild mref cref c y) :
     ∃ m0 : Sparkle.IR.AST.Module, (y.1 = m0 ∨ y.1 = mergeChecked m0) ∧
       Tools.ShippingTextTyped.TypedIn m0 ∧ m0.body.all seqStmtOk = true ∧
-      PortsIn y.1 ∧ y.1.body.all seqStmtOk = true := by
+      PortsIn y.1 ∧ y.1.body.all seqStmtOk = true ∧
+      (d.shape.layout.slots ≠ [] → m0.body.all Sparkle.IR.RegDedup.isAssign = false) := by
   obtain ⟨mctx', cctx', w, w', hw, hr⟩ := h.inv
   exact leaf_run_typedIn d ok hbody hC hdomB hno hSS outTy hw hr
     (Tools.ShippingReflectCtx.MachineDefines.ctx entry) (closes mctx' cctx') hon hoty
@@ -591,7 +628,7 @@ theorem leaf_real_portsIn {c : Name} (d : MachineData) (ok : d.ok = true)
     (hon : ∀ o ∈ d.shape.layout.outs, Sparkle.Backend.Verilog.sanitizeName o.name = o.name)
     (hoty : ∀ o ∈ d.shape.layout.outs, Tools.ShippingTextTyped.scalarTy o.ty = true)
     {y : Res} (h : RealChild mref cref c y) : PortsIn y.1 := by
-  obtain ⟨m0, -, -, -, hp, -⟩ :=
+  obtain ⟨m0, -, -, -, hp, -, -⟩ :=
     leaf_real_typedIn d ok hbody hC hdomB hno hSS outTy entry closes hon hoty h
   exact hp
 
@@ -621,7 +658,7 @@ theorem leaf_real_kidK {c : Name} (d : MachineData) (ok : d.ok = true)
       ∀ g ∈ y.2.modules,
         ∀ (C : String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)) (n : Nat),
           Tools.ShippingChecksDesign.kidCheck C n g = true := by
-  obtain ⟨m0, hpost, hT, hs0, -, hs⟩ :=
+  obtain ⟨m0, hpost, hT, hs0, -, hs, -⟩ :=
     leaf_real_typedIn d ok hbody hC hdomB hno hSS outTy entry closes hon hoty h
   have hI := seqChild_of_real d ok hbody hno outTy entry closes h
   have htext : Tools.SVParser.EmitSem.seqCheck (Tools.ShippingDesignSV.wofOf y.1)
@@ -665,5 +702,54 @@ theorem leaf_real_kidK_id {c : Name} (d : MachineData) (ok : d.ok = true)
           Tools.ShippingChecksDesign.kidCheck C n g = true :=
   leaf_real_kidK d ok hbody hC hdomB hno hSS outTy entry closes hon hoty h
     (fun m0 e => Or.inl (hmergeId m0 e))
+
+/-- **The children's check of a real leaf child WITH A REGISTER**, at every
+depth and for every child map — no hypothesis on the merge: the cleaned
+module has a register, so its checked merge is the module itself or passes
+the print guard (`Sparkle.IR.RefineCheck.mergeChecked_print`). -/
+theorem leaf_real_kidK_reg {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    {nDecl : Nat} (hC : d.callsOk nDecl = true)
+    (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
+    (hno : d.shape.insts = [])
+    (hsl : d.shape.layout.slots ≠ [])
+    (hSS : d.ss.length = d.shape.layout.slots.length)
+    (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
+    (entry : MachineDefines mctx mref cctx cref c d.shape)
+    (closes : ∀ (mctx' : Meta.Context) (cctx' : Core.Context),
+      MachineCloses mctx' mref cctx' cref c d.shape)
+    (hon : ∀ o ∈ d.shape.layout.outs, Sparkle.Backend.Verilog.sanitizeName o.name = o.name)
+    (hoty : ∀ o ∈ d.shape.layout.outs, Tools.ShippingTextTyped.scalarTy o.ty = true)
+    {y : Res} (h : RealChild mref cref c y) :
+    (∀ (C : String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)) (n : Nat),
+        Tools.ShippingChecksDesign.kidCheck C n y.1 = true) ∧
+      ∀ g ∈ y.2.modules,
+        ∀ (C : String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)) (n : Nat),
+          Tools.ShippingChecksDesign.kidCheck C n g = true := by
+  obtain ⟨m0, hpost, hT, hs0, -, hs, hna⟩ :=
+    leaf_real_typedIn d ok hbody hC hdomB hno hSS outTy entry closes hon hoty h
+  have hI := seqChild_of_real d ok hbody hno outTy entry closes h
+  have htext : Tools.SVParser.EmitSem.seqCheck (Tools.ShippingDesignSV.wofOf y.1)
+        (Tools.ShippingDesignSV.weS y.1) y.1.body = true ∧
+      (Tools.ShippingSeqSVSoundness.seqNames y.1.body).all
+        (fun x => Sparkle.IR.RegDedup.declWidth y.1 x == Tools.ShippingDesignSV.weS y.1 x) =
+          true := by
+    rcases hpost with e | e
+    · rw [e]
+      exact hT.seqCheck
+    · rcases Sparkle.IR.RefineCheck.mergeChecked_print (hna hsl) with e' | hp
+      · have e2 : y.1 = m0 := e.trans e'
+        rw [e2]
+        exact hT.seqCheck
+      · have hp' : Sparkle.IR.PrintGuard.printOk y.1 = true := by
+          rw [e]
+          exact hp
+        exact Tools.ShippingPrintGuard.printOk_sound hp'
+  refine ⟨fun C n => kidCheck_leaf_of_text C n hs htext.1 htext.2, ?_⟩
+  intro g hg
+  rw [hI.design] at hg
+  cases hg
 
 end Tools.ShippingLeafTyped

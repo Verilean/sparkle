@@ -253,15 +253,21 @@ theorem and_right_true {a b : Bool} (h : (a && b) = true) : b = true := by
 
 /-- `mergeDuplicates`, result-checked: an assignment-only body keeps its
 merge (`mergeDuplicates` validates it itself); any other body keeps the merge
-only if `refineCheck` accepts it, else it is returned unmerged. -/
+only if `refineCheck` accepts it, no masked output lost its mask, and the
+merged module passes the print guard; else it is returned unmerged. -/
 def mergeChecked (m : Module) : Module :=
   let r := Sparkle.IR.RegDedup.mergeDuplicates m
   -- an assignment-only body: `mergeDuplicates` validates its own merge
   if m.body.all Sparkle.IR.RegDedup.isAssign then r
   -- otherwise the merge is kept only when `refineCheck` accepts it AND no
-  -- masked output lost its mask (the merge may turn a node into an alias);
-  -- else the module is returned unmerged: a fallback, never a rejection
-  else if refineCheck m r && masksKept m r then r else m
+  -- masked output lost its mask (the merge may turn a node into an alias)
+  -- AND the merged module passes the print guard
+  -- (`Sparkle.IR.PrintGuard.printOk`: its statements are in the emitter's
+  -- fragment at their declared widths); else the module is returned
+  -- unmerged: a fallback, never a rejection.
+  -- (`refineCheck` is the LEFT conjunct of the condition: the lemmas that
+  -- read it take the left projection.)
+  else if refineCheck m r && (masksKept m r && Sparkle.IR.PrintGuard.printOk r) then r else m
 
 def mergeCheckedDesign (d : Design) : Design :=
   { d with modules := d.modules.map mergeChecked }
@@ -306,8 +312,34 @@ theorem mergeChecked_masks {m : Module}
   dsimp only
   rw [if_neg (by rw [h]; decide)]
   split
-  · rename_i hc; exact Or.inr (and_right_true hc)
+  · rename_i hc; exact Or.inr (and_left_true (and_right_true hc))
   · exact Or.inl rfl
+
+/-- **The print guard of the merge**: on a body that is not assignment-only,
+the kept module is the module itself or passes the print guard. (An
+assignment-only body keeps `mergeDuplicates`' own validated merge, which is
+not guarded.) -/
+theorem mergeChecked_print {m : Module}
+    (h : m.body.all Sparkle.IR.RegDedup.isAssign = false) :
+    mergeChecked m = m ∨ Sparkle.IR.PrintGuard.printOk (mergeChecked m) = true := by
+  unfold mergeChecked
+  dsimp only
+  rw [if_neg (by rw [h]; decide)]
+  split
+  · rename_i hc; exact Or.inr (and_right_true (and_right_true hc))
+  · exact Or.inl rfl
+
+/-- The same without a hypothesis on the body: the module itself, a module
+passing the print guard, or the merge of an assignment-only body. -/
+theorem mergeChecked_print_cases (m : Module) :
+    mergeChecked m = m ∨ Sparkle.IR.PrintGuard.printOk (mergeChecked m) = true ∨
+      m.body.all Sparkle.IR.RegDedup.isAssign = true := by
+  cases h : m.body.all Sparkle.IR.RegDedup.isAssign with
+  | true => exact Or.inr (Or.inr rfl)
+  | false =>
+    rcases mergeChecked_print h with e | e
+    · exact Or.inl e
+    · exact Or.inr (Or.inl e)
 
 /-- A masked output of `m` is masked in `o` under the guard. -/
 theorem masksKept_out {m o : Module} (h : masksKept m o = true) {p : Port} (hp : p ∈ m.outputs)

@@ -48,7 +48,9 @@ theorem cnt_typedIn {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.
       Tools.ShippingTextTyped.TypedIn m0 ∧
       m0.body.all Sparkle.IR.OptCheck.seqStmtOk = true ∧
       Tools.ShippingLeafTyped.PortsIn y.1 ∧
-      y.1.body.all Sparkle.IR.OptCheck.seqStmtOk = true :=
+      y.1.body.all Sparkle.IR.OptCheck.seqStmtOk = true ∧
+      (cnt.machineData.shape.layout.slots ≠ [] →
+        m0.body.all Sparkle.IR.RegDedup.isAssign = false) :=
   Tools.ShippingLeafTyped.leaf_real_typedIn (nDecl := cnt.machineData.nIn) cnt.machineData
     cnt.machine_ok cnt.machine_body (by decide) (by decide) rfl (by decide) (by decide) entry
     (fun mc cc => cnt.machine_closes mc _ cc _)

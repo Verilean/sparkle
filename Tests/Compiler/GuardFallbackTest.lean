@@ -60,6 +60,16 @@ evaluated on the refused candidate.
   connection immediately before its instance. So from an input with
   distinct instance names in the linked order the candidate keeps both.
 
+* **G5** (`connsKept`, round par/a-2: a kept candidate declares every
+  connected wire at the input module's emitted width), `oWide`: the
+  connected wire re-declared 8 bits wide. It passes G2, G4 and `printOk`;
+  only `connsKept` refuses it; the shipped `mGood` passes `portsMatchB` and
+  `textCheckI`, the refused candidate fails `portsMatchB`. No input on which
+  the optimizer itself drops or re-types a connected wire was found by
+  reading: it never changes a port's type, an instance connection counts as
+  a use (`countAllUses`) and seeds the reachability filter, and
+  `deinlineRaw` keeps the optimizer's wires.
+
 Nothing here is a theorem: it is evaluation on fixed modules.
 
 UNVERIFIED at the time of writing: this file was not built. -/
@@ -118,6 +128,13 @@ def mMask : Module :=
     wires := [b16 "x", b8 "t", b8 "r"],
     body := [.assign "t" sl, .assign "out" sl,
              .register "r" "clk" ("rst", .synchronous) (.ref "t") 0] }
+
+/-- G5, hand-made candidate of `OptFallbackTest.mGood`: the connected wire
+`w` re-declared 8 bits wide (the child's port is one bit), nothing reading it. -/
+def oWide : Module :=
+  { Tests.Compiler.OptFallbackTest.mGood with
+    wires := [b8 "w", b1 "y"],
+    body := [Tests.Compiler.OptFallbackTest.instSt, .assign "y" (.const 1 1)] }
 
 /-- The candidate of the optimizer after the connections are named again. -/
 def cand (m : Module) : Module := deinlineRaw m (Sparkle.IR.Optimize.optimizeModule m)
@@ -191,6 +208,19 @@ run_cmd liftTermElabM do
   bad := note "G2/hand: the refused candidate is not linkedWF"
     (!Tools.ShippingHierOpen.linkedWF C1 oR.body) bad
   bad := note "G2/hand: the refused candidate fails textCheckI" (!top C1 oR) bad
+  -- ── G5 (connected wires keep their widths), hand-made candidate ─────────
+  let oW := oWide
+  logInfo m!"GUARDFALLBACK G5/hand: connsKept(candidate)={connsKept m oW} G2={g2 m oW} G4={g4 oW} printOk(candidate)={Sparkle.IR.PrintGuard.printOk oW} portsMatchB(candidate)={Tools.ShippingDesignSV.portsMatchB C1 oW}; shipped: {parts C1 (keepGuarded m oW)}"
+  bad := note "G5/hand: connsKept refuses the candidate" (!connsKept m oW) bad
+  bad := note "G5/hand: G2 accepts the candidate" (g2 m oW) bad
+  bad := note "G5/hand: G4 accepts the candidate" (g4 oW) bad
+  bad := note "G5/hand: printOk accepts the candidate" (Sparkle.IR.PrintGuard.printOk oW) bad
+  bad := note "G5/hand: keepGuarded falls back" (keepGuarded m oW == m) bad
+  bad := note "G5/hand: the shipped module passes portsMatchB"
+    (Tools.ShippingDesignSV.portsMatchB C1 (keepGuarded m oW)) bad
+  bad := note "G5/hand: the shipped module passes textCheckI" (top C1 (keepGuarded m oW)) bad
+  bad := note "G5/hand: the refused candidate fails portsMatchB"
+    (!Tools.ShippingDesignSV.portsMatchB C1 oW) bad
   -- ── the check does not bind ─────────────────────────────────────────────
   let m := Tests.Compiler.OptFallbackTest.mOutside
   let s := chk m

@@ -158,6 +158,12 @@ import Tests.Compiler.PrintArtifactCensusTest
 import Tests.Compiler.DesignWriterAuditTest
 import Tests.Compiler.OptFallbackTest
 import Tests.Compiler.GuardFallbackTest
+import Tests.Compiler.MergePrintGuardTest
+import Tests.Compiler.NoKidsTest
+import Tests.Compiler.ConnsKeptCensusTest
+import Tests.Compiler.SimIndexTest
+import Tests.Compiler.PortsMatchRawLeafTest
+import Tests.Compiler.PortsMatchRawLeafChainedTest
 import Tests.Compiler.LegacySemInstanceTest
 import Tests.Compiler.LegacyCacheFixTest
 import Tests.Compiler.ReaderWellTypedWildcardTest

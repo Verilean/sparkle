@@ -2285,3 +2285,27 @@ lean_lib «Tools.ShippingDesignWriter» where
 
 lean_lib «Tools.ShippingDesignWriterRun» where
   roots := #[`Tools.ShippingDesignWriterRun]
+
+lean_lib «Tools.ShippingNoKids» where
+  roots := #[`Tools.ShippingNoKids]
+
+lean_lib «Tools.ShippingNoKidsCommand» where
+  roots := #[`Tools.ShippingNoKidsCommand]
+
+lean_lib «Tools.ShippingOptimizePorts» where
+  roots := #[`Tools.ShippingOptimizePorts]
+
+lean_lib «Tools.ShippingPortsMatchShipped» where
+  roots := #[`Tools.ShippingPortsMatchShipped]
+
+lean_lib «Tools.ShippingPortWidthsPure» where
+  roots := #[`Tools.ShippingPortWidthsPure]
+
+lean_lib «Tools.ShippingLeafPorts» where
+  roots := #[`Tools.ShippingLeafPorts]
+
+lean_lib «Tools.ShippingCoreClk» where
+  roots := #[`Tools.ShippingCoreClk]
+
+lean_lib «Tools.ShippingPortsMatchRawLeaf» where
+  roots := #[`Tools.ShippingPortsMatchRawLeaf]

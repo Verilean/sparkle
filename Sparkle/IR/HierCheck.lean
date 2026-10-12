@@ -201,13 +201,38 @@ def linkedWFX (X : List String) : List Stmt → Bool
   | .register _ _ _ _ _ :: rest => linkedWFX X rest
   | .memory .. :: _ => false
 
+/-- G5: every wire an instance of the candidate connects has, in the
+candidate, the emitted width it has in the input module (the candidate
+neither drops nor re-types the declaration of a connected wire). Design-free:
+it compares `o` with `m`, not with the children. -/
+def connsKept (m o : Module) : Bool :=
+  o.body.all fun st =>
+    match st with
+    | .inst _ _ conns =>
+      conns.all fun c =>
+        match c.2 with
+        | .ref w => Sparkle.IR.PrintGuard.weOf o w == Sparkle.IR.PrintGuard.weOf m w
+        | _ => true
+    | _ => true
+
+/-- What `connsKept` says of a reference connection. -/
+theorem connsKept_sound {m o : Module} (h : connsKept m o = true) :
+    ∀ mn iname conns, Stmt.inst mn iname conns ∈ o.body → ∀ c ∈ conns, ∀ w, c.2 = .ref w →
+      Sparkle.IR.PrintGuard.weOf o w = Sparkle.IR.PrintGuard.weOf m w := by
+  intro mn iname conns hm c hcm w hw
+  have h1 := List.all_eq_true.mp h _ hm
+  have h2 := List.all_eq_true.mp h1 c hcm
+  rw [hw] at h2
+  simpa using h2
+
 /-- The candidate `o` when it passes the guards — distinct instance names
-(G4), the linked order (G2), and the print guard
+(G4), the linked order (G2), the print guard
 (`Sparkle.IR.PrintGuard.printOk`: its statements are in the emitter's
-fragment at their declared widths) — else the input module. -/
+fragment at their declared widths), and the connected wires' widths (G5,
+`connsKept`) — else the input module. -/
 def keepGuarded (m o : Module) : Module :=
   if decide (instNamesOf o.body).Nodup && linkedWFX ((openIns m).map (·.name)) o.body &&
-      Sparkle.IR.PrintGuard.printOk o then o
+      Sparkle.IR.PrintGuard.printOk o && connsKept m o then o
   else m
 
 /-- The kept module is the guarded candidate or the input module. -/
@@ -218,12 +243,22 @@ theorem keepGuarded_cases (m o : Module) :
   split
   · rename_i h
     simp only [Bool.and_eq_true] at h
-    exact Or.inl ⟨rfl, of_decide_eq_true h.1.1, h.1.2⟩
+    exact Or.inl ⟨rfl, of_decide_eq_true h.1.1.1, h.1.1.2⟩
   · exact Or.inr rfl
 
 /-- The kept module is the input module or passes the print guard. -/
 theorem keepGuarded_print (m o : Module) :
     keepGuarded m o = m ∨ Sparkle.IR.PrintGuard.printOk (keepGuarded m o) = true := by
+  unfold keepGuarded
+  split
+  · rename_i h
+    simp only [Bool.and_eq_true] at h
+    exact Or.inr h.1.2
+  · exact Or.inl rfl
+
+/-- The kept module is the input module or keeps the connected wires' widths. -/
+theorem keepGuarded_conns (m o : Module) :
+    keepGuarded m o = m ∨ connsKept m (keepGuarded m o) = true := by
   unfold keepGuarded
   split
   · rename_i h
@@ -251,6 +286,11 @@ theorem deinline_cases (m o : Module) :
 theorem deinline_print (m o : Module) :
     deinline m o = m ∨ Sparkle.IR.PrintGuard.printOk (deinline m o) = true :=
   keepGuarded_print m (deinlineRaw m o)
+
+/-- `deinline m o` is `m` or keeps the connected wires' widths. -/
+theorem deinline_conns (m o : Module) :
+    deinline m o = m ∨ connsKept m (deinline m o) = true :=
+  keepGuarded_conns m (deinlineRaw m o)
 
 theorem deinline_wires_sublist (m o : Module) : (deinline m o).wires.Sublist m.wires := by
   rcases deinline_cases m o with ⟨e, -, -⟩ | e
