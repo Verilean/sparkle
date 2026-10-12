@@ -2528,3 +2528,9 @@ lean_lib «Tools.ShippingOneOutGenCommand» where
 
 lean_lib «Tools.ShippingLeafOneOut» where
   roots := #[`Tools.ShippingLeafOneOut]
+
+lean_lib «Tools.ShippingLeafOneOutGen» where
+  roots := #[`Tools.ShippingLeafOneOutGen]
+
+lean_lib «Tools.ShippingOneOutAnyGenCommand» where
+  roots := #[`Tools.ShippingOneOutAnyGenCommand]

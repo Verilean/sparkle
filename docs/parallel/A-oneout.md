@@ -870,3 +870,378 @@ the natural next step once `callerL` is BUILT; not written.
 
     import Tests.Compiler.OneOutTwoCalleeTest
     import Tests.Compiler.OneOutCallerLTest
+
+## 13. par/a-11: `callerLN`, `hftByte` by hand, the generator for slotless leaf machine children, and the slotless-PARENT axis on paper
+
+Branch `par/a-11` (base poc 85ebb9fd, where §12 is BUILT: `callerMix`,
+`callerABA`, `callerL` have `f.machine_design_svH_full(_closed)` with no
+check premise). WRITTEN, NOT BUILT:
+
+    Tools/ShippingLeafOneOutGen.lean           gateCallsOk_parts, leaf_outWidth
+    Tools/ShippingOneOutAnyGenCommand.lean     #machine_oneout_any, #machine_oneout_any_try
+    Tests/Compiler/OneOutLeafAudit.lean        the audit of OneOutCallerLTest's run_cmd, as a function
+    Tests/Compiler/OneOutCallerLNTest.lean     hand instance, callerLN
+    Tests/Compiler/OneOutHftByteTest.lean      hand instance, hftByte
+    Tests/Compiler/OneOutAnyFamilyTest.lean    the generator on callerL, callerLN, hftByte, callerMix, callerInner
+
+No existing file is edited but this document. Until the integrator has
+built the tests and their premise lists are read, NO premise of any
+endpoint below counts as removed.
+
+### 13.1 Per declaration: endpoint — premise — state
+
+A₁–A₄ are the four check premises of `f.machine_design_svHR` under
+`∃ raw D`: A₁ `shipsHierHCheck D.modules b`, A₂ `kidsComb D.modules
+(checkedOptimize b).body`, A₃ `designCheck (childMap D.modules) 0
+(checkedOptimize b)`, A₄ `outsCheck (childMap D.modules) 0
+(checkedOptimize b)`.
+
+| declaration | endpoint (who builds it) | premise of `f.machine_design_svHR` | state |
+|---|---|---|---|
+| `callerLN` | `callerLN.machine_design_svH_full` (+ `_closed`) — by hand (`OneOutCallerLNTest`, `#machine_design_svH_full`) OR by `#machine_oneout_any` (`OneOutAnyFamilyTest`); the two files add the SAME name and exclude each other | A₁ | WRITTEN — pending build |
+| | | A₂ | WRITTEN — pending build |
+| | | A₃ | WRITTEN — pending build |
+| | | A₄ | WRITTEN — pending build |
+| | | `hr`, `MachineDefines callerLN`, `MachineDefines pickByteH`, `ChildBnd` | run boundary: they stay premises |
+| `hftByte` | `hftByte.machine_design_svH_full` (+ `_closed`) — by hand (`OneOutHftByteTest`) OR by `#machine_oneout_any` (same exclusion) | A₁ | WRITTEN — pending build |
+| | | A₂ | WRITTEN — pending build |
+| | | A₃ | WRITTEN — pending build |
+| | | A₄ | WRITTEN — pending build |
+| | | `hr`, `MachineDefines hftByte`, `MachineDefines httpGetByte`, `ChildBnd` | run boundary: they stay premises |
+| `callerL` | `callerL.machine_design_svH_full` (BUILT at 85ebb9fd by hand) | A₁–A₄ | already absent (BUILT, §12). This round only re-derives the statement from GENERATED lemmas (`callerL.machine_design_svH_full_gen`): WRITTEN — pending build; nothing more is removed |
+| `callerMix` | `callerMix.machine_design_svH_full` (BUILT, `#machine_oneout`) | A₁–A₄ | already absent (BUILT). This round only compares the new generator's gate branch with the existing constants: WRITTEN — pending build |
+
+Predicted log lines (classes asserted by the commands; numerals are
+predictions, the commands print the computed ones):
+
+    Tests/Compiler/OneOutCallerLNTest.lean
+      SVHFULL GENERATED [callerLN.machine_design_svH_full, callerLN.machine_design_svH_full_closed]: …
+      ONEOUT FULL PREMISE callerLN.machine_design_svH_full_closed: run | binder hr : RunsTo (synthesizeCombinational `callerLN) …
+      ONEOUT FULL PREMISE …_closed: reflection | binder entry : MachineDefines … `callerLN callerLN.machineData.shape
+      ONEOUT FULL PREMISE …_closed: reflection | binder hR0 : MachineDefines … `pickByteH pickByteH.machineData.shape
+      ONEOUT FULL PREMISE …_closed: ChildBnd | antecedent under the existentials : ChildBnd mref cref w
+      ONEOUT FULL PREMISE …_closed: reflection | antecedent under the existentials : MachineDefines … `pickByteH …
+      GOALGAP callerLN.machine_design_svH_full_closed_gap from … (none NOT ALLOWED)
+      ONEOUT MACHINE-LEAF callerLN: … other: NONE … Machine-route callees …: [pickByteH]; gate callees …: [] …
+    Tests/Compiler/OneOutHftByteTest.lean
+      ONEOUT DATA hftByte: nDecl=2 nIn=3 slots=… lets=… insts=[httpGetByte args(let indices)=[…]] instFields=[] outs=[out:8] binders(width or dom)=[8, 1, 8, …]
+      ONEOUT DATA httpGetByte: nDecl=2 nIn=2 slots=0 lets=12 insts=[] instFields=[] outs=[out:8] binders(width or dom)=[dom, 6, 8, …]
+      SVHFULL GENERATED [hftByte.machine_design_svH_full, hftByte.machine_design_svH_full_closed]: …
+      (the same five non-data premise lines with hftByte / httpGetByte)
+      ONEOUT MACHINE-LEAF hftByte: … other: NONE …
+    Tests/Compiler/OneOutAnyFamilyTest.lean
+      ONEOUT ANY callerL: PRESENT [callerL.machine_design_svH_full, …_closed] — already present, statement verified against the generated lemmas …; the existing constant is recorded as built from OTHER lemmas (…callerL_factsH…); the proof rebuilt now from the generated lemmas is kernel-checked as callerL.machine_design_svH_full_gen …; callees: machine leaves [pickByteH] …, gate children [] …; … callArgsOk with callerL.oneout_kidIns = [[16, 2]] … [8]
+      ONEOUT ANY FAMILY callerL: … The endpoint existed (hand lemmas) …
+      ONEOUT ANY callerLN: GENERATED [callerLN.machine_design_svH_full, …_closed] — … callerLN.oneout_kidIns = [[16, 2]] … [8]
+      ONEOUT ANY FAMILY callerLN: … goal gap callerLN.machine_design_svH_full_closed_gap: … none NOT ALLOWED …
+      ONEOUT ANY hftByte: GENERATED [hftByte.machine_design_svH_full, …_closed] — … hftByte.oneout_kidIns = [[6]] … [8]
+      ONEOUT ANY FAMILY hftByte: …
+      ONEOUT ANY callerMix: PRESENT [callerMix.machine_design_svH_full, …_closed] — already present, statement verified against the generated lemmas …, recorded lemmas equal …
+      ONEOUT ANY FAMILY callerMix: … gate callees (premise: EntryDefines): [pick, pickD] …
+      ONEOUT ANY callerInner: REFUSED (no …callerInner.machine_ships_hierHR: run #machine_design_svHR … first)
+      ONEOUT ANY FAMILY: …callerInner REFUSED, nothing left under its names.
+
+A FAILED outcome is `ONEOUT ANY f: FAILED (data condition … [the theorem's
+name]: …)` followed by the command's error (expected GENERATED); in a hand
+test it is the error of the named theorem (`hftByte_callArgs`,
+`httpGetByte_outChars`, …).
+
+### 13.2 `callerLN`: what is new against `callerL`
+
+Source: `let s := counterB en` (a sub-machine with one register),
+`let acc ← Signal.reg 0#16`, `acc <~ accS ^^^ w`, `return pickByteH accS s`.
+By reading: `nDecl = 2` (`w`, `en`); registers `acc` and the flattened
+`counterB`'s; one entry whose callee is `pickByteH`; `instFields = []`;
+output `out : BitVec 8`.
+
+No new general theorem and no new fact about the child: `pickByteH_leaf` and
+the seven `pickByteH_*` theorems of `OneOutCallerLTest` (BUILT) are reused.
+New: the parent's data conditions at `nDecl = 2`, each named —
+`callerLN_callsOk`, `_slotLen`, `_domB`, `_insts`, `_instFields`, `_outTy`,
+`_nomem`, `_slots`, `_outChars`, `_outScalar`, `_entries`, `_strict`,
+`_callArgs`. So more than "three new `decide`s" (§12.3 counted only the
+ones whose STATEMENT mentions `nDecl`'s new value and the child); all of
+them are decided again on `callerLN.machineData`.
+
+One difference of FORM from `callerL`'s hand instance: the per-entry facts
+are not `cases k` against a literal count; `callerLN_entries` (`∀ k (hk :
+k < insts.length), (insts[k]).1 = pickByteH`) is decided and rewritten with.
+
+### 13.3 `hftByte`: what was read, and which conditions are open
+
+The table of the reading is the header of
+`Tests/Compiler/OneOutHftByteTest.lean`; in short:
+
+* register: YES by reading (`hftStrategy`'s `cntR`; the parser's and the
+  emitter's registers are slots of the flattened machine);
+* `nDecl`: 2 by reading (`readMachine`: the binders peeled off the entry;
+  no domain binder). The test does not write the literal: `hftNDecl := nIn -
+  insts.length`, the only value `callsOk`'s first conjunct allows; the
+  reader's number is logged (`ONEOUT DATA`);
+* entries: one, callee `httpGetByte`, by reading; `instFields = []` follows
+  from the BUILT `gateCallsOk` decide inside `hftByte.machine_closes_at`;
+* `hftByte.machine_design_svHR`: exists (BUILT), from the head
+  `machine_ships_hierHC` like every `…HR`; `hftByte.machine_closes_at` has
+  the one premise `MachineDefines httpGetByte`;
+* the child's `SlotlessLeaf` fields: `gate` (`gateCallsOk nIn`), `lets ≠ 0`,
+  `slots = []`, the one output `out`, `outTy` are the SAME decides as in the
+  BUILT `hftByte.machine_closes_at` (there at the reader's `nDecl`, which is
+  `nIn` for a child without calls) — plausible. `calls`, `dom`, `ss` are
+  conjuncts of `gate` (`gateCallsOk_parts`, WRITTEN) — plausible, and they
+  cost no second evaluation. `insts = []` is checked by compiled code in
+  `closesAtCore` and is `rfl` on a literal — plausible. OPEN (never decided
+  for this declaration): `outChars` (`charOk` on the characters of `out`),
+  `outScalar`. The implicit domain binder is the FIRST binder, inside the
+  first `nIn`, so `dom` (no domain binder after `nIn`) is expected true and
+  `declWidths` filters it: `kidIns = [6]`.
+* OPEN on the parent: `hftByte_slots`, `_outTy`, `_outChars`, `_outScalar`,
+  `_entries`, `_strict` (result binder 8 = `out`'s 8), `_callArgs` (the
+  argument `let`'s width 6) — expected true by reading, never decided.
+  `hftByte_callsOk`, `_slotLen`, `_domB`, `_instFields`, `_nomem` are
+  conjuncts / arguments of decides of the BUILT `machine_closes_at`.
+
+Kernel cost: `httpGetByte_gate` and `hftByte_callsOk` walk whole terms
+(`fieldsOkB`, `reads` over every `let` field and the core) — both were
+decided once in the BUILT `machine_closes_at` at the default recursion
+depth; the others touch binder / entry lists but must reduce the
+`machineData` constants. Every decide is `first | decide | decide +kernel`
+under `maxRecDepth 100000`. A failure is a failed NAMED condition
+(`httpGetByte_<cond>`, `hftByte_<cond>`), not a false theorem.
+
+### 13.4 The generator `#machine_oneout_any`
+
+`#machine_oneout` with one more callee kind. Reuses (imports, does not
+copy) `emit`, `emitOrVerify`, `mkThm`, `perEntry`, `endpoint` of
+`Tools/ShippingOneOutGenCommand.lean`; the scope test and the generation are
+written again, the gate branch copied.
+
+* Callee kind: `c.gate_peel` present ⇒ gate child (the test of
+  `closesAtCore`); else `c.machineData` present ⇒ machine child, accepted
+  only as a SLOTLESS LEAF with the one output `out`, at least one `let`, and
+  `c.machine_closes` present.
+* REFUSED with the reason, NOT COVERED: a machine callee WITH a register; a
+  machine callee with calls of its own; no `let`; outputs other than
+  `[out]`; no `c.machine_closes`; and everything `#machine_oneout` refuses
+  (no `…HR`, no call, a slotless parent, `instFields ≠ []`, a memory
+  callee). In the tests a parent of a register child is refused EARLIER
+  (`instFields ≠ []` or no `…HR`), so the machine-callee refusals have no
+  test.
+* Per machine-leaf callee: `c.leaf_gate`, `_calls`, `_dom`, `_ss`, `_insts`,
+  `_outTy`, `_outChars`, `_outScalar`, `_lets`, `_slots`, `_one`, `_outW`
+  (each a named theorem by the kernel), and `c.leaf_slotless :
+  MachineDefines … c c.machineData.shape → SlotlessLeaf … c c.machineData`.
+* `hkidW` per entry: `leaf_outWidth` (WRITTEN: from `SlotlessLeaf.outTys`
+  and `c.leaf_outW`) composed with the entry's result-binder width — NOT
+  `hkidW_one` + `callWidthsStrict` as in the hand instances, because with
+  several callees the one `kidOuts` function would have to be stated over
+  all entries. Same conclusion; the data condition is `c.leaf_outW` and the
+  third conjunct of `f.oneout_entries` instead of `callWidthsStrict`.
+* `f.oneout_entries`: the alternative of a machine leaf compares
+  `f.oneout_kidIns k` with `declWidths c.machineData`.
+* MIXED parents (one gate callee and one machine-leaf callee) are in the
+  design — the per-entry split is by callee, each case of its own kind —
+  but NO test declaration has that shape: that combination has never been
+  elaborated.
+
+Name clash (not hidden): the generator and the two hand instances add the
+same `f.machine_design_svH_full`. `OneOutAnyFamilyTest` imports only
+`OneOutCallerLTest` (already in `Tests.AllTests`), so `callerL` goes
+through the compare path (PRESENT) and `callerLN`, `hftByte` are GENERATED.
+`OneOutCallerLNTest` and `OneOutHftByteTest` are then TARGET-BUILT only (a
+module importing them and the family test does not load). The alternative
+(hand instances in `AllTests`): import them in the family test and expect
+PRESENT three times.
+
+### 13.5 Scope sentence (binding)
+
+For ONE declaration each — `callerLN`, `hftByte`: a parent WITH a register,
+one call entry of a SLOTLESS LEAF MACHINE child with the one output `out`,
+the one-output closing — `f.machine_design_svH_full_closed` is WRITTEN to
+have none of the four check premises of `f.machine_design_svHR`, GIVEN (1)
+the per-declaration data conditions of §13.2 / §13.3 (decided, not
+removed); (2) the runtime boundary, which stays premises: the run,
+`MachineDefines f`, `MachineDefines` of the child, `ChildBnd`; (3) the
+compiler's guards with fallback (`checkedOptimize`, `deinline`,
+`closeInsts`' checks, `mergeChecked`'s validation of the child's merge);
+and the conclusion is (4) about `DesignSV (childMap D.modules) 0
+(checkedOptimize b)` — the module list, not the SV string, not `#sim`. NOT
+covered: slotless PARENTS, machine children with registers or calls,
+several outputs, mixed gate / machine-leaf parents (no instance), "all
+successful inputs". "The parent has a register" (`f…_slots`, the head) and
+"the child's kind" (`SlotlessLeaf`) are separate conditions.
+
+### 13.6 Paper only: the next axis — a parent WITHOUT a register (still one-output, combinational children)
+
+Nothing below is written as Lean, built or measured; NO statement about
+slotless parents is claimed.
+
+**(a) What the head needs `"rst" ∈ b.inputs` for.** In
+`machine_ships_hierHC` (`Tools/ShippingMachineShipsHierH.lean`) and its
+check-free copy `machine_design_svH_free` (`Tools/ShippingOneOutHead.lean`,
+`hF.rst`), `hrstIn` is used in exactly two places:
+
+1. to turn the conclusion's premise `∀ t, ins t "rst" = 0` into
+   `∀ t st, seedIn b ins t st "rst" = 0` — the reset premise of the composed
+   theorem (`ComposedH`: `∀ t st, seed t st "rst" = 0`, for the seed
+   `seedIn b ins`). `seedIn m ins t st n = if n ∈ m.inputs then ins t n else
+   st n`: with `rst` an input the value comes from the stream;
+2. as an argument of `hierRefineCheck_linkedH` (the optimizer's accepted
+   candidate has the same outputs on the linked run), which passes it to the
+   flat `seqOptCheck_run_sound` (`Tools/ShippingSeqOptSoundness.lean`:
+   `hrstIn`, `hrstZ` — the registers of the flattened module do not reset
+   during the run).
+
+`core_rst_any` derives it from the parent's register (`hsl : slots ≠ []`):
+the wiring's input clause is `ports ++ (if no slot then [] else [clk, rst])
+++ extra`.
+
+**(b) A slotless parent of combinational children has no `rst` input** (the
+same clause, read in `Tools/ShippingChecksRaw.lean`'s header: `extra = [clk,
+rst]` only when some child has a clock / reset input). Consequences, by
+reading:
+
+* `hierCheck`'s last conjunct is `(b.inputs.map (·.name)).contains "rst"`,
+  and `shipsHierHCheck = hierCheck && kidsLocal && hierTyped`. So for such a
+  parent `shipsHierHCheck D.modules b = false`: the EXISTING head
+  `machine_ships_hierHC`, and any `f.machine_design_svHR` built from it,
+  would be VACUOUS (its first check premise cannot hold). The header of
+  `Tools/ShippingChecksRaw.lean` says such parents "ship by the
+  combinational route `shipsHierHCheck`, which does not ask it" — that
+  sentence does not match the definition as it is now (the conjunct is in
+  `hierCheck`, which `shipsHierHCheck` contains). Not evaluated on any
+  module; a reading of two definitions.
+* The composed theorem's premise `∀ t st, seedIn b ins t st "rst" = 0` is
+  FALSE when `rst` is not an input (`seedIn` then reads the state: take a
+  state with `st "rst" = 1`). So the head cannot be instantiated with the
+  seed `seedIn b ins` at all; this is not a missing derivation of a check,
+  it is the statement.
+
+**(c) Does a slotless parent of combinational children have an `…HR`
+endpoint today?** In the tests, NO: every declaration given to
+`#machine_design_svHR` / `#machine_ships_hierH` has a register (`caller`,
+`callerTwice`, `callerNested`, `callerD`, `callerMix`, `callerRep`,
+`callerABA`, `callerL`, `callerLN`, `hftByte`, `midH`). The three parents
+the earlier sweep (`NoPortsSweepTest` over `HierBindsCensusTest.candidates`)
+refused as "parent without a register" are
+`Sparkle.Tests.Compiler.MultiInstance.engineOnce`, `twinCalls`, `mesh2x2`:
+slotless parents of `pe`, a SEQUENTIAL child (two registers) with TWO
+outputs (`aOut`, `pOut`). They are NOT instances of this axis: their
+closing is `closeInstsG` (`instFields ≠ []`), their module gets `clk` /
+`rst` from the child (`withClockFor`), and their endpoints are the
+sequential head's (`f.machine_ships_hier`, `shipsHierCheck`, "a reset port"
+evaluated true on the real modules). So there is NO real declaration in the
+tests that is a slotless parent of one-output combinational children on the
+machine route with a hierarchical endpoint; the commands that exist for a
+slotless machine are `#machine_endpoint`, `#machine_child`, and the
+combinational head `machine_ships_comb`, which asks `insts = []` (no call).
+`machineClosesAt_of_gateKids` (the one-output closing's derivation) has no
+condition on the slots, but `closesAtCore` was never run on such a parent
+in the tests. (Which three the sweep refused is identified from the
+candidate list and the sources — `pe` has two `Signal.reg`, the three
+parents none; the sweep's own log line was not found in `docs/`.)
+
+**(d) What the head's statement would be without `rst`.** The conclusion of
+the present head, for the seed `seedIn b ins`, has the premises
+`∀ t st r, r ∈ regs → seedIn b ins t st r = st r`, `∀ t, ins t "rst" = 0`,
+the slots' initial values, the calls, the input fits, `BoundOff`, the
+register fits. For a slotless parent `regs = []` (`regs.length =
+d.ss.length = 0`) and there is no register: the pass-through, initial-value
+and register-fit premises are vacuous, and `∀ t, ins t "rst" = 0`
+constrains a stream at a name that is not an input — satisfiable by any
+caller but MEANINGLESS (nothing reads `ins t "rst"`). What the proof needs
+instead is one of:
+
+  (i) a composed theorem for `d.ss = []` WITHOUT the reset premise (no
+      register step reads `rst`; the trace is a sequence of independent
+      combinational evaluations over the children's combinational
+      evaluations), and an optimizer lemma for the linked run without
+      `hrstIn` when the flattened module has no register
+      (`seqRegs (openFlat b …) = []`); or
+  (ii) the present theorems with the premise replaced by "`rst` is an input
+      and the stream holds it low, OR no register and no child reads `rst`".
+
+Neither exists. (i) is the honest statement: the conclusion would not
+mention `rst` at all.
+
+**(e) Precisely what is missing** (each is an absent theorem or an absent
+instance; none was attempted):
+
+1. a REAL declaration: a slotless parent with at least one one-output
+   combinational `@[hardware_module]` call that the machine route compiles
+   (`MachineData` with `slots = []`, `insts ≠ []`, `instFields = []`), with
+   `#machine_endpoint`, a closing (`#machine_closes_at`) and a composed
+   endpoint. Whether `#machine_linked` / `#machine_composed` /
+   `#machine_design_svHR` accept such a parent was not read to the end;
+2. a head: `machine_ships_hierHC`'s statement with the reset premise
+   removed for `d.shape.layout.slots = []`, i.e. `ComposedH` without
+   `∀ t st, seed t st "rst" = 0` for slotless data;
+3. the optimizer step without `hrstIn`: `hierRefineCheck_linkedH` /
+   `seqOptCheck_run_sound` for a flattened module without registers;
+4. `hierCheck` / `HierFacts` without the `rst` conjunct for that head (or a
+   separate checker), then `RunFactsH` without `rst`
+   (`core_runFactsH` takes `hsl` only for `core_rst_any`; its other fields
+   — `binds`, `wfO`, `ndB`, `ndO`, `nofb`, `outs` — are stated for any
+   machine with calls, to be re-read for `slots = []`);
+5. `core_designCheckH` asks `hsl` as well (through `RunFactsH`); the
+   `DesignSV` conclusion (`ships_design_svH_all`) carries
+   `∀ t, ins t "rst" = 0` as a premise of the emitted-text run — to be
+   restated the same way.
+
+"The parent has no register" is an axis of the HEAD (items 2–5); the
+children's kind (gate / slotless machine leaf) is unchanged and the
+child-side theorems of §4 / §12.2 do not mention the parent's slots.
+
+### 13.7 UNVERIFIED (par/a-11), in risk order
+
+1. `Tools/ShippingOneOutAnyGenCommand.lean` — never elaborated: the
+   selective `open … (Outcome emit emitOrVerify mkThm perEntry endpoint)`;
+   the structure-instance quotation of `c.leaf_slotless`; `⟨_, rfl, rfl⟩` as
+   a standalone theorem body (`c.leaf_one`); the leaf tactics
+   (`($(ls i) $(hR i)).kidA hy` etc., `leaf_outWidth … hy p hp`); the
+   mixed-kind `perEntry` (no instance).
+2. The kernel decides on `hftByte.machineData` /
+   `httpGetByte.machineData`: `hftByte_callArgs`, `_strict`, `_entries`,
+   `_slots`, `_out*`; `httpGetByte_outChars`, `_outScalar` (never decided
+   before); `declWidths httpGetByte.machineData = [6]` against the parent's
+   computed `oneout_kidIns` (generator) — true only if the reading is right.
+3. `Tools/ShippingLeafOneOutGen.lean`: `gateCallsOk_parts` (`simp only
+   [gateCallsOk, Bool.and_eq_true] at h`, the shape of the four conjuncts),
+   `leaf_outWidth` (`rw [← e]` then `exact hW o ho` by projection of a
+   structure literal).
+4. `callerLN`: `callerLN_callArgs` (register `acc` and the sub-machine's
+   result as arguments), `callerLN_strict`; `rw [callerLN_entries k hk] at
+   hy` (the `getElem` proof term in `hy`).
+5. The compare paths of the family test: `callerL` (statement rebuilt from
+   generated lemmas `isDefEq` the hand-built one; `_gen` added), `callerMix`
+   (every statement of the copied gate branch `isDefEq` `#machine_oneout`'s),
+   `pickByteH.leaf_*` re-derived for `callerLN`.
+6. `Tests/Compiler/OneOutLeafAudit.lean`: meta code only (a copy of the
+   BUILT `run_cmd` with arguments).
+7. `hftNDecl` as a `noncomputable def` inside statements (`binders[hftNDecl
+   + k]?`, `(nDecl := hftNDecl)`): unification of the implicit `nDecl`.
+8. The reading of §13.6 (two definitions and one header compared; nothing
+   evaluated).
+
+### 13.8 Build queue (par/a-11)
+
+1. `Tools.ShippingLeafOneOutGen`
+2. `Tools.ShippingOneOutAnyGenCommand`
+3. `Tests.Compiler.OneOutLeafAudit`
+4. `Tests.Compiler.OneOutCallerLNTest` (target only; see the name clash)
+5. `Tests.Compiler.OneOutHftByteTest` (target only)
+6. `Tests.Compiler.OneOutAnyFamilyTest`
+
+4, 5, 6 are independent of each other (4 needs 3; 5 needs 1 and 3; 6 needs
+1–3). `lakefile.lean` (integrator):
+
+    lean_lib «Tools.ShippingLeafOneOutGen» where
+      roots := #[`Tools.ShippingLeafOneOutGen]
+    lean_lib «Tools.ShippingOneOutAnyGenCommand» where
+      roots := #[`Tools.ShippingOneOutAnyGenCommand]
+
+`Tests/AllTests.lean` (integrator) — ONE of the two, not both:
+
+    import Tests.Compiler.OneOutAnyFamilyTest
+    -- or (then edit the family test as its header says):
+    -- import Tests.Compiler.OneOutCallerLNTest
+    -- import Tests.Compiler.OneOutHftByteTest

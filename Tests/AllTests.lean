@@ -174,6 +174,7 @@ import Tests.Compiler.OneOutCallerFullTest
 import Tests.Compiler.OneOutFamilyTest
 import Tests.Compiler.OneOutTwoCalleeTest
 import Tests.Compiler.OneOutCallerLTest
+import Tests.Compiler.OneOutAnyFamilyTest
 import Tests.Compiler.LegacySemInstanceTest
 import Tests.Compiler.LegacyCacheFixTest
 import Tests.Compiler.LegacySemMemoTest
