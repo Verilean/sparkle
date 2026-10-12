@@ -284,9 +284,13 @@ open Sparkle.IR.AST
 module is kept only if `optCheck` and the assignment-order check accept it;
 on other assign + register modules only if `refineCheck` accepts it; on an
 instance-bearing module whose extracted interface is in the normal forms
-its connections named again (`deinline`) and kept only if `hierRefineCheck`
-accepts it; else the input module is returned
-unoptimised. Other modules get `optimizeModule` unchanged. -/
+its connections named again and guarded (`deinline`: distinct instance
+names and the linked order, else the input module) and kept only if
+`hierRefineCheck` accepts it; else the input module is returned
+unoptimised. An instance / assignment / register module on which that check
+does not bind (`hierGate` without `hierBinds`) is returned unoptimised too.
+Other modules (memories, other statement kinds) get `optimizeModule`
+unchanged. -/
 def checkedOptimize (m : Module) : Module :=
   let o := Sparkle.IR.Optimize.optimizeModule m
   if simpleBody m then
@@ -297,6 +301,10 @@ def checkedOptimize (m : Module) : Module :=
   else if RefineCheck.hierBinds m then
     let o' := Sparkle.IR.HierCheck.deinline m o
     if RefineCheck.hierRefineCheck m o' then o' else m
+  -- instances, assignments and registers outside the normal forms: the
+  -- check does not bind, the module is NOT optimized (a fallback to the
+  -- input module — the optimizer's output would be unchecked)
+  else if RefineCheck.hierGate m then m
   else o
 
 /-- On an assign + register module not of simple shape, the optimizer's

@@ -5,6 +5,8 @@ import Tools.ShippingChecksOuts
 import Tools.ShippingChecksWidths
 import Tools.ShippingCallWidths
 import Tools.ShippingShipsHierSame
+import Tools.ShippingChecksRunFacts
+import Tools.ShippingShipsHierFree
 
 /-! # The raw-module facts on a real declaration (G1)
 
@@ -394,5 +396,75 @@ run_cmd liftTermElabM do
       unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do
         throwError "{n} uses a non-standard axiom: {ax}"
   logInfo m!"CHECKSDATA: hkidW_of_data, machine_ships_hierC_same, parent_callWidths, parent_kidW_data — standard axioms only"
+
+/-! ## Without the bundled checker (branch `fix/opt-fallback`)
+
+`parent_runFacts`: the `facts` argument of `machine_ships_hierC_free` for
+`parent` — the run's facts of the full entry's module, from the core run,
+`parent`'s and `cnt`'s reflections and the data (`core_runFacts`; no
+`shipsHierCheck`, no `hierBinds`, no post-pass fact).
+`parent_shipped`: the SHIPPED module of `parent` is linked-well-formed, has
+distinct instance names and the full entry's inputs — conjuncts 2 and 4 of
+`shipsHierCheck` and `checkedOptimize_inputs`, with no check premise. -/
+
+set_option maxHeartbeats 0 in
+theorem parent_runFacts {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State}
+    {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State}
+    {w w1 : Void IO.RealWorld} {raw b : Sparkle.IR.AST.Module} {D : Sparkle.IR.AST.Design}
+    (hcore : Tools.ShippingEntrySoundness.RunsTo
+      (Sparkle.Compiler.Elab.synthesizeCombinationalCore ``parent [] false)
+      mctx mref cctx cref w (raw, D) w1)
+    (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨
+      b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw))
+    (entry : Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref ``parent
+      parent.machineData.shape)
+    (closes : Tools.ShippingChildInv.MachineClosesAt mctx mref cctx cref ``parent
+      parent.machineData.shape)
+    (hB : Tools.ShippingChildInv.ChildBnd mref cref w)
+    (entryC : Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref ``cnt
+      cnt.machineData.shape) :
+    Tools.ShippingGuardsSound.RunFacts (Tools.ShippingMachineLinked.childMap D.modules) b :=
+  Tools.ShippingChecksRunFacts.core_runFacts (nDecl := 1) parent.machineData
+    parent.machine_ok parent.machine_body (by decide) (by decide) (by decide)
+    (fun h0 => absurd (congrArg List.length h0) (by decide))
+    (fun h0 => absurd (congrArg List.length h0) (by decide))
+    (fun h0 => absurd (congrArg List.length h0) (by decide))
+    (by decide) (by decide) (parent_kidP entryC) (parent_kidW_data entryC)
+    hB hcore hpost entry closes
+
+theorem parent_shipped {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State}
+    {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State}
+    {w w1 : Void IO.RealWorld} {raw b : Sparkle.IR.AST.Module} {D : Sparkle.IR.AST.Design}
+    (hcore : Tools.ShippingEntrySoundness.RunsTo
+      (Sparkle.Compiler.Elab.synthesizeCombinationalCore ``parent [] false)
+      mctx mref cctx cref w (raw, D) w1)
+    (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨
+      b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw))
+    (entry : Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref ``parent
+      parent.machineData.shape)
+    (closes : Tools.ShippingChildInv.MachineClosesAt mctx mref cctx cref ``parent
+      parent.machineData.shape)
+    (hB : Tools.ShippingChildInv.ChildBnd mref cref w)
+    (entryC : Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref ``cnt
+      cnt.machineData.shape) :
+    Tools.ShippingHierOpen.linkedWF (Tools.ShippingMachineLinked.childMap D.modules)
+        (Sparkle.IR.OptCheck.checkedOptimize b).body = true ∧
+      (Tools.ShippingHierState.instNames (Sparkle.IR.OptCheck.checkedOptimize b).body).Nodup ∧
+      (Sparkle.IR.OptCheck.checkedOptimize b).inputs = b.inputs :=
+  Tools.ShippingChecksRunFacts.core_shipped_facts
+    (parent_runFacts hcore hpost entry closes hB entryC)
+
+open Lean Elab Command in
+run_cmd liftTermElabM do
+  for n in [``Tools.ShippingGuardsSound.linkedWFX_sound,
+      ``Tools.ShippingGuardsSound.deinline_guards,
+      ``Tools.ShippingGuardsSound.checkedOptimize_facts,
+      ``Tools.ShippingShipsHierFree.machine_ships_hierC_free,
+      ``Tools.ShippingChecksRunFacts.core_runFacts,
+      ``parent_runFacts, ``parent_shipped] do
+    for ax in ← Lean.collectAxioms n do
+      unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do
+        throwError "{n} uses a non-standard axiom: {ax}"
+  logInfo m!"CHECKSFREE: linkedWFX_sound, deinline_guards, checkedOptimize_facts, machine_ships_hierC_free, core_runFacts, parent_runFacts, parent_shipped — standard axioms only"
 
 end Tests.Compiler.ChecksRawTest

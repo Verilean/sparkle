@@ -10,7 +10,10 @@ Compiled evidence, LOGS ONLY — nothing here throws and nothing is a theorem.
 `Sparkle.IR.OptCheck.checkedOptimize` on a module with an instance statement
 (not `simpleBody`, not all `seqStmtOk`) keeps the optimizer's output only as
 checked by `hierRefineCheck` WHEN `hierBinds` holds; when `hierBinds` is
-false it returns the optimizer's output UNCHECKED (its last `else o`). The
+false it returned, on main, the optimizer's output UNCHECKED (its last
+`else o`); on the branch `fix/opt-fallback` it returns the input module when
+the statement-kind gate holds (`GATE-M`) and `else o` is left to modules
+with other statement kinds. The
 endpoints' premise `shipsHierCheck` has `hierBinds b` as its conjunct 1 and
 two facts of the optimized module as conjuncts 2 and 4.
 
@@ -20,7 +23,7 @@ such), with `(raw, D)` the core run, `b` the full entry's module,
 `o = optimizeModule b`, `o' = deinline b o`, `C = childMap D.modules`, one
 line:
 
-    HIERBINDS <decl>: branch=<simple|seq|hier-kept|hier-rejected|ELSE-O>
+    HIERBINDS <decl>: branch=<simple|seq|hier-kept|hier-rejected|GATE-M|ELSE-O>
       gate=.. flatSelf=.. binds=.. hrc=.. same=.. wfB=.. ndB=.. wfO=.. ndO=..
       self=.. outs=.. rst=.. wid=.. ships=..
 
@@ -32,6 +35,12 @@ line:
 * `wfO` / `ndO` the same of `(checkedOptimize b).body` — conjuncts 2, 4;
 * `self` `outs` `rst` `wid` conjuncts 5 (on `b`), 6, 7, 8; `ships`
   `shipsHierCheck C b`.
+
+On the branch `fix/opt-fallback`: `GATE-M` is the new fallback (the gate
+holds, the check does not bind: the module is shipped unoptimized);
+`G4` / `G2` are the two guards evaluated on the RAW candidate
+`deinlineRaw b o` (`o'` is now the guarded `deinline b o`); `candIsB` says
+the guarded candidate is `b` itself.
 
 Then the totals line `HIERBINDS CENSUS: …`. -/
 namespace Tests.Compiler.HierBindsCensusTest
@@ -90,12 +99,19 @@ structure Row where
   rst : Bool
   wid : Bool
   ships : Bool
+  /-- G4 on the raw candidate `deinlineRaw b o`: distinct instance names. -/
+  g4 : Bool
+  /-- G2 on the raw candidate: the linked order over the extracted inputs. -/
+  g2 : Bool
+  /-- The guarded candidate is the input module (a guard fired, or the
+  candidate was the module itself). -/
+  candIsB : Bool
 
 def Row.str (r : Row) : String :=
   s!"branch={r.branch} gate={bs r.gate} flatSelf={bs r.flatSelf} binds={bs r.binds} " ++
   s!"hrc={bs r.hrc} same={bs r.same} wfB={bs r.wfB} ndB={bs r.ndB} wfO={bs r.wfO} " ++
   s!"ndO={bs r.ndO} self={bs r.self} outs={bs r.outs} rst={bs r.rst} wid={bs r.wid} " ++
-  s!"ships={bs r.ships}"
+  s!"ships={bs r.ships} G4={bs r.g4} G2={bs r.g2} candIsB={bs r.candIsB}"
 
 /-- The record of a declaration; `none` when its module has no instance. -/
 def census (n : Name) : MetaM (Option Row) := do
@@ -115,7 +131,13 @@ def census (n : Name) : MetaM (Option Row) := do
     if Sparkle.IR.OptCheck.simpleBody b then "simple"
     else if b.body.all Sparkle.IR.OptCheck.seqStmtOk then "seq"
     else if binds then (if hrc then "hier-kept" else "hier-rejected")
+    else if Sparkle.IR.RefineCheck.hierGate b then "GATE-M"
     else "ELSE-O"
+  -- the guards, on the raw candidate (`deinline` is the guarded one)
+  let raw := Sparkle.IR.HierCheck.deinlineRaw b o
+  let g4 := decide (Sparkle.IR.HierCheck.instNamesOf raw.body).Nodup
+  let g2 := Sparkle.IR.HierCheck.linkedWFX
+    ((Sparkle.IR.HierCheck.openIns b).map (·.name)) raw.body
   return some {
     branch := branch
     gate := Sparkle.IR.RefineCheck.hierGate b
@@ -131,7 +153,10 @@ def census (n : Name) : MetaM (Option Row) := do
     outs := Tools.ShippingHierPremisesBase.outsExtracted C b
     rst := (b.inputs.map (·.name)).contains "rst"
     wid := Tools.ShippingHierOpen.instOutWidthsOk C (Sparkle.IR.RegDedup.declWidth b) b.body
-    ships := Tools.ShippingHierPremisesBase.shipsHierCheck C b }
+    ships := Tools.ShippingHierPremisesBase.shipsHierCheck C b
+    g4 := g4
+    g2 := g2
+    candIsB := o' == b }
 
 run_cmd Lean.Elab.Command.liftTermElabM do
   let env ← getEnv
@@ -160,6 +185,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   let isElse (r : Row) : Bool := r.branch == "ELSE-O"
   let isKept (r : Row) : Bool := r.branch == "hier-kept"
   let isRej (r : Row) : Bool := r.branch == "hier-rejected"
+  let isGate (r : Row) : Bool := r.branch == "GATE-M"
   let line : String :=
     s!"HIERBINDS CENSUS: {rows.length} parents with an instance " ++
     s!"({absent.length} absent, {noInst.length} without instance, {failed.length} failed); " ++
@@ -175,7 +201,11 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     s!"conjunct 6 false {names (fun r => !r.outs)}; " ++
     s!"conjunct 7 false {names (fun r => !r.rst)}; " ++
     s!"conjunct 8 false {names (fun r => !r.wid)}; " ++
-    s!"shipsHierCheck true {cnt (fun r => r.ships)}, false {names (fun r => !r.ships)}"
+    s!"shipsHierCheck true {cnt (fun r => r.ships)}, false {names (fun r => !r.ships)}; " ++
+    s!"GUARDS (branch fix/opt-fallback): G4 fires {names (fun r => !r.g4)}; " ++
+    s!"G2 fires {names (fun r => !r.g2)}; " ++
+    s!"guarded candidate is the input module {names (fun r => r.candIsB)}; " ++
+    s!"gate-without-binds fallback (GATE-M) {cnt isGate} {names isGate}"
   logInfo m!"{line}"
 
 end Tests.Compiler.HierBindsCensusTest
