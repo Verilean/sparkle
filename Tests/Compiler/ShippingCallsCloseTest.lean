@@ -170,38 +170,52 @@ def auditClosed (f : Name) (nPremises : Nat) : MetaM (Array Lean.Expr) := do
     throwError "{e} depends on a non-standard axiom: {axs}"
   let hyps ← premises (f ++ `machine_closes_at)
   if hyps.size != nPremises then throwError "{f}.machine_closes_at has {hyps.size} premises: {hyps}"
+  for h in hyps do
+    unless h.isAppOf ``Tools.ShippingInlineSoundness.EntryDefines ||
+        h.isAppOf ``Tools.ShippingMachineEntry.MachineDefines ||
+        (h.find? (·.isConstOf ``Lean.Name.toString)).isSome do
+      throwError "{f}.machine_closes_at: a premise that is neither a reflection nor a name obligation: {h}"
   if !hyps[0]!.isAppOf ``Tools.ShippingInlineSoundness.EntryDefines &&
       !hyps[0]!.isAppOf ``Tools.ShippingMachineEntry.MachineDefines then
     throwError "the first premise is not a child's reflection: {hyps[0]!}"
   -- NOT premise-free: the closed endpoint states the name separation (an
   -- obligation about the compiler's module names, tracked — not proved)
-  if (info.type.find? (·.isConstOf ``Lean.Name.toString)).isNone then
-    throwError "{e}: the name-separation obligation is not stated"
+  -- NAME SEPARATION: either an obligation in the statement, or PROVED — the
+  -- closing theorem's proof goes through `Tools.ShippingNameSep` (the printed
+  -- name is among finitely many candidates; `Name.toString` is not evaluated)
+  let provedNames := match (← getEnv).find? (f ++ `machine_closes_at) with
+    | some (.thmInfo ti) => ti.value.getUsedConstants.contains ``Tools.ShippingNameSep.hparent_of
+    | _ => false
+  let stated := (info.type.find? (·.isConstOf ``Lean.Name.toString)).isSome
+  if !stated && !provedNames then
+    throwError "{e}: the name separation is neither stated nor proved"
+  if stated && provedNames && hyps.all (fun h => (h.find? (·.isConstOf ``Lean.Name.toString)).isNone) then
+    pure ()
   if !(← namesHold f) then throwError "{f}: a name condition is false"
   return hyps
 
 run_cmd Lean.Elab.Command.liftTermElabM do
-  let hyps ← auditClosed ``caller 2
-  discard <| auditClosed ``callerTwice 2
-  discard <| auditClosed ``callerNested 2
-  discard <| auditClosed ``callerD 2
-  discard <| auditClosed ``Sparkle.Tests.Compiler.ShippingMachineDepthHTest.midH 2
-  let hypsMix ← auditClosed ``Sparkle.Tests.Compiler.ShippingPremiseEvalTest.callerMix 4
+  let hyps ← auditClosed ``caller 1
+  discard <| auditClosed ``callerTwice 1
+  discard <| auditClosed ``callerNested 1
+  discard <| auditClosed ``callerD 1
+  discard <| auditClosed ``Sparkle.Tests.Compiler.ShippingMachineDepthHTest.midH 1
+  let hypsMix ← auditClosed ``Sparkle.Tests.Compiler.ShippingPremiseEvalTest.callerMix 2
   -- two instances of one child
   let rep ← Tools.ShippingMachineCommand.readMachine ``callerRep
   if (rep.shape.insts.map (·.1)) != [``pick, ``pick] then
     throwError "callerRep does not have two instances of pick: {rep.shape.insts.map (·.1)}"
-  discard <| auditClosed ``callerRep 2
+  discard <| auditClosed ``callerRep 1
   -- the same child with another call between
   let aba ← Tools.ShippingMachineCommand.readMachine ``callerABA
   if (aba.shape.insts.map (·.1)) != [``pick, ``pickD, ``pick] then
     throwError "callerABA is not pick, pickD, pick: {aba.shape.insts.map (·.1)}"
-  discard <| auditClosed ``callerABA 4
+  discard <| auditClosed ``callerABA 2
   -- machine-route (slotless) children: the child's reflection is its machine
   -- shape (`MachineDefines`), its own closing is proved (`pickByteH.machine_closes`)
-  let hypsL ← auditClosed ``Sparkle.Tests.Compiler.ShippingMachineLinkedTest.callerL 2
-  discard <| auditClosed ``Sparkle.Tests.Compiler.ShippingMachineLinkedTest.callerLN 2
-  discard <| auditClosed ``Sparkle.Tests.Compiler.ShippingMachineTeleTest.hftByte 2
+  let hypsL ← auditClosed ``Sparkle.Tests.Compiler.ShippingMachineLinkedTest.callerL 1
+  discard <| auditClosed ``Sparkle.Tests.Compiler.ShippingMachineLinkedTest.callerLN 1
+  discard <| auditClosed ``Sparkle.Tests.Compiler.ShippingMachineTeleTest.hftByte 1
   unless hypsL[0]!.isAppOf ``Tools.ShippingMachineEntry.MachineDefines do
     throwError "callerL: the child's premise is not its machine reflection: {hypsL[0]!}"
   Lean.logInfo m!"ONE-OUTPUT COMBINATIONAL CHILDREN CLOSED (gate children: caller, callerTwice, callerNested, callerD, midH, callerMix, callerRep, callerABA; slotless machine children: callerL, callerLN, hftByte): machine_design_svHR_closed reaches none of MachineCloses / MachineClosesAt / CallsPure / CallsClose / LetsClose (statement and every definition under it); standard axioms. Premises of caller.machine_closes_at: {hyps}; of callerMix.machine_closes_at: {hypsMix}. NAME SEPARATION stays an obligation of every closed endpoint (stated with Name.toString; evaluated true here by compiled code, not proved: the escaping renderer does not reduce in the kernel, and no theorem bridges it to the unescaped one, which does)."
@@ -588,10 +602,24 @@ def auditClosedNR (f : Name) (n nPremises : Nat) : MetaM Unit := do
     throwError "{e} depends on a non-standard axiom: {axs}"
   let hyps ← premises (f ++ `machine_closes_at)
   if hyps.size != nPremises then throwError "{f}.machine_closes_at has {hyps.size} premises: {hyps}"
+  for h in hyps do
+    unless h.isAppOf ``Tools.ShippingInlineSoundness.EntryDefines ||
+        h.isAppOf ``Tools.ShippingMachineEntry.MachineDefines ||
+        (h.find? (·.isConstOf ``Lean.Name.toString)).isSome do
+      throwError "{f}.machine_closes_at: a premise that is neither a reflection nor a name obligation: {h}"
   if !hyps[0]!.isAppOf ``Tools.ShippingMachineEntry.MachineDefines then
     throwError "the first premise is not a child's reflection: {hyps[0]!}"
-  if (info.type.find? (·.isConstOf ``Lean.Name.toString)).isNone then
-    throwError "{e}: the name-separation obligation is not stated"
+  -- NAME SEPARATION: either an obligation in the statement, or PROVED — the
+  -- closing theorem's proof goes through `Tools.ShippingNameSep` (the printed
+  -- name is among finitely many candidates; `Name.toString` is not evaluated)
+  let provedNames := match (← getEnv).find? (f ++ `machine_closes_at) with
+    | some (.thmInfo ti) => ti.value.getUsedConstants.contains ``Tools.ShippingNameSep.hparent_of
+    | _ => false
+  let stated := (info.type.find? (·.isConstOf ``Lean.Name.toString)).isSome
+  if !stated && !provedNames then
+    throwError "{e}: the name separation is neither stated nor proved"
+  if stated && provedNames && hyps.all (fun h => (h.find? (·.isConstOf ``Lean.Name.toString)).isNone) then
+    pure ()
   if !(← namesHold f) then throwError "{f}: a name condition is false"
   -- the general closing really is the route: the shape reads fields
   let r ← Tools.ShippingMachineCommand.readMachine f
@@ -600,8 +628,8 @@ def auditClosedNR (f : Name) (n nPremises : Nat) : MetaM Unit := do
 
 run_cmd do
   Lean.Elab.Command.liftTermElabM do
-    auditClosedNR ``Sparkle.Tests.Compiler.ShippingMachineSeqTest.parent 1 2
-    auditClosedNR ``Sparkle.Tests.Compiler.ShippingMachineSeqTest.chained 1 2
+    auditClosedNR ``Sparkle.Tests.Compiler.ShippingMachineSeqTest.parent 1 1
+    auditClosedNR ``Sparkle.Tests.Compiler.ShippingMachineSeqTest.chained 1 1
   -- a child with calls of its own: refused, nothing left behind
   failsClean ``Sparkle.Tests.Compiler.ShippingDesignSVTest.mid2 none "calls of its own"
   Lean.logInfo m!"GENERAL CLOSING (B2): parent (two fields of one call of the sequential child cnt) and chained (two calls, the second on a field of the first) — the depth SV endpoints closed: MachineClosesAt derived, premises the child's reflection and the name condition; mid2 (a child with calls of its own) refused"

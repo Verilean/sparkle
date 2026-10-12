@@ -139,6 +139,8 @@ partial def closesDeep (c : Name) : CommandElabM (Array Prem) := do
       `(fun c hc c' hc' _ =>
         ((by decide : ∀ c ∈ ($data).shape.insts.map (·.1), c = $k0) c hc).trans
           ((by decide : ∀ c ∈ ($data).shape.insts.map (·.1), c = $k0) c' hc').symm)
+    else if kids.all (fun a => kids.all fun b => a == b || Tools.ShippingNameSep.sepB a b) then
+      `(Tools.ShippingNameSep.hnames_of _ (by decide))
     else do
       let pn := Name.mkSimple s!"hN_{tag}_names"
       prems := prems.push { name := pn, binder := ← `(bracketedBinder|
@@ -146,8 +148,13 @@ partial def closesDeep (c : Name) : CommandElabM (Array Prem) := do
           ∀ c' ∈ ($data).shape.insts.map (·.1), c.toString = c'.toString → c = c')) }
       `($(mkIdent pn))
   let pparent := Name.mkSimple s!"hN_{tag}_parent"
-  prems := prems.push { name := pparent, binder := ← `(bracketedBinder|
-    ($(mkIdent pparent) : ∀ c ∈ ($data).shape.insts, c.1.toString ≠ ($cq : Lean.Name).toString)) }
+  let hparentT : Term ← if kids.all (fun k => Tools.ShippingNameSep.sepB k c) then
+      `(Tools.ShippingNameSep.hparent_of _ _ (by decide))
+    else do
+      prems := prems.push { name := pparent, binder := ← `(bracketedBinder|
+        ($(mkIdent pparent) : ∀ c ∈ ($data).shape.insts,
+          c.1.toString ≠ ($cq : Lean.Name).toString)) }
+      `($(mkIdent pparent))
   let hfresh ← if r.shape.layout.outs.all (fun o => o.name.toList.head? != some 'i') then
       `(fun gi c _ o ho => Tools.ShippingCallsGate.instName_ne_of_head
         ((by decide : ∀ o ∈ ($data).shape.layout.outs, o.name.toList.head? ≠ some 'i') o ho) gi
@@ -216,7 +223,7 @@ partial def closesDeep (c : Name) : CommandElabM (Array Prem) := do
             intro k hk y hy
             have hk' : k < $nCalls := hk
             $tac:tactic)
-          (by decide) (by decide) (by decide) $hnames $(mkIdent pparent) $hfresh $hpD $hsD $hdD))
+          (by decide) (by decide) (by decide) $hnames $hparentT $hfresh $hpD $hsD $hdD))
     check before name
   return prems
 

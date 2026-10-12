@@ -1,6 +1,7 @@
 import Tools.ShippingCallsSeqKids
 import Tools.ShippingMachineClosesGen
 import Tools.ShippingMachineCommand
+import Tools.ShippingNameSep
 
 /-! # Generating `f.machine_closes_at` for the general closing
 
@@ -55,13 +56,23 @@ def closesAtCoreG (c : Name) (nDecl? : Option Nat) (name : Name) : CommandElabM 
       `(fun c hc c' hc' _ =>
         ((by decide : ∀ c ∈ ($data).shape.insts.map (·.1), c = $k0) c hc).trans
           ((by decide : ∀ c ∈ ($data).shape.insts.map (·.1), c = $k0) c' hc').symm)
+    else if kids.all (fun a => kids.all fun b => a == b || Tools.ShippingNameSep.sepB a b) then
+      -- different declarations print differently: decided on the names' candidate
+      -- renderings (`Tools.ShippingNameSep`), `Name.toString` never evaluated
+      `(Tools.ShippingNameSep.hnames_of _ (by decide))
     else do
       binders := binders.push (← `(bracketedBinder|
         (hnames : ∀ c ∈ ($data).shape.insts.map (·.1), ∀ c' ∈ ($data).shape.insts.map (·.1),
           c.toString = c'.toString → c = c')))
       `(hnames)
-  binders := binders.push (← `(bracketedBinder|
-    (hparent : ∀ c ∈ ($data).shape.insts, c.1.toString ≠ ($cq : Lean.Name).toString)))
+  -- no call prints as the parent: by the candidate renderings when they
+  -- separate, else a premise
+  let hparent : Term ← if kids.all (fun k => Tools.ShippingNameSep.sepB k c) then
+      `(Tools.ShippingNameSep.hparent_of _ _ (by decide))
+    else do
+      binders := binders.push (← `(bracketedBinder|
+        (hparent : ∀ c ∈ ($data).shape.insts, c.1.toString ≠ ($cq : Lean.Name).toString)))
+      `(hparent)
   let hfresh ← if r.shape.layout.outs.all (fun o => o.name.toList.head? != some 'i') then
       `(fun gi c _ o ho => Tools.ShippingCallsGate.instName_ne_of_head
         ((by decide : ∀ o ∈ ($data).shape.layout.outs, o.name.toList.head? ≠ some 'i') o ho) gi
@@ -110,7 +121,7 @@ def closesAtCoreG (c : Name) (nDecl? : Option Nat) (name : Name) : CommandElabM 
           intro k hk y hy
           have hk' : k < $nCalls := hk
           $tac:tactic)
-        (by decide) (by decide) (by decide) $hnames hparent $hfresh))
+        (by decide) (by decide) (by decide) $hnames $hparent $hfresh))
   let msgs := (← get).messages.toList.drop before
   if msgs.any (·.severity == .error) || !(← getEnv).contains name then
     let errs ← (msgs.filter (·.severity == .error)).mapM fun m => m.data.toString
