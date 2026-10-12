@@ -2495,3 +2495,12 @@ lean_lib «Tools.ShippingCallWidthsEntry» where
 
 lean_lib «Tools.ShippingReaderLenOkReserve» where
   roots := #[`Tools.ShippingReaderLenOkReserve]
+
+lean_lib «Tools.ShippingOneOutClose» where
+  roots := #[`Tools.ShippingOneOutClose]
+
+lean_lib «Tools.ShippingOneOutFacts» where
+  roots := #[`Tools.ShippingOneOutFacts]
+
+lean_lib «Tools.ShippingOneOutHead» where
+  roots := #[`Tools.ShippingOneOutHead]
