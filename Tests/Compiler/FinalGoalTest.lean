@@ -100,3 +100,33 @@ set_option maxHeartbeats 0 in
 set_option maxHeartbeats 0 in
 #machine_goal_gap_of
   Sparkle.Tests.Compiler.ShippingMachineSeqTest.parent.machine_design_noOutsNR1_closed
+
+/-! ## The generated output-check theorem (round 14)
+
+`#machine_outs_try f n` generates `f.machine_outs{n}` (leaf machine children
+with a register) or logs why not (`OUTSGEN`); `#machine_no_outs_try f n`
+goes on to the endpoint without `outsCheck` (`NOOUTS`), and
+`#machine_goal_gap_of_try` logs its gap (`GOALGAP`). Full names are given:
+the `_try` forms do not resolve an absent theorem.
+
+* `parent`: the generated theorem next to the hand-written `parent_outs`;
+* `chained`: three entries of the leaf `cnt` — expected generated, THREE
+  not-allowed antecedents;
+* `grandH`: its child `midH` has a call of its own — expected REFUSED. -/
+
+set_option maxHeartbeats 0 in
+#machine_outs_try Sparkle.Tests.Compiler.ShippingMachineSeqTest.parent 1
+
+set_option maxHeartbeats 0 in
+#machine_no_outs_try Sparkle.Tests.Compiler.ShippingMachineSeqTest.chained 1
+
+set_option maxHeartbeats 0 in
+#machine_goal_gap_of_try
+  Sparkle.Tests.Compiler.ShippingMachineSeqTest.chained.machine_design_noOutsNR1_closed
+
+set_option maxHeartbeats 0 in
+#machine_no_outs_try Sparkle.Tests.Compiler.ShippingMachineDepthHTest.grandH 1
+
+set_option maxHeartbeats 0 in
+#machine_goal_gap_of_try
+  Sparkle.Tests.Compiler.ShippingMachineDepthHTest.grandH.machine_design_noOutsNR1_closed

@@ -2141,3 +2141,9 @@ lean_lib «Tools.ShippingShipsNoOuts» where
 
 lean_lib «Tools.ShippingShipsNoOutsCommand» where
   roots := #[`Tools.ShippingShipsNoOutsCommand]
+
+lean_lib «Tools.ShippingChecksMasked» where
+  roots := #[`Tools.ShippingChecksMasked]
+
+lean_lib «Tools.ShippingReaderApp» where
+  roots := #[`Tools.ShippingReaderApp]

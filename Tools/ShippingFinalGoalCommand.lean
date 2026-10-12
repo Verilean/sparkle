@@ -188,4 +188,17 @@ elab "#machine_goal_gap_of " d:ident : command => do
   let report ← liftTermElabM (gapOf e newName)
   logInfo m!"GOALGAP {newName} from {e}\n{String.intercalate "\n" report.toList}"
 
+/-- The same, for a theorem that may not exist (a generator refused it):
+logged `GOALGAP ABSENT` instead of an error. -/
+elab "#machine_goal_gap_of_try " d:ident : command => do
+  let e := d.getId
+  unless (← getEnv).contains e do
+    logInfo m!"GOALGAP ABSENT {e}"
+    return
+  let newName := match e with
+    | .str p s => Name.str p (s ++ "_gap")
+    | n => n ++ `gap
+  let report ← liftTermElabM (gapOf e newName)
+  logInfo m!"GOALGAP {newName} from {e}\n{String.intercalate "\n" report.toList}"
+
 end Tools.ShippingFinalGoalCommand
