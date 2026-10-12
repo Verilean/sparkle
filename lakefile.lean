@@ -2237,3 +2237,24 @@ lean_lib «Tools.ShippingNamesNext» where
 
 lean_lib «Tools.ShippingSeqCheckTyped» where
   roots := #[`Tools.ShippingSeqCheckTyped]
+
+lean_lib «Tools.ShippingNamesClk» where
+  roots := #[`Tools.ShippingNamesClk]
+
+lean_lib «Tools.ShippingTextTyped» where
+  roots := #[`Tools.ShippingTextTyped]
+
+lean_lib «Tools.ShippingCloseMachineTyped» where
+  roots := #[`Tools.ShippingCloseMachineTyped]
+
+lean_lib «Tools.ShippingCoreWidth» where
+  roots := #[`Tools.ShippingCoreWidth]
+
+lean_lib «Tools.ShippingTransitionTyped» where
+  roots := #[`Tools.ShippingTransitionTyped]
+
+lean_lib «Tools.ShippingClosedTransitionTyped» where
+  roots := #[`Tools.ShippingClosedTransitionTyped]
+
+lean_lib «Tools.ShippingClosedTyped» where
+  roots := #[`Tools.ShippingClosedTyped]
