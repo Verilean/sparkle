@@ -338,18 +338,23 @@ Tests: `Tests/Compiler/ReaderInvariantsTest.lean` (18 names, first half),
 
 ### The three states, per theorem
 
-"target-built": built by the integrator on poc. "UNVERIFIED": written, not
-built. "connected": used by a generated endpoint or by a theorem an
-endpoint uses. **Nothing of this line is connected to an endpoint.**
+"target-built": built by the integrator on poc. "written": written, not
+built — until the integrator has built a file, its theorems are WRITTEN,
+not proved (wherever this note says "theorem" of such a file, read
+"written statement"). "connected": used by a generated endpoint or by a
+theorem an endpoint uses. **Nothing of this line is connected to an
+endpoint.**
 
 | theorem (file) | built | connected to an endpoint |
 |---|---|---|
 | `instSignature?_some`, `instSignatureS?_some`, `structEnv_inst(S)` (`ShippingInstSignature`) — P1 | **target-built** (poc `02b1b6de`) | no |
 | `machOuts?_of_resultKind`, `kind_inv`, `machOuts?_signal`, `outs_of_kind`, `machResultKind?_inv`, `machResultKind?_ne_domain`, `machOutFields_single` (`ShippingReaderResultKind`) — P2 | **target-built** (poc `02b1b6de`) | no |
-| `ite_none_inv`, `ite_else_none_inv`, `bind_inv`, `machineShape?_prefix`, `declOuts?_of_resultKind`, `instBinders_kinds`, `getElem?_mid` (`ShippingMachineShapeUnfold`, repaired) — P4 prefix | UNVERIFIED (`f8762e4c`, queued) | no |
-| `machineShape?_some`, `machineShape?_callBinder`, `machineShape?_single_out`, `callee_single_out` (`ShippingMachineShapeTail`) — P4 | UNVERIFIED (`f8762e4c`, queued) | no |
-| `machineShape?_decomp`, `ShapeDecomp.slots_length / r5_of_lengths / nDecl / callBinder_bs / callBinder / single_out` (`ShippingShapeDecomp`) — the bundle, R5 as a hypothesis | UNVERIFIED (this round) | no |
-| `entryStrict`, `callWidthsStrict_of_entries`, `entryStrict_of_single`, `r1_of_kind`, `entryStrict_declared` (`ShippingCallWidthsDeclared`) | UNVERIFIED (this round) | no |
+| `ite_none_inv`, `ite_else_none_inv`, `bind_inv`, `machineShape?_prefix`, `declOuts?_of_resultKind`, `instBinders_kinds`, `getElem?_mid` (`ShippingMachineShapeUnfold`, repaired) — P4 prefix | written, not built (`f8762e4c`, queued) | no |
+| `machineShape?_some`, `machineShape?_callBinder`, `machineShape?_single_out`, `callee_single_out` (`ShippingMachineShapeTail`) — P4 | written, not built (`f8762e4c`, queued) | no |
+| `machineShape?_decomp`, `ShapeDecomp.slots_length / r5_of_lengths / nDecl / callBinder_bs / callBinder / single_out` (`ShippingShapeDecomp`) — the bundle, R5 as a hypothesis | written, not built (round 5) | no |
+| `entryStrict`, `callWidthsStrict_of_entries`, `entryStrict_of_single`, `r1_of_kind`, `entryStrict_declared` (`ShippingCallWidthsDeclared`) | written, not built (round 5) | no |
+
+(The table with round 6 is §8.1.)
 
 ### R5: what is pure and what is not
 
@@ -414,20 +419,243 @@ reasons:
    some sp`; the link is `MachineDefines` (the entry constant, possibly
    the unfolding: P5).
 
-**The first consumer** is the one-output form worker A is deriving for
-`ShippingMachineInstTest.caller` (`hkidW_one`, which asks
-`callWidthsStrict d nDecl kidOuts` and `ChildOutTys`).
-`entryStrict_declared` is written for it: it proves conjunct `k` of
-`callWidthsStrict` at the closing's `nDecl` from the two reader results,
-the callee's signature and constant, and the two named hypotheses
+**The first consumer — WITHDRAWN, corrected in §8.4.** Round 5 named the
+one-output form of `ShippingMachineInstTest.caller` (`hkidW_one`) here.
+That was wrong: `caller`'s child `pick` is a GATE-route child; its shape is
+not a `machineShape?` result, so neither `callee_single_out` nor
+`entryStrict_declared` applies to it (`pick` needs a gate output-type
+lemma — worker A's). The round-5 sentence "the `decide` becomes R1 and R5
+per parent plus the two `machineShape?` equations" was also incomplete
+(`DP`, `hc`, `hkid`, the callee's identity and the common environment were
+not counted), and "bundle + `nDecl` under R5" is a DECOMPOSITION of the
+obligation, not its discharge. The full list of what is left, for ONE
+fitting example, is §8.4.
 
-    R5 : (names.zip kindsP).length = d.shape.layout.slots.length
-    R1 : (d.shape.insts.map (·.2.2))[k]? = some res
+## 8. Round 6 (`par/b-7`): the length invariant, the corrected consumer, the boundary
 
-So for that consumer the `decide` of `callWidthsStrict` becomes: R1 and R5
-per parent (each a closed fact about the reflected shape, hence itself
-decidable per declaration — smaller than the width condition, and no
-longer mentioning the child's layout), plus the two `machineShape?`
-equations. Whether that is a gain over one `decide` is for the integrator
-to judge; the gain in STATEMENT is that the child's layout widths are no
-longer compared by evaluation but derived (P1 + P2 + the decomposition).
+Base `9e7f8100`. Lines of `Sparkle/Compiler/Elab.lean` as in that tree.
+**Everything of this round is WRITTEN, not built.** The endpoint premise
+reduction of this line is still 0.
+
+### 8.1 The three states
+
+| statements (file) | state | connected to an endpoint |
+|---|---|---|
+| P1 `instSignature?_some`, `instSignatureS?_some`, `structEnv_inst(S)` (`ShippingInstSignature`) | **target-built** (poc `02b1b6de`) | no |
+| P2 `machOuts?_of_resultKind` and its lemmas (`ShippingReaderResultKind`) | **target-built** (poc `02b1b6de`) | no |
+| P4 prefix: `ite_none_inv`, `ite_else_none_inv`, `bind_inv`, `machineShape?_prefix`, `declOuts?_of_resultKind`, `instBinders_kinds`, `getElem?_mid` (`ShippingMachineShapeUnfold`) | written (`f8762e4c`; queued for its own build; NOT touched this round) | no |
+| P4 tail: `machineShape?_some`, `machineShape?_callBinder`, `machineShape?_single_out`, `callee_single_out` (`ShippingMachineShapeTail`) | written (`f8762e4c`, queued; untouched by the first three commits of this round; the consolidated version is the LAST commit, §8.5) | no |
+| `machineShape?_decomp`, `ShapeDecomp.*` (`ShippingShapeDecomp`) | written (round 5) | no |
+| `entryStrict`, `callWidthsStrict_of_entries`, `entryStrict_of_single`, `r1_of_kind`, `entryStrict_declared` (`ShippingCallWidthsDeclared`) | written (round 5; `entryStrict_declared` tidied in the last commit) | no |
+| `MachRead.LenOk`, `lenOk_init`, `lenOk_append`, `lenOk_bareRegister`, `lenOk_loopRoot`, `lenOk_reserved`, the nine frame lemmas (`ShippingReaderLenOk`) | written (this round); imports the compiler only — independent of every queued file | no |
+| `machReserve_eq_spec`, `machReserve_some`, `machReserve_lenOk`, `machInits_length`, `machSlotNames_length`, `mapM_option_length`, `loopRoot_inits_length` (`ShippingReaderLenOkReserve`) | written (this round); imports `ShippingReaderLenOk` only | no |
+| `shapeR5Ok`, `MachineData.r5Ok`, `binders_length`, `r5_of_count`, `count_of_r5`, `r5_of_r5Ok` (`ShippingR5Check`) | written (this round); needs `ShippingShapeDecomp` | no |
+| `machineShape?_defn`, `link_of_defines`, `entryStrict_of_child`, `entryStrict_of_links`, `callWidthsStrict_of_links`, `R1At`, `resC_of_declared`, `entryStrict_of_links_declared` (`ShippingCallWidthsEntry`) | written (this round); needs `ShippingCallWidthsDeclared`, `ShippingR5Check` | no |
+| `callerL_strict_decide`, `callerL_r5Ok`, `callerL_instKinds`, `callerL_callee`, `callerL_strict_links`, `callerL_entry_declared` (`Tests/Compiler/CallWidthsEntryExampleTest`) | written (this round) | no |
+
+### 8.2 The length invariant, split
+
+`MachRead` (3559): `kinds : Array MixedGateBinder`, `inits : Array Nat`,
+`names : Array Name`. `MachRead.LenOk st` is `st.names.size =
+st.kinds.size ∧ st.inits.size = st.kinds.size` (a structure with the fields
+`names`, `inits`; `lenOk_iff`).
+
+**(i) Initial state.** `let st : MachRead := {}` (5092): `lenOk_init`.
+
+**(ii) `machReserve`** (3696–3710, a `def`). It appends `kinds` (from
+`machSlotKinds`) to `st.kinds`, `inits` (from `machInits natOf kinds`) to
+`st.inits`, and `machSlotNames st.runs.size body kinds base` to `st.names`;
+`machInits_length` and `machSlotNames_length` say both lists are as long as
+`kinds`; `machReserve_lenOk : st.LenOk → machReserve … st = some (base,
+st') → st'.LenOk`.
+
+**(iii) Every expression that builds a `MachRead`** — 23 record updates and
+the literal `{}`. Found by `grep` for `with` in 3871–4230 and 5056–5186 and
+for `MachRead` in the file; no other file under `Sparkle/` mentions
+`MachRead`.
+
+| lines | function | writes | preserved? | lemma |
+|---|---|---|---|---|
+| 3705–3710 | `machReserve` | `kinds ++`, `inits ++`, `names ++`, `dom`, `runs` | yes (three lists of one length) | `lenOk_reserved`, `machReserve_lenOk` |
+| 3924–3927 | `machConv`, bare `Signal.register` | `kinds.push`, `inits.push`, `names.push`, `dom`, `bareRegs` | yes | `lenOk_bareRegister` |
+| 4216–4223 | `machLoopRoot` | `kinds ++`, `inits ++`, `names ++` (`(List.range n).map …`, `n = kinds.length`), `dom`, `loops`, `nestedLoops`, `loopDepth` | yes, given `inits.length = kinds.length` — the two `mapM`s of 4199–4200, `loopRoot_inits_length` | `lenOk_loopRoot` |
+| 3929, 4183, 4208, 4209, 5125 | `machConv`, `machLoopBody`, `machLoopRoot`, wrapper | `ws` | yes (arrays untouched) | `lenOk_ws` |
+| 3953, 4051 | `machConv` (memory), `machInstance` | `instStruct` | yes | `lenOk_instStruct` |
+| 4003, 4064, 4100, 4161, 4176, 5116 | `machConv`, `machInstance`, `machInstanceS`, `machChain`, `machLoopBody`, wrapper | `lets` | yes | `lenOk_lets` |
+| 4033 | `machNested` | `inInner` | yes | `lenOk_inInner` |
+| 4036 | `machNested` | `ws`, `inInner`, `nested` | yes | `lenOk_nestedClose` |
+| 4061, 4096 | `machInstance`, `machInstanceS` | `dom` | yes | `lenOk_dom` |
+| 4068 | `machInstance` | `insts`, `instFields` | yes | `lenOk_instPush` |
+| 4110–4113 | `machInstanceS` | `insts`, `instFields`, `instStruct` | yes | `lenOk_instS` |
+| 4228 | `machLoopRoot` | `loopWs`, `loopDepth` | yes | `lenOk_loopClose` |
+
+**NOT preserved: none.** No site writes one or two of the three arrays; the
+invariant is never false or temporarily broken, so there is no declaration
+to exhibit. (Sites that hand back an OLDER or ANOTHER state — `machNested`'s
+`shared` 4022–4031, `machLoopRoot`'s `shared` 4206–4213 — hand back states
+returned by reader calls, updated only in `ws`.)
+
+### 8.3 The boundary (iv)
+
+"The state `machineShape?` ends with satisfies `LenOk`" is NOT derivable.
+
+* A `partial def` is added to the kernel as `DefKind.opaque` with the value
+  `mkInhabitantFor` (toolchain `Lean/Elab/PreDefinition/Main.lean` 20–36,
+  `addAndCompilePartial`); the source text is compiled separately
+  (`addAndCompilePartialRec`) and attached as the implementation. The
+  kernel constant has NO equation — no unfolding lemma, not even a
+  propositional one; its hidden value is some inhabitant of the type, not
+  the reader. `ReadersKeepLenOk` (`ShippingReaderLenOk`, a definition used
+  by nothing) is therefore neither provable nor refutable.
+* The constants: `Sparkle.Compiler.Elab.machConv`, `machNested`,
+  `machInstance`, `machInstanceS`, `machChain`, `machLoopBody`,
+  `machLoopRoot` (one `mutual` block, 3871–4230).
+* Where the chain stops in the wrapper, exactly:
+
+  | wrapper step | state in | what is known of the state out |
+  |---|---|---|
+  | 5092 `{}` | — | `LenOk` (`lenOk_init`) |
+  | 5098 `machConv … dom st` (run case) | `{}` | NOTHING — the first opaque constant; in the run case the chain stops HERE |
+  | 5099 `machReserve … st` | 5098's | `LenOk` IF 5098's has it (`machReserve_lenOk`) |
+  | 5103–5117 `foldlM` over the root `let`s: `machLoopRoot` 5106, `machConv` 5111, then `{ st with lets }` 5116 | previous | nothing (opaque); with no root `let` the state is unchanged |
+  | 5121 `machChain` (run case) / 5127 `machConv` (no run) | previous | NOTHING — one of the two is always executed: every path ends in an opaque constant |
+  | 5125 `{ st with ws }` | 5121's | `LenOk` if 5121's has it (`lenOk_ws`) |
+
+  In the no-run case with no root `let` the state is `{}` up to 5127, and
+  5127 is opaque. No path is pure.
+* What a kernel proof would need: equations for the seven readers — a
+  compiler change (fuel, `partial_fixpoint`, or well-founded recursion),
+  outside this round. No axiom was added for it.
+
+**The alternative without a compiler change and without an axiom: R5
+checked on the returned shape.** R5 is `(names.zip kinds).length =
+sp.layout.slots.length`. It is NOT a function of the shape alone
+(`ShippingR5Check` header: one shape, two decompositions, R5 true in one
+and false in the other — the shape does not record how many of its binders
+are the declaration's). With the number of declaration binders it is a
+count: `shapeR5Ok sp nB := sp.binders.length = nB + insts + slots + lets`,
+EQUIVALENT to R5 at `nB = bs.length` (`r5_of_count`, `count_of_r5`). On
+reflected data: `MachineData.r5Ok d` (the count at `d.nIn`), one `decide`
+per declaration, and `r5_of_r5Ok` needs the explicit link `hnIn : d.nIn =
+bs.length + d.shape.insts.length`. The generator already enforces exactly
+this count when it builds the data (`ShippingMachineCommand` 437–442,
+`throwError "binder count"`), at the meta level. **So R5 stays a
+per-declaration decidable data condition plus the link `hnIn`; it is not a
+general theorem and this round does not make it one.**
+
+### 8.4 The corrected consumer: `callerL → pickByteH`
+
+`entryStrict_declared` / `callee_single_out` apply when the CHILD's shape
+is a `machineShape?` result. Candidates checked:
+
+| | `caller → pick` (round 5's choice) | `callerL → pickByteH` | `hftByte → httpGetByte` |
+|---|---|---|---|
+| child's route | GATE — does NOT fit | machine (slotless leaf; `#machine_endpoint pickByteH`) | machine (slotless leaf; `#machine_endpoint` in `ShippingMachineCombTest`) |
+| child's result | — | one Signal, `BitVec 8` | one Signal, `BitVec 8`; an implicit `{dom : DomainConfig}` binder |
+| parent's closing | — | one-output: a `.bits` result goes through `machInstance` without `instStruct` (4050), so `instFields = []` (5180); `callerL_instFields` states it on the reflected data | by reading the same; NOT checked on reflected data here; the call sits in a sub-machine of the IP library's `hftStrategy` (telescope endpoint, `ShippingMachineTeleTest`) |
+| parent sees the child's DECLARED signature | — | yes | yes |
+| existing commands | — | `#machine_endpoint`, `#machine_child pickByteH`, `#machine_linked`, `#machine_composed`, `#machine_closes_at`, `#machine_ships_hierH`, `#machine_design_svHR` | `#machine_child`, `#machine_endpoint`, `#machine_linked` |
+
+Chosen: **`callerL → pickByteH`** (both in one test file, monomorphic,
+depth 1, both reflected).
+
+**Declared or inlined (P5) — the same answer for both pairs.**
+
+* Parent side: the signature the parent's reader uses is ALWAYS the
+  declared constant's. `machInstCall?` (3714) reads `senv.inst c`;
+  `structEnv_inst : (structEnv env).inst = instSignature? env` (`rfl`);
+  `instSignature?` reads `env.find? n` and its type (P1, target-built).
+  `userInliner` is not involved.
+* Child side: the child's shape in `MachineDefines` is read from the ENTRY
+  constant `entryConst true false [] ci …` (5248–5258), which is
+  `inlinedConst (userInliner env) ci` whenever both gates miss on `ci` and
+  `machineShape?` accepts the unfolding — the normal case of a
+  machine-route child, `pickByteH` and `httpGetByte` included (by reading;
+  which branch is taken is not decidable in the kernel: `userInliner` goes
+  through `opaque` rewrites, §3). `inlinedConst` rewrites the TYPE too
+  (3406). So `callee_single_out` / `entryStrict_declared`, which take the
+  child's shape from the definition `env.find? c` holds, do NOT match what
+  `MachineDefines` provides. What matches is `machineShape?_single_out` /
+  `entryStrict_of_child` with `ResC : machResultKind? dC.type = some res`
+  for the entry constant `dC` — and for an unfolded `dC` that is a fact
+  about `userInliner` on a type (P5), provided by nothing.
+
+**Data condition ↦ remaining obligations**
+(`Tests/Compiler/CallWidthsEntryExampleTest.lean`):
+
+    callWidthsStrict callerL.machineData (closingNDecl callerL.machineData.shape)
+        (fun _ => pickByteH.machineData.shape.layout.outs) = true
+
+| | obligation | status for `callerL → pickByteH` |
+|---|---|---|
+| way 1 | the condition itself | ONE `decide` (`callerL_strict_decide`) |
+| way 2 | `R5ok : callerL.machineData.r5Ok = true` | `decide` (`callerL_r5Ok`) |
+| | `R1all`: every call entry's kind is `.bits 8` | `decide` (`callerL_instKinds`). As a reader fact (R1, `R1At`): the result of the `partial` `machInstance`, open |
+| | `LinkP : machineShape? … (.defnInfo dP) … = some callerL.machineData.shape` | hypothesis. From `MachineDefines` of `callerL` and its three run facts by `link_of_defines`, with `dP` the entry constant. `MachineDefines` is itself an ASSUMPTION of the endpoints (the reflected shape was evaluated at generation time), so this is not a closed fact |
+| | `LinkC`: the same for `pickByteH.machineData.shape` | hypothesis, same source |
+| | `NIN : d.nIn = bs.length + insts.length` for the peel `bs` of `dP.value` | hypothesis. The generator's meta-level knowledge only; no kernel statement (the peel goes through `packTupleInputs`, a `partial def`) |
+| | `ResC : machResultKind? dC.type = some (.bits 8)` | hypothesis. P1 if `dC` is the declared constant (`resC_of_declared`); P5 for the unfolding |
+| | (declared form only) `hcallee` | `rfl` (`callerL_callee`) |
+| | (declared form only) `hinst`, `hfind` in the SAME `env` as `LinkP`'s `structEnv env`; `R1At env … 0` | hypotheses |
+
+**Is this a reduction worth having? No.** It replaces one `decide` by two
+`decide`s, two links that `MachineDefines` gives under run facts, and two
+obligations nothing provides (`NIN`; `ResC` when the child's entry constant
+is its unfolding). The single place where a lemma replaces an evaluation is
+the child side (`entryStrict_of_child`: the layout is one output `out` of
+`machHWType res`), and that fact is itself one `decide` on the child's
+reflected shape. An endpoint that took these hypotheses would assume R1 /
+R5 under other names: its gap would NOT be empty.
+
+What would make it a real reduction:
+
+1. R1 as a theorem — needs equations for `machInstance` (a compiler
+   change) or a validated twin (§4);
+2. `MachRead.LenOk` of the returned state — then `R5ok` AND `NIN` go at
+   once (`ShapeDecomp.r5_of_lengths` needs neither); needs the same
+   equations, and a decomposition that keeps the reader state (the walk of
+   `machineShape?_decomp` drops those equations today);
+3. the reflection links as closed facts — they are premises of every
+   endpoint today (`MachineDefines`); this line cannot remove them;
+4. `ResC` for an unfolded entry constant (P5) — blocked by `opaque`
+   rewrites; or a child read from its declared constant.
+
+"If R1 gives the same kind the width proposition holds" is the content of
+`entryStrict_of_links`; it is NOT a proof that the reader agrees for an
+arbitrary call.
+
+### 8.5 Consolidation (the LAST commit of this round, separate)
+
+Rounds 4b/5 left the same unfold/walk twice (`machineShape?_some` in the
+tail, `machineShape?_decomp`). The last commit makes the tail's four
+statements corollaries of `machineShape?_decomp` (the tail then imports
+`ShippingShapeDecomp`; the prefix file is untouched and keeps its own
+build) and tidies `entryStrict_declared`. It is to be applied AFTER the
+queued tail (`f8762e4c`) has been built or has returned its stall head, so
+that the diagnostic of the queued walk is not lost. The walk itself is not
+changed by the consolidation; a repair found on the queued tail goes into
+`machineShape?_decomp`, once.
+
+`entryStrict_declared`, tidied: the comment's `hp` was the argument `DP`
+(a `ShapeDecomp`: the parent link already decomposed); the binders `symP` /
+`paramsP` / `allowP`, used neither in a hypothesis nor in the conclusion,
+are gone; new hypothesis `hcallee` (the entry's callee is `c`), and `R1` is
+taken in its reader form (callee and signature ↦ kind), instantiated by
+`hcallee` and `hinst`. Its hypotheses are ALL unconnected: `DP`, `hcallee`,
+`hinst`, `hfind`, `hc`, `hkid`, `R5`, `R1`. A consumer must additionally
+secure that the parent's shape was read with the signature table of the
+same `env` (`entryStrict_of_links_declared` states this through `LinkP` at
+`structEnv env`) and that the child's shape was read from the constant
+`env` holds for `c` — which `MachineDefines` does not give for an unfolded
+entry constant.
+
+### 8.6 Not done
+
+* Nothing built. No endpoint premise removed.
+* `ReadersKeepLenOk`: not proved (not provable today).
+* The wrapper's own steps as a state transformer (5092–5127 → the final
+  `st`) are not stated: `machineShape?_decomp` gives `names`, `kinds`,
+  `inits` existentially, without the state they come from.
+* `hftByte → httpGetByte`: no instance written; its closing was not checked
+  on reflected data.
+* The argument side (R3 / T2) and P3 remain untouched.

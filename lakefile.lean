@@ -2483,3 +2483,12 @@ lean_lib «Tools.ShippingShapeDecomp» where
 
 lean_lib «Tools.ShippingCallWidthsDeclared» where
   roots := #[`Tools.ShippingCallWidthsDeclared]
+
+lean_lib «Tools.ShippingReaderLenOk» where
+  roots := #[`Tools.ShippingReaderLenOk]
+
+lean_lib «Tools.ShippingR5Check» where
+  roots := #[`Tools.ShippingR5Check]
+
+lean_lib «Tools.ShippingCallWidthsEntry» where
+  roots := #[`Tools.ShippingCallWidthsEntry]
