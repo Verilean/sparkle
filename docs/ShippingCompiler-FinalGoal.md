@@ -309,3 +309,42 @@ To be re-measured at the first `AllTests` integration run.
   children under the new writer; files that depend on the design commands'
   text (`fpga/tangNano20k/blinky/blinky.v`, the RV32 SoC testbench's internal
   signal names, substring tests) are listed in the worker report, not edited.
+- 2026-10-12 (night), poc `dc3730e3`, `Tests.AllTests` 1151 jobs green. The
+  three isolated lines are INTEGRATED into poc after the user's rulings, each
+  re-verified on the integrated tree: the fallback/guard stack (`a9fd07ca`),
+  the design writer (`d0d68225`), the cache-rollback line (`b7971f83`).
+  **Goal gap on the poc main line.** The generated depth-1 SV endpoints of
+  `parent` and `chained` (`#machine_no_ports`) have NO compiler-check premise:
+  the printed premise list is the run of the entry, `MachineDefines` of the
+  parent and of the child, and `ChildBnd`. Scope and conditions
+  (`docs/parallel/A-noports.md`): parents with a register whose callees are
+  leaf register machines, depth 1 (2 of 30 census declarations; the others
+  are refused with reasons: gate or slotless children, children with calls,
+  memory children, parents without a register); per-declaration data
+  conditions decided by the generator; five compiler guards with fallback to
+  the input module (each with a firing counterexample whose shipped module
+  passes the endpoint-side checks); the conclusion is about the `DesignSV`
+  object of the writer's module list — not the SV string; `#sim` is outside
+  (and its input numbering disagrees with the JIT C on two input shapes:
+  `SimIndexTest`).
+  **Writer.** The design commands print the endpoints' artifact; limited
+  iverilog simulation of 7 hierarchical designs under the real commands
+  equals the Lean source trace (142 cycles, resets, all outputs). Children's
+  text: 49358 characters against 25348 through the unchecked optimizer (text
+  size only).
+  **Added runtime assumptions (trust base extended; not a completion of the
+  general theorem).** `RefLawsM`: the memo cell's functional
+  get/set/modify, distinctness of nine refs from it, a frame for an
+  enumerated class of between-operations. Under it the depth-0 core-run
+  forms of the legacy entry theorems (projection class 45/45, tuple class
+  39/39, `useDbl`) have no `MemoHit` disjunct; nested hits are statements
+  only. Measured: 399 entry runs, 0 memo hits.
+  **Gaps on other branches / open.** `fix/call-kinds` (isolated; policy
+  `callKindsDecline = false`, not to be enabled): call-kind agreement is
+  measured (58 successful runs with 0 mismatches; shadow census 93 known
+  call entries with 0 differences, 10 unknown = memory children) and stays a
+  per-declaration `decide`; the general lemma is open, not refuted. Wire
+  width cache: stale read reproduced only by hand-driving the builder;
+  builder-local lookup candidate under evaluation on an isolated branch.
+  Machine-none→legacy fall-through leaves seven refs unreset (1 constructed
+  declaration of 85 takes the path; output equal to the clean run).
