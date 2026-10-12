@@ -722,8 +722,8 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     unless ← namesHold f do throwError "{f}: a name condition is false"
   Lean.logInfo m!"CHILDREN WITH CALLS (B3): {report} — MachineClosesAt derived through a child with calls; premises: the descendants' reflection and name separation per node; standard axioms"
 
-/-- Every premise of the deep closings is a descendant's reflection: the name
-separation over the descendants is PROVED (`Tools.ShippingNameSep`). -/
+-- Every premise of the deep closings is a descendant's reflection: the name
+-- separation over the descendants is PROVED (`Tools.ShippingNameSep`).
 run_cmd Lean.Elab.Command.liftTermElabM do
   for (f, nRefl) in [(``Sparkle.Tests.Compiler.ShippingMachineSeqTest.grand, 2),
       (``Sparkle.Tests.Compiler.ShippingMachineDepthHTest.grandH, 2),
