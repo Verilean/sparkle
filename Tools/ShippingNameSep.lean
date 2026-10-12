@@ -58,7 +58,7 @@ appends the kernel does evaluate:
 * `toString_ne` (`sepB a b = true → a.toString ≠ b.toString`): two names
   print differently when no candidate of one is a candidate of the other —
   a Boolean check on concrete names;
-* the endpoints' shapes: `hparent_of`, `hnames_of`, `fresh_of`.
+* the endpoints' shapes: `hparent_ofB`, `hnames_ofB`, `fresh_of`.
 
 `toString` is NOT injective on all names, and the candidate check is what
 tells: with reading the definition only (not evaluated), `"a».b"` as ONE
@@ -182,7 +182,7 @@ theorem toString_ne {a b : Lean.Name} (h : sepB a b = true) : a.toString ≠ b.t
 /-! ## The endpoints' premises -/
 
 /-- `hparent`: no callee prints as the parent. -/
-theorem hparent_of {α : Type} (insts : List (Lean.Name × α)) (parent : Lean.Name)
+theorem hparent_ofB {α : Type} (insts : List (Lean.Name × α)) (parent : Lean.Name)
     (h : (insts.all fun c => sepB c.1 parent) = true) :
     ∀ c ∈ insts, c.1.toString ≠ parent.toString := by
   intro c hc
@@ -190,7 +190,7 @@ theorem hparent_of {α : Type} (insts : List (Lean.Name × α)) (parent : Lean.N
   exact toString_ne h1
 
 /-- `hnames`: different called declarations print differently. -/
-theorem hnames_of (L : List Lean.Name)
+theorem hnames_ofB (L : List Lean.Name)
     (h : (L.all fun c => L.all fun c' => decide (c = c') || sepB c c') = true) :
     ∀ c ∈ L, ∀ c' ∈ L, c.toString = c'.toString → c = c' := by
   intro c hc c' hc' heq
@@ -224,7 +224,7 @@ The printed names of a list of declarations are written
 argument, so `L.map Lean.Name.toString` does not typecheck. -/
 
 /-- `c` prints differently from every declaration of `L`. -/
-theorem not_mem_map_of (c : Lean.Name) (L : List Lean.Name)
+theorem not_mem_map_ofB (c : Lean.Name) (L : List Lean.Name)
     (h : (L.all fun c' => sepB c c') = true) : c.toString ∉ L.map (fun n => n.toString) := by
   intro hm
   obtain ⟨c', hc', heq⟩ := List.mem_map.mp hm
@@ -233,7 +233,7 @@ theorem not_mem_map_of (c : Lean.Name) (L : List Lean.Name)
   exact toString_ne h1 h2
 
 /-- No declaration of `L` prints as a declaration of `L'`. -/
-theorem disjoint_map_of (L L' : List Lean.Name)
+theorem disjoint_map_ofB (L L' : List Lean.Name)
     (h : (L.all fun c => L'.all fun c' => sepB c c') = true) :
     ∀ x ∈ L.map (fun n => n.toString), x ∉ L'.map (fun n => n.toString) := by
   intro x hx hx'
@@ -261,11 +261,11 @@ theorem nodup_map_of_inj : ∀ (L : List Lean.Name), L.Nodup →
     exact ha (by rw [hab]; exact hb)
 
 /-- The printed names of `L` are pairwise distinct when its declarations
-are distinct and print differently pairwise (the check of `hnames_of`). -/
-theorem nodup_map_of (L : List Lean.Name) (hnd : L.Nodup)
+are distinct and print differently pairwise (the check of `hnames_ofB`). -/
+theorem nodup_map_ofB (L : List Lean.Name) (hnd : L.Nodup)
     (h : (L.all fun c => L.all fun c' => decide (c = c') || sepB c c') = true) :
     (L.map (fun n => n.toString)).Nodup :=
-  nodup_map_of_inj L hnd (hnames_of L h)
+  nodup_map_of_inj L hnd (hnames_ofB L h)
 
 /-! ## A cheaper, structural test (round 12)
 
@@ -650,5 +650,81 @@ theorem sepFast_ne {a b : Lean.Name} (h : sepFast a b = true) : a.toString ≠ b
     (congrArg (fun (n : Lean.Name) => n.toString) ea).trans
       (heq.trans (congrArg (fun (n : Lean.Name) => n.toString) eb).symm)
   exact sepC_ne hs h2
+
+/-! ## The endpoints' premises, cheapest test first
+
+`sep a b` tries the structural test and only then the candidate test: the
+kernel evaluates `||` lazily, so on names with plain string components the
+candidates are never enumerated. The generators use these forms; the `…B`
+forms above ask the candidate test alone. -/
+
+/-- The structural test, else the candidate test. -/
+def sep (a b : Lean.Name) : Bool := sepFast a b || sepB a b
+
+theorem sep_ne {a b : Lean.Name} (h : sep a b = true) : a.toString ≠ b.toString := by
+  cases hf : sepFast a b with
+  | true => exact sepFast_ne hf
+  | false =>
+    have h1 : (sepFast a b || sepB a b) = true := h
+    rw [hf] at h1
+    have h2 : sepB a b = true := h1
+    exact toString_ne h2
+
+/-- The candidate test implies `sep` (what the generators test before
+emitting a `decide`). -/
+theorem sep_of_sepB {a b : Lean.Name} (h : sepB a b = true) : sep a b = true := by
+  have e : sep a b = (sepFast a b || sepB a b) := rfl
+  rw [e, h]
+  cases sepFast a b <;> rfl
+
+/-- `hparent`: no callee prints as the parent. -/
+theorem hparent_of {α : Type} (insts : List (Lean.Name × α)) (parent : Lean.Name)
+    (h : (insts.all fun c => sep c.1 parent) = true) :
+    ∀ c ∈ insts, c.1.toString ≠ parent.toString := by
+  intro c hc
+  have h1 : sep c.1 parent = true := List.all_eq_true.mp h c hc
+  exact sep_ne h1
+
+/-- `hnames`: different called declarations print differently. -/
+theorem hnames_of (L : List Lean.Name)
+    (h : (L.all fun c => L.all fun c' => decide (c = c') || sep c c') = true) :
+    ∀ c ∈ L, ∀ c' ∈ L, c.toString = c'.toString → c = c' := by
+  intro c hc c' hc' heq
+  have h1 := List.all_eq_true.mp h c hc
+  have h2 : (decide (c = c') || sep c c') = true := List.all_eq_true.mp h1 c' hc'
+  cases hd : decide (c = c') with
+  | true => exact of_decide_eq_true hd
+  | false =>
+    rw [hd] at h2
+    have h3 : sep c c' = true := h2
+    exact absurd heq (sep_ne h3)
+
+/-- `c` prints differently from every declaration of `L`. -/
+theorem not_mem_map_of (c : Lean.Name) (L : List Lean.Name)
+    (h : (L.all fun c' => sep c c') = true) : c.toString ∉ L.map (fun n => n.toString) := by
+  intro hm
+  obtain ⟨c', hc', heq⟩ := List.mem_map.mp hm
+  have h1 : sep c c' = true := List.all_eq_true.mp h c' hc'
+  have h2 : c.toString = c'.toString := heq.symm
+  exact sep_ne h1 h2
+
+/-- No declaration of `L` prints as a declaration of `L'`. -/
+theorem disjoint_map_of (L L' : List Lean.Name)
+    (h : (L.all fun c => L'.all fun c' => sep c c') = true) :
+    ∀ x ∈ L.map (fun n => n.toString), x ∉ L'.map (fun n => n.toString) := by
+  intro x hx hx'
+  obtain ⟨c, hc, e1⟩ := List.mem_map.mp hx
+  obtain ⟨c', hc', e2⟩ := List.mem_map.mp hx'
+  have h0 := List.all_eq_true.mp h c hc
+  have h1 : sep c c' = true := List.all_eq_true.mp h0 c' hc'
+  have h2 : c.toString = c'.toString := e1.trans e2.symm
+  exact sep_ne h1 h2
+
+/-- The printed names of `L` are pairwise distinct when its declarations
+are distinct and print differently pairwise (the check of `hnames_of`). -/
+theorem nodup_map_of (L : List Lean.Name) (hnd : L.Nodup)
+    (h : (L.all fun c => L.all fun c' => decide (c = c') || sep c c') = true) :
+    (L.map (fun n => n.toString)).Nodup :=
+  nodup_map_of_inj L hnd (hnames_of L h)
 
 end Tools.ShippingNameSep
