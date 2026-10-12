@@ -1,4 +1,5 @@
 import Tools.ShippingLegacySemCalc
+import Tools.ShippingLegacySemTrace
 
 /-! # The legacy inline attempt returns the translation of an unfolding
 
@@ -17,6 +18,11 @@ unfolding oracles returned on the call and that the attempt's own test found
 different from it (`InlineUnfolds`). In particular a failed first attempt
 leaves nothing in the builder state the retry starts from, and the
 `isTopLevel` flag of the sub-translation is `false` whatever the caller's.
+
+(Cache fix, variant A: the attempt now snapshots the wire-naming `IO.Ref`
+caches before the first translation and restores them in both `catch`
+branches. Neither touches the builder state — `snapshotWireCaches_frame`,
+`restoreWireCaches_frame` — so the statement below is unchanged.)
 
 **NOT proved here**: that an unfolding means what the call means. On the
 source side that is Lean's definitional unfolding (δ, then β) — a fact about
@@ -81,6 +87,63 @@ theorem inlineQ_some {tr : TranslateFn} {e e' : Lean.Expr} {hint : String} {name
   cases hw''
   exact ⟨e', ⟨hne, hU⟩, hr⟩
 
+/-! ## The snapshot and the restore leave the builder state
+
+(Cache fix, variant A.) `Rec.tryInlineUnfold` reads the wire-naming `IO.Ref`
+caches before its attempt (`snapshotWireCaches`) and writes them back in both
+`catch` branches (`restoreWireCaches`). Both are sequences of a context read
+and lifted `IO.Ref` operations: the builder state is not touched. -/
+
+/-- A context read leaves the builder state. -/
+theorem Ensures.read_frame {ctx : CompilerState} {s : CircuitState} :
+    Ensures CompilerM.getCompilerState ctx s (fun _ t => t = s) := by
+  intro c t hr
+  exact (Returns.read hr).2
+
+/-- A bind whose first action leaves the builder state: the continuation runs
+from the same state. -/
+theorem Ensures.bindFrame {α β : Type} {c : CompilerM α} {f : α → CompilerM β}
+    {ctx : CompilerState} {s : CircuitState} {Q : β → CircuitState → Prop}
+    (hc : Ensures c ctx s (fun _ t => t = s)) (h : ∀ a : α, Ensures (f a) ctx s Q) :
+    Ensures (c >>= f) ctx s Q := by
+  intro b t hr
+  obtain ⟨a, s1, ha, hb⟩ := Returns.bind hr
+  have hs1 : s1 = s := hc a s1 ha
+  rw [hs1] at hb
+  exact h a b t hb
+
+/-- Close `Ensures P ctx s (fun _ t => t = s)` for a program built from the
+context read, lifted oracles, `pure`, `>>=`, `if` / `match`. -/
+macro "frame_walk" : tactic =>
+  `(tactic| repeat' (first
+      | exact Ensures.pure rfl
+      | exact Ensures.lift_frame
+      | exact Ensures.read_frame
+      | refine Ensures.bindLift (fun _ _ => ?_)
+      | refine Ensures.bindFrame ?_ (fun _ => ?_)
+      | split))
+
+/-- The snapshot leaves the builder state. Expected shape (NOT observed):
+`getCompilerState >>= fun c => (match c.exprCache with | some ref =>
+liftMetaM ref.get >>= fun m => pure (some m) | none => pure none) >>= fun expr
+=> liftMetaM … >>= … (eight reads) … pure {…}`. -/
+theorem snapshotWireCaches_frame {ctx : CompilerState} {s : CircuitState} :
+    Ensures snapshotWireCaches ctx s (fun _ t => t = s) := by
+  unfold snapshotWireCaches
+  try dsimp only
+  frame_walk
+
+/-- The restore leaves the builder state. Expected shape (NOT observed):
+`getCompilerState >>= fun c0 => (match c0.exprCache, c.expr with | some ref,
+some m => liftMetaM (ref.set m) | _, _ => pure ()) >>= fun _ => liftMetaM … >>=
+… (eight writes)`, possibly with the continuation as a join point (inlined by
+`dsimp only`). -/
+theorem restoreWireCaches_frame (c : WireCaches) {ctx : CompilerState} {s : CircuitState} :
+    Ensures (restoreWireCaches c) ctx s (fun _ t => t = s) := by
+  unfold restoreWireCaches
+  try dsimp only
+  frame_walk
+
 /-- **The inline attempt, walked**: the oracle, the test, the first
 translation under a `catch`; in the handler the retry's oracle, its test and
 its translation under a second `catch`. Both `catch`es run their handler from
@@ -94,11 +157,17 @@ theorem tryInlineUnfold_ensures (tr : TranslateFn) (e : Lean.Expr) (hint : Strin
   refine Ensures.bindLift ?_
   intro eReduced hU1
   refine Ensures.ite (fun hc => ?_) (fun _ => ?_)
-  · refine Ensures.tryCatch ?_ ?_
+  · -- the snapshot (the builder state is left), then the attempt
+    refine Ensures.bindFrame snapshotWireCaches_frame ?_
+    intro saved
+    refine Ensures.tryCatch ?_ ?_
     · refine Ensures.bindRun ?_
       intro w t hr
       exact Ensures.pure (inlineQ_some hc (Or.inl hU1) hr)
     · intro ex1
+      -- the restore (the builder state is left), then the retry
+      refine Ensures.bindFrame (restoreWireCaches_frame saved) ?_
+      intro _
       refine Ensures.tryCatch ?_ ?_
       · refine Ensures.bindLift ?_
         intro eReduced2 hU2
@@ -108,6 +177,8 @@ theorem tryInlineUnfold_ensures (tr : TranslateFn) (e : Lean.Expr) (hint : Strin
           exact Ensures.pure (inlineQ_some hc2 (Or.inr hU2) hr)
         · exact Ensures.pure inlineQ_none
       · intro ex2
+        refine Ensures.bindFrame (restoreWireCaches_frame saved) ?_
+        intro _
         exact Ensures.pure inlineQ_none
   · exact Ensures.pure inlineQ_none
 

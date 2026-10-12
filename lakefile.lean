@@ -2136,6 +2136,57 @@ lean_lib «Tools.ShippingFinalGoal» where
 lean_lib «Tools.ShippingFinalGoalCommand» where
   roots := #[`Tools.ShippingFinalGoalCommand]
 
+lean_lib «Tools.ShippingLegacySemEntry» where
+  roots := #[`Tools.ShippingLegacySemEntry]
+
+lean_lib «Tools.ShippingLegacySemHarness» where
+  roots := #[`Tools.ShippingLegacySemHarness]
+
+lean_lib «Tools.ShippingUnifiedProtectionLeaves» where
+  roots := #[`Tools.ShippingUnifiedProtectionLeaves]
+
+lean_lib «Tools.ShippingLegacySemOrder» where
+  roots := #[`Tools.ShippingLegacySemOrder]
+
+lean_lib «Tools.ShippingLegacySemEntryWalk» where
+  roots := #[`Tools.ShippingLegacySemEntryWalk]
+
+lean_lib «Tools.ShippingLegacySemLeafAt» where
+  roots := #[`Tools.ShippingLegacySemLeafAt]
+
+lean_lib «Tools.ShippingLegacySemHarnessAt» where
+  roots := #[`Tools.ShippingLegacySemHarnessAt]
+
+lean_lib «Tools.ShippingLegacySemRunIn» where
+  roots := #[`Tools.ShippingLegacySemRunIn]
+
+lean_lib «Tools.ShippingLegacySemLeaf» where
+  roots := #[`Tools.ShippingLegacySemLeaf]
+
+lean_lib «Tools.ShippingLegacySemMemo» where
+  roots := #[`Tools.ShippingLegacySemMemo]
+
+lean_lib «Tools.ShippingLegacySemRunInCalc» where
+  roots := #[`Tools.ShippingLegacySemRunInCalc]
+
+lean_lib «Tools.ShippingLegacySemLeaves» where
+  roots := #[`Tools.ShippingLegacySemLeaves]
+
+lean_lib «Tools.ShippingLegacySemBinder» where
+  roots := #[`Tools.ShippingLegacySemBinder]
+
+lean_lib «Tools.ShippingLegacySemSignalFrame» where
+  roots := #[`Tools.ShippingLegacySemSignalFrame]
+
+lean_lib «Tools.ShippingLegacySemEntryIn» where
+  roots := #[`Tools.ShippingLegacySemEntryIn]
+
+lean_lib «Tools.ShippingLegacySemEntryOne» where
+  roots := #[`Tools.ShippingLegacySemEntryOne]
+
+lean_lib «Tools.ShippingLegacySemFVarArm» where
+  roots := #[`Tools.ShippingLegacySemFVarArm]
+
 lean_lib «Tools.ShippingShipsNoOuts» where
   roots := #[`Tools.ShippingShipsNoOuts]
 
@@ -2312,3 +2363,81 @@ lean_lib «Tools.ShippingPortsMatchRawLeaf» where
 
 lean_lib «Tools.ShippingCallCast» where
   roots := #[`Tools.ShippingCallCast]
+
+lean_lib «Tools.ShippingLegacySemThrows» where
+  roots := #[`Tools.ShippingLegacySemThrows]
+
+lean_lib «Tools.ShippingLegacySemBinderBound» where
+  roots := #[`Tools.ShippingLegacySemBinderBound]
+
+lean_lib «Tools.ShippingLegacySemEntryBound» where
+  roots := #[`Tools.ShippingLegacySemEntryBound]
+
+lean_lib «Tools.ShippingLegacySemHarnessLeaf» where
+  roots := #[`Tools.ShippingLegacySemHarnessLeaf]
+
+lean_lib «Tools.ShippingLegacySemBinderList» where
+  roots := #[`Tools.ShippingLegacySemBinderList]
+
+lean_lib «Tools.ShippingLegacySemEntryList» where
+  roots := #[`Tools.ShippingLegacySemEntryList]
+
+lean_lib «Tools.ShippingLegacySemTelescopeN» where
+  roots := #[`Tools.ShippingLegacySemTelescopeN]
+
+lean_lib «Tools.ShippingLegacySemLeafHandled» where
+  roots := #[`Tools.ShippingLegacySemLeafHandled]
+
+lean_lib «Tools.ShippingLegacySemBinderListD» where
+  roots := #[`Tools.ShippingLegacySemBinderListD]
+
+lean_lib «Tools.ShippingLegacySemEntryListD» where
+  roots := #[`Tools.ShippingLegacySemEntryListD]
+
+lean_lib «Tools.ShippingLegacySemBeta» where
+  roots := #[`Tools.ShippingLegacySemBeta]
+
+lean_lib «Tools.ShippingLegacySemTelescopeLams» where
+  roots := #[`Tools.ShippingLegacySemTelescopeLams]
+
+lean_lib «Tools.ShippingLegacySemInputAt» where
+  roots := #[`Tools.ShippingLegacySemInputAt]
+
+lean_lib «Tools.ShippingLegacySemProj» where
+  roots := #[`Tools.ShippingLegacySemProj]
+
+lean_lib «Tools.ShippingLegacySemPacked» where
+  roots := #[`Tools.ShippingLegacySemPacked]
+
+lean_lib «Tools.ShippingLegacySemFst» where
+  roots := #[`Tools.ShippingLegacySemFst]
+
+lean_lib «Tools.ShippingLegacySemFstArm» where
+  roots := #[`Tools.ShippingLegacySemFstArm]
+
+lean_lib «Tools.ShippingLegacySemSliceEmit» where
+  roots := #[`Tools.ShippingLegacySemSliceEmit]
+
+lean_lib «Tools.ShippingLegacySemFstEntry» where
+  roots := #[`Tools.ShippingLegacySemFstEntry]
+
+lean_lib «Tools.ShippingLegacySemTupleEntry» where
+  roots := #[`Tools.ShippingLegacySemTupleEntry]
+
+lean_lib «Tools.ShippingLegacySemPackedField» where
+  roots := #[`Tools.ShippingLegacySemPackedField]
+
+lean_lib «Tools.ShippingMemoLaws» where
+  roots := #[`Tools.ShippingMemoLaws]
+
+lean_lib «Tools.ShippingMemoInv» where
+  roots := #[`Tools.ShippingMemoInv]
+
+lean_lib «Tools.ShippingLegacySemMemoWalk» where
+  roots := #[`Tools.ShippingLegacySemMemoWalk]
+
+lean_lib «Tools.ShippingMemoLawsWith» where
+  roots := #[`Tools.ShippingMemoLawsWith]
+
+lean_lib «Tools.ShippingLegacySemMemoOuter» where
+  roots := #[`Tools.ShippingLegacySemMemoOuter]

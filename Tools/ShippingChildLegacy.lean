@@ -111,6 +111,23 @@ set_option maxHeartbeats 1000000
     KeepsC mctx mref cctx cref (J L D) (Rec.handleCircuitMonad tr e name args hint named) := by
   vc
 
+/-- The snapshot of the wire-naming caches before an inline attempt: nine
+reads — the context's expression cache (a run-local ref,
+`LocalRefType.exprCache`) and eight global side refs (`SideRef.letWire`,
+`loopWire`, `wireCanon`, `singleOut`, `subInstOut`, `wireWidth`, `fvarValue`,
+`fvarZetaVisited`) — all in the frame class. None of the three tracked cells
+(`sparkleChildCache`, `sparkleChildSynth`, `sparkleSynthDepth`) is read. -/
+@[keeps] theorem snapshotWireCaches_keepsC :
+    KeepsC mctx mref cctx cref (J L D) snapshotWireCaches := by
+  vc
+
+/-- The restore after a caught failure: nine writes of the same refs
+(`Framed.localSetIO`, `Framed.sideSetIO`). None of the three tracked cells is
+written. -/
+@[keeps] theorem restoreWireCaches_keepsC (c : WireCaches) :
+    KeepsC mctx mref cctx cref (J L D) (restoreWireCaches c) := by
+  vc
+
 /-- **The inline attempt's result**: the invariant is kept, and the exception
 it returns (its second component) is none or an exception in the class — it
 is one a `catch` of this run handed over (`TripleC.tryCatchQ`). This is the
@@ -126,11 +143,19 @@ theorem tryInlineUnfold_tripleC (tr : TranslateFn)
   refine TripleC.bind (Q := fun _ => J L D) (keepsC_iff.mp (by vc)) ?_
   intro eReduced
   refine TripleC.ite (fun _ => ?_) (fun _ => TripleC.pure fun w hw => ⟨hw, OkOpt.none⟩)
+  -- the snapshot of the wire-naming caches (frame operations only)
+  refine TripleC.bind (Q := fun _ => J L D)
+    (keepsC_iff.mp (snapshotWireCaches_keepsC L D)) ?_
+  intro saved
   refine TripleC.tryCatchQ ?_ ?_
   · refine TripleC.bind (Q := fun _ => J L D) (keepsC_iff.mp (htr _ _ _ _ _ _)) ?_
     intro w
     exact TripleC.pure fun _ hw => ⟨hw, OkOpt.none⟩
   · intro ex1 h1
+    -- the restore, then the retry
+    refine TripleC.bind (Q := fun _ => J L D)
+      (keepsC_iff.mp (restoreWireCaches_keepsC L D saved)) ?_
+    intro _
     refine TripleC.tryCatchQ ?_ ?_
     · refine TripleC.bind (Q := fun _ => J L D) (keepsC_iff.mp (by vc)) ?_
       intro eReduced2
@@ -139,6 +164,9 @@ theorem tryInlineUnfold_tripleC (tr : TranslateFn)
       intro w
       exact TripleC.pure fun _ hw => ⟨hw, OkOpt.none⟩
     · intro ex2 h2
+      refine TripleC.bind (Q := fun _ => J L D)
+        (keepsC_iff.mp (restoreWireCaches_keepsC L D saved)) ?_
+      intro _
       exact TripleC.pure fun _ hw => ⟨hw, OkOpt.some h2⟩
 
 @[keeps] theorem handleDefinitionUnfold_keeps (tr : TranslateFn)

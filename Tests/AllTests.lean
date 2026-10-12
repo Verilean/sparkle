@@ -167,6 +167,10 @@ import Tests.Compiler.PortsMatchRawLeafChainedTest
 import Tests.Compiler.CallWidthHuntTest
 import Tests.Compiler.LegacySemInstanceTest
 import Tests.Compiler.LegacyCacheFixTest
+import Tests.Compiler.LegacySemMemoTest
+import Tests.Compiler.LegacySemMemoOuterTest
+import Tests.Compiler.MemoHitCensusTest
+import Tests.Compiler.WireWidthStaleTest
 import Tests.Compiler.ReaderWellTypedWildcardTest
 import Tests.Compiler.FinalGoalTest
 import Tests.Compiler.ShipsFreeTest

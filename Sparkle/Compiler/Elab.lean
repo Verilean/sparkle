@@ -5567,6 +5567,61 @@ def peelMemoizeApps : Lean.Expr → Lean.Expr
     | _ => ex
   | ex => ex
 
+/-- The `IO.Ref` caches whose entries NAME WIRES of the module being built
+    (or mark work in progress on it), read together.  A `catch` in `CompilerM`
+    restores the builder state — wires, `usedNames`, the name counter — but
+    not these refs: an entry written by the failed attempt would name a wire
+    that no longer exists, or that the rolled-back counter hands out again to
+    another expression (Tests/Compiler/LegacyCacheRollbackTest.lean).  So a
+    `catch` that goes on translating has to put them back as well.
+
+    Not included: `sparkleSubModuleCache` / `sparkleChildCache` (module
+    results, valid whatever the parent's builder state), `sparkleTypeCache`
+    and the profile counters. -/
+structure WireCaches where
+  expr : Option (Lean.ExprStructMap String)
+  letWire : Std.HashMap String String
+  loopWire : Std.HashMap String String
+  wireCanon : Std.HashMap String String
+  singleOut : Std.HashMap String String
+  subInstOut : Std.HashMap (UInt64 × String) String
+  wireWidth : Std.HashMap String Nat
+  fvarValue : Std.HashMap Lean.Name Lean.Expr
+  zetaVisited : Std.HashSet Lean.Name
+
+/-- Read the wire-naming caches. -/
+def snapshotWireCaches : CompilerM WireCaches := do
+  let expr ←
+    match (← CompilerM.getCompilerState).exprCache with
+    | some ref => do
+      let m ← CompilerM.liftMetaM (ref.get : IO _)
+      pure (some m)
+    | none => pure none
+  let letWire ← CompilerM.liftMetaM (sparkleLetWireCache.get : IO _)
+  let loopWire ← CompilerM.liftMetaM (sparkleLoopWireCache.get : IO _)
+  let wireCanon ← CompilerM.liftMetaM (sparkleWireCanon.get : IO _)
+  let singleOut ← CompilerM.liftMetaM (sparkleSingleOutInstanceCache.get : IO _)
+  let subInstOut ← CompilerM.liftMetaM (sparkleSubInstanceOutputs.get : IO _)
+  let wireWidth ← CompilerM.liftMetaM (sparkleWireWidthCache.get : IO _)
+  let fvarValue ← CompilerM.liftMetaM (sparkleFvarValueMap.get : IO _)
+  let zetaVisited ← CompilerM.liftMetaM (sparkleFvarZetaVisited.get : IO _)
+  return { expr, letWire, loopWire, wireCanon, singleOut, subInstOut, wireWidth,
+           fvarValue, zetaVisited }
+
+/-- Write the wire-naming caches back. -/
+def restoreWireCaches (c : WireCaches) : CompilerM Unit := do
+  match (← CompilerM.getCompilerState).exprCache, c.expr with
+  | some ref, some m => CompilerM.liftMetaM (ref.set m : IO Unit)
+  | _, _ => pure ()
+  CompilerM.liftMetaM (sparkleLetWireCache.set c.letWire : IO Unit)
+  CompilerM.liftMetaM (sparkleLoopWireCache.set c.loopWire : IO Unit)
+  CompilerM.liftMetaM (sparkleWireCanon.set c.wireCanon : IO Unit)
+  CompilerM.liftMetaM (sparkleSingleOutInstanceCache.set c.singleOut : IO Unit)
+  CompilerM.liftMetaM (sparkleSubInstanceOutputs.set c.subInstOut : IO Unit)
+  CompilerM.liftMetaM (sparkleWireWidthCache.set c.wireWidth : IO Unit)
+  CompilerM.liftMetaM (sparkleFvarValueMap.set c.fvarValue : IO Unit)
+  CompilerM.liftMetaM (sparkleFvarZetaVisited.set c.zetaVisited : IO Unit)
+
 section TranslatorBlock
 variable (translateExprToWire : (e : Lean.Expr) → (hint : String := "wire") →
   (isTopLevel : Bool := false) → (isNamed : Bool := false) → CompilerM String)
@@ -6217,10 +6272,14 @@ def tryInlineUnfold (e : Lean.Expr) (hint : String) (isNamed : Bool) :
       | some e' => return e'
       | none => return e
   if eReduced != e then
+    -- The catches below restore the builder state; `saved` lets them restore
+    -- the wire-naming `IO.Ref` caches too (see `WireCaches`).
+    let saved ← snapshotWireCaches
     try
       let w ← translateExprToWire eReduced hint (isNamed := isNamed)
       pure (some w, none)
     catch ex1 =>
+      restoreWireCaches saved
       -- Inline expansion failed (often due to mixed Signal/BitVec operators
       -- inside the expanded body). Retry with reducible transparency to
       -- prevent over-expansion of Signal.pure and OfNat instances.
@@ -6236,6 +6295,7 @@ def tryInlineUnfold (e : Lean.Expr) (hint : String) (isNamed : Bool) :
         else
           pure (none, some ex1)
       catch ex2 =>
+        restoreWireCaches saved
         pure (none, some ex2)
   else
     pure (none, none)
