@@ -1245,3 +1245,42 @@ child-side theorems of §4 / §12.2 do not mention the parent's slots.
     -- or (then edit the family test as its header says):
     -- import Tests.Compiler.OneOutCallerLNTest
     -- import Tests.Compiler.OneOutHftByteTest
+
+## 14. par/a-12: `midH` — a one-output parent that §10 left out
+
+Branch `par/a-12` (base poc fdd69046, where §13 is BUILT). WRITTEN, NOT
+BUILT: `Tests/Compiler/OneOutMidHTest.lean`. The census of everything that
+still carries a check premise, the ranked next units and the two other
+files of this round (`NoPortsTwoTest`, `RemainingProbeTest`) are in
+`docs/parallel/A-remaining.md`.
+
+§10's table lists the one-output parents with a register and gate children
+and omits `midH` (`ShippingMachineDepthHTest`): a register, ONE call entry
+of the gate child `rcH`, a call result of one `Signal (BitVec 8)`
+(`instFields = []`), `midH.machine_design_svHR` and
+`midH.machine_closes_at` BUILT. It was read as "a child of `grandH`" and
+never as an entry. By reading, no refusal line of `#machine_oneout`'s scope
+test applies; what is new against §11 / §12 is that the PARENT has two
+outputs of its own (`n`, `hit : Bool`) and is itself a domain-polymorphic
+`@[hardware_module]`.
+
+| declaration | endpoint | premise of `midH.machine_design_svHR` | state |
+|---|---|---|---|
+| `midH` | `midH.machine_design_svH_full` (+ `_closed`), by `#machine_oneout` | A₁ `shipsHierHCheck D.modules b` | WRITTEN (the test; the generator is built) — predicted absent, pending build |
+| | | A₂ `kidsComb D.modules (checkedOptimize b).body` | predicted absent, pending build |
+| | | A₃ `designCheck (childMap D.modules) 0 (checkedOptimize b)` | predicted absent, pending build |
+| | | A₄ `outsCheck (childMap D.modules) 0 (checkedOptimize b)` | predicted absent, pending build |
+| | | `hr`, `MachineDefines midH`, `EntryDefines rcH`, `ChildBnd` | run boundary: they stay premises |
+
+Scope sentence: that of §11.4 with `midH` / `rcH`. In addition, binding:
+the endpoint is about `midH` AS AN ENTRY. It removes NO premise of
+`grandH.machine_design_svNR1/2`, `mixD1.…NR1/2`, `topD2.…NR2/3`,
+`mixDeep.…NR2`, whose check premises are about the parent's module and ask
+the child's facts of the module the child cache serves
+(`RealChild mref cref midH y`) — unit U2 of `A-remaining.md`, not written.
+
+UNVERIFIED: `midH.oneout_callArgs`, `_entries`, `_outChars`, `_outScalar`
+(never decided); the generated lemmas on a parent with two outputs (read:
+no hypothesis of `core_runFactsH`, `core_portsMatch_raw₁`, `core_hierTyped₁`,
+`core_designCheckH`, `core_outsCheck_all_gate` asks one output of the
+parent; never elaborated with two).
