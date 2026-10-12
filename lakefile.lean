@@ -2555,3 +2555,6 @@ lean_lib «Tools.ShippingBoundaryClose» where
 
 lean_lib «Tools.ShippingLeafKidFacts» where
   roots := #[`Tools.ShippingLeafKidFacts]
+
+lean_lib «Tools.ShippingNoPortsKidsCommand» where
+  roots := #[`Tools.ShippingNoPortsKidsCommand]

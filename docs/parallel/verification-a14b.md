@@ -77,3 +77,31 @@ DERIVED from the binders: Tools.ShippingMachineEntry.MachineDefines mctx mref cc
 8608:error: Tests/Compiler/NoPortsKidsFamilyTest.lean:69:2: Unknown constant `Sparkle.Tests.Compiler.ShippingDesignSVTest.mixD1.machine_design_noPortsNR1_closedB`
 8609:error: Tests/Compiler/NoPortsKidsFamilyTest.lean:72:0: Sparkle.Tests.Compiler.ShippingMachineDepthHTest.grandH.machine_design_noPortsNR1_regen: missing — the compare path did not rebuild Sparkle.Tests.Compiler.ShippingMachineDepthHTest.grandH.machine_design_noPortsNR1
 ```
+
+## Addendum: the generator `#machine_no_ports_kids` (par/a-14 4f0db48a), built
+
+After the worker's second repair (grandchild classified as the built one-output generator does: `gate_peel`
+present ⇒ gate child), `Tools.ShippingNoPortsKidsCommand` and `Tests.Compiler.NoPortsKidsFamilyTest` build.
+The family test is TARGET-BUILT ONLY (it creates the same `mixD1.*` constants as the hand tests, which are
+the ones in AllTests). Nothing more is removed by it: `grandH` and `parent` are rebuilt and `isDefEq` the
+existing statements, `mixD1` is generated in a separate import closure, `topD2` / `mixDeep` / `grand` are
+REFUSED (callee has calls of its own under the general closing).
+
+```
+20261013-050126-a14c-family: lake build Tools.ShippingNoPortsKidsCommand Tests.Compiler.NoPortsKidsFamilyTest 
+result=success
+exit=0
+memory_peak_file=902324224
+20261013-050222-a14c-alltests: lake build Tests.AllTests Tests.Compiler.NoPortsKidsFamilyTest 
+result=success
+exit=0
+memory_peak_file=134316032
+Build completed successfully (1193 jobs).
+lean:47:0: NOPORTS KIDS Sparkle.Tests.Compiler.ShippingMachineDepthHTest.grandH at depth 1: REBUILT Sparkle.Tests.Compiler.ShippingMachineDepthHTest.grandH.machine_design_noPortsNR1: statement isDefEq the existing one (proof kept as Sparkle.Tests.Compiler.ShippingMachineDepthHTest.grandH.machine_design_noPortsNR1_regen); REBUILT Sparkle.Tests.Compiler.ShippingMachineDepthHTe
+lean:51:0: NOPORTS KIDS Sparkle.Tests.Compiler.ShippingDesignSVTest.mixD1 at depth 1: GENERATED Sparkle.Tests.Compiler.ShippingDesignSVTest.mixD1.machine_design_noPortsNR1; GENERATED Sparkle.Tests.Compiler.ShippingDesignSVTest.mixD1.machine_design_noPortsNR1_closed (closing: Sparkle.Tests.Compiler.ShippingDesignSVTest.mixD1.closes_deep). Callees: [Sparkle.Tests.Compiler.Ship
+lean:54:0: NOPORTS KIDS REFUSED Sparkle.Tests.Compiler.ShippingDesignSVTest.topD2 at depth 2: Sparkle.Tests.Compiler.ShippingDesignSVTest.topD2: the callee Sparkle.Tests.Compiler.ShippingDesignSVTest.mid2 has calls of its own under the GENERAL closing (instFields ≠ []): KidFacts of such a child is not derived (unit U3: topD2, mixDeep, grand)
+lean:56:0: NOPORTS KIDS REFUSED Sparkle.Tests.Compiler.ShippingChildBoundaryTest.mixDeep at depth 2: Sparkle.Tests.Compiler.ShippingChildBoundaryTest.mixDeep: the callee Sparkle.Tests.Compiler.ShippingDesignSVTest.mid2 has calls of its own under the GENERAL closing (instFields ≠ []): KidFacts of such a child is not derived (unit U3: topD2, mixDeep, grand)
+lean:58:0: NOPORTS KIDS REFUSED Sparkle.Tests.Compiler.ShippingMachineSeqTest.grand at depth 2: Sparkle.Tests.Compiler.ShippingMachineSeqTest.grand: the callee Sparkle.Tests.Compiler.ShippingMachineSeqTest.mid has calls of its own under the GENERAL closing (instFields ≠ []): KidFacts of such a child is not derived (unit U3: topD2, mixDeep, grand)
+lean:61:0: NOPORTS KIDS Sparkle.Tests.Compiler.ShippingMachineSeqTest.parent at depth 1: REBUILT Sparkle.Tests.Compiler.ShippingMachineSeqTest.parent.machine_design_noPortsNR1: statement isDefEq the existing one (proof kept as Sparkle.Tests.Compiler.ShippingMachineSeqTest.parent.machine_design_noPortsNR1_regen); REBUILT Sparkle.Tests.Compiler.ShippingMachineSeqTest.parent.ma
+lean:72:0: NOPORTS KIDS FAMILY: Sparkle.Tests.Compiler.ShippingMachineDepthHTest.grandH — COMPARE path, both statements rebuilt by the generator and isDefEq the hand ones (nothing new removed). Sparkle.Tests.Compiler.ShippingDesignSVTest.mixD1 — GENERATED: Sparkle.Tests.Compiler.ShippingDesignSVTest.mixD1.machine_design_noPortsNR1 and Sparkle.Tests.Compiler.ShippingDesignSVT
+```
