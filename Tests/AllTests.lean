@@ -165,6 +165,9 @@ import Tests.Compiler.SimIndexTest
 import Tests.Compiler.PortsMatchRawLeafTest
 import Tests.Compiler.PortsMatchRawLeafChainedTest
 import Tests.Compiler.CallWidthHuntTest
+import Tests.Compiler.NoPortsTest
+import Tests.Compiler.NoPortsSweepTest
+import Tests.Compiler.CallWidthsContractTest
 import Tests.Compiler.LegacySemInstanceTest
 import Tests.Compiler.LegacyCacheFixTest
 import Tests.Compiler.LegacySemMemoTest

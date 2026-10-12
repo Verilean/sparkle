@@ -2441,3 +2441,18 @@ lean_lib «Tools.ShippingMemoLawsWith» where
 
 lean_lib «Tools.ShippingLegacySemMemoOuter» where
   roots := #[`Tools.ShippingLegacySemMemoOuter]
+
+lean_lib «Tools.ShippingPortsMatchShippedLeaf» where
+  roots := #[`Tools.ShippingPortsMatchShippedLeaf]
+
+lean_lib «Tools.ShippingNoPorts» where
+  roots := #[`Tools.ShippingNoPorts]
+
+lean_lib «Tools.ShippingNoPortsCommand» where
+  roots := #[`Tools.ShippingNoPortsCommand]
+
+lean_lib «Tools.ShippingCallShadow» where
+  roots := #[`Tools.ShippingCallShadow]
+
+lean_lib «Tools.ShippingCallWidthsStrict» where
+  roots := #[`Tools.ShippingCallWidthsStrict]
