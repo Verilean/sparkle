@@ -82,11 +82,15 @@ theorem tryInlineUnfold_none_frame (tr : TranslateFn) (e : Lean.Expr) (hint : St
   refine Ensures.bindLift ?_
   intro eReduced hU1
   refine Ensures.ite (fun hc => ?_) (fun _ => ?_)
-  · refine Ensures.tryCatch ?_ ?_
+  · refine Ensures.bindFrame snapshotWireCaches_frame ?_
+    intro saved
+    refine Ensures.tryCatch ?_ ?_
     · refine Ensures.bindRun ?_
       intro w t hr
       exact Ensures.pure noneQ_some
     · intro ex1
+      refine Ensures.bindFrame (restoreWireCaches_frame saved) ?_
+      intro _
       refine Ensures.tryCatch ?_ ?_
       · refine Ensures.bindLift ?_
         intro eReduced2 hU2
@@ -96,6 +100,8 @@ theorem tryInlineUnfold_none_frame (tr : TranslateFn) (e : Lean.Expr) (hint : St
           exact Ensures.pure noneQ_some
         · exact Ensures.pure noneQ_none
       · intro ex2
+        refine Ensures.bindFrame (restoreWireCaches_frame saved) ?_
+        intro _
         exact Ensures.pure noneQ_none
   · exact Ensures.pure noneQ_none
 
