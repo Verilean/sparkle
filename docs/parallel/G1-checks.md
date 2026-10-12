@@ -195,3 +195,121 @@ change (base `f0f9e654`); `leaf_run_outsCheck`, `leaf_run_kids`,
 the list at the top of this note: the emitted-text checks (`seqCheck`,
 widths, `portsMatchB`), `simpleBody b = false`, and every check on the
 optimized body of a module WITH instances.
+
+## 5. Round 6 (branch `par/g1-checks-2`, base `3a291ec6`) — UNVERIFIED, not built
+
+`Tools/ShippingChecksDerived2.lean`:
+
+* `hierRefineCheck_inst_iff`, `checkedOptimize_inst_iff` (under `hierBinds b`):
+  the instance statements of the printed module are the full entry's, AS A
+  SET — the exact content of `instsKept` both ways.
+* per-instance checks moved to the printed body: `kidsPass_opt`,
+  `kidsComb_opt`, `kidsLocal_opt`, `kidsMem_opt`, `kidsMasked_opt`,
+  `kidsMixed_opt`, `kidsMaskedN_opt`, `noSelfRead_opt`, `resolved_opt`.
+* `refineCheck_outs_assigned` / `outsAssigned_of_refineCheck`,
+  `mergeChecked_outsAssigned` (body with a non-assignment),
+  `outsLeaf_of_assigned`.
+* `outsCheck0_opt`: the depth-0 `outsCheck` of the printed module of a
+  machine with calls, from `hierBinds b`, resolution of `b`'s instances in
+  the design's modules, and `outsA` per resolved child.
+
+Corrections to §1 after reading `instsKept` and `deinline`:
+
+* `(instNames (checkedOptimize b).body).Nodup` is **G**, not **K**:
+  `instsKept` is membership; a duplicated instance statement in the
+  optimizer's output passes `hierRefineCheck`. It needs "the optimizer does
+  not duplicate instance statements" or a list-level check.
+* `linkedWF C (checkedOptimize b).body` (order-sensitive) likewise is not
+  given by `hierRefineCheck`.
+* the run-level form of `outsCheck0_opt` waits for an export: "every
+  instance statement of the full entry's module resolves in the full entry's
+  design to a child's module" is proved inside `kidsChild_iface` but is not
+  a field of `ChildIfaceD` (which keeps the names only).
+
+`Tools/ShippingNameSep.lean` (edited): `not_mem_map_of`, `disjoint_map_of`,
+`nodup_map_of_inj`, `nodup_map_of`, over `L.map (fun n => n.toString)`.
+
+## 6. Round 7 (branch `par/g1-checks-3`) — UNVERIFIED, not built
+
+Build of round 6: `Tools.ShippingChecksDerived2` failed on a guessed
+namespace (`outsAssigned` / `outsAssigned_sound` live in
+`Tools.ShippingDesignSVBack`, inside `Tools/ShippingDesignSVLeaf.lean`);
+everything before those lemmas elaborated. Fixed: the real names, and the
+two "assigned ⇒ check" lemmas now unfold the definition and prove the
+predicate on `Stmt.assign p.name r` explicitly.
+
+New: `Tools/ShippingChecksDerived3.lean` — `closeMachine_outs_assigned`,
+`closeMachine_outsAssigned`, `outsAssigned_congr`, `entry_outsAssigned`
+(pure; the run composition needs `packedWire?` of the `closeLets` result,
+which no lemma states).
+
+### Proposal (for the user's decision): making `instNames` nodup and `linkedWF` of the printed body derivable
+
+Today `hierRefineCheck m o` = `instsKept m o && instsKept o m && connAgreeOk …
+&& (o drives no extracted input) && refineCheck (flat m) (flat o)`.
+`instsKept` is: every instance statement of one body occurs in the other.
+
+**(P1) Instance statements as a list.** Add one conjunct
+
+    o.body.filter isInst = m.body.filter isInst
+
+(`isInst` as in `hierGate`). It subsumes both `instsKept` conjuncts. From it:
+`instNames o.body = instNames m.body` (`instNames` reads only the instance
+statements, in order — a three-line induction), hence
+`(instNames (checkedOptimize b).body).Nodup` from `(instNames b.body).Nodup`
+(which `MachineWired` gives), and every multiplicity-sensitive fact about
+instances. What it rejects that is accepted today: an optimizer output whose
+instance statements are a permutation of the input's, or contain a
+duplicate. `deinline` emits the instance statements in the order of the
+optimizer's output, once each; whether `optimizeModule` ever reorders or
+duplicates instance statements is NOT known to me (its definition was not
+read) — to be measured by evaluating the new conjunct on the corpus'
+instance-bearing modules next to the old check. A rejected output is not a
+compile failure: `checkedOptimize` then ships `m` unoptimised (the emitted
+text of that module changes, its function does not).
+
+**(P2) `linkedWF` of the printed body.** List equality of the instance
+statements does NOT give it: `linkedWF` constrains the ASSIGNMENTS relative
+to the instances (an assignment neither targets nor reads an output wire of
+a LATER instance; an instance's output wires are never written afterwards;
+the wires it reads are not written afterwards), and the optimizer rewrites
+and reorders assignments. It also needs the children's output ports
+(`instOutWires child.outputs conns`), which `checkedOptimize : Module →
+Module` does not see. Two forms, smallest first:
+
+* P2a — a design-free sufficient check inside `hierRefineCheck`: with
+  `I := the wires any instance statement connects by a reference`
+  (`HierCheck.connRefs`, already defined), ask that `o.body` has the shape
+  `linkedWF` needs with `I` in place of the instance outputs: no assignment
+  after an instance targets a wire of `I` connected by that instance or an
+  earlier one, and no assignment before an instance reads a wire of `I`
+  that a later instance connects and nothing assigns. This over-approximates
+  (it treats every connected wire as a possible output) and so rejects more
+  than P2b; it keeps `checkedOptimize` a function of the module alone. Its
+  soundness lemma (`⇒ linkedWF C o.body` for every `C` whose children's
+  output wires are among `I`) would have to be proved.
+* P2b — check `linkedWF (childMap design.modules) o.body` itself where the
+  design is at hand: at the print call (`toVerilog (checkedOptimize m)` per
+  module of a design), fall back to `m` when it is false. `m`'s own
+  `linkedWF` is a run fact (`MachineWired.linkedOk`), so the fallback always
+  passes. This changes the print path's signature, not the optimizer.
+
+In both, what is rejected is an optimizer output, never a source; the cost
+is an unoptimised module text in those cases. Which outputs would be
+rejected today: unknown without measurement. On a parent whose shipped
+endpoint discharges `hierCheck` by `decide` (the audit's description of the
+generated endpoints; I did not check which parents these are), `linkedWF …
+(checkedOptimize b).body` is true, so P2b rejects nothing there by
+definition; P2a might.
+
+Recommendation: P1 (cheap, clearly sound, removes a per-declaration
+`decide`), and P2b over P2a (no new soundness lemma, exact).
+
+## Integrator's builds (2026-10-12, rounds 6–7)
+
+`Tools.ShippingChecksDerived2` (after one repair round: a wrong namespace)
+and `Tools.ShippingChecksDerived3` built through the protected queue with no
+further change. `ChildIfaceD` now exports instance resolution
+(`ChildIfaceD.resolves`, integrator). The strengthening proposals P1 / P2 of
+§6 are NOT implemented: they change what the compiler's checked optimizer
+accepts and are the user's decision.

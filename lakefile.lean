@@ -2096,3 +2096,9 @@ lean_lib «Tools.ShippingLegacySemChain» where
 
 lean_lib «Tools.ShippingLegacySemBodyPlain» where
   roots := #[`Tools.ShippingLegacySemBodyPlain]
+
+lean_lib «Tools.ShippingChecksDerived2» where
+  roots := #[`Tools.ShippingChecksDerived2]
+
+lean_lib «Tools.ShippingChecksDerived3» where
+  roots := #[`Tools.ShippingChecksDerived3]
