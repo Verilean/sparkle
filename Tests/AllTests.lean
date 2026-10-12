@@ -166,6 +166,8 @@ import Tests.Compiler.DesignTextTest
 import Tests.Compiler.NamesNextTest
 import Tests.Compiler.ClosedTypedPureTest
 import Tests.Compiler.ClosedTypedTest
+import Tests.Compiler.PrintGuardTest
+import Tests.Compiler.TextShippedTest
 import Tests.Compiler.NameSepFastTest
 import Tests.Compiler.ReaderAppTest
 import Tests.Compiler.InlineUnfoldRegressionTest

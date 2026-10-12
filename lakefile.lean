@@ -2258,3 +2258,9 @@ lean_lib «Tools.ShippingClosedTransitionTyped» where
 
 lean_lib «Tools.ShippingClosedTyped» where
   roots := #[`Tools.ShippingClosedTyped]
+
+lean_lib «Tools.ShippingPrintGuard» where
+  roots := #[`Tools.ShippingPrintGuard]
+
+lean_lib «Tools.ShippingTextShipped» where
+  roots := #[`Tools.ShippingTextShipped]

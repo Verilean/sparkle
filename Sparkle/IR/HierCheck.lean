@@ -1,4 +1,5 @@
 import Sparkle.IR.OptCheck
+import Sparkle.IR.PrintGuard
 
 /-!
 # Interface extraction for instance-bearing modules
@@ -200,9 +201,13 @@ def linkedWFX (X : List String) : List Stmt → Bool
   | .register _ _ _ _ _ :: rest => linkedWFX X rest
   | .memory .. :: _ => false
 
-/-- The candidate `o` when it passes both guards, else the input module. -/
+/-- The candidate `o` when it passes the guards — distinct instance names
+(G4), the linked order (G2), and the print guard
+(`Sparkle.IR.PrintGuard.printOk`: its statements are in the emitter's
+fragment at their declared widths) — else the input module. -/
 def keepGuarded (m o : Module) : Module :=
-  if decide (instNamesOf o.body).Nodup && linkedWFX ((openIns m).map (·.name)) o.body then o
+  if decide (instNamesOf o.body).Nodup && linkedWFX ((openIns m).map (·.name)) o.body &&
+      Sparkle.IR.PrintGuard.printOk o then o
   else m
 
 /-- The kept module is the guarded candidate or the input module. -/
@@ -212,9 +217,19 @@ theorem keepGuarded_cases (m o : Module) :
   unfold keepGuarded
   split
   · rename_i h
-    rw [Bool.and_eq_true] at h
-    exact Or.inl ⟨rfl, of_decide_eq_true h.1, h.2⟩
+    simp only [Bool.and_eq_true] at h
+    exact Or.inl ⟨rfl, of_decide_eq_true h.1.1, h.1.2⟩
   · exact Or.inr rfl
+
+/-- The kept module is the input module or passes the print guard. -/
+theorem keepGuarded_print (m o : Module) :
+    keepGuarded m o = m ∨ Sparkle.IR.PrintGuard.printOk (keepGuarded m o) = true := by
+  unfold keepGuarded
+  split
+  · rename_i h
+    simp only [Bool.and_eq_true] at h
+    exact Or.inr h.2
+  · exact Or.inl rfl
 
 /-- The optimizer's output with its connections named again, GUARDED: the
 candidate `deinlineRaw m o` when its instance names are distinct and its
@@ -231,6 +246,11 @@ theorem deinline_cases (m o : Module) :
   · rw [e]
     exact Or.inl ⟨rfl, h1, h2⟩
   · exact Or.inr e
+
+/-- `deinline m o` is `m` or passes the print guard. -/
+theorem deinline_print (m o : Module) :
+    deinline m o = m ∨ Sparkle.IR.PrintGuard.printOk (deinline m o) = true :=
+  keepGuarded_print m (deinlineRaw m o)
 
 theorem deinline_wires_sublist (m o : Module) : (deinline m o).wires.Sublist m.wires := by
   rcases deinline_cases m o with ⟨e, -, -⟩ | e
