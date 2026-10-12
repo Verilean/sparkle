@@ -2189,3 +2189,93 @@ lean_lib «Tools.ShippingShipsHierSame» where
 
 lean_lib «Tools.ShippingCallWidths» where
   roots := #[`Tools.ShippingCallWidths]
+
+lean_lib «Tools.ShippingGuardsSound» where
+  roots := #[`Tools.ShippingGuardsSound]
+
+lean_lib «Tools.ShippingShipsHierFree» where
+  roots := #[`Tools.ShippingShipsHierFree]
+
+lean_lib «Tools.ShippingChecksRunFacts» where
+  roots := #[`Tools.ShippingChecksRunFacts]
+
+lean_lib «Tools.ShippingChecksDepthGate» where
+  roots := #[`Tools.ShippingChecksDepthGate]
+
+lean_lib «Tools.ShippingChecksCoreGate» where
+  roots := #[`Tools.ShippingChecksCoreGate]
+
+lean_lib «Tools.ShippingShipsFree» where
+  roots := #[`Tools.ShippingShipsFree]
+
+lean_lib «Tools.ShippingShipsFreeCommand» where
+  roots := #[`Tools.ShippingShipsFreeCommand]
+
+lean_lib «Tools.ShippingClosedMasked» where
+  roots := #[`Tools.ShippingClosedMasked]
+
+lean_lib «Tools.ShippingChecksMaskedLeaf» where
+  roots := #[`Tools.ShippingChecksMaskedLeaf]
+
+lean_lib «Tools.ShippingShipsFreeMasked» where
+  roots := #[`Tools.ShippingShipsFreeMasked]
+
+lean_lib «Tools.ShippingShipsFreeMaskedCommand» where
+  roots := #[`Tools.ShippingShipsFreeMaskedCommand]
+
+lean_lib «Tools.ShippingChecksDesign» where
+  roots := #[`Tools.ShippingChecksDesign]
+
+lean_lib «Tools.ShippingWidthTables» where
+  roots := #[`Tools.ShippingWidthTables]
+
+lean_lib «Tools.ShippingNamesStable» where
+  roots := #[`Tools.ShippingNamesStable]
+
+lean_lib «Tools.ShippingNamesNext» where
+  roots := #[`Tools.ShippingNamesNext]
+
+lean_lib «Tools.ShippingSeqCheckTyped» where
+  roots := #[`Tools.ShippingSeqCheckTyped]
+
+lean_lib «Tools.ShippingNamesClk» where
+  roots := #[`Tools.ShippingNamesClk]
+
+lean_lib «Tools.ShippingTextTyped» where
+  roots := #[`Tools.ShippingTextTyped]
+
+lean_lib «Tools.ShippingCloseMachineTyped» where
+  roots := #[`Tools.ShippingCloseMachineTyped]
+
+lean_lib «Tools.ShippingCoreWidth» where
+  roots := #[`Tools.ShippingCoreWidth]
+
+lean_lib «Tools.ShippingTransitionTyped» where
+  roots := #[`Tools.ShippingTransitionTyped]
+
+lean_lib «Tools.ShippingClosedTransitionTyped» where
+  roots := #[`Tools.ShippingClosedTransitionTyped]
+
+lean_lib «Tools.ShippingClosedTyped» where
+  roots := #[`Tools.ShippingClosedTyped]
+
+lean_lib «Tools.ShippingPrintGuard» where
+  roots := #[`Tools.ShippingPrintGuard]
+
+lean_lib «Tools.ShippingTextShipped» where
+  roots := #[`Tools.ShippingTextShipped]
+
+lean_lib «Tools.ShippingNoDesign» where
+  roots := #[`Tools.ShippingNoDesign]
+
+lean_lib «Tools.ShippingNoDesignCommand» where
+  roots := #[`Tools.ShippingNoDesignCommand]
+
+lean_lib «Tools.ShippingLeafTyped» where
+  roots := #[`Tools.ShippingLeafTyped]
+
+lean_lib «Tools.ShippingKidsPassLeaf» where
+  roots := #[`Tools.ShippingKidsPassLeaf]
+
+lean_lib «Tools.ShippingPortsMatchRaw» where
+  roots := #[`Tools.ShippingPortsMatchRaw]

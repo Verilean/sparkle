@@ -221,6 +221,36 @@ def hierBinds (m : Module) : Bool :=
       (Sparkle.IR.HierCheck.openOuts m)
     refineCheck flat flat
 
+/-- A right-hand side whose value fits its width whatever the environment:
+a constant or a slice. -/
+def maskedRhs : Expr → Bool
+  | .const .. => true
+  | .slice .. => true
+  | _ => false
+
+/-- An output port is assigned exactly once, by a `maskedRhs` expression no
+wider than the port. -/
+def outMaskedB (we : WEnv) (body : List Stmt) (p : Port) : Bool :=
+  (Sparkle.IR.Reorder.writesOf body).count p.name == 1 && body.any fun st => match st with
+    | .assign l r => l == p.name && maskedRhs r && decide (widthOf we r ≤ p.ty.bitWidth)
+    | _ => false
+
+/-- Every output port that is masked in `m` is masked in `o`. -/
+def masksKept (m o : Module) : Bool :=
+  m.outputs.all fun p =>
+    !(outMaskedB (Sparkle.IR.RegDedup.declWidth m) m.body p) ||
+      outMaskedB (Sparkle.IR.RegDedup.declWidth o) o.body p
+
+theorem and_left_true {a b : Bool} (h : (a && b) = true) : a = true := by
+  cases a
+  · simp at h
+  · rfl
+
+theorem and_right_true {a b : Bool} (h : (a && b) = true) : b = true := by
+  cases a
+  · simp at h
+  · simpa using h
+
 /-- `mergeDuplicates`, result-checked: an assignment-only body keeps its
 merge (`mergeDuplicates` validates it itself); any other body keeps the merge
 only if `refineCheck` accepts it, else it is returned unmerged. -/
@@ -228,8 +258,10 @@ def mergeChecked (m : Module) : Module :=
   let r := Sparkle.IR.RegDedup.mergeDuplicates m
   -- an assignment-only body: `mergeDuplicates` validates its own merge
   if m.body.all Sparkle.IR.RegDedup.isAssign then r
-  -- otherwise the merge is kept only when `refineCheck` accepts it
-  else if refineCheck m r then r else m
+  -- otherwise the merge is kept only when `refineCheck` accepts it AND no
+  -- masked output lost its mask (the merge may turn a node into an alias);
+  -- else the module is returned unmerged: a fallback, never a rejection
+  else if refineCheck m r && masksKept m r then r else m
 
 def mergeCheckedDesign (d : Design) : Design :=
   { d with modules := d.modules.map mergeChecked }
@@ -261,8 +293,31 @@ theorem mergeChecked_nonAssign {m : Module}
   dsimp only
   rw [if_neg (by rw [h]; decide)]
   split
-  · rename_i hc; exact Or.inl hc
+  · rename_i hc; exact Or.inl (and_left_true hc)
   · exact Or.inr rfl
+
+/-- **The masks guard**: on a body that is not assignment-only, the kept
+module is the module itself or every masked output of the module is masked
+in it. -/
+theorem mergeChecked_masks {m : Module}
+    (h : m.body.all Sparkle.IR.RegDedup.isAssign = false) :
+    mergeChecked m = m ∨ masksKept m (mergeChecked m) = true := by
+  unfold mergeChecked
+  dsimp only
+  rw [if_neg (by rw [h]; decide)]
+  split
+  · rename_i hc; exact Or.inr (and_right_true hc)
+  · exact Or.inl rfl
+
+/-- A masked output of `m` is masked in `o` under the guard. -/
+theorem masksKept_out {m o : Module} (h : masksKept m o = true) {p : Port} (hp : p ∈ m.outputs)
+    (hm : outMaskedB (Sparkle.IR.RegDedup.declWidth m) m.body p = true) :
+    outMaskedB (Sparkle.IR.RegDedup.declWidth o) o.body p = true := by
+  have h1 : (!(outMaskedB (Sparkle.IR.RegDedup.declWidth m) m.body p) ||
+      outMaskedB (Sparkle.IR.RegDedup.declWidth o) o.body p) = true :=
+    List.all_eq_true.mp h p hp
+  rw [hm] at h1
+  simpa using h1
 
 /-- On a gated module the kept module is a checked refinement or the module
 itself. -/
@@ -284,9 +339,13 @@ open Sparkle.IR.AST
 module is kept only if `optCheck` and the assignment-order check accept it;
 on other assign + register modules only if `refineCheck` accepts it; on an
 instance-bearing module whose extracted interface is in the normal forms
-its connections named again (`deinline`) and kept only if `hierRefineCheck`
-accepts it; else the input module is returned
-unoptimised. Other modules get `optimizeModule` unchanged. -/
+its connections named again and guarded (`deinline`: distinct instance
+names and the linked order, else the input module) and kept only if
+`hierRefineCheck` accepts it; else the input module is returned
+unoptimised. An instance / assignment / register module on which that check
+does not bind (`hierGate` without `hierBinds`) is returned unoptimised too.
+Other modules (memories, other statement kinds) get `optimizeModule`
+unchanged. -/
 def checkedOptimize (m : Module) : Module :=
   let o := Sparkle.IR.Optimize.optimizeModule m
   if simpleBody m then
@@ -297,6 +356,10 @@ def checkedOptimize (m : Module) : Module :=
   else if RefineCheck.hierBinds m then
     let o' := Sparkle.IR.HierCheck.deinline m o
     if RefineCheck.hierRefineCheck m o' then o' else m
+  -- instances, assignments and registers outside the normal forms: the
+  -- check does not bind, the module is NOT optimized (a fallback to the
+  -- input module — the optimizer's output would be unchecked)
+  else if RefineCheck.hierGate m then m
   else o
 
 /-- On an assign + register module not of simple shape, the optimizer's

@@ -1,4 +1,5 @@
 import Sparkle.IR.OptCheck
+import Sparkle.IR.PrintGuard
 
 /-!
 # Interface extraction for instance-bearing modules
@@ -131,15 +132,137 @@ def deinlineParts (m o : Module) : List Stmt × List String := Id.run do
   return (body, added)
 
 /-- (The declarations: `m`'s, those `o` keeps and the named wires, in `m`'s
-order.) -/
-def deinline (m o : Module) : Module :=
+order.) The candidate before the guards. -/
+def deinlineRaw (m o : Module) : Module :=
   let r := deinlineParts m o
   { o with body := r.1,
            wires := m.wires.filter fun p => o.wires.contains p || r.2.contains p.name }
 
-theorem deinline_wires_sublist (m o : Module) : (deinline m o).wires.Sublist m.wires :=
-  List.filter_sublist
+/-! ## The guards on the candidate (fallback, never a rejection)
 
-theorem deinline_name (m o : Module) : (deinline m o).name = o.name := rfl
+The interface check (`hierRefineCheck`) compares the instance statements as
+a SET and the extracted pair's values; it says nothing of the candidate's
+instance names being distinct nor of the ORDER of its instances and
+assignments — both of which the linked meaning of the shipped module needs
+(`linkedWF`, distinct instance names). Two decidable, design-free guards
+close that: a candidate failing either is replaced by the input module `m`.
+
+* G4, `instNamesOf`: the candidate's instance names are pairwise distinct.
+* G2, `linkedWFX X`: with `X` the names of the wires the instances drive
+  (the extracted inputs `openIns m`), reading "the wires an instance drives"
+  as "its connected wires in `X`": no assignment targets or reads a wire in
+  `X` connected to a LATER instance, and no wire connected to an instance is
+  written afterwards (by an assignment, or as a wire in `X` connected to a
+  later instance). It over-approximates an instance's outputs by all its
+  connected `X`-wires, so it implies `linkedWF` for every child map whose
+  instance outputs are in `X` (`Tools/ShippingGuardsSound.lean`); it also
+  refuses a candidate in which an instance reads another instance's output
+  wire directly (such a module ships unoptimized). -/
+
+/-- The instance names of a body, in order. -/
+def instNamesOf : List Stmt → List String
+  | [] => []
+  | .inst _ iname _ :: rest => iname :: instNamesOf rest
+  | _ :: rest => instNamesOf rest
+
+/-- The connected wires of an instance that are in `X`. -/
+def connX (X : List String) (conns : List (String × Expr)) : List String :=
+  conns.filterMap fun c =>
+    match c.2 with
+    | .ref w => if X.contains w then some w else none
+    | _ => none
+
+/-- The `X`-wires connected to the instances of a body. -/
+def outsX (X : List String) : List Stmt → List String
+  | [] => []
+  | .inst _ _ conns :: rest => connX X conns ++ outsX X rest
+  | _ :: rest => outsX X rest
+
+/-- Assignment targets and the `X`-wires connected to instances. -/
+def writesX (X : List String) : List Stmt → List String
+  | [] => []
+  | .assign l _ :: rest => l :: writesX X rest
+  | .inst _ _ conns :: rest => connX X conns ++ writesX X rest
+  | _ :: rest => writesX X rest
+
+/-- G2: the linked order, with an instance's outputs read as its connected
+wires in `X`. -/
+def linkedWFX (X : List String) : List Stmt → Bool
+  | [] => true
+  | .assign l r :: rest =>
+    !(outsX X rest).contains l &&
+      (Sparkle.IR.Reorder.refsOf r).all (fun n => !(outsX X rest).contains n) &&
+      linkedWFX X rest
+  | .inst _ _ conns :: rest =>
+    conns.all (fun c =>
+      match c.2 with
+      | .ref w => !(writesX X rest).contains w
+      | _ => true) && linkedWFX X rest
+  | .register _ _ _ _ _ :: rest => linkedWFX X rest
+  | .memory .. :: _ => false
+
+/-- The candidate `o` when it passes the guards — distinct instance names
+(G4), the linked order (G2), and the print guard
+(`Sparkle.IR.PrintGuard.printOk`: its statements are in the emitter's
+fragment at their declared widths) — else the input module. -/
+def keepGuarded (m o : Module) : Module :=
+  if decide (instNamesOf o.body).Nodup && linkedWFX ((openIns m).map (·.name)) o.body &&
+      Sparkle.IR.PrintGuard.printOk o then o
+  else m
+
+/-- The kept module is the guarded candidate or the input module. -/
+theorem keepGuarded_cases (m o : Module) :
+    (keepGuarded m o = o ∧ (instNamesOf o.body).Nodup ∧
+      linkedWFX ((openIns m).map (·.name)) o.body = true) ∨ keepGuarded m o = m := by
+  unfold keepGuarded
+  split
+  · rename_i h
+    simp only [Bool.and_eq_true] at h
+    exact Or.inl ⟨rfl, of_decide_eq_true h.1.1, h.1.2⟩
+  · exact Or.inr rfl
+
+/-- The kept module is the input module or passes the print guard. -/
+theorem keepGuarded_print (m o : Module) :
+    keepGuarded m o = m ∨ Sparkle.IR.PrintGuard.printOk (keepGuarded m o) = true := by
+  unfold keepGuarded
+  split
+  · rename_i h
+    simp only [Bool.and_eq_true] at h
+    exact Or.inr h.2
+  · exact Or.inl rfl
+
+/-- The optimizer's output with its connections named again, GUARDED: the
+candidate `deinlineRaw m o` when its instance names are distinct and its
+body is in the linked order, else `m`. -/
+def deinline (m o : Module) : Module :=
+  keepGuarded m (deinlineRaw m o)
+
+/-- `deinline m o` is the guarded candidate or `m`. -/
+theorem deinline_cases (m o : Module) :
+    (deinline m o = deinlineRaw m o ∧ (instNamesOf (deinline m o).body).Nodup ∧
+      linkedWFX ((openIns m).map (·.name)) (deinline m o).body = true) ∨ deinline m o = m := by
+  unfold deinline
+  rcases keepGuarded_cases m (deinlineRaw m o) with ⟨e, h1, h2⟩ | e
+  · rw [e]
+    exact Or.inl ⟨rfl, h1, h2⟩
+  · exact Or.inr e
+
+/-- `deinline m o` is `m` or passes the print guard. -/
+theorem deinline_print (m o : Module) :
+    deinline m o = m ∨ Sparkle.IR.PrintGuard.printOk (deinline m o) = true :=
+  keepGuarded_print m (deinlineRaw m o)
+
+theorem deinline_wires_sublist (m o : Module) : (deinline m o).wires.Sublist m.wires := by
+  rcases deinline_cases m o with ⟨e, -, -⟩ | e
+  · rw [e]
+    exact List.filter_sublist
+  · rw [e]
+    exact List.Sublist.refl _
+
+theorem deinline_name (m o : Module) (h : o.name = m.name) : (deinline m o).name = m.name := by
+  rcases deinline_cases m o with ⟨e, -, -⟩ | e
+  · rw [e]
+    exact h
+  · rw [e]
 
 end Sparkle.IR.HierCheck

@@ -86,7 +86,8 @@ theorem mergeChecked_inst {r b : Sparkle.IR.AST.Module} (hb : b = mergeChecked r
   · split at hb
     · rename_i _ hrc
       exfalso
-      have := Tools.ShippingMachineShipping.refineCheck_stmtOk_o hrc
+      have := Tools.ShippingMachineShipping.refineCheck_stmtOk_o
+        (Sparkle.IR.RefineCheck.and_left_true hrc)
       rw [← hb, not_all_seqOk hI] at this
       cases this
     · exact hb
