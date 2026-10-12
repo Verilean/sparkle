@@ -70,6 +70,38 @@ theorem ReachesUnfold.atFlags {rec : TranslateFn} {ctx : CompilerState} {e : Lea
     ReachesUnfoldAt rec ctx e hint top named :=
   fun s t w hr => h hint top named s t w hr
 
+/-- **A handler's case** (round 18): what ONE arm of the translator has to
+prove to be part of the leaf domain. For the node `e` at value `v`, with the
+sub-expressions the arm translates (and their values) given by `subs`:
+
+* `spec` — from the frame and semantic outcome of every sub-expression's
+  translation at fuel `f` (same hint and name flag), the node's at `f + 1`;
+* `order` — from those and the sub-expressions' order statements, the
+  node's order statement at `f + 1`.
+
+Nothing about the handler is assumed beyond these two implications: the
+constructor `LeafDom.handled` makes the leaf domain closed under any arm for
+which they are PROVED, and `leaf_fuel_spec` / `leaf_fuel_order` use them as
+they are. The inline arm is the first instance
+(`Tools/ShippingLegacySemLeafHandled.lean`, `handlerCase_inline`). -/
+structure HandlerCase (ctx : CompilerState) (inputs : FVarId → Option Value) (hint : String)
+    (named : Bool) (e : Lean.Expr) (v : Value) (subs : Lean.Expr → Value → Prop) : Prop where
+  spec : ∀ (fuel : Nat) (we : WEnv) (mems : MEnv) (initial : Env),
+    (∀ (e' : Lean.Expr) (v' : Value), subs e' v' →
+      ActionSpec (translateFuelFix translateStep fuel e' hint false named)
+        ctx inputs we mems initial v') →
+    ActionSpec (translateFuelFix translateStep (fuel + 1) e hint false named)
+      ctx inputs we mems initial v
+  order : ∀ (fuel : Nat) (we : WEnv) (mems : MEnv) (initial : Env),
+    (∀ (e' : Lean.Expr) (v' : Value), subs e' v' →
+      ActionSpec (translateFuelFix translateStep fuel e' hint false named)
+        ctx inputs we mems initial v') →
+    (∀ (e' : Lean.Expr) (v' : Value), subs e' v' →
+      ActionOrder (translateFuelFix translateStep fuel e' hint false named)
+        ctx inputs we mems initial) →
+    ActionOrder (translateFuelFix translateStep (fuel + 1) e hint false named)
+      ctx inputs we mems initial
+
 /-- The domain of a leaf translated at `(hint, isTopLevel := false, named)`. -/
 inductive LeafDom (ctx : CompilerState) (inputs : FVarId → Option Value) (hint : String)
     (named : Bool) : Lean.Expr → Value → Prop where
@@ -79,6 +111,10 @@ inductive LeafDom (ctx : CompilerState) (inputs : FVarId → Option Value) (hint
       (∀ fuel : Nat,
         ReachesUnfoldAt (translateFuelFix translateStep fuel) ctx e hint false named) →
       (∀ e' : Lean.Expr, InlineUnfolds e e' → LeafDom ctx inputs hint named e' v) →
+      LeafDom ctx inputs hint named e v
+  | handled {e : Lean.Expr} {v : Value} (subs : Lean.Expr → Value → Prop) :
+      HandlerCase ctx inputs hint named e v subs →
+      (∀ (e' : Lean.Expr) (v' : Value), subs e' v' → LeafDom ctx inputs hint named e' v') →
       LeafDom ctx inputs hint named e v
 
 /-- **Frame and outcome of a leaf at its flags, at every fuel.** -/
@@ -111,6 +147,15 @@ theorem leaf_fuel_spec {ctx : CompilerState} {inputs : FVarId → Option Value}
             (translateFuelFix translateStep fuel) _ hint false named) ctx s w t := hr
         obtain ⟨e', hU, htr⟩ := reach fuel s t w (step_run_fallback nc hstep)
         exact (ih e' hU fuel).sem s t w prior hinv widths htr
+  | handled subs hc _ ih =>
+    intro fuel
+    cases fuel with
+    | zero =>
+      constructor
+      · intro s t w lookup hr; exact (Returns.throw hr).elim
+      · intro s t w prior hinv widths hr; exact (Returns.throw hr).elim
+    | succ fuel =>
+      exact hc.spec fuel we mems initial (fun e' v' hs => ih e' v' hs fuel)
 
 /-- **Order of a leaf at its flags, at every fuel.** -/
 theorem leaf_fuel_order {ctx : CompilerState} {inputs : FVarId → Option Value}
@@ -134,6 +179,16 @@ theorem leaf_fuel_order {ctx : CompilerState} {inputs : FVarId → Option Value}
           (translateFuelFix translateStep fuel) _ hint false named) ctx s w t := hr
       obtain ⟨e', hU, htr⟩ := reach fuel s t w (step_run_fallback nc hstep)
       exact ih e' hU fuel s t w prior htr hinv widths order
+  | handled subs hc hsub ih =>
+    intro fuel
+    cases fuel with
+    | zero =>
+      intro s t w prior hr hinv widths order
+      exact (Returns.throw hr).elim
+    | succ fuel =>
+      exact hc.order fuel we mems initial
+        (fun e' v' hs => leaf_fuel_spec (hsub e' v' hs) fuel)
+        (fun e' v' hs => ih e' v' hs fuel)
 
 /-- The shipping translator on a leaf at its flags: frame and outcome. -/
 theorem leaf_translate_spec {ctx : CompilerState} {inputs : FVarId → Option Value}

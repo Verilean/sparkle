@@ -5,6 +5,7 @@ import Tools.ShippingLegacySemEntryOne
 import Tools.ShippingLegacySemSignalFrame
 import Tools.ShippingLegacySemEntryBound
 import Tools.ShippingLegacySemTelescopeN
+import Tools.ShippingLegacySemLeafHandled
 import Sparkle
 
 /-! # The legacy inline arm on a real call: which premises can be discharged
@@ -208,6 +209,21 @@ type): `hinf` speaks of its returning runs, `hinfT` of its failing ones. The
   `useDbl_output`, `useDbl2_output`, `one_binder_entry_output_bound`,
   `list_entry_output` and `returns_tryCatch_throws` depend on no axiom
   beyond `propext`, `Classical.choice`, `Quot.sound`.
+
+## Round 18: a leaf that uses both inputs; evidence for the two-binder premises
+
+* `useAdd2 x y := add2 x y`, `add2 a b := a + b` (untagged helper):
+  `useAdd2_output` concludes `MemoHit ∨ out carries x + y`. The name facts of
+  the callee are one bundle (`PlainCallee ``add2`, `add2_callee`) consumed by
+  the generic `plainCallee_leaf` (`Tools/ShippingLegacySemLeafHandled.lean`);
+  the unfolding is `LegacyDom.cert` at two vector inputs (`add2_unfold_dom`).
+  The per-name tests themselves are closed computations on the name (not
+  provable for a variable name): their proofs are `dbl`'s, same text.
+* Evidence (logs only): the two-binder `hbody` shape, the binder and result
+  oracles for `useDbl2` and `useAdd2`, the unfolding of `add2 x y` against
+  the quoted term, and that `useAdd2` compiles with the legacy front end.
+* The axiom audit also covers `useAdd2_output`, `plainCallee_leaf`,
+  `handlerCase_inline`.
 -/
 
 open Lean Meta Sparkle.Compiler.Elab
@@ -818,6 +834,345 @@ theorem useDbl2_output {logProf : String → IO Unit} {dv : DefinitionVal}
           obtain ⟨dom, rfl⟩ := hunfE id1 e' hU
           exact LeafDom.dom (dbl_unfold_dom (useDbl2_input id1 id2 cache bools bits))))
 
+/-! ## Round 18: a leaf that uses BOTH inputs (`useAdd2 x y := add2 x y`) -/
+
+/-- An untagged two-argument helper. -/
+def add2 (a b : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec 8) := a + b
+
+/-- A real declaration whose only leaf is the two-argument call. -/
+def useAdd2 (x y : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec 8) :=
+  add2 x y
+
+/-- The leaf `add2 x y`. -/
+abbrev callE2 (xid yid : FVarId) : Lean.Expr :=
+  .app (.app (.const ``add2 []) (.fvar xid)) (.fvar yid)
+
+/-- The second variable of a two-binder telescope. -/
+abbrev yOf (ids : List FVarId) : FVarId := (ids.drop 1).headD ⟨.anonymous⟩
+
+/-! ### The name facts of `add2` (the proofs of `dbl`'s, same text) -/
+
+theorem add2_head (xid yid : FVarId) : (callE2 xid yid).getAppFn = .const ``add2 [] := rfl
+
+set_option maxRecDepth 4096 in
+theorem add2_kind (xid yid : FVarId) : fallbackKind (callE2 xid yid) = .other := by
+  first | rfl | decide | decide +kernel
+
+set_option maxRecDepth 4096 in
+theorem add2_binOp : signalBinOpOf ``add2 = none := by
+  first
+    | rfl
+    | decide
+    | decide +kernel
+    | exact Option.isNone_iff_eq_none.mp (by first | decide | decide +kernel)
+
+set_option maxRecDepth 4096 in
+theorem add2_notPrimitive : isPrimitive ``add2 = false := by
+  first | rfl | decide | decide +kernel
+
+set_option maxRecDepth 4096 in
+theorem add2_notCore (xid yid : FVarId) : NotCore (callE2 xid yid) where
+  shape := by
+    first
+      | rfl
+      | decide
+      | decide +kernel
+      | (show ((``add2 == ``Sparkle.Core.Signal.Signal.pure) ||
+            (match signalBinOpOf ``add2,
+                canonicalSignalBinKinds ``add2 (callE2 xid yid).getAppArgs,
+                canonicalSignalBitVecWidth (callE2 xid yid).getAppArgs with
+             | some _, some (true, true), some _ => true
+             | _, _, _ => false)) = false
+         rw [show (``add2 == ``Sparkle.Core.Signal.Signal.pure) = false from by name_ne,
+           add2_binOp]
+         rfl)
+  core := fun rec hint top named => by
+    first
+      | rfl
+      | (show (if (``add2 == ``Sparkle.Core.Signal.Signal.pure) = true then
+              translateSignalPureLiteral? (callE2 xid yid).getAppArgs hint named
+            else
+              match signalBinOpOf ``add2,
+                  canonicalSignalBinKinds ``add2 (callE2 xid yid).getAppArgs,
+                  canonicalSignalBitVecWidth (callE2 xid yid).getAppArgs with
+              | some op, some (true, true), some _ => do
+                let w ← translateCanonicalSignalBinary rec (callE2 xid yid) op
+                  (callE2 xid yid).getAppArgs true true hint named
+                pure (some w)
+              | _, _, _ => pure none) = pure none
+         rw [show (``add2 == ``Sparkle.Core.Signal.Signal.pure) = false from by name_ne,
+           add2_binOp]
+         rfl)
+
+theorem add2_flags (xid yid : FVarId) (top : Bool) :
+    (!true && !(callE2 xid yid).isFVar && !top) = false := rfl
+
+theorem add2_glue : GlueName ``add2 :=
+  ⟨by name_ne, by name_ne, by name_ne, by name_ne, by name_ne, by name_ne⟩
+
+theorem add2_notBitVecOp : NotBitVecOp ``add2 :=
+  ⟨by name_ne, by name_ne, by name_ne, by name_ne, by name_ne, by name_ne, by name_ne, by name_ne,
+    by name_ne, add2_notPrimitive⟩
+
+/-- The eleven `Name.toString` suffix tests the handlers and the body run on
+the head's name. -/
+structure Add2Suffixes : Prop where
+  register : (``add2 : Name).toString.endsWith ".register" = false
+  registerE : (``add2 : Name).toString.endsWith ".registerWithEnable" = false
+  lut : (``add2 : Name).toString.endsWith ".lutMuxTree" = false
+  mux : (``add2 : Name).toString.endsWith ".mux" = false
+  memory : (``add2 : Name).toString.endsWith ".memory" = false
+  combo : (``add2 : Name).toString.endsWith ".memoryComboRead" = false
+  memoize : (``add2 : Name).toString.endsWith ".memoize" = false
+  loop : (``add2 : Name).toString.endsWith ".loop" = false
+  ofFin : (``add2 : Name).toString.endsWith ".ofFin" = false
+  ofNat : (``add2 : Name).toString.endsWith ".ofNat" = false
+  toNat : (``add2 : Name).toString.endsWith ".toNat" = false
+
+set_option maxRecDepth 8192 in
+/-- **The suffix tests, proved** through the candidate renderings of the
+name: no evaluation of `Name.toString`. -/
+theorem add2_suffixes : Add2Suffixes :=
+  ⟨endsWith_false_of _ _ (by cand_dec), endsWith_false_of _ _ (by cand_dec),
+    endsWith_false_of _ _ (by cand_dec), endsWith_false_of _ _ (by cand_dec),
+    endsWith_false_of _ _ (by cand_dec), endsWith_false_of _ _ (by cand_dec),
+    endsWith_false_of _ _ (by cand_dec), endsWith_false_of _ _ (by cand_dec),
+    endsWith_false_of _ _ (by cand_dec), endsWith_false_of _ _ (by cand_dec),
+    endsWith_false_of _ _ (by cand_dec)⟩
+
+theorem add2_plainName (suf : Add2Suffixes) : PlainName ``add2 :=
+  ⟨by name_ne, by name_ne, by name_ne, by name_ne, by name_ne,
+    suf.register, suf.registerE, suf.lut, suf.mux, suf.memory, suf.combo⟩
+
+theorem add2_plainName2 (suf : Add2Suffixes) : PlainName2 ``add2 :=
+  ⟨by name_ne, suf.memoize, suf.loop, by name_ne, by name_ne, by name_ne, by name_ne, by name_ne,
+    by name_ne, by name_ne, by name_ne, by name_ne⟩
+
+theorem add2_implName (suf : Add2Suffixes) : ImplName ``add2 :=
+  ⟨add2_binOp, by name_ne, by name_ne, by name_ne, by name_ne, by name_ne, by name_ne, by name_ne,
+    by name_ne, by name_ne, by name_ne, by name_ne, suf.ofFin, suf.ofNat, suf.toNat,
+    by name_ne, by name_ne, by name_ne, by name_ne, by name_ne, by name_ne, by name_ne, by name_ne,
+    by name_ne, by name_ne, by name_ne, by name_ne⟩
+
+/-- The name facts of `add2`, bundled. -/
+theorem add2_callee : PlainCallee ``add2 :=
+  ⟨add2_glue, add2_plainName add2_suffixes, add2_notBitVecOp, add2_plainName2 add2_suffixes,
+    add2_implName add2_suffixes⟩
+
+/-! ### The unfolding and the inputs -/
+
+/-- The first of two, or the second. -/
+def sel2 {α : Type} (a b : α) : Nat → α
+  | 0 => a
+  | _ => b
+
+/-- The body of `add2` on two 8-bit inputs, as a term of the quoted fragment. -/
+abbrev add2Term : Tools.ShippingUnifiedSource.Term (.bits 8) :=
+  .binary .add (.bitsInput 8 0) (.bitsInput 8 1)
+
+/-- The quoted unfolding of `add2 x y`. -/
+abbrev add2UnfoldE (dom : Lean.Expr) (xid yid : FVarId) : Lean.Expr :=
+  Tools.ShippingUnifiedSource.quote dom (fun _ => .fvar xid)
+    (sel2 (Lean.Expr.fvar xid) (Lean.Expr.fvar yid)) add2Term
+
+/-- **The quoted unfolding is in the domain at `x + y`**, from the two
+inputs' values (`LegacyDom.cert` with two vector inputs). -/
+theorem add2_unfold_dom {ctx : CompilerState}
+    {inputs : FVarId → Option Tools.ShippingUnifiedMeaning.Value} {dom : Lean.Expr}
+    {xid yid : FVarId} {b1 b2 : BitVec 8}
+    (h1 : inputs xid = some (.bits 8 b1)) (h2 : inputs yid = some (.bits 8 b2)) :
+    LegacyDom ctx inputs (add2UnfoldE dom xid yid) (.bits 8 (b1 + b2)) := by
+  have h1' : inputs xid = some (.bits 8 (BitVec.setWidth 8 b1)) := by
+    rw [BitVec.setWidth_eq]; exact h1
+  have h2' : inputs yid = some (.bits 8 (BitVec.setWidth 8 b2)) := by
+    rw [BitVec.setWidth_eq]; exact h2
+  have hval : Tools.ShippingUnifiedMeaning.pack (.bits 8)
+      (Tools.ShippingUnifiedSource.eval (fun _ => false)
+        (fun j w => BitVec.setWidth w (sel2 b1 b2 j)) add2Term) = .bits 8 (b1 + b2) := by
+    show Tools.ShippingUnifiedMeaning.Value.bits 8
+      (Tools.ShippingScalarSoundness.Binary.apply .add (BitVec.setWidth 8 b1)
+        (BitVec.setWidth 8 b2)) = _
+    first
+      | (rw [BitVec.setWidth_eq, BitVec.setWidth_eq] <;> rfl)
+      | (simp only [BitVec.setWidth_eq]; rfl)
+      | simp [BitVec.setWidth_eq]
+  have hM : ∀ j, j < 2 → Tools.ShippingUnifiedMeaning.Meaning inputs
+      (sel2 (Lean.Expr.fvar xid) (Lean.Expr.fvar yid) j)
+      (.bits 8 (BitVec.setWidth 8 (sel2 b1 b2 j))) := by
+    intro j hj
+    cases j with
+    | zero => exact Tools.ShippingUnifiedMeaning.Meaning.input rfl h1'
+    | succ j =>
+      cases j with
+      | zero => exact Tools.ShippingUnifiedMeaning.Meaning.input rfl h2'
+      | succ j => exact absurd hj (by omega)
+  have hD : ∀ j, j < 2 → LegacyDom ctx inputs
+      (sel2 (Lean.Expr.fvar xid) (Lean.Expr.fvar yid) j)
+      (.bits 8 (BitVec.setWidth 8 (sel2 b1 b2 j))) := by
+    intro j hj
+    cases j with
+    | zero => exact LegacyDom.input h1'
+    | succ j =>
+      cases j with
+      | zero => exact LegacyDom.input h2'
+      | succ j => exact absurd hj (by omega)
+  have h := LegacyDom.cert (ctx := ctx) (inputs := inputs) (dom := dom) (kb := 0) (kv := 2)
+    (vw := fun _ => 8) (bE := fun _ => .fvar xid)
+    (vE := sel2 (Lean.Expr.fvar xid) (Lean.Expr.fvar yid))
+    (bools := fun _ => false) (bits := fun j w => BitVec.setWidth w (sel2 b1 b2 j)) add2Term
+    ⟨⟨Nat.zero_lt_succ 1, rfl, Nat.succ_pos 7⟩, ⟨Nat.lt_succ_self 1, rfl, Nat.succ_pos 7⟩⟩
+    (fun j hj => absurd hj (Nat.not_lt_zero j))
+    hM
+    (fun j hj => absurd hj (Nat.not_lt_zero j))
+    hD
+  first
+    | (rw [hval] at h; exact h)
+    | exact hval ▸ h
+
+/-- **The prepared setup of `useAdd2` maps the first binder to its value.** -/
+theorem useAdd2_input1 (id1 id2 : FVarId) (cache : IO.Ref (ExprStructMap String))
+    (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n) :
+    Tools.ShippingUnifiedMeaning.inputValues
+      (setupOf ``useAdd2 useDbl2Binders [id1, id2] cache bools bits).bools
+      (setupOf ``useAdd2 useDbl2Binders [id1, id2] cache bools bits).bits id1 =
+      some (.bits 8 (bits id1 8)) := by
+  refine Tools.ShippingUnifiedMeaning.inputValues_bits ?_ ?_
+  · intro key b h
+    exfalso
+    revert h
+    show (if key = id2 then (none : Option Bool) else if key = id1 then none else none) =
+      some b → False
+    intro h
+    by_cases e2 : key = id2
+    · rw [if_pos e2] at h
+      cases h
+    · rw [if_neg e2] at h
+      by_cases e1 : key = id1
+      · rw [if_pos e1] at h
+        cases h
+      · rw [if_neg e1] at h
+        cases h
+  · by_cases e : id1 = id2
+    · subst e
+      exact if_pos rfl
+    · exact (if_neg e).trans (if_pos rfl)
+
+/-- **… and the second binder to its value.** -/
+theorem useAdd2_input2 (id1 id2 : FVarId) (cache : IO.Ref (ExprStructMap String))
+    (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n) :
+    Tools.ShippingUnifiedMeaning.inputValues
+      (setupOf ``useAdd2 useDbl2Binders [id1, id2] cache bools bits).bools
+      (setupOf ``useAdd2 useDbl2Binders [id1, id2] cache bools bits).bits id2 =
+      some (.bits 8 (bits id2 8)) := by
+  refine Tools.ShippingUnifiedMeaning.inputValues_bits ?_ ?_
+  · intro key b h
+    exfalso
+    revert h
+    show (if key = id2 then (none : Option Bool) else if key = id1 then none else none) =
+      some b → False
+    intro h
+    by_cases e2 : key = id2
+    · rw [if_pos e2] at h
+      cases h
+    · rw [if_neg e2] at h
+      by_cases e1 : key = id1
+      · rw [if_pos e1] at h
+        cases h
+      · rw [if_neg e1] at h
+        cases h
+  · exact if_pos rfl
+
+/-- **`useAdd2`, from the entry to the output wire: `out` carries `x + y`.**
+The premise classes of `useDbl2_output`; the leaf is the two-argument call,
+in the leaf domain through `plainCallee_leaf` (the name facts of `add2` as
+one bundle) and `add2_unfold_dom`. -/
+theorem useAdd2_output {logProf : String → IO Unit} {dv : DefinitionVal}
+    {isInst : Lean.Expr → Bool} {m : Sparkle.IR.AST.Module} {d : Sparkle.IR.AST.Design}
+    {xTy yTy : Lean.Expr}
+    (htel : LamTelescopeN)
+    (hbody : ∀ body0, Tools.ShippingEntrySoundness.MReturns (openRecordInputs dv.value) body0 →
+      ∃ (T1 T2 b : Lean.Expr) (bi1 bi2 : BinderInfo),
+        stripMemoizeWrappers body0 =
+          Lean.Expr.lam `x T1 (Lean.Expr.lam `y T2 b bi2) bi1 ∧
+        b.isLambda = false ∧
+        T1.instantiateRevRange 0 (#[] : Array Lean.Expr).size #[] = xTy ∧
+        (∀ id1 : FVarId, T2.instantiateRevRange 0 (fv1 id1).size (fv1 id1) = yTy) ∧
+        ∀ id1 id2 : FVarId,
+          b.instantiateRevRange 0 (fv2 id1 id2).size (fv2 id1 id2) = callE2 id1 id2)
+    (hinfX : InfersBits xTy 8) (hinfTX : InfersNoCatch xTy)
+    (hinfY : InfersBits yTy 8) (hinfTY : InfersNoCatch yTy)
+    (hres : ∀ id1 id2 : FVarId, SignalTyped (callE2 id1 id2))
+    (hmap : ∀ (id1 id2 : FVarId) (cache : IO.Ref (ExprStructMap String))
+      (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n),
+      HasMappedFVar (setupOf ``useAdd2 useDbl2Binders [id1, id2] cache bools bits).context
+        (callE2 id1 id2))
+    (hplain : PlainHead ``add2)
+    (hnosub : ∀ (id1 id2 : FVarId) (cache : IO.Ref (ExprStructMap String))
+      (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n) (fuel : Nat),
+      NoSubModule (translateFuelFix translateStep fuel)
+        (setupOf ``useAdd2 useDbl2Binders [id1, id2] cache bools bits).context
+        (callE2 id1 id2))
+    (hunfE : ∀ (xid yid : FVarId) (e' : Lean.Expr), InlineUnfolds (callE2 xid yid) e' →
+      ∃ dom : Lean.Expr, e' = add2UnfoldE dom xid yid)
+    (hr : Tools.ShippingEntrySoundness.MReturns (synthesizeFromConst
+      (fun e hint top named => translateExprToWire e hint top named)
+      logProf ``useAdd2 [] false false (.defnInfo dv) isInst) (m, d)) :
+    MemoHit ``useAdd2 m d ∨
+    ∃ (id1 id2 : FVarId) (cache : IO.Ref (ExprStructMap String)),
+      ∀ (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n)
+        (initial : Sparkle.IR.Semantics.Env) (mems : Sparkle.IR.Semantics.MEnv),
+      Tools.ShippingMixedEntrySoundness.Admissible bools bits initial
+        (useDbl2Binders.zip [id1, id2])
+        (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
+          (``useAdd2 : Name).toString) →
+      Tools.ShippingMixedEntrySoundness.RawValueAt 8 useDbl2Binders m initial mems
+        (bits id1 8 + bits id2 8).toNat := by
+  have htele : ∀ body0,
+      Tools.ShippingEntrySoundness.MReturns (openRecordInputs dv.value) body0 →
+      TelescopeIn (stripMemoizeWrappers body0)
+        (ListScope (useDbl2Spec xTy yTy) (fun ids => callE2 (xOf ids) (yOf ids))) := by
+    intro body0 hopen
+    obtain ⟨T1, T2, b, bi1, bi2, hb, hl, hT1, hT2, hi⟩ := hbody body0 hopen
+    exact telescopeIn_of_lam2 (k1 := .bits 8) (k2 := .bits 8)
+      (leafOf := fun ids => callE2 (xOf ids) (yOf ids)) htel hb hl hT1 hT2 hi
+  have horacle : ∀ q, q ∈ useDbl2Spec xTy yTy → BinderOracle q := by
+    intro q hq
+    rcases List.mem_cons.mp hq with rfl | hq
+    · exact And.intro (by intro h; cases h) (And.intro hinfX.hw hinfTX)
+    · rcases List.mem_cons.mp hq with rfl | hq
+      · exact And.intro (by intro h; cases h) (And.intro hinfY.hw hinfTY)
+      · cases hq
+  rcases list_entry_output (cfe := false) (B := useDbl2Spec xTy yTy)
+      (leafOf := fun ids => callE2 (xOf ids) (yOf ids))
+      (fun h => absurd h Bool.false_ne_true) (fun h => absurd h Bool.false_ne_true)
+      (fun h => absurd h Bool.false_ne_true) htele horacle
+      (fun ids => ⟨rfl, hres (xOf ids) (yOf ids)⟩) hr with hit | ⟨ids, cache, hlen, H⟩
+  · exact Or.inl hit
+  · have len' : ids.length = 2 := hlen
+    obtain ⟨id1, id2, rfl⟩ : ∃ id1 id2, ids = [id1, id2] := by
+      cases ids with
+      | nil => first | simp at len' | (simp only [List.length_nil] at len'; omega)
+      | cons a tl =>
+        cases tl with
+        | nil =>
+          first | simp at len' | (simp only [List.length_cons, List.length_nil] at len'; omega)
+        | cons b tl2 =>
+          cases tl2 with
+          | nil => exact ⟨a, b, rfl⟩
+          | cons c tl3 =>
+            first | simp at len' | (simp only [List.length_cons] at len'; omega)
+    refine Or.inr ⟨id1, id2, cache, ?_⟩
+    intro bools bits initial mems values
+    exact H bools bits initial mems values
+      (.bits 8 (bits id1 8 + bits id2 8)) (Nat.succ_pos 7)
+      (plainCallee_leaf add2_callee (add2_head id1 id2) (add2_kind id1 id2)
+        (add2_notCore id1 id2) hplain (hmap id1 id2 cache bools bits)
+        (fun fuel => hnosub id1 id2 cache bools bits fuel)
+        (fun e' hU => by
+          obtain ⟨dom, rfl⟩ := hunfE id1 id2 e' hU
+          exact LeafDom.dom (add2_unfold_dom (useAdd2_input1 id1 id2 cache bools bits)
+            (useAdd2_input2 id1 id2 cache bools bits))))
+
 /-! ## Evidence for the undischarged facts, by compiled code -/
 
 run_cmd Lean.Elab.Command.liftTermElabM do
@@ -915,9 +1270,81 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     catch _ => pure false
   logInfo m!"LEGACY ENTRY, SECOND DECLARATION: useDbl2 (two inputs) compiles with the legacy front end: {compiled}"
 
+/-! ## Round 18: evidence for the two-binder `hbody`, the binder and result oracles and the
+unfolding of `add2` (logs only; one run in this environment — an observation, not a proof) -/
+
+run_cmd Lean.Elab.Command.liftTermElabM do
+  let decls : List (Name × (FVarId → FVarId → Lean.Expr)) :=
+    [(``useDbl2, fun a _ => callE a), (``useAdd2, fun a b => callE2 a b)]
+  for (declName, leafOf) in decls do
+    try
+      let ci ← getConstInfo declName
+      let body0 ← openRecordInputs ci.value!
+      let body := stripMemoizeWrappers body0
+      let shape : String :=
+        match body with
+        | .lam n1 _ (.lam n2 _ b _) _ =>
+          s!"two nested lambdas, binder names {n1}, {n2}, the inner body is a lambda: {b.isLambda}"
+        | _ => "NOT two nested lambdas"
+      Lean.Meta.lambdaTelescope body fun xs inner => do
+        let x := xs[0]!
+        let y := xs[1]!
+        let dx ← x.fvarId!.getDecl
+        let dy ← y.fvarId!.getDecl
+        let leafOk : Bool := xs.size == 2 && inner == leafOf x.fvarId! y.fvarId!
+        let rawOk : Bool :=
+          match body with
+          | .lam _ T1 (.lam _ T2 b _) _ =>
+            T1.instantiateRevRange 0 (#[] : Array Lean.Expr).size #[] == dx.type &&
+              T2.instantiateRevRange 0 (fv1 x.fvarId!).size (fv1 x.fvarId!) == dy.type &&
+              b.instantiateRevRange 0 (fv2 x.fvarId! y.fvarId!).size (fv2 x.fvarId! y.fvarId!) ==
+                leafOf x.fvarId! y.fvarId!
+          | _ => false
+        let namesOk : Bool := dx.userName == `x && dy.userName == `y
+        let cache ← IO.mkRef ({} : ExprStructMap String)
+        let st0 := Sparkle.IR.Builder.CircuitM.init "evidence"
+        let hwX : String ← try
+            let (h, _) ←
+              ((inferHWTypeFromSignal dx.type).run (entryCompilerState false cache)).run st0
+            pure (match h with
+              | .bitVector n => s!"bitVector {n}"
+              | _ => "another hardware type")
+          catch _ => pure "THREW"
+        let hwY : String ← try
+            let (h, _) ←
+              ((inferHWTypeFromSignal dy.type).run (entryCompilerState false cache)).run st0
+            pure (match h with
+              | .bitVector n => s!"bitVector {n}"
+              | _ => "another hardware type")
+          catch _ => pure "THREW"
+        let ty ← inferType inner
+        let tyN ← whnf ty
+        let headOk : Bool := tyN.getAppFn.isConstOf ``Sparkle.Core.Signal.Signal
+        logInfo m!"LEGACY ENTRY, TWO-BINDER EVIDENCE for {declName}: the stripped value is {shape}; inside lambdaTelescope: two variables and the body equals the stated leaf: {leafOk}; the premise's three instantiateRevRange results equal the two declared types and the leaf: {rawOk}; the declared user names are x, y: {namesOk}. hinfX: {hwX}, hinfY: {hwY} (expected bitVector 8 twice). hres: the whnf of the leaf's inferred type is headed by Signal: {headOk}"
+    catch ex =>
+      logInfo m!"LEGACY ENTRY, TWO-BINDER EVIDENCE for {declName}: harness error: {ex.toMessageData}"
+  try
+    let xid : FVarId := ⟨`x⟩
+    let yid : FVarId := ⟨`y⟩
+    let unfolded ← Lean.Meta.unfoldDefinition? (callE2 xid yid)
+    let unfoldMatches : Bool :=
+      match unfolded with
+      | some u => u == add2UnfoldE (.const ``defaultDomain []) xid yid
+      | none => false
+    let compiled ← try
+        let _ ← synthesizeCombinationalCoreWith
+          (fun e h t n => translateExprToWire e h t n) ``useAdd2 [] false
+          (certifiedFrontEnd := false)
+        pure true
+      catch _ => pure false
+    logInfo m!"LEGACY ENTRY, THIRD DECLARATION: useAdd2 (leaf add2 x y) compiles with the legacy front end: {compiled}; hunfE EVIDENCE: unfoldDefinition? (add2 x y) equals the quoted term x + y (domain = the constant defaultDomain): {unfoldMatches}; the oracle returned: {unfolded}"
+  catch ex =>
+    logInfo m!"LEGACY ENTRY, THIRD DECLARATION: harness error: {ex.toMessageData}"
+
 -- The acceptance check: standard axioms only. This one THROWS.
 run_cmd Lean.Elab.Command.liftTermElabM do
-  let audited : List Name := [``useDbl_output, ``useDbl2_output,
+  let audited : List Name := [``useDbl_output, ``useDbl2_output, ``useAdd2_output,
+    ``Tools.ShippingLegacySem.plainCallee_leaf, ``Tools.ShippingLegacySem.handlerCase_inline,
     ``Tools.ShippingLegacySem.one_binder_entry_output_bound,
     ``Tools.ShippingLegacySem.list_entry_output,
     ``Tools.ShippingLegacySem.returns_tryCatch_throws]

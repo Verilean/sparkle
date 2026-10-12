@@ -2222,3 +2222,6 @@ lean_lib «Tools.ShippingLegacySemEntryList» where
 
 lean_lib «Tools.ShippingLegacySemTelescopeN» where
   roots := #[`Tools.ShippingLegacySemTelescopeN]
+
+lean_lib «Tools.ShippingLegacySemLeafHandled» where
+  roots := #[`Tools.ShippingLegacySemLeafHandled]
