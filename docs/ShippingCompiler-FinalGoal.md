@@ -253,3 +253,29 @@ To be re-measured at the first `AllTests` integration run.
   memo's contents: user decision). FINDING (C): `getWireWidth` reads a global
   width cache before the builder state; a stale smaller width would select
   wrong slice bits silently.
+- 2026-10-12 (later), main unchanged (`9e07028d` + this note). On the isolated
+  branch `fix/opt-fallback-build` (`b00fcb4e`, AllTests 999 green there; NOT
+  merged) the generated depth SV endpoints of `parent` and `chained` went
+  from three not-allowed premises to: `designCheck` only (masked-output guard
+  ported), then to `portsMatchB` and `kidsPass` (the emitted-text check and
+  the width tables of the SHIPPED module are derived from the run, through a
+  print guard with fallback: the optimizer's candidate is kept only if a
+  Sparkle-side copy of the text check accepts it; the copy is proved equal to
+  the proof-side check; the raw module is proved to pass from every run). All
+  guards fire on 0 of the 30 measured declarations. Left there: port matching
+  (argument widths of a call are compared by nothing; a decidable data
+  condition `callArgsOk` is stated) and the children's own checks (a leaf
+  child's merged module has no print guard).
+  FINDING (D), confirmed in the source: the HIERARCHICAL commands do not
+  print the artifact the endpoints speak about. `toVerilogDesign`
+  (`Sparkle/Backend/Verilog.lean:499`) emits every module of a design through
+  `Optimize.optimizeModule` directly — no check, no fallback — and is what
+  `#synthesizeVerilogDesign`, `#writeVerilogDesign` and `#sim` call
+  (`Elab.lean` 8991, 9001, 9144, 9209; `#sim` optimizes the design once more
+  before). Only the single-module commands print `checkedOptimize module`
+  (`verilogOf`, `Elab.lean:8828`). The design endpoints conclude about
+  `checkedOptimize b` with the children as the design's unoptimized modules.
+  So for a hierarchical design the proved statement and the printed text are
+  about different modules; which artifact is THE output is a decision for
+  the user (the ruling "the real print call and the theorem must use the
+  same selected artifact" applies).
