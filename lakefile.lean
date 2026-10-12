@@ -2129,3 +2129,9 @@ lean_lib «Tools.ShippingChecksDepth» where
 
 lean_lib «Tools.ShippingChecksCore» where
   roots := #[`Tools.ShippingChecksCore]
+
+lean_lib «Tools.ShippingFinalGoal» where
+  roots := #[`Tools.ShippingFinalGoal]
+
+lean_lib «Tools.ShippingFinalGoalCommand» where
+  roots := #[`Tools.ShippingFinalGoalCommand]

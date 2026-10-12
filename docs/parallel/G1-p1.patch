@@ -1,0 +1,129 @@
+P1 — instance-name multiplicity of the optimized module: a reviewable patch
+==========================================================================
+
+Status: PROPOSAL, hand-written against 4d3cd186, NOT applied, NOT built.
+Worker A. The hunks below are written by reading the two files; line numbers
+are approximate — apply by the context lines.
+
+Where the check lives
+---------------------
+`hierRefineCheck` and `checkedOptimize` are in `Sparkle/IR/RefineCheck.lean`,
+`instsKept` / `deinline` in `Sparkle/IR/HierCheck.lean`: compiler-side IR
+files (not `Tools/`). So this is a compiler change.
+
+What is needed, and which form gives it
+---------------------------------------
+Target (a conjunct of `hierCheck` and of `textCheckI`):
+
+    (instNames (checkedOptimize b).body).Nodup
+
+from the run fact `(instNames b.body).Nodup` (`MachineWired`).
+
+* Today: `instsKept m o && instsKept o m` — the instance statements of `o`
+  and `m` are the same SET. A repeated instance statement in `o` passes.
+  Not enough.
+* Form A — exact list: `o.body.filter isInst = m.body.filter isInst`.
+  Gives `instNames o.body = instNames m.body` (so nodup transfers), and the
+  ORDER of the instances. Rejects any reordering of instance statements.
+* Form B — multiset + nodup: `(o.body.filter isInst).Perm (m.body.filter
+  isInst)` (decidable via counts) together with nodup of `m`'s names. Gives
+  `instNames o.body ~ instNames m.body`, hence nodup. Does not reject
+  reorderings.
+* Form C — nodup of `o`'s instance names alone:
+  `decide (instNamesOf o.body).Nodup`. With the two `instsKept` conjuncts
+  already there, `o`'s instance statements are then a duplicate-free (by
+  name) list with the same set as `m`'s. It gives the target DIRECTLY, with
+  no reference to `m`'s nodup, and rejects only an output that repeats an
+  instance name.
+
+For the target, ORDER IS NOT NEEDED and the multiset equality is not needed
+either: Form C suffices and rejects least. (Order would matter for
+`linkedWF` — P2 — but P2 constrains assignments relative to instances, which
+no instance-list equality gives; see docs/parallel/G1-checks.md §6.)
+Form A or B would only be wanted if some later proof needs
+`instNames o.body = instNames m.body` as lists; none does today.
+
+Measured (integrator's run of Tests/Compiler/ChecksDerivedTest.lean, 27 real
+parents): `instNamesNodup(o)` is true on every one, and so is the list
+equality P1 — so on the corpus' parents none of A, B, C rejects anything.
+
+Shape of the patch: fall back, never reject
+-------------------------------------------
+The new test is applied to the candidate BEFORE `hierRefineCheck` sees it:
+a candidate with a repeated instance name is replaced by the input module
+`m`. `checkedOptimize` keeps its shape `if hierRefineCheck m o' then o' else
+m`, so the theorems about an accepted `o'` (`hierRefineCheck_linked`,
+`hierRefineCheck_linkedH`, `hierRefineCheck_inputs`,
+`hierRefineCheck_inst_iff`) are untouched; only the four lemmas that spell
+the candidate out change one term (listed below). No source is rejected: the
+worst case is the unoptimised module `m`, which is what `checkedOptimize`
+already returns when the check fails.
+
+--- a/Sparkle/IR/HierCheck.lean
++++ b/Sparkle/IR/HierCheck.lean
+@@ (after `def instsKept`, before `def connRefs`)
+     | _ => true
+
++/-- The instance names of a body, in order. -/
++def instNamesOf (body : List Stmt) : List String :=
++  body.filterMap fun st =>
++    match st with
++    | .inst _ iname _ => some iname
++    | _ => none
++
++/-- The candidate `o` when its instance names are pairwise distinct, else
++the input module `m`: an optimizer output that repeats an instance name is
++not shipped. -/
++def keepNodup (m o : Module) : Module :=
++  if decide (instNamesOf o.body).Nodup then o else m
++
++theorem keepNodup_nodup {m : Module} (o : Module)
++    (hm : (instNamesOf m.body).Nodup) : (instNamesOf (keepNodup m o).body).Nodup := by
++  unfold keepNodup
++  split
++  · rename_i h
++    exact of_decide_eq_true h
++  · exact hm
++
+ /-- The wires the instance statements connect. -/
+ def connRefs (body : List Stmt) : List String :=
+
+--- a/Sparkle/IR/RefineCheck.lean
++++ b/Sparkle/IR/RefineCheck.lean
+@@ def checkedOptimize (m : Module) : Module :=
+   -- instances: checked on the extracted interface, where that check binds
+   else if RefineCheck.hierBinds m then
+-    let o' := Sparkle.IR.HierCheck.deinline m o
++    -- (a candidate that repeats an instance name is replaced by `m`)
++    let o' := Sparkle.IR.HierCheck.keepNodup m (Sparkle.IR.HierCheck.deinline m o)
+     if RefineCheck.hierRefineCheck m o' then o' else m
+   else o
+
+Proof sites that spell the candidate (each: replace
+`deinline b (optimizeModule b)` by
+`keepNodup b (deinline b (optimizeModule b))` in the `have hopt : …`
+statement; the `unfold checkedOptimize; simp only […]` proof of `hopt` and
+everything after it are unchanged, the later steps being generic in the
+candidate):
+
+    Tools/ShippingHierShipsSV.lean        (checkedOptimize_inputs, hopt)
+    Tools/ShippingMachineShipsHier.lean   (machine_ships_hierC's proof, hopt)
+    Tools/ShippingMachineShipsHierH.lean  (hopt)
+    Tools/ShippingChecksDerived2.lean     (checkedOptimize_inst_iff, hopt)
+
+Behaviour to re-verify after applying (the integrator's queue): the Verilog
+corpus outputs are unchanged (the test above says no parent of the suite has
+a repeated instance name in its optimized module), and
+`Tests/Compiler/ChecksDerivedTest.lean` still reports `kept=false` on all 27.
+
+What the patch buys
+-------------------
+`Tools/ShippingChecksP1.lean` (in this branch, written AGAINST THE PATCHED
+definitions — it does not build before the patch):
+
+    theorem checkedOptimize_instNames_nodup (hb : hierBinds b = true)
+        (hnd : (instNames b.body).Nodup) :
+        (instNames (checkedOptimize b).body).Nodup
+
+i.e. conjunct 5 of `textCheckI` and the `ndO` conjunct of `hierCheck`
+become consequences of the run fact on `b`, for every run.
