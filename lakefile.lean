@@ -2147,3 +2147,6 @@ lean_lib «Tools.ShippingChecksMasked» where
 
 lean_lib «Tools.ShippingReaderApp» where
   roots := #[`Tools.ShippingReaderApp]
+
+lean_lib «Tools.ShippingChecksGate» where
+  roots := #[`Tools.ShippingChecksGate]
