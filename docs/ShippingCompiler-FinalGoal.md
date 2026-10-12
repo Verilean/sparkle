@@ -15,31 +15,46 @@ table is measured against.
 > execution has those outputs. The domain is every input the entry accepts
 > today — not a subset.
 
-### 1.1 What "for every source" can mean in the kernel (a correction)
+### 1.1 What "for every source" means formally (corrected 2026-10-12)
 
-A Lean theorem cannot quantify over "declarations and their meaning": the
-link between a constant's *value expression* (`Lean.Expr`, what the compiler
-reads) and the *function it denotes* (what "source streams" are) is not a
-kernel-internal relation. Two forms are available, and the goal is their
-conjunction:
+An earlier version of this section said a Lean theorem "cannot" relate a
+value expression to the function it denotes. That was an over-claim. Two
+different things must be kept apart:
 
-- **(GT) the general theorem, over deep sources.** For every value
-  expression `v` in a deep embedding `S` with an evaluation
-  `S.eval : … → streams`, and every run of the entry on a declaration whose
-  value is `v`: (1)–(3) with `S.eval` as the source. Quantified over all of
-  `S`; no per-declaration data.
-- **(GR) the reflection step, per declaration.** `f = S.eval s` for the
-  declaration `f` and its deep source `s`: by `rfl` / a generated proof.
-  This step is inherent (it is the reflection principle, audit §3 item 1/3)
-  and stays per declaration; it is NOT a gap, provided the proof exists for
-  every accepted declaration — that existence is **coverage** (GC).
-- **(GC) coverage.** For every `v` the entry accepts, `v` is in the image of
-  the deep embedding (so GT applies). This is the reader theorem (G3).
+- **Possible in principle, and the way to state the goal:** a relation
+  between source SYNTAX and meaning can be defined inside Lean — a deep
+  embedding `S` of the source language with an evaluation `S.eval`, or a
+  relation `Denotes : Lean.Expr → Meaning → Prop` defined by rules. A theorem
+  can then quantify over every source in `S` (or every `e` with
+  `Denotes e m`).
+- **Not defined in the current base** (a missing definition, not an
+  impossibility): such an `S` exists only for gate terms (`Term`, `quote`,
+  `Tools/ShippingUnifiedSource`) and machines (`MachineData`: packed term +
+  layout). For the syntax only the legacy route accepts there is none
+  (work item SEM0).
+- **What stays outside the kernel:** that a particular Lean CONSTANT `f`
+  (a function of the meta-language) equals `S.eval s` for the syntax `s` the
+  compiler read from `f`'s value. The kernel can check this per constant
+  (`rfl` / a generated proof), but "for every constant in every environment"
+  is a statement about the elaborator's environment, not a Lean proposition
+  over a deep embedding. This is the reflection step.
 
-Today `S` exists for: gate terms (`Term`, `quote`, `Tools/ShippingUnifiedSource`),
-machines (`MachineData`: packed term + layout). **No deep embedding exists
-for what only the legacy route accepts.** That is a missing definition, and
-it is an explicit work item (SEM0) — G2 cannot be stated without it.
+So the goal is the conjunction of:
+
+- **(GT) the general theorem, over deep sources.** For every source `s` of
+  the deep embedding and every run of the entry on a declaration whose value
+  is the quotation of `s`: (1)–(3) with `S.eval s` as the source.
+  Quantified over all of `S`; no per-declaration data.
+- **(GR) the reflection step, per declaration.** `f = S.eval s`, by `rfl` /
+  a generated proof. Per declaration by nature; not a gap PROVIDED the proof
+  exists for every accepted declaration.
+- **(GC) coverage.** For every value `v` the entry accepts, `v` is the
+  quotation of some `s` (G3a/G3b: reader soundness, data checks), AND the
+  generator of the GR proof succeeds and terminates on it (G3c). G3c does
+  NOT follow automatically from G3a + G3b: it also needs the generator's own
+  totality and termination on every accepted input, which is a statement
+  about a meta-program and is tracked separately (measured per corpus until
+  it is a theorem about a total function).
 
 ### 1.2 The formal target with today's types
 
@@ -58,10 +73,11 @@ and that every SV run agrees. The target is that conclusion with:
   `shipsHier(H)Check`, `kids*`, per-call source facts, name-separation
   facts, data checks (`ok`, `letsOk`, `letsAliasOk`, `callsOk`).
 
-`Tools/ShippingFinalGoal.lean` (to be written by the integrator once SEM0's
-interface is agreed) will hold this as a `def … : Prop`, one per route, so
-progress is "which premises of the generated endpoints are gone" checked
-against a fixed type.
+`Tools/ShippingFinalGoal.lean` holds this as `def … : Prop` for the routes
+that have a deep source today (the machine route), so progress is "which
+premises of the generated endpoints are gone" checked against a fixed type;
+the legacy route's target is added when SEM0 exists (it is NOT postponed
+for the machine route).
 
 ## 2. Dependency graph
 
