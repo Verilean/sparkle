@@ -2210,3 +2210,18 @@ lean_lib «Tools.ShippingShipsFree» where
 
 lean_lib «Tools.ShippingShipsFreeCommand» where
   roots := #[`Tools.ShippingShipsFreeCommand]
+
+lean_lib «Tools.ShippingClosedMasked» where
+  roots := #[`Tools.ShippingClosedMasked]
+
+lean_lib «Tools.ShippingChecksMaskedLeaf» where
+  roots := #[`Tools.ShippingChecksMaskedLeaf]
+
+lean_lib «Tools.ShippingShipsFreeMasked» where
+  roots := #[`Tools.ShippingShipsFreeMasked]
+
+lean_lib «Tools.ShippingShipsFreeMaskedCommand» where
+  roots := #[`Tools.ShippingShipsFreeMaskedCommand]
+
+lean_lib «Tools.ShippingChecksDesign» where
+  roots := #[`Tools.ShippingChecksDesign]

@@ -89,7 +89,8 @@ theorem mergeChecked_seqOk {r : Sparkle.IR.AST.Module} (h : r.body.all seqStmtOk
     cases st <;> simp_all [Sparkle.IR.RegDedup.isAssign, seqStmtOk]
   · split
     · rename_i _ hrc
-      exact Tools.ShippingMachineShipping.refineCheck_stmtOk_o hrc
+      exact Tools.ShippingMachineShipping.refineCheck_stmtOk_o
+        (Sparkle.IR.RefineCheck.and_left_true hrc)
     · exact h
 
 variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}

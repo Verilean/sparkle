@@ -89,7 +89,8 @@ theorem mergeChecked_of_hasInst {r : Module} (h : Tools.ShippingMachineShipsHier
   rw [if_neg (by rw [Tools.ShippingMachineShipsHier.not_all_assign h]; simp)]
   split
   · rename_i hrc
-    have := Tools.ShippingMachineShipping.refineCheck_stmtOk_m hrc
+    have := Tools.ShippingMachineShipping.refineCheck_stmtOk_m
+      (Sparkle.IR.RefineCheck.and_left_true hrc)
     rw [Tools.ShippingMachineShipsHier.not_all_seqOk h] at this
     cases this
   · rfl
@@ -266,7 +267,8 @@ theorem mergeChecked_instFree {r : Module} (h : instFree r.body) : instFree (mer
     cases st <;> simp_all [Sparkle.IR.RegDedup.isAssign, Sparkle.IR.Machine.isInst]
   · split
     · rename_i _ hrc
-      exact instFree_of_seqOk (Tools.ShippingMachineShipping.refineCheck_stmtOk_o hrc)
+      exact instFree_of_seqOk (Tools.ShippingMachineShipping.refineCheck_stmtOk_o
+        (Sparkle.IR.RefineCheck.and_left_true hrc))
     · exact h
 
 open Tools.ShippingMachineChild (boolsOf bitsOf) in
