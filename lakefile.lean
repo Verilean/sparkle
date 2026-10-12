@@ -2609,3 +2609,9 @@ lean_lib «Tools.ShippingCoreFromM» where
 
 lean_lib «Tools.ShippingCoreFromMPorts» where
   roots := #[`Tools.ShippingCoreFromMPorts]
+
+lean_lib «Tools.ShippingSlotlessClk» where
+  roots := #[`Tools.ShippingSlotlessClk]
+
+lean_lib «Tools.ShippingSlotlessKidFacts» where
+  roots := #[`Tools.ShippingSlotlessKidFacts]
