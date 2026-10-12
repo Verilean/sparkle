@@ -804,3 +804,109 @@ existing file is changed except this append.
 7. `NoPortsMemOnlyAtProbe` (inside `try`): `…RA` head on the endpoint's data
    arguments, `machine_composedT`'s value being a lambda of 11 binders over
    `machine_linkedT_mem` on 21 arguments.
+
+## 14. Round par/b-15 — the all-worlds closing decided; the At-form endpoints of all five (WRITTEN, NOT BUILT)
+
+### 14.1 Decision: can `MachineCloses` (all worlds) hold of a memory-only parent? — NO (cannot be discharged; conditional refutation written)
+
+READ: `MachineCloses` (`Tools/ShippingMachineEntry.lean` 2279–2284) is "every
+run of `synthesizeMachineCertified`, from every world with every logger,
+returns `some`". For `insts ≠ []`, `instFields ≠ []` that run ends in
+`closeInstsGM` (`Sparkle/Compiler/Elab.lean` 5206–5221), whose FIRST statement
+is `let some synth ← sparkleChildSynth.get | return none` (5209). A memory
+entry's child is `pure md` (5211–5213): it reads neither the child cache nor
+`synth` — but the read above it is unconditional. So a memory-only shape reads
+exactly ONE piece of world-dependent state in its closing, and that one is
+enough: from a world where the reference reads `none` the result is `none`.
+(`closeInstsM`, 5192, the same.)
+
+Counter-world: any world reached by a successful harness run in which
+`sparkleChildSynth` holds `none` — the reference is created so
+(`initialize … ← IO.mkRef none`, Elab 1037–1039; set at 8850), and
+`sparkleChildSynth.set none` gives one at any time.
+
+Formal status:
+- WRITTEN (`Tools/ShippingMemOnlyAtAll.lean`): `not_machineCloses_of_synthNone`
+  — `insts ≠ []`, one harness run accepted by `closeLets`, a read of the
+  reference returning `none` at its end world ⟹ `¬ MachineCloses`.
+- NOT a theorem: `¬ MachineCloses` outright. The existence of such a run is
+  not derivable (no existence statement for harness runs; worlds opaque).
+- NOT provable either: `MachineCloses` of a shape with calls — it needs
+  `sval w = some _` of every world; no runtime law gives it.
+
+Consequence: `f.machine_design_sv0` and `f.machine_design_noPorts0` of the
+five memory-only parents carry a premise that can only be assumed and is
+false of the running compiler (they are not formally vacuous in the model —
+their premise is unrefuted there — but nothing can discharge it). They stay
+NOT COUNTED. The form a compile supports is `MachineClosesAt`.
+
+### 14.2 The At-form endpoints (new statements; base `f.machine_design_sv0`)
+
+`f.machine_design_noPortsR0`, by the built `generateM0 … (atForm := true)`,
+audited by `Tests.Compiler.NoPortsMemOnlyAt.auditAt`
+(`Tests/Compiler/NoPortsMemOnlyAtLib.lean`: differences 1–5 against the base).
+
+| declaration | endpoint | premise | predicted state |
+|---|---|---|---|
+| each of `memCounter`, `syncNarrow`, `twoMems`, `mixedMems`, `memWide` | `f.machine_design_noPortsR0` | `shipsHierCheck`, `designCheck 0`, `outsCheck 0`, `kidsMem` (of the base) | WRITTEN, NOT BUILT — predicted absent |
+| | | base boundary `True` | replaced by `ChildBnd mref cref w` (ADDED, allowed) |
+| | | base `MachineCloses f` | replaced by `MachineClosesAt f` — STILL A PREMISE, the one NOT ALLOWED |
+| | | run, `MachineDefines f` | stay |
+
+`mixedMems`: entries `[SparkleMem.combo.4.8, SparkleMem.sync.4.8]` — the two
+memories differ in the read kind only, so `MemOnlyData … 3 4 8` AS BUILT
+applies (`mem` is per-entry `∃ cb`); no per-entry-width generalisation is
+needed and none is written. `memWide`: `MemOnlyData … 3 6 16`.
+
+### 14.3 Blocked / not done
+
+- The closing (`MachineClosesAt f` of a memory-only parent): worker A's area;
+  not touched. For a memory-only shape it reduces, by reading, to the PURE
+  success of `closeInstsG` on the built memory modules after the read of the
+  reference (which `SynthAt` of `InvW` makes `some`) — the general statement
+  is A's `closeInstsGM_run_all` without `hnomem`.
+- Nothing stopped on a missing statement.
+
+### 14.4 Build queue (integrator)
+
+`lakefile.lean`:
+
+    lean_lib «Tools.ShippingMemOnlyAtAll» where
+      roots := #[`Tools.ShippingMemOnlyAtAll]
+
+`Tests/AllTests.lean`:
+
+    import Tests.Compiler.NoPortsMemOnlyAtMemCounterTest
+    import Tests.Compiler.NoPortsMemOnlyAtSyncNarrowTest
+    import Tests.Compiler.NoPortsMemOnlyAtTwoMemsTest
+    import Tests.Compiler.NoPortsMemOnlyAtMixedMemsTest
+    import Tests.Compiler.NoPortsMemOnlyAtMemWideTest
+    import Tests.Compiler.NoPortsMemOnlyAtAllTest
+
+NAME CLASH: `Tests.Compiler.NoPortsMemOnlyAtProbe` (par/b-14) creates
+`memCounter.machine_design_noPortsR0`. Keep it target-only and never build it
+into the same import closure as `NoPortsMemOnlyAtMemCounterTest`, or drop it
+(the test supersedes it).
+
+Order: (1) `Tests.Compiler.NoPortsMemOnlyAtLib` (imports the built
+`NoPortsMemOnlyCounterTest`); (2) the five `…At<Decl>Test` (independent of
+each other; Sync/Two also import the built Sync/Two tests); independently
+(3) `Tools.ShippingMemOnlyAtAll` (imports the built `Tools.ShippingClosesSplit`)
+then (4) `Tests.Compiler.NoPortsMemOnlyAtAllTest`. (3)/(4) failing does not
+affect (1)/(2).
+
+### 14.5 UNVERIFIED, in risk order
+
+1. `generateM0 (atForm := true)` on the four declarations it never ran on:
+   the `…RA` head for a sync-read parent, `machine_composedT` being
+   `machine_linkedT_mem` on 21 arguments for `syncNarrow` / `twoMems` /
+   `mixedMems` / `memWide` (measured for `memCounter` only).
+2. New kernel `decide`s: `mixedMems_callArgs` / `_callWidths` / `_calls` /
+   `_entry` (two-way `∨`), and the `memWide_*` set at 6 / 16.
+3. `auditAt`: `isDefEq (t.getArg! 4) (toExpr f)` on the declaration name;
+   the classifier giving exactly one NOT ALLOWED line; the base's boundary
+   printing `True`; `innerParts` (log only, behind `<|>`).
+4. `Tools.ShippingMemOnlyAtAll`: `RunsTo.bind_intro hget ?_` against the
+   unfolded `closeInstsGM` / `closeInstsM` (the `let some … | return none`
+   desugaring: `rfl`, else `dsimp only; rfl`); `split` on `closeCalls`' `if`.
+5. `logData`: `mems.contains` on `Name`; message interpolation of lists.

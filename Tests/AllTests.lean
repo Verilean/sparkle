@@ -191,6 +191,12 @@ import Tests.Compiler.NoPortsMemSeqMemClosedTest
 import Tests.Compiler.NoPortsMemOnlyCounterTest
 import Tests.Compiler.NoPortsMemOnlySyncTest
 import Tests.Compiler.NoPortsMemOnlyTwoTest
+import Tests.Compiler.NoPortsMemOnlyAtMemCounterTest
+import Tests.Compiler.NoPortsMemOnlyAtSyncNarrowTest
+import Tests.Compiler.NoPortsMemOnlyAtTwoMemsTest
+import Tests.Compiler.NoPortsMemOnlyAtMixedMemsTest
+import Tests.Compiler.NoPortsMemOnlyAtMemWideTest
+import Tests.Compiler.NoPortsMemOnlyAtAllTest
 import Tests.Compiler.LegacySemInstanceTest
 import Tests.Compiler.LegacyCacheFixTest
 import Tests.Compiler.LegacySemMemoTest

@@ -2597,3 +2597,6 @@ lean_lib «Tools.ShippingMemClosesRun» where
 
 lean_lib «Tools.ShippingMemClosesKids» where
   roots := #[`Tools.ShippingMemClosesKids]
+
+lean_lib «Tools.ShippingMemOnlyAtAll» where
+  roots := #[`Tools.ShippingMemOnlyAtAll]
