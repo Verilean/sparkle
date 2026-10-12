@@ -1,15 +1,17 @@
-# A / G1: the ONE-OUTPUT closing at ONE endpoint, `caller` — rounds par/a-6, par/a-7
+# A / G1: the ONE-OUTPUT closing at ONE endpoint, `caller` — rounds par/a-6, par/a-7, par/a-8
 
-Branch `par/a-7` (base 7fa6a19f = `par/a-6`). Vocabulary, binding: until the
+Branch `par/a-8` (base poc a015a6f7). Vocabulary, binding: until the
 integrator has built a file its theorems are WRITTEN, not proved; a premise
 is REMOVED from an endpoint only after the build, the concrete endpoint,
 standard axioms and the complete premise list. A per-declaration `decide`,
 `MachineDefines`, `ChildBnd` are not reductions.
 
-Built so far (poc 02b1b6de, by the integrator): `core_hierGate_any`,
-`core_kidsPass_any`, `core_text_shipped_any`, `gate_real_kidK`,
-`gate_real_notSeq`, `gate_child_forwardCheck`, `hkidW_one`. EVERYTHING of
-rounds par/a-6 and par/a-7 is WRITTEN, NOT BUILT.
+BUILT (integrator, poc a015a6f7, `Tests.AllTests` 1164 jobs): all files of
+par/a-6 and par/a-7, unchanged — including `caller.machine_design_svH_free`
+and the instances `caller_hierTyped`, `caller_portsShipped`,
+`caller_designFull`. WRITTEN, NOT BUILT (par/a-8):
+`Tools/ShippingOneOutFullCommand.lean`,
+`Tests/Compiler/OneOutCallerFullTest.lean`.
 
 ## 0. Status of the endpoint
 
@@ -17,54 +19,39 @@ Declaration `Sparkle.Tests.Compiler.ShippingMachineInstTest.caller`: a
 `circuit do` WITH a register (two slots, `sel : BitVec 2`, `acc : BitVec 8`),
 ONE call entry `pick selS (accS + x)`; child `pick` compiled by the certified
 GATE, one output `Signal (BitVec 8)`; `instFields = []`, one-output closing
-`closeInsts`. Deepest BUILT endpoint: `caller.machine_design_svHR` (and
-`_closed`), `= ships_design_svH_all ∘ machine_ships_hierHC …`, with the run
-boundary (`RunsTo (synthesizeCombinational caller) …`, `MachineDefines`,
-`MachineClosesAt` / the premises of `caller.machine_closes_at`,
-`ChildBnd ∧ EntryDefines … pick`) and FOUR check premises under `∃ raw D`.
+`closeInsts`. Starting endpoint: `caller.machine_design_svHR` (and
+`_closed`), with the run boundary and FOUR check premises under `∃ raw D`.
 
 ### Status table: the premises of `caller.machine_design_svHR`
 
-Columns: "what it is" = the kind of premise; "WRITTEN" = a derivation
-exists as source, in the file named; "BUILT" and "REMOVED" are filled by
-the integrator's report only.
+"BUILT" = the derivation is built (a015a6f7). "REMOVED" = absent from a
+BUILT endpoint of `caller` whose complete premise list was printed.
 
-| premise of `caller.machine_design_svHR` | what it is | WRITTEN derivation (file) | BUILT | REMOVED from the built endpoint |
+| premise of `caller.machine_design_svHR` | what it is | derivation (file) | BUILT | REMOVED from a built endpoint |
 |---|---|---|---|---|
-| A₂ `kidsComb D.modules (checkedOptimize b).body` | check | `core_runFactsH` (`RunFactsH.comb`), moved to the shipped module in the head (`Tools/ShippingOneOutFacts.lean`, `ShippingOneOutHead.lean`) | no | no |
-| A₄ `outsCheck (childMap D.modules) 0 (checkedOptimize b)` | check | `core_outsCheck_all_gate` + `gate_kidA` / `gate_kidR` at `pick` (`caller_outsH`, `Tests/Compiler/OneOutCallerTest.lean`) | no | no |
-| A₃ `designCheck (childMap D.modules) 0 (checkedOptimize b)` — conjuncts 1–6, 8 of `textCheckI`, `kidsPass` | check | `core_designCheckH` (`ShippingOneOutFacts.lean`), `caller_designH` | no | no |
-| A₃, conjunct 7: **(R2) `portsMatchB (childMap D.modules) (checkedOptimize b)`** | check — premise (INDEPENDENT CONDITION) of the candidate endpoint | par/a-7: `core_portsMatch_raw₁` (`Tools/ShippingOneOutConns.lean`) + `GateChildPorts` (`Tools/ShippingGatePorts.lean`) + `portsMatchB_shipped`; instance `caller_portsShipped` (`Tests/Compiler/OneOutCallerPortsTest.lean`). NOT wired into the endpoint | no | no |
-| A₁ `shipsHierHCheck D.modules b` — `hierCheck` (7 conjuncts), `kidsLocal` | check | head's case split + `RunFactsH` (`ShippingOneOutHead.lean`, `ShippingOneOutFacts.lean`, `ShippingOneOutClose.lean`) | no | no |
-| A₁, third conjunct: **(R1) `hierTyped (childMap D.modules) b`** | check — premise (INDEPENDENT CONDITION) of the candidate endpoint | par/a-7: `core_hierTyped₁` (`Tools/ShippingOneOutConns.lean`) + `typed_widthOk` (`Tools/ShippingTypedWidthOk.lean`) + `GateChildPorts.childTyped_ok`; instance `caller_hierTyped` (`OneOutCallerPortsTest.lean`). NOT wired into the endpoint | no | no |
+| A₂ `kidsComb D.modules (checkedOptimize b).body` | check | `core_runFactsH` (`RunFactsH.comb`), the head | yes | yes — `caller.machine_design_svH_free` (a015a6f7) |
+| A₄ `outsCheck (childMap D.modules) 0 (checkedOptimize b)` | check | `core_outsCheck_all_gate` + `gate_kidA` / `gate_kidR` (`caller_outsH`) | yes | yes — `caller.machine_design_svH_free` |
+| A₃ `designCheck …` — conjuncts 1–6, 8 of `textCheckI`, `kidsPass` | check | `core_designCheckH`, `caller_designH` | yes | yes — in `_free`, `designCheck` is narrowed to (R2) |
+| A₃, conjunct 7: **(R2) `portsMatchB (childMap D.modules) (checkedOptimize b)`** | check — INDEPENDENT CONDITION, still a premise of the built `_free` endpoint | `core_portsMatch_raw₁` + `GateChildPorts` + `portsMatchB_shipped`; `caller_portsShipped`, `caller_designFull` | yes (the derivation) | NO — pending the build of `OneOutCallerFullTest` |
+| A₁ `shipsHierHCheck D.modules b` — `hierCheck` (7 conjuncts), `kidsLocal` | check | the head's case split + `RunFactsH` | yes | yes — in `_free`, `shipsHierHCheck` is narrowed to (R1) |
+| A₁, third conjunct: **(R1) `hierTyped (childMap D.modules) b`** | check — INDEPENDENT CONDITION, still a premise of the built `_free` endpoint | `core_hierTyped₁` + `typed_widthOk` + `GateChildPorts.childTyped_ok`; `caller_hierTyped` | yes (the derivation) | NO — pending the build of `OneOutCallerFullTest` |
 | `hr`, `entry`, `closes`, `ChildBnd ∧ EntryDefines pick` | run boundary | none: they stay premises (no runtime model) | n/a | n/a |
 
-Reading of the table:
+BUILT state, as the integrator's log printed it: `caller.machine_design_svH_free`
+— 13 binders and antecedents; not a run / reflection / `ChildBnd`: 2 (the
+closing premise and the residual antecedent); the residual antecedent
+holds 2 INDEPENDENT check conditions (`hierTyped`; `portsMatchB`); its
+`_closed` form: 1 (the residual). `ONEOUT RESIDUAL caller: hierTyped=T
+portsMatchB=T (same run)`; the cross-check run agrees.
 
-* The candidate `caller.machine_design_svH_free` (par/a-6, generated by
-  `#machine_design_svH_free`) has, besides the run boundary, ONE antecedent
-  `Extra b D` that holds TWO INDEPENDENT conditions, (R1) and (R2). The name
-  "free" and the single antecedent do not mean "one item left" and do not
-  mean "no check": it is NOT check-free.
-* par/a-7 writes a derivation of each of (R1) and (R2) for `caller` / `pick`
-  from the run boundary and data conditions. The endpoint was deliberately
-  NOT regenerated without them: nothing of the chain is built. After the
-  build of §8, the switch is two edits of `OneOutCallerTest` (residual
-  `fun _ _ => True`; lemmas `caller_hierTyped`, `caller_designFull`), and
-  the premise list must be read again before any claim.
-* What each residual still needs after this round:
-  - (R1) `hierTyped`: the build of `ShippingTypedWidthOk`, `ShippingGatePorts`,
-    `ShippingOneOutConns` (which sits on the still-unbuilt
-    `ShippingOneOutClose` / `ShippingOneOutFacts`), `OneOutCallerPortsTest`;
-    then the regenerated endpoint. Data conditions it rests on:
-    `callArgsOk caller.machineData 1 kidIns`, the result binder's width.
-  - (R2) `portsMatchB`: the same files and the same two data conditions;
-    `portsMatchB_shipped` and `core_hierGate_any` are built.
-* OPEN whatever the build says: slotless parents (the head needs
-  `"rst" ∈ b.inputs`, i.e. `slots ≠ []`; the two new theorems do NOT use
-  `slots ≠ []`, the head does); machine-route children (worker B's
-  `entryStrict_declared`); several outputs; every declaration other than
-  `caller`; generalisation to all successful inputs.
+par/a-8 WIRES the two built derivations into a NEW endpoint,
+`caller.machine_design_svH_full` (§9). Until it is built and its premise
+list read, (R1) and (R2) are NOT removed.
+
+OPEN whatever the build says: slotless parents (the head needs
+`"rst" ∈ b.inputs`, i.e. `slots ≠ []`); machine-route children; several
+outputs; every declaration other than `caller` (§10: reading only);
+generalisation to all successful inputs.
 
 ## 1. What `RunFacts` fields the two consumers really use
 
@@ -289,7 +276,7 @@ lines, every step an existing lemma. Chosen.
   with calls, `instFields = []` (and `slots ≠ []` where marked); no other
   declaration was instantiated, none was measured.
 
-## 7. UNVERIFIED, in risk order (nothing of par/a-6 / par/a-7 is built)
+## 7. The risk list written BEFORE the build of par/a-6 / par/a-7 (historical: all of it BUILT UNCHANGED at a015a6f7; the open list of par/a-8 is in §9)
 
 par/a-7:
 
@@ -349,49 +336,114 @@ par/a-6 (unchanged, still unbuilt): `ShippingOneOutHead.lean`,
 `kidsLocal_of_comb`), `ShippingOneOutFacts.lean` (`core_closeInsts`,
 `hident`).
 
-## 8. Build queue (in this order: target → concrete endpoint)
+## 8. Build queue
 
-1. `Tools.ShippingOneOutClose`            (par/a-6)
-2. `Tools.ShippingOneOutFacts`            (par/a-6)
-3. `Tools.ShippingOneOutHead`             (par/a-6)
-4. `Tools.ShippingOneOutSameRun`          (par/a-7; independent of 1–3)
-5. `Tools.ShippingOneOutCommand`          (par/a-6, rewritten par/a-7)
-6. `Tests.Compiler.OneOutCallerTest`      (the candidate endpoint, two residual conditions)
-7. `Tools.ShippingTypedWidthOk`           (par/a-7; independent of 1–6)
-8. `Tools.ShippingGatePorts`              (par/a-7; needs 7)
-9. `Tools.ShippingOneOutConns`            (par/a-7; needs 2, 7)
-10. `Tests.Compiler.OneOutCallerPortsTest` (needs 6, 8, 9)
+Built (a015a6f7): `Tools.ShippingOneOutClose`, `…Facts`, `…Head`,
+`…SameRun`, `…Command`, `Tools.ShippingTypedWidthOk`, `Tools.ShippingGatePorts`,
+`Tools.ShippingOneOutConns`, `Tests.Compiler.OneOutCallerTest`,
+`Tests.Compiler.OneOutCallerPortsTest`.
 
-7 and 8 can be built whether 1–6 pass or fail. Dependants affected: none
-(new files only; nothing existing imports them).
+To build (par/a-8), in this order:
+
+1. `Tools.ShippingOneOutFullCommand`
+2. `Tests.Compiler.OneOutCallerFullTest`   (the concrete endpoint)
+
+Dependants affected: none (two new files; nothing existing imports them;
+no existing file is edited but this document).
 
 `lakefile.lean` (integrator):
 
-    lean_lib «Tools.ShippingOneOutClose» where
-      roots := #[`Tools.ShippingOneOutClose]
-
-    lean_lib «Tools.ShippingOneOutFacts» where
-      roots := #[`Tools.ShippingOneOutFacts]
-
-    lean_lib «Tools.ShippingOneOutHead» where
-      roots := #[`Tools.ShippingOneOutHead]
-
-    lean_lib «Tools.ShippingOneOutSameRun» where
-      roots := #[`Tools.ShippingOneOutSameRun]
-
-    lean_lib «Tools.ShippingOneOutCommand» where
-      roots := #[`Tools.ShippingOneOutCommand]
-
-    lean_lib «Tools.ShippingTypedWidthOk» where
-      roots := #[`Tools.ShippingTypedWidthOk]
-
-    lean_lib «Tools.ShippingGatePorts» where
-      roots := #[`Tools.ShippingGatePorts]
-
-    lean_lib «Tools.ShippingOneOutConns» where
-      roots := #[`Tools.ShippingOneOutConns]
+    lean_lib «Tools.ShippingOneOutFullCommand» where
+      roots := #[`Tools.ShippingOneOutFullCommand]
 
 `Tests/AllTests.lean` (integrator):
 
-    import Tests.Compiler.OneOutCallerTest
-    import Tests.Compiler.OneOutCallerPortsTest
+    import Tests.Compiler.OneOutCallerFullTest
+
+## 9. par/a-8: the endpoint without the residual
+
+`Tools/ShippingOneOutFullCommand.lean`: `#machine_design_svH_full f [facts,
+typed, design, outs]` — `Tools.ShippingOneOutCommand.build` at the residual
+`fun _ _ => True`, then the `True` antecedent DISCHARGED (`strip_true`:
+`∃ a b, A a b ∧ (True → R a b)` gives `∃ a b, A a b ∧ R a b`, `trivial` in
+the proof) so the stated type is `∀ …, ∃ raw D, hpost ∧ (Bnd → …)`; the
+command throws if `True` is still the first antecedent (`trueAntecedent`).
+Name `f.machine_design_svH_full` (and `_closed`): a different name from
+`_free`, whose contract (a re-run with another residual is refused) is kept.
+Same contract here (rebuild on every run; an existing constant is verified
+by `isDefEq`, recorded lemma list `fullMarker`, standard axioms; logs
+`SVHFULL GENERATED` / `SVHFULL PRESENT`). Both refuse scans run with a
+residual that mentions no checker, so all eight checker constants are
+refused, on the statement and on the closed form's.
+
+`Tests/Compiler/OneOutCallerFullTest.lean`: the command at `caller` with
+`[caller_factsH, caller_hierTyped, caller_designFull, caller_outsH]`;
+`#machine_goal_gap_of` on the closed form; and a `run_cmd` that throws
+unless: standard axioms; no checker constant written or hidden; `True` is
+not an antecedent; every premise of `caller.machine_closes_at` is a run / a
+reflection / `ChildBnd` (a name-separation premise is an error, printed);
+the premises of class `other` are exactly `MachineClosesAt` on the open form
+and NONE on the closed form. Lines `ONEOUT FULL PREMISE <decl>: <class> | …`,
+one per binder / conjunct / antecedent. The header and the final log state
+the scope (data conditions by name, the remaining runtime boundary, the
+compiler guards, the object of the conclusion, ONE declaration).
+
+PREDICTED premise list of `caller.machine_design_svH_full_closed` (to be
+compared with the built log):
+
+    data        mctx, mref, cctx, cref, w, w', b, design
+    run         hr : RunsTo (synthesizeCombinational caller) mctx mref cctx cref w (b, design) w'
+    reflection  entry : MachineDefines mctx mref cctx cref caller caller.machineData.shape
+    reflection  the premises of caller.machine_closes_at in these contexts — expected:
+                EntryDefines mctx mref cctx cref pick pick.gateValue
+                (the built log of `_free_closed` counted no premise of another class there)
+    ChildBnd    antecedent under ∃ raw D : ChildBnd mref cref w
+    reflection  antecedent under ∃ raw D : EntryDefines mctx mref cctx cref pick pick.gateValue
+    other       NONE
+
+UNVERIFIED (par/a-8), in risk order:
+
+1. `ShippingOneOutFullCommand.buildFull` — `mkAppM ``strip_true` must solve
+   the two higher-order patterns `?A raw D`, `?R raw D` under the
+   existentials; the type hint on `value0 xs`; `Core.betaReduce` leaving no
+   `True →`; `build`'s `discharge` finding `ChildBnd` / `EntryDefines` in
+   `And.intro hBnd hExtra` when `hExtra : True`.
+2. `OneOutCallerFullTest` — the exact binder list of
+   `caller.machine_closes_at` (the test THROWS if it has a premise of class
+   `other`; the generator's header says name-separation premises exist in
+   general — the built `_free_closed` log suggests none for `caller`);
+   `#machine_goal_gap_of` on this shape; the classifier's `isAppOf` on
+   pretty-printed-equal but `mdata`-wrapped premises.
+
+## 10. The next axis, by READING only: other one-output parents with a register and gate children
+
+No instance was written and nothing was measured. "Chain" = the four
+per-declaration theorems (`_factsH`, `_hierTyped`, `_designFull`, `_outsH`)
++ `#machine_design_svH_full`. Its hypotheses: the data conditions
+(`callsOk nDecl`, slot lengths, `hdomB`, `insts ≠ []`, `instFields = []`,
+`slots ≠ []`, output width / name / scalar, no memory callee), per call
+entry `k` the gate child's facts (`gate_real_ports` etc. from what
+`#gate_child` left), `hkidW` (result binder width = child's sort width),
+`callArgsOk d nDecl kidIns`; the generator needs `f.machine_ships_hierHR`
+(`#machine_design_svHR f`) and, for the closed form, `f.machine_closes_at`.
+All general theorems quantify over every entry `k`; none assumes one entry
+or one callee.
+
+| declaration | register | call entries (children) | `svHR` / `closes_at` exist | hypothesis expected to fail / to check |
+|---|---|---|---|---|
+| `callerTwice` | yes (`sel`) | 1 (`pick`; the copied `let` is one instance) | yes / yes | none seen. To check: `callArgsOk` — the second argument is the INPUT `x`, not a `let` of an expression; whether its argument index names a `let` binder of the same width |
+| `callerNested` | yes (`acc`, + the flattened `counter2`'s) | 1 (`pick`) | yes / yes | none seen. `nDecl = 2` (`x`, `en`); the first argument is a nested machine's result (`s`): same `callArgsOk` question. The nested structure is inside the machine data, not in the lemmas' hypotheses |
+| `callerD` | yes (2) | 1 (`pickD`, domain-polymorphic gate child) | yes / yes | none seen. `hdomB` needs the domain binder among the first `nDecl`; the child's `GateChildPorts.inTys` / `kidIns` already filter the domain binder. To check: the per-declaration theorems' statements for a domain-polymorphic `callerD` (the run is of ``callerD`` at its reflected data) |
+| `callerRep` | yes (2) | 2 (`pick`, `pick`) | yes / yes | none of the lemmas' hypotheses; per-entry cases `k = 0, 1`. To check: the second call's argument is the FIRST call's result `y` — `core_callConns₁` describes an argument wire as the transition port of a `let`; whether `y` as an argument is such a `let` port is not readable from the test |
+| `callerMix` | yes (2) | 2 (`pick`, `pickD`) | yes / yes | the lemmas: as `callerRep`. The CLOSED form: with two called declarations `machine_closes_at` carries NAME-SEPARATION premises (generator's header) — class `other`, so "other = none" fails for `_closed`; the open form is unaffected |
+| `callerABA` | yes (2) | 3 (`pick`, `pickD`, `pick`) | yes / yes | as `callerMix` (name separation in the closed form); three per-entry cases |
+| `callerInner` | yes (`acc`, + `innerPick`'s) | 2 (`pick` inside the sub-machine `innerPick`, `pick` in the body) | NO / NO (no `#machine_design_svHR`, no `#machine_closes_at` in the tests) | the generator's FIRST step: `callerInner.machine_ships_hierHR` does not exist. Not a hypothesis of the lemmas; the chain cannot start until that endpoint exists |
+
+Summary of the reading: `callerTwice`, `callerNested`, `callerD` look like
+instantiation alone (one entry each); `callerRep` adds a second entry of the
+same child; `callerMix` / `callerABA` should reach the OPEN form but their
+closed forms are expected to keep name-separation premises; `callerInner`
+lacks the base endpoint. The one question common to all but `caller`:
+whether every call argument is a `let` port with `callArgsOk` true — a
+`decide` per declaration, false makes the theorem not exist (nothing false
+is proved).

@@ -2519,3 +2519,6 @@ lean_lib «Tools.ShippingGatePorts» where
 
 lean_lib «Tools.ShippingOneOutConns» where
   roots := #[`Tools.ShippingOneOutConns]
+
+lean_lib «Tools.ShippingOneOutFullCommand» where
+  roots := #[`Tools.ShippingOneOutFullCommand]
