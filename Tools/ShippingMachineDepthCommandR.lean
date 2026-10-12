@@ -80,28 +80,48 @@ def closingThm? (c : Name) : MetaM (Option Name) := do
   if (← getEnv).contains (c ++ `closes_deep) then return some (c ++ `closes_deep)
   return none
 
-/-- The premises of `c.machine_closes_at` that are not a child's reflection
-(the name separation; they do not depend on the contexts). `none`: no such
-theorem, or a premise of another form. -/
-def closesAtNames (c : Name) : MetaM (Option (List Lean.Expr)) := do
+/-- The premises of `c`'s closing theorem that the child's boundary does not
+carry, in the theorem's order: the name separation (context-free), and the
+reflection of a descendant of `c` that is not a direct child — stated in the
+contexts `ctx` (the run's own; a reflection does not depend on the contexts,
+`Tools.ShippingReflectCtx`). `none`: no such theorem, or a premise of another
+form. -/
+def closesAtNames (c : Name) (ctx : Array Lean.Expr) : MetaM (Option (List Lean.Expr)) := do
   let some thm ← closingThm? c | return none
   let some (.thmInfo info) := (← getEnv).find? thm | return none
-  -- the child's boundary carries the reflection of its DIRECT children only:
-  -- a closing that asks a deeper descendant's reflection is not discharged
-  -- from it (it then stays a premise of the endpoint)
+  -- the child's boundary carries the reflection of its DIRECT children only
   let kids ← try pure ((← readMachine c).shape.insts.map (·.1)) catch _ => return none
-  forallTelescope info.type fun xs _ => do
+  forallTelescope (← instantiateForall info.type ctx) fun xs _ => do
     let mut out : List Lean.Expr := []
-    for x in xs.extract 4 xs.size do
+    for x in xs do
       let t ← instantiateMVars (← inferType x)
       if t.isAppOf ``Tools.ShippingInlineSoundness.EntryDefines ||
           t.isAppOf ``Tools.ShippingMachineEntry.MachineDefines then
         let arg := t.getArg! 4
-        unless ← kids.anyM fun k => isDefEq (toExpr k) arg do return none
+        unless ← kids.anyM fun k => isDefEq (toExpr k) arg do
+          if xs.any fun y => t.containsFVar y.fvarId! then return none
+          out := out ++ [t]
       else
         if t.hasFVar then return none
         out := out ++ [t]
     return some out
+
+/-- A reflection `h` moved to the contexts of `dom` (`MachineDefines.ctx` /
+`EntryDefines.ctx`); `none` when `dom` is not that reflection. -/
+def reflectAt? (dom h : Lean.Expr) : MetaM (Option Lean.Expr) := do
+  for lem in [``Tools.ShippingReflectCtx.MachineDefines.ctx, ``Tools.ShippingReflectCtx.EntryDefines.ctx] do
+    let r ← observing? do
+      let e ← mkConstWithFreshMVarLevels lem
+      let (args, _, ty) ← forallMetaTelescope (← inferType e)
+      unless ← isDefEq ty dom do throwError "conclusion"
+      let some hArg := args.back? | throwError "no premise"
+      unless ← isDefEq (← inferType hArg) (← inferType h) do throwError "premise"
+      unless ← isDefEq hArg h do throwError "assign"
+      let pr ← instantiateMVars (mkAppN e args)
+      if pr.hasExprMVar then throwError "unassigned"
+      pure pr
+    if let some pr := r then return some pr
+  return none
 
 /-- `MachineClosesAt ctx c c.shape` from `c.machine_closes_at`: its reflection
 premises from the components of the child's boundary `hb` (at `ctx`), its
@@ -125,6 +145,10 @@ def closesAtProof (c : Name) (ctx : Array Lean.Expr) (hb : Lean.Expr) (names : L
       if let n :: rest := names then
         if ← isDefEq (← inferType n) dom then
           arg? := some n
+          names := rest
+        else if let some pr ← reflectAt? dom n then
+          -- a deeper descendant's reflection, asked in the run's contexts
+          arg? := some pr
           names := rest
     let some arg := arg? | throwError "{thm}: no proof of its premise {dom}"
     p := mkApp p arg
@@ -260,7 +284,7 @@ partial def generateCoreNR (declName : Name) (dep : Nat) : MetaM Name := do
   let mut namesOf : Std.HashMap Name (List Lean.Expr) := {}
   for c in seqKids do
     unless leaf.getD c true do
-      match ← closesAtNames c with
+      match ← closesAtNames c ctx with
       | some names => namesOf := namesOf.insert c names
       | none =>
         -- not silently: the endpoint will ASK this child's closing

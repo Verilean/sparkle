@@ -16,10 +16,10 @@ a child that has calls. `#machine_closes_deep` derives the parent's
 its interface from its own run (`kidsChild_of_real`: ports, the design as the
 join of its children, the post-passes), and closes the depth endpoints.
 Premises: every descendant's reflection, and name separation per node (N1,
-obligations). What is left, recorded exactly: `topD2`'s depth endpoint still
-asks the closing of `mid2` in the contexts `mid2` is synthesised in — that
-closing needs the reflection of `rcH` (a grandchild of `mid2`) there, which
-the child's boundary does not carry. -/
+obligations). A child's closing that needs the reflection of a deeper
+descendant (`mid2`'s needs `rcH`'s) takes it from the endpoint's own
+reflection premise, moved to the child's contexts (a reflection does not
+depend on them): no depth endpoint here keeps a closing. -/
 
 set_option maxHeartbeats 0 in
 #machine_design_svNR Sparkle.Tests.Compiler.ShippingMachineSeqTest.grand 2
@@ -75,8 +75,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
       [(``Sparkle.Tests.Compiler.ShippingMachineSeqTest.grand, [2], ([] : List Name)),
        (``Sparkle.Tests.Compiler.ShippingMachineDepthHTest.grandH, [1, 2], []),
        (``Sparkle.Tests.Compiler.ShippingDesignSVTest.mixD1, [1, 2], []),
-       (``Sparkle.Tests.Compiler.ShippingDesignSVTest.topD2, [2, 3],
-         [``Sparkle.Tests.Compiler.ShippingDesignSVTest.mid2])] do
+       (``Sparkle.Tests.Compiler.ShippingDesignSVTest.topD2, [2, 3], [])] do
     std (f ++ `closes_deep)
     unless (← closingsLeft (f ++ `closes_deep) cands) == [f] do
       throwError "{f}.closes_deep: its statement asks a closing"
