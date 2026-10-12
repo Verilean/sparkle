@@ -1,5 +1,6 @@
 import Tools.ShippingLegacySemInstance
 import Tools.ShippingLegacySemSuffix
+import Tools.ShippingLegacySemEntryWalk
 import Sparkle
 
 /-! # The legacy inline arm on a real call: which premises can be discharged
@@ -55,7 +56,46 @@ equality), `isPrimitive`, `signalBinOpOf`, and the call's flags
 6. `Inv` and `ScalarWidthsAgree`, inside `ActionSpec`.
 
 So the conditional layer has ONE real instance whose remaining premises are
-3–6 and the two findings 1–2. -/
+3–6 and the two findings 1–2.
+
+## Round 11: the declaration, end to end (`useDbl_output`)
+
+`useDbl_output` instantiates `legacy_entry_output_walked`
+(`Tools/ShippingLegacySemEntryWalk.lean`) at the declaration `useDbl`
+compiled with the legacy front end (with the certified front end ON,
+`entryConst` unfolds `dbl` and a certified gate takes the declaration: it is
+then not a fallback input at all). Conclusion: a successful run of
+`synthesizeFromConst` on it is a memo hit, or the emitted module's `out`
+carries `x + x` (`RawValueAt 8 … (x + x).toNat`) for every admissible input.
+
+**Hypotheses left — the distance to the acceptance unit:**
+
+* H1 `htele` — the telescope (`TelescopeSpec`: a fact about `Lean.Meta`'s
+  `lambdaTelescope`, for every continuation) with the run facts it must hand
+  over (`EntryFacts`): the variables are distinct, one per binder; the legacy
+  binder walk over them is the certified one over `[(x, bits 8)]`
+  (`BinderWalk` — not walked, and not statable through `Returns`: `getDecl`
+  reads the local context the telescope installed); `splitReturnLeaves`
+  returns the single leaf `("out", dbl x)`.
+* H2 `hreach` — `ReachesInline` at the prepared context, for EVERY hint and
+  flag. `plain_call_reaches` (walked, round 9) gives the run of the
+  translator on an unfolding for the non-cacheable flags (`named ∨ top`)
+  from `HasMappedFVar` (kernel-opaque), `PlainHead` (environment) and
+  `NoSubModule` (the run). The entry translates the leaf with `named =
+  true`, but `Contract` — and so `LegacyDom.inline` — quantifies all flags;
+  at the cacheable ones today's shim may return an unvalidated hit. Closing
+  this needs the harness lemmas at the flags the entry uses (a
+  flag-restricted contract), or the validated hit.
+* H3 `hunf` — every unfolding the oracle returns for `dbl x` is in the
+  domain at `x + x`, at the prepared inputs (reflection of
+  `unfoldDefinition?`, then `LegacyDom.cert` over the input `x`).
+
+NOT hypotheses any more: harness soundness (`harnessSound`), the contract and
+the order on the domain (`legacy_translate_contract`,
+`legacy_translate_order`), `NotCore` (`dbl_notCore`), the entry arm's own
+walk (`legacy_entry_walk`), the legal-name fact (`finishSynth_returns`).
+
+The second outcome, `MemoHit`, is in the conclusion, not excluded. -/
 
 open Lean Meta Sparkle.Compiler.Elab
 open Sparkle.Core.Domain Sparkle.Core.Signal
@@ -227,6 +267,58 @@ theorem dbl_call_step_closed [Tools.ShippingLinkCtx.LinkCtx]
       (translateStepWith translateFallback rec (callE xid) hint top true)
       ctx inputs we mems initial v :=
   dbl_call_step dbl_suffixes hmap hplain hnosub sub
+
+/-! ## The declaration, end to end -/
+
+/-- The binders of `useDbl`. -/
+abbrev useDblBinders : List (Name × MixedGateBinder) := [(`x, .bits 8)]
+
+/-- The variable of the one binder. -/
+abbrev xOf (ids : List FVarId) : FVarId := ids.headD ⟨.anonymous⟩
+
+/-- **`useDbl`, from the entry to the output wire.** Hypotheses: H1–H3 of the
+header. -/
+theorem useDbl_output {logProf : String → IO Unit} {dv : DefinitionVal}
+    {isInst : Lean.Expr → Bool} {m : Sparkle.IR.AST.Module} {d : Sparkle.IR.AST.Design}
+    (htele : ∀ body0, Tools.ShippingEntrySoundness.MReturns (openRecordInputs dv.value) body0 →
+      TelescopeSpec (stripMemoizeWrappers body0)
+        (EntryFacts useDblBinders (fun ids => callE (xOf ids))))
+    (hreach : ∀ (ids : List FVarId) (cache : IO.Ref (ExprStructMap String))
+      (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n) (rec : TranslateFn),
+      ReachesInline rec (setupOf ``useDbl useDblBinders ids cache bools bits).context
+        (callE (xOf ids)))
+    (hunf : ∀ (ids : List FVarId) (cache : IO.Ref (ExprStructMap String))
+      (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n) (e' : Lean.Expr),
+      InlineUnfolds (callE (xOf ids)) e' →
+      LegacyDom (setupOf ``useDbl useDblBinders ids cache bools bits).context
+        (Tools.ShippingUnifiedMeaning.inputValues
+          (setupOf ``useDbl useDblBinders ids cache bools bits).bools
+          (setupOf ``useDbl useDblBinders ids cache bools bits).bits)
+        e' (.bits 8 (bits (xOf ids) 8 + bits (xOf ids) 8)))
+    (hr : Tools.ShippingEntrySoundness.MReturns (synthesizeFromConst
+      (fun e hint top named => translateExprToWire e hint top named)
+      logProf ``useDbl [] false false (.defnInfo dv) isInst) (m, d)) :
+    MemoHit ``useDbl m d ∨
+    ∃ (ids : List FVarId) (cache : IO.Ref (ExprStructMap String)),
+      ids.Nodup ∧ ids.length = 1 ∧
+      ∀ (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n)
+        (initial : Sparkle.IR.Semantics.Env) (mems : Sparkle.IR.Semantics.MEnv),
+      Tools.ShippingMixedEntrySoundness.Admissible bools bits initial (useDblBinders.zip ids)
+        (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
+          (``useDbl : Name).toString) →
+      Tools.ShippingMixedEntrySoundness.RawValueAt 8 useDblBinders m initial mems
+        (bits (xOf ids) 8 + bits (xOf ids) 8).toNat := by
+  rcases legacy_entry_output_walked (cfe := false) (bs := useDblBinders)
+      (leafOf := fun ids => callE (xOf ids))
+      (fun h => absurd h Bool.false_ne_true) (fun h => absurd h Bool.false_ne_true)
+      (fun h => absurd h Bool.false_ne_true) htele hr with hit | ⟨ids, cache, nd, len, H⟩
+  · exact Or.inl hit
+  · refine Or.inr ⟨ids, cache, nd, len, ?_⟩
+    intro bools bits initial mems values
+    exact H bools bits initial mems values
+      (.bits 8 (bits (xOf ids) 8 + bits (xOf ids) 8)) (Nat.succ_pos 7)
+      (LegacyDom.inline (dbl_notCore (xOf ids)) (hreach ids cache bools bits)
+        (hunf ids cache bools bits))
 
 /-! ## Evidence for the undischarged facts, by compiled code -/
 

@@ -2138,3 +2138,15 @@ lean_lib «Tools.ShippingFinalGoalCommand» where
 
 lean_lib «Tools.ShippingLegacySemEntry» where
   roots := #[`Tools.ShippingLegacySemEntry]
+
+lean_lib «Tools.ShippingLegacySemHarness» where
+  roots := #[`Tools.ShippingLegacySemHarness]
+
+lean_lib «Tools.ShippingUnifiedProtectionLeaves» where
+  roots := #[`Tools.ShippingUnifiedProtectionLeaves]
+
+lean_lib «Tools.ShippingLegacySemOrder» where
+  roots := #[`Tools.ShippingLegacySemOrder]
+
+lean_lib «Tools.ShippingLegacySemEntryWalk» where
+  roots := #[`Tools.ShippingLegacySemEntryWalk]
