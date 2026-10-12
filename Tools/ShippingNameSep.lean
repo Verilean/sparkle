@@ -215,4 +215,54 @@ theorem not_mem_of (c : Lean.Name) (names : List String)
   have h1 := List.all_eq_true.mp h _ (toString_mem c)
   exact of_decide_eq_true h1
 
+/-! ## Lists of declarations (the deep closings' name lists)
+
+The printed names of a list of declarations are written
+`L.map (fun n => n.toString)` — `Lean.Name.toString` has an optional
+argument, so `L.map Lean.Name.toString` does not typecheck. -/
+
+/-- `c` prints differently from every declaration of `L`. -/
+theorem not_mem_map_of (c : Lean.Name) (L : List Lean.Name)
+    (h : (L.all fun c' => sepB c c') = true) : c.toString ∉ L.map (fun n => n.toString) := by
+  intro hm
+  obtain ⟨c', hc', heq⟩ := List.mem_map.mp hm
+  have h1 : sepB c c' = true := List.all_eq_true.mp h c' hc'
+  have h2 : c.toString = c'.toString := heq.symm
+  exact toString_ne h1 h2
+
+/-- No declaration of `L` prints as a declaration of `L'`. -/
+theorem disjoint_map_of (L L' : List Lean.Name)
+    (h : (L.all fun c => L'.all fun c' => sepB c c') = true) :
+    ∀ x ∈ L.map (fun n => n.toString), x ∉ L'.map (fun n => n.toString) := by
+  intro x hx hx'
+  obtain ⟨c, hc, e1⟩ := List.mem_map.mp hx
+  obtain ⟨c', hc', e2⟩ := List.mem_map.mp hx'
+  have h0 := List.all_eq_true.mp h c hc
+  have h1 : sepB c c' = true := List.all_eq_true.mp h0 c' hc'
+  have h2 : c.toString = c'.toString := e1.trans e2.symm
+  exact toString_ne h1 h2
+
+/-- The printed names of a duplicate-free list are duplicate-free when
+printing is injective on it. -/
+theorem nodup_map_of_inj : ∀ (L : List Lean.Name), L.Nodup →
+    (∀ a ∈ L, ∀ b ∈ L, a.toString = b.toString → a = b) →
+    (L.map (fun n => n.toString)).Nodup
+  | [], _, _ => List.nodup_nil
+  | a :: l, hnd, hinj => by
+    obtain ⟨ha, hl⟩ := List.nodup_cons.mp hnd
+    refine List.nodup_cons.mpr ⟨?_, nodup_map_of_inj l hl
+      (fun x hx y hy e => hinj x (List.Mem.tail _ hx) y (List.Mem.tail _ hy) e)⟩
+    intro hm
+    obtain ⟨b, hb, e⟩ := List.mem_map.mp hm
+    have e' : a.toString = b.toString := e.symm
+    have hab : a = b := hinj a (List.Mem.head _) b (List.Mem.tail _ hb) e'
+    exact ha (by rw [hab]; exact hb)
+
+/-- The printed names of `L` are pairwise distinct when its declarations
+are distinct and print differently pairwise (the check of `hnames_of`). -/
+theorem nodup_map_of (L : List Lean.Name) (hnd : L.Nodup)
+    (h : (L.all fun c => L.all fun c' => decide (c = c') || sepB c c') = true) :
+    (L.map (fun n => n.toString)).Nodup :=
+  nodup_map_of_inj L hnd (hnames_of L h)
+
 end Tools.ShippingNameSep
