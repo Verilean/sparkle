@@ -2165,3 +2165,21 @@ lean_lib «Tools.ShippingLegacySemLeaf» where
 
 lean_lib «Tools.ShippingLegacySemMemo» where
   roots := #[`Tools.ShippingLegacySemMemo]
+
+lean_lib «Tools.ShippingLegacySemRunInCalc» where
+  roots := #[`Tools.ShippingLegacySemRunInCalc]
+
+lean_lib «Tools.ShippingLegacySemLeaves» where
+  roots := #[`Tools.ShippingLegacySemLeaves]
+
+lean_lib «Tools.ShippingLegacySemBinder» where
+  roots := #[`Tools.ShippingLegacySemBinder]
+
+lean_lib «Tools.ShippingLegacySemSignalFrame» where
+  roots := #[`Tools.ShippingLegacySemSignalFrame]
+
+lean_lib «Tools.ShippingLegacySemEntryIn» where
+  roots := #[`Tools.ShippingLegacySemEntryIn]
+
+lean_lib «Tools.ShippingLegacySemEntryOne» where
+  roots := #[`Tools.ShippingLegacySemEntryOne]

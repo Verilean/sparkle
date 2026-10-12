@@ -1,6 +1,7 @@
 import Tools.ShippingLegacySemInstance
 import Tools.ShippingLegacySemSuffix
 import Tools.ShippingLegacySemLeaf
+import Tools.ShippingLegacySemEntryOne
 import Sparkle
 
 /-! # The legacy inline arm on a real call: which premises can be discharged
@@ -128,7 +129,39 @@ fuel`). The run itself uses one of them (`fuel = translateFuelLimit - 1`).
 the run (existential in the conclusion), the premise is a closed property of
 the leaf and the prepared variable map, and it does not depend on the
 valuation in substance (`prepare`'s context ignores `bools` / `bits`; the
-quantifier over them is there only because `setupOf` takes them). -/
+quantifier over them is there only because `setupOf` takes them). 
+## Round 14: `htele` removed (`useDbl_output`)
+
+The round-13 theorem is kept as `useDbl_output_r13`. The new `useDbl_output`
+has no `TelescopeSpec` / `EntryFacts` / `BinderWalk` hypothesis: the entry is
+walked in the telescope's own `Meta` context (`legacy_entry_walk_in`), the
+binder walk and the leaves are proved (`bindInputsLegacy_one`,
+`splitReturnLeaves_scalar`), composed in `one_binder_entry_output`
+(`Tools/ShippingLegacySemEntryOne.lean`). In place of `htele`:
+
+* `htel : LamTelescopeOne` — the Meta-library fact about `lambdaTelescope`
+  on a one-binder lambda (no compiler definition in it);
+* `hbody` — the SHAPE of the body the telescope is run on: for every result
+  `body0` of `openRecordInputs dv.value`, `stripMemoizeWrappers body0` is
+  `fun (x : T) => b`, `b` not a lambda, `T.instantiateRevRange 0 0 #[] = xTy`
+  and `b.instantiateRevRange 0 1 #[.fvar id] = dbl (fvar id)`. Reflection of
+  the environment (the constant's value), through one oracle
+  (`openRecordInputs`) and two functions without a logical body
+  (`stripMemoizeWrappers` is `partial`; `Expr.instantiateRevRange` is an
+  `opaque` extern). This part of `htele` was implicit before; it is now a
+  stated premise. `xTy` (the binder's type as the walk sees it) is a
+  parameter of the theorem;
+* `hsig : SignalTestFrame xTy` — PROVABLE, kept as a premise only until
+  `Tools/ShippingLegacySemSignalFrame.lean` (`isSignalBinderType_frame`) has
+  been built;
+* `hinf : InfersBits xTy 8` — the binder-type oracle;
+* `hres : ∀ id, SignalTyped (dbl (fvar id))` — the result-type oracle.
+
+and a THIRD outcome in the conclusion, `InputSkipped`: the walk's `try`
+around the type oracle caught a failure, the binder got no port, the leaf
+was emitted alone. Not excluded: a successful run does not show that the
+oracle did not throw inside the `try`.
+-/
 
 open Lean Meta Sparkle.Compiler.Elab
 open Sparkle.Core.Domain Sparkle.Core.Signal
@@ -417,10 +450,11 @@ theorem useDbl_input (id : FVarId) (cache : IO.Ref (ExprStructMap String))
     split <;> intro h <;> cases h
   · exact if_pos rfl
 
-/-- **`useDbl`, from the entry to the output wire.** Hypotheses: `htele`
+/-- **`useDbl`, from the entry to the output wire** (round 13 form, with the
+telescope hypothesis). Hypotheses: `htele`
 (H1), the walked dispatch premises `hmap` / `hplain` / `hnosub` at the
 prepared context, and the reflection of the unfolding oracle `hunfE`. -/
-theorem useDbl_output {logProf : String → IO Unit} {dv : DefinitionVal}
+theorem useDbl_output_r13 {logProf : String → IO Unit} {dv : DefinitionVal}
     {isInst : Lean.Expr → Bool} {m : Sparkle.IR.AST.Module} {d : Sparkle.IR.AST.Design}
     (htele : ∀ body0, Tools.ShippingEntrySoundness.MReturns (openRecordInputs dv.value) body0 →
       TelescopeSpec (stripMemoizeWrappers body0)
@@ -471,6 +505,74 @@ theorem useDbl_output {logProf : String → IO Unit} {dv : DefinitionVal}
         (fun e' hU => by
           obtain ⟨dom, rfl⟩ := hunfE id e' hU
           exact LeafDom.dom (dbl_unfold_dom (useDbl_input id cache bools bits))))
+
+/-! ## Round 14: without the telescope hypothesis -/
+
+/-- **`useDbl`, from the entry to the output wire.** No `TelescopeSpec` /
+`BinderWalk` hypothesis: the Meta-library fact about `lambdaTelescope`
+(`htel`), the body's shape (`hbody`), the two binder-type oracles (`hsig` —
+provable —, `hinf`), the result-type oracle (`hres`); then, as before, the
+dispatch premises `hmap` / `hplain` / `hnosub` and the unfolding oracle
+`hunfE`. Three outcomes: memo hit, the output statement, or the binder
+skipped (`InputSkipped`). -/
+theorem useDbl_output {logProf : String → IO Unit} {dv : DefinitionVal}
+    {isInst : Lean.Expr → Bool} {m : Sparkle.IR.AST.Module} {d : Sparkle.IR.AST.Design}
+    {xTy : Lean.Expr}
+    (htel : LamTelescopeOne)
+    (hbody : ∀ body0, Tools.ShippingEntrySoundness.MReturns (openRecordInputs dv.value) body0 →
+      ∃ (T b : Lean.Expr) (bi : BinderInfo),
+        stripMemoizeWrappers body0 = Lean.Expr.lam `x T b bi ∧ b.isLambda = false ∧
+        T.instantiateRevRange 0 0 #[] = xTy ∧
+        ∀ id : FVarId, b.instantiateRevRange 0 1 #[Lean.Expr.fvar id] = callE id)
+    (hsig : SignalTestFrame xTy)
+    (hinf : InfersBits xTy 8)
+    (hres : ∀ id : FVarId, SignalTyped (callE id))
+    (hmap : ∀ (id : FVarId) (cache : IO.Ref (ExprStructMap String))
+      (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n),
+      HasMappedFVar (setupOf ``useDbl useDblBinders [id] cache bools bits).context (callE id))
+    (hplain : PlainHead ``dbl)
+    (hnosub : ∀ (id : FVarId) (cache : IO.Ref (ExprStructMap String))
+      (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n) (fuel : Nat),
+      NoSubModule (translateFuelFix translateStep fuel)
+        (setupOf ``useDbl useDblBinders [id] cache bools bits).context (callE id))
+    (hunfE : ∀ (xid : FVarId) (e' : Lean.Expr), InlineUnfolds (callE xid) e' →
+      ∃ dom : Lean.Expr, e' = dblUnfoldE dom xid)
+    (hr : Tools.ShippingEntrySoundness.MReturns (synthesizeFromConst
+      (fun e hint top named => translateExprToWire e hint top named)
+      logProf ``useDbl [] false false (.defnInfo dv) isInst) (m, d)) :
+    MemoHit ``useDbl m d ∨
+    (∃ (id : FVarId) (cache : IO.Ref (ExprStructMap String)),
+      ∀ (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n)
+        (initial : Sparkle.IR.Semantics.Env) (mems : Sparkle.IR.Semantics.MEnv),
+      Tools.ShippingMixedEntrySoundness.Admissible bools bits initial (useDblBinders.zip [id])
+        (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
+          (``useDbl : Name).toString) →
+      Tools.ShippingMixedEntrySoundness.RawValueAt 8 useDblBinders m initial mems
+        (bits id 8 + bits id 8).toNat) ∨
+    InputSkipped logProf ``useDbl callE m := by
+  have htele : ∀ body0,
+      Tools.ShippingEntrySoundness.MReturns (openRecordInputs dv.value) body0 →
+      TelescopeIn (stripMemoizeWrappers body0) (OneBinderScope `x xTy callE) := by
+    intro body0 hopen
+    obtain ⟨T, b, bi, hb, hl, hT, hi⟩ := hbody body0 hopen
+    exact telescopeIn_of_lam htel hb hl hT hi
+  rcases one_binder_entry_output (cfe := false) (nm := `x) (n := 8) (T := xTy)
+      (leafOf := callE)
+      (fun h => absurd h Bool.false_ne_true) (fun h => absurd h Bool.false_ne_true)
+      (fun h => absurd h Bool.false_ne_true) htele hsig hinf
+      (fun id => ⟨rfl, hres id⟩) hr with hit | ⟨id, cache, H⟩ | skip
+  · exact Or.inl hit
+  · refine Or.inr (Or.inl ⟨id, cache, ?_⟩)
+    intro bools bits initial mems values
+    exact H bools bits initial mems values
+      (.bits 8 (bits id 8 + bits id 8)) (Nat.succ_pos 7)
+      (LeafDom.inlineAt (dbl_notCore id)
+        (fun fuel => dbl_reachesAt (hmap id cache bools bits) hplain
+          (translateFuelFix translateStep fuel) (hnosub id cache bools bits fuel) "out")
+        (fun e' hU => by
+          obtain ⟨dom, rfl⟩ := hunfE id e' hU
+          exact LeafDom.dom (dbl_unfold_dom (useDbl_input id cache bools bits))))
+  · exact Or.inr (Or.inr skip)
 
 /-! ## Evidence for the undischarged facts, by compiled code -/
 
