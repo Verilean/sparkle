@@ -2579,3 +2579,12 @@ lean_lib «Tools.ShippingMemKidPorts» where
 
 lean_lib «Tools.ShippingMemKidFacts» where
   roots := #[`Tools.ShippingMemKidFacts]
+
+lean_lib «Tools.ShippingCallsRunFinal» where
+  roots := #[`Tools.ShippingCallsRunFinal]
+
+lean_lib «Tools.ShippingCallsKidsS» where
+  roots := #[`Tools.ShippingCallsKidsS]
+
+lean_lib «Tools.ShippingCallsKidsSGen» where
+  roots := #[`Tools.ShippingCallsKidsSGen]
