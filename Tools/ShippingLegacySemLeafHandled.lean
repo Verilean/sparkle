@@ -7,11 +7,15 @@ Round 18 added to `LeafDom` (`Tools/ShippingLegacySemLeaf.lean`) the
 constructor
 
 ```
-| handled (subs : Lean.Expr → Value → Prop) :
+| handled (subs : String → Bool → Lean.Expr → Value → Prop) :
     HandlerCase ctx inputs hint named e v subs →
-    (∀ e' v', subs e' v' → LeafDom ctx inputs hint named e' v') →
+    (∀ h' n' e' v', subs h' n' e' v' → LeafDom ctx inputs h' n' e' v') →
     LeafDom ctx inputs hint named e v
 ```
+
+(Round 24: `subs` carries the hint and the name flag at which the arm
+translates each sub-expression; the inline arm instantiates them to the
+node's own.)
 
 `HandlerCase` is the obligation of ONE arm of the translator: two
 implications (frame/outcome, and order) from the sub-expressions the arm
@@ -25,7 +29,7 @@ and the entry theorems do not change when an arm is added.
 * `handlerCase_inline` — the inline arm IS a handler case: for an expression
   the core declines (`NotCore`) whose fallback runs are translator runs on
   an unfolding (`ReachesUnfoldAt`, every fuel), with
-  `subs e' v' := InlineUnfolds e e' ∧ v' = v`. The two proofs are the
+  `subs h' n' e' v' := h' = hint ∧ n' = named ∧ InlineUnfolds e e' ∧ v' = v`. The two proofs are the
   `inlineAt` cases of `leaf_fuel_spec` / `leaf_fuel_order`.
 * `LeafDom.inline_handled` — the constructor `inlineAt`, derived through
   `handled` (so `handled` subsumes it; `inlineAt` is kept because the built
@@ -67,7 +71,8 @@ theorem handlerCase_inline {ctx : CompilerState} {inputs : FVarId → Option Val
     {hint : String} {named : Bool} {e : Lean.Expr} {v : Value} (nc : NotCore e)
     (reach : ∀ fuel : Nat,
       ReachesUnfoldAt (translateFuelFix translateStep fuel) ctx e hint false named) :
-    HandlerCase ctx inputs hint named e v (fun e' v' => InlineUnfolds e e' ∧ v' = v) where
+    HandlerCase ctx inputs hint named e v
+      (fun h' n' e' v' => h' = hint ∧ n' = named ∧ InlineUnfolds e e' ∧ v' = v) where
   spec := by
     intro fuel we mems initial ih
     constructor
@@ -75,18 +80,18 @@ theorem handlerCase_inline {ctx : CompilerState} {inputs : FVarId → Option Val
       have hstep : Returns (translateStepWith translateFallback
           (translateFuelFix translateStep fuel) e hint false named) ctx s w t := hr
       obtain ⟨e', hU, htr⟩ := reach fuel s t w (step_run_fallback nc hstep)
-      exact (ih e' v ⟨hU, rfl⟩).frame s t w lookup htr
+      exact (ih hint named e' v ⟨rfl, rfl, hU, rfl⟩).frame s t w lookup htr
     · intro s t w prior hinv widths hr
       have hstep : Returns (translateStepWith translateFallback
           (translateFuelFix translateStep fuel) e hint false named) ctx s w t := hr
       obtain ⟨e', hU, htr⟩ := reach fuel s t w (step_run_fallback nc hstep)
-      exact (ih e' v ⟨hU, rfl⟩).sem s t w prior hinv widths htr
+      exact (ih hint named e' v ⟨rfl, rfl, hU, rfl⟩).sem s t w prior hinv widths htr
   order := by
     intro fuel we mems initial _ ih s t w prior hr hinv widths order
     have hstep : Returns (translateStepWith translateFallback
         (translateFuelFix translateStep fuel) e hint false named) ctx s w t := hr
     obtain ⟨e', hU, htr⟩ := reach fuel s t w (step_run_fallback nc hstep)
-    exact ih e' v ⟨hU, rfl⟩ s t w prior htr hinv widths order
+    exact ih hint named e' v ⟨rfl, rfl, hU, rfl⟩ s t w prior htr hinv widths order
 
 /-- The constructor `inlineAt`, through `handled`. -/
 theorem LeafDom.inline_handled {ctx : CompilerState} {inputs : FVarId → Option Value}
@@ -95,10 +100,11 @@ theorem LeafDom.inline_handled {ctx : CompilerState} {inputs : FVarId → Option
       ReachesUnfoldAt (translateFuelFix translateStep fuel) ctx e hint false named)
     (sub : ∀ e' : Lean.Expr, InlineUnfolds e e' → LeafDom ctx inputs hint named e' v) :
     LeafDom ctx inputs hint named e v :=
-  LeafDom.handled (fun e' v' => InlineUnfolds e e' ∧ v' = v) (handlerCase_inline nc reach)
-    (fun e' v' hs => by
-      obtain ⟨hU, hv⟩ := hs
-      rw [hv]
+  LeafDom.handled (fun h' n' e' v' => h' = hint ∧ n' = named ∧ InlineUnfolds e e' ∧ v' = v)
+    (handlerCase_inline nc reach)
+    (fun h' n' e' v' hs => by
+      obtain ⟨hh, hn, hU, hv⟩ := hs
+      rw [hh, hn, hv]
       exact sub e' hU)
 
 /-- The name facts of a plain callee, as one bundle: the head's name fails

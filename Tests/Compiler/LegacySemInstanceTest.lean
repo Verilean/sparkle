@@ -10,6 +10,7 @@ import Tools.ShippingLegacySemEntryListD
 import Tools.ShippingLegacySemBeta
 import Tools.ShippingLegacySemProj
 import Tools.ShippingLegacySemFst
+import Tools.ShippingLegacySemFstEntry
 import Sparkle
 
 /-! # The legacy inline arm on a real call: which premises can be discharged
@@ -270,6 +271,18 @@ decisions, `docs/parallel/G2-legacy-round23.md`). No instance here: the
 obligation is not discharged for any declaration. The packing function under
 which the slice is the source's field: `Tools/ShippingLegacySemPacked.lean`
 (`PShape.pack`, `pack_fst`, `pack_snd`). The audit below covers them.
+
+## Round 24: the `Signal.fst` / `Signal.snd` arms walked
+
+`Tools/ShippingLegacySemFstArm.lean` (`handlerCase_fst`, `handlerCase_snd`),
+`Tools/ShippingLegacySemFstEntry.lean` (`SubChain`, `subChain_leaf`,
+`fst_entry_output`). Here: the CLOSED name tests the walk asks of the two
+heads — `fst_tupleHead`, `snd_tupleHead` (`TupleHead`: the body's inline
+arms, the application walk's guards, `handleCircuitMonad`'s names; the
+suffix tests through the candidate renderings) and `snd_ne_fst`. No instance
+of `fst_entry_output` for a declaration: its per-node premises (closed
+computations, oracles, and the two "run / world" premises `WireWidthReads`,
+`ArgRunsBody`) are not discharged for any chain.
 -/
 
 open Lean Meta Sparkle.Compiler.Elab
@@ -1500,6 +1513,58 @@ theorem SHA256Out_done_output {logProf : String → IO Unit} {dv : DefinitionVal
     intro bools bits initial mems values
     exact H bools bits initial mems values
 
+/-! ## Round 24: the closed name tests of `Signal.fst` / `Signal.snd` -/
+
+set_option maxRecDepth 4096 in
+theorem fst_binOp : signalBinOpOf ``Sparkle.Core.Signal.Signal.fst = none := by
+  first
+    | rfl
+    | decide
+    | decide +kernel
+    | exact Option.isNone_iff_eq_none.mp (by first | decide | decide +kernel)
+
+set_option maxRecDepth 4096 in
+theorem snd_binOp : signalBinOpOf ``Sparkle.Core.Signal.Signal.snd = none := by
+  first
+    | rfl
+    | decide
+    | decide +kernel
+    | exact Option.isNone_iff_eq_none.mp (by first | decide | decide +kernel)
+
+set_option maxRecDepth 8192 in
+theorem fst_implName : ImplName ``Sparkle.Core.Signal.Signal.fst :=
+  ⟨fst_binOp, by name_ne, by name_ne, by name_ne, by name_ne, by name_ne, by name_ne, by name_ne,
+    by name_ne, by name_ne, by name_ne, by name_ne,
+    endsWith_false_of _ _ (by cand_dec), endsWith_false_of _ _ (by cand_dec),
+    endsWith_false_of _ _ (by cand_dec),
+    by name_ne, by name_ne, by name_ne, by name_ne, by name_ne, by name_ne, by name_ne, by name_ne,
+    by name_ne, by name_ne, by name_ne, by name_ne⟩
+
+set_option maxRecDepth 8192 in
+theorem snd_implName : ImplName ``Sparkle.Core.Signal.Signal.snd :=
+  ⟨snd_binOp, by name_ne, by name_ne, by name_ne, by name_ne, by name_ne, by name_ne, by name_ne,
+    by name_ne, by name_ne, by name_ne, by name_ne,
+    endsWith_false_of _ _ (by cand_dec), endsWith_false_of _ _ (by cand_dec),
+    endsWith_false_of _ _ (by cand_dec),
+    by name_ne, by name_ne, by name_ne, by name_ne, by name_ne, by name_ne, by name_ne, by name_ne,
+    by name_ne, by name_ne, by name_ne, by name_ne⟩
+
+/-- **The closed name tests of the head `Signal.fst`.** -/
+theorem fst_tupleHead : TupleHead ``Sparkle.Core.Signal.Signal.fst :=
+  ⟨fst_implName,
+    ⟨by name_ne, by name_ne, by name_ne, by name_ne, by name_ne, by name_ne⟩,
+    by name_ne, by name_ne, by name_ne, by name_ne, by name_ne⟩
+
+/-- **The closed name tests of the head `Signal.snd`.** -/
+theorem snd_tupleHead : TupleHead ``Sparkle.Core.Signal.Signal.snd :=
+  ⟨snd_implName,
+    ⟨by name_ne, by name_ne, by name_ne, by name_ne, by name_ne, by name_ne⟩,
+    by name_ne, by name_ne, by name_ne, by name_ne, by name_ne⟩
+
+theorem snd_ne_fst :
+    ((``Sparkle.Core.Signal.Signal.snd : Name) == ``Sparkle.Core.Signal.Signal.fst) = false := by
+  name_ne
+
 /-! ## Evidence for the undischarged facts, by compiled code -/
 
 run_cmd Lean.Elab.Command.liftTermElabM do
@@ -1677,6 +1742,12 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     ``Tools.ShippingLegacySem.declsAtD_of_open, ``Tools.ShippingLegacySem.prepare_inputValue,
     ``Tools.ShippingLegacySem.LamTelescopeND.toN,
     ``Tools.ShippingLegacySem.fst_entry_output_of_chain,
+    ``Tools.ShippingLegacySem.fst_entry_output, ``Tools.ShippingLegacySem.topFst_leaf,
+    ``Tools.ShippingLegacySem.subChain_leaf, ``Tools.ShippingLegacySem.subChain_slice,
+    ``Tools.ShippingLegacySem.handlerCase_fst, ``Tools.ShippingLegacySem.handlerCase_snd,
+    ``Tools.ShippingLegacySem.fstArm_run, ``Tools.ShippingLegacySem.sndArm_run,
+    ``Tools.ShippingLegacySem.sliceNode_spec, ``Tools.ShippingLegacySem.sliceNode_order,
+    ``fst_tupleHead, ``snd_tupleHead, ``snd_ne_fst,
     ``Tools.ShippingLegacySem.PShape.pack_fst, ``Tools.ShippingLegacySem.PShape.pack_snd,
     ``Tools.ShippingLegacySem.list_entry_outputD,
     ``Tools.ShippingLegacySem.leafDom_betaWire,

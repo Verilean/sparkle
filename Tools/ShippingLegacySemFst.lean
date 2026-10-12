@@ -44,6 +44,13 @@ the emitted port has. The result is then a slice of that vector:
   fact and the harness are discharged (`telescopeIn_of_lamsN`,
   `list_entry_outputDN`, `prepare_inputValue`).
 
+(Round 24: the three decisions below were taken — sub-flags in
+`HandlerCase`, and the two "run / world" premises `ArgRunsBody` and
+`WireWidthReads` — and the walk is in `Tools/ShippingLegacySemFstArm.lean`;
+the class's entry theorem is `fst_entry_output`,
+`Tools/ShippingLegacySemFstEntry.lean`, with the chain's value as a function
+of the packed input. This file is kept as round 23 left it.)
+
 So what separates the 39 declarations from a theorem with the premise
 classes of `proj_entry_output` is exactly `FstChainLeaf`. Why it is not
 proved this round — three points that need a decision, in the order the walk

@@ -220,7 +220,7 @@ theorem handlerCase_wire {ctx : CompilerState} {inputs : FVarId → Option Value
     (hkind : fallbackKind (Lean.Expr.app f a) = .other)
     (hwhnf : WhnfIsVar (Lean.Expr.app f a) x)
     (hi : inputs x = some v) :
-    HandlerCase ctx inputs hint true (Lean.Expr.app f a) v (fun _ _ => False) where
+    HandlerCase ctx inputs hint true (Lean.Expr.app f a) v (fun _ _ _ _ => False) where
   spec := by
     intro fuel we mems initial _
     constructor
@@ -258,7 +258,7 @@ theorem leafDom_betaWire {ctx : CompilerState} {inputs : FVarId → Option Value
     (hwhnf : WhnfIsVar (Lean.Expr.app f a) x)
     (hi : inputs x = some v) :
     LeafDom ctx inputs hint true (Lean.Expr.app f a) v :=
-  LeafDom.handled (fun _ _ => False) (handlerCase_wire hfnL hkind hwhnf hi)
-    (fun _ _ h => h.elim)
+  LeafDom.handled (fun _ _ _ _ => False) (handlerCase_wire hfnL hkind hwhnf hi)
+    (fun _ _ _ _ h => h.elim)
 
 end Tools.ShippingLegacySem
