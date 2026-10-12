@@ -214,3 +214,42 @@ To be re-measured at the first `AllTests` integration run.
   quotation. Rows B2/B3/N1 of §3 are superseded by this log: B2 done for
   children without calls, B3 done for children with registers (`topD2`
   keeps `mid2`'s closing), N1 done for generated names.
+- 2026-10-12 (end), main `fdfb25f1`, `Tests.AllTests` 951 jobs green. Three
+  ISOLATED branches carry everything below that changes the compiler; none is
+  merged (each needs the user's word).
+  **G1.** `shipsHierCheck` has eight conjuncts, none on emitted text. On main:
+  conjuncts 3, 5, 6, 7, 8 and the gate half of 1 are derived from the core
+  run (`Tools/ShippingChecks{Raw,Outs,Widths}`, `ShippingLinkedFresh`,
+  `ShippingCallWidths`; instances on `parent` in `ChecksRawTest`), with two
+  per-child facts taken from the real child's run (port names; the call
+  width, a decidable data condition per parent/child pair). The rest of 1
+  (`refineCheck` on the extracted interface) and 2, 4 (post-pass) are NOT
+  derivable on main, so no endpoint on main lost the premise: the gap of
+  `parent` is still shipsHierCheck, designCheck, kidsMaskedN. Measured on 29
+  real instance parents: every conjunct holds on all 29.
+  FINDINGS: (A) the width of a call port against the child's field is
+  checked by no compiler pass; (B) `checkedOptimize`'s last `else o` ships
+  the optimizer's output unchecked for an instance module on which
+  `hierBinds` is false (taken 0 times on the 29).
+  Branch `fix/opt-fallback-build` (`f6e6dded`, AllTests 960 green there):
+  the input module is returned when the gate holds and the check does not
+  bind, `deinline` is guarded (instance names distinct; a design-free
+  linked-order check); neither guard fires on the 29. There
+  `machine_ships_hierC_free` and the GENERATED depth SV endpoints of `parent`
+  and `chained` have no `shipsHierCheck` and no `outsCheck`; their
+  kernel-checked gap is exactly designCheck and kidsMaskedN. Branch
+  `fix/merge-guards-build` (`8e24967d`) removes kidsMaskedN separately.
+  **G2** (all on `fix/cache-rollback`, `d160afd4`, AllTests 970 green there).
+  Census: the real entry returns through the legacy arm on 90 Signal-valued
+  definitions of the imported IP modules — 45 structure projections, 39
+  `Signal.fst` chains over one packed input, 6 others; every one has a domain
+  binder. `proj_entry_output` (generic; observable premises fit 45 of 45)
+  and `tuple_entry_output` (fit 39 of 39; 1768 slice steps equal the
+  type-derived bounds) conclude `MemoHit ∨ out carries the input / the slice
+  of the packed input`, under reflection and oracle premises that quantify
+  over every run (the census observes one run each), and for the tuple class
+  two per-node premises about the run. Real instances: `SHA256Out.done`,
+  `SoCState.fetchPC`. `MemoHit` stays a disjunct (needs a law about the
+  memo's contents: user decision). FINDING (C): `getWireWidth` reads a global
+  width cache before the builder state; a stale smaller width would select
+  wrong slice bits silently.
