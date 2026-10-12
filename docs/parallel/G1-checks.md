@@ -494,3 +494,32 @@ split needs.) The heads then take `designText` as their premise and
 protected queue with no change; `core_outsCheck_all` depends on standard
 axioms only. Not done: no endpoint head uses it yet (the heads hide that
 their `(raw, D)` is a core run) — that connection is the integrator's.
+
+## shipsHierCheck: inventory of its conjuncts (worker A, 2026-10-12, read from definitions; nothing derived yet)
+
+`shipsHierCheck C b = hierCheck C b && instOutWidthsOk C (declWidth b) b.body`.
+None of the eight conjuncts is a check on emitted text.
+
+| # | Conjunct | About | Status |
+|---|---|---|---|
+| 1 | `hierBinds b` (`hierGate b` and `refineCheck flat flat` on the extracted interface) | form of the raw module's right-hand sides | not derived; no version of the `machine_ships_wired` route for instance parents |
+| 2 | `linkedWF C (checkedOptimize b).body` | post-pass (order of the optimized body) | not derivable on main's line |
+| 3 | `(instNames b.body).Nodup` | raw module | not derived |
+| 4 | `(instNames (checkedOptimize b).body).Nodup` | post-pass | not derivable on main; follows from 3 on `fix/merge-guards` (`keepNodup`) |
+| 5 | `noSelfRead C (checkedOptimize b).body` | raw module after transfer (`noSelfRead_opt` proved) | `noSelfRead C b.body` of a run not derived |
+| 6 | `outsExtracted C b` | raw module | not derived |
+| 7 | `"rst" ∈ b.inputs.map (·.name)` | raw module | not derived |
+| 8 | `instOutWidthsOk C (declWidth b) b.body` | raw module; needs the child's output port TYPES (the child interfaces carry names only) | not derived |
+
+Consequence: on main's line `shipsHierCheck` cannot leave an endpoint whatever
+is done about 1, 3, 5–8, because of 2 and 4. Work in progress: 3, 5–8 from
+the `closeInstsG` assembly.
+
+## Guarded merge, isolated branch (`fix/merge-guards-build` `8e24967d`, NOT merged)
+
+`Tests.AllTests` and `MergeGuardsTest` green on that tree (941 jobs). On 47
+real declarations neither guard fires (`keepNodup`, `masksKept`); the merge
+changes 3 of them. On a hand-built module whose merge aliases an output the
+guard returns the input module. There `parent` and `chained` have depth SV
+endpoints without `outsCheck` and `kidsMaskedN`; their kernel-checked goal
+gap is two not-allowed premises: `shipsHierCheck`, `designCheck`.
