@@ -2183,3 +2183,6 @@ lean_lib «Tools.ShippingLegacySemEntryIn» where
 
 lean_lib «Tools.ShippingLegacySemEntryOne» where
   roots := #[`Tools.ShippingLegacySemEntryOne]
+
+lean_lib «Tools.ShippingLegacySemFVarArm» where
+  roots := #[`Tools.ShippingLegacySemFVarArm]

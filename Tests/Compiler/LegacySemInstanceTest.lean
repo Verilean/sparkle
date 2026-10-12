@@ -2,6 +2,7 @@ import Tools.ShippingLegacySemInstance
 import Tools.ShippingLegacySemSuffix
 import Tools.ShippingLegacySemLeaf
 import Tools.ShippingLegacySemEntryOne
+import Tools.ShippingLegacySemSignalFrame
 import Sparkle
 
 /-! # The legacy inline arm on a real call: which premises can be discharged
@@ -151,9 +152,8 @@ binder walk and the leaves are proved (`bindInputsLegacy_one`,
   `opaque` extern). This part of `htele` was implicit before; it is now a
   stated premise. `xTy` (the binder's type as the walk sees it) is a
   parameter of the theorem;
-* `hsig : SignalTestFrame xTy` — PROVABLE, kept as a premise only until
-  `Tools/ShippingLegacySemSignalFrame.lean` (`isSignalBinderType_frame`) has
-  been built;
+* (round 15: `hsig : SignalTestFrame xTy` is no longer a premise — it is
+  `isSignalBinderType_frame`, `Tools/ShippingLegacySemSignalFrame.lean`);
 * `hinf : InfersBits xTy 8` — the binder-type oracle;
 * `hres : ∀ id, SignalTyped (dbl (fvar id))` — the result-type oracle.
 
@@ -161,6 +161,21 @@ and a THIRD outcome in the conclusion, `InputSkipped`: the walk's `try`
 around the type oracle caught a failure, the binder got no port, the leaf
 was emitted alone. Not excluded: a successful run does not show that the
 oracle did not throw inside the `try`.
+
+## Round 15
+
+* `hsig` dropped (proved).
+* `InputSkipped` is KEPT, and the reason is recorded in
+  `Tools/ShippingLegacySemFVarArm.lean` (`impl_fvar`): the body's variable
+  arm does not simply throw on an unmapped variable (it consults the
+  builder's `sourceBindings`, zeta-reduces through a local-context value,
+  and re-translates a changed result of `Lean.Meta.reduce`), and the leaf
+  `dbl x` with no mapped variable is first replaced by `whnf` of itself.
+* Compiled evidence (logs only) for the reflection premises `hbody`, `hinf`,
+  `hres` on the real `useDbl`, and a run of the skipped scenario itself (the
+  leaf translated with no port bound): the second `run_cmd` at the end.
+  These logs are observations of ONE run in the test's environment; they
+  are not proofs of the premises (which speak of every successful run).
 -/
 
 open Lean Meta Sparkle.Compiler.Elab
@@ -510,8 +525,8 @@ theorem useDbl_output_r13 {logProf : String → IO Unit} {dv : DefinitionVal}
 
 /-- **`useDbl`, from the entry to the output wire.** No `TelescopeSpec` /
 `BinderWalk` hypothesis: the Meta-library fact about `lambdaTelescope`
-(`htel`), the body's shape (`hbody`), the two binder-type oracles (`hsig` —
-provable —, `hinf`), the result-type oracle (`hres`); then, as before, the
+(`htel`), the body's shape (`hbody`), the binder-type oracle (`hinf`), the
+result-type oracle (`hres`); then, as before, the
 dispatch premises `hmap` / `hplain` / `hnosub` and the unfolding oracle
 `hunfE`. Three outcomes: memo hit, the output statement, or the binder
 skipped (`InputSkipped`). -/
@@ -524,7 +539,6 @@ theorem useDbl_output {logProf : String → IO Unit} {dv : DefinitionVal}
         stripMemoizeWrappers body0 = Lean.Expr.lam `x T b bi ∧ b.isLambda = false ∧
         T.instantiateRevRange 0 0 #[] = xTy ∧
         ∀ id : FVarId, b.instantiateRevRange 0 1 #[Lean.Expr.fvar id] = callE id)
-    (hsig : SignalTestFrame xTy)
     (hinf : InfersBits xTy 8)
     (hres : ∀ id : FVarId, SignalTyped (callE id))
     (hmap : ∀ (id : FVarId) (cache : IO.Ref (ExprStructMap String))
@@ -559,7 +573,7 @@ theorem useDbl_output {logProf : String → IO Unit} {dv : DefinitionVal}
   rcases one_binder_entry_output (cfe := false) (nm := `x) (n := 8) (T := xTy)
       (leafOf := callE)
       (fun h => absurd h Bool.false_ne_true) (fun h => absurd h Bool.false_ne_true)
-      (fun h => absurd h Bool.false_ne_true) htele hsig hinf
+      (fun h => absurd h Bool.false_ne_true) htele (isSignalBinderType_frame xTy) hinf
       (fun id => ⟨rfl, hres id⟩) hr with hit | ⟨id, cache, H⟩ | skip
   · exact Or.inl hit
   · refine Or.inr (Or.inl ⟨id, cache, ?_⟩)
@@ -605,5 +619,59 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     logInfo m!"LEGACY INLINE ARM, REAL INSTANCE (dbl x): suffix tests true (expected none): {bad}; the mapped-variable test evaluates to {mapped} (expected true; it is `Expr.find?`, opaque in the kernel); useDbl compiles with the legacy front end: {compiled}. dbl_call_step_closed has ONE kernel-opaque premise, HasMappedFVar (Expr.find? = Expr.findImpl?, opaque), beside the environment (PlainHead), the run (NoSubModule) and the unfoldings' contracts; the suffix tests are proved through the candidate renderings of the name."
   catch ex =>
     logInfo m!"LEGACY INLINE ARM, REAL INSTANCE: harness error: {ex.toMessageData}"
+
+/-! ## Round 15: evidence for the reflection premises of `useDbl_output`
+
+Logs only. One run, in this environment: an observation, not a proof. -/
+
+run_cmd Lean.Elab.Command.liftTermElabM do
+  try
+    let ci ← getConstInfo ``useDbl
+    let body0 ← openRecordInputs ci.value!
+    let body := stripMemoizeWrappers body0
+    let shape : String :=
+      match body with
+      | .lam nm _ b _ => s!"a lambda, binder name {nm}, its body is a lambda: {b.isLambda}"
+      | _ => "NOT a lambda"
+    Lean.Meta.lambdaTelescope body fun xs inner => do
+      let x := xs[0]!
+      let decl ← x.fvarId!.getDecl
+      -- hbody: the telescope's own results against the premise's two
+      -- instantiations and the leaf
+      let leafOk : Bool := xs.size == 1 && inner == callE x.fvarId!
+      let rawOk : Bool :=
+        match body with
+        | .lam _ T b _ =>
+          T.instantiateRevRange 0 0 #[] == decl.type &&
+            b.instantiateRevRange 0 1 #[x] == callE x.fvarId!
+        | _ => false
+      let nameOk : Bool := decl.userName == `x
+      -- hinf: the binder-type oracle on the declared type
+      let cache ← IO.mkRef ({} : ExprStructMap String)
+      let st0 := Sparkle.IR.Builder.CircuitM.init "evidence"
+      let hw : String ← try
+          let (h, _) ←
+            ((inferHWTypeFromSignal decl.type).run (entryCompilerState false cache)).run st0
+          pure (match h with
+            | .bitVector n => s!"bitVector {n}"
+            | _ => "another hardware type")
+        catch _ => pure "THREW"
+      -- hres: the result-type oracle on the leaf
+      let ty ← inferType inner
+      let tyN ← whnf ty
+      let headOk : Bool := tyN.getAppFn.isConstOf ``Sparkle.Core.Signal.Signal
+      logInfo m!"LEGACY ENTRY, hbody EVIDENCE: the stripped value of useDbl is {shape}; inside lambdaTelescope: one variable and the body equals `dbl x` (callE): {leafOk}; the premise's two instantiateRevRange results equal the declared type and callE: {rawOk}; the declared user name is x: {nameOk}. hinf EVIDENCE: inferHWTypeFromSignal on the declared binder type returned: {hw} (expected bitVector 8). hres EVIDENCE: the whnf of the leaf's inferred type is headed by Signal: {headOk}"
+      -- the third outcome itself: the leaf translated with NO port bound
+      let skipped : String ← try
+          let _ ←
+            ((emitLeaves (fun e h t n => translateExprToWire e h t n) cache (fun _ => pure ())
+              [("out", inner)] none 0).run (entryCompilerState false cache)).run st0
+          pure "RETURNED: InputSkipped is a real behaviour of the leaf translation"
+        catch ex => do
+          let msg ← ex.toMessageData.toString
+          pure s!"THREW ({msg})"
+      logInfo m!"LEGACY ENTRY, SKIPPED-INPUT EVIDENCE: emitLeaves on the leaf `dbl x` with no input port bound (empty varMap, fresh builder state): {skipped}"
+  catch ex =>
+    logInfo m!"LEGACY ENTRY, ROUND 15 EVIDENCE: harness error: {ex.toMessageData}"
 
 end Sparkle.Tests.Compiler.LegacySemInstanceTest
