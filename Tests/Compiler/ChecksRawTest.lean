@@ -7,6 +7,7 @@ import Tools.ShippingCallWidths
 import Tools.ShippingShipsHierSame
 import Tools.ShippingChecksRunFacts
 import Tools.ShippingShipsHierFree
+import Tools.ShippingShipsFree
 
 /-! # The raw-module facts on a real declaration (G1)
 
@@ -466,5 +467,114 @@ run_cmd liftTermElabM do
       unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do
         throwError "{n} uses a non-standard axiom: {ax}"
   logInfo m!"CHECKSFREE: linkedWFX_sound, deinline_guards, checkedOptimize_facts, machine_ships_hierC_free, core_runFacts, parent_runFacts, parent_shipped — standard axioms only"
+
+/-! ## The output check with no check premise (branch `fix/opt-fallback`, round optfb-2)
+
+`parent_outsG`: `outsCheck` of `parent`'s core run's design at depth 1 under
+the statement-kind gate (`core_outsCheck_all_gate`; the per-child terms are
+those of `Tests.Compiler.FinalGoalTest.parent_outs`). `parent_outs_free`:
+the same with the gate taken from `parent_runFacts` — no `hierBinds`, no
+`shipsHierCheck`: the hypothesis `hOuts` of
+`Tools.ShippingShipsFree.machine_design_noOuts_noShips` composed with its
+`hFacts`, by hand, for `parent`. -/
+
+set_option maxHeartbeats 0 in
+theorem parent_outsG {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State}
+    {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State}
+    {w w1 : Void IO.RealWorld} {raw b : Sparkle.IR.AST.Module} {D : Sparkle.IR.AST.Design}
+    (hcore : Tools.ShippingEntrySoundness.RunsTo
+      (Sparkle.Compiler.Elab.synthesizeCombinationalCore ``parent [] false)
+      mctx mref cctx cref w (raw, D) w1)
+    (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨
+      b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw))
+    (entry : Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref ``parent
+      parent.machineData.shape)
+    (closes : Tools.ShippingChildInv.MachineClosesAt mctx mref cctx cref ``parent
+      parent.machineData.shape)
+    (hg : Sparkle.IR.RefineCheck.hierGate b = true)
+    (hB : Tools.ShippingChildInv.ChildBnd mref cref w)
+    (entryC : Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref ``cnt
+      cnt.machineData.shape) :
+    Tools.ShippingDesignSVBack.outsCheck (Tools.ShippingMachineLinked.childMap D.modules) 1
+      (Sparkle.IR.OptCheck.checkedOptimize b) = true :=
+  Tools.ShippingChecksCoreGate.core_outsCheck_all_gate (nDecl := 1) parent.machineData
+    parent.machine_ok parent.machine_body (by decide) (by decide) (by decide)
+    (fun h => absurd (congrArg List.length h) (by decide)) (by decide) (by decide)
+    (by
+      intro k hk y hy
+      -- two entries (the fields `n` and `hit` of the ONE call of `cnt`)
+      have hk' : k < 2 := hk
+      have hA := fun (y : Sparkle.IR.AST.Module × Sparkle.IR.AST.Design)
+          (hy : Tools.ShippingChildInv.RealChild mref cref ``cnt y) =>
+        Tools.ShippingChecksRun2.leaf_real_kidA cnt.machineData cnt.machine_ok
+          cnt.machine_body rfl (fun h => absurd (congrArg List.length h) (by decide))
+          (by decide) (by decide) entryC (fun mc cc => cnt.machine_closes mc _ cc _) hy
+      cases k with
+      | zero => exact hA y hy
+      | succ k =>
+        cases k with
+        | zero => exact hA y hy
+        | succ k => exact absurd hk' (by omega))
+    (by
+      intro k hk y hy
+      have hk' : k < 2 := hk
+      have hR := fun (y : Sparkle.IR.AST.Module × Sparkle.IR.AST.Design)
+          (hy : Tools.ShippingChildInv.RealChild mref cref ``cnt y) =>
+        Tools.ShippingChecksCore.leaf_real_kidR cnt.machineData cnt.machine_ok
+          cnt.machine_body rfl (by decide) entryC (fun mc cc => cnt.machine_closes mc _ cc _) hy
+      cases k with
+      | zero => exact hR y hy
+      | succ k =>
+        cases k with
+        | zero => exact hR y hy
+        | succ k => exact absurd hk' (by omega))
+    hB hcore hpost entry closes hg 1
+
+theorem parent_outs_free {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State}
+    {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State}
+    {w w1 : Void IO.RealWorld} {raw b : Sparkle.IR.AST.Module} {D : Sparkle.IR.AST.Design}
+    (hcore : Tools.ShippingEntrySoundness.RunsTo
+      (Sparkle.Compiler.Elab.synthesizeCombinationalCore ``parent [] false)
+      mctx mref cctx cref w (raw, D) w1)
+    (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨
+      b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw))
+    (entry : Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref ``parent
+      parent.machineData.shape)
+    (closes : Tools.ShippingChildInv.MachineClosesAt mctx mref cctx cref ``parent
+      parent.machineData.shape)
+    (hB : Tools.ShippingChildInv.ChildBnd mref cref w)
+    (entryC : Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref ``cnt
+      cnt.machineData.shape) :
+    Tools.ShippingDesignSVBack.outsCheck (Tools.ShippingMachineLinked.childMap D.modules) 1
+      (Sparkle.IR.OptCheck.checkedOptimize b) = true :=
+  parent_outsG hcore hpost entry closes
+    (parent_runFacts hcore hpost entry closes hB entryC).gate hB entryC
+
+open Lean Elab Command in
+run_cmd liftTermElabM do
+  for n in [``Tools.ShippingChecksDepthGate.checkedOptimize_inst_iff_gate,
+      ``Tools.ShippingChecksDepthGate.outsCheck_opt_all_gate,
+      ``Tools.ShippingChecksCoreGate.core_outsCheck_all_gate,
+      ``Tools.ShippingShipsFree.machine_ships_hierC_at_free,
+      ``Tools.ShippingShipsFree.design_at_free,
+      ``Tools.ShippingShipsFree.machine_design_noOuts_noShips,
+      ``Tools.ShippingShipsFreeSV.shipped_sv_free,
+      ``Tools.ShippingShipsFreeSV.shipped_iw_out_of_fallback,
+      ``Tools.ShippingShipsFreeSV.checkedOptimize_fallback,
+      ``parent_outsG, ``parent_outs_free] do
+    for ax in ← Lean.collectAxioms n do
+      unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do
+        throwError "{n} uses a non-standard axiom: {ax}"
+  -- the free heads' statements do not mention the bundled checker
+  for n in [``Tools.ShippingShipsFree.machine_ships_hierC_at_free,
+      ``Tools.ShippingShipsFree.design_at_free,
+      ``Tools.ShippingShipsFree.machine_design_noOuts_noShips,
+      ``Tools.ShippingShipsFreeSV.shipped_sv_free, ``parent_outs_free] do
+    let ci ← getConstInfo n
+    for c in [``Tools.ShippingHierPremisesBase.shipsHierCheck,
+        ``Tools.ShippingHierPremisesBase.hierCheck, ``Sparkle.IR.RefineCheck.hierBinds] do
+      if (ci.type.find? (·.isConstOf c)).isSome then
+        throwError "{n}: the statement mentions {c}"
+  logInfo m!"CHECKSFREE2: checkedOptimize_inst_iff_gate, outsCheck_opt_all_gate, core_outsCheck_all_gate, machine_ships_hierC_at_free, design_at_free, machine_design_noOuts_noShips, shipped_sv_free, shipped_iw_out_of_fallback, checkedOptimize_fallback, parent_outsG, parent_outs_free — standard axioms only; no statement of the free heads mentions shipsHierCheck, hierCheck or hierBinds"
 
 end Tests.Compiler.ChecksRawTest

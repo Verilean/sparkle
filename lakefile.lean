@@ -2198,3 +2198,15 @@ lean_lib «Tools.ShippingShipsHierFree» where
 
 lean_lib «Tools.ShippingChecksRunFacts» where
   roots := #[`Tools.ShippingChecksRunFacts]
+
+lean_lib «Tools.ShippingChecksDepthGate» where
+  roots := #[`Tools.ShippingChecksDepthGate]
+
+lean_lib «Tools.ShippingChecksCoreGate» where
+  roots := #[`Tools.ShippingChecksCoreGate]
+
+lean_lib «Tools.ShippingShipsFree» where
+  roots := #[`Tools.ShippingShipsFree]
+
+lean_lib «Tools.ShippingShipsFreeCommand» where
+  roots := #[`Tools.ShippingShipsFreeCommand]
