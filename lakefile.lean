@@ -2471,3 +2471,15 @@ lean_lib «Tools.ShippingInstSignature» where
 
 lean_lib «Tools.ShippingReaderResultKind» where
   roots := #[`Tools.ShippingReaderResultKind]
+
+lean_lib «Tools.ShippingMachineShapeUnfold» where
+  roots := #[`Tools.ShippingMachineShapeUnfold]
+
+lean_lib «Tools.ShippingMachineShapeTail» where
+  roots := #[`Tools.ShippingMachineShapeTail]
+
+lean_lib «Tools.ShippingShapeDecomp» where
+  roots := #[`Tools.ShippingShapeDecomp]
+
+lean_lib «Tools.ShippingCallWidthsDeclared» where
+  roots := #[`Tools.ShippingCallWidthsDeclared]

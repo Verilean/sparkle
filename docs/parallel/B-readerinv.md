@@ -271,3 +271,163 @@ only R1/R5 (twin) and P5 (the unfolded constant's type).
 * R1–R3, R5, P3, P5, T1, T2: not proved (see §4).
 * No theorem connects `bs.length` to the closing's `nDecl` (R5).
 * The argument side (R3 / T2) was not touched.
+
+## 6. Repair after the first build (round 4b)
+
+Integrator build of `aa720730` on poc: `Tools.ShippingInstSignature` (P1)
+and `Tools.ShippingReaderResultKind` (P2) BUILT unchanged (poc `02b1b6de`).
+`Tools.ShippingMachineShapeUnfold` failed in `machineShape?_some` only: the
+generic walk (`repeat' first | cases h | bind | split at h | …`) did not
+move at the outer `if`, and the closing `rfl`s then met the untouched goal.
+The other theorems of that file reported no error.
+
+What the failed build showed of the elaborated block (after `unfold` and
+`dsimp only`), and what the repair is written against:
+
+* pair patterns are projections (`__x.snd`, `(machRoot …).2.2.fst`);
+* a `match` in the middle of the block carries its continuation in EVERY
+  alternative (join points inlined): `match machTupleKinds? d.type with
+  | some ks => do let __x_1 ← some (none, …); if … | none => …`;
+* the binds are `>>=` of the `Option` monad.
+
+The repair, in two files so that the first half survives a failure of the
+second:
+
+* `Tools/ShippingMachineShapeUnfold.lean` — the one-step inversions
+  `ite_none_inv`, `ite_else_none_inv`, `bind_inv` (small lemmas, applied to
+  the hypothesis; no `split`, no rewriting of the big term), and
+
+      theorem machineShape?_prefix
+          (h : machineShape? sym params (.defnInfo d) senv allow = some sp) :
+          ∃ x o, mixedGatePeel (MachTupleIn.packTupleInputs d.value) = some x ∧
+            declOuts? senv d.type = some o
+      theorem declOuts?_of_resultKind (senv) (hres : machResultKind? ty = some k) :
+          declOuts? senv ty = some (none, [("out", k)])
+
+  by named steps: the outer `if`, the bind of the peel, `generalize hk :
+  machTupleKinds? d.type = tup at h; cases tup`, the bind of the output
+  list. Plus the list facts (`instBinders_kinds`, `getElem?_mid`).
+  `instBinders` is now written with projections.
+* `Tools/ShippingMachineShapeTail.lean` — `machineShape?_some` (statement
+  as in §1 WITHOUT the last conjunct `sp.layout.lets = letB.length`, which
+  nothing used), `machineShape?_callBinder`, `machineShape?_single_out`,
+  `callee_single_out` (statements unchanged). After the prefix: the test on
+  the output names (`ite_none_inv`); `generalize hrun : Option.bind _
+  machRunApp? = run at h` and one case split (this decides BOTH matches on
+  the enclosing run; the second match on `machTupleKinds?` was decided by
+  the prefix); then the program is a straight line, inverted by
+  `ite_none_inv` / `bind_inv` until neither applies; then explicitly the
+  gate (`ite_else_none_inv`), `Option.some.inj`, `subst`, and the
+  conclusion with the two equations by `rfl` on the literal.
+
+**Where this departs from "one named step per line".** The straight-line
+stretch is a loop over two unification-only lemmas. Reason: the number of
+binds there cannot be read off the source (an inlined join point may leave
+a `pure v >>= …`), no equation of that stretch is used, and the steps
+cannot branch. If it stalls, the explicit step after it fails and prints
+the head it stalled on — that is the information needed to write the
+stretch out line by line in the next round. If the integrator prefers, the
+second file can be left out: P1, P2 and the prefix do not depend on it;
+what is lost without it is `machineShape?_callBinder` (R4) and the two
+compositions.
+
+Tests: `Tests/Compiler/ReaderInvariantsTest.lean` (18 names, first half),
+`Tests/Compiler/ReaderInvariantsTailTest.lean` (4 names, second half).
+
+## 7. Round 5 (`par/b-6`): the three states, R5, and what `callee_single_out` does and does not replace
+
+### The three states, per theorem
+
+"target-built": built by the integrator on poc. "UNVERIFIED": written, not
+built. "connected": used by a generated endpoint or by a theorem an
+endpoint uses. **Nothing of this line is connected to an endpoint.**
+
+| theorem (file) | built | connected to an endpoint |
+|---|---|---|
+| `instSignature?_some`, `instSignatureS?_some`, `structEnv_inst(S)` (`ShippingInstSignature`) — P1 | **target-built** (poc `02b1b6de`) | no |
+| `machOuts?_of_resultKind`, `kind_inv`, `machOuts?_signal`, `outs_of_kind`, `machResultKind?_inv`, `machResultKind?_ne_domain`, `machOutFields_single` (`ShippingReaderResultKind`) — P2 | **target-built** (poc `02b1b6de`) | no |
+| `ite_none_inv`, `ite_else_none_inv`, `bind_inv`, `machineShape?_prefix`, `declOuts?_of_resultKind`, `instBinders_kinds`, `getElem?_mid` (`ShippingMachineShapeUnfold`, repaired) — P4 prefix | UNVERIFIED (`f8762e4c`, queued) | no |
+| `machineShape?_some`, `machineShape?_callBinder`, `machineShape?_single_out`, `callee_single_out` (`ShippingMachineShapeTail`) — P4 | UNVERIFIED (`f8762e4c`, queued) | no |
+| `machineShape?_decomp`, `ShapeDecomp.slots_length / r5_of_lengths / nDecl / callBinder_bs / callBinder / single_out` (`ShippingShapeDecomp`) — the bundle, R5 as a hypothesis | UNVERIFIED (this round) | no |
+| `entryStrict`, `callWidthsStrict_of_entries`, `entryStrict_of_single`, `r1_of_kind`, `entryStrict_declared` (`ShippingCallWidthsDeclared`) | UNVERIFIED (this round) | no |
+
+### R5: what is pure and what is not
+
+The closing's `nDecl` (5199, 5218) is `binders.length - insts.length -
+layout.slots.length - layout.lets`. The wrapper text gives (all fields of
+`ShapeDecomp`, by `rfl` on the structure literal):
+
+* `binders = bs ++ instBinders insts ++ names.zip kinds ++ letB` (5165–5168);
+* `layout.slots = machSlotFields ((kinds.map machWidth).zip inits)` (5173);
+* `layout.lets = letB.length` (5176; the conjunct dropped in the repair of
+  round 4b is BACK, as the field `lets`).
+
+PURE consequences: `(instBinders insts).length = insts.length`;
+`layout.slots.length = min kinds.length inits.length`
+(`ShapeDecomp.slots_length`); the slot binders are `names.zip kinds`.
+NOT pure: `(names.zip kinds).length = layout.slots.length`, i.e. `min
+names.length kinds.length = min kinds.length inits.length`. The two lists
+are zips of `kinds` with two DIFFERENT arrays of the reader state
+(`st.names`, `st.inits`); nothing in the wrapper relates their sizes. So
+R5 is a hypothesis of `ShapeDecomp.nDecl` and `ShapeDecomp.callBinder`,
+and `r5_of_lengths` reduces it to `names.length = kinds.length ∧
+inits.length = kinds.length` — an invariant of `MachRead` kept by the
+readers that push slots (`machReserve`, a `def`; `machLoopRoot` /
+`machLoopBody`, `partial`).
+
+The correction to round 4: `machineShape?_callBinder` (position
+`bs.length + k`) is NOT the closing's position. `ShapeDecomp.callBinder`
+is the statement at `nDecl + k`, under R5.
+
+### Corrected claim about `callee_single_out`
+
+`callee_single_out` covers the child's half of the RESULT side for a
+one-Signal callee read from its DECLARED constant, and nothing else. It
+does not remove the data premise `callWidthsStrict` / `callWidthsOk`, and
+it says nothing about `callArgsOk`. Still open: R1 (the parent's
+`insts[k]` kind is `(structEnv env).inst c`'s kind), R5, P5 (a child whose
+entry constant is its unfolding), the argument side R3 / T2.
+
+**Which existing endpoint's which `decide` can it replace today? None.**
+By `grep` on poc, a call-width condition is decided in exactly these
+places, all `callWidthsOk` (not the strict form):
+
+* `Tests/Compiler/ChecksRawTest.lean` 362–364 `parent_callWidths`
+  (`parent` against `cnt`);
+* `Tests/Compiler/PortsMatchRawLeafChainedTest.lean` 36 (`chained`);
+* the generators `Tools/ShippingNoPortsCommand.lean` 221,
+  `Tools/ShippingNoDesignCommand.lean` 155,
+  `Tools/ShippingShipsFreeCommand.lean` 159 (generated for `parent`,
+  `chained`).
+
+None is replaceable by this line as it stands, for three independent
+reasons:
+
+1. their callee `cnt` returns a STRUCTURE (`n`, `hit`): the entries come
+   from `machInstanceS` (R2, with `Expr.instantiate1` — P3), not from the
+   one-Signal path;
+2. the one-Signal parents (`caller`, `callerTwice`, `callerNested`,
+   `callerD`) have NO width theorem and hence no `decide` to replace
+   (`B-callkinds.md` §6);
+3. the decided conditions are about REFLECTED shapes
+   (`f.machineData.shape`), while this line speaks of `machineShape? … =
+   some sp`; the link is `MachineDefines` (the entry constant, possibly
+   the unfolding: P5).
+
+**The first consumer** is the one-output form worker A is deriving for
+`ShippingMachineInstTest.caller` (`hkidW_one`, which asks
+`callWidthsStrict d nDecl kidOuts` and `ChildOutTys`).
+`entryStrict_declared` is written for it: it proves conjunct `k` of
+`callWidthsStrict` at the closing's `nDecl` from the two reader results,
+the callee's signature and constant, and the two named hypotheses
+
+    R5 : (names.zip kindsP).length = d.shape.layout.slots.length
+    R1 : (d.shape.insts.map (·.2.2))[k]? = some res
+
+So for that consumer the `decide` of `callWidthsStrict` becomes: R1 and R5
+per parent (each a closed fact about the reflected shape, hence itself
+decidable per declaration — smaller than the width condition, and no
+longer mentioning the child's layout), plus the two `machineShape?`
+equations. Whether that is a gain over one `decide` is for the integrator
+to judge; the gain in STATEMENT is that the child's layout widths are no
+longer compared by evaluation but derived (P1 + P2 + the decomposition).
