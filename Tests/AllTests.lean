@@ -204,6 +204,8 @@ import Tests.Compiler.NoPortsMemOnlyClosedTwoMemsTest
 import Tests.Compiler.NoPortsMemOnlyClosedMixedMemsTest
 import Tests.Compiler.CoreFromMAuditTest
 import Tests.Compiler.NoPortsSlotlessEngineOnceTest
+import Tests.Compiler.NoPortsSlotlessTwinCallsTest
+import Tests.Compiler.NoPortsSlotlessMesh2x2Test
 import Tests.Compiler.LegacySemInstanceTest
 import Tests.Compiler.LegacyCacheFixTest
 import Tests.Compiler.LegacySemMemoTest

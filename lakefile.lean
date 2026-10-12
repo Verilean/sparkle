@@ -2615,3 +2615,6 @@ lean_lib «Tools.ShippingSlotlessClk» where
 
 lean_lib «Tools.ShippingSlotlessKidFacts» where
   roots := #[`Tools.ShippingSlotlessKidFacts]
+
+lean_lib «Tools.ShippingNoPortsSlotlessCommand» where
+  roots := #[`Tools.ShippingNoPortsSlotlessCommand]
