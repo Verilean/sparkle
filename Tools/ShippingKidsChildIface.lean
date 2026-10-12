@@ -108,6 +108,19 @@ theorem kid_of_iface {c : Name} {n : Nat} {b : Sparkle.IR.AST.Module} {design : 
 def namesOf (d : MachineData) (namesK : Nat → List String) : List String :=
   d.shape.insts.map (·.1.toString) ++ (List.range d.shape.insts.length).flatMap namesK
 
+/-- The declarations behind `namesOf`: a machine's children and their
+descendants. -/
+def declsOf (d : MachineData) (declsK : Nat → List Name) : List Name :=
+  d.shape.insts.map (·.1) ++ (List.range d.shape.insts.length).flatMap declsK
+
+/-- The printed names of the descendants are the descendants' names, printed. -/
+theorem namesOf_map (d : MachineData) (declsK : Nat → List Name) :
+    namesOf d (fun k => (declsK k).map fun n => n.toString) =
+      (declsOf d declsK).map fun n => n.toString := by
+  unfold namesOf declsOf
+  rw [List.map_append, List.map_map, List.map_flatMap]
+  rfl
+
 variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
   {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
 

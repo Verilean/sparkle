@@ -43,6 +43,9 @@ structure Node where
   names : Term
   iface : Term      -- a term of `∀ y, RealChild mref cref c y → ChildIfaceD …`, in the premises' scope
   isGate : Bool := false
+  /-- The descendants' declarations (the term, and its value at generation). -/
+  declsT : Term
+  decls : List Name := []
   deriving Inhabited
 
 def mangle (k : Name) : String := (k.toString.replace "." "_").replace "'" "_"
@@ -167,19 +170,49 @@ partial def closesDeep (c : Name) : CommandElabM (Array Prem) := do
       `($(mkIdent pn))
   let nkArr := calls.toArray.map fun k => (nodes.get! k).nArgs
   let outArr := calls.toArray.map fun k => (nodes.get! k).outs
-  let nmArr := calls.toArray.map fun k => (nodes.get! k).names
+  let dArr := calls.toArray.map fun k => (nodes.get! k).declsT
   let kbs ← `([$nkArr,*])
   let kos ← `(([$outArr,*] : List (List String)))
-  let kns ← `(([$nmArr,*] : List (List String)))
+  let kds ← `(([$dArr,*] : List (List Lean.Name)))
   let nkF ← `(fun k => List.getD $kbs k 0)
   let outF ← `(fun k => List.getD $kos k [])
-  let nmF ← `(fun k => List.getD $kns k [])
+  -- the descendants' printed names: the descendants' declarations, printed
+  let nmF ← `(fun k => (List.getD $kds k []).map fun n => n.toString)
+  let declsAt (k : Name) : List Name := (nodes.get! k).decls
+  let sepAll (a : Name) (L : List Name) : Bool := L.all fun b => Tools.ShippingNameSep.sepB a b
+  let namesSep := calls.all (fun k => sepAll c (declsAt k) && sepAll k (declsAt k)) &&
+    calls.all fun k => calls.all fun k' => k == k' ||
+      (sepAll k (declsAt k') && (declsAt k).all fun a => sepAll a (declsAt k'))
   -- the descendants' names: nothing to ask when no child has a descendant
   let allLeaf ← kids.allM fun k => do
     let cr ← liftTermElabM <| Tools.ShippingMachineCommand.readMachine k
     pure cr.shape.insts.isEmpty
   let (hpD, hsD, hdD) ← if allLeaf then
       pure (← `(by decide), ← `(by decide), ← `(by decide))
+    else if namesSep then
+      -- separated by the names' candidate renderings (`Tools.ShippingNameSep`)
+      pure (
+        ← `(fun k hk => Tools.ShippingNameSep.not_mem_map_of _ _
+          ((by decide : ∀ (k : Nat), k < ($data).shape.insts.length →
+            ((List.getD $kds k []).all fun c' =>
+              Tools.ShippingNameSep.sepB ($cq : Lean.Name) c') = true) k hk)),
+        ← `(fun k hk => Tools.ShippingNameSep.not_mem_map_of _ _
+          ((by decide : ∀ (k : Nat) (hk : k < ($data).shape.insts.length),
+            ((List.getD $kds k []).all fun c' =>
+              Tools.ShippingNameSep.sepB (($data).shape.insts[k]).1 c') = true) k hk)),
+        ← `(fun k hk k' hk' hne =>
+          ⟨Tools.ShippingNameSep.not_mem_map_of _ _
+            ((by decide : ∀ (k : Nat) (hk : k < ($data).shape.insts.length) (k' : Nat)
+              (hk' : k' < ($data).shape.insts.length),
+              (($data).shape.insts[k]).1 ≠ (($data).shape.insts[k']).1 →
+              ((List.getD $kds k' []).all fun c' =>
+                Tools.ShippingNameSep.sepB (($data).shape.insts[k]).1 c') = true) k hk k' hk' hne),
+           Tools.ShippingNameSep.disjoint_map_of _ _
+            ((by decide : ∀ (k : Nat) (hk : k < ($data).shape.insts.length) (k' : Nat)
+              (hk' : k' < ($data).shape.insts.length),
+              (($data).shape.insts[k]).1 ≠ (($data).shape.insts[k']).1 →
+              ((List.getD $kds k []).all fun a => (List.getD $kds k' []).all fun b =>
+                Tools.ShippingNameSep.sepB a b) = true) k hk k' hk' hne)⟩))
     else do
       let p1 := Name.mkSimple s!"hN_{tag}_parentD"
       let p2 := Name.mkSimple s!"hN_{tag}_selfD"
@@ -243,8 +276,9 @@ partial def ifaceDeep (k : Name) : CommandElabM Node := do
         $(n k "gate_wf") (Tools.ShippingGateChild.bool_positions (by decide))
         (Tools.ShippingGateChild.bits_positions (by decide)) hy))
     return { prems := #[{ name := pn, binder := b, refl := some false }], nArgs := ← `(0),
-             outs := ← `(([] : List String)), names := ← `(([] : List String)), iface := f,
-             isGate := true }
+             outs := ← `(([] : List String)),
+             names := ← `((([] : List Lean.Name).map fun n => n.toString)), iface := f,
+             declsT := ← `(([] : List Lean.Name)), isGate := true }
   unless (← getEnv).contains (k ++ `machineData) && (← getEnv).contains (k ++ `machine_ok) &&
       (← getEnv).contains (k ++ `machine_body) do
     throwError "{k} is neither a generated gate child nor a machine with an endpoint"
@@ -261,7 +295,9 @@ partial def ifaceDeep (k : Name) : CommandElabM Node := do
     let f ← `(fun y hy => Tools.ShippingCallsKidsD.ChildIfaceG.toD
       (Tools.ShippingSeqChildIface.seqChild_of_real $kd $(n k "machine_ok") $(n k "machine_body")
         rfl (by decide) $(mkIdent pn) (fun mc cc => $(n k "machine_closes") mc _ cc _) hy))
-    return { prems := #[self], outs, names := ← `(([] : List String)), iface := f,
+    return { prems := #[self], outs,
+             names := ← `((([] : List Lean.Name).map fun n => n.toString)), iface := f,
+             declsT := ← `(([] : List Lean.Name)),
              nArgs := ← `(((($kd).shape.binders.take (($kd).shape.binders.length -
                ($kd).shape.layout.slots.length - ($kd).shape.layout.lets)).filter
                  fun x => x.2 != .domain).length) }
@@ -277,13 +313,25 @@ partial def ifaceDeep (k : Name) : CommandElabM Node := do
     let nd ← ifaceDeep g
     sub := sub.insert g nd
     prems := addPrems prems nd.prems
-  let nmArr := calls.toArray.map fun g => (sub.get! g).names
-  let kns ← `(([$nmArr,*] : List (List String)))
-  let nmF ← `(fun k => List.getD $kns k [])
-  let names ← `(Tools.ShippingKidsChildIface.namesOf $kd $nmF)
+  let dArr := calls.toArray.map fun g => (sub.get! g).declsT
+  let kds ← `(([$dArr,*] : List (List Lean.Name)))
+  let dF ← `(fun k => List.getD $kds k [])
+  let nmF ← `(fun k => (List.getD $kds k []).map fun n => n.toString)
+  let declsT ← `(Tools.ShippingKidsChildIface.declsOf $kd $dF)
+  let names ← `(($declsT).map fun n => n.toString)
+  let decls : List Name := (kids ++ kids.flatMap fun g => (sub.get! g).decls).eraseDups
   let pself := Name.mkSimple s!"hN_{mangle k}_self"
-  prems := prems.push { name := pself, binder := ← `(bracketedBinder|
-    ($(mkIdent pself) : ($kq : Lean.Name).toString ∉ $names)) }
+  -- the declaration prints differently from its descendants: by the candidate
+  -- renderings when they separate, else a premise
+  let hselfT : Term ← if decls.all (fun g => Tools.ShippingNameSep.sepB k g) then
+      `((by
+        rw [Tools.ShippingKidsChildIface.namesOf_map $kd $dF]
+        exact Tools.ShippingNameSep.not_mem_map_of _ _ (by decide)))
+    else do
+      prems := prems.push { name := pself, binder := ← `(bracketedBinder|
+        ($(mkIdent pself) : ($kq : Lean.Name).toString ∉
+          Tools.ShippingKidsChildIface.namesOf $kd $nmF)) }
+      `($(mkIdent pself))
   let nCalls := Syntax.mkNumLit (toString calls.length)
   let mut tac ← `(tactic| exact absurd hk' (by omega))
   for i' in [0:calls.length] do
@@ -312,21 +360,23 @@ partial def ifaceDeep (k : Name) : CommandElabM Node := do
           ∀ (y : Sparkle.IR.AST.Module × Sparkle.IR.AST.Design),
             Tools.ShippingChildInv.RealChild mref cref $kq y →
             Tools.ShippingCallsKidsD.ChildIfaceD $kq $nArgs $outs $names y.1 y.2 :=
-        fun y hy => Tools.ShippingKidsChildIface.kidsChild_of_real (nDecl := $kD) $kd
-          $(n k "machine_ok") $(n k "machine_body") (by decide) (by decide) (by decide) (by decide)
-          (by decide) (by decide) $kD (by decide) (by decide) (by decide) (by decide) (by decide)
-          (by decide) $nmF (by decide)
-          (by
-            intro k hk y hy
-            have hk' : k < $nCalls := hk
-            $tac:tactic)
-          $(mkIdent pself) $(mkIdent pn)
-          (fun mc cc _ => @$(mkIdent (`_root_ ++ k ++ `closes_deep)) mc mref cc cref $closeArgs*)
-          hy))
+        fun y hy => by
+          rw [← Tools.ShippingKidsChildIface.namesOf_map $kd $dF]
+          exact Tools.ShippingKidsChildIface.kidsChild_of_real (nDecl := $kD) $kd
+            $(n k "machine_ok") $(n k "machine_body") (by decide) (by decide) (by decide) (by decide)
+            (by decide) (by decide) $kD (by decide) (by decide) (by decide) (by decide) (by decide)
+            (by decide) $nmF (by decide)
+            (by
+              intro k hk y hy
+              have hk' : k < $nCalls := hk
+              $tac:tactic)
+            $hselfT $(mkIdent pn)
+            (fun mc cc _ => @$(mkIdent (`_root_ ++ k ++ `closes_deep)) mc mref cc cref $closeArgs*)
+            hy))
     check before name
   let args := prems.map fun p => (mkIdent p.name : Term)
   let f ← `($(mkIdent (`_root_ ++ name)) $args*)
-  return { prems, nArgs, outs, names, iface := f }
+  return { prems, nArgs, outs, names, iface := f, declsT, decls }
 
 end
 

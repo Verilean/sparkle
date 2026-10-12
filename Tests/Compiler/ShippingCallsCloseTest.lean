@@ -721,3 +721,18 @@ run_cmd Lean.Elab.Command.liftTermElabM do
       report := report.push m!"{e}: closings left {left}"
     unless ← namesHold f do throwError "{f}: a name condition is false"
   Lean.logInfo m!"CHILDREN WITH CALLS (B3): {report} — MachineClosesAt derived through a child with calls; premises: the descendants' reflection and name separation per node; standard axioms"
+
+/-- Every premise of the deep closings is a descendant's reflection: the name
+separation over the descendants is PROVED (`Tools.ShippingNameSep`). -/
+run_cmd Lean.Elab.Command.liftTermElabM do
+  for (f, nRefl) in [(``Sparkle.Tests.Compiler.ShippingMachineSeqTest.grand, 2),
+      (``Sparkle.Tests.Compiler.ShippingMachineDepthHTest.grandH, 2),
+      (``Sparkle.Tests.Compiler.ShippingDesignSVTest.mixD1, 3),
+      (``Sparkle.Tests.Compiler.ShippingDesignSVTest.topD2, 3)] do
+    let hyps ← premises (f ++ `closes_deep)
+    for h in hyps do
+      unless h.isAppOf ``Tools.ShippingInlineSoundness.EntryDefines ||
+          h.isAppOf ``Tools.ShippingMachineEntry.MachineDefines do
+        throwError "{f}.closes_deep: a premise that is not a reflection: {h}"
+    unless hyps.size == nRefl do throwError "{f}.closes_deep: {hyps.size} premises"
+  Lean.logInfo m!"DEEP CLOSINGS: grand, grandH, mixD1, topD2 — the only premises are the descendants' reflections (2, 2, 3, 3); name separation over the descendants proved from the candidate renderings"
