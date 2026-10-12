@@ -2162,3 +2162,6 @@ lean_lib «Tools.ShippingLegacySemRunIn» where
 
 lean_lib «Tools.ShippingLegacySemLeaf» where
   roots := #[`Tools.ShippingLegacySemLeaf]
+
+lean_lib «Tools.ShippingLegacySemMemo» where
+  roots := #[`Tools.ShippingLegacySemMemo]

@@ -35,6 +35,16 @@ only ever translated NAMED.
 * `leaf_entry_output_walked` — the entry's, from the walk
   (`legacy_entry_walk`).
 
+**Which translators the dispatch premise is asked of** (round 13): the
+constructor `inlineAt` asked `∀ rec, ReachesUnfoldAt rec …`; the proofs use
+it only at the translators the fuel recursion passes down, so it now asks
+`∀ fuel, ReachesUnfoldAt (translateFuelFix translateStep fuel) …` — a weaker
+premise (the domain grew; no theorem changed its conclusion). For a leaf
+whose unfoldings are in `LegacyDom` (one inline level, e.g. `useDbl`) the run
+uses exactly ONE of them, `translateFuelFix translateStep (translateFuelLimit
+- 1)`; the constructor keeps every fuel because a nested inline leaf uses one
+fuel less per level.
+
 **What `LeafDom` does not give**: a `Contract` (all flags). A `LeafDom`
 expression that is not in `LegacyDom` cannot be used as a child of a
 certified node (children are translated at `(hint, false, false)`, the
@@ -66,7 +76,8 @@ inductive LeafDom (ctx : CompilerState) (inputs : FVarId → Option Value) (hint
   | dom {e : Lean.Expr} {v : Value} : LegacyDom ctx inputs e v →
       LeafDom ctx inputs hint named e v
   | inlineAt {e : Lean.Expr} {v : Value} : NotCore e →
-      (∀ rec : TranslateFn, ReachesUnfoldAt rec ctx e hint false named) →
+      (∀ fuel : Nat,
+        ReachesUnfoldAt (translateFuelFix translateStep fuel) ctx e hint false named) →
       (∀ e' : Lean.Expr, InlineUnfolds e e' → LeafDom ctx inputs hint named e' v) →
       LeafDom ctx inputs hint named e v
 
@@ -93,12 +104,12 @@ theorem leaf_fuel_spec {ctx : CompilerState} {inputs : FVarId → Option Value}
       · intro s t w lookup hr
         have hstep : Returns (translateStepWith translateFallback
             (translateFuelFix translateStep fuel) _ hint false named) ctx s w t := hr
-        obtain ⟨e', hU, htr⟩ := reach _ s t w (step_run_fallback nc hstep)
+        obtain ⟨e', hU, htr⟩ := reach fuel s t w (step_run_fallback nc hstep)
         exact (ih e' hU fuel).frame s t w lookup htr
       · intro s t w prior hinv widths hr
         have hstep : Returns (translateStepWith translateFallback
             (translateFuelFix translateStep fuel) _ hint false named) ctx s w t := hr
-        obtain ⟨e', hU, htr⟩ := reach _ s t w (step_run_fallback nc hstep)
+        obtain ⟨e', hU, htr⟩ := reach fuel s t w (step_run_fallback nc hstep)
         exact (ih e' hU fuel).sem s t w prior hinv widths htr
 
 /-- **Order of a leaf at its flags, at every fuel.** -/
@@ -121,7 +132,7 @@ theorem leaf_fuel_order {ctx : CompilerState} {inputs : FVarId → Option Value}
       intro s t w prior hr hinv widths order
       have hstep : Returns (translateStepWith translateFallback
           (translateFuelFix translateStep fuel) _ hint false named) ctx s w t := hr
-      obtain ⟨e', hU, htr⟩ := reach _ s t w (step_run_fallback nc hstep)
+      obtain ⟨e', hU, htr⟩ := reach fuel s t w (step_run_fallback nc hstep)
       exact ih e' hU fuel s t w prior htr hinv widths order
 
 /-- The shipping translator on a leaf at its flags: frame and outcome. -/

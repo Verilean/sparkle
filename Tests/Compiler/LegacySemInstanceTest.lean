@@ -117,7 +117,18 @@ true`, `Tools/ShippingLegacySemLeaf.lean`), so:
   the prepared setup maps `x` to its value (`useDbl_input`).
   The compiled check below logs whether the oracle's result on `dbl x`
   equals that quoted term in this environment.
-* H1 is unchanged. -/
+* H1 is unchanged.
+
+## Round 13: `hnosub` narrowed
+
+`hnosub` was asked of EVERY recursive translator; it is now asked of the
+translators the fuel recursion passes down (`translateFuelFix translateStep
+fuel`). The run itself uses one of them (`fuel = translateFuelLimit - 1`).
+`hmap` stays quantified over the variable and the cache: they are outputs of
+the run (existential in the conclusion), the premise is a closed property of
+the leaf and the prepared variable map, and it does not depend on the
+valuation in substance (`prepare`'s context ignores `bools` / `bits`; the
+quantifier over them is there only because `setupOf` takes them). -/
 
 open Lean Meta Sparkle.Compiler.Elab
 open Sparkle.Core.Domain Sparkle.Core.Signal
@@ -349,13 +360,12 @@ theorem useDbl_output_r11 {logProf : String → IO Unit} {dv : DefinitionVal}
 walked premises. -/
 theorem dbl_reachesAt {ctx : CompilerState} {xid : FVarId}
     (hmap : HasMappedFVar ctx (callE xid)) (hplain : PlainHead ``dbl)
-    (hnosub : ∀ rec : TranslateFn, NoSubModule rec ctx (callE xid))
-    (rec : TranslateFn) (hint : String) :
+    (rec : TranslateFn) (hnosub : NoSubModule rec ctx (callE xid)) (hint : String) :
     ReachesUnfoldAt rec ctx (callE xid) hint false true :=
   fun s t w hr =>
     plain_call_reaches (dbl_head xid) (dbl_kind xid) hplain dbl_glue
       (dbl_plainName dbl_suffixes) dbl_notBitVecOp (dbl_plainName2 dbl_suffixes)
-      (dbl_implName dbl_suffixes) hmap (dbl_flags xid false) (hnosub rec) s t w hr
+      (dbl_implName dbl_suffixes) hmap (dbl_flags xid false) hnosub s t w hr
 
 /-- The body of `dbl` on one 8-bit input, as a term of the quoted fragment. -/
 abbrev dblTerm : Tools.ShippingUnifiedSource.Term (.bits 8) :=
@@ -420,8 +430,9 @@ theorem useDbl_output {logProf : String → IO Unit} {dv : DefinitionVal}
       HasMappedFVar (setupOf ``useDbl useDblBinders [id] cache bools bits).context (callE id))
     (hplain : PlainHead ``dbl)
     (hnosub : ∀ (id : FVarId) (cache : IO.Ref (ExprStructMap String))
-      (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n) (rec : TranslateFn),
-      NoSubModule rec (setupOf ``useDbl useDblBinders [id] cache bools bits).context (callE id))
+      (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n) (fuel : Nat),
+      NoSubModule (translateFuelFix translateStep fuel)
+        (setupOf ``useDbl useDblBinders [id] cache bools bits).context (callE id))
     (hunfE : ∀ (xid : FVarId) (e' : Lean.Expr), InlineUnfolds (callE xid) e' →
       ∃ dom : Lean.Expr, e' = dblUnfoldE dom xid)
     (hr : Tools.ShippingEntrySoundness.MReturns (synthesizeFromConst
@@ -455,8 +466,8 @@ theorem useDbl_output {logProf : String → IO Unit} {dv : DefinitionVal}
     exact H bools bits initial mems values
       (.bits 8 (bits id 8 + bits id 8)) (Nat.succ_pos 7)
       (LeafDom.inlineAt (dbl_notCore id)
-        (fun rec => dbl_reachesAt (hmap id cache bools bits) hplain
-          (hnosub id cache bools bits) rec "out")
+        (fun fuel => dbl_reachesAt (hmap id cache bools bits) hplain
+          (translateFuelFix translateStep fuel) (hnosub id cache bools bits fuel) "out")
         (fun e' hU => by
           obtain ⟨dom, rfl⟩ := hunfE id e' hU
           exact LeafDom.dom (dbl_unfold_dom (useDbl_input id cache bools bits))))
