@@ -279,3 +279,17 @@ To be re-measured at the first `AllTests` integration run.
   about different modules; which artifact is THE output is a decision for
   the user (the ruling "the real print call and the theorem must use the
   same selected artifact" applies).
+- Finding D measured (`Tests/Compiler/PrintArtifactCensusTest`, logs only, on
+  main): 37 real declarations (29 with an instance, 8 without). The top
+  module of the hierarchical design equals the single-module entry's module
+  on 37 of 37, and the two designs have the same modules on 37 of 37. But the
+  module the design commands PRINT for the top (`optimizeModule b`) equals
+  the endpoints' module (`checkedOptimize b`) on 5 of 37, and the emitted
+  text is equal on the same 5 only (e.g. `parent`: 890 against 964
+  characters; the checked route names the instance connections again, the
+  design route does not; `rcH`, instance-free: the checked route returned the
+  unoptimized module, the design route printed the optimized one). Of 39
+  child modules the unchecked optimizer changes 33 (and their text), whereas
+  the endpoints take children unoptimized; it agrees with `checkedOptimize`
+  on 15 of the 39. The optimizer is idempotent on every module of only 5 of
+  the 37 designs (`#sim` applies it twice).
