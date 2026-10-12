@@ -1,3 +1,4 @@
+import Lean.Elab.Command
 import Sparkle.IR.RefineCheck
 import Sparkle.IR.HierCheck
 

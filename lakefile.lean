@@ -2189,3 +2189,12 @@ lean_lib «Tools.ShippingShipsHierSame» where
 
 lean_lib «Tools.ShippingCallWidths» where
   roots := #[`Tools.ShippingCallWidths]
+
+lean_lib «Tools.ShippingGuardsSound» where
+  roots := #[`Tools.ShippingGuardsSound]
+
+lean_lib «Tools.ShippingShipsHierFree» where
+  roots := #[`Tools.ShippingShipsHierFree]
+
+lean_lib «Tools.ShippingChecksRunFacts» where
+  roots := #[`Tools.ShippingChecksRunFacts]
