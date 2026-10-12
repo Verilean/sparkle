@@ -92,8 +92,9 @@ for the machine route).
    │   ├─ A (lets)  │    for legacy syntax)    ├─ G3b data checks hold of
    │   │   done     ├─ G2a contract            │     every reader output
    │   ├─ B1 done   ├─ G2b handlers meet it    └─ G3c generator total
-   │   ├─ B2  ◄──── in work                         (follows from a+b)
-   │   └─ B3 children with calls (needs B2's interface)
+   │   ├─ B2 done (no-call kids)                    (needs a+b AND the
+   │   │                                             generator's totality)
+   │   └─ B3 done (kids with registers; see audit §0)
    ├─ G1 output checks derived from the run (needs CLOSE's body facts)
    ├─ N1 names (independent; premise of every closed endpoint)
    ├─ G4a fuel monotone (independent)
