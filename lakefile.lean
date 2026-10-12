@@ -2135,3 +2135,9 @@ lean_lib «Tools.ShippingFinalGoal» where
 
 lean_lib «Tools.ShippingFinalGoalCommand» where
   roots := #[`Tools.ShippingFinalGoalCommand]
+
+lean_lib «Tools.ShippingShipsNoOuts» where
+  roots := #[`Tools.ShippingShipsNoOuts]
+
+lean_lib «Tools.ShippingShipsNoOutsCommand» where
+  roots := #[`Tools.ShippingShipsNoOutsCommand]
