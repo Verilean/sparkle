@@ -2570,3 +2570,12 @@ lean_lib «Tools.ShippingOneOutKidDepth» where
 
 lean_lib «Tools.ShippingNoPortsDeepCommand» where
   roots := #[`Tools.ShippingNoPortsDeepCommand]
+
+lean_lib «Tools.ShippingMemKidCore» where
+  roots := #[`Tools.ShippingMemKidCore]
+
+lean_lib «Tools.ShippingMemKidPorts» where
+  roots := #[`Tools.ShippingMemKidPorts]
+
+lean_lib «Tools.ShippingMemKidFacts» where
+  roots := #[`Tools.ShippingMemKidFacts]
