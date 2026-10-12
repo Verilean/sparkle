@@ -2150,3 +2150,15 @@ lean_lib «Tools.ShippingLegacySemOrder» where
 
 lean_lib «Tools.ShippingLegacySemEntryWalk» where
   roots := #[`Tools.ShippingLegacySemEntryWalk]
+
+lean_lib «Tools.ShippingLegacySemLeafAt» where
+  roots := #[`Tools.ShippingLegacySemLeafAt]
+
+lean_lib «Tools.ShippingLegacySemHarnessAt» where
+  roots := #[`Tools.ShippingLegacySemHarnessAt]
+
+lean_lib «Tools.ShippingLegacySemRunIn» where
+  roots := #[`Tools.ShippingLegacySemRunIn]
+
+lean_lib «Tools.ShippingLegacySemLeaf» where
+  roots := #[`Tools.ShippingLegacySemLeaf]

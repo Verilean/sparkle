@@ -29,14 +29,14 @@ by the leaf-generic inductions (`fuel_protects_leaves`,
 their protection / order from the induction hypothesis; a legacy inline arm
 directly — the step on such a call IS a run of the translator on an
 unfolding of the call, from the same state to the same state, with the same
-wire (`ReachesInline`, `tryInlineUnfold_returns`), so both facts are the
+wire (`ReachesUnfold`, the premise of `LegacyDom.inline`), so both facts are the
 unfolding's, one fuel below. The inline attempt adds no statement and no
 name of its own.
 
 Stated at the default link context and child semantics (as
 `Tools/ShippingUnifiedProtection.lean` and the certified entry are).
 
-**NOT proved here**: `ReachesInline` and the unfoldings' membership stay the
+**NOT proved here**: `ReachesUnfold` and the unfoldings' membership stay the
 premises carried by `LegacyDom.inline`. -/
 namespace Tools.ShippingLegacySem
 open Lean Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Builder Sparkle.IR.Semantics
@@ -88,8 +88,7 @@ theorem legacy_fuel_protect {ctx : CompilerState} {inputs : FVarId → Option Va
       have hstep : Returns (translateStepWith translateFallback
           (translateFuelFix translateStep fuel) _ hint false named) ctx s w t := hr
       have hfb := step_run_fallback nc hstep
-      obtain ⟨r, hrun, hres⟩ := reach _ hint false named s t w hfb
-      obtain ⟨e', hU, htr⟩ := tryInlineUnfold_returns hrun hres
+      obtain ⟨e', hU, htr⟩ := reach _ hint false named s t w hfb
       exact ih e' hU fuel hint named s w t p htr lookup hp
 
 /-- **Order on the combined domain, at every fuel.** -/
@@ -129,8 +128,7 @@ theorem legacy_fuel_order {ctx : CompilerState} {inputs : FVarId → Option Valu
       have hstep : Returns (translateStepWith translateFallback
           (translateFuelFix translateStep fuel) _ hint false named) ctx s w t := hr
       have hfb := step_run_fallback nc hstep
-      obtain ⟨r, hrun, hres⟩ := reach _ hint false named s t w hfb
-      obtain ⟨e', hU, htr⟩ := tryInlineUnfold_returns hrun hres
+      obtain ⟨e', hU, htr⟩ := reach _ hint false named s t w hfb
       exact ih e' hU fuel hint named s t w prior htr hinv widths order
 
 /-- **The shipping translator protects, on the combined domain.** -/

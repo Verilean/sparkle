@@ -170,6 +170,25 @@ def ReachesInline (rec : TranslateFn) (ctx : CompilerState) (e : Lean.Expr) : Pr
     ∃ r : Option String × Option Exception,
       Returns (Rec.tryInlineUnfold rec e hint named) ctx s r t ∧ r.1 = some w
 
+/-- **What the proofs use of `ReachesInline`** (round 12): every successful
+run of the fallback on `e` is a successful run of the recursive translator on
+an unfolding of `e`, with the same hint and name flag and `isTopLevel =
+false`, from the same builder state to the same builder state, with the same
+wire. Weaker than `ReachesInline` (`ReachesInline.unfold`): it does not say
+that the wire came from a run of `Rec.tryInlineUnfold`. It is what the walked
+dispatch concludes (`plain_call_reaches`,
+`Tools/ShippingLegacySemInstance.lean`). -/
+def ReachesUnfold (rec : TranslateFn) (ctx : CompilerState) (e : Lean.Expr) : Prop :=
+  ∀ (hint : String) (top named : Bool) (s t : CircuitState) (w : String),
+    Returns (translateFallback rec e hint top named) ctx s w t →
+    ∃ e' : Lean.Expr, InlineUnfolds e e' ∧ Returns (rec e' hint false named) ctx s w t
+
+theorem ReachesInline.unfold {rec : TranslateFn} {ctx : CompilerState} {e : Lean.Expr}
+    (h : ReachesInline rec ctx e) : ReachesUnfold rec ctx e := by
+  intro hint top named s t w hr
+  obtain ⟨r, hrun, hres⟩ := h hint top named s t w hr
+  exact tryInlineUnfold_returns hrun hres
+
 /-- The legacy handlers proved to meet the contract, as data: the handler an
 expression takes and the contract of what that handler translates. -/
 inductive LegacyArm (rec : TranslateFn) (ctx : CompilerState) (inputs : FVarId → Option Value)
@@ -227,9 +246,19 @@ inline arms, nested in any order, each with its source value.
   themselves in the domain, with the fragment's evaluation. The leaves'
   `Meaning` is asked separately: the certified arms record what they lower,
   and a record is read back by `Meaning`;
-* `inline` — a call the legacy inline arm lowers: the core declines it, the
-  fallback returns the inline attempt's wire in this context, and every
-  unfolding the attempt may translate is in the domain at the same value. -/
+* `inline` — a call the legacy inline arm lowers: the core declines it,
+  every run of the fallback on it in this context is a run of the translator
+  on an unfolding (`ReachesUnfold`), and every unfolding the attempt may
+  translate is in the domain at the same value.
+
+Round 12 restated `inline`: its second premise was `∀ rec, ReachesInline rec
+ctx e` and is now `∀ rec, ReachesUnfold rec ctx e`. The new premise FOLLOWS
+from the old one (`ReachesInline.unfold`), so the domain did not shrink
+(`LegacyDom.inline_of_reachesInline` is the old constructor, as a theorem)
+and no theorem about the domain became weaker. What a derivation by `inline`
+no longer records: that the returned wire was produced by a run of
+`Rec.tryInlineUnfold` — only that it is the wire of a translation of an
+unfolding. No proof used the stronger fact. -/
 inductive LegacyDom (ctx : CompilerState) (inputs : FVarId → Option Value) :
     Lean.Expr → Value → Prop where
   | input {id : FVarId} {v : Value} : inputs id = some v → LegacyDom ctx inputs (.fvar id) v
@@ -242,9 +271,17 @@ inductive LegacyDom (ctx : CompilerState) (inputs : FVarId → Option Value) :
       (∀ j, j < kv → LegacyDom ctx inputs (vE j) (.bits (vw j) (bits j (vw j)))) →
       LegacyDom ctx inputs (quote dom bE vE t) (pack s (eval bools bits t))
   | inline {e : Lean.Expr} {v : Value} : NotCore e →
-      (∀ rec : TranslateFn, ReachesInline rec ctx e) →
+      (∀ rec : TranslateFn, ReachesUnfold rec ctx e) →
       (∀ e' : Lean.Expr, InlineUnfolds e e' → LegacyDom ctx inputs e' v) →
       LegacyDom ctx inputs e v
+
+/-- The constructor `inline` as it was stated before round 12. -/
+theorem LegacyDom.inline_of_reachesInline {ctx : CompilerState}
+    {inputs : FVarId → Option Value} {e : Lean.Expr} {v : Value} (nc : NotCore e)
+    (reach : ∀ rec : TranslateFn, ReachesInline rec ctx e)
+    (sub : ∀ e' : Lean.Expr, InlineUnfolds e e' → LegacyDom ctx inputs e' v) :
+    LegacyDom ctx inputs e v :=
+  LegacyDom.inline nc (fun rec => (reach rec).unfold) sub
 
 /-- **Semantic preservation on the combined domain, at every fuel.** By
 induction on the derivation: an input binder by `input_contract_fuel`, a
@@ -270,8 +307,17 @@ theorem legacy_fuel_contract {ctx : CompilerState} {inputs : FVarId → Option V
     | succ fuel =>
       show Contract (translateStepWith translateFallback (translateFuelFix translateStep fuel))
         ctx inputs we mems initial _ _
-      exact legacy_step_contract nc
-        (LegacyArm.inlineUnfold (reach _) (fun e' hU => ih e' hU fuel))
+      constructor
+      · intro hint top named s t w lookup hr
+        rw [step_eq_fallback (translateFuelFix translateStep fuel) _ hint top named nc.shape
+          (nc.core _ hint top named)] at hr
+        obtain ⟨e', hU, htr⟩ := reach _ hint top named s t w hr
+        exact (ih e' hU fuel).frame hint false named s t w lookup htr
+      · intro hint top named s t w prior hinv widths hr
+        rw [step_eq_fallback (translateFuelFix translateStep fuel) _ hint top named nc.shape
+          (nc.core _ hint top named)] at hr
+        obtain ⟨e', hU, htr⟩ := reach _ hint top named s t w hr
+        exact (ih e' hU fuel).sem hint false named s t w prior hinv widths htr
 
 /-- **The shipping translator on the combined domain**: no recursive-child
 premise; the entry invariant and the final widths stay explicit in

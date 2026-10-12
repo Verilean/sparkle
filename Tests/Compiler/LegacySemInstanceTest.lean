@@ -1,6 +1,6 @@
 import Tools.ShippingLegacySemInstance
 import Tools.ShippingLegacySemSuffix
-import Tools.ShippingLegacySemEntryWalk
+import Tools.ShippingLegacySemLeaf
 import Sparkle
 
 /-! # The legacy inline arm on a real call: which premises can be discharged
@@ -95,7 +95,29 @@ the order on the domain (`legacy_translate_contract`,
 `legacy_translate_order`), `NotCore` (`dbl_notCore`), the entry arm's own
 walk (`legacy_entry_walk`), the legal-name fact (`finishSynth_returns`).
 
-The second outcome, `MemoHit`, is in the conclusion, not excluded. -/
+The second outcome, `MemoHit`, is in the conclusion, not excluded.
+
+## Round 12: H2 and H3 reduced (`useDbl_output`)
+
+The round-11 theorem is kept as `useDbl_output_r11` (its `hreach` is now
+`ReachesUnfold`, the restated premise of `LegacyDom.inline`). The new
+`useDbl_output` asks the leaf in the ENTRY-FLAG domain (`LeafDom … "out"
+true`, `Tools/ShippingLegacySemLeaf.lean`), so:
+
+* H2 is replaced by the walked premises of `plain_call_reaches`, at the one
+  flag setting the entry uses (`named = true`: the shim's cache is not
+  consulted): `hmap` (`HasMappedFVar` at the prepared context —
+  kernel-opaque `Expr.find?`), `hplain` (`PlainHead ``dbl`, the environment),
+  `hnosub` (`NoSubModule` at the prepared context, the run).
+  `dbl_reachesAt` is the reduction.
+* H3 is replaced by `hunfE`: every unfolding the oracle returns for `dbl x`
+  IS the quoted term `x + x` (`dblTerm`, for some domain expression) — pure
+  reflection of `unfoldDefinition?`. Proved from it: the term is in the
+  domain at `x + x` (`dbl_unfold_dom`: `LegacyDom.cert` over the input), and
+  the prepared setup maps `x` to its value (`useDbl_input`).
+  The compiled check below logs whether the oracle's result on `dbl x`
+  equals that quoted term in this environment.
+* H1 is unchanged. -/
 
 open Lean Meta Sparkle.Compiler.Elab
 open Sparkle.Core.Domain Sparkle.Core.Signal
@@ -276,16 +298,17 @@ abbrev useDblBinders : List (Name × MixedGateBinder) := [(`x, .bits 8)]
 /-- The variable of the one binder. -/
 abbrev xOf (ids : List FVarId) : FVarId := ids.headD ⟨.anonymous⟩
 
-/-- **`useDbl`, from the entry to the output wire.** Hypotheses: H1–H3 of the
-header. -/
-theorem useDbl_output {logProf : String → IO Unit} {dv : DefinitionVal}
+/-- **`useDbl`, from the entry to the output wire** (round 11 form).
+Hypotheses: H1–H3 of the header; `hreach` in the restated form
+(`ReachesUnfold`). -/
+theorem useDbl_output_r11 {logProf : String → IO Unit} {dv : DefinitionVal}
     {isInst : Lean.Expr → Bool} {m : Sparkle.IR.AST.Module} {d : Sparkle.IR.AST.Design}
     (htele : ∀ body0, Tools.ShippingEntrySoundness.MReturns (openRecordInputs dv.value) body0 →
       TelescopeSpec (stripMemoizeWrappers body0)
         (EntryFacts useDblBinders (fun ids => callE (xOf ids))))
     (hreach : ∀ (ids : List FVarId) (cache : IO.Ref (ExprStructMap String))
       (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n) (rec : TranslateFn),
-      ReachesInline rec (setupOf ``useDbl useDblBinders ids cache bools bits).context
+      ReachesUnfold rec (setupOf ``useDbl useDblBinders ids cache bools bits).context
         (callE (xOf ids)))
     (hunf : ∀ (ids : List FVarId) (cache : IO.Ref (ExprStructMap String))
       (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n) (e' : Lean.Expr),
@@ -320,6 +343,124 @@ theorem useDbl_output {logProf : String → IO Unit} {dv : DefinitionVal}
       (LegacyDom.inline (dbl_notCore (xOf ids)) (hreach ids cache bools bits)
         (hunf ids cache bools bits))
 
+/-! ## Round 12: the leaf at the entry flags -/
+
+/-- The dispatch premise at the entry's flags (`named = true`), from the
+walked premises. -/
+theorem dbl_reachesAt {ctx : CompilerState} {xid : FVarId}
+    (hmap : HasMappedFVar ctx (callE xid)) (hplain : PlainHead ``dbl)
+    (hnosub : ∀ rec : TranslateFn, NoSubModule rec ctx (callE xid))
+    (rec : TranslateFn) (hint : String) :
+    ReachesUnfoldAt rec ctx (callE xid) hint false true :=
+  fun s t w hr =>
+    plain_call_reaches (dbl_head xid) (dbl_kind xid) hplain dbl_glue
+      (dbl_plainName dbl_suffixes) dbl_notBitVecOp (dbl_plainName2 dbl_suffixes)
+      (dbl_implName dbl_suffixes) hmap (dbl_flags xid false) (hnosub rec) s t w hr
+
+/-- The body of `dbl` on one 8-bit input, as a term of the quoted fragment. -/
+abbrev dblTerm : Tools.ShippingUnifiedSource.Term (.bits 8) :=
+  .binary .add (.bitsInput 8 0) (.bitsInput 8 0)
+
+/-- The quoted unfolding of `dbl x`. -/
+abbrev dblUnfoldE (dom : Lean.Expr) (xid : FVarId) : Lean.Expr :=
+  Tools.ShippingUnifiedSource.quote dom (fun _ => .fvar xid) (fun _ => .fvar xid) dblTerm
+
+/-- **The quoted unfolding is in the domain at `x + x`**, from the input's
+value. -/
+theorem dbl_unfold_dom {ctx : CompilerState}
+    {inputs : FVarId → Option Tools.ShippingUnifiedMeaning.Value} {dom : Lean.Expr}
+    {xid : FVarId} {b : BitVec 8} (hi : inputs xid = some (.bits 8 b)) :
+    LegacyDom ctx inputs (dblUnfoldE dom xid) (.bits 8 (b + b)) := by
+  have hi' : inputs xid = some (.bits 8 (BitVec.setWidth 8 b)) := by
+    rw [BitVec.setWidth_eq]; exact hi
+  have hval : Tools.ShippingUnifiedMeaning.pack (.bits 8)
+      (Tools.ShippingUnifiedSource.eval (fun _ => false)
+        (fun _ w => BitVec.setWidth w b) dblTerm) = .bits 8 (b + b) := by
+    show Tools.ShippingUnifiedMeaning.Value.bits 8
+      (Tools.ShippingScalarSoundness.Binary.apply .add (BitVec.setWidth 8 b)
+        (BitVec.setWidth 8 b)) = _
+    rw [BitVec.setWidth_eq] <;> rfl
+  have h := LegacyDom.cert (ctx := ctx) (inputs := inputs) (dom := dom) (kb := 0) (kv := 1)
+    (vw := fun _ => 8) (bE := fun _ => .fvar xid) (vE := fun _ => .fvar xid)
+    (bools := fun _ => false) (bits := fun _ w => BitVec.setWidth w b) dblTerm
+    ⟨⟨Nat.zero_lt_one, rfl, Nat.succ_pos 7⟩, ⟨Nat.zero_lt_one, rfl, Nat.succ_pos 7⟩⟩
+    (fun j hj => absurd hj (Nat.not_lt_zero j))
+    (fun _ _ => Tools.ShippingUnifiedMeaning.Meaning.input rfl hi')
+    (fun j hj => absurd hj (Nat.not_lt_zero j))
+    (fun _ _ => LegacyDom.input hi')
+  first
+    | (rw [hval] at h; exact h)
+    | exact hval ▸ h
+
+/-- **The prepared setup maps the binder to its value.** -/
+theorem useDbl_input (id : FVarId) (cache : IO.Ref (ExprStructMap String))
+    (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n) :
+    Tools.ShippingUnifiedMeaning.inputValues
+      (setupOf ``useDbl useDblBinders [id] cache bools bits).bools
+      (setupOf ``useDbl useDblBinders [id] cache bools bits).bits id =
+      some (.bits 8 (bits id 8)) := by
+  refine Tools.ShippingUnifiedMeaning.inputValues_bits ?_ ?_
+  · intro key b h
+    exfalso
+    revert h
+    show (if key = id then (none : Option Bool) else none) = some b → False
+    split <;> intro h <;> cases h
+  · exact if_pos rfl
+
+/-- **`useDbl`, from the entry to the output wire.** Hypotheses: `htele`
+(H1), the walked dispatch premises `hmap` / `hplain` / `hnosub` at the
+prepared context, and the reflection of the unfolding oracle `hunfE`. -/
+theorem useDbl_output {logProf : String → IO Unit} {dv : DefinitionVal}
+    {isInst : Lean.Expr → Bool} {m : Sparkle.IR.AST.Module} {d : Sparkle.IR.AST.Design}
+    (htele : ∀ body0, Tools.ShippingEntrySoundness.MReturns (openRecordInputs dv.value) body0 →
+      TelescopeSpec (stripMemoizeWrappers body0)
+        (EntryFacts useDblBinders (fun ids => callE (xOf ids))))
+    (hmap : ∀ (id : FVarId) (cache : IO.Ref (ExprStructMap String))
+      (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n),
+      HasMappedFVar (setupOf ``useDbl useDblBinders [id] cache bools bits).context (callE id))
+    (hplain : PlainHead ``dbl)
+    (hnosub : ∀ (id : FVarId) (cache : IO.Ref (ExprStructMap String))
+      (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n) (rec : TranslateFn),
+      NoSubModule rec (setupOf ``useDbl useDblBinders [id] cache bools bits).context (callE id))
+    (hunfE : ∀ (xid : FVarId) (e' : Lean.Expr), InlineUnfolds (callE xid) e' →
+      ∃ dom : Lean.Expr, e' = dblUnfoldE dom xid)
+    (hr : Tools.ShippingEntrySoundness.MReturns (synthesizeFromConst
+      (fun e hint top named => translateExprToWire e hint top named)
+      logProf ``useDbl [] false false (.defnInfo dv) isInst) (m, d)) :
+    MemoHit ``useDbl m d ∨
+    ∃ (id : FVarId) (cache : IO.Ref (ExprStructMap String)),
+      ∀ (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n)
+        (initial : Sparkle.IR.Semantics.Env) (mems : Sparkle.IR.Semantics.MEnv),
+      Tools.ShippingMixedEntrySoundness.Admissible bools bits initial (useDblBinders.zip [id])
+        (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
+          (``useDbl : Name).toString) →
+      Tools.ShippingMixedEntrySoundness.RawValueAt 8 useDblBinders m initial mems
+        (bits id 8 + bits id 8).toNat := by
+  rcases leaf_entry_output_walked (cfe := false) (bs := useDblBinders)
+      (leafOf := fun ids => callE (xOf ids))
+      (fun h => absurd h Bool.false_ne_true) (fun h => absurd h Bool.false_ne_true)
+      (fun h => absurd h Bool.false_ne_true) htele hr with hit | ⟨ids, cache, nd, len, H⟩
+  · exact Or.inl hit
+  · have len' : ids.length = 1 := len
+    obtain ⟨id, rfl⟩ : ∃ id, ids = [id] := by
+      cases ids with
+      | nil => first | simp at len' | (simp only [List.length_nil] at len'; omega)
+      | cons a tl =>
+        cases tl with
+        | nil => exact ⟨a, rfl⟩
+        | cons a2 tl2 =>
+          first | simp at len' | (simp only [List.length_cons] at len'; omega)
+    refine Or.inr ⟨id, cache, ?_⟩
+    intro bools bits initial mems values
+    exact H bools bits initial mems values
+      (.bits 8 (bits id 8 + bits id 8)) (Nat.succ_pos 7)
+      (LeafDom.inlineAt (dbl_notCore id)
+        (fun rec => dbl_reachesAt (hmap id cache bools bits) hplain
+          (hnosub id cache bools bits) rec "out")
+        (fun e' hU => by
+          obtain ⟨dom, rfl⟩ := hunfE id e' hU
+          exact LeafDom.dom (dbl_unfold_dom (useDbl_input id cache bools bits))))
+
 /-! ## Evidence for the undischarged facts, by compiled code -/
 
 run_cmd Lean.Elab.Command.liftTermElabM do
@@ -334,6 +475,13 @@ run_cmd Lean.Elab.Command.liftTermElabM do
       match sub with
       | .fvar fid => [(xid, "w")].any (fun (vid, _) => vid == fid)
       | _ => false)).isSome
+    -- the unfolding oracle on the leaf against the quoted term of `hunfE`
+    let unfolded ← Lean.Meta.unfoldDefinition? (callE xid)
+    let unfoldMatches : Bool :=
+      match unfolded with
+      | some u => u == dblUnfoldE (.const ``defaultDomain []) xid
+      | none => false
+    logInfo m!"LEGACY INLINE ARM, hunfE EVIDENCE: unfoldDefinition? (dbl x) equals the quoted term x + x (domain = the constant defaultDomain): {unfoldMatches}; the oracle returned: {unfolded}"
     -- the declaration compiles on the legacy route (legacy front end)
     let compiled ← try
         let _ ← synthesizeCombinationalCoreWith
