@@ -2264,3 +2264,18 @@ lean_lib «Tools.ShippingPrintGuard» where
 
 lean_lib «Tools.ShippingTextShipped» where
   roots := #[`Tools.ShippingTextShipped]
+
+lean_lib «Tools.ShippingNoDesign» where
+  roots := #[`Tools.ShippingNoDesign]
+
+lean_lib «Tools.ShippingNoDesignCommand» where
+  roots := #[`Tools.ShippingNoDesignCommand]
+
+lean_lib «Tools.ShippingLeafTyped» where
+  roots := #[`Tools.ShippingLeafTyped]
+
+lean_lib «Tools.ShippingKidsPassLeaf» where
+  roots := #[`Tools.ShippingKidsPassLeaf]
+
+lean_lib «Tools.ShippingPortsMatchRaw» where
+  roots := #[`Tools.ShippingPortsMatchRaw]
