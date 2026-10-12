@@ -13,6 +13,7 @@ import Sparkle.IR.Type
 import Sparkle.IR.Specialize
 import Sparkle.Data.BitPack
 import Sparkle.Backend.Verilog
+import Sparkle.Backend.VerilogDesign
 import Sparkle.Backend.CSim
 import Sparkle.Backend.CudaSim
 import Sparkle.Backend.CudaIntra
@@ -8988,7 +8989,7 @@ elab "#synthesizeVerilogDesign" id:ident : command => do
   Lean.Elab.Command.liftTermElabM do
     let design ← synthesizeHierarchical declName
     runDesignDRC design
-    let verilog := toVerilogDesign design
+    let verilog := toVerilogDesignChecked design
     IO.println verilog
     IO.println "\n-- Hierarchical Verilog successfully generated!"
 
@@ -8998,7 +8999,7 @@ elab "#writeVerilogDesign" id:ident str:str : command => do
   Lean.Elab.Command.liftTermElabM do
     let design ← synthesizeHierarchical declName
     runDesignDRC design
-    let verilog := toVerilogDesign design
+    let verilog := toVerilogDesignChecked design
     let path := str.getString
     if let some dir := (System.FilePath.mk path).parent then
       IO.FS.createDirAll dir
@@ -9140,8 +9141,9 @@ private def writeDesignCore (declName : Name) (svPath cppPath : String)
     IO.FS.createDirAll svDir
   if let some cppDir := (System.FilePath.mk cppPath).parent then
     IO.FS.createDirAll cppDir
-  -- Verilog (unoptimized)
-  let verilog := toVerilogDesign design
+  -- Verilog: the top through the checked optimizer, the children as they are
+  -- (`toVerilogDesignChecked`, the artifact the design endpoints speak about)
+  let verilog := toVerilogDesignChecked design
   IO.FS.writeFile svPath verilog
   IO.println s!"Written {design.modules.length} modules to {svPath}"
   -- CSim (optimized, no observableWires — keep all _gen_ as members for header)

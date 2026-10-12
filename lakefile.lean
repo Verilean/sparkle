@@ -2279,3 +2279,9 @@ lean_lib «Tools.ShippingKidsPassLeaf» where
 
 lean_lib «Tools.ShippingPortsMatchRaw» where
   roots := #[`Tools.ShippingPortsMatchRaw]
+
+lean_lib «Tools.ShippingDesignWriter» where
+  roots := #[`Tools.ShippingDesignWriter]
+
+lean_lib «Tools.ShippingDesignWriterRun» where
+  roots := #[`Tools.ShippingDesignWriterRun]
