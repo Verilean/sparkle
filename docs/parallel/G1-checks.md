@@ -368,8 +368,8 @@ reflections (already premises of the closing), and the gate `hierBinds b`.
 round) and `Tools.ShippingChecksRun2` built through the protected queue with
 no further change. `Tests/Compiler/ChecksDerivedTest.lean` RAN on every
 declaration with a `machineData` and calls in the imported test modules:
-27 real parents (3 further names are gate-route declarations, logged as
-errors by design). On all 27: `hierGate = true`, `hierBinds = true` (the gate
+31 real parents (`CHECKS TOTAL: parents 31, hierBinds true 31, errors 3`; the
+3 errors are gate-route declarations, logged by design). On all 31: `hierGate = true`, `hierBinds = true` (the gate
 hypothesis of `parent_run_outsCheck0_kids` holds), `outsCheck0 = true`,
 `outsA = true`, and the proposals' checks hold — `P1 = true` (the optimized
 body has the module's instance statements as a LIST), `instNamesNodup = true`,
