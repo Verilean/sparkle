@@ -2,6 +2,16 @@ import Tools.ShippingEntrySoundness
 
 /-! # The memo read of the legacy entry: the heap laws that are missing
 
+**SUPERSEDED (kept as the round-13 sketch; nothing imports this file).** The
+structure `MemoLaws` below is a STANDALONE parameter: a witness of it is
+unrelated to a witness of `RefLaws`, so the two must not be combined in one
+statement. The boundary to use is `RefLawsM`
+(`Tools/ShippingMemoLaws.lean`): ONE structure extending `RefLaws` over the
+same state references and worlds, with an enumerated frame class in place of
+the hypothesis `hframe` here; the miss is derived there
+(`outer_reset_reaches`) and in `Tools/ShippingLegacySemMemoWalk.lean`
+(`outer_miss`, `proj_entry_output_outer`).
+
 `legacy_entry_walk` (`Tools/ShippingLegacySemEntryWalk.lean`) has a second
 outcome, `MemoHit`: the legacy arm of `synthesizeFromConst` first reads
 `sparkleSubModuleCache` and returns a cached result on a hit. At an OUTERMOST

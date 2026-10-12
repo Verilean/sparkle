@@ -2264,3 +2264,18 @@ lean_lib «Tools.ShippingLegacySemTupleEntry» where
 
 lean_lib «Tools.ShippingLegacySemPackedField» where
   roots := #[`Tools.ShippingLegacySemPackedField]
+
+lean_lib «Tools.ShippingMemoLaws» where
+  roots := #[`Tools.ShippingMemoLaws]
+
+lean_lib «Tools.ShippingMemoInv» where
+  roots := #[`Tools.ShippingMemoInv]
+
+lean_lib «Tools.ShippingLegacySemMemoWalk» where
+  roots := #[`Tools.ShippingLegacySemMemoWalk]
+
+lean_lib «Tools.ShippingMemoLawsWith» where
+  roots := #[`Tools.ShippingMemoLawsWith]
+
+lean_lib «Tools.ShippingLegacySemMemoOuter» where
+  roots := #[`Tools.ShippingLegacySemMemoOuter]
