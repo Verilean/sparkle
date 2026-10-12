@@ -8,9 +8,9 @@ here as G-items.
 
 ## 0. Current status (2026-10-12)
 
-Verification record: snapshot `3a291ec6`, `Tests.AllTests` 895 jobs green
-(every Lean / lake run under the cgroup runner, 3 GiB cap, one job; peak
-0.43 GiB; one test module peaks at 1.43 GiB).
+Verification record: snapshot `32c10fda`, `Tests.AllTests` green (every Lean / lake
+run under the cgroup runner, 3 GiB cap, one job; the closing test module
+peaks at 2.18 GiB since the name-separation checks are kernel-decided).
 
 **Reading the tables**: the twelve work packages (§6) are a decomposition of
 ONE compile route's premises. "Done" for a package means its premise is
@@ -31,7 +31,7 @@ would need is the gaps G1–G5 and N1 below, which are open.
 | G3 reader coverage (S3, `letsAliasOk`, `gateCallsOk` evaluated per declaration) | open — a STRICT term reader proved sound (18 node kinds) and complete (11 kinds) (`readTerm_sound`, `readTerm2_sound`, `readTerm_quote`; `Tools/ShippingReader*`, `docs/parallel/G3-reader.md`) | measured: the 18-kind reader reads all 44 machine bodies with endpoints in the test modules | the compiler does not run this reader; its own gate recognisers accept non-quotations (run: `ReaderWildcardTest`); `machineShape?` is 15 `partial` functions; completeness of 7 kinds; data checks (G3b) |
 | G4 | open | — | — |
 | G5 runtime laws | **conditional** | `quiet` / `Diag` / `OkMsg` / `OkEnv` laws; exception provenance by value; law audit from 22 endpoints | no runtime model; `profLog` one constructor; elaborator primitives unconditional; T3 trusted |
-| N1 name separation | **done on the first-level closings**, by a kernel-decidable sufficient test (`Tools/ShippingNameSep`: the printed name is one of finitely many candidate renderings — `toString_mem`; `Name.toString`'s escape test is an opaque `partial` function and is never evaluated) | `f.machine_closes_at` of 11 parents has only the children's reflection as premise; `callerMix`, `callerABA` two reflections | deep closings (`closes_deep`) still state their name premises over lists of printed names; a premise remains wherever the candidates do not separate; `Name.toString` is NOT injective in general (a component containing `»`) |
+| N1 name separation | **done on every closing generated so far**, by a kernel-decidable sufficient test (`Tools/ShippingNameSep`: the printed name is one of finitely many candidate renderings — `toString_mem`; `Name.toString`'s escape test is an opaque `partial` function and is never evaluated) | first-level closings (11 parents: one reflection each; `callerMix`, `callerABA` two) and deep closings (`grand`, `grandH`, `mixD1`, `topD2`: only the descendants' reflections) | a premise remains wherever the candidates do not separate; `Name.toString` is NOT injective in general (a component containing `»`); the legacy handlers' `toString … endsWith` tests are the same obstacle (G2) |
 
 Closed SV endpoints today (`f.machine_design_svHR_closed`): `caller`,
 `callerTwice`, `callerNested`, `callerD`, `midH`, `callerMix`, `callerRep`,
