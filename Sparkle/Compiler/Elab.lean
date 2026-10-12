@@ -5463,6 +5463,24 @@ def synthesizeCombinationalCoreWith (translate : TranslateFn) (declName : Name)
   let savedWireWidthCache ←
     if depth == 0 then pure ({} : Std.HashMap String Nat)
     else sparkleWireWidthCache.get
+  -- The hardware-`let` cache, the loop cache and the alias map hold WIRE
+  -- NAMES of the module being built, under keys made of wire names (no
+  -- module name).  A nested synth clears them for the child (below); if the
+  -- parent's content is not put back when the child ends, the parent goes
+  -- on with the CHILD's entries, and a `let` of the parent whose key a
+  -- `let` of the child also has resolves to the child's wire name — in the
+  -- parent, the very wire being defined: `assign _gen_t = _gen_t`
+  -- (finding F, docs/parallel/F-let-cache-leak.md).  So they are saved
+  -- here and restored in the `finally`, like the two above.
+  let savedLetWireCache ←
+    if depth == 0 then pure ({} : Std.HashMap String String)
+    else sparkleLetWireCache.get
+  let savedLoopWireCache ←
+    if depth == 0 then pure ({} : Std.HashMap String String)
+    else sparkleLoopWireCache.get
+  let savedWireCanon ←
+    if depth == 0 then pure ({} : Std.HashMap String String)
+    else sparkleWireCanon.get
   if depth == 0 then
     sparkleTypeCache.set {}
     sparkleTypeCacheHits.set 0
@@ -5507,6 +5525,9 @@ def synthesizeCombinationalCoreWith (translate : TranslateFn) (declName : Name)
     if depth != 0 then
       sparkleFvarValueMap.set savedFvarMap
       sparkleWireWidthCache.set savedWireWidthCache
+      sparkleLetWireCache.set savedLetWireCache
+      sparkleLoopWireCache.set savedLoopWireCache
+      sparkleWireCanon.set savedWireCanon
 
 /-- `#synthesizeVerilog`'s synthesis: the entry, then zero-width cleanup, then
     the merge of the duplicate hardware the two-pass body evaluation leaves
