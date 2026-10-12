@@ -6,6 +6,8 @@ import Tools.ShippingLegacySemSignalFrame
 import Tools.ShippingLegacySemEntryBound
 import Tools.ShippingLegacySemTelescopeN
 import Tools.ShippingLegacySemLeafHandled
+import Tools.ShippingLegacySemEntryListD
+import Tools.ShippingLegacySemBeta
 import Sparkle
 
 /-! # The legacy inline arm on a real call: which premises can be discharged
@@ -224,6 +226,26 @@ type): `hinf` speaks of its returning runs, `hinfT` of its failing ones. The
   the quoted term, and that `useAdd2` compiles with the legacy front end.
 * The axiom audit also covers `useAdd2_output`, `plainCallee_leaf`,
   `handlerCase_inline`.
+
+## Round 21: a declaration of the largest RETURNED class (a structure field projection)
+
+The census (`Tests/Compiler/LegacyArmCensusTest.lean`): the shipping entry
+returns through the legacy arm for 90 Signal-valued definitions of the
+examined IP modules; 45 of them are structure field projection functions,
+and every one of the 90 has a domain binder. `SHA256Out_done_output` is the
+entry statement for one of them, `Sparkle.IP.Crypto.SHA256.SHA256Out.done`
+(named here by a name literal: the module is not imported; the evidence line
+for the real constant is in the census test), in the SHIPPING configuration
+(certified front end on, the three gates declining):
+
+* binders `dom` (skipped: `InfersNothing`), `hash : bits 256`, `done : bool`
+  (`list_entry_outputD`, `telescopeIn_of_lam3`);
+* the leaf is a beta-redex whose reducible `whnf` is the variable of the
+  field `done` (`WhnfIsVar`, an oracle premise observed by the evidence
+  line): a wire-through (`leafDom_betaWire`,
+  `Tools/ShippingLegacySemBeta.lean`);
+* conclusion: memo hit, or `out` carries the value of the input bound for
+  `done`.
 -/
 
 open Lean Meta Sparkle.Compiler.Elab
@@ -1173,6 +1195,149 @@ theorem useAdd2_output {logProf : String → IO Unit} {dv : DefinitionVal}
           exact LeafDom.dom (add2_unfold_dom (useAdd2_input1 id1 id2 cache bools bits)
             (useAdd2_input2 id1 id2 cache bools bits))))
 
+/-! ## Round 21: a structure field projection (`SHA256Out.done`), shipping configuration -/
+
+/-- The declaration's name (the module is not imported here). -/
+abbrev sha256DoneName : Name := `Sparkle.IP.Crypto.SHA256.SHA256Out.done
+
+/-- Its binders after `openRecordInputs`: the domain, then the record's two
+Signal fields. -/
+abbrev sha256OutBinders : List (Name × MixedGateBinder) :=
+  [(`dom, .domain), (`hash, .bits 256), (`done, .bool)]
+
+/-- **The prepared setup maps the variable of the field `done` to its Bool
+value.** -/
+theorem sha256Out_done_input (id1 id2 id3 : FVarId) (cache : IO.Ref (ExprStructMap String))
+    (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n) :
+    Tools.ShippingUnifiedMeaning.inputValues
+      (setupOf sha256DoneName sha256OutBinders [id1, id2, id3] cache bools bits).bools
+      (setupOf sha256DoneName sha256OutBinders [id1, id2, id3] cache bools bits).bits id3 =
+      some (.bool (bools id3)) :=
+  Tools.ShippingUnifiedMeaning.inputValues_bool (if_pos rfl)
+
+/-- **`SHA256Out.done`, from the shipping entry to the output wire: `out`
+carries the input bound for the field `done`.**
+
+Premises, by class. Environment (reflection): the three gates decline
+(`old`, `mixed`, `hmach`); the body's shape after `openRecordInputs` /
+`stripMemoizeWrappers` with the instantiated binder types and leaf (`hbody`);
+the leaf is an application with a lambda head (`hshape`) of fallback kind
+`other` (`hkind`). Meta library: `htel`. Oracles: no hardware type for the
+domain binder's type (`hdom`), `bitVector 256` and `bit` for the two fields
+(`hhash`, `hdone`), the leaf's reducible `whnf` is the third variable
+(`hwhnf`), the leaf's type is Signal-headed (`hres`). The run: `hr`. -/
+theorem SHA256Out_done_output {logProf : String → IO Unit} {dv : DefinitionVal}
+    {isInst : Lean.Expr → Bool} {m : Sparkle.IR.AST.Module} {d : Sparkle.IR.AST.Design}
+    {leafOf : List FVarId → Lean.Expr} {domTy : Lean.Expr} {hashTy doneTy : FVarId → Lean.Expr}
+    (old : certifiedShape? false [] (.defnInfo dv) = none)
+    (mixed : mixedCertifiedShape? false [] (.defnInfo dv) isInst = none)
+    (hmach : ∀ projs, machineShape? false [] (.defnInfo dv) projs = none)
+    (htel : LamTelescopeN)
+    (hbody : ∀ body0, Tools.ShippingEntrySoundness.MReturns (openRecordInputs dv.value) body0 →
+      ∃ (T1 T2 T3 b : Lean.Expr) (bi1 bi2 bi3 : BinderInfo),
+        stripMemoizeWrappers body0 =
+          Lean.Expr.lam `dom T1 (Lean.Expr.lam `hash T2 (Lean.Expr.lam `done T3 b bi3) bi2) bi1 ∧
+        b.isLambda = false ∧
+        T1.instantiateRevRange 0 (#[] : Array Lean.Expr).size #[] = domTy ∧
+        (∀ id1 : FVarId, T2.instantiateRevRange 0 (fv1 id1).size (fv1 id1) = hashTy id1) ∧
+        (∀ id1 id2 : FVarId,
+          T3.instantiateRevRange 0 (fv2p id1 id2).size (fv2p id1 id2) = doneTy id1) ∧
+        ∀ id1 id2 id3 : FVarId,
+          b.instantiateRevRange 0 (fv3 id1 id2 id3).size (fv3 id1 id2 id3) =
+            leafOf [id1, id2, id3])
+    (hdom : InfersNothing domTy)
+    (hhash : ∀ id1 : FVarId,
+      InfersHW (hashTy id1) (.bitVector 256) ∧ InfersNoCatch (hashTy id1))
+    (hdone : ∀ id1 : FVarId, InfersHW (doneTy id1) .bit ∧ InfersNoCatch (doneTy id1))
+    (hshape : ∀ ids : List FVarId, ∃ (f a : Lean.Expr) (n : Name) (ty b : Lean.Expr)
+      (bi : BinderInfo), leafOf ids = Lean.Expr.app f a ∧
+        (Lean.Expr.app f a).getAppFn = Lean.Expr.lam n ty b bi)
+    (hkind : ∀ ids : List FVarId, fallbackKind (leafOf ids) = .other)
+    (hwhnf : ∀ id1 id2 id3 : FVarId, WhnfIsVar (leafOf [id1, id2, id3]) id3)
+    (hres : ∀ ids : List FVarId, SignalTyped (leafOf ids))
+    (hr : Tools.ShippingEntrySoundness.MReturns (synthesizeFromConst
+      (fun e hint top named => translateExprToWire e hint top named)
+      logProf sha256DoneName [] false true (.defnInfo dv) isInst) (m, d)) :
+    MemoHit sha256DoneName m d ∨
+    ∃ (id1 id2 id3 : FVarId) (cache : IO.Ref (ExprStructMap String)),
+      ∀ (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n)
+        (initial : Sparkle.IR.Semantics.Env) (mems : Sparkle.IR.Semantics.MEnv),
+      Tools.ShippingMixedEntrySoundness.Admissible bools bits initial
+        (sha256OutBinders.zip [id1, id2, id3])
+        (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
+          sha256DoneName.toString) →
+      Tools.ShippingMixedEntrySoundness.RawValueAt
+        (Tools.ShippingUnifiedMeaning.Value.bool (bools id3)).kind.width sha256OutBinders m
+        initial mems (Tools.ShippingUnifiedMeaning.Value.bool (bools id3)).toNat := by
+  have htele : ∀ body0,
+      Tools.ShippingEntrySoundness.MReturns (openRecordInputs dv.value) body0 →
+      TelescopeIn (stripMemoizeWrappers body0) (ListScopeD sha256OutBinders leafOf) := by
+    intro body0 hopen
+    obtain ⟨T1, T2, T3, b, bi1, bi2, bi3, hb, hl, hT1, hT2, hT3, hi⟩ := hbody body0 hopen
+    have o1 : TypeOk .domain (T1.instantiateRevRange 0 (#[] : Array Lean.Expr).size #[]) := by
+      rw [hT1]
+      exact hdom
+    have o2 : ∀ id1 : FVarId,
+        TypeOk (.bits 256) (T2.instantiateRevRange 0 (fv1 id1).size (fv1 id1)) := by
+      intro id1
+      rw [hT2 id1]
+      exact hhash id1
+    have o3 : ∀ id1 id2 : FVarId,
+        TypeOk .bool (T3.instantiateRevRange 0 (fv2p id1 id2).size (fv2p id1 id2)) := by
+      intro id1 id2
+      rw [hT3 id1 id2]
+      exact hdone id1
+    exact telescopeIn_of_lam3 (k1 := .domain) (k2 := .bits 256) (k3 := .bool)
+      (leafOf := leafOf) htel hb hl o1 o2 o3 hi
+  have hleaf : ∀ ids : List FVarId,
+      (leafOf ids).isLambda = false ∧ SignalTyped (leafOf ids) := by
+    intro ids
+    obtain ⟨f, a, n, ty, b, bi, he, _⟩ := hshape ids
+    refine ⟨?_, hres ids⟩
+    rw [he]
+    first | done | rfl
+  rcases list_entry_outputD (cfe := true) (bs := sha256OutBinders) (leafOf := leafOf)
+      (fun _ => old) (fun _ => mixed) (fun _ => hmach) htele hleaf hr with
+    hit | ⟨ids, cache, hlen, H⟩
+  · exact Or.inl hit
+  · have len' : ids.length = 3 := hlen
+    obtain ⟨id1, id2, id3, rfl⟩ : ∃ id1 id2 id3, ids = [id1, id2, id3] := by
+      cases ids with
+      | nil => first | simp at len' | (simp only [List.length_nil] at len'; omega)
+      | cons a tl =>
+        cases tl with
+        | nil =>
+          first | simp at len' | (simp only [List.length_cons, List.length_nil] at len'; omega)
+        | cons b tl2 =>
+          cases tl2 with
+          | nil =>
+            first
+              | simp at len'
+              | (simp only [List.length_cons, List.length_nil] at len'; omega)
+          | cons c tl3 =>
+            cases tl3 with
+            | nil => exact ⟨a, b, c, rfl⟩
+            | cons e tl4 =>
+              first | simp at len' | (simp only [List.length_cons] at len'; omega)
+    refine Or.inr ⟨id1, id2, id3, cache, ?_⟩
+    intro bools bits initial mems values
+    obtain ⟨f, a, n, ty, b, bi, he, hfnL⟩ := hshape [id1, id2, id3]
+    have hk := hkind [id1, id2, id3]
+    have hw := hwhnf id1 id2 id3
+    rw [he] at hk
+    rw [he] at hw
+    have dom : LeafDom (setupOf sha256DoneName sha256OutBinders [id1, id2, id3] cache bools
+        bits).context
+        (Tools.ShippingUnifiedMeaning.inputValues
+          (setupOf sha256DoneName sha256OutBinders [id1, id2, id3] cache bools bits).bools
+          (setupOf sha256DoneName sha256OutBinders [id1, id2, id3] cache bools bits).bits)
+        "out" true (leafOf [id1, id2, id3])
+        (Tools.ShippingUnifiedMeaning.Value.bool (bools id3)) := by
+      rw [he]
+      exact leafDom_betaWire hfnL hk hw (sha256Out_done_input id1 id2 id3 cache bools bits)
+    exact H bools bits initial mems values
+      (Tools.ShippingUnifiedMeaning.Value.bool (bools id3)) Nat.zero_lt_one dom
+
 /-! ## Evidence for the undischarged facts, by compiled code -/
 
 run_cmd Lean.Elab.Command.liftTermElabM do
@@ -1344,6 +1509,8 @@ run_cmd Lean.Elab.Command.liftTermElabM do
 -- The acceptance check: standard axioms only. This one THROWS.
 run_cmd Lean.Elab.Command.liftTermElabM do
   let audited : List Name := [``useDbl_output, ``useDbl2_output, ``useAdd2_output,
+    ``SHA256Out_done_output, ``Tools.ShippingLegacySem.list_entry_outputD,
+    ``Tools.ShippingLegacySem.leafDom_betaWire,
     ``Tools.ShippingLegacySem.plainCallee_leaf, ``Tools.ShippingLegacySem.handlerCase_inline,
     ``Tools.ShippingLegacySem.one_binder_entry_output_bound,
     ``Tools.ShippingLegacySem.list_entry_output,

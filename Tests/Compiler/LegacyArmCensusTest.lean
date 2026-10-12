@@ -302,4 +302,73 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   catch ex =>
     logInfo m!"LEGACY ARM CENSUS: harness error: {ex.toMessageData}"
 
+/-! ## Evidence for the premises of `SHA256Out_done_output`
+(`Tests/Compiler/LegacySemInstanceTest.lean`) on the REAL constant (logs
+only; one run in this environment — an observation, not a proof) -/
+
+/-- The hardware-type oracle on a type, as a label. -/
+def hwOf (T : Lean.Expr) : MetaM String := do
+  let cache ← IO.mkRef ({} : ExprStructMap String)
+  try
+    let (h, _) ←
+      ((inferHWTypeFromSignal T).run (entryCompilerState false cache)).run
+        (Sparkle.IR.Builder.CircuitM.init "evidence")
+    pure (match h with
+      | .bit => "bit"
+      | .bitVector n => s!"bitVector {n}"
+      | _ => "another hardware type")
+  catch ex => do
+    let msg ← ex.toMessageData.toString
+    pure ("THREW (" ++ prefixOf msg ++ ")")
+
+run_cmd Lean.Elab.Command.liftTermElabM do
+  try
+    let env ← getEnv
+    let n : Name := ``Sparkle.IP.Crypto.SHA256.SHA256Out.done
+    let ci ← getConstInfo n
+    let ec := entryConst true false [] ci (instancePredicate env) (userInliner env)
+      (structEnv env)
+    let gatesDecline : Bool :=
+      (certifiedShape? false [] ec).isNone &&
+        (mixedCertifiedShape? false [] ec (instancePredicate env)).isNone &&
+        (machineShape? false [] ec (structEnv env)).isNone
+    let body0 ← openRecordInputs ec.value!
+    let body := stripMemoizeWrappers body0
+    let shape : String :=
+      match body with
+      | .lam n1 _ (.lam n2 _ (.lam n3 _ b _) _) _ =>
+        s!"three nested lambdas, binder names {n1}, {n2}, {n3}, the inner body is a lambda: {b.isLambda}"
+      | _ => "NOT three nested lambdas"
+    lambdaTelescope body fun xs inner => do
+      let x1 := xs[0]!
+      let x2 := xs[1]!
+      let x3 := xs[2]!
+      let d1 ← x1.fvarId!.getDecl
+      let d2 ← x2.fvarId!.getDecl
+      let d3 ← x3.fvarId!.getDecl
+      let a1 : Array Lean.Expr := (#[] : Array Lean.Expr).push x1
+      let a2 : Array Lean.Expr := a1.push x2
+      let a3 : Array Lean.Expr := #[x1, x2, x3]
+      let rawOk : Bool :=
+        match body with
+        | .lam _ T1 (.lam _ T2 (.lam _ T3 b _) _) _ =>
+          T1.instantiateRevRange 0 (#[] : Array Lean.Expr).size #[] == d1.type &&
+            T2.instantiateRevRange 0 a1.size a1 == d2.type &&
+            T3.instantiateRevRange 0 a2.size a2 == d3.type &&
+            b.instantiateRevRange 0 a3.size a3 == inner
+        | _ => false
+      let namesOk : Bool :=
+        d1.userName == `dom && d2.userName == `hash && d3.userName == `done
+      let wh ← withTransparency TransparencyMode.reducible (whnf inner)
+      let whOk : Bool := xs.size == 3 && wh == x3
+      let hw1 ← hwOf d1.type
+      let hw2 ← hwOf d2.type
+      let hw3 ← hwOf d3.type
+      let ty ← inferType inner
+      let tyN ← whnf ty
+      let headOk : Bool := tyN.getAppFn.isConstOf ``Sparkle.Core.Signal.Signal
+      logInfo m!"LEGACY ENTRY, PROJECTION EVIDENCE for {n}: the three gates decline on the entry's constant: {gatesDecline}; the stripped value is {shape}; the three declared types and the leaf equal the premise's instantiateRevRange results: {rawOk}; the declared user names are dom, hash, done: {namesOk}. LEAF: is an application: {inner.isApp}, its head is a lambda: {inner.getAppFn.isLambda}, fallbackKind: {kindOf inner}; its reducible whnf is the third variable: {whOk} (the whnf returned: {wh}). ORACLES: inferHWTypeFromSignal on the three declared types: {hw1} | {hw2} | {hw3} (expected: THREW | bitVector 256 | bit); the whnf of the leaf's inferred type is headed by Signal: {headOk}"
+  catch ex =>
+    logInfo m!"LEGACY ENTRY, PROJECTION EVIDENCE: harness error: {ex.toMessageData}"
+
 end Sparkle.Tests.Compiler.LegacyArmCensusTest

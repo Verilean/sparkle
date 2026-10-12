@@ -2225,3 +2225,12 @@ lean_lib «Tools.ShippingLegacySemTelescopeN» where
 
 lean_lib «Tools.ShippingLegacySemLeafHandled» where
   roots := #[`Tools.ShippingLegacySemLeafHandled]
+
+lean_lib «Tools.ShippingLegacySemBinderListD» where
+  roots := #[`Tools.ShippingLegacySemBinderListD]
+
+lean_lib «Tools.ShippingLegacySemEntryListD» where
+  roots := #[`Tools.ShippingLegacySemEntryListD]
+
+lean_lib «Tools.ShippingLegacySemBeta» where
+  roots := #[`Tools.ShippingLegacySemBeta]
