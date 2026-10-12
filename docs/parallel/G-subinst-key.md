@@ -1,7 +1,7 @@
 # Finding G: sub-instance output cache is not keyed by the module being built
 
 Status: REPRODUCED on poc fdd69046 on the real entry and in the limited simulation, for ONE constructed
-source (`hTopWR`). Not fixed. Not run on `fix/nested-let-cache-build`. Reading and candidates:
+source (`hTopWR`). Not fixed. Also present on `fix/nested-let-cache-build` (addendum). Reading and candidates:
 `docs/parallel/B-cache-keys.md` (worker B, par/b-11; its predictions are marked there, and the ones for
 `gTopWR` / `gTopRW` were REFUTED by the runs below).
 
@@ -36,7 +36,7 @@ without checking that the wire belongs to that call in this module.
 
 - Any corpus declaration with this pattern (two modules of one run calling the same multi-output child on
   identically named argument wires, projections applied directly to the calls).
-- Behaviour on `fix/nested-let-cache-build` (its change does not touch this ref, by reading).
+- (Measured since: present on `fix/nested-let-cache-build` as well, see the addendum.)
 - A fix. Candidates are a decision for the user: save/restore this ref around a nested entry like the
   let caches, or key it by the module being built.
 - The legacy one-output hit: the probe `SingleOutHitTest` shows only that an INJECTED stale entry is
@@ -92,4 +92,23 @@ SUBINSTKEYSIM Tests.Compiler.SubInstanceKeyTest.hTopWR: command==source F nofe==
 SUBINSTKEYSIM Tests.Compiler.SubInstanceKeyTest.gW: command==source T nofe==source T command==nofe T x-cycles command=0 nofe=0 cycles=94
 SUBINSTKEYSIM Tests.Compiler.SubInstanceKeyTest.gR: command==source T nofe==source T command==nofe T x-cycles command=0 nofe=0 cycles=94
 199:0: SINGLEOUT SEEDED: legacy handler (sIrr) honoured=T; certified arm (sTag) honoured=F (an injected state, not a finding)
+```
+
+## Addendum: the same probe on `fix/nested-let-cache-build` (83b2faf9)
+
+Run record `20261013-034357-g-on-fix` (cgrun 3 GiB, swap 0; `lake build Tests.Compiler.SubInstanceKeyTest` then
+`subinst_key_sim.sh` in `~/sparkle-work/wt-cachefix`, result=success). Finding G is PRESENT there too:
+the nested-let fix does not remove it (measured, not only read).
+
+```
+SUBINSTKEY WR DETECT: children whose nested module differs from their alone module or reads undeclared names: [] => collision=F
+SUBINSTKEY RW DETECT: children whose nested module differs from their alone module or reads undeclared names: [] => collision=F
+SUBINSTKEY hWR DETECT: children whose nested module differs from their alone module or reads undeclared names: [Tests.Compiler.SubInstanceKeyTest.hR] => collision=T
+SUBINSTKEYSIM Tests.Compiler.SubInstanceKeyTest.gTopWR: command==source T nofe==source T command==nofe T x-cycles command=0 nofe=0 cycles=94
+SUBINSTKEYSIM Tests.Compiler.SubInstanceKeyTest.gTopRW: command==source T nofe==source T command==nofe T x-cycles command=0 nofe=0 cycles=94
+SUBINSTKEYSIM Tests.Compiler.SubInstanceKeyTest.hTopWR: command==source F nofe==source F command==nofe T x-cycles command=0 nofe=0 cycles=94
+  command/source: got [R1 1 14] want [R1 1 24]
+  nofe/source: got [R1 1 14] want [R1 1 24]
+SUBINSTKEYSIM Tests.Compiler.SubInstanceKeyTest.gW: command==source T nofe==source T command==nofe T x-cycles command=0 nofe=0 cycles=94
+SUBINSTKEYSIM Tests.Compiler.SubInstanceKeyTest.gR: command==source T nofe==source T command==nofe T x-cycles command=0 nofe=0 cycles=94
 ```
