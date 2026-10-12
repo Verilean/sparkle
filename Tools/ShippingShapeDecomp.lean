@@ -41,10 +41,13 @@ together; the loop readers are `partial`). So:
   and `inits.length = kinds.length`;
 * `ShapeDecomp.callBinder` is the call-binder fact AT `nDecl + k`.
 
-The walk of `machineShape?_decomp` is the one of
-`Tools/ShippingMachineShapeTail.lean` (`machineShape?_some`), with the
-bundle as its conclusion; if that walk stalls, this one stalls at the same
-place. UNVERIFIED: not built. -/
+The walk of `machineShape?_decomp` is the ONLY unfolding of the block's
+tail after the consolidation: `Tools/ShippingMachineShapeTail.lean`
+(`machineShape?_some`, `_callBinder`, `_single_out`, `callee_single_out`)
+imports this file and derives its statements from the bundle. The walk is
+the one of the tail's version queued at `f8762e4c`: where that one stalled
+(or what made it pass) is the repair to make HERE, once. UNVERIFIED:
+written, not built. -/
 namespace Tools.ShippingShapeDecomp
 open Lean
 open Sparkle.Compiler.Elab

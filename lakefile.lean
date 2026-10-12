@@ -2492,3 +2492,6 @@ lean_lib «Tools.ShippingR5Check» where
 
 lean_lib «Tools.ShippingCallWidthsEntry» where
   roots := #[`Tools.ShippingCallWidthsEntry]
+
+lean_lib «Tools.ShippingReaderLenOkReserve» where
+  roots := #[`Tools.ShippingReaderLenOkReserve]
