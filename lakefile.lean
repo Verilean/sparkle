@@ -2258,3 +2258,9 @@ lean_lib «Tools.ShippingLegacySemSliceEmit» where
 
 lean_lib «Tools.ShippingLegacySemFstEntry» where
   roots := #[`Tools.ShippingLegacySemFstEntry]
+
+lean_lib «Tools.ShippingLegacySemTupleEntry» where
+  roots := #[`Tools.ShippingLegacySemTupleEntry]
+
+lean_lib «Tools.ShippingLegacySemPackedField» where
+  roots := #[`Tools.ShippingLegacySemPackedField]

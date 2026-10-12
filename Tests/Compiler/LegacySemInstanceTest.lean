@@ -11,6 +11,8 @@ import Tools.ShippingLegacySemBeta
 import Tools.ShippingLegacySemProj
 import Tools.ShippingLegacySemFst
 import Tools.ShippingLegacySemFstEntry
+import Tools.ShippingLegacySemTupleEntry
+import Tools.ShippingLegacySemPackedField
 import Sparkle
 
 /-! # The legacy inline arm on a real call: which premises can be discharged
@@ -283,6 +285,26 @@ suffix tests through the candidate renderings) and `snd_ne_fst`. No instance
 of `fst_entry_output` for a declaration: its per-node premises (closed
 computations, oracles, and the two "run / world" premises `WireWidthReads`,
 `ArgRunsBody`) are not discharged for any chain.
+
+## Round 25: one declaration of the tuple class, `SoCState.fetchPC`
+
+`Sparkle.IP.RV32.SoC.SoCState.fetchPC` (named by a name literal; the module
+is not imported) is the declaration of the class with the SHORTEST chain:
+`Signal.fst (Signal.snd s)` over the packed state `s : bitVector 1958`
+(census `FST CLASS`: `_gen_s[1925:1894]`, the emitted body
+`_tmp_s_0 = _gen_s[1925:0]; _gen_out = _tmp_s_0[1925:1894]; out = _gen_out`).
+`SoCState_fetchPC_output` is the corollary of `tuple_entry_output`
+(`Tools/ShippingLegacySemTupleEntry.lean`): memo hit, or `out` carries
+`(bits s 1958).extractLsb' 1894 32`. Its premises: the classes of
+`tuple_entry_output`, with the two nodes' facts as ONE premise `hnodes`
+(per prepared setup: the leaf's two applications; `TupleNode` of the
+`Signal.snd` node at `(1958, 1926)` and of the `Signal.fst` node at
+`(1926, 32)`; the argument oracle `ExprHW … (bitVector 1926)`; and
+`ArgRunsBody` for the inner node — the one node below the top). The binder
+NAMES are variables of the statement (the real ones are hygienic names);
+the closed name tests are discharged (`fst_tupleHead`, `snd_tupleHead`,
+`snd_ne_fst`). Evidence on the real constant: the lines `FST CLASS` and
+`TUPLE CLASS` of the census test.
 -/
 
 open Lean Meta Sparkle.Compiler.Elab
@@ -1565,6 +1587,163 @@ theorem snd_ne_fst :
     ((``Sparkle.Core.Signal.Signal.snd : Name) == ``Sparkle.Core.Signal.Signal.fst) = false := by
   name_ne
 
+/-! ## Round 25: `SoCState.fetchPC`, an instance of `tuple_entry_output` -/
+
+/-- The declaration's name (the module is not imported here). -/
+abbrev socFetchPCName : Name := `Sparkle.IP.RV32.SoC.SoCState.fetchPC
+
+/-- Its binders: the domain, then the packed state. -/
+abbrev socBinders (n1 n2 : Name) : List (Name × MixedGateBinder) :=
+  [(n1, .domain), (n2, .bits 1958)]
+
+/-- A list of length two is two elements. -/
+theorem len2 {α : Type} (ids : List α) (len' : ids.length = 2) :
+    ∃ a b, ids = [a, b] := by
+  cases ids with
+  | nil => first | simp at len' | (simp only [List.length_nil] at len'; omega)
+  | cons a tl =>
+    cases tl with
+    | nil =>
+      first | simp at len' | (simp only [List.length_cons, List.length_nil] at len'; omega)
+    | cons b tl2 =>
+      cases tl2 with
+      | nil => exact ⟨a, b, rfl⟩
+      | cons c tl3 =>
+        first | simp at len' | (simp only [List.length_cons] at len'; omega)
+
+/-- **`SoCState.fetchPC`, from the shipping entry to the output wire: `out`
+carries bits `[1925:1894]` of the packed state.** A corollary of
+`tuple_entry_output` (top node `Signal.fst` over one `Signal.snd` node over
+the variable).
+
+Premises, by class. Environment (reflection): the three gates decline; the
+body's shape with the instantiated binder types and leaf (`hbody`);
+`PlainHead` of the two heads. Meta library: `htel`. Oracles: no hardware
+type for the domain binder (`hdom`), `bitVector 1958` for the state (`hs`),
+the result type (`hres`), and inside `hnodes` the node oracles (`ExprHW`).
+Closed computations: `hlam`, and inside `hnodes` the node shapes. The run /
+the world (inside `hnodes`): `WireWidthReads` for the two argument wires
+(`TupleNode.widthReads`) and `ArgRunsBody` for the inner node — false on a
+stale width-cache resp. expression-cache entry. The run: `hr`. -/
+theorem SoCState_fetchPC_output {logProf : String → IO Unit} {dv : DefinitionVal}
+    {isInst : Lean.Expr → Bool} {m : Sparkle.IR.AST.Module} {d : Sparkle.IR.AST.Design}
+    {leafOf : List FVarId → Lean.Expr} {n1 n2 : Name} {domTy : Lean.Expr}
+    {sTy : FVarId → Lean.Expr}
+    (old : certifiedShape? false [] (.defnInfo dv) = none)
+    (mixed : mixedCertifiedShape? false [] (.defnInfo dv) isInst = none)
+    (hmach : ∀ projs, machineShape? false [] (.defnInfo dv) projs = none)
+    (htel : LamTelescopeND)
+    (hbody : ∀ body0, Tools.ShippingEntrySoundness.MReturns (openRecordInputs dv.value) body0 →
+      ∃ (T1 T2 b : Lean.Expr) (bi1 bi2 : BinderInfo),
+        stripMemoizeWrappers body0 = Lean.Expr.lam n1 T1 (Lean.Expr.lam n2 T2 b bi2) bi1 ∧
+        b.isLambda = false ∧
+        T1.instantiateRevRange 0 (#[] : Array Lean.Expr).size #[] = domTy ∧
+        (∀ id1 : FVarId, T2.instantiateRevRange 0 (fv1 id1).size (fv1 id1) = sTy id1) ∧
+        ∀ id1 id2 : FVarId,
+          b.instantiateRevRange 0 (fv2 id1 id2).size (fv2 id1 id2) = leafOf [id1, id2])
+    (hdom : InfersNothing domTy)
+    (hs : ∀ id1 : FVarId,
+      InfersHW (sTy id1) (.bitVector 1958) ∧ InfersNoCatch (sTy id1))
+    (plainF : PlainHead ``Sparkle.Core.Signal.Signal.fst)
+    (plainS : PlainHead ``Sparkle.Core.Signal.Signal.snd)
+    (hlam : ∀ ids : List FVarId, (leafOf ids).isLambda = false)
+    (hres : ∀ ids : List FVarId, SignalTyped (leafOf ids))
+    (hnodes : ∀ (id1 id2 : FVarId) (cache : IO.Ref (ExprStructMap String))
+      (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n),
+      ∃ f1 f2 : Lean.Expr,
+        leafOf [id1, id2] = Lean.Expr.app f1 (Lean.Expr.app f2 (Lean.Expr.fvar id2)) ∧
+        TupleNode (setupOf socFetchPCName (socBinders n1 n2) [id1, id2] cache bools bits).context
+          ``Sparkle.Core.Signal.Signal.snd f2 (Lean.Expr.fvar id2) 1958 1926 ∧
+        (∀ fuel : Nat, ArgRunsBody (translateFuelFix translateStep fuel)
+          (setupOf socFetchPCName (socBinders n1 n2) [id1, id2] cache bools bits).context
+          (Lean.Expr.app f2 (Lean.Expr.fvar id2))) ∧
+        TupleNode (setupOf socFetchPCName (socBinders n1 n2) [id1, id2] cache bools bits).context
+          ``Sparkle.Core.Signal.Signal.fst f1 (Lean.Expr.app f2 (Lean.Expr.fvar id2)) 1926 32 ∧
+        ExprHW (Lean.Expr.app f2 (Lean.Expr.fvar id2))
+          (Sparkle.IR.Type.HWType.bitVector 1926))
+    (hr : Tools.ShippingEntrySoundness.MReturns (synthesizeFromConst
+      (fun e hint top named => translateExprToWire e hint top named)
+      logProf socFetchPCName [] false true (.defnInfo dv) isInst) (m, d)) :
+    MemoHit socFetchPCName m d ∨
+    ∃ (id1 id2 : FVarId) (cache : IO.Ref (ExprStructMap String)),
+      ∀ (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n)
+        (initial : Sparkle.IR.Semantics.Env) (mems : Sparkle.IR.Semantics.MEnv),
+      Tools.ShippingMixedEntrySoundness.Admissible bools bits initial
+        ((socBinders n1 n2).zip [id1, id2])
+        (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
+          socFetchPCName.toString) →
+      Tools.ShippingMixedEntrySoundness.RawValueAt 32 (socBinders n1 n2) m initial mems
+        (BitVec.extractLsb' 1894 32 (bits id2 1958)).toNat := by
+  have hbody' : ∀ body0,
+      Tools.ShippingEntrySoundness.MReturns (openRecordInputs dv.value) body0 →
+      ∃ (sp : List (Name × Lean.Expr × BinderInfo)) (b : Lean.Expr),
+        stripMemoizeWrappers body0 = lams sp b ∧
+        b.isLambda = false ∧
+        TypesOkFrom sp (socBinders n1 n2) #[] ∧
+        ∀ ids : List FVarId, ids.length = (socBinders n1 n2).length →
+          b.instantiateRevRange 0 (ids.map Lean.Expr.fvar).toArray.size
+            (ids.map Lean.Expr.fvar).toArray = leafOf ids := by
+    intro body0 hopen
+    obtain ⟨T1, T2, b, bi1, bi2, hb, hl, hT1, hT2, hi⟩ := hbody body0 hopen
+    have o1 : TypeOk .domain (T1.instantiateRevRange 0 (#[] : Array Lean.Expr).size #[]) := by
+      rw [hT1]
+      exact hdom
+    have o2 : ∀ id1 : FVarId,
+        TypeOk (.bits 1958) (T2.instantiateRevRange 0 (fv1 id1).size (fv1 id1)) := by
+      intro id1
+      rw [hT2 id1]
+      exact hs id1
+    have hty : TypesOkFrom [(n1, T1, bi1), (n2, T2, bi2)] (socBinders n1 n2) #[] :=
+      And.intro rfl (And.intro o1 (fun id1 =>
+        And.intro rfl (And.intro (o2 id1) (fun _ => True.intro))))
+    have hi' : ∀ ids : List FVarId, ids.length = (socBinders n1 n2).length →
+        b.instantiateRevRange 0 (ids.map Lean.Expr.fvar).toArray.size
+          (ids.map Lean.Expr.fvar).toArray = leafOf ids := by
+      intro ids hlen
+      have len' : ids.length = 2 := hlen
+      obtain ⟨a1, a2, hids⟩ := len2 ids len'
+      rw [hids]
+      exact hi a1 a2
+    exact ⟨[(n1, T1, bi1), (n2, T2, bi2)], b, hb, hl, hty, hi'⟩
+  have hchain : ∀ (ids : List FVarId) (x : FVarId) (cache : IO.Ref (ExprStructMap String))
+      (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n),
+      ids.length = (socBinders n1 n2).length → AtIdx ids 1 x →
+      TopNode (setupOf socFetchPCName (socBinders n1 n2) ids cache bools bits).context x 1958
+        (leafOf ids) 32
+        (fun v => BitVec.extractLsb' (1926 - 32) 32 (BitVec.extractLsb' 0 1926 v)) := by
+    intro ids x cache bools bits hlen hx
+    have len' : ids.length = 2 := hlen
+    obtain ⟨a1, a2, hids⟩ := len2 ids len'
+    rw [hids] at hx
+    have e : a2 = x := hx
+    rw [hids, ← e]
+    obtain ⟨f1, f2, he, nd2, hsh, nd1, hS⟩ := hnodes a1 a2 cache bools bits
+    rw [he]
+    exact TopNode.fst (SubChain.snd SubChain.var nd2 hsh) nd1 hS
+  have hfield : AtIdx (socBinders n1 n2) 1 ((n2, MixedGateBinder.bits 1958) : Name × MixedGateBinder) :=
+    (rfl : ((n2, MixedGateBinder.bits 1958) : Name × MixedGateBinder) = (n2, .bits 1958))
+  rcases tuple_entry_output (declName := socFetchPCName) (bs := socBinders n1 n2)
+      (leafOf := leafOf) (i := 1) (N := 1958) (w := 32) (nm := n2)
+      (g := fun v => BitVec.extractLsb' (1926 - 32) 32 (BitVec.extractLsb' 0 1926 v))
+      old mixed hmach htel hbody' hfield fst_tupleHead snd_tupleHead snd_ne_fst plainF plainS
+      (fun ids _ => hlam ids) (fun ids _ => hres ids) hchain hr with
+    hit | ⟨ids, x, cache, hlen, _, hx, H⟩
+  · exact Or.inl hit
+  · have len' : ids.length = 2 := hlen
+    obtain ⟨id1, id2, hids⟩ := len2 ids len'
+    rw [hids] at hx
+    rw [hids] at H
+    have e : id2 = x := hx
+    rw [← e] at H
+    refine Or.inr ⟨id1, id2, cache, ?_⟩
+    intro bools bits initial mems values
+    have out := H bools bits initial mems values
+    have e2 : BitVec.extractLsb' 1894 32 (BitVec.extractLsb' 0 1926 (bits id2 1958)) =
+        BitVec.extractLsb' 1894 32 (bits id2 1958) :=
+      extract_extract (bits id2 1958) 0 1926 1894 32 (by decide)
+    rw [← e2]
+    exact out
+
 /-! ## Evidence for the undischarged facts, by compiled code -/
 
 run_cmd Lean.Elab.Command.liftTermElabM do
@@ -1748,6 +1927,11 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     ``Tools.ShippingLegacySem.fstArm_run, ``Tools.ShippingLegacySem.sndArm_run,
     ``Tools.ShippingLegacySem.sliceNode_spec, ``Tools.ShippingLegacySem.sliceNode_order,
     ``fst_tupleHead, ``snd_tupleHead, ``snd_ne_fst,
+    ``SoCState_fetchPC_output,
+    ``Tools.ShippingLegacySem.tuple_entry_output, ``Tools.ShippingLegacySem.topNode_leaf,
+    ``Tools.ShippingLegacySem.topSnd_leaf, ``Tools.ShippingLegacySem.topNode_slice,
+    ``Tools.ShippingLegacySem.Field.pack_get, ``Tools.ShippingLegacySem.slice_is_field,
+    ``Tools.ShippingLegacySem.rawValue_is_field,
     ``Tools.ShippingLegacySem.PShape.pack_fst, ``Tools.ShippingLegacySem.PShape.pack_snd,
     ``Tools.ShippingLegacySem.list_entry_outputD,
     ``Tools.ShippingLegacySem.leafDom_betaWire,
