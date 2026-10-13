@@ -81,14 +81,14 @@ run_cmd do
         throwError "{name} uses a non-standard axiom: {ax}"
   -- one instance of the child, clocked
   let d ← liftTermElabM (Sparkle.Compiler.Elab.synthesizeHierarchical ``parent)
-  let some top := d.modules.find? (·.name.endsWith ".parent")
+  let some top := d.modules.find? (·.name == Sparkle.IR.ModuleName.ofDecl ``parent)
     | throwError "no top module: {d.modules.map (·.name)}"
   let insts := top.body.filter fun st => match st with
     | .inst .. => true
     | _ => false
   unless insts.length == 1 do throwError "{insts.length} instances (want 1)"
   let d ← liftTermElabM (Sparkle.Compiler.Elab.synthesizeHierarchical ``chained)
-  let some top := d.modules.find? (·.name.endsWith ".chained")
+  let some top := d.modules.find? (·.name == Sparkle.IR.ModuleName.ofDecl ``chained)
     | throwError "no chained module"
   let insts := top.body.filter fun st => match st with
     | .inst .. => true

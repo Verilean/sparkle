@@ -61,7 +61,7 @@ theorem list_entry_outputD {logProf : String → IO Unit} {declName : Name}
         (initial : Env) (mems : MEnv),
       Tools.ShippingMixedEntrySoundness.Admissible bools bits initial (bs.zip ids)
         (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
-          declName.toString) →
+          (Sparkle.IR.ModuleName.ofDecl declName)) →
       ∀ v : Value, 0 < v.kind.width →
       LeafDom (setupOf declName bs ids cache bools bits).context
         (Tools.ShippingUnifiedMeaning.inputValues
@@ -81,7 +81,7 @@ theorem list_entry_outputD {logProf : String → IO Unit} {declName : Name}
     intro bools bits initial mems values v pos dom
     have leaf := bindInputsLegacy_prepareD (bools := bools) (bits := bits) bs ids 0
       (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
-        declName.toString) hdecls run
+        (Sparkle.IR.ModuleName.ofDecl declName)) hdecls run
     exact harness_sound_leaf (bs := bs) (ids := ids) hm legal bools bits initial mems
       values leaf v pos (leaf_translate_spec dom) (leaf_translate_order dom)
 

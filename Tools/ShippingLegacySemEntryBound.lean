@@ -41,7 +41,7 @@ theorem one_binder_entry_output_bound {logProf : String → IO Unit} {declName :
       Tools.ShippingMixedEntrySoundness.Admissible bools bits initial
         ([(nm, MixedGateBinder.bits n)].zip [id])
         (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
-          declName.toString) →
+          (Sparkle.IR.ModuleName.ofDecl declName)) →
       ∀ v : Value, 0 < v.kind.width →
       LeafDom (setupOf declName [(nm, MixedGateBinder.bits n)] [id] cache bools bits).context
         (Tools.ShippingUnifiedMeaning.inputValues

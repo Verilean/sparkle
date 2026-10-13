@@ -77,11 +77,11 @@ def closesShared (c : Name) : CommandElabM (Array Prem × String) := do
         let dk' := declsAt k'
         let isDesc := dk'.contains k
         pairs := pairs.push s!"entries {i} ({k}) / {j} ({k'}): descendants {dk} / {dk'}; first conjunct ({k} prints differently from every descendant of {k'}) = {c1}; second conjunct (no printed name under both) = {c2}; declarations under both: {common}; is {k} a descendant of {k'}: {isDesc}"
-  let hnames ← `(Tools.ShippingNameSep.hnames_of _ (by decide))
-  let hparentT ← `(Tools.ShippingNameSep.hparent_of _ _ (by decide))
+  let hnames ← `(Tools.ShippingNameSep.Enc.hnames_of _ (by decide))
+  let hparentT ← `(Tools.ShippingNameSep.Enc.hparent_of _ _ (by decide))
   let hfresh ← `(fun gi c _ o ho => Tools.ShippingCallsGate.instName_ne_of_head
     ((by decide : ∀ o ∈ ($data).shape.layout.outs, o.name.toList.head? ≠ some 'i') o ho) gi
-    c.1.toString)
+    (Sparkle.IR.ModuleName.ofDecl c.1))
   let nkArr := calls.toArray.map fun k => (nodes.get! k).nArgs
   let outArr := calls.toArray.map fun k => (nodes.get! k).outs
   let dArr := calls.toArray.map fun k => (nodes.get! k).declsT
@@ -90,12 +90,12 @@ def closesShared (c : Name) : CommandElabM (Array Prem × String) := do
   let kds ← `(([$dArr,*] : List (List Lean.Name)))
   let nkF ← `(fun k => List.getD $kbs k 0)
   let outF ← `(fun k => List.getD $kos k [])
-  let nmF ← `(fun k => (List.getD $kds k []).map fun n => n.toString)
-  let hpD ← `(fun k hk => Tools.ShippingNameSep.not_mem_map_of _ _
+  let nmF ← `(fun k => (List.getD $kds k []).map fun n => Sparkle.IR.ModuleName.ofDecl n)
+  let hpD ← `(fun k hk => Tools.ShippingNameSep.Enc.not_mem_map_of _ _
     ((by decide : ∀ (k : Nat), k < ($data).shape.insts.length →
       ((List.getD $kds k []).all fun c' =>
         Tools.ShippingNameSep.sep ($cq : Lean.Name) c') = true) k hk))
-  let hsD ← `(fun k hk => Tools.ShippingNameSep.not_mem_map_of _ _
+  let hsD ← `(fun k hk => Tools.ShippingNameSep.Enc.not_mem_map_of _ _
     ((by decide : ∀ (k : Nat) (hk : k < ($data).shape.insts.length),
       ((List.getD $kds k []).all fun c' =>
         Tools.ShippingNameSep.sep (($data).shape.insts[k]).1 c') = true) k hk))

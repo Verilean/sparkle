@@ -153,7 +153,7 @@ open Tools.ShippingCallsChildPorts (argWidths)
 
 /-- The printed names of the descendants of `midH`'s callees: none (its one
 callee is a gate). -/
-def midHNames : Nat → List String := fun _ => ([] : List Lean.Name).map fun n => n.toString
+def midHNames : Nat → List String := fun _ => ([] : List Lean.Name).map fun n => Sparkle.IR.ModuleName.ofDecl n
 
 /-- Every call entry of `midH` is of `rcH` (decided on the reflected data). -/
 theorem midH_entry : ∀ (k : Nat) (hk : k < midH.machineData.shape.insts.length),
@@ -198,11 +198,11 @@ theorem midH_kid {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Met
     self := by
       have h : Tools.ShippingKidsChildIface.namesOf midH.machineData midHNames =
           (Tools.ShippingKidsChildIface.declsOf midH.machineData
-            (fun _ => ([] : List Lean.Name))).map fun n => n.toString :=
+            (fun _ => ([] : List Lean.Name))).map fun n => Sparkle.IR.ModuleName.ofDecl n :=
         Tools.ShippingKidsChildIface.namesOf_map midH.machineData
           (fun _ => ([] : List Lean.Name))
       rw [h]
-      exact Tools.ShippingNameSep.not_mem_map_of _ _ (by decide)
+      exact Tools.ShippingNameSep.Enc.not_mem_map_of _ _ (by decide)
     kidA := by
       intro k hk y hy
       rw [midH_entry k hk] at hy

@@ -59,7 +59,7 @@ theorem kidsDesign_real {c : Name} (d : MachineData) (ok : d.ok = true)
     (hkid : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y →
       KidNames (d.shape.insts[k]).1 (namesK k) y.1 y.2)
-    (hself : c.toString ∉ namesOf d namesK)
+    (hself : (Sparkle.IR.ModuleName.ofDecl c) ∉ namesOf d namesK)
     {w w' : Void IO.RealWorld} {b : Sparkle.IR.AST.Module} {design : Design}
     (hw : InvW mref cref w)
     (hr : RunsTo (synthesizeCombinational c) mctx mref cctx cref w (b, design) w')
@@ -97,7 +97,7 @@ theorem kidsDesign_real {c : Name} (d : MachineData) (ok : d.ok = true)
       cases hmem
     · exact ⟨hk, hkid k hk y hre⟩
   have hnameK : ∀ (k : Nat) (hk : k < d.shape.insts.length),
-      (d.shape.insts[k]).1.toString ∈ namesOf d namesK ∧
+      (Sparkle.IR.ModuleName.ofDecl (d.shape.insts[k]).1) ∈ namesOf d namesK ∧
       ∀ x ∈ namesK k, x ∈ namesOf d namesK := by
     intro k hk
     refine ⟨List.mem_append_left _ (List.mem_map.mpr ⟨_, List.getElem_mem hk, rfl⟩), fun x hx => ?_⟩
@@ -164,7 +164,7 @@ theorem parent_run_outsCheck0_kids {c : Name} (d : MachineData) (ok : d.ok = tru
       RealChild mref cref (d.shape.insts[k]).1 y →
       Tools.ShippingDesignSVBack.outsAssigned y.1 = true ∧
         ∀ g ∈ y.2.modules, Tools.ShippingDesignSVBack.outsAssigned g = true)
-    (hself : c.toString ∉ namesOf d namesK)
+    (hself : (Sparkle.IR.ModuleName.ofDecl c) ∉ namesOf d namesK)
     {w w' : Void IO.RealWorld} {b : Sparkle.IR.AST.Module} {design : Design}
     (hw : InvW mref cref w)
     (hr : RunsTo (synthesizeCombinational c) mctx mref cctx cref w (b, design) w')

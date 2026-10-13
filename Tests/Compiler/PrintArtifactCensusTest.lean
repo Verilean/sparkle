@@ -307,7 +307,7 @@ def census (n : Name) : MetaM Row := do
     kids := kids.length
     hasInst := bC.body.any Sparkle.IR.Machine.isInst
     topFound := bH?.isSome
-    topName := topN == toString n
+    topName := topN == Sparkle.IR.ModuleName.ofDecl n
     topField := dH.topModule == topN
     rerun := dH == dH2
     top := bH == bC

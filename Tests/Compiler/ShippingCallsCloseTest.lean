@@ -173,7 +173,7 @@ def auditClosed (f : Name) (nPremises : Nat) : MetaM (Array Lean.Expr) := do
   for h in hyps do
     unless h.isAppOf ``Tools.ShippingInlineSoundness.EntryDefines ||
         h.isAppOf ``Tools.ShippingMachineEntry.MachineDefines ||
-        (h.find? (·.isConstOf ``Lean.Name.toString)).isSome do
+        (h.find? (fun e => e.isConstOf ``Lean.Name.toString || e.isConstOf ``Sparkle.IR.ModuleName.ofDecl)).isSome do
       throwError "{f}.machine_closes_at: a premise that is neither a reflection nor a name obligation: {h}"
   if !hyps[0]!.isAppOf ``Tools.ShippingInlineSoundness.EntryDefines &&
       !hyps[0]!.isAppOf ``Tools.ShippingMachineEntry.MachineDefines then
@@ -184,12 +184,12 @@ def auditClosed (f : Name) (nPremises : Nat) : MetaM (Array Lean.Expr) := do
   -- closing theorem's proof goes through `Tools.ShippingNameSep` (the printed
   -- name is among finitely many candidates; `Name.toString` is not evaluated)
   let provedNames := match (← getEnv).find? (f ++ `machine_closes_at) with
-    | some (.thmInfo ti) => ti.value.getUsedConstants.contains ``Tools.ShippingNameSep.hparent_of
+    | some (.thmInfo ti) => ti.value.getUsedConstants.contains ``Tools.ShippingNameSep.Enc.hparent_of
     | _ => false
-  let stated := (info.type.find? (·.isConstOf ``Lean.Name.toString)).isSome
+  let stated := (info.type.find? (fun e => e.isConstOf ``Lean.Name.toString || e.isConstOf ``Sparkle.IR.ModuleName.ofDecl)).isSome
   if !stated && !provedNames then
     throwError "{e}: the name separation is neither stated nor proved"
-  if stated && provedNames && hyps.all (fun h => (h.find? (·.isConstOf ``Lean.Name.toString)).isNone) then
+  if stated && provedNames && hyps.all (fun h => (h.find? (fun e => e.isConstOf ``Lean.Name.toString || e.isConstOf ``Sparkle.IR.ModuleName.ofDecl)).isNone) then
     pure ()
   if !(← namesHold f) then throwError "{f}: a name condition is false"
   return hyps
@@ -605,7 +605,7 @@ def auditClosedNR (f : Name) (n nPremises : Nat) : MetaM Unit := do
   for h in hyps do
     unless h.isAppOf ``Tools.ShippingInlineSoundness.EntryDefines ||
         h.isAppOf ``Tools.ShippingMachineEntry.MachineDefines ||
-        (h.find? (·.isConstOf ``Lean.Name.toString)).isSome do
+        (h.find? (fun e => e.isConstOf ``Lean.Name.toString || e.isConstOf ``Sparkle.IR.ModuleName.ofDecl)).isSome do
       throwError "{f}.machine_closes_at: a premise that is neither a reflection nor a name obligation: {h}"
   if !hyps[0]!.isAppOf ``Tools.ShippingMachineEntry.MachineDefines then
     throwError "the first premise is not a child's reflection: {hyps[0]!}"
@@ -613,12 +613,12 @@ def auditClosedNR (f : Name) (n nPremises : Nat) : MetaM Unit := do
   -- closing theorem's proof goes through `Tools.ShippingNameSep` (the printed
   -- name is among finitely many candidates; `Name.toString` is not evaluated)
   let provedNames := match (← getEnv).find? (f ++ `machine_closes_at) with
-    | some (.thmInfo ti) => ti.value.getUsedConstants.contains ``Tools.ShippingNameSep.hparent_of
+    | some (.thmInfo ti) => ti.value.getUsedConstants.contains ``Tools.ShippingNameSep.Enc.hparent_of
     | _ => false
-  let stated := (info.type.find? (·.isConstOf ``Lean.Name.toString)).isSome
+  let stated := (info.type.find? (fun e => e.isConstOf ``Lean.Name.toString || e.isConstOf ``Sparkle.IR.ModuleName.ofDecl)).isSome
   if !stated && !provedNames then
     throwError "{e}: the name separation is neither stated nor proved"
-  if stated && provedNames && hyps.all (fun h => (h.find? (·.isConstOf ``Lean.Name.toString)).isNone) then
+  if stated && provedNames && hyps.all (fun h => (h.find? (fun e => e.isConstOf ``Lean.Name.toString || e.isConstOf ``Sparkle.IR.ModuleName.ofDecl)).isNone) then
     pure ()
   if !(← namesHold f) then throwError "{f}: a name condition is false"
   -- the general closing really is the route: the shape reads fields

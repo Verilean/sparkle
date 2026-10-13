@@ -215,7 +215,7 @@ structure OneOutKid (mref : ST.Ref IO.RealWorld Meta.State)
   kid : ∀ (k : Nat) (hk : k < dk.shape.insts.length) (y : Res),
     RealChild mref cref (dk.shape.insts[k]).1 y →
     KidNames (dk.shape.insts[k]).1 (namesK k) y.1 y.2
-  self : c.toString ∉ namesOf dk namesK
+  self : (Sparkle.IR.ModuleName.ofDecl c) ∉ namesOf dk namesK
   kidA : ∀ (k : Nat) (hk : k < dk.shape.insts.length) (y : Res),
     RealChild mref cref (dk.shape.insts[k]).1 y →
     Tools.ShippingDesignSVBack.outsAssigned y.1 = true ∧

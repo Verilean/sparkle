@@ -71,7 +71,7 @@ theorem list_entry_output {logProf : String → IO Unit} {declName : Name}
       Tools.ShippingMixedEntrySoundness.Admissible bools bits initial
         ((bindersOf B).zip ids)
         (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
-          declName.toString) →
+          (Sparkle.IR.ModuleName.ofDecl declName)) →
       ∀ v : Value, 0 < v.kind.width →
       LeafDom (setupOf declName (bindersOf B) ids cache bools bits).context
         (Tools.ShippingUnifiedMeaning.inputValues
@@ -94,7 +94,7 @@ theorem list_entry_output {logProf : String → IO Unit} {declName : Name}
     -- the binder walk, inverted to the prepared setup
     have leaf := bindInputsLegacy_prepare (bools := bools) (bits := bits) B ids 0
       (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
-        declName.toString) hdecls horacle run
+        (Sparkle.IR.ModuleName.ofDecl declName)) hdecls horacle run
     exact harness_sound_leaf (bs := bindersOf B) (ids := ids) hm legal bools bits initial mems
       values leaf v pos (leaf_translate_spec dom) (leaf_translate_order dom)
 

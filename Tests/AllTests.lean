@@ -264,6 +264,7 @@ import Tests.Compiler.ShippingMachineSeqTest
 import Tests.Compiler.ShippingTypedPostSoundnessTest
 import Tests.Compiler.ShippingControlOptSoundnessTest
 import Tests.Compiler.ShippingModuleNamesTest
+import Tests.Compiler.ModuleNameInjectiveTest
 import Tests.CircuitDoTest
 import Tests.RunCircuitHTest
 import Tests.TestCppSim

@@ -135,13 +135,13 @@ theorem closes_of_agree {declName : Name} (d : MachineData) (ok : d.ok = true)
       (d.shape.insts[k]).2.1 = (d.shape.insts[k']).2.1 →
       d.shape.instFields.getD k "" = d.shape.instFields.getD k' "" → k = k')
     (hsep : ∀ c ∈ d.shape.insts.map (·.1), ∀ c' ∈ d.shape.insts.map (·.1),
-      c.toString = c'.toString → c = c')
-    (hparent : ∀ c ∈ d.shape.insts, c.1.toString ≠ declName.toString)
+      (Sparkle.IR.ModuleName.ofDecl c) = (Sparkle.IR.ModuleName.ofDecl c') → c = c')
+    (hparent : ∀ c ∈ d.shape.insts, (Sparkle.IR.ModuleName.ofDecl c.1) ≠ (Sparkle.IR.ModuleName.ofDecl declName))
     (hfresh : ∀ (gi : Nat), ∀ c ∈ d.shape.insts, ∀ o ∈ d.shape.layout.outs,
-      o.name ≠ s!"inst{gi}_{c.1.toString}")
-    (hparentD : ∀ (k : Nat), k < d.shape.insts.length → declName.toString ∉ namesK k)
+      o.name ≠ s!"inst{gi}_{(Sparkle.IR.ModuleName.ofDecl c.1)}")
+    (hparentD : ∀ (k : Nat), k < d.shape.insts.length → (Sparkle.IR.ModuleName.ofDecl declName) ∉ namesK k)
     (hselfD : ∀ (k : Nat) (hk : k < d.shape.insts.length),
-      (d.shape.insts[k]).1.toString ∉ namesK k) :
+      (Sparkle.IR.ModuleName.ofDecl (d.shape.insts[k]).1) ∉ namesK k) :
     ∀ (b : Bool) w r w', InvW mref cref w → DepthPos mref cref w →
       RunsTo (synthesizeMachineCertified
         (fun e hint top named => translateExprToWire e hint top named) (profLogIO b) declName
@@ -306,7 +306,7 @@ theorem closes_of_agree {declName : Name} (d : MachineData) (ok : d.ok = true)
         have := List.getElem?_eq_getElem hk'
         rw [hx'] at this
         exact (Option.some.inj this).symm
-      have hn : (d.shape.insts[k]).1.toString = (d.shape.insts[k']).1.toString := by
+      have hn : (Sparkle.IR.ModuleName.ofDecl (d.shape.insts[k]).1) = (Sparkle.IR.ModuleName.ofDecl (d.shape.insts[k']).1) := by
         rw [← full.name, ← full'.name]
         exact he.1
       have hni : (d.shape.insts[k]).1 ∈ d.shape.insts.map (·.1) :=
@@ -364,13 +364,13 @@ theorem machineClosesAtS_of_kids {declName : Name} (d : MachineData) (ok : d.ok 
       (d.shape.insts[k]).2.1 = (d.shape.insts[k']).2.1 →
       d.shape.instFields.getD k "" = d.shape.instFields.getD k' "" → k = k')
     (hsep : ∀ c ∈ d.shape.insts.map (·.1), ∀ c' ∈ d.shape.insts.map (·.1),
-      c.toString = c'.toString → c = c')
-    (hparent : ∀ c ∈ d.shape.insts, c.1.toString ≠ declName.toString)
+      (Sparkle.IR.ModuleName.ofDecl c) = (Sparkle.IR.ModuleName.ofDecl c') → c = c')
+    (hparent : ∀ c ∈ d.shape.insts, (Sparkle.IR.ModuleName.ofDecl c.1) ≠ (Sparkle.IR.ModuleName.ofDecl declName))
     (hfresh : ∀ (gi : Nat), ∀ c ∈ d.shape.insts, ∀ o ∈ d.shape.layout.outs,
-      o.name ≠ s!"inst{gi}_{c.1.toString}")
-    (hparentD : ∀ (k : Nat), k < d.shape.insts.length → declName.toString ∉ namesK k)
+      o.name ≠ s!"inst{gi}_{(Sparkle.IR.ModuleName.ofDecl c.1)}")
+    (hparentD : ∀ (k : Nat), k < d.shape.insts.length → (Sparkle.IR.ModuleName.ofDecl declName) ∉ namesK k)
     (hselfD : ∀ (k : Nat) (hk : k < d.shape.insts.length),
-      (d.shape.insts[k]).1.toString ∉ namesK k) :
+      (Sparkle.IR.ModuleName.ofDecl (d.shape.insts[k]).1) ∉ namesK k) :
     MachineClosesAtS mctx mref cctx cref declName d.shape (d.shape.insts.map (·.1)) :=
   fun b w r w' hw hdp hr hag =>
     closes_of_agree d ok hbody halias hC hslots hdomB hfne nk outsK namesK hnomem hkid hargsN
@@ -406,16 +406,16 @@ theorem machineClosesAt_of_kidsD_again {declName : Name} (d : MachineData) (ok :
       (d.shape.insts[k]).2.1 = (d.shape.insts[k']).2.1 →
       d.shape.instFields.getD k "" = d.shape.instFields.getD k' "" → k = k')
     (hsep : ∀ c ∈ d.shape.insts.map (·.1), ∀ c' ∈ d.shape.insts.map (·.1),
-      c.toString = c'.toString → c = c')
-    (hparent : ∀ c ∈ d.shape.insts, c.1.toString ≠ declName.toString)
+      (Sparkle.IR.ModuleName.ofDecl c) = (Sparkle.IR.ModuleName.ofDecl c') → c = c')
+    (hparent : ∀ c ∈ d.shape.insts, (Sparkle.IR.ModuleName.ofDecl c.1) ≠ (Sparkle.IR.ModuleName.ofDecl declName))
     (hfresh : ∀ (gi : Nat), ∀ c ∈ d.shape.insts, ∀ o ∈ d.shape.layout.outs,
-      o.name ≠ s!"inst{gi}_{c.1.toString}")
-    (hparentD : ∀ (k : Nat), k < d.shape.insts.length → declName.toString ∉ namesK k)
+      o.name ≠ s!"inst{gi}_{(Sparkle.IR.ModuleName.ofDecl c.1)}")
+    (hparentD : ∀ (k : Nat), k < d.shape.insts.length → (Sparkle.IR.ModuleName.ofDecl declName) ∉ namesK k)
     (hselfD : ∀ (k : Nat) (hk : k < d.shape.insts.length),
-      (d.shape.insts[k]).1.toString ∉ namesK k)
+      (Sparkle.IR.ModuleName.ofDecl (d.shape.insts[k]).1) ∉ namesK k)
     (hdisjD : ∀ (k : Nat) (hk : k < d.shape.insts.length) (k' : Nat)
       (hk' : k' < d.shape.insts.length), (d.shape.insts[k]).1 ≠ (d.shape.insts[k']).1 →
-      (d.shape.insts[k]).1.toString ∉ namesK k' ∧ ∀ x ∈ namesK k, x ∉ namesK k') :
+      (Sparkle.IR.ModuleName.ofDecl (d.shape.insts[k]).1) ∉ namesK k' ∧ ∀ x ∈ namesK k, x ∉ namesK k') :
     MachineClosesAt mctx mref cctx cref declName d.shape := by
   intro b w r w' hw hdp hr
   refine closes_of_agree d ok hbody halias hC hslots hdomB hfne nk outsK namesK hnomem hkid
@@ -445,11 +445,11 @@ theorem machineClosesAt_of_kidsD_again {declName : Name} (d : MachineData) (ok :
     exact hne
   obtain ⟨hd1, hd2⟩ := hdisjD i hki j hkj hdecl
   obtain ⟨hd3, hd4⟩ := hdisjD j hkj i hki (fun e => hdecl e.symm)
-  have han : a.name = (d.shape.insts[i]).1.toString ∨ a.name ∈ namesK i := by
+  have han : a.name = (Sparkle.IR.ModuleName.ofDecl (d.shape.insts[i]).1) ∨ a.name ∈ namesK i := by
     rcases List.mem_cons.mp ha with hae | hai
     · exact Or.inl (by rw [hae]; exact fi.name)
     · exact Or.inr (fi.desNames a hai)
-  have hbn : b'.name = (d.shape.insts[j]).1.toString ∨ b'.name ∈ namesK j := by
+  have hbn : b'.name = (Sparkle.IR.ModuleName.ofDecl (d.shape.insts[j]).1) ∨ b'.name ∈ namesK j := by
     rcases List.mem_cons.mp hb with hbe | hbj
     · exact Or.inl (by rw [hbe]; exact fj.name)
     · exact Or.inr (fj.desNames b' hbj)

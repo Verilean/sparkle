@@ -128,15 +128,15 @@ theorem names_ne : nameC ≠ nameS := by
 
 /-- `mixedMems` does not print as the combinational-read module's name. -/
 theorem mixedMems_notinC :
-    (``Sparkle.Tests.Compiler.ShippingMachineMemLinkedTest.mixedMems : Lean.Name).toString ∉
+    (Sparkle.IR.ModuleName.ofDecl (``Sparkle.Tests.Compiler.ShippingMachineMemLinkedTest.mixedMems : Lean.Name)) ∉
       [nameC] :=
-  Tools.ShippingNameSep.not_mem_of _ _ (by first | decide | decide +kernel)
+  (by name_not_mem)
 
 /-- `mixedMems` does not print as the synchronous-read module's name. -/
 theorem mixedMems_notinS :
-    (``Sparkle.Tests.Compiler.ShippingMachineMemLinkedTest.mixedMems : Lean.Name).toString ∉
+    (Sparkle.IR.ModuleName.ofDecl (``Sparkle.Tests.Compiler.ShippingMachineMemLinkedTest.mixedMems : Lean.Name)) ∉
       [nameS] :=
-  Tools.ShippingNameSep.not_mem_of _ _ (by first | decide | decide +kernel)
+  (by name_not_mem)
 
 /-- The module name of a combinational entry. -/
 theorem mixedMems_atC (k : Nat)
@@ -182,7 +182,7 @@ theorem mixedMems_sep : ∀ (k : Nat)
 theorem mixedMems_parent : ∀ (k : Nat),
     k < (Sparkle.Tests.Compiler.ShippingMachineMemLinkedTest.mixedMems.machineData).shape.insts.length →
     memNameAt Sparkle.Tests.Compiler.ShippingMachineMemLinkedTest.mixedMems.machineData k ≠
-      (``Sparkle.Tests.Compiler.ShippingMachineMemLinkedTest.mixedMems : Lean.Name).toString := by
+      (Sparkle.IR.ModuleName.ofDecl (``Sparkle.Tests.Compiler.ShippingMachineMemLinkedTest.mixedMems : Lean.Name)) := by
   intro k hk e
   rcases mixedMems_entry k hk with h | h
   · exact mixedMems_notinC

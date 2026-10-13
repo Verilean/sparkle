@@ -116,7 +116,7 @@ theorem closeInstsG_of_run {declName : Name} (d : MachineData) (ok : d.ok = true
       (∀ p ∈ c.1.outputs, (∀ q ∈ inPortsOf c.1, q.name ≠ p.name) ∧ p.name ≠ "clk" ∧
         p.name ≠ "rst") ∧
       (c.1.outputs.map (·.name)).Nodup ∧
-      c.1.name ≠ declName.toString)
+      c.1.name ≠ (Sparkle.IR.ModuleName.ofDecl declName))
     (hcons : ∀ a ∈ children, ∀ b ∈ children, a.1.name = b.1.name → a.1 = b.1)
     (hfieldsNd : ∀ (k k' : Nat) (key : String × List Nat),
       (keysOf (d.shape.insts.map (·.2.1)) children)[k]? = some key →
@@ -131,7 +131,7 @@ theorem closeInstsG_of_run {declName : Name} (d : MachineData) (ok : d.ok = true
         decide (moduleByName (designWith children d₀).modules c.1.name = some c.1) &&
         c.2.modules.all (fun g =>
           decide (moduleByName (designWith children d₀).modules g.name = some g))) = true ∧
-      (designWith children d₀).modules.all (fun g => noInstOfB declName.toString g.body) = true) :
+      (designWith children d₀).modules.all (fun g => noInstOfB (Sparkle.IR.ModuleName.ofDecl declName) g.body) = true) :
     (closeInstsG (machNIn d.shape) d.shape.insts.length d.shape.layout.slots.length
       (t.inputs.map (·.name)) (d.shape.insts.map (·.2.1)) d.shape.instFields children
       (closeMachine d.shape.layout t', d₀)).isSome = true := by

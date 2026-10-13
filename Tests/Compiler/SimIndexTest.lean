@@ -70,7 +70,7 @@ def maps (f : Lean.Name) :
       List String) := do
   let design ← Sparkle.Compiler.Elab.synthesizeHierarchical f
   let optimized := Sparkle.IR.Optimize.optimizeDesign design
-  let m ← match optimized.modules.find? (fun m => m.name == toString f) with
+  let m ← match optimized.modules.find? (fun m => m.name == Sparkle.IR.ModuleName.ofDecl f) with
     | some m => pure m
     | none =>
       match optimized.modules.getLast? with

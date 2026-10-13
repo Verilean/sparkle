@@ -39,7 +39,7 @@ open Sparkle.IR.OptCheck (seqStmtOk)
 /-- **What the general closing asks of a child's full-entry result.** -/
 structure ChildIfaceG (c : Name) (nArgs : Nat) (outs : List String)
     (b : Sparkle.IR.AST.Module) (design : Design) : Prop where
-  name : b.name = c.toString
+  name : b.name = (Sparkle.IR.ModuleName.ofDecl c)
   design : design.modules = []
   nIn : (inPortsOf b).length = nArgs
   inNd : ((inPortsOf b).map (·.name)).Nodup
@@ -158,7 +158,7 @@ theorem seqChild_iface {c : Name} (d : MachineData) (ok : d.ok = true)
     synthesizeMixedCertified_returns run
   obtain ⟨-, -, -, -, hdesign, hname⟩ :=
     transition_closed nd len hrun hm nameLegal hposv d.packed hwf hb' hv' hbody
-  have hMname : M.name = c.toString := by
+  have hMname : M.name = (Sparkle.IR.ModuleName.ofDecl c) := by
     rw [hMeq, closeMachine_name, closeLets_name hcl, hname]
   -- the raw module's wiring: the core entry's theorem at this run
   have layW : Tools.ShippingMachineClose.Zip₂

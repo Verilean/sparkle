@@ -72,10 +72,10 @@ theorem machineClosesAt_of_seqKids {declName : Name} (d : MachineData) (ok : d.o
       (d.shape.insts[k]).2.1 = (d.shape.insts[k']).2.1 →
       d.shape.instFields.getD k "" = d.shape.instFields.getD k' "" → k = k')
     (hsep : ∀ c ∈ d.shape.insts.map (·.1), ∀ c' ∈ d.shape.insts.map (·.1),
-      c.toString = c'.toString → c = c')
-    (hparent : ∀ c ∈ d.shape.insts, c.1.toString ≠ declName.toString)
+      (Sparkle.IR.ModuleName.ofDecl c) = (Sparkle.IR.ModuleName.ofDecl c') → c = c')
+    (hparent : ∀ c ∈ d.shape.insts, (Sparkle.IR.ModuleName.ofDecl c.1) ≠ (Sparkle.IR.ModuleName.ofDecl declName))
     (hfresh : ∀ (gi : Nat), ∀ c ∈ d.shape.insts, ∀ o ∈ d.shape.layout.outs,
-      o.name ≠ s!"inst{gi}_{c.1.toString}") :
+      o.name ≠ s!"inst{gi}_{(Sparkle.IR.ModuleName.ofDecl c.1)}") :
     MachineClosesAt mctx mref cctx cref declName d.shape := by
   have hl : Tools.ShippingClosesSplit.LetsClose mctx mref cctx cref declName d.shape :=
     letsClose_of_data d ok hbody halias mctx mref cctx cref
@@ -172,7 +172,7 @@ theorem machineClosesAt_of_seqKids {declName : Name} (d : MachineData) (ok : d.o
         have := List.getElem?_eq_getElem hk'
         rw [hx'] at this
         exact (Option.some.inj this).symm
-      have hn : (d.shape.insts[k]).1.toString = (d.shape.insts[k']).1.toString := by
+      have hn : (Sparkle.IR.ModuleName.ofDecl (d.shape.insts[k]).1) = (Sparkle.IR.ModuleName.ofDecl (d.shape.insts[k']).1) := by
         rw [← full.name, ← full'.name]
         exact he.1
       have hni : (d.shape.insts[k]).1 ∈ d.shape.insts.map (·.1) :=

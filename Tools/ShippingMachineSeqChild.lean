@@ -44,7 +44,7 @@ theorem sourceInputs_of_vals {declName : Name} {bsIn : List (Name × MixedGateBi
   apply admissible_of_portsD
   rw [show inputPorts (boolValues ids fun j => decB bsIn vals j)
       (bitValues ids fun j n => decV bsIn vals j n) (bsIn.zip ids)
-      (start (entryCompilerState false cache) declName.toString) =
+      (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)) =
       machPorts declName ids cache bsIn from inputPorts_congr _ _ _ rfl, ← hargs]
   have hlenP : (argPorts raw).length =
       ((bsIn.zip ids).filter fun b => b.1.2 != .domain).length := by
@@ -337,9 +337,9 @@ theorem seqStream_full {declName : Name} {d : MachineData} {ι : Type} {dom : ι
         rw [← hports t ht, hargsB]; simp [List.getD_eq_getElem?_getD, hpq']
       -- the port's binder
       have hty := inputPorts_typesD (bools := fun _ => false) (bits := fun _ n => 0#n)
-        (d.bsIn.zip ids) (start (entryCompilerState false cache) declName.toString)
+        (d.bsIn.zip ids) (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))
       rw [show inputPorts (fun _ => false) (fun _ n => 0#n) (d.bsIn.zip ids)
-          (start (entryCompilerState false cache) declName.toString) =
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)) =
           machPorts declName ids cache d.bsIn from rfl, ← hargs] at hty
       obtain ⟨b, hb'⟩ : ∃ b, ((d.bsIn.zip ids).filter fun b => b.1.2 != .domain)[q]? = some b := by
         have hl := hty.length_eq

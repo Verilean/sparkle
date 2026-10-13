@@ -347,7 +347,7 @@ def RegisterPreserves (declName : Name) (bs : List (Name × MixedGateBinder))
     ∀ (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n)
       (env0 : Env) (mems : MEnv)
       (bvals : Nat → Bool) (vvals : (j : Nat) → (n : Nat) → BitVec n),
-    let a := start (entryCompilerState false cache) declName.toString
+    let a := start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)
     let p := prepare bools bits (bs.zip ids) a
     Admissible bools bits env0 (bs.zip ids) a →
     (∀ j, j < kb → p.bools (binp j) = some (bvals j)) →
@@ -370,7 +370,7 @@ theorem synthesizeMixedCertified_register_sound {logProf declName bs body m d}
   refine ⟨ids, nd, len, cache, ?_⟩
   intro dom kb kv vw binp vinp w v e hdom he hv qeq
   -- Decompose the returned translation once; this is valuation-independent.
-  have leaf := prepare_returns (bs.zip ids) (start (entryCompilerState false cache) declName.toString) (bools := fun _ => false)
+  have leaf := prepare_returns (bs.zip ids) (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)) (bools := fun _ => false)
     (bits := fun _ _ => 0) run
   rw [qeq] at leaf
   obtain ⟨rW, sm, ty, tr, freshOut, ht, hty⟩ := emitLeaves_single leaf
@@ -387,9 +387,9 @@ theorem synthesizeMixedCertified_register_sound {logProf declName bs body m d}
     rw [register_step _ dom _ w v hdom (e.wf_pos he) hv]
   rw [stepEq] at tr
   -- The prepared entry state has an empty record: the validated hit is dead.
-  have empty0 := empty_layout (entryCompilerState false cache) declName.toString (fun _ => 0)
+  have empty0 := empty_layout (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName) (fun _ => 0)
   have record0 : (prepare (fun _ => false) (fun _ _ => 0) (bs.zip ids)
-      (start (entryCompilerState false cache) declName.toString)).state.translateRecord = {} :=
+      (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state.translateRecord = {} :=
     (prepare_layout (bs.zip ids) _ empty0.1 empty0.2 (admissible_zero _ _)).2.2.2
   rcases translateControlCachedWith_returns tr with hit | ⟨smR, missRun, record⟩
   · obtain ⟨-, hrec⟩ := cacheLookupValidated_returns hit
@@ -438,27 +438,27 @@ theorem synthesizeMixedCertified_register_sound {logProf declName bs body m d}
     rw [hm]; simp only [Module.finalize, (addClockReset_facts st.module).2.1]
   refine ⟨rW, ?_⟩
   intro bools bits env0 mems bvals vvals a p adm hb0 hv0 hrst0
-  have empty := empty_layout (entryCompilerState false cache) declName.toString env0
-  have prepared := prepare_layout (bs.zip ids) (start (entryCompilerState false cache) declName.toString) empty.1 empty.2 adm
+  have empty := empty_layout (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName) env0
+  have prepared := prepare_layout (bs.zip ids) (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)) empty.1 empty.2 adm
   obtain ⟨pc, ps⟩ := prepare_const (fun _ => false) bools (fun _ _ => 0) bits
     (bs.zip ids) _ _ rfl rfl
   rw [pc, ps] at rc
   have hb' : ∀ j, j < kb →
       inputValues (prepare bools bits (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString)).bools
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bools
         (prepare bools bits (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).bits (binp j) =
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bits (binp j) =
         some (.bool (bvals j)) :=
     fun j hj => inputValues_bool (hb0 j hj)
   have separate := prepared.1.separate prepared.2.1
   have hv' : ∀ j, j < kv →
       inputValues (prepare bools bits (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString)).bools
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bools
         (prepare bools bits (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).bits (vinp j) =
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bits (vinp j) =
         some (.bits (vw j) (vvals j (vw j))) :=
     fun j hj => inputValues_bits separate (hv0 j hj)
-  have contract := fuel_contract 1048575 (ctx := (prepare bools bits (bs.zip ids) (start (entryCompilerState false cache) declName.toString)).context) (we := declaredWidths st) (mems := mems)
+  have contract := fuel_contract 1048575 (ctx := (prepare bools bits (bs.zip ids) (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context) (we := declaredWidths st) (mems := mems)
     (initial := env0) (dom := dom) hb' hv' e he
   have lookup := lookup_of_ports prepared.1 prepared.2.1
   have frame := contract.frame "reg_in" false false _ sc cw lookup rc
@@ -493,8 +493,8 @@ theorem synthesizeMixedCertified_register_sound {logProf declName bs body m d}
     · rw [hrWm]; exact CircuitM.makeWire_allocated "out" (.bitVector w) true sc
     · rcases frame.wireNames q hq with hold | halloc
       · exact prepare_wires_allocated bools bits (bs.zip ids) _
-          (by rw [show (start (entryCompilerState false cache) declName.toString).state =
-              CircuitM.init declName.toString from rfl, init_wires]; intro x hx; cases hx)
+          (by rw [show (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)).state =
+              CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName) from rfl, init_wires]; intro x hx; cases hx)
           q hold
       · exact halloc
   have widthRst : declaredWidths st "rst" = 0 := by
@@ -619,8 +619,8 @@ theorem synthesizeMixedCertified_register_sound {logProf declName bs body m d}
     rcases List.mem_cons.mp hq with rfl | hq
     · exact Or.inr ⟨w, rfl⟩
     · exact frame.scalar (prepare_shape (bs.zip ids) _ (by intro q hq'; rw [show
-        (start (entryCompilerState false cache) declName.toString).state =
-          CircuitM.init declName.toString from rfl, init_wires] at hq'; cases hq')).1 q hq
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)).state =
+          CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName) from rfl, init_wires] at hq'; cases hq')).1 q hq
   have wm : weOf m = declaredWidths st := by
     rw [weOf_eq_moduleWidths (by
       intro q hq; rw [mWires, List.mem_reverse] at hq; exact scalarSt q hq)]
@@ -655,8 +655,8 @@ theorem synthesizeMixedCertified_register_sound {logProf declName bs body m d}
       rw [makeWire_outputs, frame.outputs,
         (prepare_shape (bs.zip ids) _ (by
           intro q hq'
-          rw [show (start (entryCompilerState false cache) declName.toString).state =
-            CircuitM.init declName.toString from rfl, init_wires] at hq'
+          rw [show (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)).state =
+            CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName) from rfl, init_wires] at hq'
           cases hq')).2]
       rfl
     rw [hm]
@@ -832,7 +832,7 @@ def RegisterEnablePreserves (declName : Name) (bs : List (Name × MixedGateBinde
     ∀ (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n)
       (env0 : Env) (mems : MEnv)
       (bvals : Nat → Bool) (vvals : (j : Nat) → (n : Nat) → BitVec n),
-    let a := start (entryCompilerState false cache) declName.toString
+    let a := start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)
     let p := prepare bools bits (bs.zip ids) a
     Admissible bools bits env0 (bs.zip ids) a →
     (∀ j, j < kb → p.bools (binp j) = some (bvals j)) →
@@ -856,7 +856,7 @@ theorem synthesizeMixedCertified_registerEnable_sound {logProf declName bs body 
   refine ⟨ids, nd, len, cache, ?_⟩
   intro dom kb kv vw binp vinp w v en e hdom hen he hv qeq
   have leaf := prepare_returns (bs.zip ids)
-    (start (entryCompilerState false cache) declName.toString) (bools := fun _ => false)
+    (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)) (bools := fun _ => false)
     (bits := fun _ _ => 0) run
   rw [qeq] at leaf
   obtain ⟨rW, sm, ty, tr, freshOut, ht, hty⟩ := emitLeaves_single leaf
@@ -875,9 +875,9 @@ theorem synthesizeMixedCertified_registerEnable_sound {logProf declName bs body 
         (quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) e)) "out" false true = _
     rw [registerEnable_step _ dom _ _ w v hdom (e.wf_pos he) hv]
   rw [stepEq] at tr
-  have empty0 := empty_layout (entryCompilerState false cache) declName.toString (fun _ => 0)
+  have empty0 := empty_layout (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName) (fun _ => 0)
   have record0 : (prepare (fun _ => false) (fun _ _ => 0) (bs.zip ids)
-      (start (entryCompilerState false cache) declName.toString)).state.translateRecord = {} :=
+      (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state.translateRecord = {} :=
     (prepare_layout (bs.zip ids) _ empty0.1 empty0.2 (admissible_zero _ _)).2.2.2
   rcases translateControlCachedWith_returns tr with hit | ⟨smR, missRun, record⟩
   · obtain ⟨-, hrec⟩ := cacheLookupValidated_returns hit
@@ -961,35 +961,35 @@ theorem synthesizeMixedCertified_registerEnable_sound {logProf declName bs body 
     rw [hm]; simp only [Module.finalize, (addClockReset_facts st.module).2.1]
   refine ⟨rW, ?_⟩
   intro bools bits env0 mems bvals vvals a p adm hb0 hv0 hrst0 hstb
-  have empty := empty_layout (entryCompilerState false cache) declName.toString env0
+  have empty := empty_layout (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName) env0
   have prepared := prepare_layout (bs.zip ids)
-    (start (entryCompilerState false cache) declName.toString) empty.1 empty.2 adm
+    (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)) empty.1 empty.2 adm
   obtain ⟨pc, ps⟩ := prepare_const (fun _ => false) bools (fun _ _ => 0) bits
     (bs.zip ids) _ _ rfl rfl
   rw [pc, ps] at rcEn
   rw [pc] at rcIn
   have hb' : ∀ j, j < kb →
       inputValues (prepare bools bits (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString)).bools
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bools
         (prepare bools bits (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).bits (binp j) =
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bits (binp j) =
         some (.bool (bvals j)) :=
     fun j hj => inputValues_bool (hb0 j hj)
   have separate := prepared.1.separate prepared.2.1
   have hv' : ∀ j, j < kv →
       inputValues (prepare bools bits (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString)).bools
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bools
         (prepare bools bits (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).bits (vinp j) =
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bits (vinp j) =
         some (.bits (vw j) (vvals j (vw j))) :=
     fun j hj => inputValues_bits separate (hv0 j hj)
   have contractEn := fuel_contract 1048575
     (ctx := (prepare bools bits (bs.zip ids)
-      (start (entryCompilerState false cache) declName.toString)).context)
+      (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context)
     (we := declaredWidths st) (mems := mems) (initial := env0) (dom := dom) hb' hv' en hen
   have contractIn := fuel_contract 1048575
     (ctx := (prepare bools bits (bs.zip ids)
-      (start (entryCompilerState false cache) declName.toString)).context)
+      (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context)
     (we := declaredWidths st) (mems := mems) (initial := env0) (dom := dom) hb' hv' e he
   have lookup := lookup_of_ports prepared.1 prepared.2.1
   have fEn := contractEn.frame "reg_en" false false _ se enW lookup rcEn
@@ -1034,8 +1034,8 @@ theorem synthesizeMixedCertified_registerEnable_sound {logProf declName bs body 
       · rcases fIn.wireNames q hq with hold | halloc
         · rcases fEn.wireNames q hold with hold2 | halloc2
           · exact prepare_wires_allocated bools bits (bs.zip ids) _
-              (by rw [show (start (entryCompilerState false cache) declName.toString).state =
-                  CircuitM.init declName.toString from rfl, init_wires]
+              (by rw [show (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)).state =
+                  CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName) from rfl, init_wires]
                   intro x hx; cases hx)
               q hold2
           · exact halloc2
@@ -1220,8 +1220,8 @@ theorem synthesizeMixedCertified_registerEnable_sound {logProf declName bs body 
       · exact Or.inr ⟨w, rfl⟩
       · exact fIn.scalar (fEn.scalar (prepare_shape (bs.zip ids) _ (by
           intro q hq'
-          rw [show (start (entryCompilerState false cache) declName.toString).state =
-            CircuitM.init declName.toString from rfl, init_wires] at hq'
+          rw [show (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)).state =
+            CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName) from rfl, init_wires] at hq'
           cases hq')).1) q hq
   have wm : weOf m = declaredWidths st := by
     rw [weOf_eq_moduleWidths (by
@@ -1260,8 +1260,8 @@ theorem synthesizeMixedCertified_registerEnable_sound {logProf declName bs body 
       rw [makeWire_outputs, fIn.outputs, fEn.outputs,
         (prepare_shape (bs.zip ids) _ (by
           intro q hq'
-          rw [show (start (entryCompilerState false cache) declName.toString).state =
-            CircuitM.init declName.toString from rfl, init_wires] at hq'
+          rw [show (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)).state =
+            CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName) from rfl, init_wires] at hq'
           cases hq')).2]
       rfl
     rw [hm]
@@ -1449,7 +1449,7 @@ def LoopRegisterPreserves (declName : Name) (bs : List (Name × MixedGateBinder)
     ∀ (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n)
       (env0 : Env) (mems : MEnv)
       (bvals : Nat → Bool) (vvals : (j : Nat) → (n : Nat) → BitVec n),
-    let a := start (entryCompilerState false cache) declName.toString
+    let a := start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)
     let p := prepare bools bits (bs.zip ids) a
     Admissible bools bits env0 (bs.zip ids) a →
     (∀ j, j < kb → p.bools (binp j) = some (bvals j)) →
@@ -1474,7 +1474,7 @@ theorem synthesizeMixedCertified_loopRegister_sound {logProf declName bs body m 
   refine ⟨ids, nd, len, cache, ?_⟩
   intro dom domI inst kb kv vw binp vinp w v e hdom hself he hv qeq
   have leaf := prepare_returns (bs.zip ids)
-    (start (entryCompilerState false cache) declName.toString) (bools := fun _ => false)
+    (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)) (bools := fun _ => false)
     (bits := fun _ _ => 0) run
   rw [qeq] at leaf
   obtain ⟨rW, sm, ty, tr, freshOut, ht, hty⟩ := emitLeaves_single leaf
@@ -1495,9 +1495,9 @@ theorem synthesizeMixedCertified_loopRegister_sound {logProf declName bs body m 
           (fun j => if j = kv then .bvar 0 else .fvar (vinp j)) e)) "out" false true = _
     rw [loopRegister_step _ dom domI inst _ w v hdom hw hv]
   rw [stepEq] at tr
-  have empty0 := empty_layout (entryCompilerState false cache) declName.toString (fun _ => 0)
+  have empty0 := empty_layout (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName) (fun _ => 0)
   have record0 : (prepare (fun _ => false) (fun _ _ => 0) (bs.zip ids)
-      (start (entryCompilerState false cache) declName.toString)).state.translateRecord = {} :=
+      (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state.translateRecord = {} :=
     (prepare_layout (bs.zip ids) _ empty0.1 empty0.2 (admissible_zero _ _)).2.2.2
   rcases translateControlCachedWith_returns tr with hit | ⟨smR, missRun, record⟩
   · obtain ⟨-, hrec⟩ := cacheLookupValidated_returns hit
@@ -1522,9 +1522,9 @@ theorem synthesizeMixedCertified_loopRegister_sound {logProf declName bs body m 
     simp only [Bool.false_eq_true, if_false] at missRun
     have hvis : Tools.ShippingBindingsSoundness.visible
         (prepare (fun _ => false) (fun _ _ => 0) (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).context
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context
         (prepare (fun _ => false) (fun _ _ => 0) (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).state.sourceBindings
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state.sourceBindings
         selfId = none := by
       rw [← hvisEq]
       exact Option.not_isSome_iff_eq_none.mp (by simp [hopt])
@@ -1539,9 +1539,9 @@ theorem synthesizeMixedCertified_loopRegister_sound {logProf declName bs body m 
         CompilerM.emitRegisterStmt r "clk" "rst" (.ref cw) v
         pure r)
         (prepare (fun _ => false) (fun _ _ => 0) (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).context
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context
         (prepare (fun _ => false) (fun _ _ => 0) (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).state rW smR := missRun
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state rW smR := missRun
     obtain ⟨r0, s1, rmk, missRun3⟩ := Returns.bind missRun2
     obtain ⟨hr0, hs1⟩ := makeWire_returns rmk
     obtain ⟨ub, s2, rbind, missRun4⟩ := Returns.bind missRun3
@@ -1587,9 +1587,9 @@ theorem synthesizeMixedCertified_loopRegister_sound {logProf declName bs body m 
       rw [hm]; simp only [Module.finalize, (addClockReset_facts st.module).2.1]
     refine ⟨rW, ?_⟩
     intro bools bits env0 mems bvals vvals a p adm hb0 hv0 hrst0 hstb
-    have empty := empty_layout (entryCompilerState false cache) declName.toString env0
+    have empty := empty_layout (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName) env0
     have prepared := prepare_layout (bs.zip ids)
-      (start (entryCompilerState false cache) declName.toString) empty.1 empty.2 adm
+      (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)) empty.1 empty.2 adm
     obtain ⟨pc, ps⟩ := prepare_const (fun _ => false) bools (fun _ _ => 0) bits
       (bs.zip ids) _ _ rfl rfl
     rw [pc] at rc
@@ -1597,22 +1597,22 @@ theorem synthesizeMixedCertified_loopRegister_sound {logProf declName bs body m 
     rw [pc, ps] at hvis
     have mws := CircuitM.makeWire_spec "out" (.bitVector w) true
       (prepare bools bits (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString)).state
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state
     have freshR : (prepare bools bits (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString)).state.usedNames.contains rW
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state.usedNames.contains rW
         = false := by rw [hr0]; exact mws.1
     -- The fresh binder differs from every prepared input binder.
     have hvisVar : (prepare bools bits (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString)).context.varMap.lookup selfId
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context.varMap.lookup selfId
         = none := by
       revert hvis
       unfold Tools.ShippingBindingsSoundness.visible
       cases (prepare bools bits (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString)).context.varMap.lookup selfId
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context.varMap.lookup selfId
       · intro _; rfl
       · intro hcon; cases hcon
     have hvisPer : (prepare bools bits (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString)).state.sourceBindings.get?
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state.sourceBindings.get?
         selfId.name = none := by
       revert hvis
       unfold Tools.ShippingBindingsSoundness.visible
@@ -1620,34 +1620,34 @@ theorem synthesizeMixedCertified_loopRegister_sound {logProf declName bs body m 
       intro h; exact h
     have selfNe : ∀ id, Tools.ShippingBindingsSoundness.visible
         (prepare bools bits (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).context
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context
         (prepare bools bits (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).state.sourceBindings id ≠
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state.sourceBindings id ≠
         none → id ≠ selfId := by
       intro id hne heq
       subst heq
       exact hne hvis
     -- Bindings and visibility at the child entry state.
     have s2Bind : s2.sourceBindings = (prepare bools bits (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString)).state.sourceBindings.insert
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state.sourceBindings.insert
         selfId.name rW := by
       rw [hs2]
       show s1.sourceBindings.insert selfId.name rW = _
       rw [hs1, CircuitM.makeWire_sourceBindings]
     have s2Used : s2.usedNames = (prepare bools bits (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString)).state.usedNames.insert rW := by
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state.usedNames.insert rW := by
       rw [hs2]
       show s1.usedNames = _
       rw [hs1, mws.2.1, hr0]
     have s2Module : s2.module = (CircuitM.makeWire "out" (.bitVector w) true
         (prepare bools bits (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).state).2.module := by
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state).2.module := by
       rw [hs2]
       show s1.module = _
       rw [hs1]
     have visSelf : Tools.ShippingBindingsSoundness.visible
         (prepare bools bits (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).context
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context
         s2.sourceBindings selfId = some rW := by
       unfold Tools.ShippingBindingsSoundness.visible
       rw [hvisVar, s2Bind]
@@ -1655,31 +1655,31 @@ theorem synthesizeMixedCertified_loopRegister_sound {logProf declName bs body m 
     have visOld : ∀ id z, id ≠ selfId →
         Tools.ShippingBindingsSoundness.visible
           (prepare bools bits (bs.zip ids)
-            (start (entryCompilerState false cache) declName.toString)).context
+            (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context
           (prepare bools bits (bs.zip ids)
-            (start (entryCompilerState false cache) declName.toString)).state.sourceBindings id
+            (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state.sourceBindings id
           = some z →
         Tools.ShippingBindingsSoundness.visible
           (prepare bools bits (bs.zip ids)
-            (start (entryCompilerState false cache) declName.toString)).context
+            (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context
           s2.sourceBindings id = some z := by
       intro id z hne hz
       unfold Tools.ShippingBindingsSoundness.visible at hz ⊢
       rw [s2Bind]
       cases hvm : (prepare bools bits (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).context.varMap.lookup id with
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context.varMap.lookup id with
       | some u => rw [hvm] at hz; exact hz
       | none =>
         rw [hvm] at hz
         have hz' : (prepare bools bits (bs.zip ids)
-            (start (entryCompilerState false cache) declName.toString)).state.sourceBindings.get?
+            (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state.sourceBindings.get?
             id.name = some z := hz
         have hname : ¬ (id.name == selfId.name) = true := by
           simp only [beq_iff_eq]
           intro h
           exact hne (fvarId_name_inj h)
         show ((prepare bools bits (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).state.sourceBindings.insert
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state.sourceBindings.insert
             selfId.name rW).get? id.name = some z
         have hname' : ¬ (selfId.name = id.name) := fun h => hne (fvarId_name_inj h.symm)
         simpa [Std.HashMap.getElem?_insert, hname'] using hz'
@@ -1695,9 +1695,9 @@ theorem synthesizeMixedCertified_loopRegister_sound {logProf declName bs body m 
     have hb' : ∀ j, j < kb →
         (fun id => if id = selfId then some (Value.bits w (BitVec.ofNat w (env0 rW)))
           else inputValues (prepare bools bits (bs.zip ids)
-            (start (entryCompilerState false cache) declName.toString)).bools
+            (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bools
             (prepare bools bits (bs.zip ids)
-              (start (entryCompilerState false cache) declName.toString)).bits id) (binp j) =
+              (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bits id) (binp j) =
         some (.bool (bvals j)) := by
       intro j hj
       simp only [if_neg (selfNeB j hj)]
@@ -1706,9 +1706,9 @@ theorem synthesizeMixedCertified_loopRegister_sound {logProf declName bs body m 
     have hv' : ∀ j, j < kv + 1 →
         (fun id => if id = selfId then some (Value.bits w (BitVec.ofNat w (env0 rW)))
           else inputValues (prepare bools bits (bs.zip ids)
-            (start (entryCompilerState false cache) declName.toString)).bools
+            (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bools
             (prepare bools bits (bs.zip ids)
-              (start (entryCompilerState false cache) declName.toString)).bits id)
+              (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bits id)
           ((fun j => if j = kv then selfId else vinp j) j) =
         some (.bits (vw j)
           ((fun j n => if j = kv then BitVec.ofNat n (env0 rW) else vvals j n) j (vw j))) := by
@@ -1724,12 +1724,12 @@ theorem synthesizeMixedCertified_loopRegister_sound {logProf declName bs body m 
         exact inputValues_bits separate (hv0 j hjlt)
     have contract := fuel_contract 1048575
       (ctx := (prepare bools bits (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString)).context)
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context)
       (inputs := fun id => if id = selfId then some (Value.bits w (BitVec.ofNat w (env0 rW)))
         else inputValues (prepare bools bits (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).bools
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bools
           (prepare bools bits (bs.zip ids)
-            (start (entryCompilerState false cache) declName.toString)).bits id)
+            (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bits id)
       (we := declaredWidths st) (mems := mems) (initial := env0)
       (dom := instFVars #[.fvar selfId] 0 domI)
       (bi := binp) (vi := fun j => if j = kv then selfId else vinp j)
@@ -1755,12 +1755,12 @@ theorem synthesizeMixedCertified_loopRegister_sound {logProf declName bs body m 
           rfl
     rw [childEq] at rc
     have lookup2 : Lookup (prepare bools bits (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString)).context
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context
         (fun id => if id = selfId then some (Value.bits w (BitVec.ofNat w (env0 rW)))
           else inputValues (prepare bools bits (bs.zip ids)
-            (start (entryCompilerState false cache) declName.toString)).bools
+            (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bools
             (prepare bools bits (bs.zip ids)
-              (start (entryCompilerState false cache) declName.toString)).bits id) s2 := by
+              (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bits id) s2 := by
       constructor
       intro id val hval
       by_cases hid : id = selfId
@@ -1820,7 +1820,7 @@ theorem synthesizeMixedCertified_loopRegister_sound {logProf declName bs body m 
       rw [hfin]
       rfl
     have growth : ∀ q ∈ (prepare bools bits (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString)).state.module.wires,
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state.module.wires,
         q ∈ st.module.wires := by
       intro q hq
       rw [stWires]
@@ -1830,12 +1830,12 @@ theorem synthesizeMixedCertified_loopRegister_sound {logProf declName bs body m 
     have mixedI := prepared.1.inputs prepared.2.1 growth (declaredWidths_agree wiresSt)
     have inputsInv : Tools.ShippingUnifiedInvariant.Inputs
         (prepare bools bits (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).context
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context
         (fun id => if id = selfId then some (Value.bits w (BitVec.ofNat w (env0 rW)))
           else inputValues (prepare bools bits (bs.zip ids)
-            (start (entryCompilerState false cache) declName.toString)).bools
+            (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bools
             (prepare bools bits (bs.zip ids)
-              (start (entryCompilerState false cache) declName.toString)).bits id)
+              (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bits id)
         (declaredWidths st) s2 env0 := by
       constructor
       intro id val hval
@@ -1861,12 +1861,12 @@ theorem synthesizeMixedCertified_loopRegister_sound {logProf declName bs body m 
       rw [hs1, CircuitM.makeWire_translateRecord, prepared.2.2.2]
       rfl
     have inv2 : Inv (prepare bools bits (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString)).context
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context
         (fun id => if id = selfId then some (Value.bits w (BitVec.ofNat w (env0 rW)))
           else inputValues (prepare bools bits (bs.zip ids)
-            (start (entryCompilerState false cache) declName.toString)).bools
+            (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bools
             (prepare bools bits (bs.zip ids)
-              (start (entryCompilerState false cache) declName.toString)).bits id)
+              (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bits id)
         (declaredWidths st) mems env0 s2 env0 :=
       ⟨runs2, inputsInv, Records.empty s2Record, by
         intro stq hq
@@ -1888,8 +1888,8 @@ theorem synthesizeMixedCertified_loopRegister_sound {logProf declName bs body m 
           exact CircuitM.makeWire_allocated "out" (.bitVector w) true _
         · exact prepare_wires_allocated bools bits (bs.zip ids) _
             (by
-              rw [show (start (entryCompilerState false cache) declName.toString).state =
-                CircuitM.init declName.toString from rfl, init_wires]
+              rw [show (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)).state =
+                CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName) from rfl, init_wires]
               intro x hx
               cases hx)
             q hold2
@@ -1991,8 +1991,8 @@ theorem synthesizeMixedCertified_loopRegister_sound {logProf declName bs body m 
         · exact Or.inr ⟨w, rfl⟩
         · exact (prepare_shape (bs.zip ids) _ (by
             intro q3 hq3
-            rw [show (start (entryCompilerState false cache) declName.toString).state =
-              CircuitM.init declName.toString from rfl, init_wires] at hq3
+            rw [show (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)).state =
+              CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName) from rfl, init_wires] at hq3
             cases hq3)).1 q2 hq2
       · exact hq
     have wm : weOf m = declaredWidths st := by
@@ -2043,8 +2043,8 @@ theorem synthesizeMixedCertified_loopRegister_sound {logProf declName bs body m 
           fun _ _ => rfl, frame.outputs, s2Module, makeWire_outputs,
           (prepare_shape (bs.zip ids) _ (by
             intro q hq'
-            rw [show (start (entryCompilerState false cache) declName.toString).state =
-              CircuitM.init declName.toString from rfl, init_wires] at hq'
+            rw [show (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)).state =
+              CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName) from rfl, init_wires] at hq'
             cases hq')).2]
         rfl
       rw [hm]
@@ -2284,14 +2284,14 @@ theorem register_source {declName : Name} {bs : List (Name × MixedGateBinder)}
     have bound := (List.getElem_of_getElem? pos).choose
     have lookup := prepare_bool_lookup (bools := boolValues ids bools)
       (bits := bitValues ids bits) (bs.zip ids)
-      (start (entryCompilerState false cache) declName.toString) fresh (zip_member len pos)
+      (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)) fresh (zip_member len pos)
     simpa only [boolValues, index_fresh ids nd (bpos j) (by omega)] using lookup
   · intro j hj
     obtain ⟨name, pos⟩ := hvp j hj
     have bound := (List.getElem_of_getElem? pos).choose
     have lookup := prepare_bits_lookup (bools := boolValues ids bools)
       (bits := bitValues ids bits) (bs.zip ids)
-      (start (entryCompilerState false cache) declName.toString) fresh (zip_member len pos)
+      (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)) fresh (zip_member len pos)
     simpa only [bitValues, index_fresh ids nd (vpos j) (by omega)] using lookup
 
 /-- General register endpoint at the real core entry: for the raw synthesized
@@ -2437,14 +2437,14 @@ theorem registerEnable_source {declName : Name} {bs : List (Name × MixedGateBin
     have bound := (List.getElem_of_getElem? pos).choose
     have lookup := prepare_bool_lookup (bools := boolValues ids bools)
       (bits := bitValues ids bits) (bs.zip ids)
-      (start (entryCompilerState false cache) declName.toString) fresh (zip_member len pos)
+      (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)) fresh (zip_member len pos)
     simpa only [boolValues, index_fresh ids nd (bpos j) (by omega)] using lookup
   · intro j hj
     obtain ⟨name, pos⟩ := hvp j hj
     have bound := (List.getElem_of_getElem? pos).choose
     have lookup := prepare_bits_lookup (bools := boolValues ids bools)
       (bits := bitValues ids bits) (bs.zip ids)
-      (start (entryCompilerState false cache) declName.toString) fresh (zip_member len pos)
+      (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)) fresh (zip_member len pos)
     simpa only [bitValues, index_fresh ids nd (vpos j) (by omega)] using lookup
 
 /-- General enabled-register endpoint at the real core entry: each cycle with
@@ -2602,14 +2602,14 @@ theorem loopRegister_source {declName : Name} {bs : List (Name × MixedGateBinde
     have bound := (List.getElem_of_getElem? pos).choose
     have lookup := prepare_bool_lookup (bools := boolValues ids bools)
       (bits := bitValues ids bits) (bs.zip ids)
-      (start (entryCompilerState false cache) declName.toString) fresh (zip_member len pos)
+      (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)) fresh (zip_member len pos)
     simpa only [boolValues, index_fresh ids nd (bpos j) (by omega)] using lookup
   · intro j hj
     obtain ⟨name, pos⟩ := hvp j hj
     have bound := (List.getElem_of_getElem? pos).choose
     have lookup := prepare_bits_lookup (bools := boolValues ids bools)
       (bits := bitValues ids bits) (bs.zip ids)
-      (start (entryCompilerState false cache) declName.toString) fresh (zip_member len pos)
+      (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)) fresh (zip_member len pos)
     simpa only [bitValues, index_fresh ids nd (vpos j) (by omega)] using lookup
 
 /-- General feedback-register endpoint at the real core entry. -/
@@ -3014,7 +3014,7 @@ def Register2Preserves (declName : Name) (bs : List (Name × MixedGateBinder))
     ∀ (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n)
       (env0 : Env) (mems : MEnv)
       (bvals : Nat → Bool) (vvals : (j : Nat) → (n : Nat) → BitVec n),
-    let a := start (entryCompilerState false cache) declName.toString
+    let a := start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)
     let p := prepare bools bits (bs.zip ids) a
     Admissible bools bits env0 (bs.zip ids) a →
     (∀ j, j < kb → p.bools (binp j) = some (bvals j)) →
@@ -3037,7 +3037,7 @@ theorem synthesizeMixedCertified_register2_sound {logProf declName bs body m d}
   refine ⟨ids, nd, len, cache, ?_⟩
   intro dom kb kv vw binp vinp w v1 v2 e hdom he hv1 hv2 qeq
   -- Decompose the returned translation once; this is valuation-independent.
-  have leaf := prepare_returns (bs.zip ids) (start (entryCompilerState false cache) declName.toString) (bools := fun _ => false)
+  have leaf := prepare_returns (bs.zip ids) (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)) (bools := fun _ => false)
     (bits := fun _ _ => 0) run
   rw [qeq] at leaf
   obtain ⟨rW, sm, ty, tr, freshOut, ht, hty⟩ := emitLeaves_single leaf
@@ -3054,9 +3054,9 @@ theorem synthesizeMixedCertified_register2_sound {logProf declName bs body m d}
     rw [register_step _ dom _ w v1 hdom (e.wf_pos he) hv1]
   rw [stepEq] at tr
   -- The prepared entry state has an empty record: both validated hits are dead.
-  have empty0 := empty_layout (entryCompilerState false cache) declName.toString (fun _ => 0)
+  have empty0 := empty_layout (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName) (fun _ => 0)
   have record0 : (prepare (fun _ => false) (fun _ _ => 0) (bs.zip ids)
-      (start (entryCompilerState false cache) declName.toString)).state.translateRecord = {} :=
+      (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state.translateRecord = {} :=
     (prepare_layout (bs.zip ids) _ empty0.1 empty0.2 (admissible_zero _ _)).2.2.2
   rcases translateControlCachedWith_returns tr with hit | ⟨smR, missRun, record⟩
   · obtain ⟨-, hrec⟩ := cacheLookupValidated_returns hit
@@ -3168,27 +3168,27 @@ theorem synthesizeMixedCertified_register2_sound {logProf declName bs body m d}
     rw [hm]; simp only [Module.finalize, (addClockReset_facts st.module).2.1]
   refine ⟨rW, cw, hne, ?_⟩
   intro bools bits env0 mems bvals vvals a p adm hb0 hv0 hrst0 hr2lt
-  have empty := empty_layout (entryCompilerState false cache) declName.toString env0
-  have prepared := prepare_layout (bs.zip ids) (start (entryCompilerState false cache) declName.toString) empty.1 empty.2 adm
+  have empty := empty_layout (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName) env0
+  have prepared := prepare_layout (bs.zip ids) (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)) empty.1 empty.2 adm
   obtain ⟨pc, ps⟩ := prepare_const (fun _ => false) bools (fun _ _ => 0) bits
     (bs.zip ids) _ _ rfl rfl
   rw [pc, ps] at rc
   have hb' : ∀ j, j < kb →
       inputValues (prepare bools bits (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString)).bools
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bools
         (prepare bools bits (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).bits (binp j) =
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bits (binp j) =
         some (.bool (bvals j)) :=
     fun j hj => inputValues_bool (hb0 j hj)
   have separate := prepared.1.separate prepared.2.1
   have hv' : ∀ j, j < kv →
       inputValues (prepare bools bits (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString)).bools
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bools
         (prepare bools bits (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).bits (vinp j) =
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bits (vinp j) =
         some (.bits (vw j) (vvals j (vw j))) :=
     fun j hj => inputValues_bits separate (hv0 j hj)
-  have contract := fuel_contract 1048574 (ctx := (prepare bools bits (bs.zip ids) (start (entryCompilerState false cache) declName.toString)).context) (we := declaredWidths st) (mems := mems)
+  have contract := fuel_contract 1048574 (ctx := (prepare bools bits (bs.zip ids) (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context) (we := declaredWidths st) (mems := mems)
     (initial := env0) (dom := dom) hb' hv' e he
   have lookup := lookup_of_ports prepared.1 prepared.2.1
   have frame := contract.frame "reg_in" false false _ sc cw2 lookup rc
@@ -3244,8 +3244,8 @@ theorem synthesizeMixedCertified_register2_sound {logProf declName bs body m d}
       · rw [hCwm]; exact CircuitM.makeWire_allocated "reg_in" (.bitVector w) false sc
       · rcases frame.wireNames q hq with hold | halloc
         · exact prepare_wires_allocated bools bits (bs.zip ids) _
-            (by rw [show (start (entryCompilerState false cache) declName.toString).state =
-                CircuitM.init declName.toString from rfl, init_wires]; intro x hx; cases hx)
+            (by rw [show (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)).state =
+                CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName) from rfl, init_wires]; intro x hx; cases hx)
             q hold
         · exact halloc
   have widthRst : declaredWidths st "rst" = 0 := by
@@ -3407,8 +3407,8 @@ theorem synthesizeMixedCertified_register2_sound {logProf declName bs body m d}
       rcases List.mem_cons.mp hq with rfl | hq
       · exact Or.inr ⟨w, rfl⟩
       · exact frame.scalar (prepare_shape (bs.zip ids) _ (by intro q hq'; rw [show
-          (start (entryCompilerState false cache) declName.toString).state =
-            CircuitM.init declName.toString from rfl, init_wires] at hq'; cases hq')).1 q hq
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)).state =
+            CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName) from rfl, init_wires] at hq'; cases hq')).1 q hq
   have wm : weOf m = declaredWidths st := by
     rw [weOf_eq_moduleWidths (by
       intro q hq; rw [mWires, List.mem_reverse] at hq; exact scalarSt q hq)]
@@ -3446,8 +3446,8 @@ theorem synthesizeMixedCertified_register2_sound {logProf declName bs body m d}
       rw [makeWire_outputs, frame.outputs,
         (prepare_shape (bs.zip ids) _ (by
           intro q hq'
-          rw [show (start (entryCompilerState false cache) declName.toString).state =
-            CircuitM.init declName.toString from rfl, init_wires] at hq'
+          rw [show (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)).state =
+            CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName) from rfl, init_wires] at hq'
           cases hq')).2]
       rfl
     rw [hm]
@@ -3593,14 +3593,14 @@ theorem register2_source {declName : Name} {bs : List (Name × MixedGateBinder)}
     have bound := (List.getElem_of_getElem? pos).choose
     have lookup := prepare_bool_lookup (bools := boolValues ids bools)
       (bits := bitValues ids bits) (bs.zip ids)
-      (start (entryCompilerState false cache) declName.toString) fresh (zip_member len pos)
+      (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)) fresh (zip_member len pos)
     simpa only [boolValues, index_fresh ids nd (bpos j) (by omega)] using lookup
   · intro j hj
     obtain ⟨name, pos⟩ := hvp j hj
     have bound := (List.getElem_of_getElem? pos).choose
     have lookup := prepare_bits_lookup (bools := boolValues ids bools)
       (bits := bitValues ids bits) (bs.zip ids)
-      (start (entryCompilerState false cache) declName.toString) fresh (zip_member len pos)
+      (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)) fresh (zip_member len pos)
     simpa only [bitValues, index_fresh ids nd (vpos j) (by omega)] using lookup
 
 /-- General two-stage chain endpoint at the real core entry: each admissible
@@ -4132,7 +4132,7 @@ def CdoPreserves (declName : Name) (bs : List (Name × MixedGateBinder))
     ∀ (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n)
       (env0 : Env) (mems : MEnv)
       (bvals : Nat → Bool) (vvals : (j : Nat) → (n : Nat) → BitVec n),
-    let a := start (entryCompilerState false cache) declName.toString
+    let a := start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)
     let p := prepare bools bits (bs.zip ids) a
     Admissible bools bits env0 (bs.zip ids) a →
     (∀ j, j < kb → p.bools (binp j) = some (bvals j)) →
@@ -4170,7 +4170,7 @@ theorem synthesizeMixedCertified_cdo_sound {logProf declName bs body m d}
     · simp only [if_neg hkv]
       exact cdoConeToLoop_fvar 0 (vinp j)
   have leaf := prepare_returns (bs.zip ids)
-    (start (entryCompilerState false cache) declName.toString) (bools := fun _ => false)
+    (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)) (bools := fun _ => false)
     (bits := fun _ _ => 0) run
   rw [qeq] at leaf
   obtain ⟨rW, sm, ty, tr, freshOut, ht, hty⟩ := emitLeaves_single leaf
@@ -4191,9 +4191,9 @@ theorem synthesizeMixedCertified_cdo_sound {logProf declName bs body m d}
           (fun j => if j = kv then readE dom2 w (.bvar 0) else .fvar (vinp j)) e)) "out" false true = _
     rw [cdo_step _ hdom hw hv hconeF]
   rw [stepEq] at tr
-  have empty0 := empty_layout (entryCompilerState false cache) declName.toString (fun _ => 0)
+  have empty0 := empty_layout (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName) (fun _ => 0)
   have record0 : (prepare (fun _ => false) (fun _ _ => 0) (bs.zip ids)
-      (start (entryCompilerState false cache) declName.toString)).state.translateRecord = {} :=
+      (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state.translateRecord = {} :=
     (prepare_layout (bs.zip ids) _ empty0.1 empty0.2 (admissible_zero _ _)).2.2.2
   rcases translateControlCachedWith_returns tr with hit | ⟨smR, missRun, record⟩
   · obtain ⟨-, hrec⟩ := cacheLookupValidated_returns hit
@@ -4218,9 +4218,9 @@ theorem synthesizeMixedCertified_cdo_sound {logProf declName bs body m d}
     simp only [Bool.false_eq_true, if_false] at missRun
     have hvis : Tools.ShippingBindingsSoundness.visible
         (prepare (fun _ => false) (fun _ _ => 0) (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).context
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context
         (prepare (fun _ => false) (fun _ _ => 0) (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).state.sourceBindings
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state.sourceBindings
         selfId = none := by
       rw [← hvisEq]
       exact Option.not_isSome_iff_eq_none.mp (by simp [hopt])
@@ -4235,9 +4235,9 @@ theorem synthesizeMixedCertified_cdo_sound {logProf declName bs body m d}
         CompilerM.emitRegisterStmt r "clk" "rst" (.ref cw) v
         pure r)
         (prepare (fun _ => false) (fun _ _ => 0) (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).context
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context
         (prepare (fun _ => false) (fun _ _ => 0) (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).state rW smR := missRun
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state rW smR := missRun
     obtain ⟨r0, s1, rmk, missRun3⟩ := Returns.bind missRun2
     obtain ⟨hr0, hs1⟩ := makeWire_returns rmk
     obtain ⟨ub, s2, rbind, missRun4⟩ := Returns.bind missRun3
@@ -4283,9 +4283,9 @@ theorem synthesizeMixedCertified_cdo_sound {logProf declName bs body m d}
       rw [hm]; simp only [Module.finalize, (addClockReset_facts st.module).2.1]
     refine ⟨rW, ?_⟩
     intro bools bits env0 mems bvals vvals a p adm hb0 hv0 hrst0 hstb
-    have empty := empty_layout (entryCompilerState false cache) declName.toString env0
+    have empty := empty_layout (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName) env0
     have prepared := prepare_layout (bs.zip ids)
-      (start (entryCompilerState false cache) declName.toString) empty.1 empty.2 adm
+      (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)) empty.1 empty.2 adm
     obtain ⟨pc, ps⟩ := prepare_const (fun _ => false) bools (fun _ _ => 0) bits
       (bs.zip ids) _ _ rfl rfl
     rw [pc] at rc
@@ -4293,22 +4293,22 @@ theorem synthesizeMixedCertified_cdo_sound {logProf declName bs body m d}
     rw [pc, ps] at hvis
     have mws := CircuitM.makeWire_spec "out" (.bitVector w) true
       (prepare bools bits (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString)).state
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state
     have freshR : (prepare bools bits (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString)).state.usedNames.contains rW
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state.usedNames.contains rW
         = false := by rw [hr0]; exact mws.1
     -- The fresh binder differs from every prepared input binder.
     have hvisVar : (prepare bools bits (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString)).context.varMap.lookup selfId
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context.varMap.lookup selfId
         = none := by
       revert hvis
       unfold Tools.ShippingBindingsSoundness.visible
       cases (prepare bools bits (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString)).context.varMap.lookup selfId
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context.varMap.lookup selfId
       · intro _; rfl
       · intro hcon; cases hcon
     have hvisPer : (prepare bools bits (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString)).state.sourceBindings.get?
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state.sourceBindings.get?
         selfId.name = none := by
       revert hvis
       unfold Tools.ShippingBindingsSoundness.visible
@@ -4316,34 +4316,34 @@ theorem synthesizeMixedCertified_cdo_sound {logProf declName bs body m d}
       intro h; exact h
     have selfNe : ∀ id, Tools.ShippingBindingsSoundness.visible
         (prepare bools bits (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).context
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context
         (prepare bools bits (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).state.sourceBindings id ≠
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state.sourceBindings id ≠
         none → id ≠ selfId := by
       intro id hne heq
       subst heq
       exact hne hvis
     -- Bindings and visibility at the child entry state.
     have s2Bind : s2.sourceBindings = (prepare bools bits (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString)).state.sourceBindings.insert
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state.sourceBindings.insert
         selfId.name rW := by
       rw [hs2]
       show s1.sourceBindings.insert selfId.name rW = _
       rw [hs1, CircuitM.makeWire_sourceBindings]
     have s2Used : s2.usedNames = (prepare bools bits (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString)).state.usedNames.insert rW := by
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state.usedNames.insert rW := by
       rw [hs2]
       show s1.usedNames = _
       rw [hs1, mws.2.1, hr0]
     have s2Module : s2.module = (CircuitM.makeWire "out" (.bitVector w) true
         (prepare bools bits (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).state).2.module := by
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state).2.module := by
       rw [hs2]
       show s1.module = _
       rw [hs1]
     have visSelf : Tools.ShippingBindingsSoundness.visible
         (prepare bools bits (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).context
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context
         s2.sourceBindings selfId = some rW := by
       unfold Tools.ShippingBindingsSoundness.visible
       rw [hvisVar, s2Bind]
@@ -4351,31 +4351,31 @@ theorem synthesizeMixedCertified_cdo_sound {logProf declName bs body m d}
     have visOld : ∀ id z, id ≠ selfId →
         Tools.ShippingBindingsSoundness.visible
           (prepare bools bits (bs.zip ids)
-            (start (entryCompilerState false cache) declName.toString)).context
+            (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context
           (prepare bools bits (bs.zip ids)
-            (start (entryCompilerState false cache) declName.toString)).state.sourceBindings id
+            (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state.sourceBindings id
           = some z →
         Tools.ShippingBindingsSoundness.visible
           (prepare bools bits (bs.zip ids)
-            (start (entryCompilerState false cache) declName.toString)).context
+            (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context
           s2.sourceBindings id = some z := by
       intro id z hne hz
       unfold Tools.ShippingBindingsSoundness.visible at hz ⊢
       rw [s2Bind]
       cases hvm : (prepare bools bits (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).context.varMap.lookup id with
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context.varMap.lookup id with
       | some u => rw [hvm] at hz; exact hz
       | none =>
         rw [hvm] at hz
         have hz' : (prepare bools bits (bs.zip ids)
-            (start (entryCompilerState false cache) declName.toString)).state.sourceBindings.get?
+            (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state.sourceBindings.get?
             id.name = some z := hz
         have hname : ¬ (id.name == selfId.name) = true := by
           simp only [beq_iff_eq]
           intro h
           exact hne (fvarId_name_inj h)
         show ((prepare bools bits (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).state.sourceBindings.insert
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state.sourceBindings.insert
             selfId.name rW).get? id.name = some z
         have hname' : ¬ (selfId.name = id.name) := fun h => hne (fvarId_name_inj h.symm)
         simpa [Std.HashMap.getElem?_insert, hname'] using hz'
@@ -4391,9 +4391,9 @@ theorem synthesizeMixedCertified_cdo_sound {logProf declName bs body m d}
     have hb' : ∀ j, j < kb →
         (fun id => if id = selfId then some (Value.bits w (BitVec.ofNat w (env0 rW)))
           else inputValues (prepare bools bits (bs.zip ids)
-            (start (entryCompilerState false cache) declName.toString)).bools
+            (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bools
             (prepare bools bits (bs.zip ids)
-              (start (entryCompilerState false cache) declName.toString)).bits id) (binp j) =
+              (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bits id) (binp j) =
         some (.bool (bvals j)) := by
       intro j hj
       simp only [if_neg (selfNeB j hj)]
@@ -4402,9 +4402,9 @@ theorem synthesizeMixedCertified_cdo_sound {logProf declName bs body m d}
     have hv' : ∀ j, j < kv + 1 →
         (fun id => if id = selfId then some (Value.bits w (BitVec.ofNat w (env0 rW)))
           else inputValues (prepare bools bits (bs.zip ids)
-            (start (entryCompilerState false cache) declName.toString)).bools
+            (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bools
             (prepare bools bits (bs.zip ids)
-              (start (entryCompilerState false cache) declName.toString)).bits id)
+              (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bits id)
           ((fun j => if j = kv then selfId else vinp j) j) =
         some (.bits (vw j)
           ((fun j n => if j = kv then BitVec.ofNat n (env0 rW) else vvals j n) j (vw j))) := by
@@ -4420,12 +4420,12 @@ theorem synthesizeMixedCertified_cdo_sound {logProf declName bs body m d}
         exact inputValues_bits separate (hv0 j hjlt)
     have contract := fuel_contract 1048575
       (ctx := (prepare bools bits (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString)).context)
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context)
       (inputs := fun id => if id = selfId then some (Value.bits w (BitVec.ofNat w (env0 rW)))
         else inputValues (prepare bools bits (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).bools
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bools
           (prepare bools bits (bs.zip ids)
-            (start (entryCompilerState false cache) declName.toString)).bits id)
+            (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bits id)
       (we := declaredWidths st) (mems := mems) (initial := env0)
       (dom := instFVars #[.fvar selfId] 0 dom2)
       (bi := binp) (vi := fun j => if j = kv then selfId else vinp j)
@@ -4451,12 +4451,12 @@ theorem synthesizeMixedCertified_cdo_sound {logProf declName bs body m d}
           rfl
     rw [childEq] at rc
     have lookup2 : Lookup (prepare bools bits (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString)).context
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context
         (fun id => if id = selfId then some (Value.bits w (BitVec.ofNat w (env0 rW)))
           else inputValues (prepare bools bits (bs.zip ids)
-            (start (entryCompilerState false cache) declName.toString)).bools
+            (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bools
             (prepare bools bits (bs.zip ids)
-              (start (entryCompilerState false cache) declName.toString)).bits id) s2 := by
+              (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bits id) s2 := by
       constructor
       intro id val hval
       by_cases hid : id = selfId
@@ -4516,7 +4516,7 @@ theorem synthesizeMixedCertified_cdo_sound {logProf declName bs body m d}
       rw [hfin]
       rfl
     have growth : ∀ q ∈ (prepare bools bits (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString)).state.module.wires,
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state.module.wires,
         q ∈ st.module.wires := by
       intro q hq
       rw [stWires]
@@ -4526,12 +4526,12 @@ theorem synthesizeMixedCertified_cdo_sound {logProf declName bs body m d}
     have mixedI := prepared.1.inputs prepared.2.1 growth (declaredWidths_agree wiresSt)
     have inputsInv : Tools.ShippingUnifiedInvariant.Inputs
         (prepare bools bits (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).context
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context
         (fun id => if id = selfId then some (Value.bits w (BitVec.ofNat w (env0 rW)))
           else inputValues (prepare bools bits (bs.zip ids)
-            (start (entryCompilerState false cache) declName.toString)).bools
+            (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bools
             (prepare bools bits (bs.zip ids)
-              (start (entryCompilerState false cache) declName.toString)).bits id)
+              (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bits id)
         (declaredWidths st) s2 env0 := by
       constructor
       intro id val hval
@@ -4557,12 +4557,12 @@ theorem synthesizeMixedCertified_cdo_sound {logProf declName bs body m d}
       rw [hs1, CircuitM.makeWire_translateRecord, prepared.2.2.2]
       rfl
     have inv2 : Inv (prepare bools bits (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString)).context
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context
         (fun id => if id = selfId then some (Value.bits w (BitVec.ofNat w (env0 rW)))
           else inputValues (prepare bools bits (bs.zip ids)
-            (start (entryCompilerState false cache) declName.toString)).bools
+            (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bools
             (prepare bools bits (bs.zip ids)
-              (start (entryCompilerState false cache) declName.toString)).bits id)
+              (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bits id)
         (declaredWidths st) mems env0 s2 env0 :=
       ⟨runs2, inputsInv, Records.empty s2Record, by
         intro stq hq
@@ -4584,8 +4584,8 @@ theorem synthesizeMixedCertified_cdo_sound {logProf declName bs body m d}
           exact CircuitM.makeWire_allocated "out" (.bitVector w) true _
         · exact prepare_wires_allocated bools bits (bs.zip ids) _
             (by
-              rw [show (start (entryCompilerState false cache) declName.toString).state =
-                CircuitM.init declName.toString from rfl, init_wires]
+              rw [show (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)).state =
+                CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName) from rfl, init_wires]
               intro x hx
               cases hx)
             q hold2
@@ -4687,8 +4687,8 @@ theorem synthesizeMixedCertified_cdo_sound {logProf declName bs body m d}
         · exact Or.inr ⟨w, rfl⟩
         · exact (prepare_shape (bs.zip ids) _ (by
             intro q3 hq3
-            rw [show (start (entryCompilerState false cache) declName.toString).state =
-              CircuitM.init declName.toString from rfl, init_wires] at hq3
+            rw [show (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)).state =
+              CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName) from rfl, init_wires] at hq3
             cases hq3)).1 q2 hq2
       · exact hq
     have wm : weOf m = declaredWidths st := by
@@ -4739,8 +4739,8 @@ theorem synthesizeMixedCertified_cdo_sound {logProf declName bs body m d}
           fun _ _ => rfl, frame.outputs, s2Module, makeWire_outputs,
           (prepare_shape (bs.zip ids) _ (by
             intro q hq'
-            rw [show (start (entryCompilerState false cache) declName.toString).state =
-              CircuitM.init declName.toString from rfl, init_wires] at hq'
+            rw [show (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)).state =
+              CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName) from rfl, init_wires] at hq'
             cases hq')).2]
         rfl
       rw [hm]
@@ -4926,14 +4926,14 @@ theorem cdo_source {declName : Name} {bs : List (Name × MixedGateBinder)}
     have bound := (List.getElem_of_getElem? pos).choose
     have lookup := prepare_bool_lookup (bools := boolValues ids bools)
       (bits := bitValues ids bits) (bs.zip ids)
-      (start (entryCompilerState false cache) declName.toString) fresh (zip_member len pos)
+      (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)) fresh (zip_member len pos)
     simpa only [boolValues, index_fresh ids nd (bpos j) (by omega)] using lookup
   · intro j hj
     obtain ⟨name, pos⟩ := hvp j hj
     have bound := (List.getElem_of_getElem? pos).choose
     have lookup := prepare_bits_lookup (bools := boolValues ids bools)
       (bits := bitValues ids bits) (bs.zip ids)
-      (start (entryCompilerState false cache) declName.toString) fresh (zip_member len pos)
+      (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)) fresh (zip_member len pos)
     simpa only [bitValues, index_fresh ids nd (vpos j) (by omega)] using lookup
 
 /-- General single-slot circuit-do endpoint at the real core entry. -/
@@ -5658,7 +5658,7 @@ def Cdo2Preserves (declName : Name) (bs : List (Name × MixedGateBinder))
     ∀ (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n)
       (env0 : Env) (mems : MEnv)
       (bvals : Nat → Bool) (vvals : (j : Nat) → (n : Nat) → BitVec n),
-    let a := start (entryCompilerState false cache) declName.toString
+    let a := start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)
     let p := prepare bools bits (bs.zip ids) a
     Admissible bools bits env0 (bs.zip ids) a →
     (∀ j, j < kb → p.bools (binp j) = some (bvals j)) →
@@ -5733,7 +5733,7 @@ theorem synthesizeMixedCertified_cdo2_sound {logProf declName bs body m d}
       · simp only [if_neg hkv, if_neg hkv1]
         exact cdo2ConeToLoop_fvar 3 1 5 0 (vinp j)
   have leaf := prepare_returns (bs.zip ids)
-    (start (entryCompilerState false cache) declName.toString) (bools := fun _ => false)
+    (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)) (bools := fun _ => false)
     (bits := fun _ _ => 0) run
   rw [qeq] at leaf
   obtain ⟨rW, sm, ty, tr, freshOut, ht, hty⟩ := emitLeaves_single leaf
@@ -5763,9 +5763,9 @@ theorem synthesizeMixedCertified_cdo2_sound {logProf declName bs body m d}
       "out" false true = _
     rw [cdo2_step _ hdom hw hv0 hv1 rfl rfl hconeF0 hconeF1]
   rw [stepEq] at tr
-  have empty0 := empty_layout (entryCompilerState false cache) declName.toString (fun _ => 0)
+  have empty0 := empty_layout (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName) (fun _ => 0)
   have record0 : (prepare (fun _ => false) (fun _ _ => 0) (bs.zip ids)
-      (start (entryCompilerState false cache) declName.toString)).state.translateRecord = {} :=
+      (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state.translateRecord = {} :=
     (prepare_layout (bs.zip ids) _ empty0.1 empty0.2 (admissible_zero _ _)).2.2.2
   rcases translateControlCachedWith_returns tr with hit | ⟨smR, missRun, record⟩
   · obtain ⟨-, hrec⟩ := cacheLookupValidated_returns hit
@@ -5810,17 +5810,17 @@ theorem synthesizeMixedCertified_cdo2_sound {logProf declName bs body m d}
   simp only [Bool.false_eq_true, if_false] at missRun
   have hvis0 : Tools.ShippingBindingsSoundness.visible
       (prepare (fun _ => false) (fun _ _ => 0) (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString)).context
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context
       (prepare (fun _ => false) (fun _ _ => 0) (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString)).state.sourceBindings
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state.sourceBindings
       self0 = none := by
     rw [← hvisEq0]
     exact Option.not_isSome_iff_eq_none.mp (by simp [hopt0])
   have hvis1 : Tools.ShippingBindingsSoundness.visible
       (prepare (fun _ => false) (fun _ _ => 0) (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString)).context
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context
       (prepare (fun _ => false) (fun _ _ => 0) (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString)).state.sourceBindings
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state.sourceBindings
       self1 = none := by
     rw [← hvisEq1]
     exact Option.not_isSome_iff_eq_none.mp (by simp [hopt1])
@@ -5884,7 +5884,7 @@ theorem synthesizeMixedCertified_cdo2_sound {logProf declName bs body m d}
     intro heq
     have mws0 := CircuitM.makeWire_spec "out" (.bitVector w) (true && 0 == 0)
       (prepare (fun _ => false) (fun _ _ => 0) (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString)).state
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state
     have mws1 := CircuitM.makeWire_spec ("out" ++ "_slot1") (.bitVector w) (true && 0 == 1)
       s1a
     have fresh1 : s1a.usedNames.contains r1w = false := by rw [hr1w]; exact mws1.1
@@ -5896,9 +5896,9 @@ theorem synthesizeMixedCertified_cdo2_sound {logProf declName bs body m d}
   refine ⟨r0w, r1w, hne01, ?_⟩
   intro bools bits env0 mems bvals vvals a p adm hb0 hv0v hrst0 hst0b hst1b
 
-  have empty := empty_layout (entryCompilerState false cache) declName.toString env0
+  have empty := empty_layout (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName) env0
   have prepared := prepare_layout (bs.zip ids)
-    (start (entryCompilerState false cache) declName.toString) empty.1 empty.2 adm
+    (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)) empty.1 empty.2 adm
   obtain ⟨pc, ps⟩ := prepare_const (fun _ => false) bools (fun _ _ => 0) bits
     (bs.zip ids) _ _ rfl rfl
   rw [pc] at rc0 rc1
@@ -5906,43 +5906,43 @@ theorem synthesizeMixedCertified_cdo2_sound {logProf declName bs body m d}
   rw [pc, ps] at hvis0 hvis1
   have mws0 := CircuitM.makeWire_spec "out" (.bitVector w) (true && 0 == 0)
     (prepare bools bits (bs.zip ids)
-      (start (entryCompilerState false cache) declName.toString)).state
+      (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state
   have mws1 := CircuitM.makeWire_spec ("out" ++ "_slot1") (.bitVector w) (true && 0 == 1) s1a
   have fresh0 : (prepare bools bits (bs.zip ids)
-      (start (entryCompilerState false cache) declName.toString)).state.usedNames.contains r0w
+      (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state.usedNames.contains r0w
       = false := by rw [hr0w]; exact mws0.1
   have fresh1a : s1a.usedNames.contains r1w = false := by rw [hr1w]; exact mws1.1
   have s1aUsed : s1a.usedNames = (prepare bools bits (bs.zip ids)
-      (start (entryCompilerState false cache) declName.toString)).state.usedNames.insert r0w := by
+      (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state.usedNames.insert r0w := by
     rw [hs1a, mws0.2.1, ← hr0w]
   have hnames : self0.name ≠ self1.name := fun h => hneSelf (fvarId_name_inj h)
   have hvisVar0 : (prepare bools bits (bs.zip ids)
-      (start (entryCompilerState false cache) declName.toString)).context.varMap.lookup self0
+      (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context.varMap.lookup self0
       = none := by
     revert hvis0
     unfold Tools.ShippingBindingsSoundness.visible
     cases (prepare bools bits (bs.zip ids)
-      (start (entryCompilerState false cache) declName.toString)).context.varMap.lookup self0
+      (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context.varMap.lookup self0
     · intro _; rfl
     · intro hcon; cases hcon
   have hvisPer0 : (prepare bools bits (bs.zip ids)
-      (start (entryCompilerState false cache) declName.toString)).state.sourceBindings.get?
+      (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state.sourceBindings.get?
       self0.name = none := by
     revert hvis0
     unfold Tools.ShippingBindingsSoundness.visible
     rw [hvisVar0]
     intro h; exact h
   have hvisVar1 : (prepare bools bits (bs.zip ids)
-      (start (entryCompilerState false cache) declName.toString)).context.varMap.lookup self1
+      (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context.varMap.lookup self1
       = none := by
     revert hvis1
     unfold Tools.ShippingBindingsSoundness.visible
     cases (prepare bools bits (bs.zip ids)
-      (start (entryCompilerState false cache) declName.toString)).context.varMap.lookup self1
+      (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context.varMap.lookup self1
     · intro _; rfl
     · intro hcon; cases hcon
   have hvisPer1 : (prepare bools bits (bs.zip ids)
-      (start (entryCompilerState false cache) declName.toString)).state.sourceBindings.get?
+      (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state.sourceBindings.get?
       self1.name = none := by
     revert hvis1
     unfold Tools.ShippingBindingsSoundness.visible
@@ -5950,24 +5950,24 @@ theorem synthesizeMixedCertified_cdo2_sound {logProf declName bs body m d}
     intro h; exact h
   have selfNe0 : ∀ id, Tools.ShippingBindingsSoundness.visible
       (prepare bools bits (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString)).context
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context
       (prepare bools bits (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString)).state.sourceBindings id ≠
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state.sourceBindings id ≠
       none → id ≠ self0 := by
     intro id hne heq
     subst heq
     exact hne hvis0
   have selfNe1 : ∀ id, Tools.ShippingBindingsSoundness.visible
       (prepare bools bits (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString)).context
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context
       (prepare bools bits (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString)).state.sourceBindings id ≠
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state.sourceBindings id ≠
       none → id ≠ self1 := by
     intro id hne heq
     subst heq
     exact hne hvis1
   have s2bBind : s2b.sourceBindings = ((prepare bools bits (bs.zip ids)
-      (start (entryCompilerState false cache) declName.toString)).state.sourceBindings.insert
+      (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state.sourceBindings.insert
       self0.name r0w).insert self1.name r1w := by
     rw [hs2b]
     show s2a.sourceBindings.insert self1.name r1w = _
@@ -5975,7 +5975,7 @@ theorem synthesizeMixedCertified_cdo2_sound {logProf declName bs body m d}
     show (s1b.sourceBindings.insert self0.name r0w).insert self1.name r1w = _
     rw [hs1b, CircuitM.makeWire_sourceBindings, hs1a, CircuitM.makeWire_sourceBindings]
   have s2bUsed : s2b.usedNames = ((prepare bools bits (bs.zip ids)
-      (start (entryCompilerState false cache) declName.toString)).state.usedNames.insert
+      (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state.usedNames.insert
       r0w).insert r1w := by
     rw [hs2b]
     show s2a.usedNames = _
@@ -5991,7 +5991,7 @@ theorem synthesizeMixedCertified_cdo2_sound {logProf declName bs body m d}
     rw [hs1b]
   have s2bWires : s2b.module.wires = { name := r1w, ty := .bitVector w } ::
       { name := r0w, ty := .bitVector w } :: (prepare bools bits (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString)).state.module.wires := by
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state.module.wires := by
     rw [s2bModule, mws1.2.2.2, ← hr1w, hs1a, mws0.2.2.2, ← hr0w]
   have s2bBody : s2b.module.body = [] := by
     rw [s2bModule, mws1.2.2.1, hs1a, mws0.2.2.1, prepared.2.2.1]
@@ -6006,7 +6006,7 @@ theorem synthesizeMixedCertified_cdo2_sound {logProf declName bs body m d}
     rfl
   have visSelf0 : Tools.ShippingBindingsSoundness.visible
       (prepare bools bits (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString)).context
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context
       s2b.sourceBindings self0 = some r0w := by
     unfold Tools.ShippingBindingsSoundness.visible
     rw [hvisVar0, s2bBind]
@@ -6017,7 +6017,7 @@ theorem synthesizeMixedCertified_cdo2_sound {logProf declName bs body m d}
       Bool.false_eq_true, if_false, beq_self_eq_true, if_true]
   have visSelf1 : Tools.ShippingBindingsSoundness.visible
       (prepare bools bits (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString)).context
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context
       s2b.sourceBindings self1 = some r1w := by
     unfold Tools.ShippingBindingsSoundness.visible
     rw [hvisVar1, s2bBind]
@@ -6025,29 +6025,29 @@ theorem synthesizeMixedCertified_cdo2_sound {logProf declName bs body m d}
   have visOld2 : ∀ id z, id ≠ self0 → id ≠ self1 →
       Tools.ShippingBindingsSoundness.visible
         (prepare bools bits (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).context
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context
         (prepare bools bits (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).state.sourceBindings
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state.sourceBindings
         id = some z →
       Tools.ShippingBindingsSoundness.visible
         (prepare bools bits (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).context
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context
         s2b.sourceBindings id = some z := by
     intro id z hne0 hne1 hz
     unfold Tools.ShippingBindingsSoundness.visible at hz ⊢
     rw [s2bBind]
     cases hvm : (prepare bools bits (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString)).context.varMap.lookup id with
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context.varMap.lookup id with
     | some u => rw [hvm] at hz; exact hz
     | none =>
       rw [hvm] at hz
       have hz' : (prepare bools bits (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).state.sourceBindings.get?
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state.sourceBindings.get?
           id.name = some z := hz
       have hname0 : ¬ (self0.name = id.name) := fun h => hne0 (fvarId_name_inj h.symm)
       have hname1 : ¬ (self1.name = id.name) := fun h => hne1 (fvarId_name_inj h.symm)
       show (((prepare bools bits (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString)).state.sourceBindings.insert
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state.sourceBindings.insert
           self0.name r0w).insert self1.name r1w).get? id.name = some z
       simpa [Std.HashMap.getElem?_insert, hname0, hname1] using hz'
 
@@ -6071,9 +6071,9 @@ theorem synthesizeMixedCertified_cdo2_sound {logProf declName bs body m d}
       (fun id => if id = self0 then some (Value.bits w (BitVec.ofNat w (env0 r0w)))
         else if id = self1 then some (Value.bits w (BitVec.ofNat w (env0 r1w)))
         else inputValues (prepare bools bits (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).bools
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bools
           (prepare bools bits (bs.zip ids)
-            (start (entryCompilerState false cache) declName.toString)).bits id) (binp j) =
+            (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bits id) (binp j) =
       some (.bool (bvals j)) := by
     intro j hj
     simp only [if_neg (selfNeB0 j hj), if_neg (selfNeB1 j hj)]
@@ -6083,9 +6083,9 @@ theorem synthesizeMixedCertified_cdo2_sound {logProf declName bs body m d}
       (fun id => if id = self0 then some (Value.bits w (BitVec.ofNat w (env0 r0w)))
         else if id = self1 then some (Value.bits w (BitVec.ofNat w (env0 r1w)))
         else inputValues (prepare bools bits (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).bools
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bools
           (prepare bools bits (bs.zip ids)
-            (start (entryCompilerState false cache) declName.toString)).bits id)
+            (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bits id)
         ((fun j => if j = kv then self0 else if j = kv + 1 then self1 else vinp j) j) =
       some (.bits (vw j)
         ((fun j n => if j = kv then BitVec.ofNat n (env0 r0w)
@@ -6109,13 +6109,13 @@ theorem synthesizeMixedCertified_cdo2_sound {logProf declName bs body m d}
         exact inputValues_bits separate (hv0v j hjlt)
   have contract0 := fuel_contract 1048575
     (ctx := (prepare bools bits (bs.zip ids)
-      (start (entryCompilerState false cache) declName.toString)).context)
+      (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context)
     (inputs := fun id => if id = self0 then some (Value.bits w (BitVec.ofNat w (env0 r0w)))
       else if id = self1 then some (Value.bits w (BitVec.ofNat w (env0 r1w)))
       else inputValues (prepare bools bits (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString)).bools
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bools
         (prepare bools bits (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).bits id)
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bits id)
     (we := declaredWidths st) (mems := mems) (initial := env0)
     (dom := instFVars #[.fvar self0, .fvar self1] 0 dom4)
     (bi := binp)
@@ -6126,13 +6126,13 @@ theorem synthesizeMixedCertified_cdo2_sound {logProf declName bs body m d}
     hb2 hv2 e0 he0
   have contract1 := fuel_contract 1048575
     (ctx := (prepare bools bits (bs.zip ids)
-      (start (entryCompilerState false cache) declName.toString)).context)
+      (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context)
     (inputs := fun id => if id = self0 then some (Value.bits w (BitVec.ofNat w (env0 r0w)))
       else if id = self1 then some (Value.bits w (BitVec.ofNat w (env0 r1w)))
       else inputValues (prepare bools bits (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString)).bools
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bools
         (prepare bools bits (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).bits id)
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bits id)
     (we := declaredWidths st) (mems := mems) (initial := env0)
     (dom := instFVars #[.fvar self0, .fvar self1] 0 dom5)
     (bi := binp)
@@ -6193,13 +6193,13 @@ theorem synthesizeMixedCertified_cdo2_sound {logProf declName bs body m d}
   rw [childEq1] at rc1
 
   have lookup2b : Lookup (prepare bools bits (bs.zip ids)
-      (start (entryCompilerState false cache) declName.toString)).context
+      (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context
       (fun id => if id = self0 then some (Value.bits w (BitVec.ofNat w (env0 r0w)))
         else if id = self1 then some (Value.bits w (BitVec.ofNat w (env0 r1w)))
         else inputValues (prepare bools bits (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).bools
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bools
           (prepare bools bits (bs.zip ids)
-            (start (entryCompilerState false cache) declName.toString)).bits id) s2b := by
+            (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bits id) s2b := by
     constructor
     intro id val hval
     by_cases hid0 : id = self0
@@ -6220,13 +6220,13 @@ theorem synthesizeMixedCertified_cdo2_sound {logProf declName bs body m d}
         simp [Std.HashSet.contains_insert, hused]
   have frame0 := contract0.frame "loop_body" false false s2b sc0 cw0 lookup2b rc0
   have lookupSc0 : Lookup (prepare bools bits (bs.zip ids)
-      (start (entryCompilerState false cache) declName.toString)).context
+      (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context
       (fun id => if id = self0 then some (Value.bits w (BitVec.ofNat w (env0 r0w)))
         else if id = self1 then some (Value.bits w (BitVec.ofNat w (env0 r1w)))
         else inputValues (prepare bools bits (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).bools
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bools
           (prepare bools bits (bs.zip ids)
-            (start (entryCompilerState false cache) declName.toString)).bits id) sc0 := by
+            (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bits id) sc0 := by
     constructor
     intro id val hval
     obtain ⟨wj, hbnd, hused⟩ := lookup2b.lookup id val hval
@@ -6300,7 +6300,7 @@ theorem synthesizeMixedCertified_cdo2_sound {logProf declName bs body m d}
     rw [hfin]
     rfl
   have growth : ∀ q ∈ (prepare bools bits (bs.zip ids)
-      (start (entryCompilerState false cache) declName.toString)).state.module.wires,
+      (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state.module.wires,
       q ∈ st.module.wires := by
     intro q hq
     rw [stWires]
@@ -6311,13 +6311,13 @@ theorem synthesizeMixedCertified_cdo2_sound {logProf declName bs body m d}
   have mixedI := prepared.1.inputs prepared.2.1 growth (declaredWidths_agree wiresSt)
   have inputsInv : Tools.ShippingUnifiedInvariant.Inputs
       (prepare bools bits (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString)).context
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context
       (fun id => if id = self0 then some (Value.bits w (BitVec.ofNat w (env0 r0w)))
         else if id = self1 then some (Value.bits w (BitVec.ofNat w (env0 r1w)))
         else inputValues (prepare bools bits (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).bools
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bools
           (prepare bools bits (bs.zip ids)
-            (start (entryCompilerState false cache) declName.toString)).bits id)
+            (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bits id)
       (declaredWidths st) s2b env0 := by
     constructor
     intro id val hval
@@ -6348,13 +6348,13 @@ theorem synthesizeMixedCertified_cdo2_sound {logProf declName bs body m d}
         rw [s2bUsed]
         simp [Std.HashSet.contains_insert, hused]
   have inv2b : Inv (prepare bools bits (bs.zip ids)
-      (start (entryCompilerState false cache) declName.toString)).context
+      (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context
       (fun id => if id = self0 then some (Value.bits w (BitVec.ofNat w (env0 r0w)))
         else if id = self1 then some (Value.bits w (BitVec.ofNat w (env0 r1w)))
         else inputValues (prepare bools bits (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).bools
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bools
           (prepare bools bits (bs.zip ids)
-            (start (entryCompilerState false cache) declName.toString)).bits id)
+            (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bits id)
       (declaredWidths st) mems env0 s2b env0 :=
     ⟨runs2b, inputsInv, Records.empty s2bRecord, by
       intro stq hq
@@ -6389,8 +6389,8 @@ theorem synthesizeMixedCertified_cdo2_sound {logProf declName bs body m d}
             exact CircuitM.makeWire_allocated "out" (.bitVector w) (true && 0 == 0) _
           · exact prepare_wires_allocated bools bits (bs.zip ids) _
               (by
-                rw [show (start (entryCompilerState false cache) declName.toString).state =
-                  CircuitM.init declName.toString from rfl, init_wires]
+                rw [show (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)).state =
+                  CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName) from rfl, init_wires]
                 intro x hx
                 cases hx)
               q hold0
@@ -6530,8 +6530,8 @@ theorem synthesizeMixedCertified_cdo2_sound {logProf declName bs body m d}
           · exact Or.inr ⟨w, rfl⟩
           · exact (prepare_shape (bs.zip ids) _ (by
               intro q3 hq3
-              rw [show (start (entryCompilerState false cache) declName.toString).state =
-                CircuitM.init declName.toString from rfl, init_wires] at hq3
+              rw [show (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)).state =
+                CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName) from rfl, init_wires] at hq3
               cases hq3)).1 q2 hq2
     · exact hq
   have wm : weOf m = declaredWidths st := by
@@ -6585,8 +6585,8 @@ theorem synthesizeMixedCertified_cdo2_sound {logProf declName bs body m d}
         frame1.outputs, frame0.outputs, s2bModule, makeWire_outputs, hs1a, makeWire_outputs,
         (prepare_shape (bs.zip ids) _ (by
           intro q hq'
-          rw [show (start (entryCompilerState false cache) declName.toString).state =
-            CircuitM.init declName.toString from rfl, init_wires] at hq'
+          rw [show (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)).state =
+            CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName) from rfl, init_wires] at hq'
           cases hq')).2]
       rfl
     rw [hm]
@@ -6844,14 +6844,14 @@ theorem cdo2_source {declName : Name} {bs : List (Name × MixedGateBinder)}
     have bound := (List.getElem_of_getElem? pos).choose
     have lookup := prepare_bool_lookup (bools := boolValues ids bools)
       (bits := bitValues ids bits) (bs.zip ids)
-      (start (entryCompilerState false cache) declName.toString) fresh (zip_member len pos)
+      (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)) fresh (zip_member len pos)
     simpa only [boolValues, index_fresh ids nd (bpos j) (by omega)] using lookup
   · intro j hj
     obtain ⟨name, pos⟩ := hvp j hj
     have bound := (List.getElem_of_getElem? pos).choose
     have lookup := prepare_bits_lookup (bools := boolValues ids bools)
       (bits := bitValues ids bits) (bs.zip ids)
-      (start (entryCompilerState false cache) declName.toString) fresh (zip_member len pos)
+      (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)) fresh (zip_member len pos)
     simpa only [bitValues, index_fresh ids nd (vpos j) (by omega)] using lookup
 
 /-- General two-slot circuit-do endpoint at the real core entry. -/

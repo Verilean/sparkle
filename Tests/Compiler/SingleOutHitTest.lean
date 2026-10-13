@@ -202,7 +202,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   let b ← seedRow sTagName
   logInfo m!"SINGLEOUT SEEDED: legacy handler (sIrr) honoured={optStr a}; certified arm (sTag) honoured={optStr b} (an injected state, not a finding)"
   -- §2
-  let child : String := toString hIrrName
+  let child : String := Sparkle.IR.ModuleName.ofDecl hIrrName
   let shape : Bool ←
     try
       let g ← gatesOf sMachName

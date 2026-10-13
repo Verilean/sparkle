@@ -113,7 +113,7 @@ theorem legacy_entry_walk_at (L : RefLawsM mref cref)
            MReturns (splitReturnLeaves inner) leaves ∧
            RunsIn (bindInputsLegacy [] false xs 0
                (emitLeaves translate cache logProf leaves.toList none 0))
-             mctx1 (entryCompilerState false cache) (CircuitM.init declName.toString)
+             mctx1 (entryCompilerState false cache) (CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName))
              returned st ∧
            m = (addClockResetIfSequential st.module).finalize ∧
            Sparkle.IR.ModuleNames.legal (Sparkle.Backend.Verilog.sanitizeName m.name) = true))) := by
@@ -243,7 +243,7 @@ theorem legacy_entry_walk_start (L : RefLawsM mref cref)
       MReturns (splitReturnLeaves inner) leaves ∧
       RunsIn (bindInputsLegacy [] false xs 0
           (emitLeaves translate cache logProf leaves.toList none 0))
-        mctx1 (entryCompilerState false cache) (CircuitM.init declName.toString) returned st ∧
+        mctx1 (entryCompilerState false cache) (CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName)) returned st ∧
       m = (addClockResetIfSequential st.module).finalize ∧
       Sparkle.IR.ModuleNames.legal (Sparkle.Backend.Verilog.sanitizeName m.name) = true := by
   obtain ⟨memo, wr, wr', hg, hv, hcase⟩ :=
@@ -280,7 +280,7 @@ theorem list_entry_outputDN_at (L : RefLawsM mref cref)
         (initial : Env) (mems : MEnv),
       Tools.ShippingMixedEntrySoundness.Admissible bools bits initial (bs.zip ids)
         (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
-          declName.toString) →
+          (Sparkle.IR.ModuleName.ofDecl declName)) →
       ∀ v : Value, 0 < v.kind.width →
       LeafDom (setupOf declName bs ids cache bools bits).context
         (Tools.ShippingUnifiedMeaning.inputValues
@@ -301,7 +301,7 @@ theorem list_entry_outputDN_at (L : RefLawsM mref cref)
     intro bools bits initial mems values v pos dom
     have leaf := bindInputsLegacy_prepareD (bools := bools) (bits := bits) bs ids 0
       (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
-        declName.toString) hdecls run
+        (Sparkle.IR.ModuleName.ofDecl declName)) hdecls run
     exact harness_sound_leaf (bs := bs) (ids := ids) hm legal bools bits initial mems
       values leaf v pos (leaf_translate_spec dom) (leaf_translate_order dom)
 
@@ -347,7 +347,7 @@ theorem proj_entry_output_at (L : RefLawsM mref cref)
         (initial : Env) (mems : MEnv),
       Tools.ShippingMixedEntrySoundness.Admissible bools bits initial (bs.zip ids)
         (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
-          declName.toString) →
+          (Sparkle.IR.ModuleName.ofDecl declName)) →
       Tools.ShippingMixedEntrySoundness.RawValueAt (kindValue bools bits k x).kind.width bs m
         initial mems (kindValue bools bits k x).toNat := by
   have htele : ∀ body0, MReturns (openRecordInputs dv.value) body0 →
@@ -380,7 +380,7 @@ theorem proj_entry_output_at (L : RefLawsM mref cref)
         some (kindValue bools bits k x) :=
       prepare_inputValue (bools := bools) (bits := bits) bs ids i
         (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
-          declName.toString) nm k x hnd hfield hx hk
+          (Sparkle.IR.ModuleName.ofDecl declName)) nm k x hnd hfield hx hk
     have dom : LeafDom (setupOf declName bs ids cache bools bits).context
         (Tools.ShippingUnifiedMeaning.inputValues
           (setupOf declName bs ids cache bools bits).bools
@@ -435,7 +435,7 @@ theorem proj_entry_output_miss (L : RefLawsM mref cref)
         (initial : Env) (mems : MEnv),
       Tools.ShippingMixedEntrySoundness.Admissible bools bits initial (bs.zip ids)
         (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
-          declName.toString) →
+          (Sparkle.IR.ModuleName.ofDecl declName)) →
       Tools.ShippingMixedEntrySoundness.RawValueAt (kindValue bools bits k x).kind.width bs m
         initial mems (kindValue bools bits k x).toNat := by
   rcases proj_entry_output_at L (i := i) (nm := nm) (k := k) old mixed hmach htel hbody hfield
@@ -568,7 +568,7 @@ theorem proj_entry_output_outer (L : RefLawsM mref cref) {declName : Name}
         (initial : Env) (mems : MEnv),
       Tools.ShippingMixedEntrySoundness.Admissible bools bits initial (bs.zip ids)
         (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
-          declName.toString) →
+          (Sparkle.IR.ModuleName.ofDecl declName)) →
       Tools.ShippingMixedEntrySoundness.RawValueAt (kindValue bools bits k x).kind.width bs m
         initial mems (kindValue bools bits k x).toNat := by
   obtain ⟨b, envR, ci, w1, w2, w3, w4, w5, w6, hget, henv, hrun, hempty⟩ :=

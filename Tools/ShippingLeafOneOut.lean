@@ -755,7 +755,7 @@ theorem SlotlessLeaf.comb (K : SlotlessLeaf mctx mref cctx cref c dk) {y : Res}
   have h := Tools.ShippingMachineChildRun.machineChild_of_real (nDecl := dk.nIn) dk K.any.ok
     K.any.body K.gate K.lets K.any.leaf K.slots K.one K.any.outTy K.any.entry K.any.closes hy
   have h' : Tools.ShippingGateChildComb.ChildComb y.1 ∧
-      y.1.inputs.length = _ ∧ y.1.name = c.toString ∧ y.2.modules = [] := h
+      y.1.inputs.length = _ ∧ y.1.name = (Sparkle.IR.ModuleName.ofDecl c) ∧ y.2.modules = [] := h
   exact ⟨h'.1, h'.2.2.2⟩
 
 /-- **`hkidA`.** -/

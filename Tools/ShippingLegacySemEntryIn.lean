@@ -64,7 +64,7 @@ theorem legacy_entry_walk_in {translate : TranslateFn} {logProf : String → IO 
       MReturns (splitReturnLeaves inner) leaves ∧
       RunsIn (bindInputsLegacy [] false xs 0
           (emitLeaves translate cache logProf leaves.toList none 0))
-        mctx (entryCompilerState false cache) (CircuitM.init declName.toString) returned st ∧
+        mctx (entryCompilerState false cache) (CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName)) returned st ∧
       m = (addClockResetIfSequential st.module).finalize ∧
       Sparkle.IR.ModuleNames.legal (Sparkle.Backend.Verilog.sanitizeName m.name) = true := by
   unfold synthesizeFromConst at hr

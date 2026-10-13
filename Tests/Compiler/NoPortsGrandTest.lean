@@ -148,7 +148,7 @@ open Tools.ShippingCallsChildPorts (argWidths)
 
 /-- The printed names of the descendants of `mid`'s callees: none (its one
 callee is a leaf). -/
-def midNames : Nat → List String := fun _ => ([] : List Lean.Name).map fun n => n.toString
+def midNames : Nat → List String := fun _ => ([] : List Lean.Name).map fun n => Sparkle.IR.ModuleName.ofDecl n
 
 /-- Every call entry of `mid` is of `cnt` (decided on the reflected data). -/
 theorem mid_entry : ∀ (k : Nat)
@@ -217,12 +217,12 @@ theorem mid_kid {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta
           Sparkle.Tests.Compiler.ShippingMachineSeqTest.mid.machineData midNames =
           (Tools.ShippingKidsChildIface.declsOf
             Sparkle.Tests.Compiler.ShippingMachineSeqTest.mid.machineData
-            (fun _ => ([] : List Lean.Name))).map fun n => n.toString :=
+            (fun _ => ([] : List Lean.Name))).map fun n => Sparkle.IR.ModuleName.ofDecl n :=
         Tools.ShippingKidsChildIface.namesOf_map
           Sparkle.Tests.Compiler.ShippingMachineSeqTest.mid.machineData
           (fun _ => ([] : List Lean.Name))
       rw [h]
-      exact Tools.ShippingNameSep.not_mem_map_of _ _ (by decide)
+      exact Tools.ShippingNameSep.Enc.not_mem_map_of _ _ (by decide)
     kidsLo := by
       intro k hk
       rw [mid_entry k hk]

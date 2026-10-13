@@ -36,7 +36,7 @@ open Sparkle.IR.OptCheck (seqStmtOk)
 /-- **What the general closing asks of a child with a design of its own.** -/
 structure ChildIfaceD (c : Name) (nArgs : Nat) (outs names : List String)
     (b : Sparkle.IR.AST.Module) (design : Design) : Prop where
-  name : b.name = c.toString
+  name : b.name = (Sparkle.IR.ModuleName.ofDecl c)
   nIn : (inPortsOf b).length = nArgs
   inNd : ((inPortsOf b).map (·.name)).Nodup
   outs : b.outputs.map (·.name) = outs
@@ -118,19 +118,19 @@ theorem machineClosesAt_of_kidsD {declName : Name} (d : MachineData) (ok : d.ok 
       (d.shape.insts[k]).2.1 = (d.shape.insts[k']).2.1 →
       d.shape.instFields.getD k "" = d.shape.instFields.getD k' "" → k = k')
     (hsep : ∀ c ∈ d.shape.insts.map (·.1), ∀ c' ∈ d.shape.insts.map (·.1),
-      c.toString = c'.toString → c = c')
-    (hparent : ∀ c ∈ d.shape.insts, c.1.toString ≠ declName.toString)
+      (Sparkle.IR.ModuleName.ofDecl c) = (Sparkle.IR.ModuleName.ofDecl c') → c = c')
+    (hparent : ∀ c ∈ d.shape.insts, (Sparkle.IR.ModuleName.ofDecl c.1) ≠ (Sparkle.IR.ModuleName.ofDecl declName))
     (hfresh : ∀ (gi : Nat), ∀ c ∈ d.shape.insts, ∀ o ∈ d.shape.layout.outs,
-      o.name ≠ s!"inst{gi}_{c.1.toString}")
+      o.name ≠ s!"inst{gi}_{(Sparkle.IR.ModuleName.ofDecl c.1)}")
     -- name separation over the descendants (N1): the parent and each child
     -- print differently from that child's descendants; two different
     -- children share no printed name
-    (hparentD : ∀ (k : Nat), k < d.shape.insts.length → declName.toString ∉ namesK k)
+    (hparentD : ∀ (k : Nat), k < d.shape.insts.length → (Sparkle.IR.ModuleName.ofDecl declName) ∉ namesK k)
     (hselfD : ∀ (k : Nat) (hk : k < d.shape.insts.length),
-      (d.shape.insts[k]).1.toString ∉ namesK k)
+      (Sparkle.IR.ModuleName.ofDecl (d.shape.insts[k]).1) ∉ namesK k)
     (hdisjD : ∀ (k : Nat) (hk : k < d.shape.insts.length) (k' : Nat)
       (hk' : k' < d.shape.insts.length), (d.shape.insts[k]).1 ≠ (d.shape.insts[k']).1 →
-      (d.shape.insts[k]).1.toString ∉ namesK k' ∧ ∀ x ∈ namesK k, x ∉ namesK k') :
+      (Sparkle.IR.ModuleName.ofDecl (d.shape.insts[k]).1) ∉ namesK k' ∧ ∀ x ∈ namesK k, x ∉ namesK k') :
     MachineClosesAt mctx mref cctx cref declName d.shape := by
   have hl : Tools.ShippingClosesSplit.LetsClose mctx mref cctx cref declName d.shape :=
     letsClose_of_data d ok hbody halias mctx mref cctx cref
@@ -235,11 +235,11 @@ theorem machineClosesAt_of_kidsD {declName : Name} (d : MachineData) (ok : d.ok 
           List.mem_map_of_mem (List.getElem_mem hki)
         have hnj : (d.shape.insts[j]).1 ∈ d.shape.insts.map (·.1) :=
           List.mem_map_of_mem (List.getElem_mem hkj)
-        have han : a.name = (d.shape.insts[i]).1.toString ∨ a.name ∈ namesK i := by
+        have han : a.name = (Sparkle.IR.ModuleName.ofDecl (d.shape.insts[i]).1) ∨ a.name ∈ namesK i := by
           rcases hai with hae | hai
           · exact Or.inl (by rw [hae]; exact fi.name)
           · exact Or.inr (fi.desNames a hai)
-        have hbn : b.name = (d.shape.insts[j]).1.toString ∨ b.name ∈ namesK j := by
+        have hbn : b.name = (Sparkle.IR.ModuleName.ofDecl (d.shape.insts[j]).1) ∨ b.name ∈ namesK j := by
           rcases hbj with hbe | hbj
           · exact Or.inl (by rw [hbe]; exact fj.name)
           · exact Or.inr (fj.desNames b hbj)
@@ -284,7 +284,7 @@ theorem machineClosesAt_of_kidsD {declName : Name} (d : MachineData) (ok : d.ok 
         have := List.getElem?_eq_getElem hk'
         rw [hx'] at this
         exact (Option.some.inj this).symm
-      have hn : (d.shape.insts[k]).1.toString = (d.shape.insts[k']).1.toString := by
+      have hn : (Sparkle.IR.ModuleName.ofDecl (d.shape.insts[k]).1) = (Sparkle.IR.ModuleName.ofDecl (d.shape.insts[k']).1) := by
         rw [← full.name, ← full'.name]
         exact he.1
       have hni : (d.shape.insts[k]).1 ∈ d.shape.insts.map (·.1) :=

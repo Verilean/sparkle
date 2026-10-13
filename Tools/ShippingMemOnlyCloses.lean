@@ -29,7 +29,7 @@ declaration; none is a reduction):
 | `hsep` | the same, over `memNameAt` |
 | `hparent` | the same, over `memNameAt` |
 | `hfresh` | `hout`: no output of the parent starts with `i` (`instName_ne_of_head`) |
-| `hparentD` (`declName.toString ∉ [memNameAt d k]`) | DERIVED from `hparent` |
+| `hparentD` (`(Sparkle.IR.ModuleName.ofDecl declName) ∉ [memNameAt d k]`) | DERIVED from `hparent` |
 | `hdisjD` (different callees: `memNameAt d k ∉ [memNameAt d k']`, twice) | DERIVED from `hsep` (its contrapositive) |
 
 `hpair` (two entries of one declaration have one child) is not a hypothesis
@@ -103,7 +103,7 @@ theorem machineClosesAt_memOnly {declName : Name} (d : MachineData) (ok : d.ok =
     (hsep : ∀ (k : Nat) (hk : k < d.shape.insts.length) (k' : Nat)
       (hk' : k' < d.shape.insts.length), memNameAt d k = memNameAt d k' →
       (d.shape.insts[k]).1 = (d.shape.insts[k']).1)
-    (hparent : ∀ (k : Nat), k < d.shape.insts.length → memNameAt d k ≠ declName.toString)
+    (hparent : ∀ (k : Nat), k < d.shape.insts.length → memNameAt d k ≠ (Sparkle.IR.ModuleName.ofDecl declName))
     (hout : ∀ o ∈ d.shape.layout.outs, o.name.toList.head? ≠ some 'i') :
     MachineClosesAt mctx mref cctx cref declName d.shape := by
   refine machineClosesAt_of_kidsDM d ok hbody halias hC hslots hdomB hfne
@@ -130,7 +130,7 @@ theorem machineClosesAt_memOnly {declName : Name} (d : MachineData) (ok : d.ok =
     exact Tools.ShippingCallsGate.instName_ne_of_head (hout o ho) gi _
   · -- hparentD
     intro k hk
-    show declName.toString ∉ [memNameAt d k]
+    show (Sparkle.IR.ModuleName.ofDecl declName) ∉ [memNameAt d k]
     intro hx
     exact hparent k hk (List.mem_singleton.mp hx).symm
   · -- hdisjD: two different callees have two different module names
@@ -164,7 +164,7 @@ theorem machineClosesAt_of_memOnlyData {declName : Name} {d : MachineData} {nDec
     (hsep : ∀ (k : Nat) (hk : k < d.shape.insts.length) (k' : Nat)
       (hk' : k' < d.shape.insts.length), memNameAt d k = memNameAt d k' →
       (d.shape.insts[k]).1 = (d.shape.insts[k']).1)
-    (hparent : ∀ (k : Nat), k < d.shape.insts.length → memNameAt d k ≠ declName.toString) :
+    (hparent : ∀ (k : Nat), k < d.shape.insts.length → memNameAt d k ≠ (Sparkle.IR.ModuleName.ofDecl declName)) :
     MachineClosesAt mctx mref cctx cref declName d.shape :=
   machineClosesAt_memOnly d D.ok D.body C.alias D.calls D.slots D.domB D.fne
     (fun k hk => (D.mem k hk).elim fun cb h => Exists.intro cb (Exists.intro aw (Exists.intro dw h)))
@@ -183,13 +183,13 @@ child `md`: the parent does not print as `md`'s module name. -/
 theorem parent_of_one {declName : Name} {d : MachineData} {c : Name} {md : Res}
     (h : ∀ (k : Nat) (hk : k < d.shape.insts.length), (d.shape.insts[k]).1 = c)
     (hc : memChild? c = some md)
-    (hnot : declName.toString ∉ [md.1.name]) :
-    ∀ (k : Nat), k < d.shape.insts.length → memNameAt d k ≠ declName.toString := by
+    (hnot : (Sparkle.IR.ModuleName.ofDecl declName) ∉ [md.1.name]) :
+    ∀ (k : Nat), k < d.shape.insts.length → memNameAt d k ≠ (Sparkle.IR.ModuleName.ofDecl declName) := by
   intro k hk e
   apply hnot
   have hk' : memChild? (d.shape.insts[k]).1 = some md :=
     (congrArg memChild? (h k hk)).trans hc
-  have e' : md.1.name = declName.toString := (memNameAt_eq d hk hk').symm.trans e
+  have e' : md.1.name = (Sparkle.IR.ModuleName.ofDecl declName) := (memNameAt_eq d hk hk').symm.trans e
   exact List.mem_singleton.mpr e'.symm
 
 end Tools.ShippingMemOnlyCloses

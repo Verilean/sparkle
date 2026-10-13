@@ -57,7 +57,7 @@ theorem transition_fields {logProf : String → IO Unit} {declName : Name}
     (run : Returns (bindMixedCertifiedInputs
         (emitLeaves (fun e hint top named => translateExprToWire e hint top named) cache logProf
           [("out", instFVars (ids.map Lean.Expr.fvar).toArray 0 body)] none 0) (bs.zip ids))
-        (entryCompilerState false cache) (CircuitM.init declName.toString) returned st)
+        (entryCompilerState false cache) (CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName)) returned st)
     (hm : m = (addClockResetIfSequential st.module).finalize)
     (nameLegal : Sparkle.IR.ModuleNames.legal (Sparkle.Backend.Verilog.sanitizeName m.name) = true)
     (positive : PositiveBinders bs)
@@ -96,7 +96,7 @@ theorem transition_fields {logProf : String → IO Unit} {declName : Name}
   have pb := base positive
   have hin := facts.2.2 (boolValues ids fun _ => false) (bitValues ids fun _ n => 0#n)
   -- the port walk in two parts
-  let a := start (entryCompilerState false cache) declName.toString
+  let a := start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)
   let zb := boolValues ids fun _ => false
   let zv := bitValues ids fun _ n => 0#n
   let L1 := bsA.zip (ids.take bsA.length)
@@ -178,7 +178,7 @@ theorem transition_fields {logProf : String → IO Unit} {declName : Name}
       have bound := (List.getElem_of_getElem? pos).choose
       have lookup := prepare_bool_lookup (bools := boolValues ids fun _ => false)
         (bits := bitValues ids fun _ n => 0#n) (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString) fresh (zip_member len pos)
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)) fresh (zip_member len pos)
       simpa only [boolValues, index_fresh ids nd (bpos j) (by omega)] using lookup)
     (by
       intro j hj
@@ -186,7 +186,7 @@ theorem transition_fields {logProf : String → IO Unit} {declName : Name}
       have bound := (List.getElem_of_getElem? pos).choose
       have lookup := prepare_bits_lookup (bools := boolValues ids fun _ => false)
         (bits := bitValues ids fun _ n => 0#n) (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString) fresh (zip_member len pos)
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)) fresh (zip_member len pos)
       simpa only [bitValues, index_fresh ids nd (vpos j) (by omega)] using lookup)
     (by
       apply instantiated_quote _ _ _ he

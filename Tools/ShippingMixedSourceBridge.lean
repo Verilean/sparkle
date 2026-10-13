@@ -99,7 +99,7 @@ theorem source_inputs {declName bs dom n kb kv e P} {bpos vpos : Nat → Nat}
       ∀ (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n)
         (initial : Env) (mems : MEnv),
       Admissible bools bits initial (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString) →
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)) →
       P initial mems (Tools.ShippingMuxLoweringSoundness.encodeBool
         (evalB n (fun j => bools ids[bpos j]!) (fun j => bits ids[vpos j]! n) e)) := by
   obtain ⟨ids, nd, len, cache, source⟩ := source
@@ -152,7 +152,7 @@ def SourceInputs (declName : Name) (bs : List (Name × MixedGateBinder)) (ids : 
     (cache : IO.Ref (ExprStructMap String)) (bools : Nat → Bool)
     (bits : (j : Nat) → (n : Nat) → BitVec n) (initial : Env) : Prop :=
   Admissible (boolValues ids bools) (bitValues ids bits) initial (bs.zip ids)
-    (start (entryCompilerState false cache) declName.toString)
+    (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))
 
 /-- Close intermediate valuation lookups and body instantiation from the
 source telescope alone. The remaining input premise is port-value agreement. -/
@@ -181,13 +181,13 @@ theorem source_positions {declName bs dom n kb kv e P} {bpos vpos : Nat → Nat}
     obtain ⟨name, pos⟩ := hb j hj
     have bound := (List.getElem_of_getElem? pos).choose
     have lookup := prepare_bool_lookup (bools := boolValues ids bools) (bits := bitValues ids bits)
-      (bs.zip ids) (start (entryCompilerState false cache) declName.toString) fresh (zip_member len pos)
+      (bs.zip ids) (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)) fresh (zip_member len pos)
     simpa only [boolValues, index_fresh ids nd (bpos j) (by omega)] using lookup
   · intro j hj
     obtain ⟨name, pos⟩ := hv j hj
     have bound := (List.getElem_of_getElem? pos).choose
     have lookup := prepare_bits_lookup (bools := boolValues ids bools) (bits := bitValues ids bits)
-      (bs.zip ids) (start (entryCompilerState false cache) declName.toString) fresh (zip_member len pos)
+      (bs.zip ids) (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)) fresh (zip_member len pos)
     simpa only [bitValues, index_fresh ids nd (vpos j) (by omega)] using lookup
   · apply instantiated_quoteB _ _ e he
     · intro j hj

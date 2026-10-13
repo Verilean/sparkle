@@ -39,7 +39,7 @@ third premise:
 
     (hdD : ∀ (k : Nat) (hk : k < d.shape.insts.length) (k' : Nat)
       (hk' : k' < d.shape.insts.length), (d.shape.insts[k]).1 ≠ (d.shape.insts[k']).1 →
-      (d.shape.insts[k]).1.toString ∉ namesK k' ∧ ∀ x ∈ namesK k, x ∉ namesK k')
+      Sparkle.IR.ModuleName.ofDecl (d.shape.insts[k]).1 ∉ namesK k' ∧ ∀ x ∈ namesK k, x ∉ namesK k')
 
 For `mixDeep` this is not an undecided condition: it is FALSE BY READING.
 With `k` an entry of `midH` and `k'` an entry of `mid2`, `namesK k'` is the

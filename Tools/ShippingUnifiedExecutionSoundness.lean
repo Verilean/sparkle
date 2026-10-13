@@ -584,7 +584,7 @@ def TermSourcePreserves (declName : Name) (bs : List (Name × MixedGateBinder)) 
   ∃ cache : IO.Ref (ExprStructMap String),
     ∀ (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n)
       (initial : Env) (mems : MEnv),
-    let a := start (entryCompilerState false cache) declName.toString
+    let a := start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)
     let p := prepare bools bits (bs.zip ids) a
     Admissible bools bits initial (bs.zip ids) a →
     ∀ (dom : Lean.Expr) (kb kv : Nat) (vw : Nat → Nat) (binp vinp : Nat → FVarId)
@@ -622,30 +622,30 @@ theorem synthesizeMixedCertified_term_sound_at {logProf : String → IO Unit} {d
     (run : Returns (bindMixedCertifiedInputs
         (emitLeaves (fun e hint top named => translateExprToWire e hint top named) cache logProf
           [("out", instFVars (ids.map Lean.Expr.fvar).toArray 0 body)] none 0) (bs.zip ids))
-        (entryCompilerState false cache) (CircuitM.init declName.toString) returned st)
+        (entryCompilerState false cache) (CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName)) returned st)
     (hm : m = (addClockResetIfSequential st.module).finalize)
     (nameLegal : Sparkle.IR.ModuleNames.legal (Sparkle.Backend.Verilog.sanitizeName m.name) = true)
     (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n)
     (initial : Env) (mems : MEnv)
     (values : Admissible bools bits initial (bs.zip ids)
-      (start (entryCompilerState false cache) declName.toString))
+      (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)))
     (dom : Lean.Expr) (kb kv : Nat) (vw : Nat → Nat) (binp vinp : Nat → FVarId)
     (bvals : Nat → Bool) (vvals : (j : Nat) → (w : Nat) → BitVec w)
     {srt : SType} (e : Term srt) (he : e.WF kb kv vw)
     (hbv : ∀ j, j < kb → (prepare bools bits (bs.zip ids)
-      (start (entryCompilerState false cache) declName.toString)).bools (binp j) = some (bvals j))
+      (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bools (binp j) = some (bvals j))
     (hvv : ∀ j, j < kv → (prepare bools bits (bs.zip ids)
-      (start (entryCompilerState false cache) declName.toString)).bits (vinp j) =
+      (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bits (vinp j) =
         some ⟨vw j, vvals j (vw j)⟩)
     (qeq : instFVars (ids.map Lean.Expr.fvar).toArray 0 body =
       quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) e) :
     RawValueAt srt.width bs m initial mems (pack srt (eval bvals vvals e)).toNat ∧
       ∃ w sm ty, st = (CircuitM.emitAssign "out" (.ref w) (CircuitM.addOutput "out" ty sm).2).2 ∧
         sm.module.inputs = (prepare bools bits (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).state.module.inputs := by
-  let a := start (entryCompilerState false cache) declName.toString
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state.module.inputs := by
+  let a := start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)
   let p := prepare bools bits (bs.zip ids) a
-  have empty := empty_layout (entryCompilerState false cache) declName.toString initial
+  have empty := empty_layout (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName) initial
   have prepared := prepare_layout (bs.zip ids) a empty.1 empty.2 values
   have leaf := prepare_returns (bs.zip ids) a (bools := bools) (bits := bits) run
   rw [qeq] at leaf
@@ -852,13 +852,13 @@ theorem source_positions {declName bs dom kb kv P} {vw : Nat → Nat} {bpos vpos
     obtain ⟨name, pos⟩ := hb j hj
     have bound := (List.getElem_of_getElem? pos).choose
     have lookup := prepare_bool_lookup (bools := boolValues ids bools) (bits := bitValues ids bits)
-      (bs.zip ids) (start (entryCompilerState false cache) declName.toString) fresh (zip_member len pos)
+      (bs.zip ids) (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)) fresh (zip_member len pos)
     simpa only [boolValues, index_fresh ids nd (bpos j) (by omega)] using lookup
   · intro j hj
     obtain ⟨name, pos⟩ := hv j hj
     have bound := (List.getElem_of_getElem? pos).choose
     have lookup := prepare_bits_lookup (bools := boolValues ids bools) (bits := bitValues ids bits)
-      (bs.zip ids) (start (entryCompilerState false cache) declName.toString) fresh (zip_member len pos)
+      (bs.zip ids) (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)) fresh (zip_member len pos)
     simpa only [bitValues, index_fresh ids nd (vpos j) (by omega)] using lookup
   · apply instantiated_quote _ _ e he
     · intro j hj

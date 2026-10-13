@@ -64,7 +64,7 @@ theorem useDbl_output_at (L : RefLawsM mref cref)
         (initial : Sparkle.IR.Semantics.Env) (mems : Sparkle.IR.Semantics.MEnv),
       Tools.ShippingMixedEntrySoundness.Admissible bools bits initial (useDblBinders.zip [id])
         (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
-          (``useDbl : Name).toString) →
+          (Sparkle.IR.ModuleName.ofDecl ``useDbl)) →
       Tools.ShippingMixedEntrySoundness.RawValueAt 8 useDblBinders m initial mems
         (bits id 8 + bits id 8).toNat := by
   have htele : ∀ body0,
@@ -125,7 +125,7 @@ theorem useDbl_output_outer (L : RefLawsM mref cref)
         (initial : Sparkle.IR.Semantics.Env) (mems : Sparkle.IR.Semantics.MEnv),
       Tools.ShippingMixedEntrySoundness.Admissible bools bits initial (useDblBinders.zip [id])
         (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
-          (``useDbl : Name).toString) →
+          (Sparkle.IR.ModuleName.ofDecl ``useDbl)) →
       Tools.ShippingMixedEntrySoundness.RawValueAt 8 useDblBinders m initial mems
         (bits id 8 + bits id 8).toNat := by
   obtain ⟨b, envR, ci, v1, v2, v3, v4, v5, v6, hget, henv, hrun, hempty⟩ :=

@@ -379,7 +379,7 @@ theorem sourceInputs_extend {declName : Name} {bsD bsI : List (Name × MixedGate
         (machPorts declName ids cache bsD).length)[k]? = some p → bsI[k]? = some b →
       env' p.name = posEnc bools bits (bsD.length + k) b.2) :
     SourceInputs declName (bsD ++ bsI) ids cache bools bits env' := by
-  let a := start (entryCompilerState false cache) declName.toString
+  let a := start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)
   let n := bsD.length
   let zb : FVarId → Bool := fun _ => false
   let zv : (id : FVarId) → (n : Nat) → BitVec n := fun _ n => 0#n

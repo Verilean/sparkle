@@ -170,7 +170,7 @@ theorem closedBody_kinds_of_run {declName : Lean.Name} (d : MachineData) (ok : d
       d.shape.binders d.shape.body) (t, d₀))
     (hcl : closeLets d.shape.layout.lets t = some t') :
     (closeMachine d.shape.layout t').body.all seqStmtOk = true ∧
-    (closeMachine d.shape.layout t').name = declName.toString ∧ d₀.modules = [] := by
+    (closeMachine d.shape.layout t').name = (Sparkle.IR.ModuleName.ofDecl declName) ∧ d₀.modules = [] := by
   simp only [MachineData.callsOk, Bool.and_eq_true, decide_eq_true_eq] at hC
   obtain ⟨⟨⟨hnIn, hargs⟩, hfields⟩, hcoreR⟩ := hC
   simp only [MachineData.ok, Bool.and_eq_true, decide_eq_true_eq, Bool.not_eq_true'] at ok

@@ -28,6 +28,7 @@ import Sparkle.Compiler.MachMemory
 import Sparkle.Compiler.MachRecUnfold
 import Sparkle.Compiler.StderrFlush
 import Sparkle.IR.ModuleNameCheck
+import Sparkle.IR.ModuleName
 import Sparkle.Compiler.DRC
 import Sparkle.Compiler.InlineAttr
 import Sparkle.Core.Signal
@@ -2937,7 +2938,7 @@ def synthesizeCertified (translate : TranslateFn) (logProf : String → IO Unit)
     let compiler := bindCertifiedInputs
       (emitLeaves translate cacheRef logProf [("out", innerBody)] none 0) (bs.zip ids)
     let (_, finalCircuitState) ←
-      (compiler.run (entryCompilerState false cacheRef)).run (CircuitM.init declName.toString)
+      (compiler.run (entryCompilerState false cacheRef)).run (CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName))
     finishSynth declName [] false finalCircuitState
   else
     throw (Exception.error .missing "fresh free variables are not distinct")
@@ -2962,7 +2963,7 @@ def synthesizeMixedCertified (translate : TranslateFn) (logProf : String → IO 
     let compiler := bindMixedCertifiedInputs
       (emitLeaves translate cacheRef logProf [("out", innerBody)] none 0) (bs.zip ids)
     let (_, finalCircuitState) ←
-      (compiler.run (entryCompilerState false cacheRef)).run (CircuitM.init declName.toString)
+      (compiler.run (entryCompilerState false cacheRef)).run (CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName))
     finishSynth declName [] false finalCircuitState
   else
     throw (Exception.error .missing "fresh free variables are not distinct")
@@ -5354,7 +5355,7 @@ def synthesizeFromConst (translate : TranslateFn) (logProf : String → IO Unit)
       let compilerBody :=
         emitLeaves translate cacheRef logProf leaves.toList none 0
       let compiler := bindInputsLegacy parameters symbolicMode xs 0 compilerBody
-      let circuitState := CircuitM.init declName.toString
+      let circuitState := CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName)
       let (_, finalCircuitState) ←
         (compiler.run (entryCompilerState symbolicMode cacheRef)).run circuitState
       let result ← finishSynth declName parameters symbolicMode finalCircuitState
@@ -9313,8 +9314,8 @@ elab "#sim" id:ident : command => do
     -- was registered first via the synth-time submodule cache, so
     -- `modules.head?` picks up the sub-module instead of the top.
     -- Match by name (the synthesizeCombinational result uses
-    -- `declName.toString` as the module name).
-    let topModName := toString declName
+    -- `Sparkle.IR.ModuleName.ofDecl declName` as the module name).
+    let topModName := Sparkle.IR.ModuleName.ofDecl declName
     let m ← match optimized.modules.find? (·.name == topModName) with
       | some m => pure m
       | none =>

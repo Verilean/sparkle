@@ -57,7 +57,7 @@ abbrev setupOf (declName : Name) (bs : List (Name × MixedGateBinder)) (ids : Li
     (cache : IO.Ref (ExprStructMap String)) (bools : FVarId → Bool)
     (bits : (id : FVarId) → (n : Nat) → BitVec n) : Tools.ShippingMixedEntrySoundness.Setup :=
   Tools.ShippingMixedEntrySoundness.prepare bools bits (bs.zip ids)
-    (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache) declName.toString)
+    (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))
 
 /-- A successful run of the certified harness on an arbitrary leaf. -/
 def HarnessRun (logProf : String → IO Unit) (declName : Name)
@@ -67,7 +67,7 @@ def HarnessRun (logProf : String → IO Unit) (declName : Name)
   Returns (bindMixedCertifiedInputs
       (emitLeaves (fun e hint top named => translateExprToWire e hint top named) cache logProf
         [("out", leaf)] none 0) (bs.zip ids))
-    (entryCompilerState false cache) (CircuitM.init declName.toString) returned st
+    (entryCompilerState false cache) (CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName)) returned st
 
 /-- **Harness soundness for any leaf** (PROVABLE-NOW, not proved here: the
 proof of `synthesizeMixedCertified_term_sound_at` with the leaf's contract
@@ -83,7 +83,7 @@ def HarnessSound : Prop :=
       (initial : Env) (mems : MEnv),
     Tools.ShippingMixedEntrySoundness.Admissible bools bits initial (bs.zip ids)
       (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
-        declName.toString) →
+        (Sparkle.IR.ModuleName.ofDecl declName)) →
     ∀ v : Value, 0 < v.kind.width →
     Tools.ShippingUnifiedRecursion.Contract
       (fun e hint top named => translateExprToWire e hint top named)
@@ -131,7 +131,7 @@ theorem legacy_leaf_output (hs : HarnessSound) {logProf : String → IO Unit} {d
     (initial : Env) (mems : MEnv)
     (values : Tools.ShippingMixedEntrySoundness.Admissible bools bits initial (bs.zip ids)
       (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
-        declName.toString))
+        (Sparkle.IR.ModuleName.ofDecl declName)))
     (v : Value) (pos : 0 < v.kind.width)
     (dom : LegacyDom (setupOf declName bs ids cache bools bits).context
       (Tools.ShippingUnifiedMeaning.inputValues (setupOf declName bs ids cache bools bits).bools
@@ -163,7 +163,7 @@ theorem legacy_entry_output (hs : HarnessSound) {declName : Name} {ci : Constant
         (initial : Env) (mems : MEnv),
       Tools.ShippingMixedEntrySoundness.Admissible bools bits initial (bs.zip ids)
         (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
-          declName.toString) →
+          (Sparkle.IR.ModuleName.ofDecl declName)) →
       ∀ v : Value, 0 < v.kind.width →
       LegacyDom (setupOf declName bs ids cache bools bits).context
         (Tools.ShippingUnifiedMeaning.inputValues

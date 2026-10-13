@@ -436,7 +436,7 @@ theorem synthesizeMixedCertified_returns {logProf declName bs body m d}
       Returns (bindMixedCertifiedInputs
         (emitLeaves (fun e hint top named => translateExprToWire e hint top named) cache logProf
           [("out", instFVars (ids.map Lean.Expr.fvar).toArray 0 body)] none 0) (bs.zip ids))
-        (entryCompilerState false cache) (CircuitM.init declName.toString) returned st ∧
+        (entryCompilerState false cache) (CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName)) returned st ∧
       m = (addClockResetIfSequential st.module).finalize ∧ d = st.design ∧
       Sparkle.IR.ModuleNames.legal (Sparkle.Backend.Verilog.sanitizeName m.name) = true := by
   unfold synthesizeMixedCertified at hr
@@ -463,7 +463,7 @@ def MixedSourcePreserves (declName : Name) (bs : List (Name × MixedGateBinder))
   ∃ cache : IO.Ref (ExprStructMap String),
     ∀ (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n)
       (initial : Env) (mems : MEnv),
-    let a := start (entryCompilerState false cache) declName.toString
+    let a := start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)
     let p := prepare bools bits (bs.zip ids) a
     Admissible bools bits initial (bs.zip ids) a →
     ∀ (dom : Lean.Expr) (n kb kv : Nat) (binp vinp : Nat → FVarId)
@@ -563,7 +563,7 @@ theorem synthesizeMixedCertified_sound {logProf declName bs body m d}
   obtain ⟨ids, cache, returned, st, nd, len, run, hm, _, nameLegal⟩ := synthesizeMixedCertified_returns hr
   refine ⟨ids, nd, len, cache, ?_⟩
   intro bools bits initial mems a p values dom n kb kv binp vinp bvals vvals e hn he hb hv quote
-  have empty := empty_layout (entryCompilerState false cache) declName.toString initial
+  have empty := empty_layout (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName) initial
   have prepared := prepare_layout (bs.zip ids) a empty.1 empty.2 values
   have leaf := prepare_returns (bs.zip ids) a (bools := bools) (bits := bits) run
   rw [quote] at leaf

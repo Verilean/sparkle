@@ -106,7 +106,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   if (← synthesizeMachineCertified translate (fun _ => pure ()) n r.shape).isSome then
     throwError "the machine route took a one-output sequential call"
   let (b, _) ← synthesizeCombinational n
-  unless b.name == n.toString do throwError "the entry did not produce the module"
+  unless b.name == Sparkle.IR.ModuleName.ofDecl n do throwError "the entry did not produce the module"
   Lean.logInfo m!"LEGACY FALLBACK: useCtr1 (one-output call of a sequential child) — machine route none, entry succeeds ({b.body.length} statements)"
 
 /-! ### The legacy route's children after the single-writer change
@@ -165,7 +165,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     let cache ← sparkleChildCache.get
     for c in kids do
       -- one module of the child in the parent's design
-      let ms := D.modules.filter (·.name == c.toString)
+      let ms := D.modules.filter (·.name == Sparkle.IR.ModuleName.ofDecl c)
       let [dm] := ms | throwError "{f}: {ms.length} modules named {c}"
       -- the cache holds it
       let some (cm, _) := cache.get? c | throwError "{f}: {c} is not cached"

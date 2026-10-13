@@ -222,9 +222,9 @@ def closingAudit (eps : List (Lean.Name × Nat)) : Lean.MetaM Lean.MessageData :
     -- midH's name separation: stated as an obligation, or PROVED from the
     -- names' candidate renderings (`Tools.ShippingNameSep`) in midH's closing
     let provedNames := match env.find? (midH ++ `machine_closes_at) with
-      | some (.thmInfo ti) => ti.value.getUsedConstants.contains ``Tools.ShippingNameSep.hparent_of
+      | some (.thmInfo ti) => ti.value.getUsedConstants.contains ``Tools.ShippingNameSep.Enc.hparent_of
       | _ => false
-    if !mentionsDeep env ty ``Lean.Name.toString && !provedNames then
+    if !(mentionsDeep env ty ``Lean.Name.toString || mentionsDeep env ty ``Sparkle.IR.ModuleName.ofDecl) && !provedNames then
       throwError "{e}: the name separation of midH is neither stated nor proved"
     report := report ++ m!"\n  {e}: MachineClosesAt asked of {at'}"
   return report

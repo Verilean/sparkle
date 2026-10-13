@@ -153,7 +153,7 @@ theorem fst_entry_output_of_chain {logProf : String → IO Unit} {declName : Nam
         (initial : Env) (mems : MEnv),
       Tools.ShippingMixedEntrySoundness.Admissible bools bits initial (bs.zip ids)
         (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
-          declName.toString) →
+          (Sparkle.IR.ModuleName.ofDecl declName)) →
       Tools.ShippingMixedEntrySoundness.RawValueAt rk.width bs m initial mems
         (sliceValue (bits x N) lo rk).toNat := by
   have htele : ∀ body0, MReturns (openRecordInputs dv.value) body0 →
@@ -177,7 +177,7 @@ theorem fst_entry_output_of_chain {logProf : String → IO Unit} {declName : Nam
         some (Value.bits N (bits x N)) :=
       prepare_inputValue (bools := bools) (bits := bits) bs ids i
         (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
-          declName.toString) nm (MixedGateBinder.bits N) x hnd hfield hx
+          (Sparkle.IR.ModuleName.ofDecl declName)) nm (MixedGateBinder.bits N) x hnd hfield hx
         (by intro h; cases h)
     have dom := hchain ids x cache bools bits hlen hx hin
     have pos : 0 < (sliceValue (bits x N) lo rk).kind.width := by

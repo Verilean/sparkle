@@ -83,7 +83,7 @@ theorem synthesizeCombinational_designL {declName : Name} {mctx : Meta.Context}
 design described by printed names (no port fact). -/
 structure KidNames (c : Name) (names : List String) (b : Sparkle.IR.AST.Module)
     (design : Design) : Prop where
-  name : b.name = c.toString
+  name : b.name = (Sparkle.IR.ModuleName.ofDecl c)
   desNames : ∀ g ∈ design.modules, g.name ∈ names
   closed : ∀ g ∈ b :: design.modules, ∀ mn i conns, Stmt.inst mn i conns ∈ g.body → mn ∈ names
 
@@ -106,7 +106,7 @@ theorem kid_of_iface {c : Name} {n : Nat} {b : Sparkle.IR.AST.Module} {design : 
 
 /-- The printed names of a machine's children and of their descendants. -/
 def namesOf (d : MachineData) (namesK : Nat → List String) : List String :=
-  d.shape.insts.map (·.1.toString) ++ (List.range d.shape.insts.length).flatMap namesK
+  d.shape.insts.map (fun x => Sparkle.IR.ModuleName.ofDecl x.1) ++ (List.range d.shape.insts.length).flatMap namesK
 
 /-- The declarations behind `namesOf`: a machine's children and their
 descendants. -/
@@ -115,8 +115,8 @@ def declsOf (d : MachineData) (declsK : Nat → List Name) : List Name :=
 
 /-- The printed names of the descendants are the descendants' names, printed. -/
 theorem namesOf_map (d : MachineData) (declsK : Nat → List Name) :
-    namesOf d (fun k => (declsK k).map fun n => n.toString) =
-      (declsOf d declsK).map fun n => n.toString := by
+    namesOf d (fun k => (declsK k).map fun n => Sparkle.IR.ModuleName.ofDecl n) =
+      (declsOf d declsK).map fun n => Sparkle.IR.ModuleName.ofDecl n := by
   unfold namesOf declsOf
   rw [List.map_append, List.map_map, List.map_flatMap]
   rfl
@@ -147,7 +147,7 @@ theorem kidsChild_iface {c : Name} (d : MachineData) (ok : d.ok = true)
     (hkid : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y →
       KidNames (d.shape.insts[k]).1 (namesK k) y.1 y.2)
-    (hself : c.toString ∉ namesOf d namesK)
+    (hself : (Sparkle.IR.ModuleName.ofDecl c) ∉ namesOf d namesK)
     {w w' : Void IO.RealWorld} {b : Sparkle.IR.AST.Module} {design : Design}
     (hw : InvW mref cref w)
     (hr : RunsTo (synthesizeCombinational c) mctx mref cctx cref w (b, design) w')
@@ -245,7 +245,7 @@ theorem kidsChild_iface {c : Name} (d : MachineData) (ok : d.ok = true)
       refine Tools.ShippingMachineDepthRun.mergeChecked_of_hasInst ?_
       obtain ⟨mn, i, conns, hm⟩ := hhas
       exact ⟨mn, i, conns, by rw [hzb]; exact hm⟩
-  have hbname : b.name = c.toString := by
+  have hbname : b.name = (Sparkle.IR.ModuleName.ofDecl c) := by
     rw [hbeq, Tools.ShippingMachineDepthRun.dropZW_name, hMname, hname0]
   have hbody' : b.body = M.body := by rw [hbeq, hzb]
   -- the children, by their witnesses
@@ -264,7 +264,7 @@ theorem kidsChild_iface {c : Name} (d : MachineData) (ok : d.ok = true)
       cases hmem
     · exact ⟨hk, hkid k hk y hre⟩
   have hnameK : ∀ (k : Nat) (hk : k < d.shape.insts.length),
-      (d.shape.insts[k]).1.toString ∈ namesOf d namesK ∧
+      (Sparkle.IR.ModuleName.ofDecl (d.shape.insts[k]).1) ∈ namesOf d namesK ∧
       ∀ x ∈ namesK k, x ∈ namesOf d namesK := by
     intro k hk
     refine ⟨List.mem_append_left _ (List.mem_map.mpr ⟨_, List.getElem_mem hk, rfl⟩), fun x hx => ?_⟩
@@ -375,7 +375,7 @@ theorem kidsChild_of_real {c : Name} (d : MachineData) (ok : d.ok = true)
     (hkid : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y →
       KidNames (d.shape.insts[k]).1 (namesK k) y.1 y.2)
-    (hself : c.toString ∉ namesOf d namesK)
+    (hself : (Sparkle.IR.ModuleName.ofDecl c) ∉ namesOf d namesK)
     (entry : MachineDefines mctx mref cctx cref c d.shape)
     (closes : ∀ (mctx' : Meta.Context) (cctx' : Core.Context),
       MachineDefines mctx' mref cctx' cref c d.shape →

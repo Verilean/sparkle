@@ -261,7 +261,7 @@ def genKidTheorem (f k s : Name) (sk : SubKind) (nDeclK d : Nat) : CommandElabM 
   let kidOuts ← `(fun _ => ($sdata).shape.layout.outs)
   let mut gBinders : Array (TSyntax ``Lean.Parser.Term.bracketedBinder) := #[]
   let mut declsF : Term ← `(fun _ => ([] : List Lean.Name))
-  let mut namesK : Term ← `(fun _ => ([] : List Lean.Name).map fun n => n.toString)
+  let mut namesK : Term ← `(fun _ => ([] : List Lean.Name).map fun n => Sparkle.IR.ModuleName.ofDecl n)
   let mut kidIns : Term ← `(fun _ => Tools.ShippingPortWidthsPure.declWidths $sdata)
   let mut kidTac ← `(tactic|
     exact Tools.ShippingCallsKidsD.ChildIfaceD.kid (Tools.ShippingCallsKidsD.ChildIfaceG.toD
@@ -275,14 +275,14 @@ def genKidTheorem (f k s : Name) (sk : SubKind) (nDeclK d : Nat) : CommandElabM 
   if let SubKind.oneOut g nDs := sk then
     let gq : Term := quote g
     let nDsLit := Syntax.mkNumLit (toString nDs)
-    let sNames : Term ← `(fun _ => ([] : List Lean.Name).map fun n => n.toString)
+    let sNames : Term ← `(fun _ => ([] : List Lean.Name).map fun n => Sparkle.IR.ModuleName.ofDecl n)
     gBinders := #[← `(bracketedBinder|
       (hG : Tools.ShippingInlineSoundness.EntryDefines mctx mref cctx cref $gq
         $(nm g "gateValue")))]
     declsF ← `(fun _ => Tools.ShippingKidsChildIface.declsOf $sdata
       (fun _ => ([] : List Lean.Name)))
     namesK ← `(fun _ => (Tools.ShippingKidsChildIface.declsOf $sdata
-      (fun _ => ([] : List Lean.Name))).map fun n => n.toString)
+      (fun _ => ([] : List Lean.Name))).map fun n => Sparkle.IR.ModuleName.ofDecl n)
     kidIns ← `(fun _ => Tools.ShippingCallsChildPorts.argWidths $sdata $nDsLit)
     kidTac ← `(tactic| (
       have K := $(nm s "machine_oneOutKid") hRs hG
@@ -293,7 +293,7 @@ def genKidTheorem (f k s : Name) (sk : SubKind) (nDeclK d : Nat) : CommandElabM 
           (fun mc cc _ => K.closes mc cc) hy)
       have hnm : Tools.ShippingKidsChildIface.namesOf $sdata $sNames =
           (Tools.ShippingKidsChildIface.declsOf $sdata
-            (fun _ => ([] : List Lean.Name))).map fun n => n.toString :=
+            (fun _ => ([] : List Lean.Name))).map fun n => Sparkle.IR.ModuleName.ofDecl n :=
         Tools.ShippingKidsChildIface.namesOf_map $sdata (fun _ => ([] : List Lean.Name))
       rw [hnm] at h0
       exact h0))
@@ -338,10 +338,10 @@ def genKidTheorem (f k s : Name) (sk : SubKind) (nDeclK d : Nat) : CommandElabM 
           $kidTac:tactic
         self := by
           have hnm : Tools.ShippingKidsChildIface.namesOf $data $namesK =
-              (Tools.ShippingKidsChildIface.declsOf $data $declsF).map fun n => n.toString :=
+              (Tools.ShippingKidsChildIface.declsOf $data $declsF).map fun n => Sparkle.IR.ModuleName.ofDecl n :=
             Tools.ShippingKidsChildIface.namesOf_map $data $declsF
           rw [hnm]
-          exact Tools.ShippingNameSep.not_mem_map_of _ _ (by first | decide | decide +kernel)
+          exact Tools.ShippingNameSep.Enc.not_mem_map_of _ _ (by first | decide | decide +kernel)
         kidsLo := by
           intro k hk
           rw [hent k hk]

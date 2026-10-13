@@ -52,7 +52,7 @@ theorem transition_calls_facts {logProf : String → IO Unit} {declName : Name}
     (run : Returns (bindMixedCertifiedInputs
         (emitLeaves (fun e hint top named => translateExprToWire e hint top named) cache logProf
           [("out", instFVars (ids.map Lean.Expr.fvar).toArray 0 body)] none 0) (bs.zip ids))
-        (entryCompilerState false cache) (CircuitM.init declName.toString) returned st)
+        (entryCompilerState false cache) (CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName)) returned st)
     (hm : m = (addClockResetIfSequential st.module).finalize)
     (nameLegal : Sparkle.IR.ModuleNames.legal (Sparkle.Backend.Verilog.sanitizeName m.name) = true)
     (positive : PositiveBinders bs)
@@ -85,7 +85,7 @@ theorem transition_calls_facts {logProf : String → IO Unit} {declName : Name}
           (fun i x => ∀ (idx : Nat) (p : Port), ls[idx]? = some p → x = p.name →
             okRule kI n cs i idx)
           m.wires m.body bodyB 0 al es ws ∧ al.map (·.1) = ls.drop (kI + n) ∧ Allocated core') ∧
-      st.design = (CircuitM.init declName.toString).design ∧ m.name = declName.toString := by
+      st.design = (CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName)).design ∧ m.name = (Sparkle.IR.ModuleName.ofDecl declName) := by
   obtain ⟨B, w1, hB, hspine, -, -⟩ :=
     transition_spine nd len run hm nameLegal positive fs core he hb hv hbody
   obtain ⟨-, -, -, -, hdesign, hname⟩ :=

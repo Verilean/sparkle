@@ -24,7 +24,7 @@ def VectorSourcePreserves (declName : Name) (bs : List (Name × MixedGateBinder)
   ∃ cache : IO.Ref (ExprStructMap String),
     ∀ (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n)
       (initial : Env) (mems : MEnv),
-    let a := start (entryCompilerState false cache) declName.toString
+    let a := start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)
     let p := prepare bools bits (bs.zip ids) a
     Admissible bools bits initial (bs.zip ids) a →
     ∀ (dom : Lean.Expr) (n kb kv : Nat) (binp vinp : Nat → FVarId)
@@ -204,13 +204,13 @@ theorem source_positions {declName bs dom n kb kv e P} {bpos vpos : Nat → Nat}
     obtain ⟨name, pos⟩ := hb j hj
     have bound := (List.getElem_of_getElem? pos).choose
     have lookup := prepare_bool_lookup (bools := boolValues ids bools) (bits := bitValues ids bits)
-      (bs.zip ids) (start (entryCompilerState false cache) declName.toString) fresh (zip_member len pos)
+      (bs.zip ids) (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)) fresh (zip_member len pos)
     simpa only [boolValues, index_fresh ids nd (bpos j) (by omega)] using lookup
   · intro j hj
     obtain ⟨name, pos⟩ := hv j hj
     have bound := (List.getElem_of_getElem? pos).choose
     have lookup := prepare_bits_lookup (bools := boolValues ids bools) (bits := bitValues ids bits)
-      (bs.zip ids) (start (entryCompilerState false cache) declName.toString) fresh (zip_member len pos)
+      (bs.zip ids) (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)) fresh (zip_member len pos)
     simpa only [bitValues, index_fresh ids nd (vpos j) (by omega)] using lookup
   · apply instantiated_quoteV _ _ e he
     · intro j hj

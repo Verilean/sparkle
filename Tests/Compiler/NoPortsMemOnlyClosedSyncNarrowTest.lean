@@ -112,9 +112,9 @@ theorem syncNarrow_closeData : Tools.ShippingMemOnlyCloses.MemOnlyCloseData
 
 /-- `syncNarrow` does not print as the memory module's name. -/
 theorem syncNarrow_notin :
-    (``Sparkle.Tests.Compiler.ShippingDesignSVMemTest.syncNarrow : Lean.Name).toString ∉
+    (Sparkle.IR.ModuleName.ofDecl (``Sparkle.Tests.Compiler.ShippingDesignSVMemTest.syncNarrow : Lean.Name)) ∉
       [(Sparkle.Compiler.MachMemory.memModule false 3 5).1.name] :=
-  Tools.ShippingNameSep.not_mem_of _ _ (by first | decide | decide +kernel)
+  (by name_not_mem)
 
 /-! ## The closing -/
 

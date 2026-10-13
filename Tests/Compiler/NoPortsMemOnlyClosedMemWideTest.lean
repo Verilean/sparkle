@@ -112,9 +112,9 @@ theorem memWide_closeData : Tools.ShippingMemOnlyCloses.MemOnlyCloseData
 
 /-- `memWide` does not print as the memory module's name. -/
 theorem memWide_notin :
-    (``Sparkle.Tests.Compiler.ShippingDesignSVMemTest.memWide : Lean.Name).toString ∉
+    (Sparkle.IR.ModuleName.ofDecl (``Sparkle.Tests.Compiler.ShippingDesignSVMemTest.memWide : Lean.Name)) ∉
       [(Sparkle.Compiler.MachMemory.memModule true 6 16).1.name] :=
-  Tools.ShippingNameSep.not_mem_of _ _ (by first | decide | decide +kernel)
+  (by name_not_mem)
 
 /-! ## The closing -/
 

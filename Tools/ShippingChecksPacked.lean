@@ -61,7 +61,7 @@ theorem transition_out {logProf : String → IO Unit} {declName : Name}
     (run : Returns (bindMixedCertifiedInputs
         (emitLeaves (fun e hint top named => translateExprToWire e hint top named) cache logProf
           [("out", instFVars (ids.map Lean.Expr.fvar).toArray 0 body)] none 0) (bs.zip ids))
-        (entryCompilerState false cache) (CircuitM.init declName.toString) returned st)
+        (entryCompilerState false cache) (CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName)) returned st)
     (hm : m = (addClockResetIfSequential st.module).finalize)
     {dom : Lean.Expr} {kb kv : Nat} {vw : Nat → Nat} {bpos vpos : Nat → Nat}
     {srt : SType} (e : Term srt) (he : e.WF kb kv vw)
@@ -85,7 +85,7 @@ theorem transition_out {logProf : String → IO Unit} {declName : Name}
       have bound := (List.getElem_of_getElem? pos).choose
       have lookup := prepare_bool_lookup (bools := boolValues ids fun _ => false)
         (bits := bitValues ids fun _ n => 0#n) (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString) fresh (zip_member len pos)
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)) fresh (zip_member len pos)
       simpa only [boolValues, index_fresh ids nd (bpos j) (by omega)] using lookup)
     (by
       intro j hj
@@ -93,7 +93,7 @@ theorem transition_out {logProf : String → IO Unit} {declName : Name}
       have bound := (List.getElem_of_getElem? pos).choose
       have lookup := prepare_bits_lookup (bools := boolValues ids fun _ => false)
         (bits := bitValues ids fun _ n => 0#n) (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString) fresh (zip_member len pos)
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)) fresh (zip_member len pos)
       simpa only [bitValues, index_fresh ids nd (vpos j) (by omega)] using lookup)
     (by
       apply instantiated_quote _ _ _ he
@@ -114,7 +114,7 @@ theorem transition_packed {logProf : String → IO Unit} {declName : Name}
     (run : Returns (bindMixedCertifiedInputs
         (emitLeaves (fun e hint top named => translateExprToWire e hint top named) cache logProf
           [("out", instFVars (ids.map Lean.Expr.fvar).toArray 0 body)] none 0) (bs.zip ids))
-        (entryCompilerState false cache) (CircuitM.init declName.toString) returned st)
+        (entryCompilerState false cache) (CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName)) returned st)
     (hm : m = (addClockResetIfSequential st.module).finalize)
     {dom : Lean.Expr} {kb kv : Nat} {vw : Nat → Nat} {bpos vpos : Nat → Nat}
     {srt : SType} (e : Term srt) (he : e.WF kb kv vw)

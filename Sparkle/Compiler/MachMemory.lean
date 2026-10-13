@@ -1,5 +1,6 @@
 import Lean
 import Sparkle.IR.AST
+import Sparkle.IR.ModuleName
 import Sparkle.Core.Signal
 
 /-! # Memories on the machine route
@@ -44,7 +45,10 @@ def memChildName (combo : Bool) (aw dw : Nat) : Name :=
 
 /-- The child module and its design. -/
 def memModule (combo : Bool) (aw dw : Nat) : Sparkle.IR.AST.Module × Design :=
-  let name := s!"SparkleMem_{if combo then "combo" else "sync"}_{aw}_{dw}"
+  -- `SparkleMem_{combo|sync}_{aw}_{dw}`, the memory form of the injective
+  -- module-name encoding (no declaration's module has this name:
+  -- `Tools.ShippingModuleName.ofDecl_ne_ofMem`)
+  let name := Sparkle.IR.ModuleName.ofMem combo aw dw
   let m : Sparkle.IR.AST.Module :=
     { name := name
       inputs := [{ name := "wa", ty := .bitVector aw }, { name := "wd", ty := .bitVector dw },

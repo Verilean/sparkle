@@ -152,7 +152,7 @@ def oneOutKidTheorem (k g : Name) (nDeclK : Nat) : CommandElabM Name := do
         (hRr : Tools.ShippingInlineSoundness.EntryDefines mctx mref cctx cref $gq
           $(nm g "gateValue")) :
         Tools.ShippingOneOutKid.OneOutKid mref cref $kq $data $nD
-          (fun _ => ([] : List Lean.Name).map fun n => n.toString) :=
+          (fun _ => ([] : List Lean.Name).map fun n => Sparkle.IR.ModuleName.ofDecl n) :=
       have hent : ∀ (k : Nat) (hk : k < ($data).shape.insts.length),
           (($data).shape.insts[k]).1 = $gq := (by decide)
       { ok := $(nm k "machine_ok")
@@ -181,12 +181,12 @@ def oneOutKidTheorem (k g : Name) (nDeclK : Nat) : CommandElabM Name := do
             (Tools.ShippingCallsGate.ChildFull.iface ($(nm g "gate_full") hRr hy))
         self := by
           have h : Tools.ShippingKidsChildIface.namesOf $data
-                (fun _ => ([] : List Lean.Name).map fun n => n.toString) =
+                (fun _ => ([] : List Lean.Name).map fun n => Sparkle.IR.ModuleName.ofDecl n) =
               (Tools.ShippingKidsChildIface.declsOf $data
-                (fun _ => ([] : List Lean.Name))).map fun n => n.toString :=
+                (fun _ => ([] : List Lean.Name))).map fun n => Sparkle.IR.ModuleName.ofDecl n :=
             Tools.ShippingKidsChildIface.namesOf_map $data (fun _ => ([] : List Lean.Name))
           rw [h]
-          exact Tools.ShippingNameSep.not_mem_map_of _ _ (by decide)
+          exact Tools.ShippingNameSep.Enc.not_mem_map_of _ _ (by decide)
         kidA := by
           intro k hk y hy
           rw [hent k hk] at hy

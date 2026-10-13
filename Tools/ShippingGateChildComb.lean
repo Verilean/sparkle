@@ -166,7 +166,7 @@ structure ChildFull (declName : Name) (bs : List (Name × MixedGateBinder))
     (b : Sparkle.IR.AST.Module) (design : Design) : Prop where
   comb : ChildComb b
   tys : b.inputs.map (·.ty) = (bs.filter fun x => x.2 != .domain).map fun x => kindTy x.2
-  name : b.name = declName.toString
+  name : b.name = (Sparkle.IR.ModuleName.ofDecl declName)
   design : design.modules = []
 
 set_option maxHeartbeats 1000000 in

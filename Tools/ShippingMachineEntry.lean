@@ -306,7 +306,7 @@ theorem transition_facts {logProf : String → IO Unit} {declName : Name}
     (run : Returns (bindMixedCertifiedInputs
         (emitLeaves (fun e hint top named => translateExprToWire e hint top named) cache logProf
           [("out", instFVars (ids.map Lean.Expr.fvar).toArray 0 body)] none 0) (bs.zip ids))
-        (entryCompilerState false cache) (CircuitM.init declName.toString) returned st)
+        (entryCompilerState false cache) (CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName)) returned st)
     (hm : m = (addClockResetIfSequential st.module).finalize)
     (nameLegal : Sparkle.IR.ModuleNames.legal (Sparkle.Backend.Verilog.sanitizeName m.name) = true)
     {dom : Lean.Expr} {kb kv : Nat} {vw : Nat → Nat} {bpos vpos : Nat → Nat}
@@ -322,7 +322,7 @@ theorem transition_facts {logProf : String → IO Unit} {declName : Name}
         (pack srt (eval (fun j => bools (bpos j)) (fun j w => bits (vpos j) w) e)).toNat) ∧
     (∃ B w, m.body = B ++ [.assign "out" (.ref w)]) ∧
     (∀ bools bits, m.inputs = inputPorts bools bits (bs.zip ids)
-      (start (entryCompilerState false cache) declName.toString)) := by
+      (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))) := by
   have fresh : ((bs.zip ids).map Prod.snd).Nodup := by rw [zip_ids len]; exact nd
   have at_ : ∀ (bools : Nat → Bool) (bits : (j : Nat) → (n : Nat) → BitVec n) (initial : Env)
       (mems : MEnv), SourceInputs declName bs ids cache bools bits initial →
@@ -330,7 +330,7 @@ theorem transition_facts {logProf : String → IO Unit} {declName : Name}
           (pack srt (eval (fun j => bools (bpos j)) (fun j w => bits (vpos j) w) e)).toNat ∧
         ∃ w sm ty, st = (CircuitM.emitAssign "out" (.ref w) (CircuitM.addOutput "out" ty sm).2).2 ∧
           sm.module.inputs = (prepare (boolValues ids bools) (bitValues ids bits) (bs.zip ids)
-            (start (entryCompilerState false cache) declName.toString)).state.module.inputs := by
+            (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state.module.inputs := by
     intro bools bits initial mems values
     subst hbody
     apply synthesizeMixedCertified_term_sound_at run hm nameLegal
@@ -342,14 +342,14 @@ theorem transition_facts {logProf : String → IO Unit} {declName : Name}
       have bound := (List.getElem_of_getElem? pos).choose
       have lookup := prepare_bool_lookup (bools := boolValues ids bools)
         (bits := bitValues ids bits) (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString) fresh (zip_member len pos)
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)) fresh (zip_member len pos)
       simpa only [boolValues, index_fresh ids nd (bpos j) (by omega)] using lookup
     · intro j hj
       obtain ⟨name, pos⟩ := hv j hj
       have bound := (List.getElem_of_getElem? pos).choose
       have lookup := prepare_bits_lookup (bools := boolValues ids bools)
         (bits := bitValues ids bits) (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString) fresh (zip_member len pos)
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)) fresh (zip_member len pos)
       simpa only [bitValues, index_fresh ids nd (vpos j) (by omega)] using lookup
     · apply instantiated_quote _ _ e he
       · intro j hj
@@ -642,7 +642,7 @@ binder has none); their names depend on the allocator only. -/
 def machPorts (declName : Name) (ids : List FVarId) (cache : IO.Ref (ExprStructMap String))
     (bs : List (Name × MixedGateBinder)) : List Port :=
   inputPorts (fun _ => false) (fun _ n => 0#n) (bs.zip ids)
-    (start (entryCompilerState false cache) declName.toString)
+    (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))
 
 /-- How a machine module is wired to its children in its design: the
 transition's port names are distinct, the `let` wires are the last of them,
@@ -1060,7 +1060,7 @@ theorem synthesizeMachineCertified_soundX {logProf declName shape m d}
   intro dom kb kv vw bpos vpos fs c core he hb hv hbody hfit houtfit
   obtain ⟨raw, ⟨B, w, hB⟩, hinputs⟩ := transition_facts nd len run hm nameLegal he hb hv hbody
   -- The binder list splits into inputs, slots and lets; so do the ids.
-  let a := start (entryCompilerState false cache) declName.toString
+  let a := start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)
   let k := bsIn.length
   let n := slotBs.length
   let K := letBs.length

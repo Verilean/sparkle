@@ -88,7 +88,7 @@ theorem list_entry_outputDN {logProf : String → IO Unit} {declName : Name}
         (initial : Env) (mems : MEnv),
       Tools.ShippingMixedEntrySoundness.Admissible bools bits initial (bs.zip ids)
         (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
-          declName.toString) →
+          (Sparkle.IR.ModuleName.ofDecl declName)) →
       ∀ v : Value, 0 < v.kind.width →
       LeafDom (setupOf declName bs ids cache bools bits).context
         (Tools.ShippingUnifiedMeaning.inputValues
@@ -109,7 +109,7 @@ theorem list_entry_outputDN {logProf : String → IO Unit} {declName : Name}
     intro bools bits initial mems values v pos dom
     have leaf := bindInputsLegacy_prepareD (bools := bools) (bits := bits) bs ids 0
       (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
-        declName.toString) hdecls run
+        (Sparkle.IR.ModuleName.ofDecl declName)) hdecls run
     exact harness_sound_leaf (bs := bs) (ids := ids) hm legal bools bits initial mems
       values leaf v pos (leaf_translate_spec dom) (leaf_translate_order dom)
 
@@ -153,7 +153,7 @@ theorem proj_entry_output {logProf : String → IO Unit} {declName : Name}
         (initial : Env) (mems : MEnv),
       Tools.ShippingMixedEntrySoundness.Admissible bools bits initial (bs.zip ids)
         (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
-          declName.toString) →
+          (Sparkle.IR.ModuleName.ofDecl declName)) →
       Tools.ShippingMixedEntrySoundness.RawValueAt (kindValue bools bits k x).kind.width bs m
         initial mems (kindValue bools bits k x).toNat := by
   have htele : ∀ body0, MReturns (openRecordInputs dv.value) body0 →
@@ -186,7 +186,7 @@ theorem proj_entry_output {logProf : String → IO Unit} {declName : Name}
         some (kindValue bools bits k x) :=
       prepare_inputValue (bools := bools) (bits := bits) bs ids i
         (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
-          declName.toString) nm k x hnd hfield hx hk
+          (Sparkle.IR.ModuleName.ofDecl declName)) nm k x hnd hfield hx hk
     have dom : LeafDom (setupOf declName bs ids cache bools bits).context
         (Tools.ShippingUnifiedMeaning.inputValues
           (setupOf declName bs ids cache bools bits).bools

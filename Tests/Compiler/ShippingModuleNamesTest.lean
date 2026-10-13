@@ -6,7 +6,7 @@ open Sparkle.IR.AST Sparkle.Backend.Verilog Sparkle.IR.ModuleNameCheck
 open Sparkle.Core.Signal Sparkle.Core.Domain
 
 -- These deliberately have no namespace: a namespace prefix would turn the
--- emitted name into a non-keyword, and fail to exercise the rejection branch.
+-- emitted name into a non-keyword, and fail to exercise the tagged-name branch.
 def «module» {dom : DomainConfig} (a : Signal dom (BitVec 8)) := a
 def «1bad» {dom : DomainConfig} (a : Signal dom (BitVec 8)) := a
 
@@ -52,16 +52,26 @@ def top (x : Signal defaultDomain (BitVec 8)) := a.b x + a_b x
 end ModuleAlias
 
 run_cmd liftTermElabM do
-  for decl in [``«module», ``«1bad», ``ModuleAlias.top] do
-    let refused ← try
-      let _ ← synthesizeCombinational decl
-      pure false
-    catch e =>
-      let message ← e.toMessageData.toString
-      unless (message.splitOn "Invalid or colliding Verilog module names").length > 1 do
-        throwError "unexpected synthesis failure for {decl}: {message}"
-      pure true
-    unless refused do throwError "invalid module name accepted: {decl}"
+  -- Since the injective module-name encoding (`Sparkle.IR.ModuleName`), a
+  -- declaration whose printed name is a keyword / starts with a digit is
+  -- COMPILED under a tagged name instead of being refused, and `a.b` / `a_b`
+  -- are two modules (before: "Invalid or colliding Verilog module names").
+  for decl in [``«module», ``«1bad»] do
+    let (m, _) ← synthesizeCombinational decl
+    unless m.name == Sparkle.IR.ModuleName.ofDecl decl do
+      throwError "{decl}: module name {m.name}"
+    unless Sparkle.IR.ModuleNames.legal m.name do throwError "{decl}: illegal name {m.name}"
+    if m.name == toString decl then throwError "{decl}: the keyword / digit name was kept"
+  let d ← synthesizeHierarchical ``ModuleAlias.top
+  let names := d.modules.map (·.name)
+  let nA := Sparkle.IR.ModuleName.ofDecl ``ModuleAlias.a.b
+  let nB := Sparkle.IR.ModuleName.ofDecl ``ModuleAlias.a_b
+  if nA == nB then throwError "a.b and a_b have one name: {nA}"
+  unless names.contains nA && names.contains nB do throwError "alias children missing: {names}"
+  unless names.eraseDups.length == names.length do throwError "duplicate module names: {names}"
+  unless (names.map Sparkle.Backend.Verilog.sanitizeName).eraseDups.length == names.length do
+    throwError "module names collide after sanitizeName: {names}"
+  unless names.all Sparkle.IR.ModuleNames.legal do throwError "illegal module name in {names}"
   for d in [aliasDefinition, aliasReference, {topModule := child.name, modules := [child, child]}] do
     let refused ← try
       let _ ← validateDesignNames d

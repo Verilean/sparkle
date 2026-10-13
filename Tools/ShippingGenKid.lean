@@ -256,7 +256,7 @@ structure GenKid (mref : ST.Ref IO.RealWorld Meta.State)
   kid : ∀ (k : Nat) (hk : k < dk.shape.insts.length) (y : Res),
     RealChild mref cref (dk.shape.insts[k]).1 y →
     KidNames (dk.shape.insts[k]).1 (namesK k) y.1 y.2
-  self : c.toString ∉ namesOf dk namesK
+  self : (Sparkle.IR.ModuleName.ofDecl c) ∉ namesOf dk namesK
   -- its own callees: the same interface one level down, at the two depths
   kidsLo : ∀ (k : Nat) (hk : k < dk.shape.insts.length),
     KidFacts mref cref (dk.shape.insts[k]).1 (kidOuts k) (kidIns k) n

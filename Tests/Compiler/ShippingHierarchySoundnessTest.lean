@@ -174,7 +174,7 @@ def parentProjArg {dom : DomainConfig} (a b : Signal dom (BitVec 8)) :
 
 /-- The child module the pipeline emits, pinned literally. -/
 def childModule : Sparkle.IR.AST.Module :=
-  { name := "Sparkle.Tests.Compiler.ShippingHierarchySoundnessTest.childAdd"
+  { name := "Sparkle_Tests_Compiler_ShippingHierarchySoundnessTest_childAdd"
     inputs := [⟨"_gen_x", .bitVector 8⟩, ⟨"_gen_y", .bitVector 8⟩]
     outputs := [⟨"out", .bitVector 8⟩]
     wires := [⟨"_gen_x", .bitVector 8⟩, ⟨"_gen_y", .bitVector 8⟩,
@@ -515,7 +515,7 @@ field of a two-output child. -/
 
 /-- The multi-output child module the pipeline emits, pinned literally. -/
 def childTwoModule : Sparkle.IR.AST.Module :=
-  { name := "Sparkle.Tests.Compiler.ShippingHierarchySoundnessTest.childTwo"
+  { name := "Sparkle_Tests_Compiler_ShippingHierarchySoundnessTest_childTwo"
     inputs := [⟨"_gen_x", .bitVector 8⟩, ⟨"_gen_y", .bitVector 8⟩]
     outputs := [⟨"lo", .bitVector 8⟩, ⟨"hi", .bitVector 8⟩]
     wires := [⟨"_gen_x", .bitVector 8⟩, ⟨"_gen_y", .bitVector 8⟩,
@@ -600,7 +600,7 @@ theorem parentHi_entry_observes {mctx : Meta.Context}
       (env0 : Env) {D : DomainConfig}
       (aS bS : Signal D (BitVec 8)) (t : Nat) (mems : MEnv) (we : WEnv),
     let a := Tools.ShippingMixedEntrySoundness.start
-      (entryCompilerState false cache) (``parentHi).toString
+      (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl ``parentHi)
     let p := Tools.ShippingMixedEntrySoundness.prepare bools bits
       (parentHiBinders.zip [i0, i1, i2]) a
     Tools.ShippingMixedEntrySoundness.Admissible bools bits env0
@@ -723,7 +723,7 @@ theorem parentUse_entry_observes {mctx : Meta.Context}
       (env0 : Env) {D : DomainConfig}
       (aS bS : Signal D (BitVec 8)) (t : Nat) (mems : MEnv) (we : WEnv),
     let a := Tools.ShippingMixedEntrySoundness.start
-      (entryCompilerState false cache) (``parentUse).toString
+      (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl ``parentUse)
     let p := Tools.ShippingMixedEntrySoundness.prepare bools bits
       (parentUseBinders.zip [i0, i1, i2]) a
     Tools.ShippingMixedEntrySoundness.Admissible bools bits env0
@@ -872,7 +872,7 @@ theorem parentMix_entry_observes {mctx : Meta.Context}
       (initial : Env) {D : DomainConfig}
       (aS bS : Signal D (BitVec 8)) (t : Nat) (mems : MEnv),
     let a := Tools.ShippingMixedEntrySoundness.start
-      (entryCompilerState false cache) (``parentMix).toString
+      (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl ``parentMix)
     let p := Tools.ShippingMixedEntrySoundness.prepare bools bits
       (parentMixBinders.zip [i0, i1, i2]) a
     Tools.ShippingMixedEntrySoundness.Admissible bools bits initial
@@ -1064,7 +1064,7 @@ theorem parentMix_shipping {mctx : Meta.Context}
       (initial : Env) {D : DomainConfig}
       (aS bS : Signal D (BitVec 8)) (t : Nat) (mems : MEnv),
     let a := Tools.ShippingMixedEntrySoundness.start
-      (entryCompilerState false cache) (``parentMix).toString
+      (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl ``parentMix)
     let p := Tools.ShippingMixedEntrySoundness.prepare bools bits
       (parentMixBinders.zip [i0, i1, i2]) a
     Tools.ShippingMixedEntrySoundness.Admissible bools bits initial
@@ -1169,7 +1169,7 @@ theorem parentMix_shipping_opt {mctx : Meta.Context}
       (initial : Env) {D : DomainConfig}
       (aS bS : Signal D (BitVec 8)) (t : Nat) (mems : MEnv),
     let a := Tools.ShippingMixedEntrySoundness.start
-      (entryCompilerState false cache) (``parentMix).toString
+      (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl ``parentMix)
     let p := Tools.ShippingMixedEntrySoundness.prepare bools bits
       (parentMixBinders.zip [i0, i1, i2]) a
     Tools.ShippingMixedEntrySoundness.Admissible bools bits initial
@@ -1281,7 +1281,7 @@ theorem parentNested_entry_observes {mctx : Meta.Context}
       (initial : Env) {D : DomainConfig}
       (aS bS : Signal D (BitVec 8)) (t : Nat) (mems : MEnv),
     let a := Tools.ShippingMixedEntrySoundness.start
-      (entryCompilerState false cache) (``parentNested).toString
+      (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl ``parentNested)
     let p := Tools.ShippingMixedEntrySoundness.prepare bools bits
       (parentNestedBinders.zip [i0, i1, i2]) a
     Tools.ShippingMixedEntrySoundness.Admissible bools bits initial
@@ -1485,7 +1485,7 @@ theorem wrapAdd_entry_observes {mctx : Meta.Context}
       (initial : Env)
       (aS bS : Signal defaultDomain (BitVec 8)) (t : Nat) (mems : MEnv),
     let a := Tools.ShippingMixedEntrySoundness.start
-      (entryCompilerState false cache) (``wrapAdd).toString
+      (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl ``wrapAdd)
     let p := Tools.ShippingMixedEntrySoundness.prepare bools bits
       (wrapAddBinders.zip [i0, i1]) a
     Tools.ShippingMixedEntrySoundness.Admissible bools bits initial

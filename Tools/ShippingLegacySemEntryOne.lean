@@ -106,7 +106,7 @@ def InputSkipped (logProf : String → IO Unit) (declName : Name)
     (st : CircuitState),
     Returns (emitLeaves (fun e hint top named => translateExprToWire e hint top named) cache
         logProf [("out", leafOf id)] none 0)
-      (entryCompilerState false cache) (CircuitM.init declName.toString) returned st ∧
+      (entryCompilerState false cache) (CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName)) returned st ∧
     m = (addClockResetIfSequential st.module).finalize
 
 /-- **The output of a legacy-route declaration with one `bits n` binder and a
@@ -131,7 +131,7 @@ theorem one_binder_entry_output {logProf : String → IO Unit} {declName : Name}
       Tools.ShippingMixedEntrySoundness.Admissible bools bits initial
         ([(nm, MixedGateBinder.bits n)].zip [id])
         (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
-          declName.toString) →
+          (Sparkle.IR.ModuleName.ofDecl declName)) →
       ∀ v : Value, 0 < v.kind.width →
       LeafDom (setupOf declName [(nm, MixedGateBinder.bits n)] [id] cache bools bits).context
         (Tools.ShippingUnifiedMeaning.inputValues

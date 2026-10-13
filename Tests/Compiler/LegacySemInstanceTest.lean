@@ -516,7 +516,7 @@ theorem useDbl_output_r11 {logProf : String → IO Unit} {dv : DefinitionVal}
         (initial : Sparkle.IR.Semantics.Env) (mems : Sparkle.IR.Semantics.MEnv),
       Tools.ShippingMixedEntrySoundness.Admissible bools bits initial (useDblBinders.zip ids)
         (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
-          (``useDbl : Name).toString) →
+          (Sparkle.IR.ModuleName.ofDecl ``useDbl)) →
       Tools.ShippingMixedEntrySoundness.RawValueAt 8 useDblBinders m initial mems
         (bits (xOf ids) 8 + bits (xOf ids) 8).toNat := by
   rcases legacy_entry_output_walked (cfe := false) (bs := useDblBinders)
@@ -622,7 +622,7 @@ theorem useDbl_output_r13 {logProf : String → IO Unit} {dv : DefinitionVal}
         (initial : Sparkle.IR.Semantics.Env) (mems : Sparkle.IR.Semantics.MEnv),
       Tools.ShippingMixedEntrySoundness.Admissible bools bits initial (useDblBinders.zip [id])
         (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
-          (``useDbl : Name).toString) →
+          (Sparkle.IR.ModuleName.ofDecl ``useDbl)) →
       Tools.ShippingMixedEntrySoundness.RawValueAt 8 useDblBinders m initial mems
         (bits id 8 + bits id 8).toNat := by
   rcases leaf_entry_output_walked (cfe := false) (bs := useDblBinders)
@@ -690,7 +690,7 @@ theorem useDbl_output_r15 {logProf : String → IO Unit} {dv : DefinitionVal}
         (initial : Sparkle.IR.Semantics.Env) (mems : Sparkle.IR.Semantics.MEnv),
       Tools.ShippingMixedEntrySoundness.Admissible bools bits initial (useDblBinders.zip [id])
         (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
-          (``useDbl : Name).toString) →
+          (Sparkle.IR.ModuleName.ofDecl ``useDbl)) →
       Tools.ShippingMixedEntrySoundness.RawValueAt 8 useDblBinders m initial mems
         (bits id 8 + bits id 8).toNat) ∨
     InputSkipped logProf ``useDbl callE m := by
@@ -758,7 +758,7 @@ theorem useDbl_output {logProf : String → IO Unit} {dv : DefinitionVal}
         (initial : Sparkle.IR.Semantics.Env) (mems : Sparkle.IR.Semantics.MEnv),
       Tools.ShippingMixedEntrySoundness.Admissible bools bits initial (useDblBinders.zip [id])
         (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
-          (``useDbl : Name).toString) →
+          (Sparkle.IR.ModuleName.ofDecl ``useDbl)) →
       Tools.ShippingMixedEntrySoundness.RawValueAt 8 useDblBinders m initial mems
         (bits id 8 + bits id 8).toNat := by
   have htele : ∀ body0,
@@ -867,7 +867,7 @@ theorem useDbl2_output {logProf : String → IO Unit} {dv : DefinitionVal}
       Tools.ShippingMixedEntrySoundness.Admissible bools bits initial
         (useDbl2Binders.zip [id1, id2])
         (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
-          (``useDbl2 : Name).toString) →
+          (Sparkle.IR.ModuleName.ofDecl ``useDbl2)) →
       Tools.ShippingMixedEntrySoundness.RawValueAt 8 useDbl2Binders m initial mems
         (bits id1 8 + bits id1 8).toNat := by
   have htele : ∀ body0,
@@ -1205,7 +1205,7 @@ theorem useAdd2_output {logProf : String → IO Unit} {dv : DefinitionVal}
       Tools.ShippingMixedEntrySoundness.Admissible bools bits initial
         (useDbl2Binders.zip [id1, id2])
         (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
-          (``useAdd2 : Name).toString) →
+          (Sparkle.IR.ModuleName.ofDecl ``useAdd2)) →
       Tools.ShippingMixedEntrySoundness.RawValueAt 8 useDbl2Binders m initial mems
         (bits id1 8 + bits id2 8).toNat := by
   have htele : ∀ body0,
@@ -1324,7 +1324,7 @@ theorem SHA256Out_done_output_r21 {logProf : String → IO Unit} {dv : Definitio
       Tools.ShippingMixedEntrySoundness.Admissible bools bits initial
         (sha256OutBinders.zip [id1, id2, id3])
         (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
-          sha256DoneName.toString) →
+          (Sparkle.IR.ModuleName.ofDecl sha256DoneName)) →
       Tools.ShippingMixedEntrySoundness.RawValueAt
         (Tools.ShippingUnifiedMeaning.Value.bool (bools id3)).kind.width sha256OutBinders m
         initial mems (Tools.ShippingUnifiedMeaning.Value.bool (bools id3)).toNat := by
@@ -1466,7 +1466,7 @@ theorem SHA256Out_done_output {logProf : String → IO Unit} {dv : DefinitionVal
       Tools.ShippingMixedEntrySoundness.Admissible bools bits initial
         (sha256OutBinders.zip [id1, id2, id3])
         (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
-          sha256DoneName.toString) →
+          (Sparkle.IR.ModuleName.ofDecl sha256DoneName)) →
       Tools.ShippingMixedEntrySoundness.RawValueAt
         (Tools.ShippingUnifiedMeaning.Value.bool (bools id3)).kind.width sha256OutBinders m
         initial mems (Tools.ShippingUnifiedMeaning.Value.bool (bools id3)).toNat := by
@@ -1671,7 +1671,7 @@ theorem SoCState_fetchPC_output {logProf : String → IO Unit} {dv : DefinitionV
       Tools.ShippingMixedEntrySoundness.Admissible bools bits initial
         ((socBinders n1 n2).zip [id1, id2])
         (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
-          socFetchPCName.toString) →
+          (Sparkle.IR.ModuleName.ofDecl socFetchPCName)) →
       Tools.ShippingMixedEntrySoundness.RawValueAt 32 (socBinders n1 n2) m initial mems
         (BitVec.extractLsb' 1894 32 (bits id2 1958)).toNat := by
   have hbody' : ∀ body0,

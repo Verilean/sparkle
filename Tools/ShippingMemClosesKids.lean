@@ -11,11 +11,11 @@ FALSE of the built memory module `memModule cb aw dw`
 (`Sparkle/Compiler/MachMemory.lean` 46–58), and one premise is false of a
 memory entry:
 
-* `name : b.name = c.toString` (39) — the module is named
+* `name : b.name = (Sparkle.IR.ModuleName.ofDecl c)` (39) — the module is named
   `SparkleMem_combo_4_8`, the placeholder prints `SparkleMem.combo.4.8`;
 * `noMem : memParams? b = none` (46) — the module's body IS the memory
   statement;
-* `hselfD : c.toString ∉ namesK k` (129–130) — the memory module's design is
+* `hselfD : (Sparkle.IR.ModuleName.ofDecl c) ∉ namesK k` (129–130) — the memory module's design is
   `[itself]` (line 58), so its own name is a name of its design.
 
 What the closing's check asks instead (`closeInstsG_of_run`,
@@ -28,7 +28,7 @@ ITSELF; no visited module has an instance of the parent. None of these asks
 So the interface here, `ChildIfaceP`, has
 
 * `name : b.name = nm` for a printed name `nm` given per entry (a real
-  child: `c.toString`; a memory: the module's name);
+  child: `(Sparkle.IR.ModuleName.ofDecl c)`; a memory: the module's name);
 * `memOk : ∀ cb aw dw, memParams? b = some (cb, aw, dw) → isMemModule cb aw dw b = true`
   in place of `noMem` (vacuous when `memParams? b = none`; TRUE of the memory
   module: `isMemModule_memModule`);
@@ -172,7 +172,7 @@ structure ChildIfaceP (nm : String) (nArgs : Nat) (outs names : List String)
 not a name of its design. -/
 theorem _root_.Tools.ShippingCallsKidsD.ChildIfaceD.toP {c : Name} {nArgs : Nat} {outs names : List String}
     {b : Sparkle.IR.AST.Module} {design : Design} (h : ChildIfaceD c nArgs outs names b design)
-    (hself : c.toString ∉ names) : ChildIfaceP c.toString nArgs outs names b design := by
+    (hself : (Sparkle.IR.ModuleName.ofDecl c) ∉ names) : ChildIfaceP (Sparkle.IR.ModuleName.ofDecl c) nArgs outs names b design := by
   refine ⟨h.name, h.nIn, h.inNd, h.outs, h.outsIn, h.outsNd, ?_, h.desNd, h.desNames, ?_,
     h.closed⟩
   · intro cb aw dw hm
@@ -293,10 +293,10 @@ theorem closeInstsG_of_kidsP {declName : Name} (d : MachineData) (ok : d.ok = tr
     (hsep : ∀ (k : Nat) (hk : k < d.shape.insts.length) (k' : Nat)
       (hk' : k' < d.shape.insts.length), nameK k = nameK k' →
       (d.shape.insts[k]).1 = (d.shape.insts[k']).1)
-    (hparent : ∀ (k : Nat), k < d.shape.insts.length → nameK k ≠ declName.toString)
+    (hparent : ∀ (k : Nat), k < d.shape.insts.length → nameK k ≠ (Sparkle.IR.ModuleName.ofDecl declName))
     (hfresh : ∀ (gi : Nat) (k : Nat), k < d.shape.insts.length → ∀ o ∈ d.shape.layout.outs,
       o.name ≠ s!"inst{gi}_{nameK k}")
-    (hparentD : ∀ (k : Nat), k < d.shape.insts.length → declName.toString ∉ namesK k) :
+    (hparentD : ∀ (k : Nat), k < d.shape.insts.length → (Sparkle.IR.ModuleName.ofDecl declName) ∉ namesK k) :
     (closeInstsG (machNIn d.shape) d.shape.insts.length d.shape.layout.slots.length
       (t.inputs.map (·.name)) (d.shape.insts.map (·.2.1)) d.shape.instFields children
       (closeMachine d.shape.layout t', d₀)).isSome = true := by
@@ -441,10 +441,10 @@ theorem machineClosesAt_of_kidsDM {declName : Name} (d : MachineData) (ok : d.ok
     (hsep : ∀ (k : Nat) (hk : k < d.shape.insts.length) (k' : Nat)
       (hk' : k' < d.shape.insts.length), nameK k = nameK k' →
       (d.shape.insts[k]).1 = (d.shape.insts[k']).1)
-    (hparent : ∀ (k : Nat), k < d.shape.insts.length → nameK k ≠ declName.toString)
+    (hparent : ∀ (k : Nat), k < d.shape.insts.length → nameK k ≠ (Sparkle.IR.ModuleName.ofDecl declName))
     (hfresh : ∀ (gi : Nat) (k : Nat), k < d.shape.insts.length → ∀ o ∈ d.shape.layout.outs,
       o.name ≠ s!"inst{gi}_{nameK k}")
-    (hparentD : ∀ (k : Nat), k < d.shape.insts.length → declName.toString ∉ namesK k)
+    (hparentD : ∀ (k : Nat), k < d.shape.insts.length → (Sparkle.IR.ModuleName.ofDecl declName) ∉ namesK k)
     (hdisjD : ∀ (k : Nat) (hk : k < d.shape.insts.length) (k' : Nat)
       (hk' : k' < d.shape.insts.length), (d.shape.insts[k]).1 ≠ (d.shape.insts[k']).1 →
       nameK k ∉ namesK k' ∧ ∀ x ∈ namesK k, x ∉ namesK k') :
@@ -556,40 +556,40 @@ theorem machineClosesAt_of_kidsD_fromM {declName : Name} (d : MachineData) (ok :
       (d.shape.insts[k]).2.1 = (d.shape.insts[k']).2.1 →
       d.shape.instFields.getD k "" = d.shape.instFields.getD k' "" → k = k')
     (hsep : ∀ c ∈ d.shape.insts.map (·.1), ∀ c' ∈ d.shape.insts.map (·.1),
-      c.toString = c'.toString → c = c')
-    (hparent : ∀ c ∈ d.shape.insts, c.1.toString ≠ declName.toString)
+      (Sparkle.IR.ModuleName.ofDecl c) = (Sparkle.IR.ModuleName.ofDecl c') → c = c')
+    (hparent : ∀ c ∈ d.shape.insts, (Sparkle.IR.ModuleName.ofDecl c.1) ≠ (Sparkle.IR.ModuleName.ofDecl declName))
     (hfresh : ∀ (gi : Nat), ∀ c ∈ d.shape.insts, ∀ o ∈ d.shape.layout.outs,
-      o.name ≠ s!"inst{gi}_{c.1.toString}")
-    (hparentD : ∀ (k : Nat), k < d.shape.insts.length → declName.toString ∉ namesK k)
+      o.name ≠ s!"inst{gi}_{(Sparkle.IR.ModuleName.ofDecl c.1)}")
+    (hparentD : ∀ (k : Nat), k < d.shape.insts.length → (Sparkle.IR.ModuleName.ofDecl declName) ∉ namesK k)
     (hselfD : ∀ (k : Nat) (hk : k < d.shape.insts.length),
-      (d.shape.insts[k]).1.toString ∉ namesK k)
+      (Sparkle.IR.ModuleName.ofDecl (d.shape.insts[k]).1) ∉ namesK k)
     (hdisjD : ∀ (k : Nat) (hk : k < d.shape.insts.length) (k' : Nat)
       (hk' : k' < d.shape.insts.length), (d.shape.insts[k]).1 ≠ (d.shape.insts[k']).1 →
-      (d.shape.insts[k]).1.toString ∉ namesK k' ∧ ∀ x ∈ namesK k, x ∉ namesK k') :
+      (Sparkle.IR.ModuleName.ofDecl (d.shape.insts[k]).1) ∉ namesK k' ∧ ∀ x ∈ namesK k, x ∉ namesK k') :
     MachineClosesAt mctx mref cctx cref declName d.shape := by
   refine machineClosesAt_of_kidsDM d ok hbody halias hC hslots hdomB hfne
-    (fun k => (calleeAt d k).toString) nk outsK namesK ?_ hargsN hfieldOut hfieldsNd ?_ ?_ ?_
+    (fun k => (Sparkle.IR.ModuleName.ofDecl (calleeAt d k))) nk outsK namesK ?_ hargsN hfieldOut hfieldsNd ?_ ?_ ?_
     hparentD ?_
   · intro k hk y hy
-    show ChildIfaceP (calleeAt d k).toString (nk k) (outsK k) (namesK k) y.1 y.2
+    show ChildIfaceP (Sparkle.IR.ModuleName.ofDecl (calleeAt d k)) (nk k) (outsK k) (namesK k) y.1 y.2
     rw [calleeAt_eq d hk]
     exact Tools.ShippingCallsKidsD.ChildIfaceD.toP
       (hkid k hk y (hy.real (hnomem _ (List.getElem_mem hk)))) (hselfD k hk)
   · intro k hk k' hk' he
-    have he' : (calleeAt d k).toString = (calleeAt d k').toString := he
+    have he' : (Sparkle.IR.ModuleName.ofDecl (calleeAt d k)) = (Sparkle.IR.ModuleName.ofDecl (calleeAt d k')) := he
     rw [calleeAt_eq d hk, calleeAt_eq d hk'] at he'
     exact hsep _ (List.mem_map_of_mem (List.getElem_mem hk)) _
       (List.mem_map_of_mem (List.getElem_mem hk')) he'
   · intro k hk
-    show (calleeAt d k).toString ≠ declName.toString
+    show (Sparkle.IR.ModuleName.ofDecl (calleeAt d k)) ≠ (Sparkle.IR.ModuleName.ofDecl declName)
     rw [calleeAt_eq d hk]
     exact hparent _ (List.getElem_mem hk)
   · intro gi k hk o ho
-    show o.name ≠ s!"inst{gi}_{(calleeAt d k).toString}"
+    show o.name ≠ s!"inst{gi}_{(Sparkle.IR.ModuleName.ofDecl (calleeAt d k))}"
     rw [calleeAt_eq d hk]
     exact hfresh gi _ (List.getElem_mem hk) o ho
   · intro k hk k' hk' hne
-    show (calleeAt d k).toString ∉ namesK k' ∧ ∀ x ∈ namesK k, x ∉ namesK k'
+    show (Sparkle.IR.ModuleName.ofDecl (calleeAt d k)) ∉ namesK k' ∧ ∀ x ∈ namesK k, x ∉ namesK k'
     rw [calleeAt_eq d hk]
     exact hdisjD k hk k' hk' hne
 

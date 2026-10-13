@@ -320,9 +320,9 @@ theorem withMemory_closeData : Tools.ShippingMemOnlyCloses.MemOnlyCloseData
 
 /-- `withMemory` does not print as the memory module's name. -/
 theorem withMemory_notin :
-    (``Sparkle.Tests.Compiler.ShippingMachineFuseTest.withMemory : Lean.Name).toString ∉
+    (Sparkle.IR.ModuleName.ofDecl (``Sparkle.Tests.Compiler.ShippingMachineFuseTest.withMemory : Lean.Name)) ∉
       [(Sparkle.Compiler.MachMemory.memModule true 4 8).1.name] :=
-  Tools.ShippingNameSep.not_mem_of _ _ (by first | decide | decide +kernel)
+  (by name_not_mem)
 
 set_option maxHeartbeats 4000000 in
 /-- **`MachineClosesAt withMemory`** — a memory-only parent, from decided

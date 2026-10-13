@@ -75,7 +75,7 @@ theorem gate_core_facts {declName : Name} {mctx : Meta.Context}
         RawValueAt srt.width bs m initial mems
           (pack srt (eval (fun j => bools (bpos j)) (fun j w => bits (vpos j) w) e)).toNat) ∧
       (∀ bools bits, m.inputs = inputPorts bools bits (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString)) ∧
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))) ∧
       Tools.ShippingMixedEntrySoundness.PositiveBinders bs := by
   obtain ⟨logProf, envR, ci, w1, w2, w3, w4, w5, w6, get, henv, run⟩ :=
     synthesizeCombinationalCore_reads hr
@@ -115,7 +115,7 @@ theorem gate_childFn {declName : Name} {m : Sparkle.IR.AST.Module}
       RawValueAt srt.width bs m initial mems
         (pack srt (eval (fun j => bools (bpos j)) (fun j w => bits (vpos j) w) e)).toNat)
     (ins : ∀ bools bits, m.inputs = inputPorts bools bits (bs.zip ids)
-      (start (entryCompilerState false cache) declName.toString))
+      (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)))
     (positive : Tools.ShippingMixedEntrySoundness.PositiveBinders bs)
     {F : List Nat → Nat}
     (hF : ∀ vs, InRange vs (bs.filter fun b => b.2 != .domain) →
@@ -158,7 +158,7 @@ theorem gate_childFn {declName : Name} {m : Sparkle.IR.AST.Module}
     unfold SourceInputs
     apply admissible_of_portsD
     rw [show inputPorts (boolValues ids bools) (bitValues ids bits) (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString) =
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)) =
         machPorts declName ids cache bs from inputPorts_congr _ _ _ rfl, ← hargs]
     have hlenP : (argPorts m).length =
         ((bs.zip ids).filter fun b => b.1.2 != .domain).length := by

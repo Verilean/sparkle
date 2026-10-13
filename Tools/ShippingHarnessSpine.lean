@@ -39,37 +39,37 @@ theorem harness_spine_at {logProf : String → IO Unit} {declName : Name}
     (run : Returns (bindMixedCertifiedInputs
         (emitLeaves (fun e hint top named => translateExprToWire e hint top named) cache logProf
           [("out", instFVars (ids.map Lean.Expr.fvar).toArray 0 body)] none 0) (bs.zip ids))
-        (entryCompilerState false cache) (CircuitM.init declName.toString) returned st)
+        (entryCompilerState false cache) (CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName)) returned st)
     (hm : m = (addClockResetIfSequential st.module).finalize)
     (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n) (initial : Env)
     (values : Admissible bools bits initial (bs.zip ids)
-      (start (entryCompilerState false cache) declName.toString))
+      (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)))
     (dom : Lean.Expr) (kb kv : Nat) (vw : Nat → Nat) (binp vinp : Nat → FVarId)
     (bvals : Nat → Bool) (vvals : (j : Nat) → (w : Nat) → BitVec w)
     {srt : SType} (e : Term srt) (he : e.WF kb kv vw)
     (hbv : ∀ j, j < kb → (prepare bools bits (bs.zip ids)
-      (start (entryCompilerState false cache) declName.toString)).bools (binp j) = some (bvals j))
+      (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bools (binp j) = some (bvals j))
     (hvv : ∀ j, j < kv → (prepare bools bits (bs.zip ids)
-      (start (entryCompilerState false cache) declName.toString)).bits (vinp j) =
+      (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bits (vinp j) =
         some ⟨vw j, vvals j (vw j)⟩)
     (qeq : instFVars (ids.map Lean.Expr.fvar).toArray 0 body =
       quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) e) :
     ∃ B w, m.body = B ++ [.assign "out" (.ref w)] ∧
       (∀ n, SpineQ (fun x => (prepare bools bits (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).state.usedNames.contains x = true)
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state.usedNames.contains x = true)
         (fun id => visible (prepare bools bits (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).context
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context
           (prepare bools bits (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).state.sourceBindings id)
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state.sourceBindings id)
         m.wires m.body n
         (quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) e) w) ∧
       -- no statement of the returned body drives an input port
       ∀ port ∈ (prepare bools bits (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).state.module.inputs,
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state.module.inputs,
         ∀ l r, Stmt.assign l r ∈ m.body → l ≠ port.name := by
-  let a := start (entryCompilerState false cache) declName.toString
+  let a := start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)
   let p := prepare bools bits (bs.zip ids) a
-  have empty := empty_layout (entryCompilerState false cache) declName.toString initial
+  have empty := empty_layout (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName) initial
   have prepared := prepare_layout (bs.zip ids) a empty.1 empty.2 values
   have leaf := prepare_returns (bs.zip ids) a (bools := bools) (bits := bits) run
   rw [qeq] at leaf
@@ -161,19 +161,19 @@ theorem harness_links_at {logProf : String → IO Unit} {declName : Name}
     (run : Returns (bindMixedCertifiedInputs
         (emitLeaves (fun e hint top named => translateExprToWire e hint top named) cache logProf
           [("out", instFVars (ids.map Lean.Expr.fvar).toArray 0 body)] none 0) (bs.zip ids))
-        (entryCompilerState false cache) (CircuitM.init declName.toString) returned st)
+        (entryCompilerState false cache) (CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName)) returned st)
     (hm : m = (addClockResetIfSequential st.module).finalize)
     (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n) (initial : Env)
     (values : Admissible bools bits initial (bs.zip ids)
-      (start (entryCompilerState false cache) declName.toString))
+      (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)))
     (dom : Lean.Expr) (kb kv : Nat) (vw : Nat → Nat) (binp vinp : Nat → FVarId)
     (bvals : Nat → Bool) (vvals : (j : Nat) → (w : Nat) → BitVec w)
     (fs : List (Σ w : Nat, Term (.bits w))) {c : Nat} (core : Term (.bits c))
     (he : (Tools.ShippingMachineEntry.packLets fs core).2.WF kb kv vw)
     (hbv : ∀ j, j < kb → (prepare bools bits (bs.zip ids)
-      (start (entryCompilerState false cache) declName.toString)).bools (binp j) = some (bvals j))
+      (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bools (binp j) = some (bvals j))
     (hvv : ∀ j, j < kv → (prepare bools bits (bs.zip ids)
-      (start (entryCompilerState false cache) declName.toString)).bits (vinp j) =
+      (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bits (vinp j) =
         some ⟨vw j, vvals j (vw j)⟩)
     (qeq : instFVars (ids.map Lean.Expr.fvar).toArray 0 body =
       quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j))
@@ -182,33 +182,33 @@ theorem harness_links_at {logProf : String → IO Unit} {declName : Name}
     (hmonoV : ∀ k x, Vk k x → Vk (k + 1) x)
     (hbind : ∀ k id z, Tools.ShippingSpineOrder.Bk binp vinp ubk uvk k id →
       visible (prepare bools bits (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString)).context
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context
         (prepare bools bits (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString)).state.sourceBindings id = some z →
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state.sourceBindings id = some z →
       Vk k z)
     (hfields : Tools.ShippingSpineOrder.FieldsOK ubk uvk kb kv vw 0 fs)
     (hcoreU : Uses (ubk fs.length) (uvk fs.length) core) :
     ∃ bodyB w, m.body = bodyB.reverse ++ [.assign "out" (.ref w)] ∧
       Tools.ShippingSpineOrder.LP
         (fun x => (prepare bools bits (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).state.usedNames.contains x = true)
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state.usedNames.contains x = true)
         (fun id => visible (prepare bools bits (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).context
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context
           (prepare bools bits (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).state.sourceBindings id)
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state.sourceBindings id)
         Vk bodyB 0
         (fs.map fun f => quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) f.2) w ∧
       (∀ l r, Stmt.assign l r ∈ bodyB →
         ¬ (prepare bools bits (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).state.usedNames.contains l = true) ∧
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state.usedNames.contains l = true) ∧
       -- the input ports are names in use before the translation
       ∀ port ∈ (prepare bools bits (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).state.module.inputs,
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state.module.inputs,
         (prepare bools bits (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).state.usedNames.contains port.name = true := by
-  let a := start (entryCompilerState false cache) declName.toString
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state.usedNames.contains port.name = true := by
+  let a := start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)
   let p := prepare bools bits (bs.zip ids) a
-  have empty := empty_layout (entryCompilerState false cache) declName.toString initial
+  have empty := empty_layout (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName) initial
   have prepared := prepare_layout (bs.zip ids) a empty.1 empty.2 values
   have leaf := prepare_returns (bs.zip ids) a (bools := bools) (bits := bits) run
   rw [qeq] at leaf

@@ -233,7 +233,7 @@ theorem leaf_output {logProf : String → IO Unit} {declName : Name}
     (initial : Env) (mems : MEnv)
     (values : Tools.ShippingMixedEntrySoundness.Admissible bools bits initial (bs.zip ids)
       (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
-        declName.toString))
+        (Sparkle.IR.ModuleName.ofDecl declName)))
     (v : Value) (pos : 0 < v.kind.width)
     (dom : LeafDom (setupOf declName bs ids cache bools bits).context
       (Tools.ShippingUnifiedMeaning.inputValues (setupOf declName bs ids cache bools bits).bools
@@ -264,7 +264,7 @@ theorem leaf_entry_output_walked {logProf : String → IO Unit} {declName : Name
         (initial : Env) (mems : MEnv),
       Tools.ShippingMixedEntrySoundness.Admissible bools bits initial (bs.zip ids)
         (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
-          declName.toString) →
+          (Sparkle.IR.ModuleName.ofDecl declName)) →
       ∀ v : Value, 0 < v.kind.width →
       LeafDom (setupOf declName bs ids cache bools bits).context
         (Tools.ShippingUnifiedMeaning.inputValues

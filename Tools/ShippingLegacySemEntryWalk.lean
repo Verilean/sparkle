@@ -148,7 +148,7 @@ theorem legacy_entry_walk {translate : TranslateFn} {logProf : String → IO Uni
       MReturns (splitReturnLeaves inner) leaves ∧
       Returns (bindInputsLegacy [] false xs 0
           (emitLeaves translate cache logProf leaves.toList none 0))
-        (entryCompilerState false cache) (CircuitM.init declName.toString) returned st ∧
+        (entryCompilerState false cache) (CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName)) returned st ∧
       m = (addClockResetIfSequential st.module).finalize ∧
       Sparkle.IR.ModuleNames.legal (Sparkle.Backend.Verilog.sanitizeName m.name) = true := by
   unfold synthesizeFromConst at hr
@@ -254,7 +254,7 @@ theorem legacy_leaf_output_closed {logProf : String → IO Unit} {declName : Nam
     (initial : Env) (mems : MEnv)
     (values : Tools.ShippingMixedEntrySoundness.Admissible bools bits initial (bs.zip ids)
       (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
-        declName.toString))
+        (Sparkle.IR.ModuleName.ofDecl declName)))
     (v : Value) (pos : 0 < v.kind.width)
     (dom : LegacyDom (setupOf declName bs ids cache bools bits).context
       (Tools.ShippingUnifiedMeaning.inputValues (setupOf declName bs ids cache bools bits).bools
@@ -288,7 +288,7 @@ theorem legacy_entry_output_walked {logProf : String → IO Unit} {declName : Na
         (initial : Env) (mems : MEnv),
       Tools.ShippingMixedEntrySoundness.Admissible bools bits initial (bs.zip ids)
         (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
-          declName.toString) →
+          (Sparkle.IR.ModuleName.ofDecl declName)) →
       ∀ v : Value, 0 < v.kind.width →
       LegacyDom (setupOf declName bs ids cache bools bits).context
         (Tools.ShippingUnifiedMeaning.inputValues

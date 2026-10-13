@@ -200,7 +200,7 @@ width `w`; the body is an ordered list of typed assignments whose driver of
 `out` is typed at `w`. -/
 structure GateChildPorts (c : Name) (bs : List (Name × MixedGateBinder)) (w : Nat)
     (m : Sparkle.IR.AST.Module) : Prop where
-  name : m.name = c.toString
+  name : m.name = (Sparkle.IR.ModuleName.ofDecl c)
   inTys : m.inputs.map (·.ty) = (bs.filter fun x => x.2 != .domain).map fun x => kindTy x.2
   inPrintable : ∀ p ∈ m.inputs, Tools.ShippingModulePrintSoundness.PrintableType p.ty
   inWire : ∀ p ∈ m.inputs, p ∈ m.wires

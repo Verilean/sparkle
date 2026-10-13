@@ -107,7 +107,7 @@ abbrev memName : String := (Sparkle.Compiler.MachMemory.memModule true 4 8).1.na
 /-- The child module's name, keyed by the callee. -/
 def nameOf (c : Lean.Name) : String :=
   if c = ``Sparkle.Tests.Compiler.ShippingMachineSeqTest.cnt then
-    (``Sparkle.Tests.Compiler.ShippingMachineSeqTest.cnt : Lean.Name).toString
+    (Sparkle.IR.ModuleName.ofDecl (``Sparkle.Tests.Compiler.ShippingMachineSeqTest.cnt : Lean.Name))
   else memName
 
 /-- The child's number of argument ports, keyed by the callee. -/
@@ -131,7 +131,7 @@ def namesOf (c : Lean.Name) : List String :=
   if c = ``Sparkle.Tests.Compiler.ShippingMachineSeqTest.cnt then [] else [memName]
 
 theorem nameOf_cnt : nameOf ``Sparkle.Tests.Compiler.ShippingMachineSeqTest.cnt =
-    (``Sparkle.Tests.Compiler.ShippingMachineSeqTest.cnt : Lean.Name).toString := by
+    (Sparkle.IR.ModuleName.ofDecl (``Sparkle.Tests.Compiler.ShippingMachineSeqTest.cnt : Lean.Name)) := by
   unfold nameOf
   exact if_pos rfl
 
@@ -173,31 +173,31 @@ theorem namesOf_mem : namesOf (Sparkle.Compiler.MachMemory.memChildName true 4 8
 /-! ## Names (decided over the candidate renderings; `Name.toString` is never evaluated) -/
 
 /-- `cnt` does not print as the memory module's name. -/
-theorem cnt_notin : (``Sparkle.Tests.Compiler.ShippingMachineSeqTest.cnt : Lean.Name).toString ∉
+theorem cnt_notin : (Sparkle.IR.ModuleName.ofDecl (``Sparkle.Tests.Compiler.ShippingMachineSeqTest.cnt : Lean.Name)) ∉
     [memName] :=
-  Tools.ShippingNameSep.not_mem_of _ _ (by first | decide | decide +kernel)
+  (by name_not_mem)
 
 /-- `seqMem` does not print as the memory module's name. -/
 theorem seqMem_notin :
-    (``Sparkle.Tests.Compiler.ShippingChildBoundaryTest.seqMem : Lean.Name).toString ∉
+    (Sparkle.IR.ModuleName.ofDecl (``Sparkle.Tests.Compiler.ShippingChildBoundaryTest.seqMem : Lean.Name)) ∉
       [memName] :=
-  Tools.ShippingNameSep.not_mem_of _ _ (by first | decide | decide +kernel)
+  (by name_not_mem)
 
 /-- `cnt` and `seqMem` print differently. -/
 theorem cnt_ne_seqMem :
-    (``Sparkle.Tests.Compiler.ShippingMachineSeqTest.cnt : Lean.Name).toString ≠
-      (``Sparkle.Tests.Compiler.ShippingChildBoundaryTest.seqMem : Lean.Name).toString :=
-  Tools.ShippingNameSep.sep_ne (by first | decide | decide +kernel)
+    (Sparkle.IR.ModuleName.ofDecl (``Sparkle.Tests.Compiler.ShippingMachineSeqTest.cnt : Lean.Name)) ≠
+      (Sparkle.IR.ModuleName.ofDecl (``Sparkle.Tests.Compiler.ShippingChildBoundaryTest.seqMem : Lean.Name)) :=
+  Tools.ShippingNameSep.Enc.sep_ne (by first | decide | decide +kernel)
 
 theorem cnt_ne_mem :
-    (``Sparkle.Tests.Compiler.ShippingMachineSeqTest.cnt : Lean.Name).toString ≠ memName := by
+    (Sparkle.IR.ModuleName.ofDecl (``Sparkle.Tests.Compiler.ShippingMachineSeqTest.cnt : Lean.Name)) ≠ memName := by
   intro e
   apply cnt_notin
   rw [e]
   exact List.mem_cons_self ..
 
 theorem mem_ne_seqMem : memName ≠
-    (``Sparkle.Tests.Compiler.ShippingChildBoundaryTest.seqMem : Lean.Name).toString := by
+    (Sparkle.IR.ModuleName.ofDecl (``Sparkle.Tests.Compiler.ShippingChildBoundaryTest.seqMem : Lean.Name)) := by
   intro e
   apply seqMem_notin
   rw [← e]
@@ -251,7 +251,7 @@ theorem cnt_iface {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Me
     {y : Tools.ShippingChildInv.Res}
     (hy : Tools.ShippingChildInv.RealChild mref cref
       ``Sparkle.Tests.Compiler.ShippingMachineSeqTest.cnt y) :
-    ChildIfaceP (``Sparkle.Tests.Compiler.ShippingMachineSeqTest.cnt : Lean.Name).toString
+    ChildIfaceP (Sparkle.IR.ModuleName.ofDecl (``Sparkle.Tests.Compiler.ShippingMachineSeqTest.cnt : Lean.Name))
       (((Sparkle.Tests.Compiler.ShippingMachineSeqTest.cnt.machineData).shape.binders.take
         ((Sparkle.Tests.Compiler.ShippingMachineSeqTest.cnt.machineData).shape.binders.length -
           (Sparkle.Tests.Compiler.ShippingMachineSeqTest.cnt.machineData).shape.layout.slots.length -
@@ -324,7 +324,7 @@ theorem seqMem_sep : ∀ (k : Nat)
 theorem seqMem_parent : ∀ (k : Nat),
     k < (Sparkle.Tests.Compiler.ShippingChildBoundaryTest.seqMem.machineData).shape.insts.length →
     nameOf (calleeAt Sparkle.Tests.Compiler.ShippingChildBoundaryTest.seqMem.machineData k) ≠
-      (``Sparkle.Tests.Compiler.ShippingChildBoundaryTest.seqMem : Lean.Name).toString := by
+      (Sparkle.IR.ModuleName.ofDecl (``Sparkle.Tests.Compiler.ShippingChildBoundaryTest.seqMem : Lean.Name)) := by
   intro k hk
   rw [Tools.ShippingMemKid.calleeAt_eq
     Sparkle.Tests.Compiler.ShippingChildBoundaryTest.seqMem.machineData hk]
@@ -344,7 +344,7 @@ theorem seqMem_fresh : ∀ (gi : Nat) (k : Nat),
 /-- The parent's name is not a module name of a child's design. -/
 theorem seqMem_parentD : ∀ (k : Nat),
     k < (Sparkle.Tests.Compiler.ShippingChildBoundaryTest.seqMem.machineData).shape.insts.length →
-    (``Sparkle.Tests.Compiler.ShippingChildBoundaryTest.seqMem : Lean.Name).toString ∉
+    (Sparkle.IR.ModuleName.ofDecl (``Sparkle.Tests.Compiler.ShippingChildBoundaryTest.seqMem : Lean.Name)) ∉
       namesOf (calleeAt Sparkle.Tests.Compiler.ShippingChildBoundaryTest.seqMem.machineData k) := by
   intro k hk
   rw [Tools.ShippingMemKid.calleeAt_eq

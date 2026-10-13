@@ -51,37 +51,37 @@ theorem harness_sound_leaf {logProf : String → IO Unit} {declName : Name}
     (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n)
     (initial : Env) (mems : MEnv)
     (values : Admissible bools bits initial (bs.zip ids)
-      (start (entryCompilerState false cache) declName.toString))
+      (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)))
     (leaf : Returns
       (emitLeaves (fun e hint top named => translateExprToWire e hint top named) cache logProf
         [("out", leafE)] none 0)
       (prepare bools bits (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString)).context
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context
       (prepare bools bits (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString)).state returned st)
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state returned st)
     (v : Value) (positive : 0 < v.kind.width)
     (contract : ActionSpec (translateExprToWire leafE "out" false true)
       (prepare bools bits (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString)).context
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context
       (inputValues
         (prepare bools bits (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).bools
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bools
         (prepare bools bits (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).bits)
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bits)
       (declaredWidths st) mems initial v)
     (ordered : ActionOrder (translateExprToWire leafE "out" false true)
       (prepare bools bits (bs.zip ids)
-        (start (entryCompilerState false cache) declName.toString)).context
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context
       (inputValues
         (prepare bools bits (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).bools
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bools
         (prepare bools bits (bs.zip ids)
-          (start (entryCompilerState false cache) declName.toString)).bits)
+          (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bits)
       (declaredWidths st) mems initial) :
     RawValueAt v.kind.width bs m initial mems v.toNat := by
-  let a := start (entryCompilerState false cache) declName.toString
+  let a := start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)
   let p := prepare bools bits (bs.zip ids) a
-  have empty := empty_layout (entryCompilerState false cache) declName.toString initial
+  have empty := empty_layout (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName) initial
   have prepared := prepare_layout (bs.zip ids) a empty.1 empty.2 values
   obtain ⟨unique, result, evalr, value, out, typed, _⟩ := emitLeaves_from_ports_spec positive contract
     prepared.2.2.1 prepared.2.2.2 prepared.2.1 prepared.1 leaf

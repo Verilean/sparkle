@@ -106,7 +106,7 @@ theorem closeInsts_of_run {declName : Name} (d : MachineData) (ok : d.ok = true)
       ChildComb c.1 ∧ c.2.modules = [] ∧
       (∀ args : List Nat, (d.shape.insts.map (·.2.1))[k]? = some args →
         c.1.inputs.length = args.length) ∧
-      c.1.name ≠ declName.toString)
+      c.1.name ≠ (Sparkle.IR.ModuleName.ofDecl declName))
     (hcons : ∀ a ∈ children, ∀ b ∈ children, a.1.name = b.1.name → a.1 = b.1)
     (hfreshOuts : ∀ (k : Nat) (c : Sparkle.IR.AST.Module × Design), children[k]? = some c →
       ∀ o ∈ d.shape.layout.outs, o.name ≠ s!"inst{k}_{c.1.name}") :
@@ -224,7 +224,7 @@ child-side `kidsCombB` facts, the number of its input ports, its name, and a
 design with no module. (A gate child gives it by `ChildFull.iface`; a
 slotless machine child by `machineChild_iface`.) -/
 def ChildIface (c : Name) (n : Nat) (b : Sparkle.IR.AST.Module) (design : Design) : Prop :=
-  ChildComb b ∧ b.inputs.length = n ∧ b.name = c.toString ∧ design.modules = []
+  ChildComb b ∧ b.inputs.length = n ∧ b.name = (Sparkle.IR.ModuleName.ofDecl c) ∧ design.modules = []
 
 theorem ChildFull.iface {c : Name} {bs : List (Name × MixedGateBinder)}
     {b : Sparkle.IR.AST.Module} {design : Design} (h : ChildFull c bs b design) :
@@ -250,10 +250,10 @@ theorem machineClosesAt_of_gateKids {declName : Name} (d : MachineData) (ok : d.
     (hargsN : ∀ (k : Nat) (hk : k < d.shape.insts.length),
       nk k = (d.shape.insts[k]).2.1.length)
     (hsep : ∀ c ∈ d.shape.insts.map (·.1), ∀ c' ∈ d.shape.insts.map (·.1),
-      c.toString = c'.toString → c = c')
-    (hparent : ∀ c ∈ d.shape.insts, c.1.toString ≠ declName.toString)
+      (Sparkle.IR.ModuleName.ofDecl c) = (Sparkle.IR.ModuleName.ofDecl c') → c = c')
+    (hparent : ∀ c ∈ d.shape.insts, (Sparkle.IR.ModuleName.ofDecl c.1) ≠ (Sparkle.IR.ModuleName.ofDecl declName))
     (hfresh : ∀ (k : Nat) (hk : k < d.shape.insts.length), ∀ o ∈ d.shape.layout.outs,
-      o.name ≠ s!"inst{k}_{(d.shape.insts[k]).1.toString}") :
+      o.name ≠ s!"inst{k}_{(Sparkle.IR.ModuleName.ofDecl (d.shape.insts[k]).1)}") :
     MachineClosesAt mctx mref cctx cref declName d.shape := by
   have hf : d.shape.instFields = [] := by
     simp only [MachineData.gateCallsOk, Bool.and_eq_true, List.isEmpty_iff] at hS

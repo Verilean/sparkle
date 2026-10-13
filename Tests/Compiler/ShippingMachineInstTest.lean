@@ -127,7 +127,7 @@ run_cmd liftTermElabM do
     let (m, d) ← synthesizeCombinational n
     let emitted := m.body.filter fun st => match st with | .inst .. => true | _ => false
     unless emitted.length == insts do throwError "{n}: {emitted.length} instances emitted"
-    unless d.modules.any (·.name == toString child) do throwError "{n}: the child is not in the design"
+    unless d.modules.any (·.name == Sparkle.IR.ModuleName.ofDecl child) do throwError "{n}: the child is not in the design"
     -- the instance's output is a wire, not an input port
     unless m.inputs.all (fun p => !p.name.startsWith "_gen_inst") do
       throwError "{n}: an instance output is still an input port"

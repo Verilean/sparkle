@@ -59,28 +59,28 @@ def closesAtCoreG (c : Name) (nDecl? : Option Nat) (name : Name) : CommandElabM 
     else if kids.all (fun a => kids.all fun b => a == b || Tools.ShippingNameSep.sepB a b) then
       -- different declarations print differently: decided on the names' candidate
       -- renderings (`Tools.ShippingNameSep`), `Name.toString` never evaluated
-      `(Tools.ShippingNameSep.hnames_of _ (by decide))
+      `(Tools.ShippingNameSep.Enc.hnames_of _ (by decide))
     else do
       binders := binders.push (← `(bracketedBinder|
         (hnames : ∀ c ∈ ($data).shape.insts.map (·.1), ∀ c' ∈ ($data).shape.insts.map (·.1),
-          c.toString = c'.toString → c = c')))
+          (Sparkle.IR.ModuleName.ofDecl c) = (Sparkle.IR.ModuleName.ofDecl c') → c = c')))
       `(hnames)
   -- no call prints as the parent: by the candidate renderings when they
   -- separate, else a premise
   let hparent : Term ← if kids.all (fun k => Tools.ShippingNameSep.sepB k c) then
-      `(Tools.ShippingNameSep.hparent_of _ _ (by decide))
+      `(Tools.ShippingNameSep.Enc.hparent_of _ _ (by decide))
     else do
       binders := binders.push (← `(bracketedBinder|
-        (hparent : ∀ c ∈ ($data).shape.insts, c.1.toString ≠ ($cq : Lean.Name).toString)))
+        (hparent : ∀ c ∈ ($data).shape.insts, (Sparkle.IR.ModuleName.ofDecl c.1) ≠ (Sparkle.IR.ModuleName.ofDecl ($cq : Lean.Name)))))
       `(hparent)
   let hfresh ← if r.shape.layout.outs.all (fun o => o.name.toList.head? != some 'i') then
       `(fun gi c _ o ho => Tools.ShippingCallsGate.instName_ne_of_head
         ((by decide : ∀ o ∈ ($data).shape.layout.outs, o.name.toList.head? ≠ some 'i') o ho) gi
-        c.1.toString)
+        (Sparkle.IR.ModuleName.ofDecl c.1))
     else do
       binders := binders.push (← `(bracketedBinder|
         (hfresh : ∀ (gi : Nat), ∀ c ∈ ($data).shape.insts, ∀ o ∈ ($data).shape.layout.outs,
-          o.name ≠ s!"inst{gi}_{c.1.toString}")))
+          o.name ≠ s!"inst{gi}_{(Sparkle.IR.ModuleName.ofDecl c.1)}")))
       `(hfresh)
   -- each entry's child, read off its `RealChild` witness
   let nCalls := Syntax.mkNumLit (toString calls.length)

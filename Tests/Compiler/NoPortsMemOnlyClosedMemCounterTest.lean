@@ -112,9 +112,9 @@ theorem memCounter_closeData : Tools.ShippingMemOnlyCloses.MemOnlyCloseData
 
 /-- `memCounter` does not print as the memory module's name. -/
 theorem memCounter_notin :
-    (``Sparkle.Tests.Compiler.ShippingMachineMemLinkedTest.memCounter : Lean.Name).toString ∉
+    (Sparkle.IR.ModuleName.ofDecl (``Sparkle.Tests.Compiler.ShippingMachineMemLinkedTest.memCounter : Lean.Name)) ∉
       [(Sparkle.Compiler.MachMemory.memModule true 4 8).1.name] :=
-  Tools.ShippingNameSep.not_mem_of _ _ (by first | decide | decide +kernel)
+  (by name_not_mem)
 
 /-! ## The closing -/
 

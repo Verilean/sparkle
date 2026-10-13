@@ -210,7 +210,7 @@ theorem childFn_of_trace {declName : Name} {d : MachineData} {raw : Sparkle.IR.A
     apply admissible_of_portsD
     rw [show inputPorts (boolValues ids fun j => (bools j).val (1 - 1 - 0))
         (bitValues ids fun j n => (bits j n).val (1 - 1 - 0)) (d.bsIn.zip ids)
-        (start (entryCompilerState false cache) declName.toString) =
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)) =
         machPorts declName ids cache d.bsIn from inputPorts_congr _ _ _ rfl, ← hargs]
     have hlenP : (argPorts raw).length =
         ((d.bsIn.zip ids).filter fun b => b.1.2 != .domain).length := by

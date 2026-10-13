@@ -22,7 +22,7 @@ printed modules — under two data conditions on the core run's design:
 
 * `hno`: no module of `D` is named as the core module (measured: 37 of 37);
 * `htop`: `D.topModule` is the core module's name (measured: 37 of 37;
-  `CircuitM.init declName.toString` sets both).
+  `CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName)` sets both).
 
 Neither is derived here from the run.
 

@@ -1,4 +1,5 @@
 import Lean
+import Tools.ShippingModuleName
 
 /-! # Name separation (obligation N1): what `Name.toString` can be, for every name
 
@@ -726,5 +727,207 @@ theorem nodup_map_of (L : List Lean.Name) (hnd : L.Nodup)
     (h : (L.all fun c => L.all fun c' => decide (c = c') || sep c c') = true) :
     (L.map (fun n => n.toString)).Nodup :=
   nodup_map_of_inj L hnd (hnames_of L h)
+
+/-! ## The same premises about MODULE NAMES (Finding H, 2026-10-13)
+
+After the fix of Finding H a declaration's module is named
+`Sparkle.IR.ModuleName.ofDecl c`, not `c.toString`, and `ofDecl` is
+injective (`Tools.ShippingModuleName.ofDecl_injective`). The endpoints'
+name premises are therefore about `ofDecl`. The lemmas below have the
+names, arguments and Boolean checks of the ones above — so a generator's
+`(by decide)` on a `sep` / `sepB` / `sepC` / `okC` check is unchanged — and
+conclude about `ofDecl`. They use the checks only to get `a ≠ b` (two names
+that print differently are different); the theorems above are untouched.
+
+Against an ARBITRARY string (`not_mem_of`, `fresh_of`) the candidate lists
+say nothing about `ofDecl`: those two take the decided statement itself,
+and for the lists the generators actually pass — names of memory modules —
+`not_mem_nil` / `not_mem_cons_mem` need no evaluation at all
+(`Tools.ShippingModuleName.ofDecl_ne_ofMem`); the tactic `name_not_mem`
+tries them first. -/
+namespace Enc
+open Sparkle.IR.ModuleName (ofDecl ofMem)
+
+theorem ne_of_sep {a b : Lean.Name} (h : sep a b = true) : a ≠ b :=
+  fun e => Tools.ShippingNameSep.sep_ne h (congrArg (fun (n : Lean.Name) => n.toString) e)
+
+theorem ne_of_sepB {a b : Lean.Name} (h : sepB a b = true) : a ≠ b :=
+  fun e => Tools.ShippingNameSep.toString_ne h (congrArg (fun (n : Lean.Name) => n.toString) e)
+
+theorem ne_of_sepC {A B : CN} (h : sepC A B = true) : nameOf A ≠ nameOf B :=
+  fun e => Tools.ShippingNameSep.sepC_ne h (congrArg (fun (n : Lean.Name) => n.toString) e)
+
+/-- **Separation of two module names.** -/
+theorem sep_ne {a b : Lean.Name} (h : sep a b = true) : ofDecl a ≠ ofDecl b :=
+  Tools.ShippingModuleName.ofDecl_ne (ne_of_sep h)
+
+theorem toString_ne {a b : Lean.Name} (h : sepB a b = true) : ofDecl a ≠ ofDecl b :=
+  Tools.ShippingModuleName.ofDecl_ne (ne_of_sepB h)
+
+theorem sepC_ne {A B : CN} (h : sepC A B = true) : ofDecl (nameOf A) ≠ ofDecl (nameOf B) :=
+  Tools.ShippingModuleName.ofDecl_ne (ne_of_sepC h)
+
+/-- `hparent`: no callee's module has the parent's name. -/
+theorem hparent_ofB {α : Type} (insts : List (Lean.Name × α)) (parent : Lean.Name)
+    (h : (insts.all fun c => sepB c.1 parent) = true) :
+    ∀ c ∈ insts, ofDecl c.1 ≠ ofDecl parent := by
+  intro c hc
+  have h1 : sepB c.1 parent = true := List.all_eq_true.mp h c hc
+  exact Tools.ShippingModuleName.ofDecl_ne (ne_of_sepB h1)
+
+theorem hparent_of {α : Type} (insts : List (Lean.Name × α)) (parent : Lean.Name)
+    (h : (insts.all fun c => sep c.1 parent) = true) :
+    ∀ c ∈ insts, ofDecl c.1 ≠ ofDecl parent := by
+  intro c hc
+  have h1 : sep c.1 parent = true := List.all_eq_true.mp h c hc
+  exact Tools.ShippingModuleName.ofDecl_ne (ne_of_sep h1)
+
+theorem hparent_of' {α : Type} (insts : List (CN × α)) (parent : CN)
+    (h : (insts.all fun c => sepC c.1 parent) = true) :
+    ∀ c ∈ insts.map (fun c => (nameOf c.1, c.2)), ofDecl c.1 ≠ ofDecl (nameOf parent) := by
+  intro c hc heq
+  obtain ⟨d, hd, e⟩ := List.mem_map.mp hc
+  have h1 : sepC d.1 parent = true := List.all_eq_true.mp h d hd
+  have e1 : nameOf d.1 = c.1 := congrArg Prod.fst e
+  have h2 : c.1 = nameOf parent := Tools.ShippingModuleName.ofDecl_injective heq
+  exact ne_of_sepC h1 (e1.trans h2)
+
+/-- `hnames`: different called declarations have different module names
+(the check is not needed any more; it is kept so that callers do not change). -/
+theorem hnames_ofB (L : List Lean.Name)
+    (_h : (L.all fun c => L.all fun c' => decide (c = c') || sepB c c') = true) :
+    ∀ c ∈ L, ∀ c' ∈ L, ofDecl c = ofDecl c' → c = c' :=
+  fun _ _ _ _ heq => Tools.ShippingModuleName.ofDecl_injective heq
+
+theorem hnames_of (L : List Lean.Name)
+    (_h : (L.all fun c => L.all fun c' => decide (c = c') || sep c c') = true) :
+    ∀ c ∈ L, ∀ c' ∈ L, ofDecl c = ofDecl c' → c = c' :=
+  fun _ _ _ _ heq => Tools.ShippingModuleName.ofDecl_injective heq
+
+theorem hnames_of' (L : List CN) (_h : (L.all okC) = true) :
+    ∀ c ∈ L.map nameOf, ∀ c' ∈ L.map nameOf, ofDecl c = ofDecl c' → c = c' :=
+  fun _ _ _ _ heq => Tools.ShippingModuleName.ofDecl_injective heq
+
+/-- `c`'s module name is the module name of no declaration of `L`. -/
+theorem not_mem_map_of_ne (c : Lean.Name) (L : List Lean.Name) (h : ∀ c', c' ∈ L → c ≠ c') :
+    ofDecl c ∉ L.map (fun n => ofDecl n) := by
+  intro hm
+  obtain ⟨c', hc', heq⟩ := List.mem_map.mp hm
+  have h2 : ofDecl c' = ofDecl c := heq
+  exact h c' hc' (Tools.ShippingModuleName.ofDecl_injective h2).symm
+
+theorem not_mem_map_ofB (c : Lean.Name) (L : List Lean.Name)
+    (h : (L.all fun c' => sepB c c') = true) : ofDecl c ∉ L.map (fun n => ofDecl n) :=
+  not_mem_map_of_ne c L (fun c' hc' => ne_of_sepB (List.all_eq_true.mp h c' hc'))
+
+theorem not_mem_map_of (c : Lean.Name) (L : List Lean.Name)
+    (h : (L.all fun c' => sep c c') = true) : ofDecl c ∉ L.map (fun n => ofDecl n) :=
+  not_mem_map_of_ne c L (fun c' hc' => ne_of_sep (List.all_eq_true.mp h c' hc'))
+
+theorem not_mem_map_of' (c : CN) (L : List CN) (h : (L.all fun c' => sepC c c') = true) :
+    ofDecl (nameOf c) ∉ (L.map nameOf).map (fun n => ofDecl n) := by
+  refine not_mem_map_of_ne (nameOf c) (L.map nameOf) ?_
+  intro n hn
+  obtain ⟨B, hB, e⟩ := List.mem_map.mp hn
+  have h1 : sepC c B = true := List.all_eq_true.mp h B hB
+  rw [← e]
+  exact ne_of_sepC h1
+
+/-- No declaration of `L` has the module name of a declaration of `L'`. -/
+theorem disjoint_map_of_ne (L L' : List Lean.Name)
+    (h : ∀ c, c ∈ L → ∀ c', c' ∈ L' → c ≠ c') :
+    ∀ x ∈ L.map (fun n => ofDecl n), x ∉ L'.map (fun n => ofDecl n) := by
+  intro x hx hx'
+  obtain ⟨c, hc, e1⟩ := List.mem_map.mp hx
+  obtain ⟨c', hc', e2⟩ := List.mem_map.mp hx'
+  have h2 : ofDecl c = ofDecl c' := e1.trans e2.symm
+  exact h c hc c' hc' (Tools.ShippingModuleName.ofDecl_injective h2)
+
+theorem disjoint_map_ofB (L L' : List Lean.Name)
+    (h : (L.all fun c => L'.all fun c' => sepB c c') = true) :
+    ∀ x ∈ L.map (fun n => ofDecl n), x ∉ L'.map (fun n => ofDecl n) :=
+  disjoint_map_of_ne L L' (fun c hc c' hc' =>
+    ne_of_sepB (List.all_eq_true.mp (List.all_eq_true.mp h c hc) c' hc'))
+
+theorem disjoint_map_of (L L' : List Lean.Name)
+    (h : (L.all fun c => L'.all fun c' => sep c c') = true) :
+    ∀ x ∈ L.map (fun n => ofDecl n), x ∉ L'.map (fun n => ofDecl n) :=
+  disjoint_map_of_ne L L' (fun c hc c' hc' =>
+    ne_of_sep (List.all_eq_true.mp (List.all_eq_true.mp h c hc) c' hc'))
+
+theorem disjoint_map_of' (L L' : List CN)
+    (h : (L.all fun c => L'.all fun c' => sepC c c') = true) :
+    ∀ x ∈ (L.map nameOf).map (fun n => ofDecl n),
+      x ∉ (L'.map nameOf).map (fun n => ofDecl n) := by
+  refine disjoint_map_of_ne (L.map nameOf) (L'.map nameOf) ?_
+  intro n hn n' hn'
+  obtain ⟨A, hA, e⟩ := List.mem_map.mp hn
+  obtain ⟨B, hB, e'⟩ := List.mem_map.mp hn'
+  have h1 : sepC A B = true := List.all_eq_true.mp (List.all_eq_true.mp h A hA) B hB
+  rw [← e, ← e']
+  exact ne_of_sepC h1
+
+/-- The module names of a duplicate-free list of declarations are
+duplicate-free (no check: `ofDecl` is injective). -/
+theorem nodup_map : ∀ (L : List Lean.Name), L.Nodup → (L.map (fun n => ofDecl n)).Nodup
+  | [], _ => List.nodup_nil
+  | a :: l, hnd => by
+    obtain ⟨ha, hl⟩ := List.nodup_cons.mp hnd
+    refine List.nodup_cons.mpr ⟨?_, nodup_map l hl⟩
+    intro hm
+    obtain ⟨b, hb, e⟩ := List.mem_map.mp hm
+    have e' : ofDecl b = ofDecl a := e
+    have hab : b = a := Tools.ShippingModuleName.ofDecl_injective e'
+    exact ha (by rw [← hab]; exact hb)
+
+theorem nodup_map_ofB (L : List Lean.Name) (hnd : L.Nodup)
+    (_h : (L.all fun c => L.all fun c' => decide (c = c') || sepB c c') = true) :
+    (L.map (fun n => ofDecl n)).Nodup :=
+  nodup_map L hnd
+
+theorem nodup_map_of (L : List Lean.Name) (hnd : L.Nodup)
+    (_h : (L.all fun c => L.all fun c' => decide (c = c') || sep c c') = true) :
+    (L.map (fun n => ofDecl n)).Nodup :=
+  nodup_map L hnd
+
+theorem nodup_map_of' (L : List CN) (hnd : (L.map nameOf).Nodup) (_h : (L.all okC) = true) :
+    ((L.map nameOf).map (fun n => ofDecl n)).Nodup :=
+  nodup_map _ hnd
+
+/-- Against an arbitrary string: the statement itself, decided (this
+EVALUATES `ofDecl c`; prefer `not_mem_cons_mem` where it applies). -/
+theorem not_mem_of (c : Lean.Name) (names : List String)
+    (h : decide (ofDecl c ∉ names) = true) : ofDecl c ∉ names :=
+  of_decide_eq_true h
+
+/-- `hfresh`, one call: the statement itself, decided (EVALUATES `ofDecl c`). -/
+theorem fresh_of (c : Lean.Name) (f : String → String) (o : String)
+    (h : decide (o ≠ f (ofDecl c)) = true) : o ≠ f (ofDecl c) :=
+  of_decide_eq_true h
+
+/-- A declaration's module name is in no empty list. -/
+theorem not_mem_nil (c : Lean.Name) : ofDecl c ∉ ([] : List String) := by
+  intro h
+  cases h
+
+/-- … and is not the name of a memory module (no evaluation). -/
+theorem not_mem_cons_mem (c : Lean.Name) (cb : Bool) (aw dw : Nat) (rest : List String)
+    (h : ofDecl c ∉ rest) : ofDecl c ∉ ofMem cb aw dw :: rest := by
+  intro hm
+  rcases List.mem_cons.mp hm with e | e
+  · exact Tools.ShippingModuleName.ofDecl_ne_ofMem c cb aw dw e
+  · exact h e
+
+end Enc
+
+/-- `ofDecl c ∉ names`: structurally when `names` is a list of memory-module
+names, else by deciding the statement. -/
+syntax "name_not_mem" : tactic
+
+macro_rules
+  | `(tactic| name_not_mem) => `(tactic| first
+      | exact Tools.ShippingNameSep.Enc.not_mem_nil _
+      | (refine Tools.ShippingNameSep.Enc.not_mem_cons_mem _ _ _ _ _ ?_; name_not_mem)
+      | exact Tools.ShippingNameSep.Enc.not_mem_of _ _ (by first | decide | decide +kernel))
 
 end Tools.ShippingNameSep

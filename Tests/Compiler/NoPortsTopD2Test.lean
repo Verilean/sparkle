@@ -136,7 +136,7 @@ open Tests.Compiler.NoPortsGrandHTest (midH_kid midHNames)
 noncomputable def mid2Names : Nat → List String := fun _ =>
   (Tools.ShippingKidsChildIface.declsOf
     Sparkle.Tests.Compiler.ShippingMachineDepthHTest.midH.machineData
-    (fun _ => ([] : List Lean.Name))).map fun n => n.toString
+    (fun _ => ([] : List Lean.Name))).map fun n => Sparkle.IR.ModuleName.ofDecl n
 
 /-- Every call entry of `mid2` is of `midH` (decided on the reflected data). -/
 theorem mid2_entry : ∀ (k : Nat)
@@ -182,7 +182,7 @@ theorem midH_names {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.M
       Sparkle.Tests.Compiler.ShippingMachineDepthHTest.midH.machineData midHNames =
       (Tools.ShippingKidsChildIface.declsOf
         Sparkle.Tests.Compiler.ShippingMachineDepthHTest.midH.machineData
-        (fun _ => ([] : List Lean.Name))).map fun n => n.toString :=
+        (fun _ => ([] : List Lean.Name))).map fun n => Sparkle.IR.ModuleName.ofDecl n :=
     Tools.ShippingKidsChildIface.namesOf_map
       Sparkle.Tests.Compiler.ShippingMachineDepthHTest.midH.machineData
       (fun _ => ([] : List Lean.Name))
@@ -238,14 +238,14 @@ theorem mid2_kid {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Met
             Sparkle.Tests.Compiler.ShippingDesignSVTest.mid2.machineData
             (fun _ => Tools.ShippingKidsChildIface.declsOf
               Sparkle.Tests.Compiler.ShippingMachineDepthHTest.midH.machineData
-              (fun _ => ([] : List Lean.Name)))).map fun n => n.toString :=
+              (fun _ => ([] : List Lean.Name)))).map fun n => Sparkle.IR.ModuleName.ofDecl n :=
         Tools.ShippingKidsChildIface.namesOf_map
           Sparkle.Tests.Compiler.ShippingDesignSVTest.mid2.machineData
           (fun _ => Tools.ShippingKidsChildIface.declsOf
             Sparkle.Tests.Compiler.ShippingMachineDepthHTest.midH.machineData
             (fun _ => ([] : List Lean.Name)))
       rw [h]
-      exact Tools.ShippingNameSep.not_mem_map_of _ _ (by first | decide | decide +kernel)
+      exact Tools.ShippingNameSep.Enc.not_mem_map_of _ _ (by first | decide | decide +kernel)
     kidsLo := by
       intro k hk
       rw [mid2_entry k hk]

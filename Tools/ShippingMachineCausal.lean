@@ -340,7 +340,7 @@ theorem src_causal_of_trace {declName : Name} {d : MachineData} {m : Sparkle.IR.
     apply admissible_of_portsD
     rw [show inputPorts (boolValues ids fun j => (B j).val (t + 1 - 1 - τ))
         (bitValues ids fun j n => (V j n).val (t + 1 - 1 - τ)) (d.bsIn.zip ids)
-        (start (entryCompilerState false cache) declName.toString) =
+        (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)) =
         machPorts declName ids cache d.bsIn from inputPorts_congr _ _ _ rfl]
     apply Zip₂.of_get hPlen
     intro q p b hp hb

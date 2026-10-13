@@ -613,7 +613,7 @@ def HierConePreserves (declName : Name) (bs : List (Name × MixedGateBinder))
     ∀ (children : String → Option (Sparkle.IR.AST.Module × WEnv)) (C : ChildSem)
       (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n)
       (initial : Env) (mems : MEnv),
-    let a := start (entryCompilerState false cache) declName.toString
+    let a := start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)
     let p := prepare bools bits (bs.zip ids) a
     Admissible bools bits initial (bs.zip ids) a →
     Separate p.bools p.bits ∧
@@ -641,7 +641,7 @@ theorem synthesizeMixedCertified_hierCone_sound {logProf declName bs body m d}
     synthesizeMixedCertified_returns hr
   refine ⟨ids, nd, len, cache, ?_⟩
   intro children C bools bits initial mems a p values
-  have empty := empty_layout (entryCompilerState false cache) declName.toString initial
+  have empty := empty_layout (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName) initial
   have prepared := prepare_layout (bs.zip ids) a empty.1 empty.2 values
   refine ⟨prepared.1.separate prepared.2.1, ?_⟩
   intro dom kb kv vw bE vE bvals vvals srt e he hbM hvM hbC hvC qeq

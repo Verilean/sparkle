@@ -52,7 +52,7 @@ theorem machineChild_iface {c : Name} (d : MachineData) (ok : d.ok = true)
     (closes : MachineClosesAt mctx mref cctx cref c d.shape) :
     ChildComb b ∧
       b.inputs.length = ((d.shape.binders.take nDecl).filter fun x => x.2 != .domain).length ∧
-      b.name = c.toString ∧ design.modules = [] := by
+      b.name = (Sparkle.IR.ModuleName.ofDecl c) ∧ design.modules = [] := by
   obtain ⟨M, D, w1, hcore, hpost, hdesM⟩ := synthesizeCombinational_parts hr
   obtain ⟨bb, r, w9, w10, hrun9, hw9, hd9, hres⟩ :=
     machine_run_of_core hcore entry (ChildBnd.of_invW mctx cctx hw)

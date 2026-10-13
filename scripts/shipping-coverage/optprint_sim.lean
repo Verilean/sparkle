@@ -144,7 +144,7 @@ run_cmd liftTermElabM do
     try
       resetRefs
       let design : Dsn ← Sparkle.Compiler.Elab.synthesizeHierarchical r.decl
-      let top ← match design.modules.find? (fun m => m.name == toString r.decl) with
+      let top ← match design.modules.find? (fun m => m.name == Sparkle.IR.ModuleName.ofDecl r.decl) with
         | some m => pure m
         | none => throwError "no module named after the declaration in the design"
       IO.FS.writeFile (dir ++ "/" ++ r.tag ++ "_tb.sv") (tbText top cs)

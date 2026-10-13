@@ -86,7 +86,7 @@ theorem core_kids_facts {c : Name} (d : MachineData) (ok : d.ok = true)
       b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M))
     (entry : MachineDefines mctx mref cctx cref c d.shape)
     (closes : MachineClosesAt mctx mref cctx cref c d.shape) :
-    M.name = c.toString ∧ b.body = M.body ∧ b.outputs = M.outputs ∧
+    M.name = (Sparkle.IR.ModuleName.ofDecl c) ∧ b.body = M.body ∧ b.outputs = M.outputs ∧
     (∀ mn i conns, Stmt.inst mn i conns ∈ M.body → ∃ mc, moduleByName D.modules mn = some mc) ∧
     (∀ g ∈ D.modules, ∃ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y ∧ (g = y.1 ∨ g ∈ y.2.modules) ∧
@@ -306,7 +306,7 @@ theorem kids_run_kid {c : Name} (d : MachineData) (ok : d.ok = true)
       RealChild mref cref (d.shape.insts[k]).1 y →
       ∀ g ∈ y.1 :: y.2.modules, ∀ mn i conns, Stmt.inst mn i conns ∈ g.body →
         ∃ g2 ∈ y.2.modules, g2.name = mn)
-    (hself : c.toString ∉ namesOf d namesK)
+    (hself : (Sparkle.IR.ModuleName.ofDecl c) ∉ namesOf d namesK)
     {w w' : Void IO.RealWorld} {b : Sparkle.IR.AST.Module} {design : Design}
     (hw : InvW mref cref w)
     (hr : RunsTo (synthesizeCombinational c) mctx mref cctx cref w (b, design) w')
@@ -379,7 +379,7 @@ theorem kids_real_kid {c : Name} (d : MachineData) (ok : d.ok = true)
       RealChild mref cref (d.shape.insts[k]).1 y →
       ∀ g ∈ y.1 :: y.2.modules, ∀ mn i conns, Stmt.inst mn i conns ∈ g.body →
         ∃ g2 ∈ y.2.modules, g2.name = mn)
-    (hself : c.toString ∉ namesOf d namesK)
+    (hself : (Sparkle.IR.ModuleName.ofDecl c) ∉ namesOf d namesK)
     (entry : MachineDefines mctx mref cctx cref c d.shape)
     (closes : ∀ (mctx' : Meta.Context) (cctx' : Core.Context),
       MachineClosesAt mctx' mref cctx' cref c d.shape)
@@ -463,7 +463,7 @@ theorem core_kids_factsM {c : Name} (d : MachineData) (ok : d.ok = true)
       b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M))
     (entry : MachineDefines mctx mref cctx cref c d.shape)
     (closes : MachineClosesAt mctx mref cctx cref c d.shape) :
-    M.name = c.toString ∧ b.body = M.body ∧ b.outputs = M.outputs ∧
+    M.name = (Sparkle.IR.ModuleName.ofDecl c) ∧ b.body = M.body ∧ b.outputs = M.outputs ∧
     (∀ mn i conns, Stmt.inst mn i conns ∈ M.body → ∃ mc, moduleByName D.modules mn = some mc) ∧
     (∀ g ∈ D.modules, ∃ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       Kid mref cref (d.shape.insts[k]).1 y ∧ (g = y.1 ∨ g ∈ y.2.modules) ∧

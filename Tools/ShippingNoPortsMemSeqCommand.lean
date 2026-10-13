@@ -255,10 +255,10 @@ def scope (f : Name) : CommandElabM Scope := do
   let memNames := mems.map fun (p, cb, aw, dw) =>
     (p, (Sparkle.Compiler.MachMemory.memModule cb aw dw).1.name)
   for (p, mn) in memNames do
-    unless (Tools.ShippingNameSep.cands f).all (fun x => x != mn) do
+    unless Sparkle.IR.ModuleName.ofDecl f != mn do
       throwError "{f}: a shared descendant: names not separated — {f} may print as {mn}, the module of {p} (hparent / hparentD are not decided)"
     for c in leaves do
-      unless (Tools.ShippingNameSep.cands c).all (fun x => x != mn) do
+      unless Sparkle.IR.ModuleName.ofDecl c != mn do
         throwError "{f}: a shared descendant: names not separated — the callee {c} may print as {mn}, the module of {p} (hsep / hdisjD are not decided)"
   for c in leaves do
     unless Tools.ShippingNameSep.sep c f do
@@ -363,7 +363,7 @@ def mkKeys (s : Scope) : CommandElabM (Array Key) := do
       { leaf := true, idx := i, decl := k, key := kq
         outs := ← `((($D).shape.layout.outs))
         ins := ← `((Tools.ShippingPortWidthsPure.declWidths $D))
-        name := ← `(((($kq : Lean.Name)).toString))
+        name := ← `(((Sparkle.IR.ModuleName.ofDecl ($kq : Lean.Name))))
         nk := ← `((((($D).shape.binders.take
           (($D).shape.binders.length - ($D).shape.layout.slots.length -
             ($D).shape.layout.lets)).filter (fun x => x.2 != .domain)).length))
@@ -635,7 +635,7 @@ def neParentT (c : Ctx) (a : Key) : CommandElabM Term := do
   let fq : Term := quote c.f
   if a.leaf then `(($(c.lem s!"leafNeParent{a.idx}")))
   else
-    `((show $(a.name) ≠ (($fq : Lean.Name)).toString from fun e =>
+    `((show $(a.name) ≠ (Sparkle.IR.ModuleName.ofDecl ($fq : Lean.Name)) from fun e =>
       $(c.lem s!"notinP{a.idx}") (List.mem_singleton.mpr e.symm)))
 
 /-- The data conditions of the closing, the name lemmas, the interfaces, and
@@ -670,24 +670,24 @@ def closingTheorems (c : Ctx) : CommandElabM Unit := do
   for mk in memKeys do
     emitThm c (c.lemName s!"notinP{mk.idx}") fun tn => `(command|
       set_option maxHeartbeats 4000000 in
-      theorem $tn : (($fq : Lean.Name)).toString ∉ $(mk.names) :=
-        Tools.ShippingNameSep.not_mem_of _ _ (by first | decide | decide +kernel))
+      theorem $tn : (Sparkle.IR.ModuleName.ofDecl ($fq : Lean.Name)) ∉ $(mk.names) :=
+        (by name_not_mem))
     for lk in leafKeys do
       emitThm c (c.lemName s!"leafNotin{lk.idx}_{mk.idx}") fun tn => `(command|
         set_option maxHeartbeats 4000000 in
         theorem $tn : $(lk.name) ∉ $(mk.names) :=
-          Tools.ShippingNameSep.not_mem_of _ _ (by first | decide | decide +kernel))
+          (by name_not_mem))
   for lk in leafKeys do
     emitThm c (c.lemName s!"leafNeParent{lk.idx}") fun tn => `(command|
       set_option maxHeartbeats 4000000 in
-      theorem $tn : $(lk.name) ≠ (($fq : Lean.Name)).toString :=
-        Tools.ShippingNameSep.sep_ne (by first | decide | decide +kernel))
+      theorem $tn : $(lk.name) ≠ (Sparkle.IR.ModuleName.ofDecl ($fq : Lean.Name)) :=
+        Tools.ShippingNameSep.Enc.sep_ne (by first | decide | decide +kernel))
     for lk' in leafKeys do
       if lk.idx < lk'.idx then
         emitThm c (c.lemName s!"leafNe{lk.idx}_{lk'.idx}") fun tn => `(command|
           set_option maxHeartbeats 4000000 in
           theorem $tn : $(lk.name) ≠ $(lk'.name) :=
-            Tools.ShippingNameSep.sep_ne (by first | decide | decide +kernel))
+            Tools.ShippingNameSep.Enc.sep_ne (by first | decide | decide +kernel))
   for mk in memKeys do
     for mk' in memKeys do
       if mk.idx < mk'.idx then
@@ -781,7 +781,7 @@ def closingTheorems (c : Ctx) : CommandElabM Unit := do
   emitThm c (c.lemName "parent") fun tn => `(command|
     set_option maxHeartbeats 4000000 in
     theorem $tn : ∀ (k : Nat), k < ($d).shape.insts.length →
-        $nameOf (Tools.ShippingMemKid.calleeAt $d k) ≠ (($fq : Lean.Name)).toString := by
+        $nameOf (Tools.ShippingMemKid.calleeAt $d k) ≠ (Sparkle.IR.ModuleName.ofDecl ($fq : Lean.Name)) := by
       intro k hk
       rw [Tools.ShippingMemKid.calleeAt_eq $d hk]
       exact $parentPf)
@@ -795,7 +795,7 @@ def closingTheorems (c : Ctx) : CommandElabM Unit := do
   emitThm c (c.lemName "parentD") fun tn => `(command|
     set_option maxHeartbeats 4000000 in
     theorem $tn : ∀ (k : Nat), k < ($d).shape.insts.length →
-        (($fq : Lean.Name)).toString ∉ $namesOf (Tools.ShippingMemKid.calleeAt $d k) := by
+        (Sparkle.IR.ModuleName.ofDecl ($fq : Lean.Name)) ∉ $namesOf (Tools.ShippingMemKid.calleeAt $d k) := by
       intro k hk
       rw [Tools.ShippingMemKid.calleeAt_eq $d hk]
       exact $parentDPf)

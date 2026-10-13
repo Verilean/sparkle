@@ -157,10 +157,10 @@ def runFull (n : Name) : MetaM (Option (Mod × Dsn) × String) := do
 
 /-- The module named after a declaration in the design of a result. -/
 def findMod (r : Mod × Dsn) (n : Name) : Option Mod :=
-  (designOf r).modules.find? fun m => m.name == toString n
+  (designOf r).modules.find? fun m => m.name == Sparkle.IR.ModuleName.ofDecl n
 
 def modRow (tag : String) (m : Mod) : MetaM Unit := do
-  let child : String := toString kSDName
+  let child : String := Sparkle.IR.ModuleName.ofDecl kSDName
   logInfo m!"SUBINSTKEY {tag} MODULE {m.name}: stmts={m.body.length} insts={instNames m} kSDinsts={instOf m child} undeclared={undeclared m} undriven={undriven m}"
   let mut i : Nat := 0
   for s in m.body do
@@ -170,7 +170,7 @@ def modRow (tag : String) (m : Mod) : MetaM Unit := do
 /-- The rows of one top: each child alone, the top, each child as the nested
 run built it. Returns the detection flag. -/
 def probe (label : String) (top : Name) (kids : List Name) : MetaM Bool := do
-  let child : String := toString kSDName
+  let child : String := Sparkle.IR.ModuleName.ofDecl kSDName
   let mut alone : List (Name × Option Mod) := []
   for k in kids do
     let (r?, msg) ← runFull k

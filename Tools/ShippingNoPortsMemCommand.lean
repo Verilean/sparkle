@@ -436,8 +436,8 @@ def closingTheorems (c : Ctx) : CommandElabM Unit := do
     let m ← c.modT j
     emit c (c.lemName s!"notin{j}") fun tn => `(command|
       set_option maxHeartbeats 4000000 in
-      theorem $tn : (($fq : Lean.Name)).toString ∉ [($m).1.name] :=
-        Tools.ShippingNameSep.not_mem_of _ _ (by first | decide | decide +kernel))
+      theorem $tn : (Sparkle.IR.ModuleName.ofDecl ($fq : Lean.Name)) ∉ [($m).1.name] :=
+        (by name_not_mem))
   let entry := c.lem "entry"
   -- `hsep` / `hparent`: ONE placeholder — `sep_of_one` / `parent_of_one` (the
   -- hand `memCounter`); several — the lemmas `sep` / `parent` below (the hand `mixedMems`)
@@ -509,7 +509,7 @@ def closingTheorems (c : Ctx) : CommandElabM Unit := do
     emit c (c.lemName "parent") fun tn => `(command|
       set_option maxHeartbeats 4000000 in
       theorem $tn : ∀ (k : Nat), k < ($d).shape.insts.length →
-          Tools.ShippingMemOnlyCloses.memNameAt $d k ≠ (($fq : Lean.Name)).toString := by
+          Tools.ShippingMemOnlyCloses.memNameAt $d k ≠ (Sparkle.IR.ModuleName.ofDecl ($fq : Lean.Name)) := by
         intro k hk e
         exact $parentPf)
     sepT := ⟨(c.lem "sep").raw⟩

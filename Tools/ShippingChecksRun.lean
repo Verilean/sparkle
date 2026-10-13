@@ -204,7 +204,7 @@ theorem parent_run_outsCheck0 {c : Name} (d : MachineData) (ok : d.ok = true)
     (hkid : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y →
       KidNames (d.shape.insts[k]).1 (namesK k) y.1 y.2)
-    (hself : c.toString ∉ namesOf d namesK)
+    (hself : (Sparkle.IR.ModuleName.ofDecl c) ∉ namesOf d namesK)
     {w w' : Void IO.RealWorld} {b : Sparkle.IR.AST.Module} {design : Design}
     (hw : InvW mref cref w)
     (hr : RunsTo (synthesizeCombinational c) mctx mref cctx cref w (b, design) w')

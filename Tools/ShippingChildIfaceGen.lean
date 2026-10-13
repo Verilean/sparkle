@@ -143,30 +143,30 @@ partial def closesDeep (c : Name) : CommandElabM (Array Prem) := do
         ((by decide : ∀ c ∈ ($data).shape.insts.map (·.1), c = $k0) c hc).trans
           ((by decide : ∀ c ∈ ($data).shape.insts.map (·.1), c = $k0) c' hc').symm)
     else if kids.all (fun a => kids.all fun b => a == b || Tools.ShippingNameSep.sepB a b) then
-      `(Tools.ShippingNameSep.hnames_of _ (by decide))
+      `(Tools.ShippingNameSep.Enc.hnames_of _ (by decide))
     else do
       let pn := Name.mkSimple s!"hN_{tag}_names"
       prems := prems.push { name := pn, binder := ← `(bracketedBinder|
         ($(mkIdent pn) : ∀ c ∈ ($data).shape.insts.map (·.1),
-          ∀ c' ∈ ($data).shape.insts.map (·.1), c.toString = c'.toString → c = c')) }
+          ∀ c' ∈ ($data).shape.insts.map (·.1), (Sparkle.IR.ModuleName.ofDecl c) = (Sparkle.IR.ModuleName.ofDecl c') → c = c')) }
       `($(mkIdent pn))
   let pparent := Name.mkSimple s!"hN_{tag}_parent"
   let hparentT : Term ← if kids.all (fun k => Tools.ShippingNameSep.sepB k c) then
-      `(Tools.ShippingNameSep.hparent_of _ _ (by decide))
+      `(Tools.ShippingNameSep.Enc.hparent_of _ _ (by decide))
     else do
       prems := prems.push { name := pparent, binder := ← `(bracketedBinder|
         ($(mkIdent pparent) : ∀ c ∈ ($data).shape.insts,
-          c.1.toString ≠ ($cq : Lean.Name).toString)) }
+          (Sparkle.IR.ModuleName.ofDecl c.1) ≠ (Sparkle.IR.ModuleName.ofDecl ($cq : Lean.Name)))) }
       `($(mkIdent pparent))
   let hfresh ← if r.shape.layout.outs.all (fun o => o.name.toList.head? != some 'i') then
       `(fun gi c _ o ho => Tools.ShippingCallsGate.instName_ne_of_head
         ((by decide : ∀ o ∈ ($data).shape.layout.outs, o.name.toList.head? ≠ some 'i') o ho) gi
-        c.1.toString)
+        (Sparkle.IR.ModuleName.ofDecl c.1))
     else do
       let pn := Name.mkSimple s!"hN_{tag}_fresh"
       prems := prems.push { name := pn, binder := ← `(bracketedBinder|
         ($(mkIdent pn) : ∀ (gi : Nat), ∀ c ∈ ($data).shape.insts, ∀ o ∈ ($data).shape.layout.outs,
-          o.name ≠ s!"inst{gi}_{c.1.toString}")) }
+          o.name ≠ s!"inst{gi}_{(Sparkle.IR.ModuleName.ofDecl c.1)}")) }
       `($(mkIdent pn))
   let nkArr := calls.toArray.map fun k => (nodes.get! k).nArgs
   let outArr := calls.toArray.map fun k => (nodes.get! k).outs
@@ -177,7 +177,7 @@ partial def closesDeep (c : Name) : CommandElabM (Array Prem) := do
   let nkF ← `(fun k => List.getD $kbs k 0)
   let outF ← `(fun k => List.getD $kos k [])
   -- the descendants' printed names: the descendants' declarations, printed
-  let nmF ← `(fun k => (List.getD $kds k []).map fun n => n.toString)
+  let nmF ← `(fun k => (List.getD $kds k []).map fun n => Sparkle.IR.ModuleName.ofDecl n)
   let declsAt (k : Name) : List Name := (nodes.get! k).decls
   let sepAll (a : Name) (L : List Name) : Bool := L.all fun b => Tools.ShippingNameSep.sepB a b
   let namesSep := calls.all (fun k => sepAll c (declsAt k) && sepAll k (declsAt k)) &&
@@ -192,22 +192,22 @@ partial def closesDeep (c : Name) : CommandElabM (Array Prem) := do
     else if namesSep then
       -- separated by the names' candidate renderings (`Tools.ShippingNameSep`)
       pure (
-        ← `(fun k hk => Tools.ShippingNameSep.not_mem_map_of _ _
+        ← `(fun k hk => Tools.ShippingNameSep.Enc.not_mem_map_of _ _
           ((by decide : ∀ (k : Nat), k < ($data).shape.insts.length →
             ((List.getD $kds k []).all fun c' =>
               Tools.ShippingNameSep.sep ($cq : Lean.Name) c') = true) k hk)),
-        ← `(fun k hk => Tools.ShippingNameSep.not_mem_map_of _ _
+        ← `(fun k hk => Tools.ShippingNameSep.Enc.not_mem_map_of _ _
           ((by decide : ∀ (k : Nat) (hk : k < ($data).shape.insts.length),
             ((List.getD $kds k []).all fun c' =>
               Tools.ShippingNameSep.sep (($data).shape.insts[k]).1 c') = true) k hk)),
         ← `(fun k hk k' hk' hne =>
-          ⟨Tools.ShippingNameSep.not_mem_map_of _ _
+          ⟨Tools.ShippingNameSep.Enc.not_mem_map_of _ _
             ((by decide : ∀ (k : Nat) (hk : k < ($data).shape.insts.length) (k' : Nat)
               (hk' : k' < ($data).shape.insts.length),
               (($data).shape.insts[k]).1 ≠ (($data).shape.insts[k']).1 →
               ((List.getD $kds k' []).all fun c' =>
                 Tools.ShippingNameSep.sep (($data).shape.insts[k]).1 c') = true) k hk k' hk' hne),
-           Tools.ShippingNameSep.disjoint_map_of _ _
+           Tools.ShippingNameSep.Enc.disjoint_map_of _ _
             ((by decide : ∀ (k : Nat) (hk : k < ($data).shape.insts.length) (k' : Nat)
               (hk' : k' < ($data).shape.insts.length),
               (($data).shape.insts[k]).1 ≠ (($data).shape.insts[k']).1 →
@@ -219,15 +219,15 @@ partial def closesDeep (c : Name) : CommandElabM (Array Prem) := do
       let p3 := Name.mkSimple s!"hN_{tag}_disjD"
       prems := prems.push { name := p1, binder := ← `(bracketedBinder|
         ($(mkIdent p1) : ∀ (k : Nat), k < ($data).shape.insts.length →
-          ($cq : Lean.Name).toString ∉ ($nmF) k)) }
+          (Sparkle.IR.ModuleName.ofDecl ($cq : Lean.Name)) ∉ ($nmF) k)) }
       prems := prems.push { name := p2, binder := ← `(bracketedBinder|
         ($(mkIdent p2) : ∀ (k : Nat) (hk : k < ($data).shape.insts.length),
-          (($data).shape.insts[k]).1.toString ∉ ($nmF) k)) }
+          (Sparkle.IR.ModuleName.ofDecl (($data).shape.insts[k]).1) ∉ ($nmF) k)) }
       prems := prems.push { name := p3, binder := ← `(bracketedBinder|
         ($(mkIdent p3) : ∀ (k : Nat) (hk : k < ($data).shape.insts.length) (k' : Nat)
           (hk' : k' < ($data).shape.insts.length),
           (($data).shape.insts[k]).1 ≠ (($data).shape.insts[k']).1 →
-          (($data).shape.insts[k]).1.toString ∉ ($nmF) k' ∧
+          (Sparkle.IR.ModuleName.ofDecl (($data).shape.insts[k]).1) ∉ ($nmF) k' ∧
             ∀ x ∈ ($nmF) k, x ∉ ($nmF) k')) }
       pure (← `($(mkIdent p1)), ← `($(mkIdent p2)), ← `($(mkIdent p3)))
   let nCalls := Syntax.mkNumLit (toString calls.length)
@@ -277,7 +277,7 @@ partial def ifaceDeep (k : Name) : CommandElabM Node := do
         (Tools.ShippingGateChild.bits_positions (by decide)) hy))
     return { prems := #[{ name := pn, binder := b, refl := some false }], nArgs := ← `(0),
              outs := ← `(([] : List String)),
-             names := ← `((([] : List Lean.Name).map fun n => n.toString)), iface := f,
+             names := ← `((([] : List Lean.Name).map fun n => Sparkle.IR.ModuleName.ofDecl n)), iface := f,
              declsT := ← `(([] : List Lean.Name)), isGate := true }
   unless (← getEnv).contains (k ++ `machineData) && (← getEnv).contains (k ++ `machine_ok) &&
       (← getEnv).contains (k ++ `machine_body) do
@@ -296,7 +296,7 @@ partial def ifaceDeep (k : Name) : CommandElabM Node := do
       (Tools.ShippingSeqChildIface.seqChild_of_real $kd $(n k "machine_ok") $(n k "machine_body")
         rfl (by decide) $(mkIdent pn) (fun mc cc => $(n k "machine_closes") mc _ cc _) hy))
     return { prems := #[self], outs,
-             names := ← `((([] : List Lean.Name).map fun n => n.toString)), iface := f,
+             names := ← `((([] : List Lean.Name).map fun n => Sparkle.IR.ModuleName.ofDecl n)), iface := f,
              declsT := ← `(([] : List Lean.Name)),
              nArgs := ← `(((($kd).shape.binders.take (($kd).shape.binders.length -
                ($kd).shape.layout.slots.length - ($kd).shape.layout.lets)).filter
@@ -316,9 +316,9 @@ partial def ifaceDeep (k : Name) : CommandElabM Node := do
   let dArr := calls.toArray.map fun g => (sub.get! g).declsT
   let kds ← `(([$dArr,*] : List (List Lean.Name)))
   let dF ← `(fun k => List.getD $kds k [])
-  let nmF ← `(fun k => (List.getD $kds k []).map fun n => n.toString)
+  let nmF ← `(fun k => (List.getD $kds k []).map fun n => Sparkle.IR.ModuleName.ofDecl n)
   let declsT ← `(Tools.ShippingKidsChildIface.declsOf $kd $dF)
-  let names ← `(($declsT).map fun n => n.toString)
+  let names ← `(($declsT).map fun n => Sparkle.IR.ModuleName.ofDecl n)
   let decls : List Name := (kids ++ kids.flatMap fun g => (sub.get! g).decls).eraseDups
   let pself := Name.mkSimple s!"hN_{mangle k}_self"
   -- the declaration prints differently from its descendants: by the candidate
@@ -326,10 +326,10 @@ partial def ifaceDeep (k : Name) : CommandElabM Node := do
   let hselfT : Term ← if decls.all (fun g => Tools.ShippingNameSep.sepB k g) then
       `((by
         rw [Tools.ShippingKidsChildIface.namesOf_map $kd $dF]
-        exact Tools.ShippingNameSep.not_mem_map_of _ _ (by decide)))
+        exact Tools.ShippingNameSep.Enc.not_mem_map_of _ _ (by decide)))
     else do
       prems := prems.push { name := pself, binder := ← `(bracketedBinder|
-        ($(mkIdent pself) : ($kq : Lean.Name).toString ∉
+        ($(mkIdent pself) : (Sparkle.IR.ModuleName.ofDecl ($kq : Lean.Name)) ∉
           Tools.ShippingKidsChildIface.namesOf $kd $nmF)) }
       `($(mkIdent pself))
   let nCalls := Syntax.mkNumLit (toString calls.length)

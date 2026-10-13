@@ -16,7 +16,7 @@ closing; the callees are two DECLARATIONS, `pick` and `pickD`:
   called declarations the name premises `hnames` / `hparent` are binders of
   `f.machine_closes_at` ONLY when `Tools.ShippingNameSep.sepB` fails on a
   pair; otherwise they are discharged inside the proof by
-  `Tools.ShippingNameSep.hnames_of _ (by decide)` /
+  `Tools.ShippingNameSep.Enc.hnames_of _ (by decide)` /
   `hparent_of _ _ (by decide)`. `hfresh` is discharged when no output name
   starts with `i`.
 * `Tests/Compiler/ShippingCallsCloseTest.lean` (BUILT, in `Tests.AllTests`):
@@ -90,7 +90,7 @@ def twoCallee (f : Name) (kids : List Name) : MetaM Unit := do
   for t in props do
     unless t.isAppOf ``Tools.ShippingInlineSoundness.EntryDefines do
       throwError "{cl}: a binder that is not an EntryDefines: {← ppExpr t}"
-    if (t.find? (·.isConstOf ``Lean.Name.toString)).isSome then
+    if (t.find? (fun e => e.isConstOf ``Lean.Name.toString || e.isConstOf ``Sparkle.IR.ModuleName.ofDecl)).isSome then
       throwError "{cl}: a binder states a name condition (Name.toString): {← ppExpr t}"
   for c in kids do
     unless props.any (fun t => (t.find? (·.isConstOf (c ++ `gateValue))).isSome) do
@@ -99,13 +99,13 @@ def twoCallee (f : Name) (kids : List Name) : MetaM Unit := do
   let used : Array Name := match (← getEnv).find? cl with
     | some (.thmInfo ti) => ti.value.getUsedConstants
     | _ => #[]
-  let hn := used.contains ``Tools.ShippingNameSep.hnames_of
-  let hp := used.contains ``Tools.ShippingNameSep.hparent_of
+  let hn := used.contains ``Tools.ShippingNameSep.Enc.hnames_of
+  let hp := used.contains ``Tools.ShippingNameSep.Enc.hparent_of
   unless hn && hp do
     throwError "{cl}: the proof does not go through Tools.ShippingNameSep (hnames_of used: {hn}, hparent_of used: {hp}) although no name premise is a binder"
   -- the closed endpoint: no name condition written, every callee's reflection a binder
   let closedT := (← getConstInfo closed).type
-  if (closedT.find? (·.isConstOf ``Lean.Name.toString)).isSome then
+  if (closedT.find? (fun e => e.isConstOf ``Lean.Name.toString || e.isConstOf ``Sparkle.IR.ModuleName.ofDecl)).isSome then
     throwError "{closed}: the statement writes a name condition (Name.toString)"
   let cprops ← forallTelescope closedT fun xs _ => do
     let mut acc : Array Lean.Expr := #[]
@@ -117,7 +117,7 @@ def twoCallee (f : Name) (kids : List Name) : MetaM Unit := do
     unless cprops.any (fun t => t.isAppOf ``Tools.ShippingInlineSoundness.EntryDefines &&
         (t.find? (·.isConstOf (c ++ `gateValue))).isSome) do
       throwError "{closed}: no EntryDefines binder of {c}"
-  logInfo m!"ONEOUT TWO-CALLEE {f}: {cl} has {props.size} proposition binders, all EntryDefines ({kids}), none a name condition; the name separation (callee against callee, callee against parent) is discharged inside its proof by Tools.ShippingNameSep.hnames_of / hparent_of — decided by the kernel on the candidate renderings of the names, a per-declaration condition, not a reduction; {closed} writes no Name.toString and has the reflection of each of {kids} as a binder. The expectation of the previous round (name-separation premises in the closed form) does NOT hold for {f}."
+  logInfo m!"ONEOUT TWO-CALLEE {f}: {cl} has {props.size} proposition binders, all EntryDefines ({kids}), none a name condition; the name separation (callee against callee, callee against parent) is discharged inside its proof by Tools.ShippingNameSep.Enc.hnames_of / hparent_of — decided by the kernel on the candidate renderings of the names, a per-declaration condition, not a reduction; {closed} writes no Name.toString and has the reflection of each of {kids} as a binder. The expectation of the previous round (name-separation premises in the closed form) does NOT hold for {f}."
 
 end Tests.Compiler.OneOutTwoCalleeTest
 
