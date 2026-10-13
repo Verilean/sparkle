@@ -2779,3 +2779,9 @@ lean_lib «Tools.ShippingEntryOkWide» where
 
 lean_lib «Tools.ShippingMachineRan» where
   roots := #[`Tools.ShippingMachineRan]
+
+lean_lib «Tools.ShippingMachineLoopJoint» where
+  roots := #[`Tools.ShippingMachineLoopJoint]
+
+lean_lib «Tools.ShippingMachineLoopCausalCommand» where
+  roots := #[`Tools.ShippingMachineLoopCausalCommand]

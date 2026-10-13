@@ -9,6 +9,7 @@ import Tools.ShippingMachineClosesAtGen
 import Tools.ShippingNoPortsMemCommand
 import Tools.ShippingNoPortsKidsCommand
 import Tools.ShippingNoPortsDeepCommand
+import Tools.ShippingMachineLoopCausalCommand
 import Tests.Compiler.ShippingMachineSeqTest
 
 /-! # A parent whose CHILD has a memory: the smallest declarations, and which command stops (round par/b-38)
@@ -187,4 +188,39 @@ end Tests.Compiler.MemDepthProbeTest
 #mem_depth_try "G.3 #machine_closes_at memGrand" in
   #machine_closes_at Sparkle.Tests.Compiler.MemDepthProbeTest.memGrand
 #mem_depth_try "G.4 #machine_no_ports_deep memGrand 2" in
+  #machine_no_ports_deep Sparkle.Tests.Compiler.MemDepthProbeTest.memGrand 2
+
+/-! ## Round par/c-1: the loop child's joint causality, then the parents again
+
+WRITTEN, NOT BUILT. The steps above stay as they were (with the fifth head in
+`causalFactE`, P2.1 and G.1 are expected to stop at the NEW message "has no
+machine_ext_joint": `#machine_ext_joint` has not run yet there). Below:
+`#machine_ext_joint memCounterH` (`memCounterH.machine_sigma_inj`,
+`memCounterH.machine_ext_ctx`, `memCounterH.machine_ext_joint`), then every
+parent step again. The PREDICTED outcomes are in
+`docs/parallel/C-loop-child-calls.md`, section 6. Nothing is asserted. -/
+
+#mem_depth_try "J1 #machine_ext_joint memCounterH" in
+  #machine_ext_joint Sparkle.Tests.Compiler.MemDepthProbeTest.memCounterH
+
+#mem_depth_try "Q2.1 #machine_endpoint memParent" in
+  #machine_endpoint Sparkle.Tests.Compiler.MemDepthProbeTest.memParent
+#mem_depth_try "Q2.2 #machine_design_svNR memParent 1" in
+  #machine_design_svNR Sparkle.Tests.Compiler.MemDepthProbeTest.memParent 1
+#mem_depth_try "Q2.3 #machine_closes_at memParent" in
+  #machine_closes_at Sparkle.Tests.Compiler.MemDepthProbeTest.memParent
+#mem_depth_try "Q2.4 #machine_no_ports_kids memParent 1" in
+  #machine_no_ports_kids Sparkle.Tests.Compiler.MemDepthProbeTest.memParent 1
+#mem_depth_try "Q2.5 #machine_no_ports_deep memParent 2" in
+  #machine_no_ports_deep Sparkle.Tests.Compiler.MemDepthProbeTest.memParent 2
+
+#mem_depth_try "H.1 #machine_endpoint memGrand" in
+  #machine_endpoint Sparkle.Tests.Compiler.MemDepthProbeTest.memGrand
+#mem_depth_try "H.2 #machine_design_svNR memGrand 2" in
+  #machine_design_svNR Sparkle.Tests.Compiler.MemDepthProbeTest.memGrand 2
+#mem_depth_try "H.3 #machine_closes_at memGrand" in
+  #machine_closes_at Sparkle.Tests.Compiler.MemDepthProbeTest.memGrand
+#mem_depth_try "H.4 #machine_no_ports_kids memGrand 1" in
+  #machine_no_ports_kids Sparkle.Tests.Compiler.MemDepthProbeTest.memGrand 1
+#mem_depth_try "H.5 #machine_no_ports_deep memGrand 2" in
   #machine_no_ports_deep Sparkle.Tests.Compiler.MemDepthProbeTest.memGrand 2
