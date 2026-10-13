@@ -2812,3 +2812,12 @@ lean_lib «Tools.ShippingGenKidM» where
 
 lean_lib «Tools.ShippingBndOnly» where
   roots := #[`Tools.ShippingBndOnly]
+
+lean_lib «Tools.ShippingMemKidTags» where
+  roots := #[`Tools.ShippingMemKidTags]
+
+lean_lib «Tools.ShippingNoPortsMemKidCommand» where
+  roots := #[`Tools.ShippingNoPortsMemKidCommand]
+
+lean_lib «Tools.ShippingNoPortsMemKidSweep» where
+  roots := #[`Tools.ShippingNoPortsMemKidSweep]

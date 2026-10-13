@@ -229,6 +229,7 @@ import Tests.Compiler.NoPortsMemSeqGenNew2Test
 import Tests.Compiler.NoPortsMemSeqGenNewTest
 import Tests.Compiler.LeafDesignCntTest
 import Tests.Compiler.LeafDesignFamilyTest
+import Tests.Compiler.NoPortsMemKidTest
 import Tests.Compiler.CombClosedSweepLinkedTest
 import Tests.Compiler.GateDesignSweepTest
 import Tests.Compiler.GateSourceSweepTest
