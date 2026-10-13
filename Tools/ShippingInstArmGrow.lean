@@ -1,15 +1,13 @@
 import Tools.ShippingWalkGrow
 import Tools.ShippingInstanceTag
 
-/-! # The instance arm over a captured environment, in the growing-cache calculus
+/-! # The instance arm in the growing-cache calculus (the entry's environment)
 
-WRITTEN, NOT BUILT (`fix/inst-arm-env`, an ISOLATED proposal). About
-`translateInstanceArmWith env rec` — the instance arm that takes the
-environment as an ARGUMENT (`Sparkle/Compiler/Elab.lean`, this branch only;
-`docs/parallel/ENV-capture-proposal.md`). The arm of poc,
-`translateInstanceOrFallback`, reads the environment itself, and no built law
-relates that read to the entry's (`docs/parallel/B-slotless-parents-2.md`
-§11); with the environment an argument the tag is a fact about a VALUE.
+WRITTEN, NOT BUILT (`fix/env-capture-a`; docs/parallel/M-env-capture-a.md).
+About `translateInstanceOrFallback env rec` — the instance arm of the ONE
+entry, which takes the environment its entry read as an argument. With the
+environment an argument the tag is a fact about a VALUE, and the value is the
+one the mixed gate's predicate was computed from.
 
 What is here:
 
@@ -25,26 +23,26 @@ What is here:
   is not excluded by the shape: `Tools.ShippingInstanceTag.root_tag` gives
   the disjunction there.)
 * `armCont` — the arm's continuation after the child's synthesis, as a
-  definition, and `armCont_keepsC`, `translateInstanceArmWith_keepsC` (the
-  invariant side, by the walk `vc`, under the hypotheses of the built
-  `translateInstanceOrFallback_keepsC`).
-* `translateFallbackE_keepsC`, `translateExprToWireE_keepsC` — the whole
-  translator over a captured environment keeps the invariant (the fuel
-  induction of the built `translateRel_of_legacy`, with the captured arm).
+  definition, and `armCont_keepsC` (the invariant side, by the walk `vc`,
+  under the hypotheses of the built `translateInstanceOrFallback_keepsC`).
+  The arm's own invariant lemma and the translator's are the BUILT ones
+  (`translateInstanceOrFallback_keepsC`, `translateFallback_keepsC`,
+  `translateRel`), now statements about the one arm: the duplicates the
+  two-entry proposal carried are gone.
 * `instanceArm_grow` — the arm in `WG`: from an invariant world of positive
   depth, a returning run of the arm on a call whose head `mn` is tagged in
-  the captured environment ends in an invariant world of the same depth
-  whose cache contains the start cache, and there is a pair `y` such that
-  `y` is a `RealChild` of `mn` (a run of the real full entry over these
-  references), `y` is THE entry of `mn` in the end cache, and the wire is
-  what `armCont rec mn y …` returned (a `Returns`: the door to the built
-  shape lemmas, which analyse exactly that program).
+  the arm's environment ends in an invariant world of the same depth whose
+  cache contains the start cache, and there is a pair `y` such that `y` is a
+  `RealChild` of `mn` (a run of the real full entry over these references),
+  `y` is THE entry of `mn` in the end cache, and the wire is what
+  `armCont rec mn y …` returned (a `Returns`: the door to the built shape
+  lemmas, which analyse exactly that program).
 
 No `HardwareTagged`, no `SubSynthDefines`: the tag is a hypothesis about the
 value `env`, the child is the run's own.
 
 NOT here: `gate_parent_run`. Its exact statement and what it still needs are
-in `docs/parallel/ENV-capture-proposal.md` §6. -/
+in docs/parallel/M-env-capture-a.md (section "The consumer"). -/
 
 namespace Tools.ShippingInstanceTag
 open Lean Sparkle.Compiler.Elab
@@ -100,7 +98,7 @@ open Sparkle.Compiler.Elab
 /-- The instance arm after the child's synthesis returned `sub`: a child
 with one output takes the certified lowering under the validated cache
 wrapper, any other the legacy translator. (The text of
-`translateInstanceArmWith` after its `let sub ← …`.) -/
+`translateInstanceOrFallback` after its `let sub ← …`.) -/
 def armCont (rec : TranslateFn) (mn : Name)
     (sub : Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) (e : Lean.Expr) (hint : String)
     (top named : Bool) : CompilerM String :=
@@ -134,45 +132,7 @@ theorem armCont_keepsC (mn : Name) (sub : Sparkle.IR.AST.Module × Sparkle.IR.AS
     KeepsC mctx mref cctx cref (J L D) (armCont rec mn sub e hint top named) := by
   vc
 
-set_option linter.unusedSectionVars false in
-/-- **The instance arm over a captured environment keeps the invariant**:
-the child's synthesis (`childSynthEntry`), the single-output and the
-projection lowerings under the validated cache wrapper, or the legacy
-translator — the walk of `translateInstanceOrFallback_keepsC` without the
-environment read. -/
-theorem translateInstanceArmWith_keepsC (env : Environment) (e : Lean.Expr) (hint : String)
-    (top named : Bool) :
-    KeepsC mctx mref cctx cref (J L D) (translateInstanceArmWith env rec e hint top named) := by
-  vc
-
-include hlegI
-
-set_option linter.unusedSectionVars false in
-/-- **The fallback over a captured environment**: one arm per `fallbackKind`
-(the walk of the built `translateFallback_keepsC`, its last arm the captured
-one). -/
-theorem translateFallbackE_keepsC (env : Environment) (e : Lean.Expr) (hint : String)
-    (top named : Bool) :
-    KeepsC mctx mref cctx cref (J L D) (translateFallbackE env rec e hint top named) := by
-  vc
-
 end CapturedArm
-
-/-- **The translator over a captured environment keeps the invariant**, from
-the legacy translator's relation (the proof of the built
-`translateRel_of_legacy`, with `translateFallbackE env` for
-`translateFallback`). -/
-theorem translateExprToWireE_keepsC (hLg : LegacyRel L) (hC : ChildKeeps L D)
-    (env : Environment) :
-    ∀ (mctx : Meta.Context) (cctx : Core.Context) e hint top named,
-      KeepsC mctx mref cctx cref (J L D) (translateExprToWireE env e hint top named) := by
-  intro mctx cctx e hint top named
-  unfold translateExprToWireE
-  refine fuelFix_keepsC (translateStepWith (translateFallbackE env))
-    (fun rec hrec mctx cctx e hint top named => ?_) _ mctx cctx e hint top named
-  obtain ⟨h1, h2⟩ := hLg D hC rec hrec mctx cctx
-  exact translateStepWith_keepsC L D (translateFallbackE env) rec hrec
-    (translateFallbackE_keepsC L D rec hrec hC h1 h2 env) e hint top named
 
 end Tools.ShippingChildInv
 
@@ -186,8 +146,8 @@ variable {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State}
   {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State}
 variable {L : RefLaws mref cref} {D : Nat} {ctx : CompilerState}
 
-/-- **The instance arm over a captured environment, world-aware.** For a
-call whose head `mn` is tagged in the captured `env`: the invariant, the
+/-- **The instance arm, world-aware.** For a
+call whose head `mn` is tagged in the arm's environment `env`: the invariant, the
 depth and every cache entry are kept; the child the arm instantiates is a
 `RealChild` of `mn` and THE entry of `mn` in the end cache; the returned wire
 is the one `armCont rec mn y …` returned for that child.
@@ -207,14 +167,14 @@ theorem instanceArm_grow (hB : ∀ L' : RefLaws mref cref, BodyRel L') (hD : D �
     (hfn : e.getAppFn = .const mn us)
     (htag : Sparkle.Compiler.isHardwareModule env mn = true)
     (hint : String) (top named : Bool) {P : Std.HashMap Lean.Name Res → Prop} :
-    WG mctx cctx L D ctx P (translateInstanceArmWith env rec e hint top named)
+    WG mctx cctx L D ctx P (translateInstanceOrFallback env rec e hint top named)
       (fun wire m => ∃ y : Res, RealChild mref cref mn y ∧ m.get? mn = some y ∧
         ∃ (st s' : CircuitState),
           Tools.ShippingTranslateSoundness.Returns (armCont rec mn y e hint top named)
             ctx st wire s') := by
   intro st w p w' hw hd hp hr
   -- the arm at a tagged constant head: the child's synthesis, then `armCont`
-  unfold translateInstanceArmWith at hr
+  unfold translateInstanceOrFallback at hr
   rw [hfn] at hr
   try dsimp only at hr
   rw [htag] at hr
@@ -253,7 +213,7 @@ theorem instanceArm_grow_of_root (hB : ∀ L' : RefLaws mref cref, BodyRel L') (
     (hsp : unifiedInstanceSpine kinds e0 = true)
     (hfn : e.getAppFn = .const mn us')
     (hint : String) (top named : Bool) {P : Std.HashMap Lean.Name Res → Prop} :
-    WG mctx cctx L D ctx P (translateInstanceArmWith envR rec e hint top named)
+    WG mctx cctx L D ctx P (translateInstanceOrFallback envR rec e hint top named)
       (fun wire m => ∃ y : Res, RealChild mref cref mn y ∧ m.get? mn = some y ∧
         ∃ (st s' : CircuitState),
           Tools.ShippingTranslateSoundness.Returns (armCont rec mn y e hint top named)
