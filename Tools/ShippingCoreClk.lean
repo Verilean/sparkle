@@ -1,5 +1,6 @@
 import Tools.ShippingClosedTyped
 import Tools.ShippingPortWidthsPure
+import Tools.ShippingMachineRanBase
 
 /-! # `clk` and `rst` are one bit in the full entry's module of a machine with calls and slots (G1, port matching)
 
@@ -52,9 +53,11 @@ variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
   {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
 
 set_option maxHeartbeats 4000000 in
-/-- **The clock and the reset of the full entry's module of a machine with
-calls and slots are one bit in the emitter's width map.** -/
-theorem core_clk {c : Name} (d : MachineData) (ok : d.ok = true)
+/-- `core_clk` over `MachineRan`: the TAIL of the built proof, moved (round par/g-1).
+What it takes of the run is that the machine synthesis this core run performed
+returned `(M, D)` from an invariant world; `core_clk` below is its instance at the
+all-worlds closing (`Tools.ShippingMachineRan.machineRan_of_closes`). -/
+theorem core_clk_ran {c : Name} (d : MachineData) (ok : d.ok = true)
     (hbody : d.shape.body = quote d.dom
       (fun j => inputExpr d.shape.binders.length (d.bpos j))
       (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
@@ -65,13 +68,10 @@ theorem core_clk {c : Name} (d : MachineData) (ok : d.ok = true)
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
     (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
     (hsl : d.shape.layout.slots ≠ [])
-    {w w1 : Void IO.RealWorld} {M b : Sparkle.IR.AST.Module} {D : Design}
-    (hB : ChildBnd mref cref w)
-    (hcore : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, D) w1)
+    {M b : Sparkle.IR.AST.Module} {D : Design}
     (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨
       b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M))
-    (entry : MachineDefines mctx mref cctx cref c d.shape)
-    (closes : MachineClosesAt mctx mref cctx cref c d.shape) :
+    (ran : Tools.ShippingMachineRan.MachineRan mctx mref cctx cref c d.shape M D) :
     Tools.ShippingDesignSV.weS b "clk" = 1 ∧ Tools.ShippingDesignSV.weS b "rst" = 1 := by
   have hbi : b.inputs = M.inputs := by
     rcases hpost with h | h
@@ -84,14 +84,8 @@ theorem core_clk {c : Name} (d : MachineData) (ok : d.ok = true)
     · rw [h]
     · rw [h, (Sparkle.IR.RefineCheck.mergeChecked_ports _).2.2]
   -- the run
-  obtain ⟨bb, r, w9, w10, hrun9, hw9, hd9, hres⟩ :=
-    machine_run_of_core hcore entry hB
-  have hne := closes bb _ _ _ hw9 hd9 hrun9
-  cases r with
-  | none => exact absurd rfl hne
-  | some res =>
-  have hres' := hres res rfl
-  subst hres'
+  have ran0 := ran
+  obtain ⟨bb, w9, w10, hrun9, hw9, -⟩ := ran0
   obtain ⟨t, t', d₀, run, hcl, hmt⟩ := synthesizeMachineCertified_runs hw9 hrun9
   rcases hmt with ⟨hno, -, -⟩ | ⟨-, children, hcc, hreal⟩
   · exact absurd hno hins
@@ -171,5 +165,30 @@ theorem core_clk {c : Name} (d : MachineData) (ok : d.ok = true)
   have hbIn := hbi.trans hMin
   exact Tools.ShippingPortWidthsPure.weS_clk_rst_filtered hbIn (if_neg hs') hc hr
     (fun p hp => hwCM p (hwsub p hp)) hPal
+
+set_option maxHeartbeats 4000000 in
+/-- **The clock and the reset of the full entry's module of a machine with
+calls and slots are one bit in the emitter's width map.** -/
+theorem core_clk {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    {nDecl : Nat} (hC : d.callsOk nDecl = true)
+    (hslots : d.ss.length = d.shape.layout.slots.length)
+    (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
+    (hins : d.shape.insts ≠ [])
+    (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
+    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hsl : d.shape.layout.slots ≠ [])
+    {w w1 : Void IO.RealWorld} {M b : Sparkle.IR.AST.Module} {D : Design}
+    (hB : ChildBnd mref cref w)
+    (hcore : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, D) w1)
+    (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨
+      b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M))
+    (entry : MachineDefines mctx mref cctx cref c d.shape)
+    (closes : MachineClosesAt mctx mref cctx cref c d.shape) :
+    Tools.ShippingDesignSV.weS b "clk" = 1 ∧ Tools.ShippingDesignSV.weS b "rst" = 1 :=
+  core_clk_ran d ok hbody hC hslots hdomB hins outTy hnomem hsl hpost
+    (Tools.ShippingMachineRan.machineRan_of_closes hcore entry hB closes)
 
 end Tools.ShippingCoreClk
