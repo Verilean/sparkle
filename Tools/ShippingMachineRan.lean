@@ -1,10 +1,17 @@
 import Tools.ShippingCacheCoherentOuter
 import Tools.ShippingKidsSelf
+import Tools.ShippingMachineRanBase
 
 /-! # `MachineRan`: what every design-level consumer takes of the closing, stated for ONE run
 
-WRITTEN, NOT BUILT (par/a-43). No built file is edited; no endpoint, premise
-or generator changes.
+BUILT as of par/a-43 (docs/parallel/A-outermost-form.md, the integrator's
+record). EDITED in round par/g-1 (WRITTEN, NOT BUILT), statements unchanged:
+`MachineRan` and `machineRan_of_closes` MOVED to
+`Tools/ShippingMachineRanBase.lean` (same full names), and
+`core_kids_self_ran` is now the split lemma of `Tools/ShippingKidsSelf.lean`
+instead of a copy of its tail. The section "Do the built proofs factor through
+it?" below describes the state BEFORE that round: the thirteen tails are no
+longer inline (docs/parallel/G-mixdeep-outermost.md).
 
 ## What the consumers do with `closes` (read line by line)
 
@@ -71,16 +78,11 @@ def Start0 (mref : ST.Ref IO.RealWorld Meta.State) (cref : ST.Ref IO.RealWorld C
     (w : Void IO.RealWorld) : Prop :=
   ∃ L : RefLaws mref cref, L.sval w = some synthesizeChild ∧ L.dval w = 0 ∧ L.quiet w
 
-/-- **The machine synthesis a core run performs returned the run's result**,
-from an invariant world of positive depth. -/
-def MachineRan (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State)
-    (cctx : Core.Context) (cref : ST.Ref IO.RealWorld Core.State)
-    (c : Name) (shape : MachineShape) (M : Sparkle.IR.AST.Module) (D : Design) : Prop :=
-  ∃ (b : Bool) (w9 w10 : Void IO.RealWorld),
-    RunsTo (synthesizeMachineCertified
-      (fun e hint top named => translateExprToWire e hint top named) (profLogIO b) c shape)
-      mctx mref cctx cref w9 (some (M, D)) w10 ∧
-    InvW mref cref w9 ∧ DepthPos mref cref w9
+-- `MachineRan` (the machine synthesis a core run performs returned the run's
+-- result, from an invariant world of positive depth) and `machineRan_of_closes`
+-- (from the all-worlds closing) are in `Tools/ShippingMachineRanBase.lean` since
+-- round par/g-1: same names, same namespace, same statements. They were MOVED
+-- so that the base lemmas below `Tools.ShippingKidsSelf` can use them.
 
 variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
   {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
@@ -90,24 +92,6 @@ theorem Start0.childBnd {w : Void IO.RealWorld} (h : Start0 mref cref w) :
     ChildBnd mref cref w := by
   obtain ⟨L, hs, hd, hq⟩ := h
   exact ⟨L, ⟨hs, Or.inl hd⟩, hq⟩
-
-/-- **`MachineRan` from the all-worlds closing** — the three lines every base
-lemma of the design-level chain starts with, once. -/
-theorem machineRan_of_closes {c : Name} {shape : MachineShape}
-    {w w1 : Void IO.RealWorld} {M : Sparkle.IR.AST.Module} {D : Design}
-    (hcore : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, D) w1)
-    (entry : MachineDefines mctx mref cctx cref c shape)
-    (hB : ChildBnd mref cref w)
-    (closes : MachineClosesAt mctx mref cctx cref c shape) :
-    MachineRan mctx mref cctx cref c shape M D := by
-  obtain ⟨bb, r, w9, w10, hrun9, hw9, hd9, hres⟩ := machine_run_of_core hcore entry hB
-  have hne := closes bb _ _ _ hw9 hd9 hrun9
-  cases r with
-  | none => exact absurd rfl hne
-  | some res =>
-    have hres' := hres res rfl
-    subst hres'
-    exact ⟨bb, w9, w10, hrun9, hw9, hd9⟩
 
 /-- **`MachineRan` at an OUTERMOST start**, from a closing at `Prov` worlds
 only (`hclose`: what the provenance chain proves of a parent,
@@ -132,11 +116,11 @@ theorem machineRan_outermost {c : Name} {shape : MachineShape}
 
 /-! ## One worked example: `core_kids_self` -/
 
-set_option maxHeartbeats 4000000 in
 /-- **`core_kids_self` over `MachineRan`**: the design of a core run on a
 machine with calls resolves its real children's modules, and the modules of
-their designs, to themselves. The tail of
-`Tools.ShippingKidsSelf.core_kids_self`, verbatim. -/
+their designs, to themselves. Since round par/g-1 the tail itself is
+`Tools.ShippingKidsSelf.core_kids_self_ran` (the split of the built lemma, in
+its own file); this theorem keeps its name and statement and is that one. -/
 theorem core_kids_self_ran {c : Name} (d : MachineData) (ok : d.ok = true)
     (hbody : d.shape.body = quote d.dom
       (fun j => inputExpr d.shape.binders.length (d.bpos j))
@@ -151,42 +135,8 @@ theorem core_kids_self_ran {c : Name} (d : MachineData) (ok : d.ok = true)
     ∀ g ∈ D.modules, ∃ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y ∧ (g = y.1 ∨ g ∈ y.2.modules) ∧
       moduleByName D.modules y.1.name = some y.1 ∧
-      ∀ g2 ∈ y.2.modules, moduleByName D.modules g2.name = some g2 := by
-  obtain ⟨bb, w9, w10, hrun9, hw9, -⟩ := ran
-  obtain ⟨t, t', d₀, run, hcl, hmt⟩ := synthesizeMachineCertified_runs hw9 hrun9
-  rcases hmt with ⟨hno, -, -⟩ | ⟨-, children, hcc, hreal⟩
-  · exact absurd hno hins
-  obtain ⟨-, -, -, L, -, -, -, -, -, -, -, hDeq, -⟩ := hcc.some
-  obtain ⟨-, -, hd0⟩ := closedBody_kinds_of_run d ok hbody hC hslots hdomB run hcl
-  -- the closing's own check: every child, and every module of a child's
-  -- design, is found by its name in the merged design as itself
-  have hself : ∀ y ∈ children, moduleByName D.modules y.1.name = some y.1 ∧
-      ∀ g2 ∈ y.2.modules, moduleByName D.modules g2.name = some g2 := by
-    rcases hcc with ⟨-, hI⟩ | ⟨-, hG, -⟩
-    · intro y hy
-      exact ⟨(Tools.ShippingChildServe.closeInsts_names hI).2 y hy,
-        (Tools.ShippingChildServe.closeInsts_acyclic hI).2.2.2 y hy⟩
-    · exact (Tools.ShippingMachineInstG.closeInstsG_names hG).2.2.2
-  -- the children, by their witnesses
-  obtain ⟨hlenC, hall⟩ := hreal
-  -- the design: the join of the children
-  obtain ⟨-, hdVis⟩ := designWith_modules (children := children) hd0
-  intro g hg
-  have hg' : g ∈ (designWith children d₀).modules := by
-    rw [← hDeq]
-    exact hg
-  obtain ⟨y, hy, hor⟩ := mem_visited.mp (hdVis g hg')
-  obtain ⟨k, hk⟩ := List.mem_iff_getElem?.mp hy
-  have hk' : k < d.shape.insts.length := by
-    rw [← hlenC]
-    exact (List.getElem?_eq_some_iff.mp hk).1
-  obtain ⟨y', hy', hor'⟩ := hall k hk'
-  rw [hk] at hy'
-  cases hy'
-  rcases hor' with hmem | hre
-  · rw [hnomem _ (List.getElem_mem hk')] at hmem
-    cases hmem
-  · exact ⟨k, hk', y, hre, hor, hself y hy⟩
+      ∀ g2 ∈ y.2.modules, moduleByName D.modules g2.name = some g2 :=
+  Tools.ShippingKidsSelf.core_kids_self_ran d ok hbody hC hslots hdomB hins hnomem ran
 
 /-- The BUILT statement of `Tools.ShippingKidsSelf.core_kids_self`, as the
 instance of `core_kids_self_ran` at the all-worlds closing. -/
