@@ -253,8 +253,10 @@ theorem and_right_true {a b : Bool} (h : (a && b) = true) : b = true := by
 
 /-- `mergeDuplicates`, result-checked: an assignment-only body keeps its
 merge (`mergeDuplicates` validates it itself); any other body keeps the merge
-only if `refineCheck` accepts it, no masked output lost its mask, and the
-merged module passes the print guard; else it is returned unmerged. -/
+only if `refineCheck` accepts it, no masked output lost its mask, the
+merged module passes the print guard, and the merged body is not
+assignment-only (it kept a register / memory / instance); else it is
+returned unmerged. -/
 def mergeChecked (m : Module) : Module :=
   let r := Sparkle.IR.RegDedup.mergeDuplicates m
   -- an assignment-only body: `mergeDuplicates` validates its own merge
@@ -263,11 +265,14 @@ def mergeChecked (m : Module) : Module :=
   -- masked output lost its mask (the merge may turn a node into an alias)
   -- AND the merged module passes the print guard
   -- (`Sparkle.IR.PrintGuard.printOk`: its statements are in the emitter's
-  -- fragment at their declared widths); else the module is returned
-  -- unmerged: a fallback, never a rejection.
+  -- fragment at their declared widths)
+  -- AND the merged body is not assignment-only (this branch is reached only
+  -- when `m`'s body is not: `refineCheck` has no register-count conjunct);
+  -- else the module is returned unmerged: a fallback, never a rejection.
   -- (`refineCheck` is the LEFT conjunct of the condition: the lemmas that
   -- read it take the left projection.)
-  else if refineCheck m r && (masksKept m r && Sparkle.IR.PrintGuard.printOk r) then r else m
+  else if refineCheck m r && (masksKept m r && (Sparkle.IR.PrintGuard.printOk r &&
+      !(r.body.all Sparkle.IR.RegDedup.isAssign))) then r else m
 
 def mergeCheckedDesign (d : Design) : Design :=
   { d with modules := d.modules.map mergeChecked }
@@ -326,7 +331,7 @@ theorem mergeChecked_print {m : Module}
   dsimp only
   rw [if_neg (by rw [h]; decide)]
   split
-  · rename_i hc; exact Or.inr (and_right_true (and_right_true hc))
+  · rename_i hc; exact Or.inr (and_left_true (and_right_true (and_right_true hc)))
   · exact Or.inl rfl
 
 /-- The same without a hypothesis on the body: the module itself, a module
@@ -369,7 +374,8 @@ open Sparkle.IR.AST
 
 /-- `optimizeModule`, result-checked: on modules of simple shape the optimised
 module is kept only if `optCheck` and the assignment-order check accept it;
-on other assign + register modules only if `refineCheck` accepts it; on an
+on other assign + register modules only if `refineCheck` accepts it and it
+passes the print guard (`Sparkle.IR.PrintGuard.printOk`); on an
 instance-bearing module whose extracted interface is in the normal forms
 its connections named again and guarded (`deinline`: distinct instance
 names and the linked order, else the input module) and kept only if
@@ -383,7 +389,7 @@ def checkedOptimize (m : Module) : Module :=
   if simpleBody m then
     if optCheck m o && assignmentOrderCheck o.body then o else m
   else if m.body.all seqStmtOk then
-    if RefineCheck.refineCheck m o then o else m
+    if RefineCheck.refineCheck m o && Sparkle.IR.PrintGuard.printOk o then o else m
   -- instances: checked on the extracted interface, where that check binds
   else if RefineCheck.hierBinds m then
     let o' := Sparkle.IR.HierCheck.deinline m o
@@ -403,7 +409,7 @@ theorem checkedOptimize_seqOk {m : Module} (hs : simpleBody m = false)
   dsimp only
   simp only [hs, Bool.false_eq_true, if_false, hok, if_true]
   split
-  · rename_i hc; exact Or.inl hc
+  · rename_i hc; exact Or.inl (RefineCheck.and_left_true hc)
   · exact Or.inr rfl
 
 /-- On a gated module that is not of simple shape, the optimizer's output is
