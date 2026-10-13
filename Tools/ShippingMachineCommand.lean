@@ -10,6 +10,7 @@ import Tools.ShippingMachineFuseGen
 import Tools.ShippingMachineShipsW
 import Tools.ShippingMachineLoopL
 import Tools.ShippingMachineShipsComb
+import Tools.ShippingMachineLoopCausal
 
 /-! # The machine endpoint of a declaration, generated
 
@@ -1445,20 +1446,29 @@ def causalFactE (declName : Name) (D αs i bools bits regsF cl term : Lean.Expr)
   let isExt := th.value.isAppOf ``Tools.ShippingMachineAuto.machine_trace_of_data_ext
   let isCausal := th.value.isAppOf ``Tools.ShippingMachineCausal.machine_trace_of_data_causal
   let isLoop := th.value.isAppOf ``Tools.ShippingMachineLoop.machine_trace_of_loop
+  -- a hand-written loop WITH calls: `src_causal_of_loop_causal` and the
+  -- child's `machine_ext_joint` (`#machine_ext_joint`)
+  let isLoopC := th.value.isAppOf ``Tools.ShippingMachineCausal.machine_trace_of_loop_causal
   unless th.value.isAppOf ``Tools.ShippingMachineAuto.machine_trace_of_data || isExt || isCausal ||
-      isLoop do
+      isLoop || isLoopC do
     throwError "{declName}: the child {child}'s endpoint is not machine_trace_of_data(_ext/_causal) or _of_loop"
   let cargs := th.value.getAppArgs
   let ιC := cargs[2]!
   let iC ← if ιC.isConstOf ``Sparkle.Core.Domain.DomainConfig then pure D
     else if ιC.isConstOf ``Unit then pure (mkConst ``Unit.unit)
     else throwError "{declName}: the child {child}'s family"
-  let srcC := if isLoop then cargs[12]! else if isCausal then cargs[11]! else if isExt then cargs[10]!
+  let srcC := if isLoopC then cargs[14]! else if isLoop then cargs[12]! else if isCausal then cargs[11]!
+    else if isExt then cargs[10]!
     else cargs[9]!
   -- one theorem per child: every field of every call of it reuses it
   let causalName := child ++ `machine_src_causal
   unless (← getEnv).contains causalName do
-    let causalHead ← if isLoop then
+    let causalHead ← if isLoopC then do
+        unless (← getEnv).contains (child ++ `machine_ext_joint) do
+          throwError "{declName}: the child {child} (a hand-written loop with calls) has no machine_ext_joint: run #machine_ext_joint {child} after its #machine_endpoint"
+        pure (mkAppN (mkConst ``Tools.ShippingMachineLoopCausal.src_causal_of_loop_causal)
+          (cargs.push (mkConst (child ++ `machine_ext_joint))))
+      else if isLoop then
         pure (mkAppN (mkConst ``Tools.ShippingMachineCausal.src_causal_of_loop) cargs)
       else if isCausal then do
         unless (← getEnv).contains (child ++ `machine_ext_causal) do
