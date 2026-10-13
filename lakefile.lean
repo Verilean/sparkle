@@ -2800,3 +2800,15 @@ lean_lib «Tools.ShippingMemNamesP» where
 
 lean_lib «Tools.ShippingKidFactsT» where
   roots := #[`Tools.ShippingKidFactsT]
+
+lean_lib «Tools.ShippingCallSelf» where
+  roots := #[`Tools.ShippingCallSelf]
+
+lean_lib «Tools.ShippingGenKidT» where
+  roots := #[`Tools.ShippingGenKidT]
+
+lean_lib «Tools.ShippingGenKidM» where
+  roots := #[`Tools.ShippingGenKidM]
+
+lean_lib «Tools.ShippingBndOnly» where
+  roots := #[`Tools.ShippingBndOnly]
