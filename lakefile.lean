@@ -2728,3 +2728,6 @@ lean_lib «Tools.ShippingCombLeafClosedExpect» where
 
 lean_lib «Tools.ShippingDesignCoverage» where
   roots := #[`Tools.ShippingDesignCoverage]
+
+lean_lib «Tools.ShippingCacheCoherentOuter» where
+  roots := #[`Tools.ShippingCacheCoherentOuter]
