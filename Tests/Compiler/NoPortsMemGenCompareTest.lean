@@ -53,8 +53,9 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     unless ← Lean.Meta.isDefEq (← Lean.getConstInfo e).type (← Lean.getConstInfo r).type do
       throwError "{r}: its statement is not that of {e}"
   -- the lemmas were generated under their own names (no hand lemma has them)
+  -- (par/b-30: `notin0` is no longer generated — the closing has no name lemma)
   for s in ["entry", "data", "runFacts", "outsG0", "kidsMemG", "designP0", "closeData",
-      "notin0", "closes"] do
+      "closes"] do
     let n := f ++ Lean.Name.mkSimple ("noPortsMem_" ++ s)
     unless env.contains n do throwError "{n}: not generated"
     Tests.Compiler.NoPortsTest.stdAxioms n

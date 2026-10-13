@@ -2,6 +2,8 @@ import Tools.ShippingCallsSeqKids
 import Tools.ShippingMachineClosesGen
 import Tools.ShippingMachineCommand
 import Tools.ShippingNameSep
+import Tools.ShippingNameDischarge
+import Tools.ShippingNameMode
 
 /-! # Generating `f.machine_closes_at` for the general closing
 
@@ -13,8 +15,10 @@ each, their own closing derived: `c.machine_closes`): the theorem
   `f.machine_closes_at : MachineDefines … c c.machineData.shape → … → MachineClosesAt mctx mref cctx cref f f.machineData.shape`
 
 (`machineClosesAt_of_seqKids` at `f`'s data). Premises: the reflection of
-each called declaration, and NAME SEPARATION (N1) as in the one-output
-generator. The data conditions — the endpoint's checks, `letsAliasOk`, S3
+each called declaration, and the NAME CONDITIONS as in the one-output
+generator (round par/b-30: proved from the declaration names,
+`Tools.ShippingNameDischarge`; a binder only where the condition on the
+names is false; `shipping.nameCandidates` gives the previous proofs). The data conditions — the endpoint's checks, `letsAliasOk`, S3
 (`callsOk`), the slots, no memory child, the argument counts, each entry's
 field an output of its child, different fields within one call — are decided
 by the kernel. Refused, with the reason: a child with calls of its own, a
@@ -52,7 +56,12 @@ def closesAtCoreG (c : Name) (nDecl? : Option Nat) (name : Name) : CommandElabM 
       ($(hR j) : Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref $kq
         ($(n k "machineData")).shape)))
   let k0 : Term := quote kids[0]!
-  let hnames ← if kids.length == 1 then
+  -- the previous path (`Tools.ShippingNameSep`), on request only
+  let oldNames := shipping.nameCandidates.get (← getOptions)
+  let hnames ← if !oldNames then
+      -- `ofDecl` is injective: no condition, whatever the names
+      `(Tools.ShippingNameDischarge.names_inj _)
+    else if kids.length == 1 then
       `(fun c hc c' hc' _ =>
         ((by decide : ∀ c ∈ ($data).shape.insts.map (·.1), c = $k0) c hc).trans
           ((by decide : ∀ c ∈ ($data).shape.insts.map (·.1), c = $k0) c' hc').symm)
@@ -67,7 +76,11 @@ def closesAtCoreG (c : Name) (nDecl? : Option Nat) (name : Name) : CommandElabM 
       `(hnames)
   -- no call prints as the parent: by the candidate renderings when they
   -- separate, else a premise
-  let hparent : Term ← if kids.all (fun k => Tools.ShippingNameSep.sepB k c) then
+  let hparent : Term ← if !oldNames && kids.all (fun k => k != c) then
+      -- no call entry is a call of the parent declaration: decided on the
+      -- NAMES (`Name.beq`; nothing is rendered)
+      `(Tools.ShippingNameDischarge.parent_ne _ _ (by decide))
+    else if oldNames && kids.all (fun k => Tools.ShippingNameSep.sepB k c) then
       `(Tools.ShippingNameSep.Enc.hparent_of _ _ (by decide))
     else do
       binders := binders.push (← `(bracketedBinder|

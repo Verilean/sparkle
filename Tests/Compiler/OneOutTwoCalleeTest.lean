@@ -19,6 +19,12 @@ closing; the callees are two DECLARATIONS, `pick` and `pickD`:
   `Tools.ShippingNameSep.Enc.hnames_of _ (by decide)` /
   `hparent_of _ _ (by decide)`. `hfresh` is discharged when no output name
   starts with `i`.
+  ROUND par/b-30 (WRITTEN, NOT BUILT): `hnames` is now ALWAYS discharged
+  (`Tools.ShippingNameDischarge.names_inj _`, no condition) and `hparent` by
+  `parent_ne _ _ (by decide)` on the declaration NAMES; a `hparent` binder
+  only where a call entry is a call of the parent itself. The statements of
+  `f.machine_closes_at` for the two declarations here are unchanged (they
+  had no name binder); the assertion below now names the new lemmas.
 * `Tests/Compiler/ShippingCallsCloseTest.lean` (BUILT, in `Tests.AllTests`):
   `auditClosed callerMix 2` and `auditClosed callerABA 2` — each
   `machine_closes_at` has EXACTLY TWO proposition binders, and the first is
@@ -36,7 +42,8 @@ closing; the callees are two DECLARATIONS, `pick` and `pickD`:
 For both declarations: `GENERATED`; the premises of `f.machine_closes_at`
 are exactly `EntryDefines … pick pick.gateValue` and
 `EntryDefines … pickD pickD.gateValue` (class `reflection`), none mentions
-`Lean.Name.toString`, and the proof uses `hnames_of` and `hparent_of`;
+`Lean.Name.toString`, and the proof uses `names_inj` and `parent_ne`
+(par/b-30; before: `Enc.hnames_of` and `Enc.hparent_of`);
 therefore the closed form `f.machine_design_svH_full_closed` has NO premise
 of class `other` — the previous round's guess ("name-separation premises
 expected in the closed form") is expected to be WRONG for these two. The
@@ -53,9 +60,9 @@ accepted — the expectation above would have to be restated.
 The scope sentence of `Tests/Compiler/OneOutFamilyTest.lean` applies
 unchanged, one declaration at a time: per-declaration data conditions
 decided by the kernel (`f.oneout_*`, `pick.gate_width`, `pickD.gate_width`,
-what `#gate_child` left; for `machine_closes_at` also the name separation
-decided on the candidate renderings of the names — `Name.toString` itself is
-not evaluated) are conditions, not reductions; the run, `MachineDefines f`,
+what `#gate_child` left; for `machine_closes_at` also "no call entry is a
+call of the parent", decided on the declaration names) are conditions, not
+reductions; the run, `MachineDefines f`,
 `EntryDefines pick`, `EntryDefines pickD`, `ChildBnd` stay premises; the
 result depends on the compiler's guards; the conclusion is about
 `DesignSV (childMap D.modules) 0 (checkedOptimize b)`. A parent WITH a
@@ -95,14 +102,21 @@ def twoCallee (f : Name) (kids : List Name) : MetaM Unit := do
   for c in kids do
     unless props.any (fun t => (t.find? (·.isConstOf (c ++ `gateValue))).isSome) do
       throwError "{cl}: no EntryDefines binder of {c}"
-  -- the name separation: discharged inside the proof, by the candidate renderings
+  -- the name conditions: discharged inside the proof from the DECLARATION
+  -- names (par/b-30) — the proof term of `machine_closes_at` applies
+  -- `names_inj` (callee against callee: no condition, `ofDecl` is injective)
+  -- and `parent_ne` (callee against parent: `decide` on `Lean.Name`s), and
+  -- does NOT apply the candidate-rendering lemmas of `Tools.ShippingNameSep`
   let used : Array Name := match (← getEnv).find? cl with
     | some (.thmInfo ti) => ti.value.getUsedConstants
     | _ => #[]
-  let hn := used.contains ``Tools.ShippingNameSep.Enc.hnames_of
-  let hp := used.contains ``Tools.ShippingNameSep.Enc.hparent_of
+  let hn := used.contains ``Tools.ShippingNameDischarge.names_inj
+  let hp := used.contains ``Tools.ShippingNameDischarge.parent_ne
   unless hn && hp do
-    throwError "{cl}: the proof does not go through Tools.ShippingNameSep (hnames_of used: {hn}, hparent_of used: {hp}) although no name premise is a binder"
+    throwError "{cl}: the proof does not go through Tools.ShippingNameDischarge (names_inj used: {hn}, parent_ne used: {hp}) although no name premise is a binder"
+  for old in [``Tools.ShippingNameSep.Enc.hnames_of, ``Tools.ShippingNameSep.Enc.hparent_of] do
+    if used.contains old then
+      throwError "{cl}: the proof still applies {old} (the candidate renderings)"
   -- the closed endpoint: no name condition written, every callee's reflection a binder
   let closedT := (← getConstInfo closed).type
   if (closedT.find? (fun e => e.isConstOf ``Lean.Name.toString || e.isConstOf ``Sparkle.IR.ModuleName.ofDecl)).isSome then
@@ -117,7 +131,7 @@ def twoCallee (f : Name) (kids : List Name) : MetaM Unit := do
     unless cprops.any (fun t => t.isAppOf ``Tools.ShippingInlineSoundness.EntryDefines &&
         (t.find? (·.isConstOf (c ++ `gateValue))).isSome) do
       throwError "{closed}: no EntryDefines binder of {c}"
-  logInfo m!"ONEOUT TWO-CALLEE {f}: {cl} has {props.size} proposition binders, all EntryDefines ({kids}), none a name condition; the name separation (callee against callee, callee against parent) is discharged inside its proof by Tools.ShippingNameSep.Enc.hnames_of / hparent_of — decided by the kernel on the candidate renderings of the names, a per-declaration condition, not a reduction; {closed} writes no Name.toString and has the reflection of each of {kids} as a binder. The expectation of the previous round (name-separation premises in the closed form) does NOT hold for {f}."
+  logInfo m!"ONEOUT TWO-CALLEE {f}: {cl} has {props.size} proposition binders, all EntryDefines ({kids}), none a name condition; the name separation (callee against callee, callee against parent) is discharged inside its proof by Tools.ShippingNameDischarge.names_inj / parent_ne — callee against callee with no condition (ofDecl is injective), callee against parent decided by the kernel on the declaration NAMES (a per-declaration condition, not a reduction); {closed} writes no Name.toString and has the reflection of each of {kids} as a binder. The expectation of the previous round (name-separation premises in the closed form) does NOT hold for {f}."
 
 end Tests.Compiler.OneOutTwoCalleeTest
 

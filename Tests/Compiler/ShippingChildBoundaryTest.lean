@@ -219,10 +219,11 @@ def closingAudit (eps : List (Lean.Name × Nat)) : Lean.MetaM Lean.MessageData :
     if !at'.contains f then throwError "{e}: the parent's own MachineClosesAt is not stated"
     if all.contains f then throwError "{e}: the parent's all-worlds MachineCloses is still asked"
     if !all.isEmpty then throwError "{e}: an all-worlds MachineCloses is asked of {all}"
-    -- midH's name separation: stated as an obligation, or PROVED from the
-    -- names' candidate renderings (`Tools.ShippingNameSep`) in midH's closing
+    -- midH's name conditions: stated as an obligation, or PROVED from the
+    -- declaration names (`Tools.ShippingNameDischarge.parent_ne` is a direct
+    -- constant of midH's closing proof; par/b-30)
     let provedNames := match env.find? (midH ++ `machine_closes_at) with
-      | some (.thmInfo ti) => ti.value.getUsedConstants.contains ``Tools.ShippingNameSep.Enc.hparent_of
+      | some (.thmInfo ti) => ti.value.getUsedConstants.contains ``Tools.ShippingNameDischarge.parent_ne
       | _ => false
     if !(mentionsDeep env ty ``Lean.Name.toString || mentionsDeep env ty ``Sparkle.IR.ModuleName.ofDecl) && !provedNames then
       throwError "{e}: the name separation of midH is neither stated nor proved"

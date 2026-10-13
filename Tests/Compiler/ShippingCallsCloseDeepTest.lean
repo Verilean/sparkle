@@ -95,7 +95,11 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   Lean.logInfo m!"CHILDREN WITH CALLS (B3): {report} — MachineClosesAt derived through a child with calls; premises: the descendants' reflection and name separation per node; standard axioms"
 
 -- Every premise of the deep closings is a descendant's reflection: the name
--- separation over the descendants is PROVED (`Tools.ShippingNameSep`).
+-- conditions over the descendants are PROVED — since round par/b-30 from the
+-- declaration names (`Tools.ShippingNameDischarge`, `decide` on `Lean.Name`s),
+-- before from the candidate renderings (`Tools.ShippingNameSep`). This block
+-- checks the STATEMENTS (the premise count), which are the same either way;
+-- `Tests/Compiler/NameGenCompareTest.lean` compares the two proofs' statements.
 run_cmd Lean.Elab.Command.liftTermElabM do
   for (f, nRefl) in [(``Sparkle.Tests.Compiler.ShippingMachineSeqTest.grand, 2),
       (``Sparkle.Tests.Compiler.ShippingMachineDepthHTest.grandH, 2),
@@ -107,4 +111,4 @@ run_cmd Lean.Elab.Command.liftTermElabM do
           h.isAppOf ``Tools.ShippingMachineEntry.MachineDefines do
         throwError "{f}.closes_deep: a premise that is not a reflection: {h}"
     unless hyps.size == nRefl do throwError "{f}.closes_deep: {hyps.size} premises"
-  Lean.logInfo m!"DEEP CLOSINGS: grand, grandH, mixD1, topD2 — the only premises are the descendants' reflections (2, 2, 3, 3); name separation over the descendants proved from the candidate renderings"
+  Lean.logInfo m!"DEEP CLOSINGS: grand, grandH, mixD1, topD2 — the only premises are the descendants' reflections (2, 2, 3, 3); the name conditions over the descendants are proved, not asked (par/b-30: from the declaration names)"

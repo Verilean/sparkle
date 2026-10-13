@@ -4,6 +4,8 @@ import Tools.ShippingMachineClosesGen
 import Tools.ShippingGateChildCommand
 import Tools.ShippingMachineClosesAtGenG
 import Tools.ShippingNameSep
+import Tools.ShippingNameDischarge
+import Tools.ShippingNameMode
 
 /-! # Generating `f.machine_closes_at`
 
@@ -20,12 +22,16 @@ ask `MachineClosesAt` with that premise replaced by the theorem's own
 
 * the reflection of each called declaration (`EntryDefines`, already a
   premise of the endpoints);
-* NAME SEPARATION, obligations about the compiler's module names that the
-  kernel cannot evaluate (`Name.toString` with escaping does not reduce; the
-  unescaped renderer does, but no theorem relates the two): no call's printed
-  name is the parent's; with several called declarations, different
-  declarations print differently; and — only when an output port's name
-  starts with `i` — no output port is named as an instance.
+* NAME CONDITIONS (round par/b-30; module names are `ofDecl`, injective):
+  "different called declarations have different module names" is PROVED
+  with no condition (`Tools.ShippingNameDischarge.names_inj`); "no call's
+  module has the parent's name" is proved from "no call entry is a call of
+  the parent declaration", decided on `Lean.Name`s (`parent_ne`) — a binder
+  only where that is false (a declaration calling itself); and — only when
+  an output port's name starts with `i` — "no output port is named as an
+  instance" stays a premise (a port against an instance name: not a
+  declaration-name condition). `set_option shipping.nameCandidates true`
+  gives the previous proofs (`Tools.ShippingNameSep`, candidate renderings).
 
 Several instances of one declaration are covered, with any calls between: the
 later call is a cache hit of the entry the earlier left, which the calls
@@ -126,7 +132,12 @@ def closesAtCore (c : Name) (nDecl? : Option Nat) (name : Name := c ++ `machine_
   -- one called declaration; otherwise a premise (`Name.toString` does not
   -- reduce in the kernel)
   let k0 : Term := quote kids[0]!
-  let hnames ← if kids.length == 1 then
+  -- the previous path (`Tools.ShippingNameSep`), on request only
+  let oldNames := shipping.nameCandidates.get (← getOptions)
+  let hnames ← if !oldNames then
+      -- `ofDecl` is injective: no condition, whatever the names
+      `(Tools.ShippingNameDischarge.names_inj _)
+    else if kids.length == 1 then
       `(fun c hc c' hc' _ =>
         ((by decide : ∀ c ∈ ($data).shape.insts.map (·.1), c = $k0) c hc).trans
           ((by decide : ∀ c ∈ ($data).shape.insts.map (·.1), c = $k0) c' hc').symm)
@@ -141,7 +152,11 @@ def closesAtCore (c : Name) (nDecl? : Option Nat) (name : Name := c ++ `machine_
       `(hnames)
   -- no call prints as the parent: by the candidate renderings when they
   -- separate, else a premise
-  let hparent : Term ← if kids.all (fun k => Tools.ShippingNameSep.sepB k c) then
+  let hparent : Term ← if !oldNames && kids.all (fun k => k != c) then
+      -- no call entry is a call of the parent declaration: decided on the
+      -- NAMES (`Name.beq`; nothing is rendered)
+      `(Tools.ShippingNameDischarge.parent_ne _ _ (by decide))
+    else if oldNames && kids.all (fun k => Tools.ShippingNameSep.sepB k c) then
       `(Tools.ShippingNameSep.Enc.hparent_of _ _ (by decide))
     else do
       binders := binders.push (← `(bracketedBinder|

@@ -9,6 +9,8 @@ import Tools.ShippingSeqChildIface
 import Tools.ShippingCallsKidsD
 import Tools.ShippingCallsGate
 import Tools.ShippingNameSep
+import Tools.ShippingMemSeqNames
+import Tools.ShippingNameMode
 import Tools.ShippingMachineClosesGen
 
 /-! # `#machine_no_ports_memseq f`: the check-free depth-0 endpoint of a parent whose call entries MIX leaf register machine children and memory placeholders, open and closed, GENERATED (round par/b-21)
@@ -73,14 +75,38 @@ it before this round.
 | an entry whose argument `let`s are not the callee's ports (leaf: its non-domain declared binders; memory: 4) | `hargsN` is false |
 | an entry whose field is not an output of its callee (memory: `out`) | `hfieldOut` is false |
 | two entries of one callee on one argument list reading one field | `hargsNd` is false |
-| two module names not separated (leaf / leaf, leaf / memory module, leaf / parent, memory module / parent, memory module / memory module) | a shared descendant: names not separated |
+| a leaf callee that IS the parent declaration (cannot occur: a leaf has no call, the parent has) | names not separated |
+| ONLY under `shipping.nameCandidates` (the previous path): two module names not separated by the candidate renderings (leaf / leaf, leaf / memory module, leaf / parent, memory module / parent, memory module / memory module) | a shared descendant: names not separated |
 | an output of `f` whose name starts with `i` | `hfresh` is not decided by the first character |
 | no `f.machine_ships_hierR` / `f.machine_design_svR0` | run `#machine_design_svR0 f` first |
 
 A shared descendant in the proper sense cannot occur in this scope (a leaf
 child's design has no module, a memory module's design is the module
-itself): what `hsep / hparent / hparentD / hdisjD` can fail on is a
-coincidence of printed names, and that is what is tested.
+itself): what `hsep / hparent / hparentD / hdisjD` could fail on was a
+coincidence of printed names.
+
+ROUND par/b-30 (WRITTEN, NOT BUILT). Module names are `ofDecl` / `ofMem` of
+the injective encoding, so in this scope NO coincidence is possible, and four
+of the five generation-time name refusals are gone — each exactly where a
+general lemma covers the whole case:
+
+| refusal (previous path) | why it cannot fire | lemma |
+|---|---|---|
+| parent / memory module | no declaration has a memory module's name | `Tools.ShippingMemSeqNames.decl_not_mem_memName` |
+| leaf / memory module | the same | the same |
+| leaf / leaf (`sep`) | the leaves are DISTINCT declarations (`eraseDups`) | `Tools.ShippingModuleName.ofDecl_ne` |
+| memory module / memory module | distinct placeholders have distinct `(combo, aw, dw)` | `Tools.ShippingMemSeqNames.memName_ne` |
+
+The fifth (leaf / parent) is KEPT, on the names themselves (`c == f`): the
+lemma `ofDecl_ne` needs `c ≠ f`. By reading it cannot fire (a leaf callee has
+no call; `f` has), so nothing that was accepted is refused, and a
+declaration that was refused only because the candidate renderings did not
+separate two different names (`sep` false) is now accepted.
+
+The name lemmas keep their NAMES and STATEMENTS; their proofs are the
+general lemmas (no `name_not_mem`, no `Enc.sep_ne`, no string comparison).
+`set_option shipping.nameCandidates true` gives the previous refusals and
+proofs, for one round.
 
 After the scope: a `machine_ships_hierR` that is not `machine_ships_hierC`
 on 25 arguments with 11 binders, a decided data condition that is false, an
@@ -250,28 +276,39 @@ def scope (f : Name) : CommandElabM Scope := do
     if seen.contains (c, a, fld) then
       throwError "{f}: hargsNd is false — two entries of {c} on the same argument lets {a} read the same field {fld} (hfieldsNd of machineClosesAt_of_kidsDM: entries of one callee on one argument list are one instance, told apart by their fields only)"
     seen := seen ++ [(c, a, fld)]
-  -- the module names: separated (decided the same way by the generated lemmas)
+  -- the module names
   let leaves := leafData.map (·.1)
-  let memNames := mems.map fun (p, cb, aw, dw) =>
-    (p, (Sparkle.Compiler.MachMemory.memModule cb aw dw).1.name)
-  for (p, mn) in memNames do
-    unless Sparkle.IR.ModuleName.ofDecl f != mn do
-      throwError "{f}: a shared descendant: names not separated — {f} may print as {mn}, the module of {p} (hparent / hparentD are not decided)"
+  if shipping.nameCandidates.get (← getOptions) then
+    -- THE PREVIOUS PATH: separated by the candidate renderings (decided the
+    -- same way by the generated lemmas)
+    let memNames := mems.map fun (p, cb, aw, dw) =>
+      (p, (Sparkle.Compiler.MachMemory.memModule cb aw dw).1.name)
+    for (p, mn) in memNames do
+      unless Sparkle.IR.ModuleName.ofDecl f != mn do
+        throwError "{f}: a shared descendant: names not separated — {f} may print as {mn}, the module of {p} (hparent / hparentD are not decided)"
+      for c in leaves do
+        unless Sparkle.IR.ModuleName.ofDecl c != mn do
+          throwError "{f}: a shared descendant: names not separated — the callee {c} may print as {mn}, the module of {p} (hsep / hdisjD are not decided)"
     for c in leaves do
-      unless Sparkle.IR.ModuleName.ofDecl c != mn do
-        throwError "{f}: a shared descendant: names not separated — the callee {c} may print as {mn}, the module of {p} (hsep / hdisjD are not decided)"
-  for c in leaves do
-    unless Tools.ShippingNameSep.sep c f do
-      throwError "{f}: a shared descendant: names not separated — the callee {c} and {f} are not told apart by their printed names (hparent is not decided)"
-  for (c, i) in leaves.zipIdx do
-    for (c', j) in leaves.zipIdx do
-      if i < j then
-        unless Tools.ShippingNameSep.sep c c' do
-          throwError "{f}: a shared descendant: names not separated — the callees {c} and {c'} are not told apart by their printed names (hsep is not decided)"
-  for ((p, mn), i) in memNames.zipIdx do
-    for ((p', mn'), j) in memNames.zipIdx do
-      if i < j && mn == mn' then
-        throwError "{f}: a shared descendant: names not separated — the placeholders {p} and {p'} have one module name {mn} (hsep is not decided)"
+      unless Tools.ShippingNameSep.sep c f do
+        throwError "{f}: a shared descendant: names not separated — the callee {c} and {f} are not told apart by their printed names (hparent is not decided)"
+    for (c, i) in leaves.zipIdx do
+      for (c', j) in leaves.zipIdx do
+        if i < j then
+          unless Tools.ShippingNameSep.sep c c' do
+            throwError "{f}: a shared descendant: names not separated — the callees {c} and {c'} are not told apart by their printed names (hsep is not decided)"
+    for ((p, mn), i) in memNames.zipIdx do
+      for ((p', mn'), j) in memNames.zipIdx do
+        if i < j && mn == mn' then
+          throwError "{f}: a shared descendant: names not separated — the placeholders {p} and {p'} have one module name {mn} (hsep is not decided)"
+  else
+    -- the names are `ofDecl` / `ofMem` of the injective encoding: a
+    -- declaration against a memory module, two distinct leaves, two distinct
+    -- placeholders are separated by general lemmas (nothing to test). Leaf
+    -- against parent needs `c ≠ f` (true by reading: a leaf has no call)
+    for c in leaves do
+      if c == f then
+        throwError "{f}: names not separated — the callee {c} is the parent declaration itself (hparent is false)"
   for o in r.shape.layout.outs do
     if o.name.toList.head? == Option.some 'i' then
       throwError "{f}: the output {o.name} starts with 'i' (hfresh is false as tested: the freshness of the instance names is decided by the first character)"
@@ -666,32 +703,48 @@ def closingTheorems (c : Ctx) : CommandElabM Unit := do
     (($d).shape.insts[k]).2.1 = (($d).shape.insts[k']).2.1 →
     ($d).shape.instFields.getD k "" = ($d).shape.instFields.getD k' "" → k = k'))
   decided c "outHead" (← `(∀ o ∈ ($d).shape.layout.outs, o.name.toList.head? ≠ some 'i'))
-  -- names (decided over the candidate renderings; `Name.toString` is never evaluated)
+  -- names: the SAME lemma names and statements on both paths. Default: the
+  -- general lemmas of the injective encoding (declaration / memory with no
+  -- condition; declaration / declaration by `decide` on `Lean.Name`s; memory /
+  -- memory by `decide` on the parameters). `shipping.nameCandidates`: the
+  -- previous proofs (`name_not_mem`, the candidate renderings, a string `decide`).
+  let oldNames := shipping.nameCandidates.get (← getOptions)
+  let notMemPf : Term ← if oldNames then `((by name_not_mem))
+    else `(Tools.ShippingMemSeqNames.decl_not_mem_memName _ _ _ _)
+  let declNePf : Term ← if oldNames then
+      `(Tools.ShippingNameSep.Enc.sep_ne (by first | decide | decide +kernel))
+    else `(Tools.ShippingModuleName.ofDecl_ne (by first | decide | decide +kernel))
   for mk in memKeys do
     emitThm c (c.lemName s!"notinP{mk.idx}") fun tn => `(command|
       set_option maxHeartbeats 4000000 in
       theorem $tn : (Sparkle.IR.ModuleName.ofDecl ($fq : Lean.Name)) ∉ $(mk.names) :=
-        (by name_not_mem))
+        $notMemPf)
     for lk in leafKeys do
       emitThm c (c.lemName s!"leafNotin{lk.idx}_{mk.idx}") fun tn => `(command|
         set_option maxHeartbeats 4000000 in
         theorem $tn : $(lk.name) ∉ $(mk.names) :=
-          (by name_not_mem))
+          $notMemPf)
   for lk in leafKeys do
     emitThm c (c.lemName s!"leafNeParent{lk.idx}") fun tn => `(command|
       set_option maxHeartbeats 4000000 in
       theorem $tn : $(lk.name) ≠ (Sparkle.IR.ModuleName.ofDecl ($fq : Lean.Name)) :=
-        Tools.ShippingNameSep.Enc.sep_ne (by first | decide | decide +kernel))
+        $declNePf)
     for lk' in leafKeys do
       if lk.idx < lk'.idx then
         emitThm c (c.lemName s!"leafNe{lk.idx}_{lk'.idx}") fun tn => `(command|
           set_option maxHeartbeats 4000000 in
           theorem $tn : $(lk.name) ≠ $(lk'.name) :=
-            Tools.ShippingNameSep.Enc.sep_ne (by first | decide | decide +kernel))
+            $declNePf)
   for mk in memKeys do
     for mk' in memKeys do
       if mk.idx < mk'.idx then
-        decided c s!"memNe{mk.idx}_{mk'.idx}" (← `($(mk.name) ≠ $(mk'.name)))
+        if oldNames then
+          decided c s!"memNe{mk.idx}_{mk'.idx}" (← `($(mk.name) ≠ $(mk'.name)))
+        else
+          emitThm c (c.lemName s!"memNe{mk.idx}_{mk'.idx}") fun tn => `(command|
+            set_option maxHeartbeats 4000000 in
+            theorem $tn : $(mk.name) ≠ $(mk'.name) :=
+              Tools.ShippingMemSeqNames.memName_ne (by first | decide | decide +kernel))
   -- the interface of a leaf callee's real child (the hand `cnt_iface`)
   for lk in leafKeys do
     let D := nm lk.decl "machineData"

@@ -2680,3 +2680,9 @@ lean_lib «Tools.ShippingCacheCoherentRun» where
 
 lean_lib «Tools.ShippingCacheCoherentClose» where
   roots := #[`Tools.ShippingCacheCoherentClose]
+
+lean_lib «Tools.ShippingNameMode» where
+  roots := #[`Tools.ShippingNameMode]
+
+lean_lib «Tools.ShippingMemSeqNames» where
+  roots := #[`Tools.ShippingMemSeqNames]

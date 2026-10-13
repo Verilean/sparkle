@@ -160,11 +160,10 @@ def propTypes (t : Lean.Expr) : MetaM (Array Lean.Expr) :=
       if ← isProp ty then out := out.push ty
     return out
 
-/-- The lemmas the command leaves for `f` (`nMems`: its distinct placeholders). -/
-def lemmas (f : Name) (nMems : Nat) : List Name :=
-  let one := ["entry", "calls", "slots", "domB", "outTy", "callWidths", "callArgs", "outChars",
-    "outScalar", "data", "runFacts", "outsG0", "kidsMemG", "designP0", "alias", "argsN", "field",
-    "argsNd", "outHead", "closeData", "closes"]
+/-- The per-declaration NAME lemmas of the previous closing path
+(`#machine_no_ports_mem_oldnames`): since round par/b-30 the command must
+NOT leave them. -/
+def oldNameLemmas (f : Name) (nMems : Nat) : List Name :=
   let notin := (List.range nMems).map fun j => s!"notin{j}"
   let several :=
     if nMems ≥ 2 then
@@ -172,7 +171,15 @@ def lemmas (f : Name) (nMems : Nat) : List Name :=
         ((List.range nMems).flatMap fun i =>
           ((List.range nMems).filter fun j => i < j).map fun j => s!"namesNe{i}_{j}")
     else []
-  (one ++ notin ++ several).map fun s => f ++ Name.mkSimple s!"noPortsMem_{s}"
+  (notin ++ several).map fun s => f ++ Name.mkSimple s!"noPortsMem_{s}"
+
+/-- The lemmas the command leaves for `f` (the same for any number of
+placeholders: no name lemma). -/
+def lemmas (f : Name) (_nMems : Nat) : List Name :=
+  let one := ["entry", "calls", "slots", "domB", "outTy", "callWidths", "callArgs", "outChars",
+    "outScalar", "data", "runFacts", "outsG0", "kidsMemG", "designP0", "alias", "argsN", "field",
+    "argsNd", "outHead", "closeData", "closes"]
+  one.map fun s => f ++ Name.mkSimple s!"noPortsMem_{s}"
 
 /-- The audit of one generated declaration (an error on any failure):
 
@@ -204,6 +211,19 @@ def audit (f : Name) (nMems : Nat) (hasSv0 transported : Bool) : MetaM Unit := d
   for n in lemmas f nMems ++ [openN, closed, gap] do
     unless env.contains n do throwError "{n}: not generated"
     Tests.Compiler.NoPortsTest.stdAxioms n
+  -- par/b-30: no per-declaration name lemma, and the closing is the general
+  -- theorem without name hypotheses (a DIRECT constant of its proof term)
+  for n in oldNameLemmas f nMems do
+    if env.contains n then
+      throwError "{n}: generated — the command still takes the per-declaration name path"
+  let clUsed : Array Name := match env.find? cl with
+    | some (.thmInfo ti) => ti.value.getUsedConstants
+    | _ => #[]
+  unless clUsed.contains ``Tools.ShippingMemOnlyNames.machineClosesAt_of_memOnlyData_names do
+    throwError "{cl}: its proof does not apply machineClosesAt_of_memOnlyData_names: {clUsed}"
+  if clUsed.contains ``Tools.ShippingMemOnlyCloses.machineClosesAt_of_memOnlyData then
+    throwError "{cl}: its proof applies the theorem WITH name hypotheses"
+  Tests.Compiler.NoPortsTest.stdAxioms ``Tools.ShippingMemOnlyNames.machineClosesAt_of_memOnlyData_names
   for n in [``Tools.ShippingMemOnly.memOnly_runFacts, ``Tools.ShippingMemOnly.memOnly_outsCheck,
       ``Tools.ShippingMemOnly.memOnly_kidsMem, ``Tools.ShippingMemOnly.memOnly_designCheck,
       ``Tools.ShippingMemOnlyCloses.machineClosesAt_of_memOnlyData,

@@ -1,5 +1,7 @@
 import Tools.ShippingKidsChildIface
 import Tools.ShippingMachineClosesAtGen
+import Tools.ShippingNameDischarge
+import Tools.ShippingNameMode
 
 /-! # Generating closings over children that have calls (`#machine_closes_deep`)
 
@@ -15,10 +17,16 @@ have calls of their own (to any depth):
 
 Premises of the generated theorems: the reflection of every descendant
 (`MachineDefines` / `EntryDefines`, at one context — they do not depend on
-it), and NAME SEPARATION (N1, obligations: the kernel does not evaluate
-`Name.toString`): per node, its children print differently from it, from
-each other and from their descendants. The data conditions are decided by
-the kernel. Refused with the reason: a gate child directly under a general
+it), and the NAME CONDITIONS, per node: its children's modules are named
+differently from it, from each other and from their descendants. Round
+par/b-30: they are PROVED from the declaration names
+(`Tools.ShippingNameDischarge`, `decide` on `Lean.Name`s) wherever the
+condition on the names holds, and are binders (`hN_…`) only where it is
+FALSE — two different callees sharing a descendant declaration (`mixDeep`),
+a declaration among its own descendants. `shipping.nameCandidates` gives the
+previous proofs (candidate renderings); `shipping.deepSuffix` names a second
+set of the generated theorems. The data conditions are decided by the
+kernel. Refused with the reason: a gate child directly under a general
 closing, a memory child, a slotless child with calls, a child whose own
 closing is not derived. -/
 namespace Tools.ShippingChildIfaceGen
@@ -81,7 +89,9 @@ partial def closesDeep (c : Name) : CommandElabM (Array Prem) := do
   let kids := calls.eraseDups
   let data := n c "machineData"
   let cq : Term := quote c
-  let name := c ++ `closes_deep
+  let sfx := shipping.deepSuffix.get (← getOptions)
+  let oldNames := shipping.nameCandidates.get (← getOptions)
+  let name := c ++ Name.mkSimple ("closes_deep" ++ sfx)
   let tag := mangle c
   if r.shape.instFields.isEmpty then
     -- one-output calls: the existing generator's theorem, under this file's premise names
@@ -138,7 +148,10 @@ partial def closesDeep (c : Name) : CommandElabM (Array Prem) := do
     nodes := nodes.insert k nd
     prems := addPrems prems nd.prems
   let k0 : Term := quote kids[0]!
-  let hnames ← if kids.length == 1 then
+  let hnames ← if !oldNames then
+      -- `ofDecl` is injective: no condition, whatever the names
+      `(Tools.ShippingNameDischarge.names_inj _)
+    else if kids.length == 1 then
       `(fun c hc c' hc' _ =>
         ((by decide : ∀ c ∈ ($data).shape.insts.map (·.1), c = $k0) c hc).trans
           ((by decide : ∀ c ∈ ($data).shape.insts.map (·.1), c = $k0) c' hc').symm)
@@ -151,7 +164,11 @@ partial def closesDeep (c : Name) : CommandElabM (Array Prem) := do
           ∀ c' ∈ ($data).shape.insts.map (·.1), (Sparkle.IR.ModuleName.ofDecl c) = (Sparkle.IR.ModuleName.ofDecl c') → c = c')) }
       `($(mkIdent pn))
   let pparent := Name.mkSimple s!"hN_{tag}_parent"
-  let hparentT : Term ← if kids.all (fun k => Tools.ShippingNameSep.sepB k c) then
+  let hparentT : Term ← if !oldNames && kids.all (fun k => k != c) then
+      -- no call entry is a call of the parent declaration: decided on the
+      -- NAMES (`Name.beq`; nothing is rendered)
+      `(Tools.ShippingNameDischarge.parent_ne _ _ (by decide))
+    else if oldNames && kids.all (fun k => Tools.ShippingNameSep.sepB k c) then
       `(Tools.ShippingNameSep.Enc.hparent_of _ _ (by decide))
     else do
       prems := prems.push { name := pparent, binder := ← `(bracketedBinder|
@@ -180,16 +197,44 @@ partial def closesDeep (c : Name) : CommandElabM (Array Prem) := do
   let nmF ← `(fun k => (List.getD $kds k []).map fun n => Sparkle.IR.ModuleName.ofDecl n)
   let declsAt (k : Name) : List Name := (nodes.get! k).decls
   let sepAll (a : Name) (L : List Name) : Bool := L.all fun b => Tools.ShippingNameSep.sepB a b
-  let namesSep := calls.all (fun k => sepAll c (declsAt k) && sepAll k (declsAt k)) &&
+  -- (the candidate renderings are enumerated only on the previous path)
+  let namesSep := oldNames && (calls.all (fun k => sepAll c (declsAt k) && sepAll k (declsAt k)) &&
     calls.all fun k => calls.all fun k' => k == k' ||
-      (sepAll k (declsAt k') && (declsAt k).all fun a => sepAll a (declsAt k'))
+      (sepAll k (declsAt k') && (declsAt k).all fun a => sepAll a (declsAt k')))
   -- the descendants' names: nothing to ask when no child has a descendant
   let allLeaf ← kids.allM fun k => do
     let cr ← liftTermElabM <| Tools.ShippingMachineCommand.readMachine k
     pure cr.shape.insts.isEmpty
+  -- the same three conditions on the DECLARATIONS (no rendering): the parent
+  -- and each callee are no descendant of that callee; two different callees —
+  -- the first is no descendant of the second and they share no descendant.
+  -- FALSE for `mixDeep` (`midH` is a callee and a descendant of `mid2`): the
+  -- binder branch below, as before.
+  let namesOk := calls.all (fun k => !(declsAt k).contains c && !(declsAt k).contains k) &&
+    calls.all fun k => calls.all fun k' => k == k' ||
+      (!(declsAt k').contains k && (declsAt k).all fun a => !(declsAt k').contains a)
   let (hpD, hsD, hdD) ← if allLeaf then
       pure (← `(by decide), ← `(by decide), ← `(by decide))
-    else if namesSep then
+    else if !oldNames && namesOk then
+      pure (
+        ← `(fun k hk => Tools.ShippingNameDischarge.not_mem_map
+          ((by decide : ∀ (k : Nat), k < ($data).shape.insts.length →
+            ($cq : Lean.Name) ∉ List.getD $kds k []) k hk)),
+        ← `(fun k hk => Tools.ShippingNameDischarge.not_mem_map
+          ((by decide : ∀ (k : Nat) (hk : k < ($data).shape.insts.length),
+            (($data).shape.insts[k]).1 ∉ List.getD $kds k []) k hk)),
+        ← `(fun k hk k' hk' hne =>
+          ⟨Tools.ShippingNameDischarge.not_mem_map
+            ((by decide : ∀ (k : Nat) (hk : k < ($data).shape.insts.length) (k' : Nat)
+              (hk' : k' < ($data).shape.insts.length),
+              (($data).shape.insts[k]).1 ≠ (($data).shape.insts[k']).1 →
+              (($data).shape.insts[k]).1 ∉ List.getD $kds k' []) k hk k' hk' hne),
+           Tools.ShippingNameDischarge.disjoint_map
+            ((by decide : ∀ (k : Nat) (hk : k < ($data).shape.insts.length) (k' : Nat)
+              (hk' : k' < ($data).shape.insts.length),
+              (($data).shape.insts[k]).1 ≠ (($data).shape.insts[k']).1 →
+              ∀ a ∈ List.getD $kds k [], a ∉ List.getD $kds k' []) k hk k' hk' hne)⟩))
+    else if oldNames && namesSep then
       -- separated by the names' candidate renderings (`Tools.ShippingNameSep`)
       pure (
         ← `(fun k hk => Tools.ShippingNameSep.Enc.not_mem_map_of _ _
@@ -323,7 +368,14 @@ partial def ifaceDeep (k : Name) : CommandElabM Node := do
   let pself := Name.mkSimple s!"hN_{mangle k}_self"
   -- the declaration prints differently from its descendants: by the candidate
   -- renderings when they separate, else a premise
-  let hselfT : Term ← if decls.all (fun g => Tools.ShippingNameSep.sepB k g) then
+  let oldNames := shipping.nameCandidates.get (← getOptions)
+  let sfx := shipping.deepSuffix.get (← getOptions)
+  -- the declaration is not among its descendants: decided on the NAMES
+  let hselfT : Term ← if !oldNames && decls.all (fun g => g != k) then
+      `((by
+        rw [Tools.ShippingKidsChildIface.namesOf_map $kd $dF]
+        exact Tools.ShippingNameDischarge.not_mem_map (by decide)))
+    else if oldNames && decls.all (fun g => Tools.ShippingNameSep.sepB k g) then
       `((by
         rw [Tools.ShippingKidsChildIface.namesOf_map $kd $dF]
         exact Tools.ShippingNameSep.Enc.not_mem_map_of _ _ (by decide)))
@@ -348,7 +400,7 @@ partial def ifaceDeep (k : Name) : CommandElabM Node := do
           | zero => exact Tools.ShippingCallsKidsD.ChildIfaceD.kid ($f y hy)
           | succ k => $tac:tactic)
   let kD := Syntax.mkNumLit (toString cr.nDecl)
-  let name := k ++ `iface_deep
+  let name := k ++ Name.mkSimple ("iface_deep" ++ sfx)
   let closeArgs ← argsAt closePrems
   let nArgs ← `(((($kd).bsIn.take $kD).filter (fun b => b.2 != .domain)).length)
   unless (← getEnv).contains name do
@@ -371,7 +423,7 @@ partial def ifaceDeep (k : Name) : CommandElabM Node := do
               have hk' : k < $nCalls := hk
               $tac:tactic)
             $hselfT $(mkIdent pn)
-            (fun mc cc _ => @$(mkIdent (`_root_ ++ k ++ `closes_deep)) mc mref cc cref $closeArgs*)
+            (fun mc cc _ => @$(mkIdent (`_root_ ++ k ++ Name.mkSimple ("closes_deep" ++ sfx))) mc mref cc cref $closeArgs*)
             hy))
     check before name
   let args := prems.map fun p => (mkIdent p.name : Term)

@@ -180,11 +180,14 @@ def auditClosed (f : Name) (nPremises : Nat) : MetaM (Array Lean.Expr) := do
     throwError "the first premise is not a child's reflection: {hyps[0]!}"
   -- NOT premise-free: the closed endpoint states the name separation (an
   -- obligation about the compiler's module names, tracked — not proved)
-  -- NAME SEPARATION: either an obligation in the statement, or PROVED — the
-  -- closing theorem's proof goes through `Tools.ShippingNameSep` (the printed
-  -- name is among finitely many candidates; `Name.toString` is not evaluated)
+  -- NAME CONDITIONS: either an obligation in the statement, or PROVED — the
+  -- closing theorem's proof term applies `Tools.ShippingNameDischarge.parent_ne`
+  -- (par/b-30: "no call entry is a call of the parent declaration", decided
+  -- on `Lean.Name`s; module names are `ofDecl`, injective). `provedNames`
+  -- checks that this constant is a DIRECT constant of the proof term — not
+  -- which names were compared, and not that no other route was used.
   let provedNames := match (← getEnv).find? (f ++ `machine_closes_at) with
-    | some (.thmInfo ti) => ti.value.getUsedConstants.contains ``Tools.ShippingNameSep.Enc.hparent_of
+    | some (.thmInfo ti) => ti.value.getUsedConstants.contains ``Tools.ShippingNameDischarge.parent_ne
     | _ => false
   let stated := (info.type.find? (fun e => e.isConstOf ``Lean.Name.toString || e.isConstOf ``Sparkle.IR.ModuleName.ofDecl)).isSome
   if !stated && !provedNames then
@@ -609,11 +612,14 @@ def auditClosedNR (f : Name) (n nPremises : Nat) : MetaM Unit := do
       throwError "{f}.machine_closes_at: a premise that is neither a reflection nor a name obligation: {h}"
   if !hyps[0]!.isAppOf ``Tools.ShippingMachineEntry.MachineDefines then
     throwError "the first premise is not a child's reflection: {hyps[0]!}"
-  -- NAME SEPARATION: either an obligation in the statement, or PROVED — the
-  -- closing theorem's proof goes through `Tools.ShippingNameSep` (the printed
-  -- name is among finitely many candidates; `Name.toString` is not evaluated)
+  -- NAME CONDITIONS: either an obligation in the statement, or PROVED — the
+  -- closing theorem's proof term applies `Tools.ShippingNameDischarge.parent_ne`
+  -- (par/b-30: "no call entry is a call of the parent declaration", decided
+  -- on `Lean.Name`s; module names are `ofDecl`, injective). `provedNames`
+  -- checks that this constant is a DIRECT constant of the proof term — not
+  -- which names were compared, and not that no other route was used.
   let provedNames := match (← getEnv).find? (f ++ `machine_closes_at) with
-    | some (.thmInfo ti) => ti.value.getUsedConstants.contains ``Tools.ShippingNameSep.Enc.hparent_of
+    | some (.thmInfo ti) => ti.value.getUsedConstants.contains ``Tools.ShippingNameDischarge.parent_ne
     | _ => false
   let stated := (info.type.find? (fun e => e.isConstOf ``Lean.Name.toString || e.isConstOf ``Sparkle.IR.ModuleName.ofDecl)).isSome
   if !stated && !provedNames then

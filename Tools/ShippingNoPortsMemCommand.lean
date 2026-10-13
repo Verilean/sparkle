@@ -4,6 +4,7 @@ import Tools.ShippingMachineShipsHierCommand
 import Tools.ShippingMachineSeqLinkedR
 import Tools.ShippingMemOnly
 import Tools.ShippingMemOnlyCloses
+import Tools.ShippingMemOnlyNames
 import Tools.ShippingMemTransport
 import Tools.ShippingNameSep
 import Tools.ShippingFinalGoalCommand
@@ -67,11 +68,33 @@ is an error with its own line (class `FAILED`).
     f.machine_design_noPortsR0             the head machine_design_noPorts at n = 0
     f.noPortsMem_alias / _argsN / _field / _argsNd / _outHead   (decided)
     f.noPortsMem_closeData    MemOnlyCloseData f.machineData
-    f.noPortsMem_notin{j}     f does not print as placeholder j's module name
-    [several placeholders: f.noPortsMem_at{j}, f.noPortsMem_namesNe{i}_{j},
-      f.noPortsMem_sep, f.noPortsMem_parent]
     f.noPortsMem_closes       MachineClosesAt f — NO premise
     f.machine_design_noPortsR0_closed
+
+## The name conditions (round par/b-30; WRITTEN, NOT BUILT)
+
+`f.noPortsMem_closes` is
+`Tools.ShippingMemOnlyNames.machineClosesAt_of_memOnlyData_names` (BUILT at
+812061e5) on `f.noPortsMem_data` and `f.noPortsMem_closeData`: the closing's
+two name hypotheses (`hsep`, `hparent`) follow from "every call entry is a
+memory placeholder", a field of `MemOnlyData`. NO per-declaration name lemma
+is generated any more.
+
+The PREVIOUS path stays reachable for one round as
+`#machine_no_ports_mem_oldnames f` / `#machine_no_ports_mem_oldnames_try f
+"…"`: the same generator, with the closing by
+`Tools.ShippingMemOnlyCloses.machineClosesAt_of_memOnlyData` and the lemmas
+
+    f.noPortsMem_notin{j}     f's module name is not placeholder j's module's (name_not_mem)
+    [several placeholders: f.noPortsMem_at{j}, f.noPortsMem_namesNe{i}_{j}
+      (a kernel comparison of two module-name strings), f.noPortsMem_sep,
+      f.noPortsMem_parent]
+
+Every other generated name, and every generated STATEMENT, is the same in
+the two paths (the statement of `f.noPortsMem_closes` and of the two
+endpoints included); only the PROOF of `f.noPortsMem_closes` differs. Run
+after the new path on one declaration, the old path takes the compare path
+(below) on every shared name.
 
 The two endpoints carry the hand tests' names. The lemmas do NOT: the hand
 ones live in their test's namespace (`Tests.Compiler.NoPortsMemOnly…Test.
@@ -230,6 +253,8 @@ structure Ctx where
   f : Name
   s : Scope
   log : IO.Ref (Array String)
+  /-- the previous closing path (per-declaration name lemmas; `…_oldnames`) -/
+  oldNames : Bool := false
 
 /-- Elaborate the theorem `mk name`. If `name` EXISTS: elaborate it under
 `name_regen` and require the two statements to be `isDefEq` (an error
@@ -411,8 +436,11 @@ def runTheorems (c : Ctx) : CommandElabM Unit := do
       (Sparkle.IR.OptCheck.checkedOptimize b) = true))
     (← `(Tools.ShippingMemOnly.memOnly_designCheck $dat hB hcore hpost entry closes))
 
-/-- The data conditions of the closing, `f.noPortsMem_closeData`, the name
-lemmas, and `f.noPortsMem_closes : MachineClosesAt f` (NO premise). -/
+/-- The data conditions of the closing, `f.noPortsMem_closeData`, and
+`f.noPortsMem_closes : MachineClosesAt f` (NO premise) — by the general
+theorem without name hypotheses; with `c.oldNames`, by the per-declaration
+name lemmas (the previous path). The statement of `f.noPortsMem_closes` is
+the same text in both. -/
 def closingTheorems (c : Ctx) : CommandElabM Unit := do
   let d := c.data
   let fq : Term := quote c.f
@@ -431,7 +459,20 @@ def closingTheorems (c : Ctx) : CommandElabM Unit := do
     theorem $tn : Tools.ShippingMemOnlyCloses.MemOnlyCloseData $d :=
       Tools.ShippingMemOnlyCloses.MemOnlyCloseData.mk $(c.lem "alias") $(c.lem "argsN")
         $(c.lem "field") $(c.lem "argsNd") $(c.lem "outHead"))
-  -- `f` does not print as a memory module's name (decided over the candidate renderings)
+  unless c.oldNames do
+    -- no name lemma: `hsep` / `hparent` follow from `MemOnlyData.mem`
+    -- (`ofMem_injective`, `ofDecl_ne_ofMem`)
+    emit c (c.lemName "closes") fun tn => `(command|
+      set_option maxHeartbeats 4000000 in
+      theorem $tn {mctx : Lean.Meta.Context}
+          {mref : ST.Ref IO.RealWorld Lean.Meta.State} {cctx : Lean.Core.Context}
+          {cref : ST.Ref IO.RealWorld Lean.Core.State} :
+          Tools.ShippingChildInv.MachineClosesAt mctx mref cctx cref $fq ($d).shape :=
+        Tools.ShippingMemOnlyNames.machineClosesAt_of_memOnlyData_names
+          $(c.lem "data") $(c.lem "closeData"))
+    return
+  -- THE PREVIOUS PATH (`…_oldnames`)
+  -- `f`'s module name is not a memory module's name (`name_not_mem`)
   for j in [0:n] do
     let m ← c.modT j
     emit c (c.lemName s!"notin{j}") fun tn => `(command|
@@ -738,9 +779,12 @@ def premiseLines (decl : Name) : MetaM (Array String × Array String) := do
 /-- The generation proper (after the scope): the lemmas, the two endpoints,
 the premise lines. Returns the log lines, the premise lines and whether the
 open endpoint was rebuilt (it existed). -/
-def core (f : Name) (s : Scope) : CommandElabM (Array String × Array String × Bool) := do
+def core (f : Name) (s : Scope) (oldNames : Bool := false) :
+    CommandElabM (Array String × Array String × Bool) := do
   let log ← IO.mkRef (#[] : Array String)
-  let c : Ctx := { f, s, log }
+  let c : Ctx := { f, s, log, oldNames }
+  if oldNames then
+    log.modify fun a => a.push "OLDNAMES: the previous closing path (machineClosesAt_of_memOnlyData with per-declaration name lemmas)"
   dataTheorems c
   runTheorems c
   let name := f ++ `machine_design_noPortsR0
@@ -824,7 +868,7 @@ def line (f : Name) (o : Outcome) : String :=
 
 /-- The generator on `f`: never throws; on REFUSED / FAILED the environment
 and the message log are put back. -/
-def noPortsMem (f : Name) : CommandElabM Outcome := do
+def noPortsMem (f : Name) (oldNames : Bool := false) : CommandElabM Outcome := do
   let savedEnv ← getEnv
   let savedMsgs := (← get).messages
   let restore : CommandElabM Unit := do
@@ -840,7 +884,7 @@ def noPortsMem (f : Name) : CommandElabM Outcome := do
   | Except.error reason => return Outcome.refused reason
   | Except.ok sc =>
     try
-      let (ls, ps, existed) ← core f sc
+      let (ls, ps, existed) ← core f sc oldNames
       if existed then return Outcome.rebuilt ls ps else return Outcome.generated ls ps
     catch ex =>
       let msg ← ex.toMessageData.toString
@@ -863,6 +907,26 @@ failed declaration leaves nothing in the environment. -/
 elab "#machine_no_ports_mem_try " d:ident ppSpace e:str : command => do
   let f ← liftCoreM <| realizeGlobalConstNoOverloadWithInfo d
   let o ← noPortsMem f
+  logInfo m!"{line f o}"
+  unless o.tag == e.getString do
+    throwError "NOPORTS MEM {f}: expected {e.getString}, found {o.tag}"
+
+/-- `#machine_no_ports_mem_oldnames f`: the generator with the PREVIOUS
+closing path (per-declaration name lemmas). Kept for one round, to compare
+the two paths on one tree. -/
+elab "#machine_no_ports_mem_oldnames " d:ident : command => do
+  let f ← liftCoreM <| realizeGlobalConstNoOverloadWithInfo d
+  let o ← noPortsMem f (oldNames := true)
+  match o with
+  | Outcome.refused _ => throwError "{line f o}"
+  | Outcome.failed _ => throwError "{line f o}"
+  | _ => logInfo m!"{line f o}"
+
+/-- `#machine_no_ports_mem_oldnames_try f "EXPECTED"`: as
+`#machine_no_ports_mem_try`, on the previous closing path. -/
+elab "#machine_no_ports_mem_oldnames_try " d:ident ppSpace e:str : command => do
+  let f ← liftCoreM <| realizeGlobalConstNoOverloadWithInfo d
+  let o ← noPortsMem f (oldNames := true)
   logInfo m!"{line f o}"
   unless o.tag == e.getString do
     throwError "NOPORTS MEM {f}: expected {e.getString}, found {o.tag}"
