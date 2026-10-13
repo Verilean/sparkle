@@ -2797,3 +2797,6 @@ lean_lib «Tools.ShippingMachineDepthMemKidRunCommand» where
 
 lean_lib «Tools.ShippingMemNamesP» where
   roots := #[`Tools.ShippingMemNamesP]
+
+lean_lib «Tools.ShippingKidFactsT» where
+  roots := #[`Tools.ShippingKidFactsT]
