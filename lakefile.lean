@@ -2755,3 +2755,18 @@ lean_lib «Tools.ShippingHierRunTotal» where
 
 lean_lib «Tools.ShippingCorpusSweep» where
   roots := #[`Tools.ShippingCorpusSweep]
+
+lean_lib «Tools.ShippingWalkGrow» where
+  roots := #[`Tools.ShippingWalkGrow]
+
+lean_lib «Tools.ShippingInstanceTag» where
+  roots := #[`Tools.ShippingInstanceTag]
+
+lean_lib «Tools.ShippingWalkStillMore» where
+  roots := #[`Tools.ShippingWalkStillMore]
+
+lean_lib «Tools.ShippingFragCensus» where
+  roots := #[`Tools.ShippingFragCensus]
+
+lean_lib «Tools.ShippingEntryOkCommand» where
+  roots := #[`Tools.ShippingEntryOkCommand]
