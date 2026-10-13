@@ -309,6 +309,7 @@ import Tests.Video.H264FrameTest
 import Tests.Video.H264DecoderSynthTest
 import Tests.Video.H264EncoderSynthTest
 import Tests.SVParser.TestVerilogCoSim
+import Tests.Compiler.TaggedJitE2ETest
 import Tests.SVParser.TestVerify
 import Tests.Bus.TestAXI4Lite
 import Tests.RoundTrip.IRVerilogIR
@@ -1077,6 +1078,10 @@ def main : IO UInt32 := do
   -- Verilog co-simulation tests (parse Verilog → JIT → simulate)
   let verilogCoSimTests ← Sparkle.Tests.SVParser.TestVerilogCoSim.verilogCoSimTests
   let allTests := allTests ++ verilogCoSimTests
+
+  -- A tagged instance member (`Sp$D$…`) through the real JIT loader (Lean FFI)
+  let taggedJitTests ← Tests.Compiler.TaggedJitE2ETest.tests
+  let allTests := allTests ++ taggedJitTests
 
   -- Verilog verification extraction tests
   let verifyTests ← Sparkle.Tests.SVParser.TestVerify.verifyTests

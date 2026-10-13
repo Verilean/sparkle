@@ -25,3 +25,20 @@ private child is a SEPARATE test (`Tests/Compiler/TaggedJitE2ETest.lean`), recor
 UNVERIFIED — this is not "all backends": the CUDA emitters (no `nvcc` on this machine), the
 `Verilator.of` shim for a tagged TOP (`V<top>.h` vs Verilator's `__024` encoding), vendor / FPGA flows,
 designs parsed from external SV with `$` in instance names.
+
+## The real JIT path, end to end through the Lean FFI (run `jit-e2e`, poc 31354b57 + the test)
+
+`Tests/Compiler/TaggedJitE2ETest.lean` (worker K, file unchanged, first attempt): a parent with a `private`
+child; the real `#sim` at elaboration; at run time `JIT.compileAndLoad` → `cc` with the repository's flags
+→ the extern `sparkle_jit_load` (`c_src/sparkle_jit.c`: dlopen + `dlsym "jit_vtable"`); 16 cycles through
+the typed wrapper (`step` = `setInput` + `evalTick`) and 16 through the raw FFI
+(`setInput` / `eval` / `getOutput` / `tick`), each compared with the source function.
+Executable `tagged-jit-e2e-test` (new `lean_exe`), MEASURED:
+```
+TAGGEDJIT: cycles=32 mismatches=0 tagged-member-in-C=true []
+✓ tagged JIT e2e: the C text has the tagged instance member behind self->
+✓ tagged JIT e2e: JIT == source on 32 cycles (typed wrapper and raw FFI)
+```
+The same rows are added to `Tests.AllTests`' `main`; `lake build Tests.AllTests` exit 0 with the import.
+This is ONE small design with a combinational private child; it is distinct from the driver's
+"C main over the vtable" rows, which never go through `c_src/sparkle_jit.c` or `eval_tick`.

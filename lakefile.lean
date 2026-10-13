@@ -2875,3 +2875,8 @@ lean_lib «Tools.ShippingReaderBoolMapLeaf» where
 
 lean_lib «Tools.ShippingReaderBoolMapShadow» where
   roots := #[`Tools.ShippingReaderBoolMapShadow]
+
+-- A tagged instance member through the real JIT loader (Lean FFI), alone
+lean_exe «tagged-jit-e2e-test» where
+  root := `Tests.Drivers.TaggedJitE2EMain
+  supportInterpreter := true
