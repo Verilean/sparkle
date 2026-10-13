@@ -1,5 +1,6 @@
 import Tools.ShippingChecksCore
 import Tools.ShippingChecksShipsHier
+import Tools.ShippingMachineRanBase
 
 /-! # Three conjuncts of `shipsHierCheck` from the core run (G1)
 
@@ -149,10 +150,11 @@ variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
   {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
 
 set_option maxHeartbeats 4000000 in
-/-- **The reset input, the distinct instance names and the self-read test of
-the full entry's module**, from the core run of a machine with calls closed
-by `closeInstsG` and with a register. -/
-theorem core_raw_factsM {c : Name} (d : MachineData) (ok : d.ok = true)
+/-- `core_raw_factsM` over `MachineRan`: the TAIL of the built proof, moved (round par/g-1).
+What it takes of the run is that the machine synthesis this core run performed
+returned `(M, D)` from an invariant world; `core_raw_factsM` below is its instance at the
+all-worlds closing (`Tools.ShippingMachineRan.machineRan_of_closes`). -/
+theorem core_raw_factsM_ran {c : Name} (d : MachineData) (ok : d.ok = true)
     (hbody : d.shape.body = quote d.dom
       (fun j => inputExpr d.shape.binders.length (d.bpos j))
       (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
@@ -163,24 +165,15 @@ theorem core_raw_factsM {c : Name} (d : MachineData) (ok : d.ok = true)
     (hsl : d.shape.layout.slots ≠ [])
     (hfne : d.shape.instFields ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    {w w1 : Void IO.RealWorld} {M b : Sparkle.IR.AST.Module} {D : Design}
-    (hB : ChildBnd mref cref w)
-    (hcore : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, D) w1)
+    {M b : Sparkle.IR.AST.Module} {D : Design}
     (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨
       b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M))
-    (entry : MachineDefines mctx mref cctx cref c d.shape)
-    (closes : MachineClosesAt mctx mref cctx cref c d.shape) :
+    (ran : Tools.ShippingMachineRan.MachineRan mctx mref cctx cref c d.shape M D) :
     "rst" ∈ b.inputs.map (·.name) ∧
     (Tools.ShippingHierState.instNames b.body).Nodup ∧
     Tools.ShippingHierPremisesBase.noSelfRead (childMap D.modules) b.body = true := by
-  obtain ⟨bb, r, w9, w10, hrun9, hw9, hd9, hres⟩ :=
-    machine_run_of_core hcore entry hB
-  have hne := closes bb _ _ _ hw9 hd9 hrun9
-  cases r with
-  | none => exact absurd rfl hne
-  | some res =>
-  have hres' := hres res rfl
-  subst hres'
+  have ran0 := ran
+  obtain ⟨bb, w9, w10, hrun9, hw9, -⟩ := ran0
   obtain ⟨t, t', d₀, run, hcl, hmt⟩ := synthesizeMachineCertified_runs hw9 hrun9
   rcases hmt with ⟨hno, -, -⟩ | ⟨-, children, hcc, hreal⟩
   · exact absurd hno hins
@@ -232,8 +225,7 @@ theorem core_raw_factsM {c : Name} (d : MachineData) (ok : d.ok = true)
   obtain ⟨hndM, hsfM⟩ := hG14 hfne
   obtain ⟨outWs, extra, houtWs, -, -, hMin⟩ := hInputs
   have hbody' : b.body = M.body :=
-    (core_kids_factsM d ok hbody hC hslots hdomB hins outTy hfne hB
-      hcore hpost entry closes).2.1
+    (core_kids_factsM_ran d ok hbody hC hslots hdomB hins outTy hfne hpost ran).2.1
   have hbin : b.inputs = M.inputs := by
     rcases hpost with h | h
     · rw [h]
@@ -260,6 +252,34 @@ theorem core_raw_factsM {c : Name} (d : MachineData) (ok : d.ok = true)
     exact hndM
   · rw [hbody']
     exact noSelfRead_of_feed hsfM
+
+set_option maxHeartbeats 4000000 in
+/-- **The reset input, the distinct instance names and the self-read test of
+the full entry's module**, from the core run of a machine with calls closed
+by `closeInstsG` and with a register. -/
+theorem core_raw_factsM {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    {nDecl : Nat} (hC : d.callsOk nDecl = true)
+    (hslots : d.ss.length = d.shape.layout.slots.length)
+    (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
+    (hins : d.shape.insts ≠ [])
+    (hsl : d.shape.layout.slots ≠ [])
+    (hfne : d.shape.instFields ≠ [])
+    (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
+    {w w1 : Void IO.RealWorld} {M b : Sparkle.IR.AST.Module} {D : Design}
+    (hB : ChildBnd mref cref w)
+    (hcore : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, D) w1)
+    (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨
+      b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M))
+    (entry : MachineDefines mctx mref cctx cref c d.shape)
+    (closes : MachineClosesAt mctx mref cctx cref c d.shape) :
+    "rst" ∈ b.inputs.map (·.name) ∧
+    (Tools.ShippingHierState.instNames b.body).Nodup ∧
+    Tools.ShippingHierPremisesBase.noSelfRead (childMap D.modules) b.body = true :=
+  core_raw_factsM_ran d ok hbody hC hslots hdomB hins hsl hfne outTy hpost
+    (Tools.ShippingMachineRan.machineRan_of_closes hcore entry hB closes)
 
 end Tools.ShippingMemKid
 
