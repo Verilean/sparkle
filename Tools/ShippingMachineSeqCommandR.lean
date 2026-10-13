@@ -123,7 +123,7 @@ def generateCoreSR (declName : Name) (atW : Bool := false) : MetaM Name := do
         (toExpr c)).bindingBody!
       let proofK ← match Tools.ShippingMachineMemCommand.memWidths? c with
         | some (cb, aw, dw) =>
-          proveByTacticT goalK (do pure (← memTactic cb aw dw argsK))
+          proveByTacticT goalK (do pure (← memTactic k cb aw dw argsK))
         | none => try do
           let some seqRun := seqRuns.get? c | throwError "{declName}: child {c}"
           let (src0, Dc, idxE) ← srcAt c ibb[0]!

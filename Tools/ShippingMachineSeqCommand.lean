@@ -123,17 +123,25 @@ partial def sigAtPos (pos : Nat) (e : Lean.Expr) : Option Lean.Expr :=
     else sigAtPos pos a[1]!
   else none
 
-/-- The tactic proving a memory call's facts. -/
-def memTactic (cb : Bool) (aw dw : Nat) (args : List Nat) : MetaM Syntax := do
+/-- The tactic proving a memory call's facts. `k` is the call's index: the
+synthetic holes are named per call (`?A{k}`, …, `?hx{k}`, as
+`Tools.ShippingMachineMemCommand.callsTactic` names them) — the holes closed
+by `all_goals rfl` keep their names in the metavariable context, so a second
+memory call of one command must not reuse them. -/
+def memTactic (k : Nat) (cb : Bool) (aw dw : Nat) (args : List Nat) : MetaM Syntax := do
   let [l0, l1, l2, l3] := args | throwError "a memory call with {args.length} arguments"
   let lit (n : Nat) := Syntax.mkNumLit (toString n)
+  let hole (s : String) : TSyntax `term := ⟨mkNode ``Lean.Parser.Term.syntheticHole
+    #[mkAtom "?", mkIdent (Name.mkSimple s!"{s}{k}")]⟩
   let cbE ← if cb then `(true) else `(false)
   `(tactic| (
       left
       unfold Tools.ShippingMachineCallsLinkedT.MemFacts
-      refine ⟨$cbE, $(lit aw), $(lit dw), ?A, ?D, ?E, ?R, $(lit l0), $(lit l1), $(lit l2), $(lit l3),
-        rfl, rfl, ?h0, by decide, ?h1, by decide, ?h2, by decide, ?h3, by decide, rfl, ?hx⟩
-      case hx => (intro j; rfl)
+      refine ⟨$cbE, $(lit aw), $(lit dw), $(hole "A"), $(hole "D"), $(hole "E"), $(hole "R"),
+        $(lit l0), $(lit l1), $(lit l2), $(lit l3),
+        rfl, rfl, $(hole "h0_"), by decide, $(hole "h1_"), by decide, $(hole "h2_"), by decide,
+        $(hole "h3_"), by decide, rfl, $(hole "hx")⟩
+      case $(mkIdent (Name.mkSimple s!"hx{k}")):ident => (intro j; rfl)
       all_goals rfl))
 
 /-- The range proof of a sequential call's argument stream. -/
@@ -251,7 +259,7 @@ def generateCoreS (declName : Name) : MetaM Name := do
         (toExpr c)).bindingBody!
       let proofK ← match Tools.ShippingMachineMemCommand.memWidths? c with
         | some (cb, aw, dw) =>
-          proveByTacticT goalK (do pure (← memTactic cb aw dw argsK))
+          proveByTacticT goalK (do pure (← memTactic k cb aw dw argsK))
         | none => try do
           let some seqRun := seqRuns.get? c | throwError "{declName}: child {c}"
           let some hB := hBOf.get? c | throwError "{declName}: boundary {c}"

@@ -819,7 +819,7 @@ partial def generateCoreNR (declName : Name) (dep : Nat) : MetaM Name := do
             catch ex => throwError "call {k}: {ex.toMessageData}")
           | _ => match Tools.ShippingMachineMemCommand.memWidths? c with
             | some (cb, aw, dw) => (try do
-                let pr ← proveByTacticT goalK (do pure (← memTactic cb aw dw argsK))
+                let pr ← proveByTacticT goalK (do pure (← memTactic k cb aw dw argsK))
                 if pr.hasSorry then
                   throwError "the proof contains sorry (an error inside the tactic was recovered from)"
                 pure pr

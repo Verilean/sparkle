@@ -780,7 +780,7 @@ partial def generateCoreNRGS (declName : Name) (dep : Nat) (asOld absorb : Bool)
               entryProof s!"{declName}: call {k}" goalK e.grp argsK e.kOut g.famA g.famB e.srcE
             catch ex => throwError "call {k}: {ex.toMessageData}")
           | _ => match Tools.ShippingMachineMemCommand.memWidths? c with
-            | some (cb, aw, dw) => proveByTacticT goalK (do pure (← memTactic cb aw dw argsK))
+            | some (cb, aw, dw) => proveByTacticT goalK (do pure (← memTactic k cb aw dw argsK))
             | none => throwError "{declName}: call {k}: neither a memory read nor a grouped entry"
         let t1 ← IO.monoMsNow
         progress s!"{declName}: call {k} of {c}: tactic OK, from its group's facts ({t1 - t0} ms)"
