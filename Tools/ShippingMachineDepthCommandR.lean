@@ -18,7 +18,37 @@ import Tools.ShippingChildIfaceGen
 `ChildBnd` and per sequential child its premise: the reflection facts
 (a child without calls), or that every run of its entry satisfies its depth
 conditions (`MachineRunN`: its own boundary, `ExtendsAway`, `NoInstOf`). No
-premise about the parent's instances (`BoundaryOf` / `BoundaryOfN`). -/
+premise about the parent's instances (`BoundaryOf` / `BoundaryOfN`).
+
+## The per-call facts are proved once per GROUP (round par/b-23)
+
+`generateCoreNR` proves the facts of a call entry that do not mention the
+entry (`b`, `l`, `r` of `SeqFactsRN`, and the two family facts `hb`, `hv` of
+`decoded_eq`) ONCE per group
+
+    key = (callee, argument lets, the two families built from the call's argument Signals)
+
+and binds them as local hypotheses around the chain over the entries
+(`Grouped.proveGroup`, `Grouped.entryProof`; design and measurements:
+`docs/parallel/A-depth-grouped.md`, the switch: `docs/parallel/B-depth-switch.md`).
+The statement of `f.machine_composedNR{n}` is the type of the same head at
+the same arguments as before: only the proof of `hcalls` differs.
+
+Against the per-entry loop this file had before:
+
+* a failing entry is an ERROR at once (the old `case … =>` logged it,
+  admitted the goal and went on; the theorem was refused only at the end);
+* each callee is read once (`readMachine`), not once per entry;
+* a family fact the `repeat' split` tactic does not prove is proved by the
+  absorb chain (`Grouped.extendBools_absorb`, `Grouped.extendBits_absorb`);
+* START / OK progress lines before and after every operation;
+* `Meta.check` of the intermediate proofs only with
+  `SPARKLE_DEPTH_GROUP_CHECK` set. The kernel's check of the theorem
+  (`addTheorem`: `addDecl` and the axiom test) is unchanged and mandatory.
+
+The helpers live in the namespace `Tools.ShippingMachineDepthCommand.Grouped`:
+`Tools/ShippingMachineDepthCommandRG.lean` (which imports this file) declares
+helpers of the same short names one namespace up. -/
 namespace Tools.ShippingMachineDepthCommand
 open Lean Meta Elab
 open Sparkle.Compiler.Elab
@@ -153,6 +183,332 @@ def closesAtProof (c : Name) (ctx : Array Lean.Expr) (hb : Lean.Expr) (names : L
     let some arg := arg? | throwError "{thm}: no proof of its premise {dom}"
     p := mkApp p arg
   throwError "{thm}: too many premises"
+
+/-! ## The grouped per-call loop: its helpers -/
+
+namespace Grouped
+
+/-! ## The family facts without `split` -/
+
+section Absorb
+open Sparkle.Core.Domain Sparkle.Core.Signal
+
+/-- A family that IS `bools`, and is `sig` at `pos`, is `bools` with `sig`
+put at `pos`. -/
+theorem extendBools_absorb {D : DomainConfig} {X bools : Nat → Signal D Bool} {pos : Nat}
+    {sig : Signal D Bool} (hprev : X = bools) (hat : X pos = sig) :
+    X = Tools.ShippingMachineCausal.extendBools bools pos sig := by
+  subst hprev
+  funext j
+  unfold Tools.ShippingMachineCausal.extendBools
+  by_cases h : j = pos
+  · rw [if_pos h]
+    subst h
+    exact hat
+  · rw [if_neg h]
+
+/-- A family that IS `bits`, and is `sig` at `(pos, w)`, is `bits` with `sig`
+put at `(pos, w)`. -/
+theorem extendBits_absorb {D : DomainConfig}
+    {X bits : (j : Nat) → (n : Nat) → Signal D (BitVec n)} {pos w : Nat}
+    {sig : Signal D (BitVec w)} (hprev : X = bits) (hat : X pos w = sig) :
+    X = Tools.ShippingMachineAuto.extendBits bits pos w sig := by
+  subst hprev
+  funext j n
+  unfold Tools.ShippingMachineAuto.extendBits
+  by_cases h : j = pos ∧ n = w
+  · rw [dif_pos h]
+    obtain ⟨hj, hn⟩ := h
+    subst hj
+    subst hn
+    exact hat.trans (cast_eq _ _).symm
+  · rw [dif_neg h]
+
+end Absorb
+
+/-! ## Helpers -/
+
+/-- A group of call entries: the callee, the argument lets, the two families
+of the call's argument Signals, and its five facts (statements and proofs,
+in the order `b`, `l`, `r`, `hb`, `hv`). -/
+structure GroupG where
+  c : Name
+  argsK : List Nat
+  famA : Lean.Expr
+  famB : Lean.Expr
+  tys : Array Lean.Expr
+  prfs : Array Lean.Expr
+  absorbBools : Bool
+  absorbBits : Bool
+
+/-- A sequential call entry: its group, the child's output it reads, the
+child's source at the family index. -/
+structure EntryG where
+  grp : Nat
+  kOut : Nat
+  srcE : Lean.Expr
+
+/-- The local hypothesis of fact `j` (`b`, `l`, `r`, `hb`, `hv`) of group `gi`. -/
+def gfName (gi j : Nat) : Name :=
+  let base : String := match j with
+    | 0 => "gfB"
+    | 1 => "gfL"
+    | 2 => "gfR"
+    | 3 => "gfHb"
+    | _ => "gfHv"
+  Name.mkSimple s!"{base}{gi}"
+
+/-- The last component of a goal's tag. -/
+def tagEndG (n : Name) : String :=
+  match n.eraseMacroScopes with
+  | Name.str _ s => s
+  | _ => ""
+
+/-- The goal whose tag ends in `s`. -/
+def goalTaggedG (what : String) (gs : List MVarId) (s : String) : MetaM MVarId := do
+  let mut tags : List Name := []
+  for g in gs do
+    let t ← g.getTag
+    if tagEndG t == s then return g
+    tags := tags ++ [t]
+  throwError "{what}: no goal tagged {s} among {tags}"
+
+/-- One tactic on a goal: the goals it leaves. -/
+def runTacG (g : MVarId) (tac : Syntax) : MetaM (List MVarId) := do
+  let (gs, _) ← (Term.TermElabM.run (Tactic.run g (Tactic.evalTactic tac))) {}
+  return gs
+
+/-- A message, cut for a progress line. -/
+def clipG (s : String) (n : Nat := 600) : String :=
+  if s.length ≤ n then s
+  else (s.toList.take n).foldl (fun acc ch => acc.push ch) "" ++ " …[clipped]"
+
+/-- Whether `Meta.check` of the intermediate proofs was asked
+(`SPARKLE_DEPTH_GROUP_CHECK`). It localises an ill-formed proof earlier; it
+proves nothing the kernel's check of the final theorem does not. On the
+Keccak sponge the check of the fact `l` did not end in 25 minutes, so it is
+not the default. -/
+def metaCheckAsked : IO Bool := do
+  return (← IO.getEnv "SPARKLE_DEPTH_GROUP_CHECK").isSome
+
+/-- `Meta.check` of `e` when asked (`SPARKLE_DEPTH_GROUP_CHECK`), with a
+START line before and a timed line after; otherwise one SKIPPED line. -/
+def metaCheckG (label : String) (e : Lean.Expr) : MetaM Unit := do
+  if ← metaCheckAsked then
+    progress s!"{label}: Meta.check START"
+    let t0 ← IO.monoMsNow
+    try check e catch ex => throwError "{label}: proof ill-formed: {ex.toMessageData}"
+    let t1 ← IO.monoMsNow
+    progress s!"{label}: Meta.check OK ({t1 - t0} ms)"
+  else
+    progress s!"{label}: Meta.check SKIPPED (SPARKLE_DEPTH_GROUP_CHECK not set; the kernel checks the theorem)"
+
+/-- A fact of a group: proved by `tac` on its own goal (no `case`: a failure
+is an error here, never an admitted goal), refused if the proof contains
+`sorryAx` or a metavariable; then `metaCheckG`. A line before and after each
+operation. -/
+def groupFact (label : String) (ty : Lean.Expr) (tac : Syntax) : MetaM Lean.Expr := do
+  progress s!"{label}: tactic START"
+  let t0 ← IO.monoMsNow
+  let pr ← proveByTacticT ty (pure tac)
+  let t1 ← IO.monoMsNow
+  progress s!"{label}: tactic OK ({t1 - t0} ms); sanity test (no sorry, no metavariable) START"
+  if pr.hasSorry then
+    throwError "{label}: the proof contains sorry (an error inside the tactic was recovered from)"
+  if pr.hasExprMVar then throwError "{label}: the proof has unassigned metavariables"
+  let t2 ← IO.monoMsNow
+  progress s!"{label}: sanity test OK ({t2 - t1} ms)"
+  metaCheckG label pr
+  return pr
+
+/-- A family fact: by the old tactic (`splitTac`), and where that does not
+prove it — or at once when `absorb` is set — by the absorb chain
+(`chainTac`). Returns the proof and whether the chain was used. -/
+def familyFact (absorb : Bool) (label : String) (ty : Lean.Expr) (splitTac chainTac : Syntax) :
+    MetaM (Lean.Expr × Bool) := do
+  if absorb then
+    let pr ← groupFact s!"{label} [absorb chain]" ty chainTac
+    return (pr, true)
+  let saved ← Meta.saveState
+  let first? : Option Lean.Expr ← try
+      let pr ← groupFact s!"{label} [split]" ty splitTac
+      pure (some pr)
+    catch ex =>
+      let msg ← ex.toMessageData.toString
+      saved.restore
+      progress s!"{label} [split]: NOT proved — {clipG msg}; the absorb chain next"
+      pure none
+  match first? with
+  | some pr => return (pr, false)
+  | none =>
+    let pr ← groupFact s!"{label} [absorb chain]" ty chainTac
+    return (pr, true)
+
+/-- **A group's five facts, each proved once.** `goalK` is the goal of the
+group's first entry (the statements of `b`, `l`, `r` are read off it after
+the old skeleton; `hb`, `hv` are stated as `baseA = A`, `baseB = B`); the tactics are the
+ones of the per-entry loop, without `case`. `baseA`, `baseB` are
+the decoded families before the call's arguments are put in. -/
+def proveGroup (declName : Name) (absorb : Bool) (gi : Nat) (goalK : Lean.Expr) (c : Name)
+    (argsK : List Nat) (isLeaf : Bool) (seqRun : Name) (kOut : Nat)
+    (kinds : List MixedGateBinder) (baseA baseB A B idxE srcE : Lean.Expr) : MetaM GroupG := do
+  let tag := s!"{declName}: group {gi} ({c}, argument lets {argsK})"
+  let tyA ← inferType A
+  let tyB ← inferType B
+  let tyI ← inferType idxE
+  let tyS ← inferType srcE
+  withLetDecl `famA tyA A fun aF => withLetDecl `famB tyB B fun bF =>
+    withLetDecl `famI tyI idxE fun iF => withLetDecl `famS tyS srcE fun sF => do
+    let back (e : Lean.Expr) : Lean.Expr :=
+      e.replaceFVar aF A |>.replaceFVar bF B |>.replaceFVar iF idxE |>.replaceFVar sF srcE
+    let lit (n : Nat) := Syntax.mkNumLit (toString n)
+    let argsArr : Array Term := (argsK.map fun n => (⟨lit n⟩ : Term)).toArray
+    let argsS ← `([$argsArr,*])
+    let srcS : Term := ⟨mkIdent `famS⟩
+    let idxS : Term := ⟨mkIdent `famI⟩
+    let AS : Term := ⟨mkIdent `famA⟩
+    let BS : Term := ⟨mkIdent `famB⟩
+    let rangeS ← rangeSyntax kinds
+    let seqRunS := mkIdent (`_root_ ++ seqRun)
+    -- the statements: the old skeleton on the first entry's goal
+    -- Only the three STATEMENTS leave this block; the metavariable context is
+    -- put back after it. The named holes `?b ?l ?r ?f` stay unassigned here
+    -- (their goals are only read), and a named hole is looked up by name in
+    -- the whole metavariable context: left there, the NEXT group's skeleton
+    -- would find this group's holes, declared under this group's local
+    -- definitions ("synthetic hole has already been defined with an
+    -- incompatible local context").
+    let skel ← `(tactic| (
+      right
+      unfold Tools.ShippingMachineCallsLinkedTNR.SeqFactsRN
+      refine ⟨rfl, $argsS, rfl, ?b, ?l, ?r, $(lit kOut), _, _, rfl, rfl, ?f, fun τ => rfl⟩))
+    let (tB, tL, tR) ← withoutModifyingState do
+      let mv ← mkFreshExprMVar goalK
+      let gs ← runTacG mv.mvarId! skel
+      let gB ← goalTaggedG tag gs "b"
+      let gL ← goalTaggedG tag gs "l"
+      let gR ← goalTaggedG tag gs "r"
+      let closedTy (g : MVarId) (what : String) : MetaM Lean.Expr := do
+        let t ← instantiateMVars (← g.getType)
+        if t.hasMVar then throwError "{tag}: the statement of {what} has unassigned metavariables"
+        pure t
+      let tB ← closedTy gB "b"
+      let tL ← closedTy gL "l"
+      let tR ← closedTy gR "r"
+      pure (tB, tL, tR)
+    -- the family facts' statements, on the generator's own decoded families
+    -- (`baseA`, `baseB`). They are NOT read off `decoded_eq … ?hb ?hv`: a
+    -- child whose source does not read its bit-vector (or Bool) inputs
+    -- leaves that family undetermined by the goal (the old tactic's `rfl`
+    -- inside the `by` block fixed it; here the hypotheses' types do, in the
+    -- entry: `decoded_eq`'s `bools`, `bits` are read off `gfHb`, `gfHv`).
+    let _ := (srcS, AS, BS)
+    let tHb ← mkEq baseA aF
+    let tHv ← mkEq baseB bF
+    -- the old tactics
+    let caseB ← if isLeaf then
+        `(tactic| (
+          obtain ⟨_, _, _, _, _, _, _, hr', entry', closes'⟩ := hmr
+          refine ⟨$seqRunS $idxS hr' entry' closes' _ _ _, ?_⟩
+          rw [($seqRunS $idxS hr' entry' closes' (fun _ => none)
+            { topModule := "", modules := [] } 0).2.2.2.2.2.1]
+          decide))
+      else
+        `(tactic| (
+          have hrn := hmr
+          exact ⟨$seqRunS $idxS hrn, by rw [($seqRunS $idxS hrn).2.2.2.2.2.1]; decide⟩))
+    let tacB ← `(tactic| (
+      intro mc hmr
+      $caseB:tactic))
+    let tacL ← `(tactic| (
+      exact Tools.ShippingMachineCallsLinkedT.args_facts (by decide)
+        (by simp [Tools.ShippingMachineCausal.letObsB, Tools.ShippingMachineCausal.letObsLoop,
+          Tools.ShippingMachineCausal.letObsComb])))
+    let tacR ← `(tactic| (
+      intro τ
+      unfold Tools.ShippingMachineChild.InRange
+      exact $rangeS))
+    let tacHb ← `(tactic| (
+      funext p
+      try simp (config := { zetaDelta := true }) only [Tools.ShippingMachineCausal.extendBools]
+      (repeat' split) <;> (first
+        | (rename_i hp; subst hp; exact Tools.ShippingMachineCallsLinkedT.boolsOf_at
+            (fun τ => Tools.ShippingMachineCallsLinkedT.decB_valsOf rfl (by decide) rfl τ))
+        | rfl)))
+    let tacHv ← `(tactic| (
+      funext p n
+      try simp (config := { zetaDelta := true }) only [Tools.ShippingMachineAuto.extendBits]
+      (repeat' split) <;> (first
+        | (rename_i hp; obtain ⟨hp1, hp2⟩ := hp; subst hp1; subst hp2; (try simp only [cast_eq]); exact Tools.ShippingMachineCallsLinkedT.bitsOf_at
+            (fun τ => Tools.ShippingMachineCallsLinkedT.decV_valsOf rfl (by decide) rfl τ))
+        | rfl)))
+    -- the absorb chains: one step per Bool / bit-vector input, in the order
+    -- the families are built in (innermost first)
+    let mut chainA : Term ← `(rfl)
+    let mut chainV : Term ← `(rfl)
+    for kd in kinds do
+      match kd with
+      | MixedGateBinder.bool =>
+        chainA ← `(Tools.ShippingMachineDepthCommand.Grouped.extendBools_absorb $chainA
+          (Tools.ShippingMachineCallsLinkedT.boolsOf_at
+            (fun τ => Tools.ShippingMachineCallsLinkedT.decB_valsOf rfl (by decide) rfl τ)))
+      | MixedGateBinder.bits _ =>
+        chainV ← `(Tools.ShippingMachineDepthCommand.Grouped.extendBits_absorb $chainV
+          (Tools.ShippingMachineCallsLinkedT.bitsOf_at
+            (fun τ => Tools.ShippingMachineCallsLinkedT.decV_valsOf rfl (by decide) rfl τ)))
+      | MixedGateBinder.domain => pure ()
+    let tacChainA ← `(tactic| exact $chainA)
+    let tacChainV ← `(tactic| exact $chainV)
+    let pB ← groupFact s!"{tag}: b (the child's run theorem at the instance; argPorts' length)" tB tacB
+    let pL ← groupFact s!"{tag}: l (args_facts)" tL tacL
+    let pR ← groupFact s!"{tag}: r (InRange)" tR tacR
+    -- the family facts, stated on the families themselves (no local
+    -- definition in the statement: the chain's unification is structural)
+    let (pHb, usedB) ← familyFact absorb s!"{tag}: hb (the Bool family)" (back tHb) tacHb tacChainA
+    let (pHv, usedV) ← familyFact absorb s!"{tag}: hv (the bit-vector family)" (back tHv) tacHv tacChainV
+    let res : GroupG :=
+      { c := c, argsK := argsK, famA := A, famB := B,
+        tys := #[back tB, back tL, back tR, back tHb, back tHv],
+        prfs := #[back pB, back pL, back pR, back pHb, back pHv],
+        absorbBools := usedB, absorbBits := usedV }
+    pure res
+
+/-- **An entry's proof from its group's facts** (the local hypotheses
+`gfB{gi}` … `gfHv{gi}`): the old skeleton with the three facts in place, and
+the last equation by `decoded_eq` on the two family facts. -/
+def entryProof (label : String) (goalK : Lean.Expr) (gi : Nat) (argsK : List Nat) (kOut : Nat)
+    (A B srcE : Lean.Expr) : MetaM Lean.Expr := do
+  let tyA ← inferType A
+  let tyB ← inferType B
+  let tyS ← inferType srcE
+  withLetDecl `famA tyA A fun aF => withLetDecl `famB tyB B fun bF =>
+    withLetDecl `famS tyS srcE fun sF => do
+    let lit (n : Nat) := Syntax.mkNumLit (toString n)
+    let argsArr : Array Term := (argsK.map fun n => (⟨lit n⟩ : Term)).toArray
+    let argsS ← `([$argsArr,*])
+    let srcS : Term := ⟨mkIdent `famS⟩
+    let AS : Term := ⟨mkIdent `famA⟩
+    let BS : Term := ⟨mkIdent `famB⟩
+    let hB : Term := ⟨mkIdent (gfName gi 0)⟩
+    let hL : Term := ⟨mkIdent (gfName gi 1)⟩
+    let hR : Term := ⟨mkIdent (gfName gi 2)⟩
+    let hHb : Term := ⟨mkIdent (gfName gi 3)⟩
+    let hHv : Term := ⟨mkIdent (gfName gi 4)⟩
+    let tac ← `(tactic| (
+      right
+      unfold Tools.ShippingMachineCallsLinkedTNR.SeqFactsRN
+      refine ⟨rfl, $argsS, rfl, $hB, $hL, $hR, $(lit kOut), _, _, rfl, rfl, ?_, fun τ => rfl⟩
+      exact (congrArg (fun l => l[$(lit kOut)]?)
+        (Tools.ShippingMachineCallsLinkedT.decoded_eq (bools' := $AS) (bits' := $BS) $srcS
+          $hHb $hHv)).trans rfl))
+    let pr ← proveByTacticT goalK (pure tac)
+    if pr.hasSorry then
+      throwError "{label}: the proof contains sorry (an error inside the tactic was recovered from)"
+    pure (pr.replaceFVar aF A |>.replaceFVar bF B |>.replaceFVar sF srcE)
+
+end Grouped
+
+open Tools.ShippingMachineDepthCommand.Grouped
 
 mutual
 
@@ -351,6 +707,7 @@ partial def generateCoreNR (declName : Name) (dep : Nat) : MetaM Name := do
     p := mkApp p (← mkDecideProof ty)
   p := mkApp4 p bsC outsC S PC
   let hcallsT := (← whnf (← inferType p)).bindingDomain!
+  -- ===== the grouped per-call loop =====
   let hcalls ← forallBoundedTelescope hcallsT (some 3) fun ibb rest => do
     let names := calls.map (·.1)
     -- the parent's let observations and call extension at this family point
@@ -367,132 +724,138 @@ partial def generateCoreNR (declName : Name) (dep : Nat) : MetaM Name := do
       pure e
     let extBody ← unfoldExt extE
     let extBBody ← unfoldExt extBE
-    let mut perK : Array Lean.Expr := #[]
+    let goalOf (k : Nat) (c : Name) : Lean.Expr :=
+      ((rest.bindingBody!.instantiate1 (mkNatLit k)).bindingBody!.instantiate1 (toExpr c)).bindingBody!
+    progress s!"{declName}: grouped loop, {calls.length} call entries"
+    -- PHASE 1: the entries' data, their groups, each group's
+    -- five facts proved once
+    let mut crOf : Std.HashMap Name Tools.ShippingMachineCommand.Read := {}
+    let mut ents : Array (Option EntryG) := #[]
+    let mut grps : Array GroupG := #[]
+    let mut nSeq : Nat := 0
     for k in [0:calls.length] do
       let some (c, argsK, _) := calls[k]? | throwError "{declName}: call {k}"
-      let goalK := ((rest.bindingBody!.instantiate1 (mkNatLit k)).bindingBody!.instantiate1
-        (toExpr c)).bindingBody!
-      let proofK ← match Tools.ShippingMachineMemCommand.memWidths? c with
-        | some (cb, aw, dw) =>
-          proveByTacticT goalK (do pure (← memTactic cb aw dw argsK))
-        | none => try do
-          let some seqRun := seqRuns.get? c | throwError "{declName}: child {c}"
-          let (src0, Dc, idxE) ← srcAt c ibb[0]!
-          -- the call: its signal at the call's port, and its arguments
-          let pos := r.nDecl + k
-          let some sig := (sigAtPos pos extBody).orElse fun _ => sigAtPos pos extBBody
-            | throwError "{declName}: call {k}: no signal at port {pos}"
-          let some call := findCall c sig | throwError "{declName}: call {k}: no call of {c}"
-          let callArgs := call.getAppArgs
-          let cr ← readMachine c
-          let bsIn : List (Name × MixedGateBinder) := cr.shape.binders.take cr.nDecl
-          unless callArgs.size == bsIn.length do
-            throwError "{declName}: call {k}: {callArgs.size} arguments, {bsIn.length} binders"
-          -- the child's output read by this call
-          let field := r.shape.instFields.getD k ""
-          let some k' := cr.shape.layout.outs.findIdx? (fun (o : Sparkle.IR.Machine.OutField) => o.name == field)
-            | throwError "{declName}: call {k}: field {field}"
-          let bsInE0 ← mkAppM ``Tools.ShippingMachineAuto.MachineData.bsIn #[mkConst (c ++ `machineData)]
-          let bsInE ← if leaf.getD c true then pure bsInE0
-            else mkAppM ``List.take #[mkNatLit cr.nDecl, bsInE0]
-          let vs ← mkAppM ``Tools.ShippingMachineCallsLinkedT.valsOf
-            #[lsrcE, listE nat (argsK.map mkNatLit)]
-          -- the families the decoded inputs are: the call's arguments at their positions
-          let mut A ← mkAppOptM ``Tools.ShippingMachineChild.boolsOf #[Dc, bsInE, vs]
-          let mut B ← mkAppOptM ``Tools.ShippingMachineChild.bitsOf #[Dc, bsInE, vs]
-          for (pIdx, bnd) in (List.range bsIn.length).zip bsIn do
-            let kind : MixedGateBinder := bnd.2
-            if kind == MixedGateBinder.bool then
-              A ← mkAppM ``Tools.ShippingMachineCausal.extendBools #[A, mkNatLit pIdx, callArgs[pIdx]!]
-            if let .bits w := kind then
-              B ← mkAppM ``Tools.ShippingMachineAuto.extendBits
-                #[B, mkNatLit pIdx, mkNatLit w, callArgs[pIdx]!]
-          let kinds : List MixedGateBinder := bsIn.map (fun b => b.2)
-          let tyA ← inferType A
-          let tyB ← inferType B
-          let tyI ← inferType idxE
-          let srcE := src0
-          let tyS ← inferType srcE
-          let pr ← withLetDecl `famA tyA A fun aF => withLetDecl `famB tyB B fun bF =>
-            withLetDecl `famI tyI idxE fun iF => withLetDecl `famS tyS srcE fun sF => do
-           let pr ← proveByTacticT goalK (do
-            let lit (n : Nat) := Syntax.mkNumLit (toString n)
-            let argsArr : Array Term := (argsK.map fun n => (⟨lit n⟩ : Term)).toArray
-            let argsS ← `([$argsArr,*])
-            let srcS : Term := ⟨mkIdent `famS⟩
-            let idxS : Term := ⟨mkIdent `famI⟩
-            let AS : Term := ⟨mkIdent `famA⟩
-            let BS : Term := ⟨mkIdent `famB⟩
-            let rangeS ← rangeSyntax kinds
-            let seqRunS := mkIdent (`_root_ ++ seqRun)
-            let caseB ← if leaf.getD c true then
-                `(tactic| (
-                  obtain ⟨_, _, _, _, _, _, _, hr', entry', closes'⟩ := hmr
-                  refine ⟨$seqRunS $idxS hr' entry' closes' _ _ _, ?_⟩
-                  rw [($seqRunS $idxS hr' entry' closes' (fun _ => none)
-                    { topModule := "", modules := [] } 0).2.2.2.2.2.1]
-                  decide))
-              else
-                `(tactic| (
-                  have hrn := hmr
-                  exact ⟨$seqRunS $idxS hrn, by rw [($seqRunS $idxS hrn).2.2.2.2.2.1]; decide⟩))
-            `(tactic| (
-              right
-              unfold Tools.ShippingMachineCallsLinkedTNR.SeqFactsRN
-              refine ⟨rfl, $argsS, rfl, ?b, ?l, ?r, $(lit k'), _, _, rfl, rfl, ?f, fun τ => rfl⟩
-              case b =>
-                intro mc hmr
-                $caseB:tactic
-              case l =>
-                exact Tools.ShippingMachineCallsLinkedT.args_facts (by decide)
-                  (by simp [Tools.ShippingMachineCausal.letObsB, Tools.ShippingMachineCausal.letObsLoop,
-                    Tools.ShippingMachineCausal.letObsComb])
-              case r =>
-                intro τ
-                unfold Tools.ShippingMachineChild.InRange
-                exact $rangeS
-              case f =>
-                exact (congrArg (fun l => l[$(lit k')]?)
-                  (Tools.ShippingMachineCallsLinkedT.decoded_eq (bools' := $AS) (bits' := $BS) $srcS
-                    (by
-                      funext p
-                      try simp (config := { zetaDelta := true }) only [Tools.ShippingMachineCausal.extendBools]
-                      (repeat' split) <;> (first
-                        | (rename_i hp; subst hp; exact Tools.ShippingMachineCallsLinkedT.boolsOf_at
-                            (fun τ => Tools.ShippingMachineCallsLinkedT.decB_valsOf rfl (by decide) rfl τ))
-                        | rfl))
-                    (by
-                      funext p n
-                      try simp (config := { zetaDelta := true }) only [Tools.ShippingMachineAuto.extendBits]
-                      (repeat' split) <;> (first
-                        | (rename_i hp; obtain ⟨hp1, hp2⟩ := hp; subst hp1; subst hp2; (try simp only [cast_eq]); exact Tools.ShippingMachineCallsLinkedT.bitsOf_at
-                            (fun τ => Tools.ShippingMachineCallsLinkedT.decV_valsOf rfl (by decide) rfl τ))
-                        | rfl)))).trans rfl)))
-           pure ((← instantiateMVars pr).replaceFVar aF A |>.replaceFVar bF B |>.replaceFVar iF idxE
-             |>.replaceFVar sF srcE)
-          pure pr
-          catch e => throwError "call {k}: {e.toMessageData}"
-      try check proofK catch e => throwError "call {k} proof ill-formed: {e.toMessageData}"
-      perK := perK.push proofK
-    -- the chain over the call list
-    let nameT := mkConst ``Name
-    let Qm (m : Nat) : MetaM Lean.Expr :=
+      if (Tools.ShippingMachineMemCommand.memWidths? c).isSome then
+        ents := ents.push none
+      else
+        nSeq := nSeq + 1
+        let cr ← match crOf.get? c with
+          | some cr0 => pure cr0
+          | none => readMachine c
+        crOf := crOf.insert c cr
+        let isLeaf : Bool := leaf.getD c true
+        let (baseA, baseB, A, B, idxE, srcE, kOut, kinds, seqRun) ← (try do
+            let some seqRun := seqRuns.get? c | throwError "{declName}: child {c}"
+            let (src0, Dc, idxE) ← srcAt c ibb[0]!
+            -- the call: its signal at the call's port, and its arguments
+            let pos := r.nDecl + k
+            let some sig := (sigAtPos pos extBody).orElse fun _ => sigAtPos pos extBBody
+              | throwError "{declName}: call {k}: no signal at port {pos}"
+            let some call := findCall c sig | throwError "{declName}: call {k}: no call of {c}"
+            let callArgs := call.getAppArgs
+            let bsIn : List (Name × MixedGateBinder) := cr.shape.binders.take cr.nDecl
+            unless callArgs.size == bsIn.length do
+              throwError "{declName}: call {k}: {callArgs.size} arguments, {bsIn.length} binders"
+            -- the child's output read by this call
+            let field := r.shape.instFields.getD k ""
+            let some k' := cr.shape.layout.outs.findIdx? (fun (o : Sparkle.IR.Machine.OutField) => o.name == field)
+              | throwError "{declName}: call {k}: field {field}"
+            let bsInE0 ← mkAppM ``Tools.ShippingMachineAuto.MachineData.bsIn #[mkConst (c ++ `machineData)]
+            let bsInE ← if isLeaf then pure bsInE0
+              else mkAppM ``List.take #[mkNatLit cr.nDecl, bsInE0]
+            let vs ← mkAppM ``Tools.ShippingMachineCallsLinkedT.valsOf
+              #[lsrcE, listE nat (argsK.map mkNatLit)]
+            -- the families the decoded inputs are: the call's arguments at their positions
+            let baseA ← mkAppOptM ``Tools.ShippingMachineChild.boolsOf #[Dc, bsInE, vs]
+            let baseB ← mkAppOptM ``Tools.ShippingMachineChild.bitsOf #[Dc, bsInE, vs]
+            let mut A := baseA
+            let mut B := baseB
+            for (pIdx, bnd) in (List.range bsIn.length).zip bsIn do
+              let kind : MixedGateBinder := bnd.2
+              if kind == MixedGateBinder.bool then
+                A ← mkAppM ``Tools.ShippingMachineCausal.extendBools #[A, mkNatLit pIdx, callArgs[pIdx]!]
+              if let .bits w := kind then
+                B ← mkAppM ``Tools.ShippingMachineAuto.extendBits
+                  #[B, mkNatLit pIdx, mkNatLit w, callArgs[pIdx]!]
+            let kinds : List MixedGateBinder := bsIn.map (fun b => b.2)
+            pure (baseA, baseB, A, B, idxE, src0, k', kinds, seqRun)
+          catch ex => throwError "call {k}: {ex.toMessageData}")
+        -- the entry's group: the same callee, argument lets and families
+        let mut gi : Nat := grps.size
+        match grps.findIdx? (fun g => g.c == c && g.argsK == argsK && g.famA == A && g.famB == B) with
+        | some j => gi := j
+        | none =>
+          progress s!"{declName}: call {k} opens group {gi} ({c}, argument lets {argsK})"
+          let g ← (try
+              proveGroup declName false gi (goalOf k c) c argsK isLeaf seqRun kOut kinds
+                baseA baseB A B idxE srcE
+            catch ex => throwError "call {k} (group {gi}): {ex.toMessageData}")
+          grps := grps.push g
+        ents := ents.push (some { grp := gi, kOut := kOut, srcE := srcE })
+    let nAbsA : Nat := (grps.filter fun g => g.absorbBools).size
+    let nAbsV : Nat := (grps.filter fun g => g.absorbBits).size
+    progress s!"{declName}: {calls.length} call entries ({nSeq} of sequential children) in {grps.size} groups; absorb chain used for the Bool family of {nAbsA}, the bit-vector family of {nAbsV}"
+    -- PHASE 2: every entry from its group's facts, as local hypotheses
+    let mut gDecls : Array (Name × (Array Lean.Expr → MetaM Lean.Expr)) := #[]
+    let mut gProofs : Array Lean.Expr := #[]
+    for gi in [0:grps.size] do
+      let some g := grps[gi]? | throwError "{declName}: group {gi}"
+      for j in [0:5] do
+        let some ty := g.tys[j]? | throwError "{declName}: group {gi}: fact {j}"
+        let some pr := g.prfs[j]? | throwError "{declName}: group {gi}: fact {j}"
+        gDecls := gDecls.push ((gfName gi j), (fun (_ : Array Lean.Expr) => pure ty))
+        gProofs := gProofs.push pr
+    withLocalDeclsD gDecls fun gHyps => do
+      let mut perK : Array Lean.Expr := #[]
+      for k in [0:calls.length] do
+        let some (c, argsK, _) := calls[k]? | throwError "{declName}: call {k}"
+        let goalK := goalOf k c
+        progress s!"{declName}: call {k} of {c}: tactic START"
+        let t0 ← IO.monoMsNow
+        let proofK ← match ents[k]? with
+          | some (some e) => (try do
+              let some g := grps[e.grp]? | throwError "{declName}: call {k}: group {e.grp}"
+              entryProof s!"{declName}: call {k}" goalK e.grp argsK e.kOut g.famA g.famB e.srcE
+            catch ex => throwError "call {k}: {ex.toMessageData}")
+          | _ => match Tools.ShippingMachineMemCommand.memWidths? c with
+            | some (cb, aw, dw) => (try do
+                let pr ← proveByTacticT goalK (do pure (← memTactic cb aw dw argsK))
+                if pr.hasSorry then
+                  throwError "the proof contains sorry (an error inside the tactic was recovered from)"
+                pure pr
+              catch ex => throwError "call {k}: {ex.toMessageData}")
+            | none => throwError "{declName}: call {k}: neither a memory read nor a grouped entry"
+        let t1 ← IO.monoMsNow
+        progress s!"{declName}: call {k} of {c}: tactic OK, from its group's facts ({t1 - t0} ms)"
+        metaCheckG s!"{declName}: call {k} of {c}" proofK
+        perK := perK.push proofK
+      progress s!"{declName}: the chain over the {calls.length} entries START"
+      -- the chain over the call list
+      let nameT := mkConst ``Name
+      let Qm (m : Nat) : MetaM Lean.Expr :=
+        withLocalDeclD `k nat fun kv => withLocalDeclD `c nameT fun cv => do
+          let rk := ((rest.bindingBody!.instantiate1 (← mkAdd kv (mkNatLit m))).bindingBody!.instantiate1
+            cv).bindingBody!
+          mkLambdaFVars #[kv, cv] rk
+      let n := names.length
+      let mut chain ← mkAppOptM ``Tools.ShippingMachineChild.forall_getElem?_nil #[nameT, ← Qm n]
+      for m' in [0:n] do
+        let m := n - 1 - m'
+        let rest' := listE nameT ((names.drop (m + 1)).map toExpr)
+        chain ← mkAppOptM ``Tools.ShippingMachineChild.forall_getElem?_cons
+          #[nameT, ← Qm m, toExpr names[m]!, rest', perK[m]!, chain]
+      progress s!"{declName}: the chain over the entries built"
+      metaCheckG s!"{declName}: the chain over the entries" chain
+      -- the groups' facts, bound ONCE around the chain
       withLocalDeclD `k nat fun kv => withLocalDeclD `c nameT fun cv => do
-        let rk := ((rest.bindingBody!.instantiate1 (← mkAdd kv (mkNatLit m))).bindingBody!.instantiate1
-          cv).bindingBody!
-        mkLambdaFVars #[kv, cv] rk
-    let n := names.length
-    let mut chain ← mkAppOptM ``Tools.ShippingMachineChild.forall_getElem?_nil #[nameT, ← Qm n]
-    for m' in [0:n] do
-      let m := n - 1 - m'
-      let rest' := listE nameT ((names.drop (m + 1)).map toExpr)
-      chain ← mkAppOptM ``Tools.ShippingMachineChild.forall_getElem?_cons
-        #[nameT, ← Qm m, toExpr names[m]!, rest', perK[m]!, chain]
-    withLocalDeclD `k nat fun kv => withLocalDeclD `c nameT fun cv => do
-      let hkT := ((rest.bindingBody!.instantiate1 kv).bindingBody!.instantiate1 cv).bindingDomain!
-      withLocalDeclD `hk hkT fun hk => do
-        mkLambdaFVars (ibb ++ #[kv, cv, hk]) (mkAppN chain #[kv, cv, hk])
-  try check hcalls catch e => throwError "hcalls ill-formed: {e.toMessageData}"
+        let hkT := ((rest.bindingBody!.instantiate1 kv).bindingBody!.instantiate1 cv).bindingDomain!
+        withLocalDeclD `hk hkT fun hk => do
+          let body := mkAppN chain #[kv, cv, hk]
+          let shared := mkAppN (← mkLambdaFVars gHyps body) gProofs
+          mkLambdaFVars (ibb ++ #[kv, cv, hk]) shared
+  -- (no `check hcalls` here: with `SPARKLE_DEPTH_GROUP_CHECK` each group fact,
+  -- each entry and the chain were checked; the kernel checks the theorem)
+  progress s!"{declName}: grouped loop done"
   p := mkApp p hcalls
   if back?.isSome then throwError "{declName}: a transported endpoint (not yet at depth)"
   -- `hrunN`, call by call, from the children's premises
@@ -559,6 +922,7 @@ partial def generateCoreNR (declName : Name) (dep : Nat) : MetaM Name := do
     mkLambdaFVars (xs.pop ++ #[hBnd]) p'
   progress s!"{name}: checking"
   addTheorem name (← inferType value) value
+  progress s!"{name}: checked"
   return name
 
 end
