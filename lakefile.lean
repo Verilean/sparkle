@@ -2686,3 +2686,9 @@ lean_lib «Tools.ShippingNameMode» where
 
 lean_lib «Tools.ShippingMemSeqNames» where
   roots := #[`Tools.ShippingMemSeqNames]
+
+lean_lib «Tools.ShippingCacheCoherentCert» where
+  roots := #[`Tools.ShippingCacheCoherentCert]
+
+lean_lib «Tools.ShippingCacheCoherentData» where
+  roots := #[`Tools.ShippingCacheCoherentData]
