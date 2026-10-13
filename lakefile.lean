@@ -2630,3 +2630,6 @@ lean_lib «Tools.ShippingLeafEntryBnd» where
 
 lean_lib «Tools.ShippingNoPortsMemCommand» where
   roots := #[`Tools.ShippingNoPortsMemCommand]
+
+lean_lib «Tools.ShippingMachineDepthCommandRG» where
+  roots := #[`Tools.ShippingMachineDepthCommandRG]
