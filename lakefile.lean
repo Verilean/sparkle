@@ -2821,3 +2821,21 @@ lean_lib «Tools.ShippingNoPortsMemKidCommand» where
 
 lean_lib «Tools.ShippingNoPortsMemKidSweep» where
   roots := #[`Tools.ShippingNoPortsMemKidSweep]
+
+lean_lib «Tools.ShippingMachineRanBase» where
+  roots := #[`Tools.ShippingMachineRanBase]
+
+lean_lib «Tools.ShippingKidFactsRan» where
+  roots := #[`Tools.ShippingKidFactsRan]
+
+lean_lib «Tools.ShippingMachineSeqLinkedRan» where
+  roots := #[`Tools.ShippingMachineSeqLinkedRan]
+
+lean_lib «Tools.ShippingOutermost» where
+  roots := #[`Tools.ShippingOutermost]
+
+lean_lib «Tools.ShippingOutermostCommand» where
+  roots := #[`Tools.ShippingOutermostCommand]
+
+lean_lib «Tools.ShippingOutermostCoverage» where
+  roots := #[`Tools.ShippingOutermostCoverage]
