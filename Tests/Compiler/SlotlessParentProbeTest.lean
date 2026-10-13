@@ -129,7 +129,12 @@ elab "#slotless_parent_probe " d:ident : command => do
         let insts := (m.body.filter fun st => match st with
           | .inst .. => true
           | _ => false).length
-        pure s!"module {m.name}: {m.body.length} statements, {insts} instance statements; design modules {D.modules.map (·.name)}"
+        -- (round par/b-37) the branches the full entry and the optimizer take on
+        -- the RETURNED module
+        let binds : Bool := Sparkle.IR.RefineCheck.hierBinds m
+        let gateB : Bool := Sparkle.IR.RefineCheck.hierGate m
+        let mergeId : Bool := Sparkle.IR.RefineCheck.mergeChecked m == m
+        pure s!"module {m.name}: {m.body.length} statements, {insts} instance statements; design modules {D.modules.map (·.name)}; on the returned module: hierBinds {binds}, hierGate {gateB}, mergeChecked b == b {mergeId}"
       catch ex =>
         let msg ← ex.toMessageData.toString
         pure s!"ERROR {short msg}"
