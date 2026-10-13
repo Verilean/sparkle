@@ -59,13 +59,21 @@ evaluated: neither by compiled code nor by reduction.
 | class | meaning |
 |---|---|
 | `COVERED` | a check-free design-level endpoint passes the re-check |
-| `OPEN gate-route` | `f.gateValue` and no `f.machineData`: a gate child; no entry-level design endpoint was found |
+| `OPEN gate-route` | `f.gateValue` exists and the machine reader does not read `f` (or there is no `f.machineData`): a gate child; no entry-level design endpoint was found (`#gate_design0`) |
 | `OPEN memory` | call entries that are memory placeholders (alone or beside others) |
 | `OPEN calls` | call entries, none a memory: with the callees, the closing kind and the depth |
 | `OPEN register-leaf` | no call, a register: `#machine_leaf_design` was not run on it, or refused it |
 | `OPEN slotless-leaf` | no call, no register: `#machine_comb_design0` was not run on it, or refused it (several outputs, …) |
 | `OPEN reader` | the reader refuses the declaration now, or threw |
-| `OPEN design-only` | a `machine_design_…` constant but neither marker (not expected) |
+| `OPEN design-only` | a constant with a `machine_design_…` constant below it but neither marker (not expected) |
+
+Since round par/b-35 a prefix `p` of a `p.machine_design_…` constant that is
+NOT itself a constant of the environment (the namespace of a general
+theorem, e.g. `Tools.ShippingNoPorts.machine_design_noPorts`) gets no row:
+such prefixes are counted and listed in the SCAN line. A check-free design
+endpoint of a gate-route declaration is `f.gate_design0`
+(`Tools/ShippingGateDesignCommand.lean`): its last component does not start
+with `machine_design_`, so it is recognised as a fourth form — see `isDesign`.
 
 Each OPEN row also lists the `machine_design_…` constants of `f` that failed
 the re-check, with the number of NOT ALLOWED premises and the checker
@@ -99,6 +107,11 @@ def extraConsts : List Name :=
 def isCompanion (s : String) : Bool :=
   s.endsWith "_gap" || s.endsWith "_regen" || s.endsWith "_expected"
 
+/-- The last components of design-level constants: `machine_design_…`, and
+the gate route's `gate_design0` (round par/b-35). -/
+def isDesign (s : String) : Bool :=
+  s.startsWith "machine_design_" || s == "gate_design0"
+
 /-- What the fold collects. -/
 structure Found where
   machine : NameSet := {}
@@ -114,7 +127,7 @@ def collect (env : Environment) : Found :=
     | .str p s =>
       if s == "machineData" then { acc with machine := acc.machine.insert p }
       else if s == "gateValue" then { acc with gate := acc.gate.insert p }
-      else if s.startsWith "machine_design_" && !isCompanion s then
+      else if isDesign s && !isCompanion s then
         { acc with design := acc.design.push (p, n, s) }
       else acc
     | _ => acc) {}
@@ -231,6 +244,10 @@ def openReason (env : Environment) (f : Name) (isMachine isGate : Bool) :
   catch ex =>
     let msg ← ex.toMessageData.toString
     let short : String := if msg.length ≤ 300 then msg else String.ofList (msg.toList.take 300) ++ " …"
+    -- (round par/b-35) a gate child that the machine reader refuses is a
+    -- gate-route declaration, not a reader failure
+    if isGate then
+      return ("OPEN gate-route", s!"f.gateValue exists (#gate_child) and the machine reader does not read it: compiled by the certified gate; its entry-level design endpoint is f.gate_design0 (#gate_design0), not in the environment. The reader says: {short}")
     return ("OPEN reader", s!"the machine reader does not read it now: {short}")
 
 /-- A name's last component with its digits replaced (to count forms). -/
@@ -247,8 +264,14 @@ elab "#design_coverage" : command => do
   let designDecls : NameSet := found.design.foldl (fun s x => s.insert x.1) {}
   let all : NameSet := designDecls.toList.foldl (fun s n => s.insert n)
     (found.gate.toList.foldl (fun s n => s.insert n) found.machine)
-  let decls := all.toList.toArray.qsort fun a b => a.toString < b.toString
-  logInfo m!"DESIGN COVERAGE SCAN: {found.scanned} constants scanned; declarations with f.machineData: {found.machine.size}; with f.gateValue: {found.gate.size}; machine_design_… constants (without _gap / _regen / _expected): {found.design.size}; declarations in the census: {decls.size}"
+  -- (round par/b-35) only CONSTANTS of the environment are declarations: a
+  -- prefix that is a namespace of general theorems (`Tools.ShippingNoPorts`
+  -- before `machine_design_noPorts`, …) is counted apart and gets no row
+  let notDecl := (all.toList.filter fun n => !env.contains n).toArray.qsort
+    fun a b => a.toString < b.toString
+  let decls := (all.toList.filter fun n => env.contains n).toArray.qsort
+    fun a b => a.toString < b.toString
+  logInfo m!"DESIGN COVERAGE SCAN: {found.scanned} constants scanned; declarations with f.machineData: {found.machine.size}; with f.gateValue: {found.gate.size}; machine_design_… constants (without _gap / _regen / _expected): {found.design.size}; declarations in the census: {decls.size}; prefixes of machine_design_… constants that are NOT constants of the environment (namespaces of general theorems; no row): {notDecl.size} {notDecl.toList}"
   let mut rows : Array String := #[]
   let mut classes : Array (String × Name) := #[]
   let mut forms : Array String := #[]

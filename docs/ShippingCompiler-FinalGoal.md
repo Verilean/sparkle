@@ -482,3 +482,20 @@ once from the run (`comb_entry_shape`), with no compiler guard. Design-level che
 decided per declaration, runtime boundary, `DesignSV` of the module list; not the SV string, not `#sim`).
 AllTests 1318 jobs. Cache coherence: `walk_still` built for a fragment (3227149c); `HarnessStill` /
 `EntryStill` still not theorems; `mixDeep` not connected.
+
+### Addendum 3, 2026-10-13 late night (records: B-coverage-census.md, B-gate-entry.md, A-cache-coherence-7.md, A-determinism.md)
+
+Census of the AllTests environment (a measurement; `#design_coverage` re-checks every statement): 129
+declarations with a machine- or gate-route artifact, 128 with a check-free design-level endpoint, 1 open
+(`mixDeep`). By form: machine-route forms 125 (55 register leaves, 33 slotless leaves incl. `pickByteH`,
+37 parents), and the gate-route form `f.gate_design0` for `pick`, `pickD`, `rcH` — a DIFFERENT form
+(reflection `EntryDefines`, no `ChildBnd`, source = the value function per cycle, not the Signal-level
+source). With the Keccak sponge parent (target-only): 126 machine-form + 3 gate-form.
+`mixDeep`: closes at OUTERMOST starts (`mixDeep_closes_outermost`, chain initial → preserved → consumed
+with no underived hypothesis) — a separately scoped theorem; the endpoint still carries
+`MachineClosesAt mixDeep` (all invariant worlds). The all-worlds premise reduces to determinism of the
+shared descendants' compiles (`machineClosesAt_of_det`), which is neither proved nor refuted for the
+certified family and is REFUTED in general on a constructed state: FINDING I — the legacy handler takes an
+unvalidated hit in `sparkleSingleOutInstanceCache` (cleared at depth 0 only) and emits no instance (probe:
+insts 1 vs 0). Not fixed; not shown reachable by a real compile.
+Next frontier: the corpus (plan only: docs/parallel/B-corpus-plan.md — a decision for the user).

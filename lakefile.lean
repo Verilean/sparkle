@@ -2734,3 +2734,9 @@ lean_lib «Tools.ShippingCacheCoherentOuter» where
 
 lean_lib «Tools.ShippingDetReduce» where
   roots := #[`Tools.ShippingDetReduce]
+
+lean_lib «Tools.ShippingGateDesign» where
+  roots := #[`Tools.ShippingGateDesign]
+
+lean_lib «Tools.ShippingGateDesignCommand» where
+  roots := #[`Tools.ShippingGateDesignCommand]
