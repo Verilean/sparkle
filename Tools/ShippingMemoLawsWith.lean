@@ -76,6 +76,10 @@ theorem outer_reset_reaches_with (L : RefLawsM mref cref) {translate : Translate
   simp only [hz, ↓reduceIte] at h
   obtain ⟨_, _, _, h⟩ := RunsTo.bind h        -- pure: the saved fvar map
   obtain ⟨_, _, _, h⟩ := RunsTo.bind h        -- pure: the saved width cache
+  obtain ⟨_, _, _, h⟩ := RunsTo.bind h        -- pure: the saved let-wire cache
+  obtain ⟨_, _, _, h⟩ := RunsTo.bind h        -- pure: the saved loop-wire cache
+  obtain ⟨_, _, _, h⟩ := RunsTo.bind h        -- pure: the saved alias map
+  obtain ⟨_, _, _, h⟩ := RunsTo.bind h        -- pure: the saved sub-instance port map
   obtain ⟨_, _, _, h⟩ := RunsTo.bind h        -- sparkleTypeCache.set
   obtain ⟨_, _, _, h⟩ := RunsTo.bind h        -- sparkleTypeCacheHits.set
   obtain ⟨_, _, _, h⟩ := RunsTo.bind h        -- sparkleTypeCacheMiss.set

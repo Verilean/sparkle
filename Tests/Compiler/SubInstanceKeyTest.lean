@@ -4,7 +4,13 @@ import Tests.Compiler.NestedLetCacheTest
 
 Uses NO declaration of a candidate: it is meant to build on poc (`85ebb9fd`)
 and on the isolated `fix/nested-let-cache-build`; build it on both and diff
-the lines. LOGS ONLY — nothing here asserts, nothing throws. Not in
+the lines. On an entry that does NOT restore the port map around a nested
+synthesis (poc, `fix/nested-let-cache-build`) it LOGS ONLY; whether the entry
+is the fixed one is MEASURED (`SUBINSTKEY FIXED`, §0 = `fixedProbe`), and only
+when `fixed=T` the three `collision` flags are asserted to be `F`
+(`docs/parallel/G-fix-candidate.md`). The last existing line keeps its text
+("nothing is asserted") — it is true of the unfixed trees; the line after it
+says what was asserted. Not in
 `Tests.AllTests`. WRITTEN, NOT BUILT: every "expected" below is a PREDICTION
 from reading `Sparkle/Compiler/Elab.lean` at `85ebb9fd`
 (`docs/parallel/B-cache-keys.md` §1), not an observation.
@@ -38,6 +44,8 @@ same string in both.
 
 ## The lines
 
+    SUBINSTKEY FIXED: nested entry ran=<T/F> restores sub-instance port map=<T/F> (entries left=<n>, the seed is 1) => fixed=<T/F> …
+    SUBINSTKEY: fixed=<T/F>; collisions [<labels with collision=T>]      (last line; then the assertion when fixed=T)
     SUBINSTKEY <label> alone MODULE <child>: stmts=<n> insts=[…] kSDinsts=<n> undeclared=[…] undriven=[…]
     SUBINSTKEY <label> top <top>: route=<…> modules=[…] leftover sub-instance keys=[<hash>/<port>-><wire>, …]
     SUBINSTKEY <label> nested MODULE <m>: …            (the top, then each child as the nested run built it)
@@ -205,13 +213,46 @@ def probe (label : String) (top : Name) (kids : List Name) : MetaM Bool := do
     resetRefs
     return !bad.isEmpty
 
+/-- §0, is the entry the FIXED one? MEASURED, not assumed: the port map is
+seeded with one entry no run writes, the child `hW` (which writes two entries
+of its own, the ports of `kSD x y`) is synthesised as a NESTED entry (depth
+1), and the map is read back. An entry that saves and restores the parent's
+map leaves exactly the seed; the entry of `85ebb9fd` / `83b2faf9` leaves the
+seed AND `hW`'s entries. Returns (the nested run returned, the map is exactly
+the seed, the number of entries left). -/
+def fixedProbe : MetaM (Bool × Bool × Nat) := do
+  resetRefs
+  let seed : Std.HashMap (UInt64 × String) String :=
+    ({} : Std.HashMap (UInt64 × String) String).insert ((0 : UInt64), "seed_port") "seed_sub_wire"
+  sparkleSubInstanceOutputs.set seed
+  sparkleSynthDepth.set 1
+  let nestedRan : Bool ←
+    try
+      let _ ← synthesizeChild hWName
+      pure true
+    catch _ => pure false
+  sparkleSynthDepth.set 0
+  let left := (← (sparkleSubInstanceOutputs.get : IO _)).toList
+  let okSub : Bool := left == [(((0 : UInt64), "seed_port"), "seed_sub_wire")]
+  resetRefs
+  pure (nestedRan, okSub, left.length)
+
 set_option maxHeartbeats 0 in
 run_cmd Lean.Elab.Command.liftTermElabM do
+  let (nestedRan, okSub, leftN) ← fixedProbe
+  let fixed : Bool := nestedRan && okSub
+  logInfo m!"SUBINSTKEY FIXED: nested entry ran={bs nestedRan} restores sub-instance port map={bs okSub} (entries left={leftN}, the seed is 1) => fixed={bs fixed} (assertions are made only when it is T)"
   let wr ← probe "WR" gTopWRName [gWName, gRName]
   let rw ← probe "RW" gTopRWName [gWName, gRName]
   let hwr ← probe "hWR" hTopWRName [hWName, hRName]
   resetRefs
   sparkleSynthDepth.set 0
   logInfo m!"SUBINSTKEY: collision WR={bs wr} RW={bs rw} hWR={bs hwr} (logged only; nothing is asserted)"
+  let colls : List String :=
+    (if wr then ["WR"] else []) ++ (if rw then ["RW"] else []) ++ (if hwr then ["hWR"] else [])
+  logInfo m!"SUBINSTKEY: fixed={bs fixed}; collisions {colls}"
+  if fixed then
+    if wr || rw || hwr then
+      throwError "SUBINSTKEY: the nested entry restores the parent's sub-instance port map, but a child's nested module still differs from its alone module or reads undeclared names: WR={bs wr} RW={bs rw} hWR={bs hwr}"
 
 end Tests.Compiler.SubInstanceKeyTest

@@ -5440,11 +5440,8 @@ def synthesizeCombinationalCoreWith (translate : TranslateFn) (declName : Name)
   -- happen to share user names — collapsing distinct
   -- `stReg` / `valueReg` references onto the wrong wire.
   --
-  -- The per-`(callKey, fieldName)` instance dedupe relies on
-  -- `sparkleSubInstanceOutputs` persisting across nested
-  -- synths (it's how the cross-module wire-reuse cache hit
-  -- in commit ae779e5 fires), so we ONLY snapshot the
-  -- fvar-value map.
+  -- (`sparkleSubInstanceOutputs` used to persist across nested
+  -- synths; it is saved and restored below, see finding G.)
   let savedFvarMap ← if depth == 0 then pure ({} : Std.HashMap Lean.Name Lean.Expr)
                      else sparkleFvarValueMap.get
   -- `sparkleWireWidthCache` is keyed by wire NAME (e.g.
@@ -5463,6 +5460,35 @@ def synthesizeCombinationalCoreWith (translate : TranslateFn) (declName : Name)
   let savedWireWidthCache ←
     if depth == 0 then pure ({} : Std.HashMap String Nat)
     else sparkleWireWidthCache.get
+  -- The hardware-`let` cache, the loop cache and the alias map hold WIRE
+  -- NAMES of the module being built, under keys made of wire names (no
+  -- module name).  A nested synth clears them for the child (below); if the
+  -- parent's content is not put back when the child ends, the parent goes
+  -- on with the CHILD's entries, and a `let` of the parent whose key a
+  -- `let` of the child also has resolves to the child's wire name — in the
+  -- parent, the very wire being defined: `assign _gen_t = _gen_t`
+  -- (finding F, docs/parallel/F-let-cache-leak.md).  So they are saved
+  -- here and restored in the `finally`, like the two above.
+  let savedLetWireCache ←
+    if depth == 0 then pure ({} : Std.HashMap String String)
+    else sparkleLetWireCache.get
+  let savedLoopWireCache ←
+    if depth == 0 then pure ({} : Std.HashMap String String)
+    else sparkleLoopWireCache.get
+  let savedWireCanon ←
+    if depth == 0 then pure ({} : Std.HashMap String String)
+    else sparkleWireCanon.get
+  -- The multi-output port map holds WIRE NAMES of the module being built
+  -- too, under a key made of the callee and the argument wire names (no
+  -- module name).  A child that starts with the entries of a sibling (or of
+  -- its parent) resolves a projection of ITS call to the other module's wire
+  -- name, which in the child may be the port wire of a different call
+  -- (finding G, docs/parallel/G-subinst-key.md).  So a nested synth starts
+  -- with it empty, as an outermost one does, and the parent's content is
+  -- restored in the `finally`.
+  let savedSubInstanceOutputs ←
+    if depth == 0 then pure ({} : Std.HashMap (UInt64 × String) String)
+    else sparkleSubInstanceOutputs.get
   if depth == 0 then
     sparkleTypeCache.set {}
     sparkleTypeCacheHits.set 0
@@ -5486,6 +5512,7 @@ def synthesizeCombinationalCoreWith (translate : TranslateFn) (declName : Name)
     sparkleLetWireCache.set {}
     sparkleLoopWireCache.set {}
     sparkleWireCanon.set {}
+    sparkleSubInstanceOutputs.set {}
   sparkleSynthDepth.set (depth + 1)
   -- Extract the body into a local closure so `try ... finally`
   -- can wrap the entire synthesis path (including the
@@ -5507,6 +5534,10 @@ def synthesizeCombinationalCoreWith (translate : TranslateFn) (declName : Name)
     if depth != 0 then
       sparkleFvarValueMap.set savedFvarMap
       sparkleWireWidthCache.set savedWireWidthCache
+      sparkleLetWireCache.set savedLetWireCache
+      sparkleLoopWireCache.set savedLoopWireCache
+      sparkleWireCanon.set savedWireCanon
+      sparkleSubInstanceOutputs.set savedSubInstanceOutputs
 
 /-- `#synthesizeVerilog`'s synthesis: the entry, then zero-width cleanup, then
     the merge of the duplicate hardware the two-pass body evaluation leaves
