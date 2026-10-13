@@ -30,9 +30,9 @@ run_cmd liftTermElabM do
   -- Evaluation compares outputs through each run's own actual input names.
   for name in [``ShippingMixedRecursionTest.source, ``passthrough, ``constant, ``oneBit, ``fallback] do
     let (proved, _) ← synthesizeCombinationalCoreWith
-      (fun e h t n => translateExprToWire e h t n) name [] false true
+      (fun env e h t n => translateExprToWire env e h t n) name [] false true
     let (legacy, _) ← synthesizeCombinationalCoreWith
-      (fun e h t n => translateExprToWire e h t n) name [] false false
+      (fun env e h t n => translateExprToWire env e h t n) name [] false false
     unless proved.inputs.map (·.ty.bitWidth) == legacy.inputs.map (·.ty.bitWidth) do
       throwError "input widths changed at mixed entry: {name}"
     for c in [false, true] do

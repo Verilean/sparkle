@@ -292,6 +292,7 @@ involved; the diagnostic laws of `RefLaws` are over-general (G5, not fixed),
 so they strengthen the conditional theorems, they do not establish runtime
 soundness. -/
 run_cmd Lean.Elab.Command.liftTermElabM do
+  let tenv ← Lean.getEnv
   for n in [``Tools.ShippingHarnessClosed.harness_closed, ``Tools.ShippingHarnessClosed.closed_forward,
       ``Tools.ShippingUnifiedSpine.fuel_spine, ``Tools.ShippingUnifiedSpine.Spec.cached] do
     for a in ← Lean.collectAxioms n do
@@ -307,7 +308,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     unless (concl.find? (·.isConstOf ``Sparkle.IR.Machine.readsClosedB)).isSome do
       throwError "harness_closed does not conclude readsClosedB"
   -- the checker on real harness modules
-  let translate : TranslateFn := fun e h t nm => translateExprToWire e h t nm
+  let translate : TranslateFn := fun e h t nm => translateExprToWire tenv e h t nm
   let mut seen := #[]
   for n in [``reflSharedLet, ``closesChain, ``Sparkle.Tests.Compiler.ShippingMachineInstTest.caller] do
     let r ← Tools.ShippingMachineCommand.readMachine n

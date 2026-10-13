@@ -26,10 +26,11 @@ namespace Sparkle.Tests.Compiler.ShippingCloseInstsCheckTest
 open Lean Meta Sparkle.Compiler.Elab Sparkle.IR.AST
 
 run_cmd Lean.Elab.Command.liftTermElabM do
+  let tenv ← Lean.getEnv
   let n := ``Sparkle.Tests.Compiler.ShippingMachineInstTest.caller
   let r ← Tools.ShippingMachineCommand.readMachine n
   let shape := r.shape
-  let translate : TranslateFn := fun e h t nm => translateExprToWire e h t nm
+  let translate : TranslateFn := fun e h t nm => translateExprToWire tenv e h t nm
   let (t, d₀) ← synthesizeMixedCertified translate (fun _ => pure ()) n shape.binders shape.body
   let some t' := Sparkle.IR.Machine.closeLets shape.layout.lets t | throwError "closeLets"
   let m₀ := Sparkle.IR.Machine.closeMachine shape.layout t'
@@ -99,10 +100,11 @@ def useCtr1 (en : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 8) :
     return rs
 
 run_cmd Lean.Elab.Command.liftTermElabM do
+  let tenv ← Lean.getEnv
   let n := ``useCtr1
   let r ← Tools.ShippingMachineCommand.readMachine n
   unless r.shape.instFields.isEmpty && r.shape.insts.length == 1 do throwError "not a one-output call"
-  let translate : TranslateFn := fun e h t nm => translateExprToWire e h t nm
+  let translate : TranslateFn := fun e h t nm => translateExprToWire tenv e h t nm
   if (← synthesizeMachineCertified translate (fun _ => pure ()) n r.shape).isSome then
     throwError "the machine route took a one-output sequential call"
   let (b, _) ← synthesizeCombinational n
@@ -152,8 +154,9 @@ def useMid1 (en : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 8) :
     return rs
 
 run_cmd Lean.Elab.Command.liftTermElabM do
+  let tenv ← Lean.getEnv
   let dg (m : Sparkle.IR.AST.Module) : String := toString (hash (repr m).pretty)
-  let translate : TranslateFn := fun e h t nm => translateExprToWire e h t nm
+  let translate : TranslateFn := fun e h t nm => translateExprToWire tenv e h t nm
   for (f, kids) in [(``useCtr1, [``ctr1]), (``useCtr1Twice, [``ctr1]), (``useMid1, [``mid1, ``ctr1])] do
     -- on the legacy route: the machine route refuses the parent
     let legacy ← try

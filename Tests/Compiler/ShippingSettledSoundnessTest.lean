@@ -2,6 +2,8 @@ import Tools.ShippingPendingSoundness
 import Tools.ShippingSettledSoundness
 import Tests.Compiler.ShippingEntrySoundnessTest
 
+variable {tenv : Lean.Environment}
+
 namespace Sparkle.Tests.Compiler.ShippingSettledSoundnessTest
 open Lean Elab Command
 open Sparkle.IR.AST Sparkle.IR.Semantics Sparkle.IR.Reorder Sparkle.IR.OptCheck
@@ -115,7 +117,7 @@ private def literalExpr : Lean.Expr :=
     8 (fun _ => .bvar 0) (.lit 7)
 
 theorem literal_entry_acyclic {ctx : CompilerState} {t : CircuitState} {name : String}
-    (h : Returns (translateExprToWire literalExpr "result" false false)
+    (h : Returns (translateExprToWire tenv literalExpr "result" false false)
       ctx (CircuitM.init "literal") name t) : Acyclic t.module.finalize.body := by
   have hd : Denotes (fun _ => none) literalExpr 8 (7#8) :=
     Denotes.pureLit rfl rfl rfl
@@ -150,7 +152,7 @@ private theorem nested_denotes : Denotes (fun _ => none) nestedExpr 8 (11#8) := 
 
 theorem nested_entry_acyclic {ctx : CompilerState} {t : CircuitState} {name : String}
     {we : WEnv}
-    (h : Returns (translateExprToWire nestedExpr "result" false false)
+    (h : Returns (translateExprToWire tenv nestedExpr "result" false false)
       ctx (CircuitM.init "nested") name t) (hw : WidthsAgree we t) :
     Acyclic t.module.finalize.body := by
   have hi : Inv ctx (fun _ => none) we (fun _ _ => 0) (fun _ => 0)

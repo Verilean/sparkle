@@ -377,10 +377,11 @@ theorem oddParity_execution {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Me
 /-! ## Runtime gates on the real compiler -/
 
 run_cmd liftTermElabM do
+  let tenv ← Lean.getEnv
   let env ← getEnv
   let pred := instancePredicate env
   let inl := userInliner env
-  let translate : TranslateFn := fun e h t n => translateExprToWire e h t n
+  let translate : TranslateFn := fun e h t n => translateExprToWire tenv e h t n
   let mut unfolded := 0
   for name in [``uRoot, ``uCone, ``uTwice, ``uLit, ``uId, ``uNest, ``uMux, ``uReg, ``uCmp,
       ``uIdRoot, ``uLitRoot, ``uShare, ``uLoop, ``uBool, ``uConcrete, ``uGeneric, ``uArgs,
@@ -398,7 +399,7 @@ run_cmd liftTermElabM do
     -- The certified compile of the unfolding is byte-identical to the legacy
     -- compile of the original, which unfolds at the call site.
     let (mc, dc) ← synthesizeCombinationalCore name [] false
-    let (ml, dl) ← synthesizeCombinationalCoreWith translate name [] false
+    let (ml, dl) ← synthesizeCombinationalCoreWith (fun _ => translate) name [] false
       (certifiedFrontEnd := false)
     unless mc.body == ml.body && mc.inputs == ml.inputs && mc.outputs == ml.outputs &&
         mc.wires == ml.wires && mc.name == ml.name && dc.modules == dl.modules do
@@ -450,7 +451,7 @@ def checkLeftAlone (name : Name) : MetaM Sparkle.IR.AST.Design := do
     throwError "{name} was rewritten"
   let (m, d) ← synthesizeCombinationalCore name [] false
   let (ml, _) ← synthesizeCombinationalCoreWith
-    (fun e h t n => translateExprToWire e h t n) name [] false (certifiedFrontEnd := false)
+    (fun env e h t n => translateExprToWire env e h t n) name [] false (certifiedFrontEnd := false)
   unless m.body == ml.body && m.wires == ml.wires do
     throwError "{name}: default and legacy compiles differ"
   return d

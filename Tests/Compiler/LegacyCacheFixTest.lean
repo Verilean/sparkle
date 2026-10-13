@@ -114,13 +114,14 @@ def injectAt (afterAt : List Nat) (trigger : Lean.Expr → Bool) (fired : IO.Ref
 /-- The real entry on `decl` (legacy front end) with the real step under
 `injectAt`. -/
 def runAt (afterAt : List Nat) (trigger : Lean.Expr → Bool) (decl : Name) : MetaM Run := do
+  let tenv ← Lean.getEnv
   let fired ← IO.mkRef (0 : Nat)
   let tr : TranslateFn :=
     translateFuelFix
-      (fun rec => translateStepWith translateFallback (injectAt afterAt trigger fired rec)) 4096
+      (fun rec => translateStepWith (translateFallback tenv) (injectAt afterAt trigger fired rec)) 4096
   let outcome : Except String (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) ←
     try
-      let r ← synthesizeCombinationalCoreWith tr decl [] false (certifiedFrontEnd := false)
+      let r ← synthesizeCombinationalCoreWith (fun _ => tr) decl [] false (certifiedFrontEnd := false)
       pure (Except.ok r)
     catch ex =>
       let msg ← ex.toMessageData.toString

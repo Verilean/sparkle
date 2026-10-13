@@ -1,5 +1,7 @@
 import Tools.ShippingMixedInvariant
 
+variable {tenv : Lean.Environment}
+
 namespace Sparkle.Tests.Compiler.ShippingMixedInvariantTest
 open Lean Elab Command Sparkle.Compiler.Elab Sparkle.IR.Builder Sparkle.IR.Semantics
 open Tools.ShippingTranslateSoundness Tools.ShippingBoolSourceSoundness
@@ -12,7 +14,7 @@ an arbitrary live BitVec input, and leaves a joint invariant for the next call. 
 theorem bool_literal_keeps_bitvec_input {ctx ρ β we mems initial s t prior dom hint named top w id n}
     {x : BitVec n} (b : Bool) (h : MixedInv ctx ρ β we mems initial s prior)
     (input : β id = some ⟨n, x⟩) (widths : ScalarWidthsAgree we t)
-    (hr : Returns (translateExprToWire (literalE dom b) hint top named) ctx s w t) :
+    (hr : Returns (translateExprToWire tenv (literalE dom b) hint top named) ctx s w t) :
     ∃ oldWire result, visible ctx s.sourceBindings id = some oldWire ∧
       MixedInv ctx ρ β we mems initial t result ∧
       result oldWire = x.toNat ∧ result w = encodeBool b := by

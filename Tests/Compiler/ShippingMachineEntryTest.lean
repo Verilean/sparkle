@@ -507,6 +507,7 @@ theorem lin_wf : (packLets linFields linCore).2.WF 4 18 linVw := by
 
 
 run_cmd liftTermElabM do
+  let tenv ← Lean.getEnv
   let env ← getEnv
   let ci ← getConstInfo ``linChk
   let some shape := machineShape? false []
@@ -521,7 +522,7 @@ run_cmd liftTermElabM do
       shape.layout.resetKind == linLayout.resetKind do
     throwError "linShape is not the machine shape of linChk"
   -- the `let` boundary: the real machine synthesis ties every `let`
-  let translate : TranslateFn := fun e h t n => translateExprToWire e h t n
+  let translate : TranslateFn := fun e h t n => translateExprToWire tenv e h t n
   unless (← synthesizeMachineCertified translate (fun _ => pure ()) ``linChk shape).isSome do
     throwError "linChk: the machine synthesis did not tie the lets"
 
@@ -821,6 +822,7 @@ theorem linHW_wf : (packLets linFields linHWCore).2.WF 4 18 linVw := by
   simp [packLets, linFields, linHWCore, Term.WF, linVw]
 
 run_cmd liftTermElabM do
+  let tenv ← Lean.getEnv
   let env ← getEnv
   let ci ← getConstInfo ``Sparkle.IP.Bus.LINHW.checksumHW
   let some shape := machineShape? false []
@@ -835,7 +837,7 @@ run_cmd liftTermElabM do
       shape.layout.lets == linHWLayout.lets &&
       shape.layout.resetKind == linHWLayout.resetKind do
     throwError "linHWShape is not the machine shape of checksumHW"
-  let translate : TranslateFn := fun e h t n => translateExprToWire e h t n
+  let translate : TranslateFn := fun e h t n => translateExprToWire tenv e h t n
   unless (← synthesizeMachineCertified translate (fun _ => pure ())
       ``Sparkle.IP.Bus.LINHW.checksumHW shape).isSome do
     throwError "checksumHW: the machine synthesis did not tie the lets"

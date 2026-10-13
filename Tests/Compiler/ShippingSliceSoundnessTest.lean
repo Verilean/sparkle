@@ -186,10 +186,11 @@ theorem isNmt_execution {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.S
 /-! ## Runtime gates on the real compiler -/
 
 run_cmd liftTermElabM do
+  let tenv ← Lean.getEnv
   let env ← getEnv
   let pred := instancePredicate env
   let inl := userInliner env
-  let translate : TranslateFn := fun e h t n => translateExprToWire e h t n
+  let translate : TranslateFn := fun e h t n => translateExprToWire tenv e h t n
   let mut count := 0
   for name in [``sField, ``sBit, ``sFull, ``sCone, ``sTwice, ``sCmp, ``sNested, ``sNamed,
       ``sConcrete, ``fcTop, ``isNmtTop] do
@@ -198,7 +199,7 @@ run_cmd liftTermElabM do
     unless (mixedCertifiedShape? false [] ec pred).isSome do
       throwError "{name}: no gate accepts the slice declaration"
     let (mc, dc) ← synthesizeCombinationalCore name [] false
-    let (ml, dl) ← synthesizeCombinationalCoreWith translate name [] false
+    let (ml, dl) ← synthesizeCombinationalCoreWith (fun _ => translate) name [] false
       (certifiedFrontEnd := false)
     unless mc.body == ml.body && mc.inputs == ml.inputs && mc.outputs == ml.outputs &&
         mc.wires == ml.wires && mc.name == ml.name && dc.modules == dl.modules do

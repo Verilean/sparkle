@@ -227,7 +227,8 @@ def cases : List (Name × Name × List Name × Nat × FExpr) :=
     (``fragC, `dom, [`x], 16, feC), (``fragD, `dom, [`a], 8, feD) ]
 
 run_cmd liftTermElabM do
-  let tr : TranslateFn := fun e h t n => translateExprToWire e h t n
+  let tenv ← Lean.getEnv
+  let tr : TranslateFn := fun e h t n => translateExprToWire tenv e h t n
   for (decl, dn, names, n, fe) in cases do
     let ci ← getConstInfo decl
     -- (1) the value IS the quotation, by the Lean-level decidable equality
@@ -238,8 +239,8 @@ run_cmd liftTermElabM do
     unless (certifiedShape? false [] ci).isSome do
       throwError "{decl}: certified front end did not accept it"
     -- (3) certified front end = legacy front end, as IR and as Verilog
-    let (m1, _) ← synthesizeCombinationalCoreWith tr decl [] false true
-    let (m2, _) ← synthesizeCombinationalCoreWith tr decl [] false false
+    let (m1, _) ← synthesizeCombinationalCoreWith (fun _ => tr) decl [] false true
+    let (m2, _) ← synthesizeCombinationalCoreWith (fun _ => tr) decl [] false false
     unless toString (repr m1) == toString (repr m2) do
       throwError "{decl}: certified and legacy front ends disagree"
     unless Sparkle.Backend.Verilog.toVerilog m1 == Sparkle.Backend.Verilog.toVerilog m2 do
@@ -257,8 +258,8 @@ run_cmd liftTermElabM do
   -- (5) shifts: certified front end, same IR as legacy, IR = Lean value
   let ciS ← getConstInfo ``fragS
   unless (certifiedShape? false [] ciS).isSome do throwError "fragS: not certified"
-  let (s1, _) ← synthesizeCombinationalCoreWith tr ``fragS [] false true
-  let (s2, _) ← synthesizeCombinationalCoreWith tr ``fragS [] false false
+  let (s1, _) ← synthesizeCombinationalCoreWith (fun _ => tr) ``fragS [] false true
+  let (s2, _) ← synthesizeCombinationalCoreWith (fun _ => tr) ``fragS [] false false
   unless toString (repr s1) == toString (repr s2) do throwError "fragS: front ends disagree"
   let sp := s1.inputs.map (·.name)
   for (x, y) in [(3, 1), (200, 3), (255, 7), (17, 9), (128, 0)] do
@@ -267,7 +268,7 @@ run_cmd liftTermElabM do
     let got := evalOut s1 [(sp[0]!, x), (sp[1]!, y)]
     unless got == some want do throwError "fragS: IR gives {got}, source gives {want}"
   -- (6) a real merge on a certified-shape module, accepted by the checker
-  let (d0, _) ← synthesizeCombinationalCoreWith tr ``dupLit [] false true
+  let (d0, _) ← synthesizeCombinationalCoreWith (fun _ => tr) ``dupLit [] false true
   let dz := Sparkle.IR.ZeroWidth.dropZeroWidthModule d0
   let raw := Sparkle.IR.RegDedup.mergeDuplicatesRaw dz
   unless toString (repr raw.body) != toString (repr dz.body) do
@@ -284,7 +285,7 @@ run_cmd liftTermElabM do
   let ci ← getConstInfo ``notCertified
   unless (certifiedShape? false [] ci).isNone do
     throwError "notCertified: gate accepted a concatenation"
-  let _ ← synthesizeCombinationalCoreWith tr ``notCertified [] false true
+  let _ ← synthesizeCombinationalCoreWith (fun _ => tr) ``notCertified [] false true
 
 
 /-! ## The merge checker REJECTS a width-changing merge

@@ -61,6 +61,7 @@ end Sparkle.IR.Machine
 
 open Lean Meta Sparkle.Compiler.Elab in
 run_cmd Lean.Elab.Command.liftTermElabM do
+  let tenv ← Lean.getEnv
   let env ← getEnv
   let mut decls : Array Name := #[]
   for (n, _) in env.constants.toList do
@@ -70,7 +71,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     let some r ← (try some <$> Tools.ShippingMachineCommand.readMachine n catch _ => pure none) | continue
     let shape := r.shape
     if shape.insts.isEmpty then continue
-    let translate : TranslateFn := fun e h t nm => translateExprToWire e h t nm
+    let translate : TranslateFn := fun e h t nm => translateExprToWire tenv e h t nm
     let some (t, d₀) ← (try some <$> synthesizeMixedCertified translate (fun _ => pure ()) n shape.binders shape.body
         catch _ => pure none) | lines := lines.push s!"{n}: harness failed"; continue
     let some t' := Sparkle.IR.Machine.closeLets shape.layout.lets t | lines := lines.push s!"{n}: closeLets none"; continue

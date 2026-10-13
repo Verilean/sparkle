@@ -138,14 +138,15 @@ structure Run where
 machine route are off, so the declaration takes the legacy arm of
 `synthesizeFromConst`), with the real step under the fault. -/
 def runWith (fault : Fault) (trigger : Lean.Expr → Bool) (decl : Name) : MetaM Run := do
+  let tenv ← Lean.getEnv
   let fired ← IO.mkRef (0 : Nat)
   let fails ← IO.mkRef (0 : Nat)
   let tr : TranslateFn :=
     translateFuelFix
-      (fun rec => translateStepWith translateFallback (inject fault trigger fired fails rec)) 4096
+      (fun rec => translateStepWith (translateFallback tenv) (inject fault trigger fired fails rec)) 4096
   let outcome : Except String (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) ←
     try
-      let r ← synthesizeCombinationalCoreWith tr decl [] false (certifiedFrontEnd := false)
+      let r ← synthesizeCombinationalCoreWith (fun _ => tr) decl [] false (certifiedFrontEnd := false)
       pure (Except.ok r)
     catch ex =>
       let msg ← ex.toMessageData.toString

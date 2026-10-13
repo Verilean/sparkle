@@ -104,8 +104,8 @@ run_cmd liftTermElabM do
       unless (mixedCertifiedShape? false [] ci).isSome do throwError "Vector mux missed proved gate"
     let (raw, _) ← synthesizeCombinationalCore name [] false
     let (legacy, _) ← synthesizeCombinationalCoreWith
-      (translateFuelFix (fun rec e h t named =>
-        Rec.translateExprToWireCached rec e h t named) translateFuelLimit) name [] false false
+      (fun _ => (translateFuelFix (fun rec e h t named =>
+        Rec.translateExprToWireCached rec e h t named) translateFuelLimit)) name [] false false
     let (actual, _) ← synthesizeCombinational name
     let n := if name == ``pick1 then 1 else if name == ``pick65 then 65 else 8
     let samples := if n == 1 then [0, 1] else [0, 1, 2^(n-1)-1, 2^(n-1), 2^n-1]

@@ -45,7 +45,8 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   Lean.logInfo m!"REFLECTION / CONTEXTS: MachineDefines and EntryDefines transfer between any two pairs of Meta/Core contexts over the same state refs (standard axioms); MachineCloses is not transferred"
 
 run_cmd Lean.Elab.Command.liftTermElabM do
-  let translate : TranslateFn := fun e h t nm => translateExprToWire e h t nm
+  let tenv ← Lean.getEnv
+  let translate : TranslateFn := fun e h t nm => translateExprToWire tenv e h t nm
   let mut report := #[]
   for n in [``ctr1, ``mid1, ``Sparkle.Tests.Compiler.ShippingMachineInstTest.caller, ``Sparkle.Tests.Compiler.ShippingMachineInstTest.callerTwice,
       ``Sparkle.Tests.Compiler.ShippingMachineInstTest.callerNested] do
@@ -70,7 +71,8 @@ modules of real declarations with `let`s: which hold, per declaration. (The
 transition module is the harness' output in this run; this is the checker on
 real artifacts, not a derivation.) -/
 run_cmd Lean.Elab.Command.liftTermElabM do
-  let translate : TranslateFn := fun e h t nm => translateExprToWire e h t nm
+  let tenv ← Lean.getEnv
+  let translate : TranslateFn := fun e h t nm => translateExprToWire tenv e h t nm
   let mut report := #[]
   for n in [``Sparkle.Tests.Compiler.ShippingMachineInstTest.caller,
       ``Sparkle.Tests.Compiler.ShippingMachineInstTest.callerTwice,
@@ -136,7 +138,8 @@ def reflSharedLet (x : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (
     return rs
 
 run_cmd Lean.Elab.Command.liftTermElabM do
-  let translate : TranslateFn := fun e h t nm => translateExprToWire e h t nm
+  let tenv ← Lean.getEnv
+  let translate : TranslateFn := fun e h t nm => translateExprToWire tenv e h t nm
   for n in [``reflAliasLet, ``reflSharedLet] do
     try
       let r ← Tools.ShippingMachineCommand.readMachine n

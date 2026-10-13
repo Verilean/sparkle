@@ -10,6 +10,7 @@ def alwaysTrue : Signal defaultDomain Bool := Signal.pure true
 def alwaysFalse : Signal defaultDomain Bool := Signal.pure false
 
 run_cmd liftTermElabM do
+  let tenv ← Lean.getEnv
   let dom := mkConst ``defaultDomain
   for (decl, b) in [( ``alwaysTrue, true), (``alwaysFalse, false)] do
     let ci ← getConstInfo decl
@@ -30,14 +31,14 @@ run_cmd liftTermElabM do
           let s := (CircuitM.addInput "_collision" .bit (CircuitM.init "LiteralCache")).2
           let s := {s with module := {s.module with wires := s.module.inputs}}
           cache.modify (·.insert ⟨e⟩ "_collision")
-          let (w, s1) ← ((translateExprToWire e "collision" top named) ctx).run s
-          let (w2, s2) ← ((translateExprToWire e "collision" top named) ctx).run s1
+          let (w, s1) ← ((translateExprToWire tenv e "collision" top named) ctx).run s
+          let (w2, s2) ← ((translateExprToWire tenv e "collision" top named) ctx).run s1
           unless w != "_collision" && w2 != "_collision" do
             throwError "literal trusted unrecorded cache or overwrote a live input"
           if enabled && !named && !top then
             unless w == w2 && s1.module.body.length == s2.module.body.length do
               throwError "literal cache hit re-emitted a constant"
-            let (wf, sf) ← ((translateFallback bomb e "fallback_hit" false false) ctx).run s2
+            let (wf, sf) ← (((translateFallback tenv) bomb e "fallback_hit" false false) ctx).run s2
             unless wf == w2 && sf.module.body.length == s2.module.body.length do
               throwError "fallback cache hit re-emitted a constant"
           else

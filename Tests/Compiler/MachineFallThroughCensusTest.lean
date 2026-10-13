@@ -106,18 +106,19 @@ def undriven (m : Mod) : List String :=
 
 /-- The legacy arm on the given entry constant, from reset refs, at depth 1. -/
 def cleanLegacy (n : Name) (ec : ConstantInfo) : MetaM (Mod × Dsn) := do
+  let tenv ← Lean.getEnv
   let env ← getEnv
   resetRefs
   sparkleSynthDepth.set 1
   try
-    synthesizeFromConst (fun e hint top named => translateExprToWire e hint top named)
+    synthesizeFromConst (fun e hint top named => translateExprToWire tenv e hint top named)
       (fun _ => pure ()) n [] false false ec (instancePredicate env)
   finally
     sparkleSynthDepth.set 0
 
 /-- The entry without the certified front end (the original constant). -/
 def noFrontEnd (n : Name) : MetaM (Mod × Dsn) :=
-  synthesizeCombinationalCoreWith (fun e hint top named => translateExprToWire e hint top named)
+  synthesizeCombinationalCoreWith (fun env e hint top named => translateExprToWire env e hint top named)
     n [] false (certifiedFrontEnd := false)
 
 /-- The class of a declaration, and for a fall-through its line and whether

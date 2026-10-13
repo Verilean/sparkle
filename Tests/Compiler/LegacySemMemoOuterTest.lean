@@ -1,6 +1,8 @@
 import Tools.ShippingLegacySemMemoOuter
 import Tests.Compiler.LegacySemInstanceTest
 
+variable {tenv : Lean.Environment}
+
 /-! # `useDbl` at the outermost entry, without the memo disjunct; the audit
 
 `useDbl_output` (`Tests/Compiler/LegacySemInstanceTest.lean`) concludes
@@ -48,15 +50,15 @@ theorem useDbl_output_at (L : RefLawsM mref cref)
     (hmap : ∀ (id : FVarId) (cache : IO.Ref (ExprStructMap String))
       (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n),
       HasMappedFVar (setupOf ``useDbl useDblBinders [id] cache bools bits).context (callE id))
-    (hplain : PlainHead ``dbl)
+    (hplain : PlainHead tenv ``dbl)
     (hnosub : ∀ (id : FVarId) (cache : IO.Ref (ExprStructMap String))
       (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n) (fuel : Nat),
-      NoSubModule (translateFuelFix translateStep fuel)
+      NoSubModule (translateFuelFix (translateStep tenv) fuel)
         (setupOf ``useDbl useDblBinders [id] cache bools bits).context (callE id))
     (hunfE : ∀ (xid : FVarId) (e' : Lean.Expr), InlineUnfolds (callE xid) e' →
       ∃ dom : Lean.Expr, e' = dblUnfoldE dom xid)
     (hr : RunsTo (synthesizeFromConst
-      (fun e hint top named => translateExprToWire e hint top named)
+      (fun e hint top named => translateExprToWire tenv e hint top named)
       logProf ``useDbl [] false false (.defnInfo dv) isInst) mctx mref cctx cref w0 (m, d) w1) :
     (L.mval w0).get? ``useDbl = some (m, d) ∨
     ∃ (id : FVarId) (cache : IO.Ref (ExprStructMap String)),
@@ -85,7 +87,7 @@ theorem useDbl_output_at (L : RefLawsM mref cref)
       (.bits 8 (bits id 8 + bits id 8)) (Nat.succ_pos 7)
       (LeafDom.inlineAt (dbl_notCore id)
         (fun fuel => dbl_reachesAt (hmap id cache bools bits) hplain
-          (translateFuelFix translateStep fuel) (hnosub id cache bools bits fuel) "out")
+          (translateFuelFix (translateStep tenv) fuel) (hnosub id cache bools bits fuel) "out")
         (fun e' hU => by
           obtain ⟨dom, rfl⟩ := hunfE id e' hU
           exact LeafDom.dom (dbl_unfold_dom (useDbl_input id cache bools bits))))
@@ -110,15 +112,15 @@ theorem useDbl_output_outer (L : RefLawsM mref cref)
     (hmap : ∀ (id : FVarId) (cache : IO.Ref (ExprStructMap String))
       (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n),
       HasMappedFVar (setupOf ``useDbl useDblBinders [id] cache bools bits).context (callE id))
-    (hplain : PlainHead ``dbl)
-    (hnosub : ∀ (id : FVarId) (cache : IO.Ref (ExprStructMap String))
+    (hplain : ∀ {tenv : Lean.Environment}, PlainHead tenv ``dbl)
+    (hnosub : ∀ {tenv : Lean.Environment} (id : FVarId) (cache : IO.Ref (ExprStructMap String))
       (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n) (fuel : Nat),
-      NoSubModule (translateFuelFix translateStep fuel)
+      NoSubModule (translateFuelFix (translateStep tenv) fuel)
         (setupOf ``useDbl useDblBinders [id] cache bools bits).context (callE id))
     (hunfE : ∀ (xid : FVarId) (e' : Lean.Expr), InlineUnfolds (callE xid) e' →
       ∃ dom : Lean.Expr, e' = dblUnfoldE dom xid)
     (hr : RunsTo (synthesizeCombinationalCoreWith
-      (fun e hint top named => translateExprToWire e hint top named)
+      (fun env e hint top named => translateExprToWire env e hint top named)
       ``useDbl [] false false) mctx mref cctx cref w0 (m, d) w1) :
     ∃ (id : FVarId) (cache : IO.Ref (ExprStructMap String)),
       ∀ (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n)

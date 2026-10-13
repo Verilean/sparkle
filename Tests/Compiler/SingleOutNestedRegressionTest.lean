@@ -222,11 +222,12 @@ def optBs : Option Bool → String
 /-- The legacy arm on the given entry constant, from reset refs, at depth 1
 (a copy of `MachineFallThroughCensusTest.cleanLegacy`). -/
 def cleanLegacy (n : Name) (ec : ConstantInfo) : MetaM (Mod × Dsn) := do
+  let tenv ← Lean.getEnv
   let env ← getEnv
   resetRefs
   sparkleSynthDepth.set 1
   try
-    synthesizeFromConst (fun e hint top named => translateExprToWire e hint top named)
+    synthesizeFromConst (fun e hint top named => translateExprToWire tenv e hint top named)
       (fun _ => pure ()) n [] false false ec (instancePredicate env)
   finally
     sparkleSynthDepth.set 0

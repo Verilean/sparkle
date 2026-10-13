@@ -105,15 +105,16 @@ def natRec (x : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec 
 translation counted when it throws. `cfe`: the certified front end (the
 shipped default) or the legacy front end. -/
 def runNatural (cfe : Bool) (decl : Name) : MetaM Run := do
+  let tenv ← Lean.getEnv
   let fired ← IO.mkRef (0 : Nat)
   let fails ← IO.mkRef (0 : Nat)
   let tr : TranslateFn :=
     translateFuelFix
-      (fun rec => translateStepWith translateFallback
+      (fun rec => translateStepWith (translateFallback tenv)
         (inject Fault.plain (fun _ => false) fired fails rec)) 4096
   let outcome : Except String (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) ←
     try
-      let r ← synthesizeCombinationalCoreWith tr decl [] false (certifiedFrontEnd := cfe)
+      let r ← synthesizeCombinationalCoreWith (fun _ => tr) decl [] false (certifiedFrontEnd := cfe)
       pure (Except.ok r)
     catch ex =>
       let msg ← ex.toMessageData.toString

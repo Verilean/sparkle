@@ -900,7 +900,7 @@ theorem parentMix_entry_observes {mctx : Meta.Context}
       · rcases j with _ | j
         · rfl
         · exact absurd hj (by simp))
-  obtain ⟨ids, nd, len, cache, P⟩ := H
+  obtain ⟨tenv, henvT, ids, nd, len, cache, P⟩ := H
   have len3 : ids.length = 3 := len
   rcases ids with _ | ⟨i0, ids⟩
   · cases len3
@@ -944,7 +944,7 @@ theorem parentMix_entry_observes {mctx : Meta.Context}
       (instEN ``childAdd [] (.fvar i0) [.fvar i1, .fvar i2])
       (.bits 8 (BitVec.ofNat 8 ((aS.val t).toNat + (bS.val t).toNat))) :=
     meaning_inst rfl rfl hargsM hsem
-  have leafC : LeafContract (childrenOf childModule.name) addSem p.context
+  have leafC : LeafContract tenv (childrenOf childModule.name) addSem p.context
       (inputValues p.bools p.bits) mems initial
       (instEN ``childAdd [] (.fvar i0) [.fvar i1, .fvar i2])
       (.bits 8 (BitVec.ofNat 8 ((aS.val t).toNat + (bS.val t).toNat))) := by
@@ -952,7 +952,7 @@ theorem parentMix_entry_observes {mctx : Meta.Context}
     exact inst_leaf_fuel (mc := childModule) (dc := dc) (cwe := childWe)
       (outName := "out") (wOut := 8)
       rfl rfl rfl rfl
-      htagAll hsub hdc (by decide) (by decide) rfl (by decide) rfl rfl hargsM
+      htagAll henvT hsub hdc (by decide) (by decide) rfl (by decide) rfl rfl hargsM
       (fun k hk hk' fuel => by
         rcases k with _ | k
         · exact input_contract_fuel hA fuel
@@ -981,7 +981,7 @@ theorem parentMix_entry_observes {mctx : Meta.Context}
       · exact leafC
       · rcases j with _ | j
         · intro we fuel
-          show Contract (translateFuelFix translateStep fuel) p.context
+          show Contract (translateFuelFix (translateStep tenv) fuel) p.context
             (inputValues p.bools p.bits) we mems initial (.fvar i1)
             (.bits 8 (BitVec.ofNat 8 (aS.val t).toNat))
           rw [BitVec.ofNat_toNat, BitVec.setWidth_eq]
@@ -1315,7 +1315,7 @@ theorem parentNested_entry_observes {mctx : Meta.Context}
            inputExpr parentNestedBinders.length 2]) && true && true && true))) = true
       rw [hto, hti]
       rfl)
-  obtain ⟨ids, nd, len, cache, P⟩ := H
+  obtain ⟨tenv, henvT, ids, nd, len, cache, P⟩ := H
   have len3 : ids.length = 3 := len
   rcases ids with _ | ⟨i0, ids⟩
   · cases len3
@@ -1360,7 +1360,7 @@ theorem parentNested_entry_observes {mctx : Meta.Context}
       (.bits 8 (aS.val t + bS.val t)) :=
     meaning_inst rfl rfl innerArgsM innerSem
   have innerC : ∀ (we : WEnv) (fuel : Nat),
-      Contract (translateFuelFix translateStep fuel) p.context
+      Contract (translateFuelFix (translateStep tenv) fuel) p.context
         (inputValues p.bools p.bits) we mems initial
         (instEN ``childAdd [] (.fvar i0) [.fvar i1, .fvar i2])
         (.bits 8 (aS.val t + bS.val t)) := by
@@ -1368,7 +1368,7 @@ theorem parentNested_entry_observes {mctx : Meta.Context}
     exact inst_leaf_fuel (mc := childModule) (dc := dc) (cwe := childWe)
       (outName := "out") (wOut := 8)
       rfl rfl rfl rfl
-      htagAll hsub hdc (by decide) (by decide) rfl (by decide) rfl rfl innerArgsM
+      htagAll henvT hsub hdc (by decide) (by decide) rfl (by decide) rfl rfl innerArgsM
       (fun k hk hk' fuel => by
         rcases k with _ | k
         · exact input_contract_fuel hA fuel
@@ -1403,7 +1403,7 @@ theorem parentNested_entry_observes {mctx : Meta.Context}
       (nestedE (.fvar i0) (.fvar i1) (.fvar i2))
       (.bits 8 (aS.val t + bS.val t + bS.val t)) :=
     meaning_inst rfl rfl outerArgsM outerSem
-  have leafC : LeafContract (childrenOf childModule.name) addSem p.context
+  have leafC : LeafContract tenv (childrenOf childModule.name) addSem p.context
       (inputValues p.bools p.bits) mems initial
       (nestedE (.fvar i0) (.fvar i1) (.fvar i2))
       (.bits 8 (aS.val t + bS.val t + bS.val t)) := by
@@ -1411,7 +1411,7 @@ theorem parentNested_entry_observes {mctx : Meta.Context}
     exact inst_leaf_fuel (mc := childModule) (dc := dc) (cwe := childWe)
       (outName := "out") (wOut := 8)
       rfl rfl rfl rfl
-      htagAll hsub hdc (by decide) (by decide) rfl (by decide) rfl rfl outerArgsM
+      htagAll henvT hsub hdc (by decide) (by decide) rfl (by decide) rfl rfl outerArgsM
       (fun k hk hk' fuel => by
         rcases k with _ | k
         · exact innerC we fuel
@@ -1432,7 +1432,7 @@ theorem parentNested_entry_observes {mctx : Meta.Context}
     (fun j hj => absurd hj (Nat.not_lt_zero j))
     (fun j hj => by
       intro we fuel
-      show Contract (translateFuelFix translateStep fuel) p.context
+      show Contract (translateFuelFix (translateStep tenv) fuel) p.context
         (inputValues p.bools p.bits) we mems initial
         (nestedE (.fvar i0) (.fvar i1) (.fvar i2))
         (.bits 8 (BitVec.ofNat 8 (aS.val t + bS.val t + bS.val t).toNat))
@@ -1508,7 +1508,7 @@ theorem wrapAdd_entry_observes {mctx : Meta.Context}
         true && true) = true
       rw [hto]
       rfl)
-  obtain ⟨ids, nd, len, cache, P⟩ := H
+  obtain ⟨tenv, henvT, ids, nd, len, cache, P⟩ := H
   have len2 : ids.length = 2 := len
   rcases ids with _ | ⟨i0, ids⟩
   · cases len2
@@ -1548,14 +1548,14 @@ theorem wrapAdd_entry_observes {mctx : Meta.Context}
   have leafM : LeafMeaning addSem (inputValues p.bools p.bits)
       (wrapE (.fvar i0) (.fvar i1)) (.bits 8 (aS.val t + bS.val t)) :=
     meaning_inst rfl rfl argsM hsem
-  have leafC : LeafContract (childrenOf childModule.name) addSem p.context
+  have leafC : LeafContract tenv (childrenOf childModule.name) addSem p.context
       (inputValues p.bools p.bits) mems initial
       (wrapE (.fvar i0) (.fvar i1)) (.bits 8 (aS.val t + bS.val t)) := by
     intro we fuel
     exact inst_leaf_fuel (mc := childModule) (dc := dc) (cwe := childWe)
       (outName := "out") (wOut := 8)
       rfl rfl rfl rfl
-      htagAll hsub hdc (by decide) (by decide) rfl (by decide) rfl rfl argsM
+      htagAll henvT hsub hdc (by decide) (by decide) rfl (by decide) rfl rfl argsM
       (fun k hk hk' fuel => by
         rcases k with _ | k
         · exact input_contract_fuel hA fuel
@@ -1577,7 +1577,7 @@ theorem wrapAdd_entry_observes {mctx : Meta.Context}
     (fun j hj => absurd hj (Nat.not_lt_zero j))
     (fun j hj => by
       intro we fuel
-      show Contract (translateFuelFix translateStep fuel) p.context
+      show Contract (translateFuelFix (translateStep tenv) fuel) p.context
         (inputValues p.bools p.bits) we mems initial
         (wrapE (.fvar i0) (.fvar i1))
         (.bits 8 (BitVec.ofNat 8 (aS.val t + bS.val t).toNat))
@@ -1641,7 +1641,7 @@ run_cmd liftTermElabM do
   unless (mixedCertifiedShape? false [] (← getConstInfo ``parentUse) pred).isSome do
     throwError "canonical parent missed the instance gate"
   let (mpL, dpL) ← synthesizeCombinationalCoreWith
-    (fun e h t n => translateExprToWire e h t n) ``parentUse [] false
+    (fun env e h t n => translateExprToWire env e h t n) ``parentUse [] false
     (certifiedFrontEnd := false)
   unless mp.body == mpL.body && mp.inputs == mpL.inputs && mp.outputs == mpL.outputs &&
       mp.wires == mpL.wires && d.modules == dpL.modules do
@@ -1652,7 +1652,7 @@ run_cmd liftTermElabM do
     throwError "sequential-child parent missed the instance gate"
   let (ms, ds) ← synthesizeCombinationalCore ``parentSeq [] false
   let (msL, dsL) ← synthesizeCombinationalCoreWith
-    (fun e h t n => translateExprToWire e h t n) ``parentSeq [] false
+    (fun env e h t n => translateExprToWire env e h t n) ``parentSeq [] false
     (certifiedFrontEnd := false)
   unless ms.body == msL.body && ms.inputs == msL.inputs && ms.outputs == msL.outputs &&
       ms.wires == msL.wires && ds.modules == dsL.modules do
@@ -1663,7 +1663,7 @@ run_cmd liftTermElabM do
     throwError "three-input parent missed the instance gate"
   let (m3, d3) ← synthesizeCombinationalCore ``parentUse3 [] false
   let (m3L, d3L) ← synthesizeCombinationalCoreWith
-    (fun e h t n => translateExprToWire e h t n) ``parentUse3 [] false
+    (fun env e h t n => translateExprToWire env e h t n) ``parentUse3 [] false
     (certifiedFrontEnd := false)
   unless m3.body == m3L.body && m3.inputs == m3L.inputs && m3.outputs == m3L.outputs &&
       m3.wires == m3L.wires && d3.modules == d3L.modules do
@@ -1676,7 +1676,7 @@ run_cmd liftTermElabM do
     throwError "two-port sequential parent missed the instance gate"
   let (mq, dq) ← synthesizeCombinationalCore ``parentSeq2 [] false
   let (mqL, dqL) ← synthesizeCombinationalCoreWith
-    (fun e h t n => translateExprToWire e h t n) ``parentSeq2 [] false
+    (fun env e h t n => translateExprToWire env e h t n) ``parentSeq2 [] false
     (certifiedFrontEnd := false)
   unless mq.body == mqL.body && mq.inputs == mqL.inputs && mq.outputs == mqL.outputs &&
       mq.wires == mqL.wires && dq.modules == dqL.modules do
@@ -1700,7 +1700,7 @@ run_cmd liftTermElabM do
       throwError "{nm}'s result type is not one scalar Signal"
     let (mj, dj) ← synthesizeCombinationalCore nm [] false
     let (mjL, djL) ← synthesizeCombinationalCoreWith
-      (fun e h t n => translateExprToWire e h t n) nm [] false
+      (fun env e h t n => translateExprToWire env e h t n) nm [] false
       (certifiedFrontEnd := false)
     unless mj.body == mjL.body && mj.inputs == mjL.inputs && mj.outputs == mjL.outputs &&
         mj.wires == mjL.wires && dj.modules == djL.modules do
@@ -1746,7 +1746,7 @@ run_cmd liftTermElabM do
       throwError "{nm}'s result type is not one scalar Signal"
     let (mk, dk) ← synthesizeCombinationalCore nm [] false
     let (mkL, dkL) ← synthesizeCombinationalCoreWith
-      (fun e h t n => translateExprToWire e h t n) nm [] false
+      (fun env e h t n => translateExprToWire env e h t n) nm [] false
       (certifiedFrontEnd := false)
     unless mk.body == mkL.body && mk.inputs == mkL.inputs && mk.outputs == mkL.outputs &&
         mk.wires == mkL.wires && dk.modules == dkL.modules do

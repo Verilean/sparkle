@@ -15,6 +15,8 @@ import Tools.ShippingLegacySemTupleEntry
 import Tools.ShippingLegacySemPackedField
 import Sparkle
 
+variable {tenv : Lean.Environment}
+
 /-! # The legacy inline arm on a real call: which premises can be discharged
 
 `Tools/ShippingLegacySemInstance.lean` (`plain_call_step`) gives the
@@ -448,11 +450,11 @@ theorem dbl_call_step [Tools.ShippingLinkCtx.LinkCtx] [Tools.ShippingUnifiedMean
     {initial : Sparkle.IR.Semantics.Env} {xid : FVarId}
     {v : Tools.ShippingUnifiedMeaning.Value} {hint : String} {top : Bool}
     (suf : DblSuffixes) (hmap : HasMappedFVar ctx (callE xid))
-    (hplain : PlainHead ``dbl) (hnosub : NoSubModule rec ctx (callE xid))
+    (hplain : PlainHead tenv ``dbl) (hnosub : NoSubModule rec ctx (callE xid))
     (sub : ∀ e' : Lean.Expr, InlineUnfolds (callE xid) e' →
       Tools.ShippingUnifiedRecursion.Contract rec ctx inputs we mems initial e' v) :
     Tools.ShippingUnifiedRecursion.ActionSpec
-      (translateStepWith translateFallback rec (callE xid) hint top true)
+      (translateStepWith (translateFallback tenv) rec (callE xid) hint top true)
       ctx inputs we mems initial v :=
   plain_call_step (dbl_head xid) (dbl_notCore xid) (dbl_kind xid) hplain dbl_glue
     (dbl_plainName suf) dbl_notBitVecOp (dbl_plainName2 suf) (dbl_implName suf) hmap
@@ -470,11 +472,11 @@ theorem dbl_call_step_closed [Tools.ShippingLinkCtx.LinkCtx]
     {initial : Sparkle.IR.Semantics.Env} {xid : FVarId}
     {v : Tools.ShippingUnifiedMeaning.Value} {hint : String} {top : Bool}
     (hmap : HasMappedFVar ctx (callE xid))
-    (hplain : PlainHead ``dbl) (hnosub : NoSubModule rec ctx (callE xid))
+    (hplain : PlainHead tenv ``dbl) (hnosub : NoSubModule rec ctx (callE xid))
     (sub : ∀ e' : Lean.Expr, InlineUnfolds (callE xid) e' →
       Tools.ShippingUnifiedRecursion.Contract rec ctx inputs we mems initial e' v) :
     Tools.ShippingUnifiedRecursion.ActionSpec
-      (translateStepWith translateFallback rec (callE xid) hint top true)
+      (translateStepWith (translateFallback tenv) rec (callE xid) hint top true)
       ctx inputs we mems initial v :=
   dbl_call_step dbl_suffixes hmap hplain hnosub sub
 
@@ -496,18 +498,18 @@ theorem useDbl_output_r11 {logProf : String → IO Unit} {dv : DefinitionVal}
         (EntryFacts useDblBinders (fun ids => callE (xOf ids))))
     (hreach : ∀ (ids : List FVarId) (cache : IO.Ref (ExprStructMap String))
       (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n) (rec : TranslateFn),
-      ReachesUnfold rec (setupOf ``useDbl useDblBinders ids cache bools bits).context
+      ReachesUnfold tenv rec (setupOf ``useDbl useDblBinders ids cache bools bits).context
         (callE (xOf ids)))
     (hunf : ∀ (ids : List FVarId) (cache : IO.Ref (ExprStructMap String))
       (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n) (e' : Lean.Expr),
       InlineUnfolds (callE (xOf ids)) e' →
-      LegacyDom (setupOf ``useDbl useDblBinders ids cache bools bits).context
+      LegacyDom tenv (setupOf ``useDbl useDblBinders ids cache bools bits).context
         (Tools.ShippingUnifiedMeaning.inputValues
           (setupOf ``useDbl useDblBinders ids cache bools bits).bools
           (setupOf ``useDbl useDblBinders ids cache bools bits).bits)
         e' (.bits 8 (bits (xOf ids) 8 + bits (xOf ids) 8)))
     (hr : Tools.ShippingEntrySoundness.MReturns (synthesizeFromConst
-      (fun e hint top named => translateExprToWire e hint top named)
+      (fun e hint top named => translateExprToWire tenv e hint top named)
       logProf ``useDbl [] false false (.defnInfo dv) isInst) (m, d)) :
     MemoHit ``useDbl m d ∨
     ∃ (ids : List FVarId) (cache : IO.Ref (ExprStructMap String)),
@@ -536,9 +538,9 @@ theorem useDbl_output_r11 {logProf : String → IO Unit} {dv : DefinitionVal}
 /-- The dispatch premise at the entry's flags (`named = true`), from the
 walked premises. -/
 theorem dbl_reachesAt {ctx : CompilerState} {xid : FVarId}
-    (hmap : HasMappedFVar ctx (callE xid)) (hplain : PlainHead ``dbl)
+    (hmap : HasMappedFVar ctx (callE xid)) (hplain : PlainHead tenv ``dbl)
     (rec : TranslateFn) (hnosub : NoSubModule rec ctx (callE xid)) (hint : String) :
-    ReachesUnfoldAt rec ctx (callE xid) hint false true :=
+    ReachesUnfoldAt tenv rec ctx (callE xid) hint false true :=
   fun s t w hr =>
     plain_call_reaches (dbl_head xid) (dbl_kind xid) hplain dbl_glue
       (dbl_plainName dbl_suffixes) dbl_notBitVecOp (dbl_plainName2 dbl_suffixes)
@@ -557,7 +559,7 @@ value. -/
 theorem dbl_unfold_dom {ctx : CompilerState}
     {inputs : FVarId → Option Tools.ShippingUnifiedMeaning.Value} {dom : Lean.Expr}
     {xid : FVarId} {b : BitVec 8} (hi : inputs xid = some (.bits 8 b)) :
-    LegacyDom ctx inputs (dblUnfoldE dom xid) (.bits 8 (b + b)) := by
+    LegacyDom tenv ctx inputs (dblUnfoldE dom xid) (.bits 8 (b + b)) := by
   have hi' : inputs xid = some (.bits 8 (BitVec.setWidth 8 b)) := by
     rw [BitVec.setWidth_eq]; exact hi
   have hval : Tools.ShippingUnifiedMeaning.pack (.bits 8)
@@ -606,15 +608,15 @@ theorem useDbl_output_r13 {logProf : String → IO Unit} {dv : DefinitionVal}
     (hmap : ∀ (id : FVarId) (cache : IO.Ref (ExprStructMap String))
       (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n),
       HasMappedFVar (setupOf ``useDbl useDblBinders [id] cache bools bits).context (callE id))
-    (hplain : PlainHead ``dbl)
+    (hplain : PlainHead tenv ``dbl)
     (hnosub : ∀ (id : FVarId) (cache : IO.Ref (ExprStructMap String))
       (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n) (fuel : Nat),
-      NoSubModule (translateFuelFix translateStep fuel)
+      NoSubModule (translateFuelFix (translateStep tenv) fuel)
         (setupOf ``useDbl useDblBinders [id] cache bools bits).context (callE id))
     (hunfE : ∀ (xid : FVarId) (e' : Lean.Expr), InlineUnfolds (callE xid) e' →
       ∃ dom : Lean.Expr, e' = dblUnfoldE dom xid)
     (hr : Tools.ShippingEntrySoundness.MReturns (synthesizeFromConst
-      (fun e hint top named => translateExprToWire e hint top named)
+      (fun e hint top named => translateExprToWire tenv e hint top named)
       logProf ``useDbl [] false false (.defnInfo dv) isInst) (m, d)) :
     MemoHit ``useDbl m d ∨
     ∃ (id : FVarId) (cache : IO.Ref (ExprStructMap String)),
@@ -645,7 +647,7 @@ theorem useDbl_output_r13 {logProf : String → IO Unit} {dv : DefinitionVal}
       (.bits 8 (bits id 8 + bits id 8)) (Nat.succ_pos 7)
       (LeafDom.inlineAt (dbl_notCore id)
         (fun fuel => dbl_reachesAt (hmap id cache bools bits) hplain
-          (translateFuelFix translateStep fuel) (hnosub id cache bools bits fuel) "out")
+          (translateFuelFix (translateStep tenv) fuel) (hnosub id cache bools bits fuel) "out")
         (fun e' hU => by
           obtain ⟨dom, rfl⟩ := hunfE id e' hU
           exact LeafDom.dom (dbl_unfold_dom (useDbl_input id cache bools bits))))
@@ -674,15 +676,15 @@ theorem useDbl_output_r15 {logProf : String → IO Unit} {dv : DefinitionVal}
     (hmap : ∀ (id : FVarId) (cache : IO.Ref (ExprStructMap String))
       (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n),
       HasMappedFVar (setupOf ``useDbl useDblBinders [id] cache bools bits).context (callE id))
-    (hplain : PlainHead ``dbl)
+    (hplain : PlainHead tenv ``dbl)
     (hnosub : ∀ (id : FVarId) (cache : IO.Ref (ExprStructMap String))
       (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n) (fuel : Nat),
-      NoSubModule (translateFuelFix translateStep fuel)
+      NoSubModule (translateFuelFix (translateStep tenv) fuel)
         (setupOf ``useDbl useDblBinders [id] cache bools bits).context (callE id))
     (hunfE : ∀ (xid : FVarId) (e' : Lean.Expr), InlineUnfolds (callE xid) e' →
       ∃ dom : Lean.Expr, e' = dblUnfoldE dom xid)
     (hr : Tools.ShippingEntrySoundness.MReturns (synthesizeFromConst
-      (fun e hint top named => translateExprToWire e hint top named)
+      (fun e hint top named => translateExprToWire tenv e hint top named)
       logProf ``useDbl [] false false (.defnInfo dv) isInst) (m, d)) :
     MemoHit ``useDbl m d ∨
     (∃ (id : FVarId) (cache : IO.Ref (ExprStructMap String)),
@@ -693,7 +695,7 @@ theorem useDbl_output_r15 {logProf : String → IO Unit} {dv : DefinitionVal}
           (Sparkle.IR.ModuleName.ofDecl ``useDbl)) →
       Tools.ShippingMixedEntrySoundness.RawValueAt 8 useDblBinders m initial mems
         (bits id 8 + bits id 8).toNat) ∨
-    InputSkipped logProf ``useDbl callE m := by
+    InputSkipped tenv logProf ``useDbl callE m := by
   have htele : ∀ body0,
       Tools.ShippingEntrySoundness.MReturns (openRecordInputs dv.value) body0 →
       TelescopeIn (stripMemoizeWrappers body0) (OneBinderScope `x xTy callE) := by
@@ -712,7 +714,7 @@ theorem useDbl_output_r15 {logProf : String → IO Unit} {dv : DefinitionVal}
       (.bits 8 (bits id 8 + bits id 8)) (Nat.succ_pos 7)
       (LeafDom.inlineAt (dbl_notCore id)
         (fun fuel => dbl_reachesAt (hmap id cache bools bits) hplain
-          (translateFuelFix translateStep fuel) (hnosub id cache bools bits fuel) "out")
+          (translateFuelFix (translateStep tenv) fuel) (hnosub id cache bools bits fuel) "out")
         (fun e' hU => by
           obtain ⟨dom, rfl⟩ := hunfE id e' hU
           exact LeafDom.dom (dbl_unfold_dom (useDbl_input id cache bools bits))))
@@ -742,15 +744,15 @@ theorem useDbl_output {logProf : String → IO Unit} {dv : DefinitionVal}
     (hmap : ∀ (id : FVarId) (cache : IO.Ref (ExprStructMap String))
       (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n),
       HasMappedFVar (setupOf ``useDbl useDblBinders [id] cache bools bits).context (callE id))
-    (hplain : PlainHead ``dbl)
+    (hplain : PlainHead tenv ``dbl)
     (hnosub : ∀ (id : FVarId) (cache : IO.Ref (ExprStructMap String))
       (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n) (fuel : Nat),
-      NoSubModule (translateFuelFix translateStep fuel)
+      NoSubModule (translateFuelFix (translateStep tenv) fuel)
         (setupOf ``useDbl useDblBinders [id] cache bools bits).context (callE id))
     (hunfE : ∀ (xid : FVarId) (e' : Lean.Expr), InlineUnfolds (callE xid) e' →
       ∃ dom : Lean.Expr, e' = dblUnfoldE dom xid)
     (hr : Tools.ShippingEntrySoundness.MReturns (synthesizeFromConst
-      (fun e hint top named => translateExprToWire e hint top named)
+      (fun e hint top named => translateExprToWire tenv e hint top named)
       logProf ``useDbl [] false false (.defnInfo dv) isInst) (m, d)) :
     MemoHit ``useDbl m d ∨
     ∃ (id : FVarId) (cache : IO.Ref (ExprStructMap String)),
@@ -779,7 +781,7 @@ theorem useDbl_output {logProf : String → IO Unit} {dv : DefinitionVal}
       (.bits 8 (bits id 8 + bits id 8)) (Nat.succ_pos 7)
       (LeafDom.inlineAt (dbl_notCore id)
         (fun fuel => dbl_reachesAt (hmap id cache bools bits) hplain
-          (translateFuelFix translateStep fuel) (hnosub id cache bools bits fuel) "out")
+          (translateFuelFix (translateStep tenv) fuel) (hnosub id cache bools bits fuel) "out")
         (fun e' hU => by
           obtain ⟨dom, rfl⟩ := hunfE id e' hU
           exact LeafDom.dom (dbl_unfold_dom (useDbl_input id cache bools bits))))
@@ -850,15 +852,15 @@ theorem useDbl2_output {logProf : String → IO Unit} {dv : DefinitionVal}
       (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n),
       HasMappedFVar (setupOf ``useDbl2 useDbl2Binders [id1, id2] cache bools bits).context
         (callE id1))
-    (hplain : PlainHead ``dbl)
+    (hplain : PlainHead tenv ``dbl)
     (hnosub : ∀ (id1 id2 : FVarId) (cache : IO.Ref (ExprStructMap String))
       (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n) (fuel : Nat),
-      NoSubModule (translateFuelFix translateStep fuel)
+      NoSubModule (translateFuelFix (translateStep tenv) fuel)
         (setupOf ``useDbl2 useDbl2Binders [id1, id2] cache bools bits).context (callE id1))
     (hunfE : ∀ (xid : FVarId) (e' : Lean.Expr), InlineUnfolds (callE xid) e' →
       ∃ dom : Lean.Expr, e' = dblUnfoldE dom xid)
     (hr : Tools.ShippingEntrySoundness.MReturns (synthesizeFromConst
-      (fun e hint top named => translateExprToWire e hint top named)
+      (fun e hint top named => translateExprToWire tenv e hint top named)
       logProf ``useDbl2 [] false false (.defnInfo dv) isInst) (m, d)) :
     MemoHit ``useDbl2 m d ∨
     ∃ (id1 id2 : FVarId) (cache : IO.Ref (ExprStructMap String)),
@@ -910,7 +912,7 @@ theorem useDbl2_output {logProf : String → IO Unit} {dv : DefinitionVal}
       (.bits 8 (bits id1 8 + bits id1 8)) (Nat.succ_pos 7)
       (LeafDom.inlineAt (dbl_notCore id1)
         (fun fuel => dbl_reachesAt (hmap id1 id2 cache bools bits) hplain
-          (translateFuelFix translateStep fuel) (hnosub id1 id2 cache bools bits fuel) "out")
+          (translateFuelFix (translateStep tenv) fuel) (hnosub id1 id2 cache bools bits fuel) "out")
         (fun e' hU => by
           obtain ⟨dom, rfl⟩ := hunfE id1 e' hU
           exact LeafDom.dom (dbl_unfold_dom (useDbl2_input id1 id2 cache bools bits))))
@@ -1062,7 +1064,7 @@ theorem add2_unfold_dom {ctx : CompilerState}
     {inputs : FVarId → Option Tools.ShippingUnifiedMeaning.Value} {dom : Lean.Expr}
     {xid yid : FVarId} {b1 b2 : BitVec 8}
     (h1 : inputs xid = some (.bits 8 b1)) (h2 : inputs yid = some (.bits 8 b2)) :
-    LegacyDom ctx inputs (add2UnfoldE dom xid yid) (.bits 8 (b1 + b2)) := by
+    LegacyDom tenv ctx inputs (add2UnfoldE dom xid yid) (.bits 8 (b1 + b2)) := by
   have h1' : inputs xid = some (.bits 8 (BitVec.setWidth 8 b1)) := by
     rw [BitVec.setWidth_eq]; exact h1
   have h2' : inputs yid = some (.bits 8 (BitVec.setWidth 8 b2)) := by
@@ -1087,7 +1089,7 @@ theorem add2_unfold_dom {ctx : CompilerState}
       cases j with
       | zero => exact Tools.ShippingUnifiedMeaning.Meaning.input rfl h2'
       | succ j => exact absurd hj (by omega)
-  have hD : ∀ j, j < 2 → LegacyDom ctx inputs
+  have hD : ∀ j, j < 2 → LegacyDom tenv ctx inputs
       (sel2 (Lean.Expr.fvar xid) (Lean.Expr.fvar yid) j)
       (.bits 8 (BitVec.setWidth 8 (sel2 b1 b2 j))) := by
     intro j hj
@@ -1187,16 +1189,16 @@ theorem useAdd2_output {logProf : String → IO Unit} {dv : DefinitionVal}
       (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n),
       HasMappedFVar (setupOf ``useAdd2 useDbl2Binders [id1, id2] cache bools bits).context
         (callE2 id1 id2))
-    (hplain : PlainHead ``add2)
+    (hplain : PlainHead tenv ``add2)
     (hnosub : ∀ (id1 id2 : FVarId) (cache : IO.Ref (ExprStructMap String))
       (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n) (fuel : Nat),
-      NoSubModule (translateFuelFix translateStep fuel)
+      NoSubModule (translateFuelFix (translateStep tenv) fuel)
         (setupOf ``useAdd2 useDbl2Binders [id1, id2] cache bools bits).context
         (callE2 id1 id2))
     (hunfE : ∀ (xid yid : FVarId) (e' : Lean.Expr), InlineUnfolds (callE2 xid yid) e' →
       ∃ dom : Lean.Expr, e' = add2UnfoldE dom xid yid)
     (hr : Tools.ShippingEntrySoundness.MReturns (synthesizeFromConst
-      (fun e hint top named => translateExprToWire e hint top named)
+      (fun e hint top named => translateExprToWire tenv e hint top named)
       logProf ``useAdd2 [] false false (.defnInfo dv) isInst) (m, d)) :
     MemoHit ``useAdd2 m d ∨
     ∃ (id1 id2 : FVarId) (cache : IO.Ref (ExprStructMap String)),
@@ -1315,7 +1317,7 @@ theorem SHA256Out_done_output_r21 {logProf : String → IO Unit} {dv : Definitio
     (hwhnf : ∀ id1 id2 id3 : FVarId, WhnfIsVar (leafOf [id1, id2, id3]) id3)
     (hres : ∀ ids : List FVarId, SignalTyped (leafOf ids))
     (hr : Tools.ShippingEntrySoundness.MReturns (synthesizeFromConst
-      (fun e hint top named => translateExprToWire e hint top named)
+      (fun e hint top named => translateExprToWire tenv e hint top named)
       logProf sha256DoneName [] false true (.defnInfo dv) isInst) (m, d)) :
     MemoHit sha256DoneName m d ∨
     ∃ (id1 id2 id3 : FVarId) (cache : IO.Ref (ExprStructMap String)),
@@ -1385,7 +1387,7 @@ theorem SHA256Out_done_output_r21 {logProf : String → IO Unit} {dv : Definitio
     have hw := hwhnf id1 id2 id3
     rw [he] at hk
     rw [he] at hw
-    have dom : LeafDom (setupOf sha256DoneName sha256OutBinders [id1, id2, id3] cache bools
+    have dom : LeafDom tenv (setupOf sha256DoneName sha256OutBinders [id1, id2, id3] cache bools
         bits).context
         (Tools.ShippingUnifiedMeaning.inputValues
           (setupOf sha256DoneName sha256OutBinders [id1, id2, id3] cache bools bits).bools
@@ -1457,7 +1459,7 @@ theorem SHA256Out_done_output {logProf : String → IO Unit} {dv : DefinitionVal
     (hwhnf : ∀ id1 id2 id3 : FVarId, WhnfIsVar (leafOf [id1, id2, id3]) id3)
     (hres : ∀ ids : List FVarId, SignalTyped (leafOf ids))
     (hr : Tools.ShippingEntrySoundness.MReturns (synthesizeFromConst
-      (fun e hint top named => translateExprToWire e hint top named)
+      (fun e hint top named => translateExprToWire tenv e hint top named)
       logProf sha256DoneName [] false true (.defnInfo dv) isInst) (m, d)) :
     MemoHit sha256DoneName m d ∨
     ∃ (id1 id2 id3 : FVarId) (cache : IO.Ref (ExprStructMap String)),
@@ -1644,25 +1646,25 @@ theorem SoCState_fetchPC_output {logProf : String → IO Unit} {dv : DefinitionV
     (hdom : InfersNothing domTy)
     (hs : ∀ id1 : FVarId,
       InfersHW (sTy id1) (.bitVector 1958) ∧ InfersNoCatch (sTy id1))
-    (plainF : PlainHead ``Sparkle.Core.Signal.Signal.fst)
-    (plainS : PlainHead ``Sparkle.Core.Signal.Signal.snd)
+    (plainF : PlainHead tenv ``Sparkle.Core.Signal.Signal.fst)
+    (plainS : PlainHead tenv ``Sparkle.Core.Signal.Signal.snd)
     (hlam : ∀ ids : List FVarId, (leafOf ids).isLambda = false)
     (hres : ∀ ids : List FVarId, SignalTyped (leafOf ids))
     (hnodes : ∀ (id1 id2 : FVarId) (cache : IO.Ref (ExprStructMap String))
       (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n),
       ∃ f1 f2 : Lean.Expr,
         leafOf [id1, id2] = Lean.Expr.app f1 (Lean.Expr.app f2 (Lean.Expr.fvar id2)) ∧
-        TupleNode (setupOf socFetchPCName (socBinders n1 n2) [id1, id2] cache bools bits).context
+        TupleNode tenv (setupOf socFetchPCName (socBinders n1 n2) [id1, id2] cache bools bits).context
           ``Sparkle.Core.Signal.Signal.snd f2 (Lean.Expr.fvar id2) 1958 1926 ∧
-        (∀ fuel : Nat, ArgRunsBody (translateFuelFix translateStep fuel)
+        (∀ fuel : Nat, ArgRunsBody (translateFuelFix (translateStep tenv) fuel)
           (setupOf socFetchPCName (socBinders n1 n2) [id1, id2] cache bools bits).context
           (Lean.Expr.app f2 (Lean.Expr.fvar id2))) ∧
-        TupleNode (setupOf socFetchPCName (socBinders n1 n2) [id1, id2] cache bools bits).context
+        TupleNode tenv (setupOf socFetchPCName (socBinders n1 n2) [id1, id2] cache bools bits).context
           ``Sparkle.Core.Signal.Signal.fst f1 (Lean.Expr.app f2 (Lean.Expr.fvar id2)) 1926 32 ∧
         ExprHW (Lean.Expr.app f2 (Lean.Expr.fvar id2))
           (Sparkle.IR.Type.HWType.bitVector 1926))
     (hr : Tools.ShippingEntrySoundness.MReturns (synthesizeFromConst
-      (fun e hint top named => translateExprToWire e hint top named)
+      (fun e hint top named => translateExprToWire tenv e hint top named)
       logProf socFetchPCName [] false true (.defnInfo dv) isInst) (m, d)) :
     MemoHit socFetchPCName m d ∨
     ∃ (id1 id2 : FVarId) (cache : IO.Ref (ExprStructMap String)),
@@ -1708,7 +1710,7 @@ theorem SoCState_fetchPC_output {logProf : String → IO Unit} {dv : DefinitionV
   have hchain : ∀ (ids : List FVarId) (x : FVarId) (cache : IO.Ref (ExprStructMap String))
       (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n),
       ids.length = (socBinders n1 n2).length → AtIdx ids 1 x →
-      TopNode (setupOf socFetchPCName (socBinders n1 n2) ids cache bools bits).context x 1958
+      TopNode tenv (setupOf socFetchPCName (socBinders n1 n2) ids cache bools bits).context x 1958
         (leafOf ids) 32
         (fun v => BitVec.extractLsb' (1926 - 32) 32 (BitVec.extractLsb' 0 1926 v)) := by
     intro ids x cache bools bits hlen hx
@@ -1768,7 +1770,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     -- the declaration compiles on the legacy route (legacy front end)
     let compiled ← try
         let _ ← synthesizeCombinationalCoreWith
-          (fun e h t n => translateExprToWire e h t n) ``useDbl [] false
+          (fun env e h t n => translateExprToWire env e h t n) ``useDbl [] false
           (certifiedFrontEnd := false)
         pure true
       catch _ => pure false
@@ -1781,6 +1783,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
 Logs only. One run, in this environment: an observation, not a proof. -/
 
 run_cmd Lean.Elab.Command.liftTermElabM do
+  let tenv ← Lean.getEnv
   try
     let ci ← getConstInfo ``useDbl
     let body0 ← openRecordInputs ci.value!
@@ -1820,7 +1823,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
       -- the third outcome itself: the leaf translated with NO port bound
       let skipped : String ← try
           let _ ←
-            ((emitLeaves (fun e h t n => translateExprToWire e h t n) cache (fun _ => pure ())
+            ((emitLeaves (fun e h t n => translateExprToWire tenv e h t n) cache (fun _ => pure ())
               [("out", inner)] none 0).run (entryCompilerState false cache)).run st0
           pure "RETURNED: InputSkipped is a real behaviour of the leaf translation"
         catch ex => do
@@ -1835,7 +1838,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
 run_cmd Lean.Elab.Command.liftTermElabM do
   let compiled ← try
       let _ ← synthesizeCombinationalCoreWith
-        (fun e h t n => translateExprToWire e h t n) ``useDbl2 [] false
+        (fun env e h t n => translateExprToWire env e h t n) ``useDbl2 [] false
         (certifiedFrontEnd := false)
       pure true
     catch _ => pure false
@@ -1904,7 +1907,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
       | none => false
     let compiled ← try
         let _ ← synthesizeCombinationalCoreWith
-          (fun e h t n => translateExprToWire e h t n) ``useAdd2 [] false
+          (fun env e h t n => translateExprToWire env e h t n) ``useAdd2 [] false
           (certifiedFrontEnd := false)
         pure true
       catch _ => pure false

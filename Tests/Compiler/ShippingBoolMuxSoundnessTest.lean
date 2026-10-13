@@ -13,6 +13,7 @@ def nested {dom : DomainConfig} (c a b : Signal dom Bool) :=
     (Signal.mux b c (Signal.pure true))
 
 run_cmd liftTermElabM do
+  let tenv ← Lean.getEnv
   let dom := mkConst ``defaultDomain
   let legacy : TranslateFn := fun _ _ _ _ => throwError "Bool mux reached legacy handler"
   for c in [false, true] do
@@ -24,7 +25,7 @@ run_cmd liftTermElabM do
             if top || childNamed then throwError "Bool mux child flags changed"
             CompilerM.liftMetaM (order.modify (· ++ [hint]))
             -- Reuse the real literal translator, including its core/fallback cache logic.
-            translateExprToWire e hint top childNamed
+            translateExprToWire tenv e hint top childNamed
           let e := boolMuxE dom (literalE dom c) (literalE dom a) (literalE dom b)
           let cache ← IO.mkRef ({} : ExprStructMap String)
           let ctx : CompilerState := {exprCache := some cache}

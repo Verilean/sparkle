@@ -89,10 +89,11 @@ def declW (m : Mod) (x : String) : Option Nat :=
 
 /-- The legacy arm on the entry constant with the refs AS THEY ARE, depth 1. -/
 def legacyAsIs (n : Name) (ec : ConstantInfo) : MetaM (Mod × Dsn) := do
+  let tenv ← Lean.getEnv
   let env ← getEnv
   sparkleSynthDepth.set 1
   try
-    synthesizeFromConst (fun e hint top named => translateExprToWire e hint top named)
+    synthesizeFromConst (fun e hint top named => translateExprToWire tenv e hint top named)
       (fun _ => pure ()) n [] false false ec (instancePredicate env)
   finally
     sparkleSynthDepth.set 0

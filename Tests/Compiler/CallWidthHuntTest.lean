@@ -485,10 +485,11 @@ def gatesOf (n : Name) : MetaM Gates := do
 /-- The machine arm alone, from reset refs, at depth 1 (so that the
 children's entries are nested ones, as inside the real entry). -/
 def machineArm (n : Name) (shape : MachineShape) : MetaM (Option (Mod × Dsn)) := do
+  let tenv ← Lean.getEnv
   resetRefs
   sparkleSynthDepth.set 1
   try
-    synthesizeMachineCertified (fun e hint top named => translateExprToWire e hint top named)
+    synthesizeMachineCertified (fun e hint top named => translateExprToWire tenv e hint top named)
       (fun _ => pure ()) n shape
   finally
     sparkleSynthDepth.set 0

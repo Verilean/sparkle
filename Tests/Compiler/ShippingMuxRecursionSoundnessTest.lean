@@ -15,6 +15,7 @@ def nestedBranch : Signal defaultDomain (BitVec 8) := Signal.mux yes high low
 def whole : Signal defaultDomain (BitVec 8) := Signal.mux no low nestedBranch
 
 run_cmd liftTermElabM do
+  let tenv ← Lean.getEnv
   -- Exercise the exact extracted sequence with the shipping recursive entry
   -- and the real type query. Record the order at its boundary, including the
   -- nested mux inside a child. Repeated branches allow existing-wire results.
@@ -24,7 +25,7 @@ run_cmd liftTermElabM do
     let translate : TranslateFn := fun e hint top named => do
       if top || named then throwError "mux child flags changed"
       CompilerM.liftMetaM (order.modify (· ++ [hint]))
-      translateExprToWire e hint top named
+      translateExprToWire tenv e hint top named
     let query : CompilerM Sparkle.IR.Type.HWType := do
       unless (← CompilerM.liftMetaM order.get) == ["mux_cond", "mux_then", "mux_else"] do
         throwError "mux type query ran before all children"

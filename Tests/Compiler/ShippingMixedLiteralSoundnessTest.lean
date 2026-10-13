@@ -1,5 +1,7 @@
 import Tools.ShippingMixedLiteralSoundness
 
+variable {tenv : Lean.Environment}
+
 namespace Sparkle.Tests.Compiler.ShippingMixedLiteralSoundnessTest
 open Lean Elab Command Sparkle.Compiler.Elab Sparkle.IR.Builder Sparkle.IR.Semantics
 open Tools.ShippingTranslateSoundness Tools.ShippingMixedInvariant
@@ -13,7 +15,7 @@ theorem bitvec_literal_keeps_bool_input {ctx ρ β we mems initial s t prior e u
     (input : ρ id = some b)
     (fn : e.getAppFn = .const ``Sparkle.Core.Signal.Signal.pure us) (hd : Denotes β e n x)
     (widths : ScalarWidthsAgree we t)
-    (hr : Returns (translateExprToWire e hint top named) ctx s w t) :
+    (hr : Returns (translateExprToWire tenv e hint top named) ctx s w t) :
     ScalarWidthsAgree we s ∧ ∃ oldWire result,
       visible ctx s.sourceBindings id = some oldWire ∧
       MixedInv ctx ρ β we mems initial t result ∧

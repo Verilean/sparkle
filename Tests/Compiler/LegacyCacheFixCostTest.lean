@@ -120,14 +120,15 @@ def realDigest (decl : Name) : MetaM String := do
 
 /-- One probed compile: its digest and the probe's counts. -/
 def probed (cfe : Bool) (decl : Name) : MetaM String := do
+  let tenv ← Lean.getEnv
   let stack ← IO.mkRef ([] : List Lean.Expr)
   let probe ← IO.mkRef ({} : Probe)
   let tr : TranslateFn :=
     translateFuelFix
-      (fun rec => translateStepWith translateFallback (probeWrap stack probe rec)) 4096
+      (fun rec => translateStepWith (translateFallback tenv) (probeWrap stack probe rec)) 4096
   let out : String ←
     try
-      let r ← synthesizeCombinationalCoreWith tr decl [] false (certifiedFrontEnd := cfe)
+      let r ← synthesizeCombinationalCoreWith (fun _ => tr) decl [] false (certifiedFrontEnd := cfe)
       pure (digest r)
     catch ex =>
       let msg ← ex.toMessageData.toString

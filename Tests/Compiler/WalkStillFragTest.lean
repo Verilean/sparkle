@@ -2,6 +2,8 @@ import Tests.Compiler.ChecksRawTest
 import Tests.Compiler.NoPortsGrandHTest
 import Tools.ShippingWalkStill
 
+variable {tenv : Lean.Environment}
+
 /-! # The walk's fragment on two built machine transitions: `cnt` (a leaf) and `midH`
 
 WRITTEN, NOT BUILT (par/a-36). Target-only; not in `Tests.AllTests`.
@@ -63,7 +65,7 @@ theorem cnt_walk {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Met
     (hb : ∀ j, j < cnt.machineData.kb → WBound ctx (bi j))
     (hv : ∀ j, j < cnt.machineData.kv → WBound ctx (vi j)) :
     WCh mctx cctx L mb ctx
-      (fun e hint top named => Sparkle.Compiler.Elab.translateExprToWire e hint top named)
+      (fun e hint top named => Sparkle.Compiler.Elab.translateExprToWire tenv e hint top named)
       (quote dom (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) cnt.machineData.packed) :=
   walk_still L hb hv _ cnt_wf cnt_frag
 
@@ -76,7 +78,7 @@ theorem midH_walk {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Me
     (hb : ∀ j, j < midH.machineData.kb → WBound ctx (bi j))
     (hv : ∀ j, j < midH.machineData.kv → WBound ctx (vi j)) :
     WCh mctx cctx L mb ctx
-      (fun e hint top named => Sparkle.Compiler.Elab.translateExprToWire e hint top named)
+      (fun e hint top named => Sparkle.Compiler.Elab.translateExprToWire tenv e hint top named)
       (quote dom (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) midH.machineData.packed) :=
   walk_still L hb hv _ midH_wf midH_frag
 

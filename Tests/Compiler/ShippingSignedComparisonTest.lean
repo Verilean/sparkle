@@ -63,8 +63,8 @@ run_cmd liftTermElabM do
     unless (mixedCertifiedShape? false [] ci).isSome do throwError "signed source missed proved gate"
     let (raw, _) ← synthesizeCombinationalCore name [] false
     let (legacy, _) ← synthesizeCombinationalCoreWith
-      (translateFuelFix (fun rec e h t named =>
-        Rec.translateExprToWireCached rec e h t named) translateFuelLimit) name [] false false
+      (fun _ => (translateFuelFix (fun rec e h t named =>
+        Rec.translateExprToWireCached rec e h t named) translateFuelLimit)) name [] false false
     let (actual, _) ← synthesizeCombinational name
     for post in [dropZeroWidthModule raw, mergeDuplicates (dropZeroWidthModule raw), actual] do
       let m := checkedOptimize post

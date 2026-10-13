@@ -1,5 +1,7 @@
 import Tools.ShippingMixedInputSoundness
 
+variable {tenv : Lean.Environment}
+
 namespace Sparkle.Tests.Compiler.ShippingMixedRecursionTest
 open Lean Elab Command Meta Sparkle.Compiler.Elab Sparkle.IR.Builder Sparkle.IR.Semantics
 open Sparkle.Core.Domain Sparkle.Core.Signal
@@ -27,7 +29,7 @@ theorem closed_output {ctx ρ β mems initial s t dom cache logProf returned}
     (hv : ∀ j, j < 2 → β (vinp j) = some ⟨8, bits j⟩)
     (body : s.module.body = []) (record : s.translateRecord = {})
     (wires : WiresOk s) (ports : PortInputs ctx ρ β s initial)
-    (hr : Returns (emitLeaves (fun e hint top named => translateExprToWire e hint top named)
+    (hr : Returns (emitLeaves (fun e hint top named => translateExprToWire tenv e hint top named)
       cache logProf [("out", quoteB dom 8 (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) term)] none 0)
       ctx s returned t) :
     ∃ result, Runs (declaredWidths t) mems initial t result ∧
@@ -37,6 +39,7 @@ theorem closed_output {ctx ρ β mems initial s t dom cache logProf returned}
   exact ⟨result, run, value⟩
 
 run_cmd liftTermElabM do
+  let tenv ← Lean.getEnv
   let ci ← getConstInfo ``source
   let some value := ci.value? | throwError "missing recursive source"
   lambdaTelescope value fun xs body => do
@@ -54,7 +57,7 @@ run_cmd liftTermElabM do
           let s := (CircuitM.addInput "_mux_then" (.bitVector 8) s).2
           let s := (CircuitM.addInput "_mux_cond" (.bitVector 8) s).2
           let s := {s with module := {s.module with wires := s.module.inputs}}
-          let (w, final) ← ((translateExprToWire quoted "mux_cond" top named) ctx).run s
+          let (w, final) ← ((translateExprToWire tenv quoted "mux_cond" top named) ctx).run s
           let m := final.module.finalize
           for c in [false, true] do
             for a in [0, 1, 127, 128, 255] do
@@ -69,7 +72,7 @@ run_cmd liftTermElabM do
                   throwError "recursive mixed value/frame mismatch"
     for fuel in [0, 1] do
       let failed ← try
-        let _ ← ((translateFuelFix translateStep fuel quoted "out" false false) {}).run (CircuitM.init "NoFuel")
+        let _ ← ((translateFuelFix (translateStep tenv) fuel quoted "out" false false) {}).run (CircuitM.init "NoFuel")
         pure false
         catch _ => pure true
       unless failed do throwError "insufficient fuel unexpectedly succeeded"

@@ -2,6 +2,8 @@ import Tests.Compiler.CacheChainClosedTest
 import Tests.Compiler.CallsKidsSharedMixDeepTest
 import Tools.ShippingCacheCoherentOuter
 
+variable {tenv : Lean.Environment}
+
 /-! # `mixDeep`: the closing for OUTERMOST starts, from reflections only
 
 WRITTEN, NOT BUILT (par/a-38). Target-only; not in `Tests.AllTests`. Every
@@ -177,7 +179,7 @@ theorem mixDeep_closes_prov {mctx : Lean.Meta.Context}
     (b : Bool) (w9 : Void IO.RealWorld) (r : Option Tools.ShippingChildInv.Res)
     (w10 : Void IO.RealWorld) (hw9 : InvV L w9) (hd9 : L.dval w9 ≠ 0) (hp9 : Prov (L.val w9))
     (hrun : Tools.ShippingEntrySoundness.RunsTo (Sparkle.Compiler.Elab.synthesizeMachineCertified
-      (fun e hint top named => Sparkle.Compiler.Elab.translateExprToWire e hint top named)
+      (fun e hint top named => Sparkle.Compiler.Elab.translateExprToWire tenv e hint top named)
       (Tools.ShippingChildInv.profLogIO b)
       ``Sparkle.Tests.Compiler.ShippingChildBoundaryTest.mixDeep
       (Sparkle.Tests.Compiler.ShippingChildBoundaryTest.mixDeep.machineData).shape)
@@ -240,9 +242,9 @@ theorem mixDeep_closes_outermost {mctx : Lean.Meta.Context}
       (Sparkle.Compiler.Elab.synthesizeCombinationalCore
         ``Sparkle.Tests.Compiler.ShippingChildBoundaryTest.mixDeep [] false)
       mctx mref cctx cref w (M, D) w') :
-    ∃ (b : Bool) (w9 w10 : Void IO.RealWorld),
+    ∃ (tenv : Lean.Environment) (b : Bool) (w9 w10 : Void IO.RealWorld),
       Tools.ShippingEntrySoundness.RunsTo (Sparkle.Compiler.Elab.synthesizeMachineCertified
-        (fun e hint top named => Sparkle.Compiler.Elab.translateExprToWire e hint top named)
+        (fun e hint top named => Sparkle.Compiler.Elab.translateExprToWire tenv e hint top named)
         (Tools.ShippingChildInv.profLogIO b)
         ``Sparkle.Tests.Compiler.ShippingChildBoundaryTest.mixDeep
         (Sparkle.Tests.Compiler.ShippingChildBoundaryTest.mixDeep.machineData).shape)

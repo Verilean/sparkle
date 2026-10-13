@@ -170,10 +170,11 @@ theorem rcon_execution {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.St
 /-! ## Runtime gates on the real compiler -/
 
 run_cmd liftTermElabM do
+  let tenv ← Lean.getEnv
   let env ← getEnv
   let pred := instancePredicate env
   let inl := userInliner env
-  let translate : TranslateFn := fun e h t n => translateExprToWire e h t n
+  let translate : TranslateFn := fun e h t n => translateExprToWire tenv e h t n
   let mut count := 0
   for name in [``aEq, ``aUle, ``aUlt, ``aSlt, ``aSle, ``aAnd, ``aOr, ``aXor, ``aLit, ``aCone,
       ``aNest, ``aLut, ``aShare, ``aShareBool, ``aConcrete, ``inRange,
@@ -186,7 +187,7 @@ run_cmd liftTermElabM do
     unless (mixedCertifiedShape? false [] ec pred).isSome do
       throwError "{name}: no gate accepts the normalised declaration"
     let (mc, dc) ← synthesizeCombinationalCore name [] false
-    let (ml, dl) ← synthesizeCombinationalCoreWith translate name [] false
+    let (ml, dl) ← synthesizeCombinationalCoreWith (fun _ => translate) name [] false
       (certifiedFrontEnd := false)
     unless mc.body == ml.body && mc.inputs == ml.inputs && mc.outputs == ml.outputs &&
         mc.wires == ml.wires && mc.name == ml.name && dc.modules == dl.modules do
@@ -213,7 +214,7 @@ run_cmd liftTermElabM do
     throwError "aAndNot was rewritten"
   let (m, _) ← synthesizeCombinationalCore ``aAndNot [] false
   let (ml, _) ← synthesizeCombinationalCoreWith
-    (fun e h t n => translateExprToWire e h t n) ``aAndNot [] false (certifiedFrontEnd := false)
+    (fun env e h t n => translateExprToWire env e h t n) ``aAndNot [] false (certifiedFrontEnd := false)
   unless m.body == ml.body && m.wires == ml.wires do
     throwError "aAndNot: default and legacy compiles differ"
 

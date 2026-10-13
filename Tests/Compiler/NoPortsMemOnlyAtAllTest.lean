@@ -1,6 +1,8 @@
 import Tests.Compiler.ShippingDesignSVMemTest
 import Tools.ShippingMemOnlyAtAll
 
+variable {tenv : Lean.Environment}
+
 /-! # The all-worlds closing of the five memory-only parents: its counter-world, instantiated (G1, unit U4, round par/b-15)
 
 `Tools.ShippingMemOnlyAtAll.not_machineCloses_of_synthNone` instantiated at
@@ -49,7 +51,7 @@ theorem memCounter_notAll {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta
     {logProf : String → IO Unit} {w w1 w2 : Void IO.RealWorld}
     {t t' : Sparkle.IR.AST.Module} {d : Sparkle.IR.AST.Design}
     (hr : RunsTo (synthesizeMixedCertified
-      (fun e hint top named => translateExprToWire e hint top named) logProf
+      (fun e hint top named => translateExprToWire tenv e hint top named) logProf
       ``Sparkle.Tests.Compiler.ShippingMachineMemLinkedTest.memCounter
       (Sparkle.Tests.Compiler.ShippingMachineMemLinkedTest.memCounter.machineData).shape.binders
       (Sparkle.Tests.Compiler.ShippingMachineMemLinkedTest.memCounter.machineData).shape.body)
