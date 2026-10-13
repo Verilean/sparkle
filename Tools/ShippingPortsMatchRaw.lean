@@ -2,6 +2,7 @@ import Tools.ShippingChecksWidths
 import Tools.ShippingClosedTyped
 import Tools.ShippingTextShipped
 import Tools.ShippingLeafTyped
+import Tools.ShippingMachineRanBase
 
 /-! # `portsMatchB` of the RAW full-entry module (conjunct 7 of `textCheckI`) (G1, round optfb-7)
 
@@ -240,11 +241,11 @@ variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
   {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
 
 set_option maxHeartbeats 4000000 in
-/-- **Every reference connection of an instance of the full entry's
-module**: the clock or the reset, or a declared wire of `b` at the width of
-the type of a binder of the parent — the call's result binder (output
-connection) or the argument's `let` binder (argument connection). -/
-theorem core_callConns {c : Name} (d : MachineData) (ok : d.ok = true)
+/-- `core_callConns` over `MachineRan`: the TAIL of the built proof, moved (round par/g-1).
+What it takes of the run is that the machine synthesis this core run performed
+returned `(M, D)` from an invariant world; `core_callConns` below is its instance at the
+all-worlds closing (`Tools.ShippingMachineRan.machineRan_of_closes`). -/
+theorem core_callConns_ran {c : Name} (d : MachineData) (ok : d.ok = true)
     (hbody : d.shape.body = quote d.dom
       (fun j => inputExpr d.shape.binders.length (d.bpos j))
       (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
@@ -255,13 +256,10 @@ theorem core_callConns {c : Name} (d : MachineData) (ok : d.ok = true)
     (hfne : d.shape.instFields ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
     (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
-    {w w1 : Void IO.RealWorld} {M b : Sparkle.IR.AST.Module} {D : Design}
-    (hB : ChildBnd mref cref w)
-    (hcore : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, D) w1)
+    {M b : Sparkle.IR.AST.Module} {D : Design}
     (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨
       b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M))
-    (entry : MachineDefines mctx mref cctx cref c d.shape)
-    (closes : MachineClosesAt mctx mref cctx cref c d.shape) :
+    (ran : Tools.ShippingMachineRan.MachineRan mctx mref cctx cref c d.shape M D) :
     ∀ mn iname conns, Stmt.inst mn iname conns ∈ b.body →
       ∃ mc, moduleByName D.modules mn = some mc ∧
         (∃ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
@@ -281,8 +279,7 @@ theorem core_callConns {c : Name} (d : MachineData) (ok : d.ok = true)
                     (d.shape.layout.slots.length + a))]? = some bn ∧
                   Sparkle.IR.RegDedup.declWidth b x = (kindTy bn.2).bitWidth))) := by
   have hbody' : b.body = M.body :=
-    (Tools.ShippingChecksCore.core_kids_facts d ok hbody hC hslots hdomB hins outTy hnomem hB
-      hcore hpost entry closes).2.1
+    (Tools.ShippingChecksCore.core_kids_facts_ran d ok hbody hC hslots hdomB hins outTy hnomem hpost ran).2.1
   -- the cleanup and the checked merge keep the non-zero wires and add none
   have hbw : ∀ p ∈ M.wires, p.ty.bitWidth ≠ 0 → p ∈ b.wires := by
     intro p hp hz
@@ -299,14 +296,8 @@ theorem core_callConns {c : Name} (d : MachineData) (ok : d.ok = true)
     · rw [h, (Sparkle.IR.RefineCheck.mergeChecked_ports _).2.2] at hp
       exact Tools.ShippingInstWidthsParts.dropZW_wires_sub M p hp
   -- the run
-  obtain ⟨bb, r, w9, w10, hrun9, hw9, hd9, hres⟩ :=
-    machine_run_of_core hcore entry hB
-  have hne := closes bb _ _ _ hw9 hd9 hrun9
-  cases r with
-  | none => exact absurd rfl hne
-  | some res =>
-  have hres' := hres res rfl
-  subst hres'
+  have ran0 := ran
+  obtain ⟨bb, w9, w10, hrun9, hw9, -⟩ := ran0
   obtain ⟨t, t', d₀, run, hcl, hmt⟩ := synthesizeMachineCertified_runs hw9 hrun9
   rcases hmt with ⟨hno, -, -⟩ | ⟨-, children, hcc, hreal⟩
   · exact absurd hno hins
@@ -435,6 +426,50 @@ theorem core_callConns {c : Name} (d : MachineData) (ok : d.ok = true)
     obtain ⟨hxw, bn, hbn, hdw⟩ := key e.1 x hget
     exact Or.inr ⟨hxw, e.1, hke, y, hre, hmcy,
       Or.inl ⟨by rw [← hef, hfld], ⟨p, hp, hpn⟩, bn, hbn, hdw⟩⟩
+
+set_option maxHeartbeats 4000000 in
+/-- **Every reference connection of an instance of the full entry's
+module**: the clock or the reset, or a declared wire of `b` at the width of
+the type of a binder of the parent — the call's result binder (output
+connection) or the argument's `let` binder (argument connection). -/
+theorem core_callConns {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    {nDecl : Nat} (hC : d.callsOk nDecl = true)
+    (hslots : d.ss.length = d.shape.layout.slots.length)
+    (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
+    (hins : d.shape.insts ≠ [])
+    (hfne : d.shape.instFields ≠ [])
+    (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
+    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    {w w1 : Void IO.RealWorld} {M b : Sparkle.IR.AST.Module} {D : Design}
+    (hB : ChildBnd mref cref w)
+    (hcore : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, D) w1)
+    (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨
+      b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M))
+    (entry : MachineDefines mctx mref cctx cref c d.shape)
+    (closes : MachineClosesAt mctx mref cctx cref c d.shape) :
+    ∀ mn iname conns, Stmt.inst mn iname conns ∈ b.body →
+      ∃ mc, moduleByName D.modules mn = some mc ∧
+        (∃ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
+          RealChild mref cref (d.shape.insts[k]).1 y ∧ mc = y.1) ∧
+        ∀ pn x, (pn, Sparkle.IR.AST.Expr.ref x) ∈ conns →
+          (isSeqChild mc = true ∧ ((pn = "clk" ∧ x = "clk") ∨ (pn = "rst" ∧ x = "rst"))) ∨
+          (x ∈ b.wires.map (·.name) ∧
+            ∃ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
+              RealChild mref cref (d.shape.insts[k]).1 y ∧ mc = y.1 ∧
+              ((pn = d.shape.instFields.getD k "" ∧ (∃ p ∈ mc.outputs, p.name = pn) ∧
+                  ∃ bn, d.shape.binders[nDecl + k]? = some bn ∧
+                    Sparkle.IR.RegDedup.declWidth b x = (kindTy bn.2).bitWidth) ∨
+                (∃ (j : Nat) (q : Port) (a : Nat) (bn : Name × MixedGateBinder),
+                  (inPortsOf mc)[j]? = some q ∧ q.name = pn ∧
+                  ((d.shape.insts[k]).2.1)[j]? = some a ∧
+                  d.shape.binders[nDecl + (d.shape.insts.length +
+                    (d.shape.layout.slots.length + a))]? = some bn ∧
+                  Sparkle.IR.RegDedup.declWidth b x = (kindTy bn.2).bitWidth))) :=
+  core_callConns_ran d ok hbody hC hslots hdomB hins hfne outTy hnomem hpost
+    (Tools.ShippingMachineRan.machineRan_of_closes hcore entry hB closes)
 
 set_option maxHeartbeats 4000000 in
 /-- **`portsMatchB` of the RAW full-entry module**, from the core run. -/
