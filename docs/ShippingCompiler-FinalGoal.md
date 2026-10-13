@@ -470,3 +470,15 @@ AllTests (1307 jobs) but do not yet assert the class per declaration.
 Also since the night log: generators discharge name conditions on declaration names (e438076a, no endpoint
 type changed); cache coherence second partial (11e3944b: `EntryOk` under the underived `HarnessStill`,
 `CoreVia`, `EntryStill`; `mixDeep` not connected).
+
+### Addendum 2, 2026-10-13 late night (record docs/parallel/B-slotless-leaf-2.md)
+
+Slotless leaves at the design level, MEASURED: `f.machine_design_comb0` generated for all 32 slotless
+machine-route leaves refused by the register sweep (premises: the run, `MachineDefines f`, `ChildBnd`
+under the existential; 0 NOT ALLOWED; standard axioms). The shape facts that were missing (every emitted
+statement is simple; the output slice survives the merge, so `checkedOptimize` is the identity) are proved
+once from the run (`comb_entry_shape`), with no compiler guard. Design-level check-free declarations:
+93 + 32 = 125, each with the usual scope (one declaration, depth 0, one output `out`, data conditions
+decided per declaration, runtime boundary, `DesignSV` of the module list; not the SV string, not `#sim`).
+AllTests 1318 jobs. Cache coherence: `walk_still` built for a fragment (3227149c); `HarnessStill` /
+`EntryStill` still not theorems; `mixDeep` not connected.

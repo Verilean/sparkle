@@ -229,6 +229,11 @@ import Tests.Compiler.NoPortsMemSeqGenNew2Test
 import Tests.Compiler.NoPortsMemSeqGenNewTest
 import Tests.Compiler.LeafDesignCntTest
 import Tests.Compiler.LeafDesignFamilyTest
+import Tests.Compiler.CombClosedSweepSignOpsTest
+import Tests.Compiler.CombClosedSweepCombTest
+import Tests.Compiler.CombClosedSweepApplicativeBTest
+import Tests.Compiler.CombClosedSweepApplicativeATest
+import Tests.Compiler.CombClosedSweepRawTest
 import Tests.Compiler.LeafSweepCrypto256Test
 import Tests.Compiler.LeafSweepLoopIPTest
 import Tests.Compiler.LeafSweepFuseTest

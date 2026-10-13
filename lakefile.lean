@@ -2710,3 +2710,12 @@ lean_lib «Tools.ShippingCombLeafCommand» where
 
 lean_lib «Tools.ShippingWalkStill» where
   roots := #[`Tools.ShippingWalkStill]
+
+lean_lib «Tools.ShippingCastMerge» where
+  roots := #[`Tools.ShippingCastMerge]
+
+lean_lib «Tools.ShippingCombLeafShape» where
+  roots := #[`Tools.ShippingCombLeafShape]
+
+lean_lib «Tools.ShippingCombLeafClosedCommand» where
+  roots := #[`Tools.ShippingCombLeafClosedCommand]
