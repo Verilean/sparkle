@@ -2662,3 +2662,6 @@ lean_lib «Tools.ShippingLeafDesign» where
 
 lean_lib «Tools.ShippingLeafDesignCommand» where
   roots := #[`Tools.ShippingLeafDesignCommand]
+
+lean_lib «Tools.ShippingModuleName» where
+  roots := #[`Tools.ShippingModuleName]
