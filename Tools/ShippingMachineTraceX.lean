@@ -1,6 +1,7 @@
 import Tools.ShippingMachineAuto
 import Tools.ShippingChildRun
 import Tools.ShippingChildServe
+import Tools.ShippingMachineRanBase
 
 /-! # The machine endpoint with the run's children
 
@@ -461,6 +462,84 @@ theorem allocated_ne {x : String} (h : Sparkle.IR.NameHints.Allocated x) :
     x ≠ "clk" ∧ x ≠ "rst" := by
   constructor <;> (intro hx; subst hx; have := h.2; simp at this)
 
+/-- `synthesizeCombinationalCore_machine_soundRA` over `MachineRan`: the TAIL of the
+built proof, moved (round par/g-1). The theorem below is its instance at the
+all-worlds closing (`Tools.ShippingMachineRan.machineRan_of_closes`). -/
+theorem synthesizeCombinationalCore_machine_soundRA_ran {declName : Name}
+    {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+    {m : Sparkle.IR.AST.Module} {d : Design}
+    {shape : MachineShape} {bsIn slotBs letBs : List (Name × MixedGateBinder)}
+    (ran : Tools.ShippingMachineRan.MachineRan mctx mref cctx cref declName shape m d)
+    (hbs : shape.binders = bsIn ++ slotBs ++ letBs)
+    (hlets : shape.layout.lets = letBs.length)
+    (positive : PositiveBinders shape.binders)
+    (slotKinds : ∀ b ∈ slotBs, b.2 ≠ .domain)
+    (letKinds : ∀ b ∈ letBs, b.2 ≠ .domain)
+    (layW : Zip₂ (fun (f : SlotField) (b : Name × MixedGateBinder) => f.width = machWidth b.2)
+      shape.layout.slots slotBs)
+    (outsOk : ∀ o ∈ shape.layout.outs, 0 < o.width ∧ outNameOk o.name = true)
+    (outsNodup : (shape.layout.outs.map (·.name)).Nodup) :
+    MachinePreservesX (ServedReal mctx mref cctx cref declName shape m d)
+      declName shape bsIn slotBs letBs m d := by
+  obtain ⟨prof, w9, w10, hrun, hw9, -⟩ := ran
+  obtain ⟨t, t', d₀, hmix, hcl, hmt⟩ :=
+    Tools.ShippingChildInv.synthesizeMachineCertified_runs hw9 hrun
+  have hmt0 : (shape.insts = [] ∧ m = closeMachine shape.layout t' ∧ d = d₀) ∨
+      (shape.insts ≠ [] ∧ ∃ children,
+        CloseCalls shape t (closeMachine shape.layout t') d₀ children m d) := by
+    rcases hmt with h0 | ⟨hi, children, hcc, _⟩
+    · exact Or.inl h0
+    · exact Or.inr ⟨hi, children, hcc⟩
+  refine synthesizeMachineCertified_soundX _ hmix hcl hmt0 ?_ hbs hlets positive slotKinds
+    letKinds layW outsOk outsNodup
+  intro ids cache regs lets wired hmp notInst
+  have h0 : ∀ st ∈ (closeMachine shape.layout t').body, isInst st = false := fun st hs => by
+    cases hi : isInst st
+    · rfl
+    · exact absurd (notInst st hs hi) id
+  refine ⟨?g, ?o⟩
+  case o =>
+    intro hfe1 k hk args mc st hargs hst hcs hmod
+    rcases hmt with ⟨h0', _, _⟩ | ⟨_, children, hcc, hreal⟩
+    · rw [h0'] at hk; exact absurd hk (Nat.not_lt_zero _)
+    rcases hcc with ⟨_, hC⟩ | ⟨hfe0, _, _⟩
+    case inr => exact absurd hfe1 hfe0
+    rw [hmp] at hcs
+    obtain ⟨y, hy, hmcy⟩ := Tools.ShippingChildServe.closeInsts_serves hC h0 hst hcs hmod
+    have hyc := (Tools.ShippingChildServe.closeInsts_acyclic hC).2.2.2 y (List.mem_of_getElem? hy)
+    obtain ⟨_, hkr⟩ := hreal
+    obtain ⟨y', hy', hor⟩ := hkr k hk
+    rw [hy] at hy'; cases hy'
+    subst hmcy
+    rcases hor with hmem | hrc
+    · exact Or.inl ⟨y, hmem, rfl⟩
+    · exact Or.inr ⟨y.2, hrc, hyc⟩
+  case g =>
+  intro hfe k hk mc iname argWs outs outWs hst hout hke hmod
+  rcases hmt with ⟨h0, _, _⟩ | ⟨_, children, hcc, hreal⟩
+  · rw [h0] at hk; exact absurd hk (Nat.not_lt_zero _)
+  rcases hcc with ⟨hfe0, _⟩ | ⟨_, hG, _⟩
+  · exact absurd hfe0 hfe
+  have hall := wired.2.1
+  rw [hmp] at hall hout
+  have hcr : "clk" ∉ t.inputs.map (·.name) ∧ "rst" ∉ t.inputs.map (·.name) :=
+    ⟨fun h => (allocated_ne (hall _ h)).1 rfl, fun h => (allocated_ne (hall _ h)).2 rfl⟩
+  obtain ⟨y, hy, hmcy⟩ := Tools.ShippingChildServe.closeInstsG_serves hG
+    (fun st hs => by
+      cases hi : isInst st
+      · rfl
+      · exact absurd (notInst st hs hi) id)
+    hcr hk hst hout hke hmod
+  have hyc := ((Tools.ShippingMachineInstG.closeInstsG_names hG).2.2.2 y (List.mem_of_getElem? hy)).2
+  obtain ⟨_, hkr⟩ := hreal
+  obtain ⟨y', hy', hor⟩ := hkr k hk
+  rw [hy] at hy'; cases hy'
+  subst hmcy
+  rcases hor with hmem | hrc
+  · exact Or.inl ⟨y, hmem, rfl⟩
+  · exact Or.inr ⟨y.2, hrc, hyc⟩
+
 /-- **A state machine through the real entry, with its children.** The
 one-cycle theorem of `synthesizeCombinationalCore_machine_sound`, with
 `ServedReal` for the same ids and cache, under the `ChildBnd` boundary. -/
@@ -484,82 +563,16 @@ theorem synthesizeCombinationalCore_machine_soundRA {declName : Name}
     (outsOk : ∀ o ∈ shape.layout.outs, 0 < o.width ∧ outNameOk o.name = true)
     (outsNodup : (shape.layout.outs.map (·.name)).Nodup) :
     MachinePreservesX (ServedReal mctx mref cctx cref declName shape m d)
-      declName shape bsIn slotBs letBs m d := by
-  obtain ⟨prof, r, w9, w10, hrun, hw9, hd9, hres⟩ :=
-    Tools.ShippingChildInv.machine_run_of_core hr entry hsyn
-  have hne := closes prof _ _ _ hw9 hd9 hrun
-  cases r with
-  | none => exact absurd rfl hne
-  | some res =>
-    have := hres res rfl
-    subst this
-    obtain ⟨t, t', d₀, hmix, hcl, hmt⟩ :=
-      Tools.ShippingChildInv.synthesizeMachineCertified_runs hw9 hrun
-    have hmt0 : (shape.insts = [] ∧ m = closeMachine shape.layout t' ∧ d = d₀) ∨
-        (shape.insts ≠ [] ∧ ∃ children,
-          CloseCalls shape t (closeMachine shape.layout t') d₀ children m d) := by
-      rcases hmt with h0 | ⟨hi, children, hcc, _⟩
-      · exact Or.inl h0
-      · exact Or.inr ⟨hi, children, hcc⟩
-    refine synthesizeMachineCertified_soundX _ hmix hcl hmt0 ?_ hbs hlets positive slotKinds
-      letKinds layW outsOk outsNodup
-    intro ids cache regs lets wired hmp notInst
-    have h0 : ∀ st ∈ (closeMachine shape.layout t').body, isInst st = false := fun st hs => by
-      cases hi : isInst st
-      · rfl
-      · exact absurd (notInst st hs hi) id
-    refine ⟨?g, ?o⟩
-    case o =>
-      intro hfe1 k hk args mc st hargs hst hcs hmod
-      rcases hmt with ⟨h0', _, _⟩ | ⟨_, children, hcc, hreal⟩
-      · rw [h0'] at hk; exact absurd hk (Nat.not_lt_zero _)
-      rcases hcc with ⟨_, hC⟩ | ⟨hfe0, _, _⟩
-      case inr => exact absurd hfe1 hfe0
-      rw [hmp] at hcs
-      obtain ⟨y, hy, hmcy⟩ := Tools.ShippingChildServe.closeInsts_serves hC h0 hst hcs hmod
-      have hyc := (Tools.ShippingChildServe.closeInsts_acyclic hC).2.2.2 y (List.mem_of_getElem? hy)
-      obtain ⟨_, hkr⟩ := hreal
-      obtain ⟨y', hy', hor⟩ := hkr k hk
-      rw [hy] at hy'; cases hy'
-      subst hmcy
-      rcases hor with hmem | hrc
-      · exact Or.inl ⟨y, hmem, rfl⟩
-      · exact Or.inr ⟨y.2, hrc, hyc⟩
-    case g =>
-    intro hfe k hk mc iname argWs outs outWs hst hout hke hmod
-    rcases hmt with ⟨h0, _, _⟩ | ⟨_, children, hcc, hreal⟩
-    · rw [h0] at hk; exact absurd hk (Nat.not_lt_zero _)
-    rcases hcc with ⟨hfe0, _⟩ | ⟨_, hG, _⟩
-    · exact absurd hfe0 hfe
-    have hall := wired.2.1
-    rw [hmp] at hall hout
-    have hcr : "clk" ∉ t.inputs.map (·.name) ∧ "rst" ∉ t.inputs.map (·.name) :=
-      ⟨fun h => (allocated_ne (hall _ h)).1 rfl, fun h => (allocated_ne (hall _ h)).2 rfl⟩
-    obtain ⟨y, hy, hmcy⟩ := Tools.ShippingChildServe.closeInstsG_serves hG
-      (fun st hs => by
-        cases hi : isInst st
-        · rfl
-        · exact absurd (notInst st hs hi) id)
-      hcr hk hst hout hke hmod
-    have hyc := ((Tools.ShippingMachineInstG.closeInstsG_names hG).2.2.2 y (List.mem_of_getElem? hy)).2
-    obtain ⟨_, hkr⟩ := hreal
-    obtain ⟨y', hy', hor⟩ := hkr k hk
-    rw [hy] at hy'; cases hy'
-    subst hmcy
-    rcases hor with hmem | hrc
-    · exact Or.inl ⟨y, hmem, rfl⟩
-    · exact Or.inr ⟨y.2, hrc, hyc⟩
+      declName shape bsIn slotBs letBs m d :=
+  synthesizeCombinationalCore_machine_soundRA_ran
+    (Tools.ShippingMachineRan.machineRan_of_closes hr entry hsyn closes)
+    hbs hlets positive slotKinds letKinds layW outsOk outsNodup
 
 set_option maxHeartbeats 2000000 in
-/-- **Source to RTL for a state machine, from data and a state stream.** The
-check `ok`, the body equation and the reset check give the trace theorem of
-every module a run of the real synthesis entry returns at the machine
-boundary, for a source whose observations are the typed values of the
-output terms on SOME stream of states that starts at the reset values and
-advances by the typed values of the next-value terms. The stream is the
-state loop of a `circuit do` (`machine_trace_of_data`) or the tuple of the
-loops of a `circuit do` with sub-machines (ShippingMachineNest). -/
-theorem machine_trace_lets_of_streamBRA {declName : Name} (d : MachineData) {ι : Type}
+/-- `machine_trace_lets_of_streamBRA` over `MachineRan`: the built proof with its one use
+of the closing (`synthesizeCombinationalCore_machine_soundRA`) replaced by the `_ran`
+form (round par/g-1). The theorem below is its instance at the all-worlds closing. -/
+theorem machine_trace_lets_of_streamBRA_ran {declName : Name} (d : MachineData) {ι : Type}
     (dom : ι → DomainConfig)
     (inits : HList (tys d.ss))
     (src : (i : ι) → (Nat → Signal (dom i) Bool) →
@@ -598,13 +611,9 @@ theorem machine_trace_lets_of_streamBRA {declName : Name} (d : MachineData) {ι 
             (fun k w => (typedVal d.nIn d.bpos d.vpos d.ss d.ls (extB i bools bits) (ext i bools bits) j (σ j)).v
               (d.vpos k) w) l.2))
     {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
-    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
     {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
-    (hr : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w
-      (m, design) w')
-    (entry : MachineDefines mctx mref cctx cref declName d.shape)
-    (closes : Tools.ShippingChildInv.MachineClosesAt mctx mref cctx cref declName d.shape)
-    (hsyn : Tools.ShippingChildInv.ChildBnd mref cref w) :
+    (ran : Tools.ShippingMachineRan.MachineRan mctx mref cctx cref declName d.shape m design) :
     MachineTraceLBX (ServedReal mctx mref cctx cref declName d.shape m design)
       declName d m design dom src ext extB lsrc := by
   simp only [MachineData.ok, Bool.and_eq_true, decide_eq_true_eq, Bool.not_eq_true'] at ok
@@ -622,7 +631,7 @@ theorem machine_trace_lets_of_streamBRA {declName : Name} (d : MachineData) {ι 
       simpa only [Bool.and_eq_true, decide_eq_true_eq] using h) layB
   have hpres : MachinePreservesX (ServedReal mctx mref cctx cref declName d.shape m design)
       declName d.shape d.bsIn d.slotBs d.letBs m design :=
-    synthesizeCombinationalCore_machine_soundRA hr entry closes hsyn d.binders_split hlets
+    synthesizeCombinationalCore_machine_soundRA_ran ran d.binders_split hlets
       (by
         intro name n hmem
         have := List.all_eq_true.mp positive _ hmem
@@ -711,6 +720,66 @@ theorem machine_trace_lets_of_streamBRA {declName : Name} (d : MachineData) {ι 
     rw [hkIn] at this
     rw [this]
     exact h1.symm
+
+set_option maxHeartbeats 2000000 in
+/-- **Source to RTL for a state machine, from data and a state stream.** The
+check `ok`, the body equation and the reset check give the trace theorem of
+every module a run of the real synthesis entry returns at the machine
+boundary, for a source whose observations are the typed values of the
+output terms on SOME stream of states that starts at the reset values and
+advances by the typed values of the next-value terms. The stream is the
+state loop of a `circuit do` (`machine_trace_of_data`) or the tuple of the
+loops of a `circuit do` with sub-machines (ShippingMachineNest). -/
+theorem machine_trace_lets_of_streamBRA {declName : Name} (d : MachineData) {ι : Type}
+    (dom : ι → DomainConfig)
+    (inits : HList (tys d.ss))
+    (src : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat))
+    (lsrc : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat))
+    (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    (hinit : d.initOk inits = true)
+    (ext : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) →
+      (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
+    (extB : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → Nat → Signal (dom i) Bool)
+    (stream : ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+      (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)),
+      ∃ σ : Nat → HList (tys d.ss), σ 0 = inits ∧
+        (∀ t, σ (t + 1) = evalTerms
+          (fun j => (typedVal d.nIn d.bpos d.vpos d.ss d.ls (extB i bools bits) (ext i bools bits) t (σ t)).b
+            (d.bpos j))
+          (fun j w => (typedVal d.nIn d.bpos d.vpos d.ss d.ls (extB i bools bits) (ext i bools bits) t (σ t)).v
+            (d.vpos j) w) d.nexts) ∧
+        (∀ j, (src i bools bits).map (fun f => f j) =
+          d.outs.map fun o => enc o.1 (eval
+            (fun k => (typedVal d.nIn d.bpos d.vpos d.ss d.ls (extB i bools bits) (ext i bools bits) j (σ j)).b
+              (d.bpos k))
+            (fun k w => (typedVal d.nIn d.bpos d.vpos d.ss d.ls (extB i bools bits) (ext i bools bits) j (σ j)).v
+              (d.vpos k) w) o.2)) ∧
+        ∀ (j q : Nat) (g : Nat → Nat) (l : Σ s : SType, Term s),
+          (lsrc i bools bits)[q]? = some g → d.ls[q]? = some l →
+          g j = enc l.1 (eval
+            (fun k => (typedVal d.nIn d.bpos d.vpos d.ss d.ls (extB i bools bits) (ext i bools bits) j (σ j)).b
+              (d.bpos k))
+            (fun k w => (typedVal d.nIn d.bpos d.vpos d.ss d.ls (extB i bools bits) (ext i bools bits) j (σ j)).v
+              (d.vpos k) w) l.2))
+    {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w
+      (m, design) w')
+    (entry : MachineDefines mctx mref cctx cref declName d.shape)
+    (closes : Tools.ShippingChildInv.MachineClosesAt mctx mref cctx cref declName d.shape)
+    (hsyn : Tools.ShippingChildInv.ChildBnd mref cref w) :
+    MachineTraceLBX (ServedReal mctx mref cctx cref declName d.shape m design)
+      declName d m design dom src ext extB lsrc :=
+  machine_trace_lets_of_streamBRA_ran d dom inits src lsrc ok hbody hinit ext extB stream
+    (Tools.ShippingMachineRan.machineRan_of_closes hr entry hsyn closes)
 
 
 
