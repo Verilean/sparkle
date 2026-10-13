@@ -194,20 +194,42 @@ def clipG (s : String) (n : Nat := 600) : String :=
 
 /-- A fact of a group: proved by `tac` on its own goal (no `case`: a failure
 is an error here, never an admitted goal), refused if the proof contains
-`sorryAx` or a metavariable, then `Meta.check`ed — once. Progress lines
-before, after the proof, after the check. -/
+`sorryAx` or a metavariable. Every operation has a START line BEFORE it.
+
+`Meta.check` of the proof runs ONLY with `SPARKLE_DEPTH_GROUP_CHECK` set
+(`metaCheckG`). It localises an ill-formed proof earlier; it proves nothing
+the kernel's check of the final theorem does not. On the sponge the check of
+the fact `l` (`args_facts (by decide) (by simp [letObsB, …])`) did not end in
+25 minutes (run of 930d7012), so it is not the default. -/
+def metaCheckAsked : IO Bool := do
+  return (← IO.getEnv "SPARKLE_DEPTH_GROUP_CHECK").isSome
+
+/-- `Meta.check` of `e` when asked (`SPARKLE_DEPTH_GROUP_CHECK`), with a
+START line before and a timed line after; otherwise one SKIPPED line. -/
+def metaCheckG (label : String) (e : Lean.Expr) : MetaM Unit := do
+  if ← metaCheckAsked then
+    progress s!"{label}: Meta.check START"
+    let t0 ← IO.monoMsNow
+    try check e catch ex => throwError "{label}: proof ill-formed: {ex.toMessageData}"
+    let t1 ← IO.monoMsNow
+    progress s!"{label}: Meta.check OK ({t1 - t0} ms)"
+  else
+    progress s!"{label}: Meta.check SKIPPED (SPARKLE_DEPTH_GROUP_CHECK not set; the kernel checks the theorem)"
+
+/-- A group fact: the tactic, the sanity test, then `metaCheckG`; a line
+before and after each. -/
 def groupFact (label : String) (ty : Lean.Expr) (tac : Syntax) : MetaM Lean.Expr := do
-  progress s!"{label}: START"
+  progress s!"{label}: tactic START"
   let t0 ← IO.monoMsNow
   let pr ← proveByTacticT ty (pure tac)
+  let t1 ← IO.monoMsNow
+  progress s!"{label}: tactic OK ({t1 - t0} ms); sanity test (no sorry, no metavariable) START"
   if pr.hasSorry then
     throwError "{label}: the proof contains sorry (an error inside the tactic was recovered from)"
   if pr.hasExprMVar then throwError "{label}: the proof has unassigned metavariables"
-  let t1 ← IO.monoMsNow
-  progress s!"{label}: proved ({t1 - t0} ms)"
-  try check pr catch e => throwError "{label}: proof ill-formed: {e.toMessageData}"
   let t2 ← IO.monoMsNow
-  progress s!"{label}: Meta.check ({t2 - t1} ms)"
+  progress s!"{label}: sanity test OK ({t2 - t1} ms)"
+  metaCheckG label pr
   return pr
 
 /-- A family fact: by the old tactic (`splitTac`), and where that does not
@@ -233,30 +255,50 @@ def familyFact (absorb : Bool) (label : String) (ty : Lean.Expr) (splitTac chain
     let pr ← groupFact s!"{label} [absorb chain]" ty chainTac
     return (pr, true)
 
+/-- A fact waiting for its kernel-alone check: label, a throw-away name, the
+closed statement and proof. -/
+abbrev PendingKernel := Array (String × Name × Lean.Expr × Lean.Expr)
+
 /-- Only with `SPARKLE_DEPTH_GROUP_KERNEL` set: a group fact, closed over
-`closeOver`, checked by the KERNEL alone (as a theorem that is removed
-again), with a progress line for its time. Never throws; adds nothing. -/
-def kernelAlone (label : String) (thmName : Name) (closeOver : Array Lean.Expr)
-    (ty pr : Lean.Expr) : MetaM Unit := do
+`closeOver`, is put on the list `pending` — NOT checked here. The checks run
+after everything else (`kernelPending`), so they cannot block the
+generator. Never throws. -/
+def kernelLater (pending : IO.Ref PendingKernel) (label : String) (thmName : Name)
+    (closeOver : Array Lean.Expr) (ty pr : Lean.Expr) : MetaM Unit := do
   let asked := (← IO.getEnv "SPARKLE_DEPTH_GROUP_KERNEL").isSome
   if asked then
-    let saved ← getEnv
-    let t0 ← IO.monoMsNow
     try
+      progress s!"{label}: closing over the binders (for the kernel-alone check, later) START"
       let tyC ← instantiateMVars (← mkForallFVars closeOver ty)
       let prC ← instantiateMVars (← mkLambdaFVars closeOver pr)
       if tyC.hasFVar || prC.hasFVar || tyC.hasExprMVar || prC.hasExprMVar then
-        progress s!"{label}: kernel alone — not closed over the given binders, not checked"
+        progress s!"{label}: not closed over the given binders — no kernel-alone check"
       else
-        progress s!"{label}: kernel alone START"
-        addDecl (.thmDecl { name := thmName, levelParams := [], type := tyC, value := prC })
-        let t1 ← IO.monoMsNow
-        progress s!"{label}: kernel alone OK ({t1 - t0} ms)"
+        pending.modify fun l => l.push (label, thmName, tyC, prC)
+        progress s!"{label}: closed"
+    catch ex =>
+      let msg ← ex.toMessageData.toString
+      progress s!"{label}: closing FAILED — {clipG msg}"
+
+/-- The kernel-alone checks of the listed facts, in the list's order (the
+generator lists `b` LAST): each as a theorem that is removed again, a START
+line before, `OK (ms)` / `FAILED (ms)` after. The LAST step of the
+generator, after the theorem is in the environment. Never throws. -/
+def kernelPending (pending : IO.Ref PendingKernel) : MetaM Unit := do
+  for (label, thmName, tyC, prC) in ← pending.get do
+    let saved ← getEnv
+    progress s!"{label}: kernel alone START"
+    let t0 ← IO.monoMsNow
+    try
+      addDecl (.thmDecl { name := thmName, levelParams := [], type := tyC, value := prC })
+      let t1 ← IO.monoMsNow
+      progress s!"{label}: kernel alone OK ({t1 - t0} ms)"
     catch ex =>
       let msg ← ex.toMessageData.toString
       let t1 ← IO.monoMsNow
       progress s!"{label}: kernel alone FAILED ({t1 - t0} ms) — {clipG msg}"
     setEnv saved
+  pending.set #[]
 
 /-- **A group's five facts, each proved once.** `goalK` is the goal of the
 group's first entry (the statements of `b`, `l`, `r` are read off it after
@@ -266,7 +308,7 @@ the decoded families before the call's arguments are put in. -/
 def proveGroup (declName : Name) (absorb : Bool) (gi : Nat) (goalK : Lean.Expr) (c : Name)
     (argsK : List Nat) (isLeaf : Bool) (seqRun : Name) (kOut : Nat)
     (kinds : List MixedGateBinder) (baseA baseB A B idxE srcE : Lean.Expr)
-    (closeOver : Array Lean.Expr) : MetaM GroupG := do
+    (closeOver : Array Lean.Expr) (pending : IO.Ref PendingKernel) : MetaM GroupG := do
   let tag := s!"{declName}: group {gi} ({c}, argument lets {argsK})"
   let tyA ← inferType A
   let tyB ← inferType B
@@ -383,11 +425,12 @@ def proveGroup (declName : Name) (absorb : Bool) (gi : Nat) (goalK : Lean.Expr) 
     let (pHv, usedV) ← familyFact absorb s!"{tag}: hv (the bit-vector family)" (back tHv) tacHv tacChainV
     pure (#[back tB, back tL, back tR, back tHb, back tHv],
       #[back pB, back pL, back pR, back pHb, back pHv], usedB, usedV)
+  -- for the kernel-alone checks at the very end: `b` LAST
   let labels : List String := ["b", "l", "r", "hb", "hv"]
-  for j in [0:5] do
+  for j in [1, 2, 3, 4, 0] do
     let some ty := tys[j]? | throwError "{tag}: fact {j}"
     let some pr := prfs[j]? | throwError "{tag}: fact {j}"
-    kernelAlone s!"{tag}: {labels.getD j ""}"
+    kernelLater pending s!"{tag}: {labels.getD j ""}"
       (declName ++ Name.mkSimple s!"depthGroupedKernelProbe{gi}x{j}") closeOver ty pr
   return { c := c, argsK := argsK, famA := A, famB := B, tys := tys, prfs := prfs,
            absorbBools := usedB, absorbBits := usedV }
@@ -622,6 +665,7 @@ partial def generateCoreNRGS (declName : Name) (dep : Nat) (asOld absorb : Bool)
   let hcallsT := (← whnf (← inferType p)).bindingDomain!
   -- ===== the grouped per-call loop (the old loop is 354–495) =====
   let statsRef ← IO.mkRef ({} : GroupedStats)
+  let pendingRef ← IO.mkRef (#[] : PendingKernel)
   let hcalls ← forallBoundedTelescope hcallsT (some 3) fun ibb rest => do
     let names := calls.map (·.1)
     -- the parent's let observations and call extension at this family point
@@ -704,7 +748,7 @@ partial def generateCoreNRGS (declName : Name) (dep : Nat) (asOld absorb : Bool)
           progress s!"{declName}: call {k} opens group {gi} ({c}, argument lets {argsK})"
           let g ← (try
               proveGroup declName absorb gi (goalOf k c) c argsK isLeaf seqRun kOut kinds
-                baseA baseB A B idxE srcE closeOver
+                baseA baseB A B idxE srcE closeOver pendingRef
             catch ex => throwError "call {k} (group {gi}): {ex.toMessageData}")
           grps := grps.push g
         ents := ents.push (some { grp := gi, kOut := kOut, srcE := srcE })
@@ -728,6 +772,7 @@ partial def generateCoreNRGS (declName : Name) (dep : Nat) (asOld absorb : Bool)
       for k in [0:calls.length] do
         let some (c, argsK, _) := calls[k]? | throwError "{declName}: call {k}"
         let goalK := goalOf k c
+        progress s!"{declName}: call {k} of {c}: tactic START"
         let t0 ← IO.monoMsNow
         let proofK ← match ents[k]? with
           | some (some e) => (try do
@@ -737,10 +782,11 @@ partial def generateCoreNRGS (declName : Name) (dep : Nat) (asOld absorb : Bool)
           | _ => match Tools.ShippingMachineMemCommand.memWidths? c with
             | some (cb, aw, dw) => proveByTacticT goalK (do pure (← memTactic cb aw dw argsK))
             | none => throwError "{declName}: call {k}: neither a memory read nor a grouped entry"
-        try check proofK catch e => throwError "call {k} proof ill-formed: {e.toMessageData}"
         let t1 ← IO.monoMsNow
-        progress s!"{declName}: call {k} of {c}: proved and checked from its group's facts ({t1 - t0} ms)"
+        progress s!"{declName}: call {k} of {c}: tactic OK, from its group's facts ({t1 - t0} ms)"
+        metaCheckG s!"{declName}: call {k} of {c}" proofK
         perK := perK.push proofK
+      progress s!"{declName}: the chain over the {calls.length} entries START"
       -- the chain over the call list
       let nameT := mkConst ``Name
       let Qm (m : Nat) : MetaM Lean.Expr :=
@@ -755,7 +801,8 @@ partial def generateCoreNRGS (declName : Name) (dep : Nat) (asOld absorb : Bool)
         let rest' := listE nameT ((names.drop (m + 1)).map toExpr)
         chain ← mkAppOptM ``Tools.ShippingMachineChild.forall_getElem?_cons
           #[nameT, ← Qm m, toExpr names[m]!, rest', perK[m]!, chain]
-      try check chain catch e => throwError "the chain over the entries is ill-formed: {e.toMessageData}"
+      progress s!"{declName}: the chain over the entries built"
+      metaCheckG s!"{declName}: the chain over the entries" chain
       -- the groups' facts, bound ONCE around the chain
       withLocalDeclD `k nat fun kv => withLocalDeclD `c nameT fun cv => do
         let hkT := ((rest.bindingBody!.instantiate1 kv).bindingBody!.instantiate1 cv).bindingDomain!
@@ -834,6 +881,9 @@ partial def generateCoreNRGS (declName : Name) (dep : Nat) (asOld absorb : Bool)
   addTheorem name (← inferType value) value
   progress s!"{name}: checked"
   if asOld then aliasOf oldName name
+  -- LAST and optional (`SPARKLE_DEPTH_GROUP_KERNEL`): the kernel's time on
+  -- each group fact alone, `b` after the others
+  kernelPending pendingRef
   return (name, some (← statsRef.get))
 
 /-- `generateCoreNRGS`, the name only. -/

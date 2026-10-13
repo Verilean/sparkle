@@ -109,6 +109,27 @@ entry uses `?_`, the absorb chain has none, `memTactic`'s holes are closed
 by its own `all_goals rfl`. Memory entries are not in any group (`ents`
 holds `none` for them).
 
+**Round par/a-28: the sponge run of 930d7012 stood after "l (args_facts):
+proved".** [R] The only operation between that line and the next one was
+`check pr` in `groupFact` (then line 208): `Meta.check` of `l`'s proof,
+`args_facts (by decide) (by simp [letObsB, letObsLoop, letObsComb])`. The
+kernel-alone checks ran only after all five facts (then 387–391), so
+`SPARKLE_DEPTH_GROUP_KERNEL` played no part; `r`'s START line is written
+before any of its work. The old generator does not avoid this check: it
+`Meta.check`s every entry's whole proof (475), `l` included, and all of
+`hcalls` again (495) — so the old loop, too, must have stood there at entry
+0, [I]: that, not 27 × 108 s, may be what the earlier 38 minutes were.
+Changed (logging and checks only, no proof content): `Meta.check` of group
+facts, entries and the chain runs only with `SPARKLE_DEPTH_GROUP_CHECK` set
+(`metaCheckG`; otherwise a SKIPPED line) — it only localises an ill-formed
+proof earlier, the kernel checks the theorem, and the sanity test (no
+`sorryAx`, no metavariable) stays; every operation has a START line before
+it; the kernel-alone checks are collected (`kernelLater`) and run LAST,
+after the theorem is added, `b` after the other facts (`kernelPending`).
+Open [P]: the kernel must still check `l`'s proof inside the theorem; if the
+`: checking` line is the last one, the next step is a proof of `l`'s length
+premise that does not go through `simp` over the let observations.
+
 ## 2. Two findings of the reading (they change what the sponge's numbers mean)
 
 **(i) The old loop does not stop at a failing entry** [R]. `case b => …`,
@@ -398,4 +419,71 @@ which. Not reached: `r`, `hb`, `hv`, the 27 entries, the composed theorem's chec
 209639105 Sparkle.IP.Crypto.Keccak256Sponge.keccak256SpongeHW: group 0 (Sparkle.IP.Crypto.Keccak256Sponge.wKeccakF, lets[..]): b (the child's run theorem at the instance; argPorts' length): Meta.check (30346 ms) [VmRSS:	 2406020 k
 209639106 Sparkle.IP.Crypto.Keccak256Sponge.keccak256SpongeHW: group 0 (Sparkle.IP.Crypto.Keccak256Sponge.wKeccakF, lets[..]): l (args_facts): START [VmRSS:	 2406020 kB]
 209639267 Sparkle.IP.Crypto.Keccak256Sponge.keccak256SpongeHW: group 0 (Sparkle.IP.Crypto.Keccak256Sponge.wKeccakF, lets[..]): l (args_facts): proved (161 ms) [VmRSS:	 2394424 kB]
+```
+
+## Run record 2: the grouped sponge probe after the logging / optional-check change (integrator, 2026-10-13)
+
+par/a-28 113eb615 (`Meta.check` of group facts, entries and the chain opt-in via `SPARKLE_DEPTH_GROUP_CHECK`;
+START lines everywhere; kernel-alone timings last). `20261013-124054-a28-family`: the family test rebuilt — 17 of 17
+endpoints `isDefEq` the built statements, standard axioms. `20261013-124156-sponge-grouped2` (3 GiB, swap 0, limit 2400 s, no
+kernel option): result=success, memory_peak_file=1722933248, no throttling.
+
+- Step 8, `#machine_design_svNRG keccak256SpongeHW 1 as_old`: **OK in 488.9 s.** One group for the 27 call
+  entries; each entry's tactic 0.33–0.38 s from the group's facts; the chain built;
+  `keccak256SpongeHW.machine_composedNRG1`: checking → checked (the KERNEL accepted the composed theorem);
+  `machine_composedNR1`, `machine_ships_hierNR1`, `machine_design_svNR1` added under the old names.
+  This is a probe: nothing is kept, and `…svNR1` still carries its four check premises — it is the BASE
+  endpoint the check-free generators start from. What blocked every earlier run was `Meta.check` of the
+  group fact `l` (and before the grouping, 27 instantiations of the child's run theorem).
+- Step 9, `#machine_closes_deep keccak256SpongeHW`: FAILED after 42 s — "closes_deep was not generated:
+  wKeccakF.iface_deep: the generated proof fails: [maximum recursion depth has been reached …
+  `set_option maxRecDepth <num>` to increase limit]". The next wall; a recursion-depth limit, not a refusal.
+- Steps 10–11 on `wKeccakF` (`#machine_design_svHR`, `#machine_oneout`): OK (19 s each).
+- Steps 12–13 (`#machine_no_ports_kids`, `#machine_boundary_close` on the sponge): SKIPPED — they need
+  `wKeccakF.closes_deep`.
+
+```
+SPG STEP START 8 keccak256SpongeHW #machine_design_svNRG 1 as_old [VmRSS:	 2197972 kB] [VmHWM:	 2291496 kB]
+keccak256SpongeHW: grouped loop, 27 call entries [VmRSS:	 2232464 kB]
+keccak256SpongeHW: call 0 opens group 0 (wKeccakF, lets[..]) [VmRSS:	 2249604 kB]
+keccak256SpongeHW: group 0 (wKeccakF, lets[..]): b (the child's run theorem at the instance; argPorts' length): tactic START [VmRSS:	 2250104 kB]
+keccak256SpongeHW: group 0 (wKeccakF, lets[..]): b (the child's run theorem at the instance; argPorts' length): tactic OK (92847 ms); sanity test (no sorry, no metavariable) START [VmRSS:	 2396148 kB]
+keccak256SpongeHW: group 0 (wKeccakF, lets[..]): b (the child's run theorem at the instance; argPorts' length): sanity test OK (1 ms) [VmRSS:	 2396148 kB]
+keccak256SpongeHW: group 0 (wKeccakF, lets[..]): b (the child's run theorem at the instance; argPorts' length): Meta.check SKIPPED (SPARKLE_DEPTH_GROUP_CHECK not set; the kernel checks the theorem) [VmRSS:	 2396148 kB]
+keccak256SpongeHW: group 0 (wKeccakF, lets[..]): l (args_facts): tactic START [VmRSS:	 2396148 kB]
+keccak256SpongeHW: group 0 (wKeccakF, lets[..]): l (args_facts): tactic OK (20 ms); sanity test (no sorry, no metavariable) START [VmRSS:	 2396152 kB]
+keccak256SpongeHW: group 0 (wKeccakF, lets[..]): l (args_facts): sanity test OK (0 ms) [VmRSS:	 2396152 kB]
+keccak256SpongeHW: group 0 (wKeccakF, lets[..]): l (args_facts): Meta.check SKIPPED (SPARKLE_DEPTH_GROUP_CHECK not set; the kernel checks the theorem) [VmRSS:	 2396152 kB]
+keccak256SpongeHW: group 0 (wKeccakF, lets[..]): r (InRange): tactic START [VmRSS:	 2396152 kB]
+keccak256SpongeHW: group 0 (wKeccakF, lets[..]): r (InRange): tactic OK (378 ms); sanity test (no sorry, no metavariable) START [VmRSS:	 2373260 kB]
+keccak256SpongeHW: group 0 (wKeccakF, lets[..]): r (InRange): sanity test OK (0 ms) [VmRSS:	 2373296 kB]
+keccak256SpongeHW: group 0 (wKeccakF, lets[..]): r (InRange): Meta.check SKIPPED (SPARKLE_DEPTH_GROUP_CHECK not set; the kernel checks the theorem) [VmRSS:	 2373296 kB]
+keccak256SpongeHW: group 0 (wKeccakF, lets[..]): hb (the Bool family) [split]: tactic START [VmRSS:	 2373360 kB]
+keccak256SpongeHW: group 0 (wKeccakF, lets[..]): hb (the Bool family) [split]: tactic OK (11810 ms); sanity test (no sorry, no metavariable) START [VmRSS:	 2325816 kB]
+keccak256SpongeHW: group 0 (wKeccakF, lets[..]): hb (the Bool family) [split]: sanity test OK (1 ms) [VmRSS:	 2325820 kB]
+keccak256SpongeHW: group 0 (wKeccakF, lets[..]): hb (the Bool family) [split]: Meta.check SKIPPED (SPARKLE_DEPTH_GROUP_CHECK not set; the kernel checks the theorem) [VmRSS:	 2325820 kB]
+keccak256SpongeHW: group 0 (wKeccakF, lets[..]): hv (the bit-vector family) [split]: tactic START [VmRSS:	 2325820 kB]
+keccak256SpongeHW: group 0 (wKeccakF, lets[..]): hv (the bit-vector family) [split]: tactic OK (3706 ms); sanity test (no sorry, no metavariable) START [VmRSS:	 2292912 kB]
+keccak256SpongeHW: group 0 (wKeccakF, lets[..]): hv (the bit-vector family) [split]: NOT proved — keccak256SpongeHW: group 0 (wKeccakF, argument lets [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27
+keccak256SpongeHW: group 0 (wKeccakF, lets[..]): hv (the bit-vector family) [absorb chain]: tactic START [VmRSS:	 2292920 kB]
+keccak256SpongeHW: group 0 (wKeccakF, lets[..]): hv (the bit-vector family) [absorb chain]: tactic OK (233778 ms); sanity test (no sorry, no metavariable) START [VmRSS:	 2564312 kB]
+keccak256SpongeHW: group 0 (wKeccakF, lets[..]): hv (the bit-vector family) [absorb chain]: sanity test OK (1 ms) [VmRSS:	 2564312 kB]
+keccak256SpongeHW: group 0 (wKeccakF, lets[..]): hv (the bit-vector family) [absorb chain]: Meta.check SKIPPED (SPARKLE_DEPTH_GROUP_CHECK not set; the kernel checks the theorem) [VmRSS:	 2564312 kB]
+keccak256SpongeHW: grouped loop done [VmRSS:	 2374224 kB]
+keccak256SpongeHW.machine_composedNRG1: checking [VmRSS:	 2343820 kB]
+keccak256SpongeHW.machine_composedNRG1: checked [VmRSS:	 2056280 kB]
+keccak256SpongeHW.machine_composedNR1: added as another name of keccak256SpongeHW.machine_composedNRG1 [VmRSS:	 2061960 kB]
+keccak256SpongeHW.machine_ships_hierNRG1: added as another name of keccak256SpongeHW.machine_ships_hierNR1 [VmRSS:	 2062136 kB]
+keccak256SpongeHW.machine_design_svNRG1: added as another name of keccak256SpongeHW.machine_design_svNR1 [VmRSS:	 2062132 kB]
+keccak256SpongeHW.machine_design_svNRG1: done [VmRSS:	 2062132 kB]
+SPG STEP 8 keccak256SpongeHW #machine_design_svNRG 1 as_old: OK (488904 ms) [VmRSS:	 2058036 kB] [VmHWM:	 2627852 kB]
+SPG STEP START 9 keccak256SpongeHW #machine_closes_deep [VmRSS:	 2060084 kB] [VmHWM:	 2627852 kB]
+SPG STEP 9 keccak256SpongeHW #machine_closes_deep: FAILED (42295 ms) — keccak256SpongeHW: closes_deep was not generated: wKeccakF.iface_deep: the generated proof fails: [maximum recursion depth has been reached
+SPG STEP START 10 wKeccakF #machine_design_svHR [VmRSS:	 2143536 kB] [VmHWM:	 2627852 kB]
+SPG STEP 10 wKeccakF #machine_design_svHR: OK (19196 ms) [VmRSS:	 2060376 kB] [VmHWM:	 2627852 kB]
+SPG STEP START 11 wKeccakF #machine_oneout [VmRSS:	 2060376 kB] [VmHWM:	 2627852 kB]
+SPG STEP 11 wKeccakF #machine_oneout: OK (19610 ms) [VmRSS:	 2055452 kB] [VmHWM:	 2627852 kB]
+SPG STEP 12 keccak256SpongeHW #machine_no_ports_kids 1: SKIPPED — not in the environment: [wKeccakF.closes_deep] [VmRSS:	 2055768 kB] [VmHWM:	 2627852 kB]
+SPG STEP 13 keccak256SpongeHW #machine_boundary_close: SKIPPED — not in the environment: [keccak256SpongeHW.machine_design_noPortsNR1_closed] [VmRSS:	 2056296 kB] [VmHWM:	 2627852 kB]
+SPG STEP END: in the environment [keccakRcHW.gate_child, wKeccakF.machine_sound, wKeccakF.machine_closes_at, wKeccakF.machine_composedRA, wKeccakF.machine_composedNRH0, wKeccakF.seq_child_runN_ofR0, keccak256SpongeHW.machine_sound
 ```
