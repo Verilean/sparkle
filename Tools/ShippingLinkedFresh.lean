@@ -1,4 +1,5 @@
 import Tools.ShippingChecksCore
+import Tools.ShippingMachineRanBase
 
 /-! # No assignment targets an instance-driven wire (G1, conjunct 6, part (c))
 
@@ -156,10 +157,11 @@ variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
   {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
 
 set_option maxHeartbeats 4000000 in
-/-- **The full entry's body is linked-well-formed over the core run's
-design**, for a machine with calls. -/
-
-theorem core_linkedWF {c : Name} (d : MachineData) (ok : d.ok = true)
+/-- `core_linkedWF` over `MachineRan`: the TAIL of the built proof, moved (round par/g-1).
+What it takes of the run is that the machine synthesis this core run performed
+returned `(M, D)` from an invariant world; `core_linkedWF` below is its instance at the
+all-worlds closing (`Tools.ShippingMachineRan.machineRan_of_closes`). -/
+theorem core_linkedWF_ran {c : Name} (d : MachineData) (ok : d.ok = true)
     (hbody : d.shape.body = quote d.dom
       (fun j => inputExpr d.shape.binders.length (d.bpos j))
       (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
@@ -169,22 +171,13 @@ theorem core_linkedWF {c : Name} (d : MachineData) (ok : d.ok = true)
     (hins : d.shape.insts ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
     (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
-    {w w1 : Void IO.RealWorld} {M b : Sparkle.IR.AST.Module} {D : Design}
-    (hB : ChildBnd mref cref w)
-    (hcore : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, D) w1)
+    {M b : Sparkle.IR.AST.Module} {D : Design}
     (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨
       b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M))
-    (entry : MachineDefines mctx mref cctx cref c d.shape)
-    (closes : MachineClosesAt mctx mref cctx cref c d.shape) :
+    (ran : Tools.ShippingMachineRan.MachineRan mctx mref cctx cref c d.shape M D) :
     Tools.ShippingHierOpen.linkedWF (childMap D.modules) b.body = true := by
-  obtain ⟨bb, r, w9, w10, hrun9, hw9, hd9, hres⟩ :=
-    machine_run_of_core hcore entry hB
-  have hne := closes bb _ _ _ hw9 hd9 hrun9
-  cases r with
-  | none => exact absurd rfl hne
-  | some res =>
-  have hres' := hres res rfl
-  subst hres'
+  have ran0 := ran
+  obtain ⟨bb, w9, w10, hrun9, hw9, -⟩ := ran0
   obtain ⟨t, t', d₀, run, hcl, hmt⟩ := synthesizeMachineCertified_runs hw9 hrun9
   rcases hmt with ⟨hno, -, -⟩ | ⟨-, children, hcc, hreal⟩
   · exact absurd hno hins
@@ -233,10 +226,57 @@ theorem core_linkedWF {c : Name} (d : MachineData) (ok : d.ok = true)
     hP d.dom d.kb d.kv d.vw d.bpos d.vpos d.letFields d.core.2 hwf hb' hv' hbody hfit houtfit
   obtain ⟨-, -, -, -, -, -, hlink, -⟩ := wired
   have hbody' : b.body = M.body :=
-    (Tools.ShippingChecksCore.core_kids_facts d ok hbody hC hslots hdomB hins outTy hnomem hB
-      hcore hpost entry closes).2.1
+    (Tools.ShippingChecksCore.core_kids_facts_ran d ok hbody hC hslots hdomB hins outTy hnomem hpost ran).2.1
   rw [hbody', ← Tools.ShippingMachineLinked.linkedOk_eq]
   exact hlink
+
+set_option maxHeartbeats 4000000 in
+/-- **The full entry's body is linked-well-formed over the core run's
+design**, for a machine with calls. -/
+
+theorem core_linkedWF {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    {nDecl : Nat} (hC : d.callsOk nDecl = true)
+    (hslots : d.ss.length = d.shape.layout.slots.length)
+    (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
+    (hins : d.shape.insts ≠ [])
+    (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
+    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    {w w1 : Void IO.RealWorld} {M b : Sparkle.IR.AST.Module} {D : Design}
+    (hB : ChildBnd mref cref w)
+    (hcore : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, D) w1)
+    (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨
+      b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M))
+    (entry : MachineDefines mctx mref cctx cref c d.shape)
+    (closes : MachineClosesAt mctx mref cctx cref c d.shape) :
+    Tools.ShippingHierOpen.linkedWF (childMap D.modules) b.body = true :=
+  core_linkedWF_ran d ok hbody hC hslots hdomB hins outTy hnomem hpost
+    (Tools.ShippingMachineRan.machineRan_of_closes hcore entry hB closes)
+
+/-- `core_instOuts_not_assigned` over `MachineRan` (round par/g-1): the statement and the proof of
+`core_instOuts_not_assigned` (`Tools/ShippingLinkedFresh.lean`), COPIED by script with the closing
+premise replaced by `ran` and every callee by its `_ran` form. If the original
+changes, this copy does not follow. -/
+theorem core_instOuts_not_assigned_ran {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    {nDecl : Nat} (hC : d.callsOk nDecl = true)
+    (hslots : d.ss.length = d.shape.layout.slots.length)
+    (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
+    (hins : d.shape.insts ≠ [])
+    (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
+    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    {M b : Sparkle.IR.AST.Module} {D : Design}
+    (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨
+      b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M))
+    (ran : Tools.ShippingMachineRan.MachineRan mctx mref cctx cref c d.shape M D) :
+    ∀ x, x ∈ bodyInstOuts (childMap D.modules) b.body →
+      x ∉ Sparkle.IR.Reorder.writesOf b.body :=
+  instOuts_not_written b.body
+    (core_linkedWF_ran d ok hbody hC hslots hdomB hins outTy hnomem hpost ran)
 
 /-- **No assignment of the full entry's module targets an instance-driven
 wire** — the assignment half of `outsExtracted`'s "not driven". -/
