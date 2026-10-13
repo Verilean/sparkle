@@ -11,6 +11,7 @@ import Tools.ShippingNoPortsKidsCommand
 import Tools.ShippingNoPortsDeepCommand
 import Tools.ShippingMachineLoopCausalCommand
 import Tools.ShippingMachineDepthMemKidCommand
+import Tools.ShippingMachineDepthMemKidRunCommand
 import Tests.Compiler.ShippingMachineSeqTest
 
 /-! # A parent whose CHILD has a memory: the smallest declarations, and which command stops (round par/b-38)
@@ -252,3 +253,35 @@ in `docs/parallel/C-mem-depth-ships.md`, section 6. Nothing is asserted. -/
   #machine_closes_at Sparkle.Tests.Compiler.MemDepthProbeTest.memGrand
 #mem_depth_try "RH.5 #machine_no_ports_deep memGrand 2" in
   #machine_no_ports_deep Sparkle.Tests.Compiler.MemDepthProbeTest.memGrand 2
+
+/-! ## Round par/c-3: the kid's run theorem, and the depth generator step by step
+
+WRITTEN, NOT BUILT. Measured in round c-2: `#machine_design_svNR memParent 1`
+fails with "child memCounterH: No goals to be solved". D0 runs the built
+kid step ALONE (expected to reproduce that message: the Bool-extension
+tactic on an extension that is the inputs themselves); K2 makes the kid's
+run theorem with the tactic chosen by the extension's definition; then the
+parent's three sub-steps one by one (core: the children's run theorems, the
+grouped per-call loop, the child premises; ships: `machine_ships_hierC`;
+design: `ships_design_svN_all`), so that a failure names its sub-step. The
+PREDICTED outcomes are in `docs/parallel/C-mem-depth-ships.md`, section 11.
+Nothing is asserted. -/
+
+#mem_depth_try "D0 #machine_depth_run_of memCounterH 0 (the built kid step alone)" in
+  #machine_depth_run_of Sparkle.Tests.Compiler.MemDepthProbeTest.memCounterH 0
+#mem_depth_try "K2 #machine_seq_child_memNR memCounterH 0" in
+  #machine_seq_child_memNR Sparkle.Tests.Compiler.MemDepthProbeTest.memCounterH 0
+
+#mem_depth_try "S2.a #machine_depth_core memParent 1" in
+  #machine_depth_core Sparkle.Tests.Compiler.MemDepthProbeTest.memParent 1
+#mem_depth_try "S2.b #machine_depth_ships memParent 1" in
+  #machine_depth_ships Sparkle.Tests.Compiler.MemDepthProbeTest.memParent 1
+#mem_depth_try "S2.c #machine_design_svNR memParent 1" in
+  #machine_design_svNR Sparkle.Tests.Compiler.MemDepthProbeTest.memParent 1
+
+#mem_depth_try "SH.a #machine_depth_core memGrand 2" in
+  #machine_depth_core Sparkle.Tests.Compiler.MemDepthProbeTest.memGrand 2
+#mem_depth_try "SH.b #machine_depth_ships memGrand 2" in
+  #machine_depth_ships Sparkle.Tests.Compiler.MemDepthProbeTest.memGrand 2
+#mem_depth_try "SH.c #machine_design_svNR memGrand 2" in
+  #machine_design_svNR Sparkle.Tests.Compiler.MemDepthProbeTest.memGrand 2

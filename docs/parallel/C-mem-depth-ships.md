@@ -398,3 +398,293 @@ Probe:
   no `closes_deep`).
 STATE: no ship-level depth endpoint for `memParent` yet; `kidsChild_ifaceM` / `kidsChild_of_realM` built,
 used by nothing. Class OPEN.
+
+---
+
+# Round par/c-3: the failing tactic, the kid's run theorem, the sub-steps, the closing by hand
+
+Branch `par/c-3` from poc `ecddf7d1`. **WRITTEN, NOT BUILT.** Nothing was
+run. No built file is edited in this round either.
+
+## 10. The failing line (by reading)
+
+Measured: `#machine_design_svNR memParent 1` → "child …memCounterH: No goals
+to be solved". The prefix is the wrapper at
+`Tools/ShippingMachineDepthCommandR.lean` 565 around `generateRunOfR c (dep -
+1)`. With `memCounterH.machine_composedNR0` present, `generateRunOfR` does
+[R 517–536]: `generateCoreNR` (returns at once, 540), `bndOfComposed`,
+`mkAppM seqChildRunN_of_composedC`, ten `mkDecideProof`s (terms, no tactic),
+and TWO tactic runs: `extBTactic` (529–531) and `extTactic` (533). So the
+message comes from one of the two.
+
+`extBTactic` [R `Tools/ShippingMachineDepthCommand.lean` 100–106]:
+
+    intro _ _ _ j hj
+    delta memCounterH.machineExtB
+    simp only [extendBits, extendBools]
+    (repeat' split) <;> first | rfl | (exfalso; omega)        ← line 106
+
+`memCounterH.machineExtB` is `fun i bools bits S => bools`: `loopCalls`
+starts both chains at the inputs and extends the Bool chain only for a Bool
+entry [R `ShippingMachineCommand.lean`, `extOf`], and the one entry (a memory
+read) is a bit-vector. After `delta` (which beta-reduces) the goal is `bools
+j = bools j`; `simp only` closes it (`eq_self`); `t <;> s` is `focus (t;
+all_goals s)`, and `focus` on an empty goal list throws "No goals to be
+solved". **The failing line is 106 of `ShippingMachineDepthCommand.lean`,
+reached from 529–531 of `ShippingMachineDepthCommandR.lean`.**
+
+Why no built declaration hit it: the kids with calls that go through
+`generateRunOfR` either have a Bool entry (`mid`: `cnt`'s field `hit`
+[R `Tests/Compiler/ShippingMachineSeqTest.lean` 52–58]) or no `machineExtB`
+constant at all (one-output calls, endpoint by `machine_trace_of_data`: the
+generator's other branch `intro _ _ _ _ _; rfl`, 532). A loop or `circuit do`
+kid whose entries are ALL bit-vectors has the constant and the trivial
+chain — `memCounterH` is the first. (The mirror case, a kid whose entries
+are all Bool, would fail the same way in `extTactic`; not the case here: a
+memory entry is a bit-vector, so `machineExt` is a real `extendBits` chain,
+`simp only` leaves an `if`, and the `split` has goals.)
+
+Every other tactic block on the path, for a memory-only kid:
+
+| block [R] | early close? |
+|---|---|
+| `extTactic` (533) on `memCounterH.machineExt` | no (above) |
+| parent `proveGroup`, fact `b` for a non-leaf kid (417–419: `exact ⟨seqRun idx hrn, by rw […]; decide⟩`) | no `<;>`; generic in the kid |
+| facts `l` (`args_facts … (by simp […])`), `r` (`exact rangeS`) | single tactics |
+| `tacHb` / `tacHv` (431–444, the same `(repeat' split) <;> …` form) | CAN close early when the kid has no Bool (or no bit-vector) ARGUMENT — but `familyFact` (327–345) catches the failure and uses the absorb chain; built for `cnt` (no bit-vector argument). `memCounterH` has one Bool and two bit-vector arguments: neither is trivial |
+| `entryProof` (497–503), `memTactic`, the `hrunN` tactics (870–898) | no `<;>` |
+| `generateShipsNR`, `compose` | no tactic at all (`mkAppM`, `mkAppOptM`, `mkDecideProof`) [R 930–994; `ShippingShipsDesignSVCommand.lean` 48–72] |
+
+Theorems read this time: `machine_ships_hierC` (statement, 166–256 of
+`Tools/ShippingMachineShipsHier.lean`), `ComposedG` (115–137),
+`composedG_of_NW` (statement and proof, `ShippingMachineShipsDepth.lean`
+251–266), `ships_design_svN_all` (statement to its line 70,
+`ShippingShipsDesignSVAll.lean` 30–70). All are generic in the children: the
+only premise that mentions memories is `memFree m.body` of the PARENT's own
+raw module (`composed`, 208), and the checks `shipsHierCheck`, `Bd`
+(`kidsMaskedN`: `noMem` of each DIRECT kid's body) stay antecedents of the
+endpoint. `memCounterH`'s body has an instance of the memory module, not a
+memory statement.
+
+## 11. The fix and the sub-step commands: `Tools/ShippingMachineDepthMemKidRunCommand.lean` (new)
+
+`generateRunOfR` returns the existing theorem when `c.seq_child_runN_ofR{n}`
+is there [R 522–523]. `#machine_seq_child_memNR f n` adds it first:
+
+    f.seq_child_runN_ofR{n} : ∀ (i : ι) {mc : Module} {dsn : Design},
+      MachineRunNC f f.machineData.shape Bnd mc dsn →
+      SeqChildRunN (childMap dsn.modules) dsn (n + 1) mc (f.machineData.bsIn.take nDecl)
+        f.machineData.shape.layout.outs
+        (fun vals => f.machineSource i (boolsOf … vals) (bitsOf … vals))
+
+(the statement is `inferType` of `seqChildRunN_of_composedC n Bnd
+f.machine_composedNR{n}` applied to its twelve premises — the built
+generator's term, 525–535). The two extension premises: `intro _ _ _ _ _;
+rfl` when the value of `f.machineExtB` is its Bool-input binder itself (a
+SYNTACTIC test of the definition, `extIsBase`), the built `extBTactic`
+otherwise; likewise for `machineExt` (`intro _ _ _ _ _ _; rfl` / the built
+`extTactic`). Not "try one, fall back to the other": which tactic runs is
+decided before any runs, and each failure is an error carrying the goal. If
+the kernel refuses the theorem, each of the ten data premises is reduced and
+reported (`data premise j: true / NOT true`). Scope: that of
+`#machine_composed_memNR`.
+
+Existing declarations are untouched: no built file changes; the command adds
+a theorem only for the declaration it is run on, and the built generator
+would have thrown for that declaration.
+
+**Which commands exist for ONE sub-step** (the coordinator's question):
+
+| command | what it runs | on `memCounterH` / `memParent` |
+|---|---|---|
+| `#machine_composedT f` (built) | the memory route's composed theorem (`machine_linkedT_mem`) | `memCounterH`: OK [M] — not the depth chain's form |
+| `#machine_ships_hier f` (built) | the depth-0 shipping theorem, route `.mem` or sequential | `memCounterH`: OK [M] |
+| `#machine_design_svR0 f` (built) | depth 0, sequential-children route | `memCounterH`: FAILED "no sequential child" [M] |
+| `#machine_design_svNR f n` (built) | the WHOLE chain: `preClose`, core, ships, design | no built command runs one of its steps alone |
+| `#machine_composed_memNR f n` (c-2) | the kid's composed theorem | `memCounterH 0`: OK [M] |
+| `#machine_seq_child_memNR f n` (new) | the kid's run theorem | |
+| `#machine_depth_run_of c n` (new) | the BUILT `generateRunOfR c n` alone | reproduces the failure in isolation |
+| `#machine_depth_core f n` (new) | the built `preClose` + `generateCoreNR f n` | children's run theorems, grouped loop, child premises |
+| `#machine_depth_ships f n` (new) | the built `preClose` + `generateShipsNR f n` | `machine_ships_hierC` |
+
+Each new sub-step command adds what the step adds, so the next one (and
+`#machine_design_svNR`) finds it; `#machine_design_svNR` after the two is
+`compose` only.
+
+### PREDICTED outcomes of the new probe steps (all [P])
+
+| step | PREDICTED | if not |
+|---|---|---|
+| D0 `#machine_depth_run_of memCounterH 0` | FAILED — "No goals to be solved" | OK would mean §10 is wrong about where the message comes from (then K2 says "exists" trivially and S2.a is the informative step); another message would be a second obstacle in `generateRunOfR` |
+| K2 `#machine_seq_child_memNR memCounterH 0` | OK | the error names `hextB` or `hext` with its goal, or the data premise the kernel refused |
+| S2.a `#machine_depth_core memParent 1` | OK, with a warning "the closing of the child …memCounterH stays a premise of this endpoint" | the built generator's own labels: "seq child cnt: …", "call k: …", "call k (group g): …" with the fact's name (`b`, `l`, `r`, `hb`, `hv`). The least certain point: the entry of `memCounterH` (`instFields.getD k ""` against the kid's output name — "call k: field …" if they differ) |
+| S2.b `#machine_depth_ships memParent 1` | OK | a unification failure of `machine_ships_hierC` (no tactic is run) |
+| S2.c `#machine_design_svNR memParent 1` | OK | `compose`: "the composition's arguments were not all inferred" |
+| SH.a–SH.c `memGrand 2` | OK if S2.a is (the kid `memParent` goes through the BUILT `generateRunOfR memParent 1`: its `machineExtB` has a Bool entry — `cnt`'s `hit` — so line 106 has goals) | as above, one level up |
+
+The earlier steps are unchanged (R2.2 / RH.2 stay FAILED where they are in
+the file: they run before K2).
+
+## 12. The closing of `memParent`, by hand
+
+### 12.1 What changed against §7.1
+
+`memParent` itself has NO memory entry — its callees are the declarations
+`cnt` and `memCounterH`. So `hnomem` of the BUILT `machineClosesAt_of_kidsD`
+[R `Tools/ShippingCallsKidsD.lean` 98–135] is true of it, and the built
+theorem applies as it is: `machineClosesAt_of_kidsDM` and `ChildIfaceP` are
+not needed at this level. The memory enters only through the kid's
+interface (`ChildIfaceD … memNames`, from `kidsChild_of_realM`) and through
+the name conditions about that kid's descendants (`hparentD`, `hselfD`,
+`hdisjD` over `namesK`), which are about a list of memory-module names.
+
+### 12.2 `Tools/ShippingMemNamesP.lean` (new)
+
+    def AllMem (L : List String) : Prop := ∀ x ∈ L, ∃ cb aw dw, x = ofMem cb aw dw
+    theorem allMem_nil : AllMem []
+    theorem allMem_singleton (cb aw dw) : AllMem [ofMem cb aw dw]
+    theorem ofDecl_not_mem_allMem (c : Name) {L} (h : AllMem L) : ofDecl c ∉ L          -- ofDecl_ne_ofMem
+    theorem namesOfP_allMem (d) (nameK) (namesK)
+        (hname : ∀ k, k < d.shape.insts.length → ∃ cb aw dw, nameK k = ofMem cb aw dw)
+        (hnames : ∀ k, k < d.shape.insts.length → AllMem (namesK k)) : AllMem (namesOfP d nameK namesK)
+    theorem namesOfP_const_allMem (d) (cb aw dw) :
+        AllMem (namesOfP d (fun _ => ofMem cb aw dw) (fun _ => [ofMem cb aw dw]))
+
+This is the name discharge for an `ofMem` name: no `decide` on names, no
+candidate rendering, no premise — whatever the declarations are.
+
+### 12.3 `Tests/Compiler/MemParentClosesTest.lean` (new, target-only, ASSERTING)
+
+Imports the probe (for the declarations and for `machineData`, `machine_ok`,
+`machine_body` of `memCounterH` / `memParent` and
+`memCounterH.noPortsMem_closes`, which the probe's OK steps leave).
+
+    theorem memParent_calls : memParent.machineData.shape.insts.map (·.1) = [``cnt, ``cnt, ``memCounterH]
+    theorem memCounterH_entry : ∀ k (hk : k < memCounterH.machineData.shape.insts.length),
+        (memCounterH.machineData.shape.insts[k]).1 = memChildName true 4 8
+    theorem mem_isMem : memChild? (memChildName true 4 8) = some (memModule true 4 8)
+
+    def memNames : List String :=
+      namesOfP memCounterH.machineData (fun _ => ofMem true 4 8) (fun _ => [ofMem true 4 8])
+
+    theorem memCounterH_iface {mctx mref cctx cref}
+        (hR : MachineDefines mctx mref cctx cref ``memCounterH memCounterH.machineData.shape)
+        (y : Module × Design) (hy : RealChild mref cref ``memCounterH y) :
+        ChildIfaceD ``memCounterH ((memCounterH.machineData.bsIn.take 3).filter (·.2 != .domain)).length
+          (memCounterH.machineData.shape.layout.outs.map (·.name)) memNames y.1 y.2
+
+    theorem memParent_closes {mctx mref cctx cref}
+        (hRc : MachineDefines mctx mref cctx cref ``cnt cnt.machineData.shape)
+        (hRm : MachineDefines mctx mref cctx cref ``memCounterH memCounterH.machineData.shape) :
+        MachineClosesAt mctx mref cctx cref ``memParent memParent.machineData.shape
+
+`memCounterH_iface` is `kidsChild_of_realM` with the data premises by
+`decide` (the positions `ifaceDeep` decides, `ShippingChildIfaceGen.lean`
+411–413, plus `hfne`), `hkid` by `memKidNamesP`, `hself` by
+`ofDecl_not_mem_allMem`, the closing `memCounterH.noPortsMem_closes`
+(`{mctx mref cctx cref} : MachineClosesAt …`, no premise
+[R `ShippingNoPortsMemCommand.lean` 466–470]).
+
+`memParent_closes` is the term `closesDeep` generates (`ShippingChildIfaceGen.lean`
+285–300) with tables by pattern matching on the entry index: `cnt`'s
+interface by the built leaf route (`seqChild_of_real … |>.toD`, 337–340),
+`memCounterH`'s by `memCounterH_iface`; `hnames` / `hparent` / `hfresh` as
+the generator writes them; `hparentD`, `hselfD`, `hdisjD` by
+`ofDecl_not_mem_allMem` and "only entry 2 has names below it"
+(`namesT_two`). Premises: the two reflections, nothing else.
+
+ASSUMED, checked by the file's first theorem: the entries of `memParent` are
+`[cnt, cnt, memCounterH]` (one per field of the structure call, then the
+one-output call; `callEntriesG`). If `memParent_calls` fails, the tables are
+indexed wrongly and the errors after it are consequences.
+
+### 12.4 What is still missing after it
+
+* The GENERATOR (unchanged from §7.1 item 4): `ifaceDeep`'s memory refusal
+  (312) sits in a mutual `partial def`; the hand file shows the two terms a
+  generator has to emit. With `AllMem` the name side needs no change to
+  `Node` for THIS shape (a kid whose descendants are memory modules only):
+  the kid's `names` is a `namesOfP … ofMem …` expression and the three
+  descendant conditions are `ofDecl_not_mem_allMem` + "which entries have
+  names". A kid mixing memory and declaration descendants needs both
+  disciplines — not looked at.
+* For the depth endpoint to stop asking the closings: a theorem of
+  `memCounterH` and one of `memParent` under a name `closingThm?` finds
+  (`.machine_closes_at` / `.closes_deep`, 108–111) in the form `∀ mctx mref
+  cctx cref, (reflections) → MachineClosesAt …`. `memParent_closes` and
+  `memCounterH.noPortsMem_closes` have that form; registering them under
+  those names is the integrator's decision (§7.1, last paragraph) and is not
+  done here — so S2.a is predicted WITH the warning.
+* The check-free level (`GenKidM`, §7.2): not started.
+
+## 13. Build order, `lean_lib` lines (round c-3)
+
+1. `Tools.ShippingMachineDepthMemKidRunCommand` (imports the built
+   `Tools.ShippingMachineDepthMemKidCommand`).
+2. `Tools.ShippingMemNamesP` (imports the built `Tools.ShippingKidsChildIfaceM`,
+   `Tools.ShippingModuleName`) — independent of 1.
+3. `Tests.Compiler.MemDepthProbeTest` (one more import).
+4. `Tests.Compiler.MemParentClosesTest` (imports 3, 2 and the built
+   `Tools.ShippingChildIfaceGen`; it re-reads the probe's `.olean`, it does
+   not rerun it).
+
+    lean_lib «Tools.ShippingMachineDepthMemKidRunCommand» where
+      roots := #[`Tools.ShippingMachineDepthMemKidRunCommand]
+
+    lean_lib «Tools.ShippingMemNamesP» where
+      roots := #[`Tools.ShippingMemNamesP]
+
+Nothing for `Tests/AllTests.lean`.
+
+## 14. Risks (round c-3), in order
+
+1. **§10 is an inference.** I did not find a built kid with a `machineExtB`
+   constant and no Bool entry to compare with; D0 measures it.
+2. **K2, the `rfl`** for `f.machineExtB i bools bits (Signal.loop …) j =
+   bools j`: the definition is added with `hints := .abbrev`
+   (`addDef`), so `rfl` should unfold it; the built precedent of the same
+   tactic is for a goal WITHOUT the constant.
+3. **S2.a past the kid:** the grouped loop on a non-leaf kid with three
+   arguments under a parent that also has a leaf kid — every piece is built,
+   the combination is new (as `regsParent` was).
+4. **`MemParentClosesTest`:** the entry list (`memParent_calls`); whether
+   `cnt.machine_closes` exists in the probe's environment (the leaf route
+   needs it; `#machine_endpoint parent` of `ShippingMachineSeqTest` should
+   have left it [?]); the reduction of the pattern-matching tables at `k + 3`
+   in `namesT_two` / `namesT_allMem`; `subst` of `k = 2` under hypotheses
+   that mention `k`; name resolution of `memCounterH.machineData` under the
+   two `open`s.
+5. `ShippingMemNamesP`: `nomatch` on `x ∈ []`; the direction of the equation
+   from `List.mem_map`.
+
+## 15. Not determined by reading (round c-3)
+
+* Whether D0 reproduces the message; whether K2, S2.a–c, SH.a–c pass.
+* The output name the reader gives a one-output kid under the general
+  closing (the `field` test of the grouped loop) — not looked up.
+* Whether `cnt.machine_closes` is in the probe's environment.
+* `closesDeep`'s body beyond the generated term; `GenKid`.
+
+## Integrator's build record, round c-3 (2026-10-13) — MEASURED
+
+BUILT on poc ecddf7d1 + these files, cgrun 3 GiB swap 0, runs `c3`, `c3b`, `c3c`, `c3ax`.
+Integrator fixes (no statement changed): `Tools/ShippingMachineDepthMemKidRunCommand.lean` 125 — a nested
+`← ppExpr dv` inside an `if` inside `pure (…)` ("must be nested inside a do expression"), hoisted into a
+`let`; `Tests/Compiler/MemParentClosesTest.lean` — five test `def`s over reflected data (`memNames`,
+`cntArgs`, `nkT`, `outsT`, `namesT`) crashed Lean's code generator ("unknown join point", ExplicitBoxing
+panic) and are now `noncomputable def`. `Tools.ShippingMemNamesP`: as written.
+
+Probe, every prediction confirmed:
+* D0 `#machine_depth_run_of memCounterH 0` (the built kid step alone): FAILED "No goals to be solved" —
+  the inferred failing line is reproduced in isolation.
+* K2 `#machine_seq_child_memNR memCounterH 0`: OK. S2.a `#machine_depth_core memParent 1`: OK (1.4 s),
+  S2.b `#machine_depth_ships memParent 1`: OK, S2.c `#machine_design_svNR memParent 1`: OK.
+  SH.a–SH.c for `memGrand 2`: OK.
+  So `memParent.machine_design_svNR1` and `memGrand.machine_design_svNR2` exist — the depth endpoints WITH
+  their check antecedents and with the closing of the kid as a premise (not check-free).
+* `MemParentClosesTest` (asserting): `memParent_closes : MachineDefines cnt → MachineDefines memCounterH →
+  MachineClosesAt memParent` and `memCounterH_iface`, on `[propext, Classical.choice, Quot.sound]`
+  (printed by the integrator). The closing premise of `memParent` is a theorem from two reflections, by
+  hand; no generator produces it yet and no endpoint consumes it yet.
+STATE: for a parent / grandparent of a memory-machine child, the trace endpoint and the depth endpoint
+exist; the check-free design-level endpoint does not. Class OPEN at the check-free level.
