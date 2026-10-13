@@ -2674,3 +2674,9 @@ lean_lib «Tools.ShippingMemOnlyNames» where
 
 lean_lib «Tools.ShippingClosesNames» where
   roots := #[`Tools.ShippingClosesNames]
+
+lean_lib «Tools.ShippingCacheCoherentRun» where
+  roots := #[`Tools.ShippingCacheCoherentRun]
+
+lean_lib «Tools.ShippingCacheCoherentClose» where
+  roots := #[`Tools.ShippingCacheCoherentClose]
