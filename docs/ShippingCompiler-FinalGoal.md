@@ -419,3 +419,41 @@ Open:
 - Unchanged from the morning log: memory children at depth ≥ 1, slotless parents of combinational children,
   slotless leaves, the remaining 14 duplicated `core_*` proofs, reader generalisation, all successful inputs,
   the SV-string level, `#sim`, a runtime model, the corpus sweep with the check-free generators.
+
+## Status log — 2026-10-13, night (poc bfa5f5fe; records: docs/parallel/verification-h-fix.md, H-fix-c1.md, B-leaf-design.md, depth-switch-evidence.md, B-name-discharge.md, A-cache-coherence-2.md)
+
+`Tests.AllTests`: 1292 jobs green in the poc tree (run `b29-all`; after it only two `Tools` libraries and a
+target-only probe were added and built separately). GitHub CI: 0 runs — no CI result exists.
+
+Integrated since the evening log:
+- Leaf register machines as entries at the DESIGN level (`leaf_design_of_ships`, `#machine_leaf_design`):
+  d71fd052. `f.machine_design_leaf0` for `cnt`, `acc`, `pe`, `twoHW`, `toggle`, `loopPair`, `toggleL`:
+  premises the run, `MachineDefines f`, `ChildBnd` under the existential; no checker constant.
+- Depth generator cleanup (old loop, RG duplicate and their tests removed; comparison evidence kept; one
+  `_of_regs` example added): d0c225ff.
+- Finding H FIXED at the compiler by injective module names (`Sparkle.IR.ModuleName.ofDecl` / `ofMem`;
+  `decode_encode`, `ofDecl_injective`, `ofDecl_ne_ofMem`, `safe_ne_unsafe`, `sanitized_injective`):
+  c385ae5c (pure), b7dc0ec4 (compiler sites, Tools statements, asserting test, simulation of the four
+  tops). Behaviour: names that were refused now compile under tagged names; `private` declarations get
+  `Sp$D$…` identifiers; `Module.name` is the identifier (no dots).
+- Name conditions from declaration-name distinctness; the memory-only closing without name hypotheses:
+  812061e5. No endpoint's premise list changed.
+- Cache coherence at run level, PARTIAL: provenance invariant `Prov`, no overwrite of entries present at
+  the start of a run, closings' design provenance — everything that concludes `Prov` at run level is under
+  the underived statements `CoreFresh` / `HarnessProv`: bfa5f5fe.
+
+Endpoints with no compiler-check premise and no NOT-ALLOWED premise, design level (`DesignSV`):
+45 declarations = the 38 of the evening log + the 7 leaf entries above. Scope of each: one declaration,
+data conditions decided per declaration, runtime boundary, `DesignSV` of the module list — not the SV
+string, not `#sim`, not all successful inputs. No endpoint lost a premise through the name work.
+
+Open:
+- `mixDeep` (callees sharing a descendant): its sibling-separation condition is false by reading; the
+  closing needs cache coherence, whose preservation step is not derived (`CoreFresh`, `HarnessProv`).
+- Injective names: legality of every image and "plain image = the old identifier" are tested, not proved;
+  `$` in identifiers checked under iverilog only (not yosys, C JIT, Verilator); emitted text compared on a
+  28-file sample only, no corpus run; external / primitive names are untagged user strings.
+- The generators still decide name conditions per declaration (new general lemmas not yet used by them).
+- Unchanged: memory children at depth ≥ 1, slotless parents of combinational children, slotless leaves,
+  about 48 register leaves not run, the remaining 14 duplicated `core_*` proofs, reader generalisation,
+  all successful inputs, the SV-string level, `#sim`, a runtime model.
