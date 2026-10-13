@@ -1,7 +1,7 @@
 import Lean.Elab.Command
 import Tests.Compiler.OneOutWKeccakFTest
 import Tests.Compiler.NoPortsGrandHBTest
-import Tools.ShippingMachineDepthCommandRG
+import Tools.ShippingMachineDepthCommandR
 import Tools.ShippingChildIfaceGen
 import Tools.ShippingNoPortsKidsCommand
 import Tools.ShippingBoundaryClose
@@ -34,19 +34,34 @@ rcH`'s class; new against `mid2`: 27 entries of one instance, a 27-output /
 
 (a fresh progress file each run; without the variable the generators write
 no progress line and this file's lines go to `.lake/noports-keccak-sponge.log`).
-MEASURED before (the grouped probe, `docs/parallel/A-depth-grouped.md` "Run
-record 2"): step 3 alone 489 s; the base of `wKeccakF` ≈ 2 min — here it is
+MEASURED before (the grouped probe, removed in round par/b-28;
+`docs/parallel/A-depth-grouped.md` "Run record 2"): step 3 alone 489 s; the base of `wKeccakF` ≈ 2 min — here it is
 IMPORTED (`OneOutWKeccakFTest`, BUILT target-only; if its `.olean` is absent
 or stale lake builds it first, ≈ 3 min more). Steps 4–10 were never run.
 
 NAME CLASH: this file ADDS `keccak256SpongeHW.machine_sound`,
-`.machine_composedNR(G)1`, `.machine_ships_hierNR(G)1`, `.machine_design_svNR(G)1`,
+`.machine_composedNR1`, `.machine_ships_hierNR1`, `.machine_design_svNR1`,
 `.closes_deep`, `.machine_design_noPortsNR1*`, `wKeccakF.closes_deep`,
 `wKeccakF.iface_deep`, `wKeccakF.machine_oneOutKid`, …; it takes
 `keccakRcHW.gate_*` and `wKeccakF.machine_*` / `.oneout_*` from
 `OneOutWKeccakFTest`. NEVER import it together with `KeccakProbeTest`,
-`KeccakSpongeStepProbe`, `KeccakSpongeStepProbe2`, `KeccakSpongeGroupedProbe`
+`KeccakSpongeStepProbe`, `KeccakSpongeStepProbe2`, `DepthSwitchSpongeTest`
 (they generate the same constants; step 1 throws when one is there).
+
+ROUND par/b-28 (WRITTEN, NOT BUILT in this form): step 3 runs the switched
+`#machine_design_svNR keccak256SpongeHW 1` DIRECTLY (its loop is the grouped
+one, `Tools/ShippingMachineDepthCommandR.lean`). Until then it ran the
+separate grouped command `#machine_design_svNRG … 1 as_old`
+(`Tools/ShippingMachineDepthCommandRG.lean`, removed: a duplicate of that
+loop), and that is the form in which this file was BUILT (run
+`20261013-150059-switch-sponge`). The switched command on the sponge in the
+closure of `OneOutWKeccakFTest` was BUILT separately
+(`Tests/Compiler/DepthSwitchSpongeTest.lean`, run
+`20261013-151138-switch-sponge-direct`); this file's closure has more imports,
+so step 3 here is that run's command, not that run. Steps 4–10 read
+`machine_ships_hierNR1` / `machine_design_svNR1` by name: both commands build
+them by the same `generateDesignNR` over a composed theorem with the same
+statement (`docs/parallel/depth-switch-evidence.md`).
 
 ## The recursion-depth failure of the probe's step 9 (diagnosis)
 
@@ -83,7 +98,7 @@ over 96, `hC` is `callsOk 27`. The SAME facts are decided for `wKeccakF` by
 | 0 | which progress variable is set | — |
 | 1 | reader data of the sponge and `wKeccakF`, LOGGED; class and imports asserted | the READING of the header is wrong, or a name clash / a missing base constant |
 | 2 | `#machine_endpoint keccak256SpongeHW` | the base differs from the probe's (its step 6 was OK) |
-| 3 | `#machine_design_svNRG keccak256SpongeHW 1 as_old` | not reproducible (489 s OK in the probe, there with `wKeccakF`'s `svHR` / `oneout` generated AFTER it; here they are imported BEFORE) |
+| 3 | `#machine_design_svNR keccak256SpongeHW 1` (the switched command; before round par/b-28: `#machine_design_svNRG … 1 as_old`) | not reproducible (489 s OK in the grouped probe, there with `wKeccakF`'s `svHR` / `oneout` generated AFTER it; here they are imported BEFORE; the switched command alone: BUILT in `DepthSwitchSpongeTest`) |
 | 4 | `#machine_closes_deep keccak256SpongeHW`, `maxRecDepth 1000000` | the option is not the whole story: the message names the theorem (`wKeccakF.iface_deep`, or the sponge's own `closes_deep`: 27 nested `cases`, decides over 27 entries); or a real refusal |
 | 5a–c | LOG-ONLY: the command's own generator functions, one per line — `wKeccakF.machine_oneOutKid`; `…machine_kidsK1`; the four run theorems | nothing (the environment is put back; step 6 generates what is missing) — the lines say WHICH lemma is slow or fails |
 | 6 | `#machine_no_ports_kids keccak256SpongeHW 1`, `maxRecDepth 1000000` | a decided data condition fails (the message names the theorem), or the head / closed form does not assemble (binder order) |
@@ -136,7 +151,7 @@ def note (msg : String) : CommandElabM Unit := do
   Tests.Compiler.KeccakSpongeLogLib.toFile fallback msg
   logInfo m!"{msg}"
 
-/-- One step (the wrapper of `KeccakSpongeGroupedProbe`, BUILT, with an
+/-- One step (the wrapper of the former `KeccakSpongeGroupedProbe`, BUILT, with an
 asserting mode). `START` is written BEFORE the action; then `OK (ms)` with
 the action's information messages, or `FAILED (ms) — message`. With
 `must = true` a failure is an ERROR after its line (the messages stay);
@@ -263,7 +278,7 @@ set_option maxHeartbeats 0 in
        rc ++ `gateValue, rc ++ `gate_child]
     let fresh : List Lean.Name :=
       [f ++ `machineData, f ++ `machine_sound, f ++ `machine_composedNR1,
-       f ++ `machine_composedNRG1, f ++ `machine_ships_hierNR1, f ++ `machine_design_svNR1,
+       f ++ `machine_ships_hierNR1, f ++ `machine_design_svNR1,
        f ++ `closes_deep, f ++ `machine_kidsK1, f ++ `machine_runFactsK1,
        f ++ `machine_design_noPortsNR1, f ++ `machine_design_noPortsNR1_closed,
        m ++ `closes_deep, m ++ `iface_deep, m ++ `machine_oneOutKid]
@@ -297,8 +312,8 @@ set_option maxHeartbeats 0 in
   #machine_endpoint Sparkle.IP.Crypto.Keccak256Sponge.keccak256SpongeHW
 
 set_option maxHeartbeats 0 in
-#nks_step "3 keccak256SpongeHW #machine_design_svNRG 1 as_old" in
-  #machine_design_svNRG Sparkle.IP.Crypto.Keccak256Sponge.keccak256SpongeHW 1 as_old
+#nks_step "3 keccak256SpongeHW #machine_design_svNR 1 (the switched command)" in
+  #machine_design_svNR Sparkle.IP.Crypto.Keccak256Sponge.keccak256SpongeHW 1
 
 /-! ## Step 4: the closing over the child with calls — under the recursion-depth option (see the header) -/
 
@@ -413,4 +428,4 @@ set_option maxHeartbeats 0 in
     let gap := f ++ `machine_design_noPortsNR1_closedB_gap
     let lines ← Tests.Compiler.NoPortsGrandHBTest.auditB closed closedB gap
     Lean.logInfo m!"{String.intercalate "\n" lines.toList}"
-    Lean.logInfo m!"NOPORTS SPONGE: {f} AS AN ENTRY — GENERATED by the built #machine_no_ports_kids: {openN} and {closed} (closing: {f}.closes_deep, generated under maxRecDepth 1000000) on standard axioms, no statement mentions portsMatchB, kidsPass, designCheck, shipsHierCheck, outsCheck or kidsMaskedN, while {old} (generated in this file by the grouped #machine_design_svNRG … as_old) asks the four; {closedB}: under the existentials ONE antecedent, ChildBnd, 0 NOT ALLOWED, no gap hypothesis in {gap}. Callee {m}: a register machine with a one-output call of the gate child {rc}. SCOPE: one declaration, a domain-polymorphic parent WITH registers under the general closing, depth 1, data conditions decided per declaration (conditions, not reductions), compiler guards with fallback, DesignSV of the module list — not the SV string, not #sim; the run, the three reflections and ChildBnd stay premises. NOT covered: Keccak's function, keccakF1600HW under its own name, {f} as a child"
+    Lean.logInfo m!"NOPORTS SPONGE: {f} AS AN ENTRY — GENERATED by the built #machine_no_ports_kids: {openN} and {closed} (closing: {f}.closes_deep, generated under maxRecDepth 1000000) on standard axioms, no statement mentions portsMatchB, kidsPass, designCheck, shipsHierCheck, outsCheck or kidsMaskedN, while {old} (generated in this file by the switched #machine_design_svNR, whose loop is the grouped one) asks the four; {closedB}: under the existentials ONE antecedent, ChildBnd, 0 NOT ALLOWED, no gap hypothesis in {gap}. Callee {m}: a register machine with a one-output call of the gate child {rc}. SCOPE: one declaration, a domain-polymorphic parent WITH registers under the general closing, depth 1, data conditions decided per declaration (conditions, not reductions), compiler guards with fallback, DesignSV of the module list — not the SV string, not #sim; the run, the three reflections and ChildBnd stay premises. NOT covered: Keccak's function, keccakF1600HW under its own name, {f} as a child"

@@ -8,12 +8,15 @@ WRITTEN, NOT BUILT. TARGET-ONLY, HEAVY (the grouped loop took 454–489 s on
 the sponge in the built runs; 3 GiB cap, peak ≈ 2.6 GiB resident there).
 NOT in `Tests/AllTests.lean`.
 
-`Tests/Compiler/NoPortsKeccakSpongeTest.lean` (built) generates the sponge's
-base depth endpoint by `#machine_design_svNRG … 1 as_old`, that is by the
-loop of `Tools/ShippingMachineDepthCommandRG.lean`. That file is unchanged
-by round par/b-23, so the built sponge test keeps passing whatever the
-switch did and does NOT exercise the switched command. This file does: it
-runs
+When this file was written and BUILT (run
+`20261013-151138-switch-sponge-direct`), `Tests/Compiler/NoPortsKeccakSpongeTest.lean`
+generated the sponge's base depth endpoint by `#machine_design_svNRG … 1
+as_old`, the loop of `Tools/ShippingMachineDepthCommandRG.lean`, and so did
+NOT exercise the switched command; this file did. Since round par/b-28 that
+file is removed and the sponge test runs the switched command itself (its
+steps 2–3 are this file's two commands, in a larger closure): this file is
+now the SHORT target for the sponge's depth endpoint alone, and may be
+deleted when the sponge test has been rebuilt. It runs
 
     #machine_design_svNR keccak256SpongeHW 1
 
@@ -27,10 +30,9 @@ axiom test is repeated here on the composed theorem.
 It logs the fingerprints (`Expr.hash` of the type, number of leading
 binders) of the three statements, for comparison BY THE READER with those of
 `keccak256SpongeHW.machine_*NR1` in a build of `NoPortsKeccakSpongeTest`
-(there the old names are added by `as_old`: the composed theorem is another
-name of the `NRG` one, the two others are built by the old
-`generateDesignNR`). Nothing is asserted about that comparison: the two
-files cannot be imported together.
+(which does not log them). Nothing is asserted about that comparison: the
+two files cannot be imported together. The fingerprint recorded from the
+built run is in `docs/parallel/depth-switch-evidence.md` §6.
 
 NAME CLASH: this file, `NoPortsKeccakSpongeTest` and the Keccak probes all
 generate `keccak256SpongeHW.*`; never import two of them together.
@@ -79,7 +81,7 @@ run_cmd Lean.Elab.Command.liftCoreM do
     | some (Lean.ConstantInfo.thmInfo ti) =>
       lines := lines ++ [s!"{n}: hash {ti.type.hash.toNat}, {Tests.Compiler.DepthSwitchSpongeTest.binderCount ti.type} binders"]
     | _ => throwError "{n}: not generated as a theorem by #machine_design_svNR"
-  -- the grouped names must NOT have been produced by the old command
+  -- the names of the removed separate grouped command (`…NRG1`) must not appear
   for n in [f ++ `machine_composedNRG1, f ++ `machine_ships_hierNRG1, f ++ `machine_design_svNRG1] do
     if env.contains n then throwError "{n}: exists — the old command must add the NR names only"
   for ax in ← Lean.collectAxioms (f ++ `machine_composedNR1) do

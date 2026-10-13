@@ -217,9 +217,9 @@ import Tests.Compiler.NoPortsMemGenCompareTest
 import Tests.Compiler.NestedFailRestoreTest
 import Tests.Compiler.LeafEntryCntClosedTest
 import Tests.Compiler.OptPrintGuardFiresTest
-import Tests.Compiler.DepthSwitchTypeTest
 import Tests.Compiler.DepthSwitchPinTest
 import Tests.Compiler.DepthLoopChildCompareTest
+import Tests.Compiler.DepthRegsChildTest
 import Tests.Compiler.LeafEntryFamilyTest
 import Tests.Compiler.MergeKeepsCntTest
 import Tests.Compiler.NoPortsMemSeqGenCompareTest
