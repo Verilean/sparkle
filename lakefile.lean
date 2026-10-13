@@ -2662,3 +2662,9 @@ lean_lib «Tools.ShippingNoPortsMemSeqCommand» where
 
 lean_lib «Tools.ShippingKid» where
   roots := #[`Tools.ShippingKid]
+
+lean_lib «Tools.ShippingLeafDesign» where
+  roots := #[`Tools.ShippingLeafDesign]
+
+lean_lib «Tools.ShippingLeafDesignCommand» where
+  roots := #[`Tools.ShippingLeafDesignCommand]

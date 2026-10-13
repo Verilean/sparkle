@@ -226,6 +226,8 @@ import Tests.Compiler.NoPortsMemSeqGenCompareTest
 import Tests.Compiler.CoreDedupAuditTest
 import Tests.Compiler.NoPortsMemSeqGenNew2Test
 import Tests.Compiler.NoPortsMemSeqGenNewTest
+import Tests.Compiler.LeafDesignCntTest
+import Tests.Compiler.LeafDesignFamilyTest
 import Tests.Compiler.LegacySemInstanceTest
 import Tests.Compiler.LegacyCacheFixTest
 import Tests.Compiler.LegacySemMemoTest
