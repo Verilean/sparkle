@@ -2698,3 +2698,12 @@ lean_lib «Tools.ShippingLeafSweepCommand» where
 
 lean_lib «Tools.ShippingCacheCoherentVia» where
   roots := #[`Tools.ShippingCacheCoherentVia]
+
+lean_lib «Tools.ShippingLeafSweepExpect» where
+  roots := #[`Tools.ShippingLeafSweepExpect]
+
+lean_lib «Tools.ShippingCombLeafDesign» where
+  roots := #[`Tools.ShippingCombLeafDesign]
+
+lean_lib «Tools.ShippingCombLeafCommand» where
+  roots := #[`Tools.ShippingCombLeafCommand]

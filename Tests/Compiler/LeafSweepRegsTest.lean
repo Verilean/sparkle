@@ -1,5 +1,6 @@
 import Tests.Compiler.DepthRegsChildTest
 import Tools.ShippingLeafSweepCommand
+import Tools.ShippingLeafSweepExpect
 
 /-! # Leaf sweep at the design level: Regs (round par/b-31)
 
@@ -35,3 +36,14 @@ set_option maxHeartbeats 0 in
 #leaf_sweep Sparkle.Tests.Compiler.DepthRegsChildTest.shift3
 
 #leaf_sweep_summary
+
+/-! ## The MEASURED classes, asserted (round par/b-32; WRITTEN, NOT BUILT)
+
+The classes below are those of the integrator's build of 35208d70
+(`docs/parallel/B-leaf-sweep.md`, "Integrator's build record"), not the
+predictions of this file's header. `#leaf_sweep_expect` is an error when a
+declaration's class changed, when a GENERATED one's audit did not pass or
+its theorem is absent, or when a refusal's reason is another one. Each line
+is its own command. -/
+
+#leaf_sweep_expect Sparkle.Tests.Compiler.DepthRegsChildTest.shift3 "GENERATED"
