@@ -213,6 +213,7 @@ import Tests.Compiler.NoPortsLoopParentTest
 import Tests.Compiler.NoPortsMemWithMemoryTest
 import Tests.Compiler.LeafEntryCntTest
 import Tests.Compiler.LeafEntryCntBndTest
+import Tests.Compiler.NoPortsMemGenCompareTest
 import Tests.Compiler.LegacySemInstanceTest
 import Tests.Compiler.LegacyCacheFixTest
 import Tests.Compiler.LegacySemMemoTest
