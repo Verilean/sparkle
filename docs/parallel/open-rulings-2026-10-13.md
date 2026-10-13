@@ -17,6 +17,11 @@ Choose (docs/parallel/A-det-decision.md):
 * option 3 — a NEW endpoint form at outermost starts; existing endpoint and premise unchanged; nested
   starts stay open (worker's recommendation);
 * or leave `mixDeep` open.
+Update (later the same night, docs/parallel/A-outermost-form.md, built): option 3 was taken as far as it
+goes without a ruling. Its start premise `Start0` (depth 0 for the law witness) is labelled NOT ALLOWED by
+the present classifier (measured; not added to the list), and the `DesignSV` endpoint needs a
+statement-preserving split of 13 built base lemmas (11 files). So option 3 needs TWO decisions: is a
+depth-0 start premise acceptable as a boundary premise, and may those built proofs be split.
 
 ## 2. Finding I — stale single-output instance cache (legacy route)
 
