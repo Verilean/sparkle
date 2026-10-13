@@ -1,6 +1,8 @@
 import Tools.ShippingLegacySemContract
 import Tools.ShippingUnifiedExecutionSoundness
 
+variable {tenv : Lean.Environment}
+
 /-! # The legacy arm of the entry: what it must satisfy to reach an output statement
 
 Target (the acceptance unit): for a REAL declaration that the entry compiles
@@ -60,23 +62,23 @@ abbrev setupOf (declName : Name) (bs : List (Name × MixedGateBinder)) (ids : Li
     (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))
 
 /-- A successful run of the certified harness on an arbitrary leaf. -/
-def HarnessRun (logProf : String → IO Unit) (declName : Name)
+def HarnessRun (tenv : Lean.Environment) (logProf : String → IO Unit) (declName : Name)
     (bs : List (Name × MixedGateBinder)) (ids : List FVarId)
     (cache : IO.Ref (ExprStructMap String)) (leaf : Lean.Expr) (returned : String)
     (st : CircuitState) : Prop :=
   Returns (bindMixedCertifiedInputs
-      (emitLeaves (fun e hint top named => translateExprToWire e hint top named) cache logProf
+      (emitLeaves (fun e hint top named => translateExprToWire tenv e hint top named) cache logProf
         [("out", leaf)] none 0) (bs.zip ids))
     (entryCompilerState false cache) (CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName)) returned st
 
 /-- **Harness soundness for any leaf** (PROVABLE-NOW, not proved here: the
 proof of `synthesizeMixedCertified_term_sound_at` with the leaf's contract
 and order as hypotheses). -/
-def HarnessSound : Prop :=
+def HarnessSound (tenv : Lean.Environment) : Prop :=
   ∀ (logProf : String → IO Unit) (declName : Name) (bs : List (Name × MixedGateBinder))
     (ids : List FVarId) (cache : IO.Ref (ExprStructMap String)) (leaf : Lean.Expr)
     (returned : String) (st : CircuitState) (m : Sparkle.IR.AST.Module),
-    HarnessRun logProf declName bs ids cache leaf returned st →
+    HarnessRun tenv logProf declName bs ids cache leaf returned st →
     m = (addClockResetIfSequential st.module).finalize →
     Sparkle.IR.ModuleNames.legal (Sparkle.Backend.Verilog.sanitizeName m.name) = true →
     ∀ (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n)
@@ -86,12 +88,12 @@ def HarnessSound : Prop :=
         (Sparkle.IR.ModuleName.ofDecl declName)) →
     ∀ v : Value, 0 < v.kind.width →
     Tools.ShippingUnifiedRecursion.Contract
-      (fun e hint top named => translateExprToWire e hint top named)
+      (fun e hint top named => translateExprToWire tenv e hint top named)
       (setupOf declName bs ids cache bools bits).context
       (Tools.ShippingUnifiedMeaning.inputValues (setupOf declName bs ids cache bools bits).bools
         (setupOf declName bs ids cache bools bits).bits)
       (Tools.ShippingMixedOutputSoundness.declaredWidths st) mems initial leaf v →
-    Tools.ShippingUnifiedProtection.ActionOrder (translateExprToWire leaf "out" false true)
+    Tools.ShippingUnifiedProtection.ActionOrder (translateExprToWire tenv leaf "out" false true)
       (setupOf declName bs ids cache bools bits).context
       (Tools.ShippingUnifiedMeaning.inputValues (setupOf declName bs ids cache bools bits).bools
         (setupOf declName bs ids cache bools bits).bits)
@@ -104,27 +106,27 @@ its legacy arm on `ci` and returns `(m, d)` is a run of the certified harness
 on the leaf `leafOf ids` for some distinct binder variables `ids`, finished
 like the certified entry finishes it. `bs` and `leafOf` are what the
 declaration's binders and body are (as the telescope oracles return them). -/
-def LegacyEntryReduces (declName : Name) (ci : ConstantInfo)
+def LegacyEntryReduces (tenv : Lean.Environment) (declName : Name) (ci : ConstantInfo)
     (bs : List (Name × MixedGateBinder)) (leafOf : List FVarId → Lean.Expr) : Prop :=
   ∀ (logProf : String → IO Unit) (isInst : Lean.Expr → Bool) (m : Sparkle.IR.AST.Module)
     (d : Design),
-    MReturns (synthesizeFromConst (fun e hint top named => translateExprToWire e hint top named)
+    MReturns (synthesizeFromConst (fun e hint top named => translateExprToWire tenv e hint top named)
       logProf declName [] false false ci isInst) (m, d) →
     ∃ (ids : List FVarId) (cache : IO.Ref (ExprStructMap String)) (returned : String)
       (st : CircuitState),
       ids.Nodup ∧ ids.length = bs.length ∧
-      HarnessRun logProf declName bs ids cache (leafOf ids) returned st ∧
+      HarnessRun tenv logProf declName bs ids cache (leafOf ids) returned st ∧
       m = (addClockResetIfSequential st.module).finalize ∧
       Sparkle.IR.ModuleNames.legal (Sparkle.Backend.Verilog.sanitizeName m.name) = true
 
 /-- **The output of a legacy-route leaf.** From a run of the harness, the
 leaf in the combined domain at `v` and its order statement, the finished
 module evaluates and `out` carries `v`. -/
-theorem legacy_leaf_output (hs : HarnessSound) {logProf : String → IO Unit} {declName : Name}
+theorem legacy_leaf_output (hs : HarnessSound tenv) {logProf : String → IO Unit} {declName : Name}
     {bs : List (Name × MixedGateBinder)} {ids : List FVarId}
     {cache : IO.Ref (ExprStructMap String)} {leaf : Lean.Expr} {returned : String}
     {st : CircuitState} {m : Sparkle.IR.AST.Module}
-    (run : HarnessRun logProf declName bs ids cache leaf returned st)
+    (run : HarnessRun tenv logProf declName bs ids cache leaf returned st)
     (hm : m = (addClockResetIfSequential st.module).finalize)
     (legal : Sparkle.IR.ModuleNames.legal (Sparkle.Backend.Verilog.sanitizeName m.name) = true)
     (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n)
@@ -133,10 +135,10 @@ theorem legacy_leaf_output (hs : HarnessSound) {logProf : String → IO Unit} {d
       (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
         (Sparkle.IR.ModuleName.ofDecl declName)))
     (v : Value) (pos : 0 < v.kind.width)
-    (dom : LegacyDom (setupOf declName bs ids cache bools bits).context
+    (dom : LegacyDom tenv (setupOf declName bs ids cache bools bits).context
       (Tools.ShippingUnifiedMeaning.inputValues (setupOf declName bs ids cache bools bits).bools
         (setupOf declName bs ids cache bools bits).bits) leaf v)
-    (ord : Tools.ShippingUnifiedProtection.ActionOrder (translateExprToWire leaf "out" false true)
+    (ord : Tools.ShippingUnifiedProtection.ActionOrder (translateExprToWire tenv leaf "out" false true)
       (setupOf declName bs ids cache bools bits).context
       (Tools.ShippingUnifiedMeaning.inputValues (setupOf declName bs ids cache bools bits).bools
         (setupOf declName bs ids cache bools bits).bits)
@@ -149,13 +151,13 @@ theorem legacy_leaf_output (hs : HarnessSound) {logProf : String → IO Unit} {d
 entry to the harness: for the binder variables and the builder state of the
 run, every admissible input valuation at which the leaf is in the combined
 domain (and ordered) gives the output's value. -/
-theorem legacy_entry_output (hs : HarnessSound) {declName : Name} {ci : ConstantInfo}
+theorem legacy_entry_output (hs : HarnessSound tenv) {declName : Name} {ci : ConstantInfo}
     {bs : List (Name × MixedGateBinder)} {leafOf : List FVarId → Lean.Expr}
-    (hred : LegacyEntryReduces declName ci bs leafOf)
+    (hred : LegacyEntryReduces tenv declName ci bs leafOf)
     {logProf : String → IO Unit} {isInst : Lean.Expr → Bool} {m : Sparkle.IR.AST.Module}
     {d : Design}
     (hr : MReturns (synthesizeFromConst
-      (fun e hint top named => translateExprToWire e hint top named)
+      (fun e hint top named => translateExprToWire tenv e hint top named)
       logProf declName [] false false ci isInst) (m, d)) :
     ∃ (ids : List FVarId) (cache : IO.Ref (ExprStructMap String)) (st : CircuitState),
       ids.Nodup ∧ ids.length = bs.length ∧
@@ -165,12 +167,12 @@ theorem legacy_entry_output (hs : HarnessSound) {declName : Name} {ci : Constant
         (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
           (Sparkle.IR.ModuleName.ofDecl declName)) →
       ∀ v : Value, 0 < v.kind.width →
-      LegacyDom (setupOf declName bs ids cache bools bits).context
+      LegacyDom tenv (setupOf declName bs ids cache bools bits).context
         (Tools.ShippingUnifiedMeaning.inputValues
           (setupOf declName bs ids cache bools bits).bools
           (setupOf declName bs ids cache bools bits).bits) (leafOf ids) v →
       Tools.ShippingUnifiedProtection.ActionOrder
-        (translateExprToWire (leafOf ids) "out" false true)
+        (translateExprToWire tenv (leafOf ids) "out" false true)
         (setupOf declName bs ids cache bools bits).context
         (Tools.ShippingUnifiedMeaning.inputValues
           (setupOf declName bs ids cache bools bits).bools

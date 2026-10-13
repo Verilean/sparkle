@@ -1,6 +1,8 @@
 import Tools.ShippingLegacySemContract
 import Tools.ShippingUnifiedProtectionLeaves
 
+variable {tenv : Lean.Environment}
+
 /-! # Protection and order on the combined domain
 
 `legacy_translate_contract` (`Tools/ShippingLegacySemContract.lean`) gives the
@@ -50,16 +52,16 @@ open Tools.ShippingUnifiedProtection
 /-- One step on a call the core declines is the fallback, for a run. -/
 theorem step_run_fallback {rec : TranslateFn} {e : Lean.Expr} (nc : NotCore e)
     {hint : String} {top named : Bool} {ctx : CompilerState} {s t : CircuitState} {w : String}
-    (hr : Returns (translateStepWith translateFallback rec e hint top named) ctx s w t) :
-    Returns (translateFallback rec e hint top named) ctx s w t := by
+    (hr : Returns (translateStepWith (translateFallback tenv) rec e hint top named) ctx s w t) :
+    Returns ((translateFallback tenv) rec e hint top named) ctx s w t := by
   rw [step_eq_fallback rec e hint top named nc.shape (nc.core rec hint top named)] at hr
   exact hr
 
 /-- **Protection on the combined domain, at every fuel.** -/
 theorem legacy_fuel_protect {ctx : CompilerState} {inputs : FVarId → Option Value}
-    {e : Lean.Expr} {v : Value} (h : LegacyDom ctx inputs e v) :
+    {e : Lean.Expr} {v : Value} (h : LegacyDom tenv ctx inputs e v) :
     ∀ (fuel : Nat) (hint : String) (named : Bool),
-      ActionProtect (translateFuelFix translateStep fuel e hint false named) ctx inputs := by
+      ActionProtect (translateFuelFix (translateStep tenv) fuel e hint false named) ctx inputs := by
   induction h with
   | input hi =>
     intro fuel hint named
@@ -68,7 +70,7 @@ theorem legacy_fuel_protect {ctx : CompilerState} {inputs : FVarId → Option Va
       intro s w t p hr lookup hp
       exact (Returns.throw hr).elim
     | succ fuel =>
-      show ActionProtect (translateStepWith translateFallback (translateFuelFix translateStep fuel)
+      show ActionProtect (translateStepWith (translateFallback tenv) (translateFuelFix (translateStep tenv) fuel)
         (.fvar _) hint false named) ctx inputs
       exact input_protect hi
   | cert t wf mb mv db dv ihb ihv =>
@@ -85,8 +87,8 @@ theorem legacy_fuel_protect {ctx : CompilerState} {inputs : FVarId → Option Va
       exact (Returns.throw hr).elim
     | succ fuel =>
       intro s w t p hr lookup hp
-      have hstep : Returns (translateStepWith translateFallback
-          (translateFuelFix translateStep fuel) _ hint false named) ctx s w t := hr
+      have hstep : Returns (translateStepWith (translateFallback tenv)
+          (translateFuelFix (translateStep tenv) fuel) _ hint false named) ctx s w t := hr
       have hfb := step_run_fallback nc hstep
       obtain ⟨e', hU, htr⟩ := reach _ hint false named s t w hfb
       exact ih e' hU fuel hint named s w t p htr lookup hp
@@ -94,9 +96,9 @@ theorem legacy_fuel_protect {ctx : CompilerState} {inputs : FVarId → Option Va
 /-- **Order on the combined domain, at every fuel.** -/
 theorem legacy_fuel_order {ctx : CompilerState} {inputs : FVarId → Option Value}
     {we : WEnv} {mems : MEnv} {initial : Env} {e : Lean.Expr} {v : Value}
-    (h : LegacyDom ctx inputs e v) :
+    (h : LegacyDom tenv ctx inputs e v) :
     ∀ (fuel : Nat) (hint : String) (named : Bool),
-      ActionOrder (translateFuelFix translateStep fuel e hint false named)
+      ActionOrder (translateFuelFix (translateStep tenv) fuel e hint false named)
         ctx inputs we mems initial := by
   induction h with
   | input hi =>
@@ -106,7 +108,7 @@ theorem legacy_fuel_order {ctx : CompilerState} {inputs : FVarId → Option Valu
       intro s t w prior hr hinv widths order
       exact (Returns.throw hr).elim
     | succ fuel =>
-      show ActionOrder (translateStepWith translateFallback (translateFuelFix translateStep fuel)
+      show ActionOrder (translateStepWith (translateFallback tenv) (translateFuelFix (translateStep tenv) fuel)
         (.fvar _) hint false named) ctx inputs we mems initial
       exact input_order hi
   | cert t wf mb mv db dv ihb ihv =>
@@ -125,24 +127,24 @@ theorem legacy_fuel_order {ctx : CompilerState} {inputs : FVarId → Option Valu
       exact (Returns.throw hr).elim
     | succ fuel =>
       intro s t w prior hr hinv widths order
-      have hstep : Returns (translateStepWith translateFallback
-          (translateFuelFix translateStep fuel) _ hint false named) ctx s w t := hr
+      have hstep : Returns (translateStepWith (translateFallback tenv)
+          (translateFuelFix (translateStep tenv) fuel) _ hint false named) ctx s w t := hr
       have hfb := step_run_fallback nc hstep
       obtain ⟨e', hU, htr⟩ := reach _ hint false named s t w hfb
       exact ih e' hU fuel hint named s t w prior htr hinv widths order
 
 /-- **The shipping translator protects, on the combined domain.** -/
 theorem legacy_translate_protect {ctx : CompilerState} {inputs : FVarId → Option Value}
-    {e : Lean.Expr} {v : Value} (h : LegacyDom ctx inputs e v) (hint : String) (named : Bool) :
-    ActionProtect (translateExprToWire e hint false named) ctx inputs :=
+    {e : Lean.Expr} {v : Value} (h : LegacyDom tenv ctx inputs e v) (hint : String) (named : Bool) :
+    ActionProtect (translateExprToWire tenv e hint false named) ctx inputs :=
   legacy_fuel_protect h translateFuelLimit hint named
 
 /-- **The shipping translator keeps the order, on the combined domain** — the
 order-invariant analogue of `legacy_translate_contract`. -/
 theorem legacy_translate_order {ctx : CompilerState} {inputs : FVarId → Option Value}
     {we : WEnv} {mems : MEnv} {initial : Env} {e : Lean.Expr} {v : Value}
-    (h : LegacyDom ctx inputs e v) (hint : String) (named : Bool) :
-    ActionOrder (translateExprToWire e hint false named) ctx inputs we mems initial :=
+    (h : LegacyDom tenv ctx inputs e v) (hint : String) (named : Bool) :
+    ActionOrder (translateExprToWire tenv e hint false named) ctx inputs we mems initial :=
   legacy_fuel_order h translateFuelLimit hint named
 
 end Tools.ShippingLegacySem

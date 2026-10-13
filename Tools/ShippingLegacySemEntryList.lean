@@ -4,6 +4,8 @@ import Tools.ShippingLegacySemLeaves
 import Tools.ShippingLegacySemLeaf
 import Tools.ShippingLegacySemHarnessLeaf
 
+variable {tenv : Lean.Environment}
+
 /-! # The legacy entry on a declaration with a LIST of scalar binders and a scalar result
 
 `one_binder_entry_output_bound` (`Tools/ShippingLegacySemEntryBound.lean`)
@@ -61,7 +63,7 @@ theorem list_entry_output {logProf : String → IO Unit} {declName : Name}
     (horacle : ∀ q, q ∈ B → BinderOracle q)
     (hleaf : ∀ ids : List FVarId, (leafOf ids).isLambda = false ∧ SignalTyped (leafOf ids))
     (hr : MReturns (synthesizeFromConst
-      (fun e hint top named => translateExprToWire e hint top named)
+      (fun e hint top named => translateExprToWire tenv e hint top named)
       logProf declName [] false cfe (.defnInfo dv) isInst) (m, d)) :
     MemoHit declName m d ∨
     ∃ (ids : List FVarId) (cache : IO.Ref (ExprStructMap String)),
@@ -73,7 +75,7 @@ theorem list_entry_output {logProf : String → IO Unit} {declName : Name}
         (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
           (Sparkle.IR.ModuleName.ofDecl declName)) →
       ∀ v : Value, 0 < v.kind.width →
-      LeafDom (setupOf declName (bindersOf B) ids cache bools bits).context
+      LeafDom tenv (setupOf declName (bindersOf B) ids cache bools bits).context
         (Tools.ShippingUnifiedMeaning.inputValues
           (setupOf declName (bindersOf B) ids cache bools bits).bools
           (setupOf declName (bindersOf B) ids cache bools bits).bits)

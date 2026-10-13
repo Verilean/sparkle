@@ -1,5 +1,7 @@
 import Tools.ShippingLegacySemEntry
 
+variable {tenv : Lean.Environment}
+
 /-! # The certified harness is sound for ANY leaf with a contract and an order
 
 `synthesizeMixedCertified_term_sound_at`
@@ -49,7 +51,7 @@ theorem harness_sound_at {logProf : String → IO Unit} {declName : Name}
     {ids : List FVarId} {cache : IO.Ref (ExprStructMap String)} {returned : String}
     {st : CircuitState}
     (run : Returns (bindMixedCertifiedInputs
-        (emitLeaves (fun e hint top named => translateExprToWire e hint top named) cache logProf
+        (emitLeaves (fun e hint top named => translateExprToWire tenv e hint top named) cache logProf
           [("out", leafE)] none 0) (bs.zip ids))
         (entryCompilerState false cache) (CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName)) returned st)
     (hm : m = (addClockResetIfSequential st.module).finalize)
@@ -59,7 +61,7 @@ theorem harness_sound_at {logProf : String → IO Unit} {declName : Name}
     (values : Admissible bools bits initial (bs.zip ids)
       (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)))
     (v : Value) (positive : 0 < v.kind.width)
-    (contract : Contract (fun e hint top named => translateExprToWire e hint top named)
+    (contract : Contract (fun e hint top named => translateExprToWire tenv e hint top named)
       (prepare bools bits (bs.zip ids)
         (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context
       (inputValues
@@ -68,7 +70,7 @@ theorem harness_sound_at {logProf : String → IO Unit} {declName : Name}
         (prepare bools bits (bs.zip ids)
           (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bits)
       (declaredWidths st) mems initial leafE v)
-    (ordered : ActionOrder (translateExprToWire leafE "out" false true)
+    (ordered : ActionOrder (translateExprToWire tenv leafE "out" false true)
       (prepare bools bits (bs.zip ids)
         (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context
       (inputValues
@@ -170,7 +172,7 @@ theorem harness_sound_at {logProf : String → IO Unit} {declName : Name}
       rw [frame.outputs, shape.2]; rfl
 
 /-- **`HarnessSound` holds.** -/
-theorem harnessSound : HarnessSound := by
+theorem harnessSound : HarnessSound tenv := by
   intro logProf declName bs ids cache leafE returned st m run hm legal bools bits initial mems
     values v pos contract ord
   exact harness_sound_at run hm legal bools bits initial mems values v pos contract ord

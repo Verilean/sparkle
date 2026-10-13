@@ -3,6 +3,8 @@ import Tools.ShippingLegacySemBinder
 import Tools.ShippingLegacySemLeaves
 import Tools.ShippingLegacySemLeaf
 
+variable {tenv : Lean.Environment}
+
 /-! # The legacy entry on a declaration with ONE `bits n` binder and a scalar result
 
 Composition of the round-14 pieces: the entry's walk in the telescope's
@@ -100,11 +102,11 @@ theorem telescopeIn_of_lam (htel : LamTelescopeOne) {body : Lean.Expr} {nm : Nam
 /-- **The third outcome**: the leaf was emitted with NO input port bound (the
 binder was skipped by the legacy walk), and the module finished from that
 state. -/
-def InputSkipped (logProf : String → IO Unit) (declName : Name)
+def InputSkipped (tenv : Lean.Environment) (logProf : String → IO Unit) (declName : Name)
     (leafOf : FVarId → Lean.Expr) (m : Sparkle.IR.AST.Module) : Prop :=
   ∃ (id : FVarId) (cache : IO.Ref (ExprStructMap String)) (returned : String)
     (st : CircuitState),
-    Returns (emitLeaves (fun e hint top named => translateExprToWire e hint top named) cache
+    Returns (emitLeaves (fun e hint top named => translateExprToWire tenv e hint top named) cache
         logProf [("out", leafOf id)] none 0)
       (entryCompilerState false cache) (CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName)) returned st ∧
     m = (addClockResetIfSequential st.module).finalize
@@ -122,7 +124,7 @@ theorem one_binder_entry_output {logProf : String → IO Unit} {declName : Name}
     (hsig : SignalTestFrame T) (hinf : InfersBits T n)
     (hleaf : ∀ id : FVarId, (leafOf id).isLambda = false ∧ SignalTyped (leafOf id))
     (hr : MReturns (synthesizeFromConst
-      (fun e hint top named => translateExprToWire e hint top named)
+      (fun e hint top named => translateExprToWire tenv e hint top named)
       logProf declName [] false cfe (.defnInfo dv) isInst) (m, d)) :
     MemoHit declName m d ∨
     (∃ (id : FVarId) (cache : IO.Ref (ExprStructMap String)),
@@ -133,14 +135,14 @@ theorem one_binder_entry_output {logProf : String → IO Unit} {declName : Name}
         (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
           (Sparkle.IR.ModuleName.ofDecl declName)) →
       ∀ v : Value, 0 < v.kind.width →
-      LeafDom (setupOf declName [(nm, MixedGateBinder.bits n)] [id] cache bools bits).context
+      LeafDom tenv (setupOf declName [(nm, MixedGateBinder.bits n)] [id] cache bools bits).context
         (Tools.ShippingUnifiedMeaning.inputValues
           (setupOf declName [(nm, MixedGateBinder.bits n)] [id] cache bools bits).bools
           (setupOf declName [(nm, MixedGateBinder.bits n)] [id] cache bools bits).bits)
         "out" true (leafOf id) v →
       Tools.ShippingMixedEntrySoundness.RawValueAt v.kind.width
         [(nm, MixedGateBinder.bits n)] m initial mems v.toNat) ∨
-    InputSkipped logProf declName leafOf m := by
+    InputSkipped tenv logProf declName leafOf m := by
   rcases legacy_entry_walk_in old mixed hmach htele hr with hit |
     ⟨body0, mctx, xs, inner, leaves, cache, returned, st, hopen,
       ⟨id, d0, hxs, hinner, hfind, hnm, hty⟩, hsplit, run, hm, legal⟩
@@ -162,11 +164,11 @@ theorem one_binder_entry_output {logProf : String → IO Unit} {declName : Name}
     rcases bindInputsLegacy_one hfind hsig' hinf' run with bound | skipped
     · refine Or.inl ⟨id, cache, ?_⟩
       rw [hnm] at bound
-      have run' : HarnessRun logProf declName [(nm, MixedGateBinder.bits n)] [id] cache
+      have run' : HarnessRun tenv logProf declName [(nm, MixedGateBinder.bits n)] [id] cache
           (leafOf id) returned st := bound
       intro bools bits initial mems values v pos dom
       exact leaf_output run' hm legal bools bits initial mems values v pos dom
-    · have hsk : InputSkipped logProf declName leafOf m := by
+    · have hsk : InputSkipped tenv logProf declName leafOf m := by
         unfold InputSkipped
         exact ⟨id, cache, returned, st, skipped, hm⟩
       exact Or.inr hsk

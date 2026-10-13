@@ -1,5 +1,7 @@
 import Tools.ShippingLegacySemInline
 
+variable {tenv : Lean.Environment}
+
 /-! # The simulation contract of the legacy route, in the certified translator's form
 
 The certified arms are proved against `Contract`
@@ -98,8 +100,8 @@ structure NotCore (e : Lean.Expr) : Prop where
 theorem step_eq_fallback (rec : TranslateFn) (e : Lean.Expr) (hint : String) (top named : Bool)
     (shape : translateCoreShape e = false)
     (core : translateCore rec e hint top named = pure none) :
-    translateStepWith translateFallback rec e hint top named =
-      translateFallback rec e hint top named := by
+    translateStepWith (translateFallback tenv) rec e hint top named =
+      (translateFallback tenv) rec e hint top named := by
   simp [translateStepWith, shape, core] <;> rfl
 
 set_option linter.unusedSectionVars false
@@ -121,8 +123,8 @@ the sub-expressions. -/
 theorem fuel_of_step {Dom : Lean.Expr → Value → Prop} {ctx : CompilerState}
     {inputs : FVarId → Option Value} {we : WEnv} {mems : MEnv} {initial : Env}
     (step : ∀ rec : TranslateFn, RecSound Dom rec ctx inputs we mems initial →
-      RecSound Dom (translateStepWith translateFallback rec) ctx inputs we mems initial) :
-    ∀ fuel : Nat, RecSound Dom (translateFuelFix translateStep fuel) ctx inputs we mems initial := by
+      RecSound Dom (translateStepWith (translateFallback tenv) rec) ctx inputs we mems initial) :
+    ∀ fuel : Nat, RecSound Dom (translateFuelFix (translateStep tenv) fuel) ctx inputs we mems initial := by
   intro fuel
   induction fuel with
   | zero =>
@@ -137,8 +139,8 @@ step. -/
 theorem translate_of_step {Dom : Lean.Expr → Value → Prop} {ctx : CompilerState}
     {inputs : FVarId → Option Value} {we : WEnv} {mems : MEnv} {initial : Env}
     (step : ∀ rec : TranslateFn, RecSound Dom rec ctx inputs we mems initial →
-      RecSound Dom (translateStepWith translateFallback rec) ctx inputs we mems initial) :
-    RecSound Dom (fun e hint top named => translateExprToWire e hint top named)
+      RecSound Dom (translateStepWith (translateFallback tenv) rec) ctx inputs we mems initial) :
+    RecSound Dom (fun e hint top named => translateExprToWire tenv e hint top named)
       ctx inputs we mems initial :=
   fuel_of_step step translateFuelLimit
 
@@ -164,9 +166,9 @@ def LegacySem (Dom : Lean.Expr → Value → Prop) (ctx : CompilerState)
 successful run of the fallback on `e` returns the wire of a successful run of
 the inline attempt on `e`, with the same hint and name flag, from the same
 builder state to the same builder state. -/
-def ReachesInline (rec : TranslateFn) (ctx : CompilerState) (e : Lean.Expr) : Prop :=
+def ReachesInline (tenv : Lean.Environment) (rec : TranslateFn) (ctx : CompilerState) (e : Lean.Expr) : Prop :=
   ∀ (hint : String) (top named : Bool) (s t : CircuitState) (w : String),
-    Returns (translateFallback rec e hint top named) ctx s w t →
+    Returns ((translateFallback tenv) rec e hint top named) ctx s w t →
     ∃ r : Option String × Option Exception,
       Returns (Rec.tryInlineUnfold rec e hint named) ctx s r t ∧ r.1 = some w
 
@@ -178,37 +180,37 @@ wire. Weaker than `ReachesInline` (`ReachesInline.unfold`): it does not say
 that the wire came from a run of `Rec.tryInlineUnfold`. It is what the walked
 dispatch concludes (`plain_call_reaches`,
 `Tools/ShippingLegacySemInstance.lean`). -/
-def ReachesUnfold (rec : TranslateFn) (ctx : CompilerState) (e : Lean.Expr) : Prop :=
+def ReachesUnfold (tenv : Lean.Environment) (rec : TranslateFn) (ctx : CompilerState) (e : Lean.Expr) : Prop :=
   ∀ (hint : String) (top named : Bool) (s t : CircuitState) (w : String),
-    Returns (translateFallback rec e hint top named) ctx s w t →
+    Returns ((translateFallback tenv) rec e hint top named) ctx s w t →
     ∃ e' : Lean.Expr, InlineUnfolds e e' ∧ Returns (rec e' hint false named) ctx s w t
 
 theorem ReachesInline.unfold {rec : TranslateFn} {ctx : CompilerState} {e : Lean.Expr}
-    (h : ReachesInline rec ctx e) : ReachesUnfold rec ctx e := by
+    (h : ReachesInline tenv rec ctx e) : ReachesUnfold tenv rec ctx e := by
   intro hint top named s t w hr
   obtain ⟨r, hrun, hres⟩ := h hint top named s t w hr
   exact tryInlineUnfold_returns hrun hres
 
 /-- The legacy handlers proved to meet the contract, as data: the handler an
 expression takes and the contract of what that handler translates. -/
-inductive LegacyArm (rec : TranslateFn) (ctx : CompilerState) (inputs : FVarId → Option Value)
+inductive LegacyArm (tenv : Lean.Environment) (rec : TranslateFn) (ctx : CompilerState) (inputs : FVarId → Option Value)
     (we : WEnv) (mems : MEnv) (initial : Env) : Lean.Expr → Value → Prop where
   /-- Definition unfolding: the fallback returns the inline attempt's wire,
   and every unfolding the attempt may translate meets the contract at the
   call's value. -/
   | inlineUnfold {e : Lean.Expr} {v : Value} :
-      ReachesInline rec ctx e →
+      ReachesInline tenv rec ctx e →
       (∀ e' : Lean.Expr, InlineUnfolds e e' → Contract rec ctx inputs we mems initial e' v) →
-      LegacyArm rec ctx inputs we mems initial e v
+      LegacyArm tenv rec ctx inputs we mems initial e v
 
 /-- **The fallback on a legacy arm**: frame and semantic outcome, for every
 hint and flag — the same `ActionSpec` the certified arms prove. One case per
 `LegacyArm` constructor. -/
 theorem translateFallback_legacy {rec : TranslateFn} {ctx : CompilerState}
     {inputs : FVarId → Option Value} {we : WEnv} {mems : MEnv} {initial : Env}
-    {e : Lean.Expr} {v : Value} (arm : LegacyArm rec ctx inputs we mems initial e v)
+    {e : Lean.Expr} {v : Value} (arm : LegacyArm tenv rec ctx inputs we mems initial e v)
     (hint : String) (top named : Bool) :
-    ActionSpec (translateFallback rec e hint top named) ctx inputs we mems initial v := by
+    ActionSpec ((translateFallback tenv) rec e hint top named) ctx inputs we mems initial v := by
   cases arm with
   | inlineUnfold reach sub =>
     constructor
@@ -225,8 +227,8 @@ theorem translateFallback_legacy {rec : TranslateFn} {ctx : CompilerState}
 theorem legacy_step_contract {rec : TranslateFn} {ctx : CompilerState}
     {inputs : FVarId → Option Value} {we : WEnv} {mems : MEnv} {initial : Env}
     {e : Lean.Expr} {v : Value} (nc : NotCore e)
-    (arm : LegacyArm rec ctx inputs we mems initial e v) :
-    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial e v := by
+    (arm : LegacyArm tenv rec ctx inputs we mems initial e v) :
+    Contract (translateStepWith (translateFallback tenv) rec) ctx inputs we mems initial e v := by
   constructor
   · intro hint top named s t w lookup hr
     rw [step_eq_fallback rec e hint top named nc.shape (nc.core rec hint top named)] at hr
@@ -259,28 +261,28 @@ and no theorem about the domain became weaker. What a derivation by `inline`
 no longer records: that the returned wire was produced by a run of
 `Rec.tryInlineUnfold` — only that it is the wire of a translation of an
 unfolding. No proof used the stronger fact. -/
-inductive LegacyDom (ctx : CompilerState) (inputs : FVarId → Option Value) :
+inductive LegacyDom (tenv : Lean.Environment) (ctx : CompilerState) (inputs : FVarId → Option Value) :
     Lean.Expr → Value → Prop where
-  | input {id : FVarId} {v : Value} : inputs id = some v → LegacyDom ctx inputs (.fvar id) v
+  | input {id : FVarId} {v : Value} : inputs id = some v → LegacyDom tenv ctx inputs (.fvar id) v
   | cert {dom : Lean.Expr} {kb kv : Nat} {vw : Nat → Nat} {bE vE : Nat → Lean.Expr}
       {bools : Nat → Bool} {bits : (j : Nat) → (w : Nat) → BitVec w} {s : SType} (t : Term s) :
       t.WF kb kv vw →
       (∀ j, j < kb → Meaning inputs (bE j) (.bool (bools j))) →
       (∀ j, j < kv → Meaning inputs (vE j) (.bits (vw j) (bits j (vw j)))) →
-      (∀ j, j < kb → LegacyDom ctx inputs (bE j) (.bool (bools j))) →
-      (∀ j, j < kv → LegacyDom ctx inputs (vE j) (.bits (vw j) (bits j (vw j)))) →
-      LegacyDom ctx inputs (quote dom bE vE t) (pack s (eval bools bits t))
+      (∀ j, j < kb → LegacyDom tenv ctx inputs (bE j) (.bool (bools j))) →
+      (∀ j, j < kv → LegacyDom tenv ctx inputs (vE j) (.bits (vw j) (bits j (vw j)))) →
+      LegacyDom tenv ctx inputs (quote dom bE vE t) (pack s (eval bools bits t))
   | inline {e : Lean.Expr} {v : Value} : NotCore e →
-      (∀ rec : TranslateFn, ReachesUnfold rec ctx e) →
-      (∀ e' : Lean.Expr, InlineUnfolds e e' → LegacyDom ctx inputs e' v) →
-      LegacyDom ctx inputs e v
+      (∀ rec : TranslateFn, ReachesUnfold tenv rec ctx e) →
+      (∀ e' : Lean.Expr, InlineUnfolds e e' → LegacyDom tenv ctx inputs e' v) →
+      LegacyDom tenv ctx inputs e v
 
 /-- The constructor `inline` as it was stated before round 12. -/
 theorem LegacyDom.inline_of_reachesInline {ctx : CompilerState}
     {inputs : FVarId → Option Value} {e : Lean.Expr} {v : Value} (nc : NotCore e)
-    (reach : ∀ rec : TranslateFn, ReachesInline rec ctx e)
-    (sub : ∀ e' : Lean.Expr, InlineUnfolds e e' → LegacyDom ctx inputs e' v) :
-    LegacyDom ctx inputs e v :=
+    (reach : ∀ rec : TranslateFn, ReachesInline tenv rec ctx e)
+    (sub : ∀ e' : Lean.Expr, InlineUnfolds e e' → LegacyDom tenv ctx inputs e' v) :
+    LegacyDom tenv ctx inputs e v :=
   LegacyDom.inline nc (fun rec => (reach rec).unfold) sub
 
 /-- **Semantic preservation on the combined domain, at every fuel.** By
@@ -290,8 +292,8 @@ induction hypothesis, a legacy inline arm by `legacy_step_contract` with the
 unfoldings' contracts from the induction hypothesis one fuel below. -/
 theorem legacy_fuel_contract {ctx : CompilerState} {inputs : FVarId → Option Value}
     {we : WEnv} {mems : MEnv} {initial : Env} {e : Lean.Expr} {v : Value}
-    (h : LegacyDom ctx inputs e v) :
-    ∀ fuel : Nat, Contract (translateFuelFix translateStep fuel) ctx inputs we mems initial e v := by
+    (h : LegacyDom tenv ctx inputs e v) :
+    ∀ fuel : Nat, Contract (translateFuelFix (translateStep tenv) fuel) ctx inputs we mems initial e v := by
   induction h with
   | input hi => exact input_contract_fuel hi
   | cert t wf mb mv _ _ ihb ihv =>
@@ -305,16 +307,16 @@ theorem legacy_fuel_contract {ctx : CompilerState} {inputs : FVarId → Option V
       · intro hint top named s' t w lookup hr; exact (Returns.throw hr).elim
       · intro hint top named s' t w prior hinv widths hr; exact (Returns.throw hr).elim
     | succ fuel =>
-      show Contract (translateStepWith translateFallback (translateFuelFix translateStep fuel))
+      show Contract (translateStepWith (translateFallback tenv) (translateFuelFix (translateStep tenv) fuel))
         ctx inputs we mems initial _ _
       constructor
       · intro hint top named s t w lookup hr
-        rw [step_eq_fallback (translateFuelFix translateStep fuel) _ hint top named nc.shape
+        rw [step_eq_fallback (translateFuelFix (translateStep tenv) fuel) _ hint top named nc.shape
           (nc.core _ hint top named)] at hr
         obtain ⟨e', hU, htr⟩ := reach _ hint top named s t w hr
         exact (ih e' hU fuel).frame hint false named s t w lookup htr
       · intro hint top named s t w prior hinv widths hr
-        rw [step_eq_fallback (translateFuelFix translateStep fuel) _ hint top named nc.shape
+        rw [step_eq_fallback (translateFuelFix (translateStep tenv) fuel) _ hint top named nc.shape
           (nc.core _ hint top named)] at hr
         obtain ⟨e', hU, htr⟩ := reach _ hint top named s t w hr
         exact (ih e' hU fuel).sem hint false named s t w prior hinv widths htr
@@ -324,8 +326,8 @@ premise; the entry invariant and the final widths stay explicit in
 `Contract`, as for the certified fragment. -/
 theorem legacy_translate_contract {ctx : CompilerState} {inputs : FVarId → Option Value}
     {we : WEnv} {mems : MEnv} {initial : Env} {e : Lean.Expr} {v : Value}
-    (h : LegacyDom ctx inputs e v) :
-    Contract (fun e hint top named => translateExprToWire e hint top named)
+    (h : LegacyDom tenv ctx inputs e v) :
+    Contract (fun e hint top named => translateExprToWire tenv e hint top named)
       ctx inputs we mems initial e v :=
   legacy_fuel_contract h translateFuelLimit
 

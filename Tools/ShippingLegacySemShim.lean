@@ -1,5 +1,7 @@
 import Tools.ShippingLegacySemDispatch
 
+variable {tenv : Lean.Environment}
+
 /-! # The legacy caching shim, walked: where its stage holds today
 
 `Rec.translateExprToWireCached` (`Sparkle/Compiler/Elab.lean`): for a
@@ -145,18 +147,18 @@ of kind `.other`, from the body stage alone. -/
 theorem reachesAt_uncacheable {rec : TranslateFn} {ctx : CompilerState} {e : Lean.Expr}
     {mn : Name} {us : List Level} {hint : String} {top named : Bool}
     (hkind : fallbackKind e = .other) (hfn : e.getAppFn = .const mn us)
-    (hplain : PlainHead mn) (hnc : (!named && !e.isFVar && !top) = false)
+    (hplain : PlainHead tenv mn) (hnc : (!named && !e.isFVar && !top) = false)
     (body : BodyReachesInline rec ctx e) :
-    ReachesAt rec ctx e hint top named :=
+    ReachesAt tenv rec ctx e hint top named :=
   reachesAt_of_stages hkind hfn hplain (shimAt_of_uncacheable hnc) body
 
 /-- The same under a context without an expression cache, for every call. -/
 theorem reachesAt_noCache {rec : TranslateFn} {ctx : CompilerState} {e : Lean.Expr}
     {mn : Name} {us : List Level} {hint : String} {top named : Bool}
     (hkind : fallbackKind e = .other) (hfn : e.getAppFn = .const mn us)
-    (hplain : PlainHead mn) (hno : ctx.exprCache = none)
+    (hplain : PlainHead tenv mn) (hno : ctx.exprCache = none)
     (body : BodyReachesInline rec ctx e) :
-    ReachesAt rec ctx e hint top named :=
+    ReachesAt tenv rec ctx e hint top named :=
   reachesAt_of_stages hkind hfn hplain (shimAt_of_noCache hno) body
 
 end Tools.ShippingLegacySem

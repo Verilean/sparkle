@@ -1,6 +1,8 @@
 import Tools.ShippingLegacySemHarnessAt
 import Tools.ShippingLegacySemEntryWalk
 
+variable {tenv : Lean.Environment}
+
 /-! # The entry's leaf at the flags the entry uses
 
 `LegacyDom` (`Tools/ShippingLegacySemContract.lean`) gives `Contract` — every
@@ -59,15 +61,15 @@ open Tools.ShippingUnifiedRecursion
 open Tools.ShippingUnifiedProtection
 
 /-- `ReachesUnfold` at one hint and flag setting. -/
-def ReachesUnfoldAt (rec : TranslateFn) (ctx : CompilerState) (e : Lean.Expr) (hint : String)
+def ReachesUnfoldAt (tenv : Lean.Environment) (rec : TranslateFn) (ctx : CompilerState) (e : Lean.Expr) (hint : String)
     (top named : Bool) : Prop :=
   ∀ (s t : CircuitState) (w : String),
-    Returns (translateFallback rec e hint top named) ctx s w t →
+    Returns ((translateFallback tenv) rec e hint top named) ctx s w t →
     ∃ e' : Lean.Expr, InlineUnfolds e e' ∧ Returns (rec e' hint false named) ctx s w t
 
 theorem ReachesUnfold.atFlags {rec : TranslateFn} {ctx : CompilerState} {e : Lean.Expr}
-    (h : ReachesUnfold rec ctx e) (hint : String) (top named : Bool) :
-    ReachesUnfoldAt rec ctx e hint top named :=
+    (h : ReachesUnfold tenv rec ctx e) (hint : String) (top named : Bool) :
+    ReachesUnfoldAt tenv rec ctx e hint top named :=
   fun s t w hr => h hint top named s t w hr
 
 /-- **A handler's case** (round 18; sub-flags round 24): what ONE arm of the
@@ -95,49 +97,49 @@ constructor `LeafDom.handled` makes the leaf domain closed under any arm for
 which they are PROVED, and `leaf_fuel_spec` / `leaf_fuel_order` use them as
 they are. The inline arm is the first instance
 (`Tools/ShippingLegacySemLeafHandled.lean`, `handlerCase_inline`). -/
-structure HandlerCase (ctx : CompilerState) (inputs : FVarId → Option Value) (hint : String)
+structure HandlerCase (tenv : Lean.Environment) (ctx : CompilerState) (inputs : FVarId → Option Value) (hint : String)
     (named : Bool) (e : Lean.Expr) (v : Value)
     (subs : String → Bool → Lean.Expr → Value → Prop) : Prop where
   spec : ∀ (fuel : Nat) (we : WEnv) (mems : MEnv) (initial : Env),
     (∀ (h' : String) (n' : Bool) (e' : Lean.Expr) (v' : Value), subs h' n' e' v' →
-      ActionSpec (translateFuelFix translateStep fuel e' h' false n')
+      ActionSpec (translateFuelFix (translateStep tenv) fuel e' h' false n')
         ctx inputs we mems initial v') →
-    ActionSpec (translateFuelFix translateStep (fuel + 1) e hint false named)
+    ActionSpec (translateFuelFix (translateStep tenv) (fuel + 1) e hint false named)
       ctx inputs we mems initial v
   order : ∀ (fuel : Nat) (we : WEnv) (mems : MEnv) (initial : Env),
     (∀ (h' : String) (n' : Bool) (e' : Lean.Expr) (v' : Value), subs h' n' e' v' →
-      ActionSpec (translateFuelFix translateStep fuel e' h' false n')
+      ActionSpec (translateFuelFix (translateStep tenv) fuel e' h' false n')
         ctx inputs we mems initial v') →
     (∀ (h' : String) (n' : Bool) (e' : Lean.Expr) (v' : Value), subs h' n' e' v' →
-      ActionOrder (translateFuelFix translateStep fuel e' h' false n')
+      ActionOrder (translateFuelFix (translateStep tenv) fuel e' h' false n')
         ctx inputs we mems initial) →
-    ActionOrder (translateFuelFix translateStep (fuel + 1) e hint false named)
+    ActionOrder (translateFuelFix (translateStep tenv) (fuel + 1) e hint false named)
       ctx inputs we mems initial
 
 /-- The domain of a leaf translated at `(hint, isTopLevel := false, named)`.
 The hint and the name flag are INDICES (round 24): a handled node's
 sub-expressions are leaves at the flags the arm translates them at. -/
-inductive LeafDom (ctx : CompilerState) (inputs : FVarId → Option Value) :
+inductive LeafDom (tenv : Lean.Environment) (ctx : CompilerState) (inputs : FVarId → Option Value) :
     String → Bool → Lean.Expr → Value → Prop where
   | dom {hint : String} {named : Bool} {e : Lean.Expr} {v : Value} :
-      LegacyDom ctx inputs e v → LeafDom ctx inputs hint named e v
+      LegacyDom tenv ctx inputs e v → LeafDom tenv ctx inputs hint named e v
   | inlineAt {hint : String} {named : Bool} {e : Lean.Expr} {v : Value} : NotCore e →
       (∀ fuel : Nat,
-        ReachesUnfoldAt (translateFuelFix translateStep fuel) ctx e hint false named) →
-      (∀ e' : Lean.Expr, InlineUnfolds e e' → LeafDom ctx inputs hint named e' v) →
-      LeafDom ctx inputs hint named e v
+        ReachesUnfoldAt tenv (translateFuelFix (translateStep tenv) fuel) ctx e hint false named) →
+      (∀ e' : Lean.Expr, InlineUnfolds e e' → LeafDom tenv ctx inputs hint named e' v) →
+      LeafDom tenv ctx inputs hint named e v
   | handled {hint : String} {named : Bool} {e : Lean.Expr} {v : Value}
       (subs : String → Bool → Lean.Expr → Value → Prop) :
-      HandlerCase ctx inputs hint named e v subs →
+      HandlerCase tenv ctx inputs hint named e v subs →
       (∀ (h' : String) (n' : Bool) (e' : Lean.Expr) (v' : Value), subs h' n' e' v' →
-        LeafDom ctx inputs h' n' e' v') →
-      LeafDom ctx inputs hint named e v
+        LeafDom tenv ctx inputs h' n' e' v') →
+      LeafDom tenv ctx inputs hint named e v
 
 /-- **Frame and outcome of a leaf at its flags, at every fuel.** -/
 theorem leaf_fuel_spec {ctx : CompilerState} {inputs : FVarId → Option Value}
     {we : WEnv} {mems : MEnv} {initial : Env} {hint : String} {named : Bool}
-    {e : Lean.Expr} {v : Value} (h : LeafDom ctx inputs hint named e v) :
-    ∀ fuel : Nat, ActionSpec (translateFuelFix translateStep fuel e hint false named)
+    {e : Lean.Expr} {v : Value} (h : LeafDom tenv ctx inputs hint named e v) :
+    ∀ fuel : Nat, ActionSpec (translateFuelFix (translateStep tenv) fuel e hint false named)
       ctx inputs we mems initial v := by
   induction h with
   | @dom hint named e v hd =>
@@ -154,13 +156,13 @@ theorem leaf_fuel_spec {ctx : CompilerState} {inputs : FVarId → Option Value}
     | succ fuel =>
       constructor
       · intro s t w lookup hr
-        have hstep : Returns (translateStepWith translateFallback
-            (translateFuelFix translateStep fuel) e hint false named) ctx s w t := hr
+        have hstep : Returns (translateStepWith (translateFallback tenv)
+            (translateFuelFix (translateStep tenv) fuel) e hint false named) ctx s w t := hr
         obtain ⟨e', hU, htr⟩ := reach fuel s t w (step_run_fallback nc hstep)
         exact (ih e' hU fuel).frame s t w lookup htr
       · intro s t w prior hinv widths hr
-        have hstep : Returns (translateStepWith translateFallback
-            (translateFuelFix translateStep fuel) e hint false named) ctx s w t := hr
+        have hstep : Returns (translateStepWith (translateFallback tenv)
+            (translateFuelFix (translateStep tenv) fuel) e hint false named) ctx s w t := hr
         obtain ⟨e', hU, htr⟩ := reach fuel s t w (step_run_fallback nc hstep)
         exact (ih e' hU fuel).sem s t w prior hinv widths htr
   | @handled hint named e v subs hc _ ih =>
@@ -176,8 +178,8 @@ theorem leaf_fuel_spec {ctx : CompilerState} {inputs : FVarId → Option Value}
 /-- **Order of a leaf at its flags, at every fuel.** -/
 theorem leaf_fuel_order {ctx : CompilerState} {inputs : FVarId → Option Value}
     {we : WEnv} {mems : MEnv} {initial : Env} {hint : String} {named : Bool}
-    {e : Lean.Expr} {v : Value} (h : LeafDom ctx inputs hint named e v) :
-    ∀ fuel : Nat, ActionOrder (translateFuelFix translateStep fuel e hint false named)
+    {e : Lean.Expr} {v : Value} (h : LeafDom tenv ctx inputs hint named e v) :
+    ∀ fuel : Nat, ActionOrder (translateFuelFix (translateStep tenv) fuel e hint false named)
       ctx inputs we mems initial := by
   induction h with
   | @dom hint named e v hd =>
@@ -191,8 +193,8 @@ theorem leaf_fuel_order {ctx : CompilerState} {inputs : FVarId → Option Value}
       exact (Returns.throw hr).elim
     | succ fuel =>
       intro s t w prior hr hinv widths order
-      have hstep : Returns (translateStepWith translateFallback
-          (translateFuelFix translateStep fuel) e hint false named) ctx s w t := hr
+      have hstep : Returns (translateStepWith (translateFallback tenv)
+          (translateFuelFix (translateStep tenv) fuel) e hint false named) ctx s w t := hr
       obtain ⟨e', hU, htr⟩ := reach fuel s t w (step_run_fallback nc hstep)
       exact ih e' hU fuel s t w prior htr hinv widths order
   | @handled hint named e v subs hc hsub ih =>
@@ -209,15 +211,15 @@ theorem leaf_fuel_order {ctx : CompilerState} {inputs : FVarId → Option Value}
 /-- The shipping translator on a leaf at its flags: frame and outcome. -/
 theorem leaf_translate_spec {ctx : CompilerState} {inputs : FVarId → Option Value}
     {we : WEnv} {mems : MEnv} {initial : Env} {hint : String} {named : Bool}
-    {e : Lean.Expr} {v : Value} (h : LeafDom ctx inputs hint named e v) :
-    ActionSpec (translateExprToWire e hint false named) ctx inputs we mems initial v :=
+    {e : Lean.Expr} {v : Value} (h : LeafDom tenv ctx inputs hint named e v) :
+    ActionSpec (translateExprToWire tenv e hint false named) ctx inputs we mems initial v :=
   leaf_fuel_spec h translateFuelLimit
 
 /-- The shipping translator on a leaf at its flags: order. -/
 theorem leaf_translate_order {ctx : CompilerState} {inputs : FVarId → Option Value}
     {we : WEnv} {mems : MEnv} {initial : Env} {hint : String} {named : Bool}
-    {e : Lean.Expr} {v : Value} (h : LeafDom ctx inputs hint named e v) :
-    ActionOrder (translateExprToWire e hint false named) ctx inputs we mems initial :=
+    {e : Lean.Expr} {v : Value} (h : LeafDom tenv ctx inputs hint named e v) :
+    ActionOrder (translateExprToWire tenv e hint false named) ctx inputs we mems initial :=
   leaf_fuel_order h translateFuelLimit
 
 /-- **The output of a leaf of `LeafDom`**: a run of the harness and the leaf
@@ -226,7 +228,7 @@ theorem leaf_output {logProf : String → IO Unit} {declName : Name}
     {bs : List (Name × MixedGateBinder)} {ids : List FVarId}
     {cache : IO.Ref (ExprStructMap String)} {leaf : Lean.Expr} {returned : String}
     {st : CircuitState} {m : Sparkle.IR.AST.Module}
-    (run : HarnessRun logProf declName bs ids cache leaf returned st)
+    (run : HarnessRun tenv logProf declName bs ids cache leaf returned st)
     (hm : m = (addClockResetIfSequential st.module).finalize)
     (legal : Sparkle.IR.ModuleNames.legal (Sparkle.Backend.Verilog.sanitizeName m.name) = true)
     (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n)
@@ -235,7 +237,7 @@ theorem leaf_output {logProf : String → IO Unit} {declName : Name}
       (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
         (Sparkle.IR.ModuleName.ofDecl declName)))
     (v : Value) (pos : 0 < v.kind.width)
-    (dom : LeafDom (setupOf declName bs ids cache bools bits).context
+    (dom : LeafDom tenv (setupOf declName bs ids cache bools bits).context
       (Tools.ShippingUnifiedMeaning.inputValues (setupOf declName bs ids cache bools bits).bools
         (setupOf declName bs ids cache bools bits).bits) "out" true leaf v) :
     Tools.ShippingMixedEntrySoundness.RawValueAt v.kind.width bs m initial mems v.toNat :=
@@ -255,7 +257,7 @@ theorem leaf_entry_output_walked {logProf : String → IO Unit} {declName : Name
     (htele : ∀ body0, MReturns (openRecordInputs dv.value) body0 →
       TelescopeSpec (stripMemoizeWrappers body0) (EntryFacts bs leafOf))
     (hr : MReturns (synthesizeFromConst
-      (fun e hint top named => translateExprToWire e hint top named)
+      (fun e hint top named => translateExprToWire tenv e hint top named)
       logProf declName [] false cfe (.defnInfo dv) isInst) (m, d)) :
     MemoHit declName m d ∨
     ∃ (ids : List FVarId) (cache : IO.Ref (ExprStructMap String)),
@@ -266,7 +268,7 @@ theorem leaf_entry_output_walked {logProf : String → IO Unit} {declName : Name
         (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
           (Sparkle.IR.ModuleName.ofDecl declName)) →
       ∀ v : Value, 0 < v.kind.width →
-      LeafDom (setupOf declName bs ids cache bools bits).context
+      LeafDom tenv (setupOf declName bs ids cache bools bits).context
         (Tools.ShippingUnifiedMeaning.inputValues
           (setupOf declName bs ids cache bools bits).bools
           (setupOf declName bs ids cache bools bits).bits) "out" true (leafOf ids) v →
@@ -278,7 +280,7 @@ theorem leaf_entry_output_walked {logProf : String → IO Unit} {declName : Name
   · refine Or.inr ⟨ids, cache, nd, len, ?_⟩
     intro bools bits initial mems values v pos dom
     rw [hl leaves hsplit] at run
-    have run' : HarnessRun logProf declName bs ids cache (leafOf ids) returned st :=
+    have run' : HarnessRun tenv logProf declName bs ids cache (leafOf ids) returned st :=
       bw _ _ _ _ _ run
     exact leaf_output run' hm legal bools bits initial mems values v pos dom
 

@@ -1,6 +1,8 @@
 import Tools.ShippingLegacySemTelescopeN
 import Tools.ShippingLegacySemBinderListD
 
+variable {tenv : Lean.Environment}
+
 /-! # The legacy entry with scalar AND non-hardware (domain) binders
 
 `list_entry_output` (`Tools/ShippingLegacySemEntryList.lean`) restated over
@@ -52,7 +54,7 @@ theorem list_entry_outputD {logProf : String → IO Unit} {declName : Name}
       TelescopeIn (stripMemoizeWrappers body0) (ListScopeD bs leafOf))
     (hleaf : ∀ ids : List FVarId, (leafOf ids).isLambda = false ∧ SignalTyped (leafOf ids))
     (hr : MReturns (synthesizeFromConst
-      (fun e hint top named => translateExprToWire e hint top named)
+      (fun e hint top named => translateExprToWire tenv e hint top named)
       logProf declName [] false cfe (.defnInfo dv) isInst) (m, d)) :
     MemoHit declName m d ∨
     ∃ (ids : List FVarId) (cache : IO.Ref (ExprStructMap String)),
@@ -63,7 +65,7 @@ theorem list_entry_outputD {logProf : String → IO Unit} {declName : Name}
         (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
           (Sparkle.IR.ModuleName.ofDecl declName)) →
       ∀ v : Value, 0 < v.kind.width →
-      LeafDom (setupOf declName bs ids cache bools bits).context
+      LeafDom tenv (setupOf declName bs ids cache bools bits).context
         (Tools.ShippingUnifiedMeaning.inputValues
           (setupOf declName bs ids cache bools bits).bools
           (setupOf declName bs ids cache bools bits).bits)

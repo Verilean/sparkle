@@ -1,5 +1,7 @@
 import Tools.ShippingLegacySemHarnessAt
 
+variable {tenv : Lean.Environment}
+
 /-! # The harness's output statement from the leaf's run at the prepared setup
 
 `harness_sound_spec` (`Tools/ShippingLegacySemHarnessAt.lean`) takes a run of
@@ -53,14 +55,14 @@ theorem harness_sound_leaf {logProf : String → IO Unit} {declName : Name}
     (values : Admissible bools bits initial (bs.zip ids)
       (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)))
     (leaf : Returns
-      (emitLeaves (fun e hint top named => translateExprToWire e hint top named) cache logProf
+      (emitLeaves (fun e hint top named => translateExprToWire tenv e hint top named) cache logProf
         [("out", leafE)] none 0)
       (prepare bools bits (bs.zip ids)
         (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context
       (prepare bools bits (bs.zip ids)
         (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).state returned st)
     (v : Value) (positive : 0 < v.kind.width)
-    (contract : ActionSpec (translateExprToWire leafE "out" false true)
+    (contract : ActionSpec (translateExprToWire tenv leafE "out" false true)
       (prepare bools bits (bs.zip ids)
         (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context
       (inputValues
@@ -69,7 +71,7 @@ theorem harness_sound_leaf {logProf : String → IO Unit} {declName : Name}
         (prepare bools bits (bs.zip ids)
           (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bits)
       (declaredWidths st) mems initial v)
-    (ordered : ActionOrder (translateExprToWire leafE "out" false true)
+    (ordered : ActionOrder (translateExprToWire tenv leafE "out" false true)
       (prepare bools bits (bs.zip ids)
         (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context
       (inputValues

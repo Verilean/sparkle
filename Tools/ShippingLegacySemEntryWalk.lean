@@ -1,6 +1,8 @@
 import Tools.ShippingLegacySemHarness
 import Tools.ShippingLegacySemOrder
 
+variable {tenv : Lean.Environment}
+
 /-! # The legacy arm of the entry, walked — and the output statement it gives
 
 `synthesizeFromConst` (`Sparkle/Compiler/Elab.lean`) tries the certified
@@ -247,7 +249,7 @@ theorem legacy_leaf_output_closed {logProf : String → IO Unit} {declName : Nam
     {bs : List (Name × MixedGateBinder)} {ids : List FVarId}
     {cache : IO.Ref (ExprStructMap String)} {leaf : Lean.Expr} {returned : String}
     {st : CircuitState} {m : Sparkle.IR.AST.Module}
-    (run : HarnessRun logProf declName bs ids cache leaf returned st)
+    (run : HarnessRun tenv logProf declName bs ids cache leaf returned st)
     (hm : m = (addClockResetIfSequential st.module).finalize)
     (legal : Sparkle.IR.ModuleNames.legal (Sparkle.Backend.Verilog.sanitizeName m.name) = true)
     (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n)
@@ -256,7 +258,7 @@ theorem legacy_leaf_output_closed {logProf : String → IO Unit} {declName : Nam
       (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
         (Sparkle.IR.ModuleName.ofDecl declName)))
     (v : Value) (pos : 0 < v.kind.width)
-    (dom : LegacyDom (setupOf declName bs ids cache bools bits).context
+    (dom : LegacyDom tenv (setupOf declName bs ids cache bools bits).context
       (Tools.ShippingUnifiedMeaning.inputValues (setupOf declName bs ids cache bools bits).bools
         (setupOf declName bs ids cache bools bits).bits) leaf v) :
     Tools.ShippingMixedEntrySoundness.RawValueAt v.kind.width bs m initial mems v.toNat :=
@@ -279,7 +281,7 @@ theorem legacy_entry_output_walked {logProf : String → IO Unit} {declName : Na
     (htele : ∀ body0, MReturns (openRecordInputs dv.value) body0 →
       TelescopeSpec (stripMemoizeWrappers body0) (EntryFacts bs leafOf))
     (hr : MReturns (synthesizeFromConst
-      (fun e hint top named => translateExprToWire e hint top named)
+      (fun e hint top named => translateExprToWire tenv e hint top named)
       logProf declName [] false cfe (.defnInfo dv) isInst) (m, d)) :
     MemoHit declName m d ∨
     ∃ (ids : List FVarId) (cache : IO.Ref (ExprStructMap String)),
@@ -290,7 +292,7 @@ theorem legacy_entry_output_walked {logProf : String → IO Unit} {declName : Na
         (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
           (Sparkle.IR.ModuleName.ofDecl declName)) →
       ∀ v : Value, 0 < v.kind.width →
-      LegacyDom (setupOf declName bs ids cache bools bits).context
+      LegacyDom tenv (setupOf declName bs ids cache bools bits).context
         (Tools.ShippingUnifiedMeaning.inputValues
           (setupOf declName bs ids cache bools bits).bools
           (setupOf declName bs ids cache bools bits).bits) (leafOf ids) v →
@@ -302,7 +304,7 @@ theorem legacy_entry_output_walked {logProf : String → IO Unit} {declName : Na
   · refine Or.inr ⟨ids, cache, nd, len, ?_⟩
     intro bools bits initial mems values v pos dom
     rw [hl leaves hsplit] at run
-    have run' : HarnessRun logProf declName bs ids cache (leafOf ids) returned st :=
+    have run' : HarnessRun tenv logProf declName bs ids cache (leafOf ids) returned st :=
       bw _ _ _ _ _ run
     exact legacy_leaf_output_closed run' hm legal bools bits initial mems values v pos dom
 

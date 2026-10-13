@@ -1,6 +1,8 @@
 import Tools.ShippingLegacySemHarness
 import Tools.ShippingLegacySemLeafAt
 
+variable {tenv : Lean.Environment}
+
 /-! # The certified harness from the leaf's spec at the entry flags
 
 `harness_sound_at` (`Tools/ShippingLegacySemHarness.lean`) asks the leaf's
@@ -39,7 +41,7 @@ theorem harness_sound_spec {logProf : String → IO Unit} {declName : Name}
     {ids : List FVarId} {cache : IO.Ref (ExprStructMap String)} {returned : String}
     {st : CircuitState}
     (run : Returns (bindMixedCertifiedInputs
-        (emitLeaves (fun e hint top named => translateExprToWire e hint top named) cache logProf
+        (emitLeaves (fun e hint top named => translateExprToWire tenv e hint top named) cache logProf
           [("out", leafE)] none 0) (bs.zip ids))
         (entryCompilerState false cache) (CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName)) returned st)
     (hm : m = (addClockResetIfSequential st.module).finalize)
@@ -49,7 +51,7 @@ theorem harness_sound_spec {logProf : String → IO Unit} {declName : Name}
     (values : Admissible bools bits initial (bs.zip ids)
       (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName)))
     (v : Value) (positive : 0 < v.kind.width)
-    (contract : ActionSpec (translateExprToWire leafE "out" false true)
+    (contract : ActionSpec (translateExprToWire tenv leafE "out" false true)
       (prepare bools bits (bs.zip ids)
         (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context
       (inputValues
@@ -58,7 +60,7 @@ theorem harness_sound_spec {logProf : String → IO Unit} {declName : Name}
         (prepare bools bits (bs.zip ids)
           (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bits)
       (declaredWidths st) mems initial v)
-    (ordered : ActionOrder (translateExprToWire leafE "out" false true)
+    (ordered : ActionOrder (translateExprToWire tenv leafE "out" false true)
       (prepare bools bits (bs.zip ids)
         (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context
       (inputValues

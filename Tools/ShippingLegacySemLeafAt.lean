@@ -1,5 +1,7 @@
 import Tools.ShippingUnifiedEntrySoundness
 
+variable {tenv : Lean.Environment}
+
 /-! # The leaf emission from the leaf's spec AT THE FLAGS THE ENTRY USES
 
 `emitLeaves_structure`, `emitLeaves_correct`, `emitLeaves_from_ports`,
@@ -57,10 +59,10 @@ theorem emitLeaves_structure_spec {rec ctx inputs we mems initial s t e v cache 
 
 theorem emitLeaves_correct_spec {ctx inputs we mems initial prior s t e cache logProf returned}
     {v : Value} (positive : 0 < v.kind.width)
-    (contract : ActionSpec (translateExprToWire e "out" false true)
+    (contract : ActionSpec (translateExprToWire tenv e "out" false true)
       ctx inputs we mems initial v)
     (h : Inv ctx inputs we mems initial s prior) (widths : ScalarWidthsAgree we t)
-    (hr : Returns (emitLeaves (fun e hint top named => translateExprToWire e hint top named)
+    (hr : Returns (emitLeaves (fun e hint top named => translateExprToWire tenv e hint top named)
       cache logProf [("out", e)] none 0)
       ctx s returned t) :
     ∃ result, Runs we mems initial t result ∧ result "out" = v.toNat ∧
@@ -96,11 +98,11 @@ theorem emitLeaves_correct_spec {ctx inputs we mems initial prior s t e cache lo
 
 theorem emitLeaves_from_ports_spec {ctx ρ β mems initial s t e cache logProf returned}
     {v : Value} (positive : 0 < v.kind.width)
-    (contract : ActionSpec (translateExprToWire e "out" false true)
+    (contract : ActionSpec (translateExprToWire tenv e "out" false true)
       ctx (inputValues ρ β) (declaredWidths t) mems initial v)
     (body : s.module.body = []) (record : s.translateRecord = {})
     (wires : WiresOk s) (ports : PortInputs ctx ρ β s initial)
-    (hr : Returns (emitLeaves (fun e hint top named => translateExprToWire e hint top named)
+    (hr : Returns (emitLeaves (fun e hint top named => translateExprToWire tenv e hint top named)
       cache logProf [("out", e)] none 0)
       ctx s returned t) :
     WiresOk t ∧ ∃ result, Runs (declaredWidths t) mems initial t result ∧
@@ -108,7 +110,7 @@ theorem emitLeaves_from_ports_spec {ctx ρ β mems initial s t e cache logProf r
       "out" ∈ t.module.outputs.map (·.name) ∧
       TypedStmts (declaredWidths t) t.module.finalize.body ∧
       (∀ z, s.usedNames.contains z = true → result z = initial z) := by
-  obtain ⟨growth, finalWires⟩ := emitLeaves_structure_spec (rec := (fun e hint top named => translateExprToWire e hint top named)) contract (lookup_of_ports ports wires) wires hr
+  obtain ⟨growth, finalWires⟩ := emitLeaves_structure_spec (rec := (fun e hint top named => translateExprToWire tenv e hint top named)) contract (lookup_of_ports ports wires) wires hr
   have widths := declaredWidths_agree finalWires
   exact ⟨finalWires, emitLeaves_correct_spec positive contract
     (initial_unified body record (ports.separate wires)
@@ -116,16 +118,16 @@ theorem emitLeaves_from_ports_spec {ctx ρ β mems initial s t e cache logProf r
 
 theorem emitLeaves_postReady_at_spec {mems : MEnv} {ctx ρ β initial s t e cache logProf returned}
     {m : Sparkle.IR.AST.Module} {v : Value} (positive : 0 < v.kind.width)
-    (contract : ActionSpec (translateExprToWire e "out" false true)
+    (contract : ActionSpec (translateExprToWire tenv e "out" false true)
       ctx (inputValues ρ β) (declaredWidths t) mems initial v)
-    (ordered : ActionOrder (translateExprToWire e "out" false true) ctx (inputValues ρ β)
+    (ordered : ActionOrder (translateExprToWire tenv e "out" false true) ctx (inputValues ρ β)
       (declaredWidths t) mems initial)
     (body : s.module.body = []) (record : s.translateRecord = {})
     (wires : WiresOk s) (ports : PortInputs ctx ρ β s initial)
     (scalar : ScalarWires s) (outputs : s.module.outputs = [])
     (mw : m.wires = t.module.wires.reverse) (mb : m.body = t.module.finalize.body)
     (mo : m.outputs = t.module.outputs.reverse)
-    (hr : Returns (emitLeaves (fun e hint top named => translateExprToWire e hint top named)
+    (hr : Returns (emitLeaves (fun e hint top named => translateExprToWire tenv e hint top named)
       cache logProf [("out", e)] none 0)
       ctx s returned t) :
     weOf m = declaredWidths t ∧ TypedPostReady m ∧ (∀ p ∈ m.outputs, PrintableType p.ty) ∧

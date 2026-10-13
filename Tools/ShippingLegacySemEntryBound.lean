@@ -1,6 +1,8 @@
 import Tools.ShippingLegacySemEntryOne
 import Tools.ShippingLegacySemBinderBound
 
+variable {tenv : Lean.Environment}
+
 /-! # The legacy entry on a one-binder declaration: two outcomes, not three
 
 `one_binder_entry_output` (`Tools/ShippingLegacySemEntryOne.lean`) concludes
@@ -32,7 +34,7 @@ theorem one_binder_entry_output_bound {logProf : String → IO Unit} {declName :
     (hsig : SignalTestFrame T) (hinf : InfersBits T n) (hnt : InfersNoCatch T)
     (hleaf : ∀ id : FVarId, (leafOf id).isLambda = false ∧ SignalTyped (leafOf id))
     (hr : MReturns (synthesizeFromConst
-      (fun e hint top named => translateExprToWire e hint top named)
+      (fun e hint top named => translateExprToWire tenv e hint top named)
       logProf declName [] false cfe (.defnInfo dv) isInst) (m, d)) :
     MemoHit declName m d ∨
     ∃ (id : FVarId) (cache : IO.Ref (ExprStructMap String)),
@@ -43,7 +45,7 @@ theorem one_binder_entry_output_bound {logProf : String → IO Unit} {declName :
         (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
           (Sparkle.IR.ModuleName.ofDecl declName)) →
       ∀ v : Value, 0 < v.kind.width →
-      LeafDom (setupOf declName [(nm, MixedGateBinder.bits n)] [id] cache bools bits).context
+      LeafDom tenv (setupOf declName [(nm, MixedGateBinder.bits n)] [id] cache bools bits).context
         (Tools.ShippingUnifiedMeaning.inputValues
           (setupOf declName [(nm, MixedGateBinder.bits n)] [id] cache bools bits).bools
           (setupOf declName [(nm, MixedGateBinder.bits n)] [id] cache bools bits).bits)
@@ -74,7 +76,7 @@ theorem one_binder_entry_output_bound {logProf : String → IO Unit} {declName :
     have bound := bindInputsLegacy_one_bound hfind hsig' hinf' hnt' run
     refine ⟨id, cache, ?_⟩
     rw [hnm] at bound
-    have run' : HarnessRun logProf declName [(nm, MixedGateBinder.bits n)] [id] cache
+    have run' : HarnessRun tenv logProf declName [(nm, MixedGateBinder.bits n)] [id] cache
         (leafOf id) returned st := bound
     intro bools bits initial mems values v pos dom
     exact leaf_output run' hm legal bools bits initial mems values v pos dom

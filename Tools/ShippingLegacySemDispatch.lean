@@ -1,5 +1,7 @@
 import Tools.ShippingLegacySemContract
 
+variable {tenv : Lean.Environment}
+
 /-! # The dispatch from the fallback to the legacy inline attempt, in stages
 
 `Tools/ShippingLegacySemContract.lean` takes `ReachesInline rec ctx e` — every
@@ -73,26 +75,31 @@ def InlineOrHit (rec : TranslateFn) (ctx : CompilerState) (e : Lean.Expr) (hint 
     (t = s ∧ s.translateRecord.get? w = some e)
 
 /-- The dispatch fact of one call: hint and flags fixed. -/
-def ReachesAt (rec : TranslateFn) (ctx : CompilerState) (e : Lean.Expr) (hint : String)
+def ReachesAt (tenv : Lean.Environment) (rec : TranslateFn) (ctx : CompilerState) (e : Lean.Expr) (hint : String)
     (top named : Bool) : Prop :=
   ∀ (s t : CircuitState) (w : String),
-    Returns (translateFallback rec e hint top named) ctx s w t →
+    Returns ((translateFallback tenv) rec e hint top named) ctx s w t →
     InlineOrHit rec ctx e hint named s t w
 
 /-- `ReachesInline` is `ReachesAt` for every call, never by a hit. -/
 theorem reachesAt_of_reachesInline {rec : TranslateFn} {ctx : CompilerState} {e : Lean.Expr}
-    (h : ReachesInline rec ctx e) (hint : String) (top named : Bool) :
-    ReachesAt rec ctx e hint top named := by
+    (h : ReachesInline tenv rec ctx e) (hint : String) (top named : Bool) :
+    ReachesAt tenv rec ctx e hint top named := by
   intro s t w hr
   exact Or.inl (h hint top named s t w hr)
 
 /-! ## The stages -/
 
-/-- The environment facts the instance arm reads for a plain call: in every
-environment a run of `instArmEnv` returns, the head constant is not tagged
-`@[hardware_module]` and is not a structure projection. -/
-def PlainHead (mn : Name) : Prop :=
-  ∀ env, MReturns instArmEnv env →
+/-- The environment facts of a plain call: the head constant is not tagged
+`@[hardware_module]` and is not a structure projection
+* in `tenv`, the environment the translator was built from (the entry's
+  read): what the instance arm tests, and
+* in every environment a `getEnv` run returns: what the legacy handler
+  `handleDefinitionUnfold` tests on its own reads. -/
+def PlainHead (tenv : Lean.Environment) (mn : Name) : Prop :=
+  (Sparkle.Compiler.isHardwareModule tenv mn = false ∧
+    tenv.getProjectionStructureName? mn = none) ∧
+  ∀ env, MReturns (Lean.getEnv : MetaM Lean.Environment) env →
     Sparkle.Compiler.isHardwareModule env mn = false ∧
     env.getProjectionStructureName? mn = none
 
@@ -119,8 +126,8 @@ def BodyReachesInline (rec : TranslateFn) (ctx : CompilerState) (e : Lean.Expr) 
 instance arm (the last line of `instance_step`). -/
 theorem fallback_eq_arm (rec : TranslateFn) (e : Lean.Expr) (hint : String) (top named : Bool)
     (hkind : fallbackKind e = .other) :
-    translateFallback rec e hint top named =
-      translateInstanceOrFallback rec e hint top named := by
+    (translateFallback tenv) rec e hint top named =
+      translateInstanceOrFallback tenv rec e hint top named := by
   simp only [translateFallback, hkind]
 
 /-- Stage 2: for a plain head the instance arm hands the expression to the
@@ -130,18 +137,17 @@ and the projection test fail. (The walk of
 take.) -/
 theorem arm_to_shim {rec : TranslateFn} {e : Lean.Expr} {mn : Name} {us : List Level}
     {hint : String} {top named : Bool} {ctx : CompilerState} {s t : CircuitState} {w : String}
-    (hfn : e.getAppFn = .const mn us) (hplain : PlainHead mn)
-    (tr : Returns (translateInstanceOrFallback rec e hint top named) ctx s w t) :
+    (hfn : e.getAppFn = .const mn us) (hplain : PlainHead tenv mn)
+    (tr : Returns (translateInstanceOrFallback tenv rec e hint top named) ctx s w t) :
     Returns (Rec.translateExprToWireCached (fun e h t n => rec e h t n) e hint top named)
       ctx s w t := by
   unfold translateInstanceOrFallback at tr
   rw [hfn] at tr
   -- the environment read: its value `env`, and the builder state unchanged.
   -- The continuation gets a NEW name: `tr` still holds the whole program.
-  obtain ⟨env, sE, hEnvRead, k1⟩ := Returns.bind tr
-  obtain ⟨hEnvM, hsE⟩ := returns_liftMetaM hEnvRead
-  rw [hsE] at k1
-  obtain ⟨hnotTag, hprojS⟩ := hplain env hEnvM
+  change Returns (if Sparkle.Compiler.isHardwareModule tenv mn = true then _ else _) _ _ _ _ at tr
+  have k1 := tr
+  obtain ⟨⟨hnotTag, hprojS⟩, -⟩ := hplain
   rw [hnotTag] at k1
   simp only [Bool.false_eq_true, if_false] at k1
   rw [hprojS] at k1
@@ -155,9 +161,9 @@ stage and the body stage give `ReachesAt`. -/
 theorem reachesAt_of_stages {rec : TranslateFn} {ctx : CompilerState} {e : Lean.Expr}
     {mn : Name} {us : List Level} {hint : String} {top named : Bool}
     (hkind : fallbackKind e = .other) (hfn : e.getAppFn = .const mn us)
-    (hplain : PlainHead mn) (shim : ShimAt rec ctx e hint top named)
+    (hplain : PlainHead tenv mn) (shim : ShimAt rec ctx e hint top named)
     (body : BodyReachesInline rec ctx e) :
-    ReachesAt rec ctx e hint top named := by
+    ReachesAt tenv rec ctx e hint top named := by
   intro s t w hr
   rw [fallback_eq_arm rec e hint top named hkind] at hr
   have hshim := arm_to_shim hfn hplain hr
@@ -179,9 +185,9 @@ theorem inline_at_action {rec : TranslateFn} {ctx : CompilerState}
     {inputs : FVarId → Option Value} {we : WEnv} {mems : MEnv} {initial : Env}
     {e : Lean.Expr} {v : Value} {hint : String} {top named : Bool}
     (meaning : Meaning inputs e v)
-    (reach : ReachesAt rec ctx e hint top named)
+    (reach : ReachesAt tenv rec ctx e hint top named)
     (sub : ∀ e' : Lean.Expr, InlineUnfolds e e' → Contract rec ctx inputs we mems initial e' v) :
-    ActionSpec (translateFallback rec e hint top named) ctx inputs we mems initial v := by
+    ActionSpec ((translateFallback tenv) rec e hint top named) ctx inputs we mems initial v := by
   constructor
   · intro s t w lookup hr
     have hh := reach s t w hr
@@ -206,9 +212,9 @@ dispatch fact of every call. -/
 theorem inline_step_contract_at {rec : TranslateFn} {ctx : CompilerState}
     {inputs : FVarId → Option Value} {we : WEnv} {mems : MEnv} {initial : Env}
     {e : Lean.Expr} {v : Value} (nc : NotCore e) (meaning : Meaning inputs e v)
-    (reach : ∀ (hint : String) (top named : Bool), ReachesAt rec ctx e hint top named)
+    (reach : ∀ (hint : String) (top named : Bool), ReachesAt tenv rec ctx e hint top named)
     (sub : ∀ e' : Lean.Expr, InlineUnfolds e e' → Contract rec ctx inputs we mems initial e' v) :
-    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial e v := by
+    Contract (translateStepWith (translateFallback tenv) rec) ctx inputs we mems initial e v := by
   constructor
   · intro hint top named s t w lookup hr
     rw [step_eq_fallback rec e hint top named nc.shape (nc.core rec hint top named)] at hr
