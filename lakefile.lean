@@ -2839,3 +2839,9 @@ lean_lib «Tools.ShippingOutermostCommand» where
 
 lean_lib «Tools.ShippingOutermostCoverage» where
   roots := #[`Tools.ShippingOutermostCoverage]
+
+lean_lib «Tools.ShippingReaderProjChain» where
+  roots := #[`Tools.ShippingReaderProjChain]
+
+lean_lib «Tools.ShippingReaderProjChainShadow» where
+  roots := #[`Tools.ShippingReaderProjChainShadow]
