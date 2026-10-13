@@ -1989,12 +1989,14 @@ def emitModule (m : Module) (design : Option Design := none)
       s
 
     -- Token-level substitution: walk the string, accumulating
-    -- alnum/underscore tokens, and emit `self->TOK` when TOK is
-    -- in `memberSet`.
+    -- identifier tokens (alphanumerics, `_` and `$` — `$` occurs in
+    -- tagged module names `Sp$D$…` and hence in instance member names;
+    -- `sanitizeName` keeps it), and emit `self->TOK` when TOK is in
+    -- `memberSet`.
     let memberSet : Std.HashSet String := memberNames.foldl (fun s n => s.insert n) ({} : Std.HashSet String)
 
     let isTokChar (c : Char) : Bool :=
-      c.isAlphanum || c == '_'
+      c.isAlphanum || c == '_' || c == '$'
 
     let qualifyWith (memberSet : Std.HashSet String) (input : String) : String := Id.run do
       -- A token is a maximal alnum/underscore run.  Two contexts
