@@ -217,6 +217,9 @@ import Tests.Compiler.NoPortsMemGenCompareTest
 import Tests.Compiler.NestedFailRestoreTest
 import Tests.Compiler.LeafEntryCntClosedTest
 import Tests.Compiler.OptPrintGuardFiresTest
+import Tests.Compiler.DepthSwitchTypeTest
+import Tests.Compiler.DepthSwitchPinTest
+import Tests.Compiler.DepthLoopChildCompareTest
 import Tests.Compiler.LegacySemInstanceTest
 import Tests.Compiler.LegacyCacheFixTest
 import Tests.Compiler.LegacySemMemoTest

@@ -2638,3 +2638,6 @@ lean_lib «Tools.ShippingGuardsLeaf» where
 
 lean_lib «Tools.ShippingCacheCoherent» where
   roots := #[`Tools.ShippingCacheCoherent]
+
+lean_lib «Tools.ShippingMachineDepthCommandROld» where
+  roots := #[`Tools.ShippingMachineDepthCommandROld]
