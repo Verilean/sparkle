@@ -2731,3 +2731,6 @@ lean_lib «Tools.ShippingDesignCoverage» where
 
 lean_lib «Tools.ShippingCacheCoherentOuter» where
   roots := #[`Tools.ShippingCacheCoherentOuter]
+
+lean_lib «Tools.ShippingDetReduce» where
+  roots := #[`Tools.ShippingDetReduce]
