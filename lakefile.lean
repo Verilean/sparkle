@@ -2845,3 +2845,33 @@ lean_lib «Tools.ShippingReaderProjChain» where
 
 lean_lib «Tools.ShippingReaderProjChainShadow» where
   roots := #[`Tools.ShippingReaderProjChainShadow]
+
+lean_lib «Tools.ShippingReaderProjChainFold» where
+  roots := #[`Tools.ShippingReaderProjChainFold]
+
+lean_lib «Tools.ShippingReaderMatcherArity» where
+  roots := #[`Tools.ShippingReaderMatcherArity]
+
+lean_lib «Tools.ShippingReaderMatcherArityUnique» where
+  roots := #[`Tools.ShippingReaderMatcherArityUnique]
+
+lean_lib «Tools.ShippingReaderSweepCommon» where
+  roots := #[`Tools.ShippingReaderSweepCommon]
+
+lean_lib «Tools.ShippingReaderMatcherArityShadow» where
+  roots := #[`Tools.ShippingReaderMatcherArityShadow]
+
+lean_lib «Tools.ShippingReaderInstTy» where
+  roots := #[`Tools.ShippingReaderInstTy]
+
+lean_lib «Tools.ShippingReaderInstTyShadow» where
+  roots := #[`Tools.ShippingReaderInstTyShadow]
+
+lean_lib «Tools.ShippingReaderBoolMap» where
+  roots := #[`Tools.ShippingReaderBoolMap]
+
+lean_lib «Tools.ShippingReaderBoolMapLeaf» where
+  roots := #[`Tools.ShippingReaderBoolMapLeaf]
+
+lean_lib «Tools.ShippingReaderBoolMapShadow» where
+  roots := #[`Tools.ShippingReaderBoolMapShadow]
