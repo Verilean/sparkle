@@ -2770,3 +2770,6 @@ lean_lib «Tools.ShippingFragCensus» where
 
 lean_lib «Tools.ShippingEntryOkCommand» where
   roots := #[`Tools.ShippingEntryOkCommand]
+
+lean_lib «Tools.ShippingMachineLoopCausal» where
+  roots := #[`Tools.ShippingMachineLoopCausal]
