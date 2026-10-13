@@ -348,3 +348,41 @@ To be re-measured at the first `AllTests` integration run.
   builder-local lookup candidate under evaluation on an isolated branch.
   Machine-none→legacy fall-through leaves seven refs unreset (1 constructed
   declaration of 85 takes the path; output equal to the clean run).
+
+## Status log — 2026-10-13 (poc b1d63c39; records under docs/parallel/verification-*.md and the notes named below)
+
+Measured by which endpoint lost which premise. Scope of every line: one declaration, per-declaration
+decided data conditions, the runtime boundary, `DesignSV` of the module list (not the SV string, not `#sim`),
+not all successful inputs.
+
+**Design-level endpoints with no compiler-check premise and no NOT-ALLOWED premise (35 declarations):**
+- one-output closing (`f.machine_design_svH_full_closed`): `caller`, `callerTwice`, `callerD`, `callerNested`,
+  `callerRep`, `callerMix`, `callerABA`, `callerL`, `callerLN`, `hftByte`, `midH`, `callerInner`, `callerBad`,
+  `innerPick`, and the IP declaration `wKeccakF` (target-only test);
+- multi-output closing (`f.machine_design_noPortsNR{n}_closed[B]`): `parent`, `chained`, `two`, `mid`,
+  `grandH`, `mixD1`, `grand`, `topD2` (depth 2 and 3), `mid2`, `loopParent`;
+- memory children, depth 0 (new statements `f.machine_design_noPortsR0_closed`): `seqMem`, `memCounter`,
+  `syncNarrow`, `memWide`, `twoMems`, `mixedMems`, `withMemory`;
+- parents without a register over a sequential leaf child: `engineOnce`, `twinCalls`, `mesh2x2`.
+
+**Open, with what stands in the way:**
+- `mixDeep`: checks gone from the open form; the closing needs equality of the cached results of a shared
+  descendant — a decision (cache-coherence clause / module determinism / fresh-world closing):
+  A-shared-descendant.md.
+- leaf machines as entries (about 80 declarations, `f.machine_ships_wired`): two facts are false of the
+  present compiler (no `printOk` guard in the instance-free branch of `checkedOptimize`; `mergeChecked` can
+  drop a register); guards verified in isolation (`fix/opt-print-guard-build`, digests unchanged on 362
+  declarations) await a decision: A-leaf-entry-2.md, B-optprint.md, G-opt-print-guard-candidate.md.
+- `keccak256SpongeHW`: the depth generator re-proves the child's run theorem per call entry (27 × ≈ 93 s);
+  a grouped generator is being written in new files: A-keccak-2.md.
+- memory children at depth ≥ 1 (statement of `designCheck`), slotless parents of combinational children
+  (head change; no real declaration), the generator head table for `Signal.loop` children.
+- Findings F and G (nested let-wire cache; sub-instance output cache key): the present compiler emits text
+  differing from the source for two constructed parents; fixes verified in isolation
+  (`fix/fg-on-poc-build`), integration awaits a decision: F-let-cache-leak.md, G-subinst-key.md.
+- debt: 7 of 17 copied `core_*` theorems stay duplicated; replacing the other 10 needs a file
+  restructuring: B-unify-core.md.
+
+**Not closed by any per-declaration work:** reader generalisation (R1/R5/P5, partial readers), all
+successful inputs, the SV-string level, `#sim`, a runtime model; the corpus sweep still generates the
+old-boundary endpoints with their four check premises.
