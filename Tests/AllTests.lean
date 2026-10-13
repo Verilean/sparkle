@@ -221,6 +221,7 @@ import Tests.Compiler.DepthSwitchTypeTest
 import Tests.Compiler.DepthSwitchPinTest
 import Tests.Compiler.DepthLoopChildCompareTest
 import Tests.Compiler.LeafEntryFamilyTest
+import Tests.Compiler.MergeKeepsCntTest
 import Tests.Compiler.LegacySemInstanceTest
 import Tests.Compiler.LegacyCacheFixTest
 import Tests.Compiler.LegacySemMemoTest

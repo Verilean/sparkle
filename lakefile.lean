@@ -2644,3 +2644,15 @@ lean_lib «Tools.ShippingMachineDepthCommandROld» where
 
 lean_lib «Tools.ShippingLeafEntryCommand» where
   roots := #[`Tools.ShippingLeafEntryCommand]
+
+lean_lib «Tools.ShippingMergeKeeps» where
+  roots := #[`Tools.ShippingMergeKeeps]
+
+lean_lib «Tools.ShippingMergeKeepsBridge» where
+  roots := #[`Tools.ShippingMergeKeepsBridge]
+
+lean_lib «Tools.ShippingMergeKeepsCheck» where
+  roots := #[`Tools.ShippingMergeKeepsCheck]
+
+lean_lib «Tools.ShippingMergeKeepsLeaf» where
+  roots := #[`Tools.ShippingMergeKeepsLeaf]
