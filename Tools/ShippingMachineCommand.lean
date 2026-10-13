@@ -2452,6 +2452,7 @@ machine synthesis and checks that it ties the `let`s (the `MachineCloses`
 boundary, in this environment). -/
 partial def generateCore (declName : Name) (checkCloses : Bool) (defsOnly : Bool := false) :
     MetaM Name := do
+  let tenv ← Lean.getEnv
   progress s!"{declName}: reading"
   let r ← readMachine declName (allowGate := defsOnly)
   -- the children's own endpoints first (a sequential child's facts are used)
@@ -2468,7 +2469,7 @@ partial def generateCore (declName : Name) (checkCloses : Bool) (defsOnly : Bool
   progress s!"{declName}: data added"
   let data := mkConst dataName
   if checkCloses then
-    let translate : TranslateFn := fun e h t n => translateExprToWire e h t n
+    let translate : TranslateFn := fun e h t n => translateExprToWire tenv e h t n
     unless (← synthesizeMachineCertified translate (fun _ => pure ()) declName r.shape).isSome do
       throwError "{declName}: the machine synthesis does not tie the lets"
   let some entryV := r.entry.value? | throwError "{declName}: no value"
