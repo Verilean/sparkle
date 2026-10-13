@@ -457,3 +457,16 @@ Open:
 - Unchanged: memory children at depth ≥ 1, slotless parents of combinational children, slotless leaves,
   about 48 register leaves not run, the remaining 14 duplicated `core_*` proofs, reader generalisation,
   all successful inputs, the SV-string level, `#sim`, a runtime model.
+
+### Addendum, 2026-10-13 late night (poc after 11e3944b; record docs/parallel/B-leaf-sweep.md)
+
+Leaf sweep at the design level, MEASURED (82 declarations already in built test / IP files): 48 further
+`f.machine_design_leaf0` generated — premises the run, `MachineDefines f`, `ChildBnd` under the
+existential; 0 NOT ALLOWED; standard axioms; no checker constant — 34 refused (32 slotless, 1 with calls,
+1 with memories), 0 failed. Design-level check-free declarations: 45 + 48 = 93, each with the usual scope
+(one declaration, depth 0, data conditions decided per declaration, runtime boundary, `DesignSV` of the
+module list; not the SV string, not `#sim`, not all successful inputs). The twelve generating files are in
+AllTests (1307 jobs) but do not yet assert the class per declaration.
+Also since the night log: generators discharge name conditions on declaration names (e438076a, no endpoint
+type changed); cache coherence second partial (11e3944b: `EntryOk` under the underived `HarnessStill`,
+`CoreVia`, `EntryStill`; `mixDeep` not connected).
