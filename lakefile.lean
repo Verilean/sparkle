@@ -2665,3 +2665,12 @@ lean_lib «Tools.ShippingLeafDesignCommand» where
 
 lean_lib «Tools.ShippingModuleName» where
   roots := #[`Tools.ShippingModuleName]
+
+lean_lib «Tools.ShippingNameDischarge» where
+  roots := #[`Tools.ShippingNameDischarge]
+
+lean_lib «Tools.ShippingMemOnlyNames» where
+  roots := #[`Tools.ShippingMemOnlyNames]
+
+lean_lib «Tools.ShippingClosesNames» where
+  roots := #[`Tools.ShippingClosesNames]
