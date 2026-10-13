@@ -2627,3 +2627,6 @@ lean_lib «Tools.ShippingLeafEntry» where
 
 lean_lib «Tools.ShippingLeafEntryBnd» where
   roots := #[`Tools.ShippingLeafEntryBnd]
+
+lean_lib «Tools.ShippingGuardsLeaf» where
+  roots := #[`Tools.ShippingGuardsLeaf]

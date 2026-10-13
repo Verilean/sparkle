@@ -265,3 +265,32 @@ UNVERIFIED, highest risk first:
    text changes to the unoptimised module (none found by the census on 362
    declarations; pinned texts outside that population were not searched).
 6. `checkedOptimize_seqOk` / `mergeChecked_print`: one projection each.
+
+## Verification of this candidate in isolation (integrator, 2026-10-13) — NOT merged into poc
+
+Branch `fix/opt-print-guard-build` = `fix/opt-print-guard` d4084fb5 (on poc cfbab0db) + one `lean_lib` entry
+(`Tools.ShippingGuardsLeaf`). Worker files unchanged; everything built at the first attempt. cgrun 3 GiB,
+swap 0, one job.
+
+- `lake build Tests.AllTests Tests.Compiler.OptPrintCensusTest Tests.Compiler.NestedLetCacheTest
+  Tests.Compiler.OptPrintSourceTest`: Build completed successfully (1254 jobs). The three `repeat' split`
+  sites and all other unfold sites of `checkedOptimize` / `mergeChecked` in `Tools/` built unchanged.
+- `cnt.machine_ships_leafC`: premises exactly `ChildBnd`, the run, `MachineDefines cnt` (all ALLOWED);
+  standard axioms — on THIS branch only; it is not a poc endpoint.
+- Guard firing: on the real source `shlAdd32` the print guard fires and the shipped top is the unoptimised
+  module with `printOk` true; `OptPrintSourceTest`: shipped modules with `printOk` false 0 (6 on poc);
+  `LeafEntryCexProbe`: both statements now hold on `mergeCex` / `optCex`.
+- Census on 362 returned declarations: `printOk` guard would-fire list empty, merge guard FIRES 0; digests
+  of the shipped texts equal to poc's: 361 declarations 1444467916182415447, 362 declarations
+  8149634735370364912. `WIREWIDTH DIGEST` 361: 11874691237837614088 and `NESTEDLET DIGEST` 84:
+  2141260620024790681 — equal to poc's.
+- `optprint_sim.sh`: 12/12 `command==source T`, shipped top with `printOk` false 0. `writer_sim.sh`: 7/7
+  `new==source T`.
+
+Not established: all successful inputs; text for sources outside the measured population (the six
+constructed shift declarations change to the unoptimised module by design). Integration is the user's
+decision; if integrated, the integrated poc tree is built again before the commit.
+
+Run records:
+- `20261013-092629-guard-tools`: result=success, exit=0, memory_peak_file=2739781632, events: low 0 high 149 max 0 oom 0 oom_kill 0 oom_group_kill 0 
+- `20261013-095411-guard-all`: result=success, exit=0, memory_peak_file=1660805120, events: low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 
