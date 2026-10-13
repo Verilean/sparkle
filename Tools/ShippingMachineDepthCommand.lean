@@ -36,19 +36,57 @@ def composedName (n : Nat) : Name := Name.mkSimple s!"machine_composedN{n}"
 def boundName (n : Nat) : Name := Name.mkSimple s!"machineBoundN{n}"
 def runOfName (n : Nat) : Name := Name.mkSimple s!"seq_child_runN_of{n}"
 
-/-- `c.seq_child_runN`: a sequential child without calls, at every depth. -/
-def generateSeqChildN (c : Name) : MetaM Name := do
-  let name := c ++ `seq_child_runN
-  if (← getEnv).contains name then return name
-  let args ← soundArgs c ``Tools.ShippingMachineAuto.machine_trace_of_data
-  let soundL := mkAppN (mkConst ``Tools.ShippingMachineCausal.machine_traceL_of_data) args
+/-- The proof of `c.seq_child_runN` (built, not added): `seqChildRunN_full`
+at the wired twin of the child's endpoint, its eight data conditions decided.
+The endpoint may be built from `machine_trace_of_data` (a `circuit do`),
+`machine_trace_of_loop` (a `Signal.loop`) or `machine_trace_of_regs` (a
+register product): the three wired twins have the conclusion
+`seqChildRunN_full` takes — the head table of the depth-0 `generateSeqChild`
+(`Tools/ShippingMachineSeqCommand.lean`). -/
+def seqChildNProof (c : Name) : MetaM Lean.Expr := do
+  let some (.thmInfo ti) := (← getEnv).find? (c ++ `machine_sound)
+    | throwError "{c}: no machine_sound"
+  let v := ti.value
+  let headL ← if v.isAppOf ``Tools.ShippingMachineAuto.machine_trace_of_data then
+      pure ``Tools.ShippingMachineCausal.machine_traceL_of_data
+    else if v.isAppOf ``Tools.ShippingMachineLoop.machine_trace_of_loop then
+      pure ``Tools.ShippingMachineLoopL.machine_traceL_of_loop
+    else if v.isAppOf ``Tools.ShippingMachineLoop.machine_trace_of_regs then
+      pure ``Tools.ShippingMachineLoopL.machine_traceL_of_regs
+    else throwError "{c}.machine_sound is not built from Tools.ShippingMachineAuto.machine_trace_of_data, _of_loop or _of_regs"
+  let soundL := mkAppN (mkConst headL) v.getAppArgs
   let mut p ← mkAppOptM ``Tools.ShippingMachineDepthRun.seqChildRunN_full
     #[none, none, none, none, none, none, soundL]
   for _ in [0:8] do
     let ty := (← whnf (← inferType p)).bindingDomain!
     p := mkApp p (← mkDecideProof ty)
+  return p
+
+/-- `c.seq_child_runN`: a sequential child without calls, at every depth. An
+existing constant of that name is returned as it is (not compared: see
+`compareSeqChildN`). -/
+def generateSeqChildN (c : Name) : MetaM Name := do
+  let name := c ++ `seq_child_runN
+  if (← getEnv).contains name then return name
+  let p ← seqChildNProof c
   addTheorem name (← inferType p) p
   return name
+
+/-- The compare path: `c.seq_child_runN` EXISTS (written by hand or by an
+earlier generator); the statement is rebuilt by `seqChildNProof` and must be
+`isDefEq` the existing one — an error otherwise. Returns the rebuilt proof
+and whether the two statements are the same term. Adds nothing. -/
+def compareSeqChildN (c : Name) : MetaM (Lean.Expr × Bool) := do
+  let name := c ++ `seq_child_runN
+  let some (.thmInfo told) := (← getEnv).find? name
+    | throwError "{name}: not a theorem of the environment (nothing to compare)"
+  let p ← seqChildNProof c
+  let ty ← instantiateMVars (← inferType p)
+  let same : Bool := ty == told.type
+  unless same do
+    unless ← isDefEq ty told.type do
+      throwError "{name}: the statement the generator builds is NOT the existing one (isDefEq false)"
+  return (p, same)
 
 /-- The tactic: a call extension agrees with the inputs below the calls. -/
 def extTactic (extName : Name) : MetaM Syntax := do
