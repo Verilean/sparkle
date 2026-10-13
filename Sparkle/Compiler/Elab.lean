@@ -5388,8 +5388,18 @@ def instancePredicate (env : Environment) : Lean.Expr → Bool := fun e =>
 /-- The synthesis entry, with the translator's recursive entry as a parameter
     (`synthesizeCombinationalCore` after the translator block passes the real
     one).  A plain definition: it is not recursive itself — nested synthesis
-    reaches it again only through `translate`. -/
-def synthesizeCombinationalCoreWith (translate : TranslateFn) (declName : Name)
+    reaches it again only through `translate`.
+
+    The translator is a function of an ENVIRONMENT: the entry reads the
+    environment once (`let env ← getEnv` below) and hands `translate env` to
+    `synthesizeFromConst`, together with the instance predicate, the inliner
+    and the structure view built from the SAME value.  So the tag the mixed
+    gate accepts a call under (`instancePredicate env`) is the tag the
+    translator's instance arm tests (`translateInstanceOrFallback env`): one
+    read per entry, not two.  A nested child entry is another run of this
+    function and captures its own read
+    (docs/parallel/M-env-capture-a.md). -/
+def synthesizeCombinationalCoreWith (translate : Lean.Environment → TranslateFn) (declName : Name)
     (parameters : List (String × Nat)) (symbolicMode : Bool)
     (certifiedFrontEnd : Bool := true) :
     MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) := do
@@ -5535,7 +5545,7 @@ def synthesizeCombinationalCoreWith (translate : TranslateFn) (declName : Name)
   let doSynth : MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) := do
     let constInfo ← getConstInfo declName
     let env ← getEnv
-    synthesizeFromConst translate logProf declName parameters symbolicMode
+    synthesizeFromConst (translate env) logProf declName parameters symbolicMode
       certifiedFrontEnd
       (entryConst certifiedFrontEnd symbolicMode parameters constInfo
         (instancePredicate env) (userInliner env) (structEnv env))
@@ -5558,7 +5568,7 @@ def synthesizeCombinationalCoreWith (translate : TranslateFn) (declName : Name)
     the merge of the duplicate hardware the two-pass body evaluation leaves
     behind (see Sparkle/IR/RegDedup.lean; `SPARKLE_NO_REGDEDUP=1` skips the
     merge, for A/B diagnosis).  A plain definition, like the entry. -/
-def synthesizeCombinationalWith (translate : TranslateFn) (declName : Name) :
+def synthesizeCombinationalWith (translate : Lean.Environment → TranslateFn) (declName : Name) :
     MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) := do
   let (m, d) ← synthesizeCombinationalCoreWith translate declName [] false
   -- only the top module is cleaned up here: a child's modules come from its
@@ -5577,7 +5587,7 @@ def synthesizeCombinationalWith (translate : TranslateFn) (declName : Name) :
 /-! The translator block below takes its recursive entry as a PARAMETER
 (`translateExprToWire`, a section variable), so it no longer ties its own knot.
 The knot is `translateExprToWire` after the block: an ordinary definition,
-`fuelFix translateStep translateFuelLimit`, whose every recursive call goes
+`fuelFix (translateStep env) translateFuelLimit` (`env`: the entry's read), whose every recursive call goes
 through the fuel. `partial` handlers remain, but only as the fallback of that
 step — which is what lets the recursion be discharged by induction
 (Tools/ShippingTranslateSoundness.lean). -/
@@ -7995,19 +8005,6 @@ def translateExprToWireCached (e : Lean.Expr) (hint : String := "wire") (isTopLe
       CompilerM.liftMetaM (ref.modify (·.insert ⟨e⟩ r))
   return r
 
-def synthesizeCombinationalWithParameters (declName : Name)
-    (parameters : List (String × Nat)) :
-    MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) := do
-  let (m, d) ← synthesizeCombinationalCoreWith (fun e h t n => translateExprToWire e h t n)
-    declName parameters true
-  let top (f : Sparkle.IR.AST.Module → Sparkle.IR.AST.Module) (d : Sparkle.IR.AST.Design) :
-      Sparkle.IR.AST.Design :=
-    { d with modules := d.modules.map fun x => if x.name == m.name then f x else x }
-  let m' := Sparkle.IR.ZeroWidth.dropZeroWidthModule m
-  let d := top Sparkle.IR.ZeroWidth.dropZeroWidthModule d
-  if (← IO.getEnv "SPARKLE_NO_REGDEDUP").isSome then return (m', d)
-  return (Sparkle.IR.RefineCheck.mergeChecked m', top Sparkle.IR.RefineCheck.mergeChecked d)
-
 end Rec
 end TranslatorBlock
 
@@ -8455,11 +8452,6 @@ def translateCircuitDo2UncachedWith (rec : TranslateFn) (w v0 v1 ret : Nat) : Tr
     CompilerM.emitRegisterStmt r1 "clk" "rst" (.ref cw1) v1
     return (if ret == 0 then r0 else r1)
 
-/-- The environment read the instance arm dispatches on. A named entry so
-    the soundness layer can state its boundary predicate against exactly
-    this action. -/
-def instArmEnv : MetaM Environment := Lean.getEnv
-
 /-- The single-out instance dedupe cache read, as a named MetaM entry for
     the same reason (the ref itself is private to this module). -/
 def instArmCacheGet : MetaM (Std.HashMap String String) :=
@@ -8681,12 +8673,19 @@ def translateProjInstanceUncachedWith (rec : TranslateFn) (recName : Name)
     (memoized per synth, so the probe is byte-invisible), and a
     single-output child takes the certified straight-line lowering under
     the shared validated cache wrapper. Untagged heads, non-applications
-    and multi-output children fall through to the legacy chain unchanged. -/
-def translateInstanceOrFallback (rec : TranslateFn) : TranslateFn :=
+    and multi-output children fall through to the legacy chain unchanged.
+
+    `env` is the environment the ENTRY of this declaration read (the entry
+    builds the translator from it): the arm does not read the environment
+    itself, so its three tests — the head's tag, the head's projection
+    structure, the tag of a projected record's head — are tests on the value
+    the mixed gate's `instancePredicate env` was computed from.  (The
+    projection arm's `projFieldName?` still reads the environment for the
+    field NAME; see docs/parallel/M-env-capture-a.md.) -/
+def translateInstanceOrFallback (env : Lean.Environment) (rec : TranslateFn) : TranslateFn :=
   fun e hint top named =>
     match e.getAppFn with
     | .const mn _ => do
-      let env ← CompilerM.liftMetaM instArmEnv
       if Sparkle.Compiler.isHardwareModule env mn then
         let sub ← CompilerM.liftMetaM
           (childSynthEntry mn)
@@ -8793,8 +8792,9 @@ def fallbackKind (e : Lean.Expr) : FallbackKind :=
                             | none => .other
 
 /-- The existing handler chain (cache wrapper + dispatch) as the fallback:
-    one lowering per `fallbackKind`. -/
-def translateFallback (rec : TranslateFn) : TranslateFn :=
+    one lowering per `fallbackKind`.  `env` (the entry's read) is used by the
+    last arm only. -/
+def translateFallback (env : Lean.Environment) (rec : TranslateFn) : TranslateFn :=
   fun e hint top named =>
     match fallbackKind e with
     | .boolControl =>
@@ -8835,52 +8835,69 @@ def translateFallback (rec : TranslateFn) : TranslateFn :=
       translateControlCachedWith (translateSetWidthUncachedWith rec ws (k + ws)) e hint top named
     | .sliceF _ start len =>
       translateControlCachedWith (translateSliceFUncachedWith rec start len) e hint top named
-    | .other => translateInstanceOrFallback rec e hint top named
+    | .other => translateInstanceOrFallback env rec e hint top named
 
-def translateStep : TranslateFn → TranslateFn := translateStepWith translateFallback
+def translateStep (env : Lean.Environment) : TranslateFn → TranslateFn :=
+  translateStepWith (translateFallback env)
 
 /-- Nesting depth bound of the translator's recursion. -/
 def translateFuelLimit : Nat := 1 <<< 20
 
 /-- The shipping translator: an ORDINARY definition (not `partial`), so it has
-    equations and can be reasoned about. -/
-def translateExprToWire (e : Lean.Expr) (hint : String := "wire") (isTopLevel : Bool := false)
-    (isNamed : Bool := false) : CompilerM String :=
-  translateFuelFix translateStep translateFuelLimit e hint isTopLevel isNamed
+    equations and can be reasoned about.  `env` is the environment the entry
+    of the declaration being compiled read; every recursive call is the same
+    translator over the same value. -/
+def translateExprToWire (env : Lean.Environment) (e : Lean.Expr) (hint : String := "wire")
+    (isTopLevel : Bool := false) (isNamed : Bool := false) : CompilerM String :=
+  translateFuelFix (translateStep env) translateFuelLimit e hint isTopLevel isNamed
 
 /-- `Rec.translateExprToWireImpl` with the real translator as its recursive entry. -/
-def translateExprToWireImpl := Rec.translateExprToWireImpl (fun e h t n => translateExprToWire e h t n)
+def translateExprToWireImpl (env : Lean.Environment) :=
+  Rec.translateExprToWireImpl (fun e h t n => translateExprToWire env e h t n)
 /-- `Rec.handleErrorPatterns` (it does not use the translator). -/
 def handleErrorPatterns := Rec.handleErrorPatterns
 /-- `Rec.handleTupleProjections` with the real translator as its recursive entry. -/
-def handleTupleProjections := Rec.handleTupleProjections (fun e h t n => translateExprToWire e h t n)
+def handleTupleProjections (env : Lean.Environment) :=
+  Rec.handleTupleProjections (fun e h t n => translateExprToWire env e h t n)
 /-- `Rec.handleApplicative` with the real translator as its recursive entry. -/
-def handleApplicative := Rec.handleApplicative (fun e h t n => translateExprToWire e h t n)
+def handleApplicative (env : Lean.Environment) :=
+  Rec.handleApplicative (fun e h t n => translateExprToWire env e h t n)
 /-- `Rec.handleBitVecOps` with the real translator as its recursive entry. -/
-def handleBitVecOps := Rec.handleBitVecOps (fun e h t n => translateExprToWire e h t n)
+def handleBitVecOps (env : Lean.Environment) :=
+  Rec.handleBitVecOps (fun e h t n => translateExprToWire env e h t n)
 /-- `Rec.handleRegister` with the real translator as its recursive entry. -/
-def handleRegister := Rec.handleRegister (fun e h t n => translateExprToWire e h t n)
+def handleRegister (env : Lean.Environment) :=
+  Rec.handleRegister (fun e h t n => translateExprToWire env e h t n)
 /-- `Rec.handleMux` with the real translator as its recursive entry. -/
-def handleMux := Rec.handleMux (fun e h t n => translateExprToWire e h t n)
+def handleMux (env : Lean.Environment) :=
+  Rec.handleMux (fun e h t n => translateExprToWire env e h t n)
 /-- `Rec.handleMemory` with the real translator as its recursive entry. -/
-def handleMemory := Rec.handleMemory (fun e h t n => translateExprToWire e h t n)
+def handleMemory (env : Lean.Environment) :=
+  Rec.handleMemory (fun e h t n => translateExprToWire env e h t n)
 /-- `Rec.handleLoop` with the real translator as its recursive entry. -/
-def handleLoop := Rec.handleLoop (fun e h t n => translateExprToWire e h t n)
+def handleLoop (env : Lean.Environment) :=
+  Rec.handleLoop (fun e h t n => translateExprToWire env e h t n)
 /-- `Rec.handleCircuitMonad` with the real translator as its recursive entry. -/
-def handleCircuitMonad := Rec.handleCircuitMonad (fun e h t n => translateExprToWire e h t n)
+def handleCircuitMonad (env : Lean.Environment) :=
+  Rec.handleCircuitMonad (fun e h t n => translateExprToWire env e h t n)
 /-- `Rec.handleDefinitionUnfold` with the real translator as its recursive entry. -/
-def handleDefinitionUnfold := Rec.handleDefinitionUnfold (fun e h t n => translateExprToWire e h t n)
+def handleDefinitionUnfold (env : Lean.Environment) :=
+  Rec.handleDefinitionUnfold (fun e h t n => translateExprToWire env e h t n)
 /-- `Rec.translateExprToWireApp` with the real translator as its recursive entry. -/
-def translateExprToWireApp := Rec.translateExprToWireApp (fun e h t n => translateExprToWire e h t n)
+def translateExprToWireApp (env : Lean.Environment) :=
+  Rec.translateExprToWireApp (fun e h t n => translateExprToWire env e h t n)
 /-- `Rec.translateShiftAmount` with the real translator as its recursive entry. -/
-def translateShiftAmount := Rec.translateShiftAmount (fun e h t n => translateExprToWire e h t n)
+def translateShiftAmount (env : Lean.Environment) :=
+  Rec.translateShiftAmount (fun e h t n => translateExprToWire env e h t n)
 /-- `Rec.getPrimitiveNameFromLambda` (it does not use the translator). -/
 def getPrimitiveNameFromLambda := Rec.getPrimitiveNameFromLambda
 /-- The synthesis entry with the real translator as its recursive entry. -/
-def synthesizeCombinationalCore := synthesizeCombinationalCoreWith (fun e h t n => translateExprToWire e h t n)
+def synthesizeCombinationalCore :=
+  synthesizeCombinationalCoreWith (fun env e h t n => translateExprToWire env e h t n)
 /-- `#synthesizeVerilog`'s synthesis with the real translator (a plain
     definition, so the post-processing theorems apply to it directly). -/
-def synthesizeCombinational := synthesizeCombinationalWith (fun e h t n => translateExprToWire e h t n)
+def synthesizeCombinational :=
+  synthesizeCombinationalWith (fun env e h t n => translateExprToWire env e h t n)
 /-- The memoised child entry the machine route reads (`sparkleChildSynth`):
     a child synthesised earlier in this top-level synthesis is returned from
     `sparkleChildCache`, otherwise the real entry `synthesizeCombinational` runs
@@ -8894,8 +8911,23 @@ def synthesizeChild (n : Name) : MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.
   sparkleChildCache.modify (·.insert n r)
   return r
 initialize sparkleChildSynth.set (some synthesizeChild)
-/-- `Rec.synthesizeCombinationalWithParameters` with the real translator as its recursive entry. -/
-def synthesizeCombinationalWithParameters := Rec.synthesizeCombinationalWithParameters (fun e h t n => translateExprToWire e h t n)
+/-- The parameterised command entry (`#synthesizeVerilog … with …` and the
+    hierarchical variant): the same entry in symbolic mode, then the same two
+    post-processing steps as `synthesizeCombinationalWith`.  (It used to sit
+    in the translator block, over the block's translator parameter; the entry
+    now takes a translator per environment, which only the real one is.) -/
+def synthesizeCombinationalWithParameters (declName : Name)
+    (parameters : List (String × Nat)) :
+    MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) := do
+  let (m, d) ← synthesizeCombinationalCoreWith
+    (fun env e h t n => translateExprToWire env e h t n) declName parameters true
+  let top (f : Sparkle.IR.AST.Module → Sparkle.IR.AST.Module) (d : Sparkle.IR.AST.Design) :
+      Sparkle.IR.AST.Design :=
+    { d with modules := d.modules.map fun x => if x.name == m.name then f x else x }
+  let m' := Sparkle.IR.ZeroWidth.dropZeroWidthModule m
+  let d := top Sparkle.IR.ZeroWidth.dropZeroWidthModule d
+  if (← IO.getEnv "SPARKLE_NO_REGDEDUP").isSome then return (m', d)
+  return (Sparkle.IR.RefineCheck.mergeChecked m', top Sparkle.IR.RefineCheck.mergeChecked d)
 
 
 def printModule (m : Sparkle.IR.AST.Module) : MetaM Unit := do
