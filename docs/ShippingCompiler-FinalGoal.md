@@ -499,3 +499,24 @@ certified family and is REFUTED in general on a constructed state: FINDING I —
 unvalidated hit in `sparkleSingleOutInstanceCache` (cleared at depth 0 only) and emits no instance (probe:
 insts 1 vs 0). Not fixed; not shown reachable by a real compile.
 Next frontier: the corpus (plan only: docs/parallel/B-corpus-plan.md — a decision for the user).
+
+### Addendum 4, 2026-10-13 night (poc 930a2400; records: A-cache-coherence-summary.md, A-outermost-form.md, C-loop-child-calls.md, C-mem-depth-ships.md, D-mem-kid-free.md, verification-i-fix-isolated.md, open-rulings-2026-10-13.md)
+
+Census unchanged: 129 declarations with generated data in the AllTests environment, 128 with a
+check-free design-level endpoint, `mixDeep` open. Gate-route PARENTS have no generated data and are not in
+that count.
+New since addendum 3:
+- A parent of a MEMORY-MACHINE child (`memParent`, a probe declaration, target-only): check-free at the
+  design level BY HAND (`memParent_design_noPorts1_closed`: premises the run, `MachineDefines` of the
+  parent and its two callees, `ChildBnd`; re-check NOT ALLOWED 0; standard axioms). Not a generator form,
+  not a census row. On the way: a fifth child head in the endpoint generator (a hand-written loop with
+  calls; additive edit, suite and census unchanged), `#machine_ext_joint`, `#machine_composed_memNR`,
+  `#machine_seq_child_memNR`, the own-module kid facts `KidFactsT` (`KidFacts` of a kid with a memory
+  below it is false — measured by kernel decide). `memGrand` (depth 2) is open at its own closing: a
+  shared descendant, the `mixDeep` obstacle.
+- Cache coherence: the walk covers every term constructor; `f.entry_ok` generated for 123 of 129
+  declarations; `mixDeep` closes at outermost starts in the `MachineRan` form (not an endpoint; its start
+  premise is NOT ALLOWED by the classifier).
+- Finding I (stale single-output instance cache, legacy route, constructed state): fix verified in
+  isolation only, not integrated.
+Awaiting rulings: docs/parallel/open-rulings-2026-10-13.md (six items).
