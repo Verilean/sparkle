@@ -120,6 +120,31 @@ theorem noSelfRead_of_feed {ms : List Sparkle.IR.AST.Module} {body : List Stmt}
       | _ => rfl
   | _ => rfl
 
+end Tools.ShippingChecksRaw
+
+/-! ## The general closing's form of `core_*` theorems of this file (`Kid` for `RealChild`, no `hnomem`)
+
+MOVED here from `Tools/ShippingMemKidCore.lean` (round par/b-24): name,
+namespace `Tools.ShippingMemKid`, statement and proof unchanged. Each old
+theorem whose `…M` form is here is now a COROLLARY of it (statement unchanged,
+proof = the body of the built `…_fromM` re-derivation in
+`Tools/ShippingCoreFromM.lean`). -/
+namespace Tools.ShippingMemKid
+open Lean Meta
+open Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Machine
+open Tools.ShippingEntrySoundness Tools.ShippingMachineEntry
+open Tools.ShippingUnifiedSource Tools.ShippingMixedSourceBridge
+open Tools.ShippingMachineAuto Tools.ShippingMachineClosesData Tools.ShippingMachineCloses
+open Tools.ShippingMixedEntrySoundness
+open Tools.ShippingGateChildComb Tools.ShippingChildInv
+open Tools.ShippingInstStmtG Tools.ShippingCallsAssemblyG Tools.ShippingTransitionClosed
+open Tools.ShippingSeqChildIface Tools.ShippingCallsKidsD Tools.ShippingDesignWithG
+open Tools.ShippingClosedKinds Tools.ShippingKidsChildIface
+open Sparkle.IR.RefineCheck (mergeChecked hierBinds)
+open Sparkle.IR.OptCheck (seqStmtOk checkedOptimize)
+open Tools.ShippingMachineLinked (childMap)
+open Tools.ShippingChecksRaw
+
 variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
   {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
 
@@ -127,8 +152,7 @@ set_option maxHeartbeats 4000000 in
 /-- **The reset input, the distinct instance names and the self-read test of
 the full entry's module**, from the core run of a machine with calls closed
 by `closeInstsG` and with a register. -/
-
-theorem core_raw_facts {c : Name} (d : MachineData) (ok : d.ok = true)
+theorem core_raw_factsM {c : Name} (d : MachineData) (ok : d.ok = true)
     (hbody : d.shape.body = quote d.dom
       (fun j => inputExpr d.shape.binders.length (d.bpos j))
       (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
@@ -139,7 +163,6 @@ theorem core_raw_facts {c : Name} (d : MachineData) (ok : d.ok = true)
     (hsl : d.shape.layout.slots ≠ [])
     (hfne : d.shape.instFields ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
     {w w1 : Void IO.RealWorld} {M b : Sparkle.IR.AST.Module} {D : Design}
     (hB : ChildBnd mref cref w)
     (hcore : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, D) w1)
@@ -209,7 +232,7 @@ theorem core_raw_facts {c : Name} (d : MachineData) (ok : d.ok = true)
   obtain ⟨hndM, hsfM⟩ := hG14 hfne
   obtain ⟨outWs, extra, houtWs, -, -, hMin⟩ := hInputs
   have hbody' : b.body = M.body :=
-    (Tools.ShippingChecksCore.core_kids_facts d ok hbody hC hslots hdomB hins outTy hnomem hB
+    (core_kids_factsM d ok hbody hC hslots hdomB hins outTy hfne hB
       hcore hpost entry closes).2.1
   have hbin : b.inputs = M.inputs := by
     rcases hpost with h | h
@@ -237,6 +260,56 @@ theorem core_raw_facts {c : Name} (d : MachineData) (ok : d.ok = true)
     exact hndM
   · rw [hbody']
     exact noSelfRead_of_feed hsfM
+
+end Tools.ShippingMemKid
+
+namespace Tools.ShippingChecksRaw
+open Lean Meta
+open Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Machine
+open Tools.ShippingEntrySoundness Tools.ShippingMachineEntry
+open Tools.ShippingUnifiedSource Tools.ShippingMixedSourceBridge
+open Tools.ShippingMachineAuto Tools.ShippingMachineClosesData Tools.ShippingMachineCloses
+open Tools.ShippingMixedEntrySoundness
+open Tools.ShippingGateChildComb Tools.ShippingChildInv
+open Tools.ShippingInstStmtG Tools.ShippingCallsAssemblyG Tools.ShippingTransitionClosed
+open Tools.ShippingSeqChildIface Tools.ShippingCallsKidsD Tools.ShippingDesignWithG
+open Tools.ShippingClosedKinds Tools.ShippingKidsChildIface
+open Sparkle.IR.RefineCheck (mergeChecked hierBinds)
+open Sparkle.IR.OptCheck (seqStmtOk checkedOptimize)
+open Tools.ShippingMachineLinked (childMap)
+
+variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+  {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+
+set_option maxHeartbeats 4000000 in
+/-- **The reset input, the distinct instance names and the self-read test of
+the full entry's module**, from the core run of a machine with calls closed
+by `closeInstsG` and with a register. -/
+
+theorem core_raw_facts {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    {nDecl : Nat} (hC : d.callsOk nDecl = true)
+    (hslots : d.ss.length = d.shape.layout.slots.length)
+    (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
+    (hins : d.shape.insts ≠ [])
+    (hsl : d.shape.layout.slots ≠ [])
+    (hfne : d.shape.instFields ≠ [])
+    (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
+    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    {w w1 : Void IO.RealWorld} {M b : Sparkle.IR.AST.Module} {D : Design}
+    (hB : ChildBnd mref cref w)
+    (hcore : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, D) w1)
+    (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨
+      b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M))
+    (entry : MachineDefines mctx mref cctx cref c d.shape)
+    (closes : MachineClosesAt mctx mref cctx cref c d.shape) :
+    "rst" ∈ b.inputs.map (·.name) ∧
+    (Tools.ShippingHierState.instNames b.body).Nodup ∧
+    Tools.ShippingHierPremisesBase.noSelfRead (childMap D.modules) b.body = true := by
+  exact Tools.ShippingMemKid.core_raw_factsM d ok hbody hC hslots hdomB hins hsl hfne outTy
+    hB hcore hpost entry closes
 
 /-- **`shipsHierCheck` from the run and the five conjuncts not derived**:
 the optimizer gate, the two post-pass facts, the extraction of the

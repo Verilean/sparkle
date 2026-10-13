@@ -2659,3 +2659,6 @@ lean_lib «Tools.ShippingMergeKeepsLeaf» where
 
 lean_lib «Tools.ShippingNoPortsMemSeqCommand» where
   roots := #[`Tools.ShippingNoPortsMemSeqCommand]
+
+lean_lib «Tools.ShippingKid» where
+  roots := #[`Tools.ShippingKid]

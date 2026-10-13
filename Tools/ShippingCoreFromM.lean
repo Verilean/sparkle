@@ -53,32 +53,8 @@ open Tools.ShippingMemKid
 variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
   {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
 
-/-! ## The bridge -/
-
-/-- **At a name that is not a memory placeholder, a kid is a real child and
-conversely.** -/
-theorem kid_iff_real_of_nomem {c : Name} {y : Res}
-    (hc : Sparkle.Compiler.MachMemory.memChild? c = none) :
-    Kid mref cref c y ↔ RealChild mref cref c y :=
-  ⟨(fun h => Kid.real h hc), (fun h => Or.inr (And.intro hc h))⟩
-
-/-- **Under `hnomem`, the kid of a call entry is a real child** — the form
-every re-derivation below uses (hypotheses asked of kids are given by the
-old hypotheses asked of real children; kids in a conclusion are real). -/
-theorem real_of_kid {shape : MachineShape}
-    (hnomem : ∀ c ∈ shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
-    {k : Nat} (hk : k < shape.insts.length) {y : Res}
-    (h : Kid mref cref (shape.insts[k]).1 y) :
-    RealChild mref cref (shape.insts[k]).1 y :=
-  Kid.real h (hnomem _ (List.getElem_mem hk))
-
-/-- The converse: under `hnomem`, a real child of a call entry is a kid. -/
-theorem kid_of_real {shape : MachineShape}
-    (hnomem : ∀ c ∈ shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
-    {k : Nat} (hk : k < shape.insts.length) {y : Res}
-    (h : RealChild mref cref (shape.insts[k]).1 y) :
-    Kid mref cref (shape.insts[k]).1 y :=
-  Or.inr (And.intro (hnomem _ (List.getElem_mem hk)) h)
+/-! The bridge (`kid_iff_real_of_nomem`, `real_of_kid`, `kid_of_real`) is in
+`Tools/ShippingKid.lean` since round par/b-24: same names, same namespace. -/
 
 /-! ## `Tools/ShippingChecksRaw.lean` -/
 
