@@ -386,3 +386,36 @@ not all successful inputs.
 **Not closed by any per-declaration work:** reader generalisation (R1/R5/P5, partial readers), all
 successful inputs, the SV-string level, `#sim`, a runtime model; the corpus sweep still generates the
 old-boundary endpoints with their four check premises.
+
+## Status log — 2026-10-13, evening (poc 54aa11dc; rulings of the day in docs/parallel/verification-*-integration.md)
+
+Integrated today (each built on the integrated tree before the commit; GitHub CI has no run for these
+commits):
+- Findings F and G fixes (nested entry saves / restores the parent's let, loop, canon caches and the
+  sub-instance output map): 02d38ad0 — verification-fg-integration.md (incl. a nested entry that FAILS).
+- The two compiler guards (print guard in the instance-free branch of `checkedOptimize`; `mergeChecked`
+  accepts a merge only if a non-assignment statement remains), fallbacks only: 50ffea04 —
+  verification-guard-integration.md. Census on 362 declarations: 0 firings, shipped texts unchanged.
+- Depth generator switched to the grouped loop, Signal.loop children in its head table: bf32874b, f3ee9c57,
+  77b3ba4f — verification-depth-switch.md (51 of 51 statements `isDefEq` the old loop's on one tree).
+- `memTactic` per-call holes (two or more memories per declaration): c4079676.
+- First de-duplication slice of the `core_*` proofs (no compiler file): d9d5c6b5.
+
+Endpoints with no compiler-check premise and no NOT-ALLOWED premise:
+- design level (`DesignSV`), 38 declarations: the 36 of the morning log plus `seqAccSync`, `seqTwoMem`
+  (register parents with two leaf register children and one / two memories, by `#machine_no_ports_memseq`);
+- ship level of ONE module (`MachineShips`, leaf register machines as entries, `f.machine_ships_leafC`):
+  `cnt`, `acc`, `pe`, `twoHW`, `toggle`, `loopPair`, `toggleL` (by `#machine_leaf_entry`; about 48 further
+  register leaves predicted in scope were not run; slotless leaves are not covered).
+
+Open:
+- Finding H (25f68ea2, H-name-collision.md): two declarations whose names print the same are joined into
+  one module (measured on the returned design for constructed names; not simulated, not fixed). Cache
+  coherence is therefore false in general and the shared-descendant closing (`mixDeep`) cannot be proved as
+  stated; the remedy (reject the clash / make module names injective / keep a decided side condition) is a
+  decision for the user.
+- Temporary files to delete after review of the depth switch: `Tools/ShippingMachineDepthCommandROld.lean`,
+  `Tests/Compiler/DepthSwitchTypeTest.lean`; `…CommandRG.lean` now duplicates the grouped loop.
+- Unchanged from the morning log: memory children at depth ≥ 1, slotless parents of combinational children,
+  slotless leaves, the remaining 14 duplicated `core_*` proofs, reader generalisation, all successful inputs,
+  the SV-string level, `#sim`, a runtime model, the corpus sweep with the check-free generators.
