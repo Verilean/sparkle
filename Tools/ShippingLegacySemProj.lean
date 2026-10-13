@@ -2,6 +2,8 @@ import Tools.ShippingLegacySemTelescopeLams
 import Tools.ShippingLegacySemInputAt
 import Tools.ShippingLegacySemBeta
 
+variable {tenv : Lean.Environment}
+
 /-! # The projection class of the legacy route, as ONE theorem
 
 The census (`Tests/Compiler/LegacyArmCensusTest.lean`): of the 90
@@ -79,7 +81,7 @@ theorem list_entry_outputDN {logProf : String → IO Unit} {declName : Name}
     (hleaf : ∀ ids : List FVarId, ids.length = bs.length →
       (leafOf ids).isLambda = false ∧ SignalTyped (leafOf ids))
     (hr : MReturns (synthesizeFromConst
-      (fun e hint top named => translateExprToWire e hint top named)
+      (fun e hint top named => translateExprToWire tenv e hint top named)
       logProf declName [] false cfe (.defnInfo dv) isInst) (m, d)) :
     MemoHit declName m d ∨
     ∃ (ids : List FVarId) (cache : IO.Ref (ExprStructMap String)),
@@ -90,7 +92,7 @@ theorem list_entry_outputDN {logProf : String → IO Unit} {declName : Name}
         (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
           (Sparkle.IR.ModuleName.ofDecl declName)) →
       ∀ v : Value, 0 < v.kind.width →
-      LeafDom (setupOf declName bs ids cache bools bits).context
+      LeafDom tenv (setupOf declName bs ids cache bools bits).context
         (Tools.ShippingUnifiedMeaning.inputValues
           (setupOf declName bs ids cache bools bits).bools
           (setupOf declName bs ids cache bools bits).bits)
@@ -144,7 +146,7 @@ theorem proj_entry_output {logProf : String → IO Unit} {declName : Name}
       WhnfIsVar (leafOf ids) x)
     (hres : ∀ ids : List FVarId, ids.length = bs.length → SignalTyped (leafOf ids))
     (hr : MReturns (synthesizeFromConst
-      (fun e hint top named => translateExprToWire e hint top named)
+      (fun e hint top named => translateExprToWire tenv e hint top named)
       logProf declName [] false true (.defnInfo dv) isInst) (m, d)) :
     MemoHit declName m d ∨
     ∃ (ids : List FVarId) (x : FVarId) (cache : IO.Ref (ExprStructMap String)),
@@ -187,7 +189,7 @@ theorem proj_entry_output {logProf : String → IO Unit} {declName : Name}
       prepare_inputValue (bools := bools) (bits := bits) bs ids i
         (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
           (Sparkle.IR.ModuleName.ofDecl declName)) nm k x hnd hfield hx hk
-    have dom : LeafDom (setupOf declName bs ids cache bools bits).context
+    have dom : LeafDom tenv (setupOf declName bs ids cache bools bits).context
         (Tools.ShippingUnifiedMeaning.inputValues
           (setupOf declName bs ids cache bools bits).bools
           (setupOf declName bs ids cache bools bits).bits)

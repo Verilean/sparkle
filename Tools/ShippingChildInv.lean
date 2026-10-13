@@ -542,9 +542,9 @@ the memoised child entry keeps the invariant there, a run of
 `synthesizeFromConst` with the entry's own logger keeps it — on every
 outcome, in every Meta and Core context. -/
 def BodyRel (L : RefLaws mref cref) : Prop :=
-  ∀ D, ChildKeeps L D → ∀ (mctx : Meta.Context) (cctx : Core.Context) (b : Bool) declName ci isInst,
+  ∀ {tenv : Lean.Environment}, ∀ D, ChildKeeps L D → ∀ (mctx : Meta.Context) (cctx : Core.Context) (b : Bool) declName ci isInst,
     Keeps mctx mref cctx cref (J L D)
-      (synthesizeFromConst (fun e h t n => translateExprToWire e h t n) (profLogIO b)
+      (synthesizeFromConst (fun e h t n => translateExprToWire tenv e h t n) (profLogIO b)
         declName [] false true ci isInst)
 
 /-- **The legacy translator, relative to the child entry and to its
@@ -570,16 +570,16 @@ memoised child entry keeps the invariant there, a run of the translator
 in every Meta and Core context. PROVED (`translateRel`,
 `Tools/ShippingChildLegacy.lean`). -/
 def TranslateRel (L : RefLaws mref cref) : Prop :=
-  ∀ D, ChildKeeps L D → ∀ (mctx : Meta.Context) (cctx : Core.Context) e hint top named,
-    KeepsC mctx mref cctx cref (J L D) (translateExprToWire e hint top named)
+  ∀ {tenv : Lean.Environment}, ∀ D, ChildKeeps L D → ∀ (mctx : Meta.Context) (cctx : Core.Context) e hint top named,
+    KeepsC mctx mref cctx cref (J L D) (translateExprToWire tenv e hint top named)
 
 /-- The machine route's harness, relative to the child entry: the same for
 `synthesizeMixedCertified` with the entry's own logger. PROVED from
 `TranslateRel` (`harnessRel_of`, `Tools/ShippingChildHarness.lean`). -/
 def HarnessRel (L : RefLaws mref cref) : Prop :=
-  ∀ D, ChildKeeps L D → ∀ (mctx : Meta.Context) (cctx : Core.Context) (b : Bool) declName bs body,
+  ∀ {tenv : Lean.Environment}, ∀ D, ChildKeeps L D → ∀ (mctx : Meta.Context) (cctx : Core.Context) (b : Bool) declName bs body,
     Keeps mctx mref cctx cref (J L D)
-      (synthesizeMixedCertified (fun e hint top named => translateExprToWire e hint top named)
+      (synthesizeMixedCertified (fun e hint top named => translateExprToWire tenv e hint top named)
         (profLogIO b) declName bs body)
 
 section Bnd

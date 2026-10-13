@@ -105,9 +105,9 @@ compiles of the calls' declarations. A statement about `closeInsts` /
 `closeInstsG`, without a world. -/
 def CallsPure (mref : ST.Ref IO.RealWorld Meta.State) (cref : ST.Ref IO.RealWorld Core.State)
     (declName : Name) (shape : MachineShape) : Prop :=
-  ∀ (b : Bool) t d₀ t' children,
+  ∀ {tenv : Lean.Environment}, ∀ (b : Bool) t d₀ t' children,
     MReturns (synthesizeMixedCertified
-      (fun e hint top named => translateExprToWire e hint top named) (profLogIO b) declName
+      (fun e hint top named => translateExprToWire tenv e hint top named) (profLogIO b) declName
       shape.binders shape.body) (t, d₀) →
     Sparkle.IR.Machine.closeLets shape.layout.lets t = some t' →
     ChildrenReal mref cref shape children →
@@ -127,7 +127,7 @@ theorem machineClosesAt_of_pure {declName : Name} {shape : MachineShape}
     (hl : LetsClose mctx mref cctx cref declName shape)
     (hp : CallsPure mref cref declName shape) :
     MachineClosesAt mctx mref cctx cref declName shape := by
-  intro b w r w' hw' _ hr
+  intro tenv b w r w' hw' _ hr
   obtain ⟨L, hw⟩ := invV_of_invW mctx cctx hw'
   have hB := fun L' : RefLaws mref cref => bodyRel L'
   unfold synthesizeMachineCertified at hr

@@ -1,6 +1,8 @@
 import Tools.ShippingCacheCoherentCert
 import Tools.ShippingClosedKinds
 
+variable {tenv : Lean.Environment}
+
 /-! # The harness's result facts, from a declaration's machine data
 
 `Tools.ShippingCacheCoherentCert.machine_all` / `entryOk_machine` /
@@ -33,7 +35,7 @@ theorem hout_of_data {declName : Lean.Name} (d : MachineData) (ok : d.ok = true)
     (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain) (b : Bool) :
     ∀ (t t' : Sparkle.IR.AST.Module) (d₀ : Design),
       MReturns (synthesizeMixedCertified
-        (fun e hint top named => translateExprToWire e hint top named) (profLogIO b) declName
+        (fun e hint top named => translateExprToWire tenv e hint top named) (profLogIO b) declName
         d.shape.binders d.shape.body) (t, d₀) →
       closeLets d.shape.layout.lets t = some t' →
       (closeMachine d.shape.layout t').name = Sparkle.IR.ModuleName.ofDecl declName ∧

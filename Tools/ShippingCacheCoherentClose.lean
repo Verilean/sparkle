@@ -2,6 +2,8 @@ import Tools.ShippingCacheCoherentRun
 import Tools.ShippingCallsRunFinal
 import Tools.ShippingDesignWithG
 
+variable {tenv : Lean.Environment}
+
 /-! # Provenance through the machine route's own code (the closings)
 
 The machine route joins its children's designs with `designWith`
@@ -220,12 +222,12 @@ theorem closeInstsGM_prov (L : RefLaws mref cref) (hB : ∀ L' : RefLaws mref cr
 translator on the transition — keeps `Prov`, from an invariant world of
 positive depth. -/
 def HarnessProv (L : RefLaws mref cref) : Prop :=
-  ∀ (mctx : Meta.Context) (cctx : Core.Context) (b : Bool) (declName : Name)
+  ∀ {tenv : Lean.Environment}, ∀ (mctx : Meta.Context) (cctx : Core.Context) (b : Bool) (declName : Name)
     (bs : List (Name × MixedGateBinder)) (body : Lean.Expr)
     (w : Void IO.RealWorld) (r : Res) (w' : Void IO.RealWorld),
     InvV L w → L.dval w ≠ 0 → Prov (L.val w) →
     RunsTo (synthesizeMixedCertified
-      (fun e hint top named => translateExprToWire e hint top named) (profLogIO b) declName
+      (fun e hint top named => translateExprToWire tenv e hint top named) (profLogIO b) declName
       bs body) mctx mref cctx cref w r w' → Prov (L.val w')
 
 /-- **A run of the machine synthesis keeps `Prov`** — whatever it returns —
@@ -237,7 +239,7 @@ theorem machine_prov (L : RefLaws mref cref) (hB : ∀ L' : RefLaws mref cref, B
     {r : Option Res} {w w' : Void IO.RealWorld}
     (hw : InvV L w) (hd : L.dval w ≠ 0) (hp : Prov (L.val w))
     (hr : RunsTo (synthesizeMachineCertified
-      (fun e hint top named => translateExprToWire e hint top named) (profLogIO b) declName shape)
+      (fun e hint top named => translateExprToWire tenv e hint top named) (profLogIO b) declName shape)
       mctx mref cctx cref w r w') : Prov (L.val w') := by
   unfold synthesizeMachineCertified at hr
   obtain ⟨⟨t, d'⟩, w1, run, hr⟩ := RunsTo.bind hr
@@ -273,7 +275,7 @@ theorem machine_closes_of_prov {declName : Name} {shape : MachineShape} (decls :
     (hR : ∀ c, CoreFresh L c) {b : Bool} {r : Option Res} {w w' : Void IO.RealWorld}
     (hw : InvV L w) (hd : L.dval w ≠ 0) (hp : Prov (L.val w))
     (hr : RunsTo (synthesizeMachineCertified
-      (fun e hint top named => translateExprToWire e hint top named) (profLogIO b) declName shape)
+      (fun e hint top named => translateExprToWire tenv e hint top named) (profLogIO b) declName shape)
       mctx mref cctx cref w r w') : r ≠ none :=
   hS b w r w' (invW_of_invV L hw) (depthPos_of L hd) hr
     (cacheAgrees_of_coherentAt decls

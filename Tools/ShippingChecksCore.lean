@@ -93,7 +93,7 @@ theorem core_kids_facts_ran {c : Name} (d : MachineData) (ok : d.ok = true)
       ∀ g2 ∈ y.1 :: y.2.modules, ∃ g' ∈ D.modules, g'.name = g2.name) ∧
     Tools.ShippingDesignSVBack.outsAssigned b = true := by
   have ran0 := ran
-  obtain ⟨bb, w9, w10, hrun9, hw9, -⟩ := ran0
+  obtain ⟨_, bb, w9, w10, hrun9, hw9, -⟩ := ran0
   obtain ⟨t, t', d₀, run, hcl, hmt⟩ := synthesizeMachineCertified_runs hw9 hrun9
   rcases hmt with ⟨hno, -, -⟩ | ⟨-, children, hcc, hreal⟩
   · exact absurd hno hins
@@ -492,7 +492,7 @@ theorem core_kids_factsM_ran {c : Name} (d : MachineData) (ok : d.ok = true)
       ∀ g2 ∈ y.1 :: y.2.modules, ∃ g' ∈ D.modules, g'.name = g2.name) ∧
     Tools.ShippingDesignSVBack.outsAssigned b = true := by
   have ran0 := ran
-  obtain ⟨bb, w9, w10, hrun9, hw9, -⟩ := ran0
+  obtain ⟨_, bb, w9, w10, hrun9, hw9, -⟩ := ran0
   obtain ⟨t, t', d₀, run, hcl, hmt⟩ := synthesizeMachineCertified_runs hw9 hrun9
   rcases hmt with ⟨hno, -, -⟩ | ⟨-, children, hcc, hreal⟩
   · exact absurd hno hins

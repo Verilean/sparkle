@@ -1,5 +1,7 @@
 import Tools.ShippingChildTranslate
 
+variable {tenv : Lean.Environment}
+
 /-! # The fallback's arms keep the child invariant
 
 `translateFallback rec` dispatches on `fallbackKind`: fourteen certified arms
@@ -177,21 +179,21 @@ include hrec hC hlegC
 validated cache wrapper, or the legacy translator. -/
 @[keeps] theorem translateInstanceOrFallback_keepsC (e : Lean.Expr) (hint : String)
     (top named : Bool) :
-    KeepsC mctx mref cctx cref (J L D) (translateInstanceOrFallback rec e hint top named) := by
+    KeepsC mctx mref cctx cref (J L D) (translateInstanceOrFallback tenv rec e hint top named) := by
   vc
 
 include hlegI
 
 /-- **The fallback**: one arm per `fallbackKind`. -/
 theorem translateFallback_keepsC (e : Lean.Expr) (hint : String) (top named : Bool) :
-    KeepsC mctx mref cctx cref (J L D) (translateFallback rec e hint top named) := by
+    KeepsC mctx mref cctx cref (J L D) ((translateFallback tenv) rec e hint top named) := by
   vc
 
 end Dispatch
 
 /-- **`FallbackRel` from `LegacyRel`.** -/
 theorem fallbackRel_of_legacy (hLg : LegacyRel L) : FallbackRel L := by
-  intro D hC rec hrec mctx cctx e hint top named
+  intro tenv D hC rec hrec mctx cctx e hint top named
   obtain ⟨h1, h2⟩ := hLg D hC rec hrec mctx cctx
   exact translateFallback_keepsC L D rec hrec hC h1 h2 e hint top named
 

@@ -2,6 +2,8 @@ import Tools.ShippingCacheCoherentOuter
 import Tools.ShippingKidsSelf
 import Tools.ShippingMachineRanBase
 
+variable {tenv : Lean.Environment}
+
 /-! # `MachineRan`: what every design-level consumer takes of the closing, stated for ONE run
 
 BUILT as of par/a-43 (docs/parallel/A-outermost-form.md, the integrator's
@@ -22,7 +24,7 @@ carries `closes : MachineClosesAt mctx mref cctx cref c d.shape` and only
 threads it down. It is USED in thirteen base lemmas, each time by the same
 three lines at the start of the proof:
 
-    obtain ⟨bb, r, w9, w10, hrun9, hw9, hd9, hres⟩ := machine_run_of_core hcore entry hB
+    obtain ⟨_, bb, r, w9, w10, hrun9, hw9, hd9, hres⟩ := machine_run_of_core hcore entry hB
     have hne := closes bb _ _ _ hw9 hd9 hrun9
     cases r with | none => exact absurd rfl hne | some res => …
 
@@ -102,17 +104,18 @@ theorem machineRan_outermost {c : Name} {shape : MachineShape}
     (hcore : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, D) w1)
     (entry : MachineDefines mctx mref cctx cref c shape)
     (h0 : Start0 mref cref w)
-    (hclose : ∀ (L : RefLaws mref cref) (b : Bool) (w9 : Void IO.RealWorld) (r : Option Res)
+    (hclose : ∀ {tenv : Lean.Environment} (L : RefLaws mref cref) (b : Bool)
+      (w9 : Void IO.RealWorld) (r : Option Res)
       (w10 : Void IO.RealWorld), InvV L w9 → L.dval w9 ≠ 0 → Prov (L.val w9) →
       RunsTo (synthesizeMachineCertified
-        (fun e hint top named => translateExprToWire e hint top named) (profLogIO b) c shape)
+        (fun e hint top named => translateExprToWire tenv e hint top named) (profLogIO b) c shape)
         mctx mref cctx cref w9 r w10 → r ≠ none) :
     MachineRan mctx mref cctx cref c shape M D := by
   obtain ⟨L, hs, hd0, hq⟩ := h0
-  obtain ⟨b, w9, w10, hrun, hw9, hd9, -⟩ :=
+  obtain ⟨_, b, w9, w10, hrun, hw9, hd9, -⟩ :=
     Tools.ShippingCacheCoherentOuter.coreVia0_of L (fun L' => bodyRel L')
       (fun L' => harnessRel_of L' (translateRel L')) entry (hclose L) hs hq hd0 hcore
-  exact ⟨b, w9, w10, hrun, invW_of_invV L hw9, depthPos_of L hd9⟩
+  exact ⟨_, b, w9, w10, hrun, invW_of_invV L hw9, depthPos_of L hd9⟩
 
 /-! ## One worked example: `core_kids_self` -/
 

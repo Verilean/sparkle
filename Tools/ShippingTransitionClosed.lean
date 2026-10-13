@@ -1,5 +1,7 @@
 import Tools.ShippingHarnessClosed
 
+variable {tenv : Lean.Environment}
+
 /-! # A transition / gate module reads its input ports and wires driven earlier
 
 `harness_closed` at the level the entry theorems work at: for a run of the
@@ -36,7 +38,7 @@ theorem transition_closed {logProf : String → IO Unit} {declName : Name}
     {st : CircuitState}
     (nd : ids.Nodup) (len : ids.length = bs.length)
     (run : Returns (bindMixedCertifiedInputs
-        (emitLeaves (fun e hint top named => translateExprToWire e hint top named) cache logProf
+        (emitLeaves (fun e hint top named => translateExprToWire tenv e hint top named) cache logProf
           [("out", instFVars (ids.map Lean.Expr.fvar).toArray 0 body)] none 0) (bs.zip ids))
         (entryCompilerState false cache) (CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName)) returned st)
     (hm : m = (addClockResetIfSequential st.module).finalize)

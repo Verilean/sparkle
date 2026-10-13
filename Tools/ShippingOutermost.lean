@@ -1,5 +1,7 @@
 import Tools.ShippingMachineRan
 
+variable {tenv : Lean.Environment}
+
 /-! # `RanAt`: the run's machine synthesis as a conjunct of the run boundary (round par/g-1)
 
 WRITTEN, NOT BUILT. NEW file; no built file is edited by it.
@@ -75,10 +77,11 @@ closing at `Prov` worlds only (`hclose`). No `MachineClosesAt`. -/
 theorem ranAt_outermost {c : Name} {shape : MachineShape} {w : Void IO.RealWorld}
     (entry : MachineDefines mctx mref cctx cref c shape)
     (h0 : Start0 mref cref w)
-    (hclose : ∀ (L : RefLaws mref cref) (b : Bool) (w9 : Void IO.RealWorld) (r : Option Res)
+    (hclose : ∀ {tenv : Lean.Environment} (L : RefLaws mref cref) (b : Bool)
+      (w9 : Void IO.RealWorld) (r : Option Res)
       (w10 : Void IO.RealWorld), InvV L w9 → L.dval w9 ≠ 0 → Prov (L.val w9) →
       RunsTo (synthesizeMachineCertified
-        (fun e hint top named => translateExprToWire e hint top named) (profLogIO b) c shape)
+        (fun e hint top named => translateExprToWire tenv e hint top named) (profLogIO b) c shape)
         mctx mref cctx cref w9 r w10 → r ≠ none)
     (M : Sparkle.IR.AST.Module) (D : Sparkle.IR.AST.Design) :
     RanAt mctx mref cctx cref c shape w M D :=

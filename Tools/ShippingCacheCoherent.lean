@@ -166,9 +166,9 @@ antecedent, on the START world). -/
 def MachineClosesAtC (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State)
     (cctx : Core.Context) (cref : ST.Ref IO.RealWorld Core.State) (declName : Name)
     (shape : MachineShape) : Prop :=
-  ∀ (b : Bool) w r w', InvW mref cref w → CoherentAt mref cref w → DepthPos mref cref w →
+  ∀ {tenv : Lean.Environment}, ∀ (b : Bool) w r w', InvW mref cref w → CoherentAt mref cref w → DepthPos mref cref w →
     RunsTo (synthesizeMachineCertified
-      (fun e hint top named => translateExprToWire e hint top named) (profLogIO b) declName shape)
+      (fun e hint top named => translateExprToWire tenv e hint top named) (profLogIO b) declName shape)
       mctx mref cctx cref w r w' → r ≠ none
 
 /-- **Step (b) at the level the closing needs — a STATEMENT, not a theorem
@@ -177,9 +177,9 @@ invariant world of positive depth ends in a coherent world. -/
 def MachineKeepsCoherent (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State)
     (cctx : Core.Context) (cref : ST.Ref IO.RealWorld Core.State) (declName : Name)
     (shape : MachineShape) : Prop :=
-  ∀ (b : Bool) w r w', InvW mref cref w → CoherentAt mref cref w → DepthPos mref cref w →
+  ∀ {tenv : Lean.Environment}, ∀ (b : Bool) w r w', InvW mref cref w → CoherentAt mref cref w → DepthPos mref cref w →
     RunsTo (synthesizeMachineCertified
-      (fun e hint top named => translateExprToWire e hint top named) (profLogIO b) declName shape)
+      (fun e hint top named => translateExprToWire tenv e hint top named) (profLogIO b) declName shape)
       mctx mref cctx cref w r w' → CoherentAt mref cref w'
 
 variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
@@ -318,7 +318,7 @@ theorem synthesizeChildC_coherent (L : RefLaws mref cref) {c : Name}
 theorem MachineClosesAtC.of_closes {declName : Name} {shape : MachineShape}
     (h : MachineClosesAt mctx mref cctx cref declName shape) :
     MachineClosesAtC mctx mref cctx cref declName shape :=
-  fun b w r w' hw _ hd hr => h b w r w' hw hd hr
+  fun {tenv} b w r w' hw _ hd hr => h b w r w' hw hd hr
 
 /-- **The closing from coherent worlds**, from the built relative closing
 (`MachineClosesAtS`, for ANY declaration list) and step (b) at the machine
@@ -328,7 +328,7 @@ theorem machineClosesAtC_of_S {declName : Name} {shape : MachineShape} (decls : 
     (hS : MachineClosesAtS mctx mref cctx cref declName shape decls)
     (hK : MachineKeepsCoherent mctx mref cctx cref declName shape) :
     MachineClosesAtC mctx mref cctx cref declName shape :=
-  fun b w r w' hw hc hd hr =>
+  fun {tenv} b w r w' hw hc hd hr =>
     hS b w r w' hw hd hr (cacheAgrees_of_coherentAt decls (hK b w r w' hw hc hd hr))
 
 end Tools.ShippingCacheCoherent

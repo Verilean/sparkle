@@ -454,7 +454,7 @@ theorem leaf_run_typedIn_out {c : Name} (d : MachineData) (ok : d.ok = true)
       List.count "out" (Sparkle.IR.Reorder.writesOf m0.body) = 1 := by
   obtain ⟨M, D, w1, hcore, hpost, hdesM⟩ := synthesizeCombinational_parts hr
   have closes : MachineClosesAt mctx mref cctx cref c d.shape := machineClosesAt_of_closes closesM
-  obtain ⟨bb, r, w9, w10, hrun9, hw9, hd9, hres⟩ :=
+  obtain ⟨_, bb, r, w9, w10, hrun9, hw9, hd9, hres⟩ :=
     machine_run_of_core hcore entry (ChildBnd.of_invW mctx cctx hw)
   have hne := closes bb _ _ _ hw9 hd9 hrun9
   cases r with

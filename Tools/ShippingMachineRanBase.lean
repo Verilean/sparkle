@@ -29,9 +29,9 @@ from an invariant world of positive depth. -/
 def MachineRan (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State)
     (cctx : Core.Context) (cref : ST.Ref IO.RealWorld Core.State)
     (c : Name) (shape : MachineShape) (M : Sparkle.IR.AST.Module) (D : Design) : Prop :=
-  ∃ (b : Bool) (w9 w10 : Void IO.RealWorld),
+  ∃ (tenv : Lean.Environment), ∃ (b : Bool) (w9 w10 : Void IO.RealWorld),
     RunsTo (synthesizeMachineCertified
-      (fun e hint top named => translateExprToWire e hint top named) (profLogIO b) c shape)
+      (fun e hint top named => translateExprToWire tenv e hint top named) (profLogIO b) c shape)
       mctx mref cctx cref w9 (some (M, D)) w10 ∧
     InvW mref cref w9 ∧ DepthPos mref cref w9
 
@@ -47,13 +47,13 @@ theorem machineRan_of_closes {c : Name} {shape : MachineShape}
     (hB : ChildBnd mref cref w)
     (closes : MachineClosesAt mctx mref cctx cref c shape) :
     MachineRan mctx mref cctx cref c shape M D := by
-  obtain ⟨bb, r, w9, w10, hrun9, hw9, hd9, hres⟩ := machine_run_of_core hcore entry hB
+  obtain ⟨_, bb, r, w9, w10, hrun9, hw9, hd9, hres⟩ := machine_run_of_core hcore entry hB
   have hne := closes bb _ _ _ hw9 hd9 hrun9
   cases r with
   | none => exact absurd rfl hne
   | some res =>
     have hres' := hres res rfl
     subst hres'
-    exact ⟨bb, w9, w10, hrun9, hw9, hd9⟩
+    exact ⟨_, bb, w9, w10, hrun9, hw9, hd9⟩
 
 end Tools.ShippingMachineRan

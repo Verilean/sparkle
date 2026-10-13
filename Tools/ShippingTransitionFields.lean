@@ -1,5 +1,7 @@
 import Tools.ShippingMachineCloses
 
+variable {tenv : Lean.Environment}
+
 /-! # The transition's per-field read facts, for any split of the binders
 
 The setup `transition_closes` builds for the `let` ports, as a theorem of its
@@ -55,7 +57,7 @@ theorem transition_fields {logProf : String → IO Unit} {declName : Name}
     {st : CircuitState}
     (nd : ids.Nodup) (len : ids.length = bs.length)
     (run : Returns (bindMixedCertifiedInputs
-        (emitLeaves (fun e hint top named => translateExprToWire e hint top named) cache logProf
+        (emitLeaves (fun e hint top named => translateExprToWire tenv e hint top named) cache logProf
           [("out", instFVars (ids.map Lean.Expr.fvar).toArray 0 body)] none 0) (bs.zip ids))
         (entryCompilerState false cache) (CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName)) returned st)
     (hm : m = (addClockResetIfSequential st.module).finalize)

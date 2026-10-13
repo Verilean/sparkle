@@ -1,5 +1,7 @@
 import Tools.ShippingClosedPorts
 
+variable {tenv : Lean.Environment}
+
 /-! # The TYPES of the transition's ports, and its wires (G1, conjunct 8)
 
 `instOutWidthsOk` asks of every instance-driven wire `w` — the transition's
@@ -147,7 +149,7 @@ theorem transitionPortTys_of_run {declName : Lean.Name} (d : MachineData) (ok : 
     (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
     {logProf : String → IO Unit} {t : Sparkle.IR.AST.Module} {d₀ : Design}
     (run : MReturns (synthesizeMixedCertified
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName
+      (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName
       d.shape.binders d.shape.body) (t, d₀)) :
     (t.wires.map (·.name)).Nodup ∧ (∀ p ∈ t.wires, Allocated p.name) ∧
     (∀ p ∈ t.inputs, p ∈ t.wires) ∧

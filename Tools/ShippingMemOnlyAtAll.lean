@@ -1,5 +1,7 @@
 import Tools.ShippingClosesSplit
 
+variable {tenv : Lean.Environment}
+
 /-! # The all-worlds closing `MachineCloses` of a shape with calls: its counter-world (G1, unit U4, round par/b-15)
 
 DECISION RECORDED HERE (by reading; this file states the reason as a theorem).
@@ -95,7 +97,7 @@ theorem not_machineCloses_of_synthNone {declName : Name} {shape : MachineShape}
     {logProf : String → IO Unit} {w w1 w2 : Void IO.RealWorld}
     {t t' : Sparkle.IR.AST.Module} {d : Sparkle.IR.AST.Design}
     (hr : RunsTo (synthesizeMixedCertified
-      (fun e hint top named => translateExprToWire e hint top named)
+      (fun e hint top named => translateExprToWire tenv e hint top named)
       logProf declName shape.binders shape.body) mctx mref cctx cref w (t, d) w1)
     (hcl : closeLets shape.layout.lets t = some t')
     (hget : RunsTo (sparkleChildSynth.get : MetaM _) mctx mref cctx cref w1 none w2) :

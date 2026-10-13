@@ -9,6 +9,8 @@ import Tools.ShippingMachineDepthHR
 import Tools.ShippingChildServe
 import Tools.ShippingOneOutClose
 
+variable {tenv : Lean.Environment}
+
 /-! # The run's facts of a machine whose calls are tied by the ONE-OUTPUT closing (G1, round par/a-6)
 
 `Tools.ShippingChecksRunFacts.core_runFacts` gives the facts of the full
@@ -87,17 +89,18 @@ theorem core_closeInsts {c : Name} (d : MachineData)
     (hcore : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, D) w1)
     (entry : MachineDefines mctx mref cctx cref c d.shape)
     (closes : MachineClosesAt mctx mref cctx cref c d.shape) :
-    ∃ (logProf : String → IO Unit) (t t' : Sparkle.IR.AST.Module) (d₀ : Design)
+    ∃ (tenv : Lean.Environment) (logProf : String → IO Unit) (t t' : Sparkle.IR.AST.Module)
+      (d₀ : Design)
       (children : List (Sparkle.IR.AST.Module × Design)),
       MReturns (synthesizeMixedCertified
-        (fun e hint top named => translateExprToWire e hint top named) logProf c
+        (fun e hint top named => translateExprToWire tenv e hint top named) logProf c
         d.shape.binders d.shape.body) (t, d₀) ∧
       closeLets d.shape.layout.lets t = some t' ∧
       closeInsts (machNIn d.shape) d.shape.insts.length d.shape.layout.slots.length
         (t.inputs.map (·.name)) (d.shape.insts.map (·.2.1)) children
         (closeMachine d.shape.layout t', d₀) = some (M, D) ∧
       ChildrenReal mref cref d.shape children := by
-  obtain ⟨bb, r, w9, w10, hrun9, hw9, hd9, hres⟩ :=
+  obtain ⟨_, bb, r, w9, w10, hrun9, hw9, hd9, hres⟩ :=
     machine_run_of_core hcore entry hB
   have hne := closes bb _ _ _ hw9 hd9 hrun9
   cases r with
@@ -109,7 +112,7 @@ theorem core_closeInsts {c : Name} (d : MachineData)
   rcases hmt with ⟨hno, -, -⟩ | ⟨-, children, hcc, hreal⟩
   · exact absurd hno hins
   rcases hcc with ⟨-, hI⟩ | ⟨hfe, -, -⟩
-  · exact ⟨_, t, t', d₀, children, run, hcl, hI, hreal⟩
+  · exact ⟨_, _, t, t', d₀, children, run, hcl, hI, hreal⟩
   · exact absurd hf hfe
 
 set_option maxHeartbeats 4000000 in
@@ -137,7 +140,7 @@ theorem core_kidsComb_raw₁ {c : Name} (d : MachineData) (ok : d.ok = true)
   have hbody' : b.body = M.body :=
     (Tools.ShippingChecksCore.core_kids_facts d ok hbody hC hslots hdomB hins outTy hnomem hB
       hcore hpost entry closes).2.1
-  obtain ⟨logProf, t, t', d₀, children, run, hcl, hI, hreal⟩ :=
+  obtain ⟨_, logProf, t, t', d₀, children, run, hcl, hI, hreal⟩ :=
     core_closeInsts d hins hf hB hcore entry closes
   rw [hbody']
   exact Tools.ShippingMachineDepthHR.kidsComb_of_B
@@ -203,7 +206,7 @@ theorem core_instNames₁ {c : Name} (d : MachineData) (ok : d.ok = true)
   have hbody' : b.body = M.body :=
     (Tools.ShippingChecksCore.core_kids_facts d ok hbody hC hslots hdomB hins outTy hnomem hB
       hcore hpost entry closes).2.1
-  obtain ⟨logProf, t, t', d₀, children, run, hcl, hI, hreal⟩ :=
+  obtain ⟨_, logProf, t, t', d₀, children, run, hcl, hI, hreal⟩ :=
     core_closeInsts d hins hf hB hcore entry closes
   obtain ⟨hseq0, -, -⟩ := closedBody_kinds_of_run d ok hbody hC hslots hdomB run hcl
   rw [hbody']
@@ -236,7 +239,7 @@ theorem core_noSelfRead₁ {c : Name} (d : MachineData) (ok : d.ok = true)
   have hbody' : b.body = M.body :=
     (Tools.ShippingChecksCore.core_kids_facts d ok hbody hC hslots hdomB hins outTy hnomem hB
       hcore hpost entry closes).2.1
-  obtain ⟨logProf, t, t', d₀, children, run, hcl, hI, hreal⟩ :=
+  obtain ⟨_, logProf, t, t', d₀, children, run, hcl, hI, hreal⟩ :=
     core_closeInsts d hins hf hB hcore entry closes
   obtain ⟨hseq0, -, -⟩ := closedBody_kinds_of_run d ok hbody hC hslots hdomB run hcl
   rw [hbody']
@@ -280,7 +283,7 @@ theorem core_kidsNotSeq₁ {c : Name} (d : MachineData) (ok : d.ok = true)
   have hbody' : b.body = M.body :=
     (Tools.ShippingChecksCore.core_kids_facts d ok hbody hC hslots hdomB hins outTy hnomem hB
       hcore hpost entry closes).2.1
-  obtain ⟨logProf, t, t', d₀, children, run, hcl, hI, hreal⟩ :=
+  obtain ⟨_, logProf, t, t', d₀, children, run, hcl, hI, hreal⟩ :=
     core_closeInsts d hins hf hB hcore entry closes
   obtain ⟨hseq0, -, -⟩ := closedBody_kinds_of_run d ok hbody hC hslots hdomB run hcl
   intro mn iname conns hm
@@ -340,7 +343,7 @@ theorem core_outsExtracted₁ {c : Name} (d : MachineData) (ok : d.ok = true)
     · rw [h, (Sparkle.IR.RefineCheck.mergeChecked_ports _).2.2]
       exact Tools.ShippingOutsExtractedParts.dropZW_wires hp hz
   -- the run: the one-output closing
-  obtain ⟨logProf, t, t', d₀, children, run, hcl, hI, hreal⟩ :=
+  obtain ⟨_, logProf, t, t', d₀, children, run, hcl, hI, hreal⟩ :=
     core_closeInsts d hins hf hB hcore entry closes
   obtain ⟨hMw, -, -, L, hLinst, hperm, -, -, -, -, -, -, -⟩ :=
     Tools.ShippingMachineInst.closeInsts_some hI
@@ -456,7 +459,7 @@ theorem core_rst_any {c : Name} (d : MachineData) (ok : d.ok = true)
     (entry : MachineDefines mctx mref cctx cref c d.shape)
     (closes : MachineClosesAt mctx mref cctx cref c d.shape) :
     "rst" ∈ b.inputs.map (·.name) := by
-  obtain ⟨bb, r, w9, w10, hrun9, hw9, hd9, hres⟩ :=
+  obtain ⟨_, bb, r, w9, w10, hrun9, hw9, hd9, hres⟩ :=
     machine_run_of_core hcore entry hB
   have hne := closes bb _ _ _ hw9 hd9 hrun9
   cases r with

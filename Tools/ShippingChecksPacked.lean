@@ -1,5 +1,7 @@
 import Tools.ShippingTransitionClosed
 
+variable {tenv : Lean.Environment}
+
 /-! # The packed wire of a transition, before and after `closeLets` (G1)
 
 `closeMachine` closes a transition whose body ends in `assign out = w`
@@ -59,7 +61,7 @@ theorem transition_out {logProf : String → IO Unit} {declName : Name}
     {st : CircuitState}
     (nd : ids.Nodup) (len : ids.length = bs.length)
     (run : Returns (bindMixedCertifiedInputs
-        (emitLeaves (fun e hint top named => translateExprToWire e hint top named) cache logProf
+        (emitLeaves (fun e hint top named => translateExprToWire tenv e hint top named) cache logProf
           [("out", instFVars (ids.map Lean.Expr.fvar).toArray 0 body)] none 0) (bs.zip ids))
         (entryCompilerState false cache) (CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName)) returned st)
     (hm : m = (addClockResetIfSequential st.module).finalize)
@@ -112,7 +114,7 @@ theorem transition_packed {logProf : String → IO Unit} {declName : Name}
     {st : CircuitState}
     (nd : ids.Nodup) (len : ids.length = bs.length)
     (run : Returns (bindMixedCertifiedInputs
-        (emitLeaves (fun e hint top named => translateExprToWire e hint top named) cache logProf
+        (emitLeaves (fun e hint top named => translateExprToWire tenv e hint top named) cache logProf
           [("out", instFVars (ids.map Lean.Expr.fvar).toArray 0 body)] none 0) (bs.zip ids))
         (entryCompilerState false cache) (CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName)) returned st)
     (hm : m = (addClockResetIfSequential st.module).finalize)

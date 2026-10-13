@@ -41,7 +41,8 @@ theorem entryConst_off (ci : ConstantInfo) (isInst : Lean.Expr → Bool)
 
 /-- **The outermost entry reaches `synthesizeFromConst` with an EMPTY memo**,
 for any translator and either front end. -/
-theorem outer_reset_reaches_with (L : RefLawsM mref cref) {translate : TranslateFn}
+theorem outer_reset_reaches_with (L : RefLawsM mref cref)
+    {translate : Lean.Environment → TranslateFn}
     {declName : Name} {cfe : Bool}
     {w w' : Void IO.RealWorld} {M : Sparkle.IR.AST.Module} {D : Sparkle.IR.AST.Design}
     (h0 : L.dval w = 0) (hq : L.quiet w)
@@ -51,7 +52,7 @@ theorem outer_reset_reaches_with (L : RefLawsM mref cref) {translate : Translate
       (w1 w2 w3 w4 w5 w6 : Void IO.RealWorld),
       RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧
       RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w5 envR w6 ∧
-      RunsTo (synthesizeFromConst translate (profLogIO b) declName [] false cfe
+      RunsTo (synthesizeFromConst (translate envR) (profLogIO b) declName [] false cfe
         (entryConst cfe false [] ci (Sparkle.Compiler.Elab.instancePredicate envR)
           (userInliner envR) (structEnv envR))
         (Sparkle.Compiler.Elab.instancePredicate envR))

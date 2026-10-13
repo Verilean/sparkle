@@ -1,5 +1,7 @@
 import Tools.ShippingClosedKinds
 
+variable {tenv : Lean.Environment}
+
 /-! # The ports and the registers of a closed machine (G1, conjunct 6)
 
 `outsExtracted` asks of every instance-driven wire of a machine with calls —
@@ -209,7 +211,7 @@ theorem closedPorts_of_run {declName : Lean.Name} (d : MachineData) (ok : d.ok =
     (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
     {logProf : String → IO Unit} {t t' : Sparkle.IR.AST.Module} {d₀ : Design}
     (run : MReturns (synthesizeMixedCertified
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName
+      (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName
       d.shape.binders d.shape.body) (t, d₀))
     (hcl : closeLets d.shape.layout.lets t = some t') :
     ∃ PI ls : List Port, t.inputs = PI ++ ls ∧

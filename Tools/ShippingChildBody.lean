@@ -1,5 +1,7 @@
 import Tools.ShippingChildLegacy
 
+variable {tenv : Lean.Environment}
+
 /-! # The body of a child synthesis keeps the child invariant
 
 `synthesizeFromConst` — the body the memoised entry runs — on its four
@@ -41,7 +43,7 @@ variable (L : RefLaws mref cref) (D : Nat)
 @[keeps] theorem emitLeaves_keepsC (hC : ChildKeeps L D) (b : Bool) (cacheRef : IO.Ref (Lean.ExprStructMap String))
     (leaves : List (String × Lean.Expr)) (fw : Option String) (idx : Nat) :
     KeepsC mctx mref cctx cref (J L D)
-      (emitLeaves (fun e hint top named => translateExprToWire e hint top named) cacheRef
+      (emitLeaves (fun e hint top named => translateExprToWire tenv e hint top named) cacheRef
         (profLogIO b) leaves fw idx) :=
   keepsC_iff.mpr (emitLeaves_tripleC L D b cacheRef
     (fun e hint top named => keepsC_iff.mp (translateRel L D hC mctx cctx e hint top named)) leaves fw idx)
@@ -53,21 +55,21 @@ variable (L : RefLaws mref cref) (D : Nat)
 @[keeps] theorem synthesizeMixedCertified_keeps (hC : ChildKeeps L D) (b : Bool) (declName : Name)
     (bs : List (Name × MixedGateBinder)) (body : Lean.Expr) :
     Keeps mctx mref cctx cref (J L D)
-      (synthesizeMixedCertified (fun e hint top named => translateExprToWire e hint top named)
+      (synthesizeMixedCertified (fun e hint top named => translateExprToWire tenv e hint top named)
         (profLogIO b) declName bs body) :=
   harnessRel_of L (translateRel L) D hC mctx cctx b declName bs body
 
 @[keeps] theorem synthesizeMachineCertified_keeps (hC : ChildKeeps L D) (b : Bool) (declName : Name)
     (shape : MachineShape) :
     Keeps mctx mref cctx cref (J L D)
-      (synthesizeMachineCertified (fun e hint top named => translateExprToWire e hint top named)
+      (synthesizeMachineCertified (fun e hint top named => translateExprToWire tenv e hint top named)
         (profLogIO b) declName shape) :=
   machine_keeps L (harnessRel_of L (translateRel L)) D hC b declName shape
 
 @[keeps] theorem synthesizeCertified_keeps (hC : ChildKeeps L D) (b : Bool) (declName : Name)
     (bs : List (Name × GateBinder)) (body : Lean.Expr) :
     Keeps mctx mref cctx cref (J L D)
-      (synthesizeCertified (fun e hint top named => translateExprToWire e hint top named)
+      (synthesizeCertified (fun e hint top named => translateExprToWire tenv e hint top named)
         (profLogIO b) declName bs body) := by
   vc
 
@@ -139,7 +141,7 @@ theorem openRecordInputs_walk_keeps (body : Lean.Expr) (params : Array Lean.Expr
 
 theorem body_keeps (hC : ChildKeeps L D) (b : Bool) (declName : Name) (ci : ConstantInfo) (isInst : Lean.Expr → Bool) :
     Keeps mctx mref cctx cref (J L D)
-      (synthesizeFromConst (fun e h t n => translateExprToWire e h t n) (profLogIO b)
+      (synthesizeFromConst (fun e h t n => translateExprToWire tenv e h t n) (profLogIO b)
         declName [] false true ci isInst) := by
   have hb := fun (mctx : Meta.Context) (cctx : Core.Context) (xs : Array Lean.Expr) i (k : CompilerM String)
       (hk : KeepsC mctx mref cctx cref (J L D) k) =>
@@ -148,7 +150,7 @@ theorem body_keeps (hC : ChildKeeps L D) (b : Bool) (declName : Name) (ci : Cons
 
 /-- **`BodyRel`, proved.** -/
 theorem bodyRel : BodyRel L :=
-  fun D hC mctx cctx b declName ci isInst => body_keeps L D hC b declName ci isInst
+  fun {tenv} D hC mctx cctx b declName ci isInst => body_keeps L D hC b declName ci isInst
 
 /-- **The memoised child entry keeps the invariant at every depth** — under
 the generic laws alone. -/

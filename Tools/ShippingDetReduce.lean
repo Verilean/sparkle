@@ -90,7 +90,7 @@ theorem machineClosesAt_of_det {declName : Name} {shape : MachineShape} (decls :
     (hreal : ∀ c ∈ decls, ∀ y : Res, RealChild mref cref c y →
       ∀ a ∈ mods y, RealMod mref cref S a) :
     MachineClosesAt mctx mref cctx cref declName shape := by
-  intro b w r w' hw hd hr
+  intro tenv b w r w' hw hd hr
   obtain ⟨L, hv⟩ := invV_of_invW mctx cctx hw
   have hJ := keeps_runs
     (machine_keeps (mctx := mctx) (cctx := cctx) L.plain (hH _) (L.dval w)

@@ -134,7 +134,7 @@ theorem machineClosesAt_of_kidsD {declName : Name} (d : MachineData) (ok : d.ok 
     MachineClosesAt mctx mref cctx cref declName d.shape := by
   have hl : Tools.ShippingClosesSplit.LetsClose mctx mref cctx cref declName d.shape :=
     letsClose_of_data d ok hbody halias mctx mref cctx cref
-  intro b w r w' hw' hdp hr
+  intro tenv b w r w' hw' hdp hr
   obtain ⟨L, hw⟩ := invV_of_invW mctx cctx hw'
   have hB := fun L' : RefLaws mref cref => bodyRel L'
   unfold synthesizeMachineCertified at hr

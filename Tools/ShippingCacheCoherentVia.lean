@@ -1,5 +1,7 @@
 import Tools.ShippingCacheCoherentCert
 
+variable {tenv : Lean.Environment}
+
 /-! # `CoreVia`: a core run on the machine route, with its worlds
 
 `Tools.ShippingCacheCoherentCert.CoreVia L c shape` was a statement: a
@@ -168,7 +170,7 @@ theorem core_reads_val (L : RefLaws mref cref) (hB : ∀ L' : RefLaws mref cref,
       (w1 w2 w3 w4 w5 w6 : Void IO.RealWorld),
       RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧
       RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w5 envR w6 ∧
-      RunsTo (synthesizeFromConst (fun e h t n => translateExprToWire e h t n) (profLogIO b)
+      RunsTo (synthesizeFromConst (fun e h t n => translateExprToWire envR e h t n) (profLogIO b)
         declName [] false true
         (entryConst true false [] ci (Sparkle.Compiler.Elab.instancePredicate envR)
           (userInliner envR) (structEnv envR))
@@ -242,13 +244,13 @@ theorem sfc_machine_val (L : RefLaws mref cref) {b : Bool} {declName : Name}
     {d : Sparkle.IR.AST.Design} {w w' : Void IO.RealWorld}
     (old : certifiedShape? false [] ci = none)
     (miss : mixedCertifiedShape? false [] ci isInst = none) (hw : InvV L w)
-    (hr : RunsTo (synthesizeFromConst (fun e h t n => translateExprToWire e h t n) (profLogIO b)
+    (hr : RunsTo (synthesizeFromConst (fun e h t n => translateExprToWire tenv e h t n) (profLogIO b)
       declName [] false true ci isInst) mctx mref cctx cref w (m, d) w') :
     ∃ (envR : Environment) (w5 w6 : Void IO.RealWorld),
       RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w5 envR w6 ∧
       ∀ shape, machineShape? false [] ci (structEnv envR) = some shape →
         ∃ r w7 w8, RunsTo (synthesizeMachineCertified
-            (fun e hint top named => translateExprToWire e hint top named) (profLogIO b) declName
+            (fun e hint top named => translateExprToWire tenv e hint top named) (profLogIO b) declName
             shape) mctx mref cctx cref w7 r w8 ∧ InvV L w7 ∧ L.dval w7 = L.dval w ∧
           L.val w7 = L.val w ∧
           ∀ res, r = some res → L.quiet w8 → res = (m, d) ∧ L.val w' = L.val w8 := by
@@ -308,6 +310,6 @@ theorem coreVia_of (L : RefLaws mref cref) (hB : ∀ L' : RefLaws mref cref, Bod
     have hq10 : L.quiet w10 := hJ.1.2.2
     obtain ⟨he, hv10⟩ := hres res rfl hq10
     subst he
-    exact ⟨b, w9, w10, hrun, hw9, hd9', hv9.trans hv3, hv4.trans hv10⟩
+    exact ⟨_, b, w9, w10, hrun, hw9, hd9', hv9.trans hv3, hv4.trans hv10⟩
 
 end Tools.ShippingCacheCoherentVia

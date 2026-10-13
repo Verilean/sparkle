@@ -2,6 +2,8 @@ import Tools.ShippingLegacySemChain
 import Tools.ShippingLegacySemWalk4
 import Tools.ShippingLegacySemUnfoldWalk
 
+variable {tenv : Lean.Environment}
+
 /-! # The body stage of a plain call, assembled
 
 `bodyOutcome_plain`: for an application whose head is the constant `name`,
@@ -33,7 +35,7 @@ open Tools.ShippingEntrySoundness
 /-- **The body stage of a plain call**, from the body's prefix alone. -/
 theorem bodyOutcome_plain {rec : TranslateFn} {ctx : CompilerState} {e : Lean.Expr}
     {name : Name} {us : List Level} (hfn : e.getAppFn = .const name us)
-    (hplain : PlainHead name) (g : GlueName name) (hn : PlainName name)
+    (hplain : PlainHead tenv name) (g : GlueName name) (hn : PlainName name)
     (hb : NotBitVecOp name) (hm : PlainName2 name)
     (hpre : ∀ (hint : String) (top named : Bool) (s t : CircuitState) (w : String),
       Returns (Rec.translateExprToWireImpl (fun e h t n => rec e h t n) e hint top named)

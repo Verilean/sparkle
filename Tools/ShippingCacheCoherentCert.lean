@@ -1,6 +1,8 @@
 import Tools.ShippingCacheCoherentClose
 import Tools.ShippingMachineInstG
 
+variable {tenv : Lean.Environment}
+
 /-! # Provenance for declarations on the certified (machine) route
 
 `Tools.ShippingCacheCoherentRun` left `CoreFresh c` (unrestricted) and
@@ -391,11 +393,11 @@ theorem closeInstsGM_all (L : RefLaws mref cref) (hB : ∀ L' : RefLaws mref cre
 transition, from an invariant world of positive depth, leaves the cache. -/
 def HarnessStill (L : RefLaws mref cref) (declName : Name)
     (bs : List (Name × MixedGateBinder)) (body : Lean.Expr) : Prop :=
-  ∀ (mctx : Meta.Context) (cctx : Core.Context) (b : Bool)
+  ∀ {tenv : Lean.Environment}, ∀ (mctx : Meta.Context) (cctx : Core.Context) (b : Bool)
     (w : Void IO.RealWorld) (r : Res) (w' : Void IO.RealWorld),
     InvV L w → L.dval w ≠ 0 →
     RunsTo (synthesizeMixedCertified
-      (fun e hint top named => translateExprToWire e hint top named) (profLogIO b) declName
+      (fun e hint top named => translateExprToWire tenv e hint top named) (profLogIO b) declName
       bs body) mctx mref cctx cref w r w' → L.val w' = L.val w
 
 /-- **A run of the machine synthesis, whatever it returns**: the invariant
@@ -412,7 +414,7 @@ theorem machine_all (L : RefLaws mref cref) (hB : ∀ L' : RefLaws mref cref, Bo
     (hstill : HarnessStill L declName shape.binders shape.body)
     (hout : ∀ (t t' : Sparkle.IR.AST.Module) (d₀ : Sparkle.IR.AST.Design),
       MReturns (synthesizeMixedCertified
-        (fun e hint top named => translateExprToWire e hint top named) (profLogIO b) declName
+        (fun e hint top named => translateExprToWire tenv e hint top named) (profLogIO b) declName
         shape.binders shape.body) (t, d₀) →
       Sparkle.IR.Machine.closeLets shape.layout.lets t = some t' →
       (Sparkle.IR.Machine.closeMachine shape.layout t').name = ofDecl declName ∧
@@ -422,7 +424,7 @@ theorem machine_all (L : RefLaws mref cref) (hB : ∀ L' : RefLaws mref cref, Bo
     (hR : ∀ c, K c → EntryOk L c K)
     (hw : InvV L w) (hd : L.dval w ≠ 0) (hp : Prov (L.val w))
     (hr : RunsTo (synthesizeMachineCertified
-      (fun e hint top named => translateExprToWire e hint top named) (profLogIO b) declName shape)
+      (fun e hint top named => translateExprToWire tenv e hint top named) (profLogIO b) declName shape)
       mctx mref cctx cref w r w') :
     PK L (L.val w) K w' ∧ ∀ (m : Sparkle.IR.AST.Module) (d : Sparkle.IR.AST.Design),
       r = some (m, d) →
@@ -479,9 +481,9 @@ def CoreVia (L : RefLaws mref cref) (c : Name) (shape : MachineShape) : Prop :=
     (M : Sparkle.IR.AST.Module) (D : Sparkle.IR.AST.Design) (w' : Void IO.RealWorld),
     InvV L w → L.dval w ≠ 0 →
     RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, D) w' →
-    ∃ (b : Bool) (w9 w10 : Void IO.RealWorld),
+    ∃ (tenv : Lean.Environment) (b : Bool) (w9 w10 : Void IO.RealWorld),
       RunsTo (synthesizeMachineCertified
-        (fun e hint top named => translateExprToWire e hint top named) (profLogIO b) c shape)
+        (fun e hint top named => translateExprToWire tenv e hint top named) (profLogIO b) c shape)
         mctx mref cctx cref w9 (some (M, D)) w10 ∧
       InvV L w9 ∧ L.dval w9 ≠ 0 ∧ L.val w9 = L.val w ∧ L.val w' = L.val w10
 
@@ -493,9 +495,10 @@ theorem entryOk_machine (L : RefLaws mref cref) (hB : ∀ L' : RefLaws mref cref
     {c : Name} {shape : MachineShape}
     (hvia : CoreVia L c shape)
     (hstill : HarnessStill L c shape.binders shape.body)
-    (hout : ∀ (b : Bool) (t t' : Sparkle.IR.AST.Module) (d₀ : Sparkle.IR.AST.Design),
+    (hout : ∀ {tenv : Lean.Environment} (b : Bool) (t t' : Sparkle.IR.AST.Module)
+      (d₀ : Sparkle.IR.AST.Design),
       MReturns (synthesizeMixedCertified
-        (fun e hint top named => translateExprToWire e hint top named) (profLogIO b) c
+        (fun e hint top named => translateExprToWire tenv e hint top named) (profLogIO b) c
         shape.binders shape.body) (t, d₀) →
       Sparkle.IR.Machine.closeLets shape.layout.lets t = some t' →
       (Sparkle.IR.Machine.closeMachine shape.layout t').name = ofDecl c ∧ d₀.modules = [])
@@ -505,7 +508,7 @@ theorem entryOk_machine (L : RefLaws mref cref) (hB : ∀ L' : RefLaws mref cref
   intro mctx cctx w r w' hw hd hp hc0 hrun
   obtain ⟨M', D'⟩ := r
   obtain ⟨M, D, wc, hcore, hval, hname, hmods⟩ := full_split L hrun
-  obtain ⟨b, w9, w10, hmach, hw9, hd9, hv9, hv10⟩ := hvia mctx cctx w M D wc hw hd hcore
+  obtain ⟨_, b, w9, w10, hmach, hw9, hd9, hv9, hv10⟩ := hvia mctx cctx w M D wc hw hd hcore
   have hp9 : Prov (L.val w9) := by
     rw [hv9]
     exact hp
@@ -561,7 +564,7 @@ theorem machine_closes_of_entryOk {declName : Name} {shape : MachineShape} (decl
     (hstill : HarnessStill L declName shape.binders shape.body)
     (hout : ∀ (t t' : Sparkle.IR.AST.Module) (d₀ : Sparkle.IR.AST.Design),
       MReturns (synthesizeMixedCertified
-        (fun e hint top named => translateExprToWire e hint top named) (profLogIO b) declName
+        (fun e hint top named => translateExprToWire tenv e hint top named) (profLogIO b) declName
         shape.binders shape.body) (t, d₀) →
       Sparkle.IR.Machine.closeLets shape.layout.lets t = some t' →
       (Sparkle.IR.Machine.closeMachine shape.layout t').name = ofDecl declName ∧
@@ -571,7 +574,7 @@ theorem machine_closes_of_entryOk {declName : Name} {shape : MachineShape} (decl
     (hR : ∀ c, K c → EntryOk L c K)
     (hw : InvV L w) (hd : L.dval w ≠ 0) (hp : Prov (L.val w))
     (hr : RunsTo (synthesizeMachineCertified
-      (fun e hint top named => translateExprToWire e hint top named) (profLogIO b) declName shape)
+      (fun e hint top named => translateExprToWire tenv e hint top named) (profLogIO b) declName shape)
       mctx mref cctx cref w r w') : r ≠ none :=
   hS b w r w' (invW_of_invV L hw) (depthPos_of L hd) hr
     (cacheAgrees_of_coherentAt decls

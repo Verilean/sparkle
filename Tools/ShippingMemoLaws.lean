@@ -1,5 +1,7 @@
 import Tools.ShippingChildRun
 
+variable {tenv : Lean.Environment}
+
 /-! # The per-synthesis memo `sparkleSubModuleCache` in the runtime boundary
 
 **This file EXTENDS the trust base.** `RefLawsM` is `RefLaws`
@@ -163,7 +165,7 @@ theorem outer_reset_reaches (L : RefLawsM mref cref) {declName : Name}
       (w1 w2 w3 w4 w5 w6 : Void IO.RealWorld),
       RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧
       RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w5 envR w6 ∧
-      RunsTo (synthesizeFromConst (fun e h t n => translateExprToWire e h t n) (profLogIO b)
+      RunsTo (synthesizeFromConst (fun e h t n => translateExprToWire envR e h t n) (profLogIO b)
         declName [] false true
         (entryConst true false [] ci (Sparkle.Compiler.Elab.instancePredicate envR)
           (userInliner envR) (structEnv envR))

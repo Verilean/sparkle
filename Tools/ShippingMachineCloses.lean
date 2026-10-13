@@ -3,6 +3,8 @@ import Tools.ShippingSpineOrder
 import Tools.ShippingClosedOrder
 import Tools.ShippingClosesSplit
 
+variable {tenv : Lean.Environment}
+
 /-! # `closeLets` accepts the harness' transition: the six conditions, assembled
 
 From a run of the certified harness on a packed machine body
@@ -490,7 +492,7 @@ theorem transition_closes {logProf : String → IO Unit} {declName : Name}
     {st : CircuitState}
     (nd : ids.Nodup) (len : ids.length = bs.length)
     (run : Returns (bindMixedCertifiedInputs
-        (emitLeaves (fun e hint top named => translateExprToWire e hint top named) cache logProf
+        (emitLeaves (fun e hint top named => translateExprToWire tenv e hint top named) cache logProf
           [("out", instFVars (ids.map Lean.Expr.fvar).toArray 0 body)] none 0) (bs.zip ids))
         (entryCompilerState false cache) (CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName)) returned st)
     (hm : m = (addClockResetIfSequential st.module).finalize)

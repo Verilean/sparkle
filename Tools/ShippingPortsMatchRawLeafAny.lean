@@ -82,7 +82,7 @@ theorem leaf_run_outputs_any {c : Name} (d : MachineData) (ok : d.ok = true)
     b.outputs = d.shape.layout.outs.map (fun o => ({ name := o.name, ty := o.ty } : Port)) := by
   obtain ⟨M, D, w1, hcore, hpost, hdesM⟩ := synthesizeCombinational_parts hr
   have closes : MachineClosesAt mctx mref cctx cref c d.shape := machineClosesAt_of_closes closesM
-  obtain ⟨bb, r, w9, w10, hrun9, hw9, hd9, hres⟩ :=
+  obtain ⟨_, bb, r, w9, w10, hrun9, hw9, hd9, hres⟩ :=
     machine_run_of_core hcore entry (ChildBnd.of_invW mctx cctx hw)
   have hne := closes bb _ _ _ hw9 hd9 hrun9
   cases r with

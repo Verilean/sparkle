@@ -5,6 +5,8 @@ import Tools.ShippingCallsSame
 import Tools.ShippingGateChildComb
 import Tools.ShippingReflectCtx
 
+variable {tenv : Lean.Environment}
+
 /-! # `MachineClosesAt` for one-output calls of gate children
 
 The closing premise of the hierarchical endpoints, DERIVED for a machine
@@ -98,7 +100,7 @@ theorem closeInsts_of_run {declName : Name} (d : MachineData) (ok : d.ok = true)
     {logProf : String → IO Unit} {t t' : Sparkle.IR.AST.Module} {d₀ : Design}
     {children : List (Sparkle.IR.AST.Module × Design)}
     (run : MReturns (synthesizeMixedCertified
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName
+      (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName
       d.shape.binders d.shape.body) (t, d₀))
     (hcl : closeLets d.shape.layout.lets t = some t')
     (hchL : children.length = d.shape.insts.length)
@@ -260,7 +262,7 @@ theorem machineClosesAt_of_gateKids {declName : Name} (d : MachineData) (ok : d.
     exact hS.2
   have hl : Tools.ShippingClosesSplit.LetsClose mctx mref cctx cref declName d.shape :=
     letsClose_of_data d ok hbody halias mctx mref cctx cref
-  intro b w r w' hw' hdp hr
+  intro tenv b w r w' hw' hdp hr
   obtain ⟨L, hw⟩ := invV_of_invW mctx cctx hw'
   have hB := fun L' : RefLaws mref cref => bodyRel L'
   unfold synthesizeMachineCertified at hr

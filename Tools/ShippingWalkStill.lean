@@ -1,6 +1,8 @@
 import Tools.ShippingUnifiedRecursion
 import Tools.ShippingCacheCoherentVia
 
+variable {tenv : Lean.Environment}
+
 /-! # The certified walk, with worlds: a returning translation of a quoted term leaves the child cache
 
 `Tools.ShippingCacheCoherentCert.HarnessStill` / `EntryStill` say that a run
@@ -340,7 +342,7 @@ theorem concat_arm {m n : Nat} {a b : Lean.Expr} {hint : String} {named : Bool}
 
 theorem compare_still {le : SignalCompareKind} {dom ae be : Lean.Expr} {n : Nat}
     (ha : WCh mctx cctx L mb ctx rec ae) (hb : WCh mctx cctx L mb ctx rec be) :
-    WCh mctx cctx L mb ctx (translateStepWith translateFallback rec) (compareE le dom n ae be) := by
+    WCh mctx cctx L mb ctx (translateStepWith (translateFallback tenv) rec) (compareE le dom n ae be) := by
   intro hint top named
   rw [compare_step, translateFallback_bool rec _ hint top named (by cases le <;> rfl)]
   apply controlCached_S L
@@ -349,7 +351,7 @@ theorem compare_still {le : SignalCompareKind} {dom ae be : Lean.Expr} {n : Nat}
 
 theorem boolBin_still {kind : SignalBoolBinKind} {dom ae be : Lean.Expr}
     (ha : WCh mctx cctx L mb ctx rec ae) (hb : WCh mctx cctx L mb ctx rec be) :
-    WCh mctx cctx L mb ctx (translateStepWith translateFallback rec) (boolBinE kind dom ae be) := by
+    WCh mctx cctx L mb ctx (translateStepWith (translateFallback tenv) rec) (boolBinE kind dom ae be) := by
   intro hint top named
   rw [boolBin_step, translateFallback_bool rec _ hint top named (by cases kind <;> rfl)]
   apply controlCached_S L
@@ -358,7 +360,7 @@ theorem boolBin_still {kind : SignalBoolBinKind} {dom ae be : Lean.Expr}
 
 theorem boolEq_still {dom ae be : Lean.Expr}
     (ha : WCh mctx cctx L mb ctx rec ae) (hb : WCh mctx cctx L mb ctx rec be) :
-    WCh mctx cctx L mb ctx (translateStepWith translateFallback rec) (boolEqE dom ae be) := by
+    WCh mctx cctx L mb ctx (translateStepWith (translateFallback tenv) rec) (boolEqE dom ae be) := by
   intro hint top named
   rw [boolEq_step, translateFallback_bool rec _ hint top named rfl]
   apply controlCached_S L
@@ -368,7 +370,7 @@ theorem boolEq_still {dom ae be : Lean.Expr}
 theorem boolMux_still {dom ce ae be : Lean.Expr}
     (hc : WCh mctx cctx L mb ctx rec ce) (ha : WCh mctx cctx L mb ctx rec ae)
     (hb : WCh mctx cctx L mb ctx rec be) :
-    WCh mctx cctx L mb ctx (translateStepWith translateFallback rec) (boolMuxE dom ce ae be) := by
+    WCh mctx cctx L mb ctx (translateStepWith (translateFallback tenv) rec) (boolMuxE dom ce ae be) := by
   intro hint top named
   rw [boolMux_step, translateFallback_bool rec _ hint top named rfl]
   apply controlCached_S L
@@ -378,7 +380,7 @@ theorem boolMux_still {dom ce ae be : Lean.Expr}
 theorem vector_still {dom ce ae be : Lean.Expr} {n : Nat}
     (hc : WCh mctx cctx L mb ctx rec ce) (ha : WCh mctx cctx L mb ctx rec ae)
     (hb : WCh mctx cctx L mb ctx rec be) :
-    WCh mctx cctx L mb ctx (translateStepWith translateFallback rec)
+    WCh mctx cctx L mb ctx (translateStepWith (translateFallback tenv) rec)
       (muxE dom (bitVecE n) ce ae be) := by
   intro hint top named
   rw [vector_step]
@@ -388,7 +390,7 @@ theorem vector_still {dom ce ae be : Lean.Expr} {n : Nat}
 
 theorem setw_still {dom ae : Lean.Expr} {ws wt : Nat} (hws : 0 < ws) (hwt : 0 < wt)
     (ha : WCh mctx cctx L mb ctx rec ae) :
-    WCh mctx cctx L mb ctx (translateStepWith translateFallback rec) (setwE dom ws wt ae) := by
+    WCh mctx cctx L mb ctx (translateStepWith (translateFallback tenv) rec) (setwE dom ws wt ae) := by
   intro hint top named
   rw [setw_step rec dom ae ws wt hws hwt]
   apply controlCached_S L
@@ -397,7 +399,7 @@ theorem setw_still {dom ae : Lean.Expr} {ws wt : Nat} (hws : 0 < ws) (hwt : 0 < 
 
 theorem concat_still {dom ae be : Lean.Expr} {m n : Nat} (hm : 0 < m) (hn : 0 < n)
     (ha : WCh mctx cctx L mb ctx rec ae) (hb : WCh mctx cctx L mb ctx rec be) :
-    WCh mctx cctx L mb ctx (translateStepWith translateFallback rec) (concatE dom m n ae be) := by
+    WCh mctx cctx L mb ctx (translateStepWith (translateFallback tenv) rec) (concatE dom m n ae be) := by
   intro hint top named
   rw [concat_step rec dom ae be m n hint top named hm hn]
   apply controlCached_S L
@@ -454,7 +456,7 @@ theorem wbound_of_lookup {id : FVarId} {wire : String}
 
 /-- An input binder: the core is the variable lookup. -/
 theorem input_still {id : FVarId} (hb : WBound ctx id) :
-    WCh mctx cctx L mb ctx (translateStepWith translateFallback rec) (.fvar id) := by
+    WCh mctx cctx L mb ctx (translateStepWith (translateFallback tenv) rec) (.fvar id) := by
   intro hint top named
   apply step_of_core L
   show WHo mctx cctx L mb ctx (CompilerM.lookupVar id) (fun r => r ≠ none)
@@ -483,7 +485,7 @@ theorem core_literal {e c : Lean.Expr} {us : List Level} {n v : Nat} {hint : Str
     exact WHo.pure L _ (by simp)
 
 theorem bitsLit_still {dom : Lean.Expr} {n v : Nat} {vi : Nat → Lean.Expr} (hv : v < 2 ^ n) :
-    WCh mctx cctx L mb ctx (translateStepWith translateFallback rec)
+    WCh mctx cctx L mb ctx (translateStepWith (translateFallback tenv) rec)
       (quoteF dom n vi (.lit v)) := by
   intro hint top named
   have fn : (quoteF dom n vi (.lit v)).getAppFn =
@@ -546,11 +548,11 @@ the fragment over leaf expressions that are still at every fuel (the text of
 theorem fuel_still (fuel : Nat) {dom : Lean.Expr} {kb kv : Nat} {vw : Nat → Nat}
     {bE vE : Nat → Lean.Expr}
     (hbS : ∀ j, j < kb → ∀ fuel,
-      WCh mctx cctx L mb ctx (translateFuelFix translateStep fuel) (bE j))
+      WCh mctx cctx L mb ctx (translateFuelFix (translateStep tenv) fuel) (bE j))
     (hvS : ∀ j, j < kv → ∀ fuel,
-      WCh mctx cctx L mb ctx (translateFuelFix translateStep fuel) (vE j)) :
+      WCh mctx cctx L mb ctx (translateFuelFix (translateStep tenv) fuel) (vE j)) :
     ∀ {s : SType} (e : Term s), e.WF kb kv vw → wfrag e = true →
-      WCh mctx cctx L mb ctx (translateFuelFix translateStep fuel) (quote dom bE vE e) := by
+      WCh mctx cctx L mb ctx (translateFuelFix (translateStep tenv) fuel) (quote dom bE vE e) := by
   induction fuel with
   | zero =>
     intro s e _ _ hint top named
@@ -559,7 +561,7 @@ theorem fuel_still (fuel : Nat) {dom : Lean.Expr} {kb kv : Nat} {vw : Nat → Na
   | succ fuel ih =>
     intro s e he hf
     change WCh mctx cctx L mb ctx
-      (translateStepWith translateFallback (translateFuelFix translateStep fuel)) _
+      (translateStepWith (translateFallback tenv) (translateFuelFix (translateStep tenv) fuel)) _
     cases e with
     | boolInput j => exact hbS j he (fuel + 1)
     | bitsInput w j =>
@@ -575,14 +577,14 @@ theorem fuel_still (fuel : Nat) {dom : Lean.Expr} {kb kv : Nat} {vw : Nat → Na
       simp only [wfrag, Bool.and_eq_true] at hf
       have ck := op_checks op dom (quote dom bE vE a) (quote dom bE vE b) w
       have ca : WSt mctx cctx L mb ctx
-          ((translateFuelFix translateStep fuel)
+          ((translateFuelFix (translateStep tenv) fuel)
             ((binE dom w op (quote dom bE vE a)
               (quote dom bE vE b)).getAppArgs[(binE dom w op (quote dom bE vE a)
               (quote dom bE vE b)).getAppArgs.size - 2]!) "op_a" false false) := by
         rw [ck.2.2.2.2.1]
         exact ih a ha hf.1 _ _ _
       have cb : WSt mctx cctx L mb ctx
-          ((translateFuelFix translateStep fuel)
+          ((translateFuelFix (translateStep tenv) fuel)
             ((binE dom w op (quote dom bE vE a)
               (quote dom bE vE b)).getAppArgs[(binE dom w op (quote dom bE vE a)
               (quote dom bE vE b)).getAppArgs.size - 1]!) "op_b" false false) := by
@@ -621,14 +623,14 @@ theorem fuel_still (fuel : Nat) {dom : Lean.Expr} {kb kv : Nat} {vw : Nat → Na
 
 /-- An input binder bound in the context is still at every fuel. -/
 theorem input_fuel {id : FVarId} (hb : WBound ctx id) :
-    ∀ fuel, WCh mctx cctx L mb ctx (translateFuelFix translateStep fuel) (.fvar id)
+    ∀ fuel, WCh mctx cctx L mb ctx (translateFuelFix (translateStep tenv) fuel) (.fvar id)
   | 0 => by
     intro hint top named
     unfold translateFuelFix
     exact WSt.throw L _
   | fuel + 1 => by
     change WCh mctx cctx L mb ctx
-      (translateStepWith translateFallback (translateFuelFix translateStep fuel)) _
+      (translateStepWith (translateFallback tenv) (translateFuelFix (translateStep tenv) fuel)) _
     exact input_still L hb
 
 /-- **The certified walk leaves the child cache.** For a well-formed term of
@@ -638,7 +640,7 @@ cache invariant, ends in one with the SAME cache value. -/
 theorem walk_still {dom : Lean.Expr} {kb kv : Nat} {vw : Nat → Nat} {bi vi : Nat → FVarId}
     (hb : ∀ j, j < kb → WBound ctx (bi j)) (hv : ∀ j, j < kv → WBound ctx (vi j))
     {s : SType} (e : Term s) (he : e.WF kb kv vw) (hf : wfrag e = true) :
-    WCh mctx cctx L mb ctx (fun e hint top named => translateExprToWire e hint top named)
+    WCh mctx cctx L mb ctx (fun e hint top named => translateExprToWire tenv e hint top named)
       (quote dom (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) e) :=
   fuel_still L translateFuelLimit (fun j hj => input_fuel L (hb j hj))
     (fun j hj => input_fuel L (hv j hj)) e he hf

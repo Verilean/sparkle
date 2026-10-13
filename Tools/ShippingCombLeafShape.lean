@@ -4,6 +4,8 @@ import Tools.ShippingTransitionTyped
 import Tools.ShippingLeafOneOut
 import Tools.ShippingChecksCore
 
+variable {tenv : Lean.Environment}
+
 /-! # (S1) and (S2) of a slotless leaf, proved GENERALLY from the run — and the closed design-level statement (round par/b-33)
 
 WRITTEN, NOT BUILT.
@@ -124,7 +126,7 @@ theorem transition_simple_of_run {declName : Lean.Name} (d : MachineData) (ok : 
       (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
     {logProf : String → IO Unit} {t : Sparkle.IR.AST.Module} {d₀ : Design}
     (run : MReturns (synthesizeMixedCertified
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName
+      (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName
       d.shape.binders d.shape.body) (t, d₀)) :
     Tools.ShippingPostSoundness.SimpleStmts t.body := by
   simp only [MachineData.ok, Bool.and_eq_true, decide_eq_true_eq, Bool.not_eq_true'] at ok
@@ -294,7 +296,7 @@ theorem comb_entry_shape {c : Name} (d : MachineData) (ok : d.ok = true)
       b.outputs.map (·.name) = d.shape.layout.outs.map (·.name) := by
   obtain ⟨M, D, w1, hcore, hpost, hdesM⟩ := synthesizeCombinational_parts hr
   have closes : MachineClosesAt mctx mref cctx cref c d.shape := machineClosesAt_of_closes closesM
-  obtain ⟨bb, r, w9, w10, hrun9, hw9, hd9, hres⟩ :=
+  obtain ⟨_, bb, r, w9, w10, hrun9, hw9, hd9, hres⟩ :=
     machine_run_of_core hcore entry hbnd
   have hne := closes bb _ _ _ hw9 hd9 hrun9
   cases r with

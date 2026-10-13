@@ -1,6 +1,8 @@
 import Tools.ShippingLegacySemProj
 import Tools.ShippingLegacySemPacked
 
+variable {tenv : Lean.Environment}
+
 /-! # The `Signal.fst` class of the legacy route: the entry statement over the PACKED input
 
 The census (`Tests/Compiler/LegacyArmCensusTest.lean`, round 20): 39 of the
@@ -102,7 +104,7 @@ theorem sliceValue_width {N : Nat} (v : BitVec N) (lo : Nat)
 /-- **The obligation of the walk** (not proved): the leaf is in the leaf
 domain at the slice of the packed input, in every prepared setup that maps
 the variable at position `i` to the packed input. -/
-def FstChainLeaf (declName : Name) (bs : List (Name × MixedGateBinder))
+def FstChainLeaf (tenv : Lean.Environment) (declName : Name) (bs : List (Name × MixedGateBinder))
     (leafOf : List FVarId → Lean.Expr) (i N lo : Nat)
     (rk : Tools.ShippingUnifiedMeaning.Kind) : Prop :=
   ∀ (ids : List FVarId) (x : FVarId) (cache : IO.Ref (ExprStructMap String))
@@ -112,7 +114,7 @@ def FstChainLeaf (declName : Name) (bs : List (Name × MixedGateBinder))
       (setupOf declName bs ids cache bools bits).bools
       (setupOf declName bs ids cache bools bits).bits x =
       some (Value.bits N (bits x N)) →
-    LeafDom (setupOf declName bs ids cache bools bits).context
+    LeafDom tenv (setupOf declName bs ids cache bools bits).context
       (Tools.ShippingUnifiedMeaning.inputValues
         (setupOf declName bs ids cache bools bits).bools
         (setupOf declName bs ids cache bools bits).bits)
@@ -142,9 +144,9 @@ theorem fst_entry_output_of_chain {logProf : String → IO Unit} {declName : Nam
     (hpos : 0 < rk.width)
     (hlam : ∀ ids : List FVarId, ids.length = bs.length → (leafOf ids).isLambda = false)
     (hres : ∀ ids : List FVarId, ids.length = bs.length → SignalTyped (leafOf ids))
-    (hchain : FstChainLeaf declName bs leafOf i N lo rk)
+    (hchain : FstChainLeaf tenv declName bs leafOf i N lo rk)
     (hr : MReturns (synthesizeFromConst
-      (fun e hint top named => translateExprToWire e hint top named)
+      (fun e hint top named => translateExprToWire tenv e hint top named)
       logProf declName [] false true (.defnInfo dv) isInst) (m, d)) :
     MemoHit declName m d ∨
     ∃ (ids : List FVarId) (x : FVarId) (cache : IO.Ref (ExprStructMap String)),

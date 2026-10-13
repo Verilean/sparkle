@@ -4,6 +4,8 @@ import Tools.ShippingLegacySemChain
 import Tools.ShippingLegacySemPre
 import Tools.ShippingLegacySemWalk4
 
+variable {tenv : Lean.Environment}
+
 /-! # The accepting `Signal.fst` / `Signal.snd` arms of `Rec.handleTupleProjections`, walked
 
 (Round 23 had this file as statements only: transcriptions `fstArmProg` /
@@ -440,9 +442,9 @@ theorem tuple_reach {rec : TranslateFn} {ctx : CompilerState} {f a : Lean.Expr} 
     {us : List Level} {hint : String} {named : Bool} {s t : CircuitState} {w : String}
     (hfn : (Lean.Expr.app f a).getAppFn = .const name us) (th : TupleHead name)
     (hkind : fallbackKind (Lean.Expr.app f a) = .other) (nc : NotCore (Lean.Expr.app f a))
-    (hplain : PlainHead name) (hmap : HasMappedFVar ctx (Lean.Expr.app f a))
+    (hplain : PlainHead tenv name) (hmap : HasMappedFVar ctx (Lean.Expr.app f a))
     (hshim : ShimBody rec ctx (Lean.Expr.app f a) hint named)
-    (hr : Returns (translateStepWith translateFallback rec (Lean.Expr.app f a) hint false named)
+    (hr : Returns (translateStepWith (translateFallback tenv) rec (Lean.Expr.app f a) hint false named)
       ctx s w t) :
     ∃ (r2 : Option String) (t2 : CircuitState),
       Returns (Rec.handleTupleProjections (fun e h t n => rec e h t n) (Lean.Expr.app f a) name
@@ -463,7 +465,7 @@ argument `a` of packed width `M`, its result of width `w`, in the context
 computations on the expression; `mapped` — the body's `whnf` test
 (kernel-opaque `Expr.find?`); `nodeHW` — oracle; `widthReads` — the run /
 the world; `pos`, `le` — arithmetic. -/
-structure TupleNode (ctx : CompilerState) (name : Name) (f a : Lean.Expr) (M w : Nat) :
+structure TupleNode (tenv : Lean.Environment) (ctx : CompilerState) (name : Name) (f a : Lean.Expr) (M w : Nat) :
     Prop where
   head : ∃ us : List Level, (Lean.Expr.app f a).getAppFn = .const name us
   arg : (Lean.Expr.app f a).getAppArgs[(Lean.Expr.app f a).getAppArgs.size - 1]! = a
@@ -472,7 +474,7 @@ structure TupleNode (ctx : CompilerState) (name : Name) (f a : Lean.Expr) (M w :
   notCore : NotCore (Lean.Expr.app f a)
   mapped : HasMappedFVar ctx (Lean.Expr.app f a)
   nodeHW : ExprHW (Lean.Expr.app f a) (Sparkle.IR.Type.hwTypeFromWidth w)
-  widthReads : ∀ fuel : Nat, ArgWidthReads (translateFuelFix translateStep fuel) ctx a M
+  widthReads : ∀ fuel : Nat, ArgWidthReads (translateFuelFix (translateStep tenv) fuel) ctx a M
   pos : 0 < w
   le : w ≤ M
 
@@ -487,15 +489,15 @@ argument: the high `w` bits. -/
 theorem fstNode_runs {ctx : CompilerState} {f a : Lean.Expr} {M w : Nat} {hint : String}
     {named : Bool} (fuel : Nat)
     (th : TupleHead ``Sparkle.Core.Signal.Signal.fst)
-    (hplain : PlainHead ``Sparkle.Core.Signal.Signal.fst)
-    (nd : TupleNode ctx ``Sparkle.Core.Signal.Signal.fst f a M w)
+    (hplain : PlainHead tenv ``Sparkle.Core.Signal.Signal.fst)
+    (nd : TupleNode tenv ctx ``Sparkle.Core.Signal.Signal.fst f a M w)
     (hS : ExprHW a (Sparkle.IR.Type.HWType.bitVector M))
-    (hshim : ShimBody (translateFuelFix translateStep fuel) ctx (Lean.Expr.app f a) hint named) :
-    SliceRuns (translateFuelFix translateStep (fuel + 1) (Lean.Expr.app f a) hint false named)
-      (translateFuelFix translateStep fuel a "s" false false) ctx hint named (M - w) w := by
+    (hshim : ShimBody (translateFuelFix (translateStep tenv) fuel) ctx (Lean.Expr.app f a) hint named) :
+    SliceRuns (translateFuelFix (translateStep tenv) (fuel + 1) (Lean.Expr.app f a) hint false named)
+      (translateFuelFix (translateStep tenv) fuel a "s" false false) ctx hint named (M - w) w := by
   intro s t r hr
-  have hstep : Returns (translateStepWith translateFallback
-      (translateFuelFix translateStep fuel) (Lean.Expr.app f a) hint false named)
+  have hstep : Returns (translateStepWith (translateFallback tenv)
+      (translateFuelFix (translateStep tenv) fuel) (Lean.Expr.app f a) hint false named)
       ctx s r t := hr
   obtain ⟨us, hfn⟩ := nd.head
   obtain ⟨r2, t2, harm, hres⟩ :=
@@ -515,15 +517,15 @@ argument: the low `w` bits. -/
 theorem sndNode_runs {ctx : CompilerState} {f a : Lean.Expr} {M w : Nat} {hint : String}
     {named : Bool} (fuel : Nat)
     (th : TupleHead ``Sparkle.Core.Signal.Signal.snd)
-    (hplain : PlainHead ``Sparkle.Core.Signal.Signal.snd)
+    (hplain : PlainHead tenv ``Sparkle.Core.Signal.Signal.snd)
     (hne : ((``Sparkle.Core.Signal.Signal.snd : Name) == ``Sparkle.Core.Signal.Signal.fst) = false)
-    (nd : TupleNode ctx ``Sparkle.Core.Signal.Signal.snd f a M w)
-    (hshim : ShimBody (translateFuelFix translateStep fuel) ctx (Lean.Expr.app f a) hint named) :
-    SliceRuns (translateFuelFix translateStep (fuel + 1) (Lean.Expr.app f a) hint false named)
-      (translateFuelFix translateStep fuel a "s" false false) ctx hint named 0 w := by
+    (nd : TupleNode tenv ctx ``Sparkle.Core.Signal.Signal.snd f a M w)
+    (hshim : ShimBody (translateFuelFix (translateStep tenv) fuel) ctx (Lean.Expr.app f a) hint named) :
+    SliceRuns (translateFuelFix (translateStep tenv) (fuel + 1) (Lean.Expr.app f a) hint false named)
+      (translateFuelFix (translateStep tenv) fuel a "s" false false) ctx hint named 0 w := by
   intro s t r hr
-  have hstep : Returns (translateStepWith translateFallback
-      (translateFuelFix translateStep fuel) (Lean.Expr.app f a) hint false named)
+  have hstep : Returns (translateStepWith (translateFallback tenv)
+      (translateFuelFix (translateStep tenv) fuel) (Lean.Expr.app f a) hint false named)
       ctx s r t := hr
   obtain ⟨us, hfn⟩ := nd.head
   obtain ⟨r2, t2, harm, hres⟩ :=
@@ -543,12 +545,12 @@ theorem sndNode_runs {ctx : CompilerState} {f a : Lean.Expr} {M w : Nat} {hint :
 theorem handlerCase_fst {ctx : CompilerState} {inputs : FVarId → Option Value}
     {hint : String} {named : Bool} {f a : Lean.Expr} {M w : Nat} {u : BitVec M}
     (th : TupleHead ``Sparkle.Core.Signal.Signal.fst)
-    (hplain : PlainHead ``Sparkle.Core.Signal.Signal.fst)
-    (nd : TupleNode ctx ``Sparkle.Core.Signal.Signal.fst f a M w)
+    (hplain : PlainHead tenv ``Sparkle.Core.Signal.Signal.fst)
+    (nd : TupleNode tenv ctx ``Sparkle.Core.Signal.Signal.fst f a M w)
     (hS : ExprHW a (Sparkle.IR.Type.HWType.bitVector M))
     (hshim : ∀ fuel : Nat,
-      ShimBody (translateFuelFix translateStep fuel) ctx (Lean.Expr.app f a) hint named) :
-    HandlerCase ctx inputs hint named (Lean.Expr.app f a)
+      ShimBody (translateFuelFix (translateStep tenv) fuel) ctx (Lean.Expr.app f a) hint named) :
+    HandlerCase tenv ctx inputs hint named (Lean.Expr.app f a)
       (Value.bits w (BitVec.extractLsb' (M - w) w u))
       (fun h' n' e' v' => h' = "s" ∧ n' = false ∧ e' = a ∧ v' = Value.bits M u) where
   spec := by
@@ -567,12 +569,12 @@ bits. -/
 theorem handlerCase_snd {ctx : CompilerState} {inputs : FVarId → Option Value}
     {hint : String} {named : Bool} {f a : Lean.Expr} {M w : Nat} {u : BitVec M}
     (th : TupleHead ``Sparkle.Core.Signal.Signal.snd)
-    (hplain : PlainHead ``Sparkle.Core.Signal.Signal.snd)
+    (hplain : PlainHead tenv ``Sparkle.Core.Signal.Signal.snd)
     (hne : ((``Sparkle.Core.Signal.Signal.snd : Name) == ``Sparkle.Core.Signal.Signal.fst) = false)
-    (nd : TupleNode ctx ``Sparkle.Core.Signal.Signal.snd f a M w)
+    (nd : TupleNode tenv ctx ``Sparkle.Core.Signal.Signal.snd f a M w)
     (hshim : ∀ fuel : Nat,
-      ShimBody (translateFuelFix translateStep fuel) ctx (Lean.Expr.app f a) hint named) :
-    HandlerCase ctx inputs hint named (Lean.Expr.app f a)
+      ShimBody (translateFuelFix (translateStep tenv) fuel) ctx (Lean.Expr.app f a) hint named) :
+    HandlerCase tenv ctx inputs hint named (Lean.Expr.app f a)
       (Value.bits w (BitVec.extractLsb' 0 w u))
       (fun h' n' e' v' => h' = "s" ∧ n' = false ∧ e' = a ∧ v' = Value.bits M u) where
   spec := by

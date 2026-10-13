@@ -1,6 +1,8 @@
 import Tools.ShippingLegacySemFstArm
 import Tools.ShippingLegacySemFst
 
+variable {tenv : Lean.Environment}
+
 /-! # The `Signal.fst` class: the chain, and the entry theorem
 
 **Defined here**
@@ -62,20 +64,20 @@ open Tools.ShippingUnifiedMeaning (Value)
 /-- A chain of `Signal.fst` / `Signal.snd` over the variable `x`, every node
 translated at the argument flags, with its packed width and its value as a
 function of the packed input. -/
-inductive SubChain (ctx : CompilerState) (x : FVarId) (N : Nat) :
+inductive SubChain (tenv : Lean.Environment) (ctx : CompilerState) (x : FVarId) (N : Nat) :
     Lean.Expr → (M : Nat) → (BitVec N → BitVec M) → Prop where
-  | var : SubChain ctx x N (Lean.Expr.fvar x) N (fun v => v)
+  | var : SubChain tenv ctx x N (Lean.Expr.fvar x) N (fun v => v)
   | fst {f a : Lean.Expr} {M w : Nat} {g : BitVec N → BitVec M} :
-      SubChain ctx x N a M g →
-      TupleNode ctx ``Sparkle.Core.Signal.Signal.fst f a M w →
+      SubChain tenv ctx x N a M g →
+      TupleNode tenv ctx ``Sparkle.Core.Signal.Signal.fst f a M w →
       ExprHW a (Sparkle.IR.Type.HWType.bitVector M) →
-      (∀ fuel : Nat, ArgRunsBody (translateFuelFix translateStep fuel) ctx (Lean.Expr.app f a)) →
-      SubChain ctx x N (Lean.Expr.app f a) w (fun v => BitVec.extractLsb' (M - w) w (g v))
+      (∀ fuel : Nat, ArgRunsBody (translateFuelFix (translateStep tenv) fuel) ctx (Lean.Expr.app f a)) →
+      SubChain tenv ctx x N (Lean.Expr.app f a) w (fun v => BitVec.extractLsb' (M - w) w (g v))
   | snd {f a : Lean.Expr} {M w : Nat} {g : BitVec N → BitVec M} :
-      SubChain ctx x N a M g →
-      TupleNode ctx ``Sparkle.Core.Signal.Signal.snd f a M w →
-      (∀ fuel : Nat, ArgRunsBody (translateFuelFix translateStep fuel) ctx (Lean.Expr.app f a)) →
-      SubChain ctx x N (Lean.Expr.app f a) w (fun v => BitVec.extractLsb' 0 w (g v))
+      SubChain tenv ctx x N a M g →
+      TupleNode tenv ctx ``Sparkle.Core.Signal.Signal.snd f a M w →
+      (∀ fuel : Nat, ArgRunsBody (translateFuelFix (translateStep tenv) fuel) ctx (Lean.Expr.app f a)) →
+      SubChain tenv ctx x N (Lean.Expr.app f a) w (fun v => BitVec.extractLsb' 0 w (g v))
 
 /-- **A chain is a leaf at the argument flags**, at its packed value. -/
 theorem subChain_leaf {ctx : CompilerState} {inputs : FVarId → Option Value} {x : FVarId}
@@ -83,11 +85,11 @@ theorem subChain_leaf {ctx : CompilerState} {inputs : FVarId → Option Value} {
     (thF : TupleHead ``Sparkle.Core.Signal.Signal.fst)
     (thS : TupleHead ``Sparkle.Core.Signal.Signal.snd)
     (hne : ((``Sparkle.Core.Signal.Signal.snd : Name) == ``Sparkle.Core.Signal.Signal.fst) = false)
-    (plainF : PlainHead ``Sparkle.Core.Signal.Signal.fst)
-    (plainS : PlainHead ``Sparkle.Core.Signal.Signal.snd)
+    (plainF : PlainHead tenv ``Sparkle.Core.Signal.Signal.fst)
+    (plainS : PlainHead tenv ``Sparkle.Core.Signal.Signal.snd)
     (hi : inputs x = some (Value.bits N v))
-    {e : Lean.Expr} {M : Nat} {g : BitVec N → BitVec M} (h : SubChain ctx x N e M g) :
-    LeafDom ctx inputs "s" false e (Value.bits M (g v)) := by
+    {e : Lean.Expr} {M : Nat} {g : BitVec N → BitVec M} (h : SubChain tenv ctx x N e M g) :
+    LeafDom tenv ctx inputs "s" false e (Value.bits M (g v)) := by
   induction h with
   | var => exact LeafDom.dom (LegacyDom.input hi)
   | @fst f a M w g _ nd hS hshim ih =>
@@ -114,14 +116,14 @@ theorem topFst_leaf {ctx : CompilerState} {inputs : FVarId → Option Value} {x 
     (thF : TupleHead ``Sparkle.Core.Signal.Signal.fst)
     (thS : TupleHead ``Sparkle.Core.Signal.Signal.snd)
     (hne : ((``Sparkle.Core.Signal.Signal.snd : Name) == ``Sparkle.Core.Signal.Signal.fst) = false)
-    (plainF : PlainHead ``Sparkle.Core.Signal.Signal.fst)
-    (plainS : PlainHead ``Sparkle.Core.Signal.Signal.snd)
+    (plainF : PlainHead tenv ``Sparkle.Core.Signal.Signal.fst)
+    (plainS : PlainHead tenv ``Sparkle.Core.Signal.Signal.snd)
     (hi : inputs x = some (Value.bits N v))
     {f a : Lean.Expr} {M w : Nat} {g : BitVec N → BitVec M}
-    (hsub : SubChain ctx x N a M g)
-    (nd : TupleNode ctx ``Sparkle.Core.Signal.Signal.fst f a M w)
+    (hsub : SubChain tenv ctx x N a M g)
+    (nd : TupleNode tenv ctx ``Sparkle.Core.Signal.Signal.fst f a M w)
     (hS : ExprHW a (Sparkle.IR.Type.HWType.bitVector M)) :
-    LeafDom ctx inputs hint true (Lean.Expr.app f a)
+    LeafDom tenv ctx inputs hint true (Lean.Expr.app f a)
       (Value.bits w (BitVec.extractLsb' (M - w) w (g v))) :=
   LeafDom.handled _
     (handlerCase_fst (u := g v) thF plainF nd hS (fun _ => shimBody_named))
@@ -143,7 +145,7 @@ theorem extract_extract {N : Nat} (v : BitVec N) (lo M k w : Nat) (h : k + w ≤
 /-- **Offset composition**: the value of a chain is ONE slice of the packed
 input. -/
 theorem subChain_slice {ctx : CompilerState} {x : FVarId} {N : Nat}
-    {e : Lean.Expr} {M : Nat} {g : BitVec N → BitVec M} (h : SubChain ctx x N e M g) :
+    {e : Lean.Expr} {M : Nat} {g : BitVec N → BitVec M} (h : SubChain tenv ctx x N e M g) :
     ∃ lo : Nat, lo + M ≤ N ∧ ∀ v : BitVec N, g v = BitVec.extractLsb' lo M v := by
   induction h with
   | var =>
@@ -203,8 +205,8 @@ theorem fst_entry_output {logProf : String → IO Unit} {declName : Name}
     (thF : TupleHead ``Sparkle.Core.Signal.Signal.fst)
     (thS : TupleHead ``Sparkle.Core.Signal.Signal.snd)
     (hne : ((``Sparkle.Core.Signal.Signal.snd : Name) == ``Sparkle.Core.Signal.Signal.fst) = false)
-    (plainF : PlainHead ``Sparkle.Core.Signal.Signal.fst)
-    (plainS : PlainHead ``Sparkle.Core.Signal.Signal.snd)
+    (plainF : PlainHead tenv ``Sparkle.Core.Signal.Signal.fst)
+    (plainS : PlainHead tenv ``Sparkle.Core.Signal.Signal.snd)
     (hlam : ∀ ids : List FVarId, ids.length = bs.length → (leafOf ids).isLambda = false)
     (hres : ∀ ids : List FVarId, ids.length = bs.length → SignalTyped (leafOf ids))
     (hchain : ∀ (ids : List FVarId) (x : FVarId) (cache : IO.Ref (ExprStructMap String))
@@ -212,13 +214,13 @@ theorem fst_entry_output {logProf : String → IO Unit} {declName : Name}
       ids.length = bs.length → AtIdx ids i x →
       ∃ (f a : Lean.Expr) (M : Nat) (g0 : BitVec N → BitVec M),
         leafOf ids = Lean.Expr.app f a ∧
-        SubChain (setupOf declName bs ids cache bools bits).context x N a M g0 ∧
-        TupleNode (setupOf declName bs ids cache bools bits).context
+        SubChain tenv (setupOf declName bs ids cache bools bits).context x N a M g0 ∧
+        TupleNode tenv (setupOf declName bs ids cache bools bits).context
           ``Sparkle.Core.Signal.Signal.fst f a M w ∧
         ExprHW a (Sparkle.IR.Type.HWType.bitVector M) ∧
         ∀ v : BitVec N, BitVec.extractLsb' (M - w) w (g0 v) = g v)
     (hr : MReturns (synthesizeFromConst
-      (fun e hint top named => translateExprToWire e hint top named)
+      (fun e hint top named => translateExprToWire tenv e hint top named)
       logProf declName [] false true (.defnInfo dv) isInst) (m, d)) :
     MemoHit declName m d ∨
     ∃ (ids : List FVarId) (x : FVarId) (cache : IO.Ref (ExprStructMap String)),
@@ -254,7 +256,7 @@ theorem fst_entry_output {logProf : String → IO Unit} {declName : Name}
           (Sparkle.IR.ModuleName.ofDecl declName)) nm (MixedGateBinder.bits N) x hnd hfield hx
         (by intro h; cases h)
     obtain ⟨f, a, M, g0, he, hsub, nd, hS, hg⟩ := hchain ids x cache bools bits hlen hx
-    have dom : LeafDom (setupOf declName bs ids cache bools bits).context
+    have dom : LeafDom tenv (setupOf declName bs ids cache bools bits).context
         (Tools.ShippingUnifiedMeaning.inputValues
           (setupOf declName bs ids cache bools bits).bools
           (setupOf declName bs ids cache bools bits).bits)

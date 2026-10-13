@@ -177,7 +177,7 @@ theorem core_linkedWF_ran {c : Name} (d : MachineData) (ok : d.ok = true)
     (ran : Tools.ShippingMachineRan.MachineRan mctx mref cctx cref c d.shape M D) :
     Tools.ShippingHierOpen.linkedWF (childMap D.modules) b.body = true := by
   have ran0 := ran
-  obtain ⟨bb, w9, w10, hrun9, hw9, -⟩ := ran0
+  obtain ⟨_, bb, w9, w10, hrun9, hw9, -⟩ := ran0
   obtain ⟨t, t', d₀, run, hcl, hmt⟩ := synthesizeMachineCertified_runs hw9 hrun9
   rcases hmt with ⟨hno, -, -⟩ | ⟨-, children, hcc, hreal⟩
   · exact absurd hno hins

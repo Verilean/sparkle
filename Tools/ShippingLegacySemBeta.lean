@@ -1,5 +1,7 @@
 import Tools.ShippingLegacySemLeafHandled
 
+variable {tenv : Lean.Environment}
+
 /-! # A beta-redex leaf whose reduction is an input variable: a wire-through
 
 The census (rounds 19–20, `Tests/Compiler/LegacyArmCensusTest.lean`): of the
@@ -131,7 +133,7 @@ theorem arm_to_shim_lam {rec : TranslateFn} {f a : Lean.Expr} {n : Name} {ty b :
     {bi : BinderInfo} {hint : String} {top named : Bool} {ctx : CompilerState}
     {s t : CircuitState} {w : String}
     (hfnL : (Lean.Expr.app f a).getAppFn = Lean.Expr.lam n ty b bi)
-    (tr : Returns (translateInstanceOrFallback rec (Lean.Expr.app f a) hint top named)
+    (tr : Returns (translateInstanceOrFallback tenv rec (Lean.Expr.app f a) hint top named)
       ctx s w t) :
     Returns (Rec.translateExprToWireCached (fun e h t n => rec e h t n) (Lean.Expr.app f a)
       hint top named) ctx s w t := by
@@ -201,7 +203,7 @@ theorem betaRedex_step {rec : TranslateFn} {ctx : CompilerState} {f a : Lean.Exp
     (hfnL : (Lean.Expr.app f a).getAppFn = Lean.Expr.lam n ty b bi)
     (hkind : fallbackKind (Lean.Expr.app f a) = .other)
     (hwhnf : WhnfIsVar (Lean.Expr.app f a) x)
-    (hr : Returns (translateStepWith translateFallback rec (Lean.Expr.app f a) hint false true)
+    (hr : Returns (translateStepWith (translateFallback tenv) rec (Lean.Expr.app f a) hint false true)
       ctx s w t) :
     visible ctx s.sourceBindings x = some w ∧ t = s := by
   have h1 := step_run_fallback (notCore_of_lamHead hfnL) hr
@@ -220,20 +222,20 @@ theorem handlerCase_wire {ctx : CompilerState} {inputs : FVarId → Option Value
     (hkind : fallbackKind (Lean.Expr.app f a) = .other)
     (hwhnf : WhnfIsVar (Lean.Expr.app f a) x)
     (hi : inputs x = some v) :
-    HandlerCase ctx inputs hint true (Lean.Expr.app f a) v (fun _ _ _ _ => False) where
+    HandlerCase tenv ctx inputs hint true (Lean.Expr.app f a) v (fun _ _ _ _ => False) where
   spec := by
     intro fuel we mems initial _
     constructor
     · intro s t w lookup hr
-      have hstep : Returns (translateStepWith translateFallback
-          (translateFuelFix translateStep fuel) (Lean.Expr.app f a) hint false true)
+      have hstep : Returns (translateStepWith (translateFallback tenv)
+          (translateFuelFix (translateStep tenv) fuel) (Lean.Expr.app f a) hint false true)
           ctx s w t := hr
       obtain ⟨_, ht⟩ := betaRedex_step hfnL hkind hwhnf hstep
       rw [ht]
       exact Frame.refl s
     · intro s t w prior h widths hr
-      have hstep : Returns (translateStepWith translateFallback
-          (translateFuelFix translateStep fuel) (Lean.Expr.app f a) hint false true)
+      have hstep : Returns (translateStepWith (translateFallback tenv)
+          (translateFuelFix (translateStep tenv) fuel) (Lean.Expr.app f a) hint false true)
           ctx s w t := hr
       obtain ⟨hv, ht⟩ := betaRedex_step hfnL hkind hwhnf hstep
       obtain ⟨z, bound, used, val, width⟩ := h.inputs.lookup x v hi
@@ -242,8 +244,8 @@ theorem handlerCase_wire {ctx : CompilerState} {inputs : FVarId → Option Value
       exact ⟨used, width, fun _ hz => hz, prior, h, val, fun _ _ => rfl⟩
   order := by
     intro fuel we mems initial _ _ s t w prior hr h widths order
-    have hstep : Returns (translateStepWith translateFallback
-        (translateFuelFix translateStep fuel) (Lean.Expr.app f a) hint false true)
+    have hstep : Returns (translateStepWith (translateFallback tenv)
+        (translateFuelFix (translateStep tenv) fuel) (Lean.Expr.app f a) hint false true)
         ctx s w t := hr
     rw [(betaRedex_step hfnL hkind hwhnf hstep).2]
     exact order
@@ -257,7 +259,7 @@ theorem leafDom_betaWire {ctx : CompilerState} {inputs : FVarId → Option Value
     (hkind : fallbackKind (Lean.Expr.app f a) = .other)
     (hwhnf : WhnfIsVar (Lean.Expr.app f a) x)
     (hi : inputs x = some v) :
-    LeafDom ctx inputs hint true (Lean.Expr.app f a) v :=
+    LeafDom tenv ctx inputs hint true (Lean.Expr.app f a) v :=
   LeafDom.handled (fun _ _ _ _ => False) (handlerCase_wire hfnL hkind hwhnf hi)
     (fun _ _ _ _ h => h.elim)
 

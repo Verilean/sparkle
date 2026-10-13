@@ -2,6 +2,8 @@ import Tools.ShippingLegacySemBodyPlain
 import Tools.ShippingLegacySemPre
 import Tools.ShippingLegacySemShim
 
+variable {tenv : Lean.Environment}
+
 /-! # One call, end to end: the step on a plain, non-cacheable call
 
 Everything walked so far, composed for ONE call of the shipping step — the
@@ -50,13 +52,13 @@ theorem plain_call_reaches {rec : TranslateFn} {ctx : CompilerState} {f a : Lean
     {name : Name} {us : List Level} {hint : String} {top named : Bool}
     (hfn : (Lean.Expr.app f a).getAppFn = .const name us)
     (hkind : fallbackKind (.app f a) = .other)
-    (hplain : PlainHead name) (g : GlueName name) (hn : PlainName name)
+    (hplain : PlainHead tenv name) (g : GlueName name) (hn : PlainName name)
     (hb : NotBitVecOp name) (hm : PlainName2 name) (hi : ImplName name)
     (hmap : HasMappedFVar ctx (.app f a))
     (hnc : (!named && !(Lean.Expr.app f a).isFVar && !top) = false)
     (hnosub : NoSubModule rec ctx (.app f a))
     (s t : CircuitState) (w : String)
-    (hr : Returns (translateFallback rec (.app f a) hint top named) ctx s w t) :
+    (hr : Returns ((translateFallback tenv) rec (.app f a) hint top named) ctx s w t) :
     ∃ e' : Lean.Expr, InlineUnfolds (.app f a) e' ∧
       Returns (rec e' hint false named) ctx s w t := by
   rw [fallback_eq_arm rec (.app f a) hint top named hkind] at hr
@@ -81,14 +83,14 @@ theorem plain_call_action {rec : TranslateFn} {ctx : CompilerState}
     {hint : String} {top named : Bool}
     (hfn : (Lean.Expr.app f a).getAppFn = .const name us)
     (hkind : fallbackKind (.app f a) = .other)
-    (hplain : PlainHead name) (g : GlueName name) (hn : PlainName name)
+    (hplain : PlainHead tenv name) (g : GlueName name) (hn : PlainName name)
     (hb : NotBitVecOp name) (hm : PlainName2 name) (hi : ImplName name)
     (hmap : HasMappedFVar ctx (.app f a))
     (hnc : (!named && !(Lean.Expr.app f a).isFVar && !top) = false)
     (hnosub : NoSubModule rec ctx (.app f a))
     (sub : ∀ e' : Lean.Expr, InlineUnfolds (.app f a) e' →
       Contract rec ctx inputs we mems initial e' v) :
-    ActionSpec (translateFallback rec (.app f a) hint top named) ctx inputs we mems initial v := by
+    ActionSpec ((translateFallback tenv) rec (.app f a) hint top named) ctx inputs we mems initial v := by
   constructor
   · intro s t w lookup hr
     obtain ⟨e', hU, htr⟩ :=
@@ -107,14 +109,14 @@ theorem plain_call_step {rec : TranslateFn} {ctx : CompilerState}
     (hfn : (Lean.Expr.app f a).getAppFn = .const name us)
     (nc : NotCore (.app f a))
     (hkind : fallbackKind (.app f a) = .other)
-    (hplain : PlainHead name) (g : GlueName name) (hn : PlainName name)
+    (hplain : PlainHead tenv name) (g : GlueName name) (hn : PlainName name)
     (hb : NotBitVecOp name) (hm : PlainName2 name) (hi : ImplName name)
     (hmap : HasMappedFVar ctx (.app f a))
     (hnc : (!named && !(Lean.Expr.app f a).isFVar && !top) = false)
     (hnosub : NoSubModule rec ctx (.app f a))
     (sub : ∀ e' : Lean.Expr, InlineUnfolds (.app f a) e' →
       Contract rec ctx inputs we mems initial e' v) :
-    ActionSpec (translateStepWith translateFallback rec (.app f a) hint top named)
+    ActionSpec (translateStepWith (translateFallback tenv) rec (.app f a) hint top named)
       ctx inputs we mems initial v := by
   rw [step_eq_fallback rec (.app f a) hint top named nc.shape (nc.core rec hint top named)]
   exact plain_call_action hfn hkind hplain g hn hb hm hi hmap hnc hnosub sub

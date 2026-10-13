@@ -1,5 +1,7 @@
 import Tools.ShippingHarnessStill
 
+variable {tenv : Lean.Environment}
+
 /-! # The walk leaves the child cache on EVERY constructor of the term language
 
 `Tools.ShippingWalkStill.walk_still` covers the ten constructors of `wfrag`.
@@ -137,7 +139,7 @@ theorem step_of_none {fb : TranslateFn → TranslateFn} {e : Lean.Expr} {hint : 
 
 /-- A Bool literal: the Bool control arm, one wire and one assign. -/
 theorem boolLit_still {dom : Lean.Expr} (b : Bool) :
-    WCh mctx cctx L mb ctx (translateStepWith translateFallback rec) (literalE dom b) := by
+    WCh mctx cctx L mb ctx (translateStepWith (translateFallback tenv) rec) (literalE dom b) := by
   intro hint top named
   apply step_of_none L (literal_core rec dom b hint top named)
   rw [translateFallback_bool rec _ hint top named (by cases b <;> rfl)]
@@ -148,7 +150,7 @@ theorem boolLit_still {dom : Lean.Expr} (b : Bool) :
 
 /-- A numeric literal at the `OfNat` instance: the core's literal arm. -/
 theorem bitsNum_still {dom : Lean.Expr} {n v : Nat} (hv : v < 2 ^ n) :
-    WCh mctx cctx L mb ctx (translateStepWith translateFallback rec) (numSigE dom n v) := by
+    WCh mctx cctx L mb ctx (translateStepWith (translateFallback tenv) rec) (numSigE dom n v) := by
   intro hint top named
   have fn : (numSigE dom n v).getAppFn =
       .const ``Sparkle.Core.Signal.Signal.pure [.zero] := rfl
@@ -161,7 +163,7 @@ theorem boolNot_still {dom ae : Lean.Expr}
     (hf : WCh mctx cctx L mb ctx rec
       (mkApp3 (.const ``Sparkle.Core.Signal.Signal.pure [.zero]) dom (.const ``Bool [])
         (.const ``Bool.false []))) :
-    WCh mctx cctx L mb ctx (translateStepWith translateFallback rec) (boolNotE dom ae) := by
+    WCh mctx cctx L mb ctx (translateStepWith (translateFallback tenv) rec) (boolNotE dom ae) := by
   intro hint top named
   rw [boolNot_step, translateFallback_bool rec _ hint top named rfl]
   apply controlCached_S L
@@ -173,7 +175,7 @@ theorem boolNot_still {dom ae : Lean.Expr}
 /-- A slice map: the operand, then one part-select assign. -/
 theorem slice_still {dom ae : Lean.Expr} {nm : Lean.Name} {ws start len : Nat}
     (hlen : 0 < len) (hr : start + len ≤ ws) (ha : WCh mctx cctx L mb ctx rec ae) :
-    WCh mctx cctx L mb ctx (translateStepWith translateFallback rec)
+    WCh mctx cctx L mb ctx (translateStepWith (translateFallback tenv) rec)
       (sliceE dom nm ws start len ae) := by
   intro hint top named
   rw [slice_step rec dom ae nm ws start len hint top named hlen hr]
@@ -184,7 +186,7 @@ theorem slice_still {dom ae : Lean.Expr} {nm : Lean.Name} {ws start len : Nat}
 /-- The zero-extending map: the operand, then the cast's assign. -/
 theorem zextMap_still {dom ae : Lean.Expr} {nm : Lean.Name} {k n : Nat}
     (hk : 0 < k) (hn : 0 < n) (ha : WCh mctx cctx L mb ctx rec ae) :
-    WCh mctx cctx L mb ctx (translateStepWith translateFallback rec)
+    WCh mctx cctx L mb ctx (translateStepWith (translateFallback tenv) rec)
       (zextMapE dom nm k n ae) := by
   intro hint top named
   rw [zextMap_step rec dom nm ae k n hint top named hk hn]
@@ -195,7 +197,7 @@ theorem zextMap_still {dom ae : Lean.Expr} {nm : Lean.Name} {k n : Nat}
 /-- A slice written with `<$>`. -/
 theorem sliceF_still {dom ae : Lean.Expr} {nm : Lean.Name} {ws start len : Nat}
     (hlen : 0 < len) (hr : start + len ≤ ws) (ha : WCh mctx cctx L mb ctx rec ae) :
-    WCh mctx cctx L mb ctx (translateStepWith translateFallback rec)
+    WCh mctx cctx L mb ctx (translateStepWith (translateFallback tenv) rec)
       (sliceFE dom nm ws start len ae) := by
   intro hint top named
   rw [sliceF_step rec dom nm ae ws start len hint top named hlen hr]
@@ -206,7 +208,7 @@ theorem sliceF_still {dom ae : Lean.Expr} {nm : Lean.Name} {ws start len : Nat}
 /-- A concatenation with a literal high operand. -/
 theorem concatLitHi_still {dom be : Lean.Expr} {k v n : Nat}
     (hk : 0 < k) (hv : v < 2 ^ k) (hn : 0 < n) (hb : WCh mctx cctx L mb ctx rec be) :
-    WCh mctx cctx L mb ctx (translateStepWith translateFallback rec)
+    WCh mctx cctx L mb ctx (translateStepWith (translateFallback tenv) rec)
       (concatLitHiE dom k v n be) := by
   intro hint top named
   rw [concatLitHi_step rec dom be k v n hint top named hk hv hn]
@@ -217,7 +219,7 @@ theorem concatLitHi_still {dom be : Lean.Expr} {k v n : Nat}
 /-- A concatenation with a literal low operand. -/
 theorem concatLitLo_still {dom ae : Lean.Expr} {m k v : Nat}
     (hk : 0 < k) (hv : v < 2 ^ k) (hm : 0 < m) (ha : WCh mctx cctx L mb ctx rec ae) :
-    WCh mctx cctx L mb ctx (translateStepWith translateFallback rec)
+    WCh mctx cctx L mb ctx (translateStepWith (translateFallback tenv) rec)
       (concatLitLoE dom m k v ae) := by
   intro hint top named
   rw [concatLitLo_step rec dom ae m k v hint top named hk hv hm]
@@ -228,7 +230,7 @@ theorem concatLitLo_still {dom ae : Lean.Expr} {m k v : Nat}
 /-- A comparison lifted through the applicative. -/
 theorem appCompare_still {le : SignalCompareKind} {dom ae be : Lean.Expr} {n : Nat}
     (ha : WCh mctx cctx L mb ctx rec ae) (hb : WCh mctx cctx L mb ctx rec be) :
-    WCh mctx cctx L mb ctx (translateStepWith translateFallback rec)
+    WCh mctx cctx L mb ctx (translateStepWith (translateFallback tenv) rec)
       (appCompareE le dom n ae be) := by
   intro hint top named
   rw [appCompare_step, translateFallback_bool rec _ hint top named
@@ -246,7 +248,7 @@ theorem appCompare_still {le : SignalCompareKind} {dom ae be : Lean.Expr} {n : N
 /-- A Bool operator lifted through the applicative. -/
 theorem appBool_still {kind : SignalBoolBinKind} {dom ae be : Lean.Expr}
     (ha : WCh mctx cctx L mb ctx rec ae) (hb : WCh mctx cctx L mb ctx rec be) :
-    WCh mctx cctx L mb ctx (translateStepWith translateFallback rec)
+    WCh mctx cctx L mb ctx (translateStepWith (translateFallback tenv) rec)
       (appBoolE kind dom ae be) := by
   intro hint top named
   rw [appBool_step, translateFallback_bool rec _ hint top named
@@ -263,7 +265,7 @@ theorem appBool_still {kind : SignalBoolBinKind} {dom ae be : Lean.Expr}
 /-- A two-level Bool body lifted through the applicative: two assigns. -/
 theorem appBool2_still {f : AppBool2} {dom ae be : Lean.Expr}
     (ha : WCh mctx cctx L mb ctx rec ae) (hb : WCh mctx cctx L mb ctx rec be) :
-    WCh mctx cctx L mb ctx (translateStepWith translateFallback rec)
+    WCh mctx cctx L mb ctx (translateStepWith (translateFallback tenv) rec)
       (appBool2E f dom ae be) := by
   intro hint top named
   rw [appBool2_step, translateFallback_bool rec _ hint top named
@@ -287,11 +289,11 @@ over leaf expressions that are still at every fuel (the cases of
 theorem fuel_still_all (fuel : Nat) {dom : Lean.Expr} {kb kv : Nat} {vw : Nat → Nat}
     {bE vE : Nat → Lean.Expr}
     (hbS : ∀ j, j < kb → ∀ fuel,
-      WCh mctx cctx L mb ctx (translateFuelFix translateStep fuel) (bE j))
+      WCh mctx cctx L mb ctx (translateFuelFix (translateStep tenv) fuel) (bE j))
     (hvS : ∀ j, j < kv → ∀ fuel,
-      WCh mctx cctx L mb ctx (translateFuelFix translateStep fuel) (vE j)) :
+      WCh mctx cctx L mb ctx (translateFuelFix (translateStep tenv) fuel) (vE j)) :
     ∀ {s : SType} (e : Term s), e.WF kb kv vw →
-      WCh mctx cctx L mb ctx (translateFuelFix translateStep fuel) (quote dom bE vE e) := by
+      WCh mctx cctx L mb ctx (translateFuelFix (translateStep tenv) fuel) (quote dom bE vE e) := by
   induction fuel with
   | zero =>
     intro s e _ hint top named
@@ -300,7 +302,7 @@ theorem fuel_still_all (fuel : Nat) {dom : Lean.Expr} {kb kv : Nat} {vw : Nat �
   | succ fuel ih =>
     intro s e he
     change WCh mctx cctx L mb ctx
-      (translateStepWith translateFallback (translateFuelFix translateStep fuel)) _
+      (translateStepWith (translateFallback tenv) (translateFuelFix (translateStep tenv) fuel)) _
     cases e with
     | boolInput j => exact hbS j he (fuel + 1)
     | bitsInput w j =>
@@ -319,14 +321,14 @@ theorem fuel_still_all (fuel : Nat) {dom : Lean.Expr} {kb kv : Nat} {vw : Nat �
       obtain ⟨ha, hb'⟩ := he
       have ck := op_checks op dom (quote dom bE vE a) (quote dom bE vE b) w
       have ca : WSt mctx cctx L mb ctx
-          ((translateFuelFix translateStep fuel)
+          ((translateFuelFix (translateStep tenv) fuel)
             ((binE dom w op (quote dom bE vE a)
               (quote dom bE vE b)).getAppArgs[(binE dom w op (quote dom bE vE a)
               (quote dom bE vE b)).getAppArgs.size - 2]!) "op_a" false false) := by
         rw [ck.2.2.2.2.1]
         exact ih a ha _ _ _
       have cb : WSt mctx cctx L mb ctx
-          ((translateFuelFix translateStep fuel)
+          ((translateFuelFix (translateStep tenv) fuel)
             ((binE dom w op (quote dom bE vE a)
               (quote dom bE vE b)).getAppArgs[(binE dom w op (quote dom bE vE a)
               (quote dom bE vE b)).getAppArgs.size - 1]!) "op_b" false false) := by
@@ -389,7 +391,7 @@ cache invariant, ends in one with the SAME cache value. -/
 theorem walk_still_all {dom : Lean.Expr} {kb kv : Nat} {vw : Nat → Nat} {bi vi : Nat → FVarId}
     (hb : ∀ j, j < kb → WBound ctx (bi j)) (hv : ∀ j, j < kv → WBound ctx (vi j))
     {s : SType} (e : Term s) (he : e.WF kb kv vw) :
-    WCh mctx cctx L mb ctx (fun e hint top named => translateExprToWire e hint top named)
+    WCh mctx cctx L mb ctx (fun e hint top named => translateExprToWire tenv e hint top named)
       (quote dom (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) e) :=
   fuel_still_all L translateFuelLimit (fun j hj => input_fuel L (hb j hj))
     (fun j hj => input_fuel L (hv j hj)) e he
@@ -427,7 +429,7 @@ theorem harnessStill_all {declName : Lean.Name} {bs : List (Lean.Name × MixedGa
       (fun j => Tools.ShippingMixedSourceBridge.inputExpr bs.length (bpos j))
       (fun j => Tools.ShippingMixedSourceBridge.inputExpr bs.length (vpos j)) e) :
     HarnessStill L declName bs body := by
-  intro mctx cctx b w r w' hw _ hr
+  intro tenv mctx cctx b w r w' hw _ hr
   subst hbody
   have hS : WSI L (L.val w) w := ⟨hw, rfl⟩
   unfold synthesizeMixedCertified at hr
@@ -459,7 +461,7 @@ theorem harnessStill_all {declName : Lean.Name} {bs : List (Lean.Name × MixedGa
       e he
     have hcomp : WSt mctx cctx L (L.val w) (entryCompilerState false cacheRef)
         (bindMixedCertifiedInputs
-          (emitLeaves (fun e hint top named => translateExprToWire e hint top named) cacheRef
+          (emitLeaves (fun e hint top named => translateExprToWire tenv e hint top named) cacheRef
             (profLogIO b)
             [("out", instFVars (ids.map Lean.Expr.fvar).toArray 0
               (quote dom
@@ -474,7 +476,7 @@ theorem harnessStill_all {declName : Lean.Name} {bs : List (Lean.Name × MixedGa
             (fun j => Tools.ShippingMixedSourceBridge.inputExpr bs.length (vpos j)) e)) := by
         simpa using hp
       rw [hp']
-      show WSt mctx cctx L (L.val w) ctx' (translateExprToWire
+      show WSt mctx cctx L (L.val w) ctx' (translateExprToWire tenv
         (instFVars (ids.map Lean.Expr.fvar).toArray 0
           (quote dom
             (fun j => Tools.ShippingMixedSourceBridge.inputExpr bs.length (bpos j))

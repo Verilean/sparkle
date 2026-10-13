@@ -1,5 +1,7 @@
 import Tools.ShippingCallsRunG
 
+variable {tenv : Lean.Environment}
+
 /-! # The statements of a closed machine: assignments and registers
 
 The register-closed module of a real transition (`closeMachine` of
@@ -166,7 +168,7 @@ theorem closedBody_kinds_of_run {declName : Lean.Name} (d : MachineData) (ok : d
     (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
     {logProf : String → IO Unit} {t t' : Sparkle.IR.AST.Module} {d₀ : Design}
     (run : MReturns (synthesizeMixedCertified
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName
+      (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName
       d.shape.binders d.shape.body) (t, d₀))
     (hcl : closeLets d.shape.layout.lets t = some t') :
     (closeMachine d.shape.layout t').body.all seqStmtOk = true ∧

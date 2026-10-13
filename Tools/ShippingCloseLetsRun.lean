@@ -2,6 +2,8 @@ import Tools.ShippingMachineEntry
 import Tools.ShippingHarnessSpine
 import Tools.ShippingCloseLetsSplit
 
+variable {tenv : Lean.Environment}
+
 /-! # `closeLets`' conditions, from a run of the harness
 
 For a machine shape the transition's source is `packLets fs core`: one
@@ -159,7 +161,7 @@ theorem transition_spine {logProf : String → IO Unit} {declName : Name}
     {st : CircuitState}
     (nd : ids.Nodup) (len : ids.length = bs.length)
     (run : Returns (bindMixedCertifiedInputs
-        (emitLeaves (fun e hint top named => translateExprToWire e hint top named) cache logProf
+        (emitLeaves (fun e hint top named => translateExprToWire tenv e hint top named) cache logProf
           [("out", instFVars (ids.map Lean.Expr.fvar).toArray 0 body)] none 0) (bs.zip ids))
         (entryCompilerState false cache) (CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName)) returned st)
     (hm : m = (addClockResetIfSequential st.module).finalize)

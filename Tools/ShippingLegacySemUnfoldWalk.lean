@@ -1,6 +1,8 @@
 import Tools.ShippingLegacySemUnfold
 import Tools.ShippingLegacySemSteps
 
+variable {tenv : Lean.Environment}
+
 /-! # `handleDefinitionUnfold` on a plain head, walked
 
 **Proved** (`unfoldSpec_plain`): `UnfoldSpec rec ctx e name` from
@@ -54,7 +56,7 @@ open Tools.ShippingEntrySoundness
 set_option maxHeartbeats 1000000 in
 /-- **`Rec.handleDefinitionUnfold` on a plain head.** -/
 theorem unfoldSpec_plain {rec : TranslateFn} {ctx : CompilerState} {e : Lean.Expr}
-    {name : Name} (hplain : PlainHead name) : UnfoldSpec rec ctx e name := by
+    {name : Name} (hplain : PlainHead tenv name) : UnfoldSpec rec ctx e name := by
   intro hint named s t w h
   unfold Rec.handleDefinitionUnfold at h
   -- No `dsimp` / `simp` / `split` on the handler (the first build ran out of
@@ -70,7 +72,7 @@ theorem unfoldSpec_plain {rec : TranslateFn} {ctx : CompilerState} {e : Lean.Exp
   obtain ⟨env, s2, henv, k2⟩ := Returns.bind kb
   obtain ⟨henvM, hs2⟩ := returns_liftMetaM henv
   rw [hs2] at k2
-  obtain ⟨hnotTag, hproj⟩ := hplain env henvM
+  obtain ⟨hnotTag, hproj⟩ := hplain.2 env henvM
   -- (4a) the debug hook of a tagged head
   rcases returns_ite k2 with ⟨hc, _⟩ | ⟨_, k3⟩
   · rw [hnotTag] at hc

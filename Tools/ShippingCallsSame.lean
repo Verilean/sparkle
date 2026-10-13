@@ -1,5 +1,7 @@
 import Tools.ShippingCallsClose
 
+variable {tenv : Lean.Environment}
+
 /-! # Two calls of one declaration get one module — from the run's order
 
 `ChildrenReal` says each child is SOME real compile of its declaration; two
@@ -67,7 +69,7 @@ theorem harness_depth (L : RefLaws mref cref) (hB : ∀ L' : RefLaws mref cref, 
     (hH : ∀ L' : RefLaws mref cref, HarnessRel L') {b : Bool} {declName bs body}
     {w r w'} (hw : InvV L w)
     (h : RunsTo (synthesizeMixedCertified
-      (fun e hint top named => translateExprToWire e hint top named) (profLogIO b) declName bs body)
+      (fun e hint top named => translateExprToWire tenv e hint top named) (profLogIO b) declName bs body)
       mctx mref cctx cref w r w') : L.dval w' = L.dval w := by
   have := hH L.plain (L.dval w) (childKeeps_all L.plain (hB _) _ (fun _ => trivial)) mctx cctx b
     declName bs body w ⟨hw, rfl, trivial⟩

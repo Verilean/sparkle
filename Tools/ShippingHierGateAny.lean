@@ -69,7 +69,7 @@ theorem core_hierGate_any {c : Name} (d : MachineData) (ok : d.ok = true)
   have hbody' : b.body = M.body :=
     (Tools.ShippingChecksCore.core_kids_facts d ok hbody hC hslots hdomB hins outTy hnomem hB
       hcore hpost entry closes).2.1
-  obtain ⟨bb, r, w9, w10, hrun9, hw9, hd9, hres⟩ :=
+  obtain ⟨_, bb, r, w9, w10, hrun9, hw9, hd9, hres⟩ :=
     machine_run_of_core hcore entry hB
   have hne := closes bb _ _ _ hw9 hd9 hrun9
   cases r with

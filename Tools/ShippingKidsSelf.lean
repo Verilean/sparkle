@@ -94,7 +94,7 @@ theorem core_kids_self_ran {c : Name} (d : MachineData) (ok : d.ok = true)
       moduleByName D.modules y.1.name = some y.1 ∧
       ∀ g2 ∈ y.2.modules, moduleByName D.modules g2.name = some g2 := by
   have ran0 := ran
-  obtain ⟨bb, w9, w10, hrun9, hw9, -⟩ := ran0
+  obtain ⟨_, bb, w9, w10, hrun9, hw9, -⟩ := ran0
   obtain ⟨t, t', d₀, run, hcl, hmt⟩ := synthesizeMachineCertified_runs hw9 hrun9
   rcases hmt with ⟨hno, -, -⟩ | ⟨-, children, hcc, hreal⟩
   · exact absurd hno hins

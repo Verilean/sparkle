@@ -1,6 +1,8 @@
 import Tools.ShippingWalkStill
 import Tools.ShippingUnifiedExecutionSoundness
 
+variable {tenv : Lean.Environment}
+
 /-! # The harness shell: `HarnessStill` and `EntryStill` as theorems
 
 `Tools.ShippingWalkStill.walk_still`: a returning run of the translator on
@@ -183,9 +185,9 @@ theorem bind_S {α : Type} (k : CompilerM α) :
 (the text of `Tools.ShippingChildInv.emitLeaves_tripleC`). -/
 theorem emitLeaves_S (b : Bool) (cacheRef : IO.Ref (Lean.ExprStructMap String)) :
     ∀ (leaves : List (String × Lean.Expr)) (fw : Option String) (idx : Nat),
-      (∀ p ∈ leaves, WSt mctx cctx L mb ctx (translateExprToWire p.2 p.1 false true)) →
+      (∀ p ∈ leaves, WSt mctx cctx L mb ctx (translateExprToWire tenv p.2 p.1 false true)) →
       WSt mctx cctx L mb ctx
-        (emitLeaves (fun e hint top named => translateExprToWire e hint top named) cacheRef
+        (emitLeaves (fun e hint top named => translateExprToWire tenv e hint top named) cacheRef
           (profLogIO b) leaves fw idx)
   | [], fw, idx, _ => by
     unfold emitLeaves
@@ -225,7 +227,7 @@ theorem emitLeaves_S (b : Bool) (cacheRef : IO.Ref (Lean.ExprStructMap String)) 
             do
             CompilerM.addOutput pn outputType
             CompilerM.emitAssign pn (Sparkle.IR.AST.Expr.ref lw)
-            emitLeaves (fun e hint top named => translateExprToWire e hint top named) cacheRef
+            emitLeaves (fun e hint top named => translateExprToWire tenv e hint top named) cacheRef
                 (profLogIO b) rest (if fw.isNone = true then some lw else fw) (idx + 1)
           if cs.usedNames.contains pn = true then do
               let __r ←
@@ -249,7 +251,7 @@ theorem emitLeaves_S (b : Bool) (cacheRef : IO.Ref (Lean.ExprStructMap String)) 
                 | some inputPort => inputPort.ty
                 | none => Sparkle.IR.Type.HWType.bitVector 8)
             CompilerM.emitAssign pn (Sparkle.IR.AST.Expr.ref lw)
-            emitLeaves (fun e hint top named => translateExprToWire e hint top named) cacheRef
+            emitLeaves (fun e hint top named => translateExprToWire tenv e hint top named) cacheRef
                 (profLogIO b) rest (if fw.isNone = true then some lw else fw) (idx + 1)) := by
         refine WHo.bind L (addOutput_S L _ _) ?_
         intro _ _
@@ -321,7 +323,7 @@ theorem harnessStill_frag {declName : Lean.Name} {bs : List (Lean.Name × MixedG
       (fun j => Tools.ShippingMixedSourceBridge.inputExpr bs.length (bpos j))
       (fun j => Tools.ShippingMixedSourceBridge.inputExpr bs.length (vpos j)) e) :
     HarnessStill L declName bs body := by
-  intro mctx cctx b w r w' hw _ hr
+  intro tenv mctx cctx b w r w' hw _ hr
   subst hbody
   have hS : WSI L (L.val w) w := ⟨hw, rfl⟩
   unfold synthesizeMixedCertified at hr
@@ -353,7 +355,7 @@ theorem harnessStill_frag {declName : Lean.Name} {bs : List (Lean.Name × MixedG
       e he
     have hcomp : WSt mctx cctx L (L.val w) (entryCompilerState false cacheRef)
         (bindMixedCertifiedInputs
-          (emitLeaves (fun e hint top named => translateExprToWire e hint top named) cacheRef
+          (emitLeaves (fun e hint top named => translateExprToWire tenv e hint top named) cacheRef
             (profLogIO b)
             [("out", instFVars (ids.map Lean.Expr.fvar).toArray 0
               (quote dom
@@ -368,7 +370,7 @@ theorem harnessStill_frag {declName : Lean.Name} {bs : List (Lean.Name × MixedG
             (fun j => Tools.ShippingMixedSourceBridge.inputExpr bs.length (vpos j)) e)) := by
         simpa using hp
       rw [hp']
-      show WSt mctx cctx L (L.val w) ctx' (translateExprToWire
+      show WSt mctx cctx L (L.val w) ctx' (translateExprToWire tenv
         (instFVars (ids.map Lean.Expr.fvar).toArray 0
           (quote dom
             (fun j => Tools.ShippingMixedSourceBridge.inputExpr bs.length (bpos j))
@@ -403,7 +405,7 @@ theorem machine_leaf_val {b : Bool} {declName : Lean.Name} {shape : MachineShape
     (hstill : HarnessStill L declName shape.binders shape.body) (hno : shape.insts = [])
     (hw : InvV L w) (hd : L.dval w ≠ 0)
     (hr : RunsTo (synthesizeMachineCertified
-      (fun e hint top named => translateExprToWire e hint top named) (profLogIO b) declName shape)
+      (fun e hint top named => translateExprToWire tenv e hint top named) (profLogIO b) declName shape)
       mctx mref cctx cref w r w') : L.val w' = L.val w := by
   unfold synthesizeMachineCertified at hr
   obtain ⟨⟨t, d'⟩, w1, run, hr⟩ := RunsTo.bind hr
@@ -446,7 +448,7 @@ theorem sfc_mixed_val {b : Bool} {declName : Lean.Name} {ci : ConstantInfo}
     (old : certifiedShape? false [] ci = none)
     (shape : mixedCertifiedShape? false [] ci isInst = some (bs, body))
     (hst : HarnessStill L declName bs body) (hw : InvV L w) (hd : L.dval w ≠ 0)
-    (hr : RunsTo (synthesizeFromConst (fun e h t n => translateExprToWire e h t n) (profLogIO b)
+    (hr : RunsTo (synthesizeFromConst (fun e h t n => translateExprToWire tenv e h t n) (profLogIO b)
       declName [] false true ci isInst) mctx mref cctx cref w (m, d) w') :
     L.val w' = L.val w := by
   unfold synthesizeFromConst at hr

@@ -1,5 +1,7 @@
 import Tools.ShippingChildKeeps
 
+variable {tenv : Lean.Environment}
+
 /-! # The machine route's harness keeps the child invariant, given the translator does
 
 `HarnessRel` (the harness `synthesizeMixedCertified`, with the entry's logger,
@@ -203,10 +205,10 @@ update, the port-name check (a throw), the output port and its assign, then
 the remaining leaves. -/
 theorem emitLeaves_tripleC (D : Nat) (b : Bool) (cacheRef : IO.Ref (Lean.ExprStructMap String))
     (hT : ∀ e hint top named, TripleC mctx mref cctx cref (J L D)
-      (translateExprToWire e hint top named) (fun _ => J L D) (JE L D)) :
+      (translateExprToWire tenv e hint top named) (fun _ => J L D) (JE L D)) :
     ∀ (leaves : List (String × Lean.Expr)) (fw : Option String) (idx : Nat),
       TripleC mctx mref cctx cref (J L D)
-        (emitLeaves (fun e hint top named => translateExprToWire e hint top named) cacheRef
+        (emitLeaves (fun e hint top named => translateExprToWire tenv e hint top named) cacheRef
           (profLogIO b) leaves fw idx) (fun _ => J L D) (JE L D)
   | [], fw, idx => by
     unfold emitLeaves
@@ -249,7 +251,7 @@ theorem emitLeaves_tripleC (D : Nat) (b : Bool) (cacheRef : IO.Ref (Lean.ExprStr
             do
             CompilerM.addOutput pn outputType
             CompilerM.emitAssign pn (Sparkle.IR.AST.Expr.ref lw)
-            emitLeaves (fun e hint top named => translateExprToWire e hint top named) cacheRef
+            emitLeaves (fun e hint top named => translateExprToWire tenv e hint top named) cacheRef
                 (profLogIO b) rest (if fw.isNone = true then some lw else fw) (idx + 1)
           if cs.usedNames.contains pn = true then do
               let __r ←
@@ -273,7 +275,7 @@ theorem emitLeaves_tripleC (D : Nat) (b : Bool) (cacheRef : IO.Ref (Lean.ExprStr
                 | some inputPort => inputPort.ty
                 | none => Sparkle.IR.Type.HWType.bitVector 8)
             CompilerM.emitAssign pn (Sparkle.IR.AST.Expr.ref lw)
-            emitLeaves (fun e hint top named => translateExprToWire e hint top named) cacheRef
+            emitLeaves (fun e hint top named => translateExprToWire tenv e hint top named) cacheRef
                 (profLogIO b) rest (if fw.isNone = true then some lw else fw) (idx + 1))
           (fun _ => J L D) (JE L D) := by
         refine TripleC.bind (addOutput_tripleC L D _ _) ?_
@@ -302,7 +304,7 @@ theorem finishSynth_triple (D : Nat) (declName : Name) (st : CircuitState) :
 
 /-- **`HarnessRel` from `TranslateRel`.** -/
 theorem harnessRel_of (hT : TranslateRel L) : HarnessRel L := by
-  intro D hC mctx cctx b declName bs body
+  intro tenv D hC mctx cctx b declName bs body
   rw [keeps_iff]
   unfold synthesizeMixedCertified
   refine Triple.bind (Triple.mapM _ (fun _ => Triple.frame L Framed.freshFVar D) _) ?_

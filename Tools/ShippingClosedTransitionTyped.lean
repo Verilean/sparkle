@@ -1,6 +1,8 @@
 import Tools.ShippingTransitionTyped
 import Tools.ShippingCoreWidth
 
+variable {tenv : Lean.Environment}
+
 /-! # The `let`-closed transition of a machine with calls, typed (G1)
 
 What `Tools.ShippingCloseMachineTyped.closeMachine_typed` asks of the
@@ -67,7 +69,7 @@ theorem closedTransition_of_run {declName : Lean.Name} (d : MachineData) (ok : d
     (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
     {logProf : String → IO Unit} {t t' : Sparkle.IR.AST.Module} {d₀ : Design}
     (run : MReturns (synthesizeMixedCertified
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName
+      (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName
       d.shape.binders d.shape.body) (t, d₀))
     (hcl : closeLets d.shape.layout.lets t = some t') :
     ∃ (B : List Stmt) (core : String),

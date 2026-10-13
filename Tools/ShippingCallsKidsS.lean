@@ -1,6 +1,8 @@
 import Tools.ShippingCallsKidsD
 import Tools.ShippingCallsRunFinal
 
+variable {tenv : Lean.Environment}
+
 /-! # The general closing over callees that may SHARE a descendant: what is proved, and what it rests on
 
 `machineClosesAt_of_kidsD` (`Tools/ShippingCallsKidsD.lean` 98–134) asks, for
@@ -82,9 +84,9 @@ def CacheAgrees (decls : List Name) (w : Void IO.RealWorld) : Prop :=
 synthesis ENDS in satisfies `CacheAgrees decls`. WEAKER than
 `MachineClosesAt`. -/
 def MachineClosesAtS (declName : Name) (shape : MachineShape) (decls : List Name) : Prop :=
-  ∀ (b : Bool) w r w', InvW mref cref w → DepthPos mref cref w →
+  ∀ {tenv : Lean.Environment}, ∀ (b : Bool) w r w', InvW mref cref w → DepthPos mref cref w →
     RunsTo (synthesizeMachineCertified
-      (fun e hint top named => translateExprToWire e hint top named) (profLogIO b) declName shape)
+      (fun e hint top named => translateExprToWire tenv e hint top named) (profLogIO b) declName shape)
       mctx mref cctx cref w r w' → CacheAgrees mref cref decls w' → r ≠ none
 
 end Defs
@@ -95,7 +97,7 @@ theorem MachineClosesAtS.of_closes {mctx : Meta.Context} {mref : ST.Ref IO.RealW
     {shape : MachineShape} (decls : List Name)
     (h : MachineClosesAt mctx mref cctx cref declName shape) :
     MachineClosesAtS mctx mref cctx cref declName shape decls :=
-  fun b w r w' hw hd hr _ => h b w r w' hw hd hr
+  fun {tenv} b w r w' hw hd hr _ => h b w r w' hw hd hr
 
 theorem mem_cons_of_or {g : Sparkle.IR.AST.Module} {c : Res}
     (h : g = c.1 ∨ g ∈ c.2.modules) : g ∈ c.1 :: c.2.modules := by
@@ -144,7 +146,7 @@ theorem closes_of_agree {declName : Name} (d : MachineData) (ok : d.ok = true)
       (Sparkle.IR.ModuleName.ofDecl (d.shape.insts[k]).1) ∉ namesK k) :
     ∀ (b : Bool) w r w', InvW mref cref w → DepthPos mref cref w →
       RunsTo (synthesizeMachineCertified
-        (fun e hint top named => translateExprToWire e hint top named) (profLogIO b) declName
+        (fun e hint top named => translateExprToWire tenv e hint top named) (profLogIO b) declName
         d.shape) mctx mref cctx cref w r w' →
       (InvW mref cref w' → CacheAgrees mref cref (d.shape.insts.map (·.1)) w') → r ≠ none := by
   have hl : Tools.ShippingClosesSplit.LetsClose mctx mref cctx cref declName d.shape :=
@@ -372,7 +374,7 @@ theorem machineClosesAtS_of_kids {declName : Name} (d : MachineData) (ok : d.ok 
     (hselfD : ∀ (k : Nat) (hk : k < d.shape.insts.length),
       (Sparkle.IR.ModuleName.ofDecl (d.shape.insts[k]).1) ∉ namesK k) :
     MachineClosesAtS mctx mref cctx cref declName d.shape (d.shape.insts.map (·.1)) :=
-  fun b w r w' hw hdp hr hag =>
+  fun {tenv} b w r w' hw hdp hr hag =>
     closes_of_agree d ok hbody halias hC hslots hdomB hfne nk outsK namesK hnomem hkid hargsN
       hfieldOut hfieldsNd hsep hparent hfresh hparentD hselfD b w r w' hw hdp hr (fun _ => hag)
 
@@ -417,7 +419,7 @@ theorem machineClosesAt_of_kidsD_again {declName : Name} (d : MachineData) (ok :
       (hk' : k' < d.shape.insts.length), (d.shape.insts[k]).1 ≠ (d.shape.insts[k']).1 →
       (Sparkle.IR.ModuleName.ofDecl (d.shape.insts[k]).1) ∉ namesK k' ∧ ∀ x ∈ namesK k, x ∉ namesK k') :
     MachineClosesAt mctx mref cctx cref declName d.shape := by
-  intro b w r w' hw hdp hr
+  intro tenv b w r w' hw hdp hr
   refine closes_of_agree d ok hbody halias hC hslots hdomB hfne nk outsK namesK hnomem hkid
     hargsN hfieldOut hfieldsNd hsep hparent hfresh hparentD hselfD b w r w' hw hdp hr ?_
   intro hinv mctx' cctx' m w1 hg c hc c' hc' hne y y' hy hy' a ha b' hb hn

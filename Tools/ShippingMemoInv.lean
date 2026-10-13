@@ -150,56 +150,56 @@ shipping entry's.
   no name of its own to state this about.)
 * `legacyKeeps` — the same run ends in an invariant world. -/
 structure ArmObligations (L : RefLawsM mref cref) (Ψ : Meaning) : Prop where
-  certified : ∀ (b : Bool) (n : Name) (ci : ConstantInfo) (isInst : Lean.Expr → Bool)
+  certified : ∀ {tenv : Lean.Environment} (b : Bool) (n : Name) (ci : ConstantInfo) (isInst : Lean.Expr → Bool)
     (bs : List (Name × GateBinder)) (body : Lean.Expr)
     (mctx : Meta.Context) (cctx : Core.Context) (w w' : Void IO.RealWorld) (r : Res),
     certifiedShape? false [] ci = some (bs, body) →
     MemoInv L (stored Ψ) w →
-    RunsTo (synthesizeCertified (fun e h t nm => translateExprToWire e h t nm) (profLogIO b)
+    RunsTo (synthesizeCertified (fun e h t nm => translateExprToWire tenv e h t nm) (profLogIO b)
       n bs body) mctx mref cctx cref w r w' →
     Ψ n ci isInst r ∧ MemoInv L (stored Ψ) w'
-  mixed : ∀ (b : Bool) (n : Name) (ci : ConstantInfo) (isInst : Lean.Expr → Bool)
+  mixed : ∀ {tenv : Lean.Environment} (b : Bool) (n : Name) (ci : ConstantInfo) (isInst : Lean.Expr → Bool)
     (bs : List (Name × MixedGateBinder)) (body : Lean.Expr)
     (mctx : Meta.Context) (cctx : Core.Context) (w w' : Void IO.RealWorld) (r : Res),
     certifiedShape? false [] ci = none →
     mixedCertifiedShape? false [] ci isInst = some (bs, body) →
     MemoInv L (stored Ψ) w →
-    RunsTo (synthesizeMixedCertified (fun e h t nm => translateExprToWire e h t nm)
+    RunsTo (synthesizeMixedCertified (fun e h t nm => translateExprToWire tenv e h t nm)
       (profLogIO b) n bs body) mctx mref cctx cref w r w' →
     Ψ n ci isInst r ∧ MemoInv L (stored Ψ) w'
-  machine : ∀ (b : Bool) (n : Name) (ci : ConstantInfo) (isInst : Lean.Expr → Bool)
+  machine : ∀ {tenv : Lean.Environment} (b : Bool) (n : Name) (ci : ConstantInfo) (isInst : Lean.Expr → Bool)
     (projs : StructEnv) (shape : MachineShape)
     (mctx : Meta.Context) (cctx : Core.Context) (w w' : Void IO.RealWorld) (r : Res),
     certifiedShape? false [] ci = none →
     mixedCertifiedShape? false [] ci isInst = none →
     machineShape? false [] ci projs = some shape →
     MemoInv L (stored Ψ) w →
-    RunsTo (synthesizeMachineCertified (fun e h t nm => translateExprToWire e h t nm)
+    RunsTo (synthesizeMachineCertified (fun e h t nm => translateExprToWire tenv e h t nm)
       (profLogIO b) n shape) mctx mref cctx cref w (some r) w' →
     Ψ n ci isInst r ∧ MemoInv L (stored Ψ) w'
-  machineNone : ∀ (b : Bool) (n : Name) (shape : MachineShape)
+  machineNone : ∀ {tenv : Lean.Environment} (b : Bool) (n : Name) (shape : MachineShape)
     (mctx : Meta.Context) (cctx : Core.Context) (w w' : Void IO.RealWorld),
     MemoInv L (stored Ψ) w →
-    RunsTo (synthesizeMachineCertified (fun e h t nm => translateExprToWire e h t nm)
+    RunsTo (synthesizeMachineCertified (fun e h t nm => translateExprToWire tenv e h t nm)
       (profLogIO b) n shape) mctx mref cctx cref w none w' →
     MemoInv L (stored Ψ) w'
-  legacy : ∀ (b : Bool) (n : Name) (ci : ConstantInfo) (isInst : Lean.Expr → Bool)
+  legacy : ∀ {tenv : Lean.Environment} (b : Bool) (n : Name) (ci : ConstantInfo) (isInst : Lean.Expr → Bool)
     (mctx : Meta.Context) (cctx : Core.Context) (w w' : Void IO.RealWorld) (r : Res),
     certifiedShape? false [] ci = none →
     mixedCertifiedShape? false [] ci isInst = none →
     (∀ projs : StructEnv, machineShape? false [] ci projs = none) →
     (L.mval w).get? n = none →
     MemoInv L (stored Ψ) w →
-    RunsTo (synthesizeFromConst (fun e h t nm => translateExprToWire e h t nm) (profLogIO b)
+    RunsTo (synthesizeFromConst (fun e h t nm => translateExprToWire tenv e h t nm) (profLogIO b)
       n [] false true ci isInst) mctx mref cctx cref w r w' →
     Ψ n ci isInst r
-  legacyKeeps : ∀ (b : Bool) (n : Name) (ci : ConstantInfo) (isInst : Lean.Expr → Bool)
+  legacyKeeps : ∀ {tenv : Lean.Environment} (b : Bool) (n : Name) (ci : ConstantInfo) (isInst : Lean.Expr → Bool)
     (mctx : Meta.Context) (cctx : Core.Context) (w w' : Void IO.RealWorld) (r : Res),
     certifiedShape? false [] ci = none →
     mixedCertifiedShape? false [] ci isInst = none →
     (∀ projs : StructEnv, machineShape? false [] ci projs = none) →
     MemoInv L (stored Ψ) w →
-    RunsTo (synthesizeFromConst (fun e h t nm => translateExprToWire e h t nm) (profLogIO b)
+    RunsTo (synthesizeFromConst (fun e h t nm => translateExprToWire tenv e h t nm) (profLogIO b)
       n [] false true ci isInst) mctx mref cctx cref w r w' →
     MemoInv L (stored Ψ) w'
 
@@ -207,9 +207,9 @@ structure ArmObligations (L : RefLawsM mref cref) (Ψ : Meaning) : Prop where
 configuration `synthesizeFromConst` keeps "every entry has the meaning for
 some constant" on every outcome. -/
 def MemoSound (L : RefLawsM mref cref) (Ψ : Meaning) : Prop :=
-  ∀ (b : Bool) (n : Name) (ci : ConstantInfo) (isInst : Lean.Expr → Bool),
+  ∀ {tenv : Lean.Environment}, ∀ (b : Bool) (n : Name) (ci : ConstantInfo) (isInst : Lean.Expr → Bool),
     KeepsMemo L (stored Ψ)
-      (synthesizeFromConst (fun e h t nm => translateExprToWire e h t nm) (profLogIO b)
+      (synthesizeFromConst (fun e h t nm => translateExprToWire tenv e h t nm) (profLogIO b)
         n [] false true ci isInst)
 
 end Tools.ShippingMemo

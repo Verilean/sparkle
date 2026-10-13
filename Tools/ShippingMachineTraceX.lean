@@ -482,7 +482,7 @@ theorem synthesizeCombinationalCore_machine_soundRA_ran {declName : Name}
     (outsNodup : (shape.layout.outs.map (·.name)).Nodup) :
     MachinePreservesX (ServedReal mctx mref cctx cref declName shape m d)
       declName shape bsIn slotBs letBs m d := by
-  obtain ⟨prof, w9, w10, hrun, hw9, -⟩ := ran
+  obtain ⟨_, prof, w9, w10, hrun, hw9, -⟩ := ran
   obtain ⟨t, t', d₀, hmix, hcl, hmt⟩ :=
     Tools.ShippingChildInv.synthesizeMachineCertified_runs hw9 hrun
   have hmt0 : (shape.insts = [] ∧ m = closeMachine shape.layout t' ∧ d = d₀) ∨

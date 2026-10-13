@@ -1,5 +1,7 @@
 import Tools.ShippingChildInv
 
+variable {tenv : Lean.Environment}
+
 /-! # The real entry keeps the child invariant — on every outcome
 
 `Triple P m Q R`: from a world satisfying `P`, a run of `m` that RETURNS `a`
@@ -379,9 +381,9 @@ the depth bump to `D + 1`, the body — which may return or throw — and the
 `finally`, which runs from whichever world the body ended in and brings the
 depth back to `D`. -/
 theorem core_keeps (D : Nat) (declName : Name) (hA0 : D = 0 → L.aux {})
-    (hbody : D < sparkleSynthDepthLimit → ∀ (b : Bool) ci isInst,
+    (hbody : ∀ {tenv : Lean.Environment}, D < sparkleSynthDepthLimit → ∀ (b : Bool) ci isInst,
       Keeps mctx mref cctx cref (J L (D + 1))
-        (synthesizeFromConst (fun e h t n => translateExprToWire e h t n) (profLogIO b)
+        (synthesizeFromConst (fun e h t n => translateExprToWire tenv e h t n) (profLogIO b)
           declName [] false true ci isInst)) :
     Keeps mctx mref cctx cref (J L D) (synthesizeCombinationalCore declName [] false) := by
   rw [keeps_iff]
@@ -410,7 +412,7 @@ theorem core_keeps (D : Nat) (declName : Name) (hA0 : D = 0 → L.aux {})
             (do
               let constInfo ← getConstInfo declName
               let env ← getEnv
-              synthesizeFromConst (fun e h t n => translateExprToWire e h t n)
+              synthesizeFromConst (fun e h t n => translateExprToWire env e h t n)
                 (profLogIO prof.isSome) declName [] false true
                 (entryConst true false [] constInfo (instancePredicate env) (userInliner env)
                   (structEnv env))
@@ -516,7 +518,7 @@ theorem harness_inv (hB : ∀ L' : RefLaws mref cref, BodyRel L')
     (hH : ∀ L' : RefLaws mref cref, HarnessRel L') {b : Bool} {declName bs body}
     {w r w'} (hw : InvV L w)
     (h : RunsTo (synthesizeMixedCertified
-      (fun e hint top named => translateExprToWire e hint top named) (profLogIO b) declName bs body)
+      (fun e hint top named => translateExprToWire tenv e hint top named) (profLogIO b) declName bs body)
       mctx mref cctx cref w r w') : InvV L w' := by
   have := hH L.plain (L.dval w) (childKeeps_all L.plain (hB _) _ (fun _ => trivial)) mctx cctx b
     declName bs body w ⟨hw, rfl, trivial⟩
@@ -589,7 +591,7 @@ harness, the pure `closeLets` / `closeMachine`, and the closing's children. -/
 theorem machine_keeps (hH : HarnessRel L) (D : Nat) (hC : ChildKeeps L D) (b : Bool)
     (declName : Name) (shape : MachineShape) :
     Keeps mctx mref cctx cref (J L D)
-      (synthesizeMachineCertified (fun e hint top named => translateExprToWire e hint top named)
+      (synthesizeMachineCertified (fun e hint top named => translateExprToWire tenv e hint top named)
         (profLogIO b) declName shape) := by
   rw [keeps_iff]
   unfold synthesizeMachineCertified

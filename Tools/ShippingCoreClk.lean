@@ -85,7 +85,7 @@ theorem core_clk_ran {c : Name} (d : MachineData) (ok : d.ok = true)
     · rw [h, (Sparkle.IR.RefineCheck.mergeChecked_ports _).2.2]
   -- the run
   have ran0 := ran
-  obtain ⟨bb, w9, w10, hrun9, hw9, -⟩ := ran0
+  obtain ⟨_, bb, w9, w10, hrun9, hw9, -⟩ := ran0
   obtain ⟨t, t', d₀, run, hcl, hmt⟩ := synthesizeMachineCertified_runs hw9 hrun9
   rcases hmt with ⟨hno, -, -⟩ | ⟨-, children, hcc, hreal⟩
   · exact absurd hno hins

@@ -1,6 +1,8 @@
 import Tools.ShippingCallsGate
 import Tools.ShippingCallsAssemblyG
 
+variable {tenv : Lean.Environment}
+
 /-! # The general closing on a real run
 
 * `closeInstsGM_run_all`: a run of `closeInstsGM` from an invariant world of
@@ -104,7 +106,7 @@ theorem closeInstsG_of_run {declName : Name} (d : MachineData) (ok : d.ok = true
     {logProf : String → IO Unit} {t t' : Sparkle.IR.AST.Module} {d₀ : Design}
     {children : List (Sparkle.IR.AST.Module × Design)}
     (run : MReturns (synthesizeMixedCertified
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName
+      (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName
       d.shape.binders d.shape.body) (t, d₀))
     (hcl : closeLets d.shape.layout.lets t = some t')
     (hchL : children.length = d.shape.insts.length)

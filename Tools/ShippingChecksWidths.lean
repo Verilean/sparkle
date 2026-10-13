@@ -128,7 +128,7 @@ theorem core_hierGateM_ran {c : Name} (d : MachineData) (ok : d.ok = true)
   have hbody' : b.body = M.body :=
     (core_kids_factsM_ran d ok hbody hC hslots hdomB hins outTy hfne hpost ran).2.1
   have ran0 := ran
-  obtain ⟨bb, w9, w10, hrun9, hw9, -⟩ := ran0
+  obtain ⟨_, bb, w9, w10, hrun9, hw9, -⟩ := ran0
   obtain ⟨t, t', d₀, run, hcl, hmt⟩ := synthesizeMachineCertified_runs hw9 hrun9
   rcases hmt with ⟨hno, -, -⟩ | ⟨-, children, hcc, hreal⟩
   · exact absurd hno hins
@@ -227,7 +227,7 @@ theorem core_callPortsM_ran {c : Name} (d : MachineData) (ok : d.ok = true)
       exact Tools.ShippingInstWidthsParts.dropZW_wires_sub M p hp
   -- the run
   have ran0 := ran
-  obtain ⟨bb, w9, w10, hrun9, hw9, -⟩ := ran0
+  obtain ⟨_, bb, w9, w10, hrun9, hw9, -⟩ := ran0
   obtain ⟨t, t', d₀, run, hcl, hmt⟩ := synthesizeMachineCertified_runs hw9 hrun9
   rcases hmt with ⟨hno, -, -⟩ | ⟨-, children, hcc, hreal⟩
   · exact absurd hno hins

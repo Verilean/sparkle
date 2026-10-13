@@ -1,6 +1,8 @@
 import Tools.ShippingTransitionPortTys
 import Tools.ShippingCloseLetsRun
 
+variable {tenv : Lean.Environment}
+
 /-! # The transition module is typed: the export (G1, step 1)
 
 For the harness run of a machine's transition (the packed term of
@@ -58,7 +60,7 @@ theorem transition_typed_of_run {declName : Lean.Name} (d : MachineData) (ok : d
       (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
     {logProf : String → IO Unit} {t : Sparkle.IR.AST.Module} {d₀ : Design}
     (run : MReturns (synthesizeMixedCertified
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName
+      (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName
       d.shape.binders d.shape.body) (t, d₀)) :
     Tools.ShippingTypedPostSoundness.TypedPostReady t ∧
     PrintBaseAt (packLets d.letFields d.core.2).1 t ∧

@@ -297,7 +297,7 @@ theorem core_callConns_ran {c : Name} (d : MachineData) (ok : d.ok = true)
       exact Tools.ShippingInstWidthsParts.dropZW_wires_sub M p hp
   -- the run
   have ran0 := ran
-  obtain ⟨bb, w9, w10, hrun9, hw9, -⟩ := ran0
+  obtain ⟨_, bb, w9, w10, hrun9, hw9, -⟩ := ran0
   obtain ⟨t, t', d₀, run, hcl, hmt⟩ := synthesizeMachineCertified_runs hw9 hrun9
   rcases hmt with ⟨hno, -, -⟩ | ⟨-, children, hcc, hreal⟩
   · exact absurd hno hins

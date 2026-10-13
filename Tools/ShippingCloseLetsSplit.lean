@@ -1,6 +1,8 @@
 import Tools.ShippingMachineEntry
 import Tools.ShippingReflectCtx
 
+variable {tenv : Lean.Environment}
+
 /-! # What `MachineCloses` asks of a shape with `let`s
 
 `MachineCloses` says a run of the machine synthesis does not return `none`.
@@ -95,24 +97,24 @@ of every run of the certified harness there. Nothing else is in it. -/
 theorem machineCloses_noCalls_iff {declName : Name} {shape : MachineShape}
     (hi : shape.insts = []) :
     MachineCloses mctx mref cctx cref declName shape ↔
-    ∀ (logProf : String → IO Unit) w t d w',
-      RunsTo (synthesizeMixedCertified (fun e hint top named => translateExprToWire e hint top named)
+    ∀ {tenv : Lean.Environment} (logProf : String → IO Unit) w t d w',
+      RunsTo (synthesizeMixedCertified (fun e hint top named => translateExprToWire tenv e hint top named)
         logProf declName shape.binders shape.body) mctx mref cctx cref w (t, d) w' →
       (closeLets shape.layout.lets t).isSome = true := by
   constructor
-  · intro hc logProf w t d w' hr
+  · intro hc tenv logProf w t d w' hr
     cases hcl : closeLets shape.layout.lets t with
     | some t' => rfl
     | none =>
       have hrun : RunsTo (synthesizeMachineCertified
-          (fun e hint top named => translateExprToWire e hint top named) logProf declName shape)
+          (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName shape)
           mctx mref cctx cref w none w' := by
         unfold synthesizeMachineCertified
         refine Tools.ShippingReflectCtx.RunsTo.bind_intro hr ?_
         simp only [hcl]
         rfl
       exact absurd rfl (hc logProf w none w' hrun)
-  · intro h logProf w r w' hr
+  · intro h tenv logProf w r w' hr
     unfold synthesizeMachineCertified at hr
     obtain ⟨⟨t, d⟩, w1, h1, hr⟩ := RunsTo.bind hr
     dsimp only at hr

@@ -1,5 +1,7 @@
 import Tools.ShippingCacheCoherentVia
 
+variable {tenv : Lean.Environment}
+
 /-! # An OUTERMOST run: after the clear the cache is empty, so `Prov` holds where the machine synthesis starts
 
 `Tools.ShippingCacheCoherentVia.core_reads_val` is the core entry at a
@@ -113,7 +115,7 @@ theorem core_reads_val0 (L : RefLaws mref cref) (hB : ∀ L' : RefLaws mref cref
       (w1 w2 w3 w4 w5 w6 : Void IO.RealWorld),
       RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧
       RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w5 envR w6 ∧
-      RunsTo (synthesizeFromConst (fun e h t n => translateExprToWire e h t n) (profLogIO b)
+      RunsTo (synthesizeFromConst (fun e h t n => translateExprToWire envR e h t n) (profLogIO b)
         declName [] false true
         (entryConst true false [] ci (Sparkle.Compiler.Elab.instancePredicate envR)
           (userInliner envR) (structEnv envR))
@@ -185,17 +187,18 @@ ONLY: `L.dval w = 0`. -/
 theorem coreVia0_of (L : RefLaws mref cref) (hB : ∀ L' : RefLaws mref cref, BodyRel L')
     (hH : ∀ L' : RefLaws mref cref, HarnessRel L') {c : Name} {shape : MachineShape}
     (entry : MachineDefines mctx mref cctx cref c shape)
-    (hclose : ∀ (b : Bool) (w9 : Void IO.RealWorld) (r : Option Res) (w10 : Void IO.RealWorld),
+    (hclose : ∀ {tenv : Lean.Environment} (b : Bool) (w9 : Void IO.RealWorld) (r : Option Res)
+      (w10 : Void IO.RealWorld),
       InvV L w9 → L.dval w9 ≠ 0 → Prov (L.val w9) →
       RunsTo (synthesizeMachineCertified
-        (fun e hint top named => translateExprToWire e hint top named) (profLogIO b) c shape)
+        (fun e hint top named => translateExprToWire tenv e hint top named) (profLogIO b) c shape)
         mctx mref cctx cref w9 r w10 → r ≠ none)
     {w w' : Void IO.RealWorld} {M : Sparkle.IR.AST.Module} {D : Sparkle.IR.AST.Design}
     (hs : L.sval w = some synthesizeChild) (hq : L.quiet w) (hd0 : L.dval w = 0)
     (hr : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, D) w') :
-    ∃ (b : Bool) (w9 w10 : Void IO.RealWorld),
+    ∃ (tenv : Lean.Environment) (b : Bool) (w9 w10 : Void IO.RealWorld),
       RunsTo (synthesizeMachineCertified
-        (fun e hint top named => translateExprToWire e hint top named) (profLogIO b) c shape)
+        (fun e hint top named => translateExprToWire tenv e hint top named) (profLogIO b) c shape)
         mctx mref cctx cref w9 (some (M, D)) w10 ∧
       InvV L w9 ∧ L.dval w9 ≠ 0 ∧ Prov (L.val w9) := by
   obtain ⟨b, envR, ci, w1, w2, w3, w4, w5, w6, hget, henv, run, hw3, hd3, hv3, -, -⟩ :=
@@ -220,6 +223,6 @@ theorem coreVia0_of (L : RefLaws mref cref) (hB : ∀ L' : RefLaws mref cref, Bo
       (show J L.plain _ _ from ⟨hw9, rfl, trivial⟩) hrun
     obtain ⟨he, -⟩ := hres res rfl hJ.1.2.2
     subst he
-    exact ⟨b, w9, w10, hrun, hw9, hd9', hp9⟩
+    exact ⟨_, b, w9, w10, hrun, hw9, hd9', hp9⟩
 
 end Tools.ShippingCacheCoherentOuter

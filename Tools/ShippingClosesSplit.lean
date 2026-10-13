@@ -24,8 +24,8 @@ variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
 def LetsClose (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State)
     (cctx : Core.Context) (cref : ST.Ref IO.RealWorld Core.State) (declName : Name)
     (shape : MachineShape) : Prop :=
-  ∀ (logProf : String → IO Unit) w t d w',
-    RunsTo (synthesizeMixedCertified (fun e hint top named => translateExprToWire e hint top named)
+  ∀ {tenv : Lean.Environment}, ∀ (logProf : String → IO Unit) w t d w',
+    RunsTo (synthesizeMixedCertified (fun e hint top named => translateExprToWire tenv e hint top named)
       logProf declName shape.binders shape.body) mctx mref cctx cref w (t, d) w' →
     (closeLets shape.layout.lets t).isSome = true
 
@@ -40,8 +40,8 @@ run of the calls' closing returns a module. -/
 def CallsClose (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State)
     (cctx : Core.Context) (cref : ST.Ref IO.RealWorld Core.State) (declName : Name)
     (shape : MachineShape) : Prop :=
-  ∀ (logProf : String → IO Unit) w t d w1 t',
-    RunsTo (synthesizeMixedCertified (fun e hint top named => translateExprToWire e hint top named)
+  ∀ {tenv : Lean.Environment}, ∀ (logProf : String → IO Unit) w t d w1 t',
+    RunsTo (synthesizeMixedCertified (fun e hint top named => translateExprToWire tenv e hint top named)
       logProf declName shape.binders shape.body) mctx mref cctx cref w (t, d) w1 →
     closeLets shape.layout.lets t = some t' →
     ∀ r w', RunsTo (closeCalls shape t t' d) mctx mref cctx cref w1 r w' → r ≠ none
@@ -54,19 +54,19 @@ theorem machineCloses_iff {declName : Name} {shape : MachineShape} :
   constructor
   · intro hc
     refine ⟨?_, ?_⟩
-    · intro logProf w t d w' hr
+    · intro tenv logProf w t d w' hr
       cases hcl : closeLets shape.layout.lets t with
       | some t' => rfl
       | none =>
         have hrun : RunsTo (synthesizeMachineCertified
-            (fun e hint top named => translateExprToWire e hint top named) logProf declName shape)
+            (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName shape)
             mctx mref cctx cref w none w' := by
           unfold synthesizeMachineCertified
           refine Tools.ShippingReflectCtx.RunsTo.bind_intro hr ?_
           simp only [hcl]
           rfl
         exact absurd rfl (hc logProf w none w' hrun)
-    · intro hne logProf w t d w1 t' hr hcl r w' hcalls
+    · intro hne tenv logProf w t d w1 t' hr hcl r w' hcalls
       refine hc logProf w r w' ?_
       unfold synthesizeMachineCertified
       refine Tools.ShippingReflectCtx.RunsTo.bind_intro hr ?_
@@ -75,7 +75,7 @@ theorem machineCloses_iff {declName : Name} {shape : MachineShape} :
       · rename_i heq
         exact absurd heq hne
       · exact hcalls
-  · rintro ⟨hl, hcalls⟩ logProf w r w' hr
+  · rintro ⟨hl, hcalls⟩ tenv logProf w r w' hr
     unfold synthesizeMachineCertified at hr
     obtain ⟨⟨t, d⟩, w1, h1, hr⟩ := RunsTo.bind hr
     dsimp only at hr

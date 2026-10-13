@@ -1,5 +1,7 @@
 import Tools.ShippingLegacySemFstEntry
 
+variable {tenv : Lean.Environment}
+
 /-! # The tuple-projection class: one entry theorem, the top node either projection
 
 `fst_entry_output` (`Tools/ShippingLegacySemFstEntry.lean`) asks the leaf to
@@ -39,13 +41,13 @@ theorem topSnd_leaf {ctx : CompilerState} {inputs : FVarId → Option Value} {x 
     (thF : TupleHead ``Sparkle.Core.Signal.Signal.fst)
     (thS : TupleHead ``Sparkle.Core.Signal.Signal.snd)
     (hne : ((``Sparkle.Core.Signal.Signal.snd : Name) == ``Sparkle.Core.Signal.Signal.fst) = false)
-    (plainF : PlainHead ``Sparkle.Core.Signal.Signal.fst)
-    (plainS : PlainHead ``Sparkle.Core.Signal.Signal.snd)
+    (plainF : PlainHead tenv ``Sparkle.Core.Signal.Signal.fst)
+    (plainS : PlainHead tenv ``Sparkle.Core.Signal.Signal.snd)
     (hi : inputs x = some (Value.bits N v))
     {f a : Lean.Expr} {M w : Nat} {g : BitVec N → BitVec M}
-    (hsub : SubChain ctx x N a M g)
-    (nd : TupleNode ctx ``Sparkle.Core.Signal.Signal.snd f a M w) :
-    LeafDom ctx inputs hint true (Lean.Expr.app f a)
+    (hsub : SubChain tenv ctx x N a M g)
+    (nd : TupleNode tenv ctx ``Sparkle.Core.Signal.Signal.snd f a M w) :
+    LeafDom tenv ctx inputs hint true (Lean.Expr.app f a)
       (Value.bits w (BitVec.extractLsb' 0 w (g v))) :=
   LeafDom.handled _
     (handlerCase_snd (u := g v) thS plainS hne nd (fun _ => shimBody_named))
@@ -56,17 +58,17 @@ theorem topSnd_leaf {ctx : CompilerState} {inputs : FVarId → Option Value} {x 
 
 /-- The leaf at the entry's flags: a `Signal.fst` or a `Signal.snd` over a
 chain, with its value as a function of the packed input. -/
-inductive TopNode (ctx : CompilerState) (x : FVarId) (N : Nat) :
+inductive TopNode (tenv : Lean.Environment) (ctx : CompilerState) (x : FVarId) (N : Nat) :
     Lean.Expr → (w : Nat) → (BitVec N → BitVec w) → Prop where
   | fst {f a : Lean.Expr} {M w : Nat} {g : BitVec N → BitVec M} :
-      SubChain ctx x N a M g →
-      TupleNode ctx ``Sparkle.Core.Signal.Signal.fst f a M w →
+      SubChain tenv ctx x N a M g →
+      TupleNode tenv ctx ``Sparkle.Core.Signal.Signal.fst f a M w →
       ExprHW a (Sparkle.IR.Type.HWType.bitVector M) →
-      TopNode ctx x N (Lean.Expr.app f a) w (fun v => BitVec.extractLsb' (M - w) w (g v))
+      TopNode tenv ctx x N (Lean.Expr.app f a) w (fun v => BitVec.extractLsb' (M - w) w (g v))
   | snd {f a : Lean.Expr} {M w : Nat} {g : BitVec N → BitVec M} :
-      SubChain ctx x N a M g →
-      TupleNode ctx ``Sparkle.Core.Signal.Signal.snd f a M w →
-      TopNode ctx x N (Lean.Expr.app f a) w (fun v => BitVec.extractLsb' 0 w (g v))
+      SubChain tenv ctx x N a M g →
+      TupleNode tenv ctx ``Sparkle.Core.Signal.Signal.snd f a M w →
+      TopNode tenv ctx x N (Lean.Expr.app f a) w (fun v => BitVec.extractLsb' 0 w (g v))
 
 /-- **The top node is a leaf at the entry's flags.** -/
 theorem topNode_leaf {ctx : CompilerState} {inputs : FVarId → Option Value} {x : FVarId}
@@ -74,25 +76,25 @@ theorem topNode_leaf {ctx : CompilerState} {inputs : FVarId → Option Value} {x
     (thF : TupleHead ``Sparkle.Core.Signal.Signal.fst)
     (thS : TupleHead ``Sparkle.Core.Signal.Signal.snd)
     (hne : ((``Sparkle.Core.Signal.Signal.snd : Name) == ``Sparkle.Core.Signal.Signal.fst) = false)
-    (plainF : PlainHead ``Sparkle.Core.Signal.Signal.fst)
-    (plainS : PlainHead ``Sparkle.Core.Signal.Signal.snd)
+    (plainF : PlainHead tenv ``Sparkle.Core.Signal.Signal.fst)
+    (plainS : PlainHead tenv ``Sparkle.Core.Signal.Signal.snd)
     (hi : inputs x = some (Value.bits N v))
-    {e : Lean.Expr} {w : Nat} {g : BitVec N → BitVec w} (h : TopNode ctx x N e w g) :
-    LeafDom ctx inputs hint true e (Value.bits w (g v)) := by
+    {e : Lean.Expr} {w : Nat} {g : BitVec N → BitVec w} (h : TopNode tenv ctx x N e w g) :
+    LeafDom tenv ctx inputs hint true e (Value.bits w (g v)) := by
   cases h with
   | fst hsub nd hS => exact topFst_leaf thF thS hne plainF plainS hi hsub nd hS
   | snd hsub nd => exact topSnd_leaf thF thS hne plainF plainS hi hsub nd
 
 /-- The result of a top node has positive width. -/
 theorem TopNode.pos {ctx : CompilerState} {x : FVarId} {N : Nat} {e : Lean.Expr} {w : Nat}
-    {g : BitVec N → BitVec w} (h : TopNode ctx x N e w g) : 0 < w := by
+    {g : BitVec N → BitVec w} (h : TopNode tenv ctx x N e w g) : 0 < w := by
   cases h with
   | fst _ nd _ => exact nd.pos
   | snd _ nd => exact nd.pos
 
 /-- **The value of the leaf is ONE slice of the packed input.** -/
 theorem topNode_slice {ctx : CompilerState} {x : FVarId} {N : Nat} {e : Lean.Expr} {w : Nat}
-    {g : BitVec N → BitVec w} (h : TopNode ctx x N e w g) :
+    {g : BitVec N → BitVec w} (h : TopNode tenv ctx x N e w g) :
     ∃ lo : Nat, lo + w ≤ N ∧ ∀ v : BitVec N, g v = BitVec.extractLsb' lo w v := by
   cases h with
   | @fst f a M w g0 hsub nd hS =>
@@ -146,16 +148,16 @@ theorem tuple_entry_output {logProf : String → IO Unit} {declName : Name}
     (thF : TupleHead ``Sparkle.Core.Signal.Signal.fst)
     (thS : TupleHead ``Sparkle.Core.Signal.Signal.snd)
     (hne : ((``Sparkle.Core.Signal.Signal.snd : Name) == ``Sparkle.Core.Signal.Signal.fst) = false)
-    (plainF : PlainHead ``Sparkle.Core.Signal.Signal.fst)
-    (plainS : PlainHead ``Sparkle.Core.Signal.Signal.snd)
+    (plainF : PlainHead tenv ``Sparkle.Core.Signal.Signal.fst)
+    (plainS : PlainHead tenv ``Sparkle.Core.Signal.Signal.snd)
     (hlam : ∀ ids : List FVarId, ids.length = bs.length → (leafOf ids).isLambda = false)
     (hres : ∀ ids : List FVarId, ids.length = bs.length → SignalTyped (leafOf ids))
     (hchain : ∀ (ids : List FVarId) (x : FVarId) (cache : IO.Ref (ExprStructMap String))
       (bools : FVarId → Bool) (bits : (id : FVarId) → (n : Nat) → BitVec n),
       ids.length = bs.length → AtIdx ids i x →
-      TopNode (setupOf declName bs ids cache bools bits).context x N (leafOf ids) w g)
+      TopNode tenv (setupOf declName bs ids cache bools bits).context x N (leafOf ids) w g)
     (hr : MReturns (synthesizeFromConst
-      (fun e hint top named => translateExprToWire e hint top named)
+      (fun e hint top named => translateExprToWire tenv e hint top named)
       logProf declName [] false true (.defnInfo dv) isInst) (m, d)) :
     MemoHit declName m d ∨
     ∃ (ids : List FVarId) (x : FVarId) (cache : IO.Ref (ExprStructMap String)),
@@ -191,7 +193,7 @@ theorem tuple_entry_output {logProf : String → IO Unit} {declName : Name}
           (Sparkle.IR.ModuleName.ofDecl declName)) nm (MixedGateBinder.bits N) x hnd hfield hx
         (by intro h; cases h)
     have top := hchain ids x cache bools bits hlen hx
-    have dom : LeafDom (setupOf declName bs ids cache bools bits).context
+    have dom : LeafDom tenv (setupOf declName bs ids cache bools bits).context
         (Tools.ShippingUnifiedMeaning.inputValues
           (setupOf declName bs ids cache bools bits).bools
           (setupOf declName bs ids cache bools bits).bits)

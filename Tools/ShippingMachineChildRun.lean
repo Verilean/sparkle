@@ -54,7 +54,7 @@ theorem machineChild_iface {c : Name} (d : MachineData) (ok : d.ok = true)
       b.inputs.length = ((d.shape.binders.take nDecl).filter fun x => x.2 != .domain).length ∧
       b.name = (Sparkle.IR.ModuleName.ofDecl c) ∧ design.modules = [] := by
   obtain ⟨M, D, w1, hcore, hpost, hdesM⟩ := synthesizeCombinational_parts hr
-  obtain ⟨bb, r, w9, w10, hrun9, hw9, hd9, hres⟩ :=
+  obtain ⟨_, bb, r, w9, w10, hrun9, hw9, hd9, hres⟩ :=
     machine_run_of_core hcore entry (ChildBnd.of_invW mctx cctx hw)
   have hne := closes bb _ _ _ hw9 hd9 hrun9
   cases r with

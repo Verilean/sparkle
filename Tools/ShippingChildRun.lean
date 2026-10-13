@@ -1,5 +1,7 @@
 import Tools.ShippingChildBody
 
+variable {tenv : Lean.Environment}
+
 /-! # A successful run of the real entry: what its closings receive
 
 Inversion of ONE returning run of the core entry that starts in a world
@@ -135,7 +137,7 @@ theorem core_reads_inv (L : RefLaws mref cref) {declName : Name}
       (w1 w2 w3 w4 w5 w6 : Void IO.RealWorld),
       RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧
       RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w5 envR w6 ∧
-      RunsTo (synthesizeFromConst (fun e h t n => translateExprToWire e h t n) (profLogIO b)
+      RunsTo (synthesizeFromConst (fun e h t n => translateExprToWire envR e h t n) (profLogIO b)
         declName [] false true
         (entryConst true false [] ci (Sparkle.Compiler.Elab.instancePredicate envR)
           (userInliner envR) (structEnv envR))
@@ -343,13 +345,13 @@ theorem synthesizeFromConst_machine_inv (L : RefLaws mref cref)
     {d : Sparkle.IR.AST.Design} {w w' : Void IO.RealWorld}
     (old : certifiedShape? false [] ci = none)
     (miss : mixedCertifiedShape? false [] ci isInst = none) (hw : InvV L w)
-    (hr : RunsTo (synthesizeFromConst (fun e h t n => translateExprToWire e h t n) logProf
+    (hr : RunsTo (synthesizeFromConst (fun e h t n => translateExprToWire tenv e h t n) logProf
       declName [] false true ci isInst) mctx mref cctx cref w (m, d) w') :
     ∃ (envR : Environment) (w5 w6 : Void IO.RealWorld),
       RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w5 envR w6 ∧
       ∀ shape, machineShape? false [] ci (structEnv envR) = some shape →
         ∃ r w7 w8, RunsTo (synthesizeMachineCertified
-            (fun e hint top named => translateExprToWire e hint top named) logProf declName
+            (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName
             shape) mctx mref cctx cref w7 r w8 ∧ InvV L w7 ∧ L.dval w7 = L.dval w ∧
           ∀ res, r = some res → res = (m, d) := by
   unfold synthesizeFromConst at hr
@@ -381,10 +383,10 @@ theorem synthesizeMachineCertified_inv (L : RefLaws mref cref)
     (hH : ∀ L' : RefLaws mref cref, HarnessRel L')
     {b : Bool} {declName shape m d} {w w'} (hw : InvV L w)
     (hr : RunsTo (synthesizeMachineCertified
-      (fun e hint top named => translateExprToWire e hint top named) (profLogIO b) declName shape)
+      (fun e hint top named => translateExprToWire tenv e hint top named) (profLogIO b) declName shape)
       mctx mref cctx cref w (some (m, d)) w') :
     ∃ t t' d₀, MReturns (synthesizeMixedCertified
-        (fun e hint top named => translateExprToWire e hint top named) (profLogIO b) declName
+        (fun e hint top named => translateExprToWire tenv e hint top named) (profLogIO b) declName
         shape.binders shape.body) (t, d₀) ∧
       Sparkle.IR.Machine.closeLets shape.layout.lets t = some t' ∧
       ((shape.insts = [] ∧ m = Sparkle.IR.Machine.closeMachine shape.layout t' ∧ d = d₀) ∨
@@ -444,15 +446,15 @@ calls' closing reads the child-synthesis reference. -/
 def MachineClosesAt (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State)
     (cctx : Core.Context) (cref : ST.Ref IO.RealWorld Core.State) (declName : Name)
     (shape : MachineShape) : Prop :=
-  ∀ (b : Bool) w r w', InvW mref cref w → DepthPos mref cref w →
+  ∀ {tenv : Lean.Environment}, ∀ (b : Bool) w r w', InvW mref cref w → DepthPos mref cref w →
     RunsTo (synthesizeMachineCertified
-      (fun e hint top named => translateExprToWire e hint top named) (profLogIO b) declName shape)
+      (fun e hint top named => translateExprToWire tenv e hint top named) (profLogIO b) declName shape)
       mctx mref cctx cref w r w' → r ≠ none
 
 theorem machineClosesAt_of_closes {declName : Name} {shape : MachineShape}
     (h : MachineCloses mctx mref cctx cref declName shape) :
     MachineClosesAt mctx mref cctx cref declName shape :=
-  fun _ w r w' _ _ hr => h _ w r w' hr
+  fun {tenv} _ w r w' _ _ hr => h _ w r w' hr
 
 /-- **The children of a real compile, from the run's start world.** One
 successful run of the real core entry at the machine boundary, STARTING in a
@@ -510,9 +512,9 @@ theorem machine_run_of_core {declName : Name} {shape : MachineShape}
     (hr : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (m, d) w')
     (entry : MachineDefines mctx mref cctx cref declName shape)
     (hb : ChildBnd mref cref w) :
-    ∃ (b : Bool) (r : Option Res) (w9 w10 : Void IO.RealWorld),
+    ∃ (tenv : Lean.Environment) (b : Bool) (r : Option Res) (w9 w10 : Void IO.RealWorld),
       RunsTo (synthesizeMachineCertified
-        (fun e hint top named => translateExprToWire e hint top named) (profLogIO b) declName shape)
+        (fun e hint top named => translateExprToWire tenv e hint top named) (profLogIO b) declName shape)
         mctx mref cctx cref w9 r w10 ∧ InvW mref cref w9 ∧ DepthPos mref cref w9 ∧
       ∀ res, r = some res → res = (m, d) := by
   obtain ⟨L, hsv, hq⟩ := hb
@@ -522,16 +524,16 @@ theorem machine_run_of_core {declName : Name} {shape : MachineShape}
   obtain ⟨envR', w7, w8, henv', hmach⟩ := synthesizeFromConst_machine_inv L old miss hw3 run
   obtain ⟨_, _, hshape⟩ := entry _ _ _ _ _ _ _ _ _ get henv henv'
   obtain ⟨r, w9, w10, hrun, hw9, hd9, hres⟩ := hmach shape hshape
-  exact ⟨b, r, w9, w10, hrun, invW_of_invV L hw9, depthPos_of L (by rw [hd9]; exact hd3), hres⟩
+  exact ⟨_, b, r, w9, w10, hrun, invW_of_invV L hw9, depthPos_of L (by rw [hd9]; exact hd3), hres⟩
 
 /-- `synthesizeMachineCertified_inv` from the read-based invariant. -/
 theorem synthesizeMachineCertified_runs {b : Bool} {declName shape m d} {w w'}
     (hw : InvW mref cref w)
     (hr : RunsTo (synthesizeMachineCertified
-      (fun e hint top named => translateExprToWire e hint top named) (profLogIO b) declName shape)
+      (fun e hint top named => translateExprToWire tenv e hint top named) (profLogIO b) declName shape)
       mctx mref cctx cref w (some (m, d)) w') :
     ∃ t t' d₀, MReturns (synthesizeMixedCertified
-        (fun e hint top named => translateExprToWire e hint top named) (profLogIO b) declName
+        (fun e hint top named => translateExprToWire tenv e hint top named) (profLogIO b) declName
         shape.binders shape.body) (t, d₀) ∧
       Sparkle.IR.Machine.closeLets shape.layout.lets t = some t' ∧
       ((shape.insts = [] ∧ m = Sparkle.IR.Machine.closeMachine shape.layout t' ∧ d = d₀) ∨

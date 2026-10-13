@@ -1,5 +1,7 @@
 import Tools.ShippingClosedKinds
 
+variable {tenv : Lean.Environment}
+
 /-! # The closed machine's outputs are masked (G1, branch `fix/merge-guards`)
 
 `Sparkle.IR.RefineCheck.outMaskedB we body p`: the port `p` is written
@@ -219,7 +221,7 @@ theorem closedBody_masked_of_run {declName : Lean.Name} (d : MachineData) (ok : 
     (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
     {logProf : String → IO Unit} {t t' : Sparkle.IR.AST.Module} {d₀ : Design}
     (run : MReturns (synthesizeMixedCertified
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName
+      (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName
       d.shape.binders d.shape.body) (t, d₀))
     (hcl : closeLets d.shape.layout.lets t = some t') :
     ∀ (we : Sparkle.IR.Semantics.WEnv) (o : OutField), o ∈ d.shape.layout.outs →

@@ -32,11 +32,11 @@ translator**: at any depth, in any contexts, IF the memoised child entry
 keeps the invariant and the recursive argument `rec` does, a run of
 `translateFallback rec` keeps it — on every outcome. -/
 def FallbackRel (L : RefLaws mref cref) : Prop :=
-  ∀ D, ChildKeeps L D → ∀ (rec : TranslateFn),
+  ∀ {tenv : Lean.Environment}, ∀ D, ChildKeeps L D → ∀ (rec : TranslateFn),
     (∀ (mctx : Meta.Context) (cctx : Core.Context) e hint top named,
       KeepsC mctx mref cctx cref (J L D) (rec e hint top named)) →
     ∀ (mctx : Meta.Context) (cctx : Core.Context) e hint top named,
-      KeepsC mctx mref cctx cref (J L D) (translateFallback rec e hint top named)
+      KeepsC mctx mref cctx cref (J L D) ((translateFallback tenv) rec e hint top named)
 
 variable (L : RefLaws mref cref) (D : Nat)
 
@@ -97,12 +97,12 @@ theorem fuelFix_keepsC {mref : ST.Ref IO.RealWorld Meta.State}
 
 /-- **`TranslateRel` from `FallbackRel`.** -/
 theorem translateRel_of_fallback (hF : FallbackRel L) : TranslateRel L := by
-  intro D hC mctx cctx e hint top named
+  intro tenv D hC mctx cctx e hint top named
   unfold translateExprToWire
-  refine fuelFix_keepsC translateStep (fun rec hrec mctx cctx e hint top named => ?_) _ mctx cctx
+  refine fuelFix_keepsC (translateStep tenv) (fun rec hrec mctx cctx e hint top named => ?_) _ mctx cctx
     e hint top named
   unfold translateStep
-  exact translateStepWith_keepsC L D translateFallback rec hrec
+  exact translateStepWith_keepsC L D (translateFallback tenv) rec hrec
     (hF D hC rec hrec mctx cctx) e hint top named
 
 end Tools.ShippingChildInv

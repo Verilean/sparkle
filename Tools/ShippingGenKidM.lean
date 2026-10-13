@@ -120,7 +120,7 @@ theorem core_calls_portsGM {c : Name} (d : MachineData) (ok : d.ok = true)
     · rw [h]
     · rw [h, (Sparkle.IR.RefineCheck.mergeChecked_ports _).2.2]
   -- the run
-  obtain ⟨bb, r, w9, w10, hrun9, hw9, hd9, hres⟩ :=
+  obtain ⟨_, bb, r, w9, w10, hrun9, hw9, hd9, hres⟩ :=
     machine_run_of_core hcore entry hB
   have hne := closes bb _ _ _ hw9 hd9 hrun9
   cases r with

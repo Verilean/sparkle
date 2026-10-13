@@ -236,7 +236,7 @@ theorem core_callConns₁ {c : Name} (d : MachineData) (ok : d.ok = true)
     · rw [h, (Sparkle.IR.RefineCheck.mergeChecked_ports _).2.2] at hp
       exact Tools.ShippingInstWidthsParts.dropZW_wires_sub M p hp
   -- the run: the one-output closing
-  obtain ⟨logProf, t, t', d₀, children, run, hcl, hI, hreal⟩ :=
+  obtain ⟨_, logProf, t, t', d₀, children, run, hcl, hI, hreal⟩ :=
     Tools.ShippingOneOutFacts.core_closeInsts d hins hf hB hcore entry closes
   obtain ⟨hMw, -⟩ := Tools.ShippingMachineInst.closeInsts_some hI
   obtain ⟨hseq0, -, -⟩ := closedBody_kinds_of_run d ok hbody hC hslots hdomB run hcl

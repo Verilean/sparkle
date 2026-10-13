@@ -1,6 +1,8 @@
 import Tools.ShippingMemoLaws
 import Tools.ShippingLegacySemProj
 
+variable {tenv : Lean.Environment}
+
 /-! # The legacy entry in `RunsTo` form: THIS run's memo read
 
 Every legacy entry theorem so far concludes `MemoHit declName m d ∨ …`, with
@@ -271,7 +273,7 @@ theorem list_entry_outputDN_at (L : RefLawsM mref cref)
     (hleaf : ∀ ids : List FVarId, ids.length = bs.length →
       (leafOf ids).isLambda = false ∧ SignalTyped (leafOf ids))
     (hr : RunsTo (synthesizeFromConst
-      (fun e hint top named => translateExprToWire e hint top named)
+      (fun e hint top named => translateExprToWire tenv e hint top named)
       logProf declName [] false cfe (.defnInfo dv) isInst) mctx mref cctx cref w (m, d) w') :
     (L.mval w).get? declName = some (m, d) ∨
     ∃ (ids : List FVarId) (cache : IO.Ref (ExprStructMap String)),
@@ -282,7 +284,7 @@ theorem list_entry_outputDN_at (L : RefLawsM mref cref)
         (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
           (Sparkle.IR.ModuleName.ofDecl declName)) →
       ∀ v : Value, 0 < v.kind.width →
-      LeafDom (setupOf declName bs ids cache bools bits).context
+      LeafDom tenv (setupOf declName bs ids cache bools bits).context
         (Tools.ShippingUnifiedMeaning.inputValues
           (setupOf declName bs ids cache bools bits).bools
           (setupOf declName bs ids cache bools bits).bits)
@@ -338,7 +340,7 @@ theorem proj_entry_output_at (L : RefLawsM mref cref)
       WhnfIsVar (leafOf ids) x)
     (hres : ∀ ids : List FVarId, ids.length = bs.length → SignalTyped (leafOf ids))
     (hr : RunsTo (synthesizeFromConst
-      (fun e hint top named => translateExprToWire e hint top named)
+      (fun e hint top named => translateExprToWire tenv e hint top named)
       logProf declName [] false true (.defnInfo dv) isInst) mctx mref cctx cref w (m, d) w') :
     (L.mval w).get? declName = some (m, d) ∨
     ∃ (ids : List FVarId) (x : FVarId) (cache : IO.Ref (ExprStructMap String)),
@@ -381,7 +383,7 @@ theorem proj_entry_output_at (L : RefLawsM mref cref)
       prepare_inputValue (bools := bools) (bits := bits) bs ids i
         (Tools.ShippingMixedEntrySoundness.start (entryCompilerState false cache)
           (Sparkle.IR.ModuleName.ofDecl declName)) nm k x hnd hfield hx hk
-    have dom : LeafDom (setupOf declName bs ids cache bools bits).context
+    have dom : LeafDom tenv (setupOf declName bs ids cache bools bits).context
         (Tools.ShippingUnifiedMeaning.inputValues
           (setupOf declName bs ids cache bools bits).bools
           (setupOf declName bs ids cache bools bits).bits)
@@ -427,7 +429,7 @@ theorem proj_entry_output_miss (L : RefLawsM mref cref)
       WhnfIsVar (leafOf ids) x)
     (hres : ∀ ids : List FVarId, ids.length = bs.length → SignalTyped (leafOf ids))
     (hr : RunsTo (synthesizeFromConst
-      (fun e hint top named => translateExprToWire e hint top named)
+      (fun e hint top named => translateExprToWire tenv e hint top named)
       logProf declName [] false true (.defnInfo dv) isInst) mctx mref cctx cref w (m, d) w') :
     ∃ (ids : List FVarId) (x : FVarId) (cache : IO.Ref (ExprStructMap String)),
       ids.length = bs.length ∧ ids.Nodup ∧ AtIdx ids i x ∧

@@ -1,6 +1,8 @@
 import Tools.ShippingMachineCloses
 import Tools.ShippingInstanceEntrySoundness
 
+variable {tenv : Lean.Environment}
+
 /-! # The harness' module reads its input ports and wires driven earlier
 
 `readsClosedB` (what `closeInsts` asks of a child's body, in `kidsCombB`) for
@@ -107,7 +109,7 @@ theorem harness_closed {logProf : String → IO Unit} {declName : Name}
     {ids : List FVarId} {cache : IO.Ref (ExprStructMap String)} {returned : String}
     {st : CircuitState}
     (run : Returns (bindMixedCertifiedInputs
-        (emitLeaves (fun e hint top named => translateExprToWire e hint top named) cache logProf
+        (emitLeaves (fun e hint top named => translateExprToWire tenv e hint top named) cache logProf
           [("out", instFVars (ids.map Lean.Expr.fvar).toArray 0 body)] none 0) (bs.zip ids))
         (entryCompilerState false cache) (CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName)) returned st)
     (hm : m = (addClockResetIfSequential st.module).finalize)

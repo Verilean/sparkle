@@ -2,6 +2,8 @@ import Tools.ShippingCallsKidsD
 import Tools.ShippingMemClosesRun
 import Tools.ShippingMemKidFacts
 
+variable {tenv : Lean.Environment}
+
 /-! # `MachineClosesAt` over children that are memory placeholders OR real children (M2, round par/a-18)
 
 `machineClosesAt_of_kidsD` (`Tools/ShippingCallsKidsD.lean` 98–317) cannot be
@@ -268,7 +270,7 @@ theorem closeInstsG_of_kidsP {declName : Name} (d : MachineData) (ok : d.ok = tr
     {logProf : String → IO Unit} {t t' : Sparkle.IR.AST.Module} {d₀ : Design}
     {children : List Res}
     (run : MReturns (synthesizeMixedCertified
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName
+      (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName
       d.shape.binders d.shape.body) (t, d₀))
     (hcl : closeLets d.shape.layout.lets t = some t')
     (hlenC : children.length = d.shape.insts.length)
@@ -451,7 +453,7 @@ theorem machineClosesAt_of_kidsDM {declName : Name} (d : MachineData) (ok : d.ok
     MachineClosesAt mctx mref cctx cref declName d.shape := by
   have hl : Tools.ShippingClosesSplit.LetsClose mctx mref cctx cref declName d.shape :=
     letsClose_of_data d ok hbody halias mctx mref cctx cref
-  intro b w r w' hw' hdp hr
+  intro tenv b w r w' hw' hdp hr
   obtain ⟨L, hw⟩ := invV_of_invW mctx cctx hw'
   have hB := fun L' : RefLaws mref cref => bodyRel L'
   unfold synthesizeMachineCertified at hr

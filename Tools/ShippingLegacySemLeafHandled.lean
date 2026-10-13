@@ -1,6 +1,8 @@
 import Tools.ShippingLegacySemLeaf
 import Tools.ShippingLegacySemInstance
 
+variable {tenv : Lean.Environment}
+
 /-! # Handlers as cases of the leaf domain
 
 Round 18 added to `LeafDom` (`Tools/ShippingLegacySemLeaf.lean`) the
@@ -70,26 +72,26 @@ open Tools.ShippingUnifiedProtection
 theorem handlerCase_inline {ctx : CompilerState} {inputs : FVarId → Option Value}
     {hint : String} {named : Bool} {e : Lean.Expr} {v : Value} (nc : NotCore e)
     (reach : ∀ fuel : Nat,
-      ReachesUnfoldAt (translateFuelFix translateStep fuel) ctx e hint false named) :
-    HandlerCase ctx inputs hint named e v
+      ReachesUnfoldAt tenv (translateFuelFix (translateStep tenv) fuel) ctx e hint false named) :
+    HandlerCase tenv ctx inputs hint named e v
       (fun h' n' e' v' => h' = hint ∧ n' = named ∧ InlineUnfolds e e' ∧ v' = v) where
   spec := by
     intro fuel we mems initial ih
     constructor
     · intro s t w lookup hr
-      have hstep : Returns (translateStepWith translateFallback
-          (translateFuelFix translateStep fuel) e hint false named) ctx s w t := hr
+      have hstep : Returns (translateStepWith (translateFallback tenv)
+          (translateFuelFix (translateStep tenv) fuel) e hint false named) ctx s w t := hr
       obtain ⟨e', hU, htr⟩ := reach fuel s t w (step_run_fallback nc hstep)
       exact (ih hint named e' v ⟨rfl, rfl, hU, rfl⟩).frame s t w lookup htr
     · intro s t w prior hinv widths hr
-      have hstep : Returns (translateStepWith translateFallback
-          (translateFuelFix translateStep fuel) e hint false named) ctx s w t := hr
+      have hstep : Returns (translateStepWith (translateFallback tenv)
+          (translateFuelFix (translateStep tenv) fuel) e hint false named) ctx s w t := hr
       obtain ⟨e', hU, htr⟩ := reach fuel s t w (step_run_fallback nc hstep)
       exact (ih hint named e' v ⟨rfl, rfl, hU, rfl⟩).sem s t w prior hinv widths htr
   order := by
     intro fuel we mems initial _ ih s t w prior hr hinv widths order
-    have hstep : Returns (translateStepWith translateFallback
-        (translateFuelFix translateStep fuel) e hint false named) ctx s w t := hr
+    have hstep : Returns (translateStepWith (translateFallback tenv)
+        (translateFuelFix (translateStep tenv) fuel) e hint false named) ctx s w t := hr
     obtain ⟨e', hU, htr⟩ := reach fuel s t w (step_run_fallback nc hstep)
     exact ih hint named e' v ⟨rfl, rfl, hU, rfl⟩ s t w prior htr hinv widths order
 
@@ -97,9 +99,9 @@ theorem handlerCase_inline {ctx : CompilerState} {inputs : FVarId → Option Val
 theorem LeafDom.inline_handled {ctx : CompilerState} {inputs : FVarId → Option Value}
     {hint : String} {named : Bool} {e : Lean.Expr} {v : Value} (nc : NotCore e)
     (reach : ∀ fuel : Nat,
-      ReachesUnfoldAt (translateFuelFix translateStep fuel) ctx e hint false named)
-    (sub : ∀ e' : Lean.Expr, InlineUnfolds e e' → LeafDom ctx inputs hint named e' v) :
-    LeafDom ctx inputs hint named e v :=
+      ReachesUnfoldAt tenv (translateFuelFix (translateStep tenv) fuel) ctx e hint false named)
+    (sub : ∀ e' : Lean.Expr, InlineUnfolds e e' → LeafDom tenv ctx inputs hint named e' v) :
+    LeafDom tenv ctx inputs hint named e v :=
   LeafDom.handled (fun h' n' e' v' => h' = hint ∧ n' = named ∧ InlineUnfolds e e' ∧ v' = v)
     (handlerCase_inline nc reach)
     (fun h' n' e' v' hs => by
@@ -128,11 +130,11 @@ theorem plainCallee_leaf {ctx : CompilerState} {inputs : FVarId → Option Value
     (hfn : (Lean.Expr.app f a).getAppFn = .const n us)
     (hkind : fallbackKind (.app f a) = .other)
     (nc : NotCore (.app f a))
-    (hplain : PlainHead n) (hmap : HasMappedFVar ctx (.app f a))
-    (hnosub : ∀ fuel : Nat, NoSubModule (translateFuelFix translateStep fuel) ctx (.app f a))
+    (hplain : PlainHead tenv n) (hmap : HasMappedFVar ctx (.app f a))
+    (hnosub : ∀ fuel : Nat, NoSubModule (translateFuelFix (translateStep tenv) fuel) ctx (.app f a))
     (sub : ∀ e' : Lean.Expr, InlineUnfolds (.app f a) e' →
-      LeafDom ctx inputs hint true e' v) :
-    LeafDom ctx inputs hint true (.app f a) v :=
+      LeafDom tenv ctx inputs hint true e' v) :
+    LeafDom tenv ctx inputs hint true (.app f a) v :=
   LeafDom.inlineAt nc
     (fun fuel s t w hr =>
       plain_call_reaches hfn hkind hplain pc.glue pc.plain pc.notBV pc.plain2 pc.impl hmap rfl

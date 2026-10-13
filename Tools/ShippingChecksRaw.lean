@@ -173,7 +173,7 @@ theorem core_raw_factsM_ran {c : Name} (d : MachineData) (ok : d.ok = true)
     (Tools.ShippingHierState.instNames b.body).Nodup ∧
     Tools.ShippingHierPremisesBase.noSelfRead (childMap D.modules) b.body = true := by
   have ran0 := ran
-  obtain ⟨bb, w9, w10, hrun9, hw9, -⟩ := ran0
+  obtain ⟨_, bb, w9, w10, hrun9, hw9, -⟩ := ran0
   obtain ⟨t, t', d₀, run, hcl, hmt⟩ := synthesizeMachineCertified_runs hw9 hrun9
   rcases hmt with ⟨hno, -, -⟩ | ⟨-, children, hcc, hreal⟩
   · exact absurd hno hins
