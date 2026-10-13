@@ -219,3 +219,105 @@ calls / slots / memories per declaration, and I did not run anything.
   tail's style of `run_cmd`; the sweeps' refs were only used in test
   modules).
 * The corpus counts per class (4).
+
+## 7. The tooling AS WRITTEN (round par/b-36) — WRITTEN, NOT RUN
+
+Nothing below was executed (the shell script was only parsed with `bash -n`,
+the Python file with `ast.parse`); the integrator does not run it on corpus
+files without the user's ruling.
+
+| file | what |
+|---|---|
+| `Tools/ShippingCorpusSweep.lean` | `#corpus_design_sweep "ROWS" "TOPS" "LABEL" "MODE"`: candidates of the file being elaborated, class by the readers, the leaf chains, the census re-check, one appended row per candidate + a `FILE-DONE` row; never an error |
+| `scripts/shipping-coverage/design_tail.lean.in` | the three-line tail (`set_option maxHeartbeats 0 in #corpus_design_sweep …`) |
+| `scripts/shipping-coverage/design_sweep.sh` | the driver: `design_sweep.sh WORKDIR FILES.txt` |
+| `scripts/shipping-coverage/design_report.py` | the report; every line "N of the M files given" |
+| `scripts/shipping-coverage/design_selftest_files.txt` | the self-test list: `Tests/Compiler/ShippingMachineSeqTest.lean`, `Tests/Compiler/ShippingMachineInstTest.lean` (both in `Tests.AllTests`' closure) |
+| `Tests/Compiler/CorpusSweepSelfTest.lean` (target-only) | the command on three declarations of its own file, rows to `/dev/null`: pins the row format without the script |
+
+### Differences from the plan (§2)
+
+* **Parents are NOT attempted** in this version. Classes `LEAF-REG`
+  (`generate` + `#leaf_sweep`), `LEAF-COMB` (`generate` +
+  `#comb_closed_sweep`) and `GATE` (`#gate_design_sweep`) run their chain;
+  `PARENT` rows record slots / callees / structure fields with outcome
+  `NOT-ATTEMPTED`; so do `GATE-INST` (a parent without a register over
+  combinational calls: no generator, `B-slotless-parents.md`) and
+  `NOT-MACHINE`. Reason: each parent form is a chain of 3–5 commands with a
+  depth argument and callee prerequisites; sequencing them blind, without
+  one measured run of the leaf part, would mix tooling failures with
+  generator refusals. §2.2's table stays the plan for the next version.
+* Therefore no callee handling (§2.3) yet: leaves have no callees.
+* The gate chain is `#gate_design_sweep` (BUILT), not the Signal-level
+  `#gate_source_sweep` of this round (NOT BUILT) — the tool must not depend
+  on an unbuilt file.
+* The sweeps are called as COMMANDS (`elabCommand` of `#leaf_sweep f` …):
+  they resolve `f` as an identifier, so a PRIVATE declaration comes back
+  `UNRESOLVED` from the sweep and its row is `NOT-COVERED`.
+* The report is a separate file, `report.py` is not edited.
+
+### Driver behaviour (as written)
+
+* `FILES.txt` REQUIRED (exit 2 without it); `#` comments and blank lines
+  skipped; the list is copied to `WORKDIR/files_given.txt`.
+* per file: `jobs/<key>.tops` by `grep -oE` of the synthesis commands'
+  identifiers; job = `import Tools.ShippingCorpusSweep` + the file + the
+  tail; ONE `cgrun.sh -m $DS_MEM(3G) -s 0 -t $DS_TMO(1500) -j 2 -- lake env
+  lean --load-dynlib=… job`; cgrun's exit 75 (another protected job alive)
+  → wait 30 s and retry up to `DS_WAIT` (3600 s), then NO status (the file
+  is tried again by the next invocation).
+* `done/<key>.status`: `file= result= exit= seconds= peak=`; `result` is
+  `measured` iff the rows file has the `FILE-DONE` row — NOT by the exit
+  code (a corpus file with an error message of its own makes `lean` exit 1
+  although the tail ran); otherwise `unmeasured-timeout` (124),
+  `unmeasured-oom` (137), `unmeasured-not-protected` (76–78: cgrun refused,
+  the payload did not run), `unmeasured-exit-N`.
+* resumable: a file with a status is skipped; `REDO=1` reruns it (its rows
+  file is truncated then, only its own).
+* logs: `logs/<key>.cgrun.txt` (cgrun's protect / result lines),
+  `logs/<key>.lean.txt` (the job's output: the `CORPUS START …` lines show
+  where a killed job stopped).
+
+### Cost model and assumptions (each one unverified until the self-test runs)
+
+1. One job costs at least the elaboration of the file itself (its own
+   `#synthesizeVerilog` / `#machine_endpoint` commands run again in the
+   job), plus per candidate: `generate` 0.1–1.5 s [M, first 55], leaf step
+   150–640 ms [M], slotless step 110–210 ms [M], gate step 126–271 ms [M,
+   0a0a4f71], the census re-check (one `forallTelescope`), and — in mode
+   `all` — one `readMachine` per local definition.
+2. The import `Tools.ShippingCorpusSweep` pulls the generators' closure
+   (the leaf, slotless, gate and census command files): its `.olean`s must
+   be built; loading them is part of every job's memory. ASSUMED to fit
+   with the file under 3 GiB for the self-test files; UNKNOWN for large IP
+   files (the old sweep's comment: one elaboration of a large file can take
+   3 GB).
+3. `initialize` refs of the sweeps (`rows`) work in a job file: ASSUMED
+   (the job imports their modules, as the test files do).
+4. A job file re-declares the corpus file's contents as a new module; this
+   is what `endpoints.sh` does. ASSUMED that none of the tool's imports
+   imports the corpus file (true for `Tools/*`: they import no `Tests`,
+   `IP`, `Examples` module [R: `grep "^import" Tools/ShippingCorpusSweep.lean`
+   and its direct imports; the transitive closure was not walked]).
+5. The candidate filter drops a local definition `p.s` when `p` is a
+   definition and `s` starts with a generated prefix (`machine_`,
+   `machineData`, `gate_`, …) — ASSUMED not to hit user definitions.
+6. `tops` matching is by full name or `.`-suffix of the user-facing name.
+7. The class is the READER's prediction (§2.1); `COVERED` is decided only
+   by the endpoint's existence and re-check.
+8. Serial: wall time is the sum over files; no estimate for a subset is
+   given before the self-test and a pilot.
+
+### Self-test (for the integrator, when allowed)
+
+    lake build Tools.ShippingCorpusSweep          # via cgrun, as every build
+    scripts/shipping-coverage/design_sweep.sh ~/sparkle-work/ds-selftest \
+        scripts/shipping-coverage/design_selftest_files.txt
+
+PREDICTED: both files `measured`; `ShippingMachineSeqTest`: its register
+machines (`cnt`, …) as `LEAF-REG COVERED machine_design_leaf0` where they
+carry the flag `data` or `tagged`; `ShippingMachineInstTest`: `pick`,
+`pickD` `GATE COVERED gate_design0`, `counter2` / `innerPick`… per their
+flags, the callers `PARENT NOT-ATTEMPTED`. Which definitions are candidates
+in mode `marked` depends on which carry `@[hardware_module]` or generated
+data — not predicted per declaration.

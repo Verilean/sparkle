@@ -110,7 +110,7 @@ def isCompanion (s : String) : Bool :=
 /-- The last components of design-level constants: `machine_design_…`, and
 the gate route's `gate_design0` (round par/b-35). -/
 def isDesign (s : String) : Bool :=
-  s.startsWith "machine_design_" || s == "gate_design0"
+  s.startsWith "machine_design_" || s == "gate_design0" || s == "gate_design0S"
 
 /-- What the fold collects. -/
 structure Found where

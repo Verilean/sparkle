@@ -2743,3 +2743,15 @@ lean_lib «Tools.ShippingGateDesignCommand» where
 
 lean_lib «Tools.ShippingNoRepeat» where
   roots := #[`Tools.ShippingNoRepeat]
+
+lean_lib «Tools.ShippingGateSource» where
+  roots := #[`Tools.ShippingGateSource]
+
+lean_lib «Tools.ShippingGateSourceCommand» where
+  roots := #[`Tools.ShippingGateSourceCommand]
+
+lean_lib «Tools.ShippingHierRunTotal» where
+  roots := #[`Tools.ShippingHierRunTotal]
+
+lean_lib «Tools.ShippingCorpusSweep» where
+  roots := #[`Tools.ShippingCorpusSweep]

@@ -231,6 +231,7 @@ import Tests.Compiler.LeafDesignCntTest
 import Tests.Compiler.LeafDesignFamilyTest
 import Tests.Compiler.CombClosedSweepLinkedTest
 import Tests.Compiler.GateDesignSweepTest
+import Tests.Compiler.GateSourceSweepTest
 import Tests.Compiler.CombClosedSweepSignOpsTest
 import Tests.Compiler.CombClosedSweepCombTest
 import Tests.Compiler.CombClosedSweepApplicativeBTest

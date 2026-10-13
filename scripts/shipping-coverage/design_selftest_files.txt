@@ -1,0 +1,4 @@
+# The self-test list of design_sweep.sh: two files ALREADY in the closure of
+# Tests.AllTests (so a run on them measures the tooling, not the corpus).
+Tests/Compiler/ShippingMachineSeqTest.lean
+Tests/Compiler/ShippingMachineInstTest.lean
