@@ -2719,3 +2719,6 @@ lean_lib «Tools.ShippingCombLeafShape» where
 
 lean_lib «Tools.ShippingCombLeafClosedCommand» where
   roots := #[`Tools.ShippingCombLeafClosedCommand]
+
+lean_lib «Tools.ShippingHarnessStill» where
+  roots := #[`Tools.ShippingHarnessStill]
