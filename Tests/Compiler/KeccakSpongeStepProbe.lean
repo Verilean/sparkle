@@ -582,11 +582,11 @@ elab "#sponge_fn " step:str ppSpace kind:ident ppSpace d:ident ppSpace n:num " n
     "[" ids:ident,* "]" : command => do
   let decl := d.getId
   let dep : Nat := n.getNat
-  let needs : List Name := decl :: (ids.getElems.toList.map fun i => i.getId)
+  let deps : List Name := decl :: (ids.getElems.toList.map fun i => i.getId)
   let k : String := kind.getId.toString
   let label := s!"{step.getString} {k} {decl} {dep}"
   if k == "candidates" then
-    runStep label needs <| deep do
+    runStep label deps <| deep do
       let cands ← Tools.ShippingMachineDepthCommand.closingCandidates decl (← IO.mkRef [])
       let mut out : List String := []
       for c in cands do
@@ -594,27 +594,27 @@ elab "#sponge_fn " step:str ppSpace kind:ident ppSpace d:ident ppSpace n:num " n
         out := out ++ [s!"{c}: closing theorem {th}"]
       pure s!"the descendants with calls, children first (preClose generates a closing for those without one): {out}"
   else if k == "composedRA" then
-    runStep label needs <| deep do
+    runStep label deps <| deep do
       let nm ← Tools.ShippingMachineComposeRCommand.generateComposedR decl (atW := true)
       pure s!"{nm}"
   else if k == "combNR" then
-    runStep label needs <| deep do
+    runStep label deps <| deep do
       let nm ← Tools.ShippingMachineDepthCommand.generateCombNR decl dep
       pure s!"{nm}"
   else if k == "runOfR" then
-    runStep label needs <| deep do
+    runStep label deps <| deep do
       let (nm, _) ← Tools.ShippingMachineDepthCommand.generateRunOfR decl dep
       pure s!"{nm}"
   else if k == "coreNR" then
-    runStep label needs <| deep do
+    runStep label deps <| deep do
       let nm ← Tools.ShippingMachineDepthCommand.generateCoreNR decl dep
       pure s!"{nm}"
   else if k == "shipsNR" then
-    runStep label needs <| deep do
+    runStep label deps <| deep do
       let nm ← Tools.ShippingMachineDepthCommand.generateShipsNR decl dep
       pure s!"{nm}"
   else if k == "designNR" then
-    runStep label needs <| deep do
+    runStep label deps <| deep do
       let nm ← Tools.ShippingMachineDepthCommand.generateDesignNR decl dep
       pure s!"{nm}"
   else
@@ -627,7 +627,7 @@ elab "#sponge_calls " step:str ppSpace d:ident ppSpace n:num " at " "[" ks:num,*
   let decl := d.getId
   let dep : Nat := n.getNat
   let kl : List Nat := ks.getElems.toList.map fun x => x.getNat
-  let needs : List Name := decl :: (ids.getElems.toList.map fun i => i.getId)
+  let deps : List Name := decl :: (ids.getElems.toList.map fun i => i.getId)
   let savedEnv ← getEnv
   runStep s!"{step.getString} call entries {kl} of {decl} at depth {dep}, in pieces" needs do
     let lines ← deep (callPieces decl dep kl)

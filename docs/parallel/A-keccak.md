@@ -359,3 +359,56 @@ memory_peak_file=1349103616
 Build completed successfully (568 jobs).
 n:189:0: ONEOUT FAMILY Sparkle.IP.Crypto.Keccak256Sponge.wKeccakF: Sparkle.IP.Crypto.Keccak256Sponge.wKeccakF.machine_design_svH_full (13 lines; other: the closing premise only) and Sparkle.IP.Crypto.Keccak256Sponge.wKeccakF.machine_design_svH_full_closed (13 lines; other: NONE) — none of the four check premises of Sparkle.IP.Crypto.Keccak256Sponge.wKeccakF.machine_design_svHR (shipsHierHCheck, kidsComb, designCheck, outsCheck), no residual; goal gap Sparkle.IP.Crypto.Keccak256Sponge.wKeccakF.machine_design_svH_full_closed_gap: 4 lines, none NOT ALLOWED. SCOPE of this statement: (1) data conditions decided per declaration by the kernel for Sparkle.IP.Crypto.Keccak256Sponge.wKeccakF (Sparkle.IP.Crypto.Keccak256Sponge.wKeccakF.oneout_callsOk, _slotLen, _domB, _insts, _instFields, _outTy, _nomem, _slots, _outChars, _outScalar, _callArgs at the nume
 ```
+
+## Run record: the sponge step probe (integrator, 2026-10-13) — log-only, claims nothing
+
+1. `20261013-101408-sponge-step`: stopped by a syntax error in the probe itself (lines 585 / 630: the local variable
+   `needs` after the probe declared the keyword `needs`); steps 0–7 had run. Integrator fix: the variable
+   renamed `deps` (three places); nothing else changed.
+2. `20261013-101653-sponge-step2` (3 GiB, swap 0, limit 2400 s, `SPARKLE_MACHINE_PROGRESS` set and passed):
+   result=timeout, memory_peak_file=3068702720, events: low 0 high 49071 max 0 oom 0 oom_kill 0 oom_group_kill 0 .
+   - Steps 0–11 OK (8: closing candidates 24 s; 9–11 on `wKeccakF`: composedRA 12.6 s, combNR 2.6 s,
+     runOfR 12.7 s).
+   - Steps 12 and 13 (`#sponge_calls`, the timed pieces of the per-call loop) left NO line in the progress
+     file — neither START nor a result. Because the build was killed by the limit, Lean's own messages for
+     the file were never printed, so whether these two commands threw before their first log line is not
+     known. The pieces were therefore NOT measured.
+   - Step 14 (`generateCoreNR` on the sponge): started; the generator's own progress shows ONE line after
+     it, `keccak256SpongeHW: composedNR 1`, and nothing more until the limit, with the cgroup at its high
+     mark (3.07 GB peak, throttled, no OOM kill). So the time is spent after the `composedNR 1` progress
+     point and before the next progress point of the generator — which code that is has to be read off
+     `ShippingMachineDepthCommandR.lean`; it is not established that it is the per-call loop.
+
+```
+203207514 SPONGE STEP START 0a self-test of the wrapper (FAILED is the expected line: an unknown constant) [VmRSS:	 1850376 kB] [VmHWM:	 1908728 kB]
+203207515 SPONGE STEP 0a self-test of the wrapper (FAILED is the expected line: an unknown constant): FAILED (0 ms) — Unknown identifier `keccakSpongeStepNoSuchConstant` 
+203207515 SPONGE STEP START 0b self-test of the wrapper (OK is the expected line) [VmRSS:	 1850620 kB] [VmHWM:	 1908728 kB]
+203207515 SPONGE STEP 0b self-test of the wrapper (OK is the expected line): OK (0 ms) [VmRSS:	 1850620 kB] [VmHWM:	 1908728 kB]
+203207516 SPONGE STEP 0c SPARKLE_MACHINE_PROGRESS is SET: the generators' own progress lines are in this file, between the probe's lines [VmRSS:	 1850620 kB] [VmHWM:	 190
+203207516 SPONGE STEP START 1 read Sparkle.IP.Crypto.Keccak256Sponge.keccak256SpongeHW [VmRSS:	 1850664 kB] [VmHWM:	 1908728 kB]
+203212760 SPONGE STEP 1 read Sparkle.IP.Crypto.Keccak256Sponge.keccak256SpongeHW: OK (5244 ms) — nDecl=37; declared binders [domain, bool, bits 2, bits 64, bits 64, bits 
+203212760 SPONGE STEP START 1 read Sparkle.IP.Crypto.Keccak256Sponge.wKeccakF [VmRSS:	 1917760 kB] [VmHWM:	 1917760 kB]
+203222820 SPONGE STEP 1 read Sparkle.IP.Crypto.Keccak256Sponge.wKeccakF: OK (10060 ms) — nDecl=27; declared binders [domain, bool, bits 64, bits 64, bits 64, bits 64, bit
+203222821 SPONGE STEP START 2 keccakRcHW #gate_child [VmRSS:	 1956728 kB] [VmHWM:	 1959132 kB]
+203227985 SPONGE STEP 2 keccakRcHW #gate_child: OK (5164 ms) [VmRSS:	 1915348 kB] [VmHWM:	 1959132 kB]
+203227987 SPONGE STEP START 3 wKeccakF #machine_endpoint [VmRSS:	 1915424 kB] [VmHWM:	 1959132 kB]
+203250467 SPONGE STEP 3 wKeccakF #machine_endpoint: OK (22479 ms) [VmRSS:	 2300776 kB] [VmHWM:	 2324740 kB]
+203250467 SPONGE STEP START 4 wKeccakF #machine_linked [VmRSS:	 2300776 kB] [VmHWM:	 2324740 kB]
+203262996 SPONGE STEP 4 wKeccakF #machine_linked: OK (12528 ms) [VmRSS:	 2270708 kB] [VmHWM:	 2324740 kB]
+203262997 SPONGE STEP START 5 wKeccakF #machine_composed [VmRSS:	 2267904 kB] [VmHWM:	 2324740 kB]
+203275157 SPONGE STEP 5 wKeccakF #machine_composed: OK (12159 ms) [VmRSS:	 2268760 kB] [VmHWM:	 2324740 kB]
+203275157 SPONGE STEP START 6 keccak256SpongeHW #machine_endpoint [VmRSS:	 2268760 kB] [VmHWM:	 2324740 kB]
+203323957 SPONGE STEP 6 keccak256SpongeHW #machine_endpoint: OK (48800 ms) [VmRSS:	 2267728 kB] [VmHWM:	 2324740 kB]
+203323957 SPONGE STEP START 7 wKeccakF #machine_closes_at [VmRSS:	 2267728 kB] [VmHWM:	 2324740 kB]
+203335935 SPONGE STEP 7 wKeccakF #machine_closes_at: OK (11978 ms) [VmRSS:	 2291008 kB] [VmHWM:	 2324740 kB]
+203335937 SPONGE STEP START 8 candidates Sparkle.IP.Crypto.Keccak256Sponge.keccak256SpongeHW 1 [VmRSS:	 2291080 kB] [VmHWM:	 2324740 kB]
+203360240 SPONGE STEP 8 candidates Sparkle.IP.Crypto.Keccak256Sponge.keccak256SpongeHW 1: OK (24303 ms) — the descendants with calls, children first (preClose generates a
+203360240 SPONGE STEP START 9 composedRA Sparkle.IP.Crypto.Keccak256Sponge.wKeccakF 0 [VmRSS:	 2277960 kB] [VmHWM:	 2324740 kB]
+203372808 SPONGE STEP 9 composedRA Sparkle.IP.Crypto.Keccak256Sponge.wKeccakF 0: OK (12568 ms) — Sparkle.IP.Crypto.Keccak256Sponge.wKeccakF.machine_composedRA [VmRSS:	 22
+203372809 SPONGE STEP START 10 combNR Sparkle.IP.Crypto.Keccak256Sponge.wKeccakF 0 [VmRSS:	 2232196 kB] [VmHWM:	 2324740 kB]
+203375392 SPONGE STEP 10 combNR Sparkle.IP.Crypto.Keccak256Sponge.wKeccakF 0: OK (2582 ms) — Sparkle.IP.Crypto.Keccak256Sponge.wKeccakF.machine_composedNRH0 [VmRSS:	 2230
+203375392 SPONGE STEP START 11 runOfR Sparkle.IP.Crypto.Keccak256Sponge.wKeccakF 0 [VmRSS:	 2230984 kB] [VmHWM:	 2324740 kB]
+203388080 SPONGE STEP 11 runOfR Sparkle.IP.Crypto.Keccak256Sponge.wKeccakF 0: OK (12688 ms) — Sparkle.IP.Crypto.Keccak256Sponge.wKeccakF.seq_child_runN_ofR0 [VmRSS:	 2231
+203388081 SPONGE STEP START 14 coreNR Sparkle.IP.Crypto.Keccak256Sponge.keccak256SpongeHW 1 [VmRSS:	 2231588 kB] [VmHWM:	 2324740 kB]
+203388082 Sparkle.IP.Crypto.Keccak256Sponge.keccak256SpongeHW: composedNR 1 [VmRSS:	 2231588 kB]
+```
