@@ -2785,3 +2785,9 @@ lean_lib «Tools.ShippingMachineLoopJoint» where
 
 lean_lib «Tools.ShippingMachineLoopCausalCommand» where
   roots := #[`Tools.ShippingMachineLoopCausalCommand]
+
+lean_lib «Tools.ShippingMachineDepthMemKidCommand» where
+  roots := #[`Tools.ShippingMachineDepthMemKidCommand]
+
+lean_lib «Tools.ShippingKidsChildIfaceM» where
+  roots := #[`Tools.ShippingKidsChildIfaceM]

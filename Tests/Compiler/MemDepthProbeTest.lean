@@ -10,6 +10,7 @@ import Tools.ShippingNoPortsMemCommand
 import Tools.ShippingNoPortsKidsCommand
 import Tools.ShippingNoPortsDeepCommand
 import Tools.ShippingMachineLoopCausalCommand
+import Tools.ShippingMachineDepthMemKidCommand
 import Tests.Compiler.ShippingMachineSeqTest
 
 /-! # A parent whose CHILD has a memory: the smallest declarations, and which command stops (round par/b-38)
@@ -223,4 +224,31 @@ parent step again. The PREDICTED outcomes are in
 #mem_depth_try "H.4 #machine_no_ports_kids memGrand 1" in
   #machine_no_ports_kids Sparkle.Tests.Compiler.MemDepthProbeTest.memGrand 1
 #mem_depth_try "H.5 #machine_no_ports_deep memGrand 2" in
+  #machine_no_ports_deep Sparkle.Tests.Compiler.MemDepthProbeTest.memGrand 2
+
+/-! ## Round par/c-2: the composed theorem of the memory-only kid, then the depth generator again
+
+WRITTEN, NOT BUILT. `#machine_composed_memNR memCounterH 0` adds
+`memCounterH.machine_composedNR0` (the name the built depth generator looks
+up before it would make it); then `#machine_design_svNR` on the two parents,
+then the closing and the check-free steps again. The PREDICTED outcomes are
+in `docs/parallel/C-mem-depth-ships.md`, section 6. Nothing is asserted. -/
+
+#mem_depth_try "K1 #machine_composed_memNR memCounterH 0" in
+  #machine_composed_memNR Sparkle.Tests.Compiler.MemDepthProbeTest.memCounterH 0
+
+#mem_depth_try "R2.2 #machine_design_svNR memParent 1" in
+  #machine_design_svNR Sparkle.Tests.Compiler.MemDepthProbeTest.memParent 1
+#mem_depth_try "RH.2 #machine_design_svNR memGrand 2" in
+  #machine_design_svNR Sparkle.Tests.Compiler.MemDepthProbeTest.memGrand 2
+
+#mem_depth_try "R2.3 #machine_closes_at memParent" in
+  #machine_closes_at Sparkle.Tests.Compiler.MemDepthProbeTest.memParent
+#mem_depth_try "R2.4 #machine_no_ports_kids memParent 1" in
+  #machine_no_ports_kids Sparkle.Tests.Compiler.MemDepthProbeTest.memParent 1
+#mem_depth_try "R2.5 #machine_no_ports_deep memParent 2" in
+  #machine_no_ports_deep Sparkle.Tests.Compiler.MemDepthProbeTest.memParent 2
+#mem_depth_try "RH.3 #machine_closes_at memGrand" in
+  #machine_closes_at Sparkle.Tests.Compiler.MemDepthProbeTest.memGrand
+#mem_depth_try "RH.5 #machine_no_ports_deep memGrand 2" in
   #machine_no_ports_deep Sparkle.Tests.Compiler.MemDepthProbeTest.memGrand 2
