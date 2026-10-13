@@ -2722,3 +2722,9 @@ lean_lib «Tools.ShippingCombLeafClosedCommand» where
 
 lean_lib «Tools.ShippingHarnessStill» where
   roots := #[`Tools.ShippingHarnessStill]
+
+lean_lib «Tools.ShippingCombLeafClosedExpect» where
+  roots := #[`Tools.ShippingCombLeafClosedExpect]
+
+lean_lib «Tools.ShippingDesignCoverage» where
+  roots := #[`Tools.ShippingDesignCoverage]

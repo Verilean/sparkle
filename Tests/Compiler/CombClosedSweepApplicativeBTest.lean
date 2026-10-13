@@ -1,5 +1,6 @@
 import Tests.Compiler.ApplicativeSemanticsTest
 import Tools.ShippingCombLeafClosedCommand
+import Tools.ShippingCombLeafClosedExpect
 
 /-! # Slotless leaves at the design level, CLOSED form, measured: ApplicativeB (round par/b-33)
 
@@ -68,3 +69,18 @@ set_option maxHeartbeats 0 in
 #comb_closed_sweep Sparkle.Tests.Compiler.ApplicativeSemanticsTest.permutedFour
 
 #comb_closed_sweep_summary
+
+/-! ## The MEASURED classes, asserted (round par/b-34; WRITTEN, NOT BUILT)
+
+MEASURED by the integrator's build of 7d8d56b1: `f.machine_design_comb0`
+GENERATED for all 32 slotless leaves (3 premise lines, 0 NOT ALLOWED, audit
+OK). `#comb_closed_sweep_expect` is an error when a declaration's class
+changed, when its audit did not pass, or when its theorem is absent. Each
+line is its own command. -/
+
+#comb_closed_sweep_expect Sparkle.Tests.Compiler.ApplicativeSemanticsTest.nested "GENERATED"
+#comb_closed_sweep_expect Sparkle.Tests.Compiler.ApplicativeSemanticsTest.complement "GENERATED"
+#comb_closed_sweep_expect Sparkle.Tests.Compiler.ApplicativeSemanticsTest.concatReverse "GENERATED"
+#comb_closed_sweep_expect Sparkle.Tests.Compiler.ApplicativeSemanticsTest.orderedLess "GENERATED"
+#comb_closed_sweep_expect Sparkle.Tests.Compiler.ApplicativeSemanticsTest.rightAssociated "GENERATED"
+#comb_closed_sweep_expect Sparkle.Tests.Compiler.ApplicativeSemanticsTest.permutedFour "GENERATED"
