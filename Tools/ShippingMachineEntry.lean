@@ -5,6 +5,8 @@ import Tools.ShippingMachineInst
 import Tools.ShippingMachineInstG
 import Tools.ShippingUnifiedExecutionSoundness
 
+variable {tenv : Lean.Environment}
+
 /-! # A state machine through the real synthesis
 
 `synthesizeMachineCertified` compiles the TRANSITION of a `circuit do` — a
@@ -304,7 +306,7 @@ theorem transition_facts {logProf : String → IO Unit} {declName : Name}
     {st : CircuitState}
     (nd : ids.Nodup) (len : ids.length = bs.length)
     (run : Returns (bindMixedCertifiedInputs
-        (emitLeaves (fun e hint top named => translateExprToWire e hint top named) cache logProf
+        (emitLeaves (fun e hint top named => translateExprToWire tenv e hint top named) cache logProf
           [("out", instFVars (ids.map Lean.Expr.fvar).toArray 0 body)] none 0) (bs.zip ids))
         (entryCompilerState false cache) (CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName)) returned st)
     (hm : m = (addClockResetIfSequential st.module).finalize)
@@ -959,10 +961,10 @@ and — for a shape with `@[hardware_module]` calls — `closeInsts` with some
 children. -/
 theorem synthesizeMachineCertified_returns {logProf declName shape m d}
     (hr : MReturns (synthesizeMachineCertified
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName shape)
+      (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName shape)
       (some (m, d))) :
     ∃ t t' d₀, MReturns (synthesizeMixedCertified
-        (fun e hint top named => translateExprToWire e hint top named) logProf declName
+        (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName
         shape.binders shape.body) (t, d₀) ∧
       closeLets shape.layout.lets t = some t' ∧
       ((shape.insts = [] ∧ m = closeMachine shape.layout t' ∧ d = d₀) ∨
@@ -1026,7 +1028,7 @@ theorem synthesizeMachineCertified_soundX {logProf declName shape m d}
     {t t' : Sparkle.IR.AST.Module} {d₀ : Design}
     (X : List FVarId → IO.Ref (ExprStructMap String) → Prop)
     (hrun : MReturns (synthesizeMixedCertified
-        (fun e hint top named => translateExprToWire e hint top named) logProf declName
+        (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName
         shape.binders shape.body) (t, d₀))
     (hcl : closeLets shape.layout.lets t = some t')
     (hmt0 : (shape.insts = [] ∧ m = closeMachine shape.layout t' ∧ d = d₀) ∨
@@ -2076,7 +2078,7 @@ set_option maxHeartbeats 4000000 in
 theorem synthesizeMachineCertified_sound {logProf declName shape m d}
     {bsIn slotBs letBs : List (Name × MixedGateBinder)}
     (hr : MReturns (synthesizeMachineCertified
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName shape)
+      (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName shape)
       (some (m, d)))
     (hbs : shape.binders = bsIn ++ slotBs ++ letBs)
     (hlets : shape.layout.lets = letBs.length)
@@ -2224,13 +2226,13 @@ theorem synthesizeFromConst_machine {logProf : String → IO Unit} {declName : N
     {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
     (old : certifiedShape? false [] ci = none)
     (miss : mixedCertifiedShape? false [] ci isInst = none)
-    (hr : RunsTo (synthesizeFromConst (fun e h t n => translateExprToWire e h t n) logProf
+    (hr : RunsTo (synthesizeFromConst (fun e h t n => translateExprToWire tenv e h t n) logProf
       declName [] false true ci isInst) mctx mref cctx cref w (m, d) w') :
     ∃ (envR : Environment) (w5 w6 : Void IO.RealWorld),
       RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w5 envR w6 ∧
       ∀ shape, machineShape? false [] ci (structEnv envR) = some shape →
         ∃ r w7 w8, RunsTo (synthesizeMachineCertified
-            (fun e hint top named => translateExprToWire e hint top named) logProf declName
+            (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName
             shape) mctx mref cctx cref w7 r w8 ∧
           ∀ res, r = some res → res = (m, d) := by
   unfold synthesizeFromConst at hr
@@ -2279,16 +2281,16 @@ shape without `let`s this holds of every run (`machineCloses_of_noLets`). -/
 def MachineCloses (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State)
     (cctx : Core.Context) (cref : ST.Ref IO.RealWorld Core.State) (declName : Name)
     (shape : MachineShape) : Prop :=
-  ∀ (logProf : String → IO Unit) w r w',
+  ∀ {tenv : Lean.Environment}, ∀ (logProf : String → IO Unit) w r w',
     RunsTo (synthesizeMachineCertified
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName shape)
+      (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName shape)
       mctx mref cctx cref w r w' → r ≠ none
 
 theorem machineCloses_of_noLets {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
     {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {declName : Name}
     {shape : MachineShape} (h : shape.layout.lets = 0) (hi : shape.insts = []) :
     MachineCloses mctx mref cctx cref declName shape := by
-  intro logProf w r w' hr
+  intro tenv logProf w r w' hr
   unfold synthesizeMachineCertified at hr
   obtain ⟨⟨t, d⟩, w1, _, hr⟩ := RunsTo.bind hr
   dsimp only at hr

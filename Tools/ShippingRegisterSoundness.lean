@@ -1,5 +1,7 @@
 import Tools.ShippingUnifiedExecutionSoundness
 
+variable {tenv : Lean.Environment}
+
 /-! # S4: one register over the unified combinational domain
 
 The canonical polymorphic-domain `Signal.register initLit input` root now has
@@ -144,7 +146,7 @@ set_option maxHeartbeats 1000000 in
 theorem register_step (rec : TranslateFn) (dom ae : Lean.Expr) (w v : Nat)
     (hdom : (dom.isFVar || dom.isBVar) = true) (hw : 0 < w) (hv : v < 2 ^ w)
     (hint : String) (top named : Bool) :
-    translateStepWith translateFallback rec (registerE dom w v ae) hint top named =
+    translateStepWith (translateFallback tenv) rec (registerE dom w v ae) hint top named =
       translateControlCachedWith (translateRegisterUncachedWith rec w v)
         (registerE dom w v ae) hint top named := by
   have shape : translateCoreShape (registerE dom w v ae) = false := rfl
@@ -153,8 +155,8 @@ theorem register_step (rec : TranslateFn) (dom ae : Lean.Expr) (w v : Nat)
   have mux : canonicalMuxType? (registerE dom w v ae) = none := rfl
   have setw : canonicalSetWidth? (registerE dom w v ae) = none := rfl
   have reg := canonicalRegister?_registerE (a := ae) hdom hw hv
-  have step : translateStepWith translateFallback rec (registerE dom w v ae) hint top named =
-      translateFallback rec (registerE dom w v ae) hint top named := by
+  have step : translateStepWith (translateFallback tenv) rec (registerE dom w v ae) hint top named =
+      (translateFallback tenv) rec (registerE dom w v ae) hint top named := by
     simp [translateStepWith, shape, core]
     rfl
   rw [step]
@@ -363,7 +365,7 @@ def RegisterPreserves (declName : Name) (bs : List (Name × MixedGateBinder))
 set_option maxHeartbeats 1000000 in
 theorem synthesizeMixedCertified_register_sound {logProf declName bs body m d}
     (hr : MReturns (synthesizeMixedCertified
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName bs body)
+      (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName bs body)
       (m, d)) :
     RegisterPreserves declName bs body m := by
   obtain ⟨ids, cache, returned, st, nd, len, run, hm, _, _⟩ := synthesizeMixedCertified_returns hr
@@ -375,13 +377,13 @@ theorem synthesizeMixedCertified_register_sound {logProf declName bs body m d}
   rw [qeq] at leaf
   obtain ⟨rW, sm, ty, tr, freshOut, ht, hty⟩ := emitLeaves_single leaf
   -- Unfold one step of the fuel fixpoint at the root.
-  have stepEq : translateExprToWire (registerE dom w v
+  have stepEq : translateExprToWire tenv (registerE dom w v
         (quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) e)) "out" false true =
       translateControlCachedWith (translateRegisterUncachedWith
-          (translateFuelFix translateStep 1048575) w v)
+          (translateFuelFix (translateStep tenv) 1048575) w v)
         (registerE dom w v
           (quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) e)) "out" false true := by
-    show translateStepWith translateFallback (translateFuelFix translateStep 1048575)
+    show translateStepWith (translateFallback tenv) (translateFuelFix (translateStep tenv) 1048575)
       (registerE dom w v
         (quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) e)) "out" false true = _
     rw [register_step _ dom _ w v hdom (e.wf_pos he) hv]
@@ -794,7 +796,7 @@ set_option maxHeartbeats 1000000 in
 theorem registerEnable_step (rec : TranslateFn) (dom en ae : Lean.Expr) (w v : Nat)
     (hdom : (dom.isFVar || dom.isBVar) = true) (hw : 0 < w) (hv : v < 2 ^ w)
     (hint : String) (top named : Bool) :
-    translateStepWith translateFallback rec (registerEnableE dom w v en ae) hint top named =
+    translateStepWith (translateFallback tenv) rec (registerEnableE dom w v en ae) hint top named =
       translateControlCachedWith (translateRegisterEnableUncachedWith rec w v)
         (registerEnableE dom w v en ae) hint top named := by
   have shape : translateCoreShape (registerEnableE dom w v en ae) = false := rfl
@@ -805,9 +807,9 @@ theorem registerEnable_step (rec : TranslateFn) (dom en ae : Lean.Expr) (w v : N
   have setw : canonicalSetWidth? (registerEnableE dom w v en ae) = none := rfl
   have reg : canonicalRegister? (registerEnableE dom w v en ae) = none := rfl
   have regEn := canonicalRegisterEnable?_registerEnableE (en := en) (a := ae) hdom hw hv
-  have step : translateStepWith translateFallback rec (registerEnableE dom w v en ae)
+  have step : translateStepWith (translateFallback tenv) rec (registerEnableE dom w v en ae)
       hint top named =
-      translateFallback rec (registerEnableE dom w v en ae) hint top named := by
+      (translateFallback tenv) rec (registerEnableE dom w v en ae) hint top named := by
     simp [translateStepWith, shape, core]
     rfl
   rw [step]
@@ -849,7 +851,7 @@ def RegisterEnablePreserves (declName : Name) (bs : List (Name × MixedGateBinde
 set_option maxHeartbeats 1000000 in
 theorem synthesizeMixedCertified_registerEnable_sound {logProf declName bs body m d}
     (hr : MReturns (synthesizeMixedCertified
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName bs body)
+      (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName bs body)
       (m, d)) :
     RegisterEnablePreserves declName bs body m := by
   obtain ⟨ids, cache, returned, st, nd, len, run, hm, _, _⟩ := synthesizeMixedCertified_returns hr
@@ -860,16 +862,16 @@ theorem synthesizeMixedCertified_registerEnable_sound {logProf declName bs body 
     (bits := fun _ _ => 0) run
   rw [qeq] at leaf
   obtain ⟨rW, sm, ty, tr, freshOut, ht, hty⟩ := emitLeaves_single leaf
-  have stepEq : translateExprToWire (registerEnableE dom w v
+  have stepEq : translateExprToWire tenv (registerEnableE dom w v
         (quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) en)
         (quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) e)) "out" false true =
       translateControlCachedWith (translateRegisterEnableUncachedWith
-          (translateFuelFix translateStep 1048575) w v)
+          (translateFuelFix (translateStep tenv) 1048575) w v)
         (registerEnableE dom w v
           (quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) en)
           (quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) e))
         "out" false true := by
-    show translateStepWith translateFallback (translateFuelFix translateStep 1048575)
+    show translateStepWith (translateFallback tenv) (translateFuelFix (translateStep tenv) 1048575)
       (registerEnableE dom w v
         (quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) en)
         (quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) e)) "out" false true = _
@@ -1404,7 +1406,7 @@ set_option maxHeartbeats 1000000 in
 theorem loopRegister_step (rec : TranslateFn) (domO domI inst cone : Lean.Expr) (w v : Nat)
     (hdom : (domO.isFVar || domO.isBVar) = true) (hw : 0 < w) (hv : v < 2 ^ w)
     (hint : String) (top named : Bool) :
-    translateStepWith translateFallback rec (loopRegisterE domO domI inst w v cone)
+    translateStepWith (translateFallback tenv) rec (loopRegisterE domO domI inst w v cone)
         hint top named =
       translateControlCachedWith (translateLoopRegisterUncachedWith rec w v)
         (loopRegisterE domO domI inst w v cone) hint top named := by
@@ -1418,9 +1420,9 @@ theorem loopRegister_step (rec : TranslateFn) (domO domI inst cone : Lean.Expr) 
   have regEn : canonicalRegisterEnable? (loopRegisterE domO domI inst w v cone) = none := rfl
   have loopReg := canonicalLoopRegister?_loopRegisterE (domI := domI) (inst := inst)
     (cone := cone) hdom hw hv
-  have step : translateStepWith translateFallback rec (loopRegisterE domO domI inst w v cone)
+  have step : translateStepWith (translateFallback tenv) rec (loopRegisterE domO domI inst w v cone)
       hint top named =
-      translateFallback rec (loopRegisterE domO domI inst w v cone) hint top named := by
+      (translateFallback tenv) rec (loopRegisterE domO domI inst w v cone) hint top named := by
     simp [translateStepWith, shape, core]
     rfl
   rw [step]
@@ -1467,7 +1469,7 @@ def LoopRegisterPreserves (declName : Name) (bs : List (Name × MixedGateBinder)
 set_option maxHeartbeats 1000000 in
 theorem synthesizeMixedCertified_loopRegister_sound {logProf declName bs body m d}
     (hr : MReturns (synthesizeMixedCertified
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName bs body)
+      (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName bs body)
       (m, d)) :
     LoopRegisterPreserves declName bs body m := by
   obtain ⟨ids, cache, returned, st, nd, len, run, hm, _, _⟩ := synthesizeMixedCertified_returns hr
@@ -1481,15 +1483,15 @@ theorem synthesizeMixedCertified_loopRegister_sound {logProf declName bs body m 
   have hw : 0 < w := by
     have := e.wf_pos he
     exact this
-  have stepEq : translateExprToWire (loopRegisterE dom domI inst w v
+  have stepEq : translateExprToWire tenv (loopRegisterE dom domI inst w v
         (quote domI (fun j => .fvar (binp j))
           (fun j => if j = kv then .bvar 0 else .fvar (vinp j)) e)) "out" false true =
       translateControlCachedWith (translateLoopRegisterUncachedWith
-          (translateFuelFix translateStep 1048575) w v)
+          (translateFuelFix (translateStep tenv) 1048575) w v)
         (loopRegisterE dom domI inst w v
           (quote domI (fun j => .fvar (binp j))
             (fun j => if j = kv then .bvar 0 else .fvar (vinp j)) e)) "out" false true := by
-    show translateStepWith translateFallback (translateFuelFix translateStep 1048575)
+    show translateStepWith (translateFallback tenv) (translateFuelFix (translateStep tenv) 1048575)
       (loopRegisterE dom domI inst w v
         (quote domI (fun j => .fvar (binp j))
           (fun j => if j = kv then .bvar 0 else .fvar (vinp j)) e)) "out" false true = _
@@ -1531,7 +1533,7 @@ theorem synthesizeMixedCertified_loopRegister_sound {logProf declName bs body m 
     have missRun2 : Returns (do
         let r ← CompilerM.makeWire "out" (.bitVector w) (named := true)
         CompilerM.bindSourceVariable selfId r
-        let cw ← translateFuelFix translateStep 1048575
+        let cw ← translateFuelFix (translateStep tenv) 1048575
           (instFVars #[.fvar selfId] 0
             (quote domI (fun j => .fvar (binp j))
               (fun j => if j = kv then .bvar 0 else .fvar (vinp j)) e))
@@ -2198,7 +2200,7 @@ theorem synthesizeFromConst_register_sound {logProf declName ci bs body m d} {is
     (old : certifiedShape? false [] ci = none)
     (shape : mixedCertifiedShape? false [] ci isInst = some (bs, body))
     (hr : MReturns (synthesizeFromConst
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName
+      (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName
       [] false true ci isInst) (m, d)) :
     RegisterPreserves declName bs body m := by
   unfold synthesizeFromConst at hr
@@ -2344,7 +2346,7 @@ theorem synthesizeFromConst_registerEnable_sound {logProf declName ci bs body m 
     (old : certifiedShape? false [] ci = none)
     (shape : mixedCertifiedShape? false [] ci isInst = some (bs, body))
     (hr : MReturns (synthesizeFromConst
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName
+      (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName
       [] false true ci isInst) (m, d)) :
     RegisterEnablePreserves declName bs body m := by
   unfold synthesizeFromConst at hr
@@ -2497,7 +2499,7 @@ theorem synthesizeFromConst_loopRegister_sound {logProf declName ci bs body m d}
     (old : certifiedShape? false [] ci = none)
     (shape : mixedCertifiedShape? false [] ci isInst = some (bs, body))
     (hr : MReturns (synthesizeFromConst
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName
+      (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName
       [] false true ci isInst) (m, d)) :
     LoopRegisterPreserves declName bs body m := by
   unfold synthesizeFromConst at hr
@@ -3030,7 +3032,7 @@ def Register2Preserves (declName : Name) (bs : List (Name × MixedGateBinder))
 set_option maxHeartbeats 2000000 in
 theorem synthesizeMixedCertified_register2_sound {logProf declName bs body m d}
     (hr : MReturns (synthesizeMixedCertified
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName bs body)
+      (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName bs body)
       (m, d)) :
     Register2Preserves declName bs body m := by
   obtain ⟨ids, cache, returned, st, nd, len, run, hm, _, _⟩ := synthesizeMixedCertified_returns hr
@@ -3042,13 +3044,13 @@ theorem synthesizeMixedCertified_register2_sound {logProf declName bs body m d}
   rw [qeq] at leaf
   obtain ⟨rW, sm, ty, tr, freshOut, ht, hty⟩ := emitLeaves_single leaf
   -- Unfold one step of the fuel fixpoint at the outer register.
-  have stepEq : translateExprToWire (registerE dom w v1 (registerE dom w v2
+  have stepEq : translateExprToWire tenv (registerE dom w v1 (registerE dom w v2
         (quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) e))) "out" false true =
       translateControlCachedWith (translateRegisterUncachedWith
-          (translateFuelFix translateStep 1048575) w v1)
+          (translateFuelFix (translateStep tenv) 1048575) w v1)
         (registerE dom w v1 (registerE dom w v2
           (quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) e))) "out" false true := by
-    show translateStepWith translateFallback (translateFuelFix translateStep 1048575)
+    show translateStepWith (translateFallback tenv) (translateFuelFix (translateStep tenv) 1048575)
       (registerE dom w v1 (registerE dom w v2
         (quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) e))) "out" false true = _
     rw [register_step _ dom _ w v1 hdom (e.wf_pos he) hv1]
@@ -3066,13 +3068,13 @@ theorem synthesizeMixedCertified_register2_sound {logProf declName bs body m d}
   rw [registerUncached_registerE] at missRun
   obtain ⟨cw, si, rcO, remit⟩ := Returns.bind missRun
   -- Unfold one more step of the fuel fixpoint at the inner register.
-  have stepEq2 : translateFuelFix translateStep 1048575 (registerE dom w v2
+  have stepEq2 : translateFuelFix (translateStep tenv) 1048575 (registerE dom w v2
         (quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) e)) "reg_in" false false =
       translateControlCachedWith (translateRegisterUncachedWith
-          (translateFuelFix translateStep 1048574) w v2)
+          (translateFuelFix (translateStep tenv) 1048574) w v2)
         (registerE dom w v2
           (quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) e)) "reg_in" false false := by
-    show translateStepWith translateFallback (translateFuelFix translateStep 1048574)
+    show translateStepWith (translateFallback tenv) (translateFuelFix (translateStep tenv) 1048574)
       (registerE dom w v2
         (quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) e)) "reg_in" false false = _
     rw [register_step _ dom _ w v2 hdom (e.wf_pos he) hv2]
@@ -3507,7 +3509,7 @@ theorem synthesizeFromConst_register2_sound {logProf declName ci bs body m d} {i
     (old : certifiedShape? false [] ci = none)
     (shape : mixedCertifiedShape? false [] ci isInst = some (bs, body))
     (hr : MReturns (synthesizeFromConst
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName
+      (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName
       [] false true ci isInst) (m, d)) :
     Register2Preserves declName bs body m := by
   unfold synthesizeFromConst at hr
@@ -3994,7 +3996,7 @@ set_option maxHeartbeats 1000000 in
 theorem cdo_step (rec : TranslateFn) {nmR : Name} {dom0 dom1 dom2 dom3 rhs cone : Lean.Expr} {w v : Nat}
     (hdom : (dom0.isFVar || dom0.isBVar) = true) (hw : 0 < w) (hv : v < 2 ^ w)
     (hcone : cdoConeToLoop 0 rhs = some cone) (hint : String) (top named : Bool) :
-    translateStepWith translateFallback rec (cdoE nmR dom0 dom1 dom2 dom3 w v rhs)
+    translateStepWith (translateFallback tenv) rec (cdoE nmR dom0 dom1 dom2 dom3 w v rhs)
         hint top named =
       translateControlCachedWith (translateCircuitDoUncachedWith rec w v)
         (cdoE nmR dom0 dom1 dom2 dom3 w v rhs) hint top named := by
@@ -4009,9 +4011,9 @@ theorem cdo_step (rec : TranslateFn) {nmR : Name} {dom0 dom1 dom2 dom3 rhs cone 
   have loopReg : canonicalLoopRegister? (cdoE nmR dom0 dom1 dom2 dom3 w v rhs) = none := rfl
   have cdo := canonicalCircuitDo?_cdoE (nmR := nmR) (dom1 := dom1) (dom2 := dom2)
     (dom3 := dom3) hdom hw hv hcone
-  have step : translateStepWith translateFallback rec (cdoE nmR dom0 dom1 dom2 dom3 w v rhs)
+  have step : translateStepWith (translateFallback tenv) rec (cdoE nmR dom0 dom1 dom2 dom3 w v rhs)
       hint top named =
-      translateFallback rec (cdoE nmR dom0 dom1 dom2 dom3 w v rhs) hint top named := by
+      (translateFallback tenv) rec (cdoE nmR dom0 dom1 dom2 dom3 w v rhs) hint top named := by
     simp [translateStepWith, shape, core]
     rfl
   rw [step]
@@ -4150,7 +4152,7 @@ def CdoPreserves (declName : Name) (bs : List (Name × MixedGateBinder))
 set_option maxHeartbeats 1000000 in
 theorem synthesizeMixedCertified_cdo_sound {logProf declName bs body m d}
     (hr : MReturns (synthesizeMixedCertified
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName bs body)
+      (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName bs body)
       (m, d)) :
     CdoPreserves declName bs body m := by
   obtain ⟨ids, cache, returned, st, nd, len, run, hm, _, _⟩ := synthesizeMixedCertified_returns hr
@@ -4177,15 +4179,15 @@ theorem synthesizeMixedCertified_cdo_sound {logProf declName bs body m d}
   have hw : 0 < w := by
     have := e.wf_pos he
     exact this
-  have stepEq : translateExprToWire (cdoE nmR dom dom1 dom2 dom3 w v
+  have stepEq : translateExprToWire tenv (cdoE nmR dom dom1 dom2 dom3 w v
         (quote dom2 (fun j => .fvar (binp j))
           (fun j => if j = kv then readE dom2 w (.bvar 0) else .fvar (vinp j)) e)) "out" false true =
       translateControlCachedWith (translateCircuitDoUncachedWith
-          (translateFuelFix translateStep 1048575) w v)
+          (translateFuelFix (translateStep tenv) 1048575) w v)
         (cdoE nmR dom dom1 dom2 dom3 w v
           (quote dom2 (fun j => .fvar (binp j))
             (fun j => if j = kv then readE dom2 w (.bvar 0) else .fvar (vinp j)) e)) "out" false true := by
-    show translateStepWith translateFallback (translateFuelFix translateStep 1048575)
+    show translateStepWith (translateFallback tenv) (translateFuelFix (translateStep tenv) 1048575)
       (cdoE nmR dom dom1 dom2 dom3 w v
         (quote dom2 (fun j => .fvar (binp j))
           (fun j => if j = kv then readE dom2 w (.bvar 0) else .fvar (vinp j)) e)) "out" false true = _
@@ -4227,7 +4229,7 @@ theorem synthesizeMixedCertified_cdo_sound {logProf declName bs body m d}
     have missRun2 : Returns (do
         let r ← CompilerM.makeWire "out" (.bitVector w) (named := true)
         CompilerM.bindSourceVariable selfId r
-        let cw ← translateFuelFix translateStep 1048575
+        let cw ← translateFuelFix (translateStep tenv) 1048575
           (instFVars #[.fvar selfId] 0
             (quote dom2 (fun j => .fvar (binp j))
               (fun j => if j = kv then .bvar 0 else .fvar (vinp j)) e))
@@ -4800,7 +4802,7 @@ theorem synthesizeFromConst_cdo_sound {logProf declName ci bs body m d} {isInst 
     (old : certifiedShape? false [] ci = none)
     (shape : mixedCertifiedShape? false [] ci isInst = some (bs, body))
     (hr : MReturns (synthesizeFromConst
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName
+      (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName
       [] false true ci isInst) (m, d)) :
     CdoPreserves declName bs body m := by
   unfold synthesizeFromConst at hr
@@ -5437,7 +5439,7 @@ theorem cdo2_step (rec : TranslateFn) {nmX nmY : Name}
     (hcone0 : cdo2ConeToLoop 2 0 4 0 rhs0 = some cone0)
     (hcone1 : cdo2ConeToLoop 3 1 5 0 rhs1 = some cone1)
     (hint : String) (top named : Bool) :
-    translateStepWith translateFallback rec
+    translateStepWith (translateFallback tenv) rec
         (cdo2E nmX nmY dom0 dom1 dom2 dom3 dom4 dom5 dom6 w v0 v1 outE rhs0 rhs1)
         hint top named =
       translateControlCachedWith (translateCircuitDo2UncachedWith rec w v0 v1 ret)
@@ -5466,8 +5468,8 @@ theorem cdo2_step (rec : TranslateFn) {nmX nmY : Name}
     hdom hw hv0 hv1 houtE hout hcone0 hcone1
   generalize hE : cdo2E nmX nmY dom0 dom1 dom2 dom3 dom4 dom5 dom6 w v0 v1 outE rhs0 rhs1
     = E at shape core control mux setw reg regEn loopReg cdo1 cdo2 ⊢
-  have step : translateStepWith translateFallback rec E hint top named =
-      translateFallback rec E hint top named := by
+  have step : translateStepWith (translateFallback tenv) rec E hint top named =
+      (translateFallback tenv) rec E hint top named := by
     simp [translateStepWith, shape, core]
     rfl
   rw [step]
@@ -5680,7 +5682,7 @@ set_option maxHeartbeats 4000000 in
 set_option maxRecDepth 65536 in
 theorem synthesizeMixedCertified_cdo2_sound {logProf declName bs body m d}
     (hr : MReturns (synthesizeMixedCertified
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName bs body)
+      (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName bs body)
       (m, d)) :
     Cdo2Preserves declName bs body m := by
   obtain ⟨ids, cache, returned, st, nd, len, run, hm, _, _⟩ := synthesizeMixedCertified_returns hr
@@ -5737,7 +5739,7 @@ theorem synthesizeMixedCertified_cdo2_sound {logProf declName bs body m d}
     (bits := fun _ _ => 0) run
   rw [qeq] at leaf
   obtain ⟨rW, sm, ty, tr, freshOut, ht, hty⟩ := emitLeaves_single leaf
-  have stepEq : translateExprToWire (cdo2E nmX nmY dom dom dom dom dom4 dom5 dom w v0 v1
+  have stepEq : translateExprToWire tenv (cdo2E nmX nmY dom dom dom dom dom4 dom5 dom w v0 v1
         (read2E dom w (.bvar 4))
         (quote dom4 (fun j => .fvar (binp j))
           (fun j => if j = kv then read2E dom4 w (.bvar 2)
@@ -5748,7 +5750,7 @@ theorem synthesizeMixedCertified_cdo2_sound {logProf declName bs body m d}
             else if j = kv + 1 then read2E dom5 w (.bvar 1)
             else .fvar (vinp j)) e1)) "out" false true =
       translateControlCachedWith (translateCircuitDo2UncachedWith
-          (translateFuelFix translateStep 1048575) w v0 v1 0)
+          (translateFuelFix (translateStep tenv) 1048575) w v0 v1 0)
         (cdo2E nmX nmY dom dom dom dom dom4 dom5 dom w v0 v1
           (read2E dom w (.bvar 4))
           (quote dom4 (fun j => .fvar (binp j))
@@ -5759,7 +5761,7 @@ theorem synthesizeMixedCertified_cdo2_sound {logProf declName bs body m d}
             (fun j => if j = kv then read2E dom5 w (.bvar 3)
               else if j = kv + 1 then read2E dom5 w (.bvar 1)
               else .fvar (vinp j)) e1)) "out" false true := by
-    show translateStepWith translateFallback (translateFuelFix translateStep 1048575) _
+    show translateStepWith (translateFallback tenv) (translateFuelFix (translateStep tenv) 1048575) _
       "out" false true = _
     rw [cdo2_step _ hdom hw hv0 hv1 rfl rfl hconeF0 hconeF1]
   rw [stepEq] at tr
@@ -6690,7 +6692,7 @@ theorem synthesizeFromConst_cdo2_sound {logProf declName ci bs body m d} {isInst
     (old : certifiedShape? false [] ci = none)
     (shape : mixedCertifiedShape? false [] ci isInst = some (bs, body))
     (hr : MReturns (synthesizeFromConst
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName
+      (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName
       [] false true ci isInst) (m, d)) :
     Cdo2Preserves declName bs body m := by
   unfold synthesizeFromConst at hr

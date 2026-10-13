@@ -1,5 +1,7 @@
 import Tools.ShippingBoolLiteralSoundness
 
+variable {tenv : Lean.Environment}
+
 /-! Bool-result mux lowering through the shipping translator. The three child
 simulations remain explicit. The mux node, type selection and both cache
 branches are proved without an opaque handler or a type oracle. -/
@@ -19,8 +21,8 @@ theorem boolMux_uncached (rec legacy : TranslateFn) (dom c a b : Lean.Expr)
 
 theorem boolMux_step (rec : TranslateFn) (dom c a b : Lean.Expr)
     (hint : String) (top named : Bool) :
-    translateStepWith translateFallback rec (boolMuxE dom c a b) hint top named =
-      translateFallback rec (boolMuxE dom c a b) hint top named := by
+    translateStepWith (translateFallback tenv) rec (boolMuxE dom c a b) hint top named =
+      (translateFallback tenv) rec (boolMuxE dom c a b) hint top named := by
   have shape : translateCoreShape (boolMuxE dom c a b) = false := rfl
   have core : translateCore rec (boolMuxE dom c a b) hint top named = pure none := rfl
   simp [translateStepWith, shape, core]
@@ -92,7 +94,7 @@ theorem translateFallback_boolMux_correct {ρ β we mems initial prior s s' ctx}
     (ht : ∀ st env, good st env → TypedBody we st)
     (hrec : ∀ st env, good st env → BoolRecordOk ρ β we st env)
     (hw : ScalarWidthsAgree we s')
-    (hr : Returns (translateFallback rec (boolMuxE dom ce ae be) hint top named) ctx s w s') :
+    (hr : Returns ((translateFallback tenv) rec (boolMuxE dom ce ae be) hint top named) ctx s w s') :
     BoolOutcome ρ β we mems initial prior s s' w (if c then a else b) := by
   have hd := BoolDenotes.quoteMux dom ce ae be dc da db
   rw [translateFallback_bool rec _ hint top named rfl] at hr
@@ -118,19 +120,19 @@ theorem translateExprToWire_boolMux_correct {ρ β we mems initial prior s s' ct
     {dom ce ae be : Lean.Expr} {hint w : String} {top named : Bool}
     (c a b : Bool) (good : CircuitState → Env → Prop)
     (dc : BoolDenotes ρ β ce c) (da : BoolDenotes ρ β ae a) (db : BoolDenotes ρ β be b)
-    (hc : ChildSpec (translateFuelFix translateStep (translateFuelLimit - 1)) ctx we mems initial good
+    (hc : ChildSpec (translateFuelFix (translateStep tenv) (translateFuelLimit - 1)) ctx we mems initial good
       ce "mux_cond" 1 (encodeBool c))
-    (ha : ChildSpec (translateFuelFix translateStep (translateFuelLimit - 1)) ctx we mems initial good
+    (ha : ChildSpec (translateFuelFix (translateStep tenv) (translateFuelLimit - 1)) ctx we mems initial good
       ae "mux_then" 1 (encodeBool a))
-    (hb : ChildSpec (translateFuelFix translateStep (translateFuelLimit - 1)) ctx we mems initial good
+    (hb : ChildSpec (translateFuelFix (translateStep tenv) (translateFuelLimit - 1)) ctx we mems initial good
       be "mux_else" 1 (encodeBool b))
     (hg : good s prior) (hp : Runs we mems initial s prior)
     (ht : ∀ st env, good st env → TypedBody we st)
     (hrec : ∀ st env, good st env → BoolRecordOk ρ β we st env)
     (hw : ScalarWidthsAgree we s')
-    (hr : Returns (translateExprToWire (boolMuxE dom ce ae be) hint top named) ctx s w s') :
+    (hr : Returns (translateExprToWire tenv (boolMuxE dom ce ae be) hint top named) ctx s w s') :
     BoolOutcome ρ β we mems initial prior s s' w (if c then a else b) := by
-  change Returns (translateStepWith translateFallback (translateFuelFix translateStep (translateFuelLimit - 1))
+  change Returns (translateStepWith (translateFallback tenv) (translateFuelFix (translateStep tenv) (translateFuelLimit - 1))
     (boolMuxE dom ce ae be) hint top named) ctx s w s' at hr
   rw [boolMux_step] at hr
   exact translateFallback_boolMux_correct c a b good dc da db hc ha hb hg hp ht hrec hw hr

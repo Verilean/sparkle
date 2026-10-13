@@ -1,6 +1,8 @@
 import Tools.ShippingAssignmentOrder
 import Tools.ShippingTranslateSoundness
 
+variable {tenv : Lean.Environment}
+
 /-! # Dependency order of shipping builder operations
 
 Reservation is not computation: binary translation allocates its result before
@@ -229,7 +231,7 @@ theorem translateFuelFix_leaf_order (fuel : Nat) {ctx : CompilerState} {s t : Ci
     {e : Lean.Expr} {hint : String} {named : Bool} {result : String}
     {ρ : Valuation} {n : Nat} {x : BitVec n}
     (hd : Denotes ρ e n x) (hl : Leaf e) (hb : BoundLookup ctx ρ s)
-    (h : Returns (translateFuelFix translateStep fuel e hint false named) ctx s result t)
+    (h : Returns (translateFuelFix (translateStep tenv) fuel e hint false named) ctx s result t)
     (hi : OrderInv s) : OrderInv t := by
   cases fuel with
   | zero => exact False.elim (Returns.throw h)
@@ -241,7 +243,7 @@ theorem translateExprToWire_leaf_order {ctx : CompilerState} {s t : CircuitState
     {e : Lean.Expr} {hint : String} {named : Bool} {result : String}
     {ρ : Valuation} {n : Nat} {x : BitVec n}
     (hd : Denotes ρ e n x) (hl : Leaf e) (hb : BoundLookup ctx ρ s)
-    (h : Returns (translateExprToWire e hint false named) ctx s result t)
+    (h : Returns (translateExprToWire tenv e hint false named) ctx s result t)
     (hi : OrderInv s) : OrderInv t := by
   exact translateFuelFix_leaf_order translateFuelLimit hd hl hb h hi
 
@@ -254,7 +256,7 @@ theorem translateExprToWire_leaf_settled {ctx : CompilerState}
     {e : Lean.Expr} {hint : String} {named : Bool} {result : String}
     {ρ : Valuation} {n : Nat} {x : BitVec n}
     (hd : Denotes ρ e n x) (hl : Leaf e)
-    (h : Returns (translateExprToWire e hint false named) ctx s result t)
+    (h : Returns (translateExprToWire tenv e hint false named) ctx s result t)
     (hi : Inv ctx ρ we mems initial s env0) (ho : OrderInv s) (hw : WidthsAgree we t) :
     ∃ env, IREquations we t.module.finalize.body env ∧
       ExternalValues t.module.finalize.body initial env ∧ env result = x.toNat ∧

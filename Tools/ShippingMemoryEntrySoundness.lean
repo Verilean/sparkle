@@ -1,6 +1,8 @@
 import Tools.ShippingRegisterSoundness
 import Tools.ShippingMemorySoundness
 
+variable {tenv : Lean.Environment}
+
 /-! # S5-2: the canonical memory at the real core entry
 
 The canonical `Signal.memory wa wd wen ra` root (all four operands input
@@ -187,7 +189,7 @@ set_option maxHeartbeats 4000000 in
 theorem memory_step (rec : TranslateFn) (dom wa wd wen ra : Lean.Expr) (aw dw : Nat)
     (hdom : (dom.isFVar || dom.isBVar) = true) (haw : 0 < aw) (hdw : 0 < dw)
     (hint : String) (top named : Bool) :
-    translateStepWith translateFallback rec (memoryE dom aw dw wa wd wen ra)
+    translateStepWith (translateFallback tenv) rec (memoryE dom aw dw wa wd wen ra)
         hint top named =
       translateControlCachedWith (translateMemoryUncachedWith rec aw dw)
         (memoryE dom aw dw wa wd wen ra) hint top named := by
@@ -204,9 +206,9 @@ theorem memory_step (rec : TranslateFn) (dom wa wd wen ra : Lean.Expr) (aw dw : 
   have cdo2 : canonicalCircuitDo2? (memoryE dom aw dw wa wd wen ra) = none := rfl
   have mem := canonicalMemory?_memoryE (wa := wa) (wd := wd) (wen := wen) (ra := ra)
     hdom haw hdw
-  have step : translateStepWith translateFallback rec
+  have step : translateStepWith (translateFallback tenv) rec
       (memoryE dom aw dw wa wd wen ra) hint top named =
-      translateFallback rec (memoryE dom aw dw wa wd wen ra) hint top named := by
+      (translateFallback tenv) rec (memoryE dom aw dw wa wd wen ra) hint top named := by
     simp [translateStepWith, shape, core]
     rfl
   rw [step]
@@ -239,7 +241,7 @@ def MemoryPreserves (declName : Name) (bs : List (Name × MixedGateBinder))
 set_option maxHeartbeats 2000000 in
 theorem synthesizeMixedCertified_memory_sound {logProf declName bs body m d}
     (hr : MReturns (synthesizeMixedCertified
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName bs body)
+      (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName bs body)
       (m, d)) :
     MemoryPreserves declName bs body m := by
   obtain ⟨ids, cache, returned, st, nd, len, run, hm, _, _⟩ :=
@@ -253,14 +255,14 @@ theorem synthesizeMixedCertified_memory_sound {logProf declName bs body m d}
     (bools := fun _ => false) (bits := fun _ _ => 0) run
   rw [qeq] at leaf
   obtain ⟨rdW, sm, ty, tr, freshOut, ht, hty⟩ := emitLeaves_single leaf
-  have stepEq : translateExprToWire
+  have stepEq : translateExprToWire tenv
       (memoryE dom aw dw (.fvar waId) (.fvar wdId) (.fvar wenId) (.fvar raId))
         "out" false true =
       translateControlCachedWith
-        (translateMemoryUncachedWith (translateFuelFix translateStep 1048575) aw dw)
+        (translateMemoryUncachedWith (translateFuelFix (translateStep tenv) 1048575) aw dw)
         (memoryE dom aw dw (.fvar waId) (.fvar wdId) (.fvar wenId) (.fvar raId))
         "out" false true := by
-    show translateStepWith translateFallback (translateFuelFix translateStep 1048575)
+    show translateStepWith (translateFallback tenv) (translateFuelFix (translateStep tenv) 1048575)
       (memoryE dom aw dw (.fvar waId) (.fvar wdId) (.fvar wenId) (.fvar raId))
       "out" false true = _
     rw [memory_step _ dom _ _ _ _ aw dw hdom haw hdw]
@@ -347,8 +349,8 @@ theorem synthesizeMixedCertified_memory_sound {logProf declName bs body m d}
   obtain ⟨wenW', wenBound, wenDecl, wenVal⟩ := hwenB
   have hraB := prepared.1.bits raId aw rav hra0
   obtain ⟨raW', raBound, raDecl, raVal⟩ := hraB
-  have fuelEq : translateFuelFix translateStep 1048575 =
-      translateStepWith translateFallback (translateFuelFix translateStep 1048574) := rfl
+  have fuelEq : translateFuelFix (translateStep tenv) 1048575 =
+      translateStepWith (translateFallback tenv) (translateFuelFix (translateStep tenv) 1048574) := rfl
   rw [fuelEq] at r1 r2 r3 r4
   obtain ⟨hwaW, hs1⟩ := translateStep_fvar_returns waBound r1
   subst hs1
@@ -439,7 +441,7 @@ def MemoryConePreserves (declName : Name) (bs : List (Name × MixedGateBinder))
 set_option maxHeartbeats 4000000 in
 theorem synthesizeMixedCertified_memoryCone_sound {logProf declName bs body m d}
     (hr : MReturns (synthesizeMixedCertified
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName bs body)
+      (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName bs body)
       (m, d)) :
     MemoryConePreserves declName bs body m := by
   obtain ⟨ids, cache, returned, st, nd, len, run, hm, _, _⟩ :=
@@ -451,7 +453,7 @@ theorem synthesizeMixedCertified_memoryCone_sound {logProf declName bs body m d}
     (bools := fun _ => false) (bits := fun _ _ => 0) run
   rw [qeq] at leaf
   obtain ⟨rdW, sm, ty, tr, freshOut, ht, hty⟩ := emitLeaves_single leaf
-  have stepEq : translateExprToWire
+  have stepEq : translateExprToWire tenv
       (memoryE dom aw dw
         (quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) eWA)
         (quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) eWD)
@@ -459,14 +461,14 @@ theorem synthesizeMixedCertified_memoryCone_sound {logProf declName bs body m d}
         (quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) eRA))
         "out" false true =
       translateControlCachedWith
-        (translateMemoryUncachedWith (translateFuelFix translateStep 1048575) aw dw)
+        (translateMemoryUncachedWith (translateFuelFix (translateStep tenv) 1048575) aw dw)
         (memoryE dom aw dw
           (quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) eWA)
           (quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) eWD)
           (quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) eWEN)
           (quote dom (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) eRA))
         "out" false true := by
-    show translateStepWith translateFallback (translateFuelFix translateStep 1048575)
+    show translateStepWith (translateFallback tenv) (translateFuelFix (translateStep tenv) 1048575)
       (memoryE dom aw dw _ _ _ _) "out" false true = _
     rw [memory_step _ dom _ _ _ _ aw dw hdom haw hdw]
   rw [stepEq] at tr
@@ -840,7 +842,7 @@ theorem synthesizeFromConst_memory_sound {logProf declName ci bs body m d} {isIn
     (old : certifiedShape? false [] ci = none)
     (shape : mixedCertifiedShape? false [] ci isInst = some (bs, body))
     (hr : MReturns (synthesizeFromConst
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName
+      (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName
       [] false true ci isInst) (m, d)) :
     MemoryPreserves declName bs body m := by
   unfold synthesizeFromConst at hr
@@ -1052,7 +1054,7 @@ theorem synthesizeFromConst_memoryCone_sound {logProf declName ci bs body m d} {
     (old : certifiedShape? false [] ci = none)
     (shape : mixedCertifiedShape? false [] ci isInst = some (bs, body))
     (hr : MReturns (synthesizeFromConst
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName
+      (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName
       [] false true ci isInst) (m, d)) :
     MemoryConePreserves declName bs body m := by
   unfold synthesizeFromConst at hr

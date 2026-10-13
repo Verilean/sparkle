@@ -1,6 +1,8 @@
 import Tools.ShippingInstanceEntrySoundness
 import Tools.ShippingUnifiedRecursion
 
+variable {tenv : Lean.Environment}
+
 /-! Instance calls as LEAVES of certified cones.
 
 The unified fuel induction is generic in its leaf expressions: every leaf
@@ -441,10 +443,10 @@ theorem inst_leaf_contract {rec : TranslateFn} {ctx : CompilerState}
     {mn : Name} {lvls : List Level} {dom : Lean.Expr} {argsE : List Lean.Expr}
     {vs : List Value} {v : Value} {mc : Sparkle.IR.AST.Module} {dc : Design} {cwe : WEnv}
     {outName : String} {wOut : Nat}
-    (hstep : ∀ hint top named, translateStepWith translateFallback rec
+    (hstep : ∀ hint top named, translateStepWith (translateFallback tenv) rec
         (instEN mn lvls dom argsE) hint top named =
-      translateInstanceOrFallback rec (instEN mn lvls dom argsE) hint top named)
-    (htag : HardwareTagged mn)
+      translateInstanceOrFallback tenv rec (instEN mn lvls dom argsE) hint top named)
+    (htag : HardwareTagged mn) (henvT : MReturns (Lean.getEnv : MetaM Lean.Environment) tenv)
     (hsub : ∀ r, MReturns (childSynthEntry mn) r → r = (mc, dc))
     (hdc : dc.modules = [])
     (hnoclk : ∀ p ∈ mc.inputs, (p.name == "clk") = false ∧ (p.name == "rst") = false)
@@ -459,11 +461,11 @@ theorem inst_leaf_contract {rec : TranslateFn} {ctx : CompilerState}
     (hwidth : v.kind.width = wOut)
     (hchild : HierCtx.children mc.name = some (mc, cwe))
     (hcorrect : ChildCorrect mn mc cwe outName) :
-    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial
+    Contract (translateStepWith (translateFallback tenv) rec) ctx inputs we mems initial
       (instEN mn lvls dom argsE) v := by
   -- the dispatch prefix, shared by both halves
   have prefixRun : ∀ hint top named s t w,
-      Returns (translateStepWith translateFallback rec (instEN mn lvls dom argsE)
+      Returns (translateStepWith (translateFallback tenv) rec (instEN mn lvls dom argsE)
         hint top named) ctx s w t →
       Returns (translateControlCachedWith
         (translateInstanceUncachedWith rec mn mc dc ⟨outName, .bitVector wOut⟩)
@@ -472,10 +474,9 @@ theorem inst_leaf_contract {rec : TranslateFn} {ctx : CompilerState}
     rw [hstep] at tr
     unfold translateInstanceOrFallback at tr
     rw [instEN_getAppFn] at tr
-    obtain ⟨env, sE, hEnvRead, tr⟩ := Returns.bind tr
-    obtain ⟨hEnvM, hsE⟩ := Returns.liftMetaM_mreturns hEnvRead
-    rw [hsE] at tr
-    rw [htag env hEnvM] at tr
+    -- the arm tests the tag on its environment parameter: no read to step through
+    change Returns (if Sparkle.Compiler.isHardwareModule tenv mn = true then _ else _) _ _ _ _ at tr
+    rw [htag tenv henvT] at tr
     simp only [if_true] at tr
     obtain ⟨sub, sS, hSubRead, tr⟩ := Returns.bind tr
     obtain ⟨hSubM, hsS⟩ := Returns.liftMetaM_mreturns hSubRead
@@ -703,7 +704,8 @@ theorem inst_leaf_fuel {ctx : CompilerState}
     (hbin : signalBinOpOf mn = none)
     (hkind : fallbackKind (instEN mn lvls dom argsE) = .other)
     (hview : view (instEN mn lvls dom argsE) = none)
-    (htag : HardwareTagged mn) (hsub : SubSynthDefinesAll mn mc dc)
+    (htag : HardwareTagged mn) (henvT : MReturns (Lean.getEnv : MetaM Lean.Environment) tenv)
+    (hsub : SubSynthDefinesAll mn mc dc)
     (hdc : dc.modules = [])
     (hnoclk : ∀ p ∈ mc.inputs, (p.name == "clk") = false ∧ (p.name == "rst") = false)
     (hnodup : (mc.inputs.map (·.name)).Nodup)
@@ -713,20 +715,20 @@ theorem inst_leaf_fuel {ctx : CompilerState}
     (hargsM : ∀ k (hk : k < argsE.length) (hk' : k < vs.length),
       Meaning inputs (argsE[k]'hk) (vs[k]'hk'))
     (hargs : ∀ k (hk : k < argsE.length) (hk' : k < vs.length), ∀ fuel,
-      Contract (translateFuelFix translateStep fuel) ctx inputs we mems initial
+      Contract (translateFuelFix (translateStep tenv) fuel) ctx inputs we mems initial
         (argsE[k]'hk) (vs[k]'hk'))
     (hsem : ChildSem.childSem mn vs = some v)
     (hwidth : v.kind.width = wOut)
     (hchild : HierCtx.children mc.name = some (mc, cwe))
     (hcorrect : ChildCorrect mn mc cwe outName) :
-    ∀ fuel, Contract (translateFuelFix translateStep fuel) ctx inputs we mems initial
+    ∀ fuel, Contract (translateFuelFix (translateStep tenv) fuel) ctx inputs we mems initial
       (instEN mn lvls dom argsE) v
   | 0 => by
     constructor
     · intro hint top named s' t w lookup hr; exact (Returns.throw hr).elim
     · intro hint top named s' t w prior h widths hr; exact (Returns.throw hr).elim
   | fuel + 1 => by
-    change Contract (translateStepWith translateFallback (translateFuelFix translateStep fuel))
+    change Contract (translateStepWith (translateFallback tenv) (translateFuelFix (translateStep tenv) fuel))
       _ _ _ _ _ _ _
     exact inst_leaf_contract
       (fun hint top named => instanceN_step _ mn lvls dom argsE hint top named hpure hbin

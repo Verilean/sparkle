@@ -2,6 +2,8 @@ import Tools.ShippingUnifiedEntrySoundness
 import Tools.ShippingMixedExecutionSoundness
 import Tools.ShippingMixedSourceBridge
 
+variable {tenv : Lean.Environment}
+
 /-! Entry and backend connection for the unified mutually recursive source
 domain at per-operation widths: muxes under arithmetic/comparison parents and
 vice versa, with different positive BitVec widths across subtrees, through
@@ -620,7 +622,7 @@ theorem synthesizeMixedCertified_term_sound_at {logProf : String → IO Unit} {d
     {ids : List FVarId} {cache : IO.Ref (ExprStructMap String)} {returned : String}
     {st : CircuitState}
     (run : Returns (bindMixedCertifiedInputs
-        (emitLeaves (fun e hint top named => translateExprToWire e hint top named) cache logProf
+        (emitLeaves (fun e hint top named => translateExprToWire tenv e hint top named) cache logProf
           [("out", instFVars (ids.map Lean.Expr.fvar).toArray 0 body)] none 0) (bs.zip ids))
         (entryCompilerState false cache) (CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName)) returned st)
     (hm : m = (addClockResetIfSequential st.module).finalize)
@@ -756,7 +758,7 @@ theorem synthesizeMixedCertified_term_sound_at {logProf : String → IO Unit} {d
 
 theorem synthesizeMixedCertified_term_sound {logProf declName bs body m d}
     (hr : MReturns (synthesizeMixedCertified
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName bs body) (m, d)) :
+      (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName bs body) (m, d)) :
     TermPreserves declName bs body m := by
   obtain ⟨ids, cache, returned, st, nd, len, run, hm, _, nameLegal⟩ := synthesizeMixedCertified_returns hr
   refine ⟨ids, nd, len, cache, ?_⟩
@@ -769,7 +771,7 @@ theorem synthesizeFromConst_term_sound {logProf declName ci bs body m d}
     (old : certifiedShape? false [] ci = none)
     (shape : mixedCertifiedShape? false [] ci isInst = some (bs, body))
     (hr : MReturns (synthesizeFromConst
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName [] false true ci isInst) (m, d)) :
+      (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName [] false true ci isInst) (m, d)) :
     TermPreserves declName bs body m := by
   unfold synthesizeFromConst at hr
   simp only [↓reduceIte, old, shape] at hr

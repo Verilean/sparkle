@@ -1,5 +1,7 @@
 import Tools.ShippingMixedOrderSoundness
 
+variable {tenv : Lean.Environment}
+
 /-! BitVec-result mux trees. Leaves use the established arithmetic fragment;
 conditions use the established Bool fragment. This does not yet admit a mux
 under an arithmetic or comparison node. -/
@@ -202,7 +204,7 @@ theorem vectorMuxUncached_muxE (rec : TranslateFn) (dom ce ae be : Lean.Expr) (n
 set_option maxHeartbeats 1000000 in
 theorem vector_step (rec : TranslateFn) (dom ce ae be : Lean.Expr) (n : Nat)
     (hint : String) (top named : Bool) :
-    translateStepWith translateFallback rec (muxE dom (bitVecE n) ce ae be) hint top named =
+    translateStepWith (translateFallback tenv) rec (muxE dom (bitVecE n) ce ae be) hint top named =
       translateControlCachedWith (translateVectorMuxUncachedWith rec n)
         (muxE dom (bitVecE n) ce ae be) hint top named := by
   have shape : translateCoreShape (muxE dom (bitVecE n) ce ae be) = false := rfl
@@ -211,8 +213,8 @@ theorem vector_step (rec : TranslateFn) (dom ce ae be : Lean.Expr) (n : Nat)
     change (match canonicalMuxType? (muxE dom (bitVecE n) ce ae be) with
       | some .bit => true | _ => false) = false
     rw [canonicalMuxType?_bitVec]
-  have step : translateStepWith translateFallback rec (muxE dom (bitVecE n) ce ae be)
-      hint top named = translateFallback rec (muxE dom (bitVecE n) ce ae be) hint top named := by
+  have step : translateStepWith (translateFallback tenv) rec (muxE dom (bitVecE n) ce ae be)
+      hint top named = (translateFallback tenv) rec (muxE dom (bitVecE n) ce ae be) hint top named := by
     simp [translateStepWith, shape, core]
     rfl
   rw [step]

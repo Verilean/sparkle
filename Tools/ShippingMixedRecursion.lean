@@ -1,5 +1,7 @@
 import Tools.ShippingMixedBinarySoundness
 
+variable {tenv : Lean.Environment}
+
 /-! Structural and semantic contracts for closing the actual shipping fuel
 recursion. The final synthesis-entry and source-to-RTL connection is separate. -/
 namespace Tools.ShippingMixedRecursion
@@ -34,7 +36,7 @@ theorem Contract.child {rec ctx ρ β we mems initial e n v}
 
 theorem bits_input_contract {rec ctx ρ β we mems initial id n} {x : BitVec n}
     (hi : β id = some ⟨n, x⟩) :
-    Contract (translateStepWith translateFallback rec) ctx ρ β we mems initial (.fvar id) n x.toNat := by
+    Contract (translateStepWith (translateFallback tenv) rec) ctx ρ β we mems initial (.fvar id) n x.toNat := by
   constructor
   · intro hint top named s t w lookup hr
     obtain ⟨v, bound, _⟩ := lookup.bits id n x hi
@@ -45,7 +47,7 @@ theorem bits_input_contract {rec ctx ρ β we mems initial id n} {x : BitVec n}
 
 theorem bool_input_contract {rec ctx ρ β we mems initial id b}
     (hi : ρ id = some b) :
-    Contract (translateStepWith translateFallback rec) ctx ρ β we mems initial (.fvar id) 1 (encodeBool b) := by
+    Contract (translateStepWith (translateFallback tenv) rec) ctx ρ β we mems initial (.fvar id) 1 (encodeBool b) := by
   constructor
   · intro hint top named s t w lookup hr
     obtain ⟨v, bound, _⟩ := lookup.bool id b hi
@@ -95,7 +97,7 @@ theorem bits_recorded_frame {rec ctx β s t e us hint top named w n cacheable}
 theorem bits_literal_contract {rec ctx ρ β we mems initial e us n} {x : BitVec n}
     (hn : 0 < n) (fn : e.getAppFn = .const ``Sparkle.Core.Signal.Signal.pure us)
     (hd : Denotes β e n x) :
-    Contract (translateStepWith translateFallback rec) ctx ρ β we mems initial e n x.toNat := by
+    Contract (translateStepWith (translateFallback tenv) rec) ctx ρ β we mems initial e n x.toNat := by
   constructor
   · intro hint top named s t w lookup hr
     have nf := isFVar_false_of_const fn
@@ -119,14 +121,14 @@ theorem bits_literal_contract {rec ctx ρ β we mems initial e us n} {x : BitVec
 There is no operand-correctness or legacy-handler premise. -/
 theorem bits_fuel_contract (fuel : Nat) {ctx ρ β we mems initial e n} {x : BitVec n}
     (hn : 0 < n) (hd : Denotes β e n x) :
-    Contract (translateFuelFix translateStep fuel) ctx ρ β we mems initial e n x.toNat := by
+    Contract (translateFuelFix (translateStep tenv) fuel) ctx ρ β we mems initial e n x.toNat := by
   induction fuel generalizing e n with
   | zero =>
     constructor
     · intro hint top named s t w lookup hr; exact (Returns.throw hr).elim
     · intro hint top named s t w prior h widths hr; exact (Returns.throw hr).elim
   | succ fuel ih =>
-    change Contract (translateStepWith translateFallback (translateFuelFix translateStep fuel)) _ _ _ _ _ _ _ _ _
+    change Contract (translateStepWith (translateFallback tenv) (translateFuelFix (translateStep tenv) fuel)) _ _ _ _ _ _ _ _ _
     cases hd with
     | fvar hi => exact bits_input_contract hi
     | pureLit fn back lit => exact bits_literal_contract hn fn (.pureLit fn back lit)
@@ -212,10 +214,10 @@ theorem literal_fresh {ctx ρ β we mems initial hint named} (b : Bool) :
   cases b <;> simpa [encodeBool] using he
 
 theorem bool_literal_contract {rec ctx ρ β we mems initial dom} (b : Bool) :
-    Contract (translateStepWith translateFallback rec) ctx ρ β we mems initial
+    Contract (translateStepWith (translateFallback tenv) rec) ctx ρ β we mems initial
       (literalE dom b) 1 (encodeBool b) := by
   have fallback : ∀ hint top named, ActionSpec
-      (translateFallback rec (literalE dom b) hint top named) ctx ρ β we mems initial 1 (encodeBool b) := by
+      ((translateFallback tenv) rec (literalE dom b) hint top named) ctx ρ β we mems initial 1 (encodeBool b) := by
     intro hint top named
     rw [translateFallback_bool rec _ hint top named (by cases b <;> rfl)]
     apply cached_action (BoolDenotes.quotePure dom b)
@@ -289,8 +291,8 @@ theorem compare_fresh {ctx ρ β we mems initial rec ae be le hint named n}
 
 theorem compare_step (rec : TranslateFn) (dom ae be : Lean.Expr) (n : Nat) (le : SignalCompareKind)
     (hint : String) (top named : Bool) :
-    translateStepWith translateFallback rec (compareE le dom n ae be)
-      hint top named = translateFallback rec (compareE le dom n ae be)
+    translateStepWith (translateFallback tenv) rec (compareE le dom n ae be)
+      hint top named = (translateFallback tenv) rec (compareE le dom n ae be)
       hint top named := by
   have shape : translateCoreShape (compareE le dom n ae be) = false := by cases le <;> rfl
   have core : translateCore rec (compareE le dom n ae be) hint top named = pure none := by cases le <;> rfl
@@ -301,10 +303,10 @@ theorem compare_contract {rec ctx ρ β we mems initial dom ae be n le}
     (x y : BitVec n) (hn : 0 < n) (da : Denotes β ae n x) (db : Denotes β be n y)
     (ca : Child rec ctx ρ β we mems initial ae "a" n x.toNat)
     (cb : Child rec ctx ρ β we mems initial be "b" n y.toNat) :
-    Contract (translateStepWith translateFallback rec) ctx ρ β we mems initial
+    Contract (translateStepWith (translateFallback tenv) rec) ctx ρ β we mems initial
       (compareE le dom n ae be) 1 (encodeBool (compareValue le x y)) := by
   have step : ∀ hint top named, ActionSpec
-      (translateStepWith translateFallback rec (compareE le dom n ae be)
+      (translateStepWith (translateFallback tenv) rec (compareE le dom n ae be)
         hint top named) ctx ρ β we mems initial 1 (encodeBool (compareValue le x y)) := by
     intro hint top named
     rw [compare_step, translateFallback_bool rec _ hint top named (by cases le <;> rfl)]
@@ -390,8 +392,8 @@ theorem boolBin_fresh {ctx ρ β we mems initial rec ae be kind hint named}
 
 theorem boolBin_step (rec : TranslateFn) (kind : SignalBoolBinKind) (dom ae be : Lean.Expr)
     (hint : String) (top named : Bool) :
-    translateStepWith translateFallback rec (boolBinE kind dom ae be) hint top named =
-      translateFallback rec (boolBinE kind dom ae be) hint top named := by
+    translateStepWith (translateFallback tenv) rec (boolBinE kind dom ae be) hint top named =
+      (translateFallback tenv) rec (boolBinE kind dom ae be) hint top named := by
   have hf : (boolBinE kind dom ae be).getAppFn =
       .const (signalBoolBinName kind) [.zero, .zero, .zero] := rfl
   have shape : translateCoreShape (boolBinE kind dom ae be) = false := by
@@ -410,10 +412,10 @@ theorem boolBin_contract {rec ctx ρ β we mems initial dom ae be}
     (da : BoolDenotes ρ β ae a) (db : BoolDenotes ρ β be b)
     (ca : Child rec ctx ρ β we mems initial ae "a" 1 (encodeBool a))
     (cb : Child rec ctx ρ β we mems initial be "b" 1 (encodeBool b)) :
-    Contract (translateStepWith translateFallback rec) ctx ρ β we mems initial
+    Contract (translateStepWith (translateFallback tenv) rec) ctx ρ β we mems initial
       (boolBinE kind dom ae be) 1 (encodeBool (boolBinValue kind a b)) := by
   have step : ∀ hint top named, ActionSpec
-      (translateStepWith translateFallback rec (boolBinE kind dom ae be) hint top named)
+      (translateStepWith (translateFallback tenv) rec (boolBinE kind dom ae be) hint top named)
       ctx ρ β we mems initial 1 (encodeBool (boolBinValue kind a b)) := by
     intro hint top named
     rw [boolBin_step, translateFallback_bool rec _ hint top named (by cases kind <;> rfl)]
@@ -425,8 +427,8 @@ theorem boolBin_contract {rec ctx ρ β we mems initial dom ae be}
 
 theorem boolEq_step (rec : TranslateFn) (dom ae be : Lean.Expr)
     (hint : String) (top named : Bool) :
-    translateStepWith translateFallback rec (boolEqE dom ae be) hint top named =
-      translateFallback rec (boolEqE dom ae be) hint top named := by
+    translateStepWith (translateFallback tenv) rec (boolEqE dom ae be) hint top named =
+      (translateFallback tenv) rec (boolEqE dom ae be) hint top named := by
   have shape : translateCoreShape (boolEqE dom ae be) = false := rfl
   have core : translateCore rec (boolEqE dom ae be) hint top named = pure none := rfl
   simp [translateStepWith, shape, core]
@@ -436,10 +438,10 @@ theorem boolEq_contract {rec ctx ρ β we mems initial dom ae be}
     (a b : Bool) (da : BoolDenotes ρ β ae a) (db : BoolDenotes ρ β be b)
     (ca : Child rec ctx ρ β we mems initial ae "a" 1 (encodeBool a))
     (cb : Child rec ctx ρ β we mems initial be "b" 1 (encodeBool b)) :
-    Contract (translateStepWith translateFallback rec) ctx ρ β we mems initial
+    Contract (translateStepWith (translateFallback tenv) rec) ctx ρ β we mems initial
       (boolEqE dom ae be) 1 (encodeBool (a == b)) := by
   have step : ∀ hint top named, ActionSpec
-      (translateStepWith translateFallback rec (boolEqE dom ae be) hint top named)
+      (translateStepWith (translateFallback tenv) rec (boolEqE dom ae be) hint top named)
       ctx ρ β we mems initial 1 (encodeBool (a == b)) := by
     intro hint top named
     rw [boolEq_step, translateFallback_bool rec _ hint top named rfl]
@@ -459,8 +461,8 @@ theorem boolEq_contract {rec ctx ρ β we mems initial dom ae be}
 
 theorem boolNot_step (rec : TranslateFn) (dom ae : Lean.Expr)
     (hint : String) (top named : Bool) :
-    translateStepWith translateFallback rec (boolNotE dom ae) hint top named =
-      translateFallback rec (boolNotE dom ae) hint top named := by
+    translateStepWith (translateFallback tenv) rec (boolNotE dom ae) hint top named =
+      (translateFallback tenv) rec (boolNotE dom ae) hint top named := by
   have shape : translateCoreShape (boolNotE dom ae) = false := rfl
   have core : translateCore rec (boolNotE dom ae) hint top named = pure none := rfl
   simp [translateStepWith, shape, core]
@@ -472,10 +474,10 @@ theorem boolNot_contract {rec ctx ρ β we mems initial dom ae}
     (cb : Child rec ctx ρ β we mems initial
       (mkApp3 (.const ``Sparkle.Core.Signal.Signal.pure [.zero]) dom (.const ``Bool [])
         (.const ``Bool.false [])) "b" 1 0) :
-    Contract (translateStepWith translateFallback rec) ctx ρ β we mems initial
+    Contract (translateStepWith (translateFallback tenv) rec) ctx ρ β we mems initial
       (boolNotE dom ae) 1 (encodeBool (!a)) := by
   have step : ∀ hint top named, ActionSpec
-      (translateStepWith translateFallback rec (boolNotE dom ae) hint top named)
+      (translateStepWith (translateFallback tenv) rec (boolNotE dom ae) hint top named)
       ctx ρ β we mems initial 1 (encodeBool (!a)) := by
     intro hint top named
     rw [boolNot_step, translateFallback_bool rec _ hint top named rfl]
@@ -554,10 +556,10 @@ theorem mux_contract {rec ctx ρ β we mems initial dom ce ae be}
     (cc : Child rec ctx ρ β we mems initial ce "mux_cond" 1 (encodeBool c))
     (ca : Child rec ctx ρ β we mems initial ae "mux_then" 1 (encodeBool a))
     (cb : Child rec ctx ρ β we mems initial be "mux_else" 1 (encodeBool b)) :
-    Contract (translateStepWith translateFallback rec) ctx ρ β we mems initial
+    Contract (translateStepWith (translateFallback tenv) rec) ctx ρ β we mems initial
       (boolMuxE dom ce ae be) 1 (encodeBool (if c then a else b)) := by
   have step : ∀ hint top named, ActionSpec
-      (translateStepWith translateFallback rec (boolMuxE dom ce ae be) hint top named)
+      (translateStepWith (translateFallback tenv) rec (boolMuxE dom ce ae be) hint top named)
       ctx ρ β we mems initial 1 (encodeBool (if c then a else b)) := by
     intro hint top named
     rw [boolMux_step, translateFallback_bool rec _ hint top named rfl]
@@ -575,7 +577,7 @@ theorem bool_fuel_contract (fuel : Nat) {ctx ρ β we mems initial dom n kb kv}
     (hn : 0 < n)
     (hb : ∀ j, j < kb → ρ (binp j) = some (bools j))
     (hv : ∀ j, j < kv → β (vinp j) = some ⟨n, bits j⟩) :
-    ∀ e, e.WF kb kv n → Contract (translateFuelFix translateStep fuel) ctx ρ β we mems initial
+    ∀ e, e.WF kb kv n → Contract (translateFuelFix (translateStep tenv) fuel) ctx ρ β we mems initial
       (quoteB dom n (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) e)
       1 (encodeBool (evalB n bools bits e)) := by
   have bd : ∀ j, j < kb → BoolDenotes ρ β (.fvar (binp j)) (bools j) := fun j hj => .fvar (hb j hj)
@@ -588,7 +590,7 @@ theorem bool_fuel_contract (fuel : Nat) {ctx ρ β we mems initial dom n kb kv}
     · intro hint top named s t w prior h widths hr; exact (Returns.throw hr).elim
   | succ fuel ih =>
     intro e he
-    change Contract (translateStepWith translateFallback (translateFuelFix translateStep fuel)) _ _ _ _ _ _ _ _ _
+    change Contract (translateStepWith (translateFallback tenv) (translateFuelFix (translateStep tenv) fuel)) _ _ _ _ _ _ _ _ _
     cases e with
     | inp j => exact bool_input_contract (hb j he)
     | lit b => exact bool_literal_contract b
@@ -622,7 +624,7 @@ theorem translateExprToWire_bool_contract {ctx ρ β we mems initial dom n kb kv
     (hn : 0 < n) (hb : ∀ j, j < kb → ρ (binp j) = some (bools j))
     (hv : ∀ j, j < kv → β (vinp j) = some ⟨n, bits j⟩)
     (e : BExpr) (he : e.WF kb kv n) :
-    Contract (fun e hint top named => translateExprToWire e hint top named) ctx ρ β we mems initial
+    Contract (fun e hint top named => translateExprToWire tenv e hint top named) ctx ρ β we mems initial
       (quoteB dom n (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) e)
       1 (encodeBool (evalB n bools bits e)) :=
   bool_fuel_contract translateFuelLimit hn hb hv e he

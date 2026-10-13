@@ -1,5 +1,7 @@
 import Tools.ShippingTranslationOrder
 
+variable {tenv : Lean.Environment}
+
 /-! # Pending parent results survive recursive operand translation
 
 The protected name is reserved but absent from the body, source bindings and
@@ -208,8 +210,8 @@ theorem step_protects {fallback : TranslateFn → TranslateFn} {rec : TranslateF
     exact core_continuation_protects ih ip (fun _ => rfl) hd hb h hp
 
 theorem fuel_protects {ctx we mems initial ρ} :
-    ∀ fuel, Spec (translateFuelFix translateStep fuel) ctx we mems initial ρ ∧
-      Protects (translateFuelFix translateStep fuel) ctx ρ
+    ∀ fuel, Spec (translateFuelFix (translateStep tenv) fuel) ctx we mems initial ρ ∧
+      Protects (translateFuelFix (translateStep tenv) fuel) ctx ρ
   | 0 => ⟨spec_of_never (fun _ _ _ _ _ _ _ h => Returns.throw h), by
       intro e hint named n x s w t p hd h hb hp; exact False.elim (Returns.throw h)⟩
   | k + 1 =>
@@ -218,7 +220,7 @@ theorem fuel_protects {ctx we mems initial ρ} :
 
 /-- Any supported expression, with arbitrary nesting of canonical operators,
 preserves a protected pending name and cannot return it, at the real entry. -/
-theorem translateExprToWire_protects {ctx ρ} : Protects (fun e h t n => translateExprToWire e h t n) ctx ρ :=
+theorem translateExprToWire_protects {ctx ρ} : Protects (fun e h t n => translateExprToWire tenv e h t n) ctx ρ :=
   (fuel_protects (ctx := ctx) (ρ := ρ) (we := fun _ => 0) (mems := fun _ _ => 0)
     (initial := fun _ => 0) translateFuelLimit).2
 
@@ -380,7 +382,7 @@ theorem step_orders {fallback : TranslateFn → TranslateFn} {rec : TranslateFn}
     exact core_continuation_orders ih ip io (fun _ => rfl) hd h hi hw ho
 
 theorem fuel_orders {ctx we mems initial ρ} :
-    ∀ fuel, Orders (translateFuelFix translateStep fuel) ctx we mems initial ρ
+    ∀ fuel, Orders (translateFuelFix (translateStep tenv) fuel) ctx we mems initial ρ
   | 0 => by
     intro e hint named n x s env0 w t hd h hi hw ho
     exact False.elim (Returns.throw h)
@@ -391,7 +393,7 @@ theorem fuel_orders {ctx we mems initial ρ} :
 inputs and literals at the shipping entry. Recursion and cache paths are
 closed; initial semantic/order invariants and final widths are explicit. -/
 theorem translateExprToWire_orders {ctx we mems initial ρ} :
-    Orders (fun e h t n => translateExprToWire e h t n) ctx we mems initial ρ :=
+    Orders (fun e h t n => translateExprToWire tenv e h t n) ctx we mems initial ρ :=
   fuel_orders translateFuelLimit
 
 /-- The general translator theorem now yields a unique simultaneous solution,
@@ -402,7 +404,7 @@ theorem translateExprToWire_settled {ctx : CompilerState}
     {e : Lean.Expr} {hint : String} {named : Bool} {result : String}
     {ρ : Valuation} {n : Nat} {x : BitVec n}
     (hd : Denotes ρ e n x)
-    (h : Returns (translateExprToWire e hint false named) ctx s result t)
+    (h : Returns (translateExprToWire tenv e hint false named) ctx s result t)
     (hi : Inv ctx ρ we mems initial s env0) (ho : OrderInv s) (hw : WidthsAgree we t) :
     ∃ env, Tools.ShippingSettledSoundness.IREquations we t.module.finalize.body env ∧
       Tools.ShippingSettledSoundness.ExternalValues t.module.finalize.body initial env ∧

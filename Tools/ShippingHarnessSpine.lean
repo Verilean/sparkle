@@ -2,6 +2,8 @@ import Tools.ShippingUnifiedExecutionSoundness
 import Tools.ShippingUnifiedSpine
 import Tools.ShippingSpineOrder
 
+variable {tenv : Lean.Environment}
+
 /-! # The spine in the module the certified harness returns
 
 `translateExprToWire_spine` is about the translator on a builder state. Here
@@ -37,7 +39,7 @@ theorem harness_spine_at {logProf : String → IO Unit} {declName : Name}
     {ids : List FVarId} {cache : IO.Ref (ExprStructMap String)} {returned : String}
     {st : CircuitState}
     (run : Returns (bindMixedCertifiedInputs
-        (emitLeaves (fun e hint top named => translateExprToWire e hint top named) cache logProf
+        (emitLeaves (fun e hint top named => translateExprToWire tenv e hint top named) cache logProf
           [("out", instFVars (ids.map Lean.Expr.fvar).toArray 0 body)] none 0) (bs.zip ids))
         (entryCompilerState false cache) (CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName)) returned st)
     (hm : m = (addClockResetIfSequential st.module).finalize)
@@ -159,7 +161,7 @@ theorem harness_links_at {logProf : String → IO Unit} {declName : Name}
     {ids : List FVarId} {cache : IO.Ref (ExprStructMap String)} {returned : String}
     {st : CircuitState}
     (run : Returns (bindMixedCertifiedInputs
-        (emitLeaves (fun e hint top named => translateExprToWire e hint top named) cache logProf
+        (emitLeaves (fun e hint top named => translateExprToWire tenv e hint top named) cache logProf
           [("out", instFVars (ids.map Lean.Expr.fvar).toArray 0 body)] none 0) (bs.zip ids))
         (entryCompilerState false cache) (CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName)) returned st)
     (hm : m = (addClockResetIfSequential st.module).finalize)

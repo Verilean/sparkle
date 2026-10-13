@@ -1,5 +1,7 @@
 import Tools.ShippingUnifiedProtection
 
+variable {tenv : Lean.Environment}
+
 /-! # The concatenation spine of the translator's output
 
 `closeLets` walks, from the packed wire, one `assign w = {a, b}` per `let`
@@ -1001,14 +1003,14 @@ theorem step_spec {rec : TranslateFn} {e : Lean.Expr} {hint : String} {top named
         (e.isFVar = false → ¬ P z ∧ ∃ rhs, Stmt.assign z rhs ∈ t.module.body))
     (hfb : ∀ s t, St ctx inputs B P V s →
       Returns (translateCore rec e hint top named) ctx s none t →
-      Spec ctx inputs B P V e (translateFallback rec e hint top named)) :
-    Spec ctx inputs B P V e (translateStepWith translateFallback rec e hint top named) := by
+      Spec ctx inputs B P V e ((translateFallback tenv) rec e hint top named)) :
+    Spec ctx inputs B P V e (translateStepWith (translateFallback tenv) rec e hint top named) := by
   have cont : ∀ {s t w} {K : Option String → CompilerM String} (c : Bool),
       (∀ z, K (some z) = Pure.pure z ∨
         (e.isFVar = false ∧ K (some z) = (recordTranslation e z c >>= fun _ => Pure.pure z)) ∨
         K (some z) = (if e.isFVar = true then Pure.pure z
           else recordTranslation e z c >>= fun _ => Pure.pure z)) →
-      K none = translateFallback rec e hint top named →
+      K none = (translateFallback tenv) rec e hint top named →
       Returns (translateCore rec e hint top named >>= K) ctx s w t → St ctx inputs B P V s →
       St ctx inputs B P V t ∧ Ext s t ∧
         (∀ n, SpineQ P (fun id => visible ctx t.sourceBindings id) t.module.wires t.module.body n e w) ∧
@@ -1091,7 +1093,7 @@ width, in `V`; nothing changes. -/
 theorem input_spec {rec : TranslateFn} {id : FVarId} {v₀ : Value} {hint : String} {named : Bool}
     (hi : inputs id = some v₀) (hB : B id) :
     Spec ctx inputs B P V (.fvar id)
-      (translateStepWith translateFallback rec (.fvar id) hint false named) := by
+      (translateStepWith (translateFallback tenv) rec (.fvar id) hint false named) := by
   refine step_spec rfl (Good.lookupVar id) (fun W => Cls.lookupVar id) ?_ ?_
   · intro s t z hr hq
     obtain ⟨hz, rfl⟩ := Tools.ShippingTranslateSoundness.lookupVar_returns (id := id) hr
@@ -1115,7 +1117,7 @@ theorem literal_step_spec {rec : TranslateFn} {e c : Lean.Expr} {us : List Level
     (fn : e.getAppFn = .const ``Sparkle.Core.Signal.Signal.pure us)
     (back : e.getAppArgs.back? = some c) (lit : bitVecLitValue? c = some (n, v))
     (hn : canonicalConcat? e = none) (hm : ∀ x, Meaning inputs e x → x.kind.width = n) :
-    Spec ctx inputs B P V e (translateStepWith translateFallback rec e hint false named) := by
+    Spec ctx inputs B P V e (translateStepWith (translateFallback tenv) rec e hint false named) := by
   have hcore : translateCore rec e hint false named =
       translateSignalPureLiteral? e.getAppArgs hint named := by
     unfold translateCore
@@ -1151,7 +1153,7 @@ theorem bool_literal_spec {rec : TranslateFn} {dom : Lean.Expr} {hint : String} 
     (b : Bool) (hn : canonicalConcat? (literalE dom b) = none)
     (hm : ∀ x, Meaning inputs (literalE dom b) x → x.kind.width = 1) :
     Spec ctx inputs B P V (literalE dom b)
-      (translateStepWith translateFallback rec (literalE dom b) hint false named) := by
+      (translateStepWith (translateFallback tenv) rec (literalE dom b) hint false named) := by
   refine step_spec hn (by rw [literal_core]; exact Good.pure _)
     (fun W => by rw [literal_core]; exact Cls.pure _) ?_ ?_
   · intro s t z hr
@@ -1177,7 +1179,7 @@ theorem binary_step_spec {rec : TranslateFn} {e : Lean.Expr} {m : Name} {us : Li
     (hn : canonicalConcat? e = none) (hm : ∀ x, Meaning inputs e x → x.kind.width = n)
     (oa : GoodR ctx inputs B P V (rec e.getAppArgs[e.getAppArgs.size - 2]! "op_a" false false))
     (ob : GoodR ctx inputs B P V (rec e.getAppArgs[e.getAppArgs.size - 1]! "op_b" false false)) :
-    Spec ctx inputs B P V e (translateStepWith translateFallback rec e hint false named) := by
+    Spec ctx inputs B P V e (translateStepWith (translateFallback tenv) rec e hint false named) := by
   have hbin : Arm ctx inputs B P V n
       (translateCanonicalSignalBinary rec e op.operator e.getAppArgs true true hint named) := by
     refine ⟨?_, ?_, ?_, fun W => ?_⟩ <;> unfold translateCanonicalSignalBinary <;>
@@ -1278,15 +1280,15 @@ theorem fuel_spine (fuel : Nat) {kb kv : Nat} {vw : Nat → Nat} {bools : Nat �
     (hv : ∀ j, j < kv → inputs (vi j) = some (.bits (vw j) (bits j (vw j))))
     (hub : ∀ j, ub j → B (bi j)) (huv : ∀ j, uv j → B (vi j)) :
     ∀ {s : SType} (e : Term s), e.WF kb kv vw → Uses ub uv e → ∀ hint named,
-      Spec ctx inputs B P V Q(e) (translateFuelFix translateStep fuel Q(e) hint false named) := by
+      Spec ctx inputs B P V Q(e) (translateFuelFix (translateStep tenv) fuel Q(e) hint false named) := by
   induction fuel with
   | zero =>
     intro s e he hu hint named s' t w hr hq
     exact (Returns.throw hr).elim
   | succ fuel ih =>
     intro s e he hu hint named
-    change Spec ctx inputs B P V _ (translateStepWith translateFallback
-      (translateFuelFix translateStep fuel) _ hint false named)
+    change Spec ctx inputs B P V _ (translateStepWith (translateFallback tenv)
+      (translateFuelFix (translateStep tenv) fuel) _ hint false named)
     have hmw : ∀ v, Meaning inputs Q(e) v → v.kind.width = s.width := fun v hv' => by
       have := hv'.deterministic (meaning_quote (dom := dom) hb hv e he)
       rw [this]
@@ -1313,11 +1315,11 @@ theorem fuel_spine (fuel : Nat) {kb kv : Nat} {vw : Nat → Nat} {bools : Nat �
       obtain ⟨ua, ub'⟩ := hu
       have ck := op_checks op dom Q(a) Q(b) w
       refine binary_step_spec op ck.1 ck.2.1 ck.2.2.1 ck.2.2.2.1 (by cases op <;> rfl) hmw ?_ ?_
-      · show GoodR ctx inputs B P V (translateFuelFix translateStep fuel
+      · show GoodR ctx inputs B P V (translateFuelFix (translateStep tenv) fuel
           (binE dom w op Q(a) Q(b)).getAppArgs[(binE dom w op Q(a) Q(b)).getAppArgs.size - 2]!
           "op_a" false false)
         rw [ck.2.2.2.2.1]; exact (ih a ha ua "op_a" false).goodR
-      · show GoodR ctx inputs B P V (translateFuelFix translateStep fuel
+      · show GoodR ctx inputs B P V (translateFuelFix (translateStep tenv) fuel
           (binE dom w op Q(a) Q(b)).getAppArgs[(binE dom w op Q(a) Q(b)).getAppArgs.size - 1]!
           "op_b" false false)
         rw [ck.2.2.2.2.2.1]; exact (ih b hb' ub' "op_b" false).goodR
@@ -1325,7 +1327,7 @@ theorem fuel_spine (fuel : Nat) {kb kv : Nat} {vw : Nat → Nat} {bools : Nat �
       rename_i w
       obtain ⟨ha, hb'⟩ := he
       obtain ⟨ua, ub'⟩ := hu
-      show Spec ctx inputs B P V _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
+      show Spec ctx inputs B P V _ (translateStepWith (translateFallback tenv) (translateFuelFix (translateStep tenv) fuel)
         (compareE le dom w Q(a) Q(b)) hint false named)
       rw [compare_step, translateFallback_bool _ _ hint false named (by cases le <;> rfl)]
       apply Spec.cached
@@ -1336,7 +1338,7 @@ theorem fuel_spine (fuel : Nat) {kb kv : Nat} {vw : Nat → Nat} {bools : Nat �
     | boolBinary kind a b =>
       obtain ⟨ha, hb'⟩ := he
       obtain ⟨ua, ub'⟩ := hu
-      show Spec ctx inputs B P V _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
+      show Spec ctx inputs B P V _ (translateStepWith (translateFallback tenv) (translateFuelFix (translateStep tenv) fuel)
         (boolBinE kind dom Q(a) Q(b)) hint false named)
       rw [boolBin_step, translateFallback_bool _ _ hint false named (by cases kind <;> rfl)]
       apply Spec.cached
@@ -1348,7 +1350,7 @@ theorem fuel_spine (fuel : Nat) {kb kv : Nat} {vw : Nat → Nat} {bools : Nat �
       rename_i w
       obtain ⟨ha, hb'⟩ := he
       obtain ⟨ua, ub'⟩ := hu
-      show Spec ctx inputs B P V _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
+      show Spec ctx inputs B P V _ (translateStepWith (translateFallback tenv) (translateFuelFix (translateStep tenv) fuel)
         (appCompareE le dom w Q(a) Q(b)) hint false named)
       rw [appCompare_step, translateFallback_bool _ _ hint false named
         (isBoolControl_appCompareE _ _ _ _ _)]
@@ -1360,7 +1362,7 @@ theorem fuel_spine (fuel : Nat) {kb kv : Nat} {vw : Nat → Nat} {bools : Nat �
     | appBool kind a b =>
       obtain ⟨ha, hb'⟩ := he
       obtain ⟨ua, ub'⟩ := hu
-      show Spec ctx inputs B P V _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
+      show Spec ctx inputs B P V _ (translateStepWith (translateFallback tenv) (translateFuelFix (translateStep tenv) fuel)
         (appBoolE kind dom Q(a) Q(b)) hint false named)
       rw [appBool_step, translateFallback_bool _ _ hint false named (isBoolControl_appBoolE _ _ _ _)]
       apply Spec.cached
@@ -1371,7 +1373,7 @@ theorem fuel_spine (fuel : Nat) {kb kv : Nat} {vw : Nat → Nat} {bools : Nat �
     | appBool2 f a b =>
       obtain ⟨ha, hb'⟩ := he
       obtain ⟨ua, ub'⟩ := hu
-      show Spec ctx inputs B P V _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
+      show Spec ctx inputs B P V _ (translateStepWith (translateFallback tenv) (translateFuelFix (translateStep tenv) fuel)
         (appBool2E f dom Q(a) Q(b)) hint false named)
       rw [appBool2_step, translateFallback_bool _ _ hint false named (isBoolControl_appBool2E _ _ _ _)]
       apply Spec.cached
@@ -1380,24 +1382,24 @@ theorem fuel_spine (fuel : Nat) {kb kv : Nat} {vw : Nat → Nat} {bools : Nat �
       rw [translateBoolUncachedWith_appBool2]
       exact appBool2_arm (ih a ha ua "app_arg" false).goodR (ih b hb' ub' "app_arg" false).goodR
     | boolNot a =>
-      show Spec ctx inputs B P V _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
+      show Spec ctx inputs B P V _ (translateStepWith (translateFallback tenv) (translateFuelFix (translateStep tenv) fuel)
         (boolNotE dom Q(a)) hint false named)
       rw [boolNot_step, translateFallback_bool _ _ hint false named rfl]
       apply Spec.cached
       refine SpecA.of_arm ?_ rfl (by first | rfl | (rename_i x; cases x <;> rfl)) hmw
-      show Arm ctx inputs B P V _ (translateSignalCompare (translateFuelFix translateStep fuel) .eq Q(a)
+      show Arm ctx inputs B P V _ (translateSignalCompare (translateFuelFix (translateStep tenv) fuel) .eq Q(a)
         (mkApp3 (.const ``Sparkle.Core.Signal.Signal.pure [.zero]) dom (.const ``Bool [])
           (.const ``Bool.false [])) hint named)
       exact compare_arm (ih a he hu "a" false).goodR (ih (.boolLit false) trivial trivial "b" false).goodR
     | boolEq a b =>
       obtain ⟨ha, hb'⟩ := he
       obtain ⟨ua, ub'⟩ := hu
-      show Spec ctx inputs B P V _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
+      show Spec ctx inputs B P V _ (translateStepWith (translateFallback tenv) (translateFuelFix (translateStep tenv) fuel)
         (boolEqE dom Q(a) Q(b)) hint false named)
       rw [boolEq_step, translateFallback_bool _ _ hint false named rfl]
       apply Spec.cached
       refine SpecA.of_arm ?_ rfl (by first | rfl | (rename_i x; cases x <;> rfl)) hmw
-      show Arm ctx inputs B P V _ (translateSignalCompare (translateFuelFix translateStep fuel) .eq Q(a) Q(b)
+      show Arm ctx inputs B P V _ (translateSignalCompare (translateFuelFix (translateStep tenv) fuel) .eq Q(a) Q(b)
         hint named)
       exact compare_arm (ih a ha ua "a" false).goodR (ih b hb' ub' "b" false).goodR
     | mux c a b =>
@@ -1405,22 +1407,22 @@ theorem fuel_spine (fuel : Nat) {kb kv : Nat} {vw : Nat → Nat} {bools : Nat �
       obtain ⟨uc, ua, ub'⟩ := hu
       cases s with
       | bool =>
-        show Spec ctx inputs B P V _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
+        show Spec ctx inputs B P V _ (translateStepWith (translateFallback tenv) (translateFuelFix (translateStep tenv) fuel)
           (boolMuxE dom Q(c) Q(a) Q(b)) hint false named)
         rw [boolMux_step, translateFallback_bool _ _ hint false named rfl]
         apply Spec.cached
         refine SpecA.of_arm ?_ rfl (by first | rfl | (rename_i x; cases x <;> rfl)) hmw
-        show Arm ctx inputs B P V _ (translateMuxWith (translateFuelFix translateStep fuel) (pure .bit)
+        show Arm ctx inputs B P V _ (translateMuxWith (translateFuelFix (translateStep tenv) fuel) (pure .bit)
           _ _ _ hint named)
         exact mux_arm (ih c hc uc "mux_cond" false).goodR (ih a ha ua "mux_then" false).goodR
           (ih b hb' ub' "mux_else" false).goodR
       | bits w =>
-        show Spec ctx inputs B P V _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
+        show Spec ctx inputs B P V _ (translateStepWith (translateFallback tenv) (translateFuelFix (translateStep tenv) fuel)
           (muxE dom (bitVecE w) Q(c) Q(a) Q(b)) hint false named)
         rw [vector_step]
         apply Spec.cached
         refine SpecA.of_arm ?_ rfl (by first | rfl | (rename_i x; cases x <;> rfl)) hmw
-        show Arm ctx inputs B P V _ (translateVectorMuxUncachedWith (translateFuelFix translateStep fuel) w
+        show Arm ctx inputs B P V _ (translateVectorMuxUncachedWith (translateFuelFix (translateStep tenv) fuel) w
           (muxE dom (bitVecE w) Q(c) Q(a) Q(b)) hint false named)
         rw [vectorMuxUncached_muxE]
         exact mux_arm (ih c hc uc "mux_cond" false).goodR (ih a ha ua "mux_then" false).goodR
@@ -1429,12 +1431,12 @@ theorem fuel_spine (fuel : Nat) {kb kv : Nat} {vw : Nat → Nat} {bools : Nat �
       rename_i w
       obtain ⟨ha, hpos⟩ := he
       obtain ⟨ua, -⟩ := hu
-      show Spec ctx inputs B P V _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
+      show Spec ctx inputs B P V _ (translateStepWith (translateFallback tenv) (translateFuelFix (translateStep tenv) fuel)
         (setwE dom w w' Q(a)) hint false named)
       rw [setw_step _ _ _ _ _ (a.wf_pos ha) hpos]
       apply Spec.cached
       refine SpecA.of_arm ?_ rfl (by first | rfl | (rename_i x; cases x <;> rfl)) hmw
-      show Arm ctx inputs B P V _ (translateSetWidthUncachedWith (translateFuelFix translateStep fuel) w w'
+      show Arm ctx inputs B P V _ (translateSetWidthUncachedWith (translateFuelFix (translateStep tenv) fuel) w w'
         (setwE dom w w' Q(a)) hint false named)
       rw [setwUncached_setwE]
       exact setw_arm (ih a ha ua "s" false).goodR
@@ -1442,12 +1444,12 @@ theorem fuel_spine (fuel : Nat) {kb kv : Nat} {vw : Nat → Nat} {bools : Nat �
       rename_i w
       obtain ⟨ha, hlen, hr⟩ := he
       obtain ⟨ua, -, -⟩ := hu
-      show Spec ctx inputs B P V _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
+      show Spec ctx inputs B P V _ (translateStepWith (translateFallback tenv) (translateFuelFix (translateStep tenv) fuel)
         (sliceE dom nm w start len Q(a)) hint false named)
       rw [slice_step _ _ _ _ _ _ _ _ _ _ hlen hr]
       apply Spec.cached
       refine SpecA.of_arm ?_ rfl (by first | rfl | (rename_i x; cases x <;> rfl)) hmw
-      show Arm ctx inputs B P V _ (translateSliceUncachedWith (translateFuelFix translateStep fuel) start len
+      show Arm ctx inputs B P V _ (translateSliceUncachedWith (translateFuelFix (translateStep tenv) fuel) start len
         (sliceE dom nm w start len Q(a)) hint false named)
       rw [sliceUncached_sliceE]
       exact slice_arm (ih a ha ua "s" false).goodR
@@ -1455,11 +1457,11 @@ theorem fuel_spine (fuel : Nat) {kb kv : Nat} {vw : Nat → Nat} {bools : Nat �
       rename_i m n
       obtain ⟨ha, hb'⟩ := he
       obtain ⟨ua, ub'⟩ := hu
-      show Spec ctx inputs B P V _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
+      show Spec ctx inputs B P V _ (translateStepWith (translateFallback tenv) (translateFuelFix (translateStep tenv) fuel)
         (concatE dom m n Q(a) Q(b)) hint false named)
       rw [concat_step _ _ _ _ _ _ _ _ _ (a.wf_pos ha) (b.wf_pos hb')]
       apply Spec.cached
-      show SpecA ctx inputs B P V _ (translateConcatUncachedWith (translateFuelFix translateStep fuel) m n
+      show SpecA ctx inputs B P V _ (translateConcatUncachedWith (translateFuelFix (translateStep tenv) fuel) m n
         (concatE dom m n Q(a) Q(b)) hint false named)
       rw [concatUncached_concatE]
       exact concat_spec (canonicalConcat?_concatE dom _ _ (a.wf_pos ha) (b.wf_pos hb'))
@@ -1469,12 +1471,12 @@ theorem fuel_spine (fuel : Nat) {kb kv : Nat} {vw : Nat → Nat} {bools : Nat �
       rename_i n
       obtain ⟨hb', hk, hlt⟩ := he
       obtain ⟨ub', -, -⟩ := hu
-      show Spec ctx inputs B P V _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
+      show Spec ctx inputs B P V _ (translateStepWith (translateFallback tenv) (translateFuelFix (translateStep tenv) fuel)
         (concatLitHiE dom k v n Q(b)) hint false named)
       rw [concatLitHi_step _ _ _ _ _ _ _ _ _ hk hlt (b.wf_pos hb')]
       apply Spec.cached
       refine SpecA.of_arm ?_ rfl (by first | rfl | (rename_i x; cases x <;> rfl)) hmw
-      show Arm ctx inputs B P V _ (translateConcatLitUncachedWith (translateFuelFix translateStep fuel)
+      show Arm ctx inputs B P V _ (translateConcatLitUncachedWith (translateFuelFix (translateStep tenv) fuel)
         true k v n (concatLitHiE dom k v n Q(b)) hint false named)
       rw [concatLitUncached_hiE]
       exact concatActs_arm concatConst_arm.goodR (ih b hb' ub' "concat_lo" false).goodR
@@ -1482,12 +1484,12 @@ theorem fuel_spine (fuel : Nat) {kb kv : Nat} {vw : Nat → Nat} {bools : Nat �
       rename_i m
       obtain ⟨ha, hk, hlt⟩ := he
       obtain ⟨ua, -, -⟩ := hu
-      show Spec ctx inputs B P V _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
+      show Spec ctx inputs B P V _ (translateStepWith (translateFallback tenv) (translateFuelFix (translateStep tenv) fuel)
         (concatLitLoE dom m k v Q(a)) hint false named)
       rw [concatLitLo_step _ _ _ _ _ _ _ _ _ hk hlt (a.wf_pos ha)]
       apply Spec.cached
       refine SpecA.of_arm ?_ rfl (by first | rfl | (rename_i x; cases x <;> rfl)) hmw
-      show Arm ctx inputs B P V _ (translateConcatLitUncachedWith (translateFuelFix translateStep fuel)
+      show Arm ctx inputs B P V _ (translateConcatLitUncachedWith (translateFuelFix (translateStep tenv) fuel)
         false k v m (concatLitLoE dom m k v Q(a)) hint false named)
       rw [concatLitUncached_loE]
       exact concatActs_arm (ih a ha ua "concat_hi" false).goodR concatConst_arm.goodR
@@ -1495,12 +1497,12 @@ theorem fuel_spine (fuel : Nat) {kb kv : Nat} {vw : Nat → Nat} {bools : Nat �
       rename_i n
       obtain ⟨ha, hk⟩ := he
       obtain ⟨ua, -⟩ := hu
-      show Spec ctx inputs B P V _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
+      show Spec ctx inputs B P V _ (translateStepWith (translateFallback tenv) (translateFuelFix (translateStep tenv) fuel)
         (zextMapE dom nm k n Q(a)) hint false named)
       rw [zextMap_step _ _ _ _ _ _ _ _ _ hk (a.wf_pos ha)]
       apply Spec.cached
       refine SpecA.of_arm ?_ rfl (by first | rfl | (rename_i x; cases x <;> rfl)) hmw
-      show Arm ctx inputs B P V _ (translateSetWidthUncachedWith (translateFuelFix translateStep fuel) n
+      show Arm ctx inputs B P V _ (translateSetWidthUncachedWith (translateFuelFix (translateStep tenv) fuel) n
         (k + n) (zextMapE dom nm k n Q(a)) hint false named)
       rw [setwUncached_zextMapE]
       exact setw_arm (ih a ha ua "s" false).goodR
@@ -1508,12 +1510,12 @@ theorem fuel_spine (fuel : Nat) {kb kv : Nat} {vw : Nat → Nat} {bools : Nat �
       rename_i w
       obtain ⟨ha, hlen, hr⟩ := he
       obtain ⟨ua, -, -⟩ := hu
-      show Spec ctx inputs B P V _ (translateStepWith translateFallback (translateFuelFix translateStep fuel)
+      show Spec ctx inputs B P V _ (translateStepWith (translateFallback tenv) (translateFuelFix (translateStep tenv) fuel)
         (sliceFE dom nm w start len Q(a)) hint false named)
       rw [sliceF_step _ _ _ _ _ _ _ _ _ _ hlen hr]
       apply Spec.cached
       refine SpecA.of_arm ?_ rfl (by first | rfl | (rename_i x; cases x <;> rfl)) hmw
-      show Arm ctx inputs B P V _ (translateSliceFUncachedWith (translateFuelFix translateStep fuel)
+      show Arm ctx inputs B P V _ (translateSliceFUncachedWith (translateFuelFix (translateStep tenv) fuel)
         start len (sliceFE dom nm w start len Q(a)) hint false named)
       rw [sliceFUncached_sliceFE]
       exact slice_arm (ih a ha ua "a" false).goodR
@@ -1526,7 +1528,7 @@ theorem translateExprToWire_spine {kb kv : Nat} {vw : Nat → Nat} {bools : Nat 
     (hub : ∀ j, ub j → B (bi j)) (huv : ∀ j, uv j → B (vi j))
     {s : SType} (e : Term s) (he : e.WF kb kv vw) (hu : Uses ub uv e) (hint : String)
     (named : Bool) :
-    Spec ctx inputs B P V Q(e) (translateExprToWire Q(e) hint false named) :=
+    Spec ctx inputs B P V Q(e) (translateExprToWire tenv Q(e) hint false named) :=
   fuel_spine translateFuelLimit hb hv hub huv e he hu hint named
 
 end Fuel

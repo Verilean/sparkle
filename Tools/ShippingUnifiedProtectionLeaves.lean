@@ -1,5 +1,7 @@
 import Tools.ShippingUnifiedProtection
 
+variable {tenv : Lean.Environment}
+
 /-! # Protection and order of the quoted fragment over ARBITRARY leaves
 
 `fuel_protects` and `fuel_orders` (`Tools/ShippingUnifiedProtection.lean`)
@@ -52,17 +54,17 @@ theorem fuel_protects_leaves (fuel : Nat) {ctx : CompilerState} {inputs : FVarId
     (hb : ∀ j, j < kb → Meaning inputs (bE j) (.bool (bools j)))
     (hv : ∀ j, j < kv → Meaning inputs (vE j) (.bits (vw j) (bits j (vw j))))
     (hbC : ∀ j, j < kb → ∀ (fuel : Nat) (we : WEnv) (mems : MEnv) (initial : Env),
-      Contract (translateFuelFix translateStep fuel) ctx inputs we mems initial
+      Contract (translateFuelFix (translateStep tenv) fuel) ctx inputs we mems initial
         (bE j) (.bool (bools j)))
     (hvC : ∀ j, j < kv → ∀ (fuel : Nat) (we : WEnv) (mems : MEnv) (initial : Env),
-      Contract (translateFuelFix translateStep fuel) ctx inputs we mems initial
+      Contract (translateFuelFix (translateStep tenv) fuel) ctx inputs we mems initial
         (vE j) (.bits (vw j) (bits j (vw j))))
     (hbP : ∀ j, j < kb → ∀ (fuel : Nat) (hint : String) (named : Bool),
-      ActionProtect (translateFuelFix translateStep fuel (bE j) hint false named) ctx inputs)
+      ActionProtect (translateFuelFix (translateStep tenv) fuel (bE j) hint false named) ctx inputs)
     (hvP : ∀ j, j < kv → ∀ (fuel : Nat) (hint : String) (named : Bool),
-      ActionProtect (translateFuelFix translateStep fuel (vE j) hint false named) ctx inputs) :
+      ActionProtect (translateFuelFix (translateStep tenv) fuel (vE j) hint false named) ctx inputs) :
     ∀ {s : SType} (e : Term s), e.WF kb kv vw → ∀ hint named,
-      ActionProtect (translateFuelFix translateStep fuel
+      ActionProtect (translateFuelFix (translateStep tenv) fuel
         (quote dom bE vE e) hint false named) ctx inputs := by
   induction fuel with
   | zero =>
@@ -71,12 +73,12 @@ theorem fuel_protects_leaves (fuel : Nat) {ctx : CompilerState} {inputs : FVarId
   | succ fuel ih =>
     intro s e he hint named
     have fc : ∀ {s' : SType} (e' : Term s'), e'.WF kb kv vw →
-        Contract (translateFuelFix translateStep fuel) ctx inputs (fun _ => 0) (fun _ _ => 0)
+        Contract (translateFuelFix (translateStep tenv) fuel) ctx inputs (fun _ => 0) (fun _ _ => 0)
           (fun _ => 0) (quote dom bE vE e')
           (pack s' (eval bools bits e')) :=
       fun e' he' => fuel_contract_leaves fuel hb hv (fun j hj f => hbC j hj f _ _ _) (fun j hj f => hvC j hj f _ _ _) e' he'
-    change ActionProtect (translateStepWith translateFallback
-      (translateFuelFix translateStep fuel) _ hint false named) _ _
+    change ActionProtect (translateStepWith (translateFallback tenv)
+      (translateFuelFix (translateStep tenv) fuel) _ hint false named) _ _
     cases e with
     | boolInput j => exact hbP j he (fuel + 1) hint named
     | bitsInput w j =>
@@ -91,28 +93,28 @@ theorem fuel_protects_leaves (fuel : Nat) {ctx : CompilerState} {inputs : FVarId
       obtain ⟨ha, hb'⟩ := he
       have ck := op_checks op dom (quote dom bE vE a)
         (quote dom bE vE b) w
-      have ca : Child (translateFuelFix translateStep fuel) ctx inputs (fun _ => 0) (fun _ _ => 0) (fun _ => 0)
+      have ca : Child (translateFuelFix (translateStep tenv) fuel) ctx inputs (fun _ => 0) (fun _ _ => 0) (fun _ => 0)
           ((binE dom w op (quote dom bE vE a)
             (quote dom bE vE b)).getAppArgs[(binE dom w op (quote dom bE vE a)
             (quote dom bE vE b)).getAppArgs.size - 2]!)
           "op_a" (pack (.bits w) (eval bools bits a)) := by
         rw [ck.2.2.2.2.1]
         exact ((fc a ha).child "op_a")
-      have cb : Child (translateFuelFix translateStep fuel) ctx inputs (fun _ => 0) (fun _ _ => 0) (fun _ => 0)
+      have cb : Child (translateFuelFix (translateStep tenv) fuel) ctx inputs (fun _ => 0) (fun _ _ => 0) (fun _ => 0)
           ((binE dom w op (quote dom bE vE a)
             (quote dom bE vE b)).getAppArgs[(binE dom w op (quote dom bE vE a)
             (quote dom bE vE b)).getAppArgs.size - 1]!)
           "op_b" (pack (.bits w) (eval bools bits b)) := by
         rw [ck.2.2.2.2.2.1]
         exact ((fc b hb').child "op_b")
-      have pa : ActionProtect (translateFuelFix translateStep fuel
+      have pa : ActionProtect (translateFuelFix (translateStep tenv) fuel
           ((binE dom w op (quote dom bE vE a)
             (quote dom bE vE b)).getAppArgs[(binE dom w op (quote dom bE vE a)
             (quote dom bE vE b)).getAppArgs.size - 2]!)
           "op_a" false false) ctx inputs := by
         rw [ck.2.2.2.2.1]
         exact ih a ha "op_a" false
-      have pb : ActionProtect (translateFuelFix translateStep fuel
+      have pb : ActionProtect (translateFuelFix (translateStep tenv) fuel
           ((binE dom w op (quote dom bE vE a)
             (quote dom bE vE b)).getAppArgs[(binE dom w op (quote dom bE vE a)
             (quote dom bE vE b)).getAppArgs.size - 1]!)
@@ -124,8 +126,8 @@ theorem fuel_protects_leaves (fuel : Nat) {ctx : CompilerState} {inputs : FVarId
     | compare le a b =>
       rename_i w
       obtain ⟨ha, hb'⟩ := he
-      show ActionProtect (translateStepWith translateFallback
-        (translateFuelFix translateStep fuel)
+      show ActionProtect (translateStepWith (translateFallback tenv)
+        (translateFuelFix (translateStep tenv) fuel)
         (compareE le dom w (quote dom bE vE a)
           (quote dom bE vE b)) hint false named) ctx inputs
       rw [compare_step, translateFallback_bool _ _ hint false named (by cases le <;> rfl)]
@@ -142,8 +144,8 @@ theorem fuel_protects_leaves (fuel : Nat) {ctx : CompilerState} {inputs : FVarId
         (ih a ha "a" false) (ih b hb' "b" false)
     | boolBinary kind a b =>
       obtain ⟨ha, hb'⟩ := he
-      show ActionProtect (translateStepWith translateFallback
-        (translateFuelFix translateStep fuel)
+      show ActionProtect (translateStepWith (translateFallback tenv)
+        (translateFuelFix (translateStep tenv) fuel)
         (boolBinE kind dom (quote dom bE vE a)
           (quote dom bE vE b)) hint false named) ctx inputs
       rw [boolBin_step, translateFallback_bool _ _ hint false named (by cases kind <;> rfl)]
@@ -161,8 +163,8 @@ theorem fuel_protects_leaves (fuel : Nat) {ctx : CompilerState} {inputs : FVarId
     | appCompare le a b =>
       rename_i w
       obtain ⟨ha, hb'⟩ := he
-      show ActionProtect (translateStepWith translateFallback
-        (translateFuelFix translateStep fuel)
+      show ActionProtect (translateStepWith (translateFallback tenv)
+        (translateFuelFix (translateStep tenv) fuel)
         (appCompareE le dom w (quote dom bE vE a)
           (quote dom bE vE b)) hint false named) ctx inputs
       rw [appCompare_step, translateFallback_bool _ _ hint false named
@@ -180,8 +182,8 @@ theorem fuel_protects_leaves (fuel : Nat) {ctx : CompilerState} {inputs : FVarId
         (ih a ha "app_arg" false) (ih b hb' "app_arg" false)
     | appBool kind a b =>
       obtain ⟨ha, hb'⟩ := he
-      show ActionProtect (translateStepWith translateFallback
-        (translateFuelFix translateStep fuel)
+      show ActionProtect (translateStepWith (translateFallback tenv)
+        (translateFuelFix (translateStep tenv) fuel)
         (appBoolE kind dom (quote dom bE vE a)
           (quote dom bE vE b)) hint false named) ctx inputs
       rw [appBool_step, translateFallback_bool _ _ hint false named
@@ -199,8 +201,8 @@ theorem fuel_protects_leaves (fuel : Nat) {ctx : CompilerState} {inputs : FVarId
         (ih a ha "app_arg" false) (ih b hb' "app_arg" false)
     | appBool2 f a b =>
       obtain ⟨ha, hb'⟩ := he
-      show ActionProtect (translateStepWith translateFallback
-        (translateFuelFix translateStep fuel)
+      show ActionProtect (translateStepWith (translateFallback tenv)
+        (translateFuelFix (translateStep tenv) fuel)
         (appBool2E f dom (quote dom bE vE a)
           (quote dom bE vE b)) hint false named) ctx inputs
       rw [appBool2_step, translateFallback_bool _ _ hint false named
@@ -217,13 +219,13 @@ theorem fuel_protects_leaves (fuel : Nat) {ctx : CompilerState} {inputs : FVarId
         ((fc b hb').child "app_arg")
         (ih a ha "app_arg" false) (ih b hb' "app_arg" false)
     | boolNot a =>
-      show ActionProtect (translateStepWith translateFallback
-        (translateFuelFix translateStep fuel)
+      show ActionProtect (translateStepWith (translateFallback tenv)
+        (translateFuelFix (translateStep tenv) fuel)
         (boolNotE dom (quote dom bE vE a))
         hint false named) ctx inputs
       rw [boolNot_step, translateFallback_bool _ _ hint false named rfl]
       apply cached_protect (meaning_quote_leaves hb hv (.boolNot a) he)
-      show ActionProtect (translateSignalCompare (translateFuelFix translateStep fuel) .eq
+      show ActionProtect (translateSignalCompare (translateFuelFix (translateStep tenv) fuel) .eq
         (quote dom bE vE a)
         (mkApp3 (.const ``Sparkle.Core.Signal.Signal.pure [.zero]) dom (.const ``Bool [])
           (.const ``Bool.false [])) hint named) ctx inputs
@@ -232,13 +234,13 @@ theorem fuel_protects_leaves (fuel : Nat) {ctx : CompilerState} {inputs : FVarId
         (ih a he "a" false) (ih (.boolLit false) trivial "b" false)
     | boolEq a b =>
       obtain ⟨ha, hb'⟩ := he
-      show ActionProtect (translateStepWith translateFallback
-        (translateFuelFix translateStep fuel)
+      show ActionProtect (translateStepWith (translateFallback tenv)
+        (translateFuelFix (translateStep tenv) fuel)
         (boolEqE dom (quote dom bE vE a)
           (quote dom bE vE b)) hint false named) ctx inputs
       rw [boolEq_step, translateFallback_bool _ _ hint false named rfl]
       apply cached_protect (meaning_quote_leaves hb hv (.boolEq a b) ⟨ha, hb'⟩)
-      show ActionProtect (translateSignalCompare (translateFuelFix translateStep fuel) .eq
+      show ActionProtect (translateSignalCompare (translateFuelFix (translateStep tenv) fuel) .eq
         (quote dom bE vE a)
         (quote dom bE vE b) hint named) ctx inputs
       exact compare_protect ((fc a ha).child "a")
@@ -248,22 +250,22 @@ theorem fuel_protects_leaves (fuel : Nat) {ctx : CompilerState} {inputs : FVarId
       obtain ⟨hc, ha, hb'⟩ := he
       cases s with
       | bool =>
-        show ActionProtect (translateStepWith translateFallback
-          (translateFuelFix translateStep fuel)
+        show ActionProtect (translateStepWith (translateFallback tenv)
+          (translateFuelFix (translateStep tenv) fuel)
           (boolMuxE dom (quote dom bE vE c)
             (quote dom bE vE a)
             (quote dom bE vE b)) hint false named) ctx inputs
         rw [boolMux_step, translateFallback_bool _ _ hint false named rfl]
         apply cached_protect (meaning_quote_leaves hb hv (.mux c a b) ⟨hc, ha, hb'⟩)
-        show ActionProtect (translateMuxWith (translateFuelFix translateStep fuel) (pure .bit)
+        show ActionProtect (translateMuxWith (translateFuelFix (translateStep tenv) fuel) (pure .bit)
           _ _ _ hint named) ctx inputs
         exact muxWith_protect _ rfl ((fc c hc).child "mux_cond")
           ((fc a ha).child "mux_then")
           ((fc b hb').child "mux_else")
           (ih c hc "mux_cond" false) (ih a ha "mux_then" false) (ih b hb' "mux_else" false)
       | bits w =>
-        show ActionProtect (translateStepWith translateFallback
-          (translateFuelFix translateStep fuel)
+        show ActionProtect (translateStepWith (translateFallback tenv)
+          (translateFuelFix (translateStep tenv) fuel)
           (muxE dom (bitVecE w) (quote dom bE vE c)
             (quote dom bE vE a)
             (quote dom bE vE b)) hint false named) ctx inputs
@@ -275,7 +277,7 @@ theorem fuel_protects_leaves (fuel : Nat) {ctx : CompilerState} {inputs : FVarId
             (pack (.bits w) (eval bools bits (.mux c a b))) :=
           meaning_quote_leaves hb hv (.mux c a b) ⟨hc, ha, hb'⟩
         apply cached_protect meaning
-        show ActionProtect (translateVectorMuxUncachedWith (translateFuelFix translateStep fuel) w
+        show ActionProtect (translateVectorMuxUncachedWith (translateFuelFix (translateStep tenv) fuel) w
           (muxE dom (bitVecE w) (quote dom bE vE c)
             (quote dom bE vE a)
             (quote dom bE vE b)) hint false named) ctx inputs
@@ -287,13 +289,13 @@ theorem fuel_protects_leaves (fuel : Nat) {ctx : CompilerState} {inputs : FVarId
     | setw w' a =>
       rename_i w
       obtain ⟨ha, hpos⟩ := he
-      show ActionProtect (translateStepWith translateFallback
-        (translateFuelFix translateStep fuel)
+      show ActionProtect (translateStepWith (translateFallback tenv)
+        (translateFuelFix (translateStep tenv) fuel)
         (setwE dom w w' (quote dom bE vE a))
         hint false named) ctx inputs
       rw [setw_step _ _ _ _ _ (a.wf_pos ha) hpos]
       apply cached_protect (meaning_quote_leaves hb hv (.setw w' a) ⟨ha, hpos⟩)
-      show ActionProtect (translateSetWidthUncachedWith (translateFuelFix translateStep fuel) w w'
+      show ActionProtect (translateSetWidthUncachedWith (translateFuelFix (translateStep tenv) fuel) w w'
         (setwE dom w w' (quote dom bE vE a))
         hint false named) ctx inputs
       rw [setwUncached_setwE]
@@ -301,13 +303,13 @@ theorem fuel_protects_leaves (fuel : Nat) {ctx : CompilerState} {inputs : FVarId
     | slice nm start len a =>
       rename_i w
       obtain ⟨ha, hlen, hr⟩ := he
-      show ActionProtect (translateStepWith translateFallback
-        (translateFuelFix translateStep fuel)
+      show ActionProtect (translateStepWith (translateFallback tenv)
+        (translateFuelFix (translateStep tenv) fuel)
         (sliceE dom nm w start len (quote dom bE vE a))
         hint false named) ctx inputs
       rw [slice_step _ _ _ _ _ _ _ _ _ _ hlen hr]
       apply cached_protect (meaning_quote_leaves hb hv (.slice nm start len a) ⟨ha, hlen, hr⟩)
-      show ActionProtect (translateSliceUncachedWith (translateFuelFix translateStep fuel)
+      show ActionProtect (translateSliceUncachedWith (translateFuelFix (translateStep tenv) fuel)
         start len
         (sliceE dom nm w start len (quote dom bE vE a))
         hint false named) ctx inputs
@@ -317,14 +319,14 @@ theorem fuel_protects_leaves (fuel : Nat) {ctx : CompilerState} {inputs : FVarId
       rename_i m n
       have hab := he
       obtain ⟨ha, hb'⟩ := he
-      show ActionProtect (translateStepWith translateFallback
-        (translateFuelFix translateStep fuel)
+      show ActionProtect (translateStepWith (translateFallback tenv)
+        (translateFuelFix (translateStep tenv) fuel)
         (concatE dom m n (quote dom bE vE a)
           (quote dom bE vE b))
         hint false named) ctx inputs
       rw [concat_step _ _ _ _ _ _ _ _ _ (a.wf_pos ha) (b.wf_pos hb')]
       apply cached_protect (meaning_quote_leaves hb hv (.concat a b) hab)
-      show ActionProtect (translateConcatUncachedWith (translateFuelFix translateStep fuel) m n
+      show ActionProtect (translateConcatUncachedWith (translateFuelFix (translateStep tenv) fuel) m n
         (concatE dom m n (quote dom bE vE a)
           (quote dom bE vE b))
         hint false named) ctx inputs
@@ -336,13 +338,13 @@ theorem fuel_protects_leaves (fuel : Nat) {ctx : CompilerState} {inputs : FVarId
       rename_i n
       have hall := he
       obtain ⟨hb', hk, hlt⟩ := he
-      show ActionProtect (translateStepWith translateFallback
-        (translateFuelFix translateStep fuel)
+      show ActionProtect (translateStepWith (translateFallback tenv)
+        (translateFuelFix (translateStep tenv) fuel)
         (concatLitHiE dom k v n (quote dom bE vE b))
         hint false named) ctx inputs
       rw [concatLitHi_step _ _ _ _ _ _ _ _ _ hk hlt (b.wf_pos hb')]
       apply cached_protect (meaning_quote_leaves hb hv (.concatLitHi k v b) hall)
-      show ActionProtect (translateConcatLitUncachedWith (translateFuelFix translateStep fuel)
+      show ActionProtect (translateConcatLitUncachedWith (translateFuelFix (translateStep tenv) fuel)
         true k v n (concatLitHiE dom k v n (quote dom bE vE b))
         hint false named) ctx inputs
       rw [concatLitUncached_hiE]
@@ -352,13 +354,13 @@ theorem fuel_protects_leaves (fuel : Nat) {ctx : CompilerState} {inputs : FVarId
       rename_i m
       have hall := he
       obtain ⟨ha, hk, hlt⟩ := he
-      show ActionProtect (translateStepWith translateFallback
-        (translateFuelFix translateStep fuel)
+      show ActionProtect (translateStepWith (translateFallback tenv)
+        (translateFuelFix (translateStep tenv) fuel)
         (concatLitLoE dom m k v (quote dom bE vE a))
         hint false named) ctx inputs
       rw [concatLitLo_step _ _ _ _ _ _ _ _ _ hk hlt (a.wf_pos ha)]
       apply cached_protect (meaning_quote_leaves hb hv (.concatLitLo a k v) hall)
-      show ActionProtect (translateConcatLitUncachedWith (translateFuelFix translateStep fuel)
+      show ActionProtect (translateConcatLitUncachedWith (translateFuelFix (translateStep tenv) fuel)
         false k v m (concatLitLoE dom m k v (quote dom bE vE a))
         hint false named) ctx inputs
       rw [concatLitUncached_loE]
@@ -368,13 +370,13 @@ theorem fuel_protects_leaves (fuel : Nat) {ctx : CompilerState} {inputs : FVarId
       rename_i n
       have hall := he
       obtain ⟨ha, hk⟩ := he
-      show ActionProtect (translateStepWith translateFallback
-        (translateFuelFix translateStep fuel)
+      show ActionProtect (translateStepWith (translateFallback tenv)
+        (translateFuelFix (translateStep tenv) fuel)
         (zextMapE dom nm k n (quote dom bE vE a))
         hint false named) ctx inputs
       rw [zextMap_step _ _ _ _ _ _ _ _ _ hk (a.wf_pos ha)]
       apply cached_protect (meaning_quote_leaves hb hv (.zextMap nm k a) hall)
-      show ActionProtect (translateSetWidthUncachedWith (translateFuelFix translateStep fuel) n
+      show ActionProtect (translateSetWidthUncachedWith (translateFuelFix (translateStep tenv) fuel) n
         (k + n) (zextMapE dom nm k n (quote dom bE vE a))
         hint false named) ctx inputs
       rw [setwUncached_zextMapE]
@@ -382,13 +384,13 @@ theorem fuel_protects_leaves (fuel : Nat) {ctx : CompilerState} {inputs : FVarId
     | sliceF nm start len a =>
       rename_i w
       obtain ⟨ha, hlen, hr⟩ := he
-      show ActionProtect (translateStepWith translateFallback
-        (translateFuelFix translateStep fuel)
+      show ActionProtect (translateStepWith (translateFallback tenv)
+        (translateFuelFix (translateStep tenv) fuel)
         (sliceFE dom nm w start len (quote dom bE vE a))
         hint false named) ctx inputs
       rw [sliceF_step _ _ _ _ _ _ _ _ _ _ hlen hr]
       apply cached_protect (meaning_quote_leaves hb hv (.sliceF nm start len a) ⟨ha, hlen, hr⟩)
-      show ActionProtect (translateSliceFUncachedWith (translateFuelFix translateStep fuel)
+      show ActionProtect (translateSliceFUncachedWith (translateFuelFix (translateStep tenv) fuel)
         start len (sliceFE dom nm w start len (quote dom bE vE a))
         hint false named) ctx inputs
       rw [sliceFUncached_sliceFE]
@@ -401,23 +403,23 @@ theorem fuel_orders_leaves (fuel : Nat) {ctx : CompilerState} {inputs : FVarId �
     (hb : ∀ j, j < kb → Meaning inputs (bE j) (.bool (bools j)))
     (hv : ∀ j, j < kv → Meaning inputs (vE j) (.bits (vw j) (bits j (vw j))))
     (hbC : ∀ j, j < kb → ∀ (fuel : Nat) (we : WEnv) (mems : MEnv) (initial : Env),
-      Contract (translateFuelFix translateStep fuel) ctx inputs we mems initial
+      Contract (translateFuelFix (translateStep tenv) fuel) ctx inputs we mems initial
         (bE j) (.bool (bools j)))
     (hvC : ∀ j, j < kv → ∀ (fuel : Nat) (we : WEnv) (mems : MEnv) (initial : Env),
-      Contract (translateFuelFix translateStep fuel) ctx inputs we mems initial
+      Contract (translateFuelFix (translateStep tenv) fuel) ctx inputs we mems initial
         (vE j) (.bits (vw j) (bits j (vw j))))
     (hbP : ∀ j, j < kb → ∀ (fuel : Nat) (hint : String) (named : Bool),
-      ActionProtect (translateFuelFix translateStep fuel (bE j) hint false named) ctx inputs)
+      ActionProtect (translateFuelFix (translateStep tenv) fuel (bE j) hint false named) ctx inputs)
     (hvP : ∀ j, j < kv → ∀ (fuel : Nat) (hint : String) (named : Bool),
-      ActionProtect (translateFuelFix translateStep fuel (vE j) hint false named) ctx inputs)
+      ActionProtect (translateFuelFix (translateStep tenv) fuel (vE j) hint false named) ctx inputs)
     (hbO : ∀ j, j < kb → ∀ (fuel : Nat) (hint : String) (named : Bool),
-      ActionOrder (translateFuelFix translateStep fuel (bE j) hint false named)
+      ActionOrder (translateFuelFix (translateStep tenv) fuel (bE j) hint false named)
         ctx inputs we mems initial)
     (hvO : ∀ j, j < kv → ∀ (fuel : Nat) (hint : String) (named : Bool),
-      ActionOrder (translateFuelFix translateStep fuel (vE j) hint false named)
+      ActionOrder (translateFuelFix (translateStep tenv) fuel (vE j) hint false named)
         ctx inputs we mems initial) :
     ∀ {s : SType} (e : Term s), e.WF kb kv vw → ∀ hint named,
-      ActionOrder (translateFuelFix translateStep fuel
+      ActionOrder (translateFuelFix (translateStep tenv) fuel
         (quote dom bE vE e) hint false named)
         ctx inputs we mems initial := by
   induction fuel with
@@ -426,8 +428,8 @@ theorem fuel_orders_leaves (fuel : Nat) {ctx : CompilerState} {inputs : FVarId �
     exact (Returns.throw hr).elim
   | succ fuel ih =>
     intro s e he hint named
-    change ActionOrder (translateStepWith translateFallback
-      (translateFuelFix translateStep fuel) _ hint false named) _ _ _ _ _
+    change ActionOrder (translateStepWith (translateFallback tenv)
+      (translateFuelFix (translateStep tenv) fuel) _ hint false named) _ _ _ _ _
     cases e with
     | boolInput j => exact hbO j he (fuel + 1) hint named
     | bitsInput w j =>
@@ -442,42 +444,42 @@ theorem fuel_orders_leaves (fuel : Nat) {ctx : CompilerState} {inputs : FVarId �
       obtain ⟨ha, hb'⟩ := he
       have ck := op_checks op dom (quote dom bE vE a)
         (quote dom bE vE b) w
-      have ca : Child (translateFuelFix translateStep fuel) ctx inputs we mems initial
+      have ca : Child (translateFuelFix (translateStep tenv) fuel) ctx inputs we mems initial
           ((binE dom w op (quote dom bE vE a)
             (quote dom bE vE b)).getAppArgs[(binE dom w op (quote dom bE vE a)
             (quote dom bE vE b)).getAppArgs.size - 2]!)
           "op_a" (.bits w (eval bools bits a)) := by
         rw [ck.2.2.2.2.1]
         exact ((fuel_contract_leaves fuel hb hv (fun j hj f => hbC j hj f _ _ _) (fun j hj f => hvC j hj f _ _ _) a ha).child "op_a")
-      have cb : Child (translateFuelFix translateStep fuel) ctx inputs we mems initial
+      have cb : Child (translateFuelFix (translateStep tenv) fuel) ctx inputs we mems initial
           ((binE dom w op (quote dom bE vE a)
             (quote dom bE vE b)).getAppArgs[(binE dom w op (quote dom bE vE a)
             (quote dom bE vE b)).getAppArgs.size - 1]!)
           "op_b" (.bits w (eval bools bits b)) := by
         rw [ck.2.2.2.2.2.1]
         exact ((fuel_contract_leaves fuel hb hv (fun j hj f => hbC j hj f _ _ _) (fun j hj f => hvC j hj f _ _ _) b hb').child "op_b")
-      have pa : ActionProtect (translateFuelFix translateStep fuel
+      have pa : ActionProtect (translateFuelFix (translateStep tenv) fuel
           ((binE dom w op (quote dom bE vE a)
             (quote dom bE vE b)).getAppArgs[(binE dom w op (quote dom bE vE a)
             (quote dom bE vE b)).getAppArgs.size - 2]!)
           "op_a" false false) ctx inputs := by
         rw [ck.2.2.2.2.1]
         exact fuel_protects_leaves fuel hb hv hbC hvC hbP hvP a ha "op_a" false
-      have pb : ActionProtect (translateFuelFix translateStep fuel
+      have pb : ActionProtect (translateFuelFix (translateStep tenv) fuel
           ((binE dom w op (quote dom bE vE a)
             (quote dom bE vE b)).getAppArgs[(binE dom w op (quote dom bE vE a)
             (quote dom bE vE b)).getAppArgs.size - 1]!)
           "op_b" false false) ctx inputs := by
         rw [ck.2.2.2.2.2.1]
         exact fuel_protects_leaves fuel hb hv hbC hvC hbP hvP b hb' "op_b" false
-      have oa : ActionOrder (translateFuelFix translateStep fuel
+      have oa : ActionOrder (translateFuelFix (translateStep tenv) fuel
           ((binE dom w op (quote dom bE vE a)
             (quote dom bE vE b)).getAppArgs[(binE dom w op (quote dom bE vE a)
             (quote dom bE vE b)).getAppArgs.size - 2]!)
           "op_a" false false) ctx inputs we mems initial := by
         rw [ck.2.2.2.2.1]
         exact ih a ha "op_a" false
-      have ob : ActionOrder (translateFuelFix translateStep fuel
+      have ob : ActionOrder (translateFuelFix (translateStep tenv) fuel
           ((binE dom w op (quote dom bE vE a)
             (quote dom bE vE b)).getAppArgs[(binE dom w op (quote dom bE vE a)
             (quote dom bE vE b)).getAppArgs.size - 1]!)
@@ -488,8 +490,8 @@ theorem fuel_orders_leaves (fuel : Nat) {ctx : CompilerState} {inputs : FVarId �
     | compare le a b =>
       rename_i w
       obtain ⟨ha, hb'⟩ := he
-      show ActionOrder (translateStepWith translateFallback
-        (translateFuelFix translateStep fuel)
+      show ActionOrder (translateStepWith (translateFallback tenv)
+        (translateFuelFix (translateStep tenv) fuel)
         (compareE le dom w (quote dom bE vE a)
           (quote dom bE vE b))
         hint false named) ctx inputs we mems initial
@@ -502,8 +504,8 @@ theorem fuel_orders_leaves (fuel : Nat) {ctx : CompilerState} {inputs : FVarId �
         (ih a ha "a" false) (ih b hb' "b" false)
     | boolBinary kind a b =>
       obtain ⟨ha, hb'⟩ := he
-      show ActionOrder (translateStepWith translateFallback
-        (translateFuelFix translateStep fuel)
+      show ActionOrder (translateStepWith (translateFallback tenv)
+        (translateFuelFix (translateStep tenv) fuel)
         (boolBinE kind dom (quote dom bE vE a)
           (quote dom bE vE b))
         hint false named) ctx inputs we mems initial
@@ -517,8 +519,8 @@ theorem fuel_orders_leaves (fuel : Nat) {ctx : CompilerState} {inputs : FVarId �
     | appCompare le a b =>
       rename_i w
       obtain ⟨ha, hb'⟩ := he
-      show ActionOrder (translateStepWith translateFallback
-        (translateFuelFix translateStep fuel)
+      show ActionOrder (translateStepWith (translateFallback tenv)
+        (translateFuelFix (translateStep tenv) fuel)
         (appCompareE le dom w (quote dom bE vE a)
           (quote dom bE vE b))
         hint false named) ctx inputs we mems initial
@@ -532,8 +534,8 @@ theorem fuel_orders_leaves (fuel : Nat) {ctx : CompilerState} {inputs : FVarId �
         (ih a ha "app_arg" false) (ih b hb' "app_arg" false)
     | appBool kind a b =>
       obtain ⟨ha, hb'⟩ := he
-      show ActionOrder (translateStepWith translateFallback
-        (translateFuelFix translateStep fuel)
+      show ActionOrder (translateStepWith (translateFallback tenv)
+        (translateFuelFix (translateStep tenv) fuel)
         (appBoolE kind dom (quote dom bE vE a)
           (quote dom bE vE b))
         hint false named) ctx inputs we mems initial
@@ -547,8 +549,8 @@ theorem fuel_orders_leaves (fuel : Nat) {ctx : CompilerState} {inputs : FVarId �
         (ih a ha "app_arg" false) (ih b hb' "app_arg" false)
     | appBool2 f a b =>
       obtain ⟨ha, hb'⟩ := he
-      show ActionOrder (translateStepWith translateFallback
-        (translateFuelFix translateStep fuel)
+      show ActionOrder (translateStepWith (translateFallback tenv)
+        (translateFuelFix (translateStep tenv) fuel)
         (appBool2E f dom (quote dom bE vE a)
           (quote dom bE vE b))
         hint false named) ctx inputs we mems initial
@@ -561,13 +563,13 @@ theorem fuel_orders_leaves (fuel : Nat) {ctx : CompilerState} {inputs : FVarId �
         ((fuel_contract_leaves fuel hb hv (fun j hj f => hbC j hj f _ _ _) (fun j hj f => hvC j hj f _ _ _) b hb').child "app_arg")
         (ih a ha "app_arg" false) (ih b hb' "app_arg" false)
     | boolNot a =>
-      show ActionOrder (translateStepWith translateFallback
-        (translateFuelFix translateStep fuel)
+      show ActionOrder (translateStepWith (translateFallback tenv)
+        (translateFuelFix (translateStep tenv) fuel)
         (boolNotE dom (quote dom bE vE a))
         hint false named) ctx inputs we mems initial
       rw [boolNot_step, translateFallback_bool _ _ hint false named rfl]
       apply cached_order
-      show ActionOrder (translateSignalCompare (translateFuelFix translateStep fuel) .eq
+      show ActionOrder (translateSignalCompare (translateFuelFix (translateStep tenv) fuel) .eq
         (quote dom bE vE a)
         (mkApp3 (.const ``Sparkle.Core.Signal.Signal.pure [.zero]) dom (.const ``Bool [])
           (.const ``Bool.false [])) hint named) _ _ _ _ _
@@ -576,14 +578,14 @@ theorem fuel_orders_leaves (fuel : Nat) {ctx : CompilerState} {inputs : FVarId �
         (ih a he "a" false) (ih (.boolLit false) trivial "b" false)
     | boolEq a b =>
       obtain ⟨ha, hb'⟩ := he
-      show ActionOrder (translateStepWith translateFallback
-        (translateFuelFix translateStep fuel)
+      show ActionOrder (translateStepWith (translateFallback tenv)
+        (translateFuelFix (translateStep tenv) fuel)
         (boolEqE dom (quote dom bE vE a)
           (quote dom bE vE b))
         hint false named) ctx inputs we mems initial
       rw [boolEq_step, translateFallback_bool _ _ hint false named rfl]
       apply cached_order
-      show ActionOrder (translateSignalCompare (translateFuelFix translateStep fuel) .eq
+      show ActionOrder (translateSignalCompare (translateFuelFix (translateStep tenv) fuel) .eq
         (quote dom bE vE a)
         (quote dom bE vE b) hint named) _ _ _ _ _
       exact compare_order ((fuel_contract_leaves fuel hb hv (fun j hj f => hbC j hj f _ _ _) (fun j hj f => hvC j hj f _ _ _) a ha).child "a")
@@ -593,30 +595,30 @@ theorem fuel_orders_leaves (fuel : Nat) {ctx : CompilerState} {inputs : FVarId �
       obtain ⟨hc, ha, hb'⟩ := he
       cases s with
       | bool =>
-        show ActionOrder (translateStepWith translateFallback
-          (translateFuelFix translateStep fuel)
+        show ActionOrder (translateStepWith (translateFallback tenv)
+          (translateFuelFix (translateStep tenv) fuel)
           (boolMuxE dom (quote dom bE vE c)
             (quote dom bE vE a)
             (quote dom bE vE b))
           hint false named) ctx inputs we mems initial
         rw [boolMux_step, translateFallback_bool _ _ hint false named rfl]
         apply cached_order
-        show ActionOrder (translateMuxWith (translateFuelFix translateStep fuel) (pure .bit)
+        show ActionOrder (translateMuxWith (translateFuelFix (translateStep tenv) fuel) (pure .bit)
           _ _ _ hint named) _ _ _ _ _
         exact mux_order ((fuel_contract_leaves fuel hb hv (fun j hj f => hbC j hj f _ _ _) (fun j hj f => hvC j hj f _ _ _) c hc).child "mux_cond")
           ((fuel_contract_leaves fuel hb hv (fun j hj f => hbC j hj f _ _ _) (fun j hj f => hvC j hj f _ _ _) a ha).child "mux_then")
           ((fuel_contract_leaves fuel hb hv (fun j hj f => hbC j hj f _ _ _) (fun j hj f => hvC j hj f _ _ _) b hb').child "mux_else")
           (ih c hc "mux_cond" false) (ih a ha "mux_then" false) (ih b hb' "mux_else" false)
       | bits w =>
-        show ActionOrder (translateStepWith translateFallback
-          (translateFuelFix translateStep fuel)
+        show ActionOrder (translateStepWith (translateFallback tenv)
+          (translateFuelFix (translateStep tenv) fuel)
           (muxE dom (bitVecE w) (quote dom bE vE c)
             (quote dom bE vE a)
             (quote dom bE vE b))
           hint false named) ctx inputs we mems initial
         rw [vector_step]
         apply cached_order
-        show ActionOrder (translateVectorMuxUncachedWith (translateFuelFix translateStep fuel) w
+        show ActionOrder (translateVectorMuxUncachedWith (translateFuelFix (translateStep tenv) fuel) w
           (muxE dom (bitVecE w) (quote dom bE vE c)
             (quote dom bE vE a)
             (quote dom bE vE b)) hint false named)
@@ -629,13 +631,13 @@ theorem fuel_orders_leaves (fuel : Nat) {ctx : CompilerState} {inputs : FVarId �
     | setw w' a =>
       rename_i w
       obtain ⟨ha, hpos⟩ := he
-      show ActionOrder (translateStepWith translateFallback
-        (translateFuelFix translateStep fuel)
+      show ActionOrder (translateStepWith (translateFallback tenv)
+        (translateFuelFix (translateStep tenv) fuel)
         (setwE dom w w' (quote dom bE vE a))
         hint false named) ctx inputs we mems initial
       rw [setw_step _ _ _ _ _ (a.wf_pos ha) hpos]
       apply cached_order
-      show ActionOrder (translateSetWidthUncachedWith (translateFuelFix translateStep fuel) w w'
+      show ActionOrder (translateSetWidthUncachedWith (translateFuelFix (translateStep tenv) fuel) w w'
         (setwE dom w w' (quote dom bE vE a))
         hint false named) ctx inputs we mems initial
       rw [setwUncached_setwE]
@@ -643,13 +645,13 @@ theorem fuel_orders_leaves (fuel : Nat) {ctx : CompilerState} {inputs : FVarId �
     | slice nm start len a =>
       rename_i w
       obtain ⟨ha, hlen, hr⟩ := he
-      show ActionOrder (translateStepWith translateFallback
-        (translateFuelFix translateStep fuel)
+      show ActionOrder (translateStepWith (translateFallback tenv)
+        (translateFuelFix (translateStep tenv) fuel)
         (sliceE dom nm w start len (quote dom bE vE a))
         hint false named) ctx inputs we mems initial
       rw [slice_step _ _ _ _ _ _ _ _ _ _ hlen hr]
       apply cached_order
-      show ActionOrder (translateSliceUncachedWith (translateFuelFix translateStep fuel)
+      show ActionOrder (translateSliceUncachedWith (translateFuelFix (translateStep tenv) fuel)
         start len
         (sliceE dom nm w start len (quote dom bE vE a))
         hint false named) ctx inputs we mems initial
@@ -658,14 +660,14 @@ theorem fuel_orders_leaves (fuel : Nat) {ctx : CompilerState} {inputs : FVarId �
     | concat a b =>
       rename_i m n
       obtain ⟨ha, hb'⟩ := he
-      show ActionOrder (translateStepWith translateFallback
-        (translateFuelFix translateStep fuel)
+      show ActionOrder (translateStepWith (translateFallback tenv)
+        (translateFuelFix (translateStep tenv) fuel)
         (concatE dom m n (quote dom bE vE a)
           (quote dom bE vE b))
         hint false named) ctx inputs we mems initial
       rw [concat_step _ _ _ _ _ _ _ _ _ (a.wf_pos ha) (b.wf_pos hb')]
       apply cached_order
-      show ActionOrder (translateConcatUncachedWith (translateFuelFix translateStep fuel) m n
+      show ActionOrder (translateConcatUncachedWith (translateFuelFix (translateStep tenv) fuel) m n
         (concatE dom m n (quote dom bE vE a)
           (quote dom bE vE b))
         hint false named) ctx inputs we mems initial
@@ -678,13 +680,13 @@ theorem fuel_orders_leaves (fuel : Nat) {ctx : CompilerState} {inputs : FVarId �
     | concatLitHi k v b =>
       rename_i n
       obtain ⟨hb', hk, hlt⟩ := he
-      show ActionOrder (translateStepWith translateFallback
-        (translateFuelFix translateStep fuel)
+      show ActionOrder (translateStepWith (translateFallback tenv)
+        (translateFuelFix (translateStep tenv) fuel)
         (concatLitHiE dom k v n (quote dom bE vE b))
         hint false named) ctx inputs we mems initial
       rw [concatLitHi_step _ _ _ _ _ _ _ _ _ hk hlt (b.wf_pos hb')]
       apply cached_order
-      show ActionOrder (translateConcatLitUncachedWith (translateFuelFix translateStep fuel)
+      show ActionOrder (translateConcatLitUncachedWith (translateFuelFix (translateStep tenv) fuel)
         true k v n (concatLitHiE dom k v n (quote dom bE vE b))
         hint false named) ctx inputs we mems initial
       rw [concatLitUncached_hiE]
@@ -695,13 +697,13 @@ theorem fuel_orders_leaves (fuel : Nat) {ctx : CompilerState} {inputs : FVarId �
     | concatLitLo a k v =>
       rename_i m
       obtain ⟨ha, hk, hlt⟩ := he
-      show ActionOrder (translateStepWith translateFallback
-        (translateFuelFix translateStep fuel)
+      show ActionOrder (translateStepWith (translateFallback tenv)
+        (translateFuelFix (translateStep tenv) fuel)
         (concatLitLoE dom m k v (quote dom bE vE a))
         hint false named) ctx inputs we mems initial
       rw [concatLitLo_step _ _ _ _ _ _ _ _ _ hk hlt (a.wf_pos ha)]
       apply cached_order
-      show ActionOrder (translateConcatLitUncachedWith (translateFuelFix translateStep fuel)
+      show ActionOrder (translateConcatLitUncachedWith (translateFuelFix (translateStep tenv) fuel)
         false k v m (concatLitLoE dom m k v (quote dom bE vE a))
         hint false named) ctx inputs we mems initial
       rw [concatLitUncached_loE]
@@ -712,13 +714,13 @@ theorem fuel_orders_leaves (fuel : Nat) {ctx : CompilerState} {inputs : FVarId �
     | zextMap nm k a =>
       rename_i n
       obtain ⟨ha, hk⟩ := he
-      show ActionOrder (translateStepWith translateFallback
-        (translateFuelFix translateStep fuel)
+      show ActionOrder (translateStepWith (translateFallback tenv)
+        (translateFuelFix (translateStep tenv) fuel)
         (zextMapE dom nm k n (quote dom bE vE a))
         hint false named) ctx inputs we mems initial
       rw [zextMap_step _ _ _ _ _ _ _ _ _ hk (a.wf_pos ha)]
       apply cached_order
-      show ActionOrder (translateSetWidthUncachedWith (translateFuelFix translateStep fuel) n
+      show ActionOrder (translateSetWidthUncachedWith (translateFuelFix (translateStep tenv) fuel) n
         (k + n) (zextMapE dom nm k n (quote dom bE vE a))
         hint false named) ctx inputs we mems initial
       rw [setwUncached_zextMapE]
@@ -726,13 +728,13 @@ theorem fuel_orders_leaves (fuel : Nat) {ctx : CompilerState} {inputs : FVarId �
     | sliceF nm start len a =>
       rename_i w
       obtain ⟨ha, hlen, hr⟩ := he
-      show ActionOrder (translateStepWith translateFallback
-        (translateFuelFix translateStep fuel)
+      show ActionOrder (translateStepWith (translateFallback tenv)
+        (translateFuelFix (translateStep tenv) fuel)
         (sliceFE dom nm w start len (quote dom bE vE a))
         hint false named) ctx inputs we mems initial
       rw [sliceF_step _ _ _ _ _ _ _ _ _ _ hlen hr]
       apply cached_order
-      show ActionOrder (translateSliceFUncachedWith (translateFuelFix translateStep fuel)
+      show ActionOrder (translateSliceFUncachedWith (translateFuelFix (translateStep tenv) fuel)
         start len (sliceFE dom nm w start len (quote dom bE vE a))
         hint false named) ctx inputs we mems initial
       rw [sliceFUncached_sliceFE]

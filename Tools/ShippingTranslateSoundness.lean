@@ -2,6 +2,8 @@ import Tools.ShippingAllocationSoundness
 import Sparkle.IR.OptCheck
 import Tools.ShippingBindingsSoundness
 
+variable {tenv : Lean.Environment}
+
 /-! # Success and semantic preservation of the SHIPPING translator
 
 This file fixes the formal shape of the goal "the existing compiler, when it
@@ -1136,12 +1138,12 @@ theorem translateExprToWire_sound {ctx : CompilerState} {we : WEnv} {mems : MEnv
     {initial : Env} {ρ : Valuation} {e : Lean.Expr} {hint : String} {named : Bool}
     {n : Nat} {x : BitVec n} {s0 : CircuitState} {env0 : Env} {w : String} {s1 : CircuitState}
     (hden : Denotes ρ e n x)
-    (hrun : Returns (translateExprToWire e hint false named) ctx s0 w s1)
+    (hrun : Returns (translateExprToWire tenv e hint false named) ctx s0 w s1)
     (hinv : Inv ctx ρ we mems initial s0 env0) (hw : WidthsAgree we s1) :
     ∃ env1, Inv ctx ρ we mems initial s1 env1 ∧
       (∀ z, s0.usedNames.contains z = true → env1 z = env0 z) ∧
       s1.usedNames.contains w = true ∧ we w = n ∧ env1 w = x.toNat :=
-  (translateFuelFix_spec (step := translateStep) (fun _ ih => translateStepWith_spec ih)
+  (translateFuelFix_spec (step := (translateStep tenv)) (fun _ ih => translateStepWith_spec ih)
     translateFuelLimit).sem e hint named n x s0 env0 w s1 hden hrun hinv hw
 
 end Tools.ShippingTranslateSoundness

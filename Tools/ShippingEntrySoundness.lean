@@ -1,5 +1,7 @@
 import Tools.ShippingPendingSoundness
 
+variable {tenv : Lean.Environment}
+
 /-! # Synthesis success and semantic preservation at the ENTRY
 
 `Tools.ShippingTranslateSoundness` proves the real translator
@@ -617,10 +619,10 @@ fuel induction). -/
 theorem translateExprToWire_grows {ctx : CompilerState} {ρ : Valuation} {e : Lean.Expr}
     {hint : String} {named : Bool} {n : Nat} {x : BitVec n} {s0 : CircuitState} {w : String}
     {s1 : CircuitState} (hden : Denotes ρ e n x)
-    (hrun : Returns (translateExprToWire e hint false named) ctx s0 w s1)
+    (hrun : Returns (translateExprToWire tenv e hint false named) ctx s0 w s1)
     (hbl : BoundLookup ctx ρ s0) :
     Grows s0 s1 ∧ s1.sourceBindings = s0.sourceBindings ∧ RecordFresh s0 s1 ∧ Emits n s0 s1 :=
-  (translateFuelFix_spec (step := translateStep) (we := fun _ => 0) (mems := fun _ _ => 0)
+  (translateFuelFix_spec (step := (translateStep tenv)) (we := fun _ => 0) (mems := fun _ _ => 0)
     (initial := fun _ => 0) (fun _ ih => translateStepWith_spec ih)
     translateFuelLimit).grows e hint named n x s0 w s1 hden hrun hbl
 
@@ -669,7 +671,7 @@ def Preserves (bs : List (Name × GateBinder)) (body : Lean.Expr)
 
 theorem synthesizeCertified_sound {logProf : String → IO Unit} {declName : Name}
     {bs : List (Name × GateBinder)} {body : Lean.Expr} {M : Sparkle.IR.AST.Module} {D : Design}
-    (h : MReturns (synthesizeCertified (fun e h t n => translateExprToWire e h t n) logProf
+    (h : MReturns (synthesizeCertified (fun e h t n => translateExprToWire tenv e h t n) logProf
       declName bs body) (M, D)) :
     Preserves bs body M := by
   unfold synthesizeCertified at h
@@ -1014,7 +1016,7 @@ elab "peel_ite " h:ident : tactic => do
 theorem synthesizeFromConst_sound {logProf : String → IO Unit} {declName : Name}
     {ci : ConstantInfo} {isInst : Lean.Expr → Bool}
     {M : Sparkle.IR.AST.Module} {D : Design}
-    (h : MReturns (synthesizeFromConst (fun e h t n => translateExprToWire e h t n) logProf
+    (h : MReturns (synthesizeFromConst (fun e h t n => translateExprToWire tenv e h t n) logProf
       declName [] false true ci isInst) (M, D)) :
     CertifiedOutcome ci M := by
   intro bs body hshape
@@ -1094,7 +1096,7 @@ theorem synthesizeCombinationalCore_reads {declName : Name} {mctx : Meta.Context
       (w1 w2 w3 w4 w5 w6 : Void IO.RealWorld),
       RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧
       RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w5 envR w6 ∧
-      RunsTo (synthesizeFromConst (fun e h t n => translateExprToWire e h t n) logProf
+      RunsTo (synthesizeFromConst (fun e h t n => translateExprToWire envR e h t n) logProf
         declName [] false true
         (entryConst true false [] ci (Sparkle.Compiler.Elab.instancePredicate envR)
           (userInliner envR) (structEnv envR))
@@ -1134,10 +1136,10 @@ theorem entry_kept {logProf : String → IO Unit} {declName : Name} {ci : Consta
     {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
     {r : Sparkle.IR.AST.Module × Design}
     (shape : mixedCertifiedShape? false [] ci isInst = some (bs, body))
-    (run : RunsTo (synthesizeFromConst (fun e h t n => translateExprToWire e h t n) logProf
+    (run : RunsTo (synthesizeFromConst (fun e h t n => translateExprToWire tenv e h t n) logProf
       declName [] false true (entryConst true false [] ci isInst inl projs) isInst)
       mctx mref cctx cref w r w') :
-    RunsTo (synthesizeFromConst (fun e h t n => translateExprToWire e h t n) logProf
+    RunsTo (synthesizeFromConst (fun e h t n => translateExprToWire tenv e h t n) logProf
       declName [] false true ci isInst) mctx mref cctx cref w r w' := by
   rw [entryConst_mixed shape] at run
   exact run

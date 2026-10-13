@@ -1,5 +1,7 @@
 import Tools.ShippingUnifiedInvariant
 
+variable {tenv : Lean.Environment}
+
 /-! Recursive translation contracts for the unified Bool/BitVec source domain.
 Each node of the actual shipping fuel translator preserves the unified
 invariant; the reserved-parent hypotheses of `Inv.emit_reserved` are derived
@@ -156,7 +158,7 @@ theorem emit_vector_outcome {ctx inputs we mems initial s t prior cw aw bw hint 
 /-- Input leaves for either sort in one case: the real fvar step returns the
 prepared binding without touching the state. -/
 theorem input_contract {rec ctx inputs we mems initial id v} (hi : inputs id = some v) :
-    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial (.fvar id) v := by
+    Contract (translateStepWith (translateFallback tenv) rec) ctx inputs we mems initial (.fvar id) v := by
   constructor
   · intro hint top named s t w lookup hr
     obtain ⟨z, bound, _⟩ := lookup.lookup id v hi
@@ -212,11 +214,11 @@ theorem literal_fresh {ctx inputs we mems initial hint named} (b : Bool) :
   cases b <;> simpa [encodeBool] using he
 
 theorem bool_literal_contract {rec ctx inputs we mems initial dom} (b : Bool) :
-    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial
+    Contract (translateStepWith (translateFallback tenv) rec) ctx inputs we mems initial
       (literalE dom b) (.bool b) := by
   have meaning : Meaning inputs (literalE dom b) (.bool b) := .value (view_boolLit dom b)
   have fallback : ∀ hint top named, ActionSpec
-      (translateFallback rec (literalE dom b) hint top named) ctx inputs we mems initial (.bool b) := by
+      ((translateFallback tenv) rec (literalE dom b) hint top named) ctx inputs we mems initial (.bool b) := by
     intro hint top named
     rw [translateFallback_bool rec _ hint top named (by cases b <;> rfl)]
     apply cached_action meaning
@@ -340,7 +342,7 @@ theorem bits_literal_recorded {ctx inputs we mems initial s t prior e us hint na
 /-- The full step for a quoted BitVec literal, through both cache layers. -/
 theorem bits_literal_contract {rec ctx inputs we mems initial dom n v}
     {vi : Nat → Lean.Expr} (hn : 0 < n) (hv : v < 2 ^ n) :
-    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial
+    Contract (translateStepWith (translateFallback tenv) rec) ctx inputs we mems initial
       (quoteF dom n vi (.lit v)) (.bits n (BitVec.ofNat n v)) := by
   have fn : (quoteF dom n vi (.lit v)).getAppFn =
       .const ``Sparkle.Core.Signal.Signal.pure [.zero] := rfl
@@ -392,7 +394,7 @@ theorem bits_literal_contract {rec ctx inputs we mems initial dom n v}
 /-- The same step for a numeric literal (`Signal.pure 5` at the `OfNat` instance). -/
 theorem num_literal_contract {rec ctx inputs we mems initial dom n v}
     (hn : 0 < n) (hv : v < 2 ^ n) :
-    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial
+    Contract (translateStepWith (translateFallback tenv) rec) ctx inputs we mems initial
       (numSigE dom n v) (.bits n (BitVec.ofNat n v)) := by
   have fn : (numSigE dom n v).getAppFn =
       .const ``Sparkle.Core.Signal.Signal.pure [.zero] := rfl
@@ -580,7 +582,7 @@ theorem binary_contract {rec ctx inputs we mems initial e m us n}
     (meaning : Meaning inputs e (.bits n (op.apply x y)))
     (ca : Child rec ctx inputs we mems initial e.getAppArgs[e.getAppArgs.size - 2]! "op_a" (.bits n x))
     (cb : Child rec ctx inputs we mems initial e.getAppArgs[e.getAppArgs.size - 1]! "op_b" (.bits n y)) :
-    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial e
+    Contract (translateStepWith (translateFallback tenv) rec) ctx inputs we mems initial e
       (.bits n (op.apply x y)) := by
   have nf := isFVar_false_of_const fn
   constructor
@@ -671,10 +673,10 @@ theorem compare_contract {rec ctx inputs we mems initial dom ae be n le}
     (meaning : Meaning inputs (compareE le dom n ae be) (.bool (compareValue le x y)))
     (ca : Child rec ctx inputs we mems initial ae "a" (.bits n x))
     (cb : Child rec ctx inputs we mems initial be "b" (.bits n y)) :
-    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial
+    Contract (translateStepWith (translateFallback tenv) rec) ctx inputs we mems initial
       (compareE le dom n ae be) (.bool (compareValue le x y)) := by
   have step : ∀ hint top named, ActionSpec
-      (translateStepWith translateFallback rec (compareE le dom n ae be)
+      (translateStepWith (translateFallback tenv) rec (compareE le dom n ae be)
         hint top named) ctx inputs we mems initial (.bool (compareValue le x y)) := by
     intro hint top named
     rw [compare_step, translateFallback_bool rec _ hint top named (by cases le <;> rfl)]
@@ -730,10 +732,10 @@ theorem boolBin_contract {rec ctx inputs we mems initial dom ae be}
     (meaning : Meaning inputs (boolBinE kind dom ae be) (.bool (boolBinValue kind a b)))
     (ca : Child rec ctx inputs we mems initial ae "a" (.bool a))
     (cb : Child rec ctx inputs we mems initial be "b" (.bool b)) :
-    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial
+    Contract (translateStepWith (translateFallback tenv) rec) ctx inputs we mems initial
       (boolBinE kind dom ae be) (.bool (boolBinValue kind a b)) := by
   have step : ∀ hint top named, ActionSpec
-      (translateStepWith translateFallback rec (boolBinE kind dom ae be) hint top named)
+      (translateStepWith (translateFallback tenv) rec (boolBinE kind dom ae be) hint top named)
       ctx inputs we mems initial (.bool (boolBinValue kind a b)) := by
     intro hint top named
     rw [boolBin_step, translateFallback_bool rec _ hint top named (by cases kind <;> rfl)]
@@ -748,10 +750,10 @@ theorem boolEq_contract {rec ctx inputs we mems initial dom ae be}
     (meaning : Meaning inputs (boolEqE dom ae be) (.bool (a == b)))
     (ca : Child rec ctx inputs we mems initial ae "a" (.bool a))
     (cb : Child rec ctx inputs we mems initial be "b" (.bool b)) :
-    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial
+    Contract (translateStepWith (translateFallback tenv) rec) ctx inputs we mems initial
       (boolEqE dom ae be) (.bool (a == b)) := by
   have step : ∀ hint top named, ActionSpec
-      (translateStepWith translateFallback rec (boolEqE dom ae be) hint top named)
+      (translateStepWith (translateFallback tenv) rec (boolEqE dom ae be) hint top named)
       ctx inputs we mems initial (.bool (a == b)) := by
     intro hint top named
     rw [boolEq_step, translateFallback_bool rec _ hint top named rfl]
@@ -772,10 +774,10 @@ theorem boolNot_contract {rec ctx inputs we mems initial dom ae}
     (cb : Child rec ctx inputs we mems initial
       (mkApp3 (.const ``Sparkle.Core.Signal.Signal.pure [.zero]) dom (.const ``Bool [])
         (.const ``Bool.false [])) "b" (.bool false)) :
-    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial
+    Contract (translateStepWith (translateFallback tenv) rec) ctx inputs we mems initial
       (boolNotE dom ae) (.bool (!a)) := by
   have step : ∀ hint top named, ActionSpec
-      (translateStepWith translateFallback rec (boolNotE dom ae) hint top named)
+      (translateStepWith (translateFallback tenv) rec (boolNotE dom ae) hint top named)
       ctx inputs we mems initial (.bool (!a)) := by
     intro hint top named
     rw [boolNot_step, translateFallback_bool rec _ hint top named rfl]
@@ -855,10 +857,10 @@ theorem mux_contract {rec ctx inputs we mems initial dom ce ae be}
     (cc : Child rec ctx inputs we mems initial ce "mux_cond" (.bool c))
     (ca : Child rec ctx inputs we mems initial ae "mux_then" (.bool a))
     (cb : Child rec ctx inputs we mems initial be "mux_else" (.bool b)) :
-    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial
+    Contract (translateStepWith (translateFallback tenv) rec) ctx inputs we mems initial
       (boolMuxE dom ce ae be) (.bool (if c then a else b)) := by
   have step : ∀ hint top named, ActionSpec
-      (translateStepWith translateFallback rec (boolMuxE dom ce ae be) hint top named)
+      (translateStepWith (translateFallback tenv) rec (boolMuxE dom ce ae be) hint top named)
       ctx inputs we mems initial (.bool (if c then a else b)) := by
     intro hint top named
     rw [boolMux_step, translateFallback_bool rec _ hint top named rfl]
@@ -935,10 +937,10 @@ theorem vector_contract {rec ctx inputs we mems initial dom ce ae be n}
     (cc : Child rec ctx inputs we mems initial ce "mux_cond" (.bool c))
     (ca : Child rec ctx inputs we mems initial ae "mux_then" (.bits n a))
     (cb : Child rec ctx inputs we mems initial be "mux_else" (.bits n b)) :
-    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial
+    Contract (translateStepWith (translateFallback tenv) rec) ctx inputs we mems initial
       (muxE dom (bitVecE n) ce ae be) (.bits n (if c then a else b)) := by
   have step : ∀ hint top named, ActionSpec
-      (translateStepWith translateFallback rec (muxE dom (bitVecE n) ce ae be) hint top named)
+      (translateStepWith (translateFallback tenv) rec (muxE dom (bitVecE n) ce ae be) hint top named)
       ctx inputs we mems initial (.bits n (if c then a else b)) := by
     intro hint top named
     rw [vector_step]
@@ -1079,7 +1081,7 @@ theorem canonicalSetWidth?_setwE (dom ae : Lean.Expr) {ws wt : Nat}
 set_option maxHeartbeats 1000000 in
 theorem setw_step (rec : TranslateFn) (dom ae : Lean.Expr) (ws wt : Nat)
     (hws : 0 < ws) (hwt : 0 < wt) (hint : String) (top named : Bool) :
-    translateStepWith translateFallback rec (setwE dom ws wt ae) hint top named =
+    translateStepWith (translateFallback tenv) rec (setwE dom ws wt ae) hint top named =
       translateControlCachedWith (translateSetWidthUncachedWith rec ws wt)
         (setwE dom ws wt ae) hint top named := by
   have shape : translateCoreShape (setwE dom ws wt ae) = false := rfl
@@ -1088,8 +1090,8 @@ theorem setw_step (rec : TranslateFn) (dom ae : Lean.Expr) (ws wt : Nat)
   have mux : canonicalMuxType? (setwE dom ws wt ae) = none := rfl
   have setw : canonicalSetWidth? (setwE dom ws wt ae) = some (ws, wt, ae) :=
     canonicalSetWidth?_setwE dom ae hws hwt
-  have step : translateStepWith translateFallback rec (setwE dom ws wt ae) hint top named =
-      translateFallback rec (setwE dom ws wt ae) hint top named := by
+  have step : translateStepWith (translateFallback tenv) rec (setwE dom ws wt ae) hint top named =
+      (translateFallback tenv) rec (setwE dom ws wt ae) hint top named := by
     simp [translateStepWith, shape, core]
     rfl
   rw [step]
@@ -1099,10 +1101,10 @@ theorem setw_contract {rec ctx inputs we mems initial dom ae} {ws wt : Nat} {x :
     (hws : 0 < ws) (hwt : 0 < wt)
     (meaning : Meaning inputs (setwE dom ws wt ae) (.bits wt (BitVec.setWidth wt x)))
     (ca : Child rec ctx inputs we mems initial ae "s" (.bits ws x)) :
-    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial
+    Contract (translateStepWith (translateFallback tenv) rec) ctx inputs we mems initial
       (setwE dom ws wt ae) (.bits wt (BitVec.setWidth wt x)) := by
   have step : ∀ hint top named, ActionSpec
-      (translateStepWith translateFallback rec (setwE dom ws wt ae) hint top named)
+      (translateStepWith (translateFallback tenv) rec (setwE dom ws wt ae) hint top named)
       ctx inputs we mems initial (.bits wt (BitVec.setWidth wt x)) := by
     intro hint top named
     rw [setw_step rec dom ae ws wt hws hwt]
@@ -1246,7 +1248,7 @@ set_option maxHeartbeats 1000000 in
 theorem slice_step (rec : TranslateFn) (dom ae : Lean.Expr) (nm : Lean.Name)
     (ws start len : Nat) (hint : String) (top named : Bool)
     (hlen : 0 < len) (hr : start + len ≤ ws) :
-    translateStepWith translateFallback rec (sliceE dom nm ws start len ae) hint top named =
+    translateStepWith (translateFallback tenv) rec (sliceE dom nm ws start len ae) hint top named =
       translateControlCachedWith (translateSliceUncachedWith rec start len)
         (sliceE dom nm ws start len ae) hint top named := by
   have shape : translateCoreShape (sliceE dom nm ws start len ae) = false := rfl
@@ -1261,8 +1263,8 @@ theorem slice_step (rec : TranslateFn) (dom ae : Lean.Expr) (nm : Lean.Name)
   have cdo2 : canonicalCircuitDo2? (sliceE dom nm ws start len ae) = none := rfl
   have mem : canonicalMemory? (sliceE dom nm ws start len ae) = none := rfl
   have sl := canonicalSlice?_sliceE dom nm ae hlen hr
-  have step : translateStepWith translateFallback rec (sliceE dom nm ws start len ae)
-      hint top named = translateFallback rec (sliceE dom nm ws start len ae) hint top named := by
+  have step : translateStepWith (translateFallback tenv) rec (sliceE dom nm ws start len ae)
+      hint top named = (translateFallback tenv) rec (sliceE dom nm ws start len ae) hint top named := by
     simp [translateStepWith, shape, core]
     rfl
   rw [step]
@@ -1274,10 +1276,10 @@ theorem slice_contract {rec ctx inputs we mems initial dom ae nm} {ws start len 
     (meaning : Meaning inputs (sliceE dom nm ws start len ae)
       (.bits len (BitVec.extractLsb' start len x)))
     (ca : Child rec ctx inputs we mems initial ae "s" (.bits ws x)) :
-    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial
+    Contract (translateStepWith (translateFallback tenv) rec) ctx inputs we mems initial
       (sliceE dom nm ws start len ae) (.bits len (BitVec.extractLsb' start len x)) := by
   have step : ∀ hint top named, ActionSpec
-      (translateStepWith translateFallback rec (sliceE dom nm ws start len ae) hint top named)
+      (translateStepWith (translateFallback tenv) rec (sliceE dom nm ws start len ae) hint top named)
       ctx inputs we mems initial (.bits len (BitVec.extractLsb' start len x)) := by
     intro hint top named
     rw [slice_step rec dom ae nm ws start len hint top named hlen hr]
@@ -1318,7 +1320,7 @@ theorem setwUncached_zextMapE (rec : TranslateFn) (dom : Lean.Expr) (nm : Lean.N
 set_option maxHeartbeats 1000000 in
 theorem zextMap_step (rec : TranslateFn) (dom : Lean.Expr) (nm : Lean.Name) (ae : Lean.Expr)
     (k n : Nat) (hint : String) (top named : Bool) (hk : 0 < k) (hn : 0 < n) :
-    translateStepWith translateFallback rec (zextMapE dom nm k n ae) hint top named =
+    translateStepWith (translateFallback tenv) rec (zextMapE dom nm k n ae) hint top named =
       translateControlCachedWith (translateSetWidthUncachedWith rec n (k + n))
         (zextMapE dom nm k n ae) hint top named := by
   have shape : translateCoreShape (zextMapE dom nm k n ae) = false := rfl
@@ -1336,8 +1338,8 @@ theorem zextMap_step (rec : TranslateFn) (dom : Lean.Expr) (nm : Lean.Name) (ae 
   have cc : canonicalConcat? (zextMapE dom nm k n ae) = none := rfl
   have cl : canonicalConcatLit? (zextMapE dom nm k n ae) = none := rfl
   have zx := canonicalZextMap?_zextMapE dom nm ae hk hn
-  have step : translateStepWith translateFallback rec (zextMapE dom nm k n ae)
-      hint top named = translateFallback rec (zextMapE dom nm k n ae) hint top named := by
+  have step : translateStepWith (translateFallback tenv) rec (zextMapE dom nm k n ae)
+      hint top named = (translateFallback tenv) rec (zextMapE dom nm k n ae) hint top named := by
     simp [translateStepWith, shape, core]
     rfl
   rw [step]
@@ -1349,10 +1351,10 @@ theorem zextMap_contract {rec ctx inputs we mems initial dom ae nm} {k n : Nat}
     (meaning : Meaning inputs (zextMapE dom nm k n ae)
       (.bits (k + n) (BitVec.append (BitVec.ofNat k 0) x)))
     (ca : Child rec ctx inputs we mems initial ae "s" (.bits n x)) :
-    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial
+    Contract (translateStepWith (translateFallback tenv) rec) ctx inputs we mems initial
       (zextMapE dom nm k n ae) (.bits (k + n) (BitVec.append (BitVec.ofNat k 0) x)) := by
   have step : ∀ hint top named, ActionSpec
-      (translateStepWith translateFallback rec (zextMapE dom nm k n ae) hint top named)
+      (translateStepWith (translateFallback tenv) rec (zextMapE dom nm k n ae) hint top named)
       ctx inputs we mems initial (.bits (k + n) (BitVec.append (BitVec.ofNat k 0) x)) := by
     intro hint top named
     rw [zextMap_step rec dom nm ae k n hint top named hk hn]
@@ -1389,7 +1391,7 @@ set_option maxHeartbeats 1000000 in
 theorem sliceF_step (rec : TranslateFn) (dom : Lean.Expr) (nm : Lean.Name) (ae : Lean.Expr)
     (w start len : Nat) (hint : String) (top named : Bool)
     (hlen : 0 < len) (hr : start + len ≤ w) :
-    translateStepWith translateFallback rec (sliceFE dom nm w start len ae) hint top named =
+    translateStepWith (translateFallback tenv) rec (sliceFE dom nm w start len ae) hint top named =
       translateControlCachedWith (translateSliceFUncachedWith rec start len)
         (sliceFE dom nm w start len ae) hint top named := by
   have shape : translateCoreShape (sliceFE dom nm w start len ae) = false := rfl
@@ -1408,8 +1410,8 @@ theorem sliceF_step (rec : TranslateFn) (dom : Lean.Expr) (nm : Lean.Name) (ae :
   have cl := canonicalConcatLit?_sliceFE dom nm ae w start len
   have zx : canonicalZextMap? (sliceFE dom nm w start len ae) = none := rfl
   have sf := canonicalSliceF?_sliceFE dom nm ae hlen hr
-  have step : translateStepWith translateFallback rec (sliceFE dom nm w start len ae)
-      hint top named = translateFallback rec (sliceFE dom nm w start len ae) hint top named := by
+  have step : translateStepWith (translateFallback tenv) rec (sliceFE dom nm w start len ae)
+      hint top named = (translateFallback tenv) rec (sliceFE dom nm w start len ae) hint top named := by
     simp [translateStepWith, shape, core]
     rfl
   rw [step]
@@ -1421,10 +1423,10 @@ theorem sliceF_contract {rec ctx inputs we mems initial dom ae nm} {ws start len
     (meaning : Meaning inputs (sliceFE dom nm ws start len ae)
       (.bits len (BitVec.extractLsb' start len x)))
     (ca : Child rec ctx inputs we mems initial ae "a" (.bits ws x)) :
-    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial
+    Contract (translateStepWith (translateFallback tenv) rec) ctx inputs we mems initial
       (sliceFE dom nm ws start len ae) (.bits len (BitVec.extractLsb' start len x)) := by
   have step : ∀ hint top named, ActionSpec
-      (translateStepWith translateFallback rec (sliceFE dom nm ws start len ae) hint top named)
+      (translateStepWith (translateFallback tenv) rec (sliceFE dom nm ws start len ae) hint top named)
       ctx inputs we mems initial (.bits len (BitVec.extractLsb' start len x)) := by
     intro hint top named
     rw [sliceF_step rec dom nm ae ws start len hint top named hlen hr]
@@ -1612,7 +1614,7 @@ theorem concatUncached_concatE (rec : TranslateFn) (dom ae be : Lean.Expr) (m n 
 set_option maxHeartbeats 1000000 in
 theorem concat_step (rec : TranslateFn) (dom ae be : Lean.Expr) (m n : Nat)
     (hint : String) (top named : Bool) (hm : 0 < m) (hn : 0 < n) :
-    translateStepWith translateFallback rec (concatE dom m n ae be) hint top named =
+    translateStepWith (translateFallback tenv) rec (concatE dom m n ae be) hint top named =
       translateControlCachedWith (translateConcatUncachedWith rec m n)
         (concatE dom m n ae be) hint top named := by
   have shape : translateCoreShape (concatE dom m n ae be) = false := rfl
@@ -1628,8 +1630,8 @@ theorem concat_step (rec : TranslateFn) (dom ae be : Lean.Expr) (m n : Nat)
   have mem : canonicalMemory? (concatE dom m n ae be) = none := rfl
   have sl : canonicalSlice? (concatE dom m n ae be) = none := rfl
   have cc := canonicalConcat?_concatE dom ae be hm hn
-  have step : translateStepWith translateFallback rec (concatE dom m n ae be)
-      hint top named = translateFallback rec (concatE dom m n ae be) hint top named := by
+  have step : translateStepWith (translateFallback tenv) rec (concatE dom m n ae be)
+      hint top named = (translateFallback tenv) rec (concatE dom m n ae be) hint top named := by
     simp [translateStepWith, shape, core]
     rfl
   rw [step]
@@ -1641,10 +1643,10 @@ theorem concat_contract {rec ctx inputs we mems initial dom ae be} {m n : Nat}
     (meaning : Meaning inputs (concatE dom m n ae be) (.bits (m + n) (x ++ y)))
     (ca : Child rec ctx inputs we mems initial ae "concat_hi" (.bits m x))
     (cb : Child rec ctx inputs we mems initial be "concat_lo" (.bits n y)) :
-    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial
+    Contract (translateStepWith (translateFallback tenv) rec) ctx inputs we mems initial
       (concatE dom m n ae be) (.bits (m + n) (x ++ y)) := by
   have step : ∀ hint top named, ActionSpec
-      (translateStepWith translateFallback rec (concatE dom m n ae be) hint top named)
+      (translateStepWith (translateFallback tenv) rec (concatE dom m n ae be) hint top named)
       ctx inputs we mems initial (.bits (m + n) (x ++ y)) := by
     intro hint top named
     rw [concat_step rec dom ae be m n hint top named hm hn]
@@ -1692,7 +1694,7 @@ theorem concatLitUncached_loE (rec : TranslateFn) (dom ae : Lean.Expr) (m k v : 
 set_option maxHeartbeats 1000000 in
 theorem concatLitHi_step (rec : TranslateFn) (dom be : Lean.Expr) (k v n : Nat)
     (hint : String) (top named : Bool) (hk : 0 < k) (hv : v < 2 ^ k) (hn : 0 < n) :
-    translateStepWith translateFallback rec (concatLitHiE dom k v n be) hint top named =
+    translateStepWith (translateFallback tenv) rec (concatLitHiE dom k v n be) hint top named =
       translateControlCachedWith (translateConcatLitUncachedWith rec true k v n)
         (concatLitHiE dom k v n be) hint top named := by
   have shape : translateCoreShape (concatLitHiE dom k v n be) = false := rfl
@@ -1709,8 +1711,8 @@ theorem concatLitHi_step (rec : TranslateFn) (dom be : Lean.Expr) (k v n : Nat)
   have sl : canonicalSlice? (concatLitHiE dom k v n be) = none := rfl
   have cc := canonicalConcat?_hiE dom be k v n
   have cl := canonicalConcatLit?_hiE dom be hk hv hn
-  have step : translateStepWith translateFallback rec (concatLitHiE dom k v n be)
-      hint top named = translateFallback rec (concatLitHiE dom k v n be) hint top named := by
+  have step : translateStepWith (translateFallback tenv) rec (concatLitHiE dom k v n be)
+      hint top named = (translateFallback tenv) rec (concatLitHiE dom k v n be) hint top named := by
     simp [translateStepWith, shape, core]
     rfl
   rw [step]
@@ -1720,7 +1722,7 @@ theorem concatLitHi_step (rec : TranslateFn) (dom be : Lean.Expr) (k v n : Nat)
 set_option maxHeartbeats 1000000 in
 theorem concatLitLo_step (rec : TranslateFn) (dom ae : Lean.Expr) (m k v : Nat)
     (hint : String) (top named : Bool) (hk : 0 < k) (hv : v < 2 ^ k) (hm : 0 < m) :
-    translateStepWith translateFallback rec (concatLitLoE dom m k v ae) hint top named =
+    translateStepWith (translateFallback tenv) rec (concatLitLoE dom m k v ae) hint top named =
       translateControlCachedWith (translateConcatLitUncachedWith rec false k v m)
         (concatLitLoE dom m k v ae) hint top named := by
   have shape : translateCoreShape (concatLitLoE dom m k v ae) = false := rfl
@@ -1737,8 +1739,8 @@ theorem concatLitLo_step (rec : TranslateFn) (dom ae : Lean.Expr) (m k v : Nat)
   have sl : canonicalSlice? (concatLitLoE dom m k v ae) = none := rfl
   have cc := canonicalConcat?_loE dom ae m k v
   have cl := canonicalConcatLit?_loE dom ae hk hv hm
-  have step : translateStepWith translateFallback rec (concatLitLoE dom m k v ae)
-      hint top named = translateFallback rec (concatLitLoE dom m k v ae) hint top named := by
+  have step : translateStepWith (translateFallback tenv) rec (concatLitLoE dom m k v ae)
+      hint top named = (translateFallback tenv) rec (concatLitLoE dom m k v ae) hint top named := by
     simp [translateStepWith, shape, core]
     rfl
   rw [step]
@@ -1750,10 +1752,10 @@ theorem concatLitHi_contract {rec ctx inputs we mems initial dom be} {k v n : Na
     (meaning : Meaning inputs (concatLitHiE dom k v n be)
       (.bits (k + n) (BitVec.ofNat k v ++ y)))
     (cb : Child rec ctx inputs we mems initial be "concat_lo" (.bits n y)) :
-    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial
+    Contract (translateStepWith (translateFallback tenv) rec) ctx inputs we mems initial
       (concatLitHiE dom k v n be) (.bits (k + n) (BitVec.ofNat k v ++ y)) := by
   have step : ∀ hint top named, ActionSpec
-      (translateStepWith translateFallback rec (concatLitHiE dom k v n be) hint top named)
+      (translateStepWith (translateFallback tenv) rec (concatLitHiE dom k v n be) hint top named)
       ctx inputs we mems initial (.bits (k + n) (BitVec.ofNat k v ++ y)) := by
     intro hint top named
     rw [concatLitHi_step rec dom be k v n hint top named hk hv hn]
@@ -1770,10 +1772,10 @@ theorem concatLitLo_contract {rec ctx inputs we mems initial dom ae} {m k v : Na
     (meaning : Meaning inputs (concatLitLoE dom m k v ae)
       (.bits (m + k) (x ++ BitVec.ofNat k v)))
     (ca : Child rec ctx inputs we mems initial ae "concat_hi" (.bits m x)) :
-    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial
+    Contract (translateStepWith (translateFallback tenv) rec) ctx inputs we mems initial
       (concatLitLoE dom m k v ae) (.bits (m + k) (x ++ BitVec.ofNat k v)) := by
   have step : ∀ hint top named, ActionSpec
-      (translateStepWith translateFallback rec (concatLitLoE dom m k v ae) hint top named)
+      (translateStepWith (translateFallback tenv) rec (concatLitLoE dom m k v ae) hint top named)
       ctx inputs we mems initial (.bits (m + k) (x ++ BitVec.ofNat k v)) := by
     intro hint top named
     rw [concatLitLo_step rec dom ae m k v hint top named hk hv hm]
@@ -1819,8 +1821,8 @@ theorem translateAppBoolBinary_returns {rec : TranslateFn} {kind : SignalBoolBin
 
 theorem appE_step (rec : TranslateFn) (dom ty body ae be : Lean.Expr)
     (hint : String) (top named : Bool) :
-    translateStepWith translateFallback rec (appE dom ty body ae be) hint top named =
-      translateFallback rec (appE dom ty body ae be) hint top named := by
+    translateStepWith (translateFallback tenv) rec (appE dom ty body ae be) hint top named =
+      (translateFallback tenv) rec (appE dom ty body ae be) hint top named := by
   have shape : translateCoreShape (appE dom ty body ae be) = false := rfl
   have core : translateCore rec (appE dom ty body ae be) hint top named = pure none := rfl
   simp [translateStepWith, shape, core]
@@ -1828,14 +1830,14 @@ theorem appE_step (rec : TranslateFn) (dom ty body ae be : Lean.Expr)
 
 theorem appCompare_step (rec : TranslateFn) (dom ae be : Lean.Expr) (n : Nat)
     (le : SignalCompareKind) (hint : String) (top named : Bool) :
-    translateStepWith translateFallback rec (appCompareE le dom n ae be) hint top named =
-      translateFallback rec (appCompareE le dom n ae be) hint top named :=
+    translateStepWith (translateFallback tenv) rec (appCompareE le dom n ae be) hint top named =
+      (translateFallback tenv) rec (appCompareE le dom n ae be) hint top named :=
   appE_step rec dom _ _ ae be hint top named
 
 theorem appBool_step (rec : TranslateFn) (kind : SignalBoolBinKind) (dom ae be : Lean.Expr)
     (hint : String) (top named : Bool) :
-    translateStepWith translateFallback rec (appBoolE kind dom ae be) hint top named =
-      translateFallback rec (appBoolE kind dom ae be) hint top named :=
+    translateStepWith (translateFallback tenv) rec (appBoolE kind dom ae be) hint top named =
+      (translateFallback tenv) rec (appBoolE kind dom ae be) hint top named :=
   appE_step rec dom _ _ ae be hint top named
 
 theorem isBoolControl_appE (dom ty body ae be : Lean.Expr) :
@@ -1938,10 +1940,10 @@ theorem appCompare_contract {rec ctx inputs we mems initial dom ae be n le}
     (meaning : Meaning inputs (appCompareE le dom n ae be) (.bool (compareValue le x y)))
     (ca : Child rec ctx inputs we mems initial ae "app_arg" (.bits n x))
     (cb : Child rec ctx inputs we mems initial be "app_arg" (.bits n y)) :
-    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial
+    Contract (translateStepWith (translateFallback tenv) rec) ctx inputs we mems initial
       (appCompareE le dom n ae be) (.bool (compareValue le x y)) := by
   have step : ∀ hint top named, ActionSpec
-      (translateStepWith translateFallback rec (appCompareE le dom n ae be)
+      (translateStepWith (translateFallback tenv) rec (appCompareE le dom n ae be)
         hint top named) ctx inputs we mems initial (.bool (compareValue le x y)) := by
     intro hint top named
     rw [appCompare_step, translateFallback_bool rec _ hint top named
@@ -1998,10 +2000,10 @@ theorem appBool_contract {rec ctx inputs we mems initial dom ae be}
     (meaning : Meaning inputs (appBoolE kind dom ae be) (.bool (boolBinValue kind a b)))
     (ca : Child rec ctx inputs we mems initial ae "app_arg" (.bool a))
     (cb : Child rec ctx inputs we mems initial be "app_arg" (.bool b)) :
-    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial
+    Contract (translateStepWith (translateFallback tenv) rec) ctx inputs we mems initial
       (appBoolE kind dom ae be) (.bool (boolBinValue kind a b)) := by
   have step : ∀ hint top named, ActionSpec
-      (translateStepWith translateFallback rec (appBoolE kind dom ae be) hint top named)
+      (translateStepWith (translateFallback tenv) rec (appBoolE kind dom ae be) hint top named)
       ctx inputs we mems initial (.bool (boolBinValue kind a b)) := by
     intro hint top named
     rw [appBool_step, translateFallback_bool rec _ hint top named
@@ -2099,8 +2101,8 @@ theorem translateBoolUncachedWith_appBool2 (rec legacy : TranslateFn) (f : AppBo
 
 theorem appBool2_step (rec : TranslateFn) (f : AppBool2) (dom ae be : Lean.Expr)
     (hint : String) (top named : Bool) :
-    translateStepWith translateFallback rec (appBool2E f dom ae be) hint top named =
-      translateFallback rec (appBool2E f dom ae be) hint top named :=
+    translateStepWith (translateFallback tenv) rec (appBool2E f dom ae be) hint top named =
+      (translateFallback tenv) rec (appBool2E f dom ae be) hint top named :=
   appE_step rec dom _ _ ae be hint top named
 
 theorem isBoolControl_appBool2E (dom ae be : Lean.Expr) (f : AppBool2) :
@@ -2166,10 +2168,10 @@ theorem appBool2_contract {rec ctx inputs we mems initial dom ae be}
     (meaning : Meaning inputs (appBool2E f dom ae be) (.bool (appBool2Value f a b)))
     (ca : Child rec ctx inputs we mems initial ae "app_arg" (.bool a))
     (cb : Child rec ctx inputs we mems initial be "app_arg" (.bool b)) :
-    Contract (translateStepWith translateFallback rec) ctx inputs we mems initial
+    Contract (translateStepWith (translateFallback tenv) rec) ctx inputs we mems initial
       (appBool2E f dom ae be) (.bool (appBool2Value f a b)) := by
   have step : ∀ hint top named, ActionSpec
-      (translateStepWith translateFallback rec (appBool2E f dom ae be) hint top named)
+      (translateStepWith (translateFallback tenv) rec (appBool2E f dom ae be) hint top named)
       ctx inputs we mems initial (.bool (appBool2Value f a b)) := by
     intro hint top named
     rw [appBool2_step, translateFallback_bool rec _ hint top named
@@ -2190,12 +2192,12 @@ theorem fuel_contract_leaves (fuel : Nat) {ctx : CompilerState}
     {bE vE : Nat → Lean.Expr} {bools : Nat → Bool} {bits : (j : Nat) → (w : Nat) → BitVec w}
     (hb : ∀ j, j < kb → Meaning inputs (bE j) (.bool (bools j)))
     (hv : ∀ j, j < kv → Meaning inputs (vE j) (.bits (vw j) (bits j (vw j))))
-    (hbC : ∀ j, j < kb → ∀ fuel, Contract (translateFuelFix translateStep fuel) ctx inputs
+    (hbC : ∀ j, j < kb → ∀ fuel, Contract (translateFuelFix (translateStep tenv) fuel) ctx inputs
       we mems initial (bE j) (.bool (bools j)))
-    (hvC : ∀ j, j < kv → ∀ fuel, Contract (translateFuelFix translateStep fuel) ctx inputs
+    (hvC : ∀ j, j < kv → ∀ fuel, Contract (translateFuelFix (translateStep tenv) fuel) ctx inputs
       we mems initial (vE j) (.bits (vw j) (bits j (vw j)))) :
     ∀ {s : SType} (e : Term s), e.WF kb kv vw →
-      Contract (translateFuelFix translateStep fuel) ctx inputs we mems initial
+      Contract (translateFuelFix (translateStep tenv) fuel) ctx inputs we mems initial
         (quote dom bE vE e)
         (pack s (eval bools bits e)) := by
   induction fuel with
@@ -2206,7 +2208,7 @@ theorem fuel_contract_leaves (fuel : Nat) {ctx : CompilerState}
     · intro hint top named s' t w prior h widths hr; exact (Returns.throw hr).elim
   | succ fuel ih =>
     intro s e he
-    change Contract (translateStepWith translateFallback (translateFuelFix translateStep fuel)) _ _ _ _ _ _ _
+    change Contract (translateStepWith (translateFallback tenv) (translateFuelFix (translateStep tenv) fuel)) _ _ _ _ _ _ _
     cases e with
     | boolInput j => exact hbC j he (fuel + 1)
     | bitsInput w j =>
@@ -2226,13 +2228,13 @@ theorem fuel_contract_leaves (fuel : Nat) {ctx : CompilerState}
       have hn : 0 < w := a.wf_pos ha
       have ck := op_checks op dom (quote dom bE vE a)
         (quote dom bE vE b) w
-      have ca : Child (translateFuelFix translateStep fuel) ctx inputs we mems initial
+      have ca : Child (translateFuelFix (translateStep tenv) fuel) ctx inputs we mems initial
           ((binE dom w op (quote dom bE vE a)
             (quote dom bE vE b)).getAppArgs[(binE dom w op (quote dom bE vE a)
             (quote dom bE vE b)).getAppArgs.size - 2]!)
           "op_a" (.bits w (eval bools bits a)) := by
         rw [ck.2.2.2.2.1]; exact (ih a ha).child "op_a"
-      have cb : Child (translateFuelFix translateStep fuel) ctx inputs we mems initial
+      have cb : Child (translateFuelFix (translateStep tenv) fuel) ctx inputs we mems initial
           ((binE dom w op (quote dom bE vE a)
             (quote dom bE vE b)).getAppArgs[(binE dom w op (quote dom bE vE a)
             (quote dom bE vE b)).getAppArgs.size - 1]!)
@@ -2318,14 +2320,14 @@ theorem fuel_contract_leaves (fuel : Nat) {ctx : CompilerState}
 
 /-- An input binder satisfies its leaf contract at every fuel. -/
 theorem input_contract_fuel {ctx inputs we mems initial id v} (hi : inputs id = some v) :
-    ∀ fuel, Contract (translateFuelFix translateStep fuel) ctx inputs we mems initial
+    ∀ fuel, Contract (translateFuelFix (translateStep tenv) fuel) ctx inputs we mems initial
       (.fvar id) v
   | 0 => by
     constructor
     · intro hint top named s' t w lookup hr; exact (Returns.throw hr).elim
     · intro hint top named s' t w prior h widths hr; exact (Returns.throw hr).elim
   | fuel + 1 => by
-    change Contract (translateStepWith translateFallback (translateFuelFix translateStep fuel))
+    change Contract (translateStepWith (translateFallback tenv) (translateFuelFix (translateStep tenv) fuel))
       _ _ _ _ _ _ _
     exact input_contract hi
 
@@ -2336,7 +2338,7 @@ theorem fuel_contract (fuel : Nat) {ctx : CompilerState} {inputs : FVarId → Op
     (hb : ∀ j, j < kb → inputs (bi j) = some (.bool (bools j)))
     (hv : ∀ j, j < kv → inputs (vi j) = some (.bits (vw j) (bits j (vw j)))) :
     ∀ {s : SType} (e : Term s), e.WF kb kv vw →
-      Contract (translateFuelFix translateStep fuel) ctx inputs we mems initial
+      Contract (translateFuelFix (translateStep tenv) fuel) ctx inputs we mems initial
         (quote dom (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) e)
         (pack s (eval bools bits e)) :=
   fuel_contract_leaves fuel
@@ -2352,7 +2354,7 @@ theorem translateExprToWire_contract {ctx : CompilerState} {inputs : FVarId → 
     (hb : ∀ j, j < kb → inputs (bi j) = some (.bool (bools j)))
     (hv : ∀ j, j < kv → inputs (vi j) = some (.bits (vw j) (bits j (vw j))))
     {s : SType} (e : Term s) (he : e.WF kb kv vw) :
-    Contract (fun e hint top named => translateExprToWire e hint top named) ctx inputs we mems initial
+    Contract (fun e hint top named => translateExprToWire tenv e hint top named) ctx inputs we mems initial
       (quote dom (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) e)
       (pack s (eval bools bits e)) :=
   fuel_contract translateFuelLimit hb hv e he

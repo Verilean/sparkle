@@ -1,5 +1,7 @@
 import Tools.ShippingLinkCtx
 
+variable {tenv : Lean.Environment}
+
 /-! Mixed-state composition for the shipping allocator-before-children binary
 lowering. Child contracts expose structural facts before semantic simulation. -/
 namespace Tools.ShippingMixedBinarySoundness
@@ -342,7 +344,7 @@ theorem translateStep_binary_mixed {ctx ρ β we mems initial s t prior rec e m 
     (ca : Child rec ctx ρ β we mems initial e.getAppArgs[e.getAppArgs.size - 2]! "op_a" n x.toNat)
     (cb : Child rec ctx ρ β we mems initial e.getAppArgs[e.getAppArgs.size - 1]! "op_b" n y.toNat)
     (widths : ScalarWidthsAgree we t)
-    (hr : Returns (translateStepWith translateFallback rec e hint top named) ctx s w t) :
+    (hr : Returns (translateStepWith (translateFallback tenv) rec e hint top named) ctx s w t) :
     Frame s t ∧ Outcome ctx ρ β we mems initial prior s t w n (op.apply x y).toNat := by
   have nf := isFVar_false_of_const fn
   unfold translateStepWith at hr
@@ -391,7 +393,7 @@ theorem translateStep_binary_frame {ctx ρ β we mems initial s t rec e m us hin
     (width : canonicalSignalBitVecWidth e.getAppArgs = some n)
     (ca : Child rec ctx ρ β we mems initial e.getAppArgs[e.getAppArgs.size - 2]! "op_a" n va)
     (cb : Child rec ctx ρ β we mems initial e.getAppArgs[e.getAppArgs.size - 1]! "op_b" n vb)
-    (hr : Returns (translateStepWith translateFallback rec e hint top named) ctx s w t) : Frame s t := by
+    (hr : Returns (translateStepWith (translateFallback tenv) rec e hint top named) ctx s w t) : Frame s t := by
   have nf := isFVar_false_of_const fn
   unfold translateStepWith at hr
   dsimp only at hr
@@ -419,15 +421,15 @@ theorem translateExprToWire_binary_mixed {ctx ρ β we mems initial s t prior e 
     (width : canonicalSignalBitVecWidth e.getAppArgs = some n)
     (da : Denotes β e.getAppArgs[e.getAppArgs.size - 2]! n x)
     (db : Denotes β e.getAppArgs[e.getAppArgs.size - 1]! n y)
-    (ca : Child (translateFuelFix translateStep (translateFuelLimit - 1)) ctx ρ β we mems initial
+    (ca : Child (translateFuelFix (translateStep tenv) (translateFuelLimit - 1)) ctx ρ β we mems initial
       e.getAppArgs[e.getAppArgs.size - 2]! "op_a" n x.toNat)
-    (cb : Child (translateFuelFix translateStep (translateFuelLimit - 1)) ctx ρ β we mems initial
+    (cb : Child (translateFuelFix (translateStep tenv) (translateFuelLimit - 1)) ctx ρ β we mems initial
       e.getAppArgs[e.getAppArgs.size - 1]! "op_b" n y.toNat)
     (widths : ScalarWidthsAgree we t)
-    (hr : Returns (translateExprToWire e hint top named) ctx s w t) :
+    (hr : Returns (translateExprToWire tenv e hint top named) ctx s w t) :
     Frame s t ∧ Outcome ctx ρ β we mems initial prior s t w n (op.apply x y).toNat := by
-  change Returns (translateStepWith translateFallback
-    (translateFuelFix translateStep (translateFuelLimit - 1)) e hint top named) ctx s w t at hr
+  change Returns (translateStepWith (translateFallback tenv)
+    (translateFuelFix (translateStep tenv) (translateFuelLimit - 1)) e hint top named) ctx s w t at hr
   exact translateStep_binary_mixed op x y hn h fn hop kinds width da db ca cb widths hr
 
 end Tools.ShippingMixedBinarySoundness

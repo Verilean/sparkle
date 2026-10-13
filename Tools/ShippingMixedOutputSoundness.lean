@@ -1,6 +1,8 @@
 import Tools.ShippingMixedRecursion
 import Tools.ShippingTypedPostSoundness
 
+variable {tenv : Lean.Environment}
+
 /-! Connect the closed mixed translator to the real single-leaf output emitter.
 This is an entry boundary theorem: input binding facts and final width agreement
 remain explicit, rather than assuming a recursive translation oracle. -/
@@ -35,7 +37,7 @@ theorem emitLeaves_bool_correct {ctx ρ β we mems initial prior s t dom n kb kv
     (hv : ∀ j, j < kv → β (vinp j) = some ⟨n, bits j⟩)
     (e : BExpr) (he : e.WF kb kv n)
     (h : MixedInv ctx ρ β we mems initial s prior) (widths : ScalarWidthsAgree we t)
-    (hr : Returns (emitLeaves (fun e hint top named => translateExprToWire e hint top named)
+    (hr : Returns (emitLeaves (fun e hint top named => translateExprToWire tenv e hint top named)
       cache logProf [("out", quoteB dom n (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) e)] none 0)
       ctx s returned t) :
     ∃ result, Runs we mems initial t result ∧ result "out" = encodeBool (evalB n bools bits e) ∧
@@ -81,7 +83,7 @@ theorem emitLeaves_bool_from_inputs {ctx ρ β we mems initial s t dom n kb kv c
     (body : s.module.body = []) (record : s.translateRecord = {})
     (separate : Separate ρ β) (inputs : Inputs ctx ρ β we s initial)
     (widths : ScalarWidthsAgree we t)
-    (hr : Returns (emitLeaves (fun e hint top named => translateExprToWire e hint top named)
+    (hr : Returns (emitLeaves (fun e hint top named => translateExprToWire tenv e hint top named)
       cache logProf [("out", quoteB dom n (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) e)] none 0)
       ctx s returned t) :
     ∃ result, Runs we mems initial t result ∧ result "out" = encodeBool (evalB n bools bits e) ∧
@@ -177,7 +179,7 @@ theorem emitLeaves_bool_from_ports {ctx ρ β mems initial s t dom n kb kv cache
     (e : BExpr) (he : e.WF kb kv n)
     (body : s.module.body = []) (record : s.translateRecord = {})
     (wires : WiresOk s) (ports : PortInputs ctx ρ β s initial)
-    (hr : Returns (emitLeaves (fun e hint top named => translateExprToWire e hint top named)
+    (hr : Returns (emitLeaves (fun e hint top named => translateExprToWire tenv e hint top named)
       cache logProf [("out", quoteB dom n (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) e)] none 0)
       ctx s returned t) :
     WiresOk t ∧ ∃ result, Runs (declaredWidths t) mems initial t result ∧
@@ -203,7 +205,7 @@ theorem emitLeaves_bool_signal {ctx ρ β mems initial s t dom n kb kv cache log
     (e : BExpr) (he : e.WF kb kv n)
     (body : s.module.body = []) (record : s.translateRecord = {})
     (wires : WiresOk s) (ports : PortInputs ctx ρ β s initial)
-    (hr : Returns (emitLeaves (fun e hint top named => translateExprToWire e hint top named)
+    (hr : Returns (emitLeaves (fun e hint top named => translateExprToWire tenv e hint top named)
       cache logProf [("out", quoteB dom n (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) e)] none 0)
       ctx s returned t) :
     ∃ result, Runs (declaredWidths t) mems initial t result ∧

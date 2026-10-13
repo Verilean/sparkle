@@ -1,5 +1,7 @@
 import Tools.ShippingCoreSoundness
 
+variable {tenv : Lean.Environment}
+
 /-! # Front-end normalisation: the entry constant
 
 The synthesis entry does not hand `synthesizeFromConst` the declaration it
@@ -150,13 +152,13 @@ theorem synthesizeCombinationalCore_entry_sound {declName : Name}
       synthesizeFromConst_cdo2_sound old shape run.mreturns,
       synthesizeFromConst_memory_sound old shape run.mreturns,
       synthesizeFromConst_memoryCone_sound old shape run.mreturns⟩,
-    synthesizeFromConst_instance_sound old shape run.mreturns,
-    synthesizeFromConst_instance1_sound old shape run.mreturns,
-    synthesizeFromConst_instanceN_sound old shape run.mreturns,
-    synthesizeFromConst_instanceG_sound old shape run.mreturns,
-    synthesizeFromConst_instanceProj_sound old shape run.mreturns,
+    synthesizeFromConst_instance_sound old shape run.mreturns henv.mreturns,
+    synthesizeFromConst_instance1_sound old shape run.mreturns henv.mreturns,
+    synthesizeFromConst_instanceN_sound old shape run.mreturns henv.mreturns,
+    synthesizeFromConst_instanceG_sound old shape run.mreturns henv.mreturns,
+    synthesizeFromConst_instanceProj_sound old shape run.mreturns henv.mreturns,
     Tools.ShippingHierTermSoundness.synthesizeFromConst_hierCone_sound old shape
-      run.mreturns⟩
+      run.mreturns henv.mreturns⟩
 
 /-! ## Entry-constant endpoints
 

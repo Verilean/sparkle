@@ -1,6 +1,8 @@
 import Tools.ShippingUnifiedProtection
 import Tools.ShippingContractEntrySoundness
 
+variable {tenv : Lean.Environment}
+
 /-! Width-polymorphic output emission from the unified translation contract.
 The prepared port layout supplies the unified input lookup; callers pass no
 child-correctness or recompilation premise. -/
@@ -76,10 +78,10 @@ theorem emitLeaves_structure {rec ctx inputs we mems initial s t e v cache logPr
 
 theorem emitLeaves_correct {ctx inputs we mems initial prior s t e cache logProf returned}
     {v : Value} (positive : 0 < v.kind.width)
-    (contract : Contract (fun e hint top named => translateExprToWire e hint top named)
+    (contract : Contract (fun e hint top named => translateExprToWire tenv e hint top named)
       ctx inputs we mems initial e v)
     (h : Inv ctx inputs we mems initial s prior) (widths : ScalarWidthsAgree we t)
-    (hr : Returns (emitLeaves (fun e hint top named => translateExprToWire e hint top named)
+    (hr : Returns (emitLeaves (fun e hint top named => translateExprToWire tenv e hint top named)
       cache logProf [("out", e)] none 0)
       ctx s returned t) :
     ∃ result, Runs we mems initial t result ∧ result "out" = v.toNat ∧
@@ -115,11 +117,11 @@ theorem emitLeaves_correct {ctx inputs we mems initial prior s t e cache logProf
 
 theorem emitLeaves_from_ports {ctx ρ β mems initial s t e cache logProf returned}
     {v : Value} (positive : 0 < v.kind.width)
-    (contract : Contract (fun e hint top named => translateExprToWire e hint top named)
+    (contract : Contract (fun e hint top named => translateExprToWire tenv e hint top named)
       ctx (inputValues ρ β) (declaredWidths t) mems initial e v)
     (body : s.module.body = []) (record : s.translateRecord = {})
     (wires : WiresOk s) (ports : PortInputs ctx ρ β s initial)
-    (hr : Returns (emitLeaves (fun e hint top named => translateExprToWire e hint top named)
+    (hr : Returns (emitLeaves (fun e hint top named => translateExprToWire tenv e hint top named)
       cache logProf [("out", e)] none 0)
       ctx s returned t) :
     WiresOk t ∧ ∃ result, Runs (declaredWidths t) mems initial t result ∧
@@ -135,16 +137,16 @@ theorem emitLeaves_from_ports {ctx ρ β mems initial s t e cache logProf return
 
 theorem emitLeaves_postReady_at {mems : MEnv} {ctx ρ β initial s t e cache logProf returned}
     {m : Sparkle.IR.AST.Module} {v : Value} (positive : 0 < v.kind.width)
-    (contract : Contract (fun e hint top named => translateExprToWire e hint top named)
+    (contract : Contract (fun e hint top named => translateExprToWire tenv e hint top named)
       ctx (inputValues ρ β) (declaredWidths t) mems initial e v)
-    (ordered : ActionOrder (translateExprToWire e "out" false true) ctx (inputValues ρ β)
+    (ordered : ActionOrder (translateExprToWire tenv e "out" false true) ctx (inputValues ρ β)
       (declaredWidths t) mems initial)
     (body : s.module.body = []) (record : s.translateRecord = {})
     (wires : WiresOk s) (ports : PortInputs ctx ρ β s initial)
     (scalar : ScalarWires s) (outputs : s.module.outputs = [])
     (mw : m.wires = t.module.wires.reverse) (mb : m.body = t.module.finalize.body)
     (mo : m.outputs = t.module.outputs.reverse)
-    (hr : Returns (emitLeaves (fun e hint top named => translateExprToWire e hint top named)
+    (hr : Returns (emitLeaves (fun e hint top named => translateExprToWire tenv e hint top named)
       cache logProf [("out", e)] none 0)
       ctx s returned t) :
     weOf m = declaredWidths t ∧ TypedPostReady m ∧ (∀ p ∈ m.outputs, PrintableType p.ty) ∧

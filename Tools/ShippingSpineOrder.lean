@@ -1,6 +1,8 @@
 import Tools.ShippingUnifiedSpine
 import Tools.ShippingMachineEntry
 
+variable {tenv : Lean.Environment}
+
 /-! # Where the readers of a `let` port are: the packed spine, link by link
 
 The let-closed body puts the alias of `let` port `i` right after the driver of
@@ -159,7 +161,7 @@ theorem spine_links
       Uses (ubk (i + fs.length)) (uvk (i + fs.length)) core →
       s.sourceBindings = σ →
       St ctx inputs (Bk bi vi ubk uvk i) P (Vk i) s →
-      Returns (translateFuelFix translateStep fuel Q((packLets fs core).2) hint false named)
+      Returns (translateFuelFix (translateStep tenv) fuel Q((packLets fs core).2) hint false named)
         ctx s w t →
       LP P (fun id => visible ctx σ id) Vk t.module.body i (fs.map fun f => Q(f.2)) w ∧ Ext s t
   | [], _, core, i, fuel, s, t, w, hint, named, _, hc, hu, _, hq, hr => by
@@ -178,7 +180,7 @@ theorem spine_links
       | cons g gs ih => exact fun h => ⟨h.1, ih (j + 1) h.2.2⟩
     have pos1 := f.2.wf_pos hwf
     have pos2 := (packLets rest core).2.wf_pos (hrestWF _ rest hrest)
-    change Returns (translateStepWith translateFallback (translateFuelFix translateStep fuel)
+    change Returns (translateStepWith (translateFallback tenv) (translateFuelFix (translateStep tenv) fuel)
       (concatE dom f.1 (packLets rest core).1 Q(f.2) Q((packLets rest core).2)) hint false named)
       ctx s w t at hr
     rw [concat_step _ _ _ _ _ _ _ _ _ pos1 pos2] at hr

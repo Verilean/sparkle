@@ -1,5 +1,7 @@
 import Tools.ShippingMixedInvariant
 
+variable {tenv : Lean.Environment}
+
 /-! BitVec literals in mixed Bool/BitVec states, through the actual core and
 validated cache. Final-width agreement remains explicit. -/
 namespace Tools.ShippingMixedLiteralSoundness
@@ -154,7 +156,7 @@ theorem translateStep_literal_mixed {ctx ρ β we mems initial s t prior e us hi
     {x : BitVec n} (h : MixedInv ctx ρ β we mems initial s prior) (hn : 0 < n)
     (fn : e.getAppFn = .const ``Sparkle.Core.Signal.Signal.pure us) (hd : Denotes β e n x)
     (widths : ScalarWidthsAgree we t)
-    (hr : Returns (translateStepWith translateFallback rec e hint top named) ctx s w t) :
+    (hr : Returns (translateStepWith (translateFallback tenv) rec e hint top named) ctx s w t) :
     DeclGrows s t ∧ Outcome ctx ρ β we mems initial prior s t w n x.toNat := by
   have nf := isFVar_false_of_const fn
   unfold translateStepWith at hr
@@ -178,10 +180,10 @@ theorem translateExprToWire_literal_mixed {ctx ρ β we mems initial s t prior e
     {x : BitVec n} (h : MixedInv ctx ρ β we mems initial s prior) (hn : 0 < n)
     (fn : e.getAppFn = .const ``Sparkle.Core.Signal.Signal.pure us) (hd : Denotes β e n x)
     (widths : ScalarWidthsAgree we t)
-    (hr : Returns (translateExprToWire e hint top named) ctx s w t) :
+    (hr : Returns (translateExprToWire tenv e hint top named) ctx s w t) :
     DeclGrows s t ∧ Outcome ctx ρ β we mems initial prior s t w n x.toNat := by
-  change Returns (translateStepWith translateFallback
-    (translateFuelFix translateStep (translateFuelLimit - 1)) e hint top named) ctx s w t at hr
+  change Returns (translateStepWith (translateFallback tenv)
+    (translateFuelFix (translateStep tenv) (translateFuelLimit - 1)) e hint top named) ctx s w t at hr
   exact translateStep_literal_mixed h hn fn hd widths hr
 
 end Tools.ShippingMixedLiteralSoundness

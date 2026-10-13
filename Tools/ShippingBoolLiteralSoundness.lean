@@ -1,5 +1,7 @@
 import Tools.ShippingCompareLoweringSoundness
 
+variable {tenv : Lean.Environment}
+
 /-! Literal Bool translation through the real fuel-bounded translator.
 No recursive-child or legacy-handler hypothesis is needed for this leaf.
 Initial invariants and agreement with final declaration widths remain explicit. -/
@@ -56,7 +58,7 @@ theorem translateFallback_literal_correct {ρ β we mems initial prior s s' ctx 
     (rec : TranslateFn) (b : Bool)
     (hp : Runs we mems initial s prior) (hc : BoolRecordOk ρ β we s prior)
     (ht : TypedBody we s) (hw : ScalarWidthsAgree we s')
-    (hr : Returns (translateFallback rec (literalE dom b) hint top named) ctx s w s') :
+    (hr : Returns ((translateFallback tenv) rec (literalE dom b) hint top named) ctx s w s') :
     BoolOutcome ρ β we mems initial prior s s' w b := by
   rw [translateFallback_bool rec _ hint top named (by cases b <;> rfl)] at hr
   rcases translateControlCachedWith_returns hr with hit | ⟨sm, miss, record⟩
@@ -79,7 +81,7 @@ theorem translateStep_literal_correct {ρ β we mems initial prior s s' ctx dom 
     (rec : TranslateFn) (b : Bool)
     (hp : Runs we mems initial s prior) (hc : BoolRecordOk ρ β we s prior)
     (ht : TypedBody we s) (hw : ScalarWidthsAgree we s')
-    (hr : Returns (translateStepWith translateFallback rec (literalE dom b) hint top named) ctx s w s') :
+    (hr : Returns (translateStepWith (translateFallback tenv) rec (literalE dom b) hint top named) ctx s w s') :
     BoolOutcome ρ β we mems initial prior s s' w b := by
   unfold translateStepWith at hr
   dsimp only at hr
@@ -108,10 +110,10 @@ theorem translateExprToWire_literal_correct {ρ β we mems initial prior s s' ct
     (b : Bool)
     (hp : Runs we mems initial s prior) (hc : BoolRecordOk ρ β we s prior)
     (ht : TypedBody we s) (hw : ScalarWidthsAgree we s')
-    (hr : Returns (translateExprToWire (literalE dom b) hint top named) ctx s w s') :
+    (hr : Returns (translateExprToWire tenv (literalE dom b) hint top named) ctx s w s') :
     BoolOutcome ρ β we mems initial prior s s' w b := by
-  change Returns (translateStepWith translateFallback
-    (translateFuelFix translateStep (translateFuelLimit - 1)) (literalE dom b) hint top named) ctx s w s' at hr
+  change Returns (translateStepWith (translateFallback tenv)
+    (translateFuelFix (translateStep tenv) (translateFuelLimit - 1)) (literalE dom b) hint top named) ctx s w s' at hr
   exact translateStep_literal_correct _ b hp hc ht hw hr
 
 end Tools.ShippingBoolLiteralSoundness

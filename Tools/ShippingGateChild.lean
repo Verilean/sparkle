@@ -2,6 +2,8 @@ import Tools.ShippingMachineChild
 import Tools.ShippingUnifiedExecutionSoundness
 import Tools.ShippingInlineSoundness
 
+variable {tenv : Lean.Environment}
+
 /-! # A child the certified gate compiles, as what its instances compute
 
 `machine_linked` (ShippingMachineCompose) composes a parent with its
@@ -34,10 +36,10 @@ theorem synthesizeFromConst_mixed_run {logProf declName ci bs body m d}
     (old : certifiedShape? false [] ci = none)
     (shape : mixedCertifiedShape? false [] ci isInst = some (bs, body))
     (hr : MReturns (synthesizeFromConst
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName [] false true
+      (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName [] false true
         ci isInst) (m, d)) :
     MReturns (synthesizeMixedCertified
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName bs body)
+      (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName bs body)
       (m, d) := by
   unfold synthesizeFromConst at hr
   simp only [↓reduceIte, old, shape] at hr

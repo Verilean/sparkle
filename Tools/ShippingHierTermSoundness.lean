@@ -1,6 +1,8 @@
 import Tools.ShippingInstanceLeaf
 import Tools.ShippingUnifiedExecutionSoundness
 
+variable {tenv : Lean.Environment}
+
 /-! The certified entry for cones over ARBITRARY leaves, in the linked
 semantics.
 
@@ -62,10 +64,10 @@ theorem emitLeaves_structure_link {rec ctx inputs we mems initial s t e v cache 
 whatever semantic context the contract was proved. -/
 theorem emitLeaves_runs_link {ctx inputs we mems initial prior s t e cache logProf returned}
     {v : Value}
-    (contract : Contract (fun e hint top named => translateExprToWire e hint top named)
+    (contract : Contract (fun e hint top named => translateExprToWire tenv e hint top named)
       ctx inputs we mems initial e v)
     (h : Inv ctx inputs we mems initial s prior) (widths : ScalarWidthsAgree we t)
-    (hr : Returns (emitLeaves (fun e hint top named => translateExprToWire e hint top named)
+    (hr : Returns (emitLeaves (fun e hint top named => translateExprToWire tenv e hint top named)
       cache logProf [("out", e)] none 0)
       ctx s returned t) :
     ∃ result sm w ty, LinkCtx.Runs we mems initial t result ∧ result "out" = v.toNat ∧
@@ -596,11 +598,11 @@ def LeafMeaning (C : ChildSem) (inputs : FVarId → Option Value) (e : Lean.Expr
 
 /-- A leaf's contract at every width environment and fuel, in the linked
 semantic context of `children`. -/
-def LeafContract (children : String → Option (Sparkle.IR.AST.Module × WEnv)) (C : ChildSem)
+def LeafContract (tenv : Lean.Environment) (children : String → Option (Sparkle.IR.AST.Module × WEnv)) (C : ChildSem)
     (ctx : CompilerState) (inputs : FVarId → Option Value) (mems : MEnv) (initial : Env)
     (e : Lean.Expr) (v : Value) : Prop :=
   ∀ (we : WEnv) (fuel : Nat),
-    @Contract (hierLink children).toLinkCtx C (translateFuelFix translateStep fuel)
+    @Contract (hierLink children).toLinkCtx C (translateFuelFix (translateStep tenv) fuel)
       ctx inputs we mems initial e v
 
 /-- Linked source preservation for a cone over arbitrary leaves: whenever the
@@ -608,6 +610,9 @@ quoted body's leaves carry their meanings and contracts, the compiled
 module's linked evaluation observes the term's evaluation at `out`. -/
 def HierConePreserves (declName : Name) (bs : List (Name × MixedGateBinder))
     (body : Lean.Expr) (m : Sparkle.IR.AST.Module) : Prop :=
+  -- the environment the entry read (the translator of the leaves' contracts is
+  -- the translator over it), known to be a `getEnv` result
+  ∃ tenv : Lean.Environment, MReturns (Lean.getEnv : MetaM Lean.Environment) tenv ∧
   ∃ ids : List FVarId, ids.Nodup ∧ ids.length = bs.length ∧
   ∃ cache : IO.Ref (ExprStructMap String),
     ∀ (children : String → Option (Sparkle.IR.AST.Module × WEnv)) (C : ChildSem)
@@ -624,9 +629,9 @@ def HierConePreserves (declName : Name) (bs : List (Name × MixedGateBinder))
     (∀ j, j < kb → LeafMeaning C (inputValues p.bools p.bits) (bE j) (.bool (bvals j))) →
     (∀ j, j < kv → LeafMeaning C (inputValues p.bools p.bits) (vE j)
       (.bits (vw j) (vvals j (vw j)))) →
-    (∀ j, j < kb → LeafContract children C p.context (inputValues p.bools p.bits)
+    (∀ j, j < kb → LeafContract tenv children C p.context (inputValues p.bools p.bits)
       mems initial (bE j) (.bool (bvals j))) →
-    (∀ j, j < kv → LeafContract children C p.context (inputValues p.bools p.bits)
+    (∀ j, j < kv → LeafContract tenv children C p.context (inputValues p.bools p.bits)
       mems initial (vE j) (.bits (vw j) (vvals j (vw j)))) →
     instFVars (ids.map Lean.Expr.fvar).toArray 0 body = quote dom bE vE e →
     HierValue children m initial mems (pack srt (eval bvals vvals e)).toNat ∧
@@ -634,12 +639,13 @@ def HierConePreserves (declName : Name) (bs : List (Name × MixedGateBinder))
 
 theorem synthesizeMixedCertified_hierCone_sound {logProf declName bs body m d}
     (hr : MReturns (synthesizeMixedCertified
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName bs body)
-      (m, d)) :
+      (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName bs body)
+      (m, d))
+    (henvT : MReturns (Lean.getEnv : MetaM Lean.Environment) tenv) :
     HierConePreserves declName bs body m := by
   obtain ⟨ids, cache, returned, st, nd, len, run, hm, _, nameLegal⟩ :=
     synthesizeMixedCertified_returns hr
-  refine ⟨ids, nd, len, cache, ?_⟩
+  refine ⟨tenv, henvT, ids, nd, len, cache, ?_⟩
   intro children C bools bits initial mems a p values
   have empty := empty_layout (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName) initial
   have prepared := prepare_layout (bs.zip ids) a empty.1 empty.2 values
@@ -649,7 +655,7 @@ theorem synthesizeMixedCertified_hierCone_sound {logProf declName bs body m d}
   letI : ChildSem := C
   have leaf := prepare_returns (bs.zip ids) a (bools := bools) (bits := bits) run
   rw [qeq] at leaf
-  have contract : Contract (fun e hint top named => translateExprToWire e hint top named)
+  have contract : Contract (fun e hint top named => translateExprToWire tenv e hint top named)
       p.context (inputValues p.bools p.bits) (declaredWidths st) mems initial
       (quote dom bE vE e) (pack srt (eval bvals vvals e)) :=
     fuel_contract_leaves translateFuelLimit hbM hvM
@@ -694,8 +700,9 @@ theorem synthesizeFromConst_hierCone_sound {logProf declName ci bs body m d}
     (old : certifiedShape? false [] ci = none)
     (shape : mixedCertifiedShape? false [] ci isInst = some (bs, body))
     (hr : MReturns (synthesizeFromConst
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName
-      [] false true ci isInst) (m, d)) :
+      (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName
+      [] false true ci isInst) (m, d))
+    (henvT : MReturns (Lean.getEnv : MetaM Lean.Environment) tenv) :
     HierConePreserves declName bs body m := by
   unfold synthesizeFromConst at hr
   simp only [↓reduceIte, old, shape] at hr
@@ -704,7 +711,7 @@ theorem synthesizeFromConst_hierCone_sound {logProf declName ci bs body m d}
   peel_bind hr
   have eq := MReturns.pure hr
   subst result
-  exact synthesizeMixedCertified_hierCone_sound run
+  exact synthesizeMixedCertified_hierCone_sound run henvT
 
 /-- The cone result is tied to the declaration and the environment THIS run
 read: the gate holds at `instancePredicate envR` for the run's own `getEnv`. -/
@@ -725,7 +732,8 @@ theorem synthesizeCombinationalCore_hierCone_sound {declName : Name}
   obtain ⟨logProf, envR, ci, w1, w2, w3, w4, w5, w6, get, henv, run⟩ :=
     Tools.ShippingEntrySoundness.synthesizeCombinationalCore_reads hr
   exact ⟨ci, envR, w1, w2, w5, w6, get, henv, fun _ _ old shape =>
-    synthesizeFromConst_hierCone_sound old shape (Tools.ShippingEntrySoundness.entry_kept shape run).mreturns⟩
+    synthesizeFromConst_hierCone_sound old shape (Tools.ShippingEntrySoundness.entry_kept shape run).mreturns
+      henv.mreturns⟩
 
 /-- The cone entry endpoint under the run's environment boundaries: a
 declaration whose value peels to a quoted term over accepted leaves — the

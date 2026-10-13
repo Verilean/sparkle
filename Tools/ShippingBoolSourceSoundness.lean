@@ -1,5 +1,7 @@
 import Tools.ShippingMuxTypeSoundness
 
+variable {tenv : Lean.Environment}
+
 /-! Bool source meanings and the shipping validated cache. Comparison operands
 use the existing BitVec source relation. This is the Bool component of the
 front-end invariant, not a proof of all partial handlers or mixed-type source
@@ -282,7 +284,7 @@ theorem quotedBool_control (dom : Lean.Expr) (n : Nat) (bools bits : Nat → Lea
 wrapper, using the uncached partial handler only on a miss. -/
 theorem translateFallback_bool (rec : TranslateFn) (e : Lean.Expr) (hint : String)
     (top named : Bool) (he : isBoolControl e = true) :
-    translateFallback rec e hint top named = translateControlCachedWith
+    (translateFallback tenv) rec e hint top named = translateControlCachedWith
       (translateBoolUncachedWith rec
         (fun e h t n => Rec.translateExprToWireImpl (fun e h t n => rec e h t n) e h t n))
       e hint top named := by simp [translateFallback, fallbackKind, he]

@@ -1,5 +1,7 @@
 import Tools.ShippingBoolSourceSoundness
 
+variable {tenv : Lean.Environment}
+
 /-! Shipping unsigned/signed comparison lowering. The comparison node itself is
 proved, including allocation, typing, execution and Bool-record preservation.
 Recursive operand contracts and the joint entry invariant remain explicit. -/
@@ -190,7 +192,7 @@ theorem translateFallback_compare_correct {ρ β we mems initial prior s s' ctx}
     (ht : ∀ st env, good st env → TypedBody we st)
     (hc : ∀ st env, good st env → BoolRecordOk ρ β we st env)
     (hw : ScalarWidthsAgree we s')
-    (hr : Returns (translateFallback rec
+    (hr : Returns ((translateFallback tenv) rec
       (compareE le dom n ae be) hint top named) ctx s w s') :
     ∃ result, Runs we mems initial s' result ∧ BoolRecordOk ρ β we s' result ∧
       s'.usedNames.contains w = true ∧ we w = 1 ∧

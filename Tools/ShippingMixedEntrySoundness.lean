@@ -1,6 +1,8 @@
 import Tools.ShippingMixedInputSoundness
 import Tools.ShippingMixedOrderSoundness
 
+variable {tenv : Lean.Environment}
+
 /-! The shipping mixed entry's complete input walk. Preparation below is a
 pure description of the states reached by the actual bindMixedCertifiedInputs;
 prepare_returns connects every successful run to that state, not a replacement
@@ -247,7 +249,7 @@ theorem bindMixed_emitLeaves_sound {bools bits initial mems ctx s t dom n kb kv 
     (wires : WiresOk a.state) (body : a.state.module.body = []) (record : a.state.translateRecord = {})
     (values : Admissible bools bits initial L a)
     (hr : Returns (bindMixedCertifiedInputs
-      (emitLeaves (fun e hint top named => translateExprToWire e hint top named) cache logProf
+      (emitLeaves (fun e hint top named => translateExprToWire tenv e hint top named) cache logProf
         [("out", quoteB dom n (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) e)] none 0) L)
       ctx s returned t) :
     ∃ result, Runs (declaredWidths t) mems initial t result ∧
@@ -309,7 +311,7 @@ theorem emitLeaves_postReady {mems : MEnv} {ctx ρ β initial s t dom n kb kv ca
     (scalar : ScalarWires s) (outputs : s.module.outputs = [])
     (mw : m.wires = t.module.wires.reverse) (mb : m.body = t.module.finalize.body)
     (mo : m.outputs = t.module.outputs.reverse)
-    (hr : Returns (emitLeaves (fun e hint top named => translateExprToWire e hint top named)
+    (hr : Returns (emitLeaves (fun e hint top named => translateExprToWire tenv e hint top named)
       cache logProf [("out", quoteB dom n (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) e)] none 0)
       ctx s returned t) :
     weOf m = declaredWidths t ∧ TypedPostReady m ∧ (∀ p ∈ m.outputs, PrintableType p.ty) ∧
@@ -431,10 +433,10 @@ theorem emitLeaves_postReady {mems : MEnv} {ctx ρ β initial s t dom n kb kv ca
 /-- No inferred-type premise: this decomposes the actual mixed synthesis run. -/
 theorem synthesizeMixedCertified_returns {logProf declName bs body m d}
     (hr : MReturns (synthesizeMixedCertified
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName bs body) (m, d)) :
+      (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName bs body) (m, d)) :
     ∃ ids cache returned st, ids.Nodup ∧ ids.length = bs.length ∧
       Returns (bindMixedCertifiedInputs
-        (emitLeaves (fun e hint top named => translateExprToWire e hint top named) cache logProf
+        (emitLeaves (fun e hint top named => translateExprToWire tenv e hint top named) cache logProf
           [("out", instFVars (ids.map Lean.Expr.fvar).toArray 0 body)] none 0) (bs.zip ids))
         (entryCompilerState false cache) (CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName)) returned st ∧
       m = (addClockResetIfSequential st.module).finalize ∧ d = st.design ∧
@@ -558,7 +560,7 @@ theorem MixedSourcePreserves.map {declName bs body P Q}
 
 theorem synthesizeMixedCertified_sound {logProf declName bs body m d}
     (hr : MReturns (synthesizeMixedCertified
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName bs body) (m, d)) :
+      (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName bs body) (m, d)) :
     MixedPreserves declName bs body m := by
   obtain ⟨ids, cache, returned, st, nd, len, run, hm, _, nameLegal⟩ := synthesizeMixedCertified_returns hr
   refine ⟨ids, nd, len, cache, ?_⟩
@@ -660,7 +662,7 @@ theorem synthesizeFromConst_mixed_sound {logProf declName ci bs body m d}
     (old : certifiedShape? false [] ci = none)
     (shape : mixedCertifiedShape? false [] ci isInst = some (bs, body))
     (hr : MReturns (synthesizeFromConst
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName [] false true ci isInst) (m, d)) :
+      (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName [] false true ci isInst) (m, d)) :
     MixedPreserves declName bs body m := by
   unfold synthesizeFromConst at hr
   simp only [↓reduceIte, old, shape] at hr

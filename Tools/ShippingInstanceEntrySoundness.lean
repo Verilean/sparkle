@@ -1,5 +1,7 @@
 import Tools.ShippingMemoryEntrySoundness
 
+variable {tenv : Lean.Environment}
+
 /-! # S6-2: the certified sub-module instance entry
 
 The canonical hierarchical parent — one call to an `@[hardware_module]`
@@ -136,8 +138,8 @@ theorem instance_step (rec : TranslateFn) (mn : Name) (lvls : List Level)
     (hpure : (mn == ``Sparkle.Core.Signal.Signal.pure) = false)
     (hbin : signalBinOpOf mn = none)
     (hkind : fallbackKind (instE2 mn lvls dF aF bF) = .other) :
-    translateStepWith translateFallback rec (instE2 mn lvls dF aF bF) hint top named =
-      translateInstanceOrFallback rec (instE2 mn lvls dF aF bF) hint top named := by
+    translateStepWith (translateFallback tenv) rec (instE2 mn lvls dF aF bF) hint top named =
+      translateInstanceOrFallback tenv rec (instE2 mn lvls dF aF bF) hint top named := by
   have shape : translateCoreShape (instE2 mn lvls dF aF bF) = false := by
     show ((mn == ``Sparkle.Core.Signal.Signal.pure) ||
       (match signalBinOpOf mn,
@@ -161,9 +163,9 @@ theorem instance_step (rec : TranslateFn) (mn : Name) (lvls : List Level)
         | _, _, _ => pure none) = pure none
     rw [hpure, hbin]
     rfl
-  have step : translateStepWith translateFallback rec
+  have step : translateStepWith (translateFallback tenv) rec
       (instE2 mn lvls dF aF bF) hint top named =
-      translateFallback rec (instE2 mn lvls dF aF bF) hint top named := by
+      (translateFallback tenv) rec (instE2 mn lvls dF aF bF) hint top named := by
     simp [translateStepWith, shape, core]
     rfl
   rw [step]
@@ -317,10 +319,13 @@ theorem instE2_spineArgs (mn : Name) (lvls : List Level) (dom a b : Lean.Expr) :
 
 /-! ## The run-boundary predicates (retained, `EnvDefines`-style) -/
 
-/-- Every environment this run's instance arm reads designates `mn` as a
-`@[hardware_module]`. Retained: the tag lives in the runtime environment. -/
+/-- Every environment a `getEnv` run returns designates `mn` as a
+`@[hardware_module]`. Retained: the tag lives in the runtime environment.
+(The instance arm tests the tag on the environment its entry read — the
+translator's parameter; a theorem that steps through the arm asks that this
+parameter is such a read, `MReturns getEnv tenv`, which the entry supplies.) -/
 def HardwareTagged (mn : Name) : Prop :=
-  ∀ env, MReturns instArmEnv env → Sparkle.Compiler.isHardwareModule env mn = true
+  ∀ env, MReturns (Lean.getEnv : MetaM Lean.Environment) env → Sparkle.Compiler.isHardwareModule env mn = true
 
 /-- Every nested child synthesis of `mn` this run performs returns exactly
 the pinned pair — the hierarchical mirror of `EnvDefines`. -/
@@ -448,8 +453,9 @@ def InstancePreserves (declName : Name) (bs : List (Name × MixedGateBinder))
 set_option maxHeartbeats 2000000 in
 theorem synthesizeMixedCertified_instance_sound {logProf declName bs body m d}
     (hr : MReturns (synthesizeMixedCertified
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName bs body)
-      (m, d)) :
+      (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName bs body)
+      (m, d))
+    (henvT : MReturns (Lean.getEnv : MetaM Lean.Environment) tenv) :
     InstancePreserves declName bs body m d := by
   obtain ⟨ids, cache, returned, st, nd, len, run, hm, hd, -⟩ :=
     synthesizeMixedCertified_returns hr
@@ -461,19 +467,18 @@ theorem synthesizeMixedCertified_instance_sound {logProf declName bs body m d}
     (bools := fun _ => false) (bits := fun _ _ => 0) run
   rw [qeq] at leaf
   obtain ⟨w, sm0, ty, tr, freshOut, ht, hty⟩ := emitLeaves_single leaf
-  have stepEq : translateExprToWire
+  have stepEq : translateExprToWire tenv
       (instE2 mn lvls (.fvar dId) (.fvar aId) (.fvar bId)) "out" false true =
-      translateInstanceOrFallback (translateFuelFix translateStep 1048575)
+      translateInstanceOrFallback tenv (translateFuelFix (translateStep tenv) 1048575)
         (instE2 mn lvls (.fvar dId) (.fvar aId) (.fvar bId)) "out" false true := by
-    show translateStepWith translateFallback (translateFuelFix translateStep 1048575)
+    show translateStepWith (translateFallback tenv) (translateFuelFix (translateStep tenv) 1048575)
       (instE2 mn lvls (.fvar dId) (.fvar aId) (.fvar bId)) "out" false true = _
     exact instance_step _ mn lvls _ _ _ _ _ _ hpure hbin hkind
   rw [stepEq] at tr
   unfold translateInstanceOrFallback at tr
-  obtain ⟨env, sE, hEnvRead, tr⟩ := Returns.bind tr
-  obtain ⟨hEnvM, hsE⟩ := Returns.liftMetaM_mreturns hEnvRead
-  subst hsE
-  rw [htag env hEnvM] at tr
+  -- the arm tests the tag on its environment parameter: no read to step through
+  change Returns (if Sparkle.Compiler.isHardwareModule tenv mn = true then _ else _) _ _ _ _ at tr
+  rw [htag tenv henvT] at tr
   simp only [if_true] at tr
   obtain ⟨sub, sS, hSubRead, tr⟩ := Returns.bind tr
   obtain ⟨hSubM, hsS⟩ := Returns.liftMetaM_mreturns hSubRead
@@ -533,10 +538,10 @@ theorem synthesizeMixedCertified_instance_sound {logProf declName bs body m d}
   obtain ⟨conns, sF, hArgs, k6⟩ := Returns.bind (m := instArgs _ _ _ 0) k5
   unfold instArgs at hArgs
   obtain ⟨aW, sD, rA, hArgs⟩ :=
-    Returns.bind (m := translateFuelFix translateStep 1048575 (Lean.Expr.fvar aId) _ _ _) hArgs
+    Returns.bind (m := translateFuelFix (translateStep tenv) 1048575 (Lean.Expr.fvar aId) _ _ _) hArgs
   unfold instArgs at hArgs
   obtain ⟨bW, sE2, rB, hArgs⟩ :=
-    Returns.bind (m := translateFuelFix translateStep 1048575 (Lean.Expr.fvar bId) _ _ _) hArgs
+    Returns.bind (m := translateFuelFix (translateStep tenv) 1048575 (Lean.Expr.fvar bId) _ _ _) hArgs
   obtain ⟨hconns, hsF⟩ := Returns.pure hArgs
   subst hconns hsF
   -- the parent-name read
@@ -579,8 +584,8 @@ theorem synthesizeMixedCertified_instance_sound {logProf declName bs body m d}
     (bs.zip ids) _ _ rfl rfl
   rw [ps] at hsB
   rw [pc] at rA rB
-  have fuelEq : translateFuelFix translateStep 1048575 =
-      translateStepWith translateFallback (translateFuelFix translateStep 1048574) := rfl
+  have fuelEq : translateFuelFix (translateStep tenv) 1048575 =
+      translateStepWith (translateFallback tenv) (translateFuelFix (translateStep tenv) 1048574) := rfl
   rw [fuelEq] at rA rB
   have designSB : ∀ (s : CircuitState) dd,
       ({ s with design := dd } : CircuitState).sourceBindings = s.sourceBindings :=
@@ -749,8 +754,8 @@ theorem instance1_step (rec : TranslateFn) (mn : Name) (lvls : List Level)
     (hpure : (mn == ``Sparkle.Core.Signal.Signal.pure) = false)
     (hbin : signalBinOpOf mn = none)
     (hkind : fallbackKind (instE1 mn lvls dF aF) = .other) :
-    translateStepWith translateFallback rec (instE1 mn lvls dF aF) hint top named =
-      translateInstanceOrFallback rec (instE1 mn lvls dF aF) hint top named := by
+    translateStepWith (translateFallback tenv) rec (instE1 mn lvls dF aF) hint top named =
+      translateInstanceOrFallback tenv rec (instE1 mn lvls dF aF) hint top named := by
   have shape : translateCoreShape (instE1 mn lvls dF aF) = false := by
     show ((mn == ``Sparkle.Core.Signal.Signal.pure) ||
       (match signalBinOpOf mn,
@@ -774,9 +779,9 @@ theorem instance1_step (rec : TranslateFn) (mn : Name) (lvls : List Level)
         | _, _, _ => pure none) = pure none
     rw [hpure, hbin]
     rfl
-  have step : translateStepWith translateFallback rec
+  have step : translateStepWith (translateFallback tenv) rec
       (instE1 mn lvls dF aF) hint top named =
-      translateFallback rec (instE1 mn lvls dF aF) hint top named := by
+      (translateFallback tenv) rec (instE1 mn lvls dF aF) hint top named := by
     simp [translateStepWith, shape, core]
     rfl
   rw [step]
@@ -910,8 +915,9 @@ def Instance1Preserves (declName : Name) (bs : List (Name × MixedGateBinder))
 set_option maxHeartbeats 2000000 in
 theorem synthesizeMixedCertified_instance1_sound {logProf declName bs body m d}
     (hr : MReturns (synthesizeMixedCertified
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName bs body)
-      (m, d)) :
+      (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName bs body)
+      (m, d))
+    (henvT : MReturns (Lean.getEnv : MetaM Lean.Environment) tenv) :
     Instance1Preserves declName bs body m d := by
   obtain ⟨ids, cache, returned, st, nd, len, run, hm, hd, -⟩ :=
     synthesizeMixedCertified_returns hr
@@ -922,19 +928,18 @@ theorem synthesizeMixedCertified_instance1_sound {logProf declName bs body m d}
     (bools := fun _ => false) (bits := fun _ _ => 0) run
   rw [qeq] at leaf
   obtain ⟨w, sm0, ty, tr, freshOut, ht, hty⟩ := emitLeaves_single leaf
-  have stepEq : translateExprToWire
+  have stepEq : translateExprToWire tenv
       (instE1 mn lvls (.fvar dId) (.fvar aId)) "out" false true =
-      translateInstanceOrFallback (translateFuelFix translateStep 1048575)
+      translateInstanceOrFallback tenv (translateFuelFix (translateStep tenv) 1048575)
         (instE1 mn lvls (.fvar dId) (.fvar aId)) "out" false true := by
-    show translateStepWith translateFallback (translateFuelFix translateStep 1048575)
+    show translateStepWith (translateFallback tenv) (translateFuelFix (translateStep tenv) 1048575)
       (instE1 mn lvls (.fvar dId) (.fvar aId)) "out" false true = _
     exact instance1_step _ mn lvls _ _ _ _ _ hpure hbin hkind
   rw [stepEq] at tr
   unfold translateInstanceOrFallback at tr
-  obtain ⟨env, sE, hEnvRead, tr⟩ := Returns.bind tr
-  obtain ⟨hEnvM, hsE⟩ := Returns.liftMetaM_mreturns hEnvRead
-  subst hsE
-  rw [htag env hEnvM] at tr
+  -- the arm tests the tag on its environment parameter: no read to step through
+  change Returns (if Sparkle.Compiler.isHardwareModule tenv mn = true then _ else _) _ _ _ _ at tr
+  rw [htag tenv henvT] at tr
   simp only [if_true] at tr
   obtain ⟨sub, sS, hSubRead, tr⟩ := Returns.bind tr
   obtain ⟨hSubM, hsS⟩ := Returns.liftMetaM_mreturns hSubRead
@@ -1008,7 +1013,7 @@ theorem synthesizeMixedCertified_instance1_sound {logProf declName bs body m d}
   obtain ⟨conns, sF, hArgs, k6⟩ := Returns.bind (m := instArgs _ _ _ 0) k5
   unfold instArgs at hArgs
   obtain ⟨aW, sD, rA, hArgs⟩ :=
-    Returns.bind (m := translateFuelFix translateStep 1048575 (Lean.Expr.fvar aId) _ _ _) hArgs
+    Returns.bind (m := translateFuelFix (translateStep tenv) 1048575 (Lean.Expr.fvar aId) _ _ _) hArgs
   obtain ⟨hconns, hsF⟩ := Returns.pure hArgs
   subst hconns hsF
   obtain ⟨csP, sP2, hgetP, k7⟩ :=
@@ -1047,8 +1052,8 @@ theorem synthesizeMixedCertified_instance1_sound {logProf declName bs body m d}
     (bs.zip ids) _ _ rfl rfl
   rw [ps] at hsB
   rw [pc] at rA
-  have fuelEq : translateFuelFix translateStep 1048575 =
-      translateStepWith translateFallback (translateFuelFix translateStep 1048574) := rfl
+  have fuelEq : translateFuelFix (translateStep tenv) 1048575 =
+      translateStepWith (translateFallback tenv) (translateFuelFix (translateStep tenv) 1048574) := rfl
   rw [fuelEq] at rA
   have designSB : ∀ (s : CircuitState) dd,
       ({ s with design := dd } : CircuitState).sourceBindings = s.sourceBindings :=
@@ -1321,8 +1326,8 @@ theorem instanceN_step (rec : TranslateFn) (mn : Name) (lvls : List Level)
     (hpure : (mn == ``Sparkle.Core.Signal.Signal.pure) = false)
     (hbin : signalBinOpOf mn = none)
     (hkind : fallbackKind (instEN mn lvls dF argsF) = .other) :
-    translateStepWith translateFallback rec (instEN mn lvls dF argsF) hint top named =
-      translateInstanceOrFallback rec (instEN mn lvls dF argsF) hint top named := by
+    translateStepWith (translateFallback tenv) rec (instEN mn lvls dF argsF) hint top named =
+      translateInstanceOrFallback tenv rec (instEN mn lvls dF argsF) hint top named := by
   have hfn := instEN_getAppFn mn lvls dF argsF
   have shape : translateCoreShape (instEN mn lvls dF argsF) = false := by
     unfold translateCoreShape
@@ -1353,9 +1358,9 @@ theorem instanceN_step (rec : TranslateFn) (mn : Name) (lvls : List Level)
       | _ => pure none) = pure none
     rw [hfn]
     simp only [hpure, Bool.false_eq_true, if_false, hbin]
-  have step : translateStepWith translateFallback rec
+  have step : translateStepWith (translateFallback tenv) rec
       (instEN mn lvls dF argsF) hint top named =
-      translateFallback rec (instEN mn lvls dF argsF) hint top named := by
+      (translateFallback tenv) rec (instEN mn lvls dF argsF) hint top named := by
     simp [translateStepWith, shape, core]
     rfl
   rw [step]
@@ -1389,7 +1394,7 @@ theorem instArgs_resolve {rec' : TranslateFn} {ctx : CompilerState} {s : Circuit
       ∃ id, (pairs[k]'hk).2 = .fvar id ∧
         Tools.ShippingBindingsSoundness.visible ctx s.sourceBindings id =
           some (wires[k]'hk')) →
-    Returns (instArgs (translateStepWith translateFallback rec') acc pairs i) ctx s r s' →
+    Returns (instArgs (translateStepWith (translateFallback tenv) rec') acc pairs i) ctx s r s' →
     s' = s ∧ r = ((pairs.zip wires).map
       (fun pw => (pw.1.1.name, Sparkle.IR.AST.Expr.ref pw.2))).reverse ++ acc
   | [], wires, acc, i, r, s', hlen, _, h => by
@@ -1404,7 +1409,7 @@ theorem instArgs_resolve {rec' : TranslateFn} {ctx : CompilerState} {s : Circuit
     have he' : e = .fvar id := he
     subst he'
     obtain ⟨aw, s1, hread, hrest⟩ :=
-      Returns.bind (m := translateStepWith translateFallback rec' (.fvar id) _ _ _) h
+      Returns.bind (m := translateStepWith (translateFallback tenv) rec' (.fvar id) _ _ _) h
     obtain ⟨haw, hs1⟩ := translateStep_fvar_returns hvis hread
     subst hs1
     obtain ⟨hs', hr⟩ := instArgs_resolve rest ws ((p.name, .ref aw) :: acc) (i + 1) r s'
@@ -1461,8 +1466,9 @@ def InstanceNPreserves (declName : Name) (bs : List (Name × MixedGateBinder))
 set_option maxHeartbeats 2000000 in
 theorem synthesizeMixedCertified_instanceN_sound {logProf declName bs body m d}
     (hr : MReturns (synthesizeMixedCertified
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName bs body)
-      (m, d)) :
+      (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName bs body)
+      (m, d))
+    (henvT : MReturns (Lean.getEnv : MetaM Lean.Environment) tenv) :
     InstanceNPreserves declName bs body m d := by
   obtain ⟨ids, cache, returned, st, nd, len, run, hm, hd, -⟩ :=
     synthesizeMixedCertified_returns hr
@@ -1473,20 +1479,19 @@ theorem synthesizeMixedCertified_instanceN_sound {logProf declName bs body m d}
     (bools := fun _ => false) (bits := fun _ _ => 0) run
   rw [qeq] at leaf
   obtain ⟨w, sm0, ty, tr, freshOut, ht, hty⟩ := emitLeaves_single leaf
-  have stepEq : translateExprToWire
+  have stepEq : translateExprToWire tenv
       (instEN mn lvls (.fvar dId) (argIds.map Lean.Expr.fvar)) "out" false true =
-      translateInstanceOrFallback (translateFuelFix translateStep 1048575)
+      translateInstanceOrFallback tenv (translateFuelFix (translateStep tenv) 1048575)
         (instEN mn lvls (.fvar dId) (argIds.map Lean.Expr.fvar)) "out" false true := by
-    show translateStepWith translateFallback (translateFuelFix translateStep 1048575)
+    show translateStepWith (translateFallback tenv) (translateFuelFix (translateStep tenv) 1048575)
       (instEN mn lvls (.fvar dId) (argIds.map Lean.Expr.fvar)) "out" false true = _
     exact instanceN_step _ mn lvls _ _ _ _ _ hpure hbin hkind
   rw [stepEq] at tr
   unfold translateInstanceOrFallback at tr
   rw [instEN_getAppFn] at tr
-  obtain ⟨env, sE, hEnvRead, tr⟩ := Returns.bind tr
-  obtain ⟨hEnvM, hsE⟩ := Returns.liftMetaM_mreturns hEnvRead
-  subst hsE
-  rw [htag env hEnvM] at tr
+  -- the arm tests the tag on its environment parameter: no read to step through
+  change Returns (if Sparkle.Compiler.isHardwareModule tenv mn = true then _ else _) _ _ _ _ at tr
+  rw [htag tenv henvT] at tr
   simp only [if_true] at tr
   obtain ⟨sub, sS, hSubRead, tr⟩ := Returns.bind tr
   obtain ⟨hSubM, hsS⟩ := Returns.liftMetaM_mreturns hSubRead
@@ -1579,8 +1584,8 @@ theorem synthesizeMixedCertified_instanceN_sound {logProf declName bs body m d}
     (bs.zip ids) _ _ rfl rfl
   rw [ps] at hsB
   rw [pc] at hArgs
-  have fuelEq : translateFuelFix translateStep 1048575 =
-      translateStepWith translateFallback (translateFuelFix translateStep 1048574) := rfl
+  have fuelEq : translateFuelFix (translateStep tenv) 1048575 =
+      translateStepWith (translateFallback tenv) (translateFuelFix (translateStep tenv) 1048574) := rfl
   rw [fuelEq] at hArgs
   have designSB : ∀ (s : CircuitState) dd,
       ({ s with design := dd } : CircuitState).sourceBindings = s.sourceBindings :=
@@ -1884,8 +1889,9 @@ def InstanceGPreserves (declName : Name) (bs : List (Name × MixedGateBinder))
 set_option maxHeartbeats 2000000 in
 theorem synthesizeMixedCertified_instanceG_sound {logProf declName bs body m d}
     (hr : MReturns (synthesizeMixedCertified
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName bs body)
-      (m, d)) :
+      (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName bs body)
+      (m, d))
+    (henvT : MReturns (Lean.getEnv : MetaM Lean.Environment) tenv) :
     InstanceGPreserves declName bs body m d := by
   obtain ⟨ids, cache, returned, st, nd, len, run, hm, hd, -⟩ :=
     synthesizeMixedCertified_returns hr
@@ -1896,20 +1902,19 @@ theorem synthesizeMixedCertified_instanceG_sound {logProf declName bs body m d}
     (bools := fun _ => false) (bits := fun _ _ => 0) run
   rw [qeq] at leaf
   obtain ⟨w, sm0, ty, tr, freshOut, ht, hty⟩ := emitLeaves_single leaf
-  have stepEq : translateExprToWire
+  have stepEq : translateExprToWire tenv
       (instEN mn lvls (.fvar dId) (argIds.map Lean.Expr.fvar)) "out" false true =
-      translateInstanceOrFallback (translateFuelFix translateStep 1048575)
+      translateInstanceOrFallback tenv (translateFuelFix (translateStep tenv) 1048575)
         (instEN mn lvls (.fvar dId) (argIds.map Lean.Expr.fvar)) "out" false true := by
-    show translateStepWith translateFallback (translateFuelFix translateStep 1048575)
+    show translateStepWith (translateFallback tenv) (translateFuelFix (translateStep tenv) 1048575)
       (instEN mn lvls (.fvar dId) (argIds.map Lean.Expr.fvar)) "out" false true = _
     exact instanceN_step _ mn lvls _ _ _ _ _ hpure hbin hkind
   rw [stepEq] at tr
   unfold translateInstanceOrFallback at tr
   rw [instEN_getAppFn] at tr
-  obtain ⟨env, sE, hEnvRead, tr⟩ := Returns.bind tr
-  obtain ⟨hEnvM, hsE⟩ := Returns.liftMetaM_mreturns hEnvRead
-  subst hsE
-  rw [htag env hEnvM] at tr
+  -- the arm tests the tag on its environment parameter: no read to step through
+  change Returns (if Sparkle.Compiler.isHardwareModule tenv mn = true then _ else _) _ _ _ _ at tr
+  rw [htag tenv henvT] at tr
   simp only [if_true] at tr
   obtain ⟨sub, sS, hSubRead, tr⟩ := Returns.bind tr
   obtain ⟨hSubM, hsS⟩ := Returns.liftMetaM_mreturns hSubRead
@@ -1992,8 +1997,8 @@ theorem synthesizeMixedCertified_instanceG_sound {logProf declName bs body m d}
     (bs.zip ids) _ _ rfl rfl
   rw [ps] at hsB
   rw [pc] at hArgs
-  have fuelEq : translateFuelFix translateStep 1048575 =
-      translateStepWith translateFallback (translateFuelFix translateStep 1048574) := rfl
+  have fuelEq : translateFuelFix (translateStep tenv) 1048575 =
+      translateStepWith (translateFallback tenv) (translateFuelFix (translateStep tenv) 1048574) := rfl
   rw [fuelEq, hsH, hsC, hconns0] at hArgs
   have designSB : ∀ (s : CircuitState) dd,
       ({ s with design := dd } : CircuitState).sourceBindings = s.sourceBindings :=
@@ -2251,8 +2256,8 @@ theorem instanceProj_step (rec : TranslateFn) (pn : Name) (lvlsP : List Level)
     (hpure : (pn == ``Sparkle.Core.Signal.Signal.pure) = false)
     (hbin : signalBinOpOf pn = none)
     (hkind : fallbackKind (projE pn lvlsP dF callF) = .other) :
-    translateStepWith translateFallback rec (projE pn lvlsP dF callF) hint top named =
-      translateInstanceOrFallback rec (projE pn lvlsP dF callF) hint top named := by
+    translateStepWith (translateFallback tenv) rec (projE pn lvlsP dF callF) hint top named =
+      translateInstanceOrFallback tenv rec (projE pn lvlsP dF callF) hint top named := by
   have shape : translateCoreShape (projE pn lvlsP dF callF) = false := by
     show ((pn == ``Sparkle.Core.Signal.Signal.pure) ||
       (match signalBinOpOf pn,
@@ -2276,9 +2281,9 @@ theorem instanceProj_step (rec : TranslateFn) (pn : Name) (lvlsP : List Level)
         | _, _, _ => pure none) = pure none
     rw [hpure, hbin]
     rfl
-  have step : translateStepWith translateFallback rec
+  have step : translateStepWith (translateFallback tenv) rec
       (projE pn lvlsP dF callF) hint top named =
-      translateFallback rec (projE pn lvlsP dF callF) hint top named := by
+      (translateFallback tenv) rec (projE pn lvlsP dF callF) hint top named := by
     simp [translateStepWith, shape, core]
     rfl
   rw [step]
@@ -2454,7 +2459,7 @@ theorem outWiresPure_inputs (hint : String) : ∀ (outs : List Port)
 function itself is not a hardware module, it is a projection of
 `structName`, and the projected call's head carries the tag. -/
 def ProjEnvDefines (pn structName cn : Name) : Prop :=
-  ∀ env, MReturns instArmEnv env →
+  ∀ env, MReturns (Lean.getEnv : MetaM Lean.Environment) env →
     Sparkle.Compiler.isHardwareModule env pn = false ∧
     env.getProjectionStructureName? pn = some structName ∧
     Sparkle.Compiler.isHardwareModule env cn = true
@@ -2587,8 +2592,9 @@ def ProjInstancePreserves (declName : Name) (bs : List (Name × MixedGateBinder)
 set_option maxHeartbeats 2000000 in
 theorem synthesizeMixedCertified_instanceProj_sound {logProf declName bs body m d}
     (hr : MReturns (synthesizeMixedCertified
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName bs body)
-      (m, d)) :
+      (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName bs body)
+      (m, d))
+    (henvT : MReturns (Lean.getEnv : MetaM Lean.Environment) tenv) :
     ProjInstancePreserves declName bs body m d := by
   obtain ⟨ids, cache, returned, st, nd, len, run, hm, hd, -⟩ :=
     synthesizeMixedCertified_returns hr
@@ -2601,23 +2607,22 @@ theorem synthesizeMixedCertified_instanceProj_sound {logProf declName bs body m 
     (bools := fun _ => false) (bits := fun _ _ => 0) run
   rw [qeq] at leaf
   obtain ⟨w, sm0, ty, tr, freshOut, ht, hty⟩ := emitLeaves_single leaf
-  have stepEq : translateExprToWire
+  have stepEq : translateExprToWire tenv
       (projE pn lvlsP (.fvar dIdP)
         (instEN cn lvlsC (.fvar dIdC) (argIds.map Lean.Expr.fvar))) "out" false true =
-      translateInstanceOrFallback (translateFuelFix translateStep 1048575)
+      translateInstanceOrFallback tenv (translateFuelFix (translateStep tenv) 1048575)
         (projE pn lvlsP (.fvar dIdP)
           (instEN cn lvlsC (.fvar dIdC) (argIds.map Lean.Expr.fvar))) "out" false true := by
-    show translateStepWith translateFallback (translateFuelFix translateStep 1048575)
+    show translateStepWith (translateFallback tenv) (translateFuelFix (translateStep tenv) 1048575)
       (projE pn lvlsP (.fvar dIdP)
         (instEN cn lvlsC (.fvar dIdC) (argIds.map Lean.Expr.fvar))) "out" false true = _
     exact instanceProj_step _ pn lvlsP _ _ _ _ _ hpure hbin hkind
   rw [stepEq] at tr
   unfold translateInstanceOrFallback at tr
   rw [projE_getAppFn] at tr
-  obtain ⟨env, sE, hEnvRead, tr⟩ := Returns.bind tr
-  obtain ⟨hEnvM, hsE⟩ := Returns.liftMetaM_mreturns hEnvRead
-  subst hsE
-  obtain ⟨hnotTag, hprojS, hctag⟩ := hpenv env hEnvM
+  -- the arm tests the tag on its environment parameter: no read to step through
+  change Returns (if Sparkle.Compiler.isHardwareModule tenv pn = true then _ else _) _ _ _ _ at tr
+  obtain ⟨hnotTag, hprojS, hctag⟩ := hpenv tenv henvT
   rw [hnotTag] at tr
   simp only [Bool.false_eq_true, if_false] at tr
   rw [hprojS, projE_spineArgs] at tr
@@ -2764,8 +2769,8 @@ theorem synthesizeMixedCertified_instanceProj_sound {logProf declName bs body m 
     (bs.zip ids) _ _ rfl rfl
   rw [ps] at hsB
   rw [pc] at hArgs
-  have fuelEq : translateFuelFix translateStep 1048575 =
-      translateStepWith translateFallback (translateFuelFix translateStep 1048574) := rfl
+  have fuelEq : translateFuelFix (translateStep tenv) 1048575 =
+      translateStepWith (translateFallback tenv) (translateFuelFix (translateStep tenv) 1048574) := rfl
   rw [fuelEq, hsH, hsC, hconns0] at hArgs
   have designSB : ∀ (s : CircuitState) dd,
       ({ s with design := dd } : CircuitState).sourceBindings = s.sourceBindings :=
@@ -2961,8 +2966,9 @@ theorem synthesizeFromConst_instance_sound {logProf declName ci bs body m d}
     (old : certifiedShape? false [] ci = none)
     (shape : mixedCertifiedShape? false [] ci isInst = some (bs, body))
     (hr : MReturns (synthesizeFromConst
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName
-      [] false true ci isInst) (m, d)) :
+      (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName
+      [] false true ci isInst) (m, d))
+    (henvT : MReturns (Lean.getEnv : MetaM Lean.Environment) tenv) :
     InstancePreserves declName bs body m d := by
   unfold synthesizeFromConst at hr
   simp only [↓reduceIte, old, shape] at hr
@@ -2971,7 +2977,7 @@ theorem synthesizeFromConst_instance_sound {logProf declName ci bs body m d}
   peel_bind hr
   have eq := MReturns.pure hr
   subst result
-  exact synthesizeMixedCertified_instance_sound run
+  exact synthesizeMixedCertified_instance_sound run henvT
 
 /-- The one-input dispatcher, mirroring the two-input one. -/
 theorem synthesizeFromConst_instance1_sound {logProf declName ci bs body m d}
@@ -2979,8 +2985,9 @@ theorem synthesizeFromConst_instance1_sound {logProf declName ci bs body m d}
     (old : certifiedShape? false [] ci = none)
     (shape : mixedCertifiedShape? false [] ci isInst = some (bs, body))
     (hr : MReturns (synthesizeFromConst
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName
-      [] false true ci isInst) (m, d)) :
+      (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName
+      [] false true ci isInst) (m, d))
+    (henvT : MReturns (Lean.getEnv : MetaM Lean.Environment) tenv) :
     Instance1Preserves declName bs body m d := by
   unfold synthesizeFromConst at hr
   simp only [↓reduceIte, old, shape] at hr
@@ -2989,7 +2996,7 @@ theorem synthesizeFromConst_instance1_sound {logProf declName ci bs body m d}
   peel_bind hr
   have eq := MReturns.pure hr
   subst result
-  exact synthesizeMixedCertified_instance1_sound run
+  exact synthesizeMixedCertified_instance1_sound run henvT
 
 /-- The n-ary dispatcher. -/
 theorem synthesizeFromConst_instanceN_sound {logProf declName ci bs body m d}
@@ -2997,8 +3004,9 @@ theorem synthesizeFromConst_instanceN_sound {logProf declName ci bs body m d}
     (old : certifiedShape? false [] ci = none)
     (shape : mixedCertifiedShape? false [] ci isInst = some (bs, body))
     (hr : MReturns (synthesizeFromConst
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName
-      [] false true ci isInst) (m, d)) :
+      (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName
+      [] false true ci isInst) (m, d))
+    (henvT : MReturns (Lean.getEnv : MetaM Lean.Environment) tenv) :
     InstanceNPreserves declName bs body m d := by
   unfold synthesizeFromConst at hr
   simp only [↓reduceIte, old, shape] at hr
@@ -3007,7 +3015,7 @@ theorem synthesizeFromConst_instanceN_sound {logProf declName ci bs body m d}
   peel_bind hr
   have eq := MReturns.pure hr
   subst result
-  exact synthesizeMixedCertified_instanceN_sound run
+  exact synthesizeMixedCertified_instanceN_sound run henvT
 
 /-- The general single-output dispatcher. -/
 theorem synthesizeFromConst_instanceG_sound {logProf declName ci bs body m d}
@@ -3015,8 +3023,9 @@ theorem synthesizeFromConst_instanceG_sound {logProf declName ci bs body m d}
     (old : certifiedShape? false [] ci = none)
     (shape : mixedCertifiedShape? false [] ci isInst = some (bs, body))
     (hr : MReturns (synthesizeFromConst
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName
-      [] false true ci isInst) (m, d)) :
+      (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName
+      [] false true ci isInst) (m, d))
+    (henvT : MReturns (Lean.getEnv : MetaM Lean.Environment) tenv) :
     InstanceGPreserves declName bs body m d := by
   unfold synthesizeFromConst at hr
   simp only [↓reduceIte, old, shape] at hr
@@ -3025,7 +3034,7 @@ theorem synthesizeFromConst_instanceG_sound {logProf declName ci bs body m d}
   peel_bind hr
   have eq := MReturns.pure hr
   subst result
-  exact synthesizeMixedCertified_instanceG_sound run
+  exact synthesizeMixedCertified_instanceG_sound run henvT
 
 /-- The run's predicate on the quoted projection: a projection function whose
 record argument is a tagged call. -/
@@ -3059,8 +3068,9 @@ theorem synthesizeFromConst_instanceProj_sound {logProf declName ci bs body m d}
     (old : certifiedShape? false [] ci = none)
     (shape : mixedCertifiedShape? false [] ci isInst = some (bs, body))
     (hr : MReturns (synthesizeFromConst
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName
-      [] false true ci isInst) (m, d)) :
+      (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName
+      [] false true ci isInst) (m, d))
+    (henvT : MReturns (Lean.getEnv : MetaM Lean.Environment) tenv) :
     ProjInstancePreserves declName bs body m d := by
   unfold synthesizeFromConst at hr
   simp only [↓reduceIte, old, shape] at hr
@@ -3069,7 +3079,7 @@ theorem synthesizeFromConst_instanceProj_sound {logProf declName ci bs body m d}
   peel_bind hr
   have eq := MReturns.pure hr
   subst result
-  exact synthesizeMixedCertified_instanceProj_sound run
+  exact synthesizeMixedCertified_instanceProj_sound run henvT
 
 /-- The instance result is tied to the declaration AND the environment THIS
 run read: the gate holds at `instancePredicate envR` for the run's own
@@ -3095,11 +3105,11 @@ theorem synthesizeCombinationalCore_instance_sound {declName : Name}
   obtain ⟨logProf, envR, ci, w1, w2, w3, w4, w5, w6, get, henv, run⟩ :=
     Tools.ShippingEntrySoundness.synthesizeCombinationalCore_reads hr
   exact ⟨ci, envR, w1, w2, w5, w6, get, henv, fun _ _ old shape =>
-    ⟨synthesizeFromConst_instance_sound old shape (Tools.ShippingEntrySoundness.entry_kept shape run).mreturns,
-     synthesizeFromConst_instance1_sound old shape (Tools.ShippingEntrySoundness.entry_kept shape run).mreturns,
-     synthesizeFromConst_instanceN_sound old shape (Tools.ShippingEntrySoundness.entry_kept shape run).mreturns,
-     synthesizeFromConst_instanceG_sound old shape (Tools.ShippingEntrySoundness.entry_kept shape run).mreturns,
-     synthesizeFromConst_instanceProj_sound old shape (Tools.ShippingEntrySoundness.entry_kept shape run).mreturns⟩⟩
+    ⟨synthesizeFromConst_instance_sound old shape (Tools.ShippingEntrySoundness.entry_kept shape run).mreturns henv.mreturns,
+     synthesizeFromConst_instance1_sound old shape (Tools.ShippingEntrySoundness.entry_kept shape run).mreturns henv.mreturns,
+     synthesizeFromConst_instanceN_sound old shape (Tools.ShippingEntrySoundness.entry_kept shape run).mreturns henv.mreturns,
+     synthesizeFromConst_instanceG_sound old shape (Tools.ShippingEntrySoundness.entry_kept shape run).mreturns henv.mreturns,
+     synthesizeFromConst_instanceProj_sound old shape (Tools.ShippingEntrySoundness.entry_kept shape run).mreturns henv.mreturns⟩⟩
 
 /-- The entry endpoint under the run's environment boundaries: if the run's
 environment defines the declaration as the canonical two-input instance call

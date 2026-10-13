@@ -1,5 +1,7 @@
 import Tools.ShippingBoolMuxSoundness
 
+variable {tenv : Lean.Environment}
+
 /-! Joint Bool/BitVec state invariant. In particular, writing a Bool cache record
 must preserve BitVec records too (and conversely). This is infrastructure for
 mixed recursive translation, not yet a closed source-to-RTL theorem. -/
@@ -204,7 +206,7 @@ theorem mixed_bool_hit {ctx ρ β we mems initial s t prior e w b}
 theorem translateFallback_literal_mixed {ctx ρ β we mems initial s t prior dom hint named top w}
     (rec : TranslateFn) (b : Bool) (h : MixedInv ctx ρ β we mems initial s prior)
     (widths : ScalarWidthsAgree we t)
-    (hr : Returns (translateFallback rec (literalE dom b) hint top named) ctx s w t) :
+    (hr : Returns ((translateFallback tenv) rec (literalE dom b) hint top named) ctx s w t) :
     Outcome ctx ρ β we mems initial prior s t w 1 (encodeBool b) := by
   have hd := BoolDenotes.quotePure (ρ := ρ) (β := β) dom b
   rw [translateFallback_bool rec _ hint top named (by cases b <;> rfl)] at hr
@@ -228,7 +230,7 @@ through both actual cache layers. No child translation premise is needed. -/
 theorem translateStep_literal_mixed {ctx ρ β we mems initial s t prior dom hint named top w}
     (rec : TranslateFn) (b : Bool) (h : MixedInv ctx ρ β we mems initial s prior)
     (widths : ScalarWidthsAgree we t)
-    (hr : Returns (translateStepWith translateFallback rec (literalE dom b) hint top named) ctx s w t) :
+    (hr : Returns (translateStepWith (translateFallback tenv) rec (literalE dom b) hint top named) ctx s w t) :
     Outcome ctx ρ β we mems initial prior s t w 1 (encodeBool b) := by
   unfold translateStepWith at hr
   dsimp only at hr
@@ -254,10 +256,10 @@ theorem translateStep_literal_mixed {ctx ρ β we mems initial s t prior dom hin
 theorem translateExprToWire_literal_mixed {ctx ρ β we mems initial s t prior dom hint named top w}
     (b : Bool) (h : MixedInv ctx ρ β we mems initial s prior)
     (widths : ScalarWidthsAgree we t)
-    (hr : Returns (translateExprToWire (literalE dom b) hint top named) ctx s w t) :
+    (hr : Returns (translateExprToWire tenv (literalE dom b) hint top named) ctx s w t) :
     Outcome ctx ρ β we mems initial prior s t w 1 (encodeBool b) := by
-  change Returns (translateStepWith translateFallback
-    (translateFuelFix translateStep (translateFuelLimit - 1)) (literalE dom b) hint top named) ctx s w t at hr
+  change Returns (translateStepWith (translateFallback tenv)
+    (translateFuelFix (translateStep tenv) (translateFuelLimit - 1)) (literalE dom b) hint top named) ctx s w t at hr
   exact translateStep_literal_mixed _ b h widths hr
 
 /-- Mixed-invariant composition for the real three-child Bool mux sequence. -/
@@ -322,7 +324,7 @@ theorem translateFallback_boolMux_mixed {ctx ρ β we mems initial s t prior rec
     (hb : ChildSpec rec ctx we mems initial (MixedInv ctx ρ β we mems initial)
       be "mux_else" 1 (encodeBool b))
     (widths : ScalarWidthsAgree we t)
-    (hr : Returns (translateFallback rec (boolMuxE dom ce ae be) hint top named) ctx s w t) :
+    (hr : Returns ((translateFallback tenv) rec (boolMuxE dom ce ae be) hint top named) ctx s w t) :
     Outcome ctx ρ β we mems initial prior s t w 1 (encodeBool (if c then a else b)) := by
   rw [translateFallback_bool rec _ hint top named rfl] at hr
   apply translateControlCachedWith_mixed h (BoolDenotes.quoteMux dom ce ae be dc da db) widths ?_ hr
@@ -333,7 +335,7 @@ theorem translateFallback_boolMux_mixed {ctx ρ β we mems initial s t prior rec
 /-- The real fvar step returns the existing binding without recording it. -/
 theorem translateStep_fvar_returns {ctx s t id rec hint top named w v}
     (bound : visible ctx s.sourceBindings id = some v)
-    (hr : Returns (translateStepWith translateFallback rec (.fvar id) hint top named) ctx s w t) :
+    (hr : Returns (translateStepWith (translateFallback tenv) rec (.fvar id) hint top named) ctx s w t) :
     w = v ∧ t = s := by
   unfold translateStepWith at hr
   simp only [Lean.Expr.isFVar, Bool.not_true, Bool.and_false, Bool.false_and,
@@ -347,7 +349,7 @@ theorem translateStep_fvar_returns {ctx s t id rec hint top named w v}
 
 theorem translateStep_bool_input_mixed {ctx ρ β we mems initial s t prior rec id hint top named w b}
     (h : MixedInv ctx ρ β we mems initial s prior) (value : ρ id = some b)
-    (hr : Returns (translateStepWith translateFallback rec (.fvar id) hint top named) ctx s w t) :
+    (hr : Returns (translateStepWith (translateFallback tenv) rec (.fvar id) hint top named) ctx s w t) :
     Outcome ctx ρ β we mems initial prior s t w 1 (encodeBool b) := by
   obtain ⟨v, bound, used, val, width⟩ := h.inputs.bool id b value
   obtain ⟨hw, ht⟩ := translateStep_fvar_returns bound hr
@@ -356,7 +358,7 @@ theorem translateStep_bool_input_mixed {ctx ρ β we mems initial s t prior rec 
 
 theorem translateStep_bits_input_mixed {ctx ρ β we mems initial s t prior rec id hint top named w n}
     {x : BitVec n} (h : MixedInv ctx ρ β we mems initial s prior) (value : β id = some ⟨n, x⟩)
-    (hr : Returns (translateStepWith translateFallback rec (.fvar id) hint top named) ctx s w t) :
+    (hr : Returns (translateStepWith (translateFallback tenv) rec (.fvar id) hint top named) ctx s w t) :
     Outcome ctx ρ β we mems initial prior s t w n x.toNat := by
   obtain ⟨v, bound, used⟩ := h.inputs.lookup id n x value
   obtain ⟨val, width⟩ := h.inputs.values id n x v value bound
@@ -390,7 +392,7 @@ theorem translateFallback_compare_mixed {ctx ρ β we mems initial s t prior rec
     (ha : ChildSpec rec ctx we mems initial (MixedInv ctx ρ β we mems initial) ae "a" n x.toNat)
     (hb : ChildSpec rec ctx we mems initial (MixedInv ctx ρ β we mems initial) be "b" n y.toNat)
     (widths : ScalarWidthsAgree we t)
-    (hr : Returns (translateFallback rec
+    (hr : Returns ((translateFallback tenv) rec
       (compareE le dom n ae be)
       hint top named) ctx s w t) :
     Outcome ctx ρ β we mems initial prior s t w 1 (encodeBool (compareValue le x y)) := by

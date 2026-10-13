@@ -1,6 +1,8 @@
 import Tools.ShippingMixedRecursion
 import Tools.ShippingPendingSoundness
 
+variable {tenv : Lean.Environment}
+
 /-! Dependency order of the actual mixed translator. BitVec children reuse
 the established pending-name protection while carrying the mixed invariant. -/
 namespace Tools.ShippingMixedOrderSoundness
@@ -177,7 +179,7 @@ theorem step_orders {fallback : TranslateFn → TranslateFn} {rec : TranslateFn}
     exact core_continuation_orders ih ip io (fun _ => rfl) hn hd h hi hw ho
 
 theorem fuel_orders {ctx ρ β we mems initial} :
-    ∀ fuel, BitsOrders (translateFuelFix translateStep fuel) ctx ρ β we mems initial
+    ∀ fuel, BitsOrders (translateFuelFix (translateStep tenv) fuel) ctx ρ β we mems initial
   | 0 => by
     intro e hint named n x s env0 w t hn hd h hi hw ho
     exact False.elim (Returns.throw h)
@@ -228,9 +230,9 @@ theorem cached_order {ctx ρ β we mems initial lower e hint top named}
     exact ho
 
 theorem literal_order {rec ctx ρ β we mems initial dom hint named} (b : Bool) :
-    ActionOrder (translateStepWith translateFallback rec (literalE dom b) hint false named)
+    ActionOrder (translateStepWith (translateFallback tenv) rec (literalE dom b) hint false named)
       ctx ρ β we mems initial := by
-  have fallback : ActionOrder (translateFallback rec (literalE dom b) hint false named)
+  have fallback : ActionOrder ((translateFallback tenv) rec (literalE dom b) hint false named)
       ctx ρ β we mems initial := by
     rw [translateFallback_bool rec _ hint false named (by cases b <;> rfl)]
     apply cached_order
@@ -344,7 +346,7 @@ theorem bool_fuel_orders (fuel : Nat) {ctx ρ β we mems initial dom n kb kv}
     (hn : 0 < n) (hb : ∀ j, j < kb → ρ (binp j) = some (bools j))
     (hv : ∀ j, j < kv → β (vinp j) = some ⟨n, bits j⟩) :
     ∀ e, e.WF kb kv n → ∀ hint named,
-      ActionOrder (translateFuelFix translateStep fuel
+      ActionOrder (translateFuelFix (translateStep tenv) fuel
         (quoteB dom n (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) e) hint false named)
         ctx ρ β we mems initial := by
   have vd : ∀ j, j < kv → Denotes β (.fvar (vinp j)) n (bits j) := fun j hj => .fvar (hv j hj)
@@ -354,7 +356,7 @@ theorem bool_fuel_orders (fuel : Nat) {ctx ρ β we mems initial dom n kb kv}
     exact (Returns.throw hr).elim
   | succ fuel ih =>
     intro e he hint named
-    change ActionOrder (translateStepWith translateFallback (translateFuelFix translateStep fuel) _ hint false named) _ _ _ _ _ _
+    change ActionOrder (translateStepWith (translateFallback tenv) (translateFuelFix (translateStep tenv) fuel) _ hint false named) _ _ _ _ _ _
     cases e with
     | inp j =>
       intro s t w prior hr h widths order
@@ -404,7 +406,7 @@ theorem bool_fuel_orders (fuel : Nat) {ctx ρ β we mems initial dom n kb kv}
     | mux c a b =>
       obtain ⟨hc, ha, hb'⟩ := he
       simp only [quoteB]
-      change ActionOrder (translateStepWith translateFallback (translateFuelFix translateStep fuel)
+      change ActionOrder (translateStepWith (translateFallback tenv) (translateFuelFix (translateStep tenv) fuel)
         (boolMuxE dom _ _ _) hint false named) _ _ _ _ _ _
       rw [boolMux_step, translateFallback_bool _ _ hint false named rfl]
       apply cached_order
@@ -419,7 +421,7 @@ theorem translateExprToWire_bool_orders {ctx ρ β we mems initial dom n kb kv}
     (hn : 0 < n) (hb : ∀ j, j < kb → ρ (binp j) = some (bools j))
     (hv : ∀ j, j < kv → β (vinp j) = some ⟨n, bits j⟩)
     (e : BExpr) (he : e.WF kb kv n) (hint : String) (named : Bool) :
-    ActionOrder (translateExprToWire
+    ActionOrder (translateExprToWire tenv
       (quoteB dom n (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) e) hint false named)
       ctx ρ β we mems initial :=
   bool_fuel_orders translateFuelLimit hn hb hv e he hint named

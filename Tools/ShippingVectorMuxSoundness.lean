@@ -3,6 +3,8 @@ import Tools.ShippingContractEntrySoundness
 import Tools.ShippingMixedExecutionSoundness
 import Tools.ShippingUnifiedExecutionSoundness
 
+variable {tenv : Lean.Environment}
+
 /-! Entry and backend connection for BitVec mux trees. -/
 namespace Tools.ShippingVectorMuxSoundness
 open Lean Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Builder Sparkle.IR.Semantics
@@ -51,7 +53,7 @@ theorem VectorSourcePreserves.map {declName bs body P Q}
 
 theorem synthesizeMixedCertified_vector_sound {logProf declName bs body m d}
     (hr : MReturns (synthesizeMixedCertified
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName bs body) (m, d)) :
+      (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName bs body) (m, d)) :
     VectorPreserves declName bs body m := by
   obtain ⟨ids, nd, len, cache, h⟩ :=
     Tools.ShippingUnifiedExecutionSoundness.synthesizeMixedCertified_term_sound hr
@@ -85,7 +87,7 @@ theorem synthesizeFromConst_vector_sound {logProf declName ci bs body m d}
     (old : certifiedShape? false [] ci = none)
     (shape : mixedCertifiedShape? false [] ci isInst = some (bs, body))
     (hr : MReturns (synthesizeFromConst
-      (fun e hint top named => translateExprToWire e hint top named) logProf declName [] false true ci isInst) (m, d)) :
+      (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName [] false true ci isInst) (m, d)) :
     VectorPreserves declName bs body m := by
   unfold synthesizeFromConst at hr
   simp only [↓reduceIte, old, shape] at hr
