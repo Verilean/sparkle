@@ -1074,7 +1074,8 @@ initialize sparkleSubInstanceOutputs :
     inputs, same reset ⇒ same state trajectory).
 
     Value: the instance's output wire.  Cleared at depth 0 with
-    the other per-synth caches. -/
+    the other per-synth caches; a nested synth starts with it empty
+    and its parent's content is restored afterwards (finding I). -/
 initialize sparkleSingleOutInstanceCache :
     IO.Ref (Std.HashMap String String) ← IO.mkRef {}
 
@@ -5490,6 +5491,16 @@ def synthesizeCombinationalCoreWith (translate : TranslateFn) (declName : Name)
   let savedSubInstanceOutputs ←
     if depth == 0 then pure ({} : Std.HashMap (UInt64 × String) String)
     else sparkleSubInstanceOutputs.get
+  -- The single-output instance map holds WIRE NAMES of the module being built
+  -- as well, under `parent#child#connections`.  The legacy handler returns a
+  -- hit without checking that the wire belongs to the builder at work, so an
+  -- entry left by an EARLIER builder of the same module name makes a later
+  -- one skip the instance (finding I, docs/parallel/I-singleout-stale.md).
+  -- A nested synth therefore starts with it empty, as an outermost one does,
+  -- and the parent's content is restored in the `finally`.
+  let savedSingleOutInstanceCache ←
+    if depth == 0 then pure ({} : Std.HashMap String String)
+    else sparkleSingleOutInstanceCache.get
   if depth == 0 then
     sparkleTypeCache.set {}
     sparkleTypeCacheHits.set 0
@@ -5514,6 +5525,7 @@ def synthesizeCombinationalCoreWith (translate : TranslateFn) (declName : Name)
     sparkleLoopWireCache.set {}
     sparkleWireCanon.set {}
     sparkleSubInstanceOutputs.set {}
+    sparkleSingleOutInstanceCache.set {}
   sparkleSynthDepth.set (depth + 1)
   -- Extract the body into a local closure so `try ... finally`
   -- can wrap the entire synthesis path (including the
@@ -5539,6 +5551,7 @@ def synthesizeCombinationalCoreWith (translate : TranslateFn) (declName : Name)
       sparkleLoopWireCache.set savedLoopWireCache
       sparkleWireCanon.set savedWireCanon
       sparkleSubInstanceOutputs.set savedSubInstanceOutputs
+      sparkleSingleOutInstanceCache.set savedSingleOutInstanceCache
 
 /-- `#synthesizeVerilog`'s synthesis: the entry, then zero-width cleanup, then
     the merge of the duplicate hardware the two-pass body evaluation leaves

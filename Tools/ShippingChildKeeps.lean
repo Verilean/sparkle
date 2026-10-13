@@ -338,7 +338,8 @@ macro "tget " L:term:max D:term:max : tactic => `(tactic|
 /-- The `finally` of the entry: the depth goes back down, and a nested run
 restores its parent's per-module maps. -/
 theorem fin_triple (D d : Nat) (m1 : Std.HashMap Lean.Name Lean.Expr) (m2 : Std.HashMap String Nat)
-    (m3 m4 m5 : Std.HashMap String String) (m6 : Std.HashMap (UInt64 × String) String) :
+    (m3 m4 m5 : Std.HashMap String String) (m6 : Std.HashMap (UInt64 × String) String)
+    (m7 : Std.HashMap String String) :
     Triple mctx mref cctx cref (J L (D + 1))
       (do
         ST.Ref.modify sparkleSynthDepth fun x => x - 1
@@ -349,6 +350,7 @@ theorem fin_triple (D d : Nat) (m1 : Std.HashMap Lean.Name Lean.Expr) (m2 : Std.
             ST.Ref.set sparkleLoopWireCache m4
             ST.Ref.set sparkleWireCanon m5
             ST.Ref.set sparkleSubInstanceOutputs m6
+            ST.Ref.set sparkleSingleOutInstanceCache m7
           else pure () : MetaM Unit)
       (fun _ => J L D) (JE L D) := by
   refine Triple.bind (Triple.depthModify L (D + 1) _) ?_
@@ -365,7 +367,9 @@ theorem fin_triple (D d : Nat) (m1 : Std.HashMap Lean.Name Lean.Expr) (m2 : Std.
   intro _
   refine Triple.bind (Triple.frame L (Framed.sideSet _ .wireCanon) D) ?_
   intro _
-  exact Triple.frame L (Framed.sideSet _ .subInstOut) D
+  refine Triple.bind (Triple.frame L (Framed.sideSet _ .subInstOut) D) ?_
+  intro _
+  exact Triple.frame L (Framed.sideSet _ .singleOut) D
 
 /-- **The core entry keeps the invariant at depth `D`, given that
 `synthesizeFromConst` does at depth `D + 1`** — on every outcome. At the depth
@@ -399,7 +403,8 @@ theorem core_keeps (D : Nat) (declName : Name) (hA0 : D = 0 → L.aux {})
     exact hf.elim
   · have hlt : d < sparkleSynthDepthLimit := Nat.lt_of_not_ge hlt
     have body : ∀ (m1 : Std.HashMap Lean.Name Lean.Expr) (m2 : Std.HashMap String Nat)
-        (m3 m4 m5 : Std.HashMap String String) (m6 : Std.HashMap (UInt64 × String) String),
+        (m3 m4 m5 : Std.HashMap String String) (m6 : Std.HashMap (UInt64 × String) String)
+        (m7 : Std.HashMap String String),
         Triple mctx mref cctx cref (J L (d + 1))
           (_root_.tryFinally
             (do
@@ -419,10 +424,12 @@ theorem core_keeps (D : Nat) (declName : Name) (hA0 : D = 0 → L.aux {})
                   ST.Ref.set sparkleLoopWireCache m4
                   ST.Ref.set sparkleWireCanon m5
                   ST.Ref.set sparkleSubInstanceOutputs m6
+                  ST.Ref.set sparkleSingleOutInstanceCache m7
                 else pure () : MetaM Unit))
           (fun _ => J L d) (JE L d) := by
-      intro m1 m2 m3 m4 m5 m6
-      refine Triple.tryFinally (M := J L (d + 1)) (E := OkExc) ?_ (fin_triple L d d m1 m2 m3 m4 m5 m6)
+      intro m1 m2 m3 m4 m5 m6 m7
+      refine Triple.tryFinally (M := J L (d + 1)) (E := OkExc) ?_
+        (fin_triple L d d m1 m2 m3 m4 m5 m6 m7)
       refine Triple.bind (Triple.frame L (Framed.constInfo _) (d + 1)) ?_
       intro ci
       refine Triple.bind (Triple.frame L Framed.env (d + 1)) ?_
@@ -430,20 +437,20 @@ theorem core_keeps (D : Nat) (declName : Name) (hA0 : D = 0 → L.aux {})
       exact keeps_iff.mp (hbody hlt prof.isSome _ _)
     by_cases h0 : (d == 0) = true
     · simp only [h0, ↓reduceIte]
-      tpure L d; tpure L d; tpure L d; tpure L d; tpure L d; tpure L d
+      tpure L d; tpure L d; tpure L d; tpure L d; tpure L d; tpure L d; tpure L d
       tset L d; tset L d; tset L d; tset L d
       refine Triple.bind (Triple.clear L d (hA0 (by simpa using h0))) ?_
       intro _
       tset L d; tset L d; tset L d; tset L d; tset L d; tset L d; tset L d
       refine Triple.bind (Triple.depthSet L d (d + 1)) ?_
       intro _
-      exact body _ _ _ _ _ _
+      exact body _ _ _ _ _ _ _
     · simp only [h0, Bool.false_eq_true, ↓reduceIte]
-      tget L d; tget L d; tget L d; tget L d; tget L d; tget L d
-      tset L d; tset L d; tset L d; tset L d; tset L d; tset L d
+      tget L d; tget L d; tget L d; tget L d; tget L d; tget L d; tget L d
+      tset L d; tset L d; tset L d; tset L d; tset L d; tset L d; tset L d
       refine Triple.bind (Triple.depthSet L d (d + 1)) ?_
       intro _
-      exact body _ _ _ _ _ _
+      exact body _ _ _ _ _ _ _
 
 /-- The full entry: the core, then the pure cleanup and one environment
 variable read. -/
