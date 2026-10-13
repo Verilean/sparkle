@@ -6,6 +6,7 @@ import Tools.ShippingCloseMachineTyped
 import Tools.ShippingTextTyped
 import Tools.ShippingNamesNext
 import Tools.ShippingNamesClk
+import Tools.ShippingMachineRanBase
 
 /-! # The full entry's module of a machine with calls is typed: the text conjuncts of the RAW module (G1)
 
@@ -90,9 +91,11 @@ theorem dropZW_wires_sub {m : Sparkle.IR.AST.Module} {p : Sparkle.IR.AST.Port}
     exact (List.mem_filter.mp hp).1
 
 set_option maxHeartbeats 4000000 in
-/-- **The full entry's module of a machine with calls is typed in its own
-wire table**, with its output ports resolved by the emitter's width map. -/
-theorem core_closed_typedIn {c : Name} (d : MachineData) (ok : d.ok = true)
+/-- `core_closed_typedIn` over `MachineRan`: the TAIL of the built proof, moved (round par/g-1).
+What it takes of the run is that the machine synthesis this core run performed
+returned `(M, D)` from an invariant world; `core_closed_typedIn` below is its instance at the
+all-worlds closing (`Tools.ShippingMachineRan.machineRan_of_closes`). -/
+theorem core_closed_typedIn_ran {c : Name} (d : MachineData) (ok : d.ok = true)
     (hbody : d.shape.body = quote d.dom
       (fun j => inputExpr d.shape.binders.length (d.bpos j))
       (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
@@ -102,20 +105,17 @@ theorem core_closed_typedIn {c : Name} (d : MachineData) (ok : d.ok = true)
     (hins : d.shape.insts ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
     (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
-    {w w1 : Void IO.RealWorld} {M b : Sparkle.IR.AST.Module} {D : Design}
-    (hB : ChildBnd mref cref w)
-    (hcore : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, D) w1)
+    {M b : Sparkle.IR.AST.Module} {D : Design}
     (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨
       b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M))
-    (entry : MachineDefines mctx mref cctx cref c d.shape)
-    (closes : MachineClosesAt mctx mref cctx cref c d.shape)
+    (ran : Tools.ShippingMachineRan.MachineRan mctx mref cctx cref c d.shape M D)
     -- the two data conditions on the output ports
     (hon : ∀ o ∈ d.shape.layout.outs, Sparkle.Backend.Verilog.sanitizeName o.name = o.name)
     (hoty : ∀ o ∈ d.shape.layout.outs, Tools.ShippingTextTyped.scalarTy o.ty = true) :
     Tools.ShippingTextTyped.TypedIn b := by
   -- the body and the output ports of the full entry's module are the raw module's
-  have hkf := Tools.ShippingChecksCore.core_kids_facts d ok hbody hC hslots hdomB hins outTy
-    hnomem hB hcore hpost entry closes
+  have hkf := Tools.ShippingChecksCore.core_kids_facts_ran d ok hbody hC hslots hdomB hins outTy
+    hnomem hpost ran
   have hbb : b.body = M.body := hkf.2.1
   have hbo : b.outputs = M.outputs := hkf.2.2.1
   have hbi : b.inputs = M.inputs := by
@@ -129,14 +129,8 @@ theorem core_closed_typedIn {c : Name} (d : MachineData) (ok : d.ok = true)
     · rw [h]
     · rw [h, (Sparkle.IR.RefineCheck.mergeChecked_ports _).2.2]
   -- the run
-  obtain ⟨bb, r, w9, w10, hrun9, hw9, hd9, hres⟩ :=
-    machine_run_of_core hcore entry hB
-  have hne := closes bb _ _ _ hw9 hd9 hrun9
-  cases r with
-  | none => exact absurd rfl hne
-  | some res =>
-  have hres' := hres res rfl
-  subst hres'
+  have ran0 := ran
+  obtain ⟨bb, w9, w10, hrun9, hw9, -⟩ := ran0
   obtain ⟨t, t', d₀, run, hcl, hmt⟩ := synthesizeMachineCertified_runs hw9 hrun9
   rcases hmt with ⟨hno, -, -⟩ | ⟨-, children, hcc, hreal⟩
   · exact absurd hno hins
@@ -328,6 +322,33 @@ theorem core_closed_typedIn {c : Name} (d : MachineData) (ok : d.ok = true)
       rw [hweb]
       exact ht
     · exact Tools.ShippingChecksDerived.ff_absurd h0
+
+set_option maxHeartbeats 4000000 in
+/-- **The full entry's module of a machine with calls is typed in its own
+wire table**, with its output ports resolved by the emitter's width map. -/
+theorem core_closed_typedIn {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    {nDecl : Nat} (hC : d.callsOk nDecl = true)
+    (hslots : d.ss.length = d.shape.layout.slots.length)
+    (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
+    (hins : d.shape.insts ≠ [])
+    (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
+    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    {w w1 : Void IO.RealWorld} {M b : Sparkle.IR.AST.Module} {D : Design}
+    (hB : ChildBnd mref cref w)
+    (hcore : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, D) w1)
+    (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨
+      b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M))
+    (entry : MachineDefines mctx mref cctx cref c d.shape)
+    (closes : MachineClosesAt mctx mref cctx cref c d.shape)
+    -- the two data conditions on the output ports
+    (hon : ∀ o ∈ d.shape.layout.outs, Sparkle.Backend.Verilog.sanitizeName o.name = o.name)
+    (hoty : ∀ o ∈ d.shape.layout.outs, Tools.ShippingTextTyped.scalarTy o.ty = true) :
+    Tools.ShippingTextTyped.TypedIn b :=
+  core_closed_typedIn_ran d ok hbody hC hslots hdomB hins outTy hnomem hpost
+    (Tools.ShippingMachineRan.machineRan_of_closes hcore entry hB closes) hon hoty
 
 set_option maxHeartbeats 4000000 in
 /-- **The four hypotheses of `core_text_same`, on the full entry's module,
