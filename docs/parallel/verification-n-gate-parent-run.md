@@ -162,3 +162,20 @@ exit 0; no `sorryAx`. `parentUse_gate_cone_runK'`, `parentNested_gate_cone_runK'
   argument, so for a callee without a domain binder `KidFacts` cannot hold and the theorems do not apply
   (nothing false follows). Covering it needs a change of the existing `Meaning` definition (a domain-free
   call form, or `Meaning.inst` following the compiler's last-#ports rule) — a ruling.
+
+## Round 10 (par/n-10: 15bd95b4, a5f55e7a) — design-level lift, CONDITIONAL; BUILT as written
+Run `n10` (`-j 1`): `Tools.ShippingGateDesignLift`, `Tests.Compiler.GateConeDesignTest`,
+`Tests.Compiler.GateConeDesignSixTest` exit 0, no fix needed, no `sorryAx`. Axioms of the seven
+`…_gate_designSV` theorems [propext, Classical.choice, Quot.sound].
+Premises: those of `…_gate_cone_runK'` (run, `GateDefines` NOT ALLOWED, `ChildBnd`, `EntryDefines childAdd`).
+Conclusion: the cone facts AND `(A) → (B) → (C) → … DesignSide … → ∃ envsO, DesignSV (childMap design.modules)
+0 (checkedOptimize b) … ∧ out = source at every cycle`. The design-level part is CONDITIONAL on:
+* (A) `DesignHasChild`: the returned design's modules contain the run's own child module (needs a state
+  invariant over the translator — fuel induction);
+* (B) `PostKeeps b M`: the cleanup keeps M's body and widths (proved only for parentUse's body shape);
+* (C) `OptKeepsOut`: the optimizer keeps `out`. FINDING: the machine route's bridge
+  (`shipsHierHCheck` / `hierRefineCheck_linkedH`) requires an `rst` input; combinational gate parents have
+  none (`addClockResetIfSequential`), so that route would be VACUOUS here — a no-rst variant of
+  `refineCheck_transfer` is needed;
+* `DesignSide` (checker-style antecedents, outside ALLOWED, as in the machine route's non-closed form).
+NOT counted; not an endpoint in the census sense.

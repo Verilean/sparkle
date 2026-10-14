@@ -1012,3 +1012,43 @@ Body: `.app (.app (.const ``pick []) (bvar 1)) (bvar 0)`.
   definition): a domain-free call form (`args.foldl .app (.const mn lvls)`) with its own `Meaning`
   constructor (`instSpineArgs e = args`), or a `Meaning.inst` reading the compiler's own rule
   ("the last `#ports` spine arguments are the data") instead of "drop the first".
+
+## 31. Round 10 (par/n-10): the design-level form (WRITTEN, NOT BUILT)
+
+Asked: lift the observation-level cone theorems to the census's form, `DesignSV (childMap
+design.modules) n (checkedOptimize b) …` of the returned design (machine route:
+`ships_design_svH` / `machine_design_noPorts`; gate leaves: `gate_entry_design0S`).
+
+Closest existing chain (machine route, combinational children): core linked run `runModuleH` over
+`childMap D.modules` → `machine_ships_hierHC` (optimizer, under `shipsHierHCheck`,
+`hierRefineCheck_linkedH`) → `ships_design_svH` (`runModuleTG_flat_of_H`, `design_sv_runN`,
+`svBounds_of_checks`, under `kidsComb`, `designCheck … 0`).
+
+What the gate side lacks — three OBSTACLES, stated as propositions in
+`Tools/ShippingGateDesignLift.lean` and kept as antecedents:
+* (A) `DesignHasChild design.modules y`: `moduleByName design.modules y.1.name = some y.1`. The cone
+  contract has no design conjunct; `instRegisterChild` adds the child only when no module of that
+  name is present. Needs a state invariant over `translateExprToWire` (a new fuel induction: every
+  design module of a cached name is that cache entry's module).
+* (B) `PostKeeps b M`: `M.body.all combStmtI`, `b.body = M.body`, `declWidth b = moduleWidths M`.
+  Proved only for parentUse's two-statement body (`post_instBody`); the cone contract carries no
+  typedness of `M`.
+* (C) `OptKeepsOut design.modules b "out"`: `checkedOptimize b` keeps the linked run's `out`.
+  FINDING: the machine bridge is VACUOUS on these parents — `shipsHierHCheck` contains
+  `(b.inputs.map (·.name)).contains "rst"` (`HierFacts.rst`), used by `hierRefineCheck_linkedH`
+  through `refineCheck_run_sound` / `refineCheck_transfer`; a combinational gate parent has no
+  `rst` (`addClockResetIfSequential`). A combinational variant of `refineCheck_transfer` /
+  `hierRefineCheck_linkedH` (rst only through the start state) is not written. (C) is trivial in
+  the optimizer's fallback branch (`optKeepsOut_of_eq`).
+
+Written (generic, `Tools/ShippingGateDesignLift.lean`): `evalAssignsH_congr` (AgreeOn),
+`agreeOn_ownChild`, `regNexts_comb` / `memNexts_comb` / `runModuleH_comb_total`, `designSV0_of_runH`,
+`gate_designSV_of_steps`. Instances: `parentMix_gate_designSV` (`Tests/Compiler/GateConeDesignTest.lean`),
+the other six (`Tests/Compiler/GateConeDesignSixTest.lean`, generated from one template). Premises
+unchanged from `…_gate_cone_runK'` (run, `GateDefines` NOT ALLOWED, `ChildBnd`, `EntryDefines
+childAdd`); conclusion: the round-6..9 facts AND `(A) → (B) → (C) → ∃ ids cache, ∀ signals T ins
+st0 mems kids, per-cycle Admissible inputs → DesignSide (kidsComb, designCheck 0, bounds) → ∃
+envsO, DesignSV … ∧ length ∧ out = source`. Uniqueness (every closed run) NOT concluded.
+
+Build order: `Tools.ShippingGateDesignLift`, `Tests.Compiler.GateConeDesignTest`,
+`Tests.Compiler.GateConeDesignSixTest`. lean_lib: `Tools.ShippingGateDesignLift` (added).
