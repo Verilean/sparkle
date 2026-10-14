@@ -472,8 +472,8 @@ theorem machine_children_realA {declName : Name} {shape : MachineShape}
       CloseCalls shape t (Sparkle.IR.Machine.closeMachine shape.layout t') d₀ children m d ∧
       ChildrenReal mref cref shape children := by
   obtain ⟨L, hw, hq⟩ := hb
-  have hB := fun L' : RefLaws mref cref => bodyRel L'
-  have hH := fun L' : RefLaws mref cref => harnessRel_of L' (translateRel L')
+  have hB : ∀ L' : RefLaws mref cref, Tools.ShippingChildInv.BodyRel L' := fun L' => bodyRel L'
+  have hH : ∀ L' : RefLaws mref cref, Tools.ShippingChildInv.HarnessRel L' := fun L' => harnessRel_of L' (translateRel L')
   obtain ⟨b, envR, ci, w1, w2, w3, w4, w5, w6, get, henv, run, hw3, hd3⟩ :=
     core_reads_inv L hw hq hr
   obtain ⟨old, miss, _⟩ := entry _ _ _ _ _ _ _ _ _ get henv henv
@@ -541,8 +541,8 @@ theorem synthesizeMachineCertified_runs {b : Bool} {declName shape m d} {w w'}
           CloseCalls shape t (Sparkle.IR.Machine.closeMachine shape.layout t') d₀ children m d ∧
           ChildrenReal mref cref shape children)) := by
   obtain ⟨L, hv⟩ := invV_of_invW mctx cctx hw
-  have hB := fun L' : RefLaws mref cref => bodyRel L'
-  have hH := fun L' : RefLaws mref cref => harnessRel_of L' (translateRel L')
+  have hB : ∀ L' : RefLaws mref cref, Tools.ShippingChildInv.BodyRel L' := fun L' => bodyRel L'
+  have hH : ∀ L' : RefLaws mref cref, Tools.ShippingChildInv.HarnessRel L' := fun L' => harnessRel_of L' (translateRel L')
   exact synthesizeMachineCertified_inv L hB hH hv hr
 
 end Tools.ShippingChildInv

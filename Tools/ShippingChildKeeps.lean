@@ -520,7 +520,7 @@ theorem harness_inv (hB : ∀ L' : RefLaws mref cref, BodyRel L')
     (h : RunsTo (synthesizeMixedCertified
       (fun e hint top named => translateExprToWire tenv e hint top named) (profLogIO b) declName bs body)
       mctx mref cctx cref w r w') : InvV L w' := by
-  have := hH L.plain (L.dval w) (childKeeps_all L.plain (hB _) _ (fun _ => trivial)) mctx cctx b
+  have := hH (tenv := tenv) L.plain (L.dval w) (childKeeps_all L.plain (hB _) _ (fun _ => trivial)) mctx cctx b
     declName bs body w ⟨hw, rfl, trivial⟩
   rw [endW_of_runs h] at this
   exact this.1.1

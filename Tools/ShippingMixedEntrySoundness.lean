@@ -317,7 +317,7 @@ theorem emitLeaves_postReady {mems : MEnv} {ctx ρ β initial s t dom n kb kv ca
     weOf m = declaredWidths t ∧ TypedPostReady m ∧ (∀ p ∈ m.outputs, PrintableType p.ty) ∧
       OutputTyped (weOf m) m.body ∧ (∀ p ∈ m.outputs, p.ty.bitWidth = 1) ∧
       Tools.ShippingSettledSoundness.Acyclic m.body := by
-  have contract := translateExprToWire_bool_contract (ctx := ctx) (we := declaredWidths t)
+  have contract := translateExprToWire_bool_contract (tenv := tenv) (ctx := ctx) (we := declaredWidths t)
     (mems := mems) (initial := initial) (dom := dom) hn hb hv e he
   obtain ⟨unique, result, run, value, out, typed, rest⟩ := emitLeaves_bool_from_ports (mems := mems) hn hb hv e he body record wires ports hr
   obtain ⟨w, sm, ty, tr, fresh, ht, hty⟩ := emitLeaves_single hr
@@ -581,7 +581,7 @@ theorem synthesizeMixedCertified_sound {logProf declName bs body m d}
   obtain ⟨wm, ready, printOutputs, outputTyped, outputWidth, order⟩ := emitLeaves_postReady (mems := mems) hn hb hv e he
     prepared.2.2.1 prepared.2.2.2 prepared.2.1 prepared.1 shape.1 shape.2 wireEq bodyEq outputEq leaf
   have ib := prepare_inputBounds (bs.zip ids) a (by intro p hp; cases hp) values
-  have contract := translateExprToWire_bool_contract (ctx := p.context) (we := declaredWidths st)
+  have contract := translateExprToWire_bool_contract (tenv := tenv) (ctx := p.context) (we := declaredWidths st)
     (mems := mems) (initial := initial) (dom := dom) hn hb hv e he
   obtain ⟨w, sm, ty, tr, fresh, ht, hty⟩ := emitLeaves_single leaf
   have frame := contract.frame "out" false true p.state sm w (prepared.1.lookup prepared.2.1) tr

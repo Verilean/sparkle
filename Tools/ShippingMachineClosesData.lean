@@ -190,7 +190,8 @@ theorem letsClose_of_data {declName : Name} (d : MachineData) (ok : d.ok = true)
       List.length_drop]
     omega
   obtain ⟨hfitL, hfit⟩ := scoped_fit d.letBs d.letFields _ hscoped
-  refine letsClose_of_lets (dom := d.dom) (kb := d.kb) (kv := d.kv) (vw := d.vw)
+  intro tenv
+  refine letsClose_of_lets (tenv := tenv) (dom := d.dom) (kb := d.kb) (kv := d.kv) (vw := d.vw)
     (bpos := d.bpos) (vpos := d.vpos) (bsIn := d.bsIn ++ d.slotBs) (letBs := d.letBs)
     ?_ d.letFields d.core.2 hwf ?_ ?_ hbody d.binders_split hlets letKinds hfitL hfit ?_ ?_
   · intro name n hmem

@@ -71,7 +71,7 @@ theorem harness_depth (L : RefLaws mref cref) (hB : ∀ L' : RefLaws mref cref, 
     (h : RunsTo (synthesizeMixedCertified
       (fun e hint top named => translateExprToWire tenv e hint top named) (profLogIO b) declName bs body)
       mctx mref cctx cref w r w') : L.dval w' = L.dval w := by
-  have := hH L.plain (L.dval w) (childKeeps_all L.plain (hB _) _ (fun _ => trivial)) mctx cctx b
+  have := hH (tenv := tenv) L.plain (L.dval w) (childKeeps_all L.plain (hB _) _ (fun _ => trivial)) mctx cctx b
     declName bs body w ⟨hw, rfl, trivial⟩
   rw [endW_of_runs h] at this
   exact this.1.2.1

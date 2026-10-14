@@ -460,7 +460,7 @@ theorem synthesizeMixedCertified_register_sound {logProf declName bs body m d}
           (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bits (vinp j) =
         some (.bits (vw j) (vvals j (vw j))) :=
     fun j hj => inputValues_bits separate (hv0 j hj)
-  have contract := fuel_contract 1048575 (ctx := (prepare bools bits (bs.zip ids) (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context) (we := declaredWidths st) (mems := mems)
+  have contract := fuel_contract (tenv := tenv) 1048575 (ctx := (prepare bools bits (bs.zip ids) (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context) (we := declaredWidths st) (mems := mems)
     (initial := env0) (dom := dom) hb' hv' e he
   have lookup := lookup_of_ports prepared.1 prepared.2.1
   have frame := contract.frame "reg_in" false false _ sc cw lookup rc
@@ -985,11 +985,11 @@ theorem synthesizeMixedCertified_registerEnable_sound {logProf declName bs body 
           (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bits (vinp j) =
         some (.bits (vw j) (vvals j (vw j))) :=
     fun j hj => inputValues_bits separate (hv0 j hj)
-  have contractEn := fuel_contract 1048575
+  have contractEn := fuel_contract (tenv := tenv) 1048575
     (ctx := (prepare bools bits (bs.zip ids)
       (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context)
     (we := declaredWidths st) (mems := mems) (initial := env0) (dom := dom) hb' hv' en hen
-  have contractIn := fuel_contract 1048575
+  have contractIn := fuel_contract (tenv := tenv) 1048575
     (ctx := (prepare bools bits (bs.zip ids)
       (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context)
     (we := declaredWidths st) (mems := mems) (initial := env0) (dom := dom) hb' hv' e he
@@ -1724,7 +1724,7 @@ theorem synthesizeMixedCertified_loopRegister_sound {logProf declName bs body m 
       · have hjlt : j < kv := by omega
         simp only [if_neg hkv, if_neg (selfNeV j hjlt)]
         exact inputValues_bits separate (hv0 j hjlt)
-    have contract := fuel_contract 1048575
+    have contract := fuel_contract (tenv := tenv) 1048575
       (ctx := (prepare bools bits (bs.zip ids)
         (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context)
       (inputs := fun id => if id = selfId then some (Value.bits w (BitVec.ofNat w (env0 rW)))
@@ -3190,7 +3190,7 @@ theorem synthesizeMixedCertified_register2_sound {logProf declName bs body m d}
           (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bits (vinp j) =
         some (.bits (vw j) (vvals j (vw j))) :=
     fun j hj => inputValues_bits separate (hv0 j hj)
-  have contract := fuel_contract 1048574 (ctx := (prepare bools bits (bs.zip ids) (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context) (we := declaredWidths st) (mems := mems)
+  have contract := fuel_contract (tenv := tenv) 1048574 (ctx := (prepare bools bits (bs.zip ids) (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context) (we := declaredWidths st) (mems := mems)
     (initial := env0) (dom := dom) hb' hv' e he
   have lookup := lookup_of_ports prepared.1 prepared.2.1
   have frame := contract.frame "reg_in" false false _ sc cw2 lookup rc
@@ -4420,7 +4420,7 @@ theorem synthesizeMixedCertified_cdo_sound {logProf declName bs body m d}
       · have hjlt : j < kv := by omega
         simp only [if_neg hkv, if_neg (selfNeV j hjlt)]
         exact inputValues_bits separate (hv0 j hjlt)
-    have contract := fuel_contract 1048575
+    have contract := fuel_contract (tenv := tenv) 1048575
       (ctx := (prepare bools bits (bs.zip ids)
         (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context)
       (inputs := fun id => if id = selfId then some (Value.bits w (BitVec.ofNat w (env0 rW)))
@@ -6109,7 +6109,7 @@ theorem synthesizeMixedCertified_cdo2_sound {logProf declName bs body m d}
         simp only [if_neg hkv, if_neg hkv1, if_neg (selfNeV0 j hjlt),
           if_neg (selfNeV1 j hjlt)]
         exact inputValues_bits separate (hv0v j hjlt)
-  have contract0 := fuel_contract 1048575
+  have contract0 := fuel_contract (tenv := tenv) 1048575
     (ctx := (prepare bools bits (bs.zip ids)
       (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context)
     (inputs := fun id => if id = self0 then some (Value.bits w (BitVec.ofNat w (env0 r0w)))
@@ -6126,7 +6126,7 @@ theorem synthesizeMixedCertified_cdo2_sound {logProf declName bs body m d}
     (bits := fun j n => if j = kv then BitVec.ofNat n (env0 r0w)
       else if j = kv + 1 then BitVec.ofNat n (env0 r1w) else vvals j n)
     hb2 hv2 e0 he0
-  have contract1 := fuel_contract 1048575
+  have contract1 := fuel_contract (tenv := tenv) 1048575
     (ctx := (prepare bools bits (bs.zip ids)
       (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context)
     (inputs := fun id => if id = self0 then some (Value.bits w (BitVec.ofNat w (env0 r0w)))

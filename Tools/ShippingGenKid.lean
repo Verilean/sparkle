@@ -379,7 +379,7 @@ theorem GenKid.check (K : GenKid mref cref c dk nDecl namesK kidOuts kidIns n) {
         Tools.ShippingChecksDesign.kidCheck (childMap ms) (n + 1) g = true := by
   obtain ⟨mctx', cctx', w, w1, M, D, hB, hcore, hpost, hdes⟩ := K.core hy
   have entry := K.entry mctx' cctx'
-  have closes := K.closes mctx' cctx'
+  have closes : MachineClosesAt mctx' mref cctx' cref c dk.shape := K.closes mctx' cctx'
   have hmsD : ∀ g ∈ D.modules, moduleByName ms g.name = some g := fun g hg =>
     hms g (by rw [hdes]; exact hg)
   refine ⟨?_, ?_⟩

@@ -46,7 +46,7 @@ theorem emitLeaves_bool_correct {ctx ρ β we mems initial prior s t dom n kb kv
   obtain ⟨w, sm, ty, translate, fresh, ht, _⟩ := emitLeaves_single hr
   have wm : ScalarWidthsAgree we sm := by
     intro p hp; apply widths p; rw [ht, emitAssign_wires]; exact hp
-  have contract := translateExprToWire_bool_contract (ctx := ctx) (we := we) (mems := mems)
+  have contract := translateExprToWire_bool_contract (tenv := tenv) (ctx := ctx) (we := we) (mems := mems)
     (initial := initial) (dom := dom) hn hb hv e he
   have step := contract.sem "out" false true s sm w prior h wm translate
   obtain ⟨middle, inv, value, frame⟩ := step.execution
@@ -186,7 +186,7 @@ theorem emitLeaves_bool_from_ports {ctx ρ β mems initial s t dom n kb kv cache
       result "out" = encodeBool (evalB n bools bits e) ∧
       "out" ∈ t.module.outputs.map (·.name) ∧ TypedStmts (declaredWidths t) t.module.finalize.body ∧
       (∀ z, s.usedNames.contains z = true → result z = initial z) := by
-  have contract := translateExprToWire_bool_contract (ctx := ctx) (we := declaredWidths t)
+  have contract := translateExprToWire_bool_contract (tenv := tenv) (ctx := ctx) (we := declaredWidths t)
     (mems := mems) (initial := initial) (dom := dom) hn hb hv e he
   obtain ⟨growth, finalWires⟩ := emitLeaves_structure contract (ports.lookup wires) wires hr
   have widths := declaredWidths_agree finalWires

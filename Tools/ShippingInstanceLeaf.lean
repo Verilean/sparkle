@@ -733,7 +733,7 @@ theorem inst_leaf_fuel {ctx : CompilerState}
     exact inst_leaf_contract
       (fun hint top named => instanceN_step _ mn lvls dom argsE hint top named hpure hbin
         hkind)
-      htag (fun r hr => hsub fuel r hr) hdc hnoclk hnodup houts houtFresh hlen hlenV
+      htag henvT (fun r hr => hsub fuel r hr) hdc hnoclk hnodup houts houtFresh hlen hlenV
       (fun k hk hk' => hargs k hk hk' fuel)
       (meaning_inst hview hlenV hargsM hsem) hsem hwidth hchild hcorrect
 

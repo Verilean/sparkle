@@ -658,10 +658,10 @@ theorem synthesizeMixedCertified_term_sound_at {logProf : String → IO Unit} {d
       some (.bits (vw j) (vvals j (vw j))) :=
     fun j hj => inputValues_bits separate (hvv j hj)
   have contract := Tools.ShippingUnifiedRecursion.translateExprToWire_contract
-    (ctx := p.context) (we := declaredWidths st) (mems := mems) (initial := initial)
+    (tenv := tenv) (ctx := p.context) (we := declaredWidths st) (mems := mems) (initial := initial)
     (dom := dom) hb' hv' e he
   have ordered := Tools.ShippingUnifiedProtection.translateExprToWire_orders
-    (ctx := p.context) (we := declaredWidths st) (mems := mems) (initial := initial)
+    (tenv := tenv) (ctx := p.context) (we := declaredWidths st) (mems := mems) (initial := initial)
     (dom := dom) hb' hv' e he "out" true
   have positive : 0 < (pack srt (eval bvals vvals e)).kind.width := by
     rw [pack_width]

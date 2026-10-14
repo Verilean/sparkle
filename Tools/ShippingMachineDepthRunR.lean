@@ -270,7 +270,8 @@ theorem machineRunNC_of_real {c : Name} {shape : MachineShape}
     Tools.ShippingReflectCtx.MachineDefines.ctx entry₀
   have hB := hctx mctx cctx hin
   obtain ⟨raw, D, w1, hcore, hpost, hagree⟩ := synthesizeCombinational_design hrun
-  have closes := hcl mctx cctx w raw D hin (hB w raw D hb)
+  have closes : Tools.ShippingChildInv.MachineClosesAt mctx mref cctx cref c shape :=
+    hcl mctx cctx w raw D hin (hB w raw D hb)
   obtain ⟨t, t', d₀, children, _, hcc, _⟩ :=
     Tools.ShippingChildInv.machine_children_realA hcore entry closes hb hi
   have acyc : NoInstOf raw.name raw.body ∧ ∀ g ∈ D.modules, NoInstOf raw.name g.body := by

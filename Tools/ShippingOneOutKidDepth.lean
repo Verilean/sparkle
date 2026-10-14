@@ -159,7 +159,7 @@ theorem checkN (K : OneOutKid mref cref c dk nDecl namesK) {y : Res}
           Tools.ShippingChecksDesign.kidCheck C m g = true := by
   obtain ⟨mctx', cctx', w, w1, M, D, hB, hcore, hpost, hdes⟩ := K.core hy
   have entry := K.entry mctx' cctx'
-  have closes := K.closes mctx' cctx'
+  have closes : MachineClosesAt mctx' mref cctx' cref c dk.shape := K.closes mctx' cctx'
   refine ⟨?_, (K.check hy ms hms).2⟩
   exact core_designCheck_inN₁ dk K.ok K.body K.calls K.ss K.dom K.insts K.oneOut K.outTy
     K.nomem K.slots K.outName K.outScalar K.kidK hB hcore hpost entry closes

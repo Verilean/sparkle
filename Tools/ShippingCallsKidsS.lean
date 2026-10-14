@@ -153,7 +153,7 @@ theorem closes_of_agree {declName : Name} (d : MachineData) (ok : d.ok = true)
     letsClose_of_data d ok hbody halias mctx mref cctx cref
   intro b w r w' hw' hdp hr hag
   obtain ⟨L, hw⟩ := invV_of_invW mctx cctx hw'
-  have hB := fun L' : RefLaws mref cref => bodyRel L'
+  have hB : ∀ L' : RefLaws mref cref, Tools.ShippingChildInv.BodyRel L' := fun L' => bodyRel L'
   unfold synthesizeMachineCertified at hr
   obtain ⟨⟨t, d₀⟩, w1, run, hr⟩ := RunsTo.bind hr
   have hw1 := harness_inv L hB (fun L' => harnessRel_of L' (translateRel L')) hw run

@@ -736,7 +736,7 @@ theorem letsClose_of_lets {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta
     (hS2 : ∀ (i j : Nat) (fi fj : Σ w : Nat, Term (.bits w)), fs[i]? = some fi → fs[j]? = some fj →
       VarPos bpos vpos fi.2 (bsIn.length + j) → IsVar fj.2) :
     Tools.ShippingClosesSplit.LetsClose mctx mref cctx cref declName shape := by
-  intro logProf w t d w' hr
+  intro tenv logProf w t d w' hr
   by_cases hK : letBs = []
   · rw [hlets, hK]
     rfl

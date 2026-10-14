@@ -569,14 +569,14 @@ theorem dbl_unfold_dom {ctx : CompilerState}
       (Tools.ShippingScalarSoundness.Binary.apply .add (BitVec.setWidth 8 b)
         (BitVec.setWidth 8 b)) = _
     rw [BitVec.setWidth_eq] <;> rfl
-  have h := LegacyDom.cert (ctx := ctx) (inputs := inputs) (dom := dom) (kb := 0) (kv := 1)
+  have h := LegacyDom.cert (tenv := tenv) (ctx := ctx) (inputs := inputs) (dom := dom) (kb := 0) (kv := 1)
     (vw := fun _ => 8) (bE := fun _ => .fvar xid) (vE := fun _ => .fvar xid)
     (bools := fun _ => false) (bits := fun _ w => BitVec.setWidth w b) dblTerm
     ⟨⟨Nat.zero_lt_one, rfl, Nat.succ_pos 7⟩, ⟨Nat.zero_lt_one, rfl, Nat.succ_pos 7⟩⟩
     (fun j hj => absurd hj (Nat.not_lt_zero j))
     (fun _ _ => Tools.ShippingUnifiedMeaning.Meaning.input rfl hi')
     (fun j hj => absurd hj (Nat.not_lt_zero j))
-    (fun _ _ => LegacyDom.input hi')
+    (fun _ _ => LegacyDom.input (tenv := tenv) hi')
   first
     | (rw [hval] at h; exact h)
     | exact hval ▸ h

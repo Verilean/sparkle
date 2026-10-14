@@ -67,7 +67,7 @@ theorem machineCloses_iff {declName : Name} {shape : MachineShape} :
           rfl
         exact absurd rfl (hc logProf w none w' hrun)
     · intro hne tenv logProf w t d w1 t' hr hcl r w' hcalls
-      refine hc logProf w r w' ?_
+      refine hc (tenv := tenv) logProf w r w' ?_
       unfold synthesizeMachineCertified
       refine Tools.ShippingReflectCtx.RunsTo.bind_intro hr ?_
       simp only [hcl]

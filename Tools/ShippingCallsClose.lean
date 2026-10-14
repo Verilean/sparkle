@@ -129,7 +129,7 @@ theorem machineClosesAt_of_pure {declName : Name} {shape : MachineShape}
     MachineClosesAt mctx mref cctx cref declName shape := by
   intro tenv b w r w' hw' _ hr
   obtain ⟨L, hw⟩ := invV_of_invW mctx cctx hw'
-  have hB := fun L' : RefLaws mref cref => bodyRel L'
+  have hB : ∀ L' : RefLaws mref cref, Tools.ShippingChildInv.BodyRel L' := fun L' => bodyRel L'
   unfold synthesizeMachineCertified at hr
   obtain ⟨⟨t, d'⟩, w1, run, hr⟩ := RunsTo.bind hr
   have hw1 := harness_inv L hB (fun L' => harnessRel_of L' (translateRel L')) hw run

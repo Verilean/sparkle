@@ -583,19 +583,19 @@ theorem synthesizeMixedCertified_memoryCone_sound {logProf declName bs body m d}
           (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).bits (vinp j) =
         some (.bits (vw j) (vvals j (vw j))) :=
     fun j hj => inputValues_bits separate (hv0 j hj)
-  have contract1 := fuel_contract 1048575
+  have contract1 := fuel_contract (tenv := tenv) 1048575
     (ctx := (prepare bools bits (bs.zip ids)
       (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context)
     (we := declaredWidths st) (mems := mems) (initial := env0) (dom := dom) hb' hv' eWA hWA
-  have contract2 := fuel_contract 1048575
+  have contract2 := fuel_contract (tenv := tenv) 1048575
     (ctx := (prepare bools bits (bs.zip ids)
       (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context)
     (we := declaredWidths st) (mems := mems) (initial := env0) (dom := dom) hb' hv' eWD hWD
-  have contract3 := fuel_contract 1048575
+  have contract3 := fuel_contract (tenv := tenv) 1048575
     (ctx := (prepare bools bits (bs.zip ids)
       (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context)
     (we := declaredWidths st) (mems := mems) (initial := env0) (dom := dom) hb' hv' eWEN hWEN
-  have contract4 := fuel_contract 1048575
+  have contract4 := fuel_contract (tenv := tenv) 1048575
     (ctx := (prepare bools bits (bs.zip ids)
       (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))).context)
     (we := declaredWidths st) (mems := mems) (initial := env0) (dom := dom) hb' hv' eRA hRA
