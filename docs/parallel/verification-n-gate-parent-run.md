@@ -8,7 +8,7 @@ Run `n-r1` (as written): `ShippingGateParentTail`, `ShippingGateDefines`, `Shipp
 built; `ShippingGateParentRuns` FAILED (an `obtain ⟨rfl, st⟩ := lift_runs st` chain: the `rfl` substitution
 reintroduced the earlier `st`/`h` and the new ones became inaccessible, so the old hypotheses were used),
 `ShippingGateParentPost` FAILED (`show some (.inst …)`: no expected type); the rest failed downstream.
-Integrator fixes (no statement changed): fresh names + explicit `subst` in `emitLeaf_runs`' chain;
+Integrator fixes (no statement changed): fresh names + explicit `subst` in `emitLeaves_single_runs`' chain;
 `Stmt.inst` in the `show`.
 Run `n-r2`: `ShippingGateParentRuns`, `…Post`, `…Run`, `…RunG`, `ShippingGateConeLeafRuns`,
 `Tests.Compiler.GateParentRunTest`, `Tests.Compiler.GateParentRunGTest`: all exit 0 (peak 0.34 GB).
