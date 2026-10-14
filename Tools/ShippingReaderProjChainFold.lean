@@ -2,13 +2,18 @@ import Tools.ShippingReaderProjChain
 
 /-! # `projChainW = projChainT`: the range fold of the compiler's text is the structural recursion
 
-WRITTEN, NOT BUILT (par/h-1). NOT wired into the reader; no file under
-`Sparkle/` is touched. Record: `docs/parallel/H-reader-units.md`.
+BUILT as of par/h-1 (record: `docs/parallel/H-reader-units.md`). SINCE THE
+SWITCH (branch `fix/projchain-total`, `docs/parallel/L-projchain-switch.md`;
+that state WRITTEN, NOT BUILT): `projChainW` is an abbreviation of the
+compiler's `Sparkle.Compiler.MachRawSurface.projChain`, so every statement
+here that mentions `projChainW` is a statement about the compiler's function.
+The statements' texts are unchanged; two proofs (`projChainW_form`,
+`projChainP_tailAt`) got further alternatives that unfold the compiler's
+constant by name.
 
-Unit 1 (`Tools/ShippingReaderProjChain.lean`) left ONE provable statement
-unproved: `projChainW` (the compiler's text of `projChain` with its local
-`tail` replaced by the total `tailAt tys`) against `projChainT` (structural
-recursion). Both are total definitions. This file proves it:
+`projChainW` (the compiler's text of `projChain`, whose local `tail` is the
+total `tailAt tys`) against `projChainT` (structural recursion). Both are
+total definitions. This file proves:
 
     projChainW_eq_projChainT :
       projChainW regs tys j last = projChainT regs tys j last
@@ -20,8 +25,8 @@ function satisfying the recursion equation of its local `tail`:
       projChainP tail regs tys j last = projChainT regs tys j last
 
 (`projChainP` is the compiler's text with `tail` a parameter.) So the only
-item that stays outside the kernel is: "the compiled `partial` `tail`
-satisfies its own source equation".
+item that stays outside the kernel is: "the OLD compiled `partial` `tail`
+satisfied its own source equation".
 
 ## The route
 
@@ -136,12 +141,20 @@ the total `tail`) is the range loop followed by `finStep`. -/
 theorem projChainW_form (regs : Expr) (tys : List Expr) (j : Nat) (last : Bool) :
     projChainW regs tys j last =
       (forIn [0:j] regs (loopBody tys) : Option Expr).bind (finStep tys last j) := by
+  -- since the switch `projChainW` abbreviates the compiler's `projChain`: the
+  -- alternatives that unfold by name unfold that constant too
   first
     | rfl
     | (unfold projChainW loopBody finStep pair2 sndE fstE; rfl)
+    | (unfold projChainW Sparkle.Compiler.MachRawSurface.projChain loopBody finStep pair2 sndE fstE; rfl)
+    | (unfold Sparkle.Compiler.MachRawSurface.projChain loopBody finStep pair2 sndE fstE; rfl)
+    | (simp only [projChainW, Sparkle.Compiler.MachRawSurface.projChain, loopBody, finStep, pair2,
+        sndE, fstE, bind, pure]; rfl)
     | (simp only [projChainW, loopBody, finStep, pair2, sndE, fstE, bind, pure]; rfl)
     | (cases last <;> rfl)
-    | (cases last <;> simp [projChainW, loopBody, finStep, pair2, sndE, fstE] <;> rfl)
+    | (cases last <;>
+        simp [projChainW, Sparkle.Compiler.MachRawSurface.projChain, loopBody, finStep, pair2,
+          sndE, fstE] <;> rfl)
 
 /-! ## The loop is a fold -/
 
@@ -311,8 +324,10 @@ theorem projChainW_eq_projChainT (regs : Expr) (tys : List Expr) (j : Nat) (last
   exact h1.trans
     ((congrArg (fun o : Option Expr => o.bind (finStep tys last j)) h2).trans (h3.trans h4))
 
-/-- The compiler's text of `projChain` with its local `tail` a PARAMETER
-(MachRawSurface.lean 65–73; nothing else changed). -/
+/-- The compiler's text of `projChain` with its `tail` a PARAMETER (the `do`
+block of `MachRawSurface.projChain`; nothing else changed). At the OLD local
+`partial` `tail` this is the function before the switch; at `tailAt tys` it
+is the function after it (`projChainP_tailAt`). -/
 def projChainP (tail : Nat → Option Lean.Expr) (regs : Lean.Expr) (tys : List Lean.Expr)
     (j : Nat) (last : Bool) : Option Lean.Expr := do
   let mut cur := regs
@@ -330,6 +345,8 @@ theorem projChainP_tailAt (regs : Expr) (tys : List Expr) (j : Nat) (last : Bool
   first
     | rfl
     | (unfold projChainP projChainW; rfl)
+    | (unfold projChainP projChainW Sparkle.Compiler.MachRawSurface.projChain; rfl)
+    | (unfold projChainP Sparkle.Compiler.MachRawSurface.projChain; rfl)
 
 /-- **The compiler's text over ANY solution of its `tail` equation is the
 structural definition.** What is left outside the kernel is exactly the

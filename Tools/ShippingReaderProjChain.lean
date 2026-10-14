@@ -1,16 +1,38 @@
 import Lean
+import Sparkle.Compiler.MachRawSurface
 
-/-! # The machine reader's `projChain`, total (reader generalisation, first candidate)
+/-! # The machine reader's `projChain`, total
 
-WRITTEN, NOT BUILT (par/f-1). NOT wired into the reader: the compiler is not
-edited and does not import this file. Record, dependency map and the reasons
-for the choice: `docs/parallel/F-reader-unit.md`.
+SWITCHED OVER (branch `fix/projchain-total`, ruling of 2026-10-14, second
+message, item 6; WRITTEN, NOT BUILT in this form). Record:
+`docs/parallel/L-projchain-switch.md`; the earlier records
+`docs/parallel/F-reader-unit.md` (the first unit, BUILT) and
+`docs/parallel/H-reader-units.md`.
 
-## The function replaced
+## What changed in this file at the switch
 
-`Sparkle.Compiler.MachRawSurface.projChain regs tys j last` (a `partial
-def`, MachRawSurface.lean 56–73) builds the projection `regs.snd^j.fst` (or
-`regs.snd^j` when `last`) with the pair types read from `tys`:
+Before, this file DEFINED `prodE`, `tailTy`, `tailAt` and `projChainW` (a
+second copy of the compiler's text) and the compiler did not use any of it.
+Now the compiler uses them, so they live under `Sparkle/` and NOTHING is
+defined twice:
+
+* `prodE`, `tailTy`, `tailAt` are `Sparkle.Compiler.MachProjChain.prodE` /
+  `tailTy` / `tailAt` — re-exported below under their old names (aliases:
+  the SAME constants, not copies);
+* `projChainW` is an abbreviation of the compiler's function itself,
+  `Sparkle.Compiler.MachRawSurface.projChain` (no longer `partial`: its text
+  is what `projChainW` was — the `do` block with the local `tail` replaced by
+  `tailAt tys`);
+* `sndE`, `fstE`, `TailEq`, `chainGo`, `projChainT`, `Accepts`, `acceptsB`
+  stay here: the compiler does not use them (proof side).
+
+Every theorem below has the statement text it had before the switch.
+
+## The function, before the switch
+
+`Sparkle.Compiler.MachRawSurface.projChain regs tys j last` was a `partial
+def` that built the projection `regs.snd^j.fst` (or `regs.snd^j` when
+`last`) with the pair types read from `tys`:
 
     let rec tail : Nat → Option Lean.Expr
       | i => if i + 1 == tys.length - 1 then tys[tys.length - 1]?
@@ -28,53 +50,48 @@ def`, MachRawSurface.lean 56–73) builds the projection `regs.snd^j.fst` (or
     let b ← tail j
     return mkApp3 (.const ``Prod.fst [.zero, .zero]) a b cur
 
-The ONLY recursion is the local `tail` (the `for` is a fold over a range),
-and it is why the definition is `partial`: `tail` recurses on `i + 1`, and
+The ONLY recursion was the local `tail` (the `for` is a fold over a range),
+and it is why the definition was `partial`: `tail` recurses on `i + 1`, and
 that it stops is the fact `tys[i + 1]? = some _` (so `i + 1 < tys.length`),
-which the `do` block does not hand to the recursive call. It is "not shown
-terminating", not "non-terminating": no `Expr` is inspected, no opaque
-function of `Lean.Expr` is called.
+which the `do` block does not hand to the recursive call. No `Expr` is
+inspected, no opaque function of `Lean.Expr` is called.
 
 ## What is here
 
-* `tailTy`, by structural recursion on the list; `tailAt tys i = tailTy
-  (tys.drop (i + 1))` — the total `tail`.
-* `chainGo` / `projChainT`, by structural recursion on `j` — the total
+* `tailTy`, `tailAt` (re-exported): the total `tail`.
+* `chainGo` / `projChainT`, by structural recursion — the structural form of
   `projChain`. No fuel, no bound on `j` or on the length.
-* `projChainW` — the compiler's text with `tail` replaced by `tailAt tys`
-  and nothing else changed (the form a later switch-over would have).
-  Compared with the other two by compiled code only
-  (`Tools/ShippingReaderProjChainShadow.lean`); `projChainW = projChainT` is
-  NOT proved here.
+* `projChainW` — the compiler's function (see above).
 
-## The correspondence, and its boundary
+## The correspondence with the OLD function, and its boundary
 
-A `partial def` is an opaque constant for the kernel (its body is attached
-by `implemented_by`): NO equation between `MachRawSurface.projChain` and
-anything can be proved, and none is assumed here (no axiom). What IS proved:
+The old `partial def` was an opaque constant for the kernel: NO equation
+between it and anything could be proved, and none is assumed (no axiom).
+What IS proved:
 
-* `tailAt_eq` — `tailAt tys` satisfies the recursion equation of the
-  compiler's `tail`, as written (`TailEq`);
+* `tailAt_eq` — `tailAt tys` satisfies the recursion equation of the old
+  `tail`, as written (`TailEq`);
 * `tail_unique` — EVERY function satisfying that equation is `tailAt tys`.
 
-So the unprovable part is exactly "the compiled `tail` satisfies its own
-source equation" (the meaning of `partial`), and the rest of `projChain` is
-not recursive. The agreement of the compiled functions is MEASURED by the
-shadow comparison.
+So the unprovable part is exactly "the old compiled `tail` satisfied its own
+source equation" (the meaning of `partial`). The agreement of the compiled
+functions is MEASURED by the shadow comparison
+(`Tools/ShippingReaderProjChainShadow.lean`, which keeps a verbatim copy of
+the old function as `projChainOld`).
 
 ## Successful inputs are preserved
 
-Stated about the NEW definition: `projChainT_some` (it returns a result on
-the whole range where, by reading, the old one does: `Accepts`) and
-`projChainT_callSite` (it returns a result at every call the reader makes:
-`rawNode` calls it with `j < tys.length` and `last = (j + 1 == tys.length)`).
-The premise is a length fact only; no well-typedness of any expression is
-needed for this function. -/
+`projChainT_some` (a result on the whole range `Accepts`) and
+`projChainT_callSite` (a result at every call the reader makes: `rawNode`
+calls it with `j < tys.length` and `last = (j + 1 == tys.length)`). The
+premise is a length fact only. The same statements about the compiler's
+function itself: `Tools/ShippingReaderProjChainReal.lean`. -/
 namespace Tools.ShippingReaderProjChain
 open Lean
 
-/-- `Prod a b`, as the compiler writes it. -/
-def prodE (a b : Expr) : Expr := mkApp2 (.const ``Prod [.zero, .zero]) a b
+/-! ## The compiler's definitions, under their old names (the same constants) -/
+
+export Sparkle.Compiler.MachProjChain (prodE tailTy tailAt)
 
 /-- `Prod.snd a b cur`. -/
 def sndE (a b cur : Expr) : Expr := mkApp3 (.const ``Prod.snd [.zero, .zero]) a b cur
@@ -83,15 +100,6 @@ def sndE (a b cur : Expr) : Expr := mkApp3 (.const ``Prod.snd [.zero, .zero]) a 
 def fstE (a b cur : Expr) : Expr := mkApp3 (.const ``Prod.fst [.zero, .zero]) a b cur
 
 /-! ## The total `tail` -/
-
-/-- The right-nested pair type of a non-empty list of component types: the
-last one alone, `Prod a (…)` before it. -/
-def tailTy : List Expr → Option Expr
-  | [] => none
-  | a :: rest =>
-    match rest with
-    | [] => some a
-    | _ :: _ => (tailTy rest).map (prodE a)
 
 theorem tailTy_nil : tailTy [] = none := rfl
 
@@ -108,13 +116,10 @@ theorem tailTy_cons_some : ∀ (a : Expr) (l : List Expr), ∃ r, tailTy (a :: l
     | ⟨r, hr⟩ =>
       ⟨prodE a r, (tailTy_cons a b l).trans (congrArg (Option.map (prodE a)) hr)⟩
 
-/-- The compiler's `tail i`: the pair type of the components after position
-`i`. -/
-def tailAt (tys : List Expr) (i : Nat) : Option Expr := tailTy (tys.drop (i + 1))
-
-/-- The recursion equation of the local `tail` of the compiler's `projChain`
-(MachRawSurface.lean 59–64), as a property of a function. The `do` block of
-the source is these two binds of `Option`. -/
+/-- The recursion equation of the local `tail` of the compiler's OLD
+`projChain` (MachRawSurface.lean 59–64 before the switch; the text is kept
+in `Tools/ShippingReaderProjChainShadow.lean`, `projChainOld`), as a property
+of a function. The `do` block of the source is these two binds of `Option`. -/
 abbrev TailEq (tys : List Expr) (tail : Nat → Option Expr) : Prop :=
   ∀ i : Nat, tail i =
     if i + 1 == tys.length - 1 then tys[tys.length - 1]?
@@ -214,23 +219,16 @@ def chainGo (last : Bool) (cur : Expr) (ts : List Expr) (j : Nat) : Option Expr 
     | [] => none
     | a :: rest => (tailTy rest).bind fun b => chainGo last (sndE a b cur) rest k
 
-/-- `projChain`, total: structural recursion, no fuel. -/
+/-- `projChain` in structural form: structural recursion, no fuel. -/
 def projChainT (regs : Expr) (tys : List Expr) (j : Nat) (last : Bool) : Option Expr :=
   chainGo last regs tys j
 
-/-- The compiler's text with its local `tail` replaced by `tailAt tys`
-(nothing else changed): what a switch-over would put in the compiler. -/
-def projChainW (regs : Lean.Expr) (tys : List Lean.Expr) (j : Nat) (last : Bool) :
-    Option Lean.Expr := do
-  let mut cur := regs
-  for i in [0:j] do
-    let a ← tys[i]?
-    let b ← tailAt tys i
-    cur := mkApp3 (.const ``Prod.snd [.zero, .zero]) a b cur
-  if last then return cur
-  let a ← tys[j]?
-  let b ← tailAt tys j
-  return mkApp3 (.const ``Prod.fst [.zero, .zero]) a b cur
+/-- The compiler's function ITSELF, under the name it had here before the
+switch (then: a copy of the compiler's text with its local `tail` replaced
+by `tailAt tys`; now the compiler's `projChain` is that text). -/
+abbrev projChainW (regs : Lean.Expr) (tys : List Lean.Expr) (j : Nat) (last : Bool) :
+    Option Lean.Expr :=
+  Sparkle.Compiler.MachRawSurface.projChain regs tys j last
 
 theorem chainGo_zero_true (cur : Expr) (ts : List Expr) :
     chainGo true cur ts 0 = some cur := by

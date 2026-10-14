@@ -1,5 +1,6 @@
 import Lean
 import Sparkle.Core.CircuitMonad
+import Sparkle.Compiler.MachProjChain
 
 /-! # The raw `runCircuitH` surface, in the form the machine reader takes
 
@@ -52,24 +53,19 @@ where
 
 /-- The projection chain `regs.snd^j.fst` (or `regs.snd^j` when `last`),
     with the pair types read from the component types `tys` (each a closed
-    type at the matcher's context). -/
-partial def projChain (regs : Lean.Expr) (tys : List Lean.Expr) (j : Nat) (last : Bool) :
+    type at the matcher's context). The pair type at level `i` is
+    `Prod tys[i] (tail i)`, with `tail i = MachProjChain.tailAt tys i` (total;
+    it was a local `partial` function here). -/
+def projChain (regs : Lean.Expr) (tys : List Lean.Expr) (j : Nat) (last : Bool) :
     Option Lean.Expr := do
-  -- the pair type at level i: Prod tys[i] (tail i)
-  let rec tail : Nat → Option Lean.Expr
-    | i => if i + 1 == tys.length - 1 then tys[tys.length - 1]?
-      else do
-        let a ← tys[i + 1]?
-        let b ← tail (i + 1)
-        some (mkApp2 (.const ``Prod [.zero, .zero]) a b)
   let mut cur := regs
   for i in [0:j] do
     let a ← tys[i]?
-    let b ← tail i
+    let b ← Sparkle.Compiler.MachProjChain.tailAt tys i
     cur := mkApp3 (.const ``Prod.snd [.zero, .zero]) a b cur
   if last then return cur
   let a ← tys[j]?
-  let b ← tail j
+  let b ← Sparkle.Compiler.MachProjChain.tailAt tys j
   return mkApp3 (.const ``Prod.fst [.zero, .zero]) a b cur
 
 /-- The elements of a literal list. -/
