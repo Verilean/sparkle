@@ -217,3 +217,19 @@ seven `…_gate_designSVN` [propext, Classical.choice, Quot.sound].
   Why not derived (worker): the design walk records only statement shapes and positive scalar ports — fresh
   names, linked order, connections keyed by the callee's inputs and typed operands would have to be added to
   `DOk` (next unit). `portsMatchB` is about the optimizer output (the machine route also left it).
+
+## Round 13 (par/n-13, 2dc8616d) — six more checker conjuncts derived; BUILT with one integrator fix
+Run `n13` (`-j 1`). As written, `ShippingGateNamesFinal` failed at four `dsimp only` that made no progress;
+integrator fix: `try dsimp only` (no statement changed). Then `Tools.ShippingGateNamesWalk`,
+`Tools.ShippingFirstGateKidText`, `Tools.ShippingGateNamesFinal`, `Tests.Compiler.GateConeDesignNamesTest`
+exit 0; no `sorryAx`; the seven `…_gate_designSVN2` [propext, Classical.choice, Quot.sound].
+* Second walk invariant `NOk` / `NamW` (reserved / allocated names, distinct instance names, builder order,
+  connections keyed by the callee's inputs, declared written wires), `first_child_kidK` (first-gate kid text).
+* DERIVED (no conjunct found false on the seven bodies): `linkedWF`, instance-name Nodup, `noSelfRead`,
+  `outsExtracted`, `kidsComb`, `kidsPass … kidCheck`.
+* `…_gate_designSVN2`: premises run, `GateDefines` (NOT ALLOWED), `ChildBnd`, `EntryDefines childAdd`;
+  design part `hierTyped (childMap ms) b → designSideB3 ms b → … DesignSideR … → DesignSV ∧ out = source`.
+  Left, all outside ALLOWED: `hierTyped` (operand / argument widths vs declared and child port widths — a
+  typing fact of the call, needs a typed walk), `designSideB3` (`seqCheck`, `seqNames` width agreement — the
+  same width obstacle; `portsMatchB` of the optimizer output, left by the machine route too), `DesignSideR`
+  (run-level input / start-state bounds).

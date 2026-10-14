@@ -1162,3 +1162,70 @@ true → ∃ ids cache, ∀ …, hin → DesignSideR … → ∃ envsO, DesignSV
 Build order: `Tools.ShippingGateOutPort`, `Tools.ShippingGateCombSide`,
 `Tests.Compiler.GateConeDesignCombTest`. lean_lib: both Tools files (appended at the end).
 Predicted axioms: [propext, Classical.choice, Quot.sound] (pure lemmas possibly fewer).
+
+## 35. Round 13 (par/n-13): the naming walk; `combSideB` → `hierTyped`, `designSideB` → `designSideB3` (WRITTEN, NOT BUILT)
+
+Asked: extend the design walk with fresh names, linked order, connections keyed by the callee's
+inputs and typed operands; expose the walk's conclusion; derive as many `combSideB` /
+`designSideB` conjuncts as possible for the seven parents. Result: SIX conjuncts derived (five of
+`combSideB`, one of `designSideB`); no conjunct found false (in particular `noSelfRead` and
+`linkedWF` HOLD for every body these cones build).
+
+Written (no existing statement changed; old theorems kept):
+* `Tools/ShippingGateNamesWalk.lean` — a SECOND invariant `NOk G I s` (rather than widening `DOk`,
+  so the round-11 proofs stay untouched), walked through the same fuel walk: names mentioned by the
+  body / instance names / inputs `I` reserved, every reserved name `Allocated` (never `out`); body
+  of assignments and instances; distinct instance names; ORDER (`ord`: `Pairwise` — a statement's
+  written wire, `WritesN`, is mentioned by no earlier statement); per instance `ConnOkN` (callee
+  `x` with `G x`, `cs = ins ++ [(o, ref w)]`, `ins` keyed by `x`'s input names in order, input
+  wires ≠ `w`, `o` not an input name); written wires declared and not inputs; recorded wires
+  mentioned. Contract `NamW` (keeps `NOk`, `NGrows`, `PendN` — no pending, allocated-but-unwritten
+  name is mentioned — and `RetN` — the returned wire is an input or mentioned). Nodes `namW_fvar`,
+  `namW_binary` (`binary_coreNam`), `namW_compare`, `namW_inst` (`instUncached_namW`: copy of
+  `instUncached_desW` exposing the fresh output wire `w = (makeWire …).1` and the instance name
+  `(freshName …).1`; `instArgs_namW`: connections keyed by `inputs.zip args` in order). Typed
+  operands are NOT recorded (see below).
+* `Tools/ShippingFirstGateKidText.lean` — `first_child_forwardCheck`, `first_child_kidK`: the
+  `Tools.ShippingCombKidText.gate_real_kidK` (second gate only) for a FIRST-gate child (`childAdd`), the core run via
+  `first_core_run` as in `first_child_fullFacts`.
+* `Tools/ShippingGateNamesFinal.lean` — list lemmas (`linkedWF_ofN`, `noSelfRead_ofN`,
+  `kidsComb_ofN`, `outsExtracted_ofN`, `pw_two_writersN`: two different statements of an ordered
+  body never write one wire), `names_final_of` / `NFin` (on the entry's tail), the prepared state
+  (`nok_of_prepN`, `prepare_lookup_hitI`: a binder's wire is an input port), the harness and full
+  entry with BOTH walks (`cone_harness_names`, `gate_cone_runNames`: one generic copy for all three
+  fragments — the design conjunct does not depend on the cone fragment), `gate_combFacts` (generic
+  in the parent and the one first-gate callee `c`), `designSideB3`, `designSideB_of3`,
+  `combSideB_ofN`.
+* `Tests/Compiler/GateConeDesignNamesTest.lean` (GENERATED from the round-11 `…_desW` and round-12
+  `…_gate_designSVN`): per parent `…_namW`, `…_walk2` (`DesW ∧ NamW`), `…_gate_designSVN2`.
+
+`…_gate_designSVN2`: premises those of `…_gate_cone_runK'` (run, `GateDefines` NOT ALLOWED,
+`ChildBnd`, `EntryDefines childAdd`); design part `hierTyped (childMap ms) b = true →
+designSideB3 ms b = true → ∃ ids cache, ∀ …, hin → DesignSideR … → ∃ envsO, DesignSV … ∧ out =
+source`.
+
+DERIVED: `linkedWF (childMap ms) b.body`, `(instNames b.body).Nodup`, `noSelfRead`,
+`outsExtracted`, `kidsComb ms b.body`, `kidsPass … (kidCheck … 0) b.body`.
+
+LEFT (all OUTSIDE ALLOWED), with the reason:
+* `hierTyped (childMap ms) b` = `kidsTyped (declWidth b) ["out"] b.body` ∧ no `out` among the
+  extracted inputs. Needs WIDTHS: every `w := op [a, b]` with `widthOf (declWidth b) r =
+  declWidth b w`, and per instance `declWidth b a ≤ declWidth child p` for every input connection.
+  The walk would have to return the declared width of each returned wire (fvar: the binder's port
+  type; binary: `.bitVector n`; compare: `.bit`; instance: the child's output type) AND relate each
+  argument's width to the callee's input port width — the latter is a typing fact of the call
+  (`ChildFull.tys` gives the child's port types from its binders; the parent's argument widths come
+  from `canonicalSignalBitVecWidth` / binder kinds), not something the run alone carries. A typed
+  `RetN` (wire ↦ width) plus a per-call width premise (decidable per declaration) is the next unit.
+  (The second half, `out` not an extracted input, follows from `openIns ⊆ wires` and allocated
+  wire names, but it is bundled in `hierTyped`.)
+* `designSideB3` = `seqCheck (wofOf b) (weS b) b.body`, the `seqNames` width agreement of `b`,
+  `portsMatchB (childMap ms) (checkedOptimize b)`. The first two are emitted-text WIDTH facts (same
+  typed-operand obstacle; the name-cleanliness part, `sanitizeName l = l`, would follow from
+  `Allocated`); `portsMatchB` is about the optimizer's output (the machine route left it too).
+* `DesignSideR` — run-level width premises (inputs fit, start-state bounds, children's `InvN`):
+  premises about inputs and the start state, not checks.
+
+Build order: `Tools.ShippingGateNamesWalk`, `Tools.ShippingFirstGateKidText`,
+`Tools.ShippingGateNamesFinal`, `Tests.Compiler.GateConeDesignNamesTest`. lean_lib: the three
+Tools files (appended at the end). Predicted axioms: [propext, Classical.choice, Quot.sound].
