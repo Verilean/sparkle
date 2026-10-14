@@ -1,6 +1,7 @@
 import Lean
 import Sparkle.Core.CircuitMonad
 import Sparkle.Compiler.MachProjChain
+import Sparkle.Compiler.MachProdMatcher
 
 /-! # The raw `runCircuitH` surface, in the form the machine reader takes
 
@@ -24,7 +25,7 @@ open Lean
     `fun motive x h => Prod.casesOn x (fun v₁ s₁ => Prod.casesOn s₁ (fun v₂ s₂
     => … h v₁ v₂ … sₖ₋₁))`: the alternative's `k` parameters are the
     components. Read off the matcher's value. -/
-partial def prodMatcherArity? (env : Environment) (n : Name) : Option Nat :=
+def prodMatcherArity? (env : Environment) (n : Name) : Option Nat :=
   match env.find? n with
   | some (.defnInfo d) =>
     match d.value with
@@ -36,20 +37,11 @@ partial def prodMatcherArity? (env : Environment) (n : Name) : Option Nat :=
 where
   /-- `subj` is the bvar index of the current subject; `vars` the component
       bvar indices met so far (outermost first, relative to the current
-      depth `depth` below the three lambdas). -/
+      depth `depth` below the three lambdas). The walk is
+      `MachProdMatcher.goS` with the compiler's test `==` (total; it was a
+      local `partial` function over `e.getAppArgs` here). -/
   go : Lean.Expr → Nat → List Nat → Nat → Option Nat
-    | e, subj, vars, depth =>
-      match e.getAppFn, e.getAppArgs with
-      | .const ``Prod.casesOn _, #[_, _, _, .bvar t, .lam _ _ (.lam _ _ rest _) _] =>
-        if t != subj then none else
-        -- under two binders: fst = bvar 1, snd = bvar 0; earlier vars shift by 2
-        go rest 0 ((vars.map (· + 2)) ++ [1]) (depth + 2)
-      | .bvar hIdx, args =>
-        -- `h` sits at index `depth + 0` relative to the walk start (+2 per level)
-        if hIdx != depth then none else
-        let expected := vars ++ [subj]
-        if args.toList == expected.map Lean.Expr.bvar then some args.size else none
-      | _, _ => none
+    | e, subj, vars, depth => Sparkle.Compiler.MachProdMatcher.goS (· == ·) e subj vars depth
 
 /-- The projection chain `regs.snd^j.fst` (or `regs.snd^j` when `last`),
     with the pair types read from the component types `tys` (each a closed

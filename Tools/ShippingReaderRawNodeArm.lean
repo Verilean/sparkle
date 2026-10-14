@@ -1,4 +1,5 @@
 import Tools.ShippingReaderProjChainArm
+import Tools.ShippingSparseCasesTac
 
 /-! # `rawNode`'s pair-matcher arm, as theorems about the REAL `rawNode`
 
@@ -168,10 +169,16 @@ theorem match15_three (mot : Expr → Array Expr → Sort u)
   unfold Sparkle.Compiler.MachRawSurface.rawNode.match_15
   rcases n with _ | ⟨_ | ⟨_ | ⟨_ | ⟨_ | ⟨p4, s4⟩ | ⟨p4, i4⟩, s3⟩ | ⟨p3, i3⟩, s2⟩ | ⟨p2, i2⟩, s1⟩ |
     ⟨p1, i1⟩, s0⟩ | ⟨p0, i0⟩
-  all_goals dsimp only [Sparkle.Compiler.MachRawSurface.listElems._sparseCasesOn_3,
-    Sparkle.Compiler.MachRawSurface.prodMatcherArity?.go._sparseCasesOn_2,
-    Sparkle.Compiler.MachRawSurface.prodMatcherArity?.go._sparseCasesOn_3,
-    Sparkle.Compiler.MachRawSurface.rawNode._sparseCasesOn_15]
+  -- the auxiliaries' names are generated per module and CHANGE with the
+  -- `prodMatcherArity?` switch (it removes `go`'s, which this matcher reused):
+  -- the list measured before the switch first (after it, `go`'s names do not
+  -- exist and the list fails to elaborate), else read them off the goal
+  all_goals first
+    | dsimp only [Sparkle.Compiler.MachRawSurface.listElems._sparseCasesOn_3,
+        Sparkle.Compiler.MachRawSurface.prodMatcherArity?.go._sparseCasesOn_2,
+        Sparkle.Compiler.MachRawSurface.prodMatcherArity?.go._sparseCasesOn_3,
+        Sparkle.Compiler.MachRawSurface.rawNode._sparseCasesOn_15]
+    | dsimp_sparse_aux
   all_goals (repeat' split)
   all_goals first
     | rfl
