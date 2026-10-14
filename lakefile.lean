@@ -2977,6 +2977,12 @@ lean_lib «Tools.ShippingGateConeRunC6» where
 lean_lib «Tools.ShippingGateConeEntryC» where
   roots := #[`Tools.ShippingGateConeEntryC]
 
+lean_lib «Tools.ShippingGateConeInstArgsW» where
+  roots := #[`Tools.ShippingGateConeInstArgsW]
+
+lean_lib «Tools.ShippingGateConeNested» where
+  roots := #[`Tools.ShippingGateConeNested]
+
 lean_lib «Tools.ShippingCIdent» where
   roots := #[`Tools.ShippingCIdent]
 

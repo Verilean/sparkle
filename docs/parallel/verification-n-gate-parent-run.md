@@ -141,3 +141,24 @@ Gate-route parents among the eight simulated: FIVE now have a per-declaration co
 (a cone form like wrapAdd's is not written). Not covered: parentNested
 (instance arguments), wrapPick (no domain binder). All target-only, under the NOT ALLOWED `GateDefines`,
 observation-level (`…ObservesC`), NOT the design-level DesignSV form; not counted in any tally.
+
+## Round 9 (par/n-9: 53a4e104, 3109c629, 45b120da) — BUILT with one integrator fix
+Run `n9` (`-j 1`). As written: `GateConeUseTest` built; `ShippingGateConeInstArgsW` failed — it called
+`filter_noclk`, which is stated in a section with `variable [HierCtx] [ChildSem]` and therefore takes both
+instances although its statement uses neither (none available in that theorem). Integrator fix: the
+two-line fact inlined (`List.filter_eq_self`). Then `Tests.Compiler.GateConeUseTest`,
+`Tools.ShippingGateConeInstArgsW`, `Tools.ShippingGateConeNested`, `Tests.Compiler.GateConeNestedTest`:
+exit 0; no `sorryAx`. `parentUse_gate_cone_runK'`, `parentNested_gate_cone_runK'`:
+[propext, Classical.choice, Quot.sound].
+* Instance arguments at the world level (`inst_leaf_contractWA`, recursive leaves `LeafKR`,
+  `gate_cone_runGER`): a call whose arguments are calls. `parentNested`: both calls instantiate the one
+  `mF` entry of `childAdd`; the observation uses its `KidFacts` at the two argument values.
+* Gate-route parents among the eight simulated now with a per-declaration cone theorem (observation level,
+  premises run, `GateDefines` NOT ALLOWED, `ChildBnd`, `EntryDefines childAdd`): SEVEN — parentUse,
+  wrapAdd, parentMix, parentTwoCalls, parentRepeat, parentCmp, parentNested. Not covered: wrapPick.
+* wrapPick FINDING (worker, by reading; no compiler change): the gate accepts it and the compiler lowers it
+  correctly (the last #ports spine arguments go to the ports); only the PROOF side mis-reads it —
+  `instEN` / `Meaning.inst` / `instUncached_shape` / `armCont_leaf_contract` assume a leading domain
+  argument, so for a callee without a domain binder `KidFacts` cannot hold and the theorems do not apply
+  (nothing false follows). Covering it needs a change of the existing `Meaning` definition (a domain-free
+  call form, or `Meaning.inst` following the compiler's last-#ports rule) — a ruling.

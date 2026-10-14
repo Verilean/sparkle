@@ -903,3 +903,112 @@ call as a leaf; it says nothing about the per-declaration side facts (gate leaf 
 
 The round-7 nodes (`boolNot`, `boolBinary`, `boolEq`, Bool / bit-vector `mux`) are used by NONE of the
 eight bodies; they widen the theorem to parents not in the simulated set.
+
+## 27. Round 9 (par/n-9): what was asked, what is done (WRITTEN, NOT BUILT)
+
+1. **`parentUse` in the cone form** — `Tests/Compiler/GateConeUseTest.lean` (53a4e104):
+   `parentUse_tag` (the leaf IS the body, so `GateLeafSel kinds body body` is the round-2
+   `MixedGateSel` fact `parentUse_sel`; no new evaluation), `parentUse_entryWN` (root = instance
+   leaf, `inst_entryW`), `ParentUseObservesC` (for every domain `D`: the domain is a binder),
+   `parentUse_coneKC`, **`parentUse_gate_cone_runK'`** — the text of `wrapAdd_gate_cone_runK'` with
+   `dom := .fvar i0`. Premises: the run, `GateDefines` (NOT ALLOWED, ruling pending), `ChildBnd`,
+   `EntryDefines … ``childAdd childAddValue`. Conclusion: post ∧ `CacheInv mF` ∧ tag at `envR` ∧
+   `∃ y, mF.get? ``childAdd = some y ∧ ParentUseObservesC (ownChild y) M`.
+2. **`parentNested`** (3109c629):
+   * `Tools/ShippingGateConeInstArgsW.lean` — instance leaves whose ARGUMENTS have world-indexed
+     contracts: `instanceArm_runWW` / `inst_leaf_runsW` (the built `instanceArm_runW` /
+     `inst_leaf_runs`, with the continuation kept as a RUN of `armCont` from the world after the
+     child's synthesis, invariant at depth `D`); `runsC_get`; `instArgs_W` (the operand walk world
+     by world: each operand's run starts in an invariant world, its end cache is in the walk's end
+     cache; the text of `instArgs_frame` / `instArgs_sem` over `ContractW.atRun`);
+     `instUncached_shapeW` (the text of `instUncached_shape` with worlds; prefix/suffix invariant
+     by `keepsW` — `instClkRst_keepsC`, `instArgs_keepsC`, and `vc` for `instRegisterChild` and
+     the suffix after the walk); `armCont_leaf_runW` (the text of `armCont_leaf_contract` on ONE
+     run, wrapper by the built `controlCached_runsW`); **`inst_leaf_contractWA`**.
+   * `Tools/ShippingGateConeNested.lean` — `LeafKR` (inductive: a world-free `LeafContract`, or a
+     canonical designated call whose arguments are `LeafKR`s with their meanings), `leafKR_of_leafK`,
+     **`leafKR_contractW`** (induction on `LeafKR`), `HierConePreservesKR`, `cone_harness_runKER`,
+     **`gate_cone_runGER`** (copies of `cone_harness_runKE` / `gate_cone_runGE`; only the leaf lemma
+     differs; premises unchanged: run, `GateDefines` NOT ALLOWED, `ChildBnd`).
+   * `Tests/Compiler/GateConeNestedTest.lean` — `parentNested_leafSel` (the gate refuses the body
+     under any predicate refusing the INNER call: `unifiedInstanceRoot` false by its closed spine,
+     `hierInstRoot` asks the predicate of the inner call), `parentNested_tag`,
+     `parentNested_entryWN` (root = outer leaf), `ParentNestedObservesC`, `parentNested_coneKC`,
+     **`parentNested_gate_cone_runK'`** (premises as item 1).
+   * The cache, precisely: `mF` has ONE entry per callee NAME; every call of `childAdd` in the run
+     (inner and outer) instantiates that one pair `y` (`inst_leaf_runsW`: each call's child is THE
+     end cache's entry, entries kept up to `mF`). The observation needs of `y` exactly
+     `KidFacts (ownChild y) addSem ``childAdd 2 v y` at the inner value `.bits 8 (a + b)` and at the
+     outer value `.bits 8 (ofNat 8 ((a + b).toNat + b.toNat))` — two instances of the ONE premise
+     `∀ v, v.kind.width = 8 → KidFacts …` (from `RealChild` + `EntryDefines childAdd`, as before).
+     Nothing is asked of the instance-arm dedupe cache (`instArmCache`, keyed by connections; the
+     two calls have different keys): both its hit and its miss outcome are covered.
+3. **`wrapPick`**: finding below (§30); no compiler change, no Lean.
+
+## 28. Build order, lean_lib lines
+
+    lean_lib «Tools.ShippingGateConeInstArgsW» where
+      roots := #[`Tools.ShippingGateConeInstArgsW]
+    lean_lib «Tools.ShippingGateConeNested» where
+      roots := #[`Tools.ShippingGateConeNested]
+
+(added after `Tools.ShippingGateConeEntryC`.) Order: `Tests.Compiler.GateConeUseTest` (independent;
+imports `GateConeEntryTest`, `GateParentRunGTest`), then `Tools.ShippingGateConeInstArgsW`
+(← `ShippingGateConeCompare`), `Tools.ShippingGateConeNested` (← `InstArgsW`, `ShippingGateConeEntry`),
+`Tests.Compiler.GateConeNestedTest`. Predicted axioms of every theorem: `propext`,
+`Classical.choice`, `Quot.sound` (no `sorry`, no new axioms, no `native_decide`).
+
+## 29. Risks, in the order I expect them
+
+1. `instUncached_shapeW`: the two `keepsW L (fun L' => by vc) …` (on `instRegisterChild …` and on the
+   continuation after the operand walk). `vc` walked both inside the built `armCont_keepsC`; here
+   the program is the bind's continuation applied to `conns` (beta-reduced by `RunsC.bind`'s type).
+   Fallback: decompose the suffix with `RunsC.bind` and use `makeWire_keepsC` etc. per step.
+2. `instUncached_shapeW`: `RunsC.bind (c := …)` hints mirror the built `Returns.bind (m := …)`;
+   `have hAdd0' : RunsC (Pure.pure () …) … := hAdd0` (defeq `instAddModules _ [] ≡ pure ()`, the
+   built proof's `by exact`); `runsC_get` (`change EST.Out.ok (s, s) w = _ at h; cases h`, the text
+   of `Returns.get`); `rw [hcs0, hsG, hwg] at k1`.
+3. `leafKR_contractW`: `induction h with | leaf hc | inst hpure … hkid ih` (implicit constructor
+   fields not named; one IH for the recursive argument) and the `letI` instances through the
+   motive (as `leafK_contractW`).
+4. `armCont_leaf_runW`: the copied body with the lowering's wire renamed `r → w`; `rcases hcase` in
+   both the frame and the sem goal.
+5. `instArgs_W`: `(hc 0 …).atRun hw hd … hread` (the operand expression `(((p, e) :: rest)[0]).2`
+   against `e`, as the built `instArgs_frame`).
+6. `parentNested_leafSel`: `hs2 : hierInstSpine … = false := rfl` evaluates `bvarCall` on the inner
+   call (as `parentMix_leafSel`), then `all_goals rfl` on the remaining disjuncts (`gateTopWidth?`
+   of the outer call is `none`: its first argument is the domain binder).
+7. `LeafKR.inst (mn := …) (argsE := …) (vs := …) rfl rfl rfl tagR rfl …` (`fallbackKind` of the
+   nested call `= .other` by `rfl`, as the built `parentNested_entry_observes`); the final `rfl`
+   `(ofNat 8 ((a + b).toNat + b.toNat)).toNat = ((parentNested aS bS).val t).toNat`.
+
+## 30. `wrapPick`: why `instEN` mis-reads it (finding, by reading; no change)
+
+`wrapPick sel x := pick sel x` (`Tests/Compiler/SlotlessParentProbeTest.lean`); `pick` is
+`@[hardware_module]` at `defaultDomain` with NO domain binder, inputs `sel : BitVec 2`, `x : BitVec 8`.
+Body: `.app (.app (.const ``pick []) (bvar 1)) (bvar 0)`.
+
+* **Gate: ACCEPTS** (no refusal at run time). `unifiedInstanceSpine` is "a constant applied to input
+  binders" — it does not ask for a domain binder; `instancePredicate env` designates the body
+  (`pick` tagged); the result is a scalar. So `mixedCertifiedShape?` accepts via
+  `unifiedInstanceRoot` (by reading `Sparkle/Compiler/Elab.lean` 2697–2742).
+* **Compiler: NO miscompile** (by reading). `translateInstanceOrFallback` dispatches on the head
+  constant only; `translateInstanceUncachedWith` takes `args := instSpineArgs e = [sel, x]`, the
+  child's non-clk/rst ports `[sel, x]`, `instArityCheck` passes (2 ≥ 2), and connects
+  `inputPorts.zip (args.drop (args.length - inputPorts.length)) = [(sel, sel), (x, x)]` — the LAST
+  `#ports` arguments, whatever precedes them. Both operands reach their ports in order.
+* **Proof side: the mis-reading is ONLY here.** Every proof-side form of a call assumes the spine is
+  `dom :: data`: `instEN mn lvls dom args = args.foldl .app (.app (.const mn lvls) dom)`, the source
+  semantics `Meaning.inst` (`instSpineArgs e = dom :: args`, `ChildSem.childSem mn vs` with
+  `vs.length = args.length` — the first spine argument is DROPPED), `instUncached_shape`'s
+  `(dom :: argsE).drop (… - mc.inputs.length) = argsE` step and `armCont_leaf_contract`'s
+  `hlen : y.1.inputs.length = argsE.length`. Read as `instEN ``pick [] (bvar 1) [bvar 0]`, `sel`
+  fills the domain slot, `argsE = [x]`: `hlen` would need `2 = 1` (false), so `KidFacts` of `pick`'s
+  entry cannot hold and no contract is derivable — nothing false follows, the theorems just do not
+  apply; and `Meaning.inst` would assign the call `childSem pick [x]`, which cannot express a
+  function of `sel`. (Also: `pick` is a mixed-gate child, not a first-gate `FExpr` child, so
+  `kidFacts_of_first` does not apply to it either.)
+* What would cover it (proof side only; each needs a ruling since `Meaning` is an existing
+  definition): a domain-free call form (`args.foldl .app (.const mn lvls)`) with its own `Meaning`
+  constructor (`instSpineArgs e = args`), or a `Meaning.inst` reading the compiler's own rule
+  ("the last `#ports` spine arguments are the data") instead of "drop the first".
