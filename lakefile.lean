@@ -2986,6 +2986,15 @@ lean_lib «Tools.ShippingGateConeNested» where
 lean_lib «Tools.ShippingGateDesignLift» where
   roots := #[`Tools.ShippingGateDesignLift]
 
+lean_lib «Tools.ShippingRefineNoRst» where
+  roots := #[`Tools.ShippingRefineNoRst]
+
+lean_lib «Tools.ShippingHierOptRunHNoRst» where
+  roots := #[`Tools.ShippingHierOptRunHNoRst]
+
+lean_lib «Tools.ShippingGateOptComb» where
+  roots := #[`Tools.ShippingGateOptComb]
+
 lean_lib «Tools.ShippingCIdent» where
   roots := #[`Tools.ShippingCIdent]
 
