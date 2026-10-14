@@ -1,6 +1,7 @@
 import Tools.ShippingPrintGuard
 import Tools.ShippingClosedTyped
 import Tools.ShippingChecksRunFacts
+import Tools.ShippingMachineRanBase
 
 /-! # The text conjuncts of the SHIPPED module, with the print guard (branch `fix/opt-fallback`)
 
@@ -124,6 +125,54 @@ theorem core_designCheck_rest2
   exact Tools.ShippingChecksDesign.core_designCheck_rest h n h2 h3 hports hkids
 
 set_option maxHeartbeats 4000000 in
+/-- `core_designCheck_run` over `MachineRan`:
+the proof of the built theorem, MOVED here (split in place, branch
+`fix/ran-threading-split`) with the run, the reflection, the closing and the boundary
+replaced by `ran` and every callee of the chain by its `_ran` form. It takes of the run only
+that the machine synthesis this core run performed returned the result from an invariant
+world; the theorem below, its statement unchanged, is the instance at the all-worlds closing
+(`Tools.ShippingMachineRan.machineRan_of_closes`). -/
+theorem core_designCheck_run_ran {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    {nDecl : Nat} (hC : d.callsOk nDecl = true)
+    (hslots : d.ss.length = d.shape.layout.slots.length)
+    (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
+    (hins : d.shape.insts ≠ [])
+    (hsl : d.shape.layout.slots ≠ [])
+    (hfne : d.shape.instFields ≠ [])
+    (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
+    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hkidP : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
+      RealChild mref cref (d.shape.insts[k]).1 y →
+      ∀ p ∈ y.1.outputs, (∀ q ∈ inPortsOf y.1, q.name ≠ p.name) ∧ p.name ≠ "clk" ∧
+        p.name ≠ "rst")
+    (hkidW : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
+      RealChild mref cref (d.shape.insts[k]).1 y →
+      ∀ p ∈ y.1.outputs, p.name = d.shape.instFields.getD k "" →
+        (d.shape.binders[nDecl + k]?).map (fun bn => (kindTy bn.2).bitWidth) =
+          some p.ty.bitWidth)
+    {M b : Sparkle.IR.AST.Module} {D : Design}
+    (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨
+      b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M))
+    (ran : Tools.ShippingMachineRan.MachineRan mctx mref cctx cref c d.shape M D)
+    (hon : ∀ o ∈ d.shape.layout.outs, Sparkle.Backend.Verilog.sanitizeName o.name = o.name)
+    (hoty : ∀ o ∈ d.shape.layout.outs, Tools.ShippingTextTyped.scalarTy o.ty = true)
+    (n : Nat)
+    (hports : Tools.ShippingDesignSV.portsMatchB (childMap D.modules) (checkedOptimize b) = true)
+    (hkids : Tools.ShippingDesignSV.kidsPass (childMap D.modules)
+      (Tools.ShippingChecksDesign.kidCheck (childMap D.modules) n)
+      (checkedOptimize b).body = true) :
+    Tools.ShippingDesignSV.designCheck (childMap D.modules) n (checkedOptimize b) = true :=
+  core_designCheck_rest2
+    (Tools.ShippingChecksRunFacts.core_runFacts_ran d ok hbody hC hslots hdomB hins hsl hfne outTy
+      hnomem hkidP hkidW hpost ran)
+    (Tools.ShippingClosedTyped.core_closed_typedIn_ran d ok hbody hC hslots hdomB hins outTy hnomem
+      hpost ran hon hoty)
+    n hports hkids
+
+set_option maxHeartbeats 4000000 in
 /-- **`designCheck` of the shipped module from the core run**: the
 hypotheses of `core_runFacts`, the two data conditions on the output ports,
 and — the only check premises left — the connection widths and the
@@ -164,12 +213,8 @@ theorem core_designCheck_run {c : Name} (d : MachineData) (ok : d.ok = true)
       (Tools.ShippingChecksDesign.kidCheck (childMap D.modules) n)
       (checkedOptimize b).body = true) :
     Tools.ShippingDesignSV.designCheck (childMap D.modules) n (checkedOptimize b) = true :=
-  core_designCheck_rest2
-    (Tools.ShippingChecksRunFacts.core_runFacts d ok hbody hC hslots hdomB hins hsl hfne outTy
-      hnomem hkidP hkidW hB hcore hpost entry closes)
-    (Tools.ShippingClosedTyped.core_closed_typedIn d ok hbody hC hslots hdomB hins outTy hnomem
-      hB hcore hpost entry closes hon hoty)
-    n hports hkids
+  core_designCheck_run_ran d ok hbody hC hslots hdomB hins hsl hfne outTy hnomem hkidP hkidW hpost
+    (Tools.ShippingMachineRan.machineRan_of_closes hcore entry hB closes) hon hoty n hports hkids
 
 /-- **The Boolean connection check from its Prop form**, for a body whose
 instances resolve. -/
