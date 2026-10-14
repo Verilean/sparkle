@@ -1052,3 +1052,72 @@ envsO, DesignSV … ∧ length ∧ out = source`. Uniqueness (every closed run) 
 
 Build order: `Tools.ShippingGateDesignLift`, `Tests.Compiler.GateConeDesignTest`,
 `Tests.Compiler.GateConeDesignSixTest`. lean_lib: `Tools.ShippingGateDesignLift` (added).
+
+## 32. Round 11 (par/n-11), obstacle (A): the translator's design along the cone (WRITTEN, NOT BUILT)
+
+Asked: prove (A) `DesignHasChild design.modules y` by a state invariant over the translator's run
+(or show a counterexample). Result: PROVED for the seven parents; no counterexample.
+
+Why it holds (by reading): the parent's translation starts from an EMPTY design; along these cones
+the only design writer is the instance arm (`instAddModules` of the child's design — empty,
+`KidFacts` — then `instRegisterChild`), whose child is THE end cache's entry of the callee
+(`inst_leaf_runsW`); a module already present under the child's name is therefore an earlier
+registration of the same entry. Same-name-but-different module would need a second writer
+(legacy fallback arms, sub-module caches) — none is reached by these cones.
+
+Written:
+* `Tools/ShippingGateDesignWalk.lean` — `DOk G N s` (design modules satisfy `G`; every instance
+  statement names a design module; module name `N`; positive scalar ports/wires; no outputs yet;
+  body of `op [ref, ref]` / `ref` assignments and reference-connected instances; a recorded
+  translation implies an instance in the body), `DGrows`, `DesW` (the world-level contract, the
+  child cache bounded by `mF` as in `ContractW`); builder steps (`DOk.makeWire`, `freshName`,
+  `emitAssign`, `record`, `design`, `addInst`, `addInput`, `input`, `dOk_init`, `prepare_dok`);
+  nodes `desW_fvar` (local binding: `prepare_lookup_hit`), `binary_coreDes` / `desW_binary` (both
+  branches of the validated lookup), `desW_compare` (both branches of the wrapper),
+  `instRegisterChild_des`, `instUncached_desW` (copy of `instUncached_shapeW` with the
+  registration), `instArgs_refs`, `instArgs_desW`, `desW_inst`; `finalOk_of` /
+  `desFinal_of_run` (the entry's tail: `FinalOk G N M Dd`, incl. `ModOk N M` for (B));
+  `designHasChild_of_final`, `first_child_name`.
+* `Tools/ShippingGateDesignRun.lean` — GENERATED verbatim copies `cone_harness_runKED` /
+  `gate_cone_runGED` (cfrag), `…KCED` / `…GCED` (cfragC), `…KERD` / `…GERD` (LeafKR) with the
+  design conjunct from the SAME harness run (so `mF` is the cone's cache). Old theorems kept.
+* `Tests/Compiler/GateConeDesignWalkTest.lean` — per parent `…_desW` (the fuel split of the
+  round-6..9 `…_entryWN`) and `…_gate_designA`: the `…_gate_cone_runK'` conclusion AND
+  `DesignHasChild design.modules y` AND `ModOk (ofDecl f) M`. `G := ChildG mF`;
+  `childAdd_leafOk` (from `kidFacts_of_first'`), `childAdd_name_ne` (`first_child_name`,
+  `ofDecl_ne`).
+
+Premises of `…_gate_designA`: those of `…_gate_cone_runK'` (run, `GateDefines` NOT ALLOWED,
+`ChildBnd`, `EntryDefines childAdd`). Predicted axioms: [propext, Classical.choice, Quot.sound].
+
+Build order: `Tools.ShippingGateDesignWalk`, `Tools.ShippingGateDesignRun`,
+`Tests.Compiler.GateConeDesignWalkTest`. lean_lib: `Tools.ShippingGateDesignWalk`,
+`Tools.ShippingGateDesignRun` (added).
+
+## 33. Round 11 (par/n-11), obstacle (B): the post passes keep the core module (WRITTEN, NOT BUILT)
+
+Asked: `PostKeeps b M` from the cone, generalising `post_instBody`. Result: PROVED for the seven
+parents from the walk's `ModOk (ofDecl f) M` (§32).
+
+Finding (by reading, why the merge branch is harmless): `refineCheck m o` contains
+`m.body.all seqStmtOk`, false on any `.inst` statement, so on a body holding an instance the
+checked merge refuses every refinement and returns the module itself (`mergeChecked_of_inst`).
+The walk proves an instance IS in the body (`ModOk.has`: every recorded node of these cones holds
+an instance leaf, so even a cache hit implies one). Without that, the merge branch on an
+assignment-only body would run the opaque `mergeDuplicates` and `b.body = M.body` could not be
+concluded.
+
+Written (`Tools/ShippingGateDesignPost.lean`, pure): `filterMap_self`, `foldl_insert_get`,
+`buildWidthMap_pos` (all widths positive), `dzStmt_assign_pos`, `dzStmt_des`, `dz_fields`
+(cleanup keeps body and wires), `refineCheck_of_inst`, `mergeChecked_of_inst`,
+`declWidth_eq_moduleWidths` (scalar wires), `postKeeps_of_modOk` — (B).
+
+`Tests/Compiler/GateConeDesignPrimeTest.lean` (GENERATED from the round-10 statements; old
+theorems kept): seven `…_gate_designSV'` — premises those of `…_gate_cone_runK'`; conclusion the
+cone facts AND `DesignHasChild design.modules y` AND `PostKeeps b M` AND
+`(OptKeepsOut design.modules b "out" → … DesignSide … → ∃ envsO, DesignSV … ∧ out = source)`.
+Remaining antecedents: (C) and `DesignSide` only. Predicted axioms: [propext, Classical.choice,
+Quot.sound].
+
+Build order: `Tools.ShippingGateDesignPost`, `Tests.Compiler.GateConeDesignPrimeTest`.
+lean_lib: `Tools.ShippingGateDesignPost` (added).

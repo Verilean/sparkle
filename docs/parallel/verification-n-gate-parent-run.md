@@ -179,3 +179,23 @@ Conclusion: the cone facts AND `(A) → (B) → (C) → … DesignSide … → �
   `refineCheck_transfer` is needed;
 * `DesignSide` (checker-style antecedents, outside ALLOWED, as in the machine route's non-closed form).
 NOT counted; not an endpoint in the census sense.
+
+## Round 11 (par/n-11: dad82682, eb9f39d3) — obstacles (A), (B) discharged; BUILT with integrator fixes
+Applied on poc 1a2428a9 (after worker Q); lakefile conflict (both rounds appended lean_libs at the same place)
+resolved by keeping both. Run `n11` (`-j 1`). As written, `ShippingGateDesignWalk` failed:
+`instHitValid_record` carries unused `[HierCtx] [ChildSem]` (restated locally as `instHitValid_recordD`,
+with `instHitValid` qualified); one `cases` branch needed the `any`-witness spelled out (explicit
+`(x.name == mc.name) = true`); in `ShippingGateDesignPost.dzStmt_assign_pos` the hypothesis was in `get?`
+form and the goal in `[·]?` form. No statement changed. Then all five targets exit 0
+(`…DesignWalk`, `…DesignRun`, `GateConeDesignWalkTest`, `…DesignPost`, `GateConeDesignPrimeTest`); no
+`sorryAx`; the seven `…_gate_designA` and seven `…_gate_designSV'` [propext, Classical.choice, Quot.sound].
+* (A) `DesignHasChild` DISCHARGED for the seven parents (no counterexample): a world-level design walk
+  (`DOk` / `DesW` over fvar, binary, compare, instance nodes); the parent starts from an empty design, only
+  the instance arm adds modules (the child's own design, empty by `KidFacts`, then `instRegisterChild` of
+  THE end-cache entry).
+* (B) `PostKeeps` DISCHARGED: finding — `refineCheck m o` requires `m.body.all seqStmtOk`, false on any
+  `.inst`, so `mergeChecked` keeps an instance-carrying module; the walk proves an instance is present.
+* `…_gate_designSV'`: premises run, `GateDefines` (NOT ALLOWED), `ChildBnd`, `EntryDefines childAdd`;
+  conclusion `DesignHasChild ∧ PostKeeps ∧ (OptKeepsOut → DesignSide → ∃ envsO, DesignSV … ∧ out = source)`.
+  Remaining antecedents: (C) `OptKeepsOut` (worker Q's `optKeepsOut_comb_post` gives it from `PostKeeps` +
+  `combOptSide` — NOT yet wired) and `DesignSide`; both outside ALLOWED as checker-style conditions.
