@@ -98,3 +98,27 @@ Run `n6` (`-j 1`): `Tools.ShippingGateConeEntry`, `Tests.Compiler.GateConeEntryT
 Remaining for gate-route parents: the other cone nodes (Bool ops, mux, setw, slices, concats), the cone
 theorem over the larger fragment, `parentNested` (instance arguments), the other gate parents, the
 design-level form (DesignSV / source), and the `GateDefines` ruling.
+
+## Round 7 (par/n-7: c1e5a98d … 44f13cde) — BUILT with two integrator fixes
+Run `n7` (`-j 1`). As written: `ShippingGateConeRunC` built; `ShippingGateConeBoolNot` failed (`decide` on
+`0 < (Value.bool a).kind.width` — free variable; and `signalCompare_missW`'s implicit `va`/`vb`/`n` unified
+wrongly, `vb := .bool a`), and everything after it downstream. Integrator fixes (no statement changed): pass
+`(n := 1) (va := …) (vb := …)` and the two bit-vectors explicitly in BoolNot and BoolEq. Then all seven
+targets exit 0: `…ConeRunC`, `…BoolNot`, `…BoolBin`, `…BoolEq`, `…Mux`, `…VecMux`, `…RunC6`.
+Axioms: `gate_cone_runGC`, `gate_cone_runGC6`, `boolNot_contractW`, `boolBin_contractW`, `boolEq_contractW`,
+`boolMux_contractW`, `vecMux_contractW`, `fuel_contractWC6` [propext, Classical.choice, Quot.sound].
+World-level cone fragment now: leaves, literals, binary, compare, boolNot, boolBinary, boolEq, Bool mux,
+bit-vector mux (`cfragC6`), with the cone theorem `gate_cone_runGC6` (premises run, `GateDefines` NOT
+ALLOWED, `ChildBnd`). NOT in any fragment: setw, slices, concats, applicative forms, instance arguments.
+
+Coverage of the eight simulated gate parents (worker N, BY READING; not a claim):
+| parent | body | fragment | per-declaration theorem |
+|---|---|---|---|
+| parentUse | childAdd a b | cfrag | run shape only (parentUse_gate_parent_runG) |
+| wrapAdd | childAdd a b at defaultDomain | cfrag | none |
+| parentMix | childAdd a b + a | cfrag | parentMix_gate_cone_runK' |
+| parentTwoCalls | childAdd a b + childAdd b a | cfrag | none |
+| parentRepeat | childAdd a b + childAdd a b | cfrag | none |
+| parentCmp | Signal.ult (childAdd a b) a | cfragC | none (entry existence for a compare root not written) |
+| parentNested | childAdd (childAdd a b) b | NOT covered | none |
+| wrapPick | pick sel x | NOT covered as stated (no domain binder: instEN reads sel as the domain) | none |

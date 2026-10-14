@@ -2953,6 +2953,27 @@ lean_lib «Tools.ShippingGateConeEntry» where
 lean_lib «Tools.ShippingGateConeCompare» where
   roots := #[`Tools.ShippingGateConeCompare]
 
+lean_lib «Tools.ShippingGateConeRunC» where
+  roots := #[`Tools.ShippingGateConeRunC]
+
+lean_lib «Tools.ShippingGateConeBoolNot» where
+  roots := #[`Tools.ShippingGateConeBoolNot]
+
+lean_lib «Tools.ShippingGateConeBoolBin» where
+  roots := #[`Tools.ShippingGateConeBoolBin]
+
+lean_lib «Tools.ShippingGateConeBoolEq» where
+  roots := #[`Tools.ShippingGateConeBoolEq]
+
+lean_lib «Tools.ShippingGateConeMux» where
+  roots := #[`Tools.ShippingGateConeMux]
+
+lean_lib «Tools.ShippingGateConeVecMux» where
+  roots := #[`Tools.ShippingGateConeVecMux]
+
+lean_lib «Tools.ShippingGateConeRunC6» where
+  roots := #[`Tools.ShippingGateConeRunC6]
+
 lean_lib «Tools.ShippingCIdent» where
   roots := #[`Tools.ShippingCIdent]
 

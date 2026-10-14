@@ -786,3 +786,120 @@ Build order: `Tools.ShippingGateConeEntry` (imports `ShippingGateConeRun`) →
 `Tests.Compiler.GateConeEntryTest` (imports `GateConeKidTest` + 1); `Tools.ShippingGateConeCompare`
 (imports `ShippingGateConeW`) independent. lean_lib lines added after `Tools.ShippingFirstGateKid`.
 Predicted axioms: `propext`, `Classical.choice`, `Quot.sound`.
+
+---
+
+# Round 7: the cone over larger fragments (WRITTEN, NOT BUILT)
+
+Branch `par/n-7` (from poc `1a934b1f`). Nothing compiled or run. Rounds 1–6 files unchanged;
+compiler files untouched; the classifier's ALLOWED list untouched; no existing statement changed.
+
+## 23. What was asked, what is done
+
+1. **The cone theorem over `cfragC`** (`Tools/ShippingGateConeRunC.lean`, c1e5a98d):
+   `HierConePreservesKC` / `cone_harness_runKC` / `gate_cone_runGC` — verbatim copies of the round-3
+   `HierConePreservesK` / `cone_harness_runK` / `gate_cone_runG` with `cfrag e = true` →
+   `cfragC e = true` and `fuel_contractW` → `fuel_contractWC`. Premises of `gate_cone_runGC`: the run
+   (ALLOWED), `GateDefines` (NOT ALLOWED, ruling pending, unchanged), `ChildBnd` (ALLOWED).
+2. **Further world-level cone nodes**, one file and one commit each, each with a NEW fragment and its
+   fuel lemma (the earlier fragments and statements unchanged):
+   * `Tools/ShippingGateConeBoolNot.lean` (89dd2902): **`cachedW_contract`** — the validated-cache
+     wrapper (`translateControlCachedWith lower`) factored once: hit (`hit_outcome`) and record
+     handled; the caller supplies the step equation and a world-level fact about a run of `lower`
+     (keeps `InvV` / depth; with its final cache in `mF`: frame, freshness, outcome).
+     **`signalCompare_missW`** (`translateSignalCompare` with worlds, any operand values encoding
+     `x`, `y`; the text of `compare_contractW`'s miss branch). **`boolNot_contractW`** (lowered as
+     `a == false`), `cfragC2` = `cfragC` + `boolNot`, `fuel_contractWC2`.
+   * `Tools/ShippingGateConeBoolBin.lean` (0089b73a): `boolBin_freshAt` (text of `boolBin_shape` /
+     `boolBin_fresh` over `ChildAt`), `boolBin_missW`, **`boolBin_contractW`**, `cfragC3`,
+     `fuel_contractWC3`.
+   * `Tools/ShippingGateConeBoolEq.lean` (af34b6ed): **`boolEq_contractW`** (via
+     `signalCompare_missW .eq` at width one), `cfragC4`, `fuel_contractWC4`.
+   * `Tools/ShippingGateConeMux.lean` (3a19f087): **`muxPure_missW`** (`translateMuxWith rec (pure ty)`
+     with worlds, any `ty`: three operand `ChildAt`s and the `emitMuxResult` `Returns`),
+     `boolMux_freshAt` (text of `mux_shape` / `mux_fresh`), **`boolMux_contractW`**, `stBool`,
+     `cfragC5` (= `cfragC4` + `mux` at sort `bool` only), `fuel_contractWC5`.
+   * `Tools/ShippingGateConeVecMux.lean` (cbea7a09): `vecMux_freshAt` (text of `vector_shape` /
+     `vector_fresh`), **`vecMux_contractW`** (`vector_step`, `vectorMuxUncached_muxE`,
+     `muxPure_missW`), `cfragC6` (= `cfragC5` with `mux` at every sort), `fuel_contractWC6`.
+   * `Tools/ShippingGateConeRunC6.lean` (5c532a42): `HierConePreservesKC6` / `cone_harness_runKC6` /
+     `gate_cone_runGC6` — the item-1 copies over `cfragC6`.
+   Stopped there (natural boundary: the Bool/mux family is done). NOT in any fragment: `setw`,
+   slices, concatenations, applicative forms (`appCompare` / `appBool` / `appBool2`), instance calls
+   with instance-call arguments (`parentNested`).
+
+## 24. Build order, lean_lib lines
+
+    lean_lib «Tools.ShippingGateConeRunC» where
+      roots := #[`Tools.ShippingGateConeRunC]
+    lean_lib «Tools.ShippingGateConeBoolNot» where
+      roots := #[`Tools.ShippingGateConeBoolNot]
+    lean_lib «Tools.ShippingGateConeBoolBin» where
+      roots := #[`Tools.ShippingGateConeBoolBin]
+    lean_lib «Tools.ShippingGateConeBoolEq» where
+      roots := #[`Tools.ShippingGateConeBoolEq]
+    lean_lib «Tools.ShippingGateConeMux» where
+      roots := #[`Tools.ShippingGateConeMux]
+    lean_lib «Tools.ShippingGateConeVecMux» where
+      roots := #[`Tools.ShippingGateConeVecMux]
+    lean_lib «Tools.ShippingGateConeRunC6» where
+      roots := #[`Tools.ShippingGateConeRunC6]
+
+(added after `Tools.ShippingGateConeCompare`, in this order.) Imports form a chain:
+`RunC` (← `ShippingGateConeRun`, `ShippingGateConeCompare`); `BoolNot` (← `ShippingGateConeCompare`)
+→ `BoolBin` → `BoolEq` → `Mux` → `VecMux`; `RunC6` (← `RunC`, `VecMux`). `RunC` and `BoolNot` are
+independent of each other. Predicted axioms of every theorem: `propext`, `Classical.choice`,
+`Quot.sound` (no new axioms, no `sorry`, no `native_decide`).
+
+## 25. Risks, in the order I expect them
+
+1. `boolNot_contractW` / `boolEq_contractW` / `boolBin_contractW` / `boolMux_contractW`: the
+   `refine cachedW_contract … (lower := translateBoolUncachedWith R (fun e h t n =>
+   Sparkle.Compiler.Elab.Rec.translateExprToWireImpl (fun e h t n => R e h t n) e h t n))` — that the
+   `exact translateFallback_bool _ _ hint top named …` after `rw [*_step]` matches this `lower`
+   (it is the text of `translateFallback`'s Bool arm); the `rw [*_step]` must not close the goal by
+   `rfl` (it should not: `translateFallback` is not reducible).
+2. `change RunsC (translateSignalCompare R .eq …) … at miss` (boolNot, boolEq) and
+   `change RunsC (translateMuxWith R (pure .bit) …) … at miss` (Bool mux): the defeq the built
+   `boolNot_contract` / `boolEq_contract` / `mux_contract` use with `change FreshAction …`; here under
+   a generic `legacy` binder only through the instantiated `lower`. Fallback: `rw [boolMux_uncached]`.
+3. `rw [← val]` on the node goal (boolNot / boolEq) and the `_ _` bit-vector arguments of
+   `signalCompare_missW` being found from the goal before the `rfl` / `by cases` arguments are checked
+   (the built `compare_fresh _ _ (by decide) (by cases a <;> rfl) rfl rfl rfl ca cb` has the same
+   order).
+4. `muxPure_missW`: `rw [hty, hsq, hwq] at re` after `RunsC.pure` on the `pure ty` query (fresh names
+   `ty'`, `sq`, `wq`; no `subst` of the theorem's `ty`); the four `RunsC.bind`s over the unfolded
+   `do` block.
+5. `cfragC5`'s `| s, .mux c a b => stBool s && …` clause and, in `fuel_contractWC5` / `WC6`,
+   `simp only [cfragC5, Bool.and_eq_true] at hf` then `cases s` (the projections `hf.2.1` …
+   in `WC5`, `hf.1` … in `WC6`); `simp [stBool] at hf` closing the `bits` branch of `WC5`.
+6. `ih (.boolLit false) trivial rfl` (the `rfl` for `cfragC2 (.boolLit false) = true` by whnf) and its
+   defeq to the literal operand `mkApp3 (.const ``Signal.pure [.zero]) dom (.const ``Bool [])
+   (.const ``Bool.false [])` (as in the built `fuel_contract_leaves`).
+7. `vecMux_contractW`: `rw [vectorMuxUncached_muxE] at miss` on the instantiated `lower`; the
+   `vector_step (tenv := tenv) …` term for `hstep` (both lemmas carry `maxHeartbeats 1000000` in
+   their own proofs; using them costs nothing extra).
+8. `boolBin_freshAt`: `Tools.ShippingMixedRecursion.typed_bool_bin` / `bool_bin_rhs` fed `aout.width`
+   (`we a = (Value.bool x).kind.width`, defeq `1`) — the built `boolBin_fresh` does the same.
+
+## 26. The eight simulated gate parents vs. the fragments (by reading their bodies)
+
+Declarations from `scripts/shipping-coverage/gate_parents_sim.py`
+(`Tests/Compiler/ShippingHierarchySoundnessTest.lean`, `Tests/Compiler/SlotlessParentProbeTest.lean`).
+"Fragment" = the smallest fragment whose cone theorem the body's `Term` lies in, with every instance
+call as a leaf; it says nothing about the per-declaration side facts (gate leaf selection / tag,
+`KidFacts` of the callee's entry, entry existence), which are written for `parentMix` only.
+
+| parent | body | Term shape (leaves = calls) | fragment | per-declaration theorem |
+|---|---|---|---|---|
+| `parentUse` | `childAdd a b` | one instance leaf | `cfrag` (any) | run-shape only (`parentUse_gate_parent_runG`, rounds 1–2); no cone instance written |
+| `wrapAdd` | `childAdd a b` at `defaultDomain` | one instance leaf, constant domain (`instEN` with `dom` a constant) | `cfrag` (any) | none |
+| `parentMix` | `childAdd a b + a` | `binary(leaf, input)` | `cfrag` | `parentMix_gate_cone_runK'` (round 6) |
+| `parentTwoCalls` | `childAdd a b + childAdd b a` | `binary(leaf, leaf)`, one callee | `cfrag` | none (both leaves read the same `mF` entry; `KidFacts` does not depend on the arguments) |
+| `parentRepeat` | `childAdd a b + childAdd a b` | `binary(leaf, leaf)`, identical calls | `cfrag` | none |
+| `parentCmp` | `Signal.ult (childAdd a b) a` | `compare(leaf, input)`, Bool root | `cfragC` (cone: `gate_cone_runGC`, this round) | none; entry existence for a compare root not written (`EntryWN` has `binary` only) |
+| `parentNested` | `childAdd (childAdd a b) b` | instance leaf whose argument is an instance call | NOT covered (`InstLeafK` asks world-free `LeafContract`s of the arguments) | none |
+| `wrapPick` | `pick sel x` (`pick` has NO domain binder) | one call, but `instEN` reads `sel` as the domain: `argsE = [x]`, length 1 ≠ `pick`'s 2 inputs, so `KidFacts` (`y.1.inputs.length = argsE.length`) cannot hold | NOT covered as stated (needs a domain-less `InstLeafK`; `pick` is also not a first-gate `FExpr` child, so `kidFacts_of_first` does not apply) | none |
+
+The round-7 nodes (`boolNot`, `boolBinary`, `boolEq`, Bool / bit-vector `mux`) are used by NONE of the
+eight bodies; they widen the theorem to parents not in the simulated set.
