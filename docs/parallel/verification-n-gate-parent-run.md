@@ -136,8 +136,8 @@ Each theorem: premises the run, `GateDefines` (NOT ALLOWED, ruling pending), `Ch
 New general pieces: `gateLeafSel_of2` (two leaves), `domCall` / `gateLeafSel_ofD` (constant domain),
 `compare_entryWN`, `gate_cone_runGCE` (cone over `cfragC` with the entry conjunct).
 
-Gate-route parents among the eight simulated: SIX now have a per-declaration cone theorem of this form
-(parentMix, parentTwoCalls, parentRepeat, wrapAdd, parentCmp; parentUse has the run-shape form only and is
-covered by the cone form via wrapAdd's pattern only by reading — not written). Not covered: parentNested
+Gate-route parents among the eight simulated: FIVE now have a per-declaration cone theorem of this form
+(parentMix, parentTwoCalls, parentRepeat, wrapAdd, parentCmp); parentUse has the run-shape form only
+(a cone form like wrapAdd's is not written). Not covered: parentNested
 (instance arguments), wrapPick (no domain binder). All target-only, under the NOT ALLOWED `GateDefines`,
 observation-level (`…ObservesC`), NOT the design-level DesignSV form; not counted in any tally.
