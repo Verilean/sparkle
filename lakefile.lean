@@ -2899,6 +2899,12 @@ lean_lib «Tools.ShippingSparseCasesTac» where
 lean_lib «Tools.ShippingReaderMatcherArityArray» where
   roots := #[`Tools.ShippingReaderMatcherArityArray]
 
+lean_lib «Tools.ShippingReaderMatcherArityReal» where
+  roots := #[`Tools.ShippingReaderMatcherArityReal]
+
+lean_lib «Tools.ShippingReaderRawNodeCanon» where
+  roots := #[`Tools.ShippingReaderRawNodeCanon]
+
 lean_lib «Tools.ShippingReaderMatcherArityOldShadow» where
   roots := #[`Tools.ShippingReaderMatcherArityOldShadow]
 
