@@ -302,10 +302,39 @@ variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
   {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
 
 set_option maxHeartbeats 4000000 in
+/-- `core_raw_facts` over `MachineRan`:
+the proof of the built theorem, MOVED here (split in place, branch
+`fix/ran-threading-split`) with the run, the reflection, the closing and the boundary
+replaced by `ran` and every callee of the chain by its `_ran` form. It takes of the run only
+that the machine synthesis this core run performed returned the result from an invariant
+world; the theorem below, its statement unchanged, is the instance at the all-worlds closing
+(`Tools.ShippingMachineRan.machineRan_of_closes`). -/
+theorem core_raw_facts_ran {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    {nDecl : Nat} (hC : d.callsOk nDecl = true)
+    (hslots : d.ss.length = d.shape.layout.slots.length)
+    (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
+    (hins : d.shape.insts ≠ [])
+    (hsl : d.shape.layout.slots ≠ [])
+    (hfne : d.shape.instFields ≠ [])
+    (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
+    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    {M b : Sparkle.IR.AST.Module} {D : Design}
+    (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨
+      b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M))
+    (ran : Tools.ShippingMachineRan.MachineRan mctx mref cctx cref c d.shape M D) :
+    "rst" ∈ b.inputs.map (·.name) ∧
+    (Tools.ShippingHierState.instNames b.body).Nodup ∧
+    Tools.ShippingHierPremisesBase.noSelfRead (childMap D.modules) b.body = true := by
+  exact Tools.ShippingMemKid.core_raw_factsM_ran d ok hbody hC hslots hdomB hins hsl hfne outTy
+    hpost ran
+
+set_option maxHeartbeats 4000000 in
 /-- **The reset input, the distinct instance names and the self-read test of
 the full entry's module**, from the core run of a machine with calls closed
 by `closeInstsG` and with a register. -/
-
 theorem core_raw_facts {c : Name} (d : MachineData) (ok : d.ok = true)
     (hbody : d.shape.body = quote d.dom
       (fun j => inputExpr d.shape.binders.length (d.bpos j))
@@ -327,9 +356,9 @@ theorem core_raw_facts {c : Name} (d : MachineData) (ok : d.ok = true)
     (closes : MachineClosesAt mctx mref cctx cref c d.shape) :
     "rst" ∈ b.inputs.map (·.name) ∧
     (Tools.ShippingHierState.instNames b.body).Nodup ∧
-    Tools.ShippingHierPremisesBase.noSelfRead (childMap D.modules) b.body = true := by
-  exact Tools.ShippingMemKid.core_raw_factsM d ok hbody hC hslots hdomB hins hsl hfne outTy
-    hB hcore hpost entry closes
+    Tools.ShippingHierPremisesBase.noSelfRead (childMap D.modules) b.body = true :=
+  core_raw_facts_ran d ok hbody hC hslots hdomB hins hsl hfne outTy hnomem hpost
+    (Tools.ShippingMachineRan.machineRan_of_closes hcore entry hB closes)
 
 /-- **`shipsHierCheck` from the run and the five conjuncts not derived**:
 the optimizer gate, the two post-pass facts, the extraction of the
