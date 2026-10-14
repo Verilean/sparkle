@@ -256,3 +256,9 @@ non-constant typing, was not touched). Then exit 0; no `sorryAx`; the seven `…
   (the compiler does no width adaptation) — a call with a narrower argument than the port would fail it
   (not in the seven parents).
 Not counted (GateDefines pending; target-only).
+Comparison (integrator, by reading `Tools/ShippingShipsDesignSVAll.lean` 104–214): the machine route's
+counted design-level form (`ships_design_svN_all`) carries the same run-level bounds (`BoundOff`, `Bounded`,
+children `InvN`, input fit) as antecedents inside its conclusion. So `…_gate_designSVN3` has the shape of the
+counted machine-route form EXCEPT for the binder `GateDefines` (not in ALLOWED; the machine route's
+reflection binder is `MachineDefines`, which is). Whether the seven may enter a tally depends on that ruling
+alone (and on a census row definition for gate-route parents, which does not exist yet).
