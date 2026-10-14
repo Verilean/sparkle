@@ -44,3 +44,38 @@ PRODARITY PIECES: definitions=640 nodes=443914 disagreements=0 not compared=0
 * `prodMatcherArity?` switch-over: NOT made. The array/structural agreement is NOT proved; the gate goes
   back to worker P with the cause above and the technique of `match15_three`. The compiler is unchanged.
 * Reader tally unchanged by the switch: projChain switched; `prodMatcherArity?` still partial.
+
+## Round 3: the gate BUILT, the switch-over MADE (2026-10-14, later)
+Worker P round 3 (`fix/reader-p3`): 38e07d6e (gate proof rewritten: `by_cases` on the first arm's shape;
+`Tools/ShippingSparseCasesTac.lean`: `dsimp_sparse_aux`, `unfold_matchers_aux` read the auxiliaries off the
+goal), aa4c79de/ad8c3b9c/ded4e182 (= 74524aa6, ffb38e98, a3d4ff16), 1ec45626 (`match15_three` without the
+removed `go` auxiliaries' names).
+* Gate run `p3-gate`: failed as written (`set_option … in` after docstrings; `stepOldP_none`: `split`
+  had already destructured the list, the later `rcases` names did not exist; `generalize_proofs` is
+  Mathlib-only). Integrator fixes: options before docstrings; the remaining branch (`Prod.casesOn`,
+  `size = 5`) by pinning the list to five elements, then constructor cases of the 4th, 5th and its body
+  (`rfl`; the shape contradicts `hL`). Exit 0. Commit 9314c051.
+  Axioms: `getAppArgs_eq`, `stepOldP_none`, `stepOldP_shape` [propext, Quot.sound]; `stepOld_eq_step`,
+  `goT_oldSol`, `old_unique` [propext, Classical.choice, Quot.sound].
+* Switch + theorems: commits 9b86eb38 (compiler: `prodMatcherArity?` a plain def via
+  `MachProdMatcher.goS`; `match15_three` reads the auxiliaries off the goal) and 3f1e33a0
+  (`…MatcherArityReal`, `…RawNodeCanon`). Built jointly (the intermediate commit not alone), run
+  `p-switch` (`-j 1`, peak 2.64 GB): RawNodeArm, Real, Canon, OldShadow test, PRODARITY shadow,
+  ReaderDigestTest, `Tests.AllTests` + `DesignCoverageTest`: all exit 0.
+  ```
+  PRODOLD WHICH: old=verbatim copy (partial) compiler=total T=goT exprEqv
+  PRODOLD GRID: calls=79 old returned=7 old!=compiler=0 old!=T=0
+  PRODOLD SWEEP: constants=260651 old returned=1893 old!=compiler=0 old!=T=0
+  PRODARITY GRID: calls=79 old returned=7 disagreements=0 structural test differs=0 prediction misses=0 …
+  PRODARITY SWEEP: constants=260610 old returned=1893 … disagreements=0 structural test differs=0 …
+  PRODARITY PIECES: definitions=640 nodes=443914 disagreements=0 not compared=0
+  ```
+  Reader digest: before (run `p-before`) vs after: 520 lines each, diff EMPTY (as predicted).
+  Census 134 declarations, 133 covered (unchanged).
+  Axioms: `real_go_oldEq`, `real_go_unique`, `prodMatcherArity_eq`, `prodMatcherArity_fun`, `real_canon`,
+  `real_old`, `rawNode_canon`, `rawNode_canon_some` [propext, Classical.choice, Quot.sound].
+* What is kernel-checked vs measured: kernel — the old source equation (array form) has exactly one
+  solution, the total walk; the compiler's new function is that walk. Not kernel-checked (as for
+  projChain) — that the OLD compiled `partial` function satisfied its source equation; the shadows measure
+  agreement on 79 grid calls and a 260k-constant sweep.
+* Reader tally: projChain and `prodMatcherArity?` switched; the other partial readers open.
