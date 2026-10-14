@@ -450,3 +450,117 @@ Order: `ShippingGateDefines` (independent of round 1) → `ShippingGateParentRun
 3. `armCont_leaf_contract`: `unfold armCont at tr; rw [houts] at tr; exact tr`.
 4. `instanceArm_runW`: the argument order of `armCont_keepsC`, the `legacyRel` projection, `childKeeps`.
 5. `instEN_pred_tag`: `rw [List.map_append, List.foldl_append]; try rfl`.
+
+---
+
+# Round 3: the cone at world level (WRITTEN, NOT BUILT)
+
+Branch `par/n-3` (from poc `9365dacb`). Nothing compiled or run. Round 1–2 files unchanged; compiler
+files untouched; the classifier's ALLOWED list untouched.
+
+## 12. Files, statements
+
+### `Tools/ShippingGateConeW.lean`
+
+* `RunsC c ctx s mctx mref cctx cref w p w'` := `RunsTo (c ctx s) …` (the action is an argument, so
+  `split` sees the step's `if` / `match` exactly as the built `Returns` proofs do); `RunsC.bind`,
+  `RunsC.pure`, `runsCReturns`.
+* `keepsW` (a run of an action that keeps `J L' D` for every witness keeps `InvV`, the depth, and
+  every cache entry — `WG.ofKeeps`), `fuel_runsW` (the translator at any fuel, `D ≠ 0`).
+* **`ContractW L mF D rec ctx inputs we mems initial e v`** (structure, fields `frame`, `sem`): every
+  returning `RunsC (rec e hint top named) ctx s … w0 (w, t) w1` with `InvV L w0`, `L.dval w0 = D`,
+  `SubMap (L.val w1) mF` has the `Frame` / the `Outcome`. `ContractW.ofContract` (world-free →
+  world-indexed), `ContractW.zero`, `ContractW.atRun` (one run's facts, `ChildAt`).
+* `KidFacts children C mn n v y`: the premises of the built `armCont_leaf_contract` about the pair `y`
+  (port shape, `children y.1.name = some (y.1, cwe)`, the text of `ChildCorrect`).
+* the binary node: `core_binary_eq`, `binary_returnsW` (`binary_returns` with worlds),
+  `binary_frameAt` / `binary_outcomeAt` (texts of `binary_frame` / `binary_outcome` over `ChildAt`),
+  `binary_coreW`, **`binary_contractW`**.
+* `cfrag` (leaves, `boolLit`, `bitsLit`, `bitsNum`, `binary`) and **`fuel_contractW`** (the text of
+  `fuel_contract_leaves` on `cfrag`, leaves bring `ContractW` at every fuel).
+* **`inst_leaf_contractW`** ([HierCtx] [ChildSem]):
+
+      (hD : D ≠ 0) (hpure) (hbin) (hkind) (htag : isHardwareModule tenv mn = true)
+      (hlenV) (hargs : ∀ k …, Contract (translateFuelFix (translateStep tenv) fuel) … argsE[k] vs[k])
+      (meaning) (hsem : ChildSem.childSem mn vs = some v)
+      (hkid : ∀ y, mF.get? mn = some y → KidFacts HierCtx.children inferInstance mn argsE.length v y) :
+      ContractW L mF D (translateFuelFix (translateStep tenv) (fuel + 1)) … (instEN mn lvls dom argsE) v
+
+  Proof: `inst_leaf_runs` gives the run's child `y` as the END cache's entry; `SubMap (L.val w1) mF`
+  makes it `mF`'s entry; `hkid` gives its facts; `armCont_leaf_contract` closes. No pinned child,
+  no `HardwareTagged`.
+* `InstLeafK` / `LeafK` (a leaf is a world-free `LeafContract` OR an instance leaf whose arguments
+  have world-free leaf contracts and whose `mF` entry has `KidFacts`), **`leafK_contractW`** (every
+  fuel, in `hierLink children`).
+
+### `Tools/ShippingGateConeRun.lean`
+
+* `prepare_cs` (the prepared context / state do not depend on the valuation), `outStructure`,
+  `outRuns` (texts of `emitLeaves_structure_link` / `emitLeaves_runs_link` over one run's facts).
+* **`HierConePreservesK tenv mF declName bs body m`**: `HierConePreserves` on `cfrag` with
+  `LeafK … mF …` leaves in the place of `LeafContract` (and `tenv` a parameter).
+* **`cone_harness_runK`**: `(L) (hD : D ≠ 0) (hw : InvV L w) (hd : L.dval w = D)
+  (hr : RunsTo (synthesizeMixedCertified (translateExprToWire tenv) (profLogIO b) declName bs body) … (m, d) w')
+  ⊢ ∃ wT', CacheInv mref cref (L.val wT') ∧ HierConePreservesK tenv (L.val wT') declName bs body m`
+  — `mF` is the child cache at the END of the parent's translation (`wT'` from `mixedHarness_runs`).
+* **`gate_cone_runG`** (the full entry):
+
+      (hr : RunsTo (synthesizeCombinational f) … w (b, design) w')
+      (gdef : GateDefines mctx mref cctx cref f bs body) (bnd : ChildBnd mref cref w) :
+      ∃ M Dd envR a5 a6 mF, (b = dz M ∨ b = mergeChecked (dz M)) ∧ b.name = M.name ∧
+        ((∀ x ∈ Dd.modules, x.name ≠ M.name) → design.modules = Dd.modules) ∧
+        RunsTo getEnv … a5 envR a6 ∧ (∃ dv, mixedCertifiedShape? … (instancePredicate envR) = some (bs, body)) ∧
+        CacheInv mref cref mF ∧ HierConePreservesK envR mF f bs body M
+
+  Premises: `hr` (ALLOWED), `bnd` (ALLOWED), **`gdef` — `GateDefines`, NOT ALLOWED** (the round-2
+  ruling is still pending). No `tag`, no pinned child. The per-leaf tag `isHardwareModule envR mn`
+  is a consumer obligation inside `InstLeafK`, a fact of the value `envR` the conclusion exposes
+  together with the gate's acceptance at it (deriving it from that acceptance for a cone body —
+  inverting `hierGateBitsBody` at an instance leaf — is NOT done).
+
+### `Tests/Compiler/GateConeRunTest.lean` (target-only)
+
+`parentMix_coneK` (from `HierConePreservesK` + `tagR` + facts of `mF`'s `childAdd` entry `y`:
+`y.1 = childModule`, `y.2.modules = []` → the S6 observation `ParentMixObserves M`, the conclusion of
+the built `parentMix_entry_observes`), `parentMix_gate_cone_runG` (binders: the run, `GateDefines`,
+`ChildBnd`; the three facts of the run's own values are antecedents of the conclusion), axioms
+printed. PREDICTED axioms: `propext`, `Classical.choice`, `Quot.sound`.
+
+## 13. Build order, lean_lib lines (added next to `Tools.ShippingGateConeLeafContract`)
+
+    lean_lib «Tools.ShippingGateConeW» where
+      roots := #[`Tools.ShippingGateConeW]
+    lean_lib «Tools.ShippingGateConeRun» where
+      roots := #[`Tools.ShippingGateConeRun]
+
+1. `Tools.ShippingGateConeW` (imports `ShippingGateConeLeafRuns`, `ShippingGateConeLeafContract`,
+   `ShippingChildTranslate`, `ShippingWalkGrow`, `ShippingHierTermSoundness`);
+2. `Tools.ShippingGateConeRun` (imports 1 and `ShippingGateParentRunG`);
+3. `lake build Tests.Compiler.GateConeRunTest`.
+
+## 14. Risks, in the order I expect them
+
+1. `leafK_contractW`: `letI` in the statement and `intro instH instC` (the let-bound instances must be
+   local instances for `inst_leaf_contractW`'s synthesis). Fallback: state the conclusion as
+   `@ContractW _ _ (hierLink children).toLinkCtx C L …` and `letI` in the proof.
+2. `binary_contractW`: `unfold translateStepWith at hr; dsimp only at hr; split at hr` on `RunsC`
+   (mirrors `binary_contract`); the `subst` directions in the hit branch (`hs : sh = s` eliminates `s`).
+3. `core_binary_eq`: whether `simp only […]` closes the equation (a `try rfl` follows).
+4. `binary_returnsW`: `simp only [width] at hr`, the beta-redex continuations under `RunsC.bind`,
+   `cases u` (Unit).
+5. `keepsW`: the named arguments of `WG.ofKeeps`.
+6. `ContractW.zero`: `Returns.throw` unifying `throw ?e` with `translateFuelFix … 0 e …` (as in the
+   built `fuel_contract_leaves`).
+7. `prepare_cs`: `show` through `extend`'s `let`/`match`; `cone_harness_runK`: `rw [← hpc, ← hps] at htr`
+   needs the `fun _ => false` / `fun _ _ => 0` of `mixedHarness_runs` to match syntactically.
+8. Test: `by decide` on `(childModule, y2).1` port facts, `rfl` for `hkind`, `cases hy'`.
+
+## 15. Not covered (the exact next pieces)
+
+* the other cone nodes at world level (`compare`, `boolBinary`, `boolNot`, `boolEq`, `mux`, `setw`,
+  slices, concatenations, applicative forms): each is `binary_contractW`'s pattern — a `RunsC`
+  decomposition of the node's lowering (`…_returnsW`), the built `…_outcome` text over `ChildAt`,
+  and a `cfrag` constructor;
+* instance leaves with instance ARGUMENTS (`parentNested`): `instArgs` at world level, `hargs` as
+  `ContractW` (the §9 statement);
+* deriving the leaf tag from `GateDefines`' acceptance of a cone body.

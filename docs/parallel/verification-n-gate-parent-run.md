@@ -32,3 +32,21 @@ Axioms: `gate_parent_run`, `gate_parent_runG`, `parentUse_gate_parent_run`, `par
 ## Not claimed
 Gate-route parents are NOT counted anywhere: no census row, no design-level endpoint. `ALLOWED` unchanged;
 whether `GateDefines` may be admitted like `MachineDefines` is a pending ruling.
+
+## Round 3 (par/n-3, 4fd28a2f): the cone at the world level — BUILT with integrator fixes
+Run `n3` (cgrun, `-j 1`), on poc 4343df59 (after the prodMatcherArity? switch). As written:
+`ShippingGateConeW` failed (the `subst` after `RunsC.bind` reintroduced the old `hr` — same shadowing
+pattern as round 1; `intro instH instC` on a `letI` statement; the lemmas then elaborated with `flatLink`),
+`ShippingGateConeRun` (`outStructure` stated at `flatLink`), the test (`decide` on goals with a free `y2`).
+Integrator fixes (no statement changed except `outStructure`, generalised over `[LinkCtx]`): fresh name
+`hr2`; `letI : HierCtx := hierLink children; letI : ChildSem := C` inside `leafK_contractW`'s proof;
+`dsimp only; decide` in the test. All three targets exit 0.
+Axioms: `gate_cone_runG`, `parentMix_gate_cone_runG` [propext, Classical.choice, Quot.sound].
+
+What `parentMix_gate_cone_runG` says: from the run, `GateDefines` (NOT ALLOWED, ruling pending) and
+`ChildBnd`: the shipped module is the cleanup (or merge) of `M`, the final child cache `mF` satisfies
+`CacheInv`, and **IF** `childAdd` is tagged in the run's environment `envR`, `mF`'s `childAdd` entry is
+`childModule` and it brings no modules, **THEN** `ParentMixObserves M`. Those three run-value facts are
+antecedents NOT discharged (the tag is not yet derived from `GateDefines`' acceptance of a cone body).
+World-level cone: leaves, literals, `binary` only; compare / Bool ops / mux / setw / slices / concats and
+instance leaves with instance arguments (`parentNested`) NOT covered. Not counted anywhere.

@@ -2932,6 +2932,12 @@ lean_lib «Tools.ShippingGateConeLeafRuns» where
 lean_lib «Tools.ShippingGateConeLeafContract» where
   roots := #[`Tools.ShippingGateConeLeafContract]
 
+lean_lib «Tools.ShippingGateConeW» where
+  roots := #[`Tools.ShippingGateConeW]
+
+lean_lib «Tools.ShippingGateConeRun» where
+  roots := #[`Tools.ShippingGateConeRun]
+
 lean_lib «Tools.ShippingCIdent» where
   roots := #[`Tools.ShippingCIdent]
 
