@@ -2890,6 +2890,12 @@ lean_lib «Tools.ShippingReaderProjChainResult» where
 lean_lib «Tools.ShippingReaderProjChainArm» where
   roots := #[`Tools.ShippingReaderProjChainArm]
 
+lean_lib «Tools.ShippingReaderRawNodeArm» where
+  roots := #[`Tools.ShippingReaderRawNodeArm]
+
+lean_lib «Tools.ShippingReaderMatcherArityOldShadow» where
+  roots := #[`Tools.ShippingReaderMatcherArityOldShadow]
+
 lean_lib «Tools.ShippingCIdent» where
   roots := #[`Tools.ShippingCIdent]
 
