@@ -2896,6 +2896,30 @@ lean_lib «Tools.ShippingReaderRawNodeArm» where
 lean_lib «Tools.ShippingReaderMatcherArityOldShadow» where
   roots := #[`Tools.ShippingReaderMatcherArityOldShadow]
 
+lean_lib «Tools.ShippingGateParentRuns» where
+  roots := #[`Tools.ShippingGateParentRuns]
+
+lean_lib «Tools.ShippingGateParentTail» where
+  roots := #[`Tools.ShippingGateParentTail]
+
+lean_lib «Tools.ShippingGateParentPost» where
+  roots := #[`Tools.ShippingGateParentPost]
+
+lean_lib «Tools.ShippingGateParentRun» where
+  roots := #[`Tools.ShippingGateParentRun]
+
+lean_lib «Tools.ShippingGateDefines» where
+  roots := #[`Tools.ShippingGateDefines]
+
+lean_lib «Tools.ShippingGateParentRunG» where
+  roots := #[`Tools.ShippingGateParentRunG]
+
+lean_lib «Tools.ShippingGateConeLeafRuns» where
+  roots := #[`Tools.ShippingGateConeLeafRuns]
+
+lean_lib «Tools.ShippingGateConeLeafContract» where
+  roots := #[`Tools.ShippingGateConeLeafContract]
+
 lean_lib «Tools.ShippingCIdent» where
   roots := #[`Tools.ShippingCIdent]
 
