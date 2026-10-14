@@ -520,3 +520,24 @@ New since addendum 3:
 - Finding I (stale single-output instance cache, legacy route, constructed state): fix verified in
   isolation only, not integrated.
 Awaiting rulings: docs/parallel/open-rulings-2026-10-13.md (six items).
+
+### Addendum 5, 2026-10-14 afternoon (poc 196177de; records: verification-env-capture-integration.md, K-depth-cell.md §7, verification-p-reader-unit1.md)
+
+Census (suite population with generated data ONLY): 134 declarations, 133 covered at the design level;
+open: `mixDeep` (nested form). Outermost tally (separate): 1 (`mixDeep`, outermost endpoint).
+Integrated since addendum 4:
+- Environment capture (a): one capturing entry for commands and nested children; confirmation build on poc
+  with one Lean thread (suite, Keccak sponge, tagged JIT e2e: exit 0; peak 2.74 GB). Not claimed: all-input
+  equivalence with the old two-read entry.
+- Reader: `RawNodePairArmGoal` PROVED about the real `rawNode` (unit 1). `prodMatcherArity?` switch-over NOT
+  made: its gate (array/structural agreement of the old source equation) does not build under v4.32.1 (the
+  matcher's equation lemmas cannot be generated); reworked by worker P. Reader tally: projChain switched;
+  `prodMatcherArity?` still partial; the other partial readers open.
+- Depth cell (finding, no compiler change): the real language server starts the re-elaborated command while
+  the cancelled one is still inside the synthesis entry (3/3 without, 5/5 with 10 ms interrupt checks), so the
+  new run takes the nested branch. A wrong module under a real edit is NOT measured (the controlled probe's
+  wrong module needed a planted stale child). Batch builds unaffected by reading.
+Unfinished (separate table, not in the census): gate-route parents (no generated data; worker N's
+`gate_parent_run` in build, carries `GateDefines` — NOT in ALLOWED, ruling pending); legacy route; reader
+generalisation (partial functions remaining); `mixDeep` nested; corpus pilot and `auxInsert` held.
+Resources: heavy builds run with `-j 1` (two Lean threads throttle at memory.high on ShippingEntrySoundness).
