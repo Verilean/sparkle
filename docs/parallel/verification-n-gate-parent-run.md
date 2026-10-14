@@ -122,3 +122,22 @@ Coverage of the eight simulated gate parents (worker N, BY READING; not a claim)
 | parentCmp | Signal.ult (childAdd a b) a | cfragC | none (entry existence for a compare root not written) |
 | parentNested | childAdd (childAdd a b) b | NOT covered | none |
 | wrapPick | pick sel x | NOT covered as stated (no domain binder: instEN reads sel as the domain) | none |
+
+## Round 8 (par/n-8: 366938d2, 325922ca, 2938a0b6, a5435705, b2d9b6d2) — BUILT as written
+Run `n8` (`-j 1`): `Tests.Compiler.GateConeTwoCallsTest`, `…RepeatTest`, `…WrapAddTest`,
+`Tools.ShippingGateConeEntryC`, `Tests.Compiler.GateConeCmpTest`: all exit 0, no fix needed; no `sorryAx` in
+any printed axiom list. `parentTwoCalls_gate_cone_runK'`, `parentRepeat_gate_cone_runK'`,
+`wrapAdd_gate_cone_runK'`, `parentCmp_gate_cone_runK'`: [propext, Classical.choice, Quot.sound]
+(`gateLeafSel_of2`: [propext, Quot.sound]). The peel sanity checks (`mixedGatePeel … = some … := rfl`)
+build.
+Each theorem: premises the run, `GateDefines` (NOT ALLOWED, ruling pending), `ChildBnd`,
+`EntryDefines childAdd` (ALLOWED); conclusion post ∧ `CacheInv mF` ∧ tag at `envR` ∧
+`∃ y, mF.get? ``childAdd = some y ∧ …ObservesC (ownChild y) M`.
+New general pieces: `gateLeafSel_of2` (two leaves), `domCall` / `gateLeafSel_ofD` (constant domain),
+`compare_entryWN`, `gate_cone_runGCE` (cone over `cfragC` with the entry conjunct).
+
+Gate-route parents among the eight simulated: SIX now have a per-declaration cone theorem of this form
+(parentMix, parentTwoCalls, parentRepeat, wrapAdd, parentCmp; parentUse has the run-shape form only and is
+covered by the cone form via wrapAdd's pattern only by reading — not written). Not covered: parentNested
+(instance arguments), wrapPick (no domain binder). All target-only, under the NOT ALLOWED `GateDefines`,
+observation-level (`…ObservesC`), NOT the design-level DesignSV form; not counted in any tally.
