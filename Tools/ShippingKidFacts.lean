@@ -6,6 +6,7 @@ import Tools.ShippingTextShipped
 import Tools.ShippingPortsMatchShipped
 import Tools.ShippingCoreClk
 import Tools.ShippingLeafTyped
+import Tools.ShippingMachineRanBase
 
 /-! # What the no-ports chain takes of ONE callee, without "leaf" (G1, unit U2, round par/a-13)
 
@@ -101,6 +102,40 @@ structure KidFacts (mref : ST.Ref IO.RealWorld Meta.State)
 variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
   {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
 
+/-- `kids_runFacts` over `MachineRan`:
+the proof of the built theorem, MOVED here (split in place, branch
+`fix/ran-threading-split`) with the run, the reflection, the closing and the boundary
+replaced by `ran` and every callee of the chain by its `_ran` form. It takes of the run only
+that the machine synthesis this core run performed returned the result from an invariant
+world; the theorem below, its statement unchanged, is the instance at the all-worlds closing
+(`Tools.ShippingMachineRan.machineRan_of_closes`). -/
+theorem kids_runFacts_ran {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    {nDecl : Nat} (hC : d.callsOk nDecl = true)
+    (hslots : d.ss.length = d.shape.layout.slots.length)
+    (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
+    (hins : d.shape.insts ≠ [])
+    (hsl : d.shape.layout.slots ≠ [])
+    (hfne : d.shape.instFields ≠ [])
+    (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
+    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (kidOuts : Nat → List OutField) (kidIns : Nat → List Nat) (n : Nat)
+    (hkid : ∀ (k : Nat) (hk : k < d.shape.insts.length),
+      KidFacts mref cref (d.shape.insts[k]).1 (kidOuts k) (kidIns k) n)
+    (hcw : Tools.ShippingCallWidths.callWidthsOk d nDecl kidOuts = true)
+    {M b : Sparkle.IR.AST.Module} {D : Design}
+    (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨
+      b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M))
+    (ran : Tools.ShippingMachineRan.MachineRan mctx mref cctx cref c d.shape M D) :
+    Tools.ShippingGuardsSound.RunFacts (childMap D.modules) b :=
+  Tools.ShippingChecksRunFacts.core_runFacts_ran d ok hbody hC hslots hdomB hins hsl hfne outTy
+    hnomem
+    (fun k hk y hy => (hkid k hk).outsIn y hy)
+    (Tools.ShippingCallWidths.hkidW_of_data hcw (fun k hk y hy => (hkid k hk).outTys y hy))
+    hpost ran
+
 /-- **The run's facts of the full entry's module**, from `KidFacts` of every
 call entry's callee (`core_runFacts`). -/
 theorem kids_runFacts {c : Name} (d : MachineData) (ok : d.ok = true)
@@ -127,11 +162,40 @@ theorem kids_runFacts {c : Name} (d : MachineData) (ok : d.ok = true)
     (entry : MachineDefines mctx mref cctx cref c d.shape)
     (closes : MachineClosesAt mctx mref cctx cref c d.shape) :
     Tools.ShippingGuardsSound.RunFacts (childMap D.modules) b :=
-  Tools.ShippingChecksRunFacts.core_runFacts d ok hbody hC hslots hdomB hins hsl hfne outTy
+  kids_runFacts_ran d ok hbody hC hslots hdomB hins hsl hfne outTy hnomem kidOuts kidIns n hkid hcw
+    hpost (Tools.ShippingMachineRan.machineRan_of_closes hcore entry hB closes)
+
+/-- `kids_outsCheck` over `MachineRan`:
+the proof of the built theorem, MOVED here (split in place, branch
+`fix/ran-threading-split`) with the run, the reflection, the closing and the boundary
+replaced by `ran` and every callee of the chain by its `_ran` form. It takes of the run only
+that the machine synthesis this core run performed returned the result from an invariant
+world; the theorem below, its statement unchanged, is the instance at the all-worlds closing
+(`Tools.ShippingMachineRan.machineRan_of_closes`). -/
+theorem kids_outsCheck_ran {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    {nDecl : Nat} (hC : d.callsOk nDecl = true)
+    (hslots : d.ss.length = d.shape.layout.slots.length)
+    (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
+    (hins : d.shape.insts ≠ [])
+    (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
+    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (kidOuts : Nat → List OutField) (kidIns : Nat → List Nat) (n : Nat)
+    (hkid : ∀ (k : Nat) (hk : k < d.shape.insts.length),
+      KidFacts mref cref (d.shape.insts[k]).1 (kidOuts k) (kidIns k) n)
+    {M b : Sparkle.IR.AST.Module} {D : Design}
+    (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨
+      b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M))
+    (ran : Tools.ShippingMachineRan.MachineRan mctx mref cctx cref c d.shape M D)
+    (hg : Sparkle.IR.RefineCheck.hierGate b = true) :
+    Tools.ShippingDesignSVBack.outsCheck (childMap D.modules) n (checkedOptimize b) = true :=
+  Tools.ShippingChecksCoreGate.core_outsCheck_all_gate_ran d ok hbody hC hslots hdomB hins outTy
     hnomem
-    (fun k hk y hy => (hkid k hk).outsIn y hy)
-    (Tools.ShippingCallWidths.hkidW_of_data hcw (fun k hk y hy => (hkid k hk).outTys y hy))
-    hB hcore hpost entry closes
+    (fun k hk y hy => (hkid k hk).kidA y hy)
+    (fun k hk y hy => (hkid k hk).kidR y hy)
+    hpost ran hg n
 
 /-- **The output check at depth `n`, under the statement-kind gate**, from
 `KidFacts` (`core_outsCheck_all_gate`). -/
@@ -157,11 +221,38 @@ theorem kids_outsCheck {c : Name} (d : MachineData) (ok : d.ok = true)
     (closes : MachineClosesAt mctx mref cctx cref c d.shape)
     (hg : Sparkle.IR.RefineCheck.hierGate b = true) :
     Tools.ShippingDesignSVBack.outsCheck (childMap D.modules) n (checkedOptimize b) = true :=
-  Tools.ShippingChecksCoreGate.core_outsCheck_all_gate d ok hbody hC hslots hdomB hins outTy
-    hnomem
-    (fun k hk y hy => (hkid k hk).kidA y hy)
-    (fun k hk y hy => (hkid k hk).kidR y hy)
-    hB hcore hpost entry closes hg n
+  kids_outsCheck_ran d ok hbody hC hslots hdomB hins outTy hnomem kidOuts kidIns n hkid hpost
+    (Tools.ShippingMachineRan.machineRan_of_closes hcore entry hB closes) hg
+
+/-- `kids_maskedN` over `MachineRan`:
+the proof of the built theorem, MOVED here (split in place, branch
+`fix/ran-threading-split`) with the run, the reflection, the closing and the boundary
+replaced by `ran` and every callee of the chain by its `_ran` form. It takes of the run only
+that the machine synthesis this core run performed returned the result from an invariant
+world; the theorem below, its statement unchanged, is the instance at the all-worlds closing
+(`Tools.ShippingMachineRan.machineRan_of_closes`). -/
+theorem kids_maskedN_ran {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    {nDecl : Nat} (hC : d.callsOk nDecl = true)
+    (hslots : d.ss.length = d.shape.layout.slots.length)
+    (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
+    (hins : d.shape.insts ≠ [])
+    (hfne : d.shape.instFields ≠ [])
+    (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
+    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (kidOuts : Nat → List OutField) (kidIns : Nat → List Nat) (n : Nat)
+    (hkid : ∀ (k : Nat) (hk : k < d.shape.insts.length),
+      KidFacts mref cref (d.shape.insts[k]).1 (kidOuts k) (kidIns k) n)
+    {M b : Sparkle.IR.AST.Module} {D : Design}
+    (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨
+      b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M))
+    (ran : Tools.ShippingMachineRan.MachineRan mctx mref cctx cref c d.shape M D) :
+    Tools.ShippingMachineShipsDepth.kidsMaskedN D.modules b.body = true :=
+  Tools.ShippingKidsSelf.core_kidsMaskedN_top_ran d ok hbody hC hslots hdomB hins hfne outTy hnomem
+    (fun k hk y hy => (hkid k hk).masked y hy)
+    hpost ran
 
 /-- **The children's masked outputs**, from `KidFacts`
 (`core_kidsMaskedN_top`). -/
@@ -187,9 +278,66 @@ theorem kids_maskedN {c : Name} (d : MachineData) (ok : d.ok = true)
     (entry : MachineDefines mctx mref cctx cref c d.shape)
     (closes : MachineClosesAt mctx mref cctx cref c d.shape) :
     Tools.ShippingMachineShipsDepth.kidsMaskedN D.modules b.body = true :=
-  Tools.ShippingKidsSelf.core_kidsMaskedN_top d ok hbody hC hslots hdomB hins hfne outTy hnomem
-    (fun k hk y hy => (hkid k hk).masked y hy)
-    hB hcore hpost entry closes
+  kids_maskedN_ran d ok hbody hC hslots hdomB hins hfne outTy hnomem kidOuts kidIns n hkid hpost
+    (Tools.ShippingMachineRan.machineRan_of_closes hcore entry hB closes)
+
+set_option maxHeartbeats 4000000 in
+/-- `kids_designCheck` over `MachineRan`:
+the proof of the built theorem, MOVED here (split in place, branch
+`fix/ran-threading-split`) with the run, the reflection, the closing and the boundary
+replaced by `ran` and every callee of the chain by its `_ran` form. It takes of the run only
+that the machine synthesis this core run performed returned the result from an invariant
+world; the theorem below, its statement unchanged, is the instance at the all-worlds closing
+(`Tools.ShippingMachineRan.machineRan_of_closes`). -/
+theorem kids_designCheck_ran {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    {nDecl : Nat} (hC : d.callsOk nDecl = true)
+    (hslots : d.ss.length = d.shape.layout.slots.length)
+    (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
+    (hins : d.shape.insts ≠ [])
+    (hsl : d.shape.layout.slots ≠ [])
+    (hfne : d.shape.instFields ≠ [])
+    (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
+    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (kidOuts : Nat → List OutField) (kidIns : Nat → List Nat) (n : Nat)
+    (hkid : ∀ (k : Nat) (hk : k < d.shape.insts.length),
+      KidFacts mref cref (d.shape.insts[k]).1 (kidOuts k) (kidIns k) n)
+    (hcw : Tools.ShippingCallWidths.callWidthsOk d nDecl kidOuts = true)
+    (hargs : Tools.ShippingPortsMatchRaw.callArgsOk d nDecl kidIns = true)
+    {M b : Sparkle.IR.AST.Module} {D : Design}
+    (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨
+      b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M))
+    (ran : Tools.ShippingMachineRan.MachineRan mctx mref cctx cref c d.shape M D)
+    (hon : ∀ o ∈ d.shape.layout.outs, Sparkle.Backend.Verilog.sanitizeName o.name = o.name)
+    (hoty : ∀ o ∈ d.shape.layout.outs, Tools.ShippingTextTyped.scalarTy o.ty = true) :
+    Tools.ShippingDesignSV.designCheck (childMap D.modules) n (checkedOptimize b) = true := by
+  have hkidW := Tools.ShippingCallWidths.hkidW_of_data hcw
+    (fun k hk y hy => (hkid k hk).outTys y hy)
+  have hraw : Tools.ShippingDesignSV.portsMatchB (childMap D.modules) b = true :=
+    Tools.ShippingPortsMatchRaw.core_portsMatch_raw_ran d ok hbody hC hslots hdomB hins hfne outTy
+      hnomem hkidW
+      (fun k hk y hy => (hkid k hk).portsIn y hy)
+      (kidIns := kidIns) hargs
+      (fun k hk y hy j q hq => (hkid k hk).inW y hy j q hq)
+      (fun k hk y hy hs => (hkid k hk).clk y hy hs)
+      hpost ran hon hoty
+      (Tools.ShippingCoreClk.core_clk_ran d ok hbody hC hslots hdomB hins outTy hnomem hsl hpost ran)
+  have hports : Tools.ShippingDesignSV.portsMatchB (childMap D.modules) (checkedOptimize b) =
+      true :=
+    Tools.ShippingPortsMatchShipped.portsMatchB_shipped
+      (Tools.ShippingChecksWidths.core_hierGate_ran d ok hbody hC hslots hdomB hins hfne outTy
+        hnomem hpost ran)
+      hraw
+  have hkids := Tools.ShippingKidsSelf.core_kidsPass_deep_ran d ok hbody hC hslots hdomB hins hfne
+    outTy hnomem n
+    (fun k hk y hy ms h1 h2 => (hkid k hk).check y hy ms h1 h2)
+    hpost ran
+  exact Tools.ShippingTextShipped.core_designCheck_run_ran d ok hbody hC hslots hdomB hins hsl hfne
+    outTy hnomem
+    (fun k hk y hy => (hkid k hk).outsIn y hy)
+    hkidW hpost ran hon hoty n hports hkids
 
 set_option maxHeartbeats 4000000 in
 /-- **`designCheck` of the shipped module at depth `n` with NO check
@@ -222,32 +370,8 @@ theorem kids_designCheck {c : Name} (d : MachineData) (ok : d.ok = true)
     (closes : MachineClosesAt mctx mref cctx cref c d.shape)
     (hon : ∀ o ∈ d.shape.layout.outs, Sparkle.Backend.Verilog.sanitizeName o.name = o.name)
     (hoty : ∀ o ∈ d.shape.layout.outs, Tools.ShippingTextTyped.scalarTy o.ty = true) :
-    Tools.ShippingDesignSV.designCheck (childMap D.modules) n (checkedOptimize b) = true := by
-  have hkidW := Tools.ShippingCallWidths.hkidW_of_data hcw
-    (fun k hk y hy => (hkid k hk).outTys y hy)
-  have hraw : Tools.ShippingDesignSV.portsMatchB (childMap D.modules) b = true :=
-    Tools.ShippingPortsMatchRaw.core_portsMatch_raw d ok hbody hC hslots hdomB hins hfne outTy
-      hnomem hkidW
-      (fun k hk y hy => (hkid k hk).portsIn y hy)
-      (kidIns := kidIns) hargs
-      (fun k hk y hy j q hq => (hkid k hk).inW y hy j q hq)
-      (fun k hk y hy hs => (hkid k hk).clk y hy hs)
-      hB hcore hpost entry closes hon hoty
-      (Tools.ShippingCoreClk.core_clk d ok hbody hC hslots hdomB hins outTy hnomem hsl hB hcore
-        hpost entry closes)
-  have hports : Tools.ShippingDesignSV.portsMatchB (childMap D.modules) (checkedOptimize b) =
-      true :=
-    Tools.ShippingPortsMatchShipped.portsMatchB_shipped
-      (Tools.ShippingChecksWidths.core_hierGate d ok hbody hC hslots hdomB hins hfne outTy
-        hnomem hB hcore hpost entry closes)
-      hraw
-  have hkids := Tools.ShippingKidsSelf.core_kidsPass_deep d ok hbody hC hslots hdomB hins hfne
-    outTy hnomem n
-    (fun k hk y hy ms h1 h2 => (hkid k hk).check y hy ms h1 h2)
-    hB hcore hpost entry closes
-  exact Tools.ShippingTextShipped.core_designCheck_run d ok hbody hC hslots hdomB hins hsl hfne
-    outTy hnomem
-    (fun k hk y hy => (hkid k hk).outsIn y hy)
-    hkidW hB hcore hpost entry closes hon hoty n hports hkids
+    Tools.ShippingDesignSV.designCheck (childMap D.modules) n (checkedOptimize b) = true :=
+  kids_designCheck_ran d ok hbody hC hslots hdomB hins hsl hfne outTy hnomem kidOuts kidIns n hkid
+    hcw hargs hpost (Tools.ShippingMachineRan.machineRan_of_closes hcore entry hB closes) hon hoty
 
 end Tools.ShippingKidFacts
