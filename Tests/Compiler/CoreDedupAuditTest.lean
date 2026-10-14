@@ -117,8 +117,20 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     let vOld ← proofOf old
     let vM ← proofOf mN
     let vFm ← proofOf fm
-    unless (vOld.find? (·.isConstOf mN)).isSome do
-      throwError "{old}: its proof does not name {mN} — the old proof body was not replaced"
+    -- Since the split over `MachineRan` (2026-10-14) the old theorem is a
+    -- corollary of its `_ran` form, and it is the `_ran` forms that are tied:
+    -- `old` names `old_ran`, whose proof names `mN_ran`. Either tie is accepted.
+    let direct : Bool := (vOld.find? (·.isConstOf mN)).isSome
+    let oldRan := old.appendAfter "_ran"
+    let mRan := mN.appendAfter "_ran"
+    let env ← getEnv
+    let viaRan : Bool ←
+      if env.contains oldRan && env.contains mRan then do
+        let vOldRan ← proofOf oldRan
+        pure ((vOld.find? (·.isConstOf oldRan)).isSome && (vOldRan.find? (·.isConstOf mRan)).isSome)
+      else pure false
+    unless direct || viaRan do
+      throwError "{old}: its proof names neither {mN} nor (through {oldRan}) {mRan} — the old proof body was not replaced"
     if (vM.find? (·.isConstOf old)).isSome then
       throwError "{mN}: its proof names {old}"
     if (vFm.find? (·.isConstOf old)).isSome then

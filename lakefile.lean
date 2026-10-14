@@ -2880,3 +2880,12 @@ lean_lib «Tools.ShippingReaderBoolMapShadow» where
 lean_exe «tagged-jit-e2e-test» where
   root := `Tests.Drivers.TaggedJitE2EMain
   supportInterpreter := true
+
+lean_lib «Tools.ShippingReaderProjChainReal» where
+  roots := #[`Tools.ShippingReaderProjChainReal]
+
+lean_lib «Tools.ShippingReaderProjChainResult» where
+  roots := #[`Tools.ShippingReaderProjChainResult]
+
+lean_lib «Tools.ShippingReaderProjChainArm» where
+  roots := #[`Tools.ShippingReaderProjChainArm]
