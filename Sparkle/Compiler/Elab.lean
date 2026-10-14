@@ -29,6 +29,7 @@ import Sparkle.Compiler.MachRecUnfold
 import Sparkle.Compiler.StderrFlush
 import Sparkle.IR.ModuleNameCheck
 import Sparkle.IR.ModuleName
+import Sparkle.Compiler.SimNames
 import Sparkle.Compiler.DRC
 import Sparkle.Compiler.InlineAttr
 import Sparkle.Core.Signal
@@ -9254,13 +9255,15 @@ private def writeDesignCore (declName : Name) (svPath cppPath : String)
   -- CSim (optimized, no observableWires — keep all _gen_ as members for header)
   let optimized := Sparkle.IR.Optimize.optimizeDesign design
   let cSrc := Sparkle.Backend.CSim.toCDesign optimized
-  IO.FS.writeFile cppPath cSrc
-  IO.println s!"Written C simulation ({optimized.modules.length} modules) to {cppPath}"
+  -- The two C files never share a path (finding J5, `SimNames.writeDesignPaths`):
+  -- for a `cppPath` without `_cppsim.h` the JIT text stays at `cppPath` (as
+  -- before) and the C text, which the JIT text used to replace, goes beside it.
+  let (cPath, jitPath) := Sparkle.Compiler.SimNames.writeDesignPaths cppPath
+  IO.FS.writeFile cPath cSrc
+  IO.println s!"Written C simulation ({optimized.modules.length} modules) to {cPath}"
   -- JIT wrapper (optimized with observableWires — demote non-observable to locals)
   let jitOptimized := Sparkle.IR.Optimize.optimizeDesign design observableWires
   let jitC := Sparkle.Backend.CSim.toCJIT jitOptimized observableWires
-  let jitPath :=
-    (cppPath.replace "_cppsim.h" "_jit.c").replace "_jit.c" "_jit.c"
   IO.FS.writeFile jitPath jitC
   IO.println s!"Written JIT wrapper to {jitPath}"
 
@@ -9304,6 +9307,11 @@ private def simLeanIdent (s : String) : String :=
 
     Generates:
       counter.Sim.SimInput, SimOutput, Simulator, load, jitCppPath
+
+    The namespace is the declaration's QUALIFIED name followed by `Sim`
+    (`A.f.Sim` for `A.f`, wherever the command is run), and the files are
+    `.lake/build/gen/sim/<module name of the declaration>_jit.c` / `.sv`
+    (`Sparkle.Compiler.SimNames`): two declarations never share either.
 -/
 elab "#sim" id:ident : command => do
   let declName ← Lean.Elab.Command.liftCoreM do
@@ -9314,9 +9322,13 @@ elab "#sim" id:ident : command => do
     let optimized := Sparkle.IR.Optimize.optimizeDesign design
     let jitC := Sparkle.Backend.CSim.toCJIT optimized
     let verilog := Sparkle.Backend.Verilog.toVerilogDesign optimized
-    let ns := simLeanIdent (toString declName.components.getLast!)
-    let jitPath := s!".lake/build/gen/sim/{ns}_jit.c"
-    let svPath  := s!".lake/build/gen/sim/{ns}.sv"
+    -- Path and namespace from the QUALIFIED declaration name (finding J5;
+    -- `Sparkle/Compiler/SimNames.lean`): two declarations never share a
+    -- file or a generated namespace.
+    let ns := Sparkle.Compiler.SimNames.declNamespace declName
+    let fileKey := Sparkle.Compiler.SimNames.declFileKey declName
+    let jitPath := s!".lake/build/gen/sim/{fileKey}_jit.c"
+    let svPath  := s!".lake/build/gen/sim/{fileKey}.sv"
     try
       IO.FS.createDirAll ".lake/build/gen/sim"
       IO.FS.writeFile jitPath jitC
@@ -9343,94 +9355,106 @@ elab "#sim" id:ident : command => do
   -- Phase 2: Generate typed wrappers (in CommandElabM)
   let lb := "{"
   let rb := "}"
-  elabSimStr s!"namespace {ns}.Sim"
-  elabSimStr "open Sparkle.Core.JIT"
-  elabSimStr s!"def jitCppPath : String := \"{jitPath}\""
-  if userInputs.isEmpty then
-    elabSimStr "structure SimInput where\n  deriving Repr, BEq, Inhabited"
-  else
-    let fields := String.intercalate "\n" <|
-      userInputs.map fun p => s!"  {simLeanIdent p.name} : BitVec {p.ty.bitWidth}"
-    elabSimStr s!"structure SimInput where\n{fields}\n  deriving Repr, BEq, Inhabited"
-  if outputs.isEmpty then
-    elabSimStr "structure SimOutput where\n  deriving Repr, BEq, Inhabited"
-  else
-    let fields := String.intercalate "\n" <|
-      outputs.map fun p => s!"  {simLeanIdent p.name} : BitVec {p.ty.bitWidth}"
-    elabSimStr s!"structure SimOutput where\n{fields}\n  deriving Repr, BEq, Inhabited"
-  elabSimStr "structure Simulator where\n  handle : JITHandle"
-  let inputsIdx := (List.range userInputs.length).zip userInputs
-  let setCalls := inputsIdx.map fun (idx, p) =>
-    s!"  JIT.setInput sim.handle {idx} i.{simLeanIdent p.name}.toNat.toUInt64"
-  let stepBody := String.intercalate "\n" setCalls
-  elabSimStr s!"def Simulator.step (sim : Simulator) (i : SimInput) : IO Unit := do\n{stepBody}\n  JIT.evalTick sim.handle"
-  -- For each output port: when the port width is > 64 bits,
-  -- emit multiple `JIT.getOutput` calls reading 32-bit chunks
-  -- (the C-side `jit_get_output` already exposes wide ports
-  -- as N consecutive switch cases of `uint32_t` slot reads —
-  -- see `emitGetOutputSwitch` in Sparkle/Backend/CSim.lean).
-  -- Then OR-shift them into the BitVec.  Fixes Issue #75
-  -- (silent truncation of > 64-bit JIT output ports).
-  let (readLines, _) := outputs.foldl
-    (fun (acc : List String × Nat) (p : Port) =>
-      let w := p.ty.bitWidth
-      let nameId := simLeanIdent p.name
-      if w ≤ 64 then
-        let line :=
-          s!"  let v_{nameId} ← JIT.getOutput sim.handle {acc.2}\n" ++
-          s!"  let {nameId} := BitVec.ofNat {w} v_{nameId}.toNat"
-        (acc.1 ++ [line], acc.2 + 1)
-      else
-        -- Wide port: read ⌈w/32⌉ 32-bit slots and OR-shift.
-        let nWords := (w + 31) / 32
-        let slotIdxs := List.range nWords
-        let reads := slotIdxs.map fun j =>
-          s!"  let v_{nameId}_{j} ← JIT.getOutput sim.handle {acc.2 + j}"
-        -- Assemble: each slot j contributes
-        --   (BitVec.ofNat w v_<nameId>_j.toNat) <<< (32 * j)
-        -- and we fold them with `|||`.
-        let combineTerm (j : Nat) : String :=
-          s!"(BitVec.ofNat {w} (v_{nameId}_{j}.toNat &&& 0xFFFFFFFF) <<< {32 * j})"
-        let combined :=
-          match slotIdxs with
-          | [] => s!"(BitVec.ofNat {w} 0)"
-          | j :: rest =>
-            rest.foldl (fun s k => s ++ " ||| " ++ combineTerm k) (combineTerm j)
-        let assemble :=
-          s!"  let {nameId} : BitVec {w} := {combined}"
-        (acc.1 ++ reads ++ [assemble], acc.2 + nWords))
-    ([], 0)
-  let readBody := String.intercalate "\n" readLines
-  let readReturn := String.intercalate ", " <| outputs.map fun p => simLeanIdent p.name
-  elabSimStr s!"def Simulator.read (sim : Simulator) : IO SimOutput := do\n{readBody}\n  pure {lb} {readReturn} {rb}"
-  elabSimStr "def Simulator.reset (sim : Simulator) : IO Unit :=\n  JIT.reset sim.handle"
-  elabSimStr "def Simulator.destroy (sim : Simulator) : IO Unit :=\n  JIT.destroy sim.handle"
-  elabSimStr s!"def load : IO Simulator := do\n  let h ← JIT.compileAndLoad jitCppPath\n  pure {lb} handle := h {rb}"
-  -- Opt the generated wrapper into the unified `Sparkle.Core.Sim.Sim`
-  -- typeclass so call-sites can write `sim.step inp` / `sim.read`
-  -- against any backend (pure-Lean / JIT / Verilator) without
-  -- knowing which one produced `sim`.
-  elabSimStr <|
-    "instance : Sparkle.Core.Sim.Sim Simulator SimInput SimOutput where\n" ++
-    "  reset   := Simulator.reset\n" ++
-    "  step    := Simulator.step\n" ++
-    "  read    := Simulator.read\n" ++
-    "  destroy := Simulator.destroy"
-  -- Verilator backend.  Reuses the same `Simulator` shape because
-  -- the Verilator wrapper exposes the JIT C ABI; only `load`
-  -- differs (it builds a `.so` from the `.sv` instead of from
-  -- the JIT `.cpp`).
-  elabSimStr s!"def svPath : String := \"{svPath}\""
-  elabSimStr s!"def topModuleName : String := \"{topName}\""
-  let portSpec (p : Sparkle.IR.AST.Port) : String :=
-    "{ name := \"" ++ p.name ++ "\", width := " ++ toString p.ty.bitWidth ++ " : Sparkle.Core.Sim.Verilator.PortSpec }"
-  let inputPortSpecs := String.intercalate ", " (userInputs.map portSpec)
-  let outputPortSpecs := String.intercalate ", " (outputs.map portSpec)
-  elabSimStr <|
-    "def loadVerilator : IO Sparkle.Core.Sim.Verilator.Simulator :=\n" ++
-    "  Sparkle.Core.Sim.Verilator.of svPath topModuleName\n" ++
-    "    [" ++ inputPortSpecs ++ "]\n" ++
-    "    [" ++ outputPortSpecs ++ "]"
-  elabSimStr s!"end {ns}.Sim"
+  -- The wrappers go under the ABSOLUTE namespace `<declaration>.Sim`: the
+  -- current namespace is set to the root while they are elaborated (opens
+  -- and options stay) and the scopes are restored afterwards, also when a
+  -- generated command fails. A private declaration gets private wrappers.
+  let isPriv := Sparkle.Compiler.SimNames.declIsPrivate declName
+  let emit (s : String) : CommandElabM Unit :=
+    elabSimStr (Sparkle.Compiler.SimNames.withVisibility isPriv s)
+  let savedScopes := (← get).scopes
+  Lean.Elab.Command.modifyScope fun sc => { sc with currNamespace := Lean.Name.anonymous }
+  try
+    emit s!"namespace {ns}.Sim"
+    emit "open Sparkle.Core.JIT"
+    emit s!"def jitCppPath : String := \"{jitPath}\""
+    if userInputs.isEmpty then
+      emit "structure SimInput where\n  deriving Repr, BEq, Inhabited"
+    else
+      let fields := String.intercalate "\n" <|
+        userInputs.map fun p => s!"  {simLeanIdent p.name} : BitVec {p.ty.bitWidth}"
+      emit s!"structure SimInput where\n{fields}\n  deriving Repr, BEq, Inhabited"
+    if outputs.isEmpty then
+      emit "structure SimOutput where\n  deriving Repr, BEq, Inhabited"
+    else
+      let fields := String.intercalate "\n" <|
+        outputs.map fun p => s!"  {simLeanIdent p.name} : BitVec {p.ty.bitWidth}"
+      emit s!"structure SimOutput where\n{fields}\n  deriving Repr, BEq, Inhabited"
+    emit "structure Simulator where\n  handle : JITHandle"
+    let inputsIdx := (List.range userInputs.length).zip userInputs
+    let setCalls := inputsIdx.map fun (idx, p) =>
+      s!"  JIT.setInput sim.handle {idx} i.{simLeanIdent p.name}.toNat.toUInt64"
+    let stepBody := String.intercalate "\n" setCalls
+    emit s!"def Simulator.step (sim : Simulator) (i : SimInput) : IO Unit := do\n{stepBody}\n  JIT.evalTick sim.handle"
+    -- For each output port: when the port width is > 64 bits,
+    -- emit multiple `JIT.getOutput` calls reading 32-bit chunks
+    -- (the C-side `jit_get_output` already exposes wide ports
+    -- as N consecutive switch cases of `uint32_t` slot reads —
+    -- see `emitGetOutputSwitch` in Sparkle/Backend/CSim.lean).
+    -- Then OR-shift them into the BitVec.  Fixes Issue #75
+    -- (silent truncation of > 64-bit JIT output ports).
+    let (readLines, _) := outputs.foldl
+      (fun (acc : List String × Nat) (p : Port) =>
+        let w := p.ty.bitWidth
+        let nameId := simLeanIdent p.name
+        if w ≤ 64 then
+          let line :=
+            s!"  let v_{nameId} ← JIT.getOutput sim.handle {acc.2}\n" ++
+            s!"  let {nameId} := BitVec.ofNat {w} v_{nameId}.toNat"
+          (acc.1 ++ [line], acc.2 + 1)
+        else
+          -- Wide port: read ⌈w/32⌉ 32-bit slots and OR-shift.
+          let nWords := (w + 31) / 32
+          let slotIdxs := List.range nWords
+          let reads := slotIdxs.map fun j =>
+            s!"  let v_{nameId}_{j} ← JIT.getOutput sim.handle {acc.2 + j}"
+          -- Assemble: each slot j contributes
+          --   (BitVec.ofNat w v_<nameId>_j.toNat) <<< (32 * j)
+          -- and we fold them with `|||`.
+          let combineTerm (j : Nat) : String :=
+            s!"(BitVec.ofNat {w} (v_{nameId}_{j}.toNat &&& 0xFFFFFFFF) <<< {32 * j})"
+          let combined :=
+            match slotIdxs with
+            | [] => s!"(BitVec.ofNat {w} 0)"
+            | j :: rest =>
+              rest.foldl (fun s k => s ++ " ||| " ++ combineTerm k) (combineTerm j)
+          let assemble :=
+            s!"  let {nameId} : BitVec {w} := {combined}"
+          (acc.1 ++ reads ++ [assemble], acc.2 + nWords))
+      ([], 0)
+    let readBody := String.intercalate "\n" readLines
+    let readReturn := String.intercalate ", " <| outputs.map fun p => simLeanIdent p.name
+    emit s!"def Simulator.read (sim : Simulator) : IO SimOutput := do\n{readBody}\n  pure {lb} {readReturn} {rb}"
+    emit "def Simulator.reset (sim : Simulator) : IO Unit :=\n  JIT.reset sim.handle"
+    emit "def Simulator.destroy (sim : Simulator) : IO Unit :=\n  JIT.destroy sim.handle"
+    emit s!"def load : IO Simulator := do\n  let h ← JIT.compileAndLoad jitCppPath\n  pure {lb} handle := h {rb}"
+    -- Opt the generated wrapper into the unified `Sparkle.Core.Sim.Sim`
+    -- typeclass so call-sites can write `sim.step inp` / `sim.read`
+    -- against any backend (pure-Lean / JIT / Verilator) without
+    -- knowing which one produced `sim`.
+    emit <|
+      "instance : Sparkle.Core.Sim.Sim Simulator SimInput SimOutput where\n" ++
+      "  reset   := Simulator.reset\n" ++
+      "  step    := Simulator.step\n" ++
+      "  read    := Simulator.read\n" ++
+      "  destroy := Simulator.destroy"
+    -- Verilator backend.  Reuses the same `Simulator` shape because
+    -- the Verilator wrapper exposes the JIT C ABI; only `load`
+    -- differs (it builds a `.so` from the `.sv` instead of from
+    -- the JIT `.cpp`).
+    emit s!"def svPath : String := \"{svPath}\""
+    emit s!"def topModuleName : String := \"{topName}\""
+    let portSpec (p : Sparkle.IR.AST.Port) : String :=
+      "{ name := \"" ++ p.name ++ "\", width := " ++ toString p.ty.bitWidth ++ " : Sparkle.Core.Sim.Verilator.PortSpec }"
+    let inputPortSpecs := String.intercalate ", " (userInputs.map portSpec)
+    let outputPortSpecs := String.intercalate ", " (outputs.map portSpec)
+    emit <|
+      "def loadVerilator : IO Sparkle.Core.Sim.Verilator.Simulator :=\n" ++
+      "  Sparkle.Core.Sim.Verilator.of svPath topModuleName\n" ++
+      "    [" ++ inputPortSpecs ++ "]\n" ++
+      "    [" ++ outputPortSpecs ++ "]"
+    emit s!"end {ns}.Sim"
+  finally
+    modify fun st => { st with scopes := savedScopes }
 
 end Sparkle.Compiler.Elab

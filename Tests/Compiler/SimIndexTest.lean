@@ -113,5 +113,7 @@ end Tests.Compiler.SimIndexTest
 #simChecked Tests.Compiler.SimIndexTest.softRst
 #simChecked Tests.Compiler.SimIndexTest.wideFirst
 
-#check @softRst.SimChecked.Simulator.step
-#check @wideFirst.SimChecked.SimInput
+-- the wrappers are under the QUALIFIED declaration name (finding J5), also
+-- when the command is run outside the declaration's namespace
+#check @Tests.Compiler.SimIndexTest.softRst.SimChecked.Simulator.step
+#check @Tests.Compiler.SimIndexTest.wideFirst.SimChecked.SimInput

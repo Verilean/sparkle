@@ -28,17 +28,23 @@
 #                 <tag>_jit.c (the flags of JIT.compile)
 #   csim-ids      struct and function identifiers DEFINED in <tag>_jit.c and
 #                 the duplicates among them; instance references that the
-#                 backend left without `self->`
+#                 backend left without `self->`. Since Sparkle.Backend.CIdent
+#                 the identifiers are sparkle_m{s,r,e,t,x}_<module>: rows cfn,
+#                 ckw, cjit (findings J2-J4), clibc, cpre and cmain (a module
+#                 RENAMED to `main` in the IR; C rows only) must show no
+#                 duplicate, compile, and match the source
 #   csim-run      a C main over jit_vtable() on the same stimulus, against the
 #                 SOURCE trace; `c==source T/F`
 # Further rows: `simcmd-*` (the real `#sim` command on tagged declarations),
-# `simdup` (two files, one `#sim` output path).
+# `simdup` (two files, two declarations with one last component: since the J5
+# fix each has its own path), `simrerun` (the same file again, fresh process).
 #
 # Evidence on one stimulus, not a proof. Requires a completed
 # `lake build Tests.Compiler.CacheCoherenceProbe`; must NOT run next to a
 # `lake build`. Files: .lake/build/gen/tagged-names/. The `#sim` rows also
-# write (and this script removes) `tnz*`, `module*`, `1bad*` under
-# .lake/build/gen/sim/.
+# write (and this script removes) their files under .lake/build/gen/sim/; the
+# stems are `Sparkle.Compiler.SimNames.declFileKey` of the declarations
+# (`tnzPrivTop`, `Sp$D$tnz_233_`, `Sp$D$module`, `DupA_tnzDup`, ...).
 set -u
 cd "$(dirname "$0")/../.."
 OUT=.lake/build/gen/tagged-names
@@ -233,18 +239,28 @@ fi
 
 # ------------------------------------------------- the real `#sim` command
 sim_clean() {
+  # the stems before the J5 fix (last component) and after it (qualified name)
   rm -f "$SIMDIR"/tnz*_jit.c "$SIMDIR"/tnz*.sv "$SIMDIR"/module_jit.c "$SIMDIR"/module.sv \
-    "$SIMDIR"/1bad_jit.c "$SIMDIR"/1bad.sv
+    "$SIMDIR"/1bad_jit.c "$SIMDIR"/1bad.sv \
+    "$SIMDIR"/'Sp$D$tnz'*_jit.c "$SIMDIR"/'Sp$D$tnz'*.sv \
+    "$SIMDIR"/'Sp$D$module_jit.c' "$SIMDIR"/'Sp$D$module.sv' \
+    "$SIMDIR"/'Sp$D$1bad_jit.c' "$SIMDIR"/'Sp$D$1bad.sv' \
+    "$SIMDIR"/'Sp$D$__private$'*'$tnzPrivKid_jit.c' "$SIMDIR"/'Sp$D$__private$'*'$tnzPrivKid.sv' \
+    "$SIMDIR"/DupA_tnzDup_jit.c "$SIMDIR"/DupA_tnzDup.sv \
+    "$SIMDIR"/DupB_tnzDup_jit.c "$SIMDIR"/DupB_tnzDup.sv
 }
 sim_clean
 
 echo "TAGGEDNAMES simcmd lean: START scripts/shipping-coverage/tagged_names_simcmd.lean"
 timeout -k 5 "${SPARKLE_TAGGEDNAMES_LEAN_TIMEOUT:-600}" \
   lake env lean "${LOAD[@]}" scripts/shipping-coverage/tagged_names_simcmd.lean > "$OUT/simcmd.log" 2>&1
-echo "TAGGEDNAMES simcmd lean: exit=$? (1 is expected when a case is refused) log=$OUT/simcmd.log"
+echo "TAGGEDNAMES simcmd lean: exit=$? (0 is expected since the J5 fix: no case is refused) log=$OUT/simcmd.log"
 
-simcmd_case() { # case ns
-  local ex="simcmd-$1" r n src="$SIMDIR/$2_jit.c" c="$OUT/simcmd_$1_jit.c"
+simcmd_case() { # case stem (the stem may be a glob: the private prefix has the main module name)
+  local ex="simcmd-$1" r n src c="$OUT/simcmd_$1_jit.c"
+  # shellcheck disable=SC2086
+  src=$(ls "$SIMDIR"/$2_jit.c 2> /dev/null | head -1)
+  [ -n "$src" ] || src="$SIMDIR/$2_jit.c"
   r=$(awk -v s="TAGGEDNAMES-SIMCMD $1 START" -v e="TAGGEDNAMES-SIMCMD $1 END" '
         index($0, s) { on = 1; seen = 1; next }
         index($0, e) { on = 0 }
@@ -255,7 +271,7 @@ simcmd_case() { # case ns
     notrun "$ex" sim "the case did not start (see $OUT/simcmd.log)"
     return 0
   fi
-  say "$ex" sim "$([ "$n" = 0 ] && echo 0 || echo 1)" "lean-errors=$n ns=$2 file=$([ -s "$src" ] && echo written || echo absent) $(echo "${r#*|}" | cut -c1-240)"
+  say "$ex" sim "$([ "$n" = 0 ] && echo 0 || echo 1)" "lean-errors=$n stem=$2 file=$([ -s "$src" ] && echo "written($(basename "$src"))" || echo absent) $(echo "${r#*|}" | cut -c1-240)"
   if [ ! -s "$src" ]; then
     notrun "$ex" csim-cc "no $src"
     return 0
@@ -266,31 +282,46 @@ simcmd_case() { # case ns
   c_compile "$ex" "$c" "$OUT/simcmd_$1_jit.so" "$OUT/simcmd_$1.cc.log"
 }
 
-simcmd_case privself tnzPrivKid
+simcmd_case privself 'Sp$D$__private$*$tnzPrivKid'
 simcmd_case priv tnzPrivTop
-simcmd_case uni1 tnz_
-simcmd_case uni2 tnz_
-simcmd_case kw module
-simcmd_case dig 1bad
+simcmd_case uni1 'Sp$D$tnz_233_'
+simcmd_case uni2 'Sp$D$tnz_232_'
+simcmd_case kw 'Sp$D$module'
+simcmd_case dig 'Sp$D$1bad'
 
-# ------------------------------- two files, one `#sim` output path
-dup_state() { # -> "<hash>(<top struct>)"
-  local f="$SIMDIR/tnzDup_jit.c"
+# ------------- two files, two declarations with one last component (J5)
+dup_state() { # file -> "<hash>(<last struct tag>)"
+  local f="$1"
   if [ ! -s "$f" ]; then echo "absent"; return 0; fi
   echo "$(sha256sum "$f" | cut -c1-12)($(c_structs "$f" | tail -1))"
 }
+DUP_A="$SIMDIR/DupA_tnzDup_jit.c"
+DUP_B="$SIMDIR/DupB_tnzDup_jit.c"
+DUP_OLD="$SIMDIR/tnzDup_jit.c"
 
 echo "TAGGEDNAMES simdup lean: START tagged_names_simdup_a.lean then tagged_names_simdup_b.lean"
 timeout -k 5 "${SPARKLE_TAGGEDNAMES_LEAN_TIMEOUT:-600}" \
   lake env lean "${LOAD[@]}" scripts/shipping-coverage/tagged_names_simdup_a.lean > "$OUT/simdup_a.log" 2>&1
 rc_a=$?
-st_a=$(dup_state)
+st_a=$(dup_state "$DUP_A")
 timeout -k 5 "${SPARKLE_TAGGEDNAMES_LEAN_TIMEOUT:-600}" \
   lake env lean "${LOAD[@]}" scripts/shipping-coverage/tagged_names_simdup_b.lean > "$OUT/simdup_b.log" 2>&1
 rc_b=$?
-st_b=$(dup_state)
-if [ "$st_a" != absent ] && [ "$st_b" != absent ] && [ "$st_a" != "$st_b" ]; then ow=T; else ow=F; fi
-say simdup sim-filename "$rc_a/$rc_b" "path=$SIMDIR/tnzDup_jit.c after-A=$st_a after-B=$st_b overwritten-without-error=$ow lean-errors=$(grep -c 'error' "$OUT/simdup_a.log")/$(grep -c 'error' "$OUT/simdup_b.log")"
+st_a2=$(dup_state "$DUP_A")
+st_b=$(dup_state "$DUP_B")
+# overwritten: A's file changed when B ran, or both still went to the old shared path
+if [ "$st_a" = absent ] || [ "$st_a" != "$st_a2" ] || [ -e "$DUP_OLD" ]; then ow=T; else ow=F; fi
+if [ "$st_b" != absent ] && [ "$st_b" != "$st_a2" ]; then own=T; else own=F; fi
+say simdup sim-filename "$rc_a/$rc_b" "A=$DUP_A after-A=$st_a after-B=$st_a2 B=$DUP_B after-B=$st_b old-shared-path=$([ -e "$DUP_OLD" ] && echo present || echo absent) overwritten-without-error=$ow each-has-its-own-file=$own lean-errors=$(grep -c 'error' "$OUT/simdup_a.log")/$(grep -c 'error' "$OUT/simdup_b.log")"
+
+# ------------- the same command again on the same declaration, fresh process
+echo "TAGGEDNAMES simrerun lean: START tagged_names_simdup_a.lean (second time)"
+timeout -k 5 "${SPARKLE_TAGGEDNAMES_LEAN_TIMEOUT:-600}" \
+  lake env lean "${LOAD[@]}" scripts/shipping-coverage/tagged_names_simdup_a.lean > "$OUT/simdup_a2.log" 2>&1
+rc_a3=$?
+st_a3=$(dup_state "$DUP_A")
+if [ "$st_a3" != absent ] && [ "$st_a3" = "$st_a" ]; then same=T; else same=F; fi
+say simrerun sim-filename "$rc_a3" "A=$DUP_A first=$st_a again=$st_a3 same-path-same-content=$same B-untouched=$([ "$(dup_state "$DUP_B")" = "$st_b" ] && echo T || echo F) lean-errors=$(grep -c 'error' "$OUT/simdup_a2.log")"
 sim_clean
 
 # ----------------------------------------------------------------- summary
