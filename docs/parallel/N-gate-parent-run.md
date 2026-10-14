@@ -1229,3 +1229,64 @@ LEFT (all OUTSIDE ALLOWED), with the reason:
 Build order: `Tools.ShippingGateNamesWalk`, `Tools.ShippingFirstGateKidText`,
 `Tools.ShippingGateNamesFinal`, `Tests.Compiler.GateConeDesignNamesTest`. lean_lib: the three
 Tools files (appended at the end). Predicted axioms: [propext, Classical.choice, Quot.sound].
+
+## 36. Round 14 (par/n-14): the typed walk; `hierTyped` and `designSideB3` derived (WRITTEN, NOT BUILT)
+
+Asked: a typed walk recording declared widths and typed assignments / connections; derive
+`hierTyped`, `seqCheck`, the `seqNames` agreement, and look at `portsMatchB` of the optimizer
+output. Result: ALL of `hierTyped (childMap ms) b` and `designSideB3 ms b` derived for the seven
+parents; no check found false on any of the seven bodies.
+
+Written (no existing statement changed; old theorems kept):
+* `Tools/ShippingGateTypedWalk.lean` — a THIRD invariant `TOk G Ip τ s` (independent of `DOk` /
+  `NOk`): no outputs; inputs = the prepared ports `Ip`, each also a wire; wires `WiresOk`
+  (distinct, reserved) and scalar; every assignment `l := op [a, b]` with both operands declared
+  wires of one width `k` (`WidthIs`) and either a `Binary.operator` writing width `k` or a
+  `signalCompareOp` writing width `1` (`AsgT`); every instance `ins ++ [(o, ref w)]` with
+  `x.outputs = [o : bitVector k]`, `w` of width `k`, each input connection a wire of EXACTLY the
+  width of the port it is keyed by (`InstT`, `ConnT`); every record `w ↦ e` a wire of width `τ e`.
+  `τ : Lean.Expr → Nat` is a per-declaration typing of the cone's sub-expressions — needed because
+  a cache hit (translation record, instance dedupe) returns an earlier translation's wire, whose
+  width must be the node's. Contract `TypW` (TOk kept, wires grow, returned wire of width `τ e`);
+  nodes `typW_fvar`, `typW_binary` (`binary_coreTyp`), `typW_compare`, `typW_inst`
+  (`instArgs_typW`; reuses round 13's `instUncached_namW`).
+* `Tools/ShippingFirstGatePorts.lean` — `first_child_base` / `first_child_ports` /
+  `first_real_ports`: `GateChildPorts c (firstBs dn names n) n y.1` for a FIRST-gate child
+  (`gate_child_ports` was second-gate only): `childTyped`, input ports' widths in both tables,
+  output port `out` of width `n`.
+* `Tools/ShippingGateTypedFinal.lean` — prepared state (`PrepT`, `prepare_prepT`,
+  `prepare_lookup_hitB`: a `bits n` binder's port is `{z, bitVector n}`, `tok_of_prep`); pure
+  `typed_checks` (the four checks of any module with the core module's body/wires/ports, for a
+  design resolving every `G` module with `GFactsT` facts): `hierTyped` via `kidsTyped_of` /
+  `assignTyped_of_typed` / `connsTyped_call`, `seqCheck` via `seqCheck_of_typed` (`PortsIn` for
+  `out`, `moduleWof_wire` for wires), `seqNames_widths`, `portsMatchB_of`; `typed_final_of` /
+  `TFin`; `typedFinal_of_run`, `cone_harness_typed`, `gate_cone_runTyped` (copies with the third
+  walk); `gate_typedFacts`: run + `GateDefines` + `ChildBnd` + child facts incl.
+  `GateChildPorts` + the three walks ⇒ `hierTyped (childMap design.modules) b ∧
+  designSideB3 design.modules b`.
+* `Tests/Compiler/GateConeDesignTypedTest.lean` — per parent `…_typW` (node for node the round-13
+  `…_namW`; `τ = fun _ => 8`, for `parentCmp` `cmpτ` = `1` on the 4-argument comparison root,
+  `8` elsewhere), `…_walk3`, and GENERATED `…_gate_designSVN3`: `…_gate_designSVN2` with BOTH
+  antecedents removed. Premises unchanged (run, `GateDefines` NOT ALLOWED, `ChildBnd`,
+  `EntryDefines childAdd`). Design part: `∃ ids cache, ∀ …, hin → DesignSideR … → ∃ envsO,
+  DesignSV … ∧ out = source`.
+
+`portsMatchB` of the optimizer output: NOT via `checkedOptimize_comb` (which gives either
+`checkedOptimize b = b` or `hierRefineCheck b (checkedOptimize b)`, the latter saying nothing
+about connection widths) but via the existing `portsMatchB_shipped` (guard G5 `connsKept`: an
+accepted candidate declares every connected wire at `b`'s emitted width), from `portsMatchB b`
+and `hierGate b` (`hierGate_of_modOk`). `portsMatchB b` needs EQUAL widths (the typed walk
+records exact port widths; `hierTyped` only needs `≤`).
+
+LEFT (outside ALLOWED): `DesignSideR` only (inputs fit, `BoundOff`, `Bounded`, children's
+`InvN … 0`: run-level premises on inputs and start state, not checks); `GateDefines` (ruling).
+
+Findings: none false. Notes: (1) the typing must be a function of the Lean expression (cache
+hits); per declaration it is a closed `τ`. (2) `typW_inst` asks the arguments' `τ` to EQUAL the
+callee's input port widths (zip-wise) — a call whose argument is narrower than the port would
+fail `portsMatchB` (true of the compiler: no width adaptation at connections), not exercised
+here.
+
+Build order: `Tools.ShippingGateTypedWalk`, `Tools.ShippingFirstGatePorts`,
+`Tools.ShippingGateTypedFinal`, `Tests.Compiler.GateConeDesignTypedTest`. lean_lib: the three
+Tools files (appended at the end). Predicted axioms: [propext, Classical.choice, Quot.sound].

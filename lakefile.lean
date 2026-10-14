@@ -3023,3 +3023,12 @@ lean_lib «Tools.ShippingGateNamesFinal» where
 
 lean_lib «Tools.ShippingFirstGateKidText» where
   roots := #[`Tools.ShippingFirstGateKidText]
+
+lean_lib «Tools.ShippingGateTypedWalk» where
+  roots := #[`Tools.ShippingGateTypedWalk]
+
+lean_lib «Tools.ShippingFirstGatePorts» where
+  roots := #[`Tools.ShippingFirstGatePorts]
+
+lean_lib «Tools.ShippingGateTypedFinal» where
+  roots := #[`Tools.ShippingGateTypedFinal]

@@ -233,3 +233,26 @@ exit 0; no `sorryAx`; the seven `…_gate_designSVN2` [propext, Classical.choice
   typing fact of the call, needs a typed walk), `designSideB3` (`seqCheck`, `seqNames` width agreement — the
   same width obstacle; `portsMatchB` of the optimizer output, left by the machine route too), `DesignSideR`
   (run-level input / start-state bounds).
+
+## Round 14 (par/n-14, 72813f52) — width checks and portsMatchB derived; BUILT with one integrator fix
+Run `n14` (`-j 1`): `Tools.ShippingGateTypedWalk`, `Tools.ShippingFirstGatePorts`,
+`Tools.ShippingGateTypedFinal` built as written; `Tests.Compiler.GateConeDesignTypedTest` failed at eight
+`inst8 hwd …` calls (implicit `e` not determined: the typing `fun _ => 8` is constant); integrator fix:
+`(e := Lean.Expr.bvar 0)` at those eight sites (any `e`: `τ e` reduces to 8; parentCmp's call, with a
+non-constant typing, was not touched). Then exit 0; no `sorryAx`; the seven `…_gate_designSVN3`
+[propext, Classical.choice, Quot.sound].
+* Third walk invariant `TOk` / `TypW` (operand / target widths, exact connection widths, recorded
+  translations typed by a per-declaration typing `τ` of the cone's expressions — needed because a cache hit
+  returns an earlier wire), `GateChildPorts` for a first-gate child, `typed_checks` / `gate_typedFacts`:
+  `hierTyped`, `seqCheck`, the `seqNames` width agreement and `portsMatchB (checkedOptimize b)` DERIVED
+  (portsMatchB via the existing `portsMatchB_shipped`, the compiler's `connsKept` guard).
+* `…_gate_designSVN3` (seven parents): premises run, `GateDefines` (NOT ALLOWED, ruling pending),
+  `ChildBnd`, `EntryDefines childAdd` (ALLOWED). Design part: for the reading of the inputs at each cycle
+  (the `Admissible` / `prepare … .bits` antecedent, as in the machine route) and `DesignSideR` (inputs fit,
+  BoundOff, Bounded, children InvN — run-level width premises, outside ALLOWED), there is a DesignSV run of
+  `checkedOptimize b` over `childMap design.modules` with `out` = source at every cycle. No checker
+  antecedent is left.
+* Findings (worker): no check false on the seven bodies. `portsMatchB` needs EQUAL widths at connections
+  (the compiler does no width adaptation) — a call with a narrower argument than the port would fail it
+  (not in the seven parents).
+Not counted (GateDefines pending; target-only).
