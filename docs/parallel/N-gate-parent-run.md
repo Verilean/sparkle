@@ -760,3 +760,29 @@ PREDICTED axioms: `propext`, `Classical.choice`, `Quot.sound`.
    `childAdd_fe_wf`'s `⟨(by decide : 0 < 2), (by decide : 1 < 2)⟩` against `FExpr.WF`.
 7. `gate_childFnR`: a verbatim copy of `gate_childFn`'s proof under a superset of its opens (name
    ambiguity from the extra `open`s is the only new risk).
+
+## 22. Round 6: what was asked, what is done (WRITTEN, NOT BUILT)
+
+1. **Cache entry existence** (`Tools/ShippingGateConeEntry.lean`, `Tests/Compiler/GateConeEntryTest.lean`;
+   commit 985d88d6). `EntryW L D rec e mn` (every returning run of `rec e …`, any flags, from an
+   invariant world at depth `D`, ends with an entry of `mn` in the child cache); `EntryWN` (the same
+   on runs with `(!named && !e.isFVar && !top) = false`, i.e. no validated lookup at the root).
+   `inst_entryW` (from `inst_leaf_runs`), `binary_coreEntry` / `binary_entryWN` (either operand's
+   `EntryW` survives the node: SubMap chain makeWire → operands → assign → record).
+   `cone_harness_runKE` / `gate_cone_runGE`: verbatim copies of `cone_harness_runK` /
+   `gate_cone_runG` with one more conjunct (callees whose `EntryWN` holds of the instantiated body
+   for every law witness / positive depth / fresh ids HAVE an `mF` entry). `parentMix_entryWN`
+   (the body is `binE … (childAdd a b) a`, root translated with `named = true`), and
+   **`parentMix_gate_cone_runK'`**: same premises as `parentMix_gate_cone_runK`; conclusion
+   `∃ y, mF.get? ``childAdd = some y ∧ ParentMixObservesC (ownChild y) M`. Old theorems kept.
+   Not claimed: `EntryWN` for runs WITH the lookup (an inner validated hit skips the operands).
+2. **`compare` at world level** (`Tools/ShippingGateConeCompare.lean`; commit 6f48b6a7):
+   `controlCached_runsW` (the validated-cache wrapper with worlds), `compare_freshAt` (text of
+   `compare_shape` / `compare_fresh` over `ChildAt`), **`compare_contractW`**, a NEW fragment
+   `cfragC` (= `cfrag` + `compare`) and `fuel_contractWC`. `cfrag`, `HierConePreservesK` unchanged
+   (the cone result is not restated over `cfragC`).
+
+Build order: `Tools.ShippingGateConeEntry` (imports `ShippingGateConeRun`) →
+`Tests.Compiler.GateConeEntryTest` (imports `GateConeKidTest` + 1); `Tools.ShippingGateConeCompare`
+(imports `ShippingGateConeW`) independent. lean_lib lines added after `Tools.ShippingFirstGateKid`.
+Predicted axioms: `propext`, `Classical.choice`, `Quot.sound`.

@@ -83,3 +83,18 @@ value IS the real entry constant).
   observation against the run's OWN cached child (replaces the hand-written `childModule`).
   NOT concluded: that the cache entry exists (the statement is about every entry found). Cone at the world
   level: binary fragment only; `parentNested` not covered. Not counted anywhere.
+
+## Round 6 (par/n-6: 985d88d6, 6f48b6a7, 70ff3968) — BUILT as written
+Run `n6` (`-j 1`): `Tools.ShippingGateConeEntry`, `Tests.Compiler.GateConeEntryTest`,
+`Tools.ShippingGateConeCompare` exit 0, no fix needed. Axioms: `parentMix_entryWN`, `gate_cone_runGE`,
+`parentMix_gate_cone_runK'`, `compare_contractW`, `fuel_contractWC` [propext, Classical.choice, Quot.sound].
+* Cache entry existence: `EntryW` / `EntryWN`, `inst_entryW`, `binary_entryWN`; `gate_cone_runGE`
+  (copy of `gate_cone_runG` with the entry conjunct). `parentMix_gate_cone_runK'` (premises unchanged:
+  run, `GateDefines` NOT ALLOWED, `ChildBnd`, `EntryDefines childAdd`) concludes
+  `∃ y, mF.get? ``childAdd = some y ∧ ParentMixObservesC (ownChild y) M` — no longer vacuous.
+  `EntryWN` covers runs that skip the root cache lookup only (a cache hit skips the operands).
+* `compare` at the world level: `compare_contractW`, fragment `cfragC` (= `cfrag` + compare),
+  `fuel_contractWC`. The cone theorem is NOT yet restated over `cfragC`.
+Remaining for gate-route parents: the other cone nodes (Bool ops, mux, setw, slices, concats), the cone
+theorem over the larger fragment, `parentNested` (instance arguments), the other gate parents, the
+design-level form (DesignSV / source), and the `GateDefines` ruling.
