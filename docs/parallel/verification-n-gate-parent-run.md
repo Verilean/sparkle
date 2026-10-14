@@ -50,3 +50,17 @@ What `parentMix_gate_cone_runG` says: from the run, `GateDefines` (NOT ALLOWED, 
 antecedents NOT discharged (the tag is not yet derived from `GateDefines`' acceptance of a cone body).
 World-level cone: leaves, literals, `binary` only; compare / Bool ops / mux / setw / slices / concats and
 instance leaves with instance arguments (`parentNested`) NOT covered. Not counted anywhere.
+
+## Round 4 (par/n-4, ac490c7c): the leaf tag derived — BUILT as written
+Run `n4` (`-j 1`): `Tools.ShippingGateConeTag`, `Tests.Compiler.GateConeTagTest` exit 0, no fix needed.
+Axioms: `parentMix_tag`, `parentMix_gate_cone_runG'` [propext, Classical.choice, Quot.sound].
+* (a) DISCHARGED generally: `gate_leaf_tag` / `gate_leaf_tag'` — the gate's acceptance (under
+  `instancePredicate env`) of a cone body whose instance leaf is selected (`GateLeafSel`, decided per
+  declaration via `bvarCall`) gives `isHardwareModule env mn = true`. `parentMix_gate_cone_runG'` concludes
+  the tag at `envR` instead of assuming it.
+* (b) `y.1 = childModule` and (c) `y.2.modules = []` REMAIN antecedents of the conclusion. `childAdd` is a
+  FIRST-gate child (`certifiedShape?` accepts it): the existing RealChild facts assume the first gate
+  refuses. (b) asks for text equality with a hand-written constant — no theorem pins module text and a
+  `RunsTo` is not kernel-computable, so (b) is to be REPLACED by an observation against the run's own child
+  (worker record §17). Next unit (no compiler change): first-gate child facts from `RealChild` +
+  `EntryDefines childAdd` (ALLOWED), and a design-frame lemma for (c).

@@ -564,3 +564,104 @@ printed. PREDICTED axioms: `propext`, `Classical.choice`, `Quot.sound`.
 * instance leaves with instance ARGUMENTS (`parentNested`): `instArgs` at world level, `hargs` as
   `ContractW` (the §9 statement);
 * deriving the leaf tag from `GateDefines`' acceptance of a cone body.
+
+---
+
+# Round 4: the leaf tag from the gate's acceptance (WRITTEN, NOT BUILT)
+
+Branch `par/n-4` (from poc `2fb68bc7`). Nothing compiled or run. Rounds 1–3 files unchanged;
+compiler files untouched; the classifier's ALLOWED list untouched.
+
+## 16. What was asked, what is done
+
+`parentMix_gate_cone_runG` (round 3) concludes `ParentMixObserves M` under three antecedents about the
+run's own values: (a) `isHardwareModule envR ``childAdd = true`, (b) `mF`'s `childAdd` entry `y` has
+`y.1 = childModule`, (c) `y.2.modules = []`.
+
+**(a) DISCHARGED, generally.** `Tools/ShippingGateConeTag.lean`:
+
+* `GateLeafSel kinds body leaf := ∀ isInst sc, isInst leaf = false → mixedGateCond isInst kinds body sc = false`
+  — pure, per declaration; the leaf twin of the built `MixedGateSel`.
+* `gate_leaf_pred` (acceptance under `instancePredicate env` + `GateLeafSel` ⟹ the predicate designates
+  the leaf), `gate_leaf_tag` / `gate_leaf_tag'` (for `instEN mn lvls dE (poss.map (inputExpr n))`,
+  `poss ≠ []`: `isHardwareModule env mn = true`, via the built `instEN_pred_tag`; `'` takes the
+  `∃ dv, mixedCertifiedShape? … (instancePredicate envR) = some (bs, body)` that `gate_cone_runG` exposes).
+  Any cone body, any leaf position, any callee.
+* Discharging `GateLeafSel` by evaluation without `DecidableEq Expr`: `bvarCallE mn is` (the call
+  `.const mn []` on bound variables), `bvarCall` (a kernel-reducible recogniser), `bvarCall_sound`, and
+  `gateLeafSel_of`: it suffices that `mixedGateCond (fun e => !bvarCall mn is e && isInst e) kinds body sc
+  = false` for every `isInst` (funext: that predicate IS `isInst` once `isInst leaf = false`). Per
+  declaration this is `unfold mixedGateCond unifiedInstanceRoot hierInstRoot`, the two body spines
+  rewritten to `false` (closed `rfl` facts — `hierInstSpine` reaches the leaf, which the predicate
+  refuses), then kernel `rfl`.
+
+`Tests/Compiler/GateConeTagTest.lean` (target-only): `parentMix_leaf_eq` (rfl), `parentMix_leafSel`,
+`parentMix_tag`, and **`parentMix_gate_cone_runG'`** — binders the run, `GateDefines`, `ChildBnd`;
+conclusion `∃ M envR mF, post ∧ CacheInv mF ∧ isHardwareModule envR ``childAdd = true ∧
+(∀ y, mF.get? ``childAdd = some y → y.1 = childModule → y.2.modules = [] → ParentMixObserves M)`.
+The old theorem is kept.
+
+**(b) NOT dischargeable; (c) not discharged.** Why:
+
+1. `childAdd x y := x + y` (uniform 8-bit `+` under `{dom}`) is accepted by the FIRST gate
+   (`certifiedShape?`: `gateTopWidth? = some 8`, `gateBody` accepts), so its full entry goes through
+   `synthesizeCertified`, not `synthesizeMixedCertified`. The built child facts from a `RealChild` —
+   `childFull_of_real` (design `= []`), `gate_real_ports`, `gate_child_full` — are for MIXED-gate
+   children (`old : certifiedShape? … = none` is one of their premises) and do not apply.
+2. (b) asks for TEXT equality with the hand-written `childModule`. No theorem pins a full-entry module's
+   text (the first gate's `Preserves`/`fragmentDecl_*` give semantics and ports only; the wire names come
+   from the run's allocator). A `RunsTo` cannot be evaluated in the kernel, so "by computation per
+   declaration" is not available either. (b) should be REMOVED, not proved: restate the observation over
+   the run's own child, i.e. `children := fun n => if n = y.1.name then some (y.1, weOf y.1) else none`,
+   and prove `KidFacts children addSem ``childAdd 2 v y` from `RealChild ``childAdd y`.
+3. What that needs (a "first-gate child" unit, all outside the compiler):
+   * `fragmentDecl_of_entry`: `fragmentDecl_of_env` with `EnvDefines` replaced by
+     **`EntryDefines … ``childAdd (quoteDecl `dom [`x, `y] 8 (.bin .add (.inp 0) (.inp 1)))`** (ALLOWED):
+     `synthesizeCombinationalCore_reads`, `EntryDefines` at the reads, `synthesizeFromConst_sound` on the
+     entry constant, `outcome_quote`; then the full-entry form via `synthesizeCombinational_reads` +
+     `postprocess_sound` (evaluation for EVERY initial environment — KidFacts' evaluation has no `rst`
+     premise, and the fragment facts have none either; `weOf y.1` as `cwe`); ports: `PostReady` gives
+     `outputs = [out : bitVector 8]` and input-name `Nodup`;
+   * input names are not `clk` / `rst` / `out`: an allocation fact for `bindCertifiedInputs`' port names
+     (new; the mixed route's is `pb.wireNames`);
+   * **(c)** `y.2.modules = []`: `synthesizeCertified` returns `st.design` (`finishSynth_returns`) and the
+     full entry only maps the design's modules; what is missing is that the first-gate translation of an
+     instance-free body leaves `st.design.modules = []` (a design frame for `bindCertifiedInputs` /
+     `emitLeaves` / the `FExpr` arms; the mixed route has it as `hdes`).
+   The new theorem would then carry one more ALLOWED binder (`EntryDefines` of `childAdd`) and NO
+   antecedent; its conclusion would observe `M` linked against the run's child rather than `childModule`.
+
+Optional `compare` node at world level: NOT written this round.
+
+## 17. Build order, lean_lib lines
+
+    lean_lib «Tools.ShippingGateConeTag» where
+      roots := #[`Tools.ShippingGateConeTag]
+
+(added to `lakefile.lean` after `Tools.ShippingGateConeRun`).
+
+1. `Tools.ShippingGateConeTag` (imports `Tools.ShippingGateDefines` only; independent of rounds 3);
+2. `lake build Tests.Compiler.GateConeTagTest` (imports `Tests.Compiler.GateConeRunTest` and 1).
+
+Premises of `parentMix_gate_cone_runG'`: `hr` (RunsTo, ALLOWED), `gdef` (`GateDefines`, NOT ALLOWED —
+ruling pending, unchanged), `bnd` (ChildBnd, ALLOWED). Antecedents left in the conclusion: (b), (c).
+PREDICTED axioms: `propext`, `Classical.choice`, `Quot.sound` (`parentMix_tag` may print only `propext`
+or fewer).
+
+## 18. Risks, in the order I expect them
+
+1. `parentMix_leafSel`: that `simp only [hs1, hs2, Bool.and_false, Bool.false_and]` finds the two spine
+   disjunctions after `unfold` (beta-redexes `(fun e => …) parentMixBody`; `parentMixBody` is an
+   `abbrev`); then the final kernel `rfl` (evaluates `mixedGateBoolBody`, `mixedGateVectorRoot`,
+   `unifiedGateRoot`, the register / memory roots and `hierGateRoot` on the body — the last reaches the
+   leaf through `hierGateBitsBody`'s operator arm and the predicate's `bvarCall` → `false`).
+   Fallback: `show` the condition with the two instance disjuncts already `false`, or `decide`-free
+   `Bool` case split `cases isInst parentMixBody` after `simp only [mixedGateCond, …]`.
+2. `hs1` / `hs2` by `rfl` (the leaf is `if 0 = 0 then instEN … else …` inside the abbrev: whnf).
+3. `bvarCall_sound`: `simp only [bvarCall, …] at h` on the two matching arms; the impossible
+   constructor cases by `cases h` (whnf of `bvarCall` to `false`) else `simp [bvarCall] at h`;
+   `rw [h1, h2]; try rfl` in the `const` arm (no `subst` of the theorem's parameter `mn`); `subst h1`
+   (`k = i`, two pattern variables) in the `app` arm.
+4. `gateLeafSel_of`: `rw [← heq]` abstracting the free `isInst` in the goal.
+5. `parentMix_tag`: `rw [parentMix_leaf_eq] at h0` and the implicit arguments of `gate_leaf_tag'`
+   (given explicitly).
