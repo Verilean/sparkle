@@ -472,8 +472,14 @@ theorem core_callConns {c : Name} (d : MachineData) (ok : d.ok = true)
     (Tools.ShippingMachineRan.machineRan_of_closes hcore entry hB closes)
 
 set_option maxHeartbeats 4000000 in
-/-- **`portsMatchB` of the RAW full-entry module**, from the core run. -/
-theorem core_portsMatch_raw {c : Name} (d : MachineData) (ok : d.ok = true)
+/-- `core_portsMatch_raw` over `MachineRan`:
+the proof of the built theorem, MOVED here (split in place, branch
+`fix/ran-threading-split`) with the run, the reflection, the closing and the boundary
+replaced by `ran` and every callee of the chain by its `_ran` form. It takes of the run only
+that the machine synthesis this core run performed returned the result from an invariant
+world; the theorem below, its statement unchanged, is the instance at the all-worlds closing
+(`Tools.ShippingMachineRan.machineRan_of_closes`). -/
+theorem core_portsMatch_raw_ran {c : Name} (d : MachineData) (ok : d.ok = true)
     (hbody : d.shape.body = quote d.dom
       (fun j => inputExpr d.shape.binders.length (d.bpos j))
       (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
@@ -504,23 +510,19 @@ theorem core_portsMatch_raw {c : Name} (d : MachineData) (ok : d.ok = true)
     (hkidClk : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y → isSeqChild y.1 = true →
       Tools.ShippingDesignSV.weS y.1 "clk" = 1 ∧ Tools.ShippingDesignSV.weS y.1 "rst" = 1)
-    {w w1 : Void IO.RealWorld} {M b : Sparkle.IR.AST.Module} {D : Design}
-    (hB : ChildBnd mref cref w)
-    (hcore : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, D) w1)
+    {M b : Sparkle.IR.AST.Module} {D : Design}
     (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨
       b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M))
-    (entry : MachineDefines mctx mref cctx cref c d.shape)
-    (closes : MachineClosesAt mctx mref cctx cref c d.shape)
+    (ran : Tools.ShippingMachineRan.MachineRan mctx mref cctx cref c d.shape M D)
     (hon : ∀ o ∈ d.shape.layout.outs, Sparkle.Backend.Verilog.sanitizeName o.name = o.name)
     (hoty : ∀ o ∈ d.shape.layout.outs, Tools.ShippingTextTyped.scalarTy o.ty = true)
     -- ... and in the parent (NOT derived)
     (hclkB : Tools.ShippingDesignSV.weS b "clk" = 1 ∧ Tools.ShippingDesignSV.weS b "rst" = 1) :
     Tools.ShippingDesignSV.portsMatchB (childMap D.modules) b = true := by
   have hT : Tools.ShippingTextTyped.TypedIn b :=
-    Tools.ShippingClosedTyped.core_closed_typedIn d ok hbody hC hslots hdomB hins outTy hnomem
-      hB hcore hpost entry closes hon hoty
-  have hconn := core_callConns d ok hbody hC hslots hdomB hins hfne outTy hnomem hB hcore hpost
-    entry closes
+    Tools.ShippingClosedTyped.core_closed_typedIn_ran d ok hbody hC hslots hdomB hins outTy hnomem
+      hpost ran hon hoty
+  have hconn := core_callConns_ran d ok hbody hC hslots hdomB hins hfne outTy hnomem hpost ran
   refine Tools.ShippingTextShipped.portsMatchB_of ?_ ?_
   · intro mn iname conns child cwe hst hc cn hcm x hc2
     obtain ⟨mc, hmc, ⟨k0, hk0, y0, hre0, hmcy0⟩, hall⟩ := hconn mn iname conns hst
@@ -572,5 +574,54 @@ theorem core_portsMatch_raw {c : Name} (d : MachineData) (ok : d.ok = true)
       congrArg (fun o : Option Sparkle.IR.AST.Module =>
         o.map fun g => (g, Sparkle.IR.RegDedup.declWidth g)) hmc
     simp [hCm]
+
+set_option maxHeartbeats 4000000 in
+/-- **`portsMatchB` of the RAW full-entry module**, from the core run. -/
+theorem core_portsMatch_raw {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    {nDecl : Nat} (hC : d.callsOk nDecl = true)
+    (hslots : d.ss.length = d.shape.layout.slots.length)
+    (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
+    (hins : d.shape.insts ≠ [])
+    (hfne : d.shape.instFields ≠ [])
+    (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
+    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    -- OUTPUT side: the result binder's width is the child's field port's
+    (hkidW : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
+      RealChild mref cref (d.shape.insts[k]).1 y →
+      ∀ p ∈ y.1.outputs, p.name = d.shape.instFields.getD k "" →
+        (d.shape.binders[nDecl + k]?).map (fun bn => (kindTy bn.2).bitWidth) =
+          some p.ty.bitWidth)
+    -- OUTPUT side: the child's output ports are resolved by its emitted width map
+    (hkidT : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
+      RealChild mref cref (d.shape.insts[k]).1 y → Tools.ShippingLeafTyped.PortsIn y.1)
+    -- INPUT side: the data condition, and (NOT derived) the child's argument
+    -- ports' emitted widths
+    {kidIns : Nat → List Nat} (hargs : callArgsOk d nDecl kidIns = true)
+    (hkidIn : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
+      RealChild mref cref (d.shape.insts[k]).1 y →
+      ∀ (j : Nat) (q : Port), (inPortsOf y.1)[j]? = some q →
+        ∃ wd, (kidIns k)[j]? = some wd ∧ Tools.ShippingDesignSV.weS y.1 q.name = wd)
+    -- CLOCK / RESET (NOT derived): one bit in a sequential child ...
+    (hkidClk : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
+      RealChild mref cref (d.shape.insts[k]).1 y → isSeqChild y.1 = true →
+      Tools.ShippingDesignSV.weS y.1 "clk" = 1 ∧ Tools.ShippingDesignSV.weS y.1 "rst" = 1)
+    {w w1 : Void IO.RealWorld} {M b : Sparkle.IR.AST.Module} {D : Design}
+    (hB : ChildBnd mref cref w)
+    (hcore : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, D) w1)
+    (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨
+      b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M))
+    (entry : MachineDefines mctx mref cctx cref c d.shape)
+    (closes : MachineClosesAt mctx mref cctx cref c d.shape)
+    (hon : ∀ o ∈ d.shape.layout.outs, Sparkle.Backend.Verilog.sanitizeName o.name = o.name)
+    (hoty : ∀ o ∈ d.shape.layout.outs, Tools.ShippingTextTyped.scalarTy o.ty = true)
+    -- ... and in the parent (NOT derived)
+    (hclkB : Tools.ShippingDesignSV.weS b "clk" = 1 ∧ Tools.ShippingDesignSV.weS b "rst" = 1) :
+    Tools.ShippingDesignSV.portsMatchB (childMap D.modules) b = true :=
+  core_portsMatch_raw_ran d ok hbody hC hslots hdomB hins hfne outTy hnomem hkidW hkidT hargs hkidIn
+    hkidClk hpost (Tools.ShippingMachineRan.machineRan_of_closes hcore entry hB closes) hon hoty
+    hclkB
 
 end Tools.ShippingPortsMatchRaw
