@@ -199,3 +199,21 @@ form and the goal in `[·]?` form. No statement changed. Then all five targets e
   conclusion `DesignHasChild ∧ PostKeeps ∧ (OptKeepsOut → DesignSide → ∃ envsO, DesignSV … ∧ out = source)`.
   Remaining antecedents: (C) `OptKeepsOut` (worker Q's `optKeepsOut_comb_post` gives it from `PostKeeps` +
   `combOptSide` — NOT yet wired) and `DesignSide`; both outside ALLOWED as checker-style conditions.
+
+## Round 12 (par/n-12, 69aa7744) — (C) wired, checker bundles narrowed; BUILT as written
+Run `n12` (`-j 1`): `Tools.ShippingGateOutPort`, `Tools.ShippingGateCombSide`,
+`Tests.Compiler.GateConeDesignCombTest` exit 0, no fix; no `sorryAx`; the seven `…_gate_designSV''` and
+seven `…_gate_designSVN` [propext, Classical.choice, Quot.sound].
+* (C) wired: `gate_out_port` ("out" ∈ b.outputs from the same run) + `optKeepsOut_comb_post`.
+* Derived from the run (machine-route pattern): `hierGate b`, the four `combOptSide` conjuncts about
+  `checkedOptimize b`, `kidsComb` of the shipped body, six of eight `textCheckI` conjuncts, the children's
+  check / start-state premise over `b`'s instances.
+* `…_gate_designSVN`: premises run, `GateDefines` (NOT ALLOWED), `ChildBnd`, `EntryDefines childAdd`;
+  antecedents of the design part, ALL OUTSIDE ALLOWED, none added to it:
+  `combSideB ms b` (linkedWF b.body, instance-name Nodup, noSelfRead, outsExtracted, kidsComb ms b.body,
+  hierTyped), `designSideB ms b` (seqCheck, seqNames width agreement, portsMatchB of the optimizer output,
+  kidsPass kidCheck), `DesignSideR` (input fit / BoundOff / Bounded / children InvN — run-level width
+  premises like the machine route's Bnd).
+  Why not derived (worker): the design walk records only statement shapes and positive scalar ports — fresh
+  names, linked order, connections keyed by the callee's inputs and typed operands would have to be added to
+  `DOk` (next unit). `portsMatchB` is about the optimizer output (the machine route also left it).

@@ -3008,3 +3008,9 @@ lean_lib «Tools.ShippingCIdent» where
 
 lean_lib «Tools.ShippingInstArmGrow» where
   roots := #[`Tools.ShippingInstArmGrow]
+
+lean_lib «Tools.ShippingGateOutPort» where
+  roots := #[`Tools.ShippingGateOutPort]
+
+lean_lib «Tools.ShippingGateCombSide» where
+  roots := #[`Tools.ShippingGateCombSide]

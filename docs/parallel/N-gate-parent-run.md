@@ -1121,3 +1121,44 @@ Quot.sound].
 
 Build order: `Tools.ShippingGateDesignPost`, `Tests.Compiler.GateConeDesignPrimeTest`.
 lean_lib: `Tools.ShippingGateDesignPost` (added).
+
+## 34. Round 12 (par/n-12): (C) wired, checker bundles narrowed (WRITTEN, NOT BUILT)
+
+(1) `out` an output port: NOT in `ModOk` (the walk records no output ports), so derived from the
+same run at the harness level (`Tools/ShippingGateOutPort.lean`): `harness_out` (the harness tail
+`emitAssign "out" … (addOutput "out" ty sm0)`, `addClockReset_facts`, `finalize`), `post_outputs`
+(cleanup touches body/wires only; `mergeChecked_ports`), `gate_out_port` (run + `GateDefines` +
+`ChildBnd`; the reads of `gate_cone_runGED`'s first half, then `sfc_mixed_run`,
+`mixedHarness_runs`). Seven `…_gate_designSV''` (`Tests/Compiler/GateConeDesignCombTest.lean`,
+generated): design part `combOptSide design.modules b = true → ∃ ids cache, ∀ …, hin →
+DesignSide … → ∃ envsO, DesignSV … ∧ out = source`; no `OptKeepsOut` antecedent.
+
+(2) Narrowing (`Tools/ShippingGateCombSide.lean`, pure), the route of the machine route's
+`machine_design_svH_free` / `shipped_factsH` / `designCheckH_rest`:
+* DERIVED: `hierGate b` (walk: `PostKeeps` + `ModOk.has`); the four `combOptSide` conjuncts about
+  `checkedOptimize b` (`linkedWF`, Nodup, `noSelfRead`, `kidsLocal`) from `b`'s facts in every
+  compiler branch (`shipped_factsG` = `shipped_factsH` without the unused `rst`); `kidsComb` of the
+  shipped body; six of the eight `textCheckI` conjuncts (two text conjuncts MOVED from `b` by
+  `text_shipped_of`); children's check and children's start states moved to `b`'s instances.
+* LEFT, all OUTSIDE ALLOWED: `combSideB ms b` = `linkedWF b`, Nodup of `b`'s instance names,
+  `noSelfRead b`, `outsExtracted b`, `kidsComb ms b.body`, `hierTyped b`; `designSideB ms b` =
+  `seqCheck (wofOf b) (weS b) b.body`, `seqNames` width agreement of `b`, `portsMatchB (childMap ms)
+  (checkedOptimize b)`, `kidsPass … (kidCheck … 0) b.body`; `DesignSideR` = inputs fit
+  (`declWidth b`, `weS (checkedOptimize b)`), `BoundOff`, `Bounded`, children's `InvN … 0` (run
+  width premises, the machine route's `Bnd`).
+* Why not derived from the walk: `DOk`/`ModOk` record statement SHAPES and positive scalar ports
+  only. `linkedWF`/`noSelfRead`/`outsExtracted` need body ORDER and instance-output freshness;
+  Nodup needs instance-name freshness (`freshName` / `usedNames` not in `DOk`); `hierTyped` and the
+  text conjuncts need width typing of `op [ref, ref]` (operand widths not in `DOk`); `kidsComb`
+  needs, per instance, that the connections are keyed by the child's input names (not in
+  `DesStmt`) and the child's combinational facts (`ChildFull.comb` exists for the first-gate child
+  via `first_child_fullFacts`, but `FinalOk.insts` is consumed inside `…_gate_designA`);
+  `portsMatchB` is about the optimizer's output (the machine route also left it). Next unit: a
+  `DOk` extension (fresh names, linked order, conns keyed by the callee's inputs, typed operands)
+  through the same fuel walk, and an `…_gate_designA` variant exposing `FinalOk`.
+Seven `…_gate_designSVN`: premises unchanged; design part `combSideB … = true → designSideB … =
+true → ∃ ids cache, ∀ …, hin → DesignSideR … → ∃ envsO, DesignSV … ∧ out = source`.
+
+Build order: `Tools.ShippingGateOutPort`, `Tools.ShippingGateCombSide`,
+`Tests.Compiler.GateConeDesignCombTest`. lean_lib: both Tools files (appended at the end).
+Predicted axioms: [propext, Classical.choice, Quot.sound] (pure lemmas possibly fewer).
