@@ -1,5 +1,6 @@
 import Tools.ShippingChecksWidths
 import Tools.ShippingGuardsSound
+import Tools.ShippingMachineRanBase
 
 /-! # The run's facts of a machine with calls, bundled (isolated branch `fix/opt-fallback`)
 
@@ -37,6 +38,55 @@ open Tools.ShippingMachineLinked (childMap)
 variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
   {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
 
+/-- `core_runFacts` over `MachineRan`:
+the proof of the built theorem, MOVED here (split in place, branch
+`fix/ran-threading-split`) with the run, the reflection, the closing and the boundary
+replaced by `ran` and every callee of the chain by its `_ran` form. It takes of the run only
+that the machine synthesis this core run performed returned the result from an invariant
+world; the theorem below, its statement unchanged, is the instance at the all-worlds closing
+(`Tools.ShippingMachineRan.machineRan_of_closes`). -/
+theorem core_runFacts_ran {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    {nDecl : Nat} (hC : d.callsOk nDecl = true)
+    (hslots : d.ss.length = d.shape.layout.slots.length)
+    (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
+    (hins : d.shape.insts ≠ [])
+    (hsl : d.shape.layout.slots ≠ [])
+    (hfne : d.shape.instFields ≠ [])
+    (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
+    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hkidP : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
+      RealChild mref cref (d.shape.insts[k]).1 y →
+      ∀ p ∈ y.1.outputs, (∀ q ∈ inPortsOf y.1, q.name ≠ p.name) ∧ p.name ≠ "clk" ∧
+        p.name ≠ "rst")
+    (hkidW : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
+      RealChild mref cref (d.shape.insts[k]).1 y →
+      ∀ p ∈ y.1.outputs, p.name = d.shape.instFields.getD k "" →
+        (d.shape.binders[nDecl + k]?).map (fun bn => (kindTy bn.2).bitWidth) =
+          some p.ty.bitWidth)
+    {M b : Sparkle.IR.AST.Module} {D : Design}
+    (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨
+      b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M))
+    (ran : Tools.ShippingMachineRan.MachineRan mctx mref cctx cref c d.shape M D) :
+    Tools.ShippingGuardsSound.RunFacts (childMap D.modules) b := by
+  obtain ⟨hrst, hndB, hself⟩ :=
+    Tools.ShippingChecksRaw.core_raw_facts_ran d ok hbody hC hslots hdomB hins hsl hfne outTy hnomem
+      hpost ran
+  exact
+    { gate := Tools.ShippingChecksWidths.core_hierGate_ran d ok hbody hC hslots hdomB hins hfne outTy
+        hnomem hpost ran
+      wfB := Tools.ShippingLinkedFresh.core_linkedWF_ran d ok hbody hC hslots hdomB hins outTy hnomem
+        hpost ran
+      ndB := hndB
+      self := hself
+      outs := Tools.ShippingChecksOuts.core_outsExtracted_ran d ok hbody hC hslots hdomB hins hfne
+        outTy hnomem hkidP hpost ran
+      rst := hrst
+      wid := Tools.ShippingChecksWidths.core_instOutWidthsOk_ran d ok hbody hC hslots hdomB hins hfne
+        outTy hnomem hkidP hkidW hpost ran }
+
 /-- **The run's facts of the full entry's module**, from the core run of a
 machine with calls closed by `closeInstsG` and with a register. -/
 theorem core_runFacts {c : Name} (d : MachineData) (ok : d.ok = true)
@@ -67,22 +117,9 @@ theorem core_runFacts {c : Name} (d : MachineData) (ok : d.ok = true)
       b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M))
     (entry : MachineDefines mctx mref cctx cref c d.shape)
     (closes : MachineClosesAt mctx mref cctx cref c d.shape) :
-    Tools.ShippingGuardsSound.RunFacts (childMap D.modules) b := by
-  obtain ⟨hrst, hndB, hself⟩ :=
-    Tools.ShippingChecksRaw.core_raw_facts d ok hbody hC hslots hdomB hins hsl hfne outTy hnomem
-      hB hcore hpost entry closes
-  exact
-    { gate := Tools.ShippingChecksWidths.core_hierGate d ok hbody hC hslots hdomB hins hfne outTy
-        hnomem hB hcore hpost entry closes
-      wfB := Tools.ShippingLinkedFresh.core_linkedWF d ok hbody hC hslots hdomB hins outTy hnomem
-        hB hcore hpost entry closes
-      ndB := hndB
-      self := hself
-      outs := Tools.ShippingChecksOuts.core_outsExtracted d ok hbody hC hslots hdomB hins hfne
-        outTy hnomem hkidP hB hcore hpost entry closes
-      rst := hrst
-      wid := Tools.ShippingChecksWidths.core_instOutWidthsOk d ok hbody hC hslots hdomB hins hfne
-        outTy hnomem hkidP hkidW hB hcore hpost entry closes }
+    Tools.ShippingGuardsSound.RunFacts (childMap D.modules) b :=
+  core_runFacts_ran d ok hbody hC hslots hdomB hins hsl hfne outTy hnomem hkidP hkidW hpost
+    (Tools.ShippingMachineRan.machineRan_of_closes hcore entry hB closes)
 
 /-- **The shipped module of a machine with calls** is linked-well-formed,
 has distinct instance names and the full entry's inputs — with NO check
