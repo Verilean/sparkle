@@ -54,3 +54,15 @@ Result: `Tests.AllTests` green; `env-all2`: 832 targets (every `Tools/` module a
   build after integration covers `Tests.AllTests` and the Keccak sponge target (recorded below when run).
 * `HardwareTagged childAdd` in the S6 capstones is now derivable from their `tag` premise; it was left in
   place (dropping a capstone premise is the reviewer's call).
+
+## poc confirmation build after integration (measured)
+Tree: poc `c3176ef1` (tree d6136b11). Run `20261014-140341-env-poc2` (cgrun, 3 GiB, swap 0, **`-j 1`**):
+`lake build Tests.AllTests Tests.Compiler.DesignCoverageTest` → `SUITE-EXIT=0`;
+`lake build Tests.Compiler.NoPortsKeccakSpongeTest` → `SPONGE-EXIT=0`;
+`tagged-jit-e2e-test` → `TAGGEDJIT: cycles=32 mismatches=0 tagged-member-in-C=true`, `E2E-EXIT=0`.
+Census: 134 declarations, 133 covered. Peak 2.74 GB (memory.high events 24, oom 0), one Lean process.
+
+Finding (resources, not correctness): the first confirmation run `env-poc` (2 Lean threads) stalled
+62 min on `Tools/ShippingEntrySoundness.lean` — throttled at ≈2.8 GB against memory.high with no swap
+— and was stopped. That file alone with `-j 1` built (peak 2.47 GB). Heavy builds on this tree are run
+with `-j 1` from now on; the cap (3 GiB) is unchanged.
