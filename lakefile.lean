@@ -2941,6 +2941,12 @@ lean_lib «Tools.ShippingGateConeRun» where
 lean_lib «Tools.ShippingGateConeTag» where
   roots := #[`Tools.ShippingGateConeTag]
 
+lean_lib «Tools.ShippingFirstGateChild» where
+  roots := #[`Tools.ShippingFirstGateChild]
+
+lean_lib «Tools.ShippingFirstGateKid» where
+  roots := #[`Tools.ShippingFirstGateKid]
+
 lean_lib «Tools.ShippingCIdent» where
   roots := #[`Tools.ShippingCIdent]
 

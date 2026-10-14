@@ -665,3 +665,98 @@ or fewer).
 4. `gateLeafSel_of`: `rw [← heq]` abstracting the free `isInst` in the goal.
 5. `parentMix_tag`: `rw [parentMix_leaf_eq] at h0` and the implicit arguments of `gate_leaf_tag'`
    (given explicitly).
+
+---
+
+# Round 5: the cone theorem with no antecedent (WRITTEN, NOT BUILT)
+
+Branch `par/n-5` (from poc `83010ed1`). Nothing compiled or run. Rounds 1–4 files unchanged;
+compiler files untouched; the classifier's ALLOWED list untouched.
+
+## 19. What was asked, what is done
+
+`parentMix_gate_cone_runG'` (round 4) still had two antecedents about `mF`'s entry `y` of
+`childAdd`: (b) `y.1 = childModule`, (c) `y.2.modules = []`. Both are gone from the new theorem
+`parentMix_gate_cone_runK` (`Tests/Compiler/GateConeKidTest.lean`); the old theorems are kept.
+
+* **(b) replaced** (as recommended in §16): the observation is stated against the run's OWN child,
+  `ownChild y := fun s => if s = y.1.name then some (y.1, declWidth y.1) else none`
+  (`ParentMixObservesC (ownChild y) M`; `ParentMixObserves M = ParentMixObservesC (childrenOf
+  childModule.name) M` by `rfl`, `parentMixObserves_pinned`).
+* **The first-gate child unit** (`Tools/ShippingFirstGateChild.lean`, general — any first-gate
+  declaration `quoteDecl dn names n fe`, `fe.WF`, `0 < n`):
+  * **the bridge** `bindCertified_mixed`: `bindCertifiedInputs k (bs.zip ids) =
+    bindMixedCertifiedInputs k ((bs.map mixB).zip ids)` (by the two definitions; `mixB` sends
+    `.signal n ↦ .bits n`). `synthesizeCertified` is otherwise the mixed harness verbatim, so
+    `synthesizeCertified_returnsM` gives `synthesizeMixedCertified_returns`' conclusion at
+    `firstBs dn names n := (quoteBinders dn names n).map mixB`, and `first_body` shows the body is
+    `quote` of the unified term `ofF n fe` at positions `0` (domain) / `j+1` (inputs). Every built
+    harness theorem then applies to a first-gate run: `first_core_run` (core run + `EntryDefines`
+    ⇒ mixed-harness run, existential over the run's `envR`);
+  * `fragmentDecl_of_entry` (= `fragmentDecl_of_env` with `EnvDefines` → `EntryDefines`),
+    `synthesizeCombinational_fragment_entry` (full entry, via `synthesizeCombinational_reads` +
+    `postprocess_sound`), `first_core_postReady`, `first_full_outputs` (`outputs = [out :
+    bitVector n]`), `first_full_inputs` (input names `Nodup`, `length = names.length`, every input
+    `Allocated`, ≠ `clk` / `rst` / `out`);
+  * **(c) the design frame**: `first_core_design` (core `D.modules = []`, from
+    `transition_closed`'s `st.design = init.design`, i.e. the spine's `Ext` over the bridged run)
+    and `ChildFull.design` (full entry) — no new frame proof was needed;
+  * `first_child_fullFacts`: `ChildFull c (firstBs …) b design` (the text of
+    `gate_child_comb` + `gate_child_fullFacts` with the core run replaced by the bridge);
+  * `ChildFnR` (= `ChildFn` without its `env "rst" = 0` premise, which `gate_childFn` never used),
+    `gate_childFnR`, `childFnR_dropZW`, `childFnR_merge`, `childFnR_post` (the built proofs with that
+    binder dropped), `first_child_fnR`: the full-entry module computes `firstFn` of its argument
+    ports on EVERY environment; `firstFn_eval`: `firstFn … vals = evalFE n (ofNat ∘ vals.getD) fe`
+    (`portIdx_first`, `evalFE_congr`).
+* **`KidFacts` from `RealChild`** (`Tools/ShippingFirstGateKid.lean`): `kidFacts_of_first` /
+  `kidFacts_of_first'`: `EntryDefines c (quoteDecl dn names n fe)` (moved to the child's own
+  contexts by `EntryDefines.ctx`) + `RealChild c y` + a spec `hC` of the consumer's `C` on `c`
+  (argument count, in-range values, result `= evalFE`) ⇒ `KidFacts (ownChild y) C c names.length v y`.
+  `hC` is a property of `C` alone; for `addSem` it is `addSem_spec`, by evaluation.
+* Test: `childAddEntry = childAddValue` (`#def_entry_value`, `rfl`) pins the `EntryDefines` value to
+  the real `childAdd`'s entry constant; `parentMix_coneKC` is `parentMix_coneK` over any linked
+  context whose `childAdd` entry has `KidFacts`.
+
+## 20. Build order, lean_lib lines
+
+    lean_lib «Tools.ShippingFirstGateChild» where
+      roots := #[`Tools.ShippingFirstGateChild]
+    lean_lib «Tools.ShippingFirstGateKid» where
+      roots := #[`Tools.ShippingFirstGateKid]
+
+(added after `Tools.ShippingGateConeTag`).
+
+1. `Tools.ShippingFirstGateChild` (imports `ShippingGateChildComb`, `ShippingPostSoundness`);
+2. `Tools.ShippingFirstGateKid` (imports 1, `ShippingGateConeW`, `ShippingReflectCtx`);
+3. `lake build Tests.Compiler.GateConeKidTest` (imports `Tests.Compiler.GateConeTagTest` and 2).
+
+Premises of `parentMix_gate_cone_runK`: `hr` (RunsTo, ALLOWED), `gdef` (`GateDefines`, NOT ALLOWED —
+ruling pending, unchanged), `bnd` (ChildBnd, ALLOWED), **`centry : EntryDefines … ``childAdd
+childAddValue` (ALLOWED, the one new binder)**. No antecedent in the conclusion except the cache
+lookup `mF.get? ``childAdd = some y` (as before: the existence of the entry is not concluded).
+PREDICTED axioms: `propext`, `Classical.choice`, `Quot.sound`.
+
+## 21. Risks, in the order I expect them
+
+1. `bindCertified_mixed`: `simp only [List.zip_cons_cons, List.map_cons, mixB, bindCertifiedInputs,
+   bindMixedCertifiedInputs]` (the equation lemmas of the two structural walks and of `mixB`), and
+   the `rfl` nil cases (`List.zip [] _` / `zip (_ :: _) []` by whnf). Fallback: `show` the unfolded
+   `bindInputPort …` forms.
+2. `firstBs_filter` / `portIdx_first`: the head `(dn, .domain)` dropped by `filter` — `exact` by
+   defeq, else the `simp only [List.filter_cons, bne_self_eq_false, …]` alternative; `List.take_succ_cons`
+   name.
+3. `first_child_fullFacts` / `first_core_design` / `first_child_fnR`: elaboration of
+   `transition_closed` / `transition_facts` with the named `(dom := …) (bpos := fun _ => 0)
+   (vpos := fun j => j + 1)` and `first_body` (beta-redexes `(fun _ => 0) j`, defeq only);
+   `hcomb`'s `rcases hpost with rfl | rfl` inside a `have … := by`.
+4. `synthesizeCertified_returnsM`: `rw [bindCertified_mixed] at run'` (the term under `Returns`
+   after `MReturns.run`), `split at hr` on the `if hids`.
+5. `kidFacts_of_first`: the anonymous constructor for `KidFacts` (a `def`; same form as the built
+   `parentMix_coneK`), `List.cons.inj` / `subst` of the output port, `List.getElem_map` rewrites in
+   `hvals`, `rw [← hfe]` matching the `evalFE` term of `hC`.
+6. Test: `childAddEntry = childAddValue := rfl` (binder names `dom`, `x`, `y` of the real `childAdd`;
+   if it fails, the premise value is wrong, not the proofs); `addSem_spec`'s `show` of the
+   evaluated `evalFE`/`List.sum` and the `BitVec.toNat_*` rewrites (a `simp` alternative follows);
+   `childAdd_fe_wf`'s `⟨(by decide : 0 < 2), (by decide : 1 < 2)⟩` against `FExpr.WF`.
+7. `gate_childFnR`: a verbatim copy of `gate_childFn`'s proof under a superset of its opens (name
+   ambiguity from the extra `open`s is the only new risk).

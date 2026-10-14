@@ -64,3 +64,22 @@ Axioms: `parentMix_tag`, `parentMix_gate_cone_runG'` [propext, Classical.choice,
   `RunsTo` is not kernel-computable, so (b) is to be REPLACED by an observation against the run's own child
   (worker record §17). Next unit (no compiler change): first-gate child facts from `RealChild` +
   `EntryDefines childAdd` (ALLOWED), and a design-frame lemma for (c).
+
+## Round 5 (par/n-5, e854565b): first-gate child facts; parentMix without run-value antecedents — BUILT
+Run `n5` (`-j 1`). As written: `ShippingFirstGateChild` failed once (`admissible_zero` ambiguous between
+`ShippingGateChild` and `ShippingMachineEntry`); integrator fix: qualified name. Then
+`Tools.ShippingFirstGateChild`, `Tools.ShippingFirstGateKid`, `Tests.Compiler.GateConeKidTest`: exit 0.
+Axioms: `kidFacts_of_first`, `parentMix_gate_cone_runK` [propext, Classical.choice, Quot.sound];
+`addSem_spec` [propext, Quot.sound]. `example : childAddEntry = childAddValue := rfl` builds (the premise's
+value IS the real entry constant).
+* General (any first-gate child `quoteDecl dn names n fe`, `fe.WF`, `0 < n`): bridge
+  `bindCertified_mixed` (first-gate harness = mixed harness on `mixB` binders), `fragmentDecl_of_entry`,
+  full-entry outputs / inputs (Nodup, Allocated, not clk/rst/out), core design has no modules,
+  `first_child_fullFacts`, `ChildFnR` (ChildFn without its unused `rst = 0` premise; copies of the built
+  proofs), `kidFacts_of_first` (`KidFacts (ownChild y) …` from `RealChild` + `EntryDefines`).
+* `parentMix_gate_cone_runK` (target-only): premises the run, `GateDefines` (NOT ALLOWED, ruling pending),
+  `ChildBnd`, `EntryDefines childAdd` (ALLOWED). Conclusion: post ∧ `CacheInv mF` ∧ tag at `envR` ∧
+  `∀ y, mF.get? ``childAdd = some y → ParentMixObservesC (ownChild y) M` — no run-value antecedent left;
+  observation against the run's OWN cached child (replaces the hand-written `childModule`).
+  NOT concluded: that the cache entry exists (the statement is about every entry found). Cone at the world
+  level: binary fragment only; `parentNested` not covered. Not counted anywhere.
