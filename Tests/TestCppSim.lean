@@ -253,7 +253,7 @@ def cppSimTests (leanOutput : LeanParameterizedCSimOutput) : IO TestSeq := do
         test "compiler retains W instead of freezing its default"
           leanOutput.retainedSymbolicWidth $
         test "retained W can be explicitly specialized to 17 for CSim"
-          (hasSubstr leanOutput.c17 "struct symbolicXor" &&
+          (hasSubstr leanOutput.c17 "struct sparkle_ms_symbolicXor" &&
            hasSubstr leanOutput.c17 "uint32_t _gen_lhs;" &&
            hasSubstr leanOutput.c17 "uint32_t _gen_rhs;" &&
            !hasSubstr leanOutput.c17 "uint8_t _gen_lhs;" &&
@@ -283,19 +283,19 @@ def cppSimTests (leanOutput : LeanParameterizedCSimOutput) : IO TestSeq := do
            hasSubstr xor65C "uint32_t out[3];" &&
            !hasSubstr xor65C "SPARKLE_UNSUPPORTED_SYMBOLIC_WIDTH") $
         test "design API feeds a concrete module to CSim"
-          (hasSubstr xor17DesignC "struct SymbolicXor" &&
+          (hasSubstr xor17DesignC "struct sparkle_ms_SymbolicXor" &&
            hasSubstr xor17DesignC "uint32_t lhs;" &&
            !hasSubstr xor17DesignC "#error") $
         test "parameterized JIT API emits its concrete vtable"
           (hasSubstr xor17JITC "const JitVTable* jit_vtable" &&
-           hasSubstr xor17JITC "struct SymbolicXor" &&
+           hasSubstr xor17JITC "struct sparkle_ms_SymbolicXor" &&
            !hasSubstr xor17JITC "#error")
       ) ++
       group "derived dimensions" (
         test "W+1 ports and W-1 slice bounds become concrete"
           slice17IsConcrete $
         test "derived-width module reaches CSim without symbolic markers"
-          (hasSubstr slice17C "struct SymbolicSlice" &&
+          (hasSubstr slice17C "struct sparkle_ms_SymbolicSlice" &&
            !hasSubstr slice17C "SPARKLE_UNSUPPORTED_SYMBOLIC")
       ) ++
       group "specialization invariants" (
@@ -345,10 +345,10 @@ def cppSimTests (leanOutput : LeanParameterizedCSimOutput) : IO TestSeq := do
       )
     ) ++
     group "Counter Module" (
-      test "has struct declaration" (hasSubstr counterC "struct Counter8") $
-      test "has eval helper" (hasSubstr counterC "sparkle_Counter8_eval") $
-      test "has tick helper" (hasSubstr counterC "sparkle_Counter8_tick") $
-      test "has reset helper" (hasSubstr counterC "sparkle_Counter8_reset") $
+      test "has struct declaration" (hasSubstr counterC "struct sparkle_ms_Counter8") $
+      test "has eval helper" (hasSubstr counterC "sparkle_me_Counter8(") $
+      test "has tick helper" (hasSubstr counterC "sparkle_mt_Counter8(") $
+      test "has reset helper" (hasSubstr counterC "sparkle_mr_Counter8(") $
       test "has uint8_t port type" (hasSubstr counterC "uint8_t") $
       test "normalizes one-bit C ABI inputs before evaluation"
         (hasSubstr counterC "self->clk &= 1u;" &&
@@ -359,21 +359,21 @@ def cppSimTests (leanOutput : LeanParameterizedCSimOutput) : IO TestSeq := do
       test "has stdint header" (hasSubstr counterC "#include <stdint.h>")
     ) ++
     group "Memory Module" (
-      test "has struct declaration" (hasSubstr memoryC "struct MemTest") $
+      test "has struct declaration" (hasSubstr memoryC "struct sparkle_ms_MemTest") $
       test "has plain C array for memory" (hasSubstr memoryC "[16]") $
       test "has memset in reset" (hasSubstr memoryC "memset(") $
-      test "has eval helper" (hasSubstr memoryC "sparkle_MemTest_eval") $
-      test "has tick helper" (hasSubstr memoryC "sparkle_MemTest_tick")
+      test "has eval helper" (hasSubstr memoryC "sparkle_me_MemTest(") $
+      test "has tick helper" (hasSubstr memoryC "sparkle_mt_MemTest(")
     ) ++
     group "Combinational Module" (
-      test "has struct declaration" (hasSubstr combC "struct CombOps") $
+      test "has struct declaration" (hasSubstr combC "struct sparkle_ms_CombOps") $
       test "has addition" (hasSubstr combC " + ") $
       test "has bitwise AND" (hasSubstr combC " & ") $
       test "has ternary for mux" (hasSubstr combC " ? ") $
       test "has uint8_t types" (hasSubstr combC "uint8_t")
     ) ++
     group "Registered Memory Module" (
-      test "has struct declaration" (hasSubstr regMemC "struct RegMemTest") $
+      test "has struct declaration" (hasSubstr regMemC "struct sparkle_ms_RegMemTest") $
       test "has plain C array" (hasSubstr regMemC "[16]") $
       test "has read addr latch" (hasSubstr regMemC "_raddr")
     )

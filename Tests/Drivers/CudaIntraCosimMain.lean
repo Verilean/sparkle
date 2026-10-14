@@ -90,30 +90,30 @@ def cosimMain (n cycles : Nat) : String := Id.run do
     [ ""
     , "// ── Generated co-simulation main (CPU golden vs intra kernel) ──"
     , "#include <ctime>"
-    , s!"static void poke_ref(struct {topC}* r) \{" ]
+    , s!"static void poke_ref(struct {Sparkle.Backend.CIdent.cIdent .structTag topC}* r) \{" ]
     ++ pokeRef ++
     [ "}"
     , "static void poke_gpu(void* h) {" ]
     ++ pokeGpu ++
     [ "}"
-    , s!"static int cmp_outputs(void* h, struct {topC}* r, int c) \{"
+    , s!"static int cmp_outputs(void* h, struct {Sparkle.Backend.CIdent.cIdent .structTag topC}* r, int c) \{"
     , "  int fail = 0;" ]
     ++ cmps ++
     [ "  return fail;"
     , "}"
     , "int main() {"
-    , s!"  struct {topC} ref; memset(&ref, 0, sizeof ref); poke_ref(&ref);"
+    , s!"  struct {Sparkle.Backend.CIdent.cIdent .structTag topC} ref; memset(&ref, 0, sizeof ref); poke_ref(&ref);"
     , "  void* h = jit_cuda_alloc(1); poke_gpu(h);"
     , "  int fail = 0;"
     , "  // cycle-by-cycle: CPU golden (host side of the same functions) vs GPU"
     , s!"  for (int c = 0; c < {cycles}; ++c) \{"
-    , s!"    sparkle_{topC}_eval_tick(&ref);"
+    , s!"    {Sparkle.Backend.CIdent.cIdent .evalTick topC}(&ref);"
     , "    jit_intra_run(h, 1);"
     , "    fail |= cmp_outputs(h, &ref, c);"
     , "  }"
     , "  // multi-cycle single launch: validates the in-kernel loop"
-    , s!"  struct {topC} ref2; memset(&ref2, 0, sizeof ref2); poke_ref(&ref2);"
-    , s!"  for (int c = 0; c < {cycles}; ++c) sparkle_{topC}_eval_tick(&ref2);"
+    , s!"  struct {Sparkle.Backend.CIdent.cIdent .structTag topC} ref2; memset(&ref2, 0, sizeof ref2); poke_ref(&ref2);"
+    , s!"  for (int c = 0; c < {cycles}; ++c) {Sparkle.Backend.CIdent.cIdent .evalTick topC}(&ref2);"
     , "  void* h2 = jit_cuda_alloc(1); poke_gpu(h2);"
     , s!"  jit_intra_run(h2, {cycles});"
     , "  { void* h = h2; struct " ++ topC ++ "* r = &ref2; int c = -1;"

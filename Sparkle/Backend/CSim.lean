@@ -28,6 +28,7 @@ import Sparkle.IR.Type
 import Sparkle.IR.Specialize
 import Std.Data.HashSet
 import Std.Data.HashMap
+import Sparkle.Backend.CIdent
 
 namespace Sparkle.Backend.CSim
 
@@ -1663,10 +1664,12 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
             some s!"        {sanitizeName wireName} = {iName}.{sanitizeName portName};"
         | _ => none
       else none
-    { declarations := [s!"    struct {className} {iName};"]
-    , evalBody := inputConns ++ [s!"        sparkle_{className}_eval(&{iName});"] ++ outputConns
-    , tickBody := [s!"        sparkle_{className}_tick(&{iName});"]
-    , resetBody := [s!"        sparkle_{className}_reset(&{iName});"]
+    -- The child's struct tag and functions: `CIdent.cIdent` (role first; no
+    -- module name makes two of them equal, findings J2–J4).
+    { declarations := [s!"    struct {CIdent.cIdent .structTag className} {iName};"]
+    , evalBody := inputConns ++ [s!"        {CIdent.cIdent .eval className}(&{iName});"] ++ outputConns
+    , tickBody := [s!"        {CIdent.cIdent .tick className}(&{iName});"]
+    , resetBody := [s!"        {CIdent.cIdent .reset className}(&{iName});"]
     , evalTickLocals := [] }
 
 /-- Collect all wire name references from an IR expression -/
@@ -1940,7 +1943,8 @@ def emitModule (m : Module) (design : Option Design := none)
     let resetBody := allParts.foldl (fun acc (p : StmtParts) => acc ++ p.resetBody) []
     let evalTickLocals := allParts.foldl (fun acc (p : StmtParts) => acc ++ p.evalTickLocals) []
 
-    let structName := s!"struct {className}"
+    -- Struct tag and function names: `CIdent.cIdent` (findings J2–J4).
+    let structName := s!"struct {CIdent.cIdent .structTag className}"
     let helperPrefix := wideShrHelper funcQual
 
     let inputSection := if inputDecls.isEmpty then "" else
@@ -1973,7 +1977,7 @@ def emitModule (m : Module) (design : Option Design := none)
     -- We compute the full set of member names (inputs, outputs,
     -- wires, register / memory / instance fields) and do a
     -- token-level substitution on each body string.  Tokens are
-    -- defined as maximal runs of `[A-Za-z0-9_]`.
+    -- defined as maximal runs of `[A-Za-z0-9_$]` (`$` occurs in tagged module names).
     -- ----------------------------------------------------------------
 
     let memberNames : List String := Id.run do
@@ -2069,7 +2073,7 @@ def emitModule (m : Module) (design : Option Design := none)
     let qualifyET := qualifyWith memberSetET
 
     let resetFn :=
-      s!"{funcQual}static void sparkle_{className}_reset({structName}* self) \{\n" ++
+      s!"{funcQual}static void {CIdent.cIdent .reset className}({structName}* self) \{\n" ++
       "    (void)self;\n" ++
       (if resetBodyQ.isEmpty then "" else
         String.intercalate "\n" resetBodyQ ++ "\n") ++
@@ -2086,7 +2090,7 @@ def emitModule (m : Module) (design : Option Design := none)
     -- rounds as it has statements.
     let relaxRounds := evalBodyQ.length + 1
     let evalFn :=
-      s!"{funcQual}static void sparkle_{className}_eval({structName}* self) \{\n" ++
+      s!"{funcQual}static void {CIdent.cIdent .eval className}({structName}* self) \{\n" ++
       "    (void)self;\n" ++
       (if localWireDecls.isEmpty then "" else
         String.intercalate "\n" localWireDecls ++ "\n") ++
@@ -2102,7 +2106,7 @@ def emitModule (m : Module) (design : Option Design := none)
       "}\n\n"
 
     let tickFn :=
-      s!"{funcQual}static void sparkle_{className}_tick({structName}* self) \{\n" ++
+      s!"{funcQual}static void {CIdent.cIdent .tick className}({structName}* self) \{\n" ++
       "    (void)self;\n" ++
       (if tickBodyQ.isEmpty then "" else
         String.intercalate "\n" tickBodyQ ++ "\n") ++
@@ -2143,24 +2147,33 @@ def emitModule (m : Module) (design : Option Design := none)
 
     -- eval_tick uses the reduced member set so register `_next`
     -- temporaries emit as bare locals (declared via evalTickLocals).
+    -- The instances with their child's eval / eval_tick / tick identifiers.
+    let instCalls : List (String × String × String × String) :=
+      m.body.filterMap fun s => match s with
+        | .inst moduleName instName _ =>
+          let c := sanitizeName moduleName
+          some (sanitizeName instName, CIdent.cIdent .eval c, CIdent.cIdent .evalTick c,
+            CIdent.cIdent .tick c)
+        | _ => none
     let evalTickEvalBody := (evalBody.map qualifyET).map fun line =>
-      instNames.foldl (fun l inst =>
-        -- We emit `sparkle_<modName>_eval(&self->iName)` — find
-        -- the inst name and switch `_eval` → `_eval_tick`.  This
-        -- is a heuristic: look for `&self->inst)` as a marker.
+      instCalls.foldl (fun l (inst, evalId, evalTickId, _) =>
+        -- We emit `<child eval>(&self->iName)` — on the line of that
+        -- instance (marker `&self->inst)`) switch the child's eval
+        -- identifier to its eval_tick identifier.  Both are whole
+        -- `CIdent` names followed by `(`.
         let marker := s!"&self->{inst})"
         if (l.splitOn marker).length > 1 then
-          l.replace "_eval(" "_eval_tick("
+          l.replace (evalId ++ "(") (evalTickId ++ "(")
         else l) line
     -- Also strip tick calls that match instance names from the
     -- tick body when present.
     let evalTickTickBody := (tickBody.map qualifyET).filter fun line =>
-      !instNames.any (fun inst =>
+      !instCalls.any (fun (inst, _, _, tickId) =>
         (line.splitOn s!"sparkle_evalTick_placeholder_TICK_{inst}").length > 1
-        || (line.splitOn s!"_tick(&self->{inst})").length > 1)
+        || (line.splitOn s!"{tickId}(&self->{inst})").length > 1)
 
     let evalTickFn :=
-      s!"{funcQual}static void sparkle_{className}_eval_tick({structName}* self) \{\n" ++
+      s!"{funcQual}static void {CIdent.cIdent .evalTick className}({structName}* self) \{\n" ++
       "    (void)self;\n" ++
       (if localWireDecls.isEmpty then "" else
         String.intercalate "\n" localWireDecls ++ "\n") ++
@@ -2601,7 +2614,7 @@ private def emitMemsetWordSwitch (d : Design) (m : Module) : String :=
       * The `JitVTable` struct definition.
       * Static trampolines that adapt `void*` ctx to the
         top-module's typed `struct Top*` and call the
-        appropriate `sparkle_<top>_*` helper.
+        appropriate helper of the top (`CIdent.cIdent`).
       * The `JitVTable` instance pre-populated with those
         trampolines.
       * The single externally-visible `jit_vtable()`
@@ -2690,53 +2703,62 @@ private def toCJITUnchecked (d : Design)
       "    void  (*free_snapshot)(void* snap);\n" ++
       "} JitVTable;\n\n"
 
+    -- The top module's struct tag and functions (`CIdent.cIdent`).  The
+    -- trampolines keep their fixed names `sparkle_jit_*`: no `cIdent` name
+    -- equals one (it starts with `sparkle_m`), so a module named `jit` no
+    -- longer defines them a second time (finding J4).
+    let structTag := CIdent.cIdent .structTag className
+    let resetId := CIdent.cIdent .reset className
+    let evalId := CIdent.cIdent .eval className
+    let tickId := CIdent.cIdent .tick className
+    let evalTickId := CIdent.cIdent .evalTick className
     let trampolines :=
       s!"/* ---- Trampolines: void*-typed adapters for the vtable ---- */\n\n" ++
       s!"static void* sparkle_jit_create(void) \{\n" ++
-      s!"    struct {className}* p = (struct {className}*)calloc(1, sizeof(struct {className}));\n" ++
-      s!"    if (p) sparkle_{className}_reset(p);\n" ++
+      s!"    struct {structTag}* p = (struct {structTag}*)calloc(1, sizeof(struct {structTag}));\n" ++
+      s!"    if (p) {resetId}(p);\n" ++
       s!"    return (void*)p;\n" ++
       s!"}\n\n" ++
       s!"static void sparkle_jit_destroy(void* ctx) \{ free(ctx); }\n" ++
-      s!"static void sparkle_jit_reset(void* ctx) \{ sparkle_{className}_reset((struct {className}*)ctx); }\n" ++
-      s!"static void sparkle_jit_eval(void* ctx) \{ sparkle_{className}_eval((struct {className}*)ctx); }\n" ++
-      s!"static void sparkle_jit_tick(void* ctx) \{ sparkle_{className}_tick((struct {className}*)ctx); }\n" ++
-      s!"static void sparkle_jit_eval_tick(void* ctx) \{ sparkle_{className}_eval_tick((struct {className}*)ctx); }\n\n" ++
+      s!"static void sparkle_jit_reset(void* ctx) \{ {resetId}((struct {structTag}*)ctx); }\n" ++
+      s!"static void sparkle_jit_eval(void* ctx) \{ {evalId}((struct {structTag}*)ctx); }\n" ++
+      s!"static void sparkle_jit_tick(void* ctx) \{ {tickId}((struct {structTag}*)ctx); }\n" ++
+      s!"static void sparkle_jit_eval_tick(void* ctx) \{ {evalTickId}((struct {structTag}*)ctx); }\n\n" ++
       s!"static void sparkle_jit_set_input(void* ctx, uint32_t idx, uint64_t val) \{\n" ++
-      s!"    struct {className}* s = (struct {className}*)ctx;\n" ++
+      s!"    struct {structTag}* s = (struct {structTag}*)ctx;\n" ++
       s!"    switch (idx) \{\n" ++
       setInputCases ++ "\n" ++
       s!"    }\n" ++
       s!"}\n\n" ++
       s!"static uint64_t sparkle_jit_get_output(void* ctx, uint32_t idx) \{\n" ++
-      s!"    struct {className}* s = (struct {className}*)ctx;\n" ++
+      s!"    struct {structTag}* s = (struct {structTag}*)ctx;\n" ++
       s!"    switch (idx) \{\n" ++
       getOutputCases ++ "\n" ++
       s!"    }\n" ++
       s!"    return 0;\n" ++
       s!"}\n\n" ++
       s!"static uint64_t sparkle_jit_get_wire(void* ctx, uint32_t idx) \{\n" ++
-      s!"    struct {className}* s = (struct {className}*)ctx; (void)s;\n" ++
+      s!"    struct {structTag}* s = (struct {structTag}*)ctx; (void)s;\n" ++
       s!"    switch (idx) \{\n" ++
       wireSwitch ++ "\n" ++
       s!"    }\n" ++
       s!"    return 0;\n" ++
       s!"}\n\n" ++
       s!"static void sparkle_jit_set_mem(void* ctx, uint32_t mem_idx, uint32_t addr, uint32_t data) \{\n" ++
-      s!"    struct {className}* s = (struct {className}*)ctx; (void)s; (void)addr; (void)data;\n" ++
+      s!"    struct {structTag}* s = (struct {structTag}*)ctx; (void)s; (void)addr; (void)data;\n" ++
       s!"    switch (mem_idx) \{\n" ++
       memSetCases ++ "\n" ++
       s!"    }\n" ++
       s!"}\n\n" ++
       s!"static uint32_t sparkle_jit_get_mem(void* ctx, uint32_t mem_idx, uint32_t addr) \{\n" ++
-      s!"    struct {className}* s = (struct {className}*)ctx; (void)s; (void)addr;\n" ++
+      s!"    struct {structTag}* s = (struct {structTag}*)ctx; (void)s; (void)addr;\n" ++
       s!"    switch (mem_idx) \{\n" ++
       memGetCases ++ "\n" ++
       s!"    }\n" ++
       s!"    return 0;\n" ++
       s!"}\n\n" ++
       s!"static void sparkle_jit_memset_word(void* ctx, uint32_t mem_idx, uint32_t addr, uint32_t val, uint32_t count) \{\n" ++
-      s!"    struct {className}* s = (struct {className}*)ctx; (void)s; (void)addr; (void)val; (void)count;\n" ++
+      s!"    struct {structTag}* s = (struct {structTag}*)ctx; (void)s; (void)addr; (void)val; (void)count;\n" ++
       s!"    switch (mem_idx) \{\n" ++
       memsetWordCases ++ "\n" ++
       s!"    }\n" ++
@@ -2749,13 +2771,13 @@ private def toCJITUnchecked (d : Design)
       s!"}\n\n" ++
       s!"static uint32_t sparkle_jit_num_wires(void) \{ return {numWires}; }\n\n" ++
       s!"static void sparkle_jit_set_reg(void* ctx, uint32_t reg_idx, uint64_t val) \{\n" ++
-      s!"    struct {className}* s = (struct {className}*)ctx; (void)s; (void)val;\n" ++
+      s!"    struct {structTag}* s = (struct {structTag}*)ctx; (void)s; (void)val;\n" ++
       s!"    switch (reg_idx) \{\n" ++
       setRegCases ++ "\n" ++
       s!"    }\n" ++
       s!"}\n\n" ++
       s!"static uint64_t sparkle_jit_get_reg(void* ctx, uint32_t reg_idx) \{\n" ++
-      s!"    struct {className}* s = (struct {className}*)ctx; (void)s;\n" ++
+      s!"    struct {structTag}* s = (struct {structTag}*)ctx; (void)s;\n" ++
       s!"    switch (reg_idx) \{\n" ++
       getRegCases ++ "\n" ++
       s!"    }\n" ++
@@ -2769,12 +2791,12 @@ private def toCJITUnchecked (d : Design)
       s!"}\n\n" ++
       s!"static uint32_t sparkle_jit_num_regs(void) \{ return {numRegs}; }\n\n" ++
       s!"static void* sparkle_jit_snapshot(void* ctx) \{\n" ++
-      s!"    struct {className}* p = (struct {className}*)calloc(1, sizeof(struct {className}));\n" ++
-      s!"    if (p) memcpy(p, ctx, sizeof(struct {className}));\n" ++
+      s!"    struct {structTag}* p = (struct {structTag}*)calloc(1, sizeof(struct {structTag}));\n" ++
+      s!"    if (p) memcpy(p, ctx, sizeof(struct {structTag}));\n" ++
       s!"    return (void*)p;\n" ++
       s!"}\n\n" ++
       s!"static void sparkle_jit_restore(void* ctx, void* snap) \{\n" ++
-      s!"    memcpy(ctx, snap, sizeof(struct {className}));\n" ++
+      s!"    memcpy(ctx, snap, sizeof(struct {structTag}));\n" ++
       s!"}\n\n" ++
       s!"static void sparkle_jit_free_snapshot(void* snap) \{ free(snap); }\n\n"
 

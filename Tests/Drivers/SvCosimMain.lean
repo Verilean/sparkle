@@ -187,9 +187,9 @@ def emitCMain (design : Sparkle.IR.AST.Design) (modName : String)
     [ Sparkle.Backend.CSim.toCDesign design
     , "#include <stdio.h>"
     , "int main(void) {"
-    , s!"  struct {cls} s;"
+    , s!"  struct {Sparkle.Backend.CIdent.cIdent .structTag cls} s;"
     , "  memset(&s, 0, sizeof s);"
-    , s!"  sparkle_{cls}_reset(&s);" ]
+    , s!"  {Sparkle.Backend.CIdent.cIdent .reset cls}(&s);" ]
   for c in [0:cycles] do
     let row := (stim[c]?).getD []
     for (n, v) in row do
@@ -209,9 +209,9 @@ def emitCMain (design : Sparkle.IR.AST.Design) (modName : String)
     -- (eval, tick, eval); combinational: a single eval settles it
     l := l ++
       (if hasClock then
-        [s!"  sparkle_{cls}_eval(&s);", s!"  sparkle_{cls}_tick(&s);", s!"  sparkle_{cls}_eval(&s);"]
+        [s!"  {Sparkle.Backend.CIdent.cIdent .eval cls}(&s);", s!"  {Sparkle.Backend.CIdent.cIdent .tick cls}(&s);", s!"  {Sparkle.Backend.CIdent.cIdent .eval cls}(&s);"]
       else
-        [s!"  sparkle_{cls}_eval(&s);"])
+        [s!"  {Sparkle.Backend.CIdent.cIdent .eval cls}(&s);"])
     -- Mirror the TB's per-word printing for wide outputs: word k is the
     -- pair of 32-bit slots (2k, 2k+1), assembled into one 64-bit value.
     let outExprs := outs.flatMap fun p =>

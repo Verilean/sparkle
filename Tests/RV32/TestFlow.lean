@@ -61,10 +61,10 @@ def synthTests : IO TestSeq := do
     group "Generated CppSim Header" (
       test "generated_soc_cppsim.h exists" cppExists $
       test "file is non-empty" (cppContent.length > 0) $
-      test "contains struct declaration" (hasSubstr cppContent "struct Sparkle_IP_RV32_SoCVerilog_rv32iSoCSynth") $
-      test "contains eval helper" (hasSubstr cppContent "sparkle_Sparkle_IP_RV32_SoCVerilog_rv32iSoCSynth_eval") $
-      test "contains tick helper" (hasSubstr cppContent "sparkle_Sparkle_IP_RV32_SoCVerilog_rv32iSoCSynth_tick") $
-      test "contains reset helper" (hasSubstr cppContent "sparkle_Sparkle_IP_RV32_SoCVerilog_rv32iSoCSynth_reset")
+      test "contains struct declaration" (hasSubstr cppContent "struct sparkle_ms_Sparkle_IP_RV32_SoCVerilog_rv32iSoCSynth") $
+      test "contains eval helper" (hasSubstr cppContent "sparkle_me_Sparkle_IP_RV32_SoCVerilog_rv32iSoCSynth(") $
+      test "contains tick helper" (hasSubstr cppContent "sparkle_mt_Sparkle_IP_RV32_SoCVerilog_rv32iSoCSynth(") $
+      test "contains reset helper" (hasSubstr cppContent "sparkle_mr_Sparkle_IP_RV32_SoCVerilog_rv32iSoCSynth(")
     )
   )
 

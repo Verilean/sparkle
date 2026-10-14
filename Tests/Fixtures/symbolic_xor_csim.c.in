@@ -7,42 +7,42 @@
 
 #if TEST_WIDTH == 3
 
-_Static_assert(sizeof(((struct symbolicXor *)0)->_gen_lhs) == sizeof(uint8_t),
+_Static_assert(sizeof(((struct sparkle_ms_symbolicXor *)0)->_gen_lhs) == sizeof(uint8_t),
                "W=3 input must use the one-byte CSim ABI");
 
-static void load_inputs(struct symbolicXor *model) {
+static void load_inputs(struct sparkle_ms_symbolicXor *model) {
     /* High input bits exercise the generated three-bit output mask. */
     model->_gen_lhs = UINT8_C(0xad);
     model->_gen_rhs = UINT8_C(0x02);
 }
 
-static int output_matches(const struct symbolicXor *model) {
+static int output_matches(const struct sparkle_ms_symbolicXor *model) {
     return model->out == UINT8_C(0x07);
 }
 
 #elif TEST_WIDTH == 17
 
-_Static_assert(sizeof(((struct symbolicXor *)0)->_gen_lhs) == sizeof(uint32_t),
+_Static_assert(sizeof(((struct sparkle_ms_symbolicXor *)0)->_gen_lhs) == sizeof(uint32_t),
                "W=17 input must use the four-byte CSim ABI");
 
-static void load_inputs(struct symbolicXor *model) {
+static void load_inputs(struct sparkle_ms_symbolicXor *model) {
     model->_gen_lhs = UINT32_C(0x1aaaa);
     model->_gen_rhs = UINT32_C(0x05555);
 }
 
-static int output_matches(const struct symbolicXor *model) {
+static int output_matches(const struct sparkle_ms_symbolicXor *model) {
     return model->out == UINT32_C(0x1ffff);
 }
 
 #elif TEST_WIDTH == 65
 
-_Static_assert(sizeof(((struct symbolicXor *)0)->_gen_lhs) ==
+_Static_assert(sizeof(((struct sparkle_ms_symbolicXor *)0)->_gen_lhs) ==
                    3 * sizeof(uint32_t),
                "W=65 input must occupy three CSim words");
-_Static_assert(sizeof(((struct symbolicXor *)0)->out) == 3 * sizeof(uint32_t),
+_Static_assert(sizeof(((struct sparkle_ms_symbolicXor *)0)->out) == 3 * sizeof(uint32_t),
                "W=65 output must occupy three CSim words");
 
-static void load_inputs(struct symbolicXor *model) {
+static void load_inputs(struct sparkle_ms_symbolicXor *model) {
     model->_gen_lhs[0] = UINT32_C(0x01234567);
     model->_gen_lhs[1] = UINT32_C(0x89abcdef);
     /* Only bit 0 of the top word belongs to a 65-bit value. */
@@ -52,7 +52,7 @@ static void load_inputs(struct symbolicXor *model) {
     model->_gen_rhs[2] = UINT32_C(0xfffffffe);
 }
 
-static int output_matches(const struct symbolicXor *model) {
+static int output_matches(const struct sparkle_ms_symbolicXor *model) {
     return model->_gen_lhs[2] == UINT32_C(0x00000001) &&
            model->_gen_rhs[2] == UINT32_C(0x00000000) &&
            model->out[0] == UINT32_C(0x10325476) &&
@@ -64,7 +64,7 @@ static int output_matches(const struct symbolicXor *model) {
 #error "unsupported TEST_WIDTH"
 #endif
 
-static int check_output(const char *phase, const struct symbolicXor *model) {
+static int check_output(const char *phase, const struct sparkle_ms_symbolicXor *model) {
     if (output_matches(model)) {
         return 0;
     }
@@ -73,17 +73,17 @@ static int check_output(const char *phase, const struct symbolicXor *model) {
 }
 
 int main(void) {
-    struct symbolicXor model = {0};
+    struct sparkle_ms_symbolicXor model = {0};
 
-    sparkle_symbolicXor_reset(&model);
+    sparkle_mr_symbolicXor(&model);
     load_inputs(&model);
-    sparkle_symbolicXor_eval(&model);
+    sparkle_me_symbolicXor(&model);
     if (check_output("eval", &model) != 0) {
         return 1;
     }
 
-    sparkle_symbolicXor_tick(&model);
-    sparkle_symbolicXor_eval_tick(&model);
+    sparkle_mt_symbolicXor(&model);
+    sparkle_mx_symbolicXor(&model);
     if (check_output("eval_tick", &model) != 0) {
         return 1;
     }

@@ -36,9 +36,18 @@ The rows (the expected module-name forms are those of
 * `mem` — `mmTop` of `CacheCoherenceProbe`: a memory next to a declaration
   named like the built memory module;
 * `cfn`, `ckw`, `cjit` — plain (untagged) names chosen against the C
-  backend's own identifier scheme: `fk` next to `fk_eval`
+  backend's OLD identifier scheme: `fk` next to `fk_eval`
   (`sparkle_<m>_eval_tick`), a module named `volatile` (`struct volatile`),
-  a module named `jit` (`sparkle_jit_reset` is a trampoline);
+  a module named `jit` (`sparkle_jit_reset` is a trampoline). Measured
+  failing before `Sparkle.Backend.CIdent` (findings J2, J3, J4); since then
+  they must compile and match the source;
+* `clibc`, `cpre` — a module named like a C library function the generated
+  text uses (`memcpy`), and a module whose name starts with the backend's
+  own prefix and role code (`sparkle_me_fk`) next to `fk`;
+* `cmain` — a module named `main`. NOT a declaration: the design of `ckw`
+  with its child module RENAMED to `main` in the IR before the C step (a
+  root declaration named `main` is avoided in this file); the C rows only,
+  compared with the source trace of `ckwTop`; no SystemVerilog rows;
 * `regnext` — a register `r` next to a wire `r_next` (the C backend names
   the register's next value `<reg>_next`); a PROBE, outcome not predicted.
 
@@ -70,6 +79,16 @@ def volatile (x : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVe
 @[hardware_module]
 def jit (x : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec 8) :=
   x + (Signal.pure 11#8 : Signal defaultDomain (BitVec 8))
+
+-- A C library function the generated text itself calls, and a name that
+-- starts with the backend's own prefix and a role code.
+@[hardware_module]
+def memcpy (x : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec 8) :=
+  x + (Signal.pure 21#8 : Signal defaultDomain (BitVec 8))
+
+@[hardware_module]
+def sparkle_me_fk (x : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec 8) :=
+  x + (Signal.pure 23#8 : Signal defaultDomain (BitVec 8))
 
 namespace TaggedNamesSimZZ
 open Lean Meta
@@ -149,6 +168,13 @@ def ckwTop (x : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec 
 def cjitTop (x : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec 8) :=
   jit x + x
 
+def clibcTop (x : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec 8) :=
+  memcpy x + x
+
+-- `sparkle_me_fk` (prefix and role code in the NAME) next to `fk`
+def cpreTop (x : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec 8) :=
+  sparkle_me_fk x + fk x
+
 def regNext (x : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec 8) :=
   let r_next := x + (Signal.pure 1#8 : Signal defaultDomain (BitVec 8))
   let r := Signal.register 0#8 r_next
@@ -187,6 +213,22 @@ structure Row where
   tag : String
   decl : Lean.Name
   src : Nat → Nat → Nat
+  /-- Modules renamed in the IR before the C step (old name, new name).
+  Empty for every row but `cmain`. -/
+  ren : List (String × String) := []
+
+/-- Rename the target of an instance. -/
+def renameStmt (f : String → String) : Sparkle.IR.AST.Stmt → Sparkle.IR.AST.Stmt
+  | .inst target iname conns => .inst (f target) iname conns
+  | other => other
+
+def renameMod (f : String → String) (m : Sparkle.IR.AST.Module) : Sparkle.IR.AST.Module :=
+  { m with name := f m.name, body := m.body.map (renameStmt f) }
+
+/-- Rename modules (names and instance targets) by the pairs of `ren`. -/
+def renameDsn (ren : List (String × String)) (d : Sparkle.IR.AST.Design) : Sparkle.IR.AST.Design :=
+  let f (n : String) : String := (ren.lookup n).getD n
+  { topModule := f d.topModule, modules := d.modules.map (renameMod f) }
 
 def rows : List Row :=
   [ { tag := "priv", decl := ``privTop, src := src1 privTop },
@@ -202,6 +244,9 @@ def rows : List Row :=
     { tag := "cfn", decl := ``cfnTop, src := src1 cfnTop },
     { tag := "ckw", decl := ``ckwTop, src := src1 ckwTop },
     { tag := "cjit", decl := ``cjitTop, src := src1 cjitTop },
+    { tag := "clibc", decl := ``clibcTop, src := src1 clibcTop },
+    { tag := "cpre", decl := ``cpreTop, src := src1 cpreTop },
+    { tag := "cmain", decl := ``ckwTop, src := src1 ckwTop, ren := [("volatile", "main")] },
     { tag := "regnext", decl := ``regNext, src := src1 regNext } ]
 
 structure Cyc where
@@ -347,7 +392,10 @@ run_cmd liftTermElabM do
       -- the repository's C backend on the same declaration (the `#sim` recipe)
       let mut cstat := "c-ok"
       try
-        let opt : Dsn := Sparkle.IR.Optimize.optimizeDesign design
+        let opt0 : Dsn := Sparkle.IR.Optimize.optimizeDesign design
+        let opt : Dsn := renameDsn r.ren opt0
+        unless r.ren.isEmpty do
+          logInfo m!"TAGGEDNAMES-GEN {r.tag}: modules RENAMED in the IR for the C step: {r.ren}; C modules {opt.modules.map (·.name)}"
         let ctop ← match opt.modules.find? (fun m => m.name == opt.topModule) with
           | some m => pure m
           | none => throwError "no top in the optimized design"
@@ -384,4 +432,7 @@ end TaggedNamesSimZZ
 #writeVerilogDesign TaggedNamesSimZZ.cfnTop ".lake/build/gen/tagged-names/cfn_cmd.sv"
 #writeVerilogDesign TaggedNamesSimZZ.ckwTop ".lake/build/gen/tagged-names/ckw_cmd.sv"
 #writeVerilogDesign TaggedNamesSimZZ.cjitTop ".lake/build/gen/tagged-names/cjit_cmd.sv"
+#writeVerilogDesign TaggedNamesSimZZ.clibcTop ".lake/build/gen/tagged-names/clibc_cmd.sv"
+#writeVerilogDesign TaggedNamesSimZZ.cpreTop ".lake/build/gen/tagged-names/cpre_cmd.sv"
+-- `cmain` has no SystemVerilog row: its module `main` exists in the renamed IR only
 #writeVerilogDesign TaggedNamesSimZZ.regNext ".lake/build/gen/tagged-names/regnext_cmd.sv"
