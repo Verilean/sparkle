@@ -434,7 +434,7 @@ theorem entryStill_leaf (hB : ∀ L' : RefLaws mref cref, BodyRel L')
   intro mctx cctx w r w' hw hd hrun
   obtain ⟨M', D'⟩ := r
   obtain ⟨M, D, wc, hcore, hval, -, -⟩ := full_split L hrun
-  obtain ⟨b, w9, w10, hmach, hw9, hd9, hv9, hv10⟩ :=
+  obtain ⟨tenv, b, w9, w10, hmach, hw9, hd9, hv9, hv10⟩ :=
     coreVia_of L hB hH entry closes mctx cctx w M D wc hw hd hcore
   rw [hval, hv10, machine_leaf_val L hstill hno hw9 hd9 hmach, hv9]
 
