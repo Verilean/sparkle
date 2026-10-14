@@ -155,6 +155,67 @@ theorem core_kids_self {c : Name} (d : MachineData) (ok : d.ok = true)
     (Tools.ShippingMachineRan.machineRan_of_closes hcore entry hB closes)
 
 set_option maxHeartbeats 4000000 in
+/-- `core_kidsPass_deep` over `MachineRan`:
+the proof of the built theorem, MOVED here (split in place, branch
+`fix/ran-threading-split`) with the run, the reflection, the closing and the boundary
+replaced by `ran` and every callee of the chain by its `_ran` form. It takes of the run only
+that the machine synthesis this core run performed returned the result from an invariant
+world; the theorem below, its statement unchanged, is the instance at the all-worlds closing
+(`Tools.ShippingMachineRan.machineRan_of_closes`). -/
+theorem core_kidsPass_deep_ran {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    {nDecl : Nat} (hC : d.callsOk nDecl = true)
+    (hslots : d.ss.length = d.shape.layout.slots.length)
+    (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
+    (hins : d.shape.insts ≠ [])
+    (hfne : d.shape.instFields ≠ [])
+    (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
+    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (n : Nat)
+    (hkidK : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
+      RealChild mref cref (d.shape.insts[k]).1 y →
+      ∀ ms : List Sparkle.IR.AST.Module,
+        moduleByName ms y.1.name = some y.1 →
+        (∀ g ∈ y.2.modules, moduleByName ms g.name = some g) →
+        Tools.ShippingChecksDesign.kidCheck (childMap ms) n y.1 = true ∧
+          ∀ g ∈ y.2.modules, Tools.ShippingChecksDesign.kidCheck (childMap ms) n g = true)
+    {M b : Sparkle.IR.AST.Module} {D : Design}
+    (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨
+      b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M))
+    (ran : Tools.ShippingMachineRan.MachineRan mctx mref cctx cref c d.shape M D) :
+    Tools.ShippingDesignSV.kidsPass (childMap D.modules)
+      (Tools.ShippingChecksDesign.kidCheck (childMap D.modules) n)
+      (checkedOptimize b).body = true := by
+  obtain ⟨-, hbody', -, hresM, -, -⟩ :=
+    Tools.ShippingChecksCore.core_kids_facts_ran d ok hbody hC hslots hdomB hins outTy hnomem hpost ran
+  have hselfD := core_kids_self_ran d ok hbody hC hslots hdomB hins hnomem ran
+  have hgate : Sparkle.IR.RefineCheck.hierGate b = true :=
+    Tools.ShippingChecksWidths.core_hierGate_ran d ok hbody hC hslots hdomB hins hfne outTy hnomem
+      hpost ran
+  unfold Tools.ShippingDesignSV.kidsPass
+  rw [List.all_eq_true]
+  intro st hst
+  cases st with
+  | inst mn iname conns =>
+    have hm : Stmt.inst mn iname conns ∈ b.body :=
+      (Tools.ShippingChecksDepthGate.checkedOptimize_inst_iff_gate hgate mn iname conns).mp hst
+    rw [hbody'] at hm
+    obtain ⟨mc, hmc⟩ := hresM mn iname conns hm
+    have hmem : mc ∈ D.modules := (Tools.ShippingHierPremisesBase.moduleByName_mem hmc).1
+    obtain ⟨k, hk, y, hre, hor, hs1, hs2⟩ := hselfD mc hmem
+    have hCm : childMap D.modules mn = some (mc, Sparkle.IR.RegDedup.declWidth mc) :=
+      congrArg (fun o : Option Sparkle.IR.AST.Module =>
+        o.map fun g => (g, Sparkle.IR.RegDedup.declWidth g)) hmc
+    simp only [hCm]
+    rcases hor with heq | hin
+    · rw [heq]
+      exact (hkidK k hk y hre D.modules hs1 hs2).1
+    · exact (hkidK k hk y hre D.modules hs1 hs2).2 mc hin
+  | _ => rfl
+
+set_option maxHeartbeats 4000000 in
 /-- **The children's check of the shipped module of a machine with calls, at
 depth `n`**, on the core run's design, from one fact per real child in the
 form that holds of a child WITH instances: its check against any module list
@@ -187,34 +248,44 @@ theorem core_kidsPass_deep {c : Name} (d : MachineData) (ok : d.ok = true)
     (closes : MachineClosesAt mctx mref cctx cref c d.shape) :
     Tools.ShippingDesignSV.kidsPass (childMap D.modules)
       (Tools.ShippingChecksDesign.kidCheck (childMap D.modules) n)
-      (checkedOptimize b).body = true := by
-  obtain ⟨-, hbody', -, hresM, -, -⟩ :=
-    Tools.ShippingChecksCore.core_kids_facts d ok hbody hC hslots hdomB hins outTy hnomem hB
-      hcore hpost entry closes
-  have hselfD := core_kids_self d ok hbody hC hslots hdomB hins hnomem hB hcore entry closes
-  have hgate : Sparkle.IR.RefineCheck.hierGate b = true :=
-    Tools.ShippingChecksWidths.core_hierGate d ok hbody hC hslots hdomB hins hfne outTy hnomem
-      hB hcore hpost entry closes
-  unfold Tools.ShippingDesignSV.kidsPass
-  rw [List.all_eq_true]
-  intro st hst
-  cases st with
-  | inst mn iname conns =>
-    have hm : Stmt.inst mn iname conns ∈ b.body :=
-      (Tools.ShippingChecksDepthGate.checkedOptimize_inst_iff_gate hgate mn iname conns).mp hst
-    rw [hbody'] at hm
-    obtain ⟨mc, hmc⟩ := hresM mn iname conns hm
-    have hmem : mc ∈ D.modules := (Tools.ShippingHierPremisesBase.moduleByName_mem hmc).1
-    obtain ⟨k, hk, y, hre, hor, hs1, hs2⟩ := hselfD mc hmem
-    have hCm : childMap D.modules mn = some (mc, Sparkle.IR.RegDedup.declWidth mc) :=
-      congrArg (fun o : Option Sparkle.IR.AST.Module =>
-        o.map fun g => (g, Sparkle.IR.RegDedup.declWidth g)) hmc
-    simp only [hCm]
-    rcases hor with heq | hin
-    · rw [heq]
-      exact (hkidK k hk y hre D.modules hs1 hs2).1
-    · exact (hkidK k hk y hre D.modules hs1 hs2).2 mc hin
-  | _ => rfl
+      (checkedOptimize b).body = true :=
+  core_kidsPass_deep_ran d ok hbody hC hslots hdomB hins hfne outTy hnomem n hkidK hpost
+    (Tools.ShippingMachineRan.machineRan_of_closes hcore entry hB closes)
+
+set_option maxHeartbeats 4000000 in
+/-- `core_kidsMaskedN_top` over `MachineRan`:
+the proof of the built theorem, MOVED here (split in place, branch
+`fix/ran-threading-split`) with the run, the reflection, the closing and the boundary
+replaced by `ran` and every callee of the chain by its `_ran` form. It takes of the run only
+that the machine synthesis this core run performed returned the result from an invariant
+world; the theorem below, its statement unchanged, is the instance at the all-worlds closing
+(`Tools.ShippingMachineRan.machineRan_of_closes`). -/
+theorem core_kidsMaskedN_top_ran {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    {nDecl : Nat} (hC : d.callsOk nDecl = true)
+    (hslots : d.ss.length = d.shape.layout.slots.length)
+    (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
+    (hins : d.shape.insts ≠ [])
+    (hfne : d.shape.instFields ≠ [])
+    (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
+    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hkidM : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
+      RealChild mref cref (d.shape.insts[k]).1 y →
+      Tools.ShippingMachineShipsDepth.outsMaskedN y.1 = true)
+    {M b : Sparkle.IR.AST.Module} {D : Design}
+    (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨
+      b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M))
+    (ran : Tools.ShippingMachineRan.MachineRan mctx mref cctx cref c d.shape M D) :
+    Tools.ShippingMachineShipsDepth.kidsMaskedN D.modules b.body = true := by
+  have hconn := Tools.ShippingPortsMatchRaw.core_callConns_ran d ok hbody hC hslots hdomB hins hfne
+    outTy hnomem hpost ran
+  refine Tools.ShippingChecksMasked.kidsMaskedN_of fun mn iname conns hm => ?_
+  obtain ⟨mc, hmc, ⟨k, hk, y, hre, hmcy⟩, -⟩ := hconn mn iname conns hm
+  refine ⟨mc, hmc, ?_⟩
+  rw [hmcy]
+  exact hkidM k hk y hre
 
 set_option maxHeartbeats 4000000 in
 /-- **`kidsMaskedN` of a machine tied by the general closing, on the core
@@ -242,13 +313,8 @@ theorem core_kidsMaskedN_top {c : Name} (d : MachineData) (ok : d.ok = true)
       b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M))
     (entry : MachineDefines mctx mref cctx cref c d.shape)
     (closes : MachineClosesAt mctx mref cctx cref c d.shape) :
-    Tools.ShippingMachineShipsDepth.kidsMaskedN D.modules b.body = true := by
-  have hconn := Tools.ShippingPortsMatchRaw.core_callConns d ok hbody hC hslots hdomB hins hfne
-    outTy hnomem hB hcore hpost entry closes
-  refine Tools.ShippingChecksMasked.kidsMaskedN_of fun mn iname conns hm => ?_
-  obtain ⟨mc, hmc, ⟨k, hk, y, hre, hmcy⟩, -⟩ := hconn mn iname conns hm
-  refine ⟨mc, hmc, ?_⟩
-  rw [hmcy]
-  exact hkidM k hk y hre
+    Tools.ShippingMachineShipsDepth.kidsMaskedN D.modules b.body = true :=
+  core_kidsMaskedN_top_ran d ok hbody hC hslots hdomB hins hfne outTy hnomem hkidM hpost
+    (Tools.ShippingMachineRan.machineRan_of_closes hcore entry hB closes)
 
 end Tools.ShippingKidsSelf
