@@ -3035,3 +3035,8 @@ lean_lib «Tools.ShippingGateTypedFinal» where
 
 lean_lib «Tools.ShippingGateDesignAll» where
   roots := #[`Tools.ShippingGateDesignAll]
+lean_lib «Tools.ShippingReaderOutsInv» where
+  roots := #[`Tools.ShippingReaderOutsInv]
+
+lean_lib «Tools.ShippingReaderOutsMemOnly» where
+  roots := #[`Tools.ShippingReaderOutsMemOnly]
