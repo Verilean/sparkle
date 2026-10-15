@@ -221,3 +221,109 @@ solution (`OldEq → IsSol`, the failing file), R5 (`LenOk`) for the fuel functi
 OPEN FOR ANY PRODUCTION SWITCH (unchanged): coverage (an old success no fuel reaches — not a kernel statement,
 `fixpoint_not_complete`), the old partial constants satisfying their source equations (outside the kernel),
 a fuel `machineShape?` and the doubling driver (not written), shadows (not run).
+
+## R5 rebuilt on the fuel version alone (worker R5, `par/r-7`, 2026-10-15) — WRITTEN, NOT BUILT
+Reviewer ruling (2026-10-15): R5 (`GoodH` → every step keeps `GoodH` → fuel induction) is a property of the
+NEW fuel functions and does not depend on agreement with the old reader. It is therefore re-homed so that it
+builds WITHOUT `ShippingReaderFuelOldEq` (which fails and is being repaired elsewhere). R5 is NOT connected to
+the real old reader (`machConv`, …): that link is `OldEq → IsSol`, still open; `ReadersKeepLenOk` of the OLD
+readers stays unproved.
+
+Files (new; the previous draft `ShippingReaderFuelLenOk.pending.lean` is deleted, not committed):
+* `Tools/ShippingReaderFuelRun.lean` — imports `Tools.ShippingReaderFuelKleene` only; the three `rfl` lemmas
+  R5 uses, verbatim from the OldEq draft: `run_pure`, `run_bind`, `run_bindO`. NOTE: the OldEq draft declares
+  the same three names in the same namespace; if it is rebuilt importing this file, drop its copies.
+* `Tools/ShippingReaderFuelR5.lean` — imports `Tools.ShippingReaderFuelRun` and
+  `Tools.ShippingReaderLenOkReserve` (hence `Tools.ShippingReaderLenOk`) only. Theorem names/statements of the
+  draft kept: `GoodH`, `step_good`, `readF_good`, `machConvF_lenOk`, `machNestedF_lenOk`,
+  `machInstanceF_lenOk`, `machInstanceSF_lenOk`, `machChainF_lenOk`, `machLoopBodyF_lenOk`,
+  `machLoopRootF_lenOk`, `readersKeepLenOkF`, `machConvF_lenOk_init` (plus the draft's helpers `out_*`,
+  `convBvar_ok`, `instEntry_ok`, `foldO_ok`, `findSomeO_ok`, `*_sat`, `*Fold_ok`, `nestedFind_ok`, `loopFind_ok`).
+
+Build order: `Tools.ShippingReaderFuelDefs` → `Tools.ShippingReaderFuelKleene` (both built on poc) →
+`Tools.ShippingReaderFuelRun` → (`Tools.ShippingReaderLenOk` → `Tools.ShippingReaderLenOkReserve`, built) →
+`Tools.ShippingReaderFuelR5`. lean_lib lines appended at the END of lakefile.lean:
+```
+lean_lib «Tools.ShippingReaderFuelRun» where
+  roots := #[`Tools.ShippingReaderFuelRun]
+
+lean_lib «Tools.ShippingReaderFuelR5» where
+  roots := #[`Tools.ShippingReaderFuelR5]
+```
+
+### Integrator's notes on the previous draft (recorded per ruling) and how this version meets them
+1. The crunch macros used `progress` (Mathlib-only). Use `first | simp only [...] | split` style
+   (`simp only` already fails without progress). — This version has NO crunch macro and no `progress`.
+2. Dotted constructors of `Call` need qualification (`Call.conv`, not `.conv`) where no expected type is
+   available. — Every `Call` constructor in the R5 file is written qualified (`Call.conv`, `Call.nested`, …),
+   including the patterns of `Call.inSt` / `Call.outSt`.
+3. A `repeat' split` over large bodies timed out (whnf, 200000 heartbeats) in the `conv` arm. Prefer
+   per-constructor local lemmas and record expected time / max goal count. — This version proves each body
+   with Hoare-style combinator lemmas (`sat_pure`, `sat_okO`, `sat_failO`, `sat_optK`, `sat_bindO`,
+   `sat_bind`, `sat_ite`, `sat_domGuard`, `sat_pure_ite`, `sat_foldO`, `sat_findSomeO`) applied by `refine`
+   in source order; each `match` is split ONCE on the goal when its arm is reached; `machConv` is split per
+   constructor (`cases e`, 12 goals) with separate lemmas `conv_app_sat` / `conv_letE_sat`. `repeat' split`
+   remains only on the hypothesis of the tiny pure parts of `instArg` / `instSArg` (≤ 3 rounds, 4 leaves).
+
+Expected goal counts (open goals at any time ≤ 2 in every arm, except `cases e`):
+| lemma | splits | leaves |
+|---|---|---|
+| `convBvar_ok` | `if` + 5-arm `match` (hyp) | 6 |
+| `conv_app_sat` | 8 views, one at a time | 9 |
+| `conv_letE_sat` | `if`, `rootFloat`, `if`, `machTailV`, `machHandleV` | 5 |
+| `conv_sat` | `cases e` | 12 |
+| `nested_sat` | `match shared` | 2 |
+| `inst_sat` / `instS_sat` | `findIdx?` (+ `ctor?` cases) | 2 / 3 |
+| `chain_sat` | 4-arm source `match` (once), inner 2-arm, letE as conv | 8 |
+| `loopBody_sat` | `cases e` | 12 |
+| `loopRoot_sat` | `loopView?`, `match shared` | 3 |
+Expected time: every arm is linear in the body (no case product); no single tactic should approach the
+heartbeat limit. The one heavy step is predicted to be `split` on `chainStep`'s 4-arm source match (deep
+`Expr.app` patterns with `Name` literals; splitter generation) — see risks.
+
+### Statements (main)
+```lean
+def GoodH (h : Hs) : Prop :=
+  ∀ c, (Call.inSt c).LenOk → ∀ v, h c = some (some v) → (Call.outSt c v).LenOk
+theorem step_good (senv : StructEnv) {h : Hs} (hG : GoodH h) : GoodH (fun c => (step senv c).run h)
+theorem readF_good (senv : StructEnv) : ∀ n, GoodH (readF senv n)
+theorem machConvF_lenOk {n senv env d e st r st'} :
+    machConvF n senv env d e st = some (some (r, st')) → st.LenOk → st'.LenOk   -- (and six siblings)
+theorem readersKeepLenOkF (senv : StructEnv) (n : Nat) : (conv) ∧ (loopRoot) ∧ (chain)   -- as the draft
+theorem machConvF_lenOk_init : machConvF n senv env d e {} = some (some (r, st')) → st'.LenOk
+```
+
+### Predicted axioms
+`run_*`, `sat_*` combinators, `out_*`, `sat_c*`, `step_good`, `readF_good`, `machXF_lenOk`,
+`readersKeepLenOkF`: a subset of [propext, Quot.sound] (from `split`/`simp`/`by_cases` and from the
+imported `machReserve_lenOk`, `loopRoot_inits_length`); `run_*`: none. No `sorryAx`, no `Classical.choice`
+beyond what `by_cases` on a `Decidable` instance needs (none expected).
+
+### Risks (PREDICTED; nothing was elaborated)
+1. `split` on `chainStep`'s source match (after `revert hst; unfold chainStep`): splitter generation for the
+   deep `Expr.app … (.const ``pure' _)` / `bind`/`next` patterns could be slow or refuse; fallback is to
+   state the four arms as separate lemmas via `chainStep`'s equation lemmas.
+2. `simp only [convStep]` on `convStep … (.app f a) st` (equation lemma for an overlapping-pattern def);
+   fallback `unfold convStep; dsimp only` is in the proof.
+3. `r5pair`: closing `match p with | (x, y) => k x y` by structure eta in `exact`; fallbacks split the pair.
+4. `instS_sat`: `try dsimp only` must expose the `findIdx?` match (zeta of `let lvls`, iota of the pair
+   match) before `split`.
+5. Several `refine sat_X …` steps rely on `isDefEq` unfolding the step body (delta + matcher iota + zeta)
+   to the expected combinator head; if one does not, insert `show`/`simp only [<body>]` there.
+6. `convBvar_ok`'s `.state b n` leaf: three `Option.bind_eq_some_iff.mp` on the `do` block (after
+   `Option.bind_eq_bind`).
+
+## Integration of the re-homed R5 (integrator, 2026-10-15) — BUILT
+Worker R5 (dd1f1c65, par/r-7) applied on poc 65eaccbb (lakefile conflict on appended lean_libs: kept both).
+Run `r5` (cgrun, 3 GiB, swap 0, `-j 1`): `Tools.ShippingReaderFuelRun` built as written;
+`Tools.ShippingReaderFuelR5` needed two fixes (no statement changed): the `r5pair` macro spliced `$t` where a
+tactic sequence is expected (`$t:tactic`); the wildcard arms of `loopBody_sat` needed `unfold loopBodyStep`
+before `refine sat_optK`. Then exit 0 (header updates rebuilt in run `r5b`). Imports: Defs / Kleene / Run and the
+existing `ShippingReaderLenOk(Reserve)` — NOT `…FuelOldEq`.
+Axioms: `step_good`, `readF_good`, `machConvF_lenOk`, `machNestedF_lenOk`, `machInstanceF_lenOk`,
+`machInstanceSF_lenOk`, `machChainF_lenOk`, `machLoopBodyF_lenOk`, `machLoopRootF_lenOk`, `readersKeepLenOkF`,
+`machConvF_lenOk_init` [propext, Quot.sound].
+PROVED: R5 (`LenOk` preserved) for the FUEL functions, every fuel and every successful result
+(`readersKeepLenOkF` = the old `ReadersKeepLenOk` statement for the fuel versions). NOT connected to the real
+partial readers: the old `ReadersKeepLenOk` remains unproved; transferring R5 to the compiler's reader needs
+the agreement chain (OldEq, A2 in progress) AND coverage of the real runs (O1).

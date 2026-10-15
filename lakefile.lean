@@ -3077,3 +3077,8 @@ lean_lib «Tools.ShippingReaderFuelShape» where
 
 lean_lib «Tools.ShippingReaderFuelDriver» where
   roots := #[`Tools.ShippingReaderFuelDriver]
+lean_lib «Tools.ShippingReaderFuelRun» where
+  roots := #[`Tools.ShippingReaderFuelRun]
+
+lean_lib «Tools.ShippingReaderFuelR5» where
+  roots := #[`Tools.ShippingReaderFuelR5]
