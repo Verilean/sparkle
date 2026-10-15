@@ -3056,3 +3056,8 @@ lean_lib «Tools.ShippingGateKid» where
 
 lean_lib «Tools.ShippingGateCoverage» where
   roots := #[`Tools.ShippingGateCoverage]
+lean_lib «Tools.ShippingGateWalkE» where
+  roots := #[`Tools.ShippingGateWalkE]
+
+lean_lib «Tools.ShippingGateTypedFinalI» where
+  roots := #[`Tools.ShippingGateTypedFinalI]

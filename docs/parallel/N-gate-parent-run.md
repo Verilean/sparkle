@@ -1353,3 +1353,43 @@ Build order: `Tools.ShippingGateDesignAll`, then `Tests.Compiler.GateConeDesignA
 Risks: `simp [hc] at hs` / `simp only [hc, Bool.and_eq_true] at hs` in `outsCheck0_of_kidsComb`
 must reduce the `kidsComb` matchers (fallback: `dsimp only at hs; rw [hc] at hs`); the explicit
 `P` lambda must match the conclusion up to beta (it is written verbatim).
+
+## Round 16 (par/n-16) — `wrapPick` at the design level, every closed run — WRITTEN, NOT BUILT
+
+Base poc `b3248937`. No compiler change, ALLOWED unchanged, no existing statement changed (new
+lemmas only), no `sorry` / new axiom / `native_decide`.
+
+Target: `Tests.Compiler.GateConeWrapPickDesignTest.wrapPick_gate_designSVall` — the shape of
+`wrapAdd_gate_designSVall` (sources `sS : Signal defaultDomain (BitVec 2)`, `xS : … (BitVec 8)`,
+`prepare … .bits i0 = some ⟨2, …⟩`, `.bits i1 = some ⟨8, …⟩`, `out = ((wrapPick sS xS).val j).toNat`).
+Premises: the run, `GateDefines` (gate-only class), `ChildBnd`, `EntryDefines … pick pick.gateValue`
+(ALLOWED). Antecedents on the design part: the input reading and `DesignSideR` (as for the seven).
+
+Differences from the seven and how each is handled:
+1. No domain argument. The body is `instEN pick [] sel [x]` (spine `[sel, x]`, both ports); the
+   round-11/13/14 instance nodes read the ports as `rest` (`[x]`) and require
+   `inputs.length = rest.length` — not applicable. NEW `Tools/ShippingGateWalkE.lean`:
+   `instUncached_namWE`, `desW_instE`, `namW_instE`, `typW_instE` for `instEN mn lvls dom rest` with
+   `dom :: rest = pre ++ argsE`, ports `argsE` (arity guard and `drop` as in
+   `instUncached_shapeE`). Copies of the old proofs; old lemmas kept.
+2. Mixed-gate child. `pick_kid`: `InstLeafOk` from `kidFacts_of_gate'` (two inputs, output
+   `out : bitVector 8`), `ChildComb` / name from `childFull_of_real`, `kidCheck` from
+   `gate_real_kidK`, `GateChildPorts` from `gate_real_ports`; widths `[2, 8]` / `8` by evaluation
+   (`pick_w`).
+3. OBSTACLE (typing): `gate_typedFacts` fixes `τ : Expr → Nat` BEFORE the fresh ids; for inputs of
+   different widths no fixed `τ` works for every pair of distinct ids (swap them). NEW
+   `Tools/ShippingGateTypedFinalI.lean`: `cone_harness_typedI`, `gate_cone_runTypedI`,
+   `gate_typedFactsI` — the same statements with `∃ τ` per (cache, ids) inside the walk premise
+   (`TFin` does not mention `τ`; the old theorems are the constant case). Used with
+   `pickτ i0 := if e = .fvar i0 then 2 else 8` (classical decidability; `Classical.choice` is
+   already in the standard axiom set).
+No premise or antecedent added.
+
+Build order (cgrun, `-j 1`): `Tools.ShippingGateWalkE`, `Tools.ShippingGateTypedFinalI`, then
+`Tests.Compiler.GateConeWrapPickDesignTest` (after `Tests.Compiler.GateConeWrapPickSourceTest`).
+lean_lib lines appended: `Tools.ShippingGateWalkE`, `Tools.ShippingGateTypedFinalI`.
+Predicted axioms: [propext, Classical.choice, Quot.sound] (or a subset).
+Risks: `rw [hfl, instEN_spineArgs, hsp] at k4` in `instUncached_namWE` (the spine must appear as
+`dom :: rest`); `pick_w`'s `rfl` evaluating `pick.gateBinders.filter …` (fallback `decide`);
+`pick_ws`'s list splitting (`simp at hin`, `List.cons.inj`, `simpa using hpe`); `hτc` (`cases h`
+on `instEN … = .fvar i0`, fallbacks `Expr.noConfusion`, `simp [instEN]`); `Lean.Expr.fvar.inj`.

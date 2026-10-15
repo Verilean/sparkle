@@ -296,3 +296,17 @@ Then exit 0; no `sorryAx`; the seven `…_gate_designSVall` [propext, Classical.
   `BoundOff`; no rst/clk/registers/Reset.
 Tally: separate gate-route kind; seven parents ALL-RUN at the design level, all target-only, under
 `GateDefines` (separate class) and `DesignSideR`. NOT added to the machine-route census.
+
+## Round 16 (par/n-16, aa62e83b) — wrapPick at the design level, every closed run; BUILT as written
+Applied on poc 15650288 (lakefile conflict on appended lean_libs: kept both). Run `n16` (`-j 1`):
+`Tools.ShippingGateWalkE`, `Tools.ShippingGateTypedFinalI`, `Tests.Compiler.GateConeWrapPickDesignTest` exit 0,
+no fix; no `sorryAx`; `wrapPick_gate_designA`, `wrapPick_gate_designSVall` [propext, Classical.choice,
+Quot.sound]. Premises: run, `GateDefines` (gate-only class), `ChildBnd`, `EntryDefines … pick pick.gateValue`;
+design part under the input reading and `DesignSideR`, as for the seven. New: walk nodes over any spine split
+(`desW/namW/typW_instE`), typing chosen per instantiation (`gate_typedFactsI` — a fixed typing cannot give a
+2-bit and an 8-bit port for every pair of fresh ids), mixed-gate child facts for `pick`. Intermediate
+round-10/12 forms skipped for wrapPick (no existence-only theorem of its own; existence is a conjunct of
+`…SVall`).
+Gate census re-run (`gcov2`, GateCoverageTest now imports the wrapPick design test):
+`GATE COVERAGE TOTALS of 8 gate-route parent(s): observation 8; existence-only 7; all-run 8; … remaining OTHER
+conditions of the strongest forms [DesignSideR]; non-standard axioms in []; in-suite 0, target-only 8`.

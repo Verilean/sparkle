@@ -1,5 +1,6 @@
 import Tests.Compiler.GateConeDesignAllTest
 import Tests.Compiler.GateConeWrapPickSourceTest
+import Tests.Compiler.GateConeWrapPickDesignTest
 import Tools.ShippingGateCoverage
 
 /-! # `#gate_coverage` on the eight simulated gate-route parents (round par/gate-cov)
