@@ -12,6 +12,7 @@ import Tools.ShippingNameSep
 import Tools.ShippingMemSeqNames
 import Tools.ShippingNameMode
 import Tools.ShippingMachineClosesGen
+import Tools.ShippingReaderOutsInv
 
 /-! # `#machine_no_ports_memseq f`: the check-free depth-0 endpoint of a parent whose call entries MIX leaf register machine children and memory placeholders, open and closed, GENERATED (round par/b-21)
 
@@ -119,7 +120,8 @@ existing name with another statement — class `FAILED`, with its line.
     f.noPortsMemSeq_{outsOf,insOf,nameOf,nkOf,outsNOf,namesOf}        the tables, keyed by the CALLEE
     f.noPortsMemSeq_{table}_at{i}      the table at key i (leaf callees first, then placeholders)
     f.noPortsMemSeq_entry              ONE decided ∀: every entry's callee is one of the keys
-    f.noPortsMemSeq_calls / _slots / _domB / _outTy / _callWidths / _callArgs / _outChars / _outScalar
+    f.noPortsMemSeq_calls / _slots / _domB / _callWidths / _callArgs / _outChars
+                                       (`_outTy` / `_outScalar`: the previous data path only, see below)
     f.noPortsMemSeq_kids               KidFactsM of every entry's callee, depth 0
     f.noPortsMemSeq_runFacts / _outsG0 / _mixedG / _designP0          kidsM_* at f's data
     f.machine_design_noPortsR0         the head machine_design_noPorts at n = 0
@@ -175,7 +177,30 @@ keys (the last key is the `else`), their lemmas proved by a chain of
 are named decided lemmas; every decided lemma is under `maxHeartbeats
 4000000`.
 
-WRITTEN, NOT BUILT (par/b-21). -/
+## The output facts from the reader (round par/r-5; WRITTEN, NOT BUILT)
+
+`#machine_no_ports_memseq f` no longer decides `f.noPortsMemSeq_outTy`
+(`∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width`) and
+`f.noPortsMemSeq_outScalar` (`∀ o ∈ …, scalarTy o.ty = true`). The four run
+theorems pass, in their place,
+
+    Tools.ShippingReaderOutsInv.outTy_of_core hcore entry
+    Tools.ShippingReaderOutsInv.outScalar_of_core hcore entry     (designP0 only)
+
+— the general theorems over EVERY reader result (BUILT), at the run
+hypotheses `hcore`, `entry` each run theorem already binds. No other
+generated name read the two lemmas (READ: `closingTheorems`, `leafKid`,
+`endpointTerm`). EVERY generated STATEMENT is unchanged (the four run
+theorems' included); only their proofs differ, and the two decided lemmas
+are not generated.
+
+The PREVIOUS path stays reachable as `#machine_no_ports_memseq_olddata f` /
+`#machine_no_ports_memseq_olddata_try f "…"` (`Ctx.oldData`): it decides the
+two lemmas and passes them. Run after the default path on one declaration,
+it takes the compare path on every shared name
+(`Tests/Compiler/NoPortsMemSeqGenOldDataTest.lean`, target-only).
+
+WRITTEN, NOT BUILT (par/b-21; par/r-5). -/
 namespace Tools.ShippingNoPortsMemSeqCommand
 open Lean Meta Elab Command
 open Tools.ShippingShipsFreeCommand (checkMade)
@@ -359,6 +384,9 @@ structure Ctx where
   keys : Array Key
   /-- the built `emit`'s context (it reads the log only) -/
   m : Tools.ShippingNoPortsMemCommand.Ctx
+  /-- the previous data path (`outTy` / `outScalar` decided per declaration,
+  `…_olddata`; par/r-5) -/
+  oldData : Bool := false
 
 namespace Ctx
 
@@ -546,15 +574,18 @@ def dataTheorems (c : Ctx) : CommandElabM Unit := do
   decided c "calls" (← `(($d).callsOk $nD = true))
   decided c "slots" (← `(($d).ss.length = ($d).shape.layout.slots.length))
   decided c "domB" (← `(∀ b ∈ ($d).shape.binders.drop $nD, b.2 ≠ .domain))
-  decided c "outTy" (← `(∀ o ∈ ($d).shape.layout.outs, o.ty.bitWidth = o.width))
+  -- par/r-5: `outTy` / `outScalar` only on the previous data path
+  if c.oldData then
+    decided c "outTy" (← `(∀ o ∈ ($d).shape.layout.outs, o.ty.bitWidth = o.width))
   let outsF ← c.tblFn "outsOf"
   let insF ← c.tblFn "insOf"
   decided c "callWidths" (← `(Tools.ShippingCallWidths.callWidthsOk $d $nD $outsF = true))
   decided c "callArgs" (← `(Tools.ShippingPortsMatchRaw.callArgsOk $d $nD $insF = true))
   decided c "outChars" (← `(∀ o ∈ ($d).shape.layout.outs, ∀ c ∈ o.name.toList,
     Sparkle.IR.NameHints.charOk c = true))
-  decided c "outScalar" (← `(∀ o ∈ ($d).shape.layout.outs,
-    Tools.ShippingTextTyped.scalarTy o.ty = true))
+  if c.oldData then
+    decided c "outScalar" (← `(∀ o ∈ ($d).shape.layout.outs,
+      Tools.ShippingTextTyped.scalarTy o.ty = true))
   -- `KidFactsM` of every entry's callee, depth 0
   let h := mkIdent `h
   let hT : Term := ⟨h.raw⟩
@@ -620,35 +651,41 @@ def runTheorems (c : Ctx) : CommandElabM Unit := do
   let outsF ← c.tblFn "outsOf"
   let insF ← c.tblFn "insOf"
   let ne ← `((fun h0 => absurd (congrArg List.length h0) (by decide)))
+  -- par/r-5: the two output facts from the reader at the run's `hcore` / `entry`
+  -- (the previous data path: the decided lemmas)
+  let outTyT : Term ← if c.oldData then pure ⟨(c.lem "outTy").raw⟩
+    else `((Tools.ShippingReaderOutsInv.outTy_of_core hcore entry))
+  let outScalarT : Term ← if c.oldData then pure ⟨(c.lem "outScalar").raw⟩
+    else `((Tools.ShippingReaderOutsInv.outScalar_of_core hcore entry))
   runTheorem c "runFacts" false
     (← `(Tools.ShippingGuardsSound.RunFacts (Tools.ShippingMachineLinked.childMap D.modules) b))
     (← `(Tools.ShippingMemKid.kidsM_runFacts (nDecl := $nD) $d $ok $body
-      $(c.lem "calls") $(c.lem "slots") $(c.lem "domB") $ne $ne $ne $(c.lem "outTy")
+      $(c.lem "calls") $(c.lem "slots") $(c.lem "domB") $ne $ne $ne $outTyT
       $outsF $insF 0 ($(c.lem "kids") $hs*) $(c.lem "callWidths")
       hB hcore hpost entry closes))
   runTheorem c "outsG0" true
     (← `(Tools.ShippingDesignSVBack.outsCheck (Tools.ShippingMachineLinked.childMap D.modules) 0
       (Sparkle.IR.OptCheck.checkedOptimize b) = true))
     (← `(Tools.ShippingMemKid.kidsM_outsCheck (nDecl := $nD) $d $ok $body
-      $(c.lem "calls") $(c.lem "slots") $(c.lem "domB") $ne $ne $(c.lem "outTy")
+      $(c.lem "calls") $(c.lem "slots") $(c.lem "domB") $ne $ne $outTyT
       $outsF $insF 0 ($(c.lem "kids") $hs*)
       hB hcore hpost entry closes hg))
   runTheorem c "mixedG" false
     (← `(Tools.ShippingMachineShipsHier.kidsMixed (Tools.ShippingMachineLinked.childMap D.modules)
       b.body = true))
     (← `(Tools.ShippingMemKid.kidsM_mixed (nDecl := $nD) $d $ok $body
-      $(c.lem "calls") $(c.lem "slots") $(c.lem "domB") $ne $ne $(c.lem "outTy")
+      $(c.lem "calls") $(c.lem "slots") $(c.lem "domB") $ne $ne $outTyT
       $outsF $insF 0 ($(c.lem "kids") $hs*)
       hB hcore hpost entry closes))
   runTheorem c "designP0" false
     (← `(Tools.ShippingDesignSV.designCheck (Tools.ShippingMachineLinked.childMap D.modules) 0
       (Sparkle.IR.OptCheck.checkedOptimize b) = true))
     (← `(Tools.ShippingMemKid.kidsM_designCheck (nDecl := $nD) $d $ok $body
-      $(c.lem "calls") $(c.lem "slots") $(c.lem "domB") $ne $ne $ne $(c.lem "outTy")
+      $(c.lem "calls") $(c.lem "slots") $(c.lem "domB") $ne $ne $ne $outTyT
       $outsF $insF 0 ($(c.lem "kids") $hs*) $(c.lem "callWidths") $(c.lem "callArgs")
       hB hcore hpost entry closes
       (fun o ho => Tools.ShippingSVBridge.sanitizeName_of_clean ($(c.lem "outChars") o ho))
-      $(c.lem "outScalar")))
+      $outScalarT))
 
 /-- The module names of two different keys differ. -/
 def neT (c : Ctx) (a b : Key) : CommandElabM Term := do
@@ -999,10 +1036,15 @@ def leafKid (c : Ctx) (k : Name) : CommandElabM Unit := do
 /-- The generation proper (after the scope): the lemmas, the two endpoints,
 the premise lines. Returns the log lines, the premise lines and whether the
 open endpoint was rebuilt (it existed). -/
-def core (f : Name) (s : Scope) : CommandElabM (Array String × Array String × Bool) := do
+def core (f : Name) (s : Scope) (oldData : Bool := false) :
+    CommandElabM (Array String × Array String × Bool) := do
   let log ← IO.mkRef (#[] : Array String)
   let keys ← mkKeys s
-  let c : Ctx := { f, s, log, keys, m := { f, s := default, log } }
+  let c : Ctx := { f, s, log, keys, m := { f, s := default, log }, oldData }
+  if oldData then
+    log.modify fun a => a.push "OLDDATA: the previous data path (outTy / outScalar decided per declaration and passed to kidsM_*)"
+  else
+    log.modify fun a => a.push "DATA FROM THE READER: no outTy / outScalar decided; kidsM_* take outTy_of_core / outScalar_of_core at hcore, entry"
   for k in s.leaves do leafKid c k
   tableTheorems c
   dataTheorems c
@@ -1090,7 +1132,7 @@ def line (f : Name) (o : Outcome) : String :=
 
 /-- The generator on `f`: never throws; on REFUSED / FAILED the environment
 and the message log are put back. -/
-def noPortsMemSeq (f : Name) : CommandElabM Outcome := do
+def noPortsMemSeq (f : Name) (oldData : Bool := false) : CommandElabM Outcome := do
   let savedEnv ← getEnv
   let savedMsgs := (← get).messages
   let restore : CommandElabM Unit := do
@@ -1106,7 +1148,7 @@ def noPortsMemSeq (f : Name) : CommandElabM Outcome := do
   | Except.error reason => return Outcome.refused reason
   | Except.ok sc =>
     try
-      let (ls, ps, existed) ← core f sc
+      let (ls, ps, existed) ← core f sc oldData
       if existed then return Outcome.rebuilt ls ps else return Outcome.generated ls ps
     catch ex =>
       let msg ← ex.toMessageData.toString
@@ -1129,6 +1171,26 @@ failed declaration leaves nothing in the environment. -/
 elab "#machine_no_ports_memseq_try " d:ident ppSpace e:str : command => do
   let f ← liftCoreM <| realizeGlobalConstNoOverloadWithInfo d
   let o ← noPortsMemSeq f
+  logInfo m!"{line f o}"
+  unless o.tag == e.getString do
+    throwError "NOPORTS MEMSEQ {f}: expected {e.getString}, found {o.tag}"
+
+/-- `#machine_no_ports_memseq_olddata f`: the generator with the PREVIOUS data
+path (`f.noPortsMemSeq_outTy` / `_outScalar` decided and passed to the four
+run theorems). Kept to compare the two paths on one tree (par/r-5). -/
+elab "#machine_no_ports_memseq_olddata " d:ident : command => do
+  let f ← liftCoreM <| realizeGlobalConstNoOverloadWithInfo d
+  let o ← noPortsMemSeq f (oldData := true)
+  match o with
+  | Outcome.refused _ => throwError "{line f o}"
+  | Outcome.failed _ => throwError "{line f o}"
+  | _ => logInfo m!"{line f o}"
+
+/-- `#machine_no_ports_memseq_olddata_try f "EXPECTED"`: as
+`#machine_no_ports_memseq_try`, on the previous data path. -/
+elab "#machine_no_ports_memseq_olddata_try " d:ident ppSpace e:str : command => do
+  let f ← liftCoreM <| realizeGlobalConstNoOverloadWithInfo d
+  let o ← noPortsMemSeq f (oldData := true)
   logInfo m!"{line f o}"
   unless o.tag == e.getString do
     throwError "NOPORTS MEMSEQ {f}: expected {e.getString}, found {o.tag}"

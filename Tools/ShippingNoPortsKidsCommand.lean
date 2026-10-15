@@ -118,7 +118,7 @@ def scopeK (f : Name) (n : Nat) :
           throwError "{f}: the callee {k}'s callee {g} is not a gate child with #gate_child data (no {g ++ sfx})"
       for c in [g ++ `gate_full, g ++ `gate_kidK, g ++ `gateValue, k ++ `oneout_callsOk,
           k ++ `oneout_slotLen, k ++ `oneout_domB, k ++ `oneout_insts, k ++ `oneout_instFields,
-          k ++ `oneout_slots, k ++ `oneout_outTy, k ++ `oneout_outChars, k ++ `oneout_outScalar,
+          k ++ `oneout_slots, k ++ `oneout_outChars,
           k ++ `oneout_nomem, k ++ `machine_portsRawH, k ++ `closes_deep] do
         unless (← getEnv).contains c do
           throwError "{f}: the one-output callee {k} lacks {c} (run #gate_child {g}, #machine_design_svHR {k}, #machine_oneout {k} and a depth command that leaves {k}.closes_deep first)"
@@ -163,10 +163,13 @@ def oneOutKidTheorem (k g : Name) (nDeclK : Nat) : CommandElabM Name := do
         insts := $(nm k "oneout_insts")
         oneOut := $(nm k "oneout_instFields")
         slots := $(nm k "oneout_slots")
-        outTy := $(nm k "oneout_outTy")
+        -- par/r-5: `#machine_oneout` no longer decides `k.oneout_outTy` /
+        -- `_outScalar` (its run lemmas take them from the reader); no run of
+        -- `k` is in scope here, so they are decided for the callee
+        outTy := by first | exact $(nm k "oneout_outTy") | decide
         outName := fun o ho =>
           Tools.ShippingSVBridge.sanitizeName_of_clean ($(nm k "oneout_outChars") o ho)
-        outScalar := $(nm k "oneout_outScalar")
+        outScalar := by first | exact $(nm k "oneout_outScalar") | decide
         nomem := $(nm k "oneout_nomem")
         hkD := by decide
         hIlen := by decide

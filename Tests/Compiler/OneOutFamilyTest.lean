@@ -71,9 +71,14 @@ def std (n : Name) : MetaM Unit := do
 def generatedNames (f : Name) : List Name :=
   [`machine_factsH, `machine_outsH, `machine_portsRawH, `machine_portsShippedH,
    `machine_hierTypedH, `machine_designFullH, `oneout_callsOk, `oneout_slotLen, `oneout_domB,
-   `oneout_insts, `oneout_instFields, `oneout_outTy, `oneout_nomem, `oneout_slots,
-   `oneout_outChars, `oneout_outScalar, `oneout_kidIns, `oneout_callArgs,
+   `oneout_insts, `oneout_instFields, `oneout_nomem, `oneout_slots,
+   `oneout_outChars, `oneout_kidIns, `oneout_callArgs,
    `oneout_entries].map (f ++ ·)
+
+/-- The names the default path no longer generates (par/r-5: `outTy_of_core` /
+`outScalar_of_core` at the run's `hcore`, `entry`). -/
+def readerNames (f : Name) : List Name :=
+  [`oneout_outTy, `oneout_outScalar].map (f ++ ·)
 
 /-- The audit of one declaration after `#machine_oneout_try`. `kids`: its
 distinct callees. `hand`: the endpoint existed before (built from hand
@@ -96,6 +101,9 @@ def audit (f : Name) (kids : List Name) (hand : Bool) : MetaM Unit := do
   for n in generatedNames f ++ kidNames ++ [full, closed, cl] do
     unless (← getEnv).contains n do throwError "{n}: not generated"
     std n
+  for n in readerNames f do
+    if (← getEnv).contains n then
+      throwError "{n}: generated — the default path takes it from the reader (par/r-5)"
   -- (b) the eight checker constants: written, or hidden in a premise's definition
   let checkers := Tools.ShippingOneOutCommand.forbidden ++ Tools.ShippingOneOutCommand.residualOnly
   for n in [full, closed] do
@@ -171,7 +179,7 @@ def audit (f : Name) (kids : List Name) (hand : Bool) : MetaM Unit := do
       throwError "{closed}: the goal-gap reporter lists premises NOT ALLOWED:\n{String.intercalate "\n" bad.toList}"
     std gapName
     gapNote := s!"goal gap {gapName}: {report.size} lines, none NOT ALLOWED"
-  logInfo m!"ONEOUT FAMILY {f}: {full} ({openLines.size} lines; other: the closing premise only) and {closed} ({closedLines.size} lines; other: NONE) — none of the four check premises of {old} (shipsHierHCheck, kidsComb, designCheck, outsCheck), no residual; {gapNote}.{handNote} SCOPE of this statement: (1) data conditions decided per declaration by the kernel for {f} ({f}.oneout_callsOk, _slotLen, _domB, _insts, _instFields, _outTy, _nomem, _slots, _outChars, _outScalar, _callArgs at the numerals of {f}.oneout_kidIns, _entries) and for the callees {kids} (gate_width, what #gate_child left) are conditions, not reductions; (2) runtime boundary premises that remain: the run of the entry, MachineDefines of {f}, ChildBnd, EntryDefines of the callees (open form: also MachineClosesAt); (3) the result depends on the compiler's guards (checkedOptimize's fallback, deinline's guards, closeInsts' checks); (4) the conclusion is about DesignSV (childMap D.modules) 0 (checkedOptimize b) — the module list, not the SV string, not #sim; (5) ONE declaration with a register, gate children and the one-output closing: not slotless parents, not machine-route children, not several outputs, not all successful inputs. Standard axioms."
+  logInfo m!"ONEOUT FAMILY {f}: {full} ({openLines.size} lines; other: the closing premise only) and {closed} ({closedLines.size} lines; other: NONE) — none of the four check premises of {old} (shipsHierHCheck, kidsComb, designCheck, outsCheck), no residual; {gapNote}.{handNote} SCOPE of this statement: (1) data conditions decided per declaration by the kernel for {f} ({f}.oneout_callsOk, _slotLen, _domB, _insts, _instFields, _nomem, _slots, _outChars, _callArgs at the numerals of {f}.oneout_kidIns, _entries; output width / scalar from the reader: outTy_of_core / outScalar_of_core, not decided) and for the callees {kids} (gate_width, what #gate_child left) are conditions, not reductions; (2) runtime boundary premises that remain: the run of the entry, MachineDefines of {f}, ChildBnd, EntryDefines of the callees (open form: also MachineClosesAt); (3) the result depends on the compiler's guards (checkedOptimize's fallback, deinline's guards, closeInsts' checks); (4) the conclusion is about DesignSV (childMap D.modules) 0 (checkedOptimize b) — the module list, not the SV string, not #sim; (5) ONE declaration with a register, gate children and the one-output closing: not slotless parents, not machine-route children, not several outputs, not all successful inputs. Standard axioms."
 
 /-- A refused declaration has nothing under the generator's names. -/
 def leftNothing (f : Name) : MetaM Unit := do

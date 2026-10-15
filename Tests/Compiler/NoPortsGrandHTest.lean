@@ -180,9 +180,9 @@ theorem midH_kid {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Met
     insts := midH.oneout_insts
     oneOut := midH.oneout_instFields
     slots := midH.oneout_slots
-    outTy := midH.oneout_outTy
+    outTy := by first | exact midH.oneout_outTy | decide
     outName := fun o ho => Tools.ShippingSVBridge.sanitizeName_of_clean (midH.oneout_outChars o ho)
-    outScalar := midH.oneout_outScalar
+    outScalar := by first | exact midH.oneout_outScalar | decide
     nomem := midH.oneout_nomem
     hkD := by decide
     hIlen := by decide

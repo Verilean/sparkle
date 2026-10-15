@@ -64,8 +64,13 @@ def lemmasOf (f : Name) : List Name :=
 /-- The data conditions the generator leaves under `f`. -/
 def condsOf (f : Name) : List Name :=
   [`oneout_callsOk, `oneout_slotLen, `oneout_domB, `oneout_insts, `oneout_instFields,
-   `oneout_outTy, `oneout_nomem, `oneout_slots, `oneout_outChars, `oneout_outScalar,
+   `oneout_nomem, `oneout_slots, `oneout_outChars,
    `oneout_kidIns, `oneout_callArgs, `oneout_entries].map (f ++ ·)
+
+/-- The parent's data conditions the default path no longer decides (par/r-5:
+`outTy_of_core` / `outScalar_of_core` at the run's `hcore`, `entry`). -/
+def readerOf (f : Name) : List Name :=
+  [`oneout_outTy, `oneout_outScalar].map (f ++ ·)
 
 /-- What the generator leaves under a machine-leaf callee. -/
 def leafOf (c : Name) : List Name :=
@@ -86,13 +91,16 @@ def auditAny (f : Name) (machKids gateKids : List Name) (existing : Bool) : Meta
   unless (← getEnv).contains full && (← getEnv).contains facts do
     logInfo m!"ONEOUT ANY FAMILY {f}: no generated endpoint — premise list, axiom audit and goal gap SKIPPED; no premise of {old} counts as removed for {f}"
     return
+  for n in readerOf f do
+    if (← getEnv).contains n then
+      throwError "{n}: generated — the default path takes it from the reader (par/r-5)"
   Tests.Compiler.OneOutLeafAudit.audit "ONEOUT ANY FAMILY" f machKids gateKids (lemmasOf f)
     (condsOf f ++ machKids.flatMap leafOf ++ gateKids.flatMap gateOf ++
       [``Tools.ShippingLeafOneOutGen.gateCallsOk_parts,
        ``Tools.ShippingLeafOneOutGen.leaf_outWidth])
     existing
     (Tests.Compiler.OneOutLeafAudit.scopeOf f
-      s!"for {f}: {f}.oneout_callsOk, _slotLen, _domB, _insts, _instFields, _outTy, _nomem, _slots (the parent has a register), _outChars, _outScalar, _callArgs at the numerals of {f}.oneout_kidIns, _entries (per entry: the callee, its argument widths, the result binder's width); for each machine-leaf callee c in {machKids}: c.leaf_gate (gateCallsOk at nIn), _calls, _dom, _ss, _insts, _outTy, _outChars, _outScalar, _lets, _slots, _one, _outW, with its generated machine_ok / machine_body / machine_closes; for each gate callee in {gateKids}: gate_width and what #gate_child left"
+      s!"for {f}: {f}.oneout_callsOk, _slotLen, _domB, _insts, _instFields, _nomem, _slots (the parent has a register), _outChars, _callArgs at the numerals of {f}.oneout_kidIns, _entries (per entry: the callee, its argument widths, the result binder's width); for each machine-leaf callee c in {machKids}: c.leaf_gate (gateCallsOk at nIn), _calls, _dom, _ss, _insts, _outTy, _outChars, _outScalar, _lets, _slots, _one, _outW, with its generated machine_ok / machine_body / machine_closes; for each gate callee in {gateKids}: gate_width and what #gate_child left"
       "a parent mixing a gate callee and a machine-leaf callee (no test declaration)")
 
 /-- A refused declaration has nothing under the generator's names. -/

@@ -2,6 +2,7 @@ import Tools.ShippingOneOutGenCommand
 import Tools.ShippingLeafOneOut
 import Tools.ShippingLeafOneOutGen
 import Tools.ShippingCallWidthsStrict
+import Tools.ShippingReaderOutsInv
 
 /-! # `#machine_oneout_any f`: the one-output head's lemmas GENERATED, for callees that are gate children OR slotless leaf machine children (G1, round par/a-11)
 
@@ -111,6 +112,22 @@ the SV string, not `#sim`. One declaration at a time: a register parent, the
 one-output closing, gate children and slotless leaf machine children. NOT
 slotless parents, NOT machine children with registers or calls, NOT several
 outputs, NOT "all successful inputs".
+
+## The output facts from the reader (round par/r-5; WRITTEN, NOT BUILT)
+
+As `#machine_oneout` (same round): the PARENT's `f.oneout_outTy` and
+`f.oneout_outScalar` are no longer decided; the six lemmas pass
+`Tools.ShippingReaderOutsInv.outTy_of_core hcore entry` (all six) and
+`outScalar_of_core hcore entry` (`portsRawH`, `hierTypedH`, `designFullH`).
+EVERY generated statement is unchanged. NOT changed: a machine-leaf
+CALLEE's `c.leaf_outTy` / `c.leaf_outScalar` (fields of `SlotlessLeaf`,
+proved with only `MachineDefines c` in scope — no run of `c`, so the reader
+lemmas do not apply).
+
+The PREVIOUS path: `#machine_oneout_any_olddata f` /
+`#machine_oneout_any_olddata_try f "…"` (decides the two parent lemmas,
+passes them, keeps the scratch `n.oneout_expected` of every re-derived
+PARENT name; `Tests/Compiler/OneOutAnyGenOldDataTest.lean`, target-only).
 
 UNVERIFIED at the time of writing: this file was not built. -/
 namespace Tools.ShippingOneOutAnyGenCommand
@@ -338,7 +355,8 @@ def gateFacts (f c : Name) (W : Nat) : CommandElabM Unit := do
         first | rfl | decide)
 
 /-- Everything after the scope test; every `throwError` here is a FAILURE. -/
-def oneOutCore (f : Name) (info : Info) : CommandElabM (List Name × Bool × String) := do
+def oneOutCore (f : Name) (info : Info) (oldData : Bool := false) :
+    CommandElabM (List Name × Bool × String) := do
   let r := info.r
   let kids := info.kids
   let isLeaf (i : Nat) : Bool := info.kinds.getD i CalleeKind.gate == CalleeKind.leaf
@@ -358,7 +376,7 @@ def oneOutCore (f : Name) (info : Info) : CommandElabM (List Name × Bool × Str
     if isLeaf i then leafFacts f c W else gateFacts f c W
   -- ## the parent's data conditions, each named
   let dataLemma (s cond : String) (ty pf : Term) : CommandElabM Unit := do
-    discard <| emitOrVerify (dn s) s!"data condition {cond}" fun id =>
+    discard <| emitOrVerify (keep := oldData) (dn s) s!"data condition {cond}" fun id =>
       `(command| theorem $id : $ty := $pf)
   dataLemma "callsOk" s!"callsOk {f}.machineData {r.nDecl}"
     (← `(Tools.ShippingMachineAuto.MachineData.callsOk $data $nDecl = true)) (← `(by first | decide | decide +kernel))
@@ -373,8 +391,10 @@ def oneOutCore (f : Name) (info : Info) : CommandElabM (List Name × Bool × Str
   dataLemma "instFields" "shape.instFields = []"
     (← `(($data).shape.instFields = []))
     (← `(by first | rfl | decide))
-  dataLemma "outTy" "every output's ty.bitWidth = width"
-    (← `(∀ o ∈ ($data).shape.layout.outs, o.ty.bitWidth = o.width)) (← `(by first | decide | decide +kernel))
+  -- par/r-5: `outTy` / `outScalar` only on the previous data path
+  if oldData then
+    dataLemma "outTy" "every output's ty.bitWidth = width"
+      (← `(∀ o ∈ ($data).shape.layout.outs, o.ty.bitWidth = o.width)) (← `(by first | decide | decide +kernel))
   dataLemma "nomem" "no memory callee"
     (← `(∀ c ∈ ($data).shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none))
     (← `(by first | decide | decide +kernel))
@@ -385,9 +405,10 @@ def oneOutCore (f : Name) (info : Info) : CommandElabM (List Name × Bool × Str
     (← `(∀ o ∈ ($data).shape.layout.outs, ∀ c ∈ o.name.toList,
       Sparkle.IR.NameHints.charOk c = true))
     (← `(by first | decide | decide +kernel))
-  dataLemma "outScalar" "the output types are scalarTy"
-    (← `(∀ o ∈ ($data).shape.layout.outs, Tools.ShippingTextTyped.scalarTy o.ty = true))
-    (← `(by first | decide | decide +kernel))
+  if oldData then
+    dataLemma "outScalar" "the output types are scalarTy"
+      (← `(∀ o ∈ ($data).shape.layout.outs, Tools.ShippingTextTyped.scalarTy o.ty = true))
+      (← `(by first | decide | decide +kernel))
   -- the argument widths per entry: numerals computed from the parent's data
   let mut rows : Array Term := #[]
   for ws in info.kidIns do
@@ -397,7 +418,7 @@ def oneOutCore (f : Name) (info : Info) : CommandElabM (List Name × Bool × Str
       lits := lits.push l
     let row : Term ← `([$lits,*])
     rows := rows.push row
-  discard <| emitOrVerify (dn "kidIns") "the definition of the argument widths" fun id =>
+  discard <| emitOrVerify (keep := oldData) (dn "kidIns") "the definition of the argument widths" fun id =>
     `(command| def $id : Nat → List Nat := fun k => List.getD [$rows,*] k [])
   let kidInsI := dl "kidIns"
   dataLemma "callArgs" s!"callArgsOk {f}.machineData {r.nDecl} {f}.oneout_kidIns with {f}.oneout_kidIns = {info.kidIns}"
@@ -505,6 +526,12 @@ def oneOutCore (f : Name) (info : Info) : CommandElabM (List Name × Bool × Str
     else
       `(tactic| (rw [hc] at hy; exact $(gk i) $(hR i) hy))
   let hon : Term ← `(fun o ho => Tools.ShippingSVBridge.sanitizeName_of_clean ($(dl "outChars") o ho))
+  -- par/r-5: the two output facts from the reader at the run's `hcore` / `entry`
+  -- (bound by `mkThm`); the previous data path: the decided lemmas
+  let outTyT : Term ← if oldData then pure ⟨(dl "outTy").raw⟩
+    else `((Tools.ShippingReaderOutsInv.outTy_of_core hcore entry))
+  let outScalarT : Term ← if oldData then pure ⟨(dl "outScalar").raw⟩
+    else `((Tools.ShippingReaderOutsInv.outScalar_of_core hcore entry))
   let factsN := f ++ `machine_factsH
   let outsN := f ++ `machine_outsH
   let rawN := f ++ `machine_portsRawH
@@ -513,18 +540,18 @@ def oneOutCore (f : Name) (info : Info) : CommandElabM (List Name × Bool × Str
   let designN := f ++ `machine_designFullH
   let rawI := nm f "machine_portsRawH"
   let shippedI := nm f "machine_portsShippedH"
-  discard <| emitOrVerify factsN s!"{factsN} (core_runFactsH at {f}'s data)" fun id => do
+  discard <| emitOrVerify (keep := oldData) factsN s!"{factsN} (core_runFactsH at {f}'s data)" fun id => do
     mkThm id fq data #[] false
       (← `(Tools.ShippingOneOutFacts.RunFactsH D.modules b))
       (← `(Tools.ShippingOneOutFacts.core_runFactsH (nDecl := $nDecl) $data $okI $bodyI
         $(dl "callsOk") $(dl "slotLen") $(dl "domB") $(dl "insts") $(dl "instFields")
-        $(dl "outTy") $(dl "nomem") hB hcore hpost entry closes $(dl "slots")))
-  discard <| emitOrVerify outsN s!"{outsN} (core_outsCheck_all_gate at {f}'s data)" fun id => do
+        $outTyT $(dl "nomem") hB hcore hpost entry closes $(dl "slots")))
+  discard <| emitOrVerify (keep := oldData) outsN s!"{outsN} (core_outsCheck_all_gate at {f}'s data)" fun id => do
     mkThm id fq data binders true
       (← `(Tools.ShippingDesignSVBack.outsCheck (Tools.ShippingMachineLinked.childMap D.modules) 0
         (Sparkle.IR.OptCheck.checkedOptimize b) = true))
       (← `(Tools.ShippingChecksCoreGate.core_outsCheck_all_gate (nDecl := $nDecl) $data $okI $bodyI
-        $(dl "callsOk") $(dl "slotLen") $(dl "domB") $(dl "insts") $(dl "outTy") $(dl "nomem")
+        $(dl "callsOk") $(dl "slotLen") $(dl "domB") $(dl "insts") $outTyT $(dl "nomem")
         (by
           intro k hk y hy
           $tacA:tactic)
@@ -532,13 +559,13 @@ def oneOutCore (f : Name) (info : Info) : CommandElabM (List Name × Bool × Str
           intro k hk y hy
           $tacR:tactic)
         hB hcore hpost entry closes hg 0))
-  discard <| emitOrVerify rawN s!"{rawN} (core_portsMatch_raw₁ at {f}'s data)" fun id => do
+  discard <| emitOrVerify (keep := oldData) rawN s!"{rawN} (core_portsMatch_raw₁ at {f}'s data)" fun id => do
     mkThm id fq data binders false
       (← `(Tools.ShippingDesignSV.portsMatchB (Tools.ShippingMachineLinked.childMap D.modules) b =
         true))
       (← `(Tools.ShippingOneOutConns.core_portsMatch_raw₁ (nDecl := $nDecl) $data $okI $bodyI
         $(dl "callsOk") $(dl "slotLen") $(dl "domB") $(dl "insts") $(dl "instFields")
-        $(dl "outTy") $(dl "nomem")
+        $outTyT $(dl "nomem")
         (by
           intro k hk y hy p hp
           $tacW:tactic)
@@ -549,23 +576,23 @@ def oneOutCore (f : Name) (info : Info) : CommandElabM (List Name × Bool × Str
         (by
           intro k hk y hy j q hq
           $tacIn:tactic)
-        hB hcore hpost entry closes $hon $(dl "outScalar")))
-  discard <| emitOrVerify shippedN s!"{shippedN} (portsMatchB_shipped)" fun id => do
+        hB hcore hpost entry closes $hon $outScalarT))
+  discard <| emitOrVerify (keep := oldData) shippedN s!"{shippedN} (portsMatchB_shipped)" fun id => do
     mkThm id fq data binders false
       (← `(Tools.ShippingDesignSV.portsMatchB (Tools.ShippingMachineLinked.childMap D.modules)
         (Sparkle.IR.OptCheck.checkedOptimize b) = true))
       (← `(Tools.ShippingPortsMatchShipped.portsMatchB_shipped
         (Tools.ShippingHierGateAny.core_hierGate_any (nDecl := $nDecl) $data $okI $bodyI
-          $(dl "callsOk") $(dl "slotLen") $(dl "domB") $(dl "insts") $(dl "outTy") $(dl "nomem")
+          $(dl "callsOk") $(dl "slotLen") $(dl "domB") $(dl "insts") $outTyT $(dl "nomem")
           hB hcore hpost entry closes)
         ($rawI hcore hpost entry closes hB $hRs*)))
-  discard <| emitOrVerify typedN s!"{typedN} (core_hierTyped₁ at {f}'s data)" fun id => do
+  discard <| emitOrVerify (keep := oldData) typedN s!"{typedN} (core_hierTyped₁ at {f}'s data)" fun id => do
     mkThm id fq data binders false
       (← `(Tools.ShippingHierTyped.hierTyped (Tools.ShippingMachineLinked.childMap D.modules) b =
         true))
       (← `(Tools.ShippingOneOutConns.core_hierTyped₁ (nDecl := $nDecl) $data $okI $bodyI
         $(dl "callsOk") $(dl "slotLen") $(dl "domB") $(dl "insts") $(dl "instFields")
-        $(dl "outTy") $(dl "nomem")
+        $outTyT $(dl "nomem")
         (by
           intro k hk y hy p hp
           $tacW:tactic)
@@ -576,15 +603,15 @@ def oneOutCore (f : Name) (info : Info) : CommandElabM (List Name × Bool × Str
         (by
           intro k hk y hy j q hq
           $tacInD:tactic)
-        hB hcore hpost entry closes $hon $(dl "outScalar")))
-  discard <| emitOrVerify designN s!"{designN} (core_designCheckH at {f}'s data)" fun id => do
+        hB hcore hpost entry closes $hon $outScalarT))
+  discard <| emitOrVerify (keep := oldData) designN s!"{designN} (core_designCheckH at {f}'s data)" fun id => do
     mkThm id fq data binders false
       (← `(Tools.ShippingDesignSV.designCheck (Tools.ShippingMachineLinked.childMap D.modules) 0
         (Sparkle.IR.OptCheck.checkedOptimize b) = true))
       (← `(Tools.ShippingOneOutFacts.core_designCheckH (nDecl := $nDecl) $data $okI $bodyI
         $(dl "callsOk") $(dl "slotLen") $(dl "domB") $(dl "insts") $(dl "instFields")
-        $(dl "outTy") $(dl "nomem") hB hcore hpost entry closes $(dl "slots")
-        $hon $(dl "outScalar")
+        $outTyT $(dl "nomem") hB hcore hpost entry closes $(dl "slots")
+        $hon $outScalarT
         (by
           intro k hk y hy
           $tacK:tactic)
@@ -615,12 +642,14 @@ def oneOutCore (f : Name) (info : Info) : CommandElabM (List Name × Bool × Str
     if isLeaf i then some kids[i]! else none
   let gateKids := (List.range kids.length).filterMap fun i =>
     if isLeaf i then none else some kids[i]!
-  let dataNote := s!"callees: machine leaves {leafKids} (premise MachineDefines), gate children {gateKids} (premise EntryDefines); data conditions decided by the kernel for {f}: callsOk {r.nDecl}, slot lengths, no late domain binder, insts ≠ [], instFields = [], slots ≠ [], output width / name / scalar conditions, no memory callee, callArgsOk with {f}.oneout_kidIns = {info.kidIns}, per entry the callee among {kids} with its argument widths and the result binder's width {info.resW}; for a machine leaf c: c.leaf_gate, _calls, _dom, _ss, _insts, _outTy, _outChars, _outScalar, _lets, _slots, _one, _outW and its generated machine_ok / machine_body / machine_closes; for a gate child: gateSort.width, what #gate_child left. These are conditions, not reductions; the run, MachineDefines, EntryDefines and ChildBnd remain premises"
+  let outNote : String := if oldData then "output width / name / scalar conditions"
+    else "output name conditions (output width and scalar of the parent: outTy_of_core / outScalar_of_core, every reader result, not decided)"
+  let dataNote := s!"callees: machine leaves {leafKids} (premise MachineDefines), gate children {gateKids} (premise EntryDefines); data conditions decided by the kernel for {f}: callsOk {r.nDecl}, slot lengths, no late domain binder, insts ≠ [], instFields = [], slots ≠ [], {outNote}, no memory callee, callArgsOk with {f}.oneout_kidIns = {info.kidIns}, per entry the callee among {kids} with its argument widths and the result binder's width {info.resW}; for a machine leaf c: c.leaf_gate, _calls, _dom, _ss, _insts, _outTy, _outChars, _outScalar, _lets, _slots, _one, _outW and its generated machine_ok / machine_body / machine_closes; for a gate child: gateSort.width, what #gate_child left. These are conditions, not reductions; the run, MachineDefines, EntryDefines and ChildBnd remain premises"
   return (made, fresh, s!"{note}; {closedNote}; {dataNote}")
 
 /-- The generator on `f`: never throws; on REFUSED / FAILED the environment
 and the message log are put back. -/
-def oneOutAny (f : Name) : CommandElabM Outcome := do
+def oneOutAny (f : Name) (oldData : Bool := false) : CommandElabM Outcome := do
   let savedEnv ← getEnv
   let savedMsgs := (← get).messages
   let restore : CommandElabM Unit := do
@@ -636,7 +665,7 @@ def oneOutAny (f : Name) : CommandElabM Outcome := do
   | .error reason => return .refused reason
   | .ok info =>
     try
-      let (made, fresh, note) ← oneOutCore f info
+      let (made, fresh, note) ← oneOutCore f info oldData
       if fresh then return .generated made note else return .present made note
     catch ex =>
       let msg ← ex.toMessageData.toString
@@ -658,6 +687,26 @@ is an error when its class is not the expected one (`GENERATED`, `PRESENT`,
 elab "#machine_oneout_any_try " d:ident ppSpace e:str : command => do
   let f ← liftCoreM <| realizeGlobalConstNoOverloadWithInfo d
   let o ← oneOutAny f
+  logInfo m!"{line f o}"
+  unless o.tag == e.getString do
+    throwError "ONEOUT ANY {f}: expected {e.getString}, found {o.tag}"
+
+/-- `#machine_oneout_any_olddata f`: the generator with the PREVIOUS data path
+(the parent's `f.oneout_outTy` / `_outScalar` decided and passed to the six
+lemmas; the scratch of every re-derived parent name kept as
+`n.oneout_expected`). Kept to compare the two paths on one tree (par/r-5). -/
+elab "#machine_oneout_any_olddata " d:ident : command => do
+  let f ← liftCoreM <| realizeGlobalConstNoOverloadWithInfo d
+  let o ← oneOutAny f (oldData := true)
+  match o with
+  | .refused _ | .failed _ => throwError "{line f o}"
+  | _ => logInfo m!"{line f o}"
+
+/-- `#machine_oneout_any_olddata_try f "EXPECTED"`: as `#machine_oneout_any_try`,
+on the previous data path. -/
+elab "#machine_oneout_any_olddata_try " d:ident ppSpace e:str : command => do
+  let f ← liftCoreM <| realizeGlobalConstNoOverloadWithInfo d
+  let o ← oneOutAny f (oldData := true)
   logInfo m!"{line f o}"
   unless o.tag == e.getString do
     throwError "ONEOUT ANY {f}: expected {e.getString}, found {o.tag}"

@@ -174,11 +174,16 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   -- (a) standard axioms: the endpoints, the gap theorem, the lemmas the file names
   let lemmas : List String :=
     ["outsOf", "insOf", "nameOf", "nkOf", "outsNOf", "namesOf", "entry", "calls", "slots",
-     "domB", "outTy", "callWidths", "callArgs", "outChars", "outScalar", "kids", "runFacts",
+     "domB", "callWidths", "callArgs", "outChars", "kids", "runFacts",
      "outsG0", "mixedG", "designP0", "alias", "argsN", "fieldOut", "fieldsNd", "outHead",
      "notinP0", "notinP1", "leafNotin0_0", "leafNotin0_1", "leafNotin1_0", "leafNotin1_1",
      "leafNeParent0", "leafNeParent1", "leafNe0_1", "memNe0_1", "iface0", "iface1",
      "kidsP", "sep", "parent", "parentD", "disj", "closes"]
+  -- par/r-5: the two output facts come from the reader (outTy_of_core / outScalar_of_core)
+  for s in ["outTy", "outScalar"] do
+    let n := f ++ Lean.Name.mkSimple ("noPortsMemSeq_" ++ s)
+    if env.contains n then
+      throwError "{n}: generated — the default path takes it from the reader (par/r-5), it must not decide it"
   for n in [openN, closed, gap] ++ lemmas.map (fun s => f ++ Lean.Name.mkSimple ("noPortsMemSeq_" ++ s)) do
     unless env.contains n do throwError "{n}: missing"
     Tests.Compiler.NoPortsTest.stdAxioms n

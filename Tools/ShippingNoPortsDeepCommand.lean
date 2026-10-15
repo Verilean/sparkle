@@ -132,7 +132,7 @@ def oneOutGate (who : String) (k : Name) (cr : Tools.ShippingMachineCommand.Read
       throwError "{who} {k}'s callee {g} is not a gate child with #gate_child data (no {g ++ sfx})"
   for c in [g ++ `gate_full, g ++ `gate_kidK, g ++ `gateValue, k ++ `oneout_callsOk,
       k ++ `oneout_slotLen, k ++ `oneout_domB, k ++ `oneout_insts, k ++ `oneout_instFields,
-      k ++ `oneout_slots, k ++ `oneout_outTy, k ++ `oneout_outChars, k ++ `oneout_outScalar,
+      k ++ `oneout_slots, k ++ `oneout_outChars,
       k ++ `oneout_nomem, k ++ `machine_portsRawH, k ++ `closes_deep] do
     unless env.contains c do
       throwError "{who} {k} lacks {c} (run #gate_child {g}, #machine_design_svHR {k}, #machine_oneout {k} and a depth command that leaves {k}.closes_deep first)"

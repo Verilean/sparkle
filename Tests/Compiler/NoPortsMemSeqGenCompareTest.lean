@@ -60,8 +60,8 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   let lemmas : List String :=
     ["outsOf", "insOf", "nameOf", "nkOf", "outsNOf", "namesOf",
      "outsOf_at0", "outsOf_at1", "namesOf_at0", "namesOf_at1",
-     "entry", "calls", "slots", "domB", "outTy", "callWidths", "callArgs", "outChars",
-     "outScalar", "kids", "runFacts", "outsG0", "mixedG", "designP0",
+     "entry", "calls", "slots", "domB", "callWidths", "callArgs", "outChars",
+     "kids", "runFacts", "outsG0", "mixedG", "designP0",
      "alias", "argsN", "fieldOut", "fieldsNd", "outHead", "notinP0", "leafNotin0_0",
      "leafNeParent0", "iface0", "kidsP", "sep", "parent", "parentD", "disj", "closes"]
   for s in lemmas do
@@ -70,6 +70,11 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     Tests.Compiler.NoPortsTest.stdAxioms n
     if env.contains (f ++ Lean.Name.mkSimple ("noPortsMemSeq_" ++ s ++ "_regen")) then
       throwError "{n}: existed before the command ran (a second generator file is in the imports)"
+  -- par/r-5: the two output facts come from the reader (outTy_of_core / outScalar_of_core)
+  for s in ["outTy", "outScalar"] do
+    let n := f ++ Lean.Name.mkSimple ("noPortsMemSeq_" ++ s)
+    if env.contains n then
+      throwError "{n}: generated — the default path takes it from the reader (par/r-5), it must not decide it"
   -- the leaf side is the callee's own theorem: not re-added
   let lkR := ``Sparkle.Tests.Compiler.ShippingMachineSeqTest.cnt ++ `machine_leafKid_regen
   if env.contains lkR then throwError "{lkR}: exists — the command re-added the callee's leafKid"

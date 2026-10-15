@@ -272,7 +272,9 @@ set_option maxHeartbeats 0 in
       [m ++ `machineData, m ++ `machine_ok, m ++ `machine_body, m ++ `machine_sound,
        m ++ `machine_closes_at, m ++ `machine_portsRawH, m ++ `oneout_callsOk,
        m ++ `oneout_slotLen, m ++ `oneout_domB, m ++ `oneout_insts, m ++ `oneout_instFields,
-       m ++ `oneout_slots, m ++ `oneout_outTy, m ++ `oneout_outChars, m ++ `oneout_outScalar,
+       -- `oneout_outTy` / `oneout_outScalar` are no longer generated (#machine_oneout takes them from
+       -- the reader, par/r-5); `oneOutKidTheorem` decides them for the callee
+       m ++ `oneout_slots, m ++ `oneout_outChars,
        m ++ `oneout_nomem, rc ++ `gate_peel, rc ++ `gate_old, rc ++ `gate_wf,
        rc ++ `gateBinders, rc ++ `gateSort, rc ++ `gate_full, rc ++ `gate_kidK,
        rc ++ `gateValue, rc ++ `gate_child]
