@@ -72,4 +72,6 @@ allowed, in progress), callees that are not first-gate children, setw / slices /
 ## 8. Tally (separate kind)
 Gate-route parents are tallied separately from the machine-route census, with columns: existence-only
 design statement / all-run design statement / remaining conditions / target-only vs in suite. Current state:
-seven parents EXISTENCE-only (`…_gate_designSVN3`), all target-only; all-run side open (worker N round 15).
+seven parents EXISTENCE (`…_gate_designSVN3`) and ALL-RUN (`…_gate_designSVall`, 3312f5a4) at the design
+level, all target-only; remaining: `GateDefines` (this class), `DesignSideR` (run-level bounds), binder-id
+Nodup not stated; differences from `ships_design_svN_all` listed in verification-n-gate-parent-run.md.
