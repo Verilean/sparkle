@@ -113,3 +113,108 @@ have returned either". That is WRONG: a finite execution deeper than `2^64 · st
 assuming O1 the conclusion does not follow. OUT means only "undecided within this trial budget";
 `defaultRounds` is a test budget, not an acceptance guarantee. Header corrected (comment only; no statement
 changed).
+
+## SHADOW over a fixed list (worker I, `par/r-13`, reviewer ruling 2026-10-16) — WRITTEN, NOT BUILT
+`Tests/Compiler/ReaderFuelShadowTest.lean` (target-only: `lake build Tests.Compiler.ReaderFuelShadowTest`; not
+in `Tests.AllTests`). No compiler change, production NOT switched, no corpus, no environment sweep. 40 cases,
+listed explicitly; START FUEL 1 (so OUT→OK and OUT→FAIL actually happen), round bound `defaultRounds`.
+
+**Sources.** IMPORTED (no endpoint generation in these modules): `Tests.Compiler.ReaderFuelGridTest` (`G.`, BUILT;
+its own grid cases are not re-run on import), `Tests.Compiler.MultiInstanceTest` (`MI.`, in AllTests),
+`Tests.Compiler.Issue107LetBoundInstanceDup` (`I107.`, imported by ShippingHierOptRunTest). COPIED (their home
+modules run `#machine_endpoint` / `#machine_composed*` / `#machine_ships_hier*` / `generate`, which a stale olean
+would re-run): ShippingMachineSeqTest (CntOut, cnt, parent, chained, mid, grand), ShippingMachineDepthHTest (rcH,
+midH, grandH), ShippingDesignSVTest (mid2, topD2, mixD1), ShippingChildBoundaryTest (mixDeep),
+ShippingMachineNestTest (latch2, Pair, pair, Out, source, consumer), ShippingMachineTeleTest (PulseOut, CountOut,
+detect, countOn, chain3), ShippingMachineFuseTest (innerCnt, siblings, withMemory), ShippingMachineLinkedTest
+(pickByteH, counterB, callerLN), ShippingMachineInstTest (pickD, callerD), ShippingMachineLoopTest (wholeLoop,
+loopPair), ShippingMachineMemLinkedTest (mixedMems). Written here: `loopCall`, `natSig`.
+
+**The list.**
+
+| # | label | group | declaration |
+|---|---|---|---|
+| 1 | counterLoop | loop | G.counterLoop |
+| 2 | accLoop | loop | G.accLoop |
+| 3 | wholeLoop | loop | wholeLoop (copy) |
+| 4 | loopPair | loop | loopPair (copy) |
+| 5 | toggle107 | loop | I107.toggle |
+| 6 | latch2 | nested | latch2 (copy) |
+| 7 | pair | nested | pair (copy) |
+| 8 | consumer | nested | consumer (copy) |
+| 9 | chain3 | nested-shared | chain3 (copy; `countOn` twice) |
+| 10 | siblings | nested-shared | siblings (copy; `innerCnt` twice) |
+| 11 | caller | calls | G.caller |
+| 12 | callerNested | calls | G.callerNested |
+| 13 | callerInner | calls | G.callerInner |
+| 14 | callerD | calls | callerD (copy) |
+| 15 | callerLN | calls | callerLN (copy) |
+| 16 | threeInstances | calls | I107.threeInstances |
+| 17 | parent | instS | parent (copy) |
+| 18 | chained | instS | chained (copy) |
+| 19 | grand | instS-callers | grand (copy) |
+| 20 | grandH | instS-callers | grandH (copy) |
+| 21 | topD2 | instS-callers | topD2 (copy) |
+| 22 | mixD1 | instS-callers | mixD1 (copy) |
+| 23 | mixDeep | instS-callers | mixDeep (copy) |
+| 24 | twinCalls | instS | MI.twinCalls |
+| 25 | mesh2x2 | instS | MI.mesh2x2 |
+| 26 | cnt | multi-output | cnt (copy) |
+| 27 | mid2 | multi-output | mid2 (copy) |
+| 28 | pe | multi-output | MI.pe |
+| 29 | source | multi-output | source (copy) |
+| 30 | memCounter | memory | G.memCounter |
+| 31 | twoMems | memory | G.twoMems |
+| 32 | mixedMems | memory | mixedMems (copy; comb + sync read) |
+| 33 | withMemory | memory | withMemory (copy; dead memory, inner loop) |
+| 34 | twoLoops | refusal | G.twoLoops |
+| 35 | opaqueInit | refusal | G.opaqueInit |
+| 36 | loopCall | refusal | loopCall (here; loop alone calling `pick`) |
+| 37 | notHw | refusal | G.notHw |
+| 38 | natSig | refusal | natSig (here; `Signal Nat` binder) |
+| 39 | gridInit | refusal | G.gridInit (an `opaque`) |
+| 40 | latchSymbolic | refusal | G.latch in symbolic mode |
+
+**Lines.** Per case two commands: `SHADOW CASE START <label>` (its own command, also written to stderr and
+flushed, so it is reported before the work starts), then the work on a dedicated task under a wall-clock guard
+(`caseBudgetMs = 60000`, a polling sleeper task; `IO.waitAny`) and ONE line, logged before the verdict is acted on:
+
+    SHADOW <label> [<group>]: real=<OK|FAIL> driver=<OK|FAIL|OUT> path=<OK@1|FAIL@1|OUT→OK|OUT→FAIL|OUT(budget)> fields=<all-equal|differ:…|n/a> equal=<bool> doublings=<k> fuel=<n> realMs=<t> driverMs=<t>
+
+`fields` compares EVERY field of both `MachineShape`s by `BEq` (binders, body, layout.slots, layout.outs,
+layout.resetKind, layout.lets, runs, insts, loops, instFields) and names each differing one. A case errors after
+its line iff `equal=false`. If the work does not return within the guard: `SHADOW <label> [<group>]: TIMEOUT after
+60000 ms …` as a WARNING — a separate class, never OUT. A hang the guard cannot catch is a START with no result
+line (the integrator's cgrun timeout is the backstop). Peak memory: the integrator's cgrun.
+
+**PREDICTED (by reading; NOT observed).**
+* rows 1–33: `real=OK driver=OK path=OUT→OK fields=all-equal equal=true`, doublings 4–6, fuel 16–64 (grid:
+  4–5 / 16–32; the deeper `mixDeep`, `topD2`, `chain3`, `siblings`, `withMemory`, `mesh2x2` may need one more).
+  Lowest confidence in the OK CLASS of `mesh2x2`, `twinCalls` (slotless parents of structure children) and
+  `pair`, `source` (structure results without an enclosing machine / with an unascribed constructor); whatever
+  the class, the prediction is `equal=true`.
+* rows 34–36 (`twoLoops`, `opaqueInit`, `loopCall`): `real=FAIL driver=FAIL path=OUT→FAIL fields=n/a equal=true`.
+* rows 37–40 (`notHw`, `natSig`, `gridInit`, `latchSymbolic`): `real=FAIL driver=FAIL path=FAIL@1 fields=n/a
+  equal=true doublings=0 fuel=1` (`machineShapeF_of_pre_none`).
+* no TIMEOUT; realMs / driverMs ≤ 100 each; `READER FUEL SHADOW DONE: 40 cases`.
+
+**Risks.** (1) A TIMEOUT task cannot be cancelled (pure code): it keeps a dedicated thread and CPU, and process
+exit may wait for it — the cgrun timeout then ends the run AFTER all lines are printed. (2) Elaboration of the
+copies (opens differ slightly from their home modules: name resolution prefers this namespace). (3) `IO.waitAny`'s
+default length proof on the literal list. (4) Importing `MultiInstanceTest` / `Issue107…` builds them if stale
+(cheap: synthesis asserts only). (5) Timing: the answer is forced by branching on an unfoldable key
+(`shapeKey`: the body's hash) before the second clock read; interpreted run (`run_cmd`), so absolute ms include
+interpreter overhead for the harness only (the readers are compiled Sparkle code if precompiled, else interpreted).
+
+## Shadow (worker I, 7399c6d5) — MEASURED, built as written
+Applied on poc fe65d4c5. Run `i1` (cgrun, 3 GiB, swap 0, `-j 1`, peak 0.35 GB):
+`Tests.Compiler.ReaderFuelShadowTest` exit 0. `READER FUEL SHADOW DONE: 40 cases`, start fuel 1, round bound 64,
+guard 60000 ms per case. Result: 40 / 40 `equal=true` with ALL shape fields equal on every OK case; no TIMEOUT.
+* OUT→OK (33): loops (accLoop, counterLoop, wholeLoop, loopPair, toggle107), nested / shared (latch2, pair,
+  consumer, chain3, siblings), calls (caller, callerNested, callerInner, callerD, callerLN, threeInstances —
+  6 doublings, fuel 64), instS / instS callers (parent, chained, grand, grandH, topD2, mixD1, mixDeep, twinCalls,
+  mesh2x2), multi-output (cnt, mid2, pe, source), memory (memCounter, twoMems, mixedMems, withMemory);
+  4–6 doublings, final fuel 16–64; real ≤ 2 ms, driver ≤ 10 ms per case.
+* OUT→FAIL (3): twoLoops, opaqueInit, loopCall.
+* FAIL at fuel 1 (4): notHw, natSig, gridInit, latchSymbolic.
+Scope: these 40 declarations (fixed list), not the corpus; evidence of agreement on them only.
