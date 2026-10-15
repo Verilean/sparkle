@@ -298,6 +298,11 @@ Before the switch (shadow phase, real path unchanged):
   `some r` (or refusal `none`) is reached by some fuel, the depth of the old
   call tree. `fixpoint_not_complete` shows this does not follow from the
   source equation. Evidence: shadows only.
+  *Correction (ruling 2026-10-15):* "coverage cannot be proved in the kernel"
+  overstated this. Adequacy of the fuel reader w.r.t. FINITE executions (a
+  finite derivation ⟺ some fuel, for success and for refusal) IS a kernel
+  statement: §7. What stays O1 is only the runtime link "the compiled
+  `partial` code, when it returns, produced a finite derivation".
 * **O2 — the old implementation satisfying its own source equation**
   (`OldBlockIsFix`, and the same for `machNorm`). The `partial def`s are
   `opaque` constants with no equation in the kernel. This is a
@@ -361,3 +366,142 @@ Kernel-checked counterexample (`fixpoint_not_complete`): `∃ B f, Mono B ∧ Is
 kernel theorem (O1, measured by shadows only). The recommended route (three-valued fuel result, doubling
 driver that never turns `out` into `none`/legacy) is NOT implemented in the compiler; the real path is
 unchanged.
+
+## 7. Adequacy w.r.t. finite executions (worker E, `par/r-8`, base poc `22908c5f`) — WRITTEN, NOT BUILT
+
+Ruling 2026-10-15: `fixpoint_not_complete` stands (a solution of the source
+EQUATION need not be reached by any fuel), but "a FINITE execution derivation
+gives some fuel with the same answer" is a separate statement, and it is
+provable. File `Tools/ShippingReaderFuelEval.lean` (imports only the BUILT
+`Tools.ShippingReaderFuelKleene`). No `sorry`, no axiom, no `native_decide`,
+no compiler change.
+
+### 7.1 The relation
+
+* Table predicate `Ext h L` (`L : List (Sigma R)`): the table
+  `h` answers at least the listed calls with the listed answers.
+* `EvalG Φ c r` (generic in the body `Φ`), one constructor `node`: finitely
+  many sub-calls `L`, each with a sub-derivation, and `(Φ c).run h = some r`
+  for EVERY table `h` with `Ext h L`. A derivation is a well-founded, finitely
+  branching tree of calls = a finite call tree.
+* `Eval senv := EvalG (step senv)` (the seven-function block; `r : Option
+  c.Res`, so `r = some v` is a success and `r = none` an ordinary refusal;
+  OUT is not a value of `r`). `EvalN senv := EvalG (normStep senv)` (`machNorm`).
+* `Runs Φ m a`: the same for any sub-computation `m`. Its rules are the
+  structure of the bodies: `runs_pure`, `runs_call`, `runs_bind`, `runs_okO`,
+  `runs_failO`, `runs_bindO`, `runs_bindO_fail`; `foldlM`: `runs_foldO_nil`,
+  `runs_foldO_cons`, `runs_foldO_cons_fail`; `findSome?`: `runs_findSomeO_nil`,
+  `runs_findSomeO_hit`, `runs_findSomeO_miss`. Inversions (for compact
+  bodies): `runs_bind_inv`, `runs_foldO_cons_inv`, `runs_findSomeO_inv`,
+  `runs_pure_inv`; `evalG_iff_runs : EvalG Φ c r ↔ Runs Φ (Φ c) r`.
+
+### 7.2 Statements
+
+```lean
+-- generic
+theorem evalG_fuel (hev : EvalG Φ c r) : ∃ n, fuel Φ n c = some r          -- no hypothesis
+theorem fuel_evalG (hΦ : ∀ c, Compact (Φ c)) : ∀ n c r, fuel Φ n c = some r → EvalG Φ c r
+theorem evalG_det (h₁ : EvalG Φ c r) (h₂ : EvalG Φ c r') : r = r'
+theorem evalG_agree (g) (hg : IsSol Φ g) (h : EvalG Φ c r) : g c = r      -- Eval ⊆ every fixpoint
+-- compactness of the actual bodies (every arm inspects finitely many answers)
+theorem compact_step (senv) : ∀ c : Call, Compact (step senv c)
+theorem compact_normStep (senv) (e) : Compact (normStep senv e)
+-- the block
+theorem eval_fuel  (h : Eval senv c r) : ∃ n, readF senv n c = some r
+theorem fuel_eval  (h : readF senv n c = some r) : Eval senv c r
+theorem eval_iff   : Eval senv c r ↔ ∃ n, readF senv n c = some r
+theorem eval_det   (h₁ : Eval senv c r) (h₂ : Eval senv c r') : r = r'
+theorem eval_fuel_ok   (h : Eval senv c (some v)) : ∃ n, readF senv n c = some (some v)
+theorem eval_fuel_fail (h : Eval senv c none)     : ∃ n, readF senv n c = some none
+theorem eval_agree (g) (hg : IsSol (step senv) g) (h : Eval senv c r) : g c = r
+theorem machConvF_iff_eval / machChainF_iff_eval / machLoopRootF_iff_eval
+-- machNorm
+theorem evalN_fuel (h : EvalN senv e r) : ∃ n, machNormF n senv e = some r
+theorem fuel_evalN (h : machNormF n senv e = some r) : EvalN senv e r
+theorem evalN_iff, evalN_det
+```
+
+`Compact m` (a structure): a result against a table `h` is determined by a
+finite list of `h`'s answers. It is what the converse direction needs: `FM`
+alone does not give it (an `FM` is any MONOTONE function of the table, and a
+monotone but non-compact body would have fuel answers with no finite
+derivation). It is proved per combinator (`compact_pure/call/bind/okO/failO/
+optK/bindO/domGuard/foldO/findSomeO`) and per body by a crunch (`unfold`, then
+`repeat'` of: a combinator lemma at reducible transparency, `intro`, `split`,
+`dsimp only`).
+
+### 7.3 What this proves — and what it does not
+
+PROVED (once built), for all `senv`, all calls, all fuels: the fuel reader is
+ADEQUATE for finite executions. A finite call tree (success or ordinary
+refusal) is reached at some fuel (its height); conversely every finished fuel
+answer is a finite call tree; answers are unique and lie below every
+step-level solution (`IsSol`). Together with `fixpoint_not_complete`: the
+fuel reader computes exactly the LEAST solution's finite part, and a
+non-least solution's extra answers have no finite derivation.
+
+NOT PROVED (kept apart, unmodelled):
+
+* **O1 (runtime link)**: that the old compiled `partial` implementation,
+  whenever it returns `some r` / `none`, did so through a finite derivation
+  `Eval senv c r` (with the same helper values). That is a fact about the
+  compiled code and its runtime, outside the model; evidence stays the
+  shadows.
+* **O2**: the old constants satisfy their source equation (unchanged; and the
+  `OldEq → IsSol` file still fails to build, §R-reader-fuel Integration).
+* **Opaque helpers = parameters of the relation (O3/O4/O5)**: `rootFloat`,
+  `zetaAll` (in `machReserve`), `rawNode`, `machNormNode` (and the `partial`
+  `packTupleInputs`, `machLiftScalarN`, `machBoolMap` below them), the `opaque`
+  `Expr` primitives `instantiate1`, `liftLooseBVars`, `lowerLooseBVars` /
+  `beta` / `instantiate`, `Expr.eqv` (`==`/`!=`), `hasLooseBVars`, and the
+  `StructEnv` reads. A derivation consumes each of their results as ONE value
+  (a discriminant of one step); `Compact` is proved by splitting on those
+  values without inspecting them, so the theorems hold whatever they return.
+  Their own termination, and agreement of their kernel constants with the
+  runtime, are NOT claimed. (Formally they are the fixed constants inside
+  `step senv`; making them literal λ-parameters would need a copy of the
+  bodies abstracted over a helper record — not done.)
+
+### 7.4 Build order, lean_lib line, predicted axioms, risks
+
+1. `lake build Tools.ShippingReaderFuelEval` (after `…Defs`, `…Kleene`, BUILT).
+
+```
+lean_lib «Tools.ShippingReaderFuelEval» where
+  roots := #[`Tools.ShippingReaderFuelEval]
+```
+
+Predicted axioms: generic part (`ext_*`, `compact_pure/call/bind/optK/…`,
+`evalG_fuel`, `fuel_evalG`, `evalG_det`, `runs_*`): none or `[propext]`;
+`compact_*Step`, `compact_step`, `compact_normStep`, hence `fuel_eval`,
+`eval_iff`, `fuel_evalN`, `evalN_iff`: `[propext, Classical.choice?,
+Quot.sound]` (from `split`); `eval_fuel`, `eval_det`, `evalN_fuel`: as
+`evalG_fuel` / `fuel_det` (`[propext, Quot.sound]` at most).
+
+Risks (PREDICTED, nothing elaborated):
+1. The crunch on `convStep` / `chainStep` / `loopRootStep` (`split` on the
+   top-level `Expr` matchers with name-literal patterns; heartbeats raised to
+   1 000 000). The earlier `tot_crunch` timed out at `whnf` because it ran
+   `simp` on two sides; this crunch runs no `simp` and only applies lemmas at
+   reducible transparency, but a leaf no rule matches would be left unsolved —
+   the failure is then local to that `compact_*Step`; the generic part and
+   `eval_fuel` (no compactness) stand regardless.
+2. Defeq steps through structural recursion of `foldO` / `findSomeO`
+   (`compact_foldO`, `runs_foldO_*`, `runs_*_inv`) and the `abbrev Runs`
+   anonymous constructors.
+3. Universe/implicit inference of `compact_call` against `cConv … : BM _`
+   (`RB` / `Call.Res` reducible) and of `FM.call x` in `normStep`
+   (`R = fun _ => Expr`).
+
+### Integration of §7 (integrator, 2026-10-15) — BUILT, one fix
+Applied on poc e27c1fc8. Run `e1` (cgrun, 3 GiB, swap 0, `-j 1`): as written `Tools.ShippingReaderFuelEval`
+failed at one anonymous constructor (`⟨[], fun p hp => by cases hp, …⟩`: the `by` block absorbed the rest of
+the tuple); integrator fix: parentheses around that lambda. Then exit 0.
+Axioms: `fuel_evalG`: none; `evalG_fuel`, `evalG_det`, `evalG_agree`: [propext]; `eval_fuel`, `fuel_eval`,
+`eval_iff`, `eval_det`, `eval_agree`, `eval_fuel_ok`, `eval_fuel_fail`, `evalN_fuel`, `fuel_evalN`, `evalN_iff`,
+`compact_step`, `compact_normStep`: [propext, Quot.sound].
+PROVED (kernel): finite-execution ADEQUACY of the fuel reader — `Eval senv c r ↔ ∃ n, readF senv n c = some r`
+for success (`r = some _`) and ordinary refusal (`r = none`), the same for `machNorm` (`EvalN`), and every
+derivation agrees with every step-level solution. NOT proved (unchanged): O1 — that the compiled partial code,
+when it returns, produced such a finite derivation; the opaque helpers' termination and runtime behaviour (they
+are fixed constants inside `step senv`).
