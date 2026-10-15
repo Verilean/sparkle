@@ -15,6 +15,7 @@ here switches it.
 | R5 (LenOk) for every fuel and every successful result of the 7 fuel functions | `readersKeepLenOkF`, `machXF_lenOk` | ShippingReaderFuelR5 | 9a5ccc93 |
 | Wrapper keeps OUT/FAIL/OK; OUT propagates through sharing probes | `findSomeO_out_append`, `findSomeO_fail_all`, `nestedStep_out_of_search` | ShippingReaderFuelShape | 65eaccbb |
 | Bounded driver: FAIL / OK it returns are genuine and stable; it never produces FAIL for OUT | `driveShape_res`, `driveShape_fail_sound`, `driveShape_ok_sound` | ShippingReaderFuelDriver | 65eaccbb |
+| Driver eventual completion: some fuel decides → some rounds give the same answer; OUT forever ↔ every fuel OUT; a finite wrapper derivation → driver answer | `driveShape_complete(_ok/_fail/_iff)`, `driveShape_out_forever_iff`, `shapeRuns_drive` | ShippingReaderFuelDriverComplete | fe65d4c5 |
 | A solution of the source equation need not be reached by any fuel (so coverage does not follow from the equation alone) | `fixpoint_not_complete` | ReaderFuelGeneric | 0a53bd9e |
 
 ## Measured (not proved)
@@ -22,6 +23,7 @@ here switches it.
 |---|---|---|
 | Driver vs real `machineShape?`: same class and all compared shape fields | 18 declarations (12 OUT→OK, 2 OUT→FAIL, 4 immediate FAIL) | 65eaccbb |
 | prodMatcherArity?/projChain shadows (earlier switches) | grid + 260k-constant sweep | 9b86eb38 |
+| Fixed-list shadow, start fuel 1: real vs driver, ALL shape fields | 40 real declarations (33 OUT→OK, 3 OUT→FAIL, 4 FAIL at 1), no TIMEOUT | f5df0683 |
 
 ## Unmodelled / open (NOT axioms, NOT binders)
 | Id | Statement | Why outside |
@@ -32,11 +34,10 @@ here switches it.
 | — | A final OUT of the bounded driver says nothing about the real reader | `2^rounds · start` is finite; deeper finite executions exist (P2 correction a3a1d2d4) |
 
 ## Still to produce before a switch decision (ruling 2026-10-16)
-* Driver eventual completion (`∃ rounds`, same answer) — worker G.
+* Driver eventual completion — DONE (fe65d4c5).
 * Wrapper-level R5 from every successful `machineShapeF` result + one consumer reduced — worker H.
-* Fixed-list shadow over ~25–40 real declarations with low start fuel, all-field equality, timings, separate
-  TIMEOUT class — worker I.
-* OldEqV source version recorded + drift check — worker G.
+* Fixed-list shadow — DONE (f5df0683): 40/40 equal.
+* OldEqV source version recorded + drift check — DONE (fe65d4c5; `oldeqv_drift.py`, no drift).
 A switch would in addition need: the compiler path calling the driver WITHOUT mapping OUT to refusal / legacy
 (an unbounded driver, or OUT reported as an error), and the existing suite + shadows + corpus comparison
 (corpus rerun not approved yet).
