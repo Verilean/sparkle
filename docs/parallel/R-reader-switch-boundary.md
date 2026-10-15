@@ -35,9 +35,27 @@ here switches it.
 
 ## Still to produce before a switch decision (ruling 2026-10-16)
 * Driver eventual completion — DONE (fe65d4c5).
-* Wrapper-level R5 from every successful `machineShapeF` result + one consumer reduced — worker H.
+* Wrapper-level R5 — DONE (see the section below).
 * Fixed-list shadow — DONE (f5df0683): 40/40 equal.
 * OldEqV source version recorded + drift check — DONE (fe65d4c5; `oldeqv_drift.py`, no drift).
 A switch would in addition need: the compiler path calling the driver WITHOUT mapping OUT to refusal / legacy
 (an unbounded driver, or OUT reported as an error), and the existing suite + shadows + corpus comparison
 (corpus rerun not approved yet).
+
+## Wrapper-level R5 (worker H, 9eb01c91) — BUILT with integrator fixes
+Applied on poc fbb445d0. Run `h1` (cgrun, 3 GiB, swap 0, `-j 1`). As written `Tools.ShippingReaderFuelShapeR5`
+failed in two proofs (no statement changed): `okO_run_inv` (`injection` already closed the goal → one-line
+`Option.some.inj`), `shapePost_decomp` (the inversion loop lacked `split at h` for the `match p.tup?` of the
+output fields, and the final `ite` inversion is optional in some branches). Then `Tools.ShippingReaderFuelShapeR5`
+and `Tools.ShippingCallWidthsEntryF` exit 0. Axioms of all theorems below: [propext, Classical.choice,
+Quot.sound].
+PROVED for EVERY successful candidate-wrapper result `machineShapeF n … = some (some sp)` (state kept through
+start / root lets / body; `machineShapeF_steps`, `machineShapeF_lenOk`): `machineShapeF_decomp` (a `ShapeDecomp`
+with names / kinds / inits of equal length), `machineShapeF_r5` (R5: `(names.zip kinds).length =
+sp.layout.slots.length`), `machineShapeF_binderCount`, `machineShapeF_nDecl` (the closing's nDecl = `bs.length`),
+`machineShapeF_callBinder`, `machineShapeF_slots_length`.
+CONSUMER REDUCED (alternative next to the unchanged `entryStrict_of_links`): `entryStrict_of_linksF` /
+`callWidthsStrict_of_linksF` — premises `NIN` (`d.nIn = bs.length + insts.length`) and `R5ok` (`d.r5Ok = true`)
+DISAPPEAR, the links being candidate-wrapper successes (`LinkPF`, `LinkCF`).
+NOT counted for the old compiler: these are about `machineShapeF`; transferring them to the real `machineShape?`
+needs O1 + O2.

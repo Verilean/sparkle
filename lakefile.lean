@@ -3091,3 +3091,8 @@ lean_lib «Tools.ShippingReaderFuelVerbatim» where
 
 lean_lib «Tools.ShippingReaderFuelDriverComplete» where
   roots := #[`Tools.ShippingReaderFuelDriverComplete]
+lean_lib «Tools.ShippingReaderFuelShapeR5» where
+  roots := #[`Tools.ShippingReaderFuelShapeR5]
+
+lean_lib «Tools.ShippingCallWidthsEntryF» where
+  roots := #[`Tools.ShippingCallWidthsEntryF]
