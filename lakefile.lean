@@ -3064,3 +3064,8 @@ lean_lib «Tools.ShippingGateTypedFinalI» where
 
 lean_lib «Tools.ReaderFuelGeneric» where
   roots := #[`Tools.ReaderFuelGeneric]
+lean_lib «Tools.ShippingReaderFuelDefs» where
+  roots := #[`Tools.ShippingReaderFuelDefs]
+
+lean_lib «Tools.ShippingReaderFuelKleene» where
+  roots := #[`Tools.ShippingReaderFuelKleene]
