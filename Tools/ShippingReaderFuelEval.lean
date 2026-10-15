@@ -2,7 +2,8 @@ import Tools.ShippingReaderFuelKleene
 
 /-! # Adequacy of the fuel reader w.r.t. FINITE executions
 
-WRITTEN, NOT BUILT (worker E, branch `par/r-8`; record
+BUILT on poc 36d6b5ef (run `e1`; header status corrected 2026-10-16, comment
+only) (worker E, branch `par/r-8`; record
 `docs/parallel/R-reader-coverage.md` §7). No `sorry`, no axiom, no
 `native_decide`. Imports only the BUILT `Defs` / `Kleene` files.
 

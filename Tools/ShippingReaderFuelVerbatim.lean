@@ -3,8 +3,9 @@ import Tools.ShippingSparseCasesTac
 
 /-! # The old source equations VERBATIM (inline matches, local `let rec`s)
 
-STATUS: round 3 (worker A, branch `par/r-10`, from poc fc697219) WRITTEN, NOT
-BUILT. Round 2's text (`par/r-6`) did not build on poc fc697219 (the
+STATUS: BUILT on poc 8fac0511 (round 3, worker A, branch `par/r-10`, from poc
+fc697219, built as written; header status corrected 2026-10-16, comment only).
+Round 2's text (`par/r-6`) did not build on poc fc697219 (the
 integrator's run, after moving two `set_option … in` before their
 docstrings); round 3 changes PROOFS ONLY, every statement and every verbatim
 definition is unchanged:
@@ -39,6 +40,20 @@ source equations with the refactorings listed there. This file states them as
 the source text (`Sparkle/Compiler/Elab.lean` at `c1c651a0`, recursive calls
 through the tuple) and proves every solution of the verbatim equations is a
 solution of those (`oldEq_of_oldEqV`, `oldEqN_of_oldEqNV`).
+
+**Source version copied.** `Sparkle/Compiler/Elab.lean` last changed in commit
+945a799ad77276a4285a7160097873fc7a7f13c7; blob
+233f50e03a06eb796bed2644109ad3044213d203 (the same blob as at `c1c651a0`, so
+the line numbers quoted here hold). The copied definitions are `machConv`,
+`machNested`, `machInstance`, `machInstanceS`, `machChain`, `machLoopBody`,
+`machLoopRoot` (block, `OldEqV`) and `machNorm` (`OldEqNV`), with the local
+`let rec`s and `foldlM` / `findSome?` functions inside them. Nothing in the
+kernel ties these copies to a LATER Elab.lean: the DRIFT CHECK
+`scripts/shipping-coverage/oldeqv_drift.py` (a comparison aid, NOT a
+correctness proof) compares the current text of those definitions (and of
+`machineShape?`, copied by `…FuelShape.lean`) with the stored snapshot
+`scripts/shipping-coverage/oldeqv_snapshot.txt` and exits non-zero naming the
+drifted definitions.
 
 Final: `readF_agree_verbatim` / `machNormF_agree_verbatim` — agreement of the
 fuel candidate with every solution of the VERBATIM old source equations. Still

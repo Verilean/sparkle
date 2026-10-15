@@ -2,7 +2,8 @@ import Tools.ShippingReaderFuelKleene
 
 /-! # A fuel version of the reader wrapper `machineShape?` (three-valued)
 
-WRITTEN, NOT BUILT (worker F, branch `par/r-9`; record
+BUILT on poc 65eaccbb (run `f1`; header status corrected 2026-10-16, comment
+only) (worker F, branch `par/r-9`; record
 `docs/parallel/R-reader-fuel-driver.md`). No `sorry`, no axiom, no
 `native_decide`. NOTHING here is imported by `Sparkle/Compiler/Elab.lean`;
 the real compiler path is unchanged (`machineShape?` and the `partial def`s

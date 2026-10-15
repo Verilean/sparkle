@@ -3,7 +3,8 @@ import Tools.ShippingReaderFuelRun
 
 /-! # The OLD source equations of the reader, and agreement of the fuel candidate
 
-STATUS: round 2 (worker A, branch `par/r-6`) WRITTEN, NOT BUILT. Round 1
+STATUS: BUILT on poc fc697219 (integrator run `a2`; round 2, worker A, branch
+`par/r-6`). Header status corrected 2026-10-16 (comment only). Round 1
 (`par/r-3`, run `a1` on poc 0a53bd9e) did NOT build: `conv_tot` timed out
 (200000 heartbeats) and `chain_tot` / `loopRoot_tot` left cross-product
 leaves (`some none` vs `some (some …)`, both sides' `match` on the same

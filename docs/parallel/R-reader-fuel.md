@@ -448,3 +448,79 @@ the compiler's own source equations agrees with every finished fuel answer (succ
 STILL OUTSIDE THE KERNEL / OPEN (unchanged): O2 — that the REAL compiled `partial` constants satisfy `OldEqV`;
 O1 — that a run of the compiled code that returns gives a finite derivation (`Eval`), hence some fuel; the opaque
 helpers; shadows beyond the 18-case grid. Production NOT switched.
+
+## Worker G (`par/r-11`, from poc a3a1d2d4, 2026-10-16) — driver completion, headers, drift check — WRITTEN, NOT BUILT
+
+### Driver eventual completion (`Tools/ShippingReaderFuelDriverComplete.lean`)
+The bounded driver (`driveLoop` / `driveShape`, `…FuelDriver.lean`) stays a TEST tool: a final OUT means ONLY
+"undecided within this trial budget". **A production switch must NEVER map a final OUT of a bounded driver to a
+refusal or to the legacy route.** What is now stated (for a fuel-stable step, the SAME answer):
+* generic: `StepStable step := ∀ {n m o}, step n = some o → n ≤ m → step m = some o`;
+  `driveLoop_complete_le (hs) (hN : step N = some o) : ∀ r n k, N ≤ 2 ^ r * n → (driveLoop step r n k).1 = some o`;
+  `driveLoop_complete : … → 0 < n → ∃ r, (driveLoop step r n k).1 = some o`;
+  `driveLoop_complete_iff : 0 < n → ((∃ r, (driveLoop step r n k).1 = some o) ↔ ∃ N, step N = some o)`;
+  `driveLoop_out_forever_iff : 0 < n → ((∀ r, (driveLoop step r n k).1 = none) ↔ ∀ N, step N = none)`;
+* wrapper (`machineShapeF_stepStable` from `machineShapeF_stable`; no hypothesis on `start`, the driver starts at
+  `max start 1 > 0`): `driveShape_complete_le (h : machineShapeF N … = some r) rounds start (N ≤ 2 ^ rounds)`,
+  `driveShape_complete_ge (N ≤ rounds)`, `driveShape_complete : ∃ rounds, (driveShape rounds start …).res = some r`,
+  `driveShape_complete_ok` (`r = some s`), `driveShape_complete_fail` (`r = none`, ordinary refusal),
+  `driveShape_complete_iff`, `driveShape_out_forever_iff` (OUT for every round bound ⟺ OUT at every fuel);
+* wrapper-level link with `…FuelEval` (finite executions): `WEval senv` (a `machNorm` call by `EvalN`, a block
+  call by `Eval`), `ShapeRuns sm ps ci senv ai r` (the wrapper `shapeW` returns `r` against every table answering
+  a finite list of calls, each with a finite derivation), `shapeRuns_fuel : ShapeRuns … r → ∃ N, machineShapeF N
+  … = some r`, `shapeRuns_drive : ShapeRuns … r → ∃ rounds, (driveShape rounds start …).res = some r`,
+  `shapeRuns_drive_le` (every `rounds ≥ N`). So: **a finite derivation of the wrapper ⟹ the driver eventually
+  returns the same answer** (success or ordinary refusal).
+NOT proved / missing: the converse `machineShapeF N … = some r → ShapeRuns … r` (needs `Compact (shapeW …)`,
+the analogue of `compact_step` for the wrapper; not written — the fuel-level converse `driveShape_res` is
+available); O1 (a returning run of the compiled `partial` `machineShape?` yields such a derivation) stays
+outside the kernel, so nothing here says the driver answers whenever the OLD reader answers.
+
+Build order: after `Tools.ShippingReaderFuelDriver` and `Tools.ShippingReaderFuelEval` (both BUILT),
+`Tools.ShippingReaderFuelDriverComplete`. lean_lib (appended at the end of `lakefile.lean`):
+`lean_lib «Tools.ShippingReaderFuelDriverComplete» where roots := #[`Tools.ShippingReaderFuelDriverComplete]`.
+Predicted axioms: arithmetic `drv_*` none or [propext] (`omega` in `drv_le_two_pow_mul_pos`);
+`driveLoop_complete*`, `driveLoop_out_forever_iff` ⊆ [propext]; `driveShape_complete*`,
+`driveShape_out_forever_iff`, `machineShapeF_stepStable` [propext, Classical.choice, Quot.sound] (inherited from
+`machineShapeF_stable` / `driveShape_res`); `wEval_fuel`, `wext_fuel_of`, `shapeRuns_*` [propext,
+Classical.choice, Quot.sound] (from `eval_fuel` / `wtab_mono`).
+Risks (PREDICTED; nothing elaborated): application of `hs : StepStable step` / `wtab_mono … : HLe …` (defs
+unfolded at application — same pattern as the built files); defeq of `(driveShape …).res` with the `driveLoop`
+projection (as in `driveShape_res`); `Nat.pow_succ` / `Nat.mul_two` / `Nat.two_mul` / `Nat.le_max_right` names
+(`drv_max_pos` falls back to `omega`); the dependent `cases c` in `wEval_fuel`.
+
+### Headers corrected (comment only)
+`…FuelOldEq.lean` BUILT on poc fc697219 (run `a2`), `…FuelShape.lean` BUILT on poc 65eaccbb (run `f1`),
+`…FuelEval.lean` BUILT on poc 36d6b5ef (run `e1`), `…FuelVerbatim.lean` BUILT on poc 8fac0511 (run `a3`).
+
+### Source version of the copies + DRIFT CHECK
+`OldEqV` / `OldEqNV` (`…FuelVerbatim.lean`), `OldEq` / `OldEqN`, the fuel bodies (`…FuelDefs.lean`) and the
+wrapper fragments (`…FuelShape.lean`) copy source text of `Sparkle/Compiler/Elab.lean`. Source version (now in the
+Verbatim header): Elab.lean last changed in commit 945a799ad77276a4285a7160097873fc7a7f13c7, blob
+233f50e03a06eb796bed2644109ad3044213d203 (the same blob as at c1c651a0, where the line numbers were taken).
+
+`scripts/shipping-coverage/oldeqv_drift.py` is a **comparison aid, NOT a correctness proof**: it extracts the
+text of `machConv`, `machNested`, `machInstance`, `machInstanceS`, `machChain`, `machLoopBody`, `machLoopRoot`,
+`machNorm` (the definitions OldEqV / OldEqNV copy; the copied helpers — `let rec bundle`, `let rec inst`, the
+`foldlM` / `findSome?` functions, the inline `register` / `ashr` matches — are inside these texts) and
+`machineShape?` (copied by `…FuelShape.lean`) from the current Elab.lean (header line to the next column-0
+line) and compares it with `scripts/shipping-coverage/oldeqv_snapshot.txt` (generated from blob 233f50e0; each
+entry `=== name sha256 lines` + text).
+* `python3 scripts/shipping-coverage/oldeqv_drift.py` → exit 0 "no drift"; exit 1 "DRIFT in: <names>"; exit 2 a
+  definition not found. `--diff` prints a unified diff per drifted definition; `--elab PATH` checks another file.
+* Checked on the current tree: exit 0 (9 definitions). Self-test: a one-line edit inside `machChain` in a copy
+  → exit 1, `DRIFT in: machChain`, with the diff.
+* On drift: re-examine and re-prove the copies (`oldEq_of_oldEqV`, `step_tot`), THEN regenerate with `--update`.
+  A clean result says only that the copied TEXT is unchanged; helpers referenced by name (not copied) and O2
+  (the compiled code satisfies its equations) are not covered.
+
+### Integration of worker G (76290ce3) — BUILT as written
+Applied on poc 8d7648ea. `python3 scripts/shipping-coverage/oldeqv_drift.py`: "no drift (9 definitions match
+the snapshot)", exit 0. Run `g1` (cgrun, 3 GiB, swap 0, `-j 1`): the four header-updated files (OldEq, Shape,
+Eval, Verbatim) and `Tools.ShippingReaderFuelDriverComplete` exit 0. Axioms: `driveLoop_complete`,
+`driveLoop_complete_iff`, `driveLoop_out_forever_iff` [propext, Quot.sound]; `driveShape_complete(_ok/_fail/_iff)`,
+`driveShape_out_forever_iff`, `shapeRuns_fuel`, `shapeRuns_drive` [propext, Classical.choice, Quot.sound].
+PROVED: driver eventual completion — `machineShapeF N … = some r → ∀ start, ∃ rounds, (driveShape rounds start …).res
+= some r` (success and ordinary refusal); OUT forever ↔ every fuel OUT; a finite wrapper derivation (`ShapeRuns`)
+→ the driver eventually returns the same answer. NOT written: the reverse at wrapper level (needs
+`Compact (shapeW …)`). Unchanged: O1/O2 outside; production not switched; the bounded driver is a test tool.
