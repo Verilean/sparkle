@@ -813,6 +813,8 @@ def addSem : ChildSem where
     if mn = ``childAdd ∧ vs.map Value.kind = [.bits 8, .bits 8] then
       some (.bits 8 (BitVec.ofNat 8 ((vs.map Value.toNat).sum)))
     else none
+  -- round 2: `childAdd`'s two data ports (the only callee it gives a meaning)
+  ports _ := 2
 
 /-- The pinned child module computes its source function. -/
 theorem childAdd_correct :
@@ -943,7 +945,7 @@ theorem parentMix_entry_observes {mctx : Meta.Context}
   have leafM : LeafMeaning addSem (inputValues p.bools p.bits)
       (instEN ``childAdd [] (.fvar i0) [.fvar i1, .fvar i2])
       (.bits 8 (BitVec.ofNat 8 ((aS.val t).toNat + (bS.val t).toNat))) :=
-    meaning_inst rfl rfl hargsM hsem
+    meaning_inst rfl rfl rfl hargsM hsem
   have leafC : LeafContract tenv (childrenOf childModule.name) addSem p.context
       (inputValues p.bools p.bits) mems initial
       (instEN ``childAdd [] (.fvar i0) [.fvar i1, .fvar i2])
@@ -952,7 +954,7 @@ theorem parentMix_entry_observes {mctx : Meta.Context}
     exact inst_leaf_fuel (mc := childModule) (dc := dc) (cwe := childWe)
       (outName := "out") (wOut := 8)
       rfl rfl rfl rfl
-      htagAll henvT hsub hdc (by decide) (by decide) rfl (by decide) rfl rfl hargsM
+      htagAll henvT hsub hdc (by decide) (by decide) rfl (by decide) rfl rfl rfl hargsM
       (fun k hk hk' fuel => by
         rcases k with _ | k
         · exact input_contract_fuel hA fuel
@@ -1358,7 +1360,7 @@ theorem parentNested_entry_observes {mctx : Meta.Context}
   have innerM : Meaning (inputValues p.bools p.bits)
       (instEN ``childAdd [] (.fvar i0) [.fvar i1, .fvar i2])
       (.bits 8 (aS.val t + bS.val t)) :=
-    meaning_inst rfl rfl innerArgsM innerSem
+    meaning_inst rfl rfl rfl innerArgsM innerSem
   have innerC : ∀ (we : WEnv) (fuel : Nat),
       Contract (translateFuelFix (translateStep tenv) fuel) p.context
         (inputValues p.bools p.bits) we mems initial
@@ -1368,7 +1370,7 @@ theorem parentNested_entry_observes {mctx : Meta.Context}
     exact inst_leaf_fuel (mc := childModule) (dc := dc) (cwe := childWe)
       (outName := "out") (wOut := 8)
       rfl rfl rfl rfl
-      htagAll henvT hsub hdc (by decide) (by decide) rfl (by decide) rfl rfl innerArgsM
+      htagAll henvT hsub hdc (by decide) (by decide) rfl (by decide) rfl rfl rfl innerArgsM
       (fun k hk hk' fuel => by
         rcases k with _ | k
         · exact input_contract_fuel hA fuel
@@ -1402,7 +1404,7 @@ theorem parentNested_entry_observes {mctx : Meta.Context}
   have leafM : LeafMeaning addSem (inputValues p.bools p.bits)
       (nestedE (.fvar i0) (.fvar i1) (.fvar i2))
       (.bits 8 (aS.val t + bS.val t + bS.val t)) :=
-    meaning_inst rfl rfl outerArgsM outerSem
+    meaning_inst rfl rfl rfl outerArgsM outerSem
   have leafC : LeafContract tenv (childrenOf childModule.name) addSem p.context
       (inputValues p.bools p.bits) mems initial
       (nestedE (.fvar i0) (.fvar i1) (.fvar i2))
@@ -1411,7 +1413,7 @@ theorem parentNested_entry_observes {mctx : Meta.Context}
     exact inst_leaf_fuel (mc := childModule) (dc := dc) (cwe := childWe)
       (outName := "out") (wOut := 8)
       rfl rfl rfl rfl
-      htagAll henvT hsub hdc (by decide) (by decide) rfl (by decide) rfl rfl outerArgsM
+      htagAll henvT hsub hdc (by decide) (by decide) rfl (by decide) rfl rfl rfl outerArgsM
       (fun k hk hk' fuel => by
         rcases k with _ | k
         · exact innerC we fuel
@@ -1547,7 +1549,7 @@ theorem wrapAdd_entry_observes {mctx : Meta.Context}
     rfl
   have leafM : LeafMeaning addSem (inputValues p.bools p.bits)
       (wrapE (.fvar i0) (.fvar i1)) (.bits 8 (aS.val t + bS.val t)) :=
-    meaning_inst rfl rfl argsM hsem
+    meaning_inst rfl rfl rfl argsM hsem
   have leafC : LeafContract tenv (childrenOf childModule.name) addSem p.context
       (inputValues p.bools p.bits) mems initial
       (wrapE (.fvar i0) (.fvar i1)) (.bits 8 (aS.val t + bS.val t)) := by
@@ -1555,7 +1557,7 @@ theorem wrapAdd_entry_observes {mctx : Meta.Context}
     exact inst_leaf_fuel (mc := childModule) (dc := dc) (cwe := childWe)
       (outName := "out") (wOut := 8)
       rfl rfl rfl rfl
-      htagAll henvT hsub hdc (by decide) (by decide) rfl (by decide) rfl rfl argsM
+      htagAll henvT hsub hdc (by decide) (by decide) rfl (by decide) rfl rfl rfl argsM
       (fun k hk hk' fuel => by
         rcases k with _ | k
         · exact input_contract_fuel hA fuel

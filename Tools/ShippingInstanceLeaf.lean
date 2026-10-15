@@ -681,17 +681,20 @@ theorem inst_leaf_contract {rec : TranslateFn} {ctx : CompilerState}
         exact frA z hz
 
 /-- The meaning of a canonical instance call: the linked child's source
-function of its operands' meanings. -/
+function of its operands' meanings. `hports` (round 2): the callee's port
+count is the number of operands after the domain (the compiler's last-#ports
+rule reads exactly them). -/
 theorem meaning_inst {inputs : FVarId → Option Value} {mn : Name} {lvls : List Level}
     {dom : Lean.Expr} {argsE : List Lean.Expr} {vs : List Value} {v : Value}
     (hview : view (instEN mn lvls dom argsE) = none)
     (hlen : argsE.length = vs.length)
+    (hports : argsE.length = ChildSem.ports mn)
     (hargs : ∀ k (hk : k < argsE.length) (hk' : k < vs.length),
       Meaning inputs (argsE[k]'hk) (vs[k]'hk'))
     (hsem : ChildSem.childSem mn vs = some v) :
     Meaning inputs (instEN mn lvls dom argsE) v :=
-  .inst hview (instEN_getAppFn mn lvls dom argsE) (instEN_spineArgs mn lvls dom argsE)
-    hlen.symm hargs hsem
+  .inst (pre := [dom]) hview (instEN_getAppFn mn lvls dom argsE)
+    (instEN_spineArgs mn lvls dom argsE) hports hlen.symm hargs hsem
 
 /-- **The instance leaf at every fuel**: the form the leaf-generic fuel
 induction consumes. -/
@@ -712,6 +715,7 @@ theorem inst_leaf_fuel {ctx : CompilerState}
     (houts : mc.outputs = [⟨outName, .bitVector wOut⟩])
     (houtFresh : ∀ p ∈ mc.inputs, (outName == p.name) = false)
     (hlen : mc.inputs.length = argsE.length) (hlenV : argsE.length = vs.length)
+    (hports : argsE.length = ChildSem.ports mn)
     (hargsM : ∀ k (hk : k < argsE.length) (hk' : k < vs.length),
       Meaning inputs (argsE[k]'hk) (vs[k]'hk'))
     (hargs : ∀ k (hk : k < argsE.length) (hk' : k < vs.length), ∀ fuel,
@@ -735,6 +739,6 @@ theorem inst_leaf_fuel {ctx : CompilerState}
         hkind)
       htag henvT (fun r hr => hsub fuel r hr) hdc hnoclk hnodup houts houtFresh hlen hlenV
       (fun k hk hk' => hargs k hk hk' fuel)
-      (meaning_inst hview hlenV hargsM hsem) hsem hwidth hchild hcorrect
+      (meaning_inst hview hlenV hports hargsM hsem) hsem hwidth hchild hcorrect
 
 end Tools.ShippingInstanceLeaf

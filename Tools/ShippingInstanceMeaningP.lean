@@ -2,8 +2,10 @@ import Tools.ShippingInstanceLeaf
 
 /-! # Instance calls read by the COMPILER's rule: the last #ports arguments
 
-WRITTEN, NOT BUILT. Worker W, unit 1 (ruling: extend the meaning to calls
-without a domain argument).
+Worker W, unit 1 (BUILT, round 1) and round 2 (WRITTEN, NOT BUILT): the
+meaning is extended IN PLACE (ruling 2026-10-15: the extension to calls
+without a domain argument is ALLOWED; the old definitions are kept as a
+compatibility layer).
 
 The compiler's single-output instance arm (`translateInstanceUncachedWith`,
 `Sparkle/Compiler/Elab.lean`) connects the child's non-clk/rst input ports to
@@ -12,37 +14,38 @@ the LAST `#ports` arguments of the call's spine:
 before them (an implicit domain, a width argument of a width-generic child, or
 nothing at all, as in `pick sel x`) is not connected.
 
-The existing source meaning `Tools.ShippingUnifiedMeaning.Meaning` reads an
-instance call as `instSpineArgs e = dom :: args`: EXACTLY ONE leading argument
-is dropped. That is the compiler's rule only when the callee has one leading
-non-port argument; for `pick sel x` (no domain binder) it reads `sel` as the
-domain and `[x]` as the arguments.
+Round 2: `Tools.ShippingUnifiedMeaning.Meaning.inst` now reads an instance
+call by that rule (`instSpineArgs e = pre ++ args`,
+`args.length = ChildSem.ports mn`, any `pre`); `ChildSem` carries the port
+count `ports` beside the child semantics. This file keeps:
 
-This file adds, WITHOUT changing any existing definition:
-
-* `ChildPorts` — the number of port arguments of each callee (the consumer's
-  choice, like `ChildSem`; a leaf contract links it to the compiled child by
-  `mc.inputs.length = ChildPorts.ports mn`);
-* `MeaningP` — `Meaning` with the instance constructor reading
-  `instSpineArgs e = pre ++ args`, `args.length = ChildPorts.ports mn`, any
-  `pre` (`portArgs_eq`: these are exactly the compiler's arguments);
-* `MeaningP.deterministic` — the cache-insertion obligation, as for `Meaning`;
-* THE COMPATIBILITY LAYER: under `ArityOK` (the child semantics is defined
-  only at its port count — satisfied by the existing `addSem`, see
-  `Tests/Compiler/WrapPickMeaningTest.lean`), every `Meaning` is a `MeaningP`
-  with the same value (`meaningP_of_meaning`), hence on every expression the
+* THE COMPATIBILITY LAYER: `MeaningD`, the old domain-carrying definition
+  verbatim (`instSpineArgs e = dom :: args`: EXACTLY ONE leading argument
+  dropped), `MeaningD.deterministic`; under `ArityOK` (the child semantics is
+  defined only at its port count — satisfied by the existing `addSem`, see
+  `Tests/Compiler/WrapPickMeaningTest.lean`) every old meaning is a new one
+  with the same value (`meaning_of_meaningD`), hence on every expression the
   old meaning is defined the new one is defined with EXACTLY that value and no
-  other (`meaningP_agree`). The seven gate parents' theorems are stated over
-  `Meaning` and are untouched;
-* `no_meaning_of_portsSpine` — the finding as a theorem: under `ArityOK`, a
-  call whose spine has exactly `ports mn` arguments (no leading argument) has
-  NO old meaning at all;
+  other (`meaningD_agree`);
+* `no_meaningD_of_portsSpine` — the round-1 finding as a theorem: under
+  `ArityOK`, a call whose spine has exactly `ports mn` arguments (no leading
+  argument) has NO old meaning at all;
+* `inst_args_eq` (the arguments an instance meaning reads are the compiler's),
+  `meaning_inst_cons` (one leading argument is the prefix `[dom]`),
+  `meaning_instP` (the meaning of `instEP`), `instEP_eq_instEN`;
 * the compiler side for any leading prefix: `instEP` (the n-ary call with any
   prefix), `instUncached_shapeE` (`instUncached_shape` for
   `instSpineArgs e = pre ++ argsE`; the old one is the corollary
   `instUncached_shape_of_E` at `pre = [dom]`), and `instUncached_linkedE`
   (the emitted statement is in the body and width-linked: every connected
-  parent wire is declared at exactly its port's width). -/
+  parent wire is declared at exactly its port's width).
+
+Removed in round 2 (subsumed by the in-place `Meaning`): the round-1
+`ChildPorts` class, `MeaningP`, `MeaningP.inst_args`, `MeaningP.deterministic`,
+`MeaningP.inst_cons`, `meaningP_of_meaning`, `meaningP_agree`,
+`no_meaning_of_portsSpine`, `LeafMeaningP` (their content is `Meaning`,
+`inst_args_eq`, `Meaning.deterministic`, `meaning_inst_cons`,
+`meaning_of_meaningD`, `meaningD_agree`, `no_meaningD_of_portsSpine`). -/
 namespace Tools.ShippingInstanceMeaningP
 open Lean Meta Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Builder Sparkle.IR.Semantics
 open Tools.ShippingTranslateSoundness hiding Inv Spec
@@ -76,6 +79,15 @@ theorem instEP_getAppFn (mn : Name) (lvls : List Level) (pre args : List Lean.Ex
 theorem instEN_eq_instEP (mn : Name) (lvls : List Level) (dom : Lean.Expr)
     (args : List Lean.Expr) : instEN mn lvls dom args = instEP mn lvls [dom] args := rfl
 
+/-- A call with a non-empty spine `d :: rest` is the domain-carrying call on
+its first spine argument, however the spine is split into prefix and ports. -/
+theorem instEP_eq_instEN (mn : Name) (lvls : List Level) {pre args : List Lean.Expr}
+    {d : Lean.Expr} {rest : List Lean.Expr} (h : pre ++ args = d :: rest) :
+    instEP mn lvls pre args = instEN mn lvls d rest := by
+  unfold instEP instEN
+  rw [← List.foldl_append, h]
+  try rfl
+
 /-- THE COMPILER'S RULE: when the spine is `pre ++ args` with `args` of the
 port count, the arguments the arm connects (`drop (length - #ports)`) are
 `args`. -/
@@ -86,63 +98,81 @@ theorem portArgs_eq {e : Lean.Expr} {pre args : List Lean.Expr} {k : Nat}
   rw [hsp, List.length_append, Nat.add_sub_cancel]
   exact List.drop_left
 
-/-! ## The meaning -/
-
-/-- The number of PORT arguments of each callee (what the compiled child's
-non-clk/rst inputs count). The consumer's choice, as `ChildSem` is. -/
-class ChildPorts where
-  ports : Name → Nat
+/-! ## The new meaning: helpers -/
 
 section meaning
-variable [ChildSem] [ChildPorts]
-
-/-- `Meaning`, with an instance call read by the compiler's rule: the last
-`ChildPorts.ports mn` spine arguments, after ANY prefix. Every other
-constructor is `Meaning`'s, verbatim. -/
-inductive MeaningP (inputs : FVarId → Option Value) : Lean.Expr → Value → Prop where
-  | input {e id v} : view e = some (.input id) → inputs id = some v → MeaningP inputs e v
-  | value {e v} : view e = some (.value v) → MeaningP inputs e v
-  | binary {e op a b va vb v} : view e = some (.binary op a b) →
-      MeaningP inputs a va → MeaningP inputs b vb → op.run va vb = some v → MeaningP inputs e v
-  | boolNot {e a b} : view e = some (.boolNot a) → MeaningP inputs a (.bool b) →
-      MeaningP inputs e (.bool (!b))
-  | mux {e kind c a b vc va vb v} : view e = some (.mux kind c a b) →
-      MeaningP inputs c vc → MeaningP inputs a va → MeaningP inputs b vb →
-      muxValue kind vc va vb = some v → MeaningP inputs e v
-  | setw {e w w' a va v} : view e = some (.setw w w' a) →
-      MeaningP inputs a va → setwValue w w' va = some v → MeaningP inputs e v
-  | slice {e w start len a va v} : view e = some (.slice w start len a) →
-      MeaningP inputs a va → sliceValue w start len va = some v → MeaningP inputs e v
-  | concat {e m n a b va vb v} : view e = some (.concat m n a b) →
-      MeaningP inputs a va → MeaningP inputs b vb → concatValue m n va vb = some v →
-      MeaningP inputs e v
-  | inst {e mn lvls pre args vs v} : view e = none → e.getAppFn = .const mn lvls →
-      instSpineArgs e = pre ++ args → args.length = ChildPorts.ports mn →
-      vs.length = args.length →
-      (∀ i (ha : i < args.length) (hv : i < vs.length),
-        MeaningP inputs (args[i]'ha) (vs[i]'hv)) →
-      ChildSem.childSem mn vs = some v → MeaningP inputs e v
+variable [ChildSem]
 
 /-- The arguments an instance meaning reads are the compiler's. -/
-theorem MeaningP.inst_args {e : Lean.Expr} {mn : Name} {pre args : List Lean.Expr}
-    (hsp : instSpineArgs e = pre ++ args) (hports : args.length = ChildPorts.ports mn) :
-    args = (instSpineArgs e).drop ((instSpineArgs e).length - ChildPorts.ports mn) :=
+theorem inst_args_eq {e : Lean.Expr} {mn : Name} {pre args : List Lean.Expr}
+    (hsp : instSpineArgs e = pre ++ args) (hports : args.length = ChildSem.ports mn) :
+    args = (instSpineArgs e).drop ((instSpineArgs e).length - ChildSem.ports mn) :=
   (portArgs_eq hsp hports).symm
 
-/-- A recorded expression has one source value (the cache-insertion
-obligation, as `Meaning.deterministic`). The two readings of one call split
-the same spine at the same port count, so they read the same arguments. -/
-theorem MeaningP.deterministic {inputs e a b} (ha : MeaningP inputs e a)
-    (hb : MeaningP inputs e b) : a = b := by
+/-- One leading argument is the prefix `[dom]`. -/
+theorem meaning_inst_cons {inputs : FVarId → Option Value} {e : Lean.Expr} {mn : Name}
+    {lvls : List Level} {dom : Lean.Expr} {args : List Lean.Expr} {vs : List Value} {v : Value}
+    (hview : view e = none) (hfn : e.getAppFn = .const mn lvls)
+    (hsp : instSpineArgs e = dom :: args) (hports : args.length = ChildSem.ports mn)
+    (hlen : vs.length = args.length)
+    (hargs : ∀ i (ha : i < args.length) (hv : i < vs.length),
+      Meaning inputs (args[i]'ha) (vs[i]'hv))
+    (hsem : ChildSem.childSem mn vs = some v) : Meaning inputs e v :=
+  .inst (pre := [dom]) hview hfn hsp hports hlen hargs hsem
+
+/-- The meaning of a call with any prefix: the child's source function of its
+PORT arguments' meanings. -/
+theorem meaning_instP {inputs : FVarId → Option Value} {mn : Name} {lvls : List Level}
+    {pre argsE : List Lean.Expr} {vs : List Value} {v : Value}
+    (hview : view (instEP mn lvls pre argsE) = none)
+    (hports : argsE.length = ChildSem.ports mn)
+    (hlen : argsE.length = vs.length)
+    (hargs : ∀ k (hk : k < argsE.length) (hk' : k < vs.length),
+      Meaning inputs (argsE[k]'hk) (vs[k]'hk'))
+    (hsem : ChildSem.childSem mn vs = some v) :
+    Meaning inputs (instEP mn lvls pre argsE) v :=
+  .inst hview (instEP_getAppFn mn lvls pre argsE) (instEP_spineArgs mn lvls pre argsE)
+    hports hlen.symm hargs hsem
+
+/-! ## The compatibility layer: the old, domain-carrying meaning -/
+
+/-- **The OLD meaning, verbatim** (`Tools.ShippingUnifiedMeaning.Meaning` up
+to round 1): an instance call drops EXACTLY ONE leading spine argument. -/
+inductive MeaningD (inputs : FVarId → Option Value) : Lean.Expr → Value → Prop where
+  | input {e id v} : view e = some (.input id) → inputs id = some v → MeaningD inputs e v
+  | value {e v} : view e = some (.value v) → MeaningD inputs e v
+  | binary {e op a b va vb v} : view e = some (.binary op a b) →
+      MeaningD inputs a va → MeaningD inputs b vb → op.run va vb = some v → MeaningD inputs e v
+  | boolNot {e a b} : view e = some (.boolNot a) → MeaningD inputs a (.bool b) →
+      MeaningD inputs e (.bool (!b))
+  | mux {e kind c a b vc va vb v} : view e = some (.mux kind c a b) →
+      MeaningD inputs c vc → MeaningD inputs a va → MeaningD inputs b vb →
+      muxValue kind vc va vb = some v → MeaningD inputs e v
+  | setw {e w w' a va v} : view e = some (.setw w w' a) →
+      MeaningD inputs a va → setwValue w w' va = some v → MeaningD inputs e v
+  | slice {e w start len a va v} : view e = some (.slice w start len a) →
+      MeaningD inputs a va → sliceValue w start len va = some v → MeaningD inputs e v
+  | concat {e m n a b va vb v} : view e = some (.concat m n a b) →
+      MeaningD inputs a va → MeaningD inputs b vb → concatValue m n va vb = some v →
+      MeaningD inputs e v
+  | inst {e mn lvls dom args vs v} : view e = none → e.getAppFn = .const mn lvls →
+      instSpineArgs e = dom :: args → vs.length = args.length →
+      (∀ i (ha : i < args.length) (hv : i < vs.length),
+        MeaningD inputs (args[i]'ha) (vs[i]'hv)) →
+      ChildSem.childSem mn vs = some v → MeaningD inputs e v
+
+/-- The old determinism proof, verbatim. -/
+theorem MeaningD.deterministic {inputs e a b} (ha : MeaningD inputs e a)
+    (hb : MeaningD inputs e b) : a = b := by
   induction ha generalizing b with
-  | inst hview hfn hsp hports hlen hargs hsem ih =>
+  | inst hview hfn hsp hlen hargs hsem ih =>
     cases hb with
-    | inst hview' hfn' hsp' hports' hlen' hargs' hsem' =>
+    | inst hview' hfn' hsp' hlen' hargs' hsem' =>
       have hc := Lean.Expr.const.inj (hfn.symm.trans hfn')
+      have hs := List.cons.inj (hsp.symm.trans hsp')
       obtain ⟨hmn, -⟩ := hc
-      subst hmn
-      have hargsEq := (List.append_inj' (hsp.symm.trans hsp') (hports.trans hports'.symm)).2
-      subst hargsEq
+      obtain ⟨-, hargsEq⟩ := hs
+      subst hmn hargsEq
       have hvs := List.ext_getElem (hlen.trans hlen'.symm) (fun i h1 h2 =>
         ih i (by rw [← hlen]; exact h1) h1 (hargs' i (by rw [← hlen]; exact h1) h2))
       subst hvs
@@ -150,26 +180,17 @@ theorem MeaningP.deterministic {inputs e a b} (ha : MeaningP inputs e a)
     | _ => simp_all
   | _ => cases hb <;> grind
 
-/-- The child semantics is defined only at each callee's port count. -/
+/-- The child semantics is defined only at each callee's port count. A
+property of the consumer's `ChildSem`, discharged per semantics by
+evaluation (`addSem_arityOK`, `pickSem_arityOK`), never assumed. -/
 def ArityOK : Prop :=
   ∀ (mn : Name) (vs : List Value) (v : Value),
-    ChildSem.childSem mn vs = some v → vs.length = ChildPorts.ports mn
-
-/-- One leading argument is the prefix `[dom]`. -/
-theorem MeaningP.inst_cons {inputs : FVarId → Option Value} {e : Lean.Expr} {mn : Name}
-    {lvls : List Level} {dom : Lean.Expr} {args : List Lean.Expr} {vs : List Value} {v : Value}
-    (hview : view e = none) (hfn : e.getAppFn = .const mn lvls)
-    (hsp : instSpineArgs e = dom :: args) (hports : args.length = ChildPorts.ports mn)
-    (hlen : vs.length = args.length)
-    (hargs : ∀ i (ha : i < args.length) (hv : i < vs.length),
-      MeaningP inputs (args[i]'ha) (vs[i]'hv))
-    (hsem : ChildSem.childSem mn vs = some v) : MeaningP inputs e v :=
-  .inst (pre := [dom]) hview hfn hsp hports hlen hargs hsem
+    ChildSem.childSem mn vs = some v → vs.length = ChildSem.ports mn
 
 /-- **Compatibility, part 1**: every old meaning is a new meaning, at the
 same value. -/
-theorem meaningP_of_meaning (hA : ArityOK) {inputs : FVarId → Option Value}
-    {e : Lean.Expr} {v : Value} (h : Meaning inputs e v) : MeaningP inputs e v := by
+theorem meaning_of_meaningD (hA : ArityOK) {inputs : FVarId → Option Value}
+    {e : Lean.Expr} {v : Value} (h : MeaningD inputs e v) : Meaning inputs e v := by
   induction h with
   | input hv hi => exact .input hv hi
   | value hv => exact .value hv
@@ -180,28 +201,26 @@ theorem meaningP_of_meaning (hA : ArityOK) {inputs : FVarId → Option Value}
   | slice hv _ hs iha => exact .slice hv iha hs
   | concat hv _ _ hc iha ihb => exact .concat hv iha ihb hc
   | inst hview hfn hsp hlen _ hsem ih =>
-    exact MeaningP.inst_cons hview hfn hsp (hlen.symm.trans (hA _ _ _ hsem)) hlen ih hsem
+    exact meaning_inst_cons hview hfn hsp (hlen.symm.trans (hA _ _ _ hsem)) hlen ih hsem
 
 /-- **Compatibility, part 2 (the meaning is unchanged where the old one is
 defined)**: on an expression with an old meaning `v`, the new meanings are
 exactly `v`. -/
-theorem meaningP_agree (hA : ArityOK) {inputs : FVarId → Option Value}
-    {e : Lean.Expr} {v : Value} (h : Meaning inputs e v) (v' : Value) :
-    MeaningP inputs e v' ↔ v' = v :=
-  ⟨fun h' => MeaningP.deterministic h' (meaningP_of_meaning hA h),
-   fun eq => eq ▸ meaningP_of_meaning hA h⟩
+theorem meaningD_agree (hA : ArityOK) {inputs : FVarId → Option Value}
+    {e : Lean.Expr} {v : Value} (h : MeaningD inputs e v) (v' : Value) :
+    Meaning inputs e v' ↔ v' = v :=
+  ⟨fun h' => Meaning.deterministic h' (meaning_of_meaningD hA h),
+   fun eq => eq ▸ meaning_of_meaningD hA h⟩
 
-/-- **The finding, as a theorem**: under `ArityOK`, a call whose spine is
-exactly its port arguments (no domain, no prefix: `pick sel x`) has NO old
-meaning — `Meaning.inst` would read one argument fewer than the child
-semantics is defined at. So every theorem with a `Meaning` / `LeafMeaning`
-premise on such a leaf is vacuous for it (nothing false follows; nothing
-follows). -/
-theorem no_meaning_of_portsSpine (hA : ArityOK) {inputs : FVarId → Option Value}
+/-- **The round-1 finding, as a theorem**: under `ArityOK`, a call whose
+spine is exactly its port arguments (no domain, no prefix: `pick sel x`) has
+NO old meaning — `MeaningD.inst` would read one argument fewer than the child
+semantics is defined at. -/
+theorem no_meaningD_of_portsSpine (hA : ArityOK) {inputs : FVarId → Option Value}
     {e : Lean.Expr} {v : Value} {mn : Name} {lvls : List Level}
     (hview : view e = none) (hfn : e.getAppFn = .const mn lvls)
-    (hports : (instSpineArgs e).length = ChildPorts.ports mn) :
-    ¬ Meaning inputs e v := by
+    (hports : (instSpineArgs e).length = ChildSem.ports mn) :
+    ¬ MeaningD inputs e v := by
   intro h
   cases h with
   | inst hview' hfn' hsp hlen hargs hsem =>
@@ -214,12 +233,6 @@ theorem no_meaning_of_portsSpine (hA : ArityOK) {inputs : FVarId → Option Valu
   | _ => simp_all
 
 end meaning
-
-/-- A leaf's new meaning, with the child semantics and port counts explicit
-(the twin of `Tools.ShippingHierTermSoundness.LeafMeaning`). -/
-def LeafMeaningP (C : ChildSem) (P : ChildPorts) (inputs : FVarId → Option Value)
-    (e : Lean.Expr) (v : Value) : Prop :=
-  @MeaningP C P inputs e v
 
 /-! ## The compiler side for any prefix -/
 
@@ -401,10 +414,12 @@ theorem instUncached_linkedE {rec : TranslateFn} {ctx : CompilerState} {mn : Nam
 
 end Tools.ShippingInstanceMeaningP
 
-#print axioms Tools.ShippingInstanceMeaningP.MeaningP.deterministic
-#print axioms Tools.ShippingInstanceMeaningP.meaningP_of_meaning
-#print axioms Tools.ShippingInstanceMeaningP.meaningP_agree
-#print axioms Tools.ShippingInstanceMeaningP.no_meaning_of_portsSpine
+#print axioms Tools.ShippingInstanceMeaningP.instEP_eq_instEN
+#print axioms Tools.ShippingInstanceMeaningP.meaning_instP
+#print axioms Tools.ShippingInstanceMeaningP.MeaningD.deterministic
+#print axioms Tools.ShippingInstanceMeaningP.meaning_of_meaningD
+#print axioms Tools.ShippingInstanceMeaningP.meaningD_agree
+#print axioms Tools.ShippingInstanceMeaningP.no_meaningD_of_portsSpine
 #print axioms Tools.ShippingInstanceMeaningP.instUncached_shapeE
 #print axioms Tools.ShippingInstanceMeaningP.instUncached_shape_of_E
 #print axioms Tools.ShippingInstanceMeaningP.instUncached_linkedE

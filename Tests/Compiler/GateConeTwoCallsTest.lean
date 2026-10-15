@@ -299,11 +299,11 @@ theorem parentTwoCalls_coneKC {envR : Lean.Environment} {mF : Std.HashMap Lean.N
   have leafM0 : LeafMeaning addSem (inputValues p.bools p.bits)
       (instEN ``childAdd [] (.fvar i0) [.fvar i1, .fvar i2])
       (.bits 8 (BitVec.ofNat 8 ((aS.val t).toNat + (bS.val t).toNat))) :=
-    meaning_inst rfl rfl hargs0 hsem0
+    meaning_inst rfl rfl rfl hargs0 hsem0
   have leafM1 : LeafMeaning addSem (inputValues p.bools p.bits)
       (instEN ``childAdd [] (.fvar i0) [.fvar i2, .fvar i1])
       (.bits 8 (BitVec.ofNat 8 ((bS.val t).toNat + (aS.val t).toNat))) :=
-    meaning_inst rfl rfl hargs1 hsem1
+    meaning_inst rfl rfl rfl hargs1 hsem1
   -- the run's own child, ONE entry for both leaves
   have kid0 : KidFacts children addSem ``childAdd
       [Lean.Expr.fvar i1, Lean.Expr.fvar i2].length
@@ -317,8 +317,8 @@ theorem parentTwoCalls_coneKC {envR : Lean.Environment} {mF : Std.HashMap Lean.N
       (inputValues p.bools p.bits) mems initial
       (instEN ``childAdd [] (.fvar i0) [.fvar i1, .fvar i2])
       (.bits 8 (BitVec.ofNat 8 ((aS.val t).toNat + (bS.val t).toNat))) := by
-    refine Or.inr ⟨``childAdd, [], .fvar i0, [.fvar i1, .fvar i2],
-      [Value.bits 8 (aS.val t), Value.bits 8 (bS.val t)], rfl, rfl, rfl, rfl, tagR, rfl,
+    refine Or.inr ⟨``childAdd, [], [.fvar i0], [.fvar i1, .fvar i2],
+      [Value.bits 8 (aS.val t), Value.bits 8 (bS.val t)], rfl, (by simp), rfl, rfl, rfl, tagR, rfl,
       ?_, hsem0, ?_⟩
     · intro k hk hk' we fuel
       rcases k with _ | k
@@ -334,8 +334,8 @@ theorem parentTwoCalls_coneKC {envR : Lean.Environment} {mF : Std.HashMap Lean.N
       (inputValues p.bools p.bits) mems initial
       (instEN ``childAdd [] (.fvar i0) [.fvar i2, .fvar i1])
       (.bits 8 (BitVec.ofNat 8 ((bS.val t).toNat + (aS.val t).toNat))) := by
-    refine Or.inr ⟨``childAdd, [], .fvar i0, [.fvar i2, .fvar i1],
-      [Value.bits 8 (bS.val t), Value.bits 8 (aS.val t)], rfl, rfl, rfl, rfl, tagR, rfl,
+    refine Or.inr ⟨``childAdd, [], [.fvar i0], [.fvar i2, .fvar i1],
+      [Value.bits 8 (bS.val t), Value.bits 8 (aS.val t)], rfl, (by simp), rfl, rfl, rfl, tagR, rfl,
       ?_, hsem1, ?_⟩
     · intro k hk hk' we fuel
       rcases k with _ | k

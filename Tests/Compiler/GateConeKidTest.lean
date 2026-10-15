@@ -182,7 +182,7 @@ theorem parentMix_coneKC {envR : Lean.Environment} {mF : Std.HashMap Lean.Name R
   have leafM : LeafMeaning addSem (inputValues p.bools p.bits)
       (instEN ``childAdd [] (.fvar i0) [.fvar i1, .fvar i2])
       (.bits 8 (BitVec.ofNat 8 ((aS.val t).toNat + (bS.val t).toNat))) :=
-    meaning_inst rfl rfl hargsM hsem
+    meaning_inst rfl rfl rfl hargsM hsem
   -- the run's own child: `mF`'s entry of `childAdd`, with the cone's child facts
   have kid : KidFacts children addSem ``childAdd
       [Lean.Expr.fvar i1, Lean.Expr.fvar i2].length
@@ -193,8 +193,8 @@ theorem parentMix_coneKC {envR : Lean.Environment} {mF : Std.HashMap Lean.Name R
       (inputValues p.bools p.bits) mems initial
       (instEN ``childAdd [] (.fvar i0) [.fvar i1, .fvar i2])
       (.bits 8 (BitVec.ofNat 8 ((aS.val t).toNat + (bS.val t).toNat))) := by
-    refine Or.inr ⟨``childAdd, [], .fvar i0, [.fvar i1, .fvar i2],
-      [Value.bits 8 (aS.val t), Value.bits 8 (bS.val t)], rfl, rfl, rfl, rfl, tagR, rfl,
+    refine Or.inr ⟨``childAdd, [], [.fvar i0], [.fvar i1, .fvar i2],
+      [Value.bits 8 (aS.val t), Value.bits 8 (bS.val t)], rfl, (by simp), rfl, rfl, rfl, tagR, rfl,
       ?_, hsem, ?_⟩
     · intro k hk hk' we fuel
       rcases k with _ | k

@@ -3048,3 +3048,8 @@ lean_lib «Tools.ShippingReaderMemOnlyCloses» where
 
 lean_lib «Tools.ShippingReaderOutNames» where
   roots := #[`Tools.ShippingReaderOutNames]
+lean_lib «Tools.ShippingGateConeLeafContractE» where
+  roots := #[`Tools.ShippingGateConeLeafContractE]
+
+lean_lib «Tools.ShippingGateKid» where
+  roots := #[`Tools.ShippingGateKid]

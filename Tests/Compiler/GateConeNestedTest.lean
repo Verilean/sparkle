@@ -213,7 +213,7 @@ theorem parentNested_coneKC {envR : Lean.Environment} {mF : Std.HashMap Lean.Nam
   have innerM : Meaning (inputValues p.bools p.bits)
       (instEN ``childAdd [] (.fvar i0) [.fvar i1, .fvar i2])
       (.bits 8 (aS.val t + bS.val t)) :=
-    meaning_inst rfl rfl innerArgsM innerSem
+    meaning_inst rfl rfl rfl innerArgsM innerSem
   have innerK : LeafKR envR children addSem mF p.context (inputValues p.bools p.bits) mems initial
       (instEN ``childAdd [] (.fvar i0) [.fvar i1, .fvar i2])
       (.bits 8 (aS.val t + bS.val t)) :=
@@ -262,7 +262,7 @@ theorem parentNested_coneKC {envR : Lean.Environment} {mF : Std.HashMap Lean.Nam
       (instEN ``childAdd [] (.fvar i0)
         [instEN ``childAdd [] (.fvar i0) [.fvar i1, .fvar i2], .fvar i2])
       (.bits 8 (BitVec.ofNat 8 ((aS.val t + bS.val t).toNat + (bS.val t).toNat))) :=
-    meaning_inst rfl rfl outerArgsM outerSem
+    meaning_inst rfl rfl rfl outerArgsM outerSem
   have outerK : LeafKR envR children addSem mF p.context (inputValues p.bools p.bits) mems initial
       (instEN ``childAdd [] (.fvar i0)
         [instEN ``childAdd [] (.fvar i0) [.fvar i1, .fvar i2], .fvar i2])

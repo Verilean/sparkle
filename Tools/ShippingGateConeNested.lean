@@ -76,6 +76,12 @@ inductive LeafKR (tenv : Lean.Environment)
       @ChildSem.childSem C mn vs = some v →
       (∀ y : Res, mF.get? mn = some y → KidFacts children C mn argsE.length v y) →
       LeafKR tenv children C mF ctx inputs mems initial (instEN mn lvls dom argsE) v
+  /-- (worker W, round 2) an instance leaf with world-free argument contracts
+  and ANY prefix before its port arguments (`InstLeafK`, e.g. a call without a
+  domain argument). -/
+  | instK {e : Lean.Expr} {v : Value} :
+      InstLeafK tenv children C mF ctx inputs mems initial e v →
+      LeafKR tenv children C mF ctx inputs mems initial e v
 
 /-- Every `LeafK` is a `LeafKR` (a world-free argument contract is a `leaf`). -/
 theorem leafKR_of_leafK {children : String → Option (Sparkle.IR.AST.Module × WEnv)}
@@ -87,12 +93,11 @@ theorem leafKR_of_leafK {children : String → Option (Sparkle.IR.AST.Module × 
       ∀ k (hk : k < argsE.length) (hk' : k < vs.length),
         Tools.ShippingHierTermSoundness.LeafMeaning C inputs (argsE[k]'hk) (vs[k]'hk')) :
     LeafKR tenv children C mF ctx inputs mems initial e v := by
-  rcases h with hc | ⟨mn, lvls, dom, argsE, vs, he, hpure, hbin, hkind, htag, hlenV, hargs, hsem,
-    hkid⟩
+  -- round 2: an instance leaf is kept whole (`instK`); `hm` is no longer read
+  have _ := hm
+  rcases h with hc | hi
   · exact .leaf hc
-  · have hmA := hm mn lvls dom argsE vs he hlenV
-    subst he
-    exact .inst hpure hbin hkind htag hlenV (fun k hk hk' => .leaf (hargs k hk hk')) hmA hsem hkid
+  · exact .instK hi
 
 /-- **A `LeafKR` leaf has a world-indexed contract at every fuel**, in the
 linked context of `children`. -/
@@ -119,6 +124,9 @@ theorem leafKR_contractW (L : RefLaws mref cref) {D : Nat} (hD : D ≠ 0) (we : 
     | succ fuel =>
       exact inst_leaf_contractWA L hD fuel hpure hbin hkind htag hlenV
         (fun k hk hk' => ih k hk hk' (hargsM k hk hk') fuel) hm hsem hkid
+  | instK hi =>
+    intro hm fuel
+    exact leafK_contractW L hD we (Or.inr hi) hm fuel
 
 end leaves
 

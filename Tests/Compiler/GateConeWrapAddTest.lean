@@ -264,7 +264,7 @@ theorem wrapAdd_coneKC {envR : Lean.Environment} {mF : Std.HashMap Lean.Name Res
       (instEN ``childAdd [] (.const ``Sparkle.Core.Domain.defaultDomain [])
         [.fvar i0, .fvar i1])
       (.bits 8 (BitVec.ofNat 8 ((aS.val t).toNat + (bS.val t).toNat))) :=
-    meaning_inst rfl rfl hargsM hsem
+    meaning_inst rfl rfl rfl hargsM hsem
   have kid : KidFacts children addSem ``childAdd
       [Lean.Expr.fvar i0, Lean.Expr.fvar i1].length
       (.bits 8 (BitVec.ofNat 8 ((aS.val t).toNat + (bS.val t).toNat))) y :=
@@ -274,9 +274,9 @@ theorem wrapAdd_coneKC {envR : Lean.Environment} {mF : Std.HashMap Lean.Name Res
       (instEN ``childAdd [] (.const ``Sparkle.Core.Domain.defaultDomain [])
         [.fvar i0, .fvar i1])
       (.bits 8 (BitVec.ofNat 8 ((aS.val t).toNat + (bS.val t).toNat))) := by
-    refine Or.inr ⟨``childAdd, [], .const ``Sparkle.Core.Domain.defaultDomain [],
+    refine Or.inr ⟨``childAdd, [], [.const ``Sparkle.Core.Domain.defaultDomain []],
       [.fvar i0, .fvar i1],
-      [Value.bits 8 (aS.val t), Value.bits 8 (bS.val t)], rfl, rfl, rfl, rfl, tagR, rfl,
+      [Value.bits 8 (aS.val t), Value.bits 8 (bS.val t)], rfl, (by simp), rfl, rfl, rfl, tagR, rfl,
       ?_, hsem, ?_⟩
     · intro k hk hk' we fuel
       rcases k with _ | k

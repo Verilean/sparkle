@@ -1,5 +1,6 @@
 import Tools.ShippingGateConeLeafRuns
 import Tools.ShippingGateConeLeafContract
+import Tools.ShippingGateConeLeafContractE
 import Tools.ShippingChildTranslate
 import Tools.ShippingWalkGrow
 import Tools.ShippingHierTermSoundness
@@ -610,6 +611,51 @@ theorem inst_leaf_contractW (L : RefLaws mref cref) {D : Nat} (hD : D ≠ 0) (fu
     exact (armCont_leaf_contract hdc hnoclk hnodup houts houtFresh hlen hlenV hargs meaning hsem
       hwidth hchild hcorrect).sem hint top named s t w prior h widths ret
 
+/-- **`inst_leaf_contractW` for a call with ANY prefix** (worker W, round 2):
+the call is `instEN mn lvls dom rest` as an expression (the step lemmas read
+only its head), its spine `dom :: rest` is split as `pre ++ argsE` with
+`argsE` the PORT arguments (the compiler's last-#ports rule; `KidFacts` asks
+`y.1.inputs.length = argsE.length`). `pre = [dom]` is `inst_leaf_contractW`;
+`pre = []` is a call without a domain argument (`pick sel x`). The proof is
+the text of `inst_leaf_contractW` with `armCont_leaf_contractE`. -/
+theorem inst_leaf_contractWE (L : RefLaws mref cref) {D : Nat} (hD : D ≠ 0) (fuel : Nat)
+    {mF : Std.HashMap Lean.Name Res} {ctx : CompilerState} {inputs : FVarId → Option Value}
+    {we : WEnv} {mems : MEnv} {initial : Env}
+    {mn : Lean.Name} {lvls : List Level} {dom : Lean.Expr} {rest pre argsE : List Lean.Expr}
+    {vs : List Value} {v : Value}
+    (hpure : (mn == ``Sparkle.Core.Signal.Signal.pure) = false)
+    (hbin : signalBinOpOf mn = none)
+    (hkind : fallbackKind (instEN mn lvls dom rest) = .other)
+    (htag : Sparkle.Compiler.isHardwareModule tenv mn = true)
+    (hsplit : dom :: rest = pre ++ argsE)
+    (hlenV : argsE.length = vs.length)
+    (hargs : ∀ k (hk : k < argsE.length) (hk' : k < vs.length),
+      Contract (translateFuelFix (translateStep tenv) fuel) ctx inputs we mems initial
+        (argsE[k]'hk) (vs[k]'hk'))
+    (meaning : Meaning inputs (instEN mn lvls dom rest) v)
+    (hsem : ChildSem.childSem mn vs = some v)
+    (hkid : ∀ y : Res, mF.get? mn = some y →
+      KidFacts HierCtx.children (inferInstance : ChildSem) mn argsE.length v y) :
+    ContractW L mF D (translateFuelFix (translateStep tenv) (fuel + 1)) ctx inputs we mems initial
+      (instEN mn lvls dom rest) v := by
+  have hsp : instSpineArgs (instEN mn lvls dom rest) = pre ++ argsE :=
+    (Tools.ShippingInstanceEntrySoundness.instEN_spineArgs mn lvls dom rest).trans hsplit
+  constructor
+  · intro mctx cctx hint top named s t w w0 w1 lookup hw hd hsub hr
+    obtain ⟨y, -, hget, -, -, -, ret⟩ :=
+      inst_leaf_runs (tenv := tenv) L hD fuel hpure hbin hkind htag hw hd hr
+    obtain ⟨cwe, outName, wOut, hdc, hnoclk, hnodup, houts, houtFresh, hlen, hwidth, hchild,
+      hcorrect⟩ := hkid y (hsub mn y hget)
+    exact (armCont_leaf_contractE hdc hnoclk hnodup houts houtFresh hsp hlen hlenV hargs meaning
+      hsem hwidth hchild hcorrect).frame hint top named s t w lookup ret
+  · intro mctx cctx hint top named s t w prior w0 w1 h widths hw hd hsub hr
+    obtain ⟨y, -, hget, -, -, -, ret⟩ :=
+      inst_leaf_runs (tenv := tenv) L hD fuel hpure hbin hkind htag hw hd hr
+    obtain ⟨cwe, outName, wOut, hdc, hnoclk, hnodup, houts, houtFresh, hlen, hwidth, hchild,
+      hcorrect⟩ := hkid y (hsub mn y hget)
+    exact (armCont_leaf_contractE hdc hnoclk hnodup houts houtFresh hsp hlen hlenV hargs meaning
+      hsem hwidth hchild hcorrect).sem hint top named s t w prior h widths ret
+
 end inst
 
 /-! ## The leaves of a cone -/
@@ -618,17 +664,25 @@ end inst
 `children` and the child semantics `C`: a canonical call (none of the core /
 fallback shapes) of a callee designated in `tenv`, its arguments with
 world-free leaf contracts and values `vs`, the child's source function on
-them is `v`, and `mF`'s entry of the callee has the child facts. -/
+them is `v`, and `mF`'s entry of the callee has the child facts.
+
+Round 2 (worker W): the call is `instEP mn lvls pre argsE` — ANY prefix
+`pre` before the PORT arguments `argsE` (the compiler's last-#ports rule;
+`KidFacts` pins `y.1.inputs.length = argsE.length`), with a non-empty spine.
+The domain-carrying call `instEN mn lvls dom argsE` is `pre = [dom]`
+(`instEN_eq_instEP`, by `rfl`); `pre = []` is a call without a domain
+argument (`wrapPick`'s `pick sel x`). -/
 def InstLeafK (tenv : Lean.Environment) (children : String → Option (Sparkle.IR.AST.Module × WEnv))
     (C : ChildSem) (mF : Std.HashMap Lean.Name Res) (ctx : CompilerState)
     (inputs : FVarId → Option Value) (mems : MEnv) (initial : Env) (e : Lean.Expr) (v : Value) :
     Prop :=
-  ∃ (mn : Lean.Name) (lvls : List Level) (dom : Lean.Expr) (argsE : List Lean.Expr)
+  ∃ (mn : Lean.Name) (lvls : List Level) (pre argsE : List Lean.Expr)
     (vs : List Value),
-    e = instEN mn lvls dom argsE ∧
+    e = Tools.ShippingInstanceMeaningP.instEP mn lvls pre argsE ∧
+    pre ++ argsE ≠ [] ∧
     (mn == ``Sparkle.Core.Signal.Signal.pure) = false ∧
     signalBinOpOf mn = none ∧
-    fallbackKind (instEN mn lvls dom argsE) = .other ∧
+    fallbackKind (Tools.ShippingInstanceMeaningP.instEP mn lvls pre argsE) = .other ∧
     Sparkle.Compiler.isHardwareModule tenv mn = true ∧
     argsE.length = vs.length ∧
     (∀ k (hk : k < argsE.length) (hk' : k < vs.length),
@@ -659,14 +713,20 @@ theorem leafK_contractW (L : RefLaws mref cref) {D : Nat} (hD : D ≠ 0) (we : W
     ContractW L mF D (translateFuelFix (translateStep tenv) fuel) ctx inputs we mems initial e v := by
   letI : HierCtx := hierLink children
   letI : ChildSem := C
-  rcases h with hc | ⟨mn, lvls, dom, argsE, vs, he, hpure, hbin, hkind, htag, hlenV, hargs, hsem,
-    hkid⟩
+  rcases h with hc | ⟨mn, lvls, pre, argsE, vs, he, hne, hpure, hbin, hkind, htag, hlenV, hargs,
+    hsem, hkid⟩
   · exact ContractW.ofContract (hc we fuel)
-  · subst he
+  · obtain ⟨d, rest, hdr⟩ : ∃ (d : Lean.Expr) (rest : List Lean.Expr), pre ++ argsE = d :: rest := by
+      cases hc : pre ++ argsE with
+      | nil => exact absurd hc hne
+      | cons d rest => exact ⟨d, rest, rfl⟩
+    have heN := Tools.ShippingInstanceMeaningP.instEP_eq_instEN mn lvls hdr
+    rw [heN] at he hkind
+    subst he
     cases fuel with
     | zero => exact ContractW.zero
     | succ fuel =>
-      exact inst_leaf_contractW L hD fuel hpure hbin hkind htag hlenV
+      exact inst_leaf_contractWE L hD fuel hpure hbin hkind htag hdr.symm hlenV
         (fun k hk hk' => hargs k hk hk' we fuel) hm hsem hkid
 
 end Tools.ShippingGateParentRun

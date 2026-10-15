@@ -197,13 +197,17 @@ def view : Lean.Expr → Option Node
       (.app (.const ``Sparkle.Core.Signal.instComplementSignalBool _) _)) a => some (.boolNot a)
   | e => tailView? e
 
-/-- The source function of each linked child declaration, on packed values.
-`none` outside the child's typed domain. -/
+/-- The source function of each linked child declaration, on packed values
+(`none` outside the child's typed domain), and the number of PORT arguments of
+each callee (what the compiled child's non-clk/rst inputs count). An instance
+call is read by the compiler's rule: its LAST `ports mn` spine arguments
+(`Meaning.inst`). -/
 class ChildSem where
   childSem : Name → List Value → Option Value
+  ports : Name → Nat
 
 /-- By default no declaration has a linked meaning: the flat source domain. -/
-instance (priority := low) noChildSem : ChildSem := ⟨fun _ _ => none⟩
+instance (priority := low) noChildSem : ChildSem := ⟨fun _ _ => none, fun _ => 0⟩
 
 set_option linter.unusedSectionVars false
 
@@ -212,7 +216,13 @@ variable [ChildSem]
 /-- A single recursive relation allows comparison operands to contain vector
 muxes whose conditions in turn contain comparisons and arbitrary Bool logic.
 An instance call (an application the pure view does not recognize) means
-the linked child's source function of its arguments' meanings. -/
+the linked child's source function of its arguments' meanings; its arguments
+are the LAST `ChildSem.ports mn` spine arguments, after ANY prefix (an
+implicit domain, a width argument, or nothing) — the compiler's rule in
+`translateInstanceUncachedWith` (`args.drop (args.length - #ports)`). The
+domain-carrying reading (exactly one leading argument dropped) is kept as
+`Tools.ShippingInstanceMeaningP.MeaningD`; the two agree wherever the old one
+is defined (`meaningD_agree`). -/
 inductive Meaning (inputs : FVarId → Option Value) : Lean.Expr → Value → Prop where
   | input {e id v} : view e = some (.input id) → inputs id = some v → Meaning inputs e v
   | value {e v} : view e = some (.value v) → Meaning inputs e v
@@ -229,24 +239,27 @@ inductive Meaning (inputs : FVarId → Option Value) : Lean.Expr → Value → P
   | concat {e m n a b va vb v} : view e = some (.concat m n a b) →
       Meaning inputs a va → Meaning inputs b vb → concatValue m n va vb = some v →
       Meaning inputs e v
-  | inst {e mn lvls dom args vs v} : view e = none → e.getAppFn = .const mn lvls →
-      instSpineArgs e = dom :: args → vs.length = args.length →
+  | inst {e mn lvls pre args vs v} : view e = none → e.getAppFn = .const mn lvls →
+      instSpineArgs e = pre ++ args → args.length = ChildSem.ports mn →
+      vs.length = args.length →
       (∀ i (ha : i < args.length) (hv : i < vs.length),
         Meaning inputs (args[i]'ha) (vs[i]'hv)) →
       ChildSem.childSem mn vs = some v → Meaning inputs e v
 
 /-- Even across the two sorts and different widths, a recorded expression has
-one source value. This is the key cache-insertion obligation. -/
+one source value. This is the key cache-insertion obligation. Two readings
+of one call split the same spine at the same port count, so they read the
+same arguments. -/
 theorem Meaning.deterministic {inputs e a b} (ha : Meaning inputs e a) (hb : Meaning inputs e b) : a = b := by
   induction ha generalizing b with
-  | inst hview hfn hsp hlen hargs hsem ih =>
+  | inst hview hfn hsp hports hlen hargs hsem ih =>
     cases hb with
-    | inst hview' hfn' hsp' hlen' hargs' hsem' =>
+    | inst hview' hfn' hsp' hports' hlen' hargs' hsem' =>
       have hc := Lean.Expr.const.inj (hfn.symm.trans hfn')
-      have hs := List.cons.inj (hsp.symm.trans hsp')
       obtain ⟨hmn, -⟩ := hc
-      obtain ⟨-, hargsEq⟩ := hs
-      subst hmn hargsEq
+      subst hmn
+      have hargsEq := (List.append_inj' (hsp.symm.trans hsp') (hports.trans hports'.symm)).2
+      subst hargsEq
       have hvs := List.ext_getElem (hlen.trans hlen'.symm) (fun i h1 h2 =>
         ih i (by rw [← hlen]; exact h1) h1 (hargs' i (by rw [← hlen]; exact h1) h2))
       subst hvs

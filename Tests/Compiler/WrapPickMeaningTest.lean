@@ -3,9 +3,11 @@ import Tests.Compiler.ShippingHierarchySoundnessTest
 import Tests.Compiler.ShippingMachineInstTest
 import Tests.Compiler.SlotlessParentProbeTest
 
-/-! # `wrapPick` under the compiler's last-#ports reading (worker W, unit 1)
+/-! # `wrapPick` under the compiler's last-#ports reading (worker W, units 1 and 2)
 
-WRITTEN, NOT BUILT. TARGET-ONLY (`lake build Tests.Compiler.WrapPickMeaningTest`;
+Round 1 BUILT; round 2 WRITTEN, NOT BUILT (the meaning extended in place:
+`Meaning` reads the last `ChildSem.ports mn` arguments; the old reading is
+`MeaningD`). TARGET-ONLY (`lake build Tests.Compiler.WrapPickMeaningTest`;
 not in `Tests.AllTests`).
 
 `wrapPick sel x := pick sel x` (`Tests/Compiler/SlotlessParentProbeTest.lean`);
@@ -15,18 +17,17 @@ the call's spine is `[sel, x]`, both ports.
 * `wrapPick_body`: the real declaration's peeled body IS `instEP ``pick [] []
   [bvar 1, bvar 0]` (checked by evaluation on the environment).
 * `addSem_arityOK`: the child semantics of the seven existing gate parents
-  satisfies `ArityOK` — so `meaningP_agree` applies to them: their leaves'
+  satisfies `ArityOK` — so `meaningD_agree` applies to them: their leaves'
   new meaning is exactly their old one (`wrapAdd_leaf_agree`).
 * `pickSem`: `pick`'s source function on packed values (the body's mux on
-  `sel = 0`, `sel = 1`, else; written out as `pickFn`, NOT proved equal to
-  the Signal body here), `pickSem_arityOK`.
-* `wrapPick_meaningP`: the body has the NEW meaning `pickFn sel x` at any
+  `sel = 0`, `sel = 1`, else; written out as `pickFn`), `pickSem_arityOK`.
+* `wrapPick_meaning`: the body has the (new) meaning `pickFn sel x` at any
   inputs `sel`, `x`.
 * `wrapPick_no_old_meaning`: under the same semantics the body has NO old
-  meaning (the round-9 finding as a theorem).
+  meaning (`MeaningD`; the round-9 finding as a theorem).
 
-Not here: the cone theorem in the shape of `wrapAdd_gate_cone_runK'` — see
-the NEXT OBSTACLE in `docs/parallel/verification-w-1.md`. -/
+The cone theorem in the shape of `wrapAdd_gate_cone_runK'` is
+`Tests/Compiler/GateConeWrapPickTest.lean`. -/
 namespace Sparkle.Tests.Compiler.WrapPickMeaningTest
 open Lean Elab Command Meta Sparkle.Compiler.Elab
 open Sparkle.Core.Domain Sparkle.Core.Signal
@@ -56,15 +57,12 @@ run_cmd liftTermElabM do
     logInfo m!"WRAPPICK body = instEP pick [] [] [bvar 1, bvar 0]; spine = the two ports"
   | none => throwError "wrapPick does not peel"
 
-/-! ## Port counts and the existing child semantics -/
-
-/-- Port counts: `pick` and `childAdd` both take two port arguments. -/
-def ports2 : ChildPorts where
-  ports mn := if mn = ``pick ∨ mn = ``childAdd then 2 else 0
+/-! ## The existing child semantics -/
 
 /-- The seven gate parents' child semantics is defined only at two
-arguments: `ArityOK`, so the compatibility layer applies to them. -/
-theorem addSem_arityOK : @ArityOK addSem ports2 := by
+arguments, `childAdd`'s port count: `ArityOK`, so the compatibility layer
+applies to them. -/
+theorem addSem_arityOK : @ArityOK addSem := by
   intro mn vs v h
   have h' : (if mn = ``childAdd ∧ vs.map Value.kind = [.bits 8, .bits 8] then
       some (Value.bits 8 (BitVec.ofNat 8 ((vs.map Value.toNat).sum))) else none) = some v := h
@@ -75,8 +73,7 @@ theorem addSem_arityOK : @ArityOK addSem ports2 := by
     have hl : vs.length = 2 := by
       have := congrArg List.length hk
       simpa using this
-    show vs.length = (if ``childAdd = ``pick ∨ ``childAdd = ``childAdd then 2 else 0)
-    rw [if_pos (Or.inr rfl)]
+    show vs.length = 2
     exact hl
   · cases h'
 
@@ -84,15 +81,14 @@ theorem addSem_arityOK : @ArityOK addSem ports2 := by
 [a, b]`): wherever it has an old meaning `v`, its new meanings are exactly
 `v` — the meaning the seven parents' theorems use is unchanged. -/
 theorem wrapAdd_leaf_agree {inputs : FVarId → Option Value} {i0 i1 : FVarId} {v : Value}
-    (h : @Meaning addSem inputs
+    (h : @MeaningD addSem inputs
       (instEN ``childAdd [] (.const ``Sparkle.Core.Domain.defaultDomain []) [.fvar i0, .fvar i1])
       v) (v' : Value) :
-    @MeaningP addSem ports2 inputs
+    @Meaning addSem inputs
       (instEN ``childAdd [] (.const ``Sparkle.Core.Domain.defaultDomain []) [.fvar i0, .fvar i1])
       v' ↔ v' = v := by
   letI : ChildSem := addSem
-  letI : ChildPorts := ports2
-  exact meaningP_agree addSem_arityOK h v'
+  exact meaningD_agree addSem_arityOK h v'
 
 /-! ## `pick`'s child semantics -/
 
@@ -103,14 +99,16 @@ def pickFn (s x : Nat) : BitVec 8 :=
   else if s = 1 then BitVec.ofNat 8 x + 1#8
   else BitVec.ofNat 8 x ^^^ 0xFF#8
 
-/-- `pick`'s source function, defined only on a 2-bit and an 8-bit value. -/
+/-- `pick`'s source function, defined only on a 2-bit and an 8-bit value;
+`pick` has two ports. -/
 def pickSem : ChildSem where
   childSem mn vs :=
     if mn = ``pick ∧ vs.map Value.kind = [.bits 2, .bits 8] then
       some (.bits 8 (pickFn ((vs.map Value.toNat).getD 0 0) ((vs.map Value.toNat).getD 1 0)))
     else none
+  ports _ := 2
 
-theorem pickSem_arityOK : @ArityOK pickSem ports2 := by
+theorem pickSem_arityOK : @ArityOK pickSem := by
   intro mn vs v h
   have h' : (if mn = ``pick ∧ vs.map Value.kind = [.bits 2, .bits 8] then
       some (Value.bits 8 (pickFn ((vs.map Value.toNat).getD 0 0)
@@ -122,8 +120,7 @@ theorem pickSem_arityOK : @ArityOK pickSem ports2 := by
     have hl : vs.length = 2 := by
       have := congrArg List.length hk
       simpa using this
-    show vs.length = (if ``pick = ``pick ∨ ``pick = ``childAdd then 2 else 0)
-    rw [if_pos (Or.inl rfl)]
+    show vs.length = 2
     exact hl
   · cases h'
 
@@ -132,19 +129,16 @@ theorem pickSem_arityOK : @ArityOK pickSem ports2 := by
 /-- `wrapPick`'s body with its binders opened to free variables. -/
 abbrev wrapPickE (i0 i1 : FVarId) : Lean.Expr := instEP ``pick [] [] [.fvar i0, .fvar i1]
 
-/-- **The new meaning of `wrapPick`'s body**: `pick`'s source function of BOTH
-port arguments (`sel` is a port, not a domain). -/
-theorem wrapPick_meaningP {inputs : FVarId → Option Value} {i0 i1 : FVarId}
+/-- **The meaning of `wrapPick`'s body** (the in-place extended `Meaning`):
+`pick`'s source function of BOTH port arguments (`sel` is a port, not a
+domain). -/
+theorem wrapPick_meaning {inputs : FVarId → Option Value} {i0 i1 : FVarId}
     {s : BitVec 2} {x : BitVec 8}
     (h0 : inputs i0 = some (.bits 2 s)) (h1 : inputs i1 = some (.bits 8 x)) :
-    @MeaningP pickSem ports2 inputs (wrapPickE i0 i1) (.bits 8 (pickFn s.toNat x.toNat)) := by
+    @Meaning pickSem inputs (wrapPickE i0 i1) (.bits 8 (pickFn s.toNat x.toNat)) := by
   letI : ChildSem := pickSem
-  letI : ChildPorts := ports2
-  refine MeaningP.inst (pre := []) (args := [.fvar i0, .fvar i1])
-    (vs := [Value.bits 2 s, Value.bits 8 x]) rfl (instEP_getAppFn _ _ _ _)
-    (instEP_spineArgs _ _ _ _) ?_ rfl ?_ ?_
-  · show 2 = (if ``pick = ``pick ∨ ``pick = ``childAdd then 2 else 0)
-    rw [if_pos (Or.inl rfl)]
+  refine meaning_instP (pre := []) (argsE := [.fvar i0, .fvar i1])
+    (vs := [Value.bits 2 s, Value.bits 8 x]) rfl rfl rfl ?_ ?_
   · intro i ha hv
     rcases i with _ | i
     · exact .input rfl h0
@@ -157,23 +151,20 @@ theorem wrapPick_meaningP {inputs : FVarId → Option Value} {i0 i1 : FVarId}
     rfl
 
 /-- **The finding as a theorem**: under `pick`'s semantics the body has NO
-old meaning (`Meaning.inst` reads `sel` as a domain and `[x]` as the
+OLD meaning (`MeaningD.inst` reads `sel` as a domain and `[x]` as the
 arguments, at which `pickSem` is undefined). -/
 theorem wrapPick_no_old_meaning {inputs : FVarId → Option Value} {i0 i1 : FVarId}
-    {v : Value} : ¬ @Meaning pickSem inputs (wrapPickE i0 i1) v := by
+    {v : Value} : ¬ @MeaningD pickSem inputs (wrapPickE i0 i1) v := by
   letI : ChildSem := pickSem
-  letI : ChildPorts := ports2
-  refine no_meaning_of_portsSpine pickSem_arityOK (mn := ``pick) (lvls := []) rfl
+  refine no_meaningD_of_portsSpine pickSem_arityOK (mn := ``pick) (lvls := []) rfl
     (instEP_getAppFn _ _ _ _) ?_
-  show (instSpineArgs (instEP ``pick [] [] [.fvar i0, .fvar i1])).length = _
   rw [instEP_spineArgs]
-  show 2 = (if ``pick = ``pick ∨ ``pick = ``childAdd then 2 else 0)
-  rw [if_pos (Or.inl rfl)]
+  try rfl
 
 end Sparkle.Tests.Compiler.WrapPickMeaningTest
 
 #print axioms Sparkle.Tests.Compiler.WrapPickMeaningTest.addSem_arityOK
 #print axioms Sparkle.Tests.Compiler.WrapPickMeaningTest.wrapAdd_leaf_agree
 #print axioms Sparkle.Tests.Compiler.WrapPickMeaningTest.pickSem_arityOK
-#print axioms Sparkle.Tests.Compiler.WrapPickMeaningTest.wrapPick_meaningP
+#print axioms Sparkle.Tests.Compiler.WrapPickMeaningTest.wrapPick_meaning
 #print axioms Sparkle.Tests.Compiler.WrapPickMeaningTest.wrapPick_no_old_meaning
