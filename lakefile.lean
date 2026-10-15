@@ -3032,3 +3032,6 @@ lean_lib «Tools.ShippingFirstGatePorts» where
 
 lean_lib «Tools.ShippingGateTypedFinal» where
   roots := #[`Tools.ShippingGateTypedFinal]
+
+lean_lib «Tools.ShippingGateDesignAll» where
+  roots := #[`Tools.ShippingGateDesignAll]

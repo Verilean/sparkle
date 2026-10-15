@@ -273,3 +273,26 @@ length T and shows the source. Missing for the gate parents: the all-run side (`
 determinism theorem), and outsCheck-type conditions derived from the run. Until that connection, a full
 premise audit and the axiom audit, the seven are existence-only design statements and are NOT comparable
 with the all-run census. `GateDefines` is a further difference, not the only one.
+
+## Round 15 (par/n-15, d028a7dc) — the EVERY-closed-run side; BUILT with one integrator fix
+Run `n15` (`-j 1`): `Tools.ShippingGateDesignAll` built as written; `Tests.Compiler.GateConeDesignAllTest`
+failed in `wrapAdd_gate_designSVall` only (it destructured three binder ids and introduced a domain, but
+`wrapAdd` has two binders and a fixed domain); integrator fix: two ids, no domain intro (no statement changed).
+Then exit 0; no `sorryAx`; the seven `…_gate_designSVall` [propext, Classical.choice, Quot.sound].
+* Derived from the run: `designCheck … 0 (checkedOptimize b)` and `outsCheck … 0 (checkedOptimize b)`
+  (`outsCheck0_of_kidsComb`, `gate_shipped_checks`); `gate_sv_all` = `design_sv_all` at depth 0 under
+  `DesignSideR`.
+* `…_gate_designSVall` (seven parents): premises run, `GateDefines` (separate gate-only reflection class,
+  docs/parallel/G-gatedefines-class.md), `ChildBnd`, `EntryDefines childAdd`; design part, under the input
+  reading and `DesignSideR` (run-level bounds): a closed run exists AND every closed run `envs'` from the same
+  seeding and states has length T and shows the source.
+* Clause-by-clause comparison with `ships_design_svN_all`: worker record §(round 15) in
+  `docs/parallel/N-gate-parent-run.md`. The existence and every-run clauses have the same shape (depth 0,
+  one output `out`). DIFFERENCES (not "same as the counted form"): starts from the compiler run rather than
+  transforming a hypothesis `H`; premises (`GateDefines` instead of `MachineDefines`, `EntryDefines` of the
+  callee); no `∃ D` (the returned design itself); extra conjuncts (CacheInv, tag, cache entry, observation,
+  DesignHasChild, PostKeeps); no check antecedents (derived); binder witnesses without the stated Nodup;
+  depth fixed 0; input reading via `Admissible`/`prepare` instead of `SourceInputs`; start-state bound via
+  `BoundOff`; no rst/clk/registers/Reset.
+Tally: separate gate-route kind; seven parents ALL-RUN at the design level, all target-only, under
+`GateDefines` (separate class) and `DesignSideR`. NOT added to the machine-route census.

@@ -1290,3 +1290,66 @@ here.
 Build order: `Tools.ShippingGateTypedWalk`, `Tools.ShippingFirstGatePorts`,
 `Tools.ShippingGateTypedFinal`, `Tests.Compiler.GateConeDesignTypedTest`. lean_lib: the three
 Tools files (appended at the end). Predicted axioms: [propext, Classical.choice, Quot.sound].
+
+## Round 15 — every closed run (WRITTEN, NOT BUILT)
+
+Answer to the CORRECTION in `verification-n-gate-parent-run.md`: the `…_gate_designSVN3` are
+existence-only. Round 15 adds the universal half for the seven parents.
+
+Files:
+* `Tools/ShippingGateDesignAll.lean` (pure) — `outsCheck0_of_kidsComb` (`kidsComb ms o.body ⇒
+  outsCheck (childMap ms) 0 o`: each child is assignment-only and writes every output, so every
+  output is assigned, `outsLeaf`); `gate_shipped_checks` (`designCheck … 0 (checkedOptimize b)` by
+  `designCheck0_of`, `outsCheck … 0 (checkedOptimize b)` from the SHIPPED module's `kidsComb`
+  of `shipped_factsG`; inputs: `hierGate b`, the six facts of `gate_combFacts`,
+  `designSideB3`); `gate_sv_all` (`design_sv_all` at depth 0: seeding bound by `seedIn_bound`
+  from `DesignSideR`.3, `Bounded` = `DesignSideR`.4, children's `InvN … 0` = `DesignSideR`.5
+  moved to the shipped module's instances by `checkedOptimize_inst_iff_gate`).
+* `Tests/Compiler/GateConeDesignAllTest.lean` (target-only, GENERATED from the N3 statements;
+  old theorems kept) — seven `…_gate_designSVall`. Proof: N3 (existence) + `hierGate` from
+  `…_gate_designA` (`hierGate_of_modOk`) + `gate_combFacts` (walk2) + `gate_typedFacts`
+  (walk3) + `gate_sv_all` with `P := fun e => e.length = T ∧ ∀ j hj, e[j] "out" = source`.
+
+Premises `design_sv_all` needs, at depth 0, for `checkedOptimize b` over `childMap
+design.modules` — ALL derived, none added:
+
+| `design_sv_all` premise | source in the gate proof |
+|---|---|
+| `designCheck C 0 (checkedOptimize b)` | `gate_combFacts` (h1–h6) + `gate_typedFacts` (`designSideB3`) + `hierGate` → `designCheck0_of` |
+| `outsCheck C 0 (checkedOptimize b)` | `kidsComb design.modules b.body` (h5) → `shipped_factsG` → `outsCheck0_of_kidsComb` |
+| seeding keeps `weS`-bounded states bounded | `DesignSideR`.3 (inputs fit `weS (checkedOptimize b)`) → `seedIn_bound` |
+| `Bounded (weS (checkedOptimize b)) st0` | `DesignSideR`.4 |
+| children's `InvN C 0` over `(checkedOptimize b).body` | `DesignSideR`.5 (over `b.body`) + `checkedOptimize_inst_iff_gate hierGate` |
+
+Clause-by-clause: `…_gate_designSVall` vs `ships_design_svN_all` (Δ = difference)
+
+| clause | `ships_design_svN_all` | `…_gate_designSVall` | Δ |
+|---|---|---|---|
+| kind | transformer: hypothesis `H` (the machine source-shipping run form) ⇒ design form | theorem from the compiler run | Δ (machine endpoints discharge `H` from `f.machine_…`; gate premises are the run directly) |
+| premises | `n`, `Reset`, `Bnd`, `Bd`, `H` | `hr` (run), `GateDefines` (NOT ALLOWED, ruling pending), `ChildBnd`, `EntryDefines childAdd` | Δ (`GateDefines` outside ALLOWED) |
+| outer witnesses | `∃ raw D` | `∃ M envR mF y` | Δ: gate uses the RETURNED `design` (no `∃ D`); `M` ≙ `raw` |
+| post shape | `b = dzw raw ∨ b = mergeChecked (dzw raw)` | same with `M` | = |
+| extra conjuncts | — | `CacheInv`, tag, `mF.get? childAdd = some y`, `…ObservesC (ownChild y) M`, `DesignHasChild`, `PostKeeps b M` | Δ (extra information, not a weakening) |
+| check antecedents | `shipsHierCheck`, `designCheck … n`, `outsCheck … n`, `Bnd raw D`, `Bd b D` | none | Δ: `designCheck`/`outsCheck` DERIVED (depth 0); no `shipsHierCheck`/`Bnd`/`Bd` |
+| binder witnesses | `∃ ids, ids.Nodup ∧ ids.length = binders.length` | `∃ i0 i1 i2` | Δ: distinctness of `i0 i1 i2` not stated |
+| cache / regs | `∃ cache regs, regs.Nodup ∧ regs.length = d.ss.length` | `∃ cache` | Δ: no registers (combinational) |
+| universal vars | `∀ i bools bits T ins st0 mems (kids : String → KT n)` | `∀ {D} aS bS T ins st0 mems (kids : String → KidState)` | Δ: depth fixed to 0 (`KT 0 = KidState`); sources are two 8-bit signals |
+| input reading | `SourceInputs declName (bsIn.take kD) ids cache … (seedIn b ins t st)` ∀ t<T | `Admissible … (seedIn b ins t st)` ∧ `prepare … .bits i1/i2 = some ⟨8, aS/bS.val (T-1-t)⟩` ∀ t<T | Δ form (gate analogue of the same input reading) |
+| regs/rst/clk/slots/`Reset` | 5 antecedents | absent | Δ (no registers, no `rst`/`clk` port) |
+| inputs fit `declWidth b` | yes | `DesignSideR`.1 | = |
+| start-state bound (declWidth) | open inputs off instance outputs + `seqRegs` | `BoundOff (declWidth b) outputs st0` (`DesignSideR`.2) | Δ form |
+| inputs fit `weS (checkedOptimize b)` | yes | `DesignSideR`.3 | = |
+| `Bounded (weS (checkedOptimize b)) st0` | yes | `DesignSideR`.4 | = |
+| children's `InvN … n` | over `(checkedOptimize b).body` | `InvN … 0` over `b.body` (`DesignSideR`.5) | Δ only in the body named (equivalent under `hierGate`) and depth 0 |
+| existence | `∃ envsO, DesignSV (childMap D.modules) n (checkedOptimize b) (seedIn b ins) T ⟨st0,mems,kids⟩ envsO ∧ length = T ∧ ∀ j k o f, outs[k]? = some o → src[k]? = some f → envsO[j] o.name = f j` | `∃ envsO, DesignSV (childMap design.modules) 0 (checkedOptimize b) (seedIn b ins) T ⟨st0,mems,kids⟩ envsO ∧ length = T ∧ ∀ j, envsO[j] "out" = source j` | = shape (n = 0; one output `out`) |
+| every closed run | `∀ envs', DesignSV … envs' → envs'.length = T ∧ (same observation)` | `∀ envs', DesignSV … envs' → envs'.length = T ∧ ∀ j, envs'[j] "out" = source j` | = shape |
+
+Remaining antecedents (outside ALLOWED): `DesignSideR` (run-level width premises, unchanged
+from N3); premise `GateDefines` (ruling). Nothing added.
+
+Build order: `Tools.ShippingGateDesignAll`, then `Tests.Compiler.GateConeDesignAllTest`
+(after `Tests.Compiler.GateConeDesignTypedTest`). lean_lib: `Tools.ShippingGateDesignAll`
+(appended). Predicted axioms: [propext, Classical.choice, Quot.sound].
+Risks: `simp [hc] at hs` / `simp only [hc, Bool.and_eq_true] at hs` in `outsCheck0_of_kidsComb`
+must reduce the `kidsComb` matchers (fallback: `dsimp only at hs; rw [hc] at hs`); the explicit
+`P` lambda must match the conclusion up to beta (it is written verbatim).
