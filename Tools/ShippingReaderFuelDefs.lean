@@ -2,7 +2,7 @@ import Sparkle.Compiler.Elab
 
 /-! # A fuel-indexed TOTAL candidate of the machine reader — definitions only
 
-WRITTEN, NOT BUILT (worker A, branch `par/r-3`; record
+BUILT on poc 22908c5f (run `a1`, cgrun -j 1; integrator fix: `Call.*` constructors qualified). Worker A, branch `par/r-3`; record
 `docs/parallel/R-reader-fuel.md`). No `sorry`, no axiom, no `native_decide`.
 
 Ruling 2026-10-15 (A): fuel-indexed total versions of `machNorm` and of the

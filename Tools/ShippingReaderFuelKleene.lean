@@ -2,7 +2,7 @@ import Tools.ShippingReaderFuelDefs
 
 /-! # The fuel candidate: stability, monotonicity, agreement with every solution
 
-WRITTEN, NOT BUILT (worker A, branch `par/r-3`). No `sorry`, no axiom, no
+BUILT on poc 22908c5f (run `a1`, cgrun -j 1). Worker A, branch `par/r-3`. `readF_agree` is CONDITIONAL on `IsSol (step senv) g` — it is NOT agreement with the old reader. No `sorry`, no axiom, no
 `native_decide`.
 
 Generic over ANY body `Φ : (c : κ) → FM κ R (R c)` (`FM` carries its own

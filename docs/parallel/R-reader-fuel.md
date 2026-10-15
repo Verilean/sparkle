@@ -1,6 +1,6 @@
 # Worker A (reader, fuel), round 3 (`par/r-3`): a fuel-indexed TOTAL candidate of the machine reader
 
-Base poc `c1c651a0`. **WRITTEN, NOT BUILT.** Nothing here was compiled or run.
+Base poc `c1c651a0`. **Status at 22908c5f:** `…FuelDefs` and `…FuelKleene` BUILT; `…FuelOldEq` / `…FuelLenOk` / `…FuelVerbatim` NOT built (see the Integration section at the end). `readF_agree` is conditional on `IsSol (step)`, not old agreement.
 No file under `Sparkle/` changed; the real compiler path is untouched (the
 eight `partial def`s are not edited, nothing that calls them is, nothing
 imports the new files except the new files). No `sorry`, no new axiom, no
