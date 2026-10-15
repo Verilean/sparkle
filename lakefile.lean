@@ -3061,3 +3061,6 @@ lean_lib «Tools.ShippingGateWalkE» where
 
 lean_lib «Tools.ShippingGateTypedFinalI» where
   roots := #[`Tools.ShippingGateTypedFinalI]
+
+lean_lib «Tools.ReaderFuelGeneric» where
+  roots := #[`Tools.ReaderFuelGeneric]
