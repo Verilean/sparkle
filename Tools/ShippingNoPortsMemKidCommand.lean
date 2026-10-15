@@ -273,7 +273,11 @@ def scopeArtifacts (f : Name) (s : ScopeM) : CommandElabM Unit := do
       unless env.contains (k ++ `machine_closes) do
         throwError "{f}: the leaf callee {k} has no {k}.machine_closes (its closing in every context is not derived)"
     | KindM.memMach _ _ _ _ =>
-      for sfx in [`noPortsMem_data, `noPortsMem_closes] do
+      -- par/r-2: `#machine_no_ports_mem` leaves `k.noPortsMem_dataR` (MemOnlyDataR);
+      -- the previous data path (`…_olddata`) leaves `k.noPortsMem_data`. Either one.
+      unless env.contains (k ++ `noPortsMem_data) || env.contains (k ++ `noPortsMem_dataR) do
+        throwError "{f}: the memory-machine callee {k} lacks {k ++ `noPortsMem_dataR} (and {k ++ `noPortsMem_data}) (run #machine_composedT {k}, #machine_ships_hier {k} and #machine_no_ports_mem {k} first)"
+      for sfx in [`noPortsMem_closes] do
         unless env.contains (k ++ sfx) do
           throwError "{f}: the memory-machine callee {k} lacks {k ++ sfx} (run #machine_composedT {k}, #machine_ships_hier {k} and #machine_no_ports_mem {k} first)"
   let ships := f ++ `machine_ships_hierNR1
@@ -414,7 +418,10 @@ def genKidMTheorem (k : Name) (nD : Nat) (cb : Bool) (aw dw : Nat) : CommandElab
   let awL := Syntax.mkNumLit (toString aw)
   let dwL := Syntax.mkNumLit (toString dw)
   let mn ← memNameT cb aw dw
-  let md := nm k "noPortsMem_data"
+  -- par/r-2: the reduced data (`MemOnlyDataR`, no `outTy` / `outScalar`:
+  -- those two fields fall back to `decide` below) when the full one is absent
+  let md := if (← getEnv).contains (k ++ `noPortsMem_data) then nm k "noPortsMem_data"
+    else nm k "noPortsMem_dataR"
   let before := (← get).messages.toList.length
   elabCommand (← `(command|
     set_option maxHeartbeats 4000000 in

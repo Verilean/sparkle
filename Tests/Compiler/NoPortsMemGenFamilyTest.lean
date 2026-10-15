@@ -176,10 +176,16 @@ def oldNameLemmas (f : Name) (nMems : Nat) : List Name :=
 /-- The lemmas the command leaves for `f` (the same for any number of
 placeholders: no name lemma). -/
 def lemmas (f : Name) (_nMems : Nat) : List Name :=
-  let one := ["entry", "calls", "slots", "domB", "outTy", "callWidths", "callArgs", "outChars",
-    "outScalar", "data", "runFacts", "outsG0", "kidsMemG", "designP0", "alias", "argsN", "field",
+  -- par/r-2: `dataR` in place of `outTy`, `outScalar`, `data` (from the reader)
+  let one := ["entry", "calls", "slots", "domB", "callWidths", "callArgs", "outChars",
+    "dataR", "runFacts", "outsG0", "kidsMemG", "designP0", "alias", "argsN", "field",
     "argsNd", "outHead", "closeData", "closes"]
   one.map fun s => f ++ Name.mkSimple s!"noPortsMem_{s}"
+
+/-- The lemmas of the previous DATA path (`#machine_no_ports_mem_olddata`):
+since round par/r-2 the command must NOT leave them. -/
+def oldDataLemmas (f : Name) : List Name :=
+  ["outTy", "outScalar", "data"].map fun s => f ++ Name.mkSimple s!"noPortsMem_{s}"
 
 /-- The audit of one generated declaration (an error on any failure):
 
@@ -219,11 +225,26 @@ def audit (f : Name) (nMems : Nat) (hasSv0 transported : Bool) : MetaM Unit := d
   let clUsed : Array Name := match env.find? cl with
     | some (.thmInfo ti) => ti.value.getUsedConstants
     | _ => #[]
-  unless clUsed.contains ``Tools.ShippingMemOnlyNames.machineClosesAt_of_memOnlyData_names do
-    throwError "{cl}: its proof does not apply machineClosesAt_of_memOnlyData_names: {clUsed}"
+  -- par/r-2: over `MemOnlyDataR` (no outTy / outScalar decided)
+  for n in oldDataLemmas f do
+    if env.contains n then
+      throwError "{n}: generated — the command still decides the output facts per declaration"
+  unless clUsed.contains ``Tools.ShippingReaderMemOnlyCloses.machineClosesAt_of_memOnlyDataR_names do
+    throwError "{cl}: its proof does not apply machineClosesAt_of_memOnlyDataR_names: {clUsed}"
   if clUsed.contains ``Tools.ShippingMemOnlyCloses.machineClosesAt_of_memOnlyData then
     throwError "{cl}: its proof applies the theorem WITH name hypotheses"
-  Tests.Compiler.NoPortsTest.stdAxioms ``Tools.ShippingMemOnlyNames.machineClosesAt_of_memOnlyData_names
+  Tests.Compiler.NoPortsTest.stdAxioms ``Tools.ShippingReaderMemOnlyCloses.machineClosesAt_of_memOnlyDataR_names
+  for (s, k) in [("runFacts", ``Tools.ShippingReaderOutsMemOnly.memOnly_runFacts_of_reader),
+      ("outsG0", ``Tools.ShippingReaderOutsMemOnly.memOnly_outsCheck_of_reader),
+      ("kidsMemG", ``Tools.ShippingReaderOutsMemOnly.memOnly_kidsMem_of_reader),
+      ("designP0", ``Tools.ShippingReaderOutsMemOnly.memOnly_designCheck_of_reader)] do
+    let n := f ++ Name.mkSimple s!"noPortsMem_{s}"
+    let used : Array Name := match env.find? n with
+      | some (.thmInfo ti) => ti.value.getUsedConstants
+      | _ => #[]
+    unless used.contains k do
+      throwError "{n}: its proof does not apply {k}: {used}"
+    Tests.Compiler.NoPortsTest.stdAxioms k
   for n in [``Tools.ShippingMemOnly.memOnly_runFacts, ``Tools.ShippingMemOnly.memOnly_outsCheck,
       ``Tools.ShippingMemOnly.memOnly_kidsMem, ``Tools.ShippingMemOnly.memOnly_designCheck,
       ``Tools.ShippingMemOnlyCloses.machineClosesAt_of_memOnlyData,

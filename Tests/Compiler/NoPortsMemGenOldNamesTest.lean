@@ -34,6 +34,13 @@ Asserted after the two runs (an error otherwise), for each `f`:
 * the previous path's name lemmas were generated now (they were absent
   before: the family audit asserts that).
 
+Since par/r-2 the new path's closing is
+`Tools.ShippingReaderMemOnlyCloses.machineClosesAt_of_memOnlyDataR_names`
+(over `MemOnlyDataR`); `…_oldnames` is also the previous DATA path, so here it
+GENERATES `noPortsMem_outTy` / `_outScalar` / `_data` (absent after the new
+path) and rebuilds the rest. NEVER co-import with
+`Tests.Compiler.NoPortsMemGenOldDataTest` (both add the same `…_regen`).
+
 NOT compared: the PROOF terms (they differ by design in `noPortsMem_closes`;
 the endpoints' proofs both go through `f.noPortsMem_closes`, the existing
 one). The other four parents (`syncNarrow`, `memWide`, `twoMems`,
@@ -70,7 +77,8 @@ def compare (f : Name) (nMems : Nat) : MetaM Unit := do
   let clOld := f ++ `noPortsMem_closes_regen
   let uNew ← direct cl
   let uOld ← direct clOld
-  let genNew := ``Tools.ShippingMemOnlyNames.machineClosesAt_of_memOnlyData_names
+  -- par/r-2: the new path's closing is over `MemOnlyDataR` (no name hypotheses either)
+  let genNew := ``Tools.ShippingReaderMemOnlyCloses.machineClosesAt_of_memOnlyDataR_names
   let genOld := ``Tools.ShippingMemOnlyCloses.machineClosesAt_of_memOnlyData
   unless uNew.contains genNew && !uNew.contains genOld do
     throwError "{cl}: expected the closing without name hypotheses: {uNew}"
