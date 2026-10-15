@@ -3053,3 +3053,6 @@ lean_lib «Tools.ShippingGateConeLeafContractE» where
 
 lean_lib «Tools.ShippingGateKid» where
   roots := #[`Tools.ShippingGateKid]
+
+lean_lib «Tools.ShippingGateCoverage» where
+  roots := #[`Tools.ShippingGateCoverage]
