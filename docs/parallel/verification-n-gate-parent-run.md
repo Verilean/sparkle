@@ -262,3 +262,14 @@ children `InvN`, input fit) as antecedents inside its conclusion. So `…_gate_d
 counted machine-route form EXCEPT for the binder `GateDefines` (not in ALLOWED; the machine route's
 reflection binder is `MachineDefines`, which is). Whether the seven may enter a tally depends on that ruling
 alone (and on a census row definition for gate-route parents, which does not exist yet).
+
+## CORRECTION (integrator, 2026-10-15, after the reviewer's check of a62588fc)
+The comparison above ("`…_gate_designSVN3` has the shape of the counted machine-route form EXCEPT for
+`GateDefines`") is WRONG. Checked on the seven statements in `Tests/Compiler/GateConeDesignTypedTest.lean`
+(7 theorems; each design part ends in `∃ envsO, DesignSV … ∧ envsO.length = T ∧ out = source`; no
+`∀ envs'` clause): they are EXISTENCE-only. `ships_design_svN_all` (Tools/ShippingShipsDesignSVAll.lean
+30–125) concludes the existence AND that EVERY closed run `envs'` from the same seeding and states has
+length T and shows the source. Missing for the gate parents: the all-run side (`design_sv_all` or a
+determinism theorem), and outsCheck-type conditions derived from the run. Until that connection, a full
+premise audit and the axiom audit, the seven are existence-only design statements and are NOT comparable
+with the all-run census. `GateDefines` is a further difference, not the only one.
