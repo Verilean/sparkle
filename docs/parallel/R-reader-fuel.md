@@ -327,3 +327,107 @@ PROVED: R5 (`LenOk` preserved) for the FUEL functions, every fuel and every succ
 (`readersKeepLenOkF` = the old `ReadersKeepLenOk` statement for the fuel versions). NOT connected to the real
 partial readers: the old `ReadersKeepLenOk` remains unproved; transferring R5 to the compiler's reader needs
 the agreement chain (OldEq, A2 in progress) AND coverage of the real runs (O1).
+
+## Round 2 (worker A, `par/r-6`, from poc 22908c5f) — OldEq repair: WRITTEN, NOT BUILT
+
+Nothing was elaborated (workers never run `lean` / `lake`). Statements of every theorem and
+definition unchanged (`OldFns`, `oConv` … `oLoopRoot`, `OldEq`, `step_tot`, `isSol_of_oldEq`,
+`readF_agree_old`, … , `OldEqN`, `normStep_tot`); only proofs, file headers and imports changed.
+
+**Diagnosis of the round-1 failures (log `a1-fuel-oldeq-errors.log`).** Line 675 is `chain_tot`,
+line 685 is `loopRoot_tot` (not `loopBody_tot`: `loopBody_tot`, `nested_tot`, `inst_tot`,
+`instS_tot`, the six probe/fold lemmas and `normStep_tot` raised no error). Every failing leaf
+holds TWO equations on the same discriminant, one from each side, e.g.
+`machHandleV env 0 h = some i¹` and `= some i`, `G.conv … = some (rhs'¹, st¹)` and `= some (rhs', st)`,
+`¬ i¹ < st¹.kinds.size` and `i < st.kinds.size`; or `rootFloat v = .letE …` together with the
+catch-all's `∀ …, rootFloat v = .letE … → False`; or `loopView? e = some (dom¹, body¹)` and
+`= some (dom, body)`. `split` generalises a discriminant only inside the `match` it splits (the
+other side is a different matcher constant), so the two sides were split independently; the
+mixed leaves are contradictory, but `simp_all` did not close them (its normal forms: `¬ i < n`
+becomes `n ≤ i`, `some a = some (mv, st)` is oriented `(mv, st) = a`, …). No leaf showed both
+sides reduced to different values: **no difference between the fuel bodies and the old texts
+was found**. `conv_tot` timed out because its `.app` arm has seven views in sequence: the
+independent splits make a cross product (≈ 4^8 paths) inside one declaration.
+
+**Repair.**
+* `tot_align` (new macro): `repeat' (first | simp only [*, <run lemmas>, ite/Bool lemmas,
+  ↓reduceIte] | split)`. After every `split`, its hypothesis (the discriminant equation of the
+  branch) is used by `simp only [*]` on BOTH sides, so the old text's `match` / `if` on the same
+  discriminant reduces in the same branch — one split per discriminant per path. Catch-all
+  alternatives leave `∀ …, X = pat → False`; the old side's copy is split later and the
+  contradictory branch is closed by `exfalso; solve_by_elim` (apply the negative hypothesis to
+  the new equation); `contradiction`, `subst_vars; rfl`, `simp_all` remain as fallbacks. No
+  closer proves a leaf whose two sides are reduced and different: such a leaf would fail the
+  build (it would be a real transcription difference — none is expected, see above).
+* `conv_tot` decomposed: per constructor of the input; `.app` per view with the view equations
+  as explicit hypotheses (`conv_app_reg`, `_loopRead`, `_run`, `_inst`, `_instS`, `_mem`,
+  `_readV`, `_default`, dispatcher `conv_app_tot` by `cases h : view`); `.letE` per constructor
+  of `rootFloat v` (`conv_letE_tot`: `cases hR : rootFloat v`, so neither side keeps a catch-all
+  `match`); `.lam` / `.forallE` one lemma each.
+* `chain_tot`: per constructor; `.app` (`chain_app_tot`: `pure'`, `next`, catch-all; `next`'s
+  pair match `machHandleV env 0 h, r` aligned by its split equations, its catch-all by
+  `solve_by_elim`); `.letE` per constructor of `rootFloat v` (`chain_letE_tot`); others `rfl`.
+* `loopRoot_tot`: `cases hv : loopView? e` → `loopRoot_none` / `loopRoot_some` (explicit `hv`).
+* `nested_tot`, `inst_tot`, `instS_tot`, `loopBody_tot`, all `*_tot` probe / fold lemmas,
+  `normStep_tot`: round-1 text, unchanged (they built).
+* `run_pure` / `run_bind` / `run_bindO` deleted from OldEq; it imports
+  `Tools/ShippingReaderFuelRun.lean` (worker R5, `par/r-7` dd1f1c65) — same names, statements.
+
+**Per-lemma estimates (best guess, not measured; goals = leaves of the aligned analysis, worst
+case; heartbeat option set locally where given, decomposition is the fix, not the budget):**
+
+| lemma | goals (max) | expected time | maxHeartbeats |
+|---|---|---|---|
+| `conv_app_reg` | ≈ 12 (guard, `find?`, kind, init, conv dom, dom guard ×2, conv x) | 3–8 s | 400000 |
+| `conv_app_loopRead`, `_readV` | ≤ 3 | < 2 s | default |
+| `conv_app_run`, `_inst`, `_instS` | ≤ 3 | < 2 s | default |
+| `conv_app_mem` | ≤ 4 | < 3 s | default |
+| `conv_app_default` | ≤ 4 | < 3 s | default |
+| `conv_app_tot` (dispatch) | 8 | < 1 s | default |
+| `conv_lam_tot`, `conv_forallE_tot` | ≤ 4 | < 2 s | default |
+| `conv_letE_tot` | 12 constructors × ≤ 10 | 10–30 s | 1600000 |
+| `chain_app_tot` | ≈ 20 (outer 3 + `next` ≈ 6 + catch-all re-splits) | 5–15 s | 800000 |
+| `chain_letE_tot` | 12 × ≤ 9 | 10–30 s | 1600000 |
+| `loopRoot_none` | 1 | < 1 s | default |
+| `loopRoot_some` | ≈ 16 (guards, mapM ×2, conv dom, dom guard, `findSome?`, `depth ≥ 1` ite, loopBody) | 5–15 s | 800000 |
+| `conv_tot`, `chain_tot`, `loopRoot_tot` (dispatch) | 12 / 12 / 2 | < 2 s | default |
+
+**Files / build order** (lean_lib lines appended at the END of `lakefile.lean`):
+`Tools.ShippingReaderFuelRun` (par/r-7) → `Tools.ShippingReaderFuelOldEq` → `Tools.ShippingReaderFuelVerbatim`.
+`Tools/ShippingReaderFuelLenOk.lean` is DROPPED from this branch (superseded by worker R5's
+`Tools/ShippingReaderFuelR5.lean`, which proves the same `*_lenOk` / `readersKeepLenOkF` family
+without importing OldEq). Verbatim: unchanged except its header (never built; risks as in §5:
+`regMatch_view` / `ashrMatch_view` sparse-case proofs, `rw [regMatch_view]` relies on the inline
+`match` sharing the matcher constant of `oConvV`'s, `oLoopRootV_eq` splits a name/list pattern).
+Headers of Defs / Kleene updated to BUILT (doc-comment only).
+
+**Risks (round 2).** (1) `simp only [*]` in `tot_align` rewrites with every hypothesis; a
+hypothesis that rewrites a term into one containing itself would loop (none is produced by
+these splits, but it is not checked). (2) `split` could pick a `match` of the old side first
+where the fuel side has none left; alignment is symmetric, so this costs only order. (3) The
+explicit view hypotheses must match the goal's terms syntactically (they are copied from the
+text; if one does not, `tot_align` still splits that view and the mixed leaf is closed by
+`simp_all` from the two equations — slower, not wrong). (4) `cases hR : rootFloat v` runs the
+tail 11 times per `letE` lemma: the main time risk (heartbeats set to 1600000). (5)
+`chain_app_tot` splits the outer `match` on the non-variable `.app g x` (generalised by `split`,
+injection then substitutes `g`, `x`); round 1 split on the variable `e`. (6) `solve_by_elim` /
+`exfalso` / `↓reduceIte` / `eq_self_iff_true` are core (v4.32.1 `Init`), not Mathlib.
+
+STILL OPEN, unchanged: coverage, the compiled `partial` constants satisfying `OldEq` (outside the
+kernel), a fuel `machineShape?` and the doubling driver, shadows. `readF_agree` stays conditional
+on `IsSol (step senv)`; `readF_agree_old` / `_verbatim` are conditional on `OldEq` / `OldEqV`.
+
+### Integration of round 2 (integrator, 2026-10-15) — OldEq BUILT; Verbatim NOT built
+Only `…FuelOldEq.lean` and `…FuelVerbatim.lean` taken from 5e851930 (poc already had the Defs/Kleene header
+updates and R5). Run `a2` (cgrun, 3 GiB, swap 0, `-j 1`, peak 1.16 GB): `Tools.ShippingReaderFuelOldEq` exit 0
+AS WRITTEN — the per-view / per-constructor decomposition with `tot_align` closed every arm; no leaf with a
+reduced fuel/old difference (a real difference could not have been closed). Axioms: `step_tot`,
+`readF_agree_old`, `conv_tot`, `chain_tot`, `loopRoot_tot` [propext, Quot.sound]; `normStep_tot`,
+`machNormF_agree_old` [propext, Classical.choice, Quot.sound].
+PROVED: `readF_agree_old : OldEq senv G → readF senv n c = some r → G.app c = r` (and the same for machNorm via
+`OldEqN`) — for every tuple of functions satisfying the old source equations (as transcribed in `OldEq`), a
+finished fuel answer (success or refusal) is that tuple's answer. STILL CONDITIONAL / OPEN: `OldEq` is never
+assumed about the real compiled constants (O2, outside the kernel); the link of `OldEq` to the VERBATIM source
+text (`…FuelVerbatim`) FAILS to build (two `set_option … in` after docstrings, `rfl` / defeq failures at lines
+~382–405, `simp` failures at ~56/81) and is not committed (kept for the next round); coverage of the real runs
+(O1).
