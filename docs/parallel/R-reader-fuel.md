@@ -431,3 +431,20 @@ assumed about the real compiled constants (O2, outside the kernel); the link of 
 text (`…FuelVerbatim`) FAILS to build (two `set_option … in` after docstrings, `rfl` / defeq failures at lines
 ~382–405, `simp` failures at ~56/81) and is not committed (kept for the next round); coverage of the real runs
 (O1).
+
+### Round 3 (worker A, efcd1b0a) — verbatim link BUILT as written
+Run `a3` (cgrun, 3 GiB, swap 0, `-j 1`, peak 0.40 GB): `Tools.ShippingReaderFuelVerbatim` exit 0, no fix.
+Axioms: `oldEq_of_oldEqV`, `readF_agree_verbatim`, `oConvV_eq`, `oInstSV_eq`, `oLoopRootV_eq`
+[propext, Quot.sound]; `regMatch_view`, `ashrMatch_view`, `oInstV_eq` [propext];
+`machNormF_agree_verbatim` [propext, Classical.choice, Quot.sound].
+Causes found (no false equality; no transcription error in `OldEq`): array-literal cast on an abstract
+argument list (view lemmas), lifted `let rec`s (`bundle`, `inst`) vs the shared helpers (proved equal by
+recursion: `bundleV_eq`, `instV_eq`), a `do` join point vs a helper bind (`oInstV_eq` by cases), discriminant
+alignment (`oLoopRootV_eq`).
+PROVED NOW: `readF_agree_verbatim : OldEqV senv G → readF senv n c = some r → G.app c = r` — `OldEqV` is the
+old source equations as written VERBATIM in Elab.lean (copied text), so: every tuple of functions satisfying
+the compiler's own source equations agrees with every finished fuel answer (success or refusal); same for
+`machNorm` (`machNormF_agree_verbatim`).
+STILL OUTSIDE THE KERNEL / OPEN (unchanged): O2 — that the REAL compiled `partial` constants satisfy `OldEqV`;
+O1 — that a run of the compiled code that returns gives a finite derivation (`Eval`), hence some fuel; the opaque
+helpers; shadows beyond the 18-case grid. Production NOT switched.
