@@ -3040,3 +3040,5 @@ lean_lib «Tools.ShippingReaderOutsInv» where
 
 lean_lib «Tools.ShippingReaderOutsMemOnly» where
   roots := #[`Tools.ShippingReaderOutsMemOnly]
+lean_lib «Tools.ShippingInstanceMeaningP» where
+  roots := #[`Tools.ShippingInstanceMeaningP]
