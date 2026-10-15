@@ -106,3 +106,10 @@ and, on OK, the same binders / body / layout / runs / insts / loops / instFields
 * FAIL at once (fuel 1, no doubling): latchParams, latchSymbolic, natInductive, notHw — equal.
 `READER FUEL GRID DONE: 18 cases`. Production is NOT switched (the compiler still calls the partial reader).
 This grid is 18 declarations, not the corpus; it is evidence of agreement on these inputs only.
+
+## CORRECTION (integrator, 2026-10-16, reviewer P2)
+The driver header claimed that with `defaultRounds = 64` a final OUT means "the real partial reader would not
+have returned either". That is WRONG: a finite execution deeper than `2^64 · start` cannot be excluded, and even
+assuming O1 the conclusion does not follow. OUT means only "undecided within this trial budget";
+`defaultRounds` is a test budget, not an acceptance guarantee. Header corrected (comment only; no statement
+changed).

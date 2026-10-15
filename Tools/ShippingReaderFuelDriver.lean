@@ -2,7 +2,7 @@ import Tools.ShippingReaderFuelShape
 
 /-! # The doubling driver of the fuel wrapper `machineShapeF`
 
-WRITTEN, NOT BUILT (worker F, branch `par/r-9`; record
+BUILT on poc 65eaccbb (run `f1`; worker F, branch `par/r-9`; record
 `docs/parallel/R-reader-fuel-driver.md`). No `sorry`, no axiom, no
 `native_decide`. NOT used by the compiler: production still calls the
 `partial` reader `machineShape?` (nothing under `Sparkle/` changed).
@@ -24,10 +24,12 @@ stable for every larger fuel, and no fuel at all gives OK
 (`driveShape_fail_sound`); OK is stable for every larger fuel
 (`driveShape_ok_stable`) and no fuel FAILs (`driveShape_ok_sound`).
 
-`Nat` is unbounded: `2 * n` never overflows. With `defaultRounds = 64` a
-final OUT means the readers did not finish within recursion depth
-`2^64 · start`, i.e. the real `partial` reader would not have returned either
-(modulo the open coverage question O1 of `R-reader-fuel.md`). -/
+`Nat` is unbounded: `2 * n` never overflows. A final OUT means ONLY that the
+answer is undecided within this trial budget (`rounds` doublings from `start`).
+It says nothing about the real `partial` reader: a finite execution deeper than
+`2^rounds · start` is not excluded, even assuming O1 (CORRECTION 2026-10-16 of an
+earlier wrong claim here). `defaultRounds` is a test budget, NOT an acceptance
+guarantee; a production switch must never map OUT to a refusal or to legacy. -/
 namespace Tools.ShippingReaderFuel
 open Lean
 open Sparkle.Compiler.Elab
