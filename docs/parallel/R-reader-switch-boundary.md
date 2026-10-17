@@ -38,9 +38,13 @@ here switches it.
 * Wrapper-level R5 — DONE (see the section below).
 * Fixed-list shadow — DONE (f5df0683): 40/40 equal.
 * OldEqV source version recorded + drift check — DONE (fe65d4c5; `oldeqv_drift.py`, no drift).
-A switch would in addition need: the compiler path calling the driver WITHOUT mapping OUT to refusal / legacy
-(an unbounded driver, or OUT reported as an error), and the existing suite + shadows + corpus comparison
-(corpus rerun not approved yet).
+A switch would in addition need: the compiler path calling the driver WITHOUT mapping OUT to refusal / legacy,
+and the existing suite + shadows + corpus comparison (corpus rerun not approved yet).
+CORRECTION (2026-10-17, reviewer): "OUT reported as an error" is NOT an acceptance-preserving route — a finite
+budget followed by an error can reject an input the old reader accepted. Budget / cancellation errors may exist
+only as experimental operational outcomes; they are neither a semantic refusal nor evidence of equivalence. The
+only candidate route under consideration is an unbounded or resumable driver (no finite budget ending in a
+verdict), and no production switch is planned.
 
 ## Wrapper-level R5 (worker H, 9eb01c91) — BUILT with integrator fixes
 Applied on poc fbb445d0. Run `h1` (cgrun, 3 GiB, swap 0, `-j 1`). As written `Tools.ShippingReaderFuelShapeR5`

@@ -3,7 +3,7 @@ import Tools.ShippingReaderFuelEval
 
 /-! # Eventual completion of the doubling driver
 
-WRITTEN, NOT BUILT (worker G, branch `par/r-11`, base poc a3a1d2d4; record
+BUILT on poc fe65d4c5 (run `g1`, `cgrun -n g1 -m 3G -j 1 -- lake build Tools.ShippingReaderFuelDriverComplete`, exit 0; worker G, branch `par/r-11`, base poc a3a1d2d4; record
 `docs/parallel/R-reader-fuel.md` §"Driver completion"). No `sorry`, no
 axiom, no `native_decide`. Imports only BUILT files (`…FuelDriver`,
 `…FuelEval`). NOT used by the compiler: production still calls the `partial`
