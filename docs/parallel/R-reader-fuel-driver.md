@@ -218,3 +218,46 @@ guard 60000 ms per case. Result: 40 / 40 `equal=true` with ALL shape fields equa
 * OUT→FAIL (3): twoLoops, opaqueInit, loopCall.
 * FAIL at fuel 1 (4): notHw, natSig, gridInit, latchSymbolic.
 Scope: these 40 declarations (fixed list), not the corpus; evidence of agreement on them only.
+
+## Resumable driver (worker L, `par/r-16`, reviewer 2026-10-17 item 3) — WRITTEN, NOT BUILT
+
+`Tools/ShippingReaderFuelDriverResume.lean` (imports only the BUILT `…FuelDriverComplete`). Production NOT
+switched; no compiler change; no `sorry` / axiom / `native_decide`.
+
+* **Choice: option (ii), resumable, no `partial def`.** `resumeStep step s : ResumeState ⊕ (Option α × Nat)` is one
+  total attempt at `s.fuel` (OUT ⟹ next state, fuel doubled; FAIL/OK ⟹ answer WITH its fuel witness).
+  `resumeRun step k s` makes at most `k` attempts; budget used up ⟹ `Sum.inl s'`, a resumable state — a different
+  summand from every answer, so a budget/cancellation outcome is never a refusal. Wrapper instance:
+  `runShapeFor budget s …`, `resumeInit start = ⟨max start 1, 0⟩`. Chosen over (i) because the theorems are about
+  the executed function itself; a caller loops it for as long as it wants (`resumeRun_add`: `j` then `k` attempts
+  = `j + k`).
+* **Return soundness**: `runShapeFor_sound` (returned `(r, n)` ⟹ `machineShapeF n … = some r`, `n = 2^j·s.fuel`,
+  `j < k`), `runShapeFor_stable`, `runShapeFor_genuine` (no fuel gives another non-OUT answer: a returned FAIL is a
+  genuine refusal). **Budget outcome**: `runShapeFor_budget` (state fuel `2^k·s.fuel`, every attempted fuel OUT),
+  `resumeRun_inl_of_out`. **Stability**: `runShapeFor_inr_mono`, `resumeAnswers_unique`.
+* **Eventual completion**: `runShapeFor_complete_le` (`machineShapeF N … = some r` ⟹ answer `r` within `N + 1`
+  attempts from any positive state), `runShapeFor_complete_init`, `runShapeFor_resume_complete` (from any state a
+  budget-limited run stopped in), `shapeRuns_resume` (finite derivation `ShapeRuns`), `driveShape_resume` (every
+  bounded-driver answer), `runShapeFor_out_forever_iff`; total specification `ResumeAnswers` with
+  `resumeAnswers_iff` / `resumeShape_answers_iff` (eventually answers `r` ⟺ some fuel answers `r`).
+* **Retry audit**: the wrapper is pure; the only carried state is `ResumeState` (`fuel`, bookkeeping `tries`).
+  `resumeShape_inr_iff` / `resumeShape_inl_iff` (an attempt = a fresh `machineShapeF s.fuel …` call),
+  `resumeRun_view` / `runShapeFor_view` (`tries` never influences answers or next fuels).
+* NOT here: O1/O2 (MetaM bridge), no axiom for them. Build: `lake build Tools.ShippingReaderFuelDriverResume`
+  (after the BUILT `…FuelDriverComplete`). Predicted axioms: at most [propext, Classical.choice, Quot.sound]
+  (via `machineShapeF_stable` / `omega`); generic `resumeRun_add` / `resumeStep_*` possibly none or [propext].
+
+### Integration of the resumable driver (worker L, 902e1f0c) — BUILT as written
+Applied on poc 25f877f8 (lakefile conflict on appended lean_libs: kept both). Run `l1`:
+`scripts/shipping-coverage/cgrun.sh -n l1 -m 3G -t 7200 -j 1 -- lake build Tools.ShippingReaderFuelDriverResume`
+→ exit 0, no fix (header update rebuilt in `l1b`, exit 0). Axioms: `resumeRun_add`, `resumeRun_sound`,
+`resumeRun_inl_of_out`, `resumeRun_view` [propext]; `resumeRun_inl`, `resumeRun_complete`, `resumeAnswers_iff`
+[propext, Quot.sound]; `runShapeFor_sound`, `runShapeFor_genuine`, `runShapeFor_complete_le`,
+`runShapeFor_resume_complete`, `shapeRuns_resume`, `driveShape_resume`, `resumeShape_answers_iff`
+[propext, Classical.choice, Quot.sound].
+PROVED (model): a total resumable driver — no `partial def`, no finite budget ending in a verdict: a budget stop
+is a resumable state (a different summand from every answer), never a refusal; every returned `(r, n)` has
+`machineShapeF n … = some r` (fuel witness, stable for larger fuel, a returned refusal is genuine); retries carry
+only the fuel (`resumeRun_view`, each attempt = a fresh call); eventual completion from `∃ N` (within N+1 attempts,
+also from a stopped state) and from a finite derivation (`shapeRuns_resume`). NOT done: any MetaM execution
+bridge (O1/O2 outside, no axioms); production not switched.

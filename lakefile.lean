@@ -3099,3 +3099,5 @@ lean_lib «Tools.ShippingCallWidthsEntryF» where
 
 lean_lib «Tools.ShippingReaderFuelShapeEval» where
   roots := #[`Tools.ShippingReaderFuelShapeEval]
+lean_lib «Tools.ShippingReaderFuelDriverResume» where
+  roots := #[`Tools.ShippingReaderFuelDriverResume]

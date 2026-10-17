@@ -16,6 +16,8 @@ here switches it.
 | Wrapper keeps OUT/FAIL/OK; OUT propagates through sharing probes | `findSomeO_out_append`, `findSomeO_fail_all`, `nestedStep_out_of_search` | ShippingReaderFuelShape | 65eaccbb |
 | Bounded driver: FAIL / OK it returns are genuine and stable; it never produces FAIL for OUT | `driveShape_res`, `driveShape_fail_sound`, `driveShape_ok_sound` | ShippingReaderFuelDriver | 65eaccbb |
 | Driver eventual completion: some fuel decides → some rounds give the same answer; OUT forever ↔ every fuel OUT; a finite wrapper derivation → driver answer | `driveShape_complete(_ok/_fail/_iff)`, `driveShape_out_forever_iff`, `shapeRuns_drive` | ShippingReaderFuelDriverComplete | fe65d4c5 |
+| Wrapper adequacy both ways: `ShapeRuns … r ↔ ∃ N, machineShapeF N … = some r ↔ ∃ rounds, driver answer r` (success and refusal); no finite execution ↔ every fuel OUT | `compact_shapeW`, `fuel_shapeRuns`, `shapeRuns_iff`, `shapeRuns_drive_iff`, `shapeRuns_none_iff` | ShippingReaderFuelShapeEval | 25f877f8 |
+| Resumable driver (total, no finite budget ending in a verdict): budget stop = resumable state, never a refusal; returned answers carry a fuel witness and are genuine; retries carry only the fuel; eventual completion from ∃ fuel and from a finite derivation | `runShapeFor_sound`, `runShapeFor_genuine`, `resumeRun_view`, `runShapeFor_complete_le`, `runShapeFor_resume_complete`, `shapeRuns_resume` | ShippingReaderFuelDriverResume | (this commit) |
 | A solution of the source equation need not be reached by any fuel (so coverage does not follow from the equation alone) | `fixpoint_not_complete` | ReaderFuelGeneric | 0a53bd9e |
 
 ## Measured (not proved)
