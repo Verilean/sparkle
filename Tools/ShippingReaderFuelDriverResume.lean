@@ -23,8 +23,13 @@ production still calls the `partial` reader `machineShape?`; nothing under
 * No `partial def` is provided: a caller (IO loop, experiment with a time
   limit, cancellation token) iterates `resumeRun` / `resumeStep` as long as it
   wants; every theorem is about the total functions. Chosen over option (i)
-  because the theorems then hold of the very function that is executed, not
-  of a separate specification of an unreasoned `partial def`.
+  because the theorems are about the same TOTAL Lean function a caller would
+  iterate, not about a separate specification of an unreasoned `partial def`.
+  "Total" is a property of the MODEL: it does NOT mean that one attempt
+  terminates (or can be cancelled) at run time — the still-`partial` helpers and
+  opaque Expr primitives inside `machineShapeF` (`rootFloat`, `zetaAll`,
+  `rawNode`, `instantiate1`, …; O3/O4 in docs/parallel/R-reader-coverage.md)
+  have unproved termination and unproved runtime agreement with their text.
 
 ## What is proved
 
@@ -53,7 +58,8 @@ start fuel), and instantiated for `machineShapeF` (`runShapeFor`,
   resumable driver answers too), `runShapeFor_out_forever_iff`,
   `resumeAnswers_iff` (total specification: the resumable driver eventually
   answers `o` ⟺ some fuel answers `o`).
-* RETRY AUDIT: `machineShapeF` is a pure total function; the only state
+* RETRY AUDIT: in the model `machineShapeF` is a pure total function (runtime
+  termination of one attempt NOT claimed, O3/O4); the only state
   carried between attempts is `ResumeState` (`fuel` and the bookkeeping
   counter `tries`). Proved: `resumeShape_inr_iff` / `resumeShape_inl_iff` (an
   attempt's outcome is exactly a FRESH call `machineShapeF s.fuel …`; nothing

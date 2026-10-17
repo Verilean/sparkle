@@ -43,12 +43,15 @@ answer:
 
 * The converse `machineShapeF N … = some r → ShapeRuns …` needs compactness of
   the wrapper (`Compact (shapeW …)`, as `compact_step` / `compact_normStep` for
-  the block and `machNorm`); not written. The fuel-level converse IS available:
+  the block and `machNorm`) — NOT in this file; it was proved later in
+  `Tools/ShippingReaderFuelShapeEval.lean` (`compact_shapeW`, `fuel_shapeRuns`,
+  `shapeRuns_iff`, poc 25f877f8). The fuel-level converse is also here:
   a driver answer is the wrapper's answer at the driver's fuel (`driveShape_res`).
 * O1 (outside the kernel): that a RETURNING run of the compiled `partial`
   `machineShape?` yields such a finite derivation. Hence nothing here says the
   driver answers whenever the old reader answers; it says the driver answers
-  whenever a finite derivation (equivalently, some fuel) exists.
+  whenever a finite derivation exists. (That a finite derivation exists IFF some
+  fuel decides is `shapeRuns_iff` in `…FuelShapeEval`, not proved in this file.)
 * **Production rule**: a production switch must NEVER map a final OUT of the
   bounded driver to a refusal or to the legacy route; OUT is "undecided within
   this budget" only (`driveShape_out_sound`, `driveShape_out_forever_iff`). -/

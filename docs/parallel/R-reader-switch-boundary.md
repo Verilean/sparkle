@@ -17,7 +17,8 @@ here switches it.
 | Bounded driver: FAIL / OK it returns are genuine and stable; it never produces FAIL for OUT | `driveShape_res`, `driveShape_fail_sound`, `driveShape_ok_sound` | ShippingReaderFuelDriver | 65eaccbb |
 | Driver eventual completion: some fuel decides → some rounds give the same answer; OUT forever ↔ every fuel OUT; a finite wrapper derivation → driver answer | `driveShape_complete(_ok/_fail/_iff)`, `driveShape_out_forever_iff`, `shapeRuns_drive` | ShippingReaderFuelDriverComplete | fe65d4c5 |
 | Wrapper adequacy both ways: `ShapeRuns … r ↔ ∃ N, machineShapeF N … = some r ↔ ∃ rounds, driver answer r` (success and refusal); no finite execution ↔ every fuel OUT | `compact_shapeW`, `fuel_shapeRuns`, `shapeRuns_iff`, `shapeRuns_drive_iff`, `shapeRuns_none_iff` | ShippingReaderFuelShapeEval | 25f877f8 |
-| Resumable driver (total, no finite budget ending in a verdict): budget stop = resumable state, never a refusal; returned answers carry a fuel witness and are genuine; retries carry only the fuel; eventual completion from ∃ fuel and from a finite derivation | `runShapeFor_sound`, `runShapeFor_genuine`, `resumeRun_view`, `runShapeFor_complete_le`, `runShapeFor_resume_complete`, `shapeRuns_resume` | ShippingReaderFuelDriverResume | (this commit) |
+| Resumable driver (total, no finite budget ending in a verdict): budget stop = resumable state, never a refusal; returned answers carry a fuel witness and are genuine; retries carry only the fuel; eventual completion from ∃ fuel and from a finite derivation | `runShapeFor_sound`, `runShapeFor_genuine`, `resumeRun_view`, `runShapeFor_complete_le`, `runShapeFor_resume_complete`, `shapeRuns_resume` | ShippingReaderFuelDriverResume | a6573291 |
+| A finite wrapper derivation ⟺ the resumable driver (any start) eventually answers the same with a fuel witness (success and refusal) | `shapeRuns_iff_resume`, `shapeRuns_ok_iff_resume`, `shapeRuns_fail_iff_resume` | ShippingReaderFuelResumeEval | (this commit) |
 | A solution of the source equation need not be reached by any fuel (so coverage does not follow from the equation alone) | `fixpoint_not_complete` | ReaderFuelGeneric | 0a53bd9e |
 
 ## Measured (not proved)
@@ -138,3 +139,16 @@ old compiler without O1 / O2):
 | `SigDisj` | — | — | discharged for `structEnv` | discharged |
 Separately: `r5Ok_of_linkF` STILL needs `NIN` (the data check mentions `d.nIn`); only the data-free
 `shapeR5Ok_of_linkF` is NIN-free — NOT counted as solved.
+
+### Header corrections (integrator, 2026-10-17, reviewer supplement)
+* `…FuelDriverComplete`: the phrase "a finite derivation (equivalently, some fuel)" was premature in that file;
+  it now says the equivalence is `shapeRuns_iff` in `…FuelShapeEval` (25f877f8), not proved there.
+* `…FuelDriverResume`: "pure total function" / "the very function that is executed" could be read as a runtime
+  termination guarantee. Corrected: "total" is a property of the MODEL; one attempt is NOT claimed to terminate
+  or be cancellable at run time — the still-partial helpers / opaque primitives (O3/O4) have unproved termination
+  and runtime agreement.
+* New `Tools/ShippingReaderFuelResumeEval.lean`: `shapeRuns_iff_resume` = `shapeRuns_iff` ∘
+  `resumeShape_answers_iff`. Run `m1`: `cgrun -n m1 -m 3G -j 1` — `lake build Tools.ShippingReaderFuelDriverComplete
+  Tools.ShippingReaderFuelDriverResume` exit 0 (headers), `lake build Tools.ShippingReaderFuelResumeEval` exit 0,
+  `#print axioms` (via `lake env lean`): `shapeRuns_iff_resume`, `shapeRuns_ok_iff_resume`,
+  `shapeRuns_fail_iff_resume` [propext, Classical.choice, Quot.sound].
