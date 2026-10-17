@@ -524,3 +524,54 @@ PROVED: driver eventual completion — `machineShapeF N … = some r → ∀ sta
 = some r` (success and ordinary refusal); OUT forever ↔ every fuel OUT; a finite wrapper derivation (`ShapeRuns`)
 → the driver eventually returns the same answer. NOT written: the reverse at wrapper level (needs
 `Compact (shapeW …)`). Unchanged: O1/O2 outside; production not switched; the bounded driver is a test tool.
+
+## Wrapper compactness (worker J, `par/r-14`, from poc 20304f50, 2026-10-17) — WRITTEN, NOT BUILT
+
+Reviewer 2026-10-17, item 1. New file `Tools/ShippingReaderFuelShapeEval.lean` (imports only the BUILT
+`Tools.ShippingReaderFuelDriverComplete`); no existing statement changed; no compiler change.
+Build order: `lake build Tools.ShippingReaderFuelShapeEval` (after `…FuelDriverComplete`, already built).
+lean_lib (appended at the end of `lakefile.lean`):
+`lean_lib «Tools.ShippingReaderFuelShapeEval» where roots := #[`Tools.ShippingReaderFuelShapeEval]`.
+
+### What is proved (as written)
+* `compact_shapeW : Compact (shapeW sm ps ci senv ai)` — the wrapper reads finitely many table answers (the wrapper
+  counterpart of `compact_step` / `compact_normStep`): one table read each (`compact_wNorm`, `compact_wConv`,
+  `compact_wChain`, `compact_wLoopRoot`), the reader fragments `compact_shapeStart`, `compact_shapeRootLet`,
+  `compact_shapeBody` (crunch `wcompact_base`, as `compact_base`), composed along `shapeW` with `compact_optK` /
+  `compact_bind` / `compact_bindO` / `compact_foldO` / `compact_pure`. Pure fragments (`shapePre`, `shapeMid`,
+  `shapePost`, `machReserve`) are single discriminants / values, never inspected.
+* `wEval_of_wtab` (a table answer at fuel `n` is a finite execution: `fuel_evalN` / `fuel_eval`).
+* `fuel_shapeRuns : machineShapeF N … = some r → ShapeRuns … r` — the converse of `shapeRuns_fuel`.
+* `shapeRuns_iff : ShapeRuns … r ↔ ∃ N, machineShapeF N … = some r`; `shapeRuns_ok_iff` (`r = some s`, success),
+  `shapeRuns_fail_iff` (`r = none`, ordinary refusal); `shapeRuns_det`.
+* `shapeRuns_drive_iff start r : ShapeRuns … r ↔ ∃ rounds, (driveShape rounds start …).res = some r` (+ `_ok` /
+  `_fail`); `shapeRuns_none_iff` (no finite execution ⟺ OUT at every fuel), `shapeRuns_drive_none_iff` (⟺ the
+  driver is OUT for every round bound).
+
+### What stays outside
+* **O1**: that a RETURNING run of the compiled `partial` `machineShape?` yields a finite derivation (runtime fact,
+  not kernel). So "the old reader answers ⟹ the driver answers" is still NOT claimed.
+* **Opaque helpers** (`rootFloat`, `zetaAll`, `rawNode`, `machNormNode`, `packTupleInputs`, `Expr` primitives) are
+  parameters consumed as values; their termination / runtime agreement (O3/O4) not claimed. O2 unchanged.
+* Production not switched; the bounded driver remains a test tool (OUT = undecided within budget).
+
+Predicted axioms: `compact_*`, `wEval_of_wtab` — none or [propext]; `fuel_shapeRuns`, `shapeRuns_iff`,
+`shapeRuns_drive_iff`, `shapeRuns_none_iff` — [propext, Classical.choice, Quot.sound] (inherited from
+`shapeRuns_fuel` / `driveShape_*`).
+
+Risks (PREDICTED; nothing elaborated): the `repeat' wcompact_base` crunch on `shapeRootLet` (an `if` on
+`isAppOfArity`, a two-discriminant `match`, a `let (x, lets) := if …` destructuring) and `shapeBody` (`let v := match
+m.wrap? …`) — same pattern as `compact_instArg` / `compact_loopNext`; the explicit `refine` chain in
+`compact_shapeW` (zeta of `let m`, matcher reduction after `rcases`) has a crunch fallback inside `first`;
+`unfold ShapeRuns` before the anonymous constructor; dependent `cases c` in `wEval_of_wtab` (as `wEval_fuel`).
+
+### Integration of worker J (987b6612) — BUILT as written
+Applied on poc 20304f50. Run `j1`: `scripts/shipping-coverage/cgrun.sh -n j1 -m 3G -t 7200 -j 1 -- lake build
+Tools.ShippingReaderFuelShapeEval` → exit 0, no fix (header update rebuilt in run `j1b`, exit 0). Axioms:
+`wEval_of_wtab` [propext, Quot.sound]; `compact_shapeW`, `fuel_shapeRuns`, `shapeRuns_iff`, `shapeRuns_ok_iff`,
+`shapeRuns_fail_iff`, `shapeRuns_det`, `shapeRuns_drive_iff`, `shapeRuns_none_iff`, `shapeRuns_drive_none_iff`
+[propext, Classical.choice, Quot.sound].
+PROVED: wrapper compactness and the converse, hence `ShapeRuns … r ↔ ∃ N, machineShapeF N … = some r` and
+`ShapeRuns … r ↔ ∃ rounds, (driveShape rounds start …).res = some r`, for success and ordinary refusal; no finite
+execution ↔ every fuel OUT ↔ the bounded driver OUT for every round bound. OUTSIDE (unchanged): O1 (a returning
+compiled partial run → `ShapeRuns`), O2, opaque helpers.
