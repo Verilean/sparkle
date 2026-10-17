@@ -65,3 +65,76 @@ CONSUMER REDUCED (alternative next to the unchanged `entryStrict_of_links`): `en
 DISAPPEAR, the links being candidate-wrapper successes (`LinkPF`, `LinkCF`).
 NOT counted for the old compiler: these are about `machineShapeF`; transferring them to the real `machineShape?`
 needs O1 + O2.
+
+## Call widths, heterogeneous children + candidate R1 (worker K, par/r-15) — WRITTEN, NOT BUILT
+Reviewer 2026-10-17 item 2. From poc 20304f50. Four new files (old theorems unchanged):
+`Tools/ShippingCallWidthsEntryFH.lean` (a), `Tools/ShippingReaderFuelR1.lean` + `Tools/ShippingReaderFuelShapeR1.lean`
+(b), `Tools/ShippingCallWidthsEntryFR1.lean` (a + b). All about the CANDIDATE wrapper `machineShapeF`; NOT counted
+for the old compiler (needs O1 + O2).
+
+(a) `callWidthsStrict_of_linksFH` (+ `_'` with index functions): every call entry `k` has its OWN child
+declaration, candidate link (own fuel / signature table / flags), shape and result kind (`ChildLinkF d kidOuts k`).
+`callWidthsStrict_of_linksF_via_FH` re-derives the homogeneous theorem as the special case.
+
+(b) Candidate R1. Invariant `InstR1 senv st` (every `insts` entry whose callee has `senv.inst c = some (_, r')` has
+kind `r'`), proved for every fuel by the same arm-by-arm induction as R5 (`readF_good1`), carried through the
+wrapper (`machineShapeF_instR1`, `machineShapeF_r1k`, `machineShapeF_r1At` = the old `R1At` predicate). Where the
+reader builds call entries: `instStep` pushes `(c, js, res)` with the CALL's `res`; the `machInstCall?` arm takes
+`(c, kinds, res)` from `senv.inst c` (R1 by construction, `machInstCall?_inst`); the memory arm calls with
+`memChildName combo aw dw` / `.bits dw` (needs `MemR1`); `instSStep` appends entries of a STRUCTURE callee
+(`machInstCallS?`: `senv.instS c = some _`; needs `senv.inst c = none`, i.e. `SigDisj`, PROVED for `structEnv env`
+because `instSignature?` requires `machResultKind? = some _` and `instSignatureS?` requires it `none`).
+The ONE fact R1 needs that the candidate reader does not establish: `MemR1 senv` — the compiler-built memory
+placeholder names carry no one-Signal signature with a result other than `.bits dw` (holds when no
+`@[hardware_module]` has such a name, `memR1_of_none`; an environment fact, not a reader fact).
+
+### Premise table (new theorems)
+| Premise | Theorem(s) | Status | Discharged by / why still assumed |
+|---|---|---|---|
+| `LinkPF` (parent = candidate result) | all | ASSUMED | a candidate-wrapper success; for the real compiler needs O1 + O2 (`machineShape?` → `machineShapeF`) |
+| `NIN` | `…FH`, `…FH_sig`, `…FH_declared` | DISCHARGED | not a premise: R5 at the closing's `nDecl` from the candidate state (`machineShapeF_callBinder`) |
+| `R5ok` | same | DISCHARGED | same (not needed for the conjuncts) |
+| `NIN` in `r5Ok_of_linkF` | `r5Ok_of_linkF` (EntryF) | STILL ASSUMED | the DATA check `d.r5Ok` mentions `d.nIn`, which no candidate fact relates to the peel; only the data-free `shapeR5Ok_of_linkF` is NIN-free. NOT counted as solved |
+| child link `LinkCF` (per entry) | all | ASSUMED (per entry) | candidate success of each child; old compiler: O1 + O2 |
+| `ResC` (per entry) | `…FH`, `…FH_sig` | ASSUMED | for the unfolded entry constant (`inlinedConst (userInliner env) ci`) it is P5 (opaque `userInliner` on a type) |
+| `ResC` (per entry) | `…FH_declared` | DISCHARGED | `resC_of_declared` from `hinst` + `hfind` (child linked at the DECLARED constant) |
+| `hkid` (per entry) | all | ASSUMED (trivial) | the consumer's choice of `kidOuts` (`rfl`) |
+| `R1k` (per entry) | `…FH` | ASSUMED | (form without signature data) |
+| `R1k` (per entry) | `…FH_sig`, `…FH_declared` | DISCHARGED | `machineShapeF_r1k` (candidate R1) from `hcallee` + `hinst`, parent read with `structEnv env` |
+| `hcallee` (entry `k`'s callee is `c`) | `…FH_sig`, `…FH_declared` | ASSUMED | a lookup in the reflected shape (`decide`-able on `d.shape.insts`) |
+| `hinst` (`(structEnv env).inst c = some (kinds, res)`) | `…FH_sig`, `…FH_declared` | ASSUMED | an environment lookup; the candidate does not record WHICH table entry produced an `insts` entry (a memory or structure entry has none) |
+| `hfind` (`env.find? c = some (.defnInfo dC)`) | `…FH_declared` | ASSUMED | environment lookup |
+| `MemR1 (structEnv env)` | `…FH_sig`, `…FH_declared`, `machineShapeF_r1At` | ASSUMED | the only reader-call-site fact R1 needs that the reader does not establish (memory placeholder names vs. the environment's `@[hardware_module]` signatures) |
+| `SigDisj` | `machineShapeF_r1k` (general `senv`) | DISCHARGED for `structEnv env` | `sigDisj_structEnv` |
+| `hk` (`k < insts.length`) | per entry | DISCHARGED | supplied by `callWidthsStrict_of_entries` |
+
+Predicted axioms: [propext, Classical.choice, Quot.sound] (as the R5 line). Build order: `ShippingCallWidthsEntryFH`,
+`ShippingReaderFuelR1`, `ShippingReaderFuelShapeR1`, `ShippingCallWidthsEntryFR1` (the first is independent of the
+other three).
+
+### Integration of worker K (2a6e0d87) — BUILT with integrator fixes; PREMISE TABLE (current)
+Applied on poc a6573291 (lakefile conflict on appended lean_libs: kept both). Runs (cgrun, 3 GiB, swap 0, `-j 1`):
+`k1` — `lake build Tools.ShippingCallWidthsEntryFH` exit 0, `Tools.ShippingReaderFuelR1` exit 0,
+`Tools.ShippingReaderFuelShapeR1` exit 1 (a multi-line `first` alternative did not parse; a `rw [he] at hc ⊢`
+after `cases he :` found nothing in the goal) → integrator fixes (one line per alternative; `try rw` on the
+hypothesis and the goal separately; no statement changed) → `k2` — `…ShapeR1` exit 0, `Tools.ShippingCallWidthsEntryFR1`
+exit 0; `k3` (header updates) exit 0. Axioms: `readF_good1` [propext, Quot.sound]; `callWidthsStrict_of_linksFH`,
+`callWidthsStrict_of_linksF_via_FH`, `sigDisj_structEnv`, `machineShapeF_r1k`, `machineShapeF_r1At`,
+`callWidthsStrict_of_linksFH_sig`, `callWidthsStrict_of_linksFH_declared` [propext, Classical.choice, Quot.sound].
+
+Remaining premises of the candidate call-width theorems (all about the CANDIDATE wrapper; nothing counted for the
+old compiler without O1 / O2):
+| Premise | `…linksF` (homog.) | `…linksFH` | `…linksFH_sig` | `…linksFH_declared` |
+|---|---|---|---|---|
+| parent candidate link `LinkPF` | assumed | assumed | assumed | assumed |
+| per-child candidate link | one shared `sc` | per entry (assumed) | per entry (assumed) | per entry (assumed) |
+| `NIN`, `R5ok` | discharged | discharged | discharged | discharged |
+| `R1k` | assumed | assumed | DISCHARGED (`machineShapeF_r1k`) | DISCHARGED |
+| `ResC` | assumed | assumed | assumed | DISCHARGED (`resC_of_declared`) |
+| `hkid` | assumed (trivial: `kidOuts` choice, `rfl`) | same | same | same |
+| `hcallee` / `hinst` (env lookups) | — | — | assumed | assumed |
+| `hfind` (env lookup) | — | — | — | assumed |
+| `MemR1 (structEnv env)` (memory placeholder name has no conflicting signature) | — | — | assumed | assumed |
+| `SigDisj` | — | — | discharged for `structEnv` | discharged |
+Separately: `r5Ok_of_linkF` STILL needs `NIN` (the data check mentions `d.nIn`); only the data-free
+`shapeR5Ok_of_linkF` is NIN-free — NOT counted as solved.
