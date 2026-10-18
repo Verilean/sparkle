@@ -3115,3 +3115,6 @@ lean_lib «Tools.ShippingCallWidthsEntryFR1» where
 
 lean_lib «Tools.ShippingReaderFuelResumeEval» where
   roots := #[`Tools.ShippingReaderFuelResumeEval]
+
+lean_lib «Tools.ShippingMemDispatch» where
+  roots := #[`Tools.ShippingMemDispatch]
