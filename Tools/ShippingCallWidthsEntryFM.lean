@@ -3,7 +3,7 @@ import Tools.ShippingReaderFuelShapeProv
 
 /-! # Candidate call widths for MIXED call entries (ordinary / structure field / memory)
 
-WRITTEN, NOT BUILT (worker S-PROV, branch par/s-prov, from poc 3a1938a3;
+BUILT as written: run `p2` exit 0 (poc 6f216c4e); axioms run `axp`: [propext, Classical.choice, Quot.sound] (worker S-PROV, branch par/s-prov, from poc 3a1938a3;
 reviewer milestone 1). No `sorry`, no axiom, no `native_decide`. New
 ALTERNATIVE theorems; nothing old changed.
 

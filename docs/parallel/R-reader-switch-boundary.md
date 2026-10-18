@@ -67,7 +67,7 @@ DISAPPEAR, the links being candidate-wrapper successes (`LinkPF`, `LinkCF`).
 NOT counted for the old compiler: these are about `machineShapeF`; transferring them to the real `machineShape?`
 needs O1 + O2.
 
-## Call widths, heterogeneous children + candidate R1 (worker K, par/r-15) — WRITTEN, NOT BUILT
+## Call widths, heterogeneous children + candidate R1 (worker K, par/r-15) — BUILT (k1 partial fail, k2/k3 exit 0; see below)
 Reviewer 2026-10-17 item 2. From poc 20304f50. Four new files (old theorems unchanged):
 `Tools/ShippingCallWidthsEntryFH.lean` (a), `Tools/ShippingReaderFuelR1.lean` + `Tools/ShippingReaderFuelShapeR1.lean`
 (b), `Tools/ShippingCallWidthsEntryFR1.lean` (a + b). All about the CANDIDATE wrapper `machineShapeF`; NOT counted
@@ -152,3 +152,37 @@ Separately: `r5Ok_of_linkF` STILL needs `NIN` (the data check mentions `d.nIn`);
   Tools.ShippingReaderFuelDriverResume` exit 0 (headers), `lake build Tools.ShippingReaderFuelResumeEval` exit 0,
   `#print axioms` (via `lake env lean`): `shapeRuns_iff_resume`, `shapeRuns_ok_iff_resume`,
   `shapeRuns_fail_iff_resume` [propext, Classical.choice, Quot.sound].
+
+## Round 2026-10-18 (reviewer on 3a1938a3)
+
+**Scope correction.** `ChildLinkFS` / `ChildLinkFD` need `senv.inst c = some _` for EVERY entry; memory placeholders may
+have none, structure-field entries have `instS` some / `inst` none. The FH/FR1 theorems are heterogeneous
+SINGLE-SIGNAL-child theorems, not all-entry coverage. `hinst` is not a trivial lookup and is not proved universally.
+
+| Unit | Commit | Build | Axioms |
+|---|---|---|---|
+| Provenance invariant `InstProv` (ordinary / structure field with index, name, kind / memory with combo, aw, dw > 0), `readF_goodP` all fuels, NO MemR1 / SigDisj; wrapper lift `machineShapeF_origin` | 6f216c4e (S-PROV) | `p1`, `p2` exit 0 as written | standard (`axp`) |
+| Exact per-entry obligation `entryStrict_iff_kidOutsOk`; per-kind `ChildLinkOrdD` / `ChildLinkStruct` / `ChildLinkMem`; MIXED `callWidthsStrict_of_linksFM`; `childLinkMem_of_outTys` (real memory module); `_declared` re-derived as corollary | 6f216c4e | `p2` exit 0 | standard |
+| Real child dispatch audit (`docs/parallel/S-child-dispatch-audit.md`); `callWidthsStrict_real` with `kidOuts k` = the callee's `MachineDefines` shape at its entry constant (hkid removed), `children_widths_real`, `parent_children_widths_real` (children = the list `closeInsts(G)` consumed) | b35d4ff5 (S-DISP) | `cr1` exit 0 as written | standard (`ax18`) |
+| Memory placeholder collision: measured MISCOMPILE in `closeInstsGM` (probe); `MemR1` false in a real env and not the guarding property; guarded model + dispatch theorems; compiler fix PROPOSED, not applied (`docs/parallel/S-memname-collision.md`) | db3179b3, 85b7d1b5 | `mc2`, `mc4` (probe), `md1` exit 0 | standard; `not_memR1_all` none |
+| Header hygiene (k1 failures recorded, measured axioms) | 08553a05 | `hd18` exit 0 | `ax18` |
+
+### Premise table (current)
+
+| Premise | Status |
+|---|---|
+| Parent `LinkPF` (candidate) | assumed (O1/O2 for the real reader) |
+| Ordinary child link `ChildLinkOrdD` | assumed (`hcallee`, `hinst` now supplied by provenance) |
+| Structure-field obligation `ChildLinkStruct` | ASSUMED; deriving it from the structure child's own link needs layout vs `machOuts?` field list — open |
+| Memory obligation `ChildLinkMem` | discharged from `ChildOutTys … (memModule combo aw dw)` |
+| R1k / NIN / R5ok in `callWidthsStrict_of_linksFM` | not needed (provenance) |
+| MemR1 | not needed by the mixed theorem; still a premise of `readF_good1` / `_declared` corollary; FALSE for some real envs |
+| hkid | removed in `callWidthsStrict_real` (real callee's layout); still a rfl-binder in FH/FM (model choice, NOT emitted-child agreement) |
+| ResC for the UNFOLDED child (P5) | EXPLICIT premise `P5At` (`inlinedConst` rewrites the type); `ResDeclAt` assumed |
+| Callee `MachineDefines`, `ChildBnd`, `LeafKid`, `PB`, `memChild? = none` | assumed (reflection boundary / leaf scope / decidable checks) |
+| ChildrenReal / cache | discharged from the parent run (`CacheInv`) |
+| NIN in `r5Ok_of_linkF` | still assumed |
+| Memory-name dispatch correctness of the REAL compiler | FALSE today (miscompile); holds in the guarded model only |
+
+Production obligations still open: O1–O4 (distinct; none added as axiom or binder), the compiler fix approval for the
+memory-name collision, `ChildLinkStruct` derivation, P5, non-leaf callees' `ChildOutTys`. CI: 0 runs for these SHAs.

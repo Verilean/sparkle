@@ -2,7 +2,7 @@ import Tools.ShippingReaderFuelR1
 
 /-! # Call-entry PROVENANCE for the fuel CANDIDATE reader
 
-WRITTEN, NOT BUILT (worker S-PROV, branch par/s-prov, from poc 3a1938a3;
+BUILT as written: run `p1` exit 0 (poc 6f216c4e); axioms run `axp`: [propext, Classical.choice, Quot.sound] (worker S-PROV, branch par/s-prov, from poc 3a1938a3;
 reviewer milestone 1). No `sorry`, no axiom, no `native_decide`. Nothing here
 is imported by the compiler; no compiler change.
 
