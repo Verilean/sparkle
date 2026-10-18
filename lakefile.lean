@@ -3113,6 +3113,15 @@ lean_lib «Tools.ShippingReaderFuelShapeR1» where
 lean_lib «Tools.ShippingCallWidthsEntryFR1» where
   roots := #[`Tools.ShippingCallWidthsEntryFR1]
 
+lean_lib «Tools.ShippingReaderFuelProv» where
+  roots := #[`Tools.ShippingReaderFuelProv]
+
+lean_lib «Tools.ShippingReaderFuelShapeProv» where
+  roots := #[`Tools.ShippingReaderFuelShapeProv]
+
+lean_lib «Tools.ShippingCallWidthsEntryFM» where
+  roots := #[`Tools.ShippingCallWidthsEntryFM]
+
 lean_lib «Tools.ShippingReaderFuelResumeEval» where
   roots := #[`Tools.ShippingReaderFuelResumeEval]
 
