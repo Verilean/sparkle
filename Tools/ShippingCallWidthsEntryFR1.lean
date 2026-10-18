@@ -3,7 +3,7 @@ import Tools.ShippingReaderFuelShapeR1
 
 /-! # Heterogeneous candidate call widths with `R1k` DERIVED from the candidate reader
 
-UNVERIFIED: BUILT on poc a6573291 (runs `k1`, `k2`) (worker K, branch `par/r-15`, from poc
+BUILT: run `k2` (poc a6573291) exit 0 as written (not reached in `k1`) (worker K, branch `par/r-15`, from poc
 `20304f50`; reviewer 2026-10-17 item 2(a)+(b)). No `sorry`, no axiom, no
 `native_decide`. New ALTERNATIVE theorems; nothing old changed.
 
@@ -31,8 +31,13 @@ Two forms:
 
 SCOPE. CANDIDATE wrapper only; not counted for the old compiler (O1/O2).
 
-Predicted axioms: `propext` (possibly `Quot.sound`, `Classical.choice` via
-core list/array lemmas). -/
+MEASURED axioms (run `ax18`, poc after 3a1938a3): `callWidthsStrict_of_linksFH_sig`, `_declared`:
+[propext, Classical.choice, Quot.sound].
+
+SCOPE CORRECTION (reviewer 2026-10-18): `ChildLinkFS` / `ChildLinkFD` require
+`senv.inst c = some _` for EVERY entry. Memory placeholders may have none and
+structure-field entries have `instS` some / `inst` none (`SigDisj`), so these
+are heterogeneous SINGLE-SIGNAL-child theorems, NOT all-entry coverage. -/
 namespace Tools.ShippingCallWidthsEntryFR1
 open Lean
 open Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Machine

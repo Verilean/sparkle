@@ -6,7 +6,10 @@ import Tools.ShippingGateChildComb
 
 /-! # Call widths against the child REALLY compiled (reviewer milestone 2)
 
-WRITTEN, NOT BUILT (worker S-DISP, branch par/s-disp, from poc 3a1938a3).
+BUILT: run `cr1` (poc after 3a1938a3) exit 0 as written (worker S-DISP, branch
+par/s-disp, from poc 3a1938a3). MEASURED axioms (run `ax18`, poc after 3a1938a3): `callWidthsStrict_real`,
+`children_widths_real`, `parent_children_widths_real`, `resC_entry`:
+[propext, Classical.choice, Quot.sound].
 No `sorry`, no new axiom, no `native_decide`. New file; nothing existing is
 changed. Audit: `docs/parallel/S-child-dispatch-audit.md`.
 

@@ -54,8 +54,9 @@ From `machineShapeF n … ci … = some (some sp)`:
 * `machineShapeF_slots_length` — the layout has as many slots as the state
   has kinds, names and reset values.
 
-Predicted axioms: `propext`, `Quot.sound` (from `omega` / `simp`-free
-rewriting; `Classical.choice` only if a library lemma used pulls it). -/
+MEASURED axioms (run `ax18`, poc after 3a1938a3): `machineShapeF_nDecl`, `machineShapeF_single_out`:
+[propext, Classical.choice, Quot.sound]. (Originally predicted: `propext`, `Quot.sound` (from `omega` / `simp`-free
+rewriting; `Classical.choice` only if a library lemma used pulls it).) -/
 namespace Tools.ShippingReaderFuelShapeR5
 open Lean
 open Sparkle.Compiler.Elab

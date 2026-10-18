@@ -37,7 +37,8 @@ declaration's reflected shape (`MachineDefines`), i.e. the data — on which
 the agreement is the decidable `callWidthsOk`. For a pair of declarations
 it is one `decide`; it is a premise per pair, like `outTy`.
 
-UNVERIFIED at the time of writing: this file was not built. -/
+BUILT (as a dependency of runs `k1` / `cr1`, exit 0; header corrected 2026-10-18). MEASURED axioms (run `ax18`, poc after 3a1938a3): `hkidW_of_data`:
+[propext, Classical.choice, Quot.sound]. -/
 namespace Tools.ShippingCallWidths
 open Lean Meta
 open Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Machine

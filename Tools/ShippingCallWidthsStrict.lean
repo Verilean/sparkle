@@ -24,7 +24,8 @@ mc.outputs`).
 generated endpoints' `hkidW`); `callWidthsOk_of_strict` gives the old
 condition from the new one.
 
-UNVERIFIED at the time of writing: this file was not built. -/
+BUILT (as a dependency of runs `k1` / `cr1`, exit 0; header corrected 2026-10-18). MEASURED axioms (run `ax18`, poc after 3a1938a3): `callWidthsOk_of_strict`:
+[propext, Quot.sound]. -/
 namespace Tools.ShippingCallWidthsStrict
 open Lean Meta
 open Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Machine

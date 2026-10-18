@@ -3,7 +3,7 @@ import Tools.ShippingInstSignature
 
 /-! # R1 for the fuel CANDIDATE: every call entry's kind is its callee's signature result
 
-UNVERIFIED: BUILT on poc a6573291 (runs `k1`, `k2`) (worker K, branch `par/r-15`, from poc
+BUILT: run `k1` (poc a6573291) exit 0 as written (worker K, branch `par/r-15`, from poc
 `20304f50`; reviewer 2026-10-17 item 2(b)). No `sorry`, no axiom, no
 `native_decide`. Nothing here is imported by the compiler; no compiler change.
 
@@ -49,9 +49,7 @@ whose input state satisfies `InstR1` returns a state satisfying `InstR1`.
 * `step_good1`, `readF_good1` (every fuel, under `MemR1`, `SigDisj`);
 * `machConvF_instR1`, `machChainF_instR1`, `machLoopRootF_instR1`.
 
-Predicted axioms: `propext` (and possibly `Quot.sound` / `Classical.choice`
-through core list/array lemmas: `Array.toList_push`, `Array.toList_append`,
-`List.mem_append`, `List.mem_map`, `List.mem_singleton`). -/
+MEASURED axioms (run `ax18`, poc after 3a1938a3): `readF_good1`: [propext, Quot.sound]. -/
 namespace Tools.ShippingReaderFuelR1
 open Lean
 open Sparkle.Compiler.Elab

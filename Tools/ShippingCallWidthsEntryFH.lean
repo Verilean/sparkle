@@ -2,7 +2,7 @@ import Tools.ShippingCallWidthsEntryF
 
 /-! # `callWidthsStrict` with candidate links, HETEROGENEOUS children
 
-UNVERIFIED: BUILT on poc a6573291 (runs `k1`, `k2`) (worker K, branch `par/r-15`, from poc
+BUILT: run `k1` (poc a6573291) exit 0 as written (worker K, branch `par/r-15`, from poc
 `20304f50`; reviewer 2026-10-17 item 2(a)). No `sorry`, no axiom, no
 `native_decide`. New ALTERNATIVE theorem; `callWidthsStrict_of_linksF` and
 `callWidthsStrict_of_links` are unchanged.
@@ -21,8 +21,8 @@ section "Call widths, heterogeneous children", for the premise table.
 
 SCOPE. CANDIDATE wrapper only; not counted for the old compiler (O1/O2).
 
-Predicted axioms: those of `entryStrict_of_linksF` (`propext`, possibly
-`Quot.sound`). -/
+MEASURED axioms (run `ax18`, poc after 3a1938a3): `callWidthsStrict_of_linksFH`:
+[propext, Classical.choice, Quot.sound]. -/
 namespace Tools.ShippingCallWidthsEntryFH
 open Lean
 open Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Machine

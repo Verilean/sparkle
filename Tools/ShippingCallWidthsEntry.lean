@@ -44,8 +44,9 @@ of the SAME environment `env` in which `c` is looked up (`LinkP` at
 `structEnv env`).
 
 Depends on `ShippingShapeDecomp`, `ShippingCallWidthsDeclared`,
-`ShippingR5Check` (all written, not built). UNVERIFIED: written, not
-built. Nothing here is connected to an endpoint. -/
+`ShippingR5Check`. BUILT (as a dependency of runs `k1` / `cr1`, exit 0; header
+corrected 2026-10-18). MEASURED axioms (run `ax18`): `callWidthsStrict_of_links`,
+`entryStrict_of_links_declared`: [propext, Classical.choice, Quot.sound]. Nothing here is connected to an endpoint. -/
 namespace Tools.ShippingCallWidthsEntry
 open Lean
 open Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Machine

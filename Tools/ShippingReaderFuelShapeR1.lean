@@ -4,7 +4,10 @@ import Tools.ShippingCallWidthsEntry
 
 /-! # Wrapper-level R1 for the fuel CANDIDATE `machineShapeF`
 
-UNVERIFIED: BUILT on poc a6573291 (runs `k1`, `k2`) (worker K, branch `par/r-15`, from poc
+BUILT: run `k1` (poc a6573291) FAILED (exit 1: a multi-line `first`
+alternative at 104 did not parse, unsolved goal at 95 as its consequence;
+`rw [he] at hc ⊢` at 163 failed); integrator fixes (one alternative per line;
+`try rw [he] at hc` / `try rw [he]`), statements unchanged; run `k2` exit 0 (worker K, branch `par/r-15`, from poc
 `20304f50`; reviewer 2026-10-17 item 2(b)). No `sorry`, no axiom, no
 `native_decide`. No compiler change.
 
@@ -26,8 +29,8 @@ into the shape (`shapePost_insts`).
 * `machineShapeF_r1k` — the consumer's `R1k` for entry `k` whose callee `c`
   has signature `(kinds, res)` in `env`.
 
-Predicted axioms: `propext` (and possibly `Quot.sound` / `Classical.choice`
-through core list lemmas). -/
+MEASURED axioms (run `ax18`, poc after 3a1938a3): `machineShapeF_r1k`:
+[propext, Classical.choice, Quot.sound]. -/
 namespace Tools.ShippingReaderFuelShapeR1
 open Lean
 open Sparkle.Compiler.Elab

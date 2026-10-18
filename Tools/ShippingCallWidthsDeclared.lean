@@ -34,7 +34,8 @@ REFLECTED shapes (`MachineData`); `DP` / `hc` below are that link, as
 hypotheses. The form with the links as `machineShape?` equations, R5 as a
 count and every obligation named is `Tools/ShippingCallWidthsEntry.lean`.
 
-UNVERIFIED: written, not built. -/
+BUILT (as a dependency of runs `k1` / `cr1`, exit 0; header corrected 2026-10-18). MEASURED axioms (run `ax18`, poc after 3a1938a3): `entryStrict_declared`:
+[propext, Classical.choice, Quot.sound]. -/
 namespace Tools.ShippingCallWidthsDeclared
 open Lean
 open Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Machine
