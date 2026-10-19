@@ -3219,3 +3219,9 @@ lean_lib «Tools.ShippingChildBndInit» where
 
 lean_lib «Tools.ShippingChildBndCore» where
   roots := #[`Tools.ShippingChildBndCore]
+
+lean_lib «Tools.ShippingGateCert2» where
+  roots := #[`Tools.ShippingGateCert2]
+
+lean_lib «Tools.ShippingGateCert2Command» where
+  roots := #[`Tools.ShippingGateCert2Command]
