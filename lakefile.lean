@@ -3192,3 +3192,6 @@ lean_lib «Tools.ShippingKidsTyped» where
 
 lean_lib «Tools.ShippingNoPortsTyped» where
   roots := #[`Tools.ShippingNoPortsTyped]
+
+lean_lib «Tools.ShippingNoPortsTypedI» where
+  roots := #[`Tools.ShippingNoPortsTypedI]
