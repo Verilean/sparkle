@@ -221,3 +221,16 @@ Certificate `Tests/Compiler/MemNameCollisionPlainCertTest.lean`:
   generate `collSameR`'s endpoints). Their certificates are unchanged; only their registration moved.
 * `Tests.AllTests` keeps `MemNameCollisionTest`, `…GateCertTest`, `…PlainCertTest` (joint import checked, fam2).
   Whether OTHER modules of the full suite clash is not checked (full AllTests unrun).
+
+### Parallel planning — `p5s` unfolding branch under the ruling (no build)
+
+`docs/parallel/O-p5s-unfold-plan.md` (+ unbuilt sketch `docs/parallel/sketch/InlTypeCand.lean`), source review.
+Corrections to section C of the previous round: `relevantClosure` is not a blocker (a Bool case split);
+`passM` is needed only on its trivial `.forallE` arm; the hard blocker is `Expr.replace` (extern `replaceImpl`) in
+`inlAbbrevs`. `p5s` in its present (backward) direction is FALSE for accepted declarations whose result type uses an
+alias or a folded width — probe p5p1 (exit 0) confirms it on the reading functions — so it must be restated
+forward (`p5sF`, the direction `P5At` already has). Recommended (a′): fuel `passF` (`passF 0` = current behaviour),
+structural replace on `.forallE` types, exclusion lists G1/G2 in `userAbbrev?` / `userStructure?` — a COMPILER
+change, isolated candidate only, needs a ruling before any switch; eliminates `P5At` / `p5s` for callees with ≥ 1
+binder, renames reading-back into the existing `InstSubst` boundary; `typeAgree` / `fieldsAgree` and InstAgree stay
+open. Nothing implemented.
