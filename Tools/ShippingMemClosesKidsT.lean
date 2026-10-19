@@ -53,7 +53,7 @@ What is NOT changed here: the run-fact chain of a memory parent
 (`#machine_no_ports_memseq`, `#machine_no_ports_mem`, `#machine_no_ports_memkid`)
 are unchanged and still refuse a collision shape.
 
-WRITTEN, NOT BUILT (par/o-kidt). -/
+BUILT (par/o-kidt; run kt1 failed: `MachineClosesAt`'s implicit `tenv` binder needed `intro tenv` before `refine` (integrator fix); kt2 exit 0; axioms [propext, Classical.choice, Quot.sound]). -/
 namespace Tools.ShippingMemCloses
 open Lean Meta
 open Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Machine
@@ -484,6 +484,7 @@ theorem machineClosesAt_of_kidsDM_fromT {declName : Name} (d : MachineData) (ok 
     show (d.shape.instOrigins.getD k .ord).child? = (d.shape.instOrigins.getD k' .ord).child?
     rw [← Tools.ShippingInstTagged.agree_at hagree hk, ← Tools.ShippingInstTagged.agree_at hagree hk',
       he]
+  intro tenv
   refine machineClosesAt_of_kidsDMT d ok hbody halias hC hslots hdomB hfne nameK nk outsK namesK
     ?_ hargsN hfieldOut ?_ ?_ hparent hfresh hparentD ?_
   · intro k hk y hy

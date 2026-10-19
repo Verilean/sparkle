@@ -1,6 +1,7 @@
 import Sparkle
 import Tools.ShippingMachineCommand
 import Tools.ShippingMemClosesKidsT
+import Tools.ShippingModuleName
 
 /-! # Certificate: the closing of a memory parent beside a COLLIDING declaration call (round par/o-kidt)
 
@@ -45,7 +46,7 @@ endpoint's two data checks, by `Eq.refl` checked by the kernel only (as
 `#machine_endpoint` adds `f.machine_ok` / `f.machine_body`). `#machine_endpoint`
 itself (the trace theorem) is NOT run: the closing does not need it.
 
-WRITTEN, NOT BUILT (par/o-kidt). Data READ: the sources below. NOT READ
+BUILT and RUN (par/o-kidt; integrator fixes: missing import Tools.ShippingModuleName, addRefl via mkTheoremValEx, `(nomatch hx)` parenthesised, `intro tenv`; run kt4 exit 0, peak 0.29 GB; axioms of collSame_closes / collArgs_closes / closes_of_collision / collSame_not_agree: [propext, Classical.choice, Quot.sound]). Data READ: the sources below. NOT READ
 (logged by the first `run_cmd`, asserted where the proofs depend on it): the
 entry order, `nDecl` (asserted 4), the entries' names and origins (asserted:
 two entries, both named `memChildName false 4 8`, one `.mem false 4 8`, one
@@ -119,8 +120,7 @@ def addRefl (name : Name) (stx : Lean.Term) : TermElabM Unit := do
   let some (α, lhs, _) := stmt.eq? | throwError "{name}: not an equation: {stmt}"
   let u ← getLevel α
   withOptions (fun o => Lean.Elab.async.set o false) do
-    addDecl (.thmDecl { name, levelParams := [], type := stmt,
-      value := mkApp2 (mkConst ``Eq.refl [u]) α lhs })
+    addDecl (.thmDecl (mkTheoremValEx name [] stmt (mkApp2 (mkConst ``Eq.refl [u]) α lhs) [name]))
 
 /-- The reader's data of `src`, as `base`. -/
 def addData (src base : Name) : TermElabM Unit := do
@@ -358,12 +358,13 @@ theorem closes_of_collision {mctx : Lean.Meta.Context}
     · rw [ho, ho']
       show (memModule false 4 8).1.name ∉ ([] : List String) ∧
         ∀ x ∈ [(memModule false 4 8).1.name], x ∉ ([] : List String)
-      exact ⟨fun hx => nomatch hx, fun _ _ hx => nomatch hx⟩
+      exact ⟨fun hx => (nomatch hx), fun _ _ hx => nomatch hx⟩
     · rw [ho, ho']
       show Sparkle.IR.ModuleName.ofDecl syncName ∉ [(memModule false 4 8).1.name] ∧
         ∀ x ∈ ([] : List String), x ∉ [(memModule false 4 8).1.name]
       exact ⟨decl_notin_mem syncName, fun _ hx => nomatch hx⟩
     · exact (hne ⟨hn.trans hn'.symm, by rw [ho, ho']⟩).elim
+  intro tenv
   exact Tools.ShippingMemCloses.machineClosesAt_of_kidsDMT d ok hbody halias hC hslots hdomB hfne
     (fun k => nameO (originAt d.shape k)) (fun k => nkO (originAt d.shape k))
     (fun k => outsO (originAt d.shape k)) (fun k => namesO (originAt d.shape k))
