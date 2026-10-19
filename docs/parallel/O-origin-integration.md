@@ -374,3 +374,14 @@ NOT established (no `ChildRunW` reached); p5p1 remains evidence about the readin
 STATEMENT CHANGE of the conclusion (weaker: it now speaks of runs from a width-fitting start state), reported, not
 hidden; both theorems are kept. Remaining for this case: the run, the two reflections (`MachineDefines`,
 `EntryDefines`), `ChildBnd`. Not yet: generator, `collMixDiff` / `collMixArgs` / `collWidth`.
+
+### Final verification of the round
+
+all2 at 64e813fd (`cgrun.sh`, 3 GiB, swap 0, `-j 1`): `lake build Tests.AllTests` exit 0 (1414 jobs), then the
+target-only roots (`scripts/shipping-coverage/target_only_roots.txt`: `MemNameCollisionGenTest`,
+`MemNameCollisionDesignTest`) exit 0 (623 jobs); peak 0.61 GB. Not run: corpus. No CI (local, not pushed).
+
+Remaining for the original collision (outer / nested): `collMixSame_designClosedT` — outer: the run,
+`MachineDefines collMixSame`, `EntryDefines syncName fakeSrc.gateValue`; nested: `ChildBnd`; conclusion carries
+`BoundOff st0`. Next: generator (TAG MODE with `gateKidT_factsC` + `TypedRun`), then `collMixDiff`, `collMixArgs`,
+`collWidth`. Candidate: U2 shadow, L1, U5b not started; production `P5At` / `p5s` not discharged.
