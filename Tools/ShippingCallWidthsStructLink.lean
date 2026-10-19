@@ -70,11 +70,13 @@ output list the CALLEE's entry constant declares.
 | structure entries: `StructResAt` (`StructRes` at the entry constant of every callee run) | ASSUMED, EXPLICIT. Field lists are `senv.fields s` of the result type's head constant `s` (`machOuts?`), so it holds when (i) the call's instantiated result type and the callee entry constant's type have the same head structure (type preservation through `instRes`, and through `userInliner` on the unfolding branch of `entryConst` — the same gap as `P5At`), (ii) `machTupleKinds? dE.type = none`, (iii) the parent's and the callee run's `structEnv` agree on `fields s`. None of (i)–(iii) is proved here |
 | `ResDeclAt` / `P5At` | NOT NEEDED for structure entries (they are about one-Signal result kinds) |
 
-Note (Prod results): `machOuts?` reads a pair of Signals as `(some Prod.mk,
-[out_0, out_1])`, while the callee's `declOuts?` reads a TUPLE result as one
-packed `out` (`machTupleKinds?` first). For such a callee `StructRes` FAILS,
-but `ChildLinkStruct` holds vacuously (no output named `out_0`); the closing
-then connects no port for that entry — outside this file's scope.
+Note (Prod results; CORRECTED by the integrator, `docs/parallel/O-prod-result-audit.md`):
+`machTupleKinds?` matches only a Signal OF a pair (`Signal dom (A × B)`, one
+packed `out`); for a pair OF Signals both the parent's `machOuts?` and the
+callee's `declOuts?` give `out_0`/`out_1`, so no name mismatch arises there.
+A Signal-of-pair call is refused by `machInstanceS` (`machOuts?` on `Signal …`
+is none). Measured (probe runs pr1–pr5): no tested parent puts a pair-OF-Signals
+call on the machine route at all (the callee is inlined in both routes).
 
 ## Unsure spots (for the integrator)
 

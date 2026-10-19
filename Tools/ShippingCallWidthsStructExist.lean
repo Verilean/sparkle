@@ -11,9 +11,11 @@ changed.
 `ChildLinkStruct kidOuts k nm r` (`Tools/ShippingCallWidthsEntryFM.lean`) says
 "every child output NAMED `nm` has width `(kindTy r).bitWidth`", and
 `KidOutsOk` likewise only constrains outputs with the connected name. Both
-hold VACUOUSLY when no output of the child is named `nm`: the closing then
-connects no port for that entry. Matching width alone is therefore not an
-interface guarantee.
+hold VACUOUSLY when no output of the child is named `nm`. (The real closing
+does not then connect nothing: `instStmtG` (MachineInstG.lean 37–38) rejects a
+field with no output of that name, so `closeInstsG` returns none and the
+machine route is refused — `docs/parallel/O-prod-result-audit.md`.) Matching
+width alone is therefore not an interface guarantee on the proof side.
 
 ## The strengthened obligation
 
@@ -72,9 +74,10 @@ Instances:
 | ordinary: `OrdOrigin`, `ChildLinkOrdD` | as in `kidOutsOk_of_ord` (`ChildLinkOrdD` ASSUMED) |
 | memory: `ChildOutTys (kidOuts k) (memModule combo aw dw).1` | as in `childLinkMem_of_outTys` (ASSUMED here) |
 
-Note (Prod results, from `ShippingCallWidthsStructLink`): for a TUPLE-result
-callee `StructRes` FAILS, so the strengthened obligation is NOT derivable for
-it — which is the point: the old `ChildLinkStruct` held vacuously there.
+Note (Prod results): see the corrected note in `ShippingCallWidthsStructLink`
+and `docs/parallel/O-prod-result-audit.md` — a pair OF Signals has `out_0`/`out_1`
+on both sides; the strengthened obligation is what rules out the vacuous case
+(no output named `nm`) in general, wherever `StructResAt` fails.
 
 ## Unsure spots (for the integrator)
 
