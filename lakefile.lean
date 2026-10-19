@@ -3204,3 +3204,9 @@ lean_lib «Tools.ShippingGateTypedCommand» where
 
 lean_lib «Tools.ShippingWireNamesRun» where
   roots := #[`Tools.ShippingWireNamesRun]
+
+lean_lib «Tools.ShippingGateCert» where
+  roots := #[`Tools.ShippingGateCert]
+
+lean_lib «Tools.ShippingGateCertCommand» where
+  roots := #[`Tools.ShippingGateCertCommand]
