@@ -3135,3 +3135,6 @@ lean_lib «Tools.ShippingCallWidthsStructLink» where
 
 lean_lib «Tools.ShippingCallWidthsStructExist» where
   roots := #[`Tools.ShippingCallWidthsStructExist]
+
+lean_lib «Tools.ShippingCallWidthsStructRes» where
+  roots := #[`Tools.ShippingCallWidthsStructRes]
