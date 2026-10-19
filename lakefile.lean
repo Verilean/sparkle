@@ -3147,3 +3147,6 @@ lean_lib «Tools.ShippingInstTagged» where
 
 lean_lib «Tools.ShippingInstSubstModel» where
   roots := #[`Tools.ShippingInstSubstModel]
+
+lean_lib «Tools.ShippingEnvRead» where
+  roots := #[`Tools.ShippingEnvRead]
