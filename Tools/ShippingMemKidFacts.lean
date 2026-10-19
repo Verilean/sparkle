@@ -3,7 +3,7 @@ import Tools.ShippingKidFacts
 import Tools.ShippingDesignSVMem
 import Tools.ShippingMachineShipsHier
 -- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
--- WRITTEN, NOT BUILT against patched compiler.
+-- BUILT against the origin-tag compiler (integration run ig4, 3 GiB, swap 0, -j 1, exit 0; fixes: see docs/parallel/O-origin-integration.md).
 
 /-! # What the check-free chain takes of ONE callee that may be a MEMORY, and the built memory module's side of it (G1, unit U4, round par/b-13)
 

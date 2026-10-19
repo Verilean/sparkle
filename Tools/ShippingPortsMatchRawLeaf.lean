@@ -3,7 +3,7 @@ import Tools.ShippingCallWidths
 import Tools.ShippingLeafPorts
 import Tools.ShippingCoreClk
 -- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
--- WRITTEN, NOT BUILT against patched compiler.
+-- BUILT against the origin-tag compiler (integration run ig4, 3 GiB, swap 0, -j 1, exit 0; fixes: see docs/parallel/O-origin-integration.md).
 
 /-! # `portsMatchB` of the RAW full-entry module, for a parent of LEAF register machines (G1, port matching)
 

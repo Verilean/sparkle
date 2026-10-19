@@ -3141,3 +3141,6 @@ lean_lib «Tools.ShippingCallWidthsStructRes» where
 
 lean_lib «Tools.ShippingCallWidthsTagObl» where
   roots := #[`Tools.ShippingCallWidthsTagObl]
+
+lean_lib «Tools.ShippingInstTagged» where
+  roots := #[`Tools.ShippingInstTagged]

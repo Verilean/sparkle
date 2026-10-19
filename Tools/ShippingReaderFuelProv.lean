@@ -2,7 +2,7 @@ import Tools.ShippingReaderFuelR1
 
 /-! # Call-entry PROVENANCE for the fuel CANDIDATE reader
 
-STATUS 2026-10-19 (worker O, branch `par/o-cand`): WRITTEN, NOT BUILT against
+STATUS 2026-10-19 (worker O, branch `par/o-cand`): BUILT (integration run ig4, exit 0) against
 the patched compiler (explicit call-entry origin: `MachRead.instOrigins`,
 `machInstance … (org : InstOrigin)`). Earlier text BUILT as `p1` (poc
 6f216c4e). No `sorry`, no axiom, no `native_decide`. Nothing here is imported

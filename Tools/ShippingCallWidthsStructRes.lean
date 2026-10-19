@@ -4,7 +4,7 @@ import Tools.ShippingReaderResultKind
 
 /-! # `StructRes` decomposed: the syntactic parts proved, the rest named
 
-WRITTEN, NOT BUILT (worker O-RES, branch par/o-res, from poc ef8ff162).
+BUILT as written (worker O-RES, from poc ef8ff162; integration run ig4 exit 0; axioms run axo standard).
 No `sorry`, no new axiom, no `native_decide`. New file; nothing existing is
 changed.
 

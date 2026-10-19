@@ -3,7 +3,7 @@ import Tests.Compiler.ShippingMachineSeqLoopTest
 import Tools.ShippingMemOnlyCloses
 import Tools.ShippingNameSep
 -- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
--- WRITTEN, NOT BUILT against patched compiler.
+-- BUILT against the origin-tag compiler (integration run ig4, 3 GiB, swap 0, -j 1, exit 0; fixes: see docs/parallel/O-origin-integration.md).
 
 /-! # `withMemory`: the depth-0 design endpoint of a memory-only parent with a TRANSPORTED endpoint, open and closed (round par/b-17)
 

@@ -1,6 +1,6 @@
 import Tools.ShippingMemKidFacts
 -- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
--- WRITTEN, NOT BUILT against patched compiler.
+-- BUILT against the origin-tag compiler (integration run ig4, 3 GiB, swap 0, -j 1, exit 0; fixes: see docs/parallel/O-origin-integration.md).
 
 /-! # Memory-only parents: the four run hypotheses of the check-free head (G1, unit U4, round par/b-14)
 
@@ -79,6 +79,7 @@ full entry's module resolves to a kid's own module, which is the built memory
 module; its connections name its ports only (`core_callStmtM`,
 `mem_conns_noRdata`). The analogue of `core_kidsMixedM` for the route `.mem`. -/
 theorem core_kidsMemM {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hagree : Tools.ShippingInstTagged.TagsAgree d.shape)
     (hbody : d.shape.body = quote d.dom
       (fun j => inputExpr d.shape.binders.length (d.bpos j))
       (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)

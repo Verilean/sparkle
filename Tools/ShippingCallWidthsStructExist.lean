@@ -2,7 +2,7 @@ import Tools.ShippingCallWidthsStructLink
 
 /-! # Child-link obligations with EXISTENCE and UNIQUENESS of the selected output
 
-WRITTEN, NOT BUILT (worker O-EXIST, branch `par/o-exist`, from poc b0183932).
+BUILT as written (worker O-EXIST, from poc b0183932; integration run ig4 exit 0; axioms run axo standard).
 No `sorry`, no new `axiom`, no `native_decide`. New file; nothing existing is
 changed.
 

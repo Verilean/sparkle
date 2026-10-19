@@ -25,6 +25,7 @@ import Sparkle.IR.RefineCheck
 import Sparkle.IR.Machine
 import Sparkle.IR.MachineInstG
 import Sparkle.Compiler.MachMemory
+import Sparkle.Compiler.MachInstOrigin
 import Sparkle.Compiler.MachRecUnfold
 import Sparkle.Compiler.StderrFlush
 import Sparkle.IR.ModuleNameCheck
@@ -3582,6 +3583,9 @@ structure MachRead where
       read (then the shape's `instFields` are these). -/
   instFields : Array String := #[]
   instStruct : Bool := false
+  /-- The origin of every `insts` entry (`MachInstOrigin`): the closing builds
+      an entry's child from it, never from the entry's name. -/
+  instOrigins : Array Sparkle.Compiler.MachInstOrigin.InstOrigin := #[]
   /-- Every bare `Signal.register` read (outside any loop): the source term
       and its slot, so a copy of it is the same register. -/
   bareRegs : Array (Lean.Expr × Nat) := #[]
@@ -3940,7 +3944,7 @@ partial def machConv (senv : StructEnv) : List MachVal → Nat → Lean.Expr →
     | none =>
     match machInstCall? senv (.app f a) with
     | some (c, kinds, res, args) =>
-      if d != 0 then none else machInstance senv env c kinds res args st
+      if d != 0 then none else machInstance senv env c .ord kinds res args st
     | none =>
     match machInstCallS? senv (.app f a) with
     | some (c, kinds, ty, args) =>
@@ -3952,7 +3956,7 @@ partial def machConv (senv : StructEnv) : List MachVal → Nat → Lean.Expr →
     | some (combo, aw, dw, dom, ops) =>
       if d != 0 then none else do
         let (v, st) ← machInstance senv env (Sparkle.Compiler.MachMemory.memChildName combo aw dw)
-          [.domain, .bits aw, .bits dw, .bool, .bits aw] (.bits dw) (dom :: ops) st
+          (.mem combo aw dw) [.domain, .bits aw, .bits dw, .bool, .bits aw] (.bits dw) (dom :: ops) st
         some (v, { st with instStruct := true })
     | none =>
     match machReadV env d (.app f a) with
@@ -4043,7 +4047,7 @@ partial def machNested (senv : StructEnv) (env : List MachVal) (dom αs initsE b
     (`machInstOut`), its arguments hardware `let`s (so each has a wire), its
     domain the machine's; `closeInsts` ties the input to the instance. -/
 partial def machInstance (senv : StructEnv) (env : List MachVal) (c : Name)
-    (kinds : List MixedGateBinder) (res : MixedGateBinder) (args : List Lean.Expr)
+    (org : Sparkle.Compiler.MachInstOrigin.InstOrigin) (kinds : List MixedGateBinder) (res : MixedGateBinder) (args : List Lean.Expr)
     (st : MachRead) : Option (Lean.Expr × MachRead) := do
   -- a BitVec result (what the endpoint covers), in the enclosing body or in
   -- a sub-machine's (its value then reads that machine's state)
@@ -4066,10 +4070,14 @@ partial def machInstance (senv : StructEnv) (env : List MachVal) (c : Name)
         let (j, lets) := machLetIndex (Name.mkSimple s!"inst{k}_arg{js.length}") kind v' st.lets
         some (js ++ [j], { st with lets := lets })
   -- the same call met before (`circuit do` copies its `let`s): its output
-  match st.insts.findIdx? (fun i => i.1 == c && i.2.1 == js) with
+  -- (the same origin too: a memory and a declaration of its placeholder name
+  -- are different calls)
+  match st.insts.zipIdx.findIdx? (fun (i, k') => i.1 == c && i.2.1 == js &&
+      st.instOrigins[k']? == some org) with
   | some k' => some (machInstOut k', st)
   | none => some (machInstOut k, { st with insts := st.insts.push (c, js, res),
-                                           instFields := st.instFields.push "out" })
+                                           instFields := st.instFields.push "out"
+                                           instOrigins := st.instOrigins.push org })
 
 /-- A `@[hardware_module]` call whose result is a structure of Signals: ONE
     call, one transition input per field (`machInstOut`, in field order), the
@@ -4107,13 +4115,16 @@ partial def machInstanceS (senv : StructEnv) (env : List MachVal) (c : Name)
       let (p', st) ← machConv senv env 0 p st
       some (ps ++ [p'], st)
   let lvls := resTy.getAppFn.constLevels!
-  let (k0, st) := match st.insts.findIdx? (fun i => i.1 == c && i.2.1 == js) with
+  let (k0, st) := match st.insts.zipIdx.findIdx? (fun (i, k') => i.1 == c && i.2.1 == js &&
+      st.instOrigins[k']? == some (.field 0)) with
     | some k0 => (k0, st)
     | none =>
       (st.insts.size, { st with
         insts := st.insts ++ (fields.map fun f => (c, js, f.2)).toArray
         instFields := st.instFields ++ (fields.map (·.1)).toArray
-        instStruct := true })
+        instStruct := true
+        instOrigins := st.instOrigins ++
+          ((List.range fields.length).map Sparkle.Compiler.MachInstOrigin.InstOrigin.field).toArray })
   some (mkAppN (.const ctor lvls)
     (params.toArray ++ ((List.range fields.length).map fun i => machInstOut (k0 + i)).toArray), st)
 
@@ -5033,6 +5044,8 @@ structure MachineShape where
       module and argument `let`s: one instance, `closeInstsG`). Empty: every
       call is a one-output combinational child (`closeInsts`). -/
   instFields : List String := []
+  /-- The origin of every `insts` entry, in the same order (`MachInstOrigin`). -/
+  instOrigins : List Sparkle.Compiler.MachInstOrigin.InstOrigin := []
 
 /-- The acceptance test of the state-machine route: the declaration's value
     is a lambda telescope of hardware binders over `let`s and a
@@ -5181,6 +5194,7 @@ def machineShape? (symbolicMode : Bool) (parameters : List (String × Nat)) (ci 
           runs := st.runs.toList
           insts := st.insts.toList
           instFields := if st.instStruct then st.instFields.toList else []
+          instOrigins := st.instOrigins.toList
           loops := st.loops.toList }
     else none
   | _ => none
@@ -5204,15 +5218,22 @@ def closeInstsM (shape : MachineShape) (t m : Sparkle.IR.AST.Module)
   return Sparkle.IR.Machine.closeInsts nIn kI n (t.inputs.map (·.name))
     (shape.insts.map (·.2.1)) children (m, design)
 
+/-- Every call entry's callee and origin (an entry without a recorded origin
+is an ordinary call). -/
+def MachineShape.instTagged (shape : MachineShape) :
+    List (Name × Sparkle.Compiler.MachInstOrigin.InstOrigin) :=
+  shape.insts.zipIdx.map fun (i, k) => (i.1, shape.instOrigins.getD k .ord)
+
 /-- `closeInstsM` for calls with several outputs or of sequential children
 (`Sparkle.IR.Machine.closeInstsG`). -/
 def closeInstsGM (shape : MachineShape) (t m : Sparkle.IR.AST.Module)
     (design : Sparkle.IR.AST.Design) :
     MetaM (Option (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design)) := do
   let some synth ← sparkleChildSynth.get | return none
-  -- a memory's child is built, not compiled (`MachMemory.memChild?`)
-  let children ← shape.insts.mapM fun (c, _, _) =>
-    match Sparkle.Compiler.MachMemory.memChild? c with
+  -- a memory's child is built, not compiled, by the entry's ORIGIN (a
+  -- declaration may carry a memory placeholder name: it is compiled)
+  let children ← shape.instTagged.mapM fun (c, o) =>
+    match o.child? with
     | some md => pure md
     | none => synth c
   let kI := shape.insts.length

@@ -3,7 +3,7 @@ import Tools.ShippingSparseCasesTac
 
 /-! # The old source equations VERBATIM (inline matches, local `let rec`s)
 
-STATUS 2026-10-19 (worker O, branch `par/o-cand`): WRITTEN, NOT BUILT against
+STATUS 2026-10-19 (worker O, branch `par/o-cand`): BUILT (integration run ig4, exit 0) against
 the patched compiler (explicit call-entry origin, `MachRead.instOrigins`).
 Copies updated to the PATCHED working-tree text of `machConv` (two
 `machInstance` call sites), `machInstance`, `machInstanceS` (see

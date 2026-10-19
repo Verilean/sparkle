@@ -3,7 +3,7 @@ import Tools.ShippingReaderFuelRun
 
 /-! # The OLD source equations of the reader, and agreement of the fuel candidate
 
-STATUS 2026-10-19 (worker O, branch `par/o-cand`): WRITTEN, NOT BUILT against
+STATUS 2026-10-19 (worker O, branch `par/o-cand`): BUILT (integration run ig4, exit 0) against
 the patched compiler (explicit call-entry origin, `MachRead.instOrigins`).
 `OldFns.inst`, `oInst`, `oInstS`, the two call sites in `oConv`, `OldEq`,
 `run_cInst_tot`, `inst_tot`, `step_tot` carry the call-entry origin `org` /

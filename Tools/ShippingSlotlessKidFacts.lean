@@ -1,7 +1,7 @@
 import Tools.ShippingSlotlessClk
 import Tools.ShippingKidFacts
 -- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
--- WRITTEN, NOT BUILT against patched compiler.
+-- BUILT against the origin-tag compiler (integration run ig4, 3 GiB, swap 0, -j 1, exit 0; fixes: see docs/parallel/O-origin-integration.md).
 
 /-! # The run hypotheses of the no-ports head for a parent with a register OR a sequential child (G1, unit U5a, round par/a-20)
 

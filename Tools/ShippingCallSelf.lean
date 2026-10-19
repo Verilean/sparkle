@@ -1,6 +1,6 @@
 import Tools.ShippingKidFactsT
 -- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
--- WRITTEN, NOT BUILT against patched compiler.
+-- BUILT against the origin-tag compiler (integration run ig4, 3 GiB, swap 0, -j 1, exit 0; fixes: see docs/parallel/O-origin-integration.md).
 
 /-! # Every instance of a general-closing parent resolves to a real child's OWN module, which the design resolves with its design (round par/d-1)
 

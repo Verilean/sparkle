@@ -25,8 +25,8 @@ UNVERIFIED at the time of writing: this file was not built.
 ORIGIN DISPATCH (par/o-close): `MemChildren` and `ChildrenReal` are stated on
 the entry's origin; `kid_of` asks the per-entry agreement `hag` (name decodes
 to what the origin builds) and `kidT_of` gives the tag-based kid without it.
-`real_of_kid` / `kid_of_real` (name-based `hnomem`) are unchanged. WRITTEN,
-NOT BUILT against patched compiler. -/
+`real_of_kid` / `kid_of_real` (name-based `hnomem`) are unchanged. BUILT
+(integration run ig4, exit 0) against the origin-tag compiler. -/
 /-! ## Names that say what the origin builds (`TagsAgree`; namespace `Tools.ShippingInstTagged`)
 
 Placed here (below `Tools/ShippingChecksCore.lean`) so the `core_*M` chain can

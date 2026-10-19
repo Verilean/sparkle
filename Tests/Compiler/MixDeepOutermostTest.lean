@@ -110,7 +110,10 @@ theorem mid2_entryOk {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean
       Sparkle.Tests.Compiler.ShippingDesignSVTest.mid2.machine_body (nDecl := 2)
       (by decide) (by decide) (by decide) b)
     (fun _ x hx => Or.inl (mid2_callees x hx))
-    (fun x hx _ => Or.inl (mid2_callees x hx))
+    (fun x hx _ => by
+      obtain ⟨i, hi, e⟩ := Tools.ShippingInstTagged.fst_mem_of_instTagged hx
+      rw [← e]
+      exact Or.inl (mid2_callees i hi))
     (fun c' hc' => by
       rcases hc' with hc' | hc'
       · subst hc'
@@ -211,8 +214,11 @@ theorem mixDeep_closes_prov {mctx : Lean.Meta.Context}
       Sparkle.Tests.Compiler.ShippingChildBoundaryTest.mixDeep.machine_body (nDecl := 1)
       (by decide) (by decide) (by decide) b)
     (fun h => absurd h mixDeep_general)
-    (fun x hx _ => (mixDeep_callees x hx).elim Or.inl
-      (fun h => h.elim (fun h => Or.inr (Or.inl h)) (fun h => Or.inr (Or.inr (Or.inr h)))))
+    (fun x hx _ => by
+      obtain ⟨i, hi, e⟩ := Tools.ShippingInstTagged.fst_mem_of_instTagged hx
+      rw [← e]
+      exact (mixDeep_callees i hi).elim Or.inl
+        (fun h => h.elim (fun h => Or.inr (Or.inl h)) (fun h => Or.inr (Or.inr (Or.inr h)))))
     hR hw9 hd9 hp9 hrun
 
 /-- **`mixDeep`, OUTERMOST STARTS ONLY**: a core run of `mixDeep` from a

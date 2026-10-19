@@ -864,7 +864,7 @@ theorem closeInstsM_returns {shape t m₀ d₀ m d}
 (origin dispatch, patched compiler: `InstOrigin.child?` of
 `shape.instOrigins.getD k .ord`; the entry's NAME does not decide it — a
 declaration carrying a memory placeholder name is compiled). Restated on the
-tag (par/o-close); WRITTEN, NOT BUILT against patched compiler. -/
+tag (par/o-close); BUILT against the origin-tag compiler (integration run ig4, 3 GiB, swap 0, -j 1, exit 0; fixes: see docs/parallel/O-origin-integration.md). -/
 def MemChildren (shape : MachineShape) (children : List (Sparkle.IR.AST.Module × Design)) : Prop :=
   ∀ (k : Nat), k < shape.insts.length → ∀ md,
     (shape.instOrigins.getD k .ord).child? = some md → children[k]? = some md

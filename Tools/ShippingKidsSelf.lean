@@ -4,7 +4,7 @@ import Tools.ShippingPortsMatchRaw
 import Tools.ShippingChecksMasked
 import Tools.ShippingMachineRanBase
 -- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
--- WRITTEN, NOT BUILT against patched compiler.
+-- BUILT against the origin-tag compiler (integration run ig4, 3 GiB, swap 0, -j 1, exit 0; fixes: see docs/parallel/O-origin-integration.md).
 
 /-! # The parent's design holds its children's modules AS THEMSELVES; the children's check at depth (G1, unit U2, round par/a-13)
 

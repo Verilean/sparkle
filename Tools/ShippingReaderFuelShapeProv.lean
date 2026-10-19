@@ -3,7 +3,7 @@ import Tools.ShippingReaderFuelShapeR1
 
 /-! # Wrapper-level call-entry PROVENANCE for the fuel CANDIDATE `machineShapeF`
 
-STATUS 2026-10-19 (worker O, branch `par/o-cand`): WRITTEN, NOT BUILT against
+STATUS 2026-10-19 (worker O, branch `par/o-cand`): BUILT (integration run ig4, exit 0) against
 the patched compiler (explicit call-entry origin, `MachRead.instOrigins`).
 New (stored tag): `OriginTAt`, `machineShapeF_final_instProv`,
 `machineShapeF_instOrigins_length`, `instOrigins_getD_eq`,

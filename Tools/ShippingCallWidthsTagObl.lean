@@ -2,7 +2,7 @@ import Tools.ShippingCallWidthsStructExist
 
 /-! # Call widths with the obligation selected by the STORED origin tag
 
-WRITTEN, NOT BUILT (integrator, 2026-10-19, against the origin-tag compiler).
+BUILT (integrator, 2026-10-19, origin-tag compiler; ig4 exit 0 after one fix: missing `open Tools.ShippingCallWidthsEntry`; axioms run axo standard).
 
 `KindObl` (`Tools/ShippingCallWidthsEntryFM.lean`) asks, for every entry, the
 obligation of EVERY origin whose facts match the entry (an entry under a memory
@@ -32,7 +32,7 @@ namespace Tools.ShippingCallWidthsTagObl
 open Lean
 open Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Machine
 open Tools.ShippingMachineEntry Tools.ShippingMachineAuto
-open Tools.ShippingCallWidthsStrict
+open Tools.ShippingCallWidthsStrict Tools.ShippingCallWidthsEntry
 open Tools.ShippingCallWidthsEntryFM
 open Tools.ShippingCallWidthsStructExist
 open Tools.ShippingReaderFuelProv (OrdOrigin StructOriginI MemOriginI)

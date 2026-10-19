@@ -3,7 +3,7 @@ import Tools.ShippingInstSignature
 
 /-! # R1 for the fuel CANDIDATE: every call entry's kind is its callee's signature result
 
-STATUS 2026-10-19 (worker O, branch `par/o-cand`): WRITTEN, NOT BUILT against
+STATUS 2026-10-19 (worker O, branch `par/o-cand`): BUILT (integration run ig4, exit 0) against
 the patched compiler (explicit call-entry origin, `MachRead.instOrigins`).
 `Call.inst` takes `org`; `CallPre`, `pre_of_instCall`, `pre_of_mem`,
 `sat1_cInst`, `inst_sat1` adjusted (R1 does not read the tag).

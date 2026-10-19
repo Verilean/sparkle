@@ -2,7 +2,7 @@ import Tools.ShippingCacheCoherentRun
 import Tools.ShippingCallsRunFinal
 import Tools.ShippingDesignWithG
 -- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
--- WRITTEN, NOT BUILT against patched compiler.
+-- BUILT against the origin-tag compiler (integration run ig4, 3 GiB, swap 0, -j 1, exit 0; fixes: see docs/parallel/O-origin-integration.md).
 
 variable {tenv : Lean.Environment}
 
@@ -39,8 +39,8 @@ cache"); anything about the translator.
 
 WRITTEN, NOT BUILT (par/a-33). ORIGIN DISPATCH: `closeInstsGM_design_prov`
 asks the tag condition `hnotag` (no memory ORIGIN) in place of the name
-condition; `closeInstsGM_prov` follows the tagged `mapM` — WRITTEN, NOT BUILT
-against patched compiler (par/o-close). -/
+condition; `closeInstsGM_prov` follows the tagged `mapM` — BUILT (integration run ig4, exit 0)
+against the origin-tag compiler (par/o-close). -/
 namespace Tools.ShippingCacheCoherentClose
 open Lean Meta
 open Sparkle.Compiler.Elab

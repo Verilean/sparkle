@@ -73,7 +73,7 @@ builds; decided per declaration, false exactly for a collision shape) and uses
 from `hnomem` (no memory origin AND no memory name: `tagsAgree_of_nomem`).
 OPEN: a collision shape (a memory entry beside a call of a declaration named
 as its placeholder) needs `closeInstsG_of_kidsP` keyed on (name, origin
-class) instead of the name. WRITTEN, NOT BUILT against patched compiler
+class) instead of the name. BUILT against the origin-tag compiler (integration run ig4, 3 GiB, swap 0, -j 1, exit 0; fixes: see docs/parallel/O-origin-integration.md)
 (par/o-close). -/
 namespace Tools.ShippingMemCloses
 open Lean Meta

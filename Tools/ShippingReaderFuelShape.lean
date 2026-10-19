@@ -2,7 +2,7 @@ import Tools.ShippingReaderFuelKleene
 
 /-! # A fuel version of the reader wrapper `machineShape?` (three-valued)
 
-STATUS 2026-10-19 (worker O, branch `par/o-cand`): WRITTEN, NOT BUILT against
+STATUS 2026-10-19 (worker O, branch `par/o-cand`): BUILT (integration run ig4, exit 0) against
 the patched compiler (explicit call-entry origin, `MachRead.instOrigins`).
 `shapePost` copies the patched record: `instOrigins := st.instOrigins.toList`.
 

@@ -4,7 +4,7 @@ import Tools.ShippingChildRun
 
 /-! # Memory placeholder names: the collision, the ORIGIN dispatch, and the withdrawn guard model
 
-## Current (par/o-close): the origin dispatch — WRITTEN, NOT BUILT against patched compiler
+## Current (par/o-close): the origin dispatch — BUILT against the origin-tag compiler (integration run ig4, 3 GiB, swap 0, -j 1, exit 0; fixes: see docs/parallel/O-origin-integration.md)
 
 The compiler change "explicit call-entry origin" (`Sparkle/Compiler/MachInstOrigin.lean`,
 `docs/parallel/S-memname-collision.md` §5) records an origin per call entry
@@ -269,7 +269,7 @@ theorem closeInstsGM_child_choice (L : RefLaws mref cref)
   obtain ⟨y, hy, hor⟩ := hall k hk
   refine ⟨y, hy, fun combo aw dw ho => ?_, fun hno => ?_⟩
   · have h1 := hMC k hk (memModule combo aw dw)
-      (by simp [ho, Sparkle.Compiler.MachInstOrigin.InstOrigin.child?])
+      (by rw [ho]; rfl)
     rw [hy] at h1
     exact Option.some.inj h1
   · have hnone : (shape.instOrigins.getD k .ord).child? = none := by

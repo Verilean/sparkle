@@ -1,7 +1,7 @@
 import Tests.Compiler.NoPortsMemOnlyAtMixedMemsTest
 import Tests.Compiler.NoPortsMemOnlyClosedLib
 -- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
--- WRITTEN, NOT BUILT against patched compiler.
+-- BUILT against the origin-tag compiler (integration run ig4, 3 GiB, swap 0, -j 1, exit 0; fixes: see docs/parallel/O-origin-integration.md).
 
 /-! # `mixedMems`: the closing of a MEMORY-ONLY parent with TWO DIFFERENT memory modules, and the closed depth-0 endpoint (round par/a-19)
 

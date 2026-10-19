@@ -101,7 +101,8 @@ theorem midH_entryOk {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean
     (fun b => Tools.ShippingCacheCoherentData.hout_of_data midH.machineData midH.machine_ok
       midH.machine_body midH.oneout_callsOk midH.oneout_slotLen midH.oneout_domB b)
     (fun _ => midH_callees)
-    (fun x hx _ => midH_callees x hx)
+    (fun x hx _ => Tools.ShippingInstTagged.forall_instTagged_of_insts (K := fun c => c = ``rcH)
+      midH_callees x hx)
     (fun c' hc' => by
       subst hc'
       exact rcH_entryOk L _ hRr hstillR)

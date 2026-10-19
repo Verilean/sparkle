@@ -315,8 +315,9 @@ theorem kindObl_struct_real {env : Environment} {d : MachineData}
 
 /-- **MIXED call widths, structure entries from the real child.** As
 `callWidthsStrict_of_linksFM`, with the structure obligation replaced by:
-`kidOuts k` is the layout of the callee's `MachineDefines` shape, the callee
-is not a memory, and `StructResAt`. The children are those the closing
+`kidOuts k` is the layout of the callee's `MachineDefines` shape, the entry's
+stored origin is not a memory (the closing builds the child from the tag), and
+`StructResAt`. The children are those the closing
 consumes (`ChildrenReal`). -/
 theorem callWidthsStrict_of_linksFMS {env : Environment} {d : MachineData}
     {kidOuts : Nat → List OutField} {children : List Res}
@@ -335,7 +336,7 @@ theorem callWidthsStrict_of_linksFMS {env : Environment} {d : MachineData}
       (∃ nm : String, StructOrigin (structEnv env) e.1 e.2.2 nm) →
       ∃ sc : MachineShape, kidOuts k = sc.layout.outs ∧
         MachineDefines mctx mref cctx cref e.1 sc ∧
-        Sparkle.Compiler.MachMemory.memChild? e.1 = none ∧
+        (d.shape.instOrigins.getD k .ord).child? = none ∧
         StructResAt mref cref (structEnv env) e.1) :
     callWidthsStrict d (closingNDecl d.shape) kidOuts = true :=
   callWidthsStrict_of_linksFM LinkPF fun k e he => by
@@ -343,10 +344,7 @@ theorem callWidthsStrict_of_linksFMS {env : Environment} {d : MachineData}
     obtain ⟨sc, hkid, entry, hnomem, SR⟩ := Struct k e he ⟨nm, hS⟩
     obtain ⟨hk, hke⟩ := List.getElem?_eq_some_iff.mp he
     obtain ⟨y, hy, _⟩ := hreal.2 k hk
-    have hnomem' : Sparkle.Compiler.MachMemory.memChild? (d.shape.insts[k]).1 = none := by
-      rw [hke]
-      exact hnomem
-    have hyR := realChild_of_childrenReal hreal hk hnomem' hy
+    have hyR := realChild_of_childrenReal hreal hk hnomem hy
     rw [hke] at hyR
     exact kindObl_struct_real (d := d) entry SR hyR hkid nm hS hnm
 

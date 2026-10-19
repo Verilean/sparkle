@@ -3,7 +3,7 @@ import Tools.ShippingReaderLenOkReserve
 
 /-! # R5 for the fuel candidate: every returned reader state keeps `LenOk`
 
-STATUS 2026-10-19 (worker O, branch `par/o-cand`): WRITTEN, NOT BUILT against
+STATUS 2026-10-19 (worker O, branch `par/o-cand`): BUILT (integration run ig4, exit 0) against
 the patched compiler (explicit call-entry origin, `MachRead.instOrigins`).
 `LenOk` has a third part (`origins : instOrigins.size = insts.size`); the
 leaf lemmas `lenOk_instPush` / `lenOk_instS` are the patched push / append;

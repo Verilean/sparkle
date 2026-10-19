@@ -2,7 +2,7 @@ import Sparkle.Compiler.Elab
 
 /-! # A fuel-indexed TOTAL candidate of the machine reader — definitions only
 
-STATUS 2026-10-19 (worker O, branch `par/o-cand`): WRITTEN, NOT BUILT against
+STATUS 2026-10-19 (worker O, branch `par/o-cand`): BUILT (integration run ig4, exit 0) against
 the patched compiler (explicit call-entry origin, `MachRead.instOrigins`).
 `machInstance`'s copy `instStep` / `Call.inst` take the call-entry origin `org`
 (after `c`, as the source); `convStep` passes `.ord` (ordinary arm) and

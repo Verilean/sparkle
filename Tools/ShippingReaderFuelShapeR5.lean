@@ -4,7 +4,7 @@ import Tools.ShippingShapeDecomp
 
 /-! # Wrapper-level R5 for the fuel CANDIDATE `machineShapeF`, keeping the reader state
 
-STATUS 2026-10-19 (worker O, branch `par/o-cand`): WRITTEN, NOT BUILT against
+STATUS 2026-10-19 (worker O, branch `par/o-cand`): BUILT (integration run ig4, exit 0) against
 the patched compiler (explicit call-entry origin, `MachRead.instOrigins`).
 New: `shapePost_instOrigins`, `shapePost_insts'`,
 `machineShapeF_origins_aligned` (`sp.instOrigins.length = sp.insts.length`,
