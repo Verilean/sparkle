@@ -3129,3 +3129,6 @@ lean_lib «Tools.ShippingMemDispatch» where
   roots := #[`Tools.ShippingMemDispatch]
 lean_lib «Tools.ShippingCallWidthsChildReal» where
   roots := #[`Tools.ShippingCallWidthsChildReal]
+
+lean_lib «Tools.ShippingCallWidthsStructLink» where
+  roots := #[`Tools.ShippingCallWidthsStructLink]
