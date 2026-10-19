@@ -266,3 +266,12 @@ discharge exists only for leaf/memory children) and `MachineClosesAt mixSame` fo
 reflection appears twice (`hR0` at `fakeSrc.gateValue`, the boundary's at `SparkleMem.sync.4.8.gateValue`; equal by
 `syncGate_value`, not merged). Not covered: `collMixDiff`, `collMixArgs`, `collWidth` (not run through the
 generator this round), the SV string, `#sim`.
+
+### Regression and status (review 13f4b393 round)
+
+rg2 (`cgrun.sh`, 3 GiB, swap 0, `-j 1`) at 3738d12f: 17 focused modules — NameDischargeTest,
+NoPortsMemSeqGen{Compare,New2,New,OldData,OldNames}Test, OneOutFamilyTest, ShippingCallsClose{Deep,}Test,
+ShippingMachineInstTest, MemNameCollision{,GateCert,PlainCert,GateDesign,Cert,Design,Gen}Test — exit 0, 678 jobs,
+peak 0.41 GB. Commits: fb5ffe0b (unit 2 + registration fix), d5c8eef8 (p5s plan), 3738d12f (unit 1), this record.
+Not run: full `Tests.AllTests` (whether other suite modules clash on global placeholder names is unchecked), corpus.
+No CI on these SHAs (local, not pushed). Nothing added to RefLaws or any trust / allowed-premise list; InstAgree open.
