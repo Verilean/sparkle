@@ -385,3 +385,59 @@ Remaining for the original collision (outer / nested): `collMixSame_designClosed
 `MachineDefines collMixSame`, `EntryDefines syncName fakeSrc.gateValue`; nested: `ChildBnd`; conclusion carries
 `BoundOff st0`. Next: generator (TAG MODE with `gateKidT_factsC` + `TypedRun`), then `collMixDiff`, `collMixArgs`,
 `collWidth`. Candidate: U2 shadow, L1, U5b not started; production `P5At` / `p5s` not discharged.
+
+## Round after review 906707ea (e2618ff8 →): the `BoundOff st0` bridge, the typed generator, hygiene
+
+### (1) Is `BoundOff (declWidth b) outputs st0` derivable from the head's existing hypotheses? NO.
+
+The head's other start-state hypotheses bound names by their EMITTED widths: `Bounded (weS (checkedOptimize b))
+st0`, the register bound and the extracted-input bound. `declWidth b` reads `b.wires` only (0 elsewhere).
+
+| run | what | exit | result |
+|---|---|---|---|
+| bo1, bo2 | shadow probe on `collMixSame` (both post-processing branches): names off the outputs with `weS o x > declWidth b x` | 1 (name), 0 | exactly `clk`, `rst` (emitted 1, declared 0: input ports that are not wires) |
+| bo7 | the same for `collMixSame`, `collMixDiff`, `collMixArgs`, `collWidth` (asserting) | 0 | in all eight cases: `b`'s wire names distinct, all names sanitize-stable, `o.wires ⊆ b.wires`, ports equal; gaps off outputs = `clk`, `rst`; gaps off outputs AND inputs = none; slot inits `[0, 0]` |
+
+**Counterexample to the derivation.** Take any admissible start state with `st0 "clk" = 1`. It satisfies
+`Bounded (weS o) st0` (1 < 2^1), the register bound and the extracted-input bound (`clk` is neither). It violates
+`BoundOff`, which needs `st0 "clk" < 2^0`. So the hypothesis is not implied; the statement change of 64e813fd is real.
+
+**State correspondence (proved, 6c4f8554).** The run reads the state only through `seedIn b ins t st`, which
+overwrites every input port; `applyNexts` carries the rest. So the start state's input-port values are never read.
+`Tools/ShippingNoPortsTypedI.lean`:
+* `runModuleTG_typedS`, `fitX_of_runTypedS`: the typed invariant from a state bounded off outputs AND inputs;
+* `machine_design_noPortsTI`: the head with the added hypothesis WEAKENED to
+  `BoundOff (declWidth b) (outputs ++ inputs) st0` (`boundOffI_of_boundOff`: old ⇒ new);
+* `boundOffI_of_bounded`: the weakened hypothesis from `Bounded (weS o) st0` (already a hypothesis of the
+  conclusion) and the width relation off the ports;
+* `weS_checkedOptimize_le` (with `checkedOptimize_ports_wires`, `weS_le_of_sub`): that width relation from `b`'s
+  wire names distinct and all its names sanitize-stable.
+
+| run | target | exit | notes |
+|---|---|---|---|
+| bo3 | `Tools.ShippingNoPortsTypedI` | 1 | `List.find?_some` shape; `List.mem_of_mem_filter` unknown |
+| bo4 | the same, fixed (`simpa using List.find?_some hf`, `(List.mem_filter.mp hp).1`) | 0 | peak 0.94 GB |
+| bo5 | `#print axioms` of the 8 new theorems | 0 | `propext, Classical.choice, Quot.sound` (`boundOffI_of_boundOff`: none) |
+
+OPEN (not counted as resolved): the two name facts of `b` are not yet exported by the machine route's run facts
+(they hold on the compile: bo7). When derived from the run, the added hypothesis disappears from the conclusion
+(it follows from `Bounded (weS o) st0`). Until then no statement is switched to `noPortsTI`.
+
+**Joint satisfiability (shadow, bo7).** All slot inits are 0, so `st0 := fun _ => 0` with `ins := fun _ _ => 0`
+satisfies every start-state and input bound of the conclusion: `BoundOff` (both forms), `Bounded`, register,
+extracted-input, input-width, `rst = 0`, and slot-init equality. The `clk` seeding is satisfied because `clk` is an
+input. Not covered by this check: the children's reset state (`Reset raw D kids` / `InvN`) and the source-stream
+hypothesis.
+
+### (3) Build-status comments (5aea4d49)
+
+`WRITTEN, NOT BUILT` / `UNBUILT` / `-- UNSURE` in `ShippingKidsTyped`, `ShippingNoPortsTyped`,
+`MemNameCollisionGateTypedTest` (and `ShippingKidsMixedC`, `ShippingGateKidFactsT`, `MemNameCollisionGateClosedTest`,
+the four inliner-candidate files) are replaced by the run that built each file and its commit. bo6:
+`lake build Tools.ShippingNoPortsTypedI Tests.Compiler.MemNameCollisionGateTypedTest Tests.Compiler.InlCandAuditTest`
+exit 0 (663 jobs), peak 0.37 GB.
+
+### (4) Inliner candidate: unchanged
+
+The six `userAbbrev? = none` premises (`ReadConstsPlain`), `passF ≈ passM` and structural `replace` vs the cached
+extern remain OPEN. No trusted law and no production guard was added.
