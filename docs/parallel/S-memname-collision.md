@@ -124,7 +124,7 @@ exact instance count, no unexpected instance. Controls call the declaration unde
 | `plain` decl only (M closing) | ok | ok |
 | `width` combo mem 4/8 + 4-bit decl at combo.4.8, same args | ok | FAIL: merged entry, kind clash, parent falls to legacy (memory inline; legacy output not checked here) |
 
-Not wired into `Tests.AllTests` / `lakefile.lean` until the patch is applied (it would fail the suite).
+Registered in `Tests.AllTests` after the patched compiler passed it (run `ot1`, below).
 
 ### 5.3 `ChildLinkStruct` derived (worker S-STRUCT, `Tools/ShippingCallWidthsStructLink.lean`, run `sl1` exit 0, axioms `axsl` standard)
 
@@ -137,3 +137,11 @@ structure's fields. Side finding (not yet examined): a Prod-of-Signals callee gi
 `out_0`/`out_1` but a single packed `out` on the callee side, so `StructRes` fails there and `ChildLinkStruct`
 holds only vacuously. `KindObl` is still stated over all matching origins; narrowing it to the stored origin
 waits for the origin-tag patch.
+
+### 5.4 Patch applied (by the reviewer, user-approved `git apply`; verified identical to `patches/origin-tag.patch`)
+
+Run `ot1` (3 GiB, swap 0, `-j 1`): `lake build Sparkle && lake env lean Tests/Compiler/MemNameCollisionTest.lean`
+exit 0 (224 jobs; peak 1.28 GB; only warning the pre-existing unused `t0` at Elab.lean:763). All ten cases ok:
+`collMixDiff`, `collMixArgs`, `collMixSame`, `collWidth` now emit the memory module AND the declaration's own
+module as two instances; controls and `collPlain` unchanged. Test imported in `Tests/AllTests.lean`.
+Proof/candidate updates against the patched compiler: in progress (workers O-CAND, O-CLOSE).

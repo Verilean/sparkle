@@ -312,6 +312,7 @@ import Tests.SVParser.TestVerilogCoSim
 import Tests.Compiler.TaggedJitE2ETest
 import Tests.Compiler.SimNamesTest
 import Tests.Compiler.CIdentTest
+import Tests.Compiler.MemNameCollisionTest
 import Tests.SVParser.TestVerify
 import Tests.Bus.TestAXI4Lite
 import Tests.RoundTrip.IRVerilogIR
