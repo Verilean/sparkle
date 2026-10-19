@@ -275,3 +275,17 @@ ShippingMachineInstTest, MemNameCollision{,GateCert,PlainCert,GateDesign,Cert,De
 peak 0.41 GB. Commits: fb5ffe0b (unit 2 + registration fix), d5c8eef8 (p5s plan), 3738d12f (unit 1), this record.
 Not run: full `Tests.AllTests` (whether other suite modules clash on global placeholder names is unchecked), corpus.
 No CI on these SHAs (local, not pushed). Nothing added to RefLaws or any trust / allowed-premise list; InstAgree open.
+
+## Round 2026-10-19 (review a230f9d1)
+
+| run | target | exit | notes |
+|---|---|---|---|
+| all1 | `lake build Tests.AllTests` at a230f9d1 | 0 | 1399 jobs, peak 1.27 GB, ~29 min; no failure, nothing to fix. The joint import of every registered module (incl. `MemNameCollisionTest`, `…GateCertTest`, `…PlainCertTest`, `…GateDesignTest`) is thereby checked |
+| kmp1 | shadow: `kidsMixed (childMap D.modules) b.body` on the certified compile of `collMixSame`, `mixSame`, `seqMem` | 0 | `false`, `false`, `true` (top and merged) |
+
+* **Correction (3738d12f):** `mixSame/collMixSame.machine_design_svRG0` and `collMixSame_designG` are VACUOUS on
+  these runs: their antecedent `kidsMixed` is false (kmp1). The composed level (`machine_composedTRG(A)`) has no
+  check antecedent and stands. The previous round's table must be read with this correction.
+* Target-only roots (not in AllTests, global-name clash) are listed in
+  `scripts/shipping-coverage/target_only_roots.txt`; routine validation builds AllTests and those roots serially.
+  Last built: rg2 at 3738d12f (exit 0; their sources unchanged since).

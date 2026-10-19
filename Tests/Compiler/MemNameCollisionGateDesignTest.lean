@@ -4,6 +4,13 @@ import Tools.ShippingMachineGateMemCommand
 
 /-! # Design-level endpoints of parents with a register, a MEMORY and a GATE-route child (round par/o-gdes, unit "1")
 
+**VACUOUS (found 2026-10-19, shadow probe kmp1):** the `machine_design_svRG0` statements here (and
+`collMixSame_designG`) carry the antecedent `kidsMixed (childMap D.modules) b.body = true`, which is FALSE on the
+compiled designs of `mixSame` and `collMixSame` (a gate child's output is driven by `out := ref w`, not a masked
+expression; the gate module is not a memory). Their conclusions therefore say nothing about these runs. The
+non-vacuous statement is `MemNameCollisionGateClosedTest.collMixSame_designClosed` (three-way `kidsMixedC`,
+derived). Kept as the composed-level (`machine_composedTRG(A)`, NOT vacuous: no check antecedent) and as a stepping stone.
+
 WRITTEN, NOT BUILT.
 
 `mixSame` (control: the combinational `@[hardware_module]` `fakeSrc` called under its own name)
