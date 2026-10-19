@@ -37,8 +37,9 @@ in every cycle's environment by `hinsFit`).
 What remains open is the width relation `weS (checkedOptimize b) x ≤ declWidth b x` off the
 ports. Given it, `boundOffI_of_bounded` derives the weakened hypothesis from `Bounded (weS …) st0`
 (already a hypothesis of the conclusion). The relation reduces (`weS_checkedOptimize_le`) to `b`'s
-wire names being distinct and all its port and wire names sanitize-stable; this is not yet
-exported by the machine route's run facts.
+wire names being distinct and all its port and wire names sanitize-stable. Both are derived from the
+core run by `Tools.ShippingWireNamesRun.wireNames_runMT` (built wn1; combined with this file's lemmas
+in `boundOffI_runMT`), and consumed by `Tools.ShippingNoPortsTyped.machine_design_noPortsTB`.
 
 No new fact about the compiler; nothing added to `RefLaws` or a trusted list. -/
 namespace Tools.ShippingNoPortsTypedI

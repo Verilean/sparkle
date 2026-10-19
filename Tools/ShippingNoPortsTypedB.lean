@@ -14,9 +14,10 @@ Inside, the start state's bound off the outputs and inputs is DERIVED from the c
 input ports are handled by `fitX_of_runTypedS`. The input ports need no bound: `seedIn` overwrites them
 (`Tools.ShippingNoPortsTypedI`).
 
-`hNames` is a fact about the compiler's output for the run. Discharging it from the run is a separate
-lemma; until that lemma exists, a statement built on this head carries `hNames` as a premise. That premise is
-reported, not counted as resolved.
+`hNames` is a fact about the compiler's output for the run. It is discharged from the core run by
+`Tools.ShippingWireNamesRun.wireNames_runMT` (built wn1), per parent in
+`Tests.Compiler.MemNameCollisionGateBoundTest` (`<p>_names`, built gb1), so the generated `<p>_designClosedB`
+do not carry it.
 
 No new fact about the compiler; nothing added to `RefLaws` or a trusted list. -/
 namespace Tools.ShippingNoPortsTyped
