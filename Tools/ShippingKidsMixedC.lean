@@ -1,6 +1,7 @@
 import Tools.ShippingMemKidFacts
 import Tools.ConeFoldMem
--- WRITTEN, NOT BUILT (round par/o-gchk, unit "comb disjunct").
+-- Round par/o-gchk, unit "comb disjunct". BUILT: gc1 failed (no `DecidableEq Stmt`), gc2 exit 0 after the
+-- integrator's fix (`isRefAssign` / `mem_of_refAny`); committed in 1df460c0.
 
 /-! # The depth-0 children bound with a COMBINATIONAL disjunct (round par/o-gchk)
 

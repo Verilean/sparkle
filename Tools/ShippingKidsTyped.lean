@@ -2,7 +2,8 @@ import Tools.ShippingGateKidFactsT
 import Tools.ShippingKidsMixedC
 import Tools.ShippingTypedWidthOk
 import Tools.ShippingDesignSVBounds
--- WRITTEN, NOT BUILT (round par/o-typed).
+-- Round par/o-typed. BUILT as written: ty1 (`lake build Tools.ShippingKidsTyped`, exit 0), committed
+-- in 64e813fd; axioms standard (audited in `Tests.Compiler.MemNameCollisionGateTypedTest`, ty2).
 
 /-! # A TYPED children bound for the depth-0 route (round par/o-typed, Option A)
 
@@ -410,7 +411,7 @@ theorem gate_weS_le {c bs w} {m : Module} (h : Tools.ShippingGatePorts.GateChild
         exact hx hs.symm
     have h0 : Tools.ShippingDesignSV.weS m x = 0 := by
       show (Tools.SVParser.RoundtripProof.moduleWof m x).getD 0 = 0
-      -- UNSURE: the unfolding of `moduleWof` at `x`
+      -- (writing-time guess, accepted by build ty1): the unfolding of `moduleWof` at `x`
       first
         | (simp only [Tools.SVParser.RoundtripProof.moduleWof, hnone, Option.bind_none,
             Option.getD_none])

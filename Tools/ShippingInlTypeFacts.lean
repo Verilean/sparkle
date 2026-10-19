@@ -2,9 +2,10 @@ import Tools.ShippingInlCand
 
 /-! # Expr facts for the candidate inliner on `∀` types (unit U3, scope: what L2 needs)
 
-UNBUILT at the time of writing (worker O-INLC, branch par/o-inlc, base a230f9d1; written without
-running Lean; spots marked `-- UNSURE` are guesses about elaboration that the integrator's build
-decides, most with `first | …` fallbacks). No `sorry`, no axiom, no `native_decide`. Nothing is added
+BUILT by the integrator: ic5 exit 0 (the four candidate files; fixes after ic1/ic4 recorded in
+`docs/parallel/O-origin-integration.md`), committed in 2cbe8c45, axioms audited in
+`Tests.Compiler.InlCandAuditTest` (ic6). Written by worker O-INLC (branch par/o-inlc, base a230f9d1) without
+running Lean; spots marked as writing-time guesses were decided by the build, most through `first | …` fallbacks. No `sorry`, no axiom, no `native_decide`. Nothing is added
 to `RefLaws` or any trust / allowed-premise list. Production is unchanged.
 
 Contents (all about the CANDIDATE definitions of `Tools.ShippingInlCand` and total production `def`s):
@@ -35,7 +36,7 @@ theorem rnc_forallE' (f : Lean.Expr → Option Lean.Expr) (n : Name) (d b : Lean
     (bi : BinderInfo) (hf : f (.forallE n d b bi) = none) :
     Lean.Expr.replaceNoCache f (.forallE n d b bi) =
       .forallE n (Lean.Expr.replaceNoCache f d) (Lean.Expr.replaceNoCache f b) bi := by
-  -- UNSURE: shape of the equation lemma of the core `def` (single unfold equation expected)
+  -- (writing-time guess, accepted by build ic5): shape of the equation lemma of the core `def` (single unfold equation expected)
   first
     | (rw [Lean.Expr.replaceNoCache.eq_def, hf]; rfl)
     | (rw [Lean.Expr.replaceNoCache.eq_def, hf])
@@ -176,7 +177,7 @@ theorem passT_forallE (env : Environment) (nl : Lean.Expr → Option Nat) (iu : 
   have h := passF_succ_forallE env nl iu 999999 n d b bi ∅ hs
   have e1 : passT env nl iu (.forallE n d b bi) =
       Prod.fst ((passF env nl iu (999999 + 1) (.forallE n d b bi)).run ∅) := by
-    -- UNSURE: `StateT.run'` in `Id` is `Prod.fst` of `run` by defeq; `passDepth = 999999 + 1`
+    -- (writing-time guess, accepted by build ic5): `StateT.run'` in `Id` is `Prod.fst` of `run` by defeq; `passDepth = 999999 + 1`
     first
       | rfl
       | (unfold passT passDepth; rfl)
@@ -239,7 +240,7 @@ theorem fold_lit (l : Literal) : inlFoldNat (.lit l) = .lit l := by
 theorem fold_sig (us : List Level) (dom X : Lean.Expr) :
     inlFoldNat (.app (.app (.const ``Sparkle.Core.Signal.Signal us) dom) X) =
       .app (.app (.const ``Sparkle.Core.Signal.Signal us) (inlFoldNat dom)) (inlFoldNat X) := by
-  -- UNSURE: `rfl` must reduce `inlNatSum?` on a two-node spine with a constant head
+  -- (writing-time guess, accepted by build ic5): `rfl` must reduce `inlNatSum?` on a two-node spine with a constant head
   first
     | rfl
     | simp [inlFoldNat, inlNatSum?]
@@ -263,7 +264,7 @@ theorem canon_inv {w : Lean.Expr} {m : Nat} (h : canonicalNatLitValue? w = some 
   · cases h; exact Or.inl rfl
   · split at h
     · cases h
-      -- UNSURE: the `if` condition hypothesis is inaccessible; `simp … at *` reaches it
+      -- (writing-time guess, accepted by build ic5): the `if` condition hypothesis is inaccessible; `simp … at *` reaches it
       first
         | (simp only [beq_iff_eq] at *; subst_vars; exact Or.inr ⟨_, _, _, rfl⟩)
         | (simp at *; subst_vars; exact Or.inr ⟨_, _, _, rfl⟩)
@@ -286,7 +287,7 @@ theorem fold_canon {w : Lean.Expr} {m : Nat} (h : canonicalNatLitValue? w = some
     inlFoldNat w = w := by
   rcases canon_inv h with rfl | ⟨l1, l2, l3, rfl⟩
   · exact fold_lit _
-  · -- UNSURE: `rfl` reduces `inlNatSum?` on the four application nodes (it needs six)
+  · -- (writing-time guess, accepted by build ic5): `rfl` reduces `inlNatSum?` on the four application nodes (it needs six)
     first
       | rfl
       | simp [inlFoldNat, inlNatSum?]
@@ -318,7 +319,7 @@ theorem resKind_sig_bits_dom (us : List Level) (dom dom' : Lean.Expr) (us' : Lis
         (.app (.const ``BitVec us') wE)) =
       machResultKind? (.app (.app (.const ``Sparkle.Core.Signal.Signal us) dom')
         (.app (.const ``BitVec us') wE)) := by
-  -- UNSURE: `rfl` must see both sides reduce to the same term stuck on `canonicalNatLitValue? wE`
+  -- (writing-time guess, accepted by build ic5): `rfl` must see both sides reduce to the same term stuck on `canonicalNatLitValue? wE`
   first
     | rfl
     | simp [machResultKind?, mixedGateBinderKind?, Lean.Expr.isConstOf]

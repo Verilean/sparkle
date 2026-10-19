@@ -5,7 +5,8 @@ import Tools.ShippingKidsMixedC
 
 /-! # The design endpoint of the original gate-collision parent `collMixSame`, its check antecedents discharged (round par/o-gchk)
 
-WRITTEN, NOT BUILT.
+BUILT: gc3 (as written, exit 0, 650 jobs), gc4 (with the integrator's asserting shadow, exit 0);
+committed in 1df460c0; in `Tests.AllTests` (all2, exit 0).
 
 `collMixSame` (`Tests/Compiler/MemNameCollisionGateCertTest.lean`): a register loop, a
 synchronous 4/8 memory (origin `.mem false 4 8`) and a call, on the same argument `let`s, of the

@@ -2,7 +2,7 @@ import Tools.ShippingMemKidFacts
 import Tools.ShippingGatePorts
 import Tools.ShippingChecksGate
 import Tools.ShippingGateKid
--- WRITTEN, NOT BUILT (round par/o-gchk).
+-- Round par/o-gchk. BUILT as written: gc2 (exit 0), committed in 1df460c0.
 
 /-! # The check-free chain's facts of a GATE child, by ORIGIN (round par/o-gchk)
 

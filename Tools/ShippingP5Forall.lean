@@ -3,8 +3,10 @@ import Tools.ShippingInlTypeReads
 
 /-! # `P5` for callees whose type is a `∀`, over the CANDIDATE inliner (unit U5a)
 
-UNBUILT at the time of writing (worker O-INLC, branch par/o-inlc, base a230f9d1; written without
-running Lean). No `sorry`, no axiom, no `native_decide`. Nothing added to `RefLaws`, `ChildLaws` or
+BUILT by the integrator: ic5 exit 0 (the four candidate files; fixes after ic1/ic4 recorded in
+`docs/parallel/O-origin-integration.md`), committed in 2cbe8c45, axioms audited in
+`Tests.Compiler.InlCandAuditTest` (ic6). Written by worker O-INLC (branch par/o-inlc, base a230f9d1) without
+running Lean. No `sorry`, no axiom, no `native_decide`. Nothing added to `RefLaws`, `ChildLaws` or
 any trust / allowed-premise list. Production unchanged; no existing file changed.
 
 * `P5AtC` is `P5At` (Tools/ShippingCallWidthsChildReal.lean 147) with `userInlinerC` in place of

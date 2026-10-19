@@ -1,6 +1,7 @@
 import Tools.ShippingNoPorts
 import Tools.ShippingKidsTyped
--- WRITTEN, NOT BUILT (round par/o-typed).
+-- Round par/o-typed. BUILT as written: ty2 (`lake build Tools.ShippingNoPortsTyped`, exit 0), committed
+-- in 64e813fd; axioms standard (audited in `Tests.Compiler.MemNameCollisionGateTypedTest`).
 
 /-! # The depth-0 head with a TYPED children bound (round par/o-typed, Option A)
 
@@ -247,10 +248,10 @@ theorem machine_design_noPortsT
             exact (Tools.ShippingChecksDerived2.hierRefineCheck_inst_iff hacc mn iname conns).mpr hm
           have hB0 := hkidsW mn iname conns child cwe hmO hc
           intro x hx
-          -- UNSURE: `InvN _ 0 child ks` unfolds to `Bounded (weS child) ks.st`
+          -- (writing-time guess, accepted by build ty2): `InvN _ 0 child ks` unfolds to `Bounded (weS child) ks.st`
           have h1 : (kids iname).st x < 2 ^ weS child x := hB0 x
           exact Nat.lt_of_lt_of_le h1 (Nat.pow_le_pow_right (by omega) (hTK.2.2.2 x hx))
-        -- UNSURE: `KSn _ 0` / `KT 0` against `flatKS` / `KidState` (definitional)
+        -- (writing-time guess, accepted by build ty2): `KSn _ 0` / `KT 0` against `flatKS` / `KidState` (definitional)
         have hfit := Tools.ShippingKidsTyped.fitX_of_runTyped (childMap D.modules) b Inv hTy
           hwfB hndB hIW ins hinsFit T _ envs hrunB hstB hkO
         rw [hopt, if_pos hacc]

@@ -3,8 +3,10 @@ import Tools.ShippingReaderResultKind
 
 /-! # L2: the candidate inliner keeps the one-Signal result kind of a `∀` type (unit U4, L2 only)
 
-UNBUILT at the time of writing (worker O-INLC, branch par/o-inlc, base a230f9d1; written without
-running Lean; `-- UNSURE` marks guesses). No `sorry`, no axiom, no `native_decide`. Nothing added to
+BUILT by the integrator: ic5 exit 0 (the four candidate files; fixes after ic1/ic4 recorded in
+`docs/parallel/O-origin-integration.md`), committed in 2cbe8c45, axioms audited in
+`Tests.Compiler.InlCandAuditTest` (ic6). Written by worker O-INLC (branch par/o-inlc, base a230f9d1) without
+running Lean; writing-time guesses decided by the build. No `sorry`, no axiom, no `native_decide`. Nothing added to
 `RefLaws` or any trust / allowed-premise list. Production unchanged.
 
     resKind_userInlinerC :

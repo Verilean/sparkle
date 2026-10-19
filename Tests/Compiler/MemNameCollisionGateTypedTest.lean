@@ -4,7 +4,8 @@ import Tools.ShippingNoPortsTyped
 
 /-! # The design endpoint of `collMixSame` without `hchain`: the TYPED children bound (round par/o-typed)
 
-WRITTEN, NOT BUILT.
+BUILT as written: ty2 (`lake build Tests.Compiler.MemNameCollisionGateTypedTest`, exit 0, 653 jobs),
+committed in 64e813fd; in `Tests.AllTests` (all2, exit 0).
 
 `collMixSame_designClosed` (`MemNameCollisionGateClosedTest`) keeps one outer binder `hchain :
 ∀ y, RealChild mref cref syncName y → combOk y.1 (declWidth y.1) = true` — a syntactic fact about

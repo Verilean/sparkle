@@ -2,8 +2,10 @@ import Sparkle.Compiler.Elab
 
 /-! # Candidate copy of the front-end inliner with equations on `∀` types (unit U1c)
 
-UNBUILT at the time of writing (worker O-INLC, branch par/o-inlc, base a230f9d1; written without
-running Lean). ISOLATED CANDIDATE: nothing in `Sparkle/Compiler` is changed, no production name is
+BUILT by the integrator: ic5 exit 0 (the four candidate files; fixes after ic1/ic4 recorded in
+`docs/parallel/O-origin-integration.md`), committed in 2cbe8c45, axioms audited in
+`Tests.Compiler.InlCandAuditTest` (ic6). Written by worker O-INLC (branch par/o-inlc, base a230f9d1) without
+running Lean. ISOLATED CANDIDATE: nothing in `Sparkle/Compiler` is changed, no production name is
 redirected, `userInliner` (Sparkle/Compiler/Elab.lean 3387) is untouched. Plan:
 `docs/parallel/O-p5s-unfold-plan.md` option (a′), first vertical increment U1c + U3 + U4-L2 + U5a.
 
@@ -48,7 +50,7 @@ def passF (env : Environment) (natLit? : Lean.Expr → Option Nat) (isUser : Nam
     let r ← match e with
       | .app .. => do
         let f ← passF env natLit? isUser n e.getAppFn
-        let args ← e.getAppArgs.mapM (passF env natLit? isUser n)  -- UNSURE: structural through `mapM` (else WF; the proofs only use the equation lemmas)
+        let args ← e.getAppArgs.mapM (passF env natLit? isUser n)  -- (writing-time guess, accepted by build ic5): structural through `mapM` (else WF; the proofs only use the equation lemmas)
         let e' := mkAppN f args
         match evalNode? natLit? e' with
         | some r => passF env natLit? isUser n r
