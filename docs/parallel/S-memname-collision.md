@@ -125,3 +125,15 @@ exact instance count, no unexpected instance. Controls call the declaration unde
 | `width` combo mem 4/8 + 4-bit decl at combo.4.8, same args | ok | FAIL: merged entry, kind clash, parent falls to legacy (memory inline; legacy output not checked here) |
 
 Not wired into `Tests.AllTests` / `lakefile.lean` until the patch is applied (it would fail the suite).
+
+### 5.3 `ChildLinkStruct` derived (worker S-STRUCT, `Tools/ShippingCallWidthsStructLink.lean`, run `sl1` exit 0, axioms `axsl` standard)
+
+`childLinkStruct_real` / `kindObl_struct_real` / `callWidthsStrict_of_linksFMS`: the struct conjunct of `KindObl`
+is discharged from the callee's real shape (`MachineDefines`, `kidOuts k = sc.layout.outs`, reader's own Nodup
+check). Replaced assumption: `StructResAt` (the parent's `machOuts?` field list for the call ⊆ the callee entry
+constant's declared outputs) — explicit, NOT proved; it needs result-type preservation through `instRes` /
+`entryConst` (same gap as `P5At`), `machTupleKinds? = none`, and agreement of the two `structEnv`s on the
+structure's fields. Side finding (not yet examined): a Prod-of-Signals callee gives parent fields
+`out_0`/`out_1` but a single packed `out` on the callee side, so `StructRes` fails there and `ChildLinkStruct`
+holds only vacuously. `KindObl` is still stated over all matching origins; narrowing it to the stored origin
+waits for the origin-tag patch.

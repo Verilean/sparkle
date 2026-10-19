@@ -4,9 +4,12 @@ import Tools.ShippingReaderOutNames
 
 /-! # `ChildLinkStruct` from the structure child's own layout (reviewer milestone)
 
-WRITTEN, NOT BUILT (worker S-STRUCT, branch `par/s-struct`, from poc
-ed579dc4). No `sorry`, no axiom, no `native_decide`. New file; nothing
-existing is changed.
+BUILT as written (worker S-STRUCT, branch `par/s-struct`, from poc
+ed579dc4; run `sl1`, 3 GiB, swap 0, `-j 1`, exit 0, peak 0.98 GB, no fixes).
+Axioms (run `axsl`): `childLinkStruct_of_layout` [propext]; every other
+theorem [propext, Classical.choice, Quot.sound]. No `sorry`, no new axiom, no
+`native_decide`. New file; nothing existing is changed. (Any "unsure spot"
+notes below predate the build: all typechecked as written.)
 
 ## What this replaces
 
