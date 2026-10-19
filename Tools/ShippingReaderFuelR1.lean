@@ -3,6 +3,11 @@ import Tools.ShippingInstSignature
 
 /-! # R1 for the fuel CANDIDATE: every call entry's kind is its callee's signature result
 
+STATUS 2026-10-19 (worker O, branch `par/o-cand`): WRITTEN, NOT BUILT against
+the patched compiler (explicit call-entry origin, `MachRead.instOrigins`).
+`Call.inst` takes `org`; `CallPre`, `pre_of_instCall`, `pre_of_mem`,
+`sat1_cInst`, `inst_sat1` adjusted (R1 does not read the tag).
+
 BUILT: run `k1` (poc a6573291) exit 0 as written (worker K, branch `par/r-15`, from poc
 `20304f50`; reviewer 2026-10-17 item 2(b)). No `sorry`, no axiom, no
 `native_decide`. Nothing here is imported by the compiler; no compiler change.
@@ -19,7 +24,8 @@ one-Signal signature `senv.inst c = some (kinds, r')` has kind `r = r'`.
 
 It mentions `st.insts` ONLY, so every state update that does not write `insts`
 keeps it by `instR1_congr … (by rfl)`. `insts` is written at exactly two
-places (grep `insts :=` in `Tools/ShippingReaderFuelDefs.lean`):
+places (grep `insts :=` in `Tools/ShippingReaderFuelDefs.lean`; patched
+compiler: `instOrigins` is written at the same two places, not read by R1):
 
 * `instStep` (4068): `push (c, js, res)` — the call's `res`;
 * `instSStep` (4110–4113): `++ fields.map (c, js, f.2)` — a STRUCTURE callee.
@@ -197,7 +203,7 @@ theorem machInstCallS?_instS {senv : StructEnv} {e : Lean.Expr} {c : Name}
 def CallPre (senv : StructEnv) : Call → Prop
   | Call.conv _ _ _ _ => True
   | Call.nested _ _ _ _ _ _ => True
-  | Call.inst _ c _ res _ _ =>
+  | Call.inst _ c _ _ res _ _ =>
     ∀ (kinds : List MixedGateBinder) (r : MixedGateBinder), senv.inst c = some (kinds, r) → res = r
   | Call.instS _ c _ _ _ _ => senv.inst c = none
   | Call.chain _ _ _ => True
@@ -206,9 +212,9 @@ def CallPre (senv : StructEnv) : Call → Prop
 
 theorem pre_of_instCall {senv : StructEnv} {e : Lean.Expr} {c : Name}
     {kinds : List MixedGateBinder} {res : MixedGateBinder} {args : List Lean.Expr}
-    {env : List MachVal} {st : MachRead}
+    {env : List MachVal} {st : MachRead} {org : Sparkle.Compiler.MachInstOrigin.InstOrigin}
     (h : machInstCall? senv e = some (c, kinds, res, args)) :
-    CallPre senv (Call.inst env c kinds res args st) := by
+    CallPre senv (Call.inst env c org kinds res args st) := by
   show ∀ (kinds' : List MixedGateBinder) (r : MixedGateBinder),
     senv.inst c = some (kinds', r) → res = r
   intro kinds' r hi
@@ -227,8 +233,8 @@ theorem pre_of_instCallS {senv : StructEnv} (hD : SigDisj senv) {e : Lean.Expr} 
 
 theorem pre_of_mem {senv : StructEnv} (hM : MemR1 senv) {combo : Bool} {aw dw : Nat}
     {kinds : List MixedGateBinder} {args : List Lean.Expr} {env : List MachVal}
-    {st : MachRead} :
-    CallPre senv (Call.inst env (Sparkle.Compiler.MachMemory.memChildName combo aw dw) kinds
+    {st : MachRead} {org : Sparkle.Compiler.MachInstOrigin.InstOrigin} :
+    CallPre senv (Call.inst env (Sparkle.Compiler.MachMemory.memChildName combo aw dw) org kinds
       (MixedGateBinder.bits dw) args st) := by
   show ∀ (kinds' : List MixedGateBinder) (r : MixedGateBinder),
     senv.inst (Sparkle.Compiler.MachMemory.memChildName combo aw dw) = some (kinds', r) →
@@ -352,10 +358,11 @@ theorem sat1_cNested (hG : GoodR1 senv h) {env : List MachVal} {dom αs initsE b
   fun p hp => hG (Call.nested env dom αs initsE body st) True.intro hst p hp
 
 theorem sat1_cInst (hG : GoodR1 senv h) {env : List MachVal} {c : Name}
+    {org : Sparkle.Compiler.MachInstOrigin.InstOrigin}
     {kinds : List MixedGateBinder} {res : MixedGateBinder} {args : List Lean.Expr}
-    {st : MachRead} (hpre : CallPre senv (Call.inst env c kinds res args st))
-    (hst : InstR1 senv st) : Sat1 senv h (cInst env c kinds res args st) :=
-  fun p hp => hG (Call.inst env c kinds res args st) hpre hst p hp
+    {st : MachRead} (hpre : CallPre senv (Call.inst env c org kinds res args st))
+    (hst : InstR1 senv st) : Sat1 senv h (cInst env c org kinds res args st) :=
+  fun p hp => hG (Call.inst env c org kinds res args st) hpre hst p hp
 
 theorem sat1_cInstS (hG : GoodR1 senv h) {env : List MachVal} {c : Name}
     {kinds : List MixedGateBinder} {ty : Lean.Expr} {args : List Lean.Expr} {st : MachRead}
@@ -639,11 +646,12 @@ theorem nested_sat1 (senv : StructEnv) (hG : GoodR1 senv h) (env : List MachVal)
 /-- `machInstance`: the push carries the call's `res`, which `CallPre` ties to
 the signature. -/
 theorem inst_sat1 {senv : StructEnv} (hG : GoodR1 senv h) (env : List MachVal) (c : Name)
+    (org : Sparkle.Compiler.MachInstOrigin.InstOrigin)
     (kinds : List MixedGateBinder) (res : MixedGateBinder) (args : List Lean.Expr)
     (st : MachRead)
     (hpre : ∀ (kinds' : List MixedGateBinder) (r : MixedGateBinder),
       senv.inst c = some (kinds', r) → res = r)
-    (hst : InstR1 senv st) : Sat1 senv h (instStep env c kinds res args st) := by
+    (hst : InstR1 senv st) : Sat1 senv h (instStep env c org kinds res args st) := by
   refine sat1_optK ?_
   intro st1 hst1
   have h1 : InstR1 senv st1 := instEntry_r1 hst1 hst
@@ -794,7 +802,8 @@ theorem step_good1 (senv : StructEnv) (hM : MemR1 senv) (hD : SigDisj senv) {h :
   | conv env d e st => exact conv_sat1 senv hM hD hG env d e st hin v hv
   | nested env dom αs initsE body st =>
     exact nested_sat1 senv hG env dom αs initsE body st hin v hv
-  | inst env c kinds res args st => exact inst_sat1 hG env c kinds res args st hpre hin v hv
+  | inst env c org kinds res args st =>
+    exact inst_sat1 hG env c org kinds res args st hpre hin v hv
   | instS env c kinds ty args st => exact instS_sat1 senv hG env c kinds ty args st hpre hin v hv
   | chain env e st => exact chain_sat1 senv hG env e st hin v hv
   | loopBody base env e st => exact loopBody_sat1 hG base env e st hin v hv

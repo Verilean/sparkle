@@ -3,6 +3,13 @@ import Tools.ShippingReaderLenOkReserve
 
 /-! # R5 for the fuel candidate: every returned reader state keeps `LenOk`
 
+STATUS 2026-10-19 (worker O, branch `par/o-cand`): WRITTEN, NOT BUILT against
+the patched compiler (explicit call-entry origin, `MachRead.instOrigins`).
+`LenOk` has a third part (`origins : instOrigins.size = insts.size`); the
+leaf lemmas `lenOk_instPush` / `lenOk_instS` are the patched push / append;
+`Call.inst` takes `org`. New: `machConvF_origins`, `machChainF_origins`,
+`machLoopRootF_origins`, `machInstanceF_origins` (alignment at every fuel).
+
 BUILT on poc after 65eaccbb (run `r5`, cgrun -j 1; integrator fixes: `$t:tactic` in the r5pair macro, `unfold loopBodyStep` in its wildcard arms) (worker R5, branch `par/r-7`, from poc `22908c5f`). No
 `sorry`, no axiom, no `native_decide`, no Mathlib tactic. No hypothesis beyond
 the input state's `LenOk`.
@@ -44,7 +51,7 @@ open Tools.ShippingReaderLenOk
 def Call.inSt : Call → MachRead
   | Call.conv _ _ _ st => st
   | Call.nested _ _ _ _ _ st => st
-  | Call.inst _ _ _ _ _ st => st
+  | Call.inst _ _ _ _ _ _ st => st
   | Call.instS _ _ _ _ _ st => st
   | Call.chain _ _ st => st
   | Call.loopBody _ _ _ st => st
@@ -198,11 +205,12 @@ theorem out_nested (hG : GoodH h) {env : List MachVal} {dom αs initsE body : Le
     st'.LenOk :=
   hG (Call.nested env dom αs initsE body st) hst (v, st') hc
 
-theorem out_inst (hG : GoodH h) {env : List MachVal} {c : Name} {kinds : List MixedGateBinder}
+theorem out_inst (hG : GoodH h) {env : List MachVal} {c : Name}
+    {org : Sparkle.Compiler.MachInstOrigin.InstOrigin} {kinds : List MixedGateBinder}
     {res : MixedGateBinder} {args : List Lean.Expr} {st : MachRead} {v : Lean.Expr}
-    {st' : MachRead} (hc : h (Call.inst env c kinds res args st) = some (some (v, st')))
+    {st' : MachRead} (hc : h (Call.inst env c org kinds res args st) = some (some (v, st')))
     (hst : st.LenOk) : st'.LenOk :=
-  hG (Call.inst env c kinds res args st) hst (v, st') hc
+  hG (Call.inst env c org kinds res args st) hst (v, st') hc
 
 theorem out_instS (hG : GoodH h) {env : List MachVal} {c : Name} {kinds : List MixedGateBinder}
     {ty : Lean.Expr} {args : List Lean.Expr} {st : MachRead} {v : Lean.Expr} {st' : MachRead}
@@ -235,10 +243,11 @@ theorem sat_cNested (hG : GoodH h) {env : List MachVal} {dom αs initsE body : L
     {st : MachRead} (hst : st.LenOk) : Sat h (cNested env dom αs initsE body st) :=
   fun p hp => hG (Call.nested env dom αs initsE body st) hst p hp
 
-theorem sat_cInst (hG : GoodH h) {env : List MachVal} {c : Name} {kinds : List MixedGateBinder}
+theorem sat_cInst (hG : GoodH h) {env : List MachVal} {c : Name}
+    {org : Sparkle.Compiler.MachInstOrigin.InstOrigin} {kinds : List MixedGateBinder}
     {res : MixedGateBinder} {args : List Lean.Expr} {st : MachRead} (hst : st.LenOk) :
-    Sat h (cInst env c kinds res args st) :=
-  fun p hp => hG (Call.inst env c kinds res args st) hst p hp
+    Sat h (cInst env c org kinds res args st) :=
+  fun p hp => hG (Call.inst env c org kinds res args st) hst p hp
 
 theorem sat_cInstS (hG : GoodH h) {env : List MachVal} {c : Name}
     {kinds : List MixedGateBinder} {ty : Lean.Expr} {args : List Lean.Expr} {st : MachRead}
@@ -269,8 +278,8 @@ macro "r5close" : tactic => `(tactic| first
   | exact lenOk_dom ‹_› _
   | exact lenOk_instStruct ‹_› _
   | exact lenOk_inInner ‹_› _
-  | exact lenOk_instPush ‹_› _ _
-  | exact lenOk_instS ‹_› _ _ _
+  | exact lenOk_instPush ‹_› _ _ _
+  | exact lenOk_instS ‹_› _ _ _ _
   | exact lenOk_nestedClose ‹_› _ _ _
   | exact lenOk_loopClose ‹_› _ _)
 
@@ -575,9 +584,10 @@ theorem nested_sat (senv : StructEnv) (hG : GoodH h) (env : List MachVal)
     exact sat_findSomeO (nestedProbe_sat hG _ _ _ _ _ _ h1) _ r hsh
 
 /-- `machInstance`: `instEntry` → `foldO` → `match findIdx?` (2 leaves). -/
-theorem inst_sat (hG : GoodH h) (env : List MachVal) (c : Name) (kinds : List MixedGateBinder)
+theorem inst_sat (hG : GoodH h) (env : List MachVal) (c : Name)
+    (org : Sparkle.Compiler.MachInstOrigin.InstOrigin) (kinds : List MixedGateBinder)
     (res : MixedGateBinder) (args : List Lean.Expr) (st : MachRead) (hst : st.LenOk) :
-    Sat h (instStep env c kinds res args st) := by
+    Sat h (instStep env c org kinds res args st) := by
   refine sat_optK ?_
   intro st1 hst1
   have h1 : st1.LenOk := instEntry_ok hst1 hst
@@ -615,7 +625,7 @@ theorem instS_sat (senv : StructEnv) (hG : GoodH h) (env : List MachVal) (c : Na
     · refine sat_okO ?_
       exact h2
     · refine sat_okO ?_
-      exact lenOk_instS h2 _ _ _
+      exact lenOk_instS h2 _ _ _ _
 
 /-- `machChain`: the 4-arm source `match` split ONCE (the input state's
 `LenOk` reverted so that it follows the split): `pure'` (1 leaf), `bind
@@ -725,7 +735,7 @@ theorem step_good (senv : StructEnv) {h : Hs} (hG : GoodH h) :
   cases c with
   | conv env d e st => exact conv_sat senv hG env d e st hin v hv
   | nested env dom αs initsE body st => exact nested_sat senv hG env dom αs initsE body st hin v hv
-  | inst env c kinds res args st => exact inst_sat hG env c kinds res args st hin v hv
+  | inst env c org kinds res args st => exact inst_sat hG env c org kinds res args st hin v hv
   | instS env c kinds ty args st => exact instS_sat senv hG env c kinds ty args st hin v hv
   | chain env e st => exact chain_sat senv hG env e st hin v hv
   | loopBody base env e st => exact loopBody_sat hG base env e st hin v hv
@@ -751,11 +761,12 @@ theorem machNestedF_lenOk {n : Nat} {senv : StructEnv} {env : List MachVal}
   readF_good senv n (Call.nested env dom αs initsE body st) hst (r, st') h
 
 theorem machInstanceF_lenOk {n : Nat} {senv : StructEnv} {env : List MachVal} {c : Name}
+    {org : Sparkle.Compiler.MachInstOrigin.InstOrigin}
     {kinds : List MixedGateBinder} {res : MixedGateBinder} {args : List Lean.Expr}
     {st : MachRead} {r : Lean.Expr} {st' : MachRead}
-    (h : machInstanceF n senv env c kinds res args st = some (some (r, st'))) (hst : st.LenOk) :
-    st'.LenOk :=
-  readF_good senv n (Call.inst env c kinds res args st) hst (r, st') h
+    (h : machInstanceF n senv env c org kinds res args st = some (some (r, st')))
+    (hst : st.LenOk) : st'.LenOk :=
+  readF_good senv n (Call.inst env c org kinds res args st) hst (r, st') h
 
 theorem machInstanceSF_lenOk {n : Nat} {senv : StructEnv} {env : List MachVal} {c : Name}
     {kinds : List MixedGateBinder} {ty : Lean.Expr} {args : List Lean.Expr}
@@ -800,5 +811,38 @@ theorem machConvF_lenOk_init {n : Nat} {senv : StructEnv} {env : List MachVal} {
     {e : Lean.Expr} {r : Lean.Expr} {st' : MachRead}
     (h : machConvF n senv env d e ({} : MachRead) = some (some (r, st'))) : st'.LenOk :=
   machConvF_lenOk h lenOk_init
+
+/-! ## Origin alignment (patched compiler, explicit call-entry origin)
+
+`LenOk` now also says `instOrigins.size = insts.size` (`MachRead.LenOk.origins`):
+the two call-entry updates push / append one tag per entry. So every
+successful run of the candidate readers, at every fuel, keeps one origin tag
+per call entry. -/
+
+theorem machConvF_origins {n : Nat} {senv : StructEnv} {env : List MachVal} {d : Nat}
+    {e : Lean.Expr} {st : MachRead} {r : Lean.Expr} {st' : MachRead}
+    (h : machConvF n senv env d e st = some (some (r, st'))) (hst : st.LenOk) :
+    st'.instOrigins.size = st'.insts.size :=
+  (machConvF_lenOk h hst).origins
+
+theorem machChainF_origins {n : Nat} {senv : StructEnv} {env : List MachVal} {e : Lean.Expr}
+    {st : MachRead} {ws : List (Nat × Lean.Expr)} {v : Lean.Expr} {st' : MachRead}
+    (h : machChainF n senv env e st = some (some (ws, v, st'))) (hst : st.LenOk) :
+    st'.instOrigins.size = st'.insts.size :=
+  (machChainF_lenOk h hst).origins
+
+theorem machLoopRootF_origins {n : Nat} {senv : StructEnv} {env : List MachVal} {e : Lean.Expr}
+    {st : MachRead} {mv : MachVal} {st' : MachRead}
+    (h : machLoopRootF n senv env e st = some (some (mv, st'))) (hst : st.LenOk) :
+    st'.instOrigins.size = st'.insts.size :=
+  (machLoopRootF_lenOk h hst).origins
+
+theorem machInstanceF_origins {n : Nat} {senv : StructEnv} {env : List MachVal} {c : Name}
+    {org : Sparkle.Compiler.MachInstOrigin.InstOrigin}
+    {kinds : List MixedGateBinder} {res : MixedGateBinder} {args : List Lean.Expr}
+    {st : MachRead} {r : Lean.Expr} {st' : MachRead}
+    (h : machInstanceF n senv env c org kinds res args st = some (some (r, st')))
+    (hst : st.LenOk) : st'.instOrigins.size = st'.insts.size :=
+  (machInstanceF_lenOk h hst).origins
 
 end Tools.ShippingReaderFuel

@@ -3,6 +3,14 @@ import Tools.ShippingSparseCasesTac
 
 /-! # The old source equations VERBATIM (inline matches, local `let rec`s)
 
+STATUS 2026-10-19 (worker O, branch `par/o-cand`): WRITTEN, NOT BUILT against
+the patched compiler (explicit call-entry origin, `MachRead.instOrigins`).
+Copies updated to the PATCHED working-tree text of `machConv` (two
+`machInstance` call sites), `machInstance`, `machInstanceS` (see
+`docs/parallel/O-origin-drift.md`); the blob/line references below are those
+of the pre-patch source. `OldEqV`'s instance clause and `oInstV_eq` /
+`oldEq_of_oldEqV` take `org`.
+
 STATUS: BUILT on poc 8fac0511 (round 3, worker A, branch `par/r-10`, from poc
 fc697219, built as written; header status corrected 2026-10-16, comment only).
 Round 2's text (`par/r-6`) did not build on poc fc697219 (the
@@ -200,7 +208,7 @@ def oConvV (senv : StructEnv) (G : OldFns) : List MachVal → Nat → Lean.Expr 
     | none =>
     match machInstCall? senv (.app f a) with
     | some (c, kinds, res, args) =>
-      if d != 0 then none else G.inst env c kinds res args st
+      if d != 0 then none else G.inst env c .ord kinds res args st
     | none =>
     match machInstCallS? senv (.app f a) with
     | some (c, kinds, ty, args) =>
@@ -212,7 +220,7 @@ def oConvV (senv : StructEnv) (G : OldFns) : List MachVal → Nat → Lean.Expr 
     | some (combo, aw, dw, dom, ops) =>
       if d != 0 then none else do
         let (v, st) ← G.inst env (Sparkle.Compiler.MachMemory.memChildName combo aw dw)
-          [.domain, .bits aw, .bits dw, .bool, .bits aw] (.bits dw) (dom :: ops) st
+          (.mem combo aw dw) [.domain, .bits aw, .bits dw, .bool, .bits aw] (.bits dw) (dom :: ops) st
         some (v, { st with instStruct := true })
     | none =>
     match machReadV env d (.app f a) with
@@ -321,8 +329,9 @@ def oNestedV (senv : StructEnv) (G : OldFns) (env : List MachVal) (dom αs inits
     some (v, { st with ws := st.ws ++ ws.toArray, inInner := outer,
                        nested := st.nested.push (base, dom', αs, initsE, ws, v) })
 
-/-- `machInstance` (4045–4069), VERBATIM. -/
-def oInstV (G : OldFns) (env : List MachVal) (c : Name) (kinds : List MixedGateBinder)
+/-- `machInstance` (patched compiler, explicit call-entry origin), VERBATIM. -/
+def oInstV (G : OldFns) (env : List MachVal) (c : Name)
+    (org : Sparkle.Compiler.MachInstOrigin.InstOrigin) (kinds : List MixedGateBinder)
     (res : MixedGateBinder) (args : List Lean.Expr) (st : MachRead) :
     Option (Lean.Expr × MachRead) := do
   let st ← match res with
@@ -341,12 +350,17 @@ def oInstV (G : OldFns) (env : List MachVal) (c : Name) (kinds : List MixedGateB
       | _ =>
         let (j, lets) := machLetIndex (Name.mkSimple s!"inst{k}_arg{js.length}") kind v' st.lets
         some (js ++ [j], { st with lets := lets })
-  match st.insts.findIdx? (fun i => i.1 == c && i.2.1 == js) with
+  -- the same call met before (`circuit do` copies its `let`s): its output
+  -- (the same origin too: a memory and a declaration of its placeholder name
+  -- are different calls)
+  match st.insts.zipIdx.findIdx? (fun (i, k') => i.1 == c && i.2.1 == js &&
+      st.instOrigins[k']? == some org) with
   | some k' => some (machInstOut k', st)
   | none => some (machInstOut k, { st with insts := st.insts.push (c, js, res),
-                                           instFields := st.instFields.push "out" })
+                                           instFields := st.instFields.push "out"
+                                           instOrigins := st.instOrigins.push org })
 
-/-- `machInstanceS` (4079–4117), VERBATIM. -/
+/-- `machInstanceS` (patched compiler, explicit call-entry origin), VERBATIM. -/
 def oInstSV (senv : StructEnv) (G : OldFns) (env : List MachVal) (c : Name)
     (kinds : List MixedGateBinder) (ty : Lean.Expr) (args : List Lean.Expr) (st : MachRead) :
     Option (Lean.Expr × MachRead) := do
@@ -375,13 +389,16 @@ def oInstSV (senv : StructEnv) (G : OldFns) (env : List MachVal) (c : Name)
       let (p', st) ← G.conv env 0 p st
       some (ps ++ [p'], st)
   let lvls := resTy.getAppFn.constLevels!
-  let (k0, st) := match st.insts.findIdx? (fun i => i.1 == c && i.2.1 == js) with
+  let (k0, st) := match st.insts.zipIdx.findIdx? (fun (i, k') => i.1 == c && i.2.1 == js &&
+      st.instOrigins[k']? == some (.field 0)) with
     | some k0 => (k0, st)
     | none =>
       (st.insts.size, { st with
         insts := st.insts ++ (fields.map fun f => (c, js, f.2)).toArray
         instFields := st.instFields ++ (fields.map (·.1)).toArray
-        instStruct := true })
+        instStruct := true
+        instOrigins := st.instOrigins ++
+          ((List.range fields.length).map Sparkle.Compiler.MachInstOrigin.InstOrigin.field).toArray })
   some (mkAppN (.const ctor lvls)
     (params.toArray ++ ((List.range fields.length).map fun i => machInstOut (k0 + i)).toArray), st)
 
@@ -474,7 +491,8 @@ def OldEqV (senv : StructEnv) (G : OldFns) : Prop :=
   (∀ env d e st, G.conv env d e st = oConvV senv G env d e st) ∧
   (∀ env dom αs initsE body st,
     G.nested env dom αs initsE body st = oNestedV senv G env dom αs initsE body st) ∧
-  (∀ env c kinds res args st, G.inst env c kinds res args st = oInstV G env c kinds res args st) ∧
+  (∀ env c org kinds res args st,
+    G.inst env c org kinds res args st = oInstV G env c org kinds res args st) ∧
   (∀ env c kinds ty args st,
     G.instS env c kinds ty args st = oInstSV senv G env c kinds ty args st) ∧
   (∀ env e st, G.chain env e st = oChain G env e st) ∧
@@ -509,9 +527,10 @@ theorem oConvV_eq (env : List MachVal) (d : Nat) (e : Lean.Expr) (st : MachRead)
 theorem oNestedV_eq (env : List MachVal) (dom αs initsE body : Lean.Expr) (st : MachRead) :
     oNestedV senv G env dom αs initsE body st = oNested senv G env dom αs initsE body st := rfl
 
-theorem oInstV_eq (env : List MachVal) (c : Name) (kinds : List MixedGateBinder)
+theorem oInstV_eq (env : List MachVal) (c : Name)
+    (org : Sparkle.Compiler.MachInstOrigin.InstOrigin) (kinds : List MixedGateBinder)
     (res : MixedGateBinder) (args : List Lean.Expr) (st : MachRead) :
-    oInstV G env c kinds res args st = oInst G env c kinds res args st := by
+    oInstV G env c org kinds res args st = oInst G env c org kinds res args st := by
   -- `let st ← match res with …` is a nested `do` action (a join point taken in
   -- each arm), `instEntry res st` a bind of a function: equal per constructor
   cases res <;> first
@@ -579,8 +598,8 @@ theorem oldEq_of_oldEqV {senv : StructEnv} {G : OldFns} (h : OldEqV senv G) : Ol
   exact ⟨fun env d e st => (h1 env d e st).trans (oConvV_eq senv G env d e st),
     fun env dom αs initsE body st =>
       (h2 env dom αs initsE body st).trans (oNestedV_eq senv G env dom αs initsE body st),
-    fun env c kinds res args st =>
-      (h3 env c kinds res args st).trans (oInstV_eq G env c kinds res args st),
+    fun env c org kinds res args st =>
+      (h3 env c org kinds res args st).trans (oInstV_eq G env c org kinds res args st),
     fun env c kinds ty args st =>
       (h4 env c kinds ty args st).trans (oInstSV_eq senv G env c kinds ty args st),
     h5,

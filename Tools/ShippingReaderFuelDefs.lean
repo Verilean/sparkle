@@ -2,6 +2,14 @@ import Sparkle.Compiler.Elab
 
 /-! # A fuel-indexed TOTAL candidate of the machine reader — definitions only
 
+STATUS 2026-10-19 (worker O, branch `par/o-cand`): WRITTEN, NOT BUILT against
+the patched compiler (explicit call-entry origin, `MachRead.instOrigins`).
+`machInstance`'s copy `instStep` / `Call.inst` take the call-entry origin `org`
+(after `c`, as the source); `convStep` passes `.ord` (ordinary arm) and
+`.mem combo aw dw` (memory arm); the dedup of `instStep` / `instSStep`
+compares the stored tag too (`zipIdx.findIdx?`), and the push / append writes
+`instOrigins` (`org` / `.field i` per field).
+
 BUILT on poc 22908c5f (run `a1`, cgrun -j 1; integrator fix: `Call.*` constructors qualified). Worker A, branch `par/r-3`; record
 `docs/parallel/R-reader-fuel.md`). No `sorry`, no axiom, no `native_decide`.
 
@@ -159,7 +167,8 @@ def fuel {κ : Type} {R : κ → Type} (Φ : (c : κ) → FM κ R (R c)) :
 inductive Call where
   | conv (env : List MachVal) (d : Nat) (e : Lean.Expr) (st : MachRead)
   | nested (env : List MachVal) (dom αs initsE body : Lean.Expr) (st : MachRead)
-  | inst (env : List MachVal) (c : Name) (kinds : List MixedGateBinder) (res : MixedGateBinder)
+  | inst (env : List MachVal) (c : Name) (org : Sparkle.Compiler.MachInstOrigin.InstOrigin)
+      (kinds : List MixedGateBinder) (res : MixedGateBinder)
       (args : List Lean.Expr) (st : MachRead)
   | instS (env : List MachVal) (c : Name) (kinds : List MixedGateBinder) (ty : Lean.Expr)
       (args : List Lean.Expr) (st : MachRead)
@@ -194,9 +203,10 @@ def cNested (env : List MachVal) (dom αs initsE body : Lean.Expr) (st : MachRea
     BM (Option (Lean.Expr × MachRead)) :=
   FM.call (Call.nested env dom αs initsE body st)
 
-def cInst (env : List MachVal) (c : Name) (kinds : List MixedGateBinder) (res : MixedGateBinder)
+def cInst (env : List MachVal) (c : Name) (org : Sparkle.Compiler.MachInstOrigin.InstOrigin)
+    (kinds : List MixedGateBinder) (res : MixedGateBinder)
     (args : List Lean.Expr) (st : MachRead) : BM (Option (Lean.Expr × MachRead)) :=
-  FM.call (Call.inst env c kinds res args st)
+  FM.call (Call.inst env c org kinds res args st)
 
 def cInstS (env : List MachVal) (c : Name) (kinds : List MixedGateBinder) (ty : Lean.Expr)
     (args : List Lean.Expr) (st : MachRead) : BM (Option (Lean.Expr × MachRead)) :=
@@ -319,7 +329,7 @@ def convStep (senv : StructEnv) : List MachVal → Nat → Lean.Expr → MachRea
     | none =>
     match machInstCall? senv (.app f a) with
     | some (c, kinds, res, args) =>
-      if d != 0 then failO else cInst env c kinds res args st
+      if d != 0 then failO else cInst env c .ord kinds res args st
     | none =>
     match machInstCallS? senv (.app f a) with
     | some (c, kinds, ty, args) =>
@@ -330,7 +340,8 @@ def convStep (senv : StructEnv) : List MachVal → Nat → Lean.Expr → MachRea
     | some (combo, aw, dw, dom, ops) =>
       if d != 0 then failO else
         bindO (cInst env (Sparkle.Compiler.MachMemory.memChildName combo aw dw)
-            [.domain, .bits aw, .bits dw, .bool, .bits aw] (.bits dw) (dom :: ops) st)
+            (.mem combo aw dw) [.domain, .bits aw, .bits dw, .bool, .bits aw] (.bits dw)
+            (dom :: ops) st)
           fun (v, st) => okO (v, { st with instStruct := true })
     | none =>
     match machReadV env d (.app f a) with
@@ -411,17 +422,21 @@ def instArg (env : List MachVal) (k : Nat) :
         let (j, lets) := machLetIndex (Name.mkSimple s!"inst{k}_arg{js.length}") kind v' st.lets
         some (js ++ [j], { st with lets := lets }))
 
-/-- `machInstance` (4045–4069). -/
-def instStep (env : List MachVal) (c : Name) (kinds : List MixedGateBinder)
+/-- `machInstance` (patched compiler: the call-entry origin `org`; the
+dedup also compares the stored origin, the push also pushes `org`). -/
+def instStep (env : List MachVal) (c : Name) (org : Sparkle.Compiler.MachInstOrigin.InstOrigin)
+    (kinds : List MixedGateBinder)
     (res : MixedGateBinder) (args : List Lean.Expr) (st : MachRead) :
     BM (Option (Lean.Expr × MachRead)) :=
   optK (instEntry res st) fun st =>
   let k := st.insts.size
   bindO (foldO (instArg env k) (([] : List Nat), st) (kinds.zip args)) fun (js, st) =>
-  FM.pure (match st.insts.findIdx? (fun i => i.1 == c && i.2.1 == js) with
+  FM.pure (match st.insts.zipIdx.findIdx? (fun (i, k') => i.1 == c && i.2.1 == js &&
+      st.instOrigins[k']? == some org) with
     | some k' => some (machInstOut k', st)
     | none => some (machInstOut k, { st with insts := st.insts.push (c, js, res),
-                                             instFields := st.instFields.push "out" }))
+                                             instFields := st.instFields.push "out"
+                                             instOrigins := st.instOrigins.push org }))
 
 /-- `machInstanceS`'s first `foldlM` function (4091–4101). -/
 def instSArg (env : List MachVal) :
@@ -459,7 +474,8 @@ def instSStep (senv : StructEnv) (env : List MachVal) (c : Name) (kinds : List M
     bindO (foldO (instSParam env) (([] : List Lean.Expr), st) resTy.getAppArgs.toList)
       fun (params, st) =>
     let lvls := resTy.getAppFn.constLevels!
-    match st.insts.findIdx? (fun i => i.1 == c && i.2.1 == js) with
+    match st.insts.zipIdx.findIdx? (fun (i, k') => i.1 == c && i.2.1 == js &&
+        st.instOrigins[k']? == some (.field 0)) with
     | some k0 =>
       okO (mkAppN (.const ctor lvls)
         (params.toArray ++ ((List.range fields.length).map fun i => machInstOut (k0 + i)).toArray),
@@ -471,7 +487,9 @@ def instSStep (senv : StructEnv) (env : List MachVal) (c : Name) (kinds : List M
         { st with
           insts := st.insts ++ (fields.map fun f => (c, js, f.2)).toArray
           instFields := st.instFields ++ (fields.map (·.1)).toArray
-          instStruct := true })
+          instStruct := true
+          instOrigins := st.instOrigins ++
+            ((List.range fields.length).map Sparkle.Compiler.MachInstOrigin.InstOrigin.field).toArray })
   | (none, _) => failO
 
 /-- `machChain` (4124–4165). -/
@@ -579,7 +597,7 @@ def loopRootStep (senv : StructEnv) (env : List MachVal) (e : Lean.Expr) (st : M
 def step (senv : StructEnv) : (c : Call) → BM (RB c)
   | .conv env d e st => convStep senv env d e st
   | .nested env dom αs initsE body st => nestedStep senv env dom αs initsE body st
-  | .inst env c kinds res args st => instStep env c kinds res args st
+  | .inst env c org kinds res args st => instStep env c org kinds res args st
   | .instS env c kinds ty args st => instSStep senv env c kinds ty args st
   | .chain env e st => chainStep senv env e st
   | .loopBody base env e st => loopBodyStep base env e st
@@ -599,9 +617,10 @@ def machNestedF (n : Nat) (senv : StructEnv) (env : List MachVal)
   readF senv n (.nested env dom αs initsE body st)
 
 def machInstanceF (n : Nat) (senv : StructEnv) (env : List MachVal) (c : Name)
+    (org : Sparkle.Compiler.MachInstOrigin.InstOrigin)
     (kinds : List MixedGateBinder) (res : MixedGateBinder) (args : List Lean.Expr)
     (st : MachRead) : Option (Option (Lean.Expr × MachRead)) :=
-  readF senv n (.inst env c kinds res args st)
+  readF senv n (.inst env c org kinds res args st)
 
 def machInstanceSF (n : Nat) (senv : StructEnv) (env : List MachVal) (c : Name)
     (kinds : List MixedGateBinder) (ty : Lean.Expr) (args : List Lean.Expr)

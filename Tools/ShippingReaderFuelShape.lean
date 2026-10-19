@@ -2,6 +2,10 @@ import Tools.ShippingReaderFuelKleene
 
 /-! # A fuel version of the reader wrapper `machineShape?` (three-valued)
 
+STATUS 2026-10-19 (worker O, branch `par/o-cand`): WRITTEN, NOT BUILT against
+the patched compiler (explicit call-entry origin, `MachRead.instOrigins`).
+`shapePost` copies the patched record: `instOrigins := st.instOrigins.toList`.
+
 BUILT on poc 65eaccbb (run `f1`; header status corrected 2026-10-16, comment
 only) (worker F, branch `par/r-9`; record
 `docs/parallel/R-reader-fuel-driver.md`). No `sorry`, no axiom, no
@@ -193,6 +197,7 @@ def shapePost (allowInsts : Bool) (p : ShapePre) (m : ShapeMid) (st : MachRead) 
         runs := st.runs.toList
         insts := st.insts.toList
         instFields := if st.instStruct then st.instFields.toList else []
+        instOrigins := st.instOrigins.toList
         loops := st.loops.toList }
   else none
 

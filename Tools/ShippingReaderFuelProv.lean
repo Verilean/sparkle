@@ -2,9 +2,31 @@ import Tools.ShippingReaderFuelR1
 
 /-! # Call-entry PROVENANCE for the fuel CANDIDATE reader
 
-BUILT as written: run `p1` exit 0 (poc 6f216c4e); axioms run `axp`: [propext, Classical.choice, Quot.sound] (worker S-PROV, branch par/s-prov, from poc 3a1938a3;
-reviewer milestone 1). No `sorry`, no axiom, no `native_decide`. Nothing here
-is imported by the compiler; no compiler change.
+STATUS 2026-10-19 (worker O, branch `par/o-cand`): WRITTEN, NOT BUILT against
+the patched compiler (explicit call-entry origin: `MachRead.instOrigins`,
+`machInstance … (org : InstOrigin)`). Earlier text BUILT as `p1` (poc
+6f216c4e). No `sorry`, no axiom, no `native_decide`. Nothing here is imported
+by the compiler.
+
+## 2026-10-19: provenance is the STORED tag
+
+The reader now records an origin tag next to every call entry
+(`InstOrigin := ord | field i | mem combo aw dw`). `InstProv` is restated over
+the THREE arrays `insts` / `instFields` / `instOrigins` (one size) and says, per
+index `k`, that the facts of the arm the STORED tag names hold (`OriginT`):
+
+* tag `.ord` → `OrdOrigin senv c r ∧ nm = "out"`;
+* tag `.field i` → `StructOriginI senv c r nm i ∧ instStruct = true` (field
+  index `i` exactly: entry `k0 + i` of a structure call is its field `i`);
+* tag `.mem combo aw dw` → `MemOriginI c r combo aw dw ∧ nm = "out"`
+  (`c = memChildName combo aw dw`, `r = .bits dw`, `aw ≠ 0`, `dw ≠ 0`).
+
+The call-site premise is now per tag (`InstPre`, inside `CallPreP`): the
+ordinary arm calls `machInstance` with `.ord` and a signature, the memory arm
+with `.mem combo aw dw` and that placeholder name, no arm with `.field _`.
+The pre-tag statement (`Origin`, the three-way disjunction) is a corollary
+(`origin_of_originT`, `InstProv.origin`: every entry HAS a tag). Section text
+below that speaks of `Origin` describes the pre-tag form, kept as corollary.
 
 SCOPE. A property of the NEW fuel functions (`readF`, …) only, by induction on
 the fuel; the proof skeleton is copied arm by arm from
@@ -67,8 +89,19 @@ open Tools.ShippingReaderFuelR1 (machInstCall?_inst machInstCallS?_instS)
 def OrdOrigin (senv : StructEnv) (c : Name) (r : MixedGateBinder) : Prop :=
   ∃ kinds : List MixedGateBinder, senv.inst c = some (kinds, r)
 
-/-- Field `i` (name `nm`, kind `r`) of a structure call (the `machInstCallS?`
-arm and `instSStep`'s own computation of the field list). -/
+/-- Field `i` (name `nm`, kind `r`) of a structure call, the index `i` EXPLICIT
+(the `machInstCallS?` arm and `instSStep`'s own computation of the field
+list). -/
+def StructOriginI (senv : StructEnv) (c : Name) (r : MixedGateBinder) (nm : String) (i : Nat) :
+    Prop :=
+  ∃ (kinds : List MixedGateBinder) (ty : Lean.Expr) (args : List Lean.Expr) (resTy : Lean.Expr)
+    (ctor : Name) (fields : List (String × MixedGateBinder)),
+    senv.instS c = some (kinds, ty) ∧ instRes ty args = some resTy ∧
+    machOuts? senv resTy = some (some ctor, fields) ∧
+    fields.any (fun f => f.2 == MixedGateBinder.domain) = false ∧
+    fields[i]? = some (nm, r)
+
+/-- Field `i` of a structure call, for SOME index (the pre-tag statement). -/
 def StructOrigin (senv : StructEnv) (c : Name) (r : MixedGateBinder) (nm : String) : Prop :=
   ∃ (kinds : List MixedGateBinder) (ty : Lean.Expr) (args : List Lean.Expr) (resTy : Lean.Expr)
     (ctor : Name) (fields : List (String × MixedGateBinder)) (i : Nat),
@@ -77,30 +110,97 @@ def StructOrigin (senv : StructEnv) (c : Name) (r : MixedGateBinder) (nm : Strin
     fields.any (fun f => f.2 == MixedGateBinder.domain) = false ∧
     fields[i]? = some (nm, r)
 
-/-- A synthetic memory call (the memory arm). -/
+theorem structOrigin_of_I {senv : StructEnv} {c : Name} {r : MixedGateBinder} {nm : String}
+    {i : Nat} (h : StructOriginI senv c r nm i) : StructOrigin senv c r nm := by
+  obtain ⟨kinds, ty, args, resTy, ctor, fields, h1, h2, h3, h4, h5⟩ := h
+  exact ⟨kinds, ty, args, resTy, ctor, fields, i, h1, h2, h3, h4, h5⟩
+
+/-- A synthetic memory call with EXACTLY these parameters (the memory arm). -/
+def MemOriginI (c : Name) (r : MixedGateBinder) (combo : Bool) (aw dw : Nat) : Prop :=
+  c = Sparkle.Compiler.MachMemory.memChildName combo aw dw ∧
+    r = MixedGateBinder.bits dw ∧ aw ≠ 0 ∧ dw ≠ 0
+
+/-- A synthetic memory call, for SOME parameters (the pre-tag statement). -/
 def MemOrigin (c : Name) (r : MixedGateBinder) : Prop :=
   ∃ (combo : Bool) (aw dw : Nat), c = Sparkle.Compiler.MachMemory.memChildName combo aw dw ∧
     r = MixedGateBinder.bits dw ∧ aw ≠ 0 ∧ dw ≠ 0
 
+theorem memOrigin_of_I {c : Name} {r : MixedGateBinder} {combo : Bool} {aw dw : Nat}
+    (h : MemOriginI c r combo aw dw) : MemOrigin c r :=
+  ⟨combo, aw, dw, h⟩
+
 /-- **The origin of one call entry** `e`, with its port name `nm`, in a state
-with structure flag `b`. -/
+with structure flag `b` — the pre-tag disjunction (which arm made it, read
+off the entry). -/
 def Origin (senv : StructEnv) (e : Name × List Nat × MixedGateBinder) (nm : String)
     (b : Bool) : Prop :=
   (OrdOrigin senv e.1 e.2.2 ∧ nm = "out") ∨
   (StructOrigin senv e.1 e.2.2 nm ∧ b = true) ∨
   (MemOrigin e.1 e.2.2 ∧ nm = "out")
 
-/-- **Provenance of a reader state**, per entry index. -/
+/-- **The origin of one call entry, by its STORED tag** `o`
+(`MachRead.instOrigins`, patched compiler): the tag says which arm made the
+entry, and that arm's facts hold —
+`.ord`: an ordinary signature, port `out`;
+`.field i`: field `i` of the callee's structure signature (index, name, kind),
+structure flag set;
+`.mem combo aw dw`: the memory placeholder of exactly these parameters, port
+`out`. -/
+def OriginT (senv : StructEnv) (e : Name × List Nat × MixedGateBinder) (nm : String)
+    (b : Bool) : Sparkle.Compiler.MachInstOrigin.InstOrigin → Prop
+  | .ord => OrdOrigin senv e.1 e.2.2 ∧ nm = "out"
+  | .field i => StructOriginI senv e.1 e.2.2 nm i ∧ b = true
+  | .mem combo aw dw => MemOriginI e.1 e.2.2 combo aw dw ∧ nm = "out"
+
+/-- The tag's facts give the pre-tag disjunction. -/
+theorem origin_of_originT {senv : StructEnv} {e : Name × List Nat × MixedGateBinder}
+    {nm : String} {b : Bool} {o : Sparkle.Compiler.MachInstOrigin.InstOrigin}
+    (h : OriginT senv e nm b o) : Origin senv e nm b := by
+  cases o with
+  | ord => exact Or.inl h
+  | field i => exact Or.inr (Or.inl ⟨structOrigin_of_I h.1, h.2⟩)
+  | mem combo aw dw => exact Or.inr (Or.inr ⟨memOrigin_of_I h.1, h.2⟩)
+
+/-- **Provenance of a reader state**, per entry index, by the STORED tag:
+`insts`, `instFields`, `instOrigins` have one size, and the `k`-th entry, its
+port name and its tag satisfy `OriginT`. -/
 def InstProv (senv : StructEnv) (st : MachRead) : Prop :=
-  st.insts.size = st.instFields.size ∧
-  ∀ (k : Nat) (e : Name × List Nat × MixedGateBinder) (nm : String),
+  st.insts.size = st.instFields.size ∧ st.instOrigins.size = st.insts.size ∧
+  ∀ (k : Nat) (e : Name × List Nat × MixedGateBinder) (nm : String)
+    (o : Sparkle.Compiler.MachInstOrigin.InstOrigin),
     (st.insts.toList.zip st.instFields.toList)[k]? = some (e, nm) →
-      Origin senv e nm st.instStruct
+      st.instOrigins.toList[k]? = some o → OriginT senv e nm st.instStruct o
+
+/-- Every entry HAS a tag (alignment), so the pre-tag statement follows. -/
+theorem InstProv.origin {senv : StructEnv} {st : MachRead} (H : InstProv senv st) :
+    ∀ (k : Nat) (e : Name × List Nat × MixedGateBinder) (nm : String),
+      (st.insts.toList.zip st.instFields.toList)[k]? = some (e, nm) →
+        Origin senv e nm st.instStruct := by
+  obtain ⟨hsz, hosz, H⟩ := H
+  intro k e nm hk
+  have hlt : k < st.insts.size := by
+    obtain ⟨h1, _⟩ := List.getElem?_eq_some_iff.mp hk
+    rw [List.length_zip, Array.length_toList, Array.length_toList, ← hsz, Nat.min_self] at h1
+    exact h1
+  have hlt' : k < st.instOrigins.toList.length := by
+    rw [Array.length_toList, hosz]
+    exact hlt
+  cases ho : st.instOrigins.toList[k]? with
+  | none => exact absurd (List.getElem?_eq_none_iff.mp ho) (Nat.not_le.mpr hlt')
+  | some o => exact origin_of_originT (H k e nm o hk ho)
 
 /-! ## Update lemmas -/
 
 section Upd
 variable {senv : StructEnv}
+
+theorem originT_mono {e : Name × List Nat × MixedGateBinder} {nm : String} {b b' : Bool}
+    {o : Sparkle.Compiler.MachInstOrigin.InstOrigin}
+    (h : OriginT senv e nm b o) (hb : b = true → b' = true) : OriginT senv e nm b' o := by
+  cases o with
+  | ord => exact h
+  | field i => exact ⟨h.1, hb h.2⟩
+  | mem combo aw dw => exact h
 
 theorem origin_mono {e : Name × List Nat × MixedGateBinder} {nm : String} {b b' : Bool}
     (h : Origin senv e nm b) (hb : b = true → b' = true) : Origin senv e nm b' := by
@@ -110,8 +210,8 @@ theorem origin_mono {e : Name × List Nat × MixedGateBinder} {nm : String} {b b
   · exact Or.inr (Or.inr h)
 
 theorem instProv_init : InstProv senv ({} : MachRead) := by
-  refine ⟨rfl, ?_⟩
-  intro k e nm hk
+  refine ⟨rfl, rfl, ?_⟩
+  intro k e nm o hk _
   first
     | (simp at hk)
     | cases hk
@@ -119,89 +219,179 @@ theorem instProv_init : InstProv senv ({} : MachRead) := by
          hk
        cases h0)
 
-/-- Any update that leaves `insts`, `instFields` alone and does not reset
-`instStruct`. -/
+/-- Any update that leaves `insts`, `instFields`, `instOrigins` alone and does
+not reset `instStruct`. -/
 theorem instProv_congr {st st' : MachRead} (H : InstProv senv st)
     (he : st'.insts = st.insts) (hf : st'.instFields = st.instFields)
+    (ho : st'.instOrigins = st.instOrigins)
     (hb : st.instStruct = true → st'.instStruct = true) : InstProv senv st' := by
-  obtain ⟨hsz, H⟩ := H
-  refine ⟨?_, ?_⟩
+  obtain ⟨hsz, hosz, H⟩ := H
+  refine ⟨?_, ?_, ?_⟩
   · rw [he, hf]
     exact hsz
-  intro k e nm hk
+  · rw [ho, he]
+    exact hosz
+  intro k e nm o hk hko
   rw [he, hf] at hk
-  exact origin_mono (H k e nm hk) hb
+  rw [ho] at hko
+  exact originT_mono (H k e nm o hk hko) hb
 
-/-- An update that leaves the three fields alone. -/
+/-- An update that leaves the four fields alone. -/
 theorem instProv_same {st st' : MachRead} (H : InstProv senv st)
     (he : st'.insts = st.insts) (hf : st'.instFields = st.instFields)
+    (ho : st'.instOrigins = st.instOrigins)
     (hb : st'.instStruct = st.instStruct) : InstProv senv st' :=
-  instProv_congr H he hf (fun h => hb.trans h)
+  instProv_congr H he hf ho (fun h => hb.trans h)
 
 /-- An update that only sets `instStruct := true`. -/
 theorem instProv_struct {st st' : MachRead} (H : InstProv senv st)
     (he : st'.insts = st.insts) (hf : st'.instFields = st.instFields)
+    (ho : st'.instOrigins = st.instOrigins)
     (hb : st'.instStruct = true) : InstProv senv st' :=
-  instProv_congr H he hf (fun _ => hb)
+  instProv_congr H he hf ho (fun _ => hb)
 
-/-- `instStep`'s push (an ordinary or a memory call). -/
+/-- What a `machInstance` call site guarantees of its parameters, per origin
+tag: the ordinary arm passes `.ord` with the callee's signature; the memory
+arm passes `.mem combo aw dw` with the placeholder name of exactly those
+parameters; no site passes `.field _` to `machInstance`. -/
+def InstPre (senv : StructEnv) (c : Name) (res : MixedGateBinder) :
+    Sparkle.Compiler.MachInstOrigin.InstOrigin → Prop
+  | .ord => OrdOrigin senv c res
+  | .field _ => False
+  | .mem combo aw dw => MemOriginI c res combo aw dw
+
+/-- `instStep`'s push (an ordinary or a memory call): entry, port `"out"` and
+the call's tag pushed together. -/
 theorem instProv_push {st st' : MachRead} {c : Name} {js : List Nat} {res : MixedGateBinder}
-    (H : InstProv senv st) (hc : OrdOrigin senv c res ∨ MemOrigin c res)
+    {o : Sparkle.Compiler.MachInstOrigin.InstOrigin}
+    (H : InstProv senv st) (hc : InstPre senv c res o)
     (he : st'.insts = st.insts.push (c, js, res))
     (hf : st'.instFields = st.instFields.push "out")
+    (ho : st'.instOrigins = st.instOrigins.push o)
     (hb : st'.instStruct = st.instStruct) : InstProv senv st' := by
-  obtain ⟨hsz, H⟩ := H
+  obtain ⟨hsz, hosz, H⟩ := H
   have hlen : st.insts.toList.length = st.instFields.toList.length := by
     rw [Array.length_toList, Array.length_toList]
     exact hsz
-  refine ⟨?_, ?_⟩
+  have hzl : (st.insts.toList.zip st.instFields.toList).length = st.insts.size := by
+    rw [List.length_zip, ← hlen, Nat.min_self, Array.length_toList]
+  have hol : st.instOrigins.toList.length = st.insts.size := by
+    rw [Array.length_toList]
+    exact hosz
+  refine ⟨?_, ?_, ?_⟩
   · rw [he, hf]
     simp only [Array.size_push, hsz]
-  intro k e nm hk
-  rw [he, hf, Array.toList_push, Array.toList_push, List.zip_append hlen,
-    List.getElem?_append] at hk
-  split at hk
-  · rw [hb]
-    exact H k e nm hk
-  · have hm := List.mem_of_getElem? hk
+  · rw [ho, he]
+    simp only [Array.size_push, hosz]
+  intro k e nm o' hk hko
+  rw [he, hf, Array.toList_push, Array.toList_push, List.zip_append hlen] at hk
+  rw [ho, Array.toList_push] at hko
+  by_cases hlt : k < st.insts.size
+  · have hz1 : k < (st.insts.toList.zip st.instFields.toList).length := by
+      rw [hzl]
+      exact hlt
+    have ho1 : k < st.instOrigins.toList.length := by
+      rw [hol]
+      exact hlt
+    rw [List.getElem?_append_left hz1] at hk
+    rw [List.getElem?_append_left ho1] at hko
+    rw [hb]
+    exact H k e nm o' hk hko
+  · have hge : st.insts.size ≤ k := Nat.le_of_not_lt hlt
+    have hz2 : (st.insts.toList.zip st.instFields.toList).length ≤ k := by
+      rw [hzl]
+      exact hge
+    have ho2 : st.instOrigins.toList.length ≤ k := by
+      rw [hol]
+      exact hge
+    rw [List.getElem?_append_right hz2] at hk
+    rw [List.getElem?_append_right ho2] at hko
+    have hm := List.mem_of_getElem? hk
     have hm' : (e, nm) ∈ [((c, js, res), "out")] := hm
     have e1 : (e, nm) = ((c, js, res), "out") := List.mem_singleton.mp hm'
+    have hmo : o' ∈ [o] := List.mem_of_getElem? hko
+    have eo : o' = o := List.mem_singleton.mp hmo
     injection e1 with e2 e3
     subst e2
     subst e3
-    rcases hc with hc | hc
-    · exact Or.inl ⟨hc, rfl⟩
-    · exact Or.inr (Or.inr ⟨hc, rfl⟩)
+    rw [eo]
+    cases o with
+    | ord => exact ⟨hc, rfl⟩
+    | field i => exact hc.elim
+    | mem combo aw dw => exact ⟨hc, rfl⟩
 
-/-- `instSStep`'s append (a structure call): entry `size + i` is field `i`. -/
+/-- `instSStep`'s append (a structure call): entry `size + i` is field `i`,
+its tag `.field i`. -/
 theorem instProv_appendS {st st' : MachRead} {c : Name} {js : List Nat}
     {fields : List (String × MixedGateBinder)} (H : InstProv senv st)
     (horig : ∀ (i : Nat) (f : String × MixedGateBinder), fields[i]? = some f →
-      StructOrigin senv c f.2 f.1)
+      StructOriginI senv c f.2 f.1 i)
     (he : st'.insts = st.insts ++ (fields.map fun f => (c, js, f.2)).toArray)
     (hf : st'.instFields = st.instFields ++ (fields.map (·.1)).toArray)
+    (ho : st'.instOrigins = st.instOrigins ++
+      ((List.range fields.length).map Sparkle.Compiler.MachInstOrigin.InstOrigin.field).toArray)
     (hb : st'.instStruct = true) : InstProv senv st' := by
-  obtain ⟨hsz, H⟩ := H
+  obtain ⟨hsz, hosz, H⟩ := H
   have hlen : st.insts.toList.length = st.instFields.toList.length := by
     rw [Array.length_toList, Array.length_toList]
     exact hsz
-  refine ⟨?_, ?_⟩
+  have hzl : (st.insts.toList.zip st.instFields.toList).length = st.insts.size := by
+    rw [List.length_zip, ← hlen, Nat.min_self, Array.length_toList]
+  have hol : st.instOrigins.toList.length = st.insts.size := by
+    rw [Array.length_toList]
+    exact hosz
+  refine ⟨?_, ?_, ?_⟩
   · rw [he, hf]
     simp only [Array.size_append, List.size_toArray, List.length_map, hsz]
-  · intro k e nm hk
-    rw [he, hf, Array.toList_append, Array.toList_append] at hk
-    simp only [List.toList_toArray] at hk
-    rw [List.zip_append hlen, List.zip_map', List.getElem?_append] at hk
-    split at hk
-    · exact origin_mono (H k e nm hk) (fun _ => hb)
-    · rw [List.getElem?_map] at hk
-      obtain ⟨f, hfi, hfe⟩ := Option.map_eq_some_iff.mp hk
-      have hk3 : (((c, js, f.2), f.1) : (Name × List Nat × MixedGateBinder) × String) =
-          (e, nm) := hfe
-      injection hk3 with e2 e3
-      subst e2
-      subst e3
-      exact Or.inr (Or.inl ⟨horig _ f hfi, hb⟩)
+  · rw [ho, he]
+    simp only [Array.size_append, List.size_toArray, List.length_map, List.length_range, hosz]
+  intro k e nm o' hk hko
+  rw [he, hf, Array.toList_append, Array.toList_append] at hk
+  simp only [List.toList_toArray] at hk
+  rw [List.zip_append hlen, List.zip_map'] at hk
+  rw [ho, Array.toList_append] at hko
+  simp only [List.toList_toArray] at hko
+  by_cases hlt : k < st.insts.size
+  · have hz1 : k < (st.insts.toList.zip st.instFields.toList).length := by
+      rw [hzl]
+      exact hlt
+    have ho1 : k < st.instOrigins.toList.length := by
+      rw [hol]
+      exact hlt
+    rw [List.getElem?_append_left hz1] at hk
+    rw [List.getElem?_append_left ho1] at hko
+    exact originT_mono (H k e nm o' hk hko) (fun _ => hb)
+  · have hge : st.insts.size ≤ k := Nat.le_of_not_lt hlt
+    have hz2 : (st.insts.toList.zip st.instFields.toList).length ≤ k := by
+      rw [hzl]
+      exact hge
+    have ho2 : st.instOrigins.toList.length ≤ k := by
+      rw [hol]
+      exact hge
+    rw [List.getElem?_append_right hz2] at hk
+    rw [List.getElem?_append_right ho2] at hko
+    rw [hzl] at hk
+    rw [hol] at hko
+    rw [List.getElem?_map] at hk
+    obtain ⟨f, hfi, hfe⟩ := Option.map_eq_some_iff.mp hk
+    have hlt2 : k - st.insts.size < fields.length := by
+      obtain ⟨hl, _⟩ := List.getElem?_eq_some_iff.mp hfi
+      exact hl
+    have hko2 : some (Sparkle.Compiler.MachInstOrigin.InstOrigin.field (k - st.insts.size)) =
+        some o' := by
+      rw [List.getElem?_map] at hko
+      first
+        | (rw [List.getElem?_range hlt2] at hko; exact hko)
+        | (simp only [List.getElem?_range, hlt2] at hko; exact hko)
+        | (simp [hlt2] at hko; rw [← hko])
+    have eo := Option.some.inj hko2
+    have hk3 : (((c, js, f.2), f.1) : (Name × List Nat × MixedGateBinder) × String) =
+        (e, nm) := hfe
+    injection hk3 with e2 e3
+    subst e2
+    subst e3
+    rw [← eo]
+    exact ⟨horig _ f hfi, hb⟩
 
 theorem machReserve_instProv {natOf : Lean.Expr → Option Nat}
     {dom' αs initsE body : Lean.Expr} {st : MachRead} {base : Nat} {st' : MachRead}
@@ -209,7 +399,7 @@ theorem machReserve_instProv {natOf : Lean.Expr → Option Nat}
     InstProv senv st' := by
   obtain ⟨kinds, inits, _, _, _, hst⟩ := machReserve_some hr
   subst hst
-  exact instProv_same H (by rfl) (by rfl) (by rfl)
+  exact instProv_same H (by rfl) (by rfl) (by rfl) (by rfl)
 
 end Upd
 
@@ -237,11 +427,12 @@ theorem memCall?_nz {natOf : Lean.Expr → Option Nat} {e : Lean.Expr} {combo : 
        constructor <;> intro hz <;> subst hz <;> simp_all)
 
 /-- The parameters of a call, as the block's call sites make them (the
-provenance version of R1's `CallPre`). -/
+provenance version of R1's `CallPre`; for `machInstance`, per origin tag:
+`InstPre`). -/
 def CallPreP (senv : StructEnv) : Call → Prop
   | Call.conv _ _ _ _ => True
   | Call.nested _ _ _ _ _ _ => True
-  | Call.inst _ c _ res _ _ => OrdOrigin senv c res ∨ MemOrigin c res
+  | Call.inst _ c org _ res _ _ => InstPre senv c res org
   | Call.instS _ c kinds ty _ _ => senv.instS c = some (kinds, ty)
   | Call.chain _ _ _ => True
   | Call.loopBody _ _ _ _ => True
@@ -251,9 +442,9 @@ theorem pre_of_instCallP {senv : StructEnv} {e : Lean.Expr} {c : Name}
     {kinds : List MixedGateBinder} {res : MixedGateBinder} {args : List Lean.Expr}
     {env : List MachVal} {st : MachRead}
     (h : machInstCall? senv e = some (c, kinds, res, args)) :
-    CallPreP senv (Call.inst env c kinds res args st) := by
-  show OrdOrigin senv c res ∨ MemOrigin c res
-  exact Or.inl ⟨kinds, machInstCall?_inst h⟩
+    CallPreP senv (Call.inst env c .ord kinds res args st) := by
+  show OrdOrigin senv c res
+  exact ⟨kinds, machInstCall?_inst h⟩
 
 theorem pre_of_instCallSP {senv : StructEnv} {e : Lean.Expr} {c : Name}
     {kinds : List MixedGateBinder} {ty : Lean.Expr} {args : List Lean.Expr}
@@ -268,11 +459,11 @@ theorem pre_of_memP {senv : StructEnv} {natOf : Lean.Expr → Option Nat} {e : L
     (hm : Sparkle.Compiler.MachMemory.memCall? natOf e = some (combo, aw, dw, dom, ops))
     {kinds : List MixedGateBinder} {args : List Lean.Expr} {env : List MachVal}
     {st : MachRead} :
-    CallPreP senv (Call.inst env (Sparkle.Compiler.MachMemory.memChildName combo aw dw) kinds
-      (MixedGateBinder.bits dw) args st) := by
-  show OrdOrigin senv _ _ ∨ MemOrigin _ _
+    CallPreP senv (Call.inst env (Sparkle.Compiler.MachMemory.memChildName combo aw dw)
+      (.mem combo aw dw) kinds (MixedGateBinder.bits dw) args st) := by
+  show MemOriginI _ _ combo aw dw
   obtain ⟨ha, hd⟩ := memCall?_nz hm
-  exact Or.inr ⟨combo, aw, dw, rfl, rfl, ha, hd⟩
+  exact ⟨rfl, rfl, ha, hd⟩
 
 /-! ## Call tables that keep the invariant -/
 
@@ -399,10 +590,11 @@ theorem satP_cNested (hG : GoodP senv h) {env : List MachVal} {dom αs initsE bo
   fun p hp => hG (Call.nested env dom αs initsE body st) True.intro hst p hp
 
 theorem satP_cInst (hG : GoodP senv h) {env : List MachVal} {c : Name}
+    {org : Sparkle.Compiler.MachInstOrigin.InstOrigin}
     {kinds : List MixedGateBinder} {res : MixedGateBinder} {args : List Lean.Expr}
-    {st : MachRead} (hpre : CallPreP senv (Call.inst env c kinds res args st))
-    (hst : InstProv senv st) : SatP senv h (cInst env c kinds res args st) :=
-  fun p hp => hG (Call.inst env c kinds res args st) hpre hst p hp
+    {st : MachRead} (hpre : CallPreP senv (Call.inst env c org kinds res args st))
+    (hst : InstProv senv st) : SatP senv h (cInst env c org kinds res args st) :=
+  fun p hp => hG (Call.inst env c org kinds res args st) hpre hst p hp
 
 theorem satP_cInstS (hG : GoodP senv h) {env : List MachVal} {c : Name}
     {kinds : List MixedGateBinder} {ty : Lean.Expr} {args : List Lean.Expr} {st : MachRead}
@@ -459,7 +651,7 @@ theorem instEntry_prov {senv : StructEnv} {res : MixedGateBinder} {st st' : Mach
     have hr' : some { st with instStruct := true } = some st' := hr
     injection hr' with hr1
     subst hr1
-    exact instProv_struct hst (by rfl) (by rfl) (by rfl)
+    exact instProv_struct hst (by rfl) (by rfl) (by rfl) (by rfl)
   | domain =>
     have hr' : (none : Option MachRead) = some st' := hr
     cases hr'
@@ -469,9 +661,9 @@ of it that leaves `insts` alone. -/
 macro "provleaf " hr:ident h1:ident : tactic => `(tactic| first
   | (cases $hr:ident; done)
   | (injection $hr:ident with hq; subst hq; exact $h1:ident)
-  | (injection $hr:ident with hq; subst hq; exact instProv_same $h1:ident (by rfl) (by rfl) (by rfl))
+  | (injection $hr:ident with hq; subst hq; exact instProv_same $h1:ident (by rfl) (by rfl) (by rfl) (by rfl))
   | (cases $hr:ident; exact $h1:ident)
-  | (cases $hr:ident; exact instProv_same $h1:ident (by rfl) (by rfl) (by rfl)))
+  | (cases $hr:ident; exact instProv_same $h1:ident (by rfl) (by rfl) (by rfl) (by rfl)))
 
 /-- A `let (x, y) := p; k` continuation (as `r5pair`). -/
 macro "provpair " t:tactic : tactic => `(tactic| first
@@ -542,9 +734,9 @@ theorem loopProbe_satP (hG : GoodP senv h) (env : List MachVal) (body : Lean.Exp
   intro r hr
   rcases r with _ | st'
   · exact satP_failO
-  · have h' : InstProv senv st' := satP_cLoopBody hG (instProv_same hst (by rfl) (by rfl) (by rfl)) st' hr
+  · have h' : InstProv senv st' := satP_cLoopBody hG (instProv_same hst (by rfl) (by rfl) (by rfl) (by rfl)) st' hr
     refine satP_pure_ite ?_
-    exact instProv_same h' (by rfl) (by rfl) (by rfl)
+    exact instProv_same h' (by rfl) (by rfl) (by rfl) (by rfl)
 
 end Helpers
 
@@ -575,10 +767,10 @@ theorem conv_app_satP (senv : StructEnv)
       refine satP_bindO (satP_cConv hG hst) ?_
       rintro ⟨dom', st1⟩ (h1 : InstProv senv st1)
       refine satP_domGuard ?_
-      refine satP_bindO (satP_cConv hG (instProv_same h1 (by rfl) (by rfl) (by rfl))) ?_
+      refine satP_bindO (satP_cConv hG (instProv_same h1 (by rfl) (by rfl) (by rfl) (by rfl))) ?_
       rintro ⟨x', st2⟩ (h2 : InstProv senv st2)
       refine satP_okO ?_
-      exact instProv_same h2 (by rfl) (by rfl) (by rfl)
+      exact instProv_same h2 (by rfl) (by rfl) (by rfl) (by rfl)
   · split
     · -- a loop read
       refine satP_pure_ite ?_
@@ -601,7 +793,7 @@ theorem conv_app_satP (senv : StructEnv)
               case k =>
                 rintro ⟨v, st1⟩ (h1 : InstProv senv st1)
                 refine satP_okO ?_
-                exact instProv_struct h1 (by rfl) (by rfl) (by rfl)
+                exact instProv_struct h1 (by rfl) (by rfl) (by rfl) (by rfl)
             · split
               · -- a state read
                 refine satP_pure_ite ?_
@@ -631,7 +823,7 @@ theorem conv_letE_satP (senv : StructEnv) (hG : GoodP senv h) (env : List MachVa
         · exact satP_cConv hG hst
         · refine satP_bindO (satP_cConv hG hst) ?_
           rintro ⟨v', st1⟩ (h1 : InstProv senv st1)
-          provpair (exact satP_cConv hG (instProv_same h1 (by rfl) (by rfl) (by rfl)))
+          provpair (exact satP_cConv hG (instProv_same h1 (by rfl) (by rfl) (by rfl) (by rfl)))
 
 /-- `machConv`. -/
 theorem conv_satP (senv : StructEnv)
@@ -676,20 +868,21 @@ theorem nested_satP (senv : StructEnv) (hG : GoodP senv h) (env : List MachVal)
   · refine satP_optK ?_
     rintro ⟨base, st2⟩ hres
     have h2 : InstProv senv st2 := machReserve_instProv h1 hres
-    refine satP_bindO (satP_cChain hG (instProv_same h2 (by rfl) (by rfl) (by rfl))) ?_
+    refine satP_bindO (satP_cChain hG (instProv_same h2 (by rfl) (by rfl) (by rfl) (by rfl))) ?_
     rintro ⟨ws, v, st3⟩ (h3 : InstProv senv st3)
     refine satP_okO ?_
-    exact instProv_same h3 (by rfl) (by rfl) (by rfl)
+    exact instProv_same h3 (by rfl) (by rfl) (by rfl) (by rfl)
   · refine satP_okO ?_
     exact satP_findSomeO (nestedProbe_satP hG _ _ _ _ _ _ h1) _ r hsh
 
 /-- `machInstance`: the push carries the call's callee and `res`, whose origin
 `CallPreP` records (an ordinary signature or a memory placeholder). -/
 theorem inst_satP {senv : StructEnv} (hG : GoodP senv h) (env : List MachVal) (c : Name)
+    (org : Sparkle.Compiler.MachInstOrigin.InstOrigin)
     (kinds : List MixedGateBinder) (res : MixedGateBinder) (args : List Lean.Expr)
     (st : MachRead)
-    (hpre : OrdOrigin senv c res ∨ MemOrigin c res)
-    (hst : InstProv senv st) : SatP senv h (instStep env c kinds res args st) := by
+    (hpre : InstPre senv c res org)
+    (hst : InstProv senv st) : SatP senv h (instStep env c org kinds res args st) := by
   refine satP_optK ?_
   intro st1 hst1
   have h1 : InstProv senv st1 := instEntry_prov hst1 hst
@@ -702,9 +895,9 @@ theorem inst_satP {senv : StructEnv} (hG : GoodP senv h) (env : List MachVal) (c
   all_goals first
     | (cases hr; done)
     | (injection hr with hq; subst hq; exact h2)
-    | (injection hr with hq; subst hq; exact instProv_push (js := js) h2 hpre (by rfl) (by rfl) (by rfl))
+    | (injection hr with hq; subst hq; exact instProv_push (js := js) h2 hpre (by rfl) (by rfl) (by rfl) (by rfl))
     | (cases hr; exact h2)
-    | (cases hr; exact instProv_push (js := js) h2 hpre (by rfl) (by rfl) (by rfl))
+    | (cases hr; exact instProv_push (js := js) h2 hpre (by rfl) (by rfl) (by rfl) (by rfl))
 
 /-- `machInstanceS`: the appended entries are the fields of the callee's
 structure signature (`CallPreP`), each with its index, kind and name. -/
@@ -744,8 +937,8 @@ theorem instS_satP (senv : StructEnv) (hG : GoodP senv h) (env : List MachVal) (
       exact h2
     · refine satP_okO ?_
       exact instProv_appendS (js := js) (fields := fields) h2
-        (fun i f hfi => ⟨kinds, ty, args, resTy, ctor, fields, i, hpre, hres, hout, hnd, hfi⟩)
-        (by rfl) (by rfl) (by rfl)
+        (fun i f hfi => ⟨kinds, ty, args, resTy, ctor, fields, hpre, hres, hout, hnd, hfi⟩)
+        (by rfl) (by rfl) (by rfl) (by rfl)
 
 /-- `machChain`. -/
 theorem chain_satP (senv : StructEnv) (hG : GoodP senv h) (env : List MachVal) (e : Lean.Expr)
@@ -789,7 +982,7 @@ theorem chain_satP (senv : StructEnv) (hG : GoodP senv h) (env : List MachVal) (
           · exact satP_cChain hG hst
           · refine satP_bindO (satP_cConv hG hst) ?_
             rintro ⟨v', st1⟩ (h1 : InstProv senv st1)
-            provpair (exact satP_cChain hG (instProv_same h1 (by rfl) (by rfl) (by rfl)))
+            provpair (exact satP_cChain hG (instProv_same h1 (by rfl) (by rfl) (by rfl) (by rfl)))
   · intro _
     exact satP_failO
 
@@ -801,7 +994,7 @@ theorem loopBody_satP {senv : StructEnv} (hG : GoodP senv h) (base : Nat) (env :
   case letE nm ty v b nd =>
     refine satP_bindO (satP_cConv hG hst) ?_
     rintro ⟨v', st1⟩ (h1 : InstProv senv st1)
-    provpair (exact satP_cLoopBody hG (instProv_same h1 (by rfl) (by rfl) (by rfl)))
+    provpair (exact satP_cLoopBody hG (instProv_same h1 (by rfl) (by rfl) (by rfl) (by rfl)))
   all_goals
     unfold loopBodyStep
     try dsimp only
@@ -811,7 +1004,7 @@ theorem loopBody_satP {senv : StructEnv} (hG : GoodP senv h) (base : Nat) (env :
     · exact hst
     rintro ⟨ws, st1⟩ (h1 : InstProv senv st1)
     refine satP_okO ?_
-    exact instProv_same h1 (by rfl) (by rfl) (by rfl)
+    exact instProv_same h1 (by rfl) (by rfl) (by rfl) (by rfl)
 
 /-- `machLoopRoot`. -/
 theorem loopRoot_satP (senv : StructEnv) (hG : GoodP senv h) (env : List MachVal)
@@ -833,10 +1026,10 @@ theorem loopRoot_satP (senv : StructEnv) (hG : GoodP senv h) (env : List MachVal
     refine satP_bind ?_
     intro shared hsh
     rcases shared with _ | ⟨b0, st2⟩
-    · refine satP_bindO (satP_cLoopBody hG (instProv_same h1 (by rfl) (by rfl) (by rfl))) ?_
+    · refine satP_bindO (satP_cLoopBody hG (instProv_same h1 (by rfl) (by rfl) (by rfl) (by rfl))) ?_
       rintro st3 (h3 : InstProv senv st3)
       refine satP_okO ?_
-      exact instProv_same h3 (by rfl) (by rfl) (by rfl)
+      exact instProv_same h3 (by rfl) (by rfl) (by rfl) (by rfl)
     · refine satP_okO ?_
       exact satP_findSomeO (loopProbe_satP hG _ _ _ _ h1) _ (b0, st2) hsh
   · exact satP_failO
@@ -852,7 +1045,8 @@ theorem step_goodP (senv : StructEnv) {h : Hs}
   | conv env d e st => exact conv_satP senv hG env d e st hin v hv
   | nested env dom αs initsE body st =>
     exact nested_satP senv hG env dom αs initsE body st hin v hv
-  | inst env c kinds res args st => exact inst_satP hG env c kinds res args st hpre hin v hv
+  | inst env c org kinds res args st =>
+    exact inst_satP hG env c org kinds res args st hpre hin v hv
   | instS env c kinds ty args st => exact instS_satP senv hG env c kinds ty args st hpre hin v hv
   | chain env e st => exact chain_satP senv hG env e st hin v hv
   | loopBody base env e st => exact loopBody_satP hG base env e st hin v hv

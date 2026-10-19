@@ -3,6 +3,13 @@ import Tools.ShippingReaderFuelRun
 
 /-! # The OLD source equations of the reader, and agreement of the fuel candidate
 
+STATUS 2026-10-19 (worker O, branch `par/o-cand`): WRITTEN, NOT BUILT against
+the patched compiler (explicit call-entry origin, `MachRead.instOrigins`).
+`OldFns.inst`, `oInst`, `oInstS`, the two call sites in `oConv`, `OldEq`,
+`run_cInst_tot`, `inst_tot`, `step_tot` carry the call-entry origin `org` /
+the new dedup and `instOrigins` writes; the proofs are unchanged (both sides
+of every arm still have the same text).
+
 STATUS: BUILT on poc fc697219 (integrator run `a2`; round 2, worker A, branch
 `par/r-6`). Header status corrected 2026-10-16 (comment only). Round 1
 (`par/r-3`, run `a1` on poc 0a53bd9e) did NOT build: `conv_tot` timed out
@@ -66,7 +73,8 @@ structure OldFns where
   conv : List MachVal → Nat → Lean.Expr → MachRead → Option (Lean.Expr × MachRead)
   nested : List MachVal → Lean.Expr → Lean.Expr → Lean.Expr → Lean.Expr → MachRead →
     Option (Lean.Expr × MachRead)
-  inst : List MachVal → Name → List MixedGateBinder → MixedGateBinder → List Lean.Expr →
+  inst : List MachVal → Name → Sparkle.Compiler.MachInstOrigin.InstOrigin →
+    List MixedGateBinder → MixedGateBinder → List Lean.Expr →
     MachRead → Option (Lean.Expr × MachRead)
   instS : List MachVal → Name → List MixedGateBinder → Lean.Expr → List Lean.Expr →
     MachRead → Option (Lean.Expr × MachRead)
@@ -78,7 +86,7 @@ structure OldFns where
 def OldFns.app (G : OldFns) : (c : Call) → RB c
   | .conv env d e st => G.conv env d e st
   | .nested env dom αs initsE body st => G.nested env dom αs initsE body st
-  | .inst env c kinds res args st => G.inst env c kinds res args st
+  | .inst env c org kinds res args st => G.inst env c org kinds res args st
   | .instS env c kinds ty args st => G.instS env c kinds ty args st
   | .chain env e st => G.chain env e st
   | .loopBody base env e st => G.loopBody base env e st
@@ -123,7 +131,7 @@ def oConv (senv : StructEnv) (G : OldFns) : List MachVal → Nat → Lean.Expr �
     | none =>
     match machInstCall? senv (.app f a) with
     | some (c, kinds, res, args) =>
-      if d != 0 then none else G.inst env c kinds res args st
+      if d != 0 then none else G.inst env c .ord kinds res args st
     | none =>
     match machInstCallS? senv (.app f a) with
     | some (c, kinds, ty, args) =>
@@ -134,7 +142,7 @@ def oConv (senv : StructEnv) (G : OldFns) : List MachVal → Nat → Lean.Expr �
     | some (combo, aw, dw, dom, ops) =>
       if d != 0 then none else do
         let (v, st) ← G.inst env (Sparkle.Compiler.MachMemory.memChildName combo aw dw)
-          [.domain, .bits aw, .bits dw, .bool, .bits aw] (.bits dw) (dom :: ops) st
+          (.mem combo aw dw) [.domain, .bits aw, .bits dw, .bool, .bits aw] (.bits dw) (dom :: ops) st
         some (v, { st with instStruct := true })
     | none =>
     match machReadV env d (.app f a) with
@@ -230,17 +238,20 @@ def oInstArg (G : OldFns) (env : List MachVal) (k : Nat) :
       let (j, lets) := machLetIndex (Name.mkSimple s!"inst{k}_arg{js.length}") kind v' st.lets
       some (js ++ [j], { st with lets := lets })
 
-/-- `machInstance` (4045–4069). -/
-def oInst (G : OldFns) (env : List MachVal) (c : Name) (kinds : List MixedGateBinder)
+/-- `machInstance` (patched compiler: origin `org`). -/
+def oInst (G : OldFns) (env : List MachVal) (c : Name)
+    (org : Sparkle.Compiler.MachInstOrigin.InstOrigin) (kinds : List MixedGateBinder)
     (res : MixedGateBinder) (args : List Lean.Expr) (st : MachRead) :
     Option (Lean.Expr × MachRead) := do
   let st ← instEntry res st
   let k := st.insts.size
   let (js, st) ← (kinds.zip args).foldlM (init := (([] : List Nat), st)) (oInstArg G env k)
-  match st.insts.findIdx? (fun i => i.1 == c && i.2.1 == js) with
+  match st.insts.zipIdx.findIdx? (fun (i, k') => i.1 == c && i.2.1 == js &&
+      st.instOrigins[k']? == some org) with
   | some k' => some (machInstOut k', st)
   | none => some (machInstOut k, { st with insts := st.insts.push (c, js, res),
-                                           instFields := st.instFields.push "out" })
+                                           instFields := st.instFields.push "out"
+                                           instOrigins := st.instOrigins.push org })
 
 /-- `machInstanceS`'s first `foldlM` function (4091–4101). -/
 def oInstSArg (G : OldFns) (env : List MachVal) :
@@ -276,13 +287,16 @@ def oInstS (senv : StructEnv) (G : OldFns) (env : List MachVal) (c : Name)
   let (params, st) ← resTy.getAppArgs.toList.foldlM (init := (([] : List Lean.Expr), st))
     (oInstSParam G env)
   let lvls := resTy.getAppFn.constLevels!
-  let (k0, st) := match st.insts.findIdx? (fun i => i.1 == c && i.2.1 == js) with
+  let (k0, st) := match st.insts.zipIdx.findIdx? (fun (i, k') => i.1 == c && i.2.1 == js &&
+      st.instOrigins[k']? == some (.field 0)) with
     | some k0 => (k0, st)
     | none =>
       (st.insts.size, { st with
         insts := st.insts ++ (fields.map fun f => (c, js, f.2)).toArray
         instFields := st.instFields ++ (fields.map (·.1)).toArray
-        instStruct := true })
+        instStruct := true
+        instOrigins := st.instOrigins ++
+          ((List.range fields.length).map Sparkle.Compiler.MachInstOrigin.InstOrigin.field).toArray })
   some (mkAppN (.const ctor lvls)
     (params.toArray ++ ((List.range fields.length).map fun i => machInstOut (k0 + i)).toArray), st)
 
@@ -397,7 +411,7 @@ def oLoopRoot (senv : StructEnv) (G : OldFns) (env : List MachVal) (e : Lean.Exp
 def oApp (senv : StructEnv) (G : OldFns) : (c : Call) → RB c
   | .conv env d e st => oConv senv G env d e st
   | .nested env dom αs initsE body st => oNested senv G env dom αs initsE body st
-  | .inst env c kinds res args st => oInst G env c kinds res args st
+  | .inst env c org kinds res args st => oInst G env c org kinds res args st
   | .instS env c kinds ty args st => oInstS senv G env c kinds ty args st
   | .chain env e st => oChain G env e st
   | .loopBody base env e st => oLoopBody G base env e st
@@ -408,7 +422,8 @@ def OldEq (senv : StructEnv) (G : OldFns) : Prop :=
   (∀ env d e st, G.conv env d e st = oConv senv G env d e st) ∧
   (∀ env dom αs initsE body st,
     G.nested env dom αs initsE body st = oNested senv G env dom αs initsE body st) ∧
-  (∀ env c kinds res args st, G.inst env c kinds res args st = oInst G env c kinds res args st) ∧
+  (∀ env c org kinds res args st,
+    G.inst env c org kinds res args st = oInst G env c org kinds res args st) ∧
   (∀ env c kinds ty args st,
     G.instS env c kinds ty args st = oInstS senv G env c kinds ty args st) ∧
   (∀ env e st, G.chain env e st = oChain G env e st) ∧
@@ -422,7 +437,7 @@ theorem oldEq_app {senv : StructEnv} {G : OldFns} (h : OldEq senv G) :
   cases c with
   | conv env d e st => exact h1 env d e st
   | nested env dom αs initsE body st => exact h2 env dom αs initsE body st
-  | inst env c kinds res args st => exact h3 env c kinds res args st
+  | inst env c org kinds res args st => exact h3 env c org kinds res args st
   | instS env c kinds ty args st => exact h4 env c kinds ty args st
   | chain env e st => exact h5 env e st
   | loopBody base env e st => exact h6 base env e st
@@ -524,9 +539,11 @@ theorem run_cConv_tot (env : List MachVal) (d : Nat) (e : Lean.Expr) (st : MachR
 theorem run_cNested_tot (env : List MachVal) (dom αs initsE body : Lean.Expr) (st : MachRead) :
     (cNested env dom αs initsE body st).run (tot G) = some (G.nested env dom αs initsE body st) :=
   rfl
-theorem run_cInst_tot (env : List MachVal) (c : Name) (kinds : List MixedGateBinder)
+theorem run_cInst_tot (env : List MachVal) (c : Name)
+    (org : Sparkle.Compiler.MachInstOrigin.InstOrigin) (kinds : List MixedGateBinder)
     (res : MixedGateBinder) (args : List Lean.Expr) (st : MachRead) :
-    (cInst env c kinds res args st).run (tot G) = some (G.inst env c kinds res args st) := rfl
+    (cInst env c org kinds res args st).run (tot G) =
+      some (G.inst env c org kinds res args st) := rfl
 theorem run_cInstS_tot (env : List MachVal) (c : Name) (kinds : List MixedGateBinder)
     (ty : Lean.Expr) (args : List Lean.Expr) (st : MachRead) :
     (cInstS env c kinds ty args st).run (tot G) = some (G.instS env c kinds ty args st) := rfl
@@ -908,9 +925,11 @@ theorem nested_tot (env : List MachVal) (dom αs initsE body : Lean.Expr) (st : 
   simp only [nestedStep, oNested]
   tot_crunch2
 
-theorem inst_tot (env : List MachVal) (c : Name) (kinds : List MixedGateBinder)
+theorem inst_tot (env : List MachVal) (c : Name)
+    (org : Sparkle.Compiler.MachInstOrigin.InstOrigin) (kinds : List MixedGateBinder)
     (res : MixedGateBinder) (args : List Lean.Expr) (st : MachRead) :
-    (instStep env c kinds res args st).run (tot G) = some (oInst G env c kinds res args st) := by
+    (instStep env c org kinds res args st).run (tot G) =
+      some (oInst G env c org kinds res args st) := by
   simp only [instStep, oInst]
   tot_crunch2
 
@@ -944,7 +963,7 @@ tuple.** -/
 theorem step_tot : ∀ c, (step senv c).run (tot G) = some (oApp senv G c)
   | .conv env d e st => conv_tot senv G env d e st
   | .nested env dom αs initsE body st => nested_tot senv G env dom αs initsE body st
-  | .inst env c kinds res args st => inst_tot G env c kinds res args st
+  | .inst env c org kinds res args st => inst_tot G env c org kinds res args st
   | .instS env c kinds ty args st => instS_tot senv G env c kinds ty args st
   | .chain env e st => chain_tot senv G env e st
   | .loopBody base env e st => loopBody_tot G base env e st

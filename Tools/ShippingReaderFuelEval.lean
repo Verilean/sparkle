@@ -2,6 +2,11 @@ import Tools.ShippingReaderFuelKleene
 
 /-! # Adequacy of the fuel reader w.r.t. FINITE executions
 
+STATUS 2026-10-19 (worker O, branch `par/o-cand`): WRITTEN, NOT BUILT against
+the patched compiler (explicit call-entry origin, `MachRead.instOrigins`).
+`compact_cInst`, `compact_instStep`, `compact_step` take the call-entry origin
+`org` (pattern change only).
+
 BUILT on poc 36d6b5ef (run `e1`; header status corrected 2026-10-16, comment
 only) (worker E, branch `par/r-8`; record
 `docs/parallel/R-reader-coverage.md` §7). No `sorry`, no axiom, no
@@ -380,9 +385,11 @@ theorem compact_cNested {env : List MachVal} {dom αs initsE body : Lean.Expr} {
     Compact (cNested env dom αs initsE body st) :=
   compact_call (Call.nested env dom αs initsE body st)
 
-theorem compact_cInst {env : List MachVal} {c : Name} {kinds : List MixedGateBinder}
+theorem compact_cInst {env : List MachVal} {c : Name}
+    {org : Sparkle.Compiler.MachInstOrigin.InstOrigin} {kinds : List MixedGateBinder}
     {res : MixedGateBinder} {args : List Lean.Expr} {st : MachRead} :
-    Compact (cInst env c kinds res args st) := compact_call (Call.inst env c kinds res args st)
+    Compact (cInst env c org kinds res args st) :=
+  compact_call (Call.inst env c org kinds res args st)
 
 theorem compact_cInstS {env : List MachVal} {c : Name} {kinds : List MixedGateBinder}
     {ty : Lean.Expr} {args : List Lean.Expr} {st : MachRead} :
@@ -475,9 +482,10 @@ theorem compact_nestedStep (senv : StructEnv) (env : List MachVal)
   unfold nestedStep
   compact_all
 
-theorem compact_instStep (env : List MachVal) (c : Name) (kinds : List MixedGateBinder)
+theorem compact_instStep (env : List MachVal) (c : Name)
+    (org : Sparkle.Compiler.MachInstOrigin.InstOrigin) (kinds : List MixedGateBinder)
     (res : MixedGateBinder) (args : List Lean.Expr) (st : MachRead) :
-    Compact (instStep env c kinds res args st) := by
+    Compact (instStep env c org kinds res args st) := by
   unfold instStep
   compact_all
 
@@ -510,7 +518,7 @@ theorem compact_step (senv : StructEnv) : ∀ c : Call, Compact (step senv c) :=
   cases c with
   | conv env d e st => exact compact_convStep senv env d e st
   | nested env dom αs initsE body st => exact compact_nestedStep senv env dom αs initsE body st
-  | inst env c kinds res args st => exact compact_instStep env c kinds res args st
+  | inst env c org kinds res args st => exact compact_instStep env c org kinds res args st
   | instS env c kinds ty args st => exact compact_instSStep senv env c kinds ty args st
   | chain env e st => exact compact_chainStep senv env e st
   | loopBody base env e st => exact compact_loopBodyStep base env e st

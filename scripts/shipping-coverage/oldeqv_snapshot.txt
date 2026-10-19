@@ -1,4 +1,4 @@
-=== machConv ddd211a7a8bda52f14eab98faaf9bd226fa75e9168231a95122a1bca7487028b 127
+=== machConv c8f3cfaffaffbac1b2ae0e893e11f5f99ff35ccb431afbedadd2e0360d98e30a 127
 partial def machConv (senv : StructEnv) : List MachVal → Nat → Lean.Expr → MachRead →
     Option (Lean.Expr × MachRead)
   | env, d, .bvar j, st =>
@@ -58,7 +58,7 @@ partial def machConv (senv : StructEnv) : List MachVal → Nat → Lean.Expr →
     | none =>
     match machInstCall? senv (.app f a) with
     | some (c, kinds, res, args) =>
-      if d != 0 then none else machInstance senv env c kinds res args st
+      if d != 0 then none else machInstance senv env c .ord kinds res args st
     | none =>
     match machInstCallS? senv (.app f a) with
     | some (c, kinds, ty, args) =>
@@ -70,7 +70,7 @@ partial def machConv (senv : StructEnv) : List MachVal → Nat → Lean.Expr →
     | some (combo, aw, dw, dom, ops) =>
       if d != 0 then none else do
         let (v, st) ← machInstance senv env (Sparkle.Compiler.MachMemory.memChildName combo aw dw)
-          [.domain, .bits aw, .bits dw, .bool, .bits aw] (.bits dw) (dom :: ops) st
+          (.mem combo aw dw) [.domain, .bits aw, .bits dw, .bool, .bits aw] (.bits dw) (dom :: ops) st
         some (v, { st with instStruct := true })
     | none =>
     match machReadV env d (.app f a) with
@@ -152,9 +152,9 @@ partial def machNested (senv : StructEnv) (env : List MachVal) (dom αs initsE b
     -- HFT emitter reads the parser's result; the endpoint's `TeleT`)
     some (v, { st with ws := st.ws ++ ws.toArray, inInner := outer,
                        nested := st.nested.push (base, dom', αs, initsE, ws, v) })
-=== machInstance 034b2860b76a613c8687af97f0f9a287f5980fff9d92943dcb61de4a4871fe9e 28
+=== machInstance f791f81cf61fb6f8daf7bb3ab4205db0bdc3481501629eda23d7db257936784b 32
 partial def machInstance (senv : StructEnv) (env : List MachVal) (c : Name)
-    (kinds : List MixedGateBinder) (res : MixedGateBinder) (args : List Lean.Expr)
+    (org : Sparkle.Compiler.MachInstOrigin.InstOrigin) (kinds : List MixedGateBinder) (res : MixedGateBinder) (args : List Lean.Expr)
     (st : MachRead) : Option (Lean.Expr × MachRead) := do
   -- a BitVec result (what the endpoint covers), in the enclosing body or in
   -- a sub-machine's (its value then reads that machine's state)
@@ -177,11 +177,15 @@ partial def machInstance (senv : StructEnv) (env : List MachVal) (c : Name)
         let (j, lets) := machLetIndex (Name.mkSimple s!"inst{k}_arg{js.length}") kind v' st.lets
         some (js ++ [j], { st with lets := lets })
   -- the same call met before (`circuit do` copies its `let`s): its output
-  match st.insts.findIdx? (fun i => i.1 == c && i.2.1 == js) with
+  -- (the same origin too: a memory and a declaration of its placeholder name
+  -- are different calls)
+  match st.insts.zipIdx.findIdx? (fun (i, k') => i.1 == c && i.2.1 == js &&
+      st.instOrigins[k']? == some org) with
   | some k' => some (machInstOut k', st)
   | none => some (machInstOut k, { st with insts := st.insts.push (c, js, res),
-                                           instFields := st.instFields.push "out" })
-=== machInstanceS cf47c09af99274042342e0b834e08f2aac6e419899ef5af9bca156aa50f0b315 40
+                                           instFields := st.instFields.push "out"
+                                           instOrigins := st.instOrigins.push org })
+=== machInstanceS c8398a2fb74be50fd5c328ff5d42efdba03645b675fc703ea6550d301860dcf9 43
 partial def machInstanceS (senv : StructEnv) (env : List MachVal) (c : Name)
     (kinds : List MixedGateBinder) (ty : Lean.Expr) (args : List Lean.Expr)
     (st : MachRead) : Option (Lean.Expr × MachRead) := do
@@ -213,13 +217,16 @@ partial def machInstanceS (senv : StructEnv) (env : List MachVal) (c : Name)
       let (p', st) ← machConv senv env 0 p st
       some (ps ++ [p'], st)
   let lvls := resTy.getAppFn.constLevels!
-  let (k0, st) := match st.insts.findIdx? (fun i => i.1 == c && i.2.1 == js) with
+  let (k0, st) := match st.insts.zipIdx.findIdx? (fun (i, k') => i.1 == c && i.2.1 == js &&
+      st.instOrigins[k']? == some (.field 0)) with
     | some k0 => (k0, st)
     | none =>
       (st.insts.size, { st with
         insts := st.insts ++ (fields.map fun f => (c, js, f.2)).toArray
         instFields := st.instFields ++ (fields.map (·.1)).toArray
-        instStruct := true })
+        instStruct := true
+        instOrigins := st.instOrigins ++
+          ((List.range fields.length).map Sparkle.Compiler.MachInstOrigin.InstOrigin.field).toArray })
   some (mkAppN (.const ctor lvls)
     (params.toArray ++ ((List.range fields.length).map fun i => machInstOut (k0 + i)).toArray), st)
 === machChain f0351c05c8f43a51255a2c1206bc239b2aa08d236d6b6451515ccf0245c7b946 43
@@ -351,7 +358,7 @@ partial def machNorm (senv : StructEnv) : Lean.Expr → Lean.Expr
     else if (machBits? t).isSome && !v.hasLooseBVars then machNorm senv (b.instantiate1 v)
     else .letE n t (machNorm senv v) (machNorm senv b) nd
   | e => e
-=== machineShape? bc3836fb921099fee8f0b3d13bba001fa100c0f6175e0e6654182cf7e84e3640 128
+=== machineShape? c83e94b54104786539e924587b88ac927946f574f287df214c9d17c68803ee65 129
 def machineShape? (symbolicMode : Bool) (parameters : List (String × Nat)) (ci : ConstantInfo)
     (senv : StructEnv) (allowInsts : Bool := true) : Option MachineShape :=
   match ci with
@@ -477,6 +484,7 @@ def machineShape? (symbolicMode : Bool) (parameters : List (String × Nat)) (ci 
           runs := st.runs.toList
           insts := st.insts.toList
           instFields := if st.instStruct then st.instFields.toList else []
+          instOrigins := st.instOrigins.toList
           loops := st.loops.toList }
     else none
   | _ => none

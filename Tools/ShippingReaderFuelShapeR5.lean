@@ -4,6 +4,12 @@ import Tools.ShippingShapeDecomp
 
 /-! # Wrapper-level R5 for the fuel CANDIDATE `machineShapeF`, keeping the reader state
 
+STATUS 2026-10-19 (worker O, branch `par/o-cand`): WRITTEN, NOT BUILT against
+the patched compiler (explicit call-entry origin, `MachRead.instOrigins`).
+New: `shapePost_instOrigins`, `shapePost_insts'`,
+`machineShapeF_origins_aligned` (`sp.instOrigins.length = sp.insts.length`,
+from `LenOk.origins`).
+
 BUILT on poc after fbb445d0 (run `h1`; integrator fixes in okO_run_inv and shapePost_decomp) (worker H, branch `par/r-12`, from poc `a3a1d2d4`;
 reviewer ruling 2026-10-16 "wrapper-level R5"). No `sorry`, no axiom, no
 `native_decide`. Nothing here is imported by the compiler; no compiler change.
@@ -332,6 +338,47 @@ theorem shapePost_decomp {ai : Bool} {p : ShapePre} {m : ShapeMid} {st : MachRea
     subst hsp
     exact ⟨_, rfl, rfl, rfl, by first | exact (List.length_map ..).symm | simp⟩
 
+/-- `shapePost` (patched compiler) copies the final state's origin tags:
+`instOrigins := st.instOrigins.toList` (same unfolding as `shapePost_decomp`). -/
+theorem shapePost_instOrigins {ai : Bool} {p : ShapePre} {m : ShapeMid} {st : MachRead}
+    {v : Lean.Expr} {sp : MachineShape} (h : shapePost ai p m st v = some sp) :
+    sp.instOrigins = st.instOrigins.toList := by
+  unfold shapePost at h
+  try dsimp only at h
+  repeat' first
+    | (replace h := ite_none_inv h)
+    | (replace h := bind_inv h; obtain ⟨_, _, h⟩ := h)
+    | (replace h := Option.bind_eq_some_iff.mp h; obtain ⟨_, _, h⟩ := h)
+    | (split at h)
+  all_goals first
+    | (cases h; done)
+    | skip
+  all_goals
+    try (replace h := ite_else_none_inv h)
+    have hsp := Option.some.inj h
+    subst hsp
+    rfl
+
+/-- `shapePost` copies the final state's call entries (as `shapePost_instOrigins`). -/
+theorem shapePost_insts' {ai : Bool} {p : ShapePre} {m : ShapeMid} {st : MachRead}
+    {v : Lean.Expr} {sp : MachineShape} (h : shapePost ai p m st v = some sp) :
+    sp.insts = st.insts.toList := by
+  unfold shapePost at h
+  try dsimp only at h
+  repeat' first
+    | (replace h := ite_none_inv h)
+    | (replace h := bind_inv h; obtain ⟨_, _, h⟩ := h)
+    | (replace h := Option.bind_eq_some_iff.mp h; obtain ⟨_, _, h⟩ := h)
+    | (split at h)
+  all_goals first
+    | (cases h; done)
+    | skip
+  all_goals
+    try (replace h := ite_else_none_inv h)
+    have hsp := Option.some.inj h
+    subst hsp
+    rfl
+
 /-! ## The whole wrapper, keeping the state -/
 
 section Wrapper
@@ -376,6 +423,15 @@ theorem machineShapeF_lenOk (h : machineShapeF n sm ps ci senv ai = some (some s
   have l1 : st1.LenOk := rootLets_lenOk h1 l0
   have l2 : st.LenOk := shapeBody_lenOk h2 l1
   exact ⟨p, en, st0, st1, st, v, hp, l0, l1, l2, h3⟩
+
+/-- **Origin alignment of every successful candidate result** (from `LenOk`,
+patched compiler): one origin tag per call entry. -/
+theorem machineShapeF_origins_aligned (h : machineShapeF n sm ps ci senv ai = some (some sp)) :
+    sp.instOrigins.length = sp.insts.length := by
+  obtain ⟨_, _, _, _, st, _, _, _, _, hL, hpost⟩ := machineShapeF_lenOk h
+  rw [shapePost_instOrigins hpost, shapePost_insts' hpost, Array.length_toList,
+    Array.length_toList]
+  exact hL.origins
 
 /-- **The decomposition of every successful candidate result**, with the
 reader state's lengths: the `ShapeDecomp` bundle of the old line, its
