@@ -1,5 +1,21 @@
 # Plan: discharging the unfolding branch of `p5s` without a law about opaque code
 
+> **Reviewer corrections (review a230f9d1) — binding over the text below.**
+> 1. p5p1 shows only that the BACKWARD reading (declared ⇐ inlined) fails on selected TYPES. It does NOT show
+>    that a real parent + child run reaches all premises of `LocalStruct.p5s`; "counterexample to the run theorem"
+>    is NOT claimed until a concrete actual-run alias / folded-width probe exists.
+> 2. "`passF 0` = old `partial`" is a RUNTIME COMPATIBILITY argument (same body by source review), not a kernel
+>    equivalence proof and not a total runtime guarantee; that boundary stays OPEN.
+> 3. Structural `replaceNoCache` vs the cached extern `Expr.replace`: agreement and performance need their own
+>    evidence; OPEN (the "≡ extensionally" line below is an expectation, not a fact).
+> 4. G3 / `readSkel` acceptance restriction is NOT authorized for production ("every well-typed hardware type
+>    satisfies it" is unproved, esp. dependent / parameterized types). New exclusion guards (G1/G2) are NOT adopted
+>    as behaviour-preserving because expected module classification makes them redundant: candidate lemmas take
+>    the environment facts as EXPLICIT premises (localisation) instead.
+> 5. Authorized now: ISOLATED candidate first increment U1c + U3 + L2 + U5a, no production switch, starting with
+>    forward single-Signal result-kind preservation on `forallE` types. No new trusted laws; no refusal fallback
+>    as acceptance proof. Gate-check discharge and `Tests.AllTests` take precedence over widening candidate scope.
+
 Planning worker O-UNFOLD, branch `par/o-unfold`, base `13f4b393`. SOURCE REVIEW ONLY: nothing here was built,
 no Lean was run. Sketch: `docs/parallel/sketch/InlTypeCand.lean` (not built, not registered).
 
