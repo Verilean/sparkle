@@ -3,7 +3,7 @@ import Tools.ShippingInstSubstModel
 
 /-! # Run-local structure link, and an isolated model-reader variant of `instRes`
 
-WRITTEN, NOT BUILT (worker O-ENVL, branch `par/o-envl`, from poc 58b240ba). No `sorry`, no new axiom, no
+BUILT as written (worker O-ENVL, from poc 58b240ba; run el1 exit 0, no fixes; axioms run axl: all [propext, Classical.choice, Quot.sound] or fewer). `LocalStruct` is NOT discharged (needs envGet/envFrame, docs/parallel/O-env-audit.md; no new runtime law approved). No `sorry`, no new axiom, no
 `native_decide`. New file; nothing existing is changed (the global theorems `structResAt_of_parts`,
 `childLinkStruct_real_of_parts`, `declTypeRead_of_envAt`, `fieldsAt_of_envAt` are untouched). No field is
 added to `RefLaws` or to any trusted / allowed-premise list.
