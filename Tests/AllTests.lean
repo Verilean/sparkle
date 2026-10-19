@@ -316,6 +316,7 @@ import Tests.Compiler.MemNameCollisionTest
 import Tests.Compiler.MemNameCollisionGateCertTest
 import Tests.Compiler.MemNameCollisionPlainCertTest
 import Tests.Compiler.MemNameCollisionGateDesignTest
+import Tests.Compiler.MemNameCollisionGateClosedTest
 import Tests.SVParser.TestVerify
 import Tests.Bus.TestAXI4Lite
 import Tests.RoundTrip.IRVerilogIR

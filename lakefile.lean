@@ -3168,3 +3168,9 @@ lean_lib «Tools.ShippingEnvLocal» where
 
 lean_lib «Tools.ShippingEnvLocalP5S» where
   roots := #[`Tools.ShippingEnvLocalP5S]
+
+lean_lib «Tools.ShippingKidsMixedC» where
+  roots := #[`Tools.ShippingKidsMixedC]
+
+lean_lib «Tools.ShippingGateKidFactsT» where
+  roots := #[`Tools.ShippingGateKidFactsT]

@@ -289,3 +289,33 @@ No CI on these SHAs (local, not pushed). Nothing added to RefLaws or any trust /
 * Target-only roots (not in AllTests, global-name clash) are listed in
   `scripts/shipping-coverage/target_only_roots.txt`; routine validation builds AllTests and those roots serially.
   Last built: rg2 at 3738d12f (exit 0; their sources unchanged since).
+
+### Priority 1 — check discharge for the original `collMixSame` (first case end-to-end)
+
+| run | target | exit | notes |
+|---|---|---|---|
+| gc1 | `Tools.ShippingKidsMixedC`, `Tools.ShippingGateKidFactsT` (worker) | 1 | `Decidable (Stmt.assign o (.ref w) ∈ rest)` (no `DecidableEq Stmt`) |
+| gc2 | the same after the fix (`rest.any (isRefAssign o w)` + `mem_of_refAny`) | 0 | peak 0.32 GB |
+| gc3 | `Tests.Compiler.MemNameCollisionGateClosedTest` (worker, as written) | 0 | 650 jobs |
+| gc4 | the same + asserting shadow run_cmd (integrator) | 0 | SHADOW: `kidsMixed` false, `kidsMixedC` true (top, merged), `combOk` true on the colliding child's module |
+
+New: `Tools/ShippingGateKidFactsT.lean` (`KidFactsTC` = `KidFactsT` without `flat`, `gateKidT_factsC` from the gate
+facts + `EntryDefines`, `kidsC_runFactsT` / `_outsCheckT` / `_designCheckT`, `exists_bnd_merge`);
+`Tools/ShippingKidsMixedC.lean` (`kidsMixedC` = per statement masked ∨ memory ∨ combinational chain,
+`mixCKS_boundedIn`, `core_kidsMixedCMT`). Head: the existing `machine_design_noPorts` with `Bd := kidsMixedC`.
+
+`collMixSame_designClosed` (same `DesignSV` conclusion), axioms `[propext, Classical.choice, Quot.sound]`:
+
+| | outer Prop binders | antecedents under `∃ raw D` |
+|---|---|---|
+| before `collMixSame_designG` (VACUOUS) | run, `MachineDefines collMixSame`, `EntryDefines syncName fakeSrc.gateValue` | `shipsHierCheck`, `designCheck … 0`, `outsCheck … 0`, `ChildBnd ∧ EntryDefines SparkleMem.sync.4.8 …gateValue`, `kidsMixed` (false) |
+| after `collMixSame_designClosed` | run, `MachineDefines collMixSame`, `EntryDefines syncName fakeSrc.gateValue`, `hchain : ∀ y, RealChild … syncName y → combOk y.1 (declWidth y.1) = true` | `ChildBnd mref cref w` |
+
+Removals: `shipsHierCheck`, `designCheck`, `outsCheck` — ELIMINATED (run lemmas over `KidFactsTC` by origin);
+`kidsMixed` — REPLACED by `kidsMixedC`, DERIVED (`core_kidsMixedCMT`), not a premise; `MachineClosesAt` —
+ELIMINATED; duplicate `EntryDefines` — MERGED (`syncGate_value`). NEW outer premise `hchain`: a SYNTACTIC fact about
+the gate child's emitted module (a self-bounded chain reaches `out`), needed because the general-closing ships head
+bounds children in EVERY environment (`KSBoundedIn`); value-level gate facts hold only on bounded inputs. True on
+this compile (gc4 shadow), NOT derived. Ways to eliminate it: (A) a typed-run bound for the TG route (as the
+one-output route's `fitX_of_typed`), or (B) a translator top-node syntax lemma carried through
+`dropZeroWidth` / `mergeChecked`. Not yet: generator, `collMixDiff`, `collMixArgs`, `collWidth`.
