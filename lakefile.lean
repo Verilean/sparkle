@@ -3153,3 +3153,6 @@ lean_lib «Tools.ShippingInstSubstModel» where
 
 lean_lib «Tools.ShippingEnvRead» where
   roots := #[`Tools.ShippingEnvRead]
+
+lean_lib «Tools.ShippingEnvLocal» where
+  roots := #[`Tools.ShippingEnvLocal]
