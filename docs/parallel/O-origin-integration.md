@@ -339,3 +339,14 @@ one-output route's `fitX_of_typed`), or (B) a translator top-node syntax lemma c
   `Expr.replace` (agreement and performance, no evidence yet); `SwitchF` (production `P5At` still NOT discharged).
   G3 / `readSkel` not used. No production file changed; no shadow (U2) yet; L1 / `p5s` not touched.
 * The plan's actual-run alias / folded-width probe (correction 1) is NOT done yet.
+
+### Correction 4 — actual-run alias / folded-width probe (p5r1, p5r2, exit 0)
+
+Children `kAlias : … → PairA` (abbrev of a product of Signals), `kSum` over `BitVec (4+4)`, control `kPlain`
+(product written out), each a `Signal.loop` machine: at the elaboration environment ALL p5s antecedents hold for
+`kAlias` / `kSum` (`entryConst` unfolds, `machineShape?` some, `declOuts?` of the inlined type some, of the
+declared type none; `kPlain`: both some). But NO machine-route parent run reached them: parents in `Signal.loop`
+and in `circuit do` form are not machine shapes (`machineShape? = none`); the product children are inlined (no
+instance), `kSum` is instantiated by the legacy route. So a counterexample to the RUN theorem `LocalStruct.p5s` is
+NOT established (no `ChildRunW` reached); p5p1 remains evidence about the reading functions only. The plan's
+"FALSE on accepted inputs" stays a type-level statement (see the plan's correction box).
