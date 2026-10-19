@@ -146,7 +146,7 @@ def readKid (who : String) (k : Name) : CommandElabM Tools.ShippingMachineComman
   if env.contains (k ++ `gate_peel) then
     throwError "{who} {k} is a GATE child ({k}.gate_peel exists) under a general closing (no KidFacts for it)"
   if (Sparkle.Compiler.MachMemory.memChild? k).isSome then
-    throwError "{who} {k} is a memory child (no KidFacts for it)"
+    throwError "{who} {k} carries a memory placeholder NAME — a memory child, or a declaration declared under that name (a name collision); this command classifies by name (no KidFacts for it)"
   unless env.contains (k ++ `machineData) && env.contains (k ++ `machine_ok) &&
       env.contains (k ++ `machine_body) do
     throwError "{who} {k} has no machine endpoint (a gate child of a general-closing parent, or #machine_endpoint was not run on it)"

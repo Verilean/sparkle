@@ -87,7 +87,7 @@ def scopeK (f : Name) (n : Nat) :
   let mut kinds : List (Name × Kind) := []
   for k in calls.eraseDups do
     if (Sparkle.Compiler.MachMemory.memChild? k).isSome then
-      throwError "{f}: the callee {k} is a memory child (no KidFacts for it)"
+      throwError "{f}: {Tools.ShippingMachineCommand.memNameRefusal r.shape k "no KidFacts for it"}"
     unless (← getEnv).contains (k ++ `machineData) && (← getEnv).contains (k ++ `machine_ok) &&
         (← getEnv).contains (k ++ `machine_body) do
       throwError "{f}: the callee {k} has no machine endpoint (a gate child of a general-closing parent, or #machine_endpoint was not run on it)"

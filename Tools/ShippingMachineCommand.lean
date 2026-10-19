@@ -412,6 +412,26 @@ structure Read where
   /-- The result is a tuple: its components' kinds (one port `out`, packed). -/
   tuple : Option (List MixedGateBinder) := none
 
+/-- **What the call entries of `shape` named `k` are, by their stored ORIGINS** (for refusal
+texts): a placeholder name may be carried by a memory entry (origin `.mem`) or by a call of a
+declaration declared under that name (origin `.ord`/`.field`: a name COLLISION, not a memory). -/
+def calleeLabel (shape : MachineShape) (k : Name) : String :=
+  let os := (shape.instTagged.filter (·.1 == k)).map (·.2)
+  let nMem := (os.filter (·.child?.isSome)).length
+  if nMem == 0 then
+    if (Sparkle.Compiler.MachMemory.memChild? k).isSome then
+      s!"a declaration carrying the memory placeholder name {k} (origin {if os.any (fun o => match o with | .field _ => true | _ => false) then "field" else "ord"}: NOT a memory — a name collision)"
+    else s!"the declaration {k}"
+  else if nMem == os.length then "a memory child"
+  else s!"a memory child AND a declaration carrying the same placeholder name {k} (a name collision: {nMem} memory entr{if nMem == 1 then "y" else "ies"}, {os.length - nMem} declaration call(s))"
+
+/-- The refusal text for a callee `k` of `shape` whose NAME is a memory placeholder, in a
+command that classifies callees by name. -/
+def memNameRefusal (shape : MachineShape) (k : Name) (what : String) : String :=
+  let lbl := calleeLabel shape k
+  if lbl == "a memory child" then s!"the callee {k} is a memory child ({what})"
+  else s!"the callee {k} is {lbl}: this command classifies callees by NAME and does not cover it (the origin-based route for a parent with memories: #machine_no_ports_memseq, tag mode)"
+
 /-- A declaration with sub-machines, or whose root is not one `runCircuitH`:
 the endpoint goes through `machine_trace_of_nested`. -/
 def Read.nested (r : Read) : Bool :=

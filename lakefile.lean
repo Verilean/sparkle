@@ -2601,6 +2601,9 @@ lean_lib «Tools.ShippingMemClosesKids» where
 lean_lib «Tools.ShippingMemClosesKidsT» where
   roots := #[`Tools.ShippingMemClosesKidsT]
 
+lean_lib «Tools.ShippingGateChildIfaceP» where
+  roots := #[`Tools.ShippingGateChildIfaceP]
+
 lean_lib «Tools.ShippingMemOnlyAtAll» where
   roots := #[`Tools.ShippingMemOnlyAtAll]
 
@@ -3156,3 +3159,6 @@ lean_lib «Tools.ShippingEnvRead» where
 
 lean_lib «Tools.ShippingEnvLocal» where
   roots := #[`Tools.ShippingEnvLocal]
+
+lean_lib «Tools.ShippingEnvLocalP5S» where
+  roots := #[`Tools.ShippingEnvLocalP5S]

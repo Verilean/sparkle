@@ -88,7 +88,7 @@ def scopeP (f : Name) :
     throwError "{f}: parent without a register (core_portsMatch_raw_leaf asks d.shape.layout.slots ≠ []: the parent's clk and rst ports, which the connections of a sequential child are matched against, are derived from the parent's own register by core_clk)"
   for k in calls.eraseDups do
     if (Sparkle.Compiler.MachMemory.memChild? k).isSome then
-      throwError "{f}: the callee {k} is not a leaf register machine: it is a memory child (LeafKid is about a machine declaration's data)"
+      throwError "{f}: {Tools.ShippingMachineCommand.memNameRefusal r.shape k "not a leaf register machine: LeafKid is about a machine declaration's data"}"
     unless (← getEnv).contains (k ++ `machineData) && (← getEnv).contains (k ++ `machine_ok) &&
         (← getEnv).contains (k ++ `machine_body) do
       throwError "{f}: the callee {k} is not a leaf register machine: it has no machine endpoint (a gate child or a declaration #machine_endpoint was not run on: no data for LeafKid)"

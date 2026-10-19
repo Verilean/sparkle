@@ -59,7 +59,7 @@ def outsTheorem (f : Name) (n : Nat) : CommandElabM Name := do
   let kids := calls.eraseDups
   for k in kids do
     if (Sparkle.Compiler.MachMemory.memChild? k).isSome then
-      throwError "{f}: a memory child (its output facts are not derived here)"
+      throwError "{f}: {Tools.ShippingMachineCommand.memNameRefusal r.shape k "its output facts are not derived here"}"
     unless (← getEnv).contains (k ++ `machineData) && (← getEnv).contains (k ++ `machine_ok) &&
         (← getEnv).contains (k ++ `machine_body) do
       throwError "{f}: the child {k} is not a machine with an endpoint (a gate child: its output facts are not derived here)"

@@ -309,7 +309,7 @@ partial def closesDeep (c : Name) : CommandElabM (Array Prem) := do
 partial def ifaceDeep (k : Name) : CommandElabM Node := do
   let kq : Term := quote k
   if (Sparkle.Compiler.MachMemory.memChild? k).isSome then
-    throwError "{k}: a memory child (not derived here)"
+    throwError "{k}: carries a memory placeholder NAME — a memory child, or a declaration declared under that name (a name collision); not derived here (this generator classifies by name)"
   if (← getEnv).contains (k ++ `gate_peel) then
     -- a gate child: only usable as a child's child (`KidNames`)
     let pn := Name.mkSimple s!"hR_{mangle k}"

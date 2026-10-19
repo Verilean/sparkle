@@ -192,8 +192,10 @@ def scan (f : Name) : CommandElabM Scan := do
       s!"{f}: nDecl={r.nDecl}, slot widths {slots}, outputs {outs}, call entries {calls}, instFields {r.shape.instFields}, Signal.loop blocks {nLoops}, runs {nRuns}, nested={r.nested}, head of machine_sound {hd.1}{tr}. In the environment: {haveL}; not: {lackL}"
     -- calls: a parent, not a leaf
     unless calls.isEmpty do
+      -- the memory entries by their stored ORIGIN (a declaration carrying a
+      -- placeholder name is not one)
       let mems : List Name :=
-        calls.filter fun k => (Sparkle.Compiler.MachMemory.memChild? k).isSome
+        (r.shape.instTagged.filter fun x => x.2.child?.isSome).map (·.1)
       unless mems.isEmpty do
         return { data, refusal := some s!"memory: call entries {mems} are memories — a certified-route memory is an INSTANCE of a memory-only submodule, so {f} is a parent, not a leaf (LeafKid.leaf asks shape.insts = []). Its design-level endpoints are the memory parents' (#machine_composedT, then the memory-only generator generateM0 of Tests/Compiler/NoPortsMemOnly*Test, or #machine_no_ports_kids where a sequential child is called too)" }
       return { data, refusal := some s!"has calls {calls} — a parent, not a leaf (LeafKid.leaf asks shape.insts = []). The generators for it: #machine_design_svHR + #machine_closes_at + #machine_oneout (every call a one-output gate child), or #machine_design_svNR {f} n + #machine_no_ports / #machine_no_ports_kids / #machine_no_ports_seq / #machine_no_ports_deep (sequential or mixed children)" }

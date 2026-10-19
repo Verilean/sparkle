@@ -59,7 +59,7 @@ def scope (f : Name) : CommandElabM (Tools.ShippingMachineCommand.Read × List N
   let kids := calls.eraseDups
   for k in kids do
     if (Sparkle.Compiler.MachMemory.memChild? k).isSome then
-      throwError "{f}: a memory child (its facts are not derived here)"
+      throwError "{f}: {Tools.ShippingMachineCommand.memNameRefusal r.shape k "its facts are not derived here"}"
     unless (← getEnv).contains (k ++ `machineData) && (← getEnv).contains (k ++ `machine_ok) &&
         (← getEnv).contains (k ++ `machine_body) do
       throwError "{f}: the child {k} is not a machine with an endpoint (a gate child: its facts are not derived here)"

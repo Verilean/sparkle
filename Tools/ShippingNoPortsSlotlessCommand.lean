@@ -102,7 +102,7 @@ def scopeS (f : Name) :
   let kids := calls.eraseDups
   for k in kids do
     if (Sparkle.Compiler.MachMemory.memChild? k).isSome then
-      throwError "{f}: the callee {k} is a memory child (no KidFacts for a memory: the memory parents have their own heads, Tools/ShippingMemOnlyCloses.lean and the seqMem test; not generated here)"
+      throwError "{f}: {Tools.ShippingMachineCommand.memNameRefusal r.shape k "no KidFacts for a memory: the memory parents have their own heads, Tools/ShippingMemOnlyCloses.lean and the seqMem test; not generated here"}"
   -- the combinational callees: gate children, and machines without a
   -- register and without calls
   let mut comb : List Name := []

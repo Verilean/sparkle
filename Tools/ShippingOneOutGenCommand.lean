@@ -214,7 +214,7 @@ def scope (f : Name) : CommandElabM Info := do
   let kids := calls.eraseDups
   for c in kids do
     if (Sparkle.Compiler.MachMemory.memChild? c).isSome then
-      throwError "memory callee {c}"
+      throwError "{Tools.ShippingMachineCommand.memNameRefusal r.shape c "memory callee"}"
     for s in [`gate_peel, `gate_old, `gate_wf, `gateBinders, `gateSort, `gateValue] do
       let need := c ++ s
       unless env.contains need do
