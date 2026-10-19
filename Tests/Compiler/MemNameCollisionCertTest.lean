@@ -5,6 +5,11 @@ import Tools.ShippingModuleName
 
 /-! # Certificate: the closing of a memory parent beside a COLLIDING declaration call (round par/o-kidt)
 
+TARGET-ONLY (not in `Tests.AllTests`): it declares (or imports) its own `SparkleMem.sync.4.8`
+(the leaf register `fakeReg`), a different function from `MemNameCollisionTest`'s declaration under
+the same GLOBAL placeholder name; the two cannot be imported together (`environment already
+contains`). See `MemNameCollisionGenTest` for the build command.
+
 `Tests/Compiler/MemNameCollisionTest.lean` checks that the patched compiler
 compiles a parent with a memory AND a call of a `@[hardware_module]`
 declared (by metaprogramming) under the memory's placeholder name

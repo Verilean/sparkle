@@ -1,4 +1,5 @@
 import Sparkle
+import Tests.Compiler.MemNameCollisionTest
 import Tools.ShippingMachineCommand
 import Tools.ShippingMemClosesKidsT
 import Tools.ShippingModuleName
@@ -164,9 +165,14 @@ def comboName : Name := Sparkle.Compiler.MachMemory.memChildName true 4 8
 
 def ns : Name := `Sparkle.Tests.Compiler.MemNameCollisionGateCertTest
 
+-- The colliding declarations `syncName` / `comboName` themselves are the ones
+-- `Tests.Compiler.MemNameCollisionTest` declares (copies of its `fakeSrc` / `fakeN`,
+-- the same bodies as here): the placeholder names are GLOBAL constants, and a
+-- second declaration in another test module makes the two modules impossible to
+-- import together (`environment already contains`; `Tests.AllTests` imports
+-- both). That they are read to this file's `fakeSrc` / `fakeN` gate values is
+-- kernel-checked below (`syncGate_value`, `comboGate_value`).
 run_cmd liftCoreM do
-  copyAs ``fakeSrc syncName
-  copyAs ``fakeN comboName
   renameIn ``mixDiff ``fakeSrc syncName (ns ++ `collMixDiff)
   renameIn ``mixArgs ``fakeSrc syncName (ns ++ `collMixArgs)
   renameIn ``mixSame ``fakeSrc syncName (ns ++ `collMixSame)

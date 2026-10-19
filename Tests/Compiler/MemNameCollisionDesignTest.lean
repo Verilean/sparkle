@@ -5,6 +5,11 @@ import Tools.ShippingPortsMatchRawLeaf
 
 /-! # Design-level endpoint of a COLLISION parent: `collSameR` (round par/o-kidt2)
 
+TARGET-ONLY (not in `Tests.AllTests`): it declares (or imports) its own `SparkleMem.sync.4.8`
+(the leaf register `fakeReg`), a different function from `MemNameCollisionTest`'s declaration under
+the same GLOBAL placeholder name; the two cannot be imported together (`environment already
+contains`). See `MemNameCollisionGenTest` for the build command.
+
 `collSameR` (`Tests/Compiler/MemNameCollisionCertTest.lean`): a parent with a register,
 a synchronous 4/8 memory (`Signal.memory wa wd we ra`, origin `.mem false 4 8`) and a call,
 on the SAME argument `let`s, of a `@[hardware_module]` leaf register machine (`fakeReg`)

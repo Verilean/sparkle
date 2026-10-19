@@ -172,3 +172,52 @@ trust list.
   general chains (`real_of_kid`, `CoreFromM*`, `GenKidM`/`MemOnly*`).
 
 Not run: full `Tests.AllTests`, corpus. No CI on these SHAs (local, not pushed).
+
+## Round 2026-10-19 (review 13f4b393): ruling — NO opaque agreement law in the trusted `RefLaws`
+
+Taken as binding for every unit below: nothing added to `RefLaws`, `ChildLaws` or any trust / allowed-premise
+list; no law about the compiled code of the `partial def`s (`relevantClosure` / `passM`); InstAgree not
+established. The `p5s` unfolding branch is therefore PLANNING only this round (`O-p5s-unfold-plan.md`).
+
+Runs (`cgrun.sh`, 3 GiB, swap 0, `-j 1`; logs `~/sparkle-work/runs/<stamp>-<name>/`):
+
+| run | target | exit | notes |
+|---|---|---|---|
+| gdp1 | probe `#machine_design_svR0` on `mixSame` (control) / `collMixSame` | 1 | refused for BOTH: a gate-route callee is classified as a sequential child ("no machine_sound") — a general gap (memory + gate child + registers has no design generator), not a collision artefact |
+| pc1 | `Tools.ShippingCallsGate` (+ consumers), first plain certificate | 1 | Tools part built, `machineClosesAt_of_gateKidsO` axioms standard; test: `collPlain: not a machine shape` |
+| pp1, pp2 | probes: route of `plain` | 0 | `machineShape? = none` for `plain` AND its collision copy, and for `Signal.loop` + gate-call variants without a memory: the LEGACY route compiles them |
+| ip1, ip2 | probe: import the collision tests together | 1 | `environment already contains 'SparkleMem.sync.4.8'`: `MemNameCollisionTest` and `MemNameCollisionCertTest` both declare the GLOBAL placeholder constant (different functions) — `Tests.AllTests` as registered in 59114f9c / 13f4b393 could not import (DEFECT of the earlier rounds, found here; full AllTests was and is unrun) |
+| fam1 | families after the split, GenTest chained to DesignTest | 1 | GenTest found `collSameR` already generated (REBUILT, not GENERATED): chaining weakens the test — reverted |
+| fam2 | `MemNameCollisionGenTest`, `…DesignTest`, `…GateCertTest`, `…PlainCertTest` + joint-import probe of `MemNameCollisionTest`+`GateCertTest` | 0 | 627 jobs, peak 0.37 GB; IMPORTS-OK; `collPlainCD_closes`, `machineClosesAt_of_gateKidsO` axioms `[propext, Classical.choice, Quot.sound]` |
+
+### Unit 2 — origin-based ONE-OUTPUT closing
+
+`Tools/ShippingCallsGate.lean`: `machineClosesAt_of_gateKidsO` — `machineClosesAt_of_gateKids` with
+`hnomemO : ∀ x ∈ instTagged, x.2.child?.isNone` (ORIGIN only) in place of `hnomem` (origin ∧ NAME). The name half
+was never consumed: the proof's only use was `nomem_tag hnomem hk`, which reads the origin conjunct
+(`closeInstsM` compiles every entry by its declaration name; `closeInstsM_run_all` yields the `RealChild` disjunct).
+The old theorem is now its corollary (`nomem_tags`); no consumer changed. Premise accounting: name half of
+`hnomem` on the one-output closing — ELIMINATED (it was vestigial).
+
+Certificate `Tests/Compiler/MemNameCollisionPlainCertTest.lean`:
+* the ORIGINAL `plain` and `collPlain` are asserted to be LEGACY-route (`machineShape? = none`): NOT covered,
+  and no `MachineClosesAt` statement about them would be about the emitted text;
+* `collPlainCD` (a `circuit do` with registers calling the colliding `SparkleMem.sync.4.8`, origin `.ord`, no
+  memory; control `plainCD` under `fakeSrc`): asserted on the machine route with `instFields = []`, its compiled
+  top has exactly one instance of the colliding declaration and no memory module;
+  `collPlainCD_closes : EntryDefines … syncName fakeSrc.gateValue → MachineClosesAt … collPlainCD …`.
+  Before: no closing (old `hnomem` FALSE, `collPlainCD_nomem_false`; `¬ TagsAgree`). After: one premise, the
+  colliding declaration's `EntryDefines`. Closing only — not design semantics.
+
+### Test registration fix (global placeholder constants)
+
+* `MemNameCollisionGateCertTest` now imports `MemNameCollisionTest` and reuses its `SparkleMem.sync.4.8` /
+  `SparkleMem.combo.4.8` (copies of the same `fakeSrc` / `fakeN` bodies; `syncGate_value` / `comboGate_value`
+  kernel-check the gate reads them to this file's values). `MemNameCollisionPlainCertTest` imports GateCertTest
+  and declares no global constant.
+* `MemNameCollisionCertTest`, `…DesignTest`, `…GenTest` (the `fakeReg` family: a DIFFERENT function under the same
+  global name) are TARGET-ONLY, removed from `Tests.AllTests`; build with
+  `lake build Tests.Compiler.MemNameCollisionGenTest Tests.Compiler.MemNameCollisionDesignTest` (two roots — both
+  generate `collSameR`'s endpoints). Their certificates are unchanged; only their registration moved.
+* `Tests.AllTests` keeps `MemNameCollisionTest`, `…GateCertTest`, `…PlainCertTest` (joint import checked, fam2).
+  Whether OTHER modules of the full suite clash is not checked (full AllTests unrun).

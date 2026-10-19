@@ -17,7 +17,16 @@ and uses the origin-based chain (`KidFactsT`, `kidsM_*T`, `machineClosesAt_of_ki
 Expected (asserted below): both parents GENERATED; the closed endpoints
 `f.machine_design_noPortsR0_closed` on standard axioms, mentioning no checker constant, no
 `TagsAgree` / `tagAgrees`, no `MachineClosesAt` / `MachineCloses` / `ChildRanIn`; their Prop
-binders: the run, `MachineDefines f`, `MachineDefines SparkleMem.sync.4.8`. -/
+binders: the run, `MachineDefines f`, `MachineDefines SparkleMem.sync.4.8`.
+
+TARGET-ONLY (not in `Tests.AllTests`), like `MemNameCollisionCertTest` and
+`MemNameCollisionDesignTest`: this family declares its OWN
+`SparkleMem.sync.4.8` (the leaf register `fakeReg`), a different function from the one
+`MemNameCollisionTest` declares under the same GLOBAL placeholder name (the combinational
+`fakeSrc`); the two cannot be in one environment (`environment already contains`). Build it
+with `lake build Tests.Compiler.MemNameCollisionGenTest Tests.Compiler.MemNameCollisionDesignTest`
+(two roots: this file and `MemNameCollisionDesignTest` both generate `collSameR`'s endpoints, so
+neither imports the other — here the generator must GENERATE them, not find them). -/
 
 namespace Sparkle.Tests.Compiler.MemNameCollisionCertTest
 

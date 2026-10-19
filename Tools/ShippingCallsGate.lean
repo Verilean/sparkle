@@ -22,8 +22,11 @@ whose calls are one-output calls of combinational gate children:
 * `childFull_of_real`: a `RealChild` of a gate declaration has those facts
   (`gate_child_fullFacts` at the child's own run, the reflection moved to its
   contexts);
-* `machineClosesAt_of_gateKids`: `MachineClosesAt`, the children's facts read
-  off the `RealChild` witnesses the run's closing returns.
+* `machineClosesAt_of_gateKidsO`: `MachineClosesAt`, the children's facts read
+  off the `RealChild` witnesses the run's closing returns; the entries' tag
+  condition by ORIGIN only (`hnomemO`), no condition on callee names;
+* `machineClosesAt_of_gateKids`: the original statement (`hnomem`, origin AND
+  name), a corollary of the `O` form.
 
 What stays a condition, decided per declaration and NOT derived from the
 shape reader: S3 (`callsOk`), the calls name distinct declarations (two calls
@@ -238,17 +241,23 @@ theorem ChildFull.iface {c : Name} {bs : List (Name × MixedGateBinder)}
   simpa using this
 
 set_option maxHeartbeats 1000000 in
-/-- **`MachineClosesAt` for one-output calls of gate children.** The children
-are the ones the run's closing returns: each is read by its `RealChild`
-witness (`hkid`). -/
-theorem machineClosesAt_of_gateKids {declName : Name} (d : MachineData) (ok : d.ok = true)
+/-- **`MachineClosesAt` for one-output calls of gate children, by ORIGIN.**
+The children are the ones the run's closing returns: each is read by its
+`RealChild` witness (`hkid`). The only condition on the entries' tags is that
+no ORIGIN builds a memory child (`hnomemO`, i.e. `x.2.child? = none`); NO
+condition on the callees' NAMES — a declaration carrying a memory placeholder
+name (`memChildName …`) stored with origin `.ord` is covered. (The one-output
+closing `closeInstsM` compiles every entry's callee by its declaration name;
+the proof reads each child off `ChildrenReal`, whose memory disjunct is keyed
+by the ORIGIN.) -/
+theorem machineClosesAt_of_gateKidsO {declName : Name} (d : MachineData) (ok : d.ok = true)
     (hbody : d.shape.body = quote d.dom
       (fun j => inputExpr d.shape.binders.length (d.bpos j))
       (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
     (halias : d.letsAliasOk = true)
     {nDecl : Nat} (hS : d.gateCallsOk nDecl = true)
     (nk : Nat → Nat)
-    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
+    (hnomemO : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true)
     (hkid : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y → ChildIface (d.shape.insts[k]).1 (nk k) y.1 y.2)
     (hargsN : ∀ (k : Nat) (hk : k < d.shape.insts.length),
@@ -307,7 +316,7 @@ theorem machineClosesAt_of_gateKids {declName : Name} (d : MachineData) (ok : d.
       rw [hc] at hy
       cases hy
       rcases hor with hmem | hre
-      · rw [Tools.ShippingChildInv.nomem_tag hnomem hk] at hmem
+      · rw [Tools.ShippingChildInv.notag_at hnomemO hk] at hmem
         cases hmem
       · exact ⟨hk, hkid k hk c hre⟩
     refine closeInsts_of_run d ok hbody hS run.mreturns hcl hlenC ?_ ?_ ?_
@@ -348,5 +357,29 @@ theorem machineClosesAt_of_gateKids {declName : Name} (d : MachineData) (ok : d.
   intro h0
   rw [h0] at key
   cases key
+
+/-- **`MachineClosesAt` for one-output calls of gate children** (the original
+statement, with the name half of `hnomem`): a corollary of
+`machineClosesAt_of_gateKidsO` — only the ORIGIN half (`nomem_tags`) is used. -/
+theorem machineClosesAt_of_gateKids {declName : Name} (d : MachineData) (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    (halias : d.letsAliasOk = true)
+    {nDecl : Nat} (hS : d.gateCallsOk nDecl = true)
+    (nk : Nat → Nat)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
+    (hkid : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
+      RealChild mref cref (d.shape.insts[k]).1 y → ChildIface (d.shape.insts[k]).1 (nk k) y.1 y.2)
+    (hargsN : ∀ (k : Nat) (hk : k < d.shape.insts.length),
+      nk k = (d.shape.insts[k]).2.1.length)
+    (hsep : ∀ c ∈ d.shape.insts.map (·.1), ∀ c' ∈ d.shape.insts.map (·.1),
+      (Sparkle.IR.ModuleName.ofDecl c) = (Sparkle.IR.ModuleName.ofDecl c') → c = c')
+    (hparent : ∀ c ∈ d.shape.insts, (Sparkle.IR.ModuleName.ofDecl c.1) ≠ (Sparkle.IR.ModuleName.ofDecl declName))
+    (hfresh : ∀ (k : Nat) (hk : k < d.shape.insts.length), ∀ o ∈ d.shape.layout.outs,
+      o.name ≠ s!"inst{k}_{(Sparkle.IR.ModuleName.ofDecl (d.shape.insts[k]).1)}") :
+    MachineClosesAt mctx mref cctx cref declName d.shape :=
+  machineClosesAt_of_gateKidsO (nDecl := nDecl) d ok hbody halias hS nk
+    (Tools.ShippingChildInv.nomem_tags hnomem) hkid hargsN hsep hparent hfresh
 
 end Tools.ShippingCallsGate
