@@ -3243,3 +3243,6 @@ lean_lib «Tools.ShippingInputWiresRun» where
 
 lean_lib «Tools.ShippingSatAssembly» where
   roots := #[`Tools.ShippingSatAssembly]
+
+lean_lib «Tools.ShippingSatCert» where
+  roots := #[`Tools.ShippingSatCert]
