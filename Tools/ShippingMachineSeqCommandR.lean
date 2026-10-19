@@ -33,8 +33,9 @@ def generateCoreSR (declName : Name) (atW : Bool := false) : MetaM Name := do
   -- the head carrying `ServedReal` (under `ChildBnd`)
   let pL := mkAppN (mkConst (headL.appendAfter (if atW then "RA" else "R"))) args
   let calls := r.shape.insts
-  let seqKids := ((calls.map (·.1)).eraseDups.filter fun c =>
-    (Tools.ShippingMachineMemCommand.memWidths? c).isNone)
+  -- the sequential children: the callees of the entries WITHOUT a memory
+  -- ORIGIN (a declaration named as a memory placeholder is one)
+  let seqKids ← Tools.ShippingMachineMemCommand.seqCallees r.shape
   -- each sequential child's own theorem at the full entry
   let mut seqRuns : Std.HashMap Name Name := {}
   for c in seqKids do
@@ -121,7 +122,7 @@ def generateCoreSR (declName : Name) (atW : Bool := false) : MetaM Name := do
       let some (c, argsK, _) := calls[k]? | throwError "{declName}: call {k}"
       let goalK := ((rest.bindingBody!.instantiate1 (mkNatLit k)).bindingBody!.instantiate1
         (toExpr c)).bindingBody!
-      let proofK ← match Tools.ShippingMachineMemCommand.memWidths? c with
+      let proofK ← match ← Tools.ShippingMachineMemCommand.originMem? r.shape k with
         | some (cb, aw, dw) =>
           proveByTacticT goalK (do pure (← memTactic k cb aw dw argsK))
         | none => try do
@@ -270,7 +271,7 @@ def generateCoreSR (declName : Name) (atW : Bool := false) : MetaM Name := do
       let goalK := ((hreflT.bindingBody!.instantiate1 (mkNatLit k)).bindingBody!.instantiate1
         (toExpr c)).bindingBody!
       let hRS : Term := ⟨mkIdent (Name.mkSimple s!"hR{seqKids.idxOf c}")⟩
-      let prK ← match Tools.ShippingMachineMemCommand.memWidths? c with
+      let prK ← match ← Tools.ShippingMachineMemCommand.originMem? r.shape k with
         | some _ => proveByTacticT goalK `(tactic| (intro h; first | cases h | simp [Sparkle.Compiler.MachMemory.memChild?] at h | exact absurd (congrArg Option.isNone h) (by decide) | exact absurd (congrArg Option.isNone h) (by decide +kernel)))
         | none =>
           if freeOf.getD c false then

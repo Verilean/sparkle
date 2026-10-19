@@ -50,6 +50,7 @@ parent stays a hypothesis: `closesAtCoreG` refuses a memory child.
 UNVERIFIED at the time of writing: this file was not built. -/
 namespace Tools.ShippingMemKid
 open Lean Meta
+open Sparkle.Compiler.MachInstOrigin (InstOrigin)
 open Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Machine
 open Tools.ShippingEntrySoundness Tools.ShippingMachineEntry
 open Tools.ShippingUnifiedSource Tools.ShippingMixedSourceBridge
@@ -514,6 +515,137 @@ theorem memKid_facts {c : Name} {cb : Bool} {aw dw : Nat}
     rw [mem_design hg]
     exact hl
 
+/-! ## The same interface by ORIGIN (`KidFactsT`; no `TagsAgree`)
+
+`KidFactsM` with the kids taken by the entry's ORIGIN (`KidT`): copied with
+`Kid mref cref c` → `KidT mref cref o c`; `kidFactsT_of` (a callee whose origin
+builds no child, any name) and `memKidT_facts` (a memory origin, any name) are
+`kidFacts_toM` / `memKid_facts` over the origin. `KidFactsM.toT`: the name-based
+facts give the origin-based ones where the name decodes to what the origin builds.
+
+The chain over `KidT` (round par/o-kidt2): every `core_*M` / `kidsM_*` theorem that asked
+`hagree : TagsAgree` now has a `…T` form over `KidT mref cref (originAt d.shape k)` WITHOUT it (the
+proof is the old one with `kid_of … (agree_at hagree _)` replaced by `kidT_ofO`); the old name keeps
+its statement as a corollary (`kid_of_kidT` / `KidFactsM.toT` under `agree_at`), or — where `Kid`
+is in the conclusion (`core_kids_factsM(_ran)`, `core_callPortsM(_ran)`, `core_callConnsM`,
+`core_callStmtM`, `core_kids_selfM`, `hkidW_of_dataM`) — keeps its own proof beside the `…T` copy.
+BUILT (runs kc2 exit 0, dt3 exit 0). -/
+
+/-- **What a parent's check-free chain takes of one callee `c` that may be a
+memory**: facts of every kid of `c`. `outs`: the callee's output fields;
+`ins`: the widths of its argument ports; `n`: the parent's depth. The fields
+are `Tools.ShippingKidFacts.KidFacts`' over `Kid`, with `masked` replaced by
+`flat`. -/
+structure KidFactsT (mref : ST.Ref IO.RealWorld Meta.State)
+    (cref : ST.Ref IO.RealWorld Core.State) (o : InstOrigin) (c : Name) (outs : List OutField)
+    (ins : List Nat) (n : Nat) : Prop where
+  outsIn : ∀ (y : Res), Tools.ShippingInstTagged.KidT mref cref o c y →
+    ∀ p ∈ y.1.outputs, (∀ q ∈ inPortsOf y.1, q.name ≠ p.name) ∧ p.name ≠ "clk" ∧
+      p.name ≠ "rst"
+  outTys : ∀ (y : Res), Tools.ShippingInstTagged.KidT mref cref o c y →
+    Tools.ShippingChildIfaceTy.ChildOutTys outs y.1
+  kidA : ∀ (y : Res), Tools.ShippingInstTagged.KidT mref cref o c y →
+    Tools.ShippingDesignSVBack.outsAssigned y.1 = true ∧
+      ∀ g ∈ y.2.modules, Tools.ShippingDesignSVBack.outsAssigned g = true
+  kidR : ∀ (y : Res), Tools.ShippingInstTagged.KidT mref cref o c y →
+    ∀ g ∈ y.1 :: y.2.modules, ∀ mn i conns, Stmt.inst mn i conns ∈ g.body →
+      ∃ g2 ∈ y.2.modules, g2.name = mn
+  flat : ∀ (y : Res), Tools.ShippingInstTagged.KidT mref cref o c y → FlatOk y.1
+  portsIn : ∀ (y : Res), Tools.ShippingInstTagged.KidT mref cref o c y → Tools.ShippingLeafTyped.PortsIn y.1
+  inW : ∀ (y : Res), Tools.ShippingInstTagged.KidT mref cref o c y →
+    ∀ (j : Nat) (q : Port), (inPortsOf y.1)[j]? = some q →
+      ∃ wd, ins[j]? = some wd ∧ Tools.ShippingDesignSV.weS y.1 q.name = wd
+  clk : ∀ (y : Res), Tools.ShippingInstTagged.KidT mref cref o c y → isSeqChild y.1 = true →
+    Tools.ShippingDesignSV.weS y.1 "clk" = 1 ∧ Tools.ShippingDesignSV.weS y.1 "rst" = 1
+  check : ∀ (y : Res), Tools.ShippingInstTagged.KidT mref cref o c y →
+    ∀ ms : List Sparkle.IR.AST.Module,
+      moduleByName ms y.1.name = some y.1 →
+      (∀ g ∈ y.2.modules, moduleByName ms g.name = some g) →
+      Tools.ShippingChecksDesign.kidCheck (childMap ms) n y.1 = true ∧
+        ∀ g ∈ y.2.modules, Tools.ShippingChecksDesign.kidCheck (childMap ms) n g = true
+
+/-- **A callee that is not a memory placeholder**: its `KidFacts`, every
+depth. -/
+theorem kidFactsT_of {o : InstOrigin} {c : Name} {outs : List OutField} {ins : List Nat} {n : Nat}
+    (h : Tools.ShippingKidFacts.KidFacts mref cref c outs ins n)
+    (hc : o.child? = none) : KidFactsT mref cref o c outs ins n :=
+  { outsIn := fun y hy => h.outsIn y (Tools.ShippingInstTagged.KidT.real hy hc)
+    outTys := fun y hy => h.outTys y (Tools.ShippingInstTagged.KidT.real hy hc)
+    kidA := fun y hy => h.kidA y (Tools.ShippingInstTagged.KidT.real hy hc)
+    kidR := fun y hy => h.kidR y (Tools.ShippingInstTagged.KidT.real hy hc)
+    flat := fun y hy => flatOk_of_masked (h.masked y (Tools.ShippingInstTagged.KidT.real hy hc))
+    portsIn := fun y hy => h.portsIn y (Tools.ShippingInstTagged.KidT.real hy hc)
+    inW := fun y hy => h.inW y (Tools.ShippingInstTagged.KidT.real hy hc)
+    clk := fun y hy => h.clk y (Tools.ShippingInstTagged.KidT.real hy hc)
+    check := fun y hy => h.check y (Tools.ShippingInstTagged.KidT.real hy hc) }
+
+/-- **A memory placeholder**, at depth 0: the built memory module's side of
+the interface, for every read kind and widths. -/
+theorem memKidT_facts {o : InstOrigin} {c : Name} {cb : Bool} {aw dw : Nat}
+    (hc : o.child? = some (memModule cb aw dw)) :
+    KidFactsT mref cref o c (memOuts dw) (memIns aw dw) 0 := by
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  · intro y hy
+    have e := Tools.ShippingInstTagged.KidT.mem hy hc
+    subst e
+    exact mem_outsIn cb aw dw
+  · intro y hy
+    have e := Tools.ShippingInstTagged.KidT.mem hy hc
+    subst e
+    exact mem_outTys cb aw dw
+  · intro y hy
+    have e := Tools.ShippingInstTagged.KidT.mem hy hc
+    subst e
+    refine ⟨mem_outsAssigned cb aw dw, fun g hg => ?_⟩
+    rw [mem_design hg]
+    exact mem_outsAssigned cb aw dw
+  · intro y hy
+    have e := Tools.ShippingInstTagged.KidT.mem hy hc
+    subst e
+    exact mem_kidR cb aw dw
+  · intro y hy
+    have e := Tools.ShippingInstTagged.KidT.mem hy hc
+    subst e
+    exact Or.inr ⟨cb, aw, dw, rfl⟩
+  · intro y hy
+    have e := Tools.ShippingInstTagged.KidT.mem hy hc
+    subst e
+    exact mem_portsIn cb aw dw
+  · intro y hy
+    have e := Tools.ShippingInstTagged.KidT.mem hy hc
+    subst e
+    exact mem_inW cb aw dw
+  · intro y hy _
+    have e := Tools.ShippingInstTagged.KidT.mem hy hc
+    subst e
+    exact ⟨(mem_weS cb aw dw).2.2.2.2.1, (mem_weS cb aw dw).2.2.2.2.2⟩
+  · intro y hy ms _ _
+    have e := Tools.ShippingInstTagged.KidT.mem hy hc
+    subst e
+    have hl : Tools.ShippingChecksDesign.kidCheck (childMap ms) 0 (memModule cb aw dw).1 = true :=
+      Tools.ShippingDesignSV.leafCheck_memModule cb aw dw
+    refine ⟨hl, fun g hg => ?_⟩
+    rw [mem_design hg]
+    exact hl
+
+
+/-- **The name-based facts are origin-based facts** where the entry's name
+decodes to what its origin builds. -/
+theorem KidFactsM.toT {o : InstOrigin} {c : Name} {outs : List OutField} {ins : List Nat} {n : Nat}
+    (h : KidFactsM mref cref c outs ins n)
+    (hag : memChild? c = o.child?) : KidFactsT mref cref o c outs ins n :=
+  have cv : ∀ {y : Res}, Tools.ShippingInstTagged.KidT mref cref o c y → Kid mref cref c y :=
+    fun hy => Tools.ShippingInstTagged.kid_of_kidT hy hag
+  { outsIn := fun y hy => h.outsIn y (cv hy)
+    outTys := fun y hy => h.outTys y (cv hy)
+    kidA := fun y hy => h.kidA y (cv hy)
+    kidR := fun y hy => h.kidR y (cv hy)
+    flat := fun y hy => h.flat y (cv hy)
+    portsIn := fun y hy => h.portsIn y (cv hy)
+    inW := fun y hy => h.inW y (cv hy)
+    clk := fun y hy => h.clk y (cv hy)
+    check := fun y hy => h.check y (cv hy) }
+
 /-- The callee of entry `k` (anonymous outside the list): tables of a parent
 with DIFFERENT callees are keyed by it, so no entry order is assumed. -/
 def calleeAt (d : MachineData) (k : Nat) : Name :=
@@ -562,7 +694,71 @@ theorem hkidW_of_dataM {d : MachineData} {nDecl : Nat} {kidOuts : Nat → List O
     rw [← e]
     exact h3
 
-/-- **The run's facts of the full entry's module** (`core_runFactsM`). -/
+/-- **`hkidW` from the data** (`Tools.ShippingCallWidths.hkidW_of_data`, its
+proof verbatim, over `Kid`). -/
+theorem hkidW_of_dataMT {d : MachineData} {nDecl : Nat} {kidOuts : Nat → List OutField}
+    (hcw : Tools.ShippingCallWidths.callWidthsOk d nDecl kidOuts = true)
+    (hkidT : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
+      Tools.ShippingInstTagged.KidT mref cref (Tools.ShippingInstTagged.originAt d.shape k) (d.shape.insts[k]).1 y →
+      Tools.ShippingChildIfaceTy.ChildOutTys (kidOuts k) y.1) :
+    ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
+      Tools.ShippingInstTagged.KidT mref cref (Tools.ShippingInstTagged.originAt d.shape k) (d.shape.insts[k]).1 y →
+      ∀ p ∈ y.1.outputs, p.name = d.shape.instFields.getD k "" →
+        (d.shape.binders[nDecl + k]?).map (fun bn => (kindTy bn.2).bitWidth) =
+          some p.ty.bitWidth := by
+  intro k hk y hy p hp hpn
+  unfold Tools.ShippingCallWidths.callWidthsOk at hcw
+  have h1 : ((kidOuts k).all fun o =>
+      o.name != d.shape.instFields.getD k "" ||
+        decide ((d.shape.binders[nDecl + k]?).map (fun bn => (kindTy bn.2).bitWidth) =
+          some o.ty.bitWidth)) = true :=
+    List.all_eq_true.mp hcw k (List.mem_range.mpr hk)
+  rw [(hkidT k hk y hy).outputs] at hp
+  obtain ⟨o, ho, e⟩ := List.mem_map.mp hp
+  have h2 : (o.name != d.shape.instFields.getD k "" ||
+      decide ((d.shape.binders[nDecl + k]?).map (fun bn => (kindTy bn.2).bitWidth) =
+        some o.ty.bitWidth)) = true :=
+    List.all_eq_true.mp h1 o ho
+  have hpn' : o.name = d.shape.instFields.getD k "" := by
+    rw [← e] at hpn
+    exact hpn
+  rw [Bool.or_eq_true] at h2
+  rcases h2 with h2 | h2
+  · exact absurd hpn' (bne_iff_ne.mp h2)
+  · have h3 := of_decide_eq_true h2
+    rw [← e]
+    exact h3
+
+/-- **The run's facts of the full entry's module** (`core_runFactsMT`). -/
+theorem kidsM_runFactsT {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    {nDecl : Nat} (hC : d.callsOk nDecl = true)
+    (hslots : d.ss.length = d.shape.layout.slots.length)
+    (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
+    (hins : d.shape.insts ≠ [])
+    (hsl : d.shape.layout.slots ≠ [])
+    (hfne : d.shape.instFields ≠ [])
+    (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
+    (kidOuts : Nat → List OutField) (kidIns : Nat → List Nat) (n : Nat)
+    (hkid : ∀ (k : Nat) (hk : k < d.shape.insts.length),
+      KidFactsT mref cref (Tools.ShippingInstTagged.originAt d.shape k) (d.shape.insts[k]).1 (kidOuts k) (kidIns k) n)
+    (hcw : Tools.ShippingCallWidths.callWidthsOk d nDecl kidOuts = true)
+    {w w1 : Void IO.RealWorld} {M b : Sparkle.IR.AST.Module} {D : Design}
+    (hB : ChildBnd mref cref w)
+    (hcore : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, D) w1)
+    (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨
+      b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M))
+    (entry : MachineDefines mctx mref cctx cref c d.shape)
+    (closes : MachineClosesAt mctx mref cctx cref c d.shape) :
+    Tools.ShippingGuardsSound.RunFacts (childMap D.modules) b :=
+  core_runFactsMT d ok hbody hC hslots hdomB hins hsl hfne outTy
+    (fun k hk y hy => (hkid k hk).outsIn y hy)
+    (hkidW_of_dataMT hcw (fun k hk y hy => (hkid k hk).outTys y hy))
+    hB hcore hpost entry closes
+
+/-- The `TagsAgree` form of `kidsM_runFactsT` (statement unchanged; a corollary). -/
 theorem kidsM_runFacts {c : Name} (d : MachineData) (ok : d.ok = true)
     (hagree : Tools.ShippingInstTagged.TagsAgree d.shape)
     (hbody : d.shape.body = quote d.dom
@@ -586,14 +782,44 @@ theorem kidsM_runFacts {c : Name} (d : MachineData) (ok : d.ok = true)
       b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M))
     (entry : MachineDefines mctx mref cctx cref c d.shape)
     (closes : MachineClosesAt mctx mref cctx cref c d.shape) :
-    Tools.ShippingGuardsSound.RunFacts (childMap D.modules) b :=
-  core_runFactsM (hagree := hagree) d ok hbody hC hslots hdomB hins hsl hfne outTy
-    (fun k hk y hy => (hkid k hk).outsIn y hy)
-    (hkidW_of_dataM hcw (fun k hk y hy => (hkid k hk).outTys y hy))
-    hB hcore hpost entry closes
+    Tools.ShippingGuardsSound.RunFacts (childMap D.modules) b := by
+  have cvK : ∀ {k : Nat} (hk : k < d.shape.insts.length) {y : Res},
+      Tools.ShippingInstTagged.KidT mref cref (Tools.ShippingInstTagged.originAt d.shape k) (d.shape.insts[k]).1 y →
+        Kid mref cref (d.shape.insts[k]).1 y :=
+    fun hk _ hy => Tools.ShippingInstTagged.kid_of_kidT hy (Tools.ShippingInstTagged.agree_at hagree hk)
+  apply kidsM_runFactsT (hkid := fun k hk => (hkid k hk).toT (Tools.ShippingInstTagged.agree_at hagree hk))
+  all_goals first | assumption | rfl
 
 /-- **The output check at depth `n`, under the statement-kind gate**
-(`core_outsCheck_all_gateM`). -/
+(`core_outsCheck_all_gateMT`). -/
+theorem kidsM_outsCheckT {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    {nDecl : Nat} (hC : d.callsOk nDecl = true)
+    (hslots : d.ss.length = d.shape.layout.slots.length)
+    (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
+    (hins : d.shape.insts ≠ [])
+    (hfne : d.shape.instFields ≠ [])
+    (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
+    (kidOuts : Nat → List OutField) (kidIns : Nat → List Nat) (n : Nat)
+    (hkid : ∀ (k : Nat) (hk : k < d.shape.insts.length),
+      KidFactsT mref cref (Tools.ShippingInstTagged.originAt d.shape k) (d.shape.insts[k]).1 (kidOuts k) (kidIns k) n)
+    {w w1 : Void IO.RealWorld} {M b : Sparkle.IR.AST.Module} {D : Design}
+    (hB : ChildBnd mref cref w)
+    (hcore : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, D) w1)
+    (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨
+      b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M))
+    (entry : MachineDefines mctx mref cctx cref c d.shape)
+    (closes : MachineClosesAt mctx mref cctx cref c d.shape)
+    (hg : Sparkle.IR.RefineCheck.hierGate b = true) :
+    Tools.ShippingDesignSVBack.outsCheck (childMap D.modules) n (checkedOptimize b) = true :=
+  core_outsCheck_all_gateMT d ok hbody hC hslots hdomB hins outTy hfne
+    (fun k hk y hy => (hkid k hk).kidA y hy)
+    (fun k hk y hy => (hkid k hk).kidR y hy)
+    hB hcore hpost entry closes hg n
+
+/-- The `TagsAgree` form of `kidsM_outsCheckT` (statement unchanged; a corollary). -/
 theorem kidsM_outsCheck {c : Name} (d : MachineData) (ok : d.ok = true)
     (hagree : Tools.ShippingInstTagged.TagsAgree d.shape)
     (hbody : d.shape.body = quote d.dom
@@ -616,18 +842,59 @@ theorem kidsM_outsCheck {c : Name} (d : MachineData) (ok : d.ok = true)
     (entry : MachineDefines mctx mref cctx cref c d.shape)
     (closes : MachineClosesAt mctx mref cctx cref c d.shape)
     (hg : Sparkle.IR.RefineCheck.hierGate b = true) :
-    Tools.ShippingDesignSVBack.outsCheck (childMap D.modules) n (checkedOptimize b) = true :=
-  core_outsCheck_all_gateM (hagree := hagree) d ok hbody hC hslots hdomB hins outTy hfne
-    (fun k hk y hy => (hkid k hk).kidA y hy)
-    (fun k hk y hy => (hkid k hk).kidR y hy)
-    hB hcore hpost entry closes hg n
+    Tools.ShippingDesignSVBack.outsCheck (childMap D.modules) n (checkedOptimize b) = true := by
+  have cvK : ∀ {k : Nat} (hk : k < d.shape.insts.length) {y : Res},
+      Tools.ShippingInstTagged.KidT mref cref (Tools.ShippingInstTagged.originAt d.shape k) (d.shape.insts[k]).1 y →
+        Kid mref cref (d.shape.insts[k]).1 y :=
+    fun hk _ hy => Tools.ShippingInstTagged.kid_of_kidT hy (Tools.ShippingInstTagged.agree_at hagree hk)
+  apply kidsM_outsCheckT (hkid := fun k hk => (hkid k hk).toT (Tools.ShippingInstTagged.agree_at hagree hk))
+  all_goals first | assumption | rfl
 
 set_option maxHeartbeats 4000000 in
 /-- **`kidsMixed` of a machine tied by the general closing, on the core run's
 design**: every instance of the full entry's module resolves to a kid's own
 module, which is masked and memory-free or the built memory module; a memory
-instance's connections name its ports only (`core_callStmtM`,
+instance's connections name its ports only (`core_callStmtMT`,
 `mem_conns_noRdata`). -/
+theorem core_kidsMixedMT {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    {nDecl : Nat} (hC : d.callsOk nDecl = true)
+    (hslots : d.ss.length = d.shape.layout.slots.length)
+    (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
+    (hins : d.shape.insts ≠ [])
+    (hfne : d.shape.instFields ≠ [])
+    (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
+    (hkidF : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
+      Tools.ShippingInstTagged.KidT mref cref (Tools.ShippingInstTagged.originAt d.shape k) (d.shape.insts[k]).1 y → FlatOk y.1)
+    {w w1 : Void IO.RealWorld} {M b : Sparkle.IR.AST.Module} {D : Design}
+    (hB : ChildBnd mref cref w)
+    (hcore : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, D) w1)
+    (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨
+      b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M))
+    (entry : MachineDefines mctx mref cctx cref c d.shape)
+    (closes : MachineClosesAt mctx mref cctx cref c d.shape) :
+    Tools.ShippingMachineShipsHier.kidsMixed (childMap D.modules) b.body = true := by
+  have hst := core_callStmtMT d ok hbody hC hslots hdomB hins hfne outTy hB hcore hpost entry
+    closes
+  refine kidsMixed_of fun mn iname conns hm => ?_
+  obtain ⟨mc, hmc, ⟨k, hk, y, hre, hmcy⟩, nIn, kI, n, names, args, outs, hcs⟩ :=
+    hst mn iname conns hm
+  have hCm : childMap D.modules mn = some (mc, Sparkle.IR.RegDedup.declWidth mc) :=
+    congrArg (fun o : Option Sparkle.IR.AST.Module =>
+      o.map fun g => (g, Sparkle.IR.RegDedup.declWidth g)) hmc
+  rcases hkidF k hk y hre with ⟨h1, h2⟩ | ⟨cb, aw, dw, hmem⟩
+  · left
+    rw [← hmcy] at h1 h2
+    exact kidsMasked_one hCm h1 h2
+  · right
+    rw [← hmcy] at hmem
+    rw [hmem] at hcs hCm
+    exact kidsMem_one hCm (mem_conns_noRdata hcs)
+
+set_option maxHeartbeats 4000000 in
+/-- The `TagsAgree` form of `core_kidsMixedMT` (statement unchanged; a corollary). -/
 theorem core_kidsMixedM {c : Name} (d : MachineData) (ok : d.ok = true)
     (hagree : Tools.ShippingInstTagged.TagsAgree d.shape)
     (hbody : d.shape.body = quote d.dom
@@ -649,24 +916,40 @@ theorem core_kidsMixedM {c : Name} (d : MachineData) (ok : d.ok = true)
     (entry : MachineDefines mctx mref cctx cref c d.shape)
     (closes : MachineClosesAt mctx mref cctx cref c d.shape) :
     Tools.ShippingMachineShipsHier.kidsMixed (childMap D.modules) b.body = true := by
-  have hst := core_callStmtM (hagree := hagree) d ok hbody hC hslots hdomB hins hfne outTy hB hcore hpost entry
-    closes
-  refine kidsMixed_of fun mn iname conns hm => ?_
-  obtain ⟨mc, hmc, ⟨k, hk, y, hre, hmcy⟩, nIn, kI, n, names, args, outs, hcs⟩ :=
-    hst mn iname conns hm
-  have hCm : childMap D.modules mn = some (mc, Sparkle.IR.RegDedup.declWidth mc) :=
-    congrArg (fun o : Option Sparkle.IR.AST.Module =>
-      o.map fun g => (g, Sparkle.IR.RegDedup.declWidth g)) hmc
-  rcases hkidF k hk y hre with ⟨h1, h2⟩ | ⟨cb, aw, dw, hmem⟩
-  · left
-    rw [← hmcy] at h1 h2
-    exact kidsMasked_one hCm h1 h2
-  · right
-    rw [← hmcy] at hmem
-    rw [hmem] at hcs hCm
-    exact kidsMem_one hCm (mem_conns_noRdata hcs)
+  have cvK : ∀ {k : Nat} (hk : k < d.shape.insts.length) {y : Res},
+      Tools.ShippingInstTagged.KidT mref cref (Tools.ShippingInstTagged.originAt d.shape k) (d.shape.insts[k]).1 y →
+        Kid mref cref (d.shape.insts[k]).1 y :=
+    fun hk _ hy => Tools.ShippingInstTagged.kid_of_kidT hy (Tools.ShippingInstTagged.agree_at hagree hk)
+  apply core_kidsMixedMT (hkidF := fun k hk y hy => hkidF k hk y (cvK hk hy))
+  all_goals first | assumption | rfl
 
-/-- **The children's flat bound** (`core_kidsMixedM`). -/
+/-- **The children's flat bound** (`core_kidsMixedMT`). -/
+theorem kidsM_mixedT {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    {nDecl : Nat} (hC : d.callsOk nDecl = true)
+    (hslots : d.ss.length = d.shape.layout.slots.length)
+    (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
+    (hins : d.shape.insts ≠ [])
+    (hfne : d.shape.instFields ≠ [])
+    (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
+    (kidOuts : Nat → List OutField) (kidIns : Nat → List Nat) (n : Nat)
+    (hkid : ∀ (k : Nat) (hk : k < d.shape.insts.length),
+      KidFactsT mref cref (Tools.ShippingInstTagged.originAt d.shape k) (d.shape.insts[k]).1 (kidOuts k) (kidIns k) n)
+    {w w1 : Void IO.RealWorld} {M b : Sparkle.IR.AST.Module} {D : Design}
+    (hB : ChildBnd mref cref w)
+    (hcore : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, D) w1)
+    (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨
+      b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M))
+    (entry : MachineDefines mctx mref cctx cref c d.shape)
+    (closes : MachineClosesAt mctx mref cctx cref c d.shape) :
+    Tools.ShippingMachineShipsHier.kidsMixed (childMap D.modules) b.body = true :=
+  core_kidsMixedMT d ok hbody hC hslots hdomB hins hfne outTy
+    (fun k hk y hy => (hkid k hk).flat y hy)
+    hB hcore hpost entry closes
+
+/-- The `TagsAgree` form of `kidsM_mixedT` (statement unchanged; a corollary). -/
 theorem kidsM_mixed {c : Name} (d : MachineData) (ok : d.ok = true)
     (hagree : Tools.ShippingInstTagged.TagsAgree d.shape)
     (hbody : d.shape.body = quote d.dom
@@ -688,15 +971,67 @@ theorem kidsM_mixed {c : Name} (d : MachineData) (ok : d.ok = true)
       b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M))
     (entry : MachineDefines mctx mref cctx cref c d.shape)
     (closes : MachineClosesAt mctx mref cctx cref c d.shape) :
-    Tools.ShippingMachineShipsHier.kidsMixed (childMap D.modules) b.body = true :=
-  core_kidsMixedM (hagree := hagree) d ok hbody hC hslots hdomB hins hfne outTy
-    (fun k hk y hy => (hkid k hk).flat y hy)
-    hB hcore hpost entry closes
+    Tools.ShippingMachineShipsHier.kidsMixed (childMap D.modules) b.body = true := by
+  have cvK : ∀ {k : Nat} (hk : k < d.shape.insts.length) {y : Res},
+      Tools.ShippingInstTagged.KidT mref cref (Tools.ShippingInstTagged.originAt d.shape k) (d.shape.insts[k]).1 y →
+        Kid mref cref (d.shape.insts[k]).1 y :=
+    fun hk _ hy => Tools.ShippingInstTagged.kid_of_kidT hy (Tools.ShippingInstTagged.agree_at hagree hk)
+  apply kidsM_mixedT (hkid := fun k hk => (hkid k hk).toT (Tools.ShippingInstTagged.agree_at hagree hk))
+  all_goals first | assumption | rfl
 
 set_option maxHeartbeats 4000000 in
 /-- **`designCheck` of the shipped module at depth `n` with NO check
 premise**, from `KidFactsM` (`Tools.ShippingKidFacts.kids_designCheck`, its
 proof over the copies). -/
+theorem kidsM_designCheckT {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    {nDecl : Nat} (hC : d.callsOk nDecl = true)
+    (hslots : d.ss.length = d.shape.layout.slots.length)
+    (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
+    (hins : d.shape.insts ≠ [])
+    (hsl : d.shape.layout.slots ≠ [])
+    (hfne : d.shape.instFields ≠ [])
+    (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
+    (kidOuts : Nat → List OutField) (kidIns : Nat → List Nat) (n : Nat)
+    (hkid : ∀ (k : Nat) (hk : k < d.shape.insts.length),
+      KidFactsT mref cref (Tools.ShippingInstTagged.originAt d.shape k) (d.shape.insts[k]).1 (kidOuts k) (kidIns k) n)
+    (hcw : Tools.ShippingCallWidths.callWidthsOk d nDecl kidOuts = true)
+    (hargs : Tools.ShippingPortsMatchRaw.callArgsOk d nDecl kidIns = true)
+    {w w1 : Void IO.RealWorld} {M b : Sparkle.IR.AST.Module} {D : Design}
+    (hB : ChildBnd mref cref w)
+    (hcore : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, D) w1)
+    (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨
+      b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M))
+    (entry : MachineDefines mctx mref cctx cref c d.shape)
+    (closes : MachineClosesAt mctx mref cctx cref c d.shape)
+    (hon : ∀ o ∈ d.shape.layout.outs, Sparkle.Backend.Verilog.sanitizeName o.name = o.name)
+    (hoty : ∀ o ∈ d.shape.layout.outs, Tools.ShippingTextTyped.scalarTy o.ty = true) :
+    Tools.ShippingDesignSV.designCheck (childMap D.modules) n (checkedOptimize b) = true := by
+  have hkidW := hkidW_of_dataMT hcw (fun k hk y hy => (hkid k hk).outTys y hy)
+  have hraw : Tools.ShippingDesignSV.portsMatchB (childMap D.modules) b = true :=
+    core_portsMatch_rawMT d ok hbody hC hslots hdomB hins hfne outTy hkidW
+      (fun k hk y hy => (hkid k hk).portsIn y hy)
+      (kidIns := kidIns) hargs
+      (fun k hk y hy j q hq => (hkid k hk).inW y hy j q hq)
+      (fun k hk y hy hs => (hkid k hk).clk y hy hs)
+      hB hcore hpost entry closes hon hoty
+      (core_clkM d ok hbody hC hslots hdomB hins outTy hfne hsl hB hcore hpost entry closes)
+  have hports : Tools.ShippingDesignSV.portsMatchB (childMap D.modules) (checkedOptimize b) =
+      true :=
+    Tools.ShippingPortsMatchShipped.portsMatchB_shipped
+      (core_hierGateMT d ok hbody hC hslots hdomB hins hfne outTy hB hcore hpost entry closes)
+      hraw
+  have hkids := core_kidsPass_deepMT d ok hbody hC hslots hdomB hins hfne outTy n
+    (fun k hk y hy ms h1 h2 => (hkid k hk).check y hy ms h1 h2)
+    hB hcore hpost entry closes
+  exact core_designCheck_runMT d ok hbody hC hslots hdomB hins hsl hfne outTy
+    (fun k hk y hy => (hkid k hk).outsIn y hy)
+    hkidW hB hcore hpost entry closes hon hoty n hports hkids
+
+set_option maxHeartbeats 4000000 in
+/-- The `TagsAgree` form of `kidsM_designCheckT` (statement unchanged; a corollary). -/
 theorem kidsM_designCheck {c : Name} (d : MachineData) (ok : d.ok = true)
     (hagree : Tools.ShippingInstTagged.TagsAgree d.shape)
     (hbody : d.shape.body = quote d.dom
@@ -724,25 +1059,11 @@ theorem kidsM_designCheck {c : Name} (d : MachineData) (ok : d.ok = true)
     (hon : ∀ o ∈ d.shape.layout.outs, Sparkle.Backend.Verilog.sanitizeName o.name = o.name)
     (hoty : ∀ o ∈ d.shape.layout.outs, Tools.ShippingTextTyped.scalarTy o.ty = true) :
     Tools.ShippingDesignSV.designCheck (childMap D.modules) n (checkedOptimize b) = true := by
-  have hkidW := hkidW_of_dataM hcw (fun k hk y hy => (hkid k hk).outTys y hy)
-  have hraw : Tools.ShippingDesignSV.portsMatchB (childMap D.modules) b = true :=
-    core_portsMatch_rawM (hagree := hagree) d ok hbody hC hslots hdomB hins hfne outTy hkidW
-      (fun k hk y hy => (hkid k hk).portsIn y hy)
-      (kidIns := kidIns) hargs
-      (fun k hk y hy j q hq => (hkid k hk).inW y hy j q hq)
-      (fun k hk y hy hs => (hkid k hk).clk y hy hs)
-      hB hcore hpost entry closes hon hoty
-      (core_clkM d ok hbody hC hslots hdomB hins outTy hfne hsl hB hcore hpost entry closes)
-  have hports : Tools.ShippingDesignSV.portsMatchB (childMap D.modules) (checkedOptimize b) =
-      true :=
-    Tools.ShippingPortsMatchShipped.portsMatchB_shipped
-      (core_hierGateM (hagree := hagree) d ok hbody hC hslots hdomB hins hfne outTy hB hcore hpost entry closes)
-      hraw
-  have hkids := core_kidsPass_deepM (hagree := hagree) d ok hbody hC hslots hdomB hins hfne outTy n
-    (fun k hk y hy ms h1 h2 => (hkid k hk).check y hy ms h1 h2)
-    hB hcore hpost entry closes
-  exact core_designCheck_runM (hagree := hagree) d ok hbody hC hslots hdomB hins hsl hfne outTy
-    (fun k hk y hy => (hkid k hk).outsIn y hy)
-    hkidW hB hcore hpost entry closes hon hoty n hports hkids
+  have cvK : ∀ {k : Nat} (hk : k < d.shape.insts.length) {y : Res},
+      Tools.ShippingInstTagged.KidT mref cref (Tools.ShippingInstTagged.originAt d.shape k) (d.shape.insts[k]).1 y →
+        Kid mref cref (d.shape.insts[k]).1 y :=
+    fun hk _ hy => Tools.ShippingInstTagged.kid_of_kidT hy (Tools.ShippingInstTagged.agree_at hagree hk)
+  apply kidsM_designCheckT (hkid := fun k hk => (hkid k hk).toT (Tools.ShippingInstTagged.agree_at hagree hk))
+  all_goals first | assumption | rfl
 
 end Tools.ShippingMemKid

@@ -26,6 +26,35 @@ def memWidths? (c : Name) : Option (Bool × Nat × Nat) :=
   | .num (.num (.str (.str .anonymous "SparkleMem") "sync") aw) dw => some (false, aw, dw)
   | _ => none
 
+/-- **The memory parameters of call entry `k` by its stored ORIGIN** (origin-tag
+compiler): `some (cb, aw, dw)` exactly for an entry of origin `.mem cb aw dw`,
+whatever the callee's NAME (a declaration named as a memory placeholder has
+origin `.ord`). A missing tag is an error, never a default. -/
+def originMem? (shape : MachineShape) (k : Nat) : MetaM (Option (Bool × Nat × Nat)) := do
+  unless shape.instOrigins.length == shape.insts.length do
+    throwError "the shape has {shape.instOrigins.length} origins for {shape.insts.length} call entries"
+  match shape.instOrigins[k]? with
+  | some (.mem cb aw dw) => pure (some (cb, aw, dw))
+  | some _ => pure none
+  | none => throwError "call entry {k}: no origin tag"
+
+/-- Every call entry has a memory origin (the memory-only route). -/
+def allMemOrigins (shape : MachineShape) : MetaM Bool := do
+  let mut all := true
+  for k in [0:shape.insts.length] do
+    if (← originMem? shape k).isNone then all := false
+  pure all
+
+/-- The callees of the entries WITHOUT a memory origin (the sequential
+children), without repetition, in entry order. -/
+def seqCallees (shape : MachineShape) : MetaM (List Name) := do
+  let mut out : List Name := []
+  for k in [0:shape.insts.length] do
+    if (← originMem? shape k).isNone then
+      if let some (c, _, _) := shape.insts[k]? then
+        unless out.contains c do out := out ++ [c]
+  pure out
+
 /-- The tactic for the calls' premise: one case per call. -/
 def callsTactic (declName : Name) (insts : List (Name × List Nat × MixedGateBinder)) :
     MetaM Syntax := do

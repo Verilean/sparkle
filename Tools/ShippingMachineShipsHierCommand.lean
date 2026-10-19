@@ -39,8 +39,8 @@ inductive HierRoute | seq | mem
 
 def hierRoute (declName : Name) : MetaM HierRoute := do
   let r ← Tools.ShippingMachineCommand.readMachine declName
-  if r.shape.insts.all (fun (c, _, _) => (Tools.ShippingMachineMemCommand.memWidths? c).isSome)
-  then return .mem else return .seq
+  -- by the entries' ORIGINS, not their names
+  if ← Tools.ShippingMachineMemCommand.allMemOrigins r.shape then return .mem else return .seq
 
 /-- `machine_ships_hier` from the composed theorem `cName` (its premises after
 the run's eleven binders become the run boundary `Bnd`, in the run's

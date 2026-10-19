@@ -161,8 +161,9 @@ def generateCoreS (declName : Name) : MetaM Name := do
   let (headL, args, back?) ← endpointParts declName
   let pL := mkAppN (mkConst headL) args
   let calls := r.shape.insts
-  let seqKids := ((calls.map (·.1)).eraseDups.filter fun c =>
-    (Tools.ShippingMachineMemCommand.memWidths? c).isNone)
+  -- the sequential children: the callees of the entries WITHOUT a memory
+  -- ORIGIN (a declaration named as a memory placeholder is one)
+  let seqKids ← Tools.ShippingMachineMemCommand.seqCallees r.shape
   -- each sequential child's own theorem at the full entry
   let mut seqRuns : Std.HashMap Name Name := {}
   for c in seqKids do
@@ -257,7 +258,7 @@ def generateCoreS (declName : Name) : MetaM Name := do
       let some (c, argsK, _) := calls[k]? | throwError "{declName}: call {k}"
       let goalK := ((rest.bindingBody!.instantiate1 (mkNatLit k)).bindingBody!.instantiate1
         (toExpr c)).bindingBody!
-      let proofK ← match Tools.ShippingMachineMemCommand.memWidths? c with
+      let proofK ← match ← Tools.ShippingMachineMemCommand.originMem? r.shape k with
         | some (cb, aw, dw) =>
           proveByTacticT goalK (do pure (← memTactic k cb aw dw argsK))
         | none => try do
@@ -397,7 +398,7 @@ def generateS (declName : Name) : MetaM Name := do
 (`generateS`). -/
 def generateAny (declName : Name) : MetaM Name := do
   let r ← readMachine declName
-  if r.shape.insts.all (fun (c, _, _) => (Tools.ShippingMachineMemCommand.memWidths? c).isSome) then
+  if ← Tools.ShippingMachineMemCommand.allMemOrigins r.shape then
     Tools.ShippingMachineMemCommand.generate declName
   else generateS declName
 

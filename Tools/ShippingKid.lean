@@ -106,6 +106,40 @@ theorem tagsAgree_of_nomem {shape : MachineShape}
   | field i => exact h2
   | mem cb aw dw => simp [Sparkle.Compiler.MachInstOrigin.InstOrigin.child?] at h1
 
+/-! ## The origin-based kid (`originAt`, `KidT`; MOVED here from `Tools/ShippingInstTagged.lean`,
+definitions and proofs unchanged, so the `core_*M` chain can state its kids by ORIGIN) -/
+
+open Tools.ShippingChildInv in
+/-- The origin of entry `k` as the closing reads it (`.ord` when unrecorded). -/
+abbrev originAt (shape : MachineShape) (k : Nat) : InstOrigin :=
+  shape.instOrigins.getD k .ord
+
+open Tools.ShippingChildInv
+
+/-- **A call entry's child as the patched general closing takes it**: the
+built memory module when the ORIGIN is a memory, a real child of the entry's
+declaration otherwise — whatever the declaration's name. -/
+def KidT (mref : ST.Ref IO.RealWorld Meta.State) (cref : ST.Ref IO.RealWorld Core.State)
+    (o : InstOrigin) (c : Name) (y : Res) : Prop :=
+  o.child? = some y ∨ (o.child? = none ∧ RealChild mref cref c y)
+
+variable {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
+
+theorem KidT.real {o : InstOrigin} {c : Name} {y : Res} (h : KidT mref cref o c y)
+    (ho : o.child? = none) : RealChild mref cref c y := by
+  rcases h with h | ⟨-, h⟩
+  · rw [ho] at h
+    cases h
+  · exact h
+
+theorem KidT.mem {o : InstOrigin} {c : Name} {y md : Res} (h : KidT mref cref o c y)
+    (ho : o.child? = some md) : y = md := by
+  rcases h with h | ⟨hn, -⟩
+  · rw [ho] at h
+    exact (Option.some.inj h).symm
+  · rw [ho] at hn
+    cases hn
+
 end Tools.ShippingInstTagged
 
 namespace Tools.ShippingMemKid
@@ -171,6 +205,17 @@ theorem kidT_of {shape : MachineShape} {children : List Res} {k : Nat}
       rw [Option.some.inj h1]
       exact Or.inl rfl
 
+/-- **`kidT_of` in `KidT` form**: a child of the general closing's run is the
+tag-based kid of its entry (no name condition). -/
+theorem kidT_ofO {shape : MachineShape} {children : List Res} {k : Nat}
+    (hk : k < shape.insts.length) (hMC : MemChildren shape children) {y : Res}
+    (hy : children[k]? = some y)
+    (hor : (shape.instOrigins.getD k .ord).child? = some y ∨
+      RealChild mref cref (shape.insts[k]).1 y) :
+    Tools.ShippingInstTagged.KidT mref cref (Tools.ShippingInstTagged.originAt shape k)
+      (shape.insts[k]).1 y :=
+  kidT_of hk hMC hy hor
+
 /-- A kid of a declaration that is not a memory placeholder is a real child. -/
 theorem Kid.real {c : Name} {y : Res} (h : Kid mref cref c y)
     (hc : Sparkle.Compiler.MachMemory.memChild? c = none) : RealChild mref cref c y := by
@@ -230,3 +275,32 @@ theorem kid_of_real {shape : MachineShape}
   Or.inr (And.intro (nomem_name hnomem hk) h)
 
 end Tools.ShippingCoreFromM
+
+namespace Tools.ShippingInstTagged
+open Lean
+open Sparkle.Compiler.MachInstOrigin (InstOrigin)
+open Tools.ShippingChildInv
+
+variable {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
+
+/-- **The name-based `Kid` from the tag-based one**, for an entry whose name
+decodes to what its origin builds (`memChild? c = o.child?`). This is a
+per-entry DATA condition, decided on the shape — it fails exactly for a
+collision (a declaration carrying a memory placeholder name), which the
+patched compiler compiles; theorems that ask it do not cover such shapes. -/
+theorem kid_of_kidT {o : InstOrigin} {c : Name} {y : Res} (h : KidT mref cref o c y)
+    (hagree : Sparkle.Compiler.MachMemory.memChild? c = o.child?) :
+    Tools.ShippingMemKid.Kid mref cref c y := by
+  unfold Tools.ShippingMemKid.Kid
+  rw [hagree]
+  exact h
+
+/-- The converse: a name-based `Kid` is the tag-based kid when the name decodes
+to what the origin builds. -/
+theorem kidT_of_kid {o : InstOrigin} {c : Name} {y : Res} (h : Tools.ShippingMemKid.Kid mref cref c y)
+    (hagree : Sparkle.Compiler.MachMemory.memChild? c = o.child?) : KidT mref cref o c y := by
+  unfold Tools.ShippingMemKid.Kid at h
+  rw [hagree] at h
+  exact h
+
+end Tools.ShippingInstTagged

@@ -108,12 +108,11 @@ variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
   {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
 
 set_option maxHeartbeats 4000000 in
-/-- `core_hierGateM` over `MachineRan`: the TAIL of the built proof, moved (round par/g-1).
+/-- `core_hierGateMT` over `MachineRan`: the TAIL of the built proof, moved (round par/g-1).
 What it takes of the run is that the machine synthesis this core run performed
-returned `(M, D)` from an invariant world; `core_hierGateM` below is its instance at the
+returned `(M, D)` from an invariant world; `core_hierGateMT` below is its instance at the
 all-worlds closing (`Tools.ShippingMachineRan.machineRan_of_closes`). -/
-theorem core_hierGateM_ran {c : Name} (d : MachineData) (ok : d.ok = true)
-    (hagree : Tools.ShippingInstTagged.TagsAgree d.shape)
+theorem core_hierGateM_ranT {c : Name} (d : MachineData) (ok : d.ok = true)
     (hbody : d.shape.body = quote d.dom
       (fun j => inputExpr d.shape.binders.length (d.bpos j))
       (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
@@ -129,7 +128,7 @@ theorem core_hierGateM_ran {c : Name} (d : MachineData) (ok : d.ok = true)
     (ran : Tools.ShippingMachineRan.MachineRan mctx mref cctx cref c d.shape M D) :
     Sparkle.IR.RefineCheck.hierGate b = true := by
   have hbody' : b.body = M.body :=
-    (core_kids_factsM_ran (hagree := hagree) d ok hbody hC hslots hdomB hins outTy hfne hpost ran).2.1
+    (core_kids_factsM_ranT d ok hbody hC hslots hdomB hins outTy hfne hpost ran).2.1
   have ran0 := ran
   obtain ⟨_, bb, w9, w10, hrun9, hw9, -⟩ := ran0
   obtain ⟨t, t', d₀, run, hcl, hmt⟩ := synthesizeMachineCertified_runs hw9 hrun9
@@ -156,9 +155,57 @@ theorem core_hierGateM_ran {c : Name} (d : MachineData) (ok : d.ok = true)
     · exact Or.inl (List.all_eq_true.mp hLinst _ h0)
 
 set_option maxHeartbeats 4000000 in
+/-- The `TagsAgree` form of `core_hierGateM_ranT` (statement unchanged; a corollary). -/
+theorem core_hierGateM_ran {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hagree : Tools.ShippingInstTagged.TagsAgree d.shape)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    {nDecl : Nat} (hC : d.callsOk nDecl = true)
+    (hslots : d.ss.length = d.shape.layout.slots.length)
+    (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
+    (hins : d.shape.insts ≠ [])
+    (hfne : d.shape.instFields ≠ [])
+    (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
+    {M b : Sparkle.IR.AST.Module} {D : Design}
+    (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨
+      b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M))
+    (ran : Tools.ShippingMachineRan.MachineRan mctx mref cctx cref c d.shape M D) :
+    Sparkle.IR.RefineCheck.hierGate b = true := by
+  have cvK : ∀ {k : Nat} (hk : k < d.shape.insts.length) {y : Res},
+      Tools.ShippingInstTagged.KidT mref cref (Tools.ShippingInstTagged.originAt d.shape k) (d.shape.insts[k]).1 y →
+        Kid mref cref (d.shape.insts[k]).1 y :=
+    fun hk _ hy => Tools.ShippingInstTagged.kid_of_kidT hy (Tools.ShippingInstTagged.agree_at hagree hk)
+  apply core_hierGateM_ranT
+  all_goals first | assumption | rfl
+
+set_option maxHeartbeats 4000000 in
 /-- **The statement-kind gate of the hierarchical check**: the full entry's
 module has an instance statement, and every statement is an instance, an
 assignment or a register. -/
+theorem core_hierGateMT {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    {nDecl : Nat} (hC : d.callsOk nDecl = true)
+    (hslots : d.ss.length = d.shape.layout.slots.length)
+    (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
+    (hins : d.shape.insts ≠ [])
+    (hfne : d.shape.instFields ≠ [])
+    (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
+    {w w1 : Void IO.RealWorld} {M b : Sparkle.IR.AST.Module} {D : Design}
+    (hB : ChildBnd mref cref w)
+    (hcore : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, D) w1)
+    (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨
+      b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M))
+    (entry : MachineDefines mctx mref cctx cref c d.shape)
+    (closes : MachineClosesAt mctx mref cctx cref c d.shape) :
+    Sparkle.IR.RefineCheck.hierGate b = true :=
+  core_hierGateM_ranT d ok hbody hC hslots hdomB hins hfne outTy hpost
+    (Tools.ShippingMachineRan.machineRan_of_closes hcore entry hB closes)
+
+set_option maxHeartbeats 4000000 in
+/-- The `TagsAgree` form of `core_hierGateMT` (statement unchanged; a corollary). -/
 theorem core_hierGateM {c : Name} (d : MachineData) (ok : d.ok = true)
     (hagree : Tools.ShippingInstTagged.TagsAgree d.shape)
     (hbody : d.shape.body = quote d.dom
@@ -177,9 +224,13 @@ theorem core_hierGateM {c : Name} (d : MachineData) (ok : d.ok = true)
       b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M))
     (entry : MachineDefines mctx mref cctx cref c d.shape)
     (closes : MachineClosesAt mctx mref cctx cref c d.shape) :
-    Sparkle.IR.RefineCheck.hierGate b = true :=
-  core_hierGateM_ran (hagree := hagree) d ok hbody hC hslots hdomB hins hfne outTy hpost
-    (Tools.ShippingMachineRan.machineRan_of_closes hcore entry hB closes)
+    Sparkle.IR.RefineCheck.hierGate b = true := by
+  have cvK : ∀ {k : Nat} (hk : k < d.shape.insts.length) {y : Res},
+      Tools.ShippingInstTagged.KidT mref cref (Tools.ShippingInstTagged.originAt d.shape k) (d.shape.insts[k]).1 y →
+        Kid mref cref (d.shape.insts[k]).1 y :=
+    fun hk _ hy => Tools.ShippingInstTagged.kid_of_kidT hy (Tools.ShippingInstTagged.agree_at hagree hk)
+  apply core_hierGateMT
+  all_goals first | assumption | rfl
 
 set_option maxHeartbeats 4000000 in
 /-- `core_callPortsM` over `MachineRan`: the TAIL of the built proof, moved (round par/g-1).
@@ -342,6 +393,165 @@ theorem core_callPortsM_ran {c : Name} (d : MachineData) (ok : d.ok = true)
       by rw [← hget, hdw, hty]⟩
 
 set_option maxHeartbeats 4000000 in
+/-- `core_callPortsMT` over `MachineRan`: the TAIL of the built proof, moved (round par/g-1).
+What it takes of the run is that the machine synthesis this core run performed
+returned `(M, D)` from an invariant world; `core_callPortsMT` below is its instance at the
+all-worlds closing (`Tools.ShippingMachineRan.machineRan_of_closes`). -/
+theorem core_callPortsM_ranT {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    {nDecl : Nat} (hC : d.callsOk nDecl = true)
+    (hslots : d.ss.length = d.shape.layout.slots.length)
+    (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
+    (hins : d.shape.insts ≠ [])
+    (hfne : d.shape.instFields ≠ [])
+    (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
+    (hkidP : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
+      Tools.ShippingInstTagged.KidT mref cref (Tools.ShippingInstTagged.originAt d.shape k) (d.shape.insts[k]).1 y →
+      ∀ p ∈ y.1.outputs, (∀ q ∈ inPortsOf y.1, q.name ≠ p.name) ∧ p.name ≠ "clk" ∧
+        p.name ≠ "rst")
+    {M b : Sparkle.IR.AST.Module} {D : Design}
+    (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨
+      b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M))
+    (ran : Tools.ShippingMachineRan.MachineRan mctx mref cctx cref c d.shape M D) :
+    ∀ mn iname conns, Stmt.inst mn iname conns ∈ b.body →
+      ∃ mc, moduleByName D.modules mn = some mc ∧
+        ∀ p ∈ mc.outputs, ∀ x, (p.name, Sparkle.IR.AST.Expr.ref x) ∈ conns →
+          ∃ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
+            Tools.ShippingInstTagged.KidT mref cref (Tools.ShippingInstTagged.originAt d.shape k) (d.shape.insts[k]).1 y ∧ mc = y.1 ∧
+            p.name = d.shape.instFields.getD k "" ∧
+            ∃ bn, d.shape.binders[nDecl + k]? = some bn ∧
+              Sparkle.IR.RegDedup.declWidth b x = (kindTy bn.2).bitWidth := by
+  have hbody' : b.body = M.body :=
+    (core_kids_factsM_ranT d ok hbody hC hslots hdomB hins outTy hfne hpost ran).2.1
+  -- the cleanup and the checked merge keep the non-zero wires and add none
+  have hbw : ∀ p ∈ M.wires, p.ty.bitWidth ≠ 0 → p ∈ b.wires := by
+    intro p hp hz
+    rcases hpost with h | h
+    · rw [h]
+      exact Tools.ShippingOutsExtractedParts.dropZW_wires hp hz
+    · rw [h, (Sparkle.IR.RefineCheck.mergeChecked_ports _).2.2]
+      exact Tools.ShippingOutsExtractedParts.dropZW_wires hp hz
+  have hbsub : ∀ p ∈ b.wires, p ∈ M.wires := by
+    intro p hp
+    rcases hpost with h | h
+    · rw [h] at hp
+      exact Tools.ShippingInstWidthsParts.dropZW_wires_sub M p hp
+    · rw [h, (Sparkle.IR.RefineCheck.mergeChecked_ports _).2.2] at hp
+      exact Tools.ShippingInstWidthsParts.dropZW_wires_sub M p hp
+  -- the run
+  have ran0 := ran
+  obtain ⟨_, bb, w9, w10, hrun9, hw9, -⟩ := ran0
+  obtain ⟨t, t', d₀, run, hcl, hmt⟩ := synthesizeMachineCertified_runs hw9 hrun9
+  rcases hmt with ⟨hno, -, -⟩ | ⟨-, children, hcc, hreal⟩
+  · exact absurd hno hins
+  have hMC : MemChildren d.shape children := by
+    rcases hcc with ⟨hf0, -⟩ | ⟨-, -, h⟩
+    · exact absurd hf0 hfne
+    · exact h
+  obtain ⟨hMw, -, -, L, hLinst, hperm, -, -, -, -, -, -, -⟩ := hcc.some
+  rcases hcc with ⟨hf0, -⟩ | ⟨-, hG, -⟩
+  · exact absurd hf0 hfne
+  obtain ⟨hseq0, -, -⟩ := closedBody_kinds_of_run d ok hbody hC hslots hdomB run hcl
+  obtain ⟨PI, ls, hin, hPI, hlsL, hndI, hinW, hregs⟩ :=
+    Tools.ShippingClosedPorts.closedPorts_of_run d ok hbody hC hslots hdomB run hcl
+  obtain ⟨hwnd, hwal, hinWt, P1, P2, hsp, hP2d, hP2len, hP2ty⟩ :=
+    Tools.ShippingTransitionPortTys.transitionPortTys_of_run d ok hbody hC hslots hdomB run
+  have hls : P2 = ls := (List.append_inj' (hsp.symm.trans hin) (by omega)).2
+  obtain ⟨hlenC, hallC⟩ := hreal
+  intro mn iname conns hst
+  rw [hbody'] at hst
+  rcases Tools.ShippingMachineInstG.closeInstsG_insts hG _ hst rfl with
+    h0 | ⟨args, outs, child, mc, hcs, hfind, hne0, hall⟩
+  · exact Tools.ShippingChecksDerived.ff_absurd (List.all_eq_true.mp hseq0 _ h0)
+  -- every entry of the group is a call of a real child whose module is `mc`
+  have hrealE : ∀ e ∈ outs, ∃ (hk : e.1 < d.shape.insts.length) (y : Res),
+      Tools.ShippingInstTagged.KidT mref cref (Tools.ShippingInstTagged.originAt d.shape e.1) (d.shape.insts[e.1]).1 y ∧ mc = y.1 := by
+    intro e he
+    obtain ⟨hargs0, hch0, -⟩ := hall e he
+    have hk0 : e.1 < d.shape.insts.length := by
+      have := (List.getElem?_eq_some_iff.mp hargs0).1
+      simpa using this
+    obtain ⟨y, hy, hor⟩ := hallC e.1 hk0
+    rw [hy] at hch0
+    have hyn : y.1.name = child.1.name := by
+      simpa only [Option.map_some, Option.some.injEq] using hch0
+    have hre := kidT_ofO hk0 hMC hy hor
+    · have hyfind :=
+        ((Tools.ShippingMachineInstG.closeInstsG_names hG).2.2.2 y
+          (List.mem_of_getElem? hy)).1
+      rw [hyn, hfind] at hyfind
+      exact ⟨hk0, y, hre, Option.some.inj hyfind⟩
+  obtain ⟨e0, he0⟩ : ∃ e0, e0 ∈ outs := by
+    cases outs with
+    | nil => exact absurd rfl hne0
+    | cons a rest => exact ⟨a, List.Mem.head _⟩
+  obtain ⟨hk0, y0, hre0, hmcy0⟩ := hrealE e0 he0
+  have hap : ∀ p ∈ mc.outputs, (∀ q ∈ inPortsOf mc, q.name ≠ p.name) ∧
+      p.name ≠ "clk" ∧ p.name ≠ "rst" := by
+    rw [hmcy0]
+    exact hkidP e0.1 hk0 y0 hre0
+  have hmn : mn = mc.name := Tools.ShippingOutsExtractedParts.callStmtG_name hcs
+  have hfind' : moduleByName D.modules mn = some mc := by
+    rw [hmn, (Tools.ShippingHierPremisesBase.moduleByName_mem hfind).2]
+    exact hfind
+  refine ⟨mc, hfind', ?_⟩
+  intro p hp x hpc
+  obtain ⟨hpin, hclk, hrst⟩ := hap p hp
+  obtain ⟨e, he, hget, hef⟩ :=
+    Tools.ShippingInstWidthsParts.callStmtG_outWireF hcs hpin hclk hrst hpc
+  obtain ⟨hke, y, hre, hmcy⟩ := hrealE e he
+  obtain ⟨-, -, hfld⟩ := hall e he
+  -- the call port: a transition input, of its binder's type
+  rw [List.getElem?_map] at hget
+  cases hq : t.inputs[machNIn d.shape + e.1]? with
+  | none =>
+    rw [hq] at hget
+    cases hget
+  | some q =>
+    rw [hq] at hget
+    simp only [Option.map_some, Option.some.injEq] at hget
+    have hqm : q ∈ t.inputs := List.mem_of_getElem? hq
+    obtain ⟨hqw, hqz⟩ := hinW q hqm
+    have hql : ls[e.1]? = some q := by
+      have h1 : (PI ++ ls)[PI.length + e.1]? = some q := by
+        rw [← hin, hPI]
+        exact hq
+      rw [List.getElem?_append_right (Nat.le_add_right _ _)] at h1
+      have h2 : PI.length + e.1 - PI.length = e.1 := by omega
+      rw [h2] at h1
+      exact h1
+    have hlt : e.1 < (d.shape.binders.drop nDecl).length := by
+      rw [← hP2d, hls]
+      exact (List.getElem?_eq_some_iff.mp hql).1
+    have hbn : (d.shape.binders.drop nDecl)[e.1]? = some (d.shape.binders.drop nDecl)[e.1] :=
+      List.getElem?_eq_getElem hlt
+    have hty : q.ty = kindTy ((d.shape.binders.drop nDecl)[e.1]).2 :=
+      hP2ty e.1 q _ (by rw [hls]; exact hql) hbn
+    have hbn' : d.shape.binders[nDecl + e.1]? = some (d.shape.binders.drop nDecl)[e.1] := by
+      rw [← List.getElem?_drop]
+      exact hbn
+    -- its declared width in `b`: `q` is the only wire of its name
+    have huniq : ∀ r ∈ b.wires, r.name = q.name → r = q := by
+      intro r hr hrn
+      have hrM : r ∈ M.wires := hbsub r hr
+      rw [hMw] at hrM
+      rcases Tools.ShippingTransitionPortTys.closeMachine_wires_sup _ _ r hrM with h1 | ⟨z, h1⟩
+      · rw [Tools.ShippingTransitionPortTys.closeLets_wires hcl] at h1
+        exact Tools.ShippingTransitionPortTys.port_of_name hwnd h1 (hinWt q hqm) hrn
+      · have hal : Sparkle.IR.NameHints.Allocated (nextName z) := by
+          rw [← h1, hrn]
+          exact hwal q (hinWt q hqm)
+        exact absurd hal (Tools.ShippingMachineClose.nextName_not_allocated z)
+    have hdw : Sparkle.IR.RegDedup.declWidth b q.name = q.ty.bitWidth :=
+      Tools.ShippingInstWidthsParts.declWidth_of_unique (nm := q.name) (ty := q.ty)
+        (hbw q (by rw [hMw]; exact hqw) hqz) huniq
+        (by rw [hty]; exact Tools.ShippingTransitionPortTys.kindTy_shape _)
+    exact ⟨e.1, hke, y, hre, hmcy, by rw [← hef, hfld], _, hbn',
+      by rw [← hget, hdw, hty]⟩
+
+set_option maxHeartbeats 4000000 in
 /-- **The output connections of the full entry's instances**: each is the
 connection of a call entry `k` — the instance's module a real child's, the
 port the entry's field — and its wire is declared at the width of the type
@@ -377,6 +587,43 @@ theorem core_callPortsM {c : Name} (d : MachineData) (ok : d.ok = true)
             ∃ bn, d.shape.binders[nDecl + k]? = some bn ∧
               Sparkle.IR.RegDedup.declWidth b x = (kindTy bn.2).bitWidth :=
   core_callPortsM_ran (hagree := hagree) d ok hbody hC hslots hdomB hins hfne outTy hkidP hpost
+    (Tools.ShippingMachineRan.machineRan_of_closes hcore entry hB closes)
+
+set_option maxHeartbeats 4000000 in
+/-- **The output connections of the full entry's instances**: each is the
+connection of a call entry `k` — the instance's module a real child's, the
+port the entry's field — and its wire is declared at the width of the type
+of the call's binder. -/
+theorem core_callPortsMT {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    {nDecl : Nat} (hC : d.callsOk nDecl = true)
+    (hslots : d.ss.length = d.shape.layout.slots.length)
+    (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
+    (hins : d.shape.insts ≠ [])
+    (hfne : d.shape.instFields ≠ [])
+    (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
+    (hkidP : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
+      Tools.ShippingInstTagged.KidT mref cref (Tools.ShippingInstTagged.originAt d.shape k) (d.shape.insts[k]).1 y →
+      ∀ p ∈ y.1.outputs, (∀ q ∈ inPortsOf y.1, q.name ≠ p.name) ∧ p.name ≠ "clk" ∧
+        p.name ≠ "rst")
+    {w w1 : Void IO.RealWorld} {M b : Sparkle.IR.AST.Module} {D : Design}
+    (hB : ChildBnd mref cref w)
+    (hcore : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, D) w1)
+    (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨
+      b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M))
+    (entry : MachineDefines mctx mref cctx cref c d.shape)
+    (closes : MachineClosesAt mctx mref cctx cref c d.shape) :
+    ∀ mn iname conns, Stmt.inst mn iname conns ∈ b.body →
+      ∃ mc, moduleByName D.modules mn = some mc ∧
+        ∀ p ∈ mc.outputs, ∀ x, (p.name, Sparkle.IR.AST.Expr.ref x) ∈ conns →
+          ∃ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
+            Tools.ShippingInstTagged.KidT mref cref (Tools.ShippingInstTagged.originAt d.shape k) (d.shape.insts[k]).1 y ∧ mc = y.1 ∧
+            p.name = d.shape.instFields.getD k "" ∧
+            ∃ bn, d.shape.binders[nDecl + k]? = some bn ∧
+              Sparkle.IR.RegDedup.declWidth b x = (kindTy bn.2).bitWidth :=
+  core_callPortsM_ranT d ok hbody hC hslots hdomB hins hfne outTy hkidP hpost
     (Tools.ShippingMachineRan.machineRan_of_closes hcore entry hB closes)
 
 end Tools.ShippingMemKid

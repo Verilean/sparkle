@@ -31,9 +31,7 @@ open Sparkle.Compiler.Elab
 open Sparkle.Compiler.MachInstOrigin
 open Tools.ShippingChildInv
 
-/-- The origin of entry `k` as the closing reads it (`.ord` when unrecorded). -/
-abbrev originAt (shape : MachineShape) (k : Nat) : InstOrigin :=
-  shape.instOrigins.getD k .ord
+-- `originAt` is in `Tools/ShippingKid.lean` (same namespace), below the `core_*M` chain.
 
 theorem instTagged_length (shape : MachineShape) :
     shape.instTagged.length = shape.insts.length := by
@@ -127,41 +125,11 @@ theorem child?_of_not_mem {o : InstOrigin} (h : ∀ cb aw dw, o ≠ .mem cb aw d
   | field i => rfl
   | mem cb aw dw => exact absurd rfl (h cb aw dw)
 
-/-- **A call entry's child as the patched general closing takes it**: the
-built memory module when the ORIGIN is a memory, a real child of the entry's
-declaration otherwise — whatever the declaration's name. -/
-def KidT (mref : ST.Ref IO.RealWorld Meta.State) (cref : ST.Ref IO.RealWorld Core.State)
-    (o : InstOrigin) (c : Name) (y : Res) : Prop :=
-  o.child? = some y ∨ (o.child? = none ∧ RealChild mref cref c y)
+-- `KidT`, `KidT.real`, `KidT.mem`, `kid_of_kidT` are in `Tools/ShippingKid.lean`
+-- (same namespace), so the `core_*M` chain below `ShippingChecksCore` can state
+-- its kids by origin.
 
 variable {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
-
-theorem KidT.real {o : InstOrigin} {c : Name} {y : Res} (h : KidT mref cref o c y)
-    (ho : o.child? = none) : RealChild mref cref c y := by
-  rcases h with h | ⟨-, h⟩
-  · rw [ho] at h
-    cases h
-  · exact h
-
-theorem KidT.mem {o : InstOrigin} {c : Name} {y md : Res} (h : KidT mref cref o c y)
-    (ho : o.child? = some md) : y = md := by
-  rcases h with h | ⟨hn, -⟩
-  · rw [ho] at h
-    exact (Option.some.inj h).symm
-  · rw [ho] at hn
-    cases hn
-
-/-- **The name-based `Kid` from the tag-based one**, for an entry whose name
-decodes to what its origin builds (`memChild? c = o.child?`). This is a
-per-entry DATA condition, decided on the shape — it fails exactly for a
-collision (a declaration carrying a memory placeholder name), which the
-patched compiler compiles; theorems that ask it do not cover such shapes. -/
-theorem kid_of_kidT {o : InstOrigin} {c : Name} {y : Res} (h : KidT mref cref o c y)
-    (hagree : Sparkle.Compiler.MachMemory.memChild? c = o.child?) :
-    Tools.ShippingMemKid.Kid mref cref c y := by
-  unfold Tools.ShippingMemKid.Kid
-  rw [hagree]
-  exact h
 
 /-! ## `TagsAgree` (`tagAgrees`, `memChild_ofName`, `memChild_of_tagAgrees`,
 `agree_at`, `tagsAgree_of_nomem`) is in `Tools/ShippingKid.lean`, same namespace,

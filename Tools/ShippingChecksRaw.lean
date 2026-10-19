@@ -152,12 +152,11 @@ variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
   {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
 
 set_option maxHeartbeats 4000000 in
-/-- `core_raw_factsM` over `MachineRan`: the TAIL of the built proof, moved (round par/g-1).
+/-- `core_raw_factsMT` over `MachineRan`: the TAIL of the built proof, moved (round par/g-1).
 What it takes of the run is that the machine synthesis this core run performed
-returned `(M, D)` from an invariant world; `core_raw_factsM` below is its instance at the
+returned `(M, D)` from an invariant world; `core_raw_factsMT` below is its instance at the
 all-worlds closing (`Tools.ShippingMachineRan.machineRan_of_closes`). -/
-theorem core_raw_factsM_ran {c : Name} (d : MachineData) (ok : d.ok = true)
-    (hagree : Tools.ShippingInstTagged.TagsAgree d.shape)
+theorem core_raw_factsM_ranT {c : Name} (d : MachineData) (ok : d.ok = true)
     (hbody : d.shape.body = quote d.dom
       (fun j => inputExpr d.shape.binders.length (d.bpos j))
       (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
@@ -228,7 +227,7 @@ theorem core_raw_factsM_ran {c : Name} (d : MachineData) (ok : d.ok = true)
   obtain ⟨hndM, hsfM⟩ := hG14 hfne
   obtain ⟨outWs, extra, houtWs, -, -, hMin⟩ := hInputs
   have hbody' : b.body = M.body :=
-    (core_kids_factsM_ran (hagree := hagree) d ok hbody hC hslots hdomB hins outTy hfne hpost ran).2.1
+    (core_kids_factsM_ranT d ok hbody hC hslots hdomB hins outTy hfne hpost ran).2.1
   have hbin : b.inputs = M.inputs := by
     rcases hpost with h | h
     · rw [h]
@@ -257,9 +256,63 @@ theorem core_raw_factsM_ran {c : Name} (d : MachineData) (ok : d.ok = true)
     exact noSelfRead_of_feed hsfM
 
 set_option maxHeartbeats 4000000 in
+/-- The `TagsAgree` form of `core_raw_factsM_ranT` (statement unchanged; a corollary). -/
+theorem core_raw_factsM_ran {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hagree : Tools.ShippingInstTagged.TagsAgree d.shape)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    {nDecl : Nat} (hC : d.callsOk nDecl = true)
+    (hslots : d.ss.length = d.shape.layout.slots.length)
+    (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
+    (hins : d.shape.insts ≠ [])
+    (hsl : d.shape.layout.slots ≠ [])
+    (hfne : d.shape.instFields ≠ [])
+    (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
+    {M b : Sparkle.IR.AST.Module} {D : Design}
+    (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨
+      b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M))
+    (ran : Tools.ShippingMachineRan.MachineRan mctx mref cctx cref c d.shape M D) :
+    "rst" ∈ b.inputs.map (·.name) ∧
+    (Tools.ShippingHierState.instNames b.body).Nodup ∧
+    Tools.ShippingHierPremisesBase.noSelfRead (childMap D.modules) b.body = true := by
+  have cvK : ∀ {k : Nat} (hk : k < d.shape.insts.length) {y : Res},
+      Tools.ShippingInstTagged.KidT mref cref (Tools.ShippingInstTagged.originAt d.shape k) (d.shape.insts[k]).1 y →
+        Kid mref cref (d.shape.insts[k]).1 y :=
+    fun hk _ hy => Tools.ShippingInstTagged.kid_of_kidT hy (Tools.ShippingInstTagged.agree_at hagree hk)
+  apply core_raw_factsM_ranT
+  all_goals first | assumption | rfl
+
+set_option maxHeartbeats 4000000 in
 /-- **The reset input, the distinct instance names and the self-read test of
 the full entry's module**, from the core run of a machine with calls closed
 by `closeInstsG` and with a register. -/
+theorem core_raw_factsMT {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    {nDecl : Nat} (hC : d.callsOk nDecl = true)
+    (hslots : d.ss.length = d.shape.layout.slots.length)
+    (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
+    (hins : d.shape.insts ≠ [])
+    (hsl : d.shape.layout.slots ≠ [])
+    (hfne : d.shape.instFields ≠ [])
+    (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
+    {w w1 : Void IO.RealWorld} {M b : Sparkle.IR.AST.Module} {D : Design}
+    (hB : ChildBnd mref cref w)
+    (hcore : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, D) w1)
+    (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨
+      b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M))
+    (entry : MachineDefines mctx mref cctx cref c d.shape)
+    (closes : MachineClosesAt mctx mref cctx cref c d.shape) :
+    "rst" ∈ b.inputs.map (·.name) ∧
+    (Tools.ShippingHierState.instNames b.body).Nodup ∧
+    Tools.ShippingHierPremisesBase.noSelfRead (childMap D.modules) b.body = true :=
+  core_raw_factsM_ranT d ok hbody hC hslots hdomB hins hsl hfne outTy hpost
+    (Tools.ShippingMachineRan.machineRan_of_closes hcore entry hB closes)
+
+set_option maxHeartbeats 4000000 in
+/-- The `TagsAgree` form of `core_raw_factsMT` (statement unchanged; a corollary). -/
 theorem core_raw_factsM {c : Name} (d : MachineData) (ok : d.ok = true)
     (hagree : Tools.ShippingInstTagged.TagsAgree d.shape)
     (hbody : d.shape.body = quote d.dom
@@ -281,9 +334,13 @@ theorem core_raw_factsM {c : Name} (d : MachineData) (ok : d.ok = true)
     (closes : MachineClosesAt mctx mref cctx cref c d.shape) :
     "rst" ∈ b.inputs.map (·.name) ∧
     (Tools.ShippingHierState.instNames b.body).Nodup ∧
-    Tools.ShippingHierPremisesBase.noSelfRead (childMap D.modules) b.body = true :=
-  core_raw_factsM_ran (hagree := hagree) d ok hbody hC hslots hdomB hins hsl hfne outTy hpost
-    (Tools.ShippingMachineRan.machineRan_of_closes hcore entry hB closes)
+    Tools.ShippingHierPremisesBase.noSelfRead (childMap D.modules) b.body = true := by
+  have cvK : ∀ {k : Nat} (hk : k < d.shape.insts.length) {y : Res},
+      Tools.ShippingInstTagged.KidT mref cref (Tools.ShippingInstTagged.originAt d.shape k) (d.shape.insts[k]).1 y →
+        Kid mref cref (d.shape.insts[k]).1 y :=
+    fun hk _ hy => Tools.ShippingInstTagged.kid_of_kidT hy (Tools.ShippingInstTagged.agree_at hagree hk)
+  apply core_raw_factsMT
+  all_goals first | assumption | rfl
 
 end Tools.ShippingMemKid
 

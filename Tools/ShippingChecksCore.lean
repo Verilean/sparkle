@@ -622,6 +622,158 @@ theorem core_kids_factsM_ran {c : Name} (d : MachineData) (ok : d.ok = true)
     · exact Or.inr h
 
 set_option maxHeartbeats 4000000 in
+/-- `core_kids_factsMT` over `MachineRan`: the TAIL of the built proof, moved (round par/g-1).
+What it takes of the run is that the machine synthesis this core run performed
+returned `(M, D)` from an invariant world; `core_kids_factsMT` below is its instance at the
+all-worlds closing (`Tools.ShippingMachineRan.machineRan_of_closes`). -/
+theorem core_kids_factsM_ranT {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    {nDecl : Nat} (hC : d.callsOk nDecl = true)
+    (hslots : d.ss.length = d.shape.layout.slots.length)
+    (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
+    (hins : d.shape.insts ≠ [])
+    (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
+    (hfne : d.shape.instFields ≠ [])
+    {M b : Sparkle.IR.AST.Module} {D : Design}
+    (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨
+      b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M))
+    (ran : Tools.ShippingMachineRan.MachineRan mctx mref cctx cref c d.shape M D) :
+    M.name = (Sparkle.IR.ModuleName.ofDecl c) ∧ b.body = M.body ∧ b.outputs = M.outputs ∧
+    (∀ mn i conns, Stmt.inst mn i conns ∈ M.body → ∃ mc, moduleByName D.modules mn = some mc) ∧
+    (∀ g ∈ D.modules, ∃ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
+      Tools.ShippingInstTagged.KidT mref cref (Tools.ShippingInstTagged.originAt d.shape k) (d.shape.insts[k]).1 y ∧ (g = y.1 ∨ g ∈ y.2.modules) ∧
+      ∀ g2 ∈ y.1 :: y.2.modules, ∃ g' ∈ D.modules, g'.name = g2.name) ∧
+    Tools.ShippingDesignSVBack.outsAssigned b = true := by
+  have ran0 := ran
+  obtain ⟨_, bb, w9, w10, hrun9, hw9, -⟩ := ran0
+  obtain ⟨t, t', d₀, run, hcl, hmt⟩ := synthesizeMachineCertified_runs hw9 hrun9
+  rcases hmt with ⟨hno, -, -⟩ | ⟨-, children, hcc, hreal⟩
+  · exact absurd hno hins
+  have hMC : MemChildren d.shape children := by
+    rcases hcc with ⟨hf0, -⟩ | ⟨-, -, h⟩
+    · exact absurd hf0 hfne
+    · exact h
+  obtain ⟨-, -, hMname, L, hLinst, hperm, -, -, -, -, -, hDeq, -⟩ := hcc.some
+  obtain ⟨hseq0, hname0, hd0⟩ := closedBody_kinds_of_run d ok hbody hC hslots hdomB run hcl
+  -- the raw module's wiring
+  have ok' := ok
+  simp only [MachineData.ok, Bool.and_eq_true, decide_eq_true_eq, Bool.not_eq_true'] at ok'
+  obtain ⟨hlen, hlets, positive, slotKinds, letKinds, layB, outsOk, outsNodup, hwf, hb, hv,
+    hfit, houtfit, hscoped, _, _, _, _, _, _, _, _⟩ := ok'
+  have hposv : PositiveBinders d.shape.binders := by
+    intro name n hmem
+    have := List.all_eq_true.mp positive _ hmem
+    simpa using this
+  have hb' : ∀ j, j < d.kb → ∃ name, d.shape.binders[d.bpos j]? = some (name, .bool) := by
+    intro j hj
+    have := hb j hj
+    cases h : d.shape.binders[d.bpos j]? with
+    | none => rw [h] at this; cases this
+    | some b =>
+      obtain ⟨name, k⟩ := b
+      rw [h] at this
+      simp only [Option.map_some, Option.some.injEq] at this
+      exact ⟨name, by rw [← this]⟩
+  have hv' : ∀ j, j < d.kv → ∃ name, d.shape.binders[d.vpos j]? = some (name, .bits (d.vw j)) := by
+    intro j hj
+    have := hv j hj
+    cases h : d.shape.binders[d.vpos j]? with
+    | none => rw [h] at this; cases this
+    | some b =>
+      obtain ⟨name, k⟩ := b
+      rw [h] at this
+      simp only [Option.map_some, Option.some.injEq] at this
+      exact ⟨name, by rw [← this]⟩
+  have layW : Tools.ShippingMachineClose.Zip₂
+      (fun (f : SlotField) (b : Name × MixedGateBinder) =>
+        f.width = machWidth b.2 ∧ b.2 ≠ .domain ∧ f.init < 2 ^ f.width)
+      d.shape.layout.slots d.slotBs :=
+    zip_of_all (by
+      intro a b h
+      simpa only [Bool.and_eq_true, decide_eq_true_eq] using h) layB
+  obtain ⟨ids, -, hlenIds, cache, hP⟩ :=
+    synthesizeMachineCertified_sound hrun9.mreturns d.binders_split hlets hposv
+      slotKinds letKinds (layW.imp fun _ _ h => h.1) outsOk outsNodup
+  obtain ⟨regs, -, -, lets, -, wired, -⟩ :=
+    hP d.dom d.kb d.kv d.vw d.bpos d.vpos d.letFields d.core.2 hwf hb' hv' hbody hfit houtfit
+  obtain ⟨-, -, -, -, hcall1, hinst1, -, houtsM, -, -, -, hGinst, hGcall, -, -, hcleanAny, -⟩ :=
+    wired
+  obtain ⟨hzb, -, hzi, hzo⟩ := hcleanAny outTy
+  -- an instance statement of the module names a module of its design
+  have hinstD : ∀ mn i conns, Stmt.inst mn i conns ∈ M.body →
+      ∃ mc, moduleByName D.modules mn = some mc ∧ mc ∈ D.modules ∧ mc.name = mn := by
+    intro mn i conns hm
+    by_cases hf : d.shape.instFields = []
+    · obtain ⟨k, args, mc, -, hfind, -⟩ := hinst1 hf mn i conns hm
+      have hfind' := hfind
+      unfold moduleByName at hfind'
+      exact ⟨mc, hfind, List.mem_of_find?_eq_some hfind', by simpa using List.find?_some hfind'⟩
+    · obtain ⟨args, outs, mc, hcs, hfind, -⟩ := hGinst hf _ hm rfl
+      obtain ⟨_, _, _, -, -, -, -, -, -, -, -, -, -, -, he⟩ := hcs
+      cases he
+      exact ⟨mc, hfind, List.mem_of_find?_eq_some hfind, rfl⟩
+  have hhas : Tools.ShippingMachineShipsHier.hasInst M := by
+    have hk0 : 0 < d.shape.insts.length := List.length_pos_iff.mpr hins
+    by_cases hf : d.shape.instFields = []
+    · obtain ⟨args, mc, st, -, hst, -, hcs⟩ := hcall1 hf 0 hk0
+      obtain ⟨_, _, _, iname, -, -, -, -, -, -, -, -, -, he⟩ := hcs
+      exact ⟨mc.name, iname, _, he ▸ hst⟩
+    · obtain ⟨st, hst, args, outs, mc, hcs, -⟩ := hGcall hf 0 hk0
+      obtain ⟨_, _, iname, -, -, -, -, -, -, -, -, -, -, -, he⟩ := hcs
+      exact ⟨mc.name, iname, _, he ▸ hst⟩
+  have hbeq : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M := by
+    rcases hpost with h | h
+    · exact h
+    · rw [h]
+      refine Tools.ShippingMachineDepthRun.mergeChecked_of_hasInst ?_
+      obtain ⟨mn, i, conns, hm⟩ := hhas
+      exact ⟨mn, i, conns, by rw [hzb]; exact hm⟩
+  have hbody' : b.body = M.body := by rw [hbeq, hzb]
+  have hbout : b.outputs = M.outputs := by rw [hbeq, hzo]
+  -- the children, by their witnesses
+  obtain ⟨hlenC, hall⟩ := hreal
+  -- the design: the join of the children
+  obtain ⟨hdNd, hdVis⟩ := designWith_modules (children := children) hd0
+  have hnames := Tools.ShippingChecksDepth.visited_name (children := children) hd0
+  -- the closed machine assigns its outputs, and so does the module
+  obtain ⟨ids', cache', returned, st, nd, len, hrun, hm, hD, nameLegal⟩ :=
+    synthesizeMixedCertified_returns run
+  obtain ⟨wP, hpw⟩ := Tools.ShippingChecksPacked.transition_packed nd len hrun hm d.packed hwf
+    hb' hv' hbody
+  obtain ⟨wP', hpw'⟩ := Option.isSome_iff_exists.mp
+    (Tools.ShippingChecksPacked.closeLets_packed hcl hpw)
+  have hMA : Tools.ShippingDesignSVBack.outsAssigned M = true := by
+    refine Tools.ShippingChecksDerived2.outsAssigned_of_assigned fun p hp => ?_
+    have hp2 : p ∈ (closeMachine d.shape.layout t').outputs := by
+      rw [closeMachine_outputs hpw']
+      rw [houtsM] at hp
+      exact hp
+    obtain ⟨r, hr⟩ := Tools.ShippingChecksDerived3.closeMachine_outs_assigned hpw' p hp2
+    exact ⟨r, hperm.subset (List.mem_append_left _ hr)⟩
+  refine ⟨hMname.trans hname0, hbody', hbout,
+    fun mn i conns hm => (hinstD mn i conns hm).imp fun _ h => h.1, ?_,
+    Tools.ShippingChecksDerived3.outsAssigned_congr hbody' hbout hMA⟩
+  intro g hg
+  rw [hDeq] at hg
+  obtain ⟨y, hy, hor⟩ := mem_visited.mp (hdVis g hg)
+  obtain ⟨k, hk⟩ := List.mem_iff_getElem?.mp hy
+  have hk' : k < d.shape.insts.length := by
+    rw [← hlenC]
+    exact (List.getElem?_eq_some_iff.mp hk).1
+  obtain ⟨y', hy', hor'⟩ := hall k hk'
+  rw [hk] at hy'
+  cases hy'
+  have hre := kidT_ofO hk' hMC hk hor'
+  · refine ⟨k, hk', y, hre, hor, fun g2 hg2 => ?_⟩
+    rw [hDeq]
+    refine hnames g2 (mem_visited.mpr ⟨y, hy, ?_⟩)
+    rcases List.mem_cons.mp hg2 with h | h
+    · exact Or.inl h
+    · exact Or.inr h
+
+set_option maxHeartbeats 4000000 in
 /-- **A core run on a machine with calls: the module, its instances in the
 design, and the design's modules.** -/
 theorem core_kids_factsM {c : Name} (d : MachineData) (ok : d.ok = true)
@@ -649,6 +801,35 @@ theorem core_kids_factsM {c : Name} (d : MachineData) (ok : d.ok = true)
       ∀ g2 ∈ y.1 :: y.2.modules, ∃ g' ∈ D.modules, g'.name = g2.name) ∧
     Tools.ShippingDesignSVBack.outsAssigned b = true :=
   core_kids_factsM_ran (hagree := hagree) d ok hbody hC hslots hdomB hins outTy hfne hpost
+    (Tools.ShippingMachineRan.machineRan_of_closes hcore entry hB closes)
+
+set_option maxHeartbeats 4000000 in
+/-- **A core run on a machine with calls: the module, its instances in the
+design, and the design's modules.** -/
+theorem core_kids_factsMT {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    {nDecl : Nat} (hC : d.callsOk nDecl = true)
+    (hslots : d.ss.length = d.shape.layout.slots.length)
+    (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
+    (hins : d.shape.insts ≠ [])
+    (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
+    (hfne : d.shape.instFields ≠ [])
+    {w w1 : Void IO.RealWorld} {M b : Sparkle.IR.AST.Module} {D : Design}
+    (hB : ChildBnd mref cref w)
+    (hcore : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, D) w1)
+    (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨
+      b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M))
+    (entry : MachineDefines mctx mref cctx cref c d.shape)
+    (closes : MachineClosesAt mctx mref cctx cref c d.shape) :
+    M.name = (Sparkle.IR.ModuleName.ofDecl c) ∧ b.body = M.body ∧ b.outputs = M.outputs ∧
+    (∀ mn i conns, Stmt.inst mn i conns ∈ M.body → ∃ mc, moduleByName D.modules mn = some mc) ∧
+    (∀ g ∈ D.modules, ∃ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
+      Tools.ShippingInstTagged.KidT mref cref (Tools.ShippingInstTagged.originAt d.shape k) (d.shape.insts[k]).1 y ∧ (g = y.1 ∨ g ∈ y.2.modules) ∧
+      ∀ g2 ∈ y.1 :: y.2.modules, ∃ g' ∈ D.modules, g'.name = g2.name) ∧
+    Tools.ShippingDesignSVBack.outsAssigned b = true :=
+  core_kids_factsM_ranT d ok hbody hC hslots hdomB hins outTy hfne hpost
     (Tools.ShippingMachineRan.machineRan_of_closes hcore entry hB closes)
 
 end Tools.ShippingMemKid
