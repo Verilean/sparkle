@@ -50,3 +50,38 @@ explanation in `O-origin-drift.md`).
 No full `Tests.AllTests` / full `lake build`; no corpus run (per rulings). Modules not touched by this round were
 not rebuilt against the patched compiler except as dependencies of the 129 targets. Runtime bridge O1–O4
 unchanged. GitHub CI runs on ef8ff162 do NOT include the compiler change and do not validate it.
+
+## Correction (reviewer 2026-10-19, on 5934ac32): what the migration does NOT give
+
+* **Compatibility premises narrow proof coverage.** The name half of `hnomem`
+  (`(memChild? x.1).isNone`) and `TagsAgree` are TEMPORARY compatibility premises. They are false on collision
+  shapes, which the fixed compiler accepts and compiles correctly (runtime evidence: `MemNameCollisionTest`
+  10/10). Endpoints needing them do not cover those shapes. The migration to the tag is therefore NOT complete
+  and no generality is claimed. KidT migration of one complete path: worker O-KIDT (in progress).
+* **Acceptance preservation is UNPROVED.** The earlier handoff sentence "no refusal guard, so nothing accepted
+  before is refused" was wrong as an argument: the patch changes the dedup key, the reader state (`instOrigins`)
+  and the closing's child choice, so absence of a guard proves nothing. What exists:
+  - source argument (not a proof): on a reader run without a collision entry, same name ⇒ same origin, so every
+    dedup decision and every child is the old one;
+  - tested evidence, limited: the 5 control parents of `MemNameCollisionTest` and the corpus declarations whose
+    generated endpoints are among the 129 targets of `ig5` (their reflected `machineData` was re-read by the
+    patched reader and every `decide`d fact held). No corpus run, no full `Tests.AllTests`.
+  An observational relation "patched reader ≈ old reader on collision-free results" is NOT proved (the old
+  reader copy no longer exists in the candidate after the O-CAND update). For collision shapes the target is
+  source correctness, not equality with the former (wrong) output.
+
+## TagsAgree / name-half audit (generators)
+
+| where | premise | on a collision shape |
+|---|---|---|
+| `NoPortsMemCommand` (`decided c "agree"`, `MemOnlyCloseData.agree`, `MemOnlyData(R).agree`) | `TagsAgree` | `decide` fails → elaboration ERROR at the generator call (not silent) |
+| `NoPortsMemSeqCommand.scope` | `tagAgrees` per entry | `throwError "… not generated (TagsAgree is false)"` |
+| `NoPortsMemKidCommand` / `GenKidM.agree` | `TagsAgree` | `decide` fails → error |
+| `OneOutGenCommand` 490, `OneOutAnyGenCommand` 401, `GenKid.nomem`, `GenKidT.nomem` | name-half `hnomem` | `decide` fails → error |
+| `NoPortsCommand` 90, `NoPortsDeepCommand` 148, `NoPortsKidsCommand` 89, `NoPortsSlotlessCommand` 104, `OneOut(Any)GenCommand` 187/216, `ShipsNoOutsCommand` 61 | name-based `memChild? k` classification | `throwError "… memory child"` — a MISLABELLED refusal (the callee is a declaration), still loud |
+| `LeafEntryCommand` 196 | name-based | records `refusal := "memory: …"` — mislabelled reason in census output; counted as a refusal, not as coverage |
+| `MachineDepthCommandR` 870, `MachineDepthMemKidCommand` 150, `MachineSeqCommandR` 274 | name-based tactic | generated proof fails → error |
+
+No generator silently skips an accepted collision shape while reporting it covered; every path is an error or a
+reported refusal. Census caveat: a collision parent would be reported under the "memory" refusal reason (wrong
+label). Endpoints still requiring a compatibility premise: every row above except where O-KIDT removes it.
