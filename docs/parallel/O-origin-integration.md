@@ -319,3 +319,23 @@ bounds children in EVERY environment (`KSBoundedIn`); value-level gate facts hol
 this compile (gc4 shadow), NOT derived. Ways to eliminate it: (A) a typed-run bound for the TG route (as the
 one-output route's `fitX_of_typed`), or (B) a translator top-node syntax lemma carried through
 `dropZeroWidth` / `mergeChecked`. Not yet: generator, `collMixDiff`, `collMixArgs`, `collWidth`.
+
+### Priority 3 — isolated inliner candidate, first increment (U1c + U3 + L2 + U5a), NO production change
+
+| run | target | exit | notes |
+|---|---|---|---|
+| ic1 | `Tools.ShippingInlCand/InlTypeFacts/InlTypeReads/P5Forall` (worker) | 1 | `passF_succ_forallE`: `rfl` after `unfold passF` not definitional |
+| ic2, ic3 | `lake env lean Tools/ShippingInlTypeFacts.lean` | 1, 0 | fix: `simp only [StateT.run_bind, StateT.run_get, pure_bind, hs, StateT.run_pure, StateT.run_modify, …]` |
+| ic4, ic5 | the four files | 1, 0 | fix: `relevantClosure` qualified in `ShippingInlTypeReads` |
+| ic6 | `Tests.Compiler.InlCandAuditTest` | 0 | standard axioms: `resKind_userInlinerC`, `passT_forallE`, `roundsC_forallE`, `p5AtC_of_resDeclF`, `p5At_of_switch`, `childLink_realF` |
+
+* L2 `resKind_userInlinerC (hR : ReadConstsPlain env) (hf : ty.isForall) : machResultKind? ty = some k →
+  machResultKind? (userInlinerC env ty) = some k` — FORWARD one-Signal result-kind preservation on `∀` types.
+* U5a `p5AtC_of_resDeclF : ResDeclFAt mref cref c res → ReadConstsAt mref cref → P5AtC mref cref c res`.
+* ELIMINATED (candidate inliner only): P5 for callees whose declared type is a `∀`. LOCALISED (explicit premise,
+  not proved): `ReadConstsAt` (six `userAbbrev? envR c = none` facts: Signal, Bool, BitVec, OfNat.ofNat, Nat,
+  instOfNatNat) — NO exclusion guard in any definition. NEW: `isForall` (zero-binder callees not covered).
+  OPEN: `passF 0` ≈ production `passM` (runtime compatibility, source review only); `replaceNoCache` vs extern
+  `Expr.replace` (agreement and performance, no evidence yet); `SwitchF` (production `P5At` still NOT discharged).
+  G3 / `readSkel` not used. No production file changed; no shadow (U2) yet; L1 / `p5s` not touched.
+* The plan's actual-run alias / folded-width probe (correction 1) is NOT done yet.

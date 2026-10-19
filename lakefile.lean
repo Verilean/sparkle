@@ -3174,3 +3174,15 @@ lean_lib «Tools.ShippingKidsMixedC» where
 
 lean_lib «Tools.ShippingGateKidFactsT» where
   roots := #[`Tools.ShippingGateKidFactsT]
+
+lean_lib «Tools.ShippingInlCand» where
+  roots := #[`Tools.ShippingInlCand]
+
+lean_lib «Tools.ShippingInlTypeFacts» where
+  roots := #[`Tools.ShippingInlTypeFacts]
+
+lean_lib «Tools.ShippingInlTypeReads» where
+  roots := #[`Tools.ShippingInlTypeReads]
+
+lean_lib «Tools.ShippingP5Forall» where
+  roots := #[`Tools.ShippingP5Forall]
