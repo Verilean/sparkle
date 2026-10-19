@@ -22,15 +22,15 @@ constant's type (`userInliner` on the unfolding branch), (ii)
 `machTupleKinds? dE.type = none`, (iii) agreement of the two structure tables.
 
 `structResAt_of_parts` derives `StructResAt mref cref (structEnv envP) c`
-from the premises below. Everything else is PROVED here from the text of
+from the premises below (a conditional decomposition). Everything else is PROVED here from the text of
 `machOuts?`, `machTupleKinds?`, `declOuts?`, `instRes`, `instSignatureS?`,
 `entryConst`, `inlinedConst`:
 
 * the reader side (`machOuts?`) depends on the structure table only at the
   HEAD constant of the result body (`outs_congr`);
 * `instRes` carries the callee's output list and its head constant through
-  every substitution step (`instRes_outs`, `instRes_head`), GIVEN the one
-  fact about the extern `Expr.instantiate1` (`InstSubst`);
+  every substitution step (`instRes_outs`, `instRes_head`), GIVEN the NEW
+  premise `InstSubst` about `Expr.instantiate1`;
 * (ii) is not needed at all: a tuple result `Signal dom (A × …)` has head
   `Signal`, and a `Signal`-headed instantiated type never yields a structure
   field list once the parent table has no `Signal` entry
@@ -41,21 +41,41 @@ from the premises below. Everything else is PROVED here from the text of
 * on the NON-unfolding branch of `entryConst`, `dE.type` is the declared
   type `ty` the parent's table holds (`instSignatureS?_some` + `DR`).
 
-## Premise table
+## Status: CONDITIONAL DECOMPOSITION, not a discharge (reviewer 2026-10-19)
+
+`structResAt_of_parts` proves `StructResAt` FROM the premises below; it does not establish `StructResAt` for any
+real run. Two of the premises (`InstSubst`, `NS`) are NEW semantic premises introduced by this decomposition;
+they are NOT in any allowed-premise/trust list and are not claimed established.
+
+### Dependency graph
+
+Before: `callWidthsStrict_of_linksFMS` / `childLinkStruct_real` ← `StructResAt c` (one premise, opaque).
+
+After:
+
+```
+childLinkStruct_real_of_parts ← structResAt_of_parts ← InstSubst          (NEW; about Expr.instantiate1, all senv/b/a)
+                                                    ← NS                  (NEW; userStructure? envP ``Signal = none)
+                                                    ← DeclTypeReadAt envP c   (replaces part of (i))
+                                                    ← FieldsAt envP c         (replaces (iii), one head constant)
+                                                    ← P5SAt c                 (replaces (i) on the unfolding branch)
+```
 
 | premise | status |
 |---|---|
-| (ii) `machTupleKinds? dE.type = none` | ELIMINATED — proved unnecessary (tuple branch vacuous via `outs_signal_head`, under `NS`) |
-| (i) head preservation through `instRes`, call- and environment-dependent | WEAKENED to `InstSubst`: ONE environment-free, call-free statement about the extern `Expr.instantiate1` (`@[extern "lean_expr_instantiate1"] opaque`, so nothing about it is provable in Lean); true for de Bruijn substitution (see its docstring for the case analysis) |
-| (i) on the non-unfolding branch of `entryConst` (entry constant's type = the declared type) | WEAKENED to `DR` (`DeclTypeReadAt`): the type of what `getConstInfo c` returns is the type `envP.find? c` holds — environment-read consistency, same status as `ResDeclAt` of `ShippingCallWidthsChildReal` (no lemma relates `getConstInfo` to `env.find?`); nothing about types/instantiation in it |
-| (i) on the unfolding branch (`userInliner`) | REMAINS, NARROWED to `P5S` (`P5SAt`): only when `entryConst … ≠ ci`, and only the output list (`declOuts?` of the inlined type implies the same of the declared type) — weaker than type equality; same gap as `P5At` |
-| (iii) structure tables agree | REMAINS, NARROWED to `FA` (`FieldsAt`): `userStructure?` of the parent's and the callee run's environments agree at the ONE head constant of the callee's declared result body (not the whole table) |
-| `NS` | NEW, small, decidable: `userStructure? envP ``Signal = none` (the parent's table has no entry for `Signal`; needed for the tuple branch and as the guard that makes `InstSubst` true) |
+| (ii) `machTupleKinds? dE.type = none` | ELIMINATED: proved unnecessary (tuple branch vacuous via `outs_signal_head`, which itself needs `NS`) |
+| (i) head preservation through `instRes` | REPLACED by `InstSubst`, a NEW premise: one environment-free, call-free statement about `Expr.instantiate1` (`@[extern "lean_expr_instantiate1"] opaque` in v4.32.1). No equation or bridge for it is established in this repository; it is expected of de Bruijn substitution (case analysis in its docstring) but that expectation is NOT used as evidence. Candidate routes, not done: a proved executable substitution model plus an explicit runtime-agreement boundary, or a restricted case from existing library lemmas |
+| (i), non-unfolding branch of `entryConst` | REPLACED by `DeclTypeReadAt envP c` (DR) |
+| (i), unfolding branch (`userInliner`) | REPLACED by `P5SAt c` (output lists only; same gap as `P5At`) |
+| (iii) structure tables agree | REPLACED by `FieldsAt envP c` (FA), at the head constant only |
+| `NS` | NEW premise, decidable on a concrete environment |
 
-Unsure spots (never built): the `split`-based inversions `outs_nonprod`,
-`tuple_head` (hedged with `first`), the `cases … : e.getAppFn` generalisation
-inside the unfolded `outsOfKind` (`outsOfKind_congr`), and the `simp` closing
-calls in `outs_signal_head`.
+DR and FA quantify over EVERY run (`RunsTo (getConstInfo c) …`, `RunsTo getEnv …` from any world) and an arbitrary
+`envP`. They are NOT discharged: discharging them needs captured-environment invariants for the ACTUAL parent and
+child runs (the environment the parent's reader used and the one the child's run reads), not a global
+immutability assumption. Open.
+
+(Built as written; the worker's unsure-spot list is obsolete.)
 -/
 namespace Tools.ShippingCallWidthsStructRes
 open Lean Meta
@@ -215,13 +235,15 @@ theorem tuple_head {e : Lean.Expr} {ks : List MixedGateBinder}
       | cases h
       | simp at h
 
-/-! ## The one fact about the extern substitution -/
+/-! ## A NEW premise about the extern substitution -/
 
-/-- **The substitution premise** (environment-free, call-free). `instRes`
-substitutes the call's arguments with `Expr.instantiate1`, an
-`@[extern] opaque` — no equation about it is provable in Lean. Both clauses
-hold for de Bruijn substitution (which replaces loose `bvar`s only and keeps
-every other node, constants and levels included):
+/-- **The substitution premise** (NEW; environment-free, call-free; not
+established). `instRes` substitutes the call's arguments with
+`Expr.instantiate1`, an `@[extern "lean_expr_instantiate1"] opaque`; no
+equation or bridge for it is established in this repository. Both clauses are
+EXPECTED of de Bruijn substitution (which replaces loose `bvar`s only and keeps
+every other node, constants and levels included) — an expectation, not
+evidence:
 
 * `outs` — a body read by `machOuts?` is a `Prod` of two non-domain hardware
   Signals, a `Signal dom Bool` / `Signal dom (BitVec w)` with `w` a literal
