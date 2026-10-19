@@ -4,6 +4,8 @@ import Tools.ShippingCallsClose
 import Tools.ShippingCallsSame
 import Tools.ShippingGateChildComb
 import Tools.ShippingReflectCtx
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 variable {tenv : Lean.Environment}
 
@@ -246,7 +248,7 @@ theorem machineClosesAt_of_gateKids {declName : Name} (d : MachineData) (ok : d.
     (halias : d.letsAliasOk = true)
     {nDecl : Nat} (hS : d.gateCallsOk nDecl = true)
     (nk : Nat → Nat)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     (hkid : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y → ChildIface (d.shape.insts[k]).1 (nk k) y.1 y.2)
     (hargsN : ∀ (k : Nat) (hk : k < d.shape.insts.length),
@@ -305,7 +307,7 @@ theorem machineClosesAt_of_gateKids {declName : Name} (d : MachineData) (ok : d.
       rw [hc] at hy
       cases hy
       rcases hor with hmem | hre
-      · rw [hnomem _ (List.getElem_mem hk)] at hmem
+      · rw [Tools.ShippingChildInv.nomem_tag hnomem hk] at hmem
         cases hmem
       · exact ⟨hk, hkid k hk c hre⟩
     refine closeInsts_of_run d ok hbody hS run.mreturns hcl hlenC ?_ ?_ ?_

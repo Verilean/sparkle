@@ -7,6 +7,8 @@ import Tools.ShippingTextTyped
 import Tools.ShippingNamesNext
 import Tools.ShippingNamesClk
 import Tools.ShippingMachineRanBase
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # The full entry's module of a machine with calls is typed: the text conjuncts of the RAW module (G1)
 
@@ -104,7 +106,7 @@ theorem core_closed_typedIn_ran {c : Name} (d : MachineData) (ok : d.ok = true)
     (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
     (hins : d.shape.insts ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     {M b : Sparkle.IR.AST.Module} {D : Design}
     (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨
       b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M))
@@ -335,7 +337,7 @@ theorem core_closed_typedIn {c : Name} (d : MachineData) (ok : d.ok = true)
     (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
     (hins : d.shape.insts ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     {w w1 : Void IO.RealWorld} {M b : Sparkle.IR.AST.Module} {D : Design}
     (hB : ChildBnd mref cref w)
     (hcore : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, D) w1)
@@ -362,7 +364,7 @@ theorem core_closed_typed {c : Name} (d : MachineData) (ok : d.ok = true)
     (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
     (hins : d.shape.insts ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     {w w1 : Void IO.RealWorld} {M b : Sparkle.IR.AST.Module} {D : Design}
     (hB : ChildBnd mref cref w)
     (hcore : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, D) w1)
@@ -407,7 +409,7 @@ theorem core_text_raw {c : Name} (d : MachineData) (ok : d.ok = true)
     (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
     (hins : d.shape.insts ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     {w w1 : Void IO.RealWorld} {M b : Sparkle.IR.AST.Module} {D : Design}
     (hB : ChildBnd mref cref w)
     (hcore : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, D) w1)

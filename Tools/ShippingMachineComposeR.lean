@@ -158,7 +158,7 @@ theorem machine_linked_callsR {declName : Name} {d : MachineData} {m : Sparkle.I
           (((d.bsIn.drop kD)[k]?.map (·.2)).getD .domain))
     -- per call: not a memory, and the child's theorem on any run of its entry here
     (hfn : ∀ (k : Nat) (c : Name), (d.shape.insts.map (·.1))[k]? = some c →
-      Sparkle.Compiler.MachMemory.memChild? c = none ∧
+      (d.shape.instOrigins.getD k .ord).child? = none ∧
       ∀ (mctx' : Meta.Context) (cctx' : Core.Context) (mc : Sparkle.IR.AST.Module) (Dc : Design)
         (w w' : Void IO.RealWorld),
         Tools.ShippingChildInv.InvW mref cref w →

@@ -271,7 +271,7 @@ def generateCoreSR (declName : Name) (atW : Bool := false) : MetaM Name := do
         (toExpr c)).bindingBody!
       let hRS : Term := ⟨mkIdent (Name.mkSimple s!"hR{seqKids.idxOf c}")⟩
       let prK ← match Tools.ShippingMachineMemCommand.memWidths? c with
-        | some _ => proveByTacticT goalK `(tactic| (intro h; first | cases h | simp [Sparkle.Compiler.MachMemory.memChild?] at h))
+        | some _ => proveByTacticT goalK `(tactic| (intro h; first | cases h | simp [Sparkle.Compiler.MachMemory.memChild?] at h | exact absurd (congrArg Option.isNone h) (by decide) | exact absurd (congrArg Option.isNone h) (by decide +kernel)))
         | none =>
           if freeOf.getD c false then
             proveByTacticT goalK `(tactic| (intro _; exact ⟨$hRS, fun _ _ _ =>

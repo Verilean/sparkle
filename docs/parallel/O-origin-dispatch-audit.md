@@ -82,3 +82,41 @@ declaration; no memory entry reads that slot. No cache confusion.
   name decodes to what its origin builds — decided per declaration, false for a
   collision shape, which those theorems then do not cover).
 * OPEN: see the report of `par/o-close` for the consumers not yet restated.
+
+## 5. Round 2 (integrator decision): what the proofs now ask
+
+* `hnomem` (every theorem of the general / one-output closing chains, the
+  `nomem` fields of `GenKid` / `GenKidT` / `OneOutKid`, the generated
+  `f.oneout_nomem` lemmas) is
+  `∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (memChild? x.1).isNone = true`:
+  no memory ORIGIN and no memory placeholder NAME. The tag half refutes the
+  left disjunct of the (tag-based) `ChildrenReal`
+  (`Tools.ShippingChildInv.nomem_tag`); the name half is what the old `core_*`
+  statements need to reach the `core_*M` theorems through the name-based `Kid`
+  (`real_of_kid`, `nomem_name`, `tagsAgree_of_nomem`). Decidable; generators
+  that discharged `hnomem` by `decide` still do.
+* The `core_*M` chain (`kid_of` callers and everything above them) asks
+  `hagree : TagsAgree d.shape` (`Tools/ShippingKid.lean`, namespace
+  `Tools.ShippingInstTagged`), passed by NAME (`(hagree := …)`); the old chain
+  supplies `tagsAgree_of_nomem hnomem`, the memory generators `decide`,
+  `GenKidM` / `MemOnlyData` / `MemOnlyDataR` / `MemOnlyCloseData` carry it as
+  a field `agree`.
+* Coverage: for a collision shape (a declaration named as a memory
+  placeholder, read as an ordinary or structure call) `TagsAgree` and the name
+  half of `hnomem` are false, so `decide` fails and those endpoints are simply
+  not generated. That narrows PROOF coverage only; the compiler still accepts
+  and correctly compiles the shape (origin dispatch, §1–3). Migrating the `M`
+  chain to the tag-based kid `KidT` (which would lift this) is a later unit.
+* Meta-level classification moved to the tag in `ShippingNoPortsMemSeqCommand`
+  (`scope`: memory = origin `.mem`, and a shape failing `tagAgrees` is refused),
+  `ShippingMachineClosesAtGenG` and `ShippingEntryOkCommand`. Other generators
+  (`ShippingMachineDepthCommandR`, `…SeqCommand(R)`, `…MemKidCommand`,
+  `…NoPortsCommand`, `…NoPortsKidsCommand`, `…LeafEntryCommand`,
+  `…ShipsHierCommand`) still classify by name: for a collision shape their
+  generated proofs fail (`decide` / `rfl`), which refuses, never mis-proves.
+* Linked-run chain (`ShippingMachineCallsLinkedT*`, `ShippingMachineComposeR`,
+  `ShippingMachineTraceX.ServedRealG/ServedReal1`, `MemFacts`, `SeqFacts*`,
+  `hsv`, `hrefl`, `hrunN`, `hfn`): "memory" / "not a memory" at entry `k` is
+  `(shape.instOrigins.getD k .ord).child? = some (memModule …)` / `= none`
+  (it was `memChild? c`); the generators prove these by `rfl` / `decide` on
+  the data, which carries `instOrigins` (`ShippingMachineCommand.dataE`).

@@ -3,6 +3,8 @@ import Tools.ShippingLinkedFresh
 import Tools.ShippingClosedPorts
 import Tools.ShippingOutsExtractedParts
 import Tools.ShippingMachineRanBase
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # Conjunct 6 of `shipsHierCheck`, `outsExtracted`, from the core run (G1)
 
@@ -94,7 +96,7 @@ theorem core_outsExtracted_ran {c : Name} (d : MachineData) (ok : d.ok = true)
     (hins : d.shape.insts ≠ [])
     (hfne : d.shape.instFields ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     (hkidP : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y →
       ∀ p ∈ y.1.outputs, (∀ q ∈ inPortsOf y.1, q.name ≠ p.name) ∧ p.name ≠ "clk" ∧
@@ -163,7 +165,7 @@ theorem core_outsExtracted_ran {c : Name} (d : MachineData) (ok : d.ok = true)
         have hyn : y.1.name = child.1.name := by
           simpa only [Option.map_some, Option.some.injEq] using hch0
         rcases hor with hmem | hre
-        · rw [hnomem _ (List.getElem_mem hk0)] at hmem
+        · rw [Tools.ShippingChildInv.nomem_tag hnomem hk0] at hmem
           cases hmem
         · -- the instance's module is the child's
           have hyfind :=
@@ -256,7 +258,7 @@ theorem core_outsExtracted {c : Name} (d : MachineData) (ok : d.ok = true)
     (hins : d.shape.insts ≠ [])
     (hfne : d.shape.instFields ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     (hkidP : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y →
       ∀ p ∈ y.1.outputs, (∀ q ∈ inPortsOf y.1, q.name ≠ p.name) ∧ p.name ≠ "clk" ∧
@@ -286,7 +288,7 @@ theorem core_shipsHier_rest4 {c : Name} (d : MachineData) (ok : d.ok = true)
     (hsl : d.shape.layout.slots ≠ [])
     (hfne : d.shape.instFields ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     (hkidP : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y →
       ∀ p ∈ y.1.outputs, (∀ q ∈ inPortsOf y.1, q.name ≠ p.name) ∧ p.name ≠ "clk" ∧

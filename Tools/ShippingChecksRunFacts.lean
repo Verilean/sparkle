@@ -1,6 +1,8 @@
 import Tools.ShippingChecksWidths
 import Tools.ShippingGuardsSound
 import Tools.ShippingMachineRanBase
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # The run's facts of a machine with calls, bundled (isolated branch `fix/opt-fallback`)
 
@@ -56,7 +58,7 @@ theorem core_runFacts_ran {c : Name} (d : MachineData) (ok : d.ok = true)
     (hsl : d.shape.layout.slots ≠ [])
     (hfne : d.shape.instFields ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     (hkidP : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y →
       ∀ p ∈ y.1.outputs, (∀ q ∈ inPortsOf y.1, q.name ≠ p.name) ∧ p.name ≠ "clk" ∧
@@ -100,7 +102,7 @@ theorem core_runFacts {c : Name} (d : MachineData) (ok : d.ok = true)
     (hsl : d.shape.layout.slots ≠ [])
     (hfne : d.shape.instFields ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     (hkidP : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y →
       ∀ p ∈ y.1.outputs, (∀ q ∈ inPortsOf y.1, q.name ≠ p.name) ∧ p.name ≠ "clk" ∧

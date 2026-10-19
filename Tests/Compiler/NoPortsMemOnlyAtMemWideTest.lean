@@ -1,4 +1,6 @@
 import Tests.Compiler.NoPortsMemOnlyAtLib
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # `memWide` under `MachineClosesAt`: the depth-0 endpoint of a MEMORY-ONLY parent without the four check premises (G1, unit U4, round par/b-15)
 
@@ -123,6 +125,8 @@ theorem memWide_data : Tools.ShippingMemOnly.MemOnlyData
     memWide_callWidths memWide_callArgs
     (fun o ho => Tools.ShippingSVBridge.sanitizeName_of_clean (memWide_outChars o ho))
     memWide_outScalar
+    -- origin dispatch: names say what their origins build
+    (by first | decide | decide +kernel)
 
 /-- **The run's facts of `memWide`'s full-entry module** (`memOnly_runFacts`). -/
 theorem memWide_runFacts {mctx : Lean.Meta.Context}

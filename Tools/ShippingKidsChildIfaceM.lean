@@ -1,5 +1,7 @@
 import Tools.ShippingKidsChildIface
 import Tools.ShippingMemClosesKids
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # A machine child whose calls may be MEMORY reads, from its own run (round par/c-2)
 
@@ -84,6 +86,7 @@ set_option maxHeartbeats 4000000 in
 /-- **The interface of a machine child whose calls may be memory reads, at its
 full entry** (`kidsChild_iface` over `Kid`, the children named by `nameK`). -/
 theorem kidsChild_ifaceM {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hagree : Tools.ShippingInstTagged.TagsAgree d.shape)
     (hbody : d.shape.body = quote d.dom
       (fun j => inputExpr d.shape.binders.length (d.bpos j))
       (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
@@ -221,7 +224,7 @@ theorem kidsChild_ifaceM {c : Name} (d : MachineData) (ok : d.ok = true)
     obtain ⟨y', hy, hor⟩ := hall k hk
     rw [hc] at hy
     cases hy
-    exact ⟨hk, hkid k hk y (Tools.ShippingMemKid.kid_of hk hMC hc hor)⟩
+    exact ⟨hk, hkid k hk y (Tools.ShippingMemKid.kid_of hk hMC hc hor (Tools.ShippingInstTagged.agree_at hagree hk))⟩
   have hnameK : ∀ (k : Nat) (hk : k < d.shape.insts.length),
       nameK k ∈ namesOfP d nameK namesK ∧
       ∀ x ∈ namesK k, x ∈ namesOfP d nameK namesK := by
@@ -315,6 +318,7 @@ has the interface** (`kidsChild_of_real` over `Kid`) —
 from its OWN run (the `RealChild` witness), its reflection and its closing in
 that run's contexts. -/
 theorem kidsChild_of_realM {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hagree : Tools.ShippingInstTagged.TagsAgree d.shape)
     (hbody : d.shape.body = quote d.dom
       (fun j => inputExpr d.shape.binders.length (d.bpos j))
       (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
@@ -344,7 +348,7 @@ theorem kidsChild_of_realM {c : Name} (d : MachineData) (ok : d.ok = true)
     ChildIfaceD c ((d.bsIn.take kD).filter (fun b => b.2 != .domain)).length
       (d.shape.layout.outs.map (·.name)) (namesOfP d nameK namesK) y.1 y.2 := by
   obtain ⟨mctx', cctx', w, w', hw, hr⟩ := h.inv
-  exact kidsChild_ifaceM d ok hbody hC hslots hdomB hins hsl outTy kD hkD hIlen hSL hSlen
+  exact kidsChild_ifaceM (hagree := hagree) d ok hbody hC hslots hdomB hins hsl outTy kD hkD hIlen hSL hSlen
     hLlen hNIn hfne nameK namesK hkid hself hw hr
     (Tools.ShippingReflectCtx.MachineDefines.ctx entry)
     (closes mctx' cctx' (Tools.ShippingReflectCtx.MachineDefines.ctx entry))

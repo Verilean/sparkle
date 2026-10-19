@@ -1,5 +1,7 @@
 import Tests.Compiler.NoPortsMemOnlyAtTwoMemsTest
 import Tests.Compiler.NoPortsMemOnlyClosedLib
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # `twoMems`: the closing of a MEMORY-ONLY parent, and the closed depth-0 endpoint (round par/a-19)
 
@@ -107,6 +109,7 @@ theorem twoMems_closeData : Tools.ShippingMemOnlyCloses.MemOnlyCloseData
     Sparkle.Tests.Compiler.ShippingMachineMemLinkedTest.twoMems.machineData :=
   Tools.ShippingMemOnlyCloses.MemOnlyCloseData.mk twoMems_alias twoMems_argsN twoMems_field
     twoMems_argsNd twoMems_outHead
+    (by first | decide | decide +kernel)
 
 /-! ## Names (decided over the candidate renderings; `Name.toString` is never evaluated) -/
 

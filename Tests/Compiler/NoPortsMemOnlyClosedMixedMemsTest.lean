@@ -1,5 +1,7 @@
 import Tests.Compiler.NoPortsMemOnlyAtMixedMemsTest
 import Tests.Compiler.NoPortsMemOnlyClosedLib
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # `mixedMems`: the closing of a MEMORY-ONLY parent with TWO DIFFERENT memory modules, and the closed depth-0 endpoint (round par/a-19)
 
@@ -119,6 +121,7 @@ theorem mixedMems_closeData : Tools.ShippingMemOnlyCloses.MemOnlyCloseData
     Sparkle.Tests.Compiler.ShippingMachineMemLinkedTest.mixedMems.machineData :=
   Tools.ShippingMemOnlyCloses.MemOnlyCloseData.mk mixedMems_alias mixedMems_argsN mixedMems_field
     mixedMems_argsNd mixedMems_outHead
+    (by first | decide | decide +kernel)
 
 /-! ## Names -/
 

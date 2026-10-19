@@ -1,5 +1,7 @@
 import Tools.ShippingCoreFromM
 import Tools.ShippingMemKidPorts
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # The old `core_*` statements re-derived from their `M` copies, second half (round par/b-16)
 
@@ -49,7 +51,7 @@ theorem core_callConns_fromM {c : Name} (d : MachineData) (ok : d.ok = true)
     (hins : d.shape.insts ≠ [])
     (hfne : d.shape.instFields ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     {w w1 : Void IO.RealWorld} {M b : Sparkle.IR.AST.Module} {D : Design}
     (hB : ChildBnd mref cref w)
     (hcore : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, D) w1)
@@ -77,7 +79,7 @@ theorem core_callConns_fromM {c : Name} (d : MachineData) (ok : d.ok = true)
                   Sparkle.IR.RegDedup.declWidth b x = (kindTy bn.2).bitWidth))) := by
   intro mn iname conns hmem
   obtain ⟨mc, hmc, ⟨k0, hk0, y0, hkid0, he0⟩, hrest⟩ :=
-    core_callConnsM d ok hbody hC hslots hdomB hins hfne outTy
+    core_callConnsM (hagree := (Tools.ShippingInstTagged.tagsAgree_of_nomem hnomem)) d ok hbody hC hslots hdomB hins hfne outTy
       hB hcore hpost entry closes mn iname conns hmem
   refine ⟨mc, hmc, ⟨k0, hk0, y0, real_of_kid hnomem hk0 hkid0, he0⟩, ?_⟩
   intro pn x hx
@@ -97,7 +99,7 @@ theorem core_portsMatch_raw_fromM {c : Name} (d : MachineData) (ok : d.ok = true
     (hins : d.shape.insts ≠ [])
     (hfne : d.shape.instFields ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     -- OUTPUT side: the result binder's width is the child's field port's
     (hkidW : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y →
@@ -130,7 +132,7 @@ theorem core_portsMatch_raw_fromM {c : Name} (d : MachineData) (ok : d.ok = true
     -- ... and in the parent (NOT derived)
     (hclkB : Tools.ShippingDesignSV.weS b "clk" = 1 ∧ Tools.ShippingDesignSV.weS b "rst" = 1) :
     Tools.ShippingDesignSV.portsMatchB (childMap D.modules) b = true := by
-  exact core_portsMatch_rawM d ok hbody hC hslots hdomB hins hfne outTy
+  exact core_portsMatch_rawM (hagree := (Tools.ShippingInstTagged.tagsAgree_of_nomem hnomem)) d ok hbody hC hslots hdomB hins hfne outTy
     (fun k hk y hy => hkidW k hk y (real_of_kid hnomem hk hy))
     (fun k hk y hy => hkidT k hk y (real_of_kid hnomem hk hy))
     hargs
@@ -157,7 +159,7 @@ theorem core_kidsPass_deep_fromM {c : Name} (d : MachineData) (ok : d.ok = true)
     (hins : d.shape.insts ≠ [])
     (hfne : d.shape.instFields ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     (n : Nat)
     (hkidK : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y →
@@ -176,7 +178,7 @@ theorem core_kidsPass_deep_fromM {c : Name} (d : MachineData) (ok : d.ok = true)
     Tools.ShippingDesignSV.kidsPass (childMap D.modules)
       (Tools.ShippingChecksDesign.kidCheck (childMap D.modules) n)
       (checkedOptimize b).body = true := by
-  exact core_kidsPass_deepM d ok hbody hC hslots hdomB hins hfne outTy n
+  exact core_kidsPass_deepM (hagree := (Tools.ShippingInstTagged.tagsAgree_of_nomem hnomem)) d ok hbody hC hslots hdomB hins hfne outTy n
     (fun k hk y hy => hkidK k hk y (real_of_kid hnomem hk hy))
     hB hcore hpost entry closes
 
@@ -201,7 +203,7 @@ theorem core_designCheck_run_fromM {c : Name} (d : MachineData) (ok : d.ok = tru
     (hsl : d.shape.layout.slots ≠ [])
     (hfne : d.shape.instFields ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     (hkidP : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y →
       ∀ p ∈ y.1.outputs, (∀ q ∈ inPortsOf y.1, q.name ≠ p.name) ∧ p.name ≠ "clk" ∧
@@ -226,7 +228,7 @@ theorem core_designCheck_run_fromM {c : Name} (d : MachineData) (ok : d.ok = tru
       (Tools.ShippingChecksDesign.kidCheck (childMap D.modules) n)
       (checkedOptimize b).body = true) :
     Tools.ShippingDesignSV.designCheck (childMap D.modules) n (checkedOptimize b) = true := by
-  exact core_designCheck_runM d ok hbody hC hslots hdomB hins hsl hfne outTy
+  exact core_designCheck_runM (hagree := (Tools.ShippingInstTagged.tagsAgree_of_nomem hnomem)) d ok hbody hC hslots hdomB hins hsl hfne outTy
     (fun k hk y hy => hkidP k hk y (real_of_kid hnomem hk hy))
     (fun k hk y hy => hkidW k hk y (real_of_kid hnomem hk hy))
     hB hcore hpost entry closes hon hoty n hports hkids

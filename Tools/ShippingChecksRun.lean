@@ -1,6 +1,8 @@
 import Tools.ShippingChecksDerived3
 import Tools.ShippingChecksPacked
 import Tools.ShippingKidsChildIface
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # Output checks from runs (G1): children's outputs, and a parent's `outsCheck`
 
@@ -200,7 +202,7 @@ theorem parent_run_outsCheck0 {c : Name} (d : MachineData) (ok : d.ok = true)
     (hLlen : d.letBs.length = d.shape.layout.lets)
     (hNIn : machNIn d.shape = ((d.bsIn.take kD).filter (fun b => b.2 != .domain)).length)
     (namesK : Nat → List String)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     (hkid : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y →
       KidNames (d.shape.insts[k]).1 (namesK k) y.1 y.2)

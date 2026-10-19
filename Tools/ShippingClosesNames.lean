@@ -63,7 +63,7 @@ theorem machineClosesAt_of_gateKidsN {declName : Name} (d : MachineData) (ok : d
     (halias : d.letsAliasOk = true)
     {nDecl : Nat} (hS : d.gateCallsOk nDecl = true)
     (nk : Nat → Nat)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     (hkid : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y → ChildIface (d.shape.insts[k]).1 (nk k) y.1 y.2)
     (hargsN : ∀ (k : Nat) (hk : k < d.shape.insts.length),

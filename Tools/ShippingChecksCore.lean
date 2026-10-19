@@ -2,6 +2,8 @@ import Tools.ShippingKid
 import Tools.ShippingChecksRun2
 import Tools.ShippingChecksDepth
 import Tools.ShippingMachineRanBase
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # `outsCheck` of a machine with calls, at the CORE run's design, every depth (G1)
 
@@ -81,7 +83,7 @@ theorem core_kids_facts_ran {c : Name} (d : MachineData) (ok : d.ok = true)
     (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
     (hins : d.shape.insts ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     {M b : Sparkle.IR.AST.Module} {D : Design}
     (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨
       b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M))
@@ -208,7 +210,7 @@ theorem core_kids_facts_ran {c : Name} (d : MachineData) (ok : d.ok = true)
   rw [hk] at hy'
   cases hy'
   rcases hor' with hmem | hre
-  · rw [hnomem _ (List.getElem_mem hk')] at hmem
+  · rw [Tools.ShippingChildInv.nomem_tag hnomem hk'] at hmem
     cases hmem
   · refine ⟨k, hk', y, hre, hor, fun g2 hg2 => ?_⟩
     rw [hDeq]
@@ -229,7 +231,7 @@ theorem core_kids_facts {c : Name} (d : MachineData) (ok : d.ok = true)
     (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
     (hins : d.shape.insts ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     {w w1 : Void IO.RealWorld} {M b : Sparkle.IR.AST.Module} {D : Design}
     (hB : ChildBnd mref cref w)
     (hcore : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, D) w1)
@@ -261,7 +263,7 @@ theorem core_outsCheck_all {c : Name} (d : MachineData) (ok : d.ok = true)
     (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
     (hins : d.shape.insts ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     (hkidA : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y →
       Tools.ShippingDesignSVBack.outsAssigned y.1 = true ∧
@@ -317,7 +319,7 @@ theorem kids_run_kid {c : Name} (d : MachineData) (ok : d.ok = true)
     (hins : d.shape.insts ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
     (namesK : Nat → List String)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     (hkid : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y →
       KidNames (d.shape.insts[k]).1 (namesK k) y.1 y.2)
@@ -390,7 +392,7 @@ theorem kids_real_kid {c : Name} (d : MachineData) (ok : d.ok = true)
     (hins : d.shape.insts ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
     (namesK : Nat → List String)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     (hkid : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y →
       KidNames (d.shape.insts[k]).1 (namesK k) y.1 y.2)
@@ -472,6 +474,7 @@ What it takes of the run is that the machine synthesis this core run performed
 returned `(M, D)` from an invariant world; `core_kids_factsM` below is its instance at the
 all-worlds closing (`Tools.ShippingMachineRan.machineRan_of_closes`). -/
 theorem core_kids_factsM_ran {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hagree : Tools.ShippingInstTagged.TagsAgree d.shape)
     (hbody : d.shape.body = quote d.dom
       (fun j => inputExpr d.shape.binders.length (d.bpos j))
       (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
@@ -610,7 +613,7 @@ theorem core_kids_factsM_ran {c : Name} (d : MachineData) (ok : d.ok = true)
   obtain ⟨y', hy', hor'⟩ := hall k hk'
   rw [hk] at hy'
   cases hy'
-  have hre := kid_of hk' hMC hk hor'
+  have hre := kid_of hk' hMC hk hor' (Tools.ShippingInstTagged.agree_at hagree hk')
   · refine ⟨k, hk', y, hre, hor, fun g2 hg2 => ?_⟩
     rw [hDeq]
     refine hnames g2 (mem_visited.mpr ⟨y, hy, ?_⟩)
@@ -622,6 +625,7 @@ set_option maxHeartbeats 4000000 in
 /-- **A core run on a machine with calls: the module, its instances in the
 design, and the design's modules.** -/
 theorem core_kids_factsM {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hagree : Tools.ShippingInstTagged.TagsAgree d.shape)
     (hbody : d.shape.body = quote d.dom
       (fun j => inputExpr d.shape.binders.length (d.bpos j))
       (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
@@ -644,7 +648,7 @@ theorem core_kids_factsM {c : Name} (d : MachineData) (ok : d.ok = true)
       Kid mref cref (d.shape.insts[k]).1 y ∧ (g = y.1 ∨ g ∈ y.2.modules) ∧
       ∀ g2 ∈ y.1 :: y.2.modules, ∃ g' ∈ D.modules, g'.name = g2.name) ∧
     Tools.ShippingDesignSVBack.outsAssigned b = true :=
-  core_kids_factsM_ran d ok hbody hC hslots hdomB hins outTy hfne hpost
+  core_kids_factsM_ran (hagree := hagree) d ok hbody hC hslots hdomB hins outTy hfne hpost
     (Tools.ShippingMachineRan.machineRan_of_closes hcore entry hB closes)
 
 end Tools.ShippingMemKid

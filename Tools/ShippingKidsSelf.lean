@@ -3,6 +3,8 @@ import Tools.ShippingChildServe
 import Tools.ShippingPortsMatchRaw
 import Tools.ShippingChecksMasked
 import Tools.ShippingMachineRanBase
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # The parent's design holds its children's modules AS THEMSELVES; the children's check at depth (G1, unit U2, round par/a-13)
 
@@ -86,7 +88,7 @@ theorem core_kids_self_ran {c : Name} (d : MachineData) (ok : d.ok = true)
     (hslots : d.ss.length = d.shape.layout.slots.length)
     (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
     (hins : d.shape.insts ≠ [])
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     {M : Sparkle.IR.AST.Module} {D : Design}
     (ran : Tools.ShippingMachineRan.MachineRan mctx mref cctx cref c d.shape M D) :
     ∀ g ∈ D.modules, ∃ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
@@ -126,7 +128,7 @@ theorem core_kids_self_ran {c : Name} (d : MachineData) (ok : d.ok = true)
   rw [hk] at hy'
   cases hy'
   rcases hor' with hmem | hre
-  · rw [hnomem _ (List.getElem_mem hk')] at hmem
+  · rw [Tools.ShippingChildInv.nomem_tag hnomem hk'] at hmem
     cases hmem
   · exact ⟨k, hk', y, hre, hor, hself y hy⟩
 
@@ -141,7 +143,7 @@ theorem core_kids_self {c : Name} (d : MachineData) (ok : d.ok = true)
     (hslots : d.ss.length = d.shape.layout.slots.length)
     (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
     (hins : d.shape.insts ≠ [])
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     {w w1 : Void IO.RealWorld} {M : Sparkle.IR.AST.Module} {D : Design}
     (hB : ChildBnd mref cref w)
     (hcore : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, D) w1)
@@ -172,7 +174,7 @@ theorem core_kidsPass_deep_ran {c : Name} (d : MachineData) (ok : d.ok = true)
     (hins : d.shape.insts ≠ [])
     (hfne : d.shape.instFields ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     (n : Nat)
     (hkidK : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y →
@@ -230,7 +232,7 @@ theorem core_kidsPass_deep {c : Name} (d : MachineData) (ok : d.ok = true)
     (hins : d.shape.insts ≠ [])
     (hfne : d.shape.instFields ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     (n : Nat)
     (hkidK : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y →
@@ -270,7 +272,7 @@ theorem core_kidsMaskedN_top_ran {c : Name} (d : MachineData) (ok : d.ok = true)
     (hins : d.shape.insts ≠ [])
     (hfne : d.shape.instFields ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     (hkidM : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y →
       Tools.ShippingMachineShipsDepth.outsMaskedN y.1 = true)
@@ -302,7 +304,7 @@ theorem core_kidsMaskedN_top {c : Name} (d : MachineData) (ok : d.ok = true)
     (hins : d.shape.insts ≠ [])
     (hfne : d.shape.instFields ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     (hkidM : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y →
       Tools.ShippingMachineShipsDepth.outsMaskedN y.1 = true)

@@ -163,65 +163,9 @@ theorem kid_of_kidT {o : InstOrigin} {c : Name} {y : Res} (h : KidT mref cref o 
   rw [hagree]
   exact h
 
-/-! ## Names that say what the origin builds (`TagsAgree`)
-
-The name-based statements of the memory chain (`Tools.ShippingMemKid.Kid`,
-`memNameAt`, `hsep` over declaration names) stay sound under the origin
-dispatch for a shape whose every entry's NAME decodes (`memChild?`) to what its
-ORIGIN builds. `tagAgrees` is that test, per entry, in decidable form; it is
-false exactly for a collision entry (an ordinary/structure-call entry whose
-declaration carries a memory placeholder name), so a theorem asking
-`TagsAgree` does NOT cover a collision shape — it does not assume collisions
-away, it is decided per declaration. -/
-
-/-- A memory placeholder decodes to its own memory module (the proof of
-`Tools.ShippingMemDispatch.memChild_memChildName`, BUILT there). -/
-theorem memChild_ofName (combo : Bool) (aw dw : Nat) :
-    Sparkle.Compiler.MachMemory.memChild? (Sparkle.Compiler.MachMemory.memChildName combo aw dw) =
-      some (Sparkle.Compiler.MachMemory.memModule combo aw dw) := by
-  cases combo
-  · first
-      | rfl
-      | simp [Sparkle.Compiler.MachMemory.memChild?, Sparkle.Compiler.MachMemory.memChildName]
-      | decide
-  · first
-      | rfl
-      | simp [Sparkle.Compiler.MachMemory.memChild?, Sparkle.Compiler.MachMemory.memChildName]
-      | decide
-
-/-- The entry's name says what its origin builds. -/
-def tagAgrees (c : Name) : InstOrigin → Bool
-  | .mem cb aw dw => decide (c = Sparkle.Compiler.MachMemory.memChildName cb aw dw)
-  | .ord => (Sparkle.Compiler.MachMemory.memChild? c).isNone
-  | .field _ => (Sparkle.Compiler.MachMemory.memChild? c).isNone
-
-theorem memChild_of_tagAgrees {c : Name} {o : InstOrigin} (h : tagAgrees c o = true) :
-    Sparkle.Compiler.MachMemory.memChild? c = o.child? := by
-  cases o with
-  | ord =>
-    exact Option.isNone_iff_eq_none.mp
-      (show (Sparkle.Compiler.MachMemory.memChild? c).isNone = true from h)
-  | field i =>
-    exact Option.isNone_iff_eq_none.mp
-      (show (Sparkle.Compiler.MachMemory.memChild? c).isNone = true from h)
-  | mem cb aw dw =>
-    have e : c = Sparkle.Compiler.MachMemory.memChildName cb aw dw :=
-      of_decide_eq_true
-        (show decide (c = Sparkle.Compiler.MachMemory.memChildName cb aw dw) = true from h)
-    rw [e]
-    exact memChild_ofName cb aw dw
-
-/-- Every entry's name says what its origin builds (decidable: `decide`). -/
-abbrev TagsAgree (shape : MachineShape) : Prop :=
-  ∀ x ∈ shape.instTagged, tagAgrees x.1 x.2 = true
-
-theorem agree_at {shape : MachineShape} (h : TagsAgree shape) {k : Nat}
-    (hk : k < shape.insts.length) :
-    Sparkle.Compiler.MachMemory.memChild? (shape.insts[k]).1 = (originAt shape k).child? := by
-  have hkT : k < shape.instTagged.length := by rw [instTagged_length]; exact hk
-  have := h _ (List.getElem_mem hkT)
-  rw [instTagged_getElem_fst shape hkT, instTagged_getElem_snd shape hkT] at this
-  exact memChild_of_tagAgrees this
+/-! ## `TagsAgree` (`tagAgrees`, `memChild_ofName`, `memChild_of_tagAgrees`,
+`agree_at`, `tagsAgree_of_nomem`) is in `Tools/ShippingKid.lean`, same namespace,
+so the `core_*M` chain below `ShippingChecksCore` can ask it. -/
 
 /-- Without a memory name and without a memory origin, names and origins agree. -/
 theorem tagsAgree_of_nomem_notag {shape : MachineShape}

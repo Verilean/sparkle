@@ -2,6 +2,8 @@ import Tools.ShippingChecksOuts
 import Tools.ShippingTransitionPortTys
 import Tools.ShippingInstWidthsParts
 import Tools.ShippingMachineRanBase
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # Conjunct 8, `instOutWidthsOk`, and the gate half of conjunct 1 (G1)
 
@@ -111,6 +113,7 @@ What it takes of the run is that the machine synthesis this core run performed
 returned `(M, D)` from an invariant world; `core_hierGateM` below is its instance at the
 all-worlds closing (`Tools.ShippingMachineRan.machineRan_of_closes`). -/
 theorem core_hierGateM_ran {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hagree : Tools.ShippingInstTagged.TagsAgree d.shape)
     (hbody : d.shape.body = quote d.dom
       (fun j => inputExpr d.shape.binders.length (d.bpos j))
       (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
@@ -126,7 +129,7 @@ theorem core_hierGateM_ran {c : Name} (d : MachineData) (ok : d.ok = true)
     (ran : Tools.ShippingMachineRan.MachineRan mctx mref cctx cref c d.shape M D) :
     Sparkle.IR.RefineCheck.hierGate b = true := by
   have hbody' : b.body = M.body :=
-    (core_kids_factsM_ran d ok hbody hC hslots hdomB hins outTy hfne hpost ran).2.1
+    (core_kids_factsM_ran (hagree := hagree) d ok hbody hC hslots hdomB hins outTy hfne hpost ran).2.1
   have ran0 := ran
   obtain ⟨_, bb, w9, w10, hrun9, hw9, -⟩ := ran0
   obtain ⟨t, t', d₀, run, hcl, hmt⟩ := synthesizeMachineCertified_runs hw9 hrun9
@@ -157,6 +160,7 @@ set_option maxHeartbeats 4000000 in
 module has an instance statement, and every statement is an instance, an
 assignment or a register. -/
 theorem core_hierGateM {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hagree : Tools.ShippingInstTagged.TagsAgree d.shape)
     (hbody : d.shape.body = quote d.dom
       (fun j => inputExpr d.shape.binders.length (d.bpos j))
       (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
@@ -174,7 +178,7 @@ theorem core_hierGateM {c : Name} (d : MachineData) (ok : d.ok = true)
     (entry : MachineDefines mctx mref cctx cref c d.shape)
     (closes : MachineClosesAt mctx mref cctx cref c d.shape) :
     Sparkle.IR.RefineCheck.hierGate b = true :=
-  core_hierGateM_ran d ok hbody hC hslots hdomB hins hfne outTy hpost
+  core_hierGateM_ran (hagree := hagree) d ok hbody hC hslots hdomB hins hfne outTy hpost
     (Tools.ShippingMachineRan.machineRan_of_closes hcore entry hB closes)
 
 set_option maxHeartbeats 4000000 in
@@ -183,6 +187,7 @@ What it takes of the run is that the machine synthesis this core run performed
 returned `(M, D)` from an invariant world; `core_callPortsM` below is its instance at the
 all-worlds closing (`Tools.ShippingMachineRan.machineRan_of_closes`). -/
 theorem core_callPortsM_ran {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hagree : Tools.ShippingInstTagged.TagsAgree d.shape)
     (hbody : d.shape.body = quote d.dom
       (fun j => inputExpr d.shape.binders.length (d.bpos j))
       (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
@@ -209,7 +214,7 @@ theorem core_callPortsM_ran {c : Name} (d : MachineData) (ok : d.ok = true)
             ∃ bn, d.shape.binders[nDecl + k]? = some bn ∧
               Sparkle.IR.RegDedup.declWidth b x = (kindTy bn.2).bitWidth := by
   have hbody' : b.body = M.body :=
-    (core_kids_factsM_ran d ok hbody hC hslots hdomB hins outTy hfne hpost ran).2.1
+    (core_kids_factsM_ran (hagree := hagree) d ok hbody hC hslots hdomB hins outTy hfne hpost ran).2.1
   -- the cleanup and the checked merge keep the non-zero wires and add none
   have hbw : ∀ p ∈ M.wires, p.ty.bitWidth ≠ 0 → p ∈ b.wires := by
     intro p hp hz
@@ -262,7 +267,7 @@ theorem core_callPortsM_ran {c : Name} (d : MachineData) (ok : d.ok = true)
     rw [hy] at hch0
     have hyn : y.1.name = child.1.name := by
       simpa only [Option.map_some, Option.some.injEq] using hch0
-    have hre := kid_of hk0 hMC hy hor
+    have hre := kid_of hk0 hMC hy hor (Tools.ShippingInstTagged.agree_at hagree hk0)
     · have hyfind :=
         ((Tools.ShippingMachineInstG.closeInstsG_names hG).2.2.2 y
           (List.mem_of_getElem? hy)).1
@@ -342,6 +347,7 @@ connection of a call entry `k` — the instance's module a real child's, the
 port the entry's field — and its wire is declared at the width of the type
 of the call's binder. -/
 theorem core_callPortsM {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hagree : Tools.ShippingInstTagged.TagsAgree d.shape)
     (hbody : d.shape.body = quote d.dom
       (fun j => inputExpr d.shape.binders.length (d.bpos j))
       (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
@@ -370,7 +376,7 @@ theorem core_callPortsM {c : Name} (d : MachineData) (ok : d.ok = true)
             p.name = d.shape.instFields.getD k "" ∧
             ∃ bn, d.shape.binders[nDecl + k]? = some bn ∧
               Sparkle.IR.RegDedup.declWidth b x = (kindTy bn.2).bitWidth :=
-  core_callPortsM_ran d ok hbody hC hslots hdomB hins hfne outTy hkidP hpost
+  core_callPortsM_ran (hagree := hagree) d ok hbody hC hslots hdomB hins hfne outTy hkidP hpost
     (Tools.ShippingMachineRan.machineRan_of_closes hcore entry hB closes)
 
 end Tools.ShippingMemKid
@@ -411,7 +417,7 @@ theorem core_callPorts_ran {c : Name} (d : MachineData) (ok : d.ok = true)
     (hins : d.shape.insts ≠ [])
     (hfne : d.shape.instFields ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     (hkidP : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y →
       ∀ p ∈ y.1.outputs, (∀ q ∈ inPortsOf y.1, q.name ≠ p.name) ∧ p.name ≠ "clk" ∧
@@ -429,7 +435,7 @@ theorem core_callPorts_ran {c : Name} (d : MachineData) (ok : d.ok = true)
             ∃ bn, d.shape.binders[nDecl + k]? = some bn ∧
               Sparkle.IR.RegDedup.declWidth b x = (kindTy bn.2).bitWidth := by
   intro mn iname conns hmem
-  obtain ⟨mc, hmc, hrest⟩ := Tools.ShippingMemKid.core_callPortsM_ran d ok hbody hC hslots hdomB hins
+  obtain ⟨mc, hmc, hrest⟩ := Tools.ShippingMemKid.core_callPortsM_ran (hagree := (Tools.ShippingInstTagged.tagsAgree_of_nomem hnomem)) d ok hbody hC hslots hdomB hins
     hfne outTy
     (fun k hk y hy => hkidP k hk y (Tools.ShippingCoreFromM.real_of_kid hnomem hk hy))
     hpost ran mn iname conns hmem
@@ -453,7 +459,7 @@ theorem core_callPorts {c : Name} (d : MachineData) (ok : d.ok = true)
     (hins : d.shape.insts ≠ [])
     (hfne : d.shape.instFields ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     (hkidP : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y →
       ∀ p ∈ y.1.outputs, (∀ q ∈ inPortsOf y.1, q.name ≠ p.name) ∧ p.name ≠ "clk" ∧
@@ -494,7 +500,7 @@ theorem core_instOutWidthsOk_ran {c : Name} (d : MachineData) (ok : d.ok = true)
     (hins : d.shape.insts ≠ [])
     (hfne : d.shape.instFields ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     (hkidP : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y →
       ∀ p ∈ y.1.outputs, (∀ q ∈ inPortsOf y.1, q.name ≠ p.name) ∧ p.name ≠ "clk" ∧
@@ -542,7 +548,7 @@ theorem core_instOutWidthsOk {c : Name} (d : MachineData) (ok : d.ok = true)
     (hins : d.shape.insts ≠ [])
     (hfne : d.shape.instFields ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     (hkidP : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y →
       ∀ p ∈ y.1.outputs, (∀ q ∈ inPortsOf y.1, q.name ≠ p.name) ∧ p.name ≠ "clk" ∧
@@ -578,7 +584,7 @@ theorem core_shipsHier_rest3 {c : Name} (d : MachineData) (ok : d.ok = true)
     (hsl : d.shape.layout.slots ≠ [])
     (hfne : d.shape.instFields ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     (hkidP : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y →
       ∀ p ∈ y.1.outputs, (∀ q ∈ inPortsOf y.1, q.name ≠ p.name) ∧ p.name ≠ "clk" ∧
@@ -624,13 +630,13 @@ theorem core_hierGate_ran {c : Name} (d : MachineData) (ok : d.ok = true)
     (hins : d.shape.insts ≠ [])
     (hfne : d.shape.instFields ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     {M b : Sparkle.IR.AST.Module} {D : Design}
     (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨
       b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M))
     (ran : Tools.ShippingMachineRan.MachineRan mctx mref cctx cref c d.shape M D) :
     Sparkle.IR.RefineCheck.hierGate b = true := by
-  exact Tools.ShippingMemKid.core_hierGateM_ran d ok hbody hC hslots hdomB hins hfne outTy
+  exact Tools.ShippingMemKid.core_hierGateM_ran (hagree := (Tools.ShippingInstTagged.tagsAgree_of_nomem hnomem)) d ok hbody hC hslots hdomB hins hfne outTy
     hpost ran
 
 set_option maxHeartbeats 4000000 in
@@ -647,7 +653,7 @@ theorem core_hierGate {c : Name} (d : MachineData) (ok : d.ok = true)
     (hins : d.shape.insts ≠ [])
     (hfne : d.shape.instFields ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     {w w1 : Void IO.RealWorld} {M b : Sparkle.IR.AST.Module} {D : Design}
     (hB : ChildBnd mref cref w)
     (hcore : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, D) w1)
@@ -673,7 +679,7 @@ theorem core_shipsHier_rest3F {c : Name} (d : MachineData) (ok : d.ok = true)
     (hsl : d.shape.layout.slots ≠ [])
     (hfne : d.shape.instFields ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     (hkidP : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y →
       ∀ p ∈ y.1.outputs, (∀ q ∈ inPortsOf y.1, q.name ≠ p.name) ∧ p.name ≠ "clk" ∧

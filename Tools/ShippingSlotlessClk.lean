@@ -5,6 +5,8 @@ import Tools.ShippingCallsAssemblyG
 import Tools.ShippingTransitionPortTys
 import Tools.ShippingLeafPorts
 import Tools.ShippingPortsMatchRawLeaf
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # `clk` and `rst` of a parent WITHOUT a register, from a sequential child's closing (G1, unit U5a, round par/a-20)
 
@@ -154,7 +156,7 @@ theorem core_seqKid_inputs {c : Name} (d : MachineData) (ok : d.ok = true)
     (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
     (hins : d.shape.insts ≠ [])
     (hfne : d.shape.instFields ≠ [])
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     (hseq : SeqKid mref cref d)
     {w w1 : Void IO.RealWorld} {M : Sparkle.IR.AST.Module} {D : Design}
     (hB : ChildBnd mref cref w)
@@ -187,7 +189,7 @@ theorem core_seqKid_inputs {c : Name} (d : MachineData) (ok : d.ok = true)
   obtain ⟨y, hy, hor⟩ := hall k hk
   have hyR : RealChild mref cref (d.shape.insts[k]).1 y := by
     rcases hor with hmem | hre
-    · rw [hnomem _ (List.getElem_mem hk)] at hmem
+    · rw [Tools.ShippingChildInv.nomem_tag hnomem hk] at hmem
       cases hmem
     · exact hre
   have hys : isSeqChild y.1 = true := hsk y hyR
@@ -244,7 +246,7 @@ theorem core_slotless_seq {c : Name} (d : MachineData) (ok : d.ok = true)
     (hins : d.shape.insts ≠ [])
     (hfne : d.shape.instFields ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     (hsl0 : d.shape.layout.slots = [])
     (hseq : SeqKid mref cref d)
     {w w1 : Void IO.RealWorld} {M b : Sparkle.IR.AST.Module} {D : Design}
@@ -411,7 +413,7 @@ theorem core_raw_factsS {c : Name} (d : MachineData) (ok : d.ok = true)
     (hck : d.shape.layout.slots ≠ [] ∨ SeqKid mref cref d)
     (hfne : d.shape.instFields ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     {w w1 : Void IO.RealWorld} {M b : Sparkle.IR.AST.Module} {D : Design}
     (hB : ChildBnd mref cref w)
     (hcore : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, D) w1)
@@ -443,7 +445,7 @@ theorem core_clkS {c : Name} (d : MachineData) (ok : d.ok = true)
     (hins : d.shape.insts ≠ [])
     (hfne : d.shape.instFields ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     (hck : d.shape.layout.slots ≠ [] ∨ SeqKid mref cref d)
     {w w1 : Void IO.RealWorld} {M b : Sparkle.IR.AST.Module} {D : Design}
     (hB : ChildBnd mref cref w)

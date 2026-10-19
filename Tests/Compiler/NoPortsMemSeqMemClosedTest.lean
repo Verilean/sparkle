@@ -2,6 +2,8 @@ import Tests.Compiler.NoPortsMemSeqMemTest
 import Tools.ShippingMemClosesKids
 import Tools.ShippingBoundaryClose
 import Tools.ShippingNameSep
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # `seqMem`: the closing of a parent with a MEMORY child, and the closed check-free endpoint (round par/a-18)
 
@@ -395,6 +397,7 @@ theorem seqMem_closes {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lea
       ``Sparkle.Tests.Compiler.ShippingChildBoundaryTest.seqMem
       (Sparkle.Tests.Compiler.ShippingChildBoundaryTest.seqMem.machineData).shape :=
   Tools.ShippingMemCloses.machineClosesAt_of_kidsDM (nDecl := 3)
+    (hagree := by first | decide | decide +kernel)
     Sparkle.Tests.Compiler.ShippingChildBoundaryTest.seqMem.machineData
     Sparkle.Tests.Compiler.ShippingChildBoundaryTest.seqMem.machine_ok
     Sparkle.Tests.Compiler.ShippingChildBoundaryTest.seqMem.machine_body

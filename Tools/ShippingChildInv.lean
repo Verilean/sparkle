@@ -517,6 +517,47 @@ theorem instTagged_length' (shape : MachineShape) :
     shape.instTagged.length = shape.insts.length := by
   simp [MachineShape.instTagged]
 
+/-- **No memory entry, by origin AND by name** (the `hnomem` premise of the
+general and one-output closings' theorems, decidable): the origin of entry
+`k` builds no child. -/
+theorem nomem_tag {shape : MachineShape}
+    (h : ∀ x ∈ shape.instTagged, x.2.child?.isNone = true ∧
+      (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
+    {k : Nat} (hk : k < shape.insts.length) :
+    (shape.instOrigins.getD k .ord).child? = none := by
+  obtain ⟨hkT, he⟩ := instTagged_getAt shape hk
+  have := (h _ (List.getElem_mem hkT)).1
+  rw [he] at this
+  exact Option.isNone_iff_eq_none.mp this
+
+/-- The same premise: the NAME of entry `k` is not a memory placeholder. -/
+theorem nomem_name {shape : MachineShape}
+    (h : ∀ x ∈ shape.instTagged, x.2.child?.isNone = true ∧
+      (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
+    {k : Nat} (hk : k < shape.insts.length) :
+    Sparkle.Compiler.MachMemory.memChild? (shape.insts[k]).1 = none := by
+  obtain ⟨hkT, he⟩ := instTagged_getAt shape hk
+  have := (h _ (List.getElem_mem hkT)).2
+  rw [he] at this
+  exact Option.isNone_iff_eq_none.mp this
+
+/-- The pure tag condition (no memory ORIGIN) at entry `k`. -/
+theorem notag_at {shape : MachineShape}
+    (h : ∀ o ∈ shape.instTagged, o.2.child?.isNone = true)
+    {k : Nat} (hk : k < shape.insts.length) :
+    (shape.instOrigins.getD k .ord).child? = none := by
+  obtain ⟨hkT, he⟩ := instTagged_getAt shape hk
+  have := h _ (List.getElem_mem hkT)
+  rw [he] at this
+  exact Option.isNone_iff_eq_none.mp this
+
+/-- The same premise gives the pure tag condition. -/
+theorem nomem_tags {shape : MachineShape}
+    (h : ∀ x ∈ shape.instTagged, x.2.child?.isNone = true ∧
+      (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true) :
+    ∀ o ∈ shape.instTagged, o.2.child?.isNone = true :=
+  fun o ho => (h o ho).1
+
 /-- An entry of `ChildrenReal` whose ORIGIN builds no child is a `RealChild`
 of its callee (the tag-based replacement of the name-based
 `realChild_of_childrenReal`). -/

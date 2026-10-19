@@ -4,6 +4,8 @@ import Tools.ShippingCoreClk
 import Tools.ShippingPortsMatchRaw
 import Tools.ShippingKidsSelf
 import Tools.ShippingTextShipped
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # The connections, the typing and the children's check of a machine whose calls include MEMORY children (G1, unit U4, round par/b-13)
 
@@ -51,6 +53,7 @@ set_option maxHeartbeats 4000000 in
 /-- **The full entry's module of a machine with calls is typed in its own
 wire table**, with its output ports resolved by the emitter's width map. -/
 theorem core_closed_typedInM {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hagree : Tools.ShippingInstTagged.TagsAgree d.shape)
     (hbody : d.shape.body = quote d.dom
       (fun j => inputExpr d.shape.binders.length (d.bpos j))
       (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
@@ -72,7 +75,7 @@ theorem core_closed_typedInM {c : Name} (d : MachineData) (ok : d.ok = true)
     (hoty : ∀ o ∈ d.shape.layout.outs, Tools.ShippingTextTyped.scalarTy o.ty = true) :
     Tools.ShippingTextTyped.TypedIn b := by
   -- the body and the output ports of the full entry's module are the raw module's
-  have hkf := core_kids_factsM d ok hbody hC hslots hdomB hins outTy
+  have hkf := core_kids_factsM (hagree := hagree) d ok hbody hC hslots hdomB hins outTy
     hfne hB hcore hpost entry closes
   have hbb : b.body = M.body := hkf.2.1
   have hbo : b.outputs = M.outputs := hkf.2.2.1
@@ -428,6 +431,7 @@ module**: the clock or the reset, or a declared wire of `b` at the width of
 the type of a binder of the parent — the call's result binder (output
 connection) or the argument's `let` binder (argument connection). -/
 theorem core_callConnsM {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hagree : Tools.ShippingInstTagged.TagsAgree d.shape)
     (hbody : d.shape.body = quote d.dom
       (fun j => inputExpr d.shape.binders.length (d.bpos j))
       (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
@@ -463,7 +467,7 @@ theorem core_callConnsM {c : Name} (d : MachineData) (ok : d.ok = true)
                     (d.shape.layout.slots.length + a))]? = some bn ∧
                   Sparkle.IR.RegDedup.declWidth b x = (kindTy bn.2).bitWidth))) := by
   have hbody' : b.body = M.body :=
-    (core_kids_factsM d ok hbody hC hslots hdomB hins outTy hfne hB
+    (core_kids_factsM (hagree := hagree) d ok hbody hC hslots hdomB hins outTy hfne hB
       hcore hpost entry closes).2.1
   -- the cleanup and the checked merge keep the non-zero wires and add none
   have hbw : ∀ p ∈ M.wires, p.ty.bitWidth ≠ 0 → p ∈ b.wires := by
@@ -523,7 +527,7 @@ theorem core_callConnsM {c : Name} (d : MachineData) (ok : d.ok = true)
     rw [hy] at hch0
     have hyn : y.1.name = child.1.name := by
       simpa only [Option.map_some, Option.some.injEq] using hch0
-    have hre := kid_of hk0 hMC hy hor
+    have hre := kid_of hk0 hMC hy hor (Tools.ShippingInstTagged.agree_at hagree hk0)
     · have hyfind :=
         ((Tools.ShippingMachineInstG.closeInstsG_names hG).2.2.2 y
           (List.mem_of_getElem? hy)).1
@@ -625,6 +629,7 @@ set_option maxHeartbeats 4000000 in
 a call group** (`CallStmtG`) whose child module is a kid's — `core_callConnsM`
 cut after the resolution of the instance (its proof up to there, verbatim). -/
 theorem core_callStmtM {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hagree : Tools.ShippingInstTagged.TagsAgree d.shape)
     (hbody : d.shape.body = quote d.dom
       (fun j => inputExpr d.shape.binders.length (d.bpos j))
       (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
@@ -650,7 +655,7 @@ theorem core_callStmtM {c : Name} (d : MachineData) (ok : d.ok = true)
           Tools.ShippingMachineInstG.CallStmtG nIn kI n names args outs mc
             (Stmt.inst mn iname conns) := by
   have hbody' : b.body = M.body :=
-    (core_kids_factsM d ok hbody hC hslots hdomB hins outTy hfne hB
+    (core_kids_factsM (hagree := hagree) d ok hbody hC hslots hdomB hins outTy hfne hB
       hcore hpost entry closes).2.1
   -- the cleanup and the checked merge keep the non-zero wires and add none
   have hbw : ∀ p ∈ M.wires, p.ty.bitWidth ≠ 0 → p ∈ b.wires := by
@@ -710,7 +715,7 @@ theorem core_callStmtM {c : Name} (d : MachineData) (ok : d.ok = true)
     rw [hy] at hch0
     have hyn : y.1.name = child.1.name := by
       simpa only [Option.map_some, Option.some.injEq] using hch0
-    have hre := kid_of hk0 hMC hy hor
+    have hre := kid_of hk0 hMC hy hor (Tools.ShippingInstTagged.agree_at hagree hk0)
     · have hyfind :=
         ((Tools.ShippingMachineInstG.closeInstsG_names hG).2.2.2 y
           (List.mem_of_getElem? hy)).1
@@ -730,6 +735,7 @@ theorem core_callStmtM {c : Name} (d : MachineData) (ok : d.ok = true)
 set_option maxHeartbeats 4000000 in
 /-- **`portsMatchB` of the RAW full-entry module**, from the core run. -/
 theorem core_portsMatch_rawM {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hagree : Tools.ShippingInstTagged.TagsAgree d.shape)
     (hbody : d.shape.body = quote d.dom
       (fun j => inputExpr d.shape.binders.length (d.bpos j))
       (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
@@ -772,9 +778,9 @@ theorem core_portsMatch_rawM {c : Name} (d : MachineData) (ok : d.ok = true)
     (hclkB : Tools.ShippingDesignSV.weS b "clk" = 1 ∧ Tools.ShippingDesignSV.weS b "rst" = 1) :
     Tools.ShippingDesignSV.portsMatchB (childMap D.modules) b = true := by
   have hT : Tools.ShippingTextTyped.TypedIn b :=
-    core_closed_typedInM d ok hbody hC hslots hdomB hins outTy hfne
+    core_closed_typedInM (hagree := hagree) d ok hbody hC hslots hdomB hins outTy hfne
       hB hcore hpost entry closes hon hoty
-  have hconn := core_callConnsM d ok hbody hC hslots hdomB hins hfne outTy hB hcore hpost
+  have hconn := core_callConnsM (hagree := hagree) d ok hbody hC hslots hdomB hins hfne outTy hB hcore hpost
     entry closes
   refine Tools.ShippingTextShipped.portsMatchB_of ?_ ?_
   · intro mn iname conns child cwe hst hc cn hcm x hc2
@@ -839,6 +845,7 @@ set_option maxHeartbeats 4000000 in
 /-- **The design of a core run on a machine with calls resolves its real
 children's modules, and the modules of their designs, to themselves.** -/
 theorem core_kids_selfM {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hagree : Tools.ShippingInstTagged.TagsAgree d.shape)
     (hbody : d.shape.body = quote d.dom
       (fun j => inputExpr d.shape.binders.length (d.bpos j))
       (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
@@ -898,7 +905,7 @@ theorem core_kids_selfM {c : Name} (d : MachineData) (ok : d.ok = true)
   obtain ⟨y', hy', hor'⟩ := hall k hk'
   rw [hk] at hy'
   cases hy'
-  have hre := kid_of hk' hMC hk hor'
+  have hre := kid_of hk' hMC hk hor' (Tools.ShippingInstTagged.agree_at hagree hk')
   · exact ⟨k, hk', y, hre, hor, hself y hy⟩
 
 set_option maxHeartbeats 4000000 in
@@ -907,6 +914,7 @@ depth `n`**, on the core run's design, from one fact per real child in the
 form that holds of a child WITH instances: its check against any module list
 that resolves it and the modules of its design to themselves. -/
 theorem core_kidsPass_deepM {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hagree : Tools.ShippingInstTagged.TagsAgree d.shape)
     (hbody : d.shape.body = quote d.dom
       (fun j => inputExpr d.shape.binders.length (d.bpos j))
       (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
@@ -935,11 +943,11 @@ theorem core_kidsPass_deepM {c : Name} (d : MachineData) (ok : d.ok = true)
       (Tools.ShippingChecksDesign.kidCheck (childMap D.modules) n)
       (checkedOptimize b).body = true := by
   obtain ⟨-, hbody', -, hresM, -, -⟩ :=
-    core_kids_factsM d ok hbody hC hslots hdomB hins outTy hfne hB
+    core_kids_factsM (hagree := hagree) d ok hbody hC hslots hdomB hins outTy hfne hB
       hcore hpost entry closes
-  have hselfD := core_kids_selfM d ok hbody hC hslots hdomB hins hfne hB hcore entry closes
+  have hselfD := core_kids_selfM (hagree := hagree) d ok hbody hC hslots hdomB hins hfne hB hcore entry closes
   have hgate : Sparkle.IR.RefineCheck.hierGate b = true :=
-    core_hierGateM d ok hbody hC hslots hdomB hins hfne outTy
+    core_hierGateM (hagree := hagree) d ok hbody hC hslots hdomB hins hfne outTy
       hB hcore hpost entry closes
   unfold Tools.ShippingDesignSV.kidsPass
   rw [List.all_eq_true]
@@ -976,6 +984,7 @@ hypotheses of `core_runFacts`, the two data conditions on the output ports,
 and — the only check premises left — the connection widths and the
 children's check. -/
 theorem core_designCheck_runM {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hagree : Tools.ShippingInstTagged.TagsAgree d.shape)
     (hbody : d.shape.body = quote d.dom
       (fun j => inputExpr d.shape.binders.length (d.bpos j))
       (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
@@ -1011,9 +1020,9 @@ theorem core_designCheck_runM {c : Name} (d : MachineData) (ok : d.ok = true)
       (checkedOptimize b).body = true) :
     Tools.ShippingDesignSV.designCheck (childMap D.modules) n (checkedOptimize b) = true :=
   core_designCheck_rest2
-    (core_runFactsM d ok hbody hC hslots hdomB hins hsl hfne outTy
+    (core_runFactsM (hagree := hagree) d ok hbody hC hslots hdomB hins hsl hfne outTy
       hkidP hkidW hB hcore hpost entry closes)
-    (core_closed_typedInM d ok hbody hC hslots hdomB hins outTy hfne
+    (core_closed_typedInM (hagree := hagree) d ok hbody hC hslots hdomB hins outTy hfne
       hB hcore hpost entry closes hon hoty)
     n hports hkids
 

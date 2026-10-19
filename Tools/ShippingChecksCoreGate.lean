@@ -1,6 +1,8 @@
 import Tools.ShippingChecksCore
 import Tools.ShippingChecksDepthGate
 import Tools.ShippingMachineRanBase
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # `outsCheck` at the core run's design under the GATE (isolated branch `fix/opt-fallback`)
 
@@ -52,7 +54,7 @@ theorem core_outsCheck_all_gate_ran {c : Name} (d : MachineData) (ok : d.ok = tr
     (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
     (hins : d.shape.insts ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     (hkidA : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y →
       Tools.ShippingDesignSVBack.outsAssigned y.1 = true ∧
@@ -103,7 +105,7 @@ theorem core_outsCheck_all_gate {c : Name} (d : MachineData) (ok : d.ok = true)
     (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
     (hins : d.shape.insts ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     (hkidA : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y →
       Tools.ShippingDesignSVBack.outsAssigned y.1 = true ∧

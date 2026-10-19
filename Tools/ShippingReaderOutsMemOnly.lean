@@ -1,5 +1,7 @@
 import Tools.ShippingMemOnly
 import Tools.ShippingReaderOutsInv
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # Two generated premises of `#machine_no_ports_mem` discharged in general
 
@@ -51,6 +53,8 @@ structure MemOnlyDataR (d : MachineData) (nDecl aw dw : Nat) : Prop where
   cw : Tools.ShippingCallWidths.callWidthsOk d nDecl (fun _ => memOuts dw) = true
   args : Tools.ShippingPortsMatchRaw.callArgsOk d nDecl (fun _ => memIns aw dw) = true
   outNames : ∀ o ∈ d.shape.layout.outs, Sparkle.Backend.Verilog.sanitizeName o.name = o.name
+  /-- origin dispatch (patched compiler): names say what their origins build -/
+  agree : Tools.ShippingInstTagged.TagsAgree d.shape
 
 /-- The full data from the reduced data and the two output facts. -/
 theorem MemOnlyDataR.toData {d : MachineData} {nDecl aw dw : Nat} (h : MemOnlyDataR d nDecl aw dw)
@@ -58,7 +62,7 @@ theorem MemOnlyDataR.toData {d : MachineData} {nDecl aw dw : Nat} (h : MemOnlyDa
     (outScalar : ∀ o ∈ d.shape.layout.outs, Tools.ShippingTextTyped.scalarTy o.ty = true) :
     MemOnlyData d nDecl aw dw :=
   ⟨h.ok, h.body, h.calls, h.slots, h.domB, h.ins, h.sl, h.fne, outTy, h.mem, h.cw, h.args,
-    h.outNames, outScalar⟩
+    h.outNames, outScalar, h.agree⟩
 
 variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
   {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}

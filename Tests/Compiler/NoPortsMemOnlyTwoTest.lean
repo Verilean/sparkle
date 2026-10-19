@@ -1,4 +1,6 @@
 import Tests.Compiler.NoPortsMemOnlyCounterTest
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # `twoMems` by hand: the depth-0 endpoint of a MEMORY-ONLY parent with TWO memory entries, without the four check premises (G1, unit U4, round par/b-14)
 
@@ -142,6 +144,8 @@ theorem twoMems_data : Tools.ShippingMemOnly.MemOnlyData
     twoMems_callWidths twoMems_callArgs
     (fun o ho => Tools.ShippingSVBridge.sanitizeName_of_clean (twoMems_outChars o ho))
     twoMems_outScalar
+    -- origin dispatch: names say what their origins build
+    (by first | decide | decide +kernel)
 
 /-- **The run's facts of `twoMems`'s full-entry module** (`memOnly_runFacts`). -/
 theorem twoMems_runFacts {mctx : Lean.Meta.Context}

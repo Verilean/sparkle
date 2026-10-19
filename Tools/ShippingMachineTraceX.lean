@@ -427,7 +427,7 @@ def ServedRealG (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State)
       ((machPorts declName ids cache shape.binders).map (·.name))[machNIn shape + j]?) = some outWs →
     (∃ e ∈ outs, e.1 = k) →
     moduleByName dsn.modules mc.name = some mc →
-    (∃ md, Sparkle.Compiler.MachMemory.memChild? (shape.insts[k]).1 = some md ∧ mc = md.1) ∨
+    (∃ md, (shape.instOrigins.getD k .ord).child? = some md ∧ mc = md.1) ∨
       ∃ Dc, Tools.ShippingChildInv.RealChild mref cref (shape.insts[k]).1 (mc, Dc) ∧
         ∀ g ∈ Dc.modules, moduleByName dsn.modules g.name = some g
 
@@ -445,7 +445,7 @@ def ServedReal1 (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State)
     Tools.ShippingMachineInst.CallStmt (machNIn shape) shape.insts.length shape.layout.slots.length
       ((machPorts declName ids cache shape.binders).map (·.name)) k args mc st →
     moduleByName dsn.modules mc.name = some mc →
-    (∃ md, Sparkle.Compiler.MachMemory.memChild? (shape.insts[k]).1 = some md ∧ mc = md.1) ∨
+    (∃ md, (shape.instOrigins.getD k .ord).child? = some md ∧ mc = md.1) ∨
       ∃ Dc, Tools.ShippingChildInv.RealChild mref cref (shape.insts[k]).1 (mc, Dc) ∧
         ∀ g ∈ Dc.modules, moduleByName dsn.modules g.name = some g
 

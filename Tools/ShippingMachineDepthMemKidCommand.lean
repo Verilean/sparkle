@@ -147,7 +147,7 @@ def generateCore (declName : Name) (dep : Nat) : MetaM Name := do
     let goalK := ((hrunNT.bindingBody!.instantiate1 (mkNatLit k)).bindingBody!.instantiate1
       (toExpr c)).bindingBody!
     let prK ← (try
-        proveByTacticT goalK `(tactic| (intro h; first | cases h | simp [Sparkle.Compiler.MachMemory.memChild?] at h))
+        proveByTacticT goalK `(tactic| (intro h; first | cases h | simp [Sparkle.Compiler.MachMemory.memChild?] at h | exact absurd (congrArg Option.isNone h) (by decide) | exact absurd (congrArg Option.isNone h) (by decide +kernel)))
       catch ex => throwError "call {k} (the child premise): {ex.toMessageData}")
     if prK.hasSorry then throwError "{declName}: call {k} (the child premise): the proof contains sorry"
     perR := perR.push prK

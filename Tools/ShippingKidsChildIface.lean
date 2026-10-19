@@ -1,6 +1,8 @@
 import Tools.ShippingCallsKidsD
 import Tools.ShippingClosedKinds
 import Tools.ShippingMachineDepthChild
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # A machine child WITH calls of its own, from its own run
 
@@ -143,7 +145,7 @@ theorem kidsChild_iface {c : Name} (d : MachineData) (ok : d.ok = true)
     (hLlen : d.letBs.length = d.shape.layout.lets)
     (hNIn : machNIn d.shape = ((d.bsIn.take kD).filter (fun b => b.2 != .domain)).length)
     (namesK : Nat → List String)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     (hkid : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y →
       KidNames (d.shape.insts[k]).1 (namesK k) y.1 y.2)
@@ -260,7 +262,7 @@ theorem kidsChild_iface {c : Name} (d : MachineData) (ok : d.ok = true)
     rw [hc] at hy
     cases hy
     rcases hor with hmem | hre
-    · rw [hnomem _ (List.getElem_mem hk)] at hmem
+    · rw [Tools.ShippingChildInv.nomem_tag hnomem hk] at hmem
       cases hmem
     · exact ⟨hk, hkid k hk y hre⟩
   have hnameK : ∀ (k : Nat) (hk : k < d.shape.insts.length),
@@ -371,7 +373,7 @@ theorem kidsChild_of_real {c : Name} (d : MachineData) (ok : d.ok = true)
     (hLlen : d.letBs.length = d.shape.layout.lets)
     (hNIn : machNIn d.shape = ((d.bsIn.take kD).filter (fun b => b.2 != .domain)).length)
     (namesK : Nat → List String)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     (hkid : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y →
       KidNames (d.shape.insts[k]).1 (namesK k) y.1 y.2)

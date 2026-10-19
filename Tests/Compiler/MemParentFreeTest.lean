@@ -4,6 +4,8 @@ import Tools.ShippingKidFactsT
 import Tools.ShippingLeafKidFacts
 import Tools.ShippingSVBridge
 import Tools.ShippingBndOnly
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # The check-free design-level endpoint of `memParent`, by hand (round par/d-1)
 
@@ -167,7 +169,8 @@ theorem memCounterH_genKidM {mref : ST.Ref IO.RealWorld Lean.Meta.State}
         | decide
         | decide +kernel
     entry := hR
-    closes := fun _ _ => memCounterH.noPortsMem_closes }
+    closes := fun _ _ => memCounterH.noPortsMem_closes
+    agree := by first | decide | decide +kernel }
 
 /-- **`KidFactsT` of `memCounterH` at depth 1**: what a parent's check-free
 depth chain takes of it — the check of its OWN module (`designCheck … 0`,

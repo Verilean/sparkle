@@ -1,6 +1,8 @@
 import Tools.ShippingChecksCore
 import Tools.ShippingChecksShipsHier
 import Tools.ShippingMachineRanBase
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # Three conjuncts of `shipsHierCheck` from the core run (G1)
 
@@ -155,6 +157,7 @@ What it takes of the run is that the machine synthesis this core run performed
 returned `(M, D)` from an invariant world; `core_raw_factsM` below is its instance at the
 all-worlds closing (`Tools.ShippingMachineRan.machineRan_of_closes`). -/
 theorem core_raw_factsM_ran {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hagree : Tools.ShippingInstTagged.TagsAgree d.shape)
     (hbody : d.shape.body = quote d.dom
       (fun j => inputExpr d.shape.binders.length (d.bpos j))
       (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
@@ -225,7 +228,7 @@ theorem core_raw_factsM_ran {c : Name} (d : MachineData) (ok : d.ok = true)
   obtain ⟨hndM, hsfM⟩ := hG14 hfne
   obtain ⟨outWs, extra, houtWs, -, -, hMin⟩ := hInputs
   have hbody' : b.body = M.body :=
-    (core_kids_factsM_ran d ok hbody hC hslots hdomB hins outTy hfne hpost ran).2.1
+    (core_kids_factsM_ran (hagree := hagree) d ok hbody hC hslots hdomB hins outTy hfne hpost ran).2.1
   have hbin : b.inputs = M.inputs := by
     rcases hpost with h | h
     · rw [h]
@@ -258,6 +261,7 @@ set_option maxHeartbeats 4000000 in
 the full entry's module**, from the core run of a machine with calls closed
 by `closeInstsG` and with a register. -/
 theorem core_raw_factsM {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hagree : Tools.ShippingInstTagged.TagsAgree d.shape)
     (hbody : d.shape.body = quote d.dom
       (fun j => inputExpr d.shape.binders.length (d.bpos j))
       (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
@@ -278,7 +282,7 @@ theorem core_raw_factsM {c : Name} (d : MachineData) (ok : d.ok = true)
     "rst" ∈ b.inputs.map (·.name) ∧
     (Tools.ShippingHierState.instNames b.body).Nodup ∧
     Tools.ShippingHierPremisesBase.noSelfRead (childMap D.modules) b.body = true :=
-  core_raw_factsM_ran d ok hbody hC hslots hdomB hins hsl hfne outTy hpost
+  core_raw_factsM_ran (hagree := hagree) d ok hbody hC hslots hdomB hins hsl hfne outTy hpost
     (Tools.ShippingMachineRan.machineRan_of_closes hcore entry hB closes)
 
 end Tools.ShippingMemKid
@@ -320,7 +324,7 @@ theorem core_raw_facts_ran {c : Name} (d : MachineData) (ok : d.ok = true)
     (hsl : d.shape.layout.slots ≠ [])
     (hfne : d.shape.instFields ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     {M b : Sparkle.IR.AST.Module} {D : Design}
     (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨
       b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M))
@@ -328,7 +332,7 @@ theorem core_raw_facts_ran {c : Name} (d : MachineData) (ok : d.ok = true)
     "rst" ∈ b.inputs.map (·.name) ∧
     (Tools.ShippingHierState.instNames b.body).Nodup ∧
     Tools.ShippingHierPremisesBase.noSelfRead (childMap D.modules) b.body = true := by
-  exact Tools.ShippingMemKid.core_raw_factsM_ran d ok hbody hC hslots hdomB hins hsl hfne outTy
+  exact Tools.ShippingMemKid.core_raw_factsM_ran (hagree := (Tools.ShippingInstTagged.tagsAgree_of_nomem hnomem)) d ok hbody hC hslots hdomB hins hsl hfne outTy
     hpost ran
 
 set_option maxHeartbeats 4000000 in
@@ -346,7 +350,7 @@ theorem core_raw_facts {c : Name} (d : MachineData) (ok : d.ok = true)
     (hsl : d.shape.layout.slots ≠ [])
     (hfne : d.shape.instFields ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     {w w1 : Void IO.RealWorld} {M b : Sparkle.IR.AST.Module} {D : Design}
     (hB : ChildBnd mref cref w)
     (hcore : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, D) w1)
@@ -374,7 +378,7 @@ theorem core_shipsHier_rest {c : Name} (d : MachineData) (ok : d.ok = true)
     (hsl : d.shape.layout.slots ≠ [])
     (hfne : d.shape.instFields ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     {w w1 : Void IO.RealWorld} {M b : Sparkle.IR.AST.Module} {D : Design}
     (hB : ChildBnd mref cref w)
     (hcore : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, D) w1)

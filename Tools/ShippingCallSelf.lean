@@ -1,4 +1,6 @@
 import Tools.ShippingKidFactsT
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # Every instance of a general-closing parent resolves to a real child's OWN module, which the design resolves with its design (round par/d-1)
 
@@ -79,7 +81,7 @@ theorem core_callSelf {c : Name} (d : MachineData) (ok : d.ok = true)
     (hins : d.shape.insts ≠ [])
     (hfne : d.shape.instFields ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     {w w1 : Void IO.RealWorld} {M b : Sparkle.IR.AST.Module} {D : Design}
     (hB : ChildBnd mref cref w)
     (hcore : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, D) w1)
@@ -153,7 +155,7 @@ theorem core_callSelf {c : Name} (d : MachineData) (ok : d.ok = true)
     have hyn : y.1.name = child.1.name := by
       simpa only [Option.map_some, Option.some.injEq] using hch0
     rcases hor with hmem | hre
-    · rw [hnomem _ (List.getElem_mem hk0)] at hmem
+    · rw [Tools.ShippingChildInv.nomem_tag hnomem hk0] at hmem
       cases hmem
     · -- the closing's own check: the child, and every module of its design,
       -- is found by its name in the merged design as itself
@@ -187,7 +189,7 @@ theorem core_kidsPass_own {c : Name} (d : MachineData) (ok : d.ok = true)
     (hins : d.shape.insts ≠ [])
     (hfne : d.shape.instFields ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     (n : Nat)
     (hkidK : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y →
@@ -244,7 +246,7 @@ theorem kidsT_designCheckO {c : Name} (d : MachineData) (ok : d.ok = true)
     (hsl : d.shape.layout.slots ≠ [])
     (hfne : d.shape.instFields ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     (kidOuts : Nat → List OutField) (kidIns : Nat → List Nat) (n : Nat)
     (hkid : ∀ (k : Nat) (hk : k < d.shape.insts.length),
       KidFactsT mref cref (d.shape.insts[k]).1 (kidOuts k) (kidIns k) n)

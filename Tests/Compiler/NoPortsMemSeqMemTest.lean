@@ -2,6 +2,8 @@ import Tests.Compiler.NoPortsGrandHTest
 import Tests.Compiler.ShippingChildBoundaryTest
 import Tools.ShippingLeafKidFacts
 import Tools.ShippingMemKidFacts
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # `seqMem` by hand: the depth-0 endpoint without the four check premises, over a MEMORY child next to a sequential child (G1, unit U4, round par/b-13)
 
@@ -248,6 +250,7 @@ theorem seqMem_runFacts {mctx : Lean.Meta.Context}
       (Sparkle.Tests.Compiler.ShippingMachineSeqTest.cnt.machineData).shape) :
     Tools.ShippingGuardsSound.RunFacts (Tools.ShippingMachineLinked.childMap D.modules) b :=
   Tools.ShippingMemKid.kidsM_runFacts (nDecl := 3)
+    (hagree := by first | decide | decide +kernel)
     Sparkle.Tests.Compiler.ShippingChildBoundaryTest.seqMem.machineData
     Sparkle.Tests.Compiler.ShippingChildBoundaryTest.seqMem.machine_ok
     Sparkle.Tests.Compiler.ShippingChildBoundaryTest.seqMem.machine_body
@@ -290,6 +293,7 @@ theorem seqMem_outsG0 {mctx : Lean.Meta.Context}
     Tools.ShippingDesignSVBack.outsCheck (Tools.ShippingMachineLinked.childMap D.modules) 0
       (Sparkle.IR.OptCheck.checkedOptimize b) = true :=
   Tools.ShippingMemKid.kidsM_outsCheck (nDecl := 3)
+    (hagree := by first | decide | decide +kernel)
     Sparkle.Tests.Compiler.ShippingChildBoundaryTest.seqMem.machineData
     Sparkle.Tests.Compiler.ShippingChildBoundaryTest.seqMem.machine_ok
     Sparkle.Tests.Compiler.ShippingChildBoundaryTest.seqMem.machine_body
@@ -330,6 +334,7 @@ theorem seqMem_mixedG {mctx : Lean.Meta.Context}
     Tools.ShippingMachineShipsHier.kidsMixed (Tools.ShippingMachineLinked.childMap D.modules)
       b.body = true :=
   Tools.ShippingMemKid.kidsM_mixed (nDecl := 3)
+    (hagree := by first | decide | decide +kernel)
     Sparkle.Tests.Compiler.ShippingChildBoundaryTest.seqMem.machineData
     Sparkle.Tests.Compiler.ShippingChildBoundaryTest.seqMem.machine_ok
     Sparkle.Tests.Compiler.ShippingChildBoundaryTest.seqMem.machine_body
@@ -370,6 +375,7 @@ theorem seqMem_designP0 {mctx : Lean.Meta.Context}
     Tools.ShippingDesignSV.designCheck (Tools.ShippingMachineLinked.childMap D.modules) 0
       (Sparkle.IR.OptCheck.checkedOptimize b) = true :=
   Tools.ShippingMemKid.kidsM_designCheck (nDecl := 3)
+    (hagree := by first | decide | decide +kernel)
     Sparkle.Tests.Compiler.ShippingChildBoundaryTest.seqMem.machineData
     Sparkle.Tests.Compiler.ShippingChildBoundaryTest.seqMem.machine_ok
     Sparkle.Tests.Compiler.ShippingChildBoundaryTest.seqMem.machine_body

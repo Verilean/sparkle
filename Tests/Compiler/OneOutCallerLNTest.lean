@@ -1,5 +1,7 @@
 import Tests.Compiler.OneOutCallerLTest
 import Tests.Compiler.OneOutLeafAudit
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # ONE endpoint, `callerLN` (child `pickByteH`, a slotless machine-route leaf): the one-output head by hand (G1, round par/a-11)
 
@@ -107,8 +109,8 @@ theorem callerLN_outTy : ∀ o ∈ callerLN.machineData.shape.layout.outs, o.ty.
   first | decide | decide +kernel
 
 set_option maxRecDepth 100000 in
-theorem callerLN_nomem : ∀ c ∈ callerLN.machineData.shape.insts,
-    Sparkle.Compiler.MachMemory.memChild? c.1 = none := by
+theorem callerLN_nomem : ∀ x ∈ callerLN.machineData.shape.instTagged, x.2.child?.isNone = true ∧
+    (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true := by
   first | decide | decide +kernel
 
 /-- The PARENT has a register. -/

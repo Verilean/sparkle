@@ -2,6 +2,8 @@ import Tools.ShippingPortsMatchRaw
 import Tools.ShippingOneOutFacts
 import Tools.ShippingTypedWidthOk
 import Tools.ShippingChildServe
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # The connections of a ONE-OUTPUT parent, and its two residual checks from child-side facts (G1, round par/a-7; P1 and T2–T5 of docs/parallel/A-oneout.md)
 
@@ -188,7 +190,7 @@ theorem core_callConns₁ {c : Name} (d : MachineData) (ok : d.ok = true)
     (hins : d.shape.insts ≠ [])
     (hf : d.shape.instFields = [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     {w w1 : Void IO.RealWorld} {M b : Sparkle.IR.AST.Module} {D : Design}
     (hB : ChildBnd mref cref w)
     (hcore : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, D) w1)
@@ -317,7 +319,7 @@ theorem core_callConns₁ {c : Name} (d : MachineData) (ok : d.ok = true)
     exact hmcc
   have hre : RealChild mref cref (d.shape.insts[k]).1 y := by
     rcases hor with hmem | hre
-    · rw [hnomem _ (List.getElem_mem hk0)] at hmem
+    · rw [Tools.ShippingChildInv.nomem_tag hnomem hk0] at hmem
       cases hmem
     · exact hre
   have h9 : (d.shape.insts.map (·.2.1))[k]? =
@@ -375,7 +377,7 @@ theorem core_portsMatch_raw₁ {c : Name} (d : MachineData) (ok : d.ok = true)
     (hins : d.shape.insts ≠ [])
     (hf : d.shape.instFields = [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     -- OUTPUT side: the result binder's width is the child's output port's
     (hkidW : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y →
@@ -471,7 +473,7 @@ theorem core_hierTyped₁ {c : Name} (d : MachineData) (ok : d.ok = true)
     (hins : d.shape.insts ≠ [])
     (hf : d.shape.instFields = [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     -- OUTPUT side: the result binder's width is the child's output port's
     (hkidW : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y →

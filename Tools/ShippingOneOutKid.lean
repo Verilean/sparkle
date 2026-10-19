@@ -3,6 +3,8 @@ import Tools.ShippingCallsChildPorts
 import Tools.ShippingOneOutFacts
 import Tools.ShippingLinkedFresh
 import Tools.ShippingReflectCtx
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # A callee WITH a register and one-output calls of its own, as a child (G1, unit U2, round par/a-13)
 
@@ -98,7 +100,7 @@ theorem core_designCheck_in₁ {c : Name} (d : MachineData) (ok : d.ok = true)
     (hins : d.shape.insts ≠ [])
     (hf : d.shape.instFields = [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     (hsl : d.shape.layout.slots ≠ [])
     (hon : ∀ o ∈ d.shape.layout.outs, Sparkle.Backend.Verilog.sanitizeName o.name = o.name)
     (hoty : ∀ o ∈ d.shape.layout.outs, Tools.ShippingTextTyped.scalarTy o.ty = true)
@@ -203,7 +205,7 @@ structure OneOutKid (mref : ST.Ref IO.RealWorld Meta.State)
   outTy : ∀ o ∈ dk.shape.layout.outs, o.ty.bitWidth = o.width
   outName : ∀ o ∈ dk.shape.layout.outs, Sparkle.Backend.Verilog.sanitizeName o.name = o.name
   outScalar : ∀ o ∈ dk.shape.layout.outs, Tools.ShippingTextTyped.scalarTy o.ty = true
-  nomem : ∀ c ∈ dk.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none
+  nomem : ∀ x ∈ dk.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true
   -- the argument split at `nDecl` (the data conditions of `kidsChild_iface`)
   hkD : nDecl ≤ dk.bsIn.length
   hIlen : (dk.bsIn.drop nDecl).length = dk.shape.insts.length

@@ -35,7 +35,7 @@ def SeqFactsR {D : DomainConfig} (shape : Sparkle.Compiler.Elab.MachineShape) (d
     (bsC : Name → List (Name × Sparkle.Compiler.Elab.MixedGateBinder))
     (outsC : Name → List OutField) (S : Name → (Nat → List Nat) → List (Nat → Nat))
     (shC : Name → Sparkle.Compiler.Elab.MachineShape) (k : Nat) (c : Name) : Prop :=
-  Sparkle.Compiler.MachMemory.memChild? c = none ∧
+  (shape.instOrigins.getD k .ord).child? = none ∧
   ∃ args : List Nat, (shape.insts.map (·.2.1))[k]? = some args ∧
     (∀ mc : Module, Tools.ShippingGateChild.MachineRun c (shC c) mc →
       SeqChildRun mc (bsC c) (outsC c) (S c) ∧ (argPorts mc).length = args.length) ∧
@@ -65,7 +65,7 @@ theorem calls_hchildR {D : DomainConfig} (shape : Sparkle.Compiler.Elab.MachineS
     (shC : Name → Sparkle.Compiler.Elab.MachineShape)
     (hsv : ∀ k c (mc : Module) (iname : String) (argWs : List String) (outs : List (Nat × String))
       (outWs : List String), (shape.insts.map (·.1))[k]? = some c →
-      Sparkle.Compiler.MachMemory.memChild? c = none →
+      (shape.instOrigins.getD k .ord).child? = none →
       Stmt.inst mc.name iname (connsG mc argWs outs outWs) ∈ body →
       outs.mapM (fun (k, _) => names[offO + k]?) = some outWs → (∃ e ∈ outs, e.1 = k) →
       moduleByName dsn.modules mc.name = some mc → Tools.ShippingGateChild.MachineRun c (shC c) mc)
@@ -233,7 +233,7 @@ theorem machine_linkedT_callsR {declName : Name} {d : MachineData} {m : Module} 
     -- synthesis closes, in the Meta and Core contexts the child was
     -- synthesised in (`ChildRanIn`: its entry has a run there)
     (hrefl : ∀ (k : Nat) (c : Name), (d.shape.insts.map (·.1))[k]? = some c →
-      Sparkle.Compiler.MachMemory.memChild? c = none →
+      (d.shape.instOrigins.getD k .ord).child? = none →
       Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref c (shC c) ∧
       ∀ (mctx' : Meta.Context) (cctx' : Core.Context),
         Tools.ShippingChildInv.ChildRanIn mref cref c mctx' cctx' →
@@ -278,7 +278,7 @@ theorem machine_linkedT_callsR {declName : Name} {d : MachineData} {m : Module} 
         have hck : (d.shape.insts[k]).1 = c := by
           rw [List.getElem?_map, List.getElem?_eq_getElem hk] at hc; simpa using hc
         rcases hx.1 hfe k hk mc iname argWs outs outWs hst hout hke hmod with ⟨md, hmd, _⟩ | ⟨Dc, hrc, hcons⟩
-        · rw [hck, hnone] at hmd; cases hmd
+        · rw [hnone] at hmd; cases hmd
         · rw [hck] at hrc
           obtain ⟨mctx', cctx', w, w', hw, hrun⟩ := hrc.inv
           obtain ⟨hdef, hcl⟩ := hrefl k c hc hnone

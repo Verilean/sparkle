@@ -1,4 +1,6 @@
 import Tools.ShippingChecksRun
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # The modules of a parent's design are its real children's (G1)
 
@@ -55,7 +57,7 @@ theorem kidsDesign_real {c : Name} (d : MachineData) (ok : d.ok = true)
     (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
     (hins : d.shape.insts ≠ [])
     (namesK : Nat → List String)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     (hkid : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y →
       KidNames (d.shape.insts[k]).1 (namesK k) y.1 y.2)
@@ -93,7 +95,7 @@ theorem kidsDesign_real {c : Name} (d : MachineData) (ok : d.ok = true)
     rw [hc] at hy
     cases hy
     rcases hor with hmem | hre
-    · rw [hnomem _ (List.getElem_mem hk)] at hmem
+    · rw [Tools.ShippingChildInv.nomem_tag hnomem hk] at hmem
       cases hmem
     · exact ⟨hk, hkid k hk y hre⟩
   have hnameK : ∀ (k : Nat) (hk : k < d.shape.insts.length),
@@ -131,7 +133,7 @@ theorem kidsDesign_real {c : Name} (d : MachineData) (ok : d.ok = true)
   rw [hk] at hy'
   cases hy'
   rcases hor' with hmem | hre
-  · rw [hnomem _ (List.getElem_mem hk')] at hmem
+  · rw [Tools.ShippingChildInv.nomem_tag hnomem hk'] at hmem
     cases hmem
   · exact ⟨k, hk', y, hre, hor⟩
 
@@ -156,7 +158,7 @@ theorem parent_run_outsCheck0_kids {c : Name} (d : MachineData) (ok : d.ok = tru
     (hLlen : d.letBs.length = d.shape.layout.lets)
     (hNIn : machNIn d.shape = ((d.bsIn.take kD).filter (fun b => b.2 != .domain)).length)
     (namesK : Nat → List String)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     (hkid : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y →
       KidNames (d.shape.insts[k]).1 (namesK k) y.1 y.2)

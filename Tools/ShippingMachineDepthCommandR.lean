@@ -867,7 +867,7 @@ partial def generateCoreNR (declName : Name) (dep : Nat) : MetaM Name := do
     let goalK := ((hrunNT.bindingBody!.instantiate1 (mkNatLit k)).bindingBody!.instantiate1
       (toExpr c)).bindingBody!
     let prK ← match Tools.ShippingMachineMemCommand.memWidths? c with
-      | some _ => proveByTacticT goalK `(tactic| (intro h; first | cases h | simp [Sparkle.Compiler.MachMemory.memChild?] at h))
+      | some _ => proveByTacticT goalK `(tactic| (intro h; first | cases h | simp [Sparkle.Compiler.MachMemory.memChild?] at h | exact absurd (congrArg Option.isNone h) (by decide) | exact absurd (congrArg Option.isNone h) (by decide +kernel)))
       | none => do
         let some hP := hPOf.get? c | throwError "{declName}: premise {c}"
         let j := seqKids.idxOf c

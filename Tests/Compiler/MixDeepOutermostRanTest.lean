@@ -1,6 +1,8 @@
 import Tests.Compiler.MixDeepOutermostTest
 import Tools.ShippingMachineRan
 import Tools.ShippingFinalGoalCommand
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # `mixDeep` at outermost starts: the consumed end, in the form the design-level consumers take
 
@@ -92,8 +94,8 @@ theorem mixDeep_hasCalls :
   first | decide | decide +kernel
 
 theorem mixDeep_noMem :
-    ∀ c ∈ (Sparkle.Tests.Compiler.ShippingChildBoundaryTest.mixDeep.machineData).shape.insts,
-      Sparkle.Compiler.MachMemory.memChild? c.1 = none := by
+    ∀ x ∈ (Sparkle.Tests.Compiler.ShippingChildBoundaryTest.mixDeep.machineData).shape.instTagged, x.2.child?.isNone = true ∧
+      (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true := by
   first | decide | decide +kernel
 
 /-- **One design-level consumer at a depth-0 start, with no

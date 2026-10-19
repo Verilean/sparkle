@@ -8,6 +8,8 @@ import Tools.ShippingChecksGate
 import Tools.ShippingCombKidText
 import Tools.ShippingMachineClosesAtGen
 import Tools.ShippingReaderOutsInv
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # `#machine_oneout f`: the four per-declaration theorems of the one-output head, GENERATED (G1, round par/a-9)
 
@@ -485,7 +487,7 @@ def oneOutCore (f : Name) (info : Info) (oldData : Bool := false) :
     dataLemma "outTy" "every output's ty.bitWidth = width"
       (← `(∀ o ∈ ($data).shape.layout.outs, o.ty.bitWidth = o.width)) (← `(by decide))
   dataLemma "nomem" "no memory callee"
-    (← `(∀ c ∈ ($data).shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none))
+    (← `(∀ x ∈ ($data).shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true))
     (← `(by decide))
   dataLemma "slots" "shape.layout.slots ≠ [] (the parent has a register)"
     (← `(($data).shape.layout.slots ≠ []))

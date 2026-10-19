@@ -93,7 +93,8 @@ def kindOf (f : Name) : MetaM Kind := do
     unless env.contains (f ++ `machineData) do
       return .refused s!"{f}: the machine route, but {f}.machineData is missing (#machine_endpoint)"
     let insts := shape.insts.map (·.1)
-    if insts.any fun c => (Sparkle.Compiler.MachMemory.memChild? c).isSome then
+    -- origin dispatch (patched compiler): a memory entry is one of memory ORIGIN
+    if shape.instTagged.any fun x => x.2.child?.isSome then
       return .refused s!"{f}: a memory call entry (not covered)"
     if insts.isEmpty then return .machLeaf
     let nDecl := shape.binders.length - shape.insts.length - shape.layout.slots.length -

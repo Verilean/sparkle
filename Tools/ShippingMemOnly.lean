@@ -1,4 +1,6 @@
 import Tools.ShippingMemKidFacts
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # Memory-only parents: the four run hypotheses of the check-free head (G1, unit U4, round par/b-14)
 
@@ -96,7 +98,7 @@ theorem core_kidsMemM {c : Name} (d : MachineData) (ok : d.ok = true)
     (entry : MachineDefines mctx mref cctx cref c d.shape)
     (closes : MachineClosesAt mctx mref cctx cref c d.shape) :
     Tools.ShippingMachineShipsHier.kidsMem (childMap D.modules) b.body = true := by
-  have hst := core_callStmtM d ok hbody hC hslots hdomB hins hfne outTy hB hcore hpost entry
+  have hst := core_callStmtM (hagree := hagree) d ok hbody hC hslots hdomB hins hfne outTy hB hcore hpost entry
     closes
   refine kidsMem_of fun mn iname conns hm => ?_
   obtain ⟨mc, hmc, ⟨k, hk, y, hre, hmcy⟩, nIn, kI, n, names, args, outs, hcs⟩ :=
@@ -130,6 +132,9 @@ structure MemOnlyData (d : MachineData) (nDecl aw dw : Nat) : Prop where
   args : Tools.ShippingPortsMatchRaw.callArgsOk d nDecl (fun _ => memIns aw dw) = true
   outNames : ∀ o ∈ d.shape.layout.outs, Sparkle.Backend.Verilog.sanitizeName o.name = o.name
   outScalar : ∀ o ∈ d.shape.layout.outs, Tools.ShippingTextTyped.scalarTy o.ty = true
+  /-- origin dispatch (patched compiler): every entry's placeholder name says
+  what its origin builds (decided; a collision shape is then not generated) -/
+  agree : Tools.ShippingInstTagged.TagsAgree d.shape
 
 /-- **`KidFactsM` of every call entry of a memory-only parent**, at depth 0
 (`memKid_facts`, for either read kind). -/
@@ -153,7 +158,7 @@ theorem memOnly_runFacts {c : Name} {d : MachineData} {nDecl aw dw : Nat}
     (entry : MachineDefines mctx mref cctx cref c d.shape)
     (closes : MachineClosesAt mctx mref cctx cref c d.shape) :
     Tools.ShippingGuardsSound.RunFacts (childMap D.modules) b :=
-  kidsM_runFacts d h.ok h.body h.calls h.slots h.domB h.ins h.sl h.fne h.outTy
+  kidsM_runFacts (hagree := h.agree) d h.ok h.body h.calls h.slots h.domB h.ins h.sl h.fne h.outTy
     (fun _ => memOuts dw) (fun _ => memIns aw dw) 0 (memOnly_kids h.mem) h.cw
     hB hcore hpost entry closes
 
@@ -170,7 +175,7 @@ theorem memOnly_outsCheck {c : Name} {d : MachineData} {nDecl aw dw : Nat}
     (closes : MachineClosesAt mctx mref cctx cref c d.shape)
     (hg : Sparkle.IR.RefineCheck.hierGate b = true) :
     Tools.ShippingDesignSVBack.outsCheck (childMap D.modules) 0 (checkedOptimize b) = true :=
-  kidsM_outsCheck d h.ok h.body h.calls h.slots h.domB h.ins h.fne h.outTy
+  kidsM_outsCheck (hagree := h.agree) d h.ok h.body h.calls h.slots h.domB h.ins h.fne h.outTy
     (fun _ => memOuts dw) (fun _ => memIns aw dw) 0 (memOnly_kids h.mem)
     hB hcore hpost entry closes hg
 
@@ -186,7 +191,7 @@ theorem memOnly_kidsMem {c : Name} {d : MachineData} {nDecl aw dw : Nat}
     (entry : MachineDefines mctx mref cctx cref c d.shape)
     (closes : MachineClosesAt mctx mref cctx cref c d.shape) :
     Tools.ShippingMachineShipsHier.kidsMem (childMap D.modules) b.body = true :=
-  core_kidsMemM d h.ok h.body h.calls h.slots h.domB h.ins h.fne h.outTy
+  core_kidsMemM (hagree := h.agree) d h.ok h.body h.calls h.slots h.domB h.ins h.fne h.outTy
     (fun k hk y hy => by
       obtain ⟨cb, hc⟩ := h.mem k hk
       exact ⟨cb, aw, dw, congrArg Prod.fst (hy.mem hc)⟩)
@@ -204,7 +209,7 @@ theorem memOnly_designCheck {c : Name} {d : MachineData} {nDecl aw dw : Nat}
     (entry : MachineDefines mctx mref cctx cref c d.shape)
     (closes : MachineClosesAt mctx mref cctx cref c d.shape) :
     Tools.ShippingDesignSV.designCheck (childMap D.modules) 0 (checkedOptimize b) = true :=
-  kidsM_designCheck d h.ok h.body h.calls h.slots h.domB h.ins h.sl h.fne h.outTy
+  kidsM_designCheck (hagree := h.agree) d h.ok h.body h.calls h.slots h.domB h.ins h.sl h.fne h.outTy
     (fun _ => memOuts dw) (fun _ => memIns aw dw) 0 (memOnly_kids h.mem) h.cw h.args
     hB hcore hpost entry closes h.outNames h.outScalar
 

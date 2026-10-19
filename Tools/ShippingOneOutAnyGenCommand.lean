@@ -3,6 +3,8 @@ import Tools.ShippingLeafOneOut
 import Tools.ShippingLeafOneOutGen
 import Tools.ShippingCallWidthsStrict
 import Tools.ShippingReaderOutsInv
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # `#machine_oneout_any f`: the one-output head's lemmas GENERATED, for callees that are gate children OR slotless leaf machine children (G1, round par/a-11)
 
@@ -396,7 +398,7 @@ def oneOutCore (f : Name) (info : Info) (oldData : Bool := false) :
     dataLemma "outTy" "every output's ty.bitWidth = width"
       (← `(∀ o ∈ ($data).shape.layout.outs, o.ty.bitWidth = o.width)) (← `(by first | decide | decide +kernel))
   dataLemma "nomem" "no memory callee"
-    (← `(∀ c ∈ ($data).shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none))
+    (← `(∀ x ∈ ($data).shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true))
     (← `(by first | decide | decide +kernel))
   dataLemma "slots" "shape.layout.slots ≠ [] (the parent has a register)"
     (← `(($data).shape.layout.slots ≠ []))

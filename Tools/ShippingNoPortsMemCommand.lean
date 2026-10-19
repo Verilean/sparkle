@@ -425,7 +425,8 @@ def dataTheorems (c : Ctx) : CommandElabM Unit := do
           (fun h0 => absurd (congrArg List.length h0) (by decide))
           (fun k hk => $memPf)
           $(c.lem "callWidths") $(c.lem "callArgs")
-          (fun o ho => Tools.ShippingSVBridge.sanitizeName_of_clean ($(c.lem "outChars") o ho)))
+          (fun o ho => Tools.ShippingSVBridge.sanitizeName_of_clean ($(c.lem "outChars") o ho))
+          (show Tools.ShippingInstTagged.TagsAgree ($d).shape by first | decide | decide +kernel))
     return
   emit c (c.lemName "data") fun tn => `(command|
     set_option maxHeartbeats 4000000 in
@@ -440,7 +441,8 @@ def dataTheorems (c : Ctx) : CommandElabM Unit := do
         (fun k hk => $memPf)
         $(c.lem "callWidths") $(c.lem "callArgs")
         (fun o ho => Tools.ShippingSVBridge.sanitizeName_of_clean ($(c.lem "outChars") o ho))
-        $(c.lem "outScalar"))
+        $(c.lem "outScalar")
+        (show Tools.ShippingInstTagged.TagsAgree ($d).shape by first | decide | decide +kernel))
 
 /-- One of the four run theorems of `f`: binders `hcore hpost entry closes`,
 then `hg` (if `gate`), then `hB`. -/

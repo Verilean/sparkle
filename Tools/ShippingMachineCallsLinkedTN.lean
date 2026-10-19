@@ -32,7 +32,7 @@ def SeqFactsN (children : String → Option (Module × WEnv)) (n : Nat) {D : Dom
     (bsC : Name → List (Name × Sparkle.Compiler.Elab.MixedGateBinder))
     (outsC : Name → List OutField) (S : Name → (Nat → List Nat) → List (Nat → Nat))
     (k : Nat) (c : Name) : Prop :=
-  Sparkle.Compiler.MachMemory.memChild? c = none ∧
+  (shape.instOrigins.getD k .ord).child? = none ∧
   ∃ args : List Nat, (shape.insts.map (·.2.1))[k]? = some args ∧
     (∀ mc : Module, moduleByName dsn.modules mc.name = some mc → InstOfCall body mc k →
       SeqChildRunN children dsn n mc (bsC c) (outsC c) (S c) ∧ (argPorts mc).length = args.length) ∧

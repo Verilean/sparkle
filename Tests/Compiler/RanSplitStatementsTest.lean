@@ -6,6 +6,8 @@ import Tools.ShippingChecksRun2
 import Tools.ShippingHierGateAny
 import Tools.ShippingCallsChildPorts
 import Tools.ShippingCallsPortsG
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # The statements of the split lemmas, PINNED (round par/g-1)
 
@@ -91,7 +93,7 @@ example : ∀ {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.S
     (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
     (hins : d.shape.insts ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     {w w1 : Void IO.RealWorld} {M b : Sparkle.IR.AST.Module} {D : Design}
     (hB : ChildBnd mref cref w)
     (hcore : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, D) w1)
@@ -130,6 +132,7 @@ open Tools.ShippingChecksCore
 example : ∀ {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State}
     {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State}
 {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hagree : Tools.ShippingInstTagged.TagsAgree d.shape)
     (hbody : d.shape.body = quote d.dom
       (fun j => inputExpr d.shape.binders.length (d.bpos j))
       (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
@@ -177,6 +180,7 @@ open Tools.ShippingChecksRaw
 example : ∀ {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State}
     {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State}
 {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hagree : Tools.ShippingInstTagged.TagsAgree d.shape)
     (hbody : d.shape.body = quote d.dom
       (fun j => inputExpr d.shape.binders.length (d.bpos j))
       (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
@@ -221,6 +225,7 @@ open Tools.ShippingMachineLinked (childMap)
 example : ∀ {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State}
     {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State}
 {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hagree : Tools.ShippingInstTagged.TagsAgree d.shape)
     (hbody : d.shape.body = quote d.dom
       (fun j => inputExpr d.shape.binders.length (d.bpos j))
       (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
@@ -262,6 +267,7 @@ open Tools.ShippingMachineLinked (childMap)
 example : ∀ {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State}
     {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State}
 {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hagree : Tools.ShippingInstTagged.TagsAgree d.shape)
     (hbody : d.shape.body = quote d.dom
       (fun j => inputExpr d.shape.binders.length (d.bpos j))
       (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
@@ -322,7 +328,7 @@ example : ∀ {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.S
     (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
     (hins : d.shape.insts ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     {w w1 : Void IO.RealWorld} {M b : Sparkle.IR.AST.Module} {D : Design}
     (hB : ChildBnd mref cref w)
     (hcore : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, D) w1)
@@ -367,7 +373,7 @@ example : ∀ {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.S
     (hins : d.shape.insts ≠ [])
     (hfne : d.shape.instFields ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     (hkidP : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y →
       ∀ p ∈ y.1.outputs, (∀ q ∈ inPortsOf y.1, q.name ≠ p.name) ∧ p.name ≠ "clk" ∧
@@ -412,7 +418,7 @@ example : ∀ {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.S
     (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
     (hins : d.shape.insts ≠ [])
     (namesK : Nat → List String)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     (hkid : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y →
       KidNames (d.shape.insts[k]).1 (namesK k) y.1 y.2)
@@ -456,7 +462,7 @@ example : ∀ {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.S
     (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
     (hins : d.shape.insts ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     (hsl : d.shape.layout.slots ≠ [])
     {w w1 : Void IO.RealWorld} {M b : Sparkle.IR.AST.Module} {D : Design}
     (hB : ChildBnd mref cref w)
@@ -497,7 +503,7 @@ example : ∀ {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.S
     (hslots : d.ss.length = d.shape.layout.slots.length)
     (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
     (hins : d.shape.insts ≠ [])
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     {w w1 : Void IO.RealWorld} {M : Sparkle.IR.AST.Module} {D : Design}
     (hB : ChildBnd mref cref w)
     (hcore : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, D) w1)
@@ -539,7 +545,7 @@ example : ∀ {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.S
     (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
     (hins : d.shape.insts ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     {w w1 : Void IO.RealWorld} {M b : Sparkle.IR.AST.Module} {D : Design}
     (hB : ChildBnd mref cref w)
     (hcore : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, D) w1)
@@ -582,7 +588,7 @@ example : ∀ {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.S
     (hins : d.shape.insts ≠ [])
     (hf : d.shape.instFields = [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     (hsl : d.shape.layout.slots ≠ [])
     -- the argument split (the data conditions of `kidsChild_iface`)
     (kD : Nat) (hkD : kD ≤ d.bsIn.length)
@@ -634,7 +640,7 @@ example : ∀ {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.S
     (hins : d.shape.insts ≠ [])
     (hfne : d.shape.instFields ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     (hsl : d.shape.layout.slots ≠ [])
     -- the argument split (the data conditions of `kidsChild_iface`)
     (kD : Nat) (hkD : kD ≤ d.bsIn.length)
@@ -684,7 +690,7 @@ example : ∀ {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.S
     (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
     (hins : d.shape.insts ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     {w w1 : Void IO.RealWorld} {M b : Sparkle.IR.AST.Module} {D : Design}
     (hB : ChildBnd mref cref w)
     (hcore : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, D) w1)
@@ -726,7 +732,7 @@ example : ∀ {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.S
     (hins : d.shape.insts ≠ [])
     (hfne : d.shape.instFields ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     {w w1 : Void IO.RealWorld} {M b : Sparkle.IR.AST.Module} {D : Design}
     (hB : ChildBnd mref cref w)
     (hcore : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, D) w1)
@@ -914,7 +920,7 @@ example : ∀ {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.S
     (hslots : d.ss.length = d.shape.layout.slots.length)
     (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
     (hins : d.shape.insts ≠ [])
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     {M : Sparkle.IR.AST.Module} {D : Design}
     (ran : MachineRan mctx mref cctx cref c d.shape M D),
     ∀ g ∈ D.modules, ∃ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
@@ -951,7 +957,7 @@ example : ∀ {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.S
     (hslots : d.ss.length = d.shape.layout.slots.length)
     (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
     (hins : d.shape.insts ≠ [])
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     {w w1 : Void IO.RealWorld} {M : Sparkle.IR.AST.Module} {D : Design}
     (hB : ChildBnd mref cref w)
     (hcore : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, D) w1)
@@ -972,13 +978,13 @@ def expected : List (Lean.Name × List (String × String)) := [
   (`Tools.ShippingChecksCore.core_kids_facts,
     [("mctx", "i"), ("mref", "i"), ("cctx", "i"), ("cref", "i"), ("c", "i"), ("d", "e"), ("ok", "e"), ("hbody", "e"), ("nDecl", "i"), ("hC", "e"), ("hslots", "e"), ("hdomB", "e"), ("hins", "e"), ("outTy", "e"), ("hnomem", "e"), ("w", "i"), ("w1", "i"), ("M", "i"), ("b", "i"), ("D", "i"), ("hB", "e"), ("hcore", "e"), ("hpost", "e"), ("entry", "e"), ("closes", "e")]),
   (`Tools.ShippingMemKid.core_kids_factsM,
-    [("mctx", "i"), ("mref", "i"), ("cctx", "i"), ("cref", "i"), ("c", "i"), ("d", "e"), ("ok", "e"), ("hbody", "e"), ("nDecl", "i"), ("hC", "e"), ("hslots", "e"), ("hdomB", "e"), ("hins", "e"), ("outTy", "e"), ("hfne", "e"), ("w", "i"), ("w1", "i"), ("M", "i"), ("b", "i"), ("D", "i"), ("hB", "e"), ("hcore", "e"), ("hpost", "e"), ("entry", "e"), ("closes", "e")]),
+    [("mctx", "i"), ("mref", "i"), ("cctx", "i"), ("cref", "i"), ("c", "i"), ("d", "e"), ("ok", "e"), ("hagree", "e"), ("hbody", "e"), ("nDecl", "i"), ("hC", "e"), ("hslots", "e"), ("hdomB", "e"), ("hins", "e"), ("outTy", "e"), ("hfne", "e"), ("w", "i"), ("w1", "i"), ("M", "i"), ("b", "i"), ("D", "i"), ("hB", "e"), ("hcore", "e"), ("hpost", "e"), ("entry", "e"), ("closes", "e")]),
   (`Tools.ShippingMemKid.core_raw_factsM,
-    [("mctx", "i"), ("mref", "i"), ("cctx", "i"), ("cref", "i"), ("c", "i"), ("d", "e"), ("ok", "e"), ("hbody", "e"), ("nDecl", "i"), ("hC", "e"), ("hslots", "e"), ("hdomB", "e"), ("hins", "e"), ("hsl", "e"), ("hfne", "e"), ("outTy", "e"), ("w", "i"), ("w1", "i"), ("M", "i"), ("b", "i"), ("D", "i"), ("hB", "e"), ("hcore", "e"), ("hpost", "e"), ("entry", "e"), ("closes", "e")]),
+    [("mctx", "i"), ("mref", "i"), ("cctx", "i"), ("cref", "i"), ("c", "i"), ("d", "e"), ("ok", "e"), ("hagree", "e"), ("hbody", "e"), ("nDecl", "i"), ("hC", "e"), ("hslots", "e"), ("hdomB", "e"), ("hins", "e"), ("hsl", "e"), ("hfne", "e"), ("outTy", "e"), ("w", "i"), ("w1", "i"), ("M", "i"), ("b", "i"), ("D", "i"), ("hB", "e"), ("hcore", "e"), ("hpost", "e"), ("entry", "e"), ("closes", "e")]),
   (`Tools.ShippingMemKid.core_hierGateM,
-    [("mctx", "i"), ("mref", "i"), ("cctx", "i"), ("cref", "i"), ("c", "i"), ("d", "e"), ("ok", "e"), ("hbody", "e"), ("nDecl", "i"), ("hC", "e"), ("hslots", "e"), ("hdomB", "e"), ("hins", "e"), ("hfne", "e"), ("outTy", "e"), ("w", "i"), ("w1", "i"), ("M", "i"), ("b", "i"), ("D", "i"), ("hB", "e"), ("hcore", "e"), ("hpost", "e"), ("entry", "e"), ("closes", "e")]),
+    [("mctx", "i"), ("mref", "i"), ("cctx", "i"), ("cref", "i"), ("c", "i"), ("d", "e"), ("ok", "e"), ("hagree", "e"), ("hbody", "e"), ("nDecl", "i"), ("hC", "e"), ("hslots", "e"), ("hdomB", "e"), ("hins", "e"), ("hfne", "e"), ("outTy", "e"), ("w", "i"), ("w1", "i"), ("M", "i"), ("b", "i"), ("D", "i"), ("hB", "e"), ("hcore", "e"), ("hpost", "e"), ("entry", "e"), ("closes", "e")]),
   (`Tools.ShippingMemKid.core_callPortsM,
-    [("mctx", "i"), ("mref", "i"), ("cctx", "i"), ("cref", "i"), ("c", "i"), ("d", "e"), ("ok", "e"), ("hbody", "e"), ("nDecl", "i"), ("hC", "e"), ("hslots", "e"), ("hdomB", "e"), ("hins", "e"), ("hfne", "e"), ("outTy", "e"), ("hkidP", "e"), ("w", "i"), ("w1", "i"), ("M", "i"), ("b", "i"), ("D", "i"), ("hB", "e"), ("hcore", "e"), ("hpost", "e"), ("entry", "e"), ("closes", "e")]),
+    [("mctx", "i"), ("mref", "i"), ("cctx", "i"), ("cref", "i"), ("c", "i"), ("d", "e"), ("ok", "e"), ("hagree", "e"), ("hbody", "e"), ("nDecl", "i"), ("hC", "e"), ("hslots", "e"), ("hdomB", "e"), ("hins", "e"), ("hfne", "e"), ("outTy", "e"), ("hkidP", "e"), ("w", "i"), ("w1", "i"), ("M", "i"), ("b", "i"), ("D", "i"), ("hB", "e"), ("hcore", "e"), ("hpost", "e"), ("entry", "e"), ("closes", "e")]),
   (`Tools.ShippingClosedTyped.core_closed_typedIn,
     [("mctx", "i"), ("mref", "i"), ("cctx", "i"), ("cref", "i"), ("c", "i"), ("d", "e"), ("ok", "e"), ("hbody", "e"), ("nDecl", "i"), ("hC", "e"), ("hslots", "e"), ("hdomB", "e"), ("hins", "e"), ("outTy", "e"), ("hnomem", "e"), ("w", "i"), ("w1", "i"), ("M", "i"), ("b", "i"), ("D", "i"), ("hB", "e"), ("hcore", "e"), ("hpost", "e"), ("entry", "e"), ("closes", "e"), ("hon", "e"), ("hoty", "e")]),
   (`Tools.ShippingChecksOuts.core_outsExtracted,

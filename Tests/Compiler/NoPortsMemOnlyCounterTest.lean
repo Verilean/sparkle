@@ -1,6 +1,8 @@
 import Tests.Compiler.NoPortsGrandHTest
 import Tests.Compiler.ShippingDesignSVMemTest
 import Tools.ShippingMemOnly
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # `memCounter` by hand: the depth-0 endpoint of a MEMORY-ONLY parent without the four check premises (G1, unit U4, round par/b-14)
 
@@ -469,6 +471,8 @@ theorem memCounter_data : Tools.ShippingMemOnly.MemOnlyData
     memCounter_callWidths memCounter_callArgs
     (fun o ho => Tools.ShippingSVBridge.sanitizeName_of_clean (memCounter_outChars o ho))
     memCounter_outScalar
+    -- origin dispatch: names say what their origins build
+    (by first | decide | decide +kernel)
 
 /-- **The run's facts of `memCounter`'s full-entry module** (`memOnly_runFacts`). -/
 theorem memCounter_runFacts {mctx : Lean.Meta.Context}

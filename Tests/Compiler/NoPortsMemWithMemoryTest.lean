@@ -2,6 +2,8 @@ import Tests.Compiler.NoPortsMemWithMemoryLib
 import Tests.Compiler.ShippingMachineSeqLoopTest
 import Tools.ShippingMemOnlyCloses
 import Tools.ShippingNameSep
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # `withMemory`: the depth-0 design endpoint of a memory-only parent with a TRANSPORTED endpoint, open and closed (round par/b-17)
 
@@ -187,6 +189,8 @@ theorem withMemory_data : Tools.ShippingMemOnly.MemOnlyData
     withMemory_callWidths withMemory_callArgs
     (fun o ho => Tools.ShippingSVBridge.sanitizeName_of_clean (withMemory_outChars o ho))
     withMemory_outScalar
+    -- origin dispatch: names say what their origins build
+    (by first | decide | decide +kernel)
 
 /-! ## The four run hypotheses of the head (`memOnly_*` at `withMemory`'s data) -/
 
@@ -317,6 +321,7 @@ theorem withMemory_closeData : Tools.ShippingMemOnlyCloses.MemOnlyCloseData
     Sparkle.Tests.Compiler.ShippingMachineFuseTest.withMemory.machineData :=
   Tools.ShippingMemOnlyCloses.MemOnlyCloseData.mk withMemory_alias withMemory_argsN
     withMemory_field withMemory_argsNd withMemory_outHead
+    (by first | decide | decide +kernel)
 
 /-- `withMemory` does not print as the memory module's name. -/
 theorem withMemory_notin :

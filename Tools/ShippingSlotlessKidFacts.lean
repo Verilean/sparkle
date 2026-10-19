@@ -1,5 +1,7 @@
 import Tools.ShippingSlotlessClk
 import Tools.ShippingKidFacts
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # The run hypotheses of the no-ports head for a parent with a register OR a sequential child (G1, unit U5a, round par/a-20)
 
@@ -74,7 +76,7 @@ theorem core_runFactsS {c : Name} (d : MachineData) (ok : d.ok = true)
     (hck : d.shape.layout.slots ≠ [] ∨ SeqKid mref cref d)
     (hfne : d.shape.instFields ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     (hkidP : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y →
       ∀ p ∈ y.1.outputs, (∀ q ∈ inPortsOf y.1, q.name ≠ p.name) ∧ p.name ≠ "clk" ∧
@@ -123,7 +125,7 @@ theorem core_designCheck_runS {c : Name} (d : MachineData) (ok : d.ok = true)
     (hck : d.shape.layout.slots ≠ [] ∨ SeqKid mref cref d)
     (hfne : d.shape.instFields ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     (hkidP : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y →
       ∀ p ∈ y.1.outputs, (∀ q ∈ inPortsOf y.1, q.name ≠ p.name) ∧ p.name ≠ "clk" ∧
@@ -169,7 +171,7 @@ theorem kids_runFactsS {c : Name} (d : MachineData) (ok : d.ok = true)
     (hck : d.shape.layout.slots ≠ [] ∨ SeqKid mref cref d)
     (hfne : d.shape.instFields ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     (kidOuts : Nat → List OutField) (kidIns : Nat → List Nat) (n : Nat)
     (hkid : ∀ (k : Nat) (hk : k < d.shape.insts.length),
       KidFacts mref cref (d.shape.insts[k]).1 (kidOuts k) (kidIns k) n)
@@ -203,7 +205,7 @@ theorem kids_designCheckS {c : Name} (d : MachineData) (ok : d.ok = true)
     (hck : d.shape.layout.slots ≠ [] ∨ SeqKid mref cref d)
     (hfne : d.shape.instFields ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     (kidOuts : Nat → List OutField) (kidIns : Nat → List Nat) (n : Nat)
     (hkid : ∀ (k : Nat) (hk : k < d.shape.insts.length),
       KidFacts mref cref (d.shape.insts[k]).1 (kidOuts k) (kidIns k) n)
@@ -260,7 +262,7 @@ theorem kids_runFacts_again {c : Name} (d : MachineData) (ok : d.ok = true)
     (hsl : d.shape.layout.slots ≠ [])
     (hfne : d.shape.instFields ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     (kidOuts : Nat → List OutField) (kidIns : Nat → List Nat) (n : Nat)
     (hkid : ∀ (k : Nat) (hk : k < d.shape.insts.length),
       KidFacts mref cref (d.shape.insts[k]).1 (kidOuts k) (kidIns k) n)
@@ -288,7 +290,7 @@ theorem kids_designCheck_again {c : Name} (d : MachineData) (ok : d.ok = true)
     (hsl : d.shape.layout.slots ≠ [])
     (hfne : d.shape.instFields ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     (kidOuts : Nat → List OutField) (kidIns : Nat → List Nat) (n : Nat)
     (hkid : ∀ (k : Nat) (hk : k < d.shape.insts.length),
       KidFacts mref cref (d.shape.insts[k]).1 (kidOuts k) (kidIns k) n)

@@ -3,6 +3,8 @@ import Tools.ShippingPortsMatchRawLeaf
 import Tools.ShippingReflectCtx
 import Tools.ShippingChildRun
 import Tools.ShippingGateChildComb
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # Call widths against the child REALLY compiled (reviewer milestone 2)
 
@@ -71,7 +73,7 @@ with a one-Signal result kind.
 | `ResD` (`ResDeclAt`: the DECLARED type of what `getConstInfo` returns has result kind `res k`) | ASSUMED — same style as `EnvDefines`; `resC_of_declared` gives the same fact from `env.find?` + the signature table, but no lemma relates `getConstInfo`'s read to `env.find?` |
 | `P5` (`P5At`: when `entryConst` UNFOLDS, `machResultKind? (userInliner envR dD.type) = some res`) | EXPLICIT, NOT DISCHARGED — `inlinedConst` rewrites the type (`type := inl d.type`), so `(inlinedConst inl ci).type = ci.type` is NOT `rfl`; `userInliner` goes through `opaque` `Expr.replace` / `partial` helpers. Only needed on the unfolding branch (`entryConst … ci … ≠ ci`) |
 | `PB` (parent binder at `closingNDecl + k` has type `machHWType (res k)`) | ASSUMED — decidable on the reflected parent |
-| `hnomem` (no memory callee) | ASSUMED — decidable (`memChild?` is a function of the name) |
+| `hnomem` (no memory callee) | ASSUMED — decidable, on the entries' ORIGINS (`∀ o ∈ d.shape.instTagged, o.2.child?.isNone = true`; origin dispatch, par/o-close) |
 | `ChildrenReal` | DISCHARGED in `parent_children_widths_real` (from the parent run, `machine_children_realA`) |
 | `hkid` | GONE — `kidOuts` is DEFINED as the real callee shape's layout |
 | cache | DISCHARGED — `sparkleChildCache` is covered by the existing invariant (`CacheInv`: every entry a `RealChild`), inside `ChildrenReal` |
@@ -197,20 +199,16 @@ theorem entryStrict_real {d : MachineData} {kidOuts : Nat → List OutField} {k 
   obtain ⟨dE, senv, hL, hR⟩ := childLink_real entry ResD P5 hy
   exact entryStrict_of_child hL hR hkid PB
 
-/-- A non-memory entry of `ChildrenReal` is a `RealChild` of its callee. -/
+/-- A non-memory entry of `ChildrenReal` is a `RealChild` of its callee —
+origin dispatch (patched compiler): "non-memory" is the entry's ORIGIN
+(`Tools.ShippingChildInv.realChild_of_childrenRealT`). -/
 theorem realChild_of_childrenReal {shape : MachineShape} {children : List Res}
     (hreal : ChildrenReal mref cref shape children)
     {k : Nat} (hk : k < shape.insts.length)
-    (hnomem : Sparkle.Compiler.MachMemory.memChild? (shape.insts[k]).1 = none)
+    (hnomem : (shape.instOrigins.getD k .ord).child? = none)
     {y : Res} (hy : children[k]? = some y) :
-    RealChild mref cref (shape.insts[k]).1 y := by
-  obtain ⟨y', hy', hor⟩ := hreal.2 k hk
-  have hyy : y' = y := Option.some.inj (hy'.symm.trans hy)
-  subst hyy
-  rcases hor with h | h
-  · rw [hnomem] at h
-    cases h
-  · exact h
+    RealChild mref cref (shape.insts[k]).1 y :=
+  Tools.ShippingChildInv.realChild_of_childrenRealT hreal hk hnomem hy
 
 /-! ## The whole condition, `kidOuts` = the callees' real shapes -/
 
@@ -219,8 +217,7 @@ children the closing consumes. -/
 theorem callWidthsStrict_real {d : MachineData} {children : List Res}
     (hreal : ChildrenReal mref cref d.shape children)
     (sc : Nat → MachineShape) (res : Nat → MixedGateBinder)
-    (hnomem : ∀ k (hk : k < d.shape.insts.length),
-      Sparkle.Compiler.MachMemory.memChild? (d.shape.insts[k]).1 = none)
+    (hnomem : ∀ o ∈ d.shape.instTagged, o.2.child?.isNone = true)
     (entry : ∀ k (hk : k < d.shape.insts.length),
       MachineDefines mctx mref cctx cref (d.shape.insts[k]).1 (sc k))
     (ResD : ∀ k (hk : k < d.shape.insts.length), ResDeclAt mref cref (d.shape.insts[k]).1 (res k))
@@ -233,7 +230,7 @@ theorem callWidthsStrict_real {d : MachineData} {children : List Res}
   intro k hk
   obtain ⟨y, hy, _⟩ := hreal.2 k hk
   exact entryStrict_real rfl (entry k hk) (ResD k hk) (P5 k hk)
-    (realChild_of_childrenReal hreal hk (hnomem k hk) hy) (PB k hk)
+    (realChild_of_childrenReal hreal hk (Tools.ShippingChildInv.notag_at hnomem hk) hy) (PB k hk)
 
 /-- **The emitted children's connected output ports, leaf callees.** For the
 module the closing RECEIVES for entry `k` (`children[k]`): its output ports
@@ -242,8 +239,7 @@ connects has the width of the entry's binder at the closing's `nDecl`. -/
 theorem children_widths_real {d : MachineData} {children : List Res}
     (hreal : ChildrenReal mref cref d.shape children)
     (kid : Nat → MachineData) (res : Nat → MixedGateBinder)
-    (hnomem : ∀ k (hk : k < d.shape.insts.length),
-      Sparkle.Compiler.MachMemory.memChild? (d.shape.insts[k]).1 = none)
+    (hnomem : ∀ o ∈ d.shape.instTagged, o.2.child?.isNone = true)
     (hkid : ∀ k (hk : k < d.shape.insts.length),
       LeafKid mctx mref cctx cref (d.shape.insts[k]).1 (kid k))
     (ResD : ∀ k (hk : k < d.shape.insts.length), ResDeclAt mref cref (d.shape.insts[k]).1 (res k))
@@ -269,7 +265,7 @@ theorem children_widths_real {d : MachineData} {children : List Res}
     exact Tools.ShippingChildIfaceTy.leaf_real_outTys (kid k) K.ok K.body K.leaf K.slots K.ss
       K.outTy K.entry K.closes hy
   refine ⟨hcw, fun k hk y hy => ?_⟩
-  have hyR := realChild_of_childrenReal hreal hk (hnomem k hk) hy
+  have hyR := realChild_of_childrenReal hreal hk (Tools.ShippingChildInv.notag_at hnomem hk) hy
   exact ⟨hkidT k hk y hyR, hkidW_strict hcw hkidT k hk y hyR⟩
 
 /-- **From one successful parent run**: the children of the parent's closing
@@ -282,8 +278,7 @@ theorem parent_children_widths_real {declName : Name} {d : MachineData}
     (closesP : MachineClosesAt mctx mref cctx cref declName d.shape)
     (hb : ChildBnd mref cref w) (hi : d.shape.insts ≠ [])
     (kid : Nat → MachineData) (res : Nat → MixedGateBinder)
-    (hnomem : ∀ k (hk : k < d.shape.insts.length),
-      Sparkle.Compiler.MachMemory.memChild? (d.shape.insts[k]).1 = none)
+    (hnomem : ∀ o ∈ d.shape.instTagged, o.2.child?.isNone = true)
     (hkid : ∀ k (hk : k < d.shape.insts.length),
       LeafKid mctx mref cctx cref (d.shape.insts[k]).1 (kid k))
     (ResD : ∀ k (hk : k < d.shape.insts.length), ResDeclAt mref cref (d.shape.insts[k]).1 (res k))

@@ -2,6 +2,8 @@ import Tests.Compiler.MemDepthProbeTest
 import Tools.ShippingKidsChildIfaceM
 import Tools.ShippingMemNamesP
 import Tools.ShippingChildIfaceGen
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # The closing of `memParent`, by hand (round par/c-3)
 
@@ -79,7 +81,8 @@ theorem memCounterH_iface {mctx : Lean.Meta.Context}
     Tools.ShippingCallsKidsD.ChildIfaceD ``memCounterH
       (((memCounterH.machineData).bsIn.take 3).filter (fun b => b.2 != .domain)).length
       ((memCounterH.machineData).shape.layout.outs.map (·.name)) memNames y.1 y.2 :=
-  kidsChild_of_realM (nDecl := 3) memCounterH.machineData
+  kidsChild_of_realM (nDecl := 3) (hagree := by first | decide | decide +kernel)
+    memCounterH.machineData
     memCounterH.machine_ok memCounterH.machine_body
     (by decide) (by decide) (by decide) (by decide) (by decide) (by decide) 3
     (by decide) (by decide) (by decide) (by decide) (by decide) (by decide)

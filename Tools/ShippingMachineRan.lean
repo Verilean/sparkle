@@ -1,6 +1,8 @@
 import Tools.ShippingCacheCoherentOuter
 import Tools.ShippingKidsSelf
 import Tools.ShippingMachineRanBase
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 variable {tenv : Lean.Environment}
 
@@ -132,7 +134,7 @@ theorem core_kids_self_ran {c : Name} (d : MachineData) (ok : d.ok = true)
     (hslots : d.ss.length = d.shape.layout.slots.length)
     (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
     (hins : d.shape.insts ≠ [])
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     {M : Sparkle.IR.AST.Module} {D : Design}
     (ran : MachineRan mctx mref cctx cref c d.shape M D) :
     ∀ g ∈ D.modules, ∃ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
@@ -151,7 +153,7 @@ theorem core_kids_self_of_closes {c : Name} (d : MachineData) (ok : d.ok = true)
     (hslots : d.ss.length = d.shape.layout.slots.length)
     (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
     (hins : d.shape.insts ≠ [])
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     {w w1 : Void IO.RealWorld} {M : Sparkle.IR.AST.Module} {D : Design}
     (hB : ChildBnd mref cref w)
     (hcore : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, D) w1)

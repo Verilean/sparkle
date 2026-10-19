@@ -8,6 +8,8 @@ import Tools.ShippingHierGateAny
 import Tools.ShippingChecksCoreGate
 import Tools.ShippingCallWidthsStrict
 import Tools.ShippingFinalGoalCommand
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # ONE endpoint, `callerL` (child `pickByteH`, a SLOTLESS MACHINE-route leaf): the one-output head by hand (G1, round par/a-10)
 
@@ -246,8 +248,8 @@ theorem callerL_outTy : ∀ o ∈ callerL.machineData.shape.layout.outs, o.ty.bi
   decide
 
 set_option maxRecDepth 100000 in
-theorem callerL_nomem : ∀ c ∈ callerL.machineData.shape.insts,
-    Sparkle.Compiler.MachMemory.memChild? c.1 = none := by decide
+theorem callerL_nomem : ∀ x ∈ callerL.machineData.shape.instTagged, x.2.child?.isNone = true ∧
+    (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true := by decide
 
 /-- The PARENT has a register. -/
 theorem callerL_slots : callerL.machineData.shape.layout.slots ≠ [] :=

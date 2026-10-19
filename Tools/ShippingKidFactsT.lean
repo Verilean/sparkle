@@ -1,4 +1,6 @@
 import Tools.ShippingKidFacts
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # The no-ports chain's interface of ONE callee, with the check of the callee's OWN module only (round par/c-4)
 
@@ -115,7 +117,7 @@ theorem core_kidsPass_top {c : Name} (d : MachineData) (ok : d.ok = true)
     (hins : d.shape.insts ≠ [])
     (hfne : d.shape.instFields ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     (n : Nat)
     (hkidK : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y →
@@ -193,7 +195,7 @@ theorem kidsT_runFacts {c : Name} (d : MachineData) (ok : d.ok = true)
     (hsl : d.shape.layout.slots ≠ [])
     (hfne : d.shape.instFields ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     (kidOuts : Nat → List OutField) (kidIns : Nat → List Nat) (n : Nat)
     (hkid : ∀ (k : Nat) (hk : k < d.shape.insts.length),
       KidFactsT mref cref (d.shape.insts[k]).1 (kidOuts k) (kidIns k) n)
@@ -223,7 +225,7 @@ theorem kidsT_outsCheck {c : Name} (d : MachineData) (ok : d.ok = true)
     (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
     (hins : d.shape.insts ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     (kidOuts : Nat → List OutField) (kidIns : Nat → List Nat) (n : Nat)
     (hkid : ∀ (k : Nat) (hk : k < d.shape.insts.length),
       KidFactsT mref cref (d.shape.insts[k]).1 (kidOuts k) (kidIns k) n)
@@ -254,7 +256,7 @@ theorem kidsT_maskedN {c : Name} (d : MachineData) (ok : d.ok = true)
     (hins : d.shape.insts ≠ [])
     (hfne : d.shape.instFields ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     (kidOuts : Nat → List OutField) (kidIns : Nat → List Nat) (n : Nat)
     (hkid : ∀ (k : Nat) (hk : k < d.shape.insts.length),
       KidFactsT mref cref (d.shape.insts[k]).1 (kidOuts k) (kidIns k) n)
@@ -287,7 +289,7 @@ theorem kidsT_designCheck {c : Name} (d : MachineData) (ok : d.ok = true)
     (hsl : d.shape.layout.slots ≠ [])
     (hfne : d.shape.instFields ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     (kidOuts : Nat → List OutField) (kidIns : Nat → List Nat) (n : Nat)
     (hkid : ∀ (k : Nat) (hk : k < d.shape.insts.length),
       KidFactsT mref cref (d.shape.insts[k]).1 (kidOuts k) (kidIns k) n)

@@ -2,6 +2,8 @@ import Tools.ShippingPortsMatchRaw
 import Tools.ShippingCallWidths
 import Tools.ShippingLeafPorts
 import Tools.ShippingCoreClk
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # `portsMatchB` of the RAW full-entry module, for a parent of LEAF register machines (G1, port matching)
 
@@ -91,7 +93,7 @@ theorem core_portsMatch_raw_leaf {c : Name} (d : MachineData) (ok : d.ok = true)
     (hins : d.shape.insts ≠ [])
     (hfne : d.shape.instFields ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     -- the parent has slots (its own clock and reset)
     (hsl : d.shape.layout.slots ≠ [])
     -- every call entry's callee is a leaf register machine

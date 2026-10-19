@@ -28,7 +28,7 @@ def SeqFactsRN (children : String → Option (Module × WEnv)) (n : Nat) {D : Do
     (outsC : Name → List OutField) (S : Name → (Nat → List Nat) → List (Nat → Nat))
     (PC : Name → Module → Prop)
     (k : Nat) (c : Name) : Prop :=
-  Sparkle.Compiler.MachMemory.memChild? c = none ∧
+  (shape.instOrigins.getD k .ord).child? = none ∧
   ∃ args : List Nat, (shape.insts.map (·.2.1))[k]? = some args ∧
     (∀ mc : Module, PC c mc →
       SeqChildRunN children dsn n mc (bsC c) (outsC c) (S c) ∧ (argPorts mc).length = args.length) ∧
@@ -55,7 +55,7 @@ theorem calls_hchildRN (children : String → Option (Module × WEnv)) (n : Nat)
     (PC : Name → Module → Prop)
     (hsv : ∀ k c (mc : Module) (iname : String) (argWs : List String) (outs : List (Nat × String))
       (outWs : List String), (shape.insts.map (·.1))[k]? = some c →
-      Sparkle.Compiler.MachMemory.memChild? c = none →
+      (shape.instOrigins.getD k .ord).child? = none →
       Stmt.inst mc.name iname (connsG mc argWs outs outWs) ∈ body →
       outs.mapM (fun (k, _) => names[offO + k]?) = some outWs → (∃ e ∈ outs, e.1 = k) →
       moduleByName dsn.modules mc.name = some mc → PC c mc)
@@ -238,7 +238,7 @@ theorem machine_linkedT_callsRN (n : Nat) {declName : Name} {d : MachineData} {m
     -- every run of a sequential child's entry, in the parent's contexts,
     -- satisfies the child's depth conditions
     (hrunN : ∀ (k : Nat) (c : Name), (d.shape.insts.map (·.1))[k]? = some c →
-      Sparkle.Compiler.MachMemory.memChild? c = none →
+      (d.shape.instOrigins.getD k .ord).child? = none →
       ∀ (mctx' : Meta.Context) (cctx' : Core.Context) (mc : Module) (Dc : Design)
         (w w' : Void IO.RealWorld),
         Tools.ShippingChildInv.InvW mref cref w →
@@ -286,7 +286,7 @@ theorem machine_linkedT_callsRN (n : Nat) {declName : Name} {d : MachineData} {m
         have hck : (d.shape.insts[k]).1 = c := by
           rw [List.getElem?_map, List.getElem?_eq_getElem hk] at hc; simpa using hc
         rcases hx.1 hfe k hk mc iname argWs outs outWs hst hout hke hmod with ⟨md, hmd, _⟩ | ⟨Dc, hrc, hcons⟩
-        · rw [hck, hnone] at hmd; cases hmd
+        · rw [hnone] at hmd; cases hmd
         · rw [hck] at hrc
           obtain ⟨mctx', cctx', w, w', hw, hrun⟩ := hrc.inv
           exact hrunN k c hc hnone mctx' cctx' mc Dc w w' hw hrun hcons hmod)

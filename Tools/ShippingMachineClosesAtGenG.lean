@@ -4,6 +4,8 @@ import Tools.ShippingMachineCommand
 import Tools.ShippingNameSep
 import Tools.ShippingNameDischarge
 import Tools.ShippingNameMode
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # Generating `f.machine_closes_at` for the general closing
 
@@ -33,9 +35,10 @@ def closesAtCoreG (c : Name) (nDecl? : Option Nat) (name : Name) : CommandElabM 
   let calls := r.shape.insts.map (·.1)
   if calls.isEmpty then throwError "{c}: no call"
   let kids := calls.eraseDups
+  -- origin dispatch (patched compiler): a memory child is an entry of memory ORIGIN
+  if r.shape.instTagged.any (fun x => x.2.child?.isSome) then
+    throwError "{c}: a memory child (not derived here)"
   for k in kids do
-    if (Sparkle.Compiler.MachMemory.memChild? k).isSome then
-      throwError "{c}: a memory child (not derived here)"
     unless (← getEnv).contains (k ++ `machineData) && (← getEnv).contains (k ++ `machine_ok) &&
         (← getEnv).contains (k ++ `machine_body) do
       throwError "{c}: {k} is not a machine with an endpoint (#machine_endpoint)"

@@ -1,5 +1,7 @@
 import Tools.ShippingPortsMatchRawLeaf
 import Tools.ShippingCallWidthsStrict
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # Port matching for a parent of LEAF machines with or without a register; the one-output width fact (G1, round par/a-5)
 
@@ -216,7 +218,7 @@ theorem core_portsMatch_raw_leaf_any {c : Name} (d : MachineData) (ok : d.ok = t
     (hins : d.shape.insts ≠ [])
     (hfne : d.shape.instFields ≠ [])
     (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     -- the parent has slots (its own clock and reset)
     (hsl : d.shape.layout.slots ≠ [])
     -- every call entry's callee is a leaf machine (a register or not)

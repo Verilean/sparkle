@@ -1,5 +1,7 @@
 import Tests.Compiler.NoPortsMemOnlyAtMemWideTest
 import Tests.Compiler.NoPortsMemOnlyClosedLib
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # `memWide`: the closing of a MEMORY-ONLY parent, and the closed depth-0 endpoint (round par/a-19)
 
@@ -107,6 +109,7 @@ theorem memWide_closeData : Tools.ShippingMemOnlyCloses.MemOnlyCloseData
     Sparkle.Tests.Compiler.ShippingDesignSVMemTest.memWide.machineData :=
   Tools.ShippingMemOnlyCloses.MemOnlyCloseData.mk memWide_alias memWide_argsN memWide_field
     memWide_argsNd memWide_outHead
+    (by first | decide | decide +kernel)
 
 /-! ## Names (decided over the candidate renderings; `Name.toString` is never evaluated) -/
 

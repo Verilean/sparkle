@@ -13,6 +13,8 @@ import Tools.ShippingChildIfaceGen
 import Tools.ShippingSVBridge
 import Tools.ShippingReflectCtx
 import Tools.ShippingMemKidTags
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # `#machine_no_ports_memkid f`: the check-free depth-1 endpoint of a parent of MEMORY MACHINES (round par/e-1)
 
@@ -483,7 +485,8 @@ def genKidMTheorem (k : Name) (nD : Nat) (cb : Bool) (aw dw : Nat) : CommandElab
             | decide
             | decide +kernel
         entry := hR
-        closes := fun _ _ => $(nm k "noPortsMem_closes") }))
+        closes := fun _ _ => $(nm k "noPortsMem_closes")
+        agree := by first | exact ($md).agree | decide | decide +kernel }))
   checkMade name before
   return name
 
@@ -545,7 +548,8 @@ def ifaceDeepMTheorem (k : Name) (nD : Nat) (cb : Bool) (aw dw : Nat) : CommandE
             (Sparkle.Compiler.MachMemory.memChildName $cbT $awL $dwL) =
           some (Sparkle.Compiler.MachMemory.memModule $cbT $awL $dwL) :=
         (by first | rfl | decide)
-      Tools.ShippingKidsChildIfaceM.kidsChild_of_realM (nDecl := $nDL) $data
+      Tools.ShippingKidsChildIfaceM.kidsChild_of_realM (nDecl := $nDL)
+        (hagree := by first | decide | decide +kernel) $data
         $(nm k "machine_ok") $(nm k "machine_body")
         (by decide) (by decide) (by decide) (by decide) (by decide) (by decide) $nDL
         (by decide) (by decide) (by decide) (by decide) (by decide) (by decide)

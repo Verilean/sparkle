@@ -1,4 +1,6 @@
 import Tests.Compiler.NoPortsMemOnlyCounterTest
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # `syncNarrow` by hand: the depth-0 endpoint of a MEMORY-ONLY parent with a SYNCHRONOUS-read memory, without the four check premises (G1, unit U4, round par/b-14)
 
@@ -141,6 +143,8 @@ theorem syncNarrow_data : Tools.ShippingMemOnly.MemOnlyData
     syncNarrow_callWidths syncNarrow_callArgs
     (fun o ho => Tools.ShippingSVBridge.sanitizeName_of_clean (syncNarrow_outChars o ho))
     syncNarrow_outScalar
+    -- origin dispatch: names say what their origins build
+    (by first | decide | decide +kernel)
 
 /-- **The run's facts of `syncNarrow`'s full-entry module** (`memOnly_runFacts`). -/
 theorem syncNarrow_runFacts {mctx : Lean.Meta.Context}

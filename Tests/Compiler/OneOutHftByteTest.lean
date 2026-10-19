@@ -10,6 +10,8 @@ import Tools.ShippingHierGateAny
 import Tools.ShippingChecksCoreGate
 import Tools.ShippingCallWidthsStrict
 import Tools.ShippingFinalGoalCommand
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # ONE endpoint, `hftByte` (child `Sparkle.IP.Net.HTTP.httpGetByte`, a slotless machine-route leaf with an implicit domain binder): the one-output head by hand (G1, round par/a-11)
 
@@ -359,8 +361,8 @@ theorem hftByte_outTy : ∀ o ∈ hftByte.machineData.shape.layout.outs, o.ty.bi
   first | decide | decide +kernel
 
 set_option maxRecDepth 100000 in
-theorem hftByte_nomem : ∀ c ∈ hftByte.machineData.shape.insts,
-    Sparkle.Compiler.MachMemory.memChild? c.1 = none := by
+theorem hftByte_nomem : ∀ x ∈ hftByte.machineData.shape.instTagged, x.2.child?.isNone = true ∧
+    (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true := by
   first | decide | decide +kernel
 
 /-- The PARENT has a register. -/

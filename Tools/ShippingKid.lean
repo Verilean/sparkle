@@ -27,6 +27,87 @@ the entry's origin; `kid_of` asks the per-entry agreement `hag` (name decodes
 to what the origin builds) and `kidT_of` gives the tag-based kid without it.
 `real_of_kid` / `kid_of_real` (name-based `hnomem`) are unchanged. WRITTEN,
 NOT BUILT against patched compiler. -/
+/-! ## Names that say what the origin builds (`TagsAgree`; namespace `Tools.ShippingInstTagged`)
+
+Placed here (below `Tools/ShippingChecksCore.lean`) so the `core_*M` chain can
+ask it. The name-based statements of the memory chain (`Kid`, `memNameAt`,
+`hsep` over declaration names) stay sound under the origin dispatch for a
+shape whose every entry's NAME decodes (`memChild?`) to what its ORIGIN builds.
+`tagAgrees` is that test per entry, decidable; it is false exactly for a
+collision entry, so for a collision shape the endpoints that ask `TagsAgree`
+are simply not generated (`decide` fails). That narrows PROOF coverage only,
+not what the compiler accepts. Migrating the `M` chain to the tag-based kid
+(`KidT`) is a later unit. -/
+namespace Tools.ShippingInstTagged
+open Lean Sparkle.Compiler.Elab
+open Sparkle.Compiler.MachInstOrigin (InstOrigin)
+
+/-- A memory placeholder decodes to its own memory module (the proof of
+`Tools.ShippingMemDispatch.memChild_memChildName`, BUILT there). -/
+theorem memChild_ofName (combo : Bool) (aw dw : Nat) :
+    Sparkle.Compiler.MachMemory.memChild? (Sparkle.Compiler.MachMemory.memChildName combo aw dw) =
+      some (Sparkle.Compiler.MachMemory.memModule combo aw dw) := by
+  cases combo
+  · first
+      | rfl
+      | simp [Sparkle.Compiler.MachMemory.memChild?, Sparkle.Compiler.MachMemory.memChildName]
+      | decide
+  · first
+      | rfl
+      | simp [Sparkle.Compiler.MachMemory.memChild?, Sparkle.Compiler.MachMemory.memChildName]
+      | decide
+
+/-- The entry's name says what its origin builds. -/
+def tagAgrees (c : Name) : InstOrigin → Bool
+  | .mem cb aw dw => decide (c = Sparkle.Compiler.MachMemory.memChildName cb aw dw)
+  | .ord => (Sparkle.Compiler.MachMemory.memChild? c).isNone
+  | .field _ => (Sparkle.Compiler.MachMemory.memChild? c).isNone
+
+theorem memChild_of_tagAgrees {c : Name} {o : InstOrigin} (h : tagAgrees c o = true) :
+    Sparkle.Compiler.MachMemory.memChild? c = o.child? := by
+  cases o with
+  | ord =>
+    exact Option.isNone_iff_eq_none.mp
+      (show (Sparkle.Compiler.MachMemory.memChild? c).isNone = true from h)
+  | field i =>
+    exact Option.isNone_iff_eq_none.mp
+      (show (Sparkle.Compiler.MachMemory.memChild? c).isNone = true from h)
+  | mem cb aw dw =>
+    have e : c = Sparkle.Compiler.MachMemory.memChildName cb aw dw :=
+      of_decide_eq_true
+        (show decide (c = Sparkle.Compiler.MachMemory.memChildName cb aw dw) = true from h)
+    rw [e]
+    exact memChild_ofName cb aw dw
+
+/-- Every entry's name says what its origin builds (decidable: `decide`). -/
+abbrev TagsAgree (shape : MachineShape) : Prop :=
+  ∀ x ∈ shape.instTagged, tagAgrees x.1 x.2 = true
+
+theorem agree_at {shape : MachineShape} (h : TagsAgree shape) {k : Nat}
+    (hk : k < shape.insts.length) :
+    Sparkle.Compiler.MachMemory.memChild? (shape.insts[k]).1 =
+      (shape.instOrigins.getD k .ord).child? := by
+  obtain ⟨hkT, he⟩ := Tools.ShippingChildInv.instTagged_getAt shape hk
+  have := h _ (List.getElem_mem hkT)
+  rw [he] at this
+  exact memChild_of_tagAgrees this
+
+/-- **The `hnomem` premise (no memory origin, no memory name) gives
+`TagsAgree`.** -/
+theorem tagsAgree_of_nomem {shape : MachineShape}
+    (h : ∀ x ∈ shape.instTagged, x.2.child?.isNone = true ∧
+      (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true) :
+    TagsAgree shape := by
+  intro x hx
+  obtain ⟨h1, h2⟩ := h x hx
+  obtain ⟨c, o⟩ := x
+  cases o with
+  | ord => exact h2
+  | field i => exact h2
+  | mem cb aw dw => simp [Sparkle.Compiler.MachInstOrigin.InstOrigin.child?] at h1
+
+end Tools.ShippingInstTagged
+
 namespace Tools.ShippingMemKid
 open Lean Meta
 open Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Machine
@@ -132,18 +213,20 @@ theorem kid_iff_real_of_nomem {c : Name} {y : Res}
 every re-derivation below uses (hypotheses asked of kids are given by the
 old hypotheses asked of real children; kids in a conclusion are real). -/
 theorem real_of_kid {shape : MachineShape}
-    (hnomem : ∀ c ∈ shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ shape.instTagged, x.2.child?.isNone = true ∧
+      (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     {k : Nat} (hk : k < shape.insts.length) {y : Res}
     (h : Kid mref cref (shape.insts[k]).1 y) :
     RealChild mref cref (shape.insts[k]).1 y :=
-  Kid.real h (hnomem _ (List.getElem_mem hk))
+  Kid.real h (nomem_name hnomem hk)
 
 /-- The converse: under `hnomem`, a real child of a call entry is a kid. -/
 theorem kid_of_real {shape : MachineShape}
-    (hnomem : ∀ c ∈ shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnomem : ∀ x ∈ shape.instTagged, x.2.child?.isNone = true ∧
+      (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
     {k : Nat} (hk : k < shape.insts.length) {y : Res}
     (h : RealChild mref cref (shape.insts[k]).1 y) :
     Kid mref cref (shape.insts[k]).1 y :=
-  Or.inr (And.intro (hnomem _ (List.getElem_mem hk)) h)
+  Or.inr (And.intro (nomem_name hnomem hk) h)
 
 end Tools.ShippingCoreFromM

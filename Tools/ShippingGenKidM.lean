@@ -2,6 +2,8 @@ import Tools.ShippingGenKid
 import Tools.ShippingMemKidFacts
 import Tools.ShippingKidsChildIfaceM
 import Tools.ShippingKidFactsT
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # A general-closing callee whose own callees may be MEMORY placeholders, as a child (round par/d-1)
 
@@ -12,7 +14,7 @@ the structure are written by hand.
 
 `Tools.ShippingGenKid.GenKid` is the interface of a callee whose own calls
 are tied by the general closing, with the field
-`nomem : ∀ c ∈ dk.shape.insts, memChild? c.1 = none`. A register machine
+`nomem : ∀ x ∈ dk.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true`. A register machine
 with a memory read (`memCounterH`) has a memory placeholder among its call
 entries and fails it. `GenKidM` is `GenKid` without `nomem`, its callees
 taken as the general closing takes them (`Tools.ShippingMemKid.Kid`: the
@@ -78,6 +80,7 @@ placeholders**, from its core run: `core_calls_portsG`
 (`Tools/ShippingCallsPortsG.lean` 61-261) without `hnomem` — its proof reads
 `hnomem` only to call `core_kids_facts`, here `core_kids_factsM`. -/
 theorem core_calls_portsGM {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hagree : Tools.ShippingInstTagged.TagsAgree d.shape)
     (hbody : d.shape.body = quote d.dom
       (fun j => inputExpr d.shape.binders.length (d.bpos j))
       (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
@@ -105,7 +108,7 @@ theorem core_calls_portsGM {c : Name} (d : MachineData) (ok : d.ok = true)
     CallsPorts c d kD b := by
   -- the body, the output ports, the inputs and the wires of the full
   -- entry's module are the raw module's
-  have hkf := Tools.ShippingMemKid.core_kids_factsM d ok hbody hC hslots hdomB hins outTy
+  have hkf := Tools.ShippingMemKid.core_kids_factsM (hagree := hagree) d ok hbody hC hslots hdomB hins outTy
     hfne hB hcore hpost entry closes
   have hbb : b.body = M.body := hkf.2.1
   have hbo : b.outputs = M.outputs := hkf.2.2.1
@@ -283,6 +286,7 @@ set_option maxHeartbeats 4000000 in
 the clock, the reset, or a wire of the module** (`core_conn_refsG` over the
 built `core_callConnsM`). -/
 theorem core_conn_refsGM {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hagree : Tools.ShippingInstTagged.TagsAgree d.shape)
     (hbody : d.shape.body = quote d.dom
       (fun j => inputExpr d.shape.binders.length (d.bpos j))
       (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
@@ -302,7 +306,7 @@ theorem core_conn_refsGM {c : Name} (d : MachineData) (ok : d.ok = true)
     ∀ mn iname conns, Stmt.inst mn iname conns ∈ b.body →
       ∀ cn ∈ conns, ∀ x, cn.2 = Sparkle.IR.AST.Expr.ref x →
         x = "clk" ∨ x = "rst" ∨ x ∈ b.wires.map (·.name) := by
-  have hconn := Tools.ShippingMemKid.core_callConnsM d ok hbody hC hslots hdomB hins hfne
+  have hconn := Tools.ShippingMemKid.core_callConnsM (hagree := hagree) d ok hbody hC hslots hdomB hins hfne
     outTy hB hcore hpost entry closes
   intro mn iname conns hst cn hcm x hc2
   obtain ⟨mc, -, -, hall⟩ := hconn mn iname conns hst
@@ -341,6 +345,7 @@ its full entry**, from the same two facts of ITS kids: `kids_run_kid`
 (`Tools/ShippingChecksCore.lean` 287-356) over `Kid`, `KidNamesP` and
 `core_kids_factsM`. -/
 theorem kids_run_kidM {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hagree : Tools.ShippingInstTagged.TagsAgree d.shape)
     (hbody : d.shape.body = quote d.dom
       (fun j => inputExpr d.shape.binders.length (d.bpos j))
       (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
@@ -375,7 +380,7 @@ theorem kids_run_kidM {c : Name} (d : MachineData) (ok : d.ok = true)
       ∃ g2 ∈ design.modules, g2.name = mn) := by
   obtain ⟨M, D, w1, hcore, hpost, hdesL⟩ := synthesizeCombinational_designL hr
   obtain ⟨hMn, hbody', -, hresM, hrealD, hbA⟩ :=
-    Tools.ShippingMemKid.core_kids_factsM d ok hbody hC hslots hdomB hins outTy hfne
+    Tools.ShippingMemKid.core_kids_factsM (hagree := hagree) d ok hbody hC hslots hdomB hins outTy hfne
       (ChildBnd.of_invW mctx cctx hw) hcore hpost entry closes
   -- the full entry's design is the core run's: no module of it has the top's name
   have hdes : design.modules = D.modules := by
@@ -417,6 +422,7 @@ theorem kids_run_kidM {c : Name} (d : MachineData) (ok : d.ok = true)
 reads**, from its `RealChild` witness and the same facts of its own kids
 (`kids_real_kid` over `kids_run_kidM`). -/
 theorem kids_real_kidM {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hagree : Tools.ShippingInstTagged.TagsAgree d.shape)
     (hbody : d.shape.body = quote d.dom
       (fun j => inputExpr d.shape.binders.length (d.bpos j))
       (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
@@ -449,7 +455,7 @@ theorem kids_real_kidM {c : Name} (d : MachineData) (ok : d.ok = true)
     (∀ g ∈ y.1 :: y.2.modules, ∀ mn i conns, Stmt.inst mn i conns ∈ g.body →
       ∃ g2 ∈ y.2.modules, g2.name = mn) := by
   obtain ⟨mctx', cctx', w, w', hw, hr⟩ := h.inv
-  exact kids_run_kidM d ok hbody hC hslots hdomB hins outTy hfne nameK namesK hkid hkidA hkidR
+  exact kids_run_kidM (hagree := hagree) d ok hbody hC hslots hdomB hins outTy hfne nameK namesK hkid hkidA hkidR
     hself hw hr (Tools.ShippingReflectCtx.MachineDefines.ctx entry) (closes mctx' cctx')
 
 end RunKid
@@ -482,6 +488,7 @@ call entry's callee and the two width conditions. No check premise.
 `kids_designCheck_in` (`Tools/ShippingGenKid.lean` 109-224) over the built
 `M` lemmas. -/
 theorem kidsM_designCheck_in {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hagree : Tools.ShippingInstTagged.TagsAgree d.shape)
     (hbody : d.shape.body = quote d.dom
       (fun j => inputExpr d.shape.binders.length (d.bpos j))
       (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
@@ -512,15 +519,15 @@ theorem kidsM_designCheck_in {c : Name} (d : MachineData) (ok : d.ok = true)
   have hkidW := Tools.ShippingMemKid.hkidW_of_dataM hcw
     (fun k hk y hy => (hkid k hk).outTys y hy)
   have hF : Tools.ShippingGuardsSound.RunFacts (childMap D.modules) b :=
-    Tools.ShippingMemKid.kidsM_runFacts d ok hbody hC hslots hdomB hins hsl hfne outTy
+    Tools.ShippingMemKid.kidsM_runFacts (hagree := hagree) d ok hbody hC hslots hdomB hins hsl hfne outTy
       kidOuts kidIns n hkid hcw hB hcore hpost entry closes
-  have hwf := Tools.ShippingMemKid.core_linkedWFM d ok hbody hC hslots hdomB hins outTy
+  have hwf := Tools.ShippingMemKid.core_linkedWFM (hagree := hagree) d ok hbody hC hslots hdomB hins outTy
     hfne hB hcore hpost entry closes
-  have hT := Tools.ShippingMemKid.core_closed_typedInM d ok hbody hC hslots hdomB hins outTy
+  have hT := Tools.ShippingMemKid.core_closed_typedInM (hagree := hagree) d ok hbody hC hslots hdomB hins outTy
     hfne hB hcore hpost entry closes hon hoty
   -- the connection widths of the raw module in its own design
   have hports : Tools.ShippingDesignSV.portsMatchB (childMap D.modules) b = true :=
-    Tools.ShippingMemKid.core_portsMatch_rawM d ok hbody hC hslots hdomB hins hfne outTy
+    Tools.ShippingMemKid.core_portsMatch_rawM (hagree := hagree) d ok hbody hC hslots hdomB hins hfne outTy
       hkidW
       (fun k hk y hy => (hkid k hk).portsIn y hy)
       (kidIns := kidIns) hargs
@@ -530,9 +537,9 @@ theorem kidsM_designCheck_in {c : Name} (d : MachineData) (ok : d.ok = true)
       (Tools.ShippingMemKid.core_clkM d ok hbody hC hslots hdomB hins outTy hfne hsl hB hcore
         hpost entry closes)
   obtain ⟨-, hbody', -, hresM, -, -⟩ :=
-    Tools.ShippingMemKid.core_kids_factsM d ok hbody hC hslots hdomB hins outTy hfne hB
+    Tools.ShippingMemKid.core_kids_factsM (hagree := hagree) d ok hbody hC hslots hdomB hins outTy hfne hB
       hcore hpost entry closes
-  have hselfD := Tools.ShippingMemKid.core_kids_selfM d ok hbody hC hslots hdomB hins hfne
+  have hselfD := Tools.ShippingMemKid.core_kids_selfM (hagree := hagree) d ok hbody hC hslots hdomB hins hfne
     hB hcore entry closes
   -- an instance of `b` resolves, in both module lists, to the same module
   have hres : ∀ mn iname conns, Stmt.inst mn iname conns ∈ b.body →
@@ -666,6 +673,10 @@ structure GenKidM (mref : ST.Ref IO.RealWorld Meta.State)
     MachineDefines mctx' mref cctx' cref c dk.shape
   closes : ∀ (mctx' : Meta.Context) (cctx' : Core.Context),
     MachineClosesAt mctx' mref cctx' cref c dk.shape
+  -- origin dispatch (patched compiler): its call entries' names say what their
+  -- origins build (decided; false for a collision shape, which is then not
+  -- generated)
+  agree : Tools.ShippingInstTagged.TagsAgree dk.shape
 
 variable {c : Name} {dk : MachineData} {nDecl : Nat} {nameK : Nat → String}
   {namesK : Nat → List String} {kidOuts : Nat → List OutField} {kidIns : Nat → List Nat}
@@ -689,7 +700,7 @@ theorem GenKidM.core (K : GenKidM mref cref c dk nDecl nameK namesK kidOuts kidI
     synthesizeCombinational_designL (M' := y.1) (D' := y.2) hr
   have hB : ChildBnd mref cref w := ChildBnd.of_invW mctx' cctx' hw
   obtain ⟨hMn, -, -, -, hrealD, -⟩ :=
-    Tools.ShippingMemKid.core_kids_factsM dk K.ok K.body K.calls K.ss K.dom K.insts K.outTy
+    Tools.ShippingMemKid.core_kids_factsM (hagree := K.agree) dk K.ok K.body K.calls K.ss K.dom K.insts K.outTy
       K.general hB hcore hpost (K.entry mctx' cctx') (K.closes mctx' cctx')
   refine ⟨mctx', cctx', w, w1, M, D, hB, hcore, hpost, hdesL (fun x hx e => K.self ?_)⟩
   obtain ⟨k, hk, y', hre, hor, -⟩ := hrealD x hx
@@ -710,7 +721,7 @@ theorem GenKidM.outsIn (K : GenKidM mref cref c dk nDecl nameK namesK kidOuts ki
     ∀ p ∈ y.1.outputs, (∀ q ∈ inPortsOf y.1, q.name ≠ p.name) ∧ p.name ≠ "clk" ∧
       p.name ≠ "rst" := by
   obtain ⟨mctx', cctx', _, _, _, _⟩ := hy.inv
-  exact (Tools.ShippingKidsChildIfaceM.kidsChild_of_realM dk K.ok K.body K.calls K.ss K.dom
+  exact (Tools.ShippingKidsChildIfaceM.kidsChild_of_realM (hagree := K.agree) dk K.ok K.body K.calls K.ss K.dom
     K.insts K.slots K.outTy nDecl K.hkD K.hIlen K.hSL K.hSlen K.hLlen K.hNIn K.general
     nameK namesK K.kid K.self (K.entry mctx' cctx') (fun mc cc _ => K.closes mc cc) hy).outsIn
 
@@ -722,7 +733,7 @@ theorem GenKidM.kidAR (K : GenKidM mref cref c dk nDecl nameK namesK kidOuts kid
     (∀ g ∈ y.1 :: y.2.modules, ∀ mn i conns, Stmt.inst mn i conns ∈ g.body →
       ∃ g2 ∈ y.2.modules, g2.name = mn) := by
   obtain ⟨mctx', cctx', _, _, _, _⟩ := hy.inv
-  exact kids_real_kidM dk K.ok K.body K.calls K.ss K.dom K.insts K.outTy K.general
+  exact kids_real_kidM (hagree := K.agree) dk K.ok K.body K.calls K.ss K.dom K.insts K.outTy K.general
     nameK namesK K.kid
     (fun k hk y' hy' => (K.kidsLo k hk).kidA y' hy')
     (fun k hk y' hy' => (K.kidsLo k hk).kidR y' hy')
@@ -732,7 +743,7 @@ theorem GenKidM.kidAR (K : GenKidM mref cref c dk nDecl nameK namesK kidOuts kid
 theorem GenKidM.ports (K : GenKidM mref cref c dk nDecl nameK namesK kidOuts kidIns n) {y : Res}
     (hy : RealChild mref cref c y) : CallsPorts c dk nDecl y.1 := by
   obtain ⟨mctx', cctx', w, w1, M, D, hB, hcore, hpost, -⟩ := K.core hy
-  exact core_calls_portsGM dk K.ok K.body K.calls K.ss K.dom K.insts K.general K.outTy K.slots
+  exact core_calls_portsGM (hagree := K.agree) dk K.ok K.body K.calls K.ss K.dom K.insts K.general K.outTy K.slots
     nDecl K.hkD K.hIlen K.hSL K.hSlen K.hLlen K.hNIn
     hB hcore hpost (K.entry mctx' cctx') (K.closes mctx' cctx')
 
@@ -740,7 +751,7 @@ theorem GenKidM.ports (K : GenKidM mref cref c dk nDecl nameK namesK kidOuts kid
 theorem GenKidM.typedIn (K : GenKidM mref cref c dk nDecl nameK namesK kidOuts kidIns n)
     {y : Res} (hy : RealChild mref cref c y) : Tools.ShippingTextTyped.TypedIn y.1 := by
   obtain ⟨mctx', cctx', w, w1, M, D, hB, hcore, hpost, -⟩ := K.core hy
-  exact Tools.ShippingMemKid.core_closed_typedInM dk K.ok K.body K.calls K.ss K.dom K.insts
+  exact Tools.ShippingMemKid.core_closed_typedInM (hagree := K.agree) dk K.ok K.body K.calls K.ss K.dom K.insts
     K.outTy K.general hB hcore hpost (K.entry mctx' cctx') (K.closes mctx' cctx') K.outName
     K.outScalar
 
@@ -753,7 +764,7 @@ theorem GenKidM.masked (K : GenKidM mref cref c dk nDecl nameK namesK kidOuts ki
   obtain ⟨mctx', cctx', w, w1, M, D, hB, hcore, hpost, -⟩ := K.core hy
   exact Tools.ShippingCallsPortsG.outsMaskedN_of_callsG (K.ports hy) (K.typedIn hy)
     (fun p hp => (K.outsIn hy p hp).2)
-    (core_conn_refsGM dk K.ok K.body K.calls K.ss K.dom K.insts K.general K.outTy
+    (core_conn_refsGM (hagree := K.agree) dk K.ok K.body K.calls K.ss K.dom K.insts K.general K.outTy
       hB hcore hpost (K.entry mctx' cctx') (K.closes mctx' cctx'))
 
 /-- `hkidClk`: the clock and the reset are one bit in the emitted width map
@@ -778,7 +789,7 @@ theorem GenKidM.check (K : GenKidM mref cref c dk nDecl nameK namesK kidOuts kid
   have closes : MachineClosesAt mctx' mref cctx' cref c dk.shape := K.closes mctx' cctx'
   have hmsD : ∀ g ∈ D.modules, moduleByName ms g.name = some g := fun g hg =>
     hms g (by rw [hdes]; exact hg)
-  exact kidsM_designCheck_in dk K.ok K.body K.calls K.ss K.dom K.insts K.slots K.general
+  exact kidsM_designCheck_in (hagree := K.agree) dk K.ok K.body K.calls K.ss K.dom K.insts K.slots K.general
     K.outTy kidOuts kidIns n K.kidsLo K.callW K.callA hB hcore hpost entry closes
     K.outName K.outScalar ms hmsD
 

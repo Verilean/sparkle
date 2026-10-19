@@ -234,8 +234,14 @@ def scope (f : Name) : CommandElabM Scope := do
   let calls := r.shape.insts.map (·.1)
   if calls.isEmpty then
     throwError "{f}: no call (no instance statement: there is no child to derive facts about)"
-  let memCalls := (calls.filter fun c => (memParamsOf c).isSome).eraseDups
-  let others := (calls.filter fun c => (memParamsOf c).isNone).eraseDups
+  -- origin dispatch (patched compiler): an entry is a memory by its ORIGIN;
+  -- a shape whose names do not say what their origins build (a declaration
+  -- carrying a memory placeholder name) is not generated (`TagsAgree` false)
+  let tagged := r.shape.instTagged
+  if tagged.any (fun x => !Tools.ShippingInstTagged.tagAgrees x.1 x.2) then
+    throwError "{f}: an entry whose name does not say what its origin builds (a declaration named as a memory placeholder): not generated (TagsAgree is false; proof coverage only)"
+  let memCalls := ((tagged.filter fun x => x.2.child?.isSome).map (·.1)).eraseDups
+  let others := ((tagged.filter fun x => x.2.child?.isNone).map (·.1)).eraseDups
   if others.isEmpty then
     throwError "{f}: memory-only (every call entry is a memory placeholder {memCalls}): use #machine_no_ports_mem"
   for c in others do
@@ -661,28 +667,32 @@ def runTheorems (c : Ctx) : CommandElabM Unit := do
     else `((Tools.ShippingReaderOutsInv.outScalar_of_core hcore entry))
   runTheorem c "runFacts" false
     (← `(Tools.ShippingGuardsSound.RunFacts (Tools.ShippingMachineLinked.childMap D.modules) b))
-    (← `(Tools.ShippingMemKid.kidsM_runFacts (nDecl := $nD) $d $ok $body
+    (← `(Tools.ShippingMemKid.kidsM_runFacts (nDecl := $nD)
+      (hagree := by first | decide | decide +kernel) $d $ok $body
       $(c.lem "calls") $(c.lem "slots") $(c.lem "domB") $ne $ne $ne $outTyT
       $outsF $insF 0 ($(c.lem "kids") $hs*) $(c.lem "callWidths")
       hB hcore hpost entry closes))
   runTheorem c "outsG0" true
     (← `(Tools.ShippingDesignSVBack.outsCheck (Tools.ShippingMachineLinked.childMap D.modules) 0
       (Sparkle.IR.OptCheck.checkedOptimize b) = true))
-    (← `(Tools.ShippingMemKid.kidsM_outsCheck (nDecl := $nD) $d $ok $body
+    (← `(Tools.ShippingMemKid.kidsM_outsCheck (nDecl := $nD)
+      (hagree := by first | decide | decide +kernel) $d $ok $body
       $(c.lem "calls") $(c.lem "slots") $(c.lem "domB") $ne $ne $outTyT
       $outsF $insF 0 ($(c.lem "kids") $hs*)
       hB hcore hpost entry closes hg))
   runTheorem c "mixedG" false
     (← `(Tools.ShippingMachineShipsHier.kidsMixed (Tools.ShippingMachineLinked.childMap D.modules)
       b.body = true))
-    (← `(Tools.ShippingMemKid.kidsM_mixed (nDecl := $nD) $d $ok $body
+    (← `(Tools.ShippingMemKid.kidsM_mixed (nDecl := $nD)
+      (hagree := by first | decide | decide +kernel) $d $ok $body
       $(c.lem "calls") $(c.lem "slots") $(c.lem "domB") $ne $ne $outTyT
       $outsF $insF 0 ($(c.lem "kids") $hs*)
       hB hcore hpost entry closes))
   runTheorem c "designP0" false
     (← `(Tools.ShippingDesignSV.designCheck (Tools.ShippingMachineLinked.childMap D.modules) 0
       (Sparkle.IR.OptCheck.checkedOptimize b) = true))
-    (← `(Tools.ShippingMemKid.kidsM_designCheck (nDecl := $nD) $d $ok $body
+    (← `(Tools.ShippingMemKid.kidsM_designCheck (nDecl := $nD)
+      (hagree := by first | decide | decide +kernel) $d $ok $body
       $(c.lem "calls") $(c.lem "slots") $(c.lem "domB") $ne $ne $ne $outTyT
       $outsF $insF 0 ($(c.lem "kids") $hs*) $(c.lem "callWidths") $(c.lem "callArgs")
       hB hcore hpost entry closes
