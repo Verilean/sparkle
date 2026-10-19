@@ -2,8 +2,18 @@ import Tools.ShippingCallWidthsStructRes
 
 /-! # `InstSubst` from a proved substitution model + an explicit runtime boundary
 
-WRITTEN, NOT BUILT (worker O-SUBST, from poc 5934ac32). No `sorry`, no new
-axiom, no `native_decide`. New file; nothing existing is changed.
+BUILT (worker O-SUBST, from poc 5934ac32; run sm1 failed at one existential
+packing (line 366, `⟨us, …⟩` added by the integrator), run sm2 exit 0). Axioms of
+`instSubstM`, `instSubst_of_agree`: [propext, Classical.choice, Quot.sound]. No
+`sorry`, no new axiom, no `native_decide`.
+
+`InstAgree` is an OPEN runtime-agreement boundary (the extern
+`Expr.instantiate1` agrees with the proved model `inst1M`), NOT a trusted binder
+and not established. Evidence only: `Tests/Compiler/InstAgreeShadowProbe.lean`
+(run sh3: 4260 comparisons — every telescope step of the hardware modules and
+`Sparkle.Core.Signal` constants in scope, six argument shapes including loose
+bvars and a lambda — 0 mismatches). Premise change: `InstSubst` (a semantic
+statement about the extern) is now DERIVED from `InstAgree` (`instSubst_of_agree`).
 
 ## What this does
 
@@ -363,7 +373,7 @@ theorem outs_inst_nf (senv : StructEnv)
       have hnp' : ¬ ∃ (us : List Lean.Level) (x y : Lean.Expr),
           inst1M e j a = .app (.app (.const ``Prod us) x) y := by
         rintro ⟨us, x, y, hh⟩
-        exact hp (inst_prod_inv j a e he hh)
+        exact hp ⟨us, inst_prod_inv j a e he hh⟩
       rw [outs_nonprod senv hnf' hnp', outsOfKind_eq senv hk hk' (he'.trans he.symm)]
       exact h
 
