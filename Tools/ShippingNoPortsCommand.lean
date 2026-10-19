@@ -109,8 +109,15 @@ def leafKidTheorem (c : Name) : CommandElabM Name := do
   let data := nm c "machineData"
   let cq : Term := quote c
   let before := (← get).messages.toList.length
+  -- a callee whose name has NUMERIC parts (a declaration carrying a memory placeholder name,
+  -- `SparkleMem.sync.4.8`): `theorem` cannot open that namespace, so the theorem is elaborated
+  -- under an ordinary temporary name and added under `name` (same statement, proof = the
+  -- temporary constant)
+  let hasNum := c.components.any fun x => x.isNum
+  let elabName : Name := if hasNum then
+      `Tools.ShippingNoPortsCommand.leafKidAux ++ Name.mkSimple (toString (hash c)) else name
   elabCommand (← `(command|
-    theorem $(mkIdent (`_root_ ++ name)) {mctx : Lean.Meta.Context}
+    theorem $(mkIdent (`_root_ ++ elabName)) {mctx : Lean.Meta.Context}
         {mref : ST.Ref IO.RealWorld Lean.Meta.State} {cctx : Lean.Core.Context}
         {cref : ST.Ref IO.RealWorld Lean.Core.State}
         (entryC : Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref $cq
@@ -131,7 +138,11 @@ def leafKidTheorem (c : Name) : CommandElabM Name := do
         outScalar := by decide
         entry := entryC
         closes := fun mc cc => $(nm c "machine_closes") mc _ cc _ }))
-  checkMade name before
+  checkMade elabName before
+  if hasNum then
+    let ci ← getConstInfo elabName
+    liftCoreM <| addDecl (Declaration.thmDecl (mkTheoremValEx name ci.levelParams ci.type
+      (mkConst elabName (ci.levelParams.map Level.param)) [name]))
   return name
 
 /-- **`f.machine_portsG`, generated**: `portsMatchB` of the shipped module of

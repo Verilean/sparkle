@@ -101,3 +101,74 @@ label). Endpoints still requiring a compatibility premise: every row above excep
 Still requiring compatibility premises: `kidsM_*`, `core_*M` (ChecksCore/Raw/Widths, MemKidCore/Ports/Facts),
 `KidFactsM`, `kidsChild_of_realM`, `GenKidM`/`MemOnly*` (`agree`), `closeInstsGM_run_allM_named`, the general /
 one-output chains (`real_of_kid`, `CoreFromM*`), and the generators in the audit table above.
+
+## Round 2026-10-19 (review 677f4cdb): vertical completion for collision parents
+
+Runs (all `cgrun.sh`, 3 GiB, swap 0, `-j 1`; logs in `~/sparkle-work/runs/<stamp>-<name>/`):
+
+| run | target | exit | notes |
+|---|---|---|---|
+| cdp1–cdp2 | probe: `#machine_design_svR0 collSameR` | 1 | refused "no sequential child": the design generators classified entries by NAME |
+| cdp4 | the same after origin dispatch in `MachineSeqCommandR` / `MachineSeqCommand` / `ShipsHierCommand` | 0 | `collSameR.machine_design_svR0` generated, kernel-checked (peak 0.44 GB) |
+| kc1 | KidT chain | 1 | script placed corollaries outside their `section` (bare `end` not treated as a boundary) — re-run |
+| kc2 | `Tools.ShippingMemKidFacts`, `Tools.ShippingInstTagged` (KidT chain) | 0 | peak 0.47 GB |
+| dt1–dt3 | `Tests.Compiler.MemNameCollisionDesignTest` (+ `NoPortsMemSeqMemTest`, old-name consumers) | 1,1,0 | integrator fixes in the test only; dt3 peak 0.35 GB |
+| gt1 | `ShippingEnvLocalP5S` (worker C) | 0 for it | built as written |
+| gt2 | B gate certificate, D refusal texts | 0 for them | fix: `gate_wf` used `Term.WF gateTerm …` (arguments in wrong order) |
+| gt3–gt5 | `Tests.Compiler.MemNameCollisionGenTest` (generator tag mode) | 1,1,0 | fixes: `$[$rules:term],*` splice; `leafKidTheorem` for a callee with numeric name parts (elaborated under a temporary name, added under `SparkleMem.sync.4.8.machine_leafKid`) |
+
+Commits: `59114f9c` (KidT chain + design generators by origin + `collSame_design`), `3d10e333` (B gate
+certificate, C negative result, D refusal texts), and the generator tag-mode commit after it.
+
+### A. `collSame_design` — before / after (asserted by the test's audit `run_cmd`)
+
+| statement | Prop binders | antecedents under ∃ |
+|---|---|---|
+| `collSameR.machine_design_svR0` (generated) | run, `MachineDefines collSameR`, `MachineClosesAt collSameR` | `shipsHierCheck`, `designCheck … 0`, `outsCheck … 0`, `kidsMixed`, boundary (`ChildBnd ∧ MachineDefines SparkleMem.sync.4.8`) |
+| `collSameR.machine_design_noPortsR0` | run, `MachineDefines collSameR`, `MachineClosesAt collSameR` | boundary |
+| `collSame_design` | run, `MachineDefines collSameR`, `MachineDefines SparkleMem.sync.4.8` (explicit) | boundary |
+
+Conclusion unchanged (the generated `DesignSV` of the shipped module list at depth 0). Removed on this path:
+`TagsAgree`, the name half of `hnomem`, `MachineClosesAt` (by `collSame_closes`). The generator now produces
+the same kind of statement for both parents (`collSameR` / `collArgsR` `.machine_design_noPortsR0_closed`, 3 Prop
+binders: run, `MachineDefines f`, `MachineDefines SparkleMem.sync.4.8`). Axioms: `[propext, Classical.choice,
+Quot.sound]`.
+
+Premise accounting on this path: `TagsAgree` / name-half — ELIMINATED (the `core_*M`/`kidsM_*` chain has `…T`
+forms over `KidT` with no name premise; old names are corollaries or kept beside). `MachineClosesAt` —
+ELIMINATED (closed endpoint). Still premises: the run, the reflections, `ChildBnd` (unchanged kinds).
+
+### B. Original `fakeSrc` collision — closing only
+
+`Tools/ShippingGateChildIfaceP.lean`: `ChildFull.toP`, `gateChild_ifaceP_of_real`, `gateKidT_iface` (gate
+child's `ChildIfaceP` under the general closing from the built `childFull_of_real`). Certificate
+`Tests/Compiler/MemNameCollisionGateCertTest.lean`: `MachineClosesAt` of `collMixDiff`, `collMixArgs`,
+`collMixSame`, `collWidth` (the original parents of `MemNameCollisionTest`, `Signal.loop` registers, NO register
+added), only premise `EntryDefines` of the colliding declaration. NOT covered: design semantics for these
+parents (the gate-child design endpoint under the general closing does not exist); `plain` (the colliding
+declaration alone: one-output closing, needs name-half `hnomem`; no origin-based one-output closing).
+The fakeReg certificate is NOT counted as coverage of this case.
+
+### C. `p5s` — negative result (built)
+
+`Tools/ShippingEnvLocalP5S.lean`: the only environment-free keep condition (`keepCheck`, the gate accepts the
+witnessed constant) discharges `p5s` soundly but is PROVED FALSE for every `MachineDefines` child
+(`keepCheck_false_of_defines`). The unfolding branch needs an equation for the `partial def`s
+`MachRecUnfold.relevantClosure` / `passM` (opaque) — a law about compiled code or a compiler change; neither
+added. `typeAgree` / `fieldsAgree` unchanged (need envGet/envFrame, not added). Nothing added to RefLaws or any
+trust list.
+
+### D. Generators
+
+* Accepting: `#machine_design_svR0` (and `machine_composedTR(A)`, `ships_hierR`, `hierRoute`, `generateAny`)
+  dispatch entries by stored origin (`originMem?`, `seqCallees`, `allMemOrigins`; a missing tag is an error);
+  `#machine_no_ports_memseq` TAG MODE for collision shapes (tables keyed by `keyAt` = callee × memory key).
+* Refusal texts: `NoPorts`, `NoPortsKids`, `ShipsNoOuts`, `ShipsFree`, `NoPortsSlotless`, `OneOutGen`,
+  `OneOutAnyGen` say "a declaration carrying the memory placeholder name … (a name collision)" by the stored
+  origin (`calleeLabel` / `memNameRefusal`); `NoPortsDeep`, `ChildIfaceGen` (no parent shape) say the NAME is a
+  placeholder (memory or collision); `LeafEntry` counts memory entries by origin.
+* Still name-based (unchanged; error or refusal on a collision, not silent): `MachineDepthCommand(R)`,
+  `MachineDepthMemKidCommand`, `NoPortsMemCommand` (memory-only), `NoPortsMemKidCommand`, the one-output /
+  general chains (`real_of_kid`, `CoreFromM*`, `GenKidM`/`MemOnly*`).
+
+Not run: full `Tests.AllTests`, corpus. No CI on these SHAs (local, not pushed).

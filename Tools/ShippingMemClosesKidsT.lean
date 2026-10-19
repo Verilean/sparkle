@@ -47,11 +47,10 @@ Contents:
   `Kid` (`kid_of_kidT`). The old theorem and its file are UNCHANGED (still what
   `#machine_no_ports_memseq` uses); this shows the new statement generalises it.
 
-What is NOT changed here: the run-fact chain of a memory parent
-(`Tools.ShippingMemKid.kidsM_*`, `core_*M`, `KidFactsM`, `GenKidM`,
-`MemOnly*`) still asks `hagree` and the name-based `Kid`; the generators
-(`#machine_no_ports_memseq`, `#machine_no_ports_mem`, `#machine_no_ports_memkid`)
-are unchanged and still refuse a collision shape.
+Since round par/o-kidt2: the run-fact chain (`kidsM_*`, `core_*M`) has `…T` forms over `KidT` (no
+`hagree`), and `#machine_no_ports_memseq` has a TAG MODE (tables keyed by `keyAt` below) that generates
+collision parents. Still name-based: `GenKidM`, `MemOnly*`, `#machine_no_ports_mem`,
+`#machine_no_ports_memkid`. `child?_none_of_memKey`, `child?_of_memKey`, `keyAt`, `keyAt_eq`: BUILT (gt5).
 
 BUILT (par/o-kidt; run kt1 failed: `MachineClosesAt`'s implicit `tenv` binder needed `intro tenv` before `refine` (integrator fix); kt2 exit 0; axioms [propext, Classical.choice, Quot.sound]). -/
 namespace Tools.ShippingMemCloses
@@ -134,6 +133,35 @@ theorem memKey_of_child? {o o' : InstOrigin} (h : o.child? = o'.child?) :
       rw [Tools.ShippingMachineShipsHier.memParams_memModule',
         Tools.ShippingMachineShipsHier.memParams_memModule'] at e2
       exact e2
+
+/-- An origin without a memory key builds no child. -/
+theorem child?_none_of_memKey {o : InstOrigin} (h : memKey o = none) : o.child? = none := by
+  cases o with
+  | ord => rfl
+  | field _ => rfl
+  | mem cb aw dw => exact absurd h (by simp [memKey])
+
+/-- An origin of memory key `(cb, aw, dw)` builds that memory module. -/
+theorem child?_of_memKey {o : InstOrigin} {cb : Bool} {aw dw : Nat}
+    (h : memKey o = some (cb, aw, dw)) : o.child? = some (memModule cb aw dw) := by
+  cases o with
+  | ord => exact absurd h (by simp [memKey])
+  | field _ => exact absurd h (by simp [memKey])
+  | mem cb' aw' dw' =>
+    have h' : some (cb', aw', dw') = some (cb, aw, dw) := h
+    have e : (cb', aw', dw') = (cb, aw, dw) := Option.some.inj h'
+    cases e
+    first | rfl | exact Tools.ShippingInstTagged.child?_mem _ _ _
+
+/-- **The table key of call entry `k`** (the generators' tag mode): its callee and the memory key
+of its ORIGIN — two entries of one name are told apart by it (a collision). -/
+def keyAt (d : MachineData) (k : Nat) : Name × Option (Bool × Nat × Nat) :=
+  (calleeAt d k, memKey (originAt d.shape k))
+
+theorem keyAt_eq (d : MachineData) {k : Nat} (hk : k < d.shape.insts.length) :
+    keyAt d k = ((d.shape.insts[k]).1, memKey (originAt d.shape k)) := by
+  unfold keyAt
+  rw [calleeAt_eq d hk]
 
 variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
   {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}

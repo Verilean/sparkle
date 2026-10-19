@@ -5,6 +5,7 @@ import Tools.ShippingNoPortsKidsCommand
 import Tools.ShippingLeafKidFacts
 import Tools.ShippingMemKidFacts
 import Tools.ShippingMemClosesKids
+import Tools.ShippingMemClosesKidsT
 import Tools.ShippingSeqChildIface
 import Tools.ShippingCallsKidsD
 import Tools.ShippingCallsGate
@@ -202,7 +203,19 @@ two lemmas and passes them. Run after the default path on one declaration,
 it takes the compare path on every shared name
 (`Tests/Compiler/NoPortsMemSeqGenOldDataTest.lean`, target-only).
 
-WRITTEN, NOT BUILT (par/b-21; par/r-5). -/
+WRITTEN, NOT BUILT (par/b-21; par/r-5).
+
+## TAG MODE (round par/o-kidt2; BUILT: gt5, regression rg1 exit 0)
+
+A shape some of whose entries' NAMES do not say what their ORIGINS build (a declaration declared under a
+memory placeholder name next to the memory: a collision) was REFUSED ("TagsAgree is false"). It is now
+generated in tag mode (`Scope.tagMode`): placeholders read off the origins; the tables keyed by
+`Tools.ShippingMemCloses.keyAt` (callee × memory key of the origin) instead of `calleeAt`; `…_entry` states
+name AND memory key; `…_kids` is `KidFactsT` by origin (`kidFactsT_of`, `memKidT_facts`); the four run
+theorems use `kidsM_*T`; the closing `machineClosesAt_of_kidsDMT` (kids `KidT`, `sep` / `disj` / `fieldsNd`
+over name AND memory key). No `TagsAgree` anywhere in tag mode. Every other shape takes the previous
+name-keyed path, statements unchanged (`Tests/Compiler/NoPortsMemSeqGen*Test.lean` rebuilt in rg1).
+Generated on `collSameR` / `collArgsR` (`Tests/Compiler/MemNameCollisionGenTest.lean`). -/
 namespace Tools.ShippingNoPortsMemSeqCommand
 open Lean Meta Elab Command
 open Tools.ShippingShipsFreeCommand (checkMade)
@@ -222,6 +235,13 @@ structure Scope where
   slots : Nat
   /-- two placeholders with different `(aw, dw)` -/
   widthsDiffer : Bool
+  /-- TAG MODE (round par/o-kidt2): some entry's NAME does not say what its
+  ORIGIN builds (a declaration carrying a memory placeholder name: a
+  collision). The tables are then keyed by (callee, memory key of the origin)
+  and the chain is the origin-based one (`KidFactsT`, `kidsM_*T`,
+  `machineClosesAt_of_kidsDMT`): no `TagsAgree`. Otherwise the previous
+  (name-keyed) path, unchanged. -/
+  tagMode : Bool := false
   deriving Inhabited
 
 /-- The scope, with its reasons. -/
@@ -238,8 +258,10 @@ def scope (f : Name) : CommandElabM Scope := do
   -- a shape whose names do not say what their origins build (a declaration
   -- carrying a memory placeholder name) is not generated (`TagsAgree` false)
   let tagged := r.shape.instTagged
-  if tagged.any (fun x => !Tools.ShippingInstTagged.tagAgrees x.1 x.2) then
-    throwError "{f}: an entry whose name does not say what its origin builds (a declaration named as a memory placeholder): not generated (TagsAgree is false; proof coverage only)"
+  unless tagged.length == calls.length do
+    throwError "{f}: {tagged.length} tagged entries for {calls.length} call entries (an origin tag is missing)"
+  -- a collision (a declaration carrying a memory placeholder name): TAG MODE
+  let tagMode := tagged.any (fun x => !Tools.ShippingInstTagged.tagAgrees x.1 x.2)
   let memCalls := ((tagged.filter fun x => x.2.child?.isSome).map (·.1)).eraseDups
   let others := ((tagged.filter fun x => x.2.child?.isNone).map (·.1)).eraseDups
   if others.isEmpty then
@@ -278,10 +300,16 @@ def scope (f : Name) : CommandElabM Scope := do
   if r.shape.instFields.isEmpty then
     throwError "{f}: instFields = [] — not the general closing (machineClosesAt_of_kidsDM asks d.shape.instFields ≠ [])"
   let mut mems : List (Name × Bool × Nat × Nat) := []
-  for c in memCalls do
-    match memParamsOf c with
-    | Option.some (cb, aw, dw) => mems := mems ++ [(c, cb, aw, dw)]
-    | Option.none => pure ()
+  if tagMode then
+    -- the placeholders by their ORIGINS (a name alone does not say it)
+    for x in tagged do
+      if let .mem cb aw dw := x.2 then
+        unless mems.contains (x.1, cb, aw, dw) do mems := mems ++ [(x.1, cb, aw, dw)]
+  else
+    for c in memCalls do
+      match memParamsOf c with
+      | Option.some (cb, aw, dw) => mems := mems ++ [(c, cb, aw, dw)]
+      | Option.none => pure ()
   let widthsDiffer : Bool := match mems with
     | (_, _, aw, dw) :: rest => rest.any fun (_, _, aw', dw') => !(aw' == aw && dw' == dw)
     | [] => false
@@ -290,9 +318,13 @@ def scope (f : Name) : CommandElabM Scope := do
   let fields := r.shape.instFields
   unless fields.length == calls.length do
     throwError "{f}: instFields = {fields} against {calls.length} entries (hfieldOut is false: getD reads \"\")"
-  let mut seen : List (Name × List Nat × String) := []
-  for ((c, a), fld) in (calls.zip args).zip fields do
-    match memParamsOf c with
+  let mut seen : List (Name × Option (Bool × Nat × Nat) × List Nat × String) := []
+  for (((c, a), fld), o) in ((calls.zip args).zip fields).zip (tagged.map (·.2)) do
+    -- by the ORIGIN in tag mode, by the name otherwise (they agree there)
+    let mp : Option (Bool × Nat × Nat) := if tagMode then
+        (match o with | .mem cb aw dw => Option.some (cb, aw, dw) | _ => Option.none)
+      else memParamsOf c
+    match mp with
     | Option.some _ =>
       unless a.length == 4 do
         throwError "{f}: the memory entry {c} has the argument lets {a}, not 4 (hargsN is false)"
@@ -306,9 +338,10 @@ def scope (f : Name) : CommandElabM Scope := do
         unless outsC.contains fld do
           throwError "{f}: the entry of {c} reads the field {fld}, not one of its outputs {outsC} (hfieldOut is false)"
       | Option.none => pure ()
-    if seen.contains (c, a, fld) then
+    let mk : Option (Bool × Nat × Nat) := if tagMode then mp else Option.none
+    if seen.contains (c, mk, a, fld) then
       throwError "{f}: hargsNd is false — two entries of {c} on the same argument lets {a} read the same field {fld} (hfieldsNd of machineClosesAt_of_kidsDM: entries of one callee on one argument list are one instance, told apart by their fields only)"
-    seen := seen ++ [(c, a, fld)]
+    seen := seen ++ [(c, mk, a, fld)]
   -- the module names
   let leaves := leafData.map (·.1)
   if shipping.nameCandidates.get (← getOptions) then
@@ -349,7 +382,7 @@ def scope (f : Name) : CommandElabM Scope := do
     unless env.contains (f ++ s) do
       throwError "{f}: no {f ++ s} (run #machine_design_svR0 {f} first)"
   return { nDecl := r.nDecl, calls, leaves, mems, slots := r.shape.layout.slots.length,
-           widthsDiffer }
+           widthsDiffer, tagMode }
 
 /-! ## The generated theorems (the hand files' texts) -/
 
@@ -367,6 +400,8 @@ structure Key where
   decl : Name
   /-- the callee, as a term of type `Lean.Name` -/
   key : Term
+  /-- the memory key of its origin (`Option (Bool × Nat × Nat)`; tag mode) -/
+  mkey : Term
   /-- its output fields (`List OutField`) -/
   outs : Term
   /-- the widths of its argument ports (`List Nat`) -/
@@ -420,9 +455,33 @@ def binders (c : Ctx) : CommandElabM (Array (TSyntax ``Lean.Parser.Term.brackete
 def hyps (c : Ctx) : Array Term :=
   ((List.range c.s.leaves.length).map fun j => (⟨(hR j).raw⟩ : Term)).toArray
 
+/-- The table key of entry `k`: `calleeAt`, in tag mode `keyAt` (the callee
+and the memory key of its origin). -/
+def keyFn (c : Ctx) : Ident :=
+  if c.s.tagMode then mkIdent ``Tools.ShippingMemCloses.keyAt
+  else mkIdent ``Tools.ShippingMemKid.calleeAt
+
+/-- `keyFn d k = …` at an entry. -/
+def keyEq (c : Ctx) : Ident :=
+  if c.s.tagMode then mkIdent ``Tools.ShippingMemCloses.keyAt_eq
+  else mkIdent ``Tools.ShippingMemKid.calleeAt_eq
+
 /-- The table `tbl` at the callee of entry `k`, as a function of `k`. -/
 def tblFn (c : Ctx) (tbl : String) : CommandElabM Term :=
-  `((fun k => $(c.lem tbl) (Tools.ShippingMemKid.calleeAt $(c.data) k)))
+  `((fun k => $(c.lem tbl) ($(c.keyFn) $(c.data) k)))
+
+/-- A key as the tables take it. -/
+def keyT (c : Ctx) (k : Key) : CommandElabM Term :=
+  if c.s.tagMode then `(((($(k.key) : Lean.Name), $(k.mkey)) : Lean.Name × Option (Bool × Nat × Nat)))
+  else pure k.key
+
+/-- The type of the tables' keys. -/
+def keyTy (c : Ctx) : CommandElabM Term :=
+  if c.s.tagMode then `(Lean.Name × Option (Bool × Nat × Nat)) else `(Lean.Name)
+
+/-- The rewriting rules of an entry hypothesis `h` (tag mode: a conjunction). -/
+def hRules (c : Ctx) (h : Term) : CommandElabM (Array Term) := do
+  if c.s.tagMode then pure #[← `(($h).1), ← `(($h).2)] else pure #[h]
 
 end Ctx
 
@@ -434,6 +493,7 @@ def mkKeys (s : Scope) : CommandElabM (Array Key) := do
     let D := nm k "machineData"
     keys := keys.push
       { leaf := true, idx := i, decl := k, key := kq
+        mkey := ← `((Option.none : Option (Bool × Nat × Nat)))
         outs := ← `((($D).shape.layout.outs))
         ins := ← `((Tools.ShippingPortWidthsPure.declWidths $D))
         name := ← `(((Sparkle.IR.ModuleName.ofDecl ($kq : Lean.Name))))
@@ -452,6 +512,7 @@ def mkKeys (s : Scope) : CommandElabM (Array Key) := do
     let M ← `((Sparkle.Compiler.MachMemory.memModule $cbT $awL $dwL))
     keys := keys.push
       { leaf := false, idx := j, decl := p, key := pT
+        mkey := ← `((Option.some ($cbT, $awL, $dwL) : Option (Bool × Nat × Nat)))
         outs := ← `((Tools.ShippingMemKid.memOuts $dwL))
         ins := ← `((Tools.ShippingMemKid.memIns $awL $dwL))
         name := ← `((($M).1.name))
@@ -513,16 +574,16 @@ def decided (c : Ctx) (s : String) (stmt : Term) : CommandElabM Unit :=
 
 /-- The proof of `(if kᵢ = k₀ then v₀ else if kᵢ = k₁ then v₁ else … else vₙ₋₁) = vᵢ`:
 `i` steps `if_neg`, then `if_pos` (none for the last key: it is the `else`). -/
-def atProof (keys : Array Key) (i : Nat) : CommandElabM Term := do
+def atProof (keys : Array Term) (ty : Term) (i : Nat) : CommandElabM Term := do
   let n := keys.size
-  let ki := keys[i]!.key
+  let ki := keys[i]!
   let mut acc? : Option Term := Option.none
   if i + 1 < n then
-    acc? := Option.some (← `(if_pos (show (($ki : Lean.Name)) = ($ki) from rfl)))
+    acc? := Option.some (← `(if_pos (show (($ki : $ty)) = ($ki) from rfl)))
   for j' in [0:i] do
     let j := i - 1 - j'
-    let kj := keys[j]!.key
-    let neg ← `(if_neg (show ¬ ((($ki : Lean.Name)) = ($kj)) from by
+    let kj := keys[j]!
+    let neg ← `(if_neg (show ¬ ((($ki : $ty)) = ($kj)) from by
       first | decide | decide +kernel))
     match acc? with
     | Option.some r => acc? := Option.some (← `(Eq.trans ($neg) ($r)))
@@ -536,23 +597,26 @@ def tableTheorems (c : Ctx) : CommandElabM Unit := do
   let n := c.keys.size
   unless n ≥ 2 do throwError "{c.f}: {n} distinct callee(s), expected a leaf callee and a placeholder"
   let cv := mkIdent `cv
+  let keysT ← c.keys.mapM c.keyT
+  let kTy ← c.keyTy
   for (tbl, ty, nc, sel) in ← tables do
     let mut body : Term := sel c.keys[n - 1]!
     for j' in [0:n - 1] do
       let j := n - 2 - j'
       let kj := c.keys[j]!
-      body ← `(if $cv = ($(kj.key)) then $(sel kj) else $body)
+      body ← `(if $cv = ($(keysT[j]!)) then $(sel kj) else $body)
     let bodyF : Term := body
     emitDef c (c.lemName tbl) fun tn =>
-      if nc then `(command| noncomputable def $tn ($cv : Lean.Name) : $ty := $bodyF)
-      else `(command| def $tn ($cv : Lean.Name) : $ty := $bodyF)
+      if nc then `(command| noncomputable def $tn ($cv : $kTy) : $ty := $bodyF)
+      else `(command| def $tn ($cv : $kTy) : $ty := $bodyF)
     for i in [0:n] do
       let ki := c.keys[i]!
-      let pf ← atProof c.keys i
+      let kiT := keysT[i]!
+      let pf ← atProof keysT kTy i
       let plain := mkIdent (c.lemName tbl)
       emitThm c (c.lemName s!"{tbl}_at{i}") fun tn => `(command|
         set_option maxHeartbeats 4000000 in
-        theorem $tn : $(c.lem tbl) ($(ki.key)) = $(sel ki) := by
+        theorem $tn : $(c.lem tbl) ($kiT) = $(sel ki) := by
           first
             | unfold $(c.lem tbl)
             | unfold $plain
@@ -571,7 +635,10 @@ def dataTheorems (c : Ctx) : CommandElabM Unit := do
   -- every call entry's callee is one of the keys
   let mut disj? : Option Term := Option.none
   for key in c.keys.toList.reverse do
-    let a ← `((($d).shape.insts[k]).1 = $(key.key))
+    let a ← if c.s.tagMode then
+        `(((($d).shape.insts[k]).1 = $(key.key) ∧
+          Tools.ShippingMemCloses.memKey (Tools.ShippingInstTagged.originAt ($d).shape k) = $(key.mkey)))
+      else `((($d).shape.insts[k]).1 = $(key.key))
     match disj? with
     | Option.none => disj? := Option.some a
     | Option.some r => disj? := Option.some (← `($a ∨ $r))
@@ -601,27 +668,49 @@ def dataTheorems (c : Ctx) : CommandElabM Unit := do
   for (key, i) in c.keys.toList.zipIdx do
     let atO : Term := ⟨(c.lem s!"outsOf_at{i}").raw⟩
     let atI : Term := ⟨(c.lem s!"insOf_at{i}").raw⟩
-    let fact ← if key.leaf then
+    let fact ← if c.s.tagMode then
+        (if key.leaf then
+          `(Tools.ShippingMemKid.kidFactsT_of
+            (Tools.ShippingLeafKidFacts.leafKid_facts
+              ($(nm key.decl "machine_leafKid") $(Ctx.hR key.idx)) 0)
+            (Tools.ShippingMemCloses.child?_none_of_memKey ($hT).2))
+        else
+          `(Tools.ShippingMemKid.memKidT_facts (Tools.ShippingMemCloses.child?_of_memKey ($hT).2)))
+      else if key.leaf then
         `(Tools.ShippingMemKid.kidFacts_toM
           (Tools.ShippingLeafKidFacts.leafKid_facts
             ($(nm key.decl "machine_leafKid") $(Ctx.hR key.idx)) 0)
           $(key.isMem))
       else
         `(Tools.ShippingMemKid.memKid_facts $(key.isMem))
-    branches := branches ++ [← rwExact #[hT, atO, atI] fact]
+    branches := branches ++ [← rwExact ((← c.hRules hT) ++ #[atO, atI]) fact]
   let kidsPf ← orElim h (← `($(c.lem "entry") k hk)) branches
   let bs ← c.binders
-  emitThm c (c.lemName "kids") fun tn => `(command|
-    set_option maxHeartbeats 4000000 in
-    theorem $tn {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State}
-        {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State} $bs* :
-        ∀ (k : Nat) (hk : k < ($d).shape.insts.length),
-          Tools.ShippingMemKid.KidFactsM mref cref (($d).shape.insts[k]).1
-            ($(c.lem "outsOf") (Tools.ShippingMemKid.calleeAt $d k))
-            ($(c.lem "insOf") (Tools.ShippingMemKid.calleeAt $d k)) 0 := by
-      intro k hk
-      rw [Tools.ShippingMemKid.calleeAt_eq $d hk]
-      exact $kidsPf)
+  if c.s.tagMode then
+    emitThm c (c.lemName "kids") fun tn => `(command|
+      set_option maxHeartbeats 4000000 in
+      theorem $tn {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State}
+          {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State} $bs* :
+          ∀ (k : Nat) (hk : k < ($d).shape.insts.length),
+            Tools.ShippingMemKid.KidFactsT mref cref
+              (Tools.ShippingInstTagged.originAt ($d).shape k) (($d).shape.insts[k]).1
+              ($(c.lem "outsOf") ($(c.keyFn) $d k))
+              ($(c.lem "insOf") ($(c.keyFn) $d k)) 0 := by
+        intro k hk
+        rw [$(c.keyEq) $d hk]
+        exact $kidsPf)
+  else
+    emitThm c (c.lemName "kids") fun tn => `(command|
+      set_option maxHeartbeats 4000000 in
+      theorem $tn {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State}
+          {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State} $bs* :
+          ∀ (k : Nat) (hk : k < ($d).shape.insts.length),
+            Tools.ShippingMemKid.KidFactsM mref cref (($d).shape.insts[k]).1
+              ($(c.lem "outsOf") ($(c.keyFn) $d k))
+              ($(c.lem "insOf") ($(c.keyFn) $d k)) 0 := by
+        intro k hk
+        rw [$(c.keyEq) $d hk]
+        exact $kidsPf)
 
 /-- One of the four run theorems of `f`: binders `hcore hpost entry closes`,
 then `hg` (if `gate`), then `hB`, then the leaf callees' reflections. -/
@@ -667,7 +756,11 @@ def runTheorems (c : Ctx) : CommandElabM Unit := do
     else `((Tools.ShippingReaderOutsInv.outScalar_of_core hcore entry))
   runTheorem c "runFacts" false
     (← `(Tools.ShippingGuardsSound.RunFacts (Tools.ShippingMachineLinked.childMap D.modules) b))
-    (← `(Tools.ShippingMemKid.kidsM_runFacts (nDecl := $nD)
+    (← if c.s.tagMode then `(Tools.ShippingMemKid.kidsM_runFactsT (nDecl := $nD) $d $ok $body
+      $(c.lem "calls") $(c.lem "slots") $(c.lem "domB") $ne $ne $ne $outTyT
+      $outsF $insF 0 ($(c.lem "kids") $hs*) $(c.lem "callWidths")
+      hB hcore hpost entry closes)
+      else `(Tools.ShippingMemKid.kidsM_runFacts (nDecl := $nD)
       (hagree := by first | decide | decide +kernel) $d $ok $body
       $(c.lem "calls") $(c.lem "slots") $(c.lem "domB") $ne $ne $ne $outTyT
       $outsF $insF 0 ($(c.lem "kids") $hs*) $(c.lem "callWidths")
@@ -675,7 +768,11 @@ def runTheorems (c : Ctx) : CommandElabM Unit := do
   runTheorem c "outsG0" true
     (← `(Tools.ShippingDesignSVBack.outsCheck (Tools.ShippingMachineLinked.childMap D.modules) 0
       (Sparkle.IR.OptCheck.checkedOptimize b) = true))
-    (← `(Tools.ShippingMemKid.kidsM_outsCheck (nDecl := $nD)
+    (← if c.s.tagMode then `(Tools.ShippingMemKid.kidsM_outsCheckT (nDecl := $nD) $d $ok $body
+      $(c.lem "calls") $(c.lem "slots") $(c.lem "domB") $ne $ne $outTyT
+      $outsF $insF 0 ($(c.lem "kids") $hs*)
+      hB hcore hpost entry closes hg)
+      else `(Tools.ShippingMemKid.kidsM_outsCheck (nDecl := $nD)
       (hagree := by first | decide | decide +kernel) $d $ok $body
       $(c.lem "calls") $(c.lem "slots") $(c.lem "domB") $ne $ne $outTyT
       $outsF $insF 0 ($(c.lem "kids") $hs*)
@@ -683,7 +780,11 @@ def runTheorems (c : Ctx) : CommandElabM Unit := do
   runTheorem c "mixedG" false
     (← `(Tools.ShippingMachineShipsHier.kidsMixed (Tools.ShippingMachineLinked.childMap D.modules)
       b.body = true))
-    (← `(Tools.ShippingMemKid.kidsM_mixed (nDecl := $nD)
+    (← if c.s.tagMode then `(Tools.ShippingMemKid.kidsM_mixedT (nDecl := $nD) $d $ok $body
+      $(c.lem "calls") $(c.lem "slots") $(c.lem "domB") $ne $ne $outTyT
+      $outsF $insF 0 ($(c.lem "kids") $hs*)
+      hB hcore hpost entry closes)
+      else `(Tools.ShippingMemKid.kidsM_mixed (nDecl := $nD)
       (hagree := by first | decide | decide +kernel) $d $ok $body
       $(c.lem "calls") $(c.lem "slots") $(c.lem "domB") $ne $ne $outTyT
       $outsF $insF 0 ($(c.lem "kids") $hs*)
@@ -691,7 +792,13 @@ def runTheorems (c : Ctx) : CommandElabM Unit := do
   runTheorem c "designP0" false
     (← `(Tools.ShippingDesignSV.designCheck (Tools.ShippingMachineLinked.childMap D.modules) 0
       (Sparkle.IR.OptCheck.checkedOptimize b) = true))
-    (← `(Tools.ShippingMemKid.kidsM_designCheck (nDecl := $nD)
+    (← if c.s.tagMode then `(Tools.ShippingMemKid.kidsM_designCheckT (nDecl := $nD) $d $ok $body
+      $(c.lem "calls") $(c.lem "slots") $(c.lem "domB") $ne $ne $ne $outTyT
+      $outsF $insF 0 ($(c.lem "kids") $hs*) $(c.lem "callWidths") $(c.lem "callArgs")
+      hB hcore hpost entry closes
+      (fun o ho => Tools.ShippingSVBridge.sanitizeName_of_clean ($(c.lem "outChars") o ho))
+      $outScalarT)
+      else `(Tools.ShippingMemKid.kidsM_designCheck (nDecl := $nD)
       (hagree := by first | decide | decide +kernel) $d $ok $body
       $(c.lem "calls") $(c.lem "slots") $(c.lem "domB") $ne $ne $ne $outTyT
       $outsF $insF 0 ($(c.lem "kids") $hs*) $(c.lem "callWidths") $(c.lem "callArgs")
@@ -743,10 +850,17 @@ def closingTheorems (c : Ctx) : CommandElabM Unit := do
   let namesOf := c.lem "namesOf"
   decided c "alias" (← `(($d).letsAliasOk = true))
   decided c "argsN" (← `(∀ (k : Nat) (hk : k < ($d).shape.insts.length),
-    $nkOf (Tools.ShippingMemKid.calleeAt $d k) = (($d).shape.insts[k]).2.1.length))
+    $nkOf ($(c.keyFn) $d k) = (($d).shape.insts[k]).2.1.length))
   decided c "fieldOut" (← `(∀ (k : Nat), k < ($d).shape.insts.length →
-    ($d).shape.instFields.getD k "" ∈ $outsNOf (Tools.ShippingMemKid.calleeAt $d k)))
-  decided c "fieldsNd" (← `(∀ (k : Nat) (hk : k < ($d).shape.insts.length) (k' : Nat)
+    ($d).shape.instFields.getD k "" ∈ $outsNOf ($(c.keyFn) $d k)))
+  decided c "fieldsNd" (← if c.s.tagMode then `(∀ (k : Nat) (hk : k < ($d).shape.insts.length) (k' : Nat)
+    (hk' : k' < ($d).shape.insts.length),
+    (($d).shape.insts[k]).1 = (($d).shape.insts[k']).1 →
+    Tools.ShippingMemCloses.memKey (Tools.ShippingInstTagged.originAt ($d).shape k) =
+      Tools.ShippingMemCloses.memKey (Tools.ShippingInstTagged.originAt ($d).shape k') →
+    (($d).shape.insts[k]).2.1 = (($d).shape.insts[k']).2.1 →
+    ($d).shape.instFields.getD k "" = ($d).shape.instFields.getD k' "" → k = k')
+    else `(∀ (k : Nat) (hk : k < ($d).shape.insts.length) (k' : Nat)
     (hk' : k' < ($d).shape.insts.length),
     (($d).shape.insts[k]).1 = (($d).shape.insts[k']).1 →
     (($d).shape.insts[k]).2.1 = (($d).shape.insts[k']).2.1 →
@@ -824,31 +938,49 @@ def closingTheorems (c : Ctx) : CommandElabM Unit := do
   -- every kid has the interface
   let mut brP : List Term := []
   for (key, i) in idxKeys do
-    let fin ← if key.leaf then
-        `($(c.lem s!"iface{key.idx}") $(Ctx.hR key.idx) (hy.real $(key.isMem)))
-      else
-        `(Tools.ShippingMemCloses.memKid_iface $(key.isMem) hy)
-    brP := brP ++ [← `((by
-      rw [$hT:term] at hy ⊢
-      rw [$(at_ "nameOf" i):term, $(at_ "nkOf" i):term, $(at_ "outsNOf" i):term,
-        $(at_ "namesOf" i):term]
-      exact $fin))]
+    if c.s.tagMode then
+      let fin ← if key.leaf then
+          `($(c.lem s!"iface{key.idx}") $(Ctx.hR key.idx)
+            (Tools.ShippingInstTagged.KidT.real hy
+              (Tools.ShippingMemCloses.child?_none_of_memKey ($hT).2)))
+        else
+          `(Tools.ShippingMemCloses.memKidT_iface
+            (Tools.ShippingMemCloses.child?_of_memKey ($hT).2) hy)
+      brP := brP ++ [← `((by
+        rw [($hT).1] at hy
+        rw [($hT).1, ($hT).2, $(at_ "nameOf" i):term, $(at_ "nkOf" i):term,
+          $(at_ "outsNOf" i):term, $(at_ "namesOf" i):term]
+        exact $fin))]
+    else
+      let fin ← if key.leaf then
+          `($(c.lem s!"iface{key.idx}") $(Ctx.hR key.idx) (hy.real $(key.isMem)))
+        else
+          `(Tools.ShippingMemCloses.memKid_iface $(key.isMem) hy)
+      brP := brP ++ [← `((by
+        rw [$hT:term] at hy ⊢
+        rw [$(at_ "nameOf" i):term, $(at_ "nkOf" i):term, $(at_ "outsNOf" i):term,
+          $(at_ "namesOf" i):term]
+        exact $fin))]
   let kidsPPf ← orElim h eK brP
   let bs ← c.binders
   let hs := c.hyps
+  let kidHyp ← if c.s.tagMode then
+      `(Tools.ShippingInstTagged.KidT mref cref (Tools.ShippingInstTagged.originAt ($d).shape k)
+        (($d).shape.insts[k]).1 y)
+    else `(Tools.ShippingMemKid.Kid mref cref (($d).shape.insts[k]).1 y)
   emitThm c (c.lemName "kidsP") fun tn => `(command|
     set_option maxHeartbeats 4000000 in
     theorem $tn {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State}
         {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State} $bs* :
         ∀ (k : Nat) (hk : k < ($d).shape.insts.length) (y : Tools.ShippingChildInv.Res),
-          Tools.ShippingMemKid.Kid mref cref (($d).shape.insts[k]).1 y →
+          $kidHyp →
           Tools.ShippingMemCloses.ChildIfaceP
-            ($nameOf (Tools.ShippingMemKid.calleeAt $d k))
-            ($nkOf (Tools.ShippingMemKid.calleeAt $d k))
-            ($outsNOf (Tools.ShippingMemKid.calleeAt $d k))
-            ($namesOf (Tools.ShippingMemKid.calleeAt $d k)) y.1 y.2 := by
+            ($nameOf ($(c.keyFn) $d k))
+            ($nkOf ($(c.keyFn) $d k))
+            ($outsNOf ($(c.keyFn) $d k))
+            ($namesOf ($(c.keyFn) $d k)) y.1 y.2 := by
       intro k hk y hy
-      rw [Tools.ShippingMemKid.calleeAt_eq $d hk]
+      rw [$(c.keyEq) $d hk]
       exact $kidsPPf)
   -- different callees have different module names
   let mut outerS : List Term := []
@@ -856,50 +988,58 @@ def closingTheorems (c : Ctx) : CommandElabM Unit := do
     let mut inner : List Term := []
     for (b, j) in idxKeys do
       if i == j then
-        inner := inner ++ [← `(($hT).trans ($hTp).symm)]
+        inner := inner ++ [← if c.s.tagMode then
+            `(⟨(($hT).1).trans (($hTp).1).symm, (($hT).2).trans (($hTp).2).symm⟩)
+          else `(($hT).trans ($hTp).symm)]
       else
         let ne ← neT c a b
+        let rules := (← c.hRules hT) ++ (← c.hRules hTp) ++ #[at_ "nameOf" i, at_ "nameOf" j]
         inner := inner ++ [← `((by
-          rw [$hT:term, $hTp:term, $(at_ "nameOf" i):term, $(at_ "nameOf" j):term] at he
+          rw [$[$rules:term],*] at he
           exact absurd he $ne))]
     outerS := outerS ++ [← orElim h' eK' inner]
   let sepPf ← orElim h eK outerS
+  let sepC ← if c.s.tagMode then
+      `((($d).shape.insts[k]).1 = (($d).shape.insts[k']).1 ∧
+        Tools.ShippingMemCloses.memKey (Tools.ShippingInstTagged.originAt ($d).shape k) =
+          Tools.ShippingMemCloses.memKey (Tools.ShippingInstTagged.originAt ($d).shape k'))
+    else `((($d).shape.insts[k]).1 = (($d).shape.insts[k']).1)
   emitThm c (c.lemName "sep") fun tn => `(command|
     set_option maxHeartbeats 4000000 in
     theorem $tn : ∀ (k : Nat) (hk : k < ($d).shape.insts.length) (k' : Nat)
         (hk' : k' < ($d).shape.insts.length),
-        $nameOf (Tools.ShippingMemKid.calleeAt $d k) =
-          $nameOf (Tools.ShippingMemKid.calleeAt $d k') →
-        (($d).shape.insts[k]).1 = (($d).shape.insts[k']).1 := by
+        $nameOf ($(c.keyFn) $d k) =
+          $nameOf ($(c.keyFn) $d k') →
+        $sepC := by
       intro k hk k' hk' he
-      rw [Tools.ShippingMemKid.calleeAt_eq $d hk,
-        Tools.ShippingMemKid.calleeAt_eq $d hk'] at he
+      rw [$(c.keyEq) $d hk,
+        $(c.keyEq) $d hk'] at he
       exact $sepPf)
   -- no child module is named as the parent
   let mut brPar : List Term := []
   for (a, i) in idxKeys do
-    brPar := brPar ++ [← rwExact #[hT, at_ "nameOf" i] (← neParentT c a)]
+    brPar := brPar ++ [← rwExact ((← c.hRules hT) ++ #[at_ "nameOf" i]) (← neParentT c a)]
   let parentPf ← orElim h eK brPar
   emitThm c (c.lemName "parent") fun tn => `(command|
     set_option maxHeartbeats 4000000 in
     theorem $tn : ∀ (k : Nat), k < ($d).shape.insts.length →
-        $nameOf (Tools.ShippingMemKid.calleeAt $d k) ≠ (Sparkle.IR.ModuleName.ofDecl ($fq : Lean.Name)) := by
+        $nameOf ($(c.keyFn) $d k) ≠ (Sparkle.IR.ModuleName.ofDecl ($fq : Lean.Name)) := by
       intro k hk
-      rw [Tools.ShippingMemKid.calleeAt_eq $d hk]
+      rw [$(c.keyEq) $d hk]
       exact $parentPf)
   -- the parent's name is not a module name of a child's design
   let mut brPD : List Term := []
   for (a, i) in idxKeys do
     let fin ← if a.leaf then `((fun hx => nomatch hx))
       else `(($(c.lem s!"notinP{a.idx}")))
-    brPD := brPD ++ [← rwExact #[hT, at_ "namesOf" i] fin]
+    brPD := brPD ++ [← rwExact ((← c.hRules hT) ++ #[at_ "namesOf" i]) fin]
   let parentDPf ← orElim h eK brPD
   emitThm c (c.lemName "parentD") fun tn => `(command|
     set_option maxHeartbeats 4000000 in
     theorem $tn : ∀ (k : Nat), k < ($d).shape.insts.length →
-        (Sparkle.IR.ModuleName.ofDecl ($fq : Lean.Name)) ∉ $namesOf (Tools.ShippingMemKid.calleeAt $d k) := by
+        (Sparkle.IR.ModuleName.ofDecl ($fq : Lean.Name)) ∉ $namesOf ($(c.keyFn) $d k) := by
       intro k hk
-      rw [Tools.ShippingMemKid.calleeAt_eq $d hk]
+      rw [$(c.keyEq) $d hk]
       exact $parentDPf)
   -- two different callees share no module name
   let mut outerD : List Term := []
@@ -907,7 +1047,9 @@ def closingTheorems (c : Ctx) : CommandElabM Unit := do
     let mut inner : List Term := []
     for (b, j) in idxKeys do
       if i == j then
-        inner := inner ++ [← `(absurd (($hT).trans ($hTp).symm) hne)]
+        inner := inner ++ [← if c.s.tagMode then
+            `(absurd ⟨(($hT).1).trans (($hTp).1).symm, (($hT).2).trans (($hTp).2).symm⟩ hne)
+          else `(absurd (($hT).trans ($hTp).symm) hne)]
       else
         let ne ← neT c a b
         let p1 ← if b.leaf then `((fun hx => nomatch hx))
@@ -916,43 +1058,66 @@ def closingTheorems (c : Ctx) : CommandElabM Unit := do
           else if b.leaf then `((fun x _ hx => nomatch hx))
           else `((fun x hx hx' =>
             $ne ((List.mem_singleton.mp hx).symm.trans (List.mem_singleton.mp hx'))))
+        let rulesD := (← c.hRules hT) ++ (← c.hRules hTp) ++
+          #[at_ "nameOf" i, at_ "namesOf" i, at_ "namesOf" j]
         inner := inner ++ [← `((by
-          rw [$hT:term, $hTp:term, $(at_ "nameOf" i):term, $(at_ "namesOf" i):term,
-            $(at_ "namesOf" j):term]
+          rw [$[$rulesD:term],*]
           exact ⟨$p1, $p2⟩))]
     outerD := outerD ++ [← orElim h' eK' inner]
   let disjPf ← orElim h eK outerD
+  let disjH ← if c.s.tagMode then
+      `(¬ ((($d).shape.insts[k]).1 = (($d).shape.insts[k']).1 ∧
+        Tools.ShippingMemCloses.memKey (Tools.ShippingInstTagged.originAt ($d).shape k) =
+          Tools.ShippingMemCloses.memKey (Tools.ShippingInstTagged.originAt ($d).shape k')))
+    else `((($d).shape.insts[k]).1 ≠ (($d).shape.insts[k']).1)
   emitThm c (c.lemName "disj") fun tn => `(command|
     set_option maxHeartbeats 4000000 in
     theorem $tn : ∀ (k : Nat) (hk : k < ($d).shape.insts.length) (k' : Nat)
         (hk' : k' < ($d).shape.insts.length),
-        (($d).shape.insts[k]).1 ≠ (($d).shape.insts[k']).1 →
-        $nameOf (Tools.ShippingMemKid.calleeAt $d k) ∉
-            $namesOf (Tools.ShippingMemKid.calleeAt $d k') ∧
-          ∀ x ∈ $namesOf (Tools.ShippingMemKid.calleeAt $d k),
-            x ∉ $namesOf (Tools.ShippingMemKid.calleeAt $d k') := by
+        $disjH →
+        $nameOf ($(c.keyFn) $d k) ∉
+            $namesOf ($(c.keyFn) $d k') ∧
+          ∀ x ∈ $namesOf ($(c.keyFn) $d k),
+            x ∉ $namesOf ($(c.keyFn) $d k') := by
       intro k hk k' hk' hne
-      rw [Tools.ShippingMemKid.calleeAt_eq $d hk, Tools.ShippingMemKid.calleeAt_eq $d hk']
+      rw [$(c.keyEq) $d hk, $(c.keyEq) $d hk']
       exact $disjPf)
   -- the closing (M2): from the reflections of the leaf callees only
-  emitThm c (c.lemName "closes") fun tn => `(command|
-    set_option maxHeartbeats 4000000 in
-    theorem $tn {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State}
-        {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State} $bs* :
-        Tools.ShippingChildInv.MachineClosesAt mctx mref cctx cref $fq ($d).shape :=
-      Tools.ShippingMemCloses.machineClosesAt_of_kidsDM (nDecl := $nD) $d
-        $(nm c.f "machine_ok") $(nm c.f "machine_body")
-        $(c.lem "alias") $(c.lem "calls") $(c.lem "slots") $(c.lem "domB")
-        (fun h0 => absurd (congrArg List.length h0) (by decide))
-        $nameF $nkF $outsNF $namesF
-        ($(c.lem "kidsP") $hs*) $(c.lem "argsN") $(c.lem "fieldOut") $(c.lem "fieldsNd")
-        $(c.lem "sep") $(c.lem "parent")
-        (fun gi _ _ o ho =>
-          Tools.ShippingCallsGate.instName_ne_of_head ($(c.lem "outHead") o ho) gi _)
-        $(c.lem "parentD") $(c.lem "disj")
-        -- origin dispatch (patched compiler): names say what their origins build
-        (show Tools.ShippingInstTagged.TagsAgree ($d).shape by
-          first | decide | decide +kernel))
+  if c.s.tagMode then
+    emitThm c (c.lemName "closes") fun tn => `(command|
+      set_option maxHeartbeats 4000000 in
+      theorem $tn {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State}
+          {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State} $bs* :
+          Tools.ShippingChildInv.MachineClosesAt mctx mref cctx cref $fq ($d).shape :=
+        Tools.ShippingMemCloses.machineClosesAt_of_kidsDMT (nDecl := $nD) $d
+          $(nm c.f "machine_ok") $(nm c.f "machine_body")
+          $(c.lem "alias") $(c.lem "calls") $(c.lem "slots") $(c.lem "domB")
+          (fun h0 => absurd (congrArg List.length h0) (by decide))
+          $nameF $nkF $outsNF $namesF
+          ($(c.lem "kidsP") $hs*) $(c.lem "argsN") $(c.lem "fieldOut") $(c.lem "fieldsNd")
+          $(c.lem "sep") $(c.lem "parent")
+          (fun gi _ _ o ho =>
+            Tools.ShippingCallsGate.instName_ne_of_head ($(c.lem "outHead") o ho) gi _)
+          $(c.lem "parentD") $(c.lem "disj"))
+  else
+    emitThm c (c.lemName "closes") fun tn => `(command|
+      set_option maxHeartbeats 4000000 in
+      theorem $tn {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State}
+          {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State} $bs* :
+          Tools.ShippingChildInv.MachineClosesAt mctx mref cctx cref $fq ($d).shape :=
+        Tools.ShippingMemCloses.machineClosesAt_of_kidsDM (nDecl := $nD) $d
+          $(nm c.f "machine_ok") $(nm c.f "machine_body")
+          $(c.lem "alias") $(c.lem "calls") $(c.lem "slots") $(c.lem "domB")
+          (fun h0 => absurd (congrArg List.length h0) (by decide))
+          $nameF $nkF $outsNF $namesF
+          ($(c.lem "kidsP") $hs*) $(c.lem "argsN") $(c.lem "fieldOut") $(c.lem "fieldsNd")
+          $(c.lem "sep") $(c.lem "parent")
+          (fun gi _ _ o ho =>
+            Tools.ShippingCallsGate.instName_ne_of_head ($(c.lem "outHead") o ho) gi _)
+          $(c.lem "parentD") $(c.lem "disj")
+          -- origin dispatch (patched compiler): names say what their origins build
+          (show Tools.ShippingInstTagged.TagsAgree ($d).shape by
+            first | decide | decide +kernel))
 
 /-! ## The endpoint (the hand generator, restated) -/
 
