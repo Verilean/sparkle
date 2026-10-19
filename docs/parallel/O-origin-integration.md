@@ -419,9 +419,7 @@ overwrites every input port; `applyNexts` carries the rest. So the start state's
 | bo4 | the same, fixed (`simpa using List.find?_some hf`, `(List.mem_filter.mp hp).1`) | 0 | peak 0.94 GB |
 | bo5 | `#print axioms` of the 8 new theorems | 0 | `propext, Classical.choice, Quot.sound` (`boundOffI_of_boundOff`: none) |
 
-OPEN (not counted as resolved): the two name facts of `b` are not yet exported by the machine route's run facts
-(they hold on the compile: bo7). When derived from the run, the added hypothesis disappears from the conclusion
-(it follows from `Bounded (weS o) st0`). Until then no statement is switched to `noPortsTI`.
+The two name facts of `b` were OPEN at 6c4f8554 and are DERIVED from the run at 3a758f9a (below).
 
 **Joint satisfiability (shadow, bo7).** All slot inits are 0, so `st0 := fun _ => 0` with `ins := fun _ _ => 0`
 satisfies every start-state and input bound of the conclusion: `BoundOff` (both forms), `Bounded`, register,
@@ -441,3 +439,62 @@ exit 0 (663 jobs), peak 0.37 GB.
 
 The six `userAbbrev? = none` premises (`ReadConstsPlain`), `passF ≈ passM` and structural `replace` vs the cached
 extern remain OPEN. No trusted law and no production guard was added.
+
+### (1, closed) The name facts from the run; head without the added hypothesis
+
+* `Tools/ShippingNoPortsTypedB.lean` (5bed0c3c; bo8, bo10 exit 0): `machine_design_noPortsTB`. The conclusion's
+  run hypotheses are exactly those of the untyped head; the asserting check confirms no `BoundOff` in the statement.
+  In its place is one run hypothesis `hNames` (`b`'s wire names distinct, all names sanitize-stable).
+* `Tools/ShippingWireNamesRun.lean` (worker, built as written: wn1 exit 0): `wireNames_runMT` discharges
+  `hNames` from the core run with exactly `core_closed_typedInMT`'s premises:
+  - wires and outputs from `TypedIn.wn` / `.ostable`;
+  - inputs `Allocated` / `clk` / `rst` from the machine run's `wired`;
+  - distinct wire names from `closeMachine_typed` through `mergeChecked_ports` and the `dropZeroWidth` filter.
+  `boundOffI_runMT` is the corollary.
+* `Tools/ShippingGateTypedCommand.lean` (worker; tg1 exit 0): the generator (`generateTop`,
+  `#gate_design_typed`). It is `addTyped` with every constant a parameter and the same refusals, plus `names?`
+  for the TB head, which also refuses `BoundOff`.
+* `Tests/Compiler/MemNameCollisionGateTypedAllTest.lean` (worker; tg2 exit 0):
+  - `collMixDiff`, `collMixArgs`, `collWidth` `_designClosedT`, via MetaM and the command;
+  - an asserting shadow per parent: `kidsMixedC` true (top, merged), `combOk` true on the colliding child, old
+    `kidsMixed` false.
+  - Differences from collMixSame:
+    - collMixDiff/collWidth memory `.mem true 4 8` named `comboName`;
+    - collWidth's gate child is `fakeN` (4-bit result: `outsFN`/`insFN`, `fakeN_width`, `comboGate_value`);
+    - collMixArgs has different argument lets;
+    - `_entry` restated as `origin = .mem cb 4 8 ∨ (origin = .ord ∧ name = cName)`, because collMixDiff's memory
+      entry is not named `syncName`.
+* `Tests/Compiler/MemNameCollisionGateBoundTest.lean` (gb1 exit 0, 659 jobs): `<p>_names` and
+  `<p>_designClosedB` for all four parents.
+
+| statement (each of the four parents) | outer Prop binders | under `∃ raw D` | conclusion's run hypotheses |
+|---|---|---|---|
+| `<p>_designClosedT` | the run, `MachineDefines <p>`, `EntryDefines c v` | `ChildBnd` | untyped head's + `BoundOff (declWidth b) outputs st0` |
+| `<p>_designClosedB` | the run, `MachineDefines <p>`, `EntryDefines c v` | `ChildBnd` | untyped head's (no addition) |
+
+The reflection `EntryDefines c v` (one occurrence) is `syncName fakeSrc.gateValue` for collMixSame, collMixDiff and
+collMixArgs, and `comboName fakeN.gateValue` for collWidth.
+
+Audited per parent (asserting, gb1/tg2):
+- standard axioms;
+- no checker, `kidsMixed(C)`, `combOk`, `TypedRun`, `MachineClosesAt`, `TagsAgree` or `BoundOff` in `_designClosedB`;
+- 3 Prop binders, 1 inner antecedent, 1 `EntryDefines`.
+
+Non-vacuity:
+- **Shadow.** On the compile the children bound holds (`kidsMixedC`, `combOk`) and the name facts hold (bo7).
+- **Joint satisfiability of the start state.** The zero start state with zero inputs satisfies every start-state
+  and input bound (slot inits 0, bo7). Not covered: the children's reset state and the source-stream hypothesis.
+- **The outer premises.** They are the run and the two reflections: hypotheses about the actual elaboration, not
+  derived.
+
+| run | target | exit | notes |
+|---|---|---|---|
+| tg1 | `Tools.ShippingGateTypedCommand` | 0 | peak 0.89 GB |
+| tg2 | `Tests.Compiler.MemNameCollisionGateTypedAllTest` | 0 | 655 jobs |
+| wn1 | `Tools.ShippingWireNamesRun` | 0 | |
+| gb1 | `Tests.Compiler.MemNameCollisionGateBoundTest` (+ generator `names?`) | 0 | 659 jobs |
+| all3 | `Tests.AllTests` (TypedAllTest, BoundTest registered) | 0 | 1420 jobs, peak 0.47 GB |
+| tor3 | target-only roots | 0 | 623 jobs |
+
+Final SHA of the round: 3a758f9a (+ this record). Corpus not run. No CI (local, not pushed). The inliner
+candidate is unchanged and its open items stay open.
