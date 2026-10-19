@@ -1,5 +1,7 @@
 import Tools.ShippingCallsKidsD
 import Tools.ShippingNameDischarge
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # The closing theorems with their name hypotheses stated about DECLARATIONS (round par/b-29)
 
@@ -85,7 +87,7 @@ theorem machineClosesAt_of_seqKidsN {declName : Name} (d : MachineData) (ok : d.
     (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
     (hfne : d.shape.instFields ≠ [])
     (nk : Nat → Nat) (outsK : Nat → List String)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnotag : ∀ o ∈ d.shape.instTagged, o.2.child?.isNone = true)
     (hkid : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y →
       ChildIfaceG (d.shape.insts[k]).1 (nk k) (outsK k) y.1 y.2)
@@ -102,7 +104,7 @@ theorem machineClosesAt_of_seqKidsN {declName : Name} (d : MachineData) (ok : d.
       o.name ≠ s!"inst{gi}_{(Sparkle.IR.ModuleName.ofDecl c.1)}") :
     MachineClosesAt mctx mref cctx cref declName d.shape :=
   machineClosesAt_of_seqKids (nDecl := nDecl) d ok hbody halias hC hslots hdomB hfne nk outsK
-    hnomem hkid hargsN hfieldOut hfieldsNd
+    hnotag hkid hargsN hfieldOut hfieldsNd
     (names_inj _) (parent_ne _ _ hparentN) hfresh
 
 /-- **`machineClosesAt_of_kidsD` with the descendants as declarations**:
@@ -117,7 +119,7 @@ theorem machineClosesAt_of_kidsDN {declName : Name} (d : MachineData) (ok : d.ok
     (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
     (hfne : d.shape.instFields ≠ [])
     (nk : Nat → Nat) (outsK : Nat → List String) (declsK : Nat → List Name)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnotag : ∀ o ∈ d.shape.instTagged, o.2.child?.isNone = true)
     (hkid : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y →
       ChildIfaceD (d.shape.insts[k]).1 (nk k) (outsK k)
@@ -145,7 +147,7 @@ theorem machineClosesAt_of_kidsDN {declName : Name} (d : MachineData) (ok : d.ok
     MachineClosesAt mctx mref cctx cref declName d.shape :=
   machineClosesAt_of_kidsD (nDecl := nDecl) d ok hbody halias hC hslots hdomB hfne nk outsK
     (fun k => (declsK k).map fun n => Sparkle.IR.ModuleName.ofDecl n)
-    hnomem hkid hargsN hfieldOut hfieldsNd
+    hnotag hkid hargsN hfieldOut hfieldsNd
     (names_inj _) (parent_ne _ _ hparentN) hfresh
     (parentD_of _ declName declsK hparentDN)
     (selfD_of d.shape.insts declsK hselfDN)

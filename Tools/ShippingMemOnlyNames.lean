@@ -1,5 +1,7 @@
 import Tools.ShippingMemOnlyCloses
 import Tools.ShippingNameDischarge
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # The closing of a MEMORY-ONLY parent without name hypotheses (round par/b-29)
 
@@ -166,10 +168,11 @@ theorem machineClosesAt_memOnly_names {declName : Name} (d : MachineData) (ok : 
     (hargsNd : ∀ (k : Nat) (hk : k < d.shape.insts.length) (k' : Nat)
       (hk' : k' < d.shape.insts.length), (d.shape.insts[k]).1 = (d.shape.insts[k']).1 →
       (d.shape.insts[k]).2.1 = (d.shape.insts[k']).2.1 → k = k')
-    (hout : ∀ o ∈ d.shape.layout.outs, o.name.toList.head? ≠ some 'i') :
+    (hout : ∀ o ∈ d.shape.layout.outs, o.name.toList.head? ≠ some 'i')
+    (hagree : Tools.ShippingInstTagged.TagsAgree d.shape) :
     MachineClosesAt mctx mref cctx cref declName d.shape :=
   machineClosesAt_memOnly d ok hbody halias hC hslots hdomB hfne hmem hargsN hfield hargsNd
-    (memOnly_sep d hmem) (memOnly_parent declName d hmem) hout
+    (memOnly_sep d hmem) (memOnly_parent declName d hmem) hout hagree
 
 /-- `hmem` in the general theorem's form, from the built `MemOnlyData` (one
 pair of widths for all entries). -/

@@ -1,5 +1,7 @@
 import Tools.ShippingMachineMemLinked
 import Tools.ShippingMachineSeqInst
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # A machine with memory and sequential calls, composed with its children
 
@@ -31,7 +33,8 @@ def MemFacts {D : DomainConfig} (shape : Sparkle.Compiler.Elab.MachineShape)
     (kD : Nat) (ext : (j : Nat) → (n : Nat) → Signal D (BitVec n)) (k : Nat) (c : Name) : Prop :=
   ∃ (cb : Bool) (aw dw : Nat) (A : Signal D (BitVec aw)) (Dd : Signal D (BitVec dw))
     (E : Signal D Bool) (R : Signal D (BitVec aw)) (l0 l1 l2 l3 : Nat),
-    Sparkle.Compiler.MachMemory.memChild? c =
+    -- origin dispatch (patched compiler): the entry's ORIGIN builds the memory
+    (shape.instOrigins.getD k .ord).child? =
       some (Sparkle.Compiler.MachMemory.memModule cb aw dw) ∧
     (shape.insts.map (·.2.1))[k]? = some [l0, l1, l2, l3] ∧
     lsrc[l0]? = some (fun j => (A.val j).toNat) ∧ l0 < nL ∧
@@ -105,7 +108,7 @@ theorem calls_hchild {D : DomainConfig} (shape : Sparkle.Compiler.Elab.MachineSh
       (∀ e ∈ outs, (shape.insts.map (·.2.1))[e.1]? = some args ∧
         shape.instFields.getD e.1 "" = e.2 ∧
         ∀ c md, (shape.insts.map (·.1))[e.1]? = some c →
-          Sparkle.Compiler.MachMemory.memChild? c = some md → mc = md.1) →
+          (shape.instOrigins.getD e.1 .ord).child? = some md → mc = md.1) →
       ∀ Pw : Nat → Env,
         (∀ t, Pw t "rst" = 0) → (∀ t, Pw t "clk" = 0) →
         (∀ t, t < T → ∀ (q : Nat) (hq : q < args.length) (w : String) (g : Nat → Nat),

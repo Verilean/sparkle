@@ -1,6 +1,8 @@
 import Tools.ShippingMachineCallsLinkedTN
 import Tools.ShippingMachineCallsLinkedTR
 import Tools.ShippingMachineDepthRun
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # Sequential children at any depth, the instance binding derived -/
 namespace Tools.ShippingMachineCallsLinkedTNR
@@ -71,7 +73,7 @@ theorem calls_hchildRN (children : String → Option (Module × WEnv)) (n : Nat)
       (∀ e ∈ outs, (shape.insts.map (·.2.1))[e.1]? = some args ∧
         shape.instFields.getD e.1 "" = e.2 ∧
         ∀ c md, (shape.insts.map (·.1))[e.1]? = some c →
-          Sparkle.Compiler.MachMemory.memChild? c = some md → mc = md.1) →
+          (shape.instOrigins.getD e.1 .ord).child? = some md → mc = md.1) →
       ∀ Pw : Nat → Env,
         (∀ t, Pw t "rst" = 0) → (∀ t, Pw t "clk" = 0) →
         (∀ t, t < T → ∀ (q : Nat) (hq : q < args.length) (w : String) (g : Nat → Nat),

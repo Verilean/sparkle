@@ -6,6 +6,8 @@ import Tools.ShippingCallsGate
 import Tools.ShippingGateChild
 import Tools.ShippingReflectCtx
 import Tools.ShippingMachineCommand
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # `#entry_ok f`: `EntryOk` of one declaration, as a generated theorem
 
@@ -350,6 +352,13 @@ def genParent (f : Name) (callees : List Name) (nDecl : Nat) : CommandElabM Unit
       theorem $(sub f "entry_callees") :
           ∀ $x, $x ∈ ($md).shape.insts → $calleesProp := by
         first | decide | decide +kernel))
+  -- origin dispatch (patched compiler): the general closing maps the TAGGED
+  -- entries (`shape.instTagged`), so `hinsG` is over them
+  unless (← getEnv).contains (f ++ `entry_calleesT) do
+    runGenerated s!"{f}.entry_calleesT" (← `(command|
+      theorem $(sub f "entry_calleesT") :
+          ∀ $x, $x ∈ ($md).shape.instTagged → $calleesProp := by
+        first | decide | decide +kernel))
   -- the callees' `EntryOk` at the parent's key set, one branch per descendant
   let mut branches : List (Term → CommandElabM Term) := []
   for d in ds do
@@ -395,7 +404,7 @@ def genParent (f : Name) (callees : List Name) (nDecl : Nat) : CommandElabM Unit
         (by first | decide | decide +kernel) (by first | decide | decide +kernel)
         (by first | decide | decide +kernel) b)
       (fun _ x hx => $(sub f "entry_callees") x hx)
-      (fun x hx _ => $(sub f "entry_callees") x hx)
+      (fun x hx _ => $(sub f "entry_calleesT") x hx)
       (fun _ $hc' => $hRterm)
       (by
         show ¬ ($notSelf)

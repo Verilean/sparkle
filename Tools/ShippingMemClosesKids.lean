@@ -64,7 +64,17 @@ closing of `Tools/ShippingCallsKidsS.lean` is not generalised to memory
 entries — its `hcross` would come from `closeInstsG_of_kidsP`'s hypothesis of
 the same name).
 
-WRITTEN, NOT BUILT (par/a-18). -/
+WRITTEN, NOT BUILT (par/a-18).
+
+ORIGIN DISPATCH (patched compiler): `machineClosesAt_of_kidsDM` now also asks
+`hagree : TagsAgree d.shape` (every entry's name decodes to what its ORIGIN
+builds; decided per declaration, false exactly for a collision shape) and uses
+`closeInstsGM_run_allM_named`; `machineClosesAt_of_kidsD_fromM` derives it
+from `hnomem` and the tag condition `hnotag` (`tagsAgree_of_nomem_notag`).
+OPEN: a collision shape (a memory entry beside a call of a declaration named
+as its placeholder) needs `closeInstsG_of_kidsP` keyed on (name, origin
+class) instead of the name. WRITTEN, NOT BUILT against patched compiler
+(par/o-close). -/
 namespace Tools.ShippingMemCloses
 open Lean Meta
 open Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Machine
@@ -449,7 +459,8 @@ theorem machineClosesAt_of_kidsDM {declName : Name} (d : MachineData) (ok : d.ok
     (hparentD : ∀ (k : Nat), k < d.shape.insts.length → (Sparkle.IR.ModuleName.ofDecl declName) ∉ namesK k)
     (hdisjD : ∀ (k : Nat) (hk : k < d.shape.insts.length) (k' : Nat)
       (hk' : k' < d.shape.insts.length), (d.shape.insts[k]).1 ≠ (d.shape.insts[k']).1 →
-      nameK k ∉ namesK k' ∧ ∀ x ∈ namesK k, x ∉ namesK k') :
+      nameK k ∉ namesK k' ∧ ∀ x ∈ namesK k, x ∉ namesK k')
+    (hagree : Tools.ShippingInstTagged.TagsAgree d.shape) :
     MachineClosesAt mctx mref cctx cref declName d.shape := by
   have hl : Tools.ShippingClosesSplit.LetsClose mctx mref cctx cref declName d.shape :=
     letsClose_of_data d ok hbody halias mctx mref cctx cref
@@ -474,7 +485,7 @@ theorem machineClosesAt_of_kidsDM {declName : Name} (d : MachineData) (ok : d.ok
   split at hr
   · rename_i he
     exact absurd (List.isEmpty_iff.mp he) hfne
-  obtain ⟨children, rfl, hreal, hpair, -⟩ := closeInstsGM_run_allM L hB hw1 hd1 hr
+  obtain ⟨children, rfl, hreal, hpair, -⟩ := closeInstsGM_run_allM_named L hB hw1 hd1 hagree hr
   have key : (closeInstsG (machNIn d.shape) d.shape.insts.length d.shape.layout.slots.length
       (t.inputs.map (·.name)) (d.shape.insts.map (·.2.1)) d.shape.instFields children
       (closeMachine d.shape.layout t', d₀)).isSome = true := by
@@ -567,11 +578,12 @@ theorem machineClosesAt_of_kidsD_fromM {declName : Name} (d : MachineData) (ok :
       (Sparkle.IR.ModuleName.ofDecl (d.shape.insts[k]).1) ∉ namesK k)
     (hdisjD : ∀ (k : Nat) (hk : k < d.shape.insts.length) (k' : Nat)
       (hk' : k' < d.shape.insts.length), (d.shape.insts[k]).1 ≠ (d.shape.insts[k']).1 →
-      (Sparkle.IR.ModuleName.ofDecl (d.shape.insts[k]).1) ∉ namesK k' ∧ ∀ x ∈ namesK k, x ∉ namesK k') :
+      (Sparkle.IR.ModuleName.ofDecl (d.shape.insts[k]).1) ∉ namesK k' ∧ ∀ x ∈ namesK k, x ∉ namesK k')
+    (hnotag : ∀ o ∈ d.shape.instTagged, o.2.child?.isNone = true) :
     MachineClosesAt mctx mref cctx cref declName d.shape := by
   refine machineClosesAt_of_kidsDM d ok hbody halias hC hslots hdomB hfne
     (fun k => (Sparkle.IR.ModuleName.ofDecl (calleeAt d k))) nk outsK namesK ?_ hargsN hfieldOut hfieldsNd ?_ ?_ ?_
-    hparentD ?_
+    hparentD ?_ (Tools.ShippingInstTagged.tagsAgree_of_nomem_notag hnomem hnotag)
   · intro k hk y hy
     show ChildIfaceP (Sparkle.IR.ModuleName.ofDecl (calleeAt d k)) (nk k) (outsK k) (namesK k) y.1 y.2
     rw [calleeAt_eq d hk]

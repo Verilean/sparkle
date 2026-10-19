@@ -1,5 +1,7 @@
 import Tools.ShippingReaderOutsMemOnly
 import Tools.ShippingMemOnlyNames
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # The closing of a memory-only parent over `MemOnlyDataR` (no `outTy` / `outScalar`)
 
@@ -38,6 +40,6 @@ theorem machineClosesAt_of_memOnlyDataR_names {declName : Name} {d : MachineData
     D.slots D.domB D.fne
     (fun k hk => (D.mem k hk).elim fun cb h =>
       Exists.intro cb (Exists.intro aw (Exists.intro dw h)))
-    C.argsN C.field C.argsNd C.outHead
+    C.argsN C.field C.argsNd C.outHead C.agree
 
 end Tools.ShippingReaderMemOnlyCloses

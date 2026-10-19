@@ -1,5 +1,6 @@
 import Tools.ShippingCallsGate
 import Tools.ShippingCallsAssemblyG
+import Tools.ShippingInstTagged
 
 variable {tenv : Lean.Environment}
 
@@ -16,7 +17,13 @@ variable {tenv : Lean.Environment}
 
 Data conditions, decided per declaration and NOT derived from the shape
 reader: S3 (`callsOk`), the slots are the layout's, the binders after the
-declaration's have ports. Shapes with memory children: not here. -/
+declaration's have ports. Shapes with memory children: not here.
+
+ORIGIN DISPATCH (patched compiler, `MachineShape.instTagged`): "no memory
+child" is now stated on the entries' ORIGINS (`hnotag`, a memory origin is the
+only origin with a built child), not on their names: a declaration carrying a
+memory placeholder name is compiled, so it is a real child here.
+WRITTEN, NOT BUILT against patched compiler (par/o-close). -/
 namespace Tools.ShippingCallsRunG
 open Lean Meta
 open Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Machine
@@ -29,6 +36,7 @@ open Tools.ShippingGateChildComb Tools.ShippingChildInv Tools.ShippingRankRun
 open Tools.ShippingInlineSoundness (EntryDefines)
 open Tools.ShippingCallsGate Tools.ShippingCallsAssemblyG Tools.ShippingCallsStmtsG
 open Tools.ShippingInstStmtG Tools.ShippingChildInv Tools.ShippingCallsSame
+open Tools.ShippingInstTagged
 
 variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
   {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
@@ -53,11 +61,11 @@ theorem runs_mapM_congr {α β : Type} {f g : α → MetaM β} {l : List α}
   exact h
 
 /-- **A run of the general closing, from an invariant world of positive
-depth, no memory child**: the pure closing of real children, two entries of
-one declaration getting the same child. -/
+depth, no memory ORIGIN** (`hnotag`): the pure closing of real children, two
+entries of one declaration getting the same child. -/
 theorem closeInstsGM_run_all (L : RefLaws mref cref) (hB : ∀ L' : RefLaws mref cref, BodyRel L')
     {shape t m₀ d₀ r} {w w'} (hw : InvV L w) (hd : L.dval w ≠ 0)
-    (hnomem : ∀ c ∈ shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnotag : ∀ o ∈ shape.instTagged, o.2.child?.isNone = true)
     (hr : RunsTo (closeInstsGM shape t m₀ d₀) mctx mref cctx cref w r w') :
     ∃ children, r = Sparkle.IR.Machine.closeInstsG (machNIn shape) shape.insts.length
         shape.layout.slots.length (t.inputs.map (·.name)) (shape.insts.map (·.2.1))
@@ -74,23 +82,32 @@ theorem closeInstsGM_run_all (L : RefLaws mref cref) (hB : ∀ L' : RefLaws mref
   dsimp only at hr
   obtain ⟨children, w2, hch, hr⟩ := RunsTo.bind hr
   obtain ⟨heq, rfl⟩ := RunsTo.pure_world hr
+  -- the patched closing maps the tagged entries and dispatches on the origin
   have hch' := runs_mapM_congr
-    (g := fun (x : Name × List Nat × MixedGateBinder) => synthesizeChild x.1) hch
+    (g := fun (x : Name × Sparkle.Compiler.MachInstOrigin.InstOrigin) => synthesizeChild x.1) hch
     (fun x hx => by
-      obtain ⟨c, a, k⟩ := x
-      have e : Sparkle.Compiler.MachMemory.memChild? c = none := hnomem (c, a, k) hx
+      obtain ⟨c, o⟩ := x
+      have e : o.child? = none := Option.isNone_iff_eq_none.mp (hnotag (c, o) hx)
       dsimp only
       rw [e])
   obtain ⟨ys, hys, hlen, hk, -, hpair, hw2⟩ := mapM_loop_all _
-    (fun (x : Name × List Nat × MixedGateBinder) => x.1) L
+    (fun (x : Name × Sparkle.Compiler.MachInstOrigin.InstOrigin) => x.1) L
     (fun x w y w' hp hdw hy => by
       obtain ⟨h1, h2, h3, h4⟩ := synthesizeChild_post L hB hp hy
       exact ⟨h1, h2, synthesizeChild_depth L hB hp hy, h3, h4,
         fun c0 y0 h0 => (synthesizeChild_pin L hB hp hdw h0 hy).1⟩)
-    shape.insts [] children w1 _ hw1 hd1 hch'
+    shape.instTagged [] children w1 _ hw1 hd1 hch'
   simp only [List.reverse_nil, List.nil_append] at hys
   subst hys
-  exact ⟨children, heq, ⟨hlen, hk⟩, hpair, hw2⟩
+  refine ⟨children, heq, ⟨by rw [hlen, instTagged_length], fun k hkl => ?_⟩,
+    fun i j c hij hi hj => ?_, hw2⟩
+  · have hkT : k < shape.instTagged.length := by rw [instTagged_length]; exact hkl
+    obtain ⟨y, hy, hre⟩ := hk k hkT
+    refine ⟨y, hy, ?_⟩
+    rw [← instTagged_getElem_fst shape hkT]
+    exact hre
+  · rw [← instTagged_map_fst] at hi hj
+    exact hpair i j c hij hi hj
 
 set_option maxHeartbeats 2000000 in
 /-- **The general pure closing returns a module, for a real run of the

@@ -1,6 +1,8 @@
 import Tools.ShippingMachineComposedT
 import Tools.ShippingMachineCompose
 import Tools.ShippingMachineInstG
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # A machine with structure / sequential / memory calls, composed
 
@@ -181,7 +183,7 @@ theorem machine_linkedT_of {declName : Name} {d : MachineData} {m : Module} {dsn
         (∀ e ∈ outs, (d.shape.insts.map (·.2.1))[e.1]? = some args ∧
           d.shape.instFields.getD e.1 "" = e.2 ∧
           ∀ c md, (d.shape.insts.map (·.1))[e.1]? = some c →
-            Sparkle.Compiler.MachMemory.memChild? c = some md → mc = md.1) →
+            (d.shape.instOrigins.getD e.1 .ord).child? = some md → mc = md.1) →
         ∀ Pw : Nat → Env,
           (∀ t, Pw t "rst" = 0) → (∀ t, Pw t "clk" = 0) →
           (∀ t, t < T → ∀ (q : Nat) (hq : q < args.length) (w : String) (g : Nat → Nat),
@@ -535,7 +537,7 @@ theorem machine_linkedT {declName : Name} {d : MachineData} {m : Module} {dsn : 
           (∀ e ∈ outs, (d.shape.insts.map (·.2.1))[e.1]? = some args ∧
             d.shape.instFields.getD e.1 "" = e.2 ∧
             ∀ c md, (d.shape.insts.map (·.1))[e.1]? = some c →
-              Sparkle.Compiler.MachMemory.memChild? c = some md → mc = md.1) →
+              (d.shape.instOrigins.getD e.1 .ord).child? = some md → mc = md.1) →
           ∀ Pw : Nat → Env,
             (∀ t, Pw t "rst" = 0) → (∀ t, Pw t "clk" = 0) →
             (∀ t, t < T → ∀ (q : Nat) (hq : q < args.length) (w : String) (g : Nat → Nat),

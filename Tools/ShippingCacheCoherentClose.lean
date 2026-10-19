@@ -1,6 +1,8 @@
 import Tools.ShippingCacheCoherentRun
 import Tools.ShippingCallsRunFinal
 import Tools.ShippingDesignWithG
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 variable {tenv : Lean.Environment}
 
@@ -35,7 +37,10 @@ Not here: the one-output closing's and the memory-children closing's design
 provenance (their run lemmas give `ChildrenReal`, not "an entry of the end
 cache"); anything about the translator.
 
-WRITTEN, NOT BUILT (par/a-33). -/
+WRITTEN, NOT BUILT (par/a-33). ORIGIN DISPATCH: `closeInstsGM_design_prov`
+asks the tag condition `hnotag` (no memory ORIGIN) in place of the name
+condition; `closeInstsGM_prov` follows the tagged `mapM` — WRITTEN, NOT BUILT
+against patched compiler (par/o-close). -/
 namespace Tools.ShippingCacheCoherentClose
 open Lean Meta
 open Sparkle.Compiler.Elab
@@ -119,13 +124,13 @@ its declaration (`closeInstsGM_run_allF`); the design is the join. -/
 theorem closeInstsGM_design_prov (L : RefLaws mref cref)
     (hB : ∀ L' : RefLaws mref cref, BodyRel L')
     {shape t m₀ d₀ m d} {w w' : Void IO.RealWorld} (hw : InvV L w) (hd : L.dval w ≠ 0)
-    (hnomem : ∀ c ∈ shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnotag : ∀ o ∈ shape.instTagged, o.2.child?.isNone = true)
     (hp' : Prov (L.val w'))
     (h0 : ∀ a ∈ d₀.modules, IsMem a ∨ IsTop (L.val w') a)
     (hr : RunsTo (closeInstsGM shape t m₀ d₀) mctx mref cctx cref w (some (m, d)) w') :
     ∀ a ∈ d.modules, IsMem a ∨ IsTop (L.val w') a := by
   obtain ⟨children, heq, ⟨hlen, -⟩, -, hcache, -⟩ :=
-    Tools.ShippingCallsRunFinal.closeInstsGM_run_allF L hB hw hd hnomem hr
+    Tools.ShippingCallsRunFinal.closeInstsGM_run_allF L hB hw hd hnotag hr
   have hdes : d = Sparkle.IR.Machine.designWith children d₀ := closeInstsG_design heq.symm
   intro a ha
   rw [hdes] at ha
@@ -199,11 +204,12 @@ theorem closeInstsGM_prov (L : RefLaws mref cref) (hB : ∀ L' : RefLaws mref cr
   obtain ⟨children, w2, hch, hr⟩ := RunsTo.bind hr
   obtain ⟨-, hww⟩ := RunsTo.pure_world hr
   obtain ⟨-, -, hp2⟩ := mapM_hoare _ (PInv L)
-    (fun (_ : Name × List Nat × MixedGateBinder) (_ : Res) => True)
+    (fun (_ : Name × Sparkle.Compiler.MachInstOrigin.InstOrigin) (_ : Res) => True)
     (fun x w y w' hp hy => by
-      obtain ⟨c, b, k'⟩ := x
+      -- the patched closing maps the tagged entries, dispatching on the ORIGIN
+      obtain ⟨c, o⟩ := x
       dsimp only at hy
-      cases hmc : Sparkle.Compiler.MachMemory.memChild? c with
+      cases hmc : Sparkle.Compiler.MachInstOrigin.InstOrigin.child? o with
       | some md =>
         rw [hmc] at hy
         obtain ⟨-, hwy⟩ := RunsTo.pure_world hy
@@ -212,7 +218,7 @@ theorem closeInstsGM_prov (L : RefLaws mref cref) (hB : ∀ L' : RefLaws mref cr
       | none =>
         rw [hmc] at hy
         exact ⟨trivial, child_pinv L hB hR hp hy⟩)
-    shape.insts children hp1 hch
+    shape.instTagged children hp1 hch
   rw [hww]
   exact hp2.2.2
 

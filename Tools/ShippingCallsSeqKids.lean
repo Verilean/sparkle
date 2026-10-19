@@ -1,4 +1,6 @@
 import Tools.ShippingSeqChildIface
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # `MachineClosesAt` for calls with several outputs and calls of sequential children
 
@@ -59,7 +61,7 @@ theorem machineClosesAt_of_seqKids {declName : Name} (d : MachineData) (ok : d.o
     (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
     (hfne : d.shape.instFields ≠ [])
     (nk : Nat → Nat) (outsK : Nat → List String)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnotag : ∀ o ∈ d.shape.instTagged, o.2.child?.isNone = true)
     (hkid : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y →
       ChildIfaceG (d.shape.insts[k]).1 (nk k) (outsK k) y.1 y.2)
@@ -100,7 +102,7 @@ theorem machineClosesAt_of_seqKids {declName : Name} (d : MachineData) (ok : d.o
   split at hr
   · rename_i he
     exact absurd (List.isEmpty_iff.mp he) hfne
-  obtain ⟨children, rfl, hreal, hpair, -⟩ := closeInstsGM_run_all L hB hw1 hd1 hnomem hr
+  obtain ⟨children, rfl, hreal, hpair, -⟩ := closeInstsGM_run_all L hB hw1 hd1 hnotag hr
   have key : (closeInstsG (machNIn d.shape) d.shape.insts.length d.shape.layout.slots.length
       (t.inputs.map (·.name)) (d.shape.insts.map (·.2.1)) d.shape.instFields children
       (closeMachine d.shape.layout t', d₀)).isSome = true := by

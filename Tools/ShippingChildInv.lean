@@ -1,4 +1,6 @@
 import Tools.ShippingMachineEntry
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # The child cache's invariant: definitions and the generic runtime laws
 
@@ -488,17 +490,49 @@ def StartW (w : Void IO.RealWorld) : Prop :=
      CacheAt mref cref w)
 
 /-- The children of a shape's calls, call by call: the built memory module
-for a memory call, a `RealChild` of the call's declaration otherwise. -/
+for a memory-ORIGIN entry, a `RealChild` of the call's declaration otherwise.
+Origin dispatch (patched compiler): the left disjunct reads the entry's
+origin (`shape.instOrigins.getD k .ord`), not its name — a declaration
+carrying a memory placeholder name is compiled (par/o-close; WRITTEN, NOT
+BUILT against patched compiler). -/
 def ChildrenReal (shape : MachineShape) (children : List Res) : Prop :=
   children.length = shape.insts.length ∧
   ∀ k (hk : k < shape.insts.length), ∃ y, children[k]? = some y ∧
-    (Sparkle.Compiler.MachMemory.memChild? (shape.insts[k]).1 = some y ∨
+    ((shape.instOrigins.getD k .ord).child? = some y ∨
       RealChild mref cref (shape.insts[k]).1 y)
 
 end Defs
 
 variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
   {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+
+/-- Entry `k` of the tagged entries the patched general closing maps
+(`MachineShape.instTagged`): the callee of call entry `k` and its origin. -/
+theorem instTagged_getAt (shape : MachineShape) {k : Nat} (hk : k < shape.insts.length) :
+    ∃ hkT : k < shape.instTagged.length,
+      shape.instTagged[k] = ((shape.insts[k]).1, shape.instOrigins.getD k .ord) :=
+  ⟨by simp [MachineShape.instTagged, hk], by simp [MachineShape.instTagged]⟩
+
+theorem instTagged_length' (shape : MachineShape) :
+    shape.instTagged.length = shape.insts.length := by
+  simp [MachineShape.instTagged]
+
+/-- An entry of `ChildrenReal` whose ORIGIN builds no child is a `RealChild`
+of its callee (the tag-based replacement of the name-based
+`realChild_of_childrenReal`). -/
+theorem realChild_of_childrenRealT {shape : MachineShape} {children : List Res}
+    (hreal : ChildrenReal mref cref shape children)
+    {k : Nat} (hk : k < shape.insts.length)
+    (hno : (shape.instOrigins.getD k .ord).child? = none)
+    {y : Res} (hy : children[k]? = some y) :
+    RealChild mref cref (shape.insts[k]).1 y := by
+  obtain ⟨y', hy', hor⟩ := hreal.2 k hk
+  have hyy : y' = y := Option.some.inj (hy'.symm.trans hy)
+  subst hyy
+  rcases hor with h | h
+  · rw [hno] at h
+    cases h
+  · exact h
 
 /-- The invariant by the values (the laws' view). -/
 def InvV (L : RefLaws mref cref) (w : Void IO.RealWorld) : Prop :=

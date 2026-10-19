@@ -21,7 +21,9 @@ the modules two different callees share is therefore a statement about the
 cache the closing ends in; this file is what lets such a statement be USED.
 It proves nothing about what the cache's entries have in common.
 
-WRITTEN, NOT BUILT (par/a-17). -/
+WRITTEN, NOT BUILT (par/a-17). ORIGIN DISPATCH: `closeInstsGM_run_allF`
+restated on the entries' origins (`hnotag`, over `shape.instTagged`) —
+WRITTEN, NOT BUILT against patched compiler (par/o-close). -/
 namespace Tools.ShippingCallsRunFinal
 open Lean Meta
 open Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Machine
@@ -34,7 +36,7 @@ open Tools.ShippingGateChildComb Tools.ShippingChildInv Tools.ShippingRankRun
 open Tools.ShippingInlineSoundness (EntryDefines)
 open Tools.ShippingCallsGate Tools.ShippingCallsAssemblyG Tools.ShippingCallsStmtsG
 open Tools.ShippingInstStmtG Tools.ShippingChildInv Tools.ShippingCallsSame
-open Tools.ShippingCallsRunG
+open Tools.ShippingCallsRunG Tools.ShippingInstTagged
 
 variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
   {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
@@ -66,11 +68,11 @@ theorem mapM_loop_final {α : Type} (f : α → MetaM Res) (key : α → Name) (
     | succ k => exact hget k (by simpa using hk)
 
 /-- **A run of the general closing, from an invariant world of positive
-depth, no memory child** — `closeInstsGM_run_all`, and: each entry's child is
+depth, no memory ORIGIN** — `closeInstsGM_run_all`, and: each entry's child is
 the END world's cache value under the entry's declaration. -/
 theorem closeInstsGM_run_allF (L : RefLaws mref cref) (hB : ∀ L' : RefLaws mref cref, BodyRel L')
     {shape t m₀ d₀ r} {w w'} (hw : InvV L w) (hd : L.dval w ≠ 0)
-    (hnomem : ∀ c ∈ shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnotag : ∀ o ∈ shape.instTagged, o.2.child?.isNone = true)
     (hr : RunsTo (closeInstsGM shape t m₀ d₀) mctx mref cctx cref w r w') :
     ∃ children, r = Sparkle.IR.Machine.closeInstsG (machNIn shape) shape.insts.length
         shape.layout.slots.length (t.inputs.map (·.name)) (shape.insts.map (·.2.1))
@@ -90,29 +92,42 @@ theorem closeInstsGM_run_allF (L : RefLaws mref cref) (hB : ∀ L' : RefLaws mre
   obtain ⟨children, w2, hch, hr⟩ := RunsTo.bind hr
   obtain ⟨heq, rfl⟩ := RunsTo.pure_world hr
   have hch' := runs_mapM_congr
-    (g := fun (x : Name × List Nat × MixedGateBinder) => synthesizeChild x.1) hch
+    (g := fun (x : Name × Sparkle.Compiler.MachInstOrigin.InstOrigin) => synthesizeChild x.1) hch
     (fun x hx => by
-      obtain ⟨c, a, k⟩ := x
-      have e : Sparkle.Compiler.MachMemory.memChild? c = none := hnomem (c, a, k) hx
+      obtain ⟨c, o⟩ := x
+      have e : o.child? = none := Option.isNone_iff_eq_none.mp (hnotag (c, o) hx)
       dsimp only
       rw [e])
   obtain ⟨ys, hys, hlen, hk, -, hpair, hw2⟩ := mapM_loop_all _
-    (fun (x : Name × List Nat × MixedGateBinder) => x.1) L
+    (fun (x : Name × Sparkle.Compiler.MachInstOrigin.InstOrigin) => x.1) L
     (fun x w y w' hp hdw hy => by
       obtain ⟨h1, h2, h3, h4⟩ := synthesizeChild_post L hB hp hy
       exact ⟨h1, h2, synthesizeChild_depth L hB hp hy, h3, h4,
         fun c0 y0 h0 => (synthesizeChild_pin L hB hp hdw h0 hy).1⟩)
-    shape.insts [] children w1 _ hw1 hd1 hch'
+    shape.instTagged [] children w1 _ hw1 hd1 hch'
   obtain ⟨zs, hzs, -, hfin, -⟩ := mapM_loop_final _
-    (fun (x : Name × List Nat × MixedGateBinder) => x.1) L
+    (fun (x : Name × Sparkle.Compiler.MachInstOrigin.InstOrigin) => x.1) L
     (fun x w y w' hp hdw hy => by
       obtain ⟨-, h2, h3, -⟩ := synthesizeChild_post L hB hp hy
       exact ⟨h2, synthesizeChild_depth L hB hp hy, h3,
         fun c0 y0 h0 => (synthesizeChild_pin L hB hp hdw h0 hy).1⟩)
-    shape.insts [] children w1 _ hw1 hd1 hch'
+    shape.instTagged [] children w1 _ hw1 hd1 hch'
   simp only [List.reverse_nil, List.nil_append] at hys hzs
   subst hys
   subst hzs
-  exact ⟨children, heq, ⟨hlen, hk⟩, hpair, hfin, hw2⟩
+  refine ⟨children, heq, ⟨by rw [hlen, instTagged_length], fun k hkl => ?_⟩,
+    fun i j c hij hi hj => ?_, fun k hkl => ?_, hw2⟩
+  · have hkT : k < shape.instTagged.length := by rw [instTagged_length]; exact hkl
+    obtain ⟨y, hy, hre⟩ := hk k hkT
+    refine ⟨y, hy, ?_⟩
+    rw [← instTagged_getElem_fst shape hkT]
+    exact hre
+  · rw [← instTagged_map_fst] at hi hj
+    exact hpair i j c hij hi hj
+  · have hkT : k < shape.instTagged.length := by rw [instTagged_length]; exact hkl
+    obtain ⟨y, hy, hget⟩ := hfin k hkT
+    refine ⟨y, hy, ?_⟩
+    rw [← instTagged_getElem_fst shape hkT]
+    exact hget
 
 end Tools.ShippingCallsRunFinal

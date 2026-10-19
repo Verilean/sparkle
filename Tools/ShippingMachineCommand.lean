@@ -11,6 +11,8 @@ import Tools.ShippingMachineShipsW
 import Tools.ShippingMachineLoopL
 import Tools.ShippingMachineShipsComb
 import Tools.ShippingMachineLoopCausal
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # The machine endpoint of a declaration, generated
 
@@ -537,8 +539,17 @@ def dataE (r : Read) : MetaM Lean.Expr := do
         (mkConst ``MixedGateBinder) (natListE js) (binderKindE k)))
   let loops := listE natPairT (r.shape.loops.map fun (a, b) =>
     mkApp4 (mkConst ``Prod.mk [.zero, .zero]) (mkConst ``Nat) (mkConst ``Nat) (natL a) (natL b))
-  let shape := mkApp7 (mkConst ``MachineShape.mk) (listE binderT (r.shape.binders.map binderE))
-    body layout runs insts loops (listE (mkConst ``String) (r.shape.instFields.map toExpr))
+  -- origin dispatch (patched compiler): `MachineShape` has an 8th field, the
+  -- entries' origins; the data carries them (the closing reads them)
+  let originT := mkConst ``Sparkle.Compiler.MachInstOrigin.InstOrigin
+  let originE : Sparkle.Compiler.MachInstOrigin.InstOrigin → Lean.Expr
+    | .ord => mkConst ``Sparkle.Compiler.MachInstOrigin.InstOrigin.ord
+    | .field i => mkApp (mkConst ``Sparkle.Compiler.MachInstOrigin.InstOrigin.field) (natL i)
+    | .mem cb aw dw => mkApp3 (mkConst ``Sparkle.Compiler.MachInstOrigin.InstOrigin.mem)
+        (toExpr cb) (natL aw) (natL dw)
+  let shape := mkAppN (mkConst ``MachineShape.mk) #[listE binderT (r.shape.binders.map binderE),
+    body, layout, runs, insts, loops, listE (mkConst ``String) (r.shape.instFields.map toExpr),
+    listE originT (r.shape.instOrigins.map originE)]
   return mkAppN (mkConst ``MachineData.mk)
     #[shape, natL r.nIn, dom, natListE r.bposL, natListE r.vposL, natListE r.vwL,
       listE stypeT (r.nexts.map fun t => stypeE t.1), listE anyTermT (r.ls.map anyTermE),

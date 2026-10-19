@@ -20,7 +20,13 @@ calls of them through `real_of_kid`. Both need `Kid` below
 The `open` lines are the subset of the two source files' `open` lines whose
 namespaces these declarations read.
 
-UNVERIFIED at the time of writing: this file was not built. -/
+UNVERIFIED at the time of writing: this file was not built.
+
+ORIGIN DISPATCH (par/o-close): `MemChildren` and `ChildrenReal` are stated on
+the entry's origin; `kid_of` asks the per-entry agreement `hag` (name decodes
+to what the origin builds) and `kidT_of` gives the tag-based kid without it.
+`real_of_kid` / `kid_of_real` (name-based `hnomem`) are unchanged. WRITTEN,
+NOT BUILT against patched compiler. -/
 namespace Tools.ShippingMemKid
 open Lean Meta
 open Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Machine
@@ -38,26 +44,51 @@ def Kid (mref : ST.Ref IO.RealWorld Meta.State) (cref : ST.Ref IO.RealWorld Core
 variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
   {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
 
-/-- **A child of the general closing's run is a kid**: its witness
-(`ChildrenReal`) and the closing's own statement that a memory entry's child
-is the built module (`MemChildren`). -/
+/-- **A child of the general closing's run is a kid** — origin dispatch
+(patched compiler): the closing's `MemChildren` and the witness `hor` are
+stated on the entry's ORIGIN; the name-based `Kid` follows for an entry whose
+name decodes to what its origin builds (`hag`, decided per declaration:
+`Tools.ShippingInstTagged.agree_at`; false for a collision entry). -/
 theorem kid_of {shape : MachineShape} {children : List Res} {k : Nat}
     (hk : k < shape.insts.length) (hMC : MemChildren shape children) {y : Res}
     (hy : children[k]? = some y)
-    (hor : Sparkle.Compiler.MachMemory.memChild? (shape.insts[k]).1 = some y ∨
-      RealChild mref cref (shape.insts[k]).1 y) :
+    (hor : (shape.instOrigins.getD k .ord).child? = some y ∨
+      RealChild mref cref (shape.insts[k]).1 y)
+    (hag : Sparkle.Compiler.MachMemory.memChild? (shape.insts[k]).1 =
+      (shape.instOrigins.getD k .ord).child?) :
     Kid mref cref (shape.insts[k]).1 y := by
+  unfold Kid
+  rw [hag]
   rcases hor with h | h
   · exact Or.inl h
-  · cases hm : Sparkle.Compiler.MachMemory.memChild? (shape.insts[k]).1 with
-    | none => exact Or.inr ⟨hm, h⟩
+  · cases hm : (shape.instOrigins.getD k .ord).child? with
+    | none => exact Or.inr ⟨rfl, h⟩
     | some md =>
-      have hn : (shape.insts.map (·.1))[k]? = some (shape.insts[k]).1 := by simp [hk]
-      have h1 : children[k]? = some md := hMC k _ hn md hm
+      have h1 : children[k]? = some md := hMC k hk md hm
       rw [hy] at h1
       have e : y = md := Option.some.inj h1
       rw [e]
-      exact Or.inl hm
+      exact Or.inl rfl
+
+/-- **The tag-based kid of a child of the general closing's run** (no
+premise): `(origin).child? = some y`, or no built child and a real child of
+the entry's declaration. -/
+theorem kidT_of {shape : MachineShape} {children : List Res} {k : Nat}
+    (hk : k < shape.insts.length) (hMC : MemChildren shape children) {y : Res}
+    (hy : children[k]? = some y)
+    (hor : (shape.instOrigins.getD k .ord).child? = some y ∨
+      RealChild mref cref (shape.insts[k]).1 y) :
+    (shape.instOrigins.getD k .ord).child? = some y ∨
+      ((shape.instOrigins.getD k .ord).child? = none ∧ RealChild mref cref (shape.insts[k]).1 y) := by
+  rcases hor with h | h
+  · exact Or.inl h
+  · cases hm : (shape.instOrigins.getD k .ord).child? with
+    | none => exact Or.inr ⟨rfl, h⟩
+    | some md =>
+      have h1 : children[k]? = some md := hMC k hk md hm
+      rw [hy] at h1
+      rw [Option.some.inj h1]
+      exact Or.inl rfl
 
 /-- A kid of a declaration that is not a memory placeholder is a real child. -/
 theorem Kid.real {c : Name} {y : Res} (h : Kid mref cref c y)

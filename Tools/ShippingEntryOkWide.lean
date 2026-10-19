@@ -1,6 +1,8 @@
 import Lean.Elab.Command
 import Tools.ShippingEntryOkCommand
 import Tools.ShippingMachineClosesGen
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # `#entry_ok_all`: `EntryOk` swept over an environment, and two refusals removed
 
@@ -89,10 +91,11 @@ def infoOf (f : Name) : MetaM Info := do
   let i : Info := match shape? with
     | some shape =>
       let names := shape.insts.map (·.1)
-      let isMem : Name → Bool := fun c => (Sparkle.Compiler.MachMemory.memChild? c).isSome
+      -- origin dispatch (patched compiler): an entry is a memory by its ORIGIN
+      let tagged := shape.instTagged
       { machine := true, gate := gate
-        callees := (names.filter fun c => !isMem c).eraseDups
-        hasMem := names.any isMem
+        callees := ((tagged.filter fun x => x.2.child?.isNone).map (·.1)).eraseDups
+        hasMem := tagged.any fun x => x.2.child?.isSome
         hasCalls := !names.isEmpty
         nDecl := shape.binders.length - shape.insts.length - shape.layout.slots.length -
           shape.layout.lets }
@@ -197,17 +200,24 @@ def genParentW (f : Name) (info : Info) (cands : List (Name × Bool)) : CommandE
           theorem $(sub f "entry_callees") :
               ∀ $x, $x ∈ ($md).shape.insts → $calleesProp := by
             first | decide | decide +kernel))
+      -- origin dispatch (patched compiler): the general closing maps the
+      -- TAGGED entries (`shape.instTagged`), so its callee condition is over them
+      unless (← getEnv).contains (f ++ `entry_calleesT) do
+        runGenerated s!"{f}.entry_calleesT" (← `(command|
+          theorem $(sub f "entry_calleesT") :
+              ∀ $x, $x ∈ ($md).shape.instTagged → $calleesProp := by
+            first | decide | decide +kernel))
       pure (← `(fun _ x hx => $(sub f "entry_callees") x hx),
-            ← `(fun x hx _ => $(sub f "entry_callees") x hx))
+            ← `(fun x hx _ => $(sub f "entry_calleesT") x hx))
     else do
-      unless (← getEnv).contains (f ++ `entry_calleesW) do
-        runGenerated s!"{f}.entry_calleesW" (← `(command|
-          theorem $(sub f "entry_calleesW") :
-              ∀ $x, $x ∈ ($md).shape.insts →
-                Sparkle.Compiler.MachMemory.memChild? ($x).1 = none → $calleesProp := by
+      unless (← getEnv).contains (f ++ `entry_calleesWT) do
+        runGenerated s!"{f}.entry_calleesWT" (← `(command|
+          theorem $(sub f "entry_calleesWT") :
+              ∀ $x, $x ∈ ($md).shape.instTagged →
+                ($x).2.child?.isNone = true → $calleesProp := by
             first | decide | decide +kernel))
       pure (← `(fun hEmpty => absurd hEmpty (by first | decide | decide +kernel)),
-            ← `(fun x hx hm => $(sub f "entry_calleesW") x hx hm))
+            ← `(fun x hx hm => $(sub f "entry_calleesWT") x hx hm))
   -- the callees' `EntryOk` at the parent's key set, one branch per descendant
   let mut branches : List (Term → CommandElabM Term) := []
   for d in ds do

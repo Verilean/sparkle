@@ -1,5 +1,7 @@
 import Tools.ShippingCacheCoherentClose
 import Tools.ShippingMachineInstG
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 variable {tenv : Lean.Environment}
 
@@ -348,7 +350,7 @@ theorem closeInstsM_all (L : RefLaws mref cref) (hB : ∀ L' : RefLaws mref cref
 theorem closeInstsGM_all (L : RefLaws mref cref) (hB : ∀ L' : RefLaws mref cref, BodyRel L')
     {mb : Std.HashMap Name Res} {K : Name → Prop} {shape t m₀ d₀ r}
     {w w' : Void IO.RealWorld}
-    (hins : ∀ x ∈ shape.insts, memChild? x.1 = none → K x.1)
+    (hins : ∀ x ∈ shape.instTagged, x.2.child?.isNone = true → K x.1)
     (hR : ∀ c, K c → EntryOk L c K)
     (hp : PK L mb K w) (hd0 : d₀.modules = [])
     (hr : RunsTo (closeInstsGM shape t m₀ d₀) mctx mref cctx cref w r w') :
@@ -364,21 +366,24 @@ theorem closeInstsGM_all (L : RefLaws mref cref) (hB : ∀ L' : RefLaws mref cre
   dsimp only at hr
   obtain ⟨children, w2, hch, hr⟩ := RunsTo.bind hr
   obtain ⟨heq, hww⟩ := RunsTo.pure_world hr
+  -- the patched closing maps the tagged entries and dispatches on the ORIGIN
   obtain ⟨hp2, -, hkids⟩ := mapM_inv
-    (fun (x : Name × List Nat × MixedGateBinder) => memChild? x.1 = none → K x.1) L (PK L mb K)
+    (fun (x : Name × Sparkle.Compiler.MachInstOrigin.InstOrigin) =>
+      x.2.child?.isNone = true → K x.1) L (PK L mb K)
     (fun x w y w' hg hp hy => by
-      obtain ⟨c, b, k'⟩ := x
+      obtain ⟨c, o⟩ := x
       dsimp only at hy
-      cases hmc : memChild? c with
+      cases hmc : o.child? with
       | some md =>
         rw [hmc] at hy
         obtain ⟨hmy, hwy⟩ := RunsTo.pure_world hy
         rw [hwy, hmy]
-        exact ⟨hp, sub_refl _, Or.inl (Tools.ShippingMachineInstG.memChild_eq hmc)⟩
+        exact ⟨hp, sub_refl _, Or.inl (Tools.ShippingInstTagged.child?_eq_memModule hmc)⟩
       | none =>
         rw [hmc] at hy
-        exact child_ok L hB (hg hmc) (hR _ (hg hmc)) hp hy)
-    shape.insts children hins hp1 hch
+        have hK : K c := hg (by simp [hmc])
+        exact child_ok L hB hK (hR _ hK) hp hy)
+    shape.instTagged children hins hp1 hch
   rw [hww]
   refine ⟨hp2, fun m d hmd => ?_⟩
   rw [hmd] at heq
@@ -420,7 +425,7 @@ theorem machine_all (L : RefLaws mref cref) (hB : ∀ L' : RefLaws mref cref, Bo
       (Sparkle.IR.Machine.closeMachine shape.layout t').name = ofDecl declName ∧
         d₀.modules = [])
     (hinsM : shape.instFields.isEmpty = true → ∀ x ∈ shape.insts, K x.1)
-    (hinsG : ∀ x ∈ shape.insts, memChild? x.1 = none → K x.1)
+    (hinsG : ∀ x ∈ shape.instTagged, x.2.child?.isNone = true → K x.1)
     (hR : ∀ c, K c → EntryOk L c K)
     (hw : InvV L w) (hd : L.dval w ≠ 0) (hp : Prov (L.val w))
     (hr : RunsTo (synthesizeMachineCertified
@@ -503,7 +508,7 @@ theorem entryOk_machine (L : RefLaws mref cref) (hB : ∀ L' : RefLaws mref cref
       Sparkle.IR.Machine.closeLets shape.layout.lets t = some t' →
       (Sparkle.IR.Machine.closeMachine shape.layout t').name = ofDecl c ∧ d₀.modules = [])
     (hinsM : shape.instFields.isEmpty = true → ∀ x ∈ shape.insts, K x.1)
-    (hinsG : ∀ x ∈ shape.insts, memChild? x.1 = none → K x.1)
+    (hinsG : ∀ x ∈ shape.instTagged, x.2.child?.isNone = true → K x.1)
     (hR : ∀ c', K c' → EntryOk L c' K) (hc : ¬ K c) : EntryOk L c K := by
   intro mctx cctx w r w' hw hd hp hc0 hrun
   obtain ⟨M', D'⟩ := r
@@ -570,7 +575,7 @@ theorem machine_closes_of_entryOk {declName : Name} {shape : MachineShape} (decl
       (Sparkle.IR.Machine.closeMachine shape.layout t').name = ofDecl declName ∧
         d₀.modules = [])
     (hinsM : shape.instFields.isEmpty = true → ∀ x ∈ shape.insts, K x.1)
-    (hinsG : ∀ x ∈ shape.insts, memChild? x.1 = none → K x.1)
+    (hinsG : ∀ x ∈ shape.instTagged, x.2.child?.isNone = true → K x.1)
     (hR : ∀ c, K c → EntryOk L c K)
     (hw : InvV L w) (hd : L.dval w ≠ 0) (hp : Prov (L.val w))
     (hr : RunsTo (synthesizeMachineCertified

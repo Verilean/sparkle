@@ -712,9 +712,10 @@ def MachineWired (declName : Name) (shape : MachineShape) (ids : List FVarId)
       moduleByName dsn.modules mc.name = some mc ∧ outs ≠ [] ∧
       ∀ e ∈ outs, (shape.insts.map (·.2.1))[e.1]? = some args ∧
         shape.instFields.getD e.1 "" = e.2 ∧
-        -- a memory call's instance is of the built memory module's name
+        -- a memory-ORIGIN call's instance is of the built memory module's
+        -- name (origin dispatch: the tag at `e.1`, not the name `c`)
         ∀ c md, (shape.insts.map (·.1))[e.1]? = some c →
-          Sparkle.Compiler.MachMemory.memChild? c = some md → mc = md.1) ∧
+          (shape.instOrigins.getD e.1 .ord).child? = some md → mc = md.1) ∧
   -- ... and every call is read from its group's instance statement
   (shape.instFields ≠ [] → ∀ k, k < kI → ∃ st ∈ m.body,
     ∃ (args : List Nat) (outs : List (Nat × String)) (mc : Sparkle.IR.AST.Module),
@@ -859,11 +860,23 @@ theorem closeInstsM_returns {shape t m₀ d₀ m d}
     have := MReturns.pure hr
     exact ⟨children, this.symm⟩
 
-/-- The children of a memory call are the built memory modules
-(`MachMemory.memChild?`). -/
+/-- The children of a memory-ORIGIN entry are the built memory modules
+(origin dispatch, patched compiler: `InstOrigin.child?` of
+`shape.instOrigins.getD k .ord`; the entry's NAME does not decide it — a
+declaration carrying a memory placeholder name is compiled). Restated on the
+tag (par/o-close); WRITTEN, NOT BUILT against patched compiler. -/
 def MemChildren (shape : MachineShape) (children : List (Sparkle.IR.AST.Module × Design)) : Prop :=
-  ∀ (k : Nat) c, (shape.insts.map (·.1))[k]? = some c → ∀ md,
-    Sparkle.Compiler.MachMemory.memChild? c = some md → children[k]? = some md
+  ∀ (k : Nat), k < shape.insts.length → ∀ md,
+    (shape.instOrigins.getD k .ord).child? = some md → children[k]? = some md
+
+/-- A memory origin's child is a built memory module. -/
+theorem instOrigin_child?_mem {o : Sparkle.Compiler.MachInstOrigin.InstOrigin}
+    {md : Sparkle.IR.AST.Module × Design} (h : o.child? = some md) :
+    ∃ cb aw dw, md = Sparkle.Compiler.MachMemory.memModule cb aw dw := by
+  cases o with
+  | ord => cases h
+  | field i => cases h
+  | mem cb aw dw => exact ⟨cb, aw, dw, (Option.some.inj h).symm⟩
 
 theorem MReturns_mapM_loop {α β : Type} (f : α → MetaM β) :
     ∀ (l : List α) (acc r : List β), MReturns (List.mapM.loop f l acc) r →
@@ -909,17 +922,13 @@ theorem closeInstsGM_returns {shape t m₀ d₀ m d}
     have := MReturns.pure hr
     refine ⟨children, this.symm, ?_⟩
     unfold MemChildren
-    intro k c hc md hmd
-    have hk : k < shape.insts.length := by
-      have := (List.getElem?_eq_some_iff.mp hc).1; simpa using this
-    obtain ⟨y, hy, hky⟩ := MReturns_mapM_get _ shape.insts children hch k hk
-    have hck : (shape.insts[k]).1 = c := by
-      rw [List.getElem?_map, List.getElem?_eq_getElem hk] at hc
-      simpa using hc
-    generalize shape.insts[k] = p at hy hck
-    obtain ⟨c', b, k'⟩ := p
-    simp only at hck
-    subst hck
+    -- the patched closing maps the TAGGED entries and dispatches on the origin
+    intro k hk md hmd
+    have hkT : k < shape.instTagged.length := by simp [MachineShape.instTagged, hk]
+    obtain ⟨y, hy, hky⟩ := MReturns_mapM_get _ shape.instTagged children hch k hkT
+    have he : shape.instTagged[k] = ((shape.insts[k]).1, shape.instOrigins.getD k .ord) := by
+      simp [MachineShape.instTagged]
+    rw [he] at hy
     simp only [hmd] at hy
     rw [MReturns.pure hy] at hky
     exact hky
@@ -1760,10 +1769,13 @@ theorem synthesizeMachineCertified_soundX {logProf declName shape m d}
         · refine ⟨args, outs, mc, hcall, ?_, hne, fun e he => ⟨(hall e he).1, (hall e he).2.2,
             fun c md hc hmd => ?_⟩⟩
           · rw [Tools.ShippingMachineInst.moduleByName_name hmc]; exact hmc
-          · have hk := hmemc e.1 c hc md hmd
+          · have he1 : e.1 < shape.insts.length := by
+              have := (List.getElem?_eq_some_iff.mp hc).1
+              simpa using this
+            have hk := hmemc e.1 he1 md hmd
             have hn := (hall e he).2.1
             rw [hk, Option.map_some, Option.some.injEq] at hn
-            obtain ⟨cb, aw, dw, rfl⟩ := Tools.ShippingMachineInstG.memChild_eq hmd
+            obtain ⟨cb, aw, dw, rfl⟩ := instOrigin_child?_mem hmd
             have hs := (Tools.ShippingMachineInstG.closeInstsG_names hci).2.2.1 _
               (List.mem_of_getElem? hk)
             refine Tools.ShippingMachineInstG.find_memModule hs ?_

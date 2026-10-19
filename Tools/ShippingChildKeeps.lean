@@ -1,4 +1,6 @@
 import Tools.ShippingChildInv
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 variable {tenv : Lean.Environment}
 
@@ -565,8 +567,9 @@ theorem closeInstsM_keeps (D : Nat) (hC : ChildKeeps L D) (shape : MachineShape)
   · intro _
     exact Triple.pure fun _ hw => hw
 
-/-- **The general closing keeps the invariant**: a memory call's child is
-built (pure), any other is a `synthesizeChild`. -/
+/-- **The general closing keeps the invariant**: a memory-origin entry's child
+is built (pure), any other is a `synthesizeChild`. (Origin dispatch, patched
+compiler: WRITTEN, NOT BUILT against the patched compiler.) -/
 theorem closeInstsGM_keeps (D : Nat) (hC : ChildKeeps L D) (shape : MachineShape)
     (t m : Sparkle.IR.AST.Module) (design : Sparkle.IR.AST.Design) :
     Keeps mctx mref cctx cref (J L D) (closeInstsGM shape t m design) := by
@@ -577,9 +580,11 @@ theorem closeInstsGM_keeps (D : Nat) (hC : ChildKeeps L D) (shape : MachineShape
   subst hs
   dsimp only
   refine Triple.bind (Triple.mapM _ (fun x => ?_) _) ?_
-  · obtain ⟨c, b, k⟩ := x
+  · -- the patched closing maps `shape.instTagged` (callee, origin) and
+    -- dispatches on the ORIGIN (`InstOrigin.child?`), not on the name
+    obtain ⟨c, o⟩ := x
     dsimp only
-    cases Sparkle.Compiler.MachMemory.memChild? c with
+    cases Sparkle.Compiler.MachInstOrigin.InstOrigin.child? o with
     | some md => exact Triple.pure fun _ hw => hw
     | none => exact keeps_iff.mp (hC mctx cctx c)
   · intro _

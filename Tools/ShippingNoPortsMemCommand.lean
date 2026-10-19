@@ -10,6 +10,8 @@ import Tools.ShippingNameSep
 import Tools.ShippingFinalGoalCommand
 import Tools.ShippingMachineClosesGen
 import Tools.ShippingReaderMemOnlyCloses
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # `#machine_no_ports_mem f`: the check-free depth-0 endpoint of a MEMORY-ONLY parent, open and closed, GENERATED (round par/b-20)
 
@@ -520,10 +522,13 @@ def closingTheorems (c : Ctx) : CommandElabM Unit := do
     (($d).shape.insts[k]).1 = (($d).shape.insts[k']).1 →
     (($d).shape.insts[k]).2.1 = (($d).shape.insts[k']).2.1 → k = k'))
   decided c "outHead" (← `(∀ o ∈ ($d).shape.layout.outs, o.name.toList.head? ≠ some 'i'))
+  -- origin dispatch (patched compiler): every entry's name says what its origin builds
+  decided c "agree" (← `(∀ x ∈ ($d).shape.instTagged,
+    Tools.ShippingInstTagged.tagAgrees x.1 x.2 = true))
   emit c (c.lemName "closeData") fun tn => `(command|
     theorem $tn : Tools.ShippingMemOnlyCloses.MemOnlyCloseData $d :=
       Tools.ShippingMemOnlyCloses.MemOnlyCloseData.mk $(c.lem "alias") $(c.lem "argsN")
-        $(c.lem "field") $(c.lem "argsNd") $(c.lem "outHead"))
+        $(c.lem "field") $(c.lem "argsNd") $(c.lem "outHead") $(c.lem "agree"))
   unless c.oldData do
     -- par/r-2: over `MemOnlyDataR`, no name lemma (the statement is the same text)
     emit c (c.lemName "closes") fun tn => `(command|

@@ -1,69 +1,59 @@
 import Tools.ShippingReaderFuelR1
 import Tools.ShippingReaderFuelShape
+import Tools.ShippingChildRun
 
-/-! # Memory placeholder names: the collision, and a GUARDED model of the reader
+/-! # Memory placeholder names: the collision, the ORIGIN dispatch, and the withdrawn guard model
 
-BUILT on poc 3a1938a3 (run `md1`, exit 0; integrator; reviewer 2026-10-18 item 3).
-No `sorry`, no axiom, no `native_decide`. Nothing under `Sparkle/` changed.
+## Current (par/o-close): the origin dispatch — WRITTEN, NOT BUILT against patched compiler
 
-## The finding (measured, `Tests/Compiler/MemNameCollisionProbe.lean`, runs `mc2`, `mc4`)
+The compiler change "explicit call-entry origin" (`Sparkle/Compiler/MachInstOrigin.lean`,
+`docs/parallel/S-memname-collision.md` §5) records an origin per call entry
+(`MachineShape.instOrigins`) and the general closing `closeInstsGM` maps
+`shape.instTagged` = (callee, origin) and builds the child FROM THE ORIGIN:
+`match o.child? with | some md => pure md | none => synth c`.
 
-A memory call is read as a call entry named `memChildName combo aw dw`
-(`SparkleMem.{combo|sync}.<aw>.<dw>`, two NUMERIC name components). The
-general closing `closeInstsGM` (Elab.lean 5213–5217) builds the child of EVERY
-entry whose name decodes with `memChild?` as the memory module, without looking
-at the environment. Source syntax cannot write a numeric name component, but
-`addDecl` can. With `fakeSrc` (memory interface, output `wd + 1`, NOT a memory)
-copied under `SparkleMem.sync.4.8` and tagged `@[hardware_module]`:
+* `gmChoice` — that per-entry choice, on the origin;
+* `gmChoice_body` — the closing's `mapM` body is `gmChoice` (as written in
+  the patched Elab.lean);
+* `gmChoice_mem` — a memory-origin entry gets the memory module of ITS OWN
+  `combo aw dw`, whatever its name;
+* `gmChoice_notMem`, `gmChoice_collision` — every other entry gets
+  `synth c`, the declaration's own compile, REGARDLESS OF THE NAME: a
+  declaration named `memChildName combo aw dw` with an ordinary origin is
+  compiled;
+* `closeInstsGM_child_choice`, `closeInstsGM_collision_compiled` — the same
+  on a real run of `closeInstsGM` from an invariant world (via
+  `Tools.ShippingChildInv.closeInstsGM_inv`): a memory-origin entry's child IS
+  `memModule cb aw dw`; any other entry's child is a `RealChild` of its
+  declaration (in particular a colliding name with an ordinary origin);
+* `not_memR1_all` — kept (`MemR1` is not a property of every signature table).
 
-* `collParent` (a combinational memory AND a call of that declaration, so
-  `instFields ≠ []`, closed by `closeInstsGM`): the certified route emits
-  instances `[SparkleMem_combo_4_8, SparkleMem_sync_4_8]` — the call of the
-  declaration became a SYNCHRONOUS MEMORY. MISCOMPILE. The legacy route
-  (`certifiedFrontEnd := false`) instantiates the declaration's own module.
-* `collPlain` (only that call, `instFields = []`, closed by `closeInstsM`, which
-  synthesises every entry): correct on both routes.
-* `MemR1` HOLDS in the miscompiled example (the declaration's result is
-  `.bits 8 = .bits dw`), so `MemR1` is NOT the property that guards the
-  emitted child: the fault is the name-keyed dispatch (and the name-keyed
-  call deduplication of `machInstance`, which can merge a memory call and a
-  call of the declaration with the same argument lets into ONE entry).
-* `MemR1 (structEnv env)` is FALSE in a real environment: `SparkleMem.sync.4.16`
-  declared with result `BitVec 8` (`.bits 8 ≠ .bits 16`), printed by the probe.
-  Abstractly: `not_memR1_all`.
+## WITHDRAWN / HISTORICAL: the guard model (BUILT on poc 3a1938a3, run `md1`)
 
-## What this file proves (about a MODEL; the compiler is unchanged)
+Before the origin tag, this file modelled a GUARDED reader (`machineShapeG?`:
+refuse a general-closing shape whose entry name is a memory placeholder AND has
+a signature, `shapeClash` / `memSigClash`) over the NAME-keyed dispatch
+(`gmChoiceName`, the pre-patch `closeInstsGM` body). That proposal was NOT
+applied; the origin tag replaced it. The theorems are kept (renamed
+`gmChoiceName*` where they speak of the old dispatch) so nothing referring to
+them breaks; they describe the unpatched compiler and the withdrawn proposal,
+not the shipped code.
 
-`machineShapeG?` = `machineShape?` followed by the guard `shapeClash`: refuse
-a shape closed by the general closing (`instFields ≠ []`) when some entry's
-name is a memory placeholder AND has a signature in `senv` (`memSigClash`).
-The proposed compiler change (docs/parallel/S-memname-collision.md) puts the
-same test inside `machineShape?`, so a refused parent takes the legacy route.
-
-* `gmChoice` — the child choice of `closeInstsGM`, as written there;
-* `gmChoice_mem` — a memory-origin entry gets the memory module of its own
-  `combo aw dw`;
-* `gmChoice_sig` / `machineShapeG_dispatch` — under the guard, an entry whose
-  callee has a signature (an ordinary or structure call: `senv.inst c` or
-  `senv.instS c` is `some`) gets `synth c`, the declaration's own compile;
-* `machineShapeG_some`, `machineShapeG_noClash`;
-* `machineShapeFG` — the same guard on the fuel candidate (`machineShapeF`),
-  with `machineShapeFG_of` (the guard commutes with the candidate's answer).
-
-NOT proved: that the legacy route accepts every parent the guard refuses (the
-probe measures it for `collParent`); that `senv` at reading time is the
-environment `closeInstsGM` runs in (the entry reads `structEnv` of the
-captured environment, the closing calls the child synthesiser in the same
-`MetaM` run — a runtime fact, outside this model). -/
+The finding itself (measured, `Tests/Compiler/MemNameCollisionProbe.lean`, runs
+`mc2`, `mc4`): with `fakeSrc` copied under `SparkleMem.sync.4.8` and tagged
+`@[hardware_module]`, the unpatched certified route emitted a SYNCHRONOUS
+MEMORY for the call of the declaration (`collParent`), a miscompile; `MemR1`
+held there, so `MemR1` was not the guarding property. -/
 namespace Tools.ShippingMemDispatch
 open Lean
 open Sparkle.Compiler.Elab
 open Sparkle.Compiler.MachMemory (memChild? memChildName memModule)
 open Tools.ShippingReaderFuelR1 (MemR1)
+open Sparkle.Compiler.MachInstOrigin (InstOrigin)
 
-/-- The child choice of `closeInstsGM` (Elab.lean 5215–5217) for one entry's
-callee `c`, given the child synthesiser. -/
-def gmChoice {m : Type → Type} [Monad m] {α : Type}
+/-- HISTORICAL: the child choice of the UNPATCHED `closeInstsGM` (keyed on
+the entry's NAME) for one entry's callee `c`, given the child synthesiser. -/
+def gmChoiceName {m : Type → Type} [Monad m] {α : Type}
     (synth : Name → m α) (mem : Sparkle.IR.AST.Module × Sparkle.IR.AST.Design → α) (c : Name) : m α :=
   match memChild? c with
   | some md => pure (mem md)
@@ -82,11 +72,11 @@ theorem memChild_memChildName (combo : Bool) (aw dw : Nat) :
       | simp [memChild?, memChildName]
       | decide
 
-/-- **A memory-origin entry gets its memory module.** -/
-theorem gmChoice_mem {m : Type → Type} [Monad m] {α : Type} (synth : Name → m α)
+/-- HISTORICAL (name dispatch): a placeholder-named entry gets its memory module. -/
+theorem gmChoiceName_mem {m : Type → Type} [Monad m] {α : Type} (synth : Name → m α)
     (mem : Sparkle.IR.AST.Module × Sparkle.IR.AST.Design → α) (combo : Bool) (aw dw : Nat) :
-    gmChoice synth mem (memChildName combo aw dw) = pure (mem (memModule combo aw dw)) := by
-  unfold gmChoice
+    gmChoiceName synth mem (memChildName combo aw dw) = pure (mem (memModule combo aw dw)) := by
+  unfold gmChoiceName
   rw [memChild_memChildName]
 
 /-- A callee name that is a memory placeholder AND has a signature in `senv`. -/
@@ -141,13 +131,13 @@ theorem machineShapeG_noClash {sym : Bool} {ps : List (String × Nat)} {ci : Con
     rw [this] at hc
     first | cases hc | simp at hc
 
-/-- **Under the guard, a callee with a signature gets its own compile.** -/
-theorem gmChoice_sig {m : Type → Type} [Monad m] {α : Type} (synth : Name → m α)
+/-- HISTORICAL (withdrawn guard): under the guard, a callee with a signature gets its own compile. -/
+theorem gmChoiceName_sig {m : Type → Type} [Monad m] {α : Type} (synth : Name → m α)
     (mem : Sparkle.IR.AST.Module × Sparkle.IR.AST.Design → α) {senv : StructEnv} {c : Name}
     (hsig : (senv.inst c).isSome = true ∨ (senv.instS c).isSome = true)
     (hno : memSigClash senv c = false) :
-    gmChoice synth mem c = synth c := by
-  unfold gmChoice
+    gmChoiceName synth mem c = synth c := by
+  unfold gmChoiceName
   cases hm : memChild? c with
   | none => rfl
   | some md =>
@@ -169,8 +159,8 @@ theorem machineShapeG_dispatch {m : Type → Type} [Monad m] {α : Type} (synth 
     (h : machineShapeG? sym ps ci senv ai = some sp) (hne : sp.instFields ≠ [])
     {e : Name × List Nat × MixedGateBinder} (he : e ∈ sp.insts)
     (hsig : (senv.inst e.1).isSome = true ∨ (senv.instS e.1).isSome = true) :
-    gmChoice synth mem e.1 = synth e.1 :=
-  gmChoice_sig synth mem hsig (machineShapeG_noClash h hne he)
+    gmChoiceName synth mem e.1 = synth e.1 :=
+  gmChoiceName_sig synth mem hsig (machineShapeG_noClash h hne he)
 
 /-- Under the guard, a memory placeholder entry of a general-closing shape has
 NO signature (so `R1` holds for it without `MemR1`). -/
@@ -197,6 +187,123 @@ theorem not_memR1_all : ¬ ∀ senv : StructEnv, MemR1 senv := by
   have := h { proj := fun _ => none, fields := fun _ => none,
               inst := fun _ => some ([], MixedGateBinder.bool) } false 1 1 [] MixedGateBinder.bool rfl
   cases this
+
+
+/-! ## The origin dispatch (patched compiler) -/
+
+/-- **The child choice of the patched `closeInstsGM`** for one tagged entry
+(callee `c`, origin `o`): the origin's built child, else the declaration's
+compile. -/
+def gmChoice {m : Type → Type} [Monad m] {α : Type}
+    (synth : Name → m α) (mem : Sparkle.IR.AST.Module × Sparkle.IR.AST.Design → α)
+    (c : Name) (o : InstOrigin) : m α :=
+  match o.child? with
+  | some md => pure (mem md)
+  | none => synth c
+
+/-- The patched closing's `mapM` body (Elab.lean, `closeInstsGM`) is `gmChoice`. -/
+theorem gmChoice_body {m : Type → Type} [Monad m]
+    (synth : Name → m (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design)) :
+    (fun (x : Name × InstOrigin) => match x with
+      | (c, o) => match o.child? with
+        | some md => pure md
+        | none => synth c) = fun x => gmChoice synth id x.1 x.2 := by
+  funext x
+  obtain ⟨c, o⟩ := x
+  rfl
+
+/-- **A memory-origin entry gets the memory module of its own widths**,
+whatever the entry's name. -/
+theorem gmChoice_mem {m : Type → Type} [Monad m] {α : Type} (synth : Name → m α)
+    (mem : Sparkle.IR.AST.Module × Sparkle.IR.AST.Design → α) (c : Name)
+    (combo : Bool) (aw dw : Nat) :
+    gmChoice synth mem c (.mem combo aw dw) = pure (mem (memModule combo aw dw)) := rfl
+
+/-- **Every other entry gets the declaration's own compile.** -/
+theorem gmChoice_notMem {m : Type → Type} [Monad m] {α : Type} (synth : Name → m α)
+    (mem : Sparkle.IR.AST.Module × Sparkle.IR.AST.Design → α) (c : Name) {o : InstOrigin}
+    (h : ∀ combo aw dw, o ≠ .mem combo aw dw) :
+    gmChoice synth mem c o = synth c := by
+  cases o with
+  | ord => rfl
+  | field i => rfl
+  | mem combo aw dw => exact absurd rfl (h combo aw dw)
+
+/-- **The collision case**: a declaration NAMED as a memory placeholder, read
+as an ordinary call (or a structure field), gets its own compile. -/
+theorem gmChoice_collision {m : Type → Type} [Monad m] {α : Type} (synth : Name → m α)
+    (mem : Sparkle.IR.AST.Module × Sparkle.IR.AST.Design → α) (combo : Bool) (aw dw : Nat) :
+    gmChoice synth mem (memChildName combo aw dw) .ord = synth (memChildName combo aw dw) ∧
+    ∀ i, gmChoice synth mem (memChildName combo aw dw) (.field i) =
+      synth (memChildName combo aw dw) :=
+  ⟨rfl, fun _ => rfl⟩
+
+section Run
+open Lean Meta
+open Tools.ShippingEntrySoundness Tools.ShippingChildInv Tools.ShippingMachineEntry
+
+variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+  {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+
+/-- **The per-entry choice of a real run of the patched `closeInstsGM`**, from
+an invariant world: a memory-origin entry's child IS `memModule cb aw dw`; an
+entry of any other origin has a `RealChild` of its declaration — whatever the
+name. -/
+theorem closeInstsGM_child_choice (L : RefLaws mref cref)
+    (hB : ∀ L' : RefLaws mref cref, BodyRel L')
+    {shape : MachineShape} {t m₀ : Sparkle.IR.AST.Module} {d₀ : Sparkle.IR.AST.Design}
+    {m : Sparkle.IR.AST.Module} {d : Sparkle.IR.AST.Design} {w w' : Void IO.RealWorld}
+    (hw : InvV L w)
+    (hr : RunsTo (closeInstsGM shape t m₀ d₀) mctx mref cctx cref w (some (m, d)) w') :
+    ∃ children, Sparkle.IR.Machine.closeInstsG (machNIn shape) shape.insts.length
+        shape.layout.slots.length (t.inputs.map (·.name)) (shape.insts.map (·.2.1))
+        shape.instFields children (m₀, d₀) = some (m, d) ∧
+      children.length = shape.insts.length ∧
+      ∀ k (hk : k < shape.insts.length), ∃ y, children[k]? = some y ∧
+        (∀ combo aw dw, shape.instOrigins.getD k .ord = .mem combo aw dw →
+          y = memModule combo aw dw) ∧
+        ((∀ combo aw dw, shape.instOrigins.getD k .ord ≠ .mem combo aw dw) →
+          RealChild mref cref (shape.insts[k]).1 y) := by
+  obtain ⟨children, hc, hMC, ⟨hlen, hall⟩, -⟩ := closeInstsGM_inv L hB hw hr
+  refine ⟨children, hc, hlen, fun k hk => ?_⟩
+  obtain ⟨y, hy, hor⟩ := hall k hk
+  refine ⟨y, hy, fun combo aw dw ho => ?_, fun hno => ?_⟩
+  · have h1 := hMC k hk (memModule combo aw dw)
+      (by simp [ho, Sparkle.Compiler.MachInstOrigin.InstOrigin.child?])
+    rw [hy] at h1
+    exact Option.some.inj h1
+  · have hnone : (shape.instOrigins.getD k .ord).child? = none := by
+      cases ho' : shape.instOrigins.getD k .ord with
+      | ord => rfl
+      | field i => rfl
+      | mem combo aw dw => exact absurd ho' (hno combo aw dw)
+    rcases hor with h | h
+    · rw [hnone] at h
+      cases h
+    · exact h
+
+/-- **A colliding name is compiled**: an entry named `memChildName combo aw dw`
+whose origin is ordinary gets a `RealChild` of that declaration. -/
+theorem closeInstsGM_collision_compiled (L : RefLaws mref cref)
+    (hB : ∀ L' : RefLaws mref cref, BodyRel L')
+    {shape : MachineShape} {t m₀ : Sparkle.IR.AST.Module} {d₀ : Sparkle.IR.AST.Design}
+    {m : Sparkle.IR.AST.Module} {d : Sparkle.IR.AST.Design} {w w' : Void IO.RealWorld}
+    (hw : InvV L w)
+    (hr : RunsTo (closeInstsGM shape t m₀ d₀) mctx mref cctx cref w (some (m, d)) w')
+    {k : Nat} (hk : k < shape.insts.length) {combo : Bool} {aw dw : Nat}
+    (hname : (shape.insts[k]).1 = memChildName combo aw dw)
+    (hord : shape.instOrigins.getD k .ord = .ord) :
+    ∃ children y, Sparkle.IR.Machine.closeInstsG (machNIn shape) shape.insts.length
+        shape.layout.slots.length (t.inputs.map (·.name)) (shape.insts.map (·.2.1))
+        shape.instFields children (m₀, d₀) = some (m, d) ∧
+      children[k]? = some y ∧ RealChild mref cref (memChildName combo aw dw) y := by
+  obtain ⟨children, hc, -, hall⟩ := closeInstsGM_child_choice L hB hw hr
+  obtain ⟨y, hy, -, hre⟩ := hall k hk
+  refine ⟨children, y, hc, hy, ?_⟩
+  rw [← hname]
+  exact hre (fun combo' aw' dw' h => by rw [hord] at h; cases h)
+
+end Run
 
 /-! ## The same guard on the fuel candidate -/
 

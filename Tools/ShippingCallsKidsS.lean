@@ -1,5 +1,7 @@
 import Tools.ShippingCallsKidsD
 import Tools.ShippingCallsRunFinal
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 variable {tenv : Lean.Environment}
 
@@ -124,7 +126,7 @@ theorem closes_of_agree {declName : Name} (d : MachineData) (ok : d.ok = true)
     (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
     (hfne : d.shape.instFields ≠ [])
     (nk : Nat → Nat) (outsK : Nat → List String) (namesK : Nat → List String)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnotag : ∀ o ∈ d.shape.instTagged, o.2.child?.isNone = true)
     (hkid : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y →
       ChildIfaceD (d.shape.insts[k]).1 (nk k) (outsK k) (namesK k) y.1 y.2)
@@ -173,7 +175,7 @@ theorem closes_of_agree {declName : Name} (d : MachineData) (ok : d.ok = true)
   · rename_i he
     exact absurd (List.isEmpty_iff.mp he) hfne
   obtain ⟨children, rfl, hreal, hpair, hfin, hwE⟩ :=
-    Tools.ShippingCallsRunFinal.closeInstsGM_run_allF L hB hw1 hd1 hnomem hr
+    Tools.ShippingCallsRunFinal.closeInstsGM_run_allF L hB hw1 hd1 hnotag hr
   have key : (closeInstsG (machNIn d.shape) d.shape.insts.length d.shape.layout.slots.length
       (t.inputs.map (·.name)) (d.shape.insts.map (·.2.1)) d.shape.instFields children
       (closeMachine d.shape.layout t', d₀)).isSome = true := by
@@ -353,7 +355,7 @@ theorem machineClosesAtS_of_kids {declName : Name} (d : MachineData) (ok : d.ok 
     (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
     (hfne : d.shape.instFields ≠ [])
     (nk : Nat → Nat) (outsK : Nat → List String) (namesK : Nat → List String)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnotag : ∀ o ∈ d.shape.instTagged, o.2.child?.isNone = true)
     (hkid : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y →
       ChildIfaceD (d.shape.insts[k]).1 (nk k) (outsK k) (namesK k) y.1 y.2)
@@ -375,7 +377,7 @@ theorem machineClosesAtS_of_kids {declName : Name} (d : MachineData) (ok : d.ok 
       (Sparkle.IR.ModuleName.ofDecl (d.shape.insts[k]).1) ∉ namesK k) :
     MachineClosesAtS mctx mref cctx cref declName d.shape (d.shape.insts.map (·.1)) :=
   fun {tenv} b w r w' hw hdp hr hag =>
-    closes_of_agree d ok hbody halias hC hslots hdomB hfne nk outsK namesK hnomem hkid hargsN
+    closes_of_agree d ok hbody halias hC hslots hdomB hfne nk outsK namesK hnotag hkid hargsN
       hfieldOut hfieldsNd hsep hparent hfresh hparentD hselfD b w r w' hw hdp hr (fun _ => hag)
 
 set_option maxHeartbeats 1000000 in
@@ -395,7 +397,7 @@ theorem machineClosesAt_of_kidsD_again {declName : Name} (d : MachineData) (ok :
     (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
     (hfne : d.shape.instFields ≠ [])
     (nk : Nat → Nat) (outsK : Nat → List String) (namesK : Nat → List String)
-    (hnomem : ∀ c ∈ d.shape.insts, Sparkle.Compiler.MachMemory.memChild? c.1 = none)
+    (hnotag : ∀ o ∈ d.shape.instTagged, o.2.child?.isNone = true)
     (hkid : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
       RealChild mref cref (d.shape.insts[k]).1 y →
       ChildIfaceD (d.shape.insts[k]).1 (nk k) (outsK k) (namesK k) y.1 y.2)
@@ -420,7 +422,7 @@ theorem machineClosesAt_of_kidsD_again {declName : Name} (d : MachineData) (ok :
       (Sparkle.IR.ModuleName.ofDecl (d.shape.insts[k]).1) ∉ namesK k' ∧ ∀ x ∈ namesK k, x ∉ namesK k') :
     MachineClosesAt mctx mref cctx cref declName d.shape := by
   intro tenv b w r w' hw hdp hr
-  refine closes_of_agree d ok hbody halias hC hslots hdomB hfne nk outsK namesK hnomem hkid
+  refine closes_of_agree d ok hbody halias hC hslots hdomB hfne nk outsK namesK hnotag hkid
     hargsN hfieldOut hfieldsNd hsep hparent hfresh hparentD hselfD b w r w' hw hdp hr ?_
   intro hinv mctx' cctx' m w1 hg c hc c' hc' hne y y' hy hy' a ha b' hb hn
   exfalso

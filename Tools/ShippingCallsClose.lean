@@ -1,5 +1,7 @@
 import Tools.ShippingChildRun
 import Tools.ShippingClosesSplit
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # The calls' closing, from an invariant world
 
@@ -46,12 +48,17 @@ theorem closeInstsM_run (L : RefLaws mref cref) (hB : ∀ L' : RefLaws mref cref
   obtain ⟨children, w2, hch, hr⟩ := RunsTo.bind hr
   obtain ⟨heq, rfl⟩ := RunsTo.pure_world hr
   obtain ⟨hlen, hk, hw2⟩ := mapM_hoare _ (InvV L)
-    (fun (x : Name × List Nat × MixedGateBinder) y =>
-      Sparkle.Compiler.MachMemory.memChild? x.1 = some y ∨ RealChild mref cref x.1 y)
+    (fun (x : Name × List Nat × MixedGateBinder) y => RealChild mref cref x.1 y)
     (fun x w y w' hp hy => by
       obtain ⟨hrc, hp'⟩ := synthesizeChild_inv L hB hp hy
-      exact ⟨Or.inr hrc, hp'⟩)
+      exact ⟨hrc, hp'⟩)
     shape.insts children hw1 hch
+  -- the one-output closing synthesises every entry: every child is real
+  have hk : ∀ k (hk : k < shape.insts.length), ∃ y, children[k]? = some y ∧
+      ((shape.instOrigins.getD k .ord).child? = some y ∨
+        RealChild mref cref (shape.insts[k]).1 y) := fun k hk' => by
+    obtain ⟨y, hy, hre⟩ := hk k hk'
+    exact ⟨y, hy, Or.inr hre⟩
   exact ⟨children, heq, ⟨hlen, hk⟩, hw2⟩
 
 /-- **A run of the general closing, from an invariant world.** -/
@@ -69,13 +76,14 @@ theorem closeInstsGM_run (L : RefLaws mref cref) (hB : ∀ L' : RefLaws mref cre
   obtain ⟨children, w2, hch, hr⟩ := RunsTo.bind hr
   obtain ⟨heq, rfl⟩ := RunsTo.pure_world hr
   obtain ⟨hlen, hk, hw2⟩ := mapM_hoare _ (InvV L)
-    (fun (x : Name × List Nat × MixedGateBinder) y =>
-      (∀ md, Sparkle.Compiler.MachMemory.memChild? x.1 = some md → y = md) ∧
-      (Sparkle.Compiler.MachMemory.memChild? x.1 = some y ∨ RealChild mref cref x.1 y))
+    (fun (x : Name × Sparkle.Compiler.MachInstOrigin.InstOrigin) y =>
+      (∀ md, x.2.child? = some md → y = md) ∧
+      (x.2.child? = some y ∨ RealChild mref cref x.1 y))
     (fun x w y w' hp hy => by
-      obtain ⟨c, b, k'⟩ := x
+      -- the patched closing maps the tagged entries, dispatching on the ORIGIN
+      obtain ⟨c, o⟩ := x
       dsimp only at hy ⊢
-      cases hmc : Sparkle.Compiler.MachMemory.memChild? c with
+      cases hmc : Sparkle.Compiler.MachInstOrigin.InstOrigin.child? o with
       | some md =>
         rw [hmc] at hy
         obtain ⟨rfl, rfl⟩ := RunsTo.pure_world hy
@@ -84,19 +92,19 @@ theorem closeInstsGM_run (L : RefLaws mref cref) (hB : ∀ L' : RefLaws mref cre
         rw [hmc] at hy
         obtain ⟨hrc, hp'⟩ := synthesizeChild_inv L hB hp hy
         exact ⟨⟨fun md' h => (by cases h), Or.inr hrc⟩, hp'⟩)
-    shape.insts children hw1 hch
-  refine ⟨children, heq, ?_, ⟨hlen, fun k hkl => ?_⟩, hw2⟩
-  · intro k c hc md hmd
-    have hkl : k < shape.insts.length := by
-      have := (List.getElem?_eq_some_iff.mp hc).1; simpa using this
-    obtain ⟨y, hky, hm, _⟩ := hk k hkl
-    have hck : (shape.insts[k]).1 = c := by
-      rw [List.getElem?_map, List.getElem?_eq_getElem hkl] at hc
-      simpa using hc
-    rw [← hck] at hmd
+    shape.instTagged children hw1 hch
+  have hlenI : children.length = shape.insts.length := by
+    rw [hlen]; exact instTagged_length' shape
+  refine ⟨children, heq, ?_, ⟨hlenI, fun k hkl => ?_⟩, hw2⟩
+  · intro k hkl md hmd
+    obtain ⟨hkT, he⟩ := instTagged_getAt shape hkl
+    obtain ⟨y, hky, hm, _⟩ := hk k hkT
+    rw [he] at hm
     rw [hm md hmd] at hky
     exact hky
-  · obtain ⟨y, hky, _, hor⟩ := hk k hkl
+  · obtain ⟨hkT, he⟩ := instTagged_getAt shape hkl
+    obtain ⟨y, hky, _, hor⟩ := hk k hkT
+    rw [he] at hor
     exact ⟨y, hky, hor⟩
 
 /-- **The pure closing succeeds on real children**: for a transition the

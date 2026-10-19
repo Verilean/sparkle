@@ -1,5 +1,7 @@
 import Tools.ShippingMemClosesKids
 import Tools.ShippingMemOnly
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # `MachineClosesAt` of a MEMORY-ONLY parent, from decided reader data (round par/a-19)
 
@@ -45,7 +47,17 @@ general theorem), `MemOnlyCloseData`, `machineClosesAt_of_memOnlyData` (the
 same over the BUILT `MemOnlyData`), `sep_of_one` / `parent_of_one` (`hsep` /
 `hparent` of a parent whose entries are all of ONE placeholder).
 
-WRITTEN, NOT BUILT (par/a-19). -/
+WRITTEN, NOT BUILT (par/a-19).
+
+ORIGIN DISPATCH (patched compiler: the general closing builds a child from the
+entry's ORIGIN): `machineClosesAt_memOnly` asks `hagree : TagsAgree d.shape`
+(every entry's placeholder name decodes to what its origin builds — for a
+memory-only shape read by the patched reader: every origin is
+`.mem cb aw dw` with the entry named `memChildName cb aw dw`), and
+`MemOnlyCloseData` has the field `agree`. Decided per declaration; the memory
+child itself comes from the tag (`KidT`, `.mem cb aw dw ⇒ memModule cb aw dw`)
+through `closeInstsGM_run_allM_named`. WRITTEN, NOT BUILT against patched
+compiler (par/o-close). -/
 namespace Tools.ShippingMemOnlyCloses
 open Lean Meta
 open Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Machine
@@ -104,11 +116,12 @@ theorem machineClosesAt_memOnly {declName : Name} (d : MachineData) (ok : d.ok =
       (hk' : k' < d.shape.insts.length), memNameAt d k = memNameAt d k' →
       (d.shape.insts[k]).1 = (d.shape.insts[k']).1)
     (hparent : ∀ (k : Nat), k < d.shape.insts.length → memNameAt d k ≠ (Sparkle.IR.ModuleName.ofDecl declName))
-    (hout : ∀ o ∈ d.shape.layout.outs, o.name.toList.head? ≠ some 'i') :
+    (hout : ∀ o ∈ d.shape.layout.outs, o.name.toList.head? ≠ some 'i')
+    (hagree : Tools.ShippingInstTagged.TagsAgree d.shape) :
     MachineClosesAt mctx mref cctx cref declName d.shape := by
   refine machineClosesAt_of_kidsDM d ok hbody halias hC hslots hdomB hfne
     (memNameAt d) (fun _ => 4) (fun _ => ["out"]) (fun k => [memNameAt d k])
-    ?_ ?_ ?_ ?_ hsep hparent ?_ ?_ ?_
+    ?_ ?_ ?_ ?_ hsep hparent ?_ ?_ ?_ hagree
   · -- hkid: a kid of a memory placeholder is the built module
     intro k hk y hy
     obtain ⟨cb, aw, dw, hc⟩ := hmem k hk
@@ -154,6 +167,9 @@ structure MemOnlyCloseData (d : MachineData) : Prop where
     (hk' : k' < d.shape.insts.length), (d.shape.insts[k]).1 = (d.shape.insts[k']).1 →
     (d.shape.insts[k]).2.1 = (d.shape.insts[k']).2.1 → k = k'
   outHead : ∀ o ∈ d.shape.layout.outs, o.name.toList.head? ≠ some 'i'
+  /-- every entry's name decodes to what its ORIGIN builds (origin dispatch,
+  patched compiler; decided, false for a collision shape) -/
+  agree : Tools.ShippingInstTagged.TagsAgree d.shape
 
 /-- **`MachineClosesAt` of a memory-only parent, over the built
 `MemOnlyData`** (`ok`, the body equation, `callsOk`, the slots, the late
@@ -168,7 +184,7 @@ theorem machineClosesAt_of_memOnlyData {declName : Name} {d : MachineData} {nDec
     MachineClosesAt mctx mref cctx cref declName d.shape :=
   machineClosesAt_memOnly d D.ok D.body C.alias D.calls D.slots D.domB D.fne
     (fun k hk => (D.mem k hk).elim fun cb h => Exists.intro cb (Exists.intro aw (Exists.intro dw h)))
-    C.argsN C.field C.argsNd hsep hparent C.outHead
+    C.argsN C.field C.argsNd hsep hparent C.outHead C.agree
 
 /-- `hsep` of a parent whose entries are all of ONE declaration `c`. -/
 theorem sep_of_one {d : MachineData} {c : Name}

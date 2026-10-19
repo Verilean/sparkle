@@ -1,5 +1,7 @@
 import Tools.ShippingMachineLinkedT
 import Tools.ShippingHierMem
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # A memory call's instance inside the composed machine
 
@@ -116,12 +118,12 @@ theorem mem_hchild {D : DomainConfig} (shape : Sparkle.Compiler.Elab.MachineShap
       (∀ e ∈ outs, (shape.insts.map (·.2.1))[e.1]? = some args ∧
         shape.instFields.getD e.1 "" = e.2 ∧
         ∀ c md, (shape.insts.map (·.1))[e.1]? = some c →
-          Sparkle.Compiler.MachMemory.memChild? c = some md → mc = md.1) →
+          (shape.instOrigins.getD e.1 .ord).child? = some md → mc = md.1) →
       -- the calls of this instance are memory reads
       (∀ e ∈ outs, ∀ c, (shape.insts.map (·.1))[e.1]? = some c →
       ∃ (cb : Bool) (aw dw : Nat) (A : Signal D (BitVec aw)) (Dd : Signal D (BitVec dw)) (E : Signal D Bool)
         (R : Signal D (BitVec aw)) (l0 l1 l2 l3 : Nat),
-        Sparkle.Compiler.MachMemory.memChild? c =
+        (shape.instOrigins.getD e.1 .ord).child? =
           some (Sparkle.Compiler.MachMemory.memModule cb aw dw) ∧
         (shape.insts.map (·.2.1))[e.1]? = some [l0, l1, l2, l3] ∧
         lsrc[l0]? = some (fun j => (A.val j).toNat) ∧ l0 < nL ∧
@@ -218,7 +220,7 @@ theorem machine_linkedT_mem {declName : Name} {d : MachineData} {m : Module} {ds
       (d.shape.insts.map (·.1))[k]? = some c →
       ∃ (cb : Bool) (aw dw : Nat) (A : Signal (dom i) (BitVec aw)) (Dd : Signal (dom i) (BitVec dw))
         (E : Signal (dom i) Bool) (R : Signal (dom i) (BitVec aw)) (l0 l1 l2 l3 : Nat),
-        Sparkle.Compiler.MachMemory.memChild? c =
+        (d.shape.instOrigins.getD k .ord).child? =
           some (Sparkle.Compiler.MachMemory.memModule cb aw dw) ∧
         (d.shape.insts.map (·.2.1))[k]? = some [l0, l1, l2, l3] ∧
         (lsrc i bools bits)[l0]? = some (fun j => (A.val j).toNat) ∧ l0 < d.ls.length ∧

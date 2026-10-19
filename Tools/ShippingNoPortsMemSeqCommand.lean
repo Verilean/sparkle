@@ -13,6 +13,8 @@ import Tools.ShippingMemSeqNames
 import Tools.ShippingNameMode
 import Tools.ShippingMachineClosesGen
 import Tools.ShippingReaderOutsInv
+-- ORIGIN DISPATCH (par/o-close, compiler change "explicit call-entry origin"):
+-- WRITTEN, NOT BUILT against patched compiler.
 
 /-! # `#machine_no_ports_memseq f`: the check-free depth-0 endpoint of a parent whose call entries MIX leaf register machine children and memory placeholders, open and closed, GENERATED (round par/b-21)
 
@@ -937,7 +939,10 @@ def closingTheorems (c : Ctx) : CommandElabM Unit := do
         $(c.lem "sep") $(c.lem "parent")
         (fun gi _ _ o ho =>
           Tools.ShippingCallsGate.instName_ne_of_head ($(c.lem "outHead") o ho) gi _)
-        $(c.lem "parentD") $(c.lem "disj"))
+        $(c.lem "parentD") $(c.lem "disj")
+        -- origin dispatch (patched compiler): names say what their origins build
+        (show Tools.ShippingInstTagged.TagsAgree ($d).shape by
+          first | decide | decide +kernel))
 
 /-! ## The endpoint (the hand generator, restated) -/
 
