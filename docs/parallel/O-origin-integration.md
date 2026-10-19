@@ -234,3 +234,35 @@ structural replace on `.forallE` types, exclusion lists G1/G2 in `userAbbrev?` /
 change, isolated candidate only, needs a ruling before any switch; eliminates `P5At` / `p5s` for callees with ≥ 1
 binder, renames reading-back into the existing `InstSubst` boundary; `typeAgree` / `fieldsAgree` and InstAgree stay
 open. Nothing implemented.
+
+### Unit 1 — design level for parents with a memory, a GATE child and registers (incl. the original `fakeSrc` collision)
+
+| run | target | exit | notes |
+|---|---|---|---|
+| gd1 | `Tools.ShippingMachineCallsLinkedTG` (worker, as written) | 0 | peak 0.97 GB |
+| gd2 | `Tests.Compiler.MemNameCollisionGateDesignTest` (+ `Tools.ShippingMachineGateMemCommand`) | 0 | 621 jobs, peak 0.51 GB; audit asserts standard axioms on 4 general theorems, both `gate_kid_run`, 8 generated endpoints and `collMixSame_designG` |
+| gdp2 | probe: print `collMixSame_designG`'s conclusion | 0 | antecedents listed below |
+
+* `Tools/ShippingMachineCallsLinkedTG.lean`: `GateKidRun`, `gateKidRun_of_gateRun`, `gate_inst_run`, `GateFactsR`,
+  `calls_hchildRG` (per call: memory facts ∨ sequential ∨ gate), `machine_linkedT_callsRG` (`GateRun` DERIVED from
+  `ServedReal` + the gate child's `EntryDefines`, not a binder).
+* `Tools/ShippingMachineGateMemCommand.lean`: `#gate_kid`, `#machine_composedTRG`, `#machine_design_svRG0`; callees
+  classified by ORIGIN (memory) and by the existence of `c.machine_sound` (sequential) else gate.
+* Endpoints generated for `mixSame` (control) and `collMixSame` (the original `fakeSrc` collision, same argument lets).
+
+Before: no composed or design endpoint for either (gdp1: `#machine_design_svR0` refused both); for the collision only
+the closing certificate `collMixSame_closes`. After:
+
+| statement | Prop binders | antecedents under ∃ |
+|---|---|---|
+| `f.machine_composedTRGA` | run (core), `MachineDefines f`, `MachineClosesAt f`, `ChildBnd`, `EntryDefines <callee> <callee>.gateValue` | — |
+| `f.machine_design_svRG0` | run, `MachineDefines f`, `MachineClosesAt f` | `shipsHierCheck`, `designCheck … 0`, `outsCheck … 0`, `kidsMixed`, boundary (`ChildBnd ∧ EntryDefines SparkleMem.sync.4.8 …`) |
+| `collMixSame_designG` | run, `MachineDefines collMixSame`, `EntryDefines syncName fakeSrc.gateValue` | the same five |
+
+Premise accounting: `GateRun` — ELIMINATED as a binder (derived); `MachineClosesAt collMixSame` — ELIMINATED
+(`collMixSame_closes`); no `TagsAgree` (asserted). LOCALISED: the gate child's reflection, into the boundary
+conjunction. STILL PREMISES: the four check antecedents (not discharged for a gate child — the `noPortsR0`-style
+discharge exists only for leaf/memory children) and `MachineClosesAt mixSame` for the control. The colliding
+reflection appears twice (`hR0` at `fakeSrc.gateValue`, the boundary's at `SparkleMem.sync.4.8.gateValue`; equal by
+`syncGate_value`, not merged). Not covered: `collMixDiff`, `collMixArgs`, `collWidth` (not run through the
+generator this round), the SV string, `#sim`.

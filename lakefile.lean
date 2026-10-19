@@ -795,6 +795,12 @@ lean_lib «Tools.ShippingMachineSeqLinkedR» where
 lean_lib «Tools.ShippingMachineSeqCommandR» where
   roots := #[`Tools.ShippingMachineSeqCommandR]
 
+lean_lib «Tools.ShippingMachineCallsLinkedTG» where
+  roots := #[`Tools.ShippingMachineCallsLinkedTG]
+
+lean_lib «Tools.ShippingMachineGateMemCommand» where
+  roots := #[`Tools.ShippingMachineGateMemCommand]
+
 lean_lib «Tools.ShippingMachineCallsLinkedTNR» where
   roots := #[`Tools.ShippingMachineCallsLinkedTNR]
 
