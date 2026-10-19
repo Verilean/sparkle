@@ -3186,3 +3186,9 @@ lean_lib «Tools.ShippingInlTypeReads» where
 
 lean_lib «Tools.ShippingP5Forall» where
   roots := #[`Tools.ShippingP5Forall]
+
+lean_lib «Tools.ShippingKidsTyped» where
+  roots := #[`Tools.ShippingKidsTyped]
+
+lean_lib «Tools.ShippingNoPortsTyped» where
+  roots := #[`Tools.ShippingNoPortsTyped]

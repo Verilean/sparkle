@@ -350,3 +350,27 @@ and in `circuit do` form are not machine shapes (`machineShape? = none`); the pr
 instance), `kSum` is instantiated by the legacy route. So a counterexample to the RUN theorem `LocalStruct.p5s` is
 NOT established (no `ChildRunW` reached); p5p1 remains evidence about the reading functions only. The plan's
 "FALSE on accepted inputs" stays a type-level statement (see the plan's correction box).
+
+### `hchain` eliminated by a typed children bound (Option A)
+
+| run | target | exit | notes |
+|---|---|---|---|
+| ty1 | `Tools.ShippingKidsTyped` (worker, as written) | 0 | peak 0.95 GB |
+| ty2 | `Tools.ShippingNoPortsTyped`, `Tests.Compiler.MemNameCollisionGateTypedTest` | 0 | 653 jobs; axioms standard |
+
+`KSBoundedIn` (every-environment child bound) is consumed only by `machine_ships_hierC_at_free` → `fitX_of_run`
+(the extracted inputs fit their widths along the run). New: `Tools/ShippingKidsTyped.lean` (`TypedRun`,
+`KSBoundedTypedIn`, `fitX_of_runTyped` — bound only on the environments the run reaches; `kidTyped_of_gate` from
+`GateChildPorts`; `core_typedRunMT` — parent side DERIVED from the run: `core_closed_typedInMT`, `core_callConnsMT`,
+`callArgsOk`), `Tools/ShippingNoPortsTyped.lean` (`machine_design_noPortsT`, depth 0, `hTyped` in place of
+`Bd`/`hBd`).
+
+| | outer Prop binders | antecedents under `∃ raw D` | conclusion |
+|---|---|---|---|
+| `collMixSame_designClosed` | run, `MachineDefines`, `EntryDefines syncName fakeSrc.gateValue`, `hchain` | `ChildBnd` | DesignSV (unchanged) |
+| `collMixSame_designClosedT` | run, `MachineDefines`, `EntryDefines syncName fakeSrc.gateValue` | `ChildBnd` | DesignSV with ONE ADDED run hypothesis: `BoundOff (declWidth b) outputs st0` (the start state fits its widths off the outputs — the same hypothesis the one-output head `machine_design_svH_free` has) |
+
+`hchain` — ELIMINATED (no syntactic premise on the gate child's module). The added `BoundOff st0` is a
+STATEMENT CHANGE of the conclusion (weaker: it now speaks of runs from a width-fitting start state), reported, not
+hidden; both theorems are kept. Remaining for this case: the run, the two reflections (`MachineDefines`,
+`EntryDefines`), `ChildBnd`. Not yet: generator, `collMixDiff` / `collMixArgs` / `collWidth`.
