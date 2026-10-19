@@ -85,3 +85,19 @@ unchanged. GitHub CI runs on ef8ff162 do NOT include the compiler change and do 
 No generator silently skips an accepted collision shape while reporting it covered; every path is an error or a
 reported refusal. Census caveat: a collision parent would be reported under the "memory" refusal reason (wrong
 label). Endpoints still requiring a compatibility premise: every row above except where O-KIDT removes it.
+
+## Round 2026-10-19 (late): premises truly eliminated vs localised vs renamed
+
+| item | before | after | kind |
+|---|---|---|---|
+| memory-parent CLOSING (`machineClosesAt_of_kidsDMT`, Tools/ShippingMemClosesKidsT.lean, kt2) | `TagsAgree`, name-half `hnomem`, name-only entry identity | none of them (entry identity = name AND `memKey` of the tag) | ELIMINATED for this closing |
+| collision certificate (`collSame_closes`, `collArgs_closes`, kt4) | none existed (old M2 refuted: `collSame_not_agree`) | `MachineClosesAt` for real memory + declaration under its placeholder name (equal / different args); premise: `MachineDefines` of the callee | NEW coverage (closing only; run-facts / design-level endpoints for collision parents still need the name-based `core_*M` chain) |
+| DR (`DeclTypeReadAt`, all runs) | lookup law + agreement | `LocalStruct.typeAgree` on the child's witnessed read (Tools/ShippingEnvLocal.lean, el1) | lookup law ELIMINATED (`getConstInfo_find`); agreement LOCALISED, not discharged |
+| FA (`FieldsAt`, all runs) | global | `LocalStruct.fieldsAgree`, one run, one head constant | LOCALISED |
+| P5SAt | all runs | `LocalStruct.p5s`, one run | LOCALISED |
+| InstSubst | new semantic premise | derived from `InstAgree` (sm2) for production; ELIMINATED for the isolated model reader `instResM` only | production: RENAMED to an open runtime-agreement boundary; model: eliminated |
+| env preservation | — | specified (envGet/envFrame), NOT added; RefLaws cannot entail it (O-env-audit.md) | open |
+
+Still requiring compatibility premises: `kidsM_*`, `core_*M` (ChecksCore/Raw/Widths, MemKidCore/Ports/Facts),
+`KidFactsM`, `kidsChild_of_realM`, `GenKidM`/`MemOnly*` (`agree`), `closeInstsGM_run_allM_named`, the general /
+one-output chains (`real_of_kid`, `CoreFromM*`), and the generators in the audit table above.
