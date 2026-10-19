@@ -3225,3 +3225,21 @@ lean_lib «Tools.ShippingGateCert2» where
 
 lean_lib «Tools.ShippingGateCert2Command» where
   roots := #[`Tools.ShippingGateCert2Command]
+
+lean_lib «Tools.ShippingComposedGW» where
+  roots := #[`Tools.ShippingComposedGW]
+
+lean_lib «Tools.ShippingNoPortsTypedBW» where
+  roots := #[`Tools.ShippingNoPortsTypedBW]
+
+lean_lib «Tools.ShippingGateTypedCommandW» where
+  roots := #[`Tools.ShippingGateTypedCommandW]
+
+lean_lib «Tools.ShippingSatInputs» where
+  roots := #[`Tools.ShippingSatInputs]
+
+lean_lib «Tools.ShippingInputWiresRun» where
+  roots := #[`Tools.ShippingInputWiresRun]
+
+lean_lib «Tools.ShippingSatAssembly» where
+  roots := #[`Tools.ShippingSatAssembly]

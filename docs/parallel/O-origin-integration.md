@@ -498,3 +498,89 @@ Non-vacuity:
 
 Final SHA of the round: 3a758f9a (+ this record). Corpus not run. No CI (local, not pushed). The inliner
 candidate is unchanged and its open items stay open.
+
+## Round 906707ea-next (review of 5e8f8b7a): usable conclusions, ChildBnd unfolded, certificate
+
+Base 5e8f8b7a. Writers in hand-made worktrees (par/sat, par/kids, par/cbnd, par/cert); every build by the
+integrator under cgrun (3 GiB, swap 0, -j 1), one at a time.
+
+### A. The conclusions are jointly satisfiable (all four parents)
+
+Findings (source review, confirmed by the builds below):
+1. `ComposedG` exports only `regs.Nodup ∧ regs.length`. The conclusion's pass hypothesis
+   `∀ t st r, r ∈ regs → seedIn b ins t st r = st r` needs `r ∉ b.inputs`, so it cannot be discharged
+   by a user of `<p>_designClosedB`. `machine_linkedT_callsRG` (ShippingMachineCallsLinkedTG.lean:545)
+   had the facts (`MachineWired`) and dropped them.
+2. The head's conclusion `∃ raw D, hpost ∧ …` does not tie `raw`/`D` to a run, so nothing about the children
+   (`Reset1 raw D kids`) can be discharged from it (par/kids).
+
+Fix: strengthen conclusions only (no hypothesis added):
+- `machine_linkedT_callsRGW` / `ComposedGW` / `composedGW_of_T` (Tools/ShippingComposedGW.lean) export
+  `∃ lets, MachineWired … regs lets`;
+- head `machine_design_noPortsTBW` (Tools/ShippingNoPortsTypedBW.lean) also exports
+  `∃ w1, RunsTo (synthesizeCombinationalCore …) … (raw, D) w1`, `MachineWired` and `b.inputs = raw.inputs`;
+- generator `generateTopW` (Tools/ShippingGateTypedCommandW.lean): `<p>_designClosedBW`.
+
+Satisfaction:
+- inputs (Tools/ShippingSatInputs.lean): `streamEnv`, `sourceInputs_of_env` (SourceInputs for ANY typed stream
+  `bools`/`bits`; port names depend only on the declaration and binders), `regs_not_input`, `clk_input`,
+  `declWidth_of_wire`, `weS_input`; `inputWires_runMT` (Tools/ShippingInputWiresRun.lean, new run lemma: a
+  non-clock input of nonzero width is a wire of `b`);
+- children (Tools/ShippingKidsResetSat.lean): `kidsInit_sat` (generic, five explicit facts; each has a
+  counterexample if dropped: duplicate register resets, `out_rdata` reset 1, reset 5 on 1 bit, two instances of
+  one name), `kidsZero_sat`, `core_kidsSatMT`; `<p>_kidsSat` (Tests/Compiler/MemNameCollisionKidsSatTest.lean):
+  the four parents' children have no registers (memory module: memory + assign; gate child: assigns only);
+- assembly `sat_of_designClosedBW` (Tools/ShippingSatAssembly.lean) discharges all twelve run hypotheses at once
+  with `ins t := streamEnv …(stream at T-1-t)`, `st0 := 0`, `kids` from `<p>_kidsSat`.
+
+Final: `<p>_sat` (Tests/Compiler/MemNameCollisionSatTest.lean), each of the four parents:
+  premises: the run `RunsTo (synthesizeCombinational <p>)`, `MachineDefines <p>`, `EntryDefines c v`, `ChildBnd`;
+  conclusion: `∃ raw D, hpost ∧ ∃ ids cache kids, ∀ i bools bits T, SourceInputs (for the constructed ins) ∧
+  ∀ mems, (∃ envsO, DesignSV … T ⟨0, mems, kids⟩ envsO ∧ length T ∧ outputs = source) ∧ (every DesignSV run
+  shows the source)`. For every T (so in particular T > 0); no hypothesis on the stream, the start state or the
+  children remains. Asserting audit: standard axioms; no premise mentions `InvN`, `Reset1`, `seedIn`.
+Restriction: `st0 := 0` uses the data condition `∀ f ∈ slots, f.init = 0` (true for the four parents). For a
+nonzero init, `Bounded (weS (checkedOptimize b)) st0` needs the register's EMITTED width in the optimized module,
+which no run lemma exports; not derived, no counterexample built.
+NOT claimed: that a successful run exists unconditionally — the run, the two reflections and `ChildBnd` remain.
+
+### B. `ChildBnd` unfolded (docs/parallel/childbnd-residual.md)
+
+`ChildBnd w = ∃ L : RefLaws, StartV L w ∧ L.quiet w`. Table of all 26 `RefLaws` fields + StartV + quiet with
+status D / I / R / O and file:line. Proved (Tools/ShippingChildBndInit.lean, Tools/ShippingChildBndCore.lean):
+`childBnd_iff : ChildBnd w ↔ StartW w ∧ QuietAt w`; `startV_of_init` (from the refs' contents: synth ref =
+`synthesizeChild`, depth 0); `RefLawsCore` (the 14 runtime fields) with `toRefLaws`/`ofRefLaws` and
+`childBnd_iff_core` — 12 `RefLaws` fields (values = contents, get, modify) are derived. Remaining (R, need a runtime
+model of the `@[extern] opaque` `ST.Prim.Ref.get/set`): quiet/diag, frameT, excOk, frameQ, cacheSetQ, depthSetQ,
+frame, cacheSet, depthSet, the four telescope/decl fields, and the refs' contents at the start world (`initialize`,
+`IO.mkRef`). (O): no model shows the laws jointly satisfiable, so the statements can still be vacuous. No
+`RefLaws` field, trusted law or axiom added; `ChildBnd` is rewritten as an equivalent conjunction, not removed.
+
+### C. Certificate (general reusable step)
+
+- `gateParentCertOk d nDecl kidOuts kidIns` (one decide of eleven common data conditions) +
+  `gateParent_runFacts/outsG0/designP0/typedRun/names` (Tools/ShippingGateCert.lean), `generateCert`;
+- `memGateOk` (origin table, binder positions, width ≠ 1 in one Bool), `memGate_kidsS/kidTypedS`,
+  `generateCert2` (Tools/ShippingGateCert2*.lean): kid facts and certificate built inline.
+- `<p>_designClosedC` / `<p>_designClosedC2`: type Expr-equal to `<p>_designClosedB`; audit asserts no hand-written
+  run/kid/entry lemma in the proofs. Per parent remain: `closesR`, `hR0`, the value equation, the data
+  (`cb aw dw`, child const, gate source, `outsF`/`insF`).
+
+### Hygiene
+Headers of ShippingNoPortsTypedI/B now point to `wireNames_runMT` (b2da66d3).
+
+| run | target | exit | notes |
+|---|---|---|---|
+| hd1 | NoPortsTypedB, WireNamesRun (headers) | 0 | 528 jobs |
+| ce1 | GateCert, GateCertCommand, CertGenTest | 1 | test: `open`s missing in 2nd namespace block (tools ok) |
+| ce2, ce3 | CertGenTest | 0 | 662 jobs |
+| ks1 | KidsResetSat, KidsSatTest | 0 | 657 jobs |
+| cb1 | + ChildBndInit/Core | 1 | Core: `C` not in scope in two theorems |
+| cb2, cb3 | same | 0 | 659 jobs |
+| ax1 | #print axioms, 15 B/kids lemmas | 0 | all standard |
+| cf1, cf2 | GateCert2, Cert2Command, Cert2Test | 0 | 665 jobs |
+| sa1 | ComposedGW, SatInputs, InputWiresRun, NoPortsTypedBW | 1 | SatInputs: 7 errors (worker fixed) |
+| sa2 | all A modules + SatTest | 0 | 669 jobs |
+| all4 | `Tests.AllTests` (CertGenTest, Cert2Test, KidsSatTest, SatTest registered) | 0 | 1435 jobs, peak 0.47 GB |
+
+Corpus not run. No CI (local, not pushed). The inliner candidate is unchanged and its open items stay open.

@@ -320,6 +320,10 @@ import Tests.Compiler.MemNameCollisionGateClosedTest
 import Tests.Compiler.MemNameCollisionGateTypedTest
 import Tests.Compiler.MemNameCollisionGateTypedAllTest
 import Tests.Compiler.MemNameCollisionGateBoundTest
+import Tests.Compiler.MemNameCollisionGateCertGenTest
+import Tests.Compiler.MemNameCollisionGateCert2Test
+import Tests.Compiler.MemNameCollisionKidsSatTest
+import Tests.Compiler.MemNameCollisionSatTest
 import Tests.Compiler.InlCandAuditTest
 import Tests.SVParser.TestVerify
 import Tests.Bus.TestAXI4Lite
