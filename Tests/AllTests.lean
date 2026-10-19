@@ -318,6 +318,8 @@ import Tests.Compiler.MemNameCollisionPlainCertTest
 import Tests.Compiler.MemNameCollisionGateDesignTest
 import Tests.Compiler.MemNameCollisionGateClosedTest
 import Tests.Compiler.MemNameCollisionGateTypedTest
+import Tests.Compiler.MemNameCollisionGateTypedAllTest
+import Tests.Compiler.MemNameCollisionGateBoundTest
 import Tests.Compiler.InlCandAuditTest
 import Tests.SVParser.TestVerify
 import Tests.Bus.TestAXI4Lite
