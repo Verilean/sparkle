@@ -3255,3 +3255,12 @@ lean_lib «Tools.ShippingChildBalance» where
 
 lean_lib «Tools.ShippingHeapModel» where
   roots := #[`Tools.ShippingHeapModel]
+
+lean_lib «Tools.ShippingHierOptRunS» where
+  roots := #[`Tools.ShippingHierOptRunS]
+
+lean_lib «Tools.ShippingNonzeroInitWidths» where
+  roots := #[`Tools.ShippingNonzeroInitWidths]
+
+lean_lib «Tools.ShippingNoPortsTypedBS» where
+  roots := #[`Tools.ShippingNoPortsTypedBS]
