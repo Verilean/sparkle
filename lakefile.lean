@@ -3270,3 +3270,9 @@ lean_lib «Tools.ShippingSlotRegsRun» where
 
 lean_lib «Tools.ShippingSatAssemblyS» where
   roots := #[`Tools.ShippingSatAssemblyS]
+
+lean_lib «Tools.ShippingSatCertS» where
+  roots := #[`Tools.ShippingSatCertS]
+
+lean_lib «Tools.ShippingSatCertSCommand» where
+  roots := #[`Tools.ShippingSatCertSCommand]
