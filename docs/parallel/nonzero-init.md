@@ -1,7 +1,7 @@
 # Nonzero slot inits through the TBW head (round par/init, phase 1)
 
-Base 87874a82. Status: phase 2 PARTIAL (written, not built): L1, L3, L4 and the TBS head are written; L5, L6 and the instance test are open (§4).
-Probe: `Tests/Compiler/NonzeroInitProbe.lean` (written, not built, not in AllTests).
+Base 87874a82. Status: phases 2 and 3 BUILT by the integrator (phase 2: bs1 exit 1, bs2 exit 0; phase 3: l51 exit 0, sl1 exit 0, ni1 exit 1, ni2 exit 0; all6 exit 0 with SatSTest and NonzeroInitParentTest registered; runs in `docs/parallel/O-origin-integration.md`). L1, L3, L4, the TBS head, L5, L6 and the instance test (`collMixSame5_satS`) are built.
+Probe: `Tests/Compiler/NonzeroInitProbe.lean` (BUILT by the integrator: nz1 exit 1, nz2 exit 0 printed nothing, nz3 exit 0 with the results below; not in AllTests).
 
 ## 1. The obstacle
 
@@ -145,13 +145,13 @@ Probe runs (integrator): nz1 exit 1 (ambiguous `Module` at :95/:102, fixed by qu
   the dead register is not removed. The general hierarchical route (`hierRefineCheck` accepted)
   can still remove one, so the head must not rely on `opt == b`.
 
-Phase 2 (written, NOT BUILT):
+Phase 2 (BUILT by the integrator: bs1 exit 1 / bs2 exit 0, see §5):
 * L1 `Tools/ShippingHierOptRunS.lean`: `seqRegs_openFlat_drives`, `hierRefineCheck_linkedS`.
 * L3/L4 `Tools/ShippingNonzeroInitWidths.lean`: `seqCheck_mem`, `drives_cases`,
   `seqCheck_drives`, `weS_eq_of_sub`, `weS_driven_checkedOptimize`.
 * Head `Tools/ShippingNoPortsTypedBS.lean`: `stO_eq_of_same`, `machine_design_noPortsTBS`.
 
-OPEN:
+OPEN at phase-2 writing time (since done in phase 3, §5):
 * L5 (run lemma, new file): from the core run (premises of `wireNames_runMT`), every register
   statement of `M` comes from a slot, `∃ f ∈ slots, init = Int.ofNat f.init ∧ weOf M r =
   f.width`. Planned proof, independent of `ids`/`regs`:
@@ -181,7 +181,7 @@ OPEN:
   It needs the four parents' generator chain (`<p>_sat` in MemNameCollisionSatTest), which
   depends on L6.
 
-## 5. Phase 3 (written, NOT BUILT; base: merge of poc 853b1608)
+## 5. Phase 3 (BUILT by the integrator: l51 exit 0 (L5), sl1 exit 0 (L6 + SatSTest), ni2 exit 0 (instance parent); base: merge of poc 853b1608)
 
 Integrator build of phase 2 (bs1/bs2): HierOptRunS and NoPortsTypedBS built as written;
 NonzeroInitWidths needed two parse fixes (`(by cases he)` inside a tuple, explicit `memory`
@@ -204,7 +204,7 @@ pattern), bs2 exit 0.
 * TBS change: hypothesis (14) is now stated with `BoundOff` unfolded (`∀ n, n ∉ outputs ++
   inputs → st0 n < 2 ^ declWidth b n`), because `generateW` refuses statements that mention
   `BoundOff`.
-* Instance `Tests/Compiler/MemNameCollisionSatSTest.lean` (not registered):
+* Instance `Tests/Compiler/MemNameCollisionSatSTest.lean` (registered in AllTests since all6 exit 0):
   * `<p>_designClosedBS` comes from `generateTopW` with `head := machine_design_noPortsTBS`;
   * `<p>_satS` applies `sat_of_designClosedBS` to the four collision parents (inits 0: this
     type-checks the route only);

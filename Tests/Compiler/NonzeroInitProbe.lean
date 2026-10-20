@@ -4,7 +4,7 @@ import Tools.ShippingMachineLinked
 
 /-! # PROBE (logs only): registers with a NONZERO reset value across `checkedOptimize` (round par/init)
 
-WRITTEN, NOT BUILT (round par/init, base 87874a82). TARGET-ONLY; not in `Tests.AllTests`.
+BUILT by the integrator: nz1 exit 1 (ambiguous `Module`, qualified), nz2 exit 0 (printed nothing; `saved.restore` replaced), nz3 exit 0 (round par/init, base 87874a82). TARGET-ONLY; not in `Tests.AllTests`.
 It asserts nothing; every `run_cmd` restores the Meta state and empties the synthesis
 caches in a `finally`.
 
