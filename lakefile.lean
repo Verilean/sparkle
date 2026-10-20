@@ -3264,3 +3264,6 @@ lean_lib «Tools.ShippingNonzeroInitWidths» where
 
 lean_lib «Tools.ShippingNoPortsTypedBS» where
   roots := #[`Tools.ShippingNoPortsTypedBS]
+
+lean_lib «Tools.ShippingSlotRegsRun» where
+  roots := #[`Tools.ShippingSlotRegsRun]
