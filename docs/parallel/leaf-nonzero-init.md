@@ -76,3 +76,25 @@ register is left as stated in §5.
   (checkedOptimize b)) st0`) and `f.machine_ships_leafC` still use one state; porting them to
   `MachineShipsS` is the next step.
 * Generator: `#machine_endpoint` does not emit `machine_ships_wiredS`.
+
+## 6. Round par/leafnz-sat (written, not built; base 9df7578c)
+
+* Tools/ShippingLeafSat.lean — `tgtSt2 raw b o st0` (cleared off `seqRegs o` when the MERGE or
+  the optimizer was accepted by `refineCheck`; `st0` when both were the identity) and
+  `leaf_sat`: from the wired endpoint (`soundL`, the four structural facts), data `hlen`,
+  `hinitW` and the run, for every wof passing the text checks (+ `hwofIn`: emitted widths cover
+  the input widths), every typed stream and every `T`, the stream's seeding (`leafIns`) carries
+  the source inputs and the optimized module + emitted Verilog from
+  `tgtSt2 … (slotInit regs slots)` show the source. Every run hypothesis (inputs, register
+  pass-through, reset, slot inits, width fits, the bound) is PROVED from `MachineWired` under
+  `insts = []`. Why not `MachineShipsS`: when the checked MERGE drops a slot register and the
+  optimizer is rejected, `MachineShipsS`'s rejected-branch bound on `st0` is unsatisfiable
+  (same mechanism as §2), so `leaf_sat` re-proves the chain with `tgtSt2`.
+* Tools/ShippingLeafSatDesign.lean — `leaf_sat_design`: the same at `wofOf (checkedOptimize b)`,
+  as `DesignSV C 0` over every child map and children's state, with uniqueness; antecedent `hs`
+  (statement kinds of the shipped module) as in `leaf_design_of_ships`.
+* Tests/Compiler/LeafDeadInitSatTest.lean — `dead7.machine_sat` (kernel), premises only
+  `hr`, `MachineDefines`, `MachineCloses`; audit: standard axioms, no premise mentions
+  `seedIn`/`Bounded`/`slotInit`/`SlotField.init`/`streamEnv`/`leafIns`.
+* Open: the text-check antecedents (`seqCheck`, width agreement, `hwofIn`, `hs`) are not
+  discharged for dead7 by theorem; the generator does not emit `machine_sat`.
