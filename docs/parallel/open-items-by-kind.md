@@ -68,7 +68,7 @@ parse-back only as validation); (iii) coverage of all compiler-accepted inputs (
 `hr` — that the compiler's run on the declaration succeeds — is a premise. No theorem claims a successful
 run exists.
 
-## 6. Front-end branches of `synthesizeFromConst` under the admissible boundary (Tools/ShippingChildFrontA.lean, WRITTEN, NOT BUILT)
+## 6. Front-end branches of `synthesizeFromConst` under the admissible boundary (Tools/ShippingChildFrontA.lean, BUILT: fa5 exit 0, audit fa6 exit 0; stated with the all-context translator hypothesis `htr`, NOT yet in the restricted `KeepsCP`/`CtxOk` form of ShippingChildTranslateA — the migration is work unit B of the cluster round)
 
 Boundary: `O : RefLawsAOps MkRefd mref cref`, `hA : AdmCtx O.quiet mctx cctx`, a stable invariant (`JQ O.quiet 1` for `hbody`).
 Entry constant: `ci = entryConst true false [] ci0 (instancePredicate env) (userInliner env) (structEnv env)`.
