@@ -584,3 +584,57 @@ Headers of ShippingNoPortsTypedI/B now point to `wireNames_runMT` (b2da66d3).
 | all4 | `Tests.AllTests` (CertGenTest, Cert2Test, KidsSatTest, SatTest registered) | 0 | 1435 jobs, peak 0.47 GB |
 
 Corpus not run. No CI (local, not pushed). The inliner candidate is unchanged and its open items stay open.
+
+## Round after review of 87874a82 (3a45a5f4 review): depth balance, nonzero inits, heap model, certificate Sat
+
+Writers in hand-made worktrees (par/bal, par/init, par/init2, par/heap, par/satc, par/nz); every build by the
+integrator under cgrun (3 GiB, swap 0, -j 1), one at a time. Remaining items by KIND: `docs/parallel/open-items-by-kind.md`.
+
+### A. Outermost entry depth balance (residual row B2 (I), `Tools/ShippingChildBalance.lean`)
+From the existing `RefLaws` only (no law added): `core_triple0`/`full_triple0` — from `Out0` (synthesis ref =
+`synthesizeChild`, quiet, depth 0) the core / full entry ends in `Out0` on success AND on exception, with `ErrOk`; the
+prefix before the depth bump (guard throw, prefix exceptions) is walked under `Out0`, the cache clear re-establishes
+`J L 0` from any cache. `core_balance`/`full_balance`; `ChildBnd0` (= `ChildBnd` with depth 0, `childBnd0_iff`)
+carried to the next entry (`core_bnd0`, `full_bnd0`), through a returning `core n1 >>= core n2` (`core_then_core`) and a
+list of entries (`endSeq_bnd`, `seq_start_bnd`). NOT covered: the refs' contents at the FIRST entry (R13/R14), commands
+between entries, joint satisfiability (R0).
+
+### B. Nonzero slot inits
+Probe (Tests/Compiler/NonzeroInitProbe.lean, unregistered; output docs/parallel/nonzero-init-probe-nz3.txt): the leaf
+route removes a dead init-7 register (`weS opt = 0`, bound false) — the obstacle is real; instance parents shipped
+unoptimised. Generalisation (no false "widths preserved" lemma): `hierRefineCheck_linkedS` (separate target state),
+`seqCheck_drives`/`weS_eq_of_sub`/`weS_driven_checkedOptimize`, head `machine_design_noPortsTBS` (TBW + `stO`,
+(11') `Bounded … stO`, (13) agreement, (14) bound of `st0` off the ports), run lemma `slotRegs_runMT`, assembly
+`sat_of_designClosedBS` (data `init < 2^width`; `st0 = slotInit`, `stO = stOf`). `<p>_satS` for the four parents
+(inits 0). OPEN: a parent with a nonzero init (per-parent chain or `satOfCertS`); leaf-route heads.
+
+### C. Runtime: heap model and audit (`Tools/ShippingHeapModel.lean`, `docs/parallel/heap-model-audit.md`)
+Pure model (no axioms): get-after-set, non-aliasing by id, read frame, modify = get;set, alloc; `HeapLaws` (the
+ref-only fields of `RefLawsCore`) instantiated by `HeapLaws.model`; `frame_all_false`. Ledger: fit to the extern ST
+refs, MetaM primitives/printers/exceptions, initial contents, full joint satisfiability — all OPEN. Six fields flagged
+as false of the real runtime (decision needed; nothing changed).
+
+### D. Certificate Sat
+`satDataOk`, `memGate_kidNoRegsS`, `satOfCert` (`<p>_satC`, Expr-equal to `<p>_sat`); `generateCert2W`
+(`<p>_designClosedCW`, Expr-equal to `<p>_designClosedBW`) and `<p>_satC2`: no hand-written run/kid lemma in the proofs.
+Scope: one gate child, one memory origin, data width ≠ 1, one-level composed route; not all accepted inputs.
+
+| run | target | exit | notes |
+|---|---|---|---|
+| sc1 | ShippingSatCert, SatCertTest | 0 | 675 jobs, first try |
+| nz1 | probe | 1 | ambiguous `Module` (qualified) |
+| nz2 | probe | 0 | printed nothing: `saved.restore` dropped the log (removed) |
+| nz3 | probe | 0 | results above |
+| bl1 | ShippingChildBalance | 0 | 317 jobs, first try |
+| hm1 | ShippingHeapModel | 0 | first try |
+| ax2 | #print axioms, 13 balance + 12 model | 0 | balance standard; model none |
+| sc2 | SatCert2Command, SatCert2Test | 0 | 678 jobs, first try |
+| bs1 | HierOptRunS, NonzeroInitWidths, NoPortsTypedBS | 1 | NonzeroInitWidths: `by cases he,` parsed as multi-target; `memory ..` alternative |
+| bs2 | NonzeroInitWidths | 0 | 527 jobs |
+| l51 | ShippingSlotRegsRun | 0 | 528 jobs, first try |
+| ax3 | #print axioms, 8 B lemmas | 0 | standard |
+| all5 | `Tests.AllTests` (SatCertTest, SatCert2Test registered) | 0 | 1439 jobs, peak 0.73 GB |
+| sl1 | ShippingSatAssemblyS, SatSTest (TBS (14) restated) | 0 | 675 jobs, audit standard |
+
+`MemNameCollisionSatSTest` is NOT registered in AllTests (registration needs a suite run). Corpus not run. No CI. Not pushed.
+The inliner candidate is unchanged.
