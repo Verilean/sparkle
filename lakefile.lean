@@ -3256,6 +3256,9 @@ lean_lib «Tools.ShippingChildBalance» where
 lean_lib «Tools.ShippingHeapModel» where
   roots := #[`Tools.ShippingHeapModel]
 
+lean_lib «Tools.ShippingHeapProvenance» where
+  roots := #[`Tools.ShippingHeapProvenance]
+
 lean_lib «Tools.ShippingHierOptRunS» where
   roots := #[`Tools.ShippingHierOptRunS]
 

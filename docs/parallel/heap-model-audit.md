@@ -175,3 +175,51 @@ constructors for `getEnv`, `getConstInfo`, `whnf`, `inferType`, `isClass?`, `whn
 | (c) | fit for MetaM primitives / printers / exceptions | **OPEN** — and the CURRENT statements are false of the runtime for adversarial contexts: REPRODUCED for §1a item 1 (`frame` via `Framed.whnf`) and item 5 (`excOk`: escaped message outside `OkMsg`, quiet premise NOT checked; case G, run cu3) by probe `Tests/Compiler/CanUnfoldProbe.lean` (cu2/cu3); items 2, 4 and the rest of 5 are counterexample candidates, NOT reproduced. Repairing them is a law change (needs a decision). |
 | (d) | initial contents (`initialize`, `IO.mkRef`) | **OPEN** (`childbnd-residual.md` R13/R14). |
 | (e) | joint satisfiability of the full `RefLawsCore` | **OPEN**; logical inconsistency NOT PROVEN (no proof either way). HM satisfies only the ref-only fragment RESTATED over `Heap σ`, which is not `RefLawsCore` (not even its ref-only fields, stated over `IO.Ref` / `MetaM`). Every `ChildBnd`-premised theorem may still be vacuous. |
+
+## 4. World-indexed provenance in the model (`Tools/ShippingHeapProvenance.lean`, HP; NOT YET BUILT)
+
+Review item 2. `MkRefd σ r` (`Tools/ShippingChildFresh.lean`) is a HISTORY: some run of
+`IO.mkRef`, in some contexts, from some world, returned `r`. It does NOT prove `FreshIn` /
+non-alias in the run that uses `r`; provenance for the real runtime is NOT solved. HP builds,
+in the PURE model of HM only (imports only `Tools.ShippingHeapModel`), a world-indexed relation
+and shows which frame facts become derivable there.
+
+Definitions: `Step W Tk` (read; tracked write only if `Tk`; write to `other n` only if `W n`;
+allocation), `Reach W Tk` (reflexive-transitive closure), `FramedW σ W p` (the `FramedR`
+actions writing only into `W`; `FramedW.step`, `FramedW.step_of_runs`), `AllocIn h r h1`
+(`allocM` run from THIS world `h`), `FreshAt`, `Valid r h`, and
+`Prov W Tk h r h2 := ∃ h0 h1, Reach h h0 ∧ AllocIn h0 r h1 ∧ Reach h1 h2` (start world →
+allocation world → use world).
+
+Derived in the model (written, to be built by the integrator; guesses H1–H6 in the header):
+
+* `Step/Reach.next_le` (allocation pointer monotone), `Step/Reach.other_below` (cells
+  `< h.next` outside `W` unchanged), `Step.reg`, `Step/Reach.keeps` (no tracked writes ⇒
+  `cv/sv/dv`/registry kept), `Reach.trans`, `runsTo_endW`;
+* `allocIn_spec`, `allocIn_freshAt`, `allocIn_valid`, `allocIn_ne_valid` (allocated id ≠ every
+  ref valid before: tracked, side, earlier local);
+* `Valid.reach`, `ne_of_valid`, `prov_of_allocIn`, `Prov.extend`, `prov_fresh`, `prov_valid`,
+  `prov_ne_valid`, `prov_ne_cache/synth/depth`, `prov_alloc_distinct` (two allocations in
+  sequence distinct);
+* `prov_set_frame`, `prov_modify_frame` (model analogue of the `FramedA.localSet/localModify/
+  exprCacheModify` frame of `RefLawsAOps.frame`, for ANY later use world, plus contents of every
+  ref valid at the run's start kept), `prov_cell_kept`;
+* `history_elsewhere_aliases`: an allocation history over ANOTHER world (the `MkRefd` shape)
+  returns a ref that is a pre-existing valid ref of the use world — the gap, in the model.
+
+Caveat: in HM the tracked cells and `other n` are different `Ref` constructors, so the
+`cv/sv/dv` frame for `other` writes holds by construction; what `Prov` adds is non-alias among
+`other` cells (side refs and earlier local refs, if `Valid` at the start world) and the world
+bookkeeping.
+
+Still OPEN: the fit of all this to the real runtime (`ST.Prim.Ref.*` extern opaque, world
+`Void IO.RealWorld`; nothing in HP mentions `IO.Ref`/`MetaM`/`MkRefd`/`RefLawsAOps`); that real
+side refs are cells valid at the run start; that real `IO.Ref`s have no re-typed alias of a
+tracked ref; the Meta-primitive constructors of `FramedA`, `diag`, telescopes/`localDecl`/
+`letDecl`, `excOk` on Lean exceptions, `quiet`/`AdmCtx`. No law, field or axiom added; no
+premise of `RefLawsAOps` discharged.
+
+| row | item | status |
+|---|---|---|
+| (f) | world-indexed provenance + derived non-alias/frame for local refs, in the pure model | derived in the model (HP, NOT YET BUILT) |
+| (g) | the same for the real runtime (`MkRefd` → `FreshIn` in the run) | **OPEN** — `MkRefd` is a history over another world, not a proof of non-alias |
