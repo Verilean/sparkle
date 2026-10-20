@@ -1,6 +1,7 @@
-# Admissible-context boundary for `RefLaws` (round par/bnd2, base aa35e8a6)
+# Admissible-context boundary for `RefLaws` (round par/bnd2, base aa35e8a6; revised par/bnd3, base 204e857f)
 
-Status: DESIGN + Lean file `Tools/ShippingChildInvA.lean` BUILT (ba2 exit 0, ax4 standard).
+Status: DESIGN + Lean file `Tools/ShippingChildInvA.lean`: ba2 version BUILT (exit 0, ax4 standard);
+revision par/bnd3 (quiet start-world premises, section (f)) BUILT (ba3 exit 0, ax7 standard).
 No existing file changed (except `lakefile.lean` registration). No production
 change, no new trusted law, no new field in `RefLaws`/`RefLawsCore`/`ChildLaws`.
 
@@ -8,9 +9,16 @@ Motivation (integrator finding, probe `Tests/Compiler/CanUnfoldProbe.lean`, run
 cu2 exit 0): `RefLaws.frame`/`excOk`/... quantify over EVERY `Meta.Context`.
 `Meta.Context.canUnfold?` is a caller-supplied `CoreM` callback that `whnf`
 runs; at runtime a callback changed `sparkleSynthDepth` 0 -> 41 inside
-`Framed.whnf` and an `ofLazy`-message exception escaped `whnf`. So the
-`frame`/`excOk` fields are FALSE of those runs (not a logical inconsistency:
-the refs are opaque).
+`Framed.whnf` (case W), and an arbitrary lazy exception propagated out of
+`whnf` (case E). Status:
+* logical inconsistency of the old laws: NOT PROVEN (no proof either way);
+* runtime counterexample REPRODUCED for `frame` over every context (probe case W);
+* case E: propagation of an arbitrary lazy exception only (NOT a counterexample
+  to `excOk`);
+* case G (run cu3): the escaped message has an `ofGoal` node, hence is not in
+  `OkMsg` by the kernel lemma `Tools.ShippingOkMsgGoal.not_okMsg_of_hasGoal`;
+  this is NOT an unconditional `excOk` counterexample, since `excOk` asks
+  `quiet w` of the start world and quietness was not checked in the probe.
 
 ## (a) Audit: context fields that are code or inject effects
 
@@ -134,21 +142,24 @@ Conditions NOT derivable now:
 
 ## (e) Coverage change
 
-Theorems under `RefLawsA` cover runs from admissible contexts only. Runs from
-a context with a non-inert `canUnfold?` callback are NOT covered — the old
-`frame`/`excOk` were false of exactly those runs (probe cu2). This corrects
+Theorems under `RefLawsA` cover runs from admissible contexts AND quiet start
+worlds only. Runs from a context with a non-inert `canUnfold?` callback are NOT
+covered — the old `frame` was false of such a run (probe cu2, case W); for
+`excOk` see the case-E status above. This corrects
 an over-broad assumption; it is not a production guard, adds no trusted law,
 refuses nothing.
 
 Relation old/new (`RefLawsCore.toA`): the restricted non-continuation fields
 (`diag frameT excOk frameQ cacheSetQ depthSetQ frame cacheSet depthSet`) follow
-from the old ones by dropping the AdmCtx hypothesis and `FramedA.toFramed`.
+from the old ones by dropping the AdmCtx and `quiet w` hypotheses and
+`FramedA.toFramed` (`toAOps`, proved).
 The continuation fields (`telescope` …) in `RefLawsA` ask LESS of the
 continuation (only admissible `mctx'`), so they
 are NOT implied by the old fields; `toA` therefore takes them as separate
-arguments (`TeleA` bundle) and the doc does not claim old ⇒ new for them.
+arguments (`RefLawsATele`) and the doc does not claim old ⇒ new for them:
+the continuation laws are a different assumption, not derived.
 
-## Lean (`Tools/ShippingChildInvA.lean`, BUILT (ba2 exit 0, ax4 standard))
+## Lean (`Tools/ShippingChildInvA.lean`; ba2 BUILT, par/bnd3 revision BUILT ba3)
 
 `InertUnfold`, `AdmCtx`, `admCtx_none`, `admCtx_lctx/localInsts/lctx_insts/config/cctx`,
 `FramedA` (+ `FramedA.toFramed`), `RefLawsAOps` (non-continuation fields),
@@ -158,3 +169,34 @@ arguments (`TeleA` bundle) and the doc does not claim old ⇒ new for them.
 admissible contexts), consumers re-derived: `RefLawsAOps.cacheModify'`,
 `RefLawsAOps.depthModify'`. `excOk` keeps `Op` (its `framed` case on old
 `Framed`): local-ref ops do not throw, provenance is irrelevant there.
+
+## (f) Revision par/bnd3: the start world must be quiet (reviewer finding P1)
+
+Finding: `InertUnfold quiet f` only asks the callback to be safe FROM quiet
+worlds and `AdmCtx` is only that, but the ba2 `frame`/`frameT`/`cacheSet`/
+`depthSet` and the telescope family's `Keeps` held at ALL worlds. At
+`quiet := fun _ => False` every callback is `InertUnfold`
+(`admCtx_quietFalse`, also at the context carrying the case-W writer,
+`admCtx_quietFalse_writer`), so the ba2 `frame` again claimed the frame of
+`whnf` under the writing callback (`OldFrameA`, `oldFrame_covers_writer`).
+Adding `AdmCtx` alone was not a repair.
+
+Revision (quiet is NOT fixed to True/False; it stays a field):
+* `frame`, `frameT`, `cacheSet`, `depthSet` now take `quiet w →` (start
+  world); `diag`, `excOk`, `frameQ`, `cacheSetQ`, `depthSetQ` already did.
+  `frameT`'s conclusion is now `frame ∧ quiet (endW …)` (was `quiet w → …`).
+  Reason: the callback is only known safe from quiet worlds.
+* telescope family: an extra premise `(∀ w, I w → quiet w)`; `Keeps` starts
+  from an `I` world, hence a quiet one. Continuations asked only in
+  admissible contexts (unchanged).
+* audit (BUILT ba3): `RefLawsAOps.quietFalse` (the whole operations
+  bundle at `quiet = False` is inhabited by `False.elim`), `RefLawsATele.quietFalse`,
+  `frame_quietFalse_vacuous` — at `quiet = False` the laws have no
+  consequences; the vacuity now sits in the start condition `quiet w`.
+* consumers: `RefLawsAOps.cacheModify'`/`depthModify'` take `hq : O.quiet w`
+  (the intermediate world's quietness from `frameQ`); `OutQ quiet w :=
+  quiet w ∧ sv w = some synthesizeChild ∧ dv w = 0`, `outQ_end`, `keeps_outQ`
+  (`Keeps (OutQ O.quiet) p` for `FramedA Fresh p` in an admissible context):
+  the quiet premise is supplied by the invariant. Two-step bind: not done
+  (`Keeps.bind` is in `ShippingChildVC`, not imported).
+* `toAOps` (old ⇒ new) still holds, with the added premises unused.
