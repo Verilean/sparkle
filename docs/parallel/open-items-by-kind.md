@@ -64,3 +64,16 @@ parse-back only as validation); (iii) coverage of all compiler-accepted inputs (
 
 `hr` — that the compiler's run on the declaration succeeds — is a premise. No theorem claims a successful
 run exists.
+
+## 6. Front-end branches of `synthesizeFromConst` under the admissible boundary (Tools/ShippingChildFrontA.lean, WRITTEN, NOT BUILT)
+
+Boundary: `O : RefLawsAOps MkRefd mref cref`, `hA : AdmCtx O.quiet mctx cctx`, a stable invariant (`JQ O.quiet 1` for `hbody`).
+Entry constant: `ci = entryConst true false [] ci0 (instancePredicate env) (userInliner env) (structEnv env)`.
+`fromConst_frontends_keepsA` / `fromConst_hbody_frontends` cover the three front ends together; `core_tripleA_frontends` discharges `core_tripleA`'s `hbody` from the premises below.
+
+| branch | reached when | calls NOT migrated (premises) | existing tests that reach it |
+|---|---|---|---|
+| certified (PathA) | `certifiedShape? false [] ci = some _` | the translator call in `emitLeaves` (`htr`) | `fragA`–`fragD`, `fragS`: `(certifiedShape? false [] ci).isSome` asserted, Tests/Compiler/ShippingEntrySoundnessTest.lean:225-260 (on `getConstInfo`; `entryConst` keeps a constant the first gate accepts) |
+| mixed (FrontA) | first gate `none`, `mixedCertifiedShape? false [] ci isInst = some _` | the translator call in `emitLeaves` (`htr`) | `pick`, `pickD` (Tests/Compiler/ShippingMachineInstTest.lean:170-171), `keccakRcHW` (Tests/Compiler/OneOutWKeccakFTest.lean:156): `#gate_child`, whose `gateDefs` throws unless first gate `none` and mixed gate `some` on the entry constant (Tools/ShippingGateChildCommand.lean:26-35) |
+| machine (FrontA) | both gates `none`, `machineShape?` `some` at the environment read, `synthesizeMachineCertified` `some` | the translator (`htr`, inside the mixed harness); the child entry `synthesizeChild` at each non-memory call of `closeInstsM`/`closeInstsGM` (`hchild`); the synthesis-ref value comes from the invariant (`hsv`; for `JQ` its 2nd conjunct) | `dead7` (Tests/Compiler/LeafDeadInitTest.lean:54), `toggleL` (ShippingMachineSeqLoopTest.lean:35), `twoHW`, `toggle` (ShippingMachineCommandTest.lean:52,57), `loopPair` (ShippingMachineLoopTest.lean:109), `pe` (ShippingMachineSeqLinkedTest.lean:25): `#machine_endpoint` → `readMachine` (Tools/ShippingMachineCommand.lean:440-453: both gates miss, shape `some`) and `checkCloses` (2502-2505: `synthesizeMachineCertified … isSome`). `acc`, `cnt`: shape read only (LeafEntryFamilyTest.lean:121,149 via `scan` → `readMachine`); machine result `some`: not determined |
+| legacy tail | both gates `none`, and `machineShape?` `none` at the environment read OR `synthesizeMachineCertified` `none` (`closeLets`, `closeInsts`/`closeInstsG` fail) | everything (premise `hlegacy`, stated as the entry with the certified front end OFF): memo read, logger/clock, `openRecordInputs`, `stripMemoizeWrappers`, `lambdaTelescope` (`RefLawsATele`), `splitReturnLeaves`, cache `IO.mkRef`, `bindInputsLegacy`, translation, `finishSynth`, cache update, non-`defnInfo` throw | not determined (`notCertified`, ShippingEntrySoundnessTest.lean:286-289, asserts only that the first gate misses) |
