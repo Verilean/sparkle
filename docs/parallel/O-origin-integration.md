@@ -606,7 +606,8 @@ unoptimised. Generalisation (no false "widths preserved" lemma): `hierRefineChec
 `seqCheck_drives`/`weS_eq_of_sub`/`weS_driven_checkedOptimize`, head `machine_design_noPortsTBS` (TBW + `stO`,
 (11') `Bounded … stO`, (13) agreement, (14) bound of `st0` off the ports), run lemma `slotRegs_runMT`, assembly
 `sat_of_designClosedBS` (data `init < 2^width`; `st0 = slotInit`, `stO = stOf`). `<p>_satS` for the four parents
-(inits 0). OPEN: a parent with a nonzero init (per-parent chain or `satOfCertS`); leaf-route heads.
+(inits 0) and `collMixSame5_satS` (NonzeroInitParentTest): a real parent with slot inits [5, 7], end to end. OPEN: certificate
+variant `satOfCertS` (per-parent chain is hand-copied); leaf-route heads.
 
 ### C. Runtime: heap model and audit (`Tools/ShippingHeapModel.lean`, `docs/parallel/heap-model-audit.md`)
 Pure model (no axioms): get-after-set, non-aliasing by id, read frame, modify = get;set, alloc; `HeapLaws` (the
@@ -635,6 +636,9 @@ Scope: one gate child, one memory origin, data width ≠ 1, one-level composed r
 | ax3 | #print axioms, 8 B lemmas | 0 | standard |
 | all5 | `Tests.AllTests` (SatCertTest, SatCert2Test registered) | 0 | 1439 jobs, peak 0.73 GB |
 | sl1 | ShippingSatAssemblyS, SatSTest (TBS (14) restated) | 0 | 675 jobs, audit standard |
+| ni1 | NonzeroInitParentTest | 1 | `_entry` lost its proof line in the copy; `addSat` is root-level |
+| ni2 | NonzeroInitParentTest | 0 | 676 jobs, inits [5, 7], axioms standard |
+| all6 | `Tests.AllTests` (+ SatSTest, NonzeroInitParentTest) | 0 | 1446 jobs, peak 0.70 GB |
 
-`MemNameCollisionSatSTest` is NOT registered in AllTests (registration needs a suite run). Corpus not run. No CI. Not pushed.
+Corpus not run. No CI. Not pushed.
 The inliner candidate is unchanged.
