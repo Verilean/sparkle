@@ -642,3 +642,46 @@ Scope: one gate child, one memory origin, data width ≠ 1, one-level composed r
 
 Corpus not run. No CI. Not pushed.
 The inliner candidate is unchanged.
+
+## Round after review of aa35e8a6: runtime audit first
+
+### (1) Probe: `canUnfold?` (Tests/Compiler/CanUnfoldProbe.lean, unregistered; 814a9a81)
+Separate process (`lake env lean` under cgrun). Case W: a `withCanUnfoldPred` callback reached by `whnf`
+(asserted: it ran) changed `sparkleSynthDepth` 0 → 41 — REPRODUCED runtime counterexample to `RefLaws.frame`
+(`Framed.whnf` over every context). Case E: the callback's exception with an `ofLazy` message escaped `whnf` —
+REPRODUCED counterexample to `excOk`. Depth restored in `finally`. Logical inconsistency NOT PROVEN (opaque refs).
+Not reproduced (candidates): native reduction, re-typed ref aliases, file handles, Lean primitives' own messages,
+concurrency.
+
+### (2) Corrected boundary, isolated (Tools/ShippingChildInvA.lean, docs/parallel/boundary-admissible.md)
+See open-items-by-kind §1. Nothing migrated; existing proofs untouched.
+
+### (3) Audit wording (cherry-picked a5361256, aaefc9be, 62c25dc5)
+"consistent"/"not logically inconsistent" replaced by NOT PROVEN / REPRODUCED / candidate; HeapModel claims narrowed
+to the restatement over `Heap σ`; stale build labels fixed.
+
+### (4) Certificate route for nonzero inits (7262909f)
+`satOfCertS`, `generateCert2S`; `collMixSame5_satCS` Expr-equal to `collMixSame5_satS`, no hand-written per-parent lemma.
+
+### (5) Leaf route, real removal (cfd72059)
+`machine_shipsS`/`machine_ships_wiredS` with `tgtSt`; `dead7` removal asserted; `dead7.machine_ships_wiredS`
+kernel-checked. No leaf sat layer.
+
+| run | target | exit | notes |
+|---|---|---|---|
+| cu1 | CanUnfoldProbe | 1 | `TypeName String` for `Dynamic.mk` → `MessageData.lazy` |
+| cu2 | CanUnfoldProbe | 0 | W and E REPRODUCED |
+| cs1 | ShippingSatCertS | 0 | 562 jobs |
+| cs2 | ShippingSatCertSCommand | 0 | 580 jobs |
+| cs3 | NonzeroInitCertTest | 0 | 685 jobs, audit passed |
+| ba1 | ShippingChildInvA | 1 | dot notation `C.toAOps` in the wrong namespace |
+| ba2 | ShippingChildInvA | 0 | 310 jobs |
+| ax4 | #print axioms, 10 boundary + 2 certS | 0 | standard |
+| lf1 | ShippingMachineShipsS, LeafDeadInitTest | 1 | ambiguous `Expr` |
+| lf2 | same | 1 | Tools ok; test: stuck `Decidable`, theorem value needs `allowOpaque` |
+| lf3 | LeafDeadInitTest | 1 | same `Decidable` → `Nat.blt` |
+| lf4 | LeafDeadInitTest | 0 | 370 jobs |
+| ax5 | #print axioms, 6 leaf lemmas | 0 | standard |
+| all7 | `Tests.AllTests` (+ NonzeroInitCertTest, LeafDeadInitTest) | 0 | 1451 jobs, peak 0.73 GB |
+
+Corpus not run. No CI. Not pushed. The probe CanUnfoldProbe is not registered (it installs a callback and writes a tracked ref). Inliner candidate unchanged.
