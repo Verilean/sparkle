@@ -3310,6 +3310,9 @@ lean_lib «Tools.ShippingChildVCA» where
 lean_lib «Tools.ShippingChildVertA» where
   roots := #[`Tools.ShippingChildVertA]
 
+lean_lib «Tools.ShippingChildPathA» where
+  roots := #[`Tools.ShippingChildPathA]
+
 lean_lib «Tools.ShippingLeafInputWidths» where
   roots := #[`Tools.ShippingLeafInputWidths]
 

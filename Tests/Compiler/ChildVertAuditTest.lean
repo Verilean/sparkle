@@ -117,7 +117,13 @@ def audited : List Name :=
   [``Tools.ShippingChildVertA.core_tripleA, ``Tools.ShippingChildVertA.certified_keepsA,
    ``Tools.ShippingChildVertA.finA,
    ``Tools.ShippingChildVCA.keepsA_mkExprCache_bind, ``Tools.ShippingChildVCA.keepsA_exprCacheGet,
-   ``Tools.ShippingChildFresh.runsTo_mkRef_bind, ``Tools.ShippingChildFresh.runsTo_mkRefIO_bind]
+   ``Tools.ShippingChildFresh.runsTo_mkRef_bind, ``Tools.ShippingChildFresh.runsTo_mkRefIO_bind,
+   ``Tools.ShippingChildPathA.certRest_keepsA, ``Tools.ShippingChildPathA.emitLeavesA,
+   ``Tools.ShippingChildPathA.bindCertifiedInputsA, ``Tools.ShippingChildPathA.finishSynthA,
+   ``Tools.ShippingChildPathA.certified_keepsA_of_translate,
+   ``Tools.ShippingChildPathA.fromConst_certified_keepsA,
+   ``Tools.ShippingChildPathA.fromConst_certified_keepsJQ,
+   ``Tools.ShippingChildPathA.fromConst_certified_hbody]
 
 end Tests.Compiler.ChildVertAuditTest
 
