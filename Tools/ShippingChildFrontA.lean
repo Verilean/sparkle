@@ -1,5 +1,5 @@
 import Tools.ShippingChildPathA
--- WRITTEN, NOT BUILT (worker par/mm, base 6a231b89). Isolated: no existing file uses it.
+-- BUILT by the integrator: fa1 exit 1 (do-notation pushes the continuation into the shape-read `if`: binds misaligned; guess M5 failed), fa2/fa3 exit 1 (`pure_bind` did not fire), fa4 exit 1 (lemma placed after a docstring), fa5 exit 0 (integrator rewrote `fromConst_machine_keepsA`: `simp only` reduction of the `if`s, `generalize` of the shape, `keeps_pure_bind_of`), audit fa6 exit 0 (worker par/mm, base 6a231b89). Isolated.
 -- No `sorry`, no `axiom`, no `native_decide`, no new law / boundary field. Law witness:
 -- `O : RefLawsAOps MkRefd mref cref` at `hA : AdmCtx O.quiet mctx cctx` only (no `RefLaws`, no
 -- `RefLawsCore`, no `RefLawsCore.toAOps`/`toA`, no `RefLawsATele`, no `J L D`/`JE L D`, no
@@ -148,6 +148,14 @@ variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
   {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
 
 /-! ## Law-free `Keeps` conversions (no law, no boundary) -/
+
+/-- The converse: `pure a >>= f` keeps what `f a` keeps (integrator, after fa3). -/
+theorem keeps_pure_bind_of {α β : Type} {I : Void IO.RealWorld → Prop} {a : α}
+    {f : α → MetaM β} (h : Keeps mctx mref cctx cref I (f a)) :
+    Keeps mctx mref cctx cref I (Pure.pure a >>= f) := by
+  first
+    | exact h
+    | (intro w hw; exact h w hw)
 
 /-- A `pure` first step is no step (definitional unfolding of the `MetaM`
 bind). -/
@@ -373,36 +381,33 @@ theorem fromConst_machine_keepsA (O : RefLawsAOps MkRefd mref cref)
       | exact (if_pos rfl).trans hm
       | (rw [if_pos rfl]; exact hm)
       | simpa using hm
+  have h := hlegacy
   first | delta synthesizeFromConst | unfold synthesizeFromConst
+  first | delta synthesizeFromConst at h | unfold synthesizeFromConst at h
   rw [hd1, hd2]
-  -- the shape read (guess: M5)
-  refine Keeps.bind ?_ (fun machine? => ?_)
-  · refine Keeps.ite (fun _ => ?_) (fun _ => Keeps.pure _)
-    exact Keeps.bind (keepsA_framed O hA hS FramedA.env) (fun _ => Keeps.pure _)
-  -- the machine synthesis, if a shape was read
-  refine Keeps.bind ?_ (fun r => ?_)
-  · cases machine? with
-    | none => exact Keeps.pure _
-    | some shape => exact machineCert_keepsA O hA hS translate b declName htr hchild hsv shape
-  cases r with
-  | some result =>
-    first  -- (as PathA P5, P6)
-      | refine Keeps.bind (keepsA_diag O hA hS (Diag.profLog b _)) ?_
-      | (dsimp only; refine Keeps.bind (keepsA_diag O hA hS (Diag.profLog b _)) ?_)
-    intro _
-    refine Keeps.bind (keepsA_framed O hA hS (FramedA.sideModify _ .subModule)) ?_
-    intro _
-    exact Keeps.pure _
+  -- (integrator, after fa1: the do-notation pushes the continuation into the branches of the
+  -- `if` of the shape read, so the binds are aligned only after reducing the `if`s)
+  simp only [Bool.false_eq_true, ↓reduceIte, Bool.not_false, Bool.and_true,
+    List.isEmpty_nil] at h ⊢
+  refine Keeps.bind (keepsA_framed O hA hS FramedA.env) (fun env => ?_)
+  generalize machineShape? false [] constInfo (structEnv env) = m
+  cases m with
   | none =>
-    -- the legacy tail, from the entry with the certified front end off (guess: M6)
-    have h := hlegacy
-    first | delta synthesizeFromConst at h | unfold synthesizeFromConst at h
-    have hf : ¬ (false = true) := by decide
-    rw [if_neg hf, if_neg hf] at h
-    have h2 := keeps_of_bind_ite_neg (by decide) h
-    have h3 := keeps_of_pure_bind h2
-    have h4 := keeps_of_pure_bind h3
-    exact h4
+    first
+      | exact h
+      | exact keeps_pure_bind_of h
+  | some shape =>
+    refine keeps_pure_bind_of ?_
+    refine Keeps.bind (machineCert_keepsA O hA hS translate b declName htr hchild hsv shape) ?_
+    intro r
+    cases r with
+    | some result =>
+      refine Keeps.bind (keepsA_diag O hA hS (Diag.profLog b _)) ?_
+      intro _
+      refine Keeps.bind (keepsA_framed O hA hS (FramedA.sideModify _ .subModule)) ?_
+      intro _
+      exact Keeps.pure _
+    | none => exact h
 
 /-! ## The three front ends together -/
 
