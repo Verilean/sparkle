@@ -717,3 +717,7 @@ Case W (frame over every context) stays a separate, reproduced runtime counterex
 
 The main theorems that use the OLD boundary (`RefLaws`/`ChildBnd`) are NOT shown to fit the real runtime; their
 fit stays open. No full suite run (no suite change since all7).
+
+| sw1 | ShippingMachineShipsSW (leaf conclusion exports MachineWired) | 0 | 325 jobs |
+
+Leaf sat lemma: not written this round (the writer stalled); see open-items-by-kind §3 for the `wof` finding.
