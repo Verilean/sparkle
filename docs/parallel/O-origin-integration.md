@@ -724,3 +724,30 @@ fit stays open. No full suite run (no suite change since all7).
 | all8 | `Tests.AllTests` (+ LeafDeadInitSatTest) | 0 | 1453 jobs, peak 0.81 GB |
 
 Leaf sat (5e567c9d): see open-items-by-kind §3. A second, unbuilt leaf-sat draft (branch par/leafsat, with an extra `hregKept` premise) was not integrated.
+
+## Round after review of b1849017: A vertical migration (1 path), B leaf design endpoint closed, C hygiene
+
+A (a050afde, d889fcbc, d360b67a): `MkRefd` provenance, VC combinators under `RefLawsAOps`, `core_tripleA`,
+`certified_keepsA`, dependency audit (ChildVertAuditTest). B (777630e9 probe, 92d68f13, db1ca357, ld3 commit):
+the five inner antecedents hold on dead7's compile (l5p2), (1)-(4) from LeafKid + ChildBnd, (5) from
+`checkedOptimize_wires_subset`; `#machine_leaf_design_closed`; `dead7.machine_design_closed`. Merge-drop
+regression example: NOT found (md1/md2). C (c16f4620): registered-test headers; ledger states runtime fit,
+printed-SV bridge, full input coverage as not complete.
+
+| run | target | exit | notes |
+|---|---|---|---|
+| l5p, l5p2 | LeafFiveProbe | 1, 0 | seqNames namespace; all five hold on dead7 |
+| md1, md2 | MergeDropProbe | 0 | twin registers not merged |
+| fr1 | ShippingChildFresh | 0 | 311 jobs |
+| vc1 | ShippingChildVCA | 0 | 315 jobs |
+| vt1 | ShippingChildVertA + audit | stopped | ~3 GB for 30+ min: `exact (body {} … {})` forced the saved maps |
+| vtb1-vtb5 | scratch bisection (sorry only in scratch copies, not committed) | — | located the final `exact` |
+| vt2 | same | 1 | `CircuitM.init` namespace |
+| vt3 | same | 0 | 317 jobs; audit passed |
+| lv1 | ShippingLeafFive | 0 | 559 jobs |
+| iw1, iw2 | ShippingLeafInputWidths | 1, 0 | ambiguous `Module`; 561 jobs |
+| ax8 | #print axioms, 7 | 0 | standard |
+| ld1, ld2, ld3 | generator + LeafDesignClosedTest | 1, 1, 0 | helper name; uniqueness-clause audit refined; 608 jobs |
+| all9 | `Tests.AllTests` (+ LeafDesignClosedTest, ChildVertAuditTest) | 0 | 1465 jobs, peak 0.80 GB |
+
+Not pushed; no CI; corpus not run. The old-boundary main theorems' runtime fit, the printed-SV bridge and full input coverage remain open.
