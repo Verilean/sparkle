@@ -1,0 +1,43 @@
+NZI keep5 post: b = dropZeroWidth raw: true; b = mergeChecked (dropZeroWidth raw): true
+NZI keep5 branch: simpleBody b = false; all seqStmtOk = true; hierGate b = false; hierBinds b = false; opt == b: false
+NZI keep5 raw regs (name, init, declWidth raw): [(_gen_loop0_r0, (5, 8))]
+NZI keep5 b wires: [(_gen_en, Sparkle.IR.Type.HWType.bit),
+NZI keep5 opt wires: [(_gen_en, Sparkle.IR.Type.HWType.bit),
+NZI keep5 drives b: [_tmp_op_b_1,
+NZI keep5 reg _gen_loop0_r0: init 5; declWidth b = 8; weS opt = 8; driven in opt: true; init < 2^weS opt: true
+NZI keep5 designCheck (childMap D.modules) 0 opt = true
+NZI dead7 post: b = dropZeroWidth raw: true; b = mergeChecked (dropZeroWidth raw): true
+NZI dead7 branch: simpleBody b = false; all seqStmtOk = true; hierGate b = false; hierBinds b = false; opt == b: false
+NZI dead7 raw regs (name, init, declWidth raw): [(_gen_loop0_r0, (5, 8)), (_gen_loop0_r1, (7, 8))]
+NZI dead7 b wires: [(_gen_en, Sparkle.IR.Type.HWType.bit),
+NZI dead7 opt wires: [(_gen_en, Sparkle.IR.Type.HWType.bit),
+NZI dead7 drives b: [_gen_a,
+NZI dead7 reg _gen_loop0_r0: init 5; declWidth b = 8; weS opt = 8; driven in opt: true; init < 2^weS opt: true
+NZI dead7 reg _gen_loop0_r1: init 7; declWidth b = 8; weS opt = 0; driven in opt: false; init < 2^weS opt: false
+NZI dead7 designCheck (childMap D.modules) 0 opt = true
+NZI dup5 post: b = dropZeroWidth raw: true; b = mergeChecked (dropZeroWidth raw): true
+NZI dup5 branch: simpleBody b = false; all seqStmtOk = true; hierGate b = false; hierBinds b = false; opt == b: false
+NZI dup5 raw regs (name, init, declWidth raw): [(_gen_loop0_r0, (5, 8)), (_gen_loop0_r1, (5, 8))]
+NZI dup5 b wires: [(_gen_en, Sparkle.IR.Type.HWType.bit),
+NZI dup5 opt wires: [(_gen_en, Sparkle.IR.Type.HWType.bit),
+NZI dup5 drives b: [_gen_a,
+NZI dup5 reg _gen_loop0_r0: init 5; declWidth b = 8; weS opt = 8; driven in opt: true; init < 2^weS opt: true
+NZI dup5 reg _gen_loop0_r1: init 5; declWidth b = 8; weS opt = 8; driven in opt: true; init < 2^weS opt: true
+NZI dup5 designCheck (childMap D.modules) 0 opt = true
+NZI instDead7 post: b = dropZeroWidth raw: true; b = mergeChecked (dropZeroWidth raw): true
+NZI instDead7 branch: simpleBody b = false; all seqStmtOk = false; hierGate b = true; hierBinds b = false; opt == b: true
+NZI instDead7 raw regs (name, init, declWidth raw): [(_tmp_a_3, (5, 8)), (_tmp_b_6, (7, 8))]
+NZI instDead7 b wires: [(_gen_wd, Sparkle.IR.Type.HWType.bitVector 8),
+NZI instDead7 opt wires: [(_gen_wd, Sparkle.IR.Type.HWType.bitVector 8),
+NZI instDead7 drives b: [_gen_a,
+NZI instDead7 reg _tmp_a_3: init 5; declWidth b = 8; weS opt = 8; driven in opt: true; init < 2^weS opt: true
+NZI instDead7 reg _tmp_b_6: init 7; declWidth b = 8; weS opt = 8; driven in opt: true; init < 2^weS opt: true
+NZI instDead7 designCheck (childMap D.modules) 0 opt = true
+NZI instKeep5 post: b = dropZeroWidth raw: true; b = mergeChecked (dropZeroWidth raw): true
+NZI instKeep5 branch: simpleBody b = false; all seqStmtOk = false; hierGate b = true; hierBinds b = false; opt == b: true
+NZI instKeep5 raw regs (name, init, declWidth raw): [(_tmp_loop_body_4, (5, 8))]
+NZI instKeep5 b wires: [(_gen_wd, Sparkle.IR.Type.HWType.bitVector 8),
+NZI instKeep5 opt wires: [(_gen_wd, Sparkle.IR.Type.HWType.bitVector 8),
+NZI instKeep5 drives b: [_tmp_arg0_1,
+NZI instKeep5 reg _tmp_loop_body_4: init 5; declWidth b = 8; weS opt = 8; driven in opt: true; init < 2^weS opt: true
+NZI instKeep5 designCheck (childMap D.modules) 0 opt = true

@@ -1,0 +1,103 @@
+import Lean
+import Sparkle.IR.AST
+import Sparkle.IR.ModuleName
+import Sparkle.Core.Signal
+
+/-! # Memories on the machine route
+
+A `Signal.memory wa wd we ra` (read one cycle later) or
+`Signal.memoryComboRead wa wd we ra` (read in the same cycle) in a machine
+is read as a CALL of a memory-only child module: one instance (identical
+memories are one), its four operands hardware `let`s, its read data the
+instance's `out` port. The child is built here, not compiled from a
+declaration: inputs `wa`/`wd`/`we`/`ra` (in that order, the call's argument
+order), `clk`/`rst`, output `out`, a body of one memory statement and the
+read wire on `out` — the shape the compiler gives a declaration that is one
+memory.
+
+On the proof side such a call is an entry like a sequential child's; its
+causality is the memory's own (`Tools.ShippingMachineCausalCtx`). -/
+namespace Sparkle.Compiler.MachMemory
+open Lean Sparkle.IR.AST Sparkle.IR.Type
+
+/-- A memory application: whether its read is combinational, the address and
+data widths (read by `natOf`), the domain, and the operands `wa wd we ra`. -/
+def memCall? (natOf : Lean.Expr → Option Nat) (e : Lean.Expr) :
+    Option (Bool × Nat × Nat × Lean.Expr × List Lean.Expr) :=
+  let combo? : Option Bool :=
+    if e.isAppOfArity ``Sparkle.Core.Signal.Signal.memory 7 then some false
+    else if e.isAppOfArity ``Sparkle.Core.Signal.Signal.memoryComboRead 7 then some true
+    else none
+  match combo? with
+  | none => none
+  | some combo =>
+    let a := e.getAppArgs
+    match natOf a[1]!, natOf a[2]! with
+    | some aw, some dw =>
+      if aw == 0 || dw == 0 then none
+      else some (combo, aw, dw, a[0]!, [a[3]!, a[4]!, a[5]!, a[6]!])
+    | _, _ => none
+
+/-- The child's name (a placeholder in the shape's calls; no declaration). -/
+def memChildName (combo : Bool) (aw dw : Nat) : Name :=
+  Name.mkNum (Name.mkNum (Name.mkStr (Name.mkStr .anonymous "SparkleMem")
+    (if combo then "combo" else "sync")) aw) dw
+
+/-- The child module and its design. -/
+def memModule (combo : Bool) (aw dw : Nat) : Sparkle.IR.AST.Module × Design :=
+  -- `SparkleMem_{combo|sync}_{aw}_{dw}`, the memory form of the injective
+  -- module-name encoding (no declaration's module has this name:
+  -- `Tools.ShippingModuleName.ofDecl_ne_ofMem`)
+  let name := Sparkle.IR.ModuleName.ofMem combo aw dw
+  let m : Sparkle.IR.AST.Module :=
+    { name := name
+      inputs := [{ name := "wa", ty := .bitVector aw }, { name := "wd", ty := .bitVector dw },
+        { name := "we", ty := .bit }, { name := "ra", ty := .bitVector aw },
+        { name := "clk", ty := .bit }, { name := "rst", ty := .bit }]
+      outputs := [{ name := "out", ty := .bitVector dw }]
+      wires := [{ name := "out_rdata", ty := .bitVector dw }]
+      body := [.memory "mem" aw dw "clk" (.ref "wa") (.ref "wd") (.ref "we") (.ref "ra")
+          "out_rdata" combo [] [],
+        .assign "out" (.ref "out_rdata")] }
+  (m, { topModule := name, modules := [m] })
+
+/-- The child module of a placeholder name. -/
+def memChild? (c : Name) : Option (Sparkle.IR.AST.Module × Design) :=
+  match c with
+  | .num (.num (.str (.str .anonymous "SparkleMem") k) aw) dw =>
+    if k == "combo" then some (memModule true aw dw)
+    else if k == "sync" then some (memModule false aw dw) else none
+  | _ => none
+
+/-- The parameters a module of `memModule`'s shape is built with, read off its
+memory statement. -/
+def memParams? (m : Sparkle.IR.AST.Module) : Option (Bool × Nat × Nat) :=
+  match m.body with
+  | [.memory _ aw dw _ _ _ _ _ _ cb _ _, _] => some (cb, aw, dw)
+  | _ => none
+
+/-- Ports as (name, type) pairs (decidable equality). -/
+def portKey (ps : List Port) : List (String × HWType) := ps.map fun p => (p.name, p.ty)
+
+/-- `m` is exactly the module `memModule combo aw dw` builds. -/
+def isMemModule (combo : Bool) (aw dw : Nat) (m : Sparkle.IR.AST.Module) : Bool :=
+  let r := (memModule combo aw dw).1
+  decide (m.name = r.name) && m.parameters.isEmpty && decide (portKey m.inputs = portKey r.inputs) &&
+    decide (portKey m.outputs = portKey r.outputs) && decide (portKey m.wires = portKey r.wires) &&
+    m.assertions.isEmpty && !m.isPrimitive &&
+    match m.body with
+    | [.memory nm aw' dw' clk (.ref a) (.ref b) (.ref c) (.ref e) rd cb [] [], .assign o (.ref s)] =>
+      decide (nm = "mem") && decide (aw' = aw) && decide (dw' = dw) && decide (clk = "clk") &&
+        decide (a = "wa") && decide (b = "wd") && decide (c = "we") && decide (e = "ra") &&
+        decide (rd = "out_rdata") && decide (cb = combo) && decide (o = "out") &&
+        decide (s = "out_rdata")
+    | _ => false
+
+/-- In a design, a memory child's name finds that very memory module (a
+design check of `closeInstsG`; always so, the builder being one). -/
+def memSelf (find : String → Option Sparkle.IR.AST.Module) (c : Sparkle.IR.AST.Module) : Bool :=
+  match memParams? c with
+  | some (cb, aw, dw) => (find c.name).any (isMemModule cb aw dw)
+  | none => true
+
+end Sparkle.Compiler.MachMemory

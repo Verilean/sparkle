@@ -1,0 +1,312 @@
+# Worker N (par/n-1, rounds 1–2): gate-route parent runs — integrated (target-only)
+
+Integrator, 2026-10-14. Base poc `e8547205`. Taken from `par/n-1`: dd6bd34a (round 1), ce4eb22e (round 2);
+worker record `docs/parallel/N-gate-parent-run.md`.
+
+## Measured (cgrun, 3 GiB, swap 0, `-j 1`)
+Run `n-r1` (as written): `ShippingGateParentTail`, `ShippingGateDefines`, `ShippingGateConeLeafContract`
+built; `ShippingGateParentRuns` FAILED (an `obtain ⟨rfl, st⟩ := lift_runs st` chain: the `rfl` substitution
+reintroduced the earlier `st`/`h` and the new ones became inaccessible, so the old hypotheses were used),
+`ShippingGateParentPost` FAILED (`show some (.inst …)`: no expected type); the rest failed downstream.
+Integrator fixes (no statement changed): fresh names + explicit `subst` in `emitLeaves_single_runs`' chain;
+`Stmt.inst` in the `show`.
+Run `n-r2`: `ShippingGateParentRuns`, `…Post`, `…Run`, `…RunG`, `ShippingGateConeLeafRuns`,
+`Tests.Compiler.GateParentRunTest`, `Tests.Compiler.GateParentRunGTest`: all exit 0 (peak 0.34 GB).
+Axioms: `gate_parent_run`, `gate_parent_runG`, `parentUse_gate_parent_run`, `parentUse_gate_parent_runG`:
+[propext, Classical.choice, Quot.sound].
+
+## What is proved (scope)
+* `gate_parent_run` / `gate_parent_runG`: a returning run of `synthesizeCombinational` on an instance-root
+  gate parent ⇒ the shipped module is the zero-width cleanup (or its merge) of a module `M` of
+  `InstanceNShape` (ports, the child instance, the assign), with a real child result and the design
+  modules — a RUN-SHAPE statement, NOT yet `DesignSV`/source equality of the parent.
+* `parentUse_gate_parent_runG` (target-only): premises = the run, **`GateDefines`** (one per-world gate
+  reflection: first gate refuses, mixed gate accepts the body under the run's own instance predicate),
+  `ChildBnd`; every other side fact decided on the reflected body. `GateDefines` is **NOT in the
+  classifier's ALLOWED list**; the round-1 form (`gate_parent_run`) instead carries `EntryDefines` + `tag` +
+  `hscalar` + `old` + `accept` (tag, hscalar outside ALLOWED too). Implication lemma: the five round-1
+  premises give `GateDefines` (`gateDefines_of_entry`), so it is not a stronger boundary.
+* Cone (parentMix): leaf only (`inst_leaf_runs`, `armCont_leaf_contract`, no pinned child). World-level fuel
+  induction and the cone theorem NOT written (worker record §9).
+
+## Not claimed
+Gate-route parents are NOT counted anywhere: no census row, no design-level endpoint. `ALLOWED` unchanged;
+whether `GateDefines` may be admitted like `MachineDefines` is a pending ruling.
+
+## Round 3 (par/n-3, 4fd28a2f): the cone at the world level — BUILT with integrator fixes
+Run `n3` (cgrun, `-j 1`), on poc 4343df59 (after the prodMatcherArity? switch). As written:
+`ShippingGateConeW` failed (the `subst` after `RunsC.bind` reintroduced the old `hr` — same shadowing
+pattern as round 1; `intro instH instC` on a `letI` statement; the lemmas then elaborated with `flatLink`),
+`ShippingGateConeRun` (`outStructure` stated at `flatLink`), the test (`decide` on goals with a free `y2`).
+Integrator fixes (no statement changed except `outStructure`, generalised over `[LinkCtx]`): fresh name
+`hr2`; `letI : HierCtx := hierLink children; letI : ChildSem := C` inside `leafK_contractW`'s proof;
+`dsimp only; decide` in the test. All three targets exit 0.
+Axioms: `gate_cone_runG`, `parentMix_gate_cone_runG` [propext, Classical.choice, Quot.sound].
+
+What `parentMix_gate_cone_runG` says: from the run, `GateDefines` (NOT ALLOWED, ruling pending) and
+`ChildBnd`: the shipped module is the cleanup (or merge) of `M`, the final child cache `mF` satisfies
+`CacheInv`, and **IF** `childAdd` is tagged in the run's environment `envR`, `mF`'s `childAdd` entry is
+`childModule` and it brings no modules, **THEN** `ParentMixObserves M`. Those three run-value facts are
+antecedents NOT discharged (the tag is not yet derived from `GateDefines`' acceptance of a cone body).
+World-level cone: leaves, literals, `binary` only; compare / Bool ops / mux / setw / slices / concats and
+instance leaves with instance arguments (`parentNested`) NOT covered. Not counted anywhere.
+
+## Round 4 (par/n-4, ac490c7c): the leaf tag derived — BUILT as written
+Run `n4` (`-j 1`): `Tools.ShippingGateConeTag`, `Tests.Compiler.GateConeTagTest` exit 0, no fix needed.
+Axioms: `parentMix_tag`, `parentMix_gate_cone_runG'` [propext, Classical.choice, Quot.sound].
+* (a) DISCHARGED generally: `gate_leaf_tag` / `gate_leaf_tag'` — the gate's acceptance (under
+  `instancePredicate env`) of a cone body whose instance leaf is selected (`GateLeafSel`, decided per
+  declaration via `bvarCall`) gives `isHardwareModule env mn = true`. `parentMix_gate_cone_runG'` concludes
+  the tag at `envR` instead of assuming it.
+* (b) `y.1 = childModule` and (c) `y.2.modules = []` REMAIN antecedents of the conclusion. `childAdd` is a
+  FIRST-gate child (`certifiedShape?` accepts it): the existing RealChild facts assume the first gate
+  refuses. (b) asks for text equality with a hand-written constant — no theorem pins module text and a
+  `RunsTo` is not kernel-computable, so (b) is to be REPLACED by an observation against the run's own child
+  (worker record §17). Next unit (no compiler change): first-gate child facts from `RealChild` +
+  `EntryDefines childAdd` (ALLOWED), and a design-frame lemma for (c).
+
+## Round 5 (par/n-5, e854565b): first-gate child facts; parentMix without run-value antecedents — BUILT
+Run `n5` (`-j 1`). As written: `ShippingFirstGateChild` failed once (`admissible_zero` ambiguous between
+`ShippingGateChild` and `ShippingMachineEntry`); integrator fix: qualified name. Then
+`Tools.ShippingFirstGateChild`, `Tools.ShippingFirstGateKid`, `Tests.Compiler.GateConeKidTest`: exit 0.
+Axioms: `kidFacts_of_first`, `parentMix_gate_cone_runK` [propext, Classical.choice, Quot.sound];
+`addSem_spec` [propext, Quot.sound]. `example : childAddEntry = childAddValue := rfl` builds (the premise's
+value IS the real entry constant).
+* General (any first-gate child `quoteDecl dn names n fe`, `fe.WF`, `0 < n`): bridge
+  `bindCertified_mixed` (first-gate harness = mixed harness on `mixB` binders), `fragmentDecl_of_entry`,
+  full-entry outputs / inputs (Nodup, Allocated, not clk/rst/out), core design has no modules,
+  `first_child_fullFacts`, `ChildFnR` (ChildFn without its unused `rst = 0` premise; copies of the built
+  proofs), `kidFacts_of_first` (`KidFacts (ownChild y) …` from `RealChild` + `EntryDefines`).
+* `parentMix_gate_cone_runK` (target-only): premises the run, `GateDefines` (NOT ALLOWED, ruling pending),
+  `ChildBnd`, `EntryDefines childAdd` (ALLOWED). Conclusion: post ∧ `CacheInv mF` ∧ tag at `envR` ∧
+  `∀ y, mF.get? ``childAdd = some y → ParentMixObservesC (ownChild y) M` — no run-value antecedent left;
+  observation against the run's OWN cached child (replaces the hand-written `childModule`).
+  NOT concluded: that the cache entry exists (the statement is about every entry found). Cone at the world
+  level: binary fragment only; `parentNested` not covered. Not counted anywhere.
+
+## Round 6 (par/n-6: 985d88d6, 6f48b6a7, 70ff3968) — BUILT as written
+Run `n6` (`-j 1`): `Tools.ShippingGateConeEntry`, `Tests.Compiler.GateConeEntryTest`,
+`Tools.ShippingGateConeCompare` exit 0, no fix needed. Axioms: `parentMix_entryWN`, `gate_cone_runGE`,
+`parentMix_gate_cone_runK'`, `compare_contractW`, `fuel_contractWC` [propext, Classical.choice, Quot.sound].
+* Cache entry existence: `EntryW` / `EntryWN`, `inst_entryW`, `binary_entryWN`; `gate_cone_runGE`
+  (copy of `gate_cone_runG` with the entry conjunct). `parentMix_gate_cone_runK'` (premises unchanged:
+  run, `GateDefines` NOT ALLOWED, `ChildBnd`, `EntryDefines childAdd`) concludes
+  `∃ y, mF.get? ``childAdd = some y ∧ ParentMixObservesC (ownChild y) M` — no longer vacuous.
+  `EntryWN` covers runs that skip the root cache lookup only (a cache hit skips the operands).
+* `compare` at the world level: `compare_contractW`, fragment `cfragC` (= `cfrag` + compare),
+  `fuel_contractWC`. The cone theorem is NOT yet restated over `cfragC`.
+Remaining for gate-route parents: the other cone nodes (Bool ops, mux, setw, slices, concats), the cone
+theorem over the larger fragment, `parentNested` (instance arguments), the other gate parents, the
+design-level form (DesignSV / source), and the `GateDefines` ruling.
+
+## Round 7 (par/n-7: c1e5a98d … 44f13cde) — BUILT with two integrator fixes
+Run `n7` (`-j 1`). As written: `ShippingGateConeRunC` built; `ShippingGateConeBoolNot` failed (`decide` on
+`0 < (Value.bool a).kind.width` — free variable; and `signalCompare_missW`'s implicit `va`/`vb`/`n` unified
+wrongly, `vb := .bool a`), and everything after it downstream. Integrator fixes (no statement changed): pass
+`(n := 1) (va := …) (vb := …)` and the two bit-vectors explicitly in BoolNot and BoolEq. Then all seven
+targets exit 0: `…ConeRunC`, `…BoolNot`, `…BoolBin`, `…BoolEq`, `…Mux`, `…VecMux`, `…RunC6`.
+Axioms: `gate_cone_runGC`, `gate_cone_runGC6`, `boolNot_contractW`, `boolBin_contractW`, `boolEq_contractW`,
+`boolMux_contractW`, `vecMux_contractW`, `fuel_contractWC6` [propext, Classical.choice, Quot.sound].
+World-level cone fragment now: leaves, literals, binary, compare, boolNot, boolBinary, boolEq, Bool mux,
+bit-vector mux (`cfragC6`), with the cone theorem `gate_cone_runGC6` (premises run, `GateDefines` NOT
+ALLOWED, `ChildBnd`). NOT in any fragment: setw, slices, concats, applicative forms, instance arguments.
+
+Coverage of the eight simulated gate parents (worker N, BY READING; not a claim):
+| parent | body | fragment | per-declaration theorem |
+|---|---|---|---|
+| parentUse | childAdd a b | cfrag | run shape only (parentUse_gate_parent_runG) |
+| wrapAdd | childAdd a b at defaultDomain | cfrag | none |
+| parentMix | childAdd a b + a | cfrag | parentMix_gate_cone_runK' |
+| parentTwoCalls | childAdd a b + childAdd b a | cfrag | none |
+| parentRepeat | childAdd a b + childAdd a b | cfrag | none |
+| parentCmp | Signal.ult (childAdd a b) a | cfragC | none (entry existence for a compare root not written) |
+| parentNested | childAdd (childAdd a b) b | NOT covered | none |
+| wrapPick | pick sel x | NOT covered as stated (no domain binder: instEN reads sel as the domain) | none |
+
+## Round 8 (par/n-8: 366938d2, 325922ca, 2938a0b6, a5435705, b2d9b6d2) — BUILT as written
+Run `n8` (`-j 1`): `Tests.Compiler.GateConeTwoCallsTest`, `…RepeatTest`, `…WrapAddTest`,
+`Tools.ShippingGateConeEntryC`, `Tests.Compiler.GateConeCmpTest`: all exit 0, no fix needed; no `sorryAx` in
+any printed axiom list. `parentTwoCalls_gate_cone_runK'`, `parentRepeat_gate_cone_runK'`,
+`wrapAdd_gate_cone_runK'`, `parentCmp_gate_cone_runK'`: [propext, Classical.choice, Quot.sound]
+(`gateLeafSel_of2`: [propext, Quot.sound]). The peel sanity checks (`mixedGatePeel … = some … := rfl`)
+build.
+Each theorem: premises the run, `GateDefines` (NOT ALLOWED, ruling pending), `ChildBnd`,
+`EntryDefines childAdd` (ALLOWED); conclusion post ∧ `CacheInv mF` ∧ tag at `envR` ∧
+`∃ y, mF.get? ``childAdd = some y ∧ …ObservesC (ownChild y) M`.
+New general pieces: `gateLeafSel_of2` (two leaves), `domCall` / `gateLeafSel_ofD` (constant domain),
+`compare_entryWN`, `gate_cone_runGCE` (cone over `cfragC` with the entry conjunct).
+
+Gate-route parents among the eight simulated: FIVE now have a per-declaration cone theorem of this form
+(parentMix, parentTwoCalls, parentRepeat, wrapAdd, parentCmp); parentUse has the run-shape form only
+(a cone form like wrapAdd's is not written). Not covered: parentNested
+(instance arguments), wrapPick (no domain binder). All target-only, under the NOT ALLOWED `GateDefines`,
+observation-level (`…ObservesC`), NOT the design-level DesignSV form; not counted in any tally.
+
+## Round 9 (par/n-9: 53a4e104, 3109c629, 45b120da) — BUILT with one integrator fix
+Run `n9` (`-j 1`). As written: `GateConeUseTest` built; `ShippingGateConeInstArgsW` failed — it called
+`filter_noclk`, which is stated in a section with `variable [HierCtx] [ChildSem]` and therefore takes both
+instances although its statement uses neither (none available in that theorem). Integrator fix: the
+two-line fact inlined (`List.filter_eq_self`). Then `Tests.Compiler.GateConeUseTest`,
+`Tools.ShippingGateConeInstArgsW`, `Tools.ShippingGateConeNested`, `Tests.Compiler.GateConeNestedTest`:
+exit 0; no `sorryAx`. `parentUse_gate_cone_runK'`, `parentNested_gate_cone_runK'`:
+[propext, Classical.choice, Quot.sound].
+* Instance arguments at the world level (`inst_leaf_contractWA`, recursive leaves `LeafKR`,
+  `gate_cone_runGER`): a call whose arguments are calls. `parentNested`: both calls instantiate the one
+  `mF` entry of `childAdd`; the observation uses its `KidFacts` at the two argument values.
+* Gate-route parents among the eight simulated now with a per-declaration cone theorem (observation level,
+  premises run, `GateDefines` NOT ALLOWED, `ChildBnd`, `EntryDefines childAdd`): SEVEN — parentUse,
+  wrapAdd, parentMix, parentTwoCalls, parentRepeat, parentCmp, parentNested. Not covered: wrapPick.
+* wrapPick FINDING (worker, by reading; no compiler change): the gate accepts it and the compiler lowers it
+  correctly (the last #ports spine arguments go to the ports); only the PROOF side mis-reads it —
+  `instEN` / `Meaning.inst` / `instUncached_shape` / `armCont_leaf_contract` assume a leading domain
+  argument, so for a callee without a domain binder `KidFacts` cannot hold and the theorems do not apply
+  (nothing false follows). Covering it needs a change of the existing `Meaning` definition (a domain-free
+  call form, or `Meaning.inst` following the compiler's last-#ports rule) — a ruling.
+
+## Round 10 (par/n-10: 15bd95b4, a5f55e7a) — design-level lift, CONDITIONAL; BUILT as written
+Run `n10` (`-j 1`): `Tools.ShippingGateDesignLift`, `Tests.Compiler.GateConeDesignTest`,
+`Tests.Compiler.GateConeDesignSixTest` exit 0, no fix needed, no `sorryAx`. Axioms of the seven
+`…_gate_designSV` theorems [propext, Classical.choice, Quot.sound].
+Premises: those of `…_gate_cone_runK'` (run, `GateDefines` NOT ALLOWED, `ChildBnd`, `EntryDefines childAdd`).
+Conclusion: the cone facts AND `(A) → (B) → (C) → … DesignSide … → ∃ envsO, DesignSV (childMap design.modules)
+0 (checkedOptimize b) … ∧ out = source at every cycle`. The design-level part is CONDITIONAL on:
+* (A) `DesignHasChild`: the returned design's modules contain the run's own child module (needs a state
+  invariant over the translator — fuel induction);
+* (B) `PostKeeps b M`: the cleanup keeps M's body and widths (proved only for parentUse's body shape);
+* (C) `OptKeepsOut`: the optimizer keeps `out`. FINDING: the machine route's bridge
+  (`shipsHierHCheck` / `hierRefineCheck_linkedH`) requires an `rst` input; combinational gate parents have
+  none (`addClockResetIfSequential`), so that route would be VACUOUS here — a no-rst variant of
+  `refineCheck_transfer` is needed;
+* `DesignSide` (checker-style antecedents, outside ALLOWED, as in the machine route's non-closed form).
+NOT counted; not an endpoint in the census sense.
+
+## Round 11 (par/n-11: dad82682, eb9f39d3) — obstacles (A), (B) discharged; BUILT with integrator fixes
+Applied on poc 1a2428a9 (after worker Q); lakefile conflict (both rounds appended lean_libs at the same place)
+resolved by keeping both. Run `n11` (`-j 1`). As written, `ShippingGateDesignWalk` failed:
+`instHitValid_record` carries unused `[HierCtx] [ChildSem]` (restated locally as `instHitValid_recordD`,
+with `instHitValid` qualified); one `cases` branch needed the `any`-witness spelled out (explicit
+`(x.name == mc.name) = true`); in `ShippingGateDesignPost.dzStmt_assign_pos` the hypothesis was in `get?`
+form and the goal in `[·]?` form. No statement changed. Then all five targets exit 0
+(`…DesignWalk`, `…DesignRun`, `GateConeDesignWalkTest`, `…DesignPost`, `GateConeDesignPrimeTest`); no
+`sorryAx`; the seven `…_gate_designA` and seven `…_gate_designSV'` [propext, Classical.choice, Quot.sound].
+* (A) `DesignHasChild` DISCHARGED for the seven parents (no counterexample): a world-level design walk
+  (`DOk` / `DesW` over fvar, binary, compare, instance nodes); the parent starts from an empty design, only
+  the instance arm adds modules (the child's own design, empty by `KidFacts`, then `instRegisterChild` of
+  THE end-cache entry).
+* (B) `PostKeeps` DISCHARGED: finding — `refineCheck m o` requires `m.body.all seqStmtOk`, false on any
+  `.inst`, so `mergeChecked` keeps an instance-carrying module; the walk proves an instance is present.
+* `…_gate_designSV'`: premises run, `GateDefines` (NOT ALLOWED), `ChildBnd`, `EntryDefines childAdd`;
+  conclusion `DesignHasChild ∧ PostKeeps ∧ (OptKeepsOut → DesignSide → ∃ envsO, DesignSV … ∧ out = source)`.
+  Remaining antecedents: (C) `OptKeepsOut` (worker Q's `optKeepsOut_comb_post` gives it from `PostKeeps` +
+  `combOptSide` — NOT yet wired) and `DesignSide`; both outside ALLOWED as checker-style conditions.
+
+## Round 12 (par/n-12, 69aa7744) — (C) wired, checker bundles narrowed; BUILT as written
+Run `n12` (`-j 1`): `Tools.ShippingGateOutPort`, `Tools.ShippingGateCombSide`,
+`Tests.Compiler.GateConeDesignCombTest` exit 0, no fix; no `sorryAx`; the seven `…_gate_designSV''` and
+seven `…_gate_designSVN` [propext, Classical.choice, Quot.sound].
+* (C) wired: `gate_out_port` ("out" ∈ b.outputs from the same run) + `optKeepsOut_comb_post`.
+* Derived from the run (machine-route pattern): `hierGate b`, the four `combOptSide` conjuncts about
+  `checkedOptimize b`, `kidsComb` of the shipped body, six of eight `textCheckI` conjuncts, the children's
+  check / start-state premise over `b`'s instances.
+* `…_gate_designSVN`: premises run, `GateDefines` (NOT ALLOWED), `ChildBnd`, `EntryDefines childAdd`;
+  antecedents of the design part, ALL OUTSIDE ALLOWED, none added to it:
+  `combSideB ms b` (linkedWF b.body, instance-name Nodup, noSelfRead, outsExtracted, kidsComb ms b.body,
+  hierTyped), `designSideB ms b` (seqCheck, seqNames width agreement, portsMatchB of the optimizer output,
+  kidsPass kidCheck), `DesignSideR` (input fit / BoundOff / Bounded / children InvN — run-level width
+  premises like the machine route's Bnd).
+  Why not derived (worker): the design walk records only statement shapes and positive scalar ports — fresh
+  names, linked order, connections keyed by the callee's inputs and typed operands would have to be added to
+  `DOk` (next unit). `portsMatchB` is about the optimizer output (the machine route also left it).
+
+## Round 13 (par/n-13, 2dc8616d) — six more checker conjuncts derived; BUILT with one integrator fix
+Run `n13` (`-j 1`). As written, `ShippingGateNamesFinal` failed at four `dsimp only` that made no progress;
+integrator fix: `try dsimp only` (no statement changed). Then `Tools.ShippingGateNamesWalk`,
+`Tools.ShippingFirstGateKidText`, `Tools.ShippingGateNamesFinal`, `Tests.Compiler.GateConeDesignNamesTest`
+exit 0; no `sorryAx`; the seven `…_gate_designSVN2` [propext, Classical.choice, Quot.sound].
+* Second walk invariant `NOk` / `NamW` (reserved / allocated names, distinct instance names, builder order,
+  connections keyed by the callee's inputs, declared written wires), `first_child_kidK` (first-gate kid text).
+* DERIVED (no conjunct found false on the seven bodies): `linkedWF`, instance-name Nodup, `noSelfRead`,
+  `outsExtracted`, `kidsComb`, `kidsPass … kidCheck`.
+* `…_gate_designSVN2`: premises run, `GateDefines` (NOT ALLOWED), `ChildBnd`, `EntryDefines childAdd`;
+  design part `hierTyped (childMap ms) b → designSideB3 ms b → … DesignSideR … → DesignSV ∧ out = source`.
+  Left, all outside ALLOWED: `hierTyped` (operand / argument widths vs declared and child port widths — a
+  typing fact of the call, needs a typed walk), `designSideB3` (`seqCheck`, `seqNames` width agreement — the
+  same width obstacle; `portsMatchB` of the optimizer output, left by the machine route too), `DesignSideR`
+  (run-level input / start-state bounds).
+
+## Round 14 (par/n-14, 72813f52) — width checks and portsMatchB derived; BUILT with one integrator fix
+Run `n14` (`-j 1`): `Tools.ShippingGateTypedWalk`, `Tools.ShippingFirstGatePorts`,
+`Tools.ShippingGateTypedFinal` built as written; `Tests.Compiler.GateConeDesignTypedTest` failed at eight
+`inst8 hwd …` calls (implicit `e` not determined: the typing `fun _ => 8` is constant); integrator fix:
+`(e := Lean.Expr.bvar 0)` at those eight sites (any `e`: `τ e` reduces to 8; parentCmp's call, with a
+non-constant typing, was not touched). Then exit 0; no `sorryAx`; the seven `…_gate_designSVN3`
+[propext, Classical.choice, Quot.sound].
+* Third walk invariant `TOk` / `TypW` (operand / target widths, exact connection widths, recorded
+  translations typed by a per-declaration typing `τ` of the cone's expressions — needed because a cache hit
+  returns an earlier wire), `GateChildPorts` for a first-gate child, `typed_checks` / `gate_typedFacts`:
+  `hierTyped`, `seqCheck`, the `seqNames` width agreement and `portsMatchB (checkedOptimize b)` DERIVED
+  (portsMatchB via the existing `portsMatchB_shipped`, the compiler's `connsKept` guard).
+* `…_gate_designSVN3` (seven parents): premises run, `GateDefines` (NOT ALLOWED, ruling pending),
+  `ChildBnd`, `EntryDefines childAdd` (ALLOWED). Design part: for the reading of the inputs at each cycle
+  (the `Admissible` / `prepare … .bits` antecedent, as in the machine route) and `DesignSideR` (inputs fit,
+  BoundOff, Bounded, children InvN — run-level width premises, outside ALLOWED), there is a DesignSV run of
+  `checkedOptimize b` over `childMap design.modules` with `out` = source at every cycle. No checker
+  antecedent is left.
+* Findings (worker): no check false on the seven bodies. `portsMatchB` needs EQUAL widths at connections
+  (the compiler does no width adaptation) — a call with a narrower argument than the port would fail it
+  (not in the seven parents).
+Not counted (GateDefines pending; target-only).
+Comparison (integrator, by reading `Tools/ShippingShipsDesignSVAll.lean` 104–214): the machine route's
+counted design-level form (`ships_design_svN_all`) carries the same run-level bounds (`BoundOff`, `Bounded`,
+children `InvN`, input fit) as antecedents inside its conclusion. So `…_gate_designSVN3` has the shape of the
+counted machine-route form EXCEPT for the binder `GateDefines` (not in ALLOWED; the machine route's
+reflection binder is `MachineDefines`, which is). Whether the seven may enter a tally depends on that ruling
+alone (and on a census row definition for gate-route parents, which does not exist yet).
+
+## CORRECTION (integrator, 2026-10-15, after the reviewer's check of a62588fc)
+The comparison above ("`…_gate_designSVN3` has the shape of the counted machine-route form EXCEPT for
+`GateDefines`") is WRONG. Checked on the seven statements in `Tests/Compiler/GateConeDesignTypedTest.lean`
+(7 theorems; each design part ends in `∃ envsO, DesignSV … ∧ envsO.length = T ∧ out = source`; no
+`∀ envs'` clause): they are EXISTENCE-only. `ships_design_svN_all` (Tools/ShippingShipsDesignSVAll.lean
+30–125) concludes the existence AND that EVERY closed run `envs'` from the same seeding and states has
+length T and shows the source. Missing for the gate parents: the all-run side (`design_sv_all` or a
+determinism theorem), and outsCheck-type conditions derived from the run. Until that connection, a full
+premise audit and the axiom audit, the seven are existence-only design statements and are NOT comparable
+with the all-run census. `GateDefines` is a further difference, not the only one.
+
+## Round 15 (par/n-15, d028a7dc) — the EVERY-closed-run side; BUILT with one integrator fix
+Run `n15` (`-j 1`): `Tools.ShippingGateDesignAll` built as written; `Tests.Compiler.GateConeDesignAllTest`
+failed in `wrapAdd_gate_designSVall` only (it destructured three binder ids and introduced a domain, but
+`wrapAdd` has two binders and a fixed domain); integrator fix: two ids, no domain intro (no statement changed).
+Then exit 0; no `sorryAx`; the seven `…_gate_designSVall` [propext, Classical.choice, Quot.sound].
+* Derived from the run: `designCheck … 0 (checkedOptimize b)` and `outsCheck … 0 (checkedOptimize b)`
+  (`outsCheck0_of_kidsComb`, `gate_shipped_checks`); `gate_sv_all` = `design_sv_all` at depth 0 under
+  `DesignSideR`.
+* `…_gate_designSVall` (seven parents): premises run, `GateDefines` (separate gate-only reflection class,
+  docs/parallel/G-gatedefines-class.md), `ChildBnd`, `EntryDefines childAdd`; design part, under the input
+  reading and `DesignSideR` (run-level bounds): a closed run exists AND every closed run `envs'` from the same
+  seeding and states has length T and shows the source.
+* Clause-by-clause comparison with `ships_design_svN_all`: worker record §(round 15) in
+  `docs/parallel/N-gate-parent-run.md`. The existence and every-run clauses have the same shape (depth 0,
+  one output `out`). DIFFERENCES (not "same as the counted form"): starts from the compiler run rather than
+  transforming a hypothesis `H`; premises (`GateDefines` instead of `MachineDefines`, `EntryDefines` of the
+  callee); no `∃ D` (the returned design itself); extra conjuncts (CacheInv, tag, cache entry, observation,
+  DesignHasChild, PostKeeps); no check antecedents (derived); binder witnesses without the stated Nodup;
+  depth fixed 0; input reading via `Admissible`/`prepare` instead of `SourceInputs`; start-state bound via
+  `BoundOff`; no rst/clk/registers/Reset.
+Tally: separate gate-route kind; seven parents ALL-RUN at the design level, all target-only, under
+`GateDefines` (separate class) and `DesignSideR`. NOT added to the machine-route census.
+
+## Round 16 (par/n-16, aa62e83b) — wrapPick at the design level, every closed run; BUILT as written
+Applied on poc 15650288 (lakefile conflict on appended lean_libs: kept both). Run `n16` (`-j 1`):
+`Tools.ShippingGateWalkE`, `Tools.ShippingGateTypedFinalI`, `Tests.Compiler.GateConeWrapPickDesignTest` exit 0,
+no fix; no `sorryAx`; `wrapPick_gate_designA`, `wrapPick_gate_designSVall` [propext, Classical.choice,
+Quot.sound]. Premises: run, `GateDefines` (gate-only class), `ChildBnd`, `EntryDefines … pick pick.gateValue`;
+design part under the input reading and `DesignSideR`, as for the seven. New: walk nodes over any spine split
+(`desW/namW/typW_instE`), typing chosen per instantiation (`gate_typedFactsI` — a fixed typing cannot give a
+2-bit and an 8-bit port for every pair of fresh ids), mixed-gate child facts for `pick`. Intermediate
+round-10/12 forms skipped for wrapPick (no existence-only theorem of its own; existence is a conjunct of
+`…SVall`).
+Gate census re-run (`gcov2`, GateCoverageTest now imports the wrapPick design test):
+`GATE COVERAGE TOTALS of 8 gate-route parent(s): observation 8; existence-only 7; all-run 8; … remaining OTHER
+conditions of the strongest forms [DesignSideR]; non-standard axioms in []; in-suite 0, target-only 8`.

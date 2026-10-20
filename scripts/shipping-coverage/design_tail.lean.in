@@ -1,0 +1,6 @@
+
+-- appended by scripts/shipping-coverage/design_sweep.sh (round par/b-36):
+-- the design-level generators on the candidates of THIS file, one row per
+-- candidate appended to @ROWS@ (Tools/ShippingCorpusSweep.lean).
+set_option maxHeartbeats 0 in
+#corpus_design_sweep "@ROWS@" "@TOPS@" "@LABEL@" "@MODE@"

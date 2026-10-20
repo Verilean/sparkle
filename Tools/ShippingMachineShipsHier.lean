@@ -1,0 +1,889 @@
+import Tools.ShippingHierOptRun
+import Tools.ShippingMachineShipsW
+import Tools.ShippingMachineCallsLinkedTN
+import Tools.ShippingHierPremisesBase
+
+/-! # A machine with instances, at the full entry and the optimizer
+
+The composed theorem of a machine with sequential / memory children
+(`machine_linkedT_callsN`, generated as `f.machine_composedT`) states the
+stateful linked run of the CORE module. The full entry returns the module
+after the zero-width cleanup (the identity on machine modules) and the
+checked merge — the identity on an instance-bearing body (its validator
+keeps assignments as assignments; `refineCheck` rejects instance
+statements) — and the printer is given `checkedOptimize` of it, which on an
+instance-bearing module keeps the optimizer's output only when
+`hierRefineCheck` accepts it (`hierRefineCheck_linked`). -/
+namespace Tools.ShippingMachineShipsHier
+open Lean Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Semantics Sparkle.IR.Machine
+open Sparkle.IR.AST (Module)
+open Sparkle.IR.OptCheck Sparkle.IR.RefineCheck Sparkle.IR.HierCheck
+open Sparkle.IR.RegDedup (declWidth isAssign)
+open Tools.ShippingHierOpen Tools.ShippingHierState Tools.ShippingHierStateG
+open Tools.ShippingHierOptRun
+open Tools.ShippingEntrySoundness Tools.ShippingMixedSourceBridge
+open Tools.ShippingMachineEntry Tools.ShippingMachineAuto Tools.ShippingMachineShipping
+open Tools.ShippingMachineLinked Tools.ShippingMachineDepth
+open Tools.ShippingSeqOptSoundness (seedIn)
+open Sparkle.Core Sparkle.Core.Domain Sparkle.Core.Signal
+
+theorem validateMerge_go_assign {wOf : String → Nat} {allLhs : List String} :
+    ∀ (old new : List Stmt) (st : Sparkle.IR.RegDedup.MergeCheck),
+      Sparkle.IR.RegDedup.validateMerge.go wOf allLhs st old new = true →
+      old.all isAssign = true → new.all isAssign = true
+  | [], [], _, _, _ => rfl
+  | [], _ :: _, _, hgo, _ => by simp [Sparkle.IR.RegDedup.validateMerge.go] at hgo
+  | _ :: _, [], _, hgo, _ => by simp [Sparkle.IR.RegDedup.validateMerge.go] at hgo
+  | a :: as, b :: bs, st, hgo, hs => by
+    simp only [List.all_cons, Bool.and_eq_true] at hs
+    cases a with
+    | assign l e =>
+      simp only [Sparkle.IR.RegDedup.validateMerge.go] at hgo
+      split at hgo
+      · rename_i st' hstep
+        obtain ⟨e', rfl, -⟩ := Tools.ShippingPostSoundness.validateStep_shape hstep
+        simp only [List.all_cons, isAssign, Bool.true_and]
+        exact validateMerge_go_assign as bs st' hgo hs.2
+      · cases hgo
+    | _ => simp [isAssign] at hs
+
+/-- A module with an instance statement. -/
+def hasInst (m : Sparkle.IR.AST.Module) : Prop := ∃ mn iname conns, Stmt.inst mn iname conns ∈ m.body
+
+theorem hasInst_of_hierBinds {m : Sparkle.IR.AST.Module} (h : hierBinds m = true) : hasInst m := by
+  simp only [hierBinds, hierGate, Bool.and_eq_true, List.any_eq_true] at h
+  obtain ⟨⟨⟨st, hst, hi⟩, -⟩, -⟩ := h
+  cases st with
+  | inst mn iname conns => exact ⟨mn, iname, conns, hst⟩
+  | _ => simp at hi
+
+theorem not_all_assign {m : Sparkle.IR.AST.Module} (h : hasInst m) : m.body.all isAssign = false := by
+  obtain ⟨mn, iname, conns, hm⟩ := h
+  exact List.all_eq_false.mpr ⟨_, hm, by simp [isAssign]⟩
+
+theorem not_all_seqOk {m : Sparkle.IR.AST.Module} (h : hasInst m) : m.body.all seqStmtOk = false := by
+  obtain ⟨mn, iname, conns, hm⟩ := h
+  exact List.all_eq_false.mpr ⟨_, hm, by simp [seqStmtOk]⟩
+
+/-- **The checked merge keeps an instance-bearing module.** -/
+theorem mergeChecked_inst {r b : Sparkle.IR.AST.Module} (hb : b = mergeChecked r) (hI : hasInst b) : b = r := by
+  unfold mergeChecked at hb
+  dsimp only at hb
+  split at hb
+  · -- an assignment-only body: the merge's statements are assignments
+    rename_i hall
+    exfalso
+    have hb' : b.body.all isAssign = true := by
+      rw [hb]
+      unfold Sparkle.IR.RegDedup.mergeDuplicates
+      simp only [hall, if_true]
+      split
+      · rename_i hv
+        exact validateMerge_go_assign _ _ _ hv hall
+      · exact hall
+    rw [not_all_assign hI] at hb'
+    cases hb'
+  · split at hb
+    · rename_i _ hrc
+      exfalso
+      have := Tools.ShippingMachineShipping.refineCheck_stmtOk_o
+        (Sparkle.IR.RefineCheck.and_left_true hrc)
+      rw [← hb, not_all_seqOk hI] at this
+      cases this
+    · exact hb
+
+theorem simpleBody_inst {m : Sparkle.IR.AST.Module} (h : hasInst m) : simpleBody m = false := by
+  obtain ⟨mn, iname, conns, hm⟩ := h
+  unfold simpleBody
+  exact List.all_eq_false.mpr ⟨_, hm, by simp⟩
+
+/-- The children's reset gives their invariant. -/
+def ResetImpliesInv {σ : Type} (Reset : Sparkle.IR.AST.Module → Design → (String → σ) → Prop)
+    (Inv : Sparkle.IR.AST.Module → σ → Prop) : Prop :=
+  ∀ m D kids, Reset m D kids → ∀ mn iname conns, Stmt.inst mn iname conns ∈ m.body →
+    ∀ child cwe, childMap D.modules mn = some (child, cwe) → Inv child (kids iname)
+
+theorem true_inv {σ : Type} (Reset : Sparkle.IR.AST.Module → Design → (String → σ) → Prop) :
+    ResetImpliesInv Reset (fun _ _ => True) := by
+  intro _ _ _ _ _ _ _ _ _ _ _; trivial
+
+/-- A composed theorem's statement: the stateful linked run (children
+stepping by `KS dsn`, from states satisfying `Reset m dsn`) of the core
+module `m` in its design `dsn` shows the source. `machine_linkedT_calls`
+(`f.machine_composedT`) states it for the one-level step (`composedG_of_T`),
+`machine_linkedT_callsN` for depth `n`. -/
+def ComposedG {σ : Type} (KS : Design → KStep σ)
+    (Reset : Sparkle.IR.AST.Module → Design → (String → σ) → Prop)
+    (declName : Name) (d : MachineData) (kD : Nat)
+    (m : Sparkle.IR.AST.Module) (dsn : Design) {ι : Type} (dom : ι → DomainConfig)
+    (src : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat))
+    (ext : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) →
+      (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
+    (extB : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → Nat → Signal (dom i) Bool) : Prop :=
+  ∃ ids : List FVarId, ids.Nodup ∧ ids.length = d.shape.binders.length ∧
+  ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
+    regs.Nodup ∧ regs.length = d.ss.length ∧
+    ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+      (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
+      (T : Nat) (seed : Nat → (String → Nat) → Env) (st0 : String → Nat) (mems : MEnv)
+      (kids : String → σ),
+      (∀ t st, t < T → SourceInputs declName (d.bsIn.take kD) ids cache
+        (fun j => (extB i bools bits j).val (T - 1 - t))
+        (fun j n => (ext i bools bits j n).val (T - 1 - t)) (seed t st)) →
+      (∀ t st r, r ∈ regs → seed t st r = st r) →
+      (∀ t st, seed t st "rst" = 0) → (∀ t st, seed t st "clk" = 0) →
+      (∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r →
+        d.shape.layout.slots[k]? = some f → st0 r = f.init) →
+      Reset m dsn kids →
+      ∃ envs, runModuleTG (KS dsn) (Tools.ShippingEntrySoundness.weOf m)
+          (childMap dsn.modules) m.body seed T ⟨st0, mems, kids⟩ = some envs ∧
+        envs.length = T ∧
+        ∀ j (hj : j < envs.length) (k : Nat) (o : OutField) (f : Nat → Nat),
+          d.shape.layout.outs[k]? = some o → (src i bools bits)[k]? = some f →
+          (envs[j]'hj) o.name = f j
+
+/-- A run boundary that may depend on the run's contexts and its start world
+(the child boundary `ChildBnd` — the laws, and the cache invariant in the
+start world — and the children's reflection facts do). -/
+abbrev CtxBnd : Type :=
+  Meta.Context → ST.Ref IO.RealWorld Meta.State → Core.Context → ST.Ref IO.RealWorld Core.State →
+    Void IO.RealWorld → Sparkle.IR.AST.Module → Design → Prop
+
+/-- A boundary of the run's modules alone. -/
+abbrev ctxFree (B : Sparkle.IR.AST.Module → Design → Prop) : CtxBnd := fun _ _ _ _ _ m D => B m D
+
+/-- **A machine with instances, at the full entry and the optimizer.** From
+its wired endpoint (`soundL`, for the cleanup facts) and its composed theorem
+(`composed`), a run of the full entry returns a module `b` whose shipped
+optimization `checkedOptimize b`, in the stateful linked semantics over the
+children of the core design, shows the source — when the optimizer check
+binds on `b` (`hierBinds`) and the design facts of `hierRefineCheck_linked`
+hold (decidable on the run's modules), and the children's steps keep their
+outputs within their ports' widths. -/
+theorem machine_ships_hierC {σ : Type} (KS : Design → KStep σ) (hloc : ∀ D, KSLocal (KS D))
+    (Reset : Sparkle.IR.AST.Module → Design → (String → σ) → Prop)
+    (Bnd : CtxBnd)
+    (C : Meta.Context → ST.Ref IO.RealWorld Meta.State → Core.Context →
+      ST.Ref IO.RealWorld Core.State → Prop)
+    (Bd : Sparkle.IR.AST.Module → Design → Prop) (Inv : Sparkle.IR.AST.Module → σ → Prop)
+    (hBd : ∀ b D, Bd b D → KSBoundedIn (childMap D.modules) (KS D) b.body Inv)
+    (hRI : ResetImpliesInv Reset Inv)
+    {declName : Name} (d : MachineData) {kD : Nat}
+    {ι : Type} {dom : ι → DomainConfig}
+    {src : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat)}
+    {ext : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) →
+      (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)}
+    {extB : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → Nat → Signal (dom i) Bool}
+    {lsrc srcL : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat)}
+    {extL : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) →
+      (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)}
+    {extBL : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → Nat → Signal (dom i) Bool}
+    -- the wired endpoint, for the cleanup facts only (its source may be the
+    -- fused / sign-normalised one a transported endpoint rewrites)
+    (soundL : ∀ {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+      {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+      {m : Sparkle.IR.AST.Module} {design : Design},
+      RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w
+        (m, design) w' →
+      MachineDefines mctx mref cctx cref declName d.shape →
+      C mctx mref cctx cref →
+      Bnd mctx mref cctx cref w m design →
+      MachineTraceLB declName d m design dom srcL extL extBL lsrc)
+    (composed : ∀ {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+      {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+      {m : Sparkle.IR.AST.Module} {design : Design},
+      RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w
+        (m, design) w' →
+      MachineDefines mctx mref cctx cref declName d.shape →
+      C mctx mref cctx cref →
+      Bnd mctx mref cctx cref w m design → Tools.ConeFold.memFree m.body →
+      ComposedG KS Reset declName d kD m design dom src ext extB)
+    (houtTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
+    {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {b : Sparkle.IR.AST.Module} {design : Design}
+    (hr : RunsTo (synthesizeCombinational declName) mctx mref cctx cref w (b, design) w')
+    (entry : MachineDefines mctx mref cctx cref declName d.shape)
+    (closes : C mctx mref cctx cref) :
+    ∃ (raw : Sparkle.IR.AST.Module) (D : Design),
+      (b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨
+        b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)) ∧
+      (-- the run's modules pass the route's checker (`shipsHierCheck_sound`:
+       -- the optimizer check binds, linked-well-formed shipped body, distinct
+       -- instance names, no self-read, instance-driven wires extracted,
+       -- instance-output widths, a reset port); the core body's linked
+       -- well-formedness comes from its wiring
+       Tools.ShippingHierPremisesBase.shipsHierCheck (childMap D.modules) b = true →
+        -- the run boundary of the children (in the run's contexts)
+        Bnd mctx mref cctx cref w raw D →
+        -- the children's outputs within their ports' widths
+        Bd b D →
+        ∃ ids : List FVarId, ids.Nodup ∧ ids.length = d.shape.binders.length ∧
+        ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
+          regs.Nodup ∧ regs.length = d.ss.length ∧
+          ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+            (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
+            (T : Nat) (ins : Nat → String → Nat) (st0 : String → Nat) (mems : MEnv)
+            (kids : String → σ),
+            (∀ t st, t < T → SourceInputs declName (d.bsIn.take kD) ids cache
+              (fun j => (extB i bools bits j).val (T - 1 - t))
+              (fun j n => (ext i bools bits j n).val (T - 1 - t)) (seedIn b ins t st)) →
+            (∀ t st r, r ∈ regs → seedIn b ins t st r = st r) →
+            (∀ t, ins t "rst" = 0) → (∀ t st, seedIn b ins t st "clk" = 0) →
+            (∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r →
+              d.shape.layout.slots[k]? = some f → st0 r = f.init) →
+            Reset raw D kids →
+            (∀ t x, x ∈ b.inputs.map (·.name) → ins t x < 2 ^ declWidth b x) →
+            (∀ x ∈ (openIns b).map (·.name), x ∉ bodyInstOuts (childMap D.modules) b.body →
+              st0 x < 2 ^ declWidth b x) →
+            (∀ r ∈ seqRegs (openFlat b (openIns b) (openOuts b)), st0 r.1 < 2 ^ declWidth b r.1) →
+            ∃ envsO, runModuleTG (KS D) (declWidth (checkedOptimize b))
+                (childMap D.modules) (checkedOptimize b).body (seedIn b ins) T
+                ⟨st0, mems, kids⟩ = some envsO ∧
+              envsO.length = T ∧
+              ∀ j (hj : j < envsO.length) (k : Nat) (o : OutField) (f : Nat → Nat),
+                d.shape.layout.outs[k]? = some o → (src i bools bits)[k]? = some f →
+                (envsO[j]'hj) o.name = f j) := by
+  obtain ⟨raw, D, w1, hcore, hpost⟩ := synthesizeCombinational_checked hr
+  refine ⟨raw, D, hpost, ?_⟩
+  intro hchk hBnd hBdb
+  have hL := soundL hcore entry closes hBnd
+  obtain ⟨_, _, _, _, _, _, _, _, _, wired, _⟩ := id hL
+  obtain ⟨_, _, _, _, _, _, hlink, houts, _, _, _, _, _, _, _, hclean, _⟩ := wired
+  obtain ⟨hb, hw, hi, ho⟩ := hclean houtTy
+  obtain ⟨⟨hbind, hwfO, hndB, hndO, hnofb, hOutM, hrstIn⟩, hIW⟩ :=
+    Tools.ShippingHierPremisesBase.shipsHierCheck_sound hchk
+  have hwfB : linkedWF (childMap D.modules) b.body = true := by
+    have hbB' : b.body = raw.body := by
+      rcases hpost with h | h
+      · rw [h]; exact hb
+      · rw [mergeChecked_inst h (hasInst_of_hierBinds hbind)]; exact hb
+    rw [hbB', ← Tools.ShippingMachineLinked.linkedOk_eq]; exact hlink
+  have hKSb := hBd b D hBdb
+  have hI := hasInst_of_hierBinds hbind
+  have hbr : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw := by
+    rcases hpost with h | h
+    · exact h
+    · exact mergeChecked_inst h hI
+  have hbB : b.body = raw.body := by rw [hbr]; exact hb
+  have hbW : declWidth b = Tools.ShippingEntrySoundness.weOf raw := by rw [hbr]; exact hw
+  have hbI : b.inputs = raw.inputs := by rw [hbr]; exact hi
+  have hbO : b.outputs = raw.outputs := by rw [hbr]; exact ho
+  have hmf : Tools.ConeFold.memFree raw.body := by
+    rw [← hbB]; exact memFree_of_linkedWF _ hwfB
+  obtain ⟨ids, nd, len, cache, regs, rnd, rlen, H⟩ := composed hcore entry closes hBnd hmf
+  refine ⟨ids, nd, len, cache, regs, rnd, rlen, ?_⟩
+  intro i bools bits T ins st0 mems kids hsrc hpass hrstZ hclk hinit hreset hinsFit hstX hstR
+  have hrst : ∀ t st, seedIn b ins t st "rst" = 0 := by
+    intro t st
+    simp only [seedIn, List.contains_eq_mem, decide_eq_true hrstIn, if_true]
+    exact hrstZ t
+  obtain ⟨envs, hrun, hlen, hobs⟩ := H i bools bits T (seedIn b ins) st0 mems kids hsrc hpass hrst
+    hclk hinit hreset
+  have hrunB : runModuleTG (KS D) (declWidth b) (childMap D.modules) b.body
+      (seedIn b ins) T ⟨st0, mems, kids⟩ = some envs := by
+    rw [hbW, hbB]; exact hrun
+  -- the optimizer: checked on the extracted interface, or not applied
+  have hopt : checkedOptimize b = (if hierRefineCheck b (deinline b (Sparkle.IR.Optimize.optimizeModule b))
+      then deinline b (Sparkle.IR.Optimize.optimizeModule b) else b) := by
+    unfold checkedOptimize
+    simp only [simpleBody_inst hI, not_all_seqOk hI, hbind, Bool.false_eq_true, if_false, if_true]
+  have houtSrc : ∀ (k : Nat) (o : OutField), d.shape.layout.outs[k]? = some o →
+      o.name ∈ b.outputs.map (·.name) := by
+    intro k o hk
+    rw [hbO, houts]
+    exact List.mem_map.mpr ⟨_, List.mem_map.mpr ⟨o, List.mem_of_getElem? hk, rfl⟩, rfl⟩
+  by_cases hacc : hierRefineCheck b (deinline b (Sparkle.IR.Optimize.optimizeModule b)) = true
+  · rw [hopt, if_pos hacc] at hwfO hndO hnofb ⊢
+    obtain ⟨-, -, envsO, hrunO, hlenO, hcorr⟩ := hierRefineCheck_linked
+      (KS D) (hloc D) (childMap D.modules) hacc
+      hwfB hwfO hndB hndO hnofb hOutM ins hinsFit hrstIn hrstZ hrunB
+      (fitX_of_run _ (childMap D.modules) b Inv hKSb ins hwfB hndB hIW T _ envs hrunB
+        (fun mn iname conns hm child cwe hc => hRI raw D kids hreset mn iname conns
+          (by rw [← hbB]; exact hm) child cwe hc) hstX) hstR
+    refine ⟨envsO, hrunO, by omega, ?_⟩
+    intro j hj k o f hk hf
+    obtain ⟨p, hp, hpn⟩ := List.mem_map.mp (houtSrc k o hk)
+    rw [← hpn, hcorr p hp j hj (by omega), hpn]
+    exact hobs j (by omega) k o f hk hf
+  · rw [hopt, if_neg hacc]
+    exact ⟨envs, hrunB, hlen, hobs⟩
+
+/-! ## The one-level composed theorem in the general form -/
+
+/-- `machine_ships_hierC` with the all-worlds closing premise `MachineCloses`. -/
+theorem machine_ships_hier {σ : Type} (KS : Design → KStep σ) (hloc : ∀ D, KSLocal (KS D))
+    (Reset : Sparkle.IR.AST.Module → Design → (String → σ) → Prop)
+    (Bnd : CtxBnd)
+    (Bd : Sparkle.IR.AST.Module → Design → Prop) (Inv : Sparkle.IR.AST.Module → σ → Prop)
+    (hBd : ∀ b D, Bd b D → KSBoundedIn (childMap D.modules) (KS D) b.body Inv)
+    (hRI : ResetImpliesInv Reset Inv)
+    {declName : Name} (d : MachineData) {kD : Nat}
+    {ι : Type} {dom : ι → DomainConfig}
+    {src : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat)}
+    {ext : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) →
+      (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)}
+    {extB : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → Nat → Signal (dom i) Bool}
+    {lsrc srcL : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat)}
+    {extL : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) →
+      (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)}
+    {extBL : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → Nat → Signal (dom i) Bool}
+    -- the wired endpoint, for the cleanup facts only (its source may be the
+    -- fused / sign-normalised one a transported endpoint rewrites)
+    (soundL : ∀ {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+      {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+      {m : Sparkle.IR.AST.Module} {design : Design},
+      RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w
+        (m, design) w' →
+      MachineDefines mctx mref cctx cref declName d.shape →
+      MachineCloses mctx mref cctx cref declName d.shape →
+      MachineTraceLB declName d m design dom srcL extL extBL lsrc)
+    (composed : ∀ {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+      {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+      {m : Sparkle.IR.AST.Module} {design : Design},
+      RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w
+        (m, design) w' →
+      MachineDefines mctx mref cctx cref declName d.shape →
+      MachineCloses mctx mref cctx cref declName d.shape →
+      Bnd mctx mref cctx cref w m design → Tools.ConeFold.memFree m.body →
+      ComposedG KS Reset declName d kD m design dom src ext extB)
+    (houtTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
+    {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {b : Sparkle.IR.AST.Module} {design : Design}
+    (hr : RunsTo (synthesizeCombinational declName) mctx mref cctx cref w (b, design) w')
+    (entry : MachineDefines mctx mref cctx cref declName d.shape)
+    (closes : MachineCloses mctx mref cctx cref declName d.shape) :
+    ∃ (raw : Sparkle.IR.AST.Module) (D : Design),
+      (b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨
+        b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)) ∧
+      (-- the run's modules pass the route's checker (`shipsHierCheck_sound`:
+       -- the optimizer check binds, linked-well-formed shipped body, distinct
+       -- instance names, no self-read, instance-driven wires extracted,
+       -- instance-output widths, a reset port); the core body's linked
+       -- well-formedness comes from its wiring
+       Tools.ShippingHierPremisesBase.shipsHierCheck (childMap D.modules) b = true →
+        -- the run boundary of the children (in the run's contexts)
+        Bnd mctx mref cctx cref w raw D →
+        -- the children's outputs within their ports' widths
+        Bd b D →
+        ∃ ids : List FVarId, ids.Nodup ∧ ids.length = d.shape.binders.length ∧
+        ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
+          regs.Nodup ∧ regs.length = d.ss.length ∧
+          ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+            (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
+            (T : Nat) (ins : Nat → String → Nat) (st0 : String → Nat) (mems : MEnv)
+            (kids : String → σ),
+            (∀ t st, t < T → SourceInputs declName (d.bsIn.take kD) ids cache
+              (fun j => (extB i bools bits j).val (T - 1 - t))
+              (fun j n => (ext i bools bits j n).val (T - 1 - t)) (seedIn b ins t st)) →
+            (∀ t st r, r ∈ regs → seedIn b ins t st r = st r) →
+            (∀ t, ins t "rst" = 0) → (∀ t st, seedIn b ins t st "clk" = 0) →
+            (∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r →
+              d.shape.layout.slots[k]? = some f → st0 r = f.init) →
+            Reset raw D kids →
+            (∀ t x, x ∈ b.inputs.map (·.name) → ins t x < 2 ^ declWidth b x) →
+            (∀ x ∈ (openIns b).map (·.name), x ∉ bodyInstOuts (childMap D.modules) b.body →
+              st0 x < 2 ^ declWidth b x) →
+            (∀ r ∈ seqRegs (openFlat b (openIns b) (openOuts b)), st0 r.1 < 2 ^ declWidth b r.1) →
+            ∃ envsO, runModuleTG (KS D) (declWidth (checkedOptimize b))
+                (childMap D.modules) (checkedOptimize b).body (seedIn b ins) T
+                ⟨st0, mems, kids⟩ = some envsO ∧
+              envsO.length = T ∧
+              ∀ j (hj : j < envsO.length) (k : Nat) (o : OutField) (f : Nat → Nat),
+                d.shape.layout.outs[k]? = some o → (src i bools bits)[k]? = some f →
+                (envsO[j]'hj) o.name = f j) :=
+  machine_ships_hierC KS hloc Reset Bnd
+    (fun mctx mref cctx cref => MachineCloses mctx mref cctx cref declName d.shape) Bd Inv hBd hRI d
+    (fun hr e c _ => soundL hr e c) composed houtTy hr entry closes
+
+theorem evalAssignsK_flat (we : WEnv) (children : String → Option (Sparkle.IR.AST.Module × WEnv))
+    (kids : String → KidState) (mems : MEnv) :
+    ∀ (body : List Stmt), Tools.ConeFold.memFree body → ∀ (env : Env) (acc : String → KidState),
+      evalAssignsK we children kids mems body env acc =
+        evalAssignsKG flatKS we children kids mems body env acc
+  | [], _, _, _ => rfl
+  | .assign l r :: rest, hm, env, acc => by
+    simp only [evalAssignsK, evalAssignsKG]
+    cases evalExpr we env r with
+    | none => rfl
+    | some v =>
+      simp only [Option.bind_eq_bind, Option.bind_some]
+      exact evalAssignsK_flat we children kids mems rest hm _ acc
+  | .inst mn iname conns :: rest, hm, env, acc => by
+    simp only [evalAssignsK, evalAssignsKG, flatKS]
+    cases children mn with
+    | none => rfl
+    | some cp =>
+      obtain ⟨child, cwe⟩ := cp
+      simp only [Option.bind_eq_bind, Option.bind_some]
+      cases stepModule cwe child.body
+          (Tools.ShippingHierarchySoundness.connEnvS (inConns child.outputs conns) env (kids iname).st)
+          (kids iname).mems with
+      | none => rfl
+      | some r =>
+        obtain ⟨cres, nexts, cmems⟩ := r
+        simp only [Option.map_some, Option.bind_some]
+        exact evalAssignsK_flat we children kids mems rest hm _ _
+  | .register .. :: rest, hm, env, acc => by
+    simp only [evalAssignsK, evalAssignsKG]
+    exact evalAssignsK_flat we children kids mems rest hm env acc
+  | .memory .. :: _, hm, _, _ => by simp [Tools.ConeFold.memFree] at hm
+
+theorem runModuleT_flat (we : WEnv) (children : String → Option (Sparkle.IR.AST.Module × WEnv))
+    (body : List Stmt) (hm : Tools.ConeFold.memFree body) (seed : Nat → (String → Nat) → Env) :
+    ∀ (T : Nat) (st : String → Nat) (mems : MEnv) (kids : String → KidState),
+      runModuleT we children body seed T st mems kids =
+        runModuleTG flatKS we children body seed T ⟨st, mems, kids⟩
+  | 0, _, _, _ => rfl
+  | k + 1, st, mems, kids => by
+    simp only [runModuleT, runModuleTG, stepModuleT, stepModuleTG]
+    rw [evalAssignsK_flat we children kids mems body hm]
+    cases evalAssignsKG flatKS we children kids mems body (seed k st) kids with
+    | none => rfl
+    | some ek =>
+      obtain ⟨envF, kids'⟩ := ek
+      simp only [Option.bind_eq_bind, Option.bind_some]
+      cases regNexts we mems body envF with
+      | none => rfl
+      | some nexts =>
+        simp only [Option.bind_some]
+        cases memNexts we body mems envF with
+        | none => rfl
+        | some mems' =>
+          simp only [Option.bind_some]
+          rw [runModuleT_flat we children body hm seed k]
+
+/-- The children's reset in the one-level composed theorem: memories and
+read latches zero, registers at their reset values. -/
+def Reset1 (m : Sparkle.IR.AST.Module) (dsn : Design) (kids : String → KidState) : Prop :=
+  (∀ iname n a, (kids iname).mems n a = 0) ∧ (∀ iname, (kids iname).st "out_rdata" = 0) ∧
+  (∀ (iname : String) (mc : Sparkle.IR.AST.Module), (∃ conns, Stmt.inst mc.name iname conns ∈ m.body) →
+    moduleByName dsn.modules mc.name = some mc →
+    ∀ r c rs inp init, Stmt.register r c rs inp init ∈ mc.body → (kids iname).st r = init.toNat)
+
+/-- `machine_linkedT_calls`'s conclusion (`f.machine_composedT`) is the
+general statement at the one-level step, on a memory-free core body. -/
+theorem composedG_of_T {declName : Name} {d : MachineData} {kD : Nat}
+    {m : Sparkle.IR.AST.Module} {dsn : Design} {ι : Type} {dom : ι → DomainConfig}
+    {src : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat)}
+    {ext : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) →
+      (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)}
+    {extB : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → Nat → Signal (dom i) Bool}
+    (h : ∃ ids : List FVarId, ids.Nodup ∧ ids.length = d.shape.binders.length ∧
+      ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
+        regs.Nodup ∧ regs.length = d.ss.length ∧
+        ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+          (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
+          (T : Nat) (seed : Nat → (String → Nat) → Env) (st0 : String → Nat) (mems : MEnv)
+          (kids : String → KidState),
+          (∀ t st, t < T → SourceInputs declName (d.bsIn.take kD) ids cache
+            (fun j => (extB i bools bits j).val (T - 1 - t))
+            (fun j n => (ext i bools bits j n).val (T - 1 - t)) (seed t st)) →
+          (∀ t st r, r ∈ regs → seed t st r = st r) →
+          (∀ t st, seed t st "rst" = 0) → (∀ t st, seed t st "clk" = 0) →
+          (∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r →
+            d.shape.layout.slots[k]? = some f → st0 r = f.init) →
+          (∀ iname n a, (kids iname).mems n a = 0) → (∀ iname, (kids iname).st "out_rdata" = 0) →
+          (∀ (iname : String) (mc : Sparkle.IR.AST.Module), (∃ conns, Stmt.inst mc.name iname conns ∈ m.body) →
+            moduleByName dsn.modules mc.name = some mc →
+            ∀ r c rs inp init, Stmt.register r c rs inp init ∈ mc.body →
+              (kids iname).st r = init.toNat) →
+          ∃ envs, runModuleT (Tools.ShippingEntrySoundness.weOf m) (childMap dsn.modules) m.body
+              seed T st0 mems kids = some envs ∧
+            envs.length = T ∧
+            ∀ j (hj : j < envs.length) (k : Nat) (o : OutField) (f : Nat → Nat),
+              d.shape.layout.outs[k]? = some o → (src i bools bits)[k]? = some f →
+              (envs[j]'hj) o.name = f j)
+    (hm : Tools.ConeFold.memFree m.body) :
+    ComposedG (fun _ => flatKS) Reset1 declName d kD m dsn dom src ext extB := by
+  obtain ⟨ids, nd, len, cache, regs, rnd, rlen, H⟩ := h
+  refine ⟨ids, nd, len, cache, regs, rnd, rlen, ?_⟩
+  intro i bools bits T seed st0 mems kids hin hpass hrst hclk hinit ⟨h1, h2, h3⟩
+  obtain ⟨envs, hrun, hlen, hobs⟩ := H i bools bits T seed st0 mems kids hin hpass hrst hclk hinit
+    h1 h2 h3
+  refine ⟨envs, ?_, hlen, hobs⟩
+  rw [← runModuleT_flat _ _ _ hm]
+  exact hrun
+
+/-- The children's reset for memory-only parents: memories and read latches
+zero. -/
+def ResetM (_m : Sparkle.IR.AST.Module) (_dsn : Design) (kids : String → KidState) : Prop :=
+  (∀ iname n a, (kids iname).mems n a = 0) ∧ (∀ iname, (kids iname).st "out_rdata" = 0)
+
+/-- `machine_linkedT_mem`'s conclusion (`f.machine_composedT` of a parent
+whose calls are memory reads) in the general form. -/
+theorem composedG_of_Tmem {declName : Name} {d : MachineData} {kD : Nat}
+    {m : Sparkle.IR.AST.Module} {dsn : Design} {ι : Type} {dom : ι → DomainConfig}
+    {src : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat)}
+    {ext : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) →
+      (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)}
+    {extB : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → Nat → Signal (dom i) Bool}
+    (h : ∃ ids : List FVarId, ids.Nodup ∧ ids.length = d.shape.binders.length ∧
+      ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
+        regs.Nodup ∧ regs.length = d.ss.length ∧
+        ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+          (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
+          (T : Nat) (seed : Nat → (String → Nat) → Env) (st0 : String → Nat) (mems : MEnv)
+          (kids : String → KidState),
+          (∀ t st, t < T → SourceInputs declName (d.bsIn.take kD) ids cache
+            (fun j => (extB i bools bits j).val (T - 1 - t))
+            (fun j n => (ext i bools bits j n).val (T - 1 - t)) (seed t st)) →
+          (∀ t st r, r ∈ regs → seed t st r = st r) →
+          (∀ t st, seed t st "rst" = 0) → (∀ t st, seed t st "clk" = 0) →
+          (∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r →
+            d.shape.layout.slots[k]? = some f → st0 r = f.init) →
+          (∀ iname n a, (kids iname).mems n a = 0) → (∀ iname, (kids iname).st "out_rdata" = 0) →
+          ∃ envs, runModuleT (Tools.ShippingEntrySoundness.weOf m) (childMap dsn.modules) m.body
+              seed T st0 mems kids = some envs ∧
+            envs.length = T ∧
+            ∀ j (hj : j < envs.length) (k : Nat) (o : OutField) (f : Nat → Nat),
+              d.shape.layout.outs[k]? = some o → (src i bools bits)[k]? = some f →
+              (envs[j]'hj) o.name = f j)
+    (hm : Tools.ConeFold.memFree m.body) :
+    ComposedG (fun _ => flatKS) ResetM declName d kD m dsn dom src ext extB := by
+  obtain ⟨ids, nd, len, cache, regs, rnd, rlen, H⟩ := h
+  refine ⟨ids, nd, len, cache, regs, rnd, rlen, ?_⟩
+  intro i bools bits T seed st0 mems kids hin hpass hrst hclk hinit ⟨h1, h2⟩
+  obtain ⟨envs, hrun, hlen, hobs⟩ := H i bools bits T seed st0 mems kids hin hpass hrst hclk hinit
+    h1 h2
+  refine ⟨envs, ?_, hlen, hobs⟩
+  rw [← runModuleT_flat _ _ _ hm]
+  exact hrun
+
+/-! ## Children whose outputs are masked -/
+
+/-- An expression whose value fits its width whatever the environment. -/
+def selfMasked : Sparkle.IR.AST.Expr → Bool
+  | .const .. => true
+  | .slice .. => true
+  | _ => false
+
+theorem selfMasked_lt {we : WEnv} {env : Env} {r : Sparkle.IR.AST.Expr} {v : Nat} (h : selfMasked r = true)
+    (hv : evalExpr we env r = some v) : v < 2 ^ widthOf we r := by
+  cases r with
+  | const c w => exact Tools.ConeFold.evalExpr_bounded_const we env c w v hv
+  | slice e hi lo => exact Tools.ConeFold.evalExpr_bounded_slice we env e hi lo v hv
+  | _ => simp [selfMasked] at h
+
+/-- A child's output port is assigned exactly once, by a self-masked
+expression no wider than the port. -/
+def outMasked (we : WEnv) (body : List Stmt) (p : Port) : Bool :=
+  (Sparkle.IR.Reorder.writesOf body).count p.name == 1 && body.any fun st => match st with
+    | .assign l r => l == p.name && selfMasked r && decide (widthOf we r ≤ p.ty.bitWidth)
+    | _ => false
+
+/-- A body without memories. -/
+def noMem (body : List Stmt) : Bool :=
+  body.all fun st => match st with
+    | .memory .. => false
+    | _ => true
+
+theorem memFree_of_noMem : ∀ {body : List Stmt}, noMem body = true → Tools.ConeFold.memFree body
+  | [], _ => trivial
+  | st :: rest, h => by
+    simp only [noMem, List.all_cons, Bool.and_eq_true] at h
+    have ih := memFree_of_noMem (body := rest) (by simpa [noMem] using h.2)
+    cases st <;> simp_all [Tools.ConeFold.memFree]
+
+/-- The final value of a name assigned exactly once is its expression's value
+somewhere in the fold. -/
+theorem evalAssigns_once (we : WEnv) (mems : MEnv) {l : String} {r : Sparkle.IR.AST.Expr} :
+    ∀ (body : List Stmt) (env0 env1 : Env), evalAssigns we mems body env0 = some env1 →
+      Tools.ConeFold.memFree body → Stmt.assign l r ∈ body →
+      (Sparkle.IR.Reorder.writesOf body).count l = 1 →
+      ∃ env v, evalExpr we env r = some v ∧ env1 l = v
+  | [], _, _, _, _, hm, _ => by cases hm
+  | st :: rest, env0, env1, h, hmf, hm, hc => by
+    have hmf' : Tools.ConeFold.memFree rest := by
+      cases st <;> simp_all [Tools.ConeFold.memFree]
+    cases st with
+    | assign l' r' =>
+      simp only [evalAssigns] at h
+      cases hv : evalExpr we env0 r' with
+      | none => simp [hv] at h
+      | some v =>
+        simp only [hv, Option.bind_eq_bind, Option.bind_some] at h
+        have hcount : (Sparkle.IR.Reorder.writesOf (Stmt.assign l' r' :: rest)).count l =
+            (if l' = l then 1 else 0) + (Sparkle.IR.Reorder.writesOf rest).count l := by
+          simp only [Sparkle.IR.Reorder.writesOf, List.flatMap_cons, Sparkle.IR.Reorder.stmtWrites,
+            List.count_append, List.count_singleton]
+          by_cases he : l' = l <;> simp [he, beq_iff_eq]
+        rw [hcount] at hc
+        by_cases he : l' = l
+        · subst he
+          have h0 : (Sparkle.IR.Reorder.writesOf rest).count l' = 0 := by simp at hc; omega
+          have hnot : l' ∉ Sparkle.IR.Reorder.writesOf rest := List.count_eq_zero.mp h0
+          rcases List.mem_cons.mp hm with heq | hin
+          · cases heq
+            refine ⟨env0, v, hv, ?_⟩
+            rw [Tools.ConeFold.evalAssigns_frame we mems rest _ env1 h hmf' l' hnot]
+            simp
+          · exfalso
+            apply hnot
+            unfold Sparkle.IR.Reorder.writesOf
+            exact List.mem_flatMap.mpr ⟨_, hin, by simp [Sparkle.IR.Reorder.stmtWrites]⟩
+        · simp only [he, if_false, Nat.zero_add] at hc
+          rcases List.mem_cons.mp hm with heq | hin
+          · cases heq; exact absurd rfl he
+          · exact evalAssigns_once we mems rest _ env1 h hmf' hin hc
+    | register o c rk i iv =>
+      simp only [evalAssigns] at h
+      rcases List.mem_cons.mp hm with heq | hin
+      · cases heq
+      · exact evalAssigns_once we mems rest env0 env1 h hmf'
+          hin (by simpa [Sparkle.IR.Reorder.writesOf, Sparkle.IR.Reorder.stmtWrites] using hc)
+    | inst mn iname conns =>
+      simp only [evalAssigns] at h
+      rcases List.mem_cons.mp hm with heq | hin
+      · cases heq
+      · exact evalAssigns_once we mems rest env0 env1 h hmf'
+          hin (by simpa [Sparkle.IR.Reorder.writesOf, Sparkle.IR.Reorder.stmtWrites] using hc)
+    | memory nm aw dw c wa wd wen ra rd cr ew er => simp [Tools.ConeFold.memFree] at hmf
+
+/-- Decidable: the child of every instance of `body` has no memory and masked
+outputs. -/
+def kidsMasked (children : String → Option (Sparkle.IR.AST.Module × WEnv)) (body : List Stmt) : Bool :=
+  body.all fun st => match st with
+    | .inst mn _ _ => match children mn with
+      | some (child, cwe) => noMem child.body && child.outputs.all (outMasked cwe child.body)
+      | none => false
+    | _ => true
+
+/-- **One-level children with masked outputs keep their outputs within their
+ports' widths.** -/
+theorem flatKS_boundedIn (children : String → Option (Sparkle.IR.AST.Module × WEnv))
+    (body : List Stmt) (hok : kidsMasked children body = true) :
+    KSBoundedIn children flatKS body (fun _ _ => True) := by
+  intro mn iname conns hmem child cwe hc env s cres s' _ hk
+  refine ⟨fun p hp => ?_, trivial⟩
+  have h1 := List.all_eq_true.mp hok _ hmem
+  simp only [hc, Bool.and_eq_true] at h1
+  obtain ⟨hnm, hout⟩ := h1
+  simp only [flatKS] at hk
+  cases hst : stepModule cwe child.body
+      (Tools.ShippingHierarchySoundness.connEnvS (inConns child.outputs conns) env s.st) s.mems with
+  | none => simp [hst] at hk
+  | some r =>
+    simp only [hst, Option.map_some, Option.some.injEq, Prod.mk.injEq] at hk
+    obtain ⟨envF, nexts, mems', hF, -, -, rfl⟩ := stepModule_some hst
+    obtain ⟨rfl, -⟩ := hk
+    have hpm := List.all_eq_true.mp hout p hp
+    simp only [outMasked, Bool.and_eq_true, beq_iff_eq, List.any_eq_true] at hpm
+    obtain ⟨hcount, st, hst', hm⟩ := hpm
+    cases st with
+    | assign l r =>
+      simp only [Bool.and_eq_true, beq_iff_eq, decide_eq_true_eq] at hm
+      obtain ⟨⟨rfl, hsm⟩, hw⟩ := hm
+      obtain ⟨env', v, hv, hfin⟩ := evalAssigns_once cwe s.mems child.body _ envF hF
+        (memFree_of_noMem hnm) hst' hcount
+      show envF p.name < _
+      rw [hfin]
+      exact Nat.lt_of_lt_of_le (selfMasked_lt hsm hv) (Nat.pow_le_pow_right (by omega) hw)
+    | _ => simp at hm
+
+/-! ## Memory children -/
+
+/-- A memory child's invariant: its read latch fits its output port. -/
+def memInv (c : Sparkle.IR.AST.Module) (ks : KidState) : Prop :=
+  ∀ p ∈ c.outputs, ks.st "out_rdata" < 2 ^ p.ty.bitWidth
+
+theorem resetM_inv : ResetImpliesInv ResetM memInv := by
+  intro m D kids hR mn iname conns _ child cwe _ p _
+  rw [hR.2 iname]
+  exact Nat.two_pow_pos _
+
+/-- Decidable: the child of every instance of `body` is a memory module, and
+no connection names its read latch. -/
+def kidsMem (children : String → Option (Sparkle.IR.AST.Module × WEnv)) (body : List Stmt) : Bool :=
+  body.all fun st => match st with
+    | .inst mn _ conns => !(conns.any (·.1 == "out_rdata")) && match children mn with
+      | some (child, _) => match Sparkle.Compiler.MachMemory.memParams? child with
+        | some (cb, aw, dw) => decide (child = (Sparkle.Compiler.MachMemory.memModule cb aw dw).1)
+        | none => false
+      | none => false
+    | _ => true
+
+theorem lookup_none_of_not_any {k : String} :
+    ∀ {l : List (String × Sparkle.IR.AST.Expr)}, (l.any (·.1 == k)) = false → l.lookup k = none
+  | [], _ => rfl
+  | (a, b) :: rest, h => by
+    simp only [List.any_cons, Bool.or_eq_false_iff] at h
+    simp only [List.lookup]
+    have : (k == a) = false := by
+      have := h.1; simp only [beq_eq_false_iff_ne, ne_eq] at this ⊢; exact fun e => this e.symm
+    rw [this]
+    exact lookup_none_of_not_any h.2
+
+theorem inConns_lookup_none {outs : List Port} {conns : List (String × Sparkle.IR.AST.Expr)} {k : String}
+    (h : (conns.any (·.1 == k)) = false) : (inConns outs conns).lookup k = none := by
+  apply lookup_none_of_not_any
+  simp only [List.any_eq_false] at h ⊢
+  intro x hx
+  exact h x (List.mem_filter.mp hx).1
+
+/-- **Memory children keep their output within its width**, from a read
+latch within it. -/
+theorem memKS_boundedIn (children : String → Option (Sparkle.IR.AST.Module × WEnv))
+    (body : List Stmt) (hok : kidsMem children body = true) :
+    KSBoundedIn children flatKS body memInv := by
+  intro mn iname conns hmem child cwe hc env s cres s' hinv hk
+  have h1 := List.all_eq_true.mp hok _ hmem
+  simp only [Bool.and_eq_true, Bool.not_eq_true'] at h1
+  obtain ⟨hnr, h1⟩ := h1
+  rw [hc] at h1
+  simp only at h1
+  cases hp : Sparkle.Compiler.MachMemory.memParams? child with
+  | none => rw [hp] at h1; cases h1
+  | some prm =>
+  obtain ⟨cb, aw, dw⟩ := prm
+  rw [hp] at h1
+  have hchild : child = (Sparkle.Compiler.MachMemory.memModule cb aw dw).1 :=
+    of_decide_eq_true h1
+  subst hchild
+  have hlk : (inConns (Sparkle.Compiler.MachMemory.memModule cb aw dw).1.outputs conns).lookup
+      "out_rdata" = none := inConns_lookup_none hnr
+  simp only [flatKS] at hk
+  cases hst : stepModule cwe (Sparkle.Compiler.MachMemory.memModule cb aw dw).1.body
+      (Tools.ShippingHierarchySoundness.connEnvS
+        (inConns (Sparkle.Compiler.MachMemory.memModule cb aw dw).1.outputs conns) env s.st) s.mems with
+  | none => simp [hst] at hk
+  | some r =>
+  simp only [hst, Option.map_some, Option.some.injEq, Prod.mk.injEq] at hk
+  obtain ⟨envF, nexts, mems', hF, hN, -, rfl⟩ := stepModule_some hst
+  obtain ⟨rfl, rfl⟩ := hk
+  have hinv' : s.st "out_rdata" < 2 ^ dw := by
+    have := hinv ⟨"out", .bitVector dw⟩ (by simp [Sparkle.Compiler.MachMemory.memModule])
+    simpa [Sparkle.IR.Type.HWType.bitWidth] using this
+  have hout : ∀ p ∈ (Sparkle.Compiler.MachMemory.memModule cb aw dw).1.outputs,
+      p = ⟨"out", .bitVector dw⟩ := by
+    intro p hp
+    simpa [Sparkle.Compiler.MachMemory.memModule] using hp
+  cases cb with
+  | true =>
+    simp only [Sparkle.Compiler.MachMemory.memModule, evalAssigns, if_true, comboReads,
+      Option.bind_eq_bind] at hF
+    cases hav : evalExpr cwe (Tools.ShippingHierarchySoundness.connEnvS
+        (inConns [{ name := "out", ty := Sparkle.IR.Type.HWType.bitVector dw }] conns) env s.st)
+        (.ref "ra") with
+    | none => simp [hav] at hF
+    | some av =>
+      simp only [hav, Option.bind_some, evalExpr, Option.some.injEq] at hF
+      simp only [Sparkle.Compiler.MachMemory.memModule, regNexts, if_true, Option.some.injEq] at hN
+      subst hN
+      refine ⟨fun p hp => ?_, fun p hp => ?_⟩
+      · obtain rfl := hout p hp
+        rw [← hF]
+        simp [Sparkle.IR.Type.HWType.bitWidth]
+        exact Tools.ShippingMachineEntry.mask_lt _ _
+      · obtain rfl := hout p hp
+        simpa [applyNexts, Sparkle.IR.Type.HWType.bitWidth] using hinv'
+  | false =>
+    simp only [Sparkle.Compiler.MachMemory.memModule, evalAssigns, Bool.false_eq_true, if_false,
+      evalExpr, Option.bind_eq_bind, Option.bind_some, Option.some.injEq] at hF
+    simp only [Sparkle.Compiler.MachMemory.memModule, regNexts, Bool.false_eq_true, if_false,
+      syncReadLatches, Option.bind_eq_bind] at hN
+    have hlk' : (inConns [{ name := "out", ty := Sparkle.IR.Type.HWType.bitVector dw }] conns).lookup
+        "out_rdata" = none := hlk
+    refine ⟨fun p hp => ?_, fun p hp => ?_⟩
+    · obtain rfl := hout p hp
+      rw [← hF]
+      simp [Tools.ShippingHierarchySoundness.connEnvS, hlk', Sparkle.IR.Type.HWType.bitWidth]
+      exact hinv'
+    · obtain rfl := hout p hp
+      cases hav : evalExpr cwe envF (.ref "ra") with
+      | none => simp [hav] at hN
+      | some av =>
+        simp only [hav, Option.bind_some, Option.some.injEq] at hN
+        subst hN
+        simp [applyNexts, Sparkle.IR.Type.HWType.bitWidth]
+        exact Tools.ShippingMachineEntry.mask_lt _ _
+
+/-! ### Sequential and memory children together -/
+
+/-- Decidable: the child of every instance is a masked sequential child
+(`kidsMasked`) or the built memory module (`kidsMem`), instance by instance. -/
+def kidsMixed (children : String → Option (Sparkle.IR.AST.Module × WEnv)) (body : List Stmt) : Bool :=
+  body.all fun st => kidsMasked children [st] || kidsMem children [st]
+
+/-- The read latch of a memory child within its output's width (nothing of
+any other child). -/
+def mixInv (c : Sparkle.IR.AST.Module) (ks : KidState) : Prop :=
+  (Sparkle.Compiler.MachMemory.memParams? c).isSome = true → memInv c ks
+
+theorem reset1_mixInv : ResetImpliesInv Reset1 mixInv := by
+  intro m D kids hR mn iname conns _ child cwe _ _ p _
+  rw [hR.2.1 iname]
+  exact Nat.two_pow_pos _
+
+theorem memParams_noMem {c : Sparkle.IR.AST.Module} (h : noMem c.body = true) :
+    Sparkle.Compiler.MachMemory.memParams? c = none := by
+  unfold Sparkle.Compiler.MachMemory.memParams?
+  split
+  · rename_i heq
+    rw [heq] at h
+    simp [noMem] at h
+  · rfl
+
+theorem memParams_memModule' (cb : Bool) (aw dw : Nat) :
+    Sparkle.Compiler.MachMemory.memParams? (Sparkle.Compiler.MachMemory.memModule cb aw dw).1 =
+      some (cb, aw, dw) := rfl
+
+/-- **Sequential and memory children keep their outputs within their ports'
+widths**, instance by instance. -/
+theorem mixKS_boundedIn (children : String → Option (Sparkle.IR.AST.Module × WEnv))
+    (body : List Stmt) (hok : kidsMixed children body = true) :
+    KSBoundedIn children flatKS body mixInv := by
+  intro mn iname conns hmem child cwe hc env s cres s' hinv hk
+  have h1 := List.all_eq_true.mp hok _ hmem
+  simp only [Bool.or_eq_true] at h1
+  rcases h1 with hs | hm
+  · obtain ⟨hb, -⟩ := flatKS_boundedIn children _ hs mn iname conns List.mem_cons_self child cwe hc
+      env s cres s' trivial hk
+    refine ⟨hb, fun hp => ?_⟩
+    have h2 := List.all_eq_true.mp hs _ List.mem_cons_self
+    simp only [hc, Bool.and_eq_true] at h2
+    rw [memParams_noMem h2.1] at hp
+    cases hp
+  · have hmp : (Sparkle.Compiler.MachMemory.memParams? child).isSome = true := by
+      have h2 := List.all_eq_true.mp hm _ List.mem_cons_self
+      simp only [Bool.and_eq_true] at h2
+      rw [hc] at h2
+      simp only at h2
+      cases hp : Sparkle.Compiler.MachMemory.memParams? child with
+      | none => rw [hp] at h2; simp at h2
+      | some _ => rfl
+    obtain ⟨hb, hi⟩ := memKS_boundedIn children _ hm mn iname conns List.mem_cons_self child cwe hc
+      env s cres s' (hinv hmp) hk
+    exact ⟨hb, fun _ => hi⟩
+
+theorem kidsMixed_of_masked {children : String → Option (Sparkle.IR.AST.Module × WEnv)}
+    {body : List Stmt} (h : kidsMasked children body = true) : kidsMixed children body = true := by
+  simp only [kidsMixed, List.all_eq_true, Bool.or_eq_true]
+  intro st hst
+  left
+  simp only [kidsMasked, List.all_cons, List.all_nil, Bool.and_true]
+  exact List.all_eq_true.mp h st hst
+
+end Tools.ShippingMachineShipsHier

@@ -155,6 +155,15 @@ inductive ConnSource where
   | topInput (port : String)
   | imm (value : Int) (width : Nat)
 
+/-- `x[w-1:0]` of a `w`-bit wire or port `x` is `x` itself (the certified
+route's hardware `let`s are such slices). -/
+private def fullSliceRef? (top : Module) : Expr → Option String
+  | .slice (.ref n) hi 0 =>
+    match (top.inputs ++ top.wires).find? (·.name == n) with
+    | some p => if p.ty.bitWidth == hi + 1 then some n else none
+    | none => none
+  | _ => none
+
 private def resolveRef (top : Module) (drivers : List (String × InstInfo × String)) :
     Nat → String → Except String ConnSource
   | 0, n => throw s!"reference chain too deep at '{n}' — loop in top-level assigns?"
@@ -171,6 +180,10 @@ private def resolveRef (top : Module) (drivers : List (String × InstInfo × Str
         match drv with
         | some (.ref n') => resolveRef top drivers fuel n'
         | some (.const v w) => pure (.imm v w)
+        | some e@(.slice ..) =>
+          match fullSliceRef? top e with
+          | some n' => resolveRef top drivers fuel n'
+          | none => throw s!"top-level combinational logic drives '{n}' — v1 supports only const/ref assigns at top; move the logic into a submodule"
         | some _ =>
           throw s!"top-level combinational logic drives '{n}' — v1 supports only const/ref assigns at top; move the logic into a submodule"
         | none => throw s!"'{n}' is undriven at the top level"
@@ -180,6 +193,10 @@ private def resolveConn (top : Module) (drivers : List (String × InstInfo × St
   match e with
   | .const v w => pure (.imm v w)
   | .ref n => resolveRef top drivers fuel n
+  | e@(.slice ..) =>
+    match fullSliceRef? top e with
+    | some n => resolveRef top drivers fuel n
+    | none => throw "instance connection must be a wire/port reference or a constant — got a compound expression (materialise it in a submodule)"
   | _ => throw "instance connection must be a wire/port reference or a constant — got a compound expression (materialise it in a submodule)"
 
 /-! ### Copy / immediate tables -/
@@ -241,7 +258,7 @@ private def buildTables (top : Module) (insts : List InstInfo) :
       let some ty := portTy ii.mod.inputs port
         | throw s!"instance '{ii.instName}': '{port}' is not an input of module '{ii.modName}'"
       let nbytes ← byteSize ty
-      let dstC := s!"offsetof(struct {topC}, {ii.field}) + offsetof(struct {modC}, {sanitizeName port})"
+      let dstC := s!"offsetof(struct {CIdent.cIdent .structTag topC}, {ii.field}) + offsetof(struct {CIdent.cIdent .structTag modC}, {sanitizeName port})"
       match ← resolveConn top drivers fuel e with
       | .instOutput prod pport =>
         mooreCheck s!"'{ii.instName}.{port}'" prod pport
@@ -251,7 +268,7 @@ private def buildTables (top : Module) (insts : List InstInfo) :
         if pbytes != nbytes then
           throw s!"width mismatch: '{ii.instName}.{port}' ({nbytes} bytes) ← '{prod.instName}.{pport}' ({pbytes} bytes)"
         copies := copies ++ [⟨dstC,
-          s!"offsetof(struct {topC}, {prod.field}) + offsetof(struct {sanitizeName prod.modName}, {sanitizeName pport})",
+          s!"offsetof(struct {CIdent.cIdent .structTag topC}, {prod.field}) + offsetof(struct {CIdent.cIdent .structTag (sanitizeName prod.modName)}, {sanitizeName pport})",
           nbytes⟩]
       | .topInput tport =>
         let some tty := portTy top.inputs tport
@@ -259,7 +276,7 @@ private def buildTables (top : Module) (insts : List InstInfo) :
         let tbytes ← byteSize tty
         if tbytes != nbytes then
           throw s!"width mismatch: '{ii.instName}.{port}' ({nbytes} bytes) ← top input '{tport}' ({tbytes} bytes)"
-        copies := copies ++ [⟨dstC, s!"offsetof(struct {topC}, {sanitizeName tport})", nbytes⟩]
+        copies := copies ++ [⟨dstC, s!"offsetof(struct {CIdent.cIdent .structTag topC}, {sanitizeName tport})", nbytes⟩]
       | .imm v w =>
         if nbytes > 8 then
           throw s!"constant into wide (> 64-bit) input '{ii.instName}.{port}' is unsupported in v1"
@@ -270,16 +287,16 @@ private def buildTables (top : Module) (insts : List InstInfo) :
   -- same Moore check — observing a Mealy output would read Phase-A garbage.
   for p in top.outputs do
     let nbytes ← byteSize p.ty
-    let dstC := s!"offsetof(struct {topC}, {sanitizeName p.name})"
+    let dstC := s!"offsetof(struct {CIdent.cIdent .structTag topC}, {sanitizeName p.name})"
     match resolveRef top drivers fuel p.name with
     | .error _ => pure ()
     | .ok (.instOutput prod pport) =>
       mooreCheck s!"top output '{p.name}'" prod pport
       copies := copies ++ [⟨dstC,
-        s!"offsetof(struct {topC}, {prod.field}) + offsetof(struct {sanitizeName prod.modName}, {sanitizeName pport})",
+        s!"offsetof(struct {CIdent.cIdent .structTag topC}, {prod.field}) + offsetof(struct {CIdent.cIdent .structTag (sanitizeName prod.modName)}, {sanitizeName pport})",
         nbytes⟩]
     | .ok (.topInput tport) =>
-      copies := copies ++ [⟨dstC, s!"offsetof(struct {topC}, {sanitizeName tport})", nbytes⟩]
+      copies := copies ++ [⟨dstC, s!"offsetof(struct {CIdent.cIdent .structTag topC}, {sanitizeName tport})", nbytes⟩]
     | .ok (.imm v w) =>
       if nbytes ≤ 8 then
         imms := imms ++ [⟨dstC, nbytes, maskedULL v w⟩]
@@ -301,12 +318,14 @@ private def emitIntraSection (top : Module) (insts : List InstInfo)
   let kindOf (ii : InstInfo) : Nat := (kinds.findIdx? (· == ii.modName)).getD 0
 
   let offEntries := insts.map fun ii =>
-    s!"  offsetof(struct {topC}, {ii.field}),"
+    s!"  offsetof(struct {CIdent.cIdent .structTag topC}, {ii.field}),"
   let kindEntries := insts.map fun ii => s!"  {kindOf ii},"
-  let dispatchCases (fn : String) : List String :=
+  -- UNVERIFIED (no `nvcc` here): the child's function and tag are CSim's,
+  -- through `CIdent.cIdent` (the role is a `CIdent.Role`, not a suffix).
+  let dispatchCases (fn : CIdent.Role) : List String :=
     (List.range kinds.length).map fun k =>
       let mc := sanitizeName kinds[k]!
-      s!"  case {k}: sparkle_{mc}_{fn}((struct {mc}*)b); break;"
+      s!"  case {k}: {CIdent.cIdent fn mc}((struct {CIdent.cIdent .structTag mc}*)b); break;"
   let copyEntries :=
     if copies.isEmpty then ["  { 0, 0, 0u },"]
     else copies.map fun c => s!"  \{ {c.dstC}, {c.srcC}, {c.bytes}u },"
@@ -337,21 +356,21 @@ private def emitIntraSection (top : Module) (insts : List InstInfo)
     ++ immEntries ++
     [ "};"
     , ""
-    , s!"static __device__ void {topC}_intra_eval(struct {topC}* self, unsigned t) \{"
+    , s!"static __device__ void {topC}_intra_eval(struct {CIdent.cIdent .structTag topC}* self, unsigned t) \{"
     , s!"  char* b = (char*)self + {topC}_intra_off[t];"
     , s!"  switch ({topC}_intra_kind[t]) \{" ]
-    ++ dispatchCases "eval" ++
+    ++ dispatchCases .eval ++
     [ "  }"
     , "}"
-    , s!"static __device__ void {topC}_intra_eval_tick(struct {topC}* self, unsigned t) \{"
+    , s!"static __device__ void {topC}_intra_eval_tick(struct {CIdent.cIdent .structTag topC}* self, unsigned t) \{"
     , s!"  char* b = (char*)self + {topC}_intra_off[t];"
     , s!"  switch ({topC}_intra_kind[t]) \{" ]
-    ++ dispatchCases "eval_tick" ++
+    ++ dispatchCases .evalTick ++
     [ "  }"
     , "}"
     , ""
     , "template <typename Group>"
-    , s!"static __device__ void {topC}_intra_cycles(Group g, struct {topC}* self, long cycles) \{"
+    , s!"static __device__ void {topC}_intra_cycles(Group g, struct {CIdent.cIdent .structTag topC}* self, long cycles) \{"
     , "  const unsigned t  = g.thread_rank();"
     , "  const unsigned sz = g.num_threads();"
     , "  for (long c = 0; c < cycles; ++c) {"
@@ -375,10 +394,10 @@ private def emitIntraSection (top : Module) (insts : List InstInfo)
     , "  }"
     , "}"
     , ""
-    , s!"__global__ void {topC}_intra_block_kernel(struct {topC}* self, long cycles) \{"
+    , s!"__global__ void {topC}_intra_block_kernel(struct {CIdent.cIdent .structTag topC}* self, long cycles) \{"
     , s!"  {topC}_intra_cycles(cg::this_thread_block(), self, cycles);"
     , "}"
-    , s!"__global__ void {topC}_intra_grid_kernel(struct {topC}* self, long cycles) \{"
+    , s!"__global__ void {topC}_intra_grid_kernel(struct {CIdent.cIdent .structTag topC}* self, long cycles) \{"
     , s!"  {topC}_intra_cycles(cg::this_grid(), self, cycles);"
     , "}"
     , "" ]
@@ -390,7 +409,7 @@ private def emitIntraSection (top : Module) (insts : List InstInfo)
     barrier-bound ~9×10⁵ cyc/s, PE-throughput linear). -/
 private def emitIntraHostRun (top : Module) : String :=
   let topC := sanitizeName top.name
-  let st := s!"struct {topC}"
+  let st := s!"struct {CIdent.cIdent .structTag topC}"
   String.intercalate "\n"
     [ "extern \"C\" {"
     , ""

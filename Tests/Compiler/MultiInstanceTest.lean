@@ -113,7 +113,20 @@ elab "#assertMeshWiring" id:ident : command => do
         if p == "_gen_w" || p == "w" then
           match e with | .ref n => some n | _ => none
         else none
-    let wWires := insts.filterMap (fun (_, cs) => wWireOf cs)
+    -- through alias assigns (`x = y`, or a full-width `x = y[w-1:0]`: the
+    -- certified route's hardware `let`s) to the wire they read
+    let assignMap0 := top.body.filterMap fun s =>
+      match s with
+      | .assign lhs (.ref r) => some (lhs, r)
+      | .assign lhs (.slice (.ref r) _ 0) => some (lhs, r)
+      | _ => none
+    let rec chase0 (n : String) : Nat → String
+      | 0 => n
+      | k + 1 =>
+        match assignMap0.find? (·.1 == n) with
+        | some (_, r) => chase0 r k
+        | none => n
+    let wWires := insts.filterMap (fun (_, cs) => (wWireOf cs).map (chase0 · 16))
     unless wWires.length == 4 do
       throwError "could not extract 4 weight connections (got {wWires})"
     unless wWires.eraseDups.length == 4 do
@@ -123,7 +136,7 @@ elab "#assertMeshWiring" id:ident : command => do
         throwError "no instance is wired to {tag}: {wWires}"
     -- output tracing: out → (alias assigns) → pOut wire of the w11 instance
     let some (_, cornerConns) := insts.find? (fun (_, cs) =>
-        (wWireOf cs).any (fun w => (w.splitOn "w11").length > 1))
+        (wWireOf cs).any (fun w => ((chase0 w 16).splitOn "w11").length > 1))
       | throwError "corner (w11) instance not found"
     let some cornerPOut := cornerConns.findSome? (fun (p, e) =>
         if p == "pOut" then match e with | .ref n => some n | _ => none else none)
@@ -131,6 +144,7 @@ elab "#assertMeshWiring" id:ident : command => do
     let assignMap := top.body.filterMap fun s =>
       match s with
       | .assign lhs (.ref r) => some (lhs, r)
+      | .assign lhs (.slice (.ref r) _ 0) => some (lhs, r)
       | _ => none
     let rec chase (n : String) : Nat → String
       | 0 => n

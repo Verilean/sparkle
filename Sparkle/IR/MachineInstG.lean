@@ -1,0 +1,147 @@
+import Sparkle.IR.Machine
+import Sparkle.Compiler.MachMemory
+
+/-! # Calls with several outputs, and calls of sequential children
+
+`closeInsts` (Sparkle.IR.Machine) ties every call of a `@[hardware_module]`
+with ONE output and no clock to an instance. A call whose result is a
+structure has one transition input per field it reads; a child with
+registers has `clk`/`rst` inputs. `closeInstsG` ties them: the entries of
+one call (the same child and the same argument `let`s) are ONE instance
+(identical calls are one piece of hardware), connected to every field's
+wire and, for a sequential child, to the module's `clk` and `rst`.
+
+The re-ordering and its checks are `closeInsts`'s, verbatim: an instance is
+a no-op in the flat semantics, so the module runs as before. -/
+namespace Sparkle.IR.Machine
+open Sparkle.IR.AST Sparkle.IR.Type
+
+/-- The calls of an entry list: entries with the same key (child module,
+argument `let`s) in first-occurrence order, each a list of entry indices. -/
+def callGroups (keys : List (String × List Nat)) : List (List Nat) :=
+  keys.zipIdx.foldl (fun gs (key, k) =>
+    match gs.findIdx? (fun g => (g.head? >>= fun k0 => keys[k0]?) == some key) with
+    | some gi => gs.modify gi (· ++ [k])
+    | none => gs ++ [[k]]) []
+
+/-- The instance statement of one call: its argument wires, `clk`/`rst` for a
+sequential child, and for every entry `(k, field)` the child's output port
+`field` driving the transition's input `portNames[nIn + k]`. -/
+def instStmtG (nIn kI n : Nat) (portNames : List String) (gi : Nat) (args : List Nat)
+    (outs : List (Nat × String)) (mc : Module) (m : Module) : Option Stmt := do
+  let outWs ← outs.mapM fun (k, _) => portNames[nIn + k]?
+  let argWs ← args.mapM fun j => portNames[nIn + kI + n + j]?
+  let inPorts := mc.inputs.filter fun p => p.name != "clk" && p.name != "rst"
+  if inPorts.length != argWs.length then none else
+  if !decide (inPorts.map (·.name)).Nodup then none else
+  let fields := outs.map (·.2)
+  if !fields.all (fun f => mc.outputs.any (·.name == f)) || !decide fields.Nodup then none else
+  if fields.any (fun f => inPorts.any (·.name == f)) || fields.contains "clk" ||
+      fields.contains "rst" then none else
+  if outWs.any (fun w => argWs.contains w) || !decide outWs.Nodup then none else
+  if !outWs.all (fun w => m.wires.any (·.name == w)) then none else
+  let seq := mc.inputs.any (fun p => p.name == "clk" || p.name == "rst")
+  -- a sequential child takes the module's clock and reset
+  if seq && !(m.inputs.any (·.name == "clk") && m.inputs.any (·.name == "rst")) then none else
+  let instName := s!"inst{gi}_{mc.name}"
+  let names := m.inputs.map (·.name) ++ m.outputs.map (·.name) ++ m.wires.map (·.name)
+  if names.contains instName then none else
+  some (.inst mc.name instName
+    ((inPorts.zip argWs).map (fun (p, w) => (p.name, Expr.ref w)) ++
+      (if seq then [("clk", Expr.ref "clk"), ("rst", Expr.ref "rst")] else []) ++
+      (fields.zip outWs).map (fun (f, w) => (f, Expr.ref w))))
+
+/-- The instance statements of the calls (`fields[k]`: the output port entry
+`k` reads). -/
+def stmtsG (nIn kI n : Nat) (portNames : List String) (insts : List (List Nat))
+    (fields : List String) (children : List (Module × Design)) (m : Module) (d' : Design) :
+    Option (List Stmt) := do
+  let keys ← (List.range insts.length).mapM fun k => do
+    let args ← insts[k]?
+    let child ← children[k]?
+    pure (child.1.name, args)
+  (callGroups keys).zipIdx.mapM fun (g, gi) => do
+    let k0 ← g.head?
+    let args ← insts[k0]?
+    let child ← children[k0]?
+    let mc ← moduleByName d'.modules child.1.name
+    instStmtG nIn kI n portNames gi args (g.map fun k => (k, fields.getD k "")) mc m
+
+/-- A module without a clock whose children are sequential takes a clock and
+a reset for them (the legacy interface of such a parent); otherwise as it is.
+Only the inputs change. -/
+def withClockFor (children : List (Module × Design)) (m : Module) : Module :=
+  let anySeq := children.any fun c => c.1.inputs.any (fun p => p.name == "clk" || p.name == "rst")
+  let hasClk := m.inputs.any (·.name == "clk") && m.inputs.any (·.name == "rst")
+  if anySeq && !hasClk then
+    { m with inputs := m.inputs ++ [{ name := "clk", ty := .bit }, { name := "rst", ty := .bit }] }
+  else m
+
+theorem withClockFor_same (children : List (Module × Design)) (m : Module) :
+    (withClockFor children m).name = m.name ∧ (withClockFor children m).outputs = m.outputs ∧
+    (withClockFor children m).wires = m.wires ∧ (withClockFor children m).body = m.body := by
+  unfold withClockFor; dsimp only; split <;> exact ⟨rfl, rfl, rfl, rfl⟩
+
+/-- An instance statement's name. -/
+def instNameOf : Stmt → Option String
+  | .inst _ i _ => some i
+  | _ => none
+
+/-- The wires an instance's output ports drive (its connections of output
+ports). -/
+def instOutWiresOf (outs : List Port) (conns : List (String × Expr)) : List String :=
+  outs.filterMap fun p =>
+    match conns.lookup p.name with
+    | some (.ref w) => some w
+    | _ => none
+
+/-- No input connection of an instance reads one of the instance's own output
+wires (the instance does not feed itself). -/
+def noSelfFeed (find : String → Option Module) (body : List Stmt) : Bool :=
+  body.all fun st => match st with
+    | .inst mn _ conns =>
+      match find mn with
+      | some c =>
+        (conns.filter fun cn => !(c.outputs.map (·.name)).contains cn.1).all fun cn =>
+          match cn.2 with
+          | .ref w => !(instOutWiresOf c.outputs conns).contains w
+          | _ => true
+      | none => true
+    | _ => true
+
+/-- `closeInsts` for calls with several outputs and calls of sequential
+children (`stmtsG`); the rest — the inputs closed, the re-ordering and its
+checks — is `closeInsts`'s. -/
+def closeInstsG (nIn kI n : Nat) (portNames : List String) (insts : List (List Nat))
+    (fields : List String) (children : List (Module × Design)) (md : Module × Design) :
+    Option (Module × Design) := do
+  let (m0, d) := md
+  let d' := designWith children d
+  let m := withClockFor children m0
+  let stmts ← stmtsG nIn kI n portNames insts fields children m d'
+  let outWs ← (List.range insts.length).mapM fun k => portNames[nIn + k]?
+  let m' : Module := { m with
+    inputs := m.inputs.filter fun p => !outWs.contains p.name
+    body := m.body ++ stmts }
+  let body ← topoBody m'.body
+  if stmts.all isInst && decide portNames.Nodup && Sparkle.IR.Reorder.woCheck [] m'.body &&
+      Sparkle.IR.Reorder.woCheck [] body && Sparkle.IR.Reorder.isPermOf m'.body body &&
+      decide (seqOf m'.body = seqOf body) &&
+      decide (Sparkle.IR.Reorder.nextKeys m'.body).Nodup &&
+      decide (m'.body.filterMap Sparkle.IR.Reorder.stmtMemName).Nodup &&
+      linkedOk (moduleByName d'.modules) body &&
+      -- each instance its own name, none feeding itself (the stateful
+      -- linked run's conditions; always so for the statements above)
+      decide (body.filterMap instNameOf).Nodup && noSelfFeed (moduleByName d'.modules) body &&
+      -- a memory child's name finds that memory module
+      children.all (fun c => Sparkle.Compiler.MachMemory.memSelf (moduleByName d'.modules) c.1) &&
+      -- every child module, and every module of a child's design, is found by
+      -- its name in the merged design as itself (the designs agree)
+      children.all (fun c => decide (moduleByName d'.modules c.1.name = some c.1) &&
+        c.2.modules.all (fun m => decide (moduleByName d'.modules m.name = some m))) &&
+      -- no instance of the module being closed, in it or in its design
+      noInstOfB m0.name body && d'.modules.all (fun g => noInstOfB m0.name g.body) then
+    some ({ m' with body := body }, d')
+  else none
+
+end Sparkle.IR.Machine

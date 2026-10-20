@@ -33,6 +33,7 @@ import Tools.SVParser
 import Sparkle.Backend.CSim
 import Sparkle.Core.JIT
 import Sparkle.Core.SimParallel
+import Sparkle.Compiler.SimNames
 
 open Lean Elab Command
 open Tools.SVParser.Parser
@@ -77,7 +78,14 @@ elab "sim!" src:str : command => do
 
   -- Generate JIT C++ and write to a deterministic path
   let jitCpp := toCJIT design
-  let jitPath := s!".lake/build/gen/sim/{ns}_jit.c"
+  -- Finding J5 (`Sparkle/Compiler/SimNames.lean`): the stem carries a hash of
+  -- the C text, so two parsed designs with one module name (two files) do not
+  -- share a file, and the stem (it contains `-`) is never the stem `#sim`
+  -- gives a declaration.  The namespace keeps the module name as ONE
+  -- component (`«…»` when it is not a plain identifier).
+  let fileKey := Sparkle.Compiler.SimNames.svFileKey m.name jitCpp
+  let nsText := Sparkle.Compiler.SimNames.svNamespace m.name
+  let jitPath := s!".lake/build/gen/sim/{fileKey}_jit.c"
   -- Write the file at elaboration time
   try
     IO.FS.createDirAll ".lake/build/gen/sim"
@@ -97,7 +105,7 @@ elab "sim!" src:str : command => do
   let outputsIdx : List (Nat × Sparkle.IR.AST.Port) :=
     (List.range outputs.length).zip outputs
 
-  elabSimStr s!"namespace {ns}.Sim"
+  elabSimStr s!"namespace {nsText}.Sim"
   elabSimStr "open Sparkle.Core.JIT"
 
   -- jitCppPath: constant for the generated C++ file path
@@ -179,4 +187,4 @@ elab "sim!" src:str : command => do
   -- Convenience: load (compile + create Simulator)
   elabSimStr s!"def load : IO Simulator := do\n  let h ← JIT.compileAndLoad jitCppPath\n  pure {lb} handle := h {rb}"
 
-  elabSimStr s!"end {ns}.Sim"
+  elabSimStr s!"end {nsText}.Sim"

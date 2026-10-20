@@ -28,6 +28,7 @@ import Sparkle.IR.Type
 import Sparkle.IR.Specialize
 import Std.Data.HashSet
 import Std.Data.HashMap
+import Sparkle.Backend.CIdent
 
 namespace Sparkle.Backend.CSim
 
@@ -144,28 +145,6 @@ def applyMask (expr : String) (w : Nat) : String :=
   if mask.isEmpty then expr
   else s!"(({expr}) & {mask})"
 
-/-- Check if an IR expression produces a result that is already correctly masked.
-    Invariant: every assignment applies a mask, so .ref reads yield masked values. -/
-partial def exprIsMasked (w : Nat) : Expr → Bool
-  -- A constant is only "already masked" if its DECLARED width fits the
-  -- target width.  `.const (-1) 32` (the SVParser's bitwise-NOT mask)
-  -- feeding a 1-bit wire used to pass here unconditionally, so the xor
-  -- arm below skipped the store mask and a `~x` landed as 0xff in a
-  -- 1-bit uint8 field (XiangShan ICacheMshr.io_wfi_wfiSafe, 14 modules).
-  | .const _ cw => cw ≤ w
-  | .ref _ => true
-  | .op .eq _ | .op .lt_u _ | .op .lt_s _ | .op .le_u _
-  | .op .le_s _ | .op .gt_u _ | .op .gt_s _ | .op .ge_u _
-  | .op .ge_s _ => w == 1
-  | .slice _ hi lo => (hi - lo + 1) == w
-  | .op .mux [_, t, e] => exprIsMasked w t && exprIsMasked w e
-  | .op .and [a, b] => exprIsMasked w a || exprIsMasked w b
-  | .op .or [a, b] => exprIsMasked w a && exprIsMasked w b
-  | .op .xor [a, b] => exprIsMasked w a && exprIsMasked w b
-  | .op .shr _ => true
-  | .op .asr _ => true
-  | _ => !needsMask w
-
 /-- Convert Operator to C operator symbol -/
 def emitCOperator (op : Operator) : String :=
   match op with
@@ -227,6 +206,9 @@ partial def inferExprWidth (typeMap : TypeMap) : Expr → Nat
   -- every bit destined for words 2-3 was silently dropped.
   | .op .shl [a, .const k _] =>
     inferExprWidth typeMap a + (if k ≥ 0 then k.toNat else 0)
+  -- A right shift only drops bits: the amount's width must not leak
+  -- into the value's (twin of the formal `widthOf` rule).
+  | .op .shr [a, _] => inferExprWidth typeMap a
   | .op _ args =>
     match args with
     -- A binary op is as wide as its WIDEST operand — taking only the
@@ -341,6 +323,60 @@ private def wideCmpSlots (strict : Bool) (a b : Nat → String) (nWords : Nat) :
     "(" ++ a i ++ " < " ++ b i ++ " ? 1 : (" ++ a i ++ " > " ++ b i ++ " ? 0 : " ++ rest ++ "))")
     base
   "(" ++ expr ++ ")"
+
+/-- Check if an IR expression produces a result that is already correctly
+    masked to `w` bits.  `atStore` says whether the value is about to be
+    written into a C field of exactly `w` bits' container — there (and
+    ONLY there) a container-width value (w = 8/16/32/64) is truncated by
+    the store itself, so the default arm may answer "masked".  In an
+    OPERAND position (compare/shift/truthiness/index) the value lives in
+    a uint64 expression and no such truncation happens — callers must
+    pass `atStore := false`, and the default arm answers "not masked".
+
+    A constant is only "already masked" if its DECLARED width fits the
+    target width.  `.const (-1) 32` (the SVParser's bitwise-NOT mask)
+    feeding a 1-bit wire used to pass here unconditionally, so the xor
+    arm below skipped the store mask and a `~x` landed as 0xff in a
+    1-bit uint8 field (XiangShan ICacheMshr.io_wfi_wfiSafe, 14 modules).
+
+    `.shr` is masked only up to its VALUE operand's width (the shifted
+    value is emitted exact, see the shift arm of `emitExpr`), and `.asr`
+    is never masked — sign extension deliberately sets bits above the
+    value width inside the container. -/
+partial def exprIsMasked (typeMap : TypeMap) (w : Nat) (atStore : Bool) : Expr → Bool
+  | .const _ cw => cw ≤ w
+  | .ref name => lookupWidth typeMap name ≤ w
+  | .op .eq _ | .op .lt_u _ | .op .lt_s _ | .op .le_u _
+  | .op .le_s _ | .op .gt_u _ | .op .gt_s _ | .op .ge_u _
+  | .op .ge_s _ => 1 ≤ w
+  | .slice _ hi lo => (hi - lo + 1) ≤ w
+  | .op .mux [_, t, e] => exprIsMasked typeMap w atStore t && exprIsMasked typeMap w atStore e
+  | .op .and [a, b] => exprIsMasked typeMap w atStore a || exprIsMasked typeMap w atStore b
+  | .op .or [a, b] => exprIsMasked typeMap w atStore a && exprIsMasked typeMap w atStore b
+  | .op .xor [a, b] => exprIsMasked typeMap w atStore a && exprIsMasked typeMap w atStore b
+  | .op .shr (a :: _) => inferExprWidth typeMap a ≤ w
+  | .op .asr _ => false
+  | _ => atStore && !needsMask w
+
+/-- Mask an already-emitted operand string to the operand's own width,
+    unless the expression is provably already masked.  For consumers
+    that need the EXACT value — compare operands, shift arguments,
+    mux/`!` truthiness, memory indices — not one that a later
+    store-mask will clean up.  The store-mask invariant only covers
+    `.ref` reads: an unmasked intermediate keeps its carry in the C
+    scalar (`x+y` at 4 bits holds 16), so `((x+y) == 4'h0)` compared
+    16, not 0, and diverged from the RTL.  Congruence makes one mask
+    at the consumer sufficient: `+ - * & | ^ ~ neg` all preserve
+    values mod 2^w, so bits above w in sub-operands never affect the
+    masked top value.  At w = 64 the uint64 container itself wraps
+    mod 2^64, so no mask is needed (unlike `applyMask`, w = 8/16/32
+    DO get a mask here — there is no store truncation in an operand
+    position). -/
+private def maskOperandExact (typeMap : TypeMap) (w : Nat) (arg : Expr) (s : String) : String :=
+  if w ≥ 64 then s
+  else if exprIsMasked typeMap w false arg then s
+  else if w == 1 then s!"(({s}) & 1)"
+  else s!"(({s}) & 0x{Nat.toDigits 16 (2 ^ w - 1) |> String.ofList}ULL)"
 
 /-- Convert IR expression to C expression.
 
@@ -552,12 +588,18 @@ partial def emitExpr (typeMap : TypeMap) (e : Expr) : String :=
   | .sliceDim _ _ _ =>
     "SPARKLE_UNSUPPORTED_SYMBOLIC_SLICE"
   | .index arr idx =>
-    s!"{emitExpr typeMap arr}[{emitExpr typeMap idx}]"
+    -- The address must be exact: an unmasked `(i+1)` walks past the
+    -- C array (UB), where the RTL wraps at the address width.
+    s!"{emitExpr typeMap arr}[{maskOperandExact typeMap (inferExprWidth typeMap idx) idx (emitExpr typeMap idx)}]"
 
   | .op .mux args =>
     match args with
     | [cond, thenVal, elseVal] =>
-      s!"({emitExpr typeMap cond} ? {emitExpr typeMap thenVal} : {emitExpr typeMap elseVal})"
+      -- Truthiness is width-sensitive: `(x+y)` with x=15,y=1 is 16 in
+      -- the C scalar but 0 at 4 bits, so the unmasked condition took
+      -- the wrong arm.  The ARMS stay lazy — congruence + store-mask
+      -- (or the consumer's own operand mask) covers them.
+      s!"({maskOperandExact typeMap (inferExprWidth typeMap cond) cond (emitExpr typeMap cond)} ? {emitExpr typeMap thenVal} : {emitExpr typeMap elseVal})"
     | _ => "/* ERROR: mux requires 3 arguments */"
 
   | .op .not args =>
@@ -568,7 +610,7 @@ partial def emitExpr (typeMap : TypeMap) (e : Expr) : String :=
     -- Ch became `!e`, silently corrupting every hash).
     | [arg] =>
       let w := inferExprWidth typeMap arg
-      if w ≤ 1 then s!"(!{emitExpr typeMap arg})"
+      if w ≤ 1 then s!"(!{maskOperandExact typeMap (inferExprWidth typeMap arg) arg (emitExpr typeMap arg)})"
       else s!"((~{emitExpr typeMap arg}) & {(1 <<< w) - 1}ULL)"
     | _ => "/* ERROR: not requires 1 argument */"
 
@@ -616,18 +658,22 @@ partial def emitExpr (typeMap : TypeMap) (e : Expr) : String :=
           -- scalar context has no meaningful ≤64-bit reading — leave the
           -- (non-compiling) raw form so it fails loudly.
           if operator == .shr then
-            s!"sparkle_wide_shr64({emitExpr typeMap arg1}, {wordsOf w1}u, (unsigned)({emitExpr typeMap arg2}))"
+            s!"sparkle_wide_shr64({emitExpr typeMap arg1}, {wordsOf w1}u, (unsigned)({maskOperandExact typeMap (inferExprWidth typeMap arg2) arg2 (emitExpr typeMap arg2)}))"
           else
             s!"({emitExpr typeMap arg1} {emitCOperator operator} {emitExpr typeMap arg2})"
         else
           let cop := if operator == .shr then ">>" else "<<"
+          -- Both arguments need exact values: a phantom carry in the
+          -- VALUE shifts down into live bits under `>>` (and past the
+          -- store-mask under `<<`); an unmasked AMOUNT shifts by the
+          -- wrong count entirely.
           match arg2 with
           | .const v _ =>
             if v ≥ 64 then "0ULL"
-            else s!"((uint64_t){emitExpr typeMap arg1} {cop} {v})"
+            else s!"((uint64_t){maskOperandExact typeMap (inferExprWidth typeMap arg1) arg1 (emitExpr typeMap arg1)} {cop} {v})"
           | _ =>
-            let aS := emitExpr typeMap arg1
-            let bS := emitExpr typeMap arg2
+            let aS := maskOperandExact typeMap (inferExprWidth typeMap arg1) arg1 (emitExpr typeMap arg1)
+            let bS := maskOperandExact typeMap (inferExprWidth typeMap arg2) arg2 (emitExpr typeMap arg2)
             s!"((uint64_t)({bS}) >= 64 ? 0ULL : ((uint64_t){aS} {cop} ({bS})))"
       | .asr =>
         let w := max (inferExprWidth typeMap arg1) 32
@@ -651,7 +697,7 @@ partial def emitExpr (typeMap : TypeMap) (e : Expr) : String :=
           -- against a 64-bit input; the old code subscripted the input.)
           let slot (e : Expr) (j : Nat) : String :=
             let we := inferExprWidth typeMap e
-            let es := emitExpr typeMap e
+            let es := maskOperandExact typeMap we e (emitExpr typeMap e)
             if we > 64 then s!"{es}[{j}]"
             else if j == 0 then s!"((uint32_t)({es}))"
             else if j == 1 && we > 32 then s!"((uint32_t)((uint64_t)({es}) >> 32))"
@@ -668,9 +714,9 @@ partial def emitExpr (typeMap : TypeMap) (e : Expr) : String :=
           | _, _          => s!"(({mkTerms arg1 arg2}) ? 1 : 0)"
         else
         match arg1, arg2 with
-        | _, .const 0 _ => s!"(!({emitExpr typeMap arg1}) ? 1 : 0)"
-        | .const 0 _, _ => s!"(!({emitExpr typeMap arg2}) ? 1 : 0)"
-        | _, _ => s!"({emitExpr typeMap arg1} == {emitExpr typeMap arg2} ? 1 : 0)"
+        | _, .const 0 _ => s!"(!({maskOperandExact typeMap (inferExprWidth typeMap arg1) arg1 (emitExpr typeMap arg1)}) ? 1 : 0)"
+        | .const 0 _, _ => s!"(!({maskOperandExact typeMap (inferExprWidth typeMap arg2) arg2 (emitExpr typeMap arg2)}) ? 1 : 0)"
+        | _, _ => s!"({maskOperandExact typeMap (inferExprWidth typeMap arg1) arg1 (emitExpr typeMap arg1)} == {maskOperandExact typeMap (inferExprWidth typeMap arg2) arg2 (emitExpr typeMap arg2)} ? 1 : 0)"
       | .lt_u | .le_u | .gt_u | .ge_u =>
         let w := max (inferExprWidth typeMap arg1) (inferExprWidth typeMap arg2)
         if w > 64 then
@@ -681,7 +727,7 @@ partial def emitExpr (typeMap : TypeMap) (e : Expr) : String :=
           -- subscripted the constant).
           let slotOf (e : Expr) : Nat → String := fun j =>
             let we := inferExprWidth typeMap e
-            let es := emitExpr typeMap e
+            let es := maskOperandExact typeMap we e (emitExpr typeMap e)
             if we > 64 then s!"(uint32_t)({es})[{j}]"
             else if j == 0 then s!"((uint32_t)({es}))"
             else if j == 1 && we > 32 then s!"((uint32_t)((uint64_t)({es}) >> 32))"
@@ -697,7 +743,7 @@ partial def emitExpr (typeMap : TypeMap) (e : Expr) : String :=
           | .gt_u => wideCmpSlots true  b a n
           | _     => wideCmpSlots false b a n   -- .ge_u
         else
-          s!"({emitExpr typeMap arg1} {emitCOperator operator} {emitExpr typeMap arg2} ? 1 : 0)"
+          s!"({maskOperandExact typeMap (inferExprWidth typeMap arg1) arg1 (emitExpr typeMap arg1)} {emitCOperator operator} {maskOperandExact typeMap (inferExprWidth typeMap arg2) arg2 (emitExpr typeMap arg2)} ? 1 : 0)"
       | .mul =>
         -- Wide-multiply codegen.  Same algorithm as CppSim's
         -- C++ port: project both wide operands to int64_t (low
@@ -827,7 +873,7 @@ def emitMuxAsIfElse (typeMap : TypeMap)
   else
     let maskFn := fun (e : Expr) =>
       let s := emitExpr typeMap e
-      if exprIsMasked width e then s else applyMask s width
+      if exprIsMasked typeMap width true e then s else applyMask s width
     let defaultLine := s!"        {lhsName} = {maskFn default_};"
     let ifLines := (arms.zip (List.range arms.length)).map fun ((cond, val), idx) =>
       let condStr := emitExpr typeMap cond
@@ -1392,17 +1438,26 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
         , evalTickLocals := [] }
       else
         let expr := emitExpr typeMap rhs
-        let masked := if exprIsMasked width rhs then expr else applyMask expr width
+        let masked := if exprIsMasked typeMap width true rhs then expr else applyMask expr width
         { declarations := []
         , evalBody := [s!"        {sanitizeName lhs} = {masked};"]
         , tickBody := []
         , resetBody := []
         , evalTickLocals := [] }
 
-  | .register output _clock _reset input initValue =>
+  | .register output _clock (rstName, _) input initValue =>
     let width := lookupWidth typeMap output
     let outName := sanitizeName output
     let nextName := s!"{outName}_next"
+    -- Per-cycle reset: the register statement CARRIES (rst, init), and
+    -- the Verilog backend emits `if (rst) q <= init` from it.  CSim used
+    -- to ignore the field — correct only while the reset mux was ALSO
+    -- baked into the input expression, which the lowering's
+    -- stripResetMux no longer guarantees (and Sparkle-native inputs
+    -- never did).  Guard on membership so a phantom reset name cannot
+    -- produce an unbound C identifier.
+    let rstC := sanitizeName rstName
+    let hasRst := typeMap.fold (fun acc n _ => acc || sanitizeName n == rstC) false
     if width > 64 then
       -- Wide register.  Storage is `uint32_t out[N]`.  We
       -- maintain a parallel `out_next[N]` and on tick() we
@@ -1430,15 +1485,21 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
       -- the same evalTick.
       let nextLocalDecl :=
         s!"        uint32_t {nextName}[{nWords}]; memcpy({nextName}, {outName}, sizeof({nextName}));"
+      let rstGuard : List String :=
+        if hasRst then
+          [s!"        if ({rstC}) \{"]
+            ++ emitInitWideLines nextName initValue width
+            ++ ["        }"]
+        else []
       { declarations := [s!"    {declStr}", s!"    {nextDeclStr}"]
-      , evalBody := nextParts.evalBody
+      , evalBody := nextParts.evalBody ++ rstGuard
       , tickBody := tickLines
       , resetBody := resetLines
       , evalTickLocals := [nextLocalDecl] }
     else
       let cType := emitScalarBase (.bitVector width)
       let rawExpr := emitExpr typeMap input
-      let inputExpr := if exprIsMasked width input then rawExpr else applyMask rawExpr width
+      let inputExpr := if exprIsMasked typeMap width true input then rawExpr else applyMask rawExpr width
       let initExpr := emitInitScalar initValue width
       let ifElseLines := if muxChainDepth input >= 16 then
           emitMuxAsIfElse typeMap nextName width input 16
@@ -1447,8 +1508,11 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
       let body : List String :=
         if ifElseLines.isEmpty then [s!"        {nextName} = {inputExpr};"]
         else ifElseLines
+      let rstGuard : List String :=
+        if hasRst then [s!"        if ({rstC}) {nextName} = {initExpr};"]
+        else []
       { declarations := [s!"    {cType} {outName};", s!"    {cType} {nextName};"]
-      , evalBody := body
+      , evalBody := body ++ rstGuard
       , tickBody := [s!"        {outName} = {nextName};"]
       , resetBody := [s!"        {outName} = {initExpr};"]
       , evalTickLocals := [nextLocalDecl] }
@@ -1600,10 +1664,12 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
             some s!"        {sanitizeName wireName} = {iName}.{sanitizeName portName};"
         | _ => none
       else none
-    { declarations := [s!"    struct {className} {iName};"]
-    , evalBody := inputConns ++ [s!"        sparkle_{className}_eval(&{iName});"] ++ outputConns
-    , tickBody := [s!"        sparkle_{className}_tick(&{iName});"]
-    , resetBody := [s!"        sparkle_{className}_reset(&{iName});"]
+    -- The child's struct tag and functions: `CIdent.cIdent` (role first; no
+    -- module name makes two of them equal, findings J2–J4).
+    { declarations := [s!"    struct {CIdent.cIdent .structTag className} {iName};"]
+    , evalBody := inputConns ++ [s!"        {CIdent.cIdent .eval className}(&{iName});"] ++ outputConns
+    , tickBody := [s!"        {CIdent.cIdent .tick className}(&{iName});"]
+    , resetBody := [s!"        {CIdent.cIdent .reset className}(&{iName});"]
     , evalTickLocals := [] }
 
 /-- Collect all wire name references from an IR expression -/
@@ -1877,7 +1943,8 @@ def emitModule (m : Module) (design : Option Design := none)
     let resetBody := allParts.foldl (fun acc (p : StmtParts) => acc ++ p.resetBody) []
     let evalTickLocals := allParts.foldl (fun acc (p : StmtParts) => acc ++ p.evalTickLocals) []
 
-    let structName := s!"struct {className}"
+    -- Struct tag and function names: `CIdent.cIdent` (findings J2–J4).
+    let structName := s!"struct {CIdent.cIdent .structTag className}"
     let helperPrefix := wideShrHelper funcQual
 
     let inputSection := if inputDecls.isEmpty then "" else
@@ -1910,7 +1977,7 @@ def emitModule (m : Module) (design : Option Design := none)
     -- We compute the full set of member names (inputs, outputs,
     -- wires, register / memory / instance fields) and do a
     -- token-level substitution on each body string.  Tokens are
-    -- defined as maximal runs of `[A-Za-z0-9_]`.
+    -- defined as maximal runs of `[A-Za-z0-9_$]` (`$` occurs in tagged module names).
     -- ----------------------------------------------------------------
 
     let memberNames : List String := Id.run do
@@ -1926,12 +1993,14 @@ def emitModule (m : Module) (design : Option Design := none)
       s
 
     -- Token-level substitution: walk the string, accumulating
-    -- alnum/underscore tokens, and emit `self->TOK` when TOK is
-    -- in `memberSet`.
+    -- identifier tokens (alphanumerics, `_` and `$` — `$` occurs in
+    -- tagged module names `Sp$D$…` and hence in instance member names;
+    -- `sanitizeName` keeps it), and emit `self->TOK` when TOK is in
+    -- `memberSet`.
     let memberSet : Std.HashSet String := memberNames.foldl (fun s n => s.insert n) ({} : Std.HashSet String)
 
     let isTokChar (c : Char) : Bool :=
-      c.isAlphanum || c == '_'
+      c.isAlphanum || c == '_' || c == '$'
 
     let qualifyWith (memberSet : Std.HashSet String) (input : String) : String := Id.run do
       -- A token is a maximal alnum/underscore run.  Two contexts
@@ -2004,7 +2073,7 @@ def emitModule (m : Module) (design : Option Design := none)
     let qualifyET := qualifyWith memberSetET
 
     let resetFn :=
-      s!"{funcQual}static void sparkle_{className}_reset({structName}* self) \{\n" ++
+      s!"{funcQual}static void {CIdent.cIdent .reset className}({structName}* self) \{\n" ++
       "    (void)self;\n" ++
       (if resetBodyQ.isEmpty then "" else
         String.intercalate "\n" resetBodyQ ++ "\n") ++
@@ -2021,7 +2090,7 @@ def emitModule (m : Module) (design : Option Design := none)
     -- rounds as it has statements.
     let relaxRounds := evalBodyQ.length + 1
     let evalFn :=
-      s!"{funcQual}static void sparkle_{className}_eval({structName}* self) \{\n" ++
+      s!"{funcQual}static void {CIdent.cIdent .eval className}({structName}* self) \{\n" ++
       "    (void)self;\n" ++
       (if localWireDecls.isEmpty then "" else
         String.intercalate "\n" localWireDecls ++ "\n") ++
@@ -2037,7 +2106,7 @@ def emitModule (m : Module) (design : Option Design := none)
       "}\n\n"
 
     let tickFn :=
-      s!"{funcQual}static void sparkle_{className}_tick({structName}* self) \{\n" ++
+      s!"{funcQual}static void {CIdent.cIdent .tick className}({structName}* self) \{\n" ++
       "    (void)self;\n" ++
       (if tickBodyQ.isEmpty then "" else
         String.intercalate "\n" tickBodyQ ++ "\n") ++
@@ -2078,24 +2147,33 @@ def emitModule (m : Module) (design : Option Design := none)
 
     -- eval_tick uses the reduced member set so register `_next`
     -- temporaries emit as bare locals (declared via evalTickLocals).
+    -- The instances with their child's eval / eval_tick / tick identifiers.
+    let instCalls : List (String × String × String × String) :=
+      m.body.filterMap fun s => match s with
+        | .inst moduleName instName _ =>
+          let c := sanitizeName moduleName
+          some (sanitizeName instName, CIdent.cIdent .eval c, CIdent.cIdent .evalTick c,
+            CIdent.cIdent .tick c)
+        | _ => none
     let evalTickEvalBody := (evalBody.map qualifyET).map fun line =>
-      instNames.foldl (fun l inst =>
-        -- We emit `sparkle_<modName>_eval(&self->iName)` — find
-        -- the inst name and switch `_eval` → `_eval_tick`.  This
-        -- is a heuristic: look for `&self->inst)` as a marker.
+      instCalls.foldl (fun l (inst, evalId, evalTickId, _) =>
+        -- We emit `<child eval>(&self->iName)` — on the line of that
+        -- instance (marker `&self->inst)`) switch the child's eval
+        -- identifier to its eval_tick identifier.  Both are whole
+        -- `CIdent` names followed by `(`.
         let marker := s!"&self->{inst})"
         if (l.splitOn marker).length > 1 then
-          l.replace "_eval(" "_eval_tick("
+          l.replace (evalId ++ "(") (evalTickId ++ "(")
         else l) line
     -- Also strip tick calls that match instance names from the
     -- tick body when present.
     let evalTickTickBody := (tickBody.map qualifyET).filter fun line =>
-      !instNames.any (fun inst =>
+      !instCalls.any (fun (inst, _, _, tickId) =>
         (line.splitOn s!"sparkle_evalTick_placeholder_TICK_{inst}").length > 1
-        || (line.splitOn s!"_tick(&self->{inst})").length > 1)
+        || (line.splitOn s!"{tickId}(&self->{inst})").length > 1)
 
     let evalTickFn :=
-      s!"{funcQual}static void sparkle_{className}_eval_tick({structName}* self) \{\n" ++
+      s!"{funcQual}static void {CIdent.cIdent .evalTick className}({structName}* self) \{\n" ++
       "    (void)self;\n" ++
       (if localWireDecls.isEmpty then "" else
         String.intercalate "\n" localWireDecls ++ "\n") ++
@@ -2479,18 +2557,36 @@ private def emitWireNameSwitch (wires : List Port)
     s!"        case {i}: return \"{sName}\";"
   String.intercalate "\n" cases
 
-private def emitMemoryAccessSwitches (body : List Stmt) :
+/-- The memories the JIT can poke: the module's own, then those of its
+direct sub-module instances in body order (a memory the certified route
+puts in a memory-only child), as C member paths. Existing designs keep
+their indices (their memories are the module's own). -/
+private def collectMemoryPaths (d : Design) (m : Module) : List (String × Nat × Nat) :=
+  let own := (collectMemories m.body).map fun (n, aw, dw) => (sanitizeName n, aw, dw)
+  let child := m.body.flatMap fun st => match st with
+    | .inst moduleName instName _ =>
+      let className := sanitizeName moduleName
+      let rawIName := sanitizeName instName
+      let iName := if rawIName == className then rawIName ++ "_inst" else rawIName
+      match d.findModule moduleName with
+      | some sm => (collectMemories sm.body).map fun (n, aw, dw) =>
+          (iName ++ "." ++ sanitizeName n, aw, dw)
+      | none => []
+    | _ => []
+  own ++ child
+
+private def emitMemoryAccessSwitches (d : Design) (m : Module) :
     String × String × Nat :=
-  let mems := collectMemories body
+  let mems := collectMemoryPaths d m
   let indexed := (List.range mems.length).zip mems
   let setCases := indexed.map fun (i, name, _addrWidth, dataWidth) =>
-    let sName := sanitizeName name
+    let sName := name
     if dataWidth > 64 then
       s!"        case {i}: s->{sName}[addr][0] = data; break;"
     else
       s!"        case {i}: s->{sName}[addr] = data; break;"
   let getCases := indexed.map fun (i, name, _addrWidth, dataWidth) =>
-    let sName := sanitizeName name
+    let sName := name
     if dataWidth > 64 then
       s!"        case {i}: return (uint32_t)s->{sName}[addr][0];"
     else
@@ -2499,11 +2595,11 @@ private def emitMemoryAccessSwitches (body : List Stmt) :
   , String.intercalate "\n" getCases
   , mems.length )
 
-private def emitMemsetWordSwitch (body : List Stmt) : String :=
-  let mems := collectMemories body
+private def emitMemsetWordSwitch (d : Design) (m : Module) : String :=
+  let mems := collectMemoryPaths d m
   let indexed := (List.range mems.length).zip mems
   let cases := indexed.map fun (i, name, addrWidth, dataWidth) =>
-    let sName := sanitizeName name
+    let sName := name
     let memSize := 2 ^ addrWidth
     if dataWidth > 64 then
       s!"        case {i}: for (uint32_t k = 0; k < count && (addr + k) < {memSize}; k++) s->{sName}[addr + k][0] = val; break;"
@@ -2518,7 +2614,7 @@ private def emitMemsetWordSwitch (body : List Stmt) : String :=
       * The `JitVTable` struct definition.
       * Static trampolines that adapt `void*` ctx to the
         top-module's typed `struct Top*` and call the
-        appropriate `sparkle_<top>_*` helper.
+        appropriate helper of the top (`CIdent.cIdent`).
       * The `JitVTable` instance pre-populated with those
         trampolines.
       * The single externally-visible `jit_vtable()`
@@ -2569,8 +2665,8 @@ private def toCJITUnchecked (d : Design)
     let (wireSwitch, numWires) := emitGetWireSwitch m.wires observableWires
     let wireNameSwitch := emitWireNameSwitch m.wires observableWires
     let (memSetCases, memGetCases, numMems) :=
-      emitMemoryAccessSwitches m.body
-    let memsetWordCases := emitMemsetWordSwitch m.body
+      emitMemoryAccessSwitches d m
+    let memsetWordCases := emitMemsetWordSwitch d m
     let typeMap := buildTypeMap m
     let regs := collectRegisters m.body typeMap
     let numRegs := regs.length
@@ -2607,53 +2703,62 @@ private def toCJITUnchecked (d : Design)
       "    void  (*free_snapshot)(void* snap);\n" ++
       "} JitVTable;\n\n"
 
+    -- The top module's struct tag and functions (`CIdent.cIdent`).  The
+    -- trampolines keep their fixed names `sparkle_jit_*`: no `cIdent` name
+    -- equals one (it starts with `sparkle_m`), so a module named `jit` no
+    -- longer defines them a second time (finding J4).
+    let structTag := CIdent.cIdent .structTag className
+    let resetId := CIdent.cIdent .reset className
+    let evalId := CIdent.cIdent .eval className
+    let tickId := CIdent.cIdent .tick className
+    let evalTickId := CIdent.cIdent .evalTick className
     let trampolines :=
       s!"/* ---- Trampolines: void*-typed adapters for the vtable ---- */\n\n" ++
       s!"static void* sparkle_jit_create(void) \{\n" ++
-      s!"    struct {className}* p = (struct {className}*)calloc(1, sizeof(struct {className}));\n" ++
-      s!"    if (p) sparkle_{className}_reset(p);\n" ++
+      s!"    struct {structTag}* p = (struct {structTag}*)calloc(1, sizeof(struct {structTag}));\n" ++
+      s!"    if (p) {resetId}(p);\n" ++
       s!"    return (void*)p;\n" ++
       s!"}\n\n" ++
       s!"static void sparkle_jit_destroy(void* ctx) \{ free(ctx); }\n" ++
-      s!"static void sparkle_jit_reset(void* ctx) \{ sparkle_{className}_reset((struct {className}*)ctx); }\n" ++
-      s!"static void sparkle_jit_eval(void* ctx) \{ sparkle_{className}_eval((struct {className}*)ctx); }\n" ++
-      s!"static void sparkle_jit_tick(void* ctx) \{ sparkle_{className}_tick((struct {className}*)ctx); }\n" ++
-      s!"static void sparkle_jit_eval_tick(void* ctx) \{ sparkle_{className}_eval_tick((struct {className}*)ctx); }\n\n" ++
+      s!"static void sparkle_jit_reset(void* ctx) \{ {resetId}((struct {structTag}*)ctx); }\n" ++
+      s!"static void sparkle_jit_eval(void* ctx) \{ {evalId}((struct {structTag}*)ctx); }\n" ++
+      s!"static void sparkle_jit_tick(void* ctx) \{ {tickId}((struct {structTag}*)ctx); }\n" ++
+      s!"static void sparkle_jit_eval_tick(void* ctx) \{ {evalTickId}((struct {structTag}*)ctx); }\n\n" ++
       s!"static void sparkle_jit_set_input(void* ctx, uint32_t idx, uint64_t val) \{\n" ++
-      s!"    struct {className}* s = (struct {className}*)ctx;\n" ++
+      s!"    struct {structTag}* s = (struct {structTag}*)ctx;\n" ++
       s!"    switch (idx) \{\n" ++
       setInputCases ++ "\n" ++
       s!"    }\n" ++
       s!"}\n\n" ++
       s!"static uint64_t sparkle_jit_get_output(void* ctx, uint32_t idx) \{\n" ++
-      s!"    struct {className}* s = (struct {className}*)ctx;\n" ++
+      s!"    struct {structTag}* s = (struct {structTag}*)ctx;\n" ++
       s!"    switch (idx) \{\n" ++
       getOutputCases ++ "\n" ++
       s!"    }\n" ++
       s!"    return 0;\n" ++
       s!"}\n\n" ++
       s!"static uint64_t sparkle_jit_get_wire(void* ctx, uint32_t idx) \{\n" ++
-      s!"    struct {className}* s = (struct {className}*)ctx; (void)s;\n" ++
+      s!"    struct {structTag}* s = (struct {structTag}*)ctx; (void)s;\n" ++
       s!"    switch (idx) \{\n" ++
       wireSwitch ++ "\n" ++
       s!"    }\n" ++
       s!"    return 0;\n" ++
       s!"}\n\n" ++
       s!"static void sparkle_jit_set_mem(void* ctx, uint32_t mem_idx, uint32_t addr, uint32_t data) \{\n" ++
-      s!"    struct {className}* s = (struct {className}*)ctx; (void)s; (void)addr; (void)data;\n" ++
+      s!"    struct {structTag}* s = (struct {structTag}*)ctx; (void)s; (void)addr; (void)data;\n" ++
       s!"    switch (mem_idx) \{\n" ++
       memSetCases ++ "\n" ++
       s!"    }\n" ++
       s!"}\n\n" ++
       s!"static uint32_t sparkle_jit_get_mem(void* ctx, uint32_t mem_idx, uint32_t addr) \{\n" ++
-      s!"    struct {className}* s = (struct {className}*)ctx; (void)s; (void)addr;\n" ++
+      s!"    struct {structTag}* s = (struct {structTag}*)ctx; (void)s; (void)addr;\n" ++
       s!"    switch (mem_idx) \{\n" ++
       memGetCases ++ "\n" ++
       s!"    }\n" ++
       s!"    return 0;\n" ++
       s!"}\n\n" ++
       s!"static void sparkle_jit_memset_word(void* ctx, uint32_t mem_idx, uint32_t addr, uint32_t val, uint32_t count) \{\n" ++
-      s!"    struct {className}* s = (struct {className}*)ctx; (void)s; (void)addr; (void)val; (void)count;\n" ++
+      s!"    struct {structTag}* s = (struct {structTag}*)ctx; (void)s; (void)addr; (void)val; (void)count;\n" ++
       s!"    switch (mem_idx) \{\n" ++
       memsetWordCases ++ "\n" ++
       s!"    }\n" ++
@@ -2666,13 +2771,13 @@ private def toCJITUnchecked (d : Design)
       s!"}\n\n" ++
       s!"static uint32_t sparkle_jit_num_wires(void) \{ return {numWires}; }\n\n" ++
       s!"static void sparkle_jit_set_reg(void* ctx, uint32_t reg_idx, uint64_t val) \{\n" ++
-      s!"    struct {className}* s = (struct {className}*)ctx; (void)s; (void)val;\n" ++
+      s!"    struct {structTag}* s = (struct {structTag}*)ctx; (void)s; (void)val;\n" ++
       s!"    switch (reg_idx) \{\n" ++
       setRegCases ++ "\n" ++
       s!"    }\n" ++
       s!"}\n\n" ++
       s!"static uint64_t sparkle_jit_get_reg(void* ctx, uint32_t reg_idx) \{\n" ++
-      s!"    struct {className}* s = (struct {className}*)ctx; (void)s;\n" ++
+      s!"    struct {structTag}* s = (struct {structTag}*)ctx; (void)s;\n" ++
       s!"    switch (reg_idx) \{\n" ++
       getRegCases ++ "\n" ++
       s!"    }\n" ++
@@ -2686,12 +2791,12 @@ private def toCJITUnchecked (d : Design)
       s!"}\n\n" ++
       s!"static uint32_t sparkle_jit_num_regs(void) \{ return {numRegs}; }\n\n" ++
       s!"static void* sparkle_jit_snapshot(void* ctx) \{\n" ++
-      s!"    struct {className}* p = (struct {className}*)calloc(1, sizeof(struct {className}));\n" ++
-      s!"    if (p) memcpy(p, ctx, sizeof(struct {className}));\n" ++
+      s!"    struct {structTag}* p = (struct {structTag}*)calloc(1, sizeof(struct {structTag}));\n" ++
+      s!"    if (p) memcpy(p, ctx, sizeof(struct {structTag}));\n" ++
       s!"    return (void*)p;\n" ++
       s!"}\n\n" ++
       s!"static void sparkle_jit_restore(void* ctx, void* snap) \{\n" ++
-      s!"    memcpy(ctx, snap, sizeof(struct {className}));\n" ++
+      s!"    memcpy(ctx, snap, sizeof(struct {structTag}));\n" ++
       s!"}\n\n" ++
       s!"static void sparkle_jit_free_snapshot(void* snap) \{ free(snap); }\n\n"
 

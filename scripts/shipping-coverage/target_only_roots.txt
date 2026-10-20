@@ -1,0 +1,6 @@
+# Target-only test roots: modules NOT imported by Tests.AllTests because they cannot share an
+# environment with it (they declare a different function under a GLOBAL placeholder name such as
+# SparkleMem.sync.4.8). Routine validation = `lake build Tests.AllTests` AND `lake build $(grep -v '^#' this file)`,
+# serially, under cgrun.sh. Two roots below (both generate collSameR's endpoints; neither imports the other).
+Tests.Compiler.MemNameCollisionGenTest
+Tests.Compiler.MemNameCollisionDesignTest

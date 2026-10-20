@@ -30,9 +30,9 @@ def emitReplayC (m : Module) (k : Nat) (cex : Array (List (String × Nat))) :
     toC m',
     "#include <stdio.h>",
     "int main(void) {",
-    s!"  struct {cls} s;",
+    s!"  struct {Sparkle.Backend.CIdent.cIdent .structTag cls} s;",
     "  memset(&s, 0, sizeof s);",
-    s!"  sparkle_{cls}_reset(&s);",
+    s!"  {Sparkle.Backend.CIdent.cIdent .reset cls}(&s);",
     "  int found = 0;" ]
   for c in [0:k+1] do
     lines := lines ++ [s!"  // cycle {c}"]
@@ -52,11 +52,11 @@ def emitReplayC (m : Module) (k : Nat) (cex : Array (List (String × Nat))) :
             lines := lines ++ [s!"  s.{field}[{wordIndex}] = {word}U;"]
       | _ =>
         throw s!"replay supports only concrete packed bit-vector inputs ('{p.name}')"
-    lines := lines ++ [s!"  sparkle_{cls}_eval(&s);"]
+    lines := lines ++ [s!"  {Sparkle.Backend.CIdent.cIdent .eval cls}(&s);"]
     for (aname, _) in m.assertions do
       lines := lines ++
         [s!"  if (s._assert_{sanitizeName aname} == 0) \{ printf(\"VIOLATION cycle={c} assert={aname}\\n\"); found = 1; }"]
-    lines := lines ++ [s!"  sparkle_{cls}_tick(&s);"]
+    lines := lines ++ [s!"  {Sparkle.Backend.CIdent.cIdent .tick cls}(&s);"]
   lines := lines ++ [
     "  if (!found) printf(\"NOT-REPRODUCED\\n\");",
     "  return found ? 0 : 1;",

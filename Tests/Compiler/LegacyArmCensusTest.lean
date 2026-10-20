@@ -1,0 +1,1133 @@
+import Sparkle
+import IP.Net.IPv4
+import IP.Net.TCP
+import IP.Net.Ethernet
+import IP.Net.HTTP
+import IP.BitNet.SignalHelpers
+import IP.Crypto.SHA256
+import IP.Video.H264.Quant
+import IP.RV32.SoC
+
+/-! # A census of the legacy route's top leaves (logs only; never throws)
+
+Purpose (G2, rounds 19–20): choose where the proof effort goes from a
+MEASUREMENT instead of a guess.
+
+**Pass 1 (round 19) — syntactic.** Over the definitions of the imported `IP`
+/ `Examples` / `Tests` modules whose result type is syntactically a `Signal`
+(after the binders), in name order, at most `cap` of them:
+
+1. the ROUTE the shipping entry gives the declaration, from the entry's own
+   pure gates on the entry's own constant
+   (`entryConst true false [] ci …`, then `certifiedShape?`,
+   `mixedCertifiedShape?`, `machineShape?`): `certified` / `mixed` /
+   `machine` / `legacy`;
+2. for the `legacy` ones, the TOP LEAF: the body after `openRecordInputs`,
+   `stripMemoizeWrappers` and `lambdaTelescope` (the entry's own steps), and
+   of it the head, `fallbackKind`, and for a map head the head of the mapped
+   function's body.
+
+**Pass 2 (round 20) — the real entry is RUN.** The population of pass 1 is
+every Signal-valued definition, not the declarations the entry RETURNS for.
+So each legacy-route candidate is handed to the shipping entry itself
+(`synthesizeCombinationalCore n [] false`: the certified front end on, no
+parameters, not symbolic — what `#synthesize…` runs before its cleanup), and
+the outcome is recorded: `RETURNED`, `THREW` (first line of the message),
+`TIMEOUT` (the per-declaration heartbeat bound), `RUNTIME` (another runtime
+exception, e.g. the recursion depth), or `NOT RUN` (the test's wall-clock
+budget was used up). For the RETURNED ones only: the head / `fallbackKind`
+tables again, and per declaration
+
+* the binders: how many are scalar Signals (`BitVec` / `Bool` payload),
+  structured Signals, domain binders, others (parameters, instances);
+* the payload of the result type;
+* for a `<lambda>` head (a beta-redex at the top of the leaf): the head after
+  `headBeta`;
+* the combined class `head | binders | result payload`.
+
+**Isolation of the runs.** Each run is between `Meta.saveState` and its
+`restore` (environment, messages, metavariables); the entry resets its own
+`IO.Ref` caches at depth 0, and `sparkleSynthDepth` is set to 0 before each
+run in case an earlier one was cut off. Runtime exceptions (heartbeats,
+recursion depth) are caught with `tryCatchRuntimeEx`: plain `try … catch`
+does not catch them.
+
+**What is still NOT measured.** Which handler accepts each node at run time;
+sub-expressions of the leaf; structure- / product-valued declarations (their
+leaves need `splitReturnLeaves`); declarations outside the imports. A
+declaration the gates route to `machine` whose machine synthesis then
+declines also ends in the legacy arm; those are not run here.
+
+**Pass 3 (round 22) — the projection class.** For each RETURNED declaration
+with a `<lambda>` head (the 45 structure projection functions), the
+OBSERVABLE premises of the generic theorem `proj_entry_output`
+(`Tools/ShippingLegacySemProj.lean`) are checked on the real constant
+(`projCheck`), in this order — the first one that fails is reported:
+
+1. the three gates decline on the entry's constant (`old`, `mixed`, `hmach`);
+2. the stripped value has as many nested lambdas as the telescope opens
+   variables (`hbody`: `lams sp b`, `b` not a lambda);
+3. each declared type and the leaf equal the `instantiateRevRange` results
+   over the variables opened before (`TypesOkFrom`'s types, the leaf
+   equation);
+4. the telescope's variables are distinct (`LamTelescopeND`'s extra
+   conjunct, observed on this run);
+5. the leaf is an application with a lambda head (`hshape`);
+6. its `fallbackKind` is `other` (`hkind`);
+7. its reducible `whnf` is the variable at some index `i` (`hwhnf`);
+8. the type oracle THROWS on a domain binder and on no other, and returns
+   `bit` on a `Bool` payload / `bitVector n` (`n ≠ 1`) on a `BitVec` payload
+   (`TypesOkFrom`'s oracle facts; a returning or throwing run is one
+   observation, not the universally quantified premise). A `bit` port on a
+   `BitVec` payload is a WIDTH-ONE field: reported as non-fitting;
+9. the binder at index `i` is not the domain binder (`hk`);
+10. the `whnf` of the leaf's inferred type is Signal-headed (`hres`).
+
+Log lines: `PROJ CLASS: fits N of M`, the fitting ones by
+`binders | index | kind`, and each non-fitting declaration with its first
+failing observation.
+
+**Pass 4 (round 23) — the `Signal.fst` class.** For each RETURNED
+declaration whose leaf has the head `Signal.fst` (39 in round 20: one
+structured Signal binder + the domain binder):
+
+* `fstObs` — the leaf's chain of `Signal.fst` / `Signal.snd` applications
+  (outermost first) and what it is applied to; `fallbackKind`; per binder the
+  type oracle's outcome and, for a Signal binder, its payload after `whnf` as
+  a nesting shape with its leaf count and the sum of the leaf widths; the
+  result's payload and the oracle on the result type; and the bit range
+  `(lo, width)` the chain denotes in the packed payload when the FIRST
+  component of a product sits in the HIGH bits (`chainRange`, computed from
+  the types only);
+* the entry is run again (`runEntryModule`) and the EMITTED raw module is
+  read (`sliceObs`): is `out`, followed through the wire assignments, a
+  slice `[hi:lo]` of one input port (slices of slices composed), with every
+  statement an assignment? The shapes that occur are tabulated
+  (`slice steps | assigns | input ports | wires`), and the composed range is
+  compared with the type-derived one.
+
+Log lines, all starting `FST CLASS`: `slice-of-input N of M`; the shapes;
+`composed range = type-derived range: N of M`; the non-fitting ones with the
+first expression that is neither a reference nor a slice; per declaration
+`port[hi:lo] of <port type>`; three detailed observations (the first with a
+Bool result, the first with a BitVec result, the deepest chain); the ports
+and the body of the smallest emitted module.
+
+**Pass 5 (round 25) — the observable premises of `tuple_entry_output`**
+(`Tools/ShippingLegacySemTupleEntry.lean`) on each declaration of pass 4
+(`tupleCheck`), in this order — the first that fails is reported:
+
+1. the three gates decline;
+2. nested lambdas = telescope variables; declared types and leaf in
+   `instantiateRevRange` form; distinct variables (as pass 3);
+3. the binders: the type oracle throws exactly on the domain binders, and
+   there is ONE hardware binder, bound as `bitVector N` (`TypesOkFrom` with
+   kinds `.domain` / `.bits N`);
+4. the leaf is a chain of applications of the constants `Signal.fst` /
+   `Signal.snd` down to that binder's variable; per node (`TupleNode`):
+   the head, the last argument is the application's argument, `fallbackKind
+   = other`, `translateCoreShape = false` (`NotCore.shape`), the variable
+   occurs in the node (the observable half of `HasMappedFVar`: the walk maps
+   it), the type oracle on the node's inferred type is `hwTypeFromWidth w`
+   and on the argument's a width `M` (`bitVector M` under a `Signal.fst`) —
+   `ExprHW` observed through `inferType`, not through the type cache —
+   and `0 < w ≤ M`; the innermost argument width is `N`;
+5. the result type is Signal-headed;
+6. THE TWO RUN PREMISES, AS OBSERVED IN ONE RUN: the entry is run and the
+   emitted slice steps, read back from `out` to the input port, are compared
+   NODE BY NODE with the bounds the types give — `[M-1 : M-w]` for a
+   `Signal.fst` node, `[w-1 : 0]` for a `Signal.snd` node. This is what
+   `WireWidthReads` (the width read is the argument's) and `ArgRunsBody`
+   (every node is translated, no cache hit) imply for this run.
+
+Also logged: the observable part of `PlainHead` for the two heads (not
+tagged `@[hardware_module]`, not a structure projection, in this
+environment). Log lines start with `TUPLE CLASS`.
+
+One run in this environment: an observation. The whole block is inside
+`try … catch`, each declaration in its own; the outer heartbeat limit is
+lifted. -/
+
+open Lean Meta Sparkle.Compiler.Elab
+
+namespace Sparkle.Tests.Compiler.LegacyArmCensusTest
+
+/-- At most this many candidate declarations are examined (pass 1). -/
+def cap : Nat := 400
+
+/-- Heartbeat bound of ONE run of the entry in pass 2 (in the units of the
+`maxHeartbeats` option). -/
+def runHeartbeats : Nat := 200000
+
+/-- Wall-clock budget of pass 2, in milliseconds; declarations not reached
+are reported as `NOT RUN`. -/
+def runBudgetMs : Nat := 240000
+
+/-- The head of an expression, as a label. -/
+def headOf (e : Lean.Expr) : String :=
+  match e.getAppFn with
+  | .const n _ => n.toString
+  | .fvar _ => "<fvar>"
+  | .lam .. => "<lambda>"
+  | .letE .. => "<let>"
+  | .proj s _ _ => s!"<proj {s}>"
+  | .mdata .. => "<mdata>"
+  | _ => "<other>"
+
+/-- The arm `translateFallback` dispatches to, as a label. -/
+def kindOf (e : Lean.Expr) : String :=
+  match fallbackKind e with
+  | .boolControl => "boolControl"
+  | .vectorMux .. => "vectorMux"
+  | .setWidth .. => "setWidth"
+  | .register .. => "register"
+  | .registerEnable .. => "registerEnable"
+  | .loopRegister .. => "loopRegister"
+  | .circuitDo .. => "circuitDo"
+  | .circuitDo2 .. => "circuitDo2"
+  | .memory .. => "memory"
+  | .slice .. => "slice"
+  | .concat .. => "concat"
+  | .concatLit .. => "concatLit"
+  | .zextMap .. => "zextMap"
+  | .sliceF .. => "sliceF"
+  | .other => "other"
+
+/-- For a map head: the head of the mapped function's body. -/
+def mapBodyOf (e : Lean.Expr) : Option String :=
+  let args := e.getAppArgs
+  if args.size < 2 then none
+  else
+    match args[args.size - 2]! with
+    | .lam _ _ b _ => some (headOf b)
+    | f => some ("non-lambda " ++ headOf f)
+
+/-- One more occurrence of `k`; the first declaration seen is kept as the
+example. -/
+def bump (m : Std.HashMap String (Nat × String)) (k ex : String) :
+    Std.HashMap String (Nat × String) :=
+  match m.get? k with
+  | some (c, e) => m.insert k (c + 1, e)
+  | none => m.insert k (1, ex)
+
+/-- A count table, largest first. -/
+def render (m : Std.HashMap String (Nat × String)) : String :=
+  let l := m.toList.toArray.qsort (fun a b => decide (a.2.1 > b.2.1))
+  String.intercalate "; " (l.toList.map fun p => s!"{p.1}: {p.2.1} (e.g. {p.2.2})")
+
+/-- The payload of a Signal type `Signal dom α`, as a label. -/
+def payloadOf (ty : Lean.Expr) : String :=
+  match ty.getAppArgs.back? with
+  | some p =>
+    if p.getAppFn.isConstOf ``BitVec then "BitVec"
+    else if p.isConstOf ``Bool then "Bool"
+    else headOf p
+  | none => "?"
+
+/-- The binders of a telescope, by kind. -/
+def binderKey (xs : Array Lean.Expr) : MetaM String := do
+  let mut sc : Nat := 0
+  let mut st : Nat := 0
+  let mut dm : Nat := 0
+  let mut ot : Nat := 0
+  for x in xs do
+    let ty ← inferType x
+    if ty.getAppFn.isConstOf ``Sparkle.Core.Signal.Signal then
+      let p := payloadOf ty
+      if p == "BitVec" || p == "Bool" then sc := sc + 1 else st := st + 1
+    else if ty.isConstOf ``Sparkle.Core.Domain.DomainConfig then dm := dm + 1
+    else ot := ot + 1
+  return s!"{xs.size} binders = {sc} scalar Signal + {st} structured Signal + {dm} domain + {ot} other"
+
+/-- What pass 1 records of a legacy-route declaration. -/
+structure Info where
+  name : Name
+  head : String
+  kind : String
+  binders : String
+  payload : String
+  betaHead : String
+
+/-- The first line of a message, at most sixty characters. -/
+def prefixOf (msg : String) : String :=
+  let line := (msg.splitOn "\n").headD ""
+  String.join ((line.toList.take 60).map fun c => c.toString)
+
+/-- ONE run of the shipping entry on `n`, isolated and bounded. -/
+def runEntry (n : Name) : MetaM String := do
+  let saved ← Meta.saveState
+  sparkleSynthDepth.set 0
+  -- the translator's call counter is never reset by the entry; its limit is
+  -- per process, so it is reset here between declarations
+  sparkleCallCounter.set 0
+  let r ← tryCatchRuntimeEx
+    (do
+      let _ ← withTheReader Core.Context
+        (fun c => { c with maxHeartbeats := runHeartbeats * 1000 }) <|
+        withCurrHeartbeats <| synthesizeCombinationalCore n [] false
+      pure "RETURNED")
+    (fun ex => do
+      if ex.isMaxHeartbeat then pure "TIMEOUT"
+      else if ex.isRuntime then pure "RUNTIME"
+      else
+        let msg ← ex.toMessageData.toString
+        pure ("THREW: " ++ prefixOf msg))
+  saved.restore
+  sparkleSynthDepth.set 0
+  pure r
+
+/-- The binder types and the body of nested lambdas (loose bound variables,
+as in the constant's value). -/
+def lamParts : Lean.Expr → List Lean.Expr × Lean.Expr
+  | .lam _ T b _ =>
+    let r := lamParts b
+    (T :: r.1, r.2)
+  | e => ([], e)
+
+/-- The hardware-type oracle on a type; `none` when it throws. -/
+def hwOf? (T : Lean.Expr) : MetaM (Option Sparkle.IR.Type.HWType) := do
+  let cache ← IO.mkRef ({} : ExprStructMap String)
+  try
+    let (h, _) ←
+      ((inferHWTypeFromSignal T).run (entryCompilerState false cache)).run
+        (Sparkle.IR.Builder.CircuitM.init "evidence")
+    pure (some h)
+  catch _ => pure none
+
+/-- The kind of a binder as `proj_entry_output` needs it, from the oracle's
+outcome on its declared type; or the failing observation. -/
+def binderKindOf (nm : Name) (isDom : Bool) (payload : String)
+    (hw : Option Sparkle.IR.Type.HWType) : Except String String :=
+  match hw with
+  | none =>
+    if isDom then .ok "domain"
+    else .error s!"the type oracle throws on the non-domain binder {nm}"
+  | some h =>
+    if isDom then .error s!"the type oracle returns on the domain binder {nm}"
+    else
+      match h with
+      | .bit =>
+        if payload == "Bool" then .ok "bool"
+        else if payload == "BitVec" then
+          .error s!"width-one BitVec field {nm} (the oracle gives bit)"
+        else .error s!"bit port for the binder {nm} of payload {payload}"
+      | .bitVector w =>
+        if w == 1 then .error s!"bitVector 1 for the binder {nm}"
+        else if payload == "BitVec" then .ok s!"bits {w}"
+        else .error s!"bitVector {w} port for the binder {nm} of payload {payload}"
+      | _ => .error s!"another hardware type for the binder {nm}"
+
+/-- The observable premises of `proj_entry_output` on the declaration `n`:
+`(true, binders | index | kind)` when all hold, `(false, the first failing
+observation)` otherwise. -/
+def projCheckCore (n : Name) : MetaM (Bool × String) := do
+  let env ← getEnv
+  let ci ← getConstInfo n
+  let ec := entryConst true false [] ci (instancePredicate env) (userInliner env)
+    (structEnv env)
+  let gatesDecline : Bool :=
+    (certifiedShape? false [] ec).isNone &&
+      (mixedCertifiedShape? false [] ec (instancePredicate env)).isNone &&
+      (machineShape? false [] ec (structEnv env)).isNone
+  if !gatesDecline then
+    return (false, "a gate accepts the entry's constant")
+  let body0 ← openRecordInputs ec.value!
+  let body := stripMemoizeWrappers body0
+  let parts := lamParts body
+  let tys : List Lean.Expr := parts.1
+  let rawLeaf : Lean.Expr := parts.2
+  lambdaTelescope body fun xs inner => do
+    if xs.size != tys.length then
+      return (false, s!"{tys.length} nested lambdas but {xs.size} telescope variables")
+    -- the declared types and the leaf, as the premise `hbody` states them
+    let mut pre : Array Lean.Expr := #[]
+    let mut rawOk : Bool := true
+    for T in tys do
+      let x := xs[pre.size]!
+      let d ← x.fvarId!.getDecl
+      if !(T.instantiateRevRange 0 pre.size pre == d.type) then
+        rawOk := false
+      pre := pre.push x
+    if !(rawLeaf.instantiateRevRange 0 xs.size xs == inner) then
+      rawOk := false
+    if !rawOk then
+      return (false, "a declared type or the leaf differs from its instantiateRevRange form")
+    if xs.toList.eraseDups.length != xs.size then
+      return (false, "the telescope's variables are not distinct")
+    if !(inner.isApp && inner.getAppFn.isLambda) then
+      return (false, s!"the leaf is not a lambda-headed application (head {headOf inner})")
+    if kindOf inner != "other" then
+      return (false, s!"the leaf's fallbackKind is {kindOf inner}")
+    let wh ← withTransparency TransparencyMode.reducible (whnf inner)
+    let mut idx : Option Nat := none
+    let mut j : Nat := 0
+    for x in xs do
+      if x == wh then
+        idx := some j
+      j := j + 1
+    let some i := idx
+      | return (false, s!"the leaf's reducible whnf is not one of the variables (its head: {headOf wh})")
+    -- the type oracle on every declared type
+    let mut fieldKind : String := "?"
+    let mut pos : Nat := 0
+    let mut bad : Option String := none
+    for x in xs do
+      let ty ← inferType x
+      let d ← x.fvarId!.getDecl
+      let hw ← hwOf? ty
+      match binderKindOf d.userName (ty.isConstOf ``Sparkle.Core.Domain.DomainConfig)
+          (payloadOf ty) hw with
+      | .ok kd =>
+        if pos == i then
+          fieldKind := kd
+      | .error msg =>
+        if bad.isNone then
+          bad := some msg
+      pos := pos + 1
+    if let some msg := bad then
+      return (false, msg)
+    if fieldKind == "domain" then
+      return (false, "the leaf reduces to the domain variable")
+    let ty ← inferType inner
+    let tyN ← whnf ty
+    if !(tyN.getAppFn.isConstOf ``Sparkle.Core.Signal.Signal) then
+      return (false, "the whnf of the leaf's inferred type is not Signal-headed")
+    return (true, s!"{xs.size} binders | index {i} | {fieldKind}")
+
+/-- `projCheckCore`, isolated; an exception is a failing observation. -/
+def projCheck (n : Name) : MetaM (Bool × String) := do
+  let saved ← Meta.saveState
+  let r ← tryCatchRuntimeEx (projCheckCore n)
+    (fun ex => do
+      let msg ← ex.toMessageData.toString
+      pure (false, "harness error: " ++ prefixOf msg))
+  saved.restore
+  pure r
+
+/-! ### Pass 4 helpers: the `Signal.fst` class -/
+
+/-- A hardware type, as a label. -/
+def hwLabel : Sparkle.IR.Type.HWType → String
+  | .bit => "bit"
+  | .bitVector n => s!"bitVector {n}"
+  | _ => "another hardware type"
+
+/-- The first `n` characters of a string. -/
+def prefixN (n : Nat) (s : String) : String :=
+  String.join ((s.toList.take n).map fun c => c.toString)
+
+/-- The chain of `Signal.fst` / `Signal.snd` applications at the top of an
+expression, OUTERMOST first, and the head of what it is applied to. -/
+partial def chainOf (e : Lean.Expr) : List String × String :=
+  match e.getAppFn with
+  | .const n _ =>
+    if n == ``Sparkle.Core.Signal.Signal.fst && e.getAppNumArgs ≥ 1 then
+      let r := chainOf e.appArg!
+      ("fst" :: r.1, r.2)
+    else if n == ``Sparkle.Core.Signal.Signal.snd && e.getAppNumArgs ≥ 1 then
+      let r := chainOf e.appArg!
+      ("snd" :: r.1, r.2)
+    else ([], headOf e)
+  | _ => ([], headOf e)
+
+/-- A payload type after `whnf`: its nesting shape with the leaf payloads,
+its number of leaves, and the sum of the leaf widths (`none`: a leaf of
+unknown width). -/
+partial def payloadShape (ty : Lean.Expr) : MetaM (String × Nat × Option Nat) := do
+  let t ← whnf ty
+  if t.isAppOfArity ``Prod 2 then
+    let a ← payloadShape t.appFn!.appArg!
+    let b ← payloadShape t.appArg!
+    let w : Option Nat :=
+      match a.2.2, b.2.2 with
+      | some x, some y => some (x + y)
+      | _, _ => none
+    return (s!"({a.1} × {b.1})", a.2.1 + b.2.1, w)
+  else if t.isAppOfArity ``BitVec 1 then
+    let w ← (evalNat t.appArg!).run
+    return (s!"BitVec {w.getD 0}", 1, w)
+  else if t.isConstOf ``Bool then
+    return ("Bool", 1, some 1)
+  else if t.isConstOf ``Unit || t.isConstOf ``PUnit then
+    return ("Unit", 0, some 0)
+  else
+    return (headOf t, 1, none)
+
+/-- The bit range `(lo, width)` that a chain of projections (INNERMOST step
+first) denotes in the packed payload `ty`, the first component of a product
+in the high bits. Computed from the types only. -/
+partial def chainRange (ty : Lean.Expr) (steps : List String) :
+    MetaM (Option (Nat × Nat)) := do
+  let t ← whnf ty
+  match steps with
+  | [] =>
+    let sh ← payloadShape t
+    return sh.2.2.map fun w => (0, w)
+  | st :: rest =>
+    if t.isAppOfArity ``Prod 2 then
+      let a := t.appFn!.appArg!
+      let b := t.appArg!
+      if st == "fst" then
+        let shb ← payloadShape b
+        let r ← chainRange a rest
+        match shb.2.2, r with
+        | some wb, some (lo, w) => return some (lo + wb, w)
+        | _, _ => return none
+      else
+        chainRange b rest
+    else
+      return none
+
+/-- What pass 4 records of a declaration, from the source side. -/
+structure FstObs where
+  depth : Nat
+  payload : String
+  text : String
+  range : Option (Nat × Nat)
+
+/-- The source-side observation of a `Signal.fst`-headed declaration. -/
+def fstObsCore (n : Name) : MetaM FstObs := do
+  let env ← getEnv
+  let ci ← getConstInfo n
+  let ec := entryConst true false [] ci (instancePredicate env) (userInliner env)
+    (structEnv env)
+  let body0 ← openRecordInputs ec.value!
+  let body := stripMemoizeWrappers body0
+  lambdaTelescope body fun xs inner => do
+    let ch := chainOf inner
+    let mut binderText : String := ""
+    let mut structTy : Option Lean.Expr := none
+    for x in xs do
+      let ty ← inferType x
+      let d ← x.fvarId!.getDecl
+      let hw ← hwOf? ty
+      let hwText : String :=
+        match hw with
+        | some h => hwLabel h
+        | none => "THREW"
+      if ty.getAppFn.isConstOf ``Sparkle.Core.Signal.Signal then
+        let p := ty.appArg!
+        let sh ← payloadShape p
+        let shText := prefixN 400 sh.1
+        binderText := binderText ++
+          s!" [{d.userName}: a Signal; payload after whnf: {sh.2.1} leaves, sum of the leaf widths {sh.2.2}; the oracle on the binder type: {hwText}; shape (first 400 characters): {shText}]"
+        structTy := some p
+      else
+        binderText := binderText ++ s!" [{d.userName}: {headOf ty}; the oracle: {hwText}]"
+    let range : Option (Nat × Nat) ←
+      match structTy with
+      | some p => chainRange p ch.1.reverse
+      | none => pure none
+    let ty ← inferType inner
+    let resHw ← hwOf? ty
+    let resText : String :=
+      match resHw with
+      | some h => hwLabel h
+      | none => "THREW"
+    let chainText := prefixN 240 (String.intercalate "." ch.1)
+    let depth := ch.1.length
+    let pl := payloadOf ty
+    let txt : String :=
+      s!"{n}: chain (outermost first, first 240 characters) {chainText}, depth {depth}, applied to {ch.2}; fallbackKind {kindOf inner}; result payload {pl}, the oracle on the result type: {resText}; type-derived (lo, width) with the first component high: {range}; binders:{binderText}"
+    return { depth := depth, payload := pl, text := txt, range := range }
+
+/-- `fstObsCore`, isolated; `none` on an exception. -/
+def fstObs (n : Name) : MetaM (Option FstObs) := do
+  let saved ← Meta.saveState
+  let r ← tryCatchRuntimeEx
+    (do
+      let o ← fstObsCore n
+      pure (some o))
+    (fun _ => pure none)
+  saved.restore
+  pure r
+
+/-- ONE run of the shipping entry on `n`, isolated and bounded; the raw
+module it returns. -/
+def runEntryModule (n : Name) : MetaM (Option Sparkle.IR.AST.Module) := do
+  let saved ← Meta.saveState
+  sparkleSynthDepth.set 0
+  sparkleCallCounter.set 0
+  let r ← tryCatchRuntimeEx
+    (do
+      let md ← withTheReader Core.Context
+        (fun c => { c with maxHeartbeats := runHeartbeats * 1000 }) <|
+        withCurrHeartbeats <| synthesizeCombinationalCore n [] false
+      pure (some md.1))
+    (fun _ => pure none)
+  saved.restore
+  sparkleSynthDepth.set 0
+  pure r
+
+/-- An IR expression, compactly. -/
+partial def exprText : Sparkle.IR.AST.Expr → String
+  | .ref n => n
+  | .slice e hi lo => s!"{exprText e}[{hi}:{lo}]"
+  | .const v w => s!"const {v} width {w}"
+  | .concat _ => "<concat>"
+  | .op _ _ => "<op>"
+  | _ => "<other>"
+
+/-- The assignment of a statement. -/
+def assignOf? : Sparkle.IR.AST.Stmt → Option (String × Sparkle.IR.AST.Expr)
+  | .assign l r => some (l, r)
+  | _ => none
+
+/-- `e` as a slice of an input port, following the wire assignments: the
+port, the bit range `(hi, lo)` (`none`: the whole port) and the number of
+slice steps; or the first expression that is neither a reference nor a
+slice. A slice `[hi:lo]` of a slice `[h0:l0]` is `[l0+hi : l0+lo]`. -/
+def sliceOfInput (inputs : List String) (assigns : List (String × Sparkle.IR.AST.Expr)) :
+    Nat → Sparkle.IR.AST.Expr → Except String (String × Option (Nat × Nat) × Nat)
+  | 0, _ => .error "the assignment chain is longer than the body"
+  | fuel + 1, e =>
+    match e with
+    | .ref n =>
+      if inputs.contains n then .ok (n, none, 0)
+      else
+        match assigns.find? (fun p => p.1 == n) with
+        | some p => sliceOfInput inputs assigns fuel p.2
+        | none => .error s!"a reference to {n}, neither an input nor an assigned wire"
+    | .slice e' hi lo =>
+      match sliceOfInput inputs assigns fuel e' with
+      | .ok (inp, none, k) => .ok (inp, some (hi, lo), k + 1)
+      | .ok (inp, some (_, l0), k) => .ok (inp, some (l0 + hi, l0 + lo), k + 1)
+      | .error msg => .error msg
+    | .const _ _ => .error "a constant"
+    | .concat _ => .error "a concat"
+    | .op _ _ => .error "an operator"
+    | _ => .error "another expression"
+
+/-- What pass 4 records of an emitted module. -/
+structure SliceObs where
+  ok : Bool
+  key : String
+  detail : String
+  range : Option (Nat × Nat)
+
+/-- Is `out` a slice of one input port, every statement an assignment? -/
+def sliceObs (m : Sparkle.IR.AST.Module) : SliceObs :=
+  let assigns : List (String × Sparkle.IR.AST.Expr) := m.body.filterMap assignOf?
+  let inputs : List String := m.inputs.map fun p => p.name
+  if assigns.length != m.body.length then
+    { ok := false, key := "", range := none,
+      detail := s!"{m.body.length - assigns.length} statements are not assignments" }
+  else
+    match sliceOfInput inputs assigns (2 * assigns.length + 4)
+        (Sparkle.IR.AST.Expr.ref "out") with
+    | .ok (inp, some (hi, lo), k) =>
+      let iw : String :=
+        match m.inputs.find? (fun p => p.name == inp) with
+        | some p => hwLabel p.ty
+        | none => "?"
+      { ok := true, range := some (lo, hi - lo + 1),
+        key := s!"{k} slice steps | {assigns.length} assigns | {m.inputs.length} input ports | {m.wires.length} wires",
+        detail := s!"{inp}[{hi}:{lo}] of {iw}" }
+    | .ok (inp, none, _) =>
+      { ok := false, key := "", range := none, detail := s!"out is the whole input {inp}" }
+    | .error msg => { ok := false, key := "", range := none, detail := msg }
+
+/-- The ports and the body of a module, compactly. -/
+def moduleText (m : Sparkle.IR.AST.Module) : String :=
+  let port (p : Sparkle.IR.AST.Port) : String := s!"{p.name}:{hwLabel p.ty}"
+  let stmt (st : Sparkle.IR.AST.Stmt) : String :=
+    match assignOf? st with
+    | some (l, r) => s!"{l} = {exprText r}"
+    | none => "<not an assignment>"
+  let ins := String.intercalate ", " (m.inputs.map port)
+  let outs := String.intercalate ", " (m.outputs.map port)
+  let ws := String.intercalate ", " (m.wires.map port)
+  let body := String.intercalate "; " (m.body.map stmt)
+  s!"module {m.name}: inputs [{ins}]; outputs [{outs}]; wires [{ws}]; body [{body}]"
+
+/-! ### Pass 5 helpers: the observable premises of `tuple_entry_output` -/
+
+/-- One node of a tuple chain, observed: its head, the argument's packed
+width and its own. -/
+structure NodeObs where
+  isFst : Bool
+  M : Nat
+  w : Nat
+  deriving Inhabited
+
+/-- The width of a scalar hardware type. -/
+def hwWidth? : Sparkle.IR.Type.HWType → Option Nat
+  | .bit => some 1
+  | .bitVector n => some n
+  | _ => none
+
+/-- The nodes of a `Signal.fst` / `Signal.snd` chain over the variable `x`,
+OUTERMOST first, each with the observable facts of `TupleNode` checked; or
+the first failing observation. -/
+partial def chainNodes (x : Lean.Expr) (e : Lean.Expr) (acc : Array NodeObs) :
+    MetaM (Except String (Array NodeObs)) := do
+  if e == x then
+    return .ok acc
+  let k := acc.size
+  let isFst := e.getAppFn.isConstOf ``Sparkle.Core.Signal.Signal.fst
+  let isSnd := e.getAppFn.isConstOf ``Sparkle.Core.Signal.Signal.snd
+  if !(isFst || isSnd) then
+    return .error s!"node {k} has the head {headOf e}"
+  let args := e.getAppArgs
+  if args.size == 0 then
+    return .error s!"node {k} has no argument"
+  let a := args[args.size - 1]!
+  if !(e.isApp && e.appArg! == a) then
+    return .error s!"node {k}: the last argument is not the application's argument"
+  if kindOf e != "other" then
+    return .error s!"node {k}: fallbackKind {kindOf e}"
+  if translateCoreShape e then
+    return .error s!"node {k}: the core's shape test accepts it"
+  if (e.find? fun sub => sub == x).isNone then
+    return .error s!"node {k}: the variable does not occur in it"
+  let tyE ← inferType e
+  let tyA ← inferType a
+  let some hwE ← hwOf? tyE
+    | return .error s!"node {k}: the type oracle throws on the node's type"
+  let some hwA ← hwOf? tyA
+    | return .error s!"node {k}: the type oracle throws on the argument's type"
+  let some w := hwWidth? hwE
+    | return .error s!"node {k}: the node's hardware type is not scalar"
+  let some M := hwWidth? hwA
+    | return .error s!"node {k}: the argument's hardware type is not scalar"
+  if !(hwE == Sparkle.IR.Type.hwTypeFromWidth w) then
+    return .error s!"node {k}: the node's hardware type is not hwTypeFromWidth {w}"
+  if isFst && !(hwA == Sparkle.IR.Type.HWType.bitVector M) then
+    return .error s!"node {k}: a Signal.fst over an argument of hardware type bit"
+  if w == 0 then
+    return .error s!"node {k}: width zero"
+  if M < w then
+    return .error s!"node {k}: width {w} over an argument of width {M}"
+  chainNodes x a (acc.push { isFst := isFst, M := M, w := w })
+
+/-- The slices met from `e` back to an input port, OUTERMOST first, as
+`(hi, lo)`; references are followed through the wire assignments. -/
+def sliceSteps (inputs : List String) (assigns : List (String × Sparkle.IR.AST.Expr)) :
+    Nat → Sparkle.IR.AST.Expr → Except String (List (Nat × Nat))
+  | 0, _ => .error "the assignment chain is longer than the body"
+  | fuel + 1, e =>
+    match e with
+    | .ref n =>
+      if inputs.contains n then .ok []
+      else
+        match assigns.find? (fun p => p.1 == n) with
+        | some p => sliceSteps inputs assigns fuel p.2
+        | none => .error s!"a reference to {n}, neither an input nor an assigned wire"
+    | .slice e' hi lo =>
+      match sliceSteps inputs assigns fuel e' with
+      | .ok l => .ok ((hi, lo) :: l)
+      | .error msg => .error msg
+    | _ => .error "an expression that is neither a reference nor a slice"
+
+/-- The first position at which two lists of slice bounds differ. -/
+def firstDiff : Nat → List (Nat × Nat) → List (Nat × Nat) → Option String
+  | _, [], [] => none
+  | k, a :: as, b :: bs =>
+    if a == b then firstDiff (k + 1) as bs
+    else some s!"step {k}: emitted [{a.1}:{a.2}], from the types [{b.1}:{b.2}]"
+  | k, [], _ :: _ => some s!"fewer emitted steps ({k}) than nodes"
+  | k, _ :: _, [] => some s!"more emitted steps than nodes ({k})"
+
+/-- The observable premises of `tuple_entry_output` on `n` (source side):
+`(true, top | nodes, the slice bounds the types give, outermost first)`, or
+`(false, the first failing observation, [])`. -/
+def tupleCheckCore (n : Name) : MetaM (Bool × String × List (Nat × Nat)) := do
+  let env ← getEnv
+  let ci ← getConstInfo n
+  let ec := entryConst true false [] ci (instancePredicate env) (userInliner env)
+    (structEnv env)
+  let gatesDecline : Bool :=
+    (certifiedShape? false [] ec).isNone &&
+      (mixedCertifiedShape? false [] ec (instancePredicate env)).isNone &&
+      (machineShape? false [] ec (structEnv env)).isNone
+  if !gatesDecline then
+    return (false, "a gate accepts the entry's constant", [])
+  let body0 ← openRecordInputs ec.value!
+  let body := stripMemoizeWrappers body0
+  let parts := lamParts body
+  let tys : List Lean.Expr := parts.1
+  let rawLeaf : Lean.Expr := parts.2
+  lambdaTelescope body fun xs inner => do
+    if xs.size != tys.length then
+      return (false, s!"{tys.length} nested lambdas but {xs.size} telescope variables", [])
+    let mut pre : Array Lean.Expr := #[]
+    let mut rawOk : Bool := true
+    for T in tys do
+      let x := xs[pre.size]!
+      let d ← x.fvarId!.getDecl
+      if !(T.instantiateRevRange 0 pre.size pre == d.type) then
+        rawOk := false
+      pre := pre.push x
+    if !(rawLeaf.instantiateRevRange 0 xs.size xs == inner) then
+      rawOk := false
+    if !rawOk then
+      return (false, "a declared type or the leaf differs from its instantiateRevRange form", [])
+    if xs.toList.eraseDups.length != xs.size then
+      return (false, "the telescope's variables are not distinct", [])
+    -- the binders
+    let mut sig : Option (Lean.Expr × Nat) := none
+    let mut bad : Option String := none
+    for x in xs do
+      let ty ← inferType x
+      let d ← x.fvarId!.getDecl
+      let hw ← hwOf? ty
+      let isDom := ty.isConstOf ``Sparkle.Core.Domain.DomainConfig
+      match hw with
+      | none =>
+        if !isDom && bad.isNone then
+          bad := some s!"the type oracle throws on the non-domain binder {d.userName}"
+      | some (.bitVector N) =>
+        if isDom then
+          if bad.isNone then
+            bad := some s!"the type oracle returns on the domain binder {d.userName}"
+        else if sig.isSome then
+          if bad.isNone then
+            bad := some "more than one hardware binder"
+        else
+          sig := some (x, N)
+      | some _ =>
+        if bad.isNone then
+          bad := some s!"the binder {d.userName} is not bound as a bitVector port"
+    if let some msg := bad then
+      return (false, msg, [])
+    let some (x, N) := sig
+      | return (false, "no hardware binder", [])
+    if N == 1 then
+      return (false, "the hardware binder has width one", [])
+    -- the chain
+    match ← chainNodes x inner #[] with
+    | .error msg => return (false, msg, [])
+    | .ok nodes =>
+      if nodes.size == 0 then
+        return (false, "the leaf is the variable itself", [])
+      if nodes[nodes.size - 1]!.M != N then
+        return (false, s!"the innermost argument width {nodes[nodes.size - 1]!.M} is not the binder's {N}", [])
+      let ty ← inferType inner
+      let tyN ← whnf ty
+      if !(tyN.getAppFn.isConstOf ``Sparkle.Core.Signal.Signal) then
+        return (false, "the whnf of the leaf's inferred type is not Signal-headed", [])
+      let expected : List (Nat × Nat) := nodes.toList.map fun nd =>
+        if nd.isFst then (nd.M - 1, nd.M - nd.w) else (nd.w - 1, 0)
+      let top : String := if nodes[0]!.isFst then "fst" else "snd"
+      let below : Nat := (nodes.toList.drop 1).filter (fun nd => nd.isFst) |>.length
+      return (true, s!"top {top} | {nodes.size} nodes | {below} fst below the top | binder width {N}",
+        expected)
+
+/-- `tupleCheckCore`, isolated; an exception is a failing observation. -/
+def tupleCheck (n : Name) : MetaM (Bool × String × List (Nat × Nat)) := do
+  let saved ← Meta.saveState
+  let r ← tryCatchRuntimeEx (tupleCheckCore n)
+    (fun ex => do
+      let msg ← ex.toMessageData.toString
+      pure (false, "harness error: " ++ prefixOf msg, []))
+  saved.restore
+  pure r
+
+/-- The slice steps of an emitted module, from `out` to the input port. -/
+def emittedSteps (m : Sparkle.IR.AST.Module) : Except String (List (Nat × Nat)) :=
+  let assigns : List (String × Sparkle.IR.AST.Expr) := m.body.filterMap assignOf?
+  let inputs : List String := m.inputs.map fun p => p.name
+  if assigns.length != m.body.length then
+    .error "a statement that is not an assignment"
+  else
+    sliceSteps inputs assigns (2 * assigns.length + 4) (Sparkle.IR.AST.Expr.ref "out")
+
+set_option maxHeartbeats 0 in
+run_cmd Lean.Elab.Command.liftTermElabM do
+  try
+    let env ← getEnv
+    let roots : List Name := [`IP, `Examples, `Tests]
+    -- candidates: imported definitions of those modules with a Signal result
+    let all : Array Name := env.constants.fold (fun acc n ci =>
+      match ci with
+      | .defnInfo _ =>
+        let root : Option Name :=
+          (env.getModuleIdxFor? n).bind fun idx =>
+            (env.header.moduleNames[idx.toNat]?).map (·.getRoot)
+        let inRoots : Bool := match root with
+          | some r => roots.contains r
+          | none => false
+        if inRoots && !n.isInternal &&
+            ci.type.getForallBody.getAppFn.isConstOf ``Sparkle.Core.Signal.Signal then
+          acc.push n
+        else acc
+      | _ => acc) #[]
+    let sorted := all.qsort (fun a b => decide (a.toString < b.toString))
+    let cands := sorted.extract 0 cap
+    let mut routes : Std.HashMap String (Nat × String) := {}
+    let mut heads : Std.HashMap String (Nat × String) := {}
+    let mut kinds : Std.HashMap String (Nat × String) := {}
+    let mut otherHeads : Std.HashMap String (Nat × String) := {}
+    let mut maps : Std.HashMap String (Nat × String) := {}
+    let mut errors : Nat := 0
+    let mut legacy : Array Info := #[]
+    -- pass 1
+    for n in cands do
+      try
+        let ci ← getConstInfo n
+        let ec := entryConst true false [] ci (instancePredicate env) (userInliner env)
+          (structEnv env)
+        let route : String :=
+          if (certifiedShape? false [] ec).isSome then "certified"
+          else if (mixedCertifiedShape? false [] ec (instancePredicate env)).isSome then "mixed"
+          else if (machineShape? false [] ec (structEnv env)).isSome then "machine"
+          else "legacy"
+        routes := bump routes route n.toString
+        if route == "legacy" then
+          let body0 ← openRecordInputs ec.value!
+          let body := stripMemoizeWrappers body0
+          let (hd, kd, mb, bk, bh) ← lambdaTelescope body fun xs inner => do
+            let bk ← binderKey xs
+            pure (headOf inner, kindOf inner, mapBodyOf inner, bk, headOf inner.headBeta)
+          heads := bump heads hd n.toString
+          kinds := bump kinds kd n.toString
+          if kd == "other" then
+            otherHeads := bump otherHeads hd n.toString
+          if hd == (``Sparkle.Core.Signal.Signal.map : Name).toString ||
+              hd == (``Functor.map : Name).toString then
+            match mb with
+            | some b => maps := bump maps b n.toString
+            | none => pure ()
+          legacy := legacy.push
+            { name := n, head := hd, kind := kd, binders := bk,
+              payload := payloadOf ci.type.getForallBody, betaHead := bh }
+      catch _ =>
+        errors := errors + 1
+    logInfo m!"LEGACY ARM CENSUS: {all.size} Signal-valued definitions in the imported IP / Examples / Tests modules, {cands.size} examined (cap {cap}), {errors} errors. ROUTES: {render routes}"
+    logInfo m!"LEGACY ARM CENSUS, top leaf of the legacy-route declarations, by fallbackKind: {render kinds}"
+    logInfo m!"LEGACY ARM CENSUS, top leaf of the legacy-route declarations, by head: {render heads}"
+    logInfo m!"LEGACY ARM CENSUS, legacy-route leaves of fallbackKind other, by head: {render otherHeads}"
+    logInfo m!"LEGACY ARM CENSUS, map leaves, by the head of the mapped function's body: {render maps}"
+    -- pass 2: the real entry on every legacy-route candidate
+    let t0 ← IO.monoMsNow
+    let mut outcomes : Std.HashMap String (Nat × String) := {}
+    let mut thrown : Std.HashMap String (Nat × String) := {}
+    let mut rHeads : Std.HashMap String (Nat × String) := {}
+    let mut rKinds : Std.HashMap String (Nat × String) := {}
+    let mut rBinders : Std.HashMap String (Nat × String) := {}
+    let mut rPayloads : Std.HashMap String (Nat × String) := {}
+    let mut rBeta : Std.HashMap String (Nat × String) := {}
+    let mut rClasses : Std.HashMap String (Nat × String) := {}
+    let mut tHeads : Std.HashMap String (Nat × String) := {}
+    let mut projNames : Array Name := #[]
+    let mut fstNames : Array Name := #[]
+    let fstHead : String := (``Sparkle.Core.Signal.Signal.fst : Name).toString
+    for i in legacy do
+      let now ← IO.monoMsNow
+      if now - t0 > runBudgetMs then
+        outcomes := bump outcomes "NOT RUN (time budget)" i.name.toString
+      else
+        let r ← try runEntry i.name catch _ => pure "HARNESS ERROR"
+        if r == "RETURNED" then
+          outcomes := bump outcomes "RETURNED" i.name.toString
+          rHeads := bump rHeads i.head i.name.toString
+          rKinds := bump rKinds i.kind i.name.toString
+          rBinders := bump rBinders i.binders i.name.toString
+          rPayloads := bump rPayloads i.payload i.name.toString
+          if i.head == "<lambda>" then
+            rBeta := bump rBeta i.betaHead i.name.toString
+            projNames := projNames.push i.name
+          if i.head == fstHead then
+            fstNames := fstNames.push i.name
+          rClasses := bump rClasses s!"{i.head} | {i.binders} | result {i.payload}"
+            i.name.toString
+        else if r == "TIMEOUT" || r == "RUNTIME" || r == "HARNESS ERROR" then
+          outcomes := bump outcomes r i.name.toString
+        else
+          outcomes := bump outcomes "THREW" i.name.toString
+          thrown := bump thrown r i.name.toString
+          tHeads := bump tHeads i.head i.name.toString
+    let t1 ← IO.monoMsNow
+    logInfo m!"LEGACY ENTRY RUNS: the shipping entry (synthesizeCombinationalCore, certified front end on) on the {legacy.size} legacy-route candidates, {t1 - t0} ms, heartbeat bound {runHeartbeats} per declaration. OUTCOMES: {render outcomes}"
+    logInfo m!"LEGACY ENTRY RUNS, THREW by first line of the message: {render thrown}"
+    logInfo m!"LEGACY ENTRY RUNS, THREW by the leaf's head: {render tHeads}"
+    logInfo m!"LEGACY ENTRY RUNS, RETURNED by the leaf's head: {render rHeads}"
+    logInfo m!"LEGACY ENTRY RUNS, RETURNED by fallbackKind: {render rKinds}"
+    logInfo m!"LEGACY ENTRY RUNS, RETURNED by binders: {render rBinders}"
+    logInfo m!"LEGACY ENTRY RUNS, RETURNED by the result type's payload: {render rPayloads}"
+    logInfo m!"LEGACY ENTRY RUNS, RETURNED with a <lambda> head, by the head after headBeta: {render rBeta}"
+    logInfo m!"LEGACY ENTRY RUNS, RETURNED by class (head | binders | result payload): {render rClasses}"
+    -- pass 3: the observable premises of `proj_entry_output` on the projections
+    let mut fitN : Nat := 0
+    let mut fitTable : Std.HashMap String (Nat × String) := {}
+    let mut misfits : Array String := #[]
+    for n in projNames do
+      let r ← projCheck n
+      if r.1 then
+        fitN := fitN + 1
+        fitTable := bump fitTable r.2 n.toString
+      else
+        misfits := misfits.push s!"{n}: {r.2}"
+    logInfo m!"PROJ CLASS: fits {fitN} of {projNames.size} (the RETURNED declarations with a <lambda> head; observable premises of proj_entry_output: gates decline, nested lambdas = telescope variables, declared types and leaf in instantiateRevRange form, distinct variables, lambda-headed application of kind other, reducible whnf = the variable at an index, type oracle throws exactly on the domain binder and gives bit on Bool / bitVector n (n ≠ 1) on BitVec, Signal-headed result)"
+    logInfo m!"PROJ CLASS, fitting, by binders | index of the field's variable | kind: {render fitTable}"
+    let misText : String := String.intercalate "; " misfits.toList
+    logInfo m!"PROJ CLASS, NOT fitting ({misfits.size}), declaration and first failing observation: {misText}"
+    -- pass 4: the `Signal.fst` class, source side and emitted module
+    let mut fstOk : Nat := 0
+    let mut fstAgree : Nat := 0
+    let mut fstTable : Std.HashMap String (Nat × String) := {}
+    let mut fstBad : Array String := #[]
+    let mut fstRanges : Array String := #[]
+    let mut boolText : String := "none"
+    let mut bitsText : String := "none"
+    let mut deepText : String := "none"
+    let mut deepDepth : Nat := 0
+    let mut smallText : String := "none"
+    let mut smallSize : Nat := 0
+    for n in fstNames do
+      let o? ← fstObs n
+      let m? ← runEntryModule n
+      let typeRange : Option (Nat × Nat) :=
+        match o? with
+        | some o => o.range
+        | none => none
+      match o? with
+      | some o =>
+        if boolText == "none" && o.payload == "Bool" then
+          boolText := o.text
+        if bitsText == "none" && o.payload == "BitVec" then
+          bitsText := o.text
+        if deepText == "none" || o.depth > deepDepth then
+          deepText := o.text
+          deepDepth := o.depth
+      | none =>
+        fstBad := fstBad.push s!"{n}: no source-side observation (an exception)"
+      match m? with
+      | none =>
+        fstBad := fstBad.push s!"{n}: the entry returned no module on this run"
+      | some m =>
+        let so := sliceObs m
+        if smallText == "none" || m.body.length < smallSize then
+          smallText := s!"{n}: {moduleText m}"
+          smallSize := m.body.length
+        if so.ok then
+          fstOk := fstOk + 1
+          fstTable := bump fstTable so.key n.toString
+          fstRanges := fstRanges.push s!"{n}: {so.detail}"
+          if so.range.isSome && so.range == typeRange then
+            fstAgree := fstAgree + 1
+          else
+            fstBad := fstBad.push
+              s!"{n}: the composed (lo, width) {so.range} differs from the type-derived {typeRange}"
+        else
+          fstBad := fstBad.push s!"{n}: {so.detail}"
+    let fstBadText : String := String.intercalate "; " fstBad.toList
+    let fstRangeText : String := String.intercalate "; " fstRanges.toList
+    logInfo m!"FST CLASS: slice-of-input {fstOk} of {fstNames.size} (the RETURNED declarations with head Signal.fst; in the emitted raw module every statement is an assignment and out, followed through the wire assignments, is a slice [hi:lo] of one input port)"
+    logInfo m!"FST CLASS, shapes (slice steps | assigns | input ports | wires): {render fstTable}"
+    logInfo m!"FST CLASS, composed range = type-derived range (first component of a product in the high bits): {fstAgree} of {fstNames.size}"
+    logInfo m!"FST CLASS, NOT fitting or differing ({fstBad.size}): {fstBadText}"
+    logInfo m!"FST CLASS, per declaration, port[hi:lo] of the port's type: {fstRangeText}"
+    logInfo m!"FST CLASS, DETAIL (first with a Bool result): {boolText}"
+    logInfo m!"FST CLASS, DETAIL (first with a BitVec result): {bitsText}"
+    logInfo m!"FST CLASS, DETAIL (deepest chain): {deepText}"
+    logInfo m!"FST CLASS, SMALLEST emitted module: {smallText}"
+    -- pass 5: the observable premises of `tuple_entry_output`
+    let phF : Bool := !(Sparkle.Compiler.isHardwareModule env ``Sparkle.Core.Signal.Signal.fst) &&
+      (env.getProjectionStructureName? ``Sparkle.Core.Signal.Signal.fst).isNone
+    let phS : Bool := !(Sparkle.Compiler.isHardwareModule env ``Sparkle.Core.Signal.Signal.snd) &&
+      (env.getProjectionStructureName? ``Sparkle.Core.Signal.Signal.snd).isNone
+    let mut tupN : Nat := 0
+    let mut tupTable : Std.HashMap String (Nat × String) := {}
+    let mut tupBad : Array String := #[]
+    let mut tupSteps : Nat := 0
+    for n in fstNames do
+      let r ← tupleCheck n
+      if !r.1 then
+        tupBad := tupBad.push s!"{n}: {r.2.1}"
+      else
+        let m? ← runEntryModule n
+        match m? with
+        | none =>
+          tupBad := tupBad.push s!"{n}: the entry returned no module on this run"
+        | some m =>
+          match emittedSteps m with
+          | .error msg =>
+            tupBad := tupBad.push s!"{n}: the emitted module: {msg}"
+          | .ok steps =>
+            match firstDiff 0 steps r.2.2 with
+            | some d =>
+              tupBad := tupBad.push s!"{n}: {d}"
+            | none =>
+              tupN := tupN + 1
+              tupSteps := tupSteps + steps.length
+              tupTable := bump tupTable r.2.1 n.toString
+    let tupBadText : String := String.intercalate "; " tupBad.toList
+    logInfo m!"TUPLE CLASS: fits {tupN} of {fstNames.size} (the observable premises of tuple_entry_output: gates decline; lambdas = variables in instantiateRevRange form, distinct; one hardware binder bound as bitVector N beside the domain binder; the leaf a chain of Signal.fst / Signal.snd constants over that variable with, per node, last argument, fallbackKind other, core shape false, the variable occurring, node type oracle = hwTypeFromWidth w, argument width M, 0 < w ≤ M; Signal-headed result; and, in one run, every emitted slice step equal to the bounds the types give)"
+    logInfo m!"TUPLE CLASS, slice steps compared node by node with the type-derived bounds ([M-1 : M-w] for fst, [w-1 : 0] for snd), all equal, in the fitting declarations: {tupSteps}"
+    logInfo m!"TUPLE CLASS, fitting, by top | nodes | fst below the top | binder width: {render tupTable}"
+    logInfo m!"TUPLE CLASS, NOT fitting ({tupBad.size}), declaration and first failing observation: {tupBadText}"
+    logInfo m!"TUPLE CLASS, PlainHead's observable part in this environment (not tagged hardware_module, not a structure projection): Signal.fst {phF}, Signal.snd {phS}"
+  catch ex =>
+    logInfo m!"LEGACY ARM CENSUS: harness error: {ex.toMessageData}"
+
+/-! ## Evidence for the premises of `SHA256Out_done_output`
+(`Tests/Compiler/LegacySemInstanceTest.lean`) on the REAL constant (logs
+only; one run in this environment — an observation, not a proof) -/
+
+/-- The hardware-type oracle on a type, as a label. -/
+def hwOf (T : Lean.Expr) : MetaM String := do
+  let cache ← IO.mkRef ({} : ExprStructMap String)
+  try
+    let (h, _) ←
+      ((inferHWTypeFromSignal T).run (entryCompilerState false cache)).run
+        (Sparkle.IR.Builder.CircuitM.init "evidence")
+    pure (match h with
+      | .bit => "bit"
+      | .bitVector n => s!"bitVector {n}"
+      | _ => "another hardware type")
+  catch ex => do
+    let msg ← ex.toMessageData.toString
+    pure ("THREW (" ++ prefixOf msg ++ ")")
+
+run_cmd Lean.Elab.Command.liftTermElabM do
+  try
+    let env ← getEnv
+    let n : Name := ``Sparkle.IP.Crypto.SHA256.SHA256Out.done
+    let ci ← getConstInfo n
+    let ec := entryConst true false [] ci (instancePredicate env) (userInliner env)
+      (structEnv env)
+    let gatesDecline : Bool :=
+      (certifiedShape? false [] ec).isNone &&
+        (mixedCertifiedShape? false [] ec (instancePredicate env)).isNone &&
+        (machineShape? false [] ec (structEnv env)).isNone
+    let body0 ← openRecordInputs ec.value!
+    let body := stripMemoizeWrappers body0
+    let shape : String :=
+      match body with
+      | .lam n1 _ (.lam n2 _ (.lam n3 _ b _) _) _ =>
+        s!"three nested lambdas, binder names {n1}, {n2}, {n3}, the inner body is a lambda: {b.isLambda}"
+      | _ => "NOT three nested lambdas"
+    lambdaTelescope body fun xs inner => do
+      let x1 := xs[0]!
+      let x2 := xs[1]!
+      let x3 := xs[2]!
+      let d1 ← x1.fvarId!.getDecl
+      let d2 ← x2.fvarId!.getDecl
+      let d3 ← x3.fvarId!.getDecl
+      let a1 : Array Lean.Expr := (#[] : Array Lean.Expr).push x1
+      let a2 : Array Lean.Expr := a1.push x2
+      let a3 : Array Lean.Expr := #[x1, x2, x3]
+      let rawOk : Bool :=
+        match body with
+        | .lam _ T1 (.lam _ T2 (.lam _ T3 b _) _) _ =>
+          T1.instantiateRevRange 0 (#[] : Array Lean.Expr).size #[] == d1.type &&
+            T2.instantiateRevRange 0 a1.size a1 == d2.type &&
+            T3.instantiateRevRange 0 a2.size a2 == d3.type &&
+            b.instantiateRevRange 0 a3.size a3 == inner
+        | _ => false
+      let namesOk : Bool :=
+        d1.userName == `dom && d2.userName == `hash && d3.userName == `done
+      let wh ← withTransparency TransparencyMode.reducible (whnf inner)
+      let whOk : Bool := xs.size == 3 && wh == x3
+      let hw1 ← hwOf d1.type
+      let hw2 ← hwOf d2.type
+      let hw3 ← hwOf d3.type
+      let ty ← inferType inner
+      let tyN ← whnf ty
+      let headOk : Bool := tyN.getAppFn.isConstOf ``Sparkle.Core.Signal.Signal
+      logInfo m!"LEGACY ENTRY, PROJECTION EVIDENCE for {n}: the three gates decline on the entry's constant: {gatesDecline}; the stripped value is {shape}; the three declared types and the leaf equal the premise's instantiateRevRange results: {rawOk}; the declared user names are dom, hash, done: {namesOk}. LEAF: is an application: {inner.isApp}, its head is a lambda: {inner.getAppFn.isLambda}, fallbackKind: {kindOf inner}; its reducible whnf is the third variable: {whOk} (the whnf returned: {wh}). ORACLES: inferHWTypeFromSignal on the three declared types: {hw1} | {hw2} | {hw3} (expected: THREW | bitVector 256 | bit); the whnf of the leaf's inferred type is headed by Signal: {headOk}"
+  catch ex =>
+    logInfo m!"LEGACY ENTRY, PROJECTION EVIDENCE: harness error: {ex.toMessageData}"
+
+end Sparkle.Tests.Compiler.LegacyArmCensusTest

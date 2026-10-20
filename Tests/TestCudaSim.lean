@@ -279,8 +279,8 @@ def cudaSimTests : IO TestSeq := do
       test "mentions module name"                    (hasSubstr counterCu "Counter8") $
       test "includes cstdint"                        (hasSubstr counterCu "#include <cstdint>") $
       test "includes cuda_runtime"                   (hasSubstr counterCu "#include <cuda_runtime.h>") $
-      test "reuses CSim device struct"               (hasSubstr counterCu "struct Counter8") $
-      test "reuses CSim eval_tick"                   (hasSubstr counterCu "sparkle_Counter8_eval_tick") $
+      test "reuses CSim device struct"               (hasSubstr counterCu "struct sparkle_ms_Counter8") $
+      test "reuses CSim eval_tick"                   (hasSubstr counterCu "sparkle_mx_Counter8(") $
       test "eval_tick is host+device"                (hasSubstr counterCu "__host__ __device__") $
       test "has __global__ qualifier"                (hasSubstr counterCu "__global__") $
       test "has batch kernel"                        (hasSubstr counterCu "Counter8_batch_kernel") $
@@ -297,8 +297,8 @@ def cudaSimTests : IO TestSeq := do
       test "has uint8_t for bit-type ports"          (hasSubstr counterCu "uint8_t")
     ) ++
     group "toCudaSim: ALU Module" (
-      test "reuses CSim device struct"               (hasSubstr aluCu "struct ALU") $
-      test "reuses CSim eval_tick"                   (hasSubstr aluCu "sparkle_ALU_eval_tick") $
+      test "reuses CSim device struct"               (hasSubstr aluCu "struct sparkle_ms_ALU") $
+      test "reuses CSim eval_tick"                   (hasSubstr aluCu "sparkle_mx_ALU(") $
       test "has batch kernel"                        (hasSubstr aluCu "ALU_batch_kernel") $
       test "has uint32_t for 32-bit ports"           (hasSubstr aluCu "uint32_t") $
       test "has set_input switch"                    (hasSubstr aluCu "jit_cuda_set_input") $
@@ -307,12 +307,12 @@ def cudaSimTests : IO TestSeq := do
     -- Hierarchical design: whole-design emission + generated PE-to-PE
     -- wire-copy inside the top's eval (the systolic-array mechanism).
     group "toCudaSimDesign: 2×2 systolic mesh" (
-      test "emits the PE sub-module struct"          (hasSubstr meshCu "struct PE") $
-      test "emits the PE eval function"              (hasSubstr meshCu "sparkle_PE_eval") $
-      test "emits the top struct"                    (hasSubstr meshCu "struct Systolic2x2") $
-      test "top eval_tick present"                   (hasSubstr meshCu "sparkle_Systolic2x2_eval_tick") $
-      test "embeds PE instance pe_0_0"               (hasSubstr meshCu "struct PE pe_0_0") $
-      test "embeds PE instance pe_1_1"               (hasSubstr meshCu "struct PE pe_1_1") $
+      test "emits the PE sub-module struct"          (hasSubstr meshCu "struct sparkle_ms_PE") $
+      test "emits the PE eval function"              (hasSubstr meshCu "sparkle_me_PE(") $
+      test "emits the top struct"                    (hasSubstr meshCu "struct sparkle_ms_Systolic2x2") $
+      test "top eval_tick present"                   (hasSubstr meshCu "sparkle_mx_Systolic2x2(") $
+      test "embeds PE instance pe_0_0"               (hasSubstr meshCu "struct sparkle_ms_PE pe_0_0") $
+      test "embeds PE instance pe_1_1"               (hasSubstr meshCu "struct sparkle_ms_PE pe_1_1") $
       -- the wire-copy: PE[0][0].a_out feeds PE[0][1].a_in, PE[0][0].p_out
       -- feeds PE[1][0].p_in — generated, not hand-written.
       test "generates activation wire-copy →right"   (hasSubstr meshCu "pe_0_1.a_in = aout_0_0") $
@@ -344,7 +344,7 @@ def cudaSimTests : IO TestSeq := do
         (hasSubstr parameterized65Cu
           "case 2: h_state->x[2] = (uint32_t)val; break;") $
       test "design wrapper specializes W=17"
-        (hasSubstr parameterizedDesign17Cu "struct Symbolic" &&
+        (hasSubstr parameterizedDesign17Cu "struct sparkle_ms_Symbolic" &&
          hasSubstr parameterizedDesign17Cu "uint32_t x;" &&
          !hasSubstr parameterizedDesign17Cu "#error") $
       test "missing binding rejected"
@@ -373,12 +373,12 @@ def cudaSimTests : IO TestSeq := do
     -- kernels, and the host entry point (see docs/CudaIntraSim-design.md).
     group "toCudaIntraDesign: 2×2 systolic mesh" (
       test "instance count in tables"                (hasSubstr intraCu "Systolic2x2_intra_M = 4") $
-      test "copy dst: consumer a_in offset"          (hasSubstr intraCu "offsetof(struct Systolic2x2, pe_0_1) + offsetof(struct PE, a_in)") $
-      test "copy src: producer a_out offset"         (hasSubstr intraCu "offsetof(struct Systolic2x2, pe_0_0) + offsetof(struct PE, a_out)") $
-      test "const p_in becomes an immediate"         (hasSubstr intraCu "offsetof(struct PE, p_in)") $
-      test "top input feeds a copy entry"            (hasSubstr intraCu "offsetof(struct Systolic2x2, ain_0)") $
-      test "top output observed via copy"            (hasSubstr intraCu "offsetof(struct Systolic2x2, result_0)") $
-      test "kind dispatch calls PE eval"             (hasSubstr intraCu "sparkle_PE_eval((struct PE*)b)") $
+      test "copy dst: consumer a_in offset"          (hasSubstr intraCu "offsetof(struct sparkle_ms_Systolic2x2, pe_0_1) + offsetof(struct sparkle_ms_PE, a_in)") $
+      test "copy src: producer a_out offset"         (hasSubstr intraCu "offsetof(struct sparkle_ms_Systolic2x2, pe_0_0) + offsetof(struct sparkle_ms_PE, a_out)") $
+      test "const p_in becomes an immediate"         (hasSubstr intraCu "offsetof(struct sparkle_ms_PE, p_in)") $
+      test "top input feeds a copy entry"            (hasSubstr intraCu "offsetof(struct sparkle_ms_Systolic2x2, ain_0)") $
+      test "top output observed via copy"            (hasSubstr intraCu "offsetof(struct sparkle_ms_Systolic2x2, result_0)") $
+      test "kind dispatch calls PE eval"             (hasSubstr intraCu "sparkle_me_PE((struct sparkle_ms_PE*)b)") $
       test "block-barrier kernel emitted"            (hasSubstr intraCu "Systolic2x2_intra_block_kernel") $
       test "grid-barrier kernel emitted"             (hasSubstr intraCu "Systolic2x2_intra_grid_kernel") $
       test "cooperative-groups barrier"              (hasSubstr intraCu "g.sync()") $
@@ -386,8 +386,8 @@ def cudaSimTests : IO TestSeq := do
     ) ++
     group "retained-width CUDA intra specialization" (
       test "specializes every module in the hierarchy"
-        (hasSubstr parameterizedIntra65Cu "struct RetainedStage" &&
-         hasSubstr parameterizedIntra65Cu "struct RetainedIntraTop" &&
+        (hasSubstr parameterizedIntra65Cu "struct sparkle_ms_RetainedStage" &&
+         hasSubstr parameterizedIntra65Cu "struct sparkle_ms_RetainedIntraTop" &&
          hasSubstr parameterizedIntra65Cu "uint32_t x[3];" &&
          hasSubstr parameterizedIntra65Cu "uint32_t y[3];" &&
          !hasSubstr parameterizedIntra65Cu "#error") $

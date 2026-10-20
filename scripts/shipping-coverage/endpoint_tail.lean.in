@@ -1,0 +1,221 @@
+
+namespace EndpointProbeZZ
+open Lean Elab Command Meta
+
+-- For every machine-route declaration of the measurement this file sees
+-- (its own and the imported ones): generate its machine endpoint
+-- (`Tools.ShippingMachineCommand`), and record whether the kernel accepted it.
+-- One command generates every endpoint the file sees: no heartbeat limit
+-- for the measurement (each file still has the per-file time limit).
+set_option maxHeartbeats 0 in
+run_cmd liftTermElabM do
+  let names ← IO.FS.lines "@WORK@/machine_decls.txt"
+  let env ← getEnv
+  let mut out := ""
+  for s in names do
+    let n0 := s.toName
+    let n : Lean.Name :=
+      if (env.find? n0).isSome then n0
+      else if s.startsWith "_private." then
+        let user := (s.splitOn ".0.").getLast!
+        env.constants.map₂.foldl (fun acc c _ =>
+          if (Lean.privateToUserName? c).map toString == some user then c else acc) n0
+      else n0
+    unless (env.find? n).isSome do continue
+    -- a file that already ran `#machine_endpoint` on it, or an earlier entry
+    -- of this loop (two files' private declarations of one user name resolve
+    -- to the same constant here): the CURRENT environment
+    if ((← getEnv).find? (n ++ `machine_sound)).isSome then
+      let env' ← getEnv
+      let tag := if env'.contains (n ++ `machine_ships_wired) then "OK|WIRED"
+        else if env'.contains (n ++ `machine_ships_comb) then "OK|COMBSHIP" else "OK"
+      out := out ++ s!"{s}|0ms|{tag}\n"
+      continue
+    let t0 ← IO.monoMsNow
+    let res ← try
+        let _ ← Tools.ShippingMachineCommand.generate n (checkCloses := false)
+        -- `f.machine_ships_wired`: to the emitted Verilog from the wiring
+        -- `f.machine_ships_comb`: the same for a combinational machine
+        let env' ← getEnv
+        pure (if env'.contains (n ++ `machine_ships_wired) then "OK|WIRED"
+          else if env'.contains (n ++ `machine_ships_comb) then "OK|COMBSHIP" else "OK")
+      catch ex =>
+        let msg ← ex.toMessageData.toString
+        pure ("FAIL|" ++ ((msg.replace "\n" " ").take 300).toString)
+    let t1 ← IO.monoMsNow
+    out := out ++ s!"{s}|{t1 - t0}ms|{res}\n"
+  let h ← IO.FS.Handle.mk "@WORK@/endpoint_reasons.txt" .append
+  h.putStr out
+  -- the linked composition: every combinational child its `machine_child`,
+  -- every declaration with calls its `machine_linked`
+  let mut lout := ""
+  for pass in [0, 1] do
+    for s in names do
+      let n0 := s.toName
+      let env ← getEnv
+      let n : Lean.Name :=
+        if (env.find? n0).isSome then n0
+        else if s.startsWith "_private." then
+          let user := (s.splitOn ".0.").getLast!
+          env.constants.map₂.foldl (fun acc c _ =>
+            if (Lean.privateToUserName? c).map toString == some user then c else acc) n0
+        else n0
+      unless (env.find? (n ++ `machine_sound)).isSome do continue
+      let hasCalls := (env.find? (n ++ `machineCall_0)).isSome
+      if pass == 0 && !hasCalls then
+        if (env.find? (n ++ `machine_child)).isSome then continue
+        let res ← try
+            let _ ← Tools.ShippingMachineLinkedCommand.generateChild n
+            pure "CHILD|OK"
+          catch _ => pure "CHILD|NA"
+        if res == "CHILD|OK" then lout := lout ++ s!"{s}|{res}\n"
+      if pass == 1 && hasCalls then
+        if (env.find? (n ++ `machine_linked)).isSome then
+          lout := lout ++ s!"{s}|LINKED|OK\n"; continue
+        let res ← try
+            let _ ← Tools.ShippingMachineLinkedCommand.generateLinked n
+            pure "LINKED|OK"
+          catch ex =>
+            let msg ← ex.toMessageData.toString
+            pure ("LINKED|FAIL|" ++ ((msg.replace "\n" " ").take 300).toString)
+        lout := lout ++ s!"{s}|{res}\n"
+  let hl ← IO.FS.Handle.mk "@WORK@/linked_reasons.txt" .append
+  hl.putStr lout
+
+-- the children the certified GATE compiles, of every declaration with a
+-- linked theorem: their `gate_child` (the linked theorem's premise)
+set_option maxHeartbeats 0 in
+run_cmd do
+  let names ← IO.FS.lines "@WORK@/machine_decls.txt"
+  let mut gout := ""
+  for s in names do
+    let n0 := s.toName
+    let env ← getEnv
+    let n : Lean.Name :=
+      if (env.find? n0).isSome then n0
+      else if s.startsWith "_private." then
+        let user := (s.splitOn ".0.").getLast!
+        env.constants.map₂.foldl (fun acc c _ =>
+          if (Lean.privateToUserName? c).map toString == some user then c else acc) n0
+      else n0
+    unless (env.find? (n ++ `machine_linked)).isSome do continue
+    let children ← liftTermElabM do
+      try pure ((← Tools.ShippingMachineCommand.readMachine n).shape.insts.map (·.1)).eraseDups
+      catch _ => pure []
+    for c in children do
+      let env ← getEnv
+      if (env.find? (c ++ `machine_child)).isSome || (env.find? (c ++ `gate_child)).isSome then
+        continue
+      -- only a child without a machine endpoint (the gate compiles it)
+      if (env.find? (c ++ `machine_sound)).isSome then continue
+      let res ← try
+          let _ ← Tools.ShippingGateChildCommand.generateGateChild c
+          pure "GATECHILD|OK"
+        catch ex =>
+          let msg ← ex.toMessageData.toString
+          pure ("GATECHILD|FAIL|" ++ ((msg.replace "\n" " ").take 300).toString)
+      gout := gout ++ s!"{c}|{res}\n"
+    -- the composition with the children's own theorems
+    if (← getEnv).contains (n ++ `machine_composed) then
+      gout := gout ++ s!"{s}|COMPOSED|OK\n"
+    else
+      let res ← try
+          let _ ← Tools.ShippingGateChildCommand.generateComposed n
+          pure "COMPOSED|OK"
+        catch ex =>
+          let msg ← ex.toMessageData.toString
+          pure ("COMPOSED|FAIL|" ++ ((msg.replace "\n" " ").take 300).toString)
+      gout := gout ++ s!"{s}|{res}\n"
+    -- to the shipped module (`f.machine_ships_hierH`): generation, then its
+    -- premises evaluated on the real compile (`Tools.ShippingPremiseEval`)
+    if (← getEnv).contains (n ++ `machine_composed) then
+      let exH := (← getEnv).contains (n ++ `machine_ships_hierH)
+      try discard <| liftTermElabM <| withOptions (fun o => Lean.Elab.async.set o false) <|
+          Tools.ShippingShipsDesignSVCommand.generateH n
+      catch _ => pure ()
+      let (r2, d2) ← liftTermElabM <| withOptions (fun o => Lean.Elab.async.set o false) <|
+        Tools.ShippingPremiseEval.measure "SHIPSHIERH" exH
+          (discard <| Tools.ShippingMachineShipsHierHCommand.generate n)
+          (Tools.ShippingPremiseEval.evalShipsHierH n)
+      gout := gout ++ s!"{s}|{r2}\n"
+      let hd ← IO.FS.Handle.mk "@WORK@/premise_items.txt" .append
+      hd.putStr s!"{s}|{r2}\n{d2}\n"
+  let hg ← IO.FS.Handle.mk "@WORK@/linked_reasons.txt" .append
+  hg.putStr gout
+-- the declarations whose calls are memory reads or sequential children (the
+-- `closeInstsG` path): their composition with the children (stateful run,
+-- `machine_composedT`)
+set_option maxHeartbeats 0 in
+run_cmd do
+  let names ← IO.FS.lines "@WORK@/machine_decls.txt"
+  let mut mout := ""
+  let mut dout := ""
+  for s in names do
+    let n0 := s.toName
+    let env ← getEnv
+    let n : Lean.Name :=
+      if (env.find? n0).isSome then n0
+      else if s.startsWith "_private." then
+        let user := (s.splitOn ".0.").getLast!
+        env.constants.map₂.foldl (fun acc c _ =>
+          if (Lean.privateToUserName? c).map toString == some user then c else acc) n0
+      else n0
+    unless (env.find? (n ++ `machine_sound)).isSome do continue
+    let gpath ← liftTermElabM do
+      try pure !(← Tools.ShippingMachineCommand.readMachine n).shape.instFields.isEmpty
+      catch _ => pure false
+    unless gpath do continue
+    -- an already generated theorem skips GENERATION only: its premises are
+    -- evaluated and recorded like any other
+    let res ← if (env.find? (n ++ `machine_composedT)).isSome then pure "COMPOSEDT|EXISTS" else
+      try
+        let _ ← liftTermElabM (Tools.ShippingMachineSeqCommand.generateAny n)
+        pure "COMPOSEDT|OK"
+      catch ex =>
+        let msg ← ex.toMessageData.toString
+        pure ("COMPOSEDT|FAIL|" ++ ((msg.replace "\n" " ").take 300).toString)
+    mout := mout ++ s!"{s}|{res}\n"
+    let composed := res == "COMPOSEDT|OK" || res == "COMPOSEDT|EXISTS"
+    -- a child with children of its own: the composition at depth 1
+    if !composed then
+      -- the least depth (1..3) at which the composition is generated or present
+      let mut depth : Option Nat := none
+      for dn in [1, 2, 3] do
+        if depth.isSome then continue
+        if (← getEnv).contains (n ++ Name.mkSimple s!"machine_ships_hierN{dn}") then depth := some dn; continue
+        try
+          discard <| liftTermElabM <| withOptions (fun o => Lean.Elab.async.set o false) <|
+            Tools.ShippingMachineDepthCommand.generateCoreN n dn
+          depth := some dn
+        catch _ => pure ()
+      let dn := depth.getD 1
+      let tagN := s!"SHIPSHIERN{dn}"
+      let ex1 := (← getEnv).contains (n ++ Name.mkSimple s!"machine_ships_hierN{dn}")
+      -- the source → closed design texts endpoint (recorded by the evaluator
+      -- as SVCHILD:SOURCE only when it was generated)
+      try discard <| liftTermElabM <| withOptions (fun o => Lean.Elab.async.set o false) <|
+          Tools.ShippingShipsDesignSVCommand.generate n dn
+      catch _ => pure ()
+      let (r1, d1) ← liftTermElabM <| withOptions (fun o => Lean.Elab.async.set o false) <|
+        Tools.ShippingPremiseEval.measure tagN ex1
+          (discard <| Tools.ShippingMachineDepthCommand.generateShipsN n dn)
+          (Tools.ShippingPremiseEval.evalShipsHierSeq n (some dn))
+      mout := mout ++ s!"{s}|{r1}\n"
+      dout := dout ++ s!"{s}|{r1}\n{d1}\n"
+    -- to the shipped module (`f.machine_ships_hier`)
+    if composed then
+      let ex0 := (← getEnv).contains (n ++ `machine_ships_hier)
+      try discard <| liftTermElabM <| withOptions (fun o => Lean.Elab.async.set o false) <|
+          Tools.ShippingShipsDesignSVCommand.generate0 n
+      catch _ => pure ()
+      let (r2, d2) ← liftTermElabM <| withOptions (fun o => Lean.Elab.async.set o false) <|
+        Tools.ShippingPremiseEval.measure "SHIPSHIER" ex0
+          (discard <| Tools.ShippingMachineShipsHierCommand.generate n)
+          (Tools.ShippingPremiseEval.evalShipsHierSeq n none)
+      mout := mout ++ s!"{s}|{r2}\n"
+      dout := dout ++ s!"{s}|{r2}\n{d2}\n"
+  let hd ← IO.FS.Handle.mk "@WORK@/premise_items.txt" .append
+  hd.putStr dout
+  let hm ← IO.FS.Handle.mk "@WORK@/linked_reasons.txt" .append
+  hm.putStr mout
+end EndpointProbeZZ

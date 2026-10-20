@@ -1,0 +1,51 @@
+
+namespace PipelineProbeZZ
+open Lean Elab Command Meta Sparkle.Compiler.Elab
+
+-- For every machine-route declaration of the measurement this file sees
+-- (its own and the imported ones): the gates of `Tools.ShippingMachineShipping.machine_ships_full`,
+-- evaluated on the modules of a real run — the core module, the module the
+-- full entry returns, and what the printer is given.
+run_cmd liftTermElabM do
+  let names ← IO.FS.lines "@WORK@/machine_decls.txt"
+  let env ← getEnv
+  let senv := structEnv env
+  let mut out := ""
+  for s in names do
+    let n0 := s.toName
+    let n : Lean.Name :=
+      if (env.find? n0).isSome then n0
+      else if s.startsWith "_private." then
+        let user := (s.splitOn ".0.").getLast!
+        env.constants.map₂.foldl (fun acc c _ =>
+          if (Lean.privateToUserName? c).map toString == some user then c else acc) n0
+      else n0
+    let some ci := env.find? n | continue
+    let res ← try
+      let entry := entryConst true false [] ci (instancePredicate env) (userInliner env) senv
+      let some shape := machineShape? false [] entry senv | throwError "not a machine shape"
+      let (raw, _) ← synthesizeCombinationalCore n [] false
+      let (b, _) ← synthesizeCombinational n
+      let o := Sparkle.IR.OptCheck.checkedOptimize b
+      let wof := Tools.SVParser.RoundtripProof.moduleWof o
+      let mut fails : List String := []
+      unless Sparkle.IR.RefineCheck.refineCheck raw raw && Sparkle.IR.RefineCheck.refineCheck b b do
+        fails := fails ++ ["normal-forms"]
+      unless Sparkle.IR.RefineCheck.refineCheck raw b do fails := fails ++ ["merge"]
+      unless Sparkle.IR.RefineCheck.refineCheck b o do fails := fails ++ ["optimizer"]
+      unless (raw.inputs.map (·.name)).contains "rst" do fails := fails ++ ["rst"]
+      unless shape.layout.outs.all (fun q => raw.outputs.any (·.name == q.name)) do
+        fails := fails ++ ["outputs"]
+      unless Tools.SVParser.EmitSem.seqCheck wof (Tools.SVParser.EmitSem.weOf wof) o.body do
+        fails := fails ++ ["emitted-verilog"]
+      unless (Tools.ShippingSeqSVSoundness.seqNames o.body).all (fun x =>
+          Sparkle.IR.RegDedup.declWidth o x == Tools.SVParser.EmitSem.weOf wof x) do
+        fails := fails ++ ["widths"]
+      pure (if fails.isEmpty then "OK" else "FAIL|" ++ ",".intercalate fails)
+    catch ex =>
+      let msg ← ex.toMessageData.toString
+      pure ("ERROR|" ++ ((msg.replace "\n" " ").take 200).toString)
+    out := out ++ s!"{s}|{res}\n"
+  let h ← IO.FS.Handle.mk "@WORK@/pipeline_reasons.txt" .append
+  h.putStr out
+end PipelineProbeZZ

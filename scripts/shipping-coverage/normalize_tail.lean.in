@@ -1,0 +1,175 @@
+/-! Prototype front-end normaliser, used ONLY to measure what would remain
+after the reductions the legacy translator performs on the fly: delta-beta of
+untagged user definitions, projection of a constructor, and zeta of the lets
+in front of that constructor.  It is not the compiler's code. -/
+namespace InlProbeZZ
+open Lean Elab Command Meta Sparkle.Compiler.Elab
+
+
+partial def headsOf (e : Lean.Expr) (acc : Array Lean.Name) : Array Lean.Name :=
+  match e with
+  | .app .. =>
+    let f := e.getAppFn
+    let acc := match f with
+      | .const n _ => acc.push n
+      | _ => headsOf f acc
+    e.getAppArgs.foldl (fun a x => headsOf x a) acc
+  | .lam _ _ b _ => headsOf b (acc.push `«fun»)
+  | .letE _ _ v b _ => headsOf b (headsOf v (acc.push `«let»))
+  | .mdata _ e => headsOf e acc
+  | .proj s _ e => headsOf e (acc.push (s ++ `«proj»))
+  | .const n _ => acc.push n
+  | _ => acc
+
+def tyHead (ty : Lean.Expr) : String :=
+  match ty with
+  | .app (.app (.const ``Sparkle.Core.Signal.Signal _) _) inner =>
+    match inner with
+    | .app (.const ``BitVec _) w =>
+      if (canonicalNatLitValue? w).isSome then "Signal(BitVec lit)" else "Signal(BitVec non-literal width)"
+    | _ => "Signal(" ++ toString inner.getAppFn ++ ")"
+  | _ => toString ty.getAppFn
+
+
+def liftBV (k : Nat) : Nat → Lean.Expr → Lean.Expr
+  | c, .bvar i => if i < c then .bvar i else .bvar (i + k)
+  | c, .app f a => .app (liftBV k c f) (liftBV k c a)
+  | c, .lam n t b bi => .lam n (liftBV k c t) (liftBV k (c + 1) b) bi
+  | c, .forallE n t b bi => .forallE n (liftBV k c t) (liftBV k (c + 1) b) bi
+  | c, .letE n t v b nd => .letE n (liftBV k c t) (liftBV k c v) (liftBV k (c + 1) b) nd
+  | c, .mdata m e => .mdata m (liftBV k c e)
+  | c, .proj s i e => .proj s i (liftBV k c e)
+  | _, e => e
+
+def substA (xs : Array Lean.Expr) : Nat → Lean.Expr → Lean.Expr
+  | d, .bvar i =>
+    if i < d then .bvar i
+    else if i - d < xs.size then liftBV d 0 xs[xs.size - 1 - (i - d)]!
+    else .bvar (i - xs.size)
+  | d, .app f a => .app (substA xs d f) (substA xs d a)
+  | d, .lam n t b bi => .lam n (substA xs d t) (substA xs (d + 1) b) bi
+  | d, .forallE n t b bi => .forallE n (substA xs d t) (substA xs (d + 1) b) bi
+  | d, .letE n t v b nd => .letE n (substA xs d t) (substA xs d v) (substA xs (d + 1) b) nd
+  | d, .mdata m e => .mdata m (substA xs d e)
+  | d, .proj s i e => .proj s i (substA xs d e)
+  | _, e => e
+
+def betaA (acc : Array Lean.Expr) : Lean.Expr → List Lean.Expr → Lean.Expr
+  | .lam _ _ b _, a :: rest => betaA (acc.push a) b rest
+  | f, rest => rest.foldl Lean.Expr.app (substA acc 0 f)
+
+def spine : Lean.Expr → List Lean.Expr → Lean.Expr × List Lean.Expr
+  | .app f a, acc => spine f (a :: acc)
+  | h, acc => (h, acc)
+
+/-- Head-normalise a record expression until a constructor application appears:
+    delta-beta of eligible definitions and zeta of leading lets. -/
+def headMk (defs : Lean.Name → Option Lean.Expr) (mk : Lean.Name) : Nat → Lean.Expr → Option (List Lean.Expr)
+  | 0, _ => none
+  | fuel + 1, e =>
+    match e with
+    | .letE _ _ v b _ => headMk defs mk fuel (substA #[v] 0 b)
+    | .mdata _ e => headMk defs mk fuel e
+    | _ =>
+      let (h, args) := spine e []
+      match h with
+      | .const n ls =>
+        if n == mk then some args
+        else match (if ls.isEmpty then defs n else none) with
+          | some v => headMk defs mk fuel (betaA #[] v args)
+          | none => none
+      | .lam .. => if args.isEmpty then none else headMk defs mk fuel (betaA #[] h args)
+      | _ => none
+
+def inl (env : Environment) (defs : Lean.Name → Option Lean.Expr) : Nat → Lean.Expr → Lean.Expr
+  | 0, e => e
+  | fuel + 1, e =>
+    match e with
+    | .app .. | .const .. =>
+      let (h, args) := spine e []
+      match h with
+      | .const n ls =>
+        match (if ls.isEmpty then defs n else none) with
+        | some v => inl env defs fuel (betaA #[] v args)
+        | none =>
+          let dflt := (args.map (inl env defs fuel)).foldl Lean.Expr.app h
+          match env.getProjectionFnInfo? n with
+          | some info =>
+            if args.length == info.numParams + 1 then
+              match headMk defs info.ctorName 64 args.getLast! with
+              | some mkArgs =>
+                match mkArgs[info.numParams + info.i]? with
+                | some f => inl env defs fuel f
+                | none => dflt
+              | none => dflt
+            else dflt
+          | none => dflt
+      | _ => (args.map (inl env defs fuel)).foldl Lean.Expr.app (match h with
+          | .lam n t b bi => .lam n t (inl env defs fuel b) bi
+          | h => h)
+    | .lam n t b bi => .lam n t (inl env defs fuel b) bi
+    | .letE n t v b nd => .letE n t (inl env defs fuel v) (inl env defs fuel b) nd
+    | .mdata m e => .mdata m (inl env defs fuel e)
+    | e => e
+
+def userDef (env : Environment) (n : Lean.Name) : Option Lean.Expr :=
+  match env.find? n with
+  | some (.defnInfo d) =>
+    let modOk := match env.getModuleIdxFor? n with
+      | none => true
+      | some idx =>
+        let r := (env.header.moduleNames[idx.toNat]!).getRoot
+        !(r == `Init || r == `Lean || r == `Std || r == `Sparkle)
+    let last := (n.components.getLast?.map toString).getD ""
+    let badSuffix := ["register", "registerWithEnable", "mux", "memory", "memoryComboRead",
+      "memoize", "lutMuxTree", "loop", "ofNat", "toNat", "ofFin"].contains last
+    if modOk && d.levelParams.isEmpty && !badSuffix &&
+        !Sparkle.Compiler.isHardwareModule env n &&
+        (env.getProjectionFnInfo? n).isNone &&
+        !(Lean.Meta.isMatcherCore env n) &&
+        !(Lean.Meta.isInstanceCore env n) &&
+        (getReducibilityStatusCore env n == .semireducible) &&
+        !(env.contains (Lean.Meta.mkSmartUnfoldingNameFor n)) &&
+        d.safety == .safe && !isPrimitive n
+    then some d.value else none
+  | _ => none
+
+run_cmd liftTermElabM do
+  let names ← IO.FS.lines "@WORK@/legacy_decls.txt"
+  let env ← getEnv
+  let skip : Lean.NameSet := ([``Sparkle.Core.Signal.Signal, ``BitVec, ``Bool, ``Nat, ``OfNat.ofNat,
+    ``Sparkle.Core.Domain.DomainConfig, ``BitVec.ofNat, ``Bool.true, ``Bool.false, ``Unit, ``Prod,
+    ``instOfNatNat, ``instHAdd, ``instHSub, ``instHMul, ``BEq.beq, ``instBEqOfDecidableEq,
+    ``Sparkle.Core.Domain.defaultDomain] : List Lean.Name).foldl (fun s n => s.insert n) {}
+  let vocab : Lean.NameSet := ([``Sparkle.Core.Signal.Signal.pure, ``HAdd.hAdd, ``HSub.hSub, ``HMul.hMul, ``HAnd.hAnd,
+    ``HOr.hOr, ``HXor.hXor, ``HShiftLeft.hShiftLeft, ``HShiftRight.hShiftRight,
+    ``Sparkle.Core.Signal.Signal.ult, ``Sparkle.Core.Signal.Signal.ule, ``Sparkle.Core.Signal.Signal.slt,
+    ``Sparkle.Core.Signal.Signal.sle, ``Sparkle.Core.Signal.Signal.beq, ``Sparkle.Core.Signal.Signal.mux,
+    ``Complement.complement, ``Sparkle.Core.Signal.Signal.map, ``BitVec.setWidth,
+    ``Sparkle.Core.Signal.Signal.register, ``Sparkle.Core.Signal.Signal.memory] : List Lean.Name).foldl (fun s n => s.insert n) {}
+  for s in names do
+    let n := s.toName
+    match env.find? n with
+    | some (.defnInfo d) =>
+      let v' := inl env (userDef env) 64 d.value
+      let scalar := mixedGateResultScalar d.type
+      let reason : String :=
+        match mixedGatePeel v' with
+        | none =>
+          let rec go (e : Lean.Expr) : String :=
+            match e with
+            | .lam _ ty b _ => if (mixedGateBinderKind? ty).isSome then go b else "BINDER:" ++ tyHead ty
+            | _ => "BINDER:?"
+          go v'
+        | some (bs, body) =>
+          let hs := (headsOf body #[]).toList.eraseDups
+          let res := hs.filter (fun h => !skip.contains h && !vocab.contains h &&
+            !((h.components.getLast?.map toString).getD "").startsWith "inst" &&
+            !Sparkle.Compiler.isHardwareModule env h)
+          let inst := hs.any (fun h => Sparkle.Compiler.isHardwareModule env h)
+          "BODY:" ++ (if res.isEmpty then "(vocabulary only)" else ",".intercalate (res.map toString)) ++
+            (if inst then " +instances" else "")
+      IO.FS.withFile "@WORK@/norm_reasons.txt" .append fun h =>
+        h.putStrLn (s ++ "\t" ++ (if scalar then "scalar" else "nonscalar") ++ "\t" ++ reason)
+    | _ => pure ()
+end InlProbeZZ

@@ -70,11 +70,13 @@ private def globalQ   : String := "__global__"
     CSim replaced that class with a `struct` + free `sparkle_<cls>_eval_tick`
     function, which is already device-shaped — so the wrapper and the extra
     struct are gone.) -/
-def deviceStructName (m : Module) : String := s!"struct {sanitizeName m.name}"
+-- UNVERIFIED (no `nvcc` here): the tag follows CSim through `CIdent.cIdent`.
+def deviceStructName (m : Module) : String :=
+  s!"struct {CIdent.cIdent .structTag (sanitizeName m.name)}"
 
 /-- The device eval-tick symbol: CSim's own `sparkle_<cls>_eval_tick`, made
     callable from the device by emitting it with `funcQual = hostDev`. -/
-def deviceEvalTick (m : Module) : String := s!"sparkle_{sanitizeName m.name}_eval_tick"
+def deviceEvalTick (m : Module) : String := CIdent.cIdent .evalTick (sanitizeName m.name)
 
 -- ─────────────────────────────────────────────────────────────────
 -- Section 3: Device code — reuse CSim's struct + eval_tick via funcQual
