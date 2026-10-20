@@ -1,5 +1,5 @@
 import Tools.ShippingChildPathA
--- NOT BUILT (worker par/tr, base 6a231b89). Isolated: only Tools/ShippingChildFallbackA.lean and
+-- BUILT by the integrator: tr1/tr2 exit 1 (`throw` resolved to the lemma; `emitAssignP` arguments; `bindCtx` by defeq; the step walk timed out → written from the printed term, run pr1), tr3 exit 0 (worker par/tr, base 6a231b89). Isolated: only Tools/ShippingChildFallbackA.lean and
 -- Tools/ShippingChildTranslatePathA.lean use it.
 -- No `sorry`, no `axiom`, no `native_decide`, no new law / boundary field. Law witness:
 -- `O : RefLawsAOps MkRefd mref cref` at `hA : AdmCtx O.quiet mctx cctx` only (no `RefLaws`, no
@@ -161,12 +161,12 @@ theorem KeepsCP.dite {α : Type} {c : Prop} [Decidable c] {a : c → CompilerM �
   · rw [dif_neg hc]; exact hb hc
 
 theorem KeepsCP.throw {α : Type} (e : Exception) (he : OkExc e) :
-    KeepsCP mctx mref cctx cref I (throw e : CompilerM α) :=
+    KeepsCP mctx mref cctx cref I (MonadExcept.throw e : CompilerM α) :=
   KeepsCP.of (KeepsC.throw e he)
 
 /-- `throw e >>= k`: the continuation never runs. -/
 theorem KeepsCP.throwBind {α β : Type} (e : Exception) (he : OkExc e) (k : α → CompilerM β) :
-    KeepsCP mctx mref cctx cref I ((throw e : CompilerM α) >>= k) := by
+    KeepsCP mctx mref cctx cref I ((MonadExcept.throw e : CompilerM α) >>= k) := by
   refine KeepsCP.ofT (TripleC.bind (Q := fun _ _ => False)
     (TripleC.throw e fun _ hw => ⟨hw, he⟩) ?_)
   intro _ _ _ w hf
@@ -202,11 +202,8 @@ contexts with `CtxOk`. -/
 theorem KeepsCP.bindCtx {β : Type} {f : CompilerState → CompilerM β}
     (h : ∀ cs, CtxOk cs → KeepsCP mctx mref cctx cref I (f cs)) :
     KeepsCP mctx mref cctx cref I (CompilerM.getCompilerState >>= f) :=
-  fun ctx st hc => keeps_iff.mpr (Triple.bind (Q := fun p w => I w ∧ CtxOk p.1)  -- guess: T1
-    (Triple.pure (a := (ctx, st)) fun _ hw => ⟨hw, hc⟩) fun p => by
-      obtain ⟨a, s⟩ := p
-      intro w hw
-      exact keeps_iff.mp (h a hw.2 ctx s hc) w hw.1)
+  -- (integrator, after tr1: `getCompilerState >>= f` at `ctx` runs `f ctx` at `ctx`, by defeq)
+  fun ctx st hc => h ctx hc ctx st hc
 
 end Calculus
 
@@ -254,6 +251,7 @@ theorem addOutputP (name : String) (ty : Sparkle.IR.Type.HWType) :
     KeepsCP mctx mref cctx cref I (CompilerM.addOutput name ty) :=
   KeepsCP.ofT (addOutputA O hA hS name ty)
 
+omit O hA hS in
 theorem emitAssignP (lhs : String) (rhs : Sparkle.IR.AST.Expr) :
     KeepsCP mctx mref cctx cref I (CompilerM.emitAssign lhs rhs) :=
   KeepsCP.ofT (emitAssignA lhs rhs)
@@ -460,13 +458,26 @@ theorem translateStepWithA (fallback : TranslateFn → TranslateFn) (rec : Trans
     (e : Lean.Expr) (hint : String) (top named : Bool) :
     KeepsCP mctx mref cctx cref I (translateStepWith fallback rec e hint top named) := by
   unfold translateStepWith
-  try dsimp only  -- guess: T8
-  repeat (first
-    | exact hfb _ _ _ _
-    | exact cacheLookupValidatedA O hA hS _
-    | exact recordTranslationA O hA hS _ _ _
-    | exact translateCoreA O hA hS rec hrec _ _ _ _
-    | kbase)
+  -- (integrator, after tr2 timed out on the generic walk: the elaborated term, printed by
+  -- `#print` (run pr1), is a join point `__do_jp` used by both branches of the cache test)
+  dsimp only
+  refine KeepsCP.ite (fun _ => ?_) (fun _ => ?_)
+  · refine KeepsCP.bind (cacheLookupValidatedA O hA hS _) (fun x => ?_)
+    cases x with
+    | some w => exact KeepsCP.pure _
+    | none =>
+      refine KeepsCP.bind (translateCoreA O hA hS rec hrec _ _ _ _) (fun y => ?_)
+      cases y with
+      | some w =>
+        exact KeepsCP.ite (fun _ => KeepsCP.pure _)
+          (fun _ => KeepsCP.bind (recordTranslationA O hA hS _ _ _) (fun _ => KeepsCP.pure _))
+      | none => exact hfb _ _ _ _
+  · refine KeepsCP.bind (translateCoreA O hA hS rec hrec _ _ _ _) (fun y => ?_)
+    cases y with
+    | some w =>
+      exact KeepsCP.ite (fun _ => KeepsCP.pure _)
+        (fun _ => KeepsCP.bind (recordTranslationA O hA hS _ _ _) (fun _ => KeepsCP.pure _))
+    | none => exact hfb _ _ _ _
 
 end Core
 
@@ -494,7 +505,7 @@ theorem fuelZeroA (O : RefLawsAOps MkRefd mref cref) (I : Void IO.RealWorld → 
     (step : TranslateFn → TranslateFn) : RecA O I (translateFuelFix step 0) := by
   intro mctx cctx _ e hint top named
   unfold translateFuelFix
-  exact KeepsCP.throw _ (by okmsg)
+  exact KeepsCP.throw (Exception.error .missing "translation fuel exhausted") (by okmsg)
 
 /-- **The translator from its fallback**: if the fallback keeps `I` whenever
 its recursive argument does (`RecA`), the shipping translator does. -/

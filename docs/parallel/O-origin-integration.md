@@ -776,3 +776,27 @@ OOM lesson reused: no saved maps / existentials forced to concrete values in fin
 | all10 | `Tests.AllTests` (+ LeafDesignClosedFamilyTest; audit with PathA) | 0 | 1467 jobs, peak 0.51 GB |
 
 Not pushed; no CI; corpus not run.
+
+## Round after review of 6a231b89: translator decomposition, mixed/machine front ends, cache half, ledger hygiene
+
+Workers par/tr (translator), par/mm (front ends), par/ca (cache half, then CoreC). Integrator: ledger hygiene and the
+model regression test (16454c3c), the `kwalk` tactic (Tools/ShippingChildKWalk.lean) after the generic walk timed out,
+hand walks from printed terms (pr1, pr2), FrontA's machine branch rewritten. Per-handler premises and the open
+`BodyStepA` are listed in open-items-by-kind §1. OOM lesson applied (no forced saved maps); peak ≤ 2.7 GB (fb3).
+
+| run | target | exit | notes |
+|---|---|---|---|
+| hr1, hr2 | HeapProvenanceRegressTest | 1, 0 | missing import |
+| ca1, ca2 | ShippingChildCacheA + audit | 0, 0 | first try, peak 1.9 GB |
+| cc1 | ShippingChildCoreC | 0 | first try |
+| fa1–fa4, fa5 | ShippingChildFrontA | 1×4, 0 | do-notation join point; pure_bind; lemma placement |
+| fa6 | audit | 0 | |
+| tr1–tr2, tr3 | ShippingChildTranslateA | 1, 1, 0 | throw name, args, bindCtx, step from printed term |
+| pr1, pr2 | `#print` of translateStepWith / InstanceOrFallback / Fallback | 0 | |
+| fb1–fb12, fb13 | ShippingChildFallbackA | 1×12, 0 | generic walk timeouts (fb2 at 1M heartbeats too) → kwalk |
+| kw1–kw6 | ShippingChildKWalk + scratch | 1, 0… | tactic development (scratch file not committed) |
+| tp1, dp1 | TranslatePathA, DepthA | 0, 0 | first try |
+| au3 | ChildVertAuditTest | 0 | 49 audited theorems, closures free of the old boundary |
+| all11 | `Tests.AllTests` (+ HeapProvenanceRegressTest; audit with all new modules) | 0 | 1478 jobs, peak 1.04 GB |
+
+Not pushed; no CI; corpus not run.

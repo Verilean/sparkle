@@ -1,5 +1,5 @@
 import Tools.ShippingChildFallbackA
--- NOT BUILT (worker par/tr, base 6a231b89). Isolated: only Tools/ShippingChildDepthA.lean uses it.
+-- BUILT by the integrator: tp1 exit 0 (first try) (worker par/tr, base 6a231b89). Isolated: only Tools/ShippingChildDepthA.lean uses it.
 -- No `sorry`, no `axiom`, no `native_decide`, no new law / boundary field. Law witness:
 -- `O : RefLawsAOps MkRefd mref cref` at `hA : AdmCtx O.quiet mctx cctx` only.
 -- The proofs of `emitLeavesAP`, `bindInputPortAP`, `bindCertifiedInputsAP`, `certRest_keepsAP`,

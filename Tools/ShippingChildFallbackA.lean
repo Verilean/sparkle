@@ -1,5 +1,6 @@
 import Tools.ShippingChildTranslateA
--- NOT BUILT (worker par/tr, base 6a231b89). Isolated: only Tools/ShippingChildTranslatePathA.lean uses
+import Tools.ShippingChildKWalk
+-- BUILT by the integrator: fb1-fb12 exit 1 (the generic `repeat (first | exact … | kbase)` walk timed out at 13 sites, also at 1M heartbeats (fb2); replaced by the head-directed `kwalk` (Tools/ShippingChildKWalk.lean); the instance dispatch and the 15-arm fallback walked from the printed terms (run pr2); `instAddModulesA` by induction + equation lemma), fb13 exit 0 (worker par/tr, base 6a231b89). Isolated: only Tools/ShippingChildTranslatePathA.lean uses
 -- it. No `sorry`, no `axiom`, no `native_decide`, no new law / boundary field. Law witness:
 -- `O : RefLawsAOps MkRefd mref cref` at `hA : AdmCtx O.quiet mctx cctx` only; NO `RefLawsATele`
 -- (no arm proved here runs a telescope). Reused law-free: the calculus of
@@ -86,21 +87,11 @@ variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
 
 -- (F1) the arm walker: the recursive translator, the primitives, then `kbase`
 set_option hygiene false in
-macro "karm" : tactic => `(tactic| repeat (first
-  | exact hrec _ _ _ _
-  | exact makeWireP O hA hS _ _ _
-  | exact emitAssignP _ _
-  | exact addInputP O hA hS _ _
-  | exact bindSourceVariableP _ _
-  | exact lookupVarP _
-  | exact emitRegisterStmtA _ _ _ _ _ _
-  | exact emitRegisterA O hA hS _ _ _ _ _ _ _ _
-  | exact emitMemoryA O hA hS _ _ _ _ _ _ _ _ _
-  | exact freshNameA _ _
-  | exact emitInstanceA _ _ _
-  | exact addModuleToDesignA _
-  | exact KeepsCP.lift (keepsA_framed O hA hS FramedA.freshFVar)
-  | kbase))
+macro "karm" : tactic => `(tactic| kwalk [makeWireP, emitAssignP, addInputP, bindSourceVariableP,
+  lookupVarP, emitRegisterStmtA, emitRegisterA, emitMemoryA, freshNameA, emitInstanceA,
+  addModuleToDesignA])
+-- (integrator, after fb1/fb2: the old `repeat (first | exact … | kbase)` walk timed out at every
+-- site; `kwalk` (Tools/ShippingChildKWalk.lean) picks the rule by the program's head first)
 
 /-! ## The result emitters -/
 
@@ -233,15 +224,7 @@ theorem translateBoolUncachedWithA (legacy : TranslateFn)
     KeepsCP mctx mref cctx cref I (translateBoolUncachedWith rec legacy e hint top named) := by
   unfold translateBoolUncachedWith
   try dsimp only
-  repeat (first  -- guess: F3
-    | exact hleg _ _ _ _
-    | exact emitBoolLiteralA O hA hS _ _ _
-    | exact translateSignalCompareA O hA hS rec hrec _ _ _ _ _
-    | exact translateBoolBinaryA O hA hS rec hrec _ _ _ _ _
-    | exact translateMuxWithA O hA hS rec hrec _ (KeepsCP.pure _) _ _ _ _ _
-    | exact translateAppBoolA O hA hS rec hrec _ _ _ _ _
-    | refine KeepsCP.ite (fun _ => ?_) (fun _ => ?_)
-    | split)
+  kwalk [hleg _ _ _ _, emitBoolLiteralA O hA hS _ _ _, translateSignalCompareA O hA hS rec hrec _ _ _ _ _, translateBoolBinaryA O hA hS rec hrec _ _ _ _ _, translateMuxWithA O hA hS rec hrec _ (KeepsCP.pure _) _ _ _ _ _, translateAppBoolA O hA hS rec hrec _ _ _ _ _]  -- guess: F3
 
 theorem translateVectorMuxUncachedWithA (n : Nat) (e : Lean.Expr) (hint : String)
     (top named : Bool) :
@@ -354,11 +337,7 @@ theorem translateControlCachedWithA (lower : TranslateFn)
     KeepsCP mctx mref cctx cref I (translateControlCachedWith lower e hint top named) := by
   unfold translateControlCachedWith
   try dsimp only
-  repeat (first
-    | exact hlow _ _ _ _
-    | exact cacheLookupValidatedA O hA hS _
-    | exact recordTranslationA O hA hS _ _ _
-    | kbase)
+  kwalk [hlow _ _ _ _, cacheLookupValidatedA O hA hS _, recordTranslationA O hA hS _ _ _]
 
 /-! ## The instance helpers (child compile in hand) -/
 
@@ -381,19 +360,22 @@ theorem instArmOutPutA (key : UInt64) (out w : String) :
 
 theorem instAddModulesA (existing : List String) :
     ∀ ms : List Sparkle.IR.AST.Module,
-      KeepsCP mctx mref cctx cref I (instAddModules existing ms)
-  | [] => by unfold instAddModules; exact KeepsCP.pure _
-  | m :: ms => by
-    have ih := instAddModulesA existing ms
-    unfold instAddModules
-    try dsimp only
-    repeat (first | exact ih | exact addModuleToDesignA _ | kbase)  -- guess: F4
+      KeepsCP mctx mref cctx cref I (instAddModules existing ms) := by
+  -- (integrator, after fb6-fb9 timed out at the declaration: `induction` instead of a
+  -- recursive theorem)
+  intro ms
+  induction ms with
+  | nil => rw [instAddModules.eq_1]; exact KeepsCP.pure _
+  | cons m ms ih =>
+    -- (`unfold` timed out in `simp`, fb11: the equation lemma by `rw`)
+    rw [instAddModules.eq_2]
+    exact KeepsCP.ite (fun _ => KeepsCP.bind (addModuleToDesignA _) (fun _ => ih)) (fun _ => ih)
 
 theorem instRegisterChildA (existing : List String) (sub : Sparkle.IR.AST.Module) :
     KeepsCP mctx mref cctx cref I (instRegisterChild existing sub) := by
   unfold instRegisterChild
   try dsimp only
-  repeat (first | exact addModuleToDesignA _ | kbase)
+  kwalk [addModuleToDesignA _]
 
 theorem instClkRstA :
     ∀ (ps : List Sparkle.IR.AST.Port) (acc : List (String × Sparkle.IR.AST.Expr)),
@@ -403,7 +385,7 @@ theorem instClkRstA :
     have ih := fun acc => instClkRstA ps acc
     unfold instClkRst
     try dsimp only
-    repeat (first | exact ih _ | exact addInputP O hA hS _ _ | kbase)  -- guess: F4
+    kwalk [ih _, addInputP O hA hS _ _]  -- guess: F4
 
 theorem instOutWiresA (callKey : UInt64) (hint : String) :
     ∀ (ps : List Sparkle.IR.AST.Port) (conns : List (String × Sparkle.IR.AST.Expr))
@@ -463,20 +445,7 @@ theorem translateInstanceUncachedWithA (mn : Name) (sub : Sparkle.IR.AST.Module)
       (translateInstanceUncachedWith rec mn sub subD singleOut e hint top named) := by
   unfold translateInstanceUncachedWith
   try dsimp only  -- guess: F2
-  repeat (first
-    | exact hrec _ _ _ _
-    | exact instAddModulesA O hA hS _ _
-    | exact instRegisterChildA O hA hS _ _
-    | exact instClkRstA O hA hS _ _
-    | exact instArityCheckA _ _ _
-    | exact instArgsA O hA hS rec hrec _ _ _
-    | exact KeepsCP.lift (instArmCacheGetA O hA hS)
-    | exact KeepsCP.lift (instArmCachePutA O hA hS _ _)
-    | exact makeWireP O hA hS _ _ _
-    | exact freshNameA _ _
-    | exact instLinkCheckA _ _ _
-    | exact emitInstanceA _ _ _
-    | kbase)
+  kwalk [instArmCacheGetA O hA hS, instArmCachePutA O hA hS, hrec _ _ _ _, instAddModulesA O hA hS _ _, instRegisterChildA O hA hS _ _, instClkRstA O hA hS _ _, instArityCheckA _ _ _, instArgsA O hA hS rec hrec _ _ _, KeepsCP.lift (instArmCacheGetA O hA hS), KeepsCP.lift (instArmCachePutA O hA hS _ _), makeWireP O hA hS _ _ _, freshNameA _ _, instLinkCheckA _ _ _, emitInstanceA _ _ _]
 
 /-- **The multi-output projection lowering** (child compile in hand), given
 the call key's `canonHardwareKey` (premise) and the legacy fall-through. -/
@@ -491,21 +460,7 @@ theorem translateProjInstanceUncachedWithA
         e hint top named) := by
   unfold translateProjInstanceUncachedWith
   try dsimp only  -- guess: F2
-  repeat (first
-    | exact hleg _ _ _ _
-    | exact hrec _ _ _ _
-    | exact instCallKeyA hcanon _
-    | exact KeepsCP.lift (instArmOutGetA O hA hS)
-    | exact instAddModulesA O hA hS _ _
-    | exact instRegisterChildA O hA hS _ _
-    | exact instClkRstA O hA hS _ _
-    | exact instArityCheckA _ _ _
-    | exact instArgsA O hA hS rec hrec _ _ _
-    | exact instOutWiresA O hA hS _ _ _ _ _
-    | exact freshNameA _ _
-    | exact instLinkCheckA _ _ _
-    | exact emitInstanceA _ _ _
-    | kbase)
+  kwalk [instArmOutGetA O hA hS, hleg _ _ _ _, hrec _ _ _ _, instCallKeyA hcanon _, KeepsCP.lift (instArmOutGetA O hA hS), instAddModulesA O hA hS _ _, instRegisterChildA O hA hS _ _, instClkRstA O hA hS _ _, instArityCheckA _ _ _, instArgsA O hA hS rec hrec _ _ _, instOutWiresA O hA hS _ _ _ _ _, freshNameA _ _, instLinkCheckA _ _ _, emitInstanceA _ _ _]
 
 /-- **The instance arm** (`fallbackKind e = .other`): the dispatch on the
 head, the child's synthesis (`hchild`), the two certified lowerings under the
@@ -519,17 +474,31 @@ theorem translateInstanceOrFallbackA (env : Lean.Environment)
     (e : Lean.Expr) (hint : String) (top named : Bool) :
     KeepsCP mctx mref cctx cref I (translateInstanceOrFallback env rec e hint top named) := by
   unfold translateInstanceOrFallback
-  try dsimp only  -- guess: F3
-  repeat (first
-    | exact hlegC _ _ _ _
-    | exact KeepsCP.lift (hchild _)
-    | exact KeepsCP.lift (hpf _ _)
-    | exact translateControlCachedWithA O hA hS _
-        (translateInstanceUncachedWithA O hA hS rec hrec _ _ _ _) _ _ _ _
-    | exact translateControlCachedWithA O hA hS _
-        (translateProjInstanceUncachedWithA O hA hS rec hrec hcanon _ _ _ _ _ _
-          (fun e h t n => hlegC e h t n)) _ _ _ _
-    | kbase)
+  -- (integrator, after fb1-fb8 timed out on the generic walk: the elaborated term, printed by
+  -- `#print` (run pr2), walked by hand)
+  split
+  · refine KeepsCP.ite (fun _ => ?_) (fun _ => ?_)
+    · refine KeepsCP.bind (KeepsCP.lift (hchild _)) (fun sub => ?_)
+      split
+      · exact translateControlCachedWithA O hA hS _
+          (translateInstanceUncachedWithA O hA hS rec hrec _ _ _ _) _ _ _ _
+      · exact hlegC _ _ _ _
+    · split
+      · split
+        · refine KeepsCP.ite (fun _ => ?_) (fun _ => hlegC _ _ _ _)
+          refine KeepsCP.bind (KeepsCP.lift (hpf _ _)) (fun fo => ?_)
+          cases fo with
+          | some fieldName =>
+            refine KeepsCP.bind (KeepsCP.lift (hchild _)) (fun sub => ?_)
+            exact KeepsCP.ite
+              (fun _ => translateControlCachedWithA O hA hS _
+                (translateProjInstanceUncachedWithA O hA hS rec hrec hcanon _ _ _ _ _ _
+                  (fun e h t n => hlegC e h t n)) _ _ _ _)
+              (fun _ => hlegC _ _ _ _)
+          | none => exact hlegC _ _ _ _
+        · exact hlegC _ _ _ _
+      · exact hlegC _ _ _ _
+  · exact hlegC _ _ _ _
 
 end Inst
 
@@ -580,25 +549,21 @@ theorem translateFallbackA (O : RefLawsAOps MkRefd mref cref) {I : Void IO.RealW
   have hC := hCached rec hrec mctx cctx hA
   unfold translateFallback
   try dsimp only
-  split  -- guess: F6
-  all_goals first
-    | (refine translateControlCachedWithA O hA hS _ (fun _ _ _ _ => ?_) _ _ _ _  -- guess: F7
-       first
-        | exact translateBoolUncachedWithA O hA hS rec hr _ (fun e h t n => hI e h t n) _ _ _ _
-        | exact translateVectorMuxUncachedWithA O hA hS rec hr _ _ _ _ _
-        | exact translateSetWidthUncachedWithA O hA hS rec hr _ _ _ _ _ _
-        | exact translateRegisterUncachedWithA O hA hS rec hr _ _ _ _ _ _
-        | exact translateRegisterEnableUncachedWithA O hA hS rec hr _ _ _ _ _ _
-        | exact translateLoopRegisterUncachedWithA O hA hS rec hr _ _ _ _ _ _
-        | exact translateCircuitDoUncachedWithA O hA hS rec hr _ _ _ _ _ _
-        | exact translateCircuitDo2UncachedWithA O hA hS rec hr _ _ _ _ _ _ _ _
-        | exact translateMemoryUncachedWithA O hA hS rec hr _ _ _ _ _ _
-        | exact translateSliceUncachedWithA O hA hS rec hr _ _ _ _ _ _
-        | exact translateConcatUncachedWithA O hA hS rec hr _ _ _ _ _ _
-        | exact translateConcatLitUncachedWithA O hA hS rec hr _ _ _ _ _ _ _ _
-        | exact translateSliceFUncachedWithA O hA hS rec hr _ _ _ _ _ _)
-    | exact translateInstanceOrFallbackA O hA hS rec hr tenv (hchild mctx cctx hA)
-        (hpf mctx cctx hA) (hcanon mctx cctx hA) (fun e h t n => hC e h t n) _ _ _ _
+  -- (integrator, after fb1-fb8: one `kwalk` over the 15 arms, each chosen by its head)
+  split
+  all_goals kwalk [translateControlCachedWithA O hA hS,
+    (translateBoolUncachedWithA O hA hS rec hr _ (fun e h t n => hI e h t n)),
+    translateVectorMuxUncachedWithA O hA hS rec hr, translateSetWidthUncachedWithA O hA hS rec hr,
+    translateRegisterUncachedWithA O hA hS rec hr,
+    translateRegisterEnableUncachedWithA O hA hS rec hr,
+    translateLoopRegisterUncachedWithA O hA hS rec hr,
+    translateCircuitDoUncachedWithA O hA hS rec hr,
+    translateCircuitDo2UncachedWithA O hA hS rec hr,
+    translateMemoryUncachedWithA O hA hS rec hr, translateSliceUncachedWithA O hA hS rec hr,
+    translateConcatUncachedWithA O hA hS rec hr, translateConcatLitUncachedWithA O hA hS rec hr,
+    translateSliceFUncachedWithA O hA hS rec hr,
+    (translateInstanceOrFallbackA O hA hS rec hr tenv (hchild mctx cctx hA)
+      (hpf mctx cctx hA) (hcanon mctx cctx hA) (fun e h t n => hC e h t n))]
 
 /-- **The shipping translator keeps a stable `I`**, in every admissible context
 and every `CtxOk` compiler context, given exactly the five premises (one per

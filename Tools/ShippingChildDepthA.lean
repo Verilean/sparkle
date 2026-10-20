@@ -1,5 +1,5 @@
 import Tools.ShippingChildTranslatePathA
--- NOT BUILT (worker par/tr, base 6a231b89). Isolated: no existing file uses it.
+-- BUILT by the integrator: dp1 exit 0 (first try) (worker par/tr, base 6a231b89). Isolated: no existing file uses it.
 -- No `sorry`, no `axiom`, no `native_decide`, no new law / boundary field. Law witness:
 -- `O : RefLawsAOps MkRefd mref cref` at `hA : AdmCtx O.quiet mctx cctx` only.
 -- `coreN_keepsA` COPIES the built `core_tripleA` (ShippingChildVertA.lean, vt3 exit 0) for a NESTED

@@ -3323,6 +3323,9 @@ lean_lib «Tools.ShippingChildFrontA» where
 lean_lib «Tools.ShippingChildTranslateA» where
   roots := #[`Tools.ShippingChildTranslateA]
 
+lean_lib «Tools.ShippingChildKWalk» where
+  roots := #[`Tools.ShippingChildKWalk]
+
 lean_lib «Tools.ShippingChildFallbackA» where
   roots := #[`Tools.ShippingChildFallbackA]
 
