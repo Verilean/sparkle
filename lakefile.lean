@@ -3320,6 +3320,10 @@ lean_lib «Tools.ShippingChildCoreC» where
   roots := #[`Tools.ShippingChildCoreC]
 lean_lib «Tools.ShippingChildFrontA» where
   roots := #[`Tools.ShippingChildFrontA]
+lean_lib «Tools.ShippingChildTeleCP» where
+  roots := #[`Tools.ShippingChildTeleCP]
+lean_lib «Tools.ShippingChildProjFieldA» where
+  roots := #[`Tools.ShippingChildProjFieldA]
 lean_lib «Tools.ShippingChildTranslateA» where
   roots := #[`Tools.ShippingChildTranslateA]
 
