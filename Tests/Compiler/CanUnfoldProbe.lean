@@ -1,4 +1,5 @@
 import Sparkle
+import Tools.ShippingOkMsgGoal
 
 /-! # PROBE (not in `Tests.AllTests`): does a caller-supplied `canUnfold?` break the `Framed.whnf` laws?
 
@@ -15,9 +16,15 @@ carries; `whnf` reaches it through `getUnfoldableConst?` → `canUnfold`
 
 * case W (write): the callback sets `sparkleSynthDepth` to `before + 41` and records that it ran in a
   run-local ref. ASSERTS: the callback ran, and the depth read after `whnf` differs from before.
-* case E (exception): the callback throws an error whose message is `MessageData.ofLazy …`.
-  ASSERTS: `whnf` throws, and the caught exception's message is an `ofLazy` node (not in `OkMsg`'s
-  constructors).
+* case E (exception, lazy): the callback throws an error whose message is `MessageData.lazy …`.
+  ASSERTS: `whnf` throws, and the caught exception's message is an `ofLazy` node. This shows only that
+  an ARBITRARY lazy exception from a callback propagates through `whnf`; it does NOT show the message is
+  outside `OkMsg` (the class contains the lazy leaves `ofExpr` / `ofConstName`).
+* case G (exception, goal): the callback throws `MessageData.ofGoal g`. ASSERTS: `whnf` throws and the
+  escaped message satisfies `Tools.ShippingOkMsgGoal.hasGoal = true`; by the kernel lemma
+  `not_okMsg_of_hasGoal` such a message is NOT in `OkMsg`, so the escaped exception is not `OkExc`.
+  This is NOT an unconditional counterexample to `excOk`: `excOk` also requires the start world to be
+  `quiet`, which the probe does not check.
 
 Everything is restored in `finally` (the depth ref is set back to its value before the probe).
 Only the tracked depth ref and a probe-local ref are written; nothing re-typed, no file handles. -/
@@ -73,7 +80,26 @@ run_meta do
       let lazy := isLazy ex.toMessageData
       logInfo m!"CANUNFOLD E: whnf threw; message is ofLazy = {lazy}"
       unless lazy do throwError "CANUNFOLD E: escaped message is not ofLazy (not reproduced)"
-      logInfo m!"CANUNFOLD E REPRODUCED: whnf threw an exception whose message is an ofLazy node"
+      logInfo m!"CANUNFOLD E REPRODUCED (propagation only): an arbitrary lazy exception from the callback escaped whnf"
+    -- case G
+    let g := (← mkFreshExprMVar (mkConst ``Nat)).mvarId!
+    let goalThrower : Config → ConstantInfo → CoreM Bool := fun _ info => do
+      if info.name == ``probeTarget then
+        throwError (MessageData.ofGoal g)
+      return true
+    let resG ← try
+        let r ← withCanUnfoldPred goalThrower (whnf e)
+        pure (Sum.inl r)
+      catch ex => pure (Sum.inr ex)
+    match resG with
+    | .inl r =>
+      logInfo m!"CANUNFOLD G: whnf returned {r} (the exception did not escape)"
+      throwError "CANUNFOLD G: no exception escaped (not reproduced)"
+    | .inr ex =>
+      let hg := Tools.ShippingOkMsgGoal.hasGoal ex.toMessageData
+      logInfo m!"CANUNFOLD G: whnf threw; hasGoal of the escaped message = {hg}"
+      unless hg do throwError "CANUNFOLD G: escaped message has no ofGoal node (not reproduced)"
+      logInfo m!"CANUNFOLD G REPRODUCED: the escaped exception's message has an ofGoal node, hence is not OkMsg (kernel lemma Tools.ShippingOkMsgGoal.not_okMsg_of_hasGoal); quiet of the start world NOT checked"
   finally
     Sparkle.Compiler.Elab.sparkleSynthDepth.set before
     let fin ← Sparkle.Compiler.Elab.sparkleSynthDepth.get

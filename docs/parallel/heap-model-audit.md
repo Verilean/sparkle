@@ -12,8 +12,7 @@ counterexample REPRODUCED (probe …)" — an actual run showed the law false of
 source, no run. Two items are REPRODUCED (probe `Tests/Compiler/CanUnfoldProbe.lean`, run cu2 exit 0, commit 814a9a81): under a `Meta.Context` with a
 `canUnfold?` callback (`withCanUnfoldPred`), `whnf` ran the callback, which changed
 `sparkleSynthDepth` 0 -> 41 (against `RefLaws.frame` for `Framed.whnf` quantified over every
-context), and an exception thrown by the callback with an `ofLazy` message escaped `whnf`
-(against `excOk`; `OkMsg` has no `ofLazy`). Every other flagged item is a candidate, NOT
+context), and an exception thrown by the callback escaped `whnf`: the escaped exception's message containing an `ofGoal` node (probe case G, run cu3), which by the kernel lemma `Tools.ShippingOkMsgGoal.not_okMsg_of_hasGoal` is not in `OkMsg`; NOT an unconditional counterexample to `excOk`, whose premise also asks the start world to be `quiet` (not checked). Case E (an `ofLazy` message) shows only that an arbitrary lazy exception propagates: `OkMsg` itself contains the lazy leaves `ofExpr`/`ofConstName`. Every other flagged item is a candidate, NOT
 reproduced.
 
 Abbreviations: `CI` = `Tools/ShippingChildInv.lean`, `CC` = `Tools/ShippingChildBndCore.lean`,
@@ -91,8 +90,7 @@ guarded), and the CONTEXTS themselves (every field: `canUnfold?`).
    same shape as the removed `Framed.ioFlush`. Logical inconsistency: NOT PROVEN (no proof
    either way; `whnf`/`inferType` are `@[extern] opaque`, so the `ioFlush` derivation does not
    carry over directly, but that is an argument, not a proof). Runtime counterexample
-   REPRODUCED (probe `Tests/Compiler/CanUnfoldProbe.lean`, run cu2 exit 0, commit 814a9a81) for `frame` (`Framed.whnf`: depth 0 -> 41) and for `excOk` (an
-   `ofLazy` exception escaped `whnf`); `frameQ`, `telescope`, `lamTelescope`: candidates via the
+   REPRODUCED (probe `Tests/Compiler/CanUnfoldProbe.lean`, run cu2 exit 0, commit 814a9a81) for `frame` (`Framed.whnf`: depth 0 -> 41) (this one unconditional over every context); for `excOk` only the escaped exception's message containing an `ofGoal` node (probe case G, run cu3), which by the kernel lemma `Tools.ShippingOkMsgGoal.not_okMsg_of_hasGoal` is not in `OkMsg`; NOT an unconditional counterexample to `excOk`, whose premise also asks the start world to be `quiet` (not checked). Case E (an `ofLazy` message) shows only that an arbitrary lazy exception propagates: `OkMsg` itself contains the lazy leaves `ofExpr`/`ofConstName`; `frameQ`, `telescope`, `lamTelescope`: candidates via the
    same mechanism, NOT reproduced separately. Candidate repair (not done; a law change, needs a decision): restrict the
    context quantifier to `mctx.canUnfold? = none` (or to contexts the compile builds).
 2. **`frame` for `whnf`/`reduce`, NOT quiet-gated**: `reduceNative?` (WHNF.lean:1008/1116)
@@ -113,7 +111,7 @@ guarded), and the CONTEXTS themselves (every field: `canUnfold?`).
 5. **`excOk` content (T3)**: `OkMsg` lacks `.trace`, `.ofWidget`, `ofGoal`/other `ofLazy`
    closures and hint/note constructors; that Lean's own primitives never throw such messages
    is unaudited (candidate, NOT reproduced); with a `canUnfold?` callback (item 1) it is
-   false: REPRODUCED (probe `Tests/Compiler/CanUnfoldProbe.lean`, run cu2 exit 0, commit 814a9a81, an `ofLazy` message).
+   the escaped value is outside the class: the escaped exception's message containing an `ofGoal` node (probe case G, run cu3), which by the kernel lemma `Tools.ShippingOkMsgGoal.not_okMsg_of_hasGoal` is not in `OkMsg`; NOT an unconditional counterexample to `excOk`, whose premise also asks the start world to be `quiet` (not checked). Case E (an `ofLazy` message) shows only that an arbitrary lazy exception propagates: `OkMsg` itself contains the lazy leaves `ofExpr`/`ofConstName`.
 6. **Concurrency** (all fields): the world-passing reading is sequential; a concurrent task
    (Lean's async elaboration, `Task.spawn`) writing the three refs between two steps falsifies
    every frame law. Not stated anywhere; a fit premise (candidate, NOT reproduced).
@@ -174,6 +172,6 @@ constructors for `getEnv`, `getConstInfo`, `whnf`, `inferType`, `isClass?`, `whn
 |---|---|---|
 | (a) | pure model laws | **PROVED in HM (BUILT by the integrator: hm1 exit 0; ax2: no axioms)**, about the restatement over `Heap σ` only: get-after-set, set-frame for distinct ids, read-frame, modify = get;set, alloc spec; model analogues of `frame` (ref-only constructors), `frameQ`, `cacheSet`, `depthSet`, `cacheSetQ`, `depthSetQ`, `frameT`, `excOk` (model's own throws only); instantiated by `HeapLaws.model`; `heapLaws_sat`, `heapLaws_nonempty`, `frame_all_false`. |
 | (b) | fit of the pure model to Lean's extern ST refs (`ST.Prim.Ref.get/set/mkRef`, `Void IO.RealWorld`) | **OPEN** — not stated, not proved. Includes: the three tracked refs are distinct cells; the side refs (incl. same-typed `sparkleSubModuleCache` and the `Nat` refs) are distinct cells; no re-typed alias is ever used (§1a item 3); no concurrent writer (item 6). |
-| (c) | fit for MetaM primitives / printers / exceptions | **OPEN** — and the CURRENT statements are false of the runtime for adversarial contexts: REPRODUCED for §1a item 1 (`frame` via `Framed.whnf`) and item 5 (`excOk`, `ofLazy`) by probe `Tests/Compiler/CanUnfoldProbe.lean`, run cu2 exit 0, commit 814a9a81; items 2, 4 and the rest of 5 are counterexample candidates, NOT reproduced. Repairing them is a law change (needs a decision). |
+| (c) | fit for MetaM primitives / printers / exceptions | **OPEN** — and the CURRENT statements are false of the runtime for adversarial contexts: REPRODUCED for §1a item 1 (`frame` via `Framed.whnf`) and item 5 (`excOk`: escaped message outside `OkMsg`, quiet premise NOT checked; case G, run cu3) by probe `Tests/Compiler/CanUnfoldProbe.lean` (cu2/cu3); items 2, 4 and the rest of 5 are counterexample candidates, NOT reproduced. Repairing them is a law change (needs a decision). |
 | (d) | initial contents (`initialize`, `IO.mkRef`) | **OPEN** (`childbnd-residual.md` R13/R14). |
 | (e) | joint satisfiability of the full `RefLawsCore` | **OPEN**; logical inconsistency NOT PROVEN (no proof either way). HM satisfies only the ref-only fragment RESTATED over `Heap σ`, which is not `RefLawsCore` (not even its ref-only fields, stated over `IO.Ref` / `MetaM`). Every `ChildBnd`-premised theorem may still be vacuous. |

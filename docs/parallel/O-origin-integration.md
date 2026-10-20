@@ -648,8 +648,8 @@ The inliner candidate is unchanged.
 ### (1) Probe: `canUnfold?` (Tests/Compiler/CanUnfoldProbe.lean, unregistered; 814a9a81)
 Separate process (`lake env lean` under cgrun). Case W: a `withCanUnfoldPred` callback reached by `whnf`
 (asserted: it ran) changed `sparkleSynthDepth` 0 → 41 — REPRODUCED runtime counterexample to `RefLaws.frame`
-(`Framed.whnf` over every context). Case E: the callback's exception with an `ofLazy` message escaped `whnf` —
-REPRODUCED counterexample to `excOk`. Depth restored in `finally`. Logical inconsistency NOT PROVEN (opaque refs).
+(`Framed.whnf` over every context). Case E: an `ofLazy`-message exception from the callback escaped `whnf` — propagation only (CORRECTED after review: `OkMsg`
+contains lazy leaves, so this does not show non-membership; see case G below, run cu3). Depth restored in `finally`. Logical inconsistency NOT PROVEN (opaque refs).
 Not reproduced (candidates): native reduction, re-typed ref aliases, file handles, Lean primitives' own messages,
 concurrency.
 
