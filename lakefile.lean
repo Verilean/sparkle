@@ -3300,3 +3300,6 @@ lean_lib «Tools.ShippingChildFresh» where
 
 lean_lib «Tools.ShippingLeafFive» where
   roots := #[`Tools.ShippingLeafFive]
+
+lean_lib «Tools.ShippingChildVCA» where
+  roots := #[`Tools.ShippingChildVCA]
