@@ -1,5 +1,5 @@
 import Tools.ShippingChildVertA
--- UNBUILT (worker par/ca, base 6a231b89). Isolated: no existing file uses it (only the audit
+-- BUILT by the integrator: ca1 exit 0 (first try; peak 1.9 GB), audit ca2 exit 0 (closures without the old boundary) (worker par/ca, base 6a231b89). Isolated: only the audit
 -- Tests/Compiler/ChildVertAuditTest.lean imports it).
 -- No `sorry`, no `axiom`, no `native_decide`, no new law / boundary field. Law witness:
 -- `O : RefLawsAOps Fresh mref cref` at `hA : AdmCtx O.quiet mctx cctx` only (no old law bundle,
