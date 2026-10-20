@@ -1,7 +1,7 @@
 import Tests.Compiler.MemNameCollisionSatTest
 import Tools.ShippingSatAssemblyS
 -- BUILT by the integrator: sl1 exit 0 (675 jobs; audit passed) (round par/init phase 3).
--- TARGET-ONLY; not registered in Tests.AllTests (integrator decides).
+-- Registered in Tests.AllTests (all6, 1446 jobs).
 -- Writing-time guesses: (g1) `generateTopW` accepts the head `machine_design_noPortsTBS` (its
 -- hypotheses are TBW's, in the same order; only the conclusion differs; (14) is stated without
 -- `BoundOff`, so the refusal check does not fire); (g2) the `hRegs` lambda `fun hcore => …`

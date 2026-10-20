@@ -10,6 +10,13 @@ typed input stream and every `T`, a closed run of the emitted design objects fro
 start state exists and shows the source, and every such run shows it. Below: what stands between that
 and an unconditional claim.
 
+
+**Not complete (stated explicitly, 2026-10-20 review of b1849017):** (i) the fit of the runtime boundary to Lean's real
+runtime — the main theorems still use the OLD `RefLaws`/`ChildBnd`, of which a runtime counterexample is reproduced
+(frame over every context); the corrected boundary (`Tools/ShippingChildInvA.lean`) is not yet carried through the
+proofs; (ii) the bridge from the emitted design objects to the PRINTED SystemVerilog string (trusted printer,
+parse-back only as validation); (iii) coverage of all compiler-accepted inputs (certificates cover named shapes only).
+
 ## 1. Runtime (the `ChildBnd` premise; IO/ST refs, MetaM, printers)
 
 | item | status |

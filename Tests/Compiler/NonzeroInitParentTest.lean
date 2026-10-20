@@ -1,6 +1,6 @@
 import Tests.Compiler.MemNameCollisionSatSTest
 -- BUILT by the integrator: ni1 exit 1 (`collMixSame5_entry` lost its proof line in the copy; `addSat` is root-level, not namespaced), ni2 exit 0 (676 jobs; audit passed, axioms standard; slot inits [5, 7]) (round par/nz, base 2d98c233).
--- TARGET-ONLY; not registered in Tests.AllTests (integrator decides).
+-- Registered in Tests.AllTests (all6, 1446 jobs).
 -- Writing-time guesses:
 --   (n1) `renameIn ``mixSame5 ``fakeSrc syncName …` resolves `fakeSrc` / `syncName` / `renameIn`
 --        to `MemNameCollisionGateCertTest`'s (opened); the colliding declaration `syncName` is the

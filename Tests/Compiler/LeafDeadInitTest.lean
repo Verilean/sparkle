@@ -6,7 +6,7 @@ import Tools.ShippingDesignSV
 
 /-! # A leaf register machine whose optimizer REMOVES a nonzero-init register
 
-BUILT by the integrator: lf2 exit 1 (stuck `Decidable` instance; theorem value needs `value? (allowOpaque := true)`), lf3 exit 1 (same `Decidable`, -> `Nat.blt`), lf4 exit 0 (370 jobs) (round par/leafnz, base aa35e8a6). Not in `Tests.AllTests`.
+BUILT by the integrator: lf2 exit 1 (stuck `Decidable` instance; theorem value needs `value? (allowOpaque := true)`), lf3 exit 1 (same `Decidable`, -> `Nat.blt`), lf4 exit 0 (370 jobs) (round par/leafnz, base aa35e8a6). Registered in `Tests.AllTests` (all7).
 
 `dead7` (copied from Tests/Compiler/NonzeroInitProbe.lean into this namespace): two
 registers, reset values 5 and 7; the output reads only the first. Probe nz3 measured that

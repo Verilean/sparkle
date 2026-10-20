@@ -3,7 +3,7 @@ import Tools.ShippingLeafSat
 
 /-! # `dead7`'s run hypotheses discharged by theorem (`leaf_sat`)
 
-BUILT by the integrator: ls1 exit 0 (574 jobs; audit passed). Not in `Tests.AllTests`.
+BUILT by the integrator: ls1 exit 0 (574 jobs; audit passed). Registered in `Tests.AllTests` (all8 exit 0, 1453 jobs).
 
 `dead7` (Tests/Compiler/LeafDeadInitTest.lean): a leaf with registers of reset values 5 and 7
 whose optimizer removes the reset-7 register (asserted there). Here

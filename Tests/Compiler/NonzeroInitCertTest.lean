@@ -2,7 +2,7 @@ import Tests.Compiler.NonzeroInitParentTest
 import Tools.ShippingSatCertS
 import Tools.ShippingSatCertSCommand
 -- BUILT by the integrator: cs3 exit 0 (685 jobs; audit passed, axioms standard); writing-time guesses accepted; (round par/certs, base aa35e8a6).
--- TARGET-ONLY; not registered in Tests.AllTests (integrator decides).
+-- Registered in Tests.AllTests (all7, 1451 jobs).
 -- Writing-time guesses:
 --   (t1) `collMixSame5_cert` by `decide` as `MemNameCollisionGateCertGenTest`'s `collMixSame_cert`
 --        (same tables `outsG` / `insG`; the data differ only in the slot inits);
