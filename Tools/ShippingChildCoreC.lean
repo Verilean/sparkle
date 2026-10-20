@@ -1,6 +1,6 @@
 import Tools.ShippingChildCacheA
 import Tools.ShippingChildVertA
--- UNBUILT (worker par/ca, base d39a62f4). Isolated: no existing file uses it (only the audit
+-- BUILT by the integrator: cc1 exit 0 (first try; peak 1.7 GB) (worker par/ca, base d39a62f4). Isolated: no existing file uses it (only the audit
 -- Tests/Compiler/ChildVertAuditTest.lean imports it).
 -- No `sorry`, no `axiom`, no `native_decide`, no new law / boundary field. Law witness:
 -- `O : RefLawsAOps Fresh mref cref` at `hA : AdmCtx O.quiet mctx cctx` only (no old law bundle,
