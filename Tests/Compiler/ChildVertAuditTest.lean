@@ -3,6 +3,7 @@ import Tools.ShippingChildPathA
 import Tools.ShippingChildCacheA
 import Tools.ShippingChildCoreC
 import Tools.ShippingChildFrontA
+import Tools.ShippingChildDepthA
 
 /-! # Audit: the vertical path does not use the old boundary (round par/vert)
 
@@ -145,7 +146,17 @@ def audited : List Name :=
    ``Tools.ShippingChildFrontA.fromConst_machine_keepsA,
    ``Tools.ShippingChildFrontA.fromConst_frontends_keepsA,
    ``Tools.ShippingChildFrontA.fromConst_hbody_frontends,
-   ``Tools.ShippingChildFrontA.core_tripleA_frontends]
+   ``Tools.ShippingChildFrontA.core_tripleA_frontends,
+   ``Tools.ShippingChildTranslateA.translateStepWithA,
+   ``Tools.ShippingChildTranslateA.translateA_of_fallback,
+   ``Tools.ShippingChildFallbackA.translateFallbackA,
+   ``Tools.ShippingChildFallbackA.translate_keepsA,
+   ``Tools.ShippingChildFallbackA.translate_keepsJQ,
+   ``Tools.ShippingChildTranslatePathA.certRest_keepsAP,
+   ``Tools.ShippingChildTranslatePathA.fromConst_certified_hbody_of_handlers,
+   ``Tools.ShippingChildDepthA.coreN_keepsA,
+   ``Tools.ShippingChildDepthA.childKeepsA_all,
+   ``Tools.ShippingChildDepthA.core_tripleA_of_bodies]
 
 end Tests.Compiler.ChildVertAuditTest
 
