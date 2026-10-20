@@ -200,3 +200,74 @@ Revision (quiet is NOT fixed to True/False; it stays a field):
   the quiet premise is supplied by the invariant. Two-step bind: not done
   (`Keeps.bind` is in `ShippingChildVC`, not imported).
 * `toAOps` (old ⇒ new) still holds, with the added premises unused.
+
+## Vertical migration (1 path) (round par/vert, base 777630e9; WRITTEN, NOT BUILT at writing time)
+
+Files: `Tools/ShippingChildFresh.lean`, `Tools/ShippingChildVCA.lean`,
+`Tools/ShippingChildVertA.lean`, audit `Tests/Compiler/ChildVertAuditTest.lean`
+(not in AllTests).
+
+**Law witness**: `O : RefLawsAOps MkRefd mref cref` and `hA : AdmCtx O.quiet mctx cctx`
+only. No `RefLaws`, no `RefLawsCore`, no `RefLawsCore.toAOps`/`toA`, no
+`RefLawsATele` (the path has no telescope). The audit test walks the
+transitive constant closure of each audited theorem and throws if one of
+these appears (positive control: the closure of `toAOps` does contain
+`RefLawsCore`).
+
+**`Fresh` has meaning**: `MkRefd σ r` := `r` was returned by a run of
+`IO.mkRef v` (MetaM, or lifted from IO) in some contexts from some world. It
+is not `fun _ _ => True`. Proved law-free: `runsTo_mkRef_bind` /
+`runsTo_mkRefIO_bind` (the continuation of `x ← IO.mkRef v; k x` runs on a
+ref with `MkRefd`). Under the laws: `tripleA_mkExprCache` /
+`keepsA_mkExprCache_bind` (the allocation is `FramedA.mkExprCache`; the
+continuation need keep the invariant only for `MkRefd` refs),
+`keepsA_exprCacheGet` (a read of such a ref: `O.frame` at
+`FramedA.exprCacheGet r hr`, `hr` discharged by the threading). That an
+`MkRefd` ref is not one of the three tracked refs is NOT proved: it is what
+`O.frame` states at `FramedA MkRefd (.localSet …/.exprCacheModify …)`, a
+law of the new boundary. No law field was added.
+
+**Migrated (theorems, modulo the premises below)**:
+
+* `core_tripleA`: the core entry `synthesizeCombinationalCore declName [] false`
+  from `OutQ O.quiet` ends in `OutQ O.quiet` on every outcome, exceptions
+  in the class. Steps: profile read (`FramedA.ioEnv`), profile log
+  (`O.diag`), depth read (value = depth, `runsTo_get_readOf`), depth guard
+  (`O.frameT`, `O.excOk`), saved maps, 4 resets, cache clear (`O.cacheSet`,
+  `O.cacheSetQ`), 7 resets, bump to 1 (`O.depthSet`, `O.depthSetQ`),
+  `getConstInfo`/`getEnv`, the body, the `finally` (`finA`:
+  `RefLawsAOps.depthModify'` + `O.frameQ`/`O.depthSetQ`, back to 0). The
+  invariant is `JQ q D` = quiet ∧ synthesis ref = `some synthesizeChild` ∧
+  depth = `D` (no cache half; the old `J L D` carries `CacheInv`, which is
+  stated over `RefLaws`).
+* `certified_keepsA`: the `IO.mkRef` sub-path `synthesizeCertified`
+  (reached from `synthesizeFromConst`'s certified branch) keeps any
+  `StableA` invariant through the fresh fvars, the distinctness branch and
+  the cache allocation, handing the rest a ref with `MkRefd`.
+
+**Stays a hypothesis (unproven)**:
+
+* `hbody` of `core_tripleA`: the body `synthesizeFromConst …` keeps `JQ O.quiet 1`
+  (the old route proves its analogue from `bodyRel`/`childKeeps` under
+  `RefLaws`; nothing of the body is migrated);
+* `hrest` of `certified_keepsA`: the translation run and `finishSynth` keep the
+  invariant for `MkRefd` refs; the link `synthesizeFromConst → synthesizeCertified`
+  (so that `certified_keepsA` discharges part of `hbody`) is not made;
+* the start condition of the entry: `OutQ O.quiet w` (in particular
+  `O.quiet w`) and `AdmCtx O.quiet mctx cctx` of the entry's contexts — the
+  callback of the command's Meta context is not shown inert;
+* the runtime fit of `RefLawsAOps MkRefd` itself (joint satisfiability,
+  and the non-alias content of `frame` at `MkRefd` refs): not shown; every
+  result may be vacuous for a model without such a witness (cf. the
+  `quiet = False` audit above, which makes the conclusions vacuous, not
+  false).
+
+**Next steps to widen**: (1) migrate the body: `synthesizeFromConst`'s
+dispatch, connecting the certified branch to `certified_keepsA` and the
+legacy branch's `IO.mkRef` (Elab.lean:5377) the same way; (2) the child
+entry (`synthesizeChild`, memoised) under `JQ` plus a cache half not stated
+over `RefLaws`; (3) the telescope sites via `RefLawsATele` (lambda/forall
+telescopes in the legacy body); (4) `CompilerM` lifts of the local-ref ops
+inside the translation run (`exprCache*` from `CompilerM`), so that `hrest`
+becomes a theorem; (5) discharge `AdmCtx` at the command's context
+(`canUnfold? = none` for `#synthesizeVerilog`'s `MetaM` run, `admCtx_none`).
