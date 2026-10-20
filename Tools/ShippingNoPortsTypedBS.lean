@@ -1,12 +1,13 @@
 import Tools.ShippingNoPortsTypedBW
 import Tools.ShippingHierOptRunS
--- BUILT by the integrator: bs1 exit 0 for this file (round par/init, base 87874a82).
+-- BUILT by the integrator: bs1 exit 0 (round par/init, base 87874a82); (14) restated unfolded in phase 3, rebuilt in sl1.
 -- Writing-time guesses: (g1) `stO_eq_of_same` is applied with `o := checkedOptimize b` inferred
 -- from `heqB`; (g2) `rw [hopt, if_neg hacc, hEq]` / `rw [heqB, hEq]`: `hEq : stO = st0` rewrites
 -- the goal's `⟨stO, mems, kids⟩` (stO a local); (g3) `hierRefineCheck_linkedS … hrunB …` returns
 -- the run from `⟨stO, (⟨st0, mems, kids⟩ : KState _).mems, ….kids⟩`, accepted by `refine` up to
 -- projection reduction; (g4) `hbo` has exactly the type `fitX_of_runTypedS` expects (what
--- `boundOffI_of_bounded` returned in TBW).
+-- `boundOffI_of_bounded` returned in TBW) — (par/init phase 3) (14) is now stated UNFOLDED
+-- (`∀ n, n ∉ … → st0 n < 2 ^ declWidth b n`), accepted for `BoundOff` by definitional unfolding.
 
 /-! # The TBW head with a TARGET start state (round par/init)
 
@@ -16,7 +17,8 @@ import Tools.ShippingHierOptRunS
 * (11)  `Bounded (weS (checkedOptimize b)) st0` is replaced by
 * (11') `Bounded (weS (checkedOptimize b)) stO`,
 * (13)  `∀ n, (n ∉ drivesOf b.body ∨ n ∈ drivesOf (checkedOptimize b).body) → stO n = st0 n`,
-* (14)  `BoundOff (declWidth b) (outputs ++ inputs) st0` (TBW derived it from (11));
+* (14)  `∀ n ∉ outputs ++ inputs, st0 n < 2 ^ declWidth b n` (`BoundOff` unfolded, so the
+  generator's refusal of `BoundOff` does not fire; TBW derived it from (11));
 
 the conclusion's runs (both parts) are from `⟨stO, mems, kids⟩`.
 
@@ -187,8 +189,9 @@ theorem machine_design_noPortsTBS
             (∀ n, (n ∉ Sparkle.IR.HierCheck.drivesOf b.body ∨
               n ∈ Sparkle.IR.HierCheck.drivesOf (checkedOptimize b).body) → stO n = st0 n) →
             -- (par/init) (14) the source start state within `b`'s declared widths off the ports
-            Tools.ShippingHierTyped.BoundOff (declWidth b)
-              (b.outputs.map (·.name) ++ b.inputs.map (·.name)) st0 →
+            -- (`BoundOff` unfolded: the generator refuses statements mentioning `BoundOff`)
+            (∀ n, n ∉ b.outputs.map (·.name) ++ b.inputs.map (·.name) →
+              st0 n < 2 ^ declWidth b n) →
             (∀ mn iname conns gc gcwe, Stmt.inst mn iname conns ∈ (checkedOptimize b).body →
               childMap D.modules mn = some (gc, gcwe) → InvN (childMap D.modules) 0 gc (kids iname)) →
             -- a closed run of the emitted texts showing the source exists ...

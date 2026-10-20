@@ -180,3 +180,36 @@ OPEN:
 * Instance test: a `hierGate` parent with a nonzero init that applies `sat_of_designClosedBS`.
   It needs the four parents' generator chain (`<p>_sat` in MemNameCollisionSatTest), which
   depends on L6.
+
+## 5. Phase 3 (written, NOT BUILT; base: merge of poc 853b1608)
+
+Integrator build of phase 2 (bs1/bs2): HierOptRunS and NoPortsTypedBS built as written;
+NonzeroInitWidths needed two parse fixes (`(by cases he)` inside a tuple, explicit `memory`
+pattern), bs2 exit 0.
+
+* L5 `Tools/ShippingSlotRegsRun.lean`:
+  * `closeMachine_regs`: every register of `closeMachine lay t` is a slot's register, at the
+    slot's reset value and the transition's slot width.
+  * `slotRegs_runMT`: from the core run, every register statement of `M` (with or without
+    calls) has `∃ f ∈ slots, init = Int.ofNat f.init ∧ weOf M r = f.width`.
+  * No producer change, no `ids`/`regs` in the statement.
+* L6 `Tools/ShippingSatAssemblyS.lean`:
+  * definitions and helpers: `slotInit`, `stOf`, `slotInit_at`, `slotInit_cases`, `reg_drives`,
+    `wired_more`;
+  * `sat_of_designClosedBS`: TBS-shaped `H`, the run facts of BW plus `hDesign` and `hRegs`
+    (L5), and the data conditions of BW (without `hinit`) plus `hinitW`, `houtTy`, `hon`
+    (`outNameOk` of the outputs);
+  * the conclusion exports `regs` with its `MachineWired`, and the runs start from
+    `⟨stOf b regs slots, mems, kids⟩`.
+* TBS change: hypothesis (14) is now stated with `BoundOff` unfolded (`∀ n, n ∉ outputs ++
+  inputs → st0 n < 2 ^ declWidth b n`), because `generateW` refuses statements that mention
+  `BoundOff`.
+* Instance `Tests/Compiler/MemNameCollisionSatSTest.lean` (not registered):
+  * `<p>_designClosedBS` comes from `generateTopW` with `head := machine_design_noPortsTBS`;
+  * `<p>_satS` applies `sat_of_designClosedBS` to the four collision parents (inits 0: this
+    type-checks the route only);
+  * an audit checks the axioms and that no premise of `<p>_satS` mentions InvN / Reset1 /
+    seedIn.
+* A nonzero-init instance parent needs only its own copy of the existing per-parent chain:
+  `#machine_*` endpoints, the gate-certificate run-fact lemmas, `_names`/`_gate`/`_oi`/
+  `_inputWires`/`_kidsSat`, `_designP0`, `_closesR`. No new general lemma is needed.

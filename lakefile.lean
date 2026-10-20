@@ -3267,3 +3267,6 @@ lean_lib «Tools.ShippingNoPortsTypedBS» where
 
 lean_lib «Tools.ShippingSlotRegsRun» where
   roots := #[`Tools.ShippingSlotRegsRun]
+
+lean_lib «Tools.ShippingSatAssemblyS» where
+  roots := #[`Tools.ShippingSatAssemblyS]
