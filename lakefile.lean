@@ -3279,3 +3279,6 @@ lean_lib «Tools.ShippingSatCertSCommand» where
 
 lean_lib «Tools.ShippingChildInvA» where
   roots := #[`Tools.ShippingChildInvA]
+
+lean_lib «Tools.ShippingMachineShipsS» where
+  roots := #[`Tools.ShippingMachineShipsS]
