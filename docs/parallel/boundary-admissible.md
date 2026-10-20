@@ -227,6 +227,16 @@ continuation need keep the invariant only for `MkRefd` refs),
 `O.frame` states at `FramedA MkRefd (.localSet …/.exprCacheModify …)`, a
 law of the new boundary. No law field was added.
 
+**Correction (review of 37dc265f).** `MkRefd` is a HISTORY: some run of
+`IO.mkRef`, in some other contexts and from some other world, returned `r`.
+It does NOT prove that `r` is fresh in THIS run (`FreshIn`), nor that it does
+not alias a tracked ref or a ref that existed before; the non-alias is still
+carried by the law `O.frame`. It must not be described as "provenance
+solved". The world-indexed relation (allocation world → use world) is built
+in the pure heap model only (`Tools/ShippingHeapProvenance.lean`, round
+par/heapw; see `docs/parallel/heap-model-audit.md`); its fit to the real
+`ST` runtime is a separate open item.
+
 **Migrated (theorems, modulo the premises below)**:
 
 * `core_tripleA`: the core entry `synthesizeCombinationalCore declName [] false`
