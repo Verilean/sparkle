@@ -685,3 +685,35 @@ kernel-checked. No leaf sat layer.
 | all7 | `Tests.AllTests` (+ NonzeroInitCertTest, LeafDeadInitTest) | 0 | 1451 jobs, peak 0.73 GB |
 
 Corpus not run. No CI. Not pushed. The probe CanUnfoldProbe is not registered (it installs a callback and writes a tracked ref). Inliner candidate unchanged.
+
+## Round after review of 204e857f: P1 quiet worlds, P2 precise exception counterexample
+
+### P1 (68d14751, ef5a26e3) — `Tools/ShippingChildInvA.lean` revised (isolated)
+Finding (review): `InertUnfold` only says the callback is safe FROM quiet worlds, but the ba2 laws (`frame`, `frameT`,
+`cacheSet`/`depthSet`, the telescope family's `Keeps`) held at ALL worlds; with `quiet := False` every callback is
+admissible, so the probe's writer was again covered. Revision: every AdmCtx-licensed law also asks `quiet w` of the
+start world; the telescope family asks the invariant to imply quiet. Regression theorems: `admCtx_quietFalse`,
+`admCtx_quietFalse_writer` (the probe's depth writer is admissible at quiet = False), `frame_quietFalse_vacuous`
+(the revised frame then says nothing), `oldFrame_covers_writer` (the ba2 shape forced the frame on the writer),
+`RefLawsATele.quietFalse`. Consumer thread: `OutQ` (quiet, synth ref, depth 0) kept by an admissible `FramedA` op
+(`outQ_end`, `keeps_outQ`); `cacheModify'`/`depthModify'` with the quiet premise. The continuation laws remain a
+different assumption, not derived from the old ones. Not migrated; RefLaws untouched.
+
+### P2 (19905cef) — probe case E made precise
+`OkMsg` contains the lazy leaves `ofExpr`/`ofConstName`, so `isLazy` proved nothing. `Tools/ShippingOkMsgGoal.lean`:
+`hasGoal`, `okMsg_hasGoal : OkMsg m → hasGoal m = false`, `not_okMsg_of_hasGoal`. Probe case G (cu3): a callback
+throws `ofGoal g`; the message escaping `whnf` has `hasGoal = true`, hence is not `OkMsg`. NOT an unconditional
+counterexample to `excOk` (its quiet premise is not checked). Case E: propagation of an arbitrary lazy exception only.
+Case W (frame over every context) stays a separate, reproduced runtime counterexample.
+
+| run | target | exit | notes |
+|---|---|---|---|
+| og1 | ShippingOkMsgGoal | 1 | redundant tactic after a closing `simp only` |
+| og2 | ShippingOkMsgGoal | 0 | 308 jobs |
+| cu3 | CanUnfoldProbe (cases W, E, G) | 0 | G: hasGoal = true |
+| ax6 | #print axioms, 3 OkMsg lemmas | 0 | standard |
+| ba3 | ShippingChildInvA (P1 revision) | 0 | 310 jobs, first try |
+| ax7 | #print axioms, 10 InvA lemmas | 0 | standard |
+
+The main theorems that use the OLD boundary (`RefLaws`/`ChildBnd`) are NOT shown to fit the real runtime; their
+fit stays open. No full suite run (no suite change since all7).
