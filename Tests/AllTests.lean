@@ -324,6 +324,8 @@ import Tests.Compiler.MemNameCollisionGateCertGenTest
 import Tests.Compiler.MemNameCollisionGateCert2Test
 import Tests.Compiler.MemNameCollisionKidsSatTest
 import Tests.Compiler.MemNameCollisionSatTest
+import Tests.Compiler.MemNameCollisionSatCertTest
+import Tests.Compiler.MemNameCollisionSatCert2Test
 import Tests.Compiler.InlCandAuditTest
 import Tests.SVParser.TestVerify
 import Tests.Bus.TestAXI4Lite
