@@ -9,11 +9,9 @@ module at the emitter's own width map `wofOf (checkedOptimize b)` under five inn
 (1) `(checkedOptimize b).body.all seqStmtOk` (`leaf_entry_shipped_seq_closed`), (2) `simpleBody b = false`,
 (3) `seqCheck` at `wofOf`, (4) the `seqNames` width agreement (`leaf_entry_textChecks_closed`) are derived
 from the same run, given the data/reflection bundle `LeafKid` (produced per declaration by
-`#machine_leaf_entry`) and `ChildBnd`. REMAINING inner antecedent (5): every input of `dropZeroWidth raw`
-has `declWidth ≤ weS (checkedOptimize b)`. It holds on dead7's compile (probe l5p2) but is NOT derived:
-`checkedOptimize` keeps the ports, but no lemma says the optimized module's wires are a sub-list of the
-input module's on the leaf route (the instance route has `checkedOptimize_ports_wires`, which needs
-`hierGate`). Premises added w.r.t. `leaf_sat_design`: `K`, `hbnd`. -/
+`#machine_leaf_entry`) and `ChildBnd`. The fifth inner antecedent (every input of `dropZeroWidth raw` has `declWidth ≤ weS (checkedOptimize b)`)
+is left here and discharged in `Tools/ShippingLeafInputWidths.lean` (`leaf_input_widths`,
+`leaf_sat_design_closed5`: no inner antecedent left; built iw2). Premises added w.r.t. `leaf_sat_design`: `K`, `hbnd`. -/
 namespace Tools.ShippingLeafFive
 open Lean Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Semantics Sparkle.IR.Machine
 open Sparkle.IR.OptCheck Sparkle.IR.RefineCheck
