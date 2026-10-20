@@ -613,7 +613,7 @@ variant `satOfCertS` (per-parent chain is hand-copied); leaf-route heads.
 Pure model (no axioms): get-after-set, non-aliasing by id, read frame, modify = get;set, alloc; `HeapLaws` (the
 ref-only fields of `RefLawsCore`) instantiated by `HeapLaws.model`; `frame_all_false`. Ledger: fit to the extern ST
 refs, MetaM primitives/printers/exceptions, initial contents, full joint satisfiability — all OPEN. Six fields flagged
-as false of the real runtime (decision needed; nothing changed).
+as false of the real runtime (decision needed; nothing changed AT THAT ROUND — superseded: later rounds added the separate admissible boundary `Tools/ShippingChildInvA.lean` and migrate onto it; see open-items-by-kind §1).
 
 ### D. Certificate Sat
 `satDataOk`, `memGate_kidNoRegsS`, `satOfCert` (`<p>_satC`, Expr-equal to `<p>_sat`); `generateCert2W`

@@ -35,7 +35,8 @@ opaque constants of the closures are `partial def`s (e.g. `machNorm`,
 code) and the `initialize` refs (`sparkleSynthDepth`, …); they are logged as
 `PROJECT OPAQUE`. So "the closure contains no old
 boundary" is a statement about the KERNEL terms; it says nothing about what the
-extern / implemented_by code does at runtime (that is the runtime-fit item).
+extern / implemented_by code does at runtime (that is the runtime-fit item). The logged opaque / extern / implemented_by
+counts are STRUCTURAL dependency counts, not a runtime-fit proof.
 
 Positive controls (each THROWS if the walker misses it):
 (a) the closure of `Tools.ShippingChildInvA.RefLawsCore.toAOps` contains

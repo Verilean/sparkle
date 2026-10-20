@@ -1,6 +1,6 @@
 # Nonzero inits of REMOVED registers on the leaf route (round par/leafnz)
 
-Base aa35e8a6. Status: BUILT (lf2/lf4 exit 0, ax5 standard); the plan sections below are now implemented as far as stated in the commit; no leaf sat layer, design-level leaf heads and generator not ported. Proved = theorem in a file written here
+Base aa35e8a6. Status: BUILT (lf2/lf4 exit 0, ax5 standard); the plan sections below are now implemented as far as stated in the commit; AT THAT ROUND no leaf sat layer, design-level leaf heads and generator were ported — SUPERSEDED: `leaf_sat`/`leaf_sat_design_closed5` and the generator `#machine_leaf_design_closed` are built (`Tests/Compiler/LeafDesignClosedTest.lean`, `LeafDesignClosedFamilyTest.lean`: dead7 + 6 leaves). Proved = theorem in a file written here
 (kernel check pending the integrator's build); premise = hypothesis of a theorem; open = not done.
 
 ## 1. Where the leaf route ties the target start state to the source's
