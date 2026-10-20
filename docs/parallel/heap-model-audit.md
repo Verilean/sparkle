@@ -176,7 +176,7 @@ constructors for `getEnv`, `getConstInfo`, `whnf`, `inferType`, `isClass?`, `whn
 | (d) | initial contents (`initialize`, `IO.mkRef`) | **OPEN** (`childbnd-residual.md` R13/R14). |
 | (e) | joint satisfiability of the full `RefLawsCore` | **OPEN**; logical inconsistency NOT PROVEN (no proof either way). HM satisfies only the ref-only fragment RESTATED over `Heap σ`, which is not `RefLawsCore` (not even its ref-only fields, stated over `IO.Ref` / `MetaM`). Every `ChildBnd`-premised theorem may still be vacuous. |
 
-## 4. World-indexed provenance in the model (`Tools/ShippingHeapProvenance.lean`, HP; NOT YET BUILT)
+## 4. World-indexed provenance in the model (`Tools/ShippingHeapProvenance.lean`, HP; BUILT by the integrator: hp1 exit 0; ax9: propext, Quot.sound)
 
 Review item 2. `MkRefd σ r` (`Tools/ShippingChildFresh.lean`) is a HISTORY: some run of
 `IO.mkRef`, in some contexts, from some world, returned `r`. It does NOT prove `FreshIn` /
@@ -191,7 +191,7 @@ actions writing only into `W`; `FramedW.step`, `FramedW.step_of_runs`), `AllocIn
 `Prov W Tk h r h2 := ∃ h0 h1, Reach h h0 ∧ AllocIn h0 r h1 ∧ Reach h1 h2` (start world →
 allocation world → use world).
 
-Derived in the model (written, to be built by the integrator; guesses H1–H6 in the header):
+Derived in the model (BUILT hp1 exit 0, first try; guesses H1–H6 accepted):
 
 * `Step/Reach.next_le` (allocation pointer monotone), `Step/Reach.other_below` (cells
   `< h.next` outside `W` unchanged), `Step.reg`, `Step/Reach.keeps` (no tracked writes ⇒
@@ -221,5 +221,5 @@ premise of `RefLawsAOps` discharged.
 
 | row | item | status |
 |---|---|---|
-| (f) | world-indexed provenance + derived non-alias/frame for local refs, in the pure model | derived in the model (HP, NOT YET BUILT) |
+| (f) | world-indexed provenance + derived non-alias/frame for local refs, in the pure model | derived in the model (HP, built hp1, ax9) |
 | (g) | the same for the real runtime (`MkRefd` → `FreshIn` in the run) | **OPEN** — `MkRefd` is a history over another world, not a proof of non-alias |

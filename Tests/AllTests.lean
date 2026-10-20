@@ -333,6 +333,7 @@ import Tests.Compiler.LeafDeadInitTest
 import Tests.Compiler.LeafDeadInitSatTest
 import Tests.Compiler.LeafDesignClosedTest
 import Tests.Compiler.ChildVertAuditTest
+import Tests.Compiler.LeafDesignClosedFamilyTest
 import Tests.Compiler.InlCandAuditTest
 import Tests.SVParser.TestVerify
 import Tests.Bus.TestAXI4Lite

@@ -3,7 +3,7 @@ import Tests.Compiler.LeafDesignClosedTest
 
 /-! # `#machine_leaf_design_closed` on more leaves (round par/audit2)
 
-BUILT by the integrator: lf1 exit 0 (713 jobs; with ChildVertAuditTest). All six rows GENERATED and audited (8 antecedents walked each, 1 DesignSV run). Integrator-written.
+BUILT by the integrator: lf1 exit 0 (713 jobs; with ChildVertAuditTest). All six rows GENERATED and audited (8 antecedents walked each, 1 DesignSV run). Registered in `Tests.AllTests` (all10). Integrator-written.
 
 `Tests/Compiler/LeafDesignClosedTest.lean` closed `dead7` (whose optimizer REMOVES a register).
 Here the same generator (`Tools.ShippingLeafDesignClosedCommand.generate`) is applied to the

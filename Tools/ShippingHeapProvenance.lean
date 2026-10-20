@@ -1,5 +1,5 @@
 import Tools.ShippingHeapModel
--- NOT YET BUILT (written without running Lean; round par/heapw, base 37dc265f).
+-- BUILT by the integrator: hp1 exit 0 (first try); axioms ax9: propext, Quot.sound only (history_elsewhere_aliases: none) (round par/heapw, base 37dc265f).
 -- No `sorry`, no `axiom`, no `native_decide`, no new law / trusted field.
 -- Writing-time guesses (for the integrator), each also marked `-- guess: Hn` at its site:
 --   H1 term-mode structural recursion / dependent pattern matching on the `Prop`-valued

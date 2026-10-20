@@ -751,3 +751,28 @@ printed-SV bridge, full input coverage as not complete.
 | all9 | `Tests.AllTests` (+ LeafDesignClosedTest, ChildVertAuditTest) | 0 | 1465 jobs, peak 0.80 GB |
 
 Not pushed; no CI; corpus not run. The old-boundary main theorems' runtime fit, the printed-SV bridge and full input coverage remain open.
+
+## Round after review of 37dc265f: (1) certified branch on the new boundary, (2) world-indexed provenance (model), (3) audit boundary, (4) leaf family, (5) header
+
+(1) `Tools/ShippingChildPathA.lean` (worker par/path): `fromConst_certified_hbody` — the certified-shape instance of
+`core_tripleA`'s `hbody`, with the translator as the only hypothesis (`htr`); minimal unmigrated calls listed in
+open-items-by-kind §1. (2) `Tools/ShippingHeapProvenance.lean` (worker par/heapw): world-indexed `Prov` in the pure
+model; non-alias and the local-ref frame DERIVED in the model; `MkRefd` shown to be a history, not freshness; real
+runtime fit OPEN. (3) ChildVertAuditTest reads opaque bodies, reports the opaque/extern/implemented_by boundary,
+positive controls for wrapper-value and opaque-body hiding (the first walk missed the opaque one). (4)
+`#machine_leaf_design_closed` on acc, pe, twoHW, toggle, loopPair, toggleL: all GENERATED, each audited; every
+register kept by the optimizer there. Merge-drop / optimizer-reject example: still NOT REPRODUCED. (5) header fixed.
+OOM lesson reused: no saved maps / existentials forced to concrete values in final `exact`s (pa1 peak 0.97 GB).
+
+| run | target | exit | notes |
+|---|---|---|---|
+| au1 | ChildVertAuditTest | 1 | `opaque` used as a parameter name (keyword) |
+| au2 | same | 0 | controls (b),(c) flagged; old walk misses (c) |
+| lf1 | ChildVertAuditTest + LeafDesignClosedFamilyTest | 0 | 713 jobs; 6/6 GENERATED and audited |
+| hp1 | ShippingHeapProvenance | 0 | first try |
+| pa1 | ShippingChildPathA | 0 | first try; peak 0.97 GB |
+| pa2 | ChildVertAuditTest (+ PathA theorems) | 0 | closures clean (up to 11753 constants) |
+| ax9 | #print axioms, HP (6) | 0 | propext, Quot.sound; one theorem none |
+| all10 | `Tests.AllTests` (+ LeafDesignClosedFamilyTest; audit with PathA) | 0 | 1467 jobs, peak 0.51 GB |
+
+Not pushed; no CI; corpus not run.

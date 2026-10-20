@@ -1,5 +1,5 @@
 import Tools.ShippingChildVertA
--- NOT YET BUILT (worker par/path, base 37dc265f). Isolated: no existing file uses it.
+-- BUILT by the integrator: pa1 exit 0 (first try; peak 0.97 GB), audit pa2 exit 0 (closures without RefLaws/RefLawsCore/toAOps/toA, opaque bodies read; axioms standard) (worker par/path, base 37dc265f). Isolated: no existing file uses it.
 -- No `sorry`, no `axiom`, no `native_decide`, no new law / boundary field. Law witness:
 -- `O : RefLawsAOps MkRefd mref cref` at `hA : AdmCtx O.quiet mctx cctx` only (no `RefLaws`, no
 -- `RefLawsCore`, no `RefLawsCore.toAOps`/`toA`, no `RefLawsATele`).
