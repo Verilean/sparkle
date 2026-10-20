@@ -68,7 +68,7 @@ parse-back only as validation); (iii) coverage of all compiler-accepted inputs (
 `hr` — that the compiler's run on the declaration succeeds — is a premise. No theorem claims a successful
 run exists.
 
-## 6. Front-end branches of `synthesizeFromConst` under the admissible boundary (Tools/ShippingChildFrontA.lean, BUILT: fa5 exit 0, audit fa6 exit 0; stated with the all-context translator hypothesis `htr`, NOT yet in the restricted `KeepsCP`/`CtxOk` form of ShippingChildTranslateA — the migration is work unit B of the cluster round)
+## 6. Front-end branches of `synthesizeFromConst` under the admissible boundary (Tools/ShippingChildFrontA.lean, BUILT: fa5 exit 0, audit fa6 exit 0; stated with the all-context translator hypothesis `htr`, the RESTRICTED-form restatement is §6b below (ShippingChildFrontCP))
 
 Boundary: `O : RefLawsAOps MkRefd mref cref`, `hA : AdmCtx O.quiet mctx cctx`, a stable invariant (`JQ O.quiet 1` for `hbody`).
 Entry constant: `ci = entryConst true false [] ci0 (instancePredicate env) (userInliner env) (structEnv env)`.
@@ -80,3 +80,16 @@ Entry constant: `ci = entryConst true false [] ci0 (instancePredicate env) (user
 | mixed (FrontA) | first gate `none`, `mixedCertifiedShape? false [] ci isInst = some _` | the translator call in `emitLeaves` (`htr`) | `pick`, `pickD` (Tests/Compiler/ShippingMachineInstTest.lean:170-171), `keccakRcHW` (Tests/Compiler/OneOutWKeccakFTest.lean:156): `#gate_child`, whose `gateDefs` throws unless first gate `none` and mixed gate `some` on the entry constant (Tools/ShippingGateChildCommand.lean:26-35) |
 | machine (FrontA) | both gates `none`, `machineShape?` `some` at the environment read, `synthesizeMachineCertified` `some` | the translator (`htr`, inside the mixed harness); the child entry `synthesizeChild` at each non-memory call of `closeInstsM`/`closeInstsGM` (`hchild`); the synthesis-ref value comes from the invariant (`hsv`; for `JQ` its 2nd conjunct) | `dead7` (Tests/Compiler/LeafDeadInitTest.lean:54), `toggleL` (ShippingMachineSeqLoopTest.lean:35), `twoHW`, `toggle` (ShippingMachineCommandTest.lean:52,57), `loopPair` (ShippingMachineLoopTest.lean:109), `pe` (ShippingMachineSeqLinkedTest.lean:25): `#machine_endpoint` → `readMachine` (Tools/ShippingMachineCommand.lean:440-453: both gates miss, shape `some`) and `checkCloses` (2502-2505: `synthesizeMachineCertified … isSome`). `acc`, `cnt`: shape read only (LeafEntryFamilyTest.lean:121,149 via `scan` → `readMachine`); machine result `some`: not determined |
 | legacy tail | both gates `none`, and `machineShape?` `none` at the environment read OR `synthesizeMachineCertified` `none` (`closeLets`, `closeInsts`/`closeInstsG` fail) | everything (premise `hlegacy`, stated as the entry with the certified front end OFF): memo read, logger/clock, `openRecordInputs`, `stripMemoizeWrappers`, `lambdaTelescope` (`RefLawsATele`), `splitReturnLeaves`, cache `IO.mkRef`, `bindInputsLegacy`, translation, `finishSynth`, cache update, non-`defnInfo` throw | not determined (`notCertified`, ShippingEntrySoundnessTest.lean:286-289, asserts only that the first gate misses) |
+
+### 6b. Restricted (`KeepsCP`/`CtxOk`) form — Tools/ShippingChildFrontCP.lean (BUILT: d1 exit 0; audit d2 exit 0, unit D)
+
+PROVED (relative to the premises named): `mixed_keepsAP`, `machineCert_keepsAP`, `fromConst_mixed_keepsAP`, `fromConst_machine_keepsAP`, `fromConst_frontends_keepsCP` (generic stable `I`, translator `RecA O I translate`), `fromConst_frontends_of_handlers` (translator `translateExprToWire tenv` via `translate_keepsA`), `bodyKeepsA_frontends`, `bodyStepA_of_handlers : BodyStepA O` (certified + mixed + machine), `bodyStepA_mixed`, `bodyStepA_machine`. The mixed branch's only compiler context is `entryCompilerState false cacheRef` (cache from `tripleA_mkExprCache`, recorded `MkRefd`): `ctxOk_entry false hr`, binder walk by `bindInputPortAP`. The machine branch builds no further context (FrontA walk reused).
+
+| branch | premises remaining (restricted form) |
+|---|---|
+| certified | the five translator handler premises (`LegacyImplA`, `LegacyCachedA`, `CanonKeyA`, `ProjFieldNameA`, `ChildEntryA`/`ChildKeepsA O D`) |
+| mixed | the same five; nothing else |
+| machine | the same five + `ChildSynthA O I` (the `synthesizeChild c` calls in `closeInstsM`/`closeInstsGM`; at `JQ O.quiet D` it is `ChildKeepsA O D` verbatim) + `hsv` (derived at `JQ`) + `hlegacy` for the fall-through (shape `none` / `synthesizeMachineCertified` `none`) |
+| legacy tail | PREMISE `LegacyTailA O D` (entry with certified front end OFF), asked only when both gates miss; OPEN |
+
+Tests reaching each branch: as the table above (certified `fragA`–`fragS`; mixed `pick`, `pickD`, `keccakRcHW`; machine `dead7`, `toggleL`, `twoHW`, `toggle`, `loopPair`, `pe`). `ChildEntryA` alone does not give `ChildSynthA` (the opaque result world of the ref read in `childSynthEntry`), hence two child premises at generic `I`.

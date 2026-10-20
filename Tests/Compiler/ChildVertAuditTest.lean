@@ -6,6 +6,7 @@ import Tools.ShippingChildFrontA
 import Tools.ShippingChildDepthA
 import Tools.ShippingChildTeleCP
 import Tools.ShippingChildProjFieldA
+import Tools.ShippingChildFrontCP
 
 /-! # Audit: the vertical path does not use the old boundary (round par/vert)
 
@@ -165,7 +166,15 @@ def audited : List Name :=
    ``Tools.ShippingChildTranslatePathA.fromConst_certified_hbody_of_handlers,
    ``Tools.ShippingChildDepthA.coreN_keepsA,
    ``Tools.ShippingChildDepthA.childKeepsA_all,
-   ``Tools.ShippingChildDepthA.core_tripleA_of_bodies]
+   ``Tools.ShippingChildDepthA.core_tripleA_of_bodies,
+   ``Tools.ShippingChildFrontCP.mixed_keepsAP,
+   ``Tools.ShippingChildFrontCP.machineCert_keepsAP,
+   ``Tools.ShippingChildFrontCP.fromConst_mixed_keepsAP,
+   ``Tools.ShippingChildFrontCP.fromConst_machine_keepsAP,
+   ``Tools.ShippingChildFrontCP.fromConst_frontends_keepsCP,
+   ``Tools.ShippingChildFrontCP.fromConst_frontends_of_handlers,
+   ``Tools.ShippingChildFrontCP.bodyKeepsA_frontends,
+   ``Tools.ShippingChildFrontCP.bodyStepA_of_handlers]
 
 end Tests.Compiler.ChildVertAuditTest
 
