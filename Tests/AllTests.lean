@@ -330,6 +330,7 @@ import Tests.Compiler.MemNameCollisionSatSTest
 import Tests.Compiler.NonzeroInitParentTest
 import Tests.Compiler.NonzeroInitCertTest
 import Tests.Compiler.LeafDeadInitTest
+import Tests.Compiler.LeafDeadInitSatTest
 import Tests.Compiler.InlCandAuditTest
 import Tests.SVParser.TestVerify
 import Tests.Bus.TestAXI4Lite

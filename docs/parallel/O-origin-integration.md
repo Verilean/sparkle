@@ -720,4 +720,7 @@ fit stays open. No full suite run (no suite change since all7).
 
 | sw1 | ShippingMachineShipsSW (leaf conclusion exports MachineWired) | 0 | 325 jobs |
 
-Leaf sat lemma: not written this round (the writer stalled); see open-items-by-kind §3 for the `wof` finding.
+| ls1 | ShippingLeafSat, ShippingLeafSatDesign, LeafDeadInitSatTest | 0 | 574 jobs, first try; dead7.machine_sat kernel-checked, axioms standard |
+| all8 | `Tests.AllTests` (+ LeafDeadInitSatTest) | 0 | 1453 jobs, peak 0.81 GB |
+
+Leaf sat (5e567c9d): see open-items-by-kind §3. A second, unbuilt leaf-sat draft (branch par/leafsat, with an extra `hregKept` premise) was not integrated.
