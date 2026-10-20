@@ -1,6 +1,7 @@
 -- BUILT by the integrator: hm1 exit 0, no axioms (ax2) (round par/heap, base 87874a82). No `sorry`, no `axiom`, no `native_decide`.
 -- Imports nothing beyond `Init` (the model is generic in the contents' types; see `Sig`).
--- Writing-time guesses (for the integrator), each also marked `-- (guess Gn)` at its site:
+-- Writing-time guesses (for the integrator), each also marked `-- (guess Gn)` at its site;
+-- all six accepted by build hm1 (exit 0, first try):
 --   G1 `Ref : Type → Type` with a `Type` index and only a `Nat` field lands in `Type`
 --      (indices do not raise the universe); the matches `| _, .cache, … => …` with the
 --      index as `_` elaborate (index generalised by the equation compiler).
@@ -41,9 +42,12 @@ In this model we PROVE
   for the model's own throws), packed as a structure `HeapLaws` whose fields
   have the SAME shape as the `RefLawsCore` fields of the same names;
 * `HeapLaws.model` instantiates `HeapLaws` for every signature, every quiet
-  predicate on the registry and every exception class: THAT INSTANTIATION IS
-  THE CONSISTENCY PROOF of the ref-only fragment (`heapLaws_sat`: a law witness
-  with a quiet start heap and the start contents of `childBnd_iff_core`);
+  predicate on the registry and every exception class. This shows ONLY that the
+  ref-only fragment, RESTATED over the pure model (`HeapLaws` over `Heap σ`, a
+  different type from the real `Void IO.RealWorld` / `MetaM`), is satisfiable by
+  that model (`heapLaws_sat`: a law witness with a quiet start heap and the
+  start contents of `childBnd_iff_core`). It says nothing about `RefLawsCore`
+  itself (no `RefLawsCore` value is built) nor about the real runtime;
 * `frame_all_false`: a frame law over ALL actions (caller-supplied ones
   included) is FALSE in the model — the shape of the `Framed.ioFlush`
   inconsistency removed in `dc50653e` (`docs/ShippingCompiler-TrustBase.md`).
@@ -61,7 +65,9 @@ In this model we PROVE
   (`whnf`, `inferType`, `getConstInfo`, …), `telescope`, `lamTelescope`,
   `localDecl`, `letDecl`. These stay open.
 * It does NOT discharge `ChildBnd`, `RefLawsCore`, or any premise; it adds no
-  law and no axiom. Joint satisfiability of the full `RefLawsCore` stays OPEN.
+  law and no axiom. Joint satisfiability of `RefLawsCore` itself (even of its
+  ref-only fields, which are stated over `IO.Ref` / `MetaM`, not over `Heap σ`)
+  is NOT PROVEN (no proof either way); it stays OPEN.
 
 Audit and ledger: `docs/parallel/heap-model-audit.md`. -/
 
@@ -344,10 +350,11 @@ structure HeapLaws (τ : Sig) (okE : τ.E → Prop) where
   depthSet : ∀ (v : Nat) (h : Heap τ) (u : Unit) (h' : Heap τ),
     RunsTo (setM (@Ref.depth τ) v) h u h' → cv h' = cv h ∧ sv h' = sv h ∧ dv h' = v
 
-/-- **The model satisfies the ref-only fragment**, for every signature, every
+/-- **The model satisfies the ref-only fragment as restated over `Heap σ`**, for every signature, every
 quiet predicate `Q` on the printer registry and every exception class `okE`:
-`quiet h := Q h.reg`. This instantiation IS the consistency proof of the
-fragment (in the model; NOT of the extern runtime). -/
+`quiet h := Q h.reg`. This shows only that the fragment RESTATED over `Heap σ`
+is satisfiable by this model; it says nothing about `RefLawsCore` itself (stated
+over `IO.Ref` / `MetaM` / `Void IO.RealWorld`) nor about the real runtime. -/
 def HeapLaws.model (Q : σ.P → Prop) (okE : σ.E → Prop) : HeapLaws σ okE where
   quiet := fun h => Q h.reg
   frameT := by
@@ -409,7 +416,7 @@ def HeapLaws.model (Q : σ.P → Prop) (okE : σ.E → Prop) : HeapLaws σ okE w
 right-hand side of `childBnd_iff_core`, `ShippingChildBndCore.lean:285`): for
 any quiet registry value, a law witness and a quiet heap whose synthesis cell
 holds any given `s0`, whose depth is 0 and whose cache holds any given `c0`.
-In the MODEL only. -/
+In the MODEL only (`HeapLaws` over `Heap σ`, not `RefLawsCore`). -/
 theorem heapLaws_sat (okE : σ.E → Prop) (Q : σ.P → Prop) (p0 : σ.P) (hp0 : Q p0)
     (c0 : σ.C) (s0 : σ.S) (o0 : σ.O) :
     ∃ (L : HeapLaws σ okE) (h : Heap σ),
@@ -419,7 +426,8 @@ theorem heapLaws_sat (okE : σ.E → Prop) (Q : σ.P → Prop) (p0 : σ.P) (hp0 
    { cache := c0, synth := s0, depth := 0, other := fun _ => o0, next := 0, reg := p0 },
    hp0, rfl, rfl, rfl⟩
 
-/-- The fragment is jointly satisfiable (no start condition). -/
+/-- The fragment RESTATED over `Heap σ` (`HeapLaws`) has a witness (no start condition).
+In the MODEL only: not a statement about `RefLawsCore` or the runtime. -/
 theorem heapLaws_nonempty (okE : σ.E → Prop) : Nonempty (HeapLaws σ okE) :=
   ⟨HeapLaws.model (fun _ => True) okE⟩
 
