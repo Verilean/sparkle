@@ -3375,3 +3375,6 @@ lean_lib «Tools.ShippingChildTeleProbe» where
 
 lean_lib «Tools.ShippingChildComposeA» where
   roots := #[`Tools.ShippingChildComposeA]
+
+lean_lib «Tools.ShippingChildDepthC» where
+  roots := #[`Tools.ShippingChildDepthC]
