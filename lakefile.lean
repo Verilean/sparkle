@@ -3536,6 +3536,9 @@ lean_lib «Tools.ShippingRanABridge» where
 lean_lib «Tools.ShippingStartWorldA2» where
   roots := #[`Tools.ShippingStartWorldA2]
 
+lean_lib «Tools.ShippingStartAtLoad» where
+  roots := #[`Tools.ShippingStartAtLoad]
+
 lean_lib «Tools.ShippingMachineDepthRunRA» where
   roots := #[`Tools.ShippingMachineDepthRunRA]
 
