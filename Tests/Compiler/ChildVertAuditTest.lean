@@ -20,6 +20,7 @@ import Tools.ShippingChildRunAMain
 import Tools.ShippingChildLinkA
 import Tools.ShippingMachineOutcomeA
 import Tools.ShippingMachineOutcomeA3
+import Tools.ShippingMachineOutcomeA4
 import Tools.ShippingCallWidthsChildRealA
 import Tools.ShippingChildTeleLocalA
 import Tools.ShippingChildTeleMainA
@@ -289,6 +290,9 @@ def audited : List Name :=
    ``Tools.ShippingMachineOutcomeA3.RunsTo.try_finally',
    ``Tools.ShippingMachineOutcomeA3.core_reads_link3A,
    ``Tools.ShippingMachineOutcomeA3.core_machine_outcomeA'',
+   ``Tools.ShippingMachineOutcomeA4.coreFinally_split,
+   ``Tools.ShippingMachineOutcomeA4.core_reads_link4A,
+   ``Tools.ShippingMachineOutcomeA4.core_machine_outcomeA''',
    ``Tools.ShippingCallsMemA.callsPureA_of_memKids,
    ``Tools.ShippingCallsMemA.machineClosesAtA_of_memKids,
    ``Tools.ShippingCallsMemA.machineClosesAtA_memOnly_names,
