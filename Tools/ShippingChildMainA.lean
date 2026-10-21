@@ -25,6 +25,7 @@ open Lean Meta
 open Tools.ShippingEntrySoundness
 open Sparkle.Compiler.Elab
 open Tools.ShippingChildInv
+open Tools.ShippingChildFresh
 open Tools.ShippingChildInvA
 open Tools.ShippingChildVCA
 open Tools.ShippingChildFallbackA
