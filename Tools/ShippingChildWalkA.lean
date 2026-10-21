@@ -149,6 +149,135 @@ theorem KeepsCP.liftE {ρ α : Type} {c : CompilerM α} (h : KeepsCP mctx mref c
 
 end Rules
 
+/-! ## A result that carries a caught exception: its fact goes to the continuation
+
+`TripleCP`: the postcondition form of `KeepsCP` (from every `CtxOk` compiler context). Only what
+`tryInlineUnfold` and its caller need. -/
+
+/-- `Triple` for a `CompilerM` action, from every compiler context WITH `CtxOk`. -/
+def TripleCP (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State) (cctx : Core.Context)
+    (cref : ST.Ref IO.RealWorld Core.State) {α : Type} (P : Void IO.RealWorld → Prop)
+    (c : CompilerM α) (Q : α → Void IO.RealWorld → Prop)
+    (R : Exception → Void IO.RealWorld → Prop) : Prop :=
+  ∀ (ctx : CompilerState) (st : Sparkle.IR.Builder.CircuitState), CtxOk ctx →
+    Triple mctx mref cctx cref P (c ctx st) (fun p => Q p.1) R
+
+section TripleCPRules
+variable {I : Void IO.RealWorld → Prop}
+
+theorem TripleCP.ofKeepsCP {α : Type} {c : CompilerM α}
+    (h : KeepsCP mctx mref cctx cref I c) :
+    TripleCP mctx mref cctx cref I c (fun _ => I) (fun e w => I w ∧ OkExc e) :=
+  fun ctx st hc => keeps_iff.mp (h ctx st hc)
+
+theorem TripleCP.pure {α : Type} {P : Void IO.RealWorld → Prop} {a : α}
+    {Q : α → Void IO.RealWorld → Prop} {R : Exception → Void IO.RealWorld → Prop}
+    (h : ∀ w, P w → Q a w) :
+    TripleCP mctx mref cctx cref P (Pure.pure a : CompilerM α) Q R :=
+  fun _ st _ => Triple.pure (a := (a, st)) h
+
+theorem TripleCP.bind {α β : Type} {P : Void IO.RealWorld → Prop} {c : CompilerM α}
+    {f : α → CompilerM β} {Q : α → Void IO.RealWorld → Prop} {Q' : β → Void IO.RealWorld → Prop}
+    {R : Exception → Void IO.RealWorld → Prop}
+    (h1 : TripleCP mctx mref cctx cref P c Q R)
+    (h2 : ∀ a, TripleCP mctx mref cctx cref (Q a) (f a) Q' R) :
+    TripleCP mctx mref cctx cref P (c >>= f) Q' R :=
+  fun ctx st hc => Triple.bind (h1 ctx st hc) fun p => by
+    obtain ⟨a, s⟩ := p
+    exact h2 a ctx s hc
+
+theorem TripleCP.ite {α : Type} {c : Prop} [Decidable c] {P : Void IO.RealWorld → Prop}
+    {a b : CompilerM α} {Q : α → Void IO.RealWorld → Prop} {R : Exception → Void IO.RealWorld → Prop}
+    (ha : c → TripleCP mctx mref cctx cref P a Q R) (hb : ¬c → TripleCP mctx mref cctx cref P b Q R) :
+    TripleCP mctx mref cctx cref P (if c then a else b) Q R := by
+  by_cases hc : c
+  · rw [if_pos hc]; exact ha hc
+  · rw [if_neg hc]; exact hb hc
+
+theorem TripleCP.tryCatchQ {α : Type} {x : CompilerM α} {h : Exception → CompilerM α}
+    {Q : α → Void IO.RealWorld → Prop}
+    (hx : TripleCP mctx mref cctx cref I x Q (fun e w => I w ∧ OkExc e))
+    (hh : ∀ e, OkExc e → TripleCP mctx mref cctx cref I (h e) Q (fun e w => I w ∧ OkExc e)) :
+    TripleCP mctx mref cctx cref I (MonadExcept.tryCatch x h) Q (fun e w => I w ∧ OkExc e) :=
+  fun ctx st hc => Triple.tryCatchQ (hx ctx st hc) fun e he => hh e he ctx st hc
+
+/-- A bind on a program whose result carries a caught exception (its second component): the
+continuation is asked only for an exception in the class. -/
+theorem KeepsCP.bindCaught {σ β : Type}
+    {c : CompilerM (σ × Option Exception)} {f : σ × Option Exception → CompilerM β}
+    (h1 : TripleCP mctx mref cctx cref I c (fun a w => I w ∧ OkOpt a.2)
+      (fun e w => I w ∧ OkExc e))
+    (h2 : ∀ a, OkOpt a.2 → KeepsCP mctx mref cctx cref I (f a)) :
+    KeepsCP mctx mref cctx cref I (c >>= f) :=
+  fun ctx st hc => keeps_iff.mpr (Triple.bind (h1 ctx st hc) fun p => by
+    obtain ⟨a, s⟩ := p
+    exact fun w hw => keeps_iff.mp (h2 a hw.2 ctx s hc) w hw.1)
+
+end TripleCPRules
+
+/-! ## The telescope laws, one by one
+
+`RefLawsATele` (Tools/ShippingChildInvA.lean:301) bundles four laws. A program that runs only
+`withLocalDeclD` and `withLetDecl` needs just these two, so each is a named proposition (the
+field's own statement) and `RefLawsATele` provides all four. -/
+
+/-- The law for `withLocalDeclD` (`RefLawsATele.localDecl`). -/
+def LocalDeclLawA (quiet : Void IO.RealWorld → Prop) (mref : ST.Ref IO.RealWorld Meta.State)
+    (cref : ST.Ref IO.RealWorld Core.State) : Prop :=
+  ∀ {mctx : Meta.Context} {cctx : Core.Context} {α : Type}
+    (I : Void IO.RealWorld → Prop), AdmCtx quiet mctx cctx → (∀ w, I w → quiet w) →
+    (∀ w w', cv w' = cv w → sv w' = sv w → dv w' = dv w → (quiet w → quiet w') →
+      I w → I w') →
+    ∀ (n : Name) (ty : Lean.Expr) (k : Lean.Expr → MetaM α),
+    (∀ (mctx' : Meta.Context) (cctx' : Core.Context) x, AdmCtx quiet mctx' cctx' →
+      Keeps mctx' mref cctx' cref I (k x)) →
+    Keeps mctx mref cctx cref I (Lean.Meta.withLocalDeclD n ty k)
+
+/-- The law for `withLetDecl` (`RefLawsATele.letDecl`). -/
+def LetDeclLawA (quiet : Void IO.RealWorld → Prop) (mref : ST.Ref IO.RealWorld Meta.State)
+    (cref : ST.Ref IO.RealWorld Core.State) : Prop :=
+  ∀ {mctx : Meta.Context} {cctx : Core.Context} {α : Type}
+    (I : Void IO.RealWorld → Prop), AdmCtx quiet mctx cctx → (∀ w, I w → quiet w) →
+    (∀ w w', cv w' = cv w → sv w' = sv w → dv w' = dv w → (quiet w → quiet w') →
+      I w → I w') →
+    ∀ (n : Name) (ty v : Lean.Expr) (k : Lean.Expr → MetaM α),
+    (∀ (mctx' : Meta.Context) (cctx' : Core.Context) x, AdmCtx quiet mctx' cctx' →
+      Keeps mctx' mref cctx' cref I (k x)) →
+    Keeps mctx mref cctx cref I (Lean.Meta.withLetDecl n ty v k)
+
+/-- The law for `lambdaTelescope` (`RefLawsATele.lamTelescope`). -/
+def LamTelescopeLawA (quiet : Void IO.RealWorld → Prop) (mref : ST.Ref IO.RealWorld Meta.State)
+    (cref : ST.Ref IO.RealWorld Core.State) : Prop :=
+  ∀ {mctx : Meta.Context} {cctx : Core.Context} {α : Type}
+    (I : Void IO.RealWorld → Prop), AdmCtx quiet mctx cctx → (∀ w, I w → quiet w) →
+    (∀ w w', cv w' = cv w → sv w' = sv w → dv w' = dv w → (quiet w → quiet w') →
+      I w → I w') →
+    ∀ (e : Lean.Expr) (k : Array Lean.Expr → Lean.Expr → MetaM α) (cleanup : Bool),
+    (∀ (mctx' : Meta.Context) (cctx' : Core.Context) xs b, AdmCtx quiet mctx' cctx' →
+      Keeps mctx' mref cctx' cref I (k xs b)) →
+    Keeps mctx mref cctx cref I (Lean.Meta.lambdaTelescope e k cleanup)
+
+/-- The law for `forallTelescopeReducing` (`RefLawsATele.telescope`). -/
+def ForallTelescopeLawA (quiet : Void IO.RealWorld → Prop)
+    (mref : ST.Ref IO.RealWorld Meta.State) (cref : ST.Ref IO.RealWorld Core.State) : Prop :=
+  ∀ {mctx : Meta.Context} {cctx : Core.Context} {α : Type}
+    (I : Void IO.RealWorld → Prop), AdmCtx quiet mctx cctx → (∀ w, I w → quiet w) →
+    (∀ w w', cv w' = cv w → sv w' = sv w → dv w' = dv w → (quiet w → quiet w') →
+      I w → I w') →
+    ∀ (ty : Lean.Expr) (k : Array Lean.Expr → Lean.Expr → MetaM α),
+    (∀ (mctx' : Meta.Context) (cctx' : Core.Context) xs b, AdmCtx quiet mctx' cctx' →
+      Keeps mctx' mref cctx' cref I (k xs b)) →
+    Keeps mctx mref cctx cref I (Lean.Meta.forallTelescopeReducing ty k)
+
+theorem RefLawsATele.localDeclLaw {q : Void IO.RealWorld → Prop}
+    (T : RefLawsATele q mref cref) : LocalDeclLawA q mref cref := T.localDecl
+theorem RefLawsATele.letDeclLaw {q : Void IO.RealWorld → Prop}
+    (T : RefLawsATele q mref cref) : LetDeclLawA q mref cref := T.letDecl
+theorem RefLawsATele.lamTelescopeLaw {q : Void IO.RealWorld → Prop}
+    (T : RefLawsATele q mref cref) : LamTelescopeLawA q mref cref := T.lamTelescope
+theorem RefLawsATele.forallTelescopeLaw {q : Void IO.RealWorld → Prop}
+    (T : RefLawsATele q mref cref) : ForallTelescopeLawA q mref cref := T.telescope
+
 /-! ## The law-dependent rules in `Keeps` form -/
 
 section Laws
@@ -170,33 +299,33 @@ theorem Keeps.withReaderA {q : Void IO.RealWorld → Prop} (hA : AdmCtx q mctx c
     Keeps mctx mref cctx cref I (withReader f x) :=
   fun w hw => h (fun g hg => hA g ((hf mctx).symm.trans hg)) w hw
 
-theorem keepsA_withLocalDeclD (T : RefLawsATele O.quiet mref cref) {α : Type} (n : Name)
+theorem keepsA_withLocalDeclD (T : LocalDeclLawA O.quiet mref cref) {α : Type} (n : Name)
     (ty : Lean.Expr) (k : Lean.Expr → MetaM α)
     (hk : ∀ (mctx' : Meta.Context) (cctx' : Core.Context) x, AdmCtx O.quiet mctx' cctx' →
       Keeps mctx' mref cctx' cref I (k x)) :
     Keeps mctx mref cctx cref I (Lean.Meta.withLocalDeclD n ty k) :=
-  T.localDecl I hA hS.1 hS.2 n ty k hk
+  T I hA hS.1 hS.2 n ty k hk
 
-theorem keepsA_withLetDecl (T : RefLawsATele O.quiet mref cref) {α : Type} (n : Name)
+theorem keepsA_withLetDecl (T : LetDeclLawA O.quiet mref cref) {α : Type} (n : Name)
     (ty v : Lean.Expr) (k : Lean.Expr → MetaM α)
     (hk : ∀ (mctx' : Meta.Context) (cctx' : Core.Context) x, AdmCtx O.quiet mctx' cctx' →
       Keeps mctx' mref cctx' cref I (k x)) :
     Keeps mctx mref cctx cref I (Lean.Meta.withLetDecl n ty v k) :=
-  T.letDecl I hA hS.1 hS.2 n ty v k hk
+  T I hA hS.1 hS.2 n ty v k hk
 
-theorem keepsA_lambdaTelescope (T : RefLawsATele O.quiet mref cref) {α : Type} (e : Lean.Expr)
+theorem keepsA_lambdaTelescope (T : LamTelescopeLawA O.quiet mref cref) {α : Type} (e : Lean.Expr)
     (k : Array Lean.Expr → Lean.Expr → MetaM α) (cleanup : Bool)
     (hk : ∀ (mctx' : Meta.Context) (cctx' : Core.Context) xs b, AdmCtx O.quiet mctx' cctx' →
       Keeps mctx' mref cctx' cref I (k xs b)) :
     Keeps mctx mref cctx cref I (Lean.Meta.lambdaTelescope e k cleanup) :=
-  T.lamTelescope I hA hS.1 hS.2 e k cleanup hk
+  T I hA hS.1 hS.2 e k cleanup hk
 
-theorem keepsA_forallTelescopeReducing (T : RefLawsATele O.quiet mref cref) {α : Type}
+theorem keepsA_forallTelescopeReducing (T : ForallTelescopeLawA O.quiet mref cref) {α : Type}
     (ty : Lean.Expr) (k : Array Lean.Expr → Lean.Expr → MetaM α)
     (hk : ∀ (mctx' : Meta.Context) (cctx' : Core.Context) xs b, AdmCtx O.quiet mctx' cctx' →
       Keeps mctx' mref cctx' cref I (k xs b)) :
     Keeps mctx mref cctx cref I (Lean.Meta.forallTelescopeReducing ty k) :=
-  T.telescope I hA hS.1 hS.2 ty k hk
+  T I hA hS.1 hS.2 ty k hk
 
 end Laws
 
@@ -303,6 +432,13 @@ each tried only when its statement's program has the goal's head. -/
 partial def side (g : MVarId) (depth : Nat := 4) : MetaM Unit := g.withContext do
   if ← attempt g.assumption then return
   let tm ← instantiateMVars (← g.getType)
+  -- the inline attempt's result fact (`KeepsCP.bindCaught`'s first premise)
+  if tm.isAppOf ``Tools.ShippingChildWalkA.TripleCP then
+    -- (the lemma is proved after this file: named by a plain identifier)
+    if ← attempt (do closeBy g (← `(tactic|
+        exact $(mkIdent `Tools.ShippingChildLegacyHandlersA.tryInlineUnfold_tripleCP) (by assumption)
+          (by assumption) _ (by assumption) (by assumption) _ _ _))) then return
+    throwError "vca: no result fact for {tm}"
   if tm.isAppOf ``Tools.ShippingChildInv.OkMsg || tm.isAppOf ``Tools.ShippingChildInv.OkExc then
     if ← attempt (do closeBy g (← `(tactic| okmsg))) then return
     for d in ← getLCtx do
@@ -600,6 +736,10 @@ partial def walkCore (g : MVarId) (fuel : Nat) : MetaM Unit := do
       -- a read of the compiler context: its provenance goes to the continuation
       if isC then
         if let some x := p.getAppArgs[4]? then
+          -- a program returning a caught exception with its result: the fact that it is in
+          -- the class goes to the continuation (committed)
+          if x.isAppOf ``Sparkle.Compiler.Elab.Rec.tryInlineUnfold then
+            return ← applyThen g (← mkConstWithFreshMVarLevels ``Tools.ShippingChildWalkA.KeepsCP.bindCaught) fuel
           if readHeads.contains (x.getAppFn.constName?.getD .anonymous) then
             if ← commitApply g (← mkConstWithFreshMVarLevels ``Tools.ShippingChildWalkA.KeepsCP.bindRead) fuel then return
           if x.getAppFn.isConstOf ``CompilerM.getCompilerState then

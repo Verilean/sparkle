@@ -1,4 +1,5 @@
-import Tools.ShippingChildLegacyHelpersA
+import Tools.ShippingChildLegacyHandlersA
+import Tools.ShippingChildFallbackA
 -- UNBUILT (unit B, round 2): runs li1.. recorded in REPORT-B.md.
 -- No `sorry`, no `axiom`, no `native_decide`, no new law / boundary field.
 
@@ -14,7 +15,9 @@ open Tools.ShippingChildFresh
 open Tools.ShippingChildVCA
 open Tools.ShippingChildTranslateA
 open Tools.ShippingChildWalkA
+open Tools.ShippingChildFallbackA
 open Tools.ShippingChildLegacyHelpersA
+open Tools.ShippingChildLegacyHandlersA
 
 variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
   {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
@@ -57,21 +60,24 @@ end Impl
 
 section Main
 variable (O : RefLawsAOps MkRefd mref cref) {I : Void IO.RealWorld → Prop}
-  (hS : StableA O.quiet I) (T : RefLawsATele O.quiet mref cref)
-include hS T
+  (hS : StableA O.quiet I)
+  (TL : LocalDeclLawA O.quiet mref cref) (TLet : LetDeclLawA O.quiet mref cref)
+  (TF : ForallTelescopeLawA O.quiet mref cref)
+  (hcanon : ∀ (mctx : Meta.Context) (cctx : Core.Context), AdmCtx O.quiet mctx cctx →
+    ∀ a, KeepsCP mctx mref cctx cref I (canonHardwareKey a))
+  (hchild : ∀ (mctx : Meta.Context) (cctx : Core.Context), AdmCtx O.quiet mctx cctx →
+    ∀ c, Keeps mctx mref cctx cref I (childSynthEntry c))
+include O hS TL TLet TF hcanon hchild
 
-/-- TRIAL: the body with the App dispatcher and `canonHardwareKey` as hypotheses. -/
-theorem impl_trial (rec : TranslateFn) (hrec : RecA O I rec)
-    (hApp : ∀ (mctx : Meta.Context) (cctx : Core.Context), AdmCtx O.quiet mctx cctx →
-      ∀ e hint named, KeepsCP mctx mref cctx cref I
-        (Rec.translateExprToWireApp (fun e h t n => rec e h t n) e hint named))
-    (hcanon : ∀ (mctx : Meta.Context) (cctx : Core.Context), AdmCtx O.quiet mctx cctx →
-      ∀ a, KeepsCP mctx mref cctx cref I (canonHardwareKey a)) :
-    RecA O I (fun e h t n => Rec.translateExprToWireImpl (fun e h t n => rec e h t n) e h t n) := by
-  intro mctx cctx hA e hint top named
+/-- **The legacy translator's main body keeps `I`** (`LegacyImplA`), given the telescope laws
+of `withLocalDeclD`/`withLetDecl`/`forallTelescopeReducing`, `canonHardwareKey` (premise
+`CanonKeyA`) and `childSynthEntry` (premise `ChildEntryA`). -/
+theorem legacyImplA_core : LegacyImplA O I := by
+  intro rec hrec mctx cctx hA e hint top named
   have hr : ∀ (mctx : Meta.Context) (cctx : Core.Context), AdmCtx O.quiet mctx cctx →
       ∀ e hint top named, KeepsCP mctx mref cctx cref I (rec e hint top named) := hrec
-  show KeepsCP mctx mref cctx cref I (Rec.translateExprToWireImpl (fun e h t n => rec e h t n) e hint top named)
+  show KeepsCP mctx mref cctx cref I
+    (Rec.translateExprToWireImpl (fun e h t n => rec e h t n) e hint top named)
   unfold Rec.translateExprToWireImpl
   vca
 
@@ -79,4 +85,4 @@ end Main
 
 end Tools.ShippingChildLegacyImplA
 
-#print axioms Tools.ShippingChildLegacyImplA.impl_trial
+#print axioms Tools.ShippingChildLegacyImplA.legacyImplA_core
