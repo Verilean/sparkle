@@ -46,47 +46,36 @@ What must be written is a **port of the consumers** (§2, L5–L7), not a bridge
 | L8 | leaf/parent heads | `leaf_names`, `leaf_input_widths`, `leaf_sat_design_closed5`, `<p>_sat*` take `ChildBnd`; replace by `JQC`-start premise (`OutQ` + `cv w = {}` ⇒ `JQC O 0`, PROVED `jqc_zero_of_empty`) | **OPEN** (statement change of the endpoint's premise — to be agreed, REPORT) | unit G |
 | L9 | endpoint premise: the entry's start world | `OutQ O.quiet w` (quiet + `sv w = some synthesizeChild` + depth 0) and `cv w = {}` | PREMISE (run hypothesis; command→entry link not formalised, R13/R14 in open-items §1) | integrator / OPEN |
 
-Why `MainA` stops at L4: the units' exports end there. The composed theorems that ARE proved:
+F2 scope: MainA now covers L1–L3 at JQ level (`core_tripleA_main`). L4 (JQC, `hbodyC`, full entry)
+is E's and is a SEPARATE piece; the F round-1 `*_of_exports` composition over abstract `H/Lg/BS` was
+removed (it counted abstractions as reduced premises).
 
-* `bodyStepA_of_exports` (A+B+C+D → `BodyStepA O`),
-* `core_tripleA_of_exports` (…→ core entry keeps `OutQ`, every outcome),
-* `hbodyC_of_exports` (A+B+C at `I := JQC (D+1)` + D generic + E child entry → CoreC `hbodyC`),
-* `entry_children_of_exports` (`hbodyC` → full entry keeps `JQC D`; children of the closing are `RealChildA`),
-* `fullEntry_jqc_of_exports` (`OutQ` + empty cache + a run of the full entry → `JQC O 0` at the end),
-* `jqc_zero_of_empty`, `handlers_of_exports`.
+## 3. Audit table (F2): remaining premises of the JQ-level main theorem
 
-All in Tools/ShippingChildMainA.lean (build names/exits in REPORT-F.md; header says UNBUILT/BUILT).
+Theorems: `Tools.ShippingChildComposeA.{bodyKeepsA_of_tele, bodyStepA_of_tele, childKeepsA_all_of_tele,
+core_tripleA_of_tele}` (integrator) and `Tools.ShippingChildMainA.{bodyStepA_main, childKeepsA_main,
+core_tripleA_main}` (F2). Each depth step is built inside the induction: `ChildKeepsA D` → D2 bridge
+→ B `legacyImplA_of_tele` → A (`canonKeyA`, `legacyCachedA_of_impl`) / C (`projFieldNameA`) → D
+`bodyKeepsA_frontends`. The handlers are NOT assumed at every depth. Status of the F2 build: see
+REPORT-F2.md (header of MainA says UNBUILT/BUILT).
 
-## 3. Audit table: every remaining premise of the composed theorems
+Words: **PROVED** (name), **PREMISE** (hypothesis of the theorem), **OPEN** (no proof, no hypothesis).
+Joint satisfiability of the laws: logical inconsistency NOT PROVEN. `MkRefd` is a history, not
+freshness. `RealChildA` is a history of past synthesis results, not semantic correctness.
+opaque/extern/implemented_by counts are structural, not a runtime-fit proof.
 
-Kinds: **LAW-OPS** = field of `RefLawsAOps`; **LAW-TELE** = `RefLawsATele` (separate, WIDER
-assumption family: recorded here as the widening of the boundary by `ProjFieldNameA`);
-**HANDLER** = one named handler premise; **TAIL** = legacy tail; **RUN** = run/start hypothesis;
-**MODEL↔ST** = fit of the Lean model to the real `ST`/`IO` runtime.
-"Sat." = satisfiable by construction (a witness exists in a model we built). Rules applied: joint
-satisfiability of the laws is NOT PROVEN (logical inconsistency NOT PROVEN, no proof either way);
-`MkRefd` is a history, not freshness; `RealChildA` is a history of past synthesis results, not
-semantic correctness in the current environment; opaque/extern/implemented_by counts are
-STRUCTURAL dependency counts, not a runtime-fit proof.
-
-| premise (MainA name) | kind | owner | sat. by construction? | runtime fit |
+| item | kind | owner | status | runtime fit |
 |---|---|---|---|---|
-| `O.diag`, `O.frameT`, `O.excOk`, `O.frameQ`, `O.cacheSetQ`, `O.depthSetQ`, `O.frame`, `O.cacheSet`, `O.depthSet` (the 9 fields of `RefLawsAOps`, `O.quiet`) | LAW-OPS | boundary (InvA) | NO proof. The pure `HeapLaws` model (`heapLaws_sat`) restates only the ref-only fragment over a *different* type; `RefLawsAOps` itself: not satisfied by any model we built | OPEN (extern opaque `ST.Prim.Ref.*`, `Void IO.RealWorld`, Meta primitives, `diag` printers/handles, `excOk` on Lean's exceptions: unmodelled) |
-| joint satisfiability of `RefLawsAOps` with `AdmCtx` | LAW-OPS | boundary | logical inconsistency NOT PROVEN | OPEN |
-| `AdmCtx O.quiet mctx cctx` (`hA`, no `canUnfold?` or `InertUnfold`) | RUN | boundary | n/a | the entry's start context admissible: Sparkle never sets `canUnfold?`, command→entry link NOT formalised |
-| `T : RefLawsATele O.quiet mref cref` | LAW-TELE | C (uses), boundary | NOT PROVEN; not implied by the old laws | OPEN (library telescopes keep `canUnfold?` is a reading of the library) |
-| `H` with `hH` (B's `H₁A … HₖA O I` at every `JQ D`, resp. `JQC D`) | HANDLER ×k | B (one named premise per unproved legacy handler; list in docs/parallel/legacy-impl-inventory.md) | each premise is a `RecA` statement of Lean code; not discharged | OPEN |
-| `hA_cached : LegacyCachedA` from `LegacyImplA` | HANDLER (proved from `LegacyImplA` by A, pending) | A | PROVED-pending | — |
-| `hA_canon : CanonKeyA` | HANDLER (A, pending) | A | PROVED-pending | — |
-| `hC_pf : ProjFieldNameA` | HANDLER via LAW-TELE | C | PROVED-pending relative to `T` | OPEN with `T` |
-| `Lg` / `hLg` (D's `LegacyTailA O D`, all D) | TAIL (asked only of constants on which BOTH gates miss) | D | not discharged | OPEN |
-| `hleg` (the same tail at `JQC O D`) | TAIL | D/E (not yet exported: D states `LegacyTailA` at `JQ` only) | not discharged | OPEN |
-| `hBS : BS` (E's `BodyStepC O`) with `hE_child`, `hE_synth` | HANDLER-like (depth induction) | E (from `hD_gen`) | PROVED-pending relative to D-generic + the handlers | — |
-| `hD_gen` (D's generic `fromConst_frontends_keepsCP`) | built-pending | D | — | — |
-| the start: `OutQ O.quiet w` and `cv w = {}` | RUN | integrator | n/a | first-entry refs' contents (R13/R14), commands between two entries: OPEN |
-| `hr` (the compiler's run succeeded) | RUN | — | no theorem claims a successful run exists | — |
-| `MachineDefines`, `EntryDefines`, the generators' `rfl` checks | reflection | existing | checked per declaration | OPEN for all declarations |
-| model→real ST correspondence (the `Triple`/`Keeps` model of `MetaM`/`ST` vs Lean's compiled code) | MODEL↔ST | nobody | n/a | **OPEN** |
+| `O : RefLawsAOps MkRefd mref cref` (9 fields: `diag, frameT, excOk, frameQ, cacheSetQ, depthSetQ, frame, cacheSet, depthSet`) | law family | boundary (InvA) | PREMISE; no model of it built; inconsistency NOT PROVEN | OPEN (extern `ST.Prim.Ref.*`, Meta primitives, printers, `excOk` on Lean exceptions unmodelled) |
+| `hA : AdmCtx O.quiet mctx cctx` | start context | boundary | PREMISE | OPEN (command→entry link not formalised) |
+| `T : RefLawsATele O.quiet mref cref` | ADDED unproved boundary (law family) | C uses it; B's `legacyImplA_of_tele` uses it too | PREMISE. Never "premise-free". Not derived from `Ops`: B's three telescope laws and C's `projFieldNameA` stay OPEN at runtime; the `panic` arm covered in the model only | OPEN |
+| `hTail : LegacyTailStepA O` (`∀ D ≥ 1, ChildKeepsA O D → LegacyTailA O D`) | TAIL, ONE hypothesis | D states `LegacyTailA`; B3 proves the generic tail from `hC` (`legacyTailA_of_step`) | PREMISE until B3 is integrated. Covers EVERY constant where both gates miss, also machine-route ones | OPEN |
+| start `OutQ O.quiet w` (the `Triple` precondition) | RUN | integrator | PREMISE (first-entry ref contents, commands between entries: OPEN) | OPEN |
+| `LegacyImplA`, `LegacyCachedA`, `CanonKeyA`, `ProjFieldNameA`, `ChildEntryA` at `JQ D` | handlers | B, A, C, D2 | PROVED inside each step from `hC`, `T` (no extra premise) | follows `T`/`O` |
+| `BodyStepA`, `ChildKeepsA D` (D ≥ 1), core entry keeps `OutQ` | induction | D, DepthA | PROVED from the rows above | — |
+| `JQC` (child-cache invariant), E's depth-0 initialisation (JQ-only on success after the clear; exceptions before the clear EQ) | cache half | E | SEPARATE, NOT claimed here; E not integrated | — |
+| connection to semantic preservation / `ChildBnd` endpoint (L5–L8 above) | port | unit G (proposed) | OPEN | — |
+| model→real ST correspondence | MODEL↔ST | nobody | OPEN | OPEN |
 
 **Facts that must stay in force (checked by tests, not by this file):**
 * `Tests/Compiler/HeapProvenanceRegressTest.lean` (a `MkRefd` history that aliases a ref valid in
@@ -104,24 +93,15 @@ It is a history. It does not say `r` is correct in the *current* environment (th
 have changed between the past run and the cache hit; the old `RealChild` has the same weakness, and
 `childLink_real`-style consumers re-read the environment, so the port L7 must not assume more).
 
-## 4. Proposed additions to Tests/Compiler/ChildVertAuditTest.lean's list (integrator applies)
+## 4. Proposed audit additions (integrator applies)
 
-```
-``Tools.ShippingChildMainA.handlers_of_exports,
-``Tools.ShippingChildMainA.bodyStepA_of_exports,
-``Tools.ShippingChildMainA.core_tripleA_of_exports,
-``Tools.ShippingChildMainA.hbodyC_of_exports,
-``Tools.ShippingChildMainA.entry_children_of_exports,
-``Tools.ShippingChildMainA.jqc_zero_of_empty,
-``Tools.ShippingChildMainA.fullEntry_jqc_of_exports
-```
-plus `import Tools.ShippingChildMainA` in that test. The hypotheses are all `Prop`/function
-parameters, so `#print axioms` stays standard and the closures contain no old boundary.
+`Tools.ShippingChildMainA.bodyStepA_main`, `childKeepsA_main`, `core_tripleA_main`, plus
+`import Tools.ShippingChildMainA` in Tests/Compiler/ChildVertAuditTest.lean.
 
 ## 5. Missing with no owner (proposals)
 
 1. **Unit G — port the endpoint to the new boundary** (L5–L8): run unpacking under `JQ`/`JQC`
    (new `core_reads_inv`), `RealChild → RealChildA` in the consumer chain, `ChildBnd` replaced at the
    heads by `OutQ ∧ cv = {}`. Large, mechanical; the old chain is the template.
-2. Legacy tail at `JQC` (a statement D/E must export; today only `LegacyTailA O D` at `JQ`).
+2. Legacy tail at `JQC` and the whole JQC level (E, not integrated) (a statement D/E must export; today only `LegacyTailA O D` at `JQ`).
 3. Runtime fit and joint satisfiability of `RefLawsAOps` / `RefLawsATele`: research item.
