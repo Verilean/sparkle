@@ -3490,6 +3490,7 @@ lean_lib «Tools.ShippingLetsReaderInvMain» where
 
 lean_lib «Tools.ShippingLetsSigTy» where
   roots := #[`Tools.ShippingLetsSigTy]
+
 lean_lib «Tools.ShippingBundleIotaRange» where
   roots := #[`Tools.ShippingBundleIotaRange]
 
