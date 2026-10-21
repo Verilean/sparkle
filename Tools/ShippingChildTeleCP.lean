@@ -1,5 +1,5 @@
 import Tools.ShippingChildTranslateA
--- UNBUILT (unit C, round par/u-c): builds tc1 (this file) — see REPORT-C.md for the exit.
+-- BUILT (unit C, round par/u-c): tc1 exit 0.
 -- No `sorry`, no `axiom`, no `native_decide`, no new law. The ONLY assumption beyond the
 -- operations bundle is `T : RefLawsATele O.quiet mref cref` (a SEPARATE assumption family;
 -- using it widens the boundary; logical inconsistency of it is NOT PROVEN).
