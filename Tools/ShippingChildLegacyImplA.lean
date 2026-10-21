@@ -1,7 +1,21 @@
 import Tools.ShippingChildLegacyHandlersA
 import Tools.ShippingChildFallbackA
--- UNBUILT (unit B, round 2): runs li1.. recorded in REPORT-B.md.
--- No `sorry`, no `axiom`, no `native_decide`, no new law / boundary field.
+-- BUILT (unit B, round 2, worktree wt-u-b, base 0054b6b2): li1-li7 trials, li8 exit 0 (core), li10 exit 0
+-- (exports); axioms of `legacyImplA_of_handlers`: propext, Classical.choice, Quot.sound.
+-- No `sorry`, no `axiom`, no `native_decide`, no new law / boundary field. Law witness:
+-- `O : RefLawsAOps MkRefd mref cref`, `hS : StableA O.quiet I`, and the three telescope laws the
+-- walk reaches (`LocalDeclLawA`, `LetDeclLawA`, `ForallTelescopeLawA`: fields of `RefLawsATele`,
+-- Tools/ShippingChildInvA.lean:301 — a SEPARATE assumption family, see REPORT-B.md); premises
+-- `CanonKeyA` (`canonHardwareKey`) and `ChildEntryA` (`childSynthEntry`).
+--
+-- # `LegacyImplA`: the legacy translator's main body (`Rec.translateExprToWireImpl`)
+--
+-- PROVED by the walker `vca` (Tools/ShippingChildWalkA.lean), with the helpers
+-- (Tools/ShippingChildLegacyHelpersA.lean) and every handler `translateExprToWireApp` reaches
+-- (Tools/ShippingChildLegacyHandlersA.lean) walked first. The remaining premises are NOT
+-- handler lumps: `CanonKeyA` is `canonHardwareKey`, `ChildEntryA` is `childSynthEntry`, and the
+-- three laws are the telescope primitives the code runs (`withLocalDeclD` in `CompilerM.withLocalDecl`,
+-- `withLetDecl`, `forallTelescopeReducing` in `handleDefinitionUnfold`).
 
 namespace Tools.ShippingChildLegacyImplA
 open Lean Meta
@@ -23,7 +37,6 @@ variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
   {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
 
 set_option maxHeartbeats 4000000
-set_option vc.budgetMs 200000
 
 section Impl
 variable (O : RefLawsAOps MkRefd mref cref) {I : Void IO.RealWorld → Prop}
@@ -83,6 +96,25 @@ theorem legacyImplA_core : LegacyImplA O I := by
 
 end Main
 
+/-- **`LegacyImplA`**, exported with the premises named by what they cover: the three telescope
+laws, `canonHardwareKey` (`CanonKeyA`) and `childSynthEntry` (`ChildEntryA`). -/
+theorem legacyImplA_of_handlers (O : RefLawsAOps MkRefd mref cref) {I : Void IO.RealWorld → Prop}
+    (hS : StableA O.quiet I)
+    (TL : LocalDeclLawA O.quiet mref cref) (TLet : LetDeclLawA O.quiet mref cref)
+    (TF : ForallTelescopeLawA O.quiet mref cref)
+    (hcanon : CanonKeyA O I) (hchild : ChildEntryA O I) : LegacyImplA O I :=
+  legacyImplA_core O hS TL TLet TF hcanon hchild
+
+/-- The same, from the whole telescope family `RefLawsATele` (all four fields; the proof uses
+the three above). -/
+theorem legacyImplA_of_tele (O : RefLawsAOps MkRefd mref cref) {I : Void IO.RealWorld → Prop}
+    (hS : StableA O.quiet I) (T : RefLawsATele O.quiet mref cref)
+    (hcanon : CanonKeyA O I) (hchild : ChildEntryA O I) : LegacyImplA O I :=
+  legacyImplA_of_handlers O hS (Tools.ShippingChildWalkA.RefLawsATele.localDeclLaw T)
+    (Tools.ShippingChildWalkA.RefLawsATele.letDeclLaw T)
+    (Tools.ShippingChildWalkA.RefLawsATele.forallTelescopeLaw T) hcanon hchild
+
 end Tools.ShippingChildLegacyImplA
 
-#print axioms Tools.ShippingChildLegacyImplA.legacyImplA_core
+#print axioms Tools.ShippingChildLegacyImplA.legacyImplA_of_handlers
+#print axioms Tools.ShippingChildLegacyImplA.legacyImplA_of_tele
