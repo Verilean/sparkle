@@ -338,6 +338,7 @@ import Tests.Compiler.LeafDesignClosedATest
 import Tests.Compiler.StartWorldATest
 import Tests.Compiler.ParentDesignCheckATest
 import Tests.Compiler.KidsSelfCallerMixATest
+import Tests.Compiler.ComposedCallerMixATest
 import Tests.Compiler.ChildVertAuditTest
 import Tests.Compiler.LeafDesignClosedFamilyTest
 import Tests.Compiler.HeapProvenanceRegressTest

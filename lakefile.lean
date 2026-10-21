@@ -3514,3 +3514,6 @@ lean_lib «Tools.ShippingMachineDepthRunRA» where
 
 lean_lib «Tools.ShippingMachineComposeRA» where
   roots := #[`Tools.ShippingMachineComposeRA]
+
+lean_lib «Tools.ShippingMachineComposeRACommand» where
+  roots := #[`Tools.ShippingMachineComposeRACommand]
