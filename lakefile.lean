@@ -3601,3 +3601,6 @@ lean_lib «Tools.ShippingStRefCorrespondence» where
 
 lean_lib «Tools.Prototype.ReaderFixpointWrapper» where
   roots := #[`Tools.Prototype.ReaderFixpointWrapper]
+
+lean_lib «Tools.Prototype.ReaderFixpointNorm» where
+  roots := #[`Tools.Prototype.ReaderFixpointNorm]
