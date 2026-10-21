@@ -339,6 +339,7 @@ import Tests.Compiler.StartWorldATest
 import Tests.Compiler.ParentDesignCheckATest
 import Tests.Compiler.KidsSelfCallerMixATest
 import Tests.Compiler.ComposedCallerMixATest
+import Tests.Compiler.ComposedCallerMixEntryTest
 import Tests.Compiler.KidsMaskedParentATest
 import Tests.Compiler.ChildVertAuditTest
 import Tests.Compiler.LeafDesignClosedFamilyTest

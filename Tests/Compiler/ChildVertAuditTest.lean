@@ -49,6 +49,7 @@ import Tools.ShippingSeqChildIfaceA
 import Tools.ShippingParentGateA
 import Tools.ShippingRanABridge
 import Tools.ShippingKidsSelfA
+import Tools.ShippingMachineComposeRM
 
 /-! # Audit: the vertical path does not use the old boundary (round par/vert)
 
@@ -293,6 +294,7 @@ def audited : List Name :=
    ``Tools.ShippingMachineDepthRunRA.machineRunNCA_of_real_main,
    ``Tools.ShippingMachineDepthRunRA.machine_linkedT_callsRNA,
    ``Tools.ShippingMachineComposeRA.machine_linked_callsRA,
+   ``Tools.ShippingMachineComposeRM.machine_traceL_of_data_extRM,
    ``Tools.ShippingMachineComposeRA.machineRunNA_of_NCA,
    ``Tools.ShippingMachineComposeRA.machineRunNCA_of_NA,
    ``Tools.ShippingMachineOutcomeA.synthesizeFromConst_machine_splitA,
