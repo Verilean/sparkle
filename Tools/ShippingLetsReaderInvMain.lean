@@ -1,9 +1,10 @@
 import Tools.ShippingLetsReaderInvPure
+import Tools.ShippingLetsReaderInvPure2
 import Tools.ShippingReaderFuelOldEq
 
 /-! # Unit LC3 (main): the joint invariant of the reader twin, its consequences, and what stays OPEN
 
-BUILT: UNBUILT (written, first build pending). No `sorry`, no axiom, no `native_decide`.
+BUILT: lc3i1 exit 0 (Tools.ShippingLetsReaderInvMain); audit lc3g1 exit 0 (before regView_ok moved into the proved set; re-audited as lc3j). No `sorry`, no axiom, no `native_decide`.
 
 ## What is PROVED (about the fuel TWIN `readF`, for every fuel)
 
@@ -18,9 +19,12 @@ in range of the OUTPUT table. `alias_premise_of_conv` turns (iii) into the `Alia
 ## PREMISES (named hypotheses of the theorems below, none an axiom)
 
 * `OpenFacts senv`: statements about functions this proof cannot unfold — `rootFloat` (`partial def`),
-  `Expr.liftLooseBVars` / `Expr.instantiate1` (extern), the signature types of `senv.instS` — and two total
-  but matcher-sensitive functions (`bundleIota`, the bare-register view `regView?`; v4.32.1 cannot split their
-  `match`, the proof was not done here). Each says "no `_machLet j` out of nothing".
+  `Expr.liftLooseBVars` / `Expr.instantiate1` (extern), the signature types of `senv.instS` — and ONE total
+  but matcher-sensitive function, `bundleIota` (its `match` has name-literal + array-literal patterns nested
+  three deep; v4.32.1 cannot split it, and the brute-force case split of `regView_ok` was not extended to it).
+  Each says "no `_machLet j` out of nothing". The other extractors (`regView?`, `machRunApp?`, `machInstCall?`,
+  `machInstCallS?`, `memCall?`, `loopView?`, `machLetTail`, `machLoopRegs`, `machProjIota`) are PROVED
+  (`Tools/ShippingLetsReaderInvPure.lean`, `…Pure2.lean`).
 * `LetOk 0 e`: the reader's INPUT mentions no `_machLet` placeholder (true of an environment
   declaration's body; NOT proved from the declaration here).
 * `EnvOk 0 env` for the start environment.
@@ -32,7 +36,7 @@ in range of the OUTPUT table. `alias_premise_of_conv` turns (iii) into the `Alia
   CONDITIONAL on it. A twin result is not a proof about the real reader.
 * The loose-bvar condition on `let` values (`machClose_bvar` bounds only the root bvar).
 * The `Expr` → typed `letFields` / `quote` link (proof-generation side).
-* The fields of `OpenFacts`. -/
+* The five fields of `OpenFacts`. -/
 namespace Tools.ShippingLetsReaderInv
 open Lean Sparkle.Compiler.Elab
 open Tools.ShippingLetsAliasInv Tools.ShippingReaderFuel
@@ -46,8 +50,6 @@ structure OpenFacts (senv : StructEnv) : Prop where
   sigTy : ∀ c kinds ty, senv.instS c = some (kinds, ty) → ∀ n, LetOk n ty = true
   bundleIota : ∀ n e, LetOk n e = true →
     LetOk n (Sparkle.Compiler.MachRawSurface.bundleIota e) = true
-  regView : ∀ n fn args d α i x, (∀ a ∈ args, LetOk n a = true) →
-    regView? fn args = some (d, α, i, x) → LetOk n d = true ∧ LetOk n x = true
 
 /-- The full record the induction uses, from `OpenFacts` and the lemmas of `…InvPure`. -/
 theorem pureFacts_of {senv : StructEnv} (O : OpenFacts senv) : PureFacts senv where
@@ -57,7 +59,7 @@ theorem pureFacts_of {senv : StructEnv} (O : OpenFacts senv) : PureFacts senv wh
   sigTy := O.sigTy
   bundleIota := O.bundleIota
   projIota := fun n e he => projIota_ok senv.proj n e he
-  regView := O.regView
+  regView := fun n fn args d α i x hall h => regView_ok n fn args d α i x hall h
   runApp := fun n e dom αs inits body he h => runApp_ok n e dom αs inits body he h
   instCall := fun n e c kinds res args he h => instCall_ok senv n e c kinds res args he h
   instCallS := fun n e c kinds ty args he h => instCallS_ok senv n e c kinds ty args he h

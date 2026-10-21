@@ -4,7 +4,7 @@ import Tools.ShippingReaderMatcherArityArray
 
 /-! # Unit LC3 (base): the range predicate `LetOk`, the let-binder range lemmas, the hypotheses
 
-BUILT: UNBUILT (written, first build pending). No `sorry`, no axiom, no `native_decide`.
+BUILT: lc3a3 exit 0 (Tools.ShippingLetsReaderInvBase); audit lc3g1 exit 0. No `sorry`, no axiom, no `native_decide`.
 
 `LetOk n e`: every `_machLet j` placeholder that OCCURS in `e` has `j < n`. This is the deep form of the
 range condition (not only the head of `e`): a reader result is a compound expression, and a projection /

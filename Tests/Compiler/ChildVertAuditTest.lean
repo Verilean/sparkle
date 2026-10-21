@@ -24,6 +24,7 @@ import Tools.ShippingMachineOutcomeA4
 import Tools.ShippingLetsCloseRoute
 import Tools.ShippingLetsAliasInv
 import Tools.ShippingLetsReaderInvMain
+import Tools.ShippingLetsReaderInvPure2
 import Tools.ShippingCallWidthsChildRealA
 import Tools.ShippingChildTeleLocalA
 import Tools.ShippingChildTeleMainA
@@ -355,6 +356,7 @@ def audited : List Name :=
    ``Tools.ShippingLetsReaderInv.instCallS_ok,
    ``Tools.ShippingLetsReaderInv.memCall_ok,
    ``Tools.ShippingLetsReaderInv.projIota_ok,
+   ``Tools.ShippingLetsReaderInv.regView_ok,
    ``Tools.ShippingLetsReaderInv.pureFacts_of,
    ``Tools.ShippingLetsReaderInv.machConvF_post,
    ``Tools.ShippingLetsReaderInv.machNestedF_post,
