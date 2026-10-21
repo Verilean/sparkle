@@ -3420,3 +3420,6 @@ lean_lib «Tools.ShippingLeafInputWidthsA» where
   roots := #[`Tools.ShippingLeafInputWidthsA]
 lean_lib «Tools.ShippingCallsCloseA» where
   roots := #[`Tools.ShippingCallsCloseA]
+
+lean_lib «Tools.ShippingCallsGateA» where
+  roots := #[`Tools.ShippingCallsGateA]
