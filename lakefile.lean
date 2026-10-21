@@ -3466,3 +3466,6 @@ lean_lib «Tools.ShippingCallsMemPinned» where
 
 lean_lib «Tools.ShippingMachineOutcomeA4» where
   roots := #[`Tools.ShippingMachineOutcomeA4]
+
+lean_lib «Tools.ShippingLetsCloseRoute» where
+  roots := #[`Tools.ShippingLetsCloseRoute]

@@ -21,6 +21,7 @@ import Tools.ShippingChildLinkA
 import Tools.ShippingMachineOutcomeA
 import Tools.ShippingMachineOutcomeA3
 import Tools.ShippingMachineOutcomeA4
+import Tools.ShippingLetsCloseRoute
 import Tools.ShippingCallWidthsChildRealA
 import Tools.ShippingChildTeleLocalA
 import Tools.ShippingChildTeleMainA
@@ -293,6 +294,10 @@ def audited : List Name :=
    ``Tools.ShippingMachineOutcomeA4.coreFinally_split,
    ``Tools.ShippingMachineOutcomeA4.core_reads_link4A,
    ``Tools.ShippingMachineOutcomeA4.core_machine_outcomeA''',
+   ``Tools.ShippingLetsCloseRoute.letsClose_of_noLets,
+   ``Tools.ShippingLetsCloseRoute.closeLets_some_of_machine_some,
+   ``Tools.ShippingLetsCloseRoute.not_letsClose_of_refusal,
+   ``Tools.ShippingLetsCloseRoute.letsClose_iff_no_refusal,
    ``Tools.ShippingCallsMemA.callsPureA_of_memKids,
    ``Tools.ShippingCallsMemA.machineClosesAtA_of_memKids,
    ``Tools.ShippingCallsMemA.machineClosesAtA_memOnly_names,
