@@ -6,7 +6,9 @@ import Tools.Prototype.NormStepModel
 TARGET-ONLY (`./.cluster/qbuild.sh build Tests.Compiler.NormStepModelWholeAgreeTest`); not in `Tests.AllTests`. EVIDENCE only, NOT a
 proof and NOT an equivalence claim: a finite comparison on the 40 fixed cases of `Tests.Compiler.ReaderFuelShadowTest` (the cases of
 `ReaderLfpExecTest`). Per case one line `NMWHOLE <label> [<group>]: real=… model=… …` with the layout (all `MachineShape` fields),
-refusal (`some none` vs production `none`) and fallback outcomes compared by `compareRes`. The file THROWS unless: 40 cases, 0 timeouts,
+reader refusal agreement (`some none` vs production `none`; the real legacy fallback is NOT executed or verified) and the layout compared by the
+local `fieldChecks` (EVERY field of `MachineShape` and `Layout`, including `instOrigins`, which the shared `fieldDiffs` omits; coverage asserted
+against the structure info). The file THROWS unless: 40 cases, 0 timeouts,
 0 disagreements, 0 outer-none, 33 successes (all MachineShape fields equal), 7 refusals (production none ↔ model some none). `machineShapeNM` answering outer `none` (BOT: no finite derivation) is a mismatch. BUILT: see
 REPORT-NMC. -/
 namespace Tests.Compiler.NormStepModelWholeAgreeTest
@@ -15,6 +17,23 @@ open Sparkle.Compiler.Elab
 open Tools.Prototype.ReaderExec
 open Tools.Prototype.NormStepModel
 open Tests.Compiler.ReaderFuelShadowTest
+
+/-- EVERY field of `MachineShape` (with `layout` expanded to the fields of `Layout`), as `(name, equal)`. -/
+def fieldChecks (a b : MachineShape) : List (String × Bool) :=
+  [("binders", a.binders == b.binders), ("body", a.body == b.body),
+   ("layout.slots", a.layout.slots == b.layout.slots), ("layout.outs", a.layout.outs == b.layout.outs),
+   ("layout.resetKind", a.layout.resetKind == b.layout.resetKind), ("layout.lets", a.layout.lets == b.layout.lets),
+   ("runs", a.runs == b.runs), ("insts", a.insts == b.insts), ("loops", a.loops == b.loops),
+   ("instFields", a.instFields == b.instFields), ("instOrigins", a.instOrigins == b.instOrigins)]
+
+/-- Local replacement of `compareRes`: same shapes of answer, all fields compared. -/
+def compareAll : Option MachineShape → Option (Option MachineShape) → String × Bool
+  | none, some none => ("n/a", true)
+  | some a, some (some b) =>
+    match (fieldChecks a b).filter (!·.2) |>.map (·.1) with
+    | [] => ("all-equal", true)
+    | ds => ("differ:" ++ ",".intercalate ds, false)
+  | _, _ => ("n/a", false)
 
 structure XObs where
   real : Option MachineShape
@@ -66,7 +85,7 @@ def xCase (label group : String) (n : Name) (sm : Bool := false)
     return 1
   | .ok (some o) =>
     IO.cancel ts
-    let (fields, eq) := compareRes o.real o.x
+    let (fields, eq) := compareAll o.real o.x
     let shape : String := match o.x with
       | none => "none" | some none => "some none" | some (some _) => "some (some x)"
     let line := s!"NMWHOLE {label} [{group}]: real={realClass o.real} model={xClass o.x} class={shape} fields={fields} equal={eq} realMs={o.realMs} modelMs={o.xMs}"
@@ -81,10 +100,25 @@ def xCase (label group : String) (n : Name) (sm : Bool := false)
       else if o.real.isSome && xr.isSome then return 0
       else return 2
 
+/-- THROWS unless the names compared by `fieldChecks` are exactly the fields of `MachineShape` (`layout` expanded to `Layout`'s). -/
+def checkFieldCoverage : CoreM Unit := do
+  let env ← getEnv
+  let top := getStructureFieldsFlattened env ``MachineShape false
+  let lay := getStructureFieldsFlattened env ``Sparkle.IR.Machine.Layout false
+  let expected := top.toList.flatMap fun f =>
+    if f == `layout then lay.toList.map (s!"layout.{·}") else [toString f]
+  let dummy : MachineShape := { binders := [], body := .bvar 0, layout := { slots := [], outs := [], resetKind := default } }
+  let got := (fieldChecks dummy dummy).map (·.1)
+  let sort := fun (l : List String) => l.toArray.qsort (· < ·) |>.toList
+  unless sort expected == sort got do
+    throwError m!"field coverage mismatch: structure {expected} vs compared {got}"
+  IO.println s!"NMWHOLE field coverage: {got.length} fields compared = structure fields"
+
 /-- Expected number of cases (the fixed shadow list). -/
 def expectedCases : Nat := 40
 
 run_cmd liftTermElabM do
+  checkFieldCoverage
   let cases : List (Unit → TermElabM Nat) := [
     (fun _ => xCase "counterLoop" "loop" ``Tests.Compiler.ReaderFuelGridTest.counterLoop),
     (fun _ => xCase "accLoop" "loop" ``Tests.Compiler.ReaderFuelGridTest.accLoop),
@@ -140,7 +174,7 @@ run_cmd liftTermElabM do
     | 3 => outerNone := outerNone + 1
     | 4 => refusals := refusals + 1
     | _ => successes := successes + 1
-  let line := s!"NMWHOLE SUMMARY: cases={n} expected={expectedCases} timeouts={timeouts} disagreements={disagreements} outerNone={outerNone} successes={successes} refusals={refusals}"
+  let line := s!"NMWHOLE SUMMARY: cases={n} expected={expectedCases} timeouts={timeouts} disagreements={disagreements} outerNone={outerNone} successes={successes} refusals={refusals} (reader refusal agreement; real fallback NOT verified)"
   (← IO.getStderr).putStrLn line
   logInfo m!"{line}"
   unless n == expectedCases do throwError m!"{line}: wrong case count"
