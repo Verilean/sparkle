@@ -26,9 +26,15 @@ PREMISES (each named after one thing): `LegacyImplA`, `LegacyCachedA`, `CanonKey
 `ChildSynthA O I` (the machine branch's calls `synthesizeChild c` themselves — the synthesis ref is read
 inside `closeInstsM`, and `childSynthEntry`'s read has an opaque result world, so `ChildEntryA` does not
 give it; at `JQ O.quiet D` it is `ChildKeepsA O D` verbatim), and `LegacyTailA` — ONLY for constants on
-which both gates miss and `machineShape?`/`synthesizeMachineCertified` fall through.
+which both gates miss and `machineShape?`/`synthesizeMachineCertified` fall through. `LegacyTailA` is a
+premise about EVERY such constant, so it stays in the statement even when the constant at hand
+takes the machine route successfully.
 
-OPEN: the legacy tail; the five handler premises are discharged by units A/B/C. -/
+OPEN (as of this integration, poc after 0054b6b2): the legacy tail `LegacyTailA`; the handler
+premises `LegacyImplA`, `LegacyCachedA`, `CanonKeyA` (units A/B work on them, NOT discharged);
+`ProjFieldNameA` has a proof only from the ADDED, unproved boundary `T : RefLawsATele`
+(Tools/ShippingChildProjFieldA.lean); `ChildEntryA` vs `ChildSynthA`: a bridge removing the
+redundant hypothesis is pending. -/
 
 namespace Tools.ShippingChildFrontCP
 open Lean Meta

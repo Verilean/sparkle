@@ -49,7 +49,8 @@ theorem keepsA_getConstInfoInduct (n : Name) :
   | none => exact keepsA_throwError O hA hS _ (by okmsg)
 
 /- `getConstInfoCtor`: the `unreachable!` arm of `isCtor?` at `MetaM` is `panic`, whose
-`Inhabited (MetaM _)` instance is `instInhabitedOfMonad`, i.e. `pure default`. -/
+`Inhabited (MetaM _)` instance is `instInhabitedOfMonad`, i.e. `pure default`. This is the
+MODEL of `panic` in the proof's semantics; the runtime behaviour of `panic` is NOT verified. -/
 theorem keepsA_getConstInfoCtor (n : Name) :
     Keeps mctx mref cctx cref I (getConstInfoCtor n : MetaM ConstructorVal) := by
   unfold getConstInfoCtor isCtor?
