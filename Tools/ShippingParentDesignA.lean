@@ -33,6 +33,7 @@ open Sparkle.IR.OptCheck (seqStmtOk checkedOptimize)
 open Tools.ShippingMachineLinked (childMap)
 open Tools.ShippingChecksCore Tools.ShippingLinkedFresh Tools.ShippingClosedTyped Tools.ShippingHierGateAny
 open Tools.ShippingOneOutFacts (RunFactsH designCheckH_rest)
+open Tools.ShippingHierOpen (linkedWF bodyInstOuts stmtInstOuts linkedWrites instOutWires)
 open Tools.ShippingParentRanA Tools.ShippingParentTailsA
 
 variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}

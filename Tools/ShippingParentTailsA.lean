@@ -31,6 +31,7 @@ open Sparkle.IR.RefineCheck (mergeChecked hierBinds)
 open Sparkle.IR.OptCheck (seqStmtOk checkedOptimize)
 open Tools.ShippingMachineLinked (childMap)
 open Tools.ShippingChecksCore Tools.ShippingLinkedFresh Tools.ShippingClosedTyped
+open Tools.ShippingHierOpen (linkedWF bodyInstOuts stmtInstOuts linkedWrites instOutWires)
 open Tools.ShippingParentRanA
 
 variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
