@@ -3604,3 +3604,6 @@ lean_lib «Tools.Prototype.ReaderFixpointWrapper» where
 
 lean_lib «Tools.Prototype.ReaderFixpointNorm» where
   roots := #[`Tools.Prototype.ReaderFixpointNorm]
+
+lean_lib «Tools.Prototype.ReaderFixpointSpec» where
+  roots := #[`Tools.Prototype.ReaderFixpointSpec]
