@@ -77,4 +77,75 @@ run_meta checkNoBundleConsts ``machineShapeN_typed_all
 run_meta (Tools.Prototype.ReaderExec.auditPropBinders ``machineShapeN_typed_all
   ["RootFloatRange", "LiftRange", "Inst1Range", "SigTyRange", "ZeroLitAgrees", "RawNodeRange", "NormNodeRange", "EqvLetOk0", "Eq", "Eq"])
 
+/-! ## Whole-conclusion check (unit LCC2, reviewer binding)
+
+`ExpectedConcl` is the explicitly written expected conclusion (an `abbrev`, so the comparison below is at REDUCIBLE
+transparency).  `checkConclusion` (THROWING) telescopes `machineShapeN_typed_all`, instantiates the binders of LCQ2's
+`machineShapeN_typed_nb` by the SAME fvars (name + `isDefEq` type alignment: senv, sm, ps, ci, ai, sp, h; every other binder is a
+fresh fvar), asserts the alignment lists, then requires (1) the two conclusions `isDefEq` and (2) each equal to `ExpectedConcl`. -/
+abbrev ExpectedConcl (senv : StructEnv) (sm : Bool) (ps : List (String × Nat)) (ci : Lean.ConstantInfo)
+    (ai : Bool) (sp : MachineShape) : Prop :=
+  ∃ (p : ShapePre) (en : Lean.Expr) (st : MachRead) (v : Lean.Expr),
+    shapePre sm ps ci senv = some p ∧ execNorm senv p.e = some en ∧
+    RdOk st ∧ NoLetAlias st.lets ∧ LetOk st.lets.size v = true ∧
+    shapePost ai p (shapeMid senv p en) st v = some sp ∧
+    (∀ (d : MachineData), d.shape = sp → d.ok = true →
+      d.shape.body = quote d.dom (fun j => inputExpr d.shape.binders.length (d.bpos j))
+        (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed →
+      d.letsAliasOk = true ∧
+      ∀ {declName : Name} (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State)
+        (cctx : Core.Context) (cref : ST.Ref IO.RealWorld Core.State),
+        Tools.ShippingClosesSplit.LetsClose mctx mref cctx cref declName d.shape)
+
+open Lean Meta in
+/-- Instantiate the binders of `ty`: a binder whose name matches a `shared` fvar and whose domain is defeq to its type becomes that fvar;
+any other binder a fresh fvar.  Returns (conclusion, aligned names, fresh names). -/
+partial def alignShared (shared : Array Expr) (ty : Expr) (al fr : Array String := #[]) :
+    MetaM (Expr × Array String × Array String) := do
+  match ty with
+  | .forallE n d b bi =>
+    let mut hit : Option Expr := none
+    for x in shared do
+      if hit.isNone && (← x.fvarId!.getUserName) == n then
+        if ← isDefEq d (← inferType x) then hit := some x
+    match hit with
+    | some x => alignShared shared (b.instantiate1 x) (al.push n.toString) fr
+    | none => withLocalDecl n bi d fun x => do
+        let (c, a, f) ← alignShared shared (b.instantiate1 x) al (fr.push n.toString)
+        pure (c, a, f)
+  | _ => pure (ty, al, fr)
+
+open Lean Meta in
+def checkConclusion : MetaM Unit := do
+  let ci ← getConstInfo ``machineShapeN_typed_all
+  let cn ← getConstInfo ``machineShapeN_typed_nb
+  forallTelescope ci.type fun xs concl => do
+    let mut shared : Array Expr := #[]
+    for x in xs do
+      let nm := (← x.fvarId!.getUserName).toString
+      if ["senv", "sm", "ps", "ci", "ai", "sp", "h"].contains nm then shared := shared.push x
+    let names ← shared.mapM fun x => do pure (← x.fvarId!.getUserName).toString
+    if names.toList != ["senv", "sm", "ps", "ci", "ai", "sp", "h"] then
+      throwError "CONCLUSION CHECK FAILED: shared fvars of typed_all are {names}"
+    let (concl2, al, fr) ← alignShared shared cn.type
+    if al.toList != ["senv", "sm", "ps", "ci", "ai", "sp", "h"] then
+      throwError "CONCLUSION CHECK FAILED: typed_nb aligned binders {al}"
+    if fr.toList != ["hroot", "hlift", "hinst1", "hsig", "hin"] then
+      throwError "CONCLUSION CHECK FAILED: typed_nb fresh binders {fr}"
+    unless ← isDefEq concl concl2 do
+      throwError "CONCLUSION CHECK FAILED: typed_all and typed_nb conclusions differ"
+    let exp := mkAppN (mkConst ``ExpectedConcl) #[shared[0]!, shared[1]!, shared[2]!, shared[3]!, shared[4]!, shared[5]!]
+    unless ← withReducible (isDefEq concl exp) do
+      throwError "CONCLUSION CHECK FAILED: typed_all conclusion differs from ExpectedConcl"
+    unless ← withReducible (isDefEq concl2 exp) do
+      throwError "CONCLUSION CHECK FAILED: typed_nb conclusion differs from ExpectedConcl"
+    -- sensitivity: a mutated expectation (`ai` negated) must be rejected
+    let bad := mkAppN (mkConst ``ExpectedConcl) #[shared[0]!, shared[1]!, shared[2]!, shared[3]!,
+      mkApp (mkConst ``not) shared[4]!, shared[5]!]
+    if ← withReducible (isDefEq concl bad) then
+      throwError "CONCLUSION CHECK FAILED: check is insensitive (mutated expectation accepted)"
+    logInfo m!"conclusion check: typed_all = typed_nb = ExpectedConcl (aligned {al}; typed_nb fresh {fr})"
+
+run_meta checkConclusion
+
 end Tools.Prototype.ReaderComposed
