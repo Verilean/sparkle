@@ -1,5 +1,5 @@
 import Tools.ShippingChildComposeA
--- UNBUILT (unit F2): build names and exits are in REPORT-F2.md. No `sorry`, no `axiom`,
+-- BUILT (unit F2): f2b exit 0, f2c exit 0 (with #print axioms, removed afterwards). See REPORT-F2.md.
 -- no `native_decide`, no new law. Boundary: `O : RefLawsAOps MkRefd mref cref`,
 -- `hA : AdmCtx O.quiet mctx cctx`, the ADDED unproved `T : RefLawsATele O.quiet mref cref`
 -- (logical inconsistency NOT PROVEN), and ONE legacy-tail hypothesis `hTail` (below).
