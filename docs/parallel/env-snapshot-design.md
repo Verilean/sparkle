@@ -28,7 +28,7 @@ Preservation form: `EnvFrame x := ∀ w a w', RunsTo x … w a w' → envAt cref
 
 * **No correspondence with the real `ST.Ref` exists.** `ST.Ref.get` is `@[extern] opaque` and the world is the
   opaque `Void IO.RealWorld`: the kernel cannot see that `get r w` returns `w` (and `ST.Ref.get` could a priori
-  return any world). Hence `GetEnvFrame` itself is not provable from definitions; the model `Model.*` is a
+  return any world). Hence `GetEnvFrame` itself is NOT PROVED from the definitions here (no route found; not shown unprovable); the model `Model.*` is a
   different type and proves only the model analogue. To transfer it one needs a heap model of the runtime
   (`Void IO.RealWorld → St Environment` such that real `ST.Ref.get cref` is the model read), the same OPEN fit as
   `Tools/ShippingHeapModel.lean`, or the named law `GetEnvFrame` as a trust boundary.
@@ -40,12 +40,12 @@ No `addDecl`/`setEnv`/`modifyEnv`/`withEnv` in `Sparkle/Compiler` source (SR2g g
 
 | path | can it change `Core.State.env`? | options |
 |---|---|---|
-| `whnf`, `whnfR/whnfD`, `inferType`, `isDefEq` | no env write in Lean's code, but they use caches in `Meta.State`/`Core.State` fields other than `env`; `unfoldDefinition?` reads only | proof needs a model of Lean's Meta (infeasible); or trust law "MetaM read-only API leaves `env`" (named, per call); or implementation change: wrap body in `withoutModifyingEnv`-style restore (changes the compiler; then the end-of-body env is restored, but snapshot over w1,w2 is unaffected) |
-| `mkAppM`, `mkAppOptM` | no env write; may instantiate mvars (Meta.State) | same trust law |
+| `whnf`, `whnfR/whnfD`, `inferType`, `isDefEq` | no env write FOUND in Lean's code (unverified; a candidate to confirm), but they use caches in `Meta.State`/`Core.State` fields other than `env`; `unfoldDefinition?` reads only | proof needs a model of Lean's Meta (not attempted; a large undertaking — not shown infeasible); or trust law "MetaM read-only API leaves `env`" (named, per call); or implementation change: wrap body in `withoutModifyingEnv`-style restore (changes the compiler; then the end-of-body env is restored, but snapshot over w1,w2 is unaffected) |
+| `mkAppM`, `mkAppOptM` | no env write FOUND (unverified; a candidate to confirm); may instantiate mvars (Meta.State) | same trust law |
 | instance synthesis (`synthInstance?`) | tabled resolution, cache in `Meta.State`; auxiliary decls not added | same trust law |
 | `unfoldDefinition?`, `Meta.reduceMatcher` | `reduceMatcher` can call `mkMatcherAuxDefinition`-free paths; matcher *creation* (`addDecl`) only happens at elaboration, not in these reductions | trust law; check by a bounded grep of called Lean entry points |
 | `Lean.Elab` / `Term.elab*` if any callback elaborates | CAN `addDecl` (auxiliary lemmas, `_private` defs, `instance` caches) | implementation change (`withoutModifyingEnv` around callbacks) or exclude from the covered body |
-| sparkle callbacks (`translate`, `childSynthEntry`, user `userInliner`) | write only SR refs per `RefLawsAOps`; env-preservation not stated by any law | extend ONLY via a new named law `CoreEnvFrame` over `Core.State` (a trust boundary change, needs a ruling), not added here |
+| sparkle callbacks (`translate`, `childSynthEntry`, user `userInliner`) | `RefLawsAOps` does NOT imply that they write only the SR refs, nor that `Core.env` is preserved (it says nothing about `Core.State`); env-preservation not stated by any law | extend ONLY via a new named law `CoreEnvFrame` over `Core.State` (a trust boundary change, needs a ruling), not added here |
 | `addDecl` (none present) | yes | would break the snapshot; absent in source |
 
 For the demonstrated span w1→w2 only `getEnv` occurs, so the sole premise is `GetEnvFrame`. For w1→w4 the

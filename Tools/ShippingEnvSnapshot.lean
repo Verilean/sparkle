@@ -10,7 +10,8 @@ same `envAt cref` as its start.  PROVED: `EnvFrame` is closed under `pure` and `
 (`EnvFrame.pure/.bind`); `EnvFrame (getConstInfo n)` follows from `EnvFrame getEnv`
 (`envFrame_getConstInfo`); hence `EnvSnapshot cref w1 w2` follows from the run of `getConstInfo` between `w1` and
 `w2` plus `GetEnvFrame` (`envSnapshot_of_getConstInfo`, `ci_in_envR_of_frame`).  The premise is therefore REPLACED
-by the strictly smaller, single-operation statement `GetEnvFrame := EnvFrame getEnv` (the bare `get` of the Core
+by a DECOMPOSITION of the operation range down to the single-operation statement `GetEnvFrame := EnvFrame getEnv` (not a
+logically weaker law: it is the same frame property for one operation) (the bare `get` of the Core
 state writes nothing back); it is NOT proved for the real `ST.Ref`: `ST.Ref.get` is an `@[extern] opaque`
 (`Init/System/ST.lean`) and the world it returns is opaque, so the kernel cannot see that `get r w` returns `w`.
 This file makes NO claim that `GetEnvFrame` holds of the runtime; it is a PREMISE (one named law about one

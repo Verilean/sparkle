@@ -81,9 +81,10 @@ and `machineShape?` reads `match … with | some (some x) => … | _ => none`.
 Call sites (grep over `Sparkle/ Tests/ Tools/`): the seven names are used only inside `Elab.lean`:
 inside the group (3888-4244) and in `machineShape?` at 5114 (`machConv`), 5122 (`machLoopRoot`), 5127 (`machConv`),
 5137 (`machChain`), 5143 (`machConv`); `machineShape?` is called at 5280 and 5314 (and `Tests`/`Tools` mention the readers
-only as the fuel twins `…F`, the local `machInstanceS.inst` shadow in `Tests/Compiler/ReaderInstTyShadowTest.lean`, and
-comments). Behaviour of each: terminating input — same value (the unfolding equation is the old text); refusal — `none` as
-before; diverging input — diverges as before. **No new refusal, no new acceptance is introduced by A1.**
+only as the fuel twins `…F`, the local `machInstanceS.inst` shadow in `Tests/Compiler/ReaderInstTyShadowTest.lean`,
+comments, AND `realFns` (Tools/ShippingLetsReaderInvMain.lean ~:169), which references the seven REAL functions — a switch
+affects it). Behaviour of each: terminating input — same value (the unfolding equation is the old text); refusal — `none` as
+before; diverging input — diverges as before. **ACCEPTANCE CONDITION for A1 (not a guarantee — A1 is not implemented): no new refusal and no new acceptance.**
 
 Verification items for a production switch (A1), each OPEN:
 1. Port all seven bodies to `do`-with-inner-`match` and `findSomeM?`; prove `machineShape?` (a `Option`-valued wrapper)
