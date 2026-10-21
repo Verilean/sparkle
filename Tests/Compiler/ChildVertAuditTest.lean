@@ -48,6 +48,7 @@ import Tests.Compiler.CallsMemAMemWideTest
 import Tests.Compiler.CallerTwiceATest
 import Tools.ShippingCallsMemPinned
 import Tools.ShippingSeqChildIfaceA
+import Tools.ShippingSeqChildIfaceDeepA
 import Tools.ShippingParentGateA
 import Tools.ShippingRanABridge
 import Tools.ShippingKidsSelfA
@@ -414,6 +415,8 @@ def audited : List Name :=
    ``Tools.ShippingCallsMemPinned.callsPureGP_of_memKids',
    ``Tools.ShippingSeqChildIfaceA.seqChild_ifaceA,
    ``Tools.ShippingSeqChildIfaceA.seqChild_of_realA,
+   ``Tools.ShippingSeqChildIfaceDeepA.deepChild_ifaceA,
+   ``Tools.ShippingSeqChildIfaceDeepA.deepChild_kidsSelfA,
    ``Tools.ShippingParentRanA.machineRanA_main,
    ``Tools.ShippingParentTailsA.core_kids_facts_ranA,
    ``Tools.ShippingParentTailsA.core_linkedWF_ranA,

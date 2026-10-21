@@ -104,8 +104,8 @@ run_cmd do
   logInfo m!"SR3l: `grand` (child `mid` calls `cnt`) is REFUSED by #machine_seq_parent_endpoint at depth 2; no grand.epA_endpoint; reason: {txts.head!.take 300}…"
 
 -- unit SR3l (review item 2): the depth <-> `ResetNk n` correspondence, READ from the old generated theorems (type and value): `parent.machine_ships_hierNR1`
--- (parent -> leaf `cnt`: height of the instance tree below the head = 1) carries `ResetNk 1`; `grand.machine_ships_hierNR2` (grand -> mid -> cnt: height 2)
--- carries `ResetNk 2`.  So `n` = number of instance levels beneath the head declaration; the new generator is written for n = 1 only.
+-- (parent -> leaf `cnt`) carries `ResetNk 1`; `grand.machine_ships_hierNR2` (grand -> mid -> cnt) carries `ResetNk 2`.  This is a SYNTACTIC observation for these
+-- TWO examples only (n = 1, n = 2); it is NOT a proved rule relating `n` to the height of the instance tree.  The new generator is written for depth 1 only.
 open Lean Meta Elab Command in
 run_cmd liftTermElabM do
   let natAfter (nm : Name) : MetaM (List Nat) := do
@@ -127,7 +127,7 @@ run_cmd liftTermElabM do
   let p ← natAfter ``Sparkle.Tests.Compiler.ShippingMachineSeqTest.parent.machine_ships_hierNR1
   let g ← natAfter ``Sparkle.Tests.Compiler.ShippingMachineSeqTest.grand.machine_ships_hierNR2
   unless p == [1] && g == [2] do throwError "SR3l AUDIT FAILED: ResetNk levels: parent {p}, grand {g}, expected [1] and [2]"
-  logInfo m!"SR3l: ResetNk n = height of the instance tree below the head: parent (-> cnt) n = {p}, grand (-> mid -> cnt) n = {g}"
+  logInfo m!"SR3l: ResetNk n, observed for these two examples only (not a proved rule): parent (-> cnt) n = {p}, grand (-> mid -> cnt) n = {g}"
 
 #print axioms Sparkle.Tests.Compiler.ShippingMachineSeqTest.parent.epA_endpoint
 #print axioms Sparkle.Tests.Compiler.ShippingMachineSeqTest.chained.epA_endpoint

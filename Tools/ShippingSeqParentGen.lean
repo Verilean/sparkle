@@ -835,8 +835,7 @@ elab "#machine_seq_parent_endpoint " f:ident : command => do
         readNames (← elabText (subst "(@F@.machineData.shape.insts.map (·.1))" c .anonymous 0))
       throwError "#machine_seq_parent_endpoint (unit SR3l): DEPTH 2 REFUSED: the child {c} itself has {nInsts} call instance(s), of the grandchild declaration(s) {gcs.eraseDups}.  \
         OPEN, no lemma on the new boundary: the interface of a `RealChildA O {c} y` whose machine has calls.  \
-        `Tools.ShippingSeqChildIfaceA.seqChild_of_realA` needs `d.shape.insts = []` and concludes `ChildIfaceG … y.1 y.2`, whose field `design : y.2.modules = []` is FALSE for such a child \
-        (its design holds the grandchildren), so every child-keyed fact of the parent (`kidsMasked`, `runFacts`, `outsCheck`, `designCheck`, `MachineClosesAtA` through `memKids'`) would need \
+        `Tools.ShippingSeqChildIfaceA.seqChild_of_realA` needs `d.shape.insts = []` and concludes `ChildIfaceG … y.1 y.2`; this leaf-only conclusion cannot be applied to a child with calls, whose grandchildren's design must be kept, so every child-keyed fact of the parent (`kidsMasked`, `runFacts`, `outsCheck`, `designCheck`, `MachineClosesAtA` through `memKids'`) would need \
         a depth-2 analogue of `GenKid`/`KidFacts` (`Tools/ShippingGenKid.lean`, old boundary, built from `mid.closes_deep`) over `RealChildA`/`RefLawsATele`; it is NOT in the repository and is not assumed here."
     for s in [`machine_ok, `machine_body, `machine_closes, `machineSource] do
       unless (← getEnv).contains (c ++ s) do throwError "#machine_seq_parent_endpoint: {c ++ s} not found (child {c} must be a generated machine)"
