@@ -160,6 +160,7 @@ theorem bundleIota_key2 (n : Nat) (e : Lean.Expr) (he : LetOk n e = true) (f s :
     all_goals (try rcases hn with _ | ⟨_ | ⟨_ | ⟨_ | ⟨_ | ⟨_ | ⟨pp5, ss5⟩ | ⟨pp5, ii5⟩, ss4⟩ | ⟨pp4, ii4⟩, ss3⟩ |
       ⟨pp3, ii3⟩, ss2⟩ | ⟨pp2, ii2⟩, ss1⟩ | ⟨pp1, ii1⟩, ss0⟩ | ⟨pp0, ii0⟩)
     all_goals (try rcases k with _ | _ | _ | k)
+    all_goals (try subst_vars)
     all_goals (try dsimp only)
     all_goals (repeat' split)
     all_goals (try (exact fun _ => he))
