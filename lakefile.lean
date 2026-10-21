@@ -3614,6 +3614,18 @@ lean_lib «Tools.Prototype.PreprocLetOk» where
 lean_lib «Tools.Prototype.ReaderFixpointTyped» where
   roots := #[`Tools.Prototype.ReaderFixpointTyped]
 
+lean_lib «Tools.ShippingCloBase» where
+  roots := #[`Tools.ShippingCloBase]
+
+lean_lib «Tools.ShippingCloBundle» where
+  roots := #[`Tools.ShippingCloBundle]
+
+lean_lib «Tools.ShippingCloInv» where
+  roots := #[`Tools.ShippingCloInv]
+
+lean_lib «Tools.Prototype.ReaderClosed» where
+  roots := #[`Tools.Prototype.ReaderClosed]
+
 lean_lib «Tools.ShippingSeqChildIfaceDeepA» where
   roots := #[`Tools.ShippingSeqChildIfaceDeepA]
 
