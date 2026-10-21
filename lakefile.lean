@@ -3472,3 +3472,8 @@ lean_lib «Tools.ShippingLetsCloseRoute» where
 
 lean_lib «Tools.ShippingSeqChildIfaceA» where
   roots := #[`Tools.ShippingSeqChildIfaceA]
+lean_lib «Tools.ShippingServedRealA» where
+  roots := #[`Tools.ShippingServedRealA]
+
+lean_lib «Tools.ShippingServedRealATrace» where
+  roots := #[`Tools.ShippingServedRealATrace]

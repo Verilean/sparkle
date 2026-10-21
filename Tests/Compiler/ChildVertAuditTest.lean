@@ -28,6 +28,8 @@ import Tools.ShippingChildTeleMainA
 import Tools.ShippingCallWidthsChildRealAMain
 import Tools.ShippingCallWidthsChildRealATl
 import Tools.ShippingLeafInputWidthsA
+import Tools.ShippingServedRealA
+import Tools.ShippingServedRealATrace
 import Tools.ShippingCallsCloseA
 import Tools.ShippingCallsGateA
 import Tools.ShippingChildPinC
@@ -270,6 +272,14 @@ def audited : List Name :=
    ``Tools.ShippingLeafInputWidthsA.leaf_input_widthsA,
    ``Tools.ShippingLeafInputWidthsA.leaf_sat_design_closedA,
    ``Tools.ShippingLeafInputWidthsA.leaf_sat_design_closed5A,
+   ``Tools.ShippingServedRealA.machineRunJQC_of_closesA,
+   ``Tools.ShippingServedRealA.synthesizeCombinationalCore_machine_soundRA_ranA,
+   ``Tools.ShippingServedRealA.synthesizeCombinationalCore_machine_soundRA_A,
+   ``Tools.ShippingServedRealA.realChildA_inv,
+   ``Tools.ShippingServedRealA.synthesizeCombinationalCore_machine_soundRA_main,
+   ``Tools.ShippingServedRealATrace.machine_trace_lets_of_streamBRA_main,
+   ``Tools.ShippingServedRealATrace.machine_trace_lets_of_streamBRA_ranA,
+   ``Tools.ShippingServedRealATrace.machine_trace_lets_of_streamBRA_A,
    ``Tools.ShippingMachineOutcomeA.synthesizeFromConst_machine_splitA,
    ``Tools.ShippingMachineOutcomeA.core_machine_outcomeA,
    ``Tools.ShippingCallsCloseA.closeInstsM_runC,
