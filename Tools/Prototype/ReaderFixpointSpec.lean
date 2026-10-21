@@ -3,10 +3,11 @@ import Tools.ShippingReaderFuelShapeR5
 import Tools.ShippingReaderFuelShapeR1
 import Tools.ShippingReaderFuelShapeProv
 import Tools.ShippingLetsReaderInvMain
+import Tools.ShippingBundleIotaRange
 
 /-! # Unit LC12 prototype: SPECIFICATION lemmas for the kernel-visible reader `machineShapeN`
 
-BUILT/UNBUILT: see REPORT-LC12.md (run names + exits).  No sorry / axiom / native_decide.  Production
+BUILT: runs s1 (part 1), s5 (phases), s14 (main theorem), s15, s16 (final, with `machineShapeN_lets'`) all exit 0 (final = s16).  No sorry / axiom / native_decide.  Production
 unchanged; `machineShapeN` is the prototype wrapper of LC11b (`shapeW` against `execNorm` + `execBlock`), NOT the
 shipped `machineShape?`; `TwinCoverAt` and `machNorm = execNorm` stay OPEN.
 
@@ -149,6 +150,18 @@ theorem machineShapeN_instR1 (hM : Tools.ShippingReaderFuelR1.MemR1 senv)
       ∀ (kinds : List MixedGateBinder) (r' : MixedGateBinder),
         senv.inst c = some (kinds, r') → r = r' :=
   Tools.ShippingReaderFuelShapeR1.machineShapeF_instR1 hM hD (machineShapeN_fuel h).choose_spec
+
+/-- **Refusal side** (premise-free): a refusal in the pure prefix (`shapePre`: not a definition, symbolic mode,
+parameters, binders, outputs) is the ordinary refusal `some none` of the executable reader. -/
+theorem machineShapeN_of_pre_none (hpre : shapePre sm ps ci senv = none) :
+    machineShapeN sm ps ci senv ai = some none :=
+  machineShapeN_iff_fuel.mpr ⟨0, machineShapeF_of_pre_none 0 hpre⟩
+
+/-- A success has passed the pure prefix `shapePre`. -/
+theorem machineShapeN_pre_some_of_ok (h : machineShapeN sm ps ci senv ai = some (some sp)) :
+    ∃ p, shapePre sm ps ci senv = some p := by
+  obtain ⟨_, p, _, _, _, _, _, _, hp, _⟩ := machineShapeN_steps h
+  exact ⟨p, hp⟩
 
 end Transfer
 
@@ -366,6 +379,19 @@ theorem machineShapeN_lets {sm : Bool} {ps : List (String × Nat)} {ci : Lean.Co
     (shapeMid_wrap_ok senv p en hI.root) h2
   exact ⟨p, en, st, v, hp, (execNorm_iff senv).mpr ⟨n, hen⟩, r2.1, r2.1.1, r2.2.2, h3⟩
 
+/-- `machineShapeN_lets` with `BundleIotaRange` discharged by LC4a's `bundleIotaRange` (PROVED): four premises
+remain (`RootFloatRange`, `LiftRange`, `Inst1Range`, `SigTyRange senv`). -/
+theorem machineShapeN_lets' {sm : Bool} {ps : List (String × Nat)} {ci : Lean.ConstantInfo} {ai : Bool}
+    {sp : MachineShape}
+    (hin : ∀ (p : ShapePre) (en : Lean.Expr), shapePre sm ps ci senv = some p →
+      execNorm senv p.e = some en → ShapeInOk senv (shapeMid senv p en))
+    (h : machineShapeN sm ps ci senv ai = some (some sp)) :
+    ∃ (p : ShapePre) (en : Lean.Expr) (st : MachRead) (v : Lean.Expr),
+      shapePre sm ps ci senv = some p ∧ execNorm senv p.e = some en ∧
+      RdOk st ∧ NoLetAlias st.lets ∧ LetOk st.lets.size v = true ∧
+      shapePost ai p (shapeMid senv p en) st v = some sp :=
+  machineShapeN_lets hroot hlift hinst1 hsig Tools.ShippingLetsReaderInv.bundleIotaRange hin h
+
 end Lets
 
 #print axioms machineShapeN_steps
@@ -374,5 +400,7 @@ end Lets
 #print axioms machineShapeN_instR1
 #print axioms machineShapeN_lets
 #print axioms shapeMid_wrap_ok
+#print axioms machineShapeN_lets'
+#print axioms machineShapeN_of_pre_none
 
 end Tools.Prototype.ReaderExec
