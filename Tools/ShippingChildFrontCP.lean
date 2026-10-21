@@ -1,5 +1,7 @@
 import Tools.ShippingChildFrontA
 import Tools.ShippingChildDepthA
+import Tools.ShippingChildCacheA
+-- BUILT (D2, par/u-d2): e3 (Tools.ShippingChildFrontCP) exit 0 (after e1 exit 1: bindQ needed an explicit read triple; e2 exit 0 before the JQ/JQC instances); audit e4 exit 0.
 -- BUILT (unit D, par/u-d): d1 exit 0 (first try); audit d2 (Tests.Compiler.ChildVertAuditTest) exit 0.
 -- No `sorry`, no `axiom`, no `native_decide`, no new law / boundary field. Law witness:
 -- `O : RefLawsAOps MkRefd mref cref` at `hA : AdmCtx O.quiet mctx cctx` only.
@@ -34,7 +36,7 @@ OPEN (as of this integration, poc after 0054b6b2): the legacy tail `LegacyTailA`
 premises `LegacyImplA`, `LegacyCachedA`, `CanonKeyA` (units A/B work on them, NOT discharged);
 `ProjFieldNameA` has a proof only from the ADDED, unproved boundary `T : RefLawsATele`
 (Tools/ShippingChildProjFieldA.lean); `ChildEntryA` vs `ChildSynthA`: a bridge removing the
-redundant hypothesis is pending. -/
+redundant hypothesis is removed by `childEntryA_of_childSynthA` (D2). -/
 
 namespace Tools.ShippingChildFrontCP
 open Lean Meta
@@ -239,6 +241,43 @@ def ChildSynthA (O : RefLawsAOps MkRefd mref cref) (I : Void IO.RealWorld → Pr
   ∀ (mctx : Meta.Context) (cctx : Core.Context), AdmCtx O.quiet mctx cctx →
     ∀ c, Keeps mctx mref cctx cref I (synthesizeChild c)
 
+/-- **D2-1: `ChildEntryA O I` from `ChildSynthA O I`.** `childSynthEntry c` reads the synthesis ref
+(framed, so `I` is kept) and calls the value read; `hsv` says that value, read under `I`, is
+`synthesizeChild`. The read's result is `readOf sparkleChildSynth w = sv w` (`runsTo_get_readOf`,
+no law), so the world after the read is not opaque for the RESULT once `I` pins `sv`. -/
+theorem childEntryA_of_childSynthA (O : RefLawsAOps MkRefd mref cref) {I : Void IO.RealWorld → Prop}
+    (hS : StableA O.quiet I) (hsv : ∀ w, I w → sv w = some synthesizeChild)
+    (hC : ChildSynthA O I) : ChildEntryA O I := by
+  intro mctx cctx hA c
+  rw [keeps_iff]
+  unfold childSynthEntry
+  have hread : Triple mctx mref cctx cref I (sparkleChildSynth.get : MetaM _)
+      (fun s w => I w ∧ s = some synthesizeChild) (fun e w => I w ∧ OkExc e) := by
+    intro w hw
+    have hK := keeps_iff.mp (keepsA_framed O hA hS FramedA.synthGet) w hw
+    cases hm : (sparkleChildSynth.get : MetaM _) mctx mref cctx cref w with
+    | ok a w1 =>
+      rw [hm] at hK
+      exact ⟨hK, (runsTo_get_readOf _ hm).trans (hsv w hw)⟩
+    | error e w1 => rw [hm] at hK; exact hK
+  refine Triple.bindQ hread ?_
+  · intro s hs
+    subst hs
+    exact keeps_iff.mp (hC mctx cctx hA c)
+
+/-- At `JQ O.quiet D`: `ChildEntryA` from `ChildKeepsA O D` (= `ChildSynthA O (JQ O.quiet D)`),
+`hsv` being `JQ`'s second component. -/
+theorem childEntryA_JQ_of_childSynthA (O : RefLawsAOps MkRefd mref cref) (D : Nat)
+    (hC : ChildKeepsA O D) : ChildEntryA O (JQ O.quiet D) :=
+  childEntryA_of_childSynthA O (stableA_JQ _ D) (fun _ h => h.2.1) hC
+
+/-- At `JQC O D` (unit E plugs in `ChildKeepsC O D` as `ChildSynthA O (JQC O D)`): `hsv` is the
+`JQ` half of `JQC`. -/
+theorem childEntryA_JQC_of_childSynthA (O : RefLawsAOps MkRefd mref cref) (D : Nat)
+    (hC : ChildSynthA O (Tools.ShippingChildCacheA.JQC O D)) :
+    ChildEntryA O (Tools.ShippingChildCacheA.JQC O D) :=
+  childEntryA_of_childSynthA O (Tools.ShippingChildCacheA.stableA_JQC O D) (fun _ h => h.1.2.1) hC
+
 /-- **`fromConst_frontends_keepsCP`**: the three front ends, generic stable `I`, translator in
 the restricted `RecA` form. `hlegacy` only for constants on which both gates miss. -/
 theorem fromConst_frontends_keepsCP (O : RefLawsAOps MkRefd mref cref)
@@ -259,7 +298,7 @@ theorem fromConst_frontends_keepsCP (O : RefLawsAOps MkRefd mref cref)
 theorem fromConst_frontends_of_handlers (O : RefLawsAOps MkRefd mref cref)
     (hA : AdmCtx O.quiet mctx cctx) {I : Void IO.RealWorld → Prop} (hS : StableA O.quiet I)
     (hImpl : LegacyImplA O I) (hCached : LegacyCachedA O I) (hcanon : CanonKeyA O I)
-    (hpf : ProjFieldNameA O I) (hchildE : ChildEntryA O I) (hchild : ChildSynthA O I)
+    (hpf : ProjFieldNameA O I) (hchild : ChildSynthA O I)
     (hsv : ∀ w, I w → sv w = some synthesizeChild)
     (tenv : Lean.Environment) (b : Bool) (declName : Name) (constInfo : ConstantInfo)
     (isInst : Lean.Expr → Bool)
@@ -272,7 +311,8 @@ theorem fromConst_frontends_of_handlers (O : RefLawsAOps MkRefd mref cref)
       (synthesizeFromConst (fun e h t n => translateExprToWire tenv e h t n) (profLogIO b)
         declName [] false true constInfo isInst) :=
   fromConst_frontends_keepsCP O hA hS _
-    (translate_keepsA O hS tenv hImpl hCached hcanon hpf hchildE) hchild hsv b declName constInfo
+    (translate_keepsA O hS tenv hImpl hCached hcanon hpf
+      (childEntryA_of_childSynthA O hS hsv hchild)) hchild hsv b declName constInfo
     isInst hlegacy
 
 /-! ## At `JQ O.quiet D`: the body for every route but the legacy tail -/
@@ -295,7 +335,7 @@ theorem bodyKeepsA_frontends (O : RefLawsAOps MkRefd mref cref) (D : Nat)
     (hC : ChildKeepsA O D) (hlegacy : LegacyTailA O D) : BodyKeepsA O D := by
   intro mctx cctx hA declName tenv b ci isInst
   exact fromConst_frontends_of_handlers O hA (stableA_JQ _ D) hImpl hCached hcanon hpf
-    (childEntryA_of_childKeeps O D hC) hC (fun _ h => h.2.1) tenv b declName ci isInst
+    hC (fun _ h => h.2.1) tenv b declName ci isInst
     (hlegacy mctx cctx hA declName tenv b ci isInst)
 
 /-- **`BodyStepA O`** from the per-handler premises (every depth) and the legacy tail. -/
