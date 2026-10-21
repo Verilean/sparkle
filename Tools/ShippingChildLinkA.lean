@@ -1,7 +1,11 @@
 import Tools.ShippingChildCacheA
 import Tools.ShippingCallWidthsChildReal
 import Tools.ShippingP5Forall
--- L1 additions (entryStrict_realA, childLink_realFA): see bottom; build log in REPORT-L1.md.
+-- L1 additions (entryStrict_realA, childLink_realFA, unit L1 par/u-l1): l1a exit 1, l1b exit 0, audit l1c
+-- exit 0 (no RefLaws/RefLawsCore/toAOps/toA; axioms standard). `childLink_realFA` is CONDITIONAL on
+-- `SwitchF` (with `ResDeclFAt`, `ReadConstsAt`): `SwitchF` is a PREMISE, not proved and not a production
+-- switch. Both give, from a PAST run (RealChildA), shape/result-kind existence and the strictness
+-- conjunct only — not semantic preservation of the returned `y`.
 -- BUILT (unit K, par/u-k): k2 exit 0 (Tools.ShippingChildLinkA); audit k3 exit 0 (Tests.Compiler.ChildVertAuditTest:
 -- no RefLaws/RefLawsCore/toAOps/toA in the closure; axioms propext, Classical.choice, Quot.sound).
 -- No `sorry`, no `axiom`, no `native_decide`, no new law.
