@@ -402,7 +402,9 @@ end Lets
 /-! ## Binder-type audit (THROWS; integrator, par/int-r30)
 The Prop hypotheses of each audited theorem, by the head constant of their conclusion, must be exactly the listed
 ones, in order. Guards against `include` silently adding unused premises (it had added `BundleIotaRange` to
-`machineShapeN_lets'`). -/
+`machineShapeN_lets'`). SCOPE: it checks ONLY the last name component of the head constant of each OUTER Prop
+hypothesis; it does NOT check full hypothesis types, nor anything inside the conclusion (e.g. the `NoLetBvar st.lets →`,
+`d.ok`, `hbody` antecedents of `machineShapeN_typed`'s conclusion). -/
 
 open Lean Meta in
 /-- Head constants (last name component) of the conclusions of the Prop hypotheses of `n`, in binder order. -/
@@ -426,10 +428,10 @@ def auditPropBinders (n : Name) (expected : List String) : MetaM Unit := do
     throwError "BINDER AUDIT FAILED: {n}: Prop hypotheses {hs}, expected exactly {expected}"
   logInfo m!"binder audit {n}: {hs}"
 
-run_meta auditPropBinders ``machineShapeN_lets
-  ["RootFloatRange", "LiftRange", "Inst1Range", "SigTyRange", "BundleIotaRange", "ShapeInOk", "Eq"]
-run_meta auditPropBinders ``machineShapeN_lets'
-  ["RootFloatRange", "LiftRange", "Inst1Range", "SigTyRange", "ShapeInOk", "Eq"]
+run_meta (auditPropBinders ``machineShapeN_lets
+  ["RootFloatRange", "LiftRange", "Inst1Range", "SigTyRange", "BundleIotaRange", "ShapeInOk", "Eq"])
+run_meta (auditPropBinders ``machineShapeN_lets'
+  ["RootFloatRange", "LiftRange", "Inst1Range", "SigTyRange", "ShapeInOk", "Eq"])
 
 #print axioms machineShapeN_steps
 #print axioms machineShapeN_binderCount

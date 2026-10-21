@@ -342,8 +342,8 @@ theorem machineShapeN_lets'' {senv : StructEnv} (hroot : RootFloatRange) (hlift 
 #print axioms shapeMid_ok
 #print axioms machineShapeN_lets''
 
-run_meta Tools.Prototype.ReaderExec.auditPropBinders ``machineShapeN_lets''
-  ["RootFloatRange", "LiftRange", "Inst1Range", "SigTyRange", "ZeroLitAgrees", "NormRange", "Eq", "StartDomOk", "Eq"]
+run_meta (Tools.Prototype.ReaderExec.auditPropBinders ``machineShapeN_lets''
+  ["RootFloatRange", "LiftRange", "Inst1Range", "SigTyRange", "ZeroLitAgrees", "NormRange", "Eq", "StartDomOk", "Eq"])
 #print axioms inlFoldNat_ok
 #print axioms zeroLit_ok
 #print axioms machLoopAsLet_ok
