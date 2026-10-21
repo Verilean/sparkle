@@ -50,6 +50,7 @@ import Tools.ShippingSeqChildIfaceA
 import Tools.ShippingParentGateA
 import Tools.ShippingRanABridge
 import Tools.ShippingKidsSelfA
+import Tools.ShippingParentRunFactsA
 import Tools.ShippingMachineComposeRM
 
 /-! # Audit: the vertical path does not use the old boundary (round par/vert)
@@ -409,6 +410,11 @@ def audited : List Name :=
    ``Tools.ShippingParentDesignA.core_closeInstsA,
    ``Tools.ShippingParentDesignA.core_runFactsHA,
    ``Tools.ShippingParentDesignA.core_designCheckHA,
+   ``Tools.ShippingParentRunFactsA.leaf_run_outsAssignedA, ``Tools.ShippingParentRunFactsA.leaf_real_outsAssignedA,
+   ``Tools.ShippingParentRunFactsA.leaf_real_kidAA, ``Tools.ShippingParentRunFactsA.leaf_real_kidRA,
+   ``Tools.ShippingParentRunFactsA.hkidW_of_dataA, ``Tools.ShippingParentRunFactsA.core_raw_facts_ranA,
+   ``Tools.ShippingParentRunFactsA.core_outsExtracted_ranA, ``Tools.ShippingParentRunFactsA.core_callPorts_ranA,
+   ``Tools.ShippingParentRunFactsA.core_instOutWidthsOk_ranA, ``Tools.ShippingParentRunFactsA.core_runFacts_ranA,
    ``Tools.ShippingParentPortsA.core_outsCheck_all_gate_ranA,
    ``Tools.ShippingParentPortsA.core_calls_ports₁A,
    ``Tools.ShippingParentPortsA.core_callConns₁A,
