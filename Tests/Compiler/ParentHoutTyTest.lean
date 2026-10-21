@@ -1,6 +1,7 @@
 import Tests.Compiler.ParentDesignCheckFATest
--- BUILT (unit SR3g, par/u-sr3g): g1 exit 0 (houtTy by decide). g2 (endpoint without houtTy + audit): see REPORT-SR3g.md.
--- SCOPE (binding): `houtTy` is PROVED for `parent` (decide on the concrete output list). soundL / composed (semantic part)
+-- BUILT (unit SR3g, par/u-sr3g): g1/g2 exit 0: ONLY `parent_houtTy` (by decide) and its type-match audit exist in this file. The endpoint with
+-- `houtTy` actually passed is `Tests.Compiler.ParentHoutTyTest.parent_noShips_noBdA_dcH` in Tests/Compiler/ParentHoutTyHTest.lean (unit SR3h).
+-- SCOPE (binding): `houtTy` is PROVED for `parent` (decide on the concrete output list; helper + type match only). soundL / composed (semantic part)
 -- / hr / entry / closes and `BndA` (existential, not a proof that it holds) REMAIN premises. NOT unconditional semantic
 -- equivalence; not runtime fit.
 namespace Tests.Compiler.ParentHoutTyTest
