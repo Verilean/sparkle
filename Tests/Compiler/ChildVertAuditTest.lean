@@ -18,6 +18,7 @@ import Tools.ShippingChildRunA
 import Tools.ShippingChildRunAKids
 import Tools.ShippingChildRunAMain
 import Tools.ShippingChildLinkA
+import Tools.ShippingMachineOutcomeA
 import Tools.ShippingCallWidthsChildRealA
 import Tools.ShippingChildTeleLocalA
 import Tools.ShippingChildTeleMainA
@@ -255,7 +256,9 @@ def audited : List Name :=
    ``Tools.ShippingLeafInputWidthsA.leaf_namesA,
    ``Tools.ShippingLeafInputWidthsA.leaf_input_widthsA,
    ``Tools.ShippingLeafInputWidthsA.leaf_sat_design_closedA,
-   ``Tools.ShippingLeafInputWidthsA.leaf_sat_design_closed5A]
+   ``Tools.ShippingLeafInputWidthsA.leaf_sat_design_closed5A,
+   ``Tools.ShippingMachineOutcomeA.synthesizeFromConst_machine_splitA,
+   ``Tools.ShippingMachineOutcomeA.core_machine_outcomeA]
 
 end Tests.Compiler.ChildVertAuditTest
 

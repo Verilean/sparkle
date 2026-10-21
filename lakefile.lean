@@ -3395,6 +3395,9 @@ lean_lib «Tools.ShippingChildRunAKids» where
 lean_lib «Tools.ShippingChildRunAMain» where
   roots := #[`Tools.ShippingChildRunAMain]
 
+lean_lib «Tools.ShippingMachineOutcomeA» where
+  roots := #[`Tools.ShippingMachineOutcomeA]
+
 lean_lib «Tools.ShippingChildLinkA» where
   roots := #[`Tools.ShippingChildLinkA]
 
