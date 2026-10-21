@@ -13,8 +13,10 @@ shape it puts on the machine route? Findings (details: docs/parallel/main-theore
   `unifiedGateRoot binders body`. None of them builds a typed `Term`, `MachineData`, `LetsScoped`,
   `LetsTyped` or `aliasOk`: `ok`, the body equation and `letsAliasOk` are conditions of the PROOF-GENERATION
   side (`Tools.ShippingMachineCommand.readMachine`, kernel `decide`), NOT checked by the compiler.
-* The readers behind `machineShape?` are `partial` (opaque to the kernel): they cannot be unfolded, so no
-  property of their output is derivable by `rfl`/`simp` from `machineShape? … = some shape`.
+* The readers behind `machineShape?` are `partial` (opaque to the kernel): they cannot be unfolded DIRECTLY, so
+  the method used here (`rfl`/`simp` on `machineShape? … = some shape`) gives no property of their output. This is a
+  limitation of that proof method, NOT a proof that the properties are underivable or not guaranteed by construction
+  (specification lemmas for the readers, or another route, are not excluded; investigation continues).
 * `unifiedGateRoot` does not pin every position `quote` writes (`Tools/ShippingReaderTerm.lean`, "NOT proved"),
   so "accepted ⟹ the body is a quotation" is not available for it.
 * The compiler's only run-time check of `LetsClose`'s conclusion is `closeLets` itself, on the module of THE run:
