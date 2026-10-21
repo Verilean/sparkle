@@ -3570,3 +3570,14 @@ lean_lib «Tools.ShippingMachineComposeRMGCommand» where
   roots := #[`Tools.ShippingMachineComposeRMGCommand]
 lean_lib «Tools.ShippingParentSeqComposedA» where
   roots := #[`Tools.ShippingParentSeqComposedA]
+lean_lib «Tools.Prototype.ReaderFixpoint» where
+  roots := #[`Tools.Prototype.ReaderFixpoint]
+
+lean_lib «Tools.Prototype.ReaderFixpointTwin» where
+  roots := #[`Tools.Prototype.ReaderFixpointTwin]
+
+lean_lib «Tools.Prototype.ReaderFixpointMutual» where
+  roots := #[`Tools.Prototype.ReaderFixpointMutual]
+
+lean_lib «Tools.Prototype.ReaderFixpointLfp» where
+  roots := #[`Tools.Prototype.ReaderFixpointLfp]
