@@ -3682,3 +3682,6 @@ lean_lib «Tests.Compiler.LiftScalarModelAgreeTest» where
 
 lean_lib «Tools.Prototype.RawNodeRangeLetOk» where
   roots := #[`Tools.Prototype.RawNodeRangeLetOk]
+
+lean_lib «Tools.Prototype.RawNodeRangeLetOk2» where
+  roots := #[`Tools.Prototype.RawNodeRangeLetOk2]
