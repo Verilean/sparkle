@@ -1,6 +1,6 @@
 import Tools.ShippingInitFrame
 import Tests.Compiler.ChildVertAuditTest
--- BUILT (unit RT2): rt2b exit 1 (MessageData numeral), rt2c exit 0. EVIDENCE only.
+-- BUILT (unit RT2): rt2b exit 1, rt2c exit 0; RT3 review edit (set-body check): rt3b exit 1 only because of InitSessionTest, InitFrameTest part passed. EVIDENCE only.
 
 /-! Unit RT2 (L9d). EVIDENCE about the structure of the loaded environment; it does NOT prove `InitOrder`,
 `OthersFrameRefs` or `InitHeapRelXfer`.

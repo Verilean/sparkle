@@ -1,5 +1,5 @@
 import Tools.ShippingInitFrame
--- UNBUILT (unit RT3): run names in REPORT-RT3.md. No sorry/axiom/native_decide.
+-- BUILT (unit RT3): rt3a (lib) exit 0. No sorry/axiom/native_decide.
 
 /-! # Unit RT3: the session theorem at the end world of the interleaved load (ledger L9e)
 

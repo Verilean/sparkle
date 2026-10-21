@@ -1,6 +1,6 @@
 import Tools.ShippingInitSession
 import Tests.Compiler.ChildVertAuditTest
--- UNBUILT (unit RT3): run names in REPORT-RT3.md. EVIDENCE + audit; proves none of the premises.
+-- BUILT (unit RT3): rt3b exit 1 (String.Slice.splitOn), rt3c exit 0. EVIDENCE + audit; proves none of the premises.
 
 /-! Unit RT3 (L9e).
 (1) Audit of `startContents_session_init`: closure, exact Prop-binder head list, and a conclusion +
@@ -137,5 +137,4 @@ run_meta do
   let some pSet := posOf? body callPat | throwError "call of the set initialiser not found ({callPat})"
   unless ps[0]! < ps[1]! && ps[1]! < ps[2]! && ps[2]! < pSet do
     throwError "C ORDER UNEXPECTED: {ps} {pSet}"
-  let between := ((body.take pSet).splitOn "get_value(res);").length - 1
   logInfo m!"EMITTED-C ORDER OK (textual order in the generated initializer of this build, NOT an executed trace; Other-steps between not analysed): depth-ref assignment < cache-ref assignment < synth-ref assignment < call of {setDecl}; offsets {ps} < {pSet}"
