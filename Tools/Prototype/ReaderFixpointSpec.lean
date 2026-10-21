@@ -298,11 +298,81 @@ theorem shapeBody_ok {n : Nat} {m : ShapeMid} {env : List MachVal} {st1 st : Mac
       · exact letOk_zero (hps a ha)
       · rw [ha]; exact hp.2.2
 
+omit hroot hlift hinst1 hsig hbundle in
+theorem array_mem_of_mem_pop {a : Array Lean.Expr} {x : Lean.Expr} (h : x ∈ a.pop) : x ∈ a := by
+  rw [← Array.mem_toList_iff] at h ⊢
+  rw [Array.toList_pop] at h
+  exact List.dropLast_subset _ h
+
+omit hroot hlift hinst1 hsig hbundle in
+/-- The wrapper `(c, params)` of `shapeMid` is the head and the arguments of the root. -/
+theorem shapeMid_wrap_ok (senv : StructEnv) (p : ShapePre) (en : Lean.Expr)
+    (hr : LetOk 0 (shapeMid senv p en).root = true) :
+    ∀ c params, (shapeMid senv p en).wrap? = some (c, params) →
+      LetOk 0 c = true ∧ ∀ x ∈ params, LetOk 0 x = true := by
+  intro c params h
+  unfold shapeMid at hr h
+  dsimp only at hr h
+  repeat' split at h
+  all_goals first | (simp at h; done) | skip
+  all_goals
+    have e := Option.some.inj h
+    injection e with e1 e2
+    subst e1
+    subst e2
+    exact ⟨ok_getAppFn hr, fun x hx => ok_getAppArgs hr x (array_mem_of_mem_pop hx)⟩
+
+/-- **INPUT condition of the let-table specification** (the wrapper-level form of LC3's entry condition `LetOk 0`
+and of the start environment).  `m` is `shapeMid senv p en` for the normalised body `en`.
+* `rootLets`, `root`, `runBody`: the values the reader is handed (`machRoot` is a `partial def`, `rootFloat`,
+  `zeroLit`, `inlFoldNat`, `machLoopAsLet` are partial/extern: NOT derivable from `LetOk 0 p.e`).  The wrapper
+  `(c, params)` is NOT an input: `shapeMid_wrap_ok` derives it from `root`.
+* `startDom`: **a genuine gap of LC3's invariant, not a convenience.**  With an enclosing machine the wrapper
+  converts the domain from `{}` and DISCARDS that state (`shapeStart`: `bindO (wConv … dom {}) fun (dom', _) …`), then
+  reserves in `{}` with `dom := some dom'`.  `RdOk {…, dom := some dom'}` needs `LetOk 0 dom'`, but the conversion only
+  gives `LetOk (discarded state).lets.size dom'`.  If the conversion of the domain bound a `let`, `dom'` could mention a
+  placeholder `j ≥ 0` the reserved state does not have (a dangling placeholder; reachability NOT shown, NOT excluded). -/
+structure ShapeInOk (senv : StructEnv) (m : ShapeMid) : Prop where
+  rootLets : ∀ x ∈ m.rootLets, LetOk 0 x.2.2 = true
+  root : LetOk 0 m.root = true
+  runBody : ∀ dom αs initsE body, m.run? = some (dom, αs, initsE, body) → LetOk 0 body = true
+  startDom : ∀ n dom αs initsE body dom' stc, m.run? = some (dom, αs, initsE, body) →
+    machConvF n senv (m.rootLets.map fun _ => MachVal.unit) 0 dom ({} : MachRead) =
+      some (some (dom', stc)) → LetOk 0 dom' = true
+
+/-- **SPECIFICATION of the `let` table of the executable reader's result** (PROVED, conditional on the named
+premises of LC3/LC5 and on the input condition `ShapeInOk`).  If `machineShapeN … = some (some sp)` then the shape is
+`shapePost` of a final reader state `st` and body value `v` such that the `let` table of `st` is alias-free (the
+Expr-level half of `letsAliasOk`: no `let` value is a `_machLet` placeholder), `st` satisfies the full invariant
+`RdOk` and `v` is in range of `st.lets`.  This is the wrapper-level, executable-reader form of LC3's
+`machConvF_post`/`_init''`; it says nothing about the shipped reader (needs `machNorm = execNorm` and `TwinCoverAt`)
+and nothing about the typed `letFields` (the `quote` link stays OPEN). -/
+theorem machineShapeN_lets {sm : Bool} {ps : List (String × Nat)} {ci : Lean.ConstantInfo} {ai : Bool}
+    {sp : MachineShape}
+    (hin : ∀ (p : ShapePre) (en : Lean.Expr), shapePre sm ps ci senv = some p →
+      execNorm senv p.e = some en → ShapeInOk senv (shapeMid senv p en))
+    (h : machineShapeN sm ps ci senv ai = some (some sp)) :
+    ∃ (p : ShapePre) (en : Lean.Expr) (st : MachRead) (v : Lean.Expr),
+      shapePre sm ps ci senv = some p ∧ execNorm senv p.e = some en ∧
+      RdOk st ∧ NoLetAlias st.lets ∧ LetOk st.lets.size v = true ∧
+      shapePost ai p (shapeMid senv p en) st v = some sp := by
+  obtain ⟨n, p, en, st0, env, st1, st, v, hp, hen, h0, h1, h2, h3⟩ := machineShapeN_steps h
+  have hI := hin p en hp ((execNorm_iff senv).mpr ⟨n, hen⟩)
+  have r0 : RdOk st0 := shapeStart_ok (n := n) (fun dom αs initsE body dom' stc hm hc =>
+    hI.startDom n dom αs initsE body dom' stc hm hc) h0
+  have r1 := rootLets_ok hroot hlift hinst1 hsig hbundle hI.rootLets r0 h1
+    (fun v hv => by cases hv)
+  have r2 := shapeBody_ok hroot hlift hinst1 hsig hbundle r1.1 r1.2 hI.root hI.runBody
+    (shapeMid_wrap_ok senv p en hI.root) h2
+  exact ⟨p, en, st, v, hp, (execNorm_iff senv).mpr ⟨n, hen⟩, r2.1, r2.1.1, r2.2.2, h3⟩
+
 end Lets
 
 #print axioms machineShapeN_steps
 #print axioms machineShapeN_binderCount
 #print axioms machineShapeN_originT
 #print axioms machineShapeN_instR1
+#print axioms machineShapeN_lets
+#print axioms shapeMid_wrap_ok
 
 end Tools.Prototype.ReaderExec
