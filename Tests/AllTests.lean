@@ -200,6 +200,7 @@ import Tests.Compiler.NoPortsMemOnlyAtAllTest
 import Tests.Compiler.NoPortsMemOnlyClosedMemCounterTest
 import Tests.Compiler.NoPortsMemOnlyClosedSyncNarrowTest
 import Tests.Compiler.NoPortsMemOnlyClosedMemWideTest
+import Tests.Compiler.CallsMemAMemWideTest
 import Tests.Compiler.NoPortsMemOnlyClosedTwoMemsTest
 import Tests.Compiler.NoPortsMemOnlyClosedMixedMemsTest
 import Tests.Compiler.NameDischargeTest

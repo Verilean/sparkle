@@ -2642,6 +2642,7 @@ lean_lib «Tools.ShippingLeafEntryBnd» where
 
 lean_lib «Tools.ShippingNoPortsMemCommand» where
   roots := #[`Tools.ShippingNoPortsMemCommand]
+
 lean_lib «Tools.ShippingGuardsLeaf» where
   roots := #[`Tools.ShippingGuardsLeaf]
 
@@ -3006,6 +3007,7 @@ lean_lib «Tools.ShippingHierOptRunHNoRst» where
 
 lean_lib «Tools.ShippingGateOptComb» where
   roots := #[`Tools.ShippingGateOptComb]
+
 lean_lib «Tools.ShippingGateDesignWalk» where
   roots := #[`Tools.ShippingGateDesignWalk]
 
@@ -3047,11 +3049,13 @@ lean_lib «Tools.ShippingGateTypedFinal» where
 
 lean_lib «Tools.ShippingGateDesignAll» where
   roots := #[`Tools.ShippingGateDesignAll]
+
 lean_lib «Tools.ShippingReaderOutsInv» where
   roots := #[`Tools.ShippingReaderOutsInv]
 
 lean_lib «Tools.ShippingReaderOutsMemOnly» where
   roots := #[`Tools.ShippingReaderOutsMemOnly]
+
 lean_lib «Tools.ShippingInstanceMeaningP» where
   roots := #[`Tools.ShippingInstanceMeaningP]
 
@@ -3060,6 +3064,7 @@ lean_lib «Tools.ShippingReaderMemOnlyCloses» where
 
 lean_lib «Tools.ShippingReaderOutNames» where
   roots := #[`Tools.ShippingReaderOutNames]
+
 lean_lib «Tools.ShippingGateConeLeafContractE» where
   roots := #[`Tools.ShippingGateConeLeafContractE]
 
@@ -3068,6 +3073,7 @@ lean_lib «Tools.ShippingGateKid» where
 
 lean_lib «Tools.ShippingGateCoverage» where
   roots := #[`Tools.ShippingGateCoverage]
+
 lean_lib «Tools.ShippingGateWalkE» where
   roots := #[`Tools.ShippingGateWalkE]
 
@@ -3076,6 +3082,7 @@ lean_lib «Tools.ShippingGateTypedFinalI» where
 
 lean_lib «Tools.ReaderFuelGeneric» where
   roots := #[`Tools.ReaderFuelGeneric]
+
 lean_lib «Tools.ShippingReaderFuelDefs» where
   roots := #[`Tools.ShippingReaderFuelDefs]
 
@@ -3084,11 +3091,13 @@ lean_lib «Tools.ShippingReaderFuelKleene» where
 
 lean_lib «Tools.ShippingReaderFuelEval» where
   roots := #[`Tools.ShippingReaderFuelEval]
+
 lean_lib «Tools.ShippingReaderFuelShape» where
   roots := #[`Tools.ShippingReaderFuelShape]
 
 lean_lib «Tools.ShippingReaderFuelDriver» where
   roots := #[`Tools.ShippingReaderFuelDriver]
+
 lean_lib «Tools.ShippingReaderFuelRun» where
   roots := #[`Tools.ShippingReaderFuelRun]
 
@@ -3103,6 +3112,7 @@ lean_lib «Tools.ShippingReaderFuelVerbatim» where
 
 lean_lib «Tools.ShippingReaderFuelDriverComplete» where
   roots := #[`Tools.ShippingReaderFuelDriverComplete]
+
 lean_lib «Tools.ShippingReaderFuelShapeR5» where
   roots := #[`Tools.ShippingReaderFuelShapeR5]
 
@@ -3111,8 +3121,10 @@ lean_lib «Tools.ShippingCallWidthsEntryF» where
 
 lean_lib «Tools.ShippingReaderFuelShapeEval» where
   roots := #[`Tools.ShippingReaderFuelShapeEval]
+
 lean_lib «Tools.ShippingReaderFuelDriverResume» where
   roots := #[`Tools.ShippingReaderFuelDriverResume]
+
 lean_lib «Tools.ShippingCallWidthsEntryFH» where
   roots := #[`Tools.ShippingCallWidthsEntryFH]
 
@@ -3139,6 +3151,7 @@ lean_lib «Tools.ShippingReaderFuelResumeEval» where
 
 lean_lib «Tools.ShippingMemDispatch» where
   roots := #[`Tools.ShippingMemDispatch]
+
 lean_lib «Tools.ShippingCallWidthsChildReal» where
   roots := #[`Tools.ShippingCallWidthsChildReal]
 
@@ -3318,12 +3331,16 @@ lean_lib «Tools.ShippingChildCacheA» where
 
 lean_lib «Tools.ShippingChildCoreC» where
   roots := #[`Tools.ShippingChildCoreC]
+
 lean_lib «Tools.ShippingChildFrontA» where
   roots := #[`Tools.ShippingChildFrontA]
+
 lean_lib «Tools.ShippingChildTeleCP» where
   roots := #[`Tools.ShippingChildTeleCP]
+
 lean_lib «Tools.ShippingChildProjFieldA» where
   roots := #[`Tools.ShippingChildProjFieldA]
+
 lean_lib «Tools.ShippingChildTranslateA» where
   roots := #[`Tools.ShippingChildTranslateA]
 
@@ -3353,6 +3370,7 @@ lean_lib «Tools.ShippingChildDepthA» where
 
 lean_lib «Tools.ShippingChildFrontCP» where
   roots := #[`Tools.ShippingChildFrontCP]
+
 lean_lib «Tools.ShippingChildWalkA» where
   roots := #[`Tools.ShippingChildWalkA]
 
@@ -3364,6 +3382,7 @@ lean_lib «Tools.ShippingChildLegacyHandlersA» where
 
 lean_lib «Tools.ShippingChildLegacyImplA» where
   roots := #[`Tools.ShippingChildLegacyImplA]
+
 lean_lib «Tools.ShippingChildMainA» where
   roots := #[`Tools.ShippingChildMainA]
 
@@ -3372,6 +3391,7 @@ lean_lib «Tools.ShippingLeafInputWidths» where
 
 lean_lib «Tools.ShippingLeafDesignClosedCommand» where
   roots := #[`Tools.ShippingLeafDesignClosedCommand]
+
 lean_lib «Tools.ShippingChildTeleProbe» where
   roots := #[`Tools.ShippingChildTeleProbe]
 
@@ -3383,6 +3403,7 @@ lean_lib «Tools.ShippingChildDepthC» where
 
 lean_lib «Tools.ShippingChildComposeC» where
   roots := #[`Tools.ShippingChildComposeC]
+
 lean_lib «Tools.ShippingChildLegacyTailA» where
   roots := #[`Tools.ShippingChildLegacyTailA]
 
@@ -3418,6 +3439,7 @@ lean_lib «Tools.ShippingCallWidthsChildRealATl» where
 
 lean_lib «Tools.ShippingLeafInputWidthsA» where
   roots := #[`Tools.ShippingLeafInputWidthsA]
+
 lean_lib «Tools.ShippingCallsCloseA» where
   roots := #[`Tools.ShippingCallsCloseA]
 
@@ -3432,5 +3454,6 @@ lean_lib «Tools.ShippingCallsGatePin» where
 
 lean_lib «Tools.ShippingCallsGatePinned» where
   roots := #[`Tools.ShippingCallsGatePinned]
+
 lean_lib «Tools.ShippingCallsMemA» where
   roots := #[`Tools.ShippingCallsMemA]

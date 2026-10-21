@@ -203,7 +203,9 @@ theorem machineClosesAtA_of_memKids (O : RefLawsAOps MkRefd mref cref)
     (callsPureA_of_memKids O d ok hbody hC hslots hdomB hfne nameK nk outsK namesK hkid hargsN
       hfieldOut hdistOrd hfieldsNd hsep hparent hfresh hparentD hdisjD)
 
-/-! ## Memory-only parents (UNRESTRICTED: no ord entry, `hdistOrd` is vacuous) -/
+/-! ## Memory-only parents (UNRESTRICTED only in the sense: no repeated-callee restriction — no ord entry, so
+`hdistOrd` is vacuous. Every other data condition of these theorems (`MemOnlyData`, `MemOnlyCloseData`, …)
+REMAINS a premise.) -/
 
 open Sparkle.Compiler.MachMemory (memModule memChild? memChildName memParams?)
 open Sparkle.IR.ModuleName (ofDecl ofMem)

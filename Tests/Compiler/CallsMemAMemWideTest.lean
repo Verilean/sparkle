@@ -1,6 +1,6 @@
 import Tests.Compiler.NoPortsMemOnlyClosedMemWideTest
 import Tools.ShippingCallsMemA
--- UNBUILT (unit CM): run names/exits are recorded in REPORT-CM.md.
+-- BUILT (unit CM): cm8 exit 0 (this module, at the WIP state of par/u-cm; re-verified at the integration SHA). Runs: REPORT-CM.md.
 
 /-! # `MachineClosesAtA memWide` on the new boundary (unit CM)
 
