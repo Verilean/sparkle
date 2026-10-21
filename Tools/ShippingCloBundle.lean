@@ -7,7 +7,7 @@ import Tools.ShippingSparseCasesTac
 constant `Signal.bundle2` applied to such components, so it keeps closedness exactly as it keeps `LetOk`.
 The proof scripts are LC4a's with the predicate replaced (`Tools/ShippingBundleIotaRange.lean`).
 
-BUILT: see the header of `Tools/ShippingCloInv.lean`. No `sorry`, no axiom, no `native_decide`. -/
+BUILT: c3 exit 0. No `sorry`, no axiom, no `native_decide`. -/
 namespace Tools.ShippingCloInv
 open Lean Sparkle.Compiler.Elab Tools.ShippingSparseCasesTac
 open Sparkle.Compiler.MachRawSurface

@@ -2,12 +2,12 @@ import Tools.ShippingLetsReaderInv
 
 /-! # Unit LCQ2 (base): the closedness predicate `Clo`, the state invariant `CloSt`, the let-binding lemmas
 
-BUILT: see the header of `Tools/ShippingCloInv.lean` (run names and exits). No `sorry`, no axiom, no `native_decide`.
+BUILT: c2 exit 0 (c1 exit 1: `resolve_clo`, fixed). No `sorry`, no axiom, no `native_decide`.
 
 `Clo d e`: every loose bound variable of `e` has index below `d` PLUS the binders crossed (`bvar j` needs
 `j < d` at depth `d`; under a binder the depth grows).  So `Clo 0 e` says `e` has no loose `bvar` at all.
-Unlike `LetOk` this predicate does not depend on the size of the `let` table and the reader needs NO input
-condition for it: an input `bvar` outside the environment is replaced by `machIn`, an environment value is
+Unlike `LetOk` this predicate does not depend on the size of the `let` table and (see `Tools/ShippingCloInv.lean`) the
+reader twin needs NO input condition for it: an input `bvar` outside the environment is replaced by `machIn`, an environment value is
 a result of the reader itself.
 
 The reader invariant is `CloSt st` (every `let` value, every nested machine's saved result and the domain are

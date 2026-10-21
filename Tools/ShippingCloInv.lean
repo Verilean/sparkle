@@ -3,7 +3,7 @@ import Tools.ShippingLetsReaderInv
 
 /-! # Unit LCQ2: the closedness invariant of the reader twin (`Clo`): no loose `bvar` in any `let` value
 
-BUILT: see the BUILD LOG at the end of this header.  No `sorry`, no axiom, no `native_decide`.
+BUILT: runs c4 (this module) exit 0; c2 (Base) exit 0; c3 (Bundle) exit 0 (c1 exit 1 = a Base proof bug, fixed).  No `sorry`, no axiom, no `native_decide`.
 
 ## What is proved
 
@@ -39,7 +39,8 @@ direct: `Clo 0 e → e ≠ .bvar b` (`clo_ne_bvar`), hence `LetsClo lets → NoL
   `Tools/Prototype/ReaderClosed.lean`).
 
 ## BUILD LOG
-c1 (Base) exit 1, c2 (Base) exit 0, c3 (Bundle) exit 0, (Inv) see below. -/
+c1 (Base) exit 1, c2 (Base) exit 0, c3 (Bundle) exit 0, c4 (this file) exit 0.  The wrapper walk that uses it is
+`Tools/Prototype/ReaderClosed.lean` (c7 exit 0). -/
 namespace Tools.ShippingCloInv
 open Lean Sparkle.Compiler.Elab
 open Tools.ShippingLetsAliasInv Tools.ShippingReaderFuel Tools.ShippingReaderLenOk
