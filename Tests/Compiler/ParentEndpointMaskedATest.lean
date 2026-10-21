@@ -248,8 +248,14 @@ run_cmd Lean.Elab.Command.liftTermElabM do
           let v ← instantiateMVars m
           if v.hasExprMVar then throwError "SR3e AUDIT FAILED: generalised parameter {nm} not solved: {v}"
           sol := sol.push s!"{nm} := {← ppExpr v}"
-        unless sol.any (·.startsWith "n := 1") && sol.any (·.startsWith "kD := 1") do
-          throwError "SR3e AUDIT FAILED: depth/kD not instantiated to 1: {sol}"
+        -- `n` and `kD` are instantiated to the Nat literal 1: checked by `isDefEq`, not by a pretty-print prefix (unit SR3f)
+        let one := mkNatLit 1
+        for nm in ["n", "kD"] do
+          match ms.find? (·.1 == nm) with
+          | none => throwError "SR3e AUDIT FAILED: generalised parameter {nm} not found among {ms.map (·.1)}"
+          | some (_, m) =>
+            unless ← isDefEq (← instantiateMVars m) one do
+              throwError "SR3e AUDIT FAILED: {nm} is not defeq to the literal 1: {sol}"
         let BNu ← whnfD (← instantiateMVars BN)
         logInfo m!"SR3e SOLUTION of the generalised parameters (old = new at these): {sol}"
         logInfo m!"SR3e CONCLUSION CHECK OK (shared arguments are FVARS of the old theorem; only the GENERALISED parameters were unified, listed in SOLUTION; fvars-aligned, so defeq for arbitrary values of the shared arguments): {new} and {old} agree on post-processing, designCheck and the body of the run-implication; only the boundary differs.\n OLD boundary: {BO}\n NEW boundary (BndA unfolded, an EXISTENTIAL over the laws / contexts / reflections / start world, NOT a proof that it holds): {BNu}")

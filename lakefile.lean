@@ -3527,6 +3527,9 @@ lean_lib «Tools.ShippingKidsSelfA» where
 lean_lib «Tools.ShippingParentRunFactsA» where
   roots := #[`Tools.ShippingParentRunFactsA]
 
+lean_lib «Tools.ShippingParentDesignFA» where
+  roots := #[`Tools.ShippingParentDesignFA]
+
 lean_lib «Tools.ShippingRanABridge» where
   roots := #[`Tools.ShippingRanABridge]
 
