@@ -2,7 +2,7 @@ import Tools.Prototype.ReaderFixpointSpec
 
 /-! # Unit LC13: `LetOk` preservation of the TOTAL preprocessing defs, connected to `ShapeInOk`
 
-UNBUILT (see the BUILT line below once filled in).
+BUILT: runs l1–l3 exit 1 (syntax), l4 exit 0 (four lemmas), l5 exit 1, l6 exit 0 (final). No sorry / axiom / native_decide.
 
 One lemma per def of the wrapper's preprocessing (`shapeMid`): `inlFoldNat`, `zeroLit`, `machLoopAsLet`, `machRoot`.
 `zeroLit` is a TOTAL def but its body is the `@[extern]` `Expr.replace`, which has NO logical content; its
@@ -10,7 +10,7 @@ One lemma per def of the wrapper's preprocessing (`shapeMid`): `inlFoldNat`, `ze
 `zeroLit … = replaceNoCache …` is the named PREMISE `ZeroLitAgrees` (NOT proved).  No counterexample was found:
 every def preserves `LetOk`. -/
 namespace Tools.Prototype.PreprocLetOk
-open Lean Sparkle.Compiler.Elab Tools.ShippingLetsReaderInv Tools.Prototype.ReaderExec
+open Lean Sparkle.Compiler.Elab Tools.ShippingLetsReaderInv Tools.Prototype.ReaderExec Tools.ShippingReaderFuel Tools.ShippingLetsAliasInv
 
 /-! ## `inlFoldNat` -/
 
@@ -274,5 +274,75 @@ theorem machRoot_ok (n : Nat) (projs : Name → Option (Name × Nat × Nat)) (e 
           · exact ⟨hrev acc hacc, he, fun q hq => by cases hq⟩
         · exact ⟨hrev acc hacc, he, fun q hq => by cases hq⟩
       · exact ⟨hrev acc hacc, he, fun q hq => by cases hq⟩
+
+/-! ## Connection to `ShapeInOk` -/
+
+/-- **PROVED** from `LetOk 0` of the normalised body `en` and the premises `RootFloatRange` (`rootFloat`, a `partial
+def`) and `ZeroLitAgrees` (`zeroLit`, an `@[extern]` `Expr.replace`): the three input fields `rootLets`, `root`,
+`runBody` of `ShapeInOk`.  (`startDom` is NOT included.) -/
+theorem shapeMid_ok (hroot : RootFloatRange) (hz : ZeroLitAgrees) (senv : StructEnv) (p : ShapePre)
+    (en : Lean.Expr) (hen : LetOk 0 en = true) :
+    (∀ x ∈ (shapeMid senv p en).rootLets, LetOk 0 x.2.2 = true) ∧ LetOk 0 (shapeMid senv p en).root = true ∧
+      ∀ dom αs initsE body, (shapeMid senv p en).run? = some (dom, αs, initsE, body) → LetOk 0 body = true := by
+  have he := machLoopAsLet_ok 0 _ (hroot _ (zeroLit_ok hz 0 _ (inlFoldNat_ok 0 _ hen)))
+  have hr := machRoot_ok 0 senv.proj _ [] he (by simp)
+  unfold shapeMid
+  dsimp only
+  generalize machRoot senv.proj
+    (machLoopAsLet (Sparkle.Compiler.MachRawSurface.rootFloat
+      (Sparkle.Compiler.MachRawSurface.zeroLit inlNatLit canonicalNatLitValue? (inlFoldNat en)))) [] = r at hr ⊢
+  obtain ⟨rl, sel, run?, root⟩ := r
+  obtain ⟨h1, h2, h3⟩ := hr
+  refine ⟨h1, h2, ?_⟩
+  intro dom αs initsE body h
+  simp only [Option.bind_eq_some_iff] at h
+  obtain ⟨q, hq, hm⟩ := h
+  have hqok : LetOk 0 q = true := by
+    split at hq
+    · exact ok_getAppArgs h2 q (Array.mem_of_back? hq)
+    · exact h3 q hq
+  exact (runApp_ok 0 q dom αs initsE body hqok hm).2
+
+/-- The ONE input field of `ShapeInOk` that is not derived here (`startDom`, studied by unit SDOM). -/
+def StartDomOk (senv : StructEnv) (m : ShapeMid) : Prop :=
+  ∀ n dom αs initsE body dom' stc, m.run? = some (dom, αs, initsE, body) →
+    machConvF n senv (m.rootLets.map fun _ => MachVal.unit) 0 dom ({} : MachRead) =
+      some (some (dom', stc)) → LetOk 0 dom' = true
+
+/-- `ShapeInOk` from `startDom` alone plus `LetOk 0 en`. -/
+theorem shapeInOk_of (hroot : RootFloatRange) (hz : ZeroLitAgrees) (senv : StructEnv) (p : ShapePre)
+    (en : Lean.Expr) (hen : LetOk 0 en = true) (hs : StartDomOk senv (shapeMid senv p en)) :
+    ShapeInOk senv (shapeMid senv p en) :=
+  let h := shapeMid_ok hroot hz senv p en hen
+  ⟨h.1, h.2.1, h.2.2, hs⟩
+
+/-- The exact requirement on the normaliser's output: the `LetOk 0` property of `execNorm`'s result, given the
+declaration body `p.e` (PREMISE shape; NOT proved — `execNorm` is a `partial_fixpoint`). -/
+def NormRange (senv : StructEnv) : Prop :=
+  ∀ e en, LetOk 0 e = true → execNorm senv e = some en → LetOk 0 en = true
+
+/-- `machineShapeN_lets'` with the fields `rootLets`, `root`, `runBody` of `ShapeInOk` DERIVED (from `NormRange`,
+`ZeroLitAgrees`, `RootFloatRange` and the declaration condition `LetOk 0 p.e`); the premise list now has the
+INPUT `hpe` (`LetOk 0 p.e`), `NormRange senv`, `ZeroLitAgrees` and the one remaining field `StartDomOk`. -/
+theorem machineShapeN_lets'' {senv : StructEnv} (hroot : RootFloatRange) (hlift : LiftRange)
+    (hinst1 : Inst1Range) (hsig : SigTyRange senv) (hz : ZeroLitAgrees) (hnorm : NormRange senv)
+    {sm : Bool} {ps : List (String × Nat)} {ci : Lean.ConstantInfo} {ai : Bool} {sp : MachineShape}
+    (hpe : ∀ p : ShapePre, shapePre sm ps ci senv = some p → LetOk 0 p.e = true)
+    (hstart : ∀ (p : ShapePre) (en : Lean.Expr), shapePre sm ps ci senv = some p →
+      execNorm senv p.e = some en → StartDomOk senv (shapeMid senv p en))
+    (h : machineShapeN sm ps ci senv ai = some (some sp)) :
+    ∃ (p : ShapePre) (en : Lean.Expr) (st : MachRead) (v : Lean.Expr),
+      shapePre sm ps ci senv = some p ∧ execNorm senv p.e = some en ∧
+      RdOk st ∧ NoLetAlias st.lets ∧ LetOk st.lets.size v = true ∧
+      shapePost ai p (shapeMid senv p en) st v = some sp :=
+  machineShapeN_lets hroot hlift hinst1 hsig Tools.ShippingLetsReaderInv.bundleIotaRange
+    (fun p en hp hn => shapeInOk_of hroot hz senv p en (hnorm _ _ (hpe p hp) hn) (hstart p en hp hn)) h
+
+#print axioms shapeMid_ok
+#print axioms machineShapeN_lets''
+#print axioms inlFoldNat_ok
+#print axioms zeroLit_ok
+#print axioms machLoopAsLet_ok
+#print axioms machRoot_ok
 
 end Tools.Prototype.PreprocLetOk
