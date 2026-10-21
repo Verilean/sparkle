@@ -6,7 +6,8 @@ import Tools.ShippingSeqOldPieces
 -- PREMISES carried INSIDE `BndAg` (an existential that stays in the conclusion; none is supplied here): `O : RefLawsAOps` and
 -- `T : RefLawsATele` (ADDED boundary), `AdmCtx O.quiet mctx cctx`, `MachineDefines` of `mid` and of `cnt`, a start world with
 -- `JQ O.quiet D₀ w`, and the cache invariant `D₀ = 0 ∨ CacheInvA O (cv w)`.  Outer Prop premises: `hr`, `entry`, `closes : True`.
--- This is ONE concrete endpoint for `grand`, NOT a general depth-2 generator (the generator stays REFUSED).
+-- This is ONE concrete endpoint for `grand`, NOT a general theorem.  Unit SR3t: the SAME statement is now also GENERATED (Tests/Compiler/SeqDeepGenTest.lean) by the depth-2 path of `Tools/ShippingSeqParentGenD2.lean`; the old-term pieces are read through the typed helpers of `Tools/ShippingSeqOldPieces.lean`.
+-- BUILT (unit SR3t): e3 exit 0 (typed re-derivation; e1, e2 exit 1: trace argument form, namespace of MachineRunNCA, helper local context captured inside the telescope, refine/exact layout inside `first`); the in-test audit and Tests.Compiler.SeqDeepGrandEndpointAuditTest (statement = GrandConcl 2 1) are unchanged and passed in g1/g3.
 -- BUILT (unit SR3s): s4 exit 0 (mid part), s6 exit 0 (grand trace/soundL/composed), s8 exit 0 (hcalls on MachineRunNCA), s9 exit 0 (endpoint), s11 exit 0 (in-test audit), s13 exit 0 (final). Earlier runs of the same names exit 1 (missing opens, duplicated block, `interval_cases`, decoded_eq source).  In-test audit THROWS on failure.
 -- SCOPE (binding): `grand -> mid -> cnt`, from ONE core run of `grand`: the trace `ServedRealA`, `soundL` (MachineTraceLB) and
 -- `composed` (depth 2, `ComposedG`) of `grand`, on the new boundary.  The depth-1 `composed` of the child `mid` is proved on the new
