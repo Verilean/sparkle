@@ -1,7 +1,7 @@
 import Tools.ShippingSeqChildDeepConsumerA
 import Tools.ShippingCallsPortsG
 import Tools.ShippingClosedTyped
--- UNBUILT (unit SR3o): see the run names in REPORT-SR3o.md.
+-- BUILT (unit SR3o): o3 exit 0 (o1, o2 exit 1: parse of the structure literal, missing opens); #print axioms: propext, Classical.choice, Quot.sound for all three.
 -- No `sorry`, no `axiom`, no `native_decide`, no new law / field. Witness `O : RefLawsAOps MkRefd mref cref`, `T : RefLawsATele O.quiet mref cref` (ADDED boundary).
 
 /-! # Step 1 (unit SR3o): `outsMaskedN y.1` for the NON-leaf child `mid` itself over `RealChildA`

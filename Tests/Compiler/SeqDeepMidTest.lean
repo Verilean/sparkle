@@ -6,8 +6,8 @@ import Tools.ShippingSeqChildDeepMaskedA
 -- (its callee `cnt` is a leaf register machine).  PROVED here, relative to `O`, `T : RefLawsATele` (ADDED boundary), `hA`,
 -- and `MachineDefines` of `mid` / `cnt`: `hsep` for `mid` DERIVED (not a premise), `MachineClosesAtA O mctx cctx mid` in every
 -- `AdmCtx` context, the interface `deepChild_ifaceA'` for a `RealChildA O mid y`, and `kidsMaskedN y.2.modules y.1.body`.
--- NOT done (OPEN): the depth-2 GENERATOR (still REFUSED); `outsMaskedN y.1` of the non-leaf child `mid` itself (the `masked`
--- field of `KidFacts mid`), the other `KidFacts` fields / `GenKid` over `RealChildA`, `epA_Bnd` at depth 2.
+-- Also (unit SR3o): `mid_outsMaskedA` (`outsMaskedN y.1` of `mid` itself).  Built: o5 exit 0.
+-- NOT done (OPEN): the depth-2 GENERATOR (still REFUSED); the `KidFacts.check` field over `RealChildA` (ledger L8x), `epA_Bnd` at depth 2.
 -- RealChildA is a history of past synthesis results, not freshness; not runtime fit.
 namespace Tests.Compiler.SeqDeepMidTest
 open Sparkle.Tests.Compiler.ShippingMachineSeqTest

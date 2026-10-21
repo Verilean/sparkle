@@ -1,7 +1,7 @@
 import Tools.ShippingSeqChildDeepConsumerA
 import Tools.ShippingParentDesignFA
 import Tools.ShippingParentPortsA
--- UNBUILT (unit SR3o): see the run names in REPORT-SR3o.md.
+-- BUILT (unit SR3o): o7 exit 0 (o6 exit 1: callArgsOk namespace); #print axioms: propext, Classical.choice, Quot.sound for all four.
 -- No `sorry`, no `axiom`, no `native_decide`, no new law / field. Witness `O : RefLawsAOps MkRefd mref cref`, `T : RefLawsATele O.quiet mref cref` (ADDED boundary).
 
 /-! # Step 2 (unit SR3o): the parent-side facts of a NON-leaf child over `RealChildA`, one at a time
