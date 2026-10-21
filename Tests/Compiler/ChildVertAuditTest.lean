@@ -54,6 +54,7 @@ import Tools.ShippingKidsSelfA
 import Tools.ShippingParentRunFactsA
 import Tools.ShippingMachineComposeRM
 import Tools.ShippingEntryDefinesRun
+import Tools.ShippingEntryReadsLinked
 
 /-! # Audit: the vertical path does not use the old boundary (round par/vert)
 
@@ -447,7 +448,12 @@ def audited : List Name :=
    ``Tools.ShippingEntryDefinesRun.gate_child_combL, ``Tools.ShippingEntryDefinesRun.gate_child_fullFactsL,
    ``Tools.ShippingEntryDefinesRun.childFull_of_realAL, ``Tools.ShippingEntryDefinesRun.childFn_of_gateRunL,
    ``Tools.ShippingEntryDefinesRun.EntryDefinesRun.of_envRun,
-   ``Tools.ShippingEntryDefinesRun.EntryDefinesRun.at_reads]
+   ``Tools.ShippingEntryDefinesRun.EntryDefinesRun.at_reads,
+   ``Tools.ShippingEntryReadsLinked.core_split, ``Tools.ShippingEntryReadsLinked.core_chain,
+   ``Tools.ShippingEntryReadsLinked.EntryDefinesRunG.at_core, ``Tools.ShippingEntryReadsLinked.EntryDefinesRunG.of_entry,
+   ``Tools.ShippingEntryReadsLinked.getEnv_value, ``Tools.ShippingEntryReadsLinked.getConstInfo_value,
+   ``Tools.ShippingEntryReadsLinked.ci_in_envR, ``Tools.ShippingEntryReadsLinked.gate_child_fullFactsG,
+   ``Tools.ShippingEntryReadsLinked.childFull_of_realAG]
 
 end Tests.Compiler.ChildVertAuditTest
 

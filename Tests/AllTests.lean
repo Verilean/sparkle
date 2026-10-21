@@ -342,6 +342,7 @@ import Tests.Compiler.ComposedCallerMixATest
 import Tests.Compiler.ComposedCallerMixEntryTest
 import Tests.Compiler.EntryGateCallerMixTest
 import Tests.Compiler.EntryLocalCallerMixTest
+import Tests.Compiler.EntryLinkedCallerMixTest
 import Tests.Compiler.KidsMaskedParentATest
 import Tests.Compiler.ParentEndpointMaskedATest
 import Tests.Compiler.ParentEndpointFactsATest

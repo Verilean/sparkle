@@ -3565,3 +3565,6 @@ lean_lib «Tools.ShippingMachineComposeRMLCommand» where
 
 lean_lib «Tools.ShippingEntryReadsLinked» where
   roots := #[`Tools.ShippingEntryReadsLinked]
+
+lean_lib «Tools.ShippingMachineComposeRMGCommand» where
+  roots := #[`Tools.ShippingMachineComposeRMGCommand]
