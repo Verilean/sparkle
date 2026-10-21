@@ -214,9 +214,9 @@ run_cmd Lean.Elab.Command.liftTermElabM do
       unless ok1 && ok2 && ok3 do
         throwError "conclusion parts differ (post {ok1}, designCheck {ok2}, rest {ok3}):\n old rest {restO}\n new rest {restN}"
       let BNu ← whnfD BN
-      logInfo m!"SR3d CONCLUSION CHECK OK: {new} and {old} agree on post-processing, designCheck and the body of the run-implication; only the boundary differs.\n OLD boundary: {BO}\n NEW boundary (BndA unfolded, an EXISTENTIAL over the laws / contexts / reflections / start world, NOT a proof that it holds): {BNu}"
+      logInfo m!"SR3d CONCLUSION CHECK OK (AFTER SPECIALISATION: the new theorem's arguments are metavariables unified against the old conclusion; not a defeq guarantee for arbitrary shared arguments): {new} and {old} agree on post-processing, designCheck and the body of the run-implication; only the boundary differs.\n OLD boundary: {BO}\n NEW boundary (BndA unfolded, an EXISTENTIAL over the laws / contexts / reflections / start world, NOT a proof that it holds): {BNu}"
   let hs := premises.toList
-  logInfo m!"SR3d AUDIT OK: {new}: standard axioms; closure {cl.size} constants, no RefLaws/RefLawsCore/toAOps/toA/ChildBnd/StartV, parent_kidsMaskedN_topA / design_at_free / core_kidsMaskedN_topA / leaf_real_kidMA in the closure; outer Prop premises ({hs.length}): {hs}"
+  logInfo m!"SR3d AUDIT OK: {new}: standard axioms; (premise list below is printed, not yet asserted) closure {cl.size} constants, no RefLaws/RefLawsCore/toAOps/toA/ChildBnd/StartV, parent_kidsMaskedN_topA / design_at_free / core_kidsMaskedN_topA / leaf_real_kidMA in the closure; outer Prop premises ({hs.length}): {hs}"
 
 #print axioms parent_noShips_noBdA
 
