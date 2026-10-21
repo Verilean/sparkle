@@ -134,7 +134,7 @@ theorem inst1Range_of_agrees (h : Inst1Agrees) : Inst1Range := by
 with `liftLooseBVars` replaced by `liftSpec`; it is NOT a fuel twin: it is a total function, its termination is
 PROVED below (measure `nu`: the value of a `let`/the argument of an application is weighted double; `liftSpec`
 preserves `nsz` and `nu`). The remaining link `rootFloat = rootFloatS` is the named PREMISE `RootFloatAgrees`;
-no finite-fuel existence is assumed any more (LC5's `RootFloatAgrees` asked for that for every `Expr`). -/
+no finite-fuel existence is assumed any more (LC5's `RootFloatTwin` asked for that for every `Expr`). -/
 
 /-- Node count (every `bvar`/leaf counts 1, so `liftSpec` preserves it). -/
 def nsz : Expr → Nat
@@ -232,7 +232,7 @@ theorem rootFloatS_ok (n : Nat) : ∀ e : Expr, LetOk n e = true → LetOk n (ro
 
 /-- PREMISE (OPEN; `partial def`), WEAKENED by LC6: on a `_machLet`-free input (`LetOk 0`; the only calls of the
 reader: `rootFloat v` for a `let` value `v` with `LetOk 0 v`) the real `rootFloat` equals the total model.
-Totality of the model is PROVED (`rootFloatS`), so the finite-fuel part of LC5's `RootFloatAgrees` is gone; what
+Totality of the model is PROVED (`rootFloatS`), so the finite-fuel part of LC5's `RootFloatTwin` is gone; what
 remains is the faithfulness of the transcription (including `liftLooseBVars` = `liftSpec`). -/
 def RootFloatAgrees : Prop := ∀ e, LetOk 0 e = true → rootFloat e = rootFloatS e
 
