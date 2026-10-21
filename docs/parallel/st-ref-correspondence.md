@@ -50,8 +50,7 @@ With `getW r w`/`setW r v w` the world after `get`/`set` (match on the `ST` resu
 | condition | in `RefLawsAOps`? | comment |
 |---|---|---|
 | C1 at cache/synth/depth | YES, on quiet worlds in admissible contexts, via `frame` at `FramedA.cacheGet/synthGet/depthGet`: `cv (endW get w) = cv w` etc. | literally C1 for the three tracked cells, restricted to `quiet w ∧ AdmCtx` (not `ReadWorld`). No wrapper theorem is stated. |
-| C1 at `cref`, `mref`, side refs | NO | `frame` speaks only of `cv/sv/dv`; `Framed`/`FramedA.env` is in the op list but its law concludes cv/sv/dv only. **`RefLawsAOps` does not imply `ReadKeeps cref`** (no field mentions `readOf cref`; from the ABSENCE of such a field, neither non-implication nor that an independence
-proof is impossible can be inferred — both are UNPROVED). |
+| C1 at `cref`, `mref`, side refs | NO | `frame` speaks only of `cv/sv/dv`; `Framed`/`FramedA.env` is in the op list but its law concludes cv/sv/dv only. No derivation of `ReadKeeps cref` from `RefLawsAOps` has been established here (no field mentions `readOf cref`; from the ABSENCE of such a field, neither non-implication nor that an independence proof is impossible can be inferred — both are UNPROVED). |
 | C3 at cache/depth | YES, `cacheSet`/`depthSet` (cv w' = v), quiet worlds, admissible contexts | |
 | C4 among cache/synth/depth | YES, `cacheSet`/`depthSet` (sv, dv unchanged / cv, sv unchanged) | for the other 21 side refs and `cref`: NOT stated |
 | C4 into `cref` (env) | NO | |
@@ -71,7 +70,7 @@ Fields are NOT cells: `env`, `traceState`, `cache`, … live in one record read/
 field write keeps `env`" needs SetGet at `cref` and a property of the update function — neither is derivable from C1.
 `modify`-style `Meta` operations (`metaModify`) go through `take` (C6).
 
-## 5. What remains new (not implied by anything assumed)
+## 5. What remains new (not yet derived from anything assumed)
 1. C1 at `cref` — a SUFFICIENT condition for `GetEnvFrame` (via `getEnvFrame_of_readKeeps`; one direction), which gives
    `EnvSnapshot`(w1,w2); not shown necessary.
 2. C4 into `cref` for every cell written between w3 and w4 plus C5 for these cells.
