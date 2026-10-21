@@ -152,6 +152,154 @@ theorem machineShapeN_instR1 (hM : Tools.ShippingReaderFuelR1.MemR1 senv)
 
 end Transfer
 
+/-! ## Part 2: the `let` table of the result -/
+
+section Lets
+open Tools.ShippingReaderLenOk
+
+variable {senv : StructEnv} (hroot : RootFloatRange) (hlift : LiftRange) (hinst1 : Inst1Range)
+  (hsig : SigTyRange senv) (hbundle : BundleIotaRange)
+include hroot hlift hinst1 hsig hbundle
+
+omit hroot hlift hinst1 hsig hbundle in
+/-- The root-`let` bind of `shapeRootLet`: alias-free table, not shorter, bound value in range. -/
+theorem rootBind_facts {nm : Name} {ty v' : Lean.Expr} {lets : MachLets} {c : Bool}
+    (H : NoLetAlias lets) (hv : LetOk lets.size v' = true) (hc : c = true → machIsSlot v' = true) :
+    NoLetAlias (if c = true then machBindLetNamed nm ty v' lets else machBindLet nm ty v' lets).2 ∧
+    lets.size ≤ (if c = true then machBindLetNamed nm ty v' lets else machBindLet nm ty v' lets).2.size ∧
+    LetOk (if c = true then machBindLetNamed nm ty v' lets else machBindLet nm ty v' lets).2.size
+      (if c = true then machBindLetNamed nm ty v' lets else machBindLet nm ty v' lets).1 = true := by
+  by_cases h : c = true
+  · rw [if_pos h]
+    exact ⟨machBindLetNamed_noAlias H (slot_not_letVar (hc h)), (machBindLetNamed_range hv).1,
+      (machBindLetNamed_range hv).2⟩
+  · rw [if_neg h]
+    exact ⟨machBindLet_noAlias H, (machBindLet_range hv).1, (machBindLet_range hv).2⟩
+
+omit hroot hlift hinst1 hsig hbundle in
+theorem shapeStart_ok {n : Nat} {m : ShapeMid} {st0 : MachRead}
+    (hs : ∀ dom αs initsE body dom' stc, m.run? = some (dom, αs, initsE, body) →
+      machConvF n senv (m.rootLets.map fun _ => MachVal.unit) 0 dom ({} : MachRead) =
+        some (some (dom', stc)) → LetOk 0 dom' = true)
+    (hr : (shapeStart senv m).run (wtab senv n) = some (some st0)) : RdOk st0 := by
+  rcases shapeStart_inv hr with ⟨_, h0⟩ | ⟨dom, αs, initsE, body, dom', stc, base, hm, hc, hres⟩
+  · rw [h0]; exact rdOk_init
+  · obtain ⟨kinds, inits, _, _, _, hst⟩ := machReserve_some hres
+    subst hst
+    exact rdOk_dom (rdOk_init) (by rfl) (by rfl) (d := dom') (by rfl)
+      (letOk_zero (hs dom αs initsE body dom' stc hm hc))
+
+theorem shapeRootLet_ok {n : Nat} (s : List MachVal × MachRead) (a : Name × Lean.Expr × Lean.Expr)
+    (s' : List MachVal × MachRead) (hs : RdOk s.2 ∧ EnvOk s.2.lets.size s.1)
+    (ha : LetOk 0 a.2.2 = true)
+    (hr : (shapeRootLet senv s a).run (wtab senv n) = some (some s')) :
+    RdOk s'.2 ∧ EnvOk s'.2.lets.size s'.1 ∧ s.2.lets.size ≤ s'.2.lets.size := by
+  obtain ⟨env, st⟩ := s
+  obtain ⟨nm, ty, v⟩ := a
+  obtain ⟨hst, hE⟩ := hs
+  have hl : LetOk 0 v = true := ha
+  first
+    | (simp only [shapeRootLet] at hr)
+    | (unfold shapeRootLet at hr; try dsimp only at hr)
+  split at hr
+  · obtain ⟨⟨mv, st2⟩, hl2, hr⟩ := bindO_some_inv hr
+    have hp := machLoopRootF_post hroot hlift hinst1 hsig hbundle hst hE hl hl2
+    try dsimp only at hr
+    have e := okO_run_inv hr
+    subst e
+    exact ⟨hp.1, envOk_cons (envOk_mono hp.2.1 hE) (fun w hw => by subst hw; exact hp.2.2), hp.2.1⟩
+  · split at hr
+    · obtain ⟨⟨v', st2⟩, hc, hr⟩ := bindO_some_inv hr
+      have hp := machConvF_post hroot hlift hinst1 hsig hbundle hst hE hl hc
+      try dsimp only at hr
+      have e := okO_run_inv hr
+      subst e
+      have hv'' : LetOk st2.lets.size v' = true := hp.2.2
+      have hF := rootBind_facts (nm := nm) (ty := ty) (c := (!st2.loops.isEmpty && machIsSlot v'))
+        hp.1.1 hv'' (fun h => by
+          have := (Bool.and_eq_true _ _).mp h
+          exact this.2)
+      generalize (if (!st2.loops.isEmpty && machIsSlot v') = true then machBindLetNamed nm ty v' st2.lets
+        else machBindLet nm ty v' st2.lets) = bl at hF ⊢
+      obtain ⟨x, lets'⟩ := bl
+      have hA : RdOk { st2 with lets := lets' } := rdOk_lets hp.1 hF.1 hF.2.1 (by rfl) (by rfl)
+      refine ⟨hA, ?_, Nat.le_trans hp.2.1 hF.2.1⟩
+      exact envOk_cons (envOk_mono (Nat.le_trans hp.2.1 hF.2.1) hE)
+        (fun w hw => by injection hw with hw; subst hw; exact hF.2.2)
+    · exact (failO_run_inv hr).elim
+
+omit hroot hlift hinst1 hsig hbundle in
+/-- `foldO` with an invariant that needs a side condition on the list elements only. -/
+theorem foldO_inv_mem {κ : Type} {R : κ → Type} {α σ : Type} {h : (c : κ) → Option (R c)}
+    (P : σ → Prop) (Q : α → Prop) {f : σ → α → FM κ R (Option σ)}
+    (hf : ∀ s a s', Q a → P s → (f s a).run h = some (some s') → P s') :
+    ∀ (l : List α) (s s' : σ), (∀ a ∈ l, Q a) → P s → (foldO f s l).run h = some (some s') → P s'
+  | [], s, s', _, hs, hr => by
+    have hr' : (okO s : FM κ R (Option σ)).run h = some (some s') := hr
+    cases okO_run_inv hr'
+    exact hs
+  | a :: l, s, s', hQ, hs, hr => by
+    have hr' : (bindO (f s a) fun s1 => foldO f s1 l).run h = some (some s') := hr
+    obtain ⟨s1, h1, h2⟩ := bindO_some_inv hr'
+    exact foldO_inv_mem P Q hf l s1 s' (fun x hx => hQ x (List.mem_cons_of_mem _ hx))
+      (hf s a s1 (hQ a List.mem_cons_self) hs h1) h2
+
+theorem rootLets_ok {n : Nat} {l : List (Name × Lean.Expr × Lean.Expr)} {env env' : List MachVal}
+    {st0 st1 : MachRead} (hl : ∀ x ∈ l, LetOk 0 x.2.2 = true) (h0 : RdOk st0)
+    (hr : (foldO (shapeRootLet senv) (env, st0) l).run (wtab senv n) = some (some (env', st1)))
+    (hE : EnvOk st0.lets.size env) : RdOk st1 ∧ EnvOk st1.lets.size env' := by
+  have := foldO_inv_mem (h := wtab senv n) (fun s : List MachVal × MachRead =>
+      RdOk s.2 ∧ EnvOk s.2.lets.size s.1) (fun a : Name × Lean.Expr × Lean.Expr => LetOk 0 a.2.2 = true)
+    (f := shapeRootLet senv)
+    (fun s a s' ha hs hr => by
+      have := shapeRootLet_ok hroot hlift hinst1 hsig hbundle s a s' hs ha hr
+      exact ⟨this.1, this.2.1⟩) l (env, st0) (env', st1) hl ⟨h0, hE⟩ hr
+  exact this
+
+theorem shapeBody_ok {n : Nat} {m : ShapeMid} {env : List MachVal} {st1 st : MachRead}
+    {v : Lean.Expr} (hs : RdOk st1) (hE : EnvOk st1.lets.size env)
+    (hr0 : LetOk 0 m.root = true)
+    (hbody : ∀ dom αs initsE body, m.run? = some (dom, αs, initsE, body) → LetOk 0 body = true)
+    (hwrap : ∀ c params, m.wrap? = some (c, params) →
+      LetOk 0 c = true ∧ ∀ x ∈ params, LetOk 0 x = true)
+    (hr : (shapeBody m env st1).run (wtab senv n) = some (some (st, v))) :
+    RdOk st ∧ st1.lets.size ≤ st.lets.size ∧ LetOk st.lets.size v = true := by
+  unfold shapeBody at hr
+  rcases hm : m.run? with _ | ⟨dom, αs, initsE, body⟩
+  · rw [hm] at hr
+    try dsimp only at hr
+    obtain ⟨⟨v0, st2⟩, hc, hr⟩ := bindO_some_inv hr
+    try dsimp only at hr
+    have e := okO_run_inv hr
+    injection e with e1 e2
+    subst e1
+    subst e2
+    exact machConvF_post hroot hlift hinst1 hsig hbundle hs hE hr0 hc
+  · rw [hm] at hr
+    try dsimp only at hr
+    obtain ⟨⟨ws, v0, st2⟩, hc, hr⟩ := bindO_some_inv hr
+    try dsimp only at hr
+    have e := okO_run_inv hr
+    injection e with e1 e2
+    have hp := machChainF_post hroot hlift hinst1 hsig hbundle hs
+      (envOk_cons hE (fun w hw => by cases hw)) (hbody dom αs initsE body hm) hc
+    subst e1
+    refine ⟨rdOk_congr hp.1 (by rfl) (by rfl) (by rfl), hp.2.1, ?_⟩
+    rw [← e2]
+    cases hw : m.wrap? with
+    | none => exact hp.2.2
+    | some cp =>
+      obtain ⟨c, params⟩ := cp
+      obtain ⟨hc0, hps⟩ := hwrap c params hw
+      show LetOk st2.lets.size (mkAppN c (params.push v0)) = true
+      refine ok_mkAppN (letOk_zero hc0) ?_
+      intro a ha
+      rcases Array.mem_push.mp ha with ha | ha
+      · exact letOk_zero (hps a ha)
+      · rw [ha]; exact hp.2.2
+
+end Lets
+
 #print axioms machineShapeN_steps
 #print axioms machineShapeN_binderCount
 #print axioms machineShapeN_originT
