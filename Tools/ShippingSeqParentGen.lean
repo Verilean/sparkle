@@ -6,6 +6,7 @@ import Tools.ShippingParentRunFactsA
 import Tools.ShippingParentDesignFA
 import Tools.ShippingParentSeqComposedA
 import Tests.Compiler.ChildVertAuditTest
+-- BUILT (unit SR3l): only the depth > 1 refusal (message, checked before the other existence checks) changed: Tests.Compiler.SeqParentGenTest l5 exit 0.
 -- BUILT (unit SR3k): several DIFFERENT leaf children: `qbuild build Tools.ShippingSeqParentGen` exit 0; `qbuild build Tests.Compiler.SeqParentGenTest` k2-k4 exit 1 (template fixes: `epA_nm` noncomputable, `nomatch` parenthesised, hcl/hon haves layout, test counts instances per (call, field)), k5 exit 0, k6 exit 0 (with the old `#machine_no_ships_masked two 1` for the conclusion comparison).
 -- BUILT (unit SR3j): audit hardening (fr == #[closes], aligned arguments logged and asserted == [mctx, mref, cctx, cref, w, w', b, design, hr, entry] (integrator, by review; built in int-r26c at 758c4c71: Tests.Compiler.SeqParentGenTest exit 0 for parent and chained), no unresolved mvars): `qbuild build Tests.Compiler.SeqParentGenTest` j1 exit 1 (fr was [closes], not empty), j2 exit 0.
 -- BUILT (unit SR3i): `qbuild build Tools.ShippingSeqParentGen` exit 0 (g1-g7 `lean` runs exit 1 until fixed: API names, compiler panic of evalTerm replaced by reduction, hent origins, sync elaboration); used by Tests.Compiler.SeqParentGenTest (final qbuild exit 0).
@@ -824,13 +825,21 @@ elab "#machine_seq_parent_endpoint " f:ident : command => do
   -- the DISTINCT child declarations, in order of first call
   let cs := callees.foldl (fun acc c => if acc.contains c then acc else acc ++ [c]) []
   for c in cs do
-    for s in [`machineData, `machine_ok, `machine_body, `machine_closes, `machineSource] do
+    for s in [`machineData] do
       unless (← getEnv).contains (c ++ s) do throwError "#machine_seq_parent_endpoint: {c ++ s} not found (child {c} must be a generated machine)"
     -- the class is depth 1: every child is a leaf (no call instance of its own)
     let nInsts ← liftTermElabM do
       reduceNat (← elabText (subst "@F@.machineData.shape.insts.length" c .anonymous 0))
     unless nInsts == 0 do
-      throwError "#machine_seq_parent_endpoint: the child {c} itself has {nInsts} call instance(s): depth > 1 is outside the class"
+      let gcs ← liftTermElabM do
+        readNames (← elabText (subst "(@F@.machineData.shape.insts.map (·.1))" c .anonymous 0))
+      throwError "#machine_seq_parent_endpoint (unit SR3l): DEPTH 2 REFUSED: the child {c} itself has {nInsts} call instance(s), of the grandchild declaration(s) {gcs.eraseDups}.  \
+        OPEN, no lemma on the new boundary: the interface of a `RealChildA O {c} y` whose machine has calls.  \
+        `Tools.ShippingSeqChildIfaceA.seqChild_of_realA` needs `d.shape.insts = []` and concludes `ChildIfaceG … y.1 y.2`, whose field `design : y.2.modules = []` is FALSE for such a child \
+        (its design holds the grandchildren), so every child-keyed fact of the parent (`kidsMasked`, `runFacts`, `outsCheck`, `designCheck`, `MachineClosesAtA` through `memKids'`) would need \
+        a depth-2 analogue of `GenKid`/`KidFacts` (`Tools/ShippingGenKid.lean`, old boundary, built from `mid.closes_deep`) over `RealChildA`/`RefLawsATele`; it is NOT in the repository and is not assumed here."
+    for s in [`machine_ok, `machine_body, `machine_closes, `machineSource] do
+      unless (← getEnv).contains (c ++ s) do throwError "#machine_seq_parent_endpoint: {c ++ s} not found (child {c} must be a generated machine)"
   let kD ← liftTermElabM do
     reduceNat (← elabText (subst "(@F@.machineData.bsIn.length - @F@.machineData.shape.insts.length)" fn .anonymous 0))
   let sub := fun s => subst s fn cs.head! kD
