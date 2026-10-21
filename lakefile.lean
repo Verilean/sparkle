@@ -3492,3 +3492,6 @@ lean_lib «Tools.ShippingParentTailsA» where
 
 lean_lib «Tools.ShippingParentDesignA» where
   roots := #[`Tools.ShippingParentDesignA]
+
+lean_lib «Tools.ShippingParentPortsA» where
+  roots := #[`Tools.ShippingParentPortsA]
