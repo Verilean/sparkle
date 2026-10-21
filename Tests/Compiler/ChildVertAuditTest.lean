@@ -24,6 +24,7 @@ import Tools.ShippingMachineOutcomeA4
 import Tools.ShippingLetsCloseRoute
 import Tools.ShippingLetsAliasInv
 import Tools.ShippingLetsReaderInvMain
+import Tools.ShippingLetsSigTy
 import Tools.ShippingLetsReaderInvPure2
 import Tools.ShippingCallWidthsChildRealA
 import Tools.ShippingChildTeleLocalA
@@ -367,6 +368,9 @@ def audited : List Name :=
    ``Tools.ShippingLetsReaderInv.machConvF_init,
    ``Tools.ShippingLetsReaderInv.machChainF_init,
    ``Tools.ShippingLetsReaderInv.real_conv_post,
+   ``Tools.ShippingLetsReaderInv.instSignatureS_type,
+   ``Tools.ShippingLetsReaderInv.sigTyRange_structEnv,
+   ``Tools.ShippingLetsReaderInv.letOk_declValue,
    ``Tools.ShippingCallsMemA.callsPureA_of_memKids,
    ``Tools.ShippingCallsMemA.machineClosesAtA_of_memKids,
    ``Tools.ShippingCallsMemA.machineClosesAtA_memOnly_names,
