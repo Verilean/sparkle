@@ -1,6 +1,6 @@
 import Tools.Prototype.StartDomOk
 
-/-! # Unit SDOM4: weaken the premise of `startDom_succ` to `LetOk 0` preservation along `==`
+/-! # Unit SDOM4: `startDom_succ` under a DIFFERENT sufficient premise (`LetOk 0` preservation along `==`)
 
 BUILT: sd1 exit 1 (missing `open`), sd2 exit 0 (final; Tests.Compiler.ExprEqvAtomTest and this file). No sorry/axiom/native_decide.
 
@@ -10,10 +10,13 @@ documented "alpha equivalent, binder annotations are ignored"; `instance : BEq E
 (b) the EXECUTED check `Tests/Compiler/ExprEqvAtomTest.lean` (mdata-wrapped fvar/const vs the bare atom, binder-name/binder-info
 alpha-variance, and `LetOk 0` invariance on the executed pairs).  Those are EVIDENCE, not a proof of the extern.
 
-The old `ExprEqvAtom` (a == b with b an atom ⇒ a = b) is kept (still the statement it was), but this file proves the
-Weaker premise `EqvLetOk0` is all `startDom_succ` needs: `a == b → LetOk 0 b = true → LetOk 0 a = true`
-(`LetOk` ignores binder names/infos; it looks only at fvars, so alpha-equivalence preserves it, and `mdata` is not the
-same node as its body). `ExprEqvAtom → ChainLetOk` is PROVED (`chainLetOk_of_atom`), `EqvLetOk0 → ChainLetOk` PROVED. -/
+The old `ExprEqvAtom` (a == b with b an atom ⇒ a = b) is kept (still the statement it was). This file replaces it, for
+`startDom_succ`, by ANOTHER sufficient premise `EqvLetOk0`: `a == b → LetOk 0 b = true → LetOk 0 a = true` for ALL Expr pairs.
+The two premises are NOT shown to imply each other: `ExprEqvAtom` speaks only of pairs whose right side is an atom, `EqvLetOk0`
+of all pairs, so `ExprEqvAtom → EqvLetOk0` is NOT proved (and the converse is not claimed). PROVED: `EqvLetOk0 → ChainLetOk`
+(`chainLetOk_of_eqv`), and from `ExprEqvAtom` only the ATOM-ENDING case (`chainLetOk_of_atom`: chains whose end `d` is an
+fvar/const), not the general `ChainLetOk`. The executed mdata/alpha checks are EVIDENCE about the extern, not a proof of
+`EqvLetOk0` (integrator wording fix, par/int-r31, per review). -/
 namespace Tools.Prototype.StartDomOk
 open Lean Sparkle.Compiler.Elab Tools.ShippingReaderFuel Tools.ShippingReaderLenOk
 open Tools.Prototype.ReaderExec Tools.Prototype.PreprocLetOk
@@ -32,13 +35,14 @@ theorem chainLetOk_of_eqv (hE : EqvLetOk0) : ChainLetOk := by
   | refl => exact id
   | step _ hb ih => exact fun h => ih (hE _ _ hb h)
 
-/-- The old premise is stronger on the atoms the chain ends in: it gives `ChainLetOk` for atom-ending chains. -/
+/-- From the old premise, `LetOk 0` transfer for ATOM-ENDING chains only (not the general `ChainLetOk`). -/
 theorem chainLetOk_of_atom (hE : ExprEqvAtom) {D d : Lean.Expr} (hc : DChain D d)
     (hat : (∃ id, d = Lean.Expr.fvar id) ∨ (∃ n ls, d = Lean.Expr.const n ls)) (h : LetOk 0 d = true) :
     LetOk 0 D = true := by
   rw [dchain_eq hE hc hat]; exact h
 
-/-- **SUCCESS-RESTRICTED `startDom`** under the WEAKER premise `EqvLetOk0` (same statement as `startDom_succ`). -/
+/-- **SUCCESS-RESTRICTED `startDom`** under the premise `EqvLetOk0` (same statement as `startDom_succ`; `EqvLetOk0` is a
+different sufficient premise from `ExprEqvAtom`, mutual implication NOT proved). -/
 theorem startDom_succ_w (hE : EqvLetOk0) {senv : StructEnv} {n : Nat} {m : ShapeMid}
     {ai : Bool} {p : ShapePre} {st0 st1 st : MachRead} {env : List MachVal} {v : Lean.Expr} {sp : MachineShape}
     (h0 : (shapeStart senv m).run (wtab senv n) = some (some st0))

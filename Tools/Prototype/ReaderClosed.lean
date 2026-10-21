@@ -214,10 +214,29 @@ def stripNoLetBvar (e : Expr) : Expr :=
       else none
     | _ => none
 
+/-- Every `∀ _ : NoLetBvar …, body` binder occurring in `e`, with its body (integrator, par/int-r31). -/
+partial def noLetBvarSites : Expr → Array Expr
+  | .forallE _ dom body _ =>
+    let rest := noLetBvarSites dom ++ noLetBvarSites body
+    if dom.getAppFn.isConstOf ``Tools.Prototype.ReaderTyped.NoLetBvar then #[body] ++ rest else rest
+  | .lam _ d b _ => noLetBvarSites d ++ noLetBvarSites b
+  | .app f a => noLetBvarSites f ++ noLetBvarSites a
+  | .letE _ t v b _ => noLetBvarSites t ++ noLetBvarSites v ++ noLetBvarSites b
+  | .mdata _ b => noLetBvarSites b
+  | .proj _ _ b => noLetBvarSites b
+  | _ => #[]
+
 open Lean Meta in
 def checkNoLetBvarRemoved (oldN newN : Name) : MetaM Unit := do
   let oi ← getConstInfo oldN
   let ni ← getConstInfo newN
+  -- (reviewer, int-r31) exactly ONE antecedent is removed, and the remaining body does not refer to it
+  let sites := noLetBvarSites oi.type
+  unless sites.size == 1 do
+    throwError "REMOVAL CHECK FAILED: {oldN} has {sites.size} NoLetBvar antecedents, expected exactly 1"
+  for body in sites do
+    if body.hasLooseBVar 0 then
+      throwError "REMOVAL CHECK FAILED: the body under the NoLetBvar antecedent of {oldN} refers to it"
   let stripped := stripNoLetBvar oi.type
   if stripped == oi.type then
     throwError "REMOVAL CHECK FAILED: {oldN} has no NoLetBvar antecedent to strip"
@@ -225,7 +244,7 @@ def checkNoLetBvarRemoved (oldN newN : Name) : MetaM Unit := do
     throwError "REMOVAL CHECK FAILED: the type of {newN} differs from {oldN} with the NoLetBvar antecedent stripped"
   if (ni.type.find? fun x => x.isConstOf ``Tools.Prototype.ReaderTyped.NoLetBvar).isSome then
     throwError "REMOVAL CHECK FAILED: {newN} still mentions NoLetBvar"
-  logInfo m!"removal check {newN}: type = {oldN} minus the NoLetBvar antecedent; no NoLetBvar constant"
+  logInfo m!"removal check {newN}: type = {oldN} minus its single NoLetBvar antecedent (body independent of it); no NoLetBvar constant"
 
 run_meta checkNoLetBvarRemoved ``Tools.Prototype.ReaderTyped.machineShapeN_typed ``machineShapeN_typed_nb
 run_meta Tools.Prototype.ReaderExec.auditPropBinders ``machineShapeN_typed_nb ["RootFloatRange", "LiftRange", "Inst1Range", "SigTyRange", "ShapeInOk", "Eq"]
