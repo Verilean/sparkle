@@ -667,16 +667,16 @@ theorem conv_letE_sat (senv : StructEnv) (F : PureFacts senv) (hG : Good h) (env
   refine satp_ite satp_failO ?_
   split
   · rename_i n2 t2 v2 w nd2 heq
-    have hrf := F.rootFloat 0 v hl'.1.2
+    have hrf := F.rootFloat v hl'.1.2
     rw [heq] at hrf
     simp only [LetOk, Bool.and_eq_true] at hrf
     have hc : LetOk 0 (.letE n2 t2 v2 (.letE nm (ty.liftLooseBVars 0 1) w (b.liftLooseBVars 1 1) nd)
         nd2) = true := by
       simp only [LetOk, Bool.and_eq_true]
-      exact ⟨⟨hrf.1.1, hrf.1.2⟩, ⟨⟨F.lift 0 ty 0 1 hl'.1.1, hrf.2⟩, F.lift 0 b 1 1 hl'.2⟩⟩
+      exact ⟨⟨hrf.1.1, hrf.1.2⟩, ⟨⟨(F.lift ty hl'.1.1).1, hrf.2⟩, (F.lift b hl'.2).2⟩⟩
     exact sat_cConv hG hst hE hc
   · have hvv : LetOk 0 (Sparkle.Compiler.MachRawSurface.rootFloat v) = true :=
-      F.rootFloat 0 v hl'.1.2
+      F.rootFloat v hl'.1.2
     refine satp_ite ?_ ?_
     · refine satp_bindO (sat_cLoopRoot hG hst hE hvv) ?_
       rintro ⟨mv, st1⟩ ⟨h1, hmv⟩
@@ -878,16 +878,16 @@ theorem chain_sat (senv : StructEnv) (F : PureFacts senv) (hG : Good h) (env : L
       simpa [LetOk] using hl
     split
     · rename_i n2 t2 v2 w nd2 heq
-      have hrf := F.rootFloat 0 v hl'.1.2
+      have hrf := F.rootFloat v hl'.1.2
       rw [heq] at hrf
       simp only [LetOk, Bool.and_eq_true] at hrf
       have hc : LetOk 0 (.letE n2 t2 v2 (.letE nm (ty.liftLooseBVars 0 1) w (b.liftLooseBVars 1 1) nd)
           nd2) = true := by
         simp only [LetOk, Bool.and_eq_true]
-        exact ⟨⟨hrf.1.1, hrf.1.2⟩, ⟨⟨F.lift 0 ty 0 1 hl'.1.1, hrf.2⟩, F.lift 0 b 1 1 hl'.2⟩⟩
+        exact ⟨⟨hrf.1.1, hrf.1.2⟩, ⟨⟨(F.lift ty hl'.1.1).1, hrf.2⟩, (F.lift b hl'.2).2⟩⟩
       exact sat_cChain hG hst hE hc
     · have hvv : LetOk 0 (Sparkle.Compiler.MachRawSurface.rootFloat v) = true :=
-        F.rootFloat 0 v hl'.1.2
+        F.rootFloat v hl'.1.2
       refine satp_ite ?_ ?_
       · refine satp_bindO (sat_cLoopRoot hG hst hE hvv) ?_
         rintro ⟨mv, st1⟩ ⟨h1, hmv⟩

@@ -51,11 +51,12 @@ open Tools.ShippingLetsAliasInv Tools.ShippingReaderFuel
 
 /-- PREMISE (not proved): `rootFloat` (a `partial def`) invents no `_machLet j` placeholder. -/
 def RootFloatRange : Prop :=
-  ∀ n v, LetOk n v = true → LetOk n (Sparkle.Compiler.MachRawSurface.rootFloat v) = true
+  ∀ v, LetOk 0 v = true → LetOk 0 (Sparkle.Compiler.MachRawSurface.rootFloat v) = true
 
 /-- PREMISE (not proved): `Expr.liftLooseBVars` (extern) invents no `_machLet j` placeholder. -/
 def LiftRange : Prop :=
-  ∀ n e k m, LetOk n e = true → LetOk n (e.liftLooseBVars k m) = true
+  ∀ e, LetOk 0 e = true →
+    LetOk 0 (e.liftLooseBVars 0 1) = true ∧ LetOk 0 (e.liftLooseBVars 1 1) = true
 
 /-- PREMISE (not proved): `Expr.instantiate1` (extern) invents no `_machLet j` placeholder. -/
 def Inst1Range : Prop :=

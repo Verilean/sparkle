@@ -391,17 +391,18 @@ ones as individually named premises, not this record). Not axioms. Every field, 
 
 | field | status | note |
 |---|---|---|
-| `rootFloat` | NOT PROVED (cannot unfold) | `partial def`, opaque to the kernel |
-| `lift` | NOT PROVED (cannot unfold) | `Expr.liftLooseBVars`, `extern` |
+| `rootFloat` | NOT PROVED (cannot unfold) | `partial def`; LC6: only on `LetOk 0` inputs |
+| `lift` | NOT PROVED (cannot unfold) | `Expr.liftLooseBVars`, `extern`; LC6: only (0,1),(1,1) on `LetOk 0` |
 | `inst1` | NOT PROVED (cannot unfold) | `Expr.instantiate1`, `extern` |
 | `sigTy` | NOT PROVED — ENVIRONMENT INPUT CONDITION | not a fact about a function: the types stored in `senv.instS` mention no `_machLet`; to be derived from the real `structEnv env` (declared types of constants); NOT shown here |
 | `bundleIota` | NOT PROVED (total function; the proof needs a nested name/array-literal case split) | used at the `.app` arm of `machConv` |
 | `projIota`, `regView`, `runApp`, `instCall`, `instCallS`, `memCall`, `loopView`, `letTail`, `loopRegs` | PROVED (`…InvPure.lean`, `…InvPure2.lean`) | pattern extractors / rewriters, by unfolding |
 -/
 structure PureFacts (senv : StructEnv) : Prop where
-  rootFloat : ∀ n v, LetOk n v = true →
-    LetOk n (Sparkle.Compiler.MachRawSurface.rootFloat v) = true
-  lift : ∀ n e k m, LetOk n e = true → LetOk n (e.liftLooseBVars k m) = true
+  rootFloat : ∀ v, LetOk 0 v = true →
+    LetOk 0 (Sparkle.Compiler.MachRawSurface.rootFloat v) = true
+  lift : ∀ e, LetOk 0 e = true →
+    LetOk 0 (e.liftLooseBVars 0 1) = true ∧ LetOk 0 (e.liftLooseBVars 1 1) = true
   inst1 : ∀ n b a, LetOk n b = true → LetOk n a = true → LetOk n (b.instantiate1 a) = true
   sigTy : ∀ c kinds ty, senv.instS c = some (kinds, ty) → ∀ n, LetOk n ty = true
   bundleIota : ∀ n e, LetOk n e = true →
