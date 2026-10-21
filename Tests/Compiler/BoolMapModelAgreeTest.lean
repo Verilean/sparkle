@@ -5,7 +5,11 @@ import Tools.Prototype.BoolMapModelLetOk
 TARGET-ONLY (`./.cluster/qbuild.sh build Tests.Compiler.BoolMapModelAgreeTest`; not in `Tests.AllTests`). EVIDENCE only, not a
 proof of `BoolMapCorr`: the grid is finite and hand-written, and `machLiftScalarN` is the same compiled function on both sides.
 Every comparison throws on a mismatch (`Expr.equal` on the results) and the grid must have at least 4 `some` results and
-at least 8 `none` results (so it is not vacuous in either direction). A successful build means every line held. -/
+at least 8 `none` results (so it is not vacuous in either direction). A successful build means every line held.
+WORDING (LC17): the `+` / `++` operand bodies in this grid are refused by BOTH sides (the instance `.const `instAdd []` is not
+a canonical one), so they are NOT evidence that the lift arms were exercised; only the `bvar` operand reaches a lift arm (the var
+reference) here. Tests/Compiler/LiftScalarModelAgreeTest.lean adds `machBoolMap` successes through the var-reference, constant and
+`+` arms. -/
 namespace Tests.Compiler.BoolMapModelAgreeTest
 open Lean Sparkle.Compiler.Elab Tools.Prototype.BoolMapModelLetOk
 

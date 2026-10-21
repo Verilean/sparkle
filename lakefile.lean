@@ -3673,3 +3673,9 @@ lean_lib «Tests.Compiler.BoolMapModelAgreeTest» where
 
 lean_lib «Tools.ShippingSeqChildDeepRunA» where
   roots := #[`Tools.ShippingSeqChildDeepRunA]
+
+lean_lib «Tools.Prototype.LiftScalarModelLetOk» where
+  roots := #[`Tools.Prototype.LiftScalarModelLetOk]
+
+lean_lib «Tests.Compiler.LiftScalarModelAgreeTest» where
+  roots := #[`Tests.Compiler.LiftScalarModelAgreeTest]
