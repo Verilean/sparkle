@@ -104,7 +104,7 @@ required for `telescope`/`lamTelescope`).
 
 `Tools/ShippingChildTeleMainA.lean`: `RefLawsATele.ofTeleLam O htel hlam` (`htel : ForallTelescopeLawA`, `hlam : LamTelescopeLawA`, the field statements verbatim; `localDecl`/`letDecl` PROVED from `O`) and the endpoints `core_tripleA_main_tl`, `core_tripleAC_of_tele_tl`, `full_tripleAC_of_tele_tl`, `htr_of_tele_tl`, `machine_children_realA_main_tl` (t2b exit 0; audit t2c exit 0; axioms propext/Classical.choice/Quot.sound). Premises: `O`, `hA`, `htel`, `hlam` (instead of `T`) plus each endpoint's other premises unchanged. `telescope`/`lamTelescope` remain PREMISES (an added, unproved boundary); the `T`-taking theorems are unchanged, so the two fields are removed ONLY from the `_tl` theorems. Not runtime fit.
 
-## 7. Ledger row T3 (unit T3, base c0d3bb0b): can `telescope` / `lamTelescope` be derived from `O`? — NO (analysis; no Lean change, no build)
+## 7. Ledger row T3 (unit T3, base c0d3bb0b): can `telescope` / `lamTelescope` be derived from `O`? — NOT DERIVED by the method used here (analysis; no Lean change, no build; external law items unchanged: 2)
 
 Toolchain v4.32.1, `src/lean/Lean/Meta/Basic.lean`. Path of `forallTelescopeReducing` (1581, safe def, `map2MetaM`) →
 `forallTelescopeReducingImp` (1569, safe) → `forallTelescopeReducingAux` (1478, **`private partial`**) →
@@ -119,17 +119,18 @@ Primitive coverage by `O` (PROVED to exist as `FramedA` constructors): everythin
 `LocalContext.mkLocalDecl/mkLetDecl`, `withNewLocalInstance` (derived in T1). So there is NO missing primitive; the only obstruction
 is the recursion itself.
 
-MINIMAL missing condition (stated, NOT added as a law; informal Lean-style Props):
+Conditions that the method used here would need (stated informally, NOT added as laws; whether they are minimal or sufficient is NOT established, since U/F are not formalised):
 * (U) unfolding: `forallTelescopeReducingAux ty mf k c wt = <its body above>` and the same for `forallTelescopeReducingAuxAux`,
   `lambdaTelescopeImp`, `withNewLocalInstancesImp`, `isClassExpensive?` (the `_unsafe_rec` twins are not usable in proofs).
-* (F) a fixpoint-induction principle for the property `Keeps … I` over these mutually recursive partial workers (the property is
-  a partial-correctness statement over every returning run, hence admissible for the least fixpoint, but Lean provides no such
-  principle for `partial def`).
-Given (U)+(F), `telescope`/`lamTelescope` would follow from the T1-style steps. Without them nothing about the workers can be
-proved. (U)+(F) are not smaller than the two field statements; under `O` the full `T` and `{ (U),(F), O }` are interchangeable
-as assumptions — this is NOT "fewer premises". Not runtime fit.
+* (F) a fixpoint-induction principle for the property `Keeps … I` over these mutually recursive partial workers. CANDIDATE
+  approach only: treating `Keeps … I` as admissible for a least fixpoint presupposes a model, an order and continuity, none of
+  which is constructed here; Lean provides no such principle for `partial def`.
+Expected (not shown): with (U)+(F), `telescope`/`lamTelescope` might follow from T1-style steps. The workers were not analysed
+further by THIS method; that is not a proof that nothing can be proved about them. No comparison with the two field statements is
+claimed (the direction from `T`'s preservation statements to the workers' unfolding equations or a fixpoint principle does not
+hold: `T` does not give them). The two remaining laws are NOT to be replaced by added axioms (U)/(F). Not runtime fit.
 
 | item | status |
 |---|---|
-| `telescope_of_O`, `lamTelescope_of_O` | **NOT PROVED** (cannot be, from kernel-visible content); remain PREMISES `ForallTelescopeLawA` / `LamTelescopeLawA` |
+| `telescope_of_O`, `lamTelescope_of_O` | **NOT PROVED** (not derived by the method used here); remain PREMISES `ForallTelescopeLawA` / `LamTelescopeLawA` |
 | root cause | `private partial` mutual recursion (Basic.lean 1395/1441/1478/1508/1598) |
