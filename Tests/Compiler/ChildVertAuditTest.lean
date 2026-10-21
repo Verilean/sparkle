@@ -41,6 +41,7 @@ import Tests.Compiler.CallsMemAMemWideTest
 import Tests.Compiler.CallerTwiceATest
 import Tools.ShippingCallsMemPinned
 import Tools.ShippingSeqChildIfaceA
+import Tools.ShippingParentGateA
 
 /-! # Audit: the vertical path does not use the old boundary (round par/vert)
 
@@ -326,7 +327,24 @@ def audited : List Name :=
    ``Tools.ShippingCallsMemPinned.machineClosesAtA_of_pure_pinG,
    ``Tools.ShippingCallsMemPinned.callsPureGP_of_memKids',
    ``Tools.ShippingSeqChildIfaceA.seqChild_ifaceA,
-   ``Tools.ShippingSeqChildIfaceA.seqChild_of_realA]
+   ``Tools.ShippingSeqChildIfaceA.seqChild_of_realA,
+   ``Tools.ShippingParentRanA.machineRanA_main,
+   ``Tools.ShippingParentTailsA.core_kids_facts_ranA,
+   ``Tools.ShippingParentTailsA.core_linkedWF_ranA,
+   ``Tools.ShippingParentTailsA.core_instOuts_not_assigned_ranA,
+   ``Tools.ShippingParentTailsA.core_closed_typedIn_ranA,
+   ``Tools.ShippingParentDesignA.core_hierGate_anyA,
+   ``Tools.ShippingParentDesignA.core_kidsPass_anyA,
+   ``Tools.ShippingParentDesignA.core_closeInstsA,
+   ``Tools.ShippingParentDesignA.core_runFactsHA,
+   ``Tools.ShippingParentDesignA.core_designCheckHA,
+   ``Tools.ShippingParentPortsA.core_outsCheck_all_gate_ranA,
+   ``Tools.ShippingParentPortsA.core_calls_ports₁A,
+   ``Tools.ShippingParentPortsA.core_callConns₁A,
+   ``Tools.ShippingParentPortsA.core_portsMatch_raw₁A,
+   ``Tools.ShippingParentPortsA.core_hierTyped₁A,
+   ``Tools.ShippingParentGateA.gate_real_portsA,
+   ``Tools.ShippingParentGateA.gate_real_kidKA]
 
 end Tests.Compiler.ChildVertAuditTest
 

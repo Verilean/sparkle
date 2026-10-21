@@ -1,5 +1,8 @@
 import Tools.ShippingChildRunAMain
--- UNBUILT (unit PH, par/u-ph): see REPORT-PH.md for the run names and exits.
+-- BUILT (unit PH, par/u-ph): ph2 exit 0. See REPORT-PH.md.
+-- SCOPE (binding): this file proves facts about the checks of the shipped module up to `designCheck = true`
+-- (resp. the check statement named below), NOT a parent semantic-equivalence head and NOT the endpoint
+-- `machine_design_svH_full` (its semantic part still takes `ChildBnd`: OPEN). Not runtime fit.
 -- No `sorry`, no `axiom`, no `native_decide`, no new law / field.
 
 /-! # Unit PH: `MachineRanA` — what the parent-level design chain takes of a returning core run (new boundary)

@@ -3,7 +3,10 @@ import Tools.ShippingParentDesignA
 import Tools.ShippingOneOutConns
 import Tools.ShippingCallsChildPorts
 import Tools.ShippingChecksCoreGate
--- UNBUILT (unit PH, par/u-ph): see REPORT-PH.md for the run names and exits.
+-- BUILT (unit PH, par/u-ph): ph7 exit 0. See REPORT-PH.md.
+-- SCOPE (binding): this file proves facts about the checks of the shipped module up to `designCheck = true`
+-- (resp. the check statement named below), NOT a parent semantic-equivalence head and NOT the endpoint
+-- `machine_design_svH_full` (its semantic part still takes `ChildBnd`: OPEN). Not runtime fit.
 -- No `sorry`, no `axiom`, no `native_decide`, no new law / field.
 
 /-! # Unit PH: the check facts of a one-output parent that need the children's ports (new boundary)

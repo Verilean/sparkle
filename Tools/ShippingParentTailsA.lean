@@ -2,7 +2,10 @@ import Tools.ShippingParentRanA
 import Tools.ShippingChecksCore
 import Tools.ShippingLinkedFresh
 import Tools.ShippingClosedTyped
--- UNBUILT (unit PH, par/u-ph): see REPORT-PH.md for the run names and exits.
+-- BUILT (unit PH, par/u-ph): ph4 exit 0. See REPORT-PH.md.
+-- SCOPE (binding): this file proves facts about the checks of the shipped module up to `designCheck = true`
+-- (resp. the check statement named below), NOT a parent semantic-equivalence head and NOT the endpoint
+-- `machine_design_svH_full` (its semantic part still takes `ChildBnd`: OPEN). Not runtime fit.
 -- No `sorry`, no `axiom`, no `native_decide`, no new law / field.
 
 /-! # Unit PH: the run facts of a parent's full-entry module on the NEW boundary (tails over `MachineRanA`)

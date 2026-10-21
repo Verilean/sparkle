@@ -1,6 +1,10 @@
 import Tests.Compiler.OneOutTwoCalleeTest
 import Tools.ShippingParentGateA
--- UNBUILT (unit PH, par/u-ph): see REPORT-PH.md for the run names and exits.
+import Tests.Compiler.ChildVertAuditTest
+-- BUILT (unit PH, par/u-ph): ph13 exit 0 (audit + conclusion checks inside); ChildVertAuditTest ph14 exit 0. See REPORT-PH.md.
+-- SCOPE (binding): this file proves facts about the checks of the shipped module up to `designCheck = true`
+-- (resp. the check statement named below), NOT a parent semantic-equivalence head and NOT the endpoint
+-- `machine_design_svH_full` (its semantic part still takes `ChildBnd`: OPEN). Not runtime fit.
 
 /-! # Unit PH: `callerMix` — the first PARENT on the new boundary, at the level of the four check premises
 
@@ -324,5 +328,98 @@ theorem callerMix_designFullHA
       · (rw [hc] at hy; exact pick_kidKA O hR0 hy)
       · (rw [hc] at hy; exact pickD_kidKA O hR1 hy))
     0 (callerMix_portsShippedHA O T hA hw hcore hpost entry hR0 hR1)
+
+/-! ## Audit and conclusion check (both THROW) -/
+
+open Lean Elab Command Meta Term in
+open Tests.Compiler.ChildVertAuditTest in
+/-- Audit of a new-boundary parent theorem: standard axioms; the outer Prop premises are exactly
+run / `MachineDefines` / two `EntryDefines` / `AdmCtx` / `JQ` / the post-processing disjunction
+(+ `hg` for `outsH`); exactly one data binder `O : RefLawsAOps MkRefd _ _`; the added boundary
+`RefLawsATele` binder `T` is counted (at most one; it enters only through `BodyStepC`/`htr`); the closure
+contains no `RefLaws`/`RefLawsCore`/`toAOps`/`toA`/`ChildBnd`/`StartV`.  Opaque/extern/implemented_by
+counts are structural, not a runtime-fit proof. -/
+def auditParentA (n : Name) (nProps : Nat) : TermElabM Unit := do
+  stdAxioms n
+  let ty := (← getConstInfo n).type
+  let heads ← forallTelescope ty fun xs _ => do
+    let mut ps : Array (Option Name) := #[]
+    for x in xs do
+      let t ← inferType x
+      if ← isProp t then ps := ps.push t.getAppFn.constName?
+    return ps
+  unless heads.size == nProps do throwError "{n}: {heads.size} outer premises, {nProps} expected: {heads}"
+  for h in heads do
+    unless h ∈ [some ``Tools.ShippingEntrySoundness.RunsTo, some ``Tools.ShippingMachineEntry.MachineDefines,
+        some ``Tools.ShippingInlineSoundness.EntryDefines, some ``Tools.ShippingChildInvA.AdmCtx,
+        some ``Tools.ShippingChildVCA.JQ, some ``Or, some ``Eq,
+        some ``Tools.ShippingChildInvA.RefLawsATele] do
+      throwError "{n}: unexpected outer premise head {h}"
+  let (nO, nTele) : Nat × Nat ← forallTelescope ty fun xs _ => do
+    let mut a : Nat := 0; let mut b : Nat := 0
+    for x in xs do
+      let t ← inferType x
+      if t.getAppFn.constName? == some ``Tools.ShippingChildInvA.RefLawsAOps then
+        unless (t.getAppArgs[0]?.bind (·.constName?)) == some ``Tools.ShippingChildFresh.MkRefd do
+          throwError "{n}: RefLawsAOps binder with Fresh ≠ MkRefd: {t}"
+        a := a + 1
+      if t.getAppFn.constName? == some ``Tools.ShippingChildInvA.RefLawsATele then b := b + 1
+    return (a, b)
+  unless nO == 1 && nTele == 1 do
+    throwError "{n}: {nO} RefLawsAOps (1 expected), {nTele} RefLawsATele (1 expected) binders"
+  let cl ← depClosure n
+  let bad := hits cl ++ cl.toList.filter fun c =>
+    [`Tools.ShippingChildInv.ChildBnd, `Tools.ShippingChildInv.StartV].any (·.isPrefixOf c)
+  unless bad.isEmpty do throwError "{n}: old boundary in closure: {bad}"
+  let (axs, ops, exts, impls) ← boundary cl
+  logInfo m!"PARENT-A AUDIT OK: {n}: standard axioms; {nProps} outer Prop premises (run / MachineDefines / EntryDefines / AdmCtx / JQ / post), one O : RefLawsAOps MkRefd, one T : RefLawsATele (ADDED boundary, premise); closure {cl.size} constants, no RefLaws/RefLawsCore/toAOps/toA/ChildBnd/StartV; boundary (structural): {axs.length} axioms, {ops.length} opaque, {exts.length} extern, {impls.length} implemented_by"
+
+set_option maxHeartbeats 0 in
+run_cmd Lean.Elab.Command.liftTermElabM do
+  for (n, k) in [(``callerMix_closesA, 4), (``callerMix_factsHA, 8), (``callerMix_outsHA, 9),
+      (``callerMix_portsRawHA, 8), (``callerMix_portsShippedHA, 8), (``callerMix_hierTypedHA, 8),
+      (``callerMix_designFullHA, 8)] do
+    auditParentA n k
+
+open Lean Elab Command Meta Term in
+/-- Old vs new: after the nine implicit data binders (`mctx mref cctx cref w w1 raw b D`, by binder name),
+the conclusions are `isDefEq` and mention none of the other binders (THROWS otherwise). -/
+def sameConclusionA (old new : Name) : TermElabM Unit := do
+  let tn := (← getConstInfo new).type
+  let to := (← getConstInfo old).type
+  forallTelescope tn fun xs cn => do
+    let names := [`mctx, `mref, `cctx, `cref, `w, `w1, `raw, `b, `D]
+    let mut t := to
+    let mut shared : Array Lean.Expr := #[]
+    for nm in names do
+      let some x ← xs.findM? (fun x => do return (← x.fvarId!.getUserName) == nm)
+        | throwError "new theorem has no binder {nm}"
+      let .forallE bn d b _ := t.headBeta | throwError "old theorem: fewer binders"
+      unless bn.eraseMacroScopes == nm do throwError "old binder {bn}, expected {nm}"
+      unless ← isDefEq d (← inferType x) do throwError "binder {nm}: type mismatch"
+      t := b.instantiate1 x
+      shared := shared.push x
+    forallTelescope t fun ys co => do
+      for y in ys do
+        if co.containsFVar y.fvarId! then throwError "old conclusion mentions a non-data binder"
+      for x in xs do
+        unless shared.contains x do
+          if cn.containsFVar x.fvarId! then throwError "new conclusion mentions a non-data binder"
+      unless ← isDefEq co cn do
+        throwError "conclusions differ:\n  old {co}\n  new {cn}"
+      logInfo m!"CONCLUSION CHECK OK: {old} and {new} have isDefEq conclusions"
+
+set_option maxHeartbeats 0 in
+run_cmd Lean.Elab.Command.liftTermElabM do
+  let c := `Sparkle.Tests.Compiler.ShippingPremiseEvalTest.callerMix
+  sameConclusionA (c ++ `machine_factsH) ``callerMix_factsHA
+  sameConclusionA (c ++ `machine_outsH) ``callerMix_outsHA
+  sameConclusionA (c ++ `machine_portsRawH) ``callerMix_portsRawHA
+  sameConclusionA (c ++ `machine_portsShippedH) ``callerMix_portsShippedHA
+  sameConclusionA (c ++ `machine_hierTypedH) ``callerMix_hierTypedHA
+  sameConclusionA (c ++ `machine_designFullH) ``callerMix_designFullHA
+
+#print axioms callerMix_designFullHA
+#print axioms callerMix_closesA
 
 end Tests.Compiler.ParentDesignCheckATest

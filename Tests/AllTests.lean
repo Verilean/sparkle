@@ -336,6 +336,7 @@ import Tests.Compiler.LeafDeadInitSatTest
 import Tests.Compiler.LeafDesignClosedTest
 import Tests.Compiler.LeafDesignClosedATest
 import Tests.Compiler.StartWorldATest
+import Tests.Compiler.ParentDesignCheckATest
 import Tests.Compiler.ChildVertAuditTest
 import Tests.Compiler.LeafDesignClosedFamilyTest
 import Tests.Compiler.HeapProvenanceRegressTest
