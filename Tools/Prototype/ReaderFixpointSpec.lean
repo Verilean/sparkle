@@ -381,8 +381,11 @@ theorem machineShapeN_lets {sm : Bool} {ps : List (String × Nat)} {ci : Lean.Co
     (shapeMid_wrap_ok senv p en hI.root) h2
   exact ⟨p, en, st, v, hp, (execNorm_iff senv).mpr ⟨n, hen⟩, r2.1, r2.1.1, r2.2.2, h3⟩
 
+omit hbundle in
 /-- `machineShapeN_lets` with `BundleIotaRange` discharged by LC4a's `bundleIotaRange` (PROVED): four premises
-remain (`RootFloatRange`, `LiftRange`, `Inst1Range`, `SigTyRange senv`). -/
+remain (`RootFloatRange`, `LiftRange`, `Inst1Range`, `SigTyRange senv`) plus the input condition `ShapeInOk`.
+(Integrator fix, par/int-r30: the section's `include … hbundle` had inserted an UNUSED `BundleIotaRange` binder into
+this signature; `omit hbundle in` removes it, and the binder audit below THROWS if it comes back.) -/
 theorem machineShapeN_lets' {sm : Bool} {ps : List (String × Nat)} {ci : Lean.ConstantInfo} {ai : Bool}
     {sp : MachineShape}
     (hin : ∀ (p : ShapePre) (en : Lean.Expr), shapePre sm ps ci senv = some p →
@@ -395,6 +398,38 @@ theorem machineShapeN_lets' {sm : Bool} {ps : List (String × Nat)} {ci : Lean.C
   machineShapeN_lets hroot hlift hinst1 hsig Tools.ShippingLetsReaderInv.bundleIotaRange hin h
 
 end Lets
+
+/-! ## Binder-type audit (THROWS; integrator, par/int-r30)
+The Prop hypotheses of each audited theorem, by the head constant of their conclusion, must be exactly the listed
+ones, in order. Guards against `include` silently adding unused premises (it had added `BundleIotaRange` to
+`machineShapeN_lets'`). -/
+
+open Lean Meta in
+/-- Head constants (last name component) of the conclusions of the Prop hypotheses of `n`, in binder order. -/
+def propBinderHeads (n : Name) : MetaM (List String) := do
+  let ci ← getConstInfo n
+  forallTelescope ci.type fun xs _ => do
+    let mut out : Array String := #[]
+    for x in xs do
+      let t ← inferType x
+      if ← isProp t then
+        out := out.push (match t.getForallBody.getAppFn.constName? with
+          | some c => c.components.getLast!.toString
+          | none => "?")
+    return out.toList
+
+open Lean Meta in
+/-- THROWS unless the Prop hypotheses of `n` are exactly `expected`. -/
+def auditPropBinders (n : Name) (expected : List String) : MetaM Unit := do
+  let hs ← propBinderHeads n
+  unless hs == expected do
+    throwError "BINDER AUDIT FAILED: {n}: Prop hypotheses {hs}, expected exactly {expected}"
+  logInfo m!"binder audit {n}: {hs}"
+
+run_meta auditPropBinders ``machineShapeN_lets
+  ["RootFloatRange", "LiftRange", "Inst1Range", "SigTyRange", "BundleIotaRange", "ShapeInOk", "Eq"]
+run_meta auditPropBinders ``machineShapeN_lets'
+  ["RootFloatRange", "LiftRange", "Inst1Range", "SigTyRange", "ShapeInOk", "Eq"]
 
 #print axioms machineShapeN_steps
 #print axioms machineShapeN_binderCount

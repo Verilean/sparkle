@@ -323,6 +323,9 @@ theorem machineShapeN_typed {senv : StructEnv}
 #print axioms shapePost_pack
 #print axioms shapePre_outs_ne
 #print axioms typed_letsAlias
+
+run_meta Tools.Prototype.ReaderExec.auditPropBinders ``machineShapeN_typed
+  ["RootFloatRange", "LiftRange", "Inst1Range", "SigTyRange", "ShapeInOk", "Eq"]
 #print axioms machineShapeN_typed
 
 end Tools.Prototype.ReaderTyped

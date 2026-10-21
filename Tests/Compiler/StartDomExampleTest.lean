@@ -132,20 +132,24 @@ run_meta do
   match entry with
   | .defnInfo d =>
     let e := d.value
-    let some (_, e0) := mixedGatePeel (Sparkle.Compiler.MachTupleIn.packTupleInputs e) | Lean.logInfo "peel failed"
+    let some (_, e0) := mixedGatePeel (Sparkle.Compiler.MachTupleIn.packTupleInputs e) | throwError "real path: mixedGatePeel failed (fixed reproduction path lost)"
     let e1 := machLoopAsLet (Sparkle.Compiler.MachRawSurface.rootFloat
       (Sparkle.Compiler.MachRawSurface.zeroLit inlNatLit canonicalNatLitValue? (inlFoldNat (machNorm senv e0))))
     let (rl, _, run?, _) := machRoot senv.proj e1 []
     Lean.logInfo m!"rootLets={rl.length}\nrun dom = {(run?.bind machRunApp?).map (·.1)}"
+    unless rl.length == 0 do throwError "real path: rootLets = {rl.length}, expected 0"
+    -- (integrator, par/int-r30: every branch leaving the fixed reproduction path THROWS)
     -- what the reader does with that domain, and why the shape is refused
     let some (dm, _, _, _) := run?.bind machRunApp? | throwError "no run"
     match machConv senv (rl.map fun _ => .unit) 0 dm ({} : MachRead) with
     | some (dom', st) =>
       Lean.logInfo m!"real-path machConv dom: dom'={dom'} lets={st.lets.size} LetOk0={LetOk 0 dom'} machDom?={(machDom? 0 dom').isSome}"
-      unless LetOk 0 dom' == false && (machDom? 0 dom').isNone do
+      unless LetOk 0 dom' == false && st.lets.size == 1 && (machDom? 0 dom').isNone do
         throwError "real path: expected placeholder dom' refused by machDom?"
-    | none => Lean.logInfo "real-path machConv dom: refused"
-  | _ => Lean.logInfo "entry not a defn"
+    | none => throwError "real path: machConv refused the domain (fixed reproduction path lost)"
+  | _ => throwError "real path: entry is not a defn (fixed reproduction path lost)"
   Lean.logInfo m!"machineShape? = {(machineShape? false [] entry senv).isSome}"
+  if (machineShape? false [] entry senv).isSome then
+    throwError "real path: machineShape? on the entry of srcDecl is now some"
 
 end Tests.Compiler.StartDomExampleTest

@@ -5,10 +5,11 @@ import Tools.Prototype.ReaderFixpointSpec
 BUILT: runs l1–l3 exit 1 (syntax), l4 exit 0 (four lemmas), l5 exit 1, l6 exit 0 (final). No sorry / axiom / native_decide.
 
 One lemma per def of the wrapper's preprocessing (`shapeMid`): `inlFoldNat`, `zeroLit`, `machLoopAsLet`, `machRoot`.
-`zeroLit` is a TOTAL def but its body is the `@[extern]` `Expr.replace`, which has NO logical content; its
+`zeroLit` is a TOTAL def but its body is the `@[extern]` `Expr.replace`, whose compiled behaviour is not visible to proofs; its
 `LetOk` preservation is therefore PROVED for the structural `replaceNoCache` and the link
-`zeroLit … = replaceNoCache …` is the named PREMISE `ZeroLitAgrees` (NOT proved).  No counterexample was found:
-every def preserves `LetOk`. -/
+`zeroLit … = replaceNoCache …` is the named PREMISE `ZeroLitAgrees` (NOT proved).  No counterexample was found.
+PROVED without premises for `inlFoldNat`, `machLoopAsLet`, `machRoot`; for the shipped `zeroLit` the preservation is
+CONDITIONAL on the unproved `ZeroLitAgrees` (correspondence NOT proved), so "every def preserves `LetOk`" is NOT claimed. -/
 namespace Tools.Prototype.PreprocLetOk
 open Lean Sparkle.Compiler.Elab Tools.ShippingLetsReaderInv Tools.Prototype.ReaderExec Tools.ShippingReaderFuel Tools.ShippingLetsAliasInv
 
@@ -137,7 +138,7 @@ theorem replaceNoCache_ok (n : Nat) (f : Lean.Expr → Option Lean.Expr)
     | none =>
       rw [Lean.Expr.replaceNoCache, hfe] <;> first | exact he | (intros; rename_i h; cases h)
 
-/-- The `Expr.replace` of `zeroLit` is an `@[extern]` with no logical content: the link to the structural
+/-- The `Expr.replace` of `zeroLit` is an `@[extern]` (compiled behaviour not visible to proofs): the link to the structural
 `replaceNoCache` is a PREMISE (NOT proved), for this particular `f`. -/
 def ZeroLitAgrees : Prop :=
   ∀ e : Lean.Expr, Sparkle.Compiler.MachRawSurface.zeroLit inlNatLit canonicalNatLitValue? e =
@@ -340,6 +341,9 @@ theorem machineShapeN_lets'' {senv : StructEnv} (hroot : RootFloatRange) (hlift 
 
 #print axioms shapeMid_ok
 #print axioms machineShapeN_lets''
+
+run_meta Tools.Prototype.ReaderExec.auditPropBinders ``machineShapeN_lets''
+  ["RootFloatRange", "LiftRange", "Inst1Range", "SigTyRange", "ZeroLitAgrees", "NormRange", "Eq", "StartDomOk", "Eq"]
 #print axioms inlFoldNat_ok
 #print axioms zeroLit_ok
 #print axioms machLoopAsLet_ok
