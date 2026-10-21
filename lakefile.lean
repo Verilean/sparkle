@@ -3688,3 +3688,9 @@ lean_lib «Tools.Prototype.RawNodeRangeLetOk2» where
 
 lean_lib «Tools.Prototype.LiftExecLetOk» where
   roots := #[`Tools.Prototype.LiftExecLetOk]
+
+lean_lib «Tools.Prototype.NormNodeModelLetOk» where
+  roots := #[`Tools.Prototype.NormNodeModelLetOk]
+
+lean_lib «Tests.Compiler.LiftExecAgreeTest» where
+  roots := #[`Tests.Compiler.LiftExecAgreeTest]

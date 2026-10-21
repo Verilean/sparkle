@@ -1,5 +1,22 @@
 import Tools.Prototype.LiftScalarModelLetOk
 
+/-! # Unit LC19 (1/2): `execLift`, a kernel-visible EXECUTABLE model of `machLiftScalarN`, adequate for LC17's fuel model
+
+BUILT (unit LC19): l1-l5 exit 0/1 while developing (my tactic errors), l19 exit 0 (`liftStep_cont`), l20 exit 0 (this file, final).
+No sorry / axiom / native_decide. `#print axioms` of every theorem below: [propext, Classical.choice, Quot.sound] (the standard three).
+
+`execLift senv dom vars` is the `partial_fixpoint` of LC17's `liftStep` (one unfolding of the text of `machLiftScalarN`), exactly as
+LC11b made `execNorm`. Monotonicity (`liftStep_monotone`, needed for `partial_fixpoint`) is proved with the `monotonicity` tactic
+plus `monotone_const` / `hfg _` closers; no premise.
+PROVED: `execLift_unfold` (equation), `liftStep_mono`, `liftN_le` (fuel monotone), `fuel_to_exec` (`liftN n e = some r` implies
+`execLift e = some r`), `liftStep_cont` (a step over an oracle whose successes each have a fuel is realised at ONE fuel: arm by arm),
+`execLift_to_fuel` (fixpoint induction with `Option.admissible_eq_some`), **`execLift_iff` (adequacy)**:
+`execLift … = some r ↔ ∃ n, liftN … n e = some r`, **`execLift_ok`** (`LetOk 0` preserved, from LC17's `liftN_ok` through the adequacy),
+`liftRangeP_execLift` (the `LiftScalarRange` shape, for the model, NO premise).
+NOT PROVED / OPEN: the PRODUCTION correspondence (the shipped `partial def machLiftScalarN` is `execLift`). `execLift` is the
+text of `machLiftScalarN` and agrees with it on a finite executed grid (Tests/Compiler/LiftExecAgreeTest.lean, evidence only);
+no equation between the shipped partial function and the model exists in the kernel. -/
+
 namespace Tools.Prototype.LiftExecLetOk
 open Lean Lean.Order Sparkle.Compiler.Elab Tools.Prototype.LiftScalarModelLetOk
 open Tools.ShippingLetsReaderInv Tools.Prototype.ReaderExec Tools.ShippingReaderFuel
