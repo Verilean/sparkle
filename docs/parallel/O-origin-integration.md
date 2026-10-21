@@ -847,3 +847,11 @@ poc candidate = par/int-r4 at ef1d81b6: 41 commits over 0054b6b2 (fast-forward),
 only Tools/ShippingChild*, docs/parallel/*, Tests/Compiler/ChildVertAuditTest.lean and lakefile.lean
 (additions only); no file under Sparkle/ changed; no `sorry`/`axiom`/`native_decide` added. NOT merged
 (decision pending). CI not run on this SHA.
+
+Round 2c (par/int-r5 = par/int-r4 + L1 + G2 + L2; par/int-r6 = par/int-r5 + T1 + T2 + parent-widths connection; NOT merged into poc 0054b6b2):
+
+| run | SHA (tip) | target | exit |
+|---|---|---|---|
+| int-r5a | 34a1ac2a (+ L1, G2) | ChildVertAuditTest | 0 (530 jobs) |
+| int-r5b | 8cd9f058 (+ L2, duplicate `entryStrict_realA` dropped) | ChildVertAuditTest, then Tests.AllTests | 0 (531 jobs) / 0 (1499 jobs) |
+| int-r6a | 62e03dc5 + uncommitted parent-widths file (committed next, comments changed only) | ChildVertAuditTest | 0 (534 jobs) |

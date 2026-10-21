@@ -21,6 +21,7 @@ import Tools.ShippingChildLinkA
 import Tools.ShippingCallWidthsChildRealA
 import Tools.ShippingChildTeleLocalA
 import Tools.ShippingChildTeleMainA
+import Tools.ShippingCallWidthsChildRealAMain
 
 /-! # Audit: the vertical path does not use the old boundary (round par/vert)
 
@@ -245,7 +246,8 @@ def audited : List Name :=
    ``Tools.ShippingChildTeleMainA.core_tripleAC_of_tele_tl,
    ``Tools.ShippingChildTeleMainA.full_tripleAC_of_tele_tl,
    ``Tools.ShippingChildTeleMainA.htr_of_tele_tl,
-   ``Tools.ShippingChildTeleMainA.machine_children_realA_main_tl]
+   ``Tools.ShippingChildTeleMainA.machine_children_realA_main_tl,
+   ``Tools.ShippingCallWidthsChildRealAMain.parent_children_widths_realA_main]
 
 end Tests.Compiler.ChildVertAuditTest
 
