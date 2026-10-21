@@ -6,6 +6,7 @@ import Tools.ShippingParentRunFactsA
 import Tools.ShippingParentDesignFA
 import Tools.ShippingParentSeqComposedA
 import Tests.Compiler.ChildVertAuditTest
+-- BUILT (unit SR3j): audit hardening (fr == #[closes], aligned arguments logged, no unresolved mvars): `qbuild build Tests.Compiler.SeqParentGenTest` j1 exit 1 (fr was [closes], not empty), j2 exit 0.
 -- BUILT (unit SR3i): `qbuild build Tools.ShippingSeqParentGen` exit 0 (g1-g7 `lean` runs exit 1 until fixed: API names, compiler panic of evalTerm replaced by reduction, hent origins, sync elaboration); used by Tests.Compiler.SeqParentGenTest (final qbuild exit 0).
 /-! # `#machine_seq_parent_endpoint f`: the new-boundary design endpoint of a sequential-call parent, GENERATED
 
@@ -670,6 +671,15 @@ def auditEndpoint (f ep : Name) : MetaM Unit := do
       alignInst newXs ["kD", "n", "ι", "dom", "src", "ext", "extB", "C"] (← getConstInfo old).type (fun co al fr ms => do
         withLocalDeclD `raw (mkConst ``Sparkle.IR.AST.Module) fun raw =>
         withLocalDeclD `D (mkConst ``Sparkle.IR.AST.Design) fun D => do
+          -- the ONLY old binder left unaligned is the old `closes` premise (over the generalised `C`); the new one is `closes : True`
+          unless fr == #["closes"] do
+            throwError "SR3j AUDIT FAILED: {ep}: unaligned binders of {old} remaining as fresh fvars are {fr}, expected exactly #[closes]"
+          let mut alT : Array String := #[]
+          for n in al do
+            let some x ← newXs.findM? (fun x => do pure ((← x.fvarId!.getUserName).toString == n))
+              | throwError "SR3j AUDIT FAILED: aligned binder {n} not among the new theorem's binders"
+            alT := alT.push s!"{n} : {← ppExpr (← inferType x)}"
+          logInfo m!"SR3j aligned shared arguments of {ep} with {old} ({al.size}): {alT}"
           let (hpO, dcO, _BO, restO) ← splitOld co raw D
           let (hpN, _BN, restN) ← splitNew newC raw D
           unless (dcO.find? (·.isConstOf ``Tools.ShippingDesignSV.designCheck)).isSome do
@@ -678,6 +688,9 @@ def auditEndpoint (f ep : Name) : MetaM Unit := do
           let ok3 ← isDefEq restN restO
           unless ok1 && ok3 do
             throwError "SR3i AUDIT FAILED: conclusion differs from {old}'s (post {ok1}, rest {ok3})"
+          for e in [hpN, hpO, restN, restO] ++ ms.toList.map (·.2) do
+            if (← instantiateMVars e).hasMVar then
+              throwError "SR3j AUDIT FAILED: {ep}: unresolved metavariables after the conclusion comparison in {← ppExpr (← instantiateMVars e)}"
           let mut sol : Array String := #[]
           for (nm, m) in ms do
             let v ← instantiateMVars m
