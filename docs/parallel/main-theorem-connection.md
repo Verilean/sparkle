@@ -4,6 +4,46 @@ Status words: **PROVED** (kernel-checked, name given), **PREMISE** (a hypothesis
 theorem), **OPEN** (no proof, no hypothesis form carried through). Nothing here is CI; nothing is
 pushed. "Built" means a local `./.cluster/qbuild.sh build …` exit 0 (run names in REPORT-F.md).
 
+## 0. Current status, rooted at the newest endpoint types (integrator, par/int-r35; replaces nothing below)
+
+Sections 1–5 keep the history and contain OPEN items that have since moved; do NOT count from them. This table is rooted at the
+current final endpoint types. One row per premise: where it occurs, what supplies it, status, the DIRECT next lemma. A premise
+REPLACED by another (correspondence/range) premise is still listed as PREMISE: a replacement is not a discharge. No percentages,
+no remaining-theorem counts.
+
+Roots: **(A)** prototype reader `machineShapeN_typed_all` (L6c18; subject = the kernel-visible prototype `machineShapeN`, NOT the
+shipped `machineShape?`); **(B)** depth-1 head `parent_noShips_noBdA_dcHL` (L8r) and the generator `#machine_seq_parent_endpoint`
+(L8s/L8t, several different leaf children); **(C)** depth-2 `grand → mid → cnt`: the checks of L8aa (no depth-2 endpoint
+integrated; unit SR3s in progress).
+
+| premise / item | in | supplied by | status | direct next lemma |
+|---|---|---|---|---|
+| shipped `machineShape?` ↔ prototype `machineShapeN` | A→shipped | — | OPEN (L6c10) | wrapper-level correspondence on the shipped side |
+| `machNorm` = `execNorm` | A→shipped | — | OPEN | `∀ e, execNorm senv e = some (machNorm senv e)` (a strong SUFFICIENT condition, not shown necessary) |
+| `TwinCoverAt` (twin ↔ real readers) | A→shipped | — | OPEN (L6c7) | `G.app c = some v → ∃ n, readF senv n c = some (some v)` |
+| `RootFloatRange` | A | `rootFloatRange_of_twin` from `RootFloatTwin` (L6c5) | PREMISE | `RootFloatTwin` (`rootFloat` is `partial`) |
+| `LiftRange`, `Inst1Range` | A | `liftRange_of_agrees`/`inst1Range_of_agrees` from `LiftAgrees`/`Inst1Agrees` (L6c5) | PREMISE | the extern = model statements (C++ side) |
+| `SigTyRange senv` | A | LC4b for `structEnv env₀` given `EnvTypesFVarFree` (L6c4/L6c5) | PREMISE | `EnvTypesFVarFree` of the elaborated environment |
+| `ZeroLitAgrees` | A | — (L6c12) | PREMISE | `zeroLit … = replaceNoCache …` (`Expr.replace` is `@[extern]`) |
+| `RawNodeRange senv` | A | — (L6c17) | PREMISE | a model of `rawNode`'s `liftLooseBVars 0 n` / beta (not covered by `LiftRange`) |
+| `NormNodeRange senv` | A | L6c19 replaces it by `LiftScalarRange` + `BoolMapRange` (in `_lets''_noNode`, not yet in A) | PREMISE | carry the replacement into A; `BoolMapRange` → `BoolMapCorr` (LC16, pending r35); `LiftScalarRange` → `LiftScalarCorr` (LC17 running) |
+| `EqvLetOk0` | A | — (L6c15; executed mdata/alpha test = evidence) | PREMISE | the `Expr.eqv` (extern) property; `ExprEqvAtom → EqvLetOk0` NOT proved |
+| `hpe` (`LetOk 0 p.e` of the declaration body) | A | — (L6c12) | PREMISE (input condition) | closedness of elaborated declaration bodies |
+| `d.ok`, `hbody` | A (conclusion antecedents) | the generation-path checks (L6c13) | checked at generation, not proved for all `d` | — |
+| all-fuel `StartDomOk` | (not needed by A) | A uses the success-run `startDom_succ_w` | OPEN (L6c14) | fuel monotonicity/determinism of `machConvF` |
+| `O : RefLawsAOps` | B, C | — | PREMISE (runtime fit NOT PROVEN) | a runtime model of `O` (heap model → `ST`) |
+| `T : RefLawsATele` | B, C | — | ADDED, unproved boundary (logical inconsistency NOT PROVEN) | — |
+| `hA : AdmCtx` | B, C | PROVED for `Command.mkMetaContext` (L9a); "entry runs there" is a reading, not a theorem | PREMISE | a model of the command monad / other commands |
+| start world (`JQ`, `D = 0 ∨ CacheInvA`, `StartContents`) | B, C | L9b relative to `StartAtLoad`, `OtherCodeKeeps`, `O.quiet` | PREMISE | `StartAtLoad` (module `initialize`), non-empty `quiet` witness |
+| environment snapshot / env preservation | B, C | `Tools.ShippingEnvSnapshot` (EXTRA target) | OPEN beyond that file | a law or model of `Core.State` across `whnf`/`inferType` |
+| `MachineDefines` of each declaration | B, C | — | PREMISE (inside `BndA`, per declaration) | — |
+| `hr`, `entry` (depth 1) | B | the run itself | PREMISE of the statement; `BndA` stays an EXISTENTIAL in the conclusion (not shown to hold) | — |
+| `hcore`, `hpost`, `hw`, `hc` (depth 2) | C | — (L8aa) | PREMISE | discharge from the same core run (SR3s) |
+| depth-2 trace → `soundL` / `composed` | C | — | OPEN (SR3s in progress) | the depth-2 endpoint consuming L8aa's four checks |
+| depth-2 generator | C | — | REFUSED (L8u) | after the concrete depth-2 endpoint |
+| class generalisation (memory parents, polymorphic domains, depth > 2, several children at depth 2) | B, C | — | OPEN (L8s) | one class at a time, per generator |
+| legacy-route semantics | — | — | OPEN (only split off, L7e*) | — |
+
 ## 1. The two endpoints and what lies between them
 
 **Child/cache side (NEW boundary).** One witness `O : RefLawsAOps MkRefd mref cref`, admissible
