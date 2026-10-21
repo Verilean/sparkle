@@ -3610,3 +3610,6 @@ lean_lib «Tools.Prototype.ReaderFixpointSpec» where
 
 lean_lib «Tools.Prototype.PreprocLetOk» where
   roots := #[`Tools.Prototype.PreprocLetOk]
+
+lean_lib «Tools.Prototype.ReaderFixpointTyped» where
+  roots := #[`Tools.Prototype.ReaderFixpointTyped]
