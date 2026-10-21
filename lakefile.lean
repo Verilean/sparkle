@@ -3364,6 +3364,8 @@ lean_lib «Tools.ShippingChildLegacyHandlersA» where
 
 lean_lib «Tools.ShippingChildLegacyImplA» where
   roots := #[`Tools.ShippingChildLegacyImplA]
+lean_lib «Tools.ShippingChildMainA» where
+  roots := #[`Tools.ShippingChildMainA]
 
 lean_lib «Tools.ShippingLeafInputWidths» where
   roots := #[`Tools.ShippingLeafInputWidths]
