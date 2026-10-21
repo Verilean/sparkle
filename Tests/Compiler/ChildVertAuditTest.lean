@@ -19,6 +19,7 @@ import Tools.ShippingChildRunAKids
 import Tools.ShippingChildRunAMain
 import Tools.ShippingChildLinkA
 import Tools.ShippingCallWidthsChildRealA
+import Tools.ShippingChildTeleLocalA
 
 /-! # Audit: the vertical path does not use the old boundary (round par/vert)
 
@@ -135,7 +136,8 @@ def hits (s : NameSet) : List Name :=
 
 /-- The audited theorems. -/
 def audited : List Name :=
-  [``Tools.ShippingChildTeleCP.keeps_forallTelescopeReducing,
+  [``Tools.ShippingChildTeleLocalA.localDecl_of_O, ``Tools.ShippingChildTeleLocalA.letDecl_of_O,
+   ``Tools.ShippingChildTeleCP.keeps_forallTelescopeReducing,
    ``Tools.ShippingChildTeleCP.keeps_lambdaTelescope, ``Tools.ShippingChildTeleCP.keeps_withLocalDeclD,
    ``Tools.ShippingChildTeleCP.keeps_withLetDecl,
    ``Tools.ShippingChildTeleCP.keepsCP_forallTelescopeReducing,

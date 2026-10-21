@@ -76,3 +76,26 @@ unfolding, with the stuck point identified:
 * A specialised law per use (rows 1,2,12: continuation = `getUserName`, no side-ref access).
 * Compiler edit of rows 1/2/12 to read binder names without a telescope (excluded by the brief).
 * Laws about the opaque workers and `ngen` (a different, finer assumption family; not smaller in trust).
+
+## 6. Ledger row T1 (unit T1, base bb0bae64): `localDecl` and `letDecl` DERIVED from `O`
+
+| item | status | where |
+|---|---|---|
+| `RefLawsATele.localDecl` (`withLocalDeclD`) | **PROVED** from `O : RefLawsAOps Fresh mref cref` and the Lean definitions: `Tools.ShippingChildTeleLocalA.localDecl_of_O` (built t1p/t1t exit 0; audit t1u exit 0; axioms propext/Classical.choice/Quot.sound; no `RefLawsATele`, no old `RefLaws` in the closure) | new file |
+| `RefLawsATele.letDecl` (`withLetDecl`) | **PROVED** the same way: `letDecl_of_O` (same builds) | same |
+| `RefLawsATele.telescope`, `.lamTelescope` | **UNCHANGED, still PREMISES** (workers `forallTelescopeReducingAux`, `lambdaTelescopeImp.process` are `opaque`) | — |
+
+Parts: (a) `AdmCtx` is preserved by the `lctx` / `localInstances` updates (they keep `canUnfold?`), by
+`rfl` (`keeps_withReaderA`). (b) primitives, each through a `FramedA` constructor, i.e. through
+`O.frame`/`O.frameQ`/`O.excOk`: `mkFreshFVarId` = `FramedA.freshFVar`; `isClass?` =
+`FramedA.isClass?`; the unknown-fvar throw in `getFVarLocalDecl` = `FramedA.fvarThrowUnknown`; the rest
+(`read`, `getLCtx`, `find?`, `mkLocalDecl`/`mkLetDecl`, `localInstances.push`, `isImplementationDetail`)
+are pure. No missing condition was found. (c) the continuation is used at the updated contexts, each
+admissible by (a). CORRECTION to §4: the C2 probe's claim that `localDecl`/`letDecl` are stuck at
+`withNewLocalInstancesImp`/`isClassExpensive?` and at `mkFreshFVarId` was wrong for these two: `isClass?`
+is a `FramedA` constructor, `mkFreshFVarId` is `FramedA.freshFVar`, and only the plural
+`withNewLocalInstancesImp` (not on this path) is opaque.
+Caveats: this reduces `localDecl`/`letDecl` to the `FramedA` constructor coverage of `O` (already a
+premise of `O`); it says nothing about whether `O` holds of the runtime. `RefLawsATele.withDerived O T`
+rebuilds the bundle with these two fields from `O`. NOT done: rewiring B/C/ComposeA to use it (T is still
+required for `telescope`/`lamTelescope`).
