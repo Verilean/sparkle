@@ -86,9 +86,9 @@ variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
 set_option maxHeartbeats 4000000 in
 /-- **A leaf machine's returned module is a typed module or its checked
 merge**, over every run of the full entry that starts in a world with the
-runtime laws (`ChildBnd`); its ports and statement kinds are the typed
+new-boundary laws (`O`, `hA`, `JQ O.quiet 0 w`); its ports and statement kinds are the typed
 module's either way. `Tools.ShippingLeafTyped.leaf_run_typedIn` with
-`ChildBnd` in place of `InvW`. -/
+the new-boundary start (`O`, `hA : AdmCtx O.quiet mctx cctx`, `JQ O.quiet 0 w`) in place of `InvW`. -/
 theorem leaf_run_typedInA {c : Name} (d : MachineData) (ok : d.ok = true)
     (hbody : d.shape.body = quote d.dom
       (fun j => inputExpr d.shape.binders.length (d.bpos j))
@@ -327,7 +327,7 @@ open Tools.ShippingMachineEntry Tools.ShippingMachineAuto Tools.ShippingMachineS
 open Tools.ShippingSeqOptSoundness Tools.ShippingRefineSoundness
 open Tools.ShippingSeqSVSoundness Tools.ShippingPipelineSoundness
 open Sparkle.IR.RegDedup (declWidth)
-/-- `Tools.ShippingLeafEntry.leaf_entry_raw` with `ChildBnd` in place of
+/-- `Tools.ShippingLeafEntry.leaf_entry_raw` with the new-boundary start (`O`, `hA : AdmCtx O.quiet mctx cctx`, `JQ O.quiet 0 w`) in place of
 `InvW`: the full entry's module of a leaf register machine — its statement
 kinds, conjuncts 2 and 3 of `textCheckI` at the module itself, and that it is
 a module with a register or the checked merge of one. -/
@@ -357,7 +357,7 @@ theorem leaf_entry_rawA {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.S
   have htext := Tools.ShippingLeafEntry.text_post_reg hpost hT hna'
   exact ⟨hs, htext, m0, hpost, hna'⟩
 
-/-- `Tools.ShippingLeafEntry.leaf_entry_textChecks` with `ChildBnd` in place
+/-- `Tools.ShippingLeafEntry.leaf_entry_textChecks` with the new-boundary start (`O`, `hA : AdmCtx O.quiet mctx cctx`, `JQ O.quiet 0 w`) in place
 of `InvW`: the three check premises of `machine_ships_wired` at the emitter's
 own width map of the shipped module. `hmergeReg` and `hoptPrint` are NOT
 derived. -/
@@ -395,7 +395,7 @@ theorem leaf_entry_textChecksA {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld
   obtain ⟨h2, h3⟩ := Tools.ShippingLeafEntry.text_shipped_of_print htext hoptPrint
   exact ⟨hsB, h2, h3⟩
 
-/-- `Tools.ShippingLeafEntry.leaf_entry_shipped_seq` with `ChildBnd` in place
+/-- `Tools.ShippingLeafEntry.leaf_entry_shipped_seq` with the new-boundary start (`O`, `hA : AdmCtx O.quiet mctx cctx`, `JQ O.quiet 0 w`) in place
 of `InvW`. -/
 theorem leaf_entry_shipped_seqA {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
     {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
@@ -777,8 +777,8 @@ open Sparkle.IR.RegDedup (declWidth)
 set_option maxHeartbeats 2000000 in
 /-- **A leaf state machine at the full entry, at the design level, from the target start state:
 every run hypothesis and every inner check antecedent discharged** — `leaf_sat_design_closed`
-with (5) from `leaf_input_widths`. Premises: the run, the reflection bundle `LeafKid`, `ChildBnd`
-and the data conditions of `leaf_sat_design`. -/
+with (5) from `leaf_input_widths`. Premises: the run, the reflection bundle `LeafKid`, the new-boundary start (`O`, `hA : AdmCtx O.quiet mctx cctx`, `JQ O.quiet 0 w`)
+(instead of the old `ChildBnd`) and the data conditions of `leaf_sat_design`. -/
 theorem leaf_sat_design_closed5A {declName : Name} (d : MachineData)
     {ι : Type} {dom : ι → DomainConfig}
     {src : (i : ι) → (Nat → Signal (dom i) Bool) →
