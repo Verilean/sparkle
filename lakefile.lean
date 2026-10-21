@@ -3581,3 +3581,6 @@ lean_lib «Tools.Prototype.ReaderFixpointMutual» where
 
 lean_lib «Tools.Prototype.ReaderFixpointLfp» where
   roots := #[`Tools.Prototype.ReaderFixpointLfp]
+
+lean_lib «Tools.ShippingEnvSnapshot» where
+  roots := #[`Tools.ShippingEnvSnapshot]
