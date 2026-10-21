@@ -3706,3 +3706,9 @@ lean_lib «Tools.Prototype.DGenConnect» where
 
 lean_lib «Tests.Compiler.DGenToggleTest» where
   roots := #[`Tests.Compiler.DGenToggleTest]
+
+lean_lib «Tools.Prototype.NormStepModel» where
+  roots := #[`Tools.Prototype.NormStepModel]
+
+lean_lib «Tests.Compiler.NormStepModelAgreeTest» where
+  roots := #[`Tests.Compiler.NormStepModelAgreeTest]
