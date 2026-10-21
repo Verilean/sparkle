@@ -11,13 +11,13 @@ current final endpoint types. One row per premise: where it occurs, what supplie
 REPLACED by another (correspondence/range) premise is still listed as PREMISE: a replacement is not a discharge. No percentages,
 no remaining-theorem counts.
 
-Roots (as of the approved candidate par/int-r36 (= approved d4471b6e + r35 459e52f5 + SR3s; r35 approval and int-r36 verification pending at the time of writing); update this line on every §0 edit):
+Roots (as of par/int-r37 = approved par/int-r36 7c45225d + LC17 + LC18; int-r37 verification pending when written; update this line on every §0 edit):
 **(A)** `Tools.Prototype.ReaderComposed.machineShapeN_typed_all` (L6c18; subject = the kernel-visible prototype `machineShapeN`, NOT the
 shipped `machineShape?`). **(B)** `Tests.Compiler.ParentSeqComposedATest.parent_noShips_noBdA_dcHL` (L8r, depth 1, one parent) and the
 generator command `#machine_seq_parent_endpoint` (Tools/ShippingSeqParentGen.lean, theorems `f.epA_*`; L8s/L8t, several different
 leaf children). **(C)** depth 2 `grand → mid → cnt`: the checks `Tests.Compiler.SeqDeepGrandKidFactsTest.grand_closesA`,
 `grand_runFacts`, `grand_outsCheck`, `grand_kidsMasked`, `grand_designCheck` (L8aa) INTEGRATED; the depth-2 endpoint
-`grand_noShips_noBdA_dcH` (unit SR3s, L8ab) — INTEGRATED in par/int-r36 (SR3s c8fd370e, content review passed; built standalone in SR3s run s14; whole-target verification = the int-r36 run, NOT done when this row was written); `GrandConcl` states the existence of `raw`/`D` with the post-processing relation, no `RunsTo`, no equation with the input design; `BndAg` (O, T, AdmCtx, MachineDefines mid/cnt, JQ, cache) stays a premise inside; ONE concrete endpoint, the depth-2 generator stays REFUSED.
+`grand_noShips_noBdA_dcH` (unit SR3s, L8ab) — INTEGRATED in par/int-r36 (SR3s c8fd370e, content review passed; built standalone in SR3s run s14; whole-target verification = int-r36a (INT-FINAL OK, approved)); `GrandConcl` states the existence of `raw`/`D` with the post-processing relation, no `RunsTo`, no equation with the input design; `BndAg` (O, T, AdmCtx, MachineDefines mid/cnt, JQ, cache) stays a premise inside; ONE concrete endpoint, the depth-2 generator stays REFUSED.
 
 | premise / item | in | supplied by | status | direct next lemma |
 |---|---|---|---|---|
@@ -29,7 +29,7 @@ leaf children). **(C)** depth 2 `grand → mid → cnt`: the checks `Tests.Compi
 | `SigTyRange senv` | A | LC4b for `structEnv env₀` given `EnvTypesFVarFree` (L6c4/L6c5) | PREMISE | `EnvTypesFVarFree` of the elaborated environment |
 | `ZeroLitAgrees` | A | — (L6c12) | PREMISE | `zeroLit … = replaceNoCache …` (`Expr.replace` is `@[extern]`) |
 | `RawNodeRange senv` | A | `rawNodeRange_of` from `LiftLooseRange` + `LowerLooseRange` + `BetaRange` (L6c22) | PREMISE (replaced by three extern-call premises; `rawNode` itself is proved) | `liftLooseBVars` (arbitrary offsets) / `lowerLooseBVars` / `Expr.beta` (partial) invent no `_machLet` |
-| `NormNodeRange senv` | A | L6c19 replaces it by `LiftScalarRange` + `BoolMapRange` (in `_lets''_noNode`, not yet in A) | PREMISE | carry the replacement into A; `BoolMapRange` → `BoolMapCorr` (LC16, pending r35); `LiftScalarRange` → `LiftScalarCorr` (LC17 running) |
+| `NormNodeRange senv` | A | L6c19 replaces it by `LiftScalarRange` + `BoolMapRange` (in `_lets''_noNode`, not yet in A); `BoolMapRange` → `LiftScalarRange` + `BoolMapCorr` (L6c20); `LiftScalarRange` → `LiftScalarCorr` (L6c21) | PREMISE (replacements, not discharges) | carry the replacements into A; close the isolated model path without correspondence premises (unit LC19); shipped `machLiftScalarN`/`machBoolMap` = models stays OPEN |
 | `EqvLetOk0` | A | — (L6c15; executed mdata/alpha test = evidence) | PREMISE | the `Expr.eqv` (extern) property; `ExprEqvAtom → EqvLetOk0` NOT proved |
 | `hpe` (`LetOk 0 p.e` of the declaration body) | A | — (L6c12) | PREMISE (input condition) | closedness of elaborated declaration bodies |
 | existence of `d` and `d.shape = sp`, `d.ok`, `hbody`, `MachineDefines` | A (conclusion antecedents) → B/C | the generation path runs these checks (L6c13) | OPEN as a CONNECTION: no lemma yet supplies `d` from the real generation path with `d.shape = sp`, `d.ok`, `hbody` and `MachineDefines`; A only states the implication for every such `d` | a lemma from the real generation path (`readMachine`/endpoint generator) giving `d`, its checks and `MachineDefines` for the shipped shape |
@@ -42,7 +42,7 @@ leaf children). **(C)** depth 2 `grand → mid → cnt`: the checks `Tests.Compi
 | `MachineDefines` of each declaration | B, C | — | PREMISE (inside `BndA`, per declaration) | — |
 | `hr`, `entry` (depth 1) | B | the run itself | PREMISE of the statement; `BndA` stays an EXISTENTIAL in the conclusion (not shown to hold) | — |
 | `hcore`, `hpost`, `hw`, `hc` (depth 2) | C | — (L8aa) | PREMISE | discharge from the same core run (SR3s) |
-| depth-2 trace → `soundL` / `composed` | C | unit SR3s (`grand_traceXA`, `grand_soundLA`, `grand_composedA`, endpoint `grand_noShips_noBdA_dcH`) | INTEGRATED in par/int-r36 (SR3s c8fd370e, content review passed; built standalone in SR3s run s14; whole-target verification = the int-r36 run, NOT done when this row was written); `GrandConcl` states the existence of `raw`/`D` with the post-processing relation, no `RunsTo`, no equation with the input design; `BndAg` (O, T, AdmCtx, MachineDefines mid/cnt, JQ, cache) stays a premise inside; ONE concrete endpoint, the depth-2 generator stays REFUSED | — |
+| depth-2 trace → `soundL` / `composed` | C | unit SR3s (`grand_traceXA`, `grand_soundLA`, `grand_composedA`, endpoint `grand_noShips_noBdA_dcH`) | INTEGRATED in par/int-r36 (SR3s c8fd370e, content review passed; built standalone in SR3s run s14; whole-target verification = int-r36a (INT-FINAL OK, approved)); `GrandConcl` states the existence of `raw`/`D` with the post-processing relation, no `RunsTo`, no equation with the input design; `BndAg` (O, T, AdmCtx, MachineDefines mid/cnt, JQ, cache) stays a premise inside; ONE concrete endpoint, the depth-2 generator stays REFUSED | — |
 | depth-2 generator | C | — | REFUSED (L8u) | after the concrete depth-2 endpoint |
 | class generalisation (memory parents, polymorphic domains, depth > 2, several children at depth 2) | B, C | — | OPEN (L8s) | one class at a time, per generator |
 | legacy-route semantics | — | — | OPEN (only split off, L7e*) | — |
