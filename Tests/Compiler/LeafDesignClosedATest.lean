@@ -109,7 +109,11 @@ def auditDesignClosedA (n : Name) : TermElabM Unit := do
     let mut a : Nat := 0; let mut b : Nat := 0
     for x in xs do
       let t ← inferType x
-      if t.getAppFn.constName? == some ``Tools.ShippingChildInvA.RefLawsAOps then a := a + 1
+      if t.getAppFn.constName? == some ``Tools.ShippingChildInvA.RefLawsAOps then
+        -- the Fresh argument must be exactly `MkRefd` (not another freshness predicate)
+        unless (t.getAppArgs[0]?.bind (·.constName?)) == some ``Tools.ShippingChildFresh.MkRefd do
+          throwError "{n}: RefLawsAOps binder with Fresh ≠ MkRefd: {t}"
+        a := a + 1
       if t.getAppFn.constName? == some ``Tools.ShippingChildInvA.RefLawsATele then b := b + 1
     return (a, b)
   unless nO == 1 && nTele == 0 do
@@ -120,7 +124,7 @@ def auditDesignClosedA (n : Name) : TermElabM Unit := do
      `Tools.ShippingChildInvA.RefLawsATele].any (·.isPrefixOf c)
   unless bad.isEmpty do throwError "{n}: old boundary in closure: {bad}"
   let (axs, ops, exts, impls) ← boundary cl
-  logInfo m!"LEAFDESIGN-A AUDIT OK: {n}: standard axioms; outer premises exactly run / MachineDefines / AdmCtx / JQ (+ exactly one data binder O : RefLawsAOps, no RefLawsATele binder); closure {cl.size} constants, no RefLaws/RefLawsCore/toAOps/toA/ChildBnd/StartV/RefLawsATele; boundary (structural): {axs.length} axioms, {ops.length} opaque, {exts.length} extern, {impls.length} implemented_by"
+  logInfo m!"LEAFDESIGN-A AUDIT OK: {n}: standard axioms; outer premises exactly run / MachineDefines / AdmCtx / JQ (+ exactly one data binder O : RefLawsAOps MkRefd _ _, no RefLawsATele binder); closure {cl.size} constants, no RefLaws/RefLawsCore/toAOps/toA/ChildBnd/StartV/RefLawsATele; boundary (structural): {axs.length} axioms, {ops.length} opaque, {exts.length} extern, {impls.length} implemented_by"
 
 set_option maxHeartbeats 0 in
 run_cmd liftTermElabM do
