@@ -6,7 +6,7 @@ import Tools.ShippingParentRunFactsA
 import Tools.ShippingParentDesignFA
 import Tools.ShippingParentSeqComposedA
 import Tests.Compiler.ChildVertAuditTest
--- BUILT (unit SR3j): audit hardening (fr == #[closes], aligned arguments logged and asserted == [mctx, mref, cctx, cref, w, w', b, design, hr, entry] (integrator, by review; checked by int-r26 SeqParentGenTest), no unresolved mvars): `qbuild build Tests.Compiler.SeqParentGenTest` j1 exit 1 (fr was [closes], not empty), j2 exit 0.
+-- BUILT (unit SR3j): audit hardening (fr == #[closes], aligned arguments logged and asserted == [mctx, mref, cctx, cref, w, w', b, design, hr, entry] (integrator, by review; built in int-r26c at 758c4c71: Tests.Compiler.SeqParentGenTest exit 0 for parent and chained), no unresolved mvars): `qbuild build Tests.Compiler.SeqParentGenTest` j1 exit 1 (fr was [closes], not empty), j2 exit 0.
 -- BUILT (unit SR3i): `qbuild build Tools.ShippingSeqParentGen` exit 0 (g1-g7 `lean` runs exit 1 until fixed: API names, compiler panic of evalTerm replaced by reduction, hent origins, sync elaboration); used by Tests.Compiler.SeqParentGenTest (final qbuild exit 0).
 /-! # `#machine_seq_parent_endpoint f`: the new-boundary design endpoint of a sequential-call parent, GENERATED
 
