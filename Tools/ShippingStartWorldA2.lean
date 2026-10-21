@@ -1,5 +1,6 @@
 import Tools.ShippingStartWorldA
 import Tools.ShippingChildDepthC
+import Tools.ShippingChildComposeC
 -- BUILT (unit ST2, par/u-st2): st2d exit 0 (this file); st2e exit 0 (Tests.Compiler.StartWorldATest with the in-file audit).
 
 /-! # Unit ST2: the start contents survive one entry run (ledger L9a, R13/R14)
@@ -8,7 +9,8 @@ import Tools.ShippingChildDepthC
 left it OPEN; the reviewer's point: the values right after `initialize` are not the start values of an
 arbitrary command (writes, earlier commands, failed commands lie in between).
 
-**Writes of the two refs, by grep** (`Sparkle/`, whole repo outside `Tools/`):
+**Writes of the two refs, by grep** (a GUIDE only — a grep is not a formal preservation proof; the
+formal content is the theorems below, relative to their premises) (`Sparkle/`, whole repo outside `Tools/`):
 * `sparkleChildSynth`: ONE write, `Elab.lean:8934` `initialize sparkleChildSynth.set (some synthesizeChild)`
   (module load). No other `.set`/`.modify` anywhere in `Sparkle/`.
 * `sparkleSynthDepth`: writes only in `synthesizeCombinationalCoreWith` (`Elab.lean:5561` `set (depth+1)`,
@@ -24,8 +26,10 @@ message). So `quiet` is ALSO carried along (it is part of `JQ`), not only the tw
 decrement is not re-proved here: it is inside `BodyStepC`'s `JQC O D` bookkeeping via the existing
 `core0_tripleAC_aux` (`tripleC_depthSet`, the `finally` modify).
 What it does NOT prove: that the start world is a `StartContents` world (`StartAtLoad`), that code between
-commands keeps it (`OtherCodeKeeps`), that a fresh `liftTermElabM` creates refs for which the same `O` is a
-witness (`O` is indexed by `mref cref`; a real command makes new ones), `O.quiet` itself, `BodyStepC O`. -/
+commands keeps it (`OtherCodeKeeps`, a separate OPEN item), abnormal termination / process kill (outside the
+model: only Lean exceptions are covered), that a fresh `liftTermElabM` creates refs for which the same `O` is a
+witness (`O` is indexed by `mref cref`; a real command makes new ones), `O.quiet` itself. `BodyStepC O` is NOT
+open: `startContents_entry_tele` below derives it from `T` (ComposeC `bodyStepC_of_tele`; integrator, par/int-r16). -/
 
 namespace Tools.ShippingStartWorldA2
 open Lean Meta
@@ -128,5 +132,15 @@ of `O`; preservation above does not make `∃ w, O.quiet w ∧ StartContents w` 
 a witness must supply (not proved, no witness for the real refs given). -/
 def QuietWitness (O : RefLawsAOps MkRefd mref cref) : Prop :=
   ∃ w, O.quiet w ∧ StartContents w
+
+/-- `startContents_entry` with `BodyStepC O` derived from `T` (ComposeC `bodyStepC_of_tele`): premises
+`O`, `hA`, `T`, `O.quiet w`, `StartContents w`. -/
+theorem startContents_entry_tele (O : RefLawsAOps MkRefd mref cref) (hA : AdmCtx O.quiet mctx cctx)
+    (T : RefLawsATele O.quiet mref cref) (declName : Name) {w : Void IO.RealWorld}
+    (hq : O.quiet w) (hc : StartContents w) :
+    match synthesizeCombinational declName mctx mref cctx cref w with
+    | .ok _ w' => O.quiet w' ∧ StartContents w'
+    | .error e w' => O.quiet w' ∧ StartContents w' ∧ OkExc e :=
+  startContents_entry O hA declName (Tools.ShippingChildComposeC.bodyStepC_of_tele O T) hq hc
 
 end Tools.ShippingStartWorldA2

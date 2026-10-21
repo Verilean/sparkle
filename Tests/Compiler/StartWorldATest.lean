@@ -51,7 +51,8 @@ run_meta do
 open Lean Meta Elab in
 run_meta do
   for n in [``Tools.ShippingStartWorldA2.startContents_entry, ``Tools.ShippingStartWorldA2.startContents_of_runs,
-      ``Tools.ShippingStartWorldA2.startContents_endW, ``Tools.ShippingStartWorldA2.startContents_session] do
+      ``Tools.ShippingStartWorldA2.startContents_endW, ``Tools.ShippingStartWorldA2.startContents_session,
+      ``Tools.ShippingStartWorldA2.startContents_entry_tele] do
     Tests.Compiler.ChildVertAuditTest.stdAxioms n
     let cl ← Tests.Compiler.ChildVertAuditTest.depClosure n
     let bad := Tests.Compiler.ChildVertAuditTest.hits cl ++ cl.toList.filter fun c =>
