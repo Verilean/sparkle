@@ -3647,6 +3647,9 @@ lean_lib «Tools.ShippingSeqChildDeepFactsA» where
 lean_lib «Tools.ShippingSeqChildDeepKidCheckA» where
   roots := #[`Tools.ShippingSeqChildDeepKidCheckA]
 
+lean_lib «Tools.ShippingSeqChildDeepKidFactsA» where
+  roots := #[`Tools.ShippingSeqChildDeepKidFactsA]
+
 lean_lib «Tools.Prototype.NormRangeLetOk» where
   roots := #[`Tools.Prototype.NormRangeLetOk]
 
