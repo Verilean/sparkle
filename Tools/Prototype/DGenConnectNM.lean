@@ -3,7 +3,7 @@ import Tools.Prototype.NormStepModel
 
 /-! # Unit NMC (b): consumer of the MODEL reader `machineShapeNM` for the generated `d`
 
-BUILT: b1 exit 1 (wrong opens), b2 exit 1 (StartDomOk2 is a file, not a namespace), b3 exit 0. No sorry/axiom/native_decide.
+BUILT: b1 exit 1 (wrong opens), b2 exit 1, b3 exit 0; NMCb: nmcb1 exit 1 (collectFVars), nmcb2 exit 0 (type-correct mutations, Meta.check, aligned binders). No sorry/axiom/native_decide.
 
 `dgen_connect_gen_nm` is the analogue of `DGenConnect.dgen_connect_gen` with the prototype reader `machineShapeN` replaced by the
 MODEL wrapper `machineShapeNM` (L6c25): from the generation facts for ONE `d` (`d.ok`, `hbody`, and the SAME shape on both sides,
@@ -61,38 +61,67 @@ run_meta (Tools.Prototype.ReaderExec.auditPropBinders ``dgen_connect_gen_nm
     "SigTyRange", "Eq", "Eq", "GenReadsShape", "Eq", "ShippedToModel"])
 
 /- THROWING: the conclusion of `dgen_connect_gen_nm` is `isDefEq` to the conclusion of `DGenConnect.dgen_connect_gen` with
-`machineShapeN ↦ machineShapeNM`; the shared binders `E envG d hok hbody hgen hpe` are the SAME fvars on both sides (the other
-old binders are its own telescope fvars and do not occur in the conclusion). Mutations rejected: (1) no reader replacement,
-(2) `LetsClose` replaced by `True`, (3) the old `d` not identified with the new one. -/
+`machineShapeN ↦ machineShapeNM`. The 7 shared binders `E envG d hok hbody hgen hpe` are checked to be present in BOTH telescopes
+in the same order and with `isDefEq` domains (old domain after substituting the shared fvars). The compared terms are checked to have
+no mvars and no stray fvars (every fvar is a binder of the new telescope). Every mutated conclusion is first run through
+`Meta.check` (it must be TYPE-CORRECT), and is then required to be REJECTED by the defeq comparison with the tag `CONCL-NOT-DEFEQ`
+(a type error would carry a different message and would NOT count as a rejection). Mutations: (1) no reader replacement,
+(2) the whole proposition `LetsClose … d.shape` replaced by `True`, (3) the old `d` not identified with the new one. -/
 open Meta in
 def checkConcl (mutate : Nat) : MetaM Unit := do
   let newI ← getConstInfo ``dgen_connect_gen_nm
   let oldI ← getConstInfo ``dgen_connect_gen
+  let shared : List Name := [`E, `envG, `d, `hok, `hbody, `hgen, `hpe]
   forallTelescope newI.type fun xs nb => forallTelescope oldI.type fun ys ob => do
     let mut froms : Array Expr := #[]
     let mut tos : Array Expr := #[]
+    let mut oldPos : Array Nat := #[]
+    let mut newPos : Array Nat := #[]
+    let mut sharedYs : Array Expr := #[]
+    let mut idx := 0
     for y in ys do
       let n ← y.fvarId!.getUserName
+      idx := idx + 1
       if mutate == 3 && n == `d then continue
-      if [`E, `envG, `d, `hok, `hbody, `hgen, `hpe].contains n then
+      if shared.contains n then
         let mut found := false
+        let mut k := 0
         for x in xs do
+          k := k + 1
           if (← x.fvarId!.getUserName) == n then
             froms := froms.push y; tos := tos.push x; found := true
+            oldPos := oldPos.push idx; newPos := newPos.push k; sharedYs := sharedYs.push y
         unless found do throwError "shared binder {n} missing in new theorem"
+    -- alignment in order and by type (not for mutation 3, which deliberately drops `d`)
+    if mutate != 3 then
+      unless froms.size == shared.length do throwError "expected {shared.length} shared binders, found {froms.size}"
+      let isInc (a : Array Nat) := (List.range (a.size - 1)).all fun i => a[i]! < a[i+1]!
+      unless isInc oldPos && isInc newPos do throwError "shared binders are not aligned in order"
+      for y in sharedYs, x in tos do
+        let yt := (← inferType y).replaceFVars froms tos
+        unless (← isDefEq yt (← inferType x)) do
+          throwError "shared binder {← y.fvarId!.getUserName}: domains are not defeq"
     let ob := ob.replaceFVars froms tos
     let ob := ob.replace fun x =>
       if mutate != 1 && x.isConstOf ``machineShapeN then some (.const ``machineShapeNM [])
-      else if mutate == 2 && x.isConstOf ``Tools.ShippingClosesSplit.LetsClose then some (.const ``True [])
+      else if mutate == 2 && x.getAppFn.isConstOf ``Tools.ShippingClosesSplit.LetsClose then some (mkConst ``True)
       else none
-    unless (← isDefEq ob nb) do throwError "conclusions are not defeq"
+    -- well-formedness of the compared terms
+    if ob.hasMVar || nb.hasMVar then throwError "mvars in compared conclusions"
+    if mutate != 3 then
+      let isStray (f : FVarId) := !xs.any (·.fvarId! == f)
+      if ob.hasAnyFVar isStray || nb.hasAnyFVar isStray then throwError "stray fvars in compared conclusions"
+    Meta.check ob
+    Meta.check nb
+    unless (← isDefEq ob nb) do throwError "CONCL-NOT-DEFEQ"
     logInfo m!"NMC check (mutate={mutate}): conclusion defeq to dgen_connect_gen's with the reader replaced; {froms.size} shared fvars"
 
 run_meta checkConcl 0
 run_meta (do
   for m in [1, 2, 3] do
-    let ok ← (do checkConcl m; pure true : MetaM Bool) <|> pure false
-    if ok then throwError "mutation {m} was NOT rejected"
-  logInfo m!"NMC check: mutations 1,2,3 rejected")
+    let msg ← try checkConcl m; pure "" catch e => pure (← e.toMessageData.toString)
+    if msg == "" then throwError "mutation {m} was NOT rejected"
+    unless msg.endsWith "CONCL-NOT-DEFEQ" do throwError "mutation {m} failed for another reason: {msg}"
+  logInfo m!"NMC check: mutations 1,2,3 type-correct (Meta.check) and rejected by the defeq comparison")
 
 end Tools.Prototype.DGenConnectNM

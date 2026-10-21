@@ -6,8 +6,8 @@ import Tools.Prototype.NormStepModel
 TARGET-ONLY (`./.cluster/qbuild.sh build Tests.Compiler.NormStepModelWholeAgreeTest`); not in `Tests.AllTests`. EVIDENCE only, NOT a
 proof and NOT an equivalence claim: a finite comparison on the 40 fixed cases of `Tests.Compiler.ReaderFuelShadowTest` (the cases of
 `ReaderLfpExecTest`). Per case one line `NMWHOLE <label> [<group>]: real=… model=… …` with the layout (all `MachineShape` fields),
-refusal (`some none` vs production `none`) and fallback outcomes compared by `compareRes`. Mismatches are REPORTED, not thrown; the file
-throws only if the case count is not 40. `machineShapeNM` answering outer `none` (BOT: no finite derivation) is a mismatch. BUILT: see
+refusal (`some none` vs production `none`) and fallback outcomes compared by `compareRes`. The file THROWS unless: 40 cases, 0 timeouts,
+0 disagreements, 0 outer-none, 33 successes (all MachineShape fields equal), 7 refusals (production none ↔ model some none). `machineShapeNM` answering outer `none` (BOT: no finite derivation) is a mismatch. BUILT: see
 REPORT-NMC. -/
 namespace Tests.Compiler.NormStepModelWholeAgreeTest
 open Lean Elab Command Meta
@@ -72,7 +72,14 @@ def xCase (label group : String) (n : Name) (sm : Bool := false)
     let line := s!"NMWHOLE {label} [{group}]: real={realClass o.real} model={xClass o.x} class={shape} fields={fields} equal={eq} realMs={o.realMs} modelMs={o.xMs}"
     (← IO.getStderr).putStrLn line
     logInfo m!"{line}"
-    if eq then return 0 else return 2
+    -- 1 timeout (above); 2 disagreement; 3 outer none; 4 agreeing refusal; 0 agreeing success
+    match o.x with
+    | none => return 3
+    | some xr =>
+      if !eq then return 2
+      else if o.real.isNone && xr.isNone then return 4
+      else if o.real.isSome && xr.isSome then return 0
+      else return 2
 
 /-- Expected number of cases (the fixed shadow list). -/
 def expectedCases : Nat := 40
@@ -122,15 +129,25 @@ run_cmd liftTermElabM do
   let mut n := 0
   let mut timeouts := 0
   let mut disagreements := 0
+  let mut outerNone := 0
+  let mut successes := 0
+  let mut refusals := 0
   for c in cases do
     n := n + 1
     match ← c () with
     | 1 => timeouts := timeouts + 1
     | 2 => disagreements := disagreements + 1
-    | _ => pure ()
-  let line := s!"NMWHOLE SUMMARY: cases={n} expected={expectedCases} timeouts={timeouts} disagreements={disagreements}"
+    | 3 => outerNone := outerNone + 1
+    | 4 => refusals := refusals + 1
+    | _ => successes := successes + 1
+  let line := s!"NMWHOLE SUMMARY: cases={n} expected={expectedCases} timeouts={timeouts} disagreements={disagreements} outerNone={outerNone} successes={successes} refusals={refusals}"
   (← IO.getStderr).putStrLn line
   logInfo m!"{line}"
   unless n == expectedCases do throwError m!"{line}: wrong case count"
+  unless timeouts == 0 do throwError m!"{line}: timeouts"
+  unless disagreements == 0 do throwError m!"{line}: disagreements"
+  unless outerNone == 0 do throwError m!"{line}: outer none"
+  unless successes == 33 do throwError m!"{line}: expected 33 successes"
+  unless refusals == 7 do throwError m!"{line}: expected 7 refusals"
 
 end Tests.Compiler.NormStepModelWholeAgreeTest
