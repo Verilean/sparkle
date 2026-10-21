@@ -3685,3 +3685,6 @@ lean_lib «Tools.Prototype.RawNodeRangeLetOk» where
 
 lean_lib «Tools.Prototype.RawNodeRangeLetOk2» where
   roots := #[`Tools.Prototype.RawNodeRangeLetOk2]
+
+lean_lib «Tools.Prototype.LiftExecLetOk» where
+  roots := #[`Tools.Prototype.LiftExecLetOk]
