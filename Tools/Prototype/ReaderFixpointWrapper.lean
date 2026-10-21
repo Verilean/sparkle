@@ -8,8 +8,8 @@ This file lifts it to the WRAPPER `shapeW` (`machineShapeX` = `shapeW` against `
 `machineShapeF n` = `shapeW` against `wtab senv n`), using `compact_shapeW` (finitely many table reads) and
 `wtab` monotonicity (`wtab_mono`).
 
-Result encodings (the same on both sides, projection = identity): outer `none` = OUT (no finite
-derivation / fuel too small), `some none` = ordinary refusal (old `none`), `some (some s)` = success.
+Result encodings (the same on both sides, projection = identity): outer `none` = OUT (in the model: no
+fuel suffices), `some none` = ordinary refusal (old `none`), `some (some s)` = success.
 
 * `machineShapeX_iff_fuel` : under `NormSound` + `NormTotal`,
     `machineShapeX … = some r ↔ ∃ n, machineShapeF n … = some r`   (r : Option MachineShape, so
@@ -27,7 +27,9 @@ the `machNorm` part of the transcription question (O2) and is not proved:
 Nothing here relates the shipped `partial def` readers to anything (`TwinCoverAt` stays OPEN); production
 `machineShape?` and the seven `partial def`s are untouched; no switch (A1 not done).
 
-BUILT/UNBUILT: see REPORT-LC11.md.  No sorry / axiom / native_decide. -/
+BUILT (unit LC11): qbuild build Tools.Prototype.ReaderFixpointWrapper c1 exit 0 (253 jobs). CONDITIONAL on `NormSound`/`NormTotal`;
+this is not an unconditional wrapper correspondence and does not discharge anything about the real `machNorm`.
+Outer `none` is "no result" in this model only; nothing here concludes termination or divergence of any real function.  No sorry / axiom / native_decide. -/
 namespace Tools.Prototype.ReaderExec
 open Sparkle.Compiler.Elab Tools.ShippingReaderFuel
 
