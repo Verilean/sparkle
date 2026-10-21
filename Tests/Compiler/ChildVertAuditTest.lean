@@ -10,6 +10,7 @@ import Tools.ShippingChildFrontCP
 import Tools.ShippingChildImplCorA
 import Tools.ShippingChildLegacyImplA
 import Tools.ShippingChildComposeA
+import Tools.ShippingChildDepthC
 
 /-! # Audit: the vertical path does not use the old boundary (round par/vert)
 
@@ -196,7 +197,18 @@ def audited : List Name :=
    ``Tools.ShippingChildLegacyHandlersA.handleDefinitionUnfold_keepsCP,
    ``Tools.ShippingChildLegacyHandlersA.tryInlineUnfold_tripleCP,
    ``Tools.ShippingChildComposeA.bodyKeepsA_of_tele, ``Tools.ShippingChildComposeA.bodyStepA_of_tele,
-   ``Tools.ShippingChildComposeA.childKeepsA_all_of_tele, ``Tools.ShippingChildComposeA.core_tripleA_of_tele]
+   ``Tools.ShippingChildComposeA.childKeepsA_all_of_tele, ``Tools.ShippingChildComposeA.core_tripleA_of_tele,
+   ``Tools.ShippingChildDepthC.childKeepsC_of_body,
+   ``Tools.ShippingChildDepthC.childKeepsC_all,
+   ``Tools.ShippingChildDepthC.childEntryA_of_childKeepsC,
+   ``Tools.ShippingChildDepthC.core0_tripleAC,
+   ``Tools.ShippingChildDepthC.full0_tripleAC,
+   ``Tools.ShippingChildDepthC.core_tripleAC_of_bodies,
+   ``Tools.ShippingChildDepthC.full_tripleAC_of_bodies,
+   ``Tools.ShippingChildDepthC.synthesizeChild_realC,
+   ``Tools.ShippingChildDepthC.closeInstsM_realC,
+   ``Tools.ShippingChildDepthC.bodyStepC_certified,
+   ``Tools.ShippingChildDepthC.bodyStepC_of_generic]
 
 end Tests.Compiler.ChildVertAuditTest
 

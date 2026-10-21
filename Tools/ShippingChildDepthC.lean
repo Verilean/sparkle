@@ -1,6 +1,6 @@
 import Tools.ShippingChildTranslatePathA
 import Tools.ShippingChildCoreC
--- UNBUILT (unit E, par/u-e, base 0054b6b2): no run yet.
+-- BUILT (unit E, par/u-e, base 0054b6b2): e2 exit 0 (first try); audit e3 exit 0.
 -- No `sorry`, no `axiom`, no `native_decide`, no new law / boundary field. Law witness:
 -- `O : RefLawsAOps MkRefd mref cref` at `hA : AdmCtx O.quiet mctx cctx` only. ShippingChildCacheA /
 -- ShippingChildCoreC state their lemmas for a generic boundary predicate `Fresh`; here it is
