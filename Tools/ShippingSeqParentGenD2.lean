@@ -5,6 +5,7 @@ import Tools.ShippingSeqChildDeepKidFactsA
 import Tools.ShippingSeqChildDeepIfacePA
 import Tools.ShippingSeqChildDeepConsumerA
 import Tools.ShippingSeqParentKidFactsA
+-- BUILT (unit GAUD): i4 exit 0 (Tests.Compiler.SeqDeepGenInstTest, memory refusals), g4 exit 0 (SeqDeepGenTest on the changed module), c2 exit 0 (SeqDeepGenInstConclTest); the module itself was built as a dependency of those (i3 exit 1: a Nat annotation in the test).
 -- BUILT (unit SR3t): t2 exit 0 (module), g3 exit 0 (templates run on `grand`), i2 exit 0 (second instance `topw` + two refusals). t1 exit 1 (an `s!` string with braces); g1 exit 1 (`Unit` vs `PUnit` in the class check); g2 exit 1 (audit counted partial applications of `MachineDefines`).
 /-! # `#machine_seq_parent_endpoint P`, DEPTH-2 path (unit SR3t, ledger L8ac)
 
@@ -13,24 +14,25 @@ module registers a SECOND elaborator for the same command syntax: for a declarat
 over (generate, or REFUSE with a stated reason); for every other declaration it throws `unsupportedSyntax` and the depth-1 elaborator
 runs as before.
 
-## The TARGET CLASS (exact; each condition is checked and a declaration outside it is REFUSED, never silently narrowed — EXCEPT memory, see the NOTE below)
+## The TARGET CLASS (exact; each condition is checked and a declaration outside it is REFUSED, never silently narrowed)
 
 `P -> C -> G`, with `P` the parent (root), `C` its callee that has calls of its own, `G` the callee of `C`:
-* `P` is a top-level machine (its `machineSource` is indexed by `Unit`), with at least one call instance, `instFields <> []`, no memory;
+* `P` is a top-level machine (its `machineSource` is indexed by `Unit`), with at least one call instance, `instFields <> []`, no memory (REFUSED up front: memory in P);
   EVERY call instance of `P` calls the SAME child `C` (any number of instances, any output fields), with the SAME argument list
   (the old generated `hcalls` has one group-facts bundle per distinct argument list; this path extracts ONE group);
-* `C` is a `{dom : DomainConfig}` hardware module (its `machineSource` is indexed by `DomainConfig`), with `instFields <> []`, no memory;
+* `C` is a `{dom : DomainConfig}` hardware module (its `machineSource` is indexed by `DomainConfig`), with `instFields <> []`, no memory (REFUSED up front: memory in C);
   EVERY call instance of `C` calls the SAME leaf `G` (any number of instances / fields / arguments);
-* `G` is a generated sequential LEAF (no call instance), with the pieces `G.machine_ok/machine_body/machine_closes/machineSource`;
+* `G` is a generated sequential LEAF (no call instance, in particular no memory: REFUSED up front, memory in G), with the pieces `G.machine_ok/machine_body/machine_closes/machineSource`;
 * the old chain exists: `#machine_design_svNR P 2` (gives `P.machine_composedNR2` and `C.machine_composedNR1`, `C.seq_child_runN_ofR1`);
 * `kP` = own input ports of `P` (`bsIn.length - insts.length`), `kC` likewise for `C` (it counts the `dom` binder); depth is 2 (`n = 2`).
 The facts about the shapes that the proofs need (closing, name separation, widths, argument counts, ...) are `decide`d INSIDE the
 generated declarations: a declaration inside the class whose data fail one of them makes the generated command fail loudly.
-NOTE (integrator, par/int-r39, per review): "no memory" is NOT checked up front with a `REFUSED` message; a memory declaration only
-stops when one of those `decide`s fails (a safe stop without a stated reason; no non-generation test for it yet).
+MEMORY (unit GAUD): a memory in `P`, `C` or `G` (read as a call of a built memory module, placeholder name rooted at `SparkleMem`, an entry of
+`shape.insts`) is REFUSED UP FRONT with a reason (`memory in P / C / G`), before any declaration is generated; tested in
+`Tests/Compiler/SeqDeepGenInstTest.lean` (message asserted, no `epD2_*` declaration created).
 
 ## REFUSALS (each with its reason; message prefix `REFUSED`)
-several different callees of `P` / of `C`; a callee of `G` (depth 3); different argument lists among `P`'s calls (several groups);
+a memory in `P` / `C` / `G`; several different callees of `P` / of `C`; a callee of `G` (depth 3); different argument lists among `P`'s calls (several groups);
 a parent that is not a top-level machine or a child that is not a domain-polymorphic hardware module; no instField (combinational
 calls); a missing generated piece (the message names it and the old command to run).
 
@@ -44,7 +46,7 @@ results; `T` is an ADDED boundary.
 The old generated terms are read through helpers that select by BINDER NAME of the consumer head (`hcalls`, `hextB`, `hext`), by the
 lambda-binder name of the group-fact redex (`gfL0 gfR0 gfHb0 gfHv0`) and by BINDER KIND (the one instance-implicit argument).  Still
 structural (not chosen by index): "the first application of the head constant in the value", "the argument `hcalls` is a lambda whose
-body is a beta-redex", and the group index `0`.  Each extracted term is checked `isDefEq` against an EXPLICIT type written in the
+body is a beta-redex", and the group index `0`.  The typed helpers STILL depend on the group index 0 and on term structure (`findHeadApp?`, the zip pairing); removal is NOT claimed.  Each extracted term is checked `isDefEq` against an EXPLICIT type written in the
 template (the group-fact types of `Hb`/`Hv` leave their right-hand side as `_`: the family the generator absorbed into; the final
 `.trans rfl` of the entry proof checks it against the entry's value). -/
 namespace Tools.ShippingSeqParentGenD2
@@ -749,12 +751,20 @@ def sourceIndex (c : Name) : MetaM Name := do
     let t ← whnf (← inferType x)
     return t.getAppFn.constName?.getD Name.anonymous
 
+/-- A memory (`Signal.memory` / `memoryComboRead`) is read as a call of a BUILT memory module whose placeholder name is rooted at
+`SparkleMem` (`Sparkle.Compiler.MachMemory.memChildName`): it shows up as an entry of `shape.insts`. -/
+def isMemName (n : Name) : Bool := n.getRoot == `SparkleMem
+
+def memWhy (role : String) (d : Name) : String :=
+  s!"memory in {role}: {d} has a memory (`Signal.memory` / `memoryComboRead`, a call of a built memory module among its call instances); memory in the parent / child / grandchild is OPEN on this path (the closing and the checks of the depth-2 class are for sequential register machines without memory)"
+
 def analyse (fn : Name) : CommandElabM D2Params := do
   let env ← getEnv
   let nat := fun (s : String) (n : Name) => liftTermElabM do reduceNat (← elabText (s.replace "@F@" n.toString))
   -- the callees of the parent: ONE child
   let pc ← liftTermElabM do readNames (← elabText (s!"({fn}.machineData.shape.insts.map (·.1))"))
   if pc.isEmpty then refuse fn "no call instance"
+  if pc.any isMemName then refuse fn (memWhy "P" fn)
   let pcs := pc.eraseDups
   unless pcs.length == 1 do
     refuse fn s!"the parent calls {pcs.length} DIFFERENT children {pcs}; the depth-2 closing / checks of this path are instantiated with ONE callee (`fun _ => C`), several different non-leaf children are OPEN (the depth-1 path handles several leaf children)"
@@ -762,10 +772,13 @@ def analyse (fn : Name) : CommandElabM D2Params := do
   let cc ← liftTermElabM do readNames (← elabText (s!"({C}.machineData.shape.insts.map (·.1))"))
   if cc.isEmpty then
     refuse fn s!"the child {C} has no call instance: `{fn}` is depth 1 (use the depth-1 path)"
+  if cc.any isMemName then refuse fn (memWhy "C" C)
   let ccs := cc.eraseDups
   unless ccs.length == 1 do
     refuse fn s!"the child {C} calls {ccs.length} DIFFERENT grandchildren {ccs}; this path takes ONE leaf grandchild (OPEN: several)"
   let G := ccs.head!
+  let gc ← liftTermElabM do readNames (← elabText (s!"({G}.machineData.shape.insts.map (·.1))"))
+  if gc.any isMemName then refuse fn (memWhy "G" G)
   let gi ← nat "@F@.machineData.shape.insts.length" G
   unless gi == 0 do
     refuse fn s!"the grandchild {G} has {gi} call instance(s) of its own: depth 3, OPEN (no depth-3 interface/closing lemma on the new boundary)"

@@ -4,6 +4,7 @@ import Tools.Prototype.NormRangeLetOk
 
 /-! # Unit LCC: ONE composed corollary on the SAME `p`/`en`/`st`/`v`, without `ShapeInOk`
 
+BUILT (unit GAUD): a1 exit 0 (checkConclusion now runs Meta.check on the compared and mutation terms, asserts no mvars / stray fvars).
 BUILT (unit LCC): b1 exit 1 (missing opens), b2 exit 1 (binder audit list lacked the second Eq for hpe), b3 exit 0. No sorry/axiom/native_decide.
 
 `machineShapeN_typed_all` composes, on the single successful run `machineShapeN … = some (some sp)` (one `machineShapeN_steps`
@@ -135,13 +136,20 @@ def checkConclusion : MetaM Unit := do
     unless ← isDefEq concl concl2 do
       throwError "CONCLUSION CHECK FAILED: typed_all and typed_nb conclusions differ"
     let exp := mkAppN (mkConst ``ExpectedConcl) #[shared[0]!, shared[1]!, shared[2]!, shared[3]!, shared[4]!, shared[5]!]
+    -- (unit GAUD) the compared terms and the mutation term are type-correct, have no metavariables and no stray free variables
+    let bad := mkAppN (mkConst ``ExpectedConcl) #[shared[0]!, shared[1]!, shared[2]!, shared[3]!,
+      mkApp (mkConst ``not) shared[4]!, shared[5]!]
+    for (e, what) in [(concl, "typed_all conclusion"), (concl2, "typed_nb conclusion"), (exp, "ExpectedConcl term"), (bad, "mutation term")] do
+      check e
+      let e ← instantiateMVars e
+      if e.hasMVar then throwError "CONCLUSION CHECK FAILED: metavariables in the {what}"
+      for f in (collectFVars {} e).fvarIds do
+        unless xs.any (·.fvarId! == f) do throwError "CONCLUSION CHECK FAILED: stray free variable in the {what}"
     unless ← withReducible (isDefEq concl exp) do
       throwError "CONCLUSION CHECK FAILED: typed_all conclusion differs from ExpectedConcl"
     unless ← withReducible (isDefEq concl2 exp) do
       throwError "CONCLUSION CHECK FAILED: typed_nb conclusion differs from ExpectedConcl"
     -- sensitivity: a mutated expectation (`ai` negated) must be rejected
-    let bad := mkAppN (mkConst ``ExpectedConcl) #[shared[0]!, shared[1]!, shared[2]!, shared[3]!,
-      mkApp (mkConst ``not) shared[4]!, shared[5]!]
     if ← withReducible (isDefEq concl bad) then
       throwError "CONCLUSION CHECK FAILED: check is insensitive (mutated expectation accepted)"
     logInfo m!"conclusion check: typed_all = typed_nb = ExpectedConcl (aligned {al}; typed_nb fresh {fr})"

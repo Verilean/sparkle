@@ -2,7 +2,7 @@ import Tools.Prototype.RawNodeRangeLetOk
 
 /-! # Unit LC18b: the `LiftRange` premise of `machineShapeN_typed_all_rawNode` was a duplicate
 
-BUILT (unit LC18b): a1 exit 1 (my meta-check errors), a2 exit 0.  No sorry / axiom / native_decide.
+BUILT (unit LC18b): a1 exit 1 (my meta-check errors), a2 exit 0.  Meta-check hardened in unit GAUD (real hlift proof, domain checks, no mvars): a4 exit 0 (a2, a3 exit 1: my typos).  No sorry / axiom / native_decide.
 
 `LiftLooseRange` (`∀ e s d, LetOk 0 e → LetOk 0 (e.liftLooseBVars s d)`) implies `LiftRange`
 (`∀ e, LetOk 0 e → LetOk 0 (e.liftLooseBVars 0 1) ∧ LetOk 0 (e.liftLooseBVars 1 1)`): the instances `s d = 0 1` and `1 1`.
@@ -49,13 +49,20 @@ run_meta (Tools.Prototype.ReaderExec.auditPropBinders ``machineShapeN_typed_all_
     "BetaRange", "NormNodeRange", "EqvLetOk0", "Eq", "Eq"])
 
 /- THROWING: no `LiftRange` constant in the new type; the conclusion is `isDefEq` to the old one with the shared
-binders as the same fvars (the old `hlift` binder is a fresh mvar; it is a non-dependent Prop). -/
+binders as the same fvars; the old `hlift` binder is instantiated with the REAL proof `liftRange_of_loose hll` (`hll` = the new theorem's own
+binder; `Meta.check`ed), each shared binder's domain is `isDefEq` to the old one, and no metavariable remains in the compared terms (unit GAUD). -/
 run_meta (do
   let newI ← getConstInfo ``machineShapeN_typed_all_rawNode'
   let oldI ← getConstInfo ``machineShapeN_typed_all_rawNode
   if newI.type.getUsedConstants.contains ``LiftRange then throwError "LiftRange occurs in the new type"
   Meta.forallTelescope newI.type fun xs nb => do
     let mut oty := oldI.type
+    let mut hllO : Option Expr := none
+    for x in xs do
+      if (← x.fvarId!.getUserName) == `hll then hllO := some x
+    let some hllX := hllO | throwError "no hll binder in the new type"
+    let hliftPf := mkApp (mkConst ``liftRange_of_loose) hllX
+    Meta.check hliftPf
     let mut i := 0
     let mut skipped := false
     for _ in [0:xs.size + 1] do
@@ -64,15 +71,20 @@ run_meta (do
         if n == `hlift then
           if skipped then throwError "two hlift binders"
           skipped := true
-          oty := b.instantiate1 (← Meta.mkFreshExprMVar d)
+          unless (← Meta.isDefEq (← Meta.inferType hliftPf) d) do throwError "the type of liftRange_of_loose hll is not the old hlift domain"
+          oty := b.instantiate1 hliftPf
         else
           unless i < xs.size do throwError "old type has more binders than new"
           unless (← xs[i]!.fvarId!.getUserName) == n do throwError "binder name mismatch at {i}: {n}"
+          unless (← Meta.isDefEq (← Meta.inferType xs[i]!) d) do throwError "binder domain mismatch at {i}: {n}"
           oty := b.instantiate1 xs[i]!
           i := i + 1
       | _ => break
     unless skipped && i == xs.size do throwError "binder bookkeeping failed ({skipped}, {i}, {xs.size})"
     unless (← Meta.isDefEq oty nb) do throwError "conclusions are not defeq"
-    logInfo m!"LC18b check: conclusions defeq, {xs.size} shared binders, no LiftRange constant")
+    let oty2 ← instantiateMVars oty
+    let nb2 ← instantiateMVars nb
+    if oty2.hasMVar || nb2.hasMVar then throwError "metavariables remain in the compared conclusions"
+    logInfo m!"LC18b check: conclusions defeq with the real liftRange_of_loose hll for hlift, {xs.size} shared binders (domains defeq), no mvars, no LiftRange constant")
 
 end Tools.Prototype.RawNodeRangeLetOk

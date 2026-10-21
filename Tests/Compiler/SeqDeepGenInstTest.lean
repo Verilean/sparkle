@@ -1,5 +1,6 @@
 import Tests.Compiler.SeqDeepGenTest
 import Tests.Compiler.ShippingChildBoundaryTest
+-- BUILT (unit GAUD): i4 exit 0 (memory refusals memP/memC/memG; i3 exit 1: a Nat annotation).
 -- BUILT (unit SR3t): i2 exit 0 (i1 exit 1: my hand-asserted equations on `topw` were wrong — 2 instances, arguments [0,1]; the generator, its audit and both refusals were fine).
 -- SCOPE (binding): a SECOND depth-2 instance in the class of `Tools/ShippingSeqParentGenD2.lean`, with a DIFFERENT call structure and
 -- argument layout from `grand -> mid -> cnt`: `topw -> wrap -> acc`.
@@ -11,6 +12,10 @@ import Tests.Compiler.ShippingChildBoundaryTest
 -- generator's own audit of `MachineDefines` for exactly {wrap, acc}).  Two declarations OUTSIDE the class are REFUSED with the expected reason
 -- (asserted): `topbad` (calls two DIFFERENT children, `wrap` and `cnt`), `topargs` (two DIFFERENT argument lists of the same child).
 -- Not a general theorem; boundary premises stay inside `topw.epD2_Bnd`.
+-- (unit GAUD) Three declarations that have the class shape EXCEPT for one memory read (in the parent / in the child / in the leaf) are
+-- REFUSED UP FRONT with a `memory in P` / `C` / `G` reason (message asserted; no `epD2_*` declaration is created).
+-- (unit GAUD) The whole statement of `topw.epD2_endpoint` is fixed by an independent hand-written `TopwConcl 2 3` in
+-- `Tests/Compiler/SeqDeepGenInstConclTest.lean`.
 namespace Tests.Compiler.SeqDeepGenInstTest
 open Sparkle.Core.Domain Sparkle.Core.Signal
 open Sparkle.Tests.Compiler.ShippingMachineSeqTest
@@ -130,5 +135,89 @@ open Lean Meta Elab Command in
 run_cmd do
   refusedWith ``Tests.Compiler.SeqDeepGenInstTest.topbad ["REFUSED", "DIFFERENT children", "Tests.Compiler.SeqDeepGenInstTest.wrap", "cnt"]
   refusedWith ``Tests.Compiler.SeqDeepGenInstTest.topargs ["REFUSED", "DIFFERENT argument lists"]
+
+-- (unit GAUD) memory in the class shape: refused up front, with the reason
+/-- A root of the class shape (calls `wrap`) that also reads a memory. -/
+def memP (en : Signal defaultDomain Bool) (v w : Signal defaultDomain (BitVec 8)) (wa : Signal defaultDomain (BitVec 4)) :
+    Signal defaultDomain (BitVec 8) :=
+  circuit do
+    let r ← Signal.reg 0#8
+    let rs := (r : Signal defaultDomain (BitVec 8))
+    let m := wrap v w
+    let rd := Signal.memoryComboRead wa v en wa
+    r <~ Signal.mux (m.odd &&& en) (rs + rd) rs
+    return rs
+
+#machine_endpoint memP
+
+/-- A child of the class shape (calls the leaf `acc`) that also reads a memory. -/
+@[hardware_module] def wrapM {dom : DomainConfig} (x y : Signal dom (BitVec 8)) (wa : Signal dom (BitVec 4)) (en : Signal dom Bool) :
+    AccOut dom :=
+  circuit do
+    let r ← Signal.reg 0#8
+    let rs := (r : Signal dom (BitVec 8))
+    let a := acc y
+    let rd := Signal.memoryComboRead wa x en wa
+    r <~ a.s + rd
+    return ({ s := rs, odd := a.odd } : AccOut dom)
+
+#machine_endpoint wrapM
+
+def memC (en : Signal defaultDomain Bool) (v w : Signal defaultDomain (BitVec 8)) (wa : Signal defaultDomain (BitVec 4)) :
+    Signal defaultDomain (BitVec 8) :=
+  circuit do
+    let r ← Signal.reg 0#8
+    let rs := (r : Signal defaultDomain (BitVec 8))
+    let m := wrapM v w wa en
+    r <~ Signal.mux (m.odd &&& en) (rs + v) rs
+    return rs
+
+#machine_endpoint memC
+
+/-- A leaf that reads a memory. -/
+@[hardware_module] def accM {dom : DomainConfig} (x : Signal dom (BitVec 8)) (wa : Signal dom (BitVec 4)) (en : Signal dom Bool) :
+    AccOut dom :=
+  circuit do
+    let a ← Signal.reg 0#8
+    let as := (a : Signal dom (BitVec 8))
+    let rd := Signal.memoryComboRead wa x en wa
+    a <~ as + rd
+    return ({ s := as, odd := as === (Signal.pure 1#8 : Signal dom (BitVec 8)) } : AccOut dom)
+
+#machine_endpoint accM
+
+@[hardware_module] def wrapG {dom : DomainConfig} (x y : Signal dom (BitVec 8)) (wa : Signal dom (BitVec 4)) (en : Signal dom Bool) :
+    AccOut dom :=
+  circuit do
+    let r ← Signal.reg 0#8
+    let rs := (r : Signal dom (BitVec 8))
+    let a := accM y wa en
+    r <~ a.s + x
+    return ({ s := rs, odd := a.odd } : AccOut dom)
+
+#machine_endpoint wrapG
+
+def memG (en : Signal defaultDomain Bool) (v w : Signal defaultDomain (BitVec 8)) (wa : Signal defaultDomain (BitVec 4)) :
+    Signal defaultDomain (BitVec 8) :=
+  circuit do
+    let r ← Signal.reg 0#8
+    let rs := (r : Signal defaultDomain (BitVec 8))
+    let m := wrapG v w wa en
+    r <~ Signal.mux (m.odd &&& en) (rs + v) rs
+    return rs
+
+#machine_endpoint memG
+
+open Lean Meta Elab Command in
+run_cmd do
+  refusedWith ``Tests.Compiler.SeqDeepGenInstTest.memP ["REFUSED", "memory in P", "memP"]
+  refusedWith ``Tests.Compiler.SeqDeepGenInstTest.memC ["REFUSED", "memory in C", "wrapM"]
+  refusedWith ``Tests.Compiler.SeqDeepGenInstTest.memG ["REFUSED", "memory in G", "accM"]
+  -- no generated declaration of the depth-2 path exists for any of them (the template's names all start with `epD2_`)
+  for d in [``Tests.Compiler.SeqDeepGenInstTest.memP, ``Tests.Compiler.SeqDeepGenInstTest.memC, ``Tests.Compiler.SeqDeepGenInstTest.memG] do
+    let n := (← getEnv).constants.fold (init := (0 : Nat)) fun (n : Nat) c _ =>
+      if d.isPrefixOf c && (c.toString.splitOn ".epD2_").length > 1 then n + 1 else n
+    unless n == 0 do throwError "GAUD AUDIT FAILED: {n} epD2_* declaration(s) exist for the refused {d}"
+  logInfo m!"GAUD: memory in P / C / G REFUSED with a reason; no epD2_* declaration created"
 
 end Tests.Compiler.SeqDeepGenInstTest
