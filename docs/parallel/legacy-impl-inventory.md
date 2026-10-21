@@ -30,7 +30,7 @@ Primitive classes (what the `Keeps`/`KeepsCP` calculus must cover):
 |---|---|---|---|---|
 | trace + call counter | 6931–6932 | `sparkleCallCounter.modifyGet` | FR (`sideModifyGetIO`) | PROVABLE-NOW |
 | runaway limit | 6937–6947 | `IO.getEnv "SPARKLE_TRANSLATE_LIMIT"`, `throwError` | FR (`ioEnv`), TH | PROVABLE-NOW |
-| profile dump (every 10000th call) | 6948–6977 | `IO.getEnv`, 9 side-ref reads, `IO.eprintln`, `Sparkle.Compiler.flushStderr`, `IO.FS.Handle.mk "/tmp/sparkle-profile.log"`, `putStrLn`, `flush`, string building | FR for the ref reads; **file/stderr IO is NOT in `FramedA`** | NEEDS-IO (a `profileDump` premise, see below) |
+| profile dump (every 10000th call) | 6948–6977 | `IO.getEnv`, 9 side-ref reads, `IO.eprintln`, `Sparkle.Compiler.flushStderr`, `IO.FS.Handle.mk "/tmp/sparkle-profile.log"`, `putStrLn`, `flush`, string building | FR for the ref reads; the stderr/file IO is `Diag` (`ioEprintln`, `stderrFlush`, `ioHandleMk`, `ioHandlePutStrLn`, `ioHandleFlush`) → `keepsA_diag` | PROVED (walk) |
 
 ## B. `.fvar` first (6981–7033) — arm `fvarArm`
 `CompilerM.lookupVar`; `lctx.find?`/`decl.value?` in `MetaM` (`getLCtx`); cycle break via
@@ -94,5 +94,36 @@ the closing `throwError`s. These are separate `def`s of the file; each is named 
 The OLD proofs of every one of them exist (`Tools/ShippingChildLegacy.lean`, by the tactic `vc`
 under `RefLaws L`); none is ported to the admissible boundary.
 
-## The premises this inventory fixes (names for `legacyImplA_of_handlers`)
-(see the end of the file for what was finally proved vs. left as premise)
+## Result (written after the proofs; all statuses below are PROVED unless said PREMISE/OPEN)
+
+Every arm of sections A–F above, and every handler of section G, is PROVED, by the walker `vca`
+(Tools/ShippingChildWalkA.lean: `vc` ported to `KeepsCP`/`FramedA`/`Diag`/admissible contexts).
+Nothing in the block is lumped into a premise. What the walk could not discharge by a law of
+`RefLawsAOps` is, each named after the ONE primitive/handler it covers:
+
+| premise | covers | where it is reached | owner |
+|---|---|---|---|
+| `CanonKeyA O I` | `canonHardwareKey` | `.letE` arm (F), 7824–7929 | unit A |
+| `ChildEntryA O I` | `childSynthEntry` (via `Rec.synthesizeCombinational`) | `handleDefinitionUnfold` sub-module path (G, 6586/6598) | unit D/E (`childEntryA_of_childKeepsC`) |
+| `LocalDeclLawA O.quiet mref cref` (= `RefLawsATele.localDecl`) | `withLocalDeclD`, reached through `CompilerM.withLocalDecl` | D9 (`toIR` host), D12 `Prod.rec`, F `.letE`/`.lam`, G `handleApplicative`, `handleLoop` | unit C family (`RefLawsATele`) |
+| `LetDeclLawA O.quiet mref cref` (= `RefLawsATele.letDecl`) | `withLetDecl`, reached through `CompilerM.withLetDecl` | F `.letE` (logic let) | unit C family |
+| `ForallTelescopeLawA O.quiet mref cref` (= `RefLawsATele.telescope`) | `forallTelescopeReducing` inline in `handleDefinitionUnfold` (Elab.lean:6478) | G | unit C family |
+
+The three laws are fields of `RefLawsATele` (a SEPARATE assumption family, InvA:301; using it
+widens the boundary — to be recorded by F). `lambdaTelescope` (`RefLawsATele.lamTelescope`) is NOT
+reached by this block. Export: `legacyImplA_of_handlers` (the three laws + `CanonKeyA` +
+`ChildEntryA`), `legacyImplA_of_tele` (the same from a whole `RefLawsATele`).
+
+Per-handler walk results (theorems in Tools/ShippingChildLegacyHandlersA.lean, registered
+`@[keepsA]`; "needs" = which of the above the proof of that handler uses):
+`handleErrorPatterns` (none) · `handleTupleProjections` (none) · `handleApplicative` + local
+`lower` (TL) · `handleBitVecOps` + `translateShiftAmount` (none) · `handleRegister`,
+`handleMux`, `handleMemory` (none) · `handleLoop` (TL) · `handleCircuitMonad` (none) ·
+`snapshotWireCaches`/`restoreWireCaches` (none; the context cache ref's provenance comes from
+`CtxOk`) · `normSpine` (none) · `tryInlineUnfold` (none; the caught exception is tracked by
+`TripleCP`/`KeepsCP.bindCaught`) · `handleDefinitionUnfold` (TF, `ChildEntryA`) ·
+`translateExprToWireApp` (TL, TF, `ChildEntryA`). Helpers (Tools/ShippingChildLegacyHelpersA.lean):
+`extractWidth`, `inferHWType`, `extractDimExpr`, `inferHWTypeWithDimensions`, `extractNat`,
+`extractBitVecLiteral`, `extractNatLiteral`, `extractBitVecList/Array`, `inferHWTypeFromSignal`,
+`cachedInferType`, `getWireWidth(Dim)`, `lowerZeroExtendWire`, tracing — none needs a law beyond `O`.
+`canonHardwareKey` is the only helper left as a premise (unit A proves it).
