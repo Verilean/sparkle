@@ -231,9 +231,9 @@ theorem core_callConns_ranA (O : Tools.ShippingChildInvA.RefLawsAOps Tools.Shipp
 
 set_option maxHeartbeats 4000000 in
 /-- `core_kids_self` over `MachineRanA O`: the TAIL of the built proof, moved (round par/g-1).
-What it takes of the run is that the machine synthesis this core run performed
-returned `(M, D)` from an invariant world; `core_kids_self` below is its instance at the
-all-worlds closing (`Tools.ShippingMachineRan.machineRan_of_closes`). -/
+What it takes of the run is `MachineRanA O` (the machine synthesis this core run performed returned
+`(M, D)`, decomposed on the new boundary); the instance from a core run is via unit PH's
+`Tools.ShippingParentRanA.machineRanA_main` (premises `O`, `hA`, `T`, start world, `MachineClosesAtA`). -/
 theorem core_kids_self_ranA (O : Tools.ShippingChildInvA.RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref) {c : Name} (d : MachineData) (ok : d.ok = true)
     (hbody : d.shape.body = quote d.dom
       (fun j => inputExpr d.shape.binders.length (d.bpos j))
