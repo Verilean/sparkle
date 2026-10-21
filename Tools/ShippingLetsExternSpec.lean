@@ -5,8 +5,9 @@ import Tools.ShippingLetsSigTy
 
 BUILT: lc5a1 exit 0 (Tools.ShippingLetsExternSpec); audit lc5b exit 0 (ChildVertAuditTest).
 
-`Expr.liftLooseBVars` and `Expr.instantiate1` are `extern` (C++), `rootFloat` is a `partial def`: none can be
-unfolded, so `LiftRange` / `Inst1Range` / `RootFloatRange` (LC3) cannot be proved about them directly.
+`Expr.liftLooseBVars` and `Expr.instantiate1` are `extern` (C++), `rootFloat` is a `partial def`: direct unfolding
+is unavailable for them; the correspondence between them and the models below remains UNPROVED here. This is a
+REPLACEMENT of the four range conditions by agreement conditions (4 → 4), NOT a reduction of runtime premises.
 Route taken here:
 
 * `liftSpec` / `inst1Spec`: PURE structural models of the documented semantics of the two externs.
