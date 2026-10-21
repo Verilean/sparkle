@@ -25,6 +25,7 @@ import Tools.ShippingLetsCloseRoute
 import Tools.ShippingLetsAliasInv
 import Tools.ShippingLetsReaderInvMain
 import Tools.ShippingLetsSigTy
+import Tools.ShippingBundleIotaRange
 import Tools.ShippingLetsReaderInvPure2
 import Tools.ShippingCallWidthsChildRealA
 import Tools.ShippingChildTeleLocalA
@@ -373,6 +374,19 @@ def audited : List Name :=
    ``Tools.ShippingLetsReaderInv.instSignatureS_type,
    ``Tools.ShippingLetsReaderInv.sigTyRange_structEnv,
    ``Tools.ShippingLetsReaderInv.letOk_declValue,
+   ``Tools.ShippingLetsReaderInv.bundleIota_key1,
+   ``Tools.ShippingLetsReaderInv.bundleIota_key2,
+   ``Tools.ShippingLetsReaderInv.bundleIota_key3,
+   ``Tools.ShippingLetsReaderInv.bundleIotaRange,
+   ``Tools.ShippingLetsReaderInv.machConvF_post',
+   ``Tools.ShippingLetsReaderInv.machNestedF_post',
+   ``Tools.ShippingLetsReaderInv.machChainF_post',
+   ``Tools.ShippingLetsReaderInv.machLoopBodyF_post',
+   ``Tools.ShippingLetsReaderInv.machLoopRootF_post',
+   ``Tools.ShippingLetsReaderInv.alias_premise_of_conv',
+   ``Tools.ShippingLetsReaderInv.machConvF_init',
+   ``Tools.ShippingLetsReaderInv.machChainF_init',
+   ``Tools.ShippingLetsReaderInv.real_conv_post',
    ``Tools.ShippingCallsMemA.callsPureA_of_memKids,
    ``Tools.ShippingCallsMemA.machineClosesAtA_of_memKids,
    ``Tools.ShippingCallsMemA.machineClosesAtA_memOnly_names,
