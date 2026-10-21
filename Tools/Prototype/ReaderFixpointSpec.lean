@@ -337,8 +337,10 @@ theorem shapeMid_wrap_ok (senv : StructEnv) (p : ShapePre) (en : Lean.Expr)
 
 /-- **INPUT condition of the let-table specification** (the wrapper-level form of LC3's entry condition `LetOk 0`
 and of the start environment).  `m` is `shapeMid senv p en` for the normalised body `en`.
-* `rootLets`, `root`, `runBody`: the values the reader is handed (`machRoot` is a `partial def`, `rootFloat`,
-  `zeroLit`, `inlFoldNat`, `machLoopAsLet` are partial/extern: NOT derivable from `LetOk 0 p.e`).  The wrapper
+* `rootLets`, `root`, `runBody`: the values the reader is handed (NOT YET DERIVED from `LetOk 0 p.e`: `rootFloat`
+  (MachRawSurface.lean:198) is a `partial def`; `machRoot` (Elab.lean:4412), `zeroLit` (MachRawSurface.lean:211), `inlFoldNat`
+  (Elab.lean:3290) and `machLoopAsLet` (Elab.lean:5019) are TOTAL `def`s whose `LetOk` preservation has not been proved yet;
+  the range of `machNorm`'s output is unknown).  The wrapper
   `(c, params)` is NOT an input: `shapeMid_wrap_ok` derives it from `root`.
 * `startDom`: **a genuine gap of LC3's invariant, not a convenience.**  With an enclosing machine the wrapper
   converts the domain from `{}` and DISCARDS that state (`shapeStart`: `bindO (wConv … dom {}) fun (dom', _) …`), then
