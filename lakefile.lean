@@ -3589,3 +3589,8 @@ lean_lib «Tools.ShippingEnvSnapshot» where
 
 lean_lib «Tools.Prototype.ReaderFixpointExec» where
   roots := #[`Tools.Prototype.ReaderFixpointExec]
+lean_lib «Tools.ShippingSeqParentLemmas» where
+  roots := #[`Tools.ShippingSeqParentLemmas]
+
+lean_lib «Tools.ShippingSeqParentGen» where
+  roots := #[`Tools.ShippingSeqParentGen]
