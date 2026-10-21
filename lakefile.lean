@@ -3333,6 +3333,15 @@ lean_lib «Tools.ShippingChildKWalk» where
 lean_lib «Tools.ShippingChildFallbackA» where
   roots := #[`Tools.ShippingChildFallbackA]
 
+lean_lib «Tools.ShippingChildLoopsCP» where
+  roots := #[`Tools.ShippingChildLoopsCP]
+
+lean_lib «Tools.ShippingChildCanonKeyA» where
+  roots := #[`Tools.ShippingChildCanonKeyA]
+
+lean_lib «Tools.ShippingChildLegacyCachedA» where
+  roots := #[`Tools.ShippingChildLegacyCachedA]
+
 lean_lib «Tools.ShippingChildTranslatePathA» where
   roots := #[`Tools.ShippingChildTranslatePathA]
 
