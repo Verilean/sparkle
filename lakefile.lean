@@ -3646,3 +3646,6 @@ lean_lib «Tools.ShippingSeqChildDeepFactsA» where
 
 lean_lib «Tools.Prototype.NormRangeLetOk» where
   roots := #[`Tools.Prototype.NormRangeLetOk]
+
+lean_lib «Tools.Prototype.ReaderComposed» where
+  roots := #[`Tools.Prototype.ReaderComposed]
