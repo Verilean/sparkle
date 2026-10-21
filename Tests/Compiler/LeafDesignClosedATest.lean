@@ -103,17 +103,59 @@ def auditDesignClosedA (n : Name) : TermElabM Unit := do
       heads.contains (some ``Tools.ShippingChildInvA.AdmCtx) &&
       heads.contains (some ``Tools.ShippingChildVCA.JQ) do
     throwError "{n}: outer premises are not run / MachineDefines / AdmCtx / JQ: {heads}"
+  -- `O` is data (a Type), not a Prop: exactly one binder of type `RefLawsAOps _ _ _`, and no binder
+  -- of type `RefLawsATele` (dead7 is a leaf: no T needed).
+  let (nO, nTele) : Nat × Nat ← forallTelescope ty fun xs _ => do
+    let mut a : Nat := 0; let mut b : Nat := 0
+    for x in xs do
+      let t ← inferType x
+      if t.getAppFn.constName? == some ``Tools.ShippingChildInvA.RefLawsAOps then a := a + 1
+      if t.getAppFn.constName? == some ``Tools.ShippingChildInvA.RefLawsATele then b := b + 1
+    return (a, b)
+  unless nO == 1 && nTele == 0 do
+    throwError "{n}: {nO} RefLawsAOps binders (1 expected), {nTele} RefLawsATele binders (0 expected)"
   let cl ← depClosure n
   let bad := hits cl ++ cl.toList.filter fun c =>
-    [`Tools.ShippingChildInv.ChildBnd, `Tools.ShippingChildInv.StartV].any (·.isPrefixOf c)
+    [`Tools.ShippingChildInv.ChildBnd, `Tools.ShippingChildInv.StartV,
+     `Tools.ShippingChildInvA.RefLawsATele].any (·.isPrefixOf c)
   unless bad.isEmpty do throwError "{n}: old boundary in closure: {bad}"
   let (axs, ops, exts, impls) ← boundary cl
-  logInfo m!"LEAFDESIGN-A AUDIT OK: {n}: standard axioms; outer premises exactly run / MachineDefines / AdmCtx / JQ (+ data O); closure {cl.size} constants, no RefLaws/RefLawsCore/toAOps/toA/ChildBnd/StartV; boundary (structural): {axs.length} axioms, {ops.length} opaque, {exts.length} extern, {impls.length} implemented_by"
+  logInfo m!"LEAFDESIGN-A AUDIT OK: {n}: standard axioms; outer premises exactly run / MachineDefines / AdmCtx / JQ (+ exactly one data binder O : RefLawsAOps, no RefLawsATele binder); closure {cl.size} constants, no RefLaws/RefLawsCore/toAOps/toA/ChildBnd/StartV/RefLawsATele; boundary (structural): {axs.length} axioms, {ops.length} opaque, {exts.length} extern, {impls.length} implemented_by"
 
 set_option maxHeartbeats 0 in
 run_cmd liftTermElabM do
   auditDesignClosedA ``Sparkle.Tests.Compiler.LeafDeadInitTest.dead7.machine_design_closedA
 
 #print axioms Sparkle.Tests.Compiler.LeafDeadInitTest.dead7.machine_design_closedA
+
+/-- Old vs new head: after the 8 implicit data arguments, `hr`, `entry` (shared, aligned positions),
+the final conclusions (`MachineDesignClosed`-style statement of the old `hbnd`-head and of the new
+`(O, hA, hw)`-head) are `isDefEq` (THROWS otherwise). The extra binders (`hbnd` vs `O hA hw`) must
+not occur in the conclusions. -/
+def checkSameConclusion (old new : Name) : TermElabM Unit := do
+  let tn := (← getConstInfo new).type
+  let to := (← getConstInfo old).type
+  forallTelescope tn fun xs cn => do
+    unless xs.size == 13 do throwError "new head: {xs.size} binders, 13 expected"
+    -- shared prefix: 8 implicits + hr + entry
+    let mut t := to
+    for x in xs.extract 0 10 do
+      let .forallE _ d b _ := t.headBeta | throwError "old head: fewer binders than expected"
+      unless ← isDefEq d (← inferType x) do
+        throwError "shared binder type mismatch:\n  old {d}\n  new {← inferType x}"
+      t := b.instantiate1 x
+    forallTelescope t fun ys co => do
+      unless ys.size == 1 do throwError "old head: {ys.size} extra binders (hbnd), 1 expected"
+      unless !cn.containsFVar xs[10]!.fvarId! && !cn.containsFVar xs[11]!.fvarId! &&
+          !cn.containsFVar xs[12]!.fvarId! && !co.containsFVar ys[0]!.fvarId! do
+        throwError "a conclusion depends on hbnd / O / hA / hw"
+      unless ← isDefEq co cn do
+        throwError "conclusions differ:\n  old {co}\n  new {cn}"
+      logInfo m!"CONCLUSION CHECK OK: {old} and {new} have isDefEq conclusions (shared 10 binders, then hbnd vs O hA hw)"
+
+set_option maxHeartbeats 0 in
+run_cmd liftTermElabM do
+  checkSameConclusion ``Sparkle.Tests.Compiler.LeafDeadInitTest.dead7.machine_design_closed
+    ``Sparkle.Tests.Compiler.LeafDeadInitTest.dead7.machine_design_closedA
 
 end Sparkle.Tests.Compiler.LeafDesignClosedATest
