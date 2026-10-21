@@ -1,7 +1,7 @@
 import Tools.ShippingChildTeleLocalA
 import Tools.ShippingChildMainA
 import Tools.ShippingChildRunAMain
--- UNBUILT (unit T2): see REPORT-T2.md for the build log. No `sorry`, no `axiom`, no `native_decide`,
+-- BUILT (unit T2): t2b exit 0 (module), t2c exit 0 (audit test). No `sorry`, no `axiom`, no `native_decide`,
 -- no new law / field.
 
 /-! # The main endpoints with `T` replaced by its two remaining fields (unit T2)
