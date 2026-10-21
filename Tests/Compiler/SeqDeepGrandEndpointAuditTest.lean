@@ -27,8 +27,9 @@ open Sparkle.Core Sparkle.Core.Domain Sparkle.Core.Signal
 
 attribute [local instance] Tests.Compiler.SeqDeepGrandEndpointTest.grandInhabHL
 
-/-- The expected conclusion of the depth-`n` endpoint of `grand` (call arguments `kD`), written out: a core run `(raw, D)` whose
-post-processing is `b`, and, under `BndAg`, the closed emitted texts (`DesignSV` of `checkedOptimize b` at depth `n`) show the source. -/
+/-- The expected conclusion of the depth-`n` endpoint of `grand` (call arguments `kD`), written out: the EXISTENCE of a module `raw` and a design `D`
+whose post-processing relation to `b` holds (GrandConcl contains NO `RunsTo` and NO equation with the input `design`, so it does
+not state that a core run happened; integrator wording, par/int-r36, per review), and, under `BndAg`, the closed emitted texts (`DesignSV` of `checkedOptimize b` at depth `n`) show the source. -/
 def GrandConcl (n kD : Nat) (mctx : Lean.Meta.Context) (mref : ST.Ref IO.RealWorld Lean.Meta.State)
     (cctx : Lean.Core.Context) (cref : ST.Ref IO.RealWorld Lean.Core.State) (w : Void IO.RealWorld)
     (b : Sparkle.IR.AST.Module) (design : Design) : Prop :=
@@ -82,6 +83,10 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   let ty := (← getConstInfo new).type
   forallTelescope ty fun xs concl => do
     unless xs.size == 11 do throwError "SR3s AUDIT FAILED: the endpoint has {xs.size} binders, expected 11 (mctx mref cctx cref w w' b design hr entry closes)"
+    -- (integrator, par/int-r36, per review) pin the binder NAMES in order, so the positional uses below (xs[0..7]) are the intended ones
+    let names ← xs.toList.mapM fun x => return (← x.fvarId!.getUserName).eraseMacroScopes.toString
+    unless names == ["mctx", "mref", "cctx", "cref", "w", "w'", "b", "design", "hr", "entry", "closes"] do
+      throwError "SR3s AUDIT FAILED: endpoint binder names are {names}, expected [mctx, mref, cctx, cref, w, w', b, design, hr, entry, closes]"
     let mk (n kD : Nat) : Lean.Expr :=
       mkAppN (mkConst ``GrandConcl) #[mkNatLit n, mkNatLit kD, xs[0]!, xs[1]!, xs[2]!, xs[3]!, xs[4]!, xs[6]!, xs[7]!]
     let exp := mk 2 1
