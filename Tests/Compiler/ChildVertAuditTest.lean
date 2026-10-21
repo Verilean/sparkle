@@ -4,6 +4,8 @@ import Tools.ShippingChildCacheA
 import Tools.ShippingChildCoreC
 import Tools.ShippingChildFrontA
 import Tools.ShippingChildDepthA
+import Tools.ShippingChildTeleCP
+import Tools.ShippingChildProjFieldA
 
 /-! # Audit: the vertical path does not use the old boundary (round par/vert)
 
@@ -120,7 +122,14 @@ def hits (s : NameSet) : List Name :=
 
 /-- The audited theorems. -/
 def audited : List Name :=
-  [``Tools.ShippingChildVertA.core_tripleA, ``Tools.ShippingChildVertA.certified_keepsA,
+  [``Tools.ShippingChildTeleCP.keeps_forallTelescopeReducing,
+   ``Tools.ShippingChildTeleCP.keeps_lambdaTelescope, ``Tools.ShippingChildTeleCP.keeps_withLocalDeclD,
+   ``Tools.ShippingChildTeleCP.keeps_withLetDecl,
+   ``Tools.ShippingChildTeleCP.keepsCP_forallTelescopeReducing,
+   ``Tools.ShippingChildTeleCP.keepsCP_lambdaTelescope, ``Tools.ShippingChildTeleCP.keepsCP_withLocalDeclD,
+   ``Tools.ShippingChildTeleCP.keepsCP_withLetDecl,
+   ``Tools.ShippingChildProjFieldA.projFieldNameA,
+   ``Tools.ShippingChildVertA.core_tripleA, ``Tools.ShippingChildVertA.certified_keepsA,
    ``Tools.ShippingChildVertA.finA,
    ``Tools.ShippingChildVCA.keepsA_mkExprCache_bind, ``Tools.ShippingChildVCA.keepsA_exprCacheGet,
    ``Tools.ShippingChildFresh.runsTo_mkRef_bind, ``Tools.ShippingChildFresh.runsTo_mkRefIO_bind,
