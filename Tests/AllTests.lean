@@ -337,6 +337,7 @@ import Tests.Compiler.LeafDesignClosedTest
 import Tests.Compiler.LeafDesignClosedATest
 import Tests.Compiler.StartWorldATest
 import Tests.Compiler.StartAtLoadTest
+import Tests.Compiler.InitFrameTest
 import Tests.Compiler.ParentDesignCheckATest
 import Tests.Compiler.KidsSelfCallerMixATest
 import Tests.Compiler.ComposedCallerMixATest
