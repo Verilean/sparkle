@@ -32,6 +32,7 @@ import Tools.ShippingLeafInputWidthsA
 import Tools.ShippingServedRealA
 import Tools.ShippingServedRealATrace
 import Tools.ShippingMachineDepthRunRA
+import Tools.ShippingMachineComposeRA
 import Tools.ShippingCallsCloseA
 import Tools.ShippingCallsGateA
 import Tools.ShippingChildPinC
@@ -288,6 +289,9 @@ def audited : List Name :=
    ``Tools.ShippingMachineDepthRunRA.machineRunNCA_of_real,
    ``Tools.ShippingMachineDepthRunRA.machineRunNCA_of_real_main,
    ``Tools.ShippingMachineDepthRunRA.machine_linkedT_callsRNA,
+   ``Tools.ShippingMachineComposeRA.machine_linked_callsRA,
+   ``Tools.ShippingMachineComposeRA.machineRunNA_of_NCA,
+   ``Tools.ShippingMachineComposeRA.machineRunNCA_of_NA,
    ``Tools.ShippingMachineOutcomeA.synthesizeFromConst_machine_splitA,
    ``Tools.ShippingMachineOutcomeA.core_machine_outcomeA,
    ``Tools.ShippingCallsCloseA.closeInstsM_runC,
