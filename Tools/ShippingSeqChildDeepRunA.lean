@@ -1,7 +1,7 @@
 import Tools.ShippingMachineDepthRunR
 import Tools.ShippingMachineDepthRunRA
 import Tools.ShippingMachineCallsLinkedTNR
--- BUILT (unit SR3s): s3 exit 0 (Tools.ShippingSeqChildDeepRunA, before the removal of an unused lemma; rebuilt in the final run).
+-- BUILT (unit SR3s): s3 exit 0 (first run exit 1: missing opens); rebuilt after removing an unused lemma as a dependency of s11/s13 (exit 0).
 /-! # Unit SR3s: a child with children of its own, at depth `n + 1`, on the NEW boundary
 
 * `seqChildRunN_of_composedCA`: `Tools.ShippingMachineDepthRun.seqChildRunN_of_composedC` with `MachineRunNCA O` (the run's

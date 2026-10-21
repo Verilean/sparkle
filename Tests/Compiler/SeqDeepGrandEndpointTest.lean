@@ -2,7 +2,11 @@ import Tests.Compiler.SeqDeepGrandKidFactsTest
 import Tests.Compiler.SeqParentGenTest
 import Tests.Compiler.ParentSeqComposedATest
 import Tools.ShippingSeqChildDeepRunA
--- BUILT (unit SR3s): see the report for the build names and exits (BUILT lines in the final run are authoritative).
+-- PREMISES carried INSIDE `BndAg` (an existential that stays in the conclusion; none is supplied here): `O : RefLawsAOps` and
+-- `T : RefLawsATele` (ADDED boundary), `AdmCtx O.quiet mctx cctx`, `MachineDefines` of `mid` and of `cnt`, a start world with
+-- `JQ O.quiet D₀ w`, and the cache invariant `D₀ = 0 ∨ CacheInvA O (cv w)`.  Outer Prop premises: `hr`, `entry`, `closes : True`.
+-- This is ONE concrete endpoint for `grand`, NOT a general depth-2 generator (the generator stays REFUSED).
+-- BUILT (unit SR3s): s4 exit 0 (mid part), s6 exit 0 (grand trace/soundL/composed), s8 exit 0 (hcalls on MachineRunNCA), s9 exit 0 (endpoint), s11 exit 0 (in-test audit), s13 exit 0 (final). Earlier runs of the same names exit 1 (missing opens, duplicated block, `interval_cases`, decoded_eq source).  In-test audit THROWS on failure.
 -- SCOPE (binding): `grand -> mid -> cnt`, from ONE core run of `grand`: the trace `ServedRealA`, `soundL` (MachineTraceLB) and
 -- `composed` (depth 2, `ComposedG`) of `grand`, on the new boundary.  The depth-1 `composed` of the child `mid` is proved on the new
 -- boundary (`mid_composedA`, with its own callee `cnt`), turned into `SeqChildRunN` at depth 2 (`seqChildRunN_of_composedCA`), and
@@ -362,10 +366,13 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   let expected := ["hr : Tools.ShippingEntrySoundness.RunsTo", "entry : Tools.ShippingMachineEntry.MachineDefines", "closes : True"]
   unless premises.toList == expected do throwError "SR3s AUDIT FAILED: outer Prop premises are {premises}, expected {expected}"
   let cl ← depClosure new
-  let bad := hits cl ++ cl.toList.filter fun c =>
-    [`Tools.ShippingChildInv.ChildBnd, `Tools.ShippingChildInv.StartV, `Tools.ShippingGenKid.GenKid,
-     `Tools.ShippingKidFacts.KidFacts, `Tools.ShippingMachineDepthRun.MachineRunNC, `Tools.ShippingMachineDepthRun.machineRunNC_of_real,
-     `Tools.ShippingMachineDepthRunR.seqChildRunN_of_composedC].any (·.isPrefixOf c)
+  -- the forbidden names are RESOLVED first: a name that does not exist would audit nothing
+  let forbidden : List Name := [`Tools.ShippingChildInv.ChildBnd, `Tools.ShippingChildInv.StartV, `Tools.ShippingGenKid.GenKid,
+    `Tools.ShippingKidFacts.KidFacts, `Tools.ShippingMachineDepthRun.MachineRunNC,
+    `Tools.ShippingMachineDepthRun.machineRunNC_of_real, `Tools.ShippingMachineDepthRun.seqChildRunN_of_composedC]
+  for f in forbidden do
+    unless (← getEnv).contains f do throwError "SR3s AUDIT FAILED: the forbidden name {f} does not exist (the audit would check nothing)"
+  let bad := hits cl ++ cl.toList.filter fun c => forbidden.any (·.isPrefixOf c)
   unless bad.isEmpty do throwError "{new}: old boundary / old child predicate in closure: {bad}"
   for must in [``grand_soundLA, ``grand_composedA, ``grand_traceXA, ``mid_composedA, ``mid_seqChildRunN2, ``grand_designCheck,
       ``grand_runFacts, ``grand_outsCheck, ``grand_kidsMasked, ``grand_closesA, ``mid_ifaceP, ``Tests.Compiler.SeqDeepMidKidFactsTest.mid_kidFactsA,
@@ -379,6 +386,6 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     throwError "SR3s AUDIT FAILED: the old grand.machine_composedNR2 constant is in the closure"
   let (_, concl) ← forallTelescope ty fun _ c => pure ((), c)
   unless (concl.find? (·.isConstOf ``BndAg)).isSome do throwError "SR3s AUDIT FAILED: BndAg not in the conclusion"
-  logInfo m!"SR3s AUDIT OK: {new}: standard axioms; outer Prop premises ASSERTED {premises}; soundL, composed, houtTy and the four checks are no longer premises; closure {cl.size} constants, none of ChildBnd/StartV/GenKid/old KidFacts/MachineRunNC/seqChildRunN_of_composedC; BndAg stays in the conclusion"
+  logInfo m!"SR3s AUDIT OK: {new}: standard axioms; outer Prop premises ASSERTED {premises}; soundL, composed, houtTy and the four checks are no longer premises; closure {cl.size} constants, none of ChildBnd/StartV/GenKid/old KidFacts/MachineRunNC/machineRunNC_of_real/seqChildRunN_of_composedC (each forbidden name resolved in the environment first); BndAg stays in the conclusion"
 
 end Tests.Compiler.SeqDeepGrandEndpointTest
