@@ -855,3 +855,5 @@ Round 2c (par/int-r5 = par/int-r4 + L1 + G2 + L2; par/int-r6 = par/int-r5 + T1 +
 | int-r5a | 34a1ac2a (+ L1, G2) | ChildVertAuditTest | 0 (530 jobs) |
 | int-r5b | 8cd9f058 (+ L2, duplicate `entryStrict_realA` dropped) | ChildVertAuditTest, then Tests.AllTests | 0 (531 jobs) / 0 (1499 jobs) |
 | int-r6a | 62e03dc5 + uncommitted parent-widths file (committed next, comments changed only) | ChildVertAuditTest | 0 (534 jobs) |
+| int-r6b | 6b69198b (par/int-r6 final) | ChildVertAuditTest, then Tests.AllTests | 0 (534 jobs) / 0 (1502 jobs) |
+| pwtl-a | 6b69198b + `parent_children_widths_realA_main_tl` (branch par/u-pw-tl) | ChildVertAuditTest | 0 (535 jobs) |
