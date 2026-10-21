@@ -2,11 +2,11 @@ import Tools.ShippingStartAtLoad
 import Tests.Compiler.ChildVertAuditTest
 -- UNBUILT (unit RT1): EVIDENCE + audit.
 
-/-! Unit RT1 (L9c). (1) EXECUTED CHECK (evidence only, NOT a proof): in the elaborating process that has
+/-! Unit RT1 (L9c). (1) EXECUTED CHECK (evidence about the LOADED state in this process, NOT a proof of the proposition "right after initialization"): in the elaborating process that has
 imported `Sparkle.Compiler.Elab`, the module `initialize`s have run, so `sparkleChildSynth` holds `some _`
 and `sparkleSynthDepth` holds `0` (the other tracked ref `sparkleChildCache` is empty). The stored
 function is not compared with `synthesizeChild` (no decidable equality of closures). This observes ONE
-process at ONE moment; it does not establish `GetSpec`/`SetSynthSpec`/`MkRefSpec`, nor runtime fit.
+process at ONE moment; it does not establish `GetSpec`/`SetSynthSpec`/`MkRefTrace`/`InitHeapRel`, nor runtime fit.
 (2) Closure audit of the new theorems and the Prop-binder check. -/
 
 open Lean Meta Elab Sparkle.Compiler.Elab in
@@ -50,5 +50,33 @@ run_meta do
     unless hs == exp do throwError "BINDER AUDIT FAILED {n}: {hs} expected {exp}"
     logInfo m!"binder audit {n}: {hs}"
   chk ``Tools.ShippingStartAtLoad.startAtLoad_of_corr
-    ["Tools.ShippingStartAtLoad.MkRefSpec", "Tools.ShippingStartAtLoad.GetSpec",
+    ["Tools.ShippingStartAtLoad.MkRefTrace", "Tools.ShippingStartAtLoad.InitHeapRel", "Tools.ShippingStartAtLoad.GetSpec",
      "Tools.ShippingStartAtLoad.SetSynthSpec", "Tools.ShippingStartAtLoad.QuietSpec", "?"]
+
+/-! The corollary keeps `OtherCodeKeeps`, `AdmCtx`, `BodyStepC` as listed premises (not supplied implicitly), and
+its chain starts at `loadW wS` for the SAME `O` (hence the same `mref`/`cref`) as the entry steps. The new premises
+are about primitives (`MkRefTrace`, `InitHeapRel`, `GetSpec`, `SetSynthSpec`, `QuietSpec`), not `StartAtLoad`
+restated: none of them mentions `StartAtLoad`/`StartContents`. -/
+open Lean Meta Elab in
+run_meta do
+  let n := ``Tools.ShippingStartAtLoad.startContents_session_rt
+  let hs ← propHeads n
+  let exp := ["Tools.ShippingChildInvA.AdmCtx", "Tools.ShippingChildDepthC.BodyStepC",
+    "Tools.ShippingStartWorldA2.OtherCodeKeeps", "Tools.ShippingStartAtLoad.MkRefTrace",
+    "Tools.ShippingStartAtLoad.InitHeapRel", "Tools.ShippingStartAtLoad.GetSpec",
+    "Tools.ShippingStartAtLoad.SetSynthSpec", "Tools.ShippingStartAtLoad.QuietSpec", "?",
+    "Tools.ShippingStartWorldA2.Chain"]
+  unless hs == exp do throwError "BINDER AUDIT FAILED {n}: {hs}"
+  let ci ← getConstInfo n
+  let cl ← Tests.Compiler.ChildVertAuditTest.depClosure n
+  logInfo m!"binder audit {n}: {hs}"
+  -- the premise props do not mention StartAtLoad / StartContents
+  for p in [``Tools.ShippingStartAtLoad.MkRefTrace, ``Tools.ShippingStartAtLoad.InitHeapRel,
+      ``Tools.ShippingStartAtLoad.GetSpec, ``Tools.ShippingStartAtLoad.SetSynthSpec,
+      ``Tools.ShippingStartAtLoad.QuietSpec] do
+    let some pi := (← getEnv).find? p | throwError "{p}"
+    let v := pi.value?.getD pi.type
+    let used := v.getUsedConstants
+    if used.contains ``Tools.ShippingStartWorldA2.StartAtLoad || used.contains ``Tools.ShippingStartWorldA.StartContents then
+      throwError "{p} mentions StartAtLoad/StartContents (restatement)"
+  logInfo m!"PREMISES NOT A RESTATEMENT OK (closure {cl.size}, {ci.name})"
