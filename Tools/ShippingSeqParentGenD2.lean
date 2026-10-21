@@ -476,7 +476,7 @@ theorem _root_.@P@.epD2_C_traceXA {w w' : Void IO.RealWorld} {m : Sparkle.IR.AST
     (fun i => i) @C@.machineInits @C@.machineBody @C@.machineResult
     @C@.machineExt @C@.machineExtB @C@.machineSource @C@.machine_ok @C@.machine_body @C@.machine_inits
     @C@.machine_writes @C@.machine_result @C@.machine_source @P@.epD2_C_hcausal
-    mctx mref cctx cref O (bodyStepC_of_tele O T) hA (D₀ + 1) (htr_of_tele O hA T D₀) m design
+    O (bodyStepC_of_tele O T) hA (n := D₀ + 1) (htr_of_tele O hA T D₀) (m := m) (design := design)
     (machineRunJQC_of_closesA O hA hcore entry (@P@.epD2_C_closesA O T hA hR0) hw hc)
 
 theorem _root_.@P@.epD2_C_hcalls (m : Sparkle.IR.AST.Module) (design : Sparkle.IR.AST.Design) :
@@ -533,7 +533,7 @@ theorem _root_.@P@.epD2_C_composedA {w w' : Void IO.RealWorld} {m : Sparkle.IR.A
 
 theorem _root_.@P@.epD2_C_seqChildRunN2 (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATele O.quiet mref cref)
     {mc : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
-    (h : Tools.ShippingMachineDepthRun.MachineRunNCA O ``@C@ @C@.machineData.shape (@P@.epD2_C_Bnd mref cref) mc design) :
+    (h : Tools.ShippingMachineDepthRunRA.MachineRunNCA O ``@C@ @C@.machineData.shape (@P@.epD2_C_Bnd mref cref) mc design) :
     Tools.ShippingMachineDepth.SeqChildRunN (childMap design.modules) design 2 mc (List.take @KC@ @C@.machineData.bsIn)
       @C@.machineData.shape.layout.outs
       (fun vals => @C@.machineSource Sparkle.Core.Domain.defaultDomain
@@ -572,7 +572,7 @@ theorem _root_.@P@.epD2_traceXA {w w' : Void IO.RealWorld} {m : Sparkle.IR.AST.M
     (fun _ : Unit => Sparkle.Core.Domain.defaultDomain) @P@.machineInits @P@.machineBody @P@.machineResult
     @P@.machineExt @P@.machineExtB @P@.machineSource @P@.machine_ok @P@.machine_body @P@.machine_inits
     @P@.machine_writes @P@.machine_result @P@.machine_source @P@.epD2_hcausal
-    mctx mref cctx cref O (bodyStepC_of_tele O T) hA (D₀ + 1) (htr_of_tele O hA T D₀) m design
+    O (bodyStepC_of_tele O T) hA (n := D₀ + 1) (htr_of_tele O hA T D₀) (m := m) (design := design)
     (machineRunJQC_of_closesA O hA hcore entry (@P@.epD2_closesA O T hA hM hR0) hw hc)
 
 theorem _root_.@P@.epD2_soundLA {w w' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
@@ -809,8 +809,7 @@ def subst2 (s : String) (p : D2Params) : String :=
 (`first` over the candidates; a wrong candidate fails at `rfl`). -/
 def composedCases (p : D2Params) : String :=
   let alts := (List.range p.nOutsC).map fun K =>
-    s!"(refine ⟨rfl, {p.args}, rfl, (fun mc hmc => ⟨@P@.epD2_C_seqChildRunN2 O T hmc, by rw [(@P@.epD2_C_seqChildRunN2 O T hmc).2.2.2.2.2.1]; decide⟩), L, R, {K}, _, _, rfl, rfl, ?_, fun τ => rfl⟩
-         exact (congrArg (fun l => l[{K}]?) (Tools.ShippingMachineCallsLinkedT.decoded_eq (@C@.machineSource Sparkle.Core.Domain.defaultDomain) Hb Hv)).trans rfl)"
+    s!"(refine ⟨rfl, {p.args}, rfl, (fun mc hmc => ⟨@P@.epD2_C_seqChildRunN2 O T hmc, by rw [(@P@.epD2_C_seqChildRunN2 O T hmc).2.2.2.2.2.1]; decide⟩), L, R, {K}, _, _, rfl, rfl, ?_, fun τ => rfl⟩; exact (congrArg (fun l => l[{K}]?) (Tools.ShippingMachineCallsLinkedT.decoded_eq (@C@.machineSource Sparkle.Core.Domain.defaultDomain) Hb Hv)).trans rfl)"
   let one := "· first\n" ++ "\n".intercalate (alts.map fun a => "    | " ++ a)
   "\n".intercalate ((List.range p.mP).map fun _ => one)
 

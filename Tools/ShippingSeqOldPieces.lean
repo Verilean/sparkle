@@ -32,8 +32,7 @@ def namedArgs (app : Expr) : MetaM (Array (Name × Expr)) := do
     return r
 
 /-- Replace the old binders `ys` occurring in `r` by the locals of the same user name; reject stray free variables. -/
-def rebind (who : String) (ys : Array Expr) (r : Expr) : MetaM Expr := do
-  let lctx0 ← getLCtx
+def rebind (who : String) (lctx0 : LocalContext) (ys : Array Expr) (r : Expr) : MetaM Expr := do
   let mut r := r
   for y in ys do
     if r.containsFVar y.fvarId! then
@@ -75,7 +74,8 @@ def findHeadApp? (e : Expr) (head : Name) : Option Expr :=
   e.find? fun x => x.isApp && x.getAppFn.isConstOf head
 
 /-- The argument of the binder `bn` of the first application of `head` in the value of `thm`. -/
-def namedArgOf (who : String) (thm : Ident) (head : Ident) (bn : Name) (k : Array Expr → Expr → MetaM Expr) : TermElabM Expr := do
+def namedArgOf (who : String) (thm : Ident) (head : Ident) (bn : Name) (k : LocalContext → Array Expr → Expr → MetaM Expr) : TermElabM Expr := do
+  let lctx0 ← getLCtx
   let hd ← realizeGlobalConstNoOverload head
   let v ← getThmValue who thm
   lambdaTelescope v fun ys body => do
@@ -83,12 +83,12 @@ def namedArgOf (who : String) (thm : Ident) (head : Ident) (bn : Name) (k : Arra
     let tbl ← namedArgs app
     let hits := tbl.filter (·.1 == bn)
     unless hits.size == 1 do throwError "{who}: the binder `{bn}` of {hd} occurs {hits.size} times (expected exactly 1)"
-    k ys hits[0]!.2
+    k lctx0 ys hits[0]!.2
 
 elab "oldNamed% " "(" ty:term ")" thm:ident head:ident bn:ident : term => do
   let ty? ← elabTy? ty
-  let r ← namedArgOf "oldNamed%" thm head bn.getId fun ys a => do
-    let r ← rebind "oldNamed%" ys a
+  let r ← namedArgOf "oldNamed%" thm head bn.getId fun lctx0 ys a => do
+    let r ← rebind "oldNamed%" lctx0 ys a
     return r
   checkTyped "oldNamed%" r ty?
   return r
@@ -102,7 +102,7 @@ def lamNames : Expr → List Name
 the argument of the beta-redex whose LAMBDA BINDER is named `fact` (no position is chosen by the caller). -/
 elab "oldGroupFact% " "(" ty:term ")" thm:ident head:ident bn:ident fact:ident : term => do
   let ty? ← elabTy? ty
-  let r ← namedArgOf "oldGroupFact%" thm head bn.getId fun ys a => do
+  let r ← namedArgOf "oldGroupFact%" thm head bn.getId fun lctx0 ys a => do
     lambdaTelescope a fun zs inner => do
       let f := inner.getAppFn
       unless f.isLambda do throwError "oldGroupFact%: the body of `{bn.getId}` is not a beta-redex: {f}"
@@ -110,7 +110,7 @@ elab "oldGroupFact% " "(" ty:term ")" thm:ident head:ident bn:ident fact:ident :
       let hits := (names.zip inner.getAppArgs.toList).filter (·.1 == fact.getId)
       unless hits.length == 1 do
         throwError "oldGroupFact%: the redex binders are {names}; `{fact.getId}` occurs {hits.length} times (expected exactly 1)"
-      rebind "oldGroupFact%" (ys ++ zs) hits.head!.2
+      rebind "oldGroupFact%" lctx0 (ys ++ zs) hits.head!.2
   checkTyped "oldGroupFact%" r ty?
   return r
 
@@ -119,6 +119,7 @@ elab "oldInst% " "(" ty:term ")" thm:ident head:ident : term => do
   let ty? ← elabTy? ty
   let hd ← realizeGlobalConstNoOverload head
   let v ← getThmValue "oldInst%" thm
+  let lctx0 ← getLCtx
   let r ← lambdaTelescope v fun ys body => do
     let some app := findHeadApp? body hd | throwError "oldInst%: {hd} does not occur in the value of {thm.getId}"
     let ci ← getConstInfo hd
@@ -129,7 +130,7 @@ elab "oldInst% " "(" ty:term ")" thm:ident head:ident : term => do
         if (← xs[i]!.fvarId!.getDecl).binderInfo == BinderInfo.instImplicit then r := r.push app.getAppArgs[i]!
       return r
     unless insts.size == 1 do throwError "oldInst%: expected exactly one instance-implicit binder of {hd}, found {insts.size}"
-    rebind "oldInst%" ys insts[0]!
+    rebind "oldInst%" lctx0 ys insts[0]!
   checkTyped "oldInst%" r ty?
   return r
 
