@@ -13,7 +13,7 @@ module registers a SECOND elaborator for the same command syntax: for a declarat
 over (generate, or REFUSE with a stated reason); for every other declaration it throws `unsupportedSyntax` and the depth-1 elaborator
 runs as before.
 
-## The TARGET CLASS (exact; each condition is checked, a declaration outside it is REFUSED, never silently narrowed)
+## The TARGET CLASS (exact; each condition is checked and a declaration outside it is REFUSED, never silently narrowed — EXCEPT memory, see the NOTE below)
 
 `P -> C -> G`, with `P` the parent (root), `C` its callee that has calls of its own, `G` the callee of `C`:
 * `P` is a top-level machine (its `machineSource` is indexed by `Unit`), with at least one call instance, `instFields <> []`, no memory;
@@ -26,6 +26,8 @@ runs as before.
 * `kP` = own input ports of `P` (`bsIn.length - insts.length`), `kC` likewise for `C` (it counts the `dom` binder); depth is 2 (`n = 2`).
 The facts about the shapes that the proofs need (closing, name separation, widths, argument counts, ...) are `decide`d INSIDE the
 generated declarations: a declaration inside the class whose data fail one of them makes the generated command fail loudly.
+NOTE (integrator, par/int-r39, per review): "no memory" is NOT checked up front with a `REFUSED` message; a memory declaration only
+stops when one of those `decide`s fails (a safe stop without a stated reason; no non-generation test for it yet).
 
 ## REFUSALS (each with its reason; message prefix `REFUSED`)
 several different callees of `P` / of `C`; a callee of `G` (depth 3); different argument lists among `P`'s calls (several groups);

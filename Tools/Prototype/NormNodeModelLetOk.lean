@@ -368,8 +368,9 @@ theorem machNormNodeP_shipped (senv : StructEnv) (e : Lean.Expr) :
       machNormNode senv e := rfl
 
 /-- OPEN (production correspondence; PREMISE, NOT proved): on `LetOk 0` inputs the shipped node rewriter agrees with the
-isolated-path model. It holds iff the shipped `machLiftScalarN`/`machBoolMap` agree with `execLift`/`boolMapModel` on the
-calls the rewriter makes; no equation for the `partial def`s exists in the kernel. -/
+isolated-path model. Agreement of the shipped `machLiftScalarN`/`machBoolMap` with `execLift`/`boolMapModel` on the calls the
+rewriter makes would be a SUFFICIENT condition for it (that derivation is not written here; necessity is NOT claimed); the
+correspondence itself is NOT proved, and no equation for the `partial def`s exists in the kernel (integrator wording, par/int-r39). -/
 def NodeCorr (senv : StructEnv) : Prop :=
   ∀ e : Lean.Expr, LetOk 0 e = true → machNormNode senv e = machNormNodeM senv e
 

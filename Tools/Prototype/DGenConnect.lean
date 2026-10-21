@@ -17,7 +17,9 @@ So `d`, `d.ok` and `hbody` come from the generator (PROVED by the kernel per dec
 THE EXACT GAP (named, not hidden): `ShippedToProto E senv shape` — whenever `machineShape?` returns `shape` on `(E, senv)`,
 `machineShapeN` returns `some (some shape)` there.  This is the shipped↔prototype correspondence for ONE input (OPEN, a PREMISE;
 the same family as `TwinCoverAt`).  `dgen_connect` is the composition: it PROVES that `MachineDefines` + `ShippedToProto` at the
-two environments the definition reads + the generator's `d.ok`/`hbody` turn A's premises into `d.letsAliasOk` and `LetsClose`. -/
+two environments the definition reads + the generator's `d.ok`/`hbody` turn A's premises into `d.letsAliasOk` and `LetsClose`.
+On this chosen route (shipped `machineShape?` vs prototype `machineShapeN`) the connection is NOT proved without the correspondence
+premise `ShippedToProto`; that is a statement about this route, not a claim that it is underivable (integrator wording, par/int-r39). -/
 namespace Tools.Prototype.DGenConnect
 open Lean Sparkle.Compiler.Elab Tools.ShippingMachineEntry Tools.ShippingMachineAuto Tools.ShippingUnifiedSource
 open Tools.ShippingMixedSourceBridge Tools.ShippingEntrySoundness Tools.Prototype.StartDomOk
@@ -32,7 +34,9 @@ def ShippedToProto (E : Lean.ConstantInfo) (senv : StructEnv) (shape : MachineSh
 /-- PREMISE (ii), NOT a kernel fact: what `readMachine` COMPUTED at generation time was this `d`'s shape — the shipped
 `machineShape?` on the entry constant `E` of the declaration in the GENERATION environment (`structEnv envG`) returns `d.shape`.
 (i) `d.ok = true` and `hbody` are kernel-checked about the stored constant `d` whatever produced it; (ii) says the shipped reader
-returns THAT `d`'s shape.  (i) does not imply (ii); `dgen_connect_gen` takes (ii) explicitly. -/
+returns THAT `d`'s shape.  (i) does not imply (ii); `dgen_connect_gen` takes (ii) explicitly.
+`E` and `envG` are ARBITRARY binders here: nothing in this file ties them to the actual entry constant of the generated
+declaration or to the actual environment of the generation run (provenance OPEN; integrator wording, par/int-r39). -/
 def GenReadsShape (E : Lean.ConstantInfo) (envG : Lean.Environment) (d : MachineData) : Prop :=
   machineShape? false [] E (structEnv envG) = some d.shape
 

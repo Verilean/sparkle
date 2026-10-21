@@ -53,7 +53,9 @@ run_meta (Tools.Prototype.ReaderExec.auditPropBinders ``Tests.Compiler.DGenToggl
   ["RootFloatRange", "LiftRange", "Inst1Range", "ZeroLitAgrees", "EqvLetOk0", "SigTyRange", "RawNodeRange",
     "NormNodeRange", "MachineDefines", "RunsTo", "RunsTo", "RunsTo", "Eq", "ShippedToProto"])
 
-/-- The generation-environment consumer on the SAME `d := toggle.machineData`: `hgen` (ii) and `ShippedToProto` are premises. -/
+/-- The generation-environment consumer on the SAME `d := toggle.machineData`: `hgen` (ii) and `ShippedToProto` are premises.
+Only `d` is fixed (toggle's stored data); `E`/`envG` are arbitrary binders, NOT claimed to be toggle's entry constant or the real
+generation environment (provenance OPEN; integrator wording, par/int-r39). -/
 theorem toggle_connected_gen
     (hroot : RootFloatRange) (hlift : LiftRange) (hinst1 : Inst1Range) (hz : ZeroLitAgrees) (hE : EqvLetOk0)
     (hsig : ∀ senv, SigTyRange senv) (hraw : ∀ senv, RawNodeRange senv) (hnode : ∀ senv, NormNodeRange senv)
