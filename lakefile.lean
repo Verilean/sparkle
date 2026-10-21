@@ -3694,3 +3694,9 @@ lean_lib «Tools.Prototype.NormNodeModelLetOk» where
 
 lean_lib «Tests.Compiler.LiftExecAgreeTest» where
   roots := #[`Tests.Compiler.LiftExecAgreeTest]
+
+lean_lib «Tools.Prototype.DGenConnect» where
+  roots := #[`Tools.Prototype.DGenConnect]
+
+lean_lib «Tests.Compiler.DGenToggleTest» where
+  roots := #[`Tests.Compiler.DGenToggleTest]
