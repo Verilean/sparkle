@@ -1,5 +1,7 @@
 import Tools.ShippingChildCacheA
 import Tools.ShippingCallWidthsChildReal
+import Tools.ShippingP5Forall
+-- L1 additions (entryStrict_realA, childLink_realFA): see bottom; build log in REPORT-L1.md.
 -- BUILT (unit K, par/u-k): k2 exit 0 (Tools.ShippingChildLinkA); audit k3 exit 0 (Tests.Compiler.ChildVertAuditTest:
 -- no RefLaws/RefLawsCore/toAOps/toA in the closure; axioms propext, Classical.choice, Quot.sound).
 -- No `sorry`, no `axiom`, no `native_decide`, no new law.
@@ -25,7 +27,7 @@ open Lean Meta
 open Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Machine
 open Tools.ShippingEntrySoundness Tools.ShippingMachineEntry Tools.ShippingMachineAuto
 open Tools.ShippingChildInv Tools.ShippingChildInvA Tools.ShippingChildFresh Tools.ShippingChildCacheA Tools.ShippingCallWidthsEntry
-open Tools.ShippingCallWidthsChildReal
+open Tools.ShippingCallWidthsChildReal Tools.ShippingCallWidthsDeclared
 
 variable {Fresh : (σ : Type) → IO.Ref σ → Prop} {mref : ST.Ref IO.RealWorld Meta.State}
   {cref : ST.Ref IO.RealWorld Core.State} {mctx : Meta.Context} {cctx : Core.Context}
@@ -52,5 +54,39 @@ theorem childLink_realA {O : RefLawsAOps Fresh mref cref} {c : Name} {sc : Machi
     exact ⟨dE, _, hshape,
       resC_entry hE (fun dD hci => ResD mctx' cctx' w1' ci w2' dD get hci)
         (fun dD hci hne => P5 mctx' cctx' w1' ci w2' w5' envR w6' dD get henv hci hne)⟩
+
+/-- **`entryStrict_real` for `RealChildA`.** `entryStrict_of_child` composed with `childLink_realA`;
+premises otherwise exactly those of `entryStrict_real`. States the strictness conjunct
+`entryStrict d (closingNDecl d.shape) kidOuts k = true` only (from the callee's recorded
+shape/result-kind existence); nothing about the meaning of `y` or its ports. `RealChildA` is a
+history of a past synthesis run, not current-environment correctness. -/
+theorem entryStrict_realA {O : RefLawsAOps Fresh mref cref} {d : MachineData}
+    {kidOuts : Nat → List OutField} {k : Nat}
+    {c : Name} {sc : MachineShape} {res : MixedGateBinder} {y : Res}
+    (hkid : kidOuts k = sc.layout.outs)
+    (entry : MachineDefines mctx mref cctx cref c sc)
+    (ResD : ResDeclAt mref cref c res) (P5 : P5At mref cref c res)
+    (hy : RealChildA O c y)
+    (PB : (d.shape.binders[closingNDecl d.shape + k]?).map (fun bn => kindTy bn.2) =
+      some (machHWType res)) :
+    entryStrict d (closingNDecl d.shape) kidOuts k = true := by
+  obtain ⟨dE, senv, hL, hR⟩ := childLink_realA entry ResD P5 hy
+  exact entryStrict_of_child hL hR hkid PB
+
+/-- **`childLink_realF` for `RealChildA`.** `P5` replaced by the switch hypothesis `SwitchF` plus
+the localised `ReadConstsAt`, for `∀`-typed callees; CONDITIONAL on `SwitchF`. Same conclusion as
+`childLink_realA` (existence of shape/result kind only). -/
+theorem childLink_realFA {O : RefLawsAOps Fresh mref cref} {c : Name} {sc : MachineShape}
+    {res : MixedGateBinder} {y : Res}
+    (entry : MachineDefines mctx mref cctx cref c sc)
+    (RD : Tools.ShippingP5Forall.ResDeclFAt mref cref c res)
+    (RC : Tools.ShippingP5Forall.ReadConstsAt mref cref)
+    (hsw : Tools.ShippingP5Forall.SwitchF)
+    (hy : RealChildA O c y) :
+    ∃ (dE : DefinitionVal) (senv : StructEnv),
+      machineShape? false [] (.defnInfo dE) senv = some sc ∧
+      machResultKind? dE.type = some res :=
+  childLink_realA entry (Tools.ShippingP5Forall.resDeclAt_of_resDeclF RD)
+    (Tools.ShippingP5Forall.p5At_of_switch hsw RD RC) hy
 
 end Tools.ShippingChildLinkA

@@ -224,7 +224,8 @@ def audited : List Name :=
    ``Tools.ShippingChildRunA.machine_run_of_coreA,
    ``Tools.ShippingChildRunAKids.closeInstsGM_realC, ``Tools.ShippingChildRunAKids.synthesizeMachineCertified_runsA,
    ``Tools.ShippingChildRunAKids.machine_children_realA',
-   ``Tools.ShippingChildLinkA.childLink_realA]
+   ``Tools.ShippingChildLinkA.childLink_realA,
+   ``Tools.ShippingChildLinkA.entryStrict_realA, ``Tools.ShippingChildLinkA.childLink_realFA]
 
 end Tests.Compiler.ChildVertAuditTest
 
