@@ -25,12 +25,12 @@ every depth here: inside the step at `D`, from `hC : ChildKeepsA O D`,
     hC ─(D2 bridge childEntryA_JQ_of_childSynthA)→ ChildEntryA O (JQ D)
        ─(B legacyImplA_of_tele, with A canonKeyA, T)→ LegacyImplA O (JQ D)
        ─(A legacyCachedA_of_impl)→ LegacyCachedA O (JQ D);  C projFieldNameA T → ProjFieldNameA
-       ─(D bodyKeepsA_frontends, with LegacyTailA)→ BodyKeepsA O D,
+       ─(D bodyKeepsA_frontends, with LegacyTailA)→ BodyKeepsA O D.
 
-and the induction (`childKeepsA_all`, DepthA) runs on that step. Remaining premises:
-`T` (the added telescope boundary) and `LegacyTailA O D` for every `D` (a premise about EVERY
-constant on which both gates miss — it stays in the type also for machine-route constants).
-NOT here: the child-cache invariant (`JQC`, unit E), runtime fit of the laws, the model→ST
+This file states only that STEP, with `LegacyTailA O D` as an argument. The induction
+(`childKeepsA_all`, DepthA) and the tail itself (built from the same `hC` by B3
+`legacyTailA_of_step`) are in Tools/ShippingChildMainA.lean, whose `core_tripleA_main` has no tail
+premise. NOT here: the child-cache invariant (`JQC`, unit E), runtime fit of the laws, the model→ST
 correspondence (open). -/
 
 namespace Tools.ShippingChildComposeA

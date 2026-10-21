@@ -1,8 +1,8 @@
 import Tools.ShippingChildComposeA
 import Tools.ShippingChildLegacyTailA
--- UNBUILT after the integrator's final connection (par/int-r3): the step-form tail hypothesis was
--- replaced by B3's `legacyTailA_of_step`. Earlier: BUILT (unit F2) f2b/f2c exit 0, int-r2f exit 0.
--- no `native_decide`, no new law. Boundary: `O : RefLawsAOps MkRefd mref cref`,
+-- BUILT after the integrator's final connection (par/int-r3, the step-form tail hypothesis
+-- replaced by B3's `legacyTailA_of_step`): int-r3a exit 0 at 0eaf1602 (audit test). Earlier: BUILT
+-- (unit F2) f2b/f2c exit 0, int-r2f exit 0. No `sorry`, no `axiom`, no `native_decide`, no new law. Boundary: `O : RefLawsAOps MkRefd mref cref`,
 -- `hA : AdmCtx O.quiet mctx cctx`, the ADDED unproved `T : RefLawsATele O.quiet mref cref`
 -- (logical inconsistency NOT PROVEN).
 

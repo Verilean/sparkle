@@ -5,8 +5,8 @@ import Tools.ShippingChildLegacyCachedA
 import Tools.ShippingChildCanonKeyA
 import Tools.ShippingChildProjFieldA
 import Tools.ShippingChildLegacyTailA
--- UNBUILT after the integrator's final connection (par/int-r3): `LegacyTailC` replaced by B3's
--- `legacyTailA_generic` at `JQC`. Earlier: BUILT (unit E2) e4 exit 1, e5 exit 0; audit e8 exit 0; int-r2f exit 0. No `sorry`, no `axiom`, no `native_decide`, no new law.
+-- BUILT after the integrator's final connection (par/int-r3, `LegacyTailC` replaced by B3's
+-- `legacyTailA_generic` at `JQC`): int-r3a exit 0 at 0eaf1602 (audit test). Earlier: BUILT (unit E2) e4 exit 1, e5 exit 0; audit e8 exit 0; int-r2f exit 0. No `sorry`, no `axiom`, no `native_decide`, no new law.
 -- What this does NOT show: the laws (`RefLawsAOps` fields, `RefLawsATele`) describe a NON-TRIVIAL
 -- runtime model of MetaM/IO; that the real runtime satisfies them (runtime fit) is NOT PROVEN, and
 -- their joint satisfiability is NOT PROVEN. `RealChildA` is a history of past synthesis results,
