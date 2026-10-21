@@ -93,6 +93,8 @@ partial def Tests.Compiler.CallerTwiceATest.reachC (env : Environment) (todo : L
       | some ci =>
         let v := match ci with
           | .defnInfo d => d.value.getUsedConstants.toList
+          | .thmInfo t => t.value.getUsedConstants.toList     -- theorem bodies (the roots are theorems)
+          | .opaqueInfo o => o.value.getUsedConstants.toList  -- opaque bodies
           | _ => []
         reachC env (ci.type.getUsedConstants.toList ++ v ++ rest) seen
       | none => reachC env rest seen
@@ -123,11 +125,12 @@ run_cmd Lean.Elab.Command.liftTermElabM do
       let l := (n.components.getLast?.map (·.toString)).getD ""
       if l == "toAOps" || l == "toA" || l == "ChildBnd" || l == "StartV" then
         throwError "{thm} reaches {n}"
-    -- old/new conclusion: the same declaration and the same shape
+    -- old/new: SYNTACTIC comparison of the conclusion's last two arguments (declName, shape) only;
+    -- NOT a defeq check of the whole conclusion (the old and new boundary predicates differ)
     let tn ← forallTelescope (← getConstInfo thm).type fun _ b => pure b
     let to ← forallTelescope (← getConstInfo old).type fun _ b => pure b
     let an := tn.getAppArgs
     let ao := to.getAppArgs
     unless an.back! == ao.back! && an[an.size - 2]! == ao[ao.size - 2]! do
       throwError "{thm}: declName/shape differ from {old}: {an.back!} vs {ao.back!}"
-  Lean.logInfo m!"CT: callerRep (pick, pick; repeated callee) and callerTwice (one instance) have MachineClosesAtA via machineClosesAtA_of_gateKids' (no hnodup); standard axioms; closure free of RefLaws/RefLawsCore/MachineClosesAt/toAOps/ChildBnd/StartV; same declaration and shape as the old machine_closes_at. Premises: O, hA, T, EntryDefines pick. Not a runtime-fit proof."
+  Lean.logInfo m!"CT: callerRep (pick, pick; repeated callee) and callerTwice (one instance) have MachineClosesAtA via machineClosesAtA_of_gateKids' (no hnodup); standard axioms; closure free of RefLaws/RefLawsCore/MachineClosesAt/toAOps/ChildBnd/StartV; the conclusion's last two arguments (declName, shape) are syntactically those of the old machine_closes_at (argument comparison only, not conclusion defeq: MachineClosesAtA vs MachineClosesAt differ). Premises: O, hA, T, EntryDefines pick. Not a runtime-fit proof."

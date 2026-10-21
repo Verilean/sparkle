@@ -32,6 +32,7 @@ import Tools.ShippingCallsGatePin
 import Tools.ShippingCallsGatePinned
 import Tools.ShippingCallsMemA
 import Tests.Compiler.CallsMemAMemWideTest
+import Tests.Compiler.CallerTwiceATest
 
 /-! # Audit: the vertical path does not use the old boundary (round par/vert)
 
@@ -287,7 +288,9 @@ def audited : List Name :=
    ``Tools.ShippingCallsMemA.machineClosesAtA_of_memKids,
    ``Tools.ShippingCallsMemA.machineClosesAtA_memOnly_names,
    ``Tools.ShippingCallsMemA.machineClosesAtA_of_memOnlyData_names,
-   ``Tests.Compiler.CallsMemAMemWideTest.memWide_closesA]
+   ``Tests.Compiler.CallsMemAMemWideTest.memWide_closesA,
+   ``Tests.Compiler.CallerTwiceATest.callerRep_closesA,
+   ``Tests.Compiler.CallerTwiceATest.callerTwice_closesA]
 
 end Tests.Compiler.ChildVertAuditTest
 
