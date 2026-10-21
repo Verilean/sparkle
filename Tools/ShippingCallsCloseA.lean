@@ -17,7 +17,7 @@ PROVED (relative to `O`, `hA`, the named premises):
   (premises: `O`, `hA`, `T`, `LetsClose`, `CallsPureA`).
 
 PREMISES: `CallsPureA` (a pure statement about `closeInsts`/`closeInstsG`, no world) and
-`LetsClose` are NOT proved here. `ChildrenRealA` is a HISTORY of past synthesis results, not
+`LetsClose` are UNRESOLVED SUFFICIENT CONDITIONS for `MachineClosesAtA`: NOT proved here in general. `ChildrenRealA` is a HISTORY of past synthesis results, not
 semantic correctness in the current environment; nothing here is a runtime-fit proof. -/
 
 namespace Tools.ShippingCallsCloseA

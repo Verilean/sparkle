@@ -5,6 +5,10 @@ import Tools.ShippingCallsGate
 
 /-! # Unit CA, item 4: `CallsPureA` for one-output calls of gate children (distinct callees)
 
+RESTRICTED LEMMA: `hnodup` (pairwise distinct callees) EXCLUDES inputs with a repeated callee. It is a
+hypothesis of the theorem, not a compiler guard, but these theorems are NOT a general port of
+`machineClosesAt_of_gateKidsO`; `callerTwice`/`callerRep`-style shapes are NOT counted as ported.
+
 The old boundary discharged `CallsPure` INSIDE `machineClosesAt_of_gateKidsO`
 (`Tools/ShippingCallsGate.lean`, from `closeInsts_of_run` and the children's `ChildIface`).
 Here the same pure derivation is stated as `CallsPureA` on the new boundary:
