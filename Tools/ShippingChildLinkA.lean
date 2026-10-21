@@ -1,6 +1,11 @@
 import Tools.ShippingChildCacheA
 import Tools.ShippingCallWidthsChildReal
--- UNBUILT (unit K, par/u-k). No `sorry`, no `axiom`, no `native_decide`, no new law.
+-- BUILT (unit K, par/u-k): k2 exit 0 (Tools.ShippingChildLinkA); audit k3 exit 0 (Tests.Compiler.ChildVertAuditTest:
+-- no RefLaws/RefLawsCore/toAOps/toA in the closure; axioms propext, Classical.choice, Quot.sound).
+-- No `sorry`, no `axiom`, no `native_decide`, no new law.
+-- Scope: the conclusion is EXISTENCE of the callee's machine shape and result kind only
+-- (`machineShape? … = some sc`, `machResultKind? … = some res`); it says nothing about the MEANING
+-- of the recorded result `y` or of its ports.
 /-! # `childLink_real` on `RealChildA` (L6/L7 of docs/parallel/main-theorem-connection.md)
 
 The old `childLink_real` takes `RealChild mref cref c y` and uses ONLY the run of the callee:
