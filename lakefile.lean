@@ -3628,3 +3628,6 @@ lean_lib «Tools.ShippingSeqChildDeepConsumerA» where
 
 lean_lib «Tools.ShippingSeqChildDeepMaskedA» where
   roots := #[`Tools.ShippingSeqChildDeepMaskedA]
+
+lean_lib «Tools.ShippingSeqChildDeepFactsA» where
+  roots := #[`Tools.ShippingSeqChildDeepFactsA]
