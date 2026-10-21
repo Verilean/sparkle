@@ -800,3 +800,25 @@ hand walks from printed terms (pr1, pr2), FrontA's machine branch rewritten. Per
 | all11 | `Tests.AllTests` (+ HeapProvenanceRegressTest; audit with all new modules) | 0 | 1478 jobs, peak 1.04 GB |
 
 Not pushed; no CI; corpus not run.
+
+## Cluster round 2 (k8s, 6+ workers; integration branch par/int-r3, NOT merged into poc 0054b6b2)
+
+Builds through the per-node queue (`qbuild.sh`, one heavy build per node). Integration runs:
+
+| run | SHA (tip) | target | exit |
+|---|---|---|---|
+| sparkle-base2 | 0054b6b2 | Tests.AllTests (base cache) | 0 (1478 jobs) |
+| int-r2b | 2efb4da3 (C, D, D2, C2, A, B merged) | ChildVertAuditTest + TeleProbe | 0 (338 jobs) |
+| int-r2d | ca9f4dc4 (+ ComposeA) | ComposeA + audit | 1 (missing `open ShippingChildFresh`) |
+| int-r2e | — | same, fixed | stopped (superseded) |
+| int-r2f | bef47668 (+ E, E2, F, F2) | MainA + ComposeC + audit | 0 (341 jobs) |
+| int-r3a | 0eaf1602 (+ B3, final connection) | ChildVertAuditTest (imports all) | 0 (342 jobs) |
+
+Result at 0eaf1602 (PROVED relative to the stated premises; NOT runtime fit, NOT RTL semantic preservation):
+`MainA.core_tripleA_main` (JQ) — premises `O`, `hA : AdmCtx`, `T : RefLawsATele` (ADDED, unproved), start
+`OutQ`; `ComposeC.core_tripleAC_of_tele` / `full_tripleAC_of_tele` (JQC, separate induction) — premises `O`,
+`hA`, `T`, start `JQ O.quiet 0`. The handler premises (LegacyImplA, LegacyCachedA, CanonKeyA, ProjFieldNameA,
+ChildEntryA/ChildSynthA) and the legacy tail are discharged inside each depth step. Audit int-r3a: standard
+axioms, no RefLaws/RefLawsCore/toAOps/toA in the closures; opaque counts structural.
+OPEN: runtime fit / joint satisfiability of O and T; model→ST; the connection to the semantic-preservation
+endpoints (L5–L8: units G, K); the h264 named-wire compiler fix (par/fix-named-wire, isolated, user decision).
