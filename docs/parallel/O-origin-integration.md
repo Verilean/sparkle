@@ -838,3 +838,12 @@ L5 `core_reads_invA`, `machine_run_of_coreA` (O, hA, start world, `MachineDefine
 not the meaning of the recorded result or its ports). `RealChildA`/`ChildrenRealA` are histories.
 Closure sizes of the MainA/ComposeC theorems moved by < 0.1 % against int-r3a (e.g. `core_tripleA_main`
 12872 → 12881) although their files did not change; not investigated (no old-boundary constant either way).
+
+| run | SHA (tip) | target | exit |
+|---|---|---|---|
+| int-r4-all | ef1d81b6 (par/int-r4 tip: + MainA/ComposeC/ComposeA header fixes, ledger) | Tests.AllTests | 0 (1497 jobs, 5:10, peak 2.5 GB) |
+
+poc candidate = par/int-r4 at ef1d81b6: 41 commits over 0054b6b2 (fast-forward), 29 files, +4141/−9;
+only Tools/ShippingChild*, docs/parallel/*, Tests/Compiler/ChildVertAuditTest.lean and lakefile.lean
+(additions only); no file under Sparkle/ changed; no `sorry`/`axiom`/`native_decide` added. NOT merged
+(decision pending). CI not run on this SHA.
