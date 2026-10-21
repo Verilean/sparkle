@@ -3655,3 +3655,6 @@ lean_lib «Tools.Prototype.NormRangeLetOk» where
 
 lean_lib «Tools.Prototype.ReaderComposed» where
   roots := #[`Tools.Prototype.ReaderComposed]
+
+lean_lib «Tools.Prototype.NormNodeRangeLetOk» where
+  roots := #[`Tools.Prototype.NormNodeRangeLetOk]
