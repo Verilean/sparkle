@@ -3,6 +3,7 @@ import Tools.ShippingShipsFreeMasked
 import Tests.Compiler.ShipsFreeMaskedTest
 import Tests.Compiler.ChildVertAuditTest
 -- BUILT (unit SR3d, par/u-sr3d): sr3d3 exit 0 (sr3d1 exit 1: missing open `cv`; sr3d2 exit 1: audit syntax). In-test audit + conclusion check THROW on failure.
+-- SR3e (par/u-sr3e): audit strengthened (premise list ASSERTED, shared args as FVARS in the old/new comparison): sr3e5 exit 0.
 -- SCOPE (binding): the DEPTH-HEAD hypothesis `hBdRun` (`Bd b D`, here `kidsMaskedN D.modules b.body = true`) of
 -- `Tools/ShippingShipsFreeMasked.lean:37` `machine_design_noShips_noBd` is discharged for `parent` on the NEW boundary.
 -- That is the statement reached; soundL / composed / hFacts / hOuts stay PREMISES (OPEN on the new boundary).
@@ -181,6 +182,30 @@ def splitConcl (e : Lean.Expr) (raw D : Lean.Expr) : MetaM (Lean.Expr × Lean.Ex
   return (hp, dc, B, rest)
 
 open Lean Elab Command Meta Term in
+/-- Instantiate the binders of `ty` one by one.  A binder whose user name matches an entry of `shared` (fvars of the OTHER
+theorem's telescope) AND whose domain is `isDefEq` to that fvar's type is instantiated with THAT FVAR (aligned).  A binder named
+in `gen` (a parameter the new theorem GENERALISES: the old one fixes it to a concrete value) becomes a metavariable, to be
+solved by the comparison and then printed / asserted.  Any other binder gets a fresh fvar. -/
+partial def alignInst {α : Type} (shared : Array Lean.Expr) (gen : List String) (ty : Lean.Expr)
+    (k : Lean.Expr → Array String → Array String → Array (String × Lean.Expr) → MetaM α)
+    (al fr : Array String := #[]) (ms : Array (String × Lean.Expr) := #[]) : MetaM α := do
+  match ty with
+  | .forallE n d b bi =>
+    let mut hit : Option Lean.Expr := none
+    for x in shared do
+      if hit.isNone && (← x.fvarId!.getUserName) == n then
+        if ← isDefEq d (← inferType x) then hit := some x
+    match hit with
+    | some x => alignInst shared gen (b.instantiate1 x) k (al.push n.toString) fr ms
+    | none =>
+      if gen.contains n.toString then
+        let m ← mkFreshExprMVar d
+        alignInst shared gen (b.instantiate1 m) k al fr (ms.push (n.toString, m))
+      else
+        withLocalDecl n bi d fun x => alignInst shared gen (b.instantiate1 x) k al (fr.push n.toString) ms
+  | _ => k ty al fr ms
+
+open Lean Elab Command Meta Term in
 open Tests.Compiler.ChildVertAuditTest in
 set_option maxHeartbeats 0 in
 run_cmd Lean.Elab.Command.liftTermElabM do
@@ -203,20 +228,38 @@ run_cmd Lean.Elab.Command.liftTermElabM do
       ``Tools.ShippingKidsSelfA.core_kidsMaskedN_topA, ``Tools.ShippingChecksMaskedLeafA.leaf_real_kidMA] do
     unless cl.contains must do throwError "SR3d AUDIT FAILED: {must} not in the closure"
   let to := (← getConstInfo old).type
-  forallTelescope to fun _ co => do
-    let (_, _, cn) ← forallMetaTelescope ty
-    withLocalDeclD `raw (mkConst ``Sparkle.IR.AST.Module) fun raw => withLocalDeclD `D (mkConst ``Sparkle.IR.AST.Design) fun D => do
-      let (hpO, dcO, BO, restO) ← splitConcl co raw D
-      let (hpN, dcN, BN, restN) ← splitConcl cn raw D
-      let ok1 ← isDefEq hpN hpO
-      let ok2 ← isDefEq dcN dcO
-      let ok3 ← isDefEq restN restO
-      unless ok1 && ok2 && ok3 do
-        throwError "conclusion parts differ (post {ok1}, designCheck {ok2}, rest {ok3}):\n old rest {restO}\n new rest {restN}"
-      let BNu ← whnfD BN
-      logInfo m!"SR3d CONCLUSION CHECK OK (AFTER SPECIALISATION: the new theorem's arguments are metavariables unified against the old conclusion; not a defeq guarantee for arbitrary shared arguments): {new} and {old} agree on post-processing, designCheck and the body of the run-implication; only the boundary differs.\n OLD boundary: {BO}\n NEW boundary (BndA unfolded, an EXISTENTIAL over the laws / contexts / reflections / start world, NOT a proof that it holds): {BNu}"
-  let hs := premises.toList
-  logInfo m!"SR3d AUDIT OK: {new}: standard axioms; (premise list below is printed, not yet asserted) closure {cl.size} constants, no RefLaws/RefLawsCore/toAOps/toA/ChildBnd/StartV, parent_kidsMaskedN_topA / design_at_free / core_kidsMaskedN_topA / leaf_real_kidMA in the closure; outer Prop premises ({hs.length}): {hs}"
+  forallTelescope to fun oldXs co => do
+    let oldNames ← oldXs.mapM fun x => do return (← x.fvarId!.getUserName).toString
+    let gen := ["kD", "n", "ι", "dom", "src", "ext", "extB"]
+    alignInst oldXs gen ty (fun cn al fr ms => do
+      let expAl := ["mctx", "mref", "cctx", "cref", "w", "w'", "b", "design", "hr", "entry"]
+      unless al.toList == expAl do throwError "SR3e AUDIT FAILED: aligned shared binders {al}, expected {expAl}"
+      logInfo m!"SR3e ALIGNMENT: shared binders are the OLD theorem's FVARS (same name, defeq type): {al}; GENERALISED parameters (metavariables, solved below): {ms.map (·.1)}; other new-only binders (fresh fvars, not in the conclusion): {fr}; old binders {oldNames}"
+      withLocalDeclD `raw (mkConst ``Sparkle.IR.AST.Module) fun raw => withLocalDeclD `D (mkConst ``Sparkle.IR.AST.Design) fun D => do
+        let (hpO, dcO, BO, restO) ← splitConcl co raw D
+        let (hpN, dcN, BN, restN) ← splitConcl cn raw D
+        let ok1 ← isDefEq hpN hpO
+        let ok2 ← isDefEq dcN dcO
+        let ok3 ← isDefEq restN restO
+        unless ok1 && ok2 && ok3 do
+          throwError "conclusion parts differ (post {ok1}, designCheck {ok2}, rest {ok3}):\n old rest {restO}\n new rest {restN}"
+        let mut sol : Array String := #[]
+        for (nm, m) in ms do
+          let v ← instantiateMVars m
+          if v.hasExprMVar then throwError "SR3e AUDIT FAILED: generalised parameter {nm} not solved: {v}"
+          sol := sol.push s!"{nm} := {← ppExpr v}"
+        unless sol.any (·.startsWith "n := 1") && sol.any (·.startsWith "kD := 1") do
+          throwError "SR3e AUDIT FAILED: depth/kD not instantiated to 1: {sol}"
+        let BNu ← whnfD (← instantiateMVars BN)
+        logInfo m!"SR3e SOLUTION of the generalised parameters (old = new at these): {sol}"
+        logInfo m!"SR3e CONCLUSION CHECK OK (shared arguments are FVARS of the old theorem; only the GENERALISED parameters were unified, listed in SOLUTION; fvars-aligned, so defeq for arbitrary values of the shared arguments): {new} and {old} agree on post-processing, designCheck and the body of the run-implication; only the boundary differs.\n OLD boundary: {BO}\n NEW boundary (BndA unfolded, an EXISTENTIAL over the laws / contexts / reflections / start world, NOT a proof that it holds): {BNu}")
+  logInfo m!"SR3e AUDIT: {new}: closure {cl.size}; outer Prop premises ({premises.size}): {premises}"
+  let expected := ["soundL : [anonymous]", "composed : [anonymous]", "houtTy : [anonymous]",
+    "hr : Tools.ShippingEntrySoundness.RunsTo", "entry : Tools.ShippingMachineEntry.MachineDefines",
+    "closes : [anonymous]", "hFacts : [anonymous]", "hOuts : [anonymous]"]
+  unless premises.toList == expected do
+    throwError "SR3e AUDIT FAILED: outer Prop premises (name : head, [anonymous] = a ∀/→ binder) are {premises}, expected {expected}"
+  logInfo m!"SR3e PREMISE LIST ASSERTED: exactly the {expected.length} outer Prop premises {expected}"
 
 #print axioms parent_noShips_noBdA
 
