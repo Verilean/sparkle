@@ -2,7 +2,7 @@ import Tools.ShippingLetsReaderInvBase
 
 /-! # Unit LC3: the joint induction invariant of the reader twin (NoLetAlias + placeholder range)
 
-BUILT: lc3c3 exit 0 (Tools.ShippingLetsReaderInv); audit lc3g1 exit 0. No `sorry`, no axiom, no `native_decide`.
+BUILT: lc3c3 exit 0 (Tools.ShippingLetsReaderInv); audit lc3l exit 0. No `sorry`, no axiom, no `native_decide`.
 
 SCOPE. A property of the FUEL TWIN (`readF`, `Tools/ShippingReaderFuelDefs.lean`) only, by induction on the
 fuel exactly as `Tools/ShippingReaderFuelR1.lean` (arm by arm). It is NOT a theorem about the `partial`

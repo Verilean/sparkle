@@ -4,8 +4,8 @@ import Tools.ShippingReaderFuelOldEq
 
 /-! # Unit LC3 (main): the joint invariant of the reader twin, its consequences, and what stays OPEN
 
-BUILT: lc3i1 exit 0 (Tools.ShippingLetsReaderInvMain, before the premise renaming below; rebuilt as lc3k);
-audit lc3j exit 0.
+BUILT: lc3k exit 0 (Tools.ShippingLetsReaderInvMain); audit lc3l exit 0 (ChildVertAuditTest; axioms propext,
+Classical.choice, Quot.sound only).
 No `sorry`, no axiom, no `native_decide`.
 
 ## What is PROVED (about the fuel TWIN `readF`, for every fuel)

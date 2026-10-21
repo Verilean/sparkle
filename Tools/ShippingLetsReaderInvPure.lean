@@ -2,7 +2,7 @@ import Tools.ShippingLetsReaderInv
 
 /-! # Unit LC3 (pure facts): the total pattern extractors do not invent `_machLet` placeholders
 
-BUILT: lc3d3 exit 0 (Tools.ShippingLetsReaderInvPure); audit lc3g1 exit 0. No `sorry`, no axiom, no `native_decide`.
+BUILT: lc3d3 exit 0 (Tools.ShippingLetsReaderInvPure); audit lc3l exit 0. No `sorry`, no axiom, no `native_decide`.
 
 Discharges, by unfolding, the fields of `PureFacts` (`Tools/ShippingLetsReaderInvBase.lean`) that concern
 TOTAL functions: `machLetTail`, `machLoopRegs`, `loopView?`, `machRunApp?`, `machInstCall?`,

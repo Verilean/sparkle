@@ -3,7 +3,7 @@ import Tools.ShippingReaderFuelVerbatim
 
 /-! # Unit LC3 (pure facts, matcher-sensitive): the bare-register view
 
-BUILT: lc3h3 exit 0. No `sorry`, no axiom, no `native_decide`.
+BUILT: lc3h3 exit 0; audit lc3l exit 0. No `sorry`, no axiom, no `native_decide`.
 
 `regView?` is one of the two matchers v4.32.1 cannot split (name literal + array literal patterns). It is
 analysed from its definition with the technique of `regMatch_view`
