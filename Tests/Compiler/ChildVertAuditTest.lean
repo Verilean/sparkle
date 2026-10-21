@@ -7,6 +7,7 @@ import Tools.ShippingChildDepthA
 import Tools.ShippingChildTeleCP
 import Tools.ShippingChildProjFieldA
 import Tools.ShippingChildFrontCP
+import Tools.ShippingChildImplCorA
 
 /-! # Audit: the vertical path does not use the old boundary (round par/vert)
 
@@ -177,7 +178,16 @@ def audited : List Name :=
    ``Tools.ShippingChildFrontCP.fromConst_frontends_keepsCP,
    ``Tools.ShippingChildFrontCP.fromConst_frontends_of_handlers,
    ``Tools.ShippingChildFrontCP.bodyKeepsA_frontends,
-   ``Tools.ShippingChildFrontCP.bodyStepA_of_handlers]
+   ``Tools.ShippingChildFrontCP.bodyStepA_of_handlers,
+   ``Tools.ShippingChildLoopsCP.KeepsCP.fuelFixM,
+   ``Tools.ShippingChildCanonKeyA.canonHardwareExprStepA,
+   ``Tools.ShippingChildCanonKeyA.canonHardwareKeyA, ``Tools.ShippingChildCanonKeyA.canonKeyA,
+   ``Tools.ShippingChildLegacyCachedA.translateExprToWireCachedA,
+   ``Tools.ShippingChildLegacyCachedA.legacyCachedA_of_impl,
+   ``Tools.ShippingChildImplCorA.translateFallbackA_of_impl,
+   ``Tools.ShippingChildImplCorA.translate_keepsA_of_impl,
+   ``Tools.ShippingChildImplCorA.translate_keepsJQ_of_impl,
+   ``Tools.ShippingChildImplCorA.bodyStepA_certified']
 
 end Tests.Compiler.ChildVertAuditTest
 
