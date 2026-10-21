@@ -18,6 +18,7 @@ import Tools.ShippingChildRunA
 import Tools.ShippingChildRunAKids
 import Tools.ShippingChildRunAMain
 import Tools.ShippingChildLinkA
+import Tools.ShippingCallWidthsChildRealA
 
 /-! # Audit: the vertical path does not use the old boundary (round par/vert)
 
@@ -229,7 +230,13 @@ def audited : List Name :=
    ``Tools.ShippingChildLinkA.entryStrict_realA, ``Tools.ShippingChildLinkA.childLink_realFA,
    ``Tools.ShippingChildComposeC.translate_keepsC_of_tele,
    ``Tools.ShippingChildRunAMain.htr_of_tele,
-   ``Tools.ShippingChildRunAMain.machine_children_realA_main]
+   ``Tools.ShippingChildRunAMain.machine_children_realA_main,
+   ``Tools.ShippingCallWidthsChildRealA.realChildA_of_childrenRealA,
+   ``Tools.ShippingCallWidthsChildRealA.callWidthsStrict_realA,
+   ``Tools.ShippingCallWidthsChildRealA.leaf_real_outTysA,
+   ``Tools.ShippingCallWidthsChildRealA.children_widths_realA,
+   ``Tools.ShippingCallWidthsChildRealA.parent_children_widths_realA,
+   ``Tools.ShippingCallWidthsChildRealA.parent_children_widths_realA_of_run]
 
 end Tests.Compiler.ChildVertAuditTest
 
