@@ -3402,3 +3402,6 @@ lean_lib «Tools.ShippingCallWidthsChildRealA» where
   roots := #[`Tools.ShippingCallWidthsChildRealA]
 lean_lib «Tools.ShippingChildTeleLocalA» where
   roots := #[`Tools.ShippingChildTeleLocalA]
+
+lean_lib «Tools.ShippingChildTeleMainA» where
+  roots := #[`Tools.ShippingChildTeleMainA]

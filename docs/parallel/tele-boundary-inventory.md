@@ -99,3 +99,7 @@ Caveats: this reduces `localDecl`/`letDecl` to the `FramedA` constructor coverag
 premise of `O`); it says nothing about whether `O` holds of the runtime. `RefLawsATele.withDerived O T`
 rebuilds the bundle with these two fields from `O`. NOT done: rewiring B/C/ComposeA to use it (T is still
 required for `telescope`/`lamTelescope`).
+
+### T2 (base 79c31f36): the removal reaches the real endpoints
+
+`Tools/ShippingChildTeleMainA.lean`: `RefLawsATele.ofTeleLam O htel hlam` (`htel : ForallTelescopeLawA`, `hlam : LamTelescopeLawA`, the field statements verbatim; `localDecl`/`letDecl` PROVED from `O`) and the endpoints `core_tripleA_main_tl`, `core_tripleAC_of_tele_tl`, `full_tripleAC_of_tele_tl`, `htr_of_tele_tl`, `machine_children_realA_main_tl` (t2b exit 0; audit t2c exit 0; axioms propext/Classical.choice/Quot.sound). Premises: `O`, `hA`, `htel`, `hlam` (instead of `T`) plus each endpoint's other premises unchanged. `telescope`/`lamTelescope` remain PREMISES (an added, unproved boundary); the `T`-taking theorems are unchanged, so the two fields are removed ONLY from the `_tl` theorems. Not runtime fit.
