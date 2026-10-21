@@ -6,7 +6,7 @@ import Tools.ShippingParentRunFactsA
 import Tools.ShippingParentDesignFA
 import Tools.ShippingParentSeqComposedA
 import Tests.Compiler.ChildVertAuditTest
--- BUILT (unit SR3j): audit hardening (fr == #[closes], aligned arguments logged, no unresolved mvars): `qbuild build Tests.Compiler.SeqParentGenTest` j1 exit 1 (fr was [closes], not empty), j2 exit 0.
+-- BUILT (unit SR3j): audit hardening (fr == #[closes], aligned arguments logged and asserted == [mctx, mref, cctx, cref, w, w', b, design, hr, entry] (integrator, by review; checked by int-r26 SeqParentGenTest), no unresolved mvars): `qbuild build Tests.Compiler.SeqParentGenTest` j1 exit 1 (fr was [closes], not empty), j2 exit 0.
 -- BUILT (unit SR3i): `qbuild build Tools.ShippingSeqParentGen` exit 0 (g1-g7 `lean` runs exit 1 until fixed: API names, compiler panic of evalTerm replaced by reduction, hent origins, sync elaboration); used by Tests.Compiler.SeqParentGenTest (final qbuild exit 0).
 /-! # `#machine_seq_parent_endpoint f`: the new-boundary design endpoint of a sequential-call parent, GENERATED
 
@@ -674,6 +674,9 @@ def auditEndpoint (f ep : Name) : MetaM Unit := do
           -- the ONLY old binder left unaligned is the old `closes` premise (over the generalised `C`); the new one is `closes : True`
           unless fr == #["closes"] do
             throwError "SR3j AUDIT FAILED: {ep}: unaligned binders of {old} remaining as fresh fvars are {fr}, expected exactly #[closes]"
+          -- the aligned shared binders are exactly these, in this order (asserted, not only logged)
+          unless al.toList == ["mctx", "mref", "cctx", "cref", "w", "w'", "b", "design", "hr", "entry"] do
+            throwError "SR3j AUDIT FAILED: {ep}: aligned shared binders with {old} are {al}, expected exactly [mctx, mref, cctx, cref, w, w', b, design, hr, entry]"
           let mut alT : Array String := #[]
           for n in al do
             let some x ← newXs.findM? (fun x => do pure ((← x.fvarId!.getUserName).toString == n))
