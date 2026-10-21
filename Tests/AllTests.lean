@@ -341,6 +341,7 @@ import Tests.Compiler.KidsSelfCallerMixATest
 import Tests.Compiler.ComposedCallerMixATest
 import Tests.Compiler.ComposedCallerMixEntryTest
 import Tests.Compiler.KidsMaskedParentATest
+import Tests.Compiler.ParentEndpointMaskedATest
 import Tests.Compiler.ChildVertAuditTest
 import Tests.Compiler.LeafDesignClosedFamilyTest
 import Tests.Compiler.HeapProvenanceRegressTest
