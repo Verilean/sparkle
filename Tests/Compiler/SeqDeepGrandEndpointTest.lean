@@ -42,6 +42,31 @@ elab "oldArgOf% " id:ident ns:num+ : term => do
         throwError "oldArgOf%: stray fvar {d.userName} : {d.type} in the term"
     return r
 
+open Lean Elab Term Meta in
+/-- `oldHcallsArg% thm a j`: the `j`-th argument of the beta-redex that is the body of the lambda `a`-th argument of the value of
+`thm` (the generator's `(fun gfB0 gfL0 gfR0 gfHb0 gfHv0 => …) B L R Hb Hv`; `j = 1…4` are the group facts that do NOT mention the
+child predicate `PC`).  Free variables are matched by user name in the local context. -/
+elab "oldHcallsArg% " id:ident a:num j:num : term => do
+  let nm ← realizeGlobalConstNoOverload id
+  let some (.thmInfo ti) := (← getEnv).find? nm | throwError "oldHcallsArg%: {nm} is not a theorem"
+  let lctx0 ← getLCtx
+  lambdaTelescope ti.value fun ys body => do
+    let hc := body.getAppArgs[a.getNat]!
+    lambdaTelescope hc fun zs inner => do
+      unless inner.getAppFn.isLambda do throwError "oldHcallsArg%: the body is not a beta-redex: {inner.getAppFn}"
+      let mut r := inner.getAppArgs[j.getNat]!
+      for y in ys ++ zs do
+        if r.containsFVar y.fvarId! then
+          let un ← y.fvarId!.getUserName
+          match lctx0.findFromUserName? un with
+          | some l => r := r.replaceFVar y l.toExpr
+          | none => throwError "oldHcallsArg%: no local named {un}"
+      for f in (Lean.collectFVars {} r).fvarIds do
+        unless lctx0.contains f do
+          let d ← f.getDecl
+          throwError "oldHcallsArg%: stray fvar {d.userName} : {d.type}"
+      return r
+
 local instance midInhabHL : Inhabited (HList (Tools.ShippingMachineDenote.tys mid.machineData.ss)) :=
   oldArgOf% Sparkle.Tests.Compiler.ShippingMachineSeqTest.mid.machine_composedNR1 15 4
 local instance grandInhabHL : Inhabited (HList (Tools.ShippingMachineDenote.tys grand.machineData.ss)) :=
@@ -218,10 +243,6 @@ theorem grand_composedA {w w' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {
       (fun i bools bits => grand.machineExtB i bools bits
         (Tools.ShippingMachineSource.stateLoop grand.machineInits (grand.machineBody i bools bits))) := by
   have h := grand_traceXA O T hA hM hR0 hw hc hcore entry
-  have hcnt : ∀ (k : Nat) (hk : k < grand.machineData.shape.insts.length),
-      ((List.take 2 mid.machineData.bsIn).filter fun b => b.2 != .domain).length =
-        (grand.machineData.shape.insts[k]).2.1.length := by
-    first | decide | decide +kernel
   refine Tools.ShippingMachineShipsDepth.composedG_of_NW ?_
   exact machine_linkedT_callsRNA 2 O h (oldArgOf% Sparkle.Tests.Compiler.ShippingMachineSeqTest.grand.machine_composedNR2 16) (oldArgOf% Sparkle.Tests.Compiler.ShippingMachineSeqTest.grand.machine_composedNR2 17) (oldArgOf% Sparkle.Tests.Compiler.ShippingMachineSeqTest.grand.machine_composedNR2 18) (oldArgOf% Sparkle.Tests.Compiler.ShippingMachineSeqTest.grand.machine_composedNR2 19) (oldArgOf% Sparkle.Tests.Compiler.ShippingMachineSeqTest.grand.machine_composedNR2 20) (oldArgOf% Sparkle.Tests.Compiler.ShippingMachineSeqTest.grand.machine_composedNR2 21) (oldArgOf% Sparkle.Tests.Compiler.ShippingMachineSeqTest.grand.machine_composedNR2 22) (oldArgOf% Sparkle.Tests.Compiler.ShippingMachineSeqTest.grand.machine_composedNR2 23) (oldArgOf% Sparkle.Tests.Compiler.ShippingMachineSeqTest.grand.machine_composedNR2 24) (oldArgOf% Sparkle.Tests.Compiler.ShippingMachineSeqTest.grand.machine_composedNR2 25) (oldArgOf% Sparkle.Tests.Compiler.ShippingMachineSeqTest.grand.machine_composedNR2 26) (oldArgOf% Sparkle.Tests.Compiler.ShippingMachineSeqTest.grand.machine_composedNR2 27)
     (fun _ mc => Tools.ShippingMachineDepthRunRA.MachineRunNCA O ``mid mid.machineData.shape (midBndA mref cref) mc design)
@@ -233,12 +254,22 @@ theorem grand_composedA {w w' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {
         rw [← Option.some.inj hk]
         exact (grand_insts_mid k hk').1
       subst hck
-      refine ((oldArgOf% Sparkle.Tests.Compiler.ShippingMachineSeqTest.grand.machine_composedNR2 29) i bools bits k _ hk).imp id (fun hS => ?_)
-      refine Tools.ShippingSeqChildDeepRunA.seqFactsRN_of_conv (fun mc hmc => mid_seqChildRunN2 O T hmc) ?_ hS
-      intro args hargs
-      rw [List.getElem?_map, List.getElem?_eq_getElem hk'] at hargs
-      cases hargs
-      exact hcnt k hk')
+      -- the group facts of the generated proof that do not mention the child predicate
+      have L := (oldHcallsArg% Sparkle.Tests.Compiler.ShippingMachineSeqTest.grand.machine_composedNR2 29 1)
+      have R := (oldHcallsArg% Sparkle.Tests.Compiler.ShippingMachineSeqTest.grand.machine_composedNR2 29 2)
+      have Hb := (oldHcallsArg% Sparkle.Tests.Compiler.ShippingMachineSeqTest.grand.machine_composedNR2 29 3)
+      have Hv := (oldHcallsArg% Sparkle.Tests.Compiler.ShippingMachineSeqTest.grand.machine_composedNR2 29 4)
+      have hlt : k < 2 := by
+        have : grand.machineData.shape.insts.length = 2 := by first | decide | decide +kernel
+        omega
+      right
+      unfold Tools.ShippingMachineCallsLinkedTNR.SeqFactsRN
+      rcases k with _ | _ | k
+      · refine ⟨rfl, [0], rfl, (fun mc hmc => ⟨mid_seqChildRunN2 O T hmc, by rw [(mid_seqChildRunN2 O T hmc).2.2.2.2.2.1]; decide⟩), L, R, 0, _, _, rfl, rfl, ?_, fun τ => rfl⟩
+        exact (congrArg (fun l => l[0]?) (Tools.ShippingMachineCallsLinkedT.decoded_eq (mid.machineSource Sparkle.Core.Domain.defaultDomain) Hb Hv)).trans rfl
+      · refine ⟨rfl, [0], rfl, (fun mc hmc => ⟨mid_seqChildRunN2 O T hmc, by rw [(mid_seqChildRunN2 O T hmc).2.2.2.2.2.1]; decide⟩), L, R, 1, _, _, rfl, rfl, ?_, fun τ => rfl⟩
+        exact (congrArg (fun l => l[1]?) (Tools.ShippingMachineCallsLinkedT.decoded_eq (mid.machineSource Sparkle.Core.Domain.defaultDomain) Hb Hv)).trans rfl
+      · omega)
     (fun k c hc' hnone mctx' cctx' mc Dc w1 w2 hadm hcache hsv hq hrun hcons hmod => by
       have hk : k < grand.machineData.shape.insts.length := by
         have := (List.getElem?_eq_some_iff.mp hc').1; simpa using this
@@ -256,5 +287,61 @@ theorem grand_composedA {w w' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {
         (by first | decide | decide +kernel))
 
 end
+
+
+/-- The run boundary of the NEW depth-2 endpoint of `grand`: laws `O`, `T` (PREMISES, a separate assumption family), the admissible
+contexts, `MachineDefines` of the callee `mid` AND of its callee `cnt`, and a start world in `JQ`.  It replaces `ChildBnd`. -/
+def BndAg : Tools.ShippingMachineShipsHier.CtxBnd := fun mctx mref cctx cref w _ _ =>
+  ∃ (O : RefLawsAOps MkRefd mref cref) (_ : RefLawsATele O.quiet mref cref),
+    AdmCtx O.quiet mctx cctx ∧
+    MachineDefines mctx mref cctx cref ``mid mid.machineData.shape ∧
+    MachineDefines mctx mref cctx cref ``cnt cnt.machineData.shape ∧
+    ∃ D₀, JQ O.quiet D₀ w ∧ (D₀ = 0 ∨ CacheInvA O (cv w))
+
+theorem grand_houtTy : ∀ o ∈ grand.machineData.shape.layout.outs, o.ty.bitWidth = o.width := by
+  first | decide | decide +kernel
+
+open Lean Elab Command Meta Term in
+set_option maxHeartbeats 4000000 in
+/- **`grand`'s depth-2 endpoint on the new boundary, with `soundL`, `composed`, `houtTy` and the four checks SUPPLIED**:
+`machine_design_noShips_noBd_dc` at `n := 2`, `kD := 1`, `C := True`, `Bnd := BndAg`; `soundL` := `grand_soundLA`, `composed` :=
+`grand_composedA`, `hFacts` / `hOuts` / `hBdRun` / `hdc` := `grand_runFacts` / `grand_outsCheck` / `grand_kidsMasked` /
+`grand_designCheck` (SR3r) at `n := 1` (their depth is `n + 1 = 2`), all from the SAME core run.  The theorem `grand_noShips_noBdA_dcH` is
+ADDED by this command (its type is the inferred type of the term; the audit reads it back). Remaining premises: `hr`, `entry`,
+`closes` (the trivial `True`); `BndAg` (existential over `O`/`T`/`AdmCtx`/`MachineDefines mid`/`MachineDefines cnt`/start world)
+stays in the conclusion. -/
+run_cmd Lean.Elab.Command.liftTermElabM do
+  let stx ← `(@Tools.ShippingSeqParentLemmas.machine_design_noShips_noBd_dc 2 BndAg (fun _ _ _ _ => True)
+    ``Sparkle.Tests.Compiler.ShippingMachineSeqTest.grand Sparkle.Tests.Compiler.ShippingMachineSeqTest.grand.machineData 1 Unit
+    (fun _ => Sparkle.Core.Domain.defaultDomain) _ _ _ _ _ _ _
+    (fun hcore entry _ hB => by
+      obtain ⟨O, T, hA, hM, hR0, D₀, hw, hc⟩ := hB
+      exact grand_soundLA O T hA hM hR0 hw hc hcore entry)
+    (fun hcore entry _ hB _ => by
+      obtain ⟨O, T, hA, hM, hR0, D₀, hw, hc⟩ := hB
+      exact grand_composedA O T hA hM hR0 hw hc hcore entry)
+    grand_houtTy
+    (fun hcore hpost entry hB => by
+      obtain ⟨O, T, hA, hM, hR0, D₀, hw, hc⟩ := hB
+      exact grand_runFacts O T 1 hA hM hR0 hcore hpost entry hw hc)
+    (fun hcore hpost entry _ hB => by
+      obtain ⟨O, T, hA, hM, hR0, D₀, hw, hc⟩ := hB
+      exact grand_outsCheck O T 1 hA hM hR0 hcore hpost entry hw hc)
+    (fun hcore hpost entry hB => by
+      obtain ⟨O, T, hA, hM, hR0, D₀, hw, hc⟩ := hB
+      exact grand_kidsMasked O T 1 hA hM hR0 hcore hpost entry hw hc)
+    (fun hcore hpost entry hB => by
+      obtain ⟨O, T, hA, hM, hR0, D₀, hw, hc⟩ := hB
+      exact grand_designCheck O T 1 hA hM hR0 hcore hpost entry hw hc))
+  let e ← elabTerm stx none
+  synthesizeSyntheticMVarsNoPostponing
+  let e ← instantiateMVars e
+  let ty ← instantiateMVars (← inferType e)
+  if e.hasMVar || ty.hasMVar then throwError "unassigned mvars in the endpoint term"
+  addAndCompile <| .thmDecl { name := `Tests.Compiler.SeqDeepGrandEndpointTest.grand_noShips_noBdA_dcH, levelParams := [], type := ty, value := e }
+
+#print axioms grand_soundLA
+#print axioms grand_composedA
+#print axioms Tests.Compiler.SeqDeepGrandEndpointTest.grand_noShips_noBdA_dcH
 
 end Tests.Compiler.SeqDeepGrandEndpointTest
