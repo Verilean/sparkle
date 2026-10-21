@@ -11,9 +11,9 @@ import Tools.ShippingModuleName
   them) and differs from `c`.  Proof: `seqChild_of_realA` gives the served module the name `ofDecl callee` and the
   EMPTY design; `ofDecl` is injective (`Tools.ShippingModuleName.ofDecl_ne`, general, any names).  The only remaining
   fact is `callee ≠ c`, a decidable comparison of two concrete names (supplied by the caller).
-* `deepChild_ifaceA'` (PROVED): `deepChild_ifaceA` with `closes` asked only in contexts that satisfy `AdmCtx`
-  (strictly weaker than `deepChild_ifaceA`'s every-context premise, which the existing closing generators cannot give: they
-  need `hA : AdmCtx`).  Same conclusion.
+* `deepChild_ifaceA'` (PROVED): `deepChild_ifaceA` with the old all-context closing premise RESTRICTED to contexts that
+  satisfy `AdmCtx` (the existing closing generators need `hA : AdmCtx`, so they can supply the restricted form; strictness
+  of the restriction is NOT proved).  Same conclusion.
 * `deepChild_kidsMaskedA` (PROVED): ONE parent consumer beyond `core_kids_selfA`: the `kidsMasked` part of the
   GenKid/KidFacts chain on the new boundary — for a `RealChildA O c y` of a machine WITH calls and instance fields,
   `kidsMaskedN y.2.modules y.1.body = true` (every instance of the served module resolves, in the served design, to a

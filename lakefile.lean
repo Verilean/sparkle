@@ -3625,3 +3625,6 @@ lean_lib «Tools.Prototype.StartDomOk2» where
 
 lean_lib «Tools.ShippingSeqChildDeepConsumerA» where
   roots := #[`Tools.ShippingSeqChildDeepConsumerA]
+
+lean_lib «Tools.ShippingSeqChildDeepMaskedA» where
+  roots := #[`Tools.ShippingSeqChildDeepMaskedA]
