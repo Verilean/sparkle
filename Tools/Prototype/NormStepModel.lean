@@ -378,8 +378,8 @@ run_meta (Tools.Prototype.ReaderExec.auditPropBinders ``machineShapeNM_typed_all
   ["RootFloatRange", "Inst1Range", "SigTyRange", "ZeroLitAgrees", "LiftLooseRange", "LowerLooseRange",
     "BetaRange", "EqvLetOk0", "Eq", "Eq"])
 
-/- THROWING: no `NormNodeRange`/`NodeCorr`/`LiftScalar*`/`BoolMap*` constant in the new type or its used constants of Prop binders'
-types; the new conclusion is `isDefEq` to the shipped corollary's conclusion with the reader replaced (`machineShapeN` ↦
+/- THROWING: no `NormNodeRange`/`NodeCorr`/`LiftScalar*`/`BoolMap*` constant occurs DIRECTLY in the new theorem's type
+(`Expr.getUsedConstants` of the type; NOT a recursive closure audit: definitions named in the type are not unfolded); the new conclusion is `isDefEq` to the shipped corollary's conclusion with the reader replaced (`machineShapeN` ↦
 `machineShapeNM` in the hypothesis, `execNorm` ↦ `execNormM` in the conclusion), shared binders as the same fvars (the old
 `hnode : NormNodeRange senv` binder is a fresh mvar). Mutations (not replacing `execNorm`; replacing the reader only) are rejected. -/
 open Meta in
