@@ -1,5 +1,5 @@
 import Tools.ShippingCallsGateA
--- BUILT (unit CN2): cn2b exit 0 (Tools.ShippingCallsGatePin); cn2a exit 1 (Option.some.inj goal shape).
+-- BUILT (unit CN2): cn2g exit 0 (Tools.ShippingCallsGatePin); axioms standard.
 -- No `sorry`, no `axiom`, no `native_decide`, no new law / field.
 
 /-! # Unit CN2, step 1: `callsPureA_of_gateKids_pin` (INTERMEDIATE lemma, not a final theorem)
@@ -35,10 +35,30 @@ def SameCalleeChildren (shape : MachineShape) (children : List Res) : Prop :=
   ∀ (k₁ k₂ : Nat) (h₁ : k₁ < shape.insts.length) (h₂ : k₂ < shape.insts.length),
     (shape.insts[k₁]).1 = (shape.insts[k₂]).1 → children[k₁]? = children[k₂]?
 
+/-- **`CallsPureA` with the pin as a hypothesis of the one-output branch**: the same statement as
+`CallsPureA`, but the one-output conjunct may assume `SameCalleeChildren shape children`. Delivered
+by `closeInstsM_runP` (`Tools/ShippingCallsGatePinned.lean`), so it is NOT an extra premise of a final theorem. -/
+def CallsPureP (O : RefLawsAOps MkRefd mref cref) (declName : Name) (shape : MachineShape) : Prop :=
+  ∀ {tenv : Lean.Environment}, ∀ (b : Bool) t d₀ t' children,
+    MReturns (synthesizeMixedCertified
+      (fun e hint top named => translateExprToWire tenv e hint top named) (profLogIO b) declName
+      shape.binders shape.body) (t, d₀) →
+    Sparkle.IR.Machine.closeLets shape.layout.lets t = some t' →
+    ChildrenRealA O shape children →
+    (shape.instFields = [] → SameCalleeChildren shape children →
+      (Sparkle.IR.Machine.closeInsts (machNIn shape) shape.insts.length
+        shape.layout.slots.length (t.inputs.map (·.name)) (shape.insts.map (·.2.1)) children
+        (Sparkle.IR.Machine.closeMachine shape.layout t', d₀)).isSome = true) ∧
+    (shape.instFields ≠ [] → MemChildren shape children →
+      (Sparkle.IR.Machine.closeInstsG (machNIn shape) shape.insts.length
+        shape.layout.slots.length (t.inputs.map (·.name)) (shape.insts.map (·.2.1))
+        shape.instFields children
+        (Sparkle.IR.Machine.closeMachine shape.layout t', d₀)).isSome = true)
+
 set_option maxHeartbeats 1000000 in
-/-- **INTERMEDIATE**: `callsPureA_of_gateKids` with `hnodup` replaced by the pin hypothesis `hpin`
-(`SameCalleeChildren` for every `ChildrenRealA` children list). `hpin` is NOT proved here. -/
-theorem callsPureA_of_gateKids_pin (O : RefLawsAOps MkRefd mref cref) {declName : Name}
+/-- `callsPureA_of_gateKids` with `hnodup` replaced by `SameCalleeChildren` as a hypothesis of the
+children list (inside `CallsPureP`). The pin is NOT proved here. -/
+theorem callsPureP_of_gateKids (O : RefLawsAOps MkRefd mref cref) {declName : Name}
     (d : MachineData) (ok : d.ok = true)
     (hbody : d.shape.body = quote d.dom
       (fun j => inputExpr d.shape.binders.length (d.bpos j))
@@ -52,17 +72,15 @@ theorem callsPureA_of_gateKids_pin (O : RefLawsAOps MkRefd mref cref) {declName 
       nk k = (d.shape.insts[k]).2.1.length)
     (hsep : ∀ c ∈ d.shape.insts.map (·.1), ∀ c' ∈ d.shape.insts.map (·.1),
       (Sparkle.IR.ModuleName.ofDecl c) = (Sparkle.IR.ModuleName.ofDecl c') → c = c')
-    (hpin : ∀ children, ChildrenRealA O d.shape children → SameCalleeChildren d.shape children)
     (hparent : ∀ c ∈ d.shape.insts, (Sparkle.IR.ModuleName.ofDecl c.1) ≠ (Sparkle.IR.ModuleName.ofDecl declName))
     (hfresh : ∀ (k : Nat) (hk : k < d.shape.insts.length), ∀ o ∈ d.shape.layout.outs,
       o.name ≠ s!"inst{k}_{(Sparkle.IR.ModuleName.ofDecl (d.shape.insts[k]).1)}") :
-    CallsPureA O declName d.shape := by
+    CallsPureP O declName d.shape := by
   have hf : d.shape.instFields = [] := by
     simp only [MachineData.gateCallsOk, Bool.and_eq_true, List.isEmpty_iff] at hS
     exact hS.2
   intro tenv b t d₀ t' children run hcl hreal
-  refine ⟨fun _ => ?_, fun hne => absurd hf hne⟩
-  have hsame := hpin children hreal
+  refine ⟨fun _ hsame => ?_, fun hne => absurd hf hne⟩
   obtain ⟨hlenC, hall⟩ := hreal
   have hfull : ∀ (k : Nat) (c : Res), children[k]? = some c → ∃ hk : k < d.shape.insts.length,
       ChildIface (d.shape.insts[k]).1 (nk k) c.1 c.2 := by
@@ -109,6 +127,33 @@ theorem callsPureA_of_gateKids_pin (O : RefLawsAOps MkRefd mref cref) {declName 
     rw [full.2.2.1]
     exact hfresh k hk o ho
 
+/-- **INTERMEDIATE**: `callsPureA_of_gateKids` with `hnodup` replaced by the pin hypothesis `hpin`
+(`SameCalleeChildren` for every `ChildrenRealA` children list). `hpin` is NOT proved here. -/
+theorem callsPureA_of_gateKids_pin (O : RefLawsAOps MkRefd mref cref) {declName : Name}
+    (d : MachineData) (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    {nDecl : Nat} (hS : d.gateCallsOk nDecl = true)
+    (nk : Nat → Nat)
+    (hnomemO : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true)
+    (hkid : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
+      RealChildA O (d.shape.insts[k]).1 y → ChildIface (d.shape.insts[k]).1 (nk k) y.1 y.2)
+    (hargsN : ∀ (k : Nat) (hk : k < d.shape.insts.length),
+      nk k = (d.shape.insts[k]).2.1.length)
+    (hsep : ∀ c ∈ d.shape.insts.map (·.1), ∀ c' ∈ d.shape.insts.map (·.1),
+      (Sparkle.IR.ModuleName.ofDecl c) = (Sparkle.IR.ModuleName.ofDecl c') → c = c')
+    (hpin : ∀ children, ChildrenRealA O d.shape children → SameCalleeChildren d.shape children)
+    (hparent : ∀ c ∈ d.shape.insts, (Sparkle.IR.ModuleName.ofDecl c.1) ≠ (Sparkle.IR.ModuleName.ofDecl declName))
+    (hfresh : ∀ (k : Nat) (hk : k < d.shape.insts.length), ∀ o ∈ d.shape.layout.outs,
+      o.name ≠ s!"inst{k}_{(Sparkle.IR.ModuleName.ofDecl (d.shape.insts[k]).1)}") :
+    CallsPureA O declName d.shape := by
+  intro tenv b t d₀ t' children run hcl hreal
+  have h := callsPureP_of_gateKids O d ok hbody hS nk hnomemO hkid hargsN hsep hparent hfresh
+    b t d₀ t' children run hcl hreal
+  exact ⟨fun hf => h.1 hf (hpin children hreal), h.2⟩
+
 end Tools.ShippingCallsGatePin
 
+#print axioms Tools.ShippingCallsGatePin.callsPureP_of_gateKids
 #print axioms Tools.ShippingCallsGatePin.callsPureA_of_gateKids_pin

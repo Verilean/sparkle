@@ -1,5 +1,5 @@
 import Tools.ShippingChildComposeC
--- UNBUILT (unit CN2): see REPORT-CN2.md for the build runs.
+-- BUILT (unit CN2): cn2f exit 0 (Tools.ShippingChildPinC); axioms standard.
 -- No `sorry`, no `axiom`, no `native_decide`, no new law / field. Law witness: `O`, `hA`, `T` as in
 -- `Tools.ShippingChildComposeC` (the SAME assumptions as `bodyStepC_of_tele`; nothing is added).
 

@@ -3429,3 +3429,6 @@ lean_lib «Tools.ShippingChildPinC» where
 
 lean_lib «Tools.ShippingCallsGatePin» where
   roots := #[`Tools.ShippingCallsGatePin]
+
+lean_lib «Tools.ShippingCallsGatePinned» where
+  roots := #[`Tools.ShippingCallsGatePinned]
