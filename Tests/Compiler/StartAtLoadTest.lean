@@ -85,9 +85,10 @@ run_meta do
       throwError "{p} mentions StartAtLoad/StartContents (restatement)"
   logInfo m!"PREMISE CONSTANT-OCCURRENCE CHECK OK (closure {cl.size}, {ci.name}): the premise definitions do not syntactically mention StartAtLoad/StartContents. This is NOT a proof of logical non-equivalence and does not exclude a restatement"
 
-/-! Whole-type audit of the corollary (RT1b). Shared binders are fvars of `forallTelescope`; the conclusion
+/-! Conclusion + chain-hypothesis audit of the corollary (RT1b; NOT a check that the whole ∀-type is identical). Shared binders are fvars of `forallTelescope`; the conclusion
 `O.quiet w ∧ StartContents w` and the chain hypothesis `Chain (EntryStep … ∨ Other) (loadW wS) w` (same `O`, hence the
-same `mref`/`cref`; start world `loadW wS`, end world `w`) are fixed by `isDefEq` on the WHOLE type; altered
+same `mref`/`cref`; start world `loadW wS`, end world `w`) are each compared by `isDefEq` (conclusion and the type of `hs`),
+together with the outer Prop-hypothesis head list (binder audit); the remaining binder types are not compared one by one; altered
 versions (start world `mkRefsW wS`, a different `O'`, a different end world) must be rejected. -/
 open Lean Meta Elab Term in
 run_elab do
@@ -110,9 +111,9 @@ run_elab do
       synthesizeSyntheticMVarsNoPostponing
       instantiateMVars e
     let good ← mk "(O.quiet w ∧ Tools.ShippingStartWorldA.StartContents w)"
-    unless ← isDefEq concl good do throwError "WHOLE-TYPE AUDIT FAILED: conclusion {concl} vs {good}"
+    unless ← isDefEq concl good do throwError "CONCLUSION/CHAIN AUDIT FAILED: conclusion {concl} vs {good}"
     let goodChain ← mk "(Tools.ShippingStartWorldA2.Chain (fun a b => Tools.ShippingStartWorldA2.EntryStep mctx mref cctx cref a b ∨ Other a b) (Tools.ShippingStartAtLoad.loadW wS) w)"
-    unless ← isDefEq hsT goodChain do throwError "WHOLE-TYPE AUDIT FAILED: chain {hsT} vs {goodChain}"
+    unless ← isDefEq hsT goodChain do throwError "CONCLUSION/CHAIN AUDIT FAILED: chain {hsT} vs {goodChain}"
     -- altered statements must be rejected
     let badStart ← mk "(Tools.ShippingStartWorldA2.Chain (fun a b => Tools.ShippingStartWorldA2.EntryStep mctx mref cctx cref a b ∨ Other a b) (Tools.ShippingStartAtLoad.mkRefsW wS) w)"
     if ← isDefEq hsT badStart then throwError "ALTERED START WORLD ACCEPTED"
@@ -127,4 +128,4 @@ run_elab do
       let lam ← mkLambdaFVars #[O] good
       let badO' := lam.beta #[O']
       if ← isDefEq concl badO' then throwError "ALTERED O ACCEPTED"
-    logInfo m!"COROLLARY WHOLE-TYPE AUDIT OK: conclusion and chain fixed by isDefEq; altered start/end world, conclusion, dropped quiet, different O rejected"
+    logInfo m!"COROLLARY CONCLUSION/CHAIN AUDIT OK (conclusion and hs type compared by isDefEq, plus the outer Prop head list; not a whole forall-type identity check); altered start/end world, conclusion, dropped quiet, different O rejected"
