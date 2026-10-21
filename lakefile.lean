@@ -3347,3 +3347,5 @@ lean_lib «Tools.ShippingLeafInputWidths» where
 
 lean_lib «Tools.ShippingLeafDesignClosedCommand» where
   roots := #[`Tools.ShippingLeafDesignClosedCommand]
+lean_lib «Tools.ShippingChildTeleProbe» where
+  roots := #[`Tools.ShippingChildTeleProbe]
