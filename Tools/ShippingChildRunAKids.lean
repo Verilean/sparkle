@@ -2,7 +2,7 @@ import Tools.ShippingChildRunA
 import Tools.ShippingChildDepthC
 import Tools.ShippingChildFrontCP
 import Tools.ShippingChildRun
--- UNBUILT (unit G, par/u-g): no build run yet.
+-- BUILT (unit G, par/u-g): g11 exit 0 (Tools.ShippingChildRunAKids); audit g13 exit 0 (Tests.Compiler.ChildVertAuditTest: no RefLaws/RefLawsCore/toAOps/toA in the closures; axioms standard).
 -- No `sorry`, no `axiom`, no `native_decide`, no new law / field. Law witness `O : RefLawsAOps MkRefd mref cref`
 -- at `hA : AdmCtx O.quiet mctx cctx`. `Tools.ShippingChildRun` is imported ONLY for the law-free
 -- `mapM_hoare`; nothing of the old `RefLaws`/`InvV`/`ChildBnd` chain is used (audit checks the closure).
