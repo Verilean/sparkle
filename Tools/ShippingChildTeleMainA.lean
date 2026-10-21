@@ -12,12 +12,13 @@ and `hlam : LamTelescopeLawA O.quiet mref cref` (the `lamTelescope` field's stat
 `def`s (Tools/ShippingChildWalkA.lean) are the field types verbatim (checked here by using them as
 the fields); `localDecl`/`letDecl` are `localDecl_of_O` / `letDecl_of_O` (PROVED from `O`).
 
-The `*_tl` theorems are NOT equivalent wrappers of the `T` versions: they have strictly fewer
-premises.
-  before: `O`, `hA`, `T : RefLawsATele` (4 fields), + the theorem's other premises
-  after : `O`, `hA`, `htel`, `hlam` (2 fields)        + the same other premises
-So `localDecl` and `letDecl` are removed from THESE endpoints (and only these: the `T`-taking
-theorems are unchanged). `telescope`/`lamTelescope` remain an ADDED, UNPROVED boundary (their
+What this achieves: `localDecl` and `letDecl` are PROVED (T1), and the laws the endpoints require
+from OUTSIDE are reorganised from 4 items to 2.
+  `T` versions : `O`, `hA`, `T : RefLawsATele` (4 fields), + the theorem's other premises
+  `_tl` versions: `O`, `hA`, `htel`, `hlam` (2 fields)        + the same other premises
+This is NOT a claim of logical strength: under `O`, the full `T` and the two remaining fields are
+EQUIVALENT (`ofTeleLam` builds `T` from them; projection gives them back from `T`). The `T`-taking
+theorems are unchanged. `telescope`/`lamTelescope` remain an ADDED, UNPROVED boundary (their
 workers are `opaque`); nothing here is a runtime-fit proof or a joint-satisfiability proof. -/
 
 namespace Tools.ShippingChildTeleMainA
