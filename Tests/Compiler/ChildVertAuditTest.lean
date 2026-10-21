@@ -11,6 +11,7 @@ import Tools.ShippingChildImplCorA
 import Tools.ShippingChildLegacyImplA
 import Tools.ShippingChildComposeA
 import Tools.ShippingChildDepthC
+import Tools.ShippingChildComposeC
 
 /-! # Audit: the vertical path does not use the old boundary (round par/vert)
 
@@ -208,7 +209,10 @@ def audited : List Name :=
    ``Tools.ShippingChildDepthC.synthesizeChild_realC,
    ``Tools.ShippingChildDepthC.closeInstsM_realC,
    ``Tools.ShippingChildDepthC.bodyStepC_certified,
-   ``Tools.ShippingChildDepthC.bodyStepC_of_generic]
+   ``Tools.ShippingChildDepthC.bodyStepC_of_generic,
+   ``Tools.ShippingChildComposeC.bodyKeepsC_of_tele, ``Tools.ShippingChildComposeC.bodyStepC_of_tele,
+   ``Tools.ShippingChildComposeC.childKeepsC_all_of_tele, ``Tools.ShippingChildComposeC.core_tripleAC_of_tele,
+   ``Tools.ShippingChildComposeC.full_tripleAC_of_tele]
 
 end Tests.Compiler.ChildVertAuditTest
 

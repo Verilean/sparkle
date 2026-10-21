@@ -3,7 +3,7 @@ import Tools.ShippingChildLegacyImplA
 import Tools.ShippingChildLegacyCachedA
 import Tools.ShippingChildCanonKeyA
 import Tools.ShippingChildProjFieldA
--- UNBUILT (integrator, par/int-r2). No `sorry`, no `axiom`, no `native_decide`, no new law.
+-- BUILT (e7 exit 0, unit E2 added `open Tools.ShippingChildFresh` for the MkRefd ambiguity); originally UNBUILT (integrator, par/int-r2). No `sorry`, no `axiom`, no `native_decide`, no new law.
 -- What this does NOT show: the laws (`RefLawsAOps` fields, `RefLawsATele`) describe a NON-TRIVIAL
 -- runtime model of MetaM/IO; that the real runtime satisfies them (runtime fit) is NOT PROVEN, and
 -- their joint satisfiability is NOT PROVEN (only the degenerate `quiet = False` model is exhibited).
@@ -41,6 +41,7 @@ open Tools.ShippingChildFresh
 open Tools.ShippingChildVCA
 open Tools.ShippingChildFallbackA
 open Tools.ShippingChildFrontCP
+open Tools.ShippingChildFresh
 open Tools.ShippingChildDepthA
 
 variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
