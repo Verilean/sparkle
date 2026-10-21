@@ -385,15 +385,19 @@ theorem alias_premise {n : Nat} {lets : MachLets} {v' : Lean.Expr} (hn : n = let
 
 /-! ## What the twin calls but cannot unfold -/
 
-/-- **Hypotheses of the joint theorem** (NOT axioms). Each says that a function the reader calls does not
-create a `_machLet j` placeholder out of nothing: its output is in range when its inputs are.
+/-- **The facts the induction uses about the functions and the environment the twin consults.**
+An INTERMEDIATE bundle (the final theorems of `Tools/ShippingLetsReaderInvMain.lean` take the five unproved
+ones as individually named premises, not this record). Not axioms. Every field, with its status:
 
-* `rootFloat` is a `partial def` (`Sparkle/Compiler/MachRawSurface.lean`), `liftLooseBVars` and
-  `instantiate1` are `extern` / `opaque` (`Lean/Expr.lean`): none can be unfolded, so these three are
-  statements about code this proof cannot see.
-* the remaining fields are statements about total functions (the spine / pattern extractors and the two
-  rewriters `bundleIota`, `machProjIota`); they are provable by unfolding and are proved in
-  `Tools/ShippingLetsReaderInvPure.lean` where it says so. -/
+| field | status | note |
+|---|---|---|
+| `rootFloat` | NOT PROVED (cannot unfold) | `partial def`, opaque to the kernel |
+| `lift` | NOT PROVED (cannot unfold) | `Expr.liftLooseBVars`, `extern` |
+| `inst1` | NOT PROVED (cannot unfold) | `Expr.instantiate1`, `extern` |
+| `sigTy` | NOT PROVED — ENVIRONMENT INPUT CONDITION | not a fact about a function: the types stored in `senv.instS` mention no `_machLet`; to be derived from the real `structEnv env` (declared types of constants); NOT shown here |
+| `bundleIota` | NOT PROVED (total function; the proof needs a nested name/array-literal case split) | used at the `.app` arm of `machConv` |
+| `projIota`, `regView`, `runApp`, `instCall`, `instCallS`, `memCall`, `loopView`, `letTail`, `loopRegs` | PROVED (`…InvPure.lean`, `…InvPure2.lean`) | pattern extractors / rewriters, by unfolding |
+-/
 structure PureFacts (senv : StructEnv) : Prop where
   rootFloat : ∀ n v, LetOk n v = true →
     LetOk n (Sparkle.Compiler.MachRawSurface.rootFloat v) = true
