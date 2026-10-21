@@ -1,5 +1,6 @@
 import Tests.Compiler.KidsMaskedParentATest
 import Tools.ShippingSeqChildDeepConsumerA
+import Tools.ShippingSeqChildDeepMaskedA
 -- BUILT (unit SR3n): n3 exit 0 (n2 exit 1: implicit mctx/cctx of hsep_of_leaf_kids); #print axioms standard for all four. In-test audit THROWS on failure.
 -- SCOPE (binding): the concrete depth-2 chain `grand -> mid -> cnt` of `ShippingMachineSeqTest`, the CHILD `mid` only
 -- (its callee `cnt` is a leaf register machine).  PROVED here, relative to `O`, `T : RefLawsATele` (ADDED boundary), `hA`,
@@ -117,7 +118,7 @@ theorem mid_ifaceA {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.M
 
 set_option maxHeartbeats 4000000 in
 /-- **`kidsMaskedN` of the SERVED `mid`**: every instance of `y.1` resolves in the served design `y.2` to a module with masked
-outputs (`deepChild_kidsMaskedA`; `hkidM` of `cnt` from `leaf_real_kidMA`).  The `outsMaskedN y.1` of `mid` itself is OPEN. -/
+outputs (`deepChild_kidsMaskedA`; `hkidM` of `cnt` from `leaf_real_kidMA`).  (`outsMaskedN y.1` of `mid` itself: `mid_outsMaskedA` below.) -/
 theorem mid_kidsMaskedA {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State}
     {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State}
     (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATele O.quiet mref cref)
@@ -143,6 +144,38 @@ theorem mid_kidsMaskedA {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld L
     (by first | decide | decide +kernel) (by first | decide | decide +kernel) hkidM (mid_hsep O hR0) entry
     (fun _ _ hA' => mid_closesA O T hA' (Tools.ShippingReflectCtx.MachineDefines.ctx hR0)) h
 
+set_option maxRecDepth 100000 in
+theorem mid_outChars : ∀ o ∈ mid.machineData.shape.layout.outs, ∀ c ∈ o.name.toList,
+    Sparkle.IR.NameHints.charOk c = true := by
+  first | decide | decide +kernel
+
+set_option maxRecDepth 100000 in
+theorem mid_outScalar : ∀ o ∈ mid.machineData.shape.layout.outs,
+    Tools.ShippingTextTyped.scalarTy o.ty = true := by
+  first | decide | decide +kernel
+
+set_option maxHeartbeats 4000000 in
+/-- **`outsMaskedN` of the SERVED `mid` itself** (SR3o step 1; the `masked` field of `KidFacts mid`): `deepChild_outsMaskedA`
+with the argument split `kD = 2` and the output-port data decided; no `hkidM`. -/
+theorem mid_outsMaskedA {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State}
+    {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State}
+    (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATele O.quiet mref cref)
+    (entry : Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref ``mid mid.machineData.shape)
+    (hR0 : Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref ``cnt cnt.machineData.shape)
+    {y : Tools.ShippingChildInv.Res} (h : RealChildA O ``mid y) :
+    Tools.ShippingMachineShipsDepth.outsMaskedN y.1 = true := by
+  exact Tools.ShippingSeqChildDeepMaskedA.deepChild_outsMaskedA O T mid.machineData mid.machine_ok
+    mid.machine_body (nDecl := 2) (by first | decide | decide +kernel) (by first | decide | decide +kernel)
+    (by first | decide | decide +kernel) (fun h0 => absurd (congrArg List.length h0) (by decide))
+    (fun h0 => absurd (congrArg List.length h0) (by decide))
+    (by first | decide | decide +kernel) (by first | decide | decide +kernel)
+    (fun h0 => absurd (congrArg List.length h0) (by decide)) 2
+    (by first | decide | decide +kernel) (by first | decide | decide +kernel) (by first | decide | decide +kernel)
+    (by first | decide | decide +kernel) (by first | decide | decide +kernel) (by first | decide | decide +kernel)
+    (fun o ho => Tools.ShippingSVBridge.sanitizeName_of_clean (mid_outChars o ho)) mid_outScalar
+    (mid_hsep O hR0) entry
+    (fun _ _ hA' => mid_closesA O T hA' (Tools.ShippingReflectCtx.MachineDefines.ctx hR0)) h
+
 open Lean Elab Command Meta Term in
 open Tests.Compiler.ChildVertAuditTest in
 run_cmd Lean.Elab.Command.liftTermElabM do
@@ -156,5 +189,6 @@ run_cmd Lean.Elab.Command.liftTermElabM do
 #print axioms mid_hsep
 #print axioms mid_ifaceA
 #print axioms mid_kidsMaskedA
+#print axioms mid_outsMaskedA
 
 end Tests.Compiler.SeqDeepMidTest
