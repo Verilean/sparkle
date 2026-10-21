@@ -199,8 +199,7 @@ def audited : List Name :=
    ``Tools.ShippingChildLegacyHandlersA.translateExprToWireApp_keepsCP,
    ``Tools.ShippingChildLegacyHandlersA.handleDefinitionUnfold_keepsCP,
    ``Tools.ShippingChildLegacyHandlersA.tryInlineUnfold_tripleCP,
-   ``Tools.ShippingChildComposeA.bodyKeepsA_of_tele, ``Tools.ShippingChildComposeA.bodyStepA_of_tele,
-   ``Tools.ShippingChildComposeA.childKeepsA_all_of_tele, ``Tools.ShippingChildComposeA.core_tripleA_of_tele,
+   ``Tools.ShippingChildComposeA.bodyKeepsA_of_tele,
    ``Tools.ShippingChildDepthC.childKeepsC_of_body,
    ``Tools.ShippingChildDepthC.childKeepsC_all,
    ``Tools.ShippingChildDepthC.childEntryA_of_childKeepsC,
@@ -211,17 +210,13 @@ def audited : List Name :=
    ``Tools.ShippingChildDepthC.synthesizeChild_realC,
    ``Tools.ShippingChildDepthC.closeInstsM_realC,
    ``Tools.ShippingChildDepthC.bodyStepC_certified,
-   ``Tools.ShippingChildDepthC.bodyStepC_of_generic,
    ``Tools.ShippingChildComposeC.bodyKeepsC_of_tele, ``Tools.ShippingChildComposeC.bodyStepC_of_tele,
    ``Tools.ShippingChildComposeC.childKeepsC_all_of_tele, ``Tools.ShippingChildComposeC.core_tripleAC_of_tele,
    ``Tools.ShippingChildComposeC.full_tripleAC_of_tele,
    ``Tools.ShippingChildMainA.bodyStepA_main, ``Tools.ShippingChildMainA.childKeepsA_main,
    ``Tools.ShippingChildMainA.core_tripleA_main,
    ``Tools.ShippingChildLegacyTailA.legacyTailA_generic,
-   ``Tools.ShippingChildLegacyTailA.legacyTailA_of_step,
-   ``Tools.ShippingChildLegacyTailA.bodyKeepsA_of_step,
-   ``Tools.ShippingChildLegacyTailA.bodyStepA_of_T,
-   ``Tools.ShippingChildLegacyTailA.core_tripleA_of_T]
+   ``Tools.ShippingChildLegacyTailA.legacyTailA_of_step]
 
 end Tests.Compiler.ChildVertAuditTest
 

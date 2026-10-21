@@ -1,8 +1,10 @@
 import Tools.ShippingChildComposeA
--- BUILT (unit F2): f2b exit 0, f2c exit 0 (with #print axioms, removed afterwards). See REPORT-F2.md.
+import Tools.ShippingChildLegacyTailA
+-- UNBUILT after the integrator's final connection (par/int-r3): the step-form tail hypothesis was
+-- replaced by B3's `legacyTailA_of_step`. Earlier: BUILT (unit F2) f2b/f2c exit 0, int-r2f exit 0.
 -- no `native_decide`, no new law. Boundary: `O : RefLawsAOps MkRefd mref cref`,
 -- `hA : AdmCtx O.quiet mctx cctx`, the ADDED unproved `T : RefLawsATele O.quiet mref cref`
--- (logical inconsistency NOT PROVEN), and ONE legacy-tail hypothesis `hTail` (below).
+-- (logical inconsistency NOT PROVEN).
 
 /-! # The JQ-level main theorem (unit F2)
 
@@ -10,11 +12,10 @@ Built on `Tools.ShippingChildComposeA`: every depth step discharges the handler 
 induction (ChildKeepsA D → D2 bridge → B `legacyImplA_of_tele` → A / C → D `bodyKeepsA_frontends`).
 No abstract `H`/`Lg`/`BS` and no per-export hypotheses remain.
 
-Remaining premises of `core_tripleA_main`: `O`, `hA`, `T`, and
-`hTail : LegacyTailStepA O` — the legacy tail built from the step's own `hC : ChildKeepsA O D`
-(statement of unit B3's `legacyTailA_of_step … (hC : ChildKeepsA O D) : LegacyTailA O D`, until it
-lands). `hTail` is a premise about EVERY constant on which both gates miss; it does not assume
-`∀ D, LegacyTailA O D` outright. The start `OutQ O.quiet w` is the `Triple` precondition.
+The legacy tail is built in the same step from `hC` (B3 `legacyTailA_of_step`). Remaining premises
+of `core_tripleA_main`: `O`, `hA : AdmCtx`, `T` (added, unproved), and the start `OutQ O.quiet w`
+(the `Triple` precondition). The handler and tail premises are GONE; this is invariant preservation
+of the compiler's run under the boundary laws — NOT RTL semantic preservation, NOT runtime fit.
 
 NOT here (separate, not claimed): the child-cache invariant `JQC` and unit E's depth-0
 initialisation; the connection to semantic preservation / the old `ChildBnd` endpoint; runtime fit
@@ -36,27 +37,24 @@ open Tools.ShippingChildComposeA
 variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
   {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
 
-/-- The legacy-tail premise in its per-step form: at every depth `D ≥ 1`, from the child entry at
-`D`, the legacy tail at `D`. ONE hypothesis (to be replaced by B3's generic tail lemma). -/
-def LegacyTailStepA (O : RefLawsAOps MkRefd mref cref) : Prop :=
-  ∀ D, 1 ≤ D → ChildKeepsA O D → LegacyTailA O D
-
-/-- **`BodyStepA O` from `T` and the step-form tail only.** -/
-theorem bodyStepA_main (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATele O.quiet mref cref)
-    (hTail : LegacyTailStepA O) : BodyStepA O :=
-  fun D hD hC => bodyKeepsA_of_tele O T D hC (hTail D hD hC)
+/-- **`BodyStepA O` from `T` alone**: each depth step builds the handlers and the legacy tail
+from its own `hC : ChildKeepsA O D`. -/
+theorem bodyStepA_main (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATele O.quiet mref cref) :
+    BodyStepA O :=
+  fun D _ hC => bodyKeepsA_of_tele O T D hC
+    (Tools.ShippingChildLegacyTailA.legacyTailA_of_step O T D hC)
 
 /-- **The child entry at every depth `D ≥ 1`** (JQ level). -/
-theorem childKeepsA_main (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATele O.quiet mref cref)
-    (hTail : LegacyTailStepA O) : ∀ D, 1 ≤ D → ChildKeepsA O D :=
-  childKeepsA_all O (bodyStepA_main O T hTail)
+theorem childKeepsA_main (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATele O.quiet mref cref) :
+    ∀ D, 1 ≤ D → ChildKeepsA O D :=
+  childKeepsA_all O (bodyStepA_main O T)
 
 /-- **Main theorem (JQ level).** From `OutQ O.quiet` the core entry keeps `OutQ` on every
-outcome (success: `OutQ`; exception: `OutQ ∧ OkExc`). Premises: `O`, `hA`, `T`, `hTail`. -/
+outcome (success: `OutQ`; exception: `OutQ ∧ OkExc`). Premises: `O`, `hA`, `T`. -/
 theorem core_tripleA_main (O : RefLawsAOps MkRefd mref cref) (hA : AdmCtx O.quiet mctx cctx)
-    (T : RefLawsATele O.quiet mref cref) (hTail : LegacyTailStepA O) (declName : Name) :
+    (T : RefLawsATele O.quiet mref cref) (declName : Name) :
     Triple mctx mref cctx cref (OutQ O.quiet) (synthesizeCombinationalCore declName [] false)
       (fun _ => OutQ O.quiet) (fun e w => OutQ O.quiet w ∧ OkExc e) :=
-  core_tripleA_of_bodies O hA declName (bodyStepA_main O T hTail)
+  core_tripleA_of_bodies O hA declName (bodyStepA_main O T)
 
 end Tools.ShippingChildMainA

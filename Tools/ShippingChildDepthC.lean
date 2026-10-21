@@ -27,7 +27,7 @@ PROVED here:
 * the endpoint `closeInstsM_realC`: a `RealChildA` for every child the run returned, cache hits
   included, from `BodyStepC` alone;
 * `bodyStepC_certified` (certified-shape constants, generic-I `fromConst_certified_keepsAP` +
-  `translate_keepsA` at `I := JQC O D`) and `bodyStepC_of_generic` (the body from unit D's generic-I
+  `translate_keepsA` at `I := JQC O D`) and [removed at integration: `bodyStepC_of_generic`, superseded by ComposeC `bodyStepC_of_tele`] (the body from unit D's generic-I
   front-end lemma, taken as a HYPOTHESIS `hgen`).
 
 NOT proved here (PREMISE/OPEN): `BodyStepC O` itself — the mixed / machine branches await unit D's
@@ -314,35 +314,5 @@ theorem bodyStepC_certified (O : RefLawsAOps MkRefd mref cref) (D : Nat)
     (fun e h t n => translate_keepsA O (stableA_JQC O D) tenv hImpl hCached hcanon hpf
       (childEntryA_of_childKeepsC O D hC) mctx cctx hA e h t n)
 
-/-- **`BodyStepC` from unit D's generic-I body lemma** (`hgen`, a HYPOTHESIS of the statement agreed
-in INTERFACES.md, `fromConst_frontends_keepsCP` — legacy tail `hlegacy` explicit, asked only of
-constants on which both gates miss), the five handler premises at `JQC O D` for every `D`, and
-`hlegacy`. Everything unproved is a named hypothesis. -/
-theorem bodyStepC_of_generic (O : RefLawsAOps MkRefd mref cref)
-    (hgen : ∀ (I : Void IO.RealWorld → Prop), StableA O.quiet I → ∀ (translate : TranslateFn),
-      RecA O I translate → ChildEntryA O I →
-      ∀ (mctx : Meta.Context) (cctx : Core.Context), AdmCtx O.quiet mctx cctx →
-      ∀ (b : Bool) (declName : Name) (ci : ConstantInfo) (isInst : Lean.Expr → Bool),
-      (certifiedShape? false [] ci = none → mixedCertifiedShape? false [] ci isInst = none →
-        Keeps mctx mref cctx cref I
-          (synthesizeFromConst translate (profLogIO b) declName [] false false ci isInst)) →
-      Keeps mctx mref cctx cref I
-        (synthesizeFromConst translate (profLogIO b) declName [] false true ci isInst))
-    (hImpl : ∀ D, LegacyImplA O (JQC O D)) (hCached : ∀ D, LegacyCachedA O (JQC O D))
-    (hcanon : ∀ D, CanonKeyA O (JQC O D)) (hpf : ∀ D, ProjFieldNameA O (JQC O D))
-    (hlegacy : ∀ (D : Nat) (mctx : Meta.Context) (cctx : Core.Context),
-      AdmCtx O.quiet mctx cctx → ∀ (tenv : Lean.Environment) (b : Bool) (declName : Name)
-      (ci : ConstantInfo) (isInst : Lean.Expr → Bool),
-      certifiedShape? false [] ci = none → mixedCertifiedShape? false [] ci isInst = none →
-        Keeps mctx mref cctx cref (JQC O D)
-          (synthesizeFromConst (fun e h t n => translateExprToWire tenv e h t n) (profLogIO b)
-            declName [] false false ci isInst)) :
-    BodyStepC O := by
-  intro D _ hC mctx cctx hA declName tenv b ci isInst
-  exact hgen (JQC O D) (stableA_JQC O D) _
-    (translate_keepsA O (stableA_JQC O D) tenv (hImpl D) (hCached D) (hcanon D) (hpf D)
-      (childEntryA_of_childKeepsC O D hC))
-    (childEntryA_of_childKeepsC O D hC) mctx cctx hA b declName ci isInst
-    (hlegacy D mctx cctx hA tenv b declName ci isInst)
 
 end Tools.ShippingChildDepthC

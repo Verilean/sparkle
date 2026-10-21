@@ -8,8 +8,10 @@ import Tools.ShippingChildProjFieldA
 -- runtime model of MetaM/IO; that the real runtime satisfies them (runtime fit) is NOT PROVEN, and
 -- their joint satisfiability is NOT PROVEN (only the degenerate `quiet = False` model is exhibited).
 -- The child-cache invariant (JQC) and the semantic-preservation endpoint are SEPARATE (not here).
--- Remaining premises of `core_tripleA_of_tele`: `O`, `hA : AdmCtx`, the start `OutQ`, `T`, and
--- `∀ D, LegacyTailA O D` (to be built inside the step from `hC`, unit B3).
+-- This file keeps only the per-depth STEP `bodyKeepsA_of_tele` (with the tail as an argument); the
+-- induction and the core triple with the tail built from `hC` (B3 `legacyTailA_of_step`) are in
+-- Tools/ShippingChildMainA.lean. The earlier `bodyStepA_of_tele`/`childKeepsA_all_of_tele`/
+-- `core_tripleA_of_tele` (tail as `∀ D` premise) were removed as superseded.
 -- Boundary: `O : RefLawsAOps MkRefd mref cref`, `hA : AdmCtx O.quiet mctx cctx`, and the ADDED,
 -- unproved telescope family `T : RefLawsATele O.quiet mref cref` (logical inconsistency NOT PROVEN).
 
@@ -57,24 +59,5 @@ theorem bodyKeepsA_of_tele (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATele 
   bodyKeepsA_frontends O D hImpl
     (Tools.ShippingChildLegacyCachedA.legacyCachedA_of_impl O hS hImpl) hcanon
     (Tools.ShippingChildProjFieldA.projFieldNameA O T hS) hC hlegacy
-
-/-- **`BodyStepA` from `T` and the legacy tail only.** -/
-theorem bodyStepA_of_tele (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATele O.quiet mref cref)
-    (hlegacy : ∀ D, LegacyTailA O D) : BodyStepA O :=
-  fun D _ hC => bodyKeepsA_of_tele O T D hC (hlegacy D)
-
-/-- **The child entry at every depth `D ≥ 1`** (the induction of DepthA on the step above). -/
-theorem childKeepsA_all_of_tele (O : RefLawsAOps MkRefd mref cref)
-    (T : RefLawsATele O.quiet mref cref) (hlegacy : ∀ D, LegacyTailA O D) :
-    ∀ D, 1 ≤ D → ChildKeepsA O D :=
-  childKeepsA_all O (bodyStepA_of_tele O T hlegacy)
-
-/-- **`core_tripleA` with `hbody` discharged** from `T` and the legacy tail only (JQ level; the
-child-cache invariant is unit E's). -/
-theorem core_tripleA_of_tele (O : RefLawsAOps MkRefd mref cref) (hA : AdmCtx O.quiet mctx cctx)
-    (T : RefLawsATele O.quiet mref cref) (hlegacy : ∀ D, LegacyTailA O D) (declName : Name) :
-    Triple mctx mref cctx cref (OutQ O.quiet) (synthesizeCombinationalCore declName [] false)
-      (fun _ => OutQ O.quiet) (fun e w => OutQ O.quiet w ∧ OkExc e) :=
-  core_tripleA_of_bodies O hA declName (bodyStepA_of_tele O T hlegacy)
 
 end Tools.ShippingChildComposeA

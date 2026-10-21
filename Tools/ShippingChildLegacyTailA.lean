@@ -10,7 +10,8 @@ import Tools.ShippingChildDepthA
 -- `hA : AdmCtx O.quiet mctx cctx`, `hS : StableA O.quiet I`, and the ADDED unproved telescope family
 -- `T : RefLawsATele O.quiet mref cref` (fields `telescope`, `lamTelescope`; logical inconsistency NOT PROVEN).
 -- PROVED: `legacyTailA_generic` (translator `RecA O I translate` is an ARGUMENT), `legacyTailA_of_step`
--- (`LegacyTailA O D` from `hC : ChildKeepsA O D`), `bodyKeepsA_of_step`, `bodyStepA_of_T`, `core_tripleA_of_T`.
+-- (`LegacyTailA O D` from `hC : ChildKeepsA O D`). The corollaries `bodyKeepsA_of_step`/`bodyStepA_of_T`/`core_tripleA_of_T`
+-- were removed at integration: the JQ main theorem lives in Tools/ShippingChildMainA.lean only (no duplicates).
 -- Runtime fit of `Lean.Expr`/`Meta` primitives and the model->ST correspondence: OPEN (see docs/parallel/legacy-tail-inventory.md).
 
 namespace Tools.ShippingChildLegacyTailA
@@ -216,34 +217,7 @@ theorem legacyTailA_of_step (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATele
       hcanon (Tools.ShippingChildProjFieldA.projFieldNameA O T hS) hC)
     b declName ci isInst
 
-/-- **One depth step with NO legacy-tail premise** (ComposeA's `bodyKeepsA_of_tele` with `hlegacy`
-supplied by `legacyTailA_of_step`). -/
-theorem bodyKeepsA_of_step (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATele O.quiet mref cref)
-    (D : Nat) (hC : ChildKeepsA O D) : BodyKeepsA O D :=
-  have hS := stableA_JQ O.quiet D
-  have hcanon : CanonKeyA O (JQ O.quiet D) := Tools.ShippingChildCanonKeyA.canonKeyA O hS
-  have hImpl : LegacyImplA O (JQ O.quiet D) :=
-    Tools.ShippingChildLegacyImplA.legacyImplA_of_tele O hS T hcanon
-      (childEntryA_JQ_of_childSynthA O D hC)
-  bodyKeepsA_frontends O D hImpl
-    (Tools.ShippingChildLegacyCachedA.legacyCachedA_of_impl O hS hImpl) hcanon
-    (Tools.ShippingChildProjFieldA.projFieldNameA O T hS) hC (legacyTailA_of_step O T D hC)
-
-/-- `BodyStepA O` from `T` alone (the handler premises and the legacy tail are discharged). -/
-theorem bodyStepA_of_T (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATele O.quiet mref cref) :
-    BodyStepA O :=
-  fun D _ hC => bodyKeepsA_of_step O T D hC
-
-/-- `core_tripleA` (JQ level) with the premise `T` only. -/
-theorem core_tripleA_of_T (O : RefLawsAOps MkRefd mref cref) (hA : AdmCtx O.quiet mctx cctx)
-    (T : RefLawsATele O.quiet mref cref) (declName : Name) :
-    Triple mctx mref cctx cref (OutQ O.quiet) (synthesizeCombinationalCore declName [] false)
-      (fun _ => OutQ O.quiet) (fun e w => OutQ O.quiet w ∧ OkExc e) :=
-  core_tripleA_of_bodies O hA declName (bodyStepA_of_T O T)
-
-
 end Tools.ShippingChildLegacyTailA
 
 #print axioms Tools.ShippingChildLegacyTailA.legacyTailA_generic
 #print axioms Tools.ShippingChildLegacyTailA.legacyTailA_of_step
-#print axioms Tools.ShippingChildLegacyTailA.core_tripleA_of_T
