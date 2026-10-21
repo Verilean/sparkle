@@ -4,6 +4,12 @@ import Tools.ShippingChildLegacyCachedA
 import Tools.ShippingChildCanonKeyA
 import Tools.ShippingChildProjFieldA
 -- UNBUILT (integrator, par/int-r2). No `sorry`, no `axiom`, no `native_decide`, no new law.
+-- What this does NOT show: the laws (`RefLawsAOps` fields, `RefLawsATele`) describe a NON-TRIVIAL
+-- runtime model of MetaM/IO; that the real runtime satisfies them (runtime fit) is NOT PROVEN, and
+-- their joint satisfiability is NOT PROVEN (only the degenerate `quiet = False` model is exhibited).
+-- The child-cache invariant (JQC) and the semantic-preservation endpoint are SEPARATE (not here).
+-- Remaining premises of `core_tripleA_of_tele`: `O`, `hA : AdmCtx`, the start `OutQ`, `T`, and
+-- `∀ D, LegacyTailA O D` (to be built inside the step from `hC`, unit B3).
 -- Boundary: `O : RefLawsAOps MkRefd mref cref`, `hA : AdmCtx O.quiet mctx cctx`, and the ADDED,
 -- unproved telescope family `T : RefLawsATele O.quiet mref cref` (logical inconsistency NOT PROVEN).
 
