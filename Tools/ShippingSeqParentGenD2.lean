@@ -1,10 +1,12 @@
 import Tools.ShippingSeqParentGen
 import Tools.ShippingSeqOldPieces
+import Tools.ShippingMemClosesKidsT
 import Tools.ShippingSeqChildDeepRunA
 import Tools.ShippingSeqChildDeepKidFactsA
 import Tools.ShippingSeqChildDeepIfacePA
 import Tools.ShippingSeqChildDeepConsumerA
 import Tools.ShippingSeqParentKidFactsA
+-- BUILT (unit SR3u): a4 exit 0 (Tests.Compiler.SeqDeepGenArgsTest: `topargs`, `toptwo` generated, `topdiff` refused), a5 exit 0 (SeqDeepGenArgsConclTest, SeqDeepGenInstConclTest, SeqDeepGenTest, SeqDeepGrandEndpointTest, ChildVertAuditTest on the changed module). a1-a3 exit 1: the origin of a later call is `.field i`, not `.field k` (a1); `memKey` namespace (a2); `KidTA` not unfolded before the rewrite (a3).
 -- BUILT (unit GAUD): i4 exit 0 (Tests.Compiler.SeqDeepGenInstTest, memory refusals), g4 exit 0 (SeqDeepGenTest on the changed module), c2 exit 0 (SeqDeepGenInstConclTest); the module itself was built as a dependency of those (i3 exit 1: a Nat annotation in the test).
 -- BUILT (unit SR3t): t2 exit 0 (module), g3 exit 0 (templates run on `grand`), i2 exit 0 (second instance `topw` + two refusals). t1 exit 1 (an `s!` string with braces); g1 exit 1 (`Unit` vs `PUnit` in the class check); g2 exit 1 (audit counted partial applications of `MachineDefines`).
 /-! # `#machine_seq_parent_endpoint P`, DEPTH-2 path (unit SR3t, ledger L8ac)
@@ -18,8 +20,9 @@ runs as before.
 
 `P -> C -> G`, with `P` the parent (root), `C` its callee that has calls of its own, `G` the callee of `C`:
 * `P` is a top-level machine (its `machineSource` is indexed by `Unit`), with at least one call instance, `instFields <> []`, no memory (REFUSED up front: memory in P);
-  EVERY call instance of `P` calls the SAME child `C` (any number of instances, any output fields), with the SAME argument list
-  (the old generated `hcalls` has one group-facts bundle per distinct argument list; this path extracts ONE group);
+  EVERY call instance of `P` calls the SAME child `C` (any number of instances, any output fields), with ANY number of argument lists
+  (unit SR3u: the old generated `hcalls` has one group-facts bundle `gfL{j}` ... per distinct argument list; this path extracts one bundle per
+  distinct list, numbered by first occurrence of the list among the instances);
 * `C` is a `{dom : DomainConfig}` hardware module (its `machineSource` is indexed by `DomainConfig`), with `instFields <> []`, no memory (REFUSED up front: memory in C);
   EVERY call instance of `C` calls the SAME leaf `G` (any number of instances / fields / arguments);
 * `G` is a generated sequential LEAF (no call instance, in particular no memory: REFUSED up front, memory in G), with the pieces `G.machine_ok/machine_body/machine_closes/machineSource`;
@@ -32,7 +35,7 @@ MEMORY (unit GAUD): a memory in `P`, `C` or `G` (read as a call of a built memor
 `Tests/Compiler/SeqDeepGenInstTest.lean` (message asserted, no `epD2_*` declaration created).
 
 ## REFUSALS (each with its reason; message prefix `REFUSED`)
-a memory in `P` / `C` / `G`; several different callees of `P` / of `C`; a callee of `G` (depth 3); different argument lists among `P`'s calls (several groups);
+a memory in `P` / `C` / `G`; several different callees of `P` / of `C`; a callee of `G` (depth 3); (unit SR3u: several argument lists among `P`'s calls are NOW IN the class);
 a parent that is not a top-level machine or a child that is not a domain-polymorphic hardware module; no instField (combinational
 calls); a missing generated piece (the message names it and the old command to run).
 
@@ -46,7 +49,11 @@ results; `T` is an ADDED boundary.
 The old generated terms are read through helpers that select by BINDER NAME of the consumer head (`hcalls`, `hextB`, `hext`), by the
 lambda-binder name of the group-fact redex (`gfL0 gfR0 gfHb0 gfHv0`) and by BINDER KIND (the one instance-implicit argument).  Still
 structural (not chosen by index): "the first application of the head constant in the value", "the argument `hcalls` is a lambda whose
-body is a beta-redex", and the group index `0`.  The typed helpers STILL depend on the group index 0 and on term structure (`findHeadApp?`, the zip pairing); removal is NOT claimed.  Each extracted term is checked `isDefEq` against an EXPLICIT type written in the
+body is a beta-redex".  The group index is no longer fixed to `0` (unit SR3u): group `j` is the `j`-th DISTINCT argument list in order of
+first occurrence among `P`'s instances, RECOMPUTED here from the shape data (not read from the old term); the old generator opens a new group
+for a new (callee, argument lets, families) tuple, so the correspondence is an ASSUMPTION about the old generator, enforced only by the typed
+extraction (`oldGroupFact%` throws unless the extracted type is `isDefEq` to the group's stated type, whose argument list is the one
+computed here).  The typed helpers STILL depend on term structure (`findHeadApp?`, the zip pairing); removal is NOT claimed.  Each extracted term is checked `isDefEq` against an EXPLICIT type written in the
 template (the group-fact types of `Hb`/`Hv` leave their right-hand side as `_`: the family the generator absorbed into; the final
 `.trans rfl` of the entry proof checks it against the entry's value). -/
 namespace Tools.ShippingSeqParentGenD2
@@ -65,6 +72,14 @@ variable {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State}
 "#
 
 def d2Head : String := r#"
+/-- An origin without a memory key builds no child (so a call-field origin, whatever its field index, is `KidTA`'s second disjunct). -/
+theorem _root_.@P@.epD2_origin_child_none (o : Sparkle.Compiler.MachInstOrigin.InstOrigin)
+    (h : Tools.ShippingMemCloses.memKey o = none) : o.child? = none := by
+  cases o with
+  | ord => rfl
+  | field _ => rfl
+  | mem c a d => exact absurd h (by simp [Tools.ShippingMemCloses.memKey])
+
 theorem _root_.@P@.epD2_G_outs_clean :
     ∀ o ∈ @G@.machineData.shape.layout.outs, ∀ c ∈ o.name.toList, Sparkle.IR.NameHints.charOk c = true := by
   first | decide | decide +kernel
@@ -91,7 +106,7 @@ theorem _root_.@P@.epD2_C_closesA {mctx : Lean.Meta.Context} {mref : ST.Ref IO.R
     Tools.ShippingChildRunAKids.MachineClosesAtA (mref := mref) (cref := cref) O mctx cctx
       ``@C@ @C@.machineData.shape := by
   have hent : ∀ (k : Nat) (hk : k < @C@.machineData.shape.insts.length),
-      (@C@.machineData.shape.insts[k]).1 = ``@G@ ∧ originAt @C@.machineData.shape k = .field k := by
+      (@C@.machineData.shape.insts[k]).1 = ``@G@ ∧ Tools.ShippingMemCloses.memKey (originAt @C@.machineData.shape k) = none := by
     first | decide | decide +kernel
   have hkid : ∀ (k : Nat) (hk : k < @C@.machineData.shape.insts.length) (y : Tools.ShippingChildInv.Res),
       Tools.ShippingCallsMemA.KidTA O (originAt @C@.machineData.shape k)
@@ -100,7 +115,8 @@ theorem _root_.@P@.epD2_C_closesA {mctx : Lean.Meta.Context} {mref : ST.Ref IO.R
         (@G@.machineData.shape.layout.outs.map (·.name)) [] y.1 y.2 := by
     intro k hk y hy
     obtain ⟨hn, ho⟩ := hent k hk
-    rw [ho] at hy
+    unfold Tools.ShippingCallsMemA.KidTA at hy
+    rw [@P@.epD2_origin_child_none _ ho] at hy
     rcases hy with hy | ⟨-, hre⟩
     · exact absurd hy (by show (none : Option _) ≠ some y; exact fun h => nomatch h)
     · rw [hn] at hre
@@ -227,7 +243,7 @@ theorem _root_.@P@.epD2_C_kidFactsA (O : RefLawsAOps MkRefd mref cref) (T : RefL
 
 
 theorem _root_.@P@.epD2_insts_C : ∀ (k : Nat) (hk : k < @P@.machineData.shape.insts.length),
-    (@P@.machineData.shape.insts[k]).1 = ``@C@ ∧ originAt @P@.machineData.shape k = .field k := by
+    (@P@.machineData.shape.insts[k]).1 = ``@C@ ∧ Tools.ShippingMemCloses.memKey (originAt @P@.machineData.shape k) = none := by
   first | decide | decide +kernel
 
 theorem _root_.@P@.epD2_callArgs :
@@ -299,7 +315,8 @@ theorem _root_.@P@.epD2_closesA (O : RefLawsAOps MkRefd mref cref) (T : RefLawsA
         (@C@.machineData.shape.layout.outs.map (·.name)) [Sparkle.IR.ModuleName.ofDecl ``@G@] y.1 y.2 := by
     intro k hk y hy
     obtain ⟨hn, ho⟩ := hent k hk
-    rw [ho] at hy
+    unfold Tools.ShippingCallsMemA.KidTA at hy
+    rw [@P@.epD2_origin_child_none _ ho] at hy
     rcases hy with hy | ⟨-, hre⟩
     · exact absurd hy (by show (none : Option _) ≠ some y; exact fun h => nomatch h)
     · rw [hn] at hre
@@ -435,6 +452,26 @@ theorem _root_.@P@.epD2_designCheck (O : RefLawsAOps MkRefd mref cref) (T : RefL
     (fun o ho => Tools.ShippingSVBridge.sanitizeName_of_clean (@P@.epD2_outChars o ho)) @P@.epD2_outScalar
 
 
+"#
+
+/-- The four group facts of ONE group (`@J@` = the group index of the old generated `hcalls`, `@ARGS@` = its argument list). -/
+def groupFactsTmpl : String := r#"
+      have L@J@ : ∀ (q : Nat) (hq : q < (@ARGS@ : List Nat).length), (@ARGS@ : List Nat)[q] < @P@.machineData.ls.length ∧
+          ∃ g, (letObsB @P@.machineData (fun _ : Unit => Sparkle.Core.Domain.defaultDomain) @P@.machineInits @P@.machineBody @P@.machineExt @P@.machineExtB i bools bits)[(@ARGS@ : List Nat)[q]]? = some g :=
+        oldGroupFact% (∀ (q : Nat) (hq : q < (@ARGS@ : List Nat).length), (@ARGS@ : List Nat)[q] < @P@.machineData.ls.length ∧
+          ∃ g, (letObsB @P@.machineData (fun _ : Unit => Sparkle.Core.Domain.defaultDomain) @P@.machineInits @P@.machineBody @P@.machineExt @P@.machineExtB i bools bits)[(@ARGS@ : List Nat)[q]]? = some g) @P@.machine_composedNR2 Tools.ShippingMachineCallsLinkedTNR.machine_linkedT_callsRN hcalls gfL@J@
+      have R@J@ : ∀ τ : Nat, Tools.ShippingMachineChild.InRange (Tools.ShippingMachineCallsLinkedT.valsOf (letObsB @P@.machineData (fun _ : Unit => Sparkle.Core.Domain.defaultDomain) @P@.machineInits @P@.machineBody @P@.machineExt @P@.machineExtB i bools bits) (@ARGS@ : List Nat) τ)
+          ((List.take @KC@ @C@.machineData.bsIn).filter fun b => b.2 != .domain) :=
+        oldGroupFact% (∀ τ : Nat, Tools.ShippingMachineChild.InRange (Tools.ShippingMachineCallsLinkedT.valsOf (letObsB @P@.machineData (fun _ : Unit => Sparkle.Core.Domain.defaultDomain) @P@.machineInits @P@.machineBody @P@.machineExt @P@.machineExtB i bools bits) (@ARGS@ : List Nat) τ)
+          ((List.take @KC@ @C@.machineData.bsIn).filter fun b => b.2 != .domain)) @P@.machine_composedNR2 Tools.ShippingMachineCallsLinkedTNR.machine_linkedT_callsRN hcalls gfR@J@
+      have Hb@J@ : Tools.ShippingMachineChild.boolsOf (List.take @KC@ @C@.machineData.bsIn)
+          (Tools.ShippingMachineCallsLinkedT.valsOf (letObsB @P@.machineData (fun _ : Unit => Sparkle.Core.Domain.defaultDomain) @P@.machineInits @P@.machineBody @P@.machineExt @P@.machineExtB i bools bits) (@ARGS@ : List Nat)) = _ :=
+        oldGroupFact% (Tools.ShippingMachineChild.boolsOf (List.take @KC@ @C@.machineData.bsIn)
+          (Tools.ShippingMachineCallsLinkedT.valsOf (letObsB @P@.machineData (fun _ : Unit => Sparkle.Core.Domain.defaultDomain) @P@.machineInits @P@.machineBody @P@.machineExt @P@.machineExtB i bools bits) (@ARGS@ : List Nat)) = _) @P@.machine_composedNR2 Tools.ShippingMachineCallsLinkedTNR.machine_linkedT_callsRN hcalls gfHb@J@
+      have Hv@J@ : Tools.ShippingMachineChild.bitsOf (List.take @KC@ @C@.machineData.bsIn)
+          (Tools.ShippingMachineCallsLinkedT.valsOf (letObsB @P@.machineData (fun _ : Unit => Sparkle.Core.Domain.defaultDomain) @P@.machineInits @P@.machineBody @P@.machineExt @P@.machineExtB i bools bits) (@ARGS@ : List Nat)) = _ :=
+        oldGroupFact% (Tools.ShippingMachineChild.bitsOf (List.take @KC@ @C@.machineData.bsIn)
+          (Tools.ShippingMachineCallsLinkedT.valsOf (letObsB @P@.machineData (fun _ : Unit => Sparkle.Core.Domain.defaultDomain) @P@.machineInits @P@.machineBody @P@.machineExt @P@.machineExtB i bools bits) (@ARGS@ : List Nat)) = _) @P@.machine_composedNR2 Tools.ShippingMachineCallsLinkedTNR.machine_linkedT_callsRN hcalls gfHv@J@
 "#
 
 def d2Tail : String := r#"
@@ -631,23 +668,8 @@ theorem _root_.@P@.epD2_composedA {w w' : Void IO.RealWorld} {m : Sparkle.IR.AST
         rw [← Option.some.inj hk]
         exact (@P@.epD2_insts_C k hk').1
       subst hck
-      -- the group facts of the generated proof that do not mention the child predicate
-      have L : ∀ (q : Nat) (hq : q < (@ARGS@ : List Nat).length), (@ARGS@ : List Nat)[q] < @P@.machineData.ls.length ∧
-          ∃ g, (letObsB @P@.machineData (fun _ : Unit => Sparkle.Core.Domain.defaultDomain) @P@.machineInits @P@.machineBody @P@.machineExt @P@.machineExtB i bools bits)[(@ARGS@ : List Nat)[q]]? = some g :=
-        oldGroupFact% (∀ (q : Nat) (hq : q < (@ARGS@ : List Nat).length), (@ARGS@ : List Nat)[q] < @P@.machineData.ls.length ∧
-          ∃ g, (letObsB @P@.machineData (fun _ : Unit => Sparkle.Core.Domain.defaultDomain) @P@.machineInits @P@.machineBody @P@.machineExt @P@.machineExtB i bools bits)[(@ARGS@ : List Nat)[q]]? = some g) @P@.machine_composedNR2 Tools.ShippingMachineCallsLinkedTNR.machine_linkedT_callsRN hcalls gfL0
-      have R : ∀ τ : Nat, Tools.ShippingMachineChild.InRange (Tools.ShippingMachineCallsLinkedT.valsOf (letObsB @P@.machineData (fun _ : Unit => Sparkle.Core.Domain.defaultDomain) @P@.machineInits @P@.machineBody @P@.machineExt @P@.machineExtB i bools bits) (@ARGS@ : List Nat) τ)
-          ((List.take @KC@ @C@.machineData.bsIn).filter fun b => b.2 != .domain) :=
-        oldGroupFact% (∀ τ : Nat, Tools.ShippingMachineChild.InRange (Tools.ShippingMachineCallsLinkedT.valsOf (letObsB @P@.machineData (fun _ : Unit => Sparkle.Core.Domain.defaultDomain) @P@.machineInits @P@.machineBody @P@.machineExt @P@.machineExtB i bools bits) (@ARGS@ : List Nat) τ)
-          ((List.take @KC@ @C@.machineData.bsIn).filter fun b => b.2 != .domain)) @P@.machine_composedNR2 Tools.ShippingMachineCallsLinkedTNR.machine_linkedT_callsRN hcalls gfR0
-      have Hb : Tools.ShippingMachineChild.boolsOf (List.take @KC@ @C@.machineData.bsIn)
-          (Tools.ShippingMachineCallsLinkedT.valsOf (letObsB @P@.machineData (fun _ : Unit => Sparkle.Core.Domain.defaultDomain) @P@.machineInits @P@.machineBody @P@.machineExt @P@.machineExtB i bools bits) (@ARGS@ : List Nat)) = _ :=
-        oldGroupFact% (Tools.ShippingMachineChild.boolsOf (List.take @KC@ @C@.machineData.bsIn)
-          (Tools.ShippingMachineCallsLinkedT.valsOf (letObsB @P@.machineData (fun _ : Unit => Sparkle.Core.Domain.defaultDomain) @P@.machineInits @P@.machineBody @P@.machineExt @P@.machineExtB i bools bits) (@ARGS@ : List Nat)) = _) @P@.machine_composedNR2 Tools.ShippingMachineCallsLinkedTNR.machine_linkedT_callsRN hcalls gfHb0
-      have Hv : Tools.ShippingMachineChild.bitsOf (List.take @KC@ @C@.machineData.bsIn)
-          (Tools.ShippingMachineCallsLinkedT.valsOf (letObsB @P@.machineData (fun _ : Unit => Sparkle.Core.Domain.defaultDomain) @P@.machineInits @P@.machineBody @P@.machineExt @P@.machineExtB i bools bits) (@ARGS@ : List Nat)) = _ :=
-        oldGroupFact% (Tools.ShippingMachineChild.bitsOf (List.take @KC@ @C@.machineData.bsIn)
-          (Tools.ShippingMachineCallsLinkedT.valsOf (letObsB @P@.machineData (fun _ : Unit => Sparkle.Core.Domain.defaultDomain) @P@.machineInits @P@.machineBody @P@.machineExt @P@.machineExtB i bools bits) (@ARGS@ : List Nat)) = _) @P@.machine_composedNR2 Tools.ShippingMachineCallsLinkedTNR.machine_linkedT_callsRN hcalls gfHv0
+      -- the group facts of the generated proof that do not mention the child predicate: one bundle per distinct argument list
+@GROUPFACTS@
       have hlt : k < @MP@ := by
         have : @P@.machineData.shape.insts.length = @MP@ := by first | decide | decide +kernel
         omega
@@ -727,6 +749,10 @@ callee of `C` (a leaf).  `kP`/`kC` = the numbers of own input ports of `P`/`C`, 
 `gw` = the declared widths of `G`'s arguments, `args` = the (single) argument list of the calls of `P`, `kf` = per instance of `P`
 the index of the called output field among the outputs of `C`. -/
 structure D2Params where
+  /-- the DISTINCT argument lists of the calls of `P`, in order of first occurrence (= the group index of the old generated `hcalls`) -/
+  groups : List (List Nat)
+  /-- per call instance of `P`, the index of its group -/
+  instGroup : List Nat
   P : Name
   C : Name
   G : Name
@@ -735,7 +761,6 @@ structure D2Params where
   mP : Nat
   mC : Nat
   gw : List Nat
-  args : List Nat
   nOutsC : Nat
 deriving Repr
 
@@ -782,11 +807,13 @@ def analyse (fn : Name) : CommandElabM D2Params := do
   let gi ← nat "@F@.machineData.shape.insts.length" G
   unless gi == 0 do
     refuse fn s!"the grandchild {G} has {gi} call instance(s) of its own: depth 3, OPEN (no depth-3 interface/closing lemma on the new boundary)"
-  -- the argument lists of the parent's calls: ONE group (the old generated hcalls has one group-facts bundle per distinct list)
+  -- the argument lists of the parent's calls: one group per DISTINCT list, in order of first occurrence (the old generated `hcalls` has
+  -- one group-facts bundle `gf*{j}` per group; its group index is NOT read from the old term but recomputed here, and a wrong
+  -- correspondence makes the typed extraction (`oldGroupFact%`, `isDefEq` against the stated type) fail loudly)
   let al ← liftTermElabM do readNatLists (← elabText s!"({fn}.machineData.shape.insts.map (·.2.1))")
-  let some a0 := al.head? | refuse fn "no call instance"
-  unless al.all (· == a0) do
-    refuse fn s!"the calls of the parent have DIFFERENT argument lists {al}; the old generated `hcalls` has one group-facts bundle per distinct list and this path extracts ONE (OPEN: several groups)"
+  if al.isEmpty then refuse fn "no call instance"
+  let groups := al.eraseDups
+  let instGroup := al.map fun a => (groups.findIdx? (· == a)).getD 0
   for (n, ss) in [(fn, [`machine_composedNR2, `machine_ok, `machine_body, `machine_inits, `machine_writes, `machine_result, `machine_source,
         `machine_ext_causal, `machineSource, `machineInits, `machineBody, `machineResult, `machineExt, `machineExtB, `machineData]),
       (C, [`machine_composedNR1, `machine_ok, `machine_body, `machine_inits, `machine_writes, `machine_result, `machine_source,
@@ -812,25 +839,34 @@ def analyse (fn : Name) : CommandElabM D2Params := do
   let mC ← nat "@F@.machineData.shape.insts.length" C
   let nOutsC ← nat "@F@.machineData.shape.layout.outs.length" C
   let gw ← liftTermElabM do readNats (← elabText s!"(Tools.ShippingPortWidthsPure.declWidths {G}.machineData)")
-  return { P := fn, C := C, G := G, kP := kP, kC := kC, mP := mP, mC := mC, gw := gw, args := a0, nOutsC := nOutsC }
+  return { P := fn, C := C, G := G, kP := kP, kC := kC, mP := mP, mC := mC, gw := gw, groups := groups, instGroup := instGroup, nOutsC := nOutsC }
 
 /-! ## text assembly -/
 
 def subst2 (s : String) (p : D2Params) : String :=
-  ((((((s.replace "@ARGS@" (toString p.args)).replace "@P@" p.P.toString).replace "@C@" p.C.toString).replace "@G@" p.G.toString).replace "@KP@" (toString p.kP)).replace
+  (((((s.replace "@P@" p.P.toString).replace "@C@" p.C.toString).replace "@G@" p.G.toString).replace "@KP@" (toString p.kP)).replace
     "@KC@" (toString p.kC)).replace "@GW@" (toString p.gw)
 
 /-- The cases of `epD2_composedA`: instance `k` of the parent.  The called output field index is found among the outputs of `C`
 (`first` over the candidates; a wrong candidate fails at `rfl`). -/
 def composedCases (p : D2Params) : String :=
-  let alts := (List.range p.nOutsC).map fun K =>
-    s!"(refine ⟨rfl, {p.args}, rfl, (fun mc hmc => ⟨@P@.epD2_C_seqChildRunN2 O T hmc, by rw [(@P@.epD2_C_seqChildRunN2 O T hmc).2.2.2.2.2.1]; decide⟩), L, R, {K}, _, _, rfl, rfl, ?_, fun τ => rfl⟩; exact (congrArg (fun l => l[{K}]?) (Tools.ShippingMachineCallsLinkedT.decoded_eq (@C@.machineSource Sparkle.Core.Domain.defaultDomain) Hb Hv)).trans rfl)"
-  let one := "· first\n" ++ "\n".intercalate (alts.map fun a => "    | " ++ a)
-  "\n".intercalate ((List.range p.mP).map fun _ => one)
+  let one (k : Nat) : String :=
+    let g := p.instGroup.getD k 0
+    let args := p.groups.getD g []
+    let alts := (List.range p.nOutsC).map fun K =>
+      s!"(refine ⟨rfl, {args}, rfl, (fun mc hmc => ⟨@P@.epD2_C_seqChildRunN2 O T hmc, by rw [(@P@.epD2_C_seqChildRunN2 O T hmc).2.2.2.2.2.1]; decide⟩), L{g}, R{g}, {K}, _, _, rfl, rfl, ?_, fun τ => rfl⟩; exact (congrArg (fun l => l[{K}]?) (Tools.ShippingMachineCallsLinkedT.decoded_eq (@C@.machineSource Sparkle.Core.Domain.defaultDomain) Hb{g} Hv{g})).trans rfl)"
+    "· first\n" ++ "\n".intercalate (alts.map fun a => "    | " ++ a)
+  "\n".intercalate ((List.range p.mP).map one)
+
+/-- The group facts of every distinct argument list (group `j` = `gfL{j}` … of the old generated `hcalls`). -/
+def groupFacts (p : D2Params) : String :=
+  "\n".intercalate ((p.groups.zipIdx.map fun (args, j) =>
+    (groupFactsTmpl.replace "@J@" (toString j)).replace "@ARGS@" (toString args)))
 
 def assembleD2 (p : D2Params) : String :=
   let pat := "".intercalate ((List.range p.mP).map fun _ => "_ | ") ++ "k"
   let src := openBlock2 ++ d2Head ++ d2Tail
+  let src := src.replace "@GROUPFACTS@" (groupFacts p)
   let src := src.replace "@MPAT@" pat
   let src := src.replace "@MP@" (toString p.mP)
   let src := src.replace "@CASES@" ("\n".intercalate (((composedCases p).splitOn "\n").map fun l => "      " ++ l))
@@ -912,7 +948,7 @@ def elabEndpointD2 : CommandElab := fun stx => do
       if n > 0 then deep := true
   unless deep do throwUnsupportedSyntax
   let p ← analyse fn
-  logInfo m!"SR3t: depth-2 class instance {p.P} -> {p.C} -> {p.G}: kP {p.kP}, kC {p.kC}, {p.mP} call instance(s) of {p.C} with arguments {p.args}, {p.mC} of {p.G} with widths {p.gw}"
+  logInfo m!"SR3t: depth-2 class instance {p.P} -> {p.C} -> {p.G}: kP {p.kP}, kC {p.kC}, {p.mP} call instance(s) of {p.C} with argument lists {p.groups} (instance -> group {p.instGroup}), {p.mC} of {p.G} with widths {p.gw}"
   let src := assembleD2 p
   try
     runCmds src
