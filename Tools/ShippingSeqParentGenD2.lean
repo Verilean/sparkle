@@ -51,9 +51,12 @@ lambda-binder name of the group-fact redex (`gfL0 gfR0 gfHb0 gfHv0`) and by BIND
 structural (not chosen by index): "the first application of the head constant in the value", "the argument `hcalls` is a lambda whose
 body is a beta-redex".  The group index is no longer fixed to `0` (unit SR3u): group `j` is the `j`-th DISTINCT argument list in order of
 first occurrence among `P`'s instances, RECOMPUTED here from the shape data (not read from the old term); the old generator opens a new group
-for a new (callee, argument lets, families) tuple, so the correspondence is an ASSUMPTION about the old generator, enforced only by the typed
+for a new (callee, argument lets, families) tuple, so the correspondence is an ASSUMPTION about the old generator (the order of distinct
+argument lists need not equal the old generator's (callee, lets, families) grouping order).  A misnumbered group FAILS either in the typed
 extraction (`oldGroupFact%` throws unless the extracted type is `isDefEq` to the group's stated type, whose argument list is the one
-computed here).  The typed helpers STILL depend on term structure (`findHeadApp?`, the zip pairing); removal is NOT claimed.  Each extracted term is checked `isDefEq` against an EXPLICIT type written in the
+computed here) OR in the later semantic equation check (the `Hb`/`Hv` right-hand sides are holes `_`, checked only by the final
+`.trans rfl`); it is not guaranteed to be caught by `oldGroupFact%` alone, and such a stop is a safe failure, NOT support for the whole class
+(integrator wording, par/int-r44, per review).  The typed helpers STILL depend on term structure (`findHeadApp?`, the zip pairing); removal is NOT claimed.  Each extracted term is checked `isDefEq` against an EXPLICIT type written in the
 template (the group-fact types of `Hb`/`Hv` leave their right-hand side as `_`: the family the generator absorbed into; the final
 `.trans rfl` of the entry proof checks it against the entry's value). -/
 namespace Tools.ShippingSeqParentGenD2
@@ -809,7 +812,8 @@ def analyse (fn : Name) : CommandElabM D2Params := do
     refuse fn s!"the grandchild {G} has {gi} call instance(s) of its own: depth 3, OPEN (no depth-3 interface/closing lemma on the new boundary)"
   -- the argument lists of the parent's calls: one group per DISTINCT list, in order of first occurrence (the old generated `hcalls` has
   -- one group-facts bundle `gf*{j}` per group; its group index is NOT read from the old term but recomputed here, and a wrong
-  -- correspondence makes the typed extraction (`oldGroupFact%`, `isDefEq` against the stated type) fail loudly)
+  -- correspondence fails either in the typed extraction (`oldGroupFact%`, `isDefEq` against the stated type) or in the later semantic
+  -- equation check (`Hb`/`Hv` right-hand sides are holes); a safe stop, not class coverage)
   let al ← liftTermElabM do readNatLists (← elabText s!"({fn}.machineData.shape.insts.map (·.2.1))")
   if al.isEmpty then refuse fn "no call instance"
   let groups := al.eraseDups
