@@ -53,6 +53,7 @@ import Tools.ShippingRanABridge
 import Tools.ShippingKidsSelfA
 import Tools.ShippingParentRunFactsA
 import Tools.ShippingMachineComposeRM
+import Tools.ShippingEntryDefinesRun
 
 /-! # Audit: the vertical path does not use the old boundary (round par/vert)
 
@@ -441,7 +442,12 @@ def audited : List Name :=
    ``Tools.ShippingKidsSelfA.core_kidsMaskedN_top_ranA,
    ``Tools.ShippingKidsSelfA.core_kids_selfA,
    ``Tools.ShippingKidsSelfA.core_kidsPass_deepA,
-   ``Tools.ShippingKidsSelfA.core_kidsMaskedN_topA]
+   ``Tools.ShippingKidsSelfA.core_kidsMaskedN_topA,
+   ``Tools.ShippingEntryDefinesRun.gate_core_factsL, ``Tools.ShippingEntryDefinesRun.gate_child_fullL,
+   ``Tools.ShippingEntryDefinesRun.gate_child_combL, ``Tools.ShippingEntryDefinesRun.gate_child_fullFactsL,
+   ``Tools.ShippingEntryDefinesRun.childFull_of_realAL, ``Tools.ShippingEntryDefinesRun.childFn_of_gateRunL,
+   ``Tools.ShippingEntryDefinesRun.EntryDefinesRun.of_envRun,
+   ``Tools.ShippingEntryDefinesRun.EntryDefinesRun.at_reads]
 
 end Tests.Compiler.ChildVertAuditTest
 

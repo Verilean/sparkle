@@ -3553,3 +3553,9 @@ lean_lib «Tools.ShippingMachineComposeRMCommand» where
 
 lean_lib «Tools.ShippingLetsExternSpec» where
   roots := #[`Tools.ShippingLetsExternSpec]
+
+lean_lib «Tools.ShippingEntryDefinesRun» where
+  roots := #[`Tools.ShippingEntryDefinesRun]
+
+lean_lib «Tools.ShippingMachineComposeRMLCommand» where
+  roots := #[`Tools.ShippingMachineComposeRMLCommand]
