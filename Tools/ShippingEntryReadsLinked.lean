@@ -13,10 +13,13 @@ UNCONNECTED worlds, keyed on the output `(M, D)`.  Here:
   `w —head→ w1 —getConstInfo→ w2 —getEnv→ w3 —body→ w4 —finally→ w'`, every world the output of the previous step.
 * `EntryDefinesRunG` asks the entry constant to be a definition of value `v` only for such a CHAIN (the run is a
   function of its start world, so the chain is determined by `w`; another run with the same `(M, D)` is not covered).
-  `EntryDefinesRun.toG`: the SR2f premise implies it.
+  (An implication from SR2f's `EntryDefinesRun` to it is NOT implemented here — there is no `EntryDefinesRun.toG`.)
 * ENVIRONMENT SNAPSHOT: `getEnv_value`, `getConstInfo_value` (law-free): both reads return the environment field of the
   Core state AT THEIR START WORLD (`envAt cref`).  `ST.Ref.get` is an opaque primitive, so nothing in the model says
-  the worlds `w1`, `w2`, `w3`, `w4` carry the same `envAt`: that is `EnvSnapshot`, a NAMED HYPOTHESIS (OPEN).
+  the worlds `w1` and `w2` (the starts of `getConstInfo` and `getEnv`) carry the same `envAt`: that is `EnvSnapshot`
+  (defined over `w1`, `w2` ONLY), a NAMED HYPOTHESIS (OPEN). Preservation across the body to `w4` is NOT part of it
+  and is NOT proved. `EnvSnapshot` is a premise; even with `ci_in_envR`, identifying `gateValue` and supplying the
+  boundary remain OPEN.
   `ci_in_envR` shows what it would give.  Writes that could break it: any `Core.State.env` write between `w1` and
   `w4` — none occurs in `Sparkle/` source (no `addDecl`/`setEnv`/`modifyEnv`/`withEnv` outside Verification), but the
   body calls Lean's `whnf`/`inferType`/`mkAppM`/`unfoldDefinition?`/instance synthesis, whose env-preservation is
