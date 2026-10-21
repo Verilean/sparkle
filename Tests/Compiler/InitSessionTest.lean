@@ -9,8 +9,8 @@ interleaved load (scope: the conclusion and the type of the chain hypothesis `hs
 NOT a whole forall-type identity). Mutations (start world `loadW wS`, different `O'`, dropped quiet, different end
 world) must be rejected.
 (2) Loader-trace SOURCE evidence (see ledger L9e): (a) which init path ran in THIS elaborating process
-(`interpretedModInits` ∌ `Sparkle.Compiler.Elab` ⇒ the interpreter did not run that module's `[init]` entries, i.e.
-the native `initialize_<Module>` path ran); (b) the emitted C `initialize_sparkle_Sparkle_Compiler_Elab` of THIS
+(`interpretedModInits` ∌ `Sparkle.Compiler.Elab` ⇒ the interpreter did not run that module's `[init]` entries; so the
+native `initialize_<Module>` path ran OR no initialiser ran — this observation alone does NOT show that the native path ran); (b) the emitted C `initialize_sparkle_Sparkle_Compiler_Elab` of THIS
 package: textual order of the three ref assignments and the call of the `set` initialiser. A textual order of
 generated C is NOT an executed trace of a run and NOT `InitOrder` for the `Other`-steps. -/
 
