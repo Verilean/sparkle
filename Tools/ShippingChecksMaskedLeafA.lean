@@ -1,7 +1,7 @@
 import Tools.ShippingChecksMaskedLeaf
 import Tools.ShippingLeafInputWidthsA
 import Tools.ShippingSeqChildIfaceA
--- UNBUILT (unit SR3c, par/u-sr3c): see REPORT-SR3c.md for run names / exits.
+-- BUILT (unit SR3c, par/u-sr3c): sr3c2 exit 0. See REPORT-SR3c.md.
 -- No `sorry`, no `axiom`, no `native_decide`, no new law / field. Witness `O : RefLawsAOps MkRefd mref cref`.
 
 /-! # `hkidM` of a leaf register child from a `RealChildA` (unit SR3c)
