@@ -5,7 +5,8 @@ import Tests.Compiler.SeqDeepGrandEndpointAuditTest
 -- (`topw -> wrap -> acc`, kP = 3 own inputs, depth 2).  `TopwConcl n kP` is written BY HAND here (the same shape as `GrandConcl`, with the
 -- source `topw`; it is not obtained from the generated statement nor from `GrandConcl`).  The WHOLE conclusion of the generated endpoint is
 -- compared by `isDefEq` with `TopwConcl 2 3` (shared binders as the same free variables, `Meta.check`, no mvars / stray fvars); altered
--- expectations (kP 2, depth 1, the source `grand` instead of `topw`) must be REJECTED.  A statement check, not a proof that `BndAg` holds;
+-- expectations (kP 2, depth 1, and `GrandConcl 2 3` = the conclusion of a DIFFERENT declaration, whose source, boundary and outputs all
+-- differ — NOT a source-only mutation) must be REJECTED.  A statement check, not a proof that `BndAg` holds;
 -- the boundary premises stay inside the conclusion.
 namespace Tests.Compiler.SeqDeepGenInstConclTest
 open Tests.Compiler.SeqDeepGenInstTest
@@ -99,7 +100,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
       mkAppN (mkConst ``Tests.Compiler.SeqDeepGrandEndpointAuditTest.GrandConcl) (#[mkNatLit n, mkNatLit kP] ++ args)
     let concl ← instantiateMVars concl
     let exp := mkT 2 3
-    let alts := [(mkT 2 2, "kP 2"), (mkT 1 3, "depth 1"), (mkOther 2 3, "source grand")]
+    let alts := [(mkT 2 2, "kP 2"), (mkT 1 3, "depth 1"), (mkOther 2 3, "GrandConcl 2 3 (other declaration: source, boundary, outputs differ)")]
     for (e, what) in [(concl, "the endpoint's conclusion"), (exp, "the expected conclusion")] ++ alts.map fun (e, w) => (e, s!"alt {w}") do
       if e.hasMVar then throwError "GAUD AUDIT FAILED: unassigned metavariables in {what}"
       for f in (Lean.collectFVars {} e).fvarIds do
@@ -109,6 +110,6 @@ run_cmd Lean.Elab.Command.liftTermElabM do
       throwError "GAUD AUDIT FAILED: the conclusion of the generated topw endpoint is not definitionally TopwConcl 2 3"
     for (e, w) in alts do
       if (← isDefEq concl e) then throwError "GAUD AUDIT FAILED: the altered expectation ({w}) was ACCEPTED"
-  logInfo m!"GAUD: the conclusion of the GENERATED topw.epD2_endpoint is isDefEq to the hand-written TopwConcl 2 3; kP 2, depth 1 and the source grand are REJECTED"
+  logInfo m!"GAUD: the conclusion of the GENERATED topw.epD2_endpoint is isDefEq to the hand-written TopwConcl 2 3; kP 2, depth 1 and GrandConcl 2 3 (a different declaration: source, boundary and outputs differ; not a source-only mutation) are REJECTED"
 
 end Tests.Compiler.SeqDeepGenInstConclTest
