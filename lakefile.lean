@@ -3418,3 +3418,5 @@ lean_lib «Tools.ShippingCallWidthsChildRealATl» where
 
 lean_lib «Tools.ShippingLeafInputWidthsA» where
   roots := #[`Tools.ShippingLeafInputWidthsA]
+lean_lib «Tools.ShippingCallsCloseA» where
+  roots := #[`Tools.ShippingCallsCloseA]
