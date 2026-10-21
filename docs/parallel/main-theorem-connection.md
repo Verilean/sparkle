@@ -40,11 +40,11 @@ What must be written is a **port of the consumers** (§2, L5–L7), not a bridge
 | L2 | `BodyStepA O` | all depths ≥ 1: `ChildKeepsA D → body keeps JQ D` | PROVED relative to `T` and the tail: `bodyStepA_of_tele` (ComposeA, `∀ D, LegacyTailA`) / `bodyStepA_main` (MainA, step-form tail `LegacyTailStepA`) via D `bodyKeepsA_frontends` | D, B3 (tail) |
 | L3 | core entry, `OutQ → OutQ` | `core_tripleA_of_bodies` | PROVED relative to L2: `core_tripleA_of_tele` (ComposeA), `core_tripleA_main` (MainA) | — |
 | L4 | cache half (SEPARATE induction, not inferred from JQ) | `hbodyC` at `JQC (D+1)`; `core_tripleAC`, `full_tripleAC`, `closeInstsM_realA'` | PROVED relative to `T` and `LegacyTailC`: E `childKeepsC_all`, `core0_tripleAC`/`full0_tripleAC` (outermost: JQ prefix/EQ before the clear, JQC after, EQC→EQ), E2 `bodyStepC_of_tele`, `core_tripleAC_of_tele`, `full_tripleAC_of_tele` (ComposeC) | E, B3 (tail at JQC) |
-| L5 | run unpacking under the NEW boundary | the analogue of `core_reads_inv` / `machine_run_of_core`: a successful run of the core from a `JQ`/`JQC` world contains a run of `synthesizeMachineCertified` (or the leaf equivalent) starting in a `JQC` world at depth ≥ 1 | **OPEN, no owner** | propose **new unit G** |
-| L6 | `machine_children_realA` on `RealChildA` | children of `closeInsts` are `RealChildA` (CoreC's `closeInstsM_realA'` already gives this for the monadic closing; what is missing is its use through L5's decomposition) | **OPEN** (needs L5) | unit G |
-| L7 | consumers of `RealChild` | `childLink_real`, `entryStrict_real`, `realChild_of_childrenReal`, `callWidthsStrict…`, 92 files mention `RealChild mref cref` (grep count; not all use the quiet field); the leaf chain uses the *run* `hr` of the callee + `core_reads_inv L`. Port to `RealChildA O` (which carries the same `hr` plus `AdmCtx`, `sv`, quiet) | **OPEN** (list: `grep -l "RealChild mref cref" Tools/`) | unit G (mechanical but large) |
-| L8 | leaf/parent heads | `leaf_names`, `leaf_input_widths`, `leaf_sat_design_closed5`, `<p>_sat*` take `ChildBnd`; replace by `JQC`-start premise (`OutQ` + `cv w = {}` ⇒ `JQC O 0`, PROVED `jqc_zero_of_empty`) | **OPEN** (statement change of the endpoint's premise — to be agreed, REPORT) | unit G |
-| L9 | endpoint premise: the entry's start world | `OutQ O.quiet w` (quiet + `sv w = some synthesizeChild` + depth 0) and `cv w = {}` | PREMISE (run hypothesis; command→entry link not formalised, R13/R14 in open-items §1) | integrator / OPEN |
+| L5 | run unpacking under the NEW boundary | the analogue of `core_reads_inv` / `machine_run_of_core`: a successful run of the core from a `JQ`/`JQC` world contains a run of `synthesizeMachineCertified` (or the leaf equivalent) starting in a `JQC` world at depth ≥ 1 | **OPEN** — unit G (par/u-g, started on par/int-r3) | G |
+| L6 | `machine_children_realA` on `RealChildA` | children of `closeInsts` are `RealChildA` (CoreC's `closeInstsM_realA'` already gives this for the monadic closing; what is missing is its use through L5's decomposition) | **OPEN** (needs L5) | G (after L5) |
+| L7 | consumers of `RealChild` | `childLink_real`, `entryStrict_real`, `realChild_of_childrenReal`, `callWidthsStrict…`, 92 files mention `RealChild mref cref` (grep count; not all use the quiet field); the leaf chain uses the *run* `hr` of the callee + `core_reads_inv L`. Port to `RealChildA O` (which carries the same `hr` plus `AdmCtx`, `sv`, quiet) | **OPEN** (list: `grep -l "RealChild mref cref" Tools/`) | unit K (par/u-k): `childLink_realA` first, minimal read witness; others listed |
+| L8 | leaf/parent heads | `leaf_names`, `leaf_input_widths`, `leaf_sat_design_closed5`, `<p>_sat*` take `ChildBnd`; replace by the start premise `JQ O.quiet 0` — the entry CLEARS the child cache itself (E `core0_tripleAC`/`full0_tripleAC`: JQ prefix, exceptions before the clear `EQ`, `JQC O 0` after it), so NO `cv w = {}` premise is needed | **OPEN** (statement change of the endpoint's premise — to be agreed) | G |
+| L9 | endpoint premise: the entry's start world | `JQ O.quiet 0 w` = `OutQ O.quiet w` (quiet + `sv w = some synthesizeChild` + depth 0); no condition on the child cache `cv` | PREMISE (run hypothesis; command→entry link not formalised, R13/R14 in open-items §1) | integrator / OPEN |
 
 F2 scope: MainA now covers L1–L3 at JQ level (`core_tripleA_main`). L4 (JQC, `hbodyC`, full entry)
 is E's and is a SEPARATE piece; the F round-1 `*_of_exports` composition over abstract `H/Lg/BS` was
@@ -53,9 +53,11 @@ removed (it counted abstractions as reduced premises). The names `handlers_of_ex
 
 ## 3. Audit table (F2): remaining premises of the JQ-level main theorem
 
-Theorems: `Tools.ShippingChildComposeA.{bodyKeepsA_of_tele, bodyStepA_of_tele, childKeepsA_all_of_tele,
-core_tripleA_of_tele}` (integrator) and `Tools.ShippingChildMainA.{bodyStepA_main, childKeepsA_main,
-core_tripleA_main}` (F2). Each depth step is built inside the induction: `ChildKeepsA D` → D2 bridge
+Theorems (par/int-r3, 0eaf1602): `Tools.ShippingChildComposeA.bodyKeepsA_of_tele` (the per-depth step,
+tail as an argument) and `Tools.ShippingChildMainA.{bodyStepA_main, childKeepsA_main, core_tripleA_main}`
+(the tail built in the same step from `hC` by B3 `legacyTailA_of_step`). JQC (separate induction):
+`Tools.ShippingChildComposeC.{bodyKeepsC_of_tele, bodyStepC_of_tele, childKeepsC_all_of_tele,
+core_tripleAC_of_tele, full_tripleAC_of_tele}` (tail at JQC from B3 `legacyTailA_generic`). Each depth step is built inside the induction: `ChildKeepsA D` → D2 bridge
 → B `legacyImplA_of_tele` → A (`canonKeyA`, `legacyCachedA_of_impl`) / C (`projFieldNameA`) → D
 `bodyKeepsA_frontends`. The handlers are NOT assumed at every depth. Status of the F2 build: see
 REPORT-F2.md (header of MainA says UNBUILT/BUILT).
@@ -70,11 +72,11 @@ opaque/extern/implemented_by counts are structural, not a runtime-fit proof.
 | `O : RefLawsAOps MkRefd mref cref` (9 fields: `diag, frameT, excOk, frameQ, cacheSetQ, depthSetQ, frame, cacheSet, depthSet`) | law family | boundary (InvA) | PREMISE; no model of it built; inconsistency NOT PROVEN | OPEN (extern `ST.Prim.Ref.*`, Meta primitives, printers, `excOk` on Lean exceptions unmodelled) |
 | `hA : AdmCtx O.quiet mctx cctx` | start context | boundary | PREMISE | OPEN (command→entry link not formalised) |
 | `T : RefLawsATele O.quiet mref cref` | ADDED unproved boundary (law family) | C uses it; B's `legacyImplA_of_tele` uses it too | PREMISE. Never "premise-free". Not derived from `Ops`: B's three telescope laws and C's `projFieldNameA` stay OPEN at runtime; the `panic` arm covered in the model only | OPEN |
-| `hTail : LegacyTailStepA O` (`∀ D ≥ 1, ChildKeepsA O D → LegacyTailA O D`) | TAIL, ONE hypothesis | D states `LegacyTailA`; B3 proves the generic tail from `hC` (`legacyTailA_of_step`) | PREMISE until B3 is integrated. Covers EVERY constant where both gates miss, also machine-route ones | OPEN |
+| legacy tail (`LegacyTailA O D`; at JQC the generic tail) | tail | B3 | PROVED inside each step from `hC` and `T` (`legacyTailA_of_step`; `legacyTailA_generic` at JQC) — no tail premise remains | follows `T`/`O` |
 | start `OutQ O.quiet w` (the `Triple` precondition) | RUN | integrator | PREMISE (first-entry ref contents, commands between entries: OPEN) | OPEN |
 | `LegacyImplA`, `LegacyCachedA`, `CanonKeyA`, `ProjFieldNameA`, `ChildEntryA` at `JQ D` | handlers | B, A, C, D2 | PROVED inside each step from `hC`, `T` (no extra premise) | follows `T`/`O` |
 | `BodyStepA`, `ChildKeepsA D` (D ≥ 1), core entry keeps `OutQ` | induction | D, DepthA | PROVED from the rows above | — |
-| `JQC` (child-cache invariant), E's depth-0 initialisation (JQ-only on success after the clear; exceptions before the clear EQ) | cache half | E | SEPARATE, NOT claimed here; E not integrated | — |
+| `JQC` (child-cache invariant), E's depth-0 initialisation (JQ-only on success after the clear; exceptions before the clear EQ) | cache half | E, E2 | PROVED relative to `O`, `hA`, `T`, start `JQ O.quiet 0` (ComposeC; separate induction, not inferred from JQ) | follows `T`/`O` |
 | connection to semantic preservation / `ChildBnd` endpoint (L5–L8 above) | port | unit G (proposed) | OPEN | — |
 | model→real ST correspondence | MODEL↔ST | nobody | OPEN | OPEN |
 
@@ -94,15 +96,20 @@ It is a history. It does not say `r` is correct in the *current* environment (th
 have changed between the past run and the cache hit; the old `RealChild` has the same weakness, and
 `childLink_real`-style consumers re-read the environment, so the port L7 must not assume more).
 
-## 4. Proposed audit additions (integrator applies)
+## 4. Audit (applied)
 
-`Tools.ShippingChildMainA.bodyStepA_main`, `childKeepsA_main`, `core_tripleA_main`, plus
-`import Tools.ShippingChildMainA` in Tests/Compiler/ChildVertAuditTest.lean.
+Tests/Compiler/ChildVertAuditTest.lean imports MainA, ComposeC, LegacyTailA and audits
+`ComposeA.bodyKeepsA_of_tele`, `MainA.{bodyStepA_main, childKeepsA_main, core_tripleA_main}`,
+`ComposeC.{bodyKeepsC_of_tele, bodyStepC_of_tele, childKeepsC_all_of_tele, core_tripleAC_of_tele,
+full_tripleAC_of_tele}`, `LegacyTailA.{legacyTailA_generic, legacyTailA_of_step}` (with the earlier
+A/B/C/D/D2/E entries). Build status: see the integration round table (int-r3a).
 
 ## 5. Missing with no owner (proposals)
 
-1. **Unit G — port the endpoint to the new boundary** (L5–L8): run unpacking under `JQ`/`JQC`
-   (new `core_reads_inv`), `RealChild → RealChildA` in the consumer chain, `ChildBnd` replaced at the
-   heads by `OutQ ∧ cv = {}`. Large, mechanical; the old chain is the template.
-2. Legacy tail at `JQC` and the whole JQC level (E, not integrated) (a statement D/E must export; today only `LegacyTailA O D` at `JQ`).
+1. **Port the endpoint to the new boundary** (L5–L8): unit G — run unpacking under `JQ`/`JQC`
+   (`core_reads_invA`/`machine_run_of_coreA`); unit K — `RealChild → RealChildA` in the consumer chain,
+   starting with `childLink_realA` (minimal read witness; `ResDeclAt`/`P5At`/`MachineDefines` kept);
+   `ChildBnd` at the heads replaced by the start premise `JQ O.quiet 0` (no `cv = {}`: the entry clears
+   the cache). A CONDITIONAL connection to the existing semantic-preservation endpoints.
+2. (done) Legacy tail at `JQC` and the JQC level: integrated (ComposeC with B3's generic tail).
 3. Runtime fit and joint satisfiability of `RefLawsAOps` / `RefLawsATele`: research item.
