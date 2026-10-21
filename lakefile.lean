@@ -3721,3 +3721,6 @@ lean_lib «Tests.Compiler.NormStepModelAgreeTest» where
 
 lean_lib «Tests.Compiler.NormStepModelWholeAgreeTest» where
   roots := #[`Tests.Compiler.NormStepModelWholeAgreeTest]
+
+lean_lib «Tools.Prototype.DGenConnectNM» where
+  roots := #[`Tools.Prototype.DGenConnectNM]
