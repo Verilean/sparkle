@@ -23,6 +23,8 @@ open Lean Meta
 open Tools.ShippingEntrySoundness
 open Sparkle.Compiler.Elab
 open Tools.ShippingChildInv
+open Tools.ShippingChildBndInit
+open Tools.ShippingChildBndCore
 open Tools.ShippingChildInvA
 open Tools.ShippingChildVCA
 open Tools.ShippingChildFallbackA
@@ -243,7 +245,7 @@ theorem jqp_insert_runs (O : RefLawsAOps MkRefd mref cref) (hA : AdmCtx O.quiet 
   have hjq := jqc_insert_runs O hA hw.1 hr h
   have hcv : cv w' = (cv w).insert n r := hk.1
   refine ⟨⟨hjq, fun p hp => ?_⟩, ?_⟩
-  · have hne : ¬ (n == p.1) = true := fun h' => hn p hp (by simpa using h'.symm)
+  · have hne : ¬ (n == p.1) = true := fun h' => hn p hp (beq_iff_eq.mp h').symm
     rw [hcv, Std.HashMap.get?_insert, if_neg hne]
     exact hw.2 p hp
   · rw [hcv, Std.HashMap.get?_insert, if_pos (by simp)]
@@ -286,7 +288,6 @@ theorem synthesizeChild_tripleP (O : RefLawsAOps MkRefd mref cref)
       rw [heq, ← hw.2, hc] at this
       cases this
 
-omit hA in
 /-- `hentryT` for `JQP` from the body at `D + 1`. -/
 theorem hentryT_of_bodyP (O : RefLawsAOps MkRefd mref cref) (hA : AdmCtx O.quiet mctx cctx)
     {D : Nat} (hD : 1 ≤ D) {L : List (Name × Res)} {c : Name}
