@@ -9,7 +9,7 @@ import Tools.ShippingCallWidths
 import Tools.ShippingCallWidthsChildRealA
 import Tools.ShippingChecksMaskedLeafA
 import Tools.ShippingSeqChildIfaceA
--- UNBUILT (unit SR3e, par/u-sr3e). See REPORT-SR3e.md for the build log.
+-- BUILT (unit SR3e, par/u-sr3e): rf2 exit 0 (rf1 exit 1: unqualified callWidthsOk).
 -- SCOPE (binding): facts about the CHECKS of the shipped module of a machine with calls AND `instFields ≠ []`
 -- (a struct-result / multi-output child) on the NEW boundary: `RunFacts` and the statement-kind-gated `outsCheck`.
 -- NOT a parent semantic-equivalence head; not runtime fit. `RealChildA` is a history. No `sorry`, no `axiom`, no new law.
