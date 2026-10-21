@@ -5,7 +5,7 @@ import Tools.ShippingSeqChildDeepKidFactsA
 import Tools.ShippingSeqChildDeepIfacePA
 import Tools.ShippingSeqChildDeepConsumerA
 import Tools.ShippingSeqParentKidFactsA
--- BUILT (unit SR3t): t2 exit 0 (the module itself; the templates are exercised by Tests.Compiler.SeqDeepGenTest / SeqDeepGenInstTest). t1 exit 1 (an `s!` string with braces).
+-- BUILT (unit SR3t): t2 exit 0 (module), g3 exit 0 (templates run on `grand`), i2 exit 0 (second instance `topw` + two refusals). t1 exit 1 (an `s!` string with braces); g1 exit 1 (`Unit` vs `PUnit` in the class check); g2 exit 1 (audit counted partial applications of `MachineDefines`).
 /-! # `#machine_seq_parent_endpoint P`, DEPTH-2 path (unit SR3t, ledger L8ac)
 
 The depth-1 elaborator of `Tools/ShippingSeqParentGen.lean` is UNCHANGED (it still refuses a child that has calls of its own).  This
