@@ -3670,3 +3670,6 @@ lean_lib «Tools.Prototype.BoolMapModelLetOk» where
 
 lean_lib «Tests.Compiler.BoolMapModelAgreeTest» where
   roots := #[`Tests.Compiler.BoolMapModelAgreeTest]
+
+lean_lib «Tools.ShippingSeqChildDeepRunA» where
+  roots := #[`Tools.ShippingSeqChildDeepRunA]
