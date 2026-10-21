@@ -3432,3 +3432,5 @@ lean_lib «Tools.ShippingCallsGatePin» where
 
 lean_lib «Tools.ShippingCallsGatePinned» where
   roots := #[`Tools.ShippingCallsGatePinned]
+lean_lib «Tools.ShippingCallsMemA» where
+  roots := #[`Tools.ShippingCallsMemA]

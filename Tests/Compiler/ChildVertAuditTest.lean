@@ -30,6 +30,7 @@ import Tools.ShippingCallsGateA
 import Tools.ShippingChildPinC
 import Tools.ShippingCallsGatePin
 import Tools.ShippingCallsGatePinned
+import Tools.ShippingCallsMemA
 
 /-! # Audit: the vertical path does not use the old boundary (round par/vert)
 
@@ -280,7 +281,11 @@ def audited : List Name :=
    ``Tools.ShippingMachineOutcomeA.core_reads_linkA,
    ``Tools.ShippingMachineOutcomeA.synthesizeMachineCertified_noneSplitA,
    ``Tools.ShippingMachineOutcomeA.synthesizeFromConst_machine_split2A,
-   ``Tools.ShippingMachineOutcomeA.core_machine_outcomeA']
+   ``Tools.ShippingMachineOutcomeA.core_machine_outcomeA',
+   ``Tools.ShippingCallsMemA.callsPureA_of_memKids,
+   ``Tools.ShippingCallsMemA.machineClosesAtA_of_memKids,
+   ``Tools.ShippingCallsMemA.machineClosesAtA_memOnly_names,
+   ``Tools.ShippingCallsMemA.machineClosesAtA_of_memOnlyData_names]
 
 end Tests.Compiler.ChildVertAuditTest
 
