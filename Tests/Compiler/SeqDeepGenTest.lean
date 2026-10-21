@@ -1,6 +1,6 @@
 import Tests.Compiler.SeqDeepGrandEndpointAuditTest
 import Tools.ShippingSeqParentGenD2
--- UNBUILT (unit SR3t): written, not yet built.
+-- BUILT (unit SR3t): g3 exit 0 (generator on grand; audit and statement comparison inside).
 -- SCOPE (binding): `#machine_seq_parent_endpoint grand` now GENERATES (depth-2 path of `Tools/ShippingSeqParentGenD2.lean`) the endpoint
 -- `grand.epD2_endpoint` for the chain `grand -> mid -> cnt` (class: header of that file).  Asserted here: its type is `isDefEq` to the
 -- hand-assembled SR3s endpoint `grand_noShips_noBdA_dcH`, and its whole conclusion is `isDefEq` to the explicit `GrandConcl 2 1`

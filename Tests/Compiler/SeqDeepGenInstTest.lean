@@ -86,7 +86,7 @@ run_cmd liftTermElabM do
   while !todo.isEmpty do
     let e := todo.back!
     todo := todo.pop
-    if e.getAppFn.isConstOf ``Tools.ShippingMachineEntry.MachineDefines then
+    if e.getAppFn.isConstOf ``Tools.ShippingMachineEntry.MachineDefines && e.getAppNumArgs == 6 then
       defs := defs.push (← Tools.ShippingSeqParentGen.readName e.getAppArgs[4]!)
     match e with
     | .app f a => todo := todo.push f |>.push a

@@ -784,7 +784,7 @@ def analyse (fn : Name) : CommandElabM D2Params := do
   -- domain polymorphism: the parent is a top-level machine (index `Unit`), the child a `{dom : DomainConfig}` hardware module
   let ip ← liftTermElabM <| sourceIndex fn
   let ic ← liftTermElabM <| sourceIndex C
-  unless ip == ``Unit do refuse fn s!"the parent's machineSource is indexed by {ip}, expected Unit (a top-level, non-polymorphic machine)"
+  unless ip == ``Unit || ip == ``PUnit do refuse fn s!"the parent's machineSource is indexed by {ip}, expected Unit (a top-level, non-polymorphic machine)"
   unless ic == `Sparkle.Core.Domain.DomainConfig do
     refuse fn s!"the child {C}'s machineSource is indexed by {ic}, expected DomainConfig (a hardware module with a `dom : DomainConfig` binder); a child that is not domain polymorphic is OPEN on this path"
   for n in [fn, C] do
@@ -865,7 +865,7 @@ def auditD2 (p : D2Params) (ep : Name) : MetaM Unit := do
   while !todo.isEmpty do
     let e := todo.back!
     todo := todo.pop
-    if e.getAppFn.isConstOf ``Tools.ShippingMachineEntry.MachineDefines then
+    if e.getAppFn.isConstOf ``Tools.ShippingMachineEntry.MachineDefines && e.getAppNumArgs == 6 then
       let args := e.getAppArgs
       -- the declaration name argument (a `Name` literal `Lean.Name.str …`), position 4
       if let some a := args[4]? then
