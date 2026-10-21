@@ -3482,6 +3482,9 @@ lean_lib «Tools.ShippingLetsReaderInv» where
 lean_lib «Tools.ShippingLetsReaderInvPure» where
   roots := #[`Tools.ShippingLetsReaderInvPure]
 
+lean_lib «Tools.ShippingLetsReaderInvMain» where
+  roots := #[`Tools.ShippingLetsReaderInvMain]
+
 lean_lib «Tools.ShippingSeqChildIfaceA» where
   roots := #[`Tools.ShippingSeqChildIfaceA]
 
