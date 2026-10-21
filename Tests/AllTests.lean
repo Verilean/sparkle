@@ -354,6 +354,7 @@ import Tests.Compiler.SeqParentGenTest
 import Tests.Compiler.SeqDeepMidTest
 import Tests.Compiler.SeqDeepMidFactsTest
 import Tests.Compiler.SeqDeepMidKidFactsTest
+import Tests.Compiler.SeqDeepGrandKidFactsTest
 import Tests.Compiler.ChildVertAuditTest
 import Tests.Compiler.LeafDesignClosedFamilyTest
 import Tests.Compiler.HeapProvenanceRegressTest
