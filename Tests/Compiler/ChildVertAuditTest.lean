@@ -42,6 +42,7 @@ import Tests.Compiler.CallerTwiceATest
 import Tools.ShippingCallsMemPinned
 import Tools.ShippingSeqChildIfaceA
 import Tools.ShippingParentGateA
+import Tools.ShippingRanABridge
 
 /-! # Audit: the vertical path does not use the old boundary (round par/vert)
 
@@ -344,7 +345,8 @@ def audited : List Name :=
    ``Tools.ShippingParentPortsA.core_portsMatch_raw₁A,
    ``Tools.ShippingParentPortsA.core_hierTyped₁A,
    ``Tools.ShippingParentGateA.gate_real_portsA,
-   ``Tools.ShippingParentGateA.gate_real_kidKA]
+   ``Tools.ShippingParentGateA.gate_real_kidKA,
+   ``Tools.ShippingRanABridge.machineRanA_of_runJQC]
 
 end Tests.Compiler.ChildVertAuditTest
 

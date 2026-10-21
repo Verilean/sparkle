@@ -3484,6 +3484,7 @@ lean_lib «Tools.ShippingServedRealATrace» where
 
 lean_lib «Tools.ShippingStartWorldA» where
   roots := #[`Tools.ShippingStartWorldA]
+
 lean_lib «Tools.ShippingParentRanA» where
   roots := #[`Tools.ShippingParentRanA]
 
@@ -3498,3 +3499,6 @@ lean_lib «Tools.ShippingParentPortsA» where
 
 lean_lib «Tools.ShippingParentGateA» where
   roots := #[`Tools.ShippingParentGateA]
+
+lean_lib «Tools.ShippingRanABridge» where
+  roots := #[`Tools.ShippingRanABridge]
