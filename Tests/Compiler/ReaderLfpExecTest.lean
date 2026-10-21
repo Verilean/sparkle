@@ -10,7 +10,12 @@ acceptance condition on the 40 fixed shadow cases (declarations imported from
     LFPEXEC <label> [<group>]: real=<OK|FAIL> exec=<OK|FAIL|BOT> class=<none|some none|some (some x)> fields=… equal=…
 
 `exec` = `machineShapeX` (outer `none` can only be reported if the code returns it, which `partial_fixpoint`
-code never does; a hang shows as TIMEOUT).  A case errors iff `equal=false`. -/
+code never does; a hang shows as TIMEOUT).  
+LC10: the file THROWS unless, over the expected `expectedCases` = 40 cases, there are 0 timeouts and 0
+disagreements.  The compared projection (`compareRes`): exec `some none` ↔ production `none`; exec
+`some (some x)` ↔ production `some x` (all `MachineShape` fields equal); anything else (incl. exec outer
+`none`, i.e. BOT) is a disagreement.  A TIMEOUT is "no result within the budget", NOT evidence of
+non-termination.  BUILT: lc10 (see REPORT-LC10). -/
 namespace Tests.Compiler.ReaderLfpExecTest
 open Lean Elab Command Meta
 open Sparkle.Compiler.Elab
@@ -47,7 +52,7 @@ def xClass : Option (Option MachineShape) → String
   | some (some _) => "OK"
 
 def xCase (label group : String) (n : Name) (sm : Bool := false)
-    (ps : List (String × Nat) := []) : TermElabM Unit := do
+    (ps : List (String × Nat) := []) : TermElabM Nat := do
   let env ← getEnv
   let senv := structEnv env
   let ci ← getConstInfo n
@@ -64,6 +69,7 @@ def xCase (label group : String) (n : Name) (sm : Bool := false)
     let line := s!"LFPEXEC {label} [{group}]: TIMEOUT after {caseBudgetMs} ms"
     (← IO.getStderr).putStrLn line
     logWarning m!"{line}"
+    return 1
   | .ok (some o) =>
     IO.cancel ts
     let (fields, eq) := compareRes o.real o.x
@@ -72,48 +78,66 @@ def xCase (label group : String) (n : Name) (sm : Bool := false)
     let line := s!"LFPEXEC {label} [{group}]: real={realClass o.real} exec={xClass o.x} class={shape} fields={fields} equal={eq} realMs={o.realMs} execMs={o.xMs}"
     (← IO.getStderr).putStrLn line
     logInfo m!"{line}"
-    unless eq do
-      throwError m!"LFPEXEC {label}: the executable block differs from the production reader"
+    if eq then return 0 else return 2
 
-run_cmd liftTermElabM <| xCase "counterLoop" "loop" ``Tests.Compiler.ReaderFuelGridTest.counterLoop
-run_cmd liftTermElabM <| xCase "accLoop" "loop" ``Tests.Compiler.ReaderFuelGridTest.accLoop
-run_cmd liftTermElabM <| xCase "wholeLoop" "loop" ``wholeLoop
-run_cmd liftTermElabM <| xCase "loopPair" "loop" ``loopPair
-run_cmd liftTermElabM <| xCase "toggle107" "loop" ``Sparkle.Tests.Compiler.Issue107LetBoundInstanceDup.toggle
-run_cmd liftTermElabM <| xCase "latch2" "nested" ``latch2
-run_cmd liftTermElabM <| xCase "pair" "nested" ``pair
-run_cmd liftTermElabM <| xCase "consumer" "nested" ``consumer
-run_cmd liftTermElabM <| xCase "chain3" "nested-shared" ``chain3
-run_cmd liftTermElabM <| xCase "siblings" "nested-shared" ``siblings
-run_cmd liftTermElabM <| xCase "caller" "calls" ``Tests.Compiler.ReaderFuelGridTest.caller
-run_cmd liftTermElabM <| xCase "callerNested" "calls" ``Tests.Compiler.ReaderFuelGridTest.callerNested
-run_cmd liftTermElabM <| xCase "callerInner" "calls" ``Tests.Compiler.ReaderFuelGridTest.callerInner
-run_cmd liftTermElabM <| xCase "callerD" "calls" ``callerD
-run_cmd liftTermElabM <| xCase "callerLN" "calls" ``callerLN
-run_cmd liftTermElabM <| xCase "threeInstances" "calls" ``Sparkle.Tests.Compiler.Issue107LetBoundInstanceDup.threeInstances
-run_cmd liftTermElabM <| xCase "parent" "instS" ``parent
-run_cmd liftTermElabM <| xCase "chained" "instS" ``chained
-run_cmd liftTermElabM <| xCase "grand" "instS-callers" ``grand
-run_cmd liftTermElabM <| xCase "grandH" "instS-callers" ``grandH
-run_cmd liftTermElabM <| xCase "topD2" "instS-callers" ``topD2
-run_cmd liftTermElabM <| xCase "mixD1" "instS-callers" ``mixD1
-run_cmd liftTermElabM <| xCase "mixDeep" "instS-callers" ``mixDeep
-run_cmd liftTermElabM <| xCase "twinCalls" "instS" ``Sparkle.Tests.Compiler.MultiInstance.twinCalls
-run_cmd liftTermElabM <| xCase "mesh2x2" "instS" ``Sparkle.Tests.Compiler.MultiInstance.mesh2x2
-run_cmd liftTermElabM <| xCase "cnt" "multi-output" ``cnt
-run_cmd liftTermElabM <| xCase "mid2" "multi-output" ``mid2
-run_cmd liftTermElabM <| xCase "pe" "multi-output" ``Sparkle.Tests.Compiler.MultiInstance.pe
-run_cmd liftTermElabM <| xCase "source" "multi-output" ``source
-run_cmd liftTermElabM <| xCase "memCounter" "memory" ``Tests.Compiler.ReaderFuelGridTest.memCounter
-run_cmd liftTermElabM <| xCase "twoMems" "memory" ``Tests.Compiler.ReaderFuelGridTest.twoMems
-run_cmd liftTermElabM <| xCase "mixedMems" "memory" ``mixedMems
-run_cmd liftTermElabM <| xCase "withMemory" "memory" ``withMemory
-run_cmd liftTermElabM <| xCase "twoLoops" "refusal" ``Tests.Compiler.ReaderFuelGridTest.twoLoops
-run_cmd liftTermElabM <| xCase "opaqueInit" "refusal" ``Tests.Compiler.ReaderFuelGridTest.opaqueInit
-run_cmd liftTermElabM <| xCase "loopCall" "refusal" ``loopCall
-run_cmd liftTermElabM <| xCase "notHw" "refusal" ``Tests.Compiler.ReaderFuelGridTest.notHw
-run_cmd liftTermElabM <| xCase "natSig" "refusal" ``natSig
-run_cmd liftTermElabM <| xCase "gridInit" "refusal" ``Tests.Compiler.ReaderFuelGridTest.gridInit
-run_cmd liftTermElabM <| xCase "latchSymbolic" "refusal" ``Tests.Compiler.ReaderFuelGridTest.latch true
+/-- Expected number of cases (the fixed shadow list). -/
+def expectedCases : Nat := 40
+
+run_cmd liftTermElabM do
+  let cases : List (Unit → TermElabM Nat) := [
+    (fun _ => xCase "counterLoop" "loop" ``Tests.Compiler.ReaderFuelGridTest.counterLoop),
+    (fun _ => xCase "accLoop" "loop" ``Tests.Compiler.ReaderFuelGridTest.accLoop),
+    (fun _ => xCase "wholeLoop" "loop" ``wholeLoop),
+    (fun _ => xCase "loopPair" "loop" ``loopPair),
+    (fun _ => xCase "toggle107" "loop" ``Sparkle.Tests.Compiler.Issue107LetBoundInstanceDup.toggle),
+    (fun _ => xCase "latch2" "nested" ``latch2),
+    (fun _ => xCase "pair" "nested" ``pair),
+    (fun _ => xCase "consumer" "nested" ``consumer),
+    (fun _ => xCase "chain3" "nested-shared" ``chain3),
+    (fun _ => xCase "siblings" "nested-shared" ``siblings),
+    (fun _ => xCase "caller" "calls" ``Tests.Compiler.ReaderFuelGridTest.caller),
+    (fun _ => xCase "callerNested" "calls" ``Tests.Compiler.ReaderFuelGridTest.callerNested),
+    (fun _ => xCase "callerInner" "calls" ``Tests.Compiler.ReaderFuelGridTest.callerInner),
+    (fun _ => xCase "callerD" "calls" ``callerD),
+    (fun _ => xCase "callerLN" "calls" ``callerLN),
+    (fun _ => xCase "threeInstances" "calls" ``Sparkle.Tests.Compiler.Issue107LetBoundInstanceDup.threeInstances),
+    (fun _ => xCase "parent" "instS" ``parent),
+    (fun _ => xCase "chained" "instS" ``chained),
+    (fun _ => xCase "grand" "instS-callers" ``grand),
+    (fun _ => xCase "grandH" "instS-callers" ``grandH),
+    (fun _ => xCase "topD2" "instS-callers" ``topD2),
+    (fun _ => xCase "mixD1" "instS-callers" ``mixD1),
+    (fun _ => xCase "mixDeep" "instS-callers" ``mixDeep),
+    (fun _ => xCase "twinCalls" "instS" ``Sparkle.Tests.Compiler.MultiInstance.twinCalls),
+    (fun _ => xCase "mesh2x2" "instS" ``Sparkle.Tests.Compiler.MultiInstance.mesh2x2),
+    (fun _ => xCase "cnt" "multi-output" ``cnt),
+    (fun _ => xCase "mid2" "multi-output" ``mid2),
+    (fun _ => xCase "pe" "multi-output" ``Sparkle.Tests.Compiler.MultiInstance.pe),
+    (fun _ => xCase "source" "multi-output" ``source),
+    (fun _ => xCase "memCounter" "memory" ``Tests.Compiler.ReaderFuelGridTest.memCounter),
+    (fun _ => xCase "twoMems" "memory" ``Tests.Compiler.ReaderFuelGridTest.twoMems),
+    (fun _ => xCase "mixedMems" "memory" ``mixedMems),
+    (fun _ => xCase "withMemory" "memory" ``withMemory),
+    (fun _ => xCase "twoLoops" "refusal" ``Tests.Compiler.ReaderFuelGridTest.twoLoops),
+    (fun _ => xCase "opaqueInit" "refusal" ``Tests.Compiler.ReaderFuelGridTest.opaqueInit),
+    (fun _ => xCase "loopCall" "refusal" ``loopCall),
+    (fun _ => xCase "notHw" "refusal" ``Tests.Compiler.ReaderFuelGridTest.notHw),
+    (fun _ => xCase "natSig" "refusal" ``natSig),
+    (fun _ => xCase "gridInit" "refusal" ``Tests.Compiler.ReaderFuelGridTest.gridInit),
+    (fun _ => xCase "latchSymbolic" "refusal" ``Tests.Compiler.ReaderFuelGridTest.latch true)]
+  let mut n := 0
+  let mut timeouts := 0
+  let mut disagreements := 0
+  for c in cases do
+    n := n + 1
+    match ← c () with
+    | 1 => timeouts := timeouts + 1
+    | 2 => disagreements := disagreements + 1
+    | _ => pure ()
+  let line := s!"LFPEXEC SUMMARY: cases={n} expected={expectedCases} timeouts={timeouts} disagreements={disagreements}"
+  (← IO.getStderr).putStrLn line
+  logInfo m!"{line}"
+  unless n == expectedCases && timeouts == 0 && disagreements == 0 do
+    throwError m!"{line}: corpus check FAILED (need cases=40, timeouts=0, disagreements=0)"
 
 end Tests.Compiler.ReaderLfpExecTest
