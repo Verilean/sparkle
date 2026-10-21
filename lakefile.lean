@@ -3342,6 +3342,9 @@ lean_lib «Tools.ShippingChildCanonKeyA» where
 lean_lib «Tools.ShippingChildLegacyCachedA» where
   roots := #[`Tools.ShippingChildLegacyCachedA]
 
+lean_lib «Tools.ShippingChildImplCorA» where
+  roots := #[`Tools.ShippingChildImplCorA]
+
 lean_lib «Tools.ShippingChildTranslatePathA» where
   roots := #[`Tools.ShippingChildTranslatePathA]
 
