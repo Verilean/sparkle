@@ -24,7 +24,7 @@ open Tools.ShippingMachineTraceX (MachineTraceLBX)
 open Tools.ShippingChildInvA Tools.ShippingChildFresh Tools.ShippingChildVCA Tools.ShippingChildRunAKids
 open Tools.ShippingServedRealA Tools.ShippingServedRealATrace
 
-/-- `machine_traceL_of_data_ext` carrying `ServedReal` (under `ChildBnd`). -/
+/-- `machine_traceL_of_data_ext` carrying `ServedRealA O`, the trace derived from the core run (no `ChildBnd`). -/
 theorem machine_traceL_of_data_extRM {declName : Name} (d : MachineData) {ι : Type}
     (dom : ι → DomainConfig) [Inhabited (HList (tys d.ss))] {ρ : ι → Type}
     (inits : HList (tys d.ss))
