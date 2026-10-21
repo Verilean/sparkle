@@ -11,7 +11,7 @@ current final endpoint types. One row per premise: where it occurs, what supplie
 REPLACED by another (correspondence/range) premise is still listed as PREMISE: a replacement is not a discharge. No percentages,
 no remaining-theorem counts.
 
-Roots (as of par/int-r37 = approved par/int-r36 7c45225d + LC17 + LC18; int-r37 verification pending when written; update this line on every §0 edit):
+Roots (as of par/int-r38 = approved par/int-r37 036eaa07 + LC18b; int-r38 verification pending when written; update this line on every §0 edit):
 **(A)** `Tools.Prototype.ReaderComposed.machineShapeN_typed_all` (L6c18; subject = the kernel-visible prototype `machineShapeN`, NOT the
 shipped `machineShape?`). **(B)** `Tests.Compiler.ParentSeqComposedATest.parent_noShips_noBdA_dcHL` (L8r, depth 1, one parent) and the
 generator command `#machine_seq_parent_endpoint` (Tools/ShippingSeqParentGen.lean, theorems `f.epA_*`; L8s/L8t, several different
