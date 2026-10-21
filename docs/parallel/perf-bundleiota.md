@@ -44,7 +44,7 @@ Import graph (grep over Tools/ and Tests/Compiler):
 So the chain is ReaderInvMain/SparseCasesTac -> BundleIotaRange -> ExternSpec -> ChildVertAuditTest. Lake rebuilds a module when its source or any imported .olean hash changes:
 any edit to ReaderInvMain/SparseCasesTac/BundleIotaRange (or ExternSpec in r22: commit e9e2686f touched ExternSpec) rebuilds everything downstream,
 including the audit test, which also imports ~30 other modules and runs the `#print axioms` list. The 18 min audit therefore is "this module (~1-8 min depending on load)
-+ ExternSpec + the audit file's own elaboration", not a re-run of anything that merely imports the audit. The audit imports it directly, so it cannot be avoided without dropping the audit coverage (not allowed).
++ ExternSpec + the audit file's own elaboration", not a re-run of anything that merely imports the audit. The audit imports it directly; KEEPING the audit coverage, there is still room to examine dependency separation (moving the module off the audit's critical path) and caching of intermediate build results — not evaluated here.
 Not verified here: the exact build logs of int-r22a, so the split of the 18 min between these modules is an inference.
 
 ## Speed-ups (same statements, same audit coverage). NONE MEASURED beyond baseline: I was told not to edit the file and did not build variants.
@@ -58,3 +58,5 @@ Not verified here: the exact build logs of int-r22a, so the split of the 18 min 
 5. Process: the audit test cost is dominated by the dependency chain; keep ReaderInvMain/SparseCasesTac stable, and edit ExternSpec/audit only (they do not force this module to rebuild; only upstream changes do).
 
 OPEN: reproduce the 480 s on the integration node under load; measure variants 1-2 (needs a copy of the file with key2 split; statements unchanged).
+
+Note (integrator, from the review): the 66–70 s measured here were on dell with a scratch `lean` invocation; the 480 s in int-r22a were a `lake build` on macpro — different conditions. The cause of the difference (load, environment) is NOT verified. The estimated ~25 s saving is an estimate, not a result.
