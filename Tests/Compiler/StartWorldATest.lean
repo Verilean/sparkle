@@ -51,8 +51,7 @@ run_meta do
 open Lean Meta Elab in
 run_meta do
   for n in [``Tools.ShippingStartWorldA2.startContents_entry, ``Tools.ShippingStartWorldA2.startContents_of_runs,
-      ``Tools.ShippingStartWorldA2.startContents_endW, ``Tools.ShippingStartWorldA2.startContents_session,
-      ``Tools.ShippingStartWorldA2.startContents_entry_tele] do
+      ``Tools.ShippingStartWorldA2.startContents_endW, ``Tools.ShippingStartWorldA2.startContents_session] do
     Tests.Compiler.ChildVertAuditTest.stdAxioms n
     let cl ← Tests.Compiler.ChildVertAuditTest.depClosure n
     let bad := Tests.Compiler.ChildVertAuditTest.hits cl ++ cl.toList.filter fun c =>
@@ -60,3 +59,16 @@ run_meta do
        `Tools.ShippingChildInvA.RefLawsATele].any (·.isPrefixOf c)
     unless bad.isEmpty do throwError "{n}: old-boundary dependencies {bad}"
     logInfo m!"STARTWORLD-A2 AUDIT OK: {n}: standard axioms; closure {cl.size} constants"
+
+/-! `startContents_entry_tele` takes `T : RefLawsATele` explicitly (and uses it through ComposeC
+`bodyStepC_of_tele`), so `RefLawsATele` is ALLOWED in its closure — audited separately: standard axioms, no
+RefLaws/RefLawsCore/toAOps/toA/ChildBnd/StartV. The theorems above keep `RefLawsATele` forbidden. -/
+open Lean Meta Elab in
+run_meta do
+  let n := ``Tools.ShippingStartWorldA2.startContents_entry_tele
+  Tests.Compiler.ChildVertAuditTest.stdAxioms n
+  let cl ← Tests.Compiler.ChildVertAuditTest.depClosure n
+  let bad := Tests.Compiler.ChildVertAuditTest.hits cl ++ cl.toList.filter fun c =>
+    [`Tools.ShippingChildInv.ChildBnd, `Tools.ShippingChildInv.StartV].any (·.isPrefixOf c)
+  unless bad.isEmpty do throwError "{n}: old-boundary dependencies {bad}"
+  logInfo m!"STARTWORLD-A2 TELE AUDIT OK: {n}: standard axioms; closure {cl.size} constants, no RefLaws/RefLawsCore/toAOps/toA/ChildBnd/StartV (RefLawsATele allowed: explicit premise T)"
