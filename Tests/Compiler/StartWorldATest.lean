@@ -1,6 +1,7 @@
 import Tests.Compiler.LeafDesignClosedATest
 import Tests.Compiler.ChildVertAuditTest
 import Tools.ShippingStartWorldA
+import Tools.ShippingStartWorldA2
 -- BUILT (unit ST, par/u-st): st4 exit 0 (WIP state); closure audit below added at integration (par/int-r15),
 -- re-verified by the integration run. `machine_design_closedCmd` is a `def`, but being a `def` is no reason to
 -- skip the audit: its closure is checked like the theorems'.
@@ -45,3 +46,16 @@ run_meta do
      `Tools.ShippingChildInvA.RefLawsATele].any (·.isPrefixOf c)
   unless bad.isEmpty do throwError "{n}: old-boundary dependencies {bad}"
   logInfo m!"STARTWORLD-A AUDIT OK: {n}: standard axioms; closure {cl.size} constants, no RefLaws/RefLawsCore/toAOps/toA/ChildBnd/StartV/RefLawsATele"
+
+/-! Unit ST2: in-file closure audit of the entry-run preservation theorems (same cycle rule as above). -/
+open Lean Meta Elab in
+run_meta do
+  for n in [``Tools.ShippingStartWorldA2.startContents_entry, ``Tools.ShippingStartWorldA2.startContents_of_runs,
+      ``Tools.ShippingStartWorldA2.startContents_endW, ``Tools.ShippingStartWorldA2.startContents_session] do
+    Tests.Compiler.ChildVertAuditTest.stdAxioms n
+    let cl ← Tests.Compiler.ChildVertAuditTest.depClosure n
+    let bad := Tests.Compiler.ChildVertAuditTest.hits cl ++ cl.toList.filter fun c =>
+      [`Tools.ShippingChildInv.ChildBnd, `Tools.ShippingChildInv.StartV,
+       `Tools.ShippingChildInvA.RefLawsATele].any (·.isPrefixOf c)
+    unless bad.isEmpty do throwError "{n}: old-boundary dependencies {bad}"
+    logInfo m!"STARTWORLD-A2 AUDIT OK: {n}: standard axioms; closure {cl.size} constants"
