@@ -52,6 +52,7 @@ import Tools.ShippingSeqChildIfaceDeepA
 import Tools.ShippingSeqChildDeepConsumerA
 import Tools.ShippingSeqChildDeepMaskedA
 import Tools.ShippingSeqChildDeepFactsA
+import Tools.ShippingSeqChildDeepKidCheckA
 import Tools.ShippingParentGateA
 import Tools.ShippingRanABridge
 import Tools.ShippingKidsSelfA
@@ -430,6 +431,8 @@ def audited : List Name :=
    ``Tools.ShippingSeqChildDeepFactsA.deepChild_runFactsA,
    ``Tools.ShippingSeqChildDeepFactsA.deepChild_outsCheckA,
    ``Tools.ShippingSeqChildDeepFactsA.deepChild_designCheckA,
+   ``Tools.ShippingSeqChildDeepKidCheckA.kids_designCheck_inA,
+   ``Tools.ShippingSeqChildDeepKidCheckA.deepChild_kidCheckA,
    ``Tools.ShippingParentRanA.machineRanA_main,
    ``Tools.ShippingParentTailsA.core_kids_facts_ranA,
    ``Tools.ShippingParentTailsA.core_linkedWF_ranA,
