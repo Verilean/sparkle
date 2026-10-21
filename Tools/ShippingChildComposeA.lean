@@ -41,7 +41,6 @@ open Tools.ShippingChildFresh
 open Tools.ShippingChildVCA
 open Tools.ShippingChildFallbackA
 open Tools.ShippingChildFrontCP
-open Tools.ShippingChildFresh
 open Tools.ShippingChildDepthA
 
 variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}

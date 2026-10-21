@@ -36,10 +36,10 @@ What must be written is a **port of the consumers** (§2, L5–L7), not a bridge
 
 | # | link | statement (informal) | status | owner |
 |---|---|---|---|---|
-| L1 | handlers at a stable `I` | `LegacyImplA` (B), `LegacyCachedA` (A), `CanonKeyA` (A), `ProjFieldNameA` (C, needs `RefLawsATele`) | A/B/C exports pending; composed in `handlers_of_exports` (PROVED relative to them, MainA) | A, B, C |
-| L2 | `BodyStepA O` | all depths ≥ 1: `ChildKeepsA D → body keeps JQ D` | D `bodyStepA_of_handlers` (par/u-d 5434407f, pending integration); composed `bodyStepA_of_exports` (PROVED relative to exports) | D |
-| L3 | core entry, `OutQ → OutQ` | `core_tripleA_of_bodies` | BUILT (DepthA); composed `core_tripleA_of_exports` (PROVED relative to L2) | — |
-| L4 | cache half | `hbodyC` at `JQC (D+1)`; `core_tripleAC`, `full_tripleAC`, `closeInstsM_realA'` | CoreC BUILT from `hbodyC`; `hbodyC` derived in `hbodyC_of_exports` (PROVED relative to A,B,C, D-generic, E child entry, legacy tail at `JQC`) | E (`BodyStepC`), D (generic) |
+| L1 | handlers at a stable `I` | `LegacyImplA` (B), `LegacyCachedA` (A), `CanonKeyA` (A), `ProjFieldNameA` (C, needs `RefLawsATele`) | PROVED relative to `T`: `legacyImplA_of_tele` (B; needs `ChildEntryA` at the same `I`, so built INSIDE each depth step), `legacyCachedA_of_impl`, `canonKeyA` (A), `projFieldNameA` (C) — composed per step in `bodyKeepsA_of_tele` (ComposeA) / `bodyKeepsC_of_tele` (ComposeC) | A, B, C |
+| L2 | `BodyStepA O` | all depths ≥ 1: `ChildKeepsA D → body keeps JQ D` | PROVED relative to `T` and the tail: `bodyStepA_of_tele` (ComposeA, `∀ D, LegacyTailA`) / `bodyStepA_main` (MainA, step-form tail `LegacyTailStepA`) via D `bodyKeepsA_frontends` | D, B3 (tail) |
+| L3 | core entry, `OutQ → OutQ` | `core_tripleA_of_bodies` | PROVED relative to L2: `core_tripleA_of_tele` (ComposeA), `core_tripleA_main` (MainA) | — |
+| L4 | cache half (SEPARATE induction, not inferred from JQ) | `hbodyC` at `JQC (D+1)`; `core_tripleAC`, `full_tripleAC`, `closeInstsM_realA'` | PROVED relative to `T` and `LegacyTailC`: E `childKeepsC_all`, `core0_tripleAC`/`full0_tripleAC` (outermost: JQ prefix/EQ before the clear, JQC after, EQC→EQ), E2 `bodyStepC_of_tele`, `core_tripleAC_of_tele`, `full_tripleAC_of_tele` (ComposeC) | E, B3 (tail at JQC) |
 | L5 | run unpacking under the NEW boundary | the analogue of `core_reads_inv` / `machine_run_of_core`: a successful run of the core from a `JQ`/`JQC` world contains a run of `synthesizeMachineCertified` (or the leaf equivalent) starting in a `JQC` world at depth ≥ 1 | **OPEN, no owner** | propose **new unit G** |
 | L6 | `machine_children_realA` on `RealChildA` | children of `closeInsts` are `RealChildA` (CoreC's `closeInstsM_realA'` already gives this for the monadic closing; what is missing is its use through L5's decomposition) | **OPEN** (needs L5) | unit G |
 | L7 | consumers of `RealChild` | `childLink_real`, `entryStrict_real`, `realChild_of_childrenReal`, `callWidthsStrict…`, 92 files mention `RealChild mref cref` (grep count; not all use the quiet field); the leaf chain uses the *run* `hr` of the callee + `core_reads_inv L`. Port to `RealChildA O` (which carries the same `hr` plus `AdmCtx`, `sv`, quiet) | **OPEN** (list: `grep -l "RealChild mref cref" Tools/`) | unit G (mechanical but large) |
@@ -48,7 +48,8 @@ What must be written is a **port of the consumers** (§2, L5–L7), not a bridge
 
 F2 scope: MainA now covers L1–L3 at JQ level (`core_tripleA_main`). L4 (JQC, `hbodyC`, full entry)
 is E's and is a SEPARATE piece; the F round-1 `*_of_exports` composition over abstract `H/Lg/BS` was
-removed (it counted abstractions as reduced premises).
+removed (it counted abstractions as reduced premises). The names `handlers_of_exports`, `bodyStepA_of_exports`,
+`core_tripleA_of_exports`, `hbodyC_of_exports` no longer exist; the rows above give the current theorems.
 
 ## 3. Audit table (F2): remaining premises of the JQ-level main theorem
 
