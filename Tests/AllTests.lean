@@ -351,6 +351,7 @@ import Tests.Compiler.ParentHoutTyTest
 import Tests.Compiler.ParentHoutTyHTest
 import Tests.Compiler.ParentSeqComposedATest
 import Tests.Compiler.SeqParentGenTest
+import Tests.Compiler.SeqDeepMidTest
 import Tests.Compiler.ChildVertAuditTest
 import Tests.Compiler.LeafDesignClosedFamilyTest
 import Tests.Compiler.HeapProvenanceRegressTest

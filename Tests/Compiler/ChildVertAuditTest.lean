@@ -49,6 +49,7 @@ import Tests.Compiler.CallerTwiceATest
 import Tools.ShippingCallsMemPinned
 import Tools.ShippingSeqChildIfaceA
 import Tools.ShippingSeqChildIfaceDeepA
+import Tools.ShippingSeqChildDeepConsumerA
 import Tools.ShippingParentGateA
 import Tools.ShippingRanABridge
 import Tools.ShippingKidsSelfA
@@ -417,6 +418,9 @@ def audited : List Name :=
    ``Tools.ShippingSeqChildIfaceA.seqChild_of_realA,
    ``Tools.ShippingSeqChildIfaceDeepA.deepChild_ifaceA,
    ``Tools.ShippingSeqChildIfaceDeepA.deepChild_kidsSelfA,
+   ``Tools.ShippingSeqChildDeepConsumerA.hsep_of_leaf_kids,
+   ``Tools.ShippingSeqChildDeepConsumerA.deepChild_ifaceA',
+   ``Tools.ShippingSeqChildDeepConsumerA.deepChild_kidsMaskedA,
    ``Tools.ShippingParentRanA.machineRanA_main,
    ``Tools.ShippingParentTailsA.core_kids_facts_ranA,
    ``Tools.ShippingParentTailsA.core_linkedWF_ranA,
