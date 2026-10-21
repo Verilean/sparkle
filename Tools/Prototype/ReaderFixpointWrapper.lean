@@ -8,8 +8,9 @@ This file lifts it to the WRAPPER `shapeW` (`machineShapeX` = `shapeW` against `
 `machineShapeF n` = `shapeW` against `wtab senv n`), using `compact_shapeW` (finitely many table reads) and
 `wtab` monotonicity (`wtab_mono`).
 
-Result encodings (the same on both sides, projection = identity): outer `none` = OUT (in the model: no
-fuel suffices), `some none` = ordinary refusal (old `none`), `some (some s)` = success.
+Result encodings (the same on both sides, projection = identity; a FIXED fuel `machineShapeF n … = none` may
+also mean only that this `n` is too small, while "no fuel suffices" for `machineShapeX = none` is the CONSEQUENCE
+`machineShapeX_none_iff` under `NormSound`/`NormTotal`, a model statement): outer `none` = OUT, `some none` = ordinary refusal (old `none`), `some (some s)` = success.
 
 * `machineShapeX_iff_fuel` : under `NormSound` + `NormTotal`,
     `machineShapeX … = some r ↔ ∃ n, machineShapeF n … = some r`   (r : Option MachineShape, so

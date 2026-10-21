@@ -17,10 +17,13 @@ NEW here (REVIEW-LC11b: priority = the premise-free executable normaliser; no ne
   (outer `none` = no finite derivation in the model; nothing about running or termination).  This does NOT discharge
   `NormSound`/`NormTotal` of `machineShapeX`.
 * `ext_wtab_of_reach` — common fuel `n + N` for finitely many reached queries (monotone via `wtab_mono`).
-* The ONE open item linking the real normaliser (OPEN, not assumed anywhere): `∀ e, execNorm senv e = some (machNorm senv e)`.
+* OPEN, not assumed anywhere: `∀ e, execNorm senv e = some (machNorm senv e)` — a STRONG SUFFICIENT condition (finite
+  model derivation AND agreement on EVERY `Expr`) for discharging `NormSound`/`NormTotal` of `machineShapeX`; not shown
+  to be necessary (a local transfer may restrict the inputs to the expressions the wrapper queries). Its scope is the
+  normaliser replacement ONLY: `TwinCoverAt` (the seven shipped readers), shape reflection and runtime fit are unaffected.
   PROVED equivalences: `NormSound senv ↔ ∀ e r, execNorm e = some r → machNorm e = r`;
   `NormSound ∧ NormTotal ↔ ∀ e, execNorm e = some (machNorm e)`.
-`TwinCoverAt` stays OPEN; production untouched; no switch.  BUILT/UNBUILT: see REPORT-LC11b.md. No sorry / axiom /
+`TwinCoverAt` stays OPEN; production untouched; no switch.  BUILT (unit LC11b): b3 exit 0 (254 jobs), test b4 exit 0 (259 jobs). No sorry / axiom /
 native_decide. -/
 namespace Tools.Prototype.ReaderExec
 open Lean.Order Sparkle.Compiler.Elab Tools.ShippingReaderFuel Tools.Prototype.ReaderLfp

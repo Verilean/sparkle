@@ -8,7 +8,8 @@ Per one of the 40 shadow cases (`expectedCases`): the expression the wrapper nor
 first `machNorm` query of `machineShape?`) is run through `machNorm senv e` and `execNorm senv e`; agreement means
 `execNorm senv e = some (machNorm senv e)` (`Expr` `==`).  A case with no `shapePre` (refusal before the
 `machNorm` call) is counted as `nopre` (nothing compared).  TIMEOUT = no result within `caseBudgetMs`, NOT evidence
-of non-termination.  THROWS unless cases = 40, 0 timeouts, 0 disagreements. -/
+of non-termination.  THROWS unless, on this FIXED corpus, cases = 40, compared = 36, nopre = 4, 0 timeouts, 0 disagreements
+(integrator, by review: a run where every case is `nopre` must not pass). -/
 namespace Tests.Compiler.NormXExecTest
 open Lean Elab Command Meta
 open Sparkle.Compiler.Elab
@@ -58,6 +59,9 @@ def nCase (label group : String) (n : Name) (sm : Bool := false)
     return (if k == 0 then 0 else if k == 1 then 2 else 3)
 
 def expectedCases : Nat := 40
+/-- fixed corpus: cases with a compared `shapePre` expression / without one (run b4). -/
+def expectedCompared : Nat := 36
+def expectedNopre : Nat := 4
 
 run_cmd liftTermElabM do
   let cases : List (Unit → TermElabM Nat) := [
@@ -105,17 +109,21 @@ run_cmd liftTermElabM do
   let mut timeouts := 0
   let mut disagreements := 0
   let mut compared := 0
+  let mut nopre := 0
+  let mut other := 0
   for c in cases do
     n := n + 1
     match ← c () with
     | 1 => timeouts := timeouts + 1
     | 2 => disagreements := disagreements + 1
     | 0 => compared := compared + 1
-    | _ => pure ()
-  let line := s!"NORMX SUMMARY: cases={n} expected={expectedCases} compared={compared} timeouts={timeouts} disagreements={disagreements}"
+    | 3 => nopre := nopre + 1
+    | _ => other := other + 1
+  let line := s!"NORMX SUMMARY: cases={n} expected={expectedCases} compared={compared} nopre={nopre} other={other} timeouts={timeouts} disagreements={disagreements}"
   (← IO.getStderr).putStrLn line
   logInfo m!"{line}"
-  unless n == expectedCases && timeouts == 0 && disagreements == 0 do
-    throwError m!"{line}: check FAILED (need cases=40, timeouts=0, disagreements=0)"
+  unless n == expectedCases && compared == expectedCompared && nopre == expectedNopre && other == 0 &&
+      timeouts == 0 && disagreements == 0 do
+    throwError m!"{line}: check FAILED (need cases=40, compared=36, nopre=4, other=0, timeouts=0, disagreements=0)"
 
 end Tests.Compiler.NormXExecTest
