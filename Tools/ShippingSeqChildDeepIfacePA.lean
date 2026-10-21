@@ -9,7 +9,8 @@ import Tools.ShippingMemClosesKids
 
 `Tools.ShippingSeqChildIfaceA.seqChild_of_realA` is leaf-only (`design.modules = []`).  `deepChild_ifaceP` (PROVED) gives, for a
 `RealChildA O c y` of a machine WITH calls, `Tools.ShippingMemCloses.ChildIfaceP (ofDecl c) (machNIn d.shape) outs names y.1 y.2`
-with the NON-EMPTY served design `y.2` (the grandchildren's modules) and `names` the grandchildren's module names (caller data).
+KEEPING the served design `y.2` (the grandchildren's modules) — it does NOT assume that design empty, and it does NOT conclude
+in general that it is non-empty (integrator wording, par/int-r34, per review) and `names` the grandchildren's module names (caller data).
 * NAME SEPARATION is `hsep` (no module of a grandchild is named `ofDecl c`), the caller's premise as in `deepChild_ifaceA'`.
 * `hgk`: every module of a grandchild's served pair has its name in `names`, and the instances of its body name `names` only
   (caller data; for a leaf grandchild it follows from `seqChild_of_realA`).

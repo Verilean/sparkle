@@ -9,7 +9,9 @@ PROVED (this file): every branch of `machNormNode` keeps `LetOk 0`: `machNormPur
 `machNormApLift_ok` (via `machApSpine_ok`, `machLamBody_ok`, `mapM_vars`, `letOk_mkAppN`), `machNormMap_ok` (incl. `machNormLift_ok`),
 the `~~~`/`-` Signal arms, `Signal.lit`, `Functor.map`; hence `machNormNode_ok`, `normNodeRange_of`, `normRange_of'`,
 `machineShapeN_lets''_noNode` (old theorems unchanged; binder audit exact).
-PREMISES (not proved; each names ONE call; both are `partial def`, i.e. opaque to the kernel, no unfolding equation):
+PREMISES (not proved; each names ONE call; both are `partial def`, no unfolding equation available to the kernel; their ranges are NOT PROVED in this change, which is not a claim
+that they are underivable. NormNodeRange -> LiftScalarRange + BoolMapRange is a DECOMPOSITION along the branches, not a reduction of
+the number of premises):
 * `LiftScalarRange senv`: `machLiftScalarN senv dom vars e = some (w, r)` keeps `LetOk 0` (given `dom`, `vars`, `e` do).
 * `BoolMapRange senv`: `machBoolMap senv dom a wa body = some r` keeps `LetOk 0`.
 The existing `Inst1Range`/`LiftRange` do not cover them (they are not `instantiate1`/lift-by-1 calls). `senv.natOf` and
@@ -140,7 +142,7 @@ theorem machNormAp_ok {e : Lean.Expr} (he : LetOk 0 e = true) : LetOk 0 (machNor
   · exact he0
 
 /-- PREMISE (not proved; replaces the `machLiftScalarN` part of `NormNodeRange`): `machLiftScalarN` is a `partial def`
-(opaque to the kernel: no unfolding equation), so its range cannot be derived here. -/
+(no unfolding equation is available to the kernel); its range is NOT PROVED in this change (not a claim that it is underivable). -/
 def LiftScalarRange (senv : StructEnv) : Prop :=
   ∀ (dom : Lean.Expr) (vars : List (Nat × Lean.Expr)) (e : Lean.Expr) (w : Nat) (r : Lean.Expr),
     LetOk 0 dom = true → (∀ p ∈ vars, LetOk 0 p.2 = true) → LetOk 0 e = true →
