@@ -36,6 +36,14 @@ run_meta do
   unless hits.size == 1 do throwError "expected exactly the set initialiser, got {hits}"
   let (m, d) := hits[0]!
   unless m == `Sparkle.Compiler.Elab do throwError "set initialiser not in Sparkle.Compiler.Elab: {m}"
+  -- review RT3: the classification is only precise if the body performs the write the proof assumes
+  let some bodyD := (env.find? d).bind (·.value?) | throwError "no body for {d}"
+  let usedD := bodyD.getUsedConstants
+  unless usedD.contains ``Sparkle.Compiler.Elab.synthesizeChild && usedD.contains ``Option.some do
+    throwError "set initialiser body does not mention `some synthesizeChild`: {usedD}"
+  let setLike := usedD.filter fun c => c.components.getLast?.any (fun x => x == `set || x == `modify || x == `swap)
+  if setLike.isEmpty then throwError "set initialiser body mentions no Ref write primitive: {usedD}"
+  logInfo m!"set initialiser body mentions synthesizeChild, Option.some and write primitive(s) {setLike} (constant occurrence only; not a proof that the write is `set (some synthesizeChild)` on sparkleChildSynth)"
   let l4 ← line d
   unless l3 < l4 do throwError "set initialiser line {l4} not after sparkleChildSynth {l3}"
   logInfo m!"INIT ORDER SOURCE EVIDENCE OK: lines {l1} < {l2} < {l3} < {l4}; the only init body directly mentioning a tracked ref is the set initialiser (direct mention only; no claim about indirect writes, execution order, or runtime fit)"
