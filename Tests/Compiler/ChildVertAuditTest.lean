@@ -25,6 +25,7 @@ import Tools.ShippingLetsCloseRoute
 import Tools.ShippingLetsAliasInv
 import Tools.ShippingLetsReaderInvMain
 import Tools.ShippingLetsSigTy
+import Tools.ShippingLetsExternSpec
 import Tools.ShippingBundleIotaRange
 import Tools.ShippingLetsReaderInvPure2
 import Tools.ShippingCallWidthsChildRealA
@@ -388,6 +389,17 @@ def audited : List Name :=
    ``Tools.ShippingLetsReaderInv.machConvF_init',
    ``Tools.ShippingLetsReaderInv.machChainF_init',
    ``Tools.ShippingLetsReaderInv.real_conv_post',
+   ``Tools.ShippingLetsReaderInv.liftSpec_ok,
+   ``Tools.ShippingLetsReaderInv.inst1Spec_ok,
+   ``Tools.ShippingLetsReaderInv.liftRange_of_agrees,
+   ``Tools.ShippingLetsReaderInv.inst1Range_of_agrees,
+   ``Tools.ShippingLetsReaderInv.rootFloatF_ok,
+   ``Tools.ShippingLetsReaderInv.rootFloatRange_of_twin,
+   ``Tools.ShippingLetsReaderInv.machConvF_post'',
+   ``Tools.ShippingLetsReaderInv.machChainF_post'',
+   ``Tools.ShippingLetsReaderInv.machConvF_init'',
+   ``Tools.ShippingLetsReaderInv.machChainF_init'',
+   ``Tools.ShippingLetsReaderInv.real_conv_post'',
    ``Tools.ShippingCallsMemA.callsPureA_of_memKids,
    ``Tools.ShippingCallsMemA.machineClosesAtA_of_memKids,
    ``Tools.ShippingCallsMemA.machineClosesAtA_memOnly_names,

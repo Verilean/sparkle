@@ -3550,3 +3550,6 @@ lean_lib «Tools.ShippingMachineComposeRM» where
 
 lean_lib «Tools.ShippingMachineComposeRMCommand» where
   roots := #[`Tools.ShippingMachineComposeRMCommand]
+
+lean_lib «Tools.ShippingLetsExternSpec» where
+  roots := #[`Tools.ShippingLetsExternSpec]
