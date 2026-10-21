@@ -3664,3 +3664,9 @@ lean_lib «Tools.Prototype.ReaderComposed» where
 
 lean_lib «Tools.Prototype.NormNodeRangeLetOk» where
   roots := #[`Tools.Prototype.NormNodeRangeLetOk]
+
+lean_lib «Tools.Prototype.BoolMapModelLetOk» where
+  roots := #[`Tools.Prototype.BoolMapModelLetOk]
+
+lean_lib «Tests.Compiler.BoolMapModelAgreeTest» where
+  roots := #[`Tests.Compiler.BoolMapModelAgreeTest]
