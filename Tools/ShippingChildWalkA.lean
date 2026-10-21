@@ -323,6 +323,12 @@ partial def side (g : MVarId) (depth : Nat := 4) : MetaM Unit := g.withContext d
   if tm.isForall then
     if ← attempt (do closeBy g (← `(tactic| (intro _; rfl)))) then return
     if ← attempt (do closeBy g (← `(tactic| (intro _ hc _ h; exact hc _ h)))) then return
+  -- the provenance of the compiler context's cache ref: `CtxOk ctx` and `ctx.exprCache = some r`
+  if tm.isAppOf ``Tools.ShippingChildFresh.MkRefd then
+    for d in ← getLCtx do
+      if d.isImplementationDetail then continue
+      if (← instantiateMVars d.type).isAppOf ``CtxOk then
+        if ← attempt (do closeBy g (← `(tactic| exact $(mkIdent d.userName) _ (by assumption)))) then return
   if depth == 0 then throwError "vca: side goal {← g.getType}"
   let t ← whnfR (← instantiateMVars (← g.getType))
   let .const ind _ := t.getAppFn | throwError "vca: side goal {t}"
@@ -403,6 +409,11 @@ partial def walkCore (g : MVarId) (fuel : Nat) : MetaM Unit := do
     let h := p.getAppFn
     IO.eprintln s!"vca {if isC then "C" else "M"} {if h.isConst then toString h.constName! else if h.isFVar then "fvar" else if h.isProj then "proj" else if p.isLet then "let" else if p.isLambda then "lam" else "other"} args={p.getAppNumArgs}"
     unless h.isConst || h.isFVar || h.isProj do IO.eprintln s!"   :: {((← ppExpr p).pretty.take 400)}"
+  if let some f ← IO.getEnv "VC_TRACE_FILE" then
+    let h := p.getAppFn
+    let ms := (← IO.monoMsNow) - (← vcStart.get)
+    IO.FS.withFile f .append fun hd => hd.putStrLn
+      s!"{ms} {if isC then "C" else "M"} {h.constName?.getD (if h.isFVar then `fvar else `other)} args={p.getAppNumArgs} size={p.approxDepth}"
   let pm := p.consumeMData
   -- a join point (`have jp := fun r => …; …`, used at several exits of a `do` block): walked
   -- ONCE, as a local fact about `jp`
