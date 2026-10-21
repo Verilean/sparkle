@@ -19,7 +19,9 @@ of the unit: in case (b) the legacy part starts in `JQC O (D+1)` and can be anal
 
 Premises: `O`, `hA`, `T : RefLawsATele` (added, unproved telescope boundary; used only for the
 `Keeps` of the machine run), the start world, `MachineDefines`. PROVED relative to those. NOT proved:
-that case (a) or (b) occurs for a given input; semantic preservation of the legacy route (OPEN);
+that case (a) or (b) occurs for a given input; that the machine result (a) and the legacy result (b)
+have the same meaning (NOT shown; the two routes are kept distinct); semantic preservation of the legacy
+route (OPEN); the evidence kept for (b) is the actual run of `legacyTail` from `w₂`;
 runtime fit of the laws. `JQC` is a history/invariant, not freshness. -/
 
 namespace Tools.ShippingMachineOutcomeA

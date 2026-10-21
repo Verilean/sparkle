@@ -857,3 +857,4 @@ Round 2c (par/int-r5 = par/int-r4 + L1 + G2 + L2; par/int-r6 = par/int-r5 + T1 +
 | int-r6a | 62e03dc5 + uncommitted parent-widths file (committed next, comments changed only) | ChildVertAuditTest | 0 (534 jobs) |
 | int-r6b | 6b69198b (par/int-r6 final) | ChildVertAuditTest, then Tests.AllTests | 0 (534 jobs) / 0 (1502 jobs) |
 | pwtl-a | 6b69198b + `parent_children_widths_realA_main_tl` (branch par/u-pw-tl) | ChildVertAuditTest | 0 (535 jobs) |
+| int-r7a | ea5c6495 (par/int-r7: + parent widths `_tl`, L8 `leaf_sat_design_closed5A`, T3 doc) | ChildVertAuditTest, then Tests.AllTests | 0 (615 jobs) / 0 (1504 jobs) |
