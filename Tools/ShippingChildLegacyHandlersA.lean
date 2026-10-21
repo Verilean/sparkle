@@ -1,5 +1,6 @@
 import Tools.ShippingChildLegacyHelpersA
--- UNBUILT (unit B, round 2): runs lw1.. recorded in REPORT-B.md.
+-- BUILT (unit B, round 2): lw1 exit 0, lw2/lw4/lw5/lw7/lw8 exit 1 (a named rule argument, section-variable `omit`/`include`, the child entry premise), lw3/lw6/lw9 exit 0 (final).
+-- Premises of the final statements: `LocalDeclLawA`/`LetDeclLawA`/`ForallTelescopeLawA` (fields of `RefLawsATele`), `ChildEntryA`-shaped `hchild`; see ShippingChildLegacyImplA.lean.
 -- No `sorry`, no `axiom`, no `native_decide`, no new law / boundary field.
 
 namespace Tools.ShippingChildLegacyHandlersA

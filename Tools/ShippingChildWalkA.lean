@@ -1,5 +1,5 @@
 import Tools.ShippingChildTranslateA
--- UNBUILT (unit B, round 2): runs wa1.. recorded in REPORT-B.md.
+-- BUILT (unit B, round 2, base 0054b6b2): wa1/wa2 exit 1 (`liftM`/`read` resolved to the KeepsCP lemmas inside the namespace), wa3 exit 0; extended and rebuilt with the dependents (lh3, lw9, li10, au1 exit 0).
 -- No `sorry`, no `axiom`, no `native_decide`, no new law / boundary field.
 -- Law witnesses: `O : RefLawsAOps MkRefd mref cref`, `hA : AdmCtx O.quiet mctx cctx`,
 -- `hS : StableA O.quiet I`; and, ONLY for the rules about `withLocalDeclD`/`withLetDecl`/

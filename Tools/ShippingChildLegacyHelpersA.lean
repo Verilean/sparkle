@@ -1,5 +1,5 @@
 import Tools.ShippingChildWalkA
--- UNBUILT (unit B, round 2): runs lh1.. recorded in REPORT-B.md.
+-- BUILT (unit B, round 2): lh1 exit 0 (one helper), lh2 exit 1 (the rule needed the quietness predicate from the local `O`; `DimExpr` namespace), lh3 exit 0.
 -- No `sorry`, no `axiom`, no `native_decide`, no new law / boundary field. Law witness:
 -- `O : RefLawsAOps MkRefd mref cref`, `hA : AdmCtx O.quiet mctx cctx`, `hS : StableA O.quiet I`
 -- (NO `RefLawsATele`: no helper runs a telescope).
