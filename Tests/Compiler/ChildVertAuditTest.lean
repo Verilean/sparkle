@@ -276,7 +276,11 @@ def audited : List Name :=
    ``Tools.ShippingCallsGatePin.callsPureA_of_gateKids_pin,
    ``Tools.ShippingCallsGatePinned.closeInstsM_runP,
    ``Tools.ShippingCallsGatePinned.machineClosesAtA_of_pure_pin,
-   ``Tools.ShippingCallsGatePinned.machineClosesAtA_of_gateKids']
+   ``Tools.ShippingCallsGatePinned.machineClosesAtA_of_gateKids',
+   ``Tools.ShippingMachineOutcomeA.core_reads_linkA,
+   ``Tools.ShippingMachineOutcomeA.synthesizeMachineCertified_noneSplitA,
+   ``Tools.ShippingMachineOutcomeA.synthesizeFromConst_machine_split2A,
+   ``Tools.ShippingMachineOutcomeA.core_machine_outcomeA']
 
 end Tests.Compiler.ChildVertAuditTest
 
