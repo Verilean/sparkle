@@ -105,3 +105,8 @@ Not measured: `key1`/`key3` (same shape, likely the same fix applies; after the 
 - Axioms (`#print axioms`, from the whole-module scratch run, both ORIGINAL and CHANGED): `bundleIota_key2` and `bundleIotaRange` depend on `[propext, Quot.sound]`.
 - No `sorry`, no new axiom, no `native_decide`; same theorem names, so the ChildVertAuditTest list is unchanged.
 - PROPOSAL only: not applied to Tools/ShippingBundleIotaRange.lean; the integrator must review, then run a normal `qbuild.sh build Tools.ShippingBundleIotaRange` and the audit.
+
+Integration (par/int-r26): the one-line change is applied to Tools/ShippingBundleIotaRange.lean (key2 only; key1/key3 untouched — not
+measured). Its confirmation is the normal `lake build` + audit of the integration run. Scope: this is a measured speed-up of key2 in
+one environment (dell, scratch `lean`, 52 s → 21 s whole module); it does NOT explain the 480 s seen in int-r22a, and no overall
+factor is claimed.
