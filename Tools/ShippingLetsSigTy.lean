@@ -17,7 +17,7 @@ This is a fact about Lean's kernel (`addDecl` rejects declarations with free var
 (`Lean.Environment` is not modelled), and the twin/real-reader link stays OPEN.
 The declaration BODY input `LetOk 0 e`: the reader is not called on `d.value` but on the result of
 `packTupleInputs`, `mixedGatePeel`, `machNorm`, `inlFoldNat`, `zeroLit`, `rootFloat`, `machLoopAsLet`, `machRoot`
-(partial / extern functions); `LetOk 0` of that is NOT derived (OPEN, exact Prop `BodyLetOk` below). -/
+(partial / extern functions); `LetOk 0` of that is NOT derived (OPEN; "`BodyLetOk`" names this condition in the explanation only — there is NO such definition in the code). -/
 namespace Tools.ShippingLetsReaderInv
 open Lean Sparkle.Compiler.Elab
 
