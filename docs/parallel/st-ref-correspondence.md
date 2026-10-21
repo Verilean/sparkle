@@ -1,4 +1,9 @@
-# Necessary conditions for a correspondence with the real `ST.Ref` (unit SR2i)
+# Conditions for a correspondence with the real `ST.Ref` (unit SR2i)
+
+Scope note (integrator, from the review): the conditions below are CANDIDATES that a runtime model would have to
+address; that they are NECESSARY for a general correspondence is NOT shown (e.g. `ReadWorld` world equality is not
+established as necessary). Where a derivation is proved, it is one-directional as stated; converses and necessity are
+NOT proved.
 
 Status words: **PROVED** (kernel-checked, `Tools/ShippingStRefCorrespondence.lean`, built r1 exit 0), **PREMISE**
 (a Prop that would have to hold of the runtime; assumed nowhere new), **OPEN**. Nothing is added to
@@ -31,9 +36,9 @@ With `getW r w`/`setW r v w` the world after `get`/`set` (match on the `ST` resu
 
 ## 2. Implications that hold (PROVED)
 
-* `getEnvFrame_of_readKeeps : ReadKeeps cref → GetEnvFrame mctx mref cctx cref`. SR2h's single-primitive premise is
-  **implied by** the weaker cell condition C1 at `cref` (a read of the Core cell does not change what the Core
-  cell reads). So the trust base for `EnvSnapshot` (w1,w2) is exactly C1 at `cref` — not a wrapper: different
+* `getEnvFrame_of_readKeeps : ReadKeeps cref → GetEnvFrame mctx mref cctx cref`. ONE direction only:
+  `ReadKeeps cref` (about the whole `Core.State` cell) ⟹ `GetEnvFrame` (about `env` only). C1 at `cref` is thus a
+  SUFFICIENT condition for SR2h's premise; the converse and its necessity are NOT proved. It is a different
   statement (cell-level, about `ST.Ref.get`, not about `getEnv`), and the derivation unfolds `getEnv`.
 * `envFrame_set : r.ref ≠ cref.ref → SetFrame r cref → EnvFrame (ST.Ref.set r v : MetaM Unit)`. A write to any cell
   other than `cref` (side refs, `mref`, tracked cells via `sideSet`, `localSet`, `Meta` `modify`) keeps the env, from C4 at `cref`
@@ -45,7 +50,8 @@ With `getW r w`/`setW r v w` the world after `get`/`set` (match on the `ST` resu
 | condition | in `RefLawsAOps`? | comment |
 |---|---|---|
 | C1 at cache/synth/depth | YES, on quiet worlds in admissible contexts, via `frame` at `FramedA.cacheGet/synthGet/depthGet`: `cv (endW get w) = cv w` etc. | literally C1 for the three tracked cells, restricted to `quiet w ∧ AdmCtx` (not `ReadWorld`). No wrapper theorem is stated. |
-| C1 at `cref`, `mref`, side refs | NO | `frame` speaks only of `cv/sv/dv`; `Framed`/`FramedA.env` is in the op list but its law concludes cv/sv/dv only. **`RefLawsAOps` does not imply `ReadKeeps cref`** (syntactic: no field mentions `readOf cref`; an independence proof needs a model of the laws over the real types, which the opaque world forbids — OPEN). |
+| C1 at `cref`, `mref`, side refs | NO | `frame` speaks only of `cv/sv/dv`; `Framed`/`FramedA.env` is in the op list but its law concludes cv/sv/dv only. **`RefLawsAOps` does not imply `ReadKeeps cref`** (no field mentions `readOf cref`; from the ABSENCE of such a field, neither non-implication nor that an independence
+proof is impossible can be inferred — both are UNPROVED). |
 | C3 at cache/depth | YES, `cacheSet`/`depthSet` (cv w' = v), quiet worlds, admissible contexts | |
 | C4 among cache/synth/depth | YES, `cacheSet`/`depthSet` (sv, dv unchanged / cv, sv unchanged) | for the other 21 side refs and `cref`: NOT stated |
 | C4 into `cref` (env) | NO | |
@@ -66,7 +72,8 @@ field write keeps `env`" needs SetGet at `cref` and a property of the update fun
 `modify`-style `Meta` operations (`metaModify`) go through `take` (C6).
 
 ## 5. What remains new (not implied by anything assumed)
-1. C1 at `cref` (equivalently, via `getEnvFrame_of_readKeeps`, `GetEnvFrame`): needed for `EnvSnapshot`(w1,w2).
+1. C1 at `cref` — a SUFFICIENT condition for `GetEnvFrame` (via `getEnvFrame_of_readKeeps`; one direction), which gives
+   `EnvSnapshot`(w1,w2); not shown necessary.
 2. C4 into `cref` for every cell written between w3 and w4 plus C5 for these cells.
 3. C6 (take-based modify) and C7 (whole-record Core.State update keeps `env`; no `addDecl`/`setEnv` in source,
    but Lean's `whnf`/`mkAppM`/instance search are unmodelled — `env-snapshot-design.md` §4).

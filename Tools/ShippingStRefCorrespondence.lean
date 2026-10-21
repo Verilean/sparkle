@@ -11,8 +11,8 @@ implications that hold from definitions:
 * `runsTo_det`            — determinism of a run (law-free: a run is a function of the start world);
 * `readOf_get`            — the value `get` returns is `readOf` (definitional);
 * `ReadWorld.readKeeps`   — `ReadWorld r → ReadKeeps r`;
-* `getEnvFrame_of_readKeeps` — `ReadKeeps cref → GetEnvFrame` (SR2h's single-primitive premise follows from the
-  weaker cell condition that a read of the Core cell does not change what the Core cell reads);
+* `getEnvFrame_of_readKeeps` — `ReadKeeps cref → GetEnvFrame` (ONE direction: the cell condition on the
+  whole Core.State cell is SUFFICIENT for SR2h's `env`-only premise; converse / necessity NOT proved);
 * `envFrame_set`          — a `set` of a cell distinct from `cref` keeps `envAt`, given `SetFrame`.
 
 All of `ReadKeeps/ReadWorld/SetGet/SetFrame` are PREMISES (statements about the opaque `ST.Ref.get/set`); none is
