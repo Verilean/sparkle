@@ -1,6 +1,6 @@
 import Tools.ShippingShipsFreeMasked
 import Tools.ShippingMachineDepthRunRA
--- UNBUILT (unit SR3i). Built by: see header of Tests/Compiler/SeqParentGenTest.lean for run names / exits.
+-- BUILT (unit SR3i): `lean` check exit 0 (l1); `qbuild build Tools.ShippingSeqParentLemmas` exit 0. In-file `#print axioms`: propext, Classical.choice, Quot.sound.
 -- SCOPE (binding): general (declaration-independent) statements used by the generator `#machine_seq_parent_endpoint`
 -- (Tools/ShippingSeqParentGen.lean):
 --   * `HCausalOf`, `HCallsOf`: the STATED TYPES of the two pieces of the OLD generated `f.machine_composedNR1` that the new-boundary

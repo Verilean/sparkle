@@ -6,7 +6,7 @@ import Tools.ShippingParentRunFactsA
 import Tools.ShippingParentDesignFA
 import Tools.ShippingParentSeqComposedA
 import Tests.Compiler.ChildVertAuditTest
--- UNBUILT (unit SR3i). Run names / exits: see the header of Tests/Compiler/SeqParentGenTest.lean.
+-- BUILT (unit SR3i): `qbuild build Tools.ShippingSeqParentGen` exit 0 (g1-g7 `lean` runs exit 1 until fixed: API names, compiler panic of evalTerm replaced by reduction, hent origins, sync elaboration); used by Tests.Compiler.SeqParentGenTest (final qbuild exit 0).
 /-! # `#machine_seq_parent_endpoint f`: the new-boundary design endpoint of a sequential-call parent, GENERATED
 
 Generalises, from the hand wiring of units SR3c-SR3h on the single declaration `Sparkle.Tests.Compiler.ShippingMachineSeqTest.parent`
