@@ -1,14 +1,12 @@
 import Tools.ShippingMachineDepthRunR
 import Tools.ShippingMachineDepthRunRA
 import Tools.ShippingMachineCallsLinkedTNR
--- UNBUILT (unit SR3s): see the BUILT line at the end of the unit's report.
+-- BUILT (unit SR3s): s3 exit 0 (Tools.ShippingSeqChildDeepRunA, before the removal of an unused lemma; rebuilt in the final run).
 /-! # Unit SR3s: a child with children of its own, at depth `n + 1`, on the NEW boundary
 
 * `seqChildRunN_of_composedCA`: `Tools.ShippingMachineDepthRun.seqChildRunN_of_composedC` with `MachineRunNCA O` (the run's
   `AdmCtx`, `JQC O (dv w) w`, `MachineClosesAtA`) instead of `MachineRunNC` (old `MachineClosesAt` + the run boundary of the
   old chain). The proof text is that of the old theorem.
-* `seqFactsRN_of_conv`: `SeqFactsRN` with a different child predicate `PC₂`, given that `PC₂ c` yields `SeqChildRunN` (the
-  only field of `SeqFactsRN` that mentions `PC`) and the argument count the entry already fixes.
 SCOPE: pure re-statements on the new boundary; no new law, no semantic claim beyond the old theorem's. -/
 namespace Tools.ShippingSeqChildDeepRunA
 open Lean hiding Module Expr
@@ -144,25 +142,5 @@ theorem seqChildRunN_of_composedCA (O : RefLawsAOps Tools.ShippingChildFresh.MkR
       Tools.ShippingEntrySoundness.weOf raw := hw
   rw [hwe]
   exact hrun'
-
-open Tools.ShippingMachineCompose (argPorts) in
-/-- **`SeqFactsRN` under another child predicate.** Only the field `∀ mc, PC c mc → SeqChildRunN … ∧ argPorts length` mentions
-`PC`; `PC₂ c` yields the first component by `hconv`, the second is the `argPorts` field of that `SeqChildRunN` and the count
-`hcnt` the entry already fixes. -/
-theorem seqFactsRN_of_conv {children : String → Option (Module × WEnv)} {n : Nat} {D : DomainConfig}
-    {shape : Sparkle.Compiler.Elab.MachineShape} {dsn : Design} {body : List Stmt} {lsrc : List (Nat → Nat)} {nL : Nat}
-    {bsI : List (Name × Sparkle.Compiler.Elab.MixedGateBinder)} {kD : Nat}
-    {extB : Nat → Signal D Bool} {ext : (j : Nat) → (n : Nat) → Signal D (BitVec n)}
-    {bsC : Name → List (Name × Sparkle.Compiler.Elab.MixedGateBinder)}
-    {outsC : Name → List OutField} {S : Name → (Nat → List Nat) → List (Nat → Nat)}
-    {PC₁ PC₂ : Name → Module → Prop} {k : Nat} {c : Name}
-    (hconv : ∀ mc, PC₂ c mc → SeqChildRunN children dsn n mc (bsC c) (outsC c) (S c))
-    (hcnt : ∀ args, (shape.insts.map (·.2.1))[k]? = some args →
-      ((bsC c).filter fun b => b.2 != .domain).length = args.length)
-    (h : SeqFactsRN children n shape dsn body lsrc nL bsI kD extB ext bsC outsC S PC₁ k c) :
-    SeqFactsRN children n shape dsn body lsrc nL bsI kD extB ext bsC outsC S PC₂ k c := by
-  obtain ⟨h1, args, hargs, -, h3, h4, h5⟩ := h
-  exact ⟨h1, args, hargs, fun mc hmc => ⟨hconv mc hmc, by rw [(hconv mc hmc).2.2.2.2.2.1]; exact hcnt args hargs⟩,
-    h3, h4, h5⟩
 
 end Tools.ShippingSeqChildDeepRunA

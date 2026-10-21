@@ -2,7 +2,7 @@ import Tests.Compiler.SeqDeepGrandKidFactsTest
 import Tests.Compiler.SeqParentGenTest
 import Tests.Compiler.ParentSeqComposedATest
 import Tools.ShippingSeqChildDeepRunA
--- UNBUILT (unit SR3s): see the report for the build names.
+-- BUILT (unit SR3s): see the report for the build names and exits (BUILT lines in the final run are authoritative).
 -- SCOPE (binding): `grand -> mid -> cnt`, from ONE core run of `grand`: the trace `ServedRealA`, `soundL` (MachineTraceLB) and
 -- `composed` (depth 2, `ComposedG`) of `grand`, on the new boundary.  The depth-1 `composed` of the child `mid` is proved on the new
 -- boundary (`mid_composedA`, with its own callee `cnt`), turned into `SeqChildRunN` at depth 2 (`seqChildRunN_of_composedCA`), and
@@ -343,5 +343,42 @@ run_cmd Lean.Elab.Command.liftTermElabM do
 #print axioms grand_soundLA
 #print axioms grand_composedA
 #print axioms Tests.Compiler.SeqDeepGrandEndpointTest.grand_noShips_noBdA_dcH
+
+
+open Lean Elab Command Meta in
+open Tests.Compiler.ChildVertAuditTest in
+set_option maxHeartbeats 0 in
+run_cmd Lean.Elab.Command.liftTermElabM do
+  let new := `Tests.Compiler.SeqDeepGrandEndpointTest.grand_noShips_noBdA_dcH
+  for nm in [new, ``grand_soundLA, ``grand_composedA, ``grand_traceXA, ``mid_composedA, ``mid_seqChildRunN2] do
+    stdAxioms nm
+  let ty := (← getConstInfo new).type
+  let premises ← forallTelescope ty fun xs _ => do
+    let mut ps : Array String := #[]
+    for x in xs do
+      let t ← inferType x
+      if (← isProp t) then ps := ps.push s!"{(← x.fvarId!.getUserName)} : {t.getAppFn.constName?.getD Name.anonymous}"
+    return ps
+  let expected := ["hr : Tools.ShippingEntrySoundness.RunsTo", "entry : Tools.ShippingMachineEntry.MachineDefines", "closes : True"]
+  unless premises.toList == expected do throwError "SR3s AUDIT FAILED: outer Prop premises are {premises}, expected {expected}"
+  let cl ← depClosure new
+  let bad := hits cl ++ cl.toList.filter fun c =>
+    [`Tools.ShippingChildInv.ChildBnd, `Tools.ShippingChildInv.StartV, `Tools.ShippingGenKid.GenKid,
+     `Tools.ShippingKidFacts.KidFacts, `Tools.ShippingMachineDepthRun.MachineRunNC, `Tools.ShippingMachineDepthRun.machineRunNC_of_real,
+     `Tools.ShippingMachineDepthRunR.seqChildRunN_of_composedC].any (·.isPrefixOf c)
+  unless bad.isEmpty do throwError "{new}: old boundary / old child predicate in closure: {bad}"
+  for must in [``grand_soundLA, ``grand_composedA, ``grand_traceXA, ``mid_composedA, ``mid_seqChildRunN2, ``grand_designCheck,
+      ``grand_runFacts, ``grand_outsCheck, ``grand_kidsMasked, ``grand_closesA, ``mid_ifaceP, ``Tests.Compiler.SeqDeepMidKidFactsTest.mid_kidFactsA,
+      ``Tools.ShippingSeqChildDeepRunA.seqChildRunN_of_composedCA, ``Tools.ShippingMachineDepthRunRA.machine_linkedT_callsRNA,
+      ``Tools.ShippingMachineDepthRunRA.machineRunNCA_of_real_main, ``Tools.ShippingParentSeqComposedA.machine_traceL_of_data_causalRA_ranA,
+      ``Tools.ShippingParentRanA.machineRanA_main, ``Tools.ShippingMachineShipsDepth.composedG_of_NW,
+      ``Tools.ShippingSeqParentLemmas.machine_design_noShips_noBd_dc] do
+    unless cl.contains must do throwError "SR3s AUDIT FAILED: {must} not in the closure"
+  -- the old composed theorem of grand supplies only PC-free subterms (its L, R, Hb, Hv): the theorem itself is not in the closure
+  unless !cl.contains `Sparkle.Tests.Compiler.ShippingMachineSeqTest.grand.machine_composedNR2 do
+    throwError "SR3s AUDIT FAILED: the old grand.machine_composedNR2 constant is in the closure"
+  let (_, concl) ← forallTelescope ty fun _ c => pure ((), c)
+  unless (concl.find? (·.isConstOf ``BndAg)).isSome do throwError "SR3s AUDIT FAILED: BndAg not in the conclusion"
+  logInfo m!"SR3s AUDIT OK: {new}: standard axioms; outer Prop premises ASSERTED {premises}; soundL, composed, houtTy and the four checks are no longer premises; closure {cl.size} constants, none of ChildBnd/StartV/GenKid/old KidFacts/MachineRunNC/seqChildRunN_of_composedC; BndAg stays in the conclusion"
 
 end Tests.Compiler.SeqDeepGrandEndpointTest
