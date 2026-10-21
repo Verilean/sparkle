@@ -3616,3 +3616,6 @@ lean_lib «Tools.Prototype.ReaderFixpointTyped» where
 
 lean_lib «Tools.ShippingSeqChildIfaceDeepA» where
   roots := #[`Tools.ShippingSeqChildIfaceDeepA]
+
+lean_lib «Tools.Prototype.StartDomOk» where
+  roots := #[`Tools.Prototype.StartDomOk]
