@@ -19,6 +19,7 @@ import Tools.ShippingChildRunAKids
 import Tools.ShippingChildRunAMain
 import Tools.ShippingChildLinkA
 import Tools.ShippingMachineOutcomeA
+import Tools.ShippingMachineOutcomeA3
 import Tools.ShippingCallWidthsChildRealA
 import Tools.ShippingChildTeleLocalA
 import Tools.ShippingChildTeleMainA
@@ -285,6 +286,9 @@ def audited : List Name :=
    ``Tools.ShippingMachineOutcomeA.synthesizeMachineCertified_noneSplitA,
    ``Tools.ShippingMachineOutcomeA.synthesizeFromConst_machine_split2A,
    ``Tools.ShippingMachineOutcomeA.core_machine_outcomeA',
+   ``Tools.ShippingMachineOutcomeA3.RunsTo.try_finally',
+   ``Tools.ShippingMachineOutcomeA3.core_reads_link3A,
+   ``Tools.ShippingMachineOutcomeA3.core_machine_outcomeA'',
    ``Tools.ShippingCallsMemA.callsPureA_of_memKids,
    ``Tools.ShippingCallsMemA.machineClosesAtA_of_memKids,
    ``Tools.ShippingCallsMemA.machineClosesAtA_memOnly_names,
