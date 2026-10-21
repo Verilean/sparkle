@@ -12,8 +12,9 @@ import Tools.ShippingSeqChildDeepMaskedA
   `calls_ports`; if either changes, the copies do not follow).
 * `deepChild_kidCheckA_loc` (PROVED, step 2): `deepChild_kidCheckA` with the grandchildren's `check` asked at the TWO depths it
   is used at (`n` and `n + 1`) instead of at every depth `m`.  `deepChild_kidCheckA_of_all` re-derives the old `∀ m` premise shape
-  as a special case (so the old statement is unchanged and is a consequence of the local one).  The local form is strictly weaker
-  as a premise (the old form is not derivable from it).
+  as a special case (so the old statement is unchanged and is a consequence of the local one).  The required depths are restricted to the ones
+  actually used (`n`, `n + 1`); the local form is DERIVED from the all-depth form (`deepChild_kidCheckA_of_all`); no claim
+  of strict strength either way (integrator wording fix, par/int-r33, per review).
 * `deepChild_kidFactsA` (PROVED): `KidFactsA O c d.shape.layout.outs (argWidths d kD) (n + 1)` for `RealChildA O c y` of a
   machine WITH calls, from `KidFactsA` of its call entries' callees at depths `n` and `n + 1` (as `GenKid.kidsLo/kidsHi`), the two
   call-width tables, and the data of `core_calls_portsG_ranA`.  Fields: `outsIn` `core_outsIn_ranA`; `outTys`/`inW` `CallsPorts`;
