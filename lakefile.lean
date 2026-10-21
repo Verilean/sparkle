@@ -3598,3 +3598,6 @@ lean_lib «Tools.ShippingSeqParentGen» where
 
 lean_lib «Tools.ShippingStRefCorrespondence» where
   roots := #[`Tools.ShippingStRefCorrespondence]
+
+lean_lib «Tools.Prototype.ReaderFixpointWrapper» where
+  roots := #[`Tools.Prototype.ReaderFixpointWrapper]
