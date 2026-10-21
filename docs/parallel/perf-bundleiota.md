@@ -60,3 +60,48 @@ Not verified here: the exact build logs of int-r22a, so the split of the 18 min 
 OPEN: reproduce the 480 s on the integration node under load; measure variants 1-2 (needs a copy of the file with key2 split; statements unchanged).
 
 Note (integrator, from the review): the 66–70 s measured here were on dell with a scratch `lean` invocation; the 480 s in int-r22a were a `lake build` on macpro — different conditions. The cause of the difference (load, environment) is NOT verified. The estimated ~25 s saving is an estimate, not a result.
+
+## PF2: measured variant of `bundleIota_key2` (unit PF2, base 9e1db4c1)
+
+Environment (all runs identical): node mkvs-dell, 32 cores / 62 GB, `./.cluster/qbuild.sh env lean <file>` (= `lake env lean`, single
+elaboration thread in practice: user ≈ wall for key2 alone), same imports, sequential, slot held by this worker. Scratch files
+(`Tests/Compiler/PF2*.lean`, unregistered, removed before commit). The original file was NOT edited.
+
+**Cause found (measured, not estimated).** Counting goals with `trace` markers: after the `rcases nm/H/hn/k` and the `repeat' split`
+passes, 456 goals remain, each of the form `(∀ a ∈ ⟨L⟩, LetOk n a = true) → LetOk n (h₁ ▸ h₂ ▸ h₃ ▸ h₄ ▸ Eq.rec … e) = true`
+with `h : s3 = "Sparkle"`, … still hypotheses on *variable* strings. The casts do not reduce, so `exact fun _ => he` and `dsimp only`
+cannot close the (default-arm) goals; all 456 are then multiplied by the 9-way `rcases L` → 4104 goals reaching the big `first … simp at * / simp_all`
+chain (32 s of the 45 s traced). Adding `subst_vars` makes the casts reduce, the default-arm goals close at once, and only 168 goals survive to the chain.
+
+**Change (one line, key2 only, statement and the rest of the proof untouched):** insert `all_goals (try subst_vars)` immediately before the
+second `all_goals (try dsimp only)` of `bundleIota_key2`:
+
+```diff
+     all_goals (try rcases k with _ | _ | _ | k)
++    all_goals (try subst_vars)
+     all_goals (try dsimp only)
+     all_goals (repeat' split)
+```
+(Equivalent to `git diff` of Tools/ShippingBundleIotaRange.lean at line 163. A further variant that also shortens the `rcases nm`/`rcases hn`
+name trees (5 / 3 levels instead of 6) measured 15.2 s for key2 alone vs 18.6 s for the one-line change; not proposed, larger diff.)
+
+**Measurements** (wall, seconds; exit 0, 0 errors in every run):
+
+| what | runs | 
+|---|---|
+| key2 alone, ORIGINAL | 51.9, 51.0 |
+| key2 alone, one-line change | 18.6 |
+| key2 alone, one-line + shorter name trees | 15.5, 15.2 |
+| WHOLE module copy, ORIGINAL (`PF2FullOrig`) | 52.3, 52.3, 52.8 |
+| WHOLE module copy, one-line change (`PF2FullNew`) | 20.6, 20.9, 20.7 |
+
+Whole-module wall on this node/command: ≈52.4 s → ≈20.7 s (about 2.5x). (The 66–70 s in the earlier PF section used another run of the same
+scratch-`lean` method; same-session baseline here is 52 s. The 480 s `lake build` on macpro is still not reproduced or explained.)
+Not measured: `key1`/`key3` (same shape, likely the same fix applies; after the change they, at ≈19–23 s, become the long pole); a `lake build`.
+
+**Checks.**
+- Statement: the diff is a single inserted tactic line inside the proof of `bundleIota_key2`; the signature/type text is byte-identical, and the whole module
+  (including `bundleIotaRange`, which applies `bundleIota_key2` to a goal of the original type) elaborates with exit 0.
+- Axioms (`#print axioms`, from the whole-module scratch run, both ORIGINAL and CHANGED): `bundleIota_key2` and `bundleIotaRange` depend on `[propext, Quot.sound]`.
+- No `sorry`, no new axiom, no `native_decide`; same theorem names, so the ChildVertAuditTest list is unchanged.
+- PROPOSAL only: not applied to Tools/ShippingBundleIotaRange.lean; the integrator must review, then run a normal `qbuild.sh build Tools.ShippingBundleIotaRange` and the audit.
