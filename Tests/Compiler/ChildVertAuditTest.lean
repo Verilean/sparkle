@@ -22,6 +22,7 @@ import Tools.ShippingMachineOutcomeA
 import Tools.ShippingMachineOutcomeA3
 import Tools.ShippingMachineOutcomeA4
 import Tools.ShippingLetsCloseRoute
+import Tools.ShippingLetsAliasInv
 import Tools.ShippingCallWidthsChildRealA
 import Tools.ShippingChildTeleLocalA
 import Tools.ShippingChildTeleMainA
@@ -309,6 +310,11 @@ def audited : List Name :=
    ``Tools.ShippingLetsCloseRoute.closeLets_some_of_machine_some,
    ``Tools.ShippingLetsCloseRoute.not_letsClose_of_refusal,
    ``Tools.ShippingLetsCloseRoute.letsClose_iff_no_refusal,
+   ``Tools.ShippingLetsAliasInv.machBindLet_noAlias,
+   ``Tools.ShippingLetsAliasInv.machBindLetNamed_noAlias,
+   ``Tools.ShippingLetsAliasInv.machLetIndex_noAlias,
+   ``Tools.ShippingLetsAliasInv.machBindLetAlias_noAlias,
+   ``Tools.ShippingLetsAliasInv.machClose_bvar,
    ``Tools.ShippingCallsMemA.callsPureA_of_memKids,
    ``Tools.ShippingCallsMemA.machineClosesAtA_of_memKids,
    ``Tools.ShippingCallsMemA.machineClosesAtA_memOnly_names,
