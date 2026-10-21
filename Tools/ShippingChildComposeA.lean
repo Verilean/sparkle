@@ -37,6 +37,7 @@ open Tools.ShippingEntrySoundness
 open Sparkle.Compiler.Elab
 open Tools.ShippingChildInv
 open Tools.ShippingChildInvA
+open Tools.ShippingChildFresh
 open Tools.ShippingChildVCA
 open Tools.ShippingChildFallbackA
 open Tools.ShippingChildFrontCP
