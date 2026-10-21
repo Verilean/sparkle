@@ -822,3 +822,19 @@ ChildEntryA/ChildSynthA) and the legacy tail are discharged inside each depth st
 axioms, no RefLaws/RefLawsCore/toAOps/toA in the closures; opaque counts structural.
 OPEN: runtime fit / joint satisfiability of O and T; model→ST; the connection to the semantic-preservation
 endpoints (L5–L8: units G, K); the h264 named-wire compiler fix (par/fix-named-wire, isolated, user decision).
+
+Round 2b (par/int-r4 = par/int-r3 + G 6d8b6e31 + K 7fc81e91, NOT merged into poc 0054b6b2):
+
+| run | SHA (tip) | target | exit |
+|---|---|---|---|
+| int-r3-all | fabf0ed9 (par/int-r3; docs-only after 0eaf1602) | Tests.AllTests | 0 (1494 jobs, 3:09, peak 2.5 GB) |
+| int-r4a | 0d0a67b8 (+ G RunA/RunAKids, K LinkA, header/ledger fixes) | ChildVertAuditTest | 0 (525 jobs) |
+
+Audit int-r4a: every audited closure (112 reports) without RefLaws/RefLawsCore/toAOps/toA; axioms standard;
+project opaque 43 for the new theorems (structural count). New, PROVED relative to the stated premises:
+L5 `core_reads_invA`, `machine_run_of_coreA` (O, hA, start world, `MachineDefines`); L6
+`machine_children_realA'` (also `BodyStepC`, `htr` — being instantiated from `T` by unit G2 — and
+`MachineClosesAtA`, UNRESOLVED); L7a `childLink_realA` (existence of the callee's shape / result kind only,
+not the meaning of the recorded result or its ports). `RealChildA`/`ChildrenRealA` are histories.
+Closure sizes of the MainA/ComposeC theorems moved by < 0.1 % against int-r3a (e.g. `core_tripleA_main`
+12872 → 12881) although their files did not change; not investigated (no old-boundary constant either way).
