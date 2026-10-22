@@ -50,12 +50,12 @@ open Tools.ShippingQuadComposed Tools.ShippingQuadCalls
 variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
   {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
 
-/-- **The generated per-declaration facts of ONE callee** (text-supplied, named exactly): the callee `e` of the shared leaf `G` has the generated state tuple `inits`, body `body`, observation
-`obsR`, extensions `ext` / `extB`; `gen` is the callee's `GenFacts` (the generated `machine_ok / machine_body / machine_inits / machine_writes / machine_result / machine_source / machine_ext_causal`,
-with source `srcOf e`), `hF` the output equation of EVERY call of the callee (`CallFactF` at the leaf tables), and `hextB` / `hext` say that the generated extensions read the declared
-inputs.  Not derivable from the data bundles. -/
-structure KaryGen [∀ e : KCal, Inhabited (HList (tys e.d.ss))] (e : KCal) (G : Name) (dG : MachineData) (srcG : KSrc)
-    (srcOf : KCal → KSrc) : Type 1 where
+/-- **The generated per-declaration facts of ONE callee** (text-supplied, named exactly): the callee `e` of the shared leaf `G` has the `Inhabited` instance `inh` of its state tuple, the
+generated state tuple `inits`, body `body`, observation `obsR`, extensions `ext` / `extB`; `gen` is the callee's `GenFacts` (the generated `machine_ok / machine_body / machine_inits /
+machine_writes / machine_result / machine_source / machine_ext_causal`, with source `e.src`), `hF` the output equation of EVERY call of the callee (`CallFactF` at the leaf tables), and
+`hextB` / `hext` say that the generated extensions read the declared inputs.  Not derivable from the data bundles. -/
+structure KaryGen (e : KCal) (G : Name) (dG : MachineData) (srcG : KSrc) : Type 1 where
+  inh : Inhabited (HList (tys e.d.ss))
   ρ : DomainConfig → Type
   inits : HList (tys e.d.ss)
   body : (i : DomainConfig) → (Nat → Signal i Bool) →
@@ -69,17 +69,17 @@ structure KaryGen [∀ e : KCal, Inhabited (HList (tys e.d.ss))] (e : KCal) (G :
   extB : (i : DomainConfig) → (Nat → Signal i Bool) →
       ((j : Nat) → (n : Nat) → Signal i (BitVec n)) →
       Signal i (HList (tys e.d.ss)) → Nat → Signal i Bool
-  gen : GenFacts e.d (fun i : DomainConfig => i) inits body obsR ext extB (srcOf e)
-  hF : CallFactF e.d e.n (letObsB e.d (fun i : DomainConfig => i) inits body ext extB)
-      (fun i bools bits => ext i bools bits (stateLoop inits (body i bools bits)))
-      (fun i bools bits => extB i bools bits (stateLoop inits (body i bools bits)))
+  gen : @GenFacts e.d DomainConfig (fun i : DomainConfig => i) ρ inh inits body obsR ext extB e.src
+  hF : CallFactF e.d e.n (@letObsB e.d DomainConfig (fun i : DomainConfig => i) inh ρ inits body ext extB)
+      (fun i bools bits => ext i bools bits (@stateLoop i (tys e.d.ss) (ρ i) inh inits (body i bools bits)))
+      (fun i bools bits => extB i bools bits (@stateLoop i (tys e.d.ss) (ρ i) inh inits (body i bools bits)))
       (leafOutsC G dG) (leafSrcC G dG srcG)
   hextB : ∀ (i : DomainConfig) (bools : Nat → Signal i Bool)
       (bits : (j : Nat) → (n : Nat) → Signal i (BitVec n)) (j : Nat), j < e.n →
-      extB i bools bits (stateLoop inits (body i bools bits)) j = bools j
+      extB i bools bits (@stateLoop i (tys e.d.ss) (ρ i) inh inits (body i bools bits)) j = bools j
   hext : ∀ (i : DomainConfig) (bools : Nat → Signal i Bool)
       (bits : (j : Nat) → (n : Nat) → Signal i (BitVec n)) (j n' : Nat), j < e.n →
-      ext i bools bits (stateLoop inits (body i bools bits)) j n' = bits j n'
+      ext i bools bits (@stateLoop i (tys e.d.ss) (ρ i) inh inits (body i bools bits)) j n' = bits j n'
 
 section Parent
 variable {dP dG : MachineData} {cs : List KCal} {c G : Name} {nP : Nat}
@@ -98,22 +98,20 @@ variable {dP dG : MachineData} {cs : List KCal} {c G : Name} {nP : Nat}
       Signal (dom i) (HList (tys dP.ss)) → Nat → Signal (dom i) Bool}
   {srcP : (i : ι) → (Nat → Signal (dom i) Bool) →
       ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat)}
-  {srcG : KSrc} {srcOf : KCal → KSrc}
-  [∀ e : KCal, Inhabited (HList (tys e.d.ss))]
+  {srcG : KSrc}
 
-set_option maxHeartbeats 8000000 in
 /-- **`ComposedG` at depth 2 of a K-callee parent, the per-call premises split** (K-ary `quad_composed_split`; the `composed` premise of the endpoint).  TEXT-SUPPLIED premises, named:
 `GP` (the parent's `GenFacts`), `gens` (`KaryGen` of every callee), `hleafRun` (the leaf's generated `seq_child_runN`), `hFP` (the parent's per-call output equations, `CallFactF`).  Derived here:
 the range of every call's arguments, the callees' `hcalls`, depth-2 runs and served `MachineRunNCA`, the parent's trace, the `machine_linkedT_callsRNA` data conditions. -/
 theorem kary_composed_split
     (Q : KaryAll dP dG cs c G nP)
     (GP : GenFacts dP dom initsP bodyP obsRP extP extBP srcP)
-    (gens : ∀ e ∈ cs, KaryGen e G dG srcG srcOf)
+    (gens : ∀ e ∈ cs, KaryGen e G dG srcG)
     (hleafRun : LeafSeqRunN G dG srcG)
     (hFP : CallFactF dP nP (letObsB dP dom initsP bodyP extP extBP)
       (fun i bools bits => extP i bools bits (stateLoop initsP (bodyP i bools bits)))
       (fun i bools bits => extBP i bools bits (stateLoop initsP (bodyP i bools bits)))
-      (kOutsOf cs) (kSrcF srcOf cs))
+      (kOutsOf cs) (kSrcF cs))
     (hcl : ∀ (mc : Meta.Context) (cc : Core.Context), MachineCloses mc mref cc cref G dG.shape)
     {w w' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
     (hcore : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (m, design) w')
@@ -122,16 +120,17 @@ theorem kary_composed_split
     ComposedG (fun D => KSn (childMap D.modules) 2) (ResetNk 2) c dP nP m design dom srcP
       (fun i bools bits => extP i bools bits (stateLoop initsP (bodyP i bools bits)))
       (fun i bools bits => extBP i bools bits (stateLoop initsP (bodyP i bools bits))) := by
-  obtain ⟨O, T, hA, hent, hR0, hw⟩ := hB
+  obtain ⟨O, T, hA, hentA, hR0, hw⟩ := hB
+  have hent : KaryEntries mctx mref cctx cref cs := kand_forall hentA
   have h := kary_traceXA O T hA Q GP entry hent hR0 hcl hw hcore
   have hgrp : QuadGroupFacts dP nP (letObsB dP dom initsP bodyP extP extBP)
       (fun i bools bits => extP i bools bits (stateLoop initsP (bodyP i bools bits)))
       (fun i bools bits => extBP i bools bits (stateLoop initsP (bodyP i bools bits)))
-      (kBsF cs) (kOutsOf cs) (kSrcF srcOf cs) :=
+      (kBsF cs) (kOutsOf cs) (kSrcF cs) :=
     quadGroupFacts_of_RF dP nP (fun i bools bits k hk τ => kary_inRange Q initsP bodyP extP extBP i bools bits k hk τ) hFP
   refine Tools.ShippingMachineShipsDepth.composedG_of_NW ?_
   exact machine_linkedT_callsRNA 2 O h Q.hP.fne nP Q.hPX.hkD (bsIn_drop_nodomain dP nP Q.hP.domB) Q.hPX.hIlen Q.hPX.hSL Q.hPX.hSlen
-    Q.hPX.hLlen Q.hPX.hNIn (kBsF cs) (kOutsOf cs) (kSrcF srcOf cs) (kPC O design G dG cs)
+    Q.hPX.hLlen Q.hPX.hNIn (kBsF cs) (kOutsOf cs) (kSrcF cs) (kPC O design G dG cs)
     (fun i bools bits k c' hk2 => by
       obtain ⟨hlt', hget⟩ := List.getElem?_eq_some_iff.mp hk2
       have hlt : k < dP.shape.insts.length := by simpa using hlt'
@@ -150,6 +149,7 @@ theorem kary_composed_split
       unfold kPC at hmc
       rw [kFind_of_mem Q.hP.nodup he] at hmc
       have g := gens e he
+      letI := g.inh
       have hr := leafCallee_seqChildRunN2 O T Q.hG (Q.hC e he) (Q.hX e he) hcl g.gen
         (fun m' d' => leafCallee_hcalls Q.hG Q.hK (Q.hC e he) (Q.hX e he) hleafRun g.hF m' d') g.hextB g.hext hmc
       refine ⟨?_, ?_⟩

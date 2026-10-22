@@ -3923,3 +3923,9 @@ lean_lib «Tools.ShippingKaryComposed» where
 
 lean_lib «Tools.ShippingKaryCalls» where
   roots := #[`Tools.ShippingKaryCalls]
+
+lean_lib «Tools.ShippingKaryBridge» where
+  roots := #[`Tools.ShippingKaryBridge]
+
+lean_lib «Tests.Compiler.KaryQuadAuditTest» where
+  roots := #[`Tests.Compiler.KaryQuadAuditTest]

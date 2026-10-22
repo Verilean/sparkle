@@ -54,10 +54,6 @@ open Tools.ShippingQuadComposed Tools.ShippingQuadCalls
 variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
   {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
 
-/-- the type of a callee's observation source -/
-abbrev KSrc : Type :=
-  (i : DomainConfig) → (Nat → Signal i Bool) → ((j : Nat) → (n : Nat) → Signal i (BitVec n)) → List (Nat → Nat)
-
 /-! ## Lookup by name in the callee list -/
 
 /-- the callee named `n` (the callee names are pairwise different) -/
@@ -96,10 +92,10 @@ def kBsF (cs : List KCal) (n : Name) : List (Name × MixedGateBinder) :=
   match kFind cs n with
   | some e => List.take e.n e.d.bsIn
   | none => []
-/-- the callees' sources by name, on the decoded families (`srcOf e` is the source of the callee `e`) -/
-def kSrcF {ι : Type} (srcOf : KCal → KSrc) (cs : List KCal) (_i : ι) (n : Name) : (Nat → List Nat) → List (Nat → Nat) :=
+/-- the callees' sources by name, on the decoded families (`e.src` is the source of the callee `e`) -/
+def kSrcF {ι : Type} (cs : List KCal) (_i : ι) (n : Name) : (Nat → List Nat) → List (Nat → Nat) :=
   match kFind cs n with
-  | some e => fun vals => srcOf e Sparkle.Core.Domain.defaultDomain
+  | some e => fun vals => e.src Sparkle.Core.Domain.defaultDomain
       (Tools.ShippingMachineChild.boolsOf (List.take e.n e.d.bsIn) vals) (Tools.ShippingMachineChild.bitsOf (List.take e.n e.d.bsIn) vals)
   | none => fun _ => []
 /-- the child predicate by name: a served run of the callee -/
@@ -136,10 +132,33 @@ structure KaryAll (dP dG : MachineData) (cs : List KCal) (c G : Name) (nP : Nat)
   hC : KaryCallees cs dG G
   hX : ∀ e ∈ cs, LeafCalleeExtra e.d dG e.n
 
-/-- The class boundary of the K-callee endpoint: the callees' and the leaf's `MachineDefines` and the start world `JQC O 0 w` (K-ary `QuadBnd`). -/
+/-- the conjunction of `p` over the list, written as an explicit `∧` chain (`p a ∧ p b ∧ p c` for `[a, b, c]`, no trailing `True`): the boundary of an endpoint then unfolds to the
+conjunction a human would write for K callees. -/
+def KAnd {α : Type} (p : α → Prop) : List α → Prop
+  | [] => True
+  | [a] => p a
+  | a :: b :: l => p a ∧ KAnd p (b :: l)
+
+theorem kand_forall {α : Type} {p : α → Prop} : ∀ {l : List α}, KAnd p l → ∀ a ∈ l, p a
+  | [], _, a, ha => absurd ha (List.not_mem_nil)
+  | [x], h, a, ha => by
+    have : a = x := by simpa using ha
+    subst this; exact h
+  | x :: y :: l, h, a, ha => by
+    rcases List.mem_cons.mp ha with rfl | ha'
+    · exact h.1
+    · exact kand_forall h.2 a ha'
+
+theorem forall_kand {α : Type} {p : α → Prop} : ∀ {l : List α}, (∀ a ∈ l, p a) → KAnd p l
+  | [], _ => trivial
+  | [x], h => h x (List.mem_cons_self ..)
+  | x :: y :: l, h => ⟨h x (List.mem_cons_self ..), forall_kand (fun a ha => h a (List.mem_cons_of_mem _ ha))⟩
+
+/-- The class boundary of the K-callee endpoint: the callees' and the leaf's `MachineDefines` and the start world `JQC O 0 w` (K-ary `QuadBnd`; the callees as a `KAnd` chain). -/
 def KaryBnd (cs : List KCal) (G : Name) (dG : MachineData) : CtxBnd := fun mctx mref cctx cref w _ _ =>
   ∃ (O : RefLawsAOps MkRefd mref cref) (_ : RefLawsATele O.quiet mref cref),
-    AdmCtx O.quiet mctx cctx ∧ KaryEntries mctx mref cctx cref cs ∧ MachineDefines mctx mref cctx cref G dG.shape ∧ JQC O 0 w
+    AdmCtx O.quiet mctx cctx ∧ KAnd (fun e : KCal => MachineDefines mctx mref cctx cref e.c e.d.shape) cs ∧
+    MachineDefines mctx mref cctx cref G dG.shape ∧ JQC O 0 w
 
 /-- the callee of call `k` is a member of `cs` found by name -/
 theorem kary_callee_at {dP : MachineData} {cs : List KCal}

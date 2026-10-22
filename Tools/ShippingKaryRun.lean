@@ -35,11 +35,18 @@ open Tools.ShippingInstTagged (originAt)
 variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
   {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
 
-/-- One callee of a parent: its declaration name, its machine data and its number of declared inputs. -/
+/-- the type of a callee's observation source (`X.machineSource`) -/
+abbrev KSrc : Type :=
+  (i : Sparkle.Core.Domain.DomainConfig) → (Nat → Sparkle.Core.Signal.Signal i Bool) →
+    ((j : Nat) → (n : Nat) → Sparkle.Core.Signal.Signal i (BitVec n)) → List (Nat → Nat)
+
+/-- One callee of a parent: its declaration name, its machine data, its number of declared inputs and its observation source (the source is used only by the composed layer; the
+runtime layer reads `c` and `d`). -/
 structure KCal where
   c : Name
   d : MachineData
   n : Nat
+  src : KSrc
 
 /-- the duplicated list is indexed by half the position -/
 theorem dup_getElem? {α β : Type} (g : α → β) (l : List α) (k : Nat) :
