@@ -210,6 +210,79 @@ theorem ordCallee_hcalls
   · left
     exact hmem i bools bits k c hc hch
 
+/-- **`ComposedNW 1` of a callee with ordinary and memory calls** from `GenFacts`, `hcalls` (`ordCallee_hcalls`) and the `hrunN` of its ordinary calls (a served run of the leaf satisfies the leaf's run predicate `PCs`). -/
+theorem callee_composedNW (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATele O.quiet mref cref) (hA : AdmCtx O.quiet mctx cctx)
+    {nameK : Nat → String} {nk : Nat → Nat} {outsK namesK : Nat → List String} {names : List String}
+    (hC : MemCalleeData dC C nC nameK nk outsK namesK names)
+    (GF : GenFacts dC (fun i : DomainConfig => i) initsC bodyC obsRC extC extBC srcC)
+    {bsG : List (Name × MixedGateBinder)} {outsG : List OutField} {PCs : Sparkle.IR.AST.Design → Sparkle.IR.AST.Module → Prop}
+    (hcalls : ∀ (m : Sparkle.IR.AST.Module) (design : Sparkle.IR.AST.Design),
+      HCallsOf 1 dC design m (dom := fun i : DomainConfig => i)
+        (letObsB dC (fun i : DomainConfig => i) initsC bodyC extC extBC)
+        (fun i bools bits => extC i bools bits (stateLoop initsC (bodyC i bools bits)))
+        (fun i bools bits => extBC i bools bits (stateLoop initsC (bodyC i bools bits)))
+        nC (genBsC G bsG) (genOutsC G outsG) (genSrcC G bsG srcG) (genPC (PCs design)))
+    {w w' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hrunN : ∀ (k : Nat) (c : Name), (dC.shape.insts.map (·.1))[k]? = some c →
+      (dC.shape.instOrigins.getD k .ord).child? = none →
+      ∀ (mctx' : Meta.Context) (cctx' : Core.Context) (mc : Sparkle.IR.AST.Module) (Dc : Sparkle.IR.AST.Design) (w w' : Void IO.RealWorld),
+        AdmCtx O.quiet mctx' cctx' → CacheInvA O (cv w) → sv w = some synthesizeChild → O.quiet w →
+        RunsTo (synthesizeCombinational c) mctx' mref cctx' cref w (mc, Dc) w' →
+        (∀ g ∈ Dc.modules, moduleByName design.modules g.name = some g) →
+        moduleByName design.modules mc.name = some mc → PCs design mc)
+    {D₀ : Nat} (hw : JQ O.quiet D₀ w) (hc : D₀ = 0 ∨ CacheInvA O (cv w))
+    (hcore : RunsTo (synthesizeCombinationalCore C [] false) mctx mref cctx cref w (m, design) w')
+    (entry : MachineDefines mctx mref cctx cref C dC.shape)
+    (closes : MachineClosesAtA (mref := mref) (cref := cref) O mctx cctx C dC.shape) :
+    Tools.ShippingMachineDepthRun.ComposedNW 1 C dC nC m design (fun i : DomainConfig => i) srcC
+      (fun i bools bits => extC i bools bits (stateLoop initsC (bodyC i bools bits)))
+      (fun i bools bits => extBC i bools bits (stateLoop initsC (bodyC i bools bits))) := by
+  have h := genTrace O T hA dC (fun i : DomainConfig => i) GF (machineRunJQC_of_closesA O hA hcore entry closes hw hc)
+  exact machine_linkedT_callsRNA 1 O h hC.fne nC hC.hkD (bsIn_drop_nodomain dC nC hC.domB) hC.hIlen hC.hSL hC.hSlen hC.hLlen hC.hNIn
+    (genBsC G bsG) (genOutsC G outsG) (genSrcC G bsG srcG) (genPC (PCs design)) (hcalls m design) hrunN
+
+/-- **`SeqChildRunN` at depth 2 of a served run of a callee with ordinary and memory calls** (the boundary `BndA` of the callee's run is not read by the composed theorem). -/
+theorem callee_seqChildRunN2 (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATele O.quiet mref cref)
+    {nameK : Nat → String} {nk : Nat → Nat} {outsK namesK : Nat → List String} {names : List String}
+    (hC : MemCalleeData dC C nC nameK nk outsK namesK names)
+    (hOk : ∀ o ∈ dC.shape.layout.outs, outNameOk o.name = true)
+    (GF : GenFacts dC (fun i : DomainConfig => i) initsC bodyC obsRC extC extBC srcC)
+    {bsG : List (Name × MixedGateBinder)} {outsG : List OutField} {PCs : Sparkle.IR.AST.Design → Sparkle.IR.AST.Module → Prop}
+    (BndA : Meta.Context → Core.Context → Void IO.RealWorld → Sparkle.IR.AST.Module → Sparkle.IR.AST.Design → Prop)
+    (hB : ∀ {mctx : Meta.Context} {cctx : Core.Context} {w : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design},
+      BndA mctx cctx w m design → ∀ (k : Nat) (c : Name), (dC.shape.insts.map (·.1))[k]? = some c →
+      (dC.shape.instOrigins.getD k .ord).child? = none →
+      ∀ (mctx' : Meta.Context) (cctx' : Core.Context) (mc : Sparkle.IR.AST.Module) (Dc : Sparkle.IR.AST.Design) (w w' : Void IO.RealWorld),
+        AdmCtx O.quiet mctx' cctx' → CacheInvA O (cv w) → sv w = some synthesizeChild → O.quiet w →
+        RunsTo (synthesizeCombinational c) mctx' mref cctx' cref w (mc, Dc) w' →
+        (∀ g ∈ Dc.modules, moduleByName design.modules g.name = some g) →
+        moduleByName design.modules mc.name = some mc → PCs design mc)
+    (hcalls : ∀ (m : Sparkle.IR.AST.Module) (design : Sparkle.IR.AST.Design),
+      HCallsOf 1 dC design m (dom := fun i : DomainConfig => i)
+        (letObsB dC (fun i : DomainConfig => i) initsC bodyC extC extBC)
+        (fun i bools bits => extC i bools bits (stateLoop initsC (bodyC i bools bits)))
+        (fun i bools bits => extBC i bools bits (stateLoop initsC (bodyC i bools bits)))
+        nC (genBsC G bsG) (genOutsC G outsG) (genSrcC G bsG srcG) (genPC (PCs design)))
+    (hextB : ∀ (i : DomainConfig) (bools : Nat → Signal i Bool)
+      (bits : (j : Nat) → (n : Nat) → Signal i (BitVec n)) (j : Nat), j < nC →
+      extBC i bools bits (stateLoop initsC (bodyC i bools bits)) j = bools j)
+    (hext : ∀ (i : DomainConfig) (bools : Nat → Signal i Bool)
+      (bits : (j : Nat) → (n : Nat) → Signal i (BitVec n)) (j n' : Nat), j < nC →
+      extC i bools bits (stateLoop initsC (bodyC i bools bits)) j n' = bits j n')
+    (i : DomainConfig) {mc : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (h : MachineRunNCA O C dC.shape BndA mc design)
+    (hcl : ∀ (mctx : Meta.Context) (cctx : Core.Context), AdmCtx O.quiet mctx cctx →
+      MachineClosesAtA (mref := mref) (cref := cref) O mctx cctx C dC.shape) :
+    SeqChildRunN (childMap design.modules) design 2 mc (List.take nC dC.bsIn) dC.shape.layout.outs
+      (fun vals => srcC i
+        (Tools.ShippingMachineChild.boolsOf (List.take nC dC.bsIn) vals)
+        (Tools.ShippingMachineChild.bitsOf (List.take nC dC.bsIn) vals)) :=
+  Tools.ShippingSeqChildDeepRunA.seqChildRunN_of_composedCA O 1 BndA
+    (fun hcore hadm hjqc entry cl hBnd =>
+      callee_composedNW O T hadm hC GF hcalls (hB hBnd) hjqc.1 (Or.inr hjqc.2) hcore entry (hcl _ _ hadm))
+    hC.outTy hOk hC.slotsNe (Nat.pos_of_ne_zero (fun h0 => hC.insts_ne (List.eq_nil_of_length_eq_zero h0)))
+    hC.hkD hC.hIlen hC.hSL hC.hSlen hC.hLlen hC.hNIn hextB hext i h
+
 end Callee
 
 end Tools.ShippingSrm4Mixed
