@@ -1,6 +1,7 @@
 import Tools.ShippingLeafKeepCache
 import Tools.ShippingChildFrontCP
 import Tools.ShippingChildTranslatePathA
+import Tools.ShippingLeafCtxQ
 import Tools.ShippingSeqChildIface
 -- UNBUILT (unit SR6, L8al): see REPORT-SR6.md for the run names / exits at the final committed SHA.
 -- No `sorry`, no `axiom`, no `native_decide`, no new RefLawsAOps/RefLawsATele field, no existing statement changed.
@@ -13,7 +14,7 @@ open Tools.ShippingChildInv Tools.ShippingChildBndInit Tools.ShippingChildBndCor
 open Tools.ShippingChildFresh Tools.ShippingChildVCA Tools.ShippingChildCacheA Tools.ShippingChildCoreC
 open Tools.ShippingChildVertA Tools.ShippingChildPathA Tools.ShippingChildTranslateA
 open Tools.ShippingChildTranslatePathA Tools.ShippingChildFallbackA Tools.ShippingChildFrontA
-open Tools.ShippingChildFrontCP Tools.ShippingChildDepthA
+open Tools.ShippingChildFrontCP Tools.ShippingChildDepthA Tools.ShippingLeafCtxQ
 open Tools.ShippingSharedLeafCoh Tools.ShippingLeafMissCoh Tools.ShippingLeafKeepCache
 open Sparkle.IR.AST Sparkle.IR.Machine
 open Tools.ShippingMachineCloses Tools.ShippingSeqChildIface Tools.ShippingSeqChildIfaceA Tools.ShippingGateChildComb
@@ -55,55 +56,55 @@ variable (O : RefLawsAOps MkRefd mref cref) (hA : AdmCtx O.quiet mctx cctx)
 include O hA hS
 
 /-- `emitLeaves` with the translator hypothesis only at the listed leaves (hint = port name, `top = false`,
-`named = true`, as `emitLeaves` calls it). -/
-theorem emitLeavesAP_mem (translate : TranslateFn) (b : Bool)
+`named = true`, as `emitLeaves` calls it), in the contexts `P`. -/
+theorem emitLeavesQ {P : CompilerState → Prop} (translate : TranslateFn) (b : Bool)
     (r : IO.Ref (Lean.ExprStructMap String)) (hr : MkRefd _ r) :
     ∀ (leaves : List (String × Lean.Expr)) (fw : Option String) (idx : Nat),
-      (∀ pn le, (pn, le) ∈ leaves → KeepsCP mctx mref cctx cref I (translate le pn false true)) →
-      KeepsCP mctx mref cctx cref I (emitLeaves translate r (profLogIO b) leaves fw idx)
+      (∀ pn le, (pn, le) ∈ leaves → KeepsCQ mctx mref cctx cref P I (translate le pn false true)) →
+      KeepsCQ mctx mref cctx cref P I (emitLeaves translate r (profLogIO b) leaves fw idx)
   | [], fw, idx, _ => by
     unfold emitLeaves
-    exact KeepsCP.pure _
+    exact KeepsCQ.pure _
   | (pn, le) :: rest, fw, idx, htr => by
     unfold emitLeaves
-    have clock : KeepsCP mctx mref cctx cref I (CompilerM.liftMetaM (liftM IO.monoMsNow)) :=
-      KeepsCP.lift (keepsA_framed O hA hS FramedA.monoMs)
-    have calls : KeepsCP mctx mref cctx cref I
+    have clock : KeepsCQ mctx mref cctx cref P I (CompilerM.liftMetaM (liftM IO.monoMsNow)) :=
+      KeepsCQ.lift (keepsA_framed O hA hS FramedA.monoMs)
+    have calls : KeepsCQ mctx mref cctx cref P I
         (CompilerM.liftMetaM (ST.Ref.get sparkleCallCounter)) :=
-      KeepsCP.lift (keepsA_framed O hA hS (FramedA.sideGet .callCounter))
-    have hits : KeepsCP mctx mref cctx cref I
+      KeepsCQ.lift (keepsA_framed O hA hS (FramedA.sideGet .callCounter))
+    have hits : KeepsCQ mctx mref cctx cref P I
         (CompilerM.liftMetaM (ST.Ref.get sparkleCacheHits)) :=
-      KeepsCP.lift (keepsA_framed O hA hS (FramedA.sideGet .cacheHits))
-    have log : ∀ msg, KeepsCP mctx mref cctx cref I
+      KeepsCQ.lift (keepsA_framed O hA hS (FramedA.sideGet .cacheHits))
+    have log : ∀ msg, KeepsCQ mctx mref cctx cref P I
         (CompilerM.liftMetaM (liftM (profLogIO b msg))) :=
-      fun msg => KeepsCP.lift (keepsA_diag O hA hS (Diag.profLog b msg))
-    refine KeepsCP.bind clock ?_; intro t0
-    refine KeepsCP.bind calls ?_; intro c0
-    refine KeepsCP.bind hits ?_; intro h0
-    refine KeepsCP.bind (log _) ?_; intro _
-    refine KeepsCP.bind (htr pn le (List.mem_cons_self ..)) ?_; intro lw
-    refine KeepsCP.bind clock ?_; intro t1
-    refine KeepsCP.bind calls ?_; intro c1
-    refine KeepsCP.bind hits ?_; intro h1
-    refine KeepsCP.bind (log _) ?_; intro _
+      fun msg => KeepsCQ.lift (keepsA_diag O hA hS (Diag.profLog b msg))
+    refine KeepsCQ.bind clock ?_; intro t0
+    refine KeepsCQ.bind calls ?_; intro c0
+    refine KeepsCQ.bind hits ?_; intro h0
+    refine KeepsCQ.bind (log _) ?_; intro _
+    refine KeepsCQ.bind (htr pn le (List.mem_cons_self ..)) ?_; intro lw
+    refine KeepsCQ.bind clock ?_; intro t1
+    refine KeepsCQ.bind calls ?_; intro c1
+    refine KeepsCQ.bind hits ?_; intro h1
+    refine KeepsCQ.bind (log _) ?_; intro _
     dsimp only
-    refine KeepsCP.ite
-      (fun _ => KeepsCP.bind (KeepsCP.lift
+    refine KeepsCQ.ite
+      (fun _ => KeepsCQ.bind (KeepsCQ.lift
         (keepsA_framed O hA hS (FramedA.exprCacheModify r _ hr))) (fun _ => ?_))
       (fun _ => ?_)
     all_goals
       try dsimp only
-      refine KeepsCP.bind KeepsCP.get ?_
+      refine KeepsCQ.bind KeepsCQ.get ?_
       intro cs
       try dsimp only
-      refine KeepsCP.ite (fun _ => ?_) (fun _ => ?_)
-      · exact KeepsCP.throwBind _ (by okmsg) _
+      refine KeepsCQ.ite (fun _ => ?_) (fun _ => ?_)
+      · exact KeepsCQ.throwBind _ (by okmsg) _
       · try dsimp only
-        refine KeepsCP.bind (addOutputP O hA hS _ _) ?_
+        refine KeepsCQ.bind (KeepsCQ.ofCP (addOutputP O hA hS _ _)) ?_
         intro _
-        refine KeepsCP.bind (emitAssignP _ _) ?_
+        refine KeepsCQ.bind (KeepsCQ.ofCP (emitAssignP _ _)) ?_
         intro _
-        exact emitLeavesAP_mem translate b r hr rest _ _
+        exact emitLeavesQ translate b r hr rest _ _
           (fun pn' le' hm => htr pn' le' (List.mem_cons_of_mem _ hm))
 
 /-- **`synthesizeMixedCertified` from the translator at THE ONE leaf expression it translates.** The only
@@ -111,7 +112,7 @@ call of `translate` is `translate (instFVars ids 0 body) "out" false true`, `ids
 theorem mixed_keepsLeaf (translate : TranslateFn) (b : Bool) (declName : Name)
     (bs : List (Name × MixedGateBinder)) (body : Lean.Expr)
     (htr : ∀ ids : List FVarId, ids.length = bs.length →
-      KeepsCP mctx mref cctx cref I
+      KeepsCQ mctx mref cctx cref (BoundIn (bs.zip ids)) I
         (translate (instFVars (ids.map Lean.Expr.fvar).toArray 0 body) "out" false true)) :
     Keeps mctx mref cctx cref I
       (synthesizeMixedCertified translate (profLogIO b) declName bs body) := by
@@ -125,14 +126,18 @@ theorem mixed_keepsLeaf (translate : TranslateFn) (b : Bool) (declName : Name)
     dsimp only
     refine Triple.bindQ (φ := MkRefd _) (tripleA_mkExprCache O hA hS _) ?_
     intro cacheRef hr
-    refine Triple.bind
-      (keeps_iff.mp (bindMixedCertifiedInputsAP O hA hS _
-        (emitLeavesAP_mem O hA hS translate b cacheRef hr _ _ _ (by
+    have hwalk := bindMixedQ O hA hS
+      (emitLeaves translate cacheRef (profLogIO b)
+        [("out", instFVars (ids.map Lean.Expr.fvar).toArray 0 body)] none 0) (bs.zip ids) []
+      (by
+        simp only [List.nil_append]
+        exact emitLeavesQ O hA hS translate b cacheRef hr _ _ _ (by
           intro pn le hm
           simp only [List.mem_singleton, Prod.mk.injEq] at hm
           obtain ⟨rfl, rfl⟩ := hm
-          exact htr ids hids.2)) _ _ _
-        (ctxOk_entry false hr))) ?_
+          exact htr ids hids.2))
+    refine Triple.bind
+      (keeps_iff.mp (hwalk _ _ (ctxOk_entry false hr) (fun p hp => by simp at hp))) ?_
     rintro ⟨_, fs⟩
     exact finishSynthA declName fs
   · exact Triple.throw _ fun _ hw => ⟨hw, by okmsg⟩
@@ -142,7 +147,7 @@ closing; no `synthesizeChild`, so neither `hchild` nor `hsv`. -/
 theorem machineCert_keepsLeaf (translate : TranslateFn) (b : Bool) (declName : Name)
     (shape : MachineShape) (hno : shape.insts = [])
     (htr : ∀ ids : List FVarId, ids.length = shape.binders.length →
-      KeepsCP mctx mref cctx cref I
+      KeepsCQ mctx mref cctx cref (BoundIn (shape.binders.zip ids)) I
         (translate (instFVars (ids.map Lean.Expr.fvar).toArray 0 shape.body) "out" false true)) :
     Keeps mctx mref cctx cref I
       (synthesizeMachineCertified translate (profLogIO b) declName shape) := by
@@ -160,10 +165,12 @@ theorem machineCert_keepsLeaf (translate : TranslateFn) (b : Bool) (declName : N
 
 /-- The translator at THE leaf expression of a shape (the only expression `emitLeaves` translates in
 `synthesizeMixedCertified … shape.binders shape.body`), at every environment and every choice of the fresh
-fvars. PREMISE (named after the translator walk of one quoted body). -/
+fvars, in the compiler contexts that bind the non-domain binders' fvars (`BoundIn`: that is the context the
+binder walk hands to `emitLeaves`). PREMISE of Part A; discharged for a quoted machine body in
+`Tools/ShippingLeafTermKeeps.lean` (`leafTranslatorKeeps_of_quote`). -/
 def LeafTranslatorKeeps (I : Void IO.RealWorld → Prop) (shape : MachineShape) : Prop :=
   ∀ (tenv : Lean.Environment) (ids : List FVarId), ids.length = shape.binders.length →
-    KeepsCP mctx mref cctx cref I
+    KeepsCQ mctx mref cctx cref (BoundIn (shape.binders.zip ids)) I
       (translateExprToWire tenv (instFVars (ids.map Lean.Expr.fvar).toArray 0 shape.body) "out" false true)
 
 /-- **The body of the entry, for the real leaf's constant.** The run reads `ci` (`getConstInfo declName`) and

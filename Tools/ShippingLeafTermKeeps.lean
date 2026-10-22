@@ -1,10 +1,12 @@
 import Tools.ShippingLeafBodyCi
+import Tools.ShippingLeafCtxQ
 import Tools.ShippingUnifiedRecursion
 import Tools.ShippingVectorMuxRecursion
 import Tools.ShippingUnifiedMeaning
 -- UNBUILT (unit SR6, L8al part B): see REPORT-SR6.md.
 
 namespace Tools.ShippingLeafTermKeeps
+open Tools.ShippingLeafCtxQ
 open Lean Meta
 open Tools.ShippingEntrySoundness
 open Sparkle.Compiler.Elab
@@ -28,70 +30,6 @@ open Tools.ShippingMuxTypeSoundness (muxE bitVecE)
 
 variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
   {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
-
-/-- `KeepsCP` restricted to the compiler contexts satisfying `P` (here: the fvars of the leaf are bound). -/
-def KeepsCQ (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State) (cctx : Core.Context)
-    (cref : ST.Ref IO.RealWorld Core.State) (P : CompilerState → Prop)
-    {α : Type} (I : Void IO.RealWorld → Prop) (c : CompilerM α) : Prop :=
-  ∀ (ctx : CompilerState) (st : Sparkle.IR.Builder.CircuitState), CtxOk ctx → P ctx →
-    Keeps mctx mref cctx cref I (c ctx st)
-
-/-- `KeepsCQ` for an action that also returns `some _`. -/
-def SomeCQ (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State) (cctx : Core.Context)
-    (cref : ST.Ref IO.RealWorld Core.State) (P : CompilerState → Prop)
-    {β : Type} (I : Void IO.RealWorld → Prop) (c : CompilerM (Option β)) : Prop :=
-  ∀ (ctx : CompilerState) (st : Sparkle.IR.Builder.CircuitState), CtxOk ctx → P ctx →
-    Triple mctx mref cctx cref I (c ctx st) (fun p w => I w ∧ ∃ x, p.1 = some x)
-      (fun e w => I w ∧ OkExc e)
-
-section CQ
-variable {P : CompilerState → Prop} {I : Void IO.RealWorld → Prop}
-
-theorem KeepsCQ.ofCP {α : Type} {c : CompilerM α} (h : KeepsCP mctx mref cctx cref I c) :
-    KeepsCQ mctx mref cctx cref P I c := fun ctx st hc _ => h ctx st hc
-
-theorem KeepsCQ.pure {α : Type} (a : α) : KeepsCQ mctx mref cctx cref P I (Pure.pure a : CompilerM α) :=
-  KeepsCQ.ofCP (KeepsCP.pure a)
-
-theorem KeepsCQ.bind {α β : Type} {c : CompilerM α} {f : α → CompilerM β}
-    (h1 : KeepsCQ mctx mref cctx cref P I c) (h2 : ∀ a, KeepsCQ mctx mref cctx cref P I (f a)) :
-    KeepsCQ mctx mref cctx cref P I (c >>= f) :=
-  fun ctx st hc hp => keeps_iff.mpr (Triple.bind (keeps_iff.mp (h1 ctx st hc hp)) fun p => by
-    obtain ⟨a, s⟩ := p
-    exact keeps_iff.mp (h2 a ctx s hc hp))
-
-theorem KeepsCQ.ite {α : Type} {c : Prop} [Decidable c] {a b : CompilerM α}
-    (ha : c → KeepsCQ mctx mref cctx cref P I a) (hb : ¬c → KeepsCQ mctx mref cctx cref P I b) :
-    KeepsCQ mctx mref cctx cref P I (if c then a else b) := by
-  by_cases hc : c
-  · rw [if_pos hc]; exact ha hc
-  · rw [if_neg hc]; exact hb hc
-
-/-- A bind whose first action returns `some _`: the `none` continuation is not asked for. -/
-theorem KeepsCQ.bindSome {β γ : Type} {c : CompilerM (Option β)} {f : Option β → CompilerM γ}
-    (h1 : SomeCQ mctx mref cctx cref P I c)
-    (h2 : ∀ x, KeepsCQ mctx mref cctx cref P I (f (some x))) :
-    KeepsCQ mctx mref cctx cref P I (c >>= f) :=
-  fun ctx st hc hp => keeps_iff.mpr (Triple.bind (h1 ctx st hc hp) fun p => by
-    obtain ⟨a, s⟩ := p
-    intro w hw
-    obtain ⟨hI, x, hx⟩ := hw
-    have hx' : a = some x := hx
-    subst hx'
-    exact keeps_iff.mp (h2 x ctx s hc hp) w hI)
-
-theorem SomeCQ.pure {β : Type} (x : β) :
-    SomeCQ mctx mref cctx cref P I (Pure.pure (some x) : CompilerM (Option β)) :=
-  fun _ st _ _ => Triple.pure (a := (some x, st)) (fun _ hw => ⟨hw, x, rfl⟩)
-
-theorem SomeCQ.bindK {α β : Type} {c : CompilerM α} {f : α → CompilerM (Option β)}
-    (h1 : KeepsCQ mctx mref cctx cref P I c) (h2 : ∀ a, SomeCQ mctx mref cctx cref P I (f a)) :
-    SomeCQ mctx mref cctx cref P I (c >>= f) :=
-  fun ctx st hc hp => Triple.bind (keeps_iff.mp (h1 ctx st hc hp)) fun p => by
-    obtain ⟨a, s⟩ := p
-    exact h2 a ctx s hc hp
-
-end CQ
 
 section Walk
 variable (O : RefLawsAOps MkRefd mref cref) (hA : AdmCtx O.quiet mctx cctx)
@@ -521,6 +459,105 @@ theorem node_boolLit (rec : TranslateFn) (dom : Lean.Expr) (b : Bool) (hint : St
   refine controlCachedQ O hA hS _ _ _ _ _ ?_
   rw [literal_uncached]
   exact KeepsCQ.ofCP (emitBoolLiteralA O hA hS _ _ _)
+
+
+/-- **The fuel induction: the translator keeps `I` on every quoted well-formed term**, in the contexts `P`
+that bind the input fvars. The only nodes the quoted fragment reaches are the ones above; none is the
+instance arm (`fallbackKind = .other`), so `synthesizeChild` is not reached. -/
+theorem term_fuel_keeps (fuel : Nat) {dom : Lean.Expr} {kb kv : Nat} {vw : Nat → Nat}
+    {bi vi : Nat → FVarId}
+    (hbP : ∀ j, j < kb → ∀ ctx, P ctx → ∃ w, ctx.varMap.lookup (bi j) = some w)
+    (hvP : ∀ j, j < kv → ∀ ctx, P ctx → ∃ w, ctx.varMap.lookup (vi j) = some w) :
+    ∀ {s : SType} (e : Term s), e.WF kb kv vw →
+      KidQ mctx mref cctx cref P I (translateFuelFix (translateStep tenv) fuel)
+        (quote dom (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) e) := by
+  induction fuel with
+  | zero =>
+    intro s e he hint top named
+    exact KeepsCQ.ofCP (KeepsCP.throw (Exception.error .missing "translation fuel exhausted")
+      (by okmsg))
+  | succ fuel ih =>
+    intro s e he hint top named
+    change KeepsCQ mctx mref cctx cref P I (translateStepWith (translateFallback tenv)
+      (translateFuelFix (translateStep tenv) fuel) _ hint top named)
+    cases e with
+    | boolInput j => exact node_fvar O hA hS _ _ _ (hbP j he) hint top named
+    | bitsInput w j =>
+      obtain ⟨hj, hw, hpos⟩ := he
+      cases hw
+      exact node_fvar O hA hS _ _ _ (hvP j hj) hint top named
+    | boolLit b => exact node_boolLit O hA hS _ dom b hint top named
+    | bitsLit w v =>
+      obtain ⟨hval, hpos⟩ := he
+      exact node_pureLit O hA hS _ _ _ _ rfl (n := w) (v := v) rfl (litValue_natE w v hval)
+        hint top named
+    | bitsNum w v =>
+      obtain ⟨hval, hpos⟩ := he
+      exact node_pureLit O hA hS _ _ _ _ rfl (n := w) (v := v) rfl (litValue_numLitE w v hval)
+        hint top named
+    | binary op a b =>
+      rename_i w
+      obtain ⟨ha, hb'⟩ := he
+      have ck := op_checks op dom (quote dom (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) a)
+        (quote dom (fun j => .fvar (bi j)) (fun j => .fvar (vi j)) b) w
+      exact node_binary O hA hS _ _ _ _ _ _ w ck.1 ck.2.1 ck.2.2.1 ck.2.2.2.1
+        (by rw [ck.2.2.2.2.1]; exact ih a ha) (by rw [ck.2.2.2.2.2.1]; exact ih b hb') hint top named
+    | compare op a b =>
+      rename_i w
+      obtain ⟨ha, hb'⟩ := he
+      exact node_compare O hA hS _ dom _ _ w op (ih a ha) (ih b hb') hint top named
+    | boolBinary op a b =>
+      obtain ⟨ha, hb'⟩ := he
+      exact node_boolBin O hA hS _ op dom _ _ (ih a ha) (ih b hb') hint top named
+    | boolNot a =>
+      exact node_boolNot O hA hS _ dom _ (ih a he) (ih (.boolLit false) trivial) hint top named
+    | boolEq a b =>
+      obtain ⟨ha, hb'⟩ := he
+      exact node_boolEq O hA hS _ dom _ _ (ih a ha) (ih b hb') hint top named
+    | mux c a b =>
+      obtain ⟨hc, ha, hb'⟩ := he
+      cases s with
+      | bool => exact node_boolMux O hA hS _ dom _ _ _ (ih c hc) (ih a ha) (ih b hb') hint top named
+      | bits w => exact node_vectorMux O hA hS _ dom _ _ _ w (ih c hc) (ih a ha) (ih b hb') hint top named
+    | setw w' a =>
+      rename_i w
+      obtain ⟨ha, hpos⟩ := he
+      exact node_setw O hA hS _ dom _ w w' (a.wf_pos ha) hpos (ih a ha) hint top named
+    | appCompare op a b =>
+      rename_i w
+      obtain ⟨ha, hb'⟩ := he
+      exact node_appCompare O hA hS _ dom _ _ w op (ih a ha) (ih b hb') hint top named
+    | appBool op a b =>
+      obtain ⟨ha, hb'⟩ := he
+      exact node_appBool O hA hS _ op dom _ _ (ih a ha) (ih b hb') hint top named
+    | appBool2 f a b =>
+      obtain ⟨ha, hb'⟩ := he
+      exact node_appBool2 O hA hS _ f dom _ _ (ih a ha) (ih b hb') hint top named
+    | slice nm start len a =>
+      rename_i w
+      obtain ⟨ha, hlen, hr⟩ := he
+      exact node_slice O hA hS _ dom _ nm w start len hlen hr (ih a ha) hint top named
+    | concat a b =>
+      rename_i m n
+      obtain ⟨ha, hb'⟩ := he
+      exact node_concat O hA hS _ dom _ _ m n (a.wf_pos ha) (b.wf_pos hb') (ih a ha) (ih b hb')
+        hint top named
+    | concatLitHi k v b =>
+      rename_i n
+      obtain ⟨hb', hk, hlt⟩ := he
+      exact node_concatLitHi O hA hS _ dom _ k v n hk hlt (b.wf_pos hb') (ih b hb') hint top named
+    | concatLitLo a k v =>
+      rename_i m
+      obtain ⟨ha, hk, hlt⟩ := he
+      exact node_concatLitLo O hA hS _ dom _ m k v hk hlt (a.wf_pos ha) (ih a ha) hint top named
+    | zextMap nm k a =>
+      rename_i n
+      obtain ⟨ha, hk⟩ := he
+      exact node_zextMap O hA hS _ dom _ nm k n hk (a.wf_pos ha) (ih a ha) hint top named
+    | sliceF nm start len a =>
+      rename_i w
+      obtain ⟨ha, hlen, hr⟩ := he
+      exact node_sliceF O hA hS _ dom _ nm w start len hlen hr (ih a ha) hint top named
 
 end Walk
 
