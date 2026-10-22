@@ -4043,3 +4043,6 @@ lean_lib «Tests.Compiler.Srm4AuditTest» where
 
 lean_lib «Tools.ShippingSrm4Mixed» where
   roots := #[`Tools.ShippingSrm4Mixed]
+
+lean_lib «Tests.Compiler.Srm4MixedTest» where
+  roots := #[`Tests.Compiler.Srm4MixedTest]
