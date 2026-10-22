@@ -166,6 +166,37 @@ theorem topshareM_designCheck_of_kidsPass (O : RefLawsAOps MkRefd mref cref) (T 
     (topshareM_ranA O T hA entryL entry₁ entry₂ entry hcore hw)
     (fun o ho => Tools.ShippingSVBridge.sanitizeName_of_clean (topshareM_outsClean o ho)) topshareM_scalar hkids
 
+/-! ## the parent's trace and its composed theorem at depth 2 -/
+
+noncomputable instance topshareM_inhab : Inhabited (HList (tys topshareM.machineData.ss)) :=
+  ⟨Tools.ShippingSeqParentGenD2MSD.defaultHList _⟩
+
+theorem topshareM_gen : GenFacts topshareM.machineData (fun _ : Unit => Sparkle.Core.Domain.defaultDomain) topshareM.machineInits topshareM.machineBody
+    topshareM.machineResult topshareM.machineExt topshareM.machineExtB topshareM.machineSource :=
+  ⟨topshareM.machine_ok, topshareM.machine_body, topshareM.machine_inits, topshareM.machine_writes, topshareM.machine_result, topshareM.machine_source,
+   fun i bools bits S S' t h =>
+    topshareM.machine_ext_causal i { B := bools, V := bits, S := S } { B := bools, V := bits, S := S' } t
+      (Tools.ShippingMachineCausal.CtxAgree.of_state bools bits S S' t h)⟩
+
+/-- **The trace of `topshareM`** (`ts_traceXA` for the memory-leaf class): `genTrace` at the parent's `MachineRunJQC` (`topshareM_machineRun_derived`, the NM run layer of SRM1-3). -/
+theorem topshareM_traceXA (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATele O.quiet mref cref) (hA : AdmCtx O.quiet mctx cctx)
+    (entryL : MachineDefines mctx mref cctx cref ``leafM leafM.machineData.shape)
+    (entry₁ : MachineDefines mctx mref cctx cref ``wrapM wrapM.machineData.shape)
+    (entry₂ : MachineDefines mctx mref cctx cref ``wrapM3 wrapM3.machineData.shape)
+    (entryP : MachineDefines mctx mref cctx cref ``topshareM topshareM.machineData.shape)
+    {w w' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hw : JQC O 0 w)
+    (hcore : RunsTo (synthesizeCombinationalCore ``topshareM [] false) mctx mref cctx cref w (m, design) w') :
+    Tools.ShippingMachineTraceX.MachineTraceLBX
+      (Tools.ShippingServedRealA.ServedRealA O ``topshareM topshareM.machineData.shape m design) ``topshareM topshareM.machineData m design
+      (fun _ : Unit => Sparkle.Core.Domain.defaultDomain) topshareM.machineSource
+      (fun i bools bits => topshareM.machineExt i bools bits (stateLoop topshareM.machineInits (topshareM.machineBody i bools bits)))
+      (fun i bools bits => topshareM.machineExtB i bools bits (stateLoop topshareM.machineInits (topshareM.machineBody i bools bits)))
+      (Tools.ShippingMachineCausal.letObsB topshareM.machineData (fun _ : Unit => Sparkle.Core.Domain.defaultDomain) topshareM.machineInits
+        topshareM.machineBody topshareM.machineExt topshareM.machineExtB) :=
+  genTrace O T hA topshareM.machineData (fun _ : Unit => Sparkle.Core.Domain.defaultDomain) topshareM_gen (D₀ := 0)
+    (topshareM_machineRun_derived O T hA entryL entry₁ entry₂ entryP hw hcore)
+
 end Tests.Compiler.SharedLeafMemKidIfaceTest
 
 #print axioms Tests.Compiler.SharedLeafMemKidIfaceTest.wrapM3_kidFactsNC
@@ -175,3 +206,4 @@ end Tests.Compiler.SharedLeafMemKidIfaceTest
 #print axioms Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_outsCheck
 #print axioms Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_kidsMasked
 #print axioms Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_designCheck_of_kidsPass
+#print axioms Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_traceXA

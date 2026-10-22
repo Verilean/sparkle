@@ -4031,3 +4031,6 @@ lean_lib «Tools.ShippingSrm4Parent» where
 
 lean_lib «Tests.Compiler.Srm4ParentTest» where
   roots := #[`Tests.Compiler.Srm4ParentTest]
+
+lean_lib «Tests.Compiler.Srm4ComposedTest» where
+  roots := #[`Tests.Compiler.Srm4ComposedTest]
