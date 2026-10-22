@@ -1,6 +1,6 @@
 import Tools.ShippingInitAlloc
 import Tests.Compiler.ChildVertAuditTest
--- BUILT (unit RT4): rt4c, rt4d, rt4e exit 1 (test-file syntax/type errors); rt4f, rt4g exit 0; rt4h exit 0 (final, shim source embedded; INIT TRACE OK). EVIDENCE + audit; proves none of the premises.
+-- BUILT (unit RT4b: strict evidence mode, seq/name check, finally-cleanup; rt4b1 exit 0, INIT TRACE OK); previous: BUILT (unit RT4): rt4c, rt4d, rt4e exit 1 (test-file syntax/type errors); rt4f, rt4g exit 0; rt4h exit 0 (final, shim source embedded; INIT TRACE OK). EVIDENCE + audit; proves none of the premises.
 
 /-! Unit RT4 (L9f).
 (1) Audits of `xfer_of_alloc` / `startContents_session_init_alloc` (axioms, closure, exact Prop-binder head list;
@@ -166,35 +166,32 @@ def shimSource : String := "/* Unit RT4 (test-only): LD_PRELOAD shim that logs t
 #include <dlfcn.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <pthread.h>
 typedef void* o;
 #define EXP __attribute__((visibility(\"default\")))
-static FILE* lf; static unsigned long seq;
+static FILE* lf; static unsigned long seq; static pthread_mutex_t mu = PTHREAD_MUTEX_INITIALIZER;
+#define LOG(k, r) do { pthread_mutex_lock(&mu); L(); fprintf(lf, \"%lu \" k \" %p\\n\", seq++, (void*)(r)); pthread_mutex_unlock(&mu); } while (0)
 static void L(void) {
   if (!lf) { const char* p = getenv(\"SPARKLE_REF_TRACE\"); lf = p ? fopen(p, \"a\") : NULL; if (!lf) lf = stderr; setvbuf(lf, NULL, _IOLBF, 0); }
 }
-EXP o lean_st_mk_ref(o a) { static o (*f)(o); if (!f) f = dlsym(RTLD_NEXT, \"lean_st_mk_ref\"); o r = f(a); L(); fprintf(lf, \"%lu MKREF %p\\n\", seq++, r); return r; }
-EXP o lean_st_ref_set(o r, o a) { static o (*f)(o, o); if (!f) f = dlsym(RTLD_NEXT, \"lean_st_ref_set\"); L(); fprintf(lf, \"%lu SET %p\\n\", seq++, r); return f(r, a); }
-EXP o lean_st_ref_swap(o r, o a) { static o (*f)(o, o); if (!f) f = dlsym(RTLD_NEXT, \"lean_st_ref_swap\"); L(); fprintf(lf, \"%lu SWAP %p\\n\", seq++, r); return f(r, a); }
-EXP o lean_st_ref_reset(o r) { static o (*f)(o); if (!f) f = dlsym(RTLD_NEXT, \"lean_st_ref_reset\"); L(); fprintf(lf, \"%lu RESET %p\\n\", seq++, r); return f(r); }
+EXP o lean_st_mk_ref(o a) { static o (*f)(o); if (!f) f = dlsym(RTLD_NEXT, \"lean_st_mk_ref\"); o r = f(a); LOG(\"MKREF\", r); return r; }
+EXP o lean_st_ref_set(o r, o a) { static o (*f)(o, o); if (!f) f = dlsym(RTLD_NEXT, \"lean_st_ref_set\"); LOG(\"SET\", r); return f(r, a); }
+EXP o lean_st_ref_swap(o r, o a) { static o (*f)(o, o); if (!f) f = dlsym(RTLD_NEXT, \"lean_st_ref_swap\"); LOG(\"SWAP\", r); return f(r, a); }
+EXP o lean_st_ref_reset(o r) { static o (*f)(o); if (!f) f = dlsym(RTLD_NEXT, \"lean_st_ref_reset\"); LOG(\"RESET\", r); return f(r); }
 "
 
-def runInitTrace : IO (Except String String) := do
-  let cwd ← IO.currentDir
+/-- Everything after the prerequisites are known present: EVERY failure here throws (strict evidence mode). -/
+def runInitTraceBody (cwd : System.FilePath) (lean leanc : System.FilePath) (tmp : System.FilePath) : IO String := do
   let lib : System.FilePath := cwd / ".lake/build/lib/libsparkle_Sparkle.so"
   let libdir : System.FilePath := cwd / ".lake/build/lib/lean"
-  let lean ← IO.appPath
-  let some bindir := lean.parent | return .error "no parent of lean executable"
-  let leanc := bindir / "leanc"
-  for p in [lib, leanc] do
-    unless ← p.pathExists do return .error s!"{p} not present"
-  let tmp ← IO.FS.createTempDir
   let src := tmp / "refshim.c"
   IO.FS.writeFile src shimSource
   let shim := tmp / "refshim.so"
   let log := tmp / "refs.log"
   let c ← IO.Process.output { cmd := leanc.toString, args := #["-shared", "-fPIC", "-O1", "-fvisibility=default",
     src.toString, "-o", shim.toString] }
-  unless c.exitCode == 0 && (← shim.pathExists) do return .error s!"shim compile failed: {c.stderr}"
+  unless c.exitCode == 0 && (← shim.pathExists) do
+    throw (IO.userError s!"shim compile failed (exit {c.exitCode}): {c.stderr}")
   let probe := tmp / "probe.lean"
   IO.FS.writeFile probe "import Sparkle.Compiler.Elab
 open Sparkle.Compiler.Elab
@@ -210,20 +207,27 @@ open Sparkle.Compiler.Elab
         ("LEAN_PATH", some libdir.toString)] }
   let r ← IO.Process.output spec
   let out := r.stdout ++ "\n" ++ r.stderr
-  if r.exitCode != 0 then return .error s!"child lean exited {r.exitCode}: {out.take 400}"
-  let some addrLine := (out.splitOn "\n").find? (·.startsWith "ADDR ") | return .error s!"no ADDR line: {out.take 400}"
+  if r.exitCode != 0 then throw (IO.userError s!"child lean exited {r.exitCode}: {out.take 400}")
+  let some addrLine := (out.splitOn "\n").find? (·.startsWith "ADDR ") | throw (IO.userError s!"no ADDR line: {out.take 400}")
   let ws := addrLine.splitOn " "
-  let some ad := (ws[2]?).bind String.toNat? | return .error s!"bad ADDR line {addrLine}"
-  let some ac := (ws[4]?).bind String.toNat? | return .error s!"bad ADDR line {addrLine}"
-  let some as_ := (ws[6]?).bind String.toNat? | return .error s!"bad ADDR line {addrLine}"
+  let bad := IO.userError s!"malformed ADDR line {addrLine}"
+  unless ws.length == 7 && ws[1]? == some "depth" && ws[3]? == some "cache" && ws[5]? == some "synth" do throw bad
+  let some ad := (ws[2]?).bind String.toNat? | throw bad
+  let some ac := (ws[4]?).bind String.toNat? | throw bad
+  let some as_ := (ws[6]?).bind String.toNat? | throw bad
   unless out.contains "SYNTH_SOME true DEPTH 0 CACHE_EMPTY true" do
     throw (IO.userError s!"end-state probe line unexpected: {out.take 400}")
-  unless ← log.pathExists do return .error "no trace file written (interposition ineffective)"
+  unless ← log.pathExists do throw (IO.userError "no trace file written (interposition ineffective)")
   let lines := ((← IO.FS.readFile log).splitOn "\n").filter (· ≠ "")
+  let allowed := ["MKREF", "SET", "SWAP", "RESET"]
   let mut ev : Array (String × Nat) := #[]
   for l in lines do
     match l.splitOn " " with
-    | [_, k, a] =>
+    | [sq, k, a] =>
+      -- sequence numbers must be exactly 0,1,2,... and the event name in the allowed set
+      unless sq.toNat? == some ev.size do
+        throw (IO.userError s!"TRACE FAIL: sequence number not consecutive (expected {ev.size}): {l}")
+      unless allowed.contains k do throw (IO.userError s!"TRACE FAIL: unknown event name in {l}")
       let some v := hexNat? a | throw (IO.userError s!"bad trace line {l}")
       ev := ev.push (k, v)
     | _ => throw (IO.userError s!"bad trace line {l}")
@@ -233,7 +237,6 @@ open Sparkle.Compiler.Elab
       if ev[i].1 == "MKREF" && ev[i].2 == a then o := o.push i
     return o
   let mkIdx := [ad, ac, as_].map fun a => (idxOf a).toList
-  if mkIdx.all List.isEmpty then return .error "no MKREF event for any of the three refs (interposition ineffective)"
   let [[id], [ic], [is]] := mkIdx | throw (IO.userError s!"TRACE FAIL: MKREF events of depth/cache/synth refs: {mkIdx}")
   unless id < ic && ic < is do throw (IO.userError s!"TRACE FAIL: order {id} {ic} {is}")
   let mkAddrs := (ev.filter (·.1 == "MKREF")).map (·.2)
@@ -247,10 +250,25 @@ open Sparkle.Compiler.Elab
   | [(iw, "SET", a)] =>
     unless a == as_ && iw > is do throw (IO.userError s!"TRACE FAIL: the one write is not the synth set after its mkRef: {wr}")
     let otherWrites := (ev.toList.filter fun e => e.1 != "MKREF" && !tracked.contains e.2).length
-    IO.FS.removeDirAll tmp
     let afterSynth := ((ev.toList.take iw).drop (is + 1)).filter (·.1 == "MKREF") |>.length
-    return .ok s!"events {ev.size}; MKREF index depth={id} < cache={ic} < synth={is}; the only write to the three cells is SET on the synth cell at event {iw} (after the synth MKREF); other-cell MKREFs before depth / between depth and cache / between cache and synth / between synth and the set: {id} / {ic-id-1} / {is-ic-1} / {afterSynth}; writes to other cells in the window: {otherWrites}; all {mkAddrs.size} MKREF addresses distinct"
+    return s!"events {ev.size} (sequence numbers consecutive, names in {allowed}); MKREF index depth={id} < cache={ic} < synth={is}; the only write to the three cells is SET on the synth cell at event {iw} (after the synth MKREF); other-cell MKREFs before depth / between depth and cache / between cache and synth / between synth and the set: {id} / {ic-id-1} / {is-ic-1} / {afterSynth}; writes to other cells in the window: {otherWrites}; all {mkAddrs.size} MKREF addresses distinct"
   | _ => throw (IO.userError s!"TRACE FAIL: writes to the three cells: {wr}")
+
+/-- `.error reason` = SKIPPED, only when a prerequisite (libsparkle `.so`, `leanc`) is genuinely absent;
+`.ok report` = OK; any other failure is an `IO` error (FAILED). Temp dir removed on every path. -/
+def runInitTrace : IO (Except String String) := do
+  let cwd ← IO.currentDir
+  let lib : System.FilePath := cwd / ".lake/build/lib/libsparkle_Sparkle.so"
+  let lean ← IO.appPath
+  let some bindir := lean.parent | return .error "no parent of lean executable"
+  let leanc := bindir / "leanc"
+  for p in [lib, leanc] do
+    unless ← p.pathExists do return .error s!"prerequisite {p} not present"
+  let tmp ← IO.FS.createTempDir
+  try
+    return .ok (← runInitTraceBody cwd lean leanc tmp)
+  finally
+    IO.FS.removeDirAll tmp
 
 open Lean Meta Elab in
 run_meta do
