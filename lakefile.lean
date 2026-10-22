@@ -3736,3 +3736,6 @@ lean_lib «Tests.Compiler.ExtModelAgreeTest» where
 
 lean_lib «Tools.Prototype.DGenProv» where
   roots := #[`Tools.Prototype.DGenProv]
+
+lean_lib «Tools.ShippingInitAlloc» where
+  roots := #[`Tools.ShippingInitAlloc]
