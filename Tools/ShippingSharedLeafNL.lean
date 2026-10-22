@@ -315,6 +315,107 @@ theorem core_run_tracked (O : RefLawsAOps MkRefd mref cref) (hA : AdmCtx O.quiet
     have h3 := triple_runs (finK O hA d (cv w8) _ _ _ _ _ _ _) h2 hfin
     exact ⟨h3.1, h3.2⟩
 
+/-! ## The full entry's post-processing, with the cache tracked (part B3) -/
+
+/-- The `top` map of `synthesizeCombinationalWith`: the clean-up applies to the module named like the entry's. -/
+def topMap (n : String) (f : Sparkle.IR.AST.Module → Sparkle.IR.AST.Module) (d : Sparkle.IR.AST.Design) :
+    Sparkle.IR.AST.Design :=
+  { d with modules := d.modules.map fun x => if x.name == n then f x else x }
+
+theorem topMap_id (n : String) (f : Sparkle.IR.AST.Module → Sparkle.IR.AST.Module) (d : Sparkle.IR.AST.Design)
+    (h : ∀ x ∈ d.modules, x.name ≠ n) : topMap n f d = d := by
+  unfold topMap
+  have hid : ∀ x ∈ d.modules, (if x.name == n then f x else x) = x := by
+    intro x hx
+    have : ¬ (x.name == n) = true := fun e => h x hx (beq_iff_eq.mp e)
+    simp [this]
+  rw [List.map_congr_left hid]
+  simp
+
+/-- **The full entry, with the worlds tracked.** A returning run of `synthesizeCombinational c` is a returning run
+of the core entry followed by the clean-up (`dropZeroWidthModule`, then `mergeChecked`, only on the module named
+like the entry's, in the design), and the clean-up keeps `JQC` and the cache value. -/
+theorem full_run_tracked (O : RefLawsAOps MkRefd mref cref) (hA : AdmCtx O.quiet mctx cctx)
+    {D : Nat} {c : Name} {w w' : Void IO.RealWorld} {y : Res}
+    (h : RunsTo (synthesizeCombinational c) mctx mref cctx cref w y w') :
+    ∃ (M : Sparkle.IR.AST.Module) (Dg : Sparkle.IR.AST.Design) (wc : Void IO.RealWorld),
+      RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, Dg) wc ∧
+      (JQC O D wc → JQC O D w' ∧ cv w' = cv wc) ∧
+      ((y.1 = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∧
+          y.2 = topMap M.name Sparkle.IR.ZeroWidth.dropZeroWidthModule Dg) ∨
+       (y.1 = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M) ∧
+          y.2 = topMap M.name Sparkle.IR.RefineCheck.mergeChecked
+            (topMap M.name Sparkle.IR.ZeroWidth.dropZeroWidthModule Dg))) := by
+  unfold synthesizeCombinational synthesizeCombinationalWith at h
+  obtain ⟨⟨M, Dg⟩, wc, hcore, h⟩ := RunsTo.bind h
+  refine ⟨M, Dg, wc, hcore, ?_⟩
+  dsimp only at h
+  obtain ⟨x, wq, s, h⟩ := RunsTo.bind h
+  have hio : JQC O D wc → JQC O D wq ∧ cv wq = cv wc := fun hj =>
+    let t := triple_runs (keeps_iff.mp (keepsA_framed O hA (stableK O D (cv wc))
+      (FramedA.ioEnv _))) ⟨hj, rfl⟩ s
+    ⟨t.1, t.2⟩
+  rcases RunsTo.ite h with h | h
+  · obtain ⟨hy, rfl⟩ := RunsTo.pure_world h
+    refine ⟨hio, Or.inl ?_⟩
+    rw [hy]; exact ⟨rfl, rfl⟩
+  · obtain ⟨hy, rfl⟩ := RunsTo.pure_world h
+    refine ⟨hio, Or.inr ?_⟩
+    rw [hy]; exact ⟨rfl, rfl⟩
+
+/-! ## Design lemmas (part B4) -/
+
+theorem foldl_inner_sub (l : List Sparkle.IR.AST.Module) :
+    ∀ (acc : List Sparkle.IR.AST.Module),
+      (∀ a ∈ acc, a ∈ l.foldl (fun acc c => if acc.any (·.name == c.name) then acc else acc ++ [c]) acc) ∧
+      (∀ x ∈ l, ∃ a ∈ l.foldl (fun acc c => if acc.any (·.name == c.name) then acc else acc ++ [c]) acc,
+        a.name = x.name) := by
+  induction l with
+  | nil => intro acc; exact ⟨fun a ha => ha, fun x hx => by cases hx⟩
+  | cons x xs ih =>
+    intro acc
+    simp only [List.foldl_cons]
+    by_cases hx : acc.any (·.name == x.name) = true
+    · rw [if_pos hx]
+      obtain ⟨h1, h2⟩ := ih acc
+      refine ⟨h1, fun z hz => ?_⟩
+      rcases List.mem_cons.mp hz with rfl | hz
+      · obtain ⟨a, ha, han⟩ := List.any_eq_true.mp hx
+        exact ⟨a, h1 a ha, by simpa using han⟩
+      · exact h2 z hz
+    · rw [if_neg hx]
+      obtain ⟨h1, h2⟩ := ih (acc ++ [x])
+      refine ⟨fun a ha => h1 a (List.mem_append_left _ ha), fun z hz => ?_⟩
+      rcases List.mem_cons.mp hz with rfl | hz
+      · exact ⟨z, h1 z (by simp), rfl⟩
+      · exact h2 z hz
+
+theorem designWith_hasName {kids : List Res} {d : Sparkle.IR.AST.Design} :
+    ∀ k ∈ kids, ∃ a ∈ (designWith kids d).modules, a.name = k.1.name := by
+  have key : ∀ (kids : List Res) (acc : List Sparkle.IR.AST.Module),
+      (∀ a ∈ acc, a ∈ kids.foldl (fun acc (x : Res) =>
+        (x.2.modules ++ [x.1]).foldl (fun acc c =>
+          if acc.any (·.name == c.name) then acc else acc ++ [c]) acc) acc) ∧
+      (∀ k ∈ kids, ∃ a ∈ kids.foldl (fun acc (x : Res) =>
+        (x.2.modules ++ [x.1]).foldl (fun acc c =>
+          if acc.any (·.name == c.name) then acc else acc ++ [c]) acc) acc, a.name = k.1.name) := by
+    intro kids
+    induction kids with
+    | nil => intro acc; exact ⟨fun a ha => ha, fun k hk => by cases hk⟩
+    | cons k ks ih =>
+      intro acc
+      simp only [List.foldl_cons]
+      obtain ⟨ih1, ih2⟩ := ih ((k.2.modules ++ [k.1]).foldl
+        (fun acc c => if acc.any (·.name == c.name) then acc else acc ++ [c]) acc)
+      obtain ⟨i1, i2⟩ := foldl_inner_sub (k.2.modules ++ [k.1]) acc
+      refine ⟨fun a ha => ih1 a (i1 a ha), fun z hz => ?_⟩
+      rcases List.mem_cons.mp hz with rfl | hz
+      · obtain ⟨a, ha, han⟩ := i2 z.1 (by simp)
+        exact ⟨a, ih1 a ha, han⟩
+      · exact ih2 z hz
+  intro k hk
+  exact (key kids d.modules).2 k hk
+
 end Tools.ShippingSharedLeafNL
 
 #print axioms Tools.ShippingSharedLeafNL.leafKid_step
@@ -322,3 +423,5 @@ end Tools.ShippingSharedLeafNL
 #print axioms Tools.ShippingSharedLeafNL.closeInstsGM_leafRun
 #print axioms Tools.ShippingSharedLeafNL.machineSynth_leafKids
 #print axioms Tools.ShippingSharedLeafNL.core_run_tracked
+#print axioms Tools.ShippingSharedLeafNL.full_run_tracked
+#print axioms Tools.ShippingSharedLeafNL.designWith_hasName
