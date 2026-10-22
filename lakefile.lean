@@ -3905,3 +3905,6 @@ lean_lib «Tools.ShippingSeqParentGenD2MSD» where
 
 lean_lib «Tests.Compiler.SharedLeafGenFactsTest» where
   roots := #[`Tests.Compiler.SharedLeafGenFactsTest]
+
+lean_lib «Tests.Compiler.SharedLeafGenNoOldChainTest» where
+  roots := #[`Tests.Compiler.SharedLeafGenNoOldChainTest]
