@@ -70,6 +70,8 @@ import Tools.ShippingSharedLeafExt
 import Tools.ShippingSharedLeafNL
 import Tools.ShippingTopShareRun
 import Tools.ShippingTopShareRet
+import Tools.ShippingTopShareRan
+import Tools.ShippingSeqParentAt
 
 /-! # Audit: the vertical path does not use the old boundary (round par/vert)
 
@@ -521,7 +523,9 @@ def audited : List Name :=
    ``Tools.ShippingTopShareRun.machineSynth_closing_split, ``Tools.ShippingTopShareRun.topshare_entry_run,
    ``Tools.ShippingTopShareRun.topshare_quad, ``Tools.ShippingTopShareRun.topshare_closing4,
    ``Tools.ShippingTopShareRun.topshare_entry_run4, ``Tools.ShippingTopShareRun.machineSynth_ne_none4,
-   ``Tools.ShippingTopShareRun.topshare_entry_run4', ``Tools.ShippingTopShareRet.topshare_entry_run4_ret]
+   ``Tools.ShippingTopShareRun.topshare_entry_run4', ``Tools.ShippingTopShareRet.topshare_entry_run4_ret,
+   ``Tools.ShippingTopShareRan.machineRanA_start0, ``Tools.ShippingSeqParentAt.machine_design_noShips_noBd_dc_at,
+   ``Tools.ShippingSeqParentAt.moduleByName_post_other]
 
 end Tests.Compiler.ChildVertAuditTest
 
