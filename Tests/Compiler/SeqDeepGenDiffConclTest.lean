@@ -2,7 +2,7 @@ import Tests.Compiler.SeqDeepGenDiffTest
 import Tests.Compiler.SeqDeepGenArgsConclTest
 import Tests.Compiler.SeqDeepGenInstConclTest
 import Tests.Compiler.SeqDeepGrandEndpointAuditTest
--- BUILT (unit SR3w): see the report (run names and exits).
+-- BUILT (unit SR3w): m5/r3/f1 exit 0.
 -- SCOPE (binding): a HAND-WRITTEN expected conclusion for the generated depth-2 endpoint `topdiff2.epD2M_endpoint` of the SEVERAL-CALLEES class
 -- (`topdiff2 -> wrap -> acc` and `topdiff2 -> wrap2 -> acc2`: two genuinely different callees with different leaves, kP = 3 own inputs, depth 2).
 -- `DiffConclWith B n kP` is written by hand here (the same SHAPE as `ToptwoConcl` of unit SR3u, with the source `topdiff2` and a boundary `B`;

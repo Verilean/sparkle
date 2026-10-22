@@ -8,6 +8,7 @@ import Tools.ShippingSeqChildDeepConsumerA
 import Tools.ShippingSeqParentKidFactsA
 import Tools.ShippingMachineSeqCommand
 import Tools.ShippingMachineDepthCommandR
+-- BUILT (unit SR3w): r2/r3/f1 exit 0 (`groupPartition`, `groupKeysOf`, `oldGroupKeyList`, `oldInstGroups` added; the group numbering is now READ from the old generated `hcalls`, the recomputed call-argument key is a diagnostic; all SeqDeep* tests and ChildVertAuditTest rebuilt on the changed module).
 -- BUILT (unit SR3v): k2 exit 0 (existing tests on the changed module), k3/k4 exit 0 (tf1-tf4 generated), k5 exit 0 (SeqDeepGenKeyTest assertions, SeqDeepGenKeyConclTest). k1 exit 1: `machineExt` has four binders (family point and state), not three.
 -- BUILT (unit SR3u): a4 exit 0 (Tests.Compiler.SeqDeepGenArgsTest: `topargs`, `toptwo` generated, `topdiff` refused), a5 exit 0 (SeqDeepGenArgsConclTest, SeqDeepGenInstConclTest, SeqDeepGenTest, SeqDeepGrandEndpointTest, ChildVertAuditTest on the changed module). a1-a3 exit 1: the origin of a later call is `.field i`, not `.field k` (a1); `memKey` namespace (a2); `KidTA` not unfolded before the rewrite (a3).
 -- BUILT (unit GAUD): i4 exit 0 (Tests.Compiler.SeqDeepGenInstTest, memory refusals), g4 exit 0 (SeqDeepGenTest on the changed module), c2 exit 0 (SeqDeepGenInstConclTest); the module itself was built as a dependency of those (i3 exit 1: a Nat annotation in the test).
@@ -913,7 +914,7 @@ def analyse (fn : Name) : CommandElabM D2Params := do
   if pc.any isMemName then refuse fn (memWhy "P" fn)
   let pcs := pc.eraseDups
   unless pcs.length == 1 do
-    refuse fn s!"the parent calls {pcs.length} DIFFERENT children {pcs}; the depth-2 closing / checks of this path are instantiated with ONE callee (`fun _ => C`), several different non-leaf children are OPEN (the depth-1 path handles several leaf children)"
+    refuse fn s!"the parent calls {pcs.length} DIFFERENT children {pcs}; the depth-2 closing / checks of this path are instantiated with ONE callee (`fun _ => C`), several different non-leaf children are OPEN here (unit SR3w: they are handled by `Tools/ShippingSeqParentGenD2M.lean`, a separate module that must be imported; the depth-1 path handles several leaf children)"
   let C := pcs.head!
   let cc ← liftTermElabM do readNames (← elabText (s!"({C}.machineData.shape.insts.map (·.1))"))
   if cc.isEmpty then

@@ -1,6 +1,6 @@
 import Tests.Compiler.SeqDeepGenArgsTest
 import Tools.ShippingSeqParentGenD2M
--- BUILT (unit SR3w): m2 exit 0 (`topdiff2` generated, audit OK). See the report for the later runs.
+-- BUILT (unit SR3w): m2/m4/m5/r3/f1 exit 0 (m3 exit 1: my asserted call lists; the audit's traversal order).
 -- SCOPE (binding): the depth-2 generator `Tools/ShippingSeqParentGenD2M.lean` (several DIFFERENT callees at the parent `P`, each callee `C_i`
 -- with ONE leaf `G_i`, the `G_i` pairwise different).  CONCRETE examples only, not whole-class coverage.
 --   * `topdiff2`: `wrap v w` and `wrap2 w v` (callees `wrap -> acc`, `wrap2 -> acc2`, genuinely different callees AND leaves);

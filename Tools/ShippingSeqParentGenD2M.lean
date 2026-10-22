@@ -1,5 +1,5 @@
 import Tools.ShippingSeqParentGenD2
--- UNBUILT (unit SR3w): written in this run; the BUILT line is added after the first successful build.
+-- BUILT (unit SR3w): m1 exit 0 (module), m2/m3(exit 1: my asserted call lists and the audit traversal order)/m4/m5 exit 0 (Tests.Compiler.SeqDeepGenDiffTest, SeqDeepGenDiffConclTest), r1 exit 1 (universe error in `oldInstGroups`) /r2/r3/f1 exit 0 (group numbering read from the old term; Tests.Compiler.SeqDeepGenGroupTest).
 /-! # `#machine_seq_parent_endpoint P`, DEPTH-2 path with SEVERAL DIFFERENT callees at the parent (unit SR3w, ledger L8af)
 
 A THIRD elaborator for the same command syntax (the depth-1 elaborator of `Tools/ShippingSeqParentGen.lean` and the one-callee depth-2

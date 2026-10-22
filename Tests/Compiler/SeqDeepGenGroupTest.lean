@@ -1,6 +1,6 @@
 import Tests.Compiler.SeqDeepGenDiffTest
 import Tests.Compiler.SeqDeepGenKeyTest
--- BUILT (unit SR3w): see the report (run names and exits).
+-- BUILT (unit SR3w): g1/r3/f1 exit 0.
 -- SCOPE (binding; per the review of par/int-r44 on SR3v): DIRECT tests of the group-numbering helpers of the depth-2 generators.
 --   * `groupPartition` (PURE, `Tools/ShippingSeqParentGenD2.lean`): same argument list but DIFFERENT Signals gives different groups; a different
 --     CALLEE gives a different group; the same group COUNT can come with a DIFFERENT partition (so a count check alone does not detect a
