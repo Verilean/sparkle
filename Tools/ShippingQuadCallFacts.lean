@@ -1,5 +1,5 @@
 import Tools.ShippingQuadCalls
--- UNBUILT (unit SR17): see REPORT-SR17.md for the build runs.
+-- BUILT (unit SR17): c8 exit 0 (Tools.ShippingQuadCallFacts c3; QuadCallFactsTest c8); final-SHA rebuild in REPORT-SR17.md.
 -- SCOPE (binding, ledger L8aw): NARROWS `CallFactF` (SR16).  What the generated `machineExt` / `machineExtB` are: `machineExt := fun i bools bits S => extendBits (… (extendBits bits (nDecl+0) w₀ c₀) …) (nDecl+k) wₖ cₖ`
 -- (`Tools/ShippingMachineCommand.lean`, `instExtension`), `cₖ` the call's SIGNAL read off the user's source; the callee's `machineSource` is the observation list of the callee's own call result.
 -- PROVED here (generic): `callFactF_of_fam` — `CallFactF` follows from (i) a DISPATCH equation `hS` for the callee-source table (PROVED for the QUAD tables `quadSrcF_eq` and the leaf-callee tables `leafSrcC_eq`),
